@@ -4,7 +4,7 @@ heroImage: /hero.png
 heroText: 基伴
 tagline: 基金理财的好伙伴！
 actionText: 快速上手 →
-actionLink: /zh/guide/
+actionLink: /guide/
 features:
 - title: 好用
   details: 你需要的功能，我们力争为你实现。

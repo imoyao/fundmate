@@ -2541,7 +2541,7 @@ core-js@^2.4.0, core-js@^2.6.11:
   resolved "https://registry.yarnpkg.com/core-js/-/core-js-2.6.12.tgz#d9333dfa7b065e347cc5682219d6f690859cc2ec"
   integrity sha512-Kb2wC0fvsWfQrgk8HU5lW6U/Lcs8+9aaYcy4ZFc6DDlo4nZ7n70dEgE5rtR0oG6ufKDUnrwfWL1mXR5ljDatrQ==
 
-core-js@^3.6.4, core-js@^3.6.5:
+core-js@^3.6.4, core-js@^3.6.5, core-js@^3.8.1:
   version "3.8.1"
   resolved "https://registry.npm.taobao.org/core-js/download/core-js-3.8.1.tgz?cache=0&sync_timestamp=1607216048810&other_urls=https%3A%2F%2Fregistry.npm.taobao.org%2Fcore-js%2Fdownload%2Fcore-js-3.8.1.tgz#f51523668ac8a294d1285c3b9db44025fda66d47"
   integrity sha1-9RUjZorIopTRKFw7nbRAJf2mbUc=
@@ -7921,8 +7921,8 @@ vuepress-theme-antdocs@^1.2.2:
 
 vuepress@^1.7.1:
   version "1.7.1"
-  resolved "https://registry.yarnpkg.com/vuepress/-/vuepress-1.7.1.tgz#bb0e139d8c407a0b5aa962cf9577832a5808937e"
-  integrity sha512-AdA3do1L4DNzeF8sMTE+cSUJ5hR/6f3YujU8DVowi/vFOg/SX2lJF8urvDkZUSXzaAT6aSgkI9L+B6D+i7SJjA==
+  resolved "https://registry.npm.taobao.org/vuepress/download/vuepress-1.7.1.tgz#bb0e139d8c407a0b5aa962cf9577832a5808937e"
+  integrity sha1-uw4TnYxAegtaqWLPlXeDKlgIk34=
   dependencies:
     "@vuepress/core" "1.7.1"
     "@vuepress/theme-default" "1.7.1"
