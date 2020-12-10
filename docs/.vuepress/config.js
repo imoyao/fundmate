@@ -2,6 +2,8 @@ module.exports = {
   title: '基伴',
   description: '基金理财好伙伴！',
   theme: 'antdocs',
+  // 释出目录
+  dest: 'public',
   themeConfig: {
     sidebar: [
       ['/', '简介'],
