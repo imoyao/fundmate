@@ -23,7 +23,7 @@ footerWrap:
     link: https://github.com/imoyao/fundmate/tree/master
     details: 项目源码
   - title: 文档阅读
-    link: fmdocs.masantu.com
+    link: /
     details: 文档阅读
 - headline: 💬社区交流
   items:
