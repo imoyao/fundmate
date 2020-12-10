@@ -22,7 +22,7 @@ module.exports = {
                 'one',  /* /foo/one.html */
                 'two'   /* /foo/two.html */
             ],
-        
+
             '/dev/': [
                 '',      /* /bar/ */
                 'fe/', /* /bar/three.html */
@@ -34,7 +34,7 @@ module.exports = {
             '/guide/': [
                 '',      /* /bar/ */
             ],
-        
+
             // fallback
             '/': [
                 '',        /* / */
