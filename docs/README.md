@@ -1,13 +1,13 @@
 ---
 home: true
-heroImage: /images/logo.png
+heroImage: https://cdn.jsdelivr.net/gh/masantu/statics/img/fund-logo.png
 heroText: 基伴
-tagline: 基金理财的好伙伴！
+tagline: 基金理财路上的好伙伴！
 actionText: 快速上手 →
 actionLink: /guide/
 features:
 - title: 好用
-  details: 你需要的功能，我们力争为你实现。
+  details: 你需要的功能，我们力争为你实现
 - title: 精准
   details: 试图为你算出你赚到的每一份钱
 - title: 人性化
