@@ -1,7 +1,7 @@
 module.exports = {
     title: '基伴',
     description: '基金理财好伙伴！',
-    // theme: 'antdocs',
+    theme: 'antdocs',
     // 释出目录
     dest: 'docs/public',
     themeConfig: {
