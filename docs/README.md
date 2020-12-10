@@ -1,6 +1,6 @@
 ---
 home: true
-heroImage: /hero.png
+heroImage: /logo.png
 heroText: 基伴
 tagline: 基金理财的好伙伴！
 actionText: 快速上手 →
