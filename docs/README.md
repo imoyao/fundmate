@@ -16,9 +16,9 @@ footerColumn: 3
 footerWrap: 
 - headline: 🌿生态系统
   items:
-  - title: 文档
+  - title: 文档改进
     link: https://github.com/imoyao/fundmate/tree/docs
-    details: 文档源文件
+    details: 对文档源文件进行改进，帮助我们做得更好
   - title: 源码
     link: https://github.com/imoyao/fundmate/tree/master
     details: 项目源码
@@ -27,10 +27,13 @@ footerWrap:
     details: 文档阅读
 - headline: 💬社区交流
   items:
-  - title: 加群交流
+  - title: 开发者加群交流
     link: https://jq.qq.com/?_wv=1027&k=hSu1dPu2
     details: 点击链接加入群聊“别院牧志 Flask 交流群”
-  - title: 报告 Bug
+  - title: 用户反馈
+    link: https://support.qq.com/product/299319
+    details: 普通用户针对产品的功能反馈与吐槽
+  - title: 去 Github 报告 Bug
     link: https://github.com/imoyao/fundmate/issues
     details: Github issue
 - headline: 👨‍💻作者博客
