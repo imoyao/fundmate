@@ -1,4 +1,6 @@
-## 基金管理计划
+---
+title: 基伴
+---
 
 ## 缘起
 网上看到[财帮子](https://dbanotes.net/arch/caibangzi_web_arch.html)被网友念念不忘，计划做一个管理基金的工具性网站：Fund Manage Platform/Plan，项目名称暂定[fundmate](https://github.com/imoyao/fundmate)。
@@ -19,12 +21,15 @@
 
 ### 前端页面
 
-### 其他
-资源收集整理参见：[Notes](https://github.com/imoyao/fundmate/projects/1)
+## 其他
 
-## TODO
+### 看板（开发者）
+[Notes](https://github.com/imoyao/fundmate/projects/1)
 
+### 愿望单（用户）
+资源收集整理参见：[愿望单](https://to-do.microsoft.com/sharing?InvitationToken=hqYuJV4-4okRiPbdTet8cwjR7_H-2FYRQtWD3CGYuTon4079J8fAmMWIA22kcgOUA)
+
+### TODO
 - [ ] 基准对比
-
-**指数有风格稳定、规则透明、方便查询的特点，因此非常适合作为基准。**
+**指数有风格稳定、规则透明、方便查询的特点，因此非常适合作为基准。** 
 成长风格，就对比300成长指数；价值风格，那就对比300价值指数；港股基金可以对比恒生指数，主题基金可以对比对应的行业指数。
