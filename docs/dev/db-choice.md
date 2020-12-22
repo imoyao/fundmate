@@ -35,11 +35,36 @@ SQL 文件详见[此处](https://github.com/imoyao/fundmate/blob/master/db/fmt.s
 ### 疑难问题
 
 - 阶梯费率
+
 ::: tip
 类似于文章标签表，我们可以把收费费率看作一个标签，每一个文章（基金 ID）对应多个标签（阶梯费率），以日期的起始天数作为每一行记录去标识收费标准。
 
 参见：[数据库关于阶梯表的设计-CSDN 论坛](https://bbs.csdn.net/topics/390747950)
 :::
+
+1. 使用MySQL作为存储数据库；
+2. 使用 SQLAlchemy 作为数据库构造的工具
+
+## 数据表
+```sql
+create table data_day(
+              id int primary key auto_increment,
+              date varchar(11) not null,
+              code varchar(11) not null,
+              open float(7,2) not null,
+              close float(7,2) not null,
+              hign float(7,2) not null,
+              low float(7,2) not null
+              )engine=innodb, charset=utf8
+
+create index code_index on data_day(code)
+```
+1. 代码表
+如 股票代码:10000 股票名称：浦发银行 上市日期 
+2. 历史净值表
+代码 开盘价格 收盘价格 最高价格 最低价格 日期
+3. 基金公司表
+如10000, 公司 ，F10信息
 
 ## 注意事项
 
