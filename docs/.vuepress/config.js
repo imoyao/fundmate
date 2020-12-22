@@ -4,6 +4,9 @@ module.exports = {
     theme: 'antdocs',
     // 释出目录
     dest: 'docs/public',
+    plugins: {
+        "vuepress-plugin-auto-sidebar": {}
+    },
     themeConfig: {
         nav: [
             {text: '首页', link: '/'},

@@ -16,6 +16,7 @@
   "dependencies": {
     "babel-runtime": "^6.26.0",
     "core-js": "^2.6.11",
+    "vuepress-plugin-auto-sidebar": "^1.5.0",
     "vuepress-theme-antdocs": "^1.2.2"
   }
 }
