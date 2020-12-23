@@ -72,7 +72,11 @@ comment on table DailyWorth is '每日净值表';
 ```
 ### E-R 图
 
-[fundmate-.xml - freedgo.com](https://www.freedgo.com/erd-index.html#O100835824836280322)
+使用[freedgo.com](https://www.freedgo.com)生成ER图之后[格式化](https://tool.oschina.net/codeformat/sql)，当然我们也可以选择导入[dbdiagram.io](https://dbdiagram.io/)生成图片。
+
+![](https://cdn.jsdelivr.net/gh/masantu/statics/images/fundmate-ER.png)
+
+在线预览参见[基伴 - freedgo.com](https://www.freedgo.com/draw-index.html#O100929310168186882)
 
 ### 阶梯费率
 ::: tip
