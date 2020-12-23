@@ -31,7 +31,7 @@ alter table User add constraint User_name_fk0  foreign key (name) references Pur
 comment on table User is '用户表';
 CREATE TABLE IF NOT EXISTS HandPicked (	id int PRIMARY KEY,
 	fid VARCHAR(20) comment '基金编号',
-	uid VARCHAR(20) comment '用户编号',
+	uid INT(10) UNSIGNED comment '用户编号',
 	pick_time TIMESTAMP comment '收藏时间',
 	comment VARCHAR(30) comment '备注'
 );
@@ -48,34 +48,38 @@ alter table Fund add constraint Fund_fid_fk2  foreign key (fid) references Daily
 comment on table Fund is '基金表';
 CREATE TABLE IF NOT EXISTS Purchase (	id int PRIMARY KEY,
 	fid VARCHAR(10) comment '所购买的基金',
-	uid VARCHAR(10) comment '购买用户',
+	uid INT(10) UNSIGNED comment '购买用户',
 	amount INT(10) comment '购买金额',
-	date DATE default  current_date comment '购买日期（确认日期）',
+	date DATE default current_date comment '购买日期（确认日期）',
 	comment VARCHAR(30) comment '复盘备注'
 );
 comment on table Purchase is '申购记录表';
+
 CREATE TABLE IF NOT EXISTS Redeme (	id int PRIMARY KEY,
 	fid VARCHAR(10) comment '所购买的基金',
-	uid VARCHAR(10) comment '购买用户',
+	uid INT(10) UNSIGNED comment '购买用户',
 	amount INT(10) comment '购买金额',
-	date DATE comment '赎回日期',
+	date DATE default current_date comment '赎回日期',
 	comment VARCHAR(30) comment '复盘备注'
 );
 comment on table Redeme is '赎回记录表';
+
 CREATE TABLE IF NOT EXISTS DailyWorth (	id int PRIMARY KEY,
 	fid VARCHAR(10) comment '基金编号',
 	pirce FLOAT(4) comment '基金单价'
 );
 comment on table DailyWorth is '每日净值表';
 ```
-### E-R图
+### E-R 图
 
 [fundmate-.xml - freedgo.com](https://www.freedgo.com/erd-index.html#O100835824836280322)
 
 ### 阶梯费率
+::: tip
+类似于文章标签表，我们可以把收费费率看作一个标签，每一个文章（基金ID）对应多个标签（阶梯费率），以日期的起始天数作为每一行记录去标识收费标准。
 
-看来看去，第一张表中，增加一个计费阶梯ID，关联到你的第二张阶梯计费定义表的fid，这个字段的值，则是在你生成数据的时候，在程序逻辑去处理，亦或者是，使用触发器，在插入计费表的时候，自动填充所属阶梯id，这样，就关联起来了。同时，这样设计的好处在于，每一个人的计费阶梯，都会有对应的阶梯定义。这是符合数据库设计的。
-[(2条消息) 数据库关于阶梯表的设计-CSDN论坛](https://bbs.csdn.net/topics/390747950)
+参见：[数据库关于阶梯表的设计-CSDN论坛](https://bbs.csdn.net/topics/390747950)
+:::
 
 ## 注意事项
 
