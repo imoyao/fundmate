@@ -14,7 +14,7 @@ module.exports = {
             {text: '开发', link: '/dev/'},
             {text: '部署', link: '/guide/'},
             {text: '接口', link: '/api/'},
-            {text: '计划', link: '/todo'},
+            {text: '计划', link: '/dev/todo'},
         ],
         sidebar: [
             '/',
