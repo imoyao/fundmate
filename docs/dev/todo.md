@@ -22,6 +22,13 @@ title: 待办事项及其他
 
 ### 前端页面
 
+[chuzhixin/vue-admin-beautiful](https://github.com/chuzhixin/vue-admin-beautiful)
+[PanJiaChen/vue-element-admin](https://github.com/PanJiaChen/vue-element-admin/)
+[hooray/fantastic-admin](https://github.com/hooray/fantastic-admin)
+
+#### 瘦身加速
+[给 Vue 项目中的 vendor.js 文件瘦身 | ９９３５](https://hooray.github.io/posts/c25b8237/)
+
 ## 其他
 
 ### 看板（开发者）
@@ -33,4 +40,4 @@ title: 待办事项及其他
 ### TODO
 - [ ] 基准对比
 **指数有风格稳定、规则透明、方便查询的特点，因此非常适合作为基准。** 
-成长风格，就对比300成长指数；价值风格，那就对比300价值指数；港股基金可以对比恒生指数，主题基金可以对比对应的行业指数。
+成长风格，就对比 300 成长指数；价值风格，那就对比 300 价值指数；港股基金可以对比恒生指数，主题基金可以对比对应的行业指数。
