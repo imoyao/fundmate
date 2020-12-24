@@ -22,6 +22,13 @@ title: 待办事项及其他
 
 ### 前端页面
 
+[chuzhixin/vue-admin-beautiful](https://github.com/chuzhixin/vue-admin-beautiful)
+[PanJiaChen/vue-element-admin](https://github.com/PanJiaChen/vue-element-admin/)
+[hooray/fantastic-admin](https://github.com/hooray/fantastic-admin)
+
+#### 瘦身加速
+[给 Vue 项目中的 vendor.js 文件瘦身 | ９９３５](https://hooray.github.io/posts/c25b8237/)
+
 ## 其他
 
 ### 看板（开发者）
