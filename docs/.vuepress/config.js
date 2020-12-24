@@ -15,32 +15,11 @@ module.exports = {
             {text: '部署', link: '/guide/'},
             {text: '接口', link: '/api/'},
             {text: '计划', link: '/dev/todo'},
-        ],
-        sidebar: {
-            '/api/': [
-                '',     /* /foo/ */
-                'one',  /* /foo/one.html */
-                'two'   /* /foo/two.html */
             ],
-
-            '/dev/': [
-                '',      /* /bar/ */
-                'fe/', /* /bar/three.html */
-                'be/'   /* /bar/four.html */
+        sidebar: [
+            '/',
+            ['/todo', 'TODO']
             ],
-            '/user/': [
-                '',      /* /bar/ */
-            ],
-            '/guide/': [
-                '',      /* /bar/ */
-            ],
-
-            // fallback
-            '/': [
-                '',        /* / */
-                'todo', /* /contact.html */
-            ]
-            },
         lastUpdated: true,
         // 假定是 GitHub. 同时也可以是一个完整的 GitLab URL
         repo: 'imoyao/fundmate',
