@@ -1,20 +1,21 @@
 CREATE TABLE IF NOT EXISTS user (
-	user_id INT PRIMARY KEY COMMENT '用户编号',
+	id INT PRIMARY KEY COMMENT '用户编号',
 	name VARCHAR(16) COMMENT '用户名',
 	password VARCHAR(40) NOT NULL COMMENT '用户密码',
-	email VARCHAR(16) COMMENT '注册邮箱',
+	email VARCHAR(30) COMMENT '注册邮箱',
 	phone_num VARCHAR(11) COMMENT '注册手机号',
+	avatar VARCHAR COMMENT '用户头像或自动生成',
 	create_time TIMESTAMP COMMENT '注册时间'
 );
 
 ALTER TABLE user
-	ADD CONSTRAINT user_user_id_fk0 FOREIGN KEY (user_id) REFERENCES purchase (uid);
+	ADD CONSTRAINT user_id_fk0 FOREIGN KEY (id) REFERENCES handpick (uid);
 
 ALTER TABLE user
-	ADD CONSTRAINT user_user_id_fk1 FOREIGN KEY (user_id) REFERENCES redeem (uid);
+	ADD CONSTRAINT user_id_fk1 FOREIGN KEY (id) REFERENCES purchase (uid);
 
 ALTER TABLE user
-	ADD CONSTRAINT user_name_fk0 FOREIGN KEY (name) REFERENCES handpick (uid);
+	ADD CONSTRAINT user_id_fk2 FOREIGN KEY (id) REFERENCES redeem (uid);
 
 CREATE TABLE IF NOT EXISTS handpick (
 	id int PRIMARY KEY,
@@ -23,6 +24,9 @@ CREATE TABLE IF NOT EXISTS handpick (
 	pick_time TIMESTAMP COMMENT '收藏时间',
 	comment VARCHAR(30) COMMENT '备注'
 );
+
+ALTER TABLE handpick
+	ADD CONSTRAINT handpick_fid_fk0 FOREIGN KEY (fid) REFERENCES fund (fund_code);
 
 CREATE TABLE IF NOT EXISTS fund (
 	id int PRIMARY KEY,
@@ -33,22 +37,22 @@ CREATE TABLE IF NOT EXISTS fund (
 );
 
 ALTER TABLE fund
-	ADD CONSTRAINT fund_fund_code_fk0 FOREIGN KEY (fund_code) REFERENCES outrate (fid);
+	ADD CONSTRAINT fund_fund_code_fk0 FOREIGN KEY (fund_code) REFERENCES dailyworth (fid);
 
 ALTER TABLE fund
-	ADD CONSTRAINT fund_fund_code_fk1 FOREIGN KEY (fund_code) REFERENCES dailyworth (fid);
+	ADD CONSTRAINT fund_fund_code_fk1 FOREIGN KEY (fund_code) REFERENCES inrate (fid);
 
 ALTER TABLE fund
-	ADD CONSTRAINT fund_fund_code_fk2 FOREIGN KEY (fund_code) REFERENCES handpick (fid);
+	ADD CONSTRAINT fund_fund_code_fk2 FOREIGN KEY (fund_code) REFERENCES purchase (fid);
 
 ALTER TABLE fund
-	ADD CONSTRAINT fund_fund_code_fk3 FOREIGN KEY (fund_code) REFERENCES inrate (fid);
+	ADD CONSTRAINT fund_fund_code_fk3 FOREIGN KEY (fund_code) REFERENCES mgrlog (fid);
 
 ALTER TABLE fund
-	ADD CONSTRAINT fund_fund_code_fk4 FOREIGN KEY (fund_code) REFERENCES purchase (fid);
+	ADD CONSTRAINT fund_fund_code_fk4 FOREIGN KEY (fund_code) REFERENCES redeem (fid);
 
 ALTER TABLE fund
-	ADD CONSTRAINT fund_fund_code_fk5 FOREIGN KEY (fund_code) REFERENCES mgrlog (fid);
+	ADD CONSTRAINT fund_fund_code_fk6 FOREIGN KEY (fund_code) REFERENCES outrate (fid);
 
 CREATE TABLE IF NOT EXISTS dailyworth (
 	id int PRIMARY KEY,
@@ -99,7 +103,7 @@ CREATE TABLE IF NOT EXISTS redeem (
 	uid INT(10) COMMENT '购买用户',
 	fid VARCHAR(10) COMMENT '所购买的基金编号',
 	amount INT(10) COMMENT '购买金额',
-	date DATE COMMENT '赎回日期',
+	date DATE DEFAULT current_date COMMENT '赎回日期',
 	comment VARCHAR(30) COMMENT '复盘备注'
 );
 
@@ -133,4 +137,6 @@ CREATE TABLE IF NOT EXISTS outrate (
 	rule_id INT(10) COMMENT '费率编号',
 	fid INT(6) COMMENT '基金编号',
 	rate INT(10) COMMENT '费率百分比'
-) COMMENT = '卖出费率表';
+);
+
+ALTER TABLE outrate COMMENT = '卖出费率表';
