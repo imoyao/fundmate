@@ -9,13 +9,12 @@ title: 待办事项及其他
 ### 看板（开发者）
 [Notes](https://github.com/imoyao/fundmate/projects/1)
 
-
 ## 相关产品
 
 ### [且慢小账本](https://support.qq.com/products/32364)
 
 #### 瘦身加速
-[给 Vue 项目中的 vendor.js 文件瘦身 | ９９３５](https://hooray.github.io/posts/c25b8237/)
+[给 Vue 项目中的 vendor.js 文件瘦身 | 9935](https://hooray.github.io/posts/c25b8237/)
 
 
 #### 账本账户
