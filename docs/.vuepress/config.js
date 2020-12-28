@@ -16,10 +16,6 @@ module.exports = {
             {text: '接口', link: '/api/'},
             {text: '计划', link: '/dev/todo'},
             ],
-        sidebar: [
-            '/',
-            ['/todo', 'TODO']
-            ],
         lastUpdated: true,
         // 假定是 GitHub. 同时也可以是一个完整的 GitLab URL
         repo: 'imoyao/fundmate',
