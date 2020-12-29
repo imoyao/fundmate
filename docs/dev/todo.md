@@ -6,44 +6,126 @@ title: 待办事项及其他
 
 网上看到[财帮子](https://dbanotes.net/arch/caibangzi_web_arch.html)被网友念念不忘，计划做一个管理基金的工具性网站：Fund Manage Platform/Plan，项目名称暂定 [fundmate](https://github.com/imoyao/fundmate)。
 
-## 站在巨人的肩上
-
-### 数据来源
-- [weibycn/fund: 天天基金数据处理](https://github.com/weibycn/fund)
-- [refraction-ray/xalpha: 基金投资管理回测引擎](https://github.com/refraction-ray/xalpha)
-- [xalpha 诞生记](https://re-ra.xyz/xalpha-%E8%AF%9E%E7%94%9F%E8%AE%B0/)
-- [xalpha 设计哲学及其他](https://re-ra.xyz/xalpha-%E8%AE%BE%E8%AE%A1%E5%93%B2%E5%AD%A6%E5%8F%8A%E5%85%B6%E4%BB%96/)
-- [文档](https://xalpha.readthedocs.io/en/latest/)
-- [用户反馈：写了一个基金投资管理分析的 python 工具箱 - 集思录](https://www.jisilu.cn/question/287335)
-- [QDII 基金净值预估](https://re-ra.xyz/QDII-%E5%9F%BA%E9%87%91%E5%87%80%E5%80%BC%E9%A2%84%E4%BC%B0/)
-- [xalpha 诞生记](https://re-ra.xyz/xalpha-%E8%AF%9E%E7%94%9F%E8%AE%B0/)
-- [云上的 Jupyter Notebook](https://re-ra.xyz/%E4%BA%91%E4%B8%8A%E7%9A%84-Jupyter-Notebook/)
-- [Tushare 大数据](https://tushare.pro/document/2)
-
-### 前端页面
-
-最终选择：[Armour/vue-typescript-admin-template: 🖖 A vue-cli 3.0 + typescript minimal admin template](https://github.com/Armour/vue-typescript-admin-template)
-
-理由：TS+vue-element-admin 的可持续借鉴
-
-~~[chuzhixin/vue-admin-beautiful](https://github.com/chuzhixin/vue-admin-beautiful)~~
-
-作者只推广，项目没有 issues
-
-[PanJiaChen/vue-element-admin](https://github.com/PanJiaChen/vue-element-admin/)
-
-[hooray/fantastic-admin](https://github.com/hooray/fantastic-admin)
-
-
-#### 瘦身加速
-[给 Vue 项目中的 vendor.js 文件瘦身 | 9935](https://hooray.github.io/posts/c25b8237/)
-
-## 其他
-
 ### 看板（开发者）
 [Notes](https://github.com/imoyao/fundmate/projects/1)
 
+
+## 相关产品
+
+### [且慢小账本](https://support.qq.com/products/32364)
+
+
+#### 账本账户
+
+1. 期待增加各账户在总资产中所占百分比
+
+2. 期待加入账户总资产分为已投和未投资金，比如我放支付宝有20000，已投基金10000，在余额宝的10000则未投的!
+ 已投部分可以计算收益率，未投部分则不计算收益率
+
+3. 能否增加账户自定义排序功能 ✨✨✨✨✨
+
+4. 麻烦给一个所有帐户总资产的变化曲线 ✨✨✨✨
+
+5. 建议弄一个总的账户合起来的汇总功能。也就是用账户和分账户那样也可以看净值曲线。
+
+6. 需要增加一个总账户对比概览。  
+就是我上周所有账户的总金额，跟我这周记完账之后的总金额对比
+
+7. 账户不够用咋办呀？
+掏钱喽
+
+8. 总金额的时间轴，还有账户之间转移
+
+建议可以支持不同账本之间的转出/入资金
+
+#### 记账
+
+**基金现金**分红在账本里面怎么记录？
+
+#### 收益率
+
+增加以年为单位查询收益率 ✨✨✨
+
+自行选择时间，例如2016年的年化收益率，便于记录自己每年投资收益水平
+
+希望能看到历史收益率
+
+怎么没有累计收益率和年化收益率的显示呢？
+
+能不能增加数据导出功能？
+
+
+能增加总收益的曲线图么？
+
+#### 其他
+
+1. 希望我的曲线可以自定义颜色  
+2. 对比品种增加文华商品指数
+
+
+且慢小账本没有办法记账，记录了转入和转出之后没有更新累计收益
+
+
+建议同一项目能够合并
+
+
+转出资金后，本金减少了，收益率应该增加啊，为什么不变呢？
+
+期望小账本可以对账户进行拖动排序。可以提供整体所有的进出帐记录更好啦
+这个功能对数据库压力很大
+
+
+能否增加“今年以来”的时间点？
+
+
+总资产、累计收益、累计投入希望能增加曲线图表，这样可以有整体观
+
+
+建议之前补记的基金买入金额，自动回溯以前的投资收益，或者有按钮可以自行增加之前持有过程的收益就好了！
+
+
+
+记账总额，及累计投入，收益和实际统计数据不对
+
+
+多账户记账，有些账户需要重新排序，要把后面的账户提到前面来，只有一个可以置顶，再选一个原来那个就掉下去了
+
+建议增加共享功能，家庭一起记账
+
+
+建议增加累积收益曲线
+
+
+建议能显示每个账户在总资金里的所占比例。辛苦程序员。谢谢！✨✨
+
+
+汇总账户处建议能展示当日年月日，便于记录。
+
+
+1、希望增加总账户收益率和年化收益率。  
+2、希望持续并加快更新迭代。  
+3、已经是市面上做的最好的投资理财记账本
+
+增加密码进入功能(上锁)
+
+为什么没有亏损记录
+
+每增加一个账户，资金和收益自动叠加。由于需要使用对比功能，所以并不是每个账户都是实际资产，比如第一个账户是总数据统计，第二个账户是4-6年，三年期单独计算年化。这样可以叠加可以隐藏，增加一个选项最好
+
+新录入的账虽然投资时间是从以前开始一笔笔记的，但是在和宽基对比的走势图那却没有记录，希望能解决一下。
+
+建议在首页显示总资产，累计收益，累计收益率，把年化收益率放在点击进去里面显示就可以
+
+所有账户合并的总资产是否也可以统计并有曲线图，可以回顾整体走势
+
+总资产为什么只能显示点数后两位，譬如，1.027.278.11，他只能显示1.02
+
+希望体现多个账户资产总和的收益曲线及收益率等图表和指标
+
+能不能设置所有数据导出到excel功能？✨✨
+
 ### 愿望单（用户）
+
 资源收集整理参见：[愿望单](https://to-do.microsoft.com/sharing?InvitationToken=hqYuJV4-4okRiPbdTet8cwjR7_H-2FYRQtWD3CGYuTon4079J8fAmMWIA22kcgOUA)
 
 ### TODO
