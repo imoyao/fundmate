@@ -1,6 +1,21 @@
 ---
 title: 开始
 ---
+
+## 前端模板
+
+最终选择：[Armour/vue-typescript-admin-template: 🖖 A vue-cli 3.0 + typescript minimal admin template](https://github.com/Armour/vue-typescript-admin-template)
+
+理由：TS+vue-element-admin 的可持续借鉴
+
+~~[chuzhixin/vue-admin-beautiful](https://github.com/chuzhixin/vue-admin-beautiful)~~
+
+作者只推广，项目没有 issues
+
+[PanJiaChen/vue-element-admin](https://github.com/PanJiaChen/vue-element-admin/)
+
+[hooray/fantastic-admin](https://github.com/hooray/fantastic-admin)
+
 ## 安装最简版本
 本项目目标是进行二次开发。所以使用位于 minimal 分支的简易基础模版。
 ::: error
