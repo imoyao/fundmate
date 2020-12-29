@@ -27,6 +27,7 @@ tags:
 1. 安装  Visual Studio installation
 
 安装前请确保 Windows C 盘有 4G+存储空间，否则可能安装失败，如果不满足，请参考：[C 盘快满了，该如何清理？ - 知乎](https://www.zhihu.com/question/27608145)
+
 ```bash
 npm install --global --production windows-build-tools
 ```
