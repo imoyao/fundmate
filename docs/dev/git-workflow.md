@@ -112,12 +112,19 @@ todo
 
 ### 改进
 
+<<<<<<< HEAD
+=======
+[改进 GitHub 工作流的 15 个建议 - 简书](https://www.jianshu.com/p/4a0672f4d1c5)
+>>>>>>> 7b0729def5fd5bf692cf1117e77b63cfe6475800
 1. 引入看板系统给问题安排优先级和跟踪进度
 2. 使用标签对issues进行分类
 3. 为 PR 配置自动化测试，参阅[构建和测试 Python - GitHub Docs](https://docs.github.com/cn/free-pro-team@latest/actions/guides/building-and-testing-python)
 
+<<<<<<< HEAD
 更多参阅[改进 GitHub 工作流的 15 个建议 - 简书](https://www.jianshu.com/p/4a0672f4d1c5)
 
+=======
+>>>>>>> 7b0729def5fd5bf692cf1117e77b63cfe6475800
 ## 推荐阅读
 
 [Git flow：一个并非完美的 git 工作流](https://liqiang.io/post/git-flow-the-git-workflow-caa836c0?lang=ZH_CN)
