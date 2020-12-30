@@ -1,94 +1,102 @@
-# vue-typescript-admin-template
+# vue-admin-template
 
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat)](http://makeapullrequest.com)
-[![CircleCI](https://circleci.com/gh/Armour/vue-typescript-admin-template/tree/minimal.svg?style=shield)](https://circleci.com/gh/Armour/vue-typescript-admin-template/tree/minimal)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Template from jarvis](https://img.shields.io/badge/Hi-Jarvis-ff69b4.svg)](https://github.com/Armour/Jarvis)
+> 这是一个极简的 vue admin 管理后台。它只包含了 Element UI & axios & iconfont & permission control & lint，这些搭建后台必要的东西。
 
-[English](./README.md) | 简体中文
+[线上地址](http://panjiachen.github.io/vue-admin-template)
 
-## 总览
+[国内访问](https://panjiachen.gitee.io/vue-admin-template)
 
-这是一个极简的 vue typescript admin 管理后台。它只包含了 Element UI & axios & svgicon & permission control & lint，这些搭建后台必要的东西。部分源代码是由 [vue-cli](https://github.com/vuejs/vue-cli) 和 [jarvis](https://github.com/Armour/Jarvis) 自动生成的。Mock 部分直接使用了我预先搭建的 [Mock 服务器](https://github.com/armour/vue-typescript-admin-mock-server)。
+目前版本为 `v4.0+` 基于 `vue-cli` 进行构建，若你想使用旧版本，可以切换分支到[tag/3.11.0](https://github.com/PanJiaChen/vue-admin-template/tree/tag/3.11.0)，它不依赖 `vue-cli`。
 
-## 截图/动图
+## Extra
 
-![demo](./demo/demo.gif)
+如果你想要根据用户角色来动态生成侧边栏和 router，你可以使用该分支[permission-control](https://github.com/PanJiaChen/vue-admin-template/tree/permission-control)
 
 ## 相关项目
 
-[Armour/vue-typescript-admin-mock-server](https://github.com/armour/vue-typescript-admin-mock-server) (Mock 服务器)
+- [vue-element-admin](https://github.com/PanJiaChen/vue-element-admin)
 
-[Armour/vue-typescript-admin-docs](https://github.com/armour/vue-typescript-admin-docs) (项目文档)
+- [electron-vue-admin](https://github.com/PanJiaChen/electron-vue-admin)
 
-Javascript 版本相关:
+- [vue-typescript-admin-template](https://github.com/Armour/vue-typescript-admin-template)
 
-[PanJiaChen/vue-admin-template](https://github.com/PanJiaChen/vue-admin-template) (a vue2.0 minimal admin template)
+- [awesome-project](https://github.com/PanJiaChen/vue-element-admin/issues/2312)
 
-[PanJiaChen/vue-element-admin](https://github.com/PanJiaChen/vue-element-admin) (full features supported vue admin)
+写了一个系列的教程配套文章，如何从零构建后一个完整的后台项目:
 
-[PanJiaChen/electron-vue-admin](https://github.com/PanJiaChen/electron-vue-admin) (a vue electron admin project)
+- [手摸手，带你用 vue 撸后台 系列一(基础篇)](https://juejin.im/post/59097cd7a22b9d0065fb61d2)
+- [手摸手，带你用 vue 撸后台 系列二(登录权限篇)](https://juejin.im/post/591aa14f570c35006961acac)
+- [手摸手，带你用 vue 撸后台 系列三 (实战篇)](https://juejin.im/post/593121aa0ce4630057f70d35)
+- [手摸手，带你用 vue 撸后台 系列四(vueAdmin 一个极简的后台基础模板,专门针对本项目的文章,算作是一篇文档)](https://juejin.im/post/595b4d776fb9a06bbe7dba56)
+- [手摸手，带你封装一个 vue component](https://segmentfault.com/a/1190000009090836)
 
-## 如何设置以及启动项目
-
-### 安装依赖
-
-```bash
-yarn install
-```
-
-### 启动本地开发环境（自带热启动）
+## Build Setup
 
 ```bash
-yarn serve
+# 克隆项目
+git clone https://github.com/PanJiaChen/vue-admin-template.git
+
+# 进入项目目录
+cd vue-admin-template
+
+# 安装依赖
+npm install
+
+# 建议不要直接使用 cnpm 安装以来，会有各种诡异的 bug。可以通过如下操作解决 npm 下载速度慢的问题
+npm install --registry=https://registry.npm.taobao.org
+
+# 启动服务
+npm run dev
 ```
 
-### 构建生产环境 (自带压缩)
+浏览器访问 [http://localhost:9528](http://localhost:9528)
+
+## 发布
 
 ```bash
-yarn build
+# 构建测试环境
+npm run build:stage
+
+# 构建生产环境
+npm run build:prod
 ```
 
-### 代码格式检查以及自动修复
+## 其它
 
 ```bash
-yarn lint
+# 预览发布环境效果
+npm run preview
+
+# 预览发布环境效果 + 静态资源分析
+npm run preview -- --report
+
+# 代码格式检查
+npm run lint
+
+# 代码格式检查并自动修复
+npm run lint -- --fix
 ```
 
-### 运行单元测试
+更多信息请参考 [使用文档](https://panjiachen.github.io/vue-element-admin-site/zh/)
 
-```bash
-yarn test:unit
-```
+## 购买贴纸
 
-### 运行端对端测试
+你也可以通过购买[官方授权的贴纸](https://smallsticker.com/product/vue-element-admin) 的方式来支持 vue-element-admin - 每售出一张贴纸，我们将获得 2 元的捐赠。
 
-```bash
-yarn test:e2e
-```
+## Demo
 
-### 自动生成 svg 组件
+![demo](https://github.com/PanJiaChen/PanJiaChen.github.io/blob/master/images/demo.gif)
 
-```bash
-yarn svg
-```
-
-### 自定义 Vue 配置
-
-看这里 [Configuration Reference](https://cli.vuejs.org/config/).
-
-## 浏览器支持
+## Browsers support
 
 Modern browsers and Internet Explorer 10+.
 
 | [<img src="https://raw.githubusercontent.com/alrra/browser-logos/master/src/edge/edge_48x48.png" alt="IE / Edge" width="24px" height="24px" />](http://godban.github.io/browsers-support-badges/)</br>IE / Edge | [<img src="https://raw.githubusercontent.com/alrra/browser-logos/master/src/firefox/firefox_48x48.png" alt="Firefox" width="24px" height="24px" />](http://godban.github.io/browsers-support-badges/)</br>Firefox | [<img src="https://raw.githubusercontent.com/alrra/browser-logos/master/src/chrome/chrome_48x48.png" alt="Chrome" width="24px" height="24px" />](http://godban.github.io/browsers-support-badges/)</br>Chrome | [<img src="https://raw.githubusercontent.com/alrra/browser-logos/master/src/safari/safari_48x48.png" alt="Safari" width="24px" height="24px" />](http://godban.github.io/browsers-support-badges/)</br>Safari |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| IE10, IE11, Edge                                                                                                                                                                                                | last 2 versions                                                                                                                                                                                                   | last 2 versions                                                                                                                                                                                               | last 2 versions                                                                                                                                                                                               |
-
-## 参与贡献
-
-请看 [CONTRIBUTING.md](https://github.com/Armour/vue-typescript-admin-template/blob/master/.github/CONTRIBUTING.md)
+| --------- | --------- | --------- | --------- |
+| IE10, IE11, Edge| last 2 versions| last 2 versions| last 2 versions
 
 ## License
 
-[MIT License](https://github.com/Armour/vue-typescript-admin-template/blob/master/LICENSE)
+[MIT](https://github.com/PanJiaChen/vue-admin-template/blob/master/LICENSE) license.
+
+Copyright (c) 2017-present PanJiaChen

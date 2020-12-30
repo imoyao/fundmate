@@ -39,6 +39,7 @@ yarn docs:lint
 ### 前端
 
 ```bash
+cd frontend
 yarn install
-yarn serve
+yarn run dev
 ```
