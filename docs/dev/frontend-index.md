@@ -1,5 +1,7 @@
 ---
 title: 开始
+tags:
+  - 前端
 ---
 
 ## 前端模板
@@ -23,14 +25,15 @@ title: 开始
 运行`yarn install`报错`node-gyp exited with code: 1`，参考[nodejs/node-gyp: Node.js native addon build tool](https://github.com/nodejs/node-gyp#on-windows)处理
 
 1. 安装  Visual Studio installation
-安装前请确保Windows C盘有4G+存储空间，否则可能安装失败，如果不满足，请参考：[C盘快满了，该如何清理？ - 知乎](https://www.zhihu.com/question/27608145)
+
+安装前请确保 Windows C 盘有 4G+存储空间，否则可能安装失败，如果不满足，请参考：[C 盘快满了，该如何清理？ - 知乎](https://www.zhihu.com/question/27608145)
 ```bash
 npm install --global --production windows-build-tools
 ```
 :::
 
 ::: warning
-如果还是报错请确认使用`CMD`安装，本人`Terminus`报错，使用 CMD通过
+如果还是报错请确认使用`CMD`安装，本人`Terminus`报错，使用 CMD 通过
 :::
 
 ![成功标志](https://cdn.jsdelivr.net/gh/masantu/statics/images/Snipaste_2020-12-30_00-02-53.png)
