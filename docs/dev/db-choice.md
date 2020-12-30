@@ -20,13 +20,24 @@ title: 数据库的选择及使用
 
 ### E-R 图
 
+<<<<<<< HEAD
 
+=======
+>>>>>>> 7b0729def5fd5bf692cf1117e77b63cfe6475800
 使用[freedgo](https://www.freedgo.com)生成 ER 图之后[格式化](https://tool.oschina.net/codeformat/sql)，当然我们也可以选择导入[dbdiagram.io](https://dbdiagram.io/)生成图片。
 
 ![](https://cdn.jsdelivr.net/gh/masantu/statics/images/fundmate-ER.png)
 
+<<<<<<< HEAD
 在线预览参见[基伴 - freedgo.com](https://www.freedgo.com/draw-index.html#O100929310168186882)
 
+=======
+::: warning
+该图示只用于数据库关系设计，具体字段定义以代码中实现为准！
+:::
+
+在线预览参见[基伴 - freedgo.com](https://www.freedgo.com/draw-index.html#O100929310168186882)
+>>>>>>> 7b0729def5fd5bf692cf1117e77b63cfe6475800
 
 ### SQL 语句
 
