@@ -48,10 +48,6 @@ SQL 文件详见[此处](https://github.com/imoyao/fundmate/blob/master/db/fmt.s
 1. 连接池
 2. 超时释放问题
 
-## 相关链接
-
-[有什么画 ER 关系比较好用的软件图？ - 知乎](https://www.zhihu.com/question/20290434)
-
 ### 规范
 
 - [数据库设计中的命名规范 - 简书](https://www.jianshu.com/p/7e60dbd59138)
