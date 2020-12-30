@@ -43,5 +43,5 @@ footer: MIT Licensed | Copyright © 2020-present 别院牧志
 
 ## 基伴
 
-> 稳住，我们能盈！
+> 长坡厚雪，守正出奇。稳住，我们能盈！
 

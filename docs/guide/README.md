@@ -33,3 +33,12 @@ git checkout master docs/*
 ```bash
 yarn docs:lint
 ```
+
+## 预览
+
+### 前端
+
+```bash
+yarn install
+yarn serve
+```
