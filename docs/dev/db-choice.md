@@ -53,6 +53,7 @@ SQL 文件详见[此处](https://github.com/imoyao/fundmate/blob/master/db/fmt.s
 [有什么画 ER 关系比较好用的软件图？ - 知乎](https://www.zhihu.com/question/20290434)
 
 ### 规范
+
 - [数据库设计中的命名规范 - 简书](https://www.jianshu.com/p/7e60dbd59138)
 - [建议收藏 - 专业的 MySQL 开发规范](https://juejin.cn/post/6844903953608802312)
 - [数据库设计中的命名规范 - 雪域迷城 - OSCHINA - 中文开源技术交流社区](https://my.oschina.net/NorthOcean/blog/227328)
