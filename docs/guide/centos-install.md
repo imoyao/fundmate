@@ -1,5 +1,5 @@
 ---
-title: 基于CentOS的安装部署
+title: 基于 CentOS 的安装部署
 ---
 ## TODO
 

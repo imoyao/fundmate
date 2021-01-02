@@ -14,7 +14,15 @@ module.exports = {
             {text: '开发', link: '/dev/'},
             {text: '部署', link: '/guide/'},
             {text: '接口', link: '/api/'},
-            {text: '计划', link: '/dev/todo'},
+            {
+                text: '更多',
+                items: [
+                  { text: '反馈', link:'/feedback/' },
+                  { text: 'FAQ', link:'/faq/' },
+                  { text: '隐私政策', link:'/privacy/' },
+                    {text: '开发计划', link: '/todo/'},
+                ]
+              }
             ],
         lastUpdated: true,
         // 假定是 GitHub. 同时也可以是一个完整的 GitLab URL
