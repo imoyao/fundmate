@@ -54,6 +54,27 @@ export const constantRoutes = [
       meta: { title: 'Dashboard', icon: 'dashboard' }
     }]
   },
+  {
+    path: '/item',
+    component: Layout,
+    redirect: '/item/account',
+    name: '',
+    meta: { title: '账本', icon: 'el-icon-s-help' },
+    children: [
+      {
+        path: 'account', // 账本
+        name: 'Account',
+        component: () => import('@/views/table/index'),
+        meta: { title: '账户', icon: 'table' }
+      },
+      {
+        path: 'asset', // 资产，按照购买基金分类
+        name: 'Asset',
+        component: () => import('@/views/tree/index'),
+        meta: { title: '资产', icon: 'tree' }
+      }
+    ]
+  },
 
   {
     path: '/example',
