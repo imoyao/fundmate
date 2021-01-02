@@ -1,5 +1,6 @@
 ---
 title: 隐私政策
+permalink: /privacy
 ---
 
 ## 隐私政策 & 服务条款
