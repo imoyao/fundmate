@@ -7,18 +7,18 @@
 </template>
 
 <script lang="ts">
-import echarts, {EChartOption} from 'echarts'
-import {Component, Prop} from 'vue-property-decorator'
-import {mixins} from 'vue-class-component'
+import echarts, { EChartOption } from 'echarts'
+import { Component, Prop } from 'vue-property-decorator'
+import { mixins } from 'vue-class-component'
 import ResizeMixin from '@/components/Charts/mixins/resize'
 
 @Component({
   name: 'AssetAllocation'
 })
 export default class extends mixins(ResizeMixin) {
-  @Prop({default: 'chart'}) private className!: string
-  @Prop({default: '100%'}) private width!: string
-  @Prop({default: '300px'}) private height!: string
+  @Prop({ default: 'chart' }) private className!: string
+  @Prop({ default: '100%' }) private width!: string
+  @Prop({ default: '300px' }) private height!: string
 
   mounted() {
     this.$nextTick(() => {
@@ -58,11 +58,11 @@ export default class extends mixins(ResizeMixin) {
           radius: '55%',
           center: ['50%', '60%'],
           data: [
-            {value: 335, name: '直接访问'},
-            {value: 310, name: '邮件营销'},
-            {value: 234, name: '联盟广告'},
-            {value: 135, name: '视频广告'},
-            {value: 1548, name: '搜索引擎'}
+            { value: 335, name: '直接访问' },
+            { value: 310, name: '邮件营销' },
+            { value: 234, name: '联盟广告' },
+            { value: 135, name: '视频广告' },
+            { value: 1548, name: '搜索引擎' }
           ],
           emphasis: {
             itemStyle: {

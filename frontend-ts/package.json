@@ -22,13 +22,14 @@
     "vue": "^2.6.12",
     "vue-class-component": "^7.2.6",
     "vue-property-decorator": "^9.0.2",
+    "vuedraggable": "^2.24.3",
     "vue-router": "^3.4.8",
     "vue-svgicon": "^3.2.9",
     "vuex": "^3.5.1",
     "vuex-module-decorators": "^1.0.1"
   },
   "devDependencies": {
-    "@types/echarts": "4.9.0",
+    "@types/echarts": "^4.9.0",
     "@types/jest": "^26.0.15",
     "@types/js-cookie": "^2.2.6",
     "@types/node": "^14.14.6",

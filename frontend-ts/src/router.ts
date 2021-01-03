@@ -58,19 +58,23 @@ export default new Router({
       children: [
         {
           path: 'account', // 账本
-          component: () => import(/* webpackChunkName: "table" */ '@/views/exchange/Account.vue'),
+          component: () => import(/* webpackChunkName: "account" */ '@/views/exchange/Account/index.vue'),
           meta: { title: '账户', icon: 'table' }
-        },
-        {
-          path: 'asset', // 资产，按照购买基金分类
-          component: () => import(/* webpackChunkName: "tree" */ '@/views/tree/index.vue'),
+        }, {
+          path: 'asset', // 资产
+          component: () => import(/* webpackChunkName: "asset" */ '@/views/exchange/Asset/index.vue'),
           meta: { title: '资产', icon: 'tree' }
         },
         {
-          path: 'transfer', // 交易账单
-          component: () => import(/* webpackChunkName: "table" */ '@/views/table/index.vue'),
-          meta: { title: '交易流水', icon: 'form' } // TODO: icon需要添加更多
+          path: 'tree', // 资产，按照购买基金分类
+          component: () => import(/* webpackChunkName: "asset" */ '@/views/tree/index.vue'),
+          meta: { title: '资产demo', icon: 'tree' }
         },
+        {
+          path: 'transfer', // 交易账单
+          component: () => import(/* webpackChunkName: "transfer" */ '@/views/table/index.vue'),
+          meta: { title: '交易流水', icon: 'form' } // TODO: icon需要添加更多
+        }
       ]
     },
     // {

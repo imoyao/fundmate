@@ -7,9 +7,9 @@
 </template>
 
 <script lang="ts">
-import echarts, {EChartOption} from 'echarts'
-import {Component, Prop} from 'vue-property-decorator'
-import {mixins} from 'vue-class-component'
+import echarts, { EChartOption } from 'echarts'
+import { Component, Prop } from 'vue-property-decorator'
+import { mixins } from 'vue-class-component'
 import ResizeMixin from '@/components/Charts/mixins/resize'
 
 const animationDuration = 6000
@@ -19,9 +19,9 @@ const animationDuration = 6000
 })
 
 export default class extends mixins(ResizeMixin) {
-  @Prop({default: 'chart'}) private className!: string
-  @Prop({default: '100%'}) private width!: string
-  @Prop({default: '300px'}) private height!: string
+  @Prop({ default: 'chart' }) private className!: string
+  @Prop({ default: '100%' }) private width!: string
+  @Prop({ default: '300px' }) private height!: string
 
   mounted() {
     this.$nextTick(() => {
