@@ -29,7 +29,7 @@ import { Component, Vue } from 'vue-property-decorator'
 import OverView from './components/OverView.vue'
 import AssetAllocation from './components/AssetAllocation.vue'
 import RaddarChart from './components/RaddarChart.vue'
-import AccountProfit from './components/AccountProfit.vue';
+import AccountProfit from './components/AccountProfit.vue'
 
 @Component({
   name: 'Dashboard',
