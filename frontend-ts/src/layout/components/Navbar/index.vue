@@ -38,7 +38,7 @@
           </a>
           <a
             target="_blank"
-            href="https://armour.github.io/vue-typescript-admin-docs/"
+            href="https://fund.masantu.com"
           >
             <el-dropdown-item>
               Docs
@@ -158,7 +158,7 @@ export default class extends Vue {
           cursor: pointer;
           width: 40px;
           height: 40px;
-          border-radius: 10px;
+          border-radius: 20px;
         }
 
         .el-icon-caret-bottom {
