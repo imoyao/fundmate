@@ -50,6 +50,7 @@ export default new Router({
         }
       ]
     },
+    // 账本
     {
       path: '/exchange',
       component: Layout,
@@ -75,6 +76,24 @@ export default new Router({
           component: () => import(/* webpackChunkName: "transfer" */ '@/views/table/index.vue'),
           meta: { title: '交易流水', icon: 'form' } // TODO: icon需要添加更多
         }
+      ]
+    },
+    // 自选/关注
+    {
+      path: '/favor',
+      component: Layout,
+      redirect: '/favor/PickedFund',
+      meta: { title: '严选', icon: 'el-icon-s-opportunity' },
+      children: [
+        {
+          path: 'funds', // 账本
+          component: () => import(/* webpackChunkName: "account" */ '@/views/PickedFund/index.vue'),
+          meta: { title: '自选基金', icon: 'el-icon-star-on' }
+        }, {
+          path: 'mgr', // 资产
+          component: () => import(/* webpackChunkName: "asset" */ '@/views/FundMgr/index.vue'),
+          meta: { title: '关注经理', icon: 'peoples' }
+        },
       ]
     },
     // {
