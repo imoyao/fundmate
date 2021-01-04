@@ -1,6 +1,9 @@
-import { VuexModule, Module, Mutation, Action, getModule } from 'vuex-module-decorators'
+import { config, VuexModule, Module, Mutation, Action, getModule } from 'vuex-module-decorators'
 import { getSidebarStatus, setSidebarStatus } from '@/utils/cookies'
 import store from '@/store'
+
+// see also: https://github.com/championswimmer/vuex-module-decorators#configuration-1
+config.rawError = true
 
 export enum DeviceType {
   Mobile,

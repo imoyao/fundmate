@@ -147,13 +147,13 @@ export default class extends Vue {
       if (valid) {
         this.loading = true
         await UserModule.Login(this.loginForm)
-        // this.$router.push({
-        //   path: this.redirect || '/',
-        //   query: this.otherQuery
-        // }).catch(err => {
-        //   console.warn(err)
-        // })
-        location.reload()
+        this.$router.push({
+          path: this.redirect || '/',
+          query: this.otherQuery
+        }).catch(err => {
+          console.warn(err)
+        })
+        // location.reload()
         // TODO: [Redirected when going from "/login?redirect=%2Fdashboard" to "/dashboard" · Issue #150 · Armour/vue-typescript-admin-template](https://github.com/Armour/vue-typescript-admin-template/issues/150)
         // Just to simulate the time of the request
         setTimeout(() => {

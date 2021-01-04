@@ -93,7 +93,7 @@ export default new Router({
           path: 'mgr', // 资产
           component: () => import(/* webpackChunkName: "asset" */ '@/views/FundMgr/index.vue'),
           meta: { title: '关注经理', icon: 'peoples' }
-        },
+        }
       ]
     },
     // {
