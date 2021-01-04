@@ -20,15 +20,19 @@ title: 数据库的选择及使用
 
 ### E-R 图
 
-使用[freedgo](https://www.freedgo.com)生成 ER 图之后[格式化](https://tool.oschina.net/codeformat/sql)，当然我们也可以选择导入[dbdiagram.io](https://dbdiagram.io/)生成图片。
+使用[freedgo](https://www.freedgo.com)生成 ER 图之后 [格式化](https://tool.oschina.net/codeformat/sql) ，当然我们也可以选择导入 [dbdiagram.io](https://dbdiagram.io/) 生成图片。
 
 ![](https://cdn.jsdelivr.net/gh/masantu/statics/images/fundmate-ER.png)
+
+::: warning
+该图示只用于数据库关系设计，具体字段定义以代码中实现为准！
+:::
 
 在线预览参见[基伴 - freedgo.com](https://www.freedgo.com/draw-index.html#O100929310168186882)
 
 ### SQL 语句
 
-SQL 文件详见[此处](https://github.com/imoyao/fundmate/blob/master/db/fmt.sql)。
+SQL 文件详见 [此处](https://github.com/imoyao/fundmate/blob/master/db/fmt.sql) 。
 
 ### 疑难问题
 
@@ -39,16 +43,19 @@ SQL 文件详见[此处](https://github.com/imoyao/fundmate/blob/master/db/fmt.s
 参见：[数据库关于阶梯表的设计-CSDN 论坛](https://bbs.csdn.net/topics/390747950)
 :::
 
+- 多账本
+
+需要一个账本表和一个用户账本关系表
+
+参见：[我的账本_liuhong1.happy_新浪博客](http://blog.sina.com.cn/s/blog_825442790102uzdk.html)
+
 ## 注意事项
 
 1. 连接池
 2. 超时释放问题
 
-## 相关链接
-
-[有什么画 ER 关系比较好用的软件图？ - 知乎](https://www.zhihu.com/question/20290434)
-
 ### 规范
+
 - [数据库设计中的命名规范 - 简书](https://www.jianshu.com/p/7e60dbd59138)
 - [建议收藏 - 专业的 MySQL 开发规范](https://juejin.cn/post/6844903953608802312)
 - [数据库设计中的命名规范 - 雪域迷城 - OSCHINA - 中文开源技术交流社区](https://my.oschina.net/NorthOcean/blog/227328)
