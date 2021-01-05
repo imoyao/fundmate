@@ -19,10 +19,15 @@ tags:
 累计收益：折线图（很多年的）
 参考支付宝
 
-## 基金对比、基金经理对比、能力圈
+## 雷达图
 
-雷达图
+个人投资风格，了解你的能力圈
+
+- [ ] [echarts 中如何设置雷达图某一项指标值越小越靠近满分？ - SegmentFault 思否](https://segmentfault.com/q/1010000038811846)
+
+基金对比
+基金经理对比
 
 ## 相关链接
 
-[ECharts 绘制的图形保存为图片 - 简书](https://www.jianshu.com/p/f5359864fa4f?_ad0.9552929201163352)
+[ECharts 绘制的图形保存为图片 - 简书](https://www.jianshu.com/p/f5359864fa4f)
