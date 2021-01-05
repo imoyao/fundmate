@@ -8,7 +8,11 @@
       fit
       highlight-current-row
     >
-      <el-table-column align="center" label="ID" width="95">
+      <el-table-column
+        align="center"
+        label="ID"
+        width="95"
+      >
         <template slot-scope="scope">
           {{ scope.$index }}
         </template>
@@ -18,62 +22,92 @@
           {{ scope.row.title }}
         </template>
       </el-table-column>
-      <el-table-column label="Author" width="110" align="center">
+      <el-table-column
+        label="Author"
+        width="180"
+        align="center"
+      >
         <template slot-scope="scope">
           <span>{{ scope.row.author }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="Pageviews" width="110" align="center">
+      <el-table-column
+        label="Pageviews"
+        width="110"
+        align="center"
+      >
         <template slot-scope="scope">
           {{ scope.row.pageviews }}
         </template>
       </el-table-column>
-      <el-table-column class-name="status-col" label="Status" width="110" align="center">
+      <el-table-column
+        class-name="status-col"
+        label="Status"
+        width="110"
+        align="center"
+      >
         <template slot-scope="scope">
-          <el-tag :type="scope.row.status | statusFilter">{{ scope.row.status }}</el-tag>
+          <el-tag :type="scope.row.status | statusFilter">
+            {{ scope.row.status }}
+          </el-tag>
         </template>
       </el-table-column>
-      <el-table-column align="center" prop="created_at" label="Display_time" width="200">
+      <el-table-column
+        align="center"
+        prop="created_at"
+        label="Created at"
+        width="250"
+      >
         <template slot-scope="scope">
           <i class="el-icon-time" />
-          <span>{{ scope.row.display_time }}</span>
+          <span>{{ scope.row.timestamp | parseTime }}</span>
         </template>
       </el-table-column>
     </el-table>
   </div>
 </template>
 
-<script>
-import { getList } from '@/api/table'
+<script lang="ts">
+import { Component, Vue } from 'vue-property-decorator'
+import { getArticles } from '@/api/articles'
+import { IArticleData } from '@/api/types'
 
-export default {
+@Component({
+  name: 'Table',
   filters: {
-    statusFilter(status) {
-      const statusMap = {
+    statusFilter: (status: string) => {
+      const statusMap: { [key: string]: string } = {
         published: 'success',
         draft: 'gray',
         deleted: 'danger'
       }
       return statusMap[status]
+    },
+    parseTime: (timestamp: string) => {
+      return new Date(timestamp).toISOString()
     }
-  },
-  data() {
-    return {
-      list: null,
-      listLoading: true
-    }
-  },
+  }
+})
+export default class extends Vue {
+  private list: IArticleData[] = []
+  private listLoading = true
+  private listQuery = {
+    page: 1,
+    limit: 20
+  }
+
   created() {
-    this.fetchData()
-  },
-  methods: {
-    fetchData() {
-      this.listLoading = true
-      getList().then(response => {
-        this.list = response.data.items
-        this.listLoading = false
-      })
-    }
+    this.getList()
+  }
+
+  private async getList() {
+    this.listLoading = true
+    const { data } = await getArticles(this.listQuery)
+    this.list = data.items
+    // Just to simulate the time of the request
+    setTimeout(() => {
+      this.listLoading = false
+    }, 0.5 * 1000)
   }
 }
 </script>

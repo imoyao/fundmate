@@ -1,84 +1,79 @@
+<!--资产配置-->
 <template>
-  <div :class="className" :style="{height:height,width:width}" />
+  <div
+    :class="className"
+    :style="{height: height, width: width}"
+  />
 </template>
 
-<script>
-import echarts from 'echarts'
+<script lang="ts">
+import echarts, { EChartOption } from 'echarts'
+import { Component, Prop } from 'vue-property-decorator'
+import { mixins } from 'vue-class-component'
+import ResizeMixin from '@/components/Charts/mixins/resize'
 
-require('echarts/theme/macarons') // echarts theme
-import resize from './mixins/resize'
+@Component({
+  name: 'AssetAllocation'
+})
+export default class extends mixins(ResizeMixin) {
+  @Prop({ default: 'chart' }) private className!: string
+  @Prop({ default: '100%' }) private width!: string
+  @Prop({ default: '300px' }) private height!: string
 
-export default {
-  name: 'AssetAllocation',
-  mixins: [resize],
-  props: {
-    className: {
-      type: String,
-      default: 'chart'
-    },
-    width: {
-      type: String,
-      default: '100%'
-    },
-    height: {
-      type: String,
-      default: '300px'
-    }
-  },
-  data() {
-    return {
-      chart: null
-    }
-  },
   mounted() {
     this.$nextTick(() => {
       this.initChart()
     })
-  },
+  }
+
   beforeDestroy() {
     if (!this.chart) {
       return
     }
     this.chart.dispose()
     this.chart = null
-  },
-  methods: {
-    initChart() {
-      this.chart = echarts.init(this.$el, 'macarons')
+  }
 
-      this.chart.setOption({
-        tooltip: {
-          trigger: 'item',
-          formatter: '{a} <br/>{b} : {c} ({d}%)'
-        },
-        legend: {
-          left: 'center',
-          bottom: '10',
-          data: ['Industries', 'Technology', 'Forex', 'Gold', 'Forecasts']
-        },
-        series: [
-          {
-            name: 'WEEKLY WRITE ARTICLES',
-            type: 'pie',
-            roseType: 'radius',
-            radius: [15, 95],
-            center: ['50%', '38%'],
-            data: [
-              { value: 320, name: 'Industries' },
-              { value: 240, name: 'Technology' },
-              { value: 149, name: 'Forex' },
-              { value: 100, name: 'Gold' },
-              { value: 59, name: 'Forecasts' }
-            ],
-            animationEasing: 'cubicInOut',
-            animationDuration: 2600
+  private initChart() {
+    this.chart = echarts.init(this.$el as HTMLDivElement, 'macarons')
+    this.chart.setOption({
+      title: {
+        text: '资产配置',
+        subtext: '你的四笔钱',
+        left: 'center'
+      },
+      tooltip: {
+        trigger: 'item',
+        formatter: '{a} <br/>{b} : {c} ({d}%)'
+      },
+      legend: {
+        orient: 'vertical',
+        left: 'left',
+        data: ['直接访问', '邮件营销', '联盟广告', '视频广告', '搜索引擎']
+      },
+      series: [
+        {
+          name: '访问来源',
+          type: 'pie',
+          radius: '55%',
+          center: ['50%', '60%'],
+          data: [
+            { value: 335, name: '直接访问' },
+            { value: 310, name: '邮件营销' },
+            { value: 234, name: '联盟广告' },
+            { value: 135, name: '视频广告' },
+            { value: 1548, name: '搜索引擎' }
+          ],
+          emphasis: {
+            itemStyle: {
+              shadowBlur: 10,
+              shadowOffsetX: 0,
+              shadowColor: 'rgba(0, 0, 0, 0.5)'
+            }
           }
-        ]
-      })
-    }
+        }
+      ]
+    } as EChartOption<EChartOption.SeriesPie>)
   }
 }
 </script>
-<style scoped>
-
-</style>

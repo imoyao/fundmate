@@ -1,4 +1,3 @@
-build/*.js
+dist/*.js
 src/assets
-public
-dist
+tests/unit/coverage
