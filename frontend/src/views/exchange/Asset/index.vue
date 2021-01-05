@@ -2,7 +2,7 @@
   <div class="app-container">
     <draggable-card
       :key="1"
-      :list="fundInfo"
+      :list="fundList"
       :group="group"
       class="kanban todo"
       :header-text="headerText"
@@ -23,7 +23,7 @@ import DraggableCard from '@/components/DragableCard/index.vue'
 export default class extends Vue {
   private group = 'mission'
   private headerText = 'Asset'
-  private fundInfo = [
+  private fundList = [
     {
       name: '易方达中小盘',
       id: 123,
