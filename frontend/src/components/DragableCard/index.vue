@@ -1,9 +1,7 @@
 <template>
   <!--  https://panjiachen.gitee.io/vue-element-admin/#/components/drag-kanban-->
   <div class="board-column">
-    <div class="board-column-header">
-      {{ headerText }}
-    </div>
+
     <draggable
       :list="list"
       v-bind="$attrs"

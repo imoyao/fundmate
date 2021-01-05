@@ -1,5 +1,9 @@
 <template>
   <div class="app-container">
+    <div class="board-column-header">
+      {{ headerText }}
+    </div>
+    <record></record>
     <draggable-card
       :key="1"
       :list="accountData"
@@ -13,11 +17,12 @@
 <script lang="ts">
 import { Component, Vue } from 'vue-property-decorator'
 import DraggableCard from '@/components/DragableCard/index.vue'
-
+import Record from '../Record/index.vue'
 @Component({
   name: 'Account',
   components: {
-    DraggableCard
+    DraggableCard,
+    Record
   }
 })
 export default class extends Vue {
