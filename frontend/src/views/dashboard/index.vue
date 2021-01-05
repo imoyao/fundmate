@@ -6,7 +6,7 @@
     <el-row :gutter="32">
       <el-col :xs="24" :sm="24" :lg="8">
         <div class="chart-wrapper">
-          <raddar-chart />
+          <invest-style />
         </div>
       </el-col>
       <el-col :xs="24" :sm="24" :lg="8">
@@ -20,6 +20,11 @@
         </div>
       </el-col>
     </el-row>
+
+    <div class="chart-wrapper">
+      <cash-flow></cash-flow>
+    </div>
+
   </div>
 </template>
 
@@ -28,16 +33,18 @@ import 'echarts/theme/macarons.js' // Theme used in BarChart, LineChart, PieChar
 import { Component, Vue } from 'vue-property-decorator'
 import OverView from './components/OverView.vue'
 import AssetAllocation from './components/AssetAllocation.vue'
-import RaddarChart from './components/RaddarChart.vue'
+import InvestStyle from './components/InvestStyle.vue'
 import AccountProfit from './components/AccountProfit.vue'
+import CashFlow from './components/CashFlow/index.vue'
 
 @Component({
   name: 'Dashboard',
   components: {
     AccountProfit,
+    CashFlow,
     OverView,
     AssetAllocation,
-    RaddarChart
+    InvestStyle
   }
 })
 export default class extends Vue {
