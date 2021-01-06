@@ -55,3 +55,7 @@ footer: MIT Licensed | Copyright © 2020-present 别院牧志
 ## 反馈
 
 如果您在使用产品中遇到任何问题，请阅读 [反馈](/feedback/) 页面了解。
+
+## 赞助我们
+
+虽然国内大多数用户都没有付费意愿，但是还是放一个 [赞赏](/donate/) 页面吧。

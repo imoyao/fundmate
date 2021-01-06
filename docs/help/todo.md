@@ -3,17 +3,6 @@ title: 📝 待办事项及其他
 permalink: /todo
 ---
 
-## 缘起
-
-网上看到[财帮子](https://dbanotes.net/arch/caibangzi_web_arch.html)被网友念念不忘，计划做一个管理基金的工具性网站：Fund Manage Platform/Plan，项目名称暂定 [fundmate](https://github.com/imoyao/fundmate) 。
-
-### 看板（开发者）
-[Notes](https://github.com/imoyao/fundmate/projects/1)
-
-## 相关产品
-
-### [且慢小账本](https://support.qq.com/products/32364)
-
 ## 用户反馈
 
 #### 账本账户
@@ -58,11 +47,10 @@ permalink: /todo
 
 #### 其他
 
-1. 希望我的曲线可以自定义颜色  ↓
+1. 希望我的曲线可以自定义颜色
 2. 对比品种增加文华商品指数
 
-
-且慢小账本没有办法记账，记录了转入和转出之后没有更新累计收益
+记录了转入和转出之后没有更新累计收益
 
 建议同一基金能够合并
 
@@ -99,10 +87,7 @@ permalink: /todo
 
 汇总账户处建议能展示当日年月日，便于记录。
 
-
-1、希望增加总账户收益率和年化收益率。  
-2、希望持续并加快更新迭代。  
-3、已经是市面上做的最好的投资理财记账本
+希望增加总账户收益率和年化收益率。  
 
 增加密码进入功能(上锁)
 
@@ -122,11 +107,3 @@ permalink: /todo
 
 能不能设置所有数据导出到 excel 功能？✨✨
 
-### 愿望单（用户）
-
-资源收集整理参见：[愿望单](https://to-do.microsoft.com/sharing?InvitationToken=hqYuJV4-4okRiPbdTet8cwjR7_H-2FYRQtWD3CGYuTon4079J8fAmMWIA22kcgOUA)
-
-### TODO
-- [ ] 基准对比
-**指数有风格稳定、规则透明、方便查询的特点，因此非常适合作为基准。** 
-成长风格，就对比 300 成长指数；价值风格，那就对比 300 价值指数；港股基金可以对比恒生指数，主题基金可以对比对应的行业指数。

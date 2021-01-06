@@ -27,6 +27,7 @@ module.exports = {
             {
                 text: '更多',
                 items: [
+                    {text: '关于', link: '/about/'},
                     {text: '反馈', link: '/feedback/'},
                     {text: 'FAQ', link: '/faq/'},
                     {text: '隐私政策', link: '/privacy/'},
