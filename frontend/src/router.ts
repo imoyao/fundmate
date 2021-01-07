@@ -50,6 +50,21 @@ export default new Router({
         }
       ]
     },
+    {
+      path: '/record',
+      component: Layout,
+      redirect: '/bookkeeping',
+      children: [
+        {
+          path: 'bookkeeping',
+          component: () => import(/* webpackChunkName: "dashboard" */ '@/views/bookkeeping/index.vue'),
+          meta: {
+            title: 'BookKeeping',
+            icon: 'dashboard'
+          }
+        }
+      ]
+    },
     // 账本
     {
       path: '/exchange',
