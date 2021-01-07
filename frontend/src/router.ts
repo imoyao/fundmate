@@ -57,10 +57,10 @@ export default new Router({
       children: [
         {
           path: 'bookkeeping',
-          component: () => import(/* webpackChunkName: "dashboard" */ '@/views/bookkeeping/index.vue'),
+          component: () => import(/* webpackChunkName: "bookkeeping" */ '@/views/bookkeeping/index.vue'),
           meta: {
-            title: 'BookKeeping',
-            icon: 'dashboard'
+            title: '记账',
+            icon: 'component'
           }
         }
       ]
