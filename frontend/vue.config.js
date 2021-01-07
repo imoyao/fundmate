@@ -8,6 +8,8 @@ module.exports = {
   pwa: {
     name: name
   },
+  // [ie11 白屏 · Issue #148 · Armour/vue-typescript-admin-template](https://github.com/Armour/vue-typescript-admin-template/issues/148)
+  transpileDependencies: ['vuex-module-decorators'],
   pluginOptions: {
     'style-resources-loader': {
       preProcessor: 'scss',

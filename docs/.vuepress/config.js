@@ -37,7 +37,7 @@ module.exports = {
         ],
         lastUpdated: true,
         // 假定是 GitHub. 同时也可以是一个完整的 GitLab URL
-        repo: 'imoyao/fundmate',
+        repo: 'imoyao/fmp',
         // 假如文档不是放在仓库的根目录下：
         docsDir: 'docs',
         // 假如文档放在一个特定的分支下：
