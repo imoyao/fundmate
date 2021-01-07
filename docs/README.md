@@ -2,7 +2,7 @@
 home: true
 heroImage: https://cdn.jsdelivr.net/gh/masantu/statics/img/fund-logo.png
 heroText: 基伴
-tagline: 基金理财，有我相伴！
+tagline: 认真理财，相信坚持的力量！
 actionText: 快速上手 →
 actionLink: /guide/
 features:

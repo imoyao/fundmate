@@ -33,7 +33,10 @@
   </div>
 </template>
 <script>
+import VabIcon from 'vab-icon'
+
 export default {
+  components: { VabIcon },
   props: {
     infoData: {
       type: Object,
