@@ -17,7 +17,7 @@ footerWrap:
 - headline: 🌿生态系统
   items:
   - title: 文档改进
-    link: https://github.com/imoyao/fundmate/tree/docs
+    link: https://github.com/imoyao/fmp
     details: 对文档源文件进行改进，帮助我们做得更好
   - title: 源码
     link: https://github.com/imoyao/fundmate/tree/master
@@ -37,7 +37,7 @@ footerWrap:
     details: 针对开发者交流
     
   - title: 去 Github 报告 Bug
-    link: https://github.com/imoyao/fundmate/issues
+    link: https://github.com/imoyao/fmp/issues
     details: Github issue
 
 - headline: 👨‍💻作者博客
