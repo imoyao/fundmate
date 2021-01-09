@@ -50,7 +50,7 @@ footer: MIT Licensed | Copyright © 2020-present 别院牧志
 
 ## 说明
 
-> 长坡厚雪，守正出奇。稳住，我们能盈！
+> finance,Freedom.稳住，我们能盈！
 
 ## 反馈
 
