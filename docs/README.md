@@ -2,7 +2,7 @@
 home: true
 heroImage: https://cdn.jsdelivr.net/gh/masantu/statics/img/fund-logo.png
 heroText: 基伴
-tagline: 基金理财，有我相伴！
+tagline: 认真理财，相信坚持的力量！
 actionText: 快速上手 →
 actionLink: /guide/
 features:
@@ -50,8 +50,12 @@ footer: MIT Licensed | Copyright © 2020-present 别院牧志
 
 ## 说明
 
-> 长坡厚雪，守正出奇。稳住，我们能盈！
+> finance,Freedom.稳住，我们能盈！
 
 ## 反馈
 
 如果您在使用产品中遇到任何问题，请阅读 [反馈](/feedback/) 页面了解。
+
+## 赞助我们
+
+虽然国内大多数用户都没有付费意愿，但还是放一个 [赞赏](/donate/) 页面吧。
