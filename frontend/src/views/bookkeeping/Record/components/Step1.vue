@@ -4,7 +4,7 @@
       <el-tab-pane label="申购" name="first">
         <el-form ref="form" :model="form" :rules="rules" label-width="120px">
           <el-form-item label-width="0">
-            <el-alert show-icon>试玉要烧三日满，辨材须待七年期。待到财富自由时，君在丛中笑!</el-alert>
+            <el-alert show-icon>试玉要烧三日满，辨材须待七年期。待到资产增值时，君在丛中笑!</el-alert>
           </el-form-item>
           <!--  TODO:    优先用户已有账户，其次预设券商名称，最后用户可输入自定义-->
 
@@ -28,7 +28,7 @@
             </el-select>
             </el-col>
           </el-form-item>
-          <el-form-item label="确认日期">
+          <el-form-item label="确认日期" prop="dealTime">
             <el-col >
               <el-date-picker
                 class="select-box"
@@ -40,9 +40,17 @@
               </el-date-picker>
             </el-col>
           </el-form-item>
-          <el-form-item label="申购基金" prop="gatheringName">
+          <el-form-item label="申购基金" prop="fundId">
             <el-col >
-              <el-input v-model="form.gatheringName"></el-input>
+               <el-select v-model="value" filterable placeholder="请选择/输入购买基金（名称、拼音、代码）">
+                <el-option
+                  v-for="item in options"
+                  :key="item.value"
+                  :label="item.label"
+                  :value="item.value">
+                </el-option>
+              </el-select>
+              <el-input v-model="form.fundId"></el-input>
             </el-col>
           </el-form-item>
           <el-form-item label="份额" prop="price">
@@ -50,7 +58,7 @@
             <el-input v-model="form.price"></el-input>
               </el-col>
           </el-form-item>
-          <el-form-item label="计费方式" prop="gatherType">
+          <el-form-item label="手续费计费方式" prop="chargeType">
             <el-col >
             <el-switch
               style="display: block; margin-top: 8px;"
@@ -107,8 +115,8 @@
           <el-form-item label="收款账户" prop="gatheringAccount">
             <el-input v-model="form.gatheringAccount"></el-input>
           </el-form-item>
-          <el-form-item label="收款人姓名" prop="gatheringName">
-            <el-input v-model="form.gatheringName"></el-input>
+          <el-form-item label="收款人姓名" prop="fundId">
+            <el-input v-model="form.fundId"></el-input>
           </el-form-item>
           <el-form-item label="转账金额" prop="price">
             <el-input v-model="form.price"></el-input>
@@ -145,8 +153,8 @@
           <el-form-item label="收款账户" prop="gatheringAccount">
             <el-input v-model="form.gatheringAccount"></el-input>
           </el-form-item>
-          <el-form-item label="收款人姓名" prop="gatheringName">
-            <el-input v-model="form.gatheringName"></el-input>
+          <el-form-item label="收款人姓名" prop="fundId">
+            <el-input v-model="form.fundId"></el-input>
           </el-form-item>
           <el-form-item label="转账金额" prop="price">
             <el-input v-model="form.price"></el-input>
@@ -207,22 +215,25 @@ export default {
       form: {
         accountName: '理财通',
         gatheringAccount: 'fundmate@163.com',
-        gatheringName: 'imoyao',
+        fundId: 'imoyao',
         price: '10000',
         date: '',
         time: '',
-        gatherType: ''
+        chargeType: ''
       },
       rules: {
         accountName: [
           { required: true, message: '请选择/输入账户信息', trigger: 'blur' }
         ],
+        dealTime: [
+          { required: true, message: '请选择/输入成交时间（注意确认15:00之前还是之后）', trigger: 'blur' }
+        ],
         gatheringAccount: [
           { required: true, message: '请输入收款账户', trigger: 'blur' },
           { type: 'email', message: '账户名应为邮箱格式', trigger: 'blur' }
         ],
-        gatheringName: [
-          { required: true, message: '请输入收款人姓名', trigger: 'blur' }
+        fundId: [
+          { required: true, message: '请选择/输入购买基金', trigger: 'blur' }
         ],
         price: [
           { required: true, message: '请输入转账金额', trigger: 'blur' },
