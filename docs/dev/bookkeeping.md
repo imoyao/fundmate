@@ -1,9 +1,9 @@
 ---
 title: 记账功能设计与实现
 ---
+
 ## 申购
 ![支付宝](https://cdn.jsdelivr.net/gh/masantu/statics/images/20210109124324.png)
-
 ![理财通](https://cdn.jsdelivr.net/gh/masantu/statics/images/20210109124523.png)
 买入金额
 买入费率
