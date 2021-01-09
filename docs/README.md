@@ -2,7 +2,7 @@
 home: true
 heroImage: https://cdn.jsdelivr.net/gh/masantu/statics/img/fund-logo.png
 heroText: 基伴
-tagline: 认真理财，相信坚持的力量！
+tagline: 基金理财，有我相伴！
 actionText: 快速上手 →
 actionLink: /guide/
 features:
@@ -17,7 +17,7 @@ footerWrap:
 - headline: 🌿生态系统
   items:
   - title: 文档改进
-    link: https://github.com/imoyao/fmp
+    link: https://github.com/imoyao/fundmate/tree/docs
     details: 对文档源文件进行改进，帮助我们做得更好
   - title: 源码
     link: https://github.com/imoyao/fundmate/tree/master
@@ -37,7 +37,7 @@ footerWrap:
     details: 针对开发者交流
     
   - title: 去 Github 报告 Bug
-    link: https://github.com/imoyao/fmp/issues
+    link: https://github.com/imoyao/fundmate/issues
     details: Github issue
 
 - headline: 👨‍💻作者博客
@@ -50,12 +50,8 @@ footer: MIT Licensed | Copyright © 2020-present 别院牧志
 
 ## 说明
 
-> finance,Freedom.稳住，我们能盈！
+> 长坡厚雪，守正出奇。稳住，我们能盈！
 
 ## 反馈
 
 如果您在使用产品中遇到任何问题，请阅读 [反馈](/feedback/) 页面了解。
-
-## 赞助我们
-
-虽然国内大多数用户都没有付费意愿，但是还是放一个 [赞赏](/donate/) 页面吧。
