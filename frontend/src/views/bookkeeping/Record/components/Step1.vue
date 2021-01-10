@@ -9,79 +9,91 @@
           <!--  TODO:    优先用户已有账户，其次预设券商名称，最后用户可输入自定义-->
 
           <el-form-item label="账户名称" prop="accountName">
-            <el-col >
+            <el-col>
               <el-select
-              clearable
-              class="select-box"
-              v-model="form.accountName"
-              filterable
-              allow-create
-              default-first-option
-              prop="accountName"
-              placeholder="请选择/输入账户名称">
-              <el-option
-                v-for="item in userAccounts"
-                :key="item.value"
-                :label="item.label"
-                :value="item.value">
-              </el-option>
-            </el-select>
+                clearable
+                class="select-box"
+                v-model="form.accountName"
+                filterable
+                allow-create
+                default-first-option
+                prop="accountName"
+                placeholder="请选择/输入账户名称">
+                <el-option
+                  v-for="item in userAccounts"
+                  :key="item.value"
+                  :label="item.label"
+                  :value="item.value">
+                </el-option>
+              </el-select>
             </el-col>
           </el-form-item>
-          <el-form-item label="确认日期" prop="dealTime">
-            <el-col >
+          <el-form-item label="确认日期" prop="pDateTime">
+            <el-col>
               <el-date-picker
                 class="select-box"
-                v-model="pDateTime"
+                v-model="form.pDateTime"
                 type="datetime"
-                placeholder="选择日期时间"
+                placeholder="选择日期时间（请注意确认15:00之前还是之后）"
                 align="right"
                 :picker-options="pickerOptions">
               </el-date-picker>
             </el-col>
           </el-form-item>
           <el-form-item label="申购基金" prop="fundId">
-            <el-col >
-               <el-select v-model="value" filterable placeholder="请选择/输入购买基金（名称、拼音、代码）">
-                <el-option
-                  v-for="item in options"
-                  :key="item.value"
-                  :label="item.label"
-                  :value="item.value">
-                </el-option>
+            <el-col>
+              <el-select v-model="form.fundId"
+                         filterable
+                         class="select-box"
+                         placeholder="请选择/输入购买基金（名称、拼音、代码）"
+                         :remote-method="remoteSearchFundMethod"
+                         :loading="fundSearchLoading">
+                <el-option-group
+                  v-for="group in fundInfos"
+                  :key="group.label"
+                  :label="group.label">
+                  <el-option
+                    v-for="item in group.options"
+                    :key="item.fCode"
+                    :label="item.fName"
+                    :value="item.fCode">
+                    <span style="float: left">{{ item.fName }}</span>
+                    <span style="float: right; color: #8492a6; font-size: 13px">{{ item.fCode }}</span>
+                  </el-option>
+                </el-option-group>
               </el-select>
-              <el-input v-model="form.fundId"></el-input>
             </el-col>
           </el-form-item>
+
           <el-form-item label="份额" prop="price">
-            <el-col >
-            <el-input v-model="form.price"></el-input>
-              </el-col>
+            <el-col>
+              <el-input v-model="form.price"></el-input>
+            </el-col>
           </el-form-item>
           <el-form-item label="手续费计费方式" prop="chargeType">
-            <el-col >
-            <el-switch
-              style="display: block; margin-top: 8px;"
-              v-model="pType"
-              active-color="#13ce66"
-              inactive-color="#ff4949"
-              active-text="费率（%）"
-              inactive-text="费用（元）">
-            </el-switch>
-              </el-col>
+            <el-col>
+              <el-switch
+                style="display: block; margin-top: 8px;"
+                v-model="pType"
+                active-color="#13ce66"
+                inactive-color="#ff4949"
+                active-text="费率（%）"
+                inactive-text="费用（元）">
+              </el-switch>
+            </el-col>
           </el-form-item>
           <!--   TODO：直接在label前面加一个:label=变量名就能实现数据绑定-->
           <el-form-item label="费率" prop="price">
-            <el-col >
-            <el-input v-model="form.percent"></el-input>
-              </el-col>
+            <el-col>
+              <el-input v-model="form.percent"></el-input>
+            </el-col>
           </el-form-item>
 
           <el-form-item label="投资心情">
-            <el-col >
-    <el-input type="textarea" v-model="form.desc"></el-input>
-              </el-col>
-  </el-form-item>
+            <el-col>
+              <el-input type="textarea" v-model="form.desc"></el-input>
+            </el-col>
+          </el-form-item>
         </el-form>
         <div class="pay-button-group">
           <el-button type="primary" @click="handleSubmit">下一步</el-button>
@@ -197,8 +209,9 @@ export default {
           return time.getTime() > new Date() * 1 + 600 * 1000
         }
       },
-
+      fundSearchLoading: false,
       pType: '',
+      fundOptions: [],
       pDateTime: '',
       activeName: 'first',
       // 用户已有账户
@@ -212,21 +225,49 @@ export default {
         value: '天天基金',
         label: '天天基金'
       }],
-      form: {
+      fundInfos: [{
+        label: '已购基金',
+        options: [{
+          fCode: '110011',
+          fName: '易方达中小盘混合'
+        }, {
+          fCode: '161005',
+          fName: '富国天惠成长混合（LOF）'
+        }]
+      }, {
+        // TODO: 懒加载、去重用户已买
+        label: '全部基金',
+        options: [
+          {
+            fCode: '110011',
+            fName: '易方达中小盘混合'
+          },
+          {
+            fCode: '519732',
+            fName: '交银定期支付双息平衡混合'
+          }, {
+            fCode: '163411',
+            fName: '兴全精选混合'
+          }]
+      }],
+      form: {},
+      rules: {},
+      purchaseForm: {
         accountName: '理财通',
-        gatheringAccount: 'fundmate@163.com',
-        fundId: 'imoyao',
+        pDateTime: '',
+        gatheringAccount: '',
+        fundId: '',
         price: '10000',
         date: '',
         time: '',
         chargeType: ''
       },
-      rules: {
+      purchaseRules: {
         accountName: [
           { required: true, message: '请选择/输入账户信息', trigger: 'blur' }
         ],
-        dealTime: [
-          { required: true, message: '请选择/输入成交时间（注意确认15:00之前还是之后）', trigger: 'blur' }
+        pDateTime: [
+          { required: true, message: '请选择/输入成交时间', trigger: 'blur' }
         ],
         gatheringAccount: [
           { required: true, message: '请输入收款账户', trigger: 'blur' },
@@ -242,7 +283,31 @@ export default {
       }
     }
   },
+  mounted() {
+    // [js 两个数组（对象）去重合并_说的就是你吧的博客-CSDN博客_js两个数组去重合并](https://blog.csdn.net/weixin_40805079/article/details/84850745)
+    this.fundList = this.fundInfos[1].options
+    this.form = this.purchaseForm
+    this.rule = this.purchaseRules
+  },
   methods: {
+    remoteSearchFundMethod(query) {
+      if (query !== '') {
+        this.fundSearchLoading = true
+        setTimeout(() => {
+          this.fundSearchLoading = false
+          console.log(this.fundList, '---this.fundList----')
+          this.fundOptions = this.fundList.filter(item => {
+            console.log(item, '=======item=======')
+            const qKey = query.toLowerCase()
+            return item.fCode
+              .indexOf(qKey) > -1 || item.fName.toLowerCase()
+              .indexOf(qKey) > -1
+          })
+        }, 200)
+      } else {
+        this.fundOptions = []
+      }
+    },
     handleClick(tab, event) {
       console.log(tab, event)
     },
