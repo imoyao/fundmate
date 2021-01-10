@@ -15,3 +15,22 @@ python3 --version
 # Python 3.7.5
 ```
 参阅[Centos7 安装 Python3.7 详细教程_SAGGITAR GODDESS XM-CSDN 博客](https://blog.csdn.net/xuezhangjun0121/article/details/103903984)
+3. nodejs
+```bash
+node --version
+v12.2.0
+```
+4. yarn
+```bash
+npm install yarn
+```
+5. c++编译环境
+```bash
+yum install gcc gcc-c++
+```
+## Python 虚拟环境
+```bash
+cd backend
+python3 -m venv fmp # {ENV_NAME}
+source fmp/bin/activate
+```
