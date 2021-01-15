@@ -120,6 +120,6 @@ todo
 
 ## 推荐阅读
 
-[Git flow：一个并非完美的 git 工作流](https://liqiang.io/post/git-flow-the-git-workflow-caa836c0?lang=ZH_CN)
-[字节研发设施下的 Git 工作流 - 知乎](https://zhuanlan.zhihu.com/p/257158164)
-[图文详解如何利用 Git+Github 进行团队协作开发 - 知乎](https://zhuanlan.zhihu.com/p/23478654)
+- [Git flow：一个并非完美的 git 工作流](https://liqiang.io/post/git-flow-the-git-workflow-caa836c0?lang=ZH_CN)
+- [字节研发设施下的 Git 工作流 - 知乎](https://zhuanlan.zhihu.com/p/257158164)
+- [图文详解如何利用 Git+Github 进行团队协作开发 - 知乎](https://zhuanlan.zhihu.com/p/23478654)
