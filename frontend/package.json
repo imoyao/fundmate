@@ -1,8 +1,9 @@
 {
-  "name": "vue-typescript-admin-template",
+  "name": "fundmate",
   "version": "1.0.0",
   "private": true,
-  "author": "Chong Guo <armourcy@gmail.com>",
+  "author": "imoyao <immoyao@gmail.com>",
+  "description": "a web app to manage your funds",，
   "scripts": {
     "serve": "vue-cli-service serve",
     "build": "vue-cli-service build",

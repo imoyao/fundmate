@@ -30,7 +30,7 @@ permalink: /feedback
 
 [https://bit.ly/3b6VJXQ](https://to-do.microsoft.com/tasks/sharing?InvitationToken=hqYuJV4-4okRiPbdTet8cwjR7_H-2FYRQtWD3CGYuTon4079J8fAmMWIA22kcgOUA)
 
-#### 公众号
+### 公众号
 
 关于软件的日常更新和交流等事宜，可扫码关注下方公众号交流。
 
