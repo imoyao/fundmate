@@ -1,0 +1,26 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/frontend/"
+    schedule:
+      interval: "daily"
+
+  - package-ecosystem: "docker"
+    directory: "/backend/"
+    schedule:
+      interval: "daily"
+
+  - package-ecosystem: "github-actions"
+    directory: "/backend"
+    schedule:
+      interval: "daily"
+
+  - package-ecosystem: "pip"
+    directory: "/backend/requirements"
+    schedule:
+      interval: "daily"
+
+  - package-ecosystem: "pip"
+    directory: "/backend"
+    schedule:
+      interval: "daily"
