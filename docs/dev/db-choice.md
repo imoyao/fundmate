@@ -43,6 +43,10 @@ SQL 文件详见 [此处](https://github.com/imoyao/fundmate/blob/master/db/fmt.
 参见：[数据库关于阶梯表的设计-CSDN 论坛](https://bbs.csdn.net/topics/390747950)
 :::
 
+- Relationships
+
+[Relationships Between SQLAlchemy Data Models](https://hackersandslackers.com/sqlalchemy-data-models/)
+
 - 多账本
 
 需要一个账本表和一个用户账本关系表
