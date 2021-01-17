@@ -1,6 +1,5 @@
 ---
 title: Python 项目的目录结构问题
-permalink: /structure 
 ---
 
 ## 为什么需要结构化
@@ -206,10 +205,134 @@ cookiecutter https://github.com/sloria/cookiecutter-flask.git
 
 ```
 
-如果前端页面使用模板语言编写，那么我们只需要在此基础上继续编写代码即可；而因为我们的项目是前后端分离的，所以需要将目录中的html文件都删掉。
-### 删除无用
+如果项目中前端页面使用模板语言编写，那么我们只需要在此基础上继续编写代码即可；而因为我们的项目是前后端分离的，所以需要将目录中的html文件都删掉。
+
+### 删除无用（可选）
+将目录下的html、static文件全部删除，最终目录结构如下：
+```bash
+
+├── autoapp.py
+├── db
+│     └── ……
+├── dev.db
+├── docker-compose.yml
+├── Dockerfile
+├── fmt
+│     ├── ……
+│     └── ……
+├── fundmate
+│     ├── app.py
+│     ├── commands.py
+│     ├── compat.py
+│     ├── database.py
+│     ├── extensions.py
+│     ├── __init__.py
+│     ├── libcommon
+│     ├── public
+│     ├── settings.py
+│     ├── user
+│     └── utils.py
+├── __init__.py
+├── LICENSE
+├── pyproject.toml
+├── README.md
+├── requirements
+│     ├── dev.txt
+│     └── prod.txt
+├── requirements.txt
+├── setup.cfg
+├── shell_scripts
+│     └── ……
+├── supervisord.conf
+├── supervisord_programs
+│     └── gunicorn.conf
+└── tests
+|    |__……
+
+```
+
+### 启动应用
+
+```bash
+(fmp) [root@localhost backend]# flask run 
+ * Serving Flask app "autoapp.py" (lazy loading)
+ * Environment: development
+ * Debug mode: on
+ * Running on http://127.0.0.1:5000/ (Press CTRL+C to quit)     # 注意此行
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 323-729-374
+
+```
+:::warning
+
+1. 以这种方式启动的程序（使用默认host`127.0.0.1`），只能通过本机访问。因为我们的服务是跑在虚拟机上的，所以直接访问或报“无法访问此页面”，我们需要通过设置环境变量或者使用显式指定参数`--host`的方式配置访问的host为`0.0.0.0`，意为指定监听在本机的所有IP地址，这样内网就可以直接访问了。当然你也可以使用`--port`指定访问的端口。
+```bash
+flask run --port=8000
+```
+更多参阅：[Command Line Interface — Flask Documentation (1.1.x)](https://flask.palletsprojects.com/en/1.1.x/cli/)
+
+2. 内置的开发服务器只能用于开发时使用，部署上线的时候要换用性能更好的`web`服务器如nginx。
+:::
+
+```bash
+^C(fmp) [root@localhost backend]# flask run --host 0.0.0.0
+ * Serving Flask app "autoapp.py" (lazy loading)
+ * Environment: development
+ * Debug mode: on
+ * Running on http://0.0.0.0:5000/ (Press CTRL+C to quit)
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 323-729-374
+```
+最终，我们看到界面显示出我们的首页内容。
+
+![](https://cdn.jsdelivr.net/gh/masantu/statics/images/20210117120554.png)
+
+#### 自动发现程序实例
+
+一般来说，在执行`flask run`命令运行程序前，我们需要提供程序实例所在模块的位置。我们在上面可以直接运行程序，是因为Flask会自动探测程序实例。
+
+> 旧的启动开发服务器的方式是在代码中调用`app.run()`方法，然后程序执行`python app.py`（指定你的入口文件），目前已不推荐使用（deprecated）。
+
+自动探测存在下面这些规则：
+
+*   从当前目录寻找`app.py`和`wsgi.py`模块，并从中寻找名为`app`或`application`的程序实例。
+*   从环境变量`FLASK_APP`对应的模块名/导入路径寻找名为`app`或`application`的程序实例。如果 你的程序主模块是其他名称，比如 `hello.py`，那么需要设置环境变量`FLASK_APP`，将包含程序 实例的模块名赋值给这个变量。
+    
+Linux或macOS系统使用export命令：
+``` 
+  $ export FLASK_APP= hello
+```
+在 Windows 系统 中 使用 set 命令：
+```    
+ > set FLASK_APP= hello
+```
+    
+:::tip
+注意：由于我们删除了所有的模板文件，所以需要将代码中的`render_template`都暂时修改为`return {{ sth }}`，即返回字符串。
+```python
+
+@blueprint.route("/", methods=["GET", "POST"])
+def home():
+    """Home page."""
+    form = LoginForm(request.form)
+    current_app.logger.info("Hello from the home page!")
+    # Handle logging in
+    if request.method == "POST":
+        if form.validate_on_submit():
+            login_user(form.user)
+            flash("You are logged in.", "success")
+            redirect_url = request.args.get("next") or url_for("user.members")
+            return redirect(redirect_url)
+        else:
+            flash_errors(form)
+    return 'Hello,Flask!'
+```
+:::
 
 ## 相关链接
+- [项目布局 — Flask 中文文档（ 1.1.1 ）](https://dormousehole.readthedocs.io/en/latest/tutorial/layout.html)
 - [结构化您的工程 — The Hitchhiker's Guide to Python](https://pythonguidecn.readthedocs.io/zh/latest/writing/structure.html)
 - [使用cookiecutter-flask快速生成python后端项目 - 知乎](https://zhuanlan.zhihu.com/p/25874886)
 - [第125天：Flask 项目结构 | Python技术](http://www.justdopython.com/2020/01/18/python-web-flask-project-125/)
@@ -218,4 +341,3 @@ cookiecutter https://github.com/sloria/cookiecutter-flask.git
 - [一个比较好的flask项目目录结构_bocai_xiaodaidai的博客-CSDN博客_flask项目目录结构](https://blog.csdn.net/bocai_xiaodaidai/article/details/101527678)
 - [Flask RESTful API开发 更好的项目结构 - 简书](https://www.jianshu.com/p/beb4763f385c)
 - [我们的Tornado项目结构 | the5fire](https://www.the5fire.com/966.html)
-- [openstack neutron -- 概念，表结构及代码目录结构_黎林果的专栏-CSDN博客](https://blog.csdn.net/llg8212/article/details/19990613)

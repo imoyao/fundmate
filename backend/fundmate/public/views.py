@@ -11,11 +11,11 @@ from flask import (
 )
 from flask_login import login_required, login_user, logout_user
 
-from fundmate.extensions import login_manager
-from fundmate.public.forms import LoginForm
-from fundmate.user.forms import RegisterForm
-from fundmate.user.models import User
-from fundmate.utils import flash_errors
+from backend.fundmate.extensions import login_manager
+from backend.fundmate.public.forms import LoginForm
+from backend.fundmate.user.forms import RegisterForm
+from backend.fundmate.user.models import User
+from backend.fundmate.utils import flash_errors
 
 blueprint = Blueprint("public", __name__, static_folder="../static")
 
@@ -40,7 +40,7 @@ def home():
             return redirect(redirect_url)
         else:
             flash_errors(form)
-    return render_template("public/home.html", form=form)
+    return 'Hello,Flask!'
 
 
 @blueprint.route("/logout/")
@@ -67,11 +67,11 @@ def register():
         return redirect(url_for("public.home"))
     else:
         flash_errors(form)
-    return render_template("public/register.html", form=form)
+    return 'render_template("public/register.html", form=form)'
 
 
 @blueprint.route("/about/")
 def about():
     """About page."""
     form = LoginForm(request.form)
-    return render_template("public/about.html", form=form)
+    return 'render_template("public/about.html", form=form)'
