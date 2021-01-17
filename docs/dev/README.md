@@ -16,7 +16,7 @@ title: 开发指南
 
 你可以使用如下命令在本地生成预览文档：
 ```bash
-yarn yarn docs:dev
+yarn docs:dev
 ```
 - build
 ```bash
@@ -24,12 +24,11 @@ yarn docs:build
 ```
 - 更新
 
-从 master 分支合并文档
+从 master/dev 分支合并更新
 ```bash
-git checkout master
+git checkout docs # 或者 git checkout master
 git pull
-git checkout docs
-git checkout master docs/*  
+git checkout dev docs/*  # dev为要合并的分支，docs为要合并的目录
 ```
 - lint 文档
 ```bash
@@ -45,3 +44,27 @@ cd frontend
 yarn install
 yarn run dev
 ```
+
+### 后端
+- 安装开发环境
+```bash
+cd backend
+python3 -m venv fmp
+source fmp/bin/activate 
+pip install -r requirements.txt
+```
+- 修改环境变量`.env`
+```plain
+flask run --host=0.0.0.0
+```
+- 启动数据库
+- 初始化数据库
+```bash
+flask init-db # 更多命令执行flask --help 查看
+```
+
+## TODO
+
+- 使用的插件
+
+[aaron-bond/better-comments](https://github.com/aaron-bond/better-comments)
