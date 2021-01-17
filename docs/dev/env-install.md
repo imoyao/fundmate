@@ -28,9 +28,3 @@ npm install yarn
 ```bash
 yum install gcc gcc-c++
 ```
-## Python 虚拟环境
-```bash
-cd backend
-python3 -m venv fmp # {ENV_NAME}
-source fmp/bin/activate
-```
