@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# Created by Administrator at 2021/1/10 21:56
+# Created by imoyao at 2021/1/10 21:56
 from typing import Union
 
 
@@ -36,17 +36,16 @@ class Fund:
         """
         # [python - Convert percent string to float in pandas read_csv - Stack Overflow](https://stackoverflow.com/questions/25669588/convert-percent-string-to-float-in-pandas-read-csv)
         _real_amount = self.real_amount(amount, charge_rate)
-        _charge_amount = self.charge_amount(amount, charge_rate)
         hold_value = _real_amount / daily_value
         return round(hold_value, 2)
 
     def purchase_info(self, amount: Union[int, float] = 10000,
                       charge_rate: float = 0.15, daily_value: Union[int, float] = 1
                       ):
-        charge_fee = round(self.charge_amount(amount, charge_rate), 2)
+        _charge_amount = round(self.charge_amount(amount, charge_rate), 2)
         _real_amount = round(self.real_amount(amount, charge_rate), 2)
         _hold_value = self.share_holders(amount, charge_rate, daily_value)
-        return {'charge_fee': charge_fee, 'real_amount': _real_amount, 'hold_value': _hold_value}
+        return {'charge_amount': _charge_amount, 'real_amount': _real_amount, 'hold_value': _hold_value}
 
 
 if __name__ == '__main__':
