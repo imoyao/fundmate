@@ -253,6 +253,9 @@ gh_repos_priorities = env.dict(
 
 而其他一些与你代码中有关的变量配置，则直接写到配置脚本（比如 `config.py` 和 `settings.py`）来实现控制。其中`settings.py`中存放我们程序员编写代码时可能需要修改的变量，而`config.py`用于控制不同的应用环境时使用不同的环境变量。
 
+这部分代码可以在此处找到：
+![tag v0.1 ](https://cdn.jsdelivr.net/gh/masantu/statics/images/20210117202012.png)
+
 ## 相关链接
 - [配置管理 — Flask 中文文档（ 1.1.1 ）](https://dormousehole.readthedocs.io/en/latest/config.html)
 - [关于Flask通过.env加载环境变量的两个坑 - Flask - HelloFlask 论坛](https://discuss.helloflask.com/t/topic/128)
