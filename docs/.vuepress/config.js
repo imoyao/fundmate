@@ -10,11 +10,10 @@ module.exports = {
     themeConfig: {
         nav: [
             {text: '首页', link: '/'},
-            {text: '使用', link: '/user/'},
             {text: '开发', link: '/dev/'},
             {text: '部署', link: '/guide/'},
             {text: '接口', link: '/api/'},
-            {text: '计划', link: '/dev/todo'},
+            {text: '计划', link: '/about/'},
         ],
         sidebar: [
             '/',

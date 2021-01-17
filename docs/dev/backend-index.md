@@ -1,8 +1,8 @@
 ---
-title: 后端数据来源
+title: 致谢开源
 ---
 
-### 数据来源
+## 数据来源
 - [weibycn/fund: 天天基金数据处理](https://github.com/weibycn/fund)
 - [refraction-ray/xalpha: 基金投资管理回测引擎](https://github.com/refraction-ray/xalpha)
 - [xalpha 诞生记](https://re-ra.xyz/xalpha-%E8%AF%9E%E7%94%9F%E8%AE%B0/)
