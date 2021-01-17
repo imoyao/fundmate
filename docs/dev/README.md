@@ -16,7 +16,7 @@ title: 开发指南
 
 你可以使用如下命令在本地生成预览文档：
 ```bash
-yarn yarn docs:dev
+yarn docs:dev
 ```
 - build
 ```bash
@@ -24,12 +24,12 @@ yarn docs:build
 ```
 - 更新
 
-从 master 分支合并文档
+从 master/dev 分支合并更新
 ```bash
 git checkout master
 git pull
 git checkout docs
-git checkout master docs/*  
+git checkout dev docs/*  # dev为要合并的分支，docs为要合并的目录
 ```
 - lint 文档
 ```bash
