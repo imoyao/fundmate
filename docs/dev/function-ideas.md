@@ -8,5 +8,14 @@ title: 功能实现备忘
 ## 登录
 1. 支持 oauth2 登录
 2. 如果是 oauth2 登录，则需要绑定邮箱
+
 ## 注销
 用户选择注销，则提示备份数据（可以主动备份并发送给用户）
+
+## [CatChat - Flask Web开发实战](http://helloflask.com/projects/catchat/)
+
+- [ ] Gravatar头像
+- [ ] 第三方登录
+## [Albumy - Flask Web开发实战](http://helloflask.com/projects/albumy/)
+- [x] 大型项目组织形式
+- [ ] 用户资料弹窗
