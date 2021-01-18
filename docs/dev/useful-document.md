@@ -1,7 +1,8 @@
 ---
 title: 一些可以参考的文档结构和实践
 ---
-## 推荐链接
+## 参考链接
+
 [Creating Your First Flask Application](https://hackersandslackers.com/your-first-flask-application)
 
 *   [Managing Session Data with Flask-Session & Redis](https://hackersandslackers.com/managing-user-session-variables-with-flask-sessions-and-redis)

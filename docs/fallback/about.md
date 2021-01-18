@@ -26,7 +26,7 @@ permalink: /about
 我们将对基础记账功能（包括账单导出）保持免费。但是一款软件要想持久维护下去，只靠爱是不够的。比如：
 
 1. [财帮子的所有者还打算继续办下去么？ - 知乎](https://www.zhihu.com/question/29603361)
-2. [网易有钱APP下线公告](https://1.163.com/html/qian/web/5fdaffaed605e84a6d118cd4.html)
+2. [网易有钱 APP 下线公告](https://1.163.com/html/qian/web/5fdaffaed605e84a6d118cd4.html)
 3. [提醒 | 雪球“模拟盈亏”功能取消下线公告 近期关于“模拟盈亏的下线公告” - 雪球](https://xueqiu.com/6123409880/150393232)
 
 所以：
