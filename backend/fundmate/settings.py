@@ -8,7 +8,6 @@ environment variables.
 """
 import os
 
-
 from environs import Env
 
 env = Env()
