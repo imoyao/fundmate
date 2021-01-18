@@ -4,7 +4,7 @@ title: Python 项目的目录结构问题
 
 ## 为什么需要结构化
 
->  对于一个计划长期维护的项目而言，代码风格、API设计和自动化是非常关键的。同样的，对于工程的架构,仓库的结构也是关键的一部分。
+> 对于一个计划长期维护的项目而言，代码风格、API 设计和自动化是非常关键的。同样的，对于工程的架构,仓库的结构也是关键的一部分。
 
 回顾我们的经历的代码，看看都曾经遇到过哪些问题：
 
@@ -39,7 +39,7 @@ my_blog
 ### [OpenStack](https://blog.csdn.net/llg8212/article/details/19990613)
 
 ::: warning
-本文中以`openstack neutron`为例，且根据github上的源码来看，最新版的代码结构与文中展示也有很大差异。而下文的更加合理，结构化。
+本文中以`openstack neutron`为例，且根据 github 上的源码来看，最新版的代码结构与文中展示也有很大差异。而下文的更加合理，结构化。
 :::
 
 ```bash
@@ -120,13 +120,13 @@ my_blog
 
 ## 如何实现
 
-### 使用cookiecutter生成项目目录
+### 使用 cookiecutter 生成项目目录
 
 1. 进入虚拟环境
 ```bash
 source fmp/bin/activate
 ```
-2. 安装cookiecutter
+2. 安装 cookiecutter
 ```bash
 pip install cookiecutter
 cookiecutter https://github.com/sloria/cookiecutter-flask.git
@@ -205,10 +205,10 @@ cookiecutter https://github.com/sloria/cookiecutter-flask.git
 
 ```
 
-如果项目中前端页面使用模板语言编写，那么我们只需要在此基础上继续编写代码即可；而因为我们的项目是前后端分离的，所以需要将目录中的html文件都删掉。
+如果项目中前端页面使用模板语言编写，那么我们只需要在此基础上继续编写代码即可；而因为我们的项目是前后端分离的，所以需要将目录中的 html 文件都删掉。
 
 ### 删除无用（可选）
-将目录下的html、static文件全部删除，最终目录结构如下：
+将目录下的 html、static 文件全部删除，最终目录结构如下：
 ```bash
 
 ├── autoapp.py
@@ -266,13 +266,13 @@ cookiecutter https://github.com/sloria/cookiecutter-flask.git
 ```
 :::warning
 
-1. 以这种方式启动的程序（使用默认host`127.0.0.1`），只能通过本机访问。因为我们的服务是跑在虚拟机上的，所以直接访问或报“无法访问此页面”，我们需要通过设置环境变量或者使用显式指定参数`--host`的方式配置访问的host为`0.0.0.0`，意为指定监听在本机的所有IP地址，这样内网就可以直接访问了。当然你也可以使用`--port`指定访问的端口。
+1. 以这种方式启动的程序（使用默认 host`127.0.0.1`），只能通过本机访问。因为我们的服务是跑在虚拟机上的，所以直接访问或报“无法访问此页面”，我们需要通过设置环境变量或者使用显式指定参数`--host`的方式配置访问的 host 为`0.0.0.0`，意为指定监听在本机的所有 IP 地址，这样内网就可以直接访问了。当然你也可以使用`--port`指定访问的端口。
 ```bash
 flask run --port=8000
 ```
 更多参阅：[Command Line Interface — Flask Documentation (1.1.x)](https://flask.palletsprojects.com/en/1.1.x/cli/)
 
-2. 内置的开发服务器只能用于开发时使用，部署上线的时候要换用性能更好的`web`服务器如nginx。
+2. 内置的开发服务器只能用于开发时使用，部署上线的时候要换用性能更好的`web`服务器如 nginx。
 :::
 
 ```bash
@@ -291,7 +291,7 @@ flask run --port=8000
 
 #### 自动发现程序实例
 
-一般来说，在执行`flask run`命令运行程序前，我们需要提供程序实例所在模块的位置。我们在上面可以直接运行程序，是因为Flask会自动探测程序实例。
+一般来说，在执行`flask run`命令运行程序前，我们需要提供程序实例所在模块的位置。我们在上面可以直接运行程序，是因为 Flask 会自动探测程序实例。
 
 > 旧的启动开发服务器的方式是在代码中调用`app.run()`方法，然后程序执行`python app.py`（指定你的入口文件），目前已不推荐使用（deprecated）。
 
@@ -300,12 +300,12 @@ flask run --port=8000
 *   从当前目录寻找`app.py`和`wsgi.py`模块，并从中寻找名为`app`或`application`的程序实例。
 *   从环境变量`FLASK_APP`对应的模块名/导入路径寻找名为`app`或`application`的程序实例。如果 你的程序主模块是其他名称，比如 `hello.py`，那么需要设置环境变量`FLASK_APP`，将包含程序 实例的模块名赋值给这个变量。
     
-Linux或macOS系统使用export命令：
-``` 
+Linux 或 macOS 系统使用 export 命令：
+```plain
   $ export FLASK_APP= hello
 ```
 在 Windows 系统 中 使用 set 命令：
-```    
+```plain
  > set FLASK_APP= hello
 ```
     
@@ -334,10 +334,10 @@ def home():
 ## 相关链接
 - [项目布局 — Flask 中文文档（ 1.1.1 ）](https://dormousehole.readthedocs.io/en/latest/tutorial/layout.html)
 - [结构化您的工程 — The Hitchhiker's Guide to Python](https://pythonguidecn.readthedocs.io/zh/latest/writing/structure.html)
-- [使用cookiecutter-flask快速生成python后端项目 - 知乎](https://zhuanlan.zhihu.com/p/25874886)
-- [第125天：Flask 项目结构 | Python技术](http://www.justdopython.com/2020/01/18/python-web-flask-project-125/)
-- [cookiecutter-flask使用笔记_代码就是生产力！-CSDN博客](https://blog.csdn.net/yannanxiu/article/details/68059532)
+- [使用 cookiecutter-flask 快速生成 python 后端项目 - 知乎](https://zhuanlan.zhihu.com/p/25874886)
+- [第 125 天：Flask 项目结构 | Python 技术](http://www.justdopython.com/2020/01/18/python-web-flask-project-125/)
+- [cookiecutter-flask 使用笔记_代码就是生产力！-CSDN 博客](https://blog.csdn.net/yannanxiu/article/details/68059532)
 - [Flask 项目结构分享 | Python 技术论坛](https://learnku.com/python/t/38740)
-- [一个比较好的flask项目目录结构_bocai_xiaodaidai的博客-CSDN博客_flask项目目录结构](https://blog.csdn.net/bocai_xiaodaidai/article/details/101527678)
-- [Flask RESTful API开发 更好的项目结构 - 简书](https://www.jianshu.com/p/beb4763f385c)
-- [我们的Tornado项目结构 | the5fire](https://www.the5fire.com/966.html)
+- [一个比较好的 flask 项目目录结构_bocai_xiaodaidai 的博客-CSDN 博客_flask 项目目录结构](https://blog.csdn.net/bocai_xiaodaidai/article/details/101527678)
+- [Flask RESTful API 开发 更好的项目结构 - 简书](https://www.jianshu.com/p/beb4763f385c)
+- [我们的 Tornado 项目结构 | the5fire](https://www.the5fire.com/966.html)
