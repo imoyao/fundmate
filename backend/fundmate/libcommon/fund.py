@@ -34,7 +34,8 @@ class Fund:
         :param amount:
         :return:
         """
-        # [python - Convert percent string to float in pandas read_csv - Stack Overflow](https://stackoverflow.com/questions/25669588/convert-percent-string-to-float-in-pandas-read-csv)
+        # [python - Convert percent string to float in pandas read_csv - Stack Overflow](
+        # https://stackoverflow.com/questions/25669588/convert-percent-string-to-float-in-pandas-read-csv)
         _real_amount = self.real_amount(amount, charge_rate)
         hold_value = _real_amount / daily_value
         return round(hold_value, 2)
