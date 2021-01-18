@@ -5,7 +5,9 @@
 http://www.pythondoc.com/flask/config.html#id6
 """
 import os
+
 from . import settings
+
 CURRENT_DIR = os.path.abspath(os.path.dirname(__file__))
 
 
