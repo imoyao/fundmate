@@ -11,7 +11,7 @@ title: 凡有操作，必留日志 | 用户操作日志模块开发
 
 ::: tip
 该文标题化用埃德蒙•罗卡定律：“凡有接触，必留痕迹”（Every contact leaves a trace）。
-参见：[罗卡定律：凡有接触，必留痕迹| 果壳 科技有意思](https://www.guokr.com/article/436744/)
+参阅：[罗卡定律：凡有接触，必留痕迹| 果壳 科技有意思](https://www.guokr.com/article/436744/)
 :::
 
 ## 系统日志
