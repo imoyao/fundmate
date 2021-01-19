@@ -18,7 +18,8 @@ class Fund:
         fee_value = amount - _real_amount
         return fee_value
 
-    def real_amount(self, amount: Union[int, float] = 10000, charge_rate: float = 0.15):
+    @staticmethod
+    def real_amount(amount: Union[int, float] = 10000, charge_rate: float = 0.15):
         """
         净申购金额
         :return:
