@@ -28,7 +28,7 @@ def configuration_retriever():
 
 
 @pytest.mark.parametrize("key", keys())
-def test_censoring(configuration_retriever, key):       # TODO: rename
+def test_censoring(configuration_retriever, key):  # TODO: rename
     configuration_retriever(key, "default")
     assert str(configuration_retriever) == f"{key}: <CENSORED>"
 
@@ -38,9 +38,10 @@ def test_safe(configuration_retriever):
     assert str(configuration_retriever) == "safe: default"
 
 
-@pytest.mark.parametrize(
-    "env_variable, output_bool", [("True", True), ("False", False), ("1", True), ("0", False)]
-)
+@pytest.mark.parametrize("env_variable, output_bool", [("True", True),
+                                                       ("False", False),
+                                                       ("1", True),
+                                                       ("0", False)])
 def test_bool(env_variable, output_bool):
     environ["TEST_BOOL_VARIABLE"] = env_variable
     config = ConfigurationRetriever()

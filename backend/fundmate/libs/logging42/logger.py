@@ -41,12 +41,12 @@ class InterceptHandler(logging.Handler):
     """
     Handler to route stdlib logs to loguru
     """
-
     def emit(self, record):
         # Retrieve context where the logging call occurred, this happens to be in the 6th frame upward
         logger_opt = logger.opt(depth=6, exception=record.exc_info)
         # Log with name to support formatting if known, otherwise use the level number
-        logger_opt.log(LOG_LEVEL_TO_NAME.get(record.levelno, record.levelno), record.getMessage())
+        logger_opt.log(LOG_LEVEL_TO_NAME.get(record.levelno, record.levelno),
+                       record.getMessage())
 
 
 # Configuration for stdlib logger to route messages to loguru; must be run before other imports

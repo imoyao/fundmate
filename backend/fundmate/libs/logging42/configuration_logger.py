@@ -16,7 +16,6 @@ class Required:
 
 class ConfigurationValue(str):
     """"""
-
     def json(self, **kwargs):
         return json.loads(self, **kwargs)
 
@@ -32,11 +31,10 @@ class ConfigurationValue(str):
 
 class ConfigurationRetriever:
     """"""
-
     def __init__(
-        self,
-        retriever: Callable[[str, Any], str] = os.environ.get,
-        secrets: tuple = ("password", "pass", "secret", "token"),
+            self,
+            retriever: Callable[[str, Any], str] = os.environ.get,
+            secrets: tuple = ("password", "pass", "secret", "token"),
     ):
         self.retriever = retriever
         self.secrets = secrets
@@ -64,12 +62,10 @@ class ConfigurationRetriever:
         return bool(re.findall(pattern, k.upper()))
 
     def __str__(self):
-        s = ", ".join(
-            [
-                f"{k}: <CENSORED>" if self.is_secret(k) else f"{k}: {v}"
-                for k, v in self.configs.items()
-            ]
-        )
+        s = ", ".join([
+            f"{k}: <CENSORED>" if self.is_secret(k) else f"{k}: {v}"
+            for k, v in self.configs.items()
+        ])
         return s
 
     def log_configs(self):

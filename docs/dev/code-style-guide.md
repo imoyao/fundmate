@@ -46,6 +46,9 @@ split_before_logical_operator = true
 BLANK_LINE_BEFORE_NESTED_CLASS_OR_DEF = true
 COLUMN_LIMIT = 79
 ```
+### mypy
+
+[Applying mypy to real world projects](http://calpaterson.com/mypy-hints.html)
 
 ## 相关阅读
 

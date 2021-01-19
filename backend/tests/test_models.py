@@ -4,7 +4,7 @@ import datetime as dt
 
 import pytest
 
-from fundmate.user.models import Role, User
+from backend.fundmate.user.models import Role, User
 
 from .factories import UserFactory
 

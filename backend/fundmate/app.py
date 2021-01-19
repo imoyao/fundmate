@@ -3,7 +3,7 @@
 import logging
 import sys
 
-from flask import Flask, render_template
+from flask import Flask
 
 from backend.fundmate import commands, public, user
 from backend.fundmate.extensions import (
@@ -15,6 +15,7 @@ from backend.fundmate.extensions import (
     login_manager,
     migrate,
 )
+from backend.fundmate.libs.logging42 import logger
 
 
 def create_app(config_object="backend.fundmate.settings"):
@@ -30,6 +31,7 @@ def create_app(config_object="backend.fundmate.settings"):
     register_shell_context(app)
     register_commands(app)
     configure_logger(app)
+    logger.info('Flask app has start!')
     return app
 
 
