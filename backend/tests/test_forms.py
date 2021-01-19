@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """Test forms."""
 
-from fundmate.public.forms import LoginForm
-from fundmate.user.forms import RegisterForm
+from backend.fundmate.public.forms import LoginForm
+from backend.fundmate.user.forms import RegisterForm
 
 
 class TestRegisterForm:

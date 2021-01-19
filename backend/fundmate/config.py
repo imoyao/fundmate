@@ -55,7 +55,7 @@ class Config:
 
 
 class MySQLConfig:
-    MYSQL_USERNAME = os.getenv('MYSQL_USER')        # TODO: 修改为env
+    MYSQL_USERNAME = os.getenv('MYSQL_USER')
     MYSQL_PASSWORD = os.getenv('MYSQL_PASSWORD')
     MYSQL_DB = os.getenv('MYSQL_DB')
     MYSQL_HOST = 'localhost:3306'

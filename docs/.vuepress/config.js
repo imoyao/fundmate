@@ -5,7 +5,12 @@ module.exports = {
     // 释出目录
     dest: 'docs/public',
     plugins: {
-        "vuepress-plugin-auto-sidebar": {}
+        "vuepress-plugin-auto-sidebar": {},
+         "md-enhance":
+          {
+            // 启用脚注
+            footnote: true
+          }
     },
     themeConfig: {
         nav: [

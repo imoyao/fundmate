@@ -3,20 +3,19 @@
 import os
 from glob import glob
 from subprocess import call
-
+from pathlib import Path
 import click
 
-HERE = os.path.abspath(os.path.dirname(__file__))   # TODO: pathlib替换
-PROJECT_ROOT = os.path.join(HERE, os.pardir)
-TEST_PATH = os.path.join(PROJECT_ROOT, "tests")
+CURRENT_PATH = Path(__file__).resolve().parent
+PROJECT_ROOT = CURRENT_PATH.parent
+TEST_PATH = Path(PROJECT_ROOT, "tests")
 
 
 @click.command()
 def test():
     """Run the tests."""
     import pytest
-
-    rv = pytest.main([TEST_PATH, "--verbose"])
+    rv = pytest.main([str(TEST_PATH), "--verbose"])
     exit(rv)
 
 

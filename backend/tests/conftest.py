@@ -6,8 +6,8 @@ import logging
 import pytest
 from webtest import TestApp
 
-from fundmate.app import create_app
-from fundmate.database import db as _db
+from backend.fundmate.app import create_app
+from backend.fundmate.database import db as _db
 
 from .factories import UserFactory
 

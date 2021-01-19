@@ -3,8 +3,8 @@
 from factory import PostGenerationMethodCall, Sequence
 from factory.alchemy import SQLAlchemyModelFactory
 
-from fundmate.database import db
-from fundmate.user.models import User
+from backend.fundmate.database import db
+from backend.fundmate.user.models import User
 
 
 class BaseFactory(SQLAlchemyModelFactory):
