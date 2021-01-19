@@ -28,7 +28,7 @@ def configuration_retriever():
 
 
 @pytest.mark.parametrize("key", keys())
-def test_censoring(configuration_retriever, key):
+def test_censoring(configuration_retriever, key):       # TODO: rename
     configuration_retriever(key, "default")
     assert str(configuration_retriever) == f"{key}: <CENSORED>"
 
