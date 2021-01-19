@@ -15,6 +15,7 @@ python3 --version
 # Python 3.7.5
 ```
 参阅[Centos7 安装 Python3.7 详细教程_SAGGITAR GODDESS XM-CSDN 博客](https://blog.csdn.net/xuezhangjun0121/article/details/103903984)
+
 3. nodejs
 ```bash
 node --version

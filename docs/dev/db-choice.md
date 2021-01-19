@@ -40,7 +40,7 @@ SQL 文件详见 [此处](https://github.com/imoyao/fundmate/blob/master/db/fmt.
 ::: tip
 类似于文章标签表，我们可以把收费费率看作一个标签，每一个文章（基金 ID）对应多个标签（阶梯费率），以日期的起始天数作为每一行记录去标识收费标准。
 
-参见：[数据库关于阶梯表的设计-CSDN 论坛](https://bbs.csdn.net/topics/390747950)
+参阅：[数据库关于阶梯表的设计-CSDN 论坛](https://bbs.csdn.net/topics/390747950)
 :::
 
 - Relationships
@@ -51,7 +51,7 @@ SQL 文件详见 [此处](https://github.com/imoyao/fundmate/blob/master/db/fmt.
 
 需要一个账本表和一个用户账本关系表
 
-参见：[我的账本_liuhong1.happy_新浪博客](http://blog.sina.com.cn/s/blog_825442790102uzdk.html)
+参阅：[我的账本_liuhong1.happy_新浪博客](http://blog.sina.com.cn/s/blog_825442790102uzdk.html)
 
 ## 注意事项
 
