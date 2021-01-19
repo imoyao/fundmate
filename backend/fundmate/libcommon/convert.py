@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # Created by imoyao at 2021/1/11 0:27
+from distutils import util
 
 
 def percent2float(x: str):
@@ -13,4 +14,4 @@ def word_for_true(word: str):
     :param word:
     :return:
     """
-    return word.lower() in ['true', 'yes', 'on', '1']
+    return util.strtobool(word)
