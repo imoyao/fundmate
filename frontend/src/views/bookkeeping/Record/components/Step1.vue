@@ -4,7 +4,7 @@
       <el-tab-pane label="申购" name="first">
         <el-form ref="form" :model="form" :rules="rules" label-width="120px">
           <el-form-item label-width="0">
-            <el-alert show-icon>试玉要烧三日满，辨材须待七年期。待到资产增值时，君在丛中笑!</el-alert>
+            <el-alert show-icon>试玉要烧三日满，辨材须待七年期。待到功成日，把酒言初心!</el-alert>
           </el-form-item>
           <!--  TODO:    优先用户已有账户，其次预设券商名称，最后用户可输入自定义-->
 
