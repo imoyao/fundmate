@@ -39,21 +39,20 @@ test:
 - [RayDeCampo/nodejs-xirr: Compute the internal rate of return of a sequences of transactions made at irregular periods.](https://github.com/RayDeCampo/nodejs-xirr)
 
 """
+import datetime
 
 
 class XIRR:
     """
     Credits: algorithm inspired by Apache OpenOffice
     """
-
     @staticmethod
-    def years_between_dates(date1, date2):
+    def years_between_dates(date1, date2) -> float:
         delta = date2 - date1
         return delta.days / 365
 
-    def irr_result(self, values, dates, rate):
+    def irr_result(self, values, dates, rate) -> float:
         """
-
         # Calculates the resulting amount
         :param values:
         :param dates:
@@ -63,7 +62,8 @@ class XIRR:
         r = rate + 1
         result = values[0]
         for i in range(1, len(values)):
-            result = result + values[i] / pow(r, self.years_between_dates(dates[0], dates[i]))
+            result = result + values[i] / pow(
+                r, self.years_between_dates(dates[0], dates[i]))
             i += 1
         return result
 
@@ -117,7 +117,8 @@ class XIRR:
         contLoop = True
         while contLoop and (iteration < iterMax):
             resultValue = self.irr_result(values, dates, resultRate)
-            newRate = resultRate - (resultValue / self.first_derivation(values, dates, resultRate))
+            newRate = resultRate - (
+                resultValue / self.first_derivation(values, dates, resultRate))
             epsRate = abs(newRate - resultRate)
             resultRate = newRate
             if resultRate < -1:
@@ -127,3 +128,14 @@ class XIRR:
         if contLoop:
             return epsRate > epsMax, epsRate, 'iterMax'
         return resultRate
+
+
+if __name__ == '__main__':
+    values = [-18990, -23320, 49490]
+    dates = [
+        datetime.date(2016, 2, 5),
+        datetime.date(2018, 1, 26),
+        datetime.date(2018, 6, 5)
+    ]
+    x = XIRR()
+    print(x.xirr(values, dates))

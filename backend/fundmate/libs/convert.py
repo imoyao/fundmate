@@ -4,11 +4,11 @@
 from distutils import util
 
 
-def percent2float(x: str):
+def percent2float(x: str) -> float:
     return float(x.strip('%')) / 100
 
 
-def word_for_true(word: str):
+def word_for_true(word: str) -> bool:
     """
     装换为Bool
     :param word:

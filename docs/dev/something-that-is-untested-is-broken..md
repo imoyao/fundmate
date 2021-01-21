@@ -9,6 +9,10 @@ title: 测试你的代码 | 未经测试的代码是不完整的
 
 ## 框架选择
 有的Flask教程中使用unittest作为测试工具，经过阅读他人文件之后，我们选择 pytest 作为测试的工具，且这与官方文档中给出的选择一脉相承。
+参阅：
+- [Python测试框架之pytest详解_lovedingd的博客-CSDN博客_pytest](https://blog.csdn.net/lovedingd/article/details/98952868)
+- [Pytest - 使用介绍 - 简书](https://www.jianshu.com/p/a754e3d47671)
+- 中文文档 [pyTest官方手册(Release 4.2)之蹩脚翻译(1)_crazyskady的博客-CSDN博客](https://blog.csdn.net/crazyskady/article/details/87393268)
 
 ## 参考阅读
 
