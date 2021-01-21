@@ -4,6 +4,16 @@ tags:
   - RESTful
 ---
 
+由于此处作者的回应：[Flask-RESTful Issue #883](https://github.com/flask-restful/flask-restful/issues/883)，我们知道Flask-RESTful不再维护了。当然，作者也推荐了一系列其他扩展：
+
+*   [`MethodView`](https://github.com/flask-restful/flask-restful/blob/9f5a6d499175e43384eb589a99f0f4e4dbb1adc3/flask_restful/__init__.py><code>Resource</code></a> → Regular flask <a href=)
+*   [`reqparse`](https://flask-restful.readthedocs.io/en/latest/reqparse.html) → [webargs/Marshmallow](https://webargs.readthedocs.io/en/latest/)
+*   [`fields`](https://flask-restful.readthedocs.io/en/latest/fields.html) → [Flask-Marshmallow](https://flask-marshmallow.readthedocs.io/en/latest/)
+*   [`utils.cors`](https://github.com/flask-restful/flask-restful/blob/9f5a6d499175e43384eb589a99f0f4e4dbb1adc3/flask_restful/utils/cors.py) → [Flask-CORS](https://flask-cors.readthedocs.io/en/latest/)
+*   [`utils.crypto`](https://github.com/flask-restful/flask-restful/blob/9f5a6d499175e43384eb589a99f0f4e4dbb1adc3/flask_restful/utils/crypto.py) → Nobody knows what this even does
+
+替代品：[python-restx/flask-restx: Fork of Flask-RESTPlus: Fully featured framework for fast, easy and documented API development with Flask](https://github.com/python-restx/flask-restx)
+
 ## 参考链接
 
 [简介 - api](https://flask-api.gitbook.io/api/)

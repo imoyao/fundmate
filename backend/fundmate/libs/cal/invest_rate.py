@@ -18,7 +18,7 @@ import datetime
 
 import numpy_financial as npf
 
-from .. import convert
+from fundmate.libs import convert
 
 
 def compound_interest(principal: Union[int, float], percent_rate_in_year: Union[int, float, str],
