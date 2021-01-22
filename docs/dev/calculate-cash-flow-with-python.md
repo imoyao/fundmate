@@ -18,7 +18,7 @@ tag:
 
                                                    
 
-### IRR 
+### IRR(Internal Rate of Return)
 
 内部收益率是针对包含付款（负值）和收入（正值）的定期投资收到的利率。
 
