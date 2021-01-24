@@ -2,8 +2,9 @@
 """Click commands."""
 import os
 from glob import glob
-from subprocess import call
 from pathlib import Path
+from subprocess import call
+
 import click
 
 CURRENT_PATH = Path(__file__).resolve().parent
