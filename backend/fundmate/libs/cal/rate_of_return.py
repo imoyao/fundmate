@@ -194,10 +194,11 @@ def compound_interest(principal: Union[int, float],
     return principal * (1 + float_rate_in_year)**year
 
 
-class ERA:
+class EAR:
     """
     Effective Annual Percentage Rate
-    有效年利率
+    有效年利率：指在按照给定的计息期利率和每年复利次数计算利息时，能够产生相同结果的每年复利一次的年利率。
+    [有效年利率 - MBA智库百科](https://wiki.mbalib.com/wiki/%E6%9C%89%E6%95%88%E5%B9%B4%E5%88%A9%E7%8E%87)
     """
     def __call__(self, rate_in_month: Union[int, float]) -> Union[int, float]:
         return (1 + rate_in_month)**MONTH_PER_YEAR - 1
@@ -205,13 +206,14 @@ class ERA:
 
 class RATE(ComputeConvert):
     """
+    计算年金每期利率，算出来的结果为月收益，如果要算年收益需要导入EAR
     Compute the rate of interest per period.
     """
     def __call__(self,
                  year: int,
                  pmt: Union[int, float],
                  pv: Union[int, float],
-                 fv: Union[int, float],
+                 fv: Union[int, float] = 0,
                  is_end_pay: Union[str, bool, int] = True,
                  guess: Union[int, float, None] = None,
                  tol: Union[int, float, None] = None,
@@ -245,14 +247,14 @@ class RATE(ComputeConvert):
 
 class FV(ComputeConvert):
     """
-    终值
+    年金终值：用于根据固定利率计算投资的未来值。可以将 FV 与定期付款、固定付款或一次付清总额付款结合使用
     Compute the future value.
     """
     def __call__(self,
                  rate_in_year: Union[int, float],
                  year: int,
                  pmt: Union[int, float],
-                 pv: Union[int, float],
+                 pv: Union[int, float] = 0,
                  is_end_pay: Union[str, bool, int] = True):
         """
         用于计算理想状态下（即：只存不取）的定投收益
@@ -287,8 +289,8 @@ class FV(ComputeConvert):
 
 class PMT(ComputeConvert):
     """
-    根据贷款本金加上利息计算付款额
-    如：解决房贷计算问题
+    根据固定付款额和固定利率计算贷款的付款额。
+    如：解决按揭买房房贷计算问题、3年后的一次旅行
     """
     def __call__(self,
                  rate_in_year: Union[int, float],
@@ -419,10 +421,11 @@ class IPMT(ComputeConvert, PerConvert):
 class PV(ComputeConvert):
     """
     计算现值
-    10年10倍的投资本金问题
-    npv = NPV()
-    ret = npv(0.281,[-100, 39, 59, 55, 20])
-    -0.00847859163845488
+    要为未来确定时长的某项活动存够一定的目标值金额，已知年化，求开户存入金额
+    >>> pv = PV()
+    >>> pv(0.04,3,-800,30000)
+    >>> 483.6897793911912
+
     """
     def __call__(self,
                  rate_in_year: Union[int, float],
@@ -749,7 +752,7 @@ if __name__ == '__main__':
 
     rate = RATE()
     rm = rate(1, -100, 0, 1440, is_end_pay=False)
-    era = ERA()
+    era = EAR()
     e = era(rm)
     print(f'rate:{rm},e:{e}')
 
