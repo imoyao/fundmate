@@ -40,6 +40,17 @@ engine = create_engine('mysql+pymysql://scott:tiger@localhost/foo')
 ### E-R 图
 
 使用[freedgo](https://www.freedgo.com)生成 ER 图之后 [格式化](https://tool.oschina.net/codeformat/sql) ，当然我们也可以选择导入 [dbdiagram.io](https://dbdiagram.io/) 生成图片。
+改成 [Navicat GUI | DB Admin Tool for MySQL, PostgreSQL, MongoDB, MariaDB, SQL Server, Oracle & SQLite client](https://www.navicat.com/en/) 画图
+
+[用Navicat制作ER图及与SQL互相转化 | 王柏元的博客 | 博学广问，自律静思](https://wangbaiyuan.cn/sql-and-use-navicat-to-make-er-diagram-and-interactive.html)
+
+::: warning
+```sql
+# 修改允许远程连接
+GRANT ALL PRIVILEGES ON *.* TO 'root'@'%'IDENTIFIED BY '{PASS_WORD}' WITH GRANT OPTION;
+```
+:::
+
 
 ![](https://cdn.jsdelivr.net/gh/masantu/statics/images/fundmate-ER.png)
 
