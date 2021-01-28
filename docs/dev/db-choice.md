@@ -16,7 +16,26 @@ title: 数据库的选择及使用
 
 在设计数据库的时候，我们以基金、用户、基金经理作为三个数据主体进行发散。基金和用户之间通过申购、赎回行为联系起来；基金与经理之间通过管理行为联系起来；而基金自身又有每日净值，申购、赎回费率等属性。
 
-我们首先根据设计绘制出 E-R 图，然后根据 E-R 图导出 SQL 文件，然后生成数据表，最后编写 ORM 代码；当然，我们也可以使用[sqlacodegen](https://github.com/agronholm/sqlacodegen)自动生成 ORM。
+1. 我们首先根据设计绘制出 E-R 图
+2. 然后根据 E-R 图导出 SQL 文件
+3. 然后生成数据表
+```
+mysql> create database {DB_NAME};      # 创建数据库
+mysql> use abc;                  # 使用已创建的数据库 
+mysql> set names utf8;           # 设置编码
+mysql> source /home/abc/abc.sql  # 导入备份数据库
+```
+4. 最后编写 ORM 代码；当然，我们也可以使用[sqlacodegen](https://github.com/agronholm/sqlacodegen)自动生成 ORM。
+```
+# default
+engine = create_engine('mysql://scott:tiger@localhost/foo')
+
+# mysqlclient (a maintained fork of MySQL-Python)
+engine = create_engine('mysql+mysqldb://scott:tiger@localhost/foo')
+
+# PyMySQL
+engine = create_engine('mysql+pymysql://scott:tiger@localhost/foo')
+```
 
 ### E-R 图
 
