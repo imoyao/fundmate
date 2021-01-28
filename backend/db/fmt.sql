@@ -1,141 +1,198 @@
-CREATE TABLE IF NOT EXISTS user (
-	id INT PRIMARY KEY COMMENT '用户编号',
-	name VARCHAR(16) COMMENT '用户名',
-	password VARCHAR(40) NOT NULL COMMENT '用户密码',
-	email VARCHAR(30) COMMENT '注册邮箱',
-	phone_num VARCHAR(11) COMMENT '注册手机号',
-	avatar VARCHAR COMMENT '用户头像或自动生成',
-	create_time TIMESTAMP COMMENT '注册时间'
-);
+CREATE TABLE `cashflow` (
+`id` int(11) NOT NULL,
+`uid` int(11) NULL DEFAULT NULL COMMENT '购买用户',
+`fid` int(11) NULL DEFAULT NULL COMMENT '所购买的基金',
+`amount` int(10) NULL DEFAULT NULL COMMENT '购买金额',
+`date` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '购买日期（确认日期）',
+`comment` varchar(30) CHARACTER SET latin1 COLLATE latin1_swedish_ci NULL DEFAULT NULL COMMENT '复盘备注',
+`type` tinyint(1) NULL,
+PRIMARY KEY (`id`)
+)
+ENGINE = InnoDB
+AUTO_INCREMENT = 0
+AVG_ROW_LENGTH = 0
+DEFAULT CHARACTER SET = latin1
+COLLATE = latin1_swedish_ci
+KEY_BLOCK_SIZE = 0
+MAX_ROWS = 0
+MIN_ROWS = 0
+ROW_FORMAT = Dynamic;
+CREATE TABLE `dailyworth` (
+`id` int(11) NOT NULL,
+`fid` int(11) NULL DEFAULT NULL COMMENT '基金编号',
+`pirce` float NULL DEFAULT NULL,
+`date` date NULL DEFAULT NULL COMMENT '日期',
+PRIMARY KEY (`id`)
+)
+ENGINE = InnoDB
+AUTO_INCREMENT = 0
+AVG_ROW_LENGTH = 0
+DEFAULT CHARACTER SET = latin1
+COLLATE = latin1_swedish_ci
+KEY_BLOCK_SIZE = 0
+MAX_ROWS = 0
+MIN_ROWS = 0
+ROW_FORMAT = Dynamic;
+CREATE TABLE `fund` (
+`id` int(11) NOT NULL,
+`name` varchar(30) CHARACTER SET latin1 COLLATE latin1_swedish_ci NULL DEFAULT NULL COMMENT '基金名称',
+`fund_code` int(11) NULL DEFAULT NULL,
+`type` tinyint(4) NULL DEFAULT NULL COMMENT '基金类型',
+`co_id` tinyint(4) NULL DEFAULT NULL COMMENT '所属基金公司',
+PRIMARY KEY (`id`) ,
+UNIQUE INDEX `fund_code` (`fund_code` ASC) USING BTREE
+)
+ENGINE = InnoDB
+AUTO_INCREMENT = 0
+AVG_ROW_LENGTH = 0
+DEFAULT CHARACTER SET = latin1
+COLLATE = latin1_swedish_ci
+KEY_BLOCK_SIZE = 0
+MAX_ROWS = 0
+MIN_ROWS = 0
+ROW_FORMAT = Dynamic;
+CREATE TABLE `fundco` (
+`id` int(11) NOT NULL,
+`name` varchar(30) CHARACTER SET latin1 COLLATE latin1_swedish_ci NULL DEFAULT NULL,
+`co_id` varchar(10) CHARACTER SET latin1 COLLATE latin1_swedish_ci NULL DEFAULT NULL COMMENT '基金公司编号',
+PRIMARY KEY (`id`)
+)
+ENGINE = InnoDB
+AUTO_INCREMENT = 0
+AVG_ROW_LENGTH = 0
+DEFAULT CHARACTER SET = latin1
+COLLATE = latin1_swedish_ci
+KEY_BLOCK_SIZE = 0
+MAX_ROWS = 0
+MIN_ROWS = 0
+ROW_FORMAT = Dynamic;
+CREATE TABLE `fundmgr` (
+`id` int(11) NOT NULL,
+`mgr_id` int(10) NULL DEFAULT NULL COMMENT '经理编号',
+`name` varchar(4) CHARACTER SET latin1 COLLATE latin1_swedish_ci NULL DEFAULT NULL COMMENT '经理名称',
+`co_id` int(10) NULL DEFAULT NULL COMMENT '所属公司',
+PRIMARY KEY (`id`)
+)
+ENGINE = InnoDB
+AUTO_INCREMENT = 0
+AVG_ROW_LENGTH = 0
+DEFAULT CHARACTER SET = latin1
+COLLATE = latin1_swedish_ci
+KEY_BLOCK_SIZE = 0
+MAX_ROWS = 0
+MIN_ROWS = 0
+ROW_FORMAT = Dynamic;
+CREATE TABLE `handpick` (
+`id` int(11) NOT NULL,
+`uid` int(11) NULL DEFAULT NULL COMMENT '用户编号',
+`fid` int(11) NULL DEFAULT NULL COMMENT '基金编号',
+`pick_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '收藏时间',
+`comment` varchar(30) CHARACTER SET latin1 COLLATE latin1_swedish_ci NULL DEFAULT NULL COMMENT '备注',
+PRIMARY KEY (`id`)
+)
+ENGINE = InnoDB
+AUTO_INCREMENT = 0
+AVG_ROW_LENGTH = 0
+DEFAULT CHARACTER SET = latin1
+COLLATE = latin1_swedish_ci
+KEY_BLOCK_SIZE = 0
+MAX_ROWS = 0
+MIN_ROWS = 0
+ROW_FORMAT = Dynamic;
+CREATE TABLE `inoutrate` (
+`id` int(11) NOT NULL,
+`fid` int(11) NULL DEFAULT NULL COMMENT '基金编号',
+`rule_id` int(11) NULL DEFAULT NULL COMMENT '费率编号',
+`rate` int(10) NULL DEFAULT NULL COMMENT '费率百分比',
+`type` tinyint(1) NULL,
+PRIMARY KEY (`id`)
+)
+ENGINE = InnoDB
+AUTO_INCREMENT = 0
+AVG_ROW_LENGTH = 0
+DEFAULT CHARACTER SET = latin1
+COLLATE = latin1_swedish_ci
+KEY_BLOCK_SIZE = 0
+MAX_ROWS = 0
+MIN_ROWS = 0
+ROW_FORMAT = Dynamic;
+CREATE TABLE `inrule` (
+`id` int(11) NOT NULL,
+`start_quota` tinyint(4) NULL DEFAULT NULL COMMENT '计费开始额度',
+`end_quota` tinyint(4) NULL DEFAULT NULL COMMENT '计费结束额度',
+PRIMARY KEY (`id`)
+)
+ENGINE = InnoDB
+AUTO_INCREMENT = 0
+AVG_ROW_LENGTH = 0
+DEFAULT CHARACTER SET = latin1
+COLLATE = latin1_swedish_ci
+KEY_BLOCK_SIZE = 0
+MAX_ROWS = 0
+MIN_ROWS = 0
+ROW_FORMAT = Dynamic;
+CREATE TABLE `mgrlog` (
+`id` int(11) NOT NULL,
+`fid` int(11) NULL DEFAULT NULL COMMENT '基金编号',
+`mgr_id` int(11) NULL DEFAULT NULL COMMENT '基金经理编号',
+PRIMARY KEY (`id`)
+)
+ENGINE = InnoDB
+AUTO_INCREMENT = 0
+AVG_ROW_LENGTH = 0
+DEFAULT CHARACTER SET = latin1
+COLLATE = latin1_swedish_ci
+KEY_BLOCK_SIZE = 0
+MAX_ROWS = 0
+MIN_ROWS = 0
+ROW_FORMAT = Dynamic;
+CREATE TABLE `outrule` (
+`id` int(11) NOT NULL,
+`start_day` tinyint(4) NULL DEFAULT NULL COMMENT '计费开始天数',
+`end_day` tinyint(4) NULL DEFAULT NULL COMMENT '计费结束天数',
+PRIMARY KEY (`id`)
+)
+ENGINE = InnoDB
+AUTO_INCREMENT = 0
+AVG_ROW_LENGTH = 0
+DEFAULT CHARACTER SET = latin1
+COLLATE = latin1_swedish_ci
+KEY_BLOCK_SIZE = 0
+MAX_ROWS = 0
+MIN_ROWS = 0
+ROW_FORMAT = Dynamic;
+CREATE TABLE `user` (
+`id` int(11) NOT NULL COMMENT '用户编号',
+`name` varchar(16) CHARACTER SET latin1 COLLATE latin1_swedish_ci NULL DEFAULT NULL COMMENT '用户名',
+`password` varchar(40) CHARACTER SET latin1 COLLATE latin1_swedish_ci NOT NULL COMMENT '用户密码',
+`email` varchar(30) CHARACTER SET latin1 COLLATE latin1_swedish_ci NULL DEFAULT NULL COMMENT '注册邮箱',
+`phone_num` varchar(11) CHARACTER SET latin1 COLLATE latin1_swedish_ci NULL DEFAULT NULL COMMENT '注册手机号',
+`avatar` varchar(60) CHARACTER SET latin1 COLLATE latin1_swedish_ci NULL DEFAULT NULL COMMENT '用户头像或自动生成',
+`create_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '注册时间',
+PRIMARY KEY (`id`)
+)
+ENGINE = InnoDB
+AUTO_INCREMENT = 0
+AVG_ROW_LENGTH = 0
+DEFAULT CHARACTER SET = latin1
+COLLATE = latin1_swedish_ci
+KEY_BLOCK_SIZE = 0
+MAX_ROWS = 0
+MIN_ROWS = 0
+ROW_FORMAT = Dynamic;
 
-ALTER TABLE user
-	ADD CONSTRAINT user_id_fk0 FOREIGN KEY (id) REFERENCES handpick (uid);
+ALTER TABLE `cashflow` ADD CONSTRAINT `fk_cashflow_user_1` FOREIGN KEY (`uid`) REFERENCES `user` (`id`);
+ALTER TABLE `user` ADD CONSTRAINT `fk_user_handpick_1` FOREIGN KEY (`id`) REFERENCES `handpick` (`uid`);
+ALTER TABLE `fund` ADD CONSTRAINT `fk_fund_handpick_1` FOREIGN KEY (`id`) REFERENCES `handpick` (`fid`);
+ALTER TABLE `fundco` ADD CONSTRAINT `fk_fundco_fund_1` FOREIGN KEY (`id`) REFERENCES `fund` (`co_id`);
+ALTER TABLE `fundmgr` ADD CONSTRAINT `fk_fundmgr_mgrlog_1` FOREIGN KEY (`id`) REFERENCES `mgrlog` (`mgr_id`);
+ALTER TABLE `fund` ADD CONSTRAINT `fk_fund_mgrlog_1` FOREIGN KEY (`id`) REFERENCES `mgrlog` (`fid`);
+ALTER TABLE `fund` ADD CONSTRAINT `fk_fund_dailyworth_1` FOREIGN KEY (`id`) REFERENCES `dailyworth` (`fid`);
+ALTER TABLE `fund` ADD CONSTRAINT `fk_fund_inrate_1` FOREIGN KEY (`id`) REFERENCES `inoutrate` (`fid`);
+ALTER TABLE `user` ADD CONSTRAINT `fk_user_cashflow_1` FOREIGN KEY (`id`) REFERENCES `cashflow` (`uid`);
+ALTER TABLE `fund` ADD CONSTRAINT `fk_fund_cashflow_1` FOREIGN KEY (`id`) REFERENCES `cashflow` (`fid`);
+ALTER TABLE `inrule` ADD CONSTRAINT `fk_inrule_inoutrate_1` FOREIGN KEY (`id`) REFERENCES `inoutrate` (`rule_id`);
+ALTER TABLE `outrule` ADD CONSTRAINT `fk_outrule_inoutrate_1` FOREIGN KEY (`id`) REFERENCES `inoutrate` (`rule_id`);
+ALTER TABLE `fund` ADD CONSTRAINT `fk_fund_inoutrate_1` FOREIGN KEY (`id`) REFERENCES `inoutrate` (`fid`);
+ALTER TABLE `fundco` ADD CONSTRAINT `fk_fundco_fundmgr_1` FOREIGN KEY (`id`) REFERENCES `fundmgr` (`co_id`);
 
-ALTER TABLE user
-	ADD CONSTRAINT user_id_fk1 FOREIGN KEY (id) REFERENCES purchase (uid);
-
-ALTER TABLE user
-	ADD CONSTRAINT user_id_fk2 FOREIGN KEY (id) REFERENCES redeem (uid);
-
-
-CREATE TABLE IF NOT EXISTS handpick (
-	id int PRIMARY KEY,
-	uid VARCHAR(20) COMMENT '用户编号',
-	fid VARCHAR(20) COMMENT '基金编号',
-	pick_time TIMESTAMP COMMENT '收藏时间',
-	comment VARCHAR(30) COMMENT '备注'
-);
-
-ALTER TABLE handpick
-	ADD CONSTRAINT handpick_fid_fk0 FOREIGN KEY (fid) REFERENCES fund (fund_code);
-
-CREATE TABLE IF NOT EXISTS fund (
-	id int PRIMARY KEY,
-	name VARCHAR(30) COMMENT '基金名称',
-	fund_code INT(6) UNIQUE,
-	type TINYINT COMMENT '基金类型',
-	co_id TINYINT COMMENT '所属基金公司'
-);
-
-ALTER TABLE fund
-	ADD CONSTRAINT fund_fund_code_fk0 FOREIGN KEY (fund_code) REFERENCES dailyworth (fid);
-
-ALTER TABLE fund
-	ADD CONSTRAINT fund_fund_code_fk1 FOREIGN KEY (fund_code) REFERENCES inrate (fid);
-
-ALTER TABLE fund
-	ADD CONSTRAINT fund_fund_code_fk2 FOREIGN KEY (fund_code) REFERENCES purchase (fid);
-
-ALTER TABLE fund
-	ADD CONSTRAINT fund_fund_code_fk3 FOREIGN KEY (fund_code) REFERENCES mgrlog (fid);
-
-ALTER TABLE fund
-	ADD CONSTRAINT fund_fund_code_fk4 FOREIGN KEY (fund_code) REFERENCES redeem (fid);
-
-ALTER TABLE fund
-	ADD CONSTRAINT fund_fund_code_fk6 FOREIGN KEY (fund_code) REFERENCES outrate (fid);
-
-CREATE TABLE IF NOT EXISTS dailyworth (
-	id int PRIMARY KEY,
-	fid INT(6) COMMENT '基金编号',
-	pirce FLOAT,
-	date DATE COMMENT '日期'
-);
-
-CREATE TABLE IF NOT EXISTS fundmgr (
-	id int PRIMARY KEY,
-	mgr_id INT(10) COMMENT '经理编号',
-	name VARCHAR(4) COMMENT '经理名称',
-	co_id INT(10) COMMENT '所属公司'
-);
-
-ALTER TABLE fundmgr
-	ADD CONSTRAINT fundmgr_mgr_id_fk0 FOREIGN KEY (mgr_id) REFERENCES mgrlog (mgr_id);
-
-CREATE TABLE IF NOT EXISTS fundco (
-	id int PRIMARY KEY,
-	name VARCHAR(30),
-	co_id VARCHAR(10) COMMENT '基金公司编号'
-);
-
-ALTER TABLE fundco
-	ADD CONSTRAINT fundco_id_fk0 FOREIGN KEY (id) REFERENCES fund (co_id);
-
-ALTER TABLE fundco
-	ADD CONSTRAINT fundco_id_fk1 FOREIGN KEY (id) REFERENCES fundmgr (co_id);
-
-CREATE TABLE IF NOT EXISTS mgrlog (
-	id int PRIMARY KEY,
-	fid INT(6) COMMENT '基金编号',
-	mgr_id INT(10) COMMENT '基金经理编号'
-);
-
-CREATE TABLE IF NOT EXISTS purchase (
-	id int PRIMARY KEY,
-	uid VARCHAR(10) COMMENT '购买用户',
-	fid INT(6) COMMENT '所购买的基金',
-	amount INT(10) COMMENT '购买金额',
-	date DATE DEFAULT current_date COMMENT '购买日期（确认日期）',
-	comment VARCHAR(30) COMMENT '复盘备注'
-);
-
-CREATE TABLE IF NOT EXISTS redeem (
-	id int PRIMARY KEY,
-	uid INT(10) COMMENT '购买用户',
-	fid VARCHAR(10) COMMENT '所购买的基金编号',
-	amount INT(10) COMMENT '购买金额',
-	date DATE DEFAULT current_date COMMENT '赎回日期',
-	comment VARCHAR(30) COMMENT '复盘备注'
-);
-
-CREATE TABLE IF NOT EXISTS inrule (
-	id int PRIMARY KEY,
-	start_quota TINYINT COMMENT '计费开始额度',
-	end_quota TINYINT COMMENT '计费结束额度'
-);
-
-ALTER TABLE inrule
-	ADD CONSTRAINT inrule_id_fk0 FOREIGN KEY (id) REFERENCES inrate (rule_id);
-
-CREATE TABLE IF NOT EXISTS outrule (
-	id int PRIMARY KEY,
-	start_day TINYINT COMMENT '计费开始天数',
-	end_day TINYINT COMMENT '计费结束天数'
-);
-
-ALTER TABLE outrule
-	ADD CONSTRAINT outrule_id_fk0 FOREIGN KEY (id) REFERENCES outrate (rule_id);
-
-CREATE TABLE IF NOT EXISTS inrate (
-	id int PRIMARY KEY,
-	fid INT(6) COMMENT '基金编号',
-	rule_id INT(10) COMMENT '费率编号',
-	rate INT(10) COMMENT '费率百分比'
-);
-
-CREATE TABLE IF NOT EXISTS outrate (
-	id int PRIMARY KEY,
-	rule_id INT(10) COMMENT '费率编号',
-	fid INT(6) COMMENT '基金编号',
-	rate INT(10) COMMENT '费率百分比'
-) COMMENT = '卖出费率表';

@@ -447,6 +447,32 @@ class PV(ComputeConvert):
         return npf.pv(rate, nper, pmt, fv=fv, when=when)
 
 
+class NPER(ComputeConvert):
+    """
+    计算还款
+    假设“卜利索”有有一笔 2,500 美元的个人贷款，约定为每月付款 150 美元，年利率为 3%。
+    >>> nper = NPER()
+    >>> nper(0.03,-150,2500)
+    array(17.04511672)
+    """
+    def __call__(self,
+                 rate_in_year: Union[int, float],
+                 pmt: Union[int, float],
+                 pv: Union[int, float],
+                 fv: Union[int, float] = 0,
+                 is_end_pay: Union[str, bool, int] = True):
+        """
+        :param rate_in_year:
+        :param pmt:
+        :param fv:
+        :param is_end_pay:
+        :return:
+        """
+        rate = self.convert_year_rate_to_month(rate_in_year)
+        when = self.convert_is_end_pay(is_end_pay)
+        return npf.nper(rate, pmt, pv, fv=fv, when=when)
+
+
 class NPV:
     """
     npv = NPV()
