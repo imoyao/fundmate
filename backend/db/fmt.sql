@@ -5,7 +5,6 @@ CREATE TABLE IF NOT EXISTS user (
 	email VARCHAR(30) COMMENT '注册邮箱',
 	phone_num VARCHAR(11) COMMENT '注册手机号',
 	avatar VARCHAR COMMENT '用户头像或自动生成',
-
 	create_time TIMESTAMP COMMENT '注册时间'
 );
 
