@@ -43,7 +43,7 @@ Mako==1.1.4
 MarkupSafe==1.1.1
 marshmallow==3.10.0
 mccabe==0.6.1
-mypy==0.790
+mypy==0.800
 mypy-extensions==0.4.3
 numpy==1.19.5
 numpy-financial==1.0.0
