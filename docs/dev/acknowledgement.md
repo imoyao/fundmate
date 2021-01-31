@@ -26,6 +26,11 @@ permalink: /acknowledgement
     - 另一个翻译版本[欢迎使用 Flask — Flask 0.10.1 文档](http://docs.jinkan.org/docs/flask/index.html)
 - [简介 - Flask 入门教程](https://read.helloflask.com/)
 
+
+## 视频
+
+### [Flask Tutorials - YouTube](https://www.youtube.com/playlist?list=PL-osiE80TeTs4UjLw5MM6OjgkjFeUxCYH)
+
 ---
 
 ## 待整理
@@ -58,3 +63,15 @@ permalink: /acknowledgement
 *   [闲谈 Lin](https://www.bookstack.cn/read/Lin-CMS/7d37e21cbfd641ea.md)
 *   [常见问题汇总](https://www.bookstack.cn/read/Lin-CMS/7f25c777a4390358.md)
 - [插件flask版 - 《Lin CMS 文档手册》 - 书栈网 · BookStack](https://www.bookstack.cn/read/Lin-CMS/flask-plugins.md)
+
+
+### [Single Page Apps with Vue.js and Flask: Setting up Vue.js](https://stackabuse.com/single-page-apps-with-vue-js-and-flask-setting-up-vue-js/)
+
+1.  [Setup and Getting to Know Vue.js](https://stackabuse.com/single-page-apps-with-vue-js-and-flask-setting-up-vue-js/)
+2.  [Navigating Vue Router](https://stackabuse.com/single-page-apps-with-vue-js-and-flask-navigating-vue-router/)
+3.  [State Management with Vuex](https://stackabuse.com/single-page-apps-with-vue-js-and-flask-state-management-with-vuex/)
+4.  [RESTful API with Flask](https://stackabuse.com/single-page-apps-with-vue-js-and-flask-restful-api-with-flask/)
+5.  [AJAX Integration with REST API](https://stackabuse.com/single-page-apps-with-vue-js-and-flask-ajax-integration/)
+6.  [JWT Authentication](https://stackabuse.com/single-page-apps-with-vue-js-and-flask-jwt-authentication/)
+7.  [Deployment to a Virtual Private Server](https://stackabuse.com/single-page-apps-with-vue-js-and-flask-deployment/)
+

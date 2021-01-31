@@ -13,6 +13,7 @@ AUTO_INCREMENT = 0
 AVG_ROW_LENGTH = 0
 DEFAULT CHARACTER SET = latin1
 COLLATE = latin1_swedish_ci
+COMMENT = '现金流，用户交易表'
 KEY_BLOCK_SIZE = 0
 MAX_ROWS = 0
 MIN_ROWS = 0
@@ -29,6 +30,7 @@ AUTO_INCREMENT = 0
 AVG_ROW_LENGTH = 0
 DEFAULT CHARACTER SET = latin1
 COLLATE = latin1_swedish_ci
+COMMENT = '每日净值表'
 KEY_BLOCK_SIZE = 0
 MAX_ROWS = 0
 MIN_ROWS = 0
@@ -37,8 +39,10 @@ CREATE TABLE `fund` (
 `id` int(11) NOT NULL,
 `name` varchar(30) CHARACTER SET latin1 COLLATE latin1_swedish_ci NULL DEFAULT NULL COMMENT '基金名称',
 `fund_code` int(11) NULL DEFAULT NULL,
-`type` tinyint(4) NULL DEFAULT NULL COMMENT '基金类型',
-`co_id` tinyint(4) NULL DEFAULT NULL COMMENT '所属基金公司',
+`ftype` int(4) NULL DEFAULT NULL COMMENT '基金类型',
+`variety` int(11) NULL,
+`co_id` int(4) NULL DEFAULT NULL COMMENT '所属基金公司',
+`create_time` datetime NULL,
 PRIMARY KEY (`id`) ,
 UNIQUE INDEX `fund_code` (`fund_code` ASC) USING BTREE
 )
@@ -47,6 +51,7 @@ AUTO_INCREMENT = 0
 AVG_ROW_LENGTH = 0
 DEFAULT CHARACTER SET = latin1
 COLLATE = latin1_swedish_ci
+COMMENT = '基金表'
 KEY_BLOCK_SIZE = 0
 MAX_ROWS = 0
 MIN_ROWS = 0
@@ -54,7 +59,7 @@ ROW_FORMAT = Dynamic;
 CREATE TABLE `fundco` (
 `id` int(11) NOT NULL,
 `name` varchar(30) CHARACTER SET latin1 COLLATE latin1_swedish_ci NULL DEFAULT NULL,
-`co_id` varchar(10) CHARACTER SET latin1 COLLATE latin1_swedish_ci NULL DEFAULT NULL COMMENT '基金公司编号',
+`co_code` varchar(10) CHARACTER SET utf8 NULL DEFAULT NULL COMMENT '基金公司编号',
 PRIMARY KEY (`id`)
 )
 ENGINE = InnoDB
@@ -66,7 +71,7 @@ KEY_BLOCK_SIZE = 0
 MAX_ROWS = 0
 MIN_ROWS = 0
 ROW_FORMAT = Dynamic;
-CREATE TABLE `fundmgr` (
+CREATE TABLE `mgr` (
 `id` int(11) NOT NULL,
 `mgr_id` int(10) NULL DEFAULT NULL COMMENT '经理编号',
 `name` varchar(4) CHARACTER SET latin1 COLLATE latin1_swedish_ci NULL DEFAULT NULL COMMENT '经理名称',
@@ -78,6 +83,7 @@ AUTO_INCREMENT = 0
 AVG_ROW_LENGTH = 0
 DEFAULT CHARACTER SET = latin1
 COLLATE = latin1_swedish_ci
+COMMENT = '基金经理'
 KEY_BLOCK_SIZE = 0
 MAX_ROWS = 0
 MIN_ROWS = 0
@@ -95,11 +101,12 @@ AUTO_INCREMENT = 0
 AVG_ROW_LENGTH = 0
 DEFAULT CHARACTER SET = latin1
 COLLATE = latin1_swedish_ci
+COMMENT = '自选基金'
 KEY_BLOCK_SIZE = 0
 MAX_ROWS = 0
 MIN_ROWS = 0
 ROW_FORMAT = Dynamic;
-CREATE TABLE `inoutrate` (
+CREATE TABLE `fund-inout-rate` (
 `id` int(11) NOT NULL,
 `fid` int(11) NULL DEFAULT NULL COMMENT '基金编号',
 `rule_id` int(11) NULL DEFAULT NULL COMMENT '费率编号',
@@ -131,10 +138,12 @@ KEY_BLOCK_SIZE = 0
 MAX_ROWS = 0
 MIN_ROWS = 0
 ROW_FORMAT = Dynamic;
-CREATE TABLE `mgrlog` (
+CREATE TABLE `fund-mgr` (
 `id` int(11) NOT NULL,
 `fid` int(11) NULL DEFAULT NULL COMMENT '基金编号',
 `mgr_id` int(11) NULL DEFAULT NULL COMMENT '基金经理编号',
+`start_date` datetime NULL,
+`end_date` datetime NULL,
 PRIMARY KEY (`id`)
 )
 ENGINE = InnoDB
@@ -142,6 +151,7 @@ AUTO_INCREMENT = 0
 AVG_ROW_LENGTH = 0
 DEFAULT CHARACTER SET = latin1
 COLLATE = latin1_swedish_ci
+COMMENT = '基金与经理关联表'
 KEY_BLOCK_SIZE = 0
 MAX_ROWS = 0
 MIN_ROWS = 0
@@ -169,6 +179,10 @@ CREATE TABLE `user` (
 `phone_num` varchar(11) CHARACTER SET latin1 COLLATE latin1_swedish_ci NULL DEFAULT NULL COMMENT '注册手机号',
 `avatar` varchar(60) CHARACTER SET latin1 COLLATE latin1_swedish_ci NULL DEFAULT NULL COMMENT '用户头像或自动生成',
 `create_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '注册时间',
+`is_admin` tinyint(1) NULL DEFAULT 0,
+`is_vip` tinyint(1) NULL DEFAULT 0,
+`profile` tinytext NULL,
+`last_login` timestamp NULL,
 PRIMARY KEY (`id`)
 )
 ENGINE = InnoDB
@@ -176,23 +190,57 @@ AUTO_INCREMENT = 0
 AVG_ROW_LENGTH = 0
 DEFAULT CHARACTER SET = latin1
 COLLATE = latin1_swedish_ci
+COMMENT = '用户表'
 KEY_BLOCK_SIZE = 0
 MAX_ROWS = 0
 MIN_ROWS = 0
 ROW_FORMAT = Dynamic;
+CREATE TABLE `fundvariety` (
+`id` int(11) NOT NULL,
+`name` varchar(255) NULL,
+PRIMARY KEY (`id`)
+)
+COMMENT = '基金大类表';
+CREATE TABLE `fundtype` (
+`id` int(11) NOT NULL,
+`name` varchar(255) NULL,
+`var_id` int(11) NULL,
+PRIMARY KEY (`id`)
+)
+COMMENT = '基金小类表';
+CREATE TABLE `account` (
+`id` int(11) NOT NULL,
+`name` varchar(255) NULL,
+`create_date` datetime NULL,
+`creator_id` int(11) NULL COMMENT '管理人（群主）',
+`comment` varchar(255) NULL,
+PRIMARY KEY (`id`)
+)
+COMMENT = '账本（钱包）';
+CREATE TABLE `account-fund` (
+`id` int(11) NOT NULL,
+`fund_id` int(11) NULL,
+`account_id` int(11) NULL,
+PRIMARY KEY (`id`)
+);
 
-ALTER TABLE `cashflow` ADD CONSTRAINT `fk_cashflow_user_1` FOREIGN KEY (`uid`) REFERENCES `user` (`id`);
 ALTER TABLE `user` ADD CONSTRAINT `fk_user_handpick_1` FOREIGN KEY (`id`) REFERENCES `handpick` (`uid`);
 ALTER TABLE `fund` ADD CONSTRAINT `fk_fund_handpick_1` FOREIGN KEY (`id`) REFERENCES `handpick` (`fid`);
 ALTER TABLE `fundco` ADD CONSTRAINT `fk_fundco_fund_1` FOREIGN KEY (`id`) REFERENCES `fund` (`co_id`);
-ALTER TABLE `fundmgr` ADD CONSTRAINT `fk_fundmgr_mgrlog_1` FOREIGN KEY (`id`) REFERENCES `mgrlog` (`mgr_id`);
-ALTER TABLE `fund` ADD CONSTRAINT `fk_fund_mgrlog_1` FOREIGN KEY (`id`) REFERENCES `mgrlog` (`fid`);
+ALTER TABLE `mgr` ADD CONSTRAINT `fk_fundmgr_mgrlog_1` FOREIGN KEY (`id`) REFERENCES `fund-mgr` (`mgr_id`);
+ALTER TABLE `fund` ADD CONSTRAINT `fk_fund_mgrlog_1` FOREIGN KEY (`id`) REFERENCES `fund-mgr` (`fid`);
 ALTER TABLE `fund` ADD CONSTRAINT `fk_fund_dailyworth_1` FOREIGN KEY (`id`) REFERENCES `dailyworth` (`fid`);
-ALTER TABLE `fund` ADD CONSTRAINT `fk_fund_inrate_1` FOREIGN KEY (`id`) REFERENCES `inoutrate` (`fid`);
+ALTER TABLE `fund` ADD CONSTRAINT `fk_fund_inrate_1` FOREIGN KEY (`id`) REFERENCES `fund-inout-rate` (`fid`);
 ALTER TABLE `user` ADD CONSTRAINT `fk_user_cashflow_1` FOREIGN KEY (`id`) REFERENCES `cashflow` (`uid`);
 ALTER TABLE `fund` ADD CONSTRAINT `fk_fund_cashflow_1` FOREIGN KEY (`id`) REFERENCES `cashflow` (`fid`);
-ALTER TABLE `inrule` ADD CONSTRAINT `fk_inrule_inoutrate_1` FOREIGN KEY (`id`) REFERENCES `inoutrate` (`rule_id`);
-ALTER TABLE `outrule` ADD CONSTRAINT `fk_outrule_inoutrate_1` FOREIGN KEY (`id`) REFERENCES `inoutrate` (`rule_id`);
-ALTER TABLE `fund` ADD CONSTRAINT `fk_fund_inoutrate_1` FOREIGN KEY (`id`) REFERENCES `inoutrate` (`fid`);
-ALTER TABLE `fundco` ADD CONSTRAINT `fk_fundco_fundmgr_1` FOREIGN KEY (`id`) REFERENCES `fundmgr` (`co_id`);
+ALTER TABLE `inrule` ADD CONSTRAINT `fk_inrule_inoutrate_1` FOREIGN KEY (`id`) REFERENCES `fund-inout-rate` (`rule_id`);
+ALTER TABLE `outrule` ADD CONSTRAINT `fk_outrule_inoutrate_1` FOREIGN KEY (`id`) REFERENCES `fund-inout-rate` (`rule_id`);
+ALTER TABLE `fund` ADD CONSTRAINT `fk_fund_inoutrate_1` FOREIGN KEY (`id`) REFERENCES `fund-inout-rate` (`fid`);
+ALTER TABLE `fundco` ADD CONSTRAINT `fk_fundco_fundmgr_1` FOREIGN KEY (`id`) REFERENCES `mgr` (`co_id`);
+ALTER TABLE `fundvariety` ADD CONSTRAINT `fk_fvariety_fundtype_1` FOREIGN KEY (`id`) REFERENCES `fundtype` (`var_id`);
+ALTER TABLE `fundvariety` ADD CONSTRAINT `fk_fundvariety_fund_1` FOREIGN KEY (`id`) REFERENCES `fund` (`variety`);
+ALTER TABLE `fundtype` ADD CONSTRAINT `fk_fundtype_fund_1` FOREIGN KEY (`id`) REFERENCES `fund` (`ftype`);
+ALTER TABLE `user` ADD CONSTRAINT `fk_user_account_1` FOREIGN KEY (`id`) REFERENCES `account` (`creator_id`);
+ALTER TABLE `account` ADD CONSTRAINT `fk_account_account-fund_1` FOREIGN KEY (`id`) REFERENCES `account-fund` (`account_id`);
+ALTER TABLE `fund` ADD CONSTRAINT `fk_fund_account-fund_1` FOREIGN KEY (`id`) REFERENCES `account-fund` (`fund_id`);
 

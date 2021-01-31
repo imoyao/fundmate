@@ -6,7 +6,7 @@ title: 数据库的选择及使用
 
 1. 使用 MySQL 作为存储数据库；
 2. 使用 SQLAlchemy 作为数据库构造的工具；
-3. 在线工具 [Freedgo](https://www.freedgo.com/new/my/my-design.html) 制作；
+3. ~~在线工具 [Freedgo](https://www.freedgo.com/new/my/my-design.html) 制作；~~ 使用navicat构造数据库模型
 
 ## 字段类型
 
@@ -21,9 +21,15 @@ title: 数据库的选择及使用
 3. 然后生成数据表
 ```
 mysql> create database {DB_NAME};      # 创建数据库
-mysql> use abc;                  # 使用已创建的数据库 
+mysql> use {DB_NAME};                  # 使用已创建的数据库 
 mysql> set names utf8;           # 设置编码
-mysql> source /home/abc/abc.sql  # 导入备份数据库
+mysql> source {SQL_PATH} # 导入备份数据库
+```
+其他用到的命令：
+```sql
+SELECT concat('DROP TABLE IF EXISTS ', table_name, ';')
+FROM information_schema.tables
+WHERE table_schema = '{DB_NAME}';
 ```
 4. 最后编写 ORM 代码；当然，我们也可以使用[sqlacodegen](https://github.com/agronholm/sqlacodegen)自动生成 ORM。
 ```
@@ -36,6 +42,8 @@ engine = create_engine('mysql+mysqldb://scott:tiger@localhost/foo')
 # PyMySQL
 engine = create_engine('mysql+pymysql://scott:tiger@localhost/foo')
 ```
+5. 数据库更新和降级
+[Flask-migrate基本使用方法 - sablier - 博客园](https://www.cnblogs.com/sablier/p/11084080.html)
 
 ### E-R 图
 
