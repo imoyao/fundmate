@@ -31,7 +31,7 @@ def some_route():
   # could abstract this code as a decorator and apply it to multiple routes
   # that you want protected by basic auth
 ```
-还有一个 [Flask-BasicAuth](https://flask-basicauth.readthedocs.io/en/latest/) 模块，它似乎让Flask非常容易地接受basic auth，尽管我从未使用过它。
+还有一个 [Flask-BasicAuth](https://flask-basicauth.readthedocs.io/en/latest/) 模块，该项目声称可以让Flask非常容易地整合basic auth，尽管我从未使用过它。
 
 然而在客户机的实例不能被认为是超级安全,说一个前端的web应用程序,您的开发人员可能不希望将用户名和密码直接存储在浏览器和本地存储等等,有人有机会看到用户凭证。
 
