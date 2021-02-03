@@ -5,7 +5,6 @@ import sys
 
 from flask import Flask
 
-from .config import config
 from backend.fundmate import commands, public, user
 from backend.fundmate.extensions import (
     bcrypt,
@@ -13,10 +12,13 @@ from backend.fundmate.extensions import (
     csrf_protect,
     db,
     flask_static_digest,
+    log,
     login_manager,
     migrate,
-    logger,
 )
+from backend.fundmate.libs.flask_loguru import logger
+
+from .config import config
 
 
 def create_app(config_object="backend.fundmate.settings"):
@@ -32,7 +34,8 @@ def create_app(config_object="backend.fundmate.settings"):
     register_shell_context(app)
     register_commands(app)
     configure_logger(app)
-    # logger.info('Flask app has start!')
+    update_config(app)
+    logger.info('Flask app has start!')
     return app
 
 
@@ -45,7 +48,10 @@ def register_extensions(app):
     login_manager.init_app(app)
     migrate.init_app(app, db)
     flask_static_digest.init_app(app)
-    logger.init_app(app)
+    log.init_app(app, {
+    "LOG_PATH": "/home/work/www/log",
+    "LOG_NAME": "run.log"
+})
     return None
 
 
@@ -90,5 +96,7 @@ def configure_logger(app):
     if not app.logger.handlers:
         app.logger.addHandler(handler)
 
+
 def update_config(app):
+    logger.info(config)
     app.config.update(config)
