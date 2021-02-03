@@ -74,6 +74,8 @@ class FundRate(PkModel):
 
 
 class FundMgr(PkModel):
+    """relation between Fund and Mgr
+    """
     __tablename__ = 'fund-mgr'
     __table_args__ = {'comment': '基金与经理关联表'}
 
@@ -84,6 +86,8 @@ class FundMgr(PkModel):
 
 
 class FundCompany(PkModel):
+    """relation between Fund and Company
+    """
     __tablename__ = 'fundcompany'
 
     name = Column(String(30))
