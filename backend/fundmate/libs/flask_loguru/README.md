@@ -25,7 +25,7 @@ Examples
 ```python
 # main.py
 
-from logging42 import logger
+from flask_loguru import logger
 
 logger.debug('hello world)
 ```

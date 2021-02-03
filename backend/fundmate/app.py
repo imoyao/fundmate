@@ -5,6 +5,7 @@ import sys
 
 from flask import Flask
 
+from .config import config
 from backend.fundmate import commands, public, user
 from backend.fundmate.extensions import (
     bcrypt,
@@ -14,8 +15,8 @@ from backend.fundmate.extensions import (
     flask_static_digest,
     login_manager,
     migrate,
+    logger,
 )
-from backend.fundmate.libs.logging42 import logger
 
 
 def create_app(config_object="backend.fundmate.settings"):
@@ -31,7 +32,7 @@ def create_app(config_object="backend.fundmate.settings"):
     register_shell_context(app)
     register_commands(app)
     configure_logger(app)
-    logger.info('Flask app has start!')
+    # logger.info('Flask app has start!')
     return app
 
 
@@ -44,6 +45,7 @@ def register_extensions(app):
     login_manager.init_app(app)
     migrate.init_app(app, db)
     flask_static_digest.init_app(app)
+    logger.init_app(app)
     return None
 
 
@@ -56,7 +58,6 @@ def register_blueprints(app):
 
 def register_error_handlers(app):
     """Register error handlers."""
-
     def render_error(error):
         """Render error template."""
         # If a HTTPException, pull the `code` attribute; default to 500
@@ -70,7 +71,6 @@ def register_error_handlers(app):
 
 def register_shell_context(app):
     """Register shell context objects."""
-
     def shell_context():
         """Shell context objects."""
         return {"db": db, "User": user.models.User}
@@ -89,3 +89,6 @@ def configure_logger(app):
     handler = logging.StreamHandler(sys.stdout)
     if not app.logger.handlers:
         app.logger.addHandler(handler)
+
+def update_config(app):
+    app.config.update(config)

@@ -7,6 +7,7 @@ from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
 from flask_static_digest import FlaskStaticDigest
 from flask_wtf.csrf import CSRFProtect
+from backend.fundmate.libs.flask_loguru import Logger
 
 bcrypt = Bcrypt()
 csrf_protect = CSRFProtect()
@@ -15,3 +16,4 @@ db = SQLAlchemy()
 migrate = Migrate()
 cache = Cache()
 flask_static_digest = FlaskStaticDigest()
+logger = Logger()
