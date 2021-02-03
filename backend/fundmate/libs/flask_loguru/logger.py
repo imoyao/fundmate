@@ -96,7 +96,6 @@ class Logger(object):
         """ Config logru
         """
         path = config["LOG_NAME"]
-        logger.info(path)
         if config["LOG_PATH"] is not None:
             path = os.path.join(config["LOG_PATH"], config["LOG_NAME"])
 

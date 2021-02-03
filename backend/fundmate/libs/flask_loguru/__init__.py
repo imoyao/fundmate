@@ -3,6 +3,6 @@
 # Created by imoyao at 2021/1/10 21:56
 
 from .configuration_logger import ConfigurationRetriever
-from .logger import Logger
+from .logger import Logger, logger
 
-__version__ = "2.4.4"
+__version__ = "1.0.0"
