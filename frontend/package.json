@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "author": "imoyao <immoyao@gmail.com>",
-  "description": "a web app to manage your funds",，
+  "description": "a web app to manage your funds",
   "scripts": {
     "serve": "vue-cli-service serve",
     "build": "vue-cli-service build",
@@ -25,6 +25,7 @@
     "vab-icon": "^0.0.1",
     "vue": "^2.6.12",
     "vue-class-component": "^7.2.6",
+    "vue-count-to": "^1.0.13",
     "vue-property-decorator": "^9.0.2",
     "vue-router": "^3.4.8",
     "vue-svgicon": "^3.2.9",

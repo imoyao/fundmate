@@ -16,7 +16,7 @@
           </div>
           <div class="total">
             <span class="money-mark">¥</span>
-            <var class="per-num">88888.88</var>
+            <var class="per-num">888888.88</var>
           </div>
         </div>
 

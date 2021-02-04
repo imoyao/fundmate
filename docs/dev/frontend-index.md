@@ -22,7 +22,7 @@ tags:
 1. 启动项目
 ```bash
 yarn install
-yarn run dev
+yarn serve
 ```
 ![](https://cdn.jsdelivr.net/gh/masantu/statics/images/20201230001135.png)
 
