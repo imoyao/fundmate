@@ -4,8 +4,7 @@ from datetime import datetime
 from typing import Union
 
 from flask import current_app
-from flask_login import UserMixin, AnonymousUserMixin
-
+from flask_login import AnonymousUserMixin, UserMixin
 from itsdangerous import BadSignature, SignatureExpired
 from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
 from sqlalchemy import TIMESTAMP, Date, DateTime, Float, String, text

@@ -5,15 +5,19 @@ libraries to emit through the loguru handler.  Must be the
 first import on the entry point to ensure the first execution
 of the standard library logger basicConfig method
 """
+import datetime
 import logging
 import os
 import time
 import zipfile
 from os import environ
 from sys import stderr
-import datetime
-from loguru import logger
 
+from loguru import logger
+try:
+    from flask import _app_ctx_stack as stack
+except ImportError:
+    from flask import _request_ctx_stack as stack
 
 LOG_LEVEL_TO_NAME = {
     5: "TRACE",
@@ -40,8 +44,7 @@ logger.add(stderr, diagnose=IS_BETTER_EXCEPTIONS_ACTIVE)
 
 
 class InterceptHandler(logging.Handler):
-    """
-    Handler to route stdlib logs to loguru
+    """Handler to route stdlib logs to loguru
     """
 
     def emit(self, record):
@@ -56,7 +59,7 @@ class InterceptHandler(logging.Handler):
 logging.basicConfig(handlers=[InterceptHandler()], level=LOG_LEVEL)
 
 
-class Logger(object):
+class Loguru(object):
     """This class is used to config loguru
     """
 
@@ -67,13 +70,16 @@ class Logger(object):
         self.config = config
 
         if app is not None:
+            self.app = app
             self.init_app(app, config)
+        else:
+            self.app = None
 
     def init_app(self, app, config=None):
         """This is used to initialize logger with your app object
         """
-        if not (config is None or isinstance(config, dict)):
-            raise ValueError("`config` must be an instance of dict or None")
+        # if not (config is None or isinstance(config, dict)):
+        #     raise ValueError("`config` must be an instance of dict or None")
 
         base_config = app.config.copy()
         if self.config:
@@ -93,7 +99,7 @@ class Logger(object):
         self._set_loguru(app, config)
 
     def _set_loguru(self, app, config):
-        """ Config logru
+        """ Config loguru
         """
         path = config["LOG_NAME"]
         if config["LOG_PATH"] is not None:
@@ -106,7 +112,7 @@ class Logger(object):
             return now - creation > config["LOG_ROTATION"]
 
         def should_retention(logs):
-            """ 检查是否需要进行压缩
+            """check if compress
             """
             # 依次查找写入
             file_list = list()
@@ -134,7 +140,7 @@ class Logger(object):
 
 
 def zip_logs(config, file_list):
-    """ 超过7天的文件按天打成zip包
+    """make zip tarball if timedelta after 1 weeks(7 days)
     """
     day = datetime.datetime.today().date() - datetime.timedelta(days=7)
 
