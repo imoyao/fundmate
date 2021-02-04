@@ -7,7 +7,7 @@ import re
 from distutils.util import strtobool
 from typing import Any, Callable
 
-from .logger import logger
+from .flask_loguru import logger
 
 
 class Required:

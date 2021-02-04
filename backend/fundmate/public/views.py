@@ -1,13 +1,6 @@
 # -*- coding: utf-8 -*-
 """Public section, including homepage and signup."""
-from flask import (
-    Blueprint,
-    current_app,
-    flash,
-    redirect,
-    request,
-    url_for,
-)
+from flask import Blueprint, current_app, flash, redirect, request, url_for
 from flask_login import login_required, login_user, logout_user
 
 from backend.fundmate.extensions import login_manager
