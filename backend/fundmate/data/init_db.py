@@ -3,6 +3,7 @@
 # Created by imoyao at 2021/1/29 16:03
 import json
 from pathlib import Path
+
 import yaml
 
 CURRENT_PATH = Path(__file__).resolve().parent

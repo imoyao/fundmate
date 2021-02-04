@@ -6,14 +6,14 @@ Most configuration is set via environment variables.
 For local development, use a .env file to set
 environment variables.
 """
-import os
+from pathlib import Path
 
 from environs import Env
 
 env = Env()
 env.read_env()
 
-ENV = env.str("FLASK_ENV", default="production")
+ENV = env.str("FLASK_ENV", default="default")       # default is dev
 '''
 在开发环境下，调试模式（Debug Mode）将被开启，这时执行flask run 启动程序会自动激活 Werkzeug 内置的调试器（debugger）和重载器（reloader），它们会为开发带来很大的帮助。
 
@@ -28,4 +28,4 @@ DEBUG_TB_ENABLED = DEBUG
 DEBUG_TB_INTERCEPT_REDIRECTS = False
 CACHE_TYPE = "simple"  # Can be "memcached", "redis", etc.
 SQLALCHEMY_TRACK_MODIFICATIONS = False
-CURRENT_DIR = os.path.abspath(os.path.dirname(__file__))
+CURRENT_DIR = Path(__file__).resolve().parent
