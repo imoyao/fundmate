@@ -12,6 +12,7 @@ import time
 import zipfile
 from os import environ
 from sys import stderr
+import pathlib
 
 from loguru import logger
 try:
@@ -103,11 +104,13 @@ class Loguru(object):
         """
         path = config["LOG_NAME"]
         if config["LOG_PATH"] is not None:
-            path = os.path.join(config["LOG_PATH"], config["LOG_NAME"])
+            path = pathlib.Path(config["LOG_PATH"]).joinpath(config["LOG_NAME"])
 
         def should_rotate(message, file):
-            filepath = os.path.abspath(file.name)
-            creation = os.path.getctime(filepath)
+            # filepath = os.path.abspath(file.name)
+            filepath = pathlib.Path(file.name).resolve()
+            # creation = os.path.getctime(filepath)
+            creation = pathlib.Path(filepath).stat().st_ctime
             now = message.record["time"].timestamp()
             return now - creation > config["LOG_ROTATION"]
 
@@ -117,12 +120,12 @@ class Loguru(object):
             # 依次查找写入
             file_list = list()
             for log in logs:
-                file_path = os.path.abspath(log)
+                file_path = str(pathlib.Path(log).resolve())
 
                 if file_path.endswith(".zip"):
                     continue
-
-                if time.gmtime(time.time() - os.path.getctime(file_path)).tm_mday == 7:
+                path_ctime = pathlib.Path(file_path).stat().st_ctime
+                if time.gmtime(time.time() - path_ctime).tm_mday == 7:
                     file_list.append(file_path)
 
             if file_list:
@@ -148,9 +151,10 @@ def zip_logs(config, file_list):
     zip_name = config['LOG_NAME'] + str(day) + ".zip"
 
     # 启动zip写入对象
-    zp = zipfile.ZipFile(os.path.join(config["LOG_PATH"], zip_name), "w")
+    zip_fp = pathlib.Path(config["LOG_PATH"]).joinpath(zip_name)
+    zp = zipfile.ZipFile(zip_fp, "w")
     for tar in file_list:
-        zp.write(tar, os.path.basename(tar))
+        zp.write(tar, pathlib.Path(tar).name)
 
     zp.close()
 
