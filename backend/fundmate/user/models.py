@@ -4,13 +4,7 @@ import datetime as dt
 
 from flask_login import UserMixin
 
-from backend.fundmate.database import (
-    Column,
-    PkModel,
-    db,
-    reference_col,
-    relationship,
-)
+from backend.fundmate.database import Column, PkModel, db, reference_col, relationship
 from backend.fundmate.extensions import bcrypt
 
 

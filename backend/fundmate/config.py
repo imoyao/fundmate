@@ -7,6 +7,7 @@ http://www.pythondoc.com/flask/config.html#id6
 import os
 
 from . import settings
+from .settings import env
 
 CURRENT_DIR = os.path.abspath(os.path.dirname(__file__))
 
@@ -45,6 +46,9 @@ class Config:
     # redis 配置
     # REDIS_URL = "redis://:password@localhost:6379/0"
     REDIS_URL = "redis://localhost:6379/0"
+    # logger
+    LOG_PATH = env.str("LOG_PATH", default="/home/work/www/log")
+    LOG_NAME = env.str("LOG_NAME", default="run.log")
 
     def __init__(self):
         pass

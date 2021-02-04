@@ -8,6 +8,8 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_static_digest import FlaskStaticDigest
 from flask_wtf.csrf import CSRFProtect
 
+from .exts.flask_loguru import Loguru
+
 bcrypt = Bcrypt()
 csrf_protect = CSRFProtect()
 login_manager = LoginManager()
@@ -15,3 +17,4 @@ db = SQLAlchemy()
 migrate = Migrate()
 cache = Cache()
 flask_static_digest = FlaskStaticDigest()
+loguru = Loguru()

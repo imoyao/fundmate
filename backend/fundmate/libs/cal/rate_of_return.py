@@ -48,11 +48,12 @@ from functools import partial
 from typing import Iterable, List, Union
 
 import dateparser
+import numpy_financial as npf
 import scipy.optimize
 from deprecated import deprecated
-import numpy_financial as npf
 
 from backend.fundmate.libs import convert
+
 from . import cal_except as calex
 
 DAYS_PER_YEAR = 365.0

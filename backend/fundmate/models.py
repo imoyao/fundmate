@@ -4,8 +4,7 @@ from datetime import datetime
 from typing import Union
 
 from flask import current_app
-from flask_login import UserMixin, AnonymousUserMixin
-
+from flask_login import AnonymousUserMixin, UserMixin
 from itsdangerous import BadSignature, SignatureExpired
 from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
 from sqlalchemy import TIMESTAMP, Date, DateTime, Float, String, text
@@ -74,6 +73,8 @@ class FundRate(PkModel):
 
 
 class FundMgr(PkModel):
+    """relation between Fund and Mgr
+    """
     __tablename__ = 'fund-mgr'
     __table_args__ = {'comment': '基金与经理关联表'}
 
@@ -84,6 +85,8 @@ class FundMgr(PkModel):
 
 
 class FundCompany(PkModel):
+    """relation between Fund and Company
+    """
     __tablename__ = 'fundcompany'
 
     name = Column(String(30))
