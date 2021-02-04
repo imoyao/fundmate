@@ -5,11 +5,11 @@
 http://www.pythondoc.com/flask/config.html#id6
 """
 import os
-
+from pathlib import Path
 from . import settings
 from .settings import env
 
-CURRENT_DIR = os.path.abspath(os.path.dirname(__file__))
+CURRENT_DIR = Path(__file__).resolve().parent
 
 
 class Config:
@@ -33,7 +33,7 @@ class Config:
     # 分页
     FLASKY_POSTS_PER_PAGE = 10
     # 上传图片
-    UPLOADED_IMAGES_DEST = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static/images')
+    UPLOADED_IMAGES_DEST = Path(CURRENT_DIR).joinpath('static/images')
     MAX_CONTENT_LENGTH = 10 * 1024 * 1024
     # 邮件服务器设置
     MAIL_SERVER = os.getenv('MAIL_SERVER')

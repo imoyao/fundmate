@@ -62,7 +62,7 @@ permalink: /acknowledgement
 *   [单元测试](https://www.bookstack.cn/read/Lin-CMS/63e4b4f1ef21ec5e.md)
 *   [闲谈 Lin](https://www.bookstack.cn/read/Lin-CMS/7d37e21cbfd641ea.md)
 *   [常见问题汇总](https://www.bookstack.cn/read/Lin-CMS/7f25c777a4390358.md)
-- [插件flask版 - 《Lin CMS 文档手册》 - 书栈网 · BookStack](https://www.bookstack.cn/read/Lin-CMS/flask-plugins.md)
+* [插件flask版 - 《Lin CMS 文档手册》 - 书栈网 · BookStack](https://www.bookstack.cn/read/Lin-CMS/flask-plugins.md)
 
 
 ### [Single Page Apps with Vue.js and Flask: Setting up Vue.js](https://stackabuse.com/single-page-apps-with-vue-js-and-flask-setting-up-vue-js/)
