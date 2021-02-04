@@ -1943,12 +1943,12 @@
     thread-loader "^2.1.3"
     webpack "^4.0.0"
 
-"@vue/cli-plugin-eslint@4.5.8":
-  version "4.5.8"
-  resolved "https://registry.npm.taobao.org/@vue/cli-plugin-eslint/download/@vue/cli-plugin-eslint-4.5.8.tgz#fce1ed659dbb50de7477592591348cf29f3353ff"
-  integrity sha1-/OHtZZ27UN50d1klkTSM8p8zU/8=
+"@vue/cli-plugin-eslint@^4.5.8":
+  version "4.5.11"
+  resolved "https://registry.yarnpkg.com/@vue/cli-plugin-eslint/-/cli-plugin-eslint-4.5.11.tgz#660eb7f8077a022c93bfad7b1cfb81e70a8be142"
+  integrity sha512-6XrF3A3ryjtqoPMYL0ltZaP0631HS2a68Ye34KIkz111EKXtC5ip+gz6bSPWrH5SbhinU3R8cstA8xVASz9kwg==
   dependencies:
-    "@vue/cli-shared-utils" "^4.5.8"
+    "@vue/cli-shared-utils" "^4.5.11"
     eslint-loader "^2.2.1"
     globby "^9.2.0"
     inquirer "^7.1.0"
@@ -2077,6 +2077,24 @@
     webpack-merge "^4.2.2"
   optionalDependencies:
     vue-loader-v16 "npm:vue-loader@^16.0.0-beta.7"
+
+"@vue/cli-shared-utils@^4.5.11":
+  version "4.5.11"
+  resolved "https://registry.yarnpkg.com/@vue/cli-shared-utils/-/cli-shared-utils-4.5.11.tgz#fff71673ee9128f998c691515b9d327071b4f41e"
+  integrity sha512-+aaQ+ThQG3+WMexfSWNl0y6f43edqVqRNbguE53F3TIH81I7saS5S750ayqXhZs2r6STJJyqorQnKtAWfHo29A==
+  dependencies:
+    "@hapi/joi" "^15.0.1"
+    chalk "^2.4.2"
+    execa "^1.0.0"
+    launch-editor "^2.2.1"
+    lru-cache "^5.1.1"
+    node-ipc "^9.1.1"
+    open "^6.3.0"
+    ora "^3.4.0"
+    read-pkg "^5.1.1"
+    request "^2.88.2"
+    semver "^6.1.0"
+    strip-ansi "^6.0.0"
 
 "@vue/cli-shared-utils@^4.5.8":
   version "4.5.8"
@@ -4634,12 +4652,13 @@ ecc-jsbn@~0.1.1:
     jsbn "~0.1.0"
     safer-buffer "^2.1.0"
 
-echarts@^4.9.0:
-  version "4.9.0"
-  resolved "https://registry.npm.taobao.org/echarts/download/echarts-4.9.0.tgz?cache=0&sync_timestamp=1606890707379&other_urls=https%3A%2F%2Fregistry.npm.taobao.org%2Fecharts%2Fdownload%2Fecharts-4.9.0.tgz#a9b9baa03f03a2a731e6340c55befb57a9e1347d"
-  integrity sha1-qbm6oD8Doqcx5jQMVb77V6nhNH0=
+echarts@^5.0.1:
+  version "5.0.1"
+  resolved "https://registry.yarnpkg.com/echarts/-/echarts-5.0.1.tgz#b999ff6f515b1aa851ed09576eaf89686b57ce97"
+  integrity sha512-JYn22Dolt2esY2jEzUsw1OxbobuW67oGjIoTjZO3rW89SWkfJ4kbrmC2OW9JjsBrD1rdkmaWBuZZ2HgmThyxJw==
   dependencies:
-    zrender "4.3.2"
+    tslib "2.0.3"
+    zrender "5.0.3"
 
 editorconfig@^0.15.3:
   version "0.15.3"
@@ -11618,6 +11637,11 @@ tsconfig@^7.0.0:
     strip-bom "^3.0.0"
     strip-json-comments "^2.0.0"
 
+tslib@2.0.3:
+  version "2.0.3"
+  resolved "https://registry.yarnpkg.com/tslib/-/tslib-2.0.3.tgz#8e0741ac45fc0c226e58a17bfc3e64b9bc6ca61c"
+  integrity sha512-uZtkfKblCEQtZKBF6EBXVZeQNl82yqtDQdv+eck8u7tdPxjLu2/lp5/uPW+um2tpuxINHWy3GhiccY7QgEaVHQ==
+
 tslib@^1.8.0, tslib@^1.8.1, tslib@^1.9.0, tslib@^1.9.3:
   version "1.14.1"
   resolved "https://registry.yarnpkg.com/tslib/-/tslib-1.14.1.tgz#cf2d38bdc34a134bcaf1091c41f6619e2f672d00"
@@ -12022,6 +12046,11 @@ vue-cli-plugin-style-resources-loader@^0.1.4:
   version "0.1.4"
   resolved "https://registry.yarnpkg.com/vue-cli-plugin-style-resources-loader/-/vue-cli-plugin-style-resources-loader-0.1.4.tgz#6087a86132ea8125aa89e5f8e0a978fbc8cf6f59"
   integrity sha512-aK2TyVThZO6oVPZJpCckha8ALcg1RXKYLNqtuy1fNv+24x6zGWKpSK+FHAo47B7yeRlFS9DbKo+cvUFMqWaZ7Q==
+
+vue-count-to@^1.0.13:
+  version "1.0.13"
+  resolved "https://registry.yarnpkg.com/vue-count-to/-/vue-count-to-1.0.13.tgz#3e7573ea6e64c2b2972f64e0a2ab2e23c7590ff3"
+  integrity sha512-6R4OVBVNtQTlcbXu6SJ8ENR35M2/CdWt3Jmv57jOUM+1ojiFmjVGvZPH8DfHpMDSA+ITs+EW5V6qthADxeyYOQ==
 
 vue-eslint-parser@^7.0.0, vue-eslint-parser@^7.1.1:
   version "7.1.1"
@@ -12841,7 +12870,9 @@ yorkie@^2.0.0:
     normalize-path "^1.0.0"
     strip-indent "^2.0.0"
 
-zrender@4.3.2:
-  version "4.3.2"
-  resolved "https://registry.npm.taobao.org/zrender/download/zrender-4.3.2.tgz?cache=0&sync_timestamp=1605885988121&other_urls=https%3A%2F%2Fregistry.npm.taobao.org%2Fzrender%2Fdownload%2Fzrender-4.3.2.tgz#ec7432f9415c82c73584b6b7b8c47e1b016209c6"
-  integrity sha1-7HQy+UFcgsc1hLa3uMR+GwFiCcY=
+zrender@5.0.3:
+  version "5.0.3"
+  resolved "https://registry.yarnpkg.com/zrender/-/zrender-5.0.3.tgz#5e04a55d36455067e4536c8ce9c25093f50f6b68"
+  integrity sha512-TVcN2IMdo7je3GEq/E4CER4AGBe/n50/izILdupppyHf/hVHuiXCRliqdu8+32Z1OmGg6RfKt5qQlkX+bOtU0g==
+  dependencies:
+    tslib "2.0.3"
