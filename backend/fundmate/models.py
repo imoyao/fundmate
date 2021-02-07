@@ -11,17 +11,16 @@ from sqlalchemy import TIMESTAMP, Date, DateTime, Float, String, text
 from sqlalchemy.dialects.mysql import INTEGER, TINYINT, TINYTEXT
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from backend.fundmate.database import Column, PkModel
+from backend.fundmate.database import Column,CreateDateModel, PkModel
 
 from .extensions import db, login_manager
 
 
-class Account(PkModel):
+class Account(PkModel, CreateDateModel):
     __tablename__ = 'account'
     __table_args__ = {'comment': '账本（钱包）'}
 
     name = Column(String(255), comment='账本名称')
-    create_date = Column(DateTime, default=datetime.utcnow, comment='账本创建时间')
     creator_id = Column(INTEGER(11), comment='管理人（群主）')
     comment = Column(String(255), comment='账本备注')
 
