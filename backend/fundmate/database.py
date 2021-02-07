@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """Database module, including the SQLAlchemy database object and DB-related utilities."""
+from datetime import datetime
+
 from .compat import basestring
 from .extensions import db
 
@@ -41,6 +43,10 @@ class Model(CRUDMixin, db.Model):
 
     __abstract__ = True
 
+    def to_dict(self):
+        columns = self.__table__.columns.keys()
+        return {key: getattr(self, key) for key in columns}
+
 
 class PkModel(Model):
     """Base model class that includes CRUD convenience methods, plus adds a 'primary key' column named ``id``."""
@@ -59,6 +65,11 @@ class PkModel(Model):
         ):
             return cls.query.get(int(record_id))
         return None
+
+
+class CreateDateModel(Model):
+    """模仿PkModel，给数据表增加一个添加创建时间列"""
+    create_date = Column(db.DateTime, default=datetime.utcnow(), comment='创建时间')
 
 
 def reference_col(
