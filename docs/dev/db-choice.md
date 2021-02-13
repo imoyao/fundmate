@@ -42,7 +42,27 @@ engine = create_engine('mysql+mysqldb://scott:tiger@localhost/foo')
 # PyMySQL
 engine = create_engine('mysql+pymysql://scott:tiger@localhost/foo')
 ```
-5. 数据库更新和降级
+5. 数据库创建
+初始化时，我们需要定义初始化函数，参见：`fundmate.commands.init_db`，之后将数据库配置写入环境变量；我们可以直接以`DATABASE_URL`的方式给出数据库的链接，也可以使用更细粒度的控制方式，以实现每一种环境使用不同的配置方式。一种可参考的配置方式如下：
+```
+DATABASE_URL=sqlite:////tmp/dev.db
+MYSQL_USER=
+MYSQL_PASSWORD=
+MYSQL_DB=
+```
+需要注意的是：
+> 当继承db.Model基类的子类被声明创建时，根据db.Model基类继承的元类中设置的行为，类声明后会将表信息注册到db.Model.metadata.tables属性中。
+>
+>`create_all()`方法被调用时正是通过这个属性来获取表信息。因此，当我们调用create_all()前，需要确保模型类被声明创建。如果模型类存储在单独的模块中，不导入该模块就不会执行其中的代码，模型类便不会被创建，进而便无法注册表信息到db.Model.metadata.tables中，所以这时需要导入相应的模块。
+
+
+参见：
+1. [sqlalchemy中用db.create_all()无法建表？ - 知乎](https://www.zhihu.com/question/21489726)
+2. [使用Flask-SQLAlchemy调用create_all()前是否需要导入模型类？为什么？ - 知乎](https://www.zhihu.com/question/284904297)
+
+`fundmate.app.register_shell_context`函数中需要注册之后调用`flask init-db`才能生成需要的数据表。
+
+6. 数据库更新和降级
 [Flask-migrate基本使用方法 - sablier - 博客园](https://www.cnblogs.com/sablier/p/11084080.html)
 
 ### E-R 图
