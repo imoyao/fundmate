@@ -331,6 +331,10 @@ def home():
 ```
 :::
 
+### 按业务组织
+
+一个大型项目中，会包含很多子业务，比如本项目中我们会有用户管理、基金管理、流水记录等，每一部分都可以是独立的项目，在 Flask 中，按照业务的方式将文件划分开，就是按业务方式来组织项目结构，这样的组织方式有助于并行开发和分而治之。
+
 ## 相关链接
 - [项目布局 — Flask 中文文档（ 1.1.1 ）](https://dormousehole.readthedocs.io/en/latest/tutorial/layout.html)
 - [结构化您的工程 — The Hitchhiker's Guide to Python](https://pythonguidecn.readthedocs.io/zh/latest/writing/structure.html)
