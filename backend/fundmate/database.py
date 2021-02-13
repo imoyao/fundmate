@@ -69,7 +69,9 @@ class PkModel(Model):
 
 class CreateDateModel(Model):
     """模仿PkModel，给数据表增加一个添加创建时间列"""
-    create_date = Column(db.DateTime, default=datetime.utcnow(), comment='创建时间')
+    # https://stackoverflow.com/a/18675245/14295718
+    __abstract__ = True
+    create_at = Column(db.DateTime, default=datetime.utcnow, comment='创建时间')
 
 
 def reference_col(
