@@ -1,0 +1,85 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+# Created by Administrator at 2021/2/13 17:50
+
+from backend.fundmate.database import Column, PkModel, db
+
+
+class DailyWorth(PkModel):
+    """每日净值"""
+    fid = Column(db.Integer, comment='基金编号')
+    price = Column(db.Float, comment='基金单日净值')
+    date = Column(db.Date, comment='日期')
+
+
+class Fund(PkModel):
+    """基金表"""
+
+    __table_args__ = {'comment': '基金表'}
+
+    name = Column(db.String(30), comment='基金名称')
+    fund_code = Column(db.Integer, unique=True, comment='基金编码')
+    ftype = Column(db.Integer, comment='基金类型')
+    variety = Column(db.Integer)
+    co_id = Column(db.Integer, comment='所属基金公司')
+    create_time = Column(db.DateTime)
+
+
+class FundRate(PkModel):
+
+    fid = Column(db.Integer, comment='基金编号')
+    rule_id = Column(db.Integer, comment='费率编号')
+    rate = Column(db.Integer, comment='费率百分比')
+    type = Column(db.Boolean, nullable=True, comment='卖出或买入')
+
+
+class FundMgr(PkModel):
+    """relation between Fund and Mgr
+    """
+    __table_args__ = {'comment': '基金与经理关联表'}
+
+    fid = Column(db.Integer, comment='基金编号')
+    mgr_id = Column(db.Integer, comment='基金经理编号')
+    start_date = Column(db.DateTime)
+    end_date = Column(db.DateTime)
+
+
+class FundCompany(PkModel):
+    """基金公司表
+    """
+
+    name = Column(db.String(30), comment='基金公司名称')
+    co_id = Column(db.String(10), comment='基金公司编号')
+
+
+class FundType(PkModel):
+    __table_args__ = {'comment': '基金小类表'}
+
+    name = Column(db.String(255))
+    var_id = Column(db.Integer)
+
+
+class FundVariety(PkModel):
+    __table_args__ = {'comment': '基金大类表'}
+
+    name = Column(db.String(255))
+
+
+class InRule(PkModel):
+    start_quota = Column(db.Integer, comment='计费开始额度')
+    end_quota = Column(db.Integer, comment='计费结束额度')
+
+
+class Mgr(PkModel):
+    __table_args__ = {'comment': '基金经理'}
+
+    mgr_id = Column(db.Integer, comment='经理编号')
+    name = Column(db.String(4), comment='经理名称')
+    company_id = Column(db.Integer, comment='所属公司ID')
+
+
+class OutRule(PkModel):
+    __table_args__ = {'comment': '赎回规则'}
+
+    start_day = Column(db.Integer, comment='计费开始天数')
+    end_day = Column(db.Integer, comment='计费结束天数')

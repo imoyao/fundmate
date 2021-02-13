@@ -5,20 +5,20 @@ import sys
 
 from flask import Flask
 
-from backend.fundmate import commands, public, user
+from backend.fundmate import account, commands, fund, public, settings, user
+from backend.fundmate.config import config
 from backend.fundmate.extensions import (
     bcrypt,
     cache,
     csrf_protect,
     db,
     flask_static_digest,
-    loguru,
     login_manager,
+    loguru,
     migrate,
 )
-from .exts.flask_loguru import logger
 
-from .config import config
+from .exts.flask_loguru import logger
 
 
 def create_app(config_object="backend.fundmate.settings"):
@@ -28,14 +28,19 @@ def create_app(config_object="backend.fundmate.settings"):
     """
     app = Flask(__name__.split(".")[0])
     app.config.from_object(config_object)
+    update_config(app)
     register_extensions(app)
     register_blueprints(app)
     register_error_handlers(app)
     register_shell_context(app)
     register_commands(app)
     configure_logger(app)
-    update_config(app)
-    logger.info('Flask app has start!')
+    logger.info('Flask app has created!')
+    '''
+    RuntimeError: No application found. Either work inside a view function or push an application context. See http://flask-sqlalchemy.pocoo.org/contexts/.
+    see also: https://blog.csdn.net/zhongqiushen/article/details/79162792
+    '''
+    app.app_context().push()
     return app
 
 
@@ -80,7 +85,7 @@ def register_shell_context(app):
     """Register shell context objects."""
     def shell_context():
         """Shell context objects."""
-        return {"db": db, "User": user.models.User}
+        return {"db": db, "User": user.models.User, 'Fund': fund.models.Fund, 'Account':account.models.Account}
 
     app.shell_context_processor(shell_context)
 
@@ -89,6 +94,7 @@ def register_commands(app):
     """Register Click commands."""
     app.cli.add_command(commands.test)
     app.cli.add_command(commands.lint)
+    app.cli.add_command(commands.init_db)  # 添加指令
 
 
 def configure_logger(app):
@@ -98,6 +104,8 @@ def configure_logger(app):
         app.logger.addHandler(handler)
 
 
-def update_config(app):     # TODO: not complete
-    # logger.info(config)
-    app.config.update(config)
+def update_config(app):
+    """除了setting中的配置，我们对一些根据不同环境（生产、测试、开发）的配置进行区分"""
+    amend_conf = config.get(settings.ENV)
+    logger.info(amend_conf)
+    app.config.from_object(amend_conf)

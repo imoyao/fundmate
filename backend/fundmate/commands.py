@@ -7,6 +7,8 @@ from subprocess import call
 
 import click
 
+from .database import db
+
 CURRENT_PATH = Path(__file__).resolve().parent
 PROJECT_ROOT = CURRENT_PATH.parent
 TEST_PATH = Path(PROJECT_ROOT, "tests")
@@ -18,6 +20,17 @@ def test():
     import pytest
     rv = pytest.main([str(TEST_PATH), "--verbose"])
     exit(rv)
+
+
+@click.command()
+@click.option('--drop', default=False, is_flag=True, help='Create databases after drop.')
+def init_db(drop):
+    """Initialized databases
+    """
+    if drop:
+        click.confirm('This operation will delete the database, do you want to continue?', abort=True)
+        db.drop_all()
+    db.create_all()
 
 
 @click.command()
