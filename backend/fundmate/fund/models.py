@@ -18,11 +18,36 @@ class Fund(PkModel):
     __table_args__ = {'comment': '基金表'}
 
     name = Column(db.String(30), comment='基金名称')
+    '''
+    此处标准写法应该使用英文，但是可能导致查询啰嗦，所以使用拼音代替变量，后面变量作为列名自解释
+    1. [python - Use alias for column name in SQLAlchemy - Stack Overflow]
+    (https://stackoverflow.com/questions/37758128/use-alias-for-column-name-in-sqlalchemy)
+    2. [mysql - Aliasing field names in SQLAlchemy model or underlying SQL table - Stack Overflow]
+    (https://stackoverflow.com/questions/37420135/aliasing-field-names-in-sqlalchemy-model-or-underlying-sql-table)
+    查询：
+    [SQLAlchemy select 中的表别名、列别名 | Jeremy's blog](https://www.isyin.cn/note/2018-10-28-2249/)
+    ```
+    # 表别名：select * from my_customer_table as customer
+    customer = my_customer_table.alias('customer')
+    
+    # 列别名 select user.name as username from user
+    columns = [
+        customer,
+        user.c['name'].label('username')
+    ]
+    ```
+    '''
+    sxszm = Column('abbr_capital_initial_phonetic_alphabet',
+                   db.String(30),
+                   comment='缩写首字母拼音')
+    qxpy = Column('full_capital_phonetic_alphabet',
+                  db.String(60),
+                  comment='全写拼音')
     fund_code = Column(db.Integer, unique=True, comment='基金编码')
-    ftype = Column(db.Integer, comment='基金类型')
-    variety = Column(db.Integer)
-    co_id = Column(db.Integer, comment='所属基金公司')
-    create_time = Column(db.DateTime)
+    ftype = Column(db.Integer, comment='基金小类编号')
+    variety = Column(db.Integer, comment='基金大类编号')
+    co_id = Column(db.Integer, comment='所属基金公司编号')
+    create_time = Column(db.DateTime, comment='基金创建时间')
 
 
 class FundRate(PkModel):

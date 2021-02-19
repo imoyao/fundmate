@@ -8,6 +8,7 @@ from subprocess import call
 import click
 
 from .database import db
+from flask import current_app
 
 CURRENT_PATH = Path(__file__).resolve().parent
 PROJECT_ROOT = CURRENT_PATH.parent
@@ -22,15 +23,33 @@ def test():
     exit(rv)
 
 
-@click.command()
-@click.option('--drop', default=False, is_flag=True, help='Create databases after drop.')
-def init_db(drop):
-    """Initialized databases
+def check_before_create(drop=False):
+    """
+    see also:[How can I reuse the function that iv made as a command? · Issue #330 · pallets/click](https://github.com/pallets/click/issues/330)
+    :param drop:
+    :return:
     """
     if drop:
         click.confirm('This operation will delete the database, do you want to continue?', abort=True)
         db.drop_all()
     db.create_all()
+
+
+@click.command()
+@click.option('--drop', default=False, is_flag=True, help='Create databases after drop.')
+def init_db(drop):
+    """Initialized databases
+    """
+    check_before_create(drop=drop)
+
+
+@click.command()
+@click.option('--fund', default=True, help='Insert info of funds.')
+@click.option('--mgr', default=True, help='Insert manger of funds.')
+@click.option('--company', default=True, help='Insert company of funds.')
+def create_db(fund, mgr, company):
+    """Create data."""
+    check_before_create(drop=True)
 
 
 @click.command()
