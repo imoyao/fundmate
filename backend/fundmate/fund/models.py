@@ -44,9 +44,9 @@ class Fund(PkModel):
                   db.String(60),
                   comment='全写拼音')
     fund_code = Column(db.Integer, unique=True, comment='基金编码')
-    ftype = Column(db.Integer, comment='基金小类编号')
-    variety = Column(db.Integer, comment='基金大类编号')
-    co_id = Column(db.Integer, comment='所属基金公司编号')
+    ftype = Column(db.Integer, db.ForeignKey('fund_type.id'), comment='基金小类编号')
+    variety = Column(db.Integer, db.ForeignKey('fund_variety.id'), comment='基金大类编号')
+    co_id = Column(db.Integer, db.ForeignKey('fund_company.id'), comment='所属基金公司编号')
     create_time = Column(db.DateTime, comment='基金创建时间')
 
 
@@ -81,7 +81,7 @@ class FundType(PkModel):
     __table_args__ = {'comment': '基金小类表'}
 
     name = Column(db.String(255))
-    var_id = Column(db.Integer)
+    var_id = Column(db.Integer, db.ForeignKey('fund_variety.id'), comment='基金大类编号')
 
 
 class FundVariety(PkModel):
@@ -100,7 +100,7 @@ class Mgr(PkModel):
 
     mgr_id = Column(db.Integer, comment='经理编号')
     name = Column(db.String(4), comment='经理名称')
-    company_id = Column(db.Integer, comment='所属公司ID')
+    company_id = Column(db.Integer, db.ForeignKey('fund_company.id'), comment='所属公司ID')
 
 
 class OutRule(PkModel):

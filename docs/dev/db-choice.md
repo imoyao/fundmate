@@ -31,7 +31,9 @@ SELECT concat('DROP TABLE IF EXISTS ', table_name, ';')
 FROM information_schema.tables
 WHERE table_schema = '{DB_NAME}';
 ```
-4. 最后编写 ORM 代码；当然，我们也可以使用[sqlacodegen](https://github.com/agronholm/sqlacodegen)自动生成 ORM。
+4. 数据库设计
+
+最后编写 ORM 代码；当然，我们也可以使用[sqlacodegen](https://github.com/agronholm/sqlacodegen)自动生成 ORM。
 ```
 # default
 engine = create_engine('mysql://scott:tiger@localhost/foo')
@@ -42,7 +44,23 @@ engine = create_engine('mysql+mysqldb://scott:tiger@localhost/foo')
 # PyMySQL
 engine = create_engine('mysql+pymysql://scott:tiger@localhost/foo')
 ```
+默认情况下，Flask-SQLAlchemy会根据模型类的名称生成一个表名称，生成规则如下：
+```
+FooBar --> foo_bar  # 驼峰命名改为小写下划线
+Baz --> baz         # 单个单词的改为小写
+```
+> Some parts that are required in SQLAlchemy are optional in Flask-SQLAlchemy. For instance the table name is automatically set for you unless overridden. It’s derived from the class name converted to lowercase and with “CamelCase” converted to “camel_case”. To override the table name, set the `__tablename__` class attribute.
+
+来源见此：[Declaring Models — Flask-SQLAlchemy Documentation (2.x)](https://flask-sqlalchemy.palletsprojects.com/en/2.x/models/#declaring-models)
+
+### 关系对应模型
+
+#### 一对多
+
+所谓的一对多就是外键设计，在idealyard项目中，我们的文章和作者就是一对多的关系。本例中，我们的用户（User）和账户（Account）就是这种关系。
+
 5. 数据库创建
+
 初始化时，我们需要定义初始化函数，参见：`fundmate.commands.init_db`，之后将数据库配置写入环境变量；我们可以直接以`DATABASE_URL`的方式给出数据库的链接，也可以使用更细粒度的控制方式，以实现每一种环境使用不同的配置方式。一种可参考的配置方式如下：
 ```
 DATABASE_URL=sqlite:////tmp/dev.db
@@ -55,15 +73,24 @@ MYSQL_DB=
 >
 >`create_all()`方法被调用时正是通过这个属性来获取表信息。因此，当我们调用create_all()前，需要确保模型类被声明创建。如果模型类存储在单独的模块中，不导入该模块就不会执行其中的代码，模型类便不会被创建，进而便无法注册表信息到db.Model.metadata.tables中，所以这时需要导入相应的模块。
 
-
 参见：
 1. [sqlalchemy中用db.create_all()无法建表？ - 知乎](https://www.zhihu.com/question/21489726)
 2. [使用Flask-SQLAlchemy调用create_all()前是否需要导入模型类？为什么？ - 知乎](https://www.zhihu.com/question/284904297)
 
 `fundmate.app.register_shell_context`函数中需要注册之后调用`flask init-db`才能生成需要的数据表。
 
+数据库在初始化构建完成之后，我们就可以进行开发了。但是在实际的开发过程中，我们的设计会跟着开发不断迭代进化。这个时候我们就需要进行数据库的迁移。
+
 6. 数据库更新和降级
-[Flask-migrate基本使用方法 - sablier - 博客园](https://www.cnblogs.com/sablier/p/11084080.html)
+
+数据库迁移的主要目的是保留我们之前数据的记录，同时一旦发现数据库设计出现问题，可以通过降级回滚到之前的较旧版本中去。
+
+此处我们使用 [Flask-Migrate](https://flask-migrate.readthedocs.io/en/latest/) 扩展实现。具体使用英文不好的同学可以参考此处：[Flask-migrate基本使用方法 - sablier - 博客园](https://www.cnblogs.com/sablier/p/11084080.html)。
+
+关于`SQLALCHEMY_COMMIT_ON_TEARDOWN`的讨论：
+- [关于Flask-SQLAlchemy事务提交有趣的探讨 - SegmentFault 思否](https://segmentfault.com/a/1190000007818952)
+- [SQLAlchemy 两种不同方式 commit() 时间开支的问题 - 知乎](https://zhuanlan.zhihu.com/p/27974385)
+- [关于flask-sqlalchemy中数据库操作的问题整理 - 简书](https://www.jianshu.com/p/ead613514f18)
 
 ### E-R 图
 
