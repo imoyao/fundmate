@@ -59,6 +59,12 @@ Baz --> baz         # 单个单词的改为小写
 
 所谓的一对多就是外键设计，在idealyard项目中，我们的文章和作者就是一对多的关系。本例中，我们的用户（User）和账户（Account）就是这种关系。
 
+#### 多态关联（Polymorphic Associations）
+
+原文：[polymorphic associations - Possible to do a MySQL foreign key to one of two possible tables? - Stack Overflow](https://stackoverflow.com/questions/441001/possible-to-do-a-mysql-foreign-key-to-one-of-two-possible-tables) 中文版：[MySQL 表中的同一个字段能否同时是两个表的外键 - 简书](https://www.jianshu.com/p/915dc58d2d0f)
+
+[python - Flask-SQLAlchemy polymorphic association - Stack Overflow](https://stackoverflow.com/questions/57000045/flask-sqlalchemy-polymorphic-association)
+
 5. 数据库创建
 
 初始化时，我们需要定义初始化函数，参见：`fundmate.commands.init_db`，之后将数据库配置写入环境变量；我们可以直接以`DATABASE_URL`的方式给出数据库的链接，也可以使用更细粒度的控制方式，以实现每一种环境使用不同的配置方式。一种可参考的配置方式如下：
