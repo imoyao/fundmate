@@ -29,6 +29,9 @@ class CRUDMixin(object):
         """Save the record."""
         db.session.add(self)
         if commit:
+            '''
+            Flask-SQLAlchemy提供了一个SQLALCHEMY_COMMIT_ON_TEARDOWN配置变量，将其设为True可以设置自动调用commit()方法提交数据库会话。因为存在潜在的Bug，目前已不建议使用，而且未来版本中将移除该配置变量。请避免使用该配置变量，可使用手动调用db.session.commit()方法的方式提交数据库会话。
+            '''
             db.session.commit()
         return self
 

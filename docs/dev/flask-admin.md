@@ -1,6 +1,7 @@
 ---
-title: Flask-Admin 后台管理
+title: 使用 Flask-Admin 增加后台管理界面
 ---
+## Flask-Admin 后台管理
 
 Flask-Admin是一个简单易用的Flask扩展，让你可以很方便并快速地为Flask应用程序增加管理界面。
 
@@ -9,24 +10,23 @@ Flask-Admin是一个简单易用的Flask扩展，让你可以很方便并快速�
 先用pip 安装flask-admin扩展
 
 ```    
-    pip install flask-admin
-    
-    ```
+pip install flask-admin 
+```
 
 初始化
 
 ```    
-    from flask import Flask
-    
-    from flask_admin import Admin, BaseView, expose
-    
-    app = Flask(__name__)
-    
-    admin = Admin(app[,name=u'后台管理系统'])
-    
-    app.run()
-    
-    ```
+from flask import Flask
+
+from flask_admin import Admin, BaseView, expose
+
+app = Flask(__name__)
+
+admin = Admin(app[,name=u'后台管理系统'])
+
+app.run()
+
+```
 
 访问[http://localhost:5000/admin/](http://localhost:5000/admin/)就可以看到一个简单的Home页面，其中name为自定义系统名，会显示在导航栏上
 
@@ -39,31 +39,34 @@ Flask-Admin是一个简单易用的Flask扩展，让你可以很方便并快速�
 在之前代码上增加
 
 ```    
-    class MyView(BaseView):
-    
-    #这里类似于app.route()，处理url请求
-    
+from flask import Flask
+from flask.ext.admin import Admin, BaseView, expose
+
+class MyView(BaseView):
     @expose('/')
-    
     def index(self):
-    
-    return self.render('index.html')
-    
-    admin.add_view(MyView(name=u'Hello'))
-    ```
+        return self.render('index.html')
+
+app = Flask(__name__)
+
+admin = Admin(app)
+admin.add_view(MyView(name='Hello'))
+
+app.run()
+```
     
 
 在templates下写模板文件index.html
 
 ```    
-    {% extends 'admin/master.html' %}   #为了保持一致，继承admin/master.html模板
-    
-    {% block body %}
-    
-    欢迎来到后台管理系统！
-    
-    {% endblock %}
-    ```
+{% extends 'admin/master.html' %}   #为了保持一致，继承admin/master.html模板
+
+{% block body %}
+
+欢迎来到后台管理系统！
+
+{% endblock %}
+```
     
 
 这里采用的模板语言为Jinjia2，查看[Jinjia2文档](https://link.jianshu.com?t=http://docs.jinkan.org/docs/jinja2/)
@@ -73,13 +76,13 @@ Flask-Admin是一个简单易用的Flask扩展，让你可以很方便并快速�
 这是Flask-Admin很方便的一个部分，只需要很少的代码，就可以为某个数据库模型实现管理视图，这里采用Flask-SQLAlchemy作为ORM后端
 
 ```    
-    from flask_admin.contrib.sqla import ModelView
-    
-    # 在这里初始化Flask Flask-SQLAlchemy Flask-Admin
-    
-    admin.add_view(ModelView(User, db.session))
-    
-    ```
+from flask_admin.contrib.sqla import ModelView
+
+# 在这里初始化Flask Flask-SQLAlchemy Flask-Admin
+
+admin.add_view(ModelView(User, db.session))
+
+```
 
 模型视图例子
 
@@ -90,14 +93,14 @@ Flask-Admin是一个简单易用的Flask扩展，让你可以很方便并快速�
 ### 用Flask-BabelEx做国际化
 
 ```    
-    from flask_babelex import Babel
-    
-    app = Flask(__name__)
-    
-    babel = Babel(app)
-    
-    app.config['BABEL_DEFAULT_LOCALE'] = 'zh_CN'
-    ```
+from flask_babelex import Babel
+
+app = Flask(__name__)
+
+babel = Babel(app)
+
+app.config['BABEL_DEFAULT_LOCALE'] = 'zh_CN'
+```
     
 
 然后运行，很方便就可以以中文显示，如果改成其他语言也非常方便
@@ -107,36 +110,36 @@ Flask-Admin是一个简单易用的Flask扩展，让你可以很方便并快速�
 ### 定制数据库模型视图
 
 ```    
-    class UserView(ModelView):
-    
-    #这三个变量定义管理员是否可以增删改，默认为True
-    
-    can_delete = False
-    
-    can_edit = False
-    
-    can_create = False
-    
-    #这里是为了自定义显示的column名字
-    
-    column_labels = dict(
-    
-    username=u'用户名',
-    
-    )
-    
-    #如果不想显示某些字段，可以重载这个变量
-    
-    column_exclude_list = (
-    
-    'password_hash',
-    
-    )
-    
-    # 只需把自己写的处理模型的视图加进去就行了，category是可选的目录
-    
-    admin.add_view(UserView(User, db.session, name=u'信息', category=u'用户'))
-    ```
+class UserView(ModelView):
+
+#这三个变量定义管理员是否可以增删改，默认为True
+
+can_delete = False
+
+can_edit = False
+
+can_create = False
+
+#这里是为了自定义显示的column名字
+
+column_labels = dict(
+
+username=u'用户名',
+
+)
+
+#如果不想显示某些字段，可以重载这个变量
+
+column_exclude_list = (
+
+'password_hash',
+
+)
+
+# 只需把自己写的处理模型的视图加进去就行了，category是可选的目录
+
+admin.add_view(UserView(User, db.session, name=u'信息', category=u'用户'))
+```
     
 
 更多可定制选项见[flask\_admin.model文档](https://link.jianshu.com?t=http://flask-admin.readthedocs.io/en/latest/api/mod_model/?module-flask_admin.model)
@@ -196,7 +199,7 @@ Flask-Admin是一个简单易用的Flask扩展，让你可以很方便并快速�
     
     {% endblock body %}
     
-    ```
+```
 
 处理管理员登录
 
@@ -230,15 +233,15 @@ Flask-Admin是一个简单易用的Flask扩展，让你可以很方便并快速�
     #AdminUser是存储管理员用户密码的表
     
     return db.session.query(AdminUser).filter_by(login=self.login.data).first()
-    ```
+```
     
 
 安装flask-login
 
 ```    
-    pip install flask-login
+pip install flask-login
     
-    ```
+```
 
 初始化，调用init\_login()函数即可
 
@@ -256,7 +259,7 @@ Flask-Admin是一个简单易用的Flask扩展，让你可以很方便并快速�
     def load_user(user_id):
     
     return db.session.query(AdminUser).get(user_id)
-    ```
+```
     
 
 然后在需要管理员权限的才能看到的视图中添加代码
@@ -268,7 +271,7 @@ Flask-Admin是一个简单易用的Flask扩展，让你可以很方便并快速�
     
     return current_user.is_authenticated
     
-    ```
+```
 
 ### 管理上传文件和图片
 

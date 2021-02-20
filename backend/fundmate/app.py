@@ -82,11 +82,14 @@ def register_error_handlers(app):
 
 
 def register_shell_context(app):
-    """Register shell context objects."""
+    """Register shell context objects.
+    注册shell上下文处理函数
+    """
     def shell_context():
         """Shell context objects."""
-        return {"db": db, "User": user.models.User, 'Fund': fund.models.Fund, 'Account':account.models.Account}
-
+        return {"db": db, "User": user.models.User, 'Fund': fund.models.Fund, 'Account': account.models.Account}
+    # 当你使用flask shell命令启动Python Shell时，所有使用app.shell_context_processor装饰器注册的shell上下文处理函数
+    # 都会被自动执行，这会将db和Note对象推送到Python Shell上下文里
     app.shell_context_processor(shell_context)
 
 
