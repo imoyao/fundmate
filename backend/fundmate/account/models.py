@@ -9,18 +9,20 @@ class Account(PkModel, CreateDateModel):
     __table_args__ = {'comment': '账本（钱包）'}
 
     name = Column(db.String(255), comment='账本名称')
-    creator_id = Column(db.Integer, comment='管理人（群主）')
+    creator_id = Column(db.Integer,
+                        db.ForeignKey('users.id'),
+                        comment='管理人（类似群主）')
     comment = Column(db.String(255), comment='账本备注')
 
 
 class AccountFund(PkModel):
-    fund_id = Column(db.Integer, comment='基金编号')
+    fund_id = Column(db.Integer, db.ForeignKey('funds.id'), comment='基金编号')
     account_id = Column(db.Integer, comment='账本编号')
 
 
 class CashFlow(PkModel):
-    uid = Column(db.Integer, comment='购买用户')
-    fid = Column(db.Integer, comment='所购买的基金')
+    user_id = Column(db.Integer, db.ForeignKey('users.id'), comment='购买用户编号')
+    fund_id = Column(db.Integer, db.ForeignKey('funds.id'), comment='所购买的基金')
     amount = Column(db.Integer, comment='购买金额')
     date = Column(db.TIMESTAMP,
                   nullable=False,
@@ -32,11 +34,11 @@ class CashFlow(PkModel):
 class HandPick(PkModel):
     __table_args__ = {'comment': '自选基金'}
 
-    uid = Column(db.Integer, comment='用户编号')
-    fid = Column(db.Integer, comment='基金编号')
+    user_id = Column(db.Integer, db.ForeignKey('users.id'), comment='用户编号')
+    fund_id = Column(db.Integer, db.ForeignKey('funds.id'), comment='基金编号')
     pick_time = Column(db.TIMESTAMP,
                        nullable=False,
                        server_default=db.text(
                            "CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
                        comment='收藏时间')
-    comment = Column(db.String(30), comment='备注')
+    comment = Column(db.String(30), comment='自选备注')  # TODO: 或许tag更合适

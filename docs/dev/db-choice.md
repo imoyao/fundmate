@@ -2,11 +2,18 @@
 title: 数据库的选择及使用
 ---
 
-## 选择
+## 选择✨
 
 1. 使用 MySQL 作为存储数据库；
 2. 使用 SQLAlchemy 作为数据库构造的工具；
 3. ~~在线工具 [Freedgo](https://www.freedgo.com/new/my/my-design.html) 制作；~~ 使用navicat构造数据库模型
+    ::: warning
+    注意：如果提示连接失败，请尝试排查以下错误：
+    1. 网络是否连接正常；
+    2. 防火墙是否开放3306默认端口（或自定义）；
+    3. 数据库是否放开远程连接；
+    参见：[记一次Navicat for MySQL 10060错误的解决过程 - SegmentFault 思否](https://segmentfault.com/a/1190000022046000)
+    :::
 
 ## 字段类型
 
@@ -57,7 +64,15 @@ Baz --> baz         # 单个单词的改为小写
 
 #### 一对多
 
-所谓的一对多就是外键设计，在idealyard项目中，我们的文章和作者就是一对多的关系。本例中，我们的用户（User）和账户（Account）就是这种关系。
+所谓的一对多就是外键设计，在 [idealyard](https://github.com/imoyao/idealyard) 项目中，我们的文章和作者就是一对多的关系。本例中，我们的用户（User）和账户（Account）也是这种关系。
+
+#### 多态关联（Polymorphic Associations）
+
+在记录费率问题时，我们需要对申购和赎回分别记录
+
+原文：[polymorphic associations - Possible to do a MySQL foreign key to one of two possible tables? - Stack Overflow](https://stackoverflow.com/questions/441001/possible-to-do-a-mysql-foreign-key-to-one-of-two-possible-tables) 中文版：[MySQL 表中的同一个字段能否同时是两个表的外键 - 简书](https://www.jianshu.com/p/915dc58d2d0f)
+
+[python - Flask-SQLAlchemy polymorphic association - Stack Overflow](https://stackoverflow.com/questions/57000045/flask-sqlalchemy-polymorphic-association)
 
 5. 数据库创建
 
