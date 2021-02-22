@@ -194,6 +194,6 @@ def handle_error(self, app):
 
 
 ## 参考链接
-
+- [使用 Flask 设计 RESTful APIs — Designing a RESTful API with Python and Flask 1.0 documentation](http://www.pythondoc.com/flask-restful/index.html) TODO
 - [flask - 项目结构及开发规范 - 《Lin CMS 文档手册》 - 书栈网 · BookStack](https://www.bookstack.cn/read/Lin-CMS/2227eb2232b6e6d3.md#API%20%E8%A7%84%E8%8C%83)
 - [Flask最佳实践 - 知乎](https://zhuanlan.zhihu.com/p/22774028)
