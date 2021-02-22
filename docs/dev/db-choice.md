@@ -60,21 +60,199 @@ Baz --> baz         # 单个单词的改为小写
 
 来源见此：[Declaring Models — Flask-SQLAlchemy Documentation (2.x)](https://flask-sqlalchemy.palletsprojects.com/en/2.x/models/#declaring-models)
 
-### 关系对应模型
+## 声明关系对应模型
 
-#### 一对多
+---
 
-所谓的一对多就是外键设计，在 [idealyard](https://github.com/imoyao/idealyard) 项目中，我们的文章和作者就是一对多的关系。本例中，我们的用户（User）和账户（Account）也是这种关系。
+### 一对多(one-to-many)
+一对多关系将一个外键`sqlalchemy.schema.ForeignKey`定义在引用父表的子表上。然后在父节点上指定`relationship()`，以引用由子节点表示的一组项：
+```python
+class Parent(Base):
+    __tablename__ = 'parent'
+    id = Column(Integer, primary_key=True)
+    children = relationship("Child")
 
-- relationship & ForeighKey
+class Child(Base):
+    __tablename__ = 'child'
+    id = Column(Integer, primary_key=True)
+    parent_id = Column(Integer, ForeignKey('parent.id'))
+```
+要建立一对多和反过来多对一的双向关系，就指定一个附加的relationship()，并使用`relationship.back_populates`将两者连接起来：
 
-大多数情况下, db.relationship() 都能自行找到关系中的外键, 但有时却无法决定把 哪一列作为外键。 
+```python
+class Parent(Base):
+    __tablename__ = 'parent'
+    id = Column(Integer, primary_key=True)
+    children = relationship("Child", back_populates="parent")
 
-例如, 如果 User 模型中有两个或以上的列定义为 Role 模型的外键, SQLAlchemy 就不知道该使用哪列。如果无法决定外键,你就要为 db.relationship() 提供额外参数,从而确定所用外键。
+class Child(Base):
+    __tablename__ = 'child'
+    id = Column(Integer, primary_key=True)
+    parent_id = Column(Integer, ForeignKey('parent.id'))
+    parent = relationship("Parent", back_populates="children")
+
+```
+这样，子就获得一个具有“多对一”的父级属性。
+那么
+- `back_populates` vs `backref`
+[python - When do I need to use sqlalchemy back_populates? - Stack Overflow](https://stackoverflow.com/questions/39869793/when-do-i-need-to-use-sqlalchemy-back-populates)
+
+> backref is more succinct because you don't need to declare the relation on both classes, but in practice I find it not worth to save this on line. I think back_populates is better, not only because in python culture "Explicit is better than implicit" (Zen of Python), but when you have many models, with a quick glance at its declaration you can see all relationships and their names instead of going over all related models. Also, a nice side benefit of back_populates is that you get auto-complete on both directions on most IDEs.
+>
+英文不好的同学可以参考本人下文翻译：
+
+`backref`更为简洁，因为您不需要在两个类上都声明该关系，但是实践中，我发现这一点不值得作为准则。基于以下两点，我认为`back_populates`更好：
+
+1. 不仅因为在python文化中，“显式比隐式更好”（Python之禅）；
+2. 而且当我们创建了许多模型时，快速浏览一下它的声明，就可以看到所有关系及其名称，而不用去在所有相关模型上慢慢查找；
+3. 另外，back_populates的一个不错的好处是，您可以在大多数IDE的两个方向上自动完成。（TODO：此处不知道如何实现）
+
+#### 为“一对多”关系配置删除行为
+
+通常情况下，当所有子对象所属的父对象被删除时，子对象也应该被删除。要配置这种“皮之不存，毛将焉附？”的关系行为时，使用[delete](https://docs.sqlalchemy.org/en/14/orm/cascades.html#cascade-delete) 中描述的delete级联选项。一种典型的案例是：用户注销账户时，清空其账户历史发言信息。另一种情形是，当子对象与其父对象解除关联时，子对象本身可以被删除，要实现此行为请参考[delete-orphan](https://docs.sqlalchemy.org/en/14/orm/cascades.html#cascade-delete-orphan) 。
+
+另请参考：[Using foreign key ON DELETE cascade with ORM relationships](https://docs.sqlalchemy.org/en/14/orm/cascades.html#passive-deletes)
+
+### 多对一（Many To One）
+
+TODO：[Basic Relationship Patterns — SQLAlchemy 1.4 Documentation](https://docs.sqlalchemy.org/en/14/orm/basic_relationships.html#many-to-one)
+
+---
+
+声明模型[¶](# "Permalink to this headline")
+=======================================
+
+通常下，Flask-SQLAlchemy 的行为就像一个来自 [`declarative`](http://www.sqlalchemy.org/docs/orm/extensions/declarative/api.html) 扩展配置正确的 declarative 基类。因此，我们强烈建议您阅读 SQLAlchemy 文档以获取一个全面的参考。尽管如此，我们这里还是给出了最常用的示例。
+
+需要牢记的事情:
+
+*   您的所有模型的基类叫做 db.Model。它存储在您必须创建的 SQLAlchemy 实例上。 细节请参阅 [_快速入门_](http://www.pythondoc.com/flask-sqlalchemy/quickstart.html#quickstart)。
+*   有一些部分在 SQLAlchemy 上是必选的，但是在 Flask-SQLAlchemy 上是可选的。 比如表名是自动地为您设置好的，除非您想要覆盖它。它是从转成小写的类名派生出来的，即 “CamelCase” 转换为 “camel\_case”。
+
+简单示例[¶](# "Permalink to this headline")
+---------------------------------------
+
+一个非常简单的例子:
+
+class User(db.Model):
+    id \= db.Column(db.Integer, primary\_key\=True)
+    username \= db.Column(db.String(80), unique\=True)
+    email \= db.Column(db.String(120), unique\=True)
+
+    def \_\_init\_\_(self, username, email):
+        self.username \= username
+        self.email \= email
+
+    def \_\_repr\_\_(self):
+        return '<User %r\>' % self.username
+
+用 `Column` 来定义一列。列名就是您赋值给那个变量的名称。如果您想要在表中使用不同的名称，您可以提供一个想要的列名的字符串作为可选第一个参数。主键用 `primary_key=True` 标记。可以把多个键标记为主键，此时它们作为复合主键。
+
+列的类型是 `Column` 的第一个参数。您可以直接提供它们或进一步规定（比如提供一个长度）。下面的类型是最常用的:
+
+  
+
+Integer
+
+一个整数
+
+String (size)
+
+有长度限制的字符串
+
+Text
+
+一些较长的 unicode 文本
+
+DateTime
+
+表示为 Python `datetime` 对象的 时间和日期
+
+Float
+
+存储浮点值
+
+Boolean
+
+存储布尔值
+
+PickleType
+
+存储为一个持久化的 Python 对象
+
+LargeBinary
+
+存储一个任意大的二进制数据
+
+一对多(one-to-many)关系[¶](# "Permalink to this headline")
+-----------------------------------------------------
+
+最为常见的关系就是一对多的关系。因为关系在它们建立之前就已经声明，您可以使用 字符串来指代还没有创建的类(例如如果 Person 定义了一个到 Article 的关系，而 Article 在文件的后面才会声明)。
+
+关系使用 [`relationship()`](http://www.sqlalchemy.org/docs/orm/relationship_api.html) 函数表示。然而外键必须用类 [`sqlalchemy.schema.ForeignKey`](http://www.sqlalchemy.org/docs/core/constraints.html) 来单独声明:
+
+class Person(db.Model):
+    id \= db.Column(db.Integer, primary\_key\=True)
+    name \= db.Column(db.String(50))
+    addresses \= db.relationship('Address', backref\='person',
+                                lazy\='dynamic')
+
+class Address(db.Model):
+    id \= db.Column(db.Integer, primary\_key\=True)
+    email \= db.Column(db.String(50))
+    person\_id \= db.Column(db.Integer, db.ForeignKey('person.id'))
+
+`db.relationship()` 做了什么？这个函数返回一个可以做许多事情的新属性。在本案例中，我们让它指向 Address 类并加载多个地址。它如何知道会返回不止一个地址？因为 SQLALchemy 从您的声明中猜测了一个有用的默认值。 如果您想要一对一关系，您可以把 `uselist=False` 传给 [`relationship()`](http://www.sqlalchemy.org/docs/orm/relationship_api.html) 。
+
+那么 backref 和 lazy 意味着什么了？backref 是一个在 Address 类上声明新属性的简单方法。您也可以使用 `my_address.person` 来获取使用该地址(address)的人(person)。lazy 决定了 SQLAlchemy 什么时候从数据库中加载数据:
+
+*   `'select'` (默认值) 就是说 SQLAlchemy 会使用一个标准的 select 语句必要时一次加载数据。
+*   `'joined'` 告诉 SQLAlchemy 使用 JOIN 语句作为父级在同一查询中来加载关系。
+*   `'subquery'` 类似 `'joined'` ，但是 SQLAlchemy 会使用子查询。
+*   `'dynamic'` 在有多条数据的时候是特别有用的。不是直接加载这些数据，SQLAlchemy 会返回一个查询对象，在加载数据前您可以过滤（提取）它们。
+
+您如何为反向引用（backrefs）定义惰性（lazy）状态？使用 [`backref()`](http://www.sqlalchemy.org/docs/orm/relationship_api.html) 函数:
+```
+class User(db.Model):
+    id \= db.Column(db.Integer, primary\_key\=True)
+    name \= db.Column(db.String(50))
+    addresses \= db.relationship('Address',
+        backref\=db.backref('person', lazy\='joined'), lazy\='dynamic')
+```
+## 多对多(many-to-many)关系
+
+如果您想要用多对多关系，您需要定义一个用于关系的辅助表。对于这个辅助表， 强烈建议 _不_ 使用模型，而是采用一个实际的表:
+```
+tags \= db.Table('tags',
+    db.Column('tag\_id', db.Integer, db.ForeignKey('tag.id')),
+    db.Column('page\_id', db.Integer, db.ForeignKey('page.id'))
+)
+
+class Page(db.Model):
+    id \= db.Column(db.Integer, primary\_key\=True)
+    tags \= db.relationship('Tag', secondary\=tags,
+        backref\=db.backref('pages', lazy\='dynamic'))
+
+class Tag(db.Model):
+    id \= db.Column(db.Integer, primary\_key\=True)
+```
+这里我们配置 Page.tags 加载后作为标签的列表，因为我们并不期望每页出现太多的标签。而每个 tag 的页面列表（ Tag.pages）是一个动态的反向引用。 正如上面提到的，这意味着您会得到一个可以发起 select 的查询对象。
+
+在 [idealyard](https://github.com/imoyao/idealyard) 项目中，我们的文章和作者就是一对多的关系。本例中，我们的用户（User）和账户（Account）也是这种关系。
+此外，我们可以在单个`relationship()` 上使用`relationship.backref`选项，而不是使用`relationship.back_populates`：
+:::tip TODO
+此处为简化模型，我们默认一个账户只属于一个用户，然而在实际项目中，我们可能在后期设计中引入“家庭账户”或者“共同管理账户”的设计，此时，用户和账户的关系就会变成多对多的关系。
+:::
+
+- relationship & ForeignKey
+
+大多数情况下, `db.relationship()` 都能自行找到关系中的外键, 但有时却无法决定把哪一列作为外键。 
+
+例如, 如果 User 模型中有两个或以上的列定义为 Role 模型的外键, SQLAlchemy 就不知道该使用哪列。如果无法决定外键，你就要为 db.relationship() 提供额外参数从而确定所用外键。
 
 #### 定义关系属性
 
-关系属性在关系的出发侧定义，即一对多关系的“一”这一侧。一个作者拥有多篇文章，在 [User模型]((https://github.com/imoyao/idealyard/blob/master/back/models.py) 中，我们定义了一个articles属性来表示对应的多篇文章：
+关系属性在关系的出发侧定义，即一对多关系的“一”这一侧。一个作者拥有多篇文章，在 [User模型](https://github.com/imoyao/idealyard/blob/master/back/models.py) 中，我们定义了一个articles属性来表示对应的多篇文章：
 ```
 articles = db.relationship('Article')
 ```
@@ -95,28 +273,17 @@ worths = db.relationship('DailyWorth')
 fund_id = reference_col('funds', column_kwargs={'comment': '基金编号'})
 fund = relationship('Fund', backref='daily_worth')
 ```
-::: info
-> The [relationship.back_populates](http://docs.sqlalchemy.org/en/rel_1_0/orm/relationship_api.html target=) parameter is a newer version of a very common SQLAlchemy feature called [relationship.backref](http://docs.sqlalchemy.org/en/rel_1_0/orm/relationship_api.html target=). The [relationship.backref](http://docs.sqlalchemy.org/en/rel_1_0/orm/relationship_api.html target=) parameter hasn’t gone anywhere and will always remain available! The [relationship.back_populates](http://docs.sqlalchemy.org/en/rel_1_0/orm/relationship_api.html target=) is the same thing, except a little more verbose and easier to manipulate. For an overview of the entire topic, see the section [Linking Relationships with Backref](http://docs.sqlalchemy.org/en/rel_1_0/orm/backref.html target=).
+::: tip INFO
+> The [relationship.back_populates](http://docs.sqlalchemy.org/en/rel_1_0/orm/relationship_api.html) parameter is a newer version of a very common SQLAlchemy feature called [relationship.backref](http://docs.sqlalchemy.org/en/rel_1_0/orm/relationship_api.html). The [relationship.backref](http://docs.sqlalchemy.org/en/rel_1_0/orm/relationship_api.html) parameter hasn’t gone anywhere and will always remain available! The [relationship.back_populates](http://docs.sqlalchemy.org/en/rel_1_0/orm/relationship_api.html) is the same thing, except a little more verbose and easier to manipulate. For an overview of the entire topic, see the section [Linking Relationships with Backref](http://docs.sqlalchemy.org/en/rel_1_0/orm/backref.html).
 
 参见：[Object Relational Tutorial — SQLAlchemy 1.3 Documentation](https://docs.sqlalchemy.org/en/13/orm/tutorial.html#building-a-relationship)
 :::
-
-- relationship vs backref
-[python - When do I need to use sqlalchemy back_populates? - Stack Overflow](https://stackoverflow.com/questions/39869793/when-do-i-need-to-use-sqlalchemy-back-populates)
-
-> backref is more succinct because you don't need to declare the relation on both classes, but in practice I find it not worth to save this on line. I think back_populates is better, not only because in python culture "Explicit is better than implicit" (Zen of Python), but when you have many models, with a quick glance at its declaration you can see all relationships and their names instead of going over all related models. Also, a nice side benefit of back_populates is that you get auto-complete on both directions on most IDEs.
-
-backref更为简洁，因为您不需要在两个类上都声明该关系，但是实践中，我发现这一点不值得作为准则。
-基于以下两点，我认为back_populates更好：
-1. 不仅因为在python文化中，“显式比隐式更好”（Python之禅）；
-2. 而且当我们创建了许多模型时，快速浏览一下它的声明，就可以看到所有关系及其名称，而不用去在所有相关模型上慢慢查找；
-3. 另外，back_populates的一个不错的好处是，您可以在大多数IDE的两个方向上自动完成。（TODO：此处不知道如何实现）
 
 通过db.relationship()，Role 模型有了一个可以获得对应角色所有用户的属性users。默认是列表形式，lazy='dynamic'时返回的是一个 query 对象。即relationship提供了 Role 对 User 的访问。
 
 而backref正好相反，提供了 User 对 Role 的访问。
 
-不妨设一个 Role 实例为 user_role，一个 User 实例为 u。relationship 使 user_role.users 可以访问所有符合角色的用户，而 backref 使 u.role 可以获得用户对应的角色。
+不妨设一个 Role 实例为user_role，一个 User 实例为u。relationship 使user_role.users可以访问所有符合角色的用户，而 backref 使u.role可以获得用户对应的角色。
 
 - [Flask-SQLAlchemy 中的 relationship & backref_一个菜鸟的博客-CSDN博客](https://blog.csdn.net/mr_hui_/article/details/83217566)
 - [讲解一下SQLAlchemy中的backref？ - 知乎](https://www.zhihu.com/question/38456789)
@@ -124,41 +291,68 @@ backref更为简洁，因为您不需要在两个类上都声明该关系，但�
 
 #### 多对多关系
 
-:::
-如果你想要用多对多关系，你需要定义一个用于关系的辅助表。对于这个辅助表， 强烈建议**不要**使用模型，而是采用一个实际的表。
+有[一种说法](http://www.pythondoc.com/flask-sqlalchemy/models.html#many-to-many) ，该说法的原始出处为：[Declaring Models — Flask-SQLAlchemy Documentation (2.x)](https://flask-sqlalchemy.palletsprojects.com/en/2.x/models/#many-to-many-relationships) ：
+::: warning  NOTE
+如果您想要用多对多关系，您需要定义一个用于关系的辅助表。~~对于这个辅助表，强烈建议**不要**使用模型，而是采用一个实际的表。~~
 :::
 
-如果关联对象之间只需要用id关联起来，如：
+如果关联对象之间只需要用id关联起来，我们可以将新类直接映射到关联表，无需使用辅助参数；
+如我们有如下表：
+```python
+class Left(Base):
+    __tablename__ = 'left'
+    id = Column(Integer, primary_key = True)
+    ...
+
+class Right(Base):
+    __tablename__ = 'right'
+    id = Column(Integer, primary_key = True)
+    ...
+
 ```
+则我们可以直接定义关联表如下：
+```python
 association_table = Table('association', Base.metadata,
     Column('left_id', Integer, ForeignKey('left.id')),
     Column('right_id', Integer, ForeignKey('right.id'))
 )
 ```
+而关联对象（association object）模式是多对多的一种变体：当关联表包含左右表外键之外的其他数据列时，就需要使用该模式：
+```python
+class Association(Base):
+    left_id = Column(Integer, ForeignKey('left.id'), primary_key=True)
+    right_id = Column(Integer, ForeignKey('right.id'), primary_key=True)
 
-[Basic Relationship Patterns — SQLAlchemy 1.4 Documentation](https://docs.sqlalchemy.org/en/14/orm/basic_relationships.html#association-object)
+    extra_data = Column(String(50))
 
-[Flask/SQLAlchemy - Difference between association model and association table for many-to-many relationship? - Stack Overflow](https://stackoverflow.com/questions/30406808/flask-sqlalchemy-difference-between-association-model-and-association-table-fo)
+    left = relationship('Left', backref=backref('right_association'))
+    right = relationship('Right', backref=backref('left_association'))
+```
+综上所述：如果我们需要在关联中存储任何东西，则常规做法是创建一个关联对象来引用这些额外的信息，否则没有必要使用ORM层，创建一个关联表即可。
 
-::: warning
-> 实践中的SQLAlchemy的"relationship"在一定程度上反而导致了整体表关联关系的极大复杂化，还有效率的极其低下。
+具体参阅下方链接：
+1. [Basic Relationship Patterns — SQLAlchemy 1.4 Documentation](https://docs.sqlalchemy.org/en/14/orm/basic_relationships.html#association-object)
+2. [Flask/SQLAlchemy - Difference between association model and association table for many-to-many relationship? - Stack Overflow](https://stackoverflow.com/questions/30406808/flask-sqlalchemy-difference-between-association-model-and-association-table-fo)
+
+::: danger WARNING 
+> 实践中的SQLAlchemy的`relationship`在一定程度上反而导致了整体表关联关系的极大复杂化，还有效率的极其低下。
 > 如果你的数据库只有两个表的话，那么relationship随便定义随便用。如果只有几百条数据的话，那么也请随便玩。
 
-但是，当数据库中有数十个表以上，单个关联层级就多过三个表以上层层关联，而且各个数据量以万为单位。那么，"relationship"会把整个人都搞垮，简直还不如手写SQL语句清晰好理解，并且效率也差在了秒级与毫秒级的区别上。
+但是，当数据库中有数十个表以上，单个关联层级就多过三个表以上层层关联，而且各个数据量以万为单位。那么，`relationship`会把整个人都搞垮，简直还不如手写SQL语句清晰好理解，并且效率也差在了秒级与毫秒级的区别上。
 
-SQLAlchemy只能很轻松handle Many to Many，但是如果是常见的Many to Many to Many，或者是Many to Many to Many to Many，那简直就是噩梦。
+SQLAlchemy只能很轻松处理 Many to Many，但是如果是常见的Many to Many to Many，或者是Many to Many to Many to Many，（~~禁止套娃~~）那简直就是噩梦。
 
 用SQLAlchemy建立各种ORM类对象，不要用内置的关联，直接在查询的时候手动SQL语句！
 :::
 
-经过实践，我的建议是：
+经过实践（TODO：后期实验），我的建议是：
 ::: tip
 
-- 容易SQL-Injection注入的地方，用SQLAlchemy的query
-- 创建ORM对象时候，用SQLAlchemy
-- 多层关联的时候，不要用SQLAlchemy
-- 查询的时候，用SQL
-- 插入数据的时候，不要用SQLAlchemy。（官方都说明了插入百万级的时候，和SQL插件是秒级的）
+- 容易SQL-Injection注入的地方，用SQLAlchemy的query；
+- 创建ORM对象时候，用SQLAlchemy；
+- 多层关联的时候，不要用SQLAlchemy；
+- 查询的时候，用SQL；
+- 插入数据的时候，不要用SQLAlchemy。（官方都说明了插入百万级的时候，和SQL插件是秒级的）；
 :::
 
 [深究SQLAlchemy中的表关系 Table Relationships - SegmentFault 思否](https://segmentfault.com/a/1190000018006031)
