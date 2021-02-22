@@ -7,16 +7,8 @@ from flask import Flask
 
 from backend.fundmate import account, commands, fund, public, settings, user
 from backend.fundmate.config import config
-from backend.fundmate.extensions import (
-    bcrypt,
-    cache,
-    csrf_protect,
-    db,
-    flask_static_digest,
-    login_manager,
-    loguru,
-    migrate,
-)
+from backend.fundmate.extensions import (bcrypt, cache, csrf_protect, db,
+                                         flask_static_digest, login_manager, loguru, migrate)
 
 from .exts.flask_loguru import logger
 

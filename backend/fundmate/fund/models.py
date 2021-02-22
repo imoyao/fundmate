@@ -2,14 +2,16 @@
 # -*- coding: utf-8 -*-
 # Created by Administrator at 2021/2/13 17:50
 
-from backend.fundmate.database import Column, CreateDateModel, PkModel, db
+from backend.fundmate.database import Column, CreateDateModel, PkModel, db, reference_col, relationship
 
 
 class DailyWorth(PkModel, CreateDateModel):
     """每日净值"""
-    fund_id = Column(db.Integer, db.ForeignKey('funds.id'), comment='基金编号')
     price = Column(db.Float, comment='基金单日净值')
     date = Column(db.Date, comment='日期')
+    # fund_id = reference_col(db.Integer, db.ForeignKey('funds.id'), comment='基金编号')
+    fund_id = reference_col('funds', column_kwargs={'comment': '基金编号'})
+    fund = relationship('Fund', back_populates='daily_worth')
 
 
 class Fund(PkModel):
@@ -69,7 +71,7 @@ class FundRate(PkModel):
 class FundMgr(PkModel):
     """relation between Fund and Mgr
     """
-    __table_args__ = {'comment': '基金与经理关联表'}
+    __table_args__ = {'comment': '基金与经理关联表'}        # TODO: 关联表
 
     fund_id = Column(db.Integer, db.ForeignKey('funds.id'), comment='基金编号')
     mgr_id = Column(db.Integer, db.ForeignKey('mgrs.id'), comment='基金经理编号')
@@ -80,7 +82,6 @@ class FundMgr(PkModel):
 class FundCompany(PkModel):
     """基金公司表
     """
-
     name = Column(db.String(30), comment='基金公司名称')
     co_id = Column(db.String(10), comment='基金公司编号')
 

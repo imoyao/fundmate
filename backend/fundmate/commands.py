@@ -8,7 +8,6 @@ from subprocess import call
 import click
 
 from .database import db
-from flask import current_app
 
 CURRENT_PATH = Path(__file__).resolve().parent
 PROJECT_ROOT = CURRENT_PATH.parent
