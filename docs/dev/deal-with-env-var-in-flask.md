@@ -225,7 +225,7 @@ gh_repos_priorities = env.dict(
 
 按照[Hello, Flask!|管理环境变量 - Flask 入门教程](https://read.helloflask.com/c2-hello#guan-li-huan-jing-bian-liang) 章节给出的建议，分别使用`.env` 和 `.flaskenv` 来管理开发模式下的环境变量，这两个文件通常写入的内容如下：
 
-- `.env`
+### .env
 
 不能公开的敏感数据，除非是私有项目，否则绝对不能提交到 Git 仓库中。比如：
 
@@ -233,7 +233,7 @@ gh_repos_priorities = env.dict(
 *   数据库 URL
 *   邮件服务器或其他第三方服务的密码 / 密钥 / 令牌值
 
-- `.flaskenv`
+### .flaskenv
 
 和 Flask 开发服务器相关的几个环境变量，比如：
 
@@ -254,6 +254,7 @@ gh_repos_priorities = env.dict(
 而其他一些与你代码中有关的变量配置，则直接写到配置脚本（比如 `config.py` 和 `settings.py`）来实现控制。其中`settings.py`中存放我们程序员编写代码时可能需要修改的变量，而`config.py`用于控制不同的应用环境时使用不同的环境变量。
 
 这部分代码可以在此处找到：
+
 ![tag v0.1 ](https://cdn.jsdelivr.net/gh/masantu/statics/images/20210117202012.png)
 
 ## 相关链接

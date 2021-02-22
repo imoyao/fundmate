@@ -1,5 +1,5 @@
 ---
-title: 数据库的选择及使用
+title: 数据库的选择及使用（待整理）
 ---
 
 ## 选择✨
@@ -66,6 +66,104 @@ Baz --> baz         # 单个单词的改为小写
 
 所谓的一对多就是外键设计，在 [idealyard](https://github.com/imoyao/idealyard) 项目中，我们的文章和作者就是一对多的关系。本例中，我们的用户（User）和账户（Account）也是这种关系。
 
+- relationship & ForeighKey
+
+大多数情况下, db.relationship() 都能自行找到关系中的外键, 但有时却无法决定把 哪一列作为外键。 
+
+例如, 如果 User 模型中有两个或以上的列定义为 Role 模型的外键, SQLAlchemy 就不知道该使用哪列。如果无法决定外键,你就要为 db.relationship() 提供额外参数,从而确定所用外键。
+
+#### 定义关系属性
+
+关系属性在关系的出发侧定义，即一对多关系的“一”这一侧。一个作者拥有多篇文章，在 [User模型]((https://github.com/imoyao/idealyard/blob/master/back/models.py) 中，我们定义了一个articles属性来表示对应的多篇文章：
+```
+articles = db.relationship('Article')
+```
+
+在本项目中，我们以基金净值（`DailyWorth`）为例说明用法：
+
+每个基金每天都会有一个净值，所以在净值表中，每个基金会有多个对应值。则我们很容易写出这样的代码：
+```python
+# 在Fund侧
+worths = db.relationship('DailyWorth')
+```
+
+通过`backend/fundmate/database.relationship`定义。用法参见`backend.fundmate.database.reference_col`。
+
+此处我们参考 [demo-cookiecutter-flask/models.Role](https://github.com/jamescurtin/demo-cookiecutter-flask/blob/master/my_flask_app/user/models.py) 写为：
+```python
+# 在DailyWorth侧
+fund_id = reference_col('funds', column_kwargs={'comment': '基金编号'})
+fund = relationship('Fund', backref='daily_worth')
+```
+::: info
+> The [relationship.back_populates](http://docs.sqlalchemy.org/en/rel_1_0/orm/relationship_api.html target=) parameter is a newer version of a very common SQLAlchemy feature called [relationship.backref](http://docs.sqlalchemy.org/en/rel_1_0/orm/relationship_api.html target=). The [relationship.backref](http://docs.sqlalchemy.org/en/rel_1_0/orm/relationship_api.html target=) parameter hasn’t gone anywhere and will always remain available! The [relationship.back_populates](http://docs.sqlalchemy.org/en/rel_1_0/orm/relationship_api.html target=) is the same thing, except a little more verbose and easier to manipulate. For an overview of the entire topic, see the section [Linking Relationships with Backref](http://docs.sqlalchemy.org/en/rel_1_0/orm/backref.html target=).
+
+参见：[Object Relational Tutorial — SQLAlchemy 1.3 Documentation](https://docs.sqlalchemy.org/en/13/orm/tutorial.html#building-a-relationship)
+:::
+
+- relationship vs backref
+[python - When do I need to use sqlalchemy back_populates? - Stack Overflow](https://stackoverflow.com/questions/39869793/when-do-i-need-to-use-sqlalchemy-back-populates)
+
+> backref is more succinct because you don't need to declare the relation on both classes, but in practice I find it not worth to save this on line. I think back_populates is better, not only because in python culture "Explicit is better than implicit" (Zen of Python), but when you have many models, with a quick glance at its declaration you can see all relationships and their names instead of going over all related models. Also, a nice side benefit of back_populates is that you get auto-complete on both directions on most IDEs.
+
+backref更为简洁，因为您不需要在两个类上都声明该关系，但是实践中，我发现这一点不值得作为准则。
+基于以下两点，我认为back_populates更好：
+1. 不仅因为在python文化中，“显式比隐式更好”（Python之禅）；
+2. 而且当我们创建了许多模型时，快速浏览一下它的声明，就可以看到所有关系及其名称，而不用去在所有相关模型上慢慢查找；
+3. 另外，back_populates的一个不错的好处是，您可以在大多数IDE的两个方向上自动完成。（TODO：此处不知道如何实现）
+
+通过db.relationship()，Role 模型有了一个可以获得对应角色所有用户的属性users。默认是列表形式，lazy='dynamic'时返回的是一个 query 对象。即relationship提供了 Role 对 User 的访问。
+
+而backref正好相反，提供了 User 对 Role 的访问。
+
+不妨设一个 Role 实例为 user_role，一个 User 实例为 u。relationship 使 user_role.users 可以访问所有符合角色的用户，而 backref 使 u.role 可以获得用户对应的角色。
+
+- [Flask-SQLAlchemy 中的 relationship & backref_一个菜鸟的博客-CSDN博客](https://blog.csdn.net/mr_hui_/article/details/83217566)
+- [讲解一下SQLAlchemy中的backref？ - 知乎](https://www.zhihu.com/question/38456789)
+- [python - When do I need to use sqlalchemy back_populates? - Stack Overflow](https://stackoverflow.com/questions/39869793/when-do-i-need-to-use-sqlalchemy-back-populates)
+
+#### 多对多关系
+
+:::
+如果你想要用多对多关系，你需要定义一个用于关系的辅助表。对于这个辅助表， 强烈建议**不要**使用模型，而是采用一个实际的表。
+:::
+
+如果关联对象之间只需要用id关联起来，如：
+```
+association_table = Table('association', Base.metadata,
+    Column('left_id', Integer, ForeignKey('left.id')),
+    Column('right_id', Integer, ForeignKey('right.id'))
+)
+```
+
+[Basic Relationship Patterns — SQLAlchemy 1.4 Documentation](https://docs.sqlalchemy.org/en/14/orm/basic_relationships.html#association-object)
+
+[Flask/SQLAlchemy - Difference between association model and association table for many-to-many relationship? - Stack Overflow](https://stackoverflow.com/questions/30406808/flask-sqlalchemy-difference-between-association-model-and-association-table-fo)
+
+::: warning
+> 实践中的SQLAlchemy的"relationship"在一定程度上反而导致了整体表关联关系的极大复杂化，还有效率的极其低下。
+> 如果你的数据库只有两个表的话，那么relationship随便定义随便用。如果只有几百条数据的话，那么也请随便玩。
+
+但是，当数据库中有数十个表以上，单个关联层级就多过三个表以上层层关联，而且各个数据量以万为单位。那么，"relationship"会把整个人都搞垮，简直还不如手写SQL语句清晰好理解，并且效率也差在了秒级与毫秒级的区别上。
+
+SQLAlchemy只能很轻松handle Many to Many，但是如果是常见的Many to Many to Many，或者是Many to Many to Many to Many，那简直就是噩梦。
+
+用SQLAlchemy建立各种ORM类对象，不要用内置的关联，直接在查询的时候手动SQL语句！
+:::
+
+经过实践，我的建议是：
+::: tip
+
+- 容易SQL-Injection注入的地方，用SQLAlchemy的query
+- 创建ORM对象时候，用SQLAlchemy
+- 多层关联的时候，不要用SQLAlchemy
+- 查询的时候，用SQL
+- 插入数据的时候，不要用SQLAlchemy。（官方都说明了插入百万级的时候，和SQL插件是秒级的）
+:::
+
+[深究SQLAlchemy中的表关系 Table Relationships - SegmentFault 思否](https://segmentfault.com/a/1190000018006031)
+此处争议讨论参阅：[项目里该不该用ORM？ - 知乎](https://www.zhihu.com/question/28537109)
+
 #### 多态关联（Polymorphic Associations）
 
 在记录费率问题时，我们需要对申购和赎回分别记录
@@ -73,6 +171,12 @@ Baz --> baz         # 单个单词的改为小写
 原文：[polymorphic associations - Possible to do a MySQL foreign key to one of two possible tables? - Stack Overflow](https://stackoverflow.com/questions/441001/possible-to-do-a-mysql-foreign-key-to-one-of-two-possible-tables) 中文版：[MySQL 表中的同一个字段能否同时是两个表的外键 - 简书](https://www.jianshu.com/p/915dc58d2d0f)
 
 [python - Flask-SQLAlchemy polymorphic association - Stack Overflow](https://stackoverflow.com/questions/57000045/flask-sqlalchemy-polymorphic-association)
+
+#### 参考阅读
+
+- [SQLAlchemy 学习笔记（三）：ORM 中的关系构建 - 於清樂 - 博客园](https://www.cnblogs.com/kirito-c/p/10900024.html)
+- [SQLAlchemy ORM教程之三：Relationship - 简书](https://www.jianshu.com/p/9771b0a3e589)
+- [SQLAlchemy进阶 | 飞污熊博客](https://www.xncoding.com/2016/03/07/python/sqlalchemy02.html)
 
 5. 数据库创建
 

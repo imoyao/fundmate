@@ -4,8 +4,8 @@
 用于flask相关的配置
 http://www.pythondoc.com/flask/config.html#id6
 """
-import os
 from pathlib import Path
+
 from . import settings
 from .settings import env
 

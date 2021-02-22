@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Database module, including the SQLAlchemy database object and DB-related utilities."""
 from datetime import datetime
+from typing import Union
 
 from .compat import basestring
 from .extensions import db
@@ -61,10 +62,10 @@ class PkModel(Model):
     def get_by_id(cls, record_id):
         """Get record by ID."""
         if any(
-            (
-                isinstance(record_id, basestring) and record_id.isdigit(),
-                isinstance(record_id, (int, float)),
-            )
+                (
+                        isinstance(record_id, basestring) and record_id.isdigit(),
+                        isinstance(record_id, (int, float)),
+                )
         ):
             return cls.query.get(int(record_id))
         return None
@@ -78,14 +79,23 @@ class CreateDateModel(Model):
 
 
 def reference_col(
-    tablename, nullable=False, pk_name="id", foreign_key_kwargs=None, column_kwargs=None
+        tablename: str, nullable: bool = False, pk_name: str = "id", foreign_key_kwargs: Union[dict, None] = None,
+        column_kwargs: Union[dict, None] = None
 ):
-    """Column that adds primary key foreign key reference.
+    """
+    Column that adds primary key foreign key reference.
 
     Usage: ::
 
         category_id = reference_col('category')
         category = relationship('Category', backref='categories')
+
+    :param tablename: 外键指向表的表名
+    :param nullable: 是否可以为空
+    :param pk_name: 主键名
+    :param foreign_key_kwargs: 外键参数
+    :param column_kwargs: 列参数，如comment
+    :return:
     """
     foreign_key_kwargs = foreign_key_kwargs or {}
     column_kwargs = column_kwargs or {}

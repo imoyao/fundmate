@@ -8,13 +8,14 @@ of the standard library logger basicConfig method
 import datetime
 import logging
 import os
+import pathlib
 import time
 import zipfile
 from os import environ
 from sys import stderr
-import pathlib
 
 from loguru import logger
+
 try:
     from flask import _app_ctx_stack as stack
 except ImportError:
