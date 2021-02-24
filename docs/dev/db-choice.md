@@ -62,146 +62,49 @@ Baz --> baz         # 单个单词的改为小写
 
 ## 声明关系对应模型
 
----
-
-### 一对多(one-to-many)
-一对多关系将一个外键`sqlalchemy.schema.ForeignKey`定义在引用父表的子表上。然后在父节点上指定`relationship()`，以引用由子节点表示的一组项：
-```python
-class Parent(Base):
-    __tablename__ = 'parent'
-    id = Column(Integer, primary_key=True)
-    children = relationship("Child")
-
-class Child(Base):
-    __tablename__ = 'child'
-    id = Column(Integer, primary_key=True)
-    parent_id = Column(Integer, ForeignKey('parent.id'))
-```
-要建立一对多和反过来多对一的双向关系，就指定一个附加的relationship()，并使用`relationship.back_populates`将两者连接起来：
-
-```python
-class Parent(Base):
-    __tablename__ = 'parent'
-    id = Column(Integer, primary_key=True)
-    children = relationship("Child", back_populates="parent")
-
-class Child(Base):
-    __tablename__ = 'child'
-    id = Column(Integer, primary_key=True)
-    parent_id = Column(Integer, ForeignKey('parent.id'))
-    parent = relationship("Parent", back_populates="children")
-
-```
-这样，子就获得一个具有“多对一”的父级属性。
-那么
-- `back_populates` vs `backref`
-[python - When do I need to use sqlalchemy back_populates? - Stack Overflow](https://stackoverflow.com/questions/39869793/when-do-i-need-to-use-sqlalchemy-back-populates)
-
-> backref is more succinct because you don't need to declare the relation on both classes, but in practice I find it not worth to save this on line. I think back_populates is better, not only because in python culture "Explicit is better than implicit" (Zen of Python), but when you have many models, with a quick glance at its declaration you can see all relationships and their names instead of going over all related models. Also, a nice side benefit of back_populates is that you get auto-complete on both directions on most IDEs.
->
-英文不好的同学可以参考本人下文翻译：
-
-`backref`更为简洁，因为您不需要在两个类上都声明该关系，但是实践中，我发现这一点不值得作为准则。基于以下两点，我认为`back_populates`更好：
-
-1. 不仅因为在python文化中，“显式比隐式更好”（Python之禅）；
-2. 而且当我们创建了许多模型时，快速浏览一下它的声明，就可以看到所有关系及其名称，而不用去在所有相关模型上慢慢查找；
-3. 另外，back_populates的一个不错的好处是，您可以在大多数IDE的两个方向上自动完成。（TODO：此处不知道如何实现）
-
-#### 为“一对多”关系配置删除行为
-
-通常情况下，当所有子对象所属的父对象被删除时，子对象也应该被删除。要配置这种“皮之不存，毛将焉附？”的关系行为时，使用[delete](https://docs.sqlalchemy.org/en/14/orm/cascades.html#cascade-delete) 中描述的delete级联选项。一种典型的案例是：用户注销账户时，清空其账户历史发言信息。另一种情形是，当子对象与其父对象解除关联时，子对象本身可以被删除，要实现此行为请参考[delete-orphan](https://docs.sqlalchemy.org/en/14/orm/cascades.html#cascade-delete-orphan) 。
-
-另请参考：[Using foreign key ON DELETE cascade with ORM relationships](https://docs.sqlalchemy.org/en/14/orm/cascades.html#passive-deletes)
-
-### 多对一（Many To One）
-
-TODO：[Basic Relationship Patterns — SQLAlchemy 1.4 Documentation](https://docs.sqlalchemy.org/en/14/orm/basic_relationships.html#many-to-one)
-
----
-
-声明模型[¶](# "Permalink to this headline")
-=======================================
-
 通常下，Flask-SQLAlchemy 的行为就像一个来自 [`declarative`](http://www.sqlalchemy.org/docs/orm/extensions/declarative/api.html) 扩展配置正确的 declarative 基类。因此，我们强烈建议您阅读 SQLAlchemy 文档以获取一个全面的参考。尽管如此，我们这里还是给出了最常用的示例。
 
 需要牢记的事情:
 
 *   您的所有模型的基类叫做 db.Model。它存储在您必须创建的 SQLAlchemy 实例上。 细节请参阅 [_快速入门_](http://www.pythondoc.com/flask-sqlalchemy/quickstart.html#quickstart)。
-*   有一些部分在 SQLAlchemy 上是必选的，但是在 Flask-SQLAlchemy 上是可选的。 比如表名是自动地为您设置好的，除非您想要覆盖它。它是从转成小写的类名派生出来的，即 “CamelCase” 转换为 “camel\_case”。
+*   有一些部分在 SQLAlchemy 上是必选的，但是在 Flask-SQLAlchemy 上是可选的。 比如表名是自动地为您设置好的，除非您想要覆盖它。它是从转成小写的类名派生出来的，即 “CamelCase” 转换为 “camel_case”。
 
-简单示例[¶](# "Permalink to this headline")
----------------------------------------
+#### 简单示例
 
 一个非常简单的例子:
-
+```python
 class User(db.Model):
-    id \= db.Column(db.Integer, primary\_key\=True)
-    username \= db.Column(db.String(80), unique\=True)
-    email \= db.Column(db.String(120), unique\=True)
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True)
+    email = db.Column(db.String(120), unique=True)
 
-    def \_\_init\_\_(self, username, email):
-        self.username \= username
-        self.email \= email
+    def __init__(self, username, email):
+        self.username = username
+        self.email = email
 
-    def \_\_repr\_\_(self):
-        return '<User %r\>' % self.username
-
+    def __repr__(self):
+        return '<User %r>' % self.username
+```
 用 `Column` 来定义一列。列名就是您赋值给那个变量的名称。如果您想要在表中使用不同的名称，您可以提供一个想要的列名的字符串作为可选第一个参数。主键用 `primary_key=True` 标记。可以把多个键标记为主键，此时它们作为复合主键。
 
-列的类型是 `Column` 的第一个参数。您可以直接提供它们或进一步规定（比如提供一个长度）。下面的类型是最常用的:
 
-  
-
-Integer
-
-一个整数
-
-String (size)
-
-有长度限制的字符串
-
-Text
-
-一些较长的 unicode 文本
-
-DateTime
-
-表示为 Python `datetime` 对象的 时间和日期
-
-Float
-
-存储浮点值
-
-Boolean
-
-存储布尔值
-
-PickleType
-
-存储为一个持久化的 Python 对象
-
-LargeBinary
-
-存储一个任意大的二进制数据
-
-一对多(one-to-many)关系[¶](# "Permalink to this headline")
------------------------------------------------------
+### 一对多(one-to-many)关系
 
 最为常见的关系就是一对多的关系。因为关系在它们建立之前就已经声明，您可以使用 字符串来指代还没有创建的类(例如如果 Person 定义了一个到 Article 的关系，而 Article 在文件的后面才会声明)。
 
 关系使用 [`relationship()`](http://www.sqlalchemy.org/docs/orm/relationship_api.html) 函数表示。然而外键必须用类 [`sqlalchemy.schema.ForeignKey`](http://www.sqlalchemy.org/docs/core/constraints.html) 来单独声明:
-
+```python
 class Person(db.Model):
-    id \= db.Column(db.Integer, primary\_key\=True)
-    name \= db.Column(db.String(50))
-    addresses \= db.relationship('Address', backref\='person',
-                                lazy\='dynamic')
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(50))
+    addresses = db.relationship('Address', backref='person',
+                                lazy='dynamic')
 
 class Address(db.Model):
-    id \= db.Column(db.Integer, primary\_key\=True)
-    email \= db.Column(db.String(50))
-    person\_id \= db.Column(db.Integer, db.ForeignKey('person.id'))
-
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(50))
+    person_id = db.Column(db.Integer, db.ForeignKey('person.id'))
+```
 `db.relationship()` 做了什么？这个函数返回一个可以做许多事情的新属性。在本案例中，我们让它指向 Address 类并加载多个地址。它如何知道会返回不止一个地址？因为 SQLALchemy 从您的声明中猜测了一个有用的默认值。 如果您想要一对一关系，您可以把 `uselist=False` 传给 [`relationship()`](http://www.sqlalchemy.org/docs/orm/relationship_api.html) 。
 
 那么 backref 和 lazy 意味着什么了？backref 是一个在 Address 类上声明新属性的简单方法。您也可以使用 `my_address.person` 来获取使用该地址(address)的人(person)。lazy 决定了 SQLAlchemy 什么时候从数据库中加载数据:
@@ -214,27 +117,27 @@ class Address(db.Model):
 您如何为反向引用（backrefs）定义惰性（lazy）状态？使用 [`backref()`](http://www.sqlalchemy.org/docs/orm/relationship_api.html) 函数:
 ```
 class User(db.Model):
-    id \= db.Column(db.Integer, primary\_key\=True)
-    name \= db.Column(db.String(50))
-    addresses \= db.relationship('Address',
-        backref\=db.backref('person', lazy\='joined'), lazy\='dynamic')
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(50))
+    addresses = db.relationship('Address',
+        backref=db.backref('person', lazy='joined'), lazy='dynamic')
 ```
 ## 多对多(many-to-many)关系
 
 如果您想要用多对多关系，您需要定义一个用于关系的辅助表。对于这个辅助表， 强烈建议 _不_ 使用模型，而是采用一个实际的表:
 ```
-tags \= db.Table('tags',
-    db.Column('tag\_id', db.Integer, db.ForeignKey('tag.id')),
-    db.Column('page\_id', db.Integer, db.ForeignKey('page.id'))
+tags = db.Table('tags',
+    db.Column('tag_id', db.Integer, db.ForeignKey('tag.id')),
+    db.Column('page_id', db.Integer, db.ForeignKey('page.id'))
 )
 
 class Page(db.Model):
-    id \= db.Column(db.Integer, primary\_key\=True)
-    tags \= db.relationship('Tag', secondary\=tags,
-        backref\=db.backref('pages', lazy\='dynamic'))
+    id = db.Column(db.Integer, primary_key=True)
+    tags = db.relationship('Tag', secondary=tags,
+        backref=db.backref('pages', lazy='dynamic'))
 
 class Tag(db.Model):
-    id \= db.Column(db.Integer, primary\_key\=True)
+    id = db.Column(db.Integer, primary_key=True)
 ```
 这里我们配置 Page.tags 加载后作为标签的列表，因为我们并不期望每页出现太多的标签。而每个 tag 的页面列表（ Tag.pages）是一个动态的反向引用。 正如上面提到的，这意味着您会得到一个可以发起 select 的查询对象。
 
