@@ -62,7 +62,6 @@ Baz --> baz         # 单个单词的改为小写
 
 ## 声明关系对应模型
 
----
 
 ### 一对多(one-to-many)
 一对多关系将一个外键`sqlalchemy.schema.ForeignKey`定义在引用父表的子表上。然后在父节点上指定`relationship()`，以引用由子节点表示的一组项：
@@ -118,6 +117,16 @@ class Child(Base):
 TODO：[Basic Relationship Patterns — SQLAlchemy 1.4 Documentation](https://docs.sqlalchemy.org/en/14/orm/basic_relationships.html#many-to-one)
 
 ---
+
+
+## 事物
+
+代码：`backend.fundmate.database.save()`
+
+关于`SQLALCHEMY_COMMIT_ON_TEARDOWN`的讨论：
+- [关于Flask-SQLAlchemy事务提交有趣的探讨 - SegmentFault 思否](https://segmentfault.com/a/1190000007818952)
+- [SQLAlchemy 两种不同方式 commit() 时间开支的问题 - 知乎](https://zhuanlan.zhihu.com/p/27974385)
+- [关于flask-sqlalchemy中数据库操作的问题整理 - 简书](https://www.jianshu.com/p/ead613514f18)
 
 声明模型[¶](# "Permalink to this headline")
 =======================================
@@ -400,10 +409,6 @@ MYSQL_DB=
 
 此处我们使用 [Flask-Migrate](https://flask-migrate.readthedocs.io/en/latest/) 扩展实现。具体使用英文不好的同学可以参考此处：[Flask-migrate基本使用方法 - sablier - 博客园](https://www.cnblogs.com/sablier/p/11084080.html)。
 
-关于`SQLALCHEMY_COMMIT_ON_TEARDOWN`的讨论：
-- [关于Flask-SQLAlchemy事务提交有趣的探讨 - SegmentFault 思否](https://segmentfault.com/a/1190000007818952)
-- [SQLAlchemy 两种不同方式 commit() 时间开支的问题 - 知乎](https://zhuanlan.zhihu.com/p/27974385)
-- [关于flask-sqlalchemy中数据库操作的问题整理 - 简书](https://www.jianshu.com/p/ead613514f18)
 
 ### E-R 图
 
