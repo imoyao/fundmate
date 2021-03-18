@@ -13,6 +13,7 @@ class Account(PkModel, CreateDateModel):
                         db.ForeignKey('users.id'),
                         comment='管理人（类似群主）')
     comment = Column(db.String(255), comment='账本备注')
+    comment = Column(db.String(32), comment='账本类型（四笔钱）')
 
 
 class AccountFund(PkModel):
