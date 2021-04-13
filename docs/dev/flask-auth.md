@@ -87,6 +87,7 @@ JWT:由于[此处-Issue #123](https://github.com/mattupstate/flask-jwt/issues/12
 - [vue+elementUI+WebSocket 接收后台实时消息推送 - 简书](https://www.jianshu.com/p/c0a29ea2da46)
 - [全双工通信的 WebSocket](https://halfrost.com/websocket/)
 - [H5 页面前后端通信 （3 种方式简单介绍） - 吴飞 ff - 博客园](https://www.cnblogs.com/wfblog/p/9814620.html)
+- [flask-socketio-doc-zh/Flask-SocketIO 中文文档.md at master · shenyushun/flask-socketio-doc-zh](https://github.com/shenyushun/flask-socketio-doc-zh/blob/master/Flask-SocketIO%E4%B8%AD%E6%96%87%E6%96%87%E6%A1%A3.md)
 
 ## 登录
 1. 支持 oauth2 登录
