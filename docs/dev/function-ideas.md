@@ -2,10 +2,10 @@
 title: 功能实现备忘
 ---
 
-## [CatChat - Flask Web开发实战](http://helloflask.com/projects/catchat/)
+## [CatChat - Flask Web 开发实战](http://helloflask.com/projects/catchat/)
 
-- [x] Gravatar头像
+- [x] Gravatar 头像
 - [ ] 第三方登录
-## [Albumy - Flask Web开发实战](http://helloflask.com/projects/albumy/)
+## [Albumy - Flask Web 开发实战](http://helloflask.com/projects/albumy/)
 - [x] 大型项目组织形式
 - [ ] 用户资料弹窗

@@ -2,11 +2,13 @@
 title: 自定义RESTAPI的处理
 ---
 
+计划参考 [greyli/apiflask: Web APIs for Flask. 🍯](https://github.com/greyli/apiflask) 去实现，而不是自己写。
+
 ## 自定义RESTAPI的处理
 
-现存的框架比较知名的有django-rest-framework和flask-restapi，但是这些框架我都不太满意，而对于我这个项目用它们还太重了。好吧，手动写一个实现。首先是借用 DispatcherMiddleware 实现对/j这样的路径特殊处理（[commentbox/app.py at master · dongweiming/commentbox · GitHub](https://github.com/dongweiming/commentbox/blob/master/app.py class=)）：
+现存的框架比较知名的有 django-rest-framework 和 flask-restapi，但是这些框架我都不太满意，而对于我这个项目用它们还太重了。好吧，手动写一个实现。首先是借用 DispatcherMiddleware 实现对`/j` 这样的路径特殊处理（ [commentbox/app.py at master · dongweiming/commentbox · GitHub](https://github.com/dongweiming/commentbox/blob/master/app.py) ）：
 
-    from werkzeug.wsgi import DispatcherMiddleware                                                                     
+    from werkzeug.wsgi import DispatcherMiddlewareplain
     
     
     app.wsgi_app = DispatcherMiddleware(app.wsgi_app, OrderedDict((                                                
@@ -16,7 +18,7 @@ title: 自定义RESTAPI的处理
 
 我希望/j开头的返回的响应都是json格式的内容：
 
-    from flask import Flask
+    from flask import Flaskplain
     
     
     class ApiFlask(Flask):                                                                                             
@@ -33,9 +35,9 @@ title: 自定义RESTAPI的处理
     json_api = ApiFlask(__name__)         
     
 
-其中返回了一个额外的字段r, 如果是0表示响应的结果是正确的，为1表示响应的内容有问题。
+其中返回了一个额外的字段 r, 如果是 0 表示响应的结果是正确的，为 1 表示响应的内容有问题。
 
-接着我们自定义错误处理的方式，比如404返回这样：
+接着我们自定义错误处理的方式，比如 404 返回这样：
 
     {
         message: "Not Found"
@@ -43,7 +45,7 @@ title: 自定义RESTAPI的处理
 
 怎么实现呢：
 
-    from flask import json                                                                                             
+    from flask import jsonplain
     from werkzeug.wrappers import Response                                                                                                                                                                                               
                                                                                                                   
                                                                                                                        
@@ -120,7 +122,7 @@ title: 自定义RESTAPI的处理
 
 ### API 规范
 
-由于 Flask 本身的灵活性，社区中涌现出了一些便捷开发 Flask Restful API 的框架，其中包括 `flask-restful`，`flask-restplus` 等。就 Flask 本身而言，我们觉得它对于API 的粒度控制不够好，因此我们提供了一个 `红图` 的机制来帮助我们细粒度的控制API。相较于 `flask-restful`，`flask-restplus` 这些框架而言，红图更注重**小**与**轻**。红图的源代码如下：
+由于 Flask 本身的灵活性，社区中涌现出了一些便捷开发 Flask Restful API 的框架，其中包括 `flask-restful`，`flask-restplus` 等。就 Flask 本身而言，我们觉得它对于 API 的粒度控制不够好，因此我们提供了一个 `红图` 的机制来帮助我们细粒度的控制 API。相较于 `flask-restful`，`flask-restplus` 这些框架而言，红图更注重**小**与**轻**。红图的源代码如下：
 ```python
 class Redprint:
  def __init__(self, name, with_prefix=True):
@@ -196,4 +198,4 @@ def handle_error(self, app):
 ## 参考链接
 - [使用 Flask 设计 RESTful APIs — Designing a RESTful API with Python and Flask 1.0 documentation](http://www.pythondoc.com/flask-restful/index.html) TODO
 - [flask - 项目结构及开发规范 - 《Lin CMS 文档手册》 - 书栈网 · BookStack](https://www.bookstack.cn/read/Lin-CMS/2227eb2232b6e6d3.md#API%20%E8%A7%84%E8%8C%83)
-- [Flask最佳实践 - 知乎](https://zhuanlan.zhihu.com/p/22774028)
+- [Flask 最佳实践 - 知乎](https://zhuanlan.zhihu.com/p/22774028)
