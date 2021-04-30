@@ -1,7 +1,7 @@
 ---
 title: 凡有操作，必留日志 | 用户操作日志模块开发
 tag:
-    - 软件工程
+    - 软件工程plainplainplainplainplainplainplainplainplain
 ---
 
 ## 凡有操作，必留日志
@@ -15,10 +15,10 @@ tag:
 
 ## 前言
 
-系统开发中我们经常使用一些日志框架（如JAVA中的 log4j/logback/slf4j 等），用来调试、追踪、输出系统运行状况等，这些日志通常是给程序员看的，暂且叫它“系统日志”；而对于普通用户来说，也需要一个日志功能，可以方便查阅自己做过哪些操作，这些日志是面向普通用用户的，暂且叫它 “用户操作日志”。
+系统开发中我们经常使用一些日志框架（如 JAVA 中的 log4j/logback/slf4j 等），用来调试、追踪、输出系统运行状况等，这些日志通常是给程序员看的，暂且叫它“系统日志”；而对于普通用户来说，也需要一个日志功能，可以方便查阅自己做过哪些操作，这些日志是面向普通用用户的，暂且叫它 “用户操作日志”。
 
 ## 系统日志
-系统日志方面，我们抛弃掉Python中自带的logging模块，而是使用开源社区中的`loguru`模块。
+系统日志方面，我们抛弃掉 Python 中自带的 logging 模块，而是使用开源社区中的`loguru`模块。
 ```python
 from loguru import logger
 
@@ -43,7 +43,7 @@ logger.add(debugfile,
 
 - 优点
 1. 贴近业务逻辑
-因为startTask表明了我们要进行的业务逻辑的操作类型，而后面的操作参数则表明了业务逻辑的参数。
+因为 startTask 表明了我们要进行的业务逻辑的操作类型，而后面的操作参数则表明了业务逻辑的参数。
 - 缺点
 无法反映真实数据变动
 1. 记录不一定准确，可能在处理途中发生了变化
@@ -54,7 +54,7 @@ logger.add(debugfile,
 - 缺点
 无法获得编辑前的旧对象
 脱离业务逻辑
-一个最终数据库的操作可能是多个调用引起的，http的patch操作，可能只更新了一个单独值，没有必要全部记录
+一个最终数据库的操作可能是多个调用引起的，http 的 patch 操作，可能只更新了一个单独值，没有必要全部记录
 ### 混合切面
 以下层信息为主（因为它准确），以上层信息为辅（因为它包含业务信息），即吸收下层切面的准确性、整合上层切面的业务逻辑信息，并顺便解决旧对象的获取问题。
 ```python
@@ -68,5 +68,5 @@ def update_fund(old_finfo,new_finfo):pass
 - [浅谈管理系统操作日志设计（附操作日志类） - 胡尐睿丶 - 博客园](https://www.cnblogs.com/hooray/archive/2012/09/05/2672133.html)
 - [平台用户操作日志模块设计 - 简书](https://www.jianshu.com/p/872bb374596d)
 - [当我们在使用 Flask 时，如何记录日志_于振-CSDN 博客_flask 打印日志](https://blog.csdn.net/iszhenyu/article/details/56846551)
-- [如何优雅的在flask中记录log - SegmentFault 思否](https://segmentfault.com/a/1190000018087099)
+- [如何优雅的在 flask 中记录 log - SegmentFault 思否](https://segmentfault.com/a/1190000018087099)
 - [django 如何实现数据的用户操作记录? - V2EX](https://v2ex.com/t/603768)

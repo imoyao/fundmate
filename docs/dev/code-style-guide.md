@@ -7,7 +7,7 @@ title: 项目中代码规范问题
 ## 工具
 
 ### flake8
-我们使用flake8进行pep8规范检查，具体安装参阅：[pycharm-guide/c08_15.md at master · imoyao/pycharm-guide](https://github.com/imoyao/pycharm-guide/blob/master/source/c08/c08_15.md)
+我们使用 flake8 进行 pep8 规范检查，具体安装参阅：[pycharm-guide/c08_15.md at master · imoyao/pycharm-guide](https://github.com/imoyao/pycharm-guide/blob/master/source/c08/c08_15.md)
 ```buildoutcfg
 [flake8]
 ignore = D401,D202,E226,E302,E41
@@ -16,7 +16,7 @@ exclude = migrations/*,.git,__pycache__,old,build,dist
 max-complexity = 10
 ```
 ### isort
-使用isort来解决自动导入的问题。下面一个我个人使用的配置，后期可能继续对比修改配置
+使用 isort 来解决自动导入的问题。下面一个我个人使用的配置，后期可能继续对比修改配置
 ```buildoutcfg
 [isort]
 multi_line_output = 3
@@ -32,12 +32,12 @@ sections = FUTURE,STDLIB,FLASK,TEST,FIRSTPARTY,THIRDPARTY,LOCALFOLDER
 ```
 `include_trailing_comma = True`的说明：
 
-> 如果列表，元组或python字典的字面值分布在多行中，则更容易添加更多元素，因为不必记住在上一行中添加逗号。这些行也可以重新排序，而不会产生语法错误。
+> 如果列表，元组或 python 字典的字面值分布在多行中，则更容易添加更多元素，因为不必记住在上一行中添加逗号。这些行也可以重新排序，而不会产生语法错误。
 
-[为什么Python在列表和元组的末尾允许使用逗号？ - 红皮橘子 - 博客园](https://www.cnblogs.com/yuanrenxue/p/10691184.html)
+[为什么 Python 在列表和元组的末尾允许使用逗号？ - 红皮橘子 - 博客园](https://www.cnblogs.com/yuanrenxue/p/10691184.html)
 
 ### yapf
-一种自动修复pep8错误的工具
+一种自动修复 pep8 错误的工具
 ```buildoutcfg
 [yapf]
 based_on_style = pep8
@@ -57,4 +57,4 @@ COLUMN_LIMIT = 79
 配置可参考（TODO）：
 [flask/setup.cfg at master · pallets/flask](https://github.com/pallets/flask/blob/master/setup.cfg)
 [dkistdc / logging_config / setup.cfg — Bitbucket](https://bitbucket.org/dkistdc/logging_config/src/master/setup.cfg)
-延伸到setup.py的写法
+延伸到 setup.py 的写法

@@ -3,19 +3,19 @@ title: 使用 Flask-Admin 增加后台管理界面
 ---
 ## Flask-Admin 后台管理
 
-Flask-Admin是一个简单易用的Flask扩展，让你可以很方便并快速地为Flask应用程序增加管理界面。
+Flask-Admin 是一个简单易用的 Flask 扩展，让你可以很方便并快速地为 Flask 应用程序增加管理界面。
 
 ### 上手
 
-先用pip 安装flask-admin扩展
+先用 pip 安装 flask-admin 扩展
 
-```    
+```plain
 pip install flask-admin 
 ```
 
 初始化
 
-```    
+```plain
 from flask import Flask
 
 from flask_admin import Admin, BaseView, expose
@@ -28,7 +28,7 @@ app.run()
 
 ```
 
-访问[http://localhost:5000/admin/](http://localhost:5000/admin/)就可以看到一个简单的Home页面，其中name为自定义系统名，会显示在导航栏上
+访问[http://localhost:5000/admin/](http://localhost:5000/admin/)就可以看到一个简单的 Home 页面，其中 name 为自定义系统名，会显示在导航栏上
 
 ![](https://upload-images.jianshu.io/upload_images/3645027-950445e715de63fb.png?imageMogr2/auto-orient/strip|imageView2/2/w/465/format/webp)
 
@@ -38,7 +38,7 @@ app.run()
 
 在之前代码上增加
 
-```    
+```plain
 from flask import Flask
 from flask.ext.admin import Admin, BaseView, expose
 
@@ -56,9 +56,9 @@ app.run()
 ```
     
 
-在templates下写模板文件index.html
+在 templates 下写模板文件 index.html
 
-```    
+```plain
 {% extends 'admin/master.html' %}   #为了保持一致，继承admin/master.html模板
 
 {% block body %}
@@ -69,13 +69,13 @@ app.run()
 ```
     
 
-这里采用的模板语言为Jinjia2，查看[Jinjia2文档](https://link.jianshu.com?t=http://docs.jinkan.org/docs/jinja2/)
+这里采用的模板语言为 Jinjia2，查看[Jinjia2 文档](https://link.jianshu.com?t=http://docs.jinkan.org/docs/jinja2/)
 
 ### 增加数据库模型视图
 
-这是Flask-Admin很方便的一个部分，只需要很少的代码，就可以为某个数据库模型实现管理视图，这里采用Flask-SQLAlchemy作为ORM后端
+这是 Flask-Admin 很方便的一个部分，只需要很少的代码，就可以为某个数据库模型实现管理视图，这里采用 Flask-SQLAlchemy 作为 ORM 后端
 
-```    
+```plain
 from flask_admin.contrib.sqla import ModelView
 
 # 在这里初始化Flask Flask-SQLAlchemy Flask-Admin
@@ -88,11 +88,11 @@ admin.add_view(ModelView(User, db.session))
 
 注:右上角加了管理员登录
 
-不过网页默认显示全是英文，需要汉化处理，Flask-Admin自带国际化，所以中文显示也很方便
+不过网页默认显示全是英文，需要汉化处理，Flask-Admin 自带国际化，所以中文显示也很方便
 
-### 用Flask-BabelEx做国际化
+### 用 Flask-BabelEx 做国际化
 
-```    
+```plain
 from flask_babelex import Babel
 
 app = Flask(__name__)
@@ -109,7 +109,7 @@ app.config['BABEL_DEFAULT_LOCALE'] = 'zh_CN'
 
 ### 定制数据库模型视图
 
-```    
+```plain
 class UserView(ModelView):
 
 #这三个变量定义管理员是否可以增删改，默认为True
@@ -142,17 +142,17 @@ admin.add_view(UserView(User, db.session, name=u'信息', category=u'用户'))
 ```
     
 
-更多可定制选项见[flask\_admin.model文档](https://link.jianshu.com?t=http://flask-admin.readthedocs.io/en/latest/api/mod_model/?module-flask_admin.model)
+更多可定制选项见[flask\_admin.model 文档](https://link.jianshu.com?t=http://flask-admin.readthedocs.io/en/latest/api/mod_model/?module-flask_admin.model)
 
-### 用Flask-Login做身份验证
+### 用 Flask-Login 做身份验证
 
-管理员系统不能是开放的，应该做一下身份验证，我这里用Flask-Login做身份验证
+管理员系统不能是开放的，应该做一下身份验证，我这里用 Flask-Login 做身份验证
 
-这里比较复杂一点，首先要定制templates下的模板文件index.html
+这里比较复杂一点，首先要定制 templates 下的模板文件 index.html
 
-实现管理员登录带有CSRF 令牌的安全表单
+实现管理员登录带有 CSRF 令牌的安全表单
 
-```    
+```plain
     {% extends 'admin/master.html' %}
     
     {% block body %}
@@ -203,7 +203,7 @@ admin.add_view(UserView(User, db.session, name=u'信息', category=u'用户'))
 
 处理管理员登录
 
-```    
+```plain
     #这里的fields和validators是用的Flask-WTForm
     
     from wtforms import fields, validators
@@ -236,16 +236,16 @@ admin.add_view(UserView(User, db.session, name=u'信息', category=u'用户'))
 ```
     
 
-安装flask-login
+安装 flask-login
 
-```    
+```plain
 pip install flask-login
     
 ```
 
-初始化，调用init\_login()函数即可
+初始化，调用 init\_login()函数即可
 
-```    
+```plain
     from flask_login import current_user, login_user, logout_user, LoginManager
     
     def init_login():
@@ -263,7 +263,7 @@ pip install flask-login
     
 
 然后在需要管理员权限的才能看到的视图中添加代码
-```
+```plain
     
     #决定身份验证可见
     
@@ -275,8 +275,8 @@ pip install flask-login
 
 ### 管理上传文件和图片
 
-文件上传，很简单的调用FileAdmin即可
-```
+文件上传，很简单的调用 FileAdmin 即可
+```plain
 
 from flask_admin.contrib.fileadmin import FileAdmin
 
@@ -289,9 +289,9 @@ admin.add_view(FileAdmin(file_path, '/static/', name='文件'))
 ```
 
 
-假设pics为需要上传图片的字段
+假设 pics 为需要上传图片的字段
 
-```    
+```plain
 form_extra_fields = {
 
 'pics': upload.ImageUploadField(label=u图片',
@@ -306,7 +306,7 @@ base_path=file_path),
 
 ### 参考
 1. [Flask-Admin 后台管理介绍 - 简书](https://www.jianshu.com/p/aef7bbdf74fa)
-2. [Flask-Admin文档Quick Start](https://link.jianshu.com?t=http://flask-admin.readthedocs.io/en/v1.0.9/quickstart/)
+2. [Flask-Admin 文档 Quick Start](https://link.jianshu.com?t=http://flask-admin.readthedocs.io/en/v1.0.9/quickstart/)
 3. [flask-admin](http://examples.flask-admin.org/)
-4. [Flask-Admin中文入门教程](https://link.jianshu.com?t=http://flask123.sinaapp.com/article/57/)
-5. [Flask-admin使用经验技巧总结 - 傻白甜++ - 博客园](https://www.cnblogs.com/feifeifeisir/p/12858367.html)
+4. [Flask-Admin 中文入门教程](https://link.jianshu.com?t=http://flask123.sinaapp.com/article/57/)
+5. [Flask-admin 使用经验技巧总结 - 傻白甜++ - 博客园](https://www.cnblogs.com/feifeifeisir/p/12858367.html)
