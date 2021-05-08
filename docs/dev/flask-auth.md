@@ -1,6 +1,9 @@
 ---
 title: 再一次，认识注册、登录功能
 ---
+
+[认证、授权、鉴权和权限控制 | 滩之南](http://www.hyhblog.cn/2018/04/25/user_login_auth_terms/)
+
 ## token 而不是 cookie
 
 API 通常希望每次请求都将访问凭证/令牌发送到 API。这类似于 web 服务器(Flask)直接返回 html/js 代码时对请求进行身份验证的方式。
@@ -110,3 +113,17 @@ JWT:由于[此处-Issue #123](https://github.com/mattupstate/flask-jwt/issues/12
 7. [细说API – 认证、授权和凭证 - 知乎](https://zhuanlan.zhihu.com/p/60522006)
 8. [HTTP API 认证授权术 | 酷 壳 - CoolShell](https://coolshell.cn/articles/19395.html)
 9. [REST接口安全认证方式对比：API Key vs OAuth令牌 vs JWT_王浩的技术博客-CSDN博客_apikey认证方式](https://peterwanghao.blog.csdn.net/article/details/81170785)
+
+## 权限
+
+[最好的权限设计，是先区分功能权限和数据权限 | 人人都是产品经理](http://www.woshipm.com/pd/2889402.html)
+
+[后台经验分享：如何做权限管理系统设计 | 人人都是产品经理](http://www.woshipm.com/pd/835248.html)
+
+[大家心心念念的权限管理功能，这次安排上了！](https://juejin.cn/post/6844904067525771272)
+
+[如何从零开始设计权限管理系统 | Echo Blog](https://houbb.github.io/2020/09/17/how-to-design-privilege-system#%E4%BC%A0%E7%BB%9F-rbac-%E7%9A%84%E4%B8%8D%E8%B6%B3)
+
+[常见权限系统设计模型分析（DAC，MAC，RBAC，ABAC） - 简书](https://www.jianshu.com/p/ce0944b4a903)
+
+   [可能是史上最全的权限系统设计 - 知乎](https://zhuanlan.zhihu.com/p/73414693)

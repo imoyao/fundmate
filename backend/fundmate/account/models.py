@@ -13,7 +13,7 @@ class Account(PkModel, CreateDateModel):
                         db.ForeignKey('users.id'),
                         comment='管理人（类似群主）')
     comment = Column(db.String(255), comment='账本备注')
-    comment = Column(db.String(32), comment='账本类型（四笔钱）')
+    account_type = Column(db.String(32), comment='账本类型（四笔钱）')
 
 
 class AccountFund(PkModel):
@@ -29,7 +29,7 @@ class CashFlow(PkModel):
                   nullable=False,
                   server_default=db.text("CURRENT_TIMESTAMP"),
                   comment='购买日期（确认日期）')
-    comment = Column(db.String(30), comment='复盘备注')
+    comment = Column(db.String(300), comment='复盘备注')
 
 
 class HandPick(PkModel):
