@@ -155,7 +155,9 @@ class User(db.Model):
         return '<User %r>' % self.username
 ```
 用 `Column` 来定义一列。列名就是您赋值给那个变量的名称。如果您想要在表中使用不同的名称，您可以提供一个想要的列名的字符串作为可选第一个参数。主键用 `primary_key=True` 标记。可以把多个键标记为主键，此时它们作为复合主键。
+### 一对一
 
+DailyWorth与Fund
 
 ### 一对多(one-to-many)关系
 
@@ -193,8 +195,8 @@ class User(db.Model):
 ```
 ## 多对多(many-to-many)关系
 
-如果您想要用多对多关系，您需要定义一个用于关系的辅助表。对于这个辅助表， 强烈建议 _不_ 使用模型，而是采用一个实际的表:
-```plain
+User和Role表之间互为多对多关系，我们需要定义一个用于关系的辅助表。对于这个辅助表， 强烈建议 _不_ 使用模型，而是采用一个实际的表；:
+```python
 tags = db.Table('tags',
     db.Column('tag_id', db.Integer, db.ForeignKey('tag.id')),
     db.Column('page_id', db.Integer, db.ForeignKey('page.id'))
@@ -209,7 +211,11 @@ class Tag(db.Model):
     id = db.Column(db.Integer, primary_key=True)
 ```
 这里我们配置 Page.tags 加载后作为标签的列表，因为我们并不期望每页出现太多的标签。而每个 tag 的页面列表（ Tag.pages）是一个动态的反向引用。 正如上面提到的，这意味着您会得到一个可以发起 select 的查询对象。
-
+关联对象模式是多对多模式的一种变体: 当关联表包含左右表的外键之外的其他列时使用它。
+```python
+class FundMgr(PkModel):
+    pass
+```
 在 [idealyard](https://github.com/imoyao/idealyard) 项目中，我们的文章和作者就是一对多的关系。本例中，我们的用户（User）和账户（Account）也是这种关系。
 此外，我们可以在单个`relationship()` 上使用`relationship.backref`选项，而不是使用`relationship.back_populates`：
 :::tip TODO
@@ -423,6 +429,7 @@ SQL 文件详见 [此处](https://github.com/imoyao/fundmate/blob/master/db/fmt.
 
 1. 连接池
 2. 超时释放问题
+   数据库连接池我们一般使用 [DBUtils](https://webwareforpython.github.io/DBUtils/main.html) ，但是由于使用了ORM，所以使用自带的连接池 [Connection Pooling — SQLAlchemy 1.4 Documentation](https://docs.sqlalchemy.org/en/14/core/pooling.html) 即可。
 
 ### 规范
 

@@ -28,7 +28,7 @@ export test=123
 ```  
 然后在项目中使用`os`导入：
 
-```plain
+```python
 # shell命令行
 export test=123 # **注意这里没有空格**
 

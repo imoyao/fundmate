@@ -6,12 +6,11 @@ from backend.fundmate.database import Column, CreateDateModel, PkModel, db, refe
 
 
 class DailyWorth(PkModel, CreateDateModel):
-    """每日净值"""
+    """每日估算净值（真实净值按照基金名称分表存储）"""
     price = Column(db.Float, comment='基金单日净值')
     date = Column(db.Date, comment='日期')
-    # fund_id = reference_col(db.Integer, db.ForeignKey('funds.id'), comment='基金编号')
     fund_id = reference_col('funds', column_kwargs={'comment': '基金编号'})
-    fund = relationship('Fund', back_populates='daily_worth')
+    fund = relationship("Fund", uselist=False, back_populates="daily_worth")
 
 
 class Fund(PkModel):
@@ -46,22 +45,26 @@ class Fund(PkModel):
                   db.String(60),
                   comment='全写拼音')
     fund_code = Column(db.Integer, unique=True, comment='基金编码')
-    ftype = Column('fund_type_id',
+    f_type = Column('fund_type_id',
+                    db.Integer,
+                    db.ForeignKey('fund_type.id'),
+                    comment='基金小类编号')
+    f_var = Column('fund_variety_id',
                    db.Integer,
-                   db.ForeignKey('fund_type.id'),
-                   comment='基金小类编号')
-    fvar = Column('fund_variety_id',
-                  db.Integer,
-                  db.ForeignKey('fund_variety.id'),
-                  comment='基金大类编号')
+                   db.ForeignKey('fund_variety.id'),
+                   comment='基金大类编号')
     co_id = Column(db.Integer,
                    db.ForeignKey('fund_company.id'),
                    comment='所属基金公司编号')
     create_time = Column(db.DateTime, comment='基金创建时间')
+    '''
+    基金、净值为一对一关系，所以需要对两者都添加`relationship`
+    [Basic Relationship Patterns — SQLAlchemy 1.4 Documentation](https://docs.sqlalchemy.org/en/14/orm/basic_relationships.html#one-to-one)
+    '''
+    daily_worth = relationship('DailyWorth', back_populates='fund', uselist=False)
 
 
 class FundRate(PkModel):
-
     fund_id = Column(db.Integer, db.ForeignKey('funds.id'), comment='基金编号')
     rule_id = Column(db.Integer, comment='费率编号')
     rate = Column(db.Integer, comment='费率百分比')
@@ -71,7 +74,7 @@ class FundRate(PkModel):
 class FundMgr(PkModel):
     """relation between Fund and Mgr
     """
-    __table_args__ = {'comment': '基金与经理关联表'}        # TODO: 关联表
+    __table_args__ = {'comment': '基金与经理关联表'}  # TODO: 关联表
 
     fund_id = Column(db.Integer, db.ForeignKey('funds.id'), comment='基金编号')
     mgr_id = Column(db.Integer, db.ForeignKey('mgrs.id'), comment='基金经理编号')
@@ -98,7 +101,7 @@ class FundType(PkModel):
 class FundVariety(PkModel):
     __table_args__ = {'comment': '基金大类表'}
 
-    name = Column(db.String(255))
+    name = Column(db.String(255))       # django model 中的 choices
 
 
 class InRule(PkModel):

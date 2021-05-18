@@ -2,6 +2,8 @@
 """Database module, including the SQLAlchemy database object and DB-related utilities."""
 from datetime import datetime
 from typing import Union
+from apiflask import pagination_builder
+from sqlalchemy.ext.declarative import declarative_base
 
 from .compat import basestring
 from .extensions import db
@@ -9,6 +11,7 @@ from .extensions import db
 # Alias common SQLAlchemy names
 Column = db.Column
 relationship = db.relationship
+Base = declarative_base()
 
 
 class CRUDMixin(object):
@@ -41,6 +44,18 @@ class CRUDMixin(object):
         db.session.delete(self)
         return commit and db.session.commit()
 
+    @classmethod
+    def paginate_query(cls, query_args):
+        pagination = cls.query.paginate(
+            page=query_args['page'],
+            per_page=query_args['per_page']
+        )
+        _items = pagination.items
+        return {
+            'items': _items,
+            'pagination': pagination_builder(pagination)
+        }
+
 
 class Model(CRUDMixin, db.Model):
     """Base model class that includes CRUD convenience methods."""
@@ -67,7 +82,7 @@ class PkModel(Model):
                         isinstance(record_id, (int, float)),
                 )
         ):
-            return cls.query.get(int(record_id))
+            return cls.query.get_or_404(int(record_id))
         return None
 
 

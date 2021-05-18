@@ -8,18 +8,29 @@ from flask_login import AnonymousUserMixin, UserMixin
 from itsdangerous import BadSignature, SignatureExpired
 from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
 from werkzeug.security import check_password_hash, generate_password_hash
+from sqlalchemy import Table
 
-from backend.fundmate.database import Column, CreateDateModel, PkModel, db, reference_col, relationship
+from backend.fundmate.database import Column, CreateDateModel, PkModel, db, relationship, Base
 from backend.fundmate.extensions import login_manager
+from backend.fundmate import settings
+
+# [多对多双向关系](https://docs.sqlalchemy.org/en/14/orm/basic_relationships.html#many-to-many)
+'''
+角色和用户之间互为多对多关系（ bidirectional relationship）
+**注意**：必须继承Base且为第一个继承对象！
+'''
+user_role_table = Table('user_role', Base.metadata,
+                        Column('user_id', db.Integer, db.ForeignKey('users.id')),
+                        Column('role_id', db.Integer, db.ForeignKey('roles.id'))
+                        )
 
 
-class Role(PkModel):
+class Role(Base, PkModel):
     """A role for a user."""
 
     __tablename__ = "roles"
     name = Column(db.String(80), unique=True, nullable=False)
-    user_id = reference_col("users", nullable=True)
-    user = relationship("User", backref="roles")    # TODO:推荐使用 back_populates
+    user = relationship("User", secondary=user_role_table, back_populates="role")
 
     def __init__(self, name, **kwargs):
         """Create instance."""
@@ -30,7 +41,7 @@ class Role(PkModel):
         return f"<Role({self.name})>"
 
 
-class User(PkModel, CreateDateModel, UserMixin):
+class User(Base, PkModel, CreateDateModel, UserMixin):
     """A user of the app."""
 
     __tablename__ = 'users'
@@ -49,6 +60,7 @@ class User(PkModel, CreateDateModel, UserMixin):
         db.TIMESTAMP,
         nullable=False,
         server_default=db.text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"))
+    role = relationship("Role", secondary=user_role_table, back_populates="user")
 
     def __init__(self, username, email, password=None, **kwargs) -> None:
         """Create instance."""
@@ -87,8 +99,7 @@ class User(PkModel, CreateDateModel, UserMixin):
         if not rv:
             admin_info = {
                 'name': 'admin',
-                'email': current_app.config["ADMIN_EMAIL"]
-                or 'fundmate@163.com',
+                'email': current_app.config["ADMIN_EMAIL"] or settings.INFO_MAIL_ADDR,
                 'password': current_app.config["DEFAULT_ADMIN_PASSWORD"],
                 'is_admin': True,
                 'is_vip': True,
