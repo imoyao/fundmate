@@ -15,7 +15,7 @@ pip install flask-admin
 
 初始化
 
-```plain
+```python
 from flask import Flask
 
 from flask_admin import Admin, BaseView, expose

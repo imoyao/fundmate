@@ -32,11 +32,11 @@ class Config:
     SQLALCHEMY_RECORD_QUERIES = True
     # 分页
     POSTS_PER_PAGE = 10
-    # 上传图片
+    # 上传图片路径
     UPLOADED_IMAGES_DEST = Path(CURRENT_DIR).joinpath('static/images')
     MAX_CONTENT_LENGTH = 10 * 1024 * 1024
     # 邮件服务器设置
-    MAIL_SERVER = env.str('MAIL_SERVER',default='smtp.163.com')
+    MAIL_SERVER = env.str('MAIL_SERVER', default='smtp.163.com')
     # 163不支持STARTTLS
     MAIL_PORT = 465
     MAIL_USE_SSL = True
@@ -60,9 +60,12 @@ class Config:
 
 class MySQLConfig:
     MYSQL_USERNAME = env.str('MYSQL_USER')
-    MYSQL_PASSWORD = env.str('MYSQL_PASSWORD')
-    MYSQL_DB = env.str('MYSQL_DB')
-    MYSQL_HOST = 'localhost:3306'
+    MYSQL_PASSWORD = env.str('MYSQL_PASSWORD')  # TODO: 环境变量获取失败
+    print(MYSQL_USERNAME, MYSQL_PASSWORD)
+    MYSQL_DB = env.str('MYSQL_DB', '')
+    MYSQL_HOST = env.str('MYSQL_HOST', 'localhost')
+    MYSQL_PORT = env.str('MYSQL_PORT', 3306)
+    MYSQL_ADDR = f'{MYSQL_HOST}:{MYSQL_PORT}'
     MYSQL_CHARSET = 'utf8mb4'  # 为了支持 emoji 显示，需要设置为 utf8mb4 编码
 
 
@@ -70,20 +73,20 @@ class DevelopmentConfig(Config):
     DEBUG = settings.DEBUG
     database = MySQLConfig.MYSQL_DB or 'fmp_dev'
     SQLALCHEMY_DATABASE_URI = f'mysql+pymysql://{MySQLConfig.MYSQL_USERNAME}:{MySQLConfig.MYSQL_PASSWORD}' \
-                              f'@{MySQLConfig.MYSQL_HOST}/{database}?charset={MySQLConfig.MYSQL_CHARSET}'
+                              f'@{MySQLConfig.MYSQL_ADDR}/{database}?charset={MySQLConfig.MYSQL_CHARSET}'
 
 
 class TestingConfig(Config):
     TESTING = True
     database = MySQLConfig.MYSQL_DB or 'fmp_test'
     SQLALCHEMY_DATABASE_URI = f'mysql+pymysql://{MySQLConfig.MYSQL_USERNAME}:{MySQLConfig.MYSQL_PASSWORD}' \
-                              f'@{MySQLConfig.MYSQL_HOST}/{database}?charset={MySQLConfig.MYSQL_CHARSET}'
+                              f'@{MySQLConfig.MYSQL_ADDR}/{database}?charset={MySQLConfig.MYSQL_CHARSET}'
 
 
 class ProductionConfig(Config):
     database = MySQLConfig.MYSQL_DB or 'fmp_product'
     SQLALCHEMY_DATABASE_URI = f'mysql+pymysql://{MySQLConfig.MYSQL_USERNAME}:{MySQLConfig.MYSQL_PASSWORD}' \
-                              f'@{MySQLConfig.MYSQL_HOST}/{database}?charset={MySQLConfig.MYSQL_CHARSET}'
+                              f'@{MySQLConfig.MYSQL_ADDR}/{database}?charset={MySQLConfig.MYSQL_CHARSET}'
 
 
 config = {

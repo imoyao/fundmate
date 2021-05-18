@@ -47,11 +47,19 @@ yarn run dev
 ```
 
 ### 后端
-
+- 安装开发环境
 ```bash
 cd backend
 python3 -m venv fmp
 source fmp/bin/activate 
 pip install -r requirements.txt
+```
+- 修改环境变量`.env`
+```
 flask run --host=0.0.0.0
+```
+- 启动数据库
+- 初始化数据库
+```bash
+flask init-db # 更多命令执行flask --help 查看
 ```
