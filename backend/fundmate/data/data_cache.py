@@ -15,7 +15,7 @@ def fund_info(fund_code: str, save: bool = False) -> dict:
     获取基金信息
     :param fund_code:
     :param save:
-    :return:
+    :return:{'name': '诺安中证100指数A', 'time': '2021-05-20', 'current': 2.065, 'market': 'CN', 'currency': 'CNY', 'current_ext': None, 'status': '开放申购', 'type': '股票指数', 'scale': '2.54亿元（2021-03-31）', 'manager': '梅律吾', 'company': '诺安基金', 'estimate': 2.043, 'estimate_time': '2021-05-21 15:00'}
     """
     if save:
         io = {"save": True, "fetch": True, "form": "sql", "path": engine}

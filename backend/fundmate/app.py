@@ -67,6 +67,7 @@ def register_extensions(app: Flask):
     db.init_app(app)
     # csrf_protect.init_app(app)
     login_manager.init_app(app)
+
     migrate.init_app(app, db)
     flask_static_digest.init_app(app)
     loguru.init_app(app, {
@@ -74,6 +75,7 @@ def register_extensions(app: Flask):
         "LOG_NAME": "run.log"
     })
     return None
+
 
 
 def register_blueprints(app: Flask):
