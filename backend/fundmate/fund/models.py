@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 # Created by Administrator at 2021/2/13 17:50
 
-from backend.fundmate.database import Column, CreateDateModel, PkModel, db, reference_col, relationship
+from backend.fundmate.database import Column, CreateDateModel, PkModel, CRUDMixin, db, reference_col, relationship
 
 
 class DailyWorth(PkModel, CreateDateModel):
@@ -82,11 +82,25 @@ class FundMgr(PkModel):
     end_date = Column(db.DateTime)
 
 
-class FundCompany(PkModel):
+class FundCompany(PkModel, CRUDMixin):
     """基金公司表
     """
+    code = Column(db.String(10), comment='基金公司编号')
     name = Column(db.String(30), comment='基金公司名称')
-    co_id = Column(db.String(10), comment='基金公司编号')
+    create_date = Column(db.DateTime, comment='创建时间')
+    scale = Column(db.Numeric(precision=2), comment='资产规模')
+    dpy = Column('abbr_capital_initial_phonetic_alphabet',
+                 db.String(30),
+                 comment='缩写首字母拼音')
+    tx_eval = Column(db.Integer(), comment='天相评级（五星制）')
+    full_name = Column(db.String(30), comment='基金公司全称')
+    f_counts = Column(db.DateTime, comment='拥有基金数量（参考值）')
+    mgr = Column(db.String(10), comment='总经理')
+    update_time = Column(db.DateTime, comment='数据更新时间')
+    last_modified = Column(
+        db.TIMESTAMP,
+        nullable=False,
+        server_default=db.text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"), comment='数据上次更新时间')
 
 
 class FundType(PkModel):
@@ -98,10 +112,10 @@ class FundType(PkModel):
                     comment='基金大类编号')
 
 
-class FundVariety(PkModel):
+class FundVariety(PkModel, CRUDMixin):
     __table_args__ = {'comment': '基金大类表'}
 
-    name = Column(db.String(255))       # django model 中的 choices
+    name = Column(db.String(255))  # django model 中的 choices
 
 
 class InRule(PkModel):
