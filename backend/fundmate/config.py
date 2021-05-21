@@ -6,8 +6,9 @@ http://www.pythondoc.com/flask/config.html#id6
 """
 from pathlib import Path
 
-from . import settings
-from .settings import env
+from backend.fundmate import settings
+
+env = settings.env
 
 CURRENT_DIR = Path(__file__).resolve().parent
 
@@ -61,32 +62,35 @@ class Config:
 class MySQLConfig:
     MYSQL_USERNAME = env.str('MYSQL_USER')
     MYSQL_PASSWORD = env.str('MYSQL_PASSWORD')  # TODO: 环境变量获取失败
-    print(MYSQL_USERNAME, MYSQL_PASSWORD)
     MYSQL_DB = env.str('MYSQL_DB', '')
     MYSQL_HOST = env.str('MYSQL_HOST', 'localhost')
     MYSQL_PORT = env.str('MYSQL_PORT', 3306)
     MYSQL_ADDR = f'{MYSQL_HOST}:{MYSQL_PORT}'
     MYSQL_CHARSET = 'utf8mb4'  # 为了支持 emoji 显示，需要设置为 utf8mb4 编码
+    MYSQL_DIALECT = 'mysql'  # 使用的数据库
+    MYSQL_DRIVER = 'pymysql'  # 指定引擎
+
+
+def mysql_url(db):
+    sql_url = f'{MySQLConfig.MYSQL_DIALECT}+{MySQLConfig.MYSQL_DRIVER}://{MySQLConfig.MYSQL_USERNAME}:{MySQLConfig.MYSQL_PASSWORD}@{MySQLConfig.MYSQL_ADDR}/{db}?charset={MySQLConfig.MYSQL_CHARSET}'
+    return sql_url
 
 
 class DevelopmentConfig(Config):
     DEBUG = settings.DEBUG
-    database = MySQLConfig.MYSQL_DB or 'fmp_dev'
-    SQLALCHEMY_DATABASE_URI = f'mysql+pymysql://{MySQLConfig.MYSQL_USERNAME}:{MySQLConfig.MYSQL_PASSWORD}' \
-                              f'@{MySQLConfig.MYSQL_ADDR}/{database}?charset={MySQLConfig.MYSQL_CHARSET}'
+    DATABASE = MySQLConfig.MYSQL_DB or 'fmp_dev'
+    SQLALCHEMY_DATABASE_URI = mysql_url(DATABASE)
 
 
 class TestingConfig(Config):
     TESTING = True
-    database = MySQLConfig.MYSQL_DB or 'fmp_test'
-    SQLALCHEMY_DATABASE_URI = f'mysql+pymysql://{MySQLConfig.MYSQL_USERNAME}:{MySQLConfig.MYSQL_PASSWORD}' \
-                              f'@{MySQLConfig.MYSQL_ADDR}/{database}?charset={MySQLConfig.MYSQL_CHARSET}'
+    DATABASE = MySQLConfig.MYSQL_DB or 'fmp_test'
+    SQLALCHEMY_DATABASE_URI = mysql_url(DATABASE)
 
 
 class ProductionConfig(Config):
-    database = MySQLConfig.MYSQL_DB or 'fmp_product'
-    SQLALCHEMY_DATABASE_URI = f'mysql+pymysql://{MySQLConfig.MYSQL_USERNAME}:{MySQLConfig.MYSQL_PASSWORD}' \
-                              f'@{MySQLConfig.MYSQL_ADDR}/{database}?charset={MySQLConfig.MYSQL_CHARSET}'
+    DATABASE = MySQLConfig.MYSQL_DB or 'fmp_product'
+    SQLALCHEMY_DATABASE_URI = mysql_url(DATABASE)
 
 
 config = {

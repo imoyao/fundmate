@@ -41,7 +41,7 @@ class Role(Base, PkModel):
         return f"<Role({self.name})>"
 
 
-class User(Base, PkModel, CreateDateModel, UserMixin):
+class User(PkModel, CreateDateModel, UserMixin):
     """A user of the app."""
 
     __tablename__ = 'users'
@@ -56,6 +56,7 @@ class User(Base, PkModel, CreateDateModel, UserMixin):
     is_admin = Column(db.Boolean(), default=False)
     is_vip = Column(db.Boolean(), default=False)
     profile = Column(db.TEXT)
+    # TODO: 是否有必要，修改为modified？
     last_login = Column(
         db.TIMESTAMP,
         nullable=False,
