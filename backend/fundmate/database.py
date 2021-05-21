@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Union
 from apiflask import pagination_builder
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.sql import func
 
 from .compat import basestring
 from .extensions import db
@@ -88,9 +89,17 @@ class PkModel(Model):
 
 class CreateDateModel(Model):
     """模仿PkModel，给数据表增加一个添加创建时间列"""
-    # https://stackoverflow.com/a/18675245/14295718
+    '''
+    https://stackoverflow.com/a/18675245/14295718
+    该指令用于不应映射到数据库表的抽象类
+    '''
     __abstract__ = True
-    create_at = Column(db.DateTime, default=datetime.utcnow, comment='创建时间')
+    '''
+    使用server_default，即使不传值，数据库也会使用系统时间传默认值
+    参阅：[python - SQLAlchemy default DateTime - Stack Overflow](https://stackoverflow.com/
+    questions/13370317/sqlalchemy-default-datetime)
+    '''
+    create_at = Column(db.DateTime(timezone=True), default=datetime.now, server_default=func.now(), comment='创建时间')
 
 
 def reference_col(
