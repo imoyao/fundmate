@@ -88,19 +88,44 @@ class FundCompany(PkModel, CRUDMixin):
     code = Column(db.String(10), comment='基金公司编号')
     name = Column(db.String(30), comment='基金公司名称')
     create_date = Column(db.DateTime, comment='创建时间')
-    scale = Column(db.Numeric(precision=2), comment='资产规模')
+    scale = Column(db.Numeric(10, 2), nullable=True, comment='资产规模(亿元) ')  # 长度10，精度2
     dpy = Column('abbr_capital_initial_phonetic_alphabet',
                  db.String(30),
                  comment='缩写首字母拼音')
-    tx_eval = Column(db.Integer(), comment='天相评级（五星制）')
+    tx_eval = Column(db.Integer, nullable=True, comment='天相评级（五星制）')
     full_name = Column(db.String(30), comment='基金公司全称')
-    f_counts = Column(db.DateTime, comment='拥有基金数量（参考值）')
+    f_counts = Column(db.Integer, comment='拥有基金数量（参考值）')
     mgr = Column(db.String(10), comment='总经理')
     update_time = Column(db.DateTime, comment='数据更新时间')
     last_modified = Column(
         db.TIMESTAMP,
         nullable=False,
         server_default=db.text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"), comment='数据上次更新时间')
+
+    @classmethod
+    def is_exists(cls, f_code: str) -> bool:
+        """
+        根据code查询是否存在
+        :param f_code:
+        :return:
+        """
+        # https://stackoverflow.com/a/41951905
+        return db.session.query(cls.query.filter(cls.code == f_code).exists()).scalar()
+
+    def insert_or_update(self, f_code: str, **kwargs: dict):
+        """
+        创建或更新
+        :param f_code:
+        :param kwargs:
+        :return:
+        """
+        is_comp_exists = self.is_exists(f_code)
+        if is_comp_exists:
+            ret = FundCompany.query.filter_by(code=f_code).update(kwargs)
+            db.session.commit()
+        else:
+            ret = self.create(**kwargs)
+        return ret
 
 
 class FundType(PkModel):

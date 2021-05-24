@@ -41,7 +41,7 @@ class Role(Base, PkModel):
         return f"<Role({self.name})>"
 
 
-class User(PkModel, CreateDateModel, UserMixin):
+class User(Base, PkModel, CreateDateModel, UserMixin):
     """A user of the app."""
 
     __tablename__ = 'users'

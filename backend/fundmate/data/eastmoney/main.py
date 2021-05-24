@@ -8,7 +8,7 @@ import requests
 from pathlib import Path
 from typing import Union
 
-from backend.fundmate.fund.models import FundVariety,FundCompany
+from backend.fundmate.fund.models import FundVariety, FundCompany
 
 current_path = Path.cwd()
 FUND_FP = f'{str(current_path)}/fund.json'
@@ -60,15 +60,23 @@ class EastMoney:
             comps = json.loads(load_able_str)
             if save:
                 for cop in comps:
+                    converted_cop = [str(item) or None if isinstance(item, str) else item for item in cop]
                     comp_info = dict(
                         zip(['code', 'full_name', 'create_date', 'f_counts', 'mgr', 'dpy', 'a_un', 'scale', 'tx_eval',
-                             'name', 'b_un', 'update_time'], cop))
-                    level = len(comp_info.get('tx_eval'))
+                             'name', 'b_un', 'update_time'], converted_cop))
+                    level_eval = comp_info.get('tx_eval', '')
+                    if level_eval:
+                        level = len(level_eval)
+                    else:
+                        level = None
+
                     comp_info['tx_eval'] = level
+                    # 两个不知道含义的暂时pop
                     comp_info.pop('a_un')
                     comp_info.pop('b_un')
-                    FundCompany.create(**comp_info)
-
+                    code = comp_info.get('code')
+                    comp = FundCompany()
+                    comp.insert_or_update(code, **comp_info)
             return comps
 
     def fund(self) -> Union[str, None]:
