@@ -26,7 +26,7 @@ def app():
 
 
 @pytest.fixture
-def testapp(app):
+def test_app(app):
     """Create Webtest app."""
     return TestApp(app)
 

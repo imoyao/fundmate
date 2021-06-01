@@ -3,7 +3,7 @@
 # Created by imoyao at 2021/1/29 16:03
 import json
 from pathlib import Path
-
+from typing import Union
 import yaml
 
 CURRENT_PATH = Path(__file__).resolve().parent
@@ -16,7 +16,7 @@ class ParseData:
         pass
 
     @staticmethod
-    def get_data_from_json(json_fp):
+    def get_data_from_json(json_fp: Union[str, Path]):
         """
         从指定的json文件中解析数据
         :param json_fp:str,文件路径
@@ -27,7 +27,7 @@ class ParseData:
         return data
 
     @staticmethod
-    def get_data_from_yaml(yaml_fp):
+    def get_data_from_yaml(yaml_fp: Union[str, Path]):
         """
         从指定的yaml文件中解析数据
         :param yaml_fp:文件路径
@@ -45,7 +45,6 @@ class NewDB:
 
     def fund_type(self):
         """
-
         :return: set,{'定开债券', 'QDII-指数', '混合-FOF', '固定收益', '股票型', '其他创新', '债券型', '混合型', 'QDII-ETF', '分级杠杆', 'ETF-场内', '货币型', '债券指数',
          '理财型', '股票指数', '股票-FOF', 'QDII', '联接基金'}
         """
@@ -62,5 +61,6 @@ class NewDB:
         return type_set
 
 
-ndb = NewDB()
-print(ndb.fund_type())
+if __name__ == '__main__':
+    ndb = NewDB()
+    print(ndb.fund_type())
