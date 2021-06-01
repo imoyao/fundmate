@@ -60,6 +60,51 @@ class CRUDMixin(object):
         }
 
 
+class UpsertMixin(CRUDMixin):
+    """
+    **注意**，is_exist 方法应该查询的key必须保证唯一性
+    1. 检查存在
+    2. 存在则更新，不存在则插入
+    我们可以重写is_exist 方法以实现混用，
+    参阅：
+    1. [python - SQLAlchemy insert or update example - Stack Overflow](https://stackoverflow.com/questions/7889183/sqlalchemy-insert-or-update-example/18244144)
+    2. [MySQL — SQLAlchemy 1.3 Documentation](https://docs.sqlalchemy.org/en/13/dialects/mysql.html#insert-on-duplicate-key-update-upsert)
+    """
+
+    @classmethod
+    def check_is_exists(cls, unique_query_arg: dict) -> bool:
+        """
+        根据unique_arg查询对象query_key是否存在
+        :param unique_query_arg:
+        :return:
+        """
+        # https://stackoverflow.com/a/41951905
+        for attr, value in unique_query_arg.items():
+            exists = db.session.query(cls.query.filter(getattr(cls, attr) == value).exists()).scalar()
+            if exists:  # TODO: what if unique_query_arg
+                return exists
+        return False
+
+    @classmethod
+    def insert_or_update(cls, unique_query_arg: dict, **kwargs: Union[list, dict]):
+        """
+        创建或更新
+        :param unique_query_arg:
+        :param kwargs:
+        :return:
+        """
+        is_comp_exists = cls.check_is_exists(unique_query_arg)
+        if is_comp_exists:
+            # 允许多个查询条件 TODO: 可以使用比较运算符
+            # [python - sqlalchemy dynamic filtering - Stack Overflow](https://stackoverflow.com/questions/41305129/sqlalchemy-dynamic-filtering/41309069#41309069)
+            for attr, value in unique_query_arg.items():
+                ret = cls.query.filter(getattr(cls, attr) == value).update(kwargs)
+            db.session.commit()
+        else:
+            ret = cls.create(**kwargs)
+        return ret
+
+
 class Model(CRUDMixin, db.Model):
     """Base model class that includes CRUD convenience methods."""
 

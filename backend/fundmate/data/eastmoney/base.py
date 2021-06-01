@@ -76,7 +76,8 @@ class EastMoney:
                     comp_info.pop('b_un')
                     code = comp_info.get('code')
                     comp = FundCompany()
-                    comp.insert_or_update(code, **comp_info)
+                    query_info = {'code': code}
+                    comp.insert_or_update(query_info, **comp_info)
             return comps
 
     def fund(self) -> Union[str, None]:

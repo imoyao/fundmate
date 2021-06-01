@@ -1,5 +1,5 @@
 """Settings module for test app."""
-ENV = "development"
+ENV = "testing"
 TESTING = True
 SQLALCHEMY_DATABASE_URI = "sqlite://"
 SECRET_KEY = "not-so-secret-in-tests"

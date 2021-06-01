@@ -2,7 +2,8 @@
 # -*- coding: utf-8 -*-
 # Created by Administrator at 2021/2/13 17:50
 
-from backend.fundmate.database import Column, CreateDateModel, PkModel, CRUDMixin, db, reference_col, relationship
+from backend.fundmate.database import Column, CreateDateModel, PkModel, CRUDMixin, UpsertMixin, db, reference_col, \
+    relationship
 
 
 class DailyWorth(PkModel, CreateDateModel):
@@ -71,6 +72,21 @@ class FundRate(PkModel):
     type = Column(db.Boolean, nullable=True, comment='卖出或买入')  # TODO:多态关联
 
 
+class FundSaleOrg(PkModel,UpsertMixin):
+    """
+    基金销售机构
+    """
+    org_id = Column(db.Integer, comment='机构编号')
+    name = Column(db.String(30), comment='机构名称')
+    known_name = Column(db.String(10), comment='广为人知的代号')
+    addr = Column(db.String(50), comment='注册地')
+    org_type = Column(db.String(30), comment='机构类型')
+    date = Column(db.String(10), comment='核准时间')
+
+    def as_name(self):
+        return self.known_name or self.name
+
+
 class FundMgr(PkModel):
     """relation between Fund and Mgr
     """
@@ -82,7 +98,7 @@ class FundMgr(PkModel):
     end_date = Column(db.DateTime)
 
 
-class FundCompany(PkModel, CRUDMixin):
+class FundCompany(PkModel, UpsertMixin):
     """基金公司表
     """
     code = Column(db.String(10), comment='基金公司编号')
@@ -101,31 +117,6 @@ class FundCompany(PkModel, CRUDMixin):
         db.TIMESTAMP,
         nullable=False,
         server_default=db.text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"), comment='数据上次更新时间')
-
-    @classmethod
-    def is_exists(cls, f_code: str) -> bool:
-        """
-        根据code查询是否存在
-        :param f_code:
-        :return:
-        """
-        # https://stackoverflow.com/a/41951905
-        return db.session.query(cls.query.filter(cls.code == f_code).exists()).scalar()
-
-    def insert_or_update(self, f_code: str, **kwargs: dict):
-        """
-        创建或更新
-        :param f_code:
-        :param kwargs:
-        :return:
-        """
-        is_comp_exists = self.is_exists(f_code)
-        if is_comp_exists:
-            ret = FundCompany.query.filter_by(code=f_code).update(kwargs)
-            db.session.commit()
-        else:
-            ret = self.create(**kwargs)
-        return ret
 
 
 class FundType(PkModel):

@@ -4,7 +4,7 @@ import logging
 import sys
 
 from flask import Flask
-from apiflask import APIFlask, Schema, input, output, abort
+from apiflask import APIFlask
 
 from backend.fundmate import account, commands, fund, public, settings, user
 from backend.fundmate.config import config
@@ -77,11 +77,11 @@ def register_extensions(app: Flask):
     return None
 
 
-
 def register_blueprints(app: Flask):
     """Register Flask blueprints."""
     app.register_blueprint(public.views.bp)
     app.register_blueprint(user.views.bp)
+    app.register_blueprint(fund.views.bp)
     return None
 
 

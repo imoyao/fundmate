@@ -63,9 +63,10 @@ class User(Base, PkModel, CreateDateModel, UserMixin):
         server_default=db.text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"))
     role = relationship("Role", secondary=user_role_table, back_populates="user")
 
-    def __init__(self, username, email, password=None, **kwargs) -> None:
+    def __init__(self, username, email, password, **kwargs) -> None:
         """Create instance."""
-        super().__init__(username=username, email=email, **kwargs)
+        print(username, email, password, kwargs, '======11111=========')
+        super().__init__(username, email, password, **kwargs)
         if password:
             self.password = self.set_password(password)
         else:

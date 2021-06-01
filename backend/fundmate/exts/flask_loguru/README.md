@@ -23,7 +23,7 @@ pip install logging42
 Examples
 --------
 ```python
-# main.py
+# base.py
 
 from flask_loguru import logger
 

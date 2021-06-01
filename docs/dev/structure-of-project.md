@@ -194,7 +194,7 @@ cookiecutter https://github.com/sloria/cookiecutter-flask.git
 ├── supervisord_programs
 │  └── gunicorn.conf
 ├── tests
-│  ├── conftest.py
+│  ├── test_conf.py
 │  ├── factories.py
 │  ├── __init__.py
 │  ├── settings.py

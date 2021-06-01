@@ -1,12 +1,11 @@
 # -*- coding: utf-8 -*-
 """User views."""
+from flask.views import MethodView
 from apiflask import Schema, input, output, abort, APIBlueprint
 from apiflask.fields import Integer, String, Boolean, Email
 from apiflask.validators import Length, Range
-from flask_login import login_required
-from flask.views import MethodView
-from apiflask import pagination_builder
 
+from backend.fundmate.view_ext import paginate_query
 from backend.fundmate.user.models import User
 from backend.fundmate.extensions import login_manager
 
@@ -17,21 +16,9 @@ bp = APIBlueprint("user", __name__, url_prefix="/users")
 
 
 @login_manager.user_loader
-def load_user(user_id):
+def load_user(user_id: str):
     """Load user by ID."""
     return User.get_by_id(int(user_id))
-
-
-def paginate_query(cls, query_args:dict) -> dict:
-    pagination = cls.query.paginate(
-        page=query_args['page'],
-        per_page=query_args['per_page']
-    )
-    _items = pagination.items
-    return {
-        'items': _items,
-        'pagination': pagination_builder(pagination)
-    }
 
 
 class UserOutSchema(Schema):
@@ -43,7 +30,7 @@ class UserOutSchema(Schema):
 class UserInSchema(Schema):
     username = String(required=True, validate=Length(5, 25))
     password = String(required=True, validate=Length(6, 40))
-    email = Email(validate=Length(6, 40))
+    email = Email(required=True, validate=Length(6, 40))
     is_activated = Boolean()
 
 
@@ -58,28 +45,34 @@ class Users(MethodView):
     @input(QuerySchema, 'query')
     @output(UserOutSchema)
     def get(self, query):
+        """获取所有用户信息"""
         ret = paginate_query(User, query)
         return ret
+
+    @input(UserInSchema)
+    def post(self, data: dict) -> User:
+        """新建用户"""
+        print(data, '========uuuupppp======')
+        # username = data.pop('username')
+        # password = data.pop('password')
+        # email = data.pop('email')
+        # print(data,'====aft==========')
+        _user_obj = User.create(**data)
+        return _user_obj
 
 
 @bp.route('/<int:user_id>')
 class UserDetail(MethodView):
 
     @output(UserOutSchema)
-    def get(self, user_id):
+    def get(self, user_id: str) -> User:
         """获取指定用户信息"""
         user_obj = load_user(user_id)
         return user_obj
 
-    def post(self):
-        """
-        新建用户
-        """
-        return {'message': 'Hello,User!'}
-
     @input(UserInSchema(partial=True))
     @output(UserOutSchema)
-    def patch(self, user_id, data):
+    def patch(self, user_id: str, data: dict) -> User:
         """获取指定用户信息"""
         _user_obj = load_user(user_id)
         if _user_obj:
@@ -88,7 +81,7 @@ class UserDetail(MethodView):
         return user
 
     @output({}, 204)  # no content
-    def delete(self, user_id):
+    def delete(self, user_id: str) -> str:
         """删除指定用户"""
         user_obj = load_user(user_id)
         if user_obj is not None:
