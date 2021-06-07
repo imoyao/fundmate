@@ -2,14 +2,16 @@
 """Public section, including homepage and signup."""
 from flask import flash, redirect, request, url_for
 from flask.views import MethodView
-# from flask_login import login_required, login_user, logout_user
 from apiflask import Schema, input, output, abort, APIBlueprint
-from apiflask.fields import Integer, String, Boolean, Email
-from apiflask.validators import Length, OneOf, Equal
-from marshmallow import pre_load, ValidationError
+from apiflask.fields import Integer, String
+from apiflask.validators import Length, OneOf
+
+
 from backend.fundmate.extensions import login_manager
 from backend.fundmate.user.models import User
 from backend.fundmate.schema_ext import RegisterSchema
+
+
 bp = APIBlueprint("public", __name__)
 
 
@@ -28,27 +30,6 @@ class Home(MethodView):
 
     def get(self):
         return {'message': 'Hello,Flask!'}
-
-
-# class RegisterSchema(Schema):
-#     username = String(required=True, validate=Length(5, 25))
-#     password = String(required=True, validate=Length(6, 40))
-#     re_password = String(required=True, validate=(Length(6, 40), Equal('password')))
-#     email = Email(validate=Length(6, 40))
-#     is_activated = Boolean()
-#     print(password, re_password, '=============')
-#
-#     # kwargs:[TypeError: pre_load() got an unexpected keyword argument 'many' · Issue #1630 · marshmallow-code/marshmallow](https://github.com/marshmallow-code/marshmallow/issues/1630)
-#     @pre_load(pass_many=True)
-#     def register_validate(self, data, **kwargs):
-#         """Validate the form."""
-#         user = User.query.filter_by(username=data.get('username')).first()
-#         if user:
-#             raise ValidationError("Username already registered")
-#         user = User.query.filter_by(email=data.get('email')).first()
-#         if user:
-#             raise ValidationError("Email already registered")
-#         return data
 
 
 @bp.route('/register/')

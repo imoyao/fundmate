@@ -87,3 +87,15 @@ class UserDetail(MethodView):
         if user_obj is not None:
             _user = User.delete(user_obj)
         return ''
+
+@bp.route('/<int:fund_id>/facous')
+class FundFaver(MethodView):
+    """
+
+    """
+
+    @output(UserOutSchema)
+    def get(self, fund_id: str):
+        """获取指定基金信息"""
+        user_obj = User.get_by_id(int(fund_id))
+        return user_obj
