@@ -7,27 +7,25 @@
 from typing import Generator
 from xalpha.cons import rget_json
 from backend.fundmate.fund.models import FundSaleOrg
+from backend.fundmate.data import utils as db_utils
 
-headers = {
-    'Host': 'www.amac.org.cn',
-    'Connection': 'keep-alive',
-    'Cache-Control': 'max-age=0',
-    'sec-ch-ua': '" Not A;Brand";v="99", "Chromium";v="90", "Microsoft Edge";v="90"',
-    'sec-ch-ua-mobile': '?0',
-    'DNT': '1',
-    'Upgrade-Insecure-Requests': '1',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36 Edg/90.0.818.66',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
-    'Sec-Fetch-Site': 'none',
-    'Sec-Fetch-Mode': 'navigate',
-    'Sec-Fetch-User': '?1',
-    'Sec-Fetch-Dest': 'document',
-    'Accept-Encoding': 'gzip, deflate, br',
-    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8,en-US;q=0.7',
-    'Cookie': 'Hm_lvt_a0d0f99af80247cfcb96d30732a5c560=1622256421; init=true; Hm_lpvt_a0d0f99af80247cfcb96d30732a5c560=1622279717',
-    'If-None-Match': 'W/"60b0ef0d-31dbd"',
-    'If-Modified-Since': 'Fri, 28 May 2021 13:24:29 GMT'
-}
+HEADERS_STR = '''Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9
+Accept-Encoding: gzip, deflate, br
+Accept-Language: zh-CN,zh;q=0.9,en;q=0.8,en-US;q=0.7
+Cache-Control: max-age=0
+Connection: keep-alive
+Cookie: Hm_lvt_a0d0f99af80247cfcb96d30732a5c560=1622256421
+DNT: 1
+Host: www.amac.org.cn
+sec-ch-ua: " Not;A Brand";v="99", "Microsoft Edge";v="91", "Chromium";v="91"
+sec-ch-ua-mobile: ?0
+Sec-Fetch-Dest: document
+Sec-Fetch-Mode: navigate
+Sec-Fetch-Site: none
+Sec-Fetch-User: ?1
+Upgrade-Insecure-Requests: 1
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.77 Safari/537.36 Edg/91.0.864.41
+'''
 
 
 def paginate(count: int, size: int = 10) -> Generator:
@@ -57,6 +55,7 @@ def agency_info() -> list:
     :return:
     """
     url = 'https://www.amac.org.cn/portal/front/infopublic/fsAgencyAnno/findFsAgencyAnnos'
+    headers = db_utils.parse_headers(HEADERS_STR)
     resp = rget_json(url, headers=headers)
     size = 50
     org_info = list()

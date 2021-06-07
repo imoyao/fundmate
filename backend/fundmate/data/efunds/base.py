@@ -6,7 +6,7 @@
 """
 import pandas as pd
 
-url = 'https://e.efunds.com.cn/funds'  # TODO
+url = 'https://e.efunds.com.cn/funds'
 
 
 class ImportHistory:

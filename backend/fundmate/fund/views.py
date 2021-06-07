@@ -56,14 +56,19 @@ class QuerySchema(Schema):
 @bp.route('/')
 class Funds(MethodView):
     @input(QuerySchema, 'query')
-    @output(FundOutSchema)
-    def get(self, query):
-        ret = paginate_query(Fund, query)
-        return ret
-
+    @input(EmptySchema)
     @output(FundOutSchema(many=True))
-    def get(self):
-        ret = Fund.query.order_by(Fund.fund_code.desc()).all()
+    def get(self, query):
+        """
+        获取基金信息
+        :param query:
+        :return:
+        """
+        if query:
+            ret = paginate_query(Fund, query)
+        else:
+            ret = Fund.query.order_by(Fund.fund_code.desc()).all()
+            print(ret)
         return ret
 
 
@@ -77,6 +82,7 @@ class FundCompanyView(MethodView):
         """
         获取基金公司信息
         """
+        print(query, '========111======')
         if query:
             ret = paginate_query(FundCompany, query)
         else:
@@ -94,7 +100,7 @@ class FundMgrView(MethodView):
         if query:
             ret = paginate_query(FundMgr, query)
         else:
-            ret = Fund.query.all()
+            ret = FundMgr.query.all()
         return ret
 
 
@@ -121,6 +127,12 @@ class FundSalesView(MethodView):
         else:
             ret = FundSaleOrg.query.groupby(FundSaleOrg.org_type)
         return ret
+
+    # @input(EmptySchema)
+    # @output(FundSaleOutSchema)
+    # def get(self):
+    #     ret = FundSaleOrg.query.groupby(FundSaleOrg.org_type)
+    #     return ret
 
 
 @bp.route('/<int:fund_id>')
@@ -150,3 +162,16 @@ class FundDetail(MethodView):
             abort(404)
         user = Fund.save(data)
         return user
+
+
+@bp.route('/<int:fund_id>/followers')
+class FundFaver(MethodView):
+    """
+    某支基金的关注者
+    """
+
+    @output(FundOutSchema)
+    def get(self, fund_id: str):
+        """获取指定基金信息"""
+        user_obj = Fund.get_by_id(int(fund_id))
+        return user_obj

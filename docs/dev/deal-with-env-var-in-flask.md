@@ -115,7 +115,7 @@ pipenv shell
 在主目录下新建一个`app.py`，拷贝下面代码，以后使用`python app.py`启动。
 
 ```python
-#app.py
+#base.py
 # coding=utf-8
 
 

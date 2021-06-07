@@ -149,7 +149,7 @@ cookiecutter https://github.com/sloria/cookiecutter-flask.git
 ├── docker-compose.yml
 ├── Dockerfile
 ├── fundmate
-│  ├── app.py
+│  ├── base.py
 │  ├── commands.py
 │  ├── compat.py
 │  ├── database.py
@@ -221,7 +221,7 @@ cookiecutter https://github.com/sloria/cookiecutter-flask.git
 │     ├── ……
 │     └── ……
 ├── fundmate
-│     ├── app.py
+│     ├── base.py
 │     ├── commands.py
 │     ├── compat.py
 │     ├── database.py

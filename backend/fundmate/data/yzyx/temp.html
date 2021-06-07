@@ -1,0 +1,1700 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, viewport-fit=cover, initial-scale=1.0, user-scalable=no" />
+    <title>知行温度计</title>
+    <link rel="stylesheet" href="https://g.alicdn.com/de/prismplayer/2.9.3/skins/default/aliplayer-min.css" />
+    <link rel="stylesheet" href="https://cdn.youzhiyouxing.cn/static/css/application-3f22989296f3a3178c15fcb3de7a8621.css?vsn=d" />
+    <script type="text/javascript">
+      window.yzyxContext = {};
+      window._onWindowLoaded = [];
+      window.Hooks = {};
+      window.afterload = (fn) => window._onWindowLoaded.push(fn);
+    </script>
+<meta charset="UTF-8" content="XAEeAgomLQIIWyEEPXgtOApfHQM6XBIw7tpUYcZfFmieK0HjxjpWtmTi" csrf-param="_csrf_token" method-param="_method" name="csrf-token">    <script type="text/javascript" src="https://res.wx.qq.com/open/js/jweixin-1.6.0.js"></script>
+    <script charset="utf-8" type="text/javascript" src="https://g.alicdn.com/de/prismplayer/2.9.3/aliplayer-min.js"></script>
+    <script defer type="text/javascript" src="https://cdn.youzhiyouxing.cn/static/js/application-8f191e7316ed345caf3dcf27acead0b3.js?vsn=d"></script>
+    <script defer type="text/javascript">
+      window.wxConfig = function () {
+        wx.config({
+          debug: false, // 开启调试模式
+          appId: 'wx8bf634ea361e53c3', // 必填，公众号的唯一标识
+          timestamp: 1623051130 , // 必填，生成签名的时间戳
+          nonceStr: 'P31SPz1hbcvOV4fw', // 必填，生成签名的随机串
+          signature: 'd47b03e56a164a4ec26a0d6d5468337be3ca7034', // 必填，签名
+          jsApiList: ['updateAppMessageShareData', 'updateTimelineShareData'], // 必填，需要使用的JS接口列表
+          openTagList: ['wx-open-launch-app'] // 可选，需要使用的开放标签列表，例如['wx-open-launch-app']
+        });
+      }
+    </script>
+  </head>
+  <body class="outside-app" data-theme="auto">
+<header class="browser-only">
+  <div class="view-container">
+    <div class="logo-name pc-only"></div>
+    <ul class="nav pc-only">
+      <li class="nav-item">
+        <a class="nav-link " href="/">首页</a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link " href="/materials">有知</a>
+      </li>
+    </ul>
+    <div class="logo-title mobile-only">
+      <div class="logo"></div>
+      <p class="sm-text">下载有知有行，查看每日温度变化</p>
+    </div>
+    <a class="button md pc-only" onclick="traceEvent('web_click', 'download', 'app');" href="/download">下载 App</a>
+    <a class="button xs mobile-only" onclick="traceEvent('web_click', 'download', 'app');" href="/download">下载 App</a>
+    <a class="button button-login md outline pc-only" onclick="traceEvent('web_click', 'login', 'page');" href="/user/login">登录 / 注册</a>
+  </div>
+</header>
+
+    <div class="body-container">
+      <div class="view-container" style="max-width: 864px">
+<p class="alert alert-info" role="alert"></p>
+<p class="alert alert-danger" role="alert"></p>
+<script type="text/javascript">
+  window.yzyxContext.getShareInfo = function() {
+    return {
+      title: '知行温度计', // 分享标题
+      desc: '想投资但不知何时买入？股市温度计来帮你', // 分享描述
+      label: 'therm',
+      imgUrl: 'https://youzhiyouxing.cn/images/logo-square.png', // 分享图标
+    };
+  };
+
+  // Global Constants
+  const axisColor = "rgba(128, 128, 128, 0.6)";
+
+  const zoneSettings = [
+    { zone: "LOW", range: [0, 30], light: "rgba(88, 149, 214, 0.15)", dark: "#5895D6" },
+    { zone: "MEDIUM", range: [30, 70], light: "rgba(229, 142, 55, 0.15)", dark: "#E58E37" },
+    { zone: "HIGH", range: [70, 100], light: "rgba(229, 96, 92, 0.15)", dark: "#E6605C" },
+  ];
+
+  // Global Functions
+  const last = (array) => array[array.length - 1];
+
+  const getZone = (degree) =>
+    zoneSettings.find(
+      (zone) => degree >= zone.range[0] && degree < zone.range[1]
+    );
+
+  const parseDataItem = (item) => {
+    const newItem = {};
+    Object.keys(item).forEach((key) => {
+      switch (key) {
+        case "zone":
+          newItem[key] = item[key];
+          break;
+        case "date":
+          newItem.date = new Date(item.date);
+          break;
+        case "asset_rate":
+        case "degree":
+          newItem[key] = item[key] == null ? null : parseInt(item[key]);
+          break;
+        case "close":
+          newItem[key] = item[key] ? Math.round(parseFloat(item[key])) : null;
+          break;
+        default:
+          newItem[key] = item[key] ? parseFloat(item[key]) : null;
+          break;
+      }
+    });
+    return newItem;
+  };
+
+  const parseData = (data) => data.map((entry) => parseDataItem(entry));
+
+  // 数据准备
+  // Sample
+  // [
+  //  {date: "2020-11-10", close: "5230", degree: 30, asset_rate: 45, avg_return_3: "45.3"},
+  //  {date: "2020-11-11", close: "5231", degree: 31, asset_rate: 46, avg_return_3: "45.4"},
+  //  {date: "2020-11-12", close: "5232", degree: 32, asset_rate: 47, avg_return_3: null},
+  // ]
+
+  const data = parseData(JSON.parse('[{"asset_rate":"386.2744","avg_return_3":null,"close":"765.6346","date":"2005-01-07","degree":9,"return_day":"0.002397","rw_pb":"1.9821"},{"asset_rate":"385.8761","avg_return_3":null,"close":"767.3533","date":"2005-01-14","degree":9,"return_day":"-0.011090","rw_pb":"1.9886"},{"asset_rate":"384.6449","avg_return_3":null,"close":"758.3659","date":"2005-01-21","degree":8,"return_day":"0.021373","rw_pb":"1.9716"},{"asset_rate":"384.2270","avg_return_3":null,"close":"740.1365","date":"2005-01-28","degree":7,"return_day":"-0.012939","rw_pb":"1.9263"},{"asset_rate":"384.0552","avg_return_3":null,"close":"759.6613","date":"2005-02-04","degree":8,"return_day":"0.020371","rw_pb":"1.9780"},{"asset_rate":"384.2607","avg_return_3":null,"close":"756.9169","date":"2005-02-18","degree":8,"return_day":"-0.013074","rw_pb":"1.9698"},{"asset_rate":"385.5510","avg_return_3":null,"close":"796.1630","date":"2005-02-25","degree":10,"return_day":"0.001247","rw_pb":"2.0650"},{"asset_rate":"385.5767","avg_return_3":null,"close":"780.4458","date":"2005-03-04","degree":9,"return_day":"-0.005656","rw_pb":"2.0241"},{"asset_rate":"385.7207","avg_return_3":null,"close":"784.4788","date":"2005-03-11","degree":9,"return_day":"0.004953","rw_pb":"2.0338"},{"asset_rate":"387.0092","avg_return_3":null,"close":"742.2451","date":"2005-03-18","degree":7,"return_day":"-0.018369","rw_pb":"1.9179"},{"asset_rate":"387.5952","avg_return_3":null,"close":"727.3224","date":"2005-03-25","degree":6,"return_day":"-0.002026","rw_pb":"1.8765"},{"asset_rate":"388.3114","avg_return_3":null,"close":"731.2293","date":"2005-04-01","degree":6,"return_day":"0.036297","rw_pb":"1.8831"},{"asset_rate":"388.2840","avg_return_3":null,"close":"749.4271","date":"2005-04-08","degree":7,"return_day":"0.018771","rw_pb":"1.9301"},{"asset_rate":"388.7430","avg_return_3":null,"close":"724.3060","date":"2005-04-15","degree":6,"return_day":"-0.019045","rw_pb":"1.8632"},{"asset_rate":"387.9709","avg_return_3":null,"close":"687.0578","date":"2005-04-22","degree":5,"return_day":"-0.010758","rw_pb":"1.7709"},{"asset_rate":"389.8161","avg_return_3":null,"close":"680.8918","date":"2005-04-29","degree":5,"return_day":"-0.010709","rw_pb":"1.7467"},{"asset_rate":"390.7973","avg_return_3":null,"close":"650.8730","date":"2005-05-13","degree":5,"return_day":"0.006150","rw_pb":"1.6655"},{"asset_rate":"390.6549","avg_return_3":null,"close":"651.4171","date":"2005-05-20","degree":5,"return_day":"-0.004041","rw_pb":"1.6675"},{"asset_rate":"390.6504","avg_return_3":null,"close":"630.7833","date":"2005-05-27","degree":4,"return_day":"-0.008941","rw_pb":"1.6147"},{"asset_rate":"390.8577","avg_return_3":null,"close":"610.0508","date":"2005-06-03","degree":4,"return_day":"-0.002426","rw_pb":"1.5608"},{"asset_rate":"391.1620","avg_return_3":null,"close":"664.9754","date":"2005-06-10","degree":5,"return_day":"-0.020233","rw_pb":"1.7000"},{"asset_rate":"389.6971","avg_return_3":null,"close":"646.5076","date":"2005-06-17","degree":5,"return_day":"-0.001612","rw_pb":"1.6590"},{"asset_rate":"388.9835","avg_return_3":null,"close":"658.5102","date":"2005-06-24","degree":5,"return_day":"0.005300","rw_pb":"1.6929"},{"asset_rate":"386.5609","avg_return_3":null,"close":"621.3968","date":"2005-07-01","degree":4,"return_day":"-0.032736","rw_pb":"1.6075"},{"asset_rate":"385.2740","avg_return_3":null,"close":"593.2064","date":"2005-07-08","degree":4,"return_day":"-0.025433","rw_pb":"1.5397"},{"asset_rate":"385.9611","avg_return_3":null,"close":"595.9240","date":"2005-07-15","degree":3,"return_day":"-0.015791","rw_pb":"1.5440"},{"asset_rate":"386.2908","avg_return_3":null,"close":"605.0088","date":"2005-07-22","degree":4,"return_day":"0.020793","rw_pb":"1.5662"},{"asset_rate":"387.7873","avg_return_3":null,"close":"626.8582","date":"2005-07-29","degree":4,"return_day":"-0.003570","rw_pb":"1.6165"},{"asset_rate":"390.9685","avg_return_3":null,"close":"659.8377","date":"2005-08-05","degree":4,"return_day":"0.027173","rw_pb":"1.6877"},{"asset_rate":"393.9708","avg_return_3":null,"close":"678.6935","date":"2005-08-12","degree":5,"return_day":"-0.017633","rw_pb":"1.7227"},{"asset_rate":"399.6085","avg_return_3":null,"close":"676.1777","date":"2005-08-19","degree":5,"return_day":"0.000392","rw_pb":"1.6921"},{"asset_rate":"402.1323","avg_return_3":null,"close":"687.3648","date":"2005-08-26","degree":6,"return_day":"0.001923","rw_pb":"1.7093"},{"asset_rate":"402.8381","avg_return_3":null,"close":"705.1279","date":"2005-09-02","degree":7,"return_day":"0.004788","rw_pb":"1.7504"},{"asset_rate":"402.9504","avg_return_3":null,"close":"709.2733","date":"2005-09-09","degree":7,"return_day":"-0.007537","rw_pb":"1.7602"},{"asset_rate":"403.4462","avg_return_3":null,"close":"731.0850","date":"2005-09-16","degree":9,"return_day":"-0.001121","rw_pb":"1.8121"},{"asset_rate":"402.9677","avg_return_3":null,"close":"691.4523","date":"2005-09-23","degree":7,"return_day":"-0.010628","rw_pb":"1.7159"},{"asset_rate":"403.2637","avg_return_3":null,"close":"691.3957","date":"2005-09-30","degree":7,"return_day":"-0.000202","rw_pb":"1.7145"},{"asset_rate":"402.9165","avg_return_3":null,"close":"687.2548","date":"2005-10-14","degree":6,"return_day":"-0.011992","rw_pb":"1.7057"},{"asset_rate":"403.3631","avg_return_3":null,"close":"690.8401","date":"2005-10-21","degree":7,"return_day":"0.005678","rw_pb":"1.7127"},{"asset_rate":"410.8493","avg_return_3":null,"close":"648.2381","date":"2005-10-28","degree":4,"return_day":"-0.018273","rw_pb":"1.5778"},{"asset_rate":"414.2455","avg_return_3":null,"close":"658.2361","date":"2005-11-04","degree":5,"return_day":"0.006063","rw_pb":"1.5890"},{"asset_rate":"414.6996","avg_return_3":null,"close":"647.8438","date":"2005-11-11","degree":4,"return_day":"0.002498","rw_pb":"1.5622"},{"asset_rate":"416.9685","avg_return_3":null,"close":"663.8973","date":"2005-11-18","degree":5,"return_day":"0.024619","rw_pb":"1.5922"},{"asset_rate":"419.0682","avg_return_3":null,"close":"664.3070","date":"2005-11-25","degree":5,"return_day":"0.002431","rw_pb":"1.5852"},{"asset_rate":"419.6214","avg_return_3":null,"close":"648.0214","date":"2005-12-02","degree":3,"return_day":"-0.008483","rw_pb":"1.5443"},{"asset_rate":"421.0208","avg_return_3":null,"close":"655.5715","date":"2005-12-09","degree":3,"return_day":"0.017741","rw_pb":"1.5571"},{"asset_rate":"422.7206","avg_return_3":null,"close":"668.1100","date":"2005-12-16","degree":4,"return_day":"0.008372","rw_pb":"1.5805"},{"asset_rate":"424.0958","avg_return_3":null,"close":"677.4932","date":"2005-12-23","degree":5,"return_day":"0.010382","rw_pb":"1.5975"},{"asset_rate":"424.4893","avg_return_3":null,"close":"684.0646","date":"2005-12-30","degree":5,"return_day":"-0.010004","rw_pb":"1.6115"},{"asset_rate":"423.9781","avg_return_3":null,"close":"711.6898","date":"2006-01-06","degree":7,"return_day":"0.009239","rw_pb":"1.6786"},{"asset_rate":"424.6620","avg_return_3":null,"close":"724.4310","date":"2006-01-13","degree":8,"return_day":"-0.002749","rw_pb":"1.7059"},{"asset_rate":"425.5027","avg_return_3":null,"close":"736.0347","date":"2006-01-20","degree":9,"return_day":"0.001161","rw_pb":"1.7298"},{"asset_rate":"428.9479","avg_return_3":null,"close":"763.7418","date":"2006-02-10","degree":9,"return_day":"0.012390","rw_pb":"1.7805"},{"asset_rate":"428.2314","avg_return_3":null,"close":"745.5081","date":"2006-02-17","degree":8,"return_day":"-0.004095","rw_pb":"1.7409"},{"asset_rate":"433.2230","avg_return_3":null,"close":"768.8842","date":"2006-02-24","degree":9,"return_day":"0.009258","rw_pb":"1.7748"},{"asset_rate":"433.6251","avg_return_3":null,"close":"759.2777","date":"2006-03-03","degree":8,"return_day":"0.002811","rw_pb":"1.7510"},{"asset_rate":"435.5364","avg_return_3":null,"close":"733.7047","date":"2006-03-10","degree":6,"return_day":"0.004996","rw_pb":"1.6846"},{"asset_rate":"439.4534","avg_return_3":null,"close":"748.8287","date":"2006-03-17","degree":7,"return_day":"-0.003168","rw_pb":"1.7040"},{"asset_rate":"443.3947","avg_return_3":null,"close":"767.8267","date":"2006-03-24","degree":8,"return_day":"-0.007624","rw_pb":"1.7317"},{"asset_rate":"449.0119","avg_return_3":null,"close":"783.0768","date":"2006-03-31","degree":9,"return_day":"0.007781","rw_pb":"1.7440"},{"asset_rate":"454.3992","avg_return_3":null,"close":"823.8713","date":"2006-04-07","degree":11,"return_day":"0.004396","rw_pb":"1.8131"},{"asset_rate":"458.0132","avg_return_3":null,"close":"834.7291","date":"2006-04-14","degree":12,"return_day":"0.027132","rw_pb":"1.8225"},{"asset_rate":"462.9194","avg_return_3":null,"close":"850.0127","date":"2006-04-21","degree":12,"return_day":"0.012171","rw_pb":"1.8362"},{"asset_rate":"471.4916","avg_return_3":null,"close":"869.5721","date":"2006-04-28","degree":12,"return_day":"0.015392","rw_pb":"1.8443"},{"asset_rate":"476.0486","avg_return_3":null,"close":"977.0423","date":"2006-05-12","degree":16,"return_day":"0.037125","rw_pb":"2.0524"},{"asset_rate":"482.2996","avg_return_3":null,"close":"1032.0248","date":"2006-05-19","degree":18,"return_day":"0.028541","rw_pb":"2.1398"},{"asset_rate":"478.7413","avg_return_3":null,"close":"1008.7558","date":"2006-05-26","degree":17,"return_day":"0.020972","rw_pb":"2.1071"},{"asset_rate":"480.1474","avg_return_3":null,"close":"1070.7769","date":"2006-06-02","degree":22,"return_day":"-0.005216","rw_pb":"2.2301"},{"asset_rate":"478.5350","avg_return_3":null,"close":"987.3135","date":"2006-06-09","degree":16,"return_day":"-0.024521","rw_pb":"2.0632"},{"asset_rate":"479.7544","avg_return_3":null,"close":"1011.8980","date":"2006-06-16","degree":18,"return_day":"0.024448","rw_pb":"2.1092"},{"asset_rate":"480.2053","avg_return_3":null,"close":"1037.0996","date":"2006-06-23","degree":19,"return_day":"0.009230","rw_pb":"2.1597"},{"asset_rate":"481.0232","avg_return_3":null,"close":"1080.6188","date":"2006-06-30","degree":22,"return_day":"-0.000688","rw_pb":"2.2465"},{"asset_rate":"483.6942","avg_return_3":null,"close":"1104.4675","date":"2006-07-07","degree":23,"return_day":"-0.002835","rw_pb":"2.2834"},{"asset_rate":"483.8649","avg_return_3":null,"close":"1061.3094","date":"2006-07-14","degree":20,"return_day":"0.008239","rw_pb":"2.1934"},{"asset_rate":"486.4711","avg_return_3":null,"close":"1068.1447","date":"2006-07-21","degree":21,"return_day":"0.007579","rw_pb":"2.1957"},{"asset_rate":"488.7939","avg_return_3":null,"close":"1062.0027","date":"2006-07-28","degree":20,"return_day":"-0.009624","rw_pb":"2.1727"},{"asset_rate":"491.4310","avg_return_3":null,"close":"977.3580","date":"2006-08-04","degree":14,"return_day":"-0.027093","rw_pb":"1.9888"},{"asset_rate":"493.8260","avg_return_3":null,"close":"1005.5286","date":"2006-08-11","degree":15,"return_day":"0.003876","rw_pb":"2.0362"},{"asset_rate":"495.1881","avg_return_3":null,"close":"1000.3790","date":"2006-08-18","degree":14,"return_day":"-0.004107","rw_pb":"2.0202"},{"asset_rate":"498.0569","avg_return_3":null,"close":"1023.8557","date":"2006-08-25","degree":15,"return_day":"0.002449","rw_pb":"2.0557"},{"asset_rate":"498.1331","avg_return_3":null,"close":"1042.8418","date":"2006-09-01","degree":16,"return_day":"-0.016688","rw_pb":"2.0935"},{"asset_rate":"498.2931","avg_return_3":null,"close":"1055.3350","date":"2006-09-08","degree":17,"return_day":"0.002378","rw_pb":"2.1179"},{"asset_rate":"498.4776","avg_return_3":null,"close":"1073.1227","date":"2006-09-15","degree":17,"return_day":"0.015326","rw_pb":"2.1528"},{"asset_rate":"496.8071","avg_return_3":null,"close":"1086.4178","date":"2006-09-22","degree":18,"return_day":"-0.008992","rw_pb":"2.1868"},{"asset_rate":"497.2273","avg_return_3":null,"close":"1110.8059","date":"2006-09-29","degree":19,"return_day":"0.010720","rw_pb":"2.2340"},{"asset_rate":"499.0325","avg_return_3":null,"close":"1131.6062","date":"2006-10-13","degree":21,"return_day":"0.003986","rw_pb":"2.2676"},{"asset_rate":"502.2618","avg_return_3":null,"close":"1138.7280","date":"2006-10-20","degree":21,"return_day":"-0.002516","rw_pb":"2.2672"},{"asset_rate":"508.7727","avg_return_3":null,"close":"1120.6229","date":"2006-10-27","degree":17,"return_day":"-0.014010","rw_pb":"2.2026"},{"asset_rate":"514.0585","avg_return_3":null,"close":"1148.2012","date":"2006-11-03","degree":18,"return_day":"0.005506","rw_pb":"2.2336"},{"asset_rate":"514.1188","avg_return_3":null,"close":"1141.1383","date":"2006-11-10","degree":16,"return_day":"-0.017677","rw_pb":"2.2196"},{"asset_rate":"515.7199","avg_return_3":null,"close":"1163.3094","date":"2006-11-17","degree":16,"return_day":"0.015479","rw_pb":"2.2557"},{"asset_rate":"516.5906","avg_return_3":null,"close":"1212.9031","date":"2006-11-24","degree":18,"return_day":"0.005322","rw_pb":"2.3479"},{"asset_rate":"517.3034","avg_return_3":null,"close":"1280.8951","date":"2006-12-01","degree":22,"return_day":"0.007307","rw_pb":"2.4761"},{"asset_rate":"515.4545","avg_return_3":null,"close":"1257.4514","date":"2006-12-08","degree":20,"return_day":"-0.035599","rw_pb":"2.4395"},{"asset_rate":"515.5874","avg_return_3":null,"close":"1359.7072","date":"2006-12-15","degree":25,"return_day":"0.015767","rw_pb":"2.6372"},{"asset_rate":"518.6113","avg_return_3":null,"close":"1384.3812","date":"2006-12-22","degree":27,"return_day":"-0.005985","rw_pb":"2.6694"},{"asset_rate":"520.6016","avg_return_3":null,"close":"1449.5112","date":"2006-12-29","degree":27,"return_day":"0.023820","rw_pb":"2.7843"},{"asset_rate":"520.4111","avg_return_3":null,"close":"1474.4288","date":"2007-01-05","degree":29,"return_day":"0.009009","rw_pb":"2.8332"},{"asset_rate":"516.8519","avg_return_3":null,"close":"1550.6074","date":"2007-01-12","degree":33,"return_day":"-0.027898","rw_pb":"3.0001"},{"asset_rate":"517.4236","avg_return_3":null,"close":"1725.1941","date":"2007-01-19","degree":44,"return_day":"0.033763","rw_pb":"3.3342"},{"asset_rate":"519.9382","avg_return_3":null,"close":"1789.0554","date":"2007-01-26","degree":45,"return_day":"0.017393","rw_pb":"3.4409"},{"asset_rate":"520.3406","avg_return_3":null,"close":"1672.5308","date":"2007-02-02","degree":42,"return_day":"-0.032238","rw_pb":"3.2143"},{"asset_rate":"520.0727","avg_return_3":null,"close":"1761.6945","date":"2007-02-09","degree":47,"return_day":"-0.002277","rw_pb":"3.3874"},{"asset_rate":"521.7394","avg_return_3":null,"close":"1962.6274","date":"2007-02-16","degree":58,"return_day":"0.006428","rw_pb":"3.7617"},{"asset_rate":"521.3762","avg_return_3":null,"close":"1876.7981","date":"2007-03-02","degree":56,"return_day":"0.015077","rw_pb":"3.5997"},{"asset_rate":"523.8116","avg_return_3":null,"close":"1961.9891","date":"2007-03-09","degree":60,"return_day":"-0.002785","rw_pb":"3.7456"},{"asset_rate":"525.6635","avg_return_3":null,"close":"1983.3287","date":"2007-03-16","degree":61,"return_day":"-0.015734","rw_pb":"3.7730"},{"asset_rate":"528.7278","avg_return_3":null,"close":"2090.4841","date":"2007-03-23","degree":66,"return_day":"0.006121","rw_pb":"3.9538"},{"asset_rate":"533.0835","avg_return_3":null,"close":"2124.8176","date":"2007-03-30","degree":65,"return_day":"0.003620","rw_pb":"3.9859"},{"asset_rate":"540.6581","avg_return_3":null,"close":"2280.9285","date":"2007-04-06","degree":74,"return_day":"0.010779","rw_pb":"4.2188"},{"asset_rate":"542.5707","avg_return_3":null,"close":"2423.2295","date":"2007-04-13","degree":81,"return_day":"-0.003620","rw_pb":"4.4662"},{"asset_rate":"550.2331","avg_return_3":null,"close":"2554.6775","date":"2007-04-20","degree":85,"return_day":"0.046183","rw_pb":"4.6429"},{"asset_rate":"552.7157","avg_return_3":null,"close":"2699.5190","date":"2007-04-27","degree":88,"return_day":"-0.004716","rw_pb":"4.8841"},{"asset_rate":"549.9481","avg_return_3":null,"close":"2869.6846","date":"2007-05-11","degree":91,"return_day":"-0.004445","rw_pb":"5.2181"},{"asset_rate":"550.1557","avg_return_3":null,"close":"2940.5273","date":"2007-05-18","degree":93,"return_day":"0.001644","rw_pb":"5.3449"},{"asset_rate":"549.0467","avg_return_3":null,"close":"3147.6848","date":"2007-05-25","degree":97,"return_day":"0.016163","rw_pb":"5.7330"},{"asset_rate":"546.3531","avg_return_3":null,"close":"2880.1553","date":"2007-06-01","degree":87,"return_day":"-0.046186","rw_pb":"5.2716"},{"asset_rate":"545.2014","avg_return_3":null,"close":"2897.3096","date":"2007-06-08","degree":88,"return_day":"0.012750","rw_pb":"5.3142"},{"asset_rate":"544.2795","avg_return_3":null,"close":"3101.7402","date":"2007-06-15","degree":93,"return_day":"0.003988","rw_pb":"5.6988"},{"asset_rate":"540.8149","avg_return_3":null,"close":"3031.8625","date":"2007-06-22","degree":89,"return_day":"-0.042209","rw_pb":"5.6061"},{"asset_rate":"539.9999","avg_return_3":null,"close":"2754.3779","date":"2007-06-29","degree":76,"return_day":"-0.033199","rw_pb":"5.1007"},{"asset_rate":"540.4963","avg_return_3":null,"close":"2722.4260","date":"2007-07-06","degree":76,"return_day":"0.050468","rw_pb":"5.0369"},{"asset_rate":"540.9184","avg_return_3":null,"close":"2789.4084","date":"2007-07-13","degree":77,"return_day":"-0.000848","rw_pb":"5.1568"},{"asset_rate":"541.8126","avg_return_3":null,"close":"2895.5549","date":"2007-07-20","degree":80,"return_day":"0.040844","rw_pb":"5.3442"},{"asset_rate":"542.8986","avg_return_3":null,"close":"3182.2007","date":"2007-07-27","degree":90,"return_day":"0.007737","rw_pb":"5.8615"},{"asset_rate":"546.7505","avg_return_3":null,"close":"3357.9233","date":"2007-08-03","degree":92,"return_day":"0.028966","rw_pb":"6.1416"},{"asset_rate":"549.8039","avg_return_3":null,"close":"3404.4961","date":"2007-08-10","degree":90,"return_day":"-0.013910","rw_pb":"6.1922"},{"asset_rate":"553.2641","avg_return_3":null,"close":"3367.7742","date":"2007-08-17","degree":90,"return_day":"-0.016521","rw_pb":"6.0871"},{"asset_rate":"557.7190","avg_return_3":null,"close":"3733.0925","date":"2007-08-24","degree":94,"return_day":"0.011720","rw_pb":"6.6935"},{"asset_rate":"563.2612","avg_return_3":null,"close":"3804.9426","date":"2007-08-31","degree":97,"return_day":"0.010881","rw_pb":"6.7552"},{"asset_rate":"574.7110","avg_return_3":null,"close":"3819.8743","date":"2007-09-07","degree":97,"return_day":"-0.021509","rw_pb":"6.6466"},{"asset_rate":"574.5354","avg_return_3":null,"close":"3864.2683","date":"2007-09-14","degree":97,"return_day":"0.010541","rw_pb":"6.7259"},{"asset_rate":"575.7288","avg_return_3":null,"close":"3920.7708","date":"2007-09-21","degree":98,"return_day":"-0.005954","rw_pb":"6.8101"},{"asset_rate":"576.9868","avg_return_3":null,"close":"3988.5950","date":"2007-09-28","degree":98,"return_day":"0.025981","rw_pb":"6.9128"},{"asset_rate":"576.6199","avg_return_3":null,"close":"4038.0120","date":"2007-10-12","degree":94,"return_day":"-0.008476","rw_pb":"7.0029"},{"asset_rate":"577.4779","avg_return_3":null,"close":"3958.9578","date":"2007-10-19","degree":92,"return_day":"0.000244","rw_pb":"6.8556"},{"asset_rate":"597.4775","avg_return_3":null,"close":"3707.1091","date":"2007-10-26","degree":78,"return_day":"0.004112","rw_pb":"6.2046"},{"asset_rate":"611.2863","avg_return_3":null,"close":"3766.8074","date":"2007-11-02","degree":77,"return_day":"-0.024005","rw_pb":"6.1621"},{"asset_rate":"607.1821","avg_return_3":null,"close":"3515.4631","date":"2007-11-09","degree":74,"return_day":"-0.011151","rw_pb":"5.7898"},{"asset_rate":"608.6071","avg_return_3":null,"close":"3510.6895","date":"2007-11-16","degree":75,"return_day":"-0.009109","rw_pb":"5.7684"},{"asset_rate":"610.1340","avg_return_3":null,"close":"3431.5769","date":"2007-11-23","degree":75,"return_day":"0.017058","rw_pb":"5.6243"},{"asset_rate":"609.8818","avg_return_3":null,"close":"3359.5952","date":"2007-11-30","degree":73,"return_day":"-0.019155","rw_pb":"5.5086"},{"asset_rate":"611.5286","avg_return_3":null,"close":"3563.8667","date":"2007-12-07","degree":79,"return_day":"0.014933","rw_pb":"5.8278"},{"asset_rate":"612.4835","avg_return_3":null,"close":"3570.6567","date":"2007-12-14","degree":81,"return_day":"0.019322","rw_pb":"5.8298"},{"asset_rate":"613.3018","avg_return_3":null,"close":"3678.5232","date":"2007-12-21","degree":85,"return_day":"0.013416","rw_pb":"5.9979"},{"asset_rate":"613.3352","avg_return_3":null,"close":"3858.7986","date":"2007-12-28","degree":89,"return_day":"-0.004173","rw_pb":"6.2915"},{"asset_rate":"614.8926","avg_return_3":null,"close":"3996.6794","date":"2008-01-04","degree":96,"return_day":"0.008700","rw_pb":"6.4998"},{"asset_rate":"615.2577","avg_return_3":null,"close":"4132.4399","date":"2008-01-11","degree":98,"return_day":"0.003067","rw_pb":"6.7166"},{"asset_rate":"615.6446","avg_return_3":null,"close":"3987.5918","date":"2008-01-18","degree":97,"return_day":"0.008969","rw_pb":"6.4771"},{"asset_rate":"618.4599","avg_return_3":null,"close":"3760.3601","date":"2008-01-25","degree":88,"return_day":"0.007775","rw_pb":"6.0802"},{"asset_rate":"621.0801","avg_return_3":null,"close":"3357.7458","date":"2008-02-01","degree":77,"return_day":"-0.021333","rw_pb":"5.4063"},{"asset_rate":"621.8772","avg_return_3":null,"close":"3577.8462","date":"2008-02-15","degree":83,"return_day":"-0.010738","rw_pb":"5.7533"},{"asset_rate":"622.5114","avg_return_3":null,"close":"3548.2529","date":"2008-02-22","degree":84,"return_day":"-0.031391","rw_pb":"5.6999"},{"asset_rate":"624.7555","avg_return_3":null,"close":"3548.4241","date":"2008-02-29","degree":84,"return_day":"0.012207","rw_pb":"5.6797"},{"asset_rate":"630.0513","avg_return_3":null,"close":"3532.4460","date":"2008-03-07","degree":83,"return_day":"-0.016385","rw_pb":"5.6066"},{"asset_rate":"633.2889","avg_return_3":null,"close":"3190.1929","date":"2008-03-14","degree":74,"return_day":"-0.009162","rw_pb":"5.0375"},{"asset_rate":"642.6884","avg_return_3":null,"close":"3068.4519","date":"2008-03-21","degree":67,"return_day":"0.008500","rw_pb":"4.7744"},{"asset_rate":"647.5375","avg_return_3":null,"close":"2971.6147","date":"2008-03-28","degree":61,"return_day":"0.040817","rw_pb":"4.5891"},{"asset_rate":"651.1900","avg_return_3":null,"close":"2837.7561","date":"2008-04-11","degree":50,"return_day":"0.009986","rw_pb":"4.3578"},{"asset_rate":"653.8678","avg_return_3":null,"close":"2465.6050","date":"2008-04-18","degree":35,"return_day":"-0.037754","rw_pb":"3.7708"},{"asset_rate":"659.9710","avg_return_3":null,"close":"2833.7178","date":"2008-04-25","degree":42,"return_day":"0.006102","rw_pb":"4.2937"},{"asset_rate":"658.0493","avg_return_3":null,"close":"2906.2090","date":"2008-05-09","degree":47,"return_day":"-0.008451","rw_pb":"4.4164"},{"asset_rate":"660.0498","avg_return_3":null,"close":"2951.6108","date":"2008-05-16","degree":50,"return_day":"-0.006252","rw_pb":"4.4718"},{"asset_rate":"659.7002","avg_return_3":null,"close":"2767.6406","date":"2008-05-23","degree":43,"return_day":"-0.007969","rw_pb":"4.1953"},{"asset_rate":"659.2088","avg_return_3":null,"close":"2724.3125","date":"2008-05-30","degree":41,"return_day":"0.007895","rw_pb":"4.1327"},{"asset_rate":"658.9202","avg_return_3":null,"close":"2643.9175","date":"2008-06-06","degree":37,"return_day":"-0.005840","rw_pb":"4.0125"},{"asset_rate":"658.1923","avg_return_3":null,"close":"2252.7292","date":"2008-06-13","degree":25,"return_day":"-0.035407","rw_pb":"3.4226"},{"asset_rate":"655.4789","avg_return_3":null,"close":"2139.8110","date":"2008-06-20","degree":20,"return_day":"0.026872","rw_pb":"3.2645"},{"asset_rate":"654.7721","avg_return_3":null,"close":"2122.6404","date":"2008-06-27","degree":20,"return_day":"-0.057513","rw_pb":"3.2418"},{"asset_rate":"654.2479","avg_return_3":null,"close":"2112.7629","date":"2008-07-04","degree":22,"return_day":"-0.004387","rw_pb":"3.2293"},{"asset_rate":"655.1402","avg_return_3":null,"close":"2268.8818","date":"2008-07-11","degree":26,"return_day":"-0.006508","rw_pb":"3.4632"},{"asset_rate":"655.6247","avg_return_3":null,"close":"2178.1821","date":"2008-07-18","degree":24,"return_day":"0.035614","rw_pb":"3.3223"},{"asset_rate":"656.7199","avg_return_3":null,"close":"2279.1467","date":"2008-07-25","degree":28,"return_day":"-0.010815","rw_pb":"3.4705"},{"asset_rate":"658.6284","avg_return_3":null,"close":"2208.0520","date":"2008-08-01","degree":25,"return_day":"0.013782","rw_pb":"3.3525"},{"asset_rate":"660.7661","avg_return_3":null,"close":"2004.8966","date":"2008-08-08","degree":18,"return_day":"-0.053462","rw_pb":"3.0342"},{"asset_rate":"664.4512","avg_return_3":null,"close":"1872.6230","date":"2008-08-15","degree":14,"return_day":"0.000888","rw_pb":"2.8183"},{"asset_rate":"680.1931","avg_return_3":null,"close":"1825.9785","date":"2008-08-22","degree":13,"return_day":"-0.017435","rw_pb":"2.6845"},{"asset_rate":"690.7034","avg_return_3":null,"close":"1805.5679","date":"2008-08-29","degree":13,"return_day":"0.025423","rw_pb":"2.6141"},{"asset_rate":"691.8954","avg_return_3":null,"close":"1662.0713","date":"2008-09-05","degree":11,"return_day":"-0.034358","rw_pb":"2.4022"},{"asset_rate":"691.8584","avg_return_3":null,"close":"1582.6263","date":"2008-09-12","degree":9,"return_day":"0.001780","rw_pb":"2.2875"},{"asset_rate":"692.8642","avg_return_3":null,"close":"1590.3312","date":"2008-09-19","degree":9,"return_day":"0.094224","rw_pb":"2.2953"},{"asset_rate":"691.1387","avg_return_3":null,"close":"1686.1022","date":"2008-09-26","degree":11,"return_day":"0.006393","rw_pb":"2.4396"},{"asset_rate":"689.9693","avg_return_3":null,"close":"1445.8997","date":"2008-10-10","degree":5,"return_day":"-0.049739","rw_pb":"2.0956"},{"asset_rate":"688.6551","avg_return_3":null,"close":"1382.6130","date":"2008-10-17","degree":5,"return_day":"0.008168","rw_pb":"2.0077"},{"asset_rate":"693.8737","avg_return_3":null,"close":"1352.1517","date":"2008-10-24","degree":5,"return_day":"-0.024985","rw_pb":"1.9487"},{"asset_rate":"707.6784","avg_return_3":null,"close":"1251.9540","date":"2008-10-31","degree":2,"return_day":"-0.019379","rw_pb":"1.7691"},{"asset_rate":"707.8924","avg_return_3":null,"close":"1263.4465","date":"2008-11-07","degree":2,"return_day":"0.016929","rw_pb":"1.7848"},{"asset_rate":"708.6010","avg_return_3":null,"close":"1473.3234","date":"2008-11-14","degree":7,"return_day":"0.038614","rw_pb":"2.0792"},{"asset_rate":"707.8016","avg_return_3":null,"close":"1473.2891","date":"2008-11-21","degree":7,"return_day":"-0.007319","rw_pb":"2.0815"},{"asset_rate":"707.9492","avg_return_3":null,"close":"1410.1641","date":"2008-11-28","degree":7,"return_day":"-0.018161","rw_pb":"1.9919"},{"asset_rate":"709.2505","avg_return_3":null,"close":"1562.1953","date":"2008-12-05","degree":12,"return_day":"0.018032","rw_pb":"2.2026"},{"asset_rate":"709.9245","avg_return_3":null,"close":"1518.5996","date":"2008-12-12","degree":10,"return_day":"-0.042479","rw_pb":"2.1391"},{"asset_rate":"709.8641","avg_return_3":null,"close":"1603.7252","date":"2008-12-19","degree":14,"return_day":"0.005721","rw_pb":"2.2592"},{"asset_rate":"710.0985","avg_return_3":null,"close":"1460.0336","date":"2008-12-26","degree":9,"return_day":"-0.004343","rw_pb":"2.0561"},{"asset_rate":"710.4304","avg_return_3":null,"close":"1526.0046","date":"2009-01-09","degree":12,"return_day":"0.019826","rw_pb":"2.1480"},{"asset_rate":"711.2436","avg_return_3":null,"close":"1584.4375","date":"2009-01-16","degree":15,"return_day":"0.014151","rw_pb":"2.2277"},{"asset_rate":"712.6510","avg_return_3":null,"close":"1618.8582","date":"2009-01-23","degree":16,"return_day":"-0.004434","rw_pb":"2.2716"},{"asset_rate":"711.8871","avg_return_3":null,"close":"1784.7722","date":"2009-02-06","degree":21,"return_day":"0.040673","rw_pb":"2.5071"},{"asset_rate":"712.3038","avg_return_3":null,"close":"1939.6035","date":"2009-02-13","degree":26,"return_day":"0.034692","rw_pb":"2.7230"},{"asset_rate":"712.5070","avg_return_3":null,"close":"1904.6025","date":"2009-02-20","degree":26,"return_day":"0.023769","rw_pb":"2.6731"},{"asset_rate":"712.5131","avg_return_3":null,"close":"1711.6703","date":"2009-02-27","degree":20,"return_day":"-0.034378","rw_pb":"2.4023"},{"asset_rate":"713.3468","avg_return_3":null,"close":"1843.6450","date":"2009-03-06","degree":25,"return_day":"-0.007437","rw_pb":"2.5845"},{"asset_rate":"714.1050","avg_return_3":null,"close":"1782.4777","date":"2009-03-13","degree":24,"return_day":"-0.006024","rw_pb":"2.4961"},{"asset_rate":"715.8398","avg_return_3":null,"close":"1923.4618","date":"2009-03-20","degree":29,"return_day":"-0.002267","rw_pb":"2.6870"},{"asset_rate":"716.2267","avg_return_3":null,"close":"2011.5227","date":"2009-03-27","degree":32,"return_day":"0.008231","rw_pb":"2.8085"},{"asset_rate":"716.4994","avg_return_3":null,"close":"2063.1602","date":"2009-04-03","degree":35,"return_day":"-0.004812","rw_pb":"2.8795"},{"asset_rate":"717.5746","avg_return_3":null,"close":"2093.5957","date":"2009-04-10","degree":39,"return_day":"0.030967","rw_pb":"2.9176"},{"asset_rate":"715.9979","avg_return_3":null,"close":"2152.6477","date":"2009-04-17","degree":42,"return_day":"-0.012868","rw_pb":"3.0065"},{"asset_rate":"718.1912","avg_return_3":null,"close":"2092.3784","date":"2009-04-24","degree":42,"return_day":"-0.008098","rw_pb":"2.9134"},{"asset_rate":"724.3966","avg_return_3":null,"close":"2253.5981","date":"2009-05-08","degree":51,"return_day":"0.006272","rw_pb":"3.1110"},{"asset_rate":"724.3086","avg_return_3":null,"close":"2261.9434","date":"2009-05-15","degree":51,"return_day":"0.003309","rw_pb":"3.1229"},{"asset_rate":"727.4414","avg_return_3":null,"close":"2225.3162","date":"2009-05-22","degree":50,"return_day":"-0.001421","rw_pb":"3.0591"},{"asset_rate":"722.7147","avg_return_3":null,"close":"2352.8701","date":"2009-06-05","degree":53,"return_day":"-0.004457","rw_pb":"3.2556"},{"asset_rate":"720.7686","avg_return_3":null,"close":"2330.6055","date":"2009-06-12","degree":52,"return_day":"-0.018862","rw_pb":"3.2335"},{"asset_rate":"719.6282","avg_return_3":null,"close":"2450.0464","date":"2009-06-19","degree":55,"return_day":"0.005573","rw_pb":"3.4046"},{"asset_rate":"717.6520","avg_return_3":null,"close":"2480.6362","date":"2009-06-26","degree":56,"return_day":"0.003537","rw_pb":"3.4566"},{"asset_rate":"716.7882","avg_return_3":null,"close":"2611.1880","date":"2009-07-03","degree":59,"return_day":"0.012181","rw_pb":"3.6429"},{"asset_rate":"738.3189","avg_return_3":null,"close":"2680.2454","date":"2009-07-10","degree":63,"return_day":"0.001636","rw_pb":"3.6302"},{"asset_rate":"739.3813","avg_return_3":null,"close":"2764.6948","date":"2009-07-17","degree":67,"return_day":"0.003590","rw_pb":"3.7392"},{"asset_rate":"739.4193","avg_return_3":null,"close":"2852.0144","date":"2009-07-24","degree":69,"return_day":"0.000898","rw_pb":"3.8571"},{"asset_rate":"740.9108","avg_return_3":null,"close":"2907.0378","date":"2009-07-31","degree":70,"return_day":"0.027595","rw_pb":"3.9236"},{"asset_rate":"742.3059","avg_return_3":null,"close":"2802.2051","date":"2009-08-07","degree":69,"return_day":"-0.028424","rw_pb":"3.7750"},{"asset_rate":"743.5922","avg_return_3":null,"close":"2625.5500","date":"2009-08-14","degree":60,"return_day":"-0.032895","rw_pb":"3.5309"},{"asset_rate":"747.5266","avg_return_3":null,"close":"2523.7246","date":"2009-08-21","degree":57,"return_day":"0.021094","rw_pb":"3.3761"},{"asset_rate":"758.0256","avg_return_3":null,"close":"2460.3240","date":"2009-08-28","degree":58,"return_day":"-0.030641","rw_pb":"3.2457"},{"asset_rate":"760.1476","avg_return_3":null,"close":"2464.2466","date":"2009-09-04","degree":57,"return_day":"0.010009","rw_pb":"3.2418"},{"asset_rate":"759.9977","avg_return_3":null,"close":"2581.6362","date":"2009-09-11","degree":61,"return_day":"0.021833","rw_pb":"3.3969"},{"asset_rate":"761.8608","avg_return_3":null,"close":"2579.6609","date":"2009-09-18","degree":63,"return_day":"-0.033738","rw_pb":"3.3860"},{"asset_rate":"759.5988","avg_return_3":null,"close":"2462.6953","date":"2009-09-25","degree":58,"return_day":"-0.007849","rw_pb":"3.2421"},{"asset_rate":"761.5178","avg_return_3":null,"close":"2524.8125","date":"2009-10-09","degree":59,"return_day":"0.049131","rw_pb":"3.3155"},{"asset_rate":"768.9282","avg_return_3":null,"close":"2591.2881","date":"2009-10-16","degree":62,"return_day":"0.000239","rw_pb":"3.3700"},{"asset_rate":"771.6980","avg_return_3":null,"close":"2716.1458","date":"2009-10-23","degree":67,"return_day":"0.017576","rw_pb":"3.5197"},{"asset_rate":"816.2607","avg_return_3":null,"close":"2631.8694","date":"2009-10-30","degree":59,"return_day":"0.012826","rw_pb":"3.2243"},{"asset_rate":"820.1669","avg_return_3":null,"close":"2792.7505","date":"2009-11-06","degree":68,"return_day":"0.003152","rw_pb":"3.4051"},{"asset_rate":"822.3891","avg_return_3":null,"close":"2832.8015","date":"2009-11-13","degree":71,"return_day":"0.006393","rw_pb":"3.4446"},{"asset_rate":"822.3270","avg_return_3":null,"close":"2944.5063","date":"2009-11-20","degree":76,"return_day":"-0.002114","rw_pb":"3.5807"},{"asset_rate":"820.3533","avg_return_3":null,"close":"2757.7820","date":"2009-11-27","degree":70,"return_day":"-0.023140","rw_pb":"3.3617"},{"asset_rate":"819.6516","avg_return_3":null,"close":"2950.3362","date":"2009-12-04","degree":76,"return_day":"0.006105","rw_pb":"3.5995"},{"asset_rate":"819.3222","avg_return_3":null,"close":"2912.7725","date":"2009-12-11","degree":76,"return_day":"-0.001459","rw_pb":"3.5551"},{"asset_rate":"819.5171","avg_return_3":null,"close":"2774.1475","date":"2009-12-18","degree":69,"return_day":"-0.023584","rw_pb":"3.3851"},{"asset_rate":"820.0440","avg_return_3":null,"close":"2828.4138","date":"2009-12-25","degree":73,"return_day":"-0.001177","rw_pb":"3.4491"},{"asset_rate":"819.0735","avg_return_3":null,"close":"2872.4092","date":"2010-01-08","degree":74,"return_day":"0.004208","rw_pb":"3.5069"},{"asset_rate":"805.9625","avg_return_3":null,"close":"2909.5247","date":"2010-01-15","degree":78,"return_day":"0.004508","rw_pb":"3.6100"},{"asset_rate":"806.5332","avg_return_3":null,"close":"2810.1230","date":"2010-01-22","degree":73,"return_day":"-0.013627","rw_pb":"3.4842"},{"asset_rate":"808.3591","avg_return_3":null,"close":"2687.7942","date":"2010-01-29","degree":68,"return_day":"0.000898","rw_pb":"3.3250"},{"asset_rate":"809.2329","avg_return_3":null,"close":"2648.3767","date":"2010-02-05","degree":65,"return_day":"-0.018967","rw_pb":"3.2727"},{"asset_rate":"810.1214","avg_return_3":null,"close":"2719.0105","date":"2010-02-12","degree":68,"return_day":"0.011280","rw_pb":"3.3563"},{"asset_rate":"810.5756","avg_return_3":null,"close":"2771.1150","date":"2010-02-26","degree":71,"return_day":"-0.001761","rw_pb":"3.4187"},{"asset_rate":"812.7265","avg_return_3":null,"close":"2753.2737","date":"2010-03-05","degree":69,"return_day":"0.002394","rw_pb":"3.3877"},{"asset_rate":"814.3151","avg_return_3":null,"close":"2729.1772","date":"2010-03-12","degree":66,"return_day":"-0.013226","rw_pb":"3.3515"},{"asset_rate":"817.7809","avg_return_3":null,"close":"2790.5957","date":"2010-03-19","degree":71,"return_day":"0.007352","rw_pb":"3.4124"},{"asset_rate":"826.2152","avg_return_3":"30.8400","close":"2792.1946","date":"2010-03-26","degree":68,"return_day":"0.013590","rw_pb":"3.3795"},{"asset_rate":"829.4258","avg_return_3":"30.0100","close":"2888.1436","date":"2010-04-02","degree":71,"return_day":"0.003107","rw_pb":"3.4821"},{"asset_rate":"838.5309","avg_return_3":"29.5400","close":"2888.3198","date":"2010-04-09","degree":71,"return_day":"0.010184","rw_pb":"3.4445"},{"asset_rate":"838.8739","avg_return_3":"30.9300","close":"2865.4258","date":"2010-04-16","degree":68,"return_day":"-0.008618","rw_pb":"3.4158"},{"asset_rate":"845.7581","avg_return_3":"37.9200","close":"2753.2810","date":"2010-04-23","degree":61,"return_day":"-0.005881","rw_pb":"3.2554"},{"asset_rate":"880.1832","avg_return_3":"48.7600","close":"2623.2981","date":"2010-04-30","degree":52,"return_day":"-0.005002","rw_pb":"2.9804"},{"asset_rate":"878.8236","avg_return_3":"51.1700","close":"2480.2161","date":"2010-05-07","degree":48,"return_day":"-0.017988","rw_pb":"2.8222"},{"asset_rate":"878.2505","avg_return_3":"51.9500","close":"2474.2952","date":"2010-05-14","degree":47,"return_day":"-0.003279","rw_pb":"2.8173"},{"asset_rate":"879.4532","avg_return_3":"57.1000","close":"2379.2729","date":"2010-05-21","degree":44,"return_day":"0.015579","rw_pb":"2.7054"},{"asset_rate":"873.6399","avg_return_3":"51.3100","close":"2466.4604","date":"2010-05-28","degree":47,"return_day":"0.000222","rw_pb":"2.8232"},{"asset_rate":"870.7039","avg_return_3":"56.2900","close":"2379.9822","date":"2010-06-04","degree":45,"return_day":"0.003487","rw_pb":"2.7334"},{"asset_rate":"872.1980","avg_return_3":"51.5100","close":"2403.2544","date":"2010-06-11","degree":47,"return_day":"0.000947","rw_pb":"2.7554"},{"asset_rate":"870.9173","avg_return_3":"57.1000","close":"2334.8423","date":"2010-06-18","degree":44,"return_day":"-0.023046","rw_pb":"2.6809"},{"asset_rate":"867.6501","avg_return_3":"55.0100","close":"2379.6174","date":"2010-06-25","degree":45,"return_day":"-0.007965","rw_pb":"2.7426"},{"asset_rate":"868.4504","avg_return_3":"78.5000","close":"2199.1772","date":"2010-07-02","degree":37,"return_day":"0.001090","rw_pb":"2.5323"},{"asset_rate":"867.8805","avg_return_3":"62.1100","close":"2302.0532","date":"2010-07-09","degree":42,"return_day":"0.024712","rw_pb":"2.6525"},{"asset_rate":"872.3952","avg_return_3":"66.3300","close":"2265.5232","date":"2010-07-16","degree":41,"return_day":"0.001773","rw_pb":"2.5969"},{"asset_rate":"877.7260","avg_return_3":"53.8800","close":"2414.2734","date":"2010-07-23","degree":46,"return_day":"0.003771","rw_pb":"2.7506"},{"asset_rate":"878.3595","avg_return_3":"51.1700","close":"2485.0549","date":"2010-07-30","degree":49,"return_day":"-0.002546","rw_pb":"2.8292"},{"asset_rate":"879.5462","avg_return_3":"49.2100","close":"2522.8025","date":"2010-08-06","degree":51,"return_day":"0.015810","rw_pb":"2.8683"},{"asset_rate":"880.3659","avg_return_3":"51.5100","close":"2485.1851","date":"2010-08-13","degree":50,"return_day":"0.014179","rw_pb":"2.8229"},{"asset_rate":"881.1090","avg_return_3":"50.6800","close":"2518.7383","date":"2010-08-20","degree":50,"return_day":"-0.017873","rw_pb":"2.8586"},{"asset_rate":"895.6051","avg_return_3":"50.6800","close":"2502.9478","date":"2010-08-27","degree":50,"return_day":"0.003600","rw_pb":"2.7947"},{"asset_rate":"896.6307","avg_return_3":"46.2500","close":"2573.0613","date":"2010-09-03","degree":54,"return_day":"0.002264","rw_pb":"2.8697"},{"asset_rate":"896.1148","avg_return_3":"46.2500","close":"2584.1265","date":"2010-09-10","degree":55,"return_day":"0.004330","rw_pb":"2.8837"},{"asset_rate":"895.8621","avg_return_3":"48.7600","close":"2524.8979","date":"2010-09-17","degree":52,"return_day":"0.000369","rw_pb":"2.8184"},{"asset_rate":"896.6320","avg_return_3":"45.2800","close":"2650.9824","date":"2010-10-08","degree":55,"return_day":"0.029375","rw_pb":"2.9566"},{"asset_rate":"899.4805","avg_return_3":"45.5100","close":"2811.8662","date":"2010-10-15","degree":56,"return_day":"0.025519","rw_pb":"3.1261"},{"asset_rate":"907.0770","avg_return_3":"40.8400","close":"2862.9167","date":"2010-10-22","degree":59,"return_day":"0.001890","rw_pb":"3.1562"},{"asset_rate":"927.7655","avg_return_3":"39.2500","close":"2884.6086","date":"2010-10-29","degree":59,"return_day":"-0.001326","rw_pb":"3.1092"},{"asset_rate":"941.0031","avg_return_3":"36.3700","close":"3013.1863","date":"2010-11-05","degree":62,"return_day":"0.013532","rw_pb":"3.2021"},{"asset_rate":"968.1092","avg_return_3":"40.8400","close":"2885.9338","date":"2010-11-12","degree":59,"return_day":"-0.052561","rw_pb":"2.9810"},{"asset_rate":"971.1198","avg_return_3":"40.8400","close":"2807.8960","date":"2010-11-19","degree":59,"return_day":"0.012010","rw_pb":"2.8914"},{"asset_rate":"972.4524","avg_return_3":"38.3200","close":"2811.2627","date":"2010-11-26","degree":61,"return_day":"-0.007984","rw_pb":"2.8909"},{"asset_rate":"973.8318","avg_return_3":"39.3800","close":"2777.4658","date":"2010-12-03","degree":59,"return_day":"-0.001113","rw_pb":"2.8521"},{"asset_rate":"975.5516","avg_return_3":"43.6100","close":"2770.6641","date":"2010-12-10","degree":58,"return_day":"0.010999","rw_pb":"2.8401"},{"asset_rate":"977.3586","avg_return_3":"37.9200","close":"2834.1445","date":"2010-12-17","degree":62,"return_day":"-0.001653","rw_pb":"2.8998"},{"asset_rate":"978.3895","avg_return_3":"43.6100","close":"2762.3850","date":"2010-12-24","degree":58,"return_day":"-0.009151","rw_pb":"2.8234"},{"asset_rate":"979.9078","avg_return_3":"45.5100","close":"2737.5686","date":"2010-12-31","degree":56,"return_day":"0.017872","rw_pb":"2.7937"},{"asset_rate":"985.1528","avg_return_3":"44.1800","close":"2761.8760","date":"2011-01-07","degree":57,"return_day":"0.002653","rw_pb":"2.8035"},{"asset_rate":"986.5968","avg_return_3":"48.5600","close":"2701.4995","date":"2011-01-14","degree":52,"return_day":"-0.013796","rw_pb":"2.7382"},{"asset_rate":"987.9053","avg_return_3":"51.1700","close":"2616.8625","date":"2011-01-21","degree":48,"return_day":"0.012084","rw_pb":"2.6489"},{"asset_rate":"989.1029","avg_return_3":"50.8200","close":"2649.1143","date":"2011-01-28","degree":49,"return_day":"0.003308","rw_pb":"2.6783"},{"asset_rate":"991.7805","avg_return_3":"48.5600","close":"2731.3635","date":"2011-02-11","degree":53,"return_day":"0.005122","rw_pb":"2.7540"},{"asset_rate":"991.8899","avg_return_3":"45.1200","close":"2805.8582","date":"2011-02-18","degree":56,"return_day":"-0.009151","rw_pb":"2.8288"},{"asset_rate":"990.9630","avg_return_3":"44.1800","close":"2795.6060","date":"2011-02-25","degree":57,"return_day":"0.000343","rw_pb":"2.8211"},{"asset_rate":"991.6283","avg_return_3":"40.8400","close":"2852.2205","date":"2011-03-04","degree":58,"return_day":"0.013479","rw_pb":"2.8763"},{"asset_rate":"994.7301","avg_return_3":"39.3800","close":"2851.2944","date":"2011-03-11","degree":59,"return_day":"-0.007203","rw_pb":"2.8664"},{"asset_rate":"1000.6335","avg_return_3":"39.1700","close":"2829.9917","date":"2011-03-18","degree":58,"return_day":"0.003717","rw_pb":"2.8282"},{"asset_rate":"1005.0566","avg_return_3":"31.6600","close":"2893.7590","date":"2011-03-25","degree":60,"return_day":"0.010038","rw_pb":"2.8792"},{"asset_rate":"1014.4156","avg_return_3":"40.0900","close":"2865.1155","date":"2011-04-01","degree":55,"return_day":"0.012504","rw_pb":"2.8244"},{"asset_rate":"1015.0993","avg_return_3":"30.8400","close":"2921.0498","date":"2011-04-08","degree":57,"return_day":"0.008522","rw_pb":"2.8776"},{"asset_rate":"1018.3358","avg_return_3":"30.8400","close":"2931.2798","date":"2011-04-15","degree":56,"return_day":"0.001912","rw_pb":"2.8785"},{"asset_rate":"1023.4525","avg_return_3":"40.2900","close":"2899.5435","date":"2011-04-22","degree":55,"return_day":"-0.005294","rw_pb":"2.8331"},{"asset_rate":"1052.5417","avg_return_3":"42.0300","close":"2791.1301","date":"2011-04-29","degree":46,"return_day":"0.010353","rw_pb":"2.6518"},{"asset_rate":"1054.6002","avg_return_3":"39.2900","close":"2751.1357","date":"2011-05-06","degree":46,"return_day":"-0.001687","rw_pb":"2.6087"},{"asset_rate":"1056.0159","avg_return_3":"24.1900","close":"2761.1650","date":"2011-05-13","degree":47,"return_day":"0.008589","rw_pb":"2.6147"},{"asset_rate":"1055.6469","avg_return_3":"32.6600","close":"2748.6934","date":"2011-05-20","degree":45,"return_day":"-0.000994","rw_pb":"2.6038"},{"asset_rate":"1054.8035","avg_return_3":"44.8800","close":"2595.0278","date":"2011-05-27","degree":38,"return_day":"-0.011343","rw_pb":"2.4602"},{"asset_rate":"1050.1574","avg_return_3":"21.2000","close":"2622.9783","date":"2011-06-03","degree":40,"return_day":"0.010438","rw_pb":"2.4977"},{"asset_rate":"1046.9188","avg_return_3":"27.3500","close":"2611.3296","date":"2011-06-10","degree":39,"return_day":"0.002634","rw_pb":"2.4943"},{"asset_rate":"1040.5344","avg_return_3":"39.9100","close":"2560.2351","date":"2011-06-17","degree":36,"return_day":"-0.007959","rw_pb":"2.4605"},{"asset_rate":"1037.8408","avg_return_3":"16.1700","close":"2666.0056","date":"2011-06-24","degree":40,"return_day":"0.021920","rw_pb":"2.5688"},{"asset_rate":"1037.6870","avg_return_3":"20.1900","close":"2691.0337","date":"2011-07-01","degree":42,"return_day":"0.001455","rw_pb":"2.5933"},{"asset_rate":"1037.0081","avg_return_3":"24.7400","close":"2743.7161","date":"2011-07-08","degree":45,"return_day":"0.000785","rw_pb":"2.6458"},{"asset_rate":"1040.3868","avg_return_3":"18.4000","close":"2776.1682","date":"2011-07-15","degree":48,"return_day":"0.004518","rw_pb":"2.6684"},{"asset_rate":"1040.7740","avg_return_3":"27.9300","close":"2729.4299","date":"2011-07-22","degree":45,"return_day":"0.002818","rw_pb":"2.6225"},{"asset_rate":"1042.6301","avg_return_3":"20.6200","close":"2659.6453","date":"2011-07-29","degree":42,"return_day":"-0.004450","rw_pb":"2.5509"},{"asset_rate":"1044.8693","avg_return_3":"15.8700","close":"2592.8433","date":"2011-08-05","degree":40,"return_day":"-0.021096","rw_pb":"2.4815"},{"asset_rate":"1048.1717","avg_return_3":"27.8900","close":"2564.3523","date":"2011-08-12","degree":38,"return_day":"0.005760","rw_pb":"2.4465"},{"asset_rate":"1054.0723","avg_return_3":"43.8600","close":"2505.7407","date":"2011-08-19","degree":36,"return_day":"-0.009517","rw_pb":"2.3772"},{"asset_rate":"1070.0031","avg_return_3":"17.1800","close":"2582.3457","date":"2011-08-26","degree":40,"return_day":"-0.000085","rw_pb":"2.4134"},{"asset_rate":"1073.0447","avg_return_3":"41.0400","close":"2498.5847","date":"2011-09-02","degree":35,"return_day":"-0.010746","rw_pb":"2.3285"},{"asset_rate":"1073.1514","avg_return_3":"46.9400","close":"2459.5559","date":"2011-09-09","degree":33,"return_day":"-0.001858","rw_pb":"2.2919"},{"asset_rate":"1070.9697","avg_return_3":"46.9400","close":"2449.5220","date":"2011-09-16","degree":33,"return_day":"0.001334","rw_pb":"2.2872"},{"asset_rate":"1070.1436","avg_return_3":"50.8000","close":"2396.9077","date":"2011-09-23","degree":32,"return_day":"-0.005659","rw_pb":"2.2398"},{"asset_rate":"1069.9874","avg_return_3":"52.2000","close":"2312.2429","date":"2011-09-30","degree":27,"return_day":"-0.002217","rw_pb":"2.1610"},{"asset_rate":"1070.0097","avg_return_3":"34.7000","close":"2380.6648","date":"2011-10-14","degree":30,"return_day":"-0.003531","rw_pb":"2.2249"},{"asset_rate":"1071.4299","avg_return_3":"81.2600","close":"2254.5029","date":"2011-10-21","degree":24,"return_day":"-0.008606","rw_pb":"2.1042"},{"asset_rate":"1093.3077","avg_return_3":"51.2900","close":"2414.7888","date":"2011-10-28","degree":29,"return_day":"0.017267","rw_pb":"2.2087"},{"asset_rate":"1101.7562","avg_return_3":"50.8000","close":"2475.6462","date":"2011-11-04","degree":32,"return_day":"0.007807","rw_pb":"2.2470"},{"asset_rate":"1101.6120","avg_return_3":"32.0100","close":"2432.9102","date":"2011-11-11","degree":30,"return_day":"0.000202","rw_pb":"2.2085"},{"asset_rate":"1101.1985","avg_return_3":"51.9900","close":"2369.6692","date":"2011-11-18","degree":29,"return_day":"-0.020630","rw_pb":"2.1519"},{"asset_rate":"1101.8583","avg_return_3":"54.3400","close":"2337.7026","date":"2011-11-25","degree":27,"return_day":"-0.006911","rw_pb":"2.1216"},{"asset_rate":"1102.3206","avg_return_3":"71.5800","close":"2312.4482","date":"2011-12-02","degree":25,"return_day":"-0.012613","rw_pb":"2.0978"},{"asset_rate":"1102.0620","avg_return_3":"99.4200","close":"2259.1169","date":"2011-12-09","degree":23,"return_day":"-0.007161","rw_pb":"2.0499"},{"asset_rate":"1101.7611","avg_return_3":"123.5100","close":"2164.1895","date":"2011-12-16","degree":19,"return_day":"0.021588","rw_pb":"1.9643"},{"asset_rate":"1101.7417","avg_return_3":"127.9600","close":"2137.8196","date":"2011-12-23","degree":18,"return_day":"0.008633","rw_pb":"1.9404"},{"asset_rate":"1104.2180","avg_return_3":"134.7300","close":"2123.8530","date":"2011-12-30","degree":17,"return_day":"0.012943","rw_pb":"1.9234"},{"asset_rate":"1103.6386","avg_return_3":"121.6400","close":"2070.9780","date":"2012-01-06","degree":15,"return_day":"0.006630","rw_pb":"1.8765"},{"asset_rate":"1104.6150","avg_return_3":"136.0200","close":"2151.4587","date":"2012-01-13","degree":17,"return_day":"-0.017202","rw_pb":"1.9477"},{"asset_rate":"1107.3270","avg_return_3":"129.0900","close":"2217.0903","date":"2012-01-20","degree":18,"return_day":"0.011353","rw_pb":"2.0022"},{"asset_rate":"1107.5521","avg_return_3":"121.2200","close":"2233.2681","date":"2012-02-03","degree":19,"return_day":"0.008956","rw_pb":"2.0164"},{"asset_rate":"1107.9923","avg_return_3":"108.6500","close":"2263.8499","date":"2012-02-10","degree":21,"return_day":"0.001747","rw_pb":"2.0432"},{"asset_rate":"1107.9589","avg_return_3":"95.2400","close":"2276.1909","date":"2012-02-17","degree":23,"return_day":"-0.000554","rw_pb":"2.0544"},{"asset_rate":"1106.7348","avg_return_3":"53.7400","close":"2365.3137","date":"2012-02-24","degree":26,"return_day":"0.012951","rw_pb":"2.1372"},{"asset_rate":"1108.5953","avg_return_3":"46.4600","close":"2385.6973","date":"2012-03-02","degree":27,"return_day":"0.015950","rw_pb":"2.1520"},{"asset_rate":"1109.9442","avg_return_3":"47.6200","close":"2374.7258","date":"2012-03-09","degree":29,"return_day":"0.009903","rw_pb":"2.1395"},{"asset_rate":"1113.0174","avg_return_3":"45.5500","close":"2343.3469","date":"2012-03-16","degree":27,"return_day":"0.015411","rw_pb":"2.1054"},{"asset_rate":"1116.0625","avg_return_3":"62.0200","close":"2286.2542","date":"2012-03-23","degree":24,"return_day":"-0.012400","rw_pb":"2.0485"},{"asset_rate":"1134.5862","avg_return_3":"105.5100","close":"2186.8015","date":"2012-03-30","degree":21,"return_day":"0.002897","rw_pb":"1.9274"},{"asset_rate":"1136.0797","avg_return_3":"86.3500","close":"2239.5540","date":"2012-04-06","degree":23,"return_day":"0.003297","rw_pb":"1.9713"},{"asset_rate":"1136.5326","avg_return_3":"47.9800","close":"2293.9775","date":"2012-04-13","degree":26,"return_day":"0.004151","rw_pb":"2.0184"},{"asset_rate":"1138.4197","avg_return_3":"41.2200","close":"2333.3052","date":"2012-04-20","degree":28,"return_day":"0.010821","rw_pb":"2.0496"},{"asset_rate":"1160.6850","avg_return_3":"42.4100","close":"2316.0310","date":"2012-04-27","degree":27,"return_day":"-0.003557","rw_pb":"1.9954"},{"asset_rate":"1179.2444","avg_return_3":"33.5500","close":"2375.5879","date":"2012-05-04","degree":30,"return_day":"0.006254","rw_pb":"2.0145"},{"asset_rate":"1176.5320","avg_return_3":"42.0200","close":"2323.1802","date":"2012-05-11","degree":28,"return_day":"-0.006182","rw_pb":"1.9746"},{"asset_rate":"1176.5163","avg_return_3":"42.4100","close":"2275.9709","date":"2012-05-18","degree":27,"return_day":"-0.014394","rw_pb":"1.9345"},{"asset_rate":"1176.7635","avg_return_3":"47.9800","close":"2266.5642","date":"2012-05-25","degree":26,"return_day":"-0.008045","rw_pb":"1.9261"},{"asset_rate":"1174.4756","avg_return_3":"41.7900","close":"2316.0659","date":"2012-06-01","degree":29,"return_day":"0.000439","rw_pb":"1.9720"},{"asset_rate":"1171.0366","avg_return_3":"62.4300","close":"2229.5366","date":"2012-06-08","degree":25,"return_day":"-0.004806","rw_pb":"1.9039"},{"asset_rate":"1163.6746","avg_return_3":"44.4300","close":"2274.6348","date":"2012-06-15","degree":27,"return_day":"0.003665","rw_pb":"1.9547"},{"asset_rate":"1162.4388","avg_return_3":"82.0700","close":"2197.4744","date":"2012-06-29","degree":23,"return_day":"0.012936","rw_pb":"1.8904"},{"asset_rate":"1161.5174","avg_return_3":"78.0100","close":"2208.6255","date":"2012-07-06","degree":23,"return_day":"0.013692","rw_pb":"1.9015"},{"asset_rate":"1161.0802","avg_return_3":"97.7900","close":"2177.9543","date":"2012-07-13","degree":21,"return_day":"-0.000441","rw_pb":"1.8758"},{"asset_rate":"1159.8633","avg_return_3":"108.9200","close":"2150.0386","date":"2012-07-20","degree":20,"return_day":"-0.007832","rw_pb":"1.8537"},{"asset_rate":"1159.3598","avg_return_3":"119.5500","close":"2107.4844","date":"2012-07-27","degree":18,"return_day":"-0.000260","rw_pb":"1.8178"},{"asset_rate":"1164.3974","avg_return_3":"121.4500","close":"2109.8882","date":"2012-08-03","degree":18,"return_day":"0.012203","rw_pb":"1.8120"},{"asset_rate":"1167.7109","avg_return_3":"98.4600","close":"2157.1125","date":"2012-08-10","degree":21,"return_day":"-0.002895","rw_pb":"1.8473"},{"asset_rate":"1170.7183","avg_return_3":"116.5700","close":"2099.6833","date":"2012-08-17","degree":19,"return_day":"-0.000089","rw_pb":"1.7935"},{"asset_rate":"1184.0703","avg_return_3":"116.5700","close":"2078.3987","date":"2012-08-24","degree":19,"return_day":"-0.012206","rw_pb":"1.7553"},{"asset_rate":"1203.8291","avg_return_3":"124.8200","close":"2025.5630","date":"2012-08-31","degree":17,"return_day":"-0.001053","rw_pb":"1.6826"},{"asset_rate":"1203.7361","avg_return_3":"77.3100","close":"2117.1311","date":"2012-09-07","degree":23,"return_day":"0.037088","rw_pb":"1.7588"},{"asset_rate":"1203.2898","avg_return_3":"76.5300","close":"2114.6616","date":"2012-09-14","degree":23,"return_day":"0.005662","rw_pb":"1.7574"},{"asset_rate":"1203.5254","avg_return_3":"124.8500","close":"2015.4238","date":"2012-09-21","degree":16,"return_day":"0.000088","rw_pb":"1.6746"},{"asset_rate":"1203.4234","avg_return_3":"120.4900","close":"2073.9800","date":"2012-09-28","degree":18,"return_day":"0.015756","rw_pb":"1.7234"},{"asset_rate":"1204.0655","avg_return_3":"109.0000","close":"2093.8700","date":"2012-10-12","degree":20,"return_day":"0.000234","rw_pb":"1.7390"},{"asset_rate":"1204.2840","avg_return_3":"98.3200","close":"2119.5400","date":"2012-10-19","degree":21,"return_day":"-0.001630","rw_pb":"1.7600"},{"asset_rate":"1210.5399","avg_return_3":"121.8100","close":"2051.2600","date":"2012-10-26","degree":18,"return_day":"-0.017685","rw_pb":"1.6945"},{"asset_rate":"1235.0290","avg_return_3":"87.3500","close":"2102.3900","date":"2012-11-02","degree":23,"return_day":"0.005236","rw_pb":"1.7023"},{"asset_rate":"1235.6158","avg_return_3":"121.8100","close":"2044.4500","date":"2012-11-09","degree":18,"return_day":"-0.002128","rw_pb":"1.6546"},{"asset_rate":"1235.8023","avg_return_3":"105.6300","close":"1985.4400","date":"2012-11-16","degree":14,"return_day":"-0.008113","rw_pb":"1.6066"},{"asset_rate":"1235.8315","avg_return_3":"116.0800","close":"1995.2500","date":"2012-11-23","degree":15,"return_day":"0.005402","rw_pb":"1.6145"},{"asset_rate":"1235.0076","avg_return_3":"177.8500","close":"1932.5400","date":"2012-11-30","degree":10,"return_day":"0.009898","rw_pb":"1.5648"},{"asset_rate":"1235.1551","avg_return_3":"95.2200","close":"2013.5500","date":"2012-12-07","degree":13,"return_day":"0.017361","rw_pb":"1.6302"},{"asset_rate":"1235.0483","avg_return_3":"124.2700","close":"2095.6300","date":"2012-12-14","degree":17,"return_day":"0.042389","rw_pb":"1.6968"},{"asset_rate":"1234.5531","avg_return_3":"115.7000","close":"2105.1600","date":"2012-12-21","degree":19,"return_day":"-0.005128","rw_pb":"1.7052"},{"asset_rate":"1234.6520","avg_return_3":"51.9500","close":"2190.8900","date":"2012-12-28","degree":26,"return_day":"0.012449","rw_pb":"1.7745"},{"asset_rate":"1234.7355","avg_return_3":"44.4300","close":"2224.8700","date":"2013-01-04","degree":27,"return_day":"0.000733","rw_pb":"1.8019"},{"asset_rate":"1236.0587","avg_return_3":"42.4100","close":"2204.1400","date":"2013-01-11","degree":27,"return_day":"-0.018222","rw_pb":"1.7832"},{"asset_rate":"1237.5067","avg_return_3":"28.2100","close":"2289.1400","date":"2013-01-18","degree":33,"return_day":"0.014618","rw_pb":"1.8498"},{"asset_rate":"1238.4945","avg_return_3":"39.3200","close":"2254.0600","date":"2013-01-25","degree":29,"return_day":"-0.004096","rw_pb":"1.8200"},{"asset_rate":"1238.9651","avg_return_3":"26.4100","close":"2365.6800","date":"2013-02-01","degree":34,"return_day":"0.012515","rw_pb":"1.9094"},{"asset_rate":"1245.7383","avg_return_3":"25.4900","close":"2407.6385","date":"2013-02-08","degree":35,"return_day":"0.009155","rw_pb":"1.9327"},{"asset_rate":"1246.3810","avg_return_3":"25.7900","close":"2306.6774","date":"2013-02-22","degree":34,"return_day":"-0.004170","rw_pb":"1.8507"},{"asset_rate":"1259.2857","avg_return_3":"23.8400","close":"2376.7759","date":"2013-03-01","degree":37,"return_day":"0.004526","rw_pb":"1.8874"},{"asset_rate":"1257.3202","avg_return_3":"29.0100","close":"2328.4314","date":"2013-03-08","degree":35,"return_day":"-0.006962","rw_pb":"1.8519"},{"asset_rate":"1249.4555","avg_return_3":"29.7400","close":"2265.3878","date":"2013-03-15","degree":32,"return_day":"0.001934","rw_pb":"1.8131"},{"asset_rate":"1262.1254","avg_return_3":"27.8200","close":"2336.3204","date":"2013-03-22","degree":35,"return_day":"0.002339","rw_pb":"1.8511"},{"asset_rate":"1272.9610","avg_return_3":"27.8500","close":"2239.2658","date":"2013-03-29","degree":30,"return_day":"-0.000794","rw_pb":"1.7591"},{"asset_rate":"1272.1723","avg_return_3":"42.4100","close":"2204.9291","date":"2013-04-12","degree":27,"return_day":"-0.007119","rw_pb":"1.7332"},{"asset_rate":"1285.8694","avg_return_3":"32.0000","close":"2270.8455","date":"2013-04-19","degree":30,"return_day":"0.024953","rw_pb":"1.7660"},{"asset_rate":"1308.6351","avg_return_3":"67.9900","close":"2192.4873","date":"2013-04-26","degree":24,"return_day":"-0.012695","rw_pb":"1.6754"},{"asset_rate":"1331.7747","avg_return_3":"49.4200","close":"2240.5778","date":"2013-05-03","degree":26,"return_day":"0.018988","rw_pb":"1.6824"},{"asset_rate":"1333.7496","avg_return_3":"29.7500","close":"2294.4495","date":"2013-05-10","degree":31,"return_day":"0.005886","rw_pb":"1.7203"},{"asset_rate":"1340.2921","avg_return_3":"31.4200","close":"2352.7488","date":"2013-05-17","degree":34,"return_day":"0.015128","rw_pb":"1.7554"},{"asset_rate":"1347.7691","avg_return_3":"22.9400","close":"2386.6296","date":"2013-05-24","degree":37,"return_day":"0.010643","rw_pb":"1.7708"},{"asset_rate":"1347.5744","avg_return_3":"21.9200","close":"2407.3070","date":"2013-05-31","degree":38,"return_day":"-0.008240","rw_pb":"1.7864"},{"asset_rate":"1330.7910","avg_return_3":"31.0600","close":"2289.7591","date":"2013-06-07","degree":31,"return_day":"-0.016412","rw_pb":"1.7206"},{"asset_rate":"1332.0192","avg_return_3":"27.9900","close":"2250.7129","date":"2013-06-14","degree":30,"return_day":"0.013936","rw_pb":"1.6897"},{"asset_rate":"1327.0629","avg_return_3":"65.6900","close":"2166.0321","date":"2013-06-21","degree":24,"return_day":"-0.003138","rw_pb":"1.6322"},{"asset_rate":"1308.7722","avg_return_3":"112.4400","close":"2046.2654","date":"2013-06-28","degree":15,"return_day":"0.009644","rw_pb":"1.5635"},{"asset_rate":"1315.4153","avg_return_3":"119.8300","close":"2104.1384","date":"2013-07-05","degree":19,"return_day":"-0.001925","rw_pb":"1.5996"},{"asset_rate":"1317.9714","avg_return_3":"107.3700","close":"2151.3248","date":"2013-07-12","degree":20,"return_day":"-0.014418","rw_pb":"1.6323"},{"asset_rate":"1336.9810","avg_return_3":"119.5500","close":"2103.6060","date":"2013-07-19","degree":18,"return_day":"-0.024214","rw_pb":"1.5734"},{"asset_rate":"1347.2667","avg_return_3":"95.9500","close":"2155.8962","date":"2013-07-26","degree":22,"return_day":"-0.002941","rw_pb":"1.6002"},{"asset_rate":"1350.4741","avg_return_3":"57.9300","close":"2183.5817","date":"2013-08-02","degree":25,"return_day":"0.002170","rw_pb":"1.6169"},{"asset_rate":"1360.0097","avg_return_3":"42.0200","close":"2226.6079","date":"2013-08-09","degree":28,"return_day":"0.003549","rw_pb":"1.6372"},{"asset_rate":"1356.4845","avg_return_3":"48.6600","close":"2219.2088","date":"2013-08-16","degree":26,"return_day":"-0.014678","rw_pb":"1.6360"},{"asset_rate":"1379.4975","avg_return_3":"43.1800","close":"2241.4076","date":"2013-08-23","degree":29,"return_day":"-0.004392","rw_pb":"1.6248"},{"asset_rate":"1401.5983","avg_return_3":"31.0600","close":"2263.4411","date":"2013-08-30","degree":31,"return_day":"-0.007502","rw_pb":"1.6149"},{"asset_rate":"1410.3037","avg_return_3":"20.9800","close":"2328.5526","date":"2013-09-06","degree":36,"return_day":"0.007730","rw_pb":"1.6511"},{"asset_rate":"1406.8899","avg_return_3":"9.5000","close":"2410.4245","date":"2013-09-13","degree":39,"return_day":"-0.002201","rw_pb":"1.7133"},{"asset_rate":"1413.5780","avg_return_3":"18.3400","close":"2361.2407","date":"2013-09-27","degree":36,"return_day":"0.003916","rw_pb":"1.6704"},{"asset_rate":"1424.7094","avg_return_3":"8.5900","close":"2459.1910","date":"2013-10-11","degree":42,"return_day":"0.015494","rw_pb":"1.7261"},{"asset_rate":"1422.3446","avg_return_3":"9.1300","close":"2419.2661","date":"2013-10-18","degree":40,"return_day":"0.005728","rw_pb":"1.7009"},{"asset_rate":"1423.4426","avg_return_3":"18.3400","close":"2344.9795","date":"2013-10-25","degree":36,"return_day":"-0.016087","rw_pb":"1.6474"},{"asset_rate":"1446.4626","avg_return_3":"29.1700","close":"2319.5475","date":"2013-11-01","degree":30,"return_day":"0.000291","rw_pb":"1.6036"},{"asset_rate":"1439.0689","avg_return_3":"44.0900","close":"2261.9285","date":"2013-11-08","degree":27,"return_day":"-0.014360","rw_pb":"1.5718"},{"asset_rate":"1449.9480","avg_return_3":"28.3200","close":"2320.4968","date":"2013-11-15","degree":32,"return_day":"0.020556","rw_pb":"1.6004"},{"asset_rate":"1447.4904","avg_return_3":"18.2700","close":"2378.9506","date":"2013-11-22","degree":37,"return_day":"-0.004735","rw_pb":"1.6435"},{"asset_rate":"1460.3275","avg_return_3":"8.4800","close":"2440.4994","date":"2013-11-29","degree":41,"return_day":"0.004607","rw_pb":"1.6712"},{"asset_rate":"1445.4322","avg_return_3":"8.8900","close":"2412.1374","date":"2013-12-06","degree":39,"return_day":"-0.004782","rw_pb":"1.6688"},{"asset_rate":"1456.7575","avg_return_3":"9.1300","close":"2403.7957","date":"2013-12-13","degree":40,"return_day":"0.001181","rw_pb":"1.6501"},{"asset_rate":"1453.4011","avg_return_3":"28.3200","close":"2287.2174","date":"2013-12-20","degree":32,"return_day":"-0.018013","rw_pb":"1.5737"},{"asset_rate":"1458.6364","avg_return_3":"27.8700","close":"2322.4409","date":"2013-12-27","degree":35,"return_day":"0.017250","rw_pb":"1.5922"},{"asset_rate":"1465.8581","avg_return_3":"22.7100","close":"2328.8088","date":"2014-01-03","degree":35,"return_day":"-0.009187","rw_pb":"1.5887"},{"asset_rate":"1458.5932","avg_return_3":"62.1200","close":"2233.5439","date":"2014-01-10","degree":25,"return_day":"-0.012466","rw_pb":"1.5313"},{"asset_rate":"1459.8516","avg_return_3":"46.2000","close":"2237.6606","date":"2014-01-17","degree":26,"return_day":"-0.012391","rw_pb":"1.5328"},{"asset_rate":"1476.8547","avg_return_3":"21.6100","close":"2335.9412","date":"2014-01-24","degree":36,"return_day":"0.010296","rw_pb":"1.5817"},{"asset_rate":"1483.0318","avg_return_3":"16.6800","close":"2344.8217","date":"2014-02-07","degree":37,"return_day":"0.012394","rw_pb":"1.5811"},{"asset_rate":"1489.4546","avg_return_3":"3.9300","close":"2439.7267","date":"2014-02-14","degree":45,"return_day":"0.013515","rw_pb":"1.6380"},{"asset_rate":"1483.8572","avg_return_3":"4.9600","close":"2425.6615","date":"2014-02-21","degree":44,"return_day":"-0.007003","rw_pb":"1.6347"},{"asset_rate":"1474.8817","avg_return_3":"15.0900","close":"2336.2127","date":"2014-02-28","degree":38,"return_day":"0.011260","rw_pb":"1.5840"},{"asset_rate":"1481.4064","avg_return_3":"9.8600","close":"2350.6957","date":"2014-03-07","degree":40,"return_day":"-0.003044","rw_pb":"1.5868"},{"asset_rate":"1480.7071","avg_return_3":"20.9800","close":"2289.6174","date":"2014-03-14","degree":35,"return_day":"-0.005377","rw_pb":"1.5463"},{"asset_rate":"1482.7425","avg_return_3":"8.4200","close":"2328.3506","date":"2014-03-21","degree":40,"return_day":"0.026095","rw_pb":"1.5703"},{"asset_rate":"1481.0517","avg_return_3":"20.2200","close":"2282.7451","date":"2014-03-28","degree":36,"return_day":"-0.013387","rw_pb":"1.5413"},{"asset_rate":"1493.7314","avg_return_3":"8.8900","close":"2321.4080","date":"2014-04-04","degree":39,"return_day":"0.011006","rw_pb":"1.5541"},{"asset_rate":"1494.6851","avg_return_3":"8.6200","close":"2391.0478","date":"2014-04-11","degree":43,"return_day":"-0.003175","rw_pb":"1.5997"},{"asset_rate":"1500.2789","avg_return_3":"8.6200","close":"2373.2912","date":"2014-04-18","degree":43,"return_day":"0.002114","rw_pb":"1.5819"},{"asset_rate":"1500.6169","avg_return_3":"29.7400","close":"2270.2834","date":"2014-04-25","degree":32,"return_day":"-0.016665","rw_pb":"1.5129"},{"asset_rate":"1528.4271","avg_return_3":"42.3600","close":"2231.0451","date":"2014-05-09","degree":28,"return_day":"-0.005717","rw_pb":"1.4597"},{"asset_rate":"1525.3207","avg_return_3":"42.6100","close":"2238.5607","date":"2014-05-16","degree":29,"return_day":"-0.001094","rw_pb":"1.4676"},{"asset_rate":"1529.4763","avg_return_3":"27.6800","close":"2266.2251","date":"2014-05-23","degree":32,"return_day":"0.010284","rw_pb":"1.4817"},{"asset_rate":"1535.2377","avg_return_3":"25.7900","close":"2287.1972","date":"2014-05-30","degree":34,"return_day":"0.001844","rw_pb":"1.4898"},{"asset_rate":"1528.3384","avg_return_3":"26.9300","close":"2279.5168","date":"2014-06-06","degree":33,"return_day":"-0.004635","rw_pb":"1.4915"},{"asset_rate":"1530.3805","avg_return_3":"9.9300","close":"2331.2287","date":"2014-06-13","degree":37,"return_day":"0.011502","rw_pb":"1.5233"},{"asset_rate":"1508.2505","avg_return_3":"29.9300","close":"2280.1732","date":"2014-06-20","degree":31,"return_day":"0.008399","rw_pb":"1.5118"},{"asset_rate":"1516.0722","avg_return_3":"3.4200","close":"2336.5705","date":"2014-06-27","degree":38,"return_day":"0.004927","rw_pb":"1.5412"},{"asset_rate":"1518.2544","avg_return_3":"2.5200","close":"2391.0989","date":"2014-07-04","degree":44,"return_day":"-0.000983","rw_pb":"1.5749"},{"asset_rate":"1514.5346","avg_return_3":"-1.1200","close":"2382.9688","date":"2014-07-11","degree":45,"return_day":"0.007724","rw_pb":"1.5734"},{"asset_rate":"1508.2808","avg_return_3":"-0.5300","close":"2390.0218","date":"2014-07-18","degree":46,"return_day":"0.003085","rw_pb":"1.5846"},{"asset_rate":"1506.7308","avg_return_3":"-4.0500","close":"2450.6978","date":"2014-07-25","degree":48,"return_day":"0.010433","rw_pb":"1.6265"},{"asset_rate":"1511.1321","avg_return_3":"-1.3400","close":"2533.1109","date":"2014-08-01","degree":50,"return_day":"-0.010396","rw_pb":"1.6763"},{"asset_rate":"1519.6572","avg_return_3":"-4.0100","close":"2573.9955","date":"2014-08-08","degree":51,"return_day":"0.005211","rw_pb":"1.6938"},{"asset_rate":"1530.1698","avg_return_3":"-7.3800","close":"2629.5969","date":"2014-08-15","degree":53,"return_day":"0.011468","rw_pb":"1.7185"},{"asset_rate":"1562.3927","avg_return_3":"-7.9300","close":"2675.1288","date":"2014-08-22","degree":54,"return_day":"0.006314","rw_pb":"1.7122"},{"asset_rate":"1594.0947","avg_return_3":"-6.5800","close":"2632.1693","date":"2014-08-29","degree":53,"return_day":"0.011905","rw_pb":"1.6512"},{"asset_rate":"1607.5857","avg_return_3":"-10.2600","close":"2776.7829","date":"2014-09-05","degree":56,"return_day":"0.006926","rw_pb":"1.7273"},{"asset_rate":"1614.7012","avg_return_3":"-11.7800","close":"2809.5801","date":"2014-09-12","degree":57,"return_day":"0.010018","rw_pb":"1.7400"},{"asset_rate":"1613.5203","avg_return_3":"-11.1000","close":"2807.6867","date":"2014-09-19","degree":57,"return_day":"0.009136","rw_pb":"1.7401"},{"asset_rate":"1619.7962","avg_return_3":"-11.4800","close":"2849.3836","date":"2014-09-26","degree":59,"return_day":"0.002739","rw_pb":"1.7591"},{"asset_rate":"1627.9158","avg_return_3":"-12.2500","close":"2920.1554","date":"2014-10-10","degree":60,"return_day":"-0.005105","rw_pb":"1.7938"},{"asset_rate":"1623.3505","avg_return_3":"-11.9400","close":"2865.0514","date":"2014-10-17","degree":59,"return_day":"-0.007176","rw_pb":"1.7649"},{"asset_rate":"1624.5264","avg_return_3":"-11.1500","close":"2804.9073","date":"2014-10-24","degree":57,"return_day":"0.000607","rw_pb":"1.7266"},{"asset_rate":"1677.5574","avg_return_3":"-12.3000","close":"2946.7975","date":"2014-10-31","degree":60,"return_day":"0.005985","rw_pb":"1.7566"},{"asset_rate":"1682.5281","avg_return_3":"-11.6200","close":"2950.6497","date":"2014-11-07","degree":61,"return_day":"-0.005819","rw_pb":"1.7537"},{"asset_rate":"1666.4079","avg_return_3":"-11.5700","close":"2955.2078","date":"2014-11-14","degree":60,"return_day":"-0.001792","rw_pb":"1.7734"},{"asset_rate":"1682.3612","avg_return_3":"-10.8500","close":"3012.7726","date":"2014-11-21","degree":62,"return_day":"0.014934","rw_pb":"1.7908"},{"asset_rate":"1676.4806","avg_return_3":"-11.2400","close":"3212.4723","date":"2014-11-28","degree":64,"return_day":"0.009947","rw_pb":"1.9162"},{"asset_rate":"1647.8835","avg_return_3":"-11.5900","close":"3402.2204","date":"2014-12-05","degree":65,"return_day":"-0.008664","rw_pb":"2.0646"},{"asset_rate":"1676.0977","avg_return_3":"-12.1600","close":"3475.3887","date":"2014-12-12","degree":67,"return_day":"0.007155","rw_pb":"2.0735"},{"asset_rate":"1659.5646","avg_return_3":"-11.8500","close":"3571.3831","date":"2014-12-19","degree":66,"return_day":"0.000410","rw_pb":"2.1520"},{"asset_rate":"1646.6288","avg_return_3":"-11.8900","close":"3566.9275","date":"2014-12-26","degree":66,"return_day":"0.021816","rw_pb":"2.1662"},{"asset_rate":"1616.8388","avg_return_3":"-11.6800","close":"3609.9161","date":"2015-01-09","degree":65,"return_day":"-0.004724","rw_pb":"2.2327"},{"asset_rate":"1613.1003","avg_return_3":"-11.4300","close":"3695.2903","date":"2015-01-16","degree":66,"return_day":"0.010982","rw_pb":"2.2908"},{"asset_rate":"1623.3907","avg_return_3":"-14.3200","close":"3715.7790","date":"2015-01-23","degree":67,"return_day":"-0.003462","rw_pb":"2.2889"},{"asset_rate":"1648.1558","avg_return_3":"-14.3000","close":"3643.7429","date":"2015-01-30","degree":68,"return_day":"-0.013031","rw_pb":"2.2108"},{"asset_rate":"1663.0293","avg_return_3":"-12.1000","close":"3551.7317","date":"2015-02-06","degree":66,"return_day":"-0.019189","rw_pb":"2.1357"},{"asset_rate":"1672.0224","avg_return_3":"-16.4600","close":"3723.4267","date":"2015-02-13","degree":69,"return_day":"0.012853","rw_pb":"2.2269"},{"asset_rate":"1682.2049","avg_return_3":"-20.2700","close":"3871.5947","date":"2015-02-27","degree":72,"return_day":"0.006673","rw_pb":"2.3015"},{"asset_rate":"1703.7320","avg_return_3":"-19.0800","close":"3870.7088","date":"2015-03-06","degree":72,"return_day":"-0.008939","rw_pb":"2.2719"},{"asset_rate":"1708.3560","avg_return_3":"-21.3800","close":"4029.4995","date":"2015-03-13","degree":74,"return_day":"0.011188","rw_pb":"2.3587"},{"asset_rate":"1727.7673","avg_return_3":"-18.9800","close":"4373.4976","date":"2015-03-20","degree":78,"return_day":"0.013348","rw_pb":"2.5313"},{"asset_rate":"1757.0665","avg_return_3":"-16.8300","close":"4525.8519","date":"2015-03-27","degree":81,"return_day":"0.008925","rw_pb":"2.5758"},{"asset_rate":"1790.6383","avg_return_3":"-17.8200","close":"4842.6024","date":"2015-04-03","degree":87,"return_day":"0.016591","rw_pb":"2.7044"},{"asset_rate":"1796.6122","avg_return_3":"-19.4100","close":"5036.9822","date":"2015-04-10","degree":89,"return_day":"0.025021","rw_pb":"2.8036"},{"asset_rate":"1772.8569","avg_return_3":"-21.5500","close":"5186.3157","date":"2015-04-17","degree":91,"return_day":"0.013084","rw_pb":"2.9254"},{"asset_rate":"1800.3639","avg_return_3":"-24.6000","close":"5419.9956","date":"2015-04-24","degree":92,"return_day":"-0.003453","rw_pb":"3.0105"},{"asset_rate":"1885.7840","avg_return_3":"-22.4800","close":"5329.7916","date":"2015-05-08","degree":91,"return_day":"0.033927","rw_pb":"2.8263"},{"asset_rate":"1919.6970","avg_return_3":"-26.2300","close":"5621.2568","date":"2015-05-15","degree":93,"return_day":"-0.011057","rw_pb":"2.9282"},{"asset_rate":"1966.6441","avg_return_3":"-32.2100","close":"6248.2252","date":"2015-05-22","degree":97,"return_day":"0.020108","rw_pb":"3.1771"},{"asset_rate":"1989.7928","avg_return_3":"-32.2400","close":"6293.9139","date":"2015-05-29","degree":97,"return_day":"0.008488","rw_pb":"3.1631"},{"asset_rate":"2003.4178","avg_return_3":"-32.8700","close":"6975.5004","date":"2015-06-05","degree":99,"return_day":"0.013851","rw_pb":"3.4818"},{"asset_rate":"2012.7223","avg_return_3":"-32.8700","close":"7224.2644","date":"2015-06-12","degree":100,"return_day":"0.012918","rw_pb":"3.5893"},{"asset_rate":"1969.7938","avg_return_3":"-32.2800","close":"6180.0311","date":"2015-06-19","degree":98,"return_day":"-0.070055","rw_pb":"3.1374"},{"asset_rate":"1933.4630","avg_return_3":"-27.1100","close":"5633.9180","date":"2015-06-26","degree":94,"return_day":"-0.088091","rw_pb":"2.9139"},{"asset_rate":"1823.3256","avg_return_3":"-17.2500","close":"4635.2585","date":"2015-07-03","degree":81,"return_day":"-0.068349","rw_pb":"2.5422"},{"asset_rate":"1781.1251","avg_return_3":"-20.8800","close":"4697.1833","date":"2015-07-10","degree":76,"return_day":"0.076600","rw_pb":"2.6372"},{"asset_rate":"1848.8307","avg_return_3":"-17.2800","close":"5054.5184","date":"2015-07-17","degree":85,"return_day":"0.057856","rw_pb":"2.7339"},{"asset_rate":"1882.4023","avg_return_3":"-20.3200","close":"5330.2106","date":"2015-07-24","degree":90,"return_day":"-0.016673","rw_pb":"2.8316"},{"asset_rate":"1858.1583","avg_return_3":"-15.7600","close":"4743.5066","date":"2015-07-31","degree":82,"return_day":"-0.011631","rw_pb":"2.5528"},{"asset_rate":"1880.6619","avg_return_3":"-18.4400","close":"4917.9309","date":"2015-08-07","degree":85,"return_day":"0.032486","rw_pb":"2.6150"},{"asset_rate":"1909.6173","avg_return_3":"-21.5900","close":"5294.4142","date":"2015-08-14","degree":91,"return_day":"0.005835","rw_pb":"2.7725"},{"asset_rate":"1864.5572","avg_return_3":"-18.0500","close":"4571.8944","date":"2015-08-21","degree":79,"return_day":"-0.059055","rw_pb":"2.4520"},{"asset_rate":"1865.6583","avg_return_3":"-16.4200","close":"4104.6349","date":"2015-08-28","degree":70,"return_day":"0.063835","rw_pb":"2.2001"},{"asset_rate":"1854.1742","avg_return_3":"-14.3200","close":"3983.5079","date":"2015-09-11","degree":67,"return_day":"0.005043","rw_pb":"2.1484"},{"asset_rate":"1823.1509","avg_return_3":"-8.9100","close":"3763.1659","date":"2015-09-18","degree":63,"return_day":"0.011267","rw_pb":"2.0641"},{"asset_rate":"1827.3843","avg_return_3":"-10.7500","close":"3779.7617","date":"2015-09-25","degree":64,"return_day":"-0.030965","rw_pb":"2.0684"},{"asset_rate":"1858.6370","avg_return_3":"-14.0400","close":"4000.7162","date":"2015-10-09","degree":68,"return_day":"0.016822","rw_pb":"2.1525"},{"asset_rate":"1898.3552","avg_return_3":"-21.3600","close":"4365.8373","date":"2015-10-16","degree":73,"return_day":"0.017435","rw_pb":"2.2998"},{"asset_rate":"1910.6460","avg_return_3":"-21.6900","close":"4448.3661","date":"2015-10-23","degree":74,"return_day":"0.026147","rw_pb":"2.3282"},{"asset_rate":"1926.7132","avg_return_3":"-21.5700","close":"4423.9262","date":"2015-10-30","degree":74,"return_day":"-0.001066","rw_pb":"2.2961"},{"asset_rate":"1960.4914","avg_return_3":"-17.2500","close":"4737.9198","date":"2015-11-06","degree":81,"return_day":"0.027718","rw_pb":"2.4167"},{"asset_rate":"1974.9592","avg_return_3":"-17.4200","close":"4792.6335","date":"2015-11-13","degree":82,"return_day":"-0.018995","rw_pb":"2.4267"},{"asset_rate":"1987.9321","avg_return_3":"-17.9200","close":"4935.4392","date":"2015-11-20","degree":85,"return_day":"0.010237","rw_pb":"2.4827"},{"asset_rate":"1983.2666","avg_return_3":"-16.3600","close":"4672.1795","date":"2015-11-27","degree":80,"return_day":"-0.064220","rw_pb":"2.3558"},{"asset_rate":"1985.2631","avg_return_3":"-16.7100","close":"4799.3737","date":"2015-12-04","degree":83,"return_day":"-0.010785","rw_pb":"2.4175"},{"asset_rate":"1987.0007","avg_return_3":"-16.1200","close":"4697.2698","date":"2015-12-11","degree":80,"return_day":"-0.006952","rw_pb":"2.3640"},{"asset_rate":"2010.7005","avg_return_3":"-18.3700","close":"4983.5214","date":"2015-12-18","degree":86,"return_day":"0.000654","rw_pb":"2.4785"},{"asset_rate":"2017.9736","avg_return_3":"-18.9000","close":"5066.9300","date":"2015-12-25","degree":88,"return_day":"0.006205","rw_pb":"2.5109"},{"asset_rate":"1969.0020","avg_return_3":"-17.6900","close":"4270.3716","date":"2016-01-08","degree":71,"return_day":"0.014737","rw_pb":"2.1688"},{"asset_rate":"1947.1523","avg_return_3":"-9.5300","close":"3836.0848","date":"2016-01-15","degree":62,"return_day":"-0.037648","rw_pb":"1.9701"},{"asset_rate":"1955.8134","avg_return_3":"-10.0300","close":"3886.3969","date":"2016-01-22","degree":64,"return_day":"0.014881","rw_pb":"1.9871"},{"asset_rate":"1932.1710","avg_return_3":"-11.0700","close":"3585.3366","date":"2016-01-29","degree":58,"return_day":"0.039024","rw_pb":"1.8556"},{"asset_rate":"1956.3480","avg_return_3":"-11.6300","close":"3687.7161","date":"2016-02-05","degree":60,"return_day":"-0.009705","rw_pb":"1.8850"},{"asset_rate":"1978.7875","avg_return_3":"-8.6100","close":"3884.5579","date":"2016-02-19","degree":63,"return_day":"0.003002","rw_pb":"1.9631"},{"asset_rate":"1949.4082","avg_return_3":"-12.5300","close":"3667.6167","date":"2016-02-26","degree":59,"return_day":"0.003617","rw_pb":"1.8814"},{"asset_rate":"1928.2487","avg_return_3":"-11.1700","close":"3704.7443","date":"2016-03-04","degree":59,"return_day":"-0.015327","rw_pb":"1.9213"},{"asset_rate":"1928.0064","avg_return_3":"-11.7800","close":"3630.6290","date":"2016-03-11","degree":57,"return_day":"-0.000842","rw_pb":"1.8831"},{"asset_rate":"1964.0757","avg_return_3":"-9.4000","close":"3925.9910","date":"2016-03-18","degree":63,"return_day":"0.030365","rw_pb":"1.9989"},{"asset_rate":"1982.2489","avg_return_3":"-11.9600","close":"4008.1073","date":"2016-03-25","degree":65,"return_day":"0.007110","rw_pb":"2.0220"},{"asset_rate":"2003.8041","avg_return_3":"-12.1100","close":"4052.2932","date":"2016-04-01","degree":66,"return_day":"-0.002459","rw_pb":"2.0223"},{"asset_rate":"2012.2419","avg_return_3":"-12.2100","close":"4053.0577","date":"2016-04-08","degree":66,"return_day":"-0.008749","rw_pb":"2.0142"},{"asset_rate":"2025.3080","avg_return_3":"-16.6500","close":"4207.7800","date":"2016-04-15","degree":69,"return_day":"-0.000577","rw_pb":"2.0776"},{"asset_rate":"2015.0747","avg_return_3":"-10.7500","close":"3992.6692","date":"2016-04-22","degree":64,"return_day":"0.007907","rw_pb":"1.9814"},{"asset_rate":"2051.2038","avg_return_3":"-8.7500","close":"3986.7198","date":"2016-04-29","degree":63,"return_day":"-0.000982","rw_pb":"1.9436"},{"asset_rate":"2062.2783","avg_return_3":"-10.2900","close":"3963.6989","date":"2016-05-06","degree":62,"return_day":"-0.036508","rw_pb":"1.9220"},{"asset_rate":"2043.5143","avg_return_3":"-12.0400","close":"3795.6236","date":"2016-05-13","degree":58,"return_day":"-0.003633","rw_pb":"1.8574"},{"asset_rate":"2045.7527","avg_return_3":"-11.3500","close":"3810.2145","date":"2016-05-20","degree":58,"return_day":"0.009688","rw_pb":"1.8625"},{"asset_rate":"2044.6460","avg_return_3":"-11.1700","close":"3817.7631","date":"2016-05-27","degree":58,"return_day":"-0.000803","rw_pb":"1.8672"},{"asset_rate":"2061.2863","avg_return_3":"-9.8400","close":"4032.2883","date":"2016-06-03","degree":63,"return_day":"0.005317","rw_pb":"1.9562"},{"asset_rate":"2062.6186","avg_return_3":"-11.1700","close":"3988.2795","date":"2016-06-17","degree":62,"return_day":"0.006797","rw_pb":"1.9336"},{"asset_rate":"2057.2536","avg_return_3":"-11.5300","close":"3964.9449","date":"2016-06-24","degree":61,"return_day":"-0.010751","rw_pb":"1.9273"},{"asset_rate":"2064.6166","avg_return_3":"-11.5900","close":"4103.0126","date":"2016-07-01","degree":65,"return_day":"-0.000714","rw_pb":"1.9873"},{"asset_rate":"2060.2189","avg_return_3":"-14.2500","close":"4204.7008","date":"2016-07-08","degree":67,"return_day":"-0.003129","rw_pb":"2.0409"},{"asset_rate":"2058.5053","avg_return_3":"-16.2800","close":"4293.4247","date":"2016-07-15","degree":69,"return_day":"-0.001955","rw_pb":"2.0857"},{"asset_rate":"2058.6882","avg_return_3":"-14.2000","close":"4248.3091","date":"2016-07-22","degree":68,"return_day":"-0.009016","rw_pb":"2.0636"},{"asset_rate":"2040.3240","avg_return_3":"-11.6800","close":"4127.5755","date":"2016-07-29","degree":65,"return_day":"-0.006138","rw_pb":"2.0230"},{"asset_rate":"2044.1287","avg_return_3":"-11.6100","close":"4130.5709","date":"2016-08-05","degree":65,"return_day":"-0.002327","rw_pb":"2.0207"},{"asset_rate":"2045.4256","avg_return_3":"-12.2000","close":"4220.3268","date":"2016-08-12","degree":66,"return_day":"0.015055","rw_pb":"2.0633"},{"asset_rate":"2063.8538","avg_return_3":"-16.6600","close":"4354.9380","date":"2016-08-19","degree":69,"return_day":"0.001640","rw_pb":"2.1101"},{"asset_rate":"2071.7215","avg_return_3":"-13.3500","close":"4299.6510","date":"2016-08-26","degree":67,"return_day":"0.002134","rw_pb":"2.0754"},{"asset_rate":"2091.0933","avg_return_3":"-11.9100","close":"4285.0685","date":"2016-09-02","degree":66,"return_day":"-0.000737","rw_pb":"2.0492"},{"asset_rate":"2098.2311","avg_return_3":"-15.2400","close":"4333.6867","date":"2016-09-09","degree":68,"return_day":"-0.006765","rw_pb":"2.0654"},{"asset_rate":"2097.3179","avg_return_3":"-12.3300","close":"4279.3676","date":"2016-09-23","degree":67,"return_day":"-0.004319","rw_pb":"2.0404"},{"asset_rate":"2096.4661","avg_return_3":"-11.8900","close":"4247.6501","date":"2016-09-30","degree":66,"return_day":"0.004307","rw_pb":"2.0261"},{"asset_rate":"2104.5867","avg_return_3":"-16.2800","close":"4350.6018","date":"2016-10-14","degree":69,"return_day":"-0.000538","rw_pb":"2.0672"},{"asset_rate":"2103.6814","avg_return_3":"-16.2900","close":"4375.4471","date":"2016-10-21","degree":69,"return_day":"-0.001272","rw_pb":"2.0799"},{"asset_rate":"2128.6092","avg_return_3":"-12.1100","close":"4384.9350","date":"2016-10-28","degree":66,"return_day":"-0.005876","rw_pb":"2.0600"},{"asset_rate":"2177.0126","avg_return_3":"-12.1000","close":"4414.3286","date":"2016-11-04","degree":66,"return_day":"-0.002403","rw_pb":"2.0277"},{"asset_rate":"2177.7967","avg_return_3":"-16.2800","close":"4504.1193","date":"2016-11-11","degree":69,"return_day":"0.006465","rw_pb":"2.0682"},{"asset_rate":"2179.8835","avg_return_3":"-16.6500","close":"4513.2310","date":"2016-11-18","degree":69,"return_day":"-0.003848","rw_pb":"2.0704"},{"asset_rate":"2173.3697","avg_return_3":"-16.9800","close":"4581.2461","date":"2016-11-25","degree":70,"return_day":"0.005346","rw_pb":"2.1079"},{"asset_rate":"2162.5398","avg_return_3":"-14.2900","close":"4520.5732","date":"2016-12-02","degree":67,"return_day":"-0.013769","rw_pb":"2.0904"},{"asset_rate":"2160.6760","avg_return_3":"-12.3800","close":"4502.2006","date":"2016-12-09","degree":67,"return_day":"0.000972","rw_pb":"2.0837"},{"asset_rate":"2157.6108","avg_return_3":"-10.8500","close":"4344.7809","date":"2016-12-16","degree":62,"return_day":"0.005884","rw_pb":"2.0137"},{"asset_rate":"2152.1385","avg_return_3":"-11.4300","close":"4306.6444","date":"2016-12-23","degree":61,"return_day":"-0.010164","rw_pb":"2.0011"},{"asset_rate":"2151.9918","avg_return_3":"-11.1400","close":"4310.2245","date":"2016-12-30","degree":61,"return_day":"0.002369","rw_pb":"2.0029"},{"asset_rate":"2146.7373","avg_return_3":"-9.8400","close":"4366.2491","date":"2017-01-06","degree":63,"return_day":"-0.006502","rw_pb":"2.0339"},{"asset_rate":"2138.6424","avg_return_3":"-11.3500","close":"4267.6611","date":"2017-01-13","degree":58,"return_day":"-0.008700","rw_pb":"1.9955"},{"asset_rate":"2133.6596","avg_return_3":"-10.2500","close":"4243.4223","date":"2017-01-20","degree":56,"return_day":"0.011837","rw_pb":"1.9888"},{"asset_rate":"2135.9308","avg_return_3":"-11.1500","close":"4278.9102","date":"2017-02-03","degree":58,"return_day":"-0.004746","rw_pb":"2.0033"},{"asset_rate":"2138.5145","avg_return_3":"-11.5300","close":"4365.7774","date":"2017-02-10","degree":61,"return_day":"0.001301","rw_pb":"2.0415"},{"asset_rate":"2134.2995","avg_return_3":"-11.1500","close":"4362.0815","date":"2017-02-17","degree":61,"return_day":"-0.007325","rw_pb":"2.0438"},{"asset_rate":"2141.6867","avg_return_3":"-11.9600","close":"4452.5667","date":"2017-02-24","degree":65,"return_day":"0.001802","rw_pb":"2.0790"},{"asset_rate":"2147.9419","avg_return_3":"-11.0500","close":"4421.7533","date":"2017-03-03","degree":62,"return_day":"0.000514","rw_pb":"2.0586"},{"asset_rate":"2152.5635","avg_return_3":"-11.0600","close":"4431.9131","date":"2017-03-10","degree":62,"return_day":"0.000495","rw_pb":"2.0589"},{"asset_rate":"2155.0164","avg_return_3":"-9.5700","close":"4464.5476","date":"2017-03-17","degree":63,"return_day":"-0.008681","rw_pb":"2.0717"},{"asset_rate":"2155.1221","avg_return_3":"-10.7600","close":"4503.7742","date":"2017-03-24","degree":64,"return_day":"0.005320","rw_pb":"2.0898"},{"asset_rate":"2155.0647","avg_return_3":"-11.7100","close":"4409.2625","date":"2017-03-31","degree":58,"return_day":"0.003783","rw_pb":"2.0460"},{"asset_rate":"2159.4451","avg_return_3":"-10.9700","close":"4505.2505","date":"2017-04-07","degree":62,"return_day":"0.000931","rw_pb":"2.0863"},{"asset_rate":"2156.0585","avg_return_3":"-11.2400","close":"4439.7558","date":"2017-04-14","degree":59,"return_day":"-0.011399","rw_pb":"2.0592"},{"asset_rate":"2153.4375","avg_return_3":"-7.2300","close":"4316.1348","date":"2017-04-21","degree":53,"return_day":"-0.002431","rw_pb":"2.0043"},{"asset_rate":"2184.0007","avg_return_3":"-2.0800","close":"4279.7679","date":"2017-04-28","degree":49,"return_day":"0.002124","rw_pb":"1.9596"},{"asset_rate":"2210.5678","avg_return_3":"4.4300","close":"4206.0474","date":"2017-05-05","degree":46,"return_day":"-0.010301","rw_pb":"1.9027"},{"asset_rate":"2193.9763","avg_return_3":"24.0500","close":"4125.7726","date":"2017-05-12","degree":43,"return_day":"0.004112","rw_pb":"1.8805"},{"asset_rate":"2201.6323","avg_return_3":"11.9300","close":"4181.5603","date":"2017-05-19","degree":45,"return_day":"0.000326","rw_pb":"1.8993"},{"asset_rate":"2184.0091","avg_return_3":"31.2600","close":"4156.1695","date":"2017-05-26","degree":42,"return_day":"-0.000340","rw_pb":"1.9030"},{"asset_rate":"2175.6976","avg_return_3":"35.5600","close":"4124.9052","date":"2017-06-02","degree":41,"return_day":"0.004448","rw_pb":"1.8959"},{"asset_rate":"2188.8978","avg_return_3":"15.3700","close":"4255.4364","date":"2017-06-09","degree":44,"return_day":"0.003002","rw_pb":"1.9441"},{"asset_rate":"2191.3988","avg_return_3":"12.5100","close":"4250.8754","date":"2017-06-16","degree":45,"return_day":"-0.001571","rw_pb":"1.9398"},{"asset_rate":"2186.7060","avg_return_3":"11.1400","close":"4295.3467","date":"2017-06-23","degree":45,"return_day":"0.004917","rw_pb":"1.9643"},{"asset_rate":"2188.2915","avg_return_3":"0.3100","close":"4357.9826","date":"2017-06-30","degree":47,"return_day":"0.001109","rw_pb":"1.9915"},{"asset_rate":"2187.9781","avg_return_3":"-1.4100","close":"4401.7745","date":"2017-07-07","degree":49,"return_day":"0.002174","rw_pb":"2.0118"},{"asset_rate":"2161.2545","avg_return_3":"4.8600","close":"4386.9144","date":"2017-07-14","degree":47,"return_day":"-0.000018","rw_pb":"2.0298"},{"asset_rate":"2142.1821","avg_return_3":"24.1200","close":"4362.3397","date":"2017-07-21","degree":44,"return_day":"-0.001613","rw_pb":"2.0364"},{"asset_rate":"2147.4002","avg_return_3":"14.4300","close":"4398.5199","date":"2017-07-28","degree":46,"return_day":"0.001966","rw_pb":"2.0483"},{"asset_rate":"2146.5295","avg_return_3":"20.3500","close":"4395.0192","date":"2017-08-04","degree":45,"return_day":"-0.004859","rw_pb":"2.0475"},{"asset_rate":"2150.7610","avg_return_3":"27.5900","close":"4339.8056","date":"2017-08-11","degree":43,"return_day":"-0.017422","rw_pb":"2.0178"},{"asset_rate":"2164.3809","avg_return_3":"10.2200","close":"4457.3262","date":"2017-08-18","degree":47,"return_day":"-0.001150","rw_pb":"2.0594"},{"asset_rate":"2163.0665","avg_return_3":"12.5000","close":"4500.9089","date":"2017-08-25","degree":46,"return_day":"0.013337","rw_pb":"2.0808"},{"asset_rate":"2215.8103","avg_return_3":"6.7900","close":"4586.2843","date":"2017-09-01","degree":49,"return_day":"0.005018","rw_pb":"2.0698"},{"asset_rate":"2217.7482","avg_return_3":"5.0900","close":"4608.2591","date":"2017-09-08","degree":50,"return_day":"0.001052","rw_pb":"2.0779"},{"asset_rate":"2224.5371","avg_return_3":"7.7100","close":"4625.9249","date":"2017-09-15","degree":51,"return_day":"-0.003039","rw_pb":"2.0795"},{"asset_rate":"2220.0654","avg_return_3":"7.4500","close":"4619.7341","date":"2017-09-22","degree":50,"return_day":"-0.002545","rw_pb":"2.0809"},{"asset_rate":"2220.3951","avg_return_3":"7.3800","close":"4621.7526","date":"2017-09-29","degree":50,"return_day":"0.005821","rw_pb":"2.0815"},{"asset_rate":"2226.1115","avg_return_3":"8.9600","close":"4712.6782","date":"2017-10-13","degree":53,"return_day":"0.004133","rw_pb":"2.1170"},{"asset_rate":"2215.1321","avg_return_3":"7.2500","close":"4652.4421","date":"2017-10-20","degree":48,"return_day":"0.005613","rw_pb":"2.1003"},{"asset_rate":"2238.2090","avg_return_3":"14.2300","close":"4719.4875","date":"2017-10-27","degree":46,"return_day":"-0.000193","rw_pb":"2.1086"},{"asset_rate":"2277.6744","avg_return_3":"36.2000","close":"4620.7182","date":"2017-11-03","degree":41,"return_day":"-0.004681","rw_pb":"2.0287"},{"asset_rate":"2290.6986","avg_return_3":"27.6300","close":"4753.8870","date":"2017-11-10","degree":43,"return_day":"0.005500","rw_pb":"2.0753"},{"asset_rate":"2279.3549","avg_return_3":"45.2700","close":"4638.7152","date":"2017-11-17","degree":39,"return_day":"-0.015245","rw_pb":"2.0351"},{"asset_rate":"2271.7501","avg_return_3":"49.9400","close":"4587.5722","date":"2017-11-24","degree":38,"return_day":"0.000381","rw_pb":"2.0194"},{"asset_rate":"2275.4368","avg_return_3":"48.2100","close":"4551.1012","date":"2017-12-01","degree":38,"return_day":"0.003565","rw_pb":"2.0001"},{"asset_rate":"2272.3851","avg_return_3":"51.1000","close":"4509.5484","date":"2017-12-08","degree":37,"return_day":"0.009312","rw_pb":"1.9845"},{"asset_rate":"2278.0313","avg_return_3":"51.7800","close":"4508.2241","date":"2017-12-15","degree":37,"return_day":"-0.007914","rw_pb":"1.9790"},{"asset_rate":"2271.5230","avg_return_3":"53.6100","close":"4533.5057","date":"2017-12-22","degree":37,"return_day":"-0.001963","rw_pb":"1.9958"},{"asset_rate":"2263.7380","avg_return_3":"51.7800","close":"4522.7222","date":"2017-12-29","degree":37,"return_day":"0.005090","rw_pb":"1.9979"},{"asset_rate":"2259.7145","avg_return_3":"43.3600","close":"4636.9343","date":"2018-01-05","degree":39,"return_day":"0.001513","rw_pb":"2.0520"},{"asset_rate":"2254.0785","avg_return_3":"44.6400","close":"4672.9302","date":"2018-01-12","degree":39,"return_day":"-0.000154","rw_pb":"2.0731"},{"asset_rate":"2236.5774","avg_return_3":"49.6500","close":"4662.1456","date":"2018-01-19","degree":38,"return_day":"0.000556","rw_pb":"2.0845"},{"asset_rate":"2232.3512","avg_return_3":"43.2800","close":"4743.2999","date":"2018-01-26","degree":39,"return_day":"0.001076","rw_pb":"2.1248"},{"asset_rate":"2205.7073","avg_return_3":"61.3000","close":"4511.7744","date":"2018-02-02","degree":34,"return_day":"0.001668","rw_pb":"2.0455"},{"asset_rate":"2218.9215","avg_return_3":"83.8200","close":"4124.0876","date":"2018-02-09","degree":28,"return_day":"-0.037386","rw_pb":"1.8586"},{"asset_rate":"2224.9941","avg_return_3":"61.6500","close":"4354.7585","date":"2018-02-23","degree":32,"return_day":"0.004046","rw_pb":"1.9572"},{"asset_rate":"2251.1292","avg_return_3":"60.5000","close":"4392.6286","date":"2018-03-02","degree":34,"return_day":"-0.006416","rw_pb":"1.9513"},{"asset_rate":"2265.6472","avg_return_3":"58.4900","close":"4510.6772","date":"2018-03-09","degree":36,"return_day":"0.011027","rw_pb":"1.9909"},{"asset_rate":"2274.3420","avg_return_3":"58.3100","close":"4463.1689","date":"2018-03-16","degree":35,"return_day":"-0.006279","rw_pb":"1.9624"},{"asset_rate":"2260.2050","avg_return_3":"63.4800","close":"4257.5483","date":"2018-03-23","degree":32,"return_day":"-0.040147","rw_pb":"1.8837"},{"asset_rate":"2290.0313","avg_return_3":"58.2100","close":"4376.2499","date":"2018-03-30","degree":35,"return_day":"0.008031","rw_pb":"1.9110"},{"asset_rate":"2293.0541","avg_return_3":"60.6800","close":"4341.2102","date":"2018-04-13","degree":35,"return_day":"-0.004887","rw_pb":"1.8932"},{"asset_rate":"2292.2765","avg_return_3":"66.0900","close":"4217.1011","date":"2018-04-20","degree":31,"return_day":"-0.017205","rw_pb":"1.8397"},{"asset_rate":"2309.2253","avg_return_3":"71.8300","close":"4213.4125","date":"2018-04-27","degree":30,"return_day":"0.001272","rw_pb":"1.8246"},{"asset_rate":"2335.0666","avg_return_3":"71.5900","close":"4234.8769","date":"2018-05-04","degree":31,"return_day":"-0.002631","rw_pb":"1.8136"},{"asset_rate":"2330.2695","avg_return_3":"59.9700","close":"4324.9802","date":"2018-05-11","degree":33,"return_day":"-0.007280","rw_pb":"1.8560"},{"asset_rate":"2324.1461","avg_return_3":"61.0700","close":"4346.6182","date":"2018-05-18","degree":33,"return_day":"0.007136","rw_pb":"1.8702"},{"asset_rate":"2329.7783","avg_return_3":"61.7700","close":"4289.1219","date":"2018-05-25","degree":32,"return_day":"-0.006268","rw_pb":"1.8410"},{"asset_rate":"2314.4827","avg_return_3":"84.2100","close":"4170.2350","date":"2018-06-01","degree":27,"return_day":"-0.009666","rw_pb":"1.8018"},{"asset_rate":"2310.7269","avg_return_3":"84.9500","close":"4176.1768","date":"2018-06-08","degree":27,"return_day":"-0.011685","rw_pb":"1.8073"},{"asset_rate":"2294.8564","avg_return_3":"109.4300","close":"4085.3034","date":"2018-06-15","degree":19,"return_day":"-0.011782","rw_pb":"1.7802"},{"asset_rate":"2282.0250","avg_return_3":"185.6100","close":"3882.4092","date":"2018-06-22","degree":8,"return_day":"0.009485","rw_pb":"1.7013"},{"asset_rate":"2286.5232","avg_return_3":"178.4900","close":"3860.3372","date":"2018-06-29","degree":9,"return_day":"0.028008","rw_pb":"1.6883"},{"asset_rate":"2281.5319","avg_return_3":"189.7600","close":"3706.1205","date":"2018-07-06","degree":5,"return_day":"0.005676","rw_pb":"1.6244"},{"asset_rate":"2277.0066","avg_return_3":"182.9600","close":"3853.3783","date":"2018-07-13","degree":8,"return_day":"0.004274","rw_pb":"1.6923"},{"asset_rate":"2272.9559","avg_return_3":"181.9300","close":"3851.2965","date":"2018-07-20","degree":8,"return_day":"0.015575","rw_pb":"1.6944"},{"asset_rate":"2265.7646","avg_return_3":"154.2200","close":"3898.2481","date":"2018-07-27","degree":11,"return_day":"-0.004591","rw_pb":"1.7205"},{"asset_rate":"2250.2055","avg_return_3":"189.9700","close":"3665.3598","date":"2018-08-03","degree":5,"return_day":"-0.014237","rw_pb":"1.6289"},{"asset_rate":"2252.3790","avg_return_3":"191.0400","close":"3749.0849","date":"2018-08-10","degree":6,"return_day":"0.004043","rw_pb":"1.6645"},{"asset_rate":"2250.4775","avg_return_3":"198.1400","close":"3569.4824","date":"2018-08-17","degree":3,"return_day":"-0.015706","rw_pb":"1.5861"},{"asset_rate":"2258.2547","avg_return_3":"196.9500","close":"3638.9517","date":"2018-08-24","degree":3,"return_day":"0.000183","rw_pb":"1.6114"},{"asset_rate":"2294.4452","avg_return_3":"197.5300","close":"3625.9119","date":"2018-08-31","degree":3,"return_day":"-0.007515","rw_pb":"1.5803"},{"asset_rate":"2294.1675","avg_return_3":"201.7900","close":"3586.9309","date":"2018-09-07","degree":3,"return_day":"0.003307","rw_pb":"1.5635"},{"asset_rate":"2281.4130","avg_return_3":"198.7300","close":"3529.8022","date":"2018-09-14","degree":2,"return_day":"-0.004267","rw_pb":"1.5472"},{"asset_rate":"2273.1849","avg_return_3":"194.2200","close":"3665.0561","date":"2018-09-21","degree":3,"return_day":"0.021948","rw_pb":"1.6123"},{"asset_rate":"2265.0139","avg_return_3":"199.3300","close":"3674.7587","date":"2018-09-28","degree":3,"return_day":"0.009667","rw_pb":"1.6224"},{"asset_rate":"2242.6731","avg_return_3":"114.0400","close":"3341.8073","date":"2018-10-12","degree":1,"return_day":"0.004784","rw_pb":"1.4901"},{"asset_rate":"2242.2248","avg_return_3":"111.6200","close":"3263.7825","date":"2018-10-19","degree":1,"return_day":"0.026497","rw_pb":"1.4556"},{"asset_rate":"2260.7695","avg_return_3":"114.0400","close":"3331.2439","date":"2018-10-26","degree":1,"return_day":"-0.002327","rw_pb":"1.4735"},{"asset_rate":"2333.5935","avg_return_3":"173.0900","close":"3468.1867","date":"2018-11-02","degree":1,"return_day":"0.032418","rw_pb":"1.4862"},{"asset_rate":"2340.7636","avg_return_3":"152.4200","close":"3390.3621","date":"2018-11-09","degree":1,"return_day":"-0.009060","rw_pb":"1.4484"},{"asset_rate":"2365.6799","avg_return_3":"201.5300","close":"3558.9289","date":"2018-11-16","degree":3,"return_day":"0.006928","rw_pb":"1.5044"},{"asset_rate":"2351.3607","avg_return_3":"152.4200","close":"3395.6001","date":"2018-11-23","degree":1,"return_day":"-0.031407","rw_pb":"1.4441"},{"asset_rate":"2352.2259","avg_return_3":"144.7000","close":"3409.7867","date":"2018-11-30","degree":1,"return_day":"0.008965","rw_pb":"1.4496"},{"asset_rate":"2352.0514","avg_return_3":"174.8300","close":"3437.0528","date":"2018-12-07","degree":1,"return_day":"0.000037","rw_pb":"1.4613"},{"asset_rate":"2320.0758","avg_return_3":"114.0400","close":"3397.0550","date":"2018-12-14","degree":1,"return_day":"-0.020602","rw_pb":"1.4642"},{"asset_rate":"2317.6640","avg_return_3":"111.6200","close":"3284.1300","date":"2018-12-21","degree":0,"return_day":"-0.009787","rw_pb":"1.4170"},{"asset_rate":"2310.8499","avg_return_3":"110.6300","close":"3244.8955","date":"2018-12-28","degree":0,"return_day":"0.004233","rw_pb":"1.4042"},{"asset_rate":"2315.3802","avg_return_3":"111.6200","close":"3282.2831","date":"2019-01-04","degree":0,"return_day":"0.024575","rw_pb":"1.4176"},{"asset_rate":"2322.8630","avg_return_3":"173.0900","close":"3358.3954","date":"2019-01-11","degree":1,"return_day":"0.007604","rw_pb":"1.4458"},{"asset_rate":"2324.0198","avg_return_3":"176.3500","close":"3403.2947","date":"2019-01-18","degree":1,"return_day":"0.012905","rw_pb":"1.4644"},{"asset_rate":"2324.6345","avg_return_3":"172.1300","close":"3403.4975","date":"2019-01-25","degree":1,"return_day":"0.001293","rw_pb":"1.4641"},{"asset_rate":"2316.7210","avg_return_3":"111.6200","close":"3400.7148","date":"2019-02-01","degree":0,"return_day":"0.020174","rw_pb":"1.4679"},{"asset_rate":"2339.2851","avg_return_3":"202.8200","close":"3547.7599","date":"2019-02-15","degree":3,"return_day":"-0.010751","rw_pb":"1.5166"},{"asset_rate":"2351.5697","avg_return_3":"190.2600","close":"3751.6944","date":"2019-02-22","degree":5,"return_day":"0.022710","rw_pb":"1.5954"},{"asset_rate":"2350.1724","avg_return_3":"176.3300","close":"3988.7126","date":"2019-03-01","degree":10,"return_day":"0.015393","rw_pb":"1.6972"},{"asset_rate":"2376.0889","avg_return_3":"110.4500","close":"4021.7682","date":"2019-03-08","degree":12,"return_day":"-0.040552","rw_pb":"1.6926"},{"asset_rate":"2379.4314","avg_return_3":"114.5100","close":"4114.2750","date":"2019-03-15","degree":16,"return_day":"0.013305","rw_pb":"1.7291"},{"asset_rate":"2387.5743","avg_return_3":"86.4900","close":"4254.6575","date":"2019-03-22","degree":24,"return_day":"0.001814","rw_pb":"1.7820"},{"asset_rate":"2394.1782","avg_return_3":"104.8000","close":"4241.5262","date":"2019-03-29","degree":20,"return_day":"0.033972","rw_pb":"1.7716"},{"asset_rate":"2404.8735","avg_return_3":"78.3600","close":"4381.4391","date":"2019-04-12","degree":29,"return_day":"-0.001311","rw_pb":"1.8219"},{"asset_rate":"2402.2774","avg_return_3":"60.0900","close":"4497.5439","date":"2019-04-19","degree":33,"return_day":"0.009554","rw_pb":"1.8722"},{"asset_rate":"2407.6168","avg_return_3":"109.4200","close":"4218.1447","date":"2019-04-26","degree":19,"return_day":"-0.012998","rw_pb":"1.7520"},{"asset_rate":"2439.8439","avg_return_3":"131.2300","close":"3996.7084","date":"2019-05-10","degree":11,"return_day":"0.036306","rw_pb":"1.6381"},{"asset_rate":"2432.6128","avg_return_3":"180.0400","close":"3911.1550","date":"2019-05-17","degree":9,"return_day":"-0.029438","rw_pb":"1.6078"},{"asset_rate":"2421.4676","avg_return_3":"188.0000","close":"3841.4163","date":"2019-05-24","degree":7,"return_day":"-0.002705","rw_pb":"1.5864"},{"asset_rate":"2425.8734","avg_return_3":"179.6300","close":"3913.6616","date":"2019-05-31","degree":9,"return_day":"-0.001546","rw_pb":"1.6133"},{"asset_rate":"2416.4281","avg_return_3":"189.9900","close":"3886.3414","date":"2019-06-14","degree":7,"return_day":"-0.013556","rw_pb":"1.6083"},{"asset_rate":"2424.9230","avg_return_3":"110.4500","close":"4075.8106","date":"2019-06-21","degree":12,"return_day":"0.008412","rw_pb":"1.6808"},{"asset_rate":"2418.9341","avg_return_3":"174.7600","close":"4045.6673","date":"2019-06-28","degree":10,"return_day":"-0.006609","rw_pb":"1.6725"},{"asset_rate":"2422.4604","avg_return_3":"100.0400","close":"4123.5121","date":"2019-07-05","degree":12,"return_day":"0.004891","rw_pb":"1.7022"},{"asset_rate":"2417.2021","avg_return_3":"179.8600","close":"4019.3238","date":"2019-07-12","degree":9,"return_day":"0.005615","rw_pb":"1.6628"},{"asset_rate":"2423.0330","avg_return_3":"180.4800","close":"4023.9310","date":"2019-07-19","degree":8,"return_day":"0.008528","rw_pb":"1.6607"},{"asset_rate":"2425.6692","avg_return_3":"187.6700","close":"4057.1744","date":"2019-07-26","degree":8,"return_day":"0.001731","rw_pb":"1.6726"},{"asset_rate":"2426.8032","avg_return_3":"191.0400","close":"3957.1453","date":"2019-08-02","degree":6,"return_day":"-0.014178","rw_pb":"1.6306"},{"asset_rate":"2421.7475","avg_return_3":"194.5800","close":"3813.7681","date":"2019-08-09","degree":4,"return_day":"-0.010462","rw_pb":"1.5748"},{"asset_rate":"2434.8297","avg_return_3":"189.9100","close":"3906.4409","date":"2019-08-16","degree":5,"return_day":"0.004585","rw_pb":"1.6044"},{"asset_rate":"2445.5569","avg_return_3":"190.0300","close":"4030.2779","date":"2019-08-23","degree":6,"return_day":"0.003111","rw_pb":"1.6480"},{"asset_rate":"2449.1096","avg_return_3":"191.2800","close":"4011.1518","date":"2019-08-30","degree":6,"return_day":"-0.004590","rw_pb":"1.6378"},{"asset_rate":"2467.5934","avg_return_3":"108.7900","close":"4194.4153","date":"2019-09-06","degree":12,"return_day":"0.004601","rw_pb":"1.6998"},{"asset_rate":"2468.0762","avg_return_3":"103.2300","close":"4216.9551","date":"2019-09-20","degree":13,"return_day":"0.002069","rw_pb":"1.7086"},{"asset_rate":"2462.4178","avg_return_3":"179.6200","close":"4085.8900","date":"2019-09-27","degree":9,"return_day":"0.005321","rw_pb":"1.6593"},{"asset_rate":"2461.8597","avg_return_3":"162.2500","close":"4145.5256","date":"2019-10-11","degree":11,"return_day":"0.006170","rw_pb":"1.6839"},{"asset_rate":"2454.5260","avg_return_3":"182.9600","close":"4088.9950","date":"2019-10-18","degree":8,"return_day":"-0.013393","rw_pb":"1.6659"},{"asset_rate":"2460.7610","avg_return_3":"181.9300","close":"4113.9003","date":"2019-10-25","degree":8,"return_day":"0.006656","rw_pb":"1.6718"},{"asset_rate":"2524.6908","avg_return_3":"181.2000","close":"4129.6369","date":"2019-11-01","degree":8,"return_day":"0.013406","rw_pb":"1.6357"},{"asset_rate":"2525.5384","avg_return_3":"180.4800","close":"4147.4393","date":"2019-11-08","degree":8,"return_day":"-0.003983","rw_pb":"1.6422"},{"asset_rate":"2523.2030","avg_return_3":"189.9600","close":"4040.1528","date":"2019-11-15","degree":5,"return_day":"-0.008851","rw_pb":"1.6012"},{"asset_rate":"2524.7527","avg_return_3":"190.7300","close":"4038.0896","date":"2019-11-22","degree":5,"return_day":"-0.010011","rw_pb":"1.5994"},{"asset_rate":"2522.3741","avg_return_3":"191.9600","close":"4013.6018","date":"2019-11-29","degree":6,"return_day":"-0.004507","rw_pb":"1.5912"},{"asset_rate":"2531.7672","avg_return_3":"185.1100","close":"4103.2352","date":"2019-12-06","degree":8,"return_day":"0.006416","rw_pb":"1.6207"},{"asset_rate":"2532.2457","avg_return_3":"173.9000","close":"4172.8878","date":"2019-12-13","degree":10,"return_day":"0.016342","rw_pb":"1.6479"},{"asset_rate":"2537.4701","avg_return_3":"102.6300","close":"4247.7251","date":"2019-12-20","degree":13,"return_day":"-0.005991","rw_pb":"1.6740"},{"asset_rate":"2534.1490","avg_return_3":"102.6300","close":"4249.5146","date":"2019-12-27","degree":13,"return_day":"-0.004168","rw_pb":"1.6769"},{"asset_rate":"2540.8467","avg_return_3":"111.8000","close":"4389.5669","date":"2020-01-03","degree":17,"return_day":"0.001044","rw_pb":"1.7276"},{"asset_rate":"2551.0571","avg_return_3":"108.2100","close":"4443.1762","date":"2020-01-10","degree":19,"return_day":"-0.001448","rw_pb":"1.7417"},{"asset_rate":"2562.2855","avg_return_3":"109.6000","close":"4447.6152","date":"2020-01-17","degree":19,"return_day":"-0.000427","rw_pb":"1.7358"},{"asset_rate":"2574.0022","avg_return_3":"189.0800","close":"4216.9879","date":"2020-02-07","degree":7,"return_day":"0.004954","rw_pb":"1.6383"},{"asset_rate":"2577.4542","avg_return_3":"173.1000","close":"4304.3486","date":"2020-02-14","degree":10,"return_day":"0.004437","rw_pb":"1.6700"},{"asset_rate":"2593.1131","avg_return_3":"112.6600","close":"4551.1729","date":"2020-02-21","degree":17,"return_day":"0.007130","rw_pb":"1.7551"},{"asset_rate":"2587.3997","avg_return_3":"178.9700","close":"4304.3983","date":"2020-02-28","degree":9,"return_day":"-0.044478","rw_pb":"1.6636"},{"asset_rate":"2589.8394","avg_return_3":"105.0600","close":"4561.4842","date":"2020-03-06","degree":21,"return_day":"-0.010328","rw_pb":"1.7613"},{"asset_rate":"2588.8264","avg_return_3":"100.7600","close":"4305.9950","date":"2020-03-13","degree":13,"return_day":"-0.011307","rw_pb":"1.6633"},{"asset_rate":"2580.7694","avg_return_3":"188.4100","close":"4078.3899","date":"2020-03-20","degree":7,"return_day":"0.014743","rw_pb":"1.5803"},{"asset_rate":"2569.7596","avg_return_3":"192.5600","close":"4078.4656","date":"2020-03-27","degree":7,"return_day":"-0.001349","rw_pb":"1.5871"},{"asset_rate":"2580.5762","avg_return_3":"191.3100","close":"4064.1495","date":"2020-04-03","degree":6,"return_day":"-0.005870","rw_pb":"1.5749"},{"asset_rate":"2586.0662","avg_return_3":"186.5800","close":"4132.2752","date":"2020-04-10","degree":8,"return_day":"-0.015181","rw_pb":"1.5979"},{"asset_rate":"2584.2290","avg_return_3":"180.2500","close":"4199.8891","date":"2020-04-17","degree":9,"return_day":"0.005285","rw_pb":"1.6252"},{"asset_rate":"2588.6278","avg_return_3":"180.2500","close":"4161.9959","date":"2020-04-24","degree":9,"return_day":"-0.012882","rw_pb":"1.6078"},{"asset_rate":"2634.9617","avg_return_3":"92.1700","close":"4323.1817","date":"2020-05-08","degree":23,"return_day":"0.010982","rw_pb":"1.6407"},{"asset_rate":"2635.5084","avg_return_3":"96.8700","close":"4300.3591","date":"2020-05-15","degree":22,"return_day":"0.000857","rw_pb":"1.6317"},{"asset_rate":"2627.5514","avg_return_3":"109.4100","close":"4187.0032","date":"2020-05-22","degree":18,"return_day":"-0.020281","rw_pb":"1.5935"},{"asset_rate":"2630.7367","avg_return_3":"104.7500","close":"4258.3735","date":"2020-05-29","degree":21,"return_day":"0.006147","rw_pb":"1.6187"},{"asset_rate":"2635.6181","avg_return_3":"85.3600","close":"4408.0713","date":"2020-06-05","degree":26,"return_day":"0.003023","rw_pb":"1.6725"},{"asset_rate":"2635.8317","avg_return_3":"85.0500","close":"4418.9719","date":"2020-06-12","degree":25,"return_day":"0.001360","rw_pb":"1.6765"},{"asset_rate":"2646.4252","avg_return_3":"82.8300","close":"4534.6497","date":"2020-06-19","degree":28,"return_day":"0.010744","rw_pb":"1.7135"},{"asset_rate":"2636.9680","avg_return_3":"63.8300","close":"4823.5420","date":"2020-07-03","degree":32,"return_day":"0.015561","rw_pb":"1.8292"},{"asset_rate":"2641.8765","avg_return_3":"37.3000","close":"5258.9194","date":"2020-07-10","degree":40,"return_day":"-0.010463","rw_pb":"1.9906"},{"asset_rate":"2628.3395","avg_return_3":"59.5000","close":"5021.9683","date":"2020-07-17","degree":35,"return_day":"0.004591","rw_pb":"1.9107"},{"asset_rate":"2617.9190","avg_return_3":"59.7800","close":"4985.5651","date":"2020-07-24","degree":35,"return_day":"-0.045572","rw_pb":"1.9044"},{"asset_rate":"2621.2835","avg_return_3":"40.1400","close":"5219.4998","date":"2020-07-31","degree":39,"return_day":"0.011058","rw_pb":"1.9912"},{"asset_rate":"2622.3679","avg_return_3":"31.5800","close":"5278.3023","date":"2020-08-07","degree":42,"return_day":"-0.012256","rw_pb":"2.0128"},{"asset_rate":"2611.0568","avg_return_3":"23.5900","close":"5243.2632","date":"2020-08-14","degree":43,"return_day":"0.012173","rw_pb":"2.0081"},{"asset_rate":"2610.2861","avg_return_3":"20.5700","close":"5255.5502","date":"2020-08-21","degree":44,"return_day":"0.007794","rw_pb":"2.0134"},{"asset_rate":"2620.2306","avg_return_3":"21.5000","close":"5337.4098","date":"2020-08-28","degree":43,"return_day":"0.018212","rw_pb":"2.0370"},{"asset_rate":"2624.5007","avg_return_3":"20.6200","close":"5288.3690","date":"2020-09-04","degree":44,"return_day":"-0.005897","rw_pb":"2.0150"},{"asset_rate":"2607.9468","avg_return_3":"48.8900","close":"5063.8504","date":"2020-09-11","degree":38,"return_day":"0.012531","rw_pb":"1.9417"},{"asset_rate":"2612.9177","avg_return_3":"32.4000","close":"5197.8772","date":"2020-09-18","degree":42,"return_day":"0.018256","rw_pb":"1.9893"},{"asset_rate":"2605.6155","avg_return_3":"58.8300","close":"5004.3453","date":"2020-09-25","degree":36,"return_day":"-0.001671","rw_pb":"1.9206"},{"asset_rate":"2621.7049","avg_return_3":"49.8600","close":"5129.1035","date":"2020-10-09","degree":38,"return_day":"0.024889","rw_pb":"1.9564"},{"asset_rate":"2621.0172","avg_return_3":"35.1200","close":"5232.3367","date":"2020-10-16","degree":40,"return_day":"-0.001868","rw_pb":"1.9963"},{"asset_rate":"2617.3162","avg_return_3":"52.2500","close":"5107.4309","date":"2020-10-23","degree":37,"return_day":"-0.014682","rw_pb":"1.9514"},{"asset_rate":"2664.0922","avg_return_3":"66.1800","close":"5057.2464","date":"2020-10-30","degree":31,"return_day":"-0.019112","rw_pb":"1.8983"},{"asset_rate":"2689.1322","avg_return_3":"61.5600","close":"5231.4378","date":"2020-11-06","degree":34,"return_day":"-0.004736","rw_pb":"1.9454"},{"asset_rate":"2686.8166","avg_return_3":"61.2900","close":"5213.7678","date":"2020-11-13","degree":34,"return_day":"-0.005424","rw_pb":"1.9405"},{"asset_rate":"2680.8029","avg_return_3":"50.4000","close":"5294.0497","date":"2020-11-20","degree":37,"return_day":"0.005013","rw_pb":"1.9748"},{"asset_rate":"2672.0187","avg_return_3":"57.6800","close":"5276.1683","date":"2020-11-27","degree":36,"return_day":"0.006830","rw_pb":"1.9746"},{"asset_rate":"2679.8760","avg_return_3":"49.6200","close":"5367.2557","date":"2020-12-04","degree":37,"return_day":"0.002651","rw_pb":"2.0028"},{"asset_rate":"2677.4566","avg_return_3":"66.0900","close":"5190.5175","date":"2020-12-11","degree":31,"return_day":"-0.011850","rw_pb":"1.9386"},{"asset_rate":"2675.6196","avg_return_3":"66.8300","close":"5277.1246","date":"2020-12-18","degree":31,"return_day":"-0.003279","rw_pb":"1.9723"},{"asset_rate":"2675.1598","avg_return_3":"78.2600","close":"5293.6063","date":"2020-12-25","degree":29,"return_day":"0.009081","rw_pb":"1.9788"},{"asset_rate":"2678.6131","avg_return_3":"84.6900","close":"5589.1941","date":"2021-01-08","degree":26,"return_day":"-0.002565","rw_pb":"2.0866"},{"asset_rate":"2679.8566","avg_return_3":"86.7600","close":"5532.0281","date":"2021-01-15","degree":24,"return_day":"0.001422","rw_pb":"2.0643"},{"asset_rate":"2709.8295","avg_return_3":"85.9000","close":"5673.5702","date":"2021-01-22","degree":25,"return_day":"0.000091","rw_pb":"2.0937"},{"asset_rate":"2696.2735","avg_return_3":"110.0200","close":"5416.5439","date":"2021-01-29","degree":18,"return_day":"-0.008643","rw_pb":"2.0089"},{"asset_rate":"2694.5245","avg_return_3":"100.1700","close":"5426.5029","date":"2021-02-05","degree":13,"return_day":"-0.005409","rw_pb":"2.0139"},{"asset_rate":"2693.7734","avg_return_3":"85.2700","close":"5756.8633","date":"2021-02-19","degree":25,"return_day":"0.007549","rw_pb":"2.1371"},{"asset_rate":"2688.7235","avg_return_3":"87.5300","close":"5416.1648","date":"2021-02-26","degree":24,"return_day":"-0.019311","rw_pb":"2.0144"},{"asset_rate":"2687.8696","avg_return_3":"78.4200","close":"5409.3377","date":"2021-03-05","degree":29,"return_day":"-0.000544","rw_pb":"2.0125"},{"asset_rate":"2685.3900","avg_return_3":"85.7500","close":"5278.1342","date":"2021-03-12","degree":25,"return_day":"0.003096","rw_pb":"1.9655"},{"asset_rate":"2684.7783","avg_return_3":"84.3900","close":"5204.7114","date":"2021-03-19","degree":26,"return_day":"-0.018178","rw_pb":"1.9386"},{"asset_rate":"2685.6427","avg_return_3":"84.7700","close":"5237.8091","date":"2021-03-26","degree":27,"return_day":"0.019922","rw_pb":"1.9503"},{"asset_rate":"2720.8293","avg_return_3":"85.0100","close":"5336.3626","date":"2021-04-02","degree":24,"return_day":"0.007321","rw_pb":"1.9613"},{"asset_rate":"2721.3162","avg_return_3":"84.7100","close":"5276.0879","date":"2021-04-09","degree":26,"return_day":"-0.009062","rw_pb":"1.9388"},{"asset_rate":"2723.5183","avg_return_3":"84.8900","close":"5240.8663","date":"2021-04-16","degree":25,"return_day":"0.007156","rw_pb":"1.9243"},{"asset_rate":"2727.1619","avg_return_3":"86.4100","close":"5380.1450","date":"2021-04-23","degree":24,"return_day":"0.004390","rw_pb":"1.9728"},{"asset_rate":"2779.8962","avg_return_3":"102.6300","close":"5362.4199","date":"2021-04-30","degree":13,"return_day":"-0.004671","rw_pb":"1.9290"},{"asset_rate":"2767.4726","avg_return_3":"107.6400","close":"5265.9469","date":"2021-05-07","degree":14,"return_day":"-0.012033","rw_pb":"1.9028"},{"asset_rate":"2767.2669","avg_return_3":"113.0600","close":"5383.4412","date":"2021-05-14","degree":17,"return_day":"0.018488","rw_pb":"1.9454"},{"asset_rate":"2765.3009","avg_return_3":"112.0300","close":"5409.7582","date":"2021-05-21","degree":15,"return_day":"-0.005308","rw_pb":"1.9563"},{"asset_rate":"2763.4951","avg_return_3":"109.4300","close":"5588.0635","date":"2021-05-28","degree":19,"return_day":"-0.001861","rw_pb":"2.0221"},{"asset_rate":"2761.9669","avg_return_3":"105.1500","close":"5606.7929","date":"2021-06-04","degree":21,"return_day":"0.005316","rw_pb":"2.0300"}]'));
+
+  const parseLineData = (data, lineSettings) =>
+    Object.keys(lineSettings).map((key) =>
+      Object.assign(lineSettings[key], {
+        key: key,
+        data: data.map((d) => ({ date: d.date, value: d[key] })),
+      })
+    );
+
+  // 画图
+  afterload(() => {
+    drawTemperatureChart(data);
+    drawZoneCompareChart();
+    drawReturnSplitChart(data);
+
+    enableFullScreenForTemperatureChart(data);
+
+    traceEvent("pv", "therm", "dashboard");
+
+    $('.modal[role="dialog"]').on("shown.bs.modal", function (e) {
+      traceEvent("click", "therm", "help", {help_id: $(this).attr('id')});
+    })
+
+    $('#priceAssetTabs a[data-toggle="tab"]').on('shown.bs.tab', function (e) {
+      traceEvent("click", "therm", "therm_tab", {tab_name: $(e.target).attr('id')});
+    })
+
+    $('#indexCoverTabs a[data-toggle="tab"]').on('shown.bs.tab', function (e) {
+      traceEvent("click", "therm", "index_cover", {prop: $(e.target).attr('id')});
+    })
+
+    $('#faq-link').click(function() {
+      traceEvent("click", "therm", "faq", {});
+    })
+
+    $('#indices-link').click(function() {
+      traceEvent("click", "therm", "indices", {});
+    })
+  });
+</script>
+
+<div class="thermometer-container thermometer-overview low">
+  <div class="header-container low">
+    <p class="xs-text" data-toggle="modal" data-target="#updateFrequencyTerm">
+      温度日期：6月4日
+    </p>
+    <div class="temp">
+      <div class="xxl-text bold-text">21°</div>
+      <div class="sm-text">
+        <div>低估</div>
+        <div>温度不变</div>
+      </div>
+    </div>
+    <a href="/thermometer/indices" id="indices-link" class="require-app button xxs outline white inline-flex with-arrow">指数及债市温度</a>
+  </div>
+  <div class="content-container">
+<div class="panel with-shadow">
+  <ul class="plan">
+    <li class="horizontal-layout">
+      <div class="horizontal-layout">
+        <label>定投信号</label>
+        <span class="low" data-toggle="modal" data-target="#aipDoubleTerm">加倍定投</span>
+      </div>
+      <a id="faq-link" class="sm-text grey with-arrow" href="/n/materials/455">常见问题</a>
+    </li>
+    <li>
+      <label>定投周期</label>
+      <span data-toggle="modal" data-target="#aipMonthlyTerm">月定投</span>
+    </li>
+
+    <li>
+      <label>定投标的</label>
+      <span>沪深300 + 中证500</span>
+    </li>
+  </ul>
+
+  <table class="plan-funds">
+    <thead>
+      <tr>
+        <th>基金名称</th>
+        <th>基金代码</th>
+        <th><span data-toggle="modal" data-target="#aipUnitTerm">建议份数</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>易方达沪深300ETF联接A</td>
+        <td>110020</td>
+        <td>2 份</td>
+      </tr>
+      <tr>
+        <td>南方中证500ETF联接A</td>
+        <td>160119</td>
+        <td>2 份</td>
+      </tr>
+    </tbody>
+  </table>
+<div data-phx-session="SFMyNTY.g2gDaAJhBHQAAAAHZAACaWRtAAAAFHBoeC1Gb1k4WjJTZVVDQ01zdjZoZAAKcGFyZW50X3BpZGQAA25pbGQACHJvb3RfcGlkZAADbmlsZAAJcm9vdF92aWV3ZAAuRWxpeGlyLkZsb3VyaXNoV2ViLlRoZXJtb21ldGVyTGl2ZS5BaXBSZW1pbmRlcmQABnJvdXRlcmQAA25pbGQAB3Nlc3Npb250AAAAAGQABHZpZXdkAC5FbGl4aXIuRmxvdXJpc2hXZWIuVGhlcm1vbWV0ZXJMaXZlLkFpcFJlbWluZGVybgYAdtZi5XkBYgABUYA.Vm4BVPybqLQnHUNr7c6HKUg6la3OQ4GuN1s4eVt92ws" data-phx-static="SFMyNTY.g2gDaAJhBHQAAAADZAAKYXNzaWduX25ld2pkAAVmbGFzaHQAAAAAZAACaWRtAAAAFHBoeC1Gb1k4WjJTZVVDQ01zdjZobgYAdtZi5XkBYgABUYA.y435va-IvOXsF5FH-ftcuzJ73kKzvENX2RY3B6qm9-0" data-phx-view="ThermometerLive.AipReminder" id="phx-FoY8Z2SeUCCMsv6h"><p class="alert alert-info" role="alert"
+    phx-click="lv:clear-flash"
+    phx-value-key="info"></p>
+
+<p class="alert alert-danger" role="alert"
+    phx-click="lv:clear-flash"
+    phx-value-key="error"></p>
+
+<script type="text/javascript">
+  Hooks.ReminderForm = {
+    mounted(){
+      this.handleEvent("require_login", () => {
+        if (!window.yzyxBridge) return;
+
+        yzyxBridge.callNative("login", {}, (result) => {
+          if (result.error == 0) {
+            this.pushEvent("logined", {access_token: result.data.access_token})
+          }
+        })
+      })
+      this.handleEvent("aip_reminder_form", ({form_status}) => {
+        $("#reminder_form").modal(form_status);
+      })
+      this.handleEvent("check_notification", () => {
+        if (!window.yzyxBridge) return;
+
+        function checkNotification(data) {
+          const supported = (yzyxBridge.supportedActions || []).includes("system.setting");
+          if(supported && data && !data.push) {
+            $("#notification_confirm").text("去开启");
+            $("#notification_confirm").click(() => {
+              yzyxBridge.callNative(
+                "system.setting",
+                {focus: "push"},
+                () => {
+                  $("#notification_modal").modal('hide');
+                }
+              );
+            });
+            $("#notification_cancel").text("暂不开启");
+            $("#notification_modal").modal('show');
+          } else if(!supported) {
+            $("#notification_modal .reminder-desc").text("定投提醒已设置成功，请确保开启系统通知，避免错过定投通知消息");
+            $("#notification_confirm").text("知道了");
+            $("#notification_confirm").click(() => {
+              $("#notification_modal").modal('hide');
+            });
+            $("#notification_cancel").remove();
+            $("#notification_modal").modal('show');
+          }
+        }
+
+        yzyxBridge.callNative(
+          "getState",
+          {},
+          ({data}) => checkNotification(data)
+        );
+      })
+    },
+  };
+</script>
+
+<div class="aip-reminder d-flex align-items-center">
+  <div class="flex-grow-1 d-flex align-items-center">
+    <img src="/images/thermometer/bell.png" />
+    <span data-toggle="modal" data-target="#aipReminderTerm">定投提醒</span>
+  </div>
+  <div class="switch-container require-app">
+    <label class="switch">
+      <input id="reminder_switch" class="" type="checkbox" phx-click="switch_reminder" phx-hook="ReminderForm">
+      <span id="reminder_switch_slider" class="slider round">&nbsp;</span>
+    </label>
+  </div>
+</div>
+
+  <div class="modal fade" id="reminder_form" data-backdrop="static" tabindex="-1" role="dialog">
+  <div class="modal-dialog modal-dialog-centered" role="document">
+    <div class="modal-content">
+<form action="#" class="reminder-form" method="post" phx-change="validate" phx-submit="open"><input name="_csrf_token" type="hidden" value="XAEeAgomLQIIWyEEPXgtOApfHQM6XBIw7tpUYcZfFmieK0HjxjpWtmTi">        <div class="modal-header">
+          <h4 class="modal-title">设置定投提醒周期</h4>
+        </div>
+
+        <div class="modal-body">
+          <div class="reminder-desc">我们会在提醒日期的上午 08:00，根据上一个交易日的股市温度提供定投参考</div>
+
+<label class="reminder-title" for="aip_reminder_periodic">提醒频率</label>          <div class="d-flex align-items-center reminder-periodic">
+            <label class="btn ">
+              <input id="aip_reminder_periodic_monthly" name="aip_reminder[periodic]" type="radio" value="monthly"> 每月
+            </label>
+            <label class="btn ">
+              <input id="aip_reminder_periodic_weekly" name="aip_reminder[periodic]" type="radio" value="weekly"> 每周
+            </label>
+            <label class="btn ">
+              <input id="aip_reminder_periodic_daily" name="aip_reminder[periodic]" type="radio" value="daily"> 每日
+            </label>
+          </div>
+
+          <div>
+<label class="reminder-title" for="aip_reminder_date">提醒日期</label>          </div>
+
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-gray" data-dismiss="modal">取消</button>
+<button class="btn btn-link" phx-disable-with="处理中……" type="submit">确定</button>        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div
+  class="modal fade"
+  id="notification_modal"
+  tabindex="-1"
+  role="dialog"
+  aria-hidden="true"
+>
+  <div class="modal-dialog modal-dialog-centered" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h4 class="modal-title">开启系统通知</h4>
+      </div>
+      <div class="modal-body">
+        <div class="reminder-desc">定投提醒已设置成功，但您尚未开启系统通知，可能会错过定投通知消息，建议立即开启</div>
+      </div>
+      <div class="modal-footer">
+        <button id="notification_cancel" type="button" class="btn btn-gray" data-dismiss="modal">暂不开启</button>
+        <button id="notification_confirm" type="button" class="btn btn-link">去开启</button>
+      </div>
+    </div>
+  </div>
+</div>
+</div></div>
+
+
+<div
+  class="modal fade"
+  id="aipNormalTerm"
+  tabindex="-1"
+  role="dialog"
+  aria-labelledby="正常定投"
+  aria-hidden="true"
+>
+  <div class="modal-dialog modal-dialog-centered" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h4 class="modal-title">正常定投</h4>
+      </div>
+      <div class="modal-body">按照规划好的定投金额进行买入。例如规划好每月定投 1000 元，那么正常定投就是买入 1000 元。</div>
+      <div class="modal-footer">
+        <a type="button" class="btn btn-link" data-dismiss="modal">知道了</a>
+      </div>
+    </div>
+  </div>
+</div>
+<div
+  class="modal fade"
+  id="aipDoubleTerm"
+  tabindex="-1"
+  role="dialog"
+  aria-labelledby="加倍定投"
+  aria-hidden="true"
+>
+  <div class="modal-dialog modal-dialog-centered" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h4 class="modal-title">加倍定投</h4>
+      </div>
+      <div class="modal-body">按照规划好的定投金额的 2 倍进行买入。例如规划好每月定投 1000 元，那么加倍定投就是买入 2000 元。股市低估时，加倍定投可以加速低位的份额积累，降低持仓成本。</div>
+      <div class="modal-footer">
+        <a type="button" class="btn btn-link" data-dismiss="modal">知道了</a>
+      </div>
+    </div>
+  </div>
+</div>
+<div
+  class="modal fade"
+  id="aipStopTerm"
+  tabindex="-1"
+  role="dialog"
+  aria-labelledby="暂停定投"
+  aria-hidden="true"
+>
+  <div class="modal-dialog modal-dialog-centered" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h4 class="modal-title">暂停定投</h4>
+      </div>
+      <div class="modal-body">股市高估，此时定投买入会提高持仓成本，另外股市高估后下跌的概率更高，所以暂停买入，等待市场回调后再次买入。</div>
+      <div class="modal-footer">
+        <a type="button" class="btn btn-link" data-dismiss="modal">知道了</a>
+      </div>
+    </div>
+  </div>
+</div>
+<div
+  class="modal fade"
+  id="aipMonthlyTerm"
+  tabindex="-1"
+  role="dialog"
+  aria-labelledby="月定投"
+  aria-hidden="true"
+>
+  <div class="modal-dialog modal-dialog-centered" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h4 class="modal-title">月定投</h4>
+      </div>
+      <div class="modal-body">长期看周定投、双周定投、月定投差异不大，而大家的工资、租金等收入，一般是按月发放的。为了方便资金安排，推荐月定投。</div>
+      <div class="modal-footer">
+        <a type="button" class="btn btn-link" data-dismiss="modal">知道了</a>
+      </div>
+    </div>
+  </div>
+</div>
+<div
+  class="modal fade"
+  id="aipUnitTerm"
+  tabindex="-1"
+  role="dialog"
+  aria-labelledby="建议份数"
+  aria-hidden="true"
+>
+  <div class="modal-dialog modal-dialog-centered" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h4 class="modal-title">建议份数</h4>
+      </div>
+      <div class="modal-body">先规划好每次定投的总金额，然后平均分成 2 份，每份即为 1 份的定投金额。</div>
+      <div class="modal-footer">
+        <a type="button" class="btn btn-link" data-dismiss="modal">知道了</a>
+      </div>
+    </div>
+  </div>
+</div>
+<div
+  class="modal fade"
+  id="aipReminderTerm"
+  tabindex="-1"
+  role="dialog"
+  aria-labelledby="定投提醒"
+  aria-hidden="true"
+>
+  <div class="modal-dialog modal-dialog-centered" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h4 class="modal-title">定投提醒</h4>
+      </div>
+      <div class="modal-body">订阅提醒后，我们将在提醒日的早 8 点，根据上一交易日的股市温度发送定投信号，方便您执行定投计划。</div>
+      <div class="modal-footer">
+        <a type="button" class="btn btn-link" data-dismiss="modal">知道了</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+    <div class="container">
+      <img class="full-width" src="/images/thermometer/mindset-formular.svg" />
+    </div>
+
+    <div class="container-fluid">
+      <ul id="priceAssetTabs" class="nav nav-line justify-content-center">
+        <li class="nav-item">
+          <a class="nav-link active" id="goodPrice" data-toggle="tab" href="#goodPricePane" role="tab" aria-controls="goodPricePane" aria-selected="true">好价格</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" id="goodAsset" data-toggle="tab" href="#goodAssetPane" role="tab" aria-controls="goodAssetPane" aria-selected="true">好资产</a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="tab-content">
+<div class="tab-pane fade show active" id="goodPricePane" role="tabpanel" aria-labelledby="price-tab">
+  <div class="panel">
+    <h3>股市温度计</h3>
+<script defer type="text/javascript">
+  function enableFullScreenForTemperatureChart(data) {
+    const chart = $("#temperature-chart");
+    const container = chart.parent();
+
+    $(".full-screen").click(function () {
+      chart.html("");
+      container.addClass("modal").modal();
+      container.css("display", "flex");
+      drawTemperatureChart(data);
+      traceEvent("click", "therm", "aindex_full_screen", {});
+    });
+
+    container.on("hidden.bs.modal", function () {
+      chart.html("");
+      $(this).removeClass("modal");
+      container.css("display", "flex");
+
+      drawTemperatureChart(data);
+    });
+  }
+
+  function drawTemperatureChart(data) {
+    // 设置图表的大小和margin, width & height为横纵轴框定的区域，不包括margin
+    const margin = { left: 30, bottom: 20, right: 40, top: 10 };
+    const chartDiv = $("#temperature-chart");
+    const chartContainer = chartDiv.parent();
+    const chartWidth = chartDiv.width() - margin.left - margin.right;
+    const chartHeight = chartDiv.height() - margin.top - margin.bottom;
+
+    var tr =
+      chartContainer.css("-webkit-transform") ||
+      chartContainer.css("-moz-transform") ||
+      chartContainer.css("-ms-transform") ||
+      chartContainer.css("-o-transform") ||
+      chartContainer.css("transform");
+
+    const isRotated = /^matrix/.test(tr);
+
+    // 没有出现在lineSettings里的数据项不显示曲线
+    const lineSettings = {
+      close: {
+        light: "#77a5d9",
+        dark: "#77a5d9",
+        yAxis: "right",
+      },
+      degree: {
+        light: "#f27130",
+        dark: "#f27130",
+        yAxis: "left",
+      },
+    };
+
+    const lineData = parseLineData(data, lineSettings);
+
+    // ------- 画图 -------
+
+    const xScale = d3
+      .scaleTime()
+      .domain(d3.extent(data, (d) => d.date))
+      .range([0, chartWidth]);
+
+    const xAxisGenerator = d3
+      .axisBottom(xScale)
+      .ticks(chartWidth / 80)
+      .tickSizeOuter(0);
+
+    const yLeftScale = d3
+      .scaleLinear()
+      .domain([0, 100])
+      .range([chartHeight, 0]);
+    const yLeftAxisGenerator = d3
+      .axisLeft(yLeftScale)
+      .tickFormat((d) => d + "°")
+      .tickValues(d3.range(0, 101, 10));
+
+    const yRightScale = d3
+      .scaleLinear()
+      .domain([0, 8000])
+      .range([chartHeight, 0]);
+    const yRightAxisGenerator = d3
+      .axisRight(yRightScale)
+      .tickValues(d3.range(0, 8001, 1000));
+
+    const leftLineGenerator = d3
+      .line()
+      .x((d) => xScale(d.date))
+      .y((d) => yLeftScale(d.value));
+
+    const rightLineGenerator = d3
+      .line()
+      .x((d) => xScale(d.date))
+      .y((d) => yRightScale(d.value));
+
+    const lineGenerator = (d) =>
+      d.yAxis == "left"
+        ? leftLineGenerator(d.data)
+        : rightLineGenerator(d.data);
+
+    const yScale = (d) => (d.yAxis == "left" ? yLeftScale : yRightScale);
+
+    const bisect = (mx, data) => {
+      const bisect = d3.bisector((d) => d.date).left;
+
+      const date = xScale.invert(mx - margin.left);
+      const index = bisect(data, date, 1);
+      const a = data[index - 1];
+      const b = data[index];
+      return b && date - a.date > b.date - date ? b : a;
+    };
+
+    const chart = () => {
+      const svg = d3
+        .create("svg")
+        .attr("viewBox", [
+          0,
+          0,
+          chartWidth + margin.left + margin.right,
+          chartHeight + margin.top + margin.bottom,
+        ]);
+
+      const g = svg
+        .append("g")
+        .attr("transform", `translate(${margin.left}, ${margin.top})`);
+
+      g.append("g")
+        .attr("color", axisColor)
+        .call(xAxisGenerator)
+        .attr("transform", `translate(0, ${chartHeight})`);
+
+      g.append("g").attr("color", axisColor).call(yLeftAxisGenerator);
+      g.append("g")
+        .attr("color", axisColor)
+        .call(yRightAxisGenerator)
+        .attr("transform", `translate(${chartWidth}, 0)`);
+
+      g.selectAll(".g")
+        .data(zoneSettings)
+        .enter()
+        .append("rect")
+        .attr("x", 1)
+        .attr("y", (d) => yLeftScale(d.range[1]))
+        .attr("width", chartWidth - 1)
+        .attr("height", (d) => yLeftScale(d.range[0]) - yLeftScale(d.range[1]))
+        .attr("fill", (d) => d.light);
+
+      g.selectAll(".line")
+        .data(lineData)
+        .enter()
+        .append("path")
+        .attr("d", lineGenerator)
+        .style("fill", "none")
+        .style("stroke", (d) => d.light)
+        .style("stroke-width", 2)
+        .style("stroke-linejoin", "round");
+
+      // Value Label
+
+      const toLatest = (g) =>
+        g.attr(
+          "transform",
+          (d) =>
+            `translate(${xScale(last(d.data).date)}, ${yScale(d)(
+              last(d.data).value
+            )})`
+        );
+
+      const valueLabel = g
+        .selectAll(".label")
+        .data(lineData)
+        .enter()
+        .append("g");
+
+      valueLabel
+        .append("circle")
+        .attr("r", 6)
+        .style("stroke", "white")
+        .style("stroke-width", 2)
+        .style("fill", (d) => d.dark);
+
+      valueLabel.call(toLatest);
+
+      // Indicator Line
+
+      const indicatorLine = g
+        .append("svg:line")
+        .attr("x1", 0)
+        .attr("y1", 0)
+        .attr("x2", 0)
+        .attr("y2", chartHeight)
+        .style("display", "none")
+        .style("stroke", "#808080")
+        .style("stroke-dasharray", "5,1");
+
+      const callout = (g, value) => {
+        if (!value) return g.style("display", "none");
+
+        g.style("display", null).style("pointer-events", "none");
+      };
+
+      // Handle Click and Mousemove
+
+      svg.on("touchmove mousemove", function (event) {
+        const t = d3.pointers(event, this);
+        if (t.length > 0) {
+          const x = isRotated
+            ? t[0][1]
+            : t[0][0];
+          const d = bisect(x, data);
+
+          indicatorLine
+            .attr("transform", `translate(${xScale(d.date)}, 0)`)
+            .style("stroke", getZone(d.degree).dark)
+            .call(callout, `${d.close}`);
+
+          valueLabel.attr("transform", (d) => {
+            const dd = bisect(x, d.data);
+            return `translate(${xScale(dd.date)}, ${yScale(d)(dd.value)})`;
+          });
+
+          updateTooltip(d);
+        }
+      });
+
+      svg.on("mouseleave touchend", (event) => {
+        const t = d3.pointers(event, this);
+        if (t.length > 0) {
+          indicatorLine.call(callout, null);
+          valueLabel.call(toLatest);
+          updateTooltip(last(data));
+        }
+      });
+
+      return svg.node();
+    };
+
+    // ---------------
+    // Connect with UI
+    const updateDegree = (degree) => {
+      let zone;
+
+      if (degree < 30) zone = "低估";
+      else if (degree < 70) zone = "中估";
+      else zone = "高估";
+
+      $("#thermo-degree").text(degree + "° " + zone);
+      $("#thermo-degree").attr("class", zone);
+    };
+
+    const updateTooltip = ({ date, degree, close, avg_return_3 }) => {
+      $("#thermo-date").text(dayjs(date).format("YYYY年MM月DD日"));
+      displayNumber($("#thermo-acc-return"), avg_return_3, "%", false);
+      updateDegree(degree);
+      $("#thermo-close").text(close || "--");
+    };
+
+    $("#termo-deadline").text(dayjs(last(data).date).format("YYYY/MM/DD"));
+
+    updateTooltip(last(data));
+
+    $("#temperature-chart").html(chart());
+  }
+</script>
+
+<div class="chart-container noselect">
+  <span aria-hidden="true" class="close" data-dismiss="modal" aria-label="Close">&times;</span>
+  <div id="thermo-chart-tooltip" class="chart-tooltip xs-text">
+    <div>
+      <div id="thermo-date" class="light-text" style="min-width: 100px"></div>
+      <label data-toggle="modal" data-target="#aShareThermTerm">股市温度</label>：
+      <span id="thermo-degree"></span>
+    </div>
+    <div>
+      <label data-toggle="modal" data-target="#avgAccReturnTerm"
+        >历史平均收益率（持有3年）</label
+      >：
+      <span id="thermo-acc-return"></span>
+    </div>
+    <div>
+      <label data-toggle="modal" data-target="#windATerm">万得全A</label>：
+      <span id="thermo-close"></span>
+    </div>
+  </div>
+  <div id="temperature-chart" class="chart"></div>
+  <ul class="chart-labels">
+    <li class="square low">低估</li>
+    <li class="square medium">中估</li>
+    <li class="square high">高估</li>
+  </ul>
+  <ul class="chart-labels">
+    <li class="line orange">股市温度</li>
+    <li class="line blue">万得全A</li>
+    <li class="full-screen"></li>
+  </ul>
+</div>
+
+<p class="memo">截止日期：<span id="termo-deadline"></span>&nbsp;&nbsp;|&nbsp;&nbsp;数据来源：Wind，知行研究</p>
+
+<div
+  class="modal fade"
+  id="aShareThermTerm"
+  tabindex="-1"
+  role="dialog"
+  aria-labelledby="股市温度"
+  aria-hidden="true"
+>
+  <div class="modal-dialog modal-dialog-centered" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h4 class="modal-title">股市温度</h4>
+      </div>
+      <div class="modal-body">综合考虑 A 股全市场股票的估值水平（包括 PE、PB 指标），计算得出股市温度，用来反映市场情绪热度。股市温度区间为 0°～100°，划分为 3 个温带：低估（0°～30°）；中估（30°～70°）；高估（70°～100°）。</div>
+      <div class="modal-footer">
+        <a type="button" class="btn btn-link" data-dismiss="modal">知道了</a>
+      </div>
+    </div>
+  </div>
+</div>
+<div
+  class="modal fade"
+  id="avgAccReturnTerm"
+  tabindex="-1"
+  role="dialog"
+  aria-labelledby="历史平均收益率（持有3年）"
+  aria-hidden="true"
+>
+  <div class="modal-dialog modal-dialog-centered" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h4 class="modal-title">历史平均收益率（持有3年）</h4>
+      </div>
+      <div class="modal-body">历史上同样温度水平，买入并持有 3 年的平均累计收益率，数据从 2010 年 3 月 25 日开始展示。</div>
+      <div class="modal-footer">
+        <a type="button" class="btn btn-link" data-dismiss="modal">知道了</a>
+      </div>
+    </div>
+  </div>
+</div>
+<div
+  class="modal fade"
+  id="windATerm"
+  tabindex="-1"
+  role="dialog"
+  aria-labelledby="万得全A"
+  aria-hidden="true"
+>
+  <div class="modal-dialog modal-dialog-centered" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h4 class="modal-title">万得全A</h4>
+      </div>
+      <div class="modal-body">万得全 A 指数是涵盖沪深 A 股股票的全收益指数，可以充分反映 A 股市场整体收益水平。</div>
+      <div class="modal-footer">
+        <a type="button" class="btn btn-link" data-dismiss="modal">知道了</a>
+      </div>
+    </div>
+  </div>
+</div>
+    <p>股市受投资者情绪等因素影响，具有周期性。「股市温度计」通过计算市场估值变化，帮你估算市场情绪热度。</p>
+    <h4>不同温带买入的效果对比</h4>
+<script defer type="text/javascript">
+  drawZoneCompareChart = function () {
+    const zones = {
+      HIGH: { name: "高估买入", order: 1 },
+      MEDIUM: { name: "中估买入", order: 2 },
+      LOW: { name: "低估买入", order: 3 },
+    };
+
+    let data = parseData(JSON.parse('[{"avg_max_float_loss_1":"0.3632","avg_max_float_loss_10":"0.5565","avg_max_float_loss_3":"0.4598","avg_max_float_loss_5":"0.4795","avg_return_1":"-0.2438","avg_return_10":"0.3728","avg_return_3":"-0.2144","avg_return_5":"-0.1301","date":"2021-05-31","win_rate_1":"0.1426","win_rate_10":"1.0000","win_rate_3":"0.0742","win_rate_5":"0.3540","zone":"HIGH"},{"avg_max_float_loss_1":"0.0908","avg_max_float_loss_10":"0.1033","avg_max_float_loss_3":"0.1032","avg_max_float_loss_5":"0.1029","avg_return_1":"0.5431","avg_return_10":"3.6236","avg_return_3":"1.3006","avg_return_5":"1.4650","date":"2021-05-31","win_rate_1":"0.8805","win_rate_10":"1.0000","win_rate_3":"1.0000","win_rate_5":"0.9735","zone":"LOW"},{"avg_max_float_loss_1":"0.1333","avg_max_float_loss_10":"0.2981","avg_max_float_loss_3":"0.2136","avg_max_float_loss_5":"0.2010","avg_return_1":"0.1233","avg_return_10":"0.8503","avg_return_3":"0.1808","avg_return_5":"0.4807","date":"2021-05-31","win_rate_1":"0.5644","win_rate_10":"1.0000","win_rate_3":"0.5746","win_rate_5":"0.9087","zone":"MEDIUM"}]'));
+    const toPercent = (s) => (s ? Math.round(s * 100) : 0);
+    const toStepPercent = (s) => {
+      const percent = toPercent(s);
+      if (percent >= 100) return 95;
+      return percent - percent % 5;
+    }
+
+    const dataToPercent = (data) =>
+      data
+        .map(
+          ({
+            zone,
+            date,
+            avg_return_1,
+            avg_return_3,
+            avg_return_5,
+            avg_return_10,
+            win_rate_1,
+            win_rate_3,
+            win_rate_5,
+            win_rate_10,
+            avg_max_float_loss_1,
+            avg_max_float_loss_3,
+            avg_max_float_loss_5,
+            avg_max_float_loss_10,
+          }) => ({
+            zone: zone,
+            date: new Date(date),
+            avg_return_1: toPercent(avg_return_1),
+            avg_return_3: toPercent(avg_return_3),
+            avg_return_5: toPercent(avg_return_5),
+            avg_return_10: toPercent(avg_return_10),
+            win_rate_1: toStepPercent(win_rate_1),
+            win_rate_3: toStepPercent(win_rate_3),
+            win_rate_5: toStepPercent(win_rate_5),
+            win_rate_10: toStepPercent(win_rate_10),
+            avg_max_float_loss_1: -toPercent(avg_max_float_loss_1),
+            avg_max_float_loss_3: -toPercent(avg_max_float_loss_3),
+            avg_max_float_loss_5: -toPercent(avg_max_float_loss_5),
+            avg_max_float_loss_10: -toPercent(avg_max_float_loss_10),
+          })
+        )
+        .sort((a, b) => zones[a.zone].order - zones[b.zone].order);
+
+    data = dataToPercent(data);
+    data.columns = [
+      "zone",
+      "avg_return_1",
+      "avg_return_3",
+      "avg_return_5",
+      "avg_return_10",
+      "win_rate_1",
+      "win_rate_3",
+      "win_rate_5",
+      "win_rate_10",
+      "avg_max_float_loss_1",
+      "avg_max_float_loss_3",
+      "avg_max_float_loss_5",
+      "avg_max_float_loss_10",
+    ];
+
+    const margin = { left: 36, bottom: 10, right: 0, top: 10 };
+    const chartWidth =
+      $(".thermometer-container").width() - margin.left - margin.right - 80;
+    const chartHeight = chartWidth;
+
+    const color = d3.scaleOrdinal().range(["#EAA45E", "#EA807D", "#78AADD"]);
+
+    const columnTitles = {
+      HIGH: "高估买入",
+      MEDIUM: "中估买入",
+      LOW: "低估买入",
+    };
+
+    const groupKey = data.columns[0];
+
+    const chart = (keys) => {
+      const y = d3
+        .scaleLinear()
+        .domain([
+          d3.min(data, (d) => d3.min(keys, (key) => d[key])) * 1.5,
+          d3.max(data, (d) => d3.max(keys, (key) => d[key])),
+        ])
+        .nice()
+        .rangeRound([chartHeight - margin.bottom, margin.top]);
+
+      const x0 = d3
+        .scaleBand()
+        .domain(data.map((d) => d[groupKey]))
+        .rangeRound([margin.left, chartWidth + margin.left])
+        .paddingInner(0);
+
+      const x1 = d3
+        .scaleBand()
+        .domain(keys)
+        .rangeRound([0, x0.bandwidth()])
+        .padding(0.2);
+
+      const yAxis = (g) =>
+        g
+          .attr("transform", `translate(${margin.left},0)`)
+          .call(
+            d3
+              .axisLeft(y)
+              .tickFormat((d) => d + "%")
+              .ticks(6)
+          )
+          .call((g) => g.select(".domain").remove());
+
+      const xAxis = (g) =>
+        g
+          .attr("transform", `translate(0,${chartHeight - margin.bottom})`)
+          .call(
+            d3
+              .axisBottom(x0)
+              .tickFormat((d) => zones[d].name)
+              .tickSizeOuter(0)
+          )
+          .call((g) => g.select(".domain").remove());
+
+      const svg = d3
+        .create("svg")
+        .attr("viewBox", [
+          0,
+          0,
+          chartWidth + margin.left + margin.right,
+          chartHeight + margin.top + margin.bottom,
+        ]);
+
+      svg
+        .selectAll(".g")
+        .data(zoneSettings)
+        .enter()
+        .append("rect")
+        .attr("x", (d) => x0(d.zone))
+        .attr("y", 0)
+        .attr("width", x0.bandwidth())
+        .attr("height", chartHeight - margin.top)
+        .attr("fill", (d) => d.light);
+
+      svg
+        .append("g")
+        .selectAll("g")
+        .data(data)
+        .join("g")
+        .attr("transform", (d) => `translate(${x0(d[groupKey])},0)`)
+        .selectAll("rect")
+        .data((d) => keys.map((key) => ({ key, value: d[key] })))
+        .join("rect")
+        .attr("x", (d) => x1(d.key))
+        .attr("y", (d) => y(d3.max([d.value, 0])))
+        .attr("width", x1.bandwidth())
+        .attr("height", (d) => Math.abs(y(0) - y(d.value)))
+        .attr("fill", (d) => color(d.key));
+
+      svg
+        .append("g")
+        .selectAll("g")
+        .data(data)
+        .join("g")
+        .attr("transform", (d) => `translate(${x0(d[groupKey])},0)`)
+        .selectAll("text")
+        .data((d) => keys.map((key) => ({ key, value: d[key] })))
+        .join("text")
+        .attr("font-size", 10)
+        .attr("x", (d) => x1(d.key))
+        .attr("y", (d) => y(d.value))
+        .style("fill", "#5C5C5C")
+        .attr("dy", (d) => (d.value > 0 ? "-0.5em" : "1.4em"))
+        .text((d) => {
+          switch(d.key) {
+            case "win_rate_1":
+            case "win_rate_3":
+            case "win_rate_5":
+            case "win_rate_10":
+              return ">" + d.value + "%";
+            default:
+              return d.value + "%";
+          };
+        });
+
+      svg.append("g").call(xAxis);
+
+      svg.append("g").attr("color", axisColor).call(yAxis);
+
+      return svg.node();
+    };
+
+    // ---------------
+    // Connect with UI
+
+    $("#zone-deadline").text(dayjs(last(data).date).format("YYYY/MM/DD"));
+
+    $('#zoneTab a[data-toggle="tab"]').on("shown.bs.tab", function (e) {
+      const range = $(this).data("id");
+      keys = [
+        "avg_return_" + range,
+        "win_rate_" + range,
+        "avg_max_float_loss_" + range,
+      ];
+      $("#zone-chart").html(chart(keys));
+    });
+
+    $("#zoneTab a").on("click", function (e) {
+      e.preventDefault();
+
+      const range = $(this).data("id");
+
+      $(this).tab("show");
+
+      traceEvent("click", "therm", "temperate_zone", {year: range});
+    });
+
+    $("#zoneTab li:nth-child(2) a").tab("show");
+  };
+</script>
+
+<ul class="nav nav-fill nav-btn" id="zoneTab">
+  <li class="nav-item">
+    <a class="nav-link" data-toggle="tab" data-id="1">持有1年</a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link" data-toggle="tab" data-id="3">持有3年</a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link" data-toggle="tab" data-id="5">持有5年</a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link" data-toggle="tab" data-id="10">持有10年</a>
+  </li>
+</ul>
+
+<div class="chart-container noselect">
+  <div id="zone-chart" class="chart"></div>
+  <ul class="chart-labels">
+    <li class="square yellow">平均累计收益率</li>
+    <li class="square red">盈利概率</li>
+  </ul>
+  <ul class="chart-labels">
+    <li class="square blue" data-toggle="modal" data-target="#maxFloatLossTerm">平均最大浮亏</li>
+  </ul>
+</div>
+
+<p class="memo">截止日期：<span id="zone-deadline"></span>&nbsp;&nbsp;|&nbsp;&nbsp;数据来源：Wind，知行研究</p>
+
+<div
+  class="modal fade"
+  id="maxFloatLossTerm"
+  tabindex="-1"
+  role="dialog"
+  aria-labelledby="平均最大浮亏"
+  aria-hidden="true"
+>
+  <div class="modal-dialog modal-dialog-centered" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h4 class="modal-title">平均最大浮亏</h4>
+      </div>
+      <div class="modal-body">最大浮亏描述的是跟买入成本相比，账面的亏损幅度。</div>
+      <div class="modal-footer">
+        <a type="button" class="btn btn-link" data-dismiss="modal">知道了</a>
+      </div>
+    </div>
+  </div>
+</div>
+    <p>长期来看，在低估温带买入，效果最好；在高估温带买入，效果最差。</p>
+    <hr />
+<a class="material-entry" href="https://youzhiyouxing.cn/n/materials/172" onclick="traceEvent('click', 'material', 'therm_read', {material_id: 172});">
+  <img src="https://asset.youzhiyouxing.cn/image/2020/12/24/01ET9MRCMEC40QTWG9V31PZHNR.png"></img>
+  <h5>和你聊聊「股市温度计」幕后的事｜知行研究</h5>
+</a>
+  </div>
+  <div class="panel">
+    <h3>「股市温度计」为什么有效？</h3>
+    <img class="full-width" src="/images/thermometer/why-formular.svg" />
+    <h4>股市回报来源拆分</h4>
+<script defer type="text/javascript">
+  drawReturnSplitChart = function (data) {
+    // ---------------------------------
+    // 股市回报来源拆分 Part1: return split
+
+    const rsData = parseDataItem(JSON.parse('{"acc_return":"625.20","acc_return_1":"27.58","acc_return_3":"33.96","acc_return_5":"39.05","asset_acc_return":"457.94","asset_acc_return_1":"3.15","asset_acc_return_3":"14.21","asset_acc_return_5":"24.24","date":"2021-06-04","div_acc_return":"28.20","div_acc_return_1":"1.52","div_acc_return_3":"4.64","div_acc_return_5":"7.85","pb_acc_return":"1.39","pb_acc_return_1":"21.83","pb_acc_return_3":"12.10","pb_acc_return_5":"3.77"}'));
+
+    const rsKeys = [
+      "acc_return",
+      "asset_acc_return",
+      "pb_acc_return",
+      "div_acc_return",
+    ];
+
+    const rsRangeKey = (key, range) =>
+      isFinite(range) ? key + "_" + range : key;
+
+    const rsMaxValue = (range) =>
+      Math.max(
+        ...rsKeys.map((key) => Math.abs(rsData[rsRangeKey(key, range)]))
+      );
+
+    const rsPercent = (key, range) =>
+      Math.round((rsData[rsRangeKey(key, range)] * 100) / rsMaxValue(range));
+
+    const updateRSRange = (range) =>
+      rsKeys.forEach((key) => {
+        displayNumber(
+          $("#rs_" + key + " span"),
+          rsData[rsRangeKey(key, range)],
+          "%",
+          false
+        );
+
+        const percent = rsPercent(key, range);
+        $("#rs_" + key + " .progress-bar")
+          .width(Math.abs(percent) + "%")
+          .attr(
+            "class",
+            "progress-bar " +
+              (percent >= 0 ? "progress-positive" : "progress-negative")
+          )
+          .attr("aria-valuenow", percent);
+      });
+    // ------------------------------------------
+    // 股市回报来源拆分 Part2: asset rate (pb) chart
+
+    const getRangeData = (range) => {
+      if (!isFinite(range)) return data;
+      start_day = dayjs(last(data).date).subtract(range, "years");
+      return data.filter((d) => d.date >= start_day);
+    };
+
+    const assetRateNormalization = (data) => {
+      base_asset_rate = data[0].asset_rate;
+      base_close = data[0].close;
+      return data.map((d) => ({
+        date: d.date,
+        close: d.close,
+        asset_rate:
+          base_close +
+          Math.floor(
+            (base_close * (d.asset_rate - base_asset_rate)) / base_asset_rate
+          ),
+      }));
+    };
+
+    const margin = { left: 40, bottom: 20, right: 40, top: 10 };
+    const chartWidth =
+      $(".thermometer-container").width() - margin.left - margin.right - 80;
+    const chartHeight = chartWidth / 1.5;
+
+    const lineSettings = {
+      close: {
+        light: "#78a7d8",
+        dark: "#78a7d8",
+      },
+      asset_rate: {
+        light: "#f27130",
+        dark: "#f27130",
+      },
+    };
+
+    const chart = (data) => {
+      const lineData = parseLineData(data, lineSettings);
+
+      const xScale = d3
+        .scaleTime()
+        .domain(d3.extent(data, (d) => d.date))
+        .range([0, chartWidth]);
+
+      const xAxisGenerator = d3
+        .axisBottom(xScale)
+        .ticks(chartWidth / 80)
+        .tickSizeOuter(0);
+
+      const yScale = d3.scaleLinear().domain([0, 8000]).range([chartHeight, 0]);
+      const yLeftAxisGenerator = d3
+        .axisLeft(yScale)
+        .tickValues(d3.range(0, 8001, 1000));
+
+      const yRightAxisGenerator = d3
+        .axisRight(yScale)
+        .tickValues(d3.range(0, 8001, 1000));
+
+      const lineGenerator = d3
+        .line()
+        .x((d) => xScale(d.date))
+        .y((d) => yScale(d.value));
+
+      const svg = d3
+        .create("svg")
+        .attr("viewBox", [
+          0,
+          0,
+          chartWidth + margin.left + margin.right,
+          chartHeight + margin.top + margin.bottom,
+        ]);
+
+      const g = svg
+        .append("g")
+        .attr("transform", `translate(${margin.left}, ${margin.top})`);
+
+      g.append("g")
+        .attr("color", axisColor)
+        .call(xAxisGenerator)
+        .attr("transform", `translate(0, ${chartHeight})`);
+
+      g.append("g").attr("color", axisColor).call(yLeftAxisGenerator);
+
+      g.selectAll(".line")
+        .data(lineData)
+        .enter()
+        .append("path")
+        .attr("d", (d) => lineGenerator(d.data))
+        .style("fill", "none")
+        .style("stroke", (d) => d.light)
+        .style("stroke-width", 2)
+        .style("stroke-linejoin", "round");
+
+      return svg.node();
+    };
+
+    // ---------------
+    // Connect with UI
+
+    $("#rs-deadline").text(dayjs(rsData.date).format("YYYY/MM/DD"));
+
+    $('#rsTab a[data-toggle="tab"]').on("shown.bs.tab", function (e) {
+      const range = $(this).data("id");
+      const chartData = assetRateNormalization(getRangeData(range));
+
+      updateRSRange(range);
+      $("#rs-chart").html(chart(chartData));
+    });
+
+    $("#rsTab a").on("click", function (e) {
+      e.preventDefault();
+
+      const range = $(this).data("id");
+
+      $(this).tab("show");
+
+      traceEvent("click", "therm", "return_split", {year: range});
+    });
+
+    $("#rsTab li:last-child a").tab("show");
+  };
+</script>
+
+<ul class="nav nav-fill nav-btn" id="rsTab">
+  <li class="nav-item">
+    <a class="nav-link" data-toggle="tab" data-id="1">近1年</a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link" data-toggle="tab" data-id="3">近3年</a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link" data-toggle="tab" data-id="5">近5年</a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link" data-toggle="tab" data-id="Infinity">05年以来</a>
+  </li>
+</ul>
+
+<div class="chart-container noselect">
+  <div id="rs-chart-toolip" class="chart-tooltip xs-text">
+    <div id="rs_acc_return">
+      <label>万得全A累计收益率</label>
+      <div class="progress">
+        <div
+          class="progress-bar"
+          role="progressbar"
+          style="width: 25%"
+          aria-valuenow="25"
+          aria-valuemin="0"
+          aria-valuemax="100"
+        ></div>
+      </div>
+      <span></span>
+    </div>
+    <div id="rs_asset_acc_return">
+      <label data-toggle="modal" data-target="#netAssetAccReturnTerm">净资产增长率</label>
+      <div class="progress">
+        <div
+          class="progress-bar"
+          role="progressbar"
+          aria-valuenow=""
+          aria-valuemin="0"
+          aria-valuemax="100"
+        ></div>
+      </div>
+      <span></span>
+    </div>
+    <div id="rs_pb_acc_return">
+      <label>估值变化率</label>
+      <div class="progress">
+        <div
+          class="progress-bar"
+          role="progressbar"
+          aria-valuenow=""
+          aria-valuemin="0"
+          aria-valuemax="100"
+        ></div>
+      </div>
+      <span></span>
+    </div>
+    <div id="rs_div_acc_return">
+      <label>股息率</label>
+      <div class="progress">
+        <div
+          class="progress-bar"
+          role="progressbar"
+          aria-valuenow=""
+          aria-valuemin="0"
+          aria-valuemax="100"
+        ></div>
+      </div>
+      <span></span>
+    </div>
+    <p class="muted-text text-center clear">以上均为累计数据</p>
+  </div>
+  <div id="rs-chart" class="chart"></div>
+  <ul class="chart-labels">
+    <li class="line blue">万得全A</li>
+    <li class="line orange" data-toggle="modal" data-target="#netAssetTerm">净资产</li>
+  </ul>
+</div>
+
+<p class="memo">截止日期：<span id="rs-deadline"></span>&nbsp;&nbsp;|&nbsp;&nbsp;数据来源：Wind，知行研究</p>
+
+<div
+  class="modal fade"
+  id="netAssetAccReturnTerm"
+  tabindex="-1"
+  role="dialog"
+  aria-labelledby="净资产增长率"
+  aria-hidden="true"
+>
+  <div class="modal-dialog modal-dialog-centered" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h4 class="modal-title">净资产增长率</h4>
+      </div>
+      <div class="modal-body">长期来看，净资产增长率可以较好地反映企业的盈利增长情况。</div>
+      <div class="modal-footer">
+        <a type="button" class="btn btn-link" data-dismiss="modal">知道了</a>
+      </div>
+    </div>
+  </div>
+</div>
+<div
+  class="modal fade"
+  id="netAssetTerm"
+  tabindex="-1"
+  role="dialog"
+  aria-labelledby="净资产"
+  aria-hidden="true"
+>
+  <div class="modal-dialog modal-dialog-centered" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h4 class="modal-title">净资产</h4>
+      </div>
+      <div class="modal-body">反映 A 股全市场的净资产走势。为了跟万得全 A 相对比，进行了标准化处理，不是简单的把所有股票净资产进行加总。</div>
+      <div class="modal-footer">
+        <a type="button" class="btn btn-link" data-dismiss="modal">知道了</a>
+      </div>
+    </div>
+  </div>
+</div>
+    <p>长期持有：股市回报主要来源于企业盈利的增长，少部分来源于股息收益，估值的贡献很低。</p>
+    <p>中短期持有：估值可能对股市回报产生很大的影响。</p>
+    <h4>牛熊市与长期持有回报对比</h4>
+    <div class="chart-container area-bg">
+      <img class="full-width" src="/images/thermometer/compare.png" />
+      <ul class="chart-captions sm-text">
+        <li>牛市</li>
+        <li>熊市</li>
+        <li>05至今</li>
+      </ul>
+      <ul class="chart-labels">
+        <li class="square yellow">万得全A收益率</li>
+        <li class="square blue">估值变化率</li>
+      </ul>
+      <ul class="chart-labels">
+        <li class="square red">净资产增长率</li>
+        <li class="square purple">股息率</li>
+      </ul>
+      <ul class="chart-labels">
+        <li>以上均为年化数据</li>
+      </ul>
+    </div>
+    <p class="memo">截止日期：2021/03/31&nbsp;&nbsp;|&nbsp;&nbsp;数据来源：Wind，知行研究</p>
+    <p>如上图所示，估值变化对投资回报的影响最大。牛市里估值会抬高收益，熊市里估值会拖累业绩。</p>
+    <p>「股市温度计」能帮助我们抓住更好的市场机会，在低估温带买入，高估温带卖出，享受牛市带来的超越企业盈利的收益。</p>
+    <hr />
+<a class="material-entry" href="https://youzhiyouxing.cn/n/materials/171" onclick="traceEvent('click', 'material', 'therm_read', {material_id: 171});">
+  <img src="https://asset.youzhiyouxing.cn/image/2020/12/24/01ET9MRCMEC40QTWG9V31PZHNR.png"></img>
+  <h5>细说「股市温度计」为什么有效｜知行研究</h5>
+</a>
+  </div>
+</div>
+<div class="tab-pane fade" id="goodAssetPane" role="tabpanel" aria-labelledby="asset-tab">
+  <div class="panel">
+    <h3>好资产</h3>
+    <p><a href="/n/materials/39">长期来看，股票是收益最高的资产</a>。</p>
+    <p>股票的本质是一家公司的股权。买股票就等于买公司，看好一家公司的发展。</p>
+    <p>在看好中国长期企业盈利和经济增长的前提下，对普通投资者来说，投资能代表国运的优质指数是个省心省力的好选择。</p>
+    <p>因此，我们推荐分散买入<em>「沪深300 + 中证500」。</em></p>
+    <h4>市场代表性高</h4>
+    <ul class="nav nav-fill nav-btn" id="indexCoverTabs">
+      <li class="nav-item">
+        <a class="nav-link active" id="mvTotal" data-toggle="tab" href="#mvTotalPane" role="tab" aria-controls="mvTotalPane" aria-selected="true">总市值占比</a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link" id="operRev" data-toggle="tab" href="#operRevPane" role="tab" aria-controls="operRevPane" aria-selected="true">营业收入占比</a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link" id="netProfit" data-toggle="tab" href="#netProfitPane" role="tab" aria-controls="netProfitPane" aria-selected="true">净利润占比</a>
+      </li>
+    </ul>
+    <div class="tab-content area-bg">
+      <div class="tab-pane fade show active" id="mvTotalPane" role="tabpanel" aria-labelledby="mvTotal">
+        <img class="full-width" src="/images/thermometer/percent1.png" />
+      </div>
+      <div class="tab-pane fade" id="operRevPane" role="tabpanel" aria-labelledby="operRev">
+        <img class="full-width" src="/images/thermometer/percent2.png" />
+      </div>
+      <div class="tab-pane fade" id="netProfitPane" role="tabpanel" aria-labelledby="netProfit">
+        <img class="full-width" src="/images/thermometer/percent3.png" />
+      </div>
+    </div>
+    <p class="memo">截止日期：2021/03/31&nbsp;&nbsp;|&nbsp;&nbsp;数据来源：Wind，知行研究</p>
+    <p>从总市值、营业收入、<span data-toggle="modal" data-target="#netProfitTerm">净利润</span>来看，「沪深300 + 中证500」合计占据了全部A股的很大部分比例，涵盖了其中的优质资产。</p>
+    <h4>风格互补、均衡配置</h4>
+    <div class="chart-container area-bg">
+      <div>
+        <h5>净利润增速对比</h5>
+        <img class="full-width" src="/images/thermometer/net-profit-rate-compare1.png" />
+      </div>
+      <ul class="chart-captions sm-text">
+        <li>万得全A</li>
+        <li>沪深300</li>
+        <li>中证500</li>
+      </ul>
+      <ul class="chart-labels">
+        <li class="square blue" data-toggle="modal" data-target="#netProfitCagr1Term">最新同比增速</li>
+        <li class="square yellow" data-toggle="modal" data-target="#netProfitCagr3Term">近3年复合年增速</li>
+      </ul>
+      <ul class="chart-labels">
+        <li class="square red" data-toggle="modal" data-target="#netProfitCagr5Term">近5年复合年增速</li>
+      </ul>
+    </div>
+    <p class="memo">截止日期：2021/03/31&nbsp;&nbsp;|&nbsp;&nbsp;数据来源：Wind，知行研究</p>
+    <p>沪深300偏向于大盘股、蓝筹股，市场占比更高。</p>
+    <p>中证500偏向中小盘，成长性更好。</p>
+    <p>分散买入、均衡配置，进可攻退可守，可在A股周期性的风格轮动中获得长期更好的体验。</p>
+    <hr />
+<a class="material-entry" href="https://youzhiyouxing.cn/n/materials/248" onclick="traceEvent('click', 'material', 'therm_read', {material_id: 248});">
+  <img src="https://asset.youzhiyouxing.cn/image/2020/12/24/01ET9MRCMEC40QTWG9V31PZHNR.png"></img>
+  <h5>好资产的判断逻辑是什么？| 知行研究</h5>
+</a>
+  </div>
+  <div class="panel">
+    <h3>定投好资产</h3>
+    <p>在普通定投的基础上利用「股市温度计」，低估温带加倍买入，中估温带正常买入，高估温带暂停买入，可进一步控制成本，提升收益。</p>
+    <div><img class="full-width" src="/images/thermometer/cost-compare1.png" /></div>
+    <p class="memo">数据来源：Wind，知行研究</p>
+    <p>如何操作?</p>
+    <p>第一步：规划好每次定投的总金额，然后平均分成 2 份，每份即为 1 份的定投金额。</p>
+    <p>第二步：确定自己的定投日，一般为工资日。</p>
+    <p>第三步：到了定投日，查看<em>定投信号</em>，参考信号操作。</p>
+    <hr />
+<a class="material-entry" href="https://youzhiyouxing.cn/n/materials/249" onclick="traceEvent('click', 'material', 'therm_read', {material_id: 249});">
+  <img src="https://asset.youzhiyouxing.cn/image/2020/12/24/01ET9MRCMEC40QTWG9V31PZHNR.png"></img>
+  <h5>一份简单的定投策略 | 知行研究</h5>
+</a>
+  </div>
+</div>
+
+<div
+  class="modal fade"
+  id="netProfitTerm"
+  tabindex="-1"
+  role="dialog"
+  aria-labelledby="净利润"
+  aria-hidden="true"
+>
+  <div class="modal-dialog modal-dialog-centered" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h4 class="modal-title">净利润</h4>
+      </div>
+      <div class="modal-body">采用了能真实反映企业盈利水平的扣除非经常性损益后的净利润。非经常性损益指的是那些与经营业务无直接关系、不能真实、公允地反映公司正常盈利能力的各项收入和支出。</div>
+      <div class="modal-footer">
+        <a type="button" class="btn btn-link" data-dismiss="modal">知道了</a>
+      </div>
+    </div>
+  </div>
+</div>
+<div
+  class="modal fade"
+  id="netProfitCagr1Term"
+  tabindex="-1"
+  role="dialog"
+  aria-labelledby="最新同比增速"
+  aria-hidden="true"
+>
+  <div class="modal-dialog modal-dialog-centered" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h4 class="modal-title">最新同比增速</h4>
+      </div>
+      <div class="modal-body">同比增速，指的是和上一年同一报告期相比的增长速度。比如，2020 年三季度，会和 2019 年三季度相比。同比增速能够去除季节性影响，反映的是短期的增速情况。</div>
+      <div class="modal-footer">
+        <a type="button" class="btn btn-link" data-dismiss="modal">知道了</a>
+      </div>
+    </div>
+  </div>
+</div>
+<div
+  class="modal fade"
+  id="netProfitCagr3Term"
+  tabindex="-1"
+  role="dialog"
+  aria-labelledby="近 3 年复合年增速"
+  aria-hidden="true"
+>
+  <div class="modal-dialog modal-dialog-centered" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h4 class="modal-title">近 3 年复合年增速</h4>
+      </div>
+      <div class="modal-body">近 3 年复合年增速（TTM），先使用最近四个季度的数据之和与 3 年以前的四个季度数据之和计算得到近 3 年累计增速，再将累计增速折合为年增速。这种处理能够去除季节性影响，反映的是近 3 年平均每年的增速情况。</div>
+      <div class="modal-footer">
+        <a type="button" class="btn btn-link" data-dismiss="modal">知道了</a>
+      </div>
+    </div>
+  </div>
+</div>
+<div
+  class="modal fade"
+  id="netProfitCagr5Term"
+  tabindex="-1"
+  role="dialog"
+  aria-labelledby="近 5 年复合年增速"
+  aria-hidden="true"
+>
+  <div class="modal-dialog modal-dialog-centered" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h4 class="modal-title">近 5 年复合年增速</h4>
+      </div>
+      <div class="modal-body">近 5 年复合年增速（TTM），先使用最近四个季度的数据之和与 5 年以前的四个季度数据之和计算得到近 5 年累计增速，再将累计增速折合为年增速。这种处理能够去除季节性影响，反映的是近 5 年平均每年的增速情况。</div>
+      <div class="modal-footer">
+        <a type="button" class="btn btn-link" data-dismiss="modal">知道了</a>
+      </div>
+    </div>
+  </div>
+</div>
+    </div>
+
+    <p class="claim">以上数据均是历史回测业绩，不预示其未来表现。市场有风险，投资需谨慎。</p>
+  </div>
+</div>
+
+<div
+  class="modal fade"
+  id="updateFrequencyTerm"
+  tabindex="-1"
+  role="dialog"
+  aria-labelledby="更新时间"
+  aria-hidden="true"
+>
+  <div class="modal-dialog modal-dialog-centered" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h4 class="modal-title">更新时间</h4>
+      </div>
+      <div class="modal-body">每个交易日晚 8 点，更新当日股市温度。</div>
+      <div class="modal-footer">
+        <a type="button" class="btn btn-link" data-dismiss="modal">知道了</a>
+      </div>
+    </div>
+  </div>
+</div>
+      </div>
+    </div>
+
+      <img id="event-trace" data-endpoint="https://trace.youzhiyouxing.cn/_.png" data-server-query="app_ver=&amp;build_ver=&amp;device_id=c808d3f3-7dde-4a0b-a82c-6ed88be15ab1&amp;mfr=unknown&amp;model=unknown&amp;os=Windows&amp;os_ver=10&amp;pn=%2Fthermometer&amp;ua=Mozilla%2F5.0%20%28Windows%20NT%2010.0%3B%20Win64%3B%20x64%29%20AppleWebKit%2F537.36%20%28KHTML%2C%20like%20Gecko%29%20Chrome%2F91.0.4472.77%20Safari%2F537.36%20Edg%2F91.0.864.41&amp;user_id=-1" />
+<div
+  id="sharedModalConfirm"
+  class="modal fade"
+  tabindex="-1"
+  role="dialog"
+  aria-hidden="true"
+>
+  <div class="modal-dialog modal-dialog-centered" role="document">
+    <div class="modal-content">
+      <img src="/images/download_bg.svg" />
+      <div class="d-modal-body">
+        <h3>温馨提示</h3>
+        <p>下载 App ，查看更多精彩内容</p>
+      </div>
+      <div class="d-modal-footer">
+        <button type="button" class="btn btn-confirm btn-primary">
+          立即下载
+        </button>
+        <button type="button" class="btn btn-cancel" data-dismiss="modal">
+          取消
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<div
+  id="sharedModalAlert"
+  class="modal fade"
+  tabindex="-1"
+  role="dialog"
+  aria-hidden="true"
+>
+  <div class="modal-dialog modal-dialog-centered" role="document">
+    <div class="modal-content">
+      <img src="/images/download_bg.svg" />
+      <div class="d-modal-body">
+        <h3>温馨提示</h3>
+        <p>下载 App ，查看更多精彩内容</p>
+      </div>
+      <div class="d-modal-footer">
+        <button type="button" class="btn btn-confirm btn-primary" data-dismiss="modal">
+          知道了
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+  </body>
+</html>
