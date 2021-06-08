@@ -44,66 +44,19 @@ see also:
 利率                 rate
 """
 import datetime
-import locale
 from functools import partial
 from typing import Iterable, List, Union
 
-import dateparser
+
 import numpy_financial as npf
 import scipy.optimize
 from deprecated import deprecated
 
 from backend.fundmate.libs import convert
-
-from backend.fundmate.libs.cal import cal_except as calex
+from backend.fundmate import excepts
 
 DAYS_PER_YEAR = 365.0
 MONTH_PER_YEAR = 12
-
-
-def try_parse_date(text: str):
-    """
-    try and parse date
-    :param text: string
-    :return: date part of datetime object
-    """
-    parse_ret = dateparser.parse(text)
-    if parse_ret:
-        return parse_ret.date()
-    else:
-        raise calex.ParseError(
-            f'Can not parse {text},please check whether is a date like str?')
-
-
-def try_parse_number(text: str) -> Union[int, float]:
-    """
-    parse string to int/float
-    >>> try_parse_number('2000.12')
-    >>> 2000.12
-
-    >>> try_parse_number('200,012')
-    >>> 200012
-
-    >>> try_parse_number('200,012.12')
-    >>> 200012.12
-
-    >>> try_parse_number('20,012.12')
-    >>> 20012.12
-    :param text:
-    :return:
-    """
-    if ',' in text:
-        locale.setlocale(locale.LC_ALL, 'en_US.UTF-8')
-        if '.' in text:
-            val = locale.atof(text)
-        else:
-            val = locale.atoi(text)
-    else:
-        if '.' in text:
-            val = float(text)
-        else:
-            val = int(text)
-    return val
 
 
 def merge_date_amount_map(date_seq, amount_seq):
@@ -136,11 +89,11 @@ def merge_date_amount_map(date_seq, amount_seq):
     :return:
     """
     if isinstance(date_seq[0], str):
-        _dates_parsed = list(map(try_parse_date, date_seq))
+        _dates_parsed = list(map(convert.try_parse_date, date_seq))
     else:
         _dates_parsed = date_seq
     if isinstance(amount_seq[0], str):
-        _values_parsed = list(map(try_parse_number, amount_seq))
+        _values_parsed = list(map(convert.try_parse_number, amount_seq))
     else:
         _values_parsed = amount_seq
     return dict(zip(_dates_parsed, _values_parsed))
@@ -722,7 +675,7 @@ class XIRR:
         -0.645363882724717
         """
         if len(values) != len(dates):
-            raise calex.LenEqualError()
+            raise excepts.LenEqualError()
         values_per_date = merge_date_amount_map(dates, values)
         if not values_per_date:
             return None

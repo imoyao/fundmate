@@ -1,7 +1,11 @@
 # -*- coding: utf-8 -*-
-"""Helper utilities and decorators."""
+"""Helper utilities and decorators.
+date:https://kirby.kevinson.org/blog/iso-8601-the-better-date-format/
+
+"""
 from flask import flash
 from datetime import datetime
+import dateparser
 
 
 def flash_errors(form, category="warning"):
@@ -20,3 +24,15 @@ def today() -> str:
     :return:
     """
     return datetime.today().strftime("%Y-%m-%d")
+
+
+def first_day_of_this_year():
+    return datetime.today().replace(month=1, day=1).strftime("%Y-%m-%d")
+
+
+def first_day_of_this_month():
+    return dateparser.parse(str(datetime.today().month), settings={'PREFER_DAY_OF_MONTH': 'first'}).strftime("%Y-%m-%d")
+
+
+if __name__ == '__main__':
+    print(first_day_of_this_year(),first_day_of_this_month())

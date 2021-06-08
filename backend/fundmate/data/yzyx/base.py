@@ -4,9 +4,12 @@
 import re
 from pathlib import Path
 import json
+import dateparser
+
 from xalpha.cons import rget
 from backend.fundmate.data import utils as dt_utils
-from backend.fundmate.data import excepts as dt_except
+from backend.fundmate import excepts as dt_except
+from datetime import datetime
 from backend.fundmate.exts.flask_loguru import logger
 
 header_str = '''Host: youzhiyouxing.cn
@@ -48,23 +51,33 @@ class YZYXTemp:
      'return_day': '0.005316',
      'rw_pb': '2.0300'}
         '''
-        fp = f'{current_path}/temp.html'
-        if not Path(fp).exists():
-            print('=============')
+        today = datetime.today()
+        html_fp = f'{current_path}/temp.html'
+        json_fp = f'{current_path}/yzyx.json'
+        p = Path(html_fp)
+        # 文件过期则删除重爬
+        df_mt = dateparser.parse(str(p.stat().st_mtime))
+        y, m, d = df_mt.year, df_mt.month, df_mt.day
+        is_not_overdue = all([y == today.year, m == today.month, d == today.day])
+        if not is_not_overdue:
+            p.unlink()
+            Path(json_fp).unlink()
+
+        if not p.exists():
             hd = dt_utils.parse_headers(header_str)
             resp = rget('https://youzhiyouxing.cn/thermometer', headers=hd)
-            with open(fp, 'w') as f:
+            with open(html_fp, 'w') as f:
                 text = resp.text
                 f.write(text)
         else:
-            with open(fp) as f:
+            with open(html_fp) as f:
                 text = f.read()
 
         reg_mat = re.findall(r"const data = parseData\(JSON.parse\('(.*)'\)\)", text)
         if reg_mat:
             _info = reg_mat[0]
             data = json.loads(_info)
-            with open(f'{current_path}/yzyx.json', 'w') as f:
+            with open(json_fp, 'w') as f:
                 json.dump(data, f)
             return data
         logger.warning('YZYX temper get Error!')
