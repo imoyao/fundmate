@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # Created by Andy at 2021/6/8 17:40
+import json
+
 from xalpha.cons import rget_json
 from backend.fundmate.data import utils as dt_utils
 
@@ -11,12 +13,6 @@ TTM等权市盈率：https://legulegu.com/stockdata/a-ttm-lyr
 股债利差：https://danjuanapp.com/valuation-table/jiucai
 集思录温度计：https://www.jisilu.cn/data/indicator/
 有知有行温度计：https://youzhiyouxing.cn/thermometer
-
-股债利差就是：用股票预期收益率减去十年国债收益率得到的差值（股票 - 债券）。
-
-数值越大代表此时买股票性价比越高于买债券。
-
-通常认为股债利差>3时，市场股票低估适合买入。
 """
 header_str = '''Accept: application/json, text/plain, */*
 Accept-Encoding: gzip, deflate, br
@@ -37,6 +33,43 @@ User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 
 
 class DanJuan:
+    """
+    lsd: {"lsd": {
+            "data": {
+                "id": 4667,
+                "periods": "1676",
+                "status": "1",
+                "time": "2021-06-08",
+                "comment": "高筑墙 广积粮 缓称王",
+                "grade": "3",
+                "valuations": [...]
+            },
+            "result_code": 0
+        }}
+
+    主要关注投资星级：1星为泡沫阶段，5星为投资价值最高阶段。
+    ===
+    股债利差就是：用股票预期收益率减去十年国债收益率得到的差值（股票 - 债券）。
+
+    数值越大代表此时买股票性价比越高于买债券。
+
+    通常认为股债利差>3时，市场股票低估适合买入。
+    jiucai： {"jiucai":{
+        "data":{
+            "id":4665,
+            "periods":"644",
+            "status":"1",
+            "time":"2021-06-08",
+            "comment":"A股整体估值偏低",
+            "spread_td":0.0244,     # 股债利差
+            "valuations":[...],
+            "ashares_total_percent":0.519   # A股整体估值分位
+        },
+        "result_code":0
+    }}
+
+    """
+
     channel_list = ['jiucai', 'lsd']
 
     def get_evl(self, url):
@@ -49,7 +82,7 @@ class DanJuan:
         url = f'https://danjuanapp.com/djapi/fundx/activity/user/vip_valuation/show/detail?source={channel}'
         return self.get_evl(url)
 
-    def eval_val(self):
+    def eval_val(self, is_overview=False):
         """
         抓取全部信息
         :return:
@@ -57,18 +90,22 @@ class DanJuan:
         info = dict()
         for channel in self.channel_list:
             item = self.get_detail(channel)
+            if is_overview:
+                data = item.get('data')
+                data.pop('spread_trends')
+                item['data'] = data
             info[channel] = item
-        import json
-        return json.dumps(info)
+        return info
 
     def overview(self):
         """
         只显示概要信息
         :return:
         """
-        pass
+        _info = self.eval_val(is_overview=True)
+        return json.dumps(_info, ensure_ascii=False)
 
 
 dj = DanJuan()
 if __name__ == '__main__':
-    print(dj.eval_val())
+    print(dj.overview())
