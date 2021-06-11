@@ -364,6 +364,12 @@ MYSQL_DB=
 >
 >`create_all()`方法被调用时正是通过这个属性来获取表信息。因此，当我们调用 create_all()前，需要确保模型类被声明创建。如果模型类存储在单独的模块中，不导入该模块就不会执行其中的代码，模型类便不会被创建，进而便无法注册表信息到 db.Model.metadata.tables 中，所以这时需要导入相应的模块。
 
+## TODO
+
+[flask-sqlalchemy中db.session.query和model.query方式要怎么选择 - Flask - HelloFlask 论坛](https://discuss.helloflask.com/t/topic/779)
+
+[python - What's the difference between Model.query and session.query(Model) in SQLAlchemy? - Stack Overflow](https://stackoverflow.com/questions/12350807/whats-the-difference-between-model-query-and-session-querymodel-in-sqlalchemy)
+
 参见：
 1. [sqlalchemy 中用 db.create_all()无法建表？ - 知乎](https://www.zhihu.com/question/21489726)
 2. [使用 Flask-SQLAlchemy 调用 create_all()前是否需要导入模型类？为什么？ - 知乎](https://www.zhihu.com/question/284904297)

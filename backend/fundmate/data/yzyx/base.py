@@ -4,7 +4,6 @@
 import re
 from pathlib import Path
 import json
-import dateparser
 
 from xalpha.cons import rget
 from backend.fundmate.data import utils as dt_utils
@@ -51,17 +50,11 @@ class YZYXTemp:
      'return_day': '0.005316',
      'rw_pb': '2.0300'}
         '''
-        today = datetime.today()
         html_fp = f'{current_path}/temp.html'
         json_fp = f'{current_path}/yzyx.json'
         p = Path(html_fp)
         # 文件过期则删除重爬
-        df_mt = dateparser.parse(str(p.stat().st_mtime))
-        y, m, d = df_mt.year, df_mt.month, df_mt.day
-        is_not_overdue = all([y == today.year, m == today.month, d == today.day])
-        if not is_not_overdue:
-            p.unlink()
-            Path(json_fp).unlink()
+        dt_utils.delete_overdue(html_fp, json_fp)
 
         if not p.exists():
             hd = dt_utils.parse_headers(header_str)

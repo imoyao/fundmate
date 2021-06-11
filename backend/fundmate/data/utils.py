@@ -1,6 +1,15 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # Created by Andy at 2021/6/7 14:53
+"""
+与爬虫有关的一些工具方法
+"""
+from pathlib import Path
+from datetime import datetime
+
+import dateparser
+
+
 def parse_headers(raw_header: str) -> dict:
     """
     通过原生请求头获取请求头字典
@@ -32,3 +41,24 @@ def parse_headers(raw_header: str) -> dict:
     :return:requests使用的字典
     """
     return dict([line.split(": ", 1) for line in raw_header.split("\n") if line != ''])
+
+
+def delete_overdue(html_fp, json_fp):
+    """
+    文件不是当天爬取，则重新爬取并删除旧的文件
+    :param html_fp:
+    :param json_fp:
+    :return:
+    """
+    today = datetime.today()
+    p = Path(html_fp)
+    # 文件过期则删除重爬
+    if p.exists():
+        df_mt = dateparser.parse(str(p.stat().st_mtime))
+        y, m, d = df_mt.year, df_mt.month, df_mt.day
+        is_not_overdue = all([y == today.year, m == today.month, d == today.day])
+        if not is_not_overdue:
+            p.unlink()
+            jp = Path(json_fp)
+            if p.exists():
+                jp.unlink()

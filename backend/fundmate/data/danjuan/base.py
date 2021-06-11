@@ -2,10 +2,11 @@
 # -*- coding: utf-8 -*-
 # Created by Andy at 2021/6/8 17:40
 import json
-
+import cachetools.func
 from xalpha.cons import rget_json
-from backend.fundmate.data import utils as dt_utils
 
+from backend.fundmate.data import utils as dt_utils
+from backend.fundmate import utils
 """
 https://www.jisilu.cn/question/abstract/310234#!answer_3709513
 具体指标查询网址
@@ -97,6 +98,7 @@ class DanJuan:
             info[channel] = item
         return info
 
+    @cachetools.func.ttl_cache(maxsize=128, ttl=utils.seconds_today_leaves())
     def overview(self):
         """
         只显示概要信息
