@@ -7,6 +7,7 @@ from xalpha.cons import rget_json
 
 from backend.fundmate.data import utils as dt_utils
 from backend.fundmate import utils
+
 """
 https://www.jisilu.cn/question/abstract/310234#!answer_3709513
 具体指标查询网址
@@ -73,19 +74,21 @@ class DanJuan:
 
     channel_list = ['jiucai', 'lsd']
 
-    def get_evl(self, url):
+    def get_detail(self, channel=None):
+        """
+        实际爬取函数的封装
+        :param channel:
+        :return:
+        """
+        assert channel in self.channel_list
+        url = f'https://danjuanapp.com/djapi/fundx/activity/user/vip_valuation/show/detail?source={channel}'
         hd = dt_utils.parse_headers(header_str)
         resp = rget_json(url, headers=hd)
         return resp
 
-    def get_detail(self, channel=None):
-        assert channel in self.channel_list
-        url = f'https://danjuanapp.com/djapi/fundx/activity/user/vip_valuation/show/detail?source={channel}'
-        return self.get_evl(url)
-
     def eval_val(self, is_overview=False):
         """
-        抓取全部信息
+        抓取信息
         :return:
         """
         info = dict()
