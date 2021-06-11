@@ -6,7 +6,7 @@
 """
 from pathlib import Path
 from datetime import datetime
-
+from typing import Union
 import dateparser
 
 
@@ -43,7 +43,7 @@ def parse_headers(raw_header: str) -> dict:
     return dict([line.split(": ", 1) for line in raw_header.split("\n") if line != ''])
 
 
-def delete_overdue(html_fp, json_fp):
+def delete_overdue(html_fp: Union[str, Path], json_fp: Union[str, Path]) -> int:
     """
     文件不是当天爬取，则重新爬取并删除旧的文件
     :param html_fp:
@@ -62,3 +62,4 @@ def delete_overdue(html_fp, json_fp):
             jp = Path(json_fp)
             if p.exists():
                 jp.unlink()
+    return 0

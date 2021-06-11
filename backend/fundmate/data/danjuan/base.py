@@ -4,6 +4,7 @@
 import json
 import cachetools.func
 from xalpha.cons import rget_json
+from typing import Union
 
 from backend.fundmate.data import utils as dt_utils
 from backend.fundmate import utils
@@ -74,10 +75,10 @@ class DanJuan:
 
     channel_list = ['jiucai', 'lsd']
 
-    def get_detail(self, channel=None):
+    def get_detail(self, channel: Union[str, None] = None):
         """
         实际爬取函数的封装
-        :param channel:
+        :param channel:订阅的数据源，现在支持 韭菜 和 螺丝钉
         :return:
         """
         assert channel in self.channel_list
@@ -86,7 +87,7 @@ class DanJuan:
         resp = rget_json(url, headers=hd)
         return resp
 
-    def eval_val(self, is_overview=False):
+    def eval_val(self, is_overview: bool = False):
         """
         抓取信息
         :return:
