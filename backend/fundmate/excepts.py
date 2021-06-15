@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# Created by Andy at 2021/6/7 15:49
+# Created by imoyao at 2021/6/7 15:49
 """
 [8. 错误和异常 — Python 3.9.1 文档](https://docs.python.org/zh-cn/3/tutorial/errors.html)
 """

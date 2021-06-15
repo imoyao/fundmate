@@ -1,7 +1,15 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# Created by Andy at 2021/6/8 17:40
-import json
+# Created by imoyao at 2021/6/8 17:40
+"""
+https://www.jisilu.cn/question/abstract/310234#!answer_3709513
+具体指标查询网址
+TTM等权市盈率：https://legulegu.com/stockdata/a-ttm-lyr
+股债利差：https://danjuanapp.com/valuation-table/jiucai
+螺丝钉指数估值表：https://danjuanfunds.com/screw/valuation-table?channel=1500012085
+集思录温度计：https://www.jisilu.cn/data/indicator/
+有知有行温度计：https://youzhiyouxing.cn/thermometer
+"""
 import cachetools.func
 from xalpha.cons import rget_json
 from typing import Union
@@ -9,14 +17,6 @@ from typing import Union
 from backend.fundmate.data import utils as dt_utils
 from backend.fundmate import utils
 
-"""
-https://www.jisilu.cn/question/abstract/310234#!answer_3709513
-具体指标查询网址
-TTM等权市盈率：https://legulegu.com/stockdata/a-ttm-lyr
-股债利差：https://danjuanapp.com/valuation-table/jiucai
-集思录温度计：https://www.jisilu.cn/data/indicator/
-有知有行温度计：https://youzhiyouxing.cn/thermometer
-"""
 header_str = '''Accept: application/json, text/plain, */*
 Accept-Encoding: gzip, deflate, br
 Accept-Language: zh-CN,zh;q=0.9,en;q=0.8,en-US;q=0.7
@@ -45,35 +45,68 @@ class DanJuan:
                 "time": "2021-06-08",
                 "comment": "高筑墙 广积粮 缓称王",
                 "grade": "3",
-                "valuations": [...]
+                "valuations": [{
+                    "dividend_yield": 0.0313,   # 股息率
+                    "id": 21996,
+                    "index_code": "000919",
+                    "index_name": "300价值",
+                    "outside_fund": "519671",   # 场外基金
+                    "pb": 1.03,                 # 市净率
+                    "pe": 9.95,                 # 市盈率
+                    "profit_yield": 0.1005,     # 盈利收益率
+                    "relation_id": 4675,
+                    "roe": 0.1031,              # ROE
+                    "valuation_status": "1"     # 估值状态（越小投资价值越大）
+                },
+                ...]
             },
             "result_code": 0
         }}
 
     主要关注投资星级：1星为泡沫阶段，5星为投资价值最高阶段。
-    ===
+    ---
+    [A股估值方法的详细说明](https://mp.weixin.qq.com/s/E4Ne_OfsRRjUBK9vWL2ABg)
+
     股债利差就是：用股票预期收益率减去十年国债收益率得到的差值（股票 - 债券）。
 
     数值越大代表此时买股票性价比越高于买债券。
 
+    绿色:估值较低，适合定投
+    黄色:估值正常，可以观望
+    红色:估值较高，谨慎投资
+
+
     通常认为股债利差>3时，市场股票低估适合买入。
-    jiucai： {"jiucai":{
-        "data":{
-            "id":4665,
-            "periods":"644",
-            "status":"1",
-            "time":"2021-06-08",
-            "comment":"A股整体估值偏低",
-            "spread_td":0.0244,     # 股债利差
-            "valuations":[...],
-            "ashares_total_percent":0.519   # A股整体估值分位
+    jiucai： {"jiucai": {
+        "data": {
+            "id": 4665,
+            "periods": "644",
+            "status": "1",
+            "time": "2021-06-08",
+            "comment": "A股整体估值偏低",
+            "spread_td": 0.0244,  # 股债利差
+            "valuations": [{"crowding_degree": 0.045,   # 拥挤度
+                            "id": 22025,
+                            "index_code": "399905",     # 指数编码
+                            "index_name": "中证500",     # 指数名称
+                            "index_type": "宽基指数",    # 指数类型
+                            "inside_fund": "510500",    # 场内基金编号
+                            "outside_fund": "510500",   # 场外基金编号
+                            "pb": 2.15,                 # PB 市净率
+                            "pb_percent": 0.285,        # PB百分位
+                            "pe": 25.55,                # PE市盈率
+                            "relation_id": 4676,        
+                            "valuation_status": "1"     # 估值状态（越小投资价值越大）
+                            },...],
+            "ashares_total_percent": 0.519  # A股整体估值分位
         },
-        "result_code":0
+        "result_code": 0
     }}
 
     """
 
-    channel_list = ['jiucai', 'lsd']
+
+    CHANNEL_LIST = ['jiucai', 'lsd']
 
     def get_detail(self, channel: Union[str, None] = None):
         """
@@ -81,7 +114,7 @@ class DanJuan:
         :param channel:订阅的数据源，现在支持 韭菜 和 螺丝钉
         :return:
         """
-        assert channel in self.channel_list
+        assert channel in self.CHANNEL_LIST
         url = f'https://danjuanapp.com/djapi/fundx/activity/user/vip_valuation/show/detail?source={channel}'
         hd = dt_utils.parse_headers(header_str)
         resp = rget_json(url, headers=hd)
@@ -93,7 +126,7 @@ class DanJuan:
         :return:
         """
         info = dict()
-        for channel in self.channel_list:
+        for channel in self.CHANNEL_LIST:
             item = self.get_detail(channel)
             if is_overview:
                 data = item.get('data')
@@ -109,7 +142,7 @@ class DanJuan:
         :return:
         """
         _info = self.eval_val(is_overview=True)
-        return json.dumps(_info, ensure_ascii=False)
+        return _info
 
 
 dj = DanJuan()

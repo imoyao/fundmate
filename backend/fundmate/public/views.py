@@ -6,11 +6,10 @@ from apiflask import Schema, input, output, abort, APIBlueprint
 from apiflask.fields import Integer, String
 from apiflask.validators import Length, OneOf
 
-
 from backend.fundmate.extensions import login_manager
 from backend.fundmate.user.models import User
 from backend.fundmate.schema_ext import RegisterSchema
-
+from backend.fundmate.data import yzyx, jsl, danjuan
 
 bp = APIBlueprint("public", __name__)
 
@@ -104,3 +103,17 @@ def logout():
 def about():
     """About page."""
     return 'render_template("public/about.html")'
+
+
+@bp.get('/thermometers')
+def thermometer():
+    """
+    行情估值信息
+    目前包括集思录温度、有知有行温度、蛋卷估值
+    :return:
+    """
+    yzyx_info = yzyx.yzyx.last()
+    jsl_info = jsl.jsl.overview()
+    dj_info = danjuan.dj.overview()
+    info = {'yzyx': yzyx_info, 'jsl': jsl_info, 'dj': dj_info}
+    return info

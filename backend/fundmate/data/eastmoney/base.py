@@ -1,7 +1,6 @@
 """
 天天基金网数据获取
 """
-# from xalpha.cons import rget
 import re
 import json
 import requests

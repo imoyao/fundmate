@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# Created by Andy at 2021/6/7 14:53
+# Created by imoyao at 2021/6/7 14:53
 """
 与爬虫有关的一些工具方法
 """
 from pathlib import Path
 from datetime import datetime
-from typing import Union
+from typing import Union, Generator
 import dateparser
 
 
@@ -41,6 +41,19 @@ def parse_headers(raw_header: str) -> dict:
     :return:requests使用的字典
     """
     return dict([line.split(": ", 1) for line in raw_header.split("\n") if line != ''])
+
+
+def paginate(count: int, size: int = 10) -> Generator:
+    """
+    爬虫爬取时针对页面分页功能
+    :param count:
+    :param size:
+    :return:
+    """
+    page = 0
+    for i in range(0, count, size):
+        page += 1
+        yield page, size
 
 
 def delete_overdue(html_fp: Union[str, Path], json_fp: Union[str, Path]) -> int:

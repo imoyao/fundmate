@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# Created by Andy at 2021/6/10 11:43
+# Created by imoyao at 2021/6/10 11:43
 import re
 from pathlib import Path
 
@@ -149,5 +149,6 @@ jsl = JSL()
 if __name__ == '__main__':
     data = jsl.overview()
     print(data)
+    # 看缓存效果
     data = jsl.overview()
     print(data)
