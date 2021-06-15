@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# Created by Andy at 2021/5/31 11:47
+# Created by imoyao at 2021/5/31 11:47
 """
 基金销售机构信息
 """
-from typing import Generator
+
 from xalpha.cons import rget_json
 from backend.fundmate.fund.models import FundSaleOrg
 from backend.fundmate.data import utils as db_utils
@@ -28,25 +28,6 @@ User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 '''
 
 
-def paginate(count: int, size: int = 10) -> Generator:
-    """
-    爬虫爬取时针对页面分页功能
-    :param count:
-    :param size:
-    :return:
-    """
-    page = 0
-    for i in range(0, count, size):
-        page += 1
-        yield page, size
-
-
-USUAL_SALE_COMPS = {'1619': '蚂蚁财富（支付宝）',
-                    '1615': '天天基金',
-                    '1730': '腾讯腾安（理财通）',
-                    '1701': '蛋卷基金',
-                    '1686': '盈米/且慢'
-                    }
 
 
 def agency_info() -> list:
@@ -61,7 +42,7 @@ def agency_info() -> list:
     org_info = list()
     if resp.get('code') == 200:
         data_counts = resp.get('data').get('data').get('total')
-        for page, size in paginate(data_counts, size=size):
+        for page, size in db_utils.paginate(data_counts, size=size):
             params = {
                 'pageNo': page,
                 'pageSize': size

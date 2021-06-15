@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# Created by Andy at 2021/6/7 14:33
+# Created by imoyao at 2021/6/7 14:33
 """
 使用说明
 [ssikiki/FundXirr: 利用XIRR算法计算基金定投年化收益率](https://github.com/ssikiki/FundXirr)

@@ -1,14 +1,14 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# Created by Andy at 2021/6/7 14:42
+# Created by imoyao at 2021/6/7 14:42
 import re
 from pathlib import Path
 import json
 
 from xalpha.cons import rget
+
 from backend.fundmate.data import utils as dt_utils
 from backend.fundmate import excepts as dt_except
-from datetime import datetime
 from backend.fundmate.exts.flask_loguru import logger
 
 header_str = '''Host: youzhiyouxing.cn
@@ -31,15 +31,20 @@ Cookie: _flourish_data=SFMyNTY.g2gDdAAAAAFkAAlkZXZpY2VfaWRtAAAAJGM4MDhkM2YzLTdkZ
 current_path = Path.cwd()
 
 
-class YZYXTemp:
+class YZYX:
     """
     有知有行温度计
+    每个交易日晚 8 点，更新当日股市温度 TODO: 增加定时获取功能
     """
+    URL = 'https://youzhiyouxing.cn/thermometer'
 
     def daily_temp(self) -> list:
         """
-        [{"asset_rate": "386.2744", "avg_return_3": null, "close": "765.6346", "date": "2005-01-07", "degree": 9, "return_day": "0.002397", "rw_pb": "1.9821"}, {"asset_rate": "385.8761", "avg_return_3": null, "close": "767.3533", "date": "2005-01-14", "degree": 9, "return_day": "-0.011090", "rw_pb": "1.9886",...}
-        :return:
+        每日温度历史值
+        :return:[{"asset_rate": "386.2744", "avg_return_3": null, "close": "765.6346", "date": "2005-01-07", "degree": 9,
+      "return_day": "0.002397", "rw_pb": "1.9821"},
+     {"asset_rate": "385.8761", "avg_return_3": null, "close": "767.3533", "date": "2005-01-14", "degree": 9,
+      "return_day": "-0.011090", "rw_pb": "1.9886",...}]
         """
         '''
         {'asset_rate': '2761.9669', 
@@ -58,7 +63,7 @@ class YZYXTemp:
 
         if not p.exists():
             hd = dt_utils.parse_headers(header_str)
-            resp = rget('https://youzhiyouxing.cn/thermometer', headers=hd)
+            resp = rget(self.URL, headers=hd)
             with open(html_fp, 'w') as f:
                 text = resp.text
                 f.write(text)
@@ -80,7 +85,7 @@ class YZYXTemp:
         return self.daily_temp()[-1]
 
 
-yzyx_temp = YZYXTemp()
+yzyx = YZYX()
 
 if __name__ == '__main__':
-    print(yzyx_temp.last())
+    print(yzyx.last())

@@ -13,17 +13,22 @@ import xalpha as xa
 
 tk_code = 'TK1001'
 page_num = 20
+# 对一些常用平台，设置简称，方便用户查找
+USUAL_SALE_COMPS = {'1619': '蚂蚁财富（支付宝）',
+                    '1615': '天天基金',
+                    '1730': '腾讯腾安（理财通）',
+                    '1701': '蛋卷基金',
+                    '1686': '盈米/且慢'
+                    }
 
 
 def get_info():
-    # base_url = f'http://dq.jd.com/pension/item/netValueDetail?pageNo={page_num}&fundCode={tk_code}'
     req_url = f'http://dq.jd.com/pension/item/netValueDetail?pageNo=1&fundCode={tk_code}'
+    # TODO: use rget_json
     start_data = do_get(req_url)
     pager = start_data.get('result').get('pager')
     total_page = pager.get('totalPage')
     data = []
-    # print(type(total_page))
-    # total_page = 1
     for i in range(1, total_page + 1):
         base_url = f'http://dq.jd.com/pension/item/netValueDetail?pageNo={i}&fundCode={tk_code}'
         ret = do_get(base_url)
@@ -33,7 +38,7 @@ def get_info():
             val = item.get('netValue')
             info = {'date': date, 'val': val}
             data.append(info)
-        time.sleep(.3)
+        time.sleep(.1)
     with open(f'./{tk_code}.json', 'w') as f:
         json.dump(data, f)
     print(data)
@@ -63,7 +68,7 @@ def cal(val_list):
     print(f'buy count:{per_count},start:{val_list[0]},end:{val_list[-1]}')
     ret_start = 0
     for j in val_list:
-        item_val = per_count * j-10000
+        item_val = per_count * j - 10000
         # print(item_val)
         if item_val > 0:
             ret_start += item_val

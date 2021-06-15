@@ -4,16 +4,8 @@
 TODO: 如果后期变大，则拆分为多个文件
 关于时间显示，我们统一为 ISO-8601 格式:https://kirby.kevinson.org/blog/iso-8601-the-better-date-format/
 """
-from flask import flash
 from datetime import datetime, timedelta
 import dateparser
-
-
-def flash_errors(form, category="warning"):
-    """Flash all errors for a form."""
-    for field, errors in form.errors.items():
-        for error in errors:
-            flash(f"{getattr(form, field).label.text} - {error}", category)
 
 
 def today() -> str:

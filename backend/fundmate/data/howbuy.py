@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# Created by Administrator at 2021/1/30 11:03
+# Created by imoyao at 2021/1/30 11:03
 
 
 class HowBuy:

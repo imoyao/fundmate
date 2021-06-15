@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# Created by Andy at 2021/5/24 15:19
+# Created by imoyao at 2021/5/24 15:19
 """
 将view 公用提出来
 """

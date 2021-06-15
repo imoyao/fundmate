@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# Created by Administrator at 2021/2/13 18:12
+# Created by imoyao at 2021/2/13 18:12
 
 from backend.fundmate.database import Base, Column, CreateDateModel, PkModel, db, reference_col
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# Created by Andy at 2021/6/7 17:47
+# Created by imoyao at 2021/6/7 17:47
 import baostock as bs
 import pandas as pd
 from contextlib import contextmanager
@@ -10,7 +10,13 @@ from backend.fundmate.libs import convert
 
 
 @contextmanager
-def trade_days(start_date: str, end_date: str):
+def trade_days_gen(start_date: str, end_date: str):
+    """
+    用于历史交易日查询（包括当年）的生成器
+    :param start_date:
+    :param end_date:
+    :return:
+    """
     str_to_date = convert.try_parse_date(end_date)
     delta = timedelta(days=1)
     real_end_date = str_to_date+delta
@@ -23,7 +29,6 @@ def trade_days(start_date: str, end_date: str):
         data_list = []
         while rs.error_code == '0' and rs.next():
             # 获取一条记录，将记录合并在一起
-            print(rs.get_row_data())
             data_list.append(rs.get_row_data())
         result = pd.DataFrame(data_list, columns=rs.fields)
         result = result.replace({'is_trading_day': {'1': True,
@@ -40,6 +45,6 @@ def trade_days(start_date: str, end_date: str):
 
 
 if __name__ == '__main__':
-    with trade_days('2017-01-01', '2017-06-30') as days:
+    with trade_days_gen('2017-01-01', '2017-06-30') as days:
         ret = days.to_dict(orient='records')
         print(ret)
