@@ -33,6 +33,7 @@ class EastMoney:
 
     def company(self, save: bool = False):
         """
+        基金公司入库
         原始链接：[基金公司一览表 _ 天天基金网](http://fund.eastmoney.com/company/default.html)
         api: http://fund.eastmoney.com/Data/FundRankScale.aspx
         :return: list,
@@ -118,6 +119,11 @@ class EastMoney:
         return fund_type_set
 
     def save_to_db(self):
+        """
+        保存到数据库
+        TODO:该接口没有完成
+        :return:
+        """
         funds = em.fund()
         fund_list = json.loads(funds)
         fd_types = self.fund_types(fund_list)
@@ -127,6 +133,7 @@ class EastMoney:
             f_tp = FundVariety.create(**_info)
             type_id = f_tp.id
             type_map[ft] = type_id
+        # 将基金信息写入fund表
         for f in fund_list:
             # ["000001","HXCZHH","华夏成长混合","混合型","HUAXIACHENGZHANGHUNHE"]
             code, szm, name, f_type_name, qpy = f

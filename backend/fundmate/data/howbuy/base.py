@@ -22,11 +22,13 @@ class HowBuy:
             "jjjlsl": 32,  # 经理数量
             "jjsl": 166,  # 基金数量
             "jjzcjz": 1.43527906996264E12,  # 管理规模（亿元）
-            "rydm": "30180540",  # 代表经理代码
-            "ryxm": "姜晓丽"  # 代表经理姓名
+            "rydm": "30180540",  # 经理代码
+            "ryxm": "姜晓丽"  # 经理姓名
         }
         return item.keys()
 
 
 hb = HowBuy()
-print(hb.company())
+
+if __name__ == '__main__':
+    print(hb.company())

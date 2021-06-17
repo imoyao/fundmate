@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 # Created by imoyao at 2021/6/7 14:53
 """
-与爬虫有关的一些工具方法
+与爬虫、数据处理有关的一些工具方法
 """
 from pathlib import Path
 from datetime import datetime

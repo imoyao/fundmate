@@ -82,7 +82,6 @@ class FundCompanyView(MethodView):
         """
         获取基金公司信息
         """
-        print(query, '========111======')
         if query:
             ret = paginate_query(FundCompany, query)
         else:
