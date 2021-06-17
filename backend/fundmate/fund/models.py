@@ -72,7 +72,7 @@ class FundRate(PkModel):
     type = Column(db.Boolean, nullable=True, comment='卖出或买入')  # TODO:多态关联
 
 
-class FundSaleOrg(PkModel,UpsertMixin):
+class FundSaleOrg(PkModel, UpsertMixin):
     """
     基金销售机构
     """
@@ -122,16 +122,39 @@ class FundCompany(PkModel, UpsertMixin):
 class FundType(PkModel):
     __table_args__ = {'comment': '基金小类表'}
 
-    name = Column(db.String(255))
+    name = Column(db.String(255), unique=True)
     var_id = Column(db.Integer,
                     db.ForeignKey('fund_variety.id'),
                     comment='基金大类编号')
 
 
 class FundVariety(PkModel, CRUDMixin):
+    """
+    根据投资对象的不同，可以将其分为股票型基金、债
+    券型基金、混合型基金和货币型基金。根据证监会对基金
+    的分类标准，股票型基金是指基金资产 80% 以上投资于股
+    票的基金；80% 以上基金资产投资于债券的基金为债券型
+    基金。混合型基金是指以股票、债券等为投资对象的基金，
+    混合基金根据股、债资产投资比例及其投资策略又可分为
+    偏股型基金、偏债型基金、平衡型基金等。货币型基金主
+    要投资于国债、央行票据、银行定期存单、同业存款等低
+    风险的短期有价证券（一般期限在一年以内，平均期限
+    120 天）。
+    根据运作方式的不同，可分为开放式基金和封闭式基金。
+    根据投资地域的不同，可分为投资国内证券市场的 A
+    股 基 金 和 投 资 境 外 市 场 的 QDII（Qualified Domestic
+    Institutional Investor，即合格境内机构投资者）基金。
+    根据投资策略的不同，可分为主动基金和被动基金。
+    主动基金是基金管理人主动管理，以取得超越市场的业绩
+    表现为目标的一种基金，需要由基金经理对证券市场进行
+    深入研究，主动选择投资品种来确定投资组合。被动基金
+    一般指的是指数基金。
+    参见：《基金投资者权益保护读本》 P28
+        投资者入市手册（基金篇） P15
+    """
     __table_args__ = {'comment': '基金大类表'}
 
-    name = Column(db.String(255))  # django model 中的 choices
+    name = Column(db.String(255), unique=True)  # django model 中的 choices
 
 
 class InRule(PkModel):
