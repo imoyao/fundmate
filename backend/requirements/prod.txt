@@ -15,13 +15,13 @@ Flask-Migrate==2.7.0
 
 # Forms
 email-validator==1.1.2
-Flask-WTF==0.14.3
+Flask-WTF==0.15.1
 WTForms==2.3.3
 
 # Deployment
 gevent==21.1.2
 gunicorn>=19.9.0
-supervisor==4.2.1
+supervisor==4.2.2
 
 # Flask Static Digest
 # Flask-Static-Digest==0.2.1
