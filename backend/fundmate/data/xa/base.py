@@ -54,13 +54,15 @@ def main(fund_type: str = 'all') -> int:
     :param fund_type:
     :return:
     """
+    import time
+    start_time = time.time()
     all_funds = xa.misc.get_fund_list(fund_type)
     # 这样会导致表数量明显增多，是否会影响性能？[MySQL 数据库表的数量很多会造成什么不良影响？ - SegmentFault 思否](https://segmentfault.com/q/1010000000523024)
     # [Have too many tables in a Mysql database can affect performance? - Server Fault](https://serverfault.com/questions/83438/have-too-many-tables-in-a-mysql-database-can-affect-performance)
     for fund in all_funds:
-        print(fund, '==========')
         ret = fund_info(fund, save=True)
         print(ret)
+    logger.info(f'It cost {time.time() - start_time} to update fund value DB.')
     return 0
 
 
