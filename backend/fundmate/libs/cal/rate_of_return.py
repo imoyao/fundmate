@@ -47,13 +47,12 @@ import datetime
 from functools import partial
 from typing import Iterable, List, Union
 
-
 import numpy_financial as npf
 import scipy.optimize
 from deprecated import deprecated
 
-from backend.fundmate.libs import convert
 from backend.fundmate import excepts
+from backend.fundmate.libs import convert
 
 DAYS_PER_YEAR = 365.0
 MONTH_PER_YEAR = 12

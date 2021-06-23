@@ -3,20 +3,19 @@
 import logging
 import sys
 
-from flask import Flask
 from apiflask import APIFlask
+from flask import Flask
 
 from backend.fundmate import account, commands, fund, public, settings, user
 from backend.fundmate.config import config
-from backend.fundmate.extensions import (bcrypt, cache, db,
-                                         flask_static_digest, login_manager, loguru, migrate)
+from backend.fundmate.extensions import bcrypt, cache, db, flask_static_digest, login_manager, loguru, migrate
 
 from .exts.flask_loguru import logger
 
 
 def print_logo():
     logo_str = r'''
-    
+
       ___           ___           ___                                  ___           ___                         ___     
      /\__\         /\  \         /\  \         _____                  /\  \         /\  \                       /\__\    
     /:/ _/_        \:\  \        \:\  \       /::\  \                |::\  \       /::\  \         ___         /:/ _/_   

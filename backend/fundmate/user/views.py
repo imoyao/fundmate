@@ -1,16 +1,15 @@
 # -*- coding: utf-8 -*-
 """User views."""
-from flask.views import MethodView
-from apiflask import Schema, input, output, abort, APIBlueprint
-from apiflask.fields import Integer, String, Boolean, Email
+from apiflask import APIBlueprint, Schema, abort, input, output
+from apiflask.fields import Boolean, Email, Integer, String
 from apiflask.validators import Length, Range
+from flask.views import MethodView
 
-from backend.fundmate.view_ext import paginate_query
-from backend.fundmate.user.models import User
 from backend.fundmate.extensions import login_manager
+from backend.fundmate.user.models import User
+from backend.fundmate.view_ext import paginate_query
 
 bp = APIBlueprint("user", __name__, url_prefix="/users")
-
 
 # blueprint = Blueprint("user", __name__, url_prefix="/users", static_folder="../static")
 
@@ -87,6 +86,7 @@ class UserDetail(MethodView):
         if user_obj is not None:
             _user = User.delete(user_obj)
         return ''
+
 
 @bp.route('/<int:fund_id>/facous')
 class FundFaver(MethodView):

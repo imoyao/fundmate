@@ -108,9 +108,7 @@ class Loguru(object):
             path = pathlib.Path(config["LOG_PATH"]).joinpath(config["LOG_NAME"])
 
         def should_rotate(message, file):
-            # filepath = os.path.abspath(file.name)
             filepath = pathlib.Path(file.name).resolve()
-            # creation = os.path.getctime(filepath)
             creation = pathlib.Path(filepath).stat().st_ctime
             now = message.record["time"].timestamp()
             return now - creation > config["LOG_ROTATION"]

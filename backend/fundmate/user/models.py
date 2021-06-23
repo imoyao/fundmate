@@ -7,12 +7,12 @@ from flask import current_app
 from flask_login import AnonymousUserMixin, UserMixin
 from itsdangerous import BadSignature, SignatureExpired
 from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
-from werkzeug.security import check_password_hash, generate_password_hash
 from sqlalchemy import Table
+from werkzeug.security import check_password_hash, generate_password_hash
 
-from backend.fundmate.database import Column, CreateDateModel, PkModel, db, relationship, Base
-from backend.fundmate.extensions import login_manager
 from backend.fundmate import settings
+from backend.fundmate.database import Base, Column, CreateDateModel, PkModel, db, relationship
+from backend.fundmate.extensions import login_manager
 
 # [多对多双向关系](https://docs.sqlalchemy.org/en/14/orm/basic_relationships.html#many-to-many)
 '''

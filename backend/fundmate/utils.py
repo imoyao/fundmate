@@ -2,9 +2,9 @@
 """Helper utilities and decorators.
 整个项目中的工具函数
 TODO: 如果后期变大，则拆分为多个文件
-关于时间显示，我们统一为 ISO-8601 格式:https://kirby.kevinson.org/blog/iso-8601-the-better-date-format/
 """
 from datetime import datetime, timedelta
+
 import dateparser
 
 

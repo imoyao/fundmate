@@ -4,9 +4,10 @@
 """
 与爬虫、数据处理有关的一些工具方法
 """
-from pathlib import Path
 from datetime import datetime
-from typing import Union, Generator
+from pathlib import Path
+from typing import Generator, Union
+
 import dateparser
 
 

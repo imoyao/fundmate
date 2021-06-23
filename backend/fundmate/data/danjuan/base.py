@@ -10,12 +10,13 @@ TTM等权市盈率：https://legulegu.com/stockdata/a-ttm-lyr
 集思录温度计：https://www.jisilu.cn/data/indicator/
 有知有行温度计：https://youzhiyouxing.cn/thermometer
 """
-import cachetools.func
-from xalpha.cons import rget_json
 from typing import Union
 
-from backend.fundmate.data import utils as dt_utils
+import cachetools.func
+from xalpha.cons import rget_json
+
 from backend.fundmate import utils
+from backend.fundmate.data import utils as dt_utils
 
 header_str = '''Accept: application/json, text/plain, */*
 Accept-Encoding: gzip, deflate, br

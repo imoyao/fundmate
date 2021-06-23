@@ -2,15 +2,15 @@
 # -*- coding: utf-8 -*-
 # Created by imoyao at 2021/2/13 17:50
 
-from backend.fundmate.database import Column, CreateDateModel, PkModel, CRUDMixin, UpsertMixin, db, reference_col, \
-    relationship
+from backend.fundmate.database import (Column, CreateDateModel, CRUDMixin, PkModel,
+                                       UpsertMixin, db, reference_col, relationship)
 
 
 class DailyWorth(PkModel, CreateDateModel):
-    """每日估算净值（真实净值按照基金名称分表存储）"""
+    """每日估算净值（初始净值数据按照基金名称分表存储，然后我们需要 TODO:合并表）"""
     price = Column(db.Float, comment='基金单日净值')
     date = Column(db.Date, comment='日期')
-    fund_id = reference_col('funds', column_kwargs={'comment': '基金编号'})
+    fund_id = reference_col('funds', column_kwargs={'comment': '基金编号'}) # TODO: 到底使用id还是使用基金的6位编码
     fund = relationship("Fund", uselist=False, back_populates="daily_worth")
 
 
@@ -172,6 +172,20 @@ class Mgr(PkModel):
     company_id = Column(db.Integer,
                         db.ForeignKey('fund_company.id'),
                         comment='所属公司ID')
+
+
+class FundPortfolio(PkModel):
+    """
+    基金组合，爬取一些具有代表性的组合
+    """
+    pass
+
+
+class FundPortfolioDetail(PkModel):
+    """
+    组合调仓记录
+    """
+    pass
 
 
 class OutRule(PkModel):

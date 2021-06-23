@@ -5,11 +5,13 @@
 使用说明
 [ssikiki/FundXirr: 利用XIRR算法计算基金定投年化收益率](https://github.com/ssikiki/FundXirr)
 """
-import requests
+import datetime
 import json
 import time
-import datetime
+
+import requests
 from bs4 import BeautifulSoup
+
 requests.packages.urllib3.disable_warnings()
 
 Cookie = "..."
