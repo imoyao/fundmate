@@ -16,6 +16,8 @@ max-line-length = 120
 exclude = migrations/*,.git,__pycache__,old,build,dist
 max-complexity = 10
 ```
+[Pycharm 配置使用flake8进行语法检测_张聪的博客-CSDN博客](https://blog.csdn.net/crazy_zhangcong/article/details/87860276)
+
 ### isort
 使用 isort 来解决自动导入的问题。下面一个我个人使用的配置，后期可能继续对比修改配置
 ```buildoutcfg
@@ -49,6 +51,8 @@ split_before_logical_operator = true
 BLANK_LINE_BEFORE_NESTED_CLASS_OR_DEF = true
 COLUMN_LIMIT = 79
 ```
+配置方案参考此处：[How do I install yapf in pycharm · Issue #631 · google/yapf](https://github.com/google/yapf/issues/631)
+
 ### mypy
 
 [Applying mypy to real world projects](http://calpaterson.com/mypy-hints.html)
@@ -56,6 +60,7 @@ COLUMN_LIMIT = 79
 ## 相关阅读
 
 [我为什么不喜欢 black - 小明明 s à domicile](https://www.dongwm.com/post/why-i-dont-like-black/)
+[How I use black, flake8 and isort to format Python2 code](https://thecesrom.dev/2021/03/06/how-i-use-black-flake8-and-isort-to-format-python2-code/)
 
 配置可参考（TODO）：
 [flask/setup.cfg at master · pallets/flask](https://github.com/pallets/flask/blob/master/setup.cfg)
