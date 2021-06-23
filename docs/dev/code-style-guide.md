@@ -1,5 +1,6 @@
 ---
 title: 项目中代码规范问题
+permalink: /dev/code-style
 ---
 ## 规范
 我们以[PEP8](https://wiki.masantu.com/peps/pep-0008/)作为项目中的指导规范，为了饯行上述准则，我们引入以下工具帮助我们实践。
@@ -35,6 +36,8 @@ sections = FUTURE,STDLIB,FLASK,TEST,FIRSTPARTY,THIRDPARTY,LOCALFOLDER
 > 如果列表，元组或 python 字典的字面值分布在多行中，则更容易添加更多元素，因为不必记住在上一行中添加逗号。这些行也可以重新排序，而不会产生语法错误。
 
 [为什么 Python 在列表和元组的末尾允许使用逗号？ - 红皮橘子 - 博客园](https://www.cnblogs.com/yuanrenxue/p/10691184.html)
+此外处理预提交时的配置中增加：
+[Pre Commit - isort](https://pycqa.github.io/isort/docs/configuration/pre-commit.html)
 
 ### yapf
 一种自动修复 pep8 错误的工具
