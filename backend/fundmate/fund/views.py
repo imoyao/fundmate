@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """User views."""
-from apiflask import Schema, input, output, abort, APIBlueprint
-from apiflask.fields import Integer, String, Date, Number, Function, Nested
+from apiflask import APIBlueprint, Schema, abort, input, output
+from apiflask.fields import Date, Function, Integer, Nested, Number, String
 from apiflask.validators import Length, Range
 from flask.views import MethodView
 
+from backend.fundmate.fund.models import Fund, FundCompany, FundMgr, FundSaleOrg
 from backend.fundmate.view_ext import paginate_query
-from backend.fundmate.fund.models import Fund, FundMgr, FundCompany, FundSaleOrg
 
 bp = APIBlueprint("fund", __name__, url_prefix="/funds")
 

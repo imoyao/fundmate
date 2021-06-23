@@ -1,13 +1,14 @@
 """
 天天基金网数据获取
 """
-import re
 import json
-import requests
+import re
 from pathlib import Path
 from typing import Union
 
-from backend.fundmate.fund.models import FundVariety, FundCompany
+import requests
+
+from backend.fundmate.fund.models import FundCompany, FundVariety
 
 current_path = Path.cwd()
 FUND_FP = f'{str(current_path)}/fund.json'

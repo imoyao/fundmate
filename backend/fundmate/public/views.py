@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 """Public section, including homepage and signup."""
-from flask import flash, redirect, request, url_for
-from flask.views import MethodView
-from apiflask import Schema, input, output, abort, APIBlueprint
+from apiflask import APIBlueprint, Schema, abort, input, output
 from apiflask.fields import Integer, String
 from apiflask.validators import Length, OneOf
+from flask import flash, redirect, request, url_for
+from flask.views import MethodView
 
+from backend.fundmate.data import danjuan, jsl, yzyx
 from backend.fundmate.extensions import login_manager
-from backend.fundmate.user.models import User
 from backend.fundmate.schema_ext import RegisterSchema
-from backend.fundmate.data import yzyx, jsl, danjuan
+from backend.fundmate.user.models import User
 
 bp = APIBlueprint("public", __name__)
 

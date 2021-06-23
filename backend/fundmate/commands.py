@@ -30,13 +30,18 @@ def check_before_create(drop=False):
     :return:
     """
     if drop:
-        click.confirm('This operation will delete the database, do you want to continue?', abort=True)
+        click.confirm(
+            'This operation will delete the database, do you want to continue?',
+            abort=True)
         db.drop_all()
     db.create_all()
 
 
 @click.command()
-@click.option('--drop', default=False, is_flag=True, help='Create databases after drop.')
+@click.option('--drop',
+              default=False,
+              is_flag=True,
+              help='Create databases after drop.')
 def init_db(drop):
     """Initialized databases
     """
@@ -65,7 +70,8 @@ def create_db(fund, mgr, company):
     "--check",
     default=False,
     is_flag=True,
-    help="Don't make any changes to files, just confirm they are formatted correctly",
+    help=
+    "Don't make any changes to files, just confirm they are formatted correctly",
 )
 def lint(fix_imports, check):
     """Lint and check code style with black, flake8 and isort."""

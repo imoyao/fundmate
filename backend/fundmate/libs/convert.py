@@ -1,11 +1,12 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # Created by imoyao at 2021/1/11 0:27
-from distutils import util
 import locale
+from distutils import util
+from typing import Union
 
 import dateparser
-from typing import Union
+
 from backend.fundmate import excepts
 
 

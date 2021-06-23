@@ -4,6 +4,7 @@
 import json
 from pathlib import Path
 from typing import Union
+
 import yaml
 
 CURRENT_PATH = Path(__file__).resolve().parent

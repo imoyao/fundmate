@@ -6,7 +6,6 @@
 
 from backend.fundmate.user.models import User
 
-
 # class LoginForm(FlaskForm):
 #     """Login form."""
 #

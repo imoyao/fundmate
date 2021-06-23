@@ -2,6 +2,7 @@
 """Database module, including the SQLAlchemy database object and DB-related utilities."""
 from datetime import datetime
 from typing import Union
+
 from apiflask import pagination_builder
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.sql import func

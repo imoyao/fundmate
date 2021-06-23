@@ -5,10 +5,9 @@
 公用schema提取
 """
 from apiflask import Schema
-from apiflask.fields import String, Boolean, Email
-from apiflask.validators import Length, Equal
-from marshmallow import pre_load, ValidationError
-
+from apiflask.fields import Boolean, Email, String
+from apiflask.validators import Equal, Length
+from marshmallow import ValidationError, pre_load
 
 from backend.fundmate.user.models import User
 
