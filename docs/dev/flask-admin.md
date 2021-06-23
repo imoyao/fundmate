@@ -276,7 +276,7 @@ pip install flask-login
 ### 管理上传文件和图片
 
 文件上传，很简单的调用 FileAdmin 即可
-```plain
+```python
 
 from flask_admin.contrib.fileadmin import FileAdmin
 
