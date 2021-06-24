@@ -33,7 +33,6 @@ jobs:
           registry-url: "https://registry.npmjs.org"
       - name: Install Node dependencies
         run: npm install
-      #- run: cp .env.example .env
       - name: Run Node lints
         run: yarn run lint-md
   frontendunit:

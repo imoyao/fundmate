@@ -110,9 +110,9 @@ JWT:由于[此处-Issue #123](https://github.com/mattupstate/flask-jwt/issues/12
 4. [Token-Based Authentication With Flask – Real Python](https://realpython.com/token-based-authentication-with-flask/)
 5. [Using Flask-JWT with Flask-Login - Ivan's Software Engineering BlogIvan's Software Engineering Blog](https://ai-facets.org/using-flask-jwt-with-flask-login/)
 6. [RESTful Authentication with Flask - miguelgrinberg.com](https://blog.miguelgrinberg.com/post/restful-authentication-with-flask)
-7. [细说API – 认证、授权和凭证 - 知乎](https://zhuanlan.zhihu.com/p/60522006)
+7. [细说 API – 认证、授权和凭证 - 知乎](https://zhuanlan.zhihu.com/p/60522006)
 8. [HTTP API 认证授权术 | 酷 壳 - CoolShell](https://coolshell.cn/articles/19395.html)
-9. [REST接口安全认证方式对比：API Key vs OAuth令牌 vs JWT_王浩的技术博客-CSDN博客_apikey认证方式](https://peterwanghao.blog.csdn.net/article/details/81170785)
+9. [REST 接口安全认证方式对比：API Key vs OAuth 令牌 vs JWT_王浩的技术博客-CSDN 博客_apikey 认证方式](https://peterwanghao.blog.csdn.net/article/details/81170785)
 
 ## 权限
 
