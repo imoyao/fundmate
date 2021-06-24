@@ -56,11 +56,11 @@ Goole 出的深度学习库，阿尔法狗 [Nvidia CUDA](http://www.nvidia.cn/ob
 
 [知乎](https://www.zhihu.com/)  
 发现更大的世界 [腾讯财经](https://new.qq.com/ch/finance/)  
-腾讯旗下金融网站 [新浪财经](http://finance.sina.com.cn/)  
-新浪旗下金融网站 [搜狐财经](http://business.sohu.com/)  
-搜狐旗下金融网站 [](http://www.newsmth.net/nForum/>水木社区</a><br>象牙塔通向社会的桥梁
-</td>
-<td style=)[雪球](https://xueqiu.com/)  
+新浪旗下金融网站 [新浪财经](http://finance.sina.com.cn/)  
+ 搜狐旗下金融网站[搜狐财经](http://business.sohu.com/)
+[水木社区象牙塔通向社会的桥梁](http://www.newsmth.net/nForum/)
+
+[雪球](https://xueqiu.com/)  
 聪明的投资者都在这里 [优矿量化社区](https://uqer.io/community/)  
 优矿在线回测平台旗下社区 [米筐社区](https://www.ricequant.com/community/category/all)  
 米筐在线回测平台旗下社区 [聚宽](https://www.joinquant.com/)  
