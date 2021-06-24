@@ -7,7 +7,8 @@ jobs:
   backendunit:
     name: backend check
     runs-on: ubuntu-latest
-    working-directory: ./backend
+    run:
+      working-directory: ./backend
     steps:
       - uses: actions/checkout@v2
       - name: Set up Python
@@ -39,7 +40,8 @@ jobs:
   frontendunit:
     name: frontend lint
     runs-on: ubuntu-latest
-    working-directory: ./frontend
+    run:
+      working-directory: ./frontend
     steps:
       - uses: actions/checkout@v2
       - uses: actions/setup-node@v2.1.2
