@@ -1,5 +1,5 @@
 ---
-title: 使用Docker安装环境
+title: 使用 Docker 安装环境
 ---
 ## MySQL
 - 拉去镜像
@@ -16,4 +16,4 @@ docker exec -it mysql57 bash
 ```
 [Docker 安装 Mysql 5.7 - 叨叨软件测试 - 博客园](https://www.cnblogs.com/daodaotest/p/13172272.html)
 
-[Docker创建运行多个mysql容器 - 小何同學 - 博客园](https://www.cnblogs.com/heyangyi/p/9288402.html)
+[Docker 创建运行多个 mysql 容器 - 小何同學 - 博客园](https://www.cnblogs.com/heyangyi/p/9288402.html)

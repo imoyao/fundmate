@@ -16,7 +16,7 @@ max-line-length = 120
 exclude = migrations/*,.git,__pycache__,old,build,dist
 max-complexity = 10
 ```
-[Pycharm 配置使用flake8进行语法检测_张聪的博客-CSDN博客](https://blog.csdn.net/crazy_zhangcong/article/details/87860276)
+[Pycharm 配置使用 flake8 进行语法检测_张聪的博客-CSDN 博客](https://blog.csdn.net/crazy_zhangcong/article/details/87860276)
 
 ### isort
 使用 isort 来解决自动导入的问题。下面一个我个人使用的配置，后期可能继续对比修改配置

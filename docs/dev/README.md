@@ -26,9 +26,8 @@ yarn docs:build
 
 从 master/dev 分支合并更新
 ```bash
-git checkout master
+git checkout docs # 或者 git checkout master
 git pull
-git checkout docs
 git checkout dev docs/*  # dev为要合并的分支，docs为要合并的目录
 ```
 - lint 文档
@@ -55,7 +54,7 @@ source fmp/bin/activate
 pip install -r requirements.txt
 ```
 - 修改环境变量`.env`
-```
+```plain
 flask run --host=0.0.0.0
 ```
 - 启动数据库

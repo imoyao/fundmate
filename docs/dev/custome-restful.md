@@ -1,10 +1,10 @@
 ---
-title: 自定义RESTAPI的处理
+title: 自定义 RESTAPI 的处理
 ---
 
 计划参考 [greyli/apiflask: Web APIs for Flask. 🍯](https://github.com/greyli/apiflask) 去实现，而不是自己写。
 
-## 自定义RESTAPI的处理
+## 自定义 RESTAPI 的处理
 
 现存的框架比较知名的有 django-rest-framework 和 flask-restapi，但是这些框架我都不太满意，而对于我这个项目用它们还太重了。好吧，手动写一个实现。首先是借用 DispatcherMiddleware 实现对`/j` 这样的路径特殊处理（ [commentbox/app.py at master · dongweiming/commentbox · GitHub](https://github.com/dongweiming/commentbox/blob/master/app.py) ）：
 
@@ -88,7 +88,7 @@ title: 自定义RESTAPI的处理
 
 而且响应也被封装了：
 
-    def success(res=None, status_code=200):                                                                            
+    def success(res=None, status_code=200):plain
         res = res or {}                                                                                                
                                                                                                                        
         dct = {                                                                                                        
@@ -192,7 +192,7 @@ def handle_error(self, app):
 
 熟悉 Flask 的肯定知道，这就是 Flask 处理异常的方式。在项目开发中我们强力推荐，甚至可以说是**要求**你在开发的过程中，关于某一类的异常一定要通过继承`APIException`的方式来自定义，这会让前后端的交互更加友好。
 
-当然，当你每自定义一个异常后，别忘记在根目录下的`code.md`中记录相关异常的error\_code 和 msg，方便前端查阅和团队协作。
+当然，当你每自定义一个异常后，别忘记在根目录下的`code.md`中记录相关异常的 error\_code 和 msg，方便前端查阅和团队协作。
 
 
 ## 参考链接

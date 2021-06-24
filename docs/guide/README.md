@@ -3,35 +3,35 @@ title: 使用指南
 ---
 ## 说明
 
-[Python开发资源 - www.baostock.com](http://baostock.com/baostock/index.php/Python%E5%BC%80%E5%8F%91%E8%B5%84%E6%BA%90)
+[Python 开发资源 - www.baostock.com](http://baostock.com/baostock/index.php/Python%E5%BC%80%E5%8F%91%E8%B5%84%E6%BA%90)
 
-**BaoStock新手入门**
+**BaoStock 新手入门**
 
 * * *
 
-[Python安装教程](http://baostock.com/baostock/images/4/49/Python%E5%AE%89%E8%A3%85%E6%95%99%E7%A8%8B.pdf "Python安装教程.pdf")  
-[BaoStock的安装与使用](http://baostock.com/baostock/images/d/d1/BaoStock%E7%9A%84%E5%AE%89%E8%A3%85%E4%B8%8E%E4%BD%BF%E7%94%A8.pdf "BaoStock的安装与使用.pdf")  
+[Python 安装教程](http://baostock.com/baostock/images/4/49/Python%E5%AE%89%E8%A3%85%E6%95%99%E7%A8%8B.pdf "Python安装教程.pdf")  
+[BaoStock 的安装与使用](http://baostock.com/baostock/images/d/d1/BaoStock%E7%9A%84%E5%AE%89%E8%A3%85%E4%B8%8E%E4%BD%BF%E7%94%A8.pdf "BaoStock的安装与使用.pdf")  
 **本地程序化交易框架**
 
 * * *
 
 [BaoStock](http://www.baostock.com/)  
 财经数据接口包 [Pandas](https://github.com/pandas-dev/pandas)  
-Python数据分析包 [ApolloAuto](https://www.oschina.net/p/apolloauto)  
-开源自动驾驶平台 **Python人工智能算法库**
+Python 数据分析包 [ApolloAuto](https://www.oschina.net/p/apolloauto)  
+开源自动驾驶平台 **Python 人工智能算法库**
 
 * * *
 
-[TensorFlow中文社区](http://www.tensorfly.cn/)  
-Goole出的深度学习库，阿尔法狗 [TensorFlow Github仓库](https://github.com/tensorflow/tensorflow)  
-Goole出的深度学习库，阿尔法狗 [Nvidia CUDA](http://www.nvidia.cn/object/cudazone-cn.html)  
-采用NVIDIA显卡并行计算的库 [Theano深度学习库](http://deeplearning.net/software/theano/)  
-在Python环境下编写深度学习 [Theano Github仓库](https://github.com/Theano/Theano)  
-在Python环境下编写深度学习 [Scikit-learn](https://scikit-learn.org/stable/index.html)  
+[TensorFlow 中文社区](http://www.tensorfly.cn/)  
+Goole 出的深度学习库，阿尔法狗 [TensorFlow Github 仓库](https://github.com/tensorflow/tensorflow)  
+Goole 出的深度学习库，阿尔法狗 [Nvidia CUDA](http://www.nvidia.cn/object/cudazone-cn.html)  
+采用 NVIDIA 显卡并行计算的库 [Theano 深度学习库](http://deeplearning.net/software/theano/)  
+在 Python 环境下编写深度学习 [Theano Github 仓库](https://github.com/Theano/Theano)  
+在 Python 环境下编写深度学习 [Scikit-learn](https://scikit-learn.org/stable/index.html)  
 回归和聚类的算法包括支持向量机，逻辑回归，朴素贝叶斯分类器，随机森林 [CNTK](https://www.microsoft.com/en-us/cognitive-toolkit/)  
 微软深度学习库 [亚马逊机器学习范例代码](https://github.com/aws-samples/machine-learning-samples)  
-好玩易用掌上美图工具 [Pylearn2深度学习库](http://deeplearning.net/software/pylearn2/)  
-基于Theano深度学习常见模型和训练算法 **八大国家级交易所**
+好玩易用掌上美图工具 [Pylearn2 深度学习库](http://deeplearning.net/software/pylearn2/)  
+基于 Theano 深度学习常见模型和训练算法 **八大国家级交易所**
 
 * * *
 
@@ -91,19 +91,19 @@ QuicklibTrade和TdxApi社区 **在线回测平台**
 
 [BaoStock(免费)](http://www.baostock.com)  
 免费、开源的证券数据平台 [Historical Data Sources](https://quantpedia.com/Links/HistoricalData)  
-一个外盘数据源索引 [新浪Level2行情(收费)](http://finance.sina.com.cn/stock/level2/orderIntro.html)  
+一个外盘数据源索引 [新浪 Level2 行情(收费)](http://finance.sina.com.cn/stock/level2/orderIntro.html)  
 数据服务中心 [Quandl](https://www.quandl.com/)  
-国际金融和经济数据 [Wind资讯(收费)](http://www.wind.com.cn/NewSite/edb.html)  
+国际金融和经济数据 [Wind 资讯(收费)](http://www.wind.com.cn/NewSite/edb.html)  
 经济数据库 [东方财富 Choice(收费)](http://link.zhihu.com/?target=http%3A//choice.eastmoney.com/Product/index.html)  
 金融数据研究终端 [iFinD(收费)](http://link.zhihu.com/?target=http%3A//www.51ifind.com/)  
 同花顺金融数据终端 [朝阳永续(收费)](http://www.go-goal.cn/)  
-Go-Goal数据终端 [天软数据(收费)](http://www.tinysoft.com.cn/TSDN/HomePage.tsl)  
+Go-Goal 数据终端 [天软数据(收费)](http://www.tinysoft.com.cn/TSDN/HomePage.tsl)  
 站长提交资源的绿色通道 [预测者网(收费)](https://www.yucezhe.com/product/data/trading)  
 互联网时代的金融数据服务 [锐思数据(收费)](http://www.resset.cn/)  
-专业数据 [恒生API(收费)](https://www.hs.net/)  
+专业数据 [恒生 API(收费)](https://www.hs.net/)  
 恒生数据 [Bloomberg API(收费)](https://www.bloomberglabs.com/)  
 获得新客户和合作伙伴 [数库金融数据(收费)](http://developer.chinascope.com/)  
-和深度分析API服务 [巨潮资讯(收费)](http://www.cninfo.com.cn/new/index)  
+和深度分析 API 服务 [巨潮资讯(收费)](http://www.cninfo.com.cn/new/index)  
 大数据营销决策平台 [通联数据商城(收费)](https://www2.datayes.com/)  
 优矿旗下数据商城 [万德(收费)](http://www.wind.com.cn/)  
 优矿旗下数据商城 **行情交易软件**
@@ -118,9 +118,9 @@ Go-Goal数据终端 [天软数据(收费)](http://www.tinysoft.com.cn/TSDN/HomeP
 行情交易软件 [指南针](http://qy.compass.cn/fenfen2.php)  
 老牌行情交易软件 [文华财经](http://www.wenhua.com.cn/)  
 期货行情交易软件 [金字塔](http://www.weistock.com/)  
-金字塔行情交易软件 [TB交易开拓者](http://www.tradeblazer.net/)  
+金字塔行情交易软件 [TB 交易开拓者](http://www.tradeblazer.net/)  
 期货程序化交易软件 [酷操盘手](http://www.kucps.com/)  
-期货CTP多账户程序化交易跟单软件 **金融人才招聘**
+期货 CTP 多账户程序化交易跟单软件 **金融人才招聘**
 
 * * *
 

@@ -14,4 +14,4 @@ permalink: /vip-design
 
 [会员管理系统的设计和开发（1） - 伍华聪 - 博客园](https://www.cnblogs.com/wuhuacong/p/3957428.html)
 
-[电商平台-会员积分系统的设计与架构_yu15163158717的博客-CSDN博客_积分系统架构设计](https://blog.csdn.net/yu15163158717/article/details/80981158)
+[电商平台-会员积分系统的设计与架构_yu15163158717 的博客-CSDN 博客_积分系统架构设计](https://blog.csdn.net/yu15163158717/article/details/80981158)
