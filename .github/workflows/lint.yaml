@@ -7,13 +7,8 @@ jobs:
   backendunit:
     name: backend check
     runs-on: ubuntu-latest
-<<<<<<< HEAD
     run: |
       cd ./backend
-=======
-    run:
-      working-directory: ./backend
->>>>>>> 261a69b4a386689f27f2f5c3c556ad67ebe30f1d
     steps:
       - uses: actions/checkout@v2
       - name: Set up Python
@@ -45,13 +40,8 @@ jobs:
   frontendunit:
     name: frontend lint
     runs-on: ubuntu-latest
-<<<<<<< HEAD
     run: |
       cd ./frontend
-=======
-    run:
-      working-directory: ./frontend
->>>>>>> 261a69b4a386689f27f2f5c3c556ad67ebe30f1d
     steps:
       - uses: actions/checkout@v2
       - uses: actions/setup-node@v2.1.2
