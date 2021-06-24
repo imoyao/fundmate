@@ -5,7 +5,7 @@ title: 项目中的环境变量问题
 
 首先我们知道在平常的开发中经常需要配置一些系统**环境变量**。  
 
-再而我们在进行web开发的时候也会遇到各种变量的控制，比如导入开发(default)和生产环境(prod)不同的环境变量：
+再而我们在进行 web 开发的时候也会遇到各种变量的控制，比如导入开发(default)和生产环境(prod)不同的环境变量：
 ```bash
 DEBUG=True
 SECRET_KEY='abcddddd'
@@ -17,10 +17,10 @@ MAIL_PASSWORD=abcdefg
 
 ## 实践
 
-### 直接export/set
+### 直接 export/set
 
 即在我们运行我们项目之前，直接利用`export`的方式导入我们需要的环境变量，比如:
-```
+```plain
 # Windows
 set test=123
 # Linux
@@ -28,7 +28,7 @@ export test=123
 ```  
 然后在项目中使用`os`导入：
 
-```
+```python
 # shell命令行
 export test=123 # **注意这里没有空格**
 
@@ -51,7 +51,7 @@ env.dotenv_path = '/opt/myapp/.env' # 指定文件
 ```
 官方示例参见：[theskumar/python-dotenv: Get and set values in your .env file in local and production servers.](https://github.com/theskumar/python-dotenv#getting-started)
 
-> 当安装了`python-dotenv`时，Flask在加载环境变量的优先级是：手动(`set/export`)设置的环境变量>`.env`中设置 的环境变量>`.flaskenv`设置的环境变量。
+> 当安装了`python-dotenv`时，Flask 在加载环境变量的优先级是：手动(`set/export`)设置的环境变量>`.env`中设置 的环境变量>`.flaskenv`设置的环境变量。
 
 #### 注意事项
 
@@ -76,23 +76,23 @@ class BaseConfig(object):
     MAIL_USE_TLS = True if 'true' == os.getenv('MAIL_USE_TLS') else False
 ```
 
-参阅：[用SendGrid发送邮件，但在邮箱中收不到邮件 - Flask Web 开发实战 - HelloFlask 论坛](https://discuss.helloflask.com/t/topic/127/3)
+参阅：[用 SendGrid 发送邮件，但在邮箱中收不到邮件 - Flask Web 开发实战 - HelloFlask 论坛](https://discuss.helloflask.com/t/topic/127/3)
 
-##### pipenv影响了flask加载`.env`环境变量
+##### pipenv 影响了 flask 加载`.env`环境变量
 
-第二个坑和`pipenv`有关，众所周知Flask项目可以通过`.env`加载环境变量，但是，`pipenv`也可以通过`.env`加载环境变量！问题就出现了，进入`pipenv shell`虚拟环境后，修改.env环境变量后再`flask run`启动Flask 应用，Flask还是用了原来的环境变量！
+第二个坑和`pipenv`有关，众所周知 Flask 项目可以通过`.env`加载环境变量，但是，`pipenv`也可以通过`.env`加载环境变量！问题就出现了，进入`pipenv shell`虚拟环境后，修改.env 环境变量后再`flask run`启动 Flask 应用，Flask 还是用了原来的环境变量！
 
-    ```bash
-    > pipenv shell
-    Loading .env environment variables…
-    Launching subshell in virtual environment…
-    ...
-    > flask run  # 正常预期
-    # 停止flask，修改 .env 环境变量，保存
-    > flask run  # 没达到修改变量后的预期效果
-    ```
-究其原因，是`pipenv shell`加载了环境变量并进行了缓存，然后flask加载环境变量时没有进行覆盖。
-尤其是部署Flask到服务器后，以下步骤肯定有问题的！
+```bash
+pipenv shell
+Loading .env environment variables…
+Launching subshell in virtual environment…
+...
+flask run  # 正常预期
+# 停止flask，修改 .env 环境变量，保存
+flask run  # 没达到修改变量后的预期效果
+```
+究其原因，是`pipenv shell`加载了环境变量并进行了缓存，然后 flask 加载环境变量时没有进行覆盖。
+尤其是部署 Flask 到服务器后，以下步骤肯定有问题的！
 ```bash
 $ pipenv shell
 $ vim .env
@@ -102,12 +102,12 @@ $ flask run
 - 解决方案
 1. 重进`pipenv shell`
 一种解决方案就是退出`pipenv shell`环境再进入：
-```
-> pipenv shell
-> # 编辑 .env
+```plain
+pipenv shell
+# 编辑 .env
 ...
-> exit
-> pipenv shell
+exit
+pipenv shell
 ```
 
 2. 新建并使用`python app.py`启动
@@ -115,7 +115,7 @@ $ flask run
 在主目录下新建一个`app.py`，拷贝下面代码，以后使用`python app.py`启动。
 
 ```python
-#app.py
+#base.py
 # coding=utf-8
 
 
@@ -136,16 +136,16 @@ if __name__ == "__main__":
     app.run()
 ```
 
-这种代码有时也会给一些wsgi（比如gunicorn）提供。
+这种代码有时也会给一些 wsgi（比如 gunicorn）提供。
 
 3. 设置`PIPENV_DONT_LOAD_ENV=1`
 
 还有一个方案是设置`PIPENV_DONT_LOAD_ENV=1`，不让`pipenv`加载`.env`。
 
-PowerShell示例（注意没有了`Loading .env environment variables…`信息）：
+PowerShell 示例（注意没有了`Loading .env environment variables…`信息）：
 ```bash
-> $env:PIPENV_DONT_LOAD_ENV=1
-> pipenv shell
+$env:PIPENV_DONT_LOAD_ENV=1
+pipenv shell
 Launching subshell in virtual environment…
 Windows PowerShell
 ...
@@ -168,7 +168,7 @@ Windows PowerShell
 - 解析列表和字典值
 - 解析日期，日期时间和时间增量
 - 解析扩展变量
-- 将配置序列化为JSON，YAML等。
+- 将配置序列化为 JSON，YAML 等。
 
 官方示例参见：[sloria/environs: simplified environment variable parsing](https://github.com/sloria/environs#basic-usage)： 
 
@@ -225,15 +225,15 @@ gh_repos_priorities = env.dict(
 
 按照[Hello, Flask!|管理环境变量 - Flask 入门教程](https://read.helloflask.com/c2-hello#guan-li-huan-jing-bian-liang) 章节给出的建议，分别使用`.env` 和 `.flaskenv` 来管理开发模式下的环境变量，这两个文件通常写入的内容如下：
 
-- `.env`
+### .env
 
-不能公开的敏感数据，除非是私有项目，否则绝对不能提交到Git仓库中。比如：
+不能公开的敏感数据，除非是私有项目，否则绝对不能提交到 Git 仓库中。比如：
 
 *   密钥
 *   数据库 URL
 *   邮件服务器或其他第三方服务的密码 / 密钥 / 令牌值
 
-- `.flaskenv`
+### .flaskenv
 
 和 Flask 开发服务器相关的几个环境变量，比如：
 
@@ -254,10 +254,11 @@ gh_repos_priorities = env.dict(
 而其他一些与你代码中有关的变量配置，则直接写到配置脚本（比如 `config.py` 和 `settings.py`）来实现控制。其中`settings.py`中存放我们程序员编写代码时可能需要修改的变量，而`config.py`用于控制不同的应用环境时使用不同的环境变量。
 
 这部分代码可以在此处找到：
+
 ![tag v0.1 ](https://cdn.jsdelivr.net/gh/masantu/statics/images/20210117202012.png)
 
 ## 相关链接
 - [配置管理 — Flask 中文文档（ 1.1.1 ）](https://dormousehole.readthedocs.io/en/latest/config.html)
-- [关于Flask通过.env加载环境变量的两个坑 - Flask - HelloFlask 论坛](https://discuss.helloflask.com/t/topic/128)
+- [关于 Flask 通过.env 加载环境变量的两个坑 - Flask - HelloFlask 论坛](https://discuss.helloflask.com/t/topic/128)
 - [Start using '.env' for your Flask project and stop using environment variables for development! How and why. | ITNEXT](https://itnext.io/start-using-env-for-your-flask-project-and-stop-using-environment-variables-for-development-247dc12468be)
-- [Python,environ解惑 - bay1 - 博客园](https://www.cnblogs.com/bay1/p/10982310.html)
+- [Python,environ 解惑 - bay1 - 博客园](https://www.cnblogs.com/bay1/p/10982310.html)

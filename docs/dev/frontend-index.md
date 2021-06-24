@@ -22,7 +22,7 @@ tags:
 1. 启动项目
 ```bash
 yarn install
-yarn run dev
+yarn serve
 ```
 ![](https://cdn.jsdelivr.net/gh/masantu/statics/images/20201230001135.png)
 
@@ -31,4 +31,4 @@ yarn run dev
 
 ## 设计
 
-以理财通为原型，以支付宝为模板，
+以理财通为原型，以支付宝为模板，参考天天基金设计自选基金页面
