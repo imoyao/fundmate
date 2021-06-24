@@ -38,13 +38,13 @@ title: 自定义 RESTAPI 的处理
 其中返回了一个额外的字段 r, 如果是 0 表示响应的结果是正确的，为 1 表示响应的内容有问题。
 
 接着我们自定义错误处理的方式，比如 404 返回这样：
-
+```
     {
         message: "Not Found"
     }
-
+```
 怎么实现呢：
-
+```python
     from flask import jsonplain
     from werkzeug.wrappers import Response                                                                                                                                                                                               
                                                                                                                   
@@ -84,11 +84,11 @@ title: 自定义 RESTAPI 的处理
             msg = error.message                                                                                        
             code = 500                                                                                                 
         return ApiResult({'message': msg}, status=code)  
-    
+```
 
 而且响应也被封装了：
-
-    def success(res=None, status_code=200):plain
+```python
+    def success(res=None, status_code=200):
         res = res or {}                                                                                                
                                                                                                                        
         dct = {                                                                                                        
@@ -117,6 +117,7 @@ title: 自定义 RESTAPI 的处理
     def bad_request(message, res=None):                                                                                
         return failure(message, 400)
     
+```
 
 使用的时候可以让返回的正确和错误结果的格式都保持统一。
 
@@ -192,10 +193,11 @@ def handle_error(self, app):
 
 熟悉 Flask 的肯定知道，这就是 Flask 处理异常的方式。在项目开发中我们强力推荐，甚至可以说是**要求**你在开发的过程中，关于某一类的异常一定要通过继承`APIException`的方式来自定义，这会让前后端的交互更加友好。
 
-当然，当你每自定义一个异常后，别忘记在根目录下的`code.md`中记录相关异常的 error\_code 和 msg，方便前端查阅和团队协作。
+
+当然，当你每自定义一个异常后，别忘记在根目录下的`code.md`中记录相关异常的 `error_code` 和 `msg`，方便前端查阅和团队协作。
 
 
 ## 参考链接
-- [使用 Flask 设计 RESTful APIs — Designing a RESTful API with Python and Flask 1.0 documentation](http://www.pythondoc.com/flask-restful/index.html) TODO
+- [使用 Flask 设计 RESTful APIs — Designing a RESTful API with Python and Flask 1.0 documentation](http://www.pythondoc.com/flask-restful/index.html) (TODO)
 - [flask - 项目结构及开发规范 - 《Lin CMS 文档手册》 - 书栈网 · BookStack](https://www.bookstack.cn/read/Lin-CMS/2227eb2232b6e6d3.md#API%20%E8%A7%84%E8%8C%83)
 - [Flask 最佳实践 - 知乎](https://zhuanlan.zhihu.com/p/22774028)

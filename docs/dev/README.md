@@ -54,7 +54,7 @@ source fmp/bin/activate
 pip install -r requirements.txt
 ```
 - 修改环境变量`.env`
-```plain
+```bash
 flask run --host=0.0.0.0
 ```
 - 启动数据库

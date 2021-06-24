@@ -1,7 +1,5 @@
 ---
 title: 凡有操作，必留日志 | 用户操作日志模块开发
-tag:
-    - 软件工程plainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplain
 ---
 
 ## 凡有操作，必留日志
@@ -58,7 +56,8 @@ logger.add(debugfile,
 ### 混合切面
 以下层信息为主（因为它准确），以上层信息为辅（因为它包含业务信息），即吸收下层切面的准确性、整合上层切面的业务逻辑信息，并顺便解决旧对象的获取问题。
 ```python
-def update_fund(old_finfo,new_finfo):pass        
+def update_fund(old_finfo,new_finfo):
+    pass        
 ```
 ## 相关链接
 
