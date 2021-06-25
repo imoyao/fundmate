@@ -42,10 +42,7 @@ def agency_info() -> list:
     if resp.get('code') == 200:
         data_counts = resp.get('data').get('data').get('total')
         for page, size in db_utils.paginate(data_counts, size=size):
-            params = {
-                'pageNo': page,
-                'pageSize': size
-            }
+            params = {'pageNo': page, 'pageSize': size}
             resp = rget_json(url, headers=headers, params=params)
             agent_infos = resp.get('data').get('data').get('dataList')
             for org in agent_infos:

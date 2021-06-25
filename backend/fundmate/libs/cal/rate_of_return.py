@@ -146,7 +146,7 @@ def compound_interest(principal: Union[int, float],
     else:
         float_rate_in_year = percent_rate_in_year / 100
 
-    return principal * (1 + float_rate_in_year) ** year
+    return principal * (1 + float_rate_in_year)**year
 
 
 class EAR:
@@ -157,7 +157,7 @@ class EAR:
     """
 
     def __call__(self, rate_in_month: Union[int, float]) -> Union[int, float]:
-        return (1 + rate_in_month) ** MONTH_PER_YEAR - 1
+        return (1 + rate_in_month)**MONTH_PER_YEAR - 1
 
 
 class RATE(ComputeConvert):
@@ -281,6 +281,7 @@ class PMT(ComputeConvert):
 
 
 class PerConvert:
+
     @staticmethod
     def per_convert(year, per=None):
         if isinstance(per, (int, list)):
@@ -608,6 +609,7 @@ https://github.com/RayDeCampo/java-xirr/blob/master/src/main/java/org/decampo/xi
 
 
 class XNPV:
+
     def __call__(self, values_per_date, rate: Union[int, float]):
         return self.xnpv(values_per_date, rate)
 
@@ -640,12 +642,12 @@ class XNPV:
 
         if rate <= -1.0:
             return sum([
-                -abs(vi) / (-1.0 - rate) ** ((ti - t0).days / DAYS_PER_YEAR)
+                -abs(vi) / (-1.0 - rate)**((ti - t0).days / DAYS_PER_YEAR)
                 for ti, vi in values_per_date.items()
             ])
 
         return sum([
-            vi / (1.0 + rate) ** ((ti - t0).days / DAYS_PER_YEAR)
+            vi / (1.0 + rate)**((ti - t0).days / DAYS_PER_YEAR)
             for ti, vi in values_per_date.items()
         ])
 
@@ -702,7 +704,7 @@ class XIRR:
             result = scipy.optimize.brentq(xnpv_partial,
                                            -0.999999999999999,
                                            1e20,
-                                           maxiter=10 ** 6)
+                                           maxiter=10**6)
 
         if not isinstance(result, complex):
             return result
@@ -739,7 +741,6 @@ class XIRR:
 
 xirr = XIRR()
 xnpv = XNPV()
-
 
 if __name__ == '__main__':
     irr = IRR()

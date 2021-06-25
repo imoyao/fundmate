@@ -7,6 +7,7 @@
 
 
 class FmException(Exception):
+
     def __init__(self, message):
         super().__init__(message)
 
@@ -22,6 +23,7 @@ class LenEqualError(CalError):
     """
     长度不相等的异常
     """
+
     def __init__(self, message="Length is not equal!"):
         super().__init__(message)
         self.msg = message
@@ -34,6 +36,7 @@ class ParseError(CalError):
     """
     解析异常
     """
+
     def __init__(self, message):
         super().__init__(message)
         self.msg = message

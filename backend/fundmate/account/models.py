@@ -5,7 +5,7 @@
 from backend.fundmate.database import Base, Column, CreateDateModel, PkModel, db, reference_col
 
 
-class Account(Base,PkModel, CreateDateModel):
+class Account(Base, PkModel, CreateDateModel):
     __table_args__ = {'comment': '账本（钱包）'}
 
     name = Column(db.String(255), comment='账本名称')
@@ -21,7 +21,7 @@ class AccountFund(PkModel):
     account_id = Column(db.Integer, comment='账本编号')
 
 
-class CashFlow(Base,PkModel):
+class CashFlow(Base, PkModel):
     user_id = reference_col('users', column_kwargs={'comment': '购买用户编号'})
     fund_id = reference_col('funds', column_kwargs={'comment': '所购买的基金编号'})
     amount = Column(db.Integer, comment='购买金额')
@@ -32,7 +32,7 @@ class CashFlow(Base,PkModel):
     comment = Column(db.String(300), comment='复盘备注')
 
 
-class HandPick(Base,PkModel):
+class HandPick(Base, PkModel):
     __table_args__ = {'comment': '自选基金'}
     user_id = reference_col('users', column_kwargs={'comment': '用户编号'})
     fund_id = reference_col('funds', column_kwargs={'comment': '基金编号'})

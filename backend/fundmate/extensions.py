@@ -10,7 +10,8 @@ from flask_static_digest import FlaskStaticDigest
 from .exts.flask_loguru import Loguru
 
 
-def tell_migrate_dont_detected_removed_table(object, name, type_, reflected, compare_to):
+def tell_migrate_dont_detected_removed_table(object, name, type_, reflected,
+                                             compare_to):
     """
     告诉migrate别删我已经存在的表：
     [python - Tell Flask-Migrate / Alembic to NOT drop any tables it doesn't know about - Stack Overflow](https://stackoverflow.com/questions/57631160/tell-flask-migrate-alembic-to-not-drop-any-tables-it-doesnt-know-about)

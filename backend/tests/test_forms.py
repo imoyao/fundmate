@@ -22,9 +22,10 @@ class TestRegisterForm:
 
     def test_validate_email_already_registered(self, user):
         """Enter email that is already registered."""
-        form = RegisterForm(
-            username="unique", email=user.email, password="example", confirm="example"
-        )
+        form = RegisterForm(username="unique",
+                            email=user.email,
+                            password="example",
+                            confirm="example")
 
         assert form.validate() is False
         assert "Email already registered" in form.email.errors

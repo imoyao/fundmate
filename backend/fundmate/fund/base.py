@@ -6,7 +6,9 @@ import datetime
 from typing import Union
 
 import dateparser
+from deprecated import deprecated
 
+from backend.fundmate import utils
 from backend.fundmate.data.baostock.base import trade_days_gen
 from backend.fundmate.fund.models import DailyWorth
 
@@ -16,7 +18,9 @@ class Fund:
     def __init__(self):
         pass
 
-    def charge_amount(self, amount: Union[int, float] = 10000, charge_rate: float = 0.15):
+    def charge_amount(self,
+                      amount: Union[int, float] = 10000,
+                      charge_rate: float = 0.15):
         """
         申购费
         :return:
@@ -26,15 +30,18 @@ class Fund:
         return fee_value
 
     @staticmethod
-    def real_amount(amount: Union[int, float] = 10000, charge_rate: float = 0.15):
+    def real_amount(amount: Union[int, float] = 10000,
+                    charge_rate: float = 0.15):
         """
         净申购金额
         :return:
         """
         return amount / (1 + charge_rate / 100.0)
 
-    def share_holders(self, amount: Union[int, float] = 10000,
-                      charge_rate: float = 0.15, daily_value: Union[int, float] = 1):
+    def share_holders(self,
+                      amount: Union[int, float] = 10000,
+                      charge_rate: float = 0.15,
+                      daily_value: Union[int, float] = 1):
         """
         申购份额
         :param daily_value:
@@ -48,9 +55,10 @@ class Fund:
         hold_value = _real_amount / daily_value
         return round(hold_value, 2)
 
-    def purchase_info(self, amount: Union[int, float] = 10000,
-                      charge_rate: float = 0.15, daily_value: Union[int, float] = 1
-                      ):
+    def purchase_info(self,
+                      amount: Union[int, float] = 10000,
+                      charge_rate: float = 0.15,
+                      daily_value: Union[int, float] = 1):
         """
         购买信息
         :param amount:
@@ -61,12 +69,19 @@ class Fund:
         _charge_amount = round(self.charge_amount(amount, charge_rate), 2)
         _real_amount = round(self.real_amount(amount, charge_rate), 2)
         _hold_value = self.share_holders(amount, charge_rate, daily_value)
-        return {'charge_amount': _charge_amount, 'real_amount': _real_amount, 'hold_value': _hold_value}
+        return {
+            'charge_amount': _charge_amount,
+            'real_amount': _real_amount,
+            'hold_value': _hold_value
+        }
 
 
+@deprecated(version='1.0.0',
+            reason='天天基金有接口：http://fund.eastmoney.com/tools/jiaoyiri.html')
 class TradeDate:
     """
     与交易日相关的处理
+    TODO: 由于交易信息不可信，暂时不适用该类
     """
 
     def real_op_day(self, record_date: str) -> str:
@@ -77,7 +92,7 @@ class TradeDate:
         :return:
         """
         parse_ret = dateparser.parse(record_date)
-        _date = parse_ret.date
+        _date = parse_ret.date()
         # 15:00之后
         if parse_ret.hour >= 15:
             date = (_date + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
@@ -92,9 +107,19 @@ class TradeDate:
         :param date:
         :return:
         """
-        with trade_days_gen(date, date) as days:
+        if not isinstance(date, str):
+            date = str(date)
+        with trade_days_gen(date) as days:
             ret = days.to_dict(orient='records')
-        return ret[0].get('is_trading_day')
+        print(ret)
+        return ret[0]['is_trading_day']
+
+    def hold_days(self, end_v_date, start_v_date):
+        """
+        基金持有时长(比如持有7天)便是按自然日来计算的
+        :return:
+        """
+        return end_v_date - start_v_date
 
     def verify_date(self, t_date):
         """
@@ -111,10 +136,37 @@ class TradeDate:
 
         - 自然日
         自然日是指正常的工作日和周末休息日，也包括所有假期。当然，基金持有时长(比如持有7天)便是按自然日来计算的。
-        1. 判断输入日期（带时间）是否为T日，如果是，则判断下一天是否为t日，如果是，则确认日为下一天，如果不是，则继续往下找，知道找到交易日
+        1. 判断输入日期（带时间）是否为T日，如果是，则判断下一天是否为t日，如果是，则确认日为下一天，如果不是，则继续往下找，直到找到交易日
         :return:
         """
-        pass
+        if self.is_trade_day(t_date):
+            v_date = utils.tomorrow_date(t_date)
+            # 如果当天是交易日，明天也是交易日，则为确认日
+            if self.is_trade_day(v_date):
+                return v_date
+            else:
+                # 明天不是交易日，则找到下一个交易日并返回
+                return self.next_trade_day(v_date)
+        else:
+            # 当天不是交易日，则先找到交易日，然后再递归寻找确认日
+            _date = self.next_trade_day(t_date)
+            v_date = self.verify_date(_date)
+            return v_date
+
+    def next_trade_day(self, date: str) -> datetime.date:
+        """
+        寻找下一个交易日
+        首先做tomorrow_date运算，如果明天是交易日，则返回，否则继续查找
+        :param date: 日期
+        :return: 
+        """
+        tmr = utils.tomorrow_date(date)
+        is_trade = self.is_trade_day(tmr)
+        if is_trade:
+            return tmr
+        else:
+            tmr = self.next_trade_day(tmr)
+            return tmr
 
 
 f = Fund()
@@ -125,9 +177,12 @@ class Booking:
     """
     记账功能
     """
-    pass
 
-    def buy(self, fund_code: str, d_time: str, is_prepay: bool = True, fee_rate: str = None,
+    def buy(self,
+            fund_code: str,
+            d_time: str,
+            is_prepay: bool = True,
+            fee_rate: str = None,
             fee_amount: Union[int, float, str] = None,
             amount: Union[int, float, str] = None,
             count: Union[int, float, str] = None):
@@ -158,4 +213,5 @@ class Booking:
 if __name__ == '__main__':
     # print(f.purchase_info(amount=3000, daily_value=5.5340))
     # print(f.purchase_info(amount=3000, daily_value=5.2280))
-    print(td.is_trade_day('2021-5-22'))
+    print(td.is_trade_day('2021-06-26'))
+    print(td.verify_date('2020-06-24'))

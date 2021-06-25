@@ -55,6 +55,7 @@ class QuerySchema(Schema):
 
 @bp.route('/')
 class Funds(MethodView):
+
     @input(QuerySchema, 'query')
     @input(EmptySchema)
     @output(FundOutSchema(many=True))
@@ -104,6 +105,7 @@ class FundMgrView(MethodView):
 
 
 class SaleSchema(Schema):
+
     class Meta:
         fields = ('id', 'name')
 

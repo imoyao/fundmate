@@ -41,7 +41,8 @@ def parse_headers(raw_header: str) -> dict:
     :param raw_header:从浏览器直接复制过来的字符串
     :return:requests使用的字典
     """
-    return dict([line.split(": ", 1) for line in raw_header.split("\n") if line != ''])
+    return dict(
+        [line.split(": ", 1) for line in raw_header.split("\n") if line != ''])
 
 
 def paginate(count: int, size: int = 10) -> Generator:
@@ -57,7 +58,8 @@ def paginate(count: int, size: int = 10) -> Generator:
         yield page, size
 
 
-def delete_overdue(html_fp: Union[str, Path], json_fp: Union[str, Path]) -> int:
+def delete_overdue(html_fp: Union[str, Path], json_fp: Union[str,
+                                                             Path]) -> int:
     """
     文件不是当天爬取，则重新爬取并删除旧的文件
     :param html_fp:
@@ -70,7 +72,8 @@ def delete_overdue(html_fp: Union[str, Path], json_fp: Union[str, Path]) -> int:
     if p.exists():
         df_mt = dateparser.parse(str(p.stat().st_mtime))
         y, m, d = df_mt.year, df_mt.month, df_mt.day
-        is_not_overdue = all([y == today.year, m == today.month, d == today.day])
+        is_not_overdue = all(
+            [y == today.year, m == today.month, d == today.day])
         if not is_not_overdue:
             p.unlink()
             jp = Path(json_fp)

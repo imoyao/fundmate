@@ -18,6 +18,7 @@ Cookie = "..."
 
 
 class Xirr(object):
+
     def __init__(self, fund):
         self.fund = fund
         self.trade_list = fund.handler.get_xirr_data()
@@ -54,7 +55,8 @@ class Xirr(object):
         if len(data) == 1 and data[0][0] == datetime.datetime.now().date():
             return 0
 
-        if data[0][0] + datetime.timedelta(days=365) < datetime.datetime.now().date():
+        if data[0][0] + datetime.timedelta(
+                days=365) < datetime.datetime.now().date():
             dt = datetime.datetime.now().date()
         else:
             dt = data[0][0] + datetime.timedelta(days=365)
@@ -63,6 +65,7 @@ class Xirr(object):
 
 
 class DanjuanFundHandle(object):
+
     def __init__(self, fd):
         """ 读取详细页初始化实例属性 """
         self.fd = fd
@@ -72,7 +75,8 @@ class DanjuanFundHandle(object):
     @staticmethod
     def get_api_data(url):
         headers = {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.88 Safari/537.36",
+            "User-Agent":
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.88 Safari/537.36",
             "Accept": "*/*",
             "Cookie": Cookie,
             "Connection": "keep-alive"
@@ -146,6 +150,7 @@ class DanjuanFundHandle(object):
 
 
 class RuiyuanFundHandle(object):
+
     def __init__(self, fd):
         """ 读取详细页初始化实例属性 """
         self.fd = fd
@@ -155,10 +160,12 @@ class RuiyuanFundHandle(object):
     @staticmethod
     def get_api_data(url, data=None):
         headers = {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.88 Safari/537.36",
+            "User-Agent":
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.88 Safari/537.36",
             "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
             "Accept": "*/*",
-            "Cookie": "JSESSIONID=D3475DC7E5F289735E82B3617EDC9226; Hm_lvt_9e73ae371b4412c018107ac556ded455=1582079037,1582681550,1582781336,1584324709; Hm_lpvt_9e73ae371b4412c018107ac556ded455=1584324709; SL_GWPT_Show_Hide_tmp=1; SL_wptGlobTipTmp=1",
+            "Cookie":
+            "JSESSIONID=D3475DC7E5F289735E82B3617EDC9226; Hm_lvt_9e73ae371b4412c018107ac556ded455=1582079037,1582681550,1582781336,1584324709; Hm_lpvt_9e73ae371b4412c018107ac556ded455=1584324709; SL_GWPT_Show_Hide_tmp=1; SL_wptGlobTipTmp=1",
             "Connection": "keep-alive"
         }
 
@@ -171,13 +178,21 @@ class RuiyuanFundHandle(object):
     def get_trade_list_data(self, page=1, size=100):
         """ 遍历交易记录 """
         payload = {
-            'page_no': page,
-            'page_size': size,
-            'agency_type': 1,
-            'begin_date': "{:%Y-%m-%d}".format((datetime.datetime.now() - datetime.timedelta(days=730))),
-            'end_date': "{:%Y-%m-%d}".format(datetime.datetime.now()),
-            'fund_busin_code': '',
-            'fund_code': self.fd.pk
+            'page_no':
+            page,
+            'page_size':
+            size,
+            'agency_type':
+            1,
+            'begin_date':
+            "{:%Y-%m-%d}".format(
+                (datetime.datetime.now() - datetime.timedelta(days=730))),
+            'end_date':
+            "{:%Y-%m-%d}".format(datetime.datetime.now()),
+            'fund_busin_code':
+            '',
+            'fund_code':
+            self.fd.pk
         }
         data = self.get_api_data(self.fd.url_for_trade_list(), data=payload)
         # 获得总记录数
@@ -190,9 +205,7 @@ class RuiyuanFundHandle(object):
 
     def get_summary_data(self):
         """ 获得汇总数据 """
-        payload = {
-            'agency_type': 1
-        }
+        payload = {'agency_type': 1}
         data = self.get_api_data(self.fd.url_for_detail(), data=payload)
         return data
 
@@ -228,9 +241,10 @@ class RuiyuanFundHandle(object):
 
 
 class Fund(object):
+
     def __init__(self, pk, **kw):
         self.pk = pk
-        self._name = None       # 基金名称
+        self._name = None  # 基金名称
         self._total_assets = 0  # 当前市值
 
     @property
@@ -251,6 +265,7 @@ class Fund(object):
 
 
 class DanjuanFund(Fund):
+
     def __init__(self, pk, pid=None):
         super(DanjuanFund, self).__init__(pk)
         self.pid = pid
@@ -262,7 +277,8 @@ class DanjuanFund(Fund):
 
     def url_for_detail(self):
         if self.pid is not None:
-            return "https://danjuanapp.com/djapi/holding/plan/item?plan_code={}&fd_code={}".format(self.pid, self.pk)
+            return "https://danjuanapp.com/djapi/holding/plan/item?plan_code={}&fd_code={}".format(
+                self.pid, self.pk)
         return "https://danjuanapp.com/djapi/holding/fund/{}".format(self.pk)
 
     def url_for_order(self, oid):
@@ -270,8 +286,10 @@ class DanjuanFund(Fund):
 
     def url_for_trade_list(self, page=1, size=20):
         if self.pid is not None:
-            return "https://danjuanapp.com/djapi/order/{}/{}/trade/list?page={}&size={}".format(self.pid, self.pk, page, size)
-        return "https://danjuanapp.com/djapi/order/p/{}/list?page={}&size={}&type=all".format(self.pk, page, size)
+            return "https://danjuanapp.com/djapi/order/{}/{}/trade/list?page={}&size={}".format(
+                self.pid, self.pk, page, size)
+        return "https://danjuanapp.com/djapi/order/p/{}/list?page={}&size={}&type=all".format(
+            self.pk, page, size)
 
     def parse_summary_data(self, data):
         """ 汇总页的数据解析规则 """
@@ -281,6 +299,7 @@ class DanjuanFund(Fund):
 
 class DanjuanPlan(Fund):
     """ 基金组合 """
+
     def __init__(self, pk):
         super(DanjuanPlan, self).__init__(pk)
         self.funds = []
@@ -297,7 +316,8 @@ class DanjuanPlan(Fund):
         return "https://danjuanapp.com/djapi/order/p/plan/{}".format(oid)
 
     def url_for_trade_list(self, page=1, size=20):
-        return "https://danjuanapp.com/djapi/order/p/{}/list?page={}&size={}&type=all".format(self.pk, page, size)
+        return "https://danjuanapp.com/djapi/order/p/{}/list?page={}&size={}&type=all".format(
+            self.pk, page, size)
 
     def parse_summary_data(self, data):
         """ 汇总页的数据解析规则 """
@@ -308,6 +328,7 @@ class DanjuanPlan(Fund):
 
 
 class RuiyuanFund(Fund):
+
     def __init__(self, pk):
         super(RuiyuanFund, self).__init__(pk)
         self.handler = RuiyuanFundHandle(self)
@@ -326,6 +347,7 @@ class RuiyuanFund(Fund):
 
 
 class BoshiFundHandle(object):
+
     def __init__(self, fd):
         """ 读取详细页初始化实例属性 """
         self.fd = fd
@@ -336,12 +358,15 @@ class BoshiFundHandle(object):
     def get_api_data(url, data=None):
         headers = {
             "Accept": "application/json, text/javascript, */*; q=0.01",
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.88 Safari/537.36",
+            "User-Agent":
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.88 Safari/537.36",
             "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-            "Cookie": "JSESSIONID=0000mx_FTykLTK2eFA0m8a1F3Q7:-1; Hm_lvt_3c5b5c9332a21f25e5643038564d17c1=1577795402; SL_GWPT_Show_Hide_tmp=1; SL_wptGlobTipTmp=1; 445c77cb0f12be51ac6cec72f00dfecd=0950cbbf625ddfa1bf64ace612a4da92; Hm_lpvt_3c5b5c9332a21f25e5643038564d17c1=1577936059; OZ_1U_2105=vid=ve0d64a88f3b80.0&ctime=1577936109&ltime=1577936108; OZ_1Y_2105=erefer=-&eurl=https%3A//trade.bosera.com/&etime=1577936040&ctime=1577936109&ltime=1577936108&compid=2105",
+            "Cookie":
+            "JSESSIONID=0000mx_FTykLTK2eFA0m8a1F3Q7:-1; Hm_lvt_3c5b5c9332a21f25e5643038564d17c1=1577795402; SL_GWPT_Show_Hide_tmp=1; SL_wptGlobTipTmp=1; 445c77cb0f12be51ac6cec72f00dfecd=0950cbbf625ddfa1bf64ace612a4da92; Hm_lpvt_3c5b5c9332a21f25e5643038564d17c1=1577936059; OZ_1U_2105=vid=ve0d64a88f3b80.0&ctime=1577936109&ltime=1577936108; OZ_1Y_2105=erefer=-&eurl=https%3A//trade.bosera.com/&etime=1577936040&ctime=1577936109&ltime=1577936108&compid=2105",
             "Connection": "keep-alive"
         }
-        rsp = json.loads(requests.post(url, headers=headers, data=data, verify=False).text)
+        rsp = json.loads(
+            requests.post(url, headers=headers, data=data, verify=False).text)
         # {'result_code': 300001, 'message': '请重新登录'}
         if rsp["retCode"] != "0":
             raise Exception(rsp["errMsg"])
@@ -386,14 +411,23 @@ class BoshiFundHandle(object):
     def get_summary_data(self):
         """ 获得汇总数据 """
         payload = {
-            'timeScope': 1,
-            'page': 1,
-            'startDate': "{:%Y-%m-%d}".format((datetime.datetime.now() - datetime.timedelta(days=30))),
-            'endDate': "{:%Y-%m-%d}".format(datetime.datetime.now()),
-            'year': "{:%Y}".format(datetime.datetime.now()),
-            'halfYear': 'first',
-            'season': 1,
-            'month': 12
+            'timeScope':
+            1,
+            'page':
+            1,
+            'startDate':
+            "{:%Y-%m-%d}".format(
+                (datetime.datetime.now() - datetime.timedelta(days=30))),
+            'endDate':
+            "{:%Y-%m-%d}".format(datetime.datetime.now()),
+            'year':
+            "{:%Y}".format(datetime.datetime.now()),
+            'halfYear':
+            'first',
+            'season':
+            1,
+            'month':
+            12
         }
         data = self.get_api_data(self.fd.url_for_detail(), data=payload)
         return data
@@ -412,7 +446,9 @@ class BoshiFundHandle(object):
 
             # if "份" in i.get("value_desc", ""):
             #     continue
-            dt = datetime.datetime.strptime(i.get("transactionDate") or i.get("transactionCfmDate"), "%Y-%m-%d").date()
+            dt = datetime.datetime.strptime(
+                i.get("transactionDate") or i.get("transactionCfmDate"),
+                "%Y-%m-%d").date()
             if i.get("transactionTypeName", "") in ['申购', '转换转入', '认购结果']:
                 # 买入操作
                 money = -1 * float(i["applicationAmount"].replace(",", ""))
@@ -440,6 +476,7 @@ class BoshiFundHandle(object):
 
 
 class BoshiFund(Fund):
+
     def __init__(self, pk, pid=None):
         super(BoshiFund, self).__init__(pk)
         self.pid = pid
@@ -470,17 +507,23 @@ def main(*funds, detail=False):
             if hasattr(fund, "funds"):
                 for f in fund.funds:
                     x = Xirr(f)
-                    print("年化收益率: {:>7.2f}%  市值: {:>7d}  基金代码 {:<7s} {:<30s}".format(x.calc_rate(), int(f.total_assets), f.pk, f.name))
+                    print("年化收益率: {:>7.2f}%  市值: {:>7d}  基金代码 {:<7s} {:<30s}".
+                          format(x.calc_rate(), int(f.total_assets), f.pk,
+                                 f.name))
                     if detail:
                         for i in x.trade_list:
-                            print("日期: {}  金额: {:>12.2f}  类型: {:\u3000<6}  来源: {}".format(i[0], i[1], i[2], i[3]))
+                            print(
+                                "日期: {}  金额: {:>12.2f}  类型: {:\u3000<6}  来源: {}"
+                                .format(i[0], i[1], i[2], i[3]))
                         print()
 
             x = Xirr(fund)
-            print("年化收益率: {:>7.2f}%  市值: {:>7d}  基金代码 {:<7s} {:<30s}".format(x.calc_rate(), int(fund.total_assets), fund.pk, fund.name))
+            print("年化收益率: {:>7.2f}%  市值: {:>7d}  基金代码 {:<7s} {:<30s}".format(
+                x.calc_rate(), int(fund.total_assets), fund.pk, fund.name))
             if detail:
                 for i in x.trade_list:
-                    print("日期: {}  金额: {:>12.2f}  类型: {:\u3000<6}  来源: {}".format(i[0], i[1], i[2], i[3]))
+                    print("日期: {}  金额: {:>12.2f}  类型: {:\u3000<6}  来源: {}".
+                          format(i[0], i[1], i[2], i[3]))
 
             # total += int(fund.total_assets)
             print()

@@ -2,23 +2,38 @@
 # -*- coding: utf-8 -*-
 # Created by imoyao at 2021/2/13 17:50
 
-from backend.fundmate.database import (Column, CreateDateModel, CRUDMixin, PkModel,
-                                       UpsertMixin, db, reference_col, relationship)
+from backend.fundmate.database import (
+    Column,
+    CreateDateModel,
+    CRUDMixin,
+    PkModel,
+    UpsertMixin,
+    db,
+    reference_col,
+    relationship,
+)
 
 
 class DailyWorth(PkModel, CreateDateModel):
-    """每日估算净值（初始净值数据按照基金名称分表存储，然后我们需要 TODO:合并表）"""
+    """每日净值（初始净值数据按照基金名称分表存储，然后我们需要合并表）
+    1. 考虑分表，主键应该使用uuid
+    2. uuid vs GUID
+    3. ~~PkModel~~
+    """
     price = Column(db.Float, comment='基金单日净值')
     date = Column(db.Date, comment='日期')
-    fund_id = reference_col('funds', column_kwargs={'comment': '基金编号'}) # TODO: 到底使用id还是使用基金的6位编码
+    fund_id = reference_col('funds',
+                            column_kwargs={'comment':
+                                           '基金编号'})  # TODO: 到底使用id还是使用基金的6位编码
     fund = relationship("Fund", uselist=False, back_populates="daily_worth")
 
 
-class Fund(PkModel):
+class Fund(PkModel, UpsertMixin):
     """基金表"""
     __tablename__ = "funds"
     __table_args__ = {'comment': '基金表'}
 
+    fund_code = Column(db.Integer, unique=True, comment='基金编码')
     name = Column(db.String(30), comment='基金名称')
     '''
     此处标准写法应该使用英文，但是可能导致查询啰嗦，所以使用拼音代替变量，后面变量作为列名自解释
@@ -45,7 +60,6 @@ class Fund(PkModel):
     qxpy = Column('full_capital_phonetic_alphabet',
                   db.String(60),
                   comment='全写拼音')
-    fund_code = Column(db.Integer, unique=True, comment='基金编码')
     f_type = Column('fund_type_id',
                     db.Integer,
                     db.ForeignKey('fund_type.id'),
@@ -58,18 +72,11 @@ class Fund(PkModel):
                    db.ForeignKey('fund_company.id'),
                    comment='所属基金公司编号')
     create_time = Column(db.DateTime, comment='基金创建时间')
-    '''
-    基金、净值为一对一关系，所以需要对两者都添加`relationship`
-    [Basic Relationship Patterns — SQLAlchemy 1.4 Documentation](https://docs.sqlalchemy.org/en/14/orm/basic_relationships.html#one-to-one)
-    '''
-    daily_worth = relationship('DailyWorth', back_populates='fund', uselist=False)
-
-
-class FundRate(PkModel):
-    fund_id = Column(db.Integer, db.ForeignKey('funds.id'), comment='基金编号')
-    rule_id = Column(db.Integer, comment='费率编号')
-    rate = Column(db.Integer, comment='费率百分比')
-    type = Column(db.Boolean, nullable=True, comment='卖出或买入')  # TODO:多态关联
+    '''基金、净值为一对一关系，所以需要对两者都添加`relationship` [Basic Relationship Patterns — SQLAlchemy 1.4 Documentation](
+    https://docs.sqlalchemy.org/en/14/orm/basic_relationships.html#one-to-one) '''
+    daily_worth = relationship('DailyWorth',
+                               back_populates='fund',
+                               uselist=False)
 
 
 class FundSaleOrg(PkModel, UpsertMixin):
@@ -104,7 +111,8 @@ class FundCompany(PkModel, UpsertMixin):
     code = Column(db.String(10), comment='基金公司编号')
     name = Column(db.String(30), comment='基金公司名称')
     create_date = Column(db.DateTime, comment='创建时间')
-    scale = Column(db.Numeric(10, 2), nullable=True, comment='资产规模(亿元) ')  # 长度10，精度2
+    scale = Column(db.Numeric(10, 2), nullable=True,
+                   comment='资产规模(亿元) ')  # 长度10，精度2
     dpy = Column('abbr_capital_initial_phonetic_alphabet',
                  db.String(30),
                  comment='缩写首字母拼音')
@@ -116,7 +124,9 @@ class FundCompany(PkModel, UpsertMixin):
     last_modified = Column(
         db.TIMESTAMP,
         nullable=False,
-        server_default=db.text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"), comment='数据上次更新时间')
+        server_default=db.text(
+            "CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
+        comment='数据上次更新时间')
 
 
 class FundType(PkModel):
@@ -153,14 +163,36 @@ class FundVariety(PkModel, CRUDMixin):
         投资者入市手册（基金篇） P15
     """
     __table_args__ = {'comment': '基金大类表'}
-
-    name = Column(db.String(255), unique=True)  # django model 中的 choices
+    '''
+    如果要显示为 django model 中的 choices 类型，可以参考：
+    [How to Create Django Like Choices Field in Flask SQLAlchemy | by Erika Dike | The Andela Way | Medium](https://medium.com/the-andela-way/how-to-create-django-like-choices-field-in-flask-sqlalchemy-1ca0e3a3af9d)
+    [python - Best way to do enum in Sqlalchemy? - Stack Overflow](https://stackoverflow.com/questions/2676133/best-way-to-do-enum-in-sqlalchemy/2676213)
+    '''
+    name = Column(db.String(255), unique=True)
 
 
 class InRule(PkModel):
-    """这个问题比较复杂，需要后期再去设计"""
+    """这个问题比较复杂，需要后期再去设计
+    可以直接记录结束点，然后每个出入都有3-4条记录，记录字段：分割点、费率、f_code
+    """
     start_quota = Column(db.Integer, comment='计费开始额度')
     end_quota = Column(db.Integer, comment='计费结束额度')
+
+
+class OutRule(PkModel):
+    __table_args__ = {'comment': '赎回规则'}
+
+    start_day = Column(db.Integer, comment='计费开始天数')
+    end_day = Column(db.Integer, comment='计费结束天数')
+
+
+class FundRate(PkModel):
+    __table_args__ = {'comment': '费率记录'}
+
+    fund_id = Column(db.Integer, db.ForeignKey('funds.id'), comment='基金编号')
+    rule_id = Column(db.Integer, comment='费率编号')
+    rate = Column(db.Integer, comment='费率百分比')
+    type = Column(db.Boolean, nullable=True, comment='卖出或买入')  # TODO:多态关联
 
 
 class Mgr(PkModel):
@@ -186,10 +218,3 @@ class FundPortfolioDetail(PkModel):
     组合调仓记录
     """
     pass
-
-
-class OutRule(PkModel):
-    __table_args__ = {'comment': '赎回规则'}
-
-    start_day = Column(db.Integer, comment='计费开始天数')
-    end_day = Column(db.Integer, comment='计费结束天数')

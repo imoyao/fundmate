@@ -106,7 +106,6 @@ class DanJuan:
 
     """
 
-
     CHANNEL_LIST = ['jiucai', 'lsd']
 
     def get_detail(self, channel: Union[str, None] = None):
