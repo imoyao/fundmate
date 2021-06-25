@@ -181,16 +181,15 @@ class EastMoney:
 
     def trade_date(self,
                    f_code: Union[str, int],
-                   t_num: Union[None, int] = 1,
+                   t_num: Union[None, int] = None,
                    record_date: Union[None, str] = None) -> Union[dict, None]:
         """
+        
         url: http://fund.eastmoney.com/tools/jiaoyiri.html
         api: http://fund.eastmoney.com/tools/DataHandler.aspx?t=confirm&date=2021-06-24&days=1&after=1
-        选择交易类型：买基金 卖基金
-        选择基金：
-        请输入基金代码、名称或简拼
-        所选基金的确认日：T+1什么是T日？
-        选择交易申请时间：
+        :param f_code:基金编码
+        :param t_num:基金为T+几
+        :param record_date:记录日期，应该含有H:M:S,没有的话则认为是15点之前发起操作行为
         :return:
         {'WorkDate': '2021-06-18',
          'Maturity': '2021-06-21',  # 基金确认日
@@ -231,6 +230,14 @@ class EastMoney:
             is_same = data.pop('IsSame')
             data['is_same'] = bool(int(is_same))
             return data
+
+    def hold_split(self):
+        """
+        基金持有时间过短会收取高额的赎回费，所以我们需要增加功能以对持有进行分类
+        [Python-Pandas之日期分组（将日期按照设定的组分为不同类型）_苏小败在路上-CSDN博客_pandas根据时间分组数据](https://blog.csdn.net/pz789as/article/details/106136141)
+        :return:
+        """
+        pass
 
 
 em = EastMoney()

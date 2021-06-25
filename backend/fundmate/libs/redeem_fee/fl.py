@@ -68,6 +68,11 @@ def _fl_table_parser(fl_table):
 
 
 def get_fl_table(code):
+    """
+    赎回费率表爬取
+    :param code: 
+    :return: 
+    """
     code = str(code).zfill(6)
     url = _get_fl_url(code)
     html = get_resonse(url)
@@ -80,7 +85,5 @@ def get_fl_table(code):
 if __name__ == "__main__":
     codes = [924]
     for i in codes:
-        code = str(i).zfill(6)
-        r = get_fl_table(code)
+        r = get_fl_table(i)
         print(r)
-        print(' ')
