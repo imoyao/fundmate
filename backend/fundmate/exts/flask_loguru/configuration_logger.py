@@ -16,6 +16,7 @@ class Required:
 
 class ConfigurationValue(str):
     """"""
+
     def json(self, **kwargs):
         return json.loads(self, **kwargs)
 
@@ -31,6 +32,7 @@ class ConfigurationValue(str):
 
 class ConfigurationRetriever:
     """"""
+
     def __init__(
             self,
             retriever: Callable[[str, Any], str] = os.environ.get,

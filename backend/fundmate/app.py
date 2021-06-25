@@ -8,7 +8,15 @@ from flask import Flask
 
 from backend.fundmate import account, commands, fund, public, settings, user
 from backend.fundmate.config import config
-from backend.fundmate.extensions import bcrypt, cache, db, flask_static_digest, login_manager, loguru, migrate
+from backend.fundmate.extensions import (
+    bcrypt,
+    cache,
+    db,
+    flask_static_digest,
+    login_manager,
+    loguru,
+    migrate,
+)
 
 from .exts.flask_loguru import logger
 
@@ -106,7 +114,12 @@ def register_shell_context(app: Flask):
 
     def shell_context():
         """Shell context objects."""
-        return {"db": db, "User": user.models.User, 'Fund': fund.models.Fund, 'Account': account.models.Account}
+        return {
+            "db": db,
+            "User": user.models.User,
+            'Fund': fund.models.Fund,
+            'Account': account.models.Account
+        }
 
     # 当你使用flask shell命令启动Python Shell时，所有使用app.shell_context_processor装饰器注册的shell上下文处理函数
     # 都会被自动执行，这会将db和Note对象推送到Python Shell上下文里
@@ -134,6 +147,8 @@ def update_config(app: Flask):
     amend_conf = config.get(settings.ENV)
     logger.info(amend_conf)
     app.config.from_object(amend_conf)
+
+
 #
 # TODO:Optionally define and set unauthorized callbacks
 # security.unauthz_handler(<your unauth handler>)

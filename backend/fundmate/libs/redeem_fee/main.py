@@ -21,7 +21,7 @@ def main():
 
     l = fund_list.get_fund_list()
     for item in chunks(hold_data, 9):
-        print('9item', item)
+        print('9item=====', item)
         figure.draw(item, l)
     figure.show()
 

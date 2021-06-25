@@ -50,15 +50,10 @@ class CRUDMixin(object):
 
     @classmethod
     def paginate_query(cls, query_args):
-        pagination = cls.query.paginate(
-            page=query_args['page'],
-            per_page=query_args['per_page']
-        )
+        pagination = cls.query.paginate(page=query_args['page'],
+                                        per_page=query_args['per_page'])
         _items = pagination.items
-        return {
-            'items': _items,
-            'pagination': pagination_builder(pagination)
-        }
+        return {'items': _items, 'pagination': pagination_builder(pagination)}
 
 
 class UpsertMixin(CRUDMixin):
@@ -81,13 +76,16 @@ class UpsertMixin(CRUDMixin):
         """
         # https://stackoverflow.com/a/41951905
         for attr, value in unique_query_arg.items():
-            exists = db.session.query(cls.query.filter(getattr(cls, attr) == value).exists()).scalar()
+            exists = db.session.query(
+                cls.query.filter(
+                    getattr(cls, attr) == value).exists()).scalar()
             if exists:  # TODO: what if unique_query_arg
                 return exists
         return False
 
     @classmethod
-    def insert_or_update(cls, unique_query_arg: dict, **kwargs: Union[list, dict]):
+    def insert_or_update(cls, unique_query_arg: dict, **kwargs: Union[list,
+                                                                      dict]):
         """
         创建或更新
         :param unique_query_arg:
@@ -99,7 +97,8 @@ class UpsertMixin(CRUDMixin):
             # 允许多个查询条件 TODO: 可以使用比较运算符
             # [python - sqlalchemy dynamic filtering - Stack Overflow](https://stackoverflow.com/questions/41305129/sqlalchemy-dynamic-filtering/41309069#41309069)
             for attr, value in unique_query_arg.items():
-                ret = cls.query.filter(getattr(cls, attr) == value).update(kwargs)
+                ret = cls.query.filter(
+                    getattr(cls, attr) == value).update(kwargs)
             db.session.commit()
         else:
             ret = cls.create(**kwargs)
@@ -125,12 +124,10 @@ class PkModel(Model):
     @classmethod
     def get_by_id(cls, record_id):
         """Get record by ID."""
-        if any(
-                (
-                        isinstance(record_id, basestring) and record_id.isdigit(),
-                        isinstance(record_id, (int, float)),
-                )
-        ):
+        if any((
+                isinstance(record_id, basestring) and record_id.isdigit(),
+                isinstance(record_id, (int, float)),
+        )):
             return cls.query.get_or_404(int(record_id))
         return None
 
@@ -147,13 +144,17 @@ class CreateDateModel(Model):
     参阅：[python - SQLAlchemy default DateTime - Stack Overflow](https://stackoverflow.com/
     questions/13370317/sqlalchemy-default-datetime)
     '''
-    create_at = Column(db.DateTime(timezone=True), default=datetime.now, server_default=func.now(), comment='创建时间')
+    create_at = Column(db.DateTime(timezone=True),
+                       default=datetime.now,
+                       server_default=func.now(),
+                       comment='创建时间')
 
 
-def reference_col(
-        tablename: str, nullable: bool = False, pk_name: str = "id", foreign_key_kwargs: Union[dict, None] = None,
-        column_kwargs: Union[dict, None] = None
-):
+def reference_col(tablename: str,
+                  nullable: bool = False,
+                  pk_name: str = "id",
+                  foreign_key_kwargs: Union[dict, None] = None,
+                  column_kwargs: Union[dict, None] = None):
     """
     Column that adds primary key foreign key reference.
 

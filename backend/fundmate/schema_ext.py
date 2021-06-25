@@ -32,7 +32,5 @@ class UserInSchema(Schema):
 
 
 class RegisterSchema(UserInSchema):
-    re_password = String(required=True, validate=(Length(6, 40), Equal('password')))
-
-
-
+    re_password = String(required=True,
+                         validate=(Length(6, 40), Equal('password')))

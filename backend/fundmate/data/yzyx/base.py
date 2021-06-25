@@ -71,7 +71,8 @@ class YZYX:
             with open(html_fp) as f:
                 text = f.read()
 
-        reg_mat = re.findall(r"const data = parseData\(JSON.parse\('(.*)'\)\)", text)
+        reg_mat = re.findall(r"const data = parseData\(JSON.parse\('(.*)'\)\)",
+                             text)
         if reg_mat:
             _info = reg_mat[0]
             data = json.loads(_info)

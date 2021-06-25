@@ -47,7 +47,7 @@ def draw(hold_data, fund_list):
 
         date_list = list(data.keys())
         data_list = list(data.values())
-        print(date_list, data_list)
+        print(date_list, data_list, '===========')
 
         index += 1
         axes = plt.subplot(c, col_count, index)
@@ -98,7 +98,7 @@ def draw(hold_data, fund_list):
         print('today:', _num2data_str(today_num)[5:])
         note_list = []
         t = today_num
-        print(t,'===============')
+        print(t, '===============')
         for d, f in fl_table:
             xline = today_num - d + 1
             if xline in dates:

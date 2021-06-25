@@ -18,7 +18,6 @@ class Config:
     TESTING = False
     CSRF_ENABLED = True
     SECRET_KEY = env.str('SECRET_KEY', default='MPk2WlUArcLeeU_iohzT')
-
     '''
     # 旧版本
     import random

@@ -98,7 +98,10 @@ https://www.zhihu.com/question/36938733/answer/573224207
         '''
         PE中值 PE温度 股票数量 IPO数量 ST数量 A股全市场指数点位
         '''
-        data_useful_key = ['median_PE', 'median_PE_t', 'stock_count', 'IPO_count', 'st_count', 'index_point']
+        data_useful_key = [
+            'median_PE', 'median_PE_t', 'stock_count', 'IPO_count', 'st_count',
+            'index_point'
+        ]
         float2int_iter = ['stock_count', 'IPO_count', 'st_count']
         data_mat = re.findall(r"\t(.*):\t*(\[.*]),", text)
         if data_mat:
@@ -125,14 +128,16 @@ https://www.zhihu.com/question/36938733/answer/573224207
                 read_data = dict()
                 new_list = list()
                 ret = dict()
-                mid = map(list,
-                          zip(date, median_pe_l, median_pe_t_l, stock_count_l, ipo_count_l, st_count_l,
-                              index_point_l))
+                mid = map(
+                    list,
+                    zip(date, median_pe_l, median_pe_t_l, stock_count_l,
+                        ipo_count_l, st_count_l, index_point_l))
                 for item in mid:
                     new_dict = dict(
-                        zip(['date', 'median_pe', 'median_pe_t', 'stock_count', 'ipo_count', 'st_count',
-                             'index_point'],
-                            item))
+                        zip([
+                            'date', 'median_pe', 'median_pe_t', 'stock_count',
+                            'ipo_count', 'st_count', 'index_point'
+                        ], item))
                     new_list.append(new_dict)
                 ret['info'] = new_list
                 ret['avg_base_ytm'] = avg_base_ytm

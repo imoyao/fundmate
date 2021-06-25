@@ -50,7 +50,7 @@ def _fl_table_parser(fl_table):
 
         years = re.findall(r"(\d+)年", date)
         for i in years:
-            date = date.replace(i+'年', '%d天' % (int(i)*365), 1)
+            date = date.replace(i + '年', '%d天' % (int(i) * 365), 1)
 
         xydy = 0
         if '小于等于' in date:
@@ -60,7 +60,7 @@ def _fl_table_parser(fl_table):
         days = re.findall(r"小于(\d+)天", date)
         if not days:
             continue
-        fls.append((int(days[0]) + xydy,  fl))
+        fls.append((int(days[0]) + xydy, fl))
     fl_p = fl_table[-1]['赎回费率']
     fl = float(fl_p.replace('%', ''))
     fls.append((float('inf'), fl))

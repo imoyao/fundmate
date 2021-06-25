@@ -19,10 +19,10 @@ from backend.fundmate.extensions import login_manager
 角色和用户之间互为多对多关系（ bidirectional relationship）
 **注意**：必须继承Base且为第一个继承对象！
 '''
-user_role_table = Table('user_role', Base.metadata,
-                        Column('user_id', db.Integer, db.ForeignKey('users.id')),
-                        Column('role_id', db.Integer, db.ForeignKey('roles.id'))
-                        )
+user_role_table = Table(
+    'user_role', Base.metadata,
+    Column('user_id', db.Integer, db.ForeignKey('users.id')),
+    Column('role_id', db.Integer, db.ForeignKey('roles.id')))
 
 
 class Role(Base, PkModel):
@@ -30,7 +30,9 @@ class Role(Base, PkModel):
 
     __tablename__ = "roles"
     name = Column(db.String(80), unique=True, nullable=False)
-    user = relationship("User", secondary=user_role_table, back_populates="role")
+    user = relationship("User",
+                        secondary=user_role_table,
+                        back_populates="role")
 
     def __init__(self, name, **kwargs):
         """Create instance."""
@@ -47,7 +49,10 @@ class User(Base, PkModel, CreateDateModel, UserMixin):
     __tablename__ = 'users'
     __table_args__ = {'comment': '用户表'}
     name = Column(db.String(16), comment='用户名')
-    username = Column(db.String(16), unique=True, nullable=False, comment='登录用户名')
+    username = Column(db.String(16),
+                      unique=True,
+                      nullable=False,
+                      comment='登录用户名')
     password = Column(db.String(40), nullable=False, comment='用户密码')
     email = Column(db.String(30), unique=True, nullable=False, comment='注册邮箱')
     phone_num = Column(db.String(11), comment='注册手机号')
@@ -57,11 +62,13 @@ class User(Base, PkModel, CreateDateModel, UserMixin):
     is_vip = Column(db.Boolean(), default=False)
     profile = Column(db.TEXT)
     # TODO: 是否有必要，修改为modified？
-    last_login = Column(
-        db.TIMESTAMP,
-        nullable=False,
-        server_default=db.text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"))
-    role = relationship("Role", secondary=user_role_table, back_populates="user")
+    last_login = Column(db.TIMESTAMP,
+                        nullable=False,
+                        server_default=db.text(
+                            "CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"))
+    role = relationship("Role",
+                        secondary=user_role_table,
+                        back_populates="user")
 
     def __init__(self, username, email, password, **kwargs) -> None:
         """Create instance."""
@@ -101,7 +108,8 @@ class User(Base, PkModel, CreateDateModel, UserMixin):
         if not rv:
             admin_info = {
                 'name': 'admin',
-                'email': current_app.config["ADMIN_EMAIL"] or settings.INFO_MAIL_ADDR,
+                'email': current_app.config["ADMIN_EMAIL"]
+                or settings.INFO_MAIL_ADDR,
                 'password': current_app.config["DEFAULT_ADMIN_PASSWORD"],
                 'is_admin': True,
                 'is_vip': True,
@@ -126,6 +134,7 @@ class User(Base, PkModel, CreateDateModel, UserMixin):
 
 
 class Guest(AnonymousUserMixin):
+
     @property
     def is_admin(self):
         return False

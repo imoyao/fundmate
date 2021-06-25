@@ -22,6 +22,7 @@ def load_user(user_id):
 
 @bp.route('/')
 class Home(MethodView):
+
     def post(self):
         flash("You are logged in.", "success")
         redirect_url = request.args.get("next") or url_for("user.members")
@@ -55,18 +56,15 @@ class PetOutSchema(Schema):
     category = String()
 
 
-pets = [
-    {
-        'id': 0,
-        'name': 'Kitty',
-        'category': 'cat'
-    },
-    {
-        'id': 1,
-        'name': 'Coco',
-        'category': 'dog'
-    }
-]
+pets = [{
+    'id': 0,
+    'name': 'Kitty',
+    'category': 'cat'
+}, {
+    'id': 1,
+    'name': 'Coco',
+    'category': 'dog'
+}]
 
 
 @bp.route('/pets/<int:pet_id>')

@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # Created by imoyao at 2021/6/7 17:47
+import os
+import sys
 from contextlib import contextmanager
 from datetime import timedelta
 from typing import Union
@@ -10,6 +12,7 @@ import pandas as pd
 
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.libs import convert
+from backend.fundmate.utils import HiddenPrints
 
 
 @contextmanager
@@ -27,10 +30,10 @@ def trade_days_gen(start_date: str, end_date: Union[str, None] = None):
         end_date = real_end_date.strftime("%Y-%m-%d")
 
     result = None
-    lg = bs.login()
+    with HiddenPrints():
+        lg = bs.login()
     if lg.error_code == '0':
-        rs = bs.query_trade_dates(start_date=start_date,
-                                  end_date=end_date)
+        rs = bs.query_trade_dates(start_date=start_date, end_date=end_date)
         data_list = []
         while rs.error_code == '0' and rs.next():
             # 获取一条记录，将记录合并在一起
@@ -44,7 +47,8 @@ def trade_days_gen(start_date: str, end_date: Union[str, None] = None):
         logger.warning(f'logger in baostock with msg:{msg}')
     yield result
     # 登出系统
-    bs.logout()
+    with HiddenPrints():
+        bs.logout()
 
 
 if __name__ == '__main__':

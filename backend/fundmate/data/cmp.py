@@ -14,12 +14,13 @@ import xalpha as xa
 tk_code = 'TK1001'
 page_num = 20
 # 对一些常用平台，设置简称，方便用户查找
-USUAL_SALE_COMPS = {'1619': '蚂蚁财富（支付宝）',
-                    '1615': '天天基金',
-                    '1730': '腾讯腾安（理财通）',
-                    '1701': '蛋卷基金',
-                    '1686': '盈米/且慢'
-                    }
+USUAL_SALE_COMPS = {
+    '1619': '蚂蚁财富（支付宝）',
+    '1615': '天天基金',
+    '1730': '腾讯腾安（理财通）',
+    '1701': '蛋卷基金',
+    '1686': '盈米/且慢'
+}
 
 
 def get_info():
@@ -52,13 +53,16 @@ def do_get(url):
 
 
 def get_tk_val():
-    ret = list(pandas.read_json(path_or_buf='TK1001.json', orient='records').val)[::-1]
+    ret = list(
+        pandas.read_json(path_or_buf='TK1001.json',
+                         orient='records').val)[::-1]
     print(len(ret))
     return ret
 
 
 def jy_val():
-    ret = list(xa.get_daily('F519732', start='2017-08-16', end='2021-02-19').close)
+    ret = list(
+        xa.get_daily('F519732', start='2017-08-16', end='2021-02-19').close)
     print(len(ret))
     return ret
 

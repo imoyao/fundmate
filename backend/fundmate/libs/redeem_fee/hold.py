@@ -5,9 +5,9 @@ import openpyxl
 
 
 def _get_fene_list(col):
-    temp = [(i.value) for i in col]
+    temp = [i.value for i in col]
     for i, v in enumerate(temp):
-        if v == None:
+        if v is None:
             temp[i] = 0
         else:
             temp[i] = int(temp[i])
@@ -52,8 +52,10 @@ def get_hold_data_from_excel():
     code_row_index = 1
     date_start_row_index = 3
 
-    dates = [_date_str_formatting(i.value)
-             for i in table[date_col_index][date_start_row_index:]]
+    dates = [
+        _date_str_formatting(i.value)
+        for i in table[date_col_index][date_start_row_index:]
+    ]
 
     d = {}
     for i in range(data_start_col_index, len(table)):
@@ -68,4 +70,5 @@ def get_hold_data_from_excel():
 
 
 if __name__ == "__main__":
-    get_hold_data_from_excel()
+    d = get_hold_data_from_excel()
+    print(d)

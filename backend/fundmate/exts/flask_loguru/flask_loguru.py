@@ -105,7 +105,8 @@ class Loguru(object):
         """
         path = config["LOG_NAME"]
         if config["LOG_PATH"] is not None:
-            path = pathlib.Path(config["LOG_PATH"]).joinpath(config["LOG_NAME"])
+            path = pathlib.Path(config["LOG_PATH"]).joinpath(
+                config["LOG_NAME"])
 
         def should_rotate(message, file):
             filepath = pathlib.Path(file.name).resolve()
@@ -130,8 +131,11 @@ class Loguru(object):
             if file_list:
                 zip_logs(config, file_list)
 
-        logger.add(path, format=config["LOG_FORMAT"], rotation=should_rotate,
-                   enqueue=config["LOG_ENQUEUE"], serialize=config["LOG_SERIALIZE"],
+        logger.add(path,
+                   format=config["LOG_FORMAT"],
+                   rotation=should_rotate,
+                   enqueue=config["LOG_ENQUEUE"],
+                   serialize=config["LOG_SERIALIZE"],
                    retention=should_retention)
 
         if not hasattr(app, "extensions"):
