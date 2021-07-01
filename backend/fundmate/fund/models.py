@@ -6,6 +6,7 @@ from backend.fundmate.database import (
     Column,
     CreateDateModel,
     CRUDMixin,
+    DeclEnum,
     PkModel,
     UpsertMixin,
     db,
@@ -206,15 +207,58 @@ class Mgr(PkModel):
                         comment='所属公司ID')
 
 
-class FundPortfolio(PkModel):
+class ZHMgrType(DeclEnum):
     """
-    基金组合，爬取一些具有代表性的组合
+    组合管理人类型
     """
-    pass
+    # TODO: 需要验证int是否支持
+    ji_gou = 1, '机构'
+    ge_ren = 0, '个人'
+
+
+class RiskType(DeclEnum):
+    """
+    风险类型
+    """
+    plain = 0, '灵活取用'
+    low = 1, '稳健增值'
+    balance = 2, '平衡'
+    mid = 3, '进阶增长'
+    high = 4, '积极进取'
+
+
+class PlatType(DeclEnum):
+    """
+    平台类型
+    """
+    qm = 1, '且慢'
+    tt = 2, '天天基金'
+    dj = 3, '蛋卷基金'
+
+
+class FundPortfolio(PkModel, CreateDateModel):
+    """
+    基金组合
+    TODO: 爬取一些具有代表性的组合
+    """
+    __table_args__ = {'comment': '基金组合表'}
+    name = Column(db.String(30), comment='组合名称')
+    code = Column(db.String(30), unique=True, comment='组合编码')
+    master = Column(db.String(30), comment='主理人')
+    type = Column(ZHMgrType.db_type(), comment='组合类型（机构/个人）')
+    platform = Column(PlatType.db_type(), comment='平台名称')
+    risk_type = Column(RiskType.db_type(), comment='风险类型（稳健/成长等）')
+    desc = Column(db.String(300), comment='组合描述')
+
+    def __repr__(self):
+        return "FundPortfolio(%r, %r)" % (self.name, self.risk_type)
 
 
 class FundPortfolioDetail(PkModel):
     """
     组合调仓记录
     """
-    pass
+    belongs_to = Column(db.String(30), comment='所属组合id')
+    update_date = Column(db.String(30), comment='调仓时间')
+    code = Column(db.String(30), comment='基金编码')
+    desc = Column(db.String(300), comment='调仓理由')
