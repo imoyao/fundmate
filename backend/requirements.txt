@@ -74,7 +74,7 @@ PyMySQL==1.0.2
 pyparsing==2.4.7
 pyrepl==0.9.0
 PySocks==1.7.1
-pytest==6.2.2
+pytest==6.2.4
 python-dateutil==2.8.1
 python-dotenv==0.15.0
 python-editor==1.0.4
