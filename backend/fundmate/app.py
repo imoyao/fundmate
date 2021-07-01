@@ -21,34 +21,14 @@ from backend.fundmate.extensions import (
 from .exts.flask_loguru import logger
 
 
-def print_logo():
-    logo_str = r'''
-
-      ___           ___           ___                                  ___           ___                         ___     
-     /\__\         /\  \         /\  \         _____                  /\  \         /\  \                       /\__\    
-    /:/ _/_        \:\  \        \:\  \       /::\  \                |::\  \       /::\  \         ___         /:/ _/_   
-   /:/ /\__\        \:\  \        \:\  \     /:/\:\  \               |:|:\  \     /:/\:\  \       /\__\       /:/ /\__\  
-  /:/ /:/  /    ___  \:\  \   _____\:\  \   /:/  \:\__\            __|:|\:\  \   /:/ /::\  \     /:/  /      /:/ /:/ _/_ 
- /:/_/:/  /    /\  \  \:\__\ /::::::::\__\ /:/__/ \:|__|          /::::|_\:\__\ /:/_/:/\:\__\   /:/__/      /:/_/:/ /\__\
- \:\/:/  /     \:\  \ /:/  / \:\~~\~~\/__/ \:\  \ /:/  /          \:\~~\  \/__/ \:\/:/  \/__/  /::\  \      \:\/:/ /:/  /
-  \::/__/       \:\  /:/  /   \:\  \        \:\  /:/  /            \:\  \        \::/__/      /:/\:\  \      \::/_/:/  / 
-   \:\  \        \:\/:/  /     \:\  \        \:\/:/  /              \:\  \        \:\  \      \/__\:\  \      \:\/:/  /  
-    \:\__\        \::/  /       \:\__\        \::/  /                \:\__\        \:\__\          \:\__\      \::/  /   
-     \/__/         \/__/         \/__/         \/__/                  \/__/         \/__/           \/__/       \/__/    
-                                                                            
-    '''
-    print(logo_str)
-
-
 def create_app(config_object: str = "backend.fundmate.settings"):
-    """Create application factory, as explained here: http://flask.pocoo.org/docs/patterns/appfactories/.
+    """Create application factory, as explained here: https://flask.pocoo.org/docs/patterns/appfactories/.
 
     :param config_object: The configuration object to use.
     """
     '''
     see also:[APIFlask](https://apiflask.com/#example)
     '''
-    print_logo()
     app = APIFlask(__name__)
     app.config.from_object(config_object)
     update_config(app)
