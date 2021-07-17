@@ -4,6 +4,7 @@
 Flask==2.0.1
 Werkzeug==2.0.1
 click>=7.0
+APIFlask==0.8.0
 
 # Database
 Flask-SQLAlchemy==2.5.1
@@ -29,9 +30,6 @@ supervisor==4.2.2
 # Auth
 Flask-Login==0.5.0
 Flask-Bcrypt==0.7.1
-
-# Caching
-Flask-Caching>=1.7.2
 
 # Debug toolbar
 # Flask-DebugToolbar==0.11.0

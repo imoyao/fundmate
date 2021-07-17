@@ -3,12 +3,29 @@
 整个项目中的工具函数
 TODO: 如果后期变大，则拆分为多个文件
 """
+import itertools
 import os
 import sys
+from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Union
 
 import dateparser
+
+
+def merge_iterables_of_dict(shared_key, *iterables):
+    """
+    内字典列表合并
+    :param shared_key:
+    :param iterables:
+    :return:
+    """
+    result = defaultdict(dict)
+    for dictionary in itertools.chain.from_iterable(iterables):
+        result[dictionary[shared_key]].update(dictionary)
+    for dictionary in result.values():
+        dictionary.pop(shared_key)
+    return result
 
 
 class HiddenPrints:
