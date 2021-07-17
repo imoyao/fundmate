@@ -10,7 +10,6 @@ from backend.fundmate import account, commands, fund, public, settings, user
 from backend.fundmate.config import config
 from backend.fundmate.extensions import (
     bcrypt,
-    cache,
     db,
     flask_static_digest,
     login_manager,
@@ -26,9 +25,7 @@ def create_app(config_object: str = "backend.fundmate.settings"):
 
     :param config_object: The configuration object to use.
     """
-    '''
-    see also:[APIFlask](https://apiflask.com/#example)
-    '''
+    # see also:[APIFlask](https://apiflask.com/#example)
     app = APIFlask(__name__)
     app.config.from_object(config_object)
     update_config(app)
@@ -50,9 +47,7 @@ def create_app(config_object: str = "backend.fundmate.settings"):
 def register_extensions(app: Flask):
     """Register Flask extensions."""
     bcrypt.init_app(app)
-    cache.init_app(app)
     db.init_app(app)
-    # csrf_protect.init_app(app)
     login_manager.init_app(app)
 
     migrate.init_app(app, db)

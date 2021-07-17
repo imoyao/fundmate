@@ -222,7 +222,7 @@ class RiskType(DeclEnum):
     """
     plain = 0, '灵活取用'
     low = 1, '稳健增值'
-    balance = 2, '平衡'
+    balance = 2, '平衡成长'
     mid = 3, '进阶增长'
     high = 4, '积极进取'
 

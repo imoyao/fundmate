@@ -245,14 +245,12 @@ class DeclEnumType(SchemaType, TypeDecorator):
         return DeclEnumType(self.enum)
 
     def process_bind_param(self, value, dialect):
-        if value is None:
-            return None
-        return value.value
+        if value is not None:
+            return value.value
 
     def process_result_value(self, value, dialect):
-        if value is None:
-            return None
-        return self.enum.from_string(value.strip())
+        if value is not None:
+            return self.enum.from_string(value.strip())
 
 
 class DeclEnum(object):
