@@ -5,6 +5,7 @@ import json
 import re
 from pathlib import Path
 
+from lxml import etree
 from xalpha.cons import rget
 
 from backend.fundmate import excepts as dt_except
@@ -38,7 +39,34 @@ class YZYX:
     """
     URL = 'https://youzhiyouxing.cn/thermometer'
 
-    def daily_temp(self) -> list:
+    def get_html_text(self, json_fp=None):
+        html_fp = f'{current_path}/temp.html'
+        p = Path(html_fp)
+        # 文件过期则删除重爬
+        dt_utils.delete_overdue(html_fp, json_fp)
+
+        if not p.exists():
+            hd = dt_utils.parse_headers(header_str)
+            resp = rget(self.URL, headers=hd)
+            with open(html_fp, 'w') as f:
+                text = resp.text
+                f.write(text)
+        else:
+            with open(html_fp) as f:
+                text = f.read()
+        return text
+
+    def daily_temp(self):
+        """
+        新版数据 TODO: 需要完善
+        :return: 
+        """
+        text = self.get_html_text()
+        html = etree.HTML(text)
+        s = etree.tostring(html).decode()
+        print(s)
+
+    def daily_temp_old(self) -> list:
         """
         每日温度历史值
         :return:[{"asset_rate": "386.2744", "avg_return_3": null, "close": "765.6346", "date": "2005-01-07", "degree": 9,
@@ -55,21 +83,8 @@ class YZYX:
      'return_day': '0.005316',
      'rw_pb': '2.0300'}
         '''
-        html_fp = f'{current_path}/temp.html'
         json_fp = f'{current_path}/yzyx.json'
-        p = Path(html_fp)
-        # 文件过期则删除重爬
-        dt_utils.delete_overdue(html_fp, json_fp)
-
-        if not p.exists():
-            hd = dt_utils.parse_headers(header_str)
-            resp = rget(self.URL, headers=hd)
-            with open(html_fp, 'w') as f:
-                text = resp.text
-                f.write(text)
-        else:
-            with open(html_fp) as f:
-                text = f.read()
+        text = self.get_html_text(jp=json_fp)
 
         reg_mat = re.findall(r"const data = parseData\(JSON.parse\('(.*)'\)\)",
                              text)
@@ -89,4 +104,4 @@ class YZYX:
 yzyx = YZYX()
 
 if __name__ == '__main__':
-    print(yzyx.last())
+    print(yzyx.daily_temp())

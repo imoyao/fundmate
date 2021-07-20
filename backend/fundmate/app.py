@@ -26,7 +26,7 @@ def create_app(config_object: str = "backend.fundmate.settings"):
     :param config_object: The configuration object to use.
     """
     # see also:[APIFlask](https://apiflask.com/#example)
-    app = APIFlask(__name__)
+    app = APIFlask(__name__, title='基伴 API', version='1.0.0')
     app.config.from_object(config_object)
     update_config(app)
     register_extensions(app)
