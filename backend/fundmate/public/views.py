@@ -6,6 +6,7 @@ from apiflask.validators import Length, OneOf
 from flask import flash, redirect, request, url_for
 from flask.views import MethodView
 
+from backend.fundmate import excepts as dt_except
 from backend.fundmate.data import danjuan, jsl, yzyx
 from backend.fundmate.extensions import login_manager
 from backend.fundmate.schema_ext import RegisterSchema
@@ -110,7 +111,10 @@ def thermometer():
     目前包括集思录温度、有知有行温度、蛋卷估值
     :return:
     """
-    yzyx_info = yzyx.yzyx.last()
+    try:
+        yzyx_info = yzyx.yzyx.last()
+    except dt_except.CrawlerException:
+        yzyx_info = None
     jsl_info = jsl.jsl.overview()
     dj_info = danjuan.dj.overview()
     info = {'yzyx': yzyx_info, 'jsl': jsl_info, 'dj': dj_info}
