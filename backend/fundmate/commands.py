@@ -75,7 +75,10 @@ def create_db(fund, mgr, company):
 )
 def lint(fix_imports, check):
     """Lint and check code style with black, flake8 and isort."""
-    skip = ["node_modules", "requirements", "migrations"]
+    skip = [
+        "node_modules", "requirements", "migrations", "tests", "__pycache__",
+        "build", "dist", "venv"
+    ]
     root_files = glob("*.py")
     root_directories = [
         name for name in next(os.walk("."))[1] if not name.startswith(".")
@@ -93,11 +96,11 @@ def lint(fix_imports, check):
             exit(rv)
 
     isort_args = []
-    black_args = []
+    # black_args = []
     if check:
         isort_args.append("--check")
-        black_args.append("--check")
+        # black_args.append("--check")
     if fix_imports:
         execute_tool("Fixing import order", "isort", *isort_args)
-    execute_tool("Formatting style", "black", *black_args)
+    # execute_tool("Formatting style", "black", *black_args)
     execute_tool("Checking code style", "flake8")
