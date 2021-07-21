@@ -45,7 +45,7 @@ class Config:
     MAIL_DEFAULT_SENDER = ('基小伴', env.str('MAIL_USERNAME'))
     # redis 配置
     # REDIS_URL = 'redis://:password@localhost:6379/0'
-    REDIS_URL = env.str('LOG_PATH', default='redis://localhost:6379/0')
+    REDIS_URL = env.str('REDIS_PATH', default='redis://localhost:6379/0')
     # logger
     LOG_PATH = env.str('LOG_PATH', default='/var/log')
     LOG_NAME = env.str('LOG_NAME', default='run.log')

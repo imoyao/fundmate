@@ -24,15 +24,21 @@ gevent==21.1.2
 gunicorn>=19.9.0
 supervisor==4.2.2
 
-# Flask Static Digest
-# Flask-Static-Digest==0.2.1
-
 # Auth
 Flask-Login==0.5.0
 Flask-Bcrypt==0.7.1
 
-# Debug toolbar
-# Flask-DebugToolbar==0.11.0
-
 # Environment variable parsing
 environs==9.3.2
+
+# logging system 日志系统
+loguru==0.5.3
+
+# 数据缓存
+cachetools==4.2.2
+
+# 基金净值获取
+xalpha==0.11.4
+
+# 日期解析
+dateparser==1.0.0
