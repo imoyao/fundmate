@@ -34,7 +34,7 @@ jobs:
           sudo mkdir -p /home/work/var/log
           sudo touch app.log
           flask lint --check
-          flask test
+#          flask test
   docsunit:
     name: docs lint
     runs-on: ubuntu-latest

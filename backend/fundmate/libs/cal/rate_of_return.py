@@ -675,8 +675,9 @@ class XIRR:
         >>> xirr(dam)
         -0.645363882724717
         """
-        if len(values) != len(dates):
-            raise excepts.LenEqualError()
+        if len(values) != len(dates) or not all((dates, values)):
+            return None
+
         values_per_date = merge_date_amount_map(dates, values)
         if not values_per_date:
             return None
@@ -716,8 +717,12 @@ class XIRR:
         which are almost 0.
         """
         values_cleaned = [amount for amount in values if round(amount, 2) != 0]
+        print(values, values_cleaned, '---values,values_cleaned-------')
+        result = None
         try:
-            result = self.xirr(values_cleaned, dates)
+            if len(values_cleaned) == len(dates) and all(
+                [values_cleaned, dates]):
+                result = self.xirr(values_cleaned, dates)
         except ValueError:
             return None
         if result is not None and (abs(result) >= 100
@@ -734,9 +739,9 @@ class XIRR:
         :param amount: amount column name
         :return: xirr for given date and amount values
         """
-        dates = df[date].tolist()
+        _dates = df[date].tolist()
         amounts = df[amount].tolist()
-        return self.xirr(amounts, dates)
+        return self.xirr(amounts, _dates)
 
 
 xirr = XIRR()

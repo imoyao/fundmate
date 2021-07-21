@@ -32,6 +32,19 @@ class LenEqualError(CalError):
         return self.msg
 
 
+class ArgsEmptyError(CalError):
+    """
+    计算参数不能为空的异常
+    """
+
+    def __init__(self, message="Length is not equal!"):
+        super().__init__(message)
+        self.msg = message
+
+    def __str__(self):
+        return self.msg
+
+
 class ParseError(CalError):
     """
     解析异常
