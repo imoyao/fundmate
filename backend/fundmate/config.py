@@ -46,9 +46,6 @@ class Config:
     # redis 配置
     # REDIS_URL = 'redis://:password@localhost:6379/0'
     REDIS_URL = env.str('REDIS_PATH', default='redis://localhost:6379/0')
-    # logger
-    LOG_PATH = env.str('LOG_PATH', default='/var/log')
-    LOG_NAME = env.str('LOG_NAME', default='run.log')
 
     def __init__(self):
         pass
@@ -63,7 +60,7 @@ class MySQLConfig:
     MYSQL_PASSWORD = env.str('MYSQL_PASSWORD')  # TODO: 环境变量获取失败
     MYSQL_DB = env.str('MYSQL_DB', '')
     MYSQL_HOST = env.str('MYSQL_HOST', 'localhost')
-    MYSQL_PORT = env.str('MYSQL_PORT', 3306)
+    MYSQL_PORT = env.int('MYSQL_PORT', 3306)
     MYSQL_ADDR = f'{MYSQL_HOST}:{MYSQL_PORT}'
     MYSQL_CHARSET = 'utf8mb4'  # 为了支持 emoji 显示，需要设置为 utf8mb4 编码
     MYSQL_DIALECT = 'mysql'  # 使用的数据库

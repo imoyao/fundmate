@@ -16,20 +16,23 @@ jobs:
       - name: Install Python dependencies
         env:
           FLASK_APP: autoapp.py
-#          SECRET_KEY: MPk2WlUArcLeeU_iohzT
-#          SEND_FILE_MAX_AGE_DEFAULT: 0
-#          BCRYPT_LOG_ROUNDS: 13
-#          MAIL_SERVER: smtp.163.com
-#          MAIL_USERNAME: FundMate
-#          LOG_PATH: /var/log
-#          LOG_NAME: run.log
-#          MAIL_PASSWORD: 123456
-#          MYSQL_USER: foo
-#          MYSQL_PASSWORD: bar
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+          SEND_FILE_MAX_AGE_DEFAULT: ${{ secrets.SEND_FILE_MAX_AGE_DEFAULT }}
+          BCRYPT_LOG_ROUNDS: ${{ secrets.BCRYPT_LOG_ROUNDS }}
+          MAIL_SERVER: ${{ secrets.MAIL_SERVER }}
+          MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
+          LOG_PATH: ${{ secrets.LOG_PATH }}
+          LOG_NAME: ${{ secrets.LOG_NAME }}
+          MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
+          MYSQL_USER: ${{ secrets.MYSQL_USER }}
+          MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
+          MYSQL_PORT: ${{ secrets.MYSQL_PORT }}
         run: |
           cd ./backend
           python -m pip install --upgrade pip
           pip install -r requirements/dev.txt
+          sudo mkdir -p /home/work/var/log
+          sudo touch app.log
           flask lint --check
           flask test
   docsunit:
