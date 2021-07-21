@@ -6,6 +6,7 @@ from datetime import date, datetime
 import pytest
 from pytest import approx
 
+from backend.fundmate import excepts
 from backend.fundmate.libs.cal import rate_of_return as rr
 
 
@@ -102,8 +103,10 @@ class TestXIRR:
             datetime.fromisoformat(k).date(): v
             for k, v in values_per_date_string.items()
         }
-        actual = rr.XIRR.xirr(values_per_date)
-        if expected:
+        _val_list = list(values_per_date.values())
+        _dates = list(values_per_date.keys())
+        actual = rr.xirr.xirr(_val_list, _dates)
+        if expected and actual is not None:
             assert round(actual, 4) == expected
         else:
             assert actual == expected
@@ -155,8 +158,12 @@ class TestXIRR:
             datetime.fromisoformat(k).date(): v
             for k, v in values_per_date_string.items()
         }
-        actual = rr.XIRR.clean_xirr(values_per_date)
-        if expected:
+        print(values_per_date, 'values_per_date-----')
+        # return None
+        _val_list = list(values_per_date.values())
+        _dates = list(values_per_date.keys())
+        actual = rr.xirr.clean_xirr(_val_list, _dates)
+        if expected and actual is not None:
             assert round(actual, 4) == expected
         else:
             assert actual == expected
@@ -179,7 +186,7 @@ class TestXNPV:
             datetime.fromisoformat(k).date(): v
             for k, v in values_per_date_string.items()
         }
-        actual = rr.XNPV.xnpv(values_per_date, rate)
+        actual = rr.xnpv.xnpv(values_per_date, rate)
         if expected:
             assert actual == approx(expected, 0.0001)
         else:

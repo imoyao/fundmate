@@ -15,6 +15,7 @@ from .factories import UserFactory
 @pytest.fixture
 def app():
     """Create application for the tests."""
+    # FIXME: not OK!
     _app = create_app("tests.settings")
     _app.logger.setLevel(logging.CRITICAL)
     ctx = _app.test_request_context()
