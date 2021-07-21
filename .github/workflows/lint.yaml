@@ -14,14 +14,24 @@ jobs:
         with:
           python-version: 3.7
       - name: Install Python dependencies
+        env:
+          FLASK_APP: autoapp.py
+#          SECRET_KEY: MPk2WlUArcLeeU_iohzT
+#          SEND_FILE_MAX_AGE_DEFAULT: 0
+#          BCRYPT_LOG_ROUNDS: 13
+#          MAIL_SERVER: smtp.163.com
+#          MAIL_USERNAME: FundMate
+#          LOG_PATH: /var/log
+#          LOG_NAME: run.log
+#          MAIL_PASSWORD: 123456
+#          MYSQL_USER: foo
+#          MYSQL_PASSWORD: bar
         run: |
           cd ./backend
           python -m pip install --upgrade pip
           pip install -r requirements/dev.txt
-      - name: Run Python lints
-        run: flask lint --check
-      - name: Run Python tests
-        run: flask test
+          flask lint --check
+          flask test
   docsunit:
     name: docs lint
     runs-on: ubuntu-latest

@@ -4,7 +4,6 @@ from flask_bcrypt import Bcrypt
 from flask_login import LoginManager
 from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
-from flask_static_digest import FlaskStaticDigest
 
 from .exts.flask_loguru import Loguru
 
@@ -33,5 +32,4 @@ bcrypt = Bcrypt()
 login_manager = LoginManager()
 db = SQLAlchemy()
 migrate = Migrate(include_object=tell_migrate_dont_detected_removed_table)
-flask_static_digest = FlaskStaticDigest()
 loguru = Loguru()

@@ -8,14 +8,7 @@ from flask import Flask
 
 from backend.fundmate import account, commands, fund, public, settings, user
 from backend.fundmate.config import config
-from backend.fundmate.extensions import (
-    bcrypt,
-    db,
-    flask_static_digest,
-    login_manager,
-    loguru,
-    migrate,
-)
+from backend.fundmate.extensions import bcrypt, db, login_manager, loguru, migrate
 
 from .exts.flask_loguru import logger
 
@@ -49,9 +42,7 @@ def register_extensions(app: Flask):
     bcrypt.init_app(app)
     db.init_app(app)
     login_manager.init_app(app)
-
     migrate.init_app(app, db)
-    flask_static_digest.init_app(app)
     loguru.init_app(app, {
         "LOG_PATH": "/home/work/www/log",
         "LOG_NAME": "run.log"
