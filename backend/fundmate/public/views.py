@@ -109,7 +109,6 @@ def thermometer():
     """
     行情估值信息
     目前包括集思录温度、有知有行温度、蛋卷估值
-    :return:
     """
     try:
         yzyx_info = yzyx.yzyx.last()

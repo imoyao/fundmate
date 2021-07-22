@@ -46,7 +46,7 @@ class YZYX:
     def __init__(self):
         self.html_fp = f'{current_path}/temp.html'
 
-    @show_time
+    # @show_time
     def get_html_text(self, json_fp=None):
         p = Path(self.html_fp)
         # 文件过期则删除重爬
@@ -63,10 +63,9 @@ class YZYX:
                 text = f.read()
         return text
 
-    @show_time
     def valuations(self, is_df: bool = False) -> Union[dict, pd.DataFrame]:
         """
-        指数表解析 TODO: cache this
+        指数表解析 FIXME: long time,cache this?
         """
         df = pd.read_html(self.URL)[2]
         cols = df.columns.tolist()
@@ -91,7 +90,7 @@ class YZYX:
             return _info
         return data
 
-    @show_time
+    # @show_time
     def daily_temper(self) -> dict:
         """
         新版市场温度数据
@@ -115,7 +114,7 @@ class YZYX:
         temp_desc = [item.text for item in temp_desc_list]
         desc_list = ['eval', 'trend']
         desc_dict = dict(zip(desc_list, temp_desc))
-        whole_market_temp = {'temp': temp_text, 'desc': desc_dict}
+        whole_market_temp = {'temper': temp_text, 'desc': desc_dict}
 
         # 指数观察
         _valuations = self.valuations()
@@ -204,4 +203,3 @@ yzyx = YZYX()
 
 if __name__ == '__main__':
     print(yzyx.daily_temper())
-    # print(yzyx.valuations())
