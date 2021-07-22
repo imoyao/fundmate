@@ -24,7 +24,7 @@ Cookie: AUTH_FUND.EASTMONEY.COM_GSJZ=AUTH*TTJJ*TOKEN; qgqp_b_id=2fae24fc63564874
 DNT: 1
 Host: fund.eastmoney.com
 User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36 Edg/91.0.864.54
-'''
+''' # noqa: F501
 
 
 class EastMoney:

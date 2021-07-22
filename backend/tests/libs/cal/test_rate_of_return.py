@@ -6,7 +6,6 @@ from datetime import date, datetime
 import pytest
 from pytest import approx
 
-from backend.fundmate import excepts
 from backend.fundmate.libs.cal import rate_of_return as rr
 
 

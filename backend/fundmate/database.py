@@ -68,7 +68,7 @@ class UpsertMixin(CRUDMixin):
     参阅：
     1. [python - SQLAlchemy insert or update example - Stack Overflow](https://stackoverflow.com/questions/7889183/sqlalchemy-insert-or-update-example/18244144)
     2. [MySQL — SQLAlchemy 1.3 Documentation](https://docs.sqlalchemy.org/en/13/dialects/mysql.html#insert-on-duplicate-key-update-upsert)
-    """
+    """     # noqa: F501
 
     @classmethod
     def check_is_exists(cls, unique_query_arg: dict) -> bool:
@@ -82,7 +82,7 @@ class UpsertMixin(CRUDMixin):
             exists = db.session.query(
                 cls.query.filter(
                     getattr(cls, attr) == value).exists()).scalar()
-            if exists:  # TODO: what if unique_query_arg
+            if exists:  # TODO: 如果请求的参数是 unique_query_arg
                 return exists
         return False
 

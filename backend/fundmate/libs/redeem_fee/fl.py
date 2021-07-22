@@ -6,7 +6,7 @@
 import re
 
 from bs4 import BeautifulSoup
-from utils import *
+from utils import *  # noqa: E403
 
 
 def _get_fl_table_tag(html):
@@ -29,11 +29,11 @@ def parse_fl_table_tag(table_soup):
                 heads.append(th.contents[0])
         elif idx != 0:
             tds = tr.find_all('td')
-            l = {}
+            li = {}
             for td in tds:
-                l.update({heads[len(l)]: td.contents[0]})
-            l.pop('适用金额')
-            data_list.append(l)
+                li.update({heads[len(li)]: td.contents[0]})
+            li.pop('适用金额')
+            data_list.append(li)
     return data_list
 
 

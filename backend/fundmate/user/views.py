@@ -84,7 +84,7 @@ class UserDetail(MethodView):
         """删除指定用户"""
         user_obj = load_user(user_id)
         if user_obj is not None:
-            _user = User.delete(user_obj)
+            User.delete(user_obj)
         return ''
 
 
