@@ -25,5 +25,5 @@ def get_fund_list():
 
 
 if __name__ == "__main__":
-    l = get_fund_list()
-    print(l['009549'])
+    li = get_fund_list()
+    print(li['009549'])

@@ -14,8 +14,12 @@ def _get_fene_list(col):
     return temp
 
 
-def _get_chiyou_fene(l):
-    t = l[:]
+def _get_chiyou_fene(li):
+    """获取持有的费率
+    :param li:
+    :return:
+    """
+    t = li[:]
     minus_sum = 0
     for i, v in enumerate(t):
         if v < 0:
@@ -40,7 +44,7 @@ def _date_str_formatting(date_str):
 def get_hold_data_from_excel():
     """
     通过读取excel解析流水
-    :return: 
+    :return:
     """
     book = openpyxl.load_workbook('data.xlsx')
     sheet = book[book.sheetnames[0]]

@@ -2,8 +2,15 @@
 # -*- coding: utf-8 -*-
 # Created by imoyao at 2021/2/13 18:12
 
-from backend.fundmate.database import Base, Column, CreateDateModel, PkModel, db, reference_col, DeclEnum
-
+from backend.fundmate.database import (
+    Base,
+    Column,
+    CreateDateModel,
+    DeclEnum,
+    PkModel,
+    db,
+    reference_col,
+)
 from backend.fundmate.fund.models import RiskType
 
 

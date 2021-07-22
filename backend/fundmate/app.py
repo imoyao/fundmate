@@ -31,7 +31,8 @@ def create_app(config_object: str = "backend.fundmate.settings"):
     configure_logger(app)
     logger.info('Flask app has created!')
     '''
-    RuntimeError: No application found. Either work inside a view function or push an application context. See http://flask-sqlalchemy.pocoo.org/contexts/.
+    RuntimeError: No application found. Either work inside a view function or push an application context. 
+    See http://flask-sqlalchemy.pocoo.org/contexts/.
     see also: https://blog.csdn.net/zhongqiushen/article/details/79162792
     '''
     app.app_context().push()

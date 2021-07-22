@@ -69,19 +69,19 @@ class YZYX:
     def daily_temp_old(self) -> list:
         """
         每日温度历史值
-        :return:[{"asset_rate": "386.2744", "avg_return_3": null, "close": "765.6346", "date": "2005-01-07", "degree": 9,
-      "return_day": "0.002397", "rw_pb": "1.9821"},
+        :return:[{"asset_rate": "386.2744", "avg_return_3": null, "close": "765.6346", "date": "2005-01-07",
+        "degree": 9, "return_day": "0.002397", "rw_pb": "1.9821"},
      {"asset_rate": "385.8761", "avg_return_3": null, "close": "767.3533", "date": "2005-01-14", "degree": 9,
       "return_day": "-0.011090", "rw_pb": "1.9886",...}]
         """
         '''
-        {'asset_rate': '2761.9669', 
-     'avg_return_3': '105.1500',    # 持有3年平均收益率
-     'close': '5606.7929',  # 万德全A
-     'date': '2021-06-04',
-     'degree': 21,      # 温度
-     'return_day': '0.005316',
-     'rw_pb': '2.0300'}
+        {'asset_rate': '2761.9669',
+         'avg_return_3': '105.1500',    # 持有3年平均收益率
+         'close': '5606.7929',  # 万德全A
+         'date': '2021-06-04',
+         'degree': 21,      # 温度
+         'return_day': '0.005316',
+         'rw_pb': '2.0300'}
         '''
         json_fp = f'{current_path}/yzyx.json'
         text = self.get_html_text(jp=json_fp)

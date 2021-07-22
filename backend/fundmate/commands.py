@@ -25,7 +25,7 @@ def test():
 def check_before_create(drop=False):
     """
     创建前先删除
-    see also:[How can I reuse the function that iv made as a command? · Issue #330 · pallets/click](https://github.com/pallets/click/issues/330)
+    see also:[How can I reuse the function that iv made as a command? · Issue #330 · pallets/click](https://github.com/pallets/click/issues/330) # noqa: F501
     :param drop:
     :return:
     """
@@ -95,6 +95,7 @@ def lint(fix_imports, check):
         if rv != 0:
             exit(rv)
 
+    # TODO: 配置参数应该统一
     isort_args = []
     # black_args = []
     if check:
