@@ -4,13 +4,17 @@
 import json
 import re
 from pathlib import Path
+from typing import Union
 
+import pandas as pd
+from deprecated import deprecated
 from lxml import etree
 from xalpha.cons import rget
 
 from backend.fundmate import excepts as dt_except
 from backend.fundmate.data import utils as dt_utils
 from backend.fundmate.exts.flask_loguru import logger
+from backend.fundmate.utils import show_time
 
 header_str = '''Host: youzhiyouxing.cn
 Connection: keep-alive
@@ -28,7 +32,7 @@ Referer: https://youzhiyouxing.cn/thermometer
 Accept-Encoding: gzip, deflate, br
 Accept-Language: zh-CN,zh;q=0.9,en;q=0.8,en-US;q=0.7
 Cookie: _flourish_data=SFMyNTY.g2gDdAAAAAFkAAlkZXZpY2VfaWRtAAAAJGM4MDhkM2YzLTdkZGUtNGEwYi1hODJjLTZlZDg4YmUxNWFiMW4GAELC-uR5AWIAAVGA.xRt-7BqEruLTp87o4zF2WrOEMErTQww_wgQq_rOMiBE; _flourish_key=SFMyNTY.g3QAAAACbQAAAAtfY3NyZl90b2tlbm0AAAAYa3VuV1NFd2RONkhhdkhlUnI1bVROMUZZbQAAAAdyZWZlcmVybQAAACRodHRwczovL3lvdXpoaXlvdXhpbmcuY24vdGhlcm1vbWV0ZXI.DICHDr8U6inf5eLnv8EsGIGkINJBXYLB5XV7b9NVPKc
-'''
+'''  # noqa :E501
 current_path = Path.cwd()
 
 
@@ -39,33 +43,125 @@ class YZYX:
     """
     URL = 'https://youzhiyouxing.cn/thermometer'
 
+    def __init__(self):
+        self.html_fp = f'{current_path}/temp.html'
+
+    @show_time
     def get_html_text(self, json_fp=None):
-        html_fp = f'{current_path}/temp.html'
-        p = Path(html_fp)
+        p = Path(self.html_fp)
         # 文件过期则删除重爬
-        dt_utils.delete_overdue(html_fp, json_fp)
+        dt_utils.delete_overdue(self.html_fp, json_fp)
 
         if not p.exists():
             hd = dt_utils.parse_headers(header_str)
             resp = rget(self.URL, headers=hd)
-            with open(html_fp, 'w') as f:
+            with open(self.html_fp, 'w') as f:
                 text = resp.text
                 f.write(text)
         else:
-            with open(html_fp) as f:
+            with open(self.html_fp) as f:
                 text = f.read()
         return text
 
-    def daily_temp(self):
+    @show_time
+    def valuations(self, is_df: bool = False) -> Union[dict, pd.DataFrame]:
         """
-        新版数据 TODO: 需要完善
+        指数表解析 TODO: cache this
+        """
+        df = pd.read_html(self.URL)[2]
+        cols = df.columns.tolist()
+        rename_cols = [
+            'index_raw_str', 'index_temper', 'interval_rate', 'yield'
+        ]
+        rename_map = dict(zip(cols, rename_cols))
+        df.rename(columns=rename_map, inplace=True)
+        '''  # noqa
+        >>> index_raw_str
+        '中证红利  000922.CSI'
+        >>> index_raw_str.split(' ')
+        ['中证红利', '', '000922.CSI']
+        # [python - Pandas FutureWarning: Columnar iteration over characters will be deprecated in future releases - Stack Overflow](https://stackoverflow.com/questions/61313365/pandas-futurewarning-columnar-iteration-over-characters-will-be-deprecated-in-f)
+        equals: df['index_name'], _, df['index_code'] = df['index_raw_str'].str.split(' ').str
+        '''
+        df[['index_name', 'drop_it',
+            'index_code']] = df['index_raw_str'].str.split(' ', expand=True)
+        data = df.drop(columns=['index_raw_str', 'drop_it'])
+        if not is_df:
+            _info = data.to_dict(orient='records')
+            return _info
+        return data
+
+    @show_time
+    def daily_temper(self) -> dict:
+        """
+        新版市场温度数据
         :return: 
         """
         text = self.get_html_text()
         html = etree.HTML(text)
-        s = etree.tostring(html).decode()
-        print(s)
+        update_date_path = '//aside[@class="tw-w-full"]/div/div/p[1]/text()'
+        update_text = html.xpath(update_date_path)[0]
+        reg_mat = re.findall(r'：\s*(.+)', update_text)
+        update_date = None
+        if reg_mat:
+            update_date = reg_mat[0]
 
+        # 全市场温度
+        temper_div = '//div[@class="tw-flex tw-items-center"]/div/'
+        temp_path = f'{temper_div}div/text()'
+        temp_text = html.xpath(temp_path)[0]
+        temp_desc = f'{temper_div}div[2]/div'
+        temp_desc_list = html.xpath(temp_desc)
+        temp_desc = [item.text for item in temp_desc_list]
+        desc_list = ['eval', 'trend']
+        desc_dict = dict(zip(desc_list, temp_desc))
+        whole_market_temp = {'temp': temp_text, 'desc': desc_dict}
+
+        # 指数观察
+        _valuations = self.valuations()
+        bond_div = '//div[@class="tw-bg-bgd-content-light dark:tw-bg-bgd-content-dark tw-text-t-normal-light ' \
+                   'dark:tw-text-t-normal-dark tw-rounded-1 tw-mb-3 tw-cursor-pointer"]/ '
+        bond_xpath = f'{bond_div}div/p/span/text()'
+        bond_temper = html.xpath(bond_xpath)[0]
+        ten_ytm_xpath = f'{bond_div}div[2]/p/span/span/text()'
+        ten_ytm_rate = html.xpath(ten_ytm_xpath)[0]
+        ten_ytm_xpath_update_xp = f'{bond_div}div[2]/label/text()'
+        ten_ytm_xpath_update_date = html.xpath(ten_ytm_xpath_update_xp)[0]
+        gdp_div = '//div[@class="tw-bg-bgd-content-light dark:tw-bg-bgd-content-dark tw-text-t-normal-light ' \
+                  'dark:tw-text-t-normal-dark tw-rounded-1 tw-cursor-pointer"]/ '
+        gdp_quarter_xp = f'{gdp_div}div/p/span/span/text()'
+        gdp_quarter_rate = html.xpath(gdp_quarter_xp)[0]
+        gdp_quarter_update_xp = f'{gdp_div}div/label/text()'
+        gdp_quarter_update_date = html.xpath(gdp_quarter_update_xp)
+        gdp_month_xp = f'{gdp_div}div[2]/p/span/span/text()'
+        gdp_month_rate = html.xpath(gdp_month_xp)[0]
+        quarter_date, month_date = gdp_quarter_update_date
+        macro_data = {
+            'bond_temper': bond_temper,
+            'ten_ytm_rate': {
+                'rate': ten_ytm_rate,
+                'update_date': ten_ytm_xpath_update_date
+            },
+            'gdp': {
+                'quarter': {
+                    'rate': gdp_quarter_rate,
+                    'date': quarter_date
+                },
+                'month': {
+                    'rate': gdp_month_rate,
+                    'date': month_date
+                },
+            }
+        }
+        info = {
+            'date': update_date,
+            'whole_market_temper': whole_market_temp,
+            'valuations': _valuations,
+            'macro_data': macro_data,
+        }
+        return info
+
+    @deprecated(version='1.0.0', reason='有知有行旧版网站可以直接在html中正则获取数据，网站已改版')
     def daily_temp_old(self) -> list:
         """
         每日温度历史值
@@ -84,7 +180,7 @@ class YZYX:
          'rw_pb': '2.0300'}
         '''
         json_fp = f'{current_path}/yzyx.json'
-        text = self.get_html_text(jp=json_fp)
+        text = self.get_html_text(json_fp=json_fp)
 
         reg_mat = re.findall(r"const data = parseData\(JSON.parse\('(.*)'\)\)",
                              text)
@@ -97,11 +193,15 @@ class YZYX:
         logger.warning('YZYX temper get Error!')
         raise dt_except.CrawlerException('YZYX temper get Error!')
 
+    def temp_detail(self):
+        return self.daily_temp_old()[-1]
+
     def last(self) -> dict:
-        return self.daily_temp()[-1]
+        return self.daily_temper()
 
 
 yzyx = YZYX()
 
 if __name__ == '__main__':
-    print(yzyx.daily_temp())
+    print(yzyx.daily_temper())
+    # print(yzyx.valuations())
