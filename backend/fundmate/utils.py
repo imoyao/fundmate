@@ -6,11 +6,28 @@ TODO: 如果后期变大，则拆分为多个文件
 import itertools
 import os
 import sys
+import time
 from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Union
 
 import dateparser
+
+
+def show_time(func):
+    """
+    代码耗时时间计算
+    """
+
+    def wrap_func(*args, **kwargs):
+        start_time = time.time()
+        ret_result = func(*args, **kwargs)
+        end_time = time.time()
+        print('The function **{0}** takes {1} time.'.format(
+            func.__name__, end_time - start_time))
+        return ret_result
+
+    return wrap_func
 
 
 def merge_iterables_of_dict(shared_key, *iterables):
