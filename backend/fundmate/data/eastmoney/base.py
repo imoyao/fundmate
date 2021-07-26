@@ -124,10 +124,10 @@ class EastMoney:
                 ret_code = 0
         return ret_code
 
-    def fund_types(self, fund_list: list) -> set:
+    def fund_types(self, fund_list: list) -> set:  # see also:NewDB.fund_type
         """
-        获取所有基金类别
-        :return:set, {'货币型', 'QDII', '股票-FOF', 'ETF-场内', 'QDII-指数', '股票指数', '混合型', '债券型', '理财型', '混合-FOF', '股票型', '联接基金', 'QDII-ETF', '债券指数', '定开债券'}
+        获取所有基金类别 :return:set, {'货币型', 'QDII', '股票-FOF', 'ETF-场内', 'QDII-指数', '股票指数', '混合型', '债券型', '理财型', '混合-FOF',
+        '股票型', '联接基金', 'QDII-ETF', '债券指数', '定开债券'}
         """
         fund_type_set = set()
         for f in fund_list:

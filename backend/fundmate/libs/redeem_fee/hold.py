@@ -14,7 +14,7 @@ def _get_fene_list(col):
     return temp
 
 
-def _get_chiyou_fene(li):
+def _get_hold_fee(li):
     """获取持有的费率
     :param li:
     :return:
@@ -61,16 +61,16 @@ def get_hold_data_from_excel():
         for i in table[date_col_index][date_start_row_index:]
     ]
 
-    d = {}
+    _d = {}
     for i in range(data_start_col_index, len(table)):
         fene_list = _get_fene_list(table[i][date_start_row_index:])
-        chiyou_fene = _get_chiyou_fene(fene_list)  # 数据处理，得到现有的持有的日期对应关系
+        hold_fee = _get_hold_fee(fene_list)  # 数据处理，得到现有的持有的日期对应关系
         code = str(int(table[i][code_row_index].value)).zfill(6)
-        t = dict(zip(dates, chiyou_fene))
+        t = dict(zip(dates, hold_fee))
         t = {k: v for k, v in t.items() if v != 0}
-        d.update({code: t})
+        _d.update({code: t})
 
-    return d
+    return _d
 
 
 if __name__ == "__main__":
