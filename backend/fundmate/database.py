@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 """Database module, including the SQLAlchemy database object and DB-related utilities."""
 import re
+from abc import ABC
 from datetime import datetime
 from typing import Union
 
+import sqlalchemy.types as types
 from apiflask import pagination_builder
 from sqlalchemy import __version__
 from sqlalchemy.ext.declarative import declarative_base
@@ -68,7 +70,7 @@ class UpsertMixin(CRUDMixin):
     参阅：
     1. [python - SQLAlchemy insert or update example - Stack Overflow](https://stackoverflow.com/questions/7889183/sqlalchemy-insert-or-update-example/18244144)
     2. [MySQL — SQLAlchemy 1.3 Documentation](https://docs.sqlalchemy.org/en/13/dialects/mysql.html#insert-on-duplicate-key-update-upsert)
-    """     # noqa: F501
+    """  # noqa: F501
 
     @classmethod
     def check_is_exists(cls, unique_query_arg: dict) -> bool:
@@ -183,148 +185,25 @@ def reference_col(tablename: str,
     )
 
 
-class EnumSymbol(object):
-    """Define a fixed symbol tied to a parent class.
+class ChoiceType(types.TypeDecorator):  # noqa
     """
-
-    def __init__(self, cls_, name, value, description):
-        if __version__ < '0.6.5':
-            raise NotImplementedError(
-                "Version 0.6.5 or higher of SQLAlchemy is required.")
-        self.cls_ = cls_
-        self.name = name
-        self.value = value
-        self.description = description
-
-    def __reduce__(self):
-        """Allow unpickling to return the symbol
-        linked to the DeclEnum class."""
-        return getattr, (self.cls_, self.name)
-
-    def __iter__(self):
-        return iter([self.value, self.description])
-
-    def __repr__(self):
-        return "<%s>" % self.name
-
-
-class EnumMeta(type):
-    """Generate new DeclEnum classes."""
-
-    def __init__(cls, classname, bases, dict_):
-        cls._reg = reg = cls._reg.copy()
-        for k, v in dict_.items():
-            if isinstance(v, tuple):
-                sym = reg[v[0]] = EnumSymbol(cls, k, *v)
-                setattr(cls, k, sym)
-        type.__init__(cls, classname, bases, dict_)
-
-    def __iter__(cls):
-        return iter(cls._reg.values())
-
-
-class DeclEnumType(SchemaType, TypeDecorator):
-    """
-    TypeDecorator：对于那些没有使用过它的人来说，是提供一个围绕普通数据库类型的包装器，以提供额外的封送处理行为，这超出了我们从 DBAPI 获得一致性所需的行为。
-    Impl数据成员指的是被包装的类型。在这种情况下，DeclEnumType 使用给定 DeclEnum 子类的信息生成一个新的 Enum
-    对象。枚举的名称来自我们类的名称，使用世界上最短的驼峰式大小写到下划线（camel-case-to-underscore ）转换器。
-    """
-
-    def __init__(self, enum):
-        super().__init__()
-        self.enum = enum
-        self.impl = Enum(*enum.values(),
-                         name="ck%s" %
-                         re.sub('([A-Z])', lambda m: "_" + m.group(1).lower(),
-                                enum.__name__))
-
-    def _set_table(self, table, column):
-        self.impl._set_table(table, column)
-
-    def copy(self):
-        return DeclEnumType(self.enum)
-
-    def process_bind_param(self, value, dialect):
-        if value is not None:
-            return value.value
-
-    def process_result_value(self, value, dialect):
-        if value is not None:
-            return self.enum.from_string(value.strip())
-
-
-class DeclEnum(object):
-    """Declarative enumeration.
-    参考下方链接
     [zzzeek : The Enum Recipe](https://techspot.zzzeek.org/2011/01/14/the-enum-recipe/)
-    
+
     [python - SQLAlchemy - How to make "django choices" using SQLAlchemy? - Stack Overflow](
     https://stackoverflow.com/questions/6262943/sqlalchemy-how-to-make-django-choices-using-sqlalchemy)
 
     [How to Create Django Like Choices Field in Flask SQLAlchemy | by Erika Dike | The Andela Way | Medium](
     https://medium.com/the-andela-way/how-to-create-django-like-choices-field-in-flask-sqlalchemy-1ca0e3a3af9d)
-    
-    模仿Django的choice实现一个下拉选择的功能
-
-    Examples:
-    ```
-    from sqlalchemy import Column, Integer, String, create_engine
-    from sqlalchemy.ext.declarative import declarative_base
-    from sqlalchemy.orm import Session
-
-    Base = declarative_base()
-
-
-    class EmployeeType(DeclEnum):
-        part_time = "P", "Part Time"
-        full_time = "F", "Full Time"
-        contractor = "C", "Contractor"
-
-
-    class Employee(Base):
-        __tablename__ = 'employee'
-
-        id = Column(Integer, primary_key=True)
-        name = Column(String(60), nullable=False)
-        type = Column(EmployeeType.db_type())
-
-        def __repr__(self):
-            return "Employee(%r, %r)" % (self.name, self.type)
-
-
-    e = create_engine('sqlite://', echo=True)
-    Base.metadata.create_all(e)
-
-    sess = Session(e)
-
-    sess.add_all([
-        Employee(name='e1', type=EmployeeType.full_time),
-        Employee(name='e2', type=EmployeeType.full_time),
-        Employee(name='e3', type=EmployeeType.part_time),
-        Employee(name='e4', type=EmployeeType.contractor),
-        Employee(name='e5', type=EmployeeType.contractor),
-    ])
-    sess.commit()
-
-    print(sess.query(Employee).filter_by(type=EmployeeType.contractor).all())
-    ```
     """
 
-    __metaclass__ = EnumMeta
-    _reg = {}
+    impl = types.String
 
-    @classmethod
-    def from_string(cls, value):
-        try:
-            return cls._reg[value]
-        except KeyError:
-            raise ValueError("Invalid value for %r: %r" %
-                             (cls.__name__, value))
+    def __init__(self, choices, **kw):
+        self.choices = dict(choices)
+        super().__init__(**kw)
 
-    @classmethod
-    def values(cls):
-        return cls._reg.keys()
+    def process_bind_param(self, value, dialect):
+        return [k for k, v in self.choices.items() if v == value][0]
 
-    @classmethod
-    def db_type(cls):
-        return DeclEnumType(cls)
+    def process_result_value(self, value, dialect):
+        return self.choices[value]
