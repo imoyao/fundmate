@@ -7,7 +7,7 @@ from flask import current_app
 from flask_login import AnonymousUserMixin, UserMixin
 from itsdangerous import BadSignature, SignatureExpired
 from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
-from sqlalchemy import Table
+from sqlalchemy import DDL, Table, event
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from backend.fundmate import settings
@@ -44,7 +44,9 @@ class Role(Base, PkModel):
 
 
 class User(Base, PkModel, CreateDateModel, UserMixin):
-    """A user of the app."""
+    """用户管理表
+    TODO: 用户起始id从1000开始
+    """
 
     __tablename__ = 'users'
     __table_args__ = {'comment': '用户表'}
@@ -131,6 +133,11 @@ class User(Base, PkModel, CreateDateModel, UserMixin):
     def generate_token(self, expiration: int = 24 * 60 * 60):
         s = Serializer(current_app.config["SECRET_KEY"], expires_in=expiration)
         return s.dumps({"id": self.id})
+
+
+# 自增id起始值
+event.listen(User.__table__, "after_create",
+             DDL("ALTER TABLE %(table)s AUTO_INCREMENT = 1001;"))
 
 
 class Guest(AnonymousUserMixin):

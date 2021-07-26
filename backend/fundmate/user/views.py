@@ -88,14 +88,22 @@ class UserDetail(MethodView):
         return ''
 
 
-@bp.route('/<int:fund_id>/facous')
-class FundFaver(MethodView):
+@bp.route('/<int:user_id>/favors')
+class UserFavorFunds(MethodView):
     """
-
+    某人关注的基金
     """
 
     @output(UserOutSchema)
-    def get(self, fund_id: str):
-        """获取指定基金信息"""
-        user_obj = User.get_by_id(int(fund_id))
+    def get(self, user_id: str):
+        """获取自选基金信息"""
+        user_obj = User.get_by_id(int(user_id))
         return user_obj
+
+    def post(self, user_id: str, fund_id: str):
+        """用户关注基金"""
+        pass
+
+    def delete(self, user_id: str, fund_id: str):
+        """用户取消关注基金"""
+        pass
