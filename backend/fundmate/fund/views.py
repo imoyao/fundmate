@@ -167,3 +167,32 @@ class FundFavor(MethodView):
     def get(self, fund_id: str):
         """获取指定基金信息"""
         pass
+
+
+@bp.route('/combinations')
+class FundCombination(MethodView):
+    """
+    基金组合
+    """
+
+    @output(FundOutSchema)
+    def get(self):
+        """获取组合列表"""
+        pass
+
+
+@bp.route('/combinations')
+class CombinationDetail(MethodView):
+    """
+    单个基金组合详情
+    """
+
+    @output(FundOutSchema)
+    def get(self, comb_id: str):
+        """获取指定基金组合信息"""
+        pass
+
+    @input(FundOutSchema)
+    def post(self, comb_id: str):
+        """获取指定基金组合信息"""
+        pass

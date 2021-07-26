@@ -11,7 +11,7 @@ from backend.fundmate.database import (
     db,
     reference_col,
 )
-from backend.fundmate.fund.models import RISK_TYPE
+from backend.fundmate.settings import RISK_TYPE
 
 
 class Account(Base, PkModel, CreateDateModel):

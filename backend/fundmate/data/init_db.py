@@ -46,20 +46,19 @@ class NewDB:
 
     def fund_type(self):
         """
-        获取基金类型
-        :return: set,{'定开债券', 'QDII-指数', '混合-FOF', '固定收益', '股票型', '其他创新', '债券型', '混合型', 'QDII-ETF', '分级杠杆', 'ETF-场内', '货币型', '债券指数',
-         '理财型', '股票指数', '股票-FOF', 'QDII', '联接基金'}
+        获取基金类型 :return: set,{'定开债券', 'QDII-指数', '混合-FOF', '固定收益', '股票型', '其他创新', '债券型', '混合型',0
+         'QDII-ETF', '分级杠杆', 'ETF-场内', '货币型', '债券指数', '理财型', '股票指数', '股票-FOF', 'QDII', '联接基金'}
         """
 
         info = pd.get_data_from_json(ALL_JSON_FP)
         fund_lists = info.get('data')
         type_set = set()
         for fund in fund_lists:
-            fcode = fund[0]
-            fname = fund[2]
-            ftype = fund[3]
-            if ftype not in type_set:
-                type_set.add(ftype)
+            f_code = fund[0]
+            f_name = fund[2]
+            f_type = fund[3]
+            if f_type not in type_set:
+                type_set.add(f_type)
         return type_set
 
 

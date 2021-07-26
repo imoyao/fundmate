@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # Created by imoyao at 2021/2/13 17:50
-
+from backend.fundmate import settings
 from backend.fundmate.database import (
     Base,
     ChoiceType,
@@ -79,6 +79,12 @@ class Fund(PkModel, UpsertMixin):
     daily_worth = relationship('DailyWorth',
                                back_populates='fund',
                                uselist=False)
+
+    @classmethod
+    def code_by_name(cls, name: str) -> str:
+        """根据基金名称获取基金编码"""
+        code = cls.query.filter(cls.name.ilike(name)).all()
+        return code
 
 
 class FundSaleOrg(PkModel, UpsertMixin):
@@ -215,14 +221,6 @@ ZH_MGR_TYPE = {
     'personal': 0,  # '个人'
 }
 
-RISK_TYPE = {
-    'plain': 0,  # 灵活取用
-    'low': 1,  # 稳健增值
-    'balance': 2,  # 平衡成长
-    'mid': 3,  # 进阶增长
-    'high': 4,  # 积极进取
-}
-
 PLAT_TYPE = {
     'qm': 1,  # '且慢'
     'tt': 2,  # '天天基金'
@@ -243,11 +241,12 @@ class FundPortfolio(Base, PkModel, CreateDateModel):
                       nullable=False,
                       comment='组合类型（机构/个人）')
     platform = Column(ChoiceType(PLAT_TYPE), comment='平台名称')
-    risk_type = Column(ChoiceType(RISK_TYPE), comment='风险类型（稳健/成长等）')
+    risk_type = Column(ChoiceType(settings.RISK_TYPE), comment='风险类型（稳健/成长等）')
     desc = Column(db.String(300), comment='组合描述')
+    update_time = Column(db.DateTime, comment='组合更新时间')
 
     def __repr__(self):
-        return "FundPortfolio(%r, %r)" % (self.name, self.risk_type)
+        return f"<FundPortfolio({self.name!r}, {self.risk_type!r})>"
 
 
 class FundPortfolioDetail(PkModel):
