@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# Created by Andy at 2021/7/15 17:37
+# Created by imoyao at 2021/7/15 17:37
 """基金经理排名"""
 from xalpha.cons import rget_json
 
