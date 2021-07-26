@@ -166,5 +166,4 @@ class FundFavor(MethodView):
     @output(FundOutSchema)
     def get(self, fund_id: str):
         """获取指定基金信息"""
-        user_obj = Fund.get_by_id(int(fund_id))
-        return user_obj
+        pass
