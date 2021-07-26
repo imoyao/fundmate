@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 """User views."""
 from apiflask import APIBlueprint, Schema, abort, input, output
-from apiflask.fields import Date, Function, Integer, Nested, Number, String
-from apiflask.validators import Length, Range
+from apiflask.fields import Date, Function, Integer, Number, String
+from apiflask.validators import Length
 from flask.views import MethodView
 
+from backend.fundmate.base_scheme import EmptySchema, QuerySchema
 from backend.fundmate.fund.models import Fund, FundCompany, FundMgr, FundSaleOrg
 from backend.fundmate.view_ext import paginate_query
 
@@ -29,10 +30,6 @@ class FundMgrOutSchema(Schema):
     company = String()
 
 
-class EmptySchema(Schema):
-    pass
-
-
 class FundCompanyOutSchema(Schema):
     id = Integer()
     code = String()
@@ -46,11 +43,6 @@ class FundCompanyOutSchema(Schema):
 class FundInSchema(Schema):
     code = String(validate=Length(5, 25))
     name = String(validate=Length(6, 40))
-
-
-class QuerySchema(Schema):
-    page = Integer(missing=1)
-    per_page = Integer(missing=20, validate=Range(max=30))
 
 
 @bp.route('/')
@@ -157,7 +149,7 @@ class FundDetail(MethodView):
     @input(FundInSchema(partial=True))
     @output(FundOutSchema)
     def patch(self, fund_id, data):
-        """获取指定基金信息"""
+        """更新指定基金信息"""
         _user_obj = Fund.get_by_id(int(fund_id))
         if _user_obj:
             abort(404)
@@ -166,7 +158,7 @@ class FundDetail(MethodView):
 
 
 @bp.route('/<int:fund_id>/followers')
-class FundFaver(MethodView):
+class FundFavor(MethodView):
     """
     某支基金的关注者
     """

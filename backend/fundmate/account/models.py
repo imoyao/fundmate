@@ -4,14 +4,14 @@
 
 from backend.fundmate.database import (
     Base,
+    ChoiceType,
     Column,
     CreateDateModel,
-    DeclEnum,
     PkModel,
     db,
     reference_col,
 )
-from backend.fundmate.fund.models import RiskType
+from backend.fundmate.fund.models import RISK_TYPE
 
 
 class Account(Base, PkModel, CreateDateModel):
@@ -20,7 +20,7 @@ class Account(Base, PkModel, CreateDateModel):
     name = Column(db.String(255), comment='账本名称')
     creator_id = reference_col('users', column_kwargs={'comment': '管理人（类似群主）'})
     comment = Column(db.String(255), comment='账本备注')
-    account_type = Column(RiskType.db_type(), comment='账本类型（四笔钱）')
+    account_type = Column(ChoiceType(RISK_TYPE), comment='账本类型（四笔钱）')
 
 
 class AccountFund(PkModel):
@@ -28,15 +28,15 @@ class AccountFund(PkModel):
     account_id = Column(db.Integer, comment='账本编号')
 
 
-class FundOpType(DeclEnum):
-    """交易操作类型，参考支付宝与投资账本实现"""
-    hold_in = 1, '买入/存入/申购'
-    sale = 2, '赎回/卖出/支取'
-    transfer = 3, '转换/转存'
-    regular_invest = 4, '定投'
-    bonus = 5, '分红'
-    adjust = 6, '调仓'
-    other = 7, '其他'
+FUND_OP_TYPE = {
+    'hold_in': 1,  # 买入/存入/申购
+    'sale': 2,  # 赎回/卖出/支取
+    'transfer': 3,  # 转换/转存
+    'regular_invest': 4,  # 定投
+    'bonus': 5,  # 分红
+    'adjust': 6,  # 调仓
+    'other': 7,  # 其他
+}
 
 
 class CashFlow(Base, PkModel):
@@ -54,7 +54,8 @@ class CashFlow(Base, PkModel):
                   server_default=db.text("CURRENT_TIMESTAMP"),
                   comment='购买日期（确认日期）')
     comment = Column(db.String(300), comment='复盘备注')
-    op_type = Column(FundOpType.db_type(), comment='操作类型')
+    # op_type = Column(FundOpType.db_type(), comment='操作类型')
+    op_type = Column(ChoiceType(FUND_OP_TYPE), comment='操作类型')
 
 
 class HandPick(Base, PkModel):

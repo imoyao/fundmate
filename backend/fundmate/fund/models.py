@@ -3,10 +3,11 @@
 # Created by imoyao at 2021/2/13 17:50
 
 from backend.fundmate.database import (
+    Base,
+    ChoiceType,
     Column,
     CreateDateModel,
     CRUDMixin,
-    DeclEnum,
     PkModel,
     UpsertMixin,
     db,
@@ -207,36 +208,29 @@ class Mgr(PkModel):
                         comment='所属公司ID')
 
 
-class ZHMgrType(DeclEnum):
-    """
-    组合管理人类型
-    """
-    # TODO: 需要验证int是否支持
-    ji_gou = 1, '机构'
-    ge_ren = 0, '个人'
+#  组合管理人类型
+# TODO: 需要验证int是否支持
+ZH_MGR_TYPE = {
+    'org': 1,  # '机构'
+    'personal': 0,  # '个人'
+}
+
+RISK_TYPE = {
+    'plain': 0,  # 灵活取用
+    'low': 1,  # 稳健增值
+    'balance': 2,  # 平衡成长
+    'mid': 3,  # 进阶增长
+    'high': 4,  # 积极进取
+}
+
+PLAT_TYPE = {
+    'qm': 1,  # '且慢'
+    'tt': 2,  # '天天基金'
+    'dj': 3,  # '蛋卷基金'
+}
 
 
-class RiskType(DeclEnum):
-    """
-    风险类型
-    """
-    plain = 0, '灵活取用'
-    low = 1, '稳健增值'
-    balance = 2, '平衡成长'
-    mid = 3, '进阶增长'
-    high = 4, '积极进取'
-
-
-class PlatType(DeclEnum):
-    """
-    平台类型
-    """
-    qm = 1, '且慢'
-    tt = 2, '天天基金'
-    dj = 3, '蛋卷基金'
-
-
-class FundPortfolio(PkModel, CreateDateModel):
+class FundPortfolio(Base, PkModel, CreateDateModel):
     """
     基金组合
     TODO: 爬取一些具有代表性的组合
@@ -245,9 +239,11 @@ class FundPortfolio(PkModel, CreateDateModel):
     name = Column(db.String(30), comment='组合名称')
     code = Column(db.String(30), unique=True, comment='组合编码')
     master = Column(db.String(30), comment='主理人')
-    type = Column(ZHMgrType.db_type(), comment='组合类型（机构/个人）')
-    platform = Column(PlatType.db_type(), comment='平台名称')
-    risk_type = Column(RiskType.db_type(), comment='风险类型（稳健/成长等）')
+    mtr_type = Column(ChoiceType(ZH_MGR_TYPE),
+                      nullable=False,
+                      comment='组合类型（机构/个人）')
+    platform = Column(ChoiceType(PLAT_TYPE), comment='平台名称')
+    risk_type = Column(ChoiceType(RISK_TYPE), comment='风险类型（稳健/成长等）')
     desc = Column(db.String(300), comment='组合描述')
 
     def __repr__(self):
