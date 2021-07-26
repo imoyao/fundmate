@@ -53,6 +53,7 @@ class NewDB:
         info = pd.get_data_from_json(ALL_JSON_FP)
         fund_lists = info.get('data')
         type_set = set()
+        # 11736
         for fund in fund_lists:
             f_code = fund[0]
             f_name = fund[2]
