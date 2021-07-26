@@ -98,7 +98,7 @@ class YZYX:
         """
         text = self.get_html_text()
         html = etree.HTML(text)
-        update_date_path = '//aside[@class="tw-w-full"]/div/div/p[1]/text()'
+        update_date_path = '//div[@class="tw-flex tw-justify-between"]/p[1]/text()'
         update_text = html.xpath(update_date_path)[0]
         reg_mat = re.findall(r'：\s*(.+)', update_text)
         update_date = None
