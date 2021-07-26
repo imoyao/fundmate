@@ -7,6 +7,8 @@
 
 
 class FmException(Exception):
+    """所有错误Exception的父类
+    """
 
     def __init__(self, message):
         super().__init__(message)
@@ -61,5 +63,11 @@ class ParseError(CalError):
 class CrawlerException(FmException):
     """
     爬虫类的异常
+    """
+    pass
+
+
+class FundQueryError(FmException):
+    """基金信息查询出错
     """
     pass

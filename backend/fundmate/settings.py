@@ -28,3 +28,12 @@ CACHE_TYPE = "simple"  # Can be "memcached", "redis", etc.
 SQLALCHEMY_TRACK_MODIFICATIONS = False
 CURRENT_DIR = Path(__file__).resolve().parent
 INFO_MAIL_ADDR = 'fundmate@163.com'
+
+# 风险等级
+RISK_TYPE = {
+    'plain': 1,  # 灵活取用
+    'low': 2,  # 稳健增值
+    'balance': 3,  # 平衡增长
+    'advance': 4,  # 进阶成长
+    'high': 5,  # 积极进取
+}
