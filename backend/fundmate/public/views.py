@@ -118,3 +118,19 @@ def thermometer():
     dj_info = danjuan.dj.overview()
     info = {'yzyx': yzyx_info, 'jsl': jsl_info, 'dj': dj_info}
     return info
+
+
+@bp.get('/search/funds')
+def search_fund():
+    """
+    通过基金编码，基金名称，基金简码搜索基金信息
+    """
+    pass
+
+
+@bp.get('/search/accounts')
+def search_account():
+    """
+    通过账户名称搜索本人名下账户，在记账选择账本时有用
+    """
+    pass
