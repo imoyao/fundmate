@@ -62,7 +62,15 @@ flask run --host=0.0.0.0
 ```bash
 flask init-db # 更多命令执行flask --help 查看
 ```
-
+## 数据来源
+1. `http://fund.eastmoney.com/js/fundcode_search.js` 数据13420 条
+2. `https://api.doctorxiong.club/v1/fund/all` 数据11736条
+3. `http://fund.eastmoney.com/fund.html` 数据11493 条
+- 更新基金相关数据
+```bash
+# 默认只更新基金信息
+flask update-db
+```
 ## TODO
 
 - 使用的插件

@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # Created by imoyao at 2021/2/13 17:50
+from typing import Union
+
 from backend.fundmate import settings
 from backend.fundmate.database import (
     Base,
@@ -34,8 +36,15 @@ class Fund(PkModel, UpsertMixin):
     """基金表"""
     __tablename__ = "funds"
     __table_args__ = {'comment': '基金表'}
-
-    fund_code = Column(db.Integer, unique=True, comment='基金编码')
+    # TODO: 验证规则
+    '''
+    [《证券投资基金编码规范》实施细则](http://www.csisc.cn/zbscbzw/ywguize/201212/bf12c532a6c44cde864f59d9f2423f1b.shtml)
+    [证券投资基金编码简介](http://www.csisc.cn/zbscbzw/cpbmjj/201212/f3263ab61f7c4dba8461ebbd9d0c6755.shtml)
+    [证券投资基金编码规范](http://www.csisc.cn/zbscbzw/hyfbjcbmm/201904/d2587b8addb54335a87017af40344e24.shtml)
+    [基金代码有什么规则？区分认购代码和交易代码 - 希财网](https://www.csai.cn/jijin/1298440.html)
+    [基金代码含义及编制规则 - 知乎](https://zhuanlan.zhihu.com/p/24948157)
+    '''
+    fund_code = Column(db.String(6), unique=True, comment='基金编码')
     name = Column(db.String(30), comment='基金名称')
     '''
     此处标准写法应该使用英文，但是可能导致查询啰嗦，所以使用拼音代替变量，后面变量作为列名自解释
@@ -60,7 +69,7 @@ class Fund(PkModel, UpsertMixin):
                    db.String(30),
                    comment='缩写首字母拼音')
     qxpy = Column('full_capital_phonetic_alphabet',
-                  db.String(60),
+                  db.String(80),
                   comment='全写拼音')
     f_type = Column('fund_type_id',
                     db.Integer,
@@ -85,6 +94,9 @@ class Fund(PkModel, UpsertMixin):
         """根据基金名称获取基金编码"""
         code = cls.query.filter(cls.name.ilike(name)).all()
         return code
+
+    def __repr__(self):
+        return f"<Fund({self.fund_code!r}, {self.name!r})>"
 
 
 class FundSaleOrg(PkModel, UpsertMixin):
@@ -138,6 +150,7 @@ class FundCompany(PkModel, UpsertMixin):
 
 
 class FundType(PkModel):
+    """小类与基金为多对一，即：一个基金可以有多个小类"""
     __table_args__ = {'comment': '基金小类表'}
 
     name = Column(db.String(255), unique=True)
@@ -145,8 +158,16 @@ class FundType(PkModel):
                     db.ForeignKey('fund_variety.id'),
                     comment='基金大类编号')
 
+    @classmethod
+    def id_by_name(cls, name: str) -> Union[int, None]:
+        """获取名称为指定分类的编号id
+        """
+        _ins = cls.query.filter_by(name=name).first()
+        if _ins:
+            return _ins.id
 
-class FundVariety(PkModel, CRUDMixin):
+
+class FundVariety(PkModel, UpsertMixin):
     """
     根据投资对象的不同，可以将其分为股票型基金、债
     券型基金、混合型基金和货币型基金。根据证监会对基金
@@ -171,12 +192,16 @@ class FundVariety(PkModel, CRUDMixin):
         投资者入市手册（基金篇） P15
     """
     __table_args__ = {'comment': '基金大类表'}
-    '''
-    如果要显示为 django model 中的 choices 类型，可以参考：
-    [How to Create Django Like Choices Field in Flask SQLAlchemy | by Erika Dike | The Andela Way | Medium](https://medium.com/the-andela-way/how-to-create-django-like-choices-field-in-flask-sqlalchemy-1ca0e3a3af9d)
-    [python - Best way to do enum in Sqlalchemy? - Stack Overflow](https://stackoverflow.com/questions/2676133/best-way-to-do-enum-in-sqlalchemy/2676213)
-    '''
+    # see also: ChoiceType
     name = Column(db.String(255), unique=True)
+
+    @classmethod
+    def id_by_name(cls, name: str) -> Union[int, None]:
+        """获取名称为指定分类的编号id
+        """
+        _ins = cls.query.filter_by(name=name).first()
+        if _ins:
+            return _ins.id
 
 
 class InRule(PkModel):

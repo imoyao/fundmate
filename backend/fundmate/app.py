@@ -44,7 +44,12 @@ def register_extensions(app: Flask):
     bcrypt.init_app(app)
     db.init_app(app)
     login_manager.init_app(app)
-    migrate.init_app(app, db)
+    # 增加字段长度和类型检测 [No changes detected in Alembic autogeneration of migrations with Flask-SQLAlchemy - Stack
+    # Overflow]( https://stackoverflow.com/questions/12409724/no-changes-detected-in-alembic-autogeneration-of
+    # -migrations-with -flask-sqlalchem)
+    # [[AF] Flask migrate does not recognise a change made in my post model. :flask]
+    # (https://www.reddit.com/r/flask/comments/98kmhe/af_flask_migrate_does_not_recognise_a_change_made/)
+    migrate.init_app(app, db, compare_type=True)
     loguru.init_app(
         app, {
             "LOG_PATH": env.str('LOG_PATH', default='/home/work/var/log'),
@@ -101,7 +106,7 @@ def register_commands(app: Flask):
     app.cli.add_command(commands.lint)
     # 添加指令
     app.cli.add_command(commands.init_db)
-    app.cli.add_command(commands.create_db)
+    app.cli.add_command(commands.update_db)
 
 
 def configure_logger(app: Flask):
