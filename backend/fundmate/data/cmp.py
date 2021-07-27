@@ -10,29 +10,22 @@ import time
 import pandas
 import requests
 import xalpha as xa
+from xalpha.cons import rget_json
 
 tk_code = 'TK1001'
 page_num = 20
-# 对一些常用平台，设置简称，方便用户查找
-USUAL_SALE_COMPS = {
-    '1619': '蚂蚁财富（支付宝）',
-    '1615': '天天基金',
-    '1730': '腾讯腾安（理财通）',
-    '1701': '蛋卷基金',
-    '1686': '盈米/且慢'
-}
 
 
 def get_info():
     req_url = f'http://dq.jd.com/pension/item/netValueDetail?pageNo=1&fundCode={tk_code}'
     # TODO: use rget_json
-    start_data = do_get(req_url)
+    start_data = rget_json(req_url)
     pager = start_data.get('result').get('pager')
     total_page = pager.get('totalPage')
     data = []
     for i in range(1, total_page + 1):
         base_url = f'http://dq.jd.com/pension/item/netValueDetail?pageNo={i}&fundCode={tk_code}'
-        ret = do_get(base_url)
+        ret = rget_json(base_url)
         result = ret.get('result').get('resVo')
         for item in result:
             date = item.get('netValueDate')
@@ -44,12 +37,6 @@ def get_info():
         json.dump(data, f)
     print(data)
     return data
-
-
-def do_get(url):
-    r = requests.get(url=url)
-    ret = r.json()
-    return ret
 
 
 def get_tk_val():
@@ -89,5 +76,3 @@ if __name__ == '__main__':
     tk = cal(tk_list)
     jy = cal(jy_list)
     print(f'tk:{tk},jy:{jy}')
-    # ret = get_info()
-    # print(ret)

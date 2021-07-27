@@ -1,16 +1,15 @@
 # -*- coding: utf-8 -*-
 """Database module, including the SQLAlchemy database object and DB-related utilities."""
-import re
-from abc import ABC
 from datetime import datetime
 from typing import Union
 
 import sqlalchemy.types as types
 from apiflask import pagination_builder
-from sqlalchemy import __version__
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.sql import func
-from sqlalchemy.types import Enum, SchemaType, TypeDecorator
+
+from backend.fundmate.exts.flask_loguru import logger
 
 from .compat import basestring
 from .extensions import db
@@ -45,7 +44,11 @@ class CRUDMixin(object):
             '''
             Flask-SQLAlchemy提供了一个SQLALCHEMY_COMMIT_ON_TEARDOWN配置变量，将其设为True可以设置自动调用commit()方法提交数据库会话。因为存在潜在的Bug，目前已不建议使用，而且未来版本中将移除该配置变量。请避免使用该配置变量，可使用手动调用db.session.commit()方法的方式提交数据库会话。
             '''
-            db.session.commit()
+            try:
+                db.session.commit()
+            except SQLAlchemyError as e:
+                logger.error(e)
+                db.session.rollback()
         return self
 
     def delete(self, commit: bool = True):
@@ -97,10 +100,11 @@ class UpsertMixin(CRUDMixin):
         :param kwargs:
         :return:
         """
+        ret = None
         is_comp_exists = cls.check_is_exists(unique_query_arg)
         if is_comp_exists:
-            # 允许多个查询条件 TODO: 可以使用比较运算符
-            # [python - sqlalchemy dynamic filtering - Stack Overflow](https://stackoverflow.com/questions/41305129/sqlalchemy-dynamic-filtering/41309069#41309069)
+            # 允许多个查询条件 TODO: 可以使用比较运算符 [python - sqlalchemy dynamic filtering - Stack Overflow](
+            #  https://stackoverflow.com/questions/41305129/sqlalchemy-dynamic-filtering/41309069#41309069)
             for attr, value in unique_query_arg.items():
                 ret = cls.query.filter(
                     getattr(cls, attr) == value).update(kwargs)
@@ -194,6 +198,9 @@ class ChoiceType(types.TypeDecorator):  # noqa
 
     [How to Create Django Like Choices Field in Flask SQLAlchemy | by Erika Dike | The Andela Way | Medium](
     https://medium.com/the-andela-way/how-to-create-django-like-choices-field-in-flask-sqlalchemy-1ca0e3a3af9d)
+
+    [python - Best way to do enum in Sqlalchemy? - Stack Overflow](
+    https://stackoverflow.com/questions/2676133/best-way-to-do-enum-in-sqlalchemy/2676213)
     """
 
     impl = types.String

@@ -7,6 +7,8 @@ from subprocess import call
 
 import click
 
+from backend.fundmate.data.eastmoney.base import em
+
 from .database import db
 
 CURRENT_PATH = Path(__file__).resolve().parent
@@ -49,12 +51,26 @@ def init_db(drop):
 
 
 @click.command()
-@click.option('--fund', default=True, help='Insert info of funds.')
-@click.option('--mgr', default=True, help='Insert manger of funds.')
-@click.option('--company', default=True, help='Insert company of funds.')
-def create_db(fund, mgr, company):
-    """Create data."""
-    check_before_create(drop=True)
+@click.option('--fund',
+              default=True,
+              is_flag=True,
+              help='Update/Insert info of funds.')
+@click.option('--mgr',
+              default=False,
+              is_flag=True,
+              help='Update/Insert manger of funds.')
+@click.option('--company',
+              default=False,
+              is_flag=True,
+              help='Update/Insert company of funds.')
+def update_db(fund, mgr, company):
+    """update data of funds.更新基金相关表"""
+    if fund:
+        em.fund(save=True, format_='sql')
+    if mgr:
+        em.mgr()
+    if company:
+        em.company(save=True)
 
 
 @click.command()
@@ -74,7 +90,7 @@ def create_db(fund, mgr, company):
     "Don't make any changes to files, just confirm they are formatted correctly",
 )
 def lint(fix_imports, check):
-    """Lint and check code style with black, flake8 and isort."""
+    """Lint and check code style with flake8 and isort."""
     skip = [
         "node_modules", "requirements", "migrations", "tests", "__pycache__",
         "build", "dist", "venv"
