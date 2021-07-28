@@ -33,7 +33,7 @@ Sec-Fetch-Dest: empty
 Sec-Fetch-Mode: cors
 Sec-Fetch-Site: same-origin
 User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.77 Safari/537.36 Edg/91.0.864.41
-'''     # noqa: F501
+'''  # noqa: F501
 
 
 class DanJuan:
@@ -131,6 +131,13 @@ class DanJuan:
             if is_overview:
                 data = item.get('data')
                 data.pop('spread_trends')
+                href = ''
+                if channel == 'lsd':
+                    href = 'https://danjuanfunds.com/screw/valuation-table?channel=1500012085'
+                elif channel == 'jiucai':
+                    href = 'https://danjuanapp.com/valuation-table/jiucai'
+
+                data['href'] = href
                 item['data'] = data
             info[channel] = item
         return info
