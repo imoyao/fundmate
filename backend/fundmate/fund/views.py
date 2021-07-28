@@ -1,48 +1,21 @@
 # -*- coding: utf-8 -*-
 """User views."""
 from apiflask import APIBlueprint, Schema, abort, input, output
-from apiflask.fields import Date, Function, Integer, Number, String
-from apiflask.validators import Length
+from apiflask.fields import Function, String
 from flask.views import MethodView
 
 from backend.fundmate.base_scheme import EmptySchema, QuerySchema
 from backend.fundmate.fund.models import Fund, FundCompany, FundMgr, FundSaleOrg
+from backend.fundmate.fund.schemas import (
+    FundCompanyOutSchema,
+    FundInSchema,
+    FundOutSchema,
+    FundSaleOutSchema,
+    SaleSchema,
+)
 from backend.fundmate.view_ext import paginate_query
 
 bp = APIBlueprint("fund", __name__, url_prefix="/funds")
-
-
-class FundOutSchema(Schema):
-    id = Integer()
-    name = String()
-    mgr = String()
-    fund_code = String()
-    created_at = Date()
-    company = String()
-    fund_type = String()
-
-
-class FundMgrOutSchema(Schema):
-    id = Integer()
-    name = String()
-    mgr_code = String()
-    created_at = Date()
-    company = String()
-
-
-class FundCompanyOutSchema(Schema):
-    id = Integer()
-    code = String()
-    name = String()
-    full_name = String()
-    tx_eval = Integer()
-    create_date = Date()
-    scale = Number()
-
-
-class FundInSchema(Schema):
-    code = String(validate=Length(5, 25))
-    name = String(validate=Length(6, 40))
 
 
 @bp.route('/')
@@ -94,18 +67,6 @@ class FundMgrView(MethodView):
         else:
             ret = FundMgr.query.all()
         return ret
-
-
-class SaleSchema(Schema):
-
-    class Meta:
-        fields = ('id', 'name')
-
-
-class FundSaleOutSchema(Schema):
-    # [python - Is it possible to use a schema for a marshmallow custom field? - Stack Overflow](https://stackoverflow.com/questions/49802142/is-it-possible-to-use-a-schema-for-a-marshmallow-custom-field)
-    id = String()
-    name = Function(lambda obj: SaleSchema(many=True).dump(obj.as_name()))
 
 
 @bp.route('/sales/')

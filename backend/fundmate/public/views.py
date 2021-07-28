@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Public section, including homepage and signup."""
-from apiflask import APIBlueprint, Schema, abort, input, output
+from apiflask import APIBlueprint, HTTPError, Schema, abort, input, output
 from apiflask.fields import Integer, String
 from apiflask.validators import Length, OneOf
 from flask import flash, redirect, request, url_for
@@ -9,6 +9,8 @@ from flask.views import MethodView
 from backend.fundmate import excepts as dt_except
 from backend.fundmate.data import danjuan, jsl, yzyx
 from backend.fundmate.extensions import login_manager
+from backend.fundmate.fund.models import Fund
+from backend.fundmate.fund.schemas import FundSampleSchema, FundSearchKeySchema
 from backend.fundmate.schema_ext import RegisterSchema
 from backend.fundmate.user.models import User
 
@@ -120,12 +122,19 @@ def thermometer():
     return info
 
 
-@bp.get('/search/funds')
-def search_fund():
+@bp.get('/search/funds/')
+@input(FundSearchKeySchema, 'query')
+@output(FundSampleSchema(many=True))
+def search_fund(search_key):
     """
-    通过基金编码，基金名称，基金简码搜索基金信息
+    通过基金编码，基金名称，基金简拼搜索基金信息
     """
-    pass
+    q = search_key.get('q')
+    # 用法参考：https://github.com/greyli/apiflask/blob/fde330b41847727fb1ddeb3963c466f1118dc9db/examples/orm/app.py#L58
+    funds = Fund.search_key(q)
+    if funds:
+        return funds
+    raise HTTPError(404, 'Please check your input keywords.')
 
 
 @bp.get('/search/accounts')
