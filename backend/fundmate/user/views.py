@@ -5,6 +5,7 @@ from apiflask.fields import Boolean, Email, Integer, String
 from apiflask.validators import Length, Range
 from flask.views import MethodView
 
+from backend.fundmate.base_scheme import PaginationSchema
 from backend.fundmate.extensions import login_manager
 from backend.fundmate.user.models import User
 from backend.fundmate.view_ext import paginate_query
@@ -33,15 +34,10 @@ class UserInSchema(Schema):
     is_activated = Boolean()
 
 
-class QuerySchema(Schema):
-    page = Integer(missing=1)
-    per_page = Integer(missing=20, validate=Range(max=30))
-
-
 @bp.route('/')
 class Users(MethodView):
 
-    @input(QuerySchema, 'query')
+    @input(PaginationSchema, 'query')
     @output(UserOutSchema)
     def get(self, query):
         """获取所有用户信息"""

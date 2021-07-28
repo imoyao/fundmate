@@ -5,37 +5,21 @@
 基金账本相关
 TODO: 用户账户和基金账户容易混淆，可能使用嵌套蓝图更好
 """
-from apiflask import APIBlueprint, Schema, input, output
-from apiflask.fields import String
+from apiflask import APIBlueprint, input, output
 from flask.views import MethodView
 
 from backend.fundmate.account.models import Account
-from backend.fundmate.base_scheme import EmptySchema, QuerySchema
+from backend.fundmate.account.schemas import AccountOutSchema, CreateAccountSchema
+from backend.fundmate.base_scheme import EmptySchema, PaginationSchema
 from backend.fundmate.view_ext import paginate_query
 
 bp = APIBlueprint("account", __name__, url_prefix="/accounts")
 
 
-class AccountInSchema(Schema):
-    """
-    账号输入
-    """
-    name = String()
-    desc = String()
-
-
-class AccountOutSchema(Schema):
-    """
-    账号输入
-    """
-    name = String()
-    desc = String()
-
-
 @bp.route('/')
 class Accounts(MethodView):
 
-    @input(QuerySchema, 'query')
+    @input(PaginationSchema, 'query')
     @input(EmptySchema)
     @output(AccountOutSchema(many=True))
     def get(self, query):
@@ -62,7 +46,7 @@ class Pet(MethodView):
         """
         pass
 
-    @input(AccountInSchema(partial=True))
+    @input(CreateAccountSchema(partial=True))
     @output(AccountOutSchema)
     def patch(self, pet_id, data):
         """更新账户信息

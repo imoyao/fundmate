@@ -48,49 +48,6 @@ class Register(MethodView):
         )
 
 
-class PetInSchema(Schema):
-    name = String(required=True, validate=Length(0, 10))
-    category = String(required=True, validate=OneOf(['dog', 'cat']))
-
-
-class PetOutSchema(Schema):
-    id = Integer()
-    name = String()
-    category = String()
-
-
-pets = [{
-    'id': 0,
-    'name': 'Kitty',
-    'category': 'cat'
-}, {
-    'id': 1,
-    'name': 'Coco',
-    'category': 'dog'
-}]
-
-
-@bp.route('/pets/<int:pet_id>')
-class Pet(MethodView):
-
-    @output(PetOutSchema)
-    def get(self, pet_id):
-        """Get a pet"""
-        if pet_id > len(pets) - 1:
-            abort(404)
-        return pets[pet_id]
-
-    @input(PetInSchema(partial=True))
-    @output(PetOutSchema)
-    def patch(self, pet_id, data):
-        """Update a pet"""
-        if pet_id > len(pets) - 1:
-            abort(404)
-        for attr, value in data.items():
-            pets[pet_id][attr] = value
-        return pets[pet_id]
-
-
 @bp.route("/logout/")
 # @login_required
 def logout():

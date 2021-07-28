@@ -9,7 +9,10 @@ from apiflask.fields import Integer
 from apiflask.validators import Range
 
 
-class QuerySchema(Schema):
+class PaginationSchema(Schema):
+    """
+    分页请求参数
+    """
     page = Integer(missing=1)
     per_page = Integer(missing=20, validate=Range(max=30))
 
