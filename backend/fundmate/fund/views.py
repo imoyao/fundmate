@@ -4,7 +4,7 @@ from apiflask import APIBlueprint, Schema, abort, input, output
 from apiflask.fields import Function, String
 from flask.views import MethodView
 
-from backend.fundmate.base_scheme import EmptySchema, QuerySchema
+from backend.fundmate.base_scheme import EmptySchema, PaginationSchema
 from backend.fundmate.fund.models import Fund, FundCompany, FundMgr, FundSaleOrg
 from backend.fundmate.fund.schemas import (
     FundCompanyOutSchema,
@@ -21,7 +21,7 @@ bp = APIBlueprint("fund", __name__, url_prefix="/funds")
 @bp.route('/')
 class Funds(MethodView):
 
-    @input(QuerySchema, 'query')
+    @input(PaginationSchema, 'query')
     @input(EmptySchema)
     @output(FundOutSchema(many=True))
     def get(self, query):
@@ -41,7 +41,7 @@ class Funds(MethodView):
 @bp.route('/companies/')
 class FundCompanyView(MethodView):
 
-    @input(QuerySchema, 'query')
+    @input(PaginationSchema, 'query')
     @input(EmptySchema)
     @output(FundCompanyOutSchema(many=True))
     def get(self, query: dict = None):
@@ -58,7 +58,7 @@ class FundCompanyView(MethodView):
 @bp.route('/mgrs/')
 class FundMgrView(MethodView):
 
-    @input(QuerySchema, 'query')
+    @input(PaginationSchema, 'query')
     @input(EmptySchema)
     @output(FundOutSchema)
     def get(self, query: dict = None):
@@ -72,7 +72,7 @@ class FundMgrView(MethodView):
 @bp.route('/sales/')
 class FundSalesView(MethodView):
 
-    @input(QuerySchema, 'query')
+    @input(PaginationSchema, 'query')
     @input(EmptySchema)
     @output(FundSaleOutSchema)
     def get(self, query: dict = None):
