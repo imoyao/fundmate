@@ -3,6 +3,8 @@
 # Created by imoyao at 2021/2/13 17:50
 from typing import Union
 
+from sqlalchemy import or_
+
 from backend.fundmate import settings
 from backend.fundmate.database import (
     Base,
@@ -90,6 +92,14 @@ class Fund(PkModel, UpsertMixin):
                                uselist=False)
 
     @classmethod
+    def search_key(cls, key):
+        funds = cls.query.filter(
+            or_(cls.name.ilike(f'%{key}%'), cls.fund_code.ilike(f'%{key}%'),
+                cls.sxszm.ilike(f'%{key}%'),
+                cls.qxpy.ilike(f'%{key}%'))).all()
+        return funds
+
+    @classmethod
     def code_by_name(cls, name: str) -> str:
         """根据基金名称获取基金编码"""
         code = cls.query.filter(cls.name.ilike(name)).all()
@@ -100,8 +110,8 @@ class Fund(PkModel, UpsertMixin):
 
 
 class FundSaleOrg(PkModel, UpsertMixin):
-    """
-    基金销售机构
+    """基金销售机构
+    在记账时，可以记录购买渠道
     """
     org_id = Column(db.Integer, comment='机构编号')
     name = Column(db.String(30), comment='机构名称')
@@ -117,7 +127,7 @@ class FundSaleOrg(PkModel, UpsertMixin):
 class FundMgr(PkModel):
     """relation between Fund and Mgr
     """
-    __table_args__ = {'comment': '基金与经理关联表'}  # TODO: 关联表
+    __table_args__ = {'comment': '基金与经理关联表'}
 
     fund_id = Column(db.Integer, db.ForeignKey('funds.id'), comment='基金编号')
     mgr_id = Column(db.Integer, db.ForeignKey('mgrs.id'), comment='基金经理编号')
