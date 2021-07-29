@@ -4,11 +4,21 @@
 """
 将view 公用提出来
 """
-from apiflask import pagination_builder
+from apiflask.types import PaginationType
+from flask_sqlalchemy import Pagination
 
 
-def paginate_query(cls, query_args: dict) -> dict:
+class CustomPagination(PaginationType, Pagination):
+    """
+    自定义的type，继承两个类
+    """
+    pass
+
+
+def paginate_query(cls, query_args: dict) -> CustomPagination:
+    """
+    分页器
+    """
     pagination = cls.query.paginate(page=query_args['page'],
                                     per_page=query_args['per_page'])
-    _items = pagination.items
-    return {'items': _items, 'pagination': pagination_builder(pagination)}
+    return pagination
