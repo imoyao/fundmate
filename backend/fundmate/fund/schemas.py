@@ -4,8 +4,8 @@
 """
 类比DRF中的serializer
 """
-from apiflask import APIBlueprint, Schema, abort, input, output
-from apiflask.fields import Date, Function, Integer, Number, String
+from apiflask import PaginationSchema, Schema
+from apiflask.fields import Date, Function, Integer, List, Nested, Number, String
 from apiflask.validators import Length
 
 
@@ -19,7 +19,7 @@ class FundOutSchema(Schema):
     fund_code = String()
     created_at = Date()
     company = String()
-    fund_type = String()
+    f_type = String()
 
 
 class FundSampleSchema(Schema):
@@ -28,6 +28,15 @@ class FundSampleSchema(Schema):
     """
     fund_code = String()
     name = String()
+
+
+class FundPaginationOutSchema(Schema):
+    """
+    带分页器的基金信息输出
+    TODO: 分页器用法（写文档时需要额外说明）
+    """
+    funds = List(Nested(FundSampleSchema))
+    pagination = Nested(PaginationSchema)
 
 
 class FundSearchKeySchema(Schema):

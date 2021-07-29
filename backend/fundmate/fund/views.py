@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """User views."""
-from apiflask import APIBlueprint, Schema, abort, input, output
-from apiflask.fields import Function, String
+from apiflask import APIBlueprint, abort, input, output, pagination_builder
 from flask.views import MethodView
 
 from backend.fundmate.base_scheme import EmptySchema, PaginationSchema
@@ -10,32 +9,35 @@ from backend.fundmate.fund.schemas import (
     FundCompanyOutSchema,
     FundInSchema,
     FundOutSchema,
+    FundPaginationOutSchema,
     FundSaleOutSchema,
-    SaleSchema,
+    FundSampleSchema,
 )
 from backend.fundmate.view_ext import paginate_query
 
 bp = APIBlueprint("fund", __name__, url_prefix="/funds")
 
 
-@bp.route('/')
-class Funds(MethodView):
-
-    @input(PaginationSchema, 'query')
-    @input(EmptySchema)
-    @output(FundOutSchema(many=True))
-    def get(self, query):
-        """
-        获取基金信息
-        :param query:
-        :return:
-        """
-        if query:
-            ret = paginate_query(Fund, query)
-        else:
-            ret = Fund.query.order_by(Fund.fund_code.desc()).all()
-            print(ret)
-        return ret
+@bp.get('/')
+@input(PaginationSchema, 'query')
+# @input(EmptySchema, 'query')
+@output(FundPaginationOutSchema)  # 注意此处不适用`many=True`
+# @output(FundSampleSchema(many=True))
+def funds(query):
+    """
+    获取基金信息
+    :param query:
+    :return:
+    """
+    if query:
+        pagination = paginate_query(Fund, query)
+        _items = pagination.items
+        ret = {'funds': _items, 'pagination': pagination_builder(pagination)}
+    else:
+        # FIXME: not work
+        ret = Fund.query.order_by(Fund.fund_code.desc()).all()
+        print(ret)
+    return ret
 
 
 @bp.route('/companies/')
