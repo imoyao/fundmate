@@ -26,7 +26,7 @@ yarn docs:build
 
 从 master/dev 分支合并更新
 ```bash
-git checkout docs # 或者 git checkout master
+git checkout docs # 因为目录存在docs，所以使用`git switch docs` 切换分支或者 `git checkout master` 切换到 master 分支
 git pull
 git checkout dev docs/*  # dev为要合并的分支，docs为要合并的目录
 ```
