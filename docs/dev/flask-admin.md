@@ -245,7 +245,7 @@ pip install flask-login
 
 初始化，调用 init\_login()函数即可
 
-```plain
+```python
     from flask_login import current_user, login_user, logout_user, LoginManager
     
     def init_login():

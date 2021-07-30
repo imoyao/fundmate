@@ -57,6 +57,18 @@ COLUMN_LIMIT = 79
 
 [Applying mypy to real world projects](http://calpaterson.com/mypy-hints.html)
 
+## pre-commit
+
+```bash
+# 安装
+pip install pre-commit
+pre-commit install
+# 安装配置好后，最好做个全文的检查，修复问题
+pre-commit run --all-files
+```
+
+[项目管理：代码检查 pre-commit 使用详解_老五的作坊-CSDN 博客_pre-commit](https://blog.csdn.net/wuheshi/article/details/104628747/)
+
 ## 相关阅读
 
 [我为什么不喜欢 black - 小明明 s à domicile](https://www.dongwm.com/post/why-i-dont-like-black/)

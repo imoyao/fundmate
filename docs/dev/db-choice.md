@@ -195,7 +195,7 @@ class User(db.Model):
 ```
 ## 多对多(many-to-many)关系
 
-User 和 Role 表之间互为多对多关系，我们需要定义一个用于关系的辅助表。对于这个辅助表， 强烈建议 _不_ 使用模型，而是采用一个实际的表:
+User 和 Role 表之间互为多对多关系，我们需要定义一个用于关系的辅助表。对于这个辅助表， 强烈建议 _不_ 使用模型，而是采用一个实际的表；:
 ```python
 tags = db.Table('tags',
     db.Column('tag_id', db.Integer, db.ForeignKey('tag.id')),

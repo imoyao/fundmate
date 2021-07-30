@@ -26,13 +26,13 @@ yarn docs:build
 
 从 master/dev 分支合并更新
 ```bash
-git checkout docs # 或者 git checkout master
+git checkout docs # 因为目录存在docs，所以使用`git switch docs` 切换分支或者 `git checkout master` 切换到 master 分支
 git pull
 git checkout dev docs/*  # dev为要合并的分支，docs为要合并的目录
 ```
 - lint 文档
 ```bash
-yarn docs:lint
+yarn docs:lint-md
 ```
 
 ## 预览
@@ -54,7 +54,7 @@ source fmp/bin/activate
 pip install -r requirements.txt
 ```
 - 修改环境变量`.env`
-```bash
+```plain
 flask run --host=0.0.0.0
 ```
 - 启动数据库
@@ -62,7 +62,15 @@ flask run --host=0.0.0.0
 ```bash
 flask init-db # 更多命令执行flask --help 查看
 ```
-
+## 数据来源
+1. `http://fund.eastmoney.com/js/fundcode_search.js` 数据 13420 条
+2. `https://api.doctorxiong.club/v1/fund/all` 数据 11736 条
+3. `http://fund.eastmoney.com/fund.html` 数据 11493 条
+- 更新基金相关数据
+```bash
+# 默认只更新基金信息
+flask update-db
+```
 ## TODO
 
 - 使用的插件

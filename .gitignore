@@ -131,3 +131,4 @@ dmypy.json
 
 .idea/
 backend/
+change_user_info.sh

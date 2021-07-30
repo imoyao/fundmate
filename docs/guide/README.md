@@ -10,13 +10,13 @@ title: 使用指南
 * * *
 
 [Python 安装教程](http://baostock.com/baostock/images/4/49/Python%E5%AE%89%E8%A3%85%E6%95%99%E7%A8%8B.pdf "Python安装教程.pdf")  
-[BaoStock 的安装与使用](http://baostock.com/baostock/images/d/d1/BaoStock%E7%9A%84%E5%AE%89%E8%A3%85%E4%B8%8E%E4%BD%BF%E7%94%A8.pdf "BaoStock的安装与使用.pdf")
+[BaoStock 的安装与使用](http://baostock.com/baostock/images/d/d1/BaoStock%E7%9A%84%E5%AE%89%E8%A3%85%E4%B8%8E%E4%BD%BF%E7%94%A8.pdf "BaoStock的安装与使用.pdf")  
 **本地程序化交易框架**
 
 * * *
 
 [BaoStock](http://www.baostock.com/)  
-财经数据接口包 [Pandas](https://github.com/pandas-dev/pandas)
+财经数据接口包 [Pandas](https://github.com/pandas-dev/pandas)  
 Python 数据分析包 [ApolloAuto](https://www.oschina.net/p/apolloauto)  
 开源自动驾驶平台 **Python 人工智能算法库**
 
@@ -56,11 +56,11 @@ Goole 出的深度学习库，阿尔法狗 [Nvidia CUDA](http://www.nvidia.cn/ob
 
 [知乎](https://www.zhihu.com/)  
 发现更大的世界 [腾讯财经](https://new.qq.com/ch/finance/)  
-腾讯旗下金融网站 [新浪财经](http://finance.sina.com.cn/)  
-新浪旗下金融网站 [搜狐财经](http://business.sohu.com/)  
-搜狐旗下金融网站 [](http://www.newsmth.net/nForum/>水木社区</a><br>象牙塔通向社会的桥梁
-</td>
-<td style=)[雪球](https://xueqiu.com/)  
+新浪旗下金融网站 [新浪财经](http://finance.sina.com.cn/)  
+ 搜狐旗下金融网站[搜狐财经](http://business.sohu.com/)
+[水木社区象牙塔通向社会的桥梁](http://www.newsmth.net/nForum/)
+
+[雪球](https://xueqiu.com/)  
 聪明的投资者都在这里 [优矿量化社区](https://uqer.io/community/)  
 优矿在线回测平台旗下社区 [米筐社区](https://www.ricequant.com/community/category/all)  
 米筐在线回测平台旗下社区 [聚宽](https://www.joinquant.com/)  
@@ -68,8 +68,8 @@ Goole 出的深度学习库，阿尔法狗 [Nvidia CUDA](http://www.nvidia.cn/ob
 大数据社区 [股吧](http://guba.eastmoney.com/)  
 东方财富网旗下社区 [金融界](http://www.jrj.com.cn/)  
 创新性互联网证券服务 [和讯网](http://www.hexun.com/)  
-早期金融证券资讯服务 [A股交易工具社区](http://www.tdxapi.com/comm/)  
-QuicklibTrade和TdxApi社区 **在线回测平台**
+早期金融证券资讯服务 [A 股交易工具社区](http://www.tdxapi.com/comm/)  
+QuicklibTrade 和 TdxApi 社区 **在线回测平台**
 
 * * *
 
@@ -90,7 +90,7 @@ QuicklibTrade和TdxApi社区 **在线回测平台**
 * * *
 
 [BaoStock(免费)](http://www.baostock.com)  
-免费、开源的证券数据平台 [Historical Data Sources](https://quantpedia.com/Links/HistoricalData)
+免费、开源的证券数据平台 [Historical Data Sources](https://quantpedia.com/Links/HistoricalData)  
 一个外盘数据源索引 [新浪 Level2 行情(收费)](http://finance.sina.com.cn/stock/level2/orderIntro.html)  
 数据服务中心 [Quandl](https://www.quandl.com/)  
 国际金融和经济数据 [Wind 资讯(收费)](http://www.wind.com.cn/NewSite/edb.html)  
@@ -103,7 +103,7 @@ Go-Goal 数据终端 [天软数据(收费)](http://www.tinysoft.com.cn/TSDN/Home
 专业数据 [恒生 API(收费)](https://www.hs.net/)  
 恒生数据 [Bloomberg API(收费)](https://www.bloomberglabs.com/)  
 获得新客户和合作伙伴 [数库金融数据(收费)](http://developer.chinascope.com/)  
-和深度分析 API 服务 [巨潮资讯(收费)](http://www.cninfo.com.cn/new/index)
+和深度分析 API 服务 [巨潮资讯(收费)](http://www.cninfo.com.cn/new/index)  
 大数据营销决策平台 [通联数据商城(收费)](https://www2.datayes.com/)  
 优矿旗下数据商城 [万德(收费)](http://www.wind.com.cn/)  
 优矿旗下数据商城 **行情交易软件**
@@ -117,7 +117,7 @@ Go-Goal 数据终端 [天软数据(收费)](http://www.tinysoft.com.cn/TSDN/Home
 老牌股票软件 [益盟操盘手](http://product.emoney.cn/)  
 行情交易软件 [指南针](http://qy.compass.cn/fenfen2.php)  
 老牌行情交易软件 [文华财经](http://www.wenhua.com.cn/)  
-期货行情交易软件 [金字塔](http://www.weistock.com/)
+期货行情交易软件 [金字塔](http://www.weistock.com/)  
 金字塔行情交易软件 [TB 交易开拓者](http://www.tradeblazer.net/)  
 期货程序化交易软件 [酷操盘手](http://www.kucps.com/)  
 期货 CTP 多账户程序化交易跟单软件 **金融人才招聘**
