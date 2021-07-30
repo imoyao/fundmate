@@ -40,7 +40,7 @@ WHERE table_schema = '{DB_NAME}';
 ```
 4. 数据库设计
 
-最后编写 ORM 代码；当然，我们也可以使用[sqlacodegen](https://github.com/agronholm/sqlacodegen)自动生成 ORM。
+最后编写 ORM 代码；当然，我们也可以使用[sqlacodegen](https://github.com/agronholm/sqlacodegen) [为已存在的数据库生成 SQLAlchemy / Flask-SQLAlchemy 模型类](https://greyli.com/generate-flask-sqlalchemy-model-class-for-exist-database/)。
 ```plain
 # default
 engine = create_engine('mysql://scott:tiger@localhost/foo')

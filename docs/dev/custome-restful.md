@@ -7,116 +7,116 @@ title: 自定义 RESTAPI 的处理
 ## 自定义 RESTAPI 的处理
 
 现存的框架比较知名的有 django-rest-framework 和 flask-restapi，但是这些框架我都不太满意，而对于我这个项目用它们还太重了。好吧，手动写一个实现。首先是借用 DispatcherMiddleware 实现对`/j` 这样的路径特殊处理（ [commentbox/app.py at master · dongweiming/commentbox · GitHub](https://github.com/dongweiming/commentbox/blob/master/app.py) ）：
+```python
+from werkzeug.wsgi import DispatcherMiddleware
 
-    from werkzeug.wsgi import DispatcherMiddlewareplain
-    
-    
-    app.wsgi_app = DispatcherMiddleware(app.wsgi_app, OrderedDict((                                                
-            ('/j', json_api),                                                                                          
-    )))  
-    
+
+app.wsgi_app = DispatcherMiddleware(app.wsgi_app, OrderedDict((                                                
+        ('/j', json_api),                                                                                          
+)))  
+```
 
 我希望/j 开头的返回的响应都是 json 格式的内容：
+```python
+from flask import Flask
 
-    from flask import Flaskplain
-    
-    
-    class ApiFlask(Flask):                                                                                             
-        def make_response(self, rv):                                                                                   
-            if isinstance(rv, dict):                                                                                   
-                if 'r' not in rv:                                                                                      
-                    rv['r'] = 1                                                                                        
-                rv = ApiResult(rv)                                                                                     
-            if isinstance(rv, ApiResult):                                                                              
-                return rv.to_response()                                                                                
-            return Flask.make_response(self, rv)                                                                       
-                                                                                                                       
-                                                                                                                       
-    json_api = ApiFlask(__name__)         
-    
+
+class ApiFlask(Flask):                                                                                             
+    def make_response(self, rv):                                                                                   
+        if isinstance(rv, dict):                                                                                   
+            if 'r' not in rv:                                                                                      
+                rv['r'] = 1                                                                                        
+            rv = ApiResult(rv)                                                                                     
+        if isinstance(rv, ApiResult):                                                                              
+            return rv.to_response()                                                                                
+        return Flask.make_response(self, rv)                                                                       
+                                                                                                                   
+                                                                                                                   
+json_api = ApiFlask(__name__)         
+```
 
 其中返回了一个额外的字段 r, 如果是 0 表示响应的结果是正确的，为 1 表示响应的内容有问题。
 
 接着我们自定义错误处理的方式，比如 404 返回这样：
-
-    {plain
-        message: "Not Found"
-    }
-
+```python
+{
+    "message": "Not Found"
+}
+```
 怎么实现呢：
+```python
+from flask import json
+from werkzeug.wrappers import Response                                                                                                                                                                                               
+                                                                                                              
+                                                                                                                   
+class ApiResult(object):                                                                                           
+    def __init__(self, value, status=200):                                                                         
+        self.value = value                                                                                         
+        self.status = status                                                                                       
+    def to_response(self):                                                                                         
+        return Response(json.dumps(self.value),                                                                    
+                        status=self.status,                                                                        
+                        mimetype='application/json')                                                               
+                                                                                                                                                               
+                                                                                                                   
+class ApiException(Exception):                                                                                     
+    def __init__(self, message, status=400):                                                                       
+        self.message = message                                                                                     
+        self.status = status                                                                                       
+    def to_result(self):                                                                                           
+        return ApiResult({'message': self.message, 'r': 1},                                                        
+                         status=self.status)
 
-    from flask import jsonplain
-    from werkzeug.wrappers import Response                                                                                                                                                                                               
-                                                                                                                  
-                                                                                                                       
-    class ApiResult(object):                                                                                           
-        def __init__(self, value, status=200):                                                                         
-            self.value = value                                                                                         
-            self.status = status                                                                                       
-        def to_response(self):                                                                                         
-            return Response(json.dumps(self.value),                                                                    
-                            status=self.status,                                                                        
-                            mimetype='application/json')                                                               
-                                                                                                                                                                   
-                                                                                                                       
-    class ApiException(Exception):                                                                                     
-        def __init__(self, message, status=400):                                                                       
-            self.message = message                                                                                     
-            self.status = status                                                                                       
-        def to_result(self):                                                                                           
-            return ApiResult({'message': self.message, 'r': 1},                                                        
-                             status=self.status)
-    
-    
-    @json_api.errorhandler(ApiException)                                                                               
-    def api_error_handler(error):                                                                                      
-        return error.to_result()                                                                                       
-                                                                                                                       
-                                                                                                                       
-    @json_api.errorhandler(403)                                                                                        
-    @json_api.errorhandler(404)                                                                                        
-    @json_api.errorhandler(500)                                                                                        
-    def error_handler(error):                                                                                          
-        if hasattr(error, 'name'):                                                                                     
-            msg = error.name                                                                                           
-            code = error.code                                                                                          
-        else:                                                                                                          
-            msg = error.message                                                                                        
-            code = 500                                                                                                 
-        return ApiResult({'message': msg}, status=code)  
-    
+
+@json_api.errorhandler(ApiException)                                                                               
+def api_error_handler(error):                                                                                      
+    return error.to_result()                                                                                       
+                                                                                                                   
+                                                                                                                   
+@json_api.errorhandler(403)                                                                                        
+@json_api.errorhandler(404)                                                                                        
+@json_api.errorhandler(500)                                                                                        
+def error_handler(error):                                                                                          
+    if hasattr(error, 'name'):                                                                                     
+        msg = error.name                                                                                           
+        code = error.code                                                                                          
+    else:                                                                                                          
+        msg = error.message                                                                                        
+        code = 500                                                                                                 
+    return ApiResult({'message': msg}, status=code)  
+```
 
 而且响应也被封装了：
-
-    def success(res=None, status_code=200):plain
-        res = res or {}                                                                                                
-                                                                                                                       
-        dct = {                                                                                                        
-            'r': 1                                                                                                     
-        }                                                                                                              
-                                                                                                                       
-        if res and isinstance(res, dict):                                                                              
-            dct.update(res)                                                                                            
-                                                                                                                       
-        return ApiResult(dct, status_code)                                                                             
-                                                                                                                       
-                                                                                                                       
-    def failure(message, status_code):                                                                                 
-        dct = {                                                                                                        
-            'r': 0,                                                                                                    
-            'status': status_code,                                                                                     
-            'message': message                                                                                         
-        }                                                                                                              
-        return dct                                                                                                     
-                                                                                                                       
-                                                                                                                       
-    def updated(res=None):                                                                                             
-        return success(res=res, status_code=204)                                                                       
-                                                                                                                       
-                                                                                                                       
-    def bad_request(message, res=None):                                                                                
-        return failure(message, 400)
-    
+```python
+def success(res=None, status_code=200):
+    res = res or {}                                                                                                
+                                                                                                                   
+    dct = {                                                                                                        
+        'r': 1                                                                                                     
+    }                                                                                                              
+                                                                                                                   
+    if res and isinstance(res, dict):                                                                              
+        dct.update(res)                                                                                            
+                                                                                                                   
+    return ApiResult(dct, status_code)                                                                             
+                                                                                                                   
+                                                                                                                   
+def failure(message, status_code):                                                                                 
+    dct = {                                                                                                        
+        'r': 0,                                                                                                    
+        'status': status_code,                                                                                     
+        'message': message                                                                                         
+    }                                                                                                              
+    return dct                                                                                                     
+                                                                                                                   
+                                                                                                                   
+def updated(res=None):                                                                                             
+    return success(res=res, status_code=204)                                                                       
+                                                                                                                   
+                                                                                                                   
+def bad_request(message, res=None):                                                                                
+    return failure(message, 400)
+```
 
 使用的时候可以让返回的正确和错误结果的格式都保持统一。
 
