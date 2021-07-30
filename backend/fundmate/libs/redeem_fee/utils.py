@@ -1,0 +1,15 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+
+import requests
+
+
+def get_resonse(url):
+    """
+    :param url: 网页URL
+    :return: 爬取的文本信息
+    """
+    r = requests.get(url)
+    r.raise_for_status()
+    r.encoding = 'utf-8'
+    return r.text

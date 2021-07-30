@@ -5,15 +5,20 @@ module.exports = {
     // 释出目录
     dest: 'docs/public',
     plugins: {
-        "vuepress-plugin-auto-sidebar": {}
+        "vuepress-plugin-auto-sidebar": {},
+         "md-enhance":
+          {
+            // 启用脚注
+            footnote: true
+          }
     },
     themeConfig: {
         nav: [
             {text: '首页', link: '/'},
+            {text: '使用', link: '/guide/'},
             {text: '开发', link: '/dev/'},
-            {text: '部署', link: '/guide/'},
             {text: '接口', link: '/api/'},
-            {text: '计划', link: '/about/'},
+            {text: '关于', link: '/about/'},
         ],
         sidebar: [
             '/',

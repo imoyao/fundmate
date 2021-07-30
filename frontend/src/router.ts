@@ -1,0 +1,226 @@
+import Vue from 'vue'
+import Router from 'vue-router'
+import Layout from '@/layout/index.vue'
+
+Vue.use(Router)
+
+/*
+  redirect:                      if set to 'noredirect', no redirect action will be trigger when clicking the breadcrumb
+  meta: {
+    title: 'title'               the name showed in subMenu and breadcrumb (recommend set)
+    icon: 'svg-name'             the icon showed in the sidebar
+    breadcrumb: false            if false, the item will be hidden in breadcrumb (default is true)
+    hidden: true                 if true, this route will not show in the sidebar (default is false)
+  }
+*/
+
+export default new Router({
+  // mode: 'history',  // Enable this if you need.
+  scrollBehavior: (to, from, savedPosition) => {
+    if (savedPosition) {
+      return savedPosition
+    } else {
+      return { x: 0, y: 0 }
+    }
+  },
+  base: process.env.BASE_URL,
+  routes: [
+    {
+      path: '/login',
+      component: () => import(/* webpackChunkName: "login" */ '@/views/login/index.vue'),
+      meta: { hidden: true }
+    },
+    {
+      path: '/404',
+      component: () => import(/* webpackChunkName: "404" */ '@/views/404.vue'),
+      meta: { hidden: true }
+    },
+    {
+      path: '/',
+      component: Layout,
+      redirect: '/dashboard',
+      children: [
+        {
+          path: 'dashboard',
+          component: () => import(/* webpackChunkName: "dashboard" */ '@/views/dashboard/index.vue'),
+          meta: {
+            title: 'Dashboard',
+            icon: 'dashboard'
+          }
+        }
+      ]
+    },
+    {
+      path: '/record',
+      component: Layout,
+      redirect: '/bookkeeping',
+      children: [
+        {
+          path: 'bookkeeping',
+          component: () => import(/* webpackChunkName: "bookkeeping" */ '@/views/bookkeeping/index.vue'),
+          meta: {
+            title: '记账',
+            icon: 'component'
+          }
+        }
+      ]
+    },
+    // 账本
+    {
+      path: '/exchange',
+      component: Layout,
+      redirect: '/exchange/account',
+      meta: { title: '账本', icon: 'example' },
+      children: [
+        {
+          path: 'account', // 账本
+          component: () => import(/* webpackChunkName: "account" */ '@/views/exchange/Account/index.vue'),
+          meta: { title: '账户', icon: 'table' }
+        }, {
+          path: 'asset', // 资产
+          component: () => import(/* webpackChunkName: "asset" */ '@/views/exchange/Asset/index.vue'),
+          meta: { title: '资产', icon: 'tree' }
+        },
+        {
+          path: 'tree', // 资产，按照购买基金分类
+          component: () => import(/* webpackChunkName: "asset" */ '@/views/tree/index.vue'),
+          meta: { title: '资产demo', icon: 'tree' }
+        },
+        {
+          path: 'transfer', // 交易账单
+          component: () => import(/* webpackChunkName: "transfer" */ '@/views/table/index.vue'),
+          meta: { title: '交易流水', icon: 'form' } // TODO: icon需要添加更多
+        }
+      ]
+    },
+    // 自选/关注
+    {
+      path: '/favor',
+      component: Layout,
+      redirect: '/favor/PickedFund',
+      meta: { title: '严选', icon: 'el-icon-s-opportunity' },
+      children: [
+        {
+          path: 'funds', // 账本
+          component: () => import(/* webpackChunkName: "account" */ '@/views/PickedFund/index.vue'),
+          meta: { title: '自选基金', icon: 'el-icon-star-on' }
+        }, {
+          path: 'mgr', // 资产
+          component: () => import(/* webpackChunkName: "asset" */ '@/views/FundMgr/index.vue'),
+          meta: { title: '关注经理', icon: 'peoples' }
+        }
+      ]
+    },
+    // {
+    //   path: '/example',
+    //   component: Layout,
+    //   redirect: '/example/tree',
+    //   meta: {
+    //     title: 'Example',
+    //     icon: 'example'
+    //   },
+    //   children: [
+    //     {
+    //       path: 'tree',
+    //       component: () => import(/* webpackChunkName: "tree" */ '@/views/tree/index.vue'),
+    //       meta: {
+    //         title: 'Tree',
+    //         icon: 'tree'
+    //       }
+    //     },
+    //     {
+    //       path: 'table',
+    //       component: () => import(/* webpackChunkName: "table" */ '@/views/table/index.vue'),
+    //       meta: {
+    //         title: 'Table',
+    //         icon: 'table'
+    //       }
+    //     }
+    //   ]
+    // },
+    {
+      path: '/form',
+      component: Layout,
+      children: [
+        {
+          path: 'index',
+          component: () => import(/* webpackChunkName: "form" */ '@/views/form/index.vue'),
+          meta: {
+            title: 'Form',
+            icon: 'form'
+          }
+        }
+      ]
+    },
+    {
+      path: '/nested',
+      component: Layout,
+      redirect: '/nested/menu1',
+      meta: {
+        title: 'Nested',
+        icon: 'nested'
+      },
+      children: [
+        {
+          path: 'menu1',
+          component: () => import(/* webpackChunkName: "menu1" */ '@/views/nested/menu1/index.vue'),
+          redirect: '/nested/menu1/menu1-1',
+          meta: { title: 'Menu1' },
+          children: [
+            {
+              path: 'menu1-1',
+              component: () => import(/* webpackChunkName: "menu1-1" */ '@/views/nested/menu1/menu1-1/index.vue'),
+              meta: { title: 'Menu1-1' }
+            },
+            {
+              path: 'menu1-2',
+              component: () => import(/* webpackChunkName: "menu1-2" */ '@/views/nested/menu1/menu1-2/index.vue'),
+              redirect: '/nested/menu1/menu1-2/menu1-2-1',
+              meta: { title: 'Menu1-2' },
+              children: [
+                {
+                  path: 'menu1-2-1',
+                  component: () => import(/* webpackChunkName: "menu1-2-1" */ '@/views/nested/menu1/menu1-2/menu1-2-1/index.vue'),
+                  meta: { title: 'Menu1-2-1' }
+                },
+                {
+                  path: 'menu1-2-2',
+                  component: () => import(/* webpackChunkName: "menu1-2-2" */ '@/views/nested/menu1/menu1-2/menu1-2-2/index.vue'),
+                  meta: { title: 'Menu1-2-2' }
+                }
+              ]
+            },
+            {
+              path: 'menu1-3',
+              component: () => import(/* webpackChunkName: "menu1-3" */ '@/views/nested/menu1/menu1-3/index.vue'),
+              meta: { title: 'Menu1-3' }
+            }
+          ]
+        },
+        {
+          path: 'menu2',
+          component: () => import(/* webpackChunkName: "menu2" */ '@/views/nested/menu2/index.vue'),
+          meta: { title: 'Menu2' }
+        }
+      ]
+    },
+    {
+      path: 'external-link',
+      component: Layout,
+      children: [
+        {
+          path: 'https://github.com/Armour/vue-typescript-admin-template',
+          meta: {
+            title: 'External Link',
+            icon: 'link'
+          }
+        }
+      ]
+    },
+    {
+      path: '*',
+      redirect: '/404',
+      meta: { hidden: true }
+    }
+  ]
+})

@@ -1,0 +1,47 @@
+# Everything needed in production
+
+# Flask
+Flask==2.0.1
+Werkzeug==2.0.1
+click>=7.0
+APIFlask==0.8.0
+
+# Database
+Flask-SQLAlchemy==2.5.1
+SQLAlchemy==1.4.21
+psycopg2-binary==2.8.6
+
+# Migrations
+Flask-Migrate==3.0.1
+
+# Forms
+email-validator==1.1.2
+Flask-WTF==0.15.1
+WTForms==2.3.3
+
+# Deployment
+gevent==21.1.2
+gunicorn>=19.9.0
+supervisor==4.2.2
+
+# Auth
+Flask-Login==0.5.0
+Flask-Bcrypt==0.7.1
+
+# Environment variable parsing
+environs==9.3.2
+
+# logging system 日志系统
+loguru==0.5.3
+
+# 数据缓存
+cachetools==4.2.2
+
+# 基金净值获取
+xalpha==0.11.4
+
+# 日期解析
+dateparser==1.0.0
+
+# 过期提示
+Deprecated==1.2.11

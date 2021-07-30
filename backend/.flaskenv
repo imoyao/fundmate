@@ -1,0 +1,11 @@
+# 该文件用来保存 flask 相关的环境变量
+# Environment variable overrides for local development
+FLASK_APP = autoapp.py
+# 开启DEBUG模式 **注意**：生产模式下必须关闭
+FLASK_DEBUG = True
+# 配置工作模式（此处默认开发模式）
+FLASK_ENV = 'development'
+# 使用的配置环境（默认使用生产配置）
+FLASK_CONFIG = 'default'
+# 指定ip
+FLASK_RUN_HOST = '0.0.0.0'
