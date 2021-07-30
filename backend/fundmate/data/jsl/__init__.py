@@ -4,4 +4,4 @@
 """
 集思录数据爬取
 """
-from .base import jsl
+from .base import jsl  # noqa
