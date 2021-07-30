@@ -11,7 +11,6 @@ from backend.fundmate.database import (
     ChoiceType,
     Column,
     CreateDateModel,
-    CRUDMixin,
     PkModel,
     UpsertMixin,
     db,
