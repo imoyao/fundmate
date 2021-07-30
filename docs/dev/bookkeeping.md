@@ -1,8 +1,12 @@
 ---
 title: 记账功能设计与实现
 ---
+在设计基金购买操作的时候，我们主要参考好买[基金账本 - 好买基金研究中心](https://www.howbuy.com/myfund/index.htm) 和同花顺投资账本。
+
+---
 
 ## 申购
+### 自动识别（后期实现）
 ![支付宝](https://cdn.jsdelivr.net/gh/masantu/statics/images/20210109124324.png)
 ![理财通](https://cdn.jsdelivr.net/gh/masantu/statics/images/20210109124523.png)
 ### 最重要的关键字
@@ -10,6 +14,9 @@ title: 记账功能设计与实现
 - 买入费率/费用
 
 ## 赎回/取出
+
+### 自动识别（后期实现）
+
 ![支付宝](https://cdn.jsdelivr.net/gh/masantu/statics/images/20210109131323.png)
 ![理财通](https://cdn.jsdelivr.net/gh/masantu/statics/images/20210109131918.png)
 1. 取出日期
