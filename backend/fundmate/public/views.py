@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 """Public section, including homepage and signup."""
-from apiflask import APIBlueprint, HTTPError, Schema, abort, input, output
-from apiflask.fields import Integer, String
-from apiflask.validators import Length, OneOf
+from apiflask import APIBlueprint, HTTPError, input, output
 from flask import flash, redirect, request, url_for
 from flask.views import MethodView
 

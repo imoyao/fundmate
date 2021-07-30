@@ -178,6 +178,7 @@ class Booking:
     记账功能
     """
 
+    # FIXME: not finished
     def buy(self,
             fund_code: str,
             d_time: str,

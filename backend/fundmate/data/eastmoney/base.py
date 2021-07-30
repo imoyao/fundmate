@@ -34,12 +34,13 @@ class EastMoney:
     """
     headers = dt_utils.parse_headers(REQUEST_STR)
 
-    def match_resp(self, resp: Response, regexp: re.Pattern) -> re.Match:
+    @staticmethod
+    def match_resp(resp: Response, regexp: re.Pattern) -> re.Match:
         """
         对字符进行正则匹配获取匹配结果
-        :param resp: 
-        :param regexp: 
-        :return: 
+        :param resp:
+        :param regexp:
+        :return:
         """
         ret_str = resp.content.decode('utf-8')
         reg_mat = regexp.match(ret_str)
@@ -167,24 +168,25 @@ class EastMoney:
         _count = len(_fund_lists)
         return _count
 
+    @staticmethod
+    def _split_fvt(f_vt_str: str) -> tuple:
+        """
+        >>> avt = '债券型-混合债'
+        >>> avt.split('-')
+        ['债券型', '混合债']
+        """
+        _ft = None
+        if '-' in f_vt_str:
+            _fv, _ft = f_vt_str.split('-')
+        else:
+            _fv = f_vt_str
+        return _fv, _ft
+
     def save_to_db(self, _funds: str) -> int:
         """
         保存fund信息到数据库
         :return:
         """
-
-        def split_fvt(f_vt_str: str) -> tuple:
-            """
-            >>> avt = '债券型-混合债'
-            >>> avt.split('-')
-            ['债券型', '混合债']
-            """
-            _ft = None
-            if '-' in f_vt_str:
-                _fv, _ft = f_vt_str.split('-')
-            else:
-                _fv = f_vt_str
-            return _fv, _ft
 
         if _funds:
             _fund_list = self.be_json(_funds)
@@ -196,7 +198,7 @@ class EastMoney:
             for f in _fund_list:
                 # ["000001","HUZZAH","华夏成长混合","混合型","HUAXIACHENGZHANGHUNHE"]
                 code, szm, name, _f_temp, qpy = f
-                fv, ft = split_fvt(_f_temp)
+                fv, ft = self._split_fvt(_f_temp)
                 # 基金大类处理
                 '''
                 如果大类名称在缓存字典中，则直接获取，不去查数据库；

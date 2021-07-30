@@ -86,7 +86,7 @@ def crawling_fund(fund_list_class: GetFundList, first_crawling=True):
                 input_queue.put(a_result[1:])
             else:
                 if a_result[2].next_step == 'parsing_fund':
-                    if a_result[1] == None:
+                    if a_result[1] is None:
                         print('stop')
                     # # fixme 临时措施，重新爬取返回空网页的基金
                     # if a_result[1] == '':

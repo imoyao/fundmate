@@ -3,7 +3,7 @@
 
 import re
 
-from utils import *
+from utils import get_resonse
 
 
 def get_fund_list():

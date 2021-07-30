@@ -8,7 +8,6 @@ import json
 import time
 
 import pandas
-import requests
 import xalpha as xa
 from xalpha.cons import rget_json
 

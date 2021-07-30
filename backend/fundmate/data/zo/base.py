@@ -53,469 +53,56 @@ class QGG:
 
     def raw_data(self, fof_id: str = '8100000078') -> Union[dict, None]:
         """
-        {
-            "code": "000000",
-            "msg": "成功",
-            "realMsg": null,
-            "data": {
-                "fofId": 8100000078,
-                "fofName": "超级股票全明星",
-                "productTypeCode": "10",
-                "productTypeDesc": "组合",
-                "fundTypeCode": "31",
-                "fundTypeDesc": "投顾组合",
-                "buyStatusCode": "0",
-                "aipStatusCode": "0",
-                "totalRate": "130.52",
-                "dailyRate": "-1.38",
-                "latestWeekRate": "0.34",
-                "latestMonthRate": "1.98",
-                "latestQuarterRate": "6.27",
-                "latestHalfYearRate": "1.48",
-                "latestYearRate": "25.89",
-                "currentYearRate": "11.96",
-                "historyYearRate": "23.98",
-                "historyYearRate2": null,
-                "latestTwoYearRate": "115.83",
-                "latestThreeYearRate": "133.04",
-                "minYield": "-26.41",
-                "maxYield": "60.67",
-                "minAnyQuarter": null,
-                "maxAnyQuarter": null,
-                "historyYearWaveRate": "21.77",
-                "indexHistoryRate": "17.13",
-                "yield": "--",
-                "maxYearLossRate": "-20.92",
-                "onlineRate": "62.89",
-                "rateIntervalName": "lastYearRate",
-                "minPurAmount": "1000.00",
-                "choiceDesc": "全市场精选,集结王牌,核心+卫星",
-                "recommendDesc": "投顾",
-                "riskDesc": "中风险",
-                "riskName": "03",
-                "userRiskTestDesc": "C3-平衡型",
-                "strategy": "https://static.zocaifu.com/sarli/file/01/1620264653958.jpg",
-                "strategyProvider": "",
-                "tradeDesc": "组合",
-                "publishDays": 340,
-                "publishYears": 3,
-                "yearRateList": [
-                    {
-                        "year": "2020",
-                        "rate": "59.35",
-                        "desc": "年度收益"
-                    },
-                    {
-                        "year": "2019",
-                        "rate": "53.51",
-                        "desc": "年度收益"
-                    },
-                    {
-                        "year": "2018",
-                        "rate": "-19.88",
-                        "desc": "年度收益"
-                    }
-                ],
-                "subProductList": [
-                    {
-                        "detailTypeDesc": "灵活配置",
-                        "fundId": "002685",
-                        "productId": "600138",
-                        "assetTypeDesc": "股票类",
-                        "canOpenDetail": "true",
-                        "assetTypeName": "0",
-                        "productName": "中欧丰泓沪港深A",
-                        "ratio": "12.89"
-                    },
-                    {
-                        "detailTypeDesc": "绝对收益",
-                        "fundId": "166019",
-                        "productId": "601008",
-                        "assetTypeDesc": "股票类",
-                        "canOpenDetail": "true",
-                        "assetTypeName": "0",
-                        "productName": "中欧价值智选A",
-                        "ratio": "10.74"
-                    },
-                    {
-                        "detailTypeDesc": "混合偏股",
-                        "fundId": "166006",
-                        "productId": "600058",
-                        "assetTypeDesc": "股票类",
-                        "canOpenDetail": "true",
-                        "assetTypeName": "0",
-                        "productName": "中欧行业成长A",
-                        "ratio": "10.27"
-                    },
-                    {
-                        "detailTypeDesc": "混合偏股",
-                        "fundId": "005241",
-                        "productId": "600419",
-                        "assetTypeDesc": "股票类",
-                        "canOpenDetail": "true",
-                        "assetTypeName": "0",
-                        "productName": "中欧时代智慧A",
-                        "ratio": "9.58"
-                    },
-                    {
-                        "detailTypeDesc": "灵活配置",
-                        "fundId": "001694",
-                        "productId": "600334",
-                        "assetTypeDesc": "股票类",
-                        "canOpenDetail": "true",
-                        "assetTypeName": "0",
-                        "productName": "华安沪港深外延增长",
-                        "ratio": "9.45"
-                    },
-                    {
-                        "detailTypeDesc": "混合偏股",
-                        "fundId": "100026",
-                        "productId": "600393",
-                        "assetTypeDesc": "股票类",
-                        "canOpenDetail": "true",
-                        "assetTypeName": "0",
-                        "productName": "富国天合稳健优选",
-                        "ratio": "9.30"
-                    },
-                    {
-                        "detailTypeDesc": "标准股票",
-                        "fundId": "005267",
-                        "productId": "601178",
-                        "assetTypeDesc": "股票类",
-                        "canOpenDetail": "true",
-                        "assetTypeName": "0",
-                        "productName": "嘉实价值精选股票",
-                        "ratio": "9.14"
-                    },
-                    {
-                        "detailTypeDesc": "混合偏股",
-                        "fundId": "166009",
-                        "productId": "601011",
-                        "assetTypeDesc": "股票类",
-                        "canOpenDetail": "true",
-                        "assetTypeName": "0",
-                        "productName": "中欧新动力A",
-                        "ratio": "9.11"
-                    },
-                    {
-                        "detailTypeDesc": "混合偏股",
-                        "fundId": "001000",
-                        "productId": "600049",
-                        "assetTypeDesc": "股票类",
-                        "canOpenDetail": "true",
-                        "assetTypeName": "0",
-                        "productName": "中欧明睿新起点",
-                        "ratio": "7.05"
-                    },
-                    {
-                        "detailTypeDesc": "混合偏股",
-                        "fundId": "003096",
-                        "productId": "600398",
-                        "assetTypeDesc": "股票类",
-                        "canOpenDetail": "true",
-                        "assetTypeName": "0",
-                        "productName": "中欧医疗健康C",
-                        "ratio": "5.67"
-                    },
-                    {
-                        "detailTypeDesc": "标准股票",
-                        "fundId": "002621",
-                        "productId": "600102",
-                        "assetTypeDesc": "股票类",
-                        "canOpenDetail": "true",
-                        "assetTypeName": "0",
-                        "productName": "中欧消费主题A",
-                        "ratio": "4.94"
-                    },
-                    {
-                        "detailTypeDesc": "货币",
-                        "fundId": "001211",
-                        "productId": "600001",
-                        "assetTypeDesc": "货币类",
-                        "canOpenDetail": "true",
-                        "assetTypeName": "4",
-                        "productName": "中欧滚钱宝货币",
-                        "ratio": "1.86"
-                    }
-                ],
-                "pieChartDataList": [
-                    {
-                        "assetTypeDesc": "股票类",
-                        "assetTypeName": "0",
-                        "ratio": "98.14"
-                    },
-                    {
-                        "assetTypeDesc": "货币类",
-                        "assetTypeName": "4",
-                        "ratio": "1.86"
-                    }
-                ],
-                "fundRebalanceInfo": {
-                    "fundRebalanceList": [
-                        {
-                            "targetRatio": "0.00",
-                            "fundName": "中欧时代先锋股票C",
-                            "ratio": "12.56"
-                        },
-                        {
-                            "targetRatio": "0.00",
-                            "fundName": "中欧价值A",
-                            "ratio": "10.75"
-                        },
-                        {
-                            "targetRatio": "0.00",
-                            "fundName": "易方达蓝筹精选混合",
-                            "ratio": "10.43"
-                        },
-                        {
-                            "targetRatio": "10.00",
-                            "fundName": "富国天合稳健优选",
-                            "ratio": "10.38"
-                        },
-                        {
-                            "targetRatio": "10.00",
-                            "fundName": "华安沪港深外延增长",
-                            "ratio": "10.17"
-                        },
-                        {
-                            "targetRatio": "10.00",
-                            "fundName": "中欧行业成长A",
-                            "ratio": "10.06"
-                        },
-                        {
-                            "targetRatio": "10.00",
-                            "fundName": "中欧新动力A",
-                            "ratio": "9.66"
-                        },
-                        {
-                            "targetRatio": "12.00",
-                            "fundName": "中欧丰泓沪港深A",
-                            "ratio": "8.11"
-                        },
-                        {
-                            "targetRatio": "6.00",
-                            "fundName": "中欧明睿新起点",
-                            "ratio": "6.02"
-                        },
-                        {
-                            "targetRatio": "5.00",
-                            "fundName": "中欧医疗健康C",
-                            "ratio": "5.48"
-                        },
-                        {
-                            "targetRatio": "5.00",
-                            "fundName": "中欧消费主题A",
-                            "ratio": "4.57"
-                        },
-                        {
-                            "targetRatio": "2.00",
-                            "fundName": "中欧滚钱宝货币",
-                            "ratio": "1.81"
-                        },
-                        {
-                            "targetRatio": "10.00",
-                            "fundName": "中欧时代智慧A",
-                            "ratio": "0.00"
-                        },
-                        {
-                            "targetRatio": "10.00",
-                            "fundName": "中欧价值智选A",
-                            "ratio": "0.00"
-                        },
-                        {
-                            "targetRatio": "10.00",
-                            "fundName": "嘉实价值精选股票",
-                            "ratio": "0.00"
-                        }
-                    ],
-                    "rebalanceDesc": "开年以来，A股市场处于国内经济复苏叠加货币政策回归中性的宏观背景下。市场整体表现较好，但风格开始切换。以必选消费和科技为代表的高估值板块受到紧货币的影响开始逐步调整，而前期滞涨的周期、金融、制造等顺周期行业在全球“再通胀”的背景下出现明显的估值修复。预计在美国财政刺激实质性落地和海外疫情实现有效控制之前，全球经济修复叠加货币政策宽松的交易环境不会发生变化。A股市场运行的主要矛盾在未来1-2个季度仍将持续，我们预计顺周期行业在以上宏观背景下仍有投资机会，同时价值类品种相对成长类的品种会有显著的估值修复行情。因此本次调仓我们会适当降低必选消费科技等前期涨幅过大的高估值板块配置，加大顺周期行业暴露，在压低估值的同时使得组合在行业分布上更为均衡。",
-                    "fofReportInfo": null,
-                    "transferDate": "20210301"
-                },
-                "feeTypeName": "Percent",
-                "discount": "0.1000",
-                "realDiscount": "0.1",
-                "fee": "1.50",
-                "aipFeeType": "Percent",
-                "aipDiscount": "0.1000",
-                "aipRealDiscount": "0.1",
-                "aipFee": "1.50",
-                "tieredRate": "0.75",
-                "publishTimes": "3年340天",
-                "fofMaxAPI": "68194200.00",
-                "fofMinAPI": "1000.00",
-                "fofStrategy": "https://static.zocaifu.com/sarli/file/01/1620264653958.jpg",
-                "fofRealDiscount": null,
-                "fofDiscount": null,
-                "fofPurIncrease": "0.01",
-                "fofDate": "20210723",
-                "fofFileJson": "{\"基金投资组合策略说明书（超级股票全明星策略）\":\"https://static.qiangungun.com/sarli/product/FofProduct/A003_a5/rebalanceFileJson/基金投资组合策略说明书（超级股票全明星策略）.pdf\"}",
-                "fofPurRealDiscount": "0.0",
-                "fofPurDiscount": "0.0",
-                "fofAipRealDiscount": "0.0",
-                "fofAipDiscount": "0.0",
-                "fofOperateDate": "",
-                "fofOperateFileInfos": [],
-                "wechatTitle": "超级股票全明星，甄选绩优股基，力争长期超越市场！\r\n",
-                "wechatDesc": "甄选具备超额能力的主动基金，结合市场风格动态调整。",
-                "fofAdvantage": null,
-                "holdingYear": "2年以上",
-                "profitUnit": null,
-                "currencyFof": false,
-                "fofTypeCode": "04",
-                "fofTypeDesc": "投顾",
-                "analogAmount": "10000",
-                "analogRevenue": "2398.00",
-                "simulatedLoss": "-2092.00",
-                "seqNo": null,
-                "navDate": "20210723",
-                "fofPublish": "20200522",
-                "fofGqbPurRealDiscount": "0.0",
-                "fofGqbAipRealDiscount": "0.0",
-                "showTypeDesc": null,
-                "showTypeInfo": null,
-                "showTypeNum": null,
-                "showTypeUnit": null,
-                "deadlineDesc": "建议持有2年以上",
-                "strategyConcept": "投资目标：通过优选基金管理人并结合一定风格、行业轮动，争取高于市场的超额回报。\r\n投资策略：主要投资主动偏股基金，依托中欧主动管理的出色能力，结合市场风格精选优秀管理人，并适时用全市场其他优选基金进行补充。\r\n适合人群：能承受较高波动的积极投资者\r\n建议持有时长：2年以上",
-                "waveLevel": 8,
-                "waveLevel2": null,
-                "newHoldingYear": "2年以上",
-                "rateIntervalName2": "lastMonthRate",
-                "fofReportInfo": null,
-                "fofRiskIndexList": [
-                    {
-                        "indexIntervalName": "total",
-                        "indexIntervalDesc": null,
-                        "fofRiskIndexInfoVo": {
-                            "drawdown": "-25.36",
-                            "waveRate": "21.16",
-                            "sharpeRatio": "1.13",
-                            "positiveYield": "100.00",
-                            "positiveYieldTypeCode": "lastTwoYearPositiveYield",
-                            "positiveYieldTypeDesc": "2年正收益情况",
-                            "aboveStandard": "98.57",
-                            "minIntervalRate": "--",
-                            "maxIntervalRate": "--"
-                        }
-                    },
-                    {
-                        "indexIntervalName": "totalIndex",
-                        "indexIntervalDesc": null,
-                        "fofRiskIndexInfoVo": {
-                            "drawdown": "-42.27",
-                            "waveRate": "21.77",
-                            "sharpeRatio": "0.79",
-                            "positiveYield": "83.00",
-                            "positiveYieldTypeCode": "lastTwoYearPositiveYield",
-                            "positiveYieldTypeDesc": "2年正收益情况",
-                            "aboveStandard": "--",
-                            "minIntervalRate": "--",
-                            "maxIntervalRate": "--"
-                        }
-                    }
-                ],
-                "subAckDays": 1,
-                "redAckDays": 1,
-                "subDays": 0,
-                "redDays": 3,
-                "fofStrategyTypeCode": "06",
-                "processTypeCode": "",
-                "holdingTimeCode": "06",
-                "subAgrVersion": "20201225111555",
-                "subAgrUrl": "https://static.qiangungun.com/sarli/product/FofProduct/A003_a5/rebalanceFileJson/基金投资组合策略说明书（超级股票全明星策略）.pdf",
-                "fofRiskIndexList2": [
-                    {
-                        "holdingTimeCode": "05",
-                        "holdingTimeDesc": "1年以上",
-                        "holdingTimeDesc2": "1年",
-                        "fofRiskIndexInfoVo": {
-                            "drawdown": "-42.27",
-                            "waveRate": "21.77",
-                            "sharpeRatio": "0.79",
-                            "positiveYield": "77.14",
-                            "positiveYieldTypeCode": "",
-                            "positiveYieldTypeDesc": "",
-                            "aboveStandard": "--",
-                            "minIntervalRate": "-34.07",
-                            "maxIntervalRate": "122.34"
-                        }
-                    },
-                    {
-                        "holdingTimeCode": "06",
-                        "holdingTimeDesc": "2年以上",
-                        "holdingTimeDesc2": "2年",
-                        "fofRiskIndexInfoVo": {
-                            "drawdown": "-42.27",
-                            "waveRate": "21.77",
-                            "sharpeRatio": "0.79",
-                            "positiveYield": "83.00",
-                            "positiveYieldTypeCode": "",
-                            "positiveYieldTypeDesc": "",
-                            "aboveStandard": "--",
-                            "minIntervalRate": "-30.65",
-                            "maxIntervalRate": "144.28"
-                        }
-                    },
-                    {
-                        "holdingTimeCode": "07",
-                        "holdingTimeDesc": "3年以上",
-                        "holdingTimeDesc2": "3年",
-                        "fofRiskIndexInfoVo": {
-                            "drawdown": "-42.27",
-                            "waveRate": "21.77",
-                            "sharpeRatio": "0.79",
-                            "positiveYield": "86.20",
-                            "positiveYieldTypeCode": "",
-                            "positiveYieldTypeDesc": "",
-                            "aboveStandard": "--",
-                            "minIntervalRate": "-24.57",
-                            "maxIntervalRate": "116.50"
-                        }
-                    }
-                ],
-                "adFee": "0.75",
-                "adRealFee": "0.750000",
-                "adFeediscount": null,
-                "adFeeDesc": "根据投资者授权，中欧财富可通过中欧财富平台或由中欧财富至指定销售平台开立交易账户并代为发起或办理基金交易业务。\r\n\r\n投顾服务费\r\n投顾服务费率0.75%/年，按持有资产总额每日计算，每半年收取；不满半年的，在赎回时收取。\r\n\r\n交易费用\r\n1.\t通过中欧财富平台申购成分基金，按中欧财富平台申赎费减免规则收取相应成分基金申购费（含调仓交易）：中欧旗下产品不收取申购费。调仓赎回时，中欧旗下产品不再收取计入基金财产之外的赎回费用。若持有投顾组合小于7天，部分成分基金将收取1.5%的惩罚性赎回费。\r\n2.\t通过指定平台申购成分基金，由指定平台按其规则收取相应成分基金申赎费（含调仓交易）。\r\n",
-                "strategyPosition": "全市场严选股基，让明星经理为你打工",
-                "frequencyDesc": "季度",
-                "leastDisclosureDay": "20210630",
-                "expectYield": "",
-                "indexStandardDesc": "Wind货币市场基金指数、Wind偏股混合型基金指数",
-                "buyers": 100,
-                "relateLabel": null,
-                "exclusivePensionFlag": false,
-                "productRefUrl": null,
-                "strategyAdvantage": "https://static.qiangungun.com/sarli/product/FofProduct/A003_a5/strategyAdvantage/财富+3@2x.png",
-                "featureService": "https://static.qiangungun.com/sarli/product/FofProduct/A003_a5/featureService/特色服务@2x.png",
-                "teamIntroduction": "https://static.qiangungun.com/sarli/product/FofProduct/A003_a5/teamIntroduce/团队介绍@2x.png",
-                "showAdRiskFlag": true,
-                "recommendVos": [],
-                "recommendDrawdown": null,
-                "attentionFlag": false,
-                "suggestHoldingDay": 730,
-                "fofSubStrategyTypeCode": "",
-                "fofTargetStrategyStatusCode": "",
-                "fofTargetStrategyStatusDesc": "",
-                "fofSaleStartTime": null,
-                "fofSaleEndTime": null,
-                "fofTargetOperateDate": null,
-                "fofObserDate": null,
-                "fofOperateExpireDate": null,
-                "fofObserDays": null,
-                "fofMaxOperateDays": null,
-                "operationDays": null,
-                "fofObserMonths": null,
-                "fofMaxOperateMonths": null,
-                "fofTargetRate": "--",
-                "fofResBuyStatuscode": "",
-                "fofSeriesNo": null,
-                "fofSeriesVo": null,
-                "currentTime": null
-            },
-            "busAddData": null
-        }
+        { "code": "000000", "msg": "成功", "realMsg": null, "data": { "fofId": 8100000078, "fofName": "超级股票全明星",
+        "productTypeCode": "10", "productTypeDesc": "组合", "fundTypeCode": "31", "fundTypeDesc": "投顾组合",
+        "buyStatusCode": "0", "aipStatusCode": "0", "totalRate": "130.52", "dailyRate": "-1.38", "latestWeekRate":
+        "0.34", "latestMonthRate": "1.98", "latestQuarterRate": "6.27", "latestHalfYearRate": "1.48",
+        "latestYearRate": "25.89", "currentYearRate": "11.96", "historyYearRate": "23.98", "historyYearRate2": null,
+        "latestTwoYearRate": "115.83", "latestThreeYearRate": "133.04", "minYield": "-26.41", "maxYield": "60.67",
+        "minAnyQuarter": null, "maxAnyQuarter": null, "historyYearWaveRate": "21.77", "indexHistoryRate": "17.13",
+        "yield": "--", "maxYearLossRate": "-20.92", "onlineRate": "62.89", "rateIntervalName": "lastYearRate",
+        "minPurAmount": "1000.00", "choiceDesc": "全市场精选,集结王牌,核心+卫星", "recommendDesc": "投顾", "riskDesc": "中风险",
+        "riskName": "03", "userRiskTestDesc": "C3-平衡型", "strategy":
+        "https://static.zocaifu.com/sarli/file/01/1620264653958.jpg", "strategyProvider": "", "tradeDesc": "组合",
+        "publishDays": 340, "publishYears": 3, "yearRateList": [ { "year": "2020", "rate": "59.35", "desc": "年度收益" },
+        { "year": "2019", "rate": "53.51", "desc": "年度收益" }, { "year": "2018", "rate": "-19.88", "desc": "年度收益" } ],
+        "subProductList": [ { "detailTypeDesc": "灵活配置", "fundId": "002685", "productId": "600138", "assetTypeDesc":
+        "股票类", "canOpenDetail": "true", "assetTypeName": "0", "productName": "中欧丰泓沪港深A", "ratio": "12.89" },
+        { "detailTypeDesc": "绝对收益", "fundId": "166019", "productId": "601008", "assetTypeDesc": "股票类",
+        "canOpenDetail": "true", "assetTypeName": "0", "productName": "中欧价值智选A", "ratio": "10.74" },
+        { "detailTypeDesc": "混合偏股", "fundId": "166006", "productId": "600058", "assetTypeDesc": "股票类",
+        "canOpenDetail": "true", "assetTypeName": "0", "productName": "中欧行业成长A", "ratio": "10.27" },
+        { "detailTypeDesc": "混合偏股", "fundId": "005241", "productId": "600419", "assetTypeDesc": "股票类",
+        "canOpenDetail": "true", "assetTypeName": "0", "productName": "中欧时代智慧A", "ratio": "9.58" },
+        { "detailTypeDesc": "灵活配置", "fundId": "001694", "productId": "600334", "assetTypeDesc": "股票类",
+        "canOpenDetail": "true", "assetTypeName": "0", "productName": "华安沪港深外延增长", "ratio": "9.45" },
+        { "detailTypeDesc": "混合偏股", "fundId": "100026", "productId": "600393", "assetTypeDesc": "股票类",
+        "canOpenDetail": "true", "assetTypeName": "0", "productName": "富国天合稳健优选", "ratio": "9.30" },
+        { "detailTypeDesc": "标准股票", "fundId": "005267", "productId": "601178", "assetTypeDesc": "股票类",
+        "canOpenDetail": "true", "assetTypeName": "0", "productName": "嘉实价值精选股票", "ratio": "9.14" },
+        { "detailTypeDesc": "混合偏股", "fundId": "166009", "productId": "601011", "assetTypeDesc": "股票类",
+        "canOpenDetail": "true", "assetTypeName": "0", "productName": "中欧新动力A", "ratio": "9.11" },
+        { "detailTypeDesc": "混合偏股", "fundId": "001000", "productId": "600049", "assetTypeDesc": "股票类",
+        "canOpenDetail": "true", "assetTypeName": "0", "productName": "中欧明睿新起点", "ratio": "7.05" },
+        { "detailTypeDesc": "混合偏股", "fundId": "003096", "productId": "600398", "assetTypeDesc": "股票类",
+        "canOpenDetail": "true", "assetTypeName": "0", "productName": "中欧医疗健康C", "ratio": "5.67" },
+        { "detailTypeDesc": "标准股票", "fundId": "002621", "productId": "600102", "assetTypeDesc": "股票类",
+        "canOpenDetail": "true", "assetTypeName": "0", "productName": "中欧消费主题A", "ratio": "4.94" },
+        { "detailTypeDesc": "货币", "fundId": "001211", "productId": "600001", "assetTypeDesc": "货币类", "canOpenDetail":
+        "true", "assetTypeName": "4", "productName": "中欧滚钱宝货币", "ratio": "1.86" } ], "pieChartDataList": [ {
+        "assetTypeDesc": "股票类", "assetTypeName": "0", "ratio": "98.14" }, { "assetTypeDesc": "货币类", "assetTypeName":
+        "4", "ratio": "1.86" } ], "fundRebalanceInfo": { "fundRebalanceList": [ { "targetRatio": "0.00", "fundName":
+        "中欧时代先锋股票C", "ratio": "12.56" }, { "targetRatio": "0.00", "fundName": "中欧价值A", "ratio": "10.75" },
+        { "targetRatio": "0.00", "fundName": "易方达蓝筹精选混合", "ratio": "10.43" }, { "targetRatio": "10.00", "fundName":
+        "富国天合稳健优选", "ratio": "10.38" }, { "targetRatio": "10.00", "fundName": "华安沪港深外延增长", "ratio": "10.17" },
+        { "targetRatio": "10.00", "fundName": "中欧行业成长A", "ratio": "10.06" }, { "targetRatio": "10.00", "fundName":
+        "中欧新动力A", "ratio": "9.66" }, { "targetRatio": "12.00", "fundName": "中欧丰泓沪港深A", "ratio": "8.11" },
+        { "targetRatio": "6.00", "fundName": "中欧明睿新起点", "ratio": "6.02" }, { "targetRatio": "5.00", "fundName":
+        "中欧医疗健康C", "ratio": "5.48" }, { "targetRatio": "5.00", "fundName": "中欧消费主题A", "ratio": "4.57" },
+        { "targetRatio": "2.00", "fundName": "中欧滚钱宝货币", "ratio": "1.81" }, { "targetRatio": "10.00", "fundName":
+        "中欧时代智慧A", "ratio": "0.00" }, { "targetRatio": "10.00", "fundName": "中欧价值智选A", "ratio": "0.00" },
+        { "targetRatio": "10.00", "fundName": "嘉实价值精选股票", "ratio": "0.00" } ], "rebalanceDesc":
+        "开年以来，A股市场处于国内经济复苏叠加货币政策回归中性的宏观背景下。市场整体表现较好，但风格开始切换。以必选消费和科技为代表的高估值板块受到紧货币的影响开始逐步调整，而前期滞涨的周期、金融、制造等顺周期行业在全球“再通胀”的背景下出现明显的估值修复。预计在美国财政刺激实质性落地和海外疫情实现有效控制之前，全球经济修复叠加货币政策宽松的交易环境不会发生变化。A股市场运行的主要矛盾在未来1-2个季度仍将持续，我们预计顺周期行业在以上宏观背景下仍有投资机会，同时价值类品种相对成长类的品种会有显著的估值修复行情。因此本次调仓我们会适当降低必选消费科技等前期涨幅过大的高估值板块配置，加大顺周期行业暴露，在压低估值的同时使得组合在行业分布上更为均衡。", "fofReportInfo": null, "transferDate": "20210301" }, "feeTypeName": "Percent", "discount": "0.1000", "realDiscount": "0.1", "fee": "1.50", "aipFeeType": "Percent", "aipDiscount": "0.1000", "aipRealDiscount": "0.1", "aipFee": "1.50", "tieredRate": "0.75", "publishTimes": "3年340天", "fofMaxAPI": "68194200.00", "fofMinAPI": "1000.00", "fofStrategy": "https://static.zocaifu.com/sarli/file/01/1620264653958.jpg", "fofRealDiscount": null, "fofDiscount": null, "fofPurIncrease": "0.01", "fofDate": "20210723", "fofFileJson": "{\"基金投资组合策略说明书（超级股票全明星策略）\":\"https://static.qiangungun.com/sarli/product/FofProduct/A003_a5/rebalanceFileJson/基金投资组合策略说明书（超级股票全明星策略）.pdf\"}", "fofPurRealDiscount": "0.0", "fofPurDiscount": "0.0", "fofAipRealDiscount": "0.0", "fofAipDiscount": "0.0", "fofOperateDate": "", "fofOperateFileInfos": [], "wechatTitle": "超级股票全明星，甄选绩优股基，力争长期超越市场！\r\n", "wechatDesc": "甄选具备超额能力的主动基金，结合市场风格动态调整。", "fofAdvantage": null, "holdingYear": "2年以上", "profitUnit": null, "currencyFof": false, "fofTypeCode": "04", "fofTypeDesc": "投顾", "analogAmount": "10000", "analogRevenue": "2398.00", "simulatedLoss": "-2092.00", "seqNo": null, "navDate": "20210723", "fofPublish": "20200522", "fofGqbPurRealDiscount": "0.0", "fofGqbAipRealDiscount": "0.0", "showTypeDesc": null, "showTypeInfo": null, "showTypeNum": null, "showTypeUnit": null, "deadlineDesc": "建议持有2年以上", "strategyConcept": "投资目标：通过优选基金管理人并结合一定风格、行业轮动，争取高于市场的超额回报。\r\n投资策略：主要投资主动偏股基金，依托中欧主动管理的出色能力，结合市场风格精选优秀管理人，并适时用全市场其他优选基金进行补充。\r\n适合人群：能承受较高波动的积极投资者\r\n建议持有时长：2年以上", "waveLevel": 8, "waveLevel2": null, "newHoldingYear": "2年以上", "rateIntervalName2": "lastMonthRate", "fofReportInfo": null, "fofRiskIndexList": [ { "indexIntervalName": "total", "indexIntervalDesc": null, "fofRiskIndexInfoVo": { "drawdown": "-25.36", "waveRate": "21.16", "sharpeRatio": "1.13", "positiveYield": "100.00", "positiveYieldTypeCode": "lastTwoYearPositiveYield", "positiveYieldTypeDesc": "2年正收益情况", "aboveStandard": "98.57", "minIntervalRate": "--", "maxIntervalRate": "--" } }, { "indexIntervalName": "totalIndex", "indexIntervalDesc": null, "fofRiskIndexInfoVo": { "drawdown": "-42.27", "waveRate": "21.77", "sharpeRatio": "0.79", "positiveYield": "83.00", "positiveYieldTypeCode": "lastTwoYearPositiveYield", "positiveYieldTypeDesc": "2年正收益情况", "aboveStandard": "--", "minIntervalRate": "--", "maxIntervalRate": "--" } } ], "subAckDays": 1, "redAckDays": 1, "subDays": 0, "redDays": 3, "fofStrategyTypeCode": "06", "processTypeCode": "", "holdingTimeCode": "06", "subAgrVersion": "20201225111555", "subAgrUrl": "https://static.qiangungun.com/sarli/product/FofProduct/A003_a5/rebalanceFileJson/基金投资组合策略说明书（超级股票全明星策略）.pdf", "fofRiskIndexList2": [ { "holdingTimeCode": "05", "holdingTimeDesc": "1年以上", "holdingTimeDesc2": "1年", "fofRiskIndexInfoVo": { "drawdown": "-42.27", "waveRate": "21.77", "sharpeRatio": "0.79", "positiveYield": "77.14", "positiveYieldTypeCode": "", "positiveYieldTypeDesc": "", "aboveStandard": "--", "minIntervalRate": "-34.07", "maxIntervalRate": "122.34" } }, { "holdingTimeCode": "06", "holdingTimeDesc": "2年以上", "holdingTimeDesc2": "2年", "fofRiskIndexInfoVo": { "drawdown": "-42.27", "waveRate": "21.77", "sharpeRatio": "0.79", "positiveYield": "83.00", "positiveYieldTypeCode": "", "positiveYieldTypeDesc": "", "aboveStandard": "--", "minIntervalRate": "-30.65", "maxIntervalRate": "144.28" } }, { "holdingTimeCode": "07", "holdingTimeDesc": "3年以上", "holdingTimeDesc2": "3年", "fofRiskIndexInfoVo": { "drawdown": "-42.27", "waveRate": "21.77", "sharpeRatio": "0.79", "positiveYield": "86.20", "positiveYieldTypeCode": "", "positiveYieldTypeDesc": "", "aboveStandard": "--", "minIntervalRate": "-24.57", "maxIntervalRate": "116.50" } } ], "adFee": "0.75", "adRealFee": "0.750000", "adFeediscount": null, "adFeeDesc": "根据投资者授权，中欧财富可通过中欧财富平台或由中欧财富至指定销售平台开立交易账户并代为发起或办理基金交易业务。\r\n\r\n投顾服务费\r\n投顾服务费率0.75%/年，按持有资产总额每日计算，每半年收取；不满半年的，在赎回时收取。\r\n\r\n交易费用\r\n1.\t通过中欧财富平台申购成分基金，按中欧财富平台申赎费减免规则收取相应成分基金申购费（含调仓交易）：中欧旗下产品不收取申购费。调仓赎回时，中欧旗下产品不再收取计入基金财产之外的赎回费用。若持有投顾组合小于7天，部分成分基金将收取1.5%的惩罚性赎回费。\r\n2.\t通过指定平台申购成分基金，由指定平台按其规则收取相应成分基金申赎费（含调仓交易）。\r\n", "strategyPosition": "全市场严选股基，让明星经理为你打工", "frequencyDesc": "季度", "leastDisclosureDay": "20210630", "expectYield": "", "indexStandardDesc": "Wind货币市场基金指数、Wind偏股混合型基金指数", "buyers": 100, "relateLabel": null, "exclusivePensionFlag": false, "productRefUrl": null, "strategyAdvantage": "https://static.qiangungun.com/sarli/product/FofProduct/A003_a5/strategyAdvantage/财富+3@2x.png", "featureService": "https://static.qiangungun.com/sarli/product/FofProduct/A003_a5/featureService/特色服务@2x.png", "teamIntroduction": "https://static.qiangungun.com/sarli/product/FofProduct/A003_a5/teamIntroduce/团队介绍@2x.png", "showAdRiskFlag": true, "recommendVos": [], "recommendDrawdown": null, "attentionFlag": false, "suggestHoldingDay": 730, "fofSubStrategyTypeCode": "", "fofTargetStrategyStatusCode": "", "fofTargetStrategyStatusDesc": "", "fofSaleStartTime": null, "fofSaleEndTime": null, "fofTargetOperateDate": null, "fofObserDate": null, "fofOperateExpireDate": null, "fofObserDays": null, "fofMaxOperateDays": null, "operationDays": null, "fofObserMonths": null, "fofMaxOperateMonths": null, "fofTargetRate": "--", "fofResBuyStatuscode": "", "fofSeriesNo": null, "fofSeriesVo": null, "currentTime": null }, "busAddData": null }
 
         """
         _url = 'https://mobile.qiangungun.com/v2/product/detail'

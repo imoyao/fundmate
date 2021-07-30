@@ -2,7 +2,7 @@
 """User views."""
 from apiflask import APIBlueprint, Schema, abort, input, output
 from apiflask.fields import Boolean, Email, Integer, String
-from apiflask.validators import Length, Range
+from apiflask.validators import Length
 from flask.views import MethodView
 
 from backend.fundmate.base_scheme import PaginationSchema

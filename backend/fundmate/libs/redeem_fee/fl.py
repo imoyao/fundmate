@@ -71,7 +71,7 @@ def get_fl_table(code):
     """
     赎回费率表爬取
     :param code: 
-    :return: 
+    :return:
     """
     code = str(code).zfill(6)
     url = _get_fl_url(code)
