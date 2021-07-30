@@ -67,7 +67,7 @@ pre-commit install
 pre-commit run --all-files
 ```
 
-[项目管理：代码检查 pre-commit 使用详解_老五的作坊-CSDN博客_pre-commit](https://blog.csdn.net/wuheshi/article/details/104628747/)
+[项目管理：代码检查 pre-commit 使用详解_老五的作坊-CSDN 博客_pre-commit](https://blog.csdn.net/wuheshi/article/details/104628747/)
 
 ## 相关阅读
 

@@ -68,8 +68,8 @@ Goole 出的深度学习库，阿尔法狗 [Nvidia CUDA](http://www.nvidia.cn/ob
 大数据社区 [股吧](http://guba.eastmoney.com/)  
 东方财富网旗下社区 [金融界](http://www.jrj.com.cn/)  
 创新性互联网证券服务 [和讯网](http://www.hexun.com/)  
-早期金融证券资讯服务 [A股交易工具社区](http://www.tdxapi.com/comm/)  
-QuicklibTrade和TdxApi社区 **在线回测平台**
+早期金融证券资讯服务 [A 股交易工具社区](http://www.tdxapi.com/comm/)  
+QuicklibTrade 和 TdxApi 社区 **在线回测平台**
 
 * * *
 

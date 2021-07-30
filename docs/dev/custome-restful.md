@@ -16,7 +16,7 @@ title: 自定义 RESTAPI 的处理
     )))  
     
 
-我希望/j开头的返回的响应都是json格式的内容：
+我希望/j 开头的返回的响应都是 json 格式的内容：
 
     from flask import Flaskplain
     
@@ -39,7 +39,7 @@ title: 自定义 RESTAPI 的处理
 
 接着我们自定义错误处理的方式，比如 404 返回这样：
 
-    {
+    {plain
         message: "Not Found"
     }
 
@@ -150,7 +150,7 @@ class Redprint:
 
 红图本身只有 24 行代码，极易学习和掌握，它的作用并非去控制 API，而是做一个纽带将细粒度的 API 传递到相应的蓝图（Flask 自带的机制）中。因此红图的书写方式几乎与蓝图保持一致，相较于其它 API 开发方式，你几乎不需要任何学习成本。
 
-一般的，我们推荐你在一类 API 中新建一个红图（如 Book 这一类，它负责与图书相关的API）。如下：
+一般的，我们推荐你在一类 API 中新建一个红图（如 Book 这一类，它负责与图书相关的 API）。如下：
 ```python
  # book.py
  book_api = Redprint('book') # 创建book红图
