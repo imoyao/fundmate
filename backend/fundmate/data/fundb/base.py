@@ -72,8 +72,8 @@ class FundDB:
         hd = dt_utils.parse_headers(_HEADER_STR)
         try:
             resp = rpost_json(url, headers=hd, data=data)
-        except (XJSONDecodeError, RJSONDecodeError):
-            raise CrawlerException('对方反爬机制导致错误，请稍候重试……') from (XJSONDecodeError, RJSONDecodeError)
+        except (XJSONDecodeError, RJSONDecodeError) as e:
+            raise CrawlerException('对方反爬机制导致错误，请稍候重试……') from e
 
         info = None
         if resp and resp.get('code') == 0:
@@ -173,10 +173,10 @@ class FundFeeRatio(ratio.BaseRatio):
         # (https://stackoverflow.com/questions/15900338/python-request-post-with-param-data)
         try:
             resp = rpost_json(_url, headers=hd, json=data)
-        except (XJSONDecodeError, RJSONDecodeError):
+        except (XJSONDecodeError, RJSONDecodeError) as e:
             msg = f'基金编码：{fund_code}反爬机制导致错误，请稍候重试……'
             logger.error(msg)
-            raise CrawlerException(msg) from (XJSONDecodeError, RJSONDecodeError)
+            raise CrawlerException(msg) from e
 
         code = resp.get('code')
         if code == 0:
@@ -220,9 +220,8 @@ class FundFeeRatio(ratio.BaseRatio):
             if redeem:
                 try:
                     redeem_info = self.redeem_rate(redeem)
-                except (ValueError, ParseError, IsClosedDurationError):
-                    raise CrawlerException(f'基金 {fund_code} 处理赎回信息 {redeem} 出错！') from (ValueError, ParseError,
-                                                                                        IsClosedDurationError)
+                except (ValueError, ParseError, IsClosedDurationError) as e:
+                    raise CrawlerException(f'基金 {fund_code} 处理赎回信息 {redeem} 出错！') from e
 
             if to_db:
                 if purchase_info:
@@ -231,8 +230,7 @@ class FundFeeRatio(ratio.BaseRatio):
                     try:
                         self.save_fee_info(fund_code, redeem_info, fee_type=settings.FeeTypeEnum.redeem)
                     except (TypeError, ParseError) as e:
-                        raise CrawlerException(f'基金 {fund_code} 保存赎回信息 {redeem_info} 出错，出错信息：{e}！') from (TypeError,
-                                                                                                          ParseError)
+                        raise CrawlerException(f'基金 {fund_code} 保存赎回信息 {redeem_info} 出错，出错信息：{e}！') from e
 
             info = {
                 'purchase': purchase_info,
