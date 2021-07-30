@@ -1,5 +1,6 @@
 ---
 title: 术语单词对照表
+permalink: /glossary
 ---
 
 ## 基金相关
@@ -29,4 +30,4 @@ title: 术语单词对照表
 ## 相关链接
 
 - [期货术语中英文对照 - 百度文库](https://wenku.baidu.com/view/4b5901dfb80d6c85ec3a87c24028915f814d8466.html)
-- [证券投资基金编码规范](http://www.csisc.cn/zbscbzw/hyfbjcbmm/201904/d2587b8addb54335a87017af40344e24.shtml) **全文下载：**![](/zbscbzw/hyfbjcbmm/201904/d2587b8addb54335a87017af40344e24/images/f9bc9f99638a4b9b80b49eb76381b078.gif)[证券投资基金编码规范.pdf](http://www.csisc.cn/editorfile/20130318091950242.pdf)
+- [证券投资基金编码规范](http://www.csisc.cn/zbscbzw/hyfbjcbmm/201904/d2587b8addb54335a87017af40344e24.shtml) **全文下载：**![](http://www.csisc.cn/zbscbzw/hyfbjcbmm/201904/d2587b8addb54335a87017af40344e24/images/f9bc9f99638a4b9b80b49eb76381b078.gif) [证券投资基金编码规范.pdf](http://www.csisc.cn/editorfile/20130318091950242.pdf)
