@@ -2,6 +2,8 @@
 title: 项目中代码规范问题
 permalink: /dev/guideline
 ---
+在为项目作出贡献前，请确保阅读 [Open Source Guides | Learn how to launch and grow your project.](https://opensource.guide/) ，如果上述中描述与下方描述有悖，请以下方描述为准。
+
 ## 约定
 ### 编码
 1. 项目应该尽可能遵循 PEP8 代码规范，更多请参阅[此页面](/dev/code-style)
@@ -11,7 +13,7 @@ permalink: /dev/guideline
    使用`-O` 可以禁用断言判断
    [notes/when-to-use-assert.md at master · emre/notes](https://github.com/emre/notes/blob/master/python/when-to-use-assert.md)
 ### 格式
-1. 时间我们统一为 ISO-8601 格式，参阅：https://kirby.kevinson.org/blog/iso-8601-the-better-date-format/
+1. 时间我们统一为 ISO-8601 格式，参阅：[ISO 8601: the better date format | Blog | Kirby Kevinson](https://kirby.kevinson.org/blog/iso-8601-the-better-date-format/)
 
 ## per-commit
 使用该操作在提交代码前检查代码的格式是否符合设置
