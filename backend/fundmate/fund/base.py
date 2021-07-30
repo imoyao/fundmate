@@ -175,19 +175,25 @@ td = TradeDate()
 
 class Booking:
     """
-    记账功能
+    记账功能涉及的操作，参考：
+    1. “好买[基金账本 - 好买基金研究中心](https://www.howbuy.com/myfund/index.htm)”
+    2. “同花顺投资账本”
+
+    [记账功能设计与实现 | 基伴](https://fund.masantu.com/dev/bookkeeping.html#%E7%94%B3%E8%B4%AD)
+
+    具体的操作类型定义参见：FUND_OP_TYPE
     """
 
-    # FIXME: not finished
-    def buy(self,
-            fund_code: str,
-            d_time: str,
-            is_prepay: bool = True,
-            fee_rate: str = None,
-            fee_amount: Union[int, float, str] = None,
-            amount: Union[int, float, str] = None,
-            count: Union[int, float, str] = None):
+    def hold_in(self,
+                fund_code: str,
+                d_time: str,
+                is_prepay: bool = True,
+                fee_rate: str = None,
+                fee_amount: Union[int, float, str] = None,
+                amount: Union[int, float, str] = None,
+                count: Union[int, float, str] = None):
         """
+        # FIXME: not finished
         申购/买入操作
         :param fund_code: 基金编码
         :param d_time: 带有时分秒的购买日期，注意：15:00之前还是之后非常重要，用户选择日期则默认12:00买入
@@ -209,6 +215,32 @@ class Booking:
         count = str_to_float(count)
         d_val = DailyWorth.query(fund_id=fund_code, date=d_time).price
         f.purchase_info(amount)
+
+    def sale(
+        self,
+        fund_code: str,
+    ):
+        """赎回/卖出/支取"""
+        pass
+
+    def transfer(self, from_fund: str, to_fund: str):
+        """"""
+        pass
+
+    def regular_invest(self):
+        """"""
+        pass
+
+    def bonus(self):
+        """"""
+        pass
+
+    def adjust(self):
+        """
+        TODO:
+        这个是复制的支付宝的，对于用户应该是无感知的
+        """
+        pass
 
 
 if __name__ == '__main__':

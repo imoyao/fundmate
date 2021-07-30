@@ -41,11 +41,9 @@ FUND_OP_TYPE = {
 
 class CashFlow(Base, PkModel):
     """
-    记账操作
-    参考：
-    1. “好买[基金账本 - 好买基金研究中心](https://www.howbuy.com/myfund/index.htm)”
-    2. “同花顺投资账本”
+    记账操作表 # TODO:或许命名为 TransactionRecord 更好
     """
+    __table_args__ = {'comment': '操作记录表'}
     user_id = reference_col('users', column_kwargs={'comment': '购买用户编号'})
     fund_id = reference_col('funds', column_kwargs={'comment': '所购买的基金编号'})
     amount = Column(db.Integer, comment='购买金额')
@@ -54,7 +52,6 @@ class CashFlow(Base, PkModel):
                   server_default=db.text("CURRENT_TIMESTAMP"),
                   comment='购买日期（确认日期）')
     comment = Column(db.String(300), comment='复盘备注')
-    # op_type = Column(FundOpType.db_type(), comment='操作类型')
     op_type = Column(ChoiceType(FUND_OP_TYPE), comment='操作类型')
 
 

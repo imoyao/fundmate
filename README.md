@@ -1,7 +1,7 @@
 # 基伴
 > 基金理财的好伙伴！
 
-```python
+```bash
 
       ___           ___           ___                                  ___           ___                         ___     
      /\__\         /\  \         /\  \         _____                  /\  \         /\  \                       /\__\    
@@ -18,6 +18,6 @@
 ```
 
 
-[Text to ASCII Art Generator (TAAG)](http://patorjk.com/software/taag/)
+以上标志由 [Text to ASCII Art Generator (TAAG)](http://patorjk.com/software/taag/) 生成。
 
 基金管理计划。使用 Flask 和 Vue 构建一个实现基金记账功能的前后端分离 Web 应用
