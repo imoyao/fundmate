@@ -382,6 +382,32 @@ class Booking:
         """
         pass
 
+    def sale(
+        self,
+        fund_code: str,
+    ):
+        """赎回/卖出/支取"""
+        pass
+
+    def transfer(self, from_fund: str, to_fund: str):
+        """"""
+        pass
+
+    def regular_invest(self):
+        """"""
+        pass
+
+    def bonus(self):
+        """"""
+        pass
+
+    def adjust(self):
+        """
+        TODO:
+        这个是复制的支付宝的，对于用户应该是无感知的
+        """
+        pass
+
 
 if __name__ == '__main__':
     print(f.cal_purchase_info(amount=3000, daily_value=5.5340))
