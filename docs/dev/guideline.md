@@ -18,3 +18,25 @@ permalink: /dev/guideline
 
 ## gitignore
 项目根目录下的`.gitignore`文件用于忽略项目开发中产生的通用应该被忽略的文件或目录，你可以借助[gitignore.io - 为你的项目创建必要的 .gitignore 文件](https://www.toptal.com/developers/gitignore) 生成。对于个人独有的需要忽略的文件或目录，你可以在`$GIT_DIR/info/exclude`文件（亦即：项目根目录下的`.git\info\exclude`文件）中写入排除的文件及目录路径，写法与`.gitignore`文件相同。参阅[git - Can I make a user-specific gitignore file? - Stack Overflow](https://stackoverflow.com/questions/5724455/can-i-make-a-user-specific-gitignore-file)
+
+## commit
+
+- 分支备注
+  
+  对于上传到 git 远程仓库的分支，必须添加分支备注，需要用到的指令为：
+  ```bash
+  #  添加注释
+  git config branch.{branch_name}.description 这里是注释
+  #  查看备注
+  git config branch.{branch_name}.description
+  # 查看所有分支备注
+  # 首先需要安装工具`git-br`
+  npm i -g git-br
+  # 执行查看命令
+  git br
+  ```
+  具体参阅[git 添加分支注释 - SegmentFault 思否](https://segmentfault.com/a/1190000022256823?utm_source=tag-newest)
+  
+- 提交代码备注
+
+  可以使用中文也可以使用英文，甚至可以混用，但是应该尽量保证清晰明了，尤其是改动较大时。
