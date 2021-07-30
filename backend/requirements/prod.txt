@@ -42,3 +42,6 @@ xalpha==0.11.4
 
 # 日期解析
 dateparser==1.0.0
+
+# 过期提示
+Deprecated==1.2.11
