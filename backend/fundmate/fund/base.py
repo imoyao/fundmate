@@ -6,11 +6,11 @@ import datetime
 from typing import Union
 
 import dateparser
-from deprecated import deprecated
 
 from backend.fundmate import utils
 from backend.fundmate.data.baostock.base import trade_days_gen
 from backend.fundmate.fund.models import DailyWorth
+from backend.fundmate.utils import deprecated
 
 
 class Fund:
@@ -77,11 +77,11 @@ class Fund:
 
 
 @deprecated(version='1.0.0',
-            reason='天天基金有接口：http://fund.eastmoney.com/tools/jiaoyiri.html')
+            message='天天基金有接口：http://fund.eastmoney.com/tools/jiaoyiri.html')
 class TradeDate:
     """
     与交易日相关的处理
-    TODO: 由于交易信息不可信，暂时不适用该类
+    TODO: 由于交易信息不可信，暂时不使用该类
     """
 
     def real_op_day(self, record_date: str) -> str:

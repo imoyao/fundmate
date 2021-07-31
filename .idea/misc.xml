@@ -83,5 +83,5 @@
       <textMaps />
     </LinkMapSettings>
   </component>
-  <component name="ProjectRootManager" version="2" project-jdk-name="Remote Python 3.7.9 (sftp://root@192.168.1.19:22/root/fundmate/backend/venv/bin/python)" project-jdk-type="Python SDK" />
+  <component name="ProjectRootManager" version="2" project-jdk-name="fmp" project-jdk-type="Python SDK" />
 </project>
