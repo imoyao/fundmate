@@ -4,7 +4,7 @@ tags:
   - RESTful
 ---
 
-由于此处作者的回应：[Flask-RESTful Issue #883](https://github.com/flask-restful/flask-restful/issues/883)，我们知道 Flask-RESTful 不再维护了。当然，作者也推荐了一系列其他扩展：
+由于此处作者的回应：[Flask-RESTful Issue #883](https://github.com/flask-restful/flask-restful/issues/883) ，我们知道 Flask-RESTful 不再维护了。当然，作者也推荐了一系列其他扩展：
 
 *   [`MethodView`](https://github.com/flask-restful/flask-restful/blob/9f5a6d499175e43384eb589a99f0f4e4dbb1adc3/flask_restful/__init__.py><code>Resource</code></a> → Regular flask <a href=)
 *   [`reqparse`](https://flask-restful.readthedocs.io/en/latest/reqparse.html) → [webargs/Marshmallow](https://webargs.readthedocs.io/en/latest/)
