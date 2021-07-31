@@ -1,11 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" autoUpload="Always" serverName="192.168.1.19" remoteFilesAllowedToDisappearOnAutoupload="false">
+  <component name="PublishConfigData" autoUpload="Always" serverName="C2" remoteFilesAllowedToDisappearOnAutoupload="false">
     <serverData>
-      <paths name="192.168.1.19">
+      <paths name="C2">
         <serverdata>
           <mappings>
-            <mapping deploy="/root/fundmate" local="$PROJECT_DIR$" web="/" />
+            <mapping deploy="/root/fmt" local="$PROJECT_DIR$" web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="myDev">
+        <serverdata>
+          <mappings>
+            <mapping local="$PROJECT_DIR$" web="/" />
           </mappings>
         </serverdata>
       </paths>

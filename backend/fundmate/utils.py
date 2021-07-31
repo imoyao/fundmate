@@ -11,7 +11,10 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Union
 
+from sqlalchemy.util.deprecations import deprecated
 import dateparser
+
+deprecated = deprecated
 
 
 def show_time(func):

@@ -7,14 +7,13 @@ from pathlib import Path
 from typing import Union
 
 import pandas as pd
-from deprecated import deprecated
 from lxml import etree
 from xalpha.cons import rget
 
 from backend.fundmate import excepts as dt_except
 from backend.fundmate.data import utils as dt_utils
 from backend.fundmate.exts.flask_loguru import logger
-from backend.fundmate.utils import show_time
+from backend.fundmate.utils import deprecated
 
 header_str = '''Host: youzhiyouxing.cn
 Connection: keep-alive
@@ -46,7 +45,6 @@ class YZYX:
     def __init__(self):
         self.html_fp = f'{current_path}/temp.html'
 
-    # @show_time
     def get_html_text(self, json_fp=None):
         p = Path(self.html_fp)
         # 文件过期则删除重爬
@@ -90,7 +88,6 @@ class YZYX:
             return _info
         return data
 
-    # @show_time
     def daily_temper(self) -> dict:
         """
         新版市场温度数据
@@ -160,7 +157,7 @@ class YZYX:
         }
         return info
 
-    @deprecated(version='1.0.0', reason='有知有行旧版网站可以直接在html中正则获取数据，网站已改版')
+    @deprecated(version='1.0.0', message='有知有行旧版网站可以直接在html中正则获取数据，网站已改版')
     def daily_temp_old(self) -> list:
         """
         每日温度历史值
