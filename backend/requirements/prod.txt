@@ -8,7 +8,7 @@ APIFlask==0.8.0
 
 # Database
 Flask-SQLAlchemy==2.5.1
-SQLAlchemy==1.4.21
+SQLAlchemy==1.4.22
 psycopg2-binary==2.8.6
 
 # Migrations
@@ -44,4 +44,4 @@ xalpha==0.11.4
 dateparser==1.0.0
 
 # 过期提示
-Deprecated==1.2.11
+Deprecated==1.2.12
