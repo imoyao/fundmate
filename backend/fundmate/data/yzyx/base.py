@@ -157,8 +157,10 @@ class YZYX:
         }
         return info
 
-    # @deprecated(version='1.0.0', message='有知有行旧版网站可以直接在html中正则获取数据，网站已改版')
-    def daily_temp_old(self):       # TODO:typing has error now
+    @deprecated(version='1.0.0', message='有知有行旧版网站可以直接在html中正则获取数据，网站已改版')
+    def daily_temp_old(self):
+        # TODO:typing cause error now see also:[Can't use decorate `@deprecated` with typing? · Issue #6841 ·
+        #  sqlalchemy/sqlalchemy](https://github.com/sqlalchemy/sqlalchemy/issues/6841)
         """
         每日温度历史值
         :return:[{"asset_rate": "386.2744", "avg_return_3": null, "close": "765.6346", "date": "2005-01-07",
