@@ -21,6 +21,9 @@ yum install gcc gcc-c++
 ```
 
 ## 前端
+- nvm（可选）
+用以控制不同的node版本（本机可能有多个项目，使用的node版本不同），我们主要使用Windows版本——[coreybutler/nvm-windows: A node.js version management utility for Windows. Ironically written in Go.](https://github.com/coreybutler/nvm-windows)
+使用参考此处：[使用 nvm 管理不同版本的 node 与 npm | 菜鸟教程](https://www.runoob.com/w3cnote/nvm-manager-node-versions.html)
 - nodejs
 ```bash
 node --version
