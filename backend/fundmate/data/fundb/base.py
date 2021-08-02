@@ -27,7 +27,11 @@ user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 
 class FundDB:
 
-    def kjtl(self, is_full=False):
+    def kjtl(self, is_full: bool = False) -> dict:
+        """
+        恐惧贪婪指数
+        """
+        fear_href = 'https://funddb.cn/tool/fear'
         url = 'https://api.jiucaishuo.com/v2/kjtl/getbasedata'
         data = '''{"type":"pc","data_source":"xichou","version":"1.6.0",
         "authtoken":"ddQYkiZQ087Z5Kr+ER5CmQMFCpjuC/qW","act_time":1627638543548,"tirgkjfs":"08","abiokytke":"0b",
@@ -46,21 +50,39 @@ class FundDB:
             current_date = data.get('current_time')
             temper = data.get('num')
             desc = data.get('status_str')
-
-            info = {
+            ov = {
                 'update_date': current_date,
                 'temper': temper,
                 'desc': desc,
+                'href': fear_href,
+            }
+
+            info = {
+                'overview': ov,
             }
             if is_full:
+                # 解析信息并重新组装
                 detail_list = data.get('list')
+                ovl_info = list()
                 for item in detail_list:
-                    print(item)
-                amend_info = {}
+                    dg = item.get('data').get('series')[0].get('data')
+                    desc = item.get('status_str')
+                    item_info = {
+                        'temper': f'{dg * 100:.2f}',  # 两位小数
+                        'desc': desc
+                    }
+                    ovl_info.append(item_info)
+
+                info_key = [
+                    'yesterday', 'last_week', 'last_month', 'last_year'
+                ]
+                amend_info = dict(zip(info_key, ovl_info))
+
+                info.update({'details': amend_info})
 
         return info
 
 
 jq_app = FundDB()
 if __name__ == '__main__':
-    print(jq_app.kjtl())
+    print(jq_app.kjtl(is_full=True))
