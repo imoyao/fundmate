@@ -50,8 +50,8 @@ from typing import Iterable, List, Union
 import numpy_financial as npf
 import scipy.optimize
 
-from backend.fundmate.utils import deprecated
 from backend.fundmate.libs import convert
+from backend.fundmate.utils import deprecated
 
 DAYS_PER_YEAR = 365.0
 MONTH_PER_YEAR = 12
@@ -101,6 +101,7 @@ class ComputeConvert:
     """
     计算并转换
     """
+
     @staticmethod
     def convert_is_end_pay(
             when: Union[str, bool, int]) -> Union[str, bool, int]:
@@ -153,6 +154,7 @@ class EAR:
     有效年利率：指在按照给定的计息期利率和每年复利次数计算利息时，能够产生相同结果的每年复利一次的年利率。
     [有效年利率 - MBA智库百科](https://wiki.mbalib.com/wiki/%E6%9C%89%E6%95%88%E5%B9%B4%E5%88%A9%E7%8E%87)
     """
+
     def __call__(self, rate_in_month: Union[int, float]) -> Union[int, float]:
         return (1 + rate_in_month)**MONTH_PER_YEAR - 1
 
@@ -162,6 +164,7 @@ class RATE(ComputeConvert):
     计算年金每期利率，算出来的结果为月收益，如果要算年收益需要导入EAR
     Compute the rate of interest per period.
     """
+
     def __call__(self,
                  year: int,
                  pmt: Union[int, float],
@@ -203,6 +206,7 @@ class FV(ComputeConvert):
     年金终值：用于根据固定利率计算投资的未来值。可以将 FV 与定期付款、固定付款或一次付清总额付款结合使用
     Compute the future value.
     """
+
     def __call__(self,
                  rate_in_year: Union[int, float],
                  year: int,
@@ -245,6 +249,7 @@ class PMT(ComputeConvert):
     根据固定付款额和固定利率计算贷款的付款额。
     如：解决按揭买房房贷计算问题、3年后的一次旅行
     """
+
     def __call__(self,
                  rate_in_year: Union[int, float],
                  year: Union[int, float],
@@ -275,6 +280,7 @@ class PMT(ComputeConvert):
 
 
 class PerConvert:
+
     @staticmethod
     def per_convert(year, per=None):
         if isinstance(per, (int, list)):
@@ -287,6 +293,7 @@ class PPMT(ComputeConvert, PerConvert):
     """
     根据贷款额计算还款额中的本金
     """
+
     def __call__(self,
                  rate_in_year: Union[int, float],
                  per: Union[int, float, None, List[Union[int, float]]],
@@ -336,6 +343,7 @@ class IPMT(ComputeConvert, PerConvert):
     Compute the interest portion of a payment
     与 PPMT 接收值相同，不再赘述
     """
+
     def __call__(self,
                  rate_in_year: Union[int, float],
                  per: Union[int, List[int], None],
@@ -380,6 +388,7 @@ class PV(ComputeConvert):
     >>> 483.6897793911912
 
     """
+
     def __call__(self,
                  rate_in_year: Union[int, float],
                  year: Union[int, float],
@@ -408,6 +417,7 @@ class NPER(ComputeConvert):
     >>> nper(0.03,-150,2500)
     array(17.04511672)
     """
+
     def __call__(self,
                  rate_in_year: Union[int, float],
                  pmt: Union[int, float],
@@ -432,6 +442,7 @@ class NPV:
     ret = npv(0.281,[-100, 39, 59, 55, 20])
     -0.00847859163845488
     """
+
     def __call__(self, rate: Union[int, float], values: Iterable):
         """
         :param rate:scalar数值，折现率。
@@ -451,6 +462,7 @@ class IRR:
     >>> irr(pmts)
     0.10969579295711918
     """
+
     def __init__(self):
         pass
 
@@ -465,6 +477,7 @@ class XIRRDeprecated:
     no date no amount
     Credits: algorithm inspired by Apache OpenOffice
     """
+
     @staticmethod
     def years_between_dates(date1, date2) -> float:
         delta = date2 - date1
@@ -504,7 +517,8 @@ class XIRRDeprecated:
 
     @deprecated(
         version='1.0.0',
-        message="This implementation is simple and does not handle cases where there is no solution."
+        message=
+        "This implementation is simple and does not handle cases where there is no solution."
         "\nUsers requiring a more robust version should use scipy package "
         "optimize.newton.just use xirr.")
     def xirr(self, values, dates):
@@ -574,6 +588,7 @@ class MIRR:
     修正内部收益率
     Modified internal rate of return
     """
+
     def __call__(self, values, finance_rate: Union[int, float],
                  reinvest_rate: Union[int, float]):
         """
@@ -594,6 +609,7 @@ https://github.com/RayDeCampo/java-xirr/blob/master/src/main/java/org/decampo/xi
 
 
 class XNPV:
+
     def __call__(self, values_per_date, rate: Union[int, float]):
         return self.xnpv(values_per_date, rate)
 
@@ -640,6 +656,7 @@ class XIRR:
     """
     注意：date应该升序排列
     """
+
     def __call__(self, values_per_date):
         return self.xirr(values_per_date)
 
