@@ -22,7 +22,7 @@ from backend.fundmate.data.utils import base as dt_utils
 from backend.fundmate.data.utils import ratio
 from backend.fundmate.exts.flask_loguru import logger
 
-header_str = '''Accept: application/json, text/plain, */*
+header_str = """Accept: application/json, text/plain, */*
 Accept-Encoding: gzip, deflate, br
 Accept-Language: zh-CN,zh;q=0.9,en;q=0.8,en-US;q=0.7
 Connection: keep-alive
@@ -42,7 +42,7 @@ Sec-Fetch-Mode: cors
 Sec-Fetch-Site: same-origin
 User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) ''' \
              '''Chrome/91.0.4472.77 Safari/537.36 Edg/91.0.864.41
-'''  # noqa: F501
+"""  # noqa: F501
 
 
 class FundInfo:
@@ -123,7 +123,7 @@ class DanJuanEvl:
                             "pb": 2.15,                 # PB 市净率
                             "pb_percent": 0.285,        # PB百分位
                             "pe": 25.55,                # PE市盈率
-                            "relation_id": 4676,        
+                            "relation_id": 4676,
                             "valuation_status": "1"     # 估值状态（越小投资价值越大）
                             },...],
             "ashares_total_percent": 0.519  # A股整体估值分位
