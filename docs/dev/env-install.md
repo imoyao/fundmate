@@ -22,7 +22,7 @@ yum install gcc gcc-c++
 
 ## 前端
 - nvm（可选）
-用以控制不同的node版本（本机可能有多个项目，使用的node版本不同），我们主要使用Windows版本——[coreybutler/nvm-windows: A node.js version management utility for Windows. Ironically written in Go.](https://github.com/coreybutler/nvm-windows)
+用以控制不同的 node 版本（本机可能有多个项目，使用的 node 版本不同），我们主要使用 Windows 版本——[coreybutler/nvm-windows: A node.js version management utility for Windows. Ironically written in Go.](https://github.com/coreybutler/nvm-windows)
 使用参考此处：[使用 nvm 管理不同版本的 node 与 npm | 菜鸟教程](https://www.runoob.com/w3cnote/nvm-manager-node-versions.html)
 - nodejs
 ```bash
@@ -33,16 +33,16 @@ v12.2.0
 ```bash
 npm install yarn
 ```
-```
+```plain
 yarn install
 ```
 ::: warning 如果遇到提示`node-gyp` 安装错误
-```
+```plain
 yarn global add node-gyp
 # 以管理员身份运行powershell或者cmd执行以下指令
 npm install --global windows-build-tools
 ```
 参阅：
-1. [在windows下安装node-gyp - 简书](https://www.jianshu.com/p/d075d8aad305/)
+1. [在 windows 下安装 node-gyp - 简书](https://www.jianshu.com/p/d075d8aad305/)
 2. [node.js - How can I solve error gypgyp ERR!ERR! find VSfind VS msvs_version not set from command line or npm config? - Stack Overflow](https://stackoverflow.com/questions/57879150/how-can-i-solve-error-gypgyp-errerr-find-vsfind-vs-msvs-version-not-set-from-c)
 :::
