@@ -3,4 +3,3 @@
 # Created by imoyao at 2021/1/21 0:17
 
 from . import models  # noqa
-from . import views  # noqa

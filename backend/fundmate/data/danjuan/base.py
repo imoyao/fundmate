@@ -108,7 +108,7 @@ class DanJuan:
 
     CHANNEL_LIST = ['jiucai', 'lsd']
 
-    def get_detail(self, channel: Union[str, None] = None):
+    def get_detail(self, channel: Union[str, None] = None) -> dict:
         """
         实际爬取函数的封装
         :param channel:订阅的数据源，现在支持 韭菜 和 螺丝钉
@@ -120,7 +120,7 @@ class DanJuan:
         resp = rget_json(url, headers=hd)
         return resp
 
-    def eval_val(self, is_overview: bool = False):
+    def eval_val(self, is_full: bool = False) -> dict:
         """
         抓取信息
         :return:
@@ -128,30 +128,47 @@ class DanJuan:
         info = dict()
         for channel in self.CHANNEL_LIST:
             item = self.get_detail(channel)
-            if is_overview:
-                data = item.get('data')
-                data.pop('spread_trends')
-                href = ''
-                if channel == 'lsd':
-                    href = 'https://danjuanfunds.com/screw/valuation-table?channel=1500012085'
-                elif channel == 'jiucai':
-                    href = 'https://danjuanapp.com/valuation-table/jiucai'
 
-                data['href'] = href
+            data = item.get('data')
+            data.pop('spread_trends')
+            href = ''
+            if channel == 'lsd':
+                href = 'https://danjuanfunds.com/screw/valuation-table?channel=1500012085'
+            elif channel == 'jiucai':
+                href = 'https://danjuanapp.com/valuation-table/jiucai'
+
+            data['href'] = href
+            if is_full:
                 item['data'] = data
+            else:
+                _time = data.get('time')
+                desc = data.get('comment')
+                item_data = {'date': _time, 'comment': desc}
+                point = dict()
+                if channel == 'lsd':
+                    grade = data.get('grade')
+                    point = {'grade': grade, 'href': href}
+                elif channel == 'jiucai':
+                    spread_td = data.get('spread_td')
+                    point = {'spread_td': spread_td, 'href': href}
+
+                item_data.update(point)
+
+                item['data'] = item_data
+
             info[channel] = item
         return info
 
     @cachetools.func.ttl_cache(maxsize=128, ttl=utils.seconds_today_leaves())
-    def overview(self):
+    def valuation(self, is_full: bool = False) -> dict:
         """
         只显示概要信息
         :return:
         """
-        _info = self.eval_val(is_overview=True)
+        _info = self.eval_val(is_full=is_full)
         return _info
 
 
 dj = DanJuan()
 if __name__ == '__main__':
-    print(dj.overview())
+    print(dj.valuation())
