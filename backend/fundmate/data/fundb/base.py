@@ -27,7 +27,7 @@ user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 
 class FundDB:
 
-    def kjtl(self, is_full: bool = False) -> dict:
+    def kjtl(self, is_full: bool = True) -> dict:
         """
         恐惧贪婪指数
         """

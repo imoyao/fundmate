@@ -4,3 +4,4 @@
 """
 [韭圈儿](https://funddb.cn/) 数据爬取
 """
+from .base import jq_app  # noqa: F401

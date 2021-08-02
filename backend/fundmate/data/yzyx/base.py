@@ -91,7 +91,7 @@ class YZYX:
         return data
 
     # @show_time
-    def daily_temper(self) -> dict:
+    def daily_temper(self, is_full: bool = False) -> dict:
         """
         新版市场温度数据
         :return: 
@@ -115,49 +115,52 @@ class YZYX:
         desc_list = ['eval', 'trend']
         desc_dict = dict(zip(desc_list, temp_desc))
         whole_market_temp = {'temper': temp_text, 'desc': desc_dict}
-
-        # 指数观察
-        _valuations = self.valuations()
-        bond_div = '//div[@class="tw-bg-bgd-content-light dark:tw-bg-bgd-content-dark tw-text-t-normal-light ' \
-                   'dark:tw-text-t-normal-dark tw-rounded-1 tw-mb-3 tw-cursor-pointer"]/ '
-        bond_xpath = f'{bond_div}div/p/span/text()'
-        bond_temper = html.xpath(bond_xpath)[0]
-        ten_ytm_xpath = f'{bond_div}div[2]/p/span/span/text()'
-        ten_ytm_rate = html.xpath(ten_ytm_xpath)[0]
-        ten_ytm_xpath_update_xp = f'{bond_div}div[2]/label/text()'
-        ten_ytm_xpath_update_date = html.xpath(ten_ytm_xpath_update_xp)[0]
-        gdp_div = '//div[@class="tw-bg-bgd-content-light dark:tw-bg-bgd-content-dark tw-text-t-normal-light ' \
-                  'dark:tw-text-t-normal-dark tw-rounded-1 tw-cursor-pointer"]/ '
-        gdp_quarter_xp = f'{gdp_div}div/p/span/span/text()'
-        gdp_quarter_rate = html.xpath(gdp_quarter_xp)[0]
-        gdp_quarter_update_xp = f'{gdp_div}div/label/text()'
-        gdp_quarter_update_date = html.xpath(gdp_quarter_update_xp)
-        gdp_month_xp = f'{gdp_div}div[2]/p/span/span/text()'
-        gdp_month_rate = html.xpath(gdp_month_xp)[0]
-        quarter_date, month_date = gdp_quarter_update_date
-        macro_data = {
-            'bond_temper': bond_temper,
-            'ten_ytm_rate': {
-                'rate': ten_ytm_rate,
-                'update_date': ten_ytm_xpath_update_date
-            },
-            'gdp': {
-                'quarter': {
-                    'rate': gdp_quarter_rate,
-                    'date': quarter_date
-                },
-                'month': {
-                    'rate': gdp_month_rate,
-                    'date': month_date
-                },
-            }
-        }
         info = {
             'date': update_date,
             'whole_market_temper': whole_market_temp,
-            'valuations': _valuations,
-            'macro_data': macro_data,
         }
+        if is_full:
+            # 指数观察
+            _valuations = self.valuations()
+            bond_div = '//div[@class="tw-bg-bgd-content-light dark:tw-bg-bgd-content-dark tw-text-t-normal-light ' \
+                       'dark:tw-text-t-normal-dark tw-rounded-1 tw-mb-3 tw-cursor-pointer"]/ '
+            bond_xpath = f'{bond_div}div/p/span/text()'
+            bond_temper = html.xpath(bond_xpath)[0]
+            ten_ytm_xpath = f'{bond_div}div[2]/p/span/span/text()'
+            ten_ytm_rate = html.xpath(ten_ytm_xpath)[0]
+            ten_ytm_xpath_update_xp = f'{bond_div}div[2]/label/text()'
+            ten_ytm_xpath_update_date = html.xpath(ten_ytm_xpath_update_xp)[0]
+            gdp_div = '//div[@class="tw-bg-bgd-content-light dark:tw-bg-bgd-content-dark tw-text-t-normal-light ' \
+                      'dark:tw-text-t-normal-dark tw-rounded-1 tw-cursor-pointer"]/ '
+            gdp_quarter_xp = f'{gdp_div}div/p/span/span/text()'
+            gdp_quarter_rate = html.xpath(gdp_quarter_xp)[0]
+            gdp_quarter_update_xp = f'{gdp_div}div/label/text()'
+            gdp_quarter_update_date = html.xpath(gdp_quarter_update_xp)
+            gdp_month_xp = f'{gdp_div}div[2]/p/span/span/text()'
+            gdp_month_rate = html.xpath(gdp_month_xp)[0]
+            quarter_date, month_date = gdp_quarter_update_date
+            macro_data = {
+                'bond_temper': bond_temper,
+                'ten_ytm_rate': {
+                    'rate': ten_ytm_rate,
+                    'update_date': ten_ytm_xpath_update_date
+                },
+                'gdp': {
+                    'quarter': {
+                        'rate': gdp_quarter_rate,
+                        'date': quarter_date
+                    },
+                    'month': {
+                        'rate': gdp_month_rate,
+                        'date': month_date
+                    },
+                }
+            }
+
+            info.update({
+                'valuations': _valuations,
+                'macro_data': macro_data,
+            })
         return info
 
     @deprecated(version='1.0.0', reason='有知有行旧版网站可以直接在html中正则获取数据，网站已改版')
