@@ -30,7 +30,7 @@ Sec-Fetch-Mode: cors
 Sec-Fetch-Site: same-origin
 User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.77 Safari/537.36 Edg/91.0.864.41
 X-Requested-With: XMLHttpRequest
-'''    # noqa: E501
+'''  # noqa: E501
 current_path = Path.cwd()
 
 
@@ -57,7 +57,7 @@ class JSL:
         return resp
 
     @staticmethod
-    def details(readable=True) -> dict:
+    def more_details(readable=True) -> dict:
         """
         该页面显示的数据：https://www.jisilu.cn/data/indicator/
         :return:
@@ -148,11 +148,26 @@ https://www.zhihu.com/question/36938733/answer/573224207
         logger.warning('JSL temper get Error!')
         raise dt_except.CrawlerException('JSL temper get Error!')
 
+    def qz_info(self, is_full: bool = False, is_more: bool = False) -> dict:
+        _href = 'https://www.jisilu.cn/data/indicator/'
+        ov = jsl.overview()
+        info = dict()
+        if ov:
+            update_date = ov.get('price_dt')
+            temper = ov.get('median_pb_temperature')
+            ov.update({'href': _href})
+            _data = {'update_date': update_date, 'temper': temper}
+            if not is_full:
+                info = {'overview': _data}
+            else:
+                info = {'temper': ov}
+            if is_more:
+                _more = jsl.more_details()
+                info.update({'details': _more})
+        return info
+
 
 jsl = JSL()
 if __name__ == '__main__':
-    data = jsl.overview()
-    print(data)
-    # 看缓存效果
-    data = jsl.overview()
+    data = jsl.qz_info(is_full=True, is_more=True)
     print(data)
