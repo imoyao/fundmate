@@ -5,10 +5,11 @@ from flask import flash, redirect, request, url_for
 from flask.views import MethodView
 
 from backend.fundmate import excepts as dt_except
-from backend.fundmate.data import danjuan, jsl, yzyx
+from backend.fundmate.data import danjuan, fundb, jsl, yzyx
 from backend.fundmate.extensions import login_manager
 from backend.fundmate.fund.models import Fund
 from backend.fundmate.fund.schemas import FundSampleSchema, FundSearchKeySchema
+from backend.fundmate.public.schemas import ThermometerInSchema, ThermometerOutSchema
 from backend.fundmate.schema_ext import RegisterSchema
 from backend.fundmate.user.models import User
 
@@ -62,18 +63,22 @@ def about():
 
 
 @bp.get('/thermometers')
-def thermometer():
+@input(ThermometerInSchema, 'query')
+@output(ThermometerOutSchema)
+def thermometer(query_args):
     """
     行情估值信息
     目前包括集思录温度、有知有行温度、蛋卷估值
     """
+    is_full = query_args.get('is_full')
     try:
-        yzyx_info = yzyx.yzyx.last()
+        yzyx_info = yzyx.yzyx.daily_temper(is_full=is_full)
     except dt_except.CrawlerException:
         yzyx_info = None
-    jsl_info = jsl.jsl.overview()
-    dj_info = danjuan.dj.overview()
-    info = {'yzyx': yzyx_info, 'jsl': jsl_info, 'dj': dj_info}
+    jsl_info = jsl.jsl.qz_info(is_full=is_full)
+    dj_info = danjuan.dj.valuation(is_full=is_full)
+    jq_info = fundb.jq_app.kjtl(is_full=is_full)
+    info = {'yzyx': yzyx_info, 'jsl': jsl_info, 'dj': dj_info, 'jq': jq_info}
     return info
 
 

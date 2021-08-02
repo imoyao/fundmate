@@ -208,6 +208,9 @@ atlassian-ide-plugin.xml
 
 # Cursive Clojure plugin
 .idea/replstate.xml
+# 里面包含使用的解释器信息
+.idea/misc.xml
+.idea/fundmate.iml
 
 # Crashlytics plugin (for Android Studio and IntelliJ)
 com_crashlytics_export_strings.xml
