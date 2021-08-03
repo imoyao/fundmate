@@ -130,6 +130,7 @@ class FundMgr(PkModel):
 
     fund_id = Column(db.Integer, db.ForeignKey('funds.id'), comment='基金编号')
     mgr_id = Column(db.Integer, db.ForeignKey('mgrs.id'), comment='基金经理编号')
+    is_classic = Column(db.Boolean, comment='是否属于该经理的代表作')
     start_date = Column(db.DateTime)
     end_date = Column(db.DateTime)
 
