@@ -213,6 +213,7 @@ atlassian-ide-plugin.xml
 .idea/fundmate.iml
 # 包含远程同步目录
 .idea/deployment.xml
+.idea/webServers.xml
 
 # Crashlytics plugin (for Android Studio and IntelliJ)
 com_crashlytics_export_strings.xml
