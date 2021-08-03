@@ -1,9 +1,9 @@
 ---
 title: 项目中代码规范问题
-permalink: /dev/code-style
+permalink: /dev/code-style-guide
 ---
 ## 规范
-我们以[PEP8](https://wiki.masantu.com/peps/pep-0008/)作为项目中的指导规范，为了饯行上述准则，我们引入以下工具帮助我们实践。
+我们以[PEP8](https://wiki.masantu.com/peps/pep-0008/)作为项目中的代码规范准则。为了饯行上述准则，我们引入以下工具帮助我们。
 
 ## 工具
 
