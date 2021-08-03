@@ -17,6 +17,18 @@ from sqlalchemy.util.deprecations import deprecated
 deprecated = deprecated
 
 
+def convert_readable_days(number_of_days: int) -> tuple:
+    """
+    天数转换为年月日（不考虑闰年）
+    """
+    years = number_of_days // 365
+    # Calculating months
+    months = (number_of_days - years * 365) // 30
+    # Calculating days
+    days = number_of_days - years * 365 - months * 30
+    return years, months, days
+
+
 def show_time(func):
     """
     代码耗时时间计算

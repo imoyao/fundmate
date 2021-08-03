@@ -104,6 +104,14 @@ class Fund(PkModel, UpsertMixin):
         code = cls.query.filter(cls.name.ilike(name)).all()
         return code
 
+    @classmethod
+    def id_by_code(cls, code: str) -> Union[int, None]:
+        """获取编码所对应的id
+        """
+        _ins = cls.query.filter_by(fund_code=code).first()
+        if _ins:
+            return _ins.id
+
     def __repr__(self):
         return f"<Fund({self.fund_code!r}, {self.name!r})>"
 
@@ -123,8 +131,20 @@ class FundSaleOrg(PkModel, UpsertMixin):
         return self.known_name or self.name
 
 
+class Mgr(PkModel):
+    __tablename__ = "mgrs"
+    __table_args__ = {'comment': '基金经理'}
+
+    mgr_id = Column(db.Integer, comment='经理编号（以天天基金为准）')
+    name = Column(db.String(4), comment='经理名称')
+    company_id = Column(db.Integer,
+                        db.ForeignKey('fund_company.id'),
+                        comment='所属公司ID')
+
+
 class FundMgr(PkModel):
     """relation between Fund and Mgr
+    基金经理与基金为 M2M
     """
     __table_args__ = {'comment': '基金与经理关联表'}
 
@@ -235,17 +255,6 @@ class FundRate(PkModel):
     rule_id = Column(db.Integer, comment='费率编号')
     rate = Column(db.Integer, comment='费率百分比')
     type = Column(db.Boolean, nullable=True, comment='卖出或买入')  # TODO:多态关联
-
-
-class Mgr(PkModel):
-    __tablename__ = "mgrs"
-    __table_args__ = {'comment': '基金经理'}
-
-    mgr_id = Column(db.Integer, comment='经理编号（以天天基金为准）')
-    name = Column(db.String(4), comment='经理名称')
-    company_id = Column(db.Integer,
-                        db.ForeignKey('fund_company.id'),
-                        comment='所属公司ID')
 
 
 #  组合管理人类型

@@ -48,8 +48,8 @@ def parse_headers(raw_header: str) -> dict:
 def paginate(count: int, size: int = 10) -> Generator:
     """
     爬虫爬取时针对页面分页功能
-    :param count:
-    :param size:
+    :param count:总数
+    :param size:每页数量
     :return:
     """
     page = 0
