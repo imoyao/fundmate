@@ -79,9 +79,7 @@ class EastMoney:
         assert percent_str.endswith(replace_str)
         return float(f'{percent_str.replace(replace_str, ""):.2f}')
 
-    def mgr(self,
-            save: bool = False,
-            format_: str = 'sql') -> Union[str, None]:
+    def mgr(self, save: bool = False, format_: str = 'sql') -> Union[str, None]:
         """
         获取基金经理信息
         数据来源：[基金经理 _ 天天基金网](http://fund.eastmoney.com/manager/default.html#dt14;mcreturnjson;ftall;pn50;pi2;scabbname;stasc)
@@ -135,15 +133,11 @@ def company(self, save: bool = False):
         comps = self.be_json(load_able_str)
         if save:
             for cop in comps:
-                converted_cop = [
-                    str(item) or None if isinstance(item, str) else item
-                    for item in cop
-                ]
+                converted_cop = [str(item) or None if isinstance(item, str) else item for item in cop]
                 comp_info = dict(
                     zip([
-                        'code', 'full_name', 'create_date', 'f_counts', 'mgr',
-                        'dpy', 'a_un', 'scale', 'tx_eval', 'name', 'b_un',
-                        'update_time'
+                        'code', 'full_name', 'create_date', 'f_counts', 'mgr', 'dpy', 'a_un', 'scale', 'tx_eval',
+                        'name', 'b_un', 'update_time'
                     ], converted_cop))
                 level_eval = comp_info.get('tx_eval', '')
                 if level_eval:
@@ -329,9 +323,7 @@ def save_to_db(self, _funds: str) -> int:
             logger.warning(f'Update {fail_count} of funds failed.')
         return 0
     else:
-        logger.warning(
-            'Get fund info error,can you connect to `http://fund.eastmoney.com/`?'
-        )
+        logger.warning('Get fund info error,can you connect to `http://fund.eastmoney.com/`?')
         return 1
 
 
@@ -341,9 +333,7 @@ def t_days(self, f_code: str):
     :param f_code:
     :return:
     """
-    resp = rget(
-        f'http://fund.eastmoney.com/tools/DataHandler.aspx?t=t&ib=1&fc={f_code}'
-    )
+    resp = rget(f'http://fund.eastmoney.com/tools/DataHandler.aspx?t=t&ib=1&fc={f_code}')
     regex = re.compile(r'.*={\s.*:"(\d)"};')
     reg_mat = self.match_resp(resp, regex)
     if reg_mat:
@@ -380,8 +370,7 @@ def trade_date(self,
         f'http://fund.eastmoney.com/tools/DataHandler.aspx?t=confirm&date={_date}&days={t_num}&after='
         f'{after_15_flag}',
         headers=self.headers)
-    regex = re.compile(
-        r'.*={\s(.*):"(.*)",(.*):"(.*)",(.*):"(.*)",(.*):"(.*)"};')
+    regex = re.compile(r'.*={\s(.*):"(.*)",(.*):"(.*)",(.*):"(.*)",(.*):"(.*)"};')
     reg_mat = self.match_resp(resp, regex)
     if reg_mat:
         info = reg_mat.groups()

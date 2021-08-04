@@ -30,8 +30,7 @@ class MyTestCaseForCrawlingWebpage(unittest.TestCase):
         input_queue = Queue()
         output_queue = Queue()
         exit_after_finish = Event()
-        test = GetPageByWebWithAnotherProcessAndMultiThreading(
-            input_queue, output_queue, exit_after_finish)
+        test = GetPageByWebWithAnotherProcessAndMultiThreading(input_queue, output_queue, exit_after_finish)
         test.start()
 
         input_queue.put(('http://baidu.com', ('just', 'for', 'test')))

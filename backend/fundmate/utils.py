@@ -38,8 +38,7 @@ def show_time(func):
         start_time = time.time()
         ret_result = func(*args, **kwargs)
         end_time = time.time()
-        print('The function **{0}** takes {1} time.'.format(
-            func.__name__, end_time - start_time))
+        print('The function **{0}** takes {1} time.'.format(func.__name__, end_time - start_time))
         return ret_result
 
     return wrap_func
@@ -90,17 +89,13 @@ def first_day_of_this_year() -> str:
 
 
 def first_day_of_this_month() -> str:
-    return dateparser.parse(str(datetime.today().month),
-                            settings={
-                                'PREFER_DAY_OF_MONTH': 'first'
-                            }).strftime("%Y-%m-%d")
+    return dateparser.parse(str(datetime.today().month), settings={'PREFER_DAY_OF_MONTH': 'first'}).strftime("%Y-%m-%d")
 
 
 def seconds_today_leaves() -> int:
     tmr = tomorrow()
     _now = datetime.now()
-    now_timedelta = datetime(_now.year, _now.month, _now.day, _now.hour,
-                             _now.minute, _now.second)
+    now_timedelta = datetime(_now.year, _now.month, _now.day, _now.hour, _now.minute, _now.second)
     return (tmr - now_timedelta).seconds
 
 
@@ -130,5 +125,4 @@ def tomorrow_date(str_date: Union[str, None] = None) -> datetime.date:
 
 
 if __name__ == '__main__':
-    print(first_day_of_this_year(), first_day_of_this_month(),
-          seconds_today_leaves(), tomorrow_date('2021-06-30'))
+    print(first_day_of_this_year(), first_day_of_this_month(), seconds_today_leaves(), tomorrow_date('2021-06-30'))
