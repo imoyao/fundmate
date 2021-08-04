@@ -26,10 +26,8 @@ class FundInfo:
         """
         if index is None:
             return ','.join(
-                list(self._fund_info.values()) + [
-                    '/'.join(self._manager_info.keys()), '/'.join(
-                        self._manager_info.values())
-                ])
+                list(self._fund_info.values()) +
+                ['/'.join(self._manager_info.keys()), '/'.join(self._manager_info.values())])
         else:
             return ','.join(self._get_info(i, missing) for i in index)
 
@@ -43,9 +41,7 @@ class FundInfo:
         if index in self._fund_info.keys():
             return self._fund_info[index]
         elif index == '基金经理' or index == '总任职时间':
-            return '/'.join(
-                self._manager_info.keys()) if index == '基金经理' else '/'.join(
-                    self._manager_info.values())
+            return '/'.join(self._manager_info.keys()) if index == '基金经理' else '/'.join(self._manager_info.values())
         else:
             return str(missing)
 

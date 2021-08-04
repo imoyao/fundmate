@@ -32,18 +32,13 @@ def check_before_create(drop=False):
     :return:
     """
     if drop:
-        click.confirm(
-            'This operation will delete the database, do you want to continue?',
-            abort=True)
+        click.confirm('This operation will delete the database, do you want to continue?', abort=True)
         db.drop_all()
     db.create_all()
 
 
 @click.command()
-@click.option('--drop',
-              default=False,
-              is_flag=True,
-              help='Create databases after drop.')
+@click.option('--drop', default=False, is_flag=True, help='Create databases after drop.')
 def init_db(drop):
     """Initialized databases
     """
@@ -51,18 +46,9 @@ def init_db(drop):
 
 
 @click.command()
-@click.option('--fund',
-              default=True,
-              is_flag=True,
-              help='Update/Insert info of funds.')
-@click.option('--mgr',
-              default=False,
-              is_flag=True,
-              help='Update/Insert manger of funds.')
-@click.option('--company',
-              default=False,
-              is_flag=True,
-              help='Update/Insert company of funds.')
+@click.option('--fund', default=True, is_flag=True, help='Update/Insert info of funds.')
+@click.option('--mgr', default=False, is_flag=True, help='Update/Insert manger of funds.')
+@click.option('--company', default=False, is_flag=True, help='Update/Insert company of funds.')
 def update_db(fund, mgr, company):
     """update data of funds.更新基金相关表"""
     if fund:
@@ -86,22 +72,14 @@ def update_db(fund, mgr, company):
     "--check",
     default=False,
     is_flag=True,
-    help=
-    "Don't make any changes to files, just confirm they are formatted correctly",
+    help="Don't make any changes to files, just confirm they are formatted correctly",
 )
 def lint(fix_imports, check):
     """Lint and check code style with flake8 and isort."""
-    skip = [
-        "node_modules", "requirements", "migrations", "tests", "__pycache__",
-        "build", "dist", "venv"
-    ]
+    skip = ["node_modules", "requirements", "migrations", "tests", "__pycache__", "build", "dist", "venv"]
     root_files = glob("*.py")
-    root_directories = [
-        name for name in next(os.walk("."))[1] if not name.startswith(".")
-    ]
-    files_and_directories = [
-        arg for arg in root_files + root_directories if arg not in skip
-    ]
+    root_directories = [name for name in next(os.walk("."))[1] if not name.startswith(".")]
+    files_and_directories = [arg for arg in root_files + root_directories if arg not in skip]
 
     def execute_tool(description, *args):
         """Execute a checking tool with its arguments."""

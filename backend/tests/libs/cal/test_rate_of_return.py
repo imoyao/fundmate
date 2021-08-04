@@ -14,9 +14,7 @@ class TestXIRRNew:
     def test_xirr(self):
         x = rr.XIRR()
         assert x.xirr([-18990, -23320, 49490],
-                      [date(2016, 2, 5),
-                       date(2018, 1, 26),
-                       date(2018, 6, 5)]) == 0.12801613991037272
+                      [date(2016, 2, 5), date(2018, 1, 26), date(2018, 6, 5)]) == 0.12801613991037272
 
 
 class TestXIRR:
@@ -98,10 +96,7 @@ class TestXIRR:
         }, -1),
     ])
     def test_xirr(self, values_per_date_string, expected):
-        values_per_date = {
-            datetime.fromisoformat(k).date(): v
-            for k, v in values_per_date_string.items()
-        }
+        values_per_date = {datetime.fromisoformat(k).date(): v for k, v in values_per_date_string.items()}
         _val_list = list(values_per_date.values())
         _dates = list(values_per_date.keys())
         actual = rr.xirr.xirr(_val_list, _dates)
@@ -153,10 +148,7 @@ class TestXIRR:
         }, None),
     ])
     def test_clean_xirr(self, values_per_date_string, expected):
-        values_per_date = {
-            datetime.fromisoformat(k).date(): v
-            for k, v in values_per_date_string.items()
-        }
+        values_per_date = {datetime.fromisoformat(k).date(): v for k, v in values_per_date_string.items()}
         print(values_per_date, 'values_per_date-----')
         # return None
         _val_list = list(values_per_date.values())
@@ -181,10 +173,7 @@ class TestXNPV:
         }, -0.10, 22.2575),
     ])
     def test_xnpv(self, values_per_date_string, rate, expected):
-        values_per_date = {
-            datetime.fromisoformat(k).date(): v
-            for k, v in values_per_date_string.items()
-        }
+        values_per_date = {datetime.fromisoformat(k).date(): v for k, v in values_per_date_string.items()}
         actual = rr.xnpv.xnpv(values_per_date, rate)
         if expected:
             assert actual == approx(expected, 0.0001)

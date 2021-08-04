@@ -44,8 +44,7 @@ class GetPageByWeb(GetPage, ABC):
                 result = ('success', page.text, *args)
             else:
                 result = ('error', url, *args)
-        except (requests.exceptions.ConnectionError,
-                requests.exceptions.Timeout, requests.exceptions.HTTPError):
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout, requests.exceptions.HTTPError):
             result = ('error', url, *args)
         return result
 
@@ -59,8 +58,7 @@ class GetPageByWebWithAnotherProcessAndMultiThreading(Process, GetPageByWeb):
     # 描述在持续几秒连接失败之后向用户展示提示信息，单位 秒
     SHOW_NETWORK_DOWN_LIMIT_TIME = 3
 
-    def __init__(self, task_queue: Queue, result_queue: Queue,
-                 exit_sign: Event, network_health: Event):
+    def __init__(self, task_queue: Queue, result_queue: Queue, exit_sign: Event, network_health: Event):
         super().__init__()
         self._task_queue = task_queue
         self._result_queue = result_queue
@@ -86,8 +84,7 @@ class GetPageByWebWithAnotherProcessAndMultiThreading(Process, GetPageByWeb):
                 self._network_health.clear()
         else:
             self._max_threading_number = self._max_threading_number >> 1 if self._max_threading_number > 1 else 1
-            if self._max_threading_number == 1 and not self._network_health.is_set(
-            ):
+            if self._max_threading_number == 1 and not self._network_health.is_set():
                 if self._record_network_down_last_time is None:
                     self._record_network_down_last_time = time()
                 elif time() - self._record_network_down_last_time > \
@@ -110,11 +107,8 @@ class GetPageByWebWithAnotherProcessAndMultiThreading(Process, GetPageByWeb):
                     if not t.is_alive():
                         self._threading_pool.remove(t)
 
-                while self._task_queue.qsize() > 0 and len(
-                        self._threading_pool) < self._max_threading_number:
+                while self._task_queue.qsize() > 0 and len(self._threading_pool) < self._max_threading_number:
                     task = self._task_queue.get()
-                    t = threading.Thread(
-                        target=self.get_page_context_and_return_in_queue,
-                        args=(task[0], *task[1:]))
+                    t = threading.Thread(target=self.get_page_context_and_return_in_queue, args=(task[0], *task[1:]))
                     self._threading_pool.append(t)
                     t.start()

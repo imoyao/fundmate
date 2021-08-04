@@ -50,11 +50,10 @@ def register_extensions(app: Flask):
     # [[AF] Flask migrate does not recognise a change made in my post model. :flask]
     # (https://www.reddit.com/r/flask/comments/98kmhe/af_flask_migrate_does_not_recognise_a_change_made/)
     migrate.init_app(app, db, compare_type=True)
-    loguru.init_app(
-        app, {
-            "LOG_PATH": env.str('LOG_PATH', default='/home/work/var/log'),
-            "LOG_NAME": env.str('LOG_NAME', default='app.log'),
-        })
+    loguru.init_app(app, {
+        "LOG_PATH": env.str('LOG_PATH', default='/home/work/var/log'),
+        "LOG_NAME": env.str('LOG_NAME', default='app.log'),
+    })
     return None
 
 
@@ -88,12 +87,7 @@ def register_shell_context(app: Flask):
 
     def shell_context():
         """Shell context objects."""
-        return {
-            "db": db,
-            "User": user.models.User,
-            'Fund': fund.models.Fund,
-            'Account': account.models.Account
-        }
+        return {"db": db, "User": user.models.User, 'Fund': fund.models.Fund, 'Account': account.models.Account}
 
     # 当你使用flask shell命令启动Python Shell时，所有使用app.shell_context_processor装饰器注册的shell上下文处理函数
     # 都会被自动执行，这会将db和Note对象推送到Python Shell上下文里

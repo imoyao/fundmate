@@ -73,9 +73,7 @@ class FundDB:
                     }
                     ovl_info.append(item_info)
 
-                info_key = [
-                    'yesterday', 'last_week', 'last_month', 'last_year'
-                ]
+                info_key = ['yesterday', 'last_week', 'last_month', 'last_year']
                 amend_info = dict(zip(info_key, ovl_info))
 
                 info.update({'details': amend_info})

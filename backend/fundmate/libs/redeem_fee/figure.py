@@ -102,15 +102,9 @@ def draw(hold_data, fund_list):
         for d, f in fl_table:
             xline = today_num - d + 1
             if xline in dates:
-                axes.axvline(x=xline,
-                             color=_c_line,
-                             linewidth=1,
-                             linestyle='--')
+                axes.axvline(x=xline, color=_c_line, linewidth=1, linestyle='--')
                 note_text = '%d天\n%s' % (d, _num2data_str(xline)[5:])
-                axes.annotate(note_text,
-                              xy=(xline, axes.get_ylim()[1] * 0.05),
-                              color=_c_days,
-                              size=12)
+                axes.annotate(note_text, xy=(xline, axes.get_ylim()[1] * 0.05), color=_c_days, size=12)
                 note_list.append(((xline + t) / 2, f))
                 t = xline
             else:
@@ -122,24 +116,12 @@ def draw(hold_data, fund_list):
 
         print('note_list:', note_list)
         for d, f in note_list:
-            axes.annotate(f,
-                          xy=(d, axes.get_ylim()[1] * 0.5),
-                          color=_c_fl,
-                          ha='center',
-                          size=20)
+            axes.annotate(f, xy=(d, axes.get_ylim()[1] * 0.5), color=_c_fl, ha='center', size=20)
 
-        axes.annotate(str(fl_table),
-                      xy=(dates[0], axes.get_ylim()[1] * 0.9),
-                      color=_c_fl,
-                      size=10)
+        axes.annotate(str(fl_table), xy=(dates[0], axes.get_ylim()[1] * 0.9), color=_c_fl, size=10)
         print('')
 
-    plt.subplots_adjust(left=None,
-                        bottom=None,
-                        right=None,
-                        top=0.9,
-                        wspace=0.15,
-                        hspace=0.35)
+    plt.subplots_adjust(left=None, bottom=None, right=None, top=0.9, wspace=0.15, hspace=0.35)
 
 
 def show():

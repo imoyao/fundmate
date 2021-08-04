@@ -34,8 +34,7 @@ def try_parse_date(text: str):
     if parse_ret:
         return parse_ret.date()
     else:
-        raise excepts.ParseError(
-            f'Can not parse {text},please check whether is a date like str?')
+        raise excepts.ParseError(f'Can not parse {text},please check whether is a date like str?')
 
 
 def try_parse_number(text: str) -> Union[int, float]:

@@ -33,16 +33,14 @@ class ParseDefault(ParseBase):
     # 基金类型的分类
     result_dir = './results/'
     fund_kind_belong_to_index = [
-        '股票型', '混合型', '债券型', '定开债券', '股票指数', '联接基金', 'QDII-指数', 'QDII',
-        '混合-FOF', '货币型', '理财型', '分级杠杆', 'ETF-场内', '债券指数', '股票-FOF'
+        '股票型', '混合型', '债券型', '定开债券', '股票指数', '联接基金', 'QDII-指数', 'QDII', '混合-FOF', '货币型', '理财型', '分级杠杆', 'ETF-场内',
+        '债券指数', '股票-FOF'
     ]
     fund_kind_belong_to_guaranteed = ['保本型']
     fund_kind_belong_to_closed_period = ['固定收益']
     # 不同类型基金的解析顺序定义
     parse_index_for_index_fund = ['近1月', '近1年', '近3月', '近3年', '近6月', '成立来']
-    parse_index_for_guaranteed_fund = [
-        '保本期收益', '近6月', '近1月', '近1年', '近3月', '近3年'
-    ]
+    parse_index_for_guaranteed_fund = ['保本期收益', '近6月', '近1月', '近1年', '近3月', '近3年']
     parse_index_for_capital_preservation_fund = ['最近约定年化收益率']
 
     def get_parse_fund_info(self):
@@ -71,35 +69,27 @@ class ParseDefault(ParseBase):
 
         while True:
             # 获取基金类型和规模
-            fund_info.fund_kind = re.search(r'基金类型：(?:<a.*?>|)(.*?)[<&]',
-                                            page_context)
-            fund_info.fund_kind = fund_info.fund_kind.group(
-                1) if fund_info.fund_kind is not None else "解析基金类型失败"
+            fund_info.fund_kind = re.search(r'基金类型：(?:<a.*?>|)(.*?)[<&]', page_context)
+            fund_info.fund_kind = fund_info.fund_kind.group(1) if fund_info.fund_kind is not None else "解析基金类型失败"
             fund_basic_info = fund_info.get_fund_basic_info()
             try:
-                fund_scale = re.search(
-                    r'基金规模</a>：((?:\d+(?:\.\d{2}|)|--)亿元.*?)<', page_context)
+                fund_scale = re.search(r'基金规模</a>：((?:\d+(?:\.\d{2}|)|--)亿元.*?)<', page_context)
                 fund_info.set_fund_info('基金规模', fund_scale.group(1))
             except AttributeError:
-                print(
-                    f'股票（名称：{fund_basic_info[0]} 代码：{fund_basic_info[1]})时，获取基金规模失败'
-                )
+                print(f'股票（名称：{fund_basic_info[0]} 代码：{fund_basic_info[1]})时，获取基金规模失败')
 
             # 按照基金类型分类并获取其收益数据
             # todo 基金信息获取失败时的处理
             if fund_info.fund_kind in ParseDefault.fund_kind_belong_to_index:
                 achievement_re = re.search(
-                    r'：.*?((?:-?\d+\.\d{2}%)|--).*?'.join(
-                        ParseDefault.parse_index_for_index_fund + ['基金类型']),
+                    r'：.*?((?:-?\d+\.\d{2}%)|--).*?'.join(ParseDefault.parse_index_for_index_fund + ['基金类型']),
                     page_context)
             elif fund_info.fund_kind in ParseDefault.fund_kind_belong_to_guaranteed:
                 achievement_re = re.search(
-                    r'(?:：|).*?((?:-?\d+\.\d{2}%)|--).*?'.join(
-                        ParseDefault.parse_index_for_guaranteed_fund +
-                        ['基金类型']), page_context)
+                    r'(?:：|).*?((?:-?\d+\.\d{2}%)|--).*?'.join(ParseDefault.parse_index_for_guaranteed_fund + ['基金类型']),
+                    page_context)
             elif fund_info.fund_kind in ParseDefault.fund_kind_belong_to_closed_period:
-                achievement_re = re.search(
-                    r'最近约定年化收益率(?:<.*?>)(-?\d+\.\d{2}%)<', page_context)
+                achievement_re = re.search(r'最近约定年化收益率(?:<.*?>)(-?\d+\.\d{2}%)<', page_context)
             else:
                 print(f'出现无解析方法的基金种类 {fund_info}')
                 achievement_re = None
@@ -118,18 +108,14 @@ class ParseDefault(ParseBase):
                 # 清洗 基金经理在本基金的任职时间和收益率 和基金经理信息及其主页链接
                 fund_manager_detail = re.search(
                     r'</td> {2}<td class="td03">(.+?|-)</td> {2}<td class="td04 bold (?:ui-colo'
-                    r'r-(?:red|green)|)">(-?\d+\.\d{2}%|--)</td></tr>',
-                    page_context)
+                    r'r-(?:red|green)|)">(-?\d+\.\d{2}%|--)</td></tr>', page_context)
                 if fund_manager_detail is not None:
-                    fund_info.set_fund_info('任职时间',
-                                            fund_manager_detail.group(1))
-                    fund_info.set_fund_info('任期收益',
-                                            fund_manager_detail.group(2))
+                    fund_info.set_fund_info('任职时间', fund_manager_detail.group(1))
+                    fund_info.set_fund_info('任期收益', fund_manager_detail.group(2))
                     fund_managers = re.findall(
                         r'(?:<a href="(.*?)">(.+?)</a>&nbsp;&nbsp;)',
-                        re.search(
-                            r'<td class="td02">(?:<a href="(.*?)">(.+?)</a>&nbsp;&nbsp;)+',
-                            page_context).group(0))
+                        re.search(r'<td class="td02">(?:<a href="(.*?)">(.+?)</a>&nbsp;&nbsp;)+',
+                                  page_context).group(0))
                     fund_info.manager_need_process_list = fund_managers
                 else:
                     print(f'出现无法解析基金经理的基金 {fund_info}')
@@ -148,12 +134,9 @@ class ParseDefault(ParseBase):
         # 挖坑 下次重构获取基金经理名称，与爬取部分做解耦
         page_context, fund_info = yield
         while True:
-            manager_info = re.search('<span>累计任职时间：</span>(.*?)<br />',
-                                     page_context)
+            manager_info = re.search('<span>累计任职时间：</span>(.*?)<br />', page_context)
             if manager_info:
-                fund_info.set_manager_info(
-                    fund_info.manager_need_process_list.pop()[1],
-                    manager_info.group(1))
+                fund_info.set_manager_info(fund_info.manager_need_process_list.pop()[1], manager_info.group(1))
             if len(fund_info.manager_need_process_list) == 0:
                 fund_info.next_step = 'writing_file'
             page_context, fund_info = yield fund_info
@@ -173,33 +156,25 @@ class ParseDefault(ParseBase):
             makedirs(ParseDefault.result_dir)
         # 保存文件的第一行（列索引）
         write_format_of_index = [
-            '基金名称', '基金代码', '基金规模', '近1月', '近3月', '近6月', '近1年', '近3年', '成立来',
-            '基金经理', '任职时间', '任期收益', '总任职时间'
+            '基金名称', '基金代码', '基金规模', '近1月', '近3月', '近6月', '近1年', '近3年', '成立来', '基金经理', '任职时间', '任期收益', '总任职时间'
         ]
         write_format_of_guaranteed = [
-            '基金名称', '基金代码', '基金规模', '保本期收益', '近1月', '近3月', '近6月', '近1年', '近3年',
-            '基金经理', '任职时间', '任期收益', '总任职时间'
+            '基金名称', '基金代码', '基金规模', '保本期收益', '近1月', '近3月', '近6月', '近1年', '近3年', '基金经理', '任职时间', '任期收益', '总任职时间'
         ]
-        write_format_of_capital_preservation = [
-            '基金名称', '基金代码', '基金规模', '最近约定年化收益率', '基金经理', '任职时间', '任期收益',
-            '总任职时间'
-        ]
+        write_format_of_capital_preservation = ['基金名称', '基金代码', '基金规模', '最近约定年化收益率', '基金经理', '任职时间', '任期收益', '总任职时间']
 
         fund_info = yield
         while fund_info is not None:
             if fund_info.fund_kind not in filename_handle.keys():
                 # 此基金类型的文件尚未打开过
-                f = open(
-                    ParseDefault.result_dir + fund_info.fund_kind + '.csv',
-                    open_mode)
+                f = open(ParseDefault.result_dir + fund_info.fund_kind + '.csv', open_mode)
                 filename_handle[fund_info.fund_kind] = f
                 if fund_info.fund_kind in ParseDefault.fund_kind_belong_to_index:
                     header = ','.join(write_format_of_index) + '\n'
                 elif fund_info.fund_kind in ParseDefault.fund_kind_belong_to_guaranteed:
                     header = ','.join(write_format_of_guaranteed) + '\n'
                 else:
-                    header = ','.join(
-                        write_format_of_capital_preservation) + '\n'
+                    header = ','.join(write_format_of_capital_preservation) + '\n'
                 f.write(header)
             else:
                 f = filename_handle[fund_info.fund_kind]
