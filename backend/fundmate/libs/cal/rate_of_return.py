@@ -103,8 +103,7 @@ class ComputeConvert:
     """
 
     @staticmethod
-    def convert_is_end_pay(
-            when: Union[str, bool, int]) -> Union[str, bool, int]:
+    def convert_is_end_pay(when: Union[str, bool, int]) -> Union[str, bool, int]:
         """
         when con be bool
         'end': 0, 'begin': 1
@@ -127,9 +126,8 @@ class ComputeConvert:
         return year * MONTH_PER_YEAR
 
 
-def compound_interest(principal: Union[int, float],
-                      percent_rate_in_year: Union[int, float, str],
-                      year: Union[int, float]):
+def compound_interest(principal: Union[int, float], percent_rate_in_year: Union[int, float, str], year: Union[int,
+                                                                                                              float]):
     """
     复利计算
     :param principal: 本金
@@ -191,14 +189,7 @@ class RATE(ComputeConvert):
         """
         nper = self.number_of_periods(year)
         when = self.convert_is_end_pay(is_end_pay)
-        return npf.rate(nper,
-                        pmt,
-                        pv,
-                        fv,
-                        when=when,
-                        guess=guess,
-                        tol=tol,
-                        maxiter=maxiter)
+        return npf.rate(nper, pmt, pv, fv, when=when, guess=guess, tol=tol, maxiter=maxiter)
 
 
 class FV(ComputeConvert):
@@ -494,8 +485,7 @@ class XIRRDeprecated:
         r = rate + 1
         result = values[0]
         for j in range(1, len(values)):
-            result = result + values[j] / pow(
-                r, self.years_between_dates(dates[0], dates[j]))
+            result = result + values[j] / pow(r, self.years_between_dates(dates[0], dates[j]))
             j += 1
         return result
 
@@ -515,12 +505,10 @@ class XIRRDeprecated:
             val_item += 1
         return result
 
-    @deprecated(
-        version='1.0.0',
-        message=
-        "This implementation is simple and does not handle cases where there is no solution."
-        "\nUsers requiring a more robust version should use scipy package "
-        "optimize.newton.just use xirr.")
+    @deprecated(version='1.0.0',
+                message="This implementation is simple and does not handle cases where there is no solution."
+                "\nUsers requiring a more robust version should use scipy package "
+                "optimize.newton.just use xirr.")
     def xirr(self, values, dates):
         """
         如果没有安装scipy可以使用分割法去获取一个有答案的值，
@@ -570,8 +558,7 @@ class XIRRDeprecated:
         cont_loop = True
         while cont_loop and (iteration < iter_max):
             result_value = self.irr_result(values, dates, result_rate)
-            new_rate = result_rate - (result_value / self.first_derivation(
-                values, dates, result_rate))
+            new_rate = result_rate - (result_value / self.first_derivation(values, dates, result_rate))
             esp_rate = abs(new_rate - result_rate)
             result_rate = new_rate
             if result_rate < -1:
@@ -589,8 +576,7 @@ class MIRR:
     Modified internal rate of return
     """
 
-    def __call__(self, values, finance_rate: Union[int, float],
-                 reinvest_rate: Union[int, float]):
+    def __call__(self, values, finance_rate: Union[int, float], reinvest_rate: Union[int, float]):
         """
         values : array_like,现金流（必须有一个正值和一个负值），第一个值可以看做是沉没成本。
         finance_rate : scalar,对现金流支付的利率
@@ -641,15 +627,10 @@ class XNPV:
         t0 = min(values_per_date.keys())
 
         if rate <= -1.0:
-            return sum([
-                -abs(vi) / (-1.0 - rate)**((ti - t0).days / DAYS_PER_YEAR)
-                for ti, vi in values_per_date.items()
-            ])
+            return sum(
+                [-abs(vi) / (-1.0 - rate)**((ti - t0).days / DAYS_PER_YEAR) for ti, vi in values_per_date.items()])
 
-        return sum([
-            vi / (1.0 + rate)**((ti - t0).days / DAYS_PER_YEAR)
-            for ti, vi in values_per_date.items()
-        ])
+        return sum([vi / (1.0 + rate)**((ti - t0).days / DAYS_PER_YEAR) for ti, vi in values_per_date.items()])
 
 
 class XIRR:
@@ -703,10 +684,7 @@ class XIRR:
         try:
             result = scipy.optimize.newton(xnpv_partial, 0)
         except (RuntimeError, OverflowError):  # Failed to converge try again
-            result = scipy.optimize.brentq(xnpv_partial,
-                                           -0.999999999999999,
-                                           1e20,
-                                           maxiter=10**6)
+            result = scipy.optimize.brentq(xnpv_partial, -0.999999999999999, 1e20, maxiter=10**6)
 
         if not isinstance(result, complex):
             return result
@@ -721,13 +699,11 @@ class XIRR:
         print(values, values_cleaned, '---values,values_cleaned-------')
         result = None
         try:
-            if len(values_cleaned) == len(dates) and all(
-                [values_cleaned, dates]):
+            if len(values_cleaned) == len(dates) and all([values_cleaned, dates]):
                 result = self.xirr(values_cleaned, dates)
         except ValueError:
             return None
-        if result is not None and (abs(result) >= 100
-                                   or round(result, 4) == 0):
+        if result is not None and (abs(result) >= 100 or round(result, 4) == 0):
             return None
         else:
             return result

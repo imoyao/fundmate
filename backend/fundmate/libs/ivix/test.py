@@ -1,8 +1,7 @@
 import tushare as ts
 
 if __name__ == '__main__':
-    pro = ts.pro_api(
-        '7a322a3755b728f9b032ce14f864ba2294cc0c6cd0bb43529e5e01e0')
+    pro = ts.pro_api('7a322a3755b728f9b032ce14f864ba2294cc0c6cd0bb43529e5e01e0')
     df = pro.opt_basic(exchange='SSE')
     for df_index in df.index:
         # 将DataFrame中的一行数据转dict
