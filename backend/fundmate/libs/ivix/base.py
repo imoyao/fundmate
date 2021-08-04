@@ -71,8 +71,7 @@ def periods_spline_risk_free_interest_rate(options, date):
         # shibor_values = np.asarray(list(map(float,shibor_values)))
 
     shibor = {}
-    period = np.asarray([1.0, 7.0, 14.0, 30.0, 90.0, 180.0, 270.0, 360.0
-                         ]) / 360.0
+    period = np.asarray([1.0, 7.0, 14.0, 30.0, 90.0, 180.0, 270.0, 360.0]) / 360.0
     min_period = min(period)
     max_period = max(period)
     for p in periods.keys():
@@ -108,11 +107,8 @@ def get_near_next_opt_exp_date(options, vix_date):
             next：次月合约到期日
     """
     vix_date = datetime.strptime(vix_date, '%Y/%m/%d')
-    options_exp_date = list(
-        pd.Series(options.EXE_ENDDATE.values.ravel()).unique())
-    options_exp_date = [
-        datetime.strptime(i, '%Y/%m/%d %H:%M') for i in options_exp_date
-    ]
+    options_exp_date = list(pd.Series(options.EXE_ENDDATE.values.ravel()).unique())
+    options_exp_date = [datetime.strptime(i, '%Y/%m/%d %H:%M') for i in options_exp_date]
     near = min(options_exp_date)
     options_exp_date.remove(near)
     if near.day - vix_date.day < 1:
@@ -132,10 +128,8 @@ def get_strike_min_call_minus_put_close_price(options):
     return: strike: 看涨合约价格-看跌合约价格 的差值的绝对值最小的行权价
             price_diff: 以及这个差值，这个是用来确定中间行权价的第一步
     """
-    call = options[options.EXE_MODE == u"认购"].set_index(
-        u"EXE_PRICE").sort_index()
-    put = options[options.EXE_MODE == u"认沽"].set_index(
-        u"EXE_PRICE").sort_index()
+    call = options[options.EXE_MODE == u"认购"].set_index(u"EXE_PRICE").sort_index()
+    put = options[options.EXE_MODE == u"认沽"].set_index(u"EXE_PRICE").sort_index()
     call_minus_put = call.CLOSE - put.CLOSE
     strike = abs(call_minus_put).idxmin()
     price_diff = call_minus_put[strike].min()
@@ -155,11 +149,9 @@ def cal_sigma_square(options, FF, R, T):
             T： 还有多久到期（年化）
     return：Sigma：得到的结果是传入该到期日数据的Sigma
     """
-    call_all = options[options.EXE_MODE == u"认购"].set_index(
-        u"EXE_PRICE").sort_index()
+    call_all = options[options.EXE_MODE == u"认购"].set_index(u"EXE_PRICE").sort_index()
 
-    put_all = options[options.EXE_MODE == u"认沽"].set_index(
-        u"EXE_PRICE").sort_index()
+    put_all = options[options.EXE_MODE == u"认沽"].set_index(u"EXE_PRICE").sort_index()
     call_all['deltaK'] = 0.05
     put_all['deltaK'] = 0.05
     # Interval between strike prices
@@ -168,8 +160,7 @@ def cal_sigma_square(options, FF, R, T):
         call_all['deltaK'] = index[-1] - index[0]
     else:
         for i in range(1, len(index) - 1):
-            call_all['deltaK'].loc[index[i]] = (index[i + 1] -
-                                                index[i - 1]) / 2.0
+            call_all['deltaK'].loc[index[i]] = (index[i + 1] - index[i - 1]) / 2.0
         call_all['deltaK'].loc[index[0]] = index[1] - index[0]
         call_all['deltaK'].loc[index[-1]] = index[-1] - index[-2]
     index = put_all.index
@@ -177,8 +168,7 @@ def cal_sigma_square(options, FF, R, T):
         put_all['deltaK'] = index[-1] - index[0]
     else:
         for i in range(1, len(index) - 1):
-            put_all['deltaK'].loc[index[i]] = (index[i + 1] -
-                                               index[i - 1]) / 2.0
+            put_all['deltaK'].loc[index[i]] = (index[i + 1] - index[i - 1]) / 2.0
         put_all['deltaK'].loc[index[0]] = index[1] - index[0]
         put_all['deltaK'].loc[index[-1]] = index[-1] - index[-2]
 
@@ -200,17 +190,14 @@ def cal_sigma_square(options, FF, R, T):
 
         try:
             if len(put_all.loc[ff_idx].CLOSE.values) > 1:
-                put['CLOSE'].iloc[-1] = (
-                    put_all.loc[ff_idx].CLOSE.values[1] +
-                    call_all.loc[ff_idx].CLOSE.values[0]) / 2.0
+                put['CLOSE'].iloc[-1] = (put_all.loc[ff_idx].CLOSE.values[1] +
+                                         call_all.loc[ff_idx].CLOSE.values[0]) / 2.0
         except:
-            put['CLOSE'].iloc[-1] = (put_all.loc[ff_idx].CLOSE +
-                                     call_all.loc[ff_idx].CLOSE) / 2.0
+            put['CLOSE'].iloc[-1] = (put_all.loc[ff_idx].CLOSE + call_all.loc[ff_idx].CLOSE) / 2.0
 
         call_component = call.CLOSE * call.deltaK / call.index / call.index
         put_component = put.CLOSE * put.deltaK / put.index / put.index
-        sigma = (sum(call_component) + sum(put_component)) * np.exp(
-            T * R) * 2 / T
+        sigma = (sum(call_component) + sum(put_component)) * np.exp(T * R) * 2 / T
         sigma = sigma - (FF / ff_idx - 1)**2 / T
     return sigma
 
@@ -246,10 +233,8 @@ def cal_day_vix(vix_date):
     t_near = (near - vix_date).days / 365.0
     t_next = (nexts - vix_date).days / 365.0
     # the forward index prices
-    near_price_diff = get_strike_min_call_minus_put_close_price(
-        options_near_term)
-    next_price_diff = get_strike_min_call_minus_put_close_price(
-        options_next_term)
+    near_price_diff = get_strike_min_call_minus_put_close_price(options_near_term)
+    next_price_diff = get_strike_min_call_minus_put_close_price(options_next_term)
     near_f = near_price_diff[0] + np.exp(t_near * r_near) * near_price_diff[1]
     next_f = next_price_diff[0] + np.exp(t_next * r_next) * next_price_diff[1]
     # 计算不同到期日期权对于VIX的贡献
@@ -269,10 +254,10 @@ if __name__ == '__main__':
     for day in tradeday.index:
         ivix.append(cal_day_vix(day))
     attr = true_ivix[u'日期'].tolist()
-    Line().add_xaxis(attr).add_yaxis(
-        "中证指数发布",
-        true_ivix[u'收盘价(元)'].tolist(),
-        is_smooth=True,
-        markpoint_opts=['average', 'max']).add_yaxis(
-            "公式计算数据", ivix, is_smooth=True,
-            markline_opts=['max']).render(f"{current_path}/vix.html")
+    Line().add_xaxis(attr).add_yaxis("中证指数发布",
+                                     true_ivix[u'收盘价(元)'].tolist(),
+                                     is_smooth=True,
+                                     markpoint_opts=['average', 'max'
+                                                     ]).add_yaxis("公式计算数据", ivix, is_smooth=True,
+                                                                  markline_opts=['max'
+                                                                                 ]).render(f"{current_path}/vix.html")

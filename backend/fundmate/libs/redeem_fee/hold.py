@@ -56,10 +56,7 @@ def get_hold_data_from_excel():
     code_row_index = 1
     date_start_row_index = 3
 
-    dates = [
-        _date_str_formatting(i.value)
-        for i in table[date_col_index][date_start_row_index:]
-    ]
+    dates = [_date_str_formatting(i.value) for i in table[date_col_index][date_start_row_index:]]
 
     _d = {}
     for i in range(data_start_col_index, len(table)):
