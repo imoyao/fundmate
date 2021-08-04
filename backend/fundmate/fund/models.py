@@ -27,9 +27,7 @@ class DailyWorth(PkModel, CreateDateModel):
     """
     price = Column(db.Float, comment='基金单日净值')
     date = Column(db.Date, comment='日期')
-    fund_id = reference_col('funds',
-                            column_kwargs={'comment':
-                                           '基金编号'})  # TODO: 到底使用id还是使用基金的6位编码
+    fund_id = reference_col('funds', column_kwargs={'comment': '基金编号'})  # TODO: 到底使用id还是使用基金的6位编码
     fund = relationship("Fund", uselist=False, back_populates="daily_worth")
 
 
@@ -66,35 +64,20 @@ class Fund(PkModel, UpsertMixin):
     ]
     ```
     '''
-    sxszm = Column('abbr_capital_initial_phonetic_alphabet',
-                   db.String(30),
-                   comment='缩写首字母拼音')
-    qxpy = Column('full_capital_phonetic_alphabet',
-                  db.String(80),
-                  comment='全写拼音')
-    f_type = Column('fund_type_id',
-                    db.Integer,
-                    db.ForeignKey('fund_type.id'),
-                    comment='基金小类编号')
-    f_var = Column('fund_variety_id',
-                   db.Integer,
-                   db.ForeignKey('fund_variety.id'),
-                   comment='基金大类编号')
-    co_id = Column(db.Integer,
-                   db.ForeignKey('fund_company.id'),
-                   comment='所属基金公司编号')
+    sxszm = Column('abbr_capital_initial_phonetic_alphabet', db.String(30), comment='缩写首字母拼音')
+    qxpy = Column('full_capital_phonetic_alphabet', db.String(80), comment='全写拼音')
+    f_type = Column('fund_type_id', db.Integer, db.ForeignKey('fund_type.id'), comment='基金小类编号')
+    f_var = Column('fund_variety_id', db.Integer, db.ForeignKey('fund_variety.id'), comment='基金大类编号')
+    co_id = Column(db.Integer, db.ForeignKey('fund_company.id'), comment='所属基金公司编号')
     create_time = Column(db.DateTime, comment='基金创建时间')
     '''基金、净值为一对一关系，所以需要对两者都添加`relationship` [Basic Relationship Patterns — SQLAlchemy 1.4 Documentation](
     https://docs.sqlalchemy.org/en/14/orm/basic_relationships.html#one-to-one) '''
-    daily_worth = relationship('DailyWorth',
-                               back_populates='fund',
-                               uselist=False)
+    daily_worth = relationship('DailyWorth', back_populates='fund', uselist=False)
 
     @classmethod
     def search_key(cls, key):
         funds = cls.query.filter(
-            or_(cls.name.ilike(f'%{key}%'), cls.fund_code.ilike(f'%{key}%'),
-                cls.sxszm.ilike(f'%{key}%'),
+            or_(cls.name.ilike(f'%{key}%'), cls.fund_code.ilike(f'%{key}%'), cls.sxszm.ilike(f'%{key}%'),
                 cls.qxpy.ilike(f'%{key}%'))).all()
         return funds
 
@@ -137,9 +120,7 @@ class Mgr(PkModel):
 
     mgr_id = Column(db.Integer, comment='经理编号（以天天基金为准）')
     name = Column(db.String(4), comment='经理名称')
-    company_id = Column(db.Integer,
-                        db.ForeignKey('fund_company.id'),
-                        comment='所属公司ID')
+    company_id = Column(db.Integer, db.ForeignKey('fund_company.id'), comment='所属公司ID')
 
 
 class FundMgr(PkModel):
@@ -160,22 +141,17 @@ class FundCompany(PkModel, UpsertMixin):
     code = Column(db.String(10), comment='基金公司编号')
     name = Column(db.String(30), comment='基金公司名称')
     create_date = Column(db.DateTime, comment='创建时间')
-    scale = Column(db.Numeric(10, 2), nullable=True,
-                   comment='资产规模(亿元) ')  # 长度10，精度2
-    dpy = Column('abbr_capital_initial_phonetic_alphabet',
-                 db.String(30),
-                 comment='缩写首字母拼音')
+    scale = Column(db.Numeric(10, 2), nullable=True, comment='资产规模(亿元) ')  # 长度10，精度2
+    dpy = Column('abbr_capital_initial_phonetic_alphabet', db.String(30), comment='缩写首字母拼音')
     tx_eval = Column(db.Integer, nullable=True, comment='天相评级（五星制）')
     full_name = Column(db.String(30), comment='基金公司全称')
     f_counts = Column(db.Integer, comment='拥有基金数量（参考值）')
     mgr = Column(db.String(10), comment='总经理')
     update_time = Column(db.DateTime, comment='数据更新时间')
-    last_modified = Column(
-        db.TIMESTAMP,
-        nullable=False,
-        server_default=db.text(
-            "CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
-        comment='数据上次更新时间')
+    last_modified = Column(db.TIMESTAMP,
+                           nullable=False,
+                           server_default=db.text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
+                           comment='数据上次更新时间')
 
 
 class FundType(PkModel):
@@ -183,9 +159,7 @@ class FundType(PkModel):
     __table_args__ = {'comment': '基金小类表'}
 
     name = Column(db.String(255), unique=True)
-    var_id = Column(db.Integer,
-                    db.ForeignKey('fund_variety.id'),
-                    comment='基金大类编号')
+    var_id = Column(db.Integer, db.ForeignKey('fund_variety.id'), comment='基金大类编号')
 
     @classmethod
     def id_by_name(cls, name: str) -> Union[int, None]:
@@ -280,9 +254,7 @@ class FundPortfolio(Base, PkModel, CreateDateModel):
     name = Column(db.String(30), comment='组合名称')
     code = Column(db.String(30), unique=True, comment='组合编码')
     master = Column(db.String(30), comment='主理人')
-    mtr_type = Column(ChoiceType(ZH_MGR_TYPE),
-                      nullable=False,
-                      comment='组合类型（机构/个人）')
+    mtr_type = Column(ChoiceType(ZH_MGR_TYPE), nullable=False, comment='组合类型（机构/个人）')
     platform = Column(ChoiceType(PLAT_TYPE), comment='平台名称')
     risk_type = Column(ChoiceType(settings.RISK_TYPE), comment='风险类型（稳健/成长等）')
     desc = Column(db.String(300), comment='组合描述')

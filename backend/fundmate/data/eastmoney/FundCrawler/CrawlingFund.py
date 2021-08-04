@@ -34,16 +34,15 @@ def crawling_fund(fund_list_class: GetFundList, first_crawling=True):
     :return 爬取失败的('基金代码,基金名称')(list)
     """
     # 进度条 基金总数 爬取进度
-    line_progress = None if LineProgress is None else LineProgress(
-        title='爬取进度')
+    line_progress = None if LineProgress is None else LineProgress(title='爬取进度')
     cur_process = 0
     # 爬取输入、输出队列，输入结束事件，网络状态事件，爬取核心
     input_queue = Queue()
     result_queue = Queue()
     finish_sign = Event()
     network_health = Event()
-    crawling_core = GetPageByWebWithAnotherProcessAndMultiThreading(
-        input_queue, result_queue, finish_sign, network_health)
+    crawling_core = GetPageByWebWithAnotherProcessAndMultiThreading(input_queue, result_queue, finish_sign,
+                                                                    network_health)
     crawling_core.start()
 
     fund_list = fund_list_class.get_fund_list()
@@ -64,8 +63,7 @@ def crawling_fund(fund_list_class: GetFundList, first_crawling=True):
             if_first_show_network_problem = True
 
         # 根据短路原则，首先是是否还有要爬取的基金，然后是判断需要解析的数据量（控制内存），最后才是查看输入队列的情况
-        while having_fund_need_to_crawl and result_queue.qsize(
-        ) < 100 and input_queue.qsize() < 10:
+        while having_fund_need_to_crawl and result_queue.qsize() < 100 and input_queue.qsize() < 10:
             try:
                 code, name = next(fund_list).split(',')
             except StopIteration:
@@ -74,12 +72,10 @@ def crawling_fund(fund_list_class: GetFundList, first_crawling=True):
             tem_fund_info = FundInfo()
             tem_fund_info.set_fund_info('基金名称', name)
             tem_fund_info.set_fund_info('基金代码', code)
-            input_queue.put(
-                ('http://fund.eastmoney.com/' + code + '.html', tem_fund_info))
+            input_queue.put(('http://fund.eastmoney.com/' + code + '.html', tem_fund_info))
 
         # 优先补充输入队列，保证爬取的速度，再处理需要解析的数据
-        while (input_queue.qsize() > 5
-               or not having_fund_need_to_crawl) and result_queue.qsize():
+        while (input_queue.qsize() > 5 or not having_fund_need_to_crawl) and result_queue.qsize():
             a_result = result_queue.get()
             # 若上次的爬取失败了，则重试，未对一直失败的进行排除
             if a_result[0] == 'error':
@@ -92,21 +88,15 @@ def crawling_fund(fund_list_class: GetFundList, first_crawling=True):
                     # if a_result[1] == '':
                     #     tem_fund_info = a_result[3]
                     #     input_queue.put(('http://fund.eastmoney.com/' + tem_fund_info._fund_info('code') + '.html', tem_fund_info))
-                    new_fund_info: FundInfo = fund_web_page_parse.send(
-                        a_result[1:])
+                    new_fund_info: FundInfo = fund_web_page_parse.send(a_result[1:])
                     if new_fund_info.next_step == 'parsing_manager':
-                        input_queue.put(
-                            (new_fund_info.manager_need_process_list[-1][0],
-                             new_fund_info))
+                        input_queue.put((new_fund_info.manager_need_process_list[-1][0], new_fund_info))
                     else:
                         result_queue.put((None, None, new_fund_info))
                 elif a_result[2].next_step == 'parsing_manager':
-                    new_fund_info: FundInfo = manager_web_page_parse.send(
-                        a_result[1:])
+                    new_fund_info: FundInfo = manager_web_page_parse.send(a_result[1:])
                     if new_fund_info.next_step == 'parsing_manager':
-                        input_queue.put(
-                            (new_fund_info.manager_need_process_list[-1][0],
-                             new_fund_info))
+                        input_queue.put((new_fund_info.manager_need_process_list[-1][0], new_fund_info))
                     else:
                         result_queue.put((None, None, new_fund_info))
 
@@ -118,16 +108,12 @@ def crawling_fund(fund_list_class: GetFundList, first_crawling=True):
                     else:
                         print(f'已完成{cur_process}/全部{num_of_fund}')
                 else:
-                    print(
-                        f'请检查FundInfo的next_step(此处为{a_result[2].next_step})设置，出现了未知的参数'
-                    )
+                    print(f'请检查FundInfo的next_step(此处为{a_result[2].next_step})设置，出现了未知的参数')
 
         # 完成所有任务判断
-        if not having_fund_need_to_crawl and input_queue.qsize(
-        ) == 0 and result_queue.qsize() == 0:
+        if not having_fund_need_to_crawl and input_queue.qsize() == 0 and result_queue.qsize() == 0:
             time.sleep(1)
-            if not having_fund_need_to_crawl and input_queue.qsize(
-            ) == 0 and result_queue.qsize() == 0:
+            if not having_fund_need_to_crawl and input_queue.qsize() == 0 and result_queue.qsize() == 0:
                 break
 
     finish_sign.set()

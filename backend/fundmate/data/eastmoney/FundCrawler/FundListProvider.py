@@ -76,8 +76,7 @@ class GetFundListFromWebForTest(GetFundListFromWeb):
         """
         super()._set_fund_list_generator()
         from_index = random.randint(0, self._sum_of_fund - self.TEST_NUM)
-        fund_list = list(self._fund_list_generator)[from_index:from_index +
-                                                    self.TEST_NUM]
+        fund_list = list(self._fund_list_generator)[from_index:from_index + self.TEST_NUM]
         self._fund_list_generator = (i for i in fund_list)
         self._sum_of_fund = self.TEST_NUM
 

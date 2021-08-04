@@ -18,9 +18,7 @@ class Fund:
     def __init__(self):
         pass
 
-    def charge_amount(self,
-                      amount: Union[int, float] = 10000,
-                      charge_rate: float = 0.15):
+    def charge_amount(self, amount: Union[int, float] = 10000, charge_rate: float = 0.15):
         """
         申购费
         :return:
@@ -30,8 +28,7 @@ class Fund:
         return fee_value
 
     @staticmethod
-    def real_amount(amount: Union[int, float] = 10000,
-                    charge_rate: float = 0.15):
+    def real_amount(amount: Union[int, float] = 10000, charge_rate: float = 0.15):
         """
         净申购金额
         :return:
@@ -69,15 +66,10 @@ class Fund:
         _charge_amount = round(self.charge_amount(amount, charge_rate), 2)
         _real_amount = round(self.real_amount(amount, charge_rate), 2)
         _hold_value = self.share_holders(amount, charge_rate, daily_value)
-        return {
-            'charge_amount': _charge_amount,
-            'real_amount': _real_amount,
-            'hold_value': _hold_value
-        }
+        return {'charge_amount': _charge_amount, 'real_amount': _real_amount, 'hold_value': _hold_value}
 
 
-@deprecated(version='1.0.0',
-            message='天天基金有接口：http://fund.eastmoney.com/tools/jiaoyiri.html')
+@deprecated(version='1.0.0', message='天天基金有接口：http://fund.eastmoney.com/tools/jiaoyiri.html')
 class TradeDate:
     """
     与交易日相关的处理

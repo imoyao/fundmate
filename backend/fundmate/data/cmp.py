@@ -39,16 +39,13 @@ def get_info():
 
 
 def get_tk_val():
-    ret = list(
-        pandas.read_json(path_or_buf='TK1001.json',
-                         orient='records').val)[::-1]
+    ret = list(pandas.read_json(path_or_buf='TK1001.json', orient='records').val)[::-1]
     print(len(ret))
     return ret
 
 
 def jy_val():
-    ret = list(
-        xa.get_daily('F519732', start='2017-08-16', end='2021-02-19').close)
+    ret = list(xa.get_daily('F519732', start='2017-08-16', end='2021-02-19').close)
     print(len(ret))
     return ret
 
