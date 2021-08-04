@@ -125,7 +125,9 @@ class Mgr(PkModel):
 
 class FundMgr(PkModel):
     """relation between Fund and Mgr
-    基金经理与基金为 M2M
+    注意：
+    1. 基金经理与基金为 M2M
+    ~~2. 此表只存现任关系，其他关系需要另一张表~~
     """
     __table_args__ = {'comment': '基金与经理关联表'}
 
