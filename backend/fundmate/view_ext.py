@@ -19,6 +19,5 @@ def paginate_query(cls, query_args: dict) -> CustomPagination:
     """
     分页器
     """
-    pagination = cls.query.paginate(page=query_args['page'],
-                                    per_page=query_args['per_page'])
+    pagination = cls.query.paginate(page=query_args['page'], per_page=query_args['per_page'])
     return pagination

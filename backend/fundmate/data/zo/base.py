@@ -150,11 +150,8 @@ class QGG:
                     if len(fund_code_list) == 1:
                         fund_code = fund_code_list[0]
                     else:
-                        logger.error(
-                            f'Get fund code error of fund {f_name},we speculate is in {fund_code_list}.'
-                        )
-                        raise FundQueryError(
-                            f'Get code of fund {f_name} error!')
+                        logger.error(f'Get fund code error of fund {f_name},we speculate is in {fund_code_list}.')
+                        raise FundQueryError(f'Get code of fund {f_name} error!')
 
                     bf_ratio = fund_item.get('ratio')  # 调仓前
                     aft_ratio = fund_item.get('targetRatio')  # 调仓后

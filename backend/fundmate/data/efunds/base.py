@@ -18,6 +18,7 @@ class ImportHistory:
     4. 后台合并数据组
     5. 将数据导入数据库
     """
+
     def import_csv(self, file_path='demo.scv', sep=','):
         """读csv获取数据结果
 

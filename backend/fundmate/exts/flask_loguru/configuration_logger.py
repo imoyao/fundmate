@@ -64,10 +64,7 @@ class ConfigurationRetriever:
         return bool(re.findall(pattern, k.upper()))
 
     def __str__(self):
-        s = ", ".join([
-            f"{k}: <CENSORED>" if self.is_secret(k) else f"{k}: {v}"
-            for k, v in self.configs.items()
-        ])
+        s = ", ".join([f"{k}: <CENSORED>" if self.is_secret(k) else f"{k}: {v}" for k, v in self.configs.items()])
         return s
 
     def log_configs(self):

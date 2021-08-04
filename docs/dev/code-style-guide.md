@@ -16,10 +16,34 @@ max-line-length = 120
 exclude = migrations/*,.git,__pycache__,old,build,dist
 max-complexity = 10
 ```
+- 扩展工具
+```plain
+# 配置
+File / Settings / Tools / External Tools / Add
+Name: Flake8
+Program: $PyInterpreterDirectory$/python
+Parameters: -m flake8 --max-complexity 10 --ignore E501 $FilePath$      # 自定义规则
+Working directory: $ProjectFileDir$
+
+Output Filters / Add
+Name: Filter 1
+Regular expression to match output:
+$FILE_PATH$\:$LINE$\:$COLUMN$\:.*
+
+Output Filters / Add
+Name: Filter 2
+Regular expression to match output:
+$FILE_PATH$\:$LINE$\:.*
+
+# 运行
+Tools / External Tools / Flake8
+
+```
+[Flake8 integrated with PyCharm](https://gist.github.com/tossmilestone/23139d870841a3d5cba2aea28da1a895)
 [Pycharm 配置使用 flake8 进行语法检测_张聪的博客-CSDN 博客](https://blog.csdn.net/crazy_zhangcong/article/details/87860276)
 
 ### isort
-使用 isort 来解决自动导入的问题。下面一个我个人使用的配置，后期可能继续对比修改配置
+使用 isort 来解决自动导入的问题。下面一个我个人使用的配置，TODO:后期可能继续对比修改配置
 ```buildoutcfg
 [isort]
 multi_line_output = 3
@@ -28,7 +52,7 @@ force_grid_wrap = 0
 use_parentheses = True
 balanced_wrapping = True
 ensure_newline_before_comments = True
-line_length = 79
+line_length = 120
 known_flask = flask,flask_wtf,wtforms,flask_login,flask_bcrypt,flask_caching,flask_migrate,flask_sqlalchemy,flask_static_digest
 known_test = pytest,webtest,factory
 sections = FUTURE,STDLIB,FLASK,TEST,FIRSTPARTY,THIRDPARTY,LOCALFOLDER
@@ -39,7 +63,10 @@ sections = FUTURE,STDLIB,FLASK,TEST,FIRSTPARTY,THIRDPARTY,LOCALFOLDER
 
 [为什么 Python 在列表和元组的末尾允许使用逗号？ - 红皮橘子 - 博客园](https://www.cnblogs.com/yuanrenxue/p/10691184.html)
 此外处理预提交时的配置中增加：
+- 预提交配置
 [Pre Commit - isort](https://pycqa.github.io/isort/docs/configuration/pre-commit.html)
+- IDE配置
+[isort Plugins · PyCQA/isort Wiki](https://github.com/PyCQA/isort/wiki/isort-Plugins)
 
 ### yapf
 一种自动修复 pep8 错误的工具
@@ -49,7 +76,7 @@ based_on_style = pep8
 spaces_before_comment = 2
 split_before_logical_operator = true
 BLANK_LINE_BEFORE_NESTED_CLASS_OR_DEF = true
-COLUMN_LIMIT = 79
+COLUMN_LIMIT = 120
 ```
 配置方案参考此处：[How do I install yapf in pycharm · Issue #631 · google/yapf](https://github.com/google/yapf/issues/631)
 

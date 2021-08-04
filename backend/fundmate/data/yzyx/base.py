@@ -67,9 +67,7 @@ class YZYX:
         """
         df = pd.read_html(self.URL)[2]
         cols = df.columns.tolist()
-        rename_cols = [
-            'index_raw_str', 'index_temper', 'interval_rate', 'yield'
-        ]
+        rename_cols = ['index_raw_str', 'index_temper', 'interval_rate', 'yield']
         rename_map = dict(zip(cols, rename_cols))
         df.rename(columns=rename_map, inplace=True)
         '''  # noqa
@@ -80,8 +78,7 @@ class YZYX:
         # [python - Pandas FutureWarning: Columnar iteration over characters will be deprecated in future releases - Stack Overflow](https://stackoverflow.com/questions/61313365/pandas-futurewarning-columnar-iteration-over-characters-will-be-deprecated-in-f)
         equals: df['index_name'], _, df['index_code'] = df['index_raw_str'].str.split(' ').str
         '''
-        df[['index_name', 'drop_it',
-            'index_code']] = df['index_raw_str'].str.split(' ', expand=True)
+        df[['index_name', 'drop_it', 'index_code']] = df['index_raw_str'].str.split(' ', expand=True)
         data = df.drop(columns=['index_raw_str', 'drop_it'])
         if not is_df:
             _info = data.to_dict(orient='records')
@@ -184,8 +181,7 @@ class YZYX:
         json_fp = f'{current_path}/yzyx.json'
         text = self.get_html_text(json_fp=json_fp)
 
-        reg_mat = re.findall(r"const data = parseData\(JSON.parse\('(.*)'\)\)",
-                             text)
+        reg_mat = re.findall(r"const data = parseData\(JSON.parse\('(.*)'\)\)", text)
         if reg_mat:
             _info = reg_mat[0]
             data = json.loads(_info)
