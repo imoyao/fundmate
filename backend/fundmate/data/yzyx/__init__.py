@@ -4,4 +4,4 @@
 """
 有知有行数据爬取
 """
-from .base import yzyx
+from .base import yzyx  # noqa:F401

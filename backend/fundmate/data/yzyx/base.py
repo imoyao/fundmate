@@ -4,7 +4,7 @@
 import json
 import re
 from pathlib import Path
-from typing import List, Union
+from typing import Union
 
 import pandas as pd
 from lxml import etree
