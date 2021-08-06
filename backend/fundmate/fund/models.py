@@ -11,6 +11,7 @@ from backend.fundmate.database import (
     ChoiceType,
     Column,
     CreateDateModel,
+    CRUDMixin,
     PkModel,
     UpsertMixin,
     db,
@@ -29,6 +30,19 @@ class DailyWorth(PkModel, CreateDateModel):
     date = Column(db.Date, comment='日期')
     fund_id = reference_col('funds', column_kwargs={'comment': '基金编号'})  # TODO: 到底使用id还是使用基金的6位编码
     fund = relationship("Fund", uselist=False, back_populates="daily_worth")
+
+
+class FundMgr(PkModel, CRUDMixin):
+    """relation between Fund and Mgr
+    基金经理与基金为 M2M
+    """
+    __table_args__ = {'comment': '基金与（现任）经理关联表'}
+
+    fund_id = Column(db.Integer, db.ForeignKey('funds.id'), comment='基金编号')
+    mgr_id = Column(db.Integer, db.ForeignKey('mgrs.id'), comment='基金经理编号')
+    is_classic = Column(db.Boolean, comment='是否属于该经理的代表作')
+    start_date = Column(db.DateTime)
+    end_date = Column(db.DateTime)
 
 
 class Fund(PkModel, UpsertMixin):
@@ -56,7 +70,7 @@ class Fund(PkModel, UpsertMixin):
     ```
     # 表别名：select * from my_customer_table as customer
     customer = my_customer_table.alias('customer')
-    
+
     # 列别名 select user.name as username from user
     columns = [
         customer,
@@ -70,9 +84,15 @@ class Fund(PkModel, UpsertMixin):
     f_var = Column('fund_variety_id', db.Integer, db.ForeignKey('fund_variety.id'), comment='基金大类编号')
     co_id = Column(db.Integer, db.ForeignKey('fund_company.id'), comment='所属基金公司编号')
     create_time = Column(db.DateTime, comment='基金创建时间')
+    last_modified = Column(db.TIMESTAMP,
+                           nullable=False,
+                           server_default=db.text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
+                           comment='数据上次更新时间')
     '''基金、净值为一对一关系，所以需要对两者都添加`relationship` [Basic Relationship Patterns — SQLAlchemy 1.4 Documentation](
     https://docs.sqlalchemy.org/en/14/orm/basic_relationships.html#one-to-one) '''
     daily_worth = relationship('DailyWorth', back_populates='fund', uselist=False)
+    # 多对多
+    mgrs = relationship('Mgr', secondary='fund_mgr', back_populates='funds')
 
     @classmethod
     def search_key(cls, key):
@@ -88,51 +108,55 @@ class Fund(PkModel, UpsertMixin):
         return code
 
     @classmethod
-    def id_by_code(cls, code: str) -> Union[int, None]:
+    def filter_by_code(cls, code: str) -> Union[object, None]:
         """获取编码所对应的id
         """
         _ins = cls.query.filter_by(fund_code=code).first()
-        if _ins:
-            return _ins.id
+        return _ins
 
     def __repr__(self):
         return f"<Fund({self.fund_code!r}, {self.name!r})>"
 
 
-class FundSaleOrg(PkModel, UpsertMixin):
-    """基金销售机构
-    在记账时，可以记录购买渠道
-    """
-    org_id = Column(db.Integer, comment='机构编号')
-    name = Column(db.String(30), comment='机构名称')
-    known_name = Column(db.String(10), comment='广为人知的代号')
-    addr = Column(db.String(50), comment='注册地')
-    org_type = Column(db.String(30), comment='机构类型')
-    date = Column(db.String(10), comment='核准时间')
-
-    def as_name(self):
-        return self.known_name or self.name
-
-
-class Mgr(PkModel):
+class Mgr(PkModel, UpsertMixin):
     __tablename__ = "mgrs"
     __table_args__ = {'comment': '基金经理'}
 
-    mgr_id = Column(db.Integer, comment='经理编号（以天天基金为准）')
-    name = Column(db.String(4), comment='经理名称')
+    mgr_code = Column(db.Integer, comment='经理编号（以天天基金为准）')
+    name = Column(db.String(30), comment='经理名称')  # 'FAN BING(范冰)' 带英文的字符长度
     company_id = Column(db.Integer, db.ForeignKey('fund_company.id'), comment='所属公司ID')
+    work_days = Column(db.Integer, comment='总任职时间')  # TODO: 此处是否需要这样写死，是否需要自动计算（每天+1），应该写入工作时间（但是那样的话换公司就没法累计了）
+    sum_scale = Column(db.Numeric(8, 2), nullable=True, comment='现管理资产总规模(亿元) ')  # 长度10，精度2
+    best_rt = Column(db.Numeric(7, 2), nullable=True, comment='最佳回报(%) ')  # 长度10，精度2
+    last_modified = Column(db.TIMESTAMP,
+                           nullable=False,
+                           server_default=db.text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
+                           comment='数据上次更新时间')
+    # 在管基金
+    '''
+    # secondary后面跟表名而不是类名
+    sqlalchemy.exc.ArgumentError: secondary argument <class 'backend.fundmate.fund.models.FundMgr'> passed to to relationship() Fund.mgrs must be a Table object or other FROM clause; can't send a mapped class directly as rows in 'secondary' are persisted independently of a class that is mapped to that same table.
+    '''
+    funds = relationship('Fund', secondary='fund_mgr', back_populates='mgrs')
 
+    def __repr__(self):
+        return f"<Fund Manager({self.mgr_code!r}, {self.name!r})>"
 
-class FundMgr(PkModel):
-    """relation between Fund and Mgr
-    基金经理与基金为 M2M
-    """
-    __table_args__ = {'comment': '基金与经理关联表'}
+    @classmethod
+    def filter_by_code(cls, code: str) -> Union[object, None]:  # TODO: 类型注释有问题
+        """获取编码所对应的id
+        """
+        _ins = cls.query.filter_by(mgr_code=code).first()
+        return _ins
 
-    fund_id = Column(db.Integer, db.ForeignKey('funds.id'), comment='基金编号')
-    mgr_id = Column(db.Integer, db.ForeignKey('mgrs.id'), comment='基金经理编号')
-    start_date = Column(db.DateTime)
-    end_date = Column(db.DateTime)
+    def present_funds(self, mgr_code: str):
+        """
+        获取当前在管基金 TODO: 没有测试
+        """
+        _ins = self.filter_by_code(mgr_code)
+        all_mged_funds = _ins.funds
+        all_mgring_funds = [f for f in all_mged_funds if f.end_date is None]
+        return all_mgring_funds
 
 
 class FundCompany(PkModel, UpsertMixin):
@@ -152,6 +176,29 @@ class FundCompany(PkModel, UpsertMixin):
                            nullable=False,
                            server_default=db.text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
                            comment='数据上次更新时间')
+
+    @classmethod
+    def filter_by_code(cls, code: str) -> Union[int, None]:
+        """获取编码所对应的id
+        """
+        _ins = cls.query.filter_by(code=code).first()
+        if _ins:
+            return _ins.id
+
+
+class FundSaleOrg(PkModel, UpsertMixin):
+    """基金销售机构
+    在记账时，可以记录购买渠道
+    """
+    org_id = Column(db.Integer, comment='机构编号')
+    name = Column(db.String(30), comment='机构名称')
+    known_name = Column(db.String(10), comment='广为人知的代号')
+    addr = Column(db.String(50), comment='注册地')
+    org_type = Column(db.String(30), comment='机构类型')
+    date = Column(db.String(10), comment='核准时间')
+
+    def as_name(self):
+        return self.known_name or self.name
 
 
 class FundType(PkModel):
