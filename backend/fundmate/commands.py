@@ -27,7 +27,8 @@ def test():
 def check_before_create(drop=False):
     """
     创建前先删除
-    see also:[How can I reuse the function that iv made as a command? · Issue #330 · pallets/click](https://github.com/pallets/click/issues/330) # noqa: F501
+    参阅：[How can I reuse the function that iv made as a command?
+    · Issue #330 ·pallets/click](https://github.com/pallets/click/issues/330)
     :param drop:
     :return:
     """
@@ -46,17 +47,23 @@ def init_db(drop):
 
 
 @click.command()
-@click.option('--fund', default=True, is_flag=True, help='Update/Insert info of funds.')
-@click.option('--mgr', default=False, is_flag=True, help='Update/Insert manger of funds.')
-@click.option('--company', default=False, is_flag=True, help='Update/Insert company of funds.')
+@click.option('--company', default=False, is_flag=True, help='Update/Insert company of company.')
+@click.option('--fund', default=False, is_flag=True, help='Update/Insert info of fund.')
+@click.option('--mgr', default=False, is_flag=True, help='Update/Insert manger of funds manger.')
 def update_db(fund, mgr, company):
-    """update data of funds.更新基金相关表"""
+    """update data of funds information.更新基金相关表
+    [Options — Click Documentation (8.0.x)](https://click.palletsprojects.com/en/8.0.x/options/#boolean-flags)
+    需要哪个参数就 `--xx`，如 `flask update-db --mgr`
+
+    注意更新的表顺序：先有基金公司，然后创建基金，最后添加基金经理
+    """
+    print(fund, mgr, company)
+    if company:
+        em.company(save=True)
     if fund:
         em.fund(save=True, format_='sql')
     if mgr:
-        em.mgr()
-    if company:
-        em.company(save=True)
+        em.mgr(save=True, format_='sql')
 
 
 @click.command()
