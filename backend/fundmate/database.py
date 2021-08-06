@@ -9,10 +9,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.sql import func
 
+from backend.fundmate.compat import basestring
+from backend.fundmate.extensions import db
 from backend.fundmate.exts.flask_loguru import logger
-
-from .compat import basestring
-from .extensions import db
 
 # Alias common SQLAlchemy names
 Column = db.Column
@@ -97,13 +96,13 @@ class UpsertMixin(CRUDMixin):
         :return:
         """
         ret = None
-        is_comp_exists = cls.check_is_exists(unique_query_arg)
-        if is_comp_exists:
+        is_inst_exists = cls.check_is_exists(unique_query_arg)
+        if is_inst_exists:
             # 允许多个查询条件 TODO: 可以使用比较运算符 [python - sqlalchemy dynamic filtering - Stack Overflow](
             #  https://stackoverflow.com/questions/41305129/sqlalchemy-dynamic-filtering/41309069#41309069)
             for attr, value in unique_query_arg.items():
-                ret = cls.query.filter(getattr(cls, attr) == value).update(kwargs)
-            db.session.commit()
+                ret = cls.query.filter(getattr(cls, attr) == value).update(kwargs)  # TODO:ret = 1
+                db.session.commit()
         else:
             ret = cls.create(**kwargs)
         return ret
@@ -137,7 +136,7 @@ class PkModel(Model):
 
 
 class CreateDateModel(Model):
-    """模仿PkModel，给数据表增加一个添加创建时间列"""
+    """模仿PkModel，给数据表增加一个创建日期列"""
     '''
     https://stackoverflow.com/a/18675245/14295718
     该指令用于不应映射到数据库表的抽象类
