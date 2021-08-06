@@ -3,20 +3,23 @@
 """
 import json
 import re
+import time
 from pathlib import Path
 from typing import Union
 
-import dateparser
 import pyjson5
 import requests
 from requests import Response
+from sqlalchemy.orm.exc import FlushError
 from xalpha.cons import rget
 
 from backend.fundmate.data import utils as dt_utils
+from backend.fundmate.data.utils import data_parser
+from backend.fundmate.database import db
 from backend.fundmate.exts.flask_loguru import logger
-from backend.fundmate.fund.models import Fund, FundCompany, FundType, FundVariety
+from backend.fundmate.fund.models import Fund, FundCompany, FundMgr, FundType, FundVariety, Mgr
 
-current_path = Path.cwd()
+current_path = Path.cwd()  # TODO: 会保存到项目的根目录
 REQUEST_STR = '''Accept: */*
 Accept-Encoding: gzip, deflate
 Accept-Language: zh-CN,zh;q=0.9,en;q=0.8,en-US;q=0.7
@@ -25,7 +28,7 @@ Cookie: AUTH_FUND.EASTMONEY.COM_GSJZ=AUTH*TTJJ*TOKEN; qgqp_b_id=2fae24fc63564874
 DNT: 1
 Host: fund.eastmoney.com
 User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36 Edg/91.0.864.54
-'''  # noqa: F501
+'''  # noqa: E501
 
 
 class EastMoney:
@@ -46,7 +49,7 @@ class EastMoney:
         reg_mat = regexp.match(ret_str)
         return reg_mat
 
-    def fetch_mgr(self, fund_mgr_url: str) -> Union[dict, None]:
+    def fetch_mgr(self, fund_mgr_url: str) -> Union[object, dict, None]:
         resp = rget(url=fund_mgr_url, headers=self.headers)
         regex = re.compile(r'var\s*returnjson\s*=\s*(.+)')
         reg_mat = self.match_resp(resp, regex)
@@ -63,348 +66,400 @@ class EastMoney:
         page_size = fund_mgr_info.get('pages')
         pages_data = fund_mgr_info.get('data')
         for page in range(2, page_size):
-            _fund_mgr_url = f'http://fund.eastmoney.com/Data/FundDataPortfolio_Interface.aspx?dt=14&mc=returnjson&ft=all&pn=50&pi={page}&sc=abbname&st=asc'
+            _fund_mgr_url = f'http://fund.eastmoney.com/Data/FundDataPortfolio_Interface.aspx?dt=14&mc=returnjson&ft=all&pn=50&pi={page}&sc=abbname&st=asc'  # noqa: E501
             resp = self.fetch_mgr(_fund_mgr_url)
             per_page_data = resp.get('data')
             pages_data.extend(per_page_data)
 
         return pages_data
 
-    def remove_specific_str(self, percent_str: str, replace_str: str) -> float:
+    @staticmethod
+    def remove_specific_str(raw_str: str, replace_str: str) -> Union[float, None]:
         """
         删除多余的描述符，只保存有意义的数字
         88% -> 88.00
         88亿元 -> 88.00
         """
-        assert percent_str.endswith(replace_str)
-        return float(f'{percent_str.replace(replace_str, ""):.2f}')
+        try:
+            assert raw_str.endswith(replace_str)
+        except AssertionError:
+            logger.warning(f'Please check your data:RAW_STR:{raw_str}, REPLACE_STR:{replace_str}.')
+            if raw_str == '--':
+                return None
+        return float(f'{float(raw_str.replace(replace_str, "")):.2f}')
 
     def mgr(self, save: bool = False, format_: str = 'sql') -> Union[str, None]:
         """
         获取基金经理信息
+
         数据来源：[基金经理 _ 天天基金网](http://fund.eastmoney.com/manager/default.html#dt14;mcreturnjson;ftall;pn50;pi2;scabbname;stasc)
-        """
-        fund_mgr_url = 'http://fund.eastmoney.com/Data/FundDataPortfolio_Interface.aspx?dt=14&mc=returnjson&ft=all&pn=50&pi=1&sc=abbname&st=asc'
+        """  # noqa: E501
+        fund_mgr_url = 'http://fund.eastmoney.com/Data/FundDataPortfolio_Interface.aspx?dt=14&mc=returnjson&ft=all&pn=50&pi=1&sc=abbname&st=asc'  # noqa: E501
         first_page_info = self.fetch_mgr(fund_mgr_url)
         fund_mgr_info = self.left_page_data(first_page_info)
         '''
         基金经理编码 姓名	公司编码 公司名称 现任基金编码 现任基金名称	累计从业时间（天） 现任基金最佳回报 基金编码 基金名称 现任基金资产总规模
         ['30634044', '艾定飞', '80053204', '华商基金', '007685,007853', '华商电子行业量化股票,华商计算机行业量化股票', '981', '105.41%', '007685', '华商电子行业量化股票', '5.74亿元', '105.41%']
-        '''
-        for mgr_item in fund_mgr_info:
-            mgr_id, mgr_name, cmp_id, _, mgr_fd, _, work_days, _best_rt, best_fd, _, _sum_scale, _ = mgr_item
-            mgr_fd_list = mgr_fd.split(',')
-            best_rt = self.remove_specific_str(_best_rt, "%")
-            sum_scale = self.remove_specific_str(_sum_scale, "亿元")
-            for f_code in mgr_fd_list:
-                fund_id = Fund.id_by_code(f_code)
-                # TODO: 保存基金经理对应关系
-        if save:
-            pass
+        '''  # noqa: E501
+        if fund_mgr_info:
+            if save:
+                if format_ == 'sql':
+                    ret = self.save_mgr_2db(fund_mgr_info)
+                else:
+                    # json或者csv保存
+                    ret = self.do_save_action(format_, fund_mgr_info, suffix='mgr')
+                if ret == 0:
+                    logger.info(f'The fund mgr of {format_} format has been saved finished.')
 
         return fund_mgr_info
 
+    def no_fresh_save_mgr(self):
+        """
+        从json文件中读取并直接存数据库
+        """
+        file_save_fp = f'{str(current_path)}/fund_mgr.json'
+        fp = Path(file_save_fp)
+        if fp.exists():
+            mgr_data = data_parser.get_data_from_json(file_save_fp)
+            self.save_mgr_2db(mgr_data)
 
-def company(self, save: bool = False):
-    """
-    获取基金公司信息
+    def sample_create_fund(self, fund_info):
+        """
+        TODO: 单独获取基金信息并保存
+        """
+        pass
 
-    原始链接：[基金公司一览表 _ 天天基金网](http://fund.eastmoney.com/company/default.html) api:
-    http://fund.eastmoney.com/Data/FundRankScale.aspx
-    :return: list, 编号  基金公司   成立时间   全部基金数  总经理  短拼 全部管理规模(亿元)
-    天相评级    简称    update_time ['80000080', '山西证券股份有限公司', '1988-07-28', '16', '王怡里', 'SXZQ', '', '85.97', '★★★',
-    '山西证券', '', '2021/3/31 0:00:00'] 原始链接：[['80000080', '山西证券股份有限公司', '1988-07-28', '16', '王怡里', 'SXZQ', '',
-    '85.97', '★★★', '山西证券', '', '2021/3/31 0:00:00'], ['80000095', '国都证券股份有限公司', '2001-12-28', '4', '韩本毅',
-    'GDZQ', '', '3.18', '★★★', '国都证券', '', '2021/3/31 0:00:00']
+    def save_mgr_2db(self, fund_mgr_info: list):
+        """
+        将基金经理
+        """
+        for mgr_item in fund_mgr_info:
+            mgr_code, mgr_name, cmp_code, cmp_name, mgr_fd, _, work_days, _best_rt, \
+            best_fd, _, _sum_scale, _ = mgr_item
+            mgr_fd_list = mgr_fd.split(',')
+            best_rt = self.remove_specific_str(_best_rt, "%")
+            sum_scale = self.remove_specific_str(_sum_scale, "亿元")
 
-    """
-    fund_comp_url = 'http://fund.eastmoney.com/Data/FundRankScale.aspx'
-    resp = requests.get(fund_comp_url, headers=self.headers)
-    regex = re.compile(r'.*var.*json.*=.*datas:(.*)}')
-    reg_mat = self.match_resp(resp, regex)
-
-    if reg_mat:
-        fund_comps_str = reg_mat.groups()[0]
-        '''
-        see also:   https://stackoverflow.com/a/50257217
-        '''
-        p = re.compile('(?<!\\\\)\'')
-        load_able_str = p.sub('\"', fund_comps_str)
-        comps = self.be_json(load_able_str)
-        if save:
-            for cop in comps:
-                converted_cop = [str(item) or None if isinstance(item, str) else item for item in cop]
-                comp_info = dict(
-                    zip([
-                        'code', 'full_name', 'create_date', 'f_counts', 'mgr', 'dpy', 'a_un', 'scale', 'tx_eval',
-                        'name', 'b_un', 'update_time'
-                    ], converted_cop))
-                level_eval = comp_info.get('tx_eval', '')
-                if level_eval:
-                    level = len(level_eval)
-                else:
-                    level = None
-
-                comp_info['tx_eval'] = level
-                # 两个不知道含义的暂时pop
-                comp_info.pop('a_un')
-                comp_info.pop('b_un')
-                code = comp_info.get('code')
-                comp = FundCompany()
-                query_info = {'code': code}
-                comp.insert_or_update(query_info, **comp_info)
-        return comps
-
-
-def fund(self, save: bool = False, format_: str = 'sql') -> Union[str, None]:
-    """
-    获取基金信息
-
-    :return:[["000001","HXCZHH","华夏成长混合","混合型","HUAXIACHENGZHANGHUNHE"],["000002","HXCZHH","华夏成长混合(后端)","混合型","HUAXIACHENGZHANGHUNHE"],["000003","ZHKZZZQA","中海可转债债券A","债券型","ZHONGHAIKEZHUANZHAIZHAIQUANA",...]]
-    """
-    fund_code_search_url = 'http://fund.eastmoney.com/js/fundcode_search.js'
-    resp = rget(fund_code_search_url, headers=self.headers)
-    regex = re.compile(r'.+var\s*r\s*=\s*(.+);')
-    reg_mat = self.match_resp(resp, regex)
-
-    if reg_mat:
-        fund_info = reg_mat.groups()[0]
-        ct = self.counts(fund_info)
-        logger.info(f'Get {ct} funds from remote……')
-        # 保存数据
-        if save:
-            _ret = self.do_save_action(format_, fund_info)
-            # assert format_ in ['sql', 'json']
-            # if format_ == 'sql':
-            #     self.save_to_db(fund_info)
-            # elif format_ == 'json':
-            #     self.save_to_json(fund_info)
-
-        return fund_info
-
-
-def do_save_action(self, format_, save_data, suffix=None):
-    """
-    FIXME: 保存基金、基金经理、基金公司应该使用不同的前/后缀
-    """
-    assert format_ in ['sql', 'json']
-    if format_ == 'sql':
-        # TODO: 每个数据保存在不同的数据表中
-        self.save_to_db(save_data)
-    elif format_ == 'json':
-        self.save_to_json(save_data, suffix=suffix)
-    return 0
-
-
-@staticmethod
-def save_to_json(fund_info: str, suffix: Union[str, None] = None) -> int:
-    """
-    将获取数据保存为json
-    :return:
-    """
-    ret_code = 1
-    if fund_info:
-        if suffix:
-            f_name = '_'.join(['fund', suffix])
-        else:
-            f_name = 'fund'
-
-        file_save_fp = f'{str(current_path)}/{f_name}.json'
-        with open(file_save_fp, 'w') as f:
-            json.dump(fund_info, f, ensure_ascii=False)
-            ret_code = 0
-    return ret_code
-
-
-@staticmethod
-def fund_types(fund_list: list) -> set:  # see also:NewDB.fund_type
-    """
-    获取所有基金类别 :return:set, {'货币型', 'QDII', '股票-FOF', 'ETF-场内', 'QDII-指数', '股票指数', '混合型', '债券型', '理财型', '混合-FOF',
-    '股票型', '联接基金', 'QDII-ETF', '债券指数', '定开债券'}
-    """
-    fund_type_set = set()
-    for f in fund_list:
-        fund_type_set.add(f[3])
-    return fund_type_set
-
-
-@staticmethod
-def be_json(_funds: str) -> list:
-    """
-    转为json
-    """
-    return json.loads(_funds, ensure_ascii=False)
-
-
-def counts(self, funds_info: str) -> int:
-    _fund_lists = self.be_json(funds_info)
-    _count = len(_fund_lists)
-    return _count
-
-
-@staticmethod
-def _split_fvt(f_vt_str: str) -> tuple:
-    """
-    >>> avt = '债券型-混合债'
-    >>> avt.split('-')
-    ['债券型', '混合债']
-    """
-    _ft = None
-    if '-' in f_vt_str:
-        _fv, _ft = f_vt_str.split('-')
-    else:
-        _fv = f_vt_str
-    return _fv, _ft
-
-
-def save_to_db(self, _funds: str) -> int:
-    """
-    保存fund信息到数据库
-    :return:
-    """
-
-    if _funds:
-        _fund_list = self.be_json(_funds)
-
-        # 将基金信息更新/写入funds表
-        type_map = dict()
-        cache_fv_map = dict()
-        _count = 0
-        for f in _fund_list:
-            # ["000001","HUZZAH","华夏成长混合","混合型","HUAXIACHENGZHANGHUNHE"]
-            code, szm, name, _f_temp, qpy = f
-            fv, ft = self._split_fvt(_f_temp)
-            # 基金大类处理
-            '''
-            如果大类名称在缓存字典中，则直接获取，不去查数据库；
-            否则，查询数据库，如果没有查到则创建，并更新缓存字典
-            '''
-            _fv_info = {'name': fv}
-            if fv in cache_fv_map:
-                _fv_id = cache_fv_map.get(fv)
-            else:
-                _fv_id = FundVariety.id_by_name(name=fv)
-                if not _fv_id:
-                    f_tp = FundVariety.create(**_fv_info)
-                    _fv_id = f_tp.id
-                cache_fv_map[fv] = _fv_id
-
-            # 基金小类处理
-            _ft_id = None
-            if ft:
-                _ft_info = {'name': ft}
-                if ft in type_map:
-                    _ft_id = type_map.get(ft)
-                else:
-                    _ft_id = FundType.id_by_name(ft)
-                    # 父类关联写入
-                    _ft_info['var_id'] = _fv_id
-                    if not _ft_id:
-                        f_tp = FundType.create(**_ft_info)
-                        _ft_id = f_tp.id
-                    type_map[ft] = _ft_id
-            info = {
-                'name': name,
-                'sxszm': szm,
-                'qxpy': qpy,
-                'fund_code': code,
-                'f_type': _ft_id if _ft_id else None,
-                'f_var': _fv_id,
+            mgr_query_info = {'mgr_code': mgr_code}
+            cmp_id = FundCompany.filter_by_code(cmp_code)
+            if not cmp_id:
+                logger.error(f'Cannot find the FundCompany of code:{cmp_code},name:{cmp_name}')
+            mgr_info = {
+                'mgr_code': mgr_code,
+                'name': mgr_name,
+                'company_id': cmp_id,
+                'work_days': int(work_days),
+                'sum_scale': sum_scale,
+                'best_rt': best_rt,
             }
-            query_info = {'fund_code': code}
-            _ret = Fund.insert_or_update(query_info, **info)
-            logger.info(f'{_ret} create successful.')
-            _count += 1
-        fetch_count = len(_fund_list)
-        if fetch_count == _count:
-            logger.success(f'Update {fetch_count} of funds successful.')
-        else:
-            fail_count = fetch_count - _count
-            logger.warning(f'Update {fail_count} of funds failed.')
+            # 更新或插入基金经理信息
+            mgr_ret = Mgr.insert_or_update(mgr_query_info, **mgr_info)
+            logger.info(f'{mgr_ret} create/update successful.')
+            # 重新查一次
+            mgr_ins = Mgr.filter_by_code(mgr_code)
+            if mgr_ins:
+                mgr_id = mgr_ins.id
+            else:
+                logger.error(f'Cannot find fund manager of code:<{mgr_code}>.')
+            fund_objs_of_mgr = Mgr.get_by_id(mgr_id).funds
+            print(fund_objs_of_mgr)
+            # 在管基金
+            fund_lists_of_mgr = [f.fund_code for f in fund_objs_of_mgr]
+            # 查询到的列表不在现有的中
+            patch_funds = set(mgr_fd_list) - set(fund_lists_of_mgr)
+            print(patch_funds, mgr_fd_list, fund_lists_of_mgr, '=====patch_funds==')
+            if patch_funds:
+                for fund_item in patch_funds:
+                    fund_inst = None
+                    try:
+                        fund_inst = Fund.query.filter_by(fund_code=fund_item).first()
+                    except FlushError as e:
+                        print(fund_inst, '==========filter error=========')
+                        if fund_inst is None:
+                            logger.error(f'{fund_inst} code:{fund_item} fund_item, Error:{e}')
+                        # db.session.flush()
+                        # db.session.commit()
+                        # continue
+                    # 重新查，否则报错
+                    fund_inst = Fund.query.filter_by(fund_code=fund_item).first()
+                    if not fund_inst:
+                        self.sample_create_fund(fund_item)
+
+                    _mgr_ins = Mgr.filter_by_code(mgr_code)
+                    print(_mgr_ins, fund_inst, fund_item, '=========commit=====')
+                    _mgr_ins.funds.append(fund_inst)
+                    db.session.add(_mgr_ins)
+                    # 注意每一次都必须commit，否则query查询不到 see also:[python - SQLAlchemy: What's the difference between flush() and commit()? - Stack Overflow](https://stackoverflow.com/questions/4201455/sqlalchemy-whats-the-difference-between-flush-and-commit)
+                    # db.session.flush()
+                    db.session.commit()
+
+                # 不再管理的，移除掉？ TODO: 可能是历史管理基金（如：基金经理跳槽了）
+                # remove_funds = set(fund_lists_of_mgr) - set(mgr_fd_list)
+                # for fund_item in remove_funds:
+                #     fund_inst = Fund.query.filter_by(fund_code=fund_item).first()
+                #     mgr_ins.funds.remove(fund_inst)
+                # db.session.commit()
+
+            for f_code in mgr_fd_list:
+                fund_inst = Fund.filter_by_code(f_code)
+                fund_id = fund_inst.id
+                fund_mgr_inst = FundMgr.query.filter_by(fund_id=fund_id, mgr_id=mgr_id, end_date=None).first()
+                if f_code == best_fd:
+                    # 更新基金经理的代表作
+                    fund_mgr_inst.update(is_classic=True)
+                    # 一个经理只有一个代表作
+                    break
         return 0
-    else:
-        logger.warning('Get fund info error,can you connect to `http://fund.eastmoney.com/`?')
-        return 1
 
+    def bind_fund_company(self):
+        """
+        将基金公司与基金绑定起来，更新funds表的 co_id 外键即可 TODO: 是否需要手动操作
+        """
+        pass
 
-def t_days(self, f_code: str):
-    """
-    获取t+n中的n是几，一般为1
-    :param f_code:
-    :return:
-    """
-    resp = rget(f'http://fund.eastmoney.com/tools/DataHandler.aspx?t=t&ib=1&fc={f_code}')
-    regex = re.compile(r'.*={\s.*:"(\d)"};')
-    reg_mat = self.match_resp(resp, regex)
-    if reg_mat:
-        fund_day = int(reg_mat.groups()[0])
-        return fund_day
+    def company(self, save: bool = False):
+        """
+        获取基金公司信息
 
+        原始链接：[基金公司一览表 _ 天天基金网](http://fund.eastmoney.com/company/default.html) api:
+        http://fund.eastmoney.com/Data/FundRankScale.aspx
+        :return: list, 编号  基金公司   成立时间   全部基金数  总经理  短拼 全部管理规模(亿元)
+        天相评级    简称    update_time ['80000080', '山西证券股份有限公司', '1988-07-28', '16', '王怡里', 'SXZQ', '', '85.97', '★★★',
+        '山西证券', '', '2021/3/31 0:00:00'] 原始链接：[['80000080', '山西证券股份有限公司', '1988-07-28', '16', '王怡里', 'SXZQ', '',
+        '85.97', '★★★', '山西证券', '', '2021/3/31 0:00:00'], ['80000095', '国都证券股份有限公司', '2001-12-28', '4', '韩本毅',
+        'GDZQ', '', '3.18', '★★★', '国都证券', '', '2021/3/31 0:00:00']
+        """
+        fund_comp_url = 'http://fund.eastmoney.com/Data/FundRankScale.aspx'
+        resp = requests.get(fund_comp_url, headers=self.headers)
+        regex = re.compile(r'.*var.*json.*=.*datas:(.*)}')
+        reg_mat = self.match_resp(resp, regex)
 
-def trade_date(self,
-               f_code: Union[str, int],
-               t_num: Union[None, int] = None,
-               record_date: Union[None, str] = None) -> Union[dict, None]:
-    """
-    交易日
-    url: http://fund.eastmoney.com/tools/jiaoyiri.html
-    api: http://fund.eastmoney.com/tools/DataHandler.aspx?t=confirm&date=2021-06-24&days=1&after=1
-    :param f_code:基金编码
-    :param t_num:基金为T+几
-    :param record_date:记录日期，应该含有H:M:S,没有的话则认为是15点之前发起操作行为
-    :return:
-    {'WorkDate': '2021-06-18',
-     'Maturity': '2021-06-21',  # 基金确认日
-     'deadline': '2021-06-21',
-     'is_same': True        #是否与申请日在同一交易日
-     }
-    """
-    if not t_num:
-        t_num = self.t_days(f_code)
+        if reg_mat:
+            fund_comps_str = reg_mat.groups()[0]
+            '''
+            see also:   https://stackoverflow.com/a/50257217
+            '''
+            p = re.compile('(?<!\\\\)\'')
+            load_able_str = p.sub('\"', fund_comps_str)
+            comps = self.be_json(load_able_str)
+            if save:
+                for cop in comps:
+                    converted_cop = [str(item) or None if isinstance(item, str) else item for item in cop]
+                    comp_info = dict(
+                        zip([
+                            'code', 'full_name', 'create_date', 'f_counts', 'mgr', 'dpy', 'a_un', 'scale', 'tx_eval',
+                            'name', 'b_un', 'update_time'
+                        ], converted_cop))
+                    level_eval = comp_info.get('tx_eval', '')
+                    if level_eval:
+                        level = len(level_eval)
+                    else:
+                        level = None
 
-    parse_ret = dateparser.parse(record_date)
-    _date = parse_ret.date()
-    # 是否为15:00之后
-    after_15_flag = int(parse_ret.hour >= 15)
-    resp = rget(
-        f'http://fund.eastmoney.com/tools/DataHandler.aspx?t=confirm&date={_date}&days={t_num}&after='
-        f'{after_15_flag}',
-        headers=self.headers)
-    regex = re.compile(r'.*={\s(.*):"(.*)",(.*):"(.*)",(.*):"(.*)",(.*):"(.*)"};')
-    reg_mat = self.match_resp(resp, regex)
-    if reg_mat:
-        info = reg_mat.groups()
-        # [python - Pythonic way to turn a list of strings into a dictionary with the odd-indexed strings as keys
-        # and even-indexed ones as values? - Stack Overflow](
-        # https://stackoverflow.com/questions/3303213/pythonic-way-to-turn-a-list-of-strings-into-a-dictionary
-        # -with-the-odd-indexed-st) data = dict(zip(info[::2], info[1::2]))
-        '''
-        ('WorkDate', '2021-06-18', 'IsSame', '1', 'Maturity', '2021-06-21', 'deadline', '2021/06/21')
-        
-        {'WorkDate': '2021-06-18', 'IsSame': '1', 'Maturity': '2021-06-21', 'deadline': '2021-06-21', 'is_same': 
-        True} 
+                    comp_info['tx_eval'] = level
+                    # 两个不知道含义的暂时pop
+                    comp_info.pop('a_un')
+                    comp_info.pop('b_un')
+                    code = comp_info.get('code')
+                    comp = FundCompany()
+                    query_info = {'code': code}
+                    comp.insert_or_update(query_info, **comp_info)
+            return comps
 
-        '''
-        data = dict(zip(*[iter(info)] * 2))
-        data['deadline'] = str(dateparser.parse(data.get('deadline')).date())
-        is_same = data.pop('IsSame')
-        data['is_same'] = bool(int(is_same))
-        return data
+    def fund(self, save: bool = False, format_: str = 'sql') -> Union[str, None]:
+        """
+        获取基金信息
 
+        :return:[["000001","HXCZHH","华夏成长混合","混合型","HUAXIACHENGZHANGHUNHE"],["000002","HXCZHH","华夏成长混合(后端)","混合型","HUAXIACHENGZHANGHUNHE"],["000003","ZHKZZZQA","中海可转债债券A","债券型","ZHONGHAIKEZHUANZHAIZHAIQUANA",...]]
+        """
+        fund_code_search_url = 'http://fund.eastmoney.com/js/fundcode_search.js'
+        resp = rget(fund_code_search_url, headers=self.headers)
+        regex = re.compile(r'.+var\s*r\s*=\s*(.+);')
+        reg_mat = self.match_resp(resp, regex)
 
-def hold_split(self):
-    """
-    TODO:基金持有时间过短会收取高额的赎回费，所以我们需要增加功能以对持有进行分类
-    [Python-Pandas之日期分组（将日期按照设定的组分为不同类型）_苏小败在路上-CSDN博客_pandas根据时间分组数据](https://blog.csdn.net/pz789as/article/details/106136141)
-    :return:
-    """
-    pass
+        if reg_mat:
+            fund_info = reg_mat.groups()[0]
+            ct = self.counts(fund_info)
+            logger.info(f'Get {ct} funds from remote……')
+            # 保存数据
+            if save:
+                _ret = self.do_save_action(format_, fund_info)
+                if _ret == 0:
+                    logger.info('Save Fund info successfully.')
+                else:
+                    logger.error('Save Fund info failed.')
+                # assert format_ in ['sql', 'json']
+                # if format_ == 'sql':
+                #     self.save_to_db(fund_info)
+                # elif format_ == 'json':
+                #     self.save_to_json(fund_info)
+
+            return fund_info
+
+    def do_save_action(self, format_, save_data, suffix=None):
+        """
+        FIXME: 保存基金、基金经理、基金公司应该使用不同的前/后缀
+        """
+        assert format_ in ['sql', 'json']
+        if format_ == 'sql':
+            # TODO: 每个数据保存在不同的数据表中
+            self.save_to_db(save_data)
+        elif format_ == 'json':
+            self.save_to_json(save_data, suffix=suffix)
+        return 0
+
+    @staticmethod
+    def save_to_json(fund_info: str, suffix: Union[str, None] = None) -> int:
+        """
+        将获取数据保存为json
+        :return:
+        """
+        ret_code = 1
+        if fund_info:
+            if suffix:
+                f_name = '_'.join(['fund', suffix])
+            else:
+                f_name = 'fund'
+
+            file_save_fp = f'{str(current_path)}/{f_name}.json'
+            logger.info(f'Data saved to {file_save_fp}.')
+            with open(file_save_fp, 'w') as f:
+                json.dump(fund_info, f, ensure_ascii=False)
+            ret_code = 0
+        return ret_code
+
+    @staticmethod
+    def fund_types(fund_list: list) -> set:  # see also:NewDB.fund_type
+        """
+        获取所有基金类别 :return:set, {'货币型', 'QDII', '股票-FOF', 'ETF-场内', 'QDII-指数', '股票指数', '混合型', '债券型', '理财型', '混合-FOF',
+        '股票型', '联接基金', 'QDII-ETF', '债券指数', '定开债券'}
+        """
+        fund_type_set = set()
+        for f in fund_list:
+            fund_type_set.add(f[3])
+        return fund_type_set
+
+    @staticmethod
+    def be_json(_funds: str) -> list:
+        """
+        转为json
+        """
+        return json.loads(_funds)
+
+    def counts(self, funds_info: str) -> int:
+        _fund_lists = self.be_json(funds_info)
+        _count = len(_fund_lists)
+        return _count
+
+    @staticmethod
+    def _split_fvt(f_vt_str: str) -> tuple:
+        """
+        >>> avt = '债券型-混合债'
+        >>> avt.split('-')
+        ['债券型', '混合债']
+        """
+        _ft = None
+        if '-' in f_vt_str:
+            _fv, _ft = f_vt_str.split('-')
+        else:
+            _fv = f_vt_str
+        return _fv, _ft
+
+    def save_to_db(self, _funds: str) -> int:
+        """
+        保存fund信息到数据库
+        :return:
+        """
+
+        if _funds:
+            _fund_list = self.be_json(_funds)
+
+            # 将基金信息更新/写入funds表
+            type_map = dict()
+            cache_fv_map = dict()
+            _count = 0
+            for f in _fund_list:
+                # ["000001","HUZZAH","华夏成长混合","混合型","HUAXIACHENGZHANGHUNHE"]
+                code, szm, name, _f_temp, qpy = f
+                fv, ft = self._split_fvt(_f_temp)
+                # 基金大类处理
+                '''
+                如果大类名称在缓存字典中，则直接获取，不去查数据库；
+                否则，查询数据库，如果没有查到则创建，并更新缓存字典
+                '''
+                _fv_info = {'name': fv}
+                if fv in cache_fv_map:
+                    _fv_id = cache_fv_map.get(fv)
+                else:
+                    _fv_id = FundVariety.id_by_name(name=fv)
+                    if not _fv_id:
+                        f_tp = FundVariety.create(**_fv_info)
+                        _fv_id = f_tp.id
+                    cache_fv_map[fv] = _fv_id
+
+                # 基金小类处理
+                _ft_id = None
+                if ft:
+                    _ft_info = {'name': ft}
+                    if ft in type_map:
+                        _ft_id = type_map.get(ft)
+                    else:
+                        _ft_id = FundType.id_by_name(ft)
+                        # 父类关联写入
+                        _ft_info['var_id'] = _fv_id
+                        if not _ft_id:
+                            f_tp = FundType.create(**_ft_info)
+                            _ft_id = f_tp.id
+                        type_map[ft] = _ft_id
+                info = {
+                    'name': name,
+                    'sxszm': szm,
+                    'qxpy': qpy,
+                    'fund_code': code,
+                    'f_type': _ft_id if _ft_id else None,
+                    'f_var': _fv_id,
+                }
+                query_info = {'fund_code': code}
+                _ret = Fund.insert_or_update(query_info, **info)  # TODO: 需要对更新还是创建做区分
+                logger.info(f'{_ret} create successful.')
+                _count += 1
+            fetch_count = len(_fund_list)
+            if fetch_count == _count:
+                logger.success(f'Update {fetch_count} of funds successful.')
+            else:
+                fail_count = fetch_count - _count
+                logger.warning(f'Update {fail_count} of funds failed.')
+            return 0
+        else:
+            logger.warning('Get fund info error,can you connect to `http://fund.eastmoney.com/`?')
+            return 1
+
+    def t_days(self, f_code: str):
+        """
+        获取t+n中的n是几，一般为1
+        :param f_code:
+        :return:
+        """
+        resp = rget(f'http://fund.eastmoney.com/tools/DataHandler.aspx?t=t&ib=1&fc={f_code}')
+        regex = re.compile(r'.*={\s.*:"(\d)"};')
+        reg_mat = self.match_resp(resp, regex)
+        if reg_mat:
+            fund_day = int(reg_mat.groups()[0])
+            return fund_day
+
+    def hold_split(self):
+        """
+        TODO:基金持有时间过短会收取高额的赎回费，所以我们需要增加功能以对持有进行分类
+        [Python-Pandas之日期分组（将日期按照设定的组分为不同类型）_苏小败在路上-CSDN博客_pandas根据时间分组数据](https://blog.csdn.net/pz789as/article/details/106136141)
+        :return:
+        """
+        pass
 
 
 em = EastMoney()
 
 if __name__ == '__main__':
-    print(em.mgr())
+    print(em.mgr(save=True, format_='json'))
     # funds = em.fund()
     # count = 0
     # if funds:
