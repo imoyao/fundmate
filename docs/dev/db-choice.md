@@ -62,7 +62,6 @@ Baz --> baz         # 单个单词的改为小写
 
 ## 声明关系对应模型
 
-
 ### 一对多(one-to-many)
 一对多关系将一个外键`sqlalchemy.schema.ForeignKey`定义在引用父表的子表上。然后在父节点上指定`relationship()`，以引用由子节点表示的一组项：
 ```python
@@ -92,7 +91,11 @@ class Child(Base):
 
 ```
 这样，子就获得一个具有“多对一”的父级属性。
-那么
+
+::: 注意
+我们注意到，在`relationship()` 上，既可以使用`relationship.backref`选项，又可以使用`relationship.back_populates`，那么这两者之间有什么区别呢？
+:::
+
 - `back_populates` vs `backref`
 [python - When do I need to use sqlalchemy back_populates? - Stack Overflow](https://stackoverflow.com/questions/39869793/when-do-i-need-to-use-sqlalchemy-back-populates)
 
@@ -100,7 +103,7 @@ class Child(Base):
 >
 英文不好的同学可以参考本人下文翻译：
 
-`backref`更为简洁，因为您不需要在两个类上都声明该关系，但是实践中，我发现这一点不值得作为准则。基于以下两点，我认为`back_populates`更好：
+`backref`更为简洁，因为您不需要在两个类上都声明该关系，但是实践中，我发现这一点不值得作为准则。基于以下原因，我认为`back_populates`更好：
 
 1. 不仅因为在 python 文化中，“显式比隐式更好”（Python 之禅）；
 2. 而且当我们创建了许多模型时，快速浏览一下它的声明，就可以看到所有关系及其名称，而不用去在所有相关模型上慢慢查找；
@@ -119,7 +122,7 @@ TODO：[Basic Relationship Patterns — SQLAlchemy 1.4 Documentation](https://do
 ---
 
 
-## 事物
+## 事务
 
 代码：`backend.fundmate.database.save()`
 
@@ -186,7 +189,7 @@ class Address(db.Model):
 *   `'dynamic'` 在有多条数据的时候是特别有用的。不是直接加载这些数据，SQLAlchemy 会返回一个查询对象，在加载数据前您可以过滤（提取）它们。
 
 您如何为反向引用（backrefs）定义惰性（lazy）状态？使用 [`backref()`](http://www.sqlalchemy.org/docs/orm/relationship_api.html) 函数:
-```plain
+```python
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(50))
@@ -195,7 +198,7 @@ class User(db.Model):
 ```
 ## 多对多(many-to-many)关系
 
-User 和 Role 表之间互为多对多关系，我们需要定义一个用于关系的辅助表。对于这个辅助表， 强烈建议 _不_ 使用模型，而是采用一个实际的表；:
+User 和 Role 表之间互为多对多关系，我们需要定义一个用于关系的辅助表。对于这个辅助表，强烈建议 _不_ 使用模型，而是采用一个实际的表:
 ```python
 tags = db.Table('tags',
     db.Column('tag_id', db.Integer, db.ForeignKey('tag.id')),
@@ -216,10 +219,14 @@ class Tag(db.Model):
 class FundMgr(PkModel):
     pass
 ```
+```python
+funds = relationship('Fund', secondary='fund_mgr', back_populates='mgrs')
+```
+注意两个表之间`secondary=''`，后面应该跟表名。
+
 在 [idealyard](https://github.com/imoyao/idealyard) 项目中，我们的文章和作者就是一对多的关系。本例中，我们的用户（User）和账户（Account）也是这种关系。
-此外，我们可以在单个`relationship()` 上使用`relationship.backref`选项，而不是使用`relationship.back_populates`：
 :::tip TODO
-此处为简化模型，我们默认一个账户只属于一个用户，然而在实际项目中，我们可能在后期设计中引入“家庭账户”或者“共同管理账户”的设计，此时，用户和账户的关系就会变成多对多的关系。
+此处为了简化模型，我们默认一个账户只属于一个用户，然而在实际项目中，我们可能在后期设计中引入“家庭账户”或者“共同管理账户”的设计，此时，用户和账户的关系就会变成多对多的关系。
 :::
 
 - relationship & ForeignKey
@@ -295,7 +302,7 @@ association_table = Table('association', Base.metadata,
     Column('right_id', Integer, ForeignKey('right.id'))
 )
 ```
-而关联对象（association object）模式是多对多的一种变体：当关联表包含左右表外键之外的其他数据列时，就需要使用该模式：
+而关联对象（association object）模式是多对多的一种变体：**当关联表包含左右表外键之外的其他数据列时**，就需要使用该模式：
 ```python
 class Association(Base):
     left_id = Column(Integer, ForeignKey('left.id'), primary_key=True)
@@ -366,15 +373,88 @@ MYSQL_DB=
 
 ## TODO
 
+参见：[数据model修改之后执行`flask db migrate`没有反应，探测不到代码修改 · Issue #231 · imoyao/fundmate](https://github.com/imoyao/fundmate/issues/231)
+查阅资料：
+1. [sqlalchemy 中用 db.create_all()无法建表？ - 知乎](https://www.zhihu.com/question/21489726)
+2. [使用 Flask-SQLAlchemy 调用 create_all()前是否需要导入模型类？为什么？ - 知乎](https://www.zhihu.com/question/284904297)
+
+> Your model classes inherit from db.Model, so you have to have db defined or imported before your models. Likewise, your Migrate instance needs to take db as an argument in the constructor. The Migrate instance and the models do not have any dependency between them, but it is common to have Migrate defined right after db, so to summarize, the usual order is db is defined/imported first, then your Migrate instance, and then your models.
+Note that if you use a linter, it may flag the models as being unused imports. This is fine, importing the models is necessary anyway, as Alembic and SQLAlchemy use introspection to find the models among all the imported symbols. If the models are not imported, then Alembic will think you have no models in your database schema, which is what happened to you.
+
+参见[此处](https://github.com/miguelgrinberg/Flask-Migrate/issues/220)
+
+
+`fundmate.app.register_shell_context`函数中需要注册之后调用`flask init-db`才能生成需要的数据表。
+
+### 默认隔离事务导致的更新数据后查询失败
+
+在将基金经理信息存入数据表（fund-mgr）时，遇到报错：
+```bash
+FlushError: Can't flush None value found in collection Mgr.funds
+```
+查阅资料：
+
 [flask-sqlalchemy 中 db.session.query 和 model.query 方式要怎么选择 - Flask - HelloFlask 论坛](https://discuss.helloflask.com/t/topic/779)
 
 [python - What's the difference between Model.query and session.query(Model) in SQLAlchemy? - Stack Overflow](https://stackoverflow.com/questions/12350807/whats-the-difference-between-model-query-and-session-querymodel-in-sqlalchemy)
 
-参见：
-1. [sqlalchemy 中用 db.create_all()无法建表？ - 知乎](https://www.zhihu.com/question/21489726)
-2. [使用 Flask-SQLAlchemy 调用 create_all()前是否需要导入模型类？为什么？ - 知乎](https://www.zhihu.com/question/284904297)
+数据库隔离级别导致的问题，MySQL默认隔离级别是可重复读（REPEATABLE-READ），所以同一个事务里面前后查询结果是相同的；建议您第一次查询后显式提交或回滚事务，然后进行第二次查询。
 
-`fundmate.app.register_shell_context`函数中需要注册之后调用`flask init-db`才能生成需要的数据表。
+>A Session object is basically an ongoing transaction of changes to a database (update, insert, delete). These operations aren't persisted to the database until they are committed (if your program aborts for some reason in mid-session transaction, any uncommitted changes within are lost). 
+> 
+>The session object registers transaction operations with session.add(), but doesn't yet communicate them to the database until session.flush() is called. 
+> 
+>session.flush() communicates a series of operations to the database (insert, update, delete). The database maintains them as pending operations in a transaction. The changes aren't persisted permanently to disk, or visible to other transactions until the database receives a COMMIT for the current transaction (which is what session.commit() does).
+>
+>session.commit() commits (persists) those changes to the database.
+>
+>flush() is always called as part of a call to commit() (1).
+>
+>When you use a Session object to query the database, the query will return results both from the database and from the flushed parts of the uncommitted transaction it holds. By default, Session objects autoflush their operations, but this can be disabled.
+>
+>Hopefully this example will make this clearer:
+
+```python
+#---
+s = Session()
+
+s.add(Foo('A')) # The Foo('A') object has been added to the session.
+# It has not been committed to the database yet,
+#   but is returned as part of a query.
+print(1, s.query(Foo).all())
+s.commit()
+
+#---
+s2 = Session()
+s2.autoflush = False
+
+s2.add(Foo('B'))
+print(2, s2.query(Foo).all()) # The Foo('B') object is *not* returned
+#   as part of this query because it hasn't
+#   been flushed yet.
+s2.flush()                   # Now, Foo('B') is in the same state as
+#   Foo('A') was above.
+print(3, s2.query(Foo).all())
+s2.rollback()                # Foo('B') has not been committed, and rolling
+#   back the session's transaction removes it
+#   from the session.
+print(4, s2.query(Foo).all())
+
+#---
+Output:
+1 [<Foo('A')>]
+2 [<Foo('A')>]
+3 [<Foo('A')>, <Foo('B')>]
+4 [<Foo('A')>]
+```
+解决方案，每一次append之后直接commit。
+```python
+mgr_ins = Mgr.filter_by_code(mgr_code)
+mgr_ins.funds.append(fund_inst)
+db.session.add(mgr_ins)
+db.session.commit()
+```
+关于几种操作的区别参阅：[SQLAlchemy commit(), flush(), expire(), refresh(), merge() - what's the difference?](https://michaelcho.me/article/sqlalchemy-commit-flush-expire-refresh-merge-whats-the-difference)
 
 数据库在初始化构建完成之后，我们就可以进行开发了。但是在实际的开发过程中，我们的设计会跟着开发不断迭代进化。这个时候我们就需要进行数据库的迁移。
 
@@ -436,6 +516,20 @@ SQL 文件详见 [此处](https://github.com/imoyao/fundmate/blob/master/db/fmt.
 1. 连接池
 2. 超时释放问题
    数据库连接池我们一般使用 [DBUtils](https://webwareforpython.github.io/DBUtils/main.html) ，但是由于使用了 ORM，所以使用自带的连接池 [Connection Pooling — SQLAlchemy 1.4 Documentation](https://docs.sqlalchemy.org/en/14/core/pooling.html) 即可。
+
+### 遇到问题
+
+- 增加字段长度和类型检测
+
+[No changes detected in Alembic autogeneration of migrations with Flask-SQLAlchemy - Stack Overflow](https://stackoverflow.com/questions/12409724/no-changes-detected-in-alembic-autogeneration-of-migrations-with-flask-sqlalchemy) 
+[Flask migrate does not recognise a change made in my post model. :flask](https://www.reddit.com/r/flask/comments/98kmhe/af_flask_migrate_does_not_recognise_a_change_made/)
+
+- 新更新内容无法探测
+
+[python - Flask-Migrate No Changes Detected to Schema on first migration - Stack Overflow](https://stackoverflow.com/questions/51783300/flask-migrate-no-changes-detected-to-schema-on-first-migration)
+[python - flask-migrate doesn't detect models - Stack Overflow](https://stackoverflow.com/questions/26564784/flask-migrate-doesnt-detect-models)
+
+- [python - Difference between filter and filter_by in SQLAlchemy - Stack Overflow](https://stackoverflow.com/questions/2128505/difference-between-filter-and-filter-by-in-sqlalchemy)
 
 ### 规范
 
