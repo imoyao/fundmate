@@ -9,6 +9,7 @@ from flask import Flask
 from backend.fundmate import account, commands, fund, public, settings, user
 from backend.fundmate.config import config
 from backend.fundmate.extensions import bcrypt, db, login_manager, loguru, migrate
+# from backend.fundmate.fund.models import Fund, FundMgr, Mgr  # noqa:F401
 from backend.fundmate.settings import env
 
 from .exts.flask_loguru import logger
@@ -44,11 +45,17 @@ def register_extensions(app: Flask):
     bcrypt.init_app(app)
     db.init_app(app)
     login_manager.init_app(app)
-    # 增加字段长度和类型检测 [No changes detected in Alembic autogeneration of migrations with Flask-SQLAlchemy - Stack
-    # Overflow]( https://stackoverflow.com/questions/12409724/no-changes-detected-in-alembic-autogeneration-of
-    # -migrations-with -flask-sqlalchem)
-    # [[AF] Flask migrate does not recognise a change made in my post model. :flask]
-    # (https://www.reddit.com/r/flask/comments/98kmhe/af_flask_migrate_does_not_recognise_a_change_made/)
+    '''
+    - 增加字段长度和类型检测 
+    [No changes detected in Alembic autogeneration of migrations with Flask-SQLAlchemy - Stack
+    Overflow]( https://stackoverflow.com/questions/12409724/no-changes-detected-in-alembic-autogeneration-of
+    -migrations-with -flask-sqlalchem)
+    [[AF] Flask migrate does not recognise a change made in my post model. :flask]
+    (https://www.reddit.com/r/flask/comments/98kmhe/af_flask_migrate_does_not_recognise_a_change_made/)
+    - 新更新内容无法探测 
+    [python - Flask-Migrate No Changes Detected to Schema on first migration - Stack Overflow](https://stackoverflow.com/questions/51783300/flask-migrate-no-changes-detected-to-schema-on-first-migration)
+    [python - flask-migrate doesn't detect models - Stack Overflow](https://stackoverflow.com/questions/26564784/flask-migrate-doesnt-detect-models)
+    '''  # noqa:E501
     migrate.init_app(app, db, compare_type=True)
     loguru.init_app(app, {
         "LOG_PATH": env.str('LOG_PATH', default='/home/work/var/log'),
@@ -87,11 +94,27 @@ def register_shell_context(app: Flask):
 
     def shell_context():
         """Shell context objects."""
-        return {"db": db, "User": user.models.User, 'Fund': fund.models.Fund, 'Account': account.models.Account}
+        return {
+            "db": db,
+            "User": user.models.User,
+            'Fund': fund.models.Fund,
+            'FundMgr': fund.models.Mgr,
+            'MidFundMgr': fund.models.FundMgr,
+            'Account': account.models.Account
+        }
 
     # 当你使用flask shell命令启动Python Shell时，所有使用app.shell_context_processor装饰器注册的shell上下文处理函数
     # 都会被自动执行，这会将db和Note对象推送到Python Shell上下文里
     app.shell_context_processor(shell_context)
+
+
+'''
+TODO: 另一种写法
+see also:https://github.com/miguelgrinberg/flasky/blob/29e3646db8185254f0c9f52522014f83ed095ece/flasky.py#L25
+@app.shell_context_processor
+def make_shell_context():
+    return dict(db=db, User=User, Follow=Follow, Role=Role, Permission=Permission, Post=Post, Comment=Comment)
+'''
 
 
 def register_commands(app: Flask):
