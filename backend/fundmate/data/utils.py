@@ -4,11 +4,13 @@
 """
 与爬虫、数据处理有关的一些工具方法
 """
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import Generator, Union
 
 import dateparser
+import yaml
 
 
 def parse_headers(raw_header: str) -> dict:
@@ -78,3 +80,34 @@ def delete_overdue(html_fp: Union[str, Path], json_fp: Union[str, Path, None]) -
                 if p.exists():
                     jp.unlink()
     return 0
+
+
+class ParseData:
+
+    def __init__(self):
+        pass
+
+    @staticmethod
+    def get_data_from_json(json_fp: Union[str, Path]):
+        """
+        从指定的json文件中解析数据
+        :param json_fp:str,文件路径
+        :return:dict,
+        """
+        with open(json_fp, encoding='utf-8') as f:
+            data = json.load(f)
+        return data
+
+    @staticmethod
+    def get_data_from_yaml(yaml_fp: Union[str, Path]):
+        """
+        从指定的yaml文件中解析数据
+        :param yaml_fp:文件路径
+        :return: dict,
+        """
+        with open(yaml_fp) as f:
+            data = yaml.load(f, Loader=yaml.FullLoader)
+        return data
+
+
+data_parser = ParseData()
