@@ -16,10 +16,10 @@ from sys import stderr
 
 from loguru import logger
 
-try:
-    from flask import _app_ctx_stack as stack
-except ImportError:
-    from flask import _request_ctx_stack as stack
+# try:
+#     from flask import _app_ctx_stack as stack
+# except ImportError:
+#     from flask import _request_ctx_stack as stack
 
 LOG_LEVEL_TO_NAME = {
     5: "TRACE",
