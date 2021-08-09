@@ -17,7 +17,6 @@ page_num = 20
 
 def get_info():
     req_url = f'http://dq.jd.com/pension/item/netValueDetail?pageNo=1&fundCode={tk_code}'
-    # TODO: use rget_json
     start_data = rget_json(req_url)
     pager = start_data.get('result').get('pager')
     total_page = pager.get('totalPage')

@@ -47,8 +47,7 @@ def main(fund_type: str = 'all') -> int:
     获取所有基金信息
     [请问是否有api 可以一次获得所有基金编码？ · Issue #95 · refraction-ray/xalpha](https://github.com/refraction-ray/xalpha/issues/95)
     all,hh,zq, zs, gp, qdii, fof 分别对应全部混合，债券，指数，股票型的全部基金列表
-    TODO:
-    # 注意上述接口不够全，最终数据校验可参考此页面：
+    TODO: 注意上述接口不够全，最终数据校验可参考此页面：
     [基金公司一览表 _ 天天基金网](http://fund.eastmoney.com/company/default.html)
 
     :param fund_type:

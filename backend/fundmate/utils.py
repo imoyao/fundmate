@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """Helper utilities and decorators.
 整个项目中的工具函数
-TODO: 如果后期变大，则拆分为多个文件
 """
 import itertools
 import os
