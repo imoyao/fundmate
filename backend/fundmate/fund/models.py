@@ -129,6 +129,30 @@ class Mgr(PkModel, UpsertMixin):
     def __repr__(self):
         return f"<Fund Manager({self.mgr_code!r}, {self.name!r})>"
 
+    @classmethod
+    def filter_by_code(cls, code: str) -> Union[object, None]:  # TODO: 类型注释有问题
+        """获取编码所对应的id
+        """
+        _ins = cls.query.filter_by(mgr_code=code).first()
+        return _ins
+
+    @classmethod
+    def present_funds(cls, mgr_code: str) -> Union[list, None]:
+        """
+        获取当前在管基金
+        """
+        _ins = cls.filter_by_code(mgr_code)
+        if _ins:
+            all_ever_managed_funds = _ins.funds
+
+            all_now_managed_funds = list()
+            for f in all_ever_managed_funds:
+                fund_id = f.id
+                f_inst = FundMgr.query.filter_by(fund_id=fund_id).first()
+                if f_inst.end_date is None:
+                    all_now_managed_funds.append(f)
+            return all_now_managed_funds
+
 
 class FundMgr(PkModel):
     """relation between Fund and Mgr
@@ -138,27 +162,11 @@ class FundMgr(PkModel):
     """
     __table_args__ = {'comment': '基金与经理关联表'}
 
-    fund_id = Column(db.Integer, db.ForeignKey('funds.id'), comment='基金编号')
-    mgr_id = Column(db.Integer, db.ForeignKey('mgrs.id'), comment='基金经理编号')
+    fund_id = Column(db.Integer, db.ForeignKey('funds.id'), comment='基金ID')
+    mgr_id = Column(db.Integer, db.ForeignKey('mgrs.id'), comment='基金经理ID')
     is_classic = Column(db.Boolean, comment='是否属于该经理的代表作')
     start_date = Column(db.DateTime)
     end_date = Column(db.DateTime)
-
-    @classmethod
-    def filter_by_code(cls, code: str) -> Union[object, None]:  # TODO: 类型注释有问题
-        """获取编码所对应的id
-        """
-        _ins = cls.query.filter_by(mgr_code=code).first()
-        return _ins
-
-    def present_funds(self, mgr_code: str):
-        """
-        获取当前在管基金 TODO: 没有测试
-        """
-        _ins = self.filter_by_code(mgr_code)
-        all_mged_funds = _ins.funds
-        all_mgring_funds = [f for f in all_mged_funds if f.end_date is None]
-        return all_mgring_funds
 
 
 class FundCompany(PkModel, UpsertMixin):
