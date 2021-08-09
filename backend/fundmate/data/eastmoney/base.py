@@ -3,7 +3,6 @@
 """
 import json
 import re
-import time
 from pathlib import Path
 from typing import Union
 
@@ -123,21 +122,25 @@ class EastMoney:
             mgr_data = data_parser.get_data_from_json(file_save_fp)
             self.save_mgr_2db(mgr_data)
 
-    def subscription_period_fund(self, fund_code: str):
+    @staticmethod
+    def subscription_period_fund(code: str, name: str) -> Fund:
         """
         TODO: 单独获取（新发）基金信息并保存
         """
-        pass
+        sample_fund = Fund.create(fund_code=code, name=name)
+        return sample_fund
 
-    def save_mgr_2db(self, fund_mgr_info: list):
+    def save_mgr_2db(self, fund_mgr_info: list):  # noqa: C901
         """
         将基金经理信息存入数据表MGRS,此外，还会将基金与基金经理关联起来，信息存入FUND_MGR中间表
-        FIXME: 需要注意的是：有一部分基金是新发基金，这个时候funds表中是没有数据的，此是关联基金经理会报错：`FlushError: Can't flush None value found in collection Mgr.funds`，目前的解决方案是直接continue跳过这个数据的写入，后期可能需要优化流程，添加新发基金的信息爬取
-        """
+        FIXME: 需要注意的是：有一部分基金是新发基金，这个时候funds表中是没有数据的，此时关联基金经理会报错：`FlushError: Can't flush None value found in collection Mgr.funds`，目前的解决方案是直接continue跳过这个数据的写入，后期可能需要优化流程，添加新发基金的信息爬取
+        """  # noqa: E501
         for mgr_item in fund_mgr_info:
-            mgr_code, mgr_name, cmp_code, cmp_name, mgr_fd, _, work_days, _best_rt, \
+            mgr_code, mgr_name, cmp_code, cmp_name, mgr_fd, mgr_fn, work_days, _best_rt, \
             best_fd, _, _sum_scale, _ = mgr_item
             mgr_fd_list = mgr_fd.split(',')
+            mgr_fn_list = mgr_fn.split(',')
+            mgr_fd_map = dict(zip(mgr_fd_list, mgr_fn_list))
             best_rt = self.remove_specific_str(_best_rt, "%")
             sum_scale = self.remove_specific_str(_sum_scale, "亿元")
 
@@ -174,21 +177,30 @@ class EastMoney:
                         fund_inst = Fund.query.filter_by(fund_code=fund_item).first()
                     except FlushError as e:
                         if fund_inst is None:
-                            logger.error(f'Fund info of {fund_item} get error,maybe a new fund in subscription period?')
+                            logger.error(
+                                f'Error:{e},Fund info of {fund_item} get error,maybe a new fund in subscription period?'
+                            )
                             continue
                     # 重新查，否则报错
                     fund_inst = Fund.query.filter_by(fund_code=fund_item).first()
                     if not fund_inst:
+                        # 根据已有信息创建一个，后期自动更新
                         logger.error(
-                            f'Query Fund info of {fund_item} error,maybe is a new fund in subscription period?')
-                        continue
-                        # TODO: 需要抓取存入，取消continue
-                        # self.subscription_period_fund(fund_min_info)
+                            f'Query Fund info of {fund_item} error,maybe is a new fund in subscription period? '
+                            f'we will try to create it with minimum info.')
+                        # 最简创建
+                        fund_name = mgr_fd_map.get(fund_item)
+                        fund_inst = self.subscription_period_fund(fund_item, fund_name)
+                        logger.info(f'The fund in subscription period created as {fund_inst}')
 
                     _mgr_ins = Mgr.filter_by_code(mgr_code)
                     _mgr_ins.funds.append(fund_inst)
                     db.session.add(_mgr_ins)
-                    # 注意每一次都必须commit，否则query查询不到 see also:[python - SQLAlchemy: What's the difference between flush() and commit()? - Stack Overflow](https://stackoverflow.com/questions/4201455/sqlalchemy-whats-the-difference-between-flush-and-commit)
+                    '''
+                    注意每一次都必须commit，否则query查询不到 see also:
+                    [python - SQLAlchemy: What's the difference between flush() and commit()? - Stack Overflow]
+                    (https://stackoverflow.com/questions/4201455/sqlalchemy-whats-the-difference-between-flush-and-commit)
+                    '''
                     # db.session.flush()
                     db.session.commit()
 
@@ -202,9 +214,8 @@ class EastMoney:
             for f_code in mgr_fd_list:
                 fund_inst = Fund.filter_by_code(f_code)
                 if fund_inst is None:
-                    logger.error(
-                        f'Fund info of {f_code} get error,maybe a new fund in subscription period? Just create the instance and try again.'
-                    )
+                    logger.error(f'Fund info of {f_code} get error,maybe a new fund in subscription period? '
+                                 f'Just create the instance and try again.')
                     continue
 
                 fund_id = fund_inst.id
@@ -212,7 +223,7 @@ class EastMoney:
                 if f_code == best_fd:
                     # 更新基金经理的代表作
                     fund_mgr_inst.update(is_classic=True)
-                    # 一个经理只有一个代表作
+                    # 假定一个经理只有一个代表作
                     break
         return 0
 
