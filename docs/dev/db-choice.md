@@ -373,7 +373,7 @@ MYSQL_DB=
 
 ## TODO
 
-参见：[数据model修改之后执行`flask db migrate`没有反应，探测不到代码修改 · Issue #231 · imoyao/fundmate](https://github.com/imoyao/fundmate/issues/231)
+参见：[数据 model 修改之后执行`flask db migrate`没有反应，探测不到代码修改 · Issue #231 · imoyao/fundmate](https://github.com/imoyao/fundmate/issues/231)
 查阅资料：
 1. [sqlalchemy 中用 db.create_all()无法建表？ - 知乎](https://www.zhihu.com/question/21489726)
 2. [使用 Flask-SQLAlchemy 调用 create_all()前是否需要导入模型类？为什么？ - 知乎](https://www.zhihu.com/question/284904297)
@@ -398,7 +398,7 @@ FlushError: Can't flush None value found in collection Mgr.funds
 
 [python - What's the difference between Model.query and session.query(Model) in SQLAlchemy? - Stack Overflow](https://stackoverflow.com/questions/12350807/whats-the-difference-between-model-query-and-session-querymodel-in-sqlalchemy)
 
-数据库隔离级别导致的问题，MySQL默认隔离级别是可重复读（REPEATABLE-READ），所以同一个事务里面前后查询结果是相同的；建议您第一次查询后显式提交或回滚事务，然后进行第二次查询。
+数据库隔离级别导致的问题，MySQL 默认隔离级别是可重复读（REPEATABLE-READ），所以同一个事务里面前后查询结果是相同的；建议您第一次查询后显式提交或回滚事务，然后进行第二次查询。
 
 >A Session object is basically an ongoing transaction of changes to a database (update, insert, delete). These operations aren't persisted to the database until they are committed (if your program aborts for some reason in mid-session transaction, any uncommitted changes within are lost). 
 > 
@@ -447,7 +447,7 @@ Output:
 3 [<Foo('A')>, <Foo('B')>]
 4 [<Foo('A')>]
 ```
-解决方案，每一次append之后直接commit。
+解决方案，每一次 append 之后直接 commit。
 ```python
 mgr_ins = Mgr.filter_by_code(mgr_code)
 mgr_ins.funds.append(fund_inst)
