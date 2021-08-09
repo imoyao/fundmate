@@ -15,7 +15,7 @@ title: 测试你的代码 | 未经测试的代码是不完整的
 - 中文文档 [pyTest 官方手册(Release 4.2)之蹩脚翻译(1)_crazyskady 的博客-CSDN 博客](https://blog.csdn.net/crazyskady/article/details/87393268)
 ## 现有问题
 
-网上有很多介绍pytest的文章，但是多为简单demo，很少结合实际开发。本项目介绍力争结合实际项目中如何使用。
+网上有很多介绍 pytest 的文章，但是多为简单 demo，很少结合实际开发。本项目介绍力争结合实际项目中如何使用。
 
 ## 咳，出发
 
@@ -37,8 +37,8 @@ title: 测试你的代码 | 未经测试的代码是不完整的
 基础数据是否可以不遵循此条，否则，可能跑数据需要很久。
 :::
 
-### 结合PyCharm
-设置PyCharm默认测试类型
+### 结合 PyCharm
+设置 PyCharm 默认测试类型
 打开 File > Settings > Tools > Python Integrated Tools > Testing > Default test runner
 修改下拉框，改为"pytest"
 右键单元测试文件，点击"run"，即可执行测试，在下方的"Run"窗口也有相应的测试结果

@@ -65,7 +65,7 @@ sections = FUTURE,STDLIB,FLASK,TEST,FIRSTPARTY,THIRDPARTY,LOCALFOLDER
 此外处理预提交时的配置中增加：
 - 预提交配置
 [Pre Commit - isort](https://pycqa.github.io/isort/docs/configuration/pre-commit.html)
-- IDE配置
+- IDE 配置
 [isort Plugins · PyCQA/isort Wiki](https://github.com/PyCQA/isort/wiki/isort-Plugins)
 
 ### yapf
