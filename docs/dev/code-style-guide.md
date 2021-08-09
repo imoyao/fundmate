@@ -89,6 +89,7 @@ COLUMN_LIMIT = 120
 ```bash
 # 安装
 pip install pre-commit
+# 安装 hook
 pre-commit install
 # 安装配置好后，最好做个全文的检查，修复问题
 pre-commit run --all-files

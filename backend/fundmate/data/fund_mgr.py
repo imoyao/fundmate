@@ -1,7 +1,10 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # Created by imoyao at 2021/7/15 17:37
-"""基金经理排名"""
+"""基金经理排名
+1. 聪明投资者
+2. 蛋卷名人堂
+"""
 from xalpha.cons import rget_json
 
 from backend.fundmate import utils
@@ -23,7 +26,7 @@ User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
     def cmtzz(self):
         """聪明投资者
         url: https://www.cmtzz.cn/top-managers
-        
+
         {'朱少醒': {
             'TopProdReturnManA': 22.53,
              'content': {'route': '/article/45971',

@@ -150,7 +150,7 @@ class TradeDate:
         寻找下一个交易日
         首先做tomorrow_date运算，如果明天是交易日，则返回，否则继续查找
         :param date: 日期
-        :return: 
+        :return:
         """
         tmr = utils.tomorrow_date(date)
         is_trade = self.is_trade_day(tmr)
