@@ -109,7 +109,7 @@ class EastMoney:
                     # json或者csv保存
                     ret = self.do_save_action(format_, fund_mgr_info, suffix='mgr')
                 if ret == 0:
-                    logger.info(f'The fund mgr of {format_} format has been saved finished.')
+                    logger.success(f'The fund mgr of {format_} format has been saved finished.')
 
         return fund_mgr_info
 
@@ -123,15 +123,16 @@ class EastMoney:
             mgr_data = data_parser.get_data_from_json(file_save_fp)
             self.save_mgr_2db(mgr_data)
 
-    def sample_create_fund(self, fund_info):
+    def subscription_period_fund(self, fund_code: str):
         """
-        TODO: 单独获取基金信息并保存
+        TODO: 单独获取（新发）基金信息并保存
         """
         pass
 
     def save_mgr_2db(self, fund_mgr_info: list):
         """
-        将基金经理
+        将基金经理信息存入数据表MGRS,此外，还会将基金与基金经理关联起来，信息存入FUND_MGR中间表
+        FIXME: 需要注意的是：有一部分基金是新发基金，这个时候funds表中是没有数据的，此是关联基金经理会报错：`FlushError: Can't flush None value found in collection Mgr.funds`，目前的解决方案是直接continue跳过这个数据的写入，后期可能需要优化流程，添加新发基金的信息爬取
         """
         for mgr_item in fund_mgr_info:
             mgr_code, mgr_name, cmp_code, cmp_name, mgr_fd, _, work_days, _best_rt, \
@@ -167,33 +168,32 @@ class EastMoney:
             fund_lists_of_mgr = [f.fund_code for f in fund_objs_of_mgr]
             # 查询到的列表不在现有的中
             patch_funds = set(mgr_fd_list) - set(fund_lists_of_mgr)
-            print(patch_funds, mgr_fd_list, fund_lists_of_mgr, '=====patch_funds==')
             if patch_funds:
                 for fund_item in patch_funds:
                     fund_inst = None
                     try:
                         fund_inst = Fund.query.filter_by(fund_code=fund_item).first()
                     except FlushError as e:
-                        print(fund_inst, '==========filter error=========')
                         if fund_inst is None:
-                            logger.error(f'{fund_inst} code:{fund_item} fund_item, Error:{e}')
-                        # db.session.flush()
-                        # db.session.commit()
-                        # continue
+                            logger.error(f'Fund info of {fund_item} get error,maybe a new fund in subscription period?')
+                            continue
                     # 重新查，否则报错
                     fund_inst = Fund.query.filter_by(fund_code=fund_item).first()
                     if not fund_inst:
-                        self.sample_create_fund(fund_item)
+                        logger.error(
+                            f'Query Fund info of {fund_item} error,maybe is a new fund in subscription period?')
+                        continue
+                        # TODO: 需要抓取存入，取消continue
+                        # self.subscription_period_fund(fund_min_info)
 
                     _mgr_ins = Mgr.filter_by_code(mgr_code)
-                    print(_mgr_ins, fund_inst, fund_item, '=========commit=====')
                     _mgr_ins.funds.append(fund_inst)
                     db.session.add(_mgr_ins)
                     # 注意每一次都必须commit，否则query查询不到 see also:[python - SQLAlchemy: What's the difference between flush() and commit()? - Stack Overflow](https://stackoverflow.com/questions/4201455/sqlalchemy-whats-the-difference-between-flush-and-commit)
                     # db.session.flush()
                     db.session.commit()
 
-                # 不再管理的，移除掉？ TODO: 可能是历史管理基金（如：基金经理跳槽了）
+                # 不再管理的，~~移除掉？~~ TODO: 可能是历史管理基金（如：基金经理跳槽了）
                 # remove_funds = set(fund_lists_of_mgr) - set(mgr_fd_list)
                 # for fund_item in remove_funds:
                 #     fund_inst = Fund.query.filter_by(fund_code=fund_item).first()
@@ -202,6 +202,12 @@ class EastMoney:
 
             for f_code in mgr_fd_list:
                 fund_inst = Fund.filter_by_code(f_code)
+                if fund_inst is None:
+                    logger.error(
+                        f'Fund info of {f_code} get error,maybe a new fund in subscription period? Just create the instance and try again.'
+                    )
+                    continue
+
                 fund_id = fund_inst.id
                 fund_mgr_inst = FundMgr.query.filter_by(fund_id=fund_id, mgr_id=mgr_id, end_date=None).first()
                 if f_code == best_fd:
