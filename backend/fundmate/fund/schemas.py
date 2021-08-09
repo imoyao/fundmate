@@ -73,6 +73,6 @@ class SaleSchema(Schema):
 
 
 class FundSaleOutSchema(Schema):
-    # [python - Is it possible to use a schema for a marshmallow custom field? - Stack Overflow](https://stackoverflow.com/questions/49802142/is-it-possible-to-use-a-schema-for-a-marshmallow-custom-field)
+    # [python - Is it possible to use a schema for a marshmallow custom field? - Stack Overflow](https://stackoverflow.com/questions/49802142/is-it-possible-to-use-a-schema-for-a-marshmallow-custom-field)  # noqa:E501
     id = String()
     name = Function(lambda obj: SaleSchema(many=True).dump(obj.as_name()))
