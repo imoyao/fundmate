@@ -163,7 +163,6 @@ class EastMoney:
             else:
                 logger.error(f'Cannot find fund manager of code:<{mgr_code}>.')
             fund_objs_of_mgr = Mgr.get_by_id(mgr_id).funds
-            print(fund_objs_of_mgr)
             # 在管基金
             fund_lists_of_mgr = [f.fund_code for f in fund_objs_of_mgr]
             # 查询到的列表不在现有的中
@@ -216,12 +215,6 @@ class EastMoney:
                     # 一个经理只有一个代表作
                     break
         return 0
-
-    def bind_fund_company(self):
-        """
-        将基金公司与基金绑定起来，更新funds表的 co_id 外键即可 TODO: 是否需要手动操作
-        """
-        pass
 
     def company(self, save: bool = False):
         """
@@ -294,11 +287,6 @@ class EastMoney:
                     logger.info('Save Fund info successfully.')
                 else:
                     logger.error('Save Fund info failed.')
-                # assert format_ in ['sql', 'json']
-                # if format_ == 'sql':
-                #     self.save_to_db(fund_info)
-                # elif format_ == 'json':
-                #     self.save_to_json(fund_info)
 
             return fund_info
 
@@ -309,7 +297,7 @@ class EastMoney:
         assert format_ in ['sql', 'json']
         if format_ == 'sql':
             # TODO: 每个数据保存在不同的数据表中
-            self.save_to_db(save_data)
+            self.save_fund_to_db(save_data)
         elif format_ == 'json':
             self.save_to_json(save_data, suffix=suffix)
         return 0
@@ -371,7 +359,7 @@ class EastMoney:
             _fv = f_vt_str
         return _fv, _ft
 
-    def save_to_db(self, _funds: str) -> int:
+    def save_fund_to_db(self, _funds: str) -> int:
         """
         保存fund信息到数据库
         :return:

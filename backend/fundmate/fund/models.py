@@ -121,8 +121,11 @@ class Mgr(PkModel, UpsertMixin):
                            comment='数据上次更新时间')
     # 在管基金
     '''
-    # secondary后面跟表名而不是类名
-    sqlalchemy.exc.ArgumentError: secondary argument <class 'backend.fundmate.fund.models.FundMgr'> passed to to relationship() Fund.mgrs must be a Table object or other FROM clause; can't send a mapped class directly as rows in 'secondary' are persisted independently of a class that is mapped to that same table.
+    # **注意** secondary后面跟表名而不是类名
+    sqlalchemy.exc.ArgumentError: secondary argument <class 'backend.fundmate.fund.models.FundMgr'> 
+    passed to to relationship() Fund.mgrs must be a Table object or other FROM clause; 
+    can't send a mapped class directly as rows in 'secondary' are persisted independently 
+    of a class that is mapped to that same table.
     '''
     funds = relationship('Fund', secondary='fund_mgr', back_populates='mgrs')
 
