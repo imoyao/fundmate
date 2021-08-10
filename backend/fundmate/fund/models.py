@@ -4,6 +4,7 @@
 from typing import Union
 
 from sqlalchemy import or_
+from sqlalchemy.ext.hybrid import hybrid_property
 
 from backend.fundmate import settings
 from backend.fundmate.database import (
@@ -80,6 +81,8 @@ class Fund(PkModel, UpsertMixin):
     daily_worth = relationship('DailyWorth', back_populates='fund', uselist=False)
     # 多对多
     mgrs = relationship('Mgr', secondary='fund_mgr', back_populates='funds')
+    # 费率关系：一对多
+    rate_rules = db.relationship('fee_ratio')
 
     @classmethod
     def search_key(cls, key):
@@ -267,28 +270,275 @@ class FundVariety(PkModel, UpsertMixin):
             return _ins.id
 
 
+''' 
+## 认购费率
+
+| 适用金额              | 适用期限 | 原费率|天天基金优惠费率 |
+|-------------------|------|--------------|
+| 小于100万元           | ---  | 1.20%        |
+| 大于等于100万元，小于200万元 | ---  | 0.80%        |
+| 大于等于200万元，小于500万元 | ---  | 0.30%        |
+| 大于等于500万元         | ---  | 每笔1000元      |
+
+## 申购费率
+
+| 适用金额              | 适用期限 | 原费率|天天基金优惠费率银行卡购买|活期宝购买            |
+|-------------------|------|------------------------------------|
+| 小于100万元           | ---  | 1.50%|0.15%|0.15% |
+| 大于等于100万元，小于200万元 | ---  | 1.00%|0.10%|0.10% |
+| 大于等于200万元，小于500万元 | ---  | 0.50%|0.05%|0.05% |
+| 大于等于500万元         | ---  | 每笔1000元                            |
+
+## 赎回费率
+
+| 适用金额 | 适用期限         | 赎回费率  |
+|------|--------------|-------|
+| ---  | 小于7天         | 1.50% |
+| ---  | 大于等于7天，小于30天 | 0.75% |
+| ---  | 大于等于30天，小于1年 | 0.50% |
+| ---  | 大于等于1年，小于2年  | 0.25% |
+| ---  | 大于等于2年       | 0.00% |
+
+## 接口
+
+https://www.dkhs.com/api/v1/symbols/FP011011/fare_ratio/
+
+## 返回
+```json
+[
+    {
+        "id": 56664,
+        "fund": 102024522,
+        "direction": 0,
+        "zoneno": 0,
+        "min_balance": "0.00",
+        "max_balance": "1000000.00",
+        "min_hold": 0,
+        "max_hold": 0,
+        "fare_ratio": "1.50",
+        "discount_rate": "0.40",
+        "min_fare": "0.00",
+        "max_fare": "15000.00"
+    },
+    {
+        "id": 56665,
+        "fund": 102024522,
+        "direction": 0,
+        "zoneno": 0,
+        "min_balance": "1000000.00",
+        "max_balance": "2000000.00",
+        "min_hold": 0,
+        "max_hold": 0,
+        "fare_ratio": "1.00",
+        "discount_rate": "0.60",
+        "min_fare": "10000.00",
+        "max_fare": "20000.00"
+    },
+    {
+        "id": 56666,
+        "fund": 102024522,
+        "direction": 0,
+        "zoneno": 0,
+        "min_balance": "2000000.00",
+        "max_balance": "5000000.00",
+        "min_hold": 0,
+        "max_hold": 0,
+        "fare_ratio": "0.50",
+        "discount_rate": "1.00",
+        "min_fare": "10000.00",
+        "max_fare": "25000.00"
+    },
+    {
+        "id": 56667,
+        "fund": 102024522,
+        "direction": 0,
+        "zoneno": 0,
+        "min_balance": "5000000.00",
+        "max_balance": "0.00",
+        "min_hold": 0,
+        "max_hold": 0,
+        "fare_ratio": "0.00",
+        "discount_rate": "1.00",
+        "min_fare": "1000.00",
+        "max_fare": "1000.00"
+    },
+    {
+        "id": 56680,
+        "fund": 102024522,
+        "direction": 1,
+        "zoneno": 0,
+        "min_balance": "0.00",
+        "max_balance": "0.00",
+        "min_hold": 0,
+        "max_hold": 7,
+        "fare_ratio": "1.50",
+        "discount_rate": "1.00",
+        "min_fare": "0.00",
+        "max_fare": "0.00"
+    },
+    {
+        "id": 56681,
+        "fund": 102024522,
+        "direction": 1,
+        "zoneno": 0,
+        "min_balance": "0.00",
+        "max_balance": "0.00",
+        "min_hold": 7,
+        "max_hold": 30,
+        "fare_ratio": "0.75",
+        "discount_rate": "1.00",
+        "min_fare": "0.00",
+        "max_fare": "0.00"
+    },
+    {
+        "id": 56682,
+        "fund": 102024522,
+        "direction": 1,
+        "zoneno": 0,
+        "min_balance": "0.00",
+        "max_balance": "0.00",
+        "min_hold": 30,
+        "max_hold": 365,
+        "fare_ratio": "0.50",
+        "discount_rate": "1.00",
+        "min_fare": "0.00",
+        "max_fare": "0.00"
+    },
+    {
+        "id": 56683,
+        "fund": 102024522,
+        "direction": 1,
+        "zoneno": 0,
+        "min_balance": "0.00",
+        "max_balance": "0.00",
+        "min_hold": 365,
+        "max_hold": 730,
+        "fare_ratio": "0.25",
+        "discount_rate": "1.00",
+        "min_fare": "0.00",
+        "max_fare": "0.00"
+    },
+    {
+        "id": 56684,
+        "fund": 102024522,
+        "direction": 1,
+        "zoneno": 0,
+        "min_balance": "0.00",
+        "max_balance": "0.00",
+        "min_hold": 730,
+        "max_hold": 0,
+        "fare_ratio": "0.00",
+        "discount_rate": "1.00",
+        "min_fare": "0.00",
+        "max_fare": "0.00"
+    },
+    {
+        "id": 56668,
+        "fund": 102024522,
+        "direction": 6,
+        "zoneno": 0,
+        "min_balance": "0.00",
+        "max_balance": "1000000.00",
+        "min_hold": 0,
+        "max_hold": 0,
+        "fare_ratio": "1.20",
+        "discount_rate": "1.00",
+        "min_fare": "0.00",
+        "max_fare": "12000.00"
+    },
+    {
+        "id": 56669,
+        "fund": 102024522,
+        "direction": 6,
+        "zoneno": 0,
+        "min_balance": "1000000.00",
+        "max_balance": "2000000.00",
+        "min_hold": 0,
+        "max_hold": 0,
+        "fare_ratio": "0.80",
+        "discount_rate": "1.00",
+        "min_fare": "8000.00",
+        "max_fare": "16000.00"
+    },
+    {
+        "id": 56670,
+        "fund": 102024522,
+        "direction": 6,
+        "zoneno": 0,
+        "min_balance": "2000000.00",
+        "max_balance": "5000000.00",
+        "min_hold": 0,
+        "max_hold": 0,
+        "fare_ratio": "0.30",
+        "discount_rate": "1.00",
+        "min_fare": "6000.00",
+        "max_fare": "15000.00"
+    },
+    {
+        "id": 56671,
+        "fund": 102024522,
+        "direction": 6,
+        "zoneno": 0,
+        "min_balance": "5000000.00",
+        "max_balance": "0.00",
+        "min_hold": 0,
+        "max_hold": 0,
+        "fare_ratio": "0.00",
+        "discount_rate": "1.00",
+        "min_fare": "1000.00",
+        "max_fare": "1000.00"
+    }
+]
+```
+min_amount,max_amount,min_hold_day,max_hold_day,fee_type,rate,fee_amount
+
+'''
+# 费率类型
+FEE_TYPE = {
+    'subscribe': 1,  # 基金认购
+    'purchase': 2,  # 基金申购
+    'redeem': 3,  # 基金赎回
+}
+
+
 class InRule(PkModel):
-    """这个问题比较复杂，需要后期再去设计
+    """
     可以直接记录结束点，然后每个出入都有3-4条记录，记录字段：分割点、费率、f_code
     """
-    start_quota = Column(db.Integer, comment='计费开始额度')
-    end_quota = Column(db.Integer, comment='计费结束额度')
+    __table_args__ = {'comment': '申购/认购规则表'}
+
+    start_quota = Column(db.Numeric(9, 2), comment='计费开始额度（金额：元）')
+    end_quota = Column(db.Numeric(9, 2), comment='计费结束额度（金额：元）')
 
 
 class OutRule(PkModel):
-    __table_args__ = {'comment': '赎回规则'}
+    __table_args__ = {'comment': '赎回规则表'}
 
     start_day = Column(db.Integer, comment='计费开始天数')
     end_day = Column(db.Integer, comment='计费结束天数')
 
 
-class FundRate(PkModel):
-    __table_args__ = {'comment': '费率记录'}
+class FeeRatio(PkModel):
+    """
+    基金和费率表为O2M关系（一个基金有多个收费映射关系）
+    费率和费率规则也是O2M关系（一个费率对应多个买入和卖出规则）
+    """
+    __table_args__ = {'comment': '费率记录表'}
 
-    fund_id = Column(db.Integer, db.ForeignKey('funds.id'), comment='基金编号')
-    rule_id = Column(db.Integer, comment='费率编号')
-    rate = Column(db.Integer, comment='费率百分比')
-    type = Column(db.Boolean, nullable=True, comment='卖出或买入')  # TODO:多态关联
+    fund_id = Column(db.Integer, db.ForeignKey('funds.id'), comment='基金编号ID')
+    in_rule_id = db.Column(db.Integer, db.ForeignKey('in_rule.id'), nullable=True, comment='申购规则ID')
+    out_rule_id = db.Column(db.Integer, db.ForeignKey('out_rule.id'), nullable=True, comment='赎回规则ID')
+    fee_amount = Column(db.Numeric(6, 2), comment='收费金额（超过500万时一次收费）')
+    fee_type = Column(ChoiceType(FEE_TYPE), nullable=False, comment='费率类型（认购、申购、赎回）')
+
+    @hybrid_property
+    def rule_id(self):
+        """
+        https://stackoverflow.com/a/60053408/14295718
+        """
+        return self.in_rule_id or self.out_rule_id
+
+    rate = Column(db.Numeric(3, 2), comment='费率百分比')
 
 
 #  组合管理人类型
@@ -297,7 +547,7 @@ ZH_MGR_TYPE = {
     'org': 1,  # '机构'
     'personal': 0,  # '个人'
 }
-
+# 平台类型
 PLAT_TYPE = {
     'qm': 1,  # '且慢'
     'tt': 2,  # '天天基金'
