@@ -5161,10 +5161,10 @@ eslint-plugin-standard@^4.0.2:
   resolved "https://registry.nlark.com/eslint-plugin-standard/download/eslint-plugin-standard-4.1.0.tgz#0c3bf3a67e853f8bbbc580fb4945fbf16f41b7c5"
   integrity sha1-DDvzpn6FP4u7xYD7SUX78W9Bt8U=
 
-eslint-plugin-vue@^7.1.0:
-  version "7.15.0"
-  resolved "https://registry.nlark.com/eslint-plugin-vue/download/eslint-plugin-vue-7.15.0.tgz#272318b4aac789ea92e6cd28ef14698e9715ceab"
-  integrity sha1-JyMYtKrHieqS5s0o7xRpjpcVzqs=
+eslint-plugin-vue@^7.15.2:
+  version "7.15.2"
+  resolved "https://registry.yarnpkg.com/eslint-plugin-vue/-/eslint-plugin-vue-7.15.2.tgz#054234a8cc032dac238b61ce4f1aa96c066e65fd"
+  integrity sha512-h5ws2GewwJ02HwnDo3WdPbc867MQieg9wrWgbpzh9ELBIiuy79EWK0zfyUxYzUWNd1EECCZ/8f50UCC7Hvbamw==
   dependencies:
     eslint-utils "^2.1.0"
     natural-compare "^1.4.0"
