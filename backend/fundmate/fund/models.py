@@ -305,12 +305,13 @@ PLAT_TYPE = {
 }
 
 
-class FundPortfolio(Base, PkModel, CreateDateModel):
+class FundPortfolio(PkModel, CreateDateModel):
     """
     基金组合
     TODO: 爬取一些具有代表性的组合
     """
     __table_args__ = {'comment': '基金组合表'}
+
     name = Column(db.String(30), comment='组合名称')
     code = Column(db.String(30), unique=True, comment='组合编码')
     master = Column(db.String(30), comment='主理人')
@@ -324,7 +325,7 @@ class FundPortfolio(Base, PkModel, CreateDateModel):
         return f"<FundPortfolio({self.name!r}, {self.risk_type!r})>"
 
 
-class FundPortfolioDetail(PkModel):
+class FundPortfolioAdjustDetail(PkModel):
     """
     组合调仓记录
     """
