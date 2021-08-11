@@ -4,7 +4,7 @@
 Flask==2.0.1
 Werkzeug==2.0.1
 click>=7.0
-APIFlask==0.8.0
+APIFlask==0.9.0
 
 # Database
 Flask-SQLAlchemy==2.5.1
