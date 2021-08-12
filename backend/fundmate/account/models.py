@@ -23,7 +23,7 @@ class Account(Base, PkModel, CreateDateModel):
     account_type = Column(ChoiceType(RISK_TYPE), comment='账本类型（四笔钱）')
 
 
-class AccountFund(PkModel):
+class AccountFund(Base, PkModel):
     fund_id = reference_col('funds', column_kwargs={'comment': '基金编号'})
     account_id = Column(db.Integer, comment='账本编号')
 

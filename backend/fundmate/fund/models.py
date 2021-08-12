@@ -20,7 +20,7 @@ from backend.fundmate.database import (
 )
 
 
-class DailyWorth(PkModel, CreateDateModel):
+class DailyWorth(Base, PkModel, CreateDateModel):
     """每日净值（初始净值数据按照基金名称分表存储，然后我们需要合并表）
     1. 考虑分表，主键应该使用uuid
     2. uuid vs GUID
@@ -32,7 +32,7 @@ class DailyWorth(PkModel, CreateDateModel):
     fund = relationship("Fund", uselist=False, back_populates="daily_worth")
 
 
-class Fund(PkModel, UpsertMixin):
+class Fund(Base, PkModel, UpsertMixin):
     """基金表"""
     __tablename__ = "funds"
     __table_args__ = {'comment': '基金表'}
@@ -105,7 +105,7 @@ class Fund(PkModel, UpsertMixin):
         return f"<Fund({self.fund_code!r}, {self.name!r})>"
 
 
-class Mgr(PkModel, UpsertMixin):
+class Mgr(Base, PkModel, UpsertMixin):
     __tablename__ = "mgrs"
     __table_args__ = {'comment': '基金经理'}
 
@@ -157,7 +157,7 @@ class Mgr(PkModel, UpsertMixin):
             return all_now_managed_funds
 
 
-class FundMgr(PkModel):
+class FundMgr(Base, PkModel):
     """relation between Fund and Mgr
     注意：
     1. 基金经理与基金为 M2M
@@ -172,7 +172,7 @@ class FundMgr(PkModel):
     end_date = Column(db.DateTime)
 
 
-class FundCompany(PkModel, UpsertMixin):
+class FundCompany(Base, PkModel, UpsertMixin):
     """基金公司表
     """
     code = Column(db.String(10), comment='基金公司编号')
@@ -199,7 +199,7 @@ class FundCompany(PkModel, UpsertMixin):
             return _ins.id
 
 
-class FundSaleOrg(PkModel, UpsertMixin):
+class FundSaleOrg(Base, PkModel, UpsertMixin):
     """基金销售机构
     在记账时，可以记录购买渠道
     """
@@ -214,7 +214,7 @@ class FundSaleOrg(PkModel, UpsertMixin):
         return self.known_name or self.name
 
 
-class FundType(PkModel):
+class FundType(Base, PkModel):
     """小类与基金为多对一，即：一个基金可以有多个小类"""
     __table_args__ = {'comment': '基金小类表'}
 
@@ -230,7 +230,7 @@ class FundType(PkModel):
             return _ins.id
 
 
-class FundVariety(PkModel, UpsertMixin):
+class FundVariety(Base, PkModel, UpsertMixin):
     """
     根据投资对象的不同，可以将其分为股票型基金、债
     券型基金、混合型基金和货币型基金。根据证监会对基金
@@ -267,7 +267,7 @@ class FundVariety(PkModel, UpsertMixin):
             return _ins.id
 
 
-class InRule(PkModel):
+class InRule(Base, PkModel):
     """这个问题比较复杂，需要后期再去设计
     可以直接记录结束点，然后每个出入都有3-4条记录，记录字段：分割点、费率、f_code
     """
@@ -275,14 +275,14 @@ class InRule(PkModel):
     end_quota = Column(db.Integer, comment='计费结束额度')
 
 
-class OutRule(PkModel):
+class OutRule(Base, PkModel):
     __table_args__ = {'comment': '赎回规则'}
 
     start_day = Column(db.Integer, comment='计费开始天数')
     end_day = Column(db.Integer, comment='计费结束天数')
 
 
-class FundRate(PkModel):
+class FundRate(Base, PkModel):
     __table_args__ = {'comment': '费率记录'}
 
     fund_id = Column(db.Integer, db.ForeignKey('funds.id'), comment='基金编号')
@@ -305,7 +305,7 @@ PLAT_TYPE = {
 }
 
 
-class FundPortfolio(PkModel, CreateDateModel):
+class FundPortfolio(Base, PkModel, CreateDateModel):
     """
     基金组合
     TODO: 爬取一些具有代表性的组合
@@ -325,7 +325,7 @@ class FundPortfolio(PkModel, CreateDateModel):
         return f"<FundPortfolio({self.name!r}, {self.risk_type!r})>"
 
 
-class FundPortfolioAdjustDetail(PkModel):
+class FundPortfolioAdjustDetail(Base, PkModel):
     """
     组合调仓记录
     """
