@@ -72,6 +72,9 @@ class Fund(PkModel, UpsertMixin):
     f_var = Column('fund_variety_id', db.Integer, db.ForeignKey('fund_variety.id'), comment='基金大类编号')
     co_id = Column(db.Integer, db.ForeignKey('fund_company.id'), comment='所属基金公司编号')
     create_time = Column(db.DateTime, comment='基金创建时间')
+    symbol_prefix = Column(ChoiceType(choices=settings.SYMBOL_TYPE), nullable=True, comment='符号前缀（FP/SZ/SH）')
+    risk_level = Column(ChoiceType(choices=settings.RISK_TYPE), nullable=True, comment='风险等级')
+    is_fe_charge_mode = Column(db.Boolean, comment='收费方式（前端/后端）')
     last_modified = Column(db.TIMESTAMP,
                            nullable=False,
                            server_default=db.text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
@@ -82,7 +85,7 @@ class Fund(PkModel, UpsertMixin):
     # 多对多
     mgrs = relationship('Mgr', secondary='fund_mgr', back_populates='funds')
     # 费率关系：一对多
-    rate_rules = db.relationship('fee_ratio')
+    rate_rules = db.relationship('FeeRatio')
 
     @classmethod
     def search_key(cls, key):
@@ -98,7 +101,7 @@ class Fund(PkModel, UpsertMixin):
         return code
 
     @classmethod
-    def filter_by_code(cls, code: str) -> Union[object, None]:
+    def filter_by_code(cls, code: str) -> Union[object, None, CRUDMixin]:
         """获取编码所对应的id
         """
         _ins = cls.query.filter_by(fund_code=code).first()
@@ -258,7 +261,6 @@ class FundVariety(PkModel, UpsertMixin):
         投资者入市手册（基金篇） P15
     """
     __table_args__ = {'comment': '基金大类表'}
-    # see also: ChoiceType
     name = Column(db.String(255), unique=True)
 
     @classmethod
@@ -493,12 +495,6 @@ https://www.dkhs.com/api/v1/symbols/FP011011/fare_ratio/
 min_amount,max_amount,min_hold_day,max_hold_day,fee_type,rate,fee_amount
 
 '''
-# 费率类型
-FEE_TYPE = {
-    'subscribe': 1,  # 基金认购
-    'purchase': 2,  # 基金申购
-    'redeem': 3,  # 基金赎回
-}
 
 
 class InRule(PkModel):
@@ -518,6 +514,14 @@ class OutRule(PkModel):
     end_day = Column(db.Integer, comment='计费结束天数')
 
 
+# 费率类型
+FEE_TYPE = {
+    'subscribe': 1,  # 基金认购
+    'purchase': 2,  # 基金申购
+    'redeem': 3,  # 基金赎回
+}
+
+
 class FeeRatio(PkModel):
     """
     基金和费率表为O2M关系（一个基金有多个收费映射关系）
@@ -528,8 +532,9 @@ class FeeRatio(PkModel):
     fund_id = Column(db.Integer, db.ForeignKey('funds.id'), comment='基金编号ID')
     in_rule_id = db.Column(db.Integer, db.ForeignKey('in_rule.id'), nullable=True, comment='申购规则ID')
     out_rule_id = db.Column(db.Integer, db.ForeignKey('out_rule.id'), nullable=True, comment='赎回规则ID')
-    fee_amount = Column(db.Numeric(6, 2), comment='收费金额（超过500万时一次收费）')
-    fee_type = Column(ChoiceType(FEE_TYPE), nullable=False, comment='费率类型（认购、申购、赎回）')
+    fee_type = Column(ChoiceType(choices=FEE_TYPE), nullable=True, comment='费率类型（认购、申购、赎回）')
+    rate = Column(db.Numeric(3, 2), comment='费率百分比')
+    fee_amount = Column(db.Numeric(6, 2), comment='收费金额（超过xx万时一次收费，此时rate应该为空）')
 
     @hybrid_property
     def rule_id(self):
@@ -538,8 +543,6 @@ class FeeRatio(PkModel):
         """
         return self.in_rule_id or self.out_rule_id
 
-    rate = Column(db.Numeric(3, 2), comment='费率百分比')
-
 
 #  组合管理人类型
 # TODO: 需要验证int是否支持
@@ -547,26 +550,28 @@ ZH_MGR_TYPE = {
     'org': 1,  # '机构'
     'personal': 0,  # '个人'
 }
-# 平台类型
+
 PLAT_TYPE = {
     'qm': 1,  # '且慢'
     'tt': 2,  # '天天基金'
     'dj': 3,  # '蛋卷基金'
+    'undefined': 4,  # '未定义'
 }
 
 
-class FundPortfolio(Base, PkModel, CreateDateModel):
+class FundPortfolio(PkModel, CreateDateModel):
     """
     基金组合
     TODO: 爬取一些具有代表性的组合
     """
     __table_args__ = {'comment': '基金组合表'}
+
     name = Column(db.String(30), comment='组合名称')
     code = Column(db.String(30), unique=True, comment='组合编码')
     master = Column(db.String(30), comment='主理人')
-    mtr_type = Column(ChoiceType(ZH_MGR_TYPE), nullable=False, comment='组合类型（机构/个人）')
-    platform = Column(ChoiceType(PLAT_TYPE), comment='平台名称')
-    risk_type = Column(ChoiceType(settings.RISK_TYPE), comment='风险类型（稳健/成长等）')
+    mgr_type = Column(ChoiceType(choices=ZH_MGR_TYPE), nullable=False, comment='组合类型（机构/个人）')
+    platform = Column(ChoiceType(choices=PLAT_TYPE), nullable=True, comment='平台名称')
+    risk_type = Column(ChoiceType(choices=settings.RISK_TYPE), nullable=False, comment='风险类型（稳健/成长等）')
     desc = Column(db.String(300), comment='组合描述')
     update_time = Column(db.DateTime, comment='组合更新时间')
 
@@ -574,11 +579,11 @@ class FundPortfolio(Base, PkModel, CreateDateModel):
         return f"<FundPortfolio({self.name!r}, {self.risk_type!r})>"
 
 
-class FundPortfolioDetail(PkModel):
+class FundPortfolioAdjustDetail(Base, PkModel):
     """
     组合调仓记录
     """
-    belongs_to = Column(db.String(30), comment='所属组合id')
+    fp_id = reference_col('fund_portfolio', column_kwargs={'comment': '所属组合ID'})
     update_date = Column(db.String(30), comment='调仓时间')
     code = Column(db.String(30), comment='基金编码')
     desc = Column(db.String(300), comment='调仓理由')

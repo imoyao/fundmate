@@ -9,7 +9,6 @@ from flask import Flask
 from backend.fundmate import account, commands, fund, public, settings, user
 from backend.fundmate.config import config
 from backend.fundmate.extensions import bcrypt, db, login_manager, loguru, migrate
-# from backend.fundmate.fund.models import Fund, FundMgr, Mgr  # noqa:F401
 from backend.fundmate.settings import env
 
 from .exts.flask_loguru import logger
@@ -33,7 +32,7 @@ def create_app(config_object: str = "backend.fundmate.settings"):
     logger.info('Flask app has created!')
     '''
     RuntimeError: No application found. Either work inside a view function or push an application context. 
-    See http://flask-sqlalchemy.pocoo.org/contexts/.
+    See http://flask-sqlalchemy.pocoo.org/contexts/ .
     see also: https://blog.csdn.net/zhongqiushen/article/details/79162792
     '''
     app.app_context().push()
@@ -100,7 +99,8 @@ def register_shell_context(app: Flask):
             'Fund': fund.models.Fund,
             'FundMgr': fund.models.Mgr,
             'MidFundMgr': fund.models.FundMgr,
-            'Account': account.models.Account
+            'FundPortfolio': fund.models.FundPortfolio,
+            'Account': account.models.Account,
         }
 
     # 当你使用flask shell命令启动Python Shell时，所有使用app.shell_context_processor装饰器注册的shell上下文处理函数

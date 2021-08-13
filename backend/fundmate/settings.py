@@ -37,3 +37,6 @@ RISK_TYPE = {
     'advance': 4,  # 进阶成长
     'high': 5,  # 积极进取
 }
+
+# 基金决策宝的symbol的前缀
+SYMBOL_TYPE = {'FP': 0, 'SZ': 1, 'SH': 2}

@@ -58,7 +58,11 @@ Once you have installed your DBMS, run the following to create your app's
 database tables and perform the initial migration
 
 ```bash
+# 创建数据库
+flask init-db
+# 或者
 flask db init
+# 数据库更新
 flask db migrate
 flask db upgrade
 ```
