@@ -16,6 +16,7 @@ from backend.fundmate.database import (
     PkModel,
     UpsertMixin,
     db,
+    key2val,
     reference_col,
     relationship,
 )
@@ -72,8 +73,14 @@ class Fund(PkModel, UpsertMixin):
     f_var = Column('fund_variety_id', db.Integer, db.ForeignKey('fund_variety.id'), comment='基金大类编号')
     co_id = Column(db.Integer, db.ForeignKey('fund_company.id'), comment='所属基金公司编号')
     create_time = Column(db.DateTime, comment='基金创建时间')
-    symbol_prefix = Column(ChoiceType(choices=settings.SYMBOL_TYPE), nullable=True, comment='符号前缀（FP/SZ/SH）')
-    risk_level = Column(ChoiceType(choices=settings.RISK_TYPE), nullable=True, comment='风险等级')
+    symbol_prefix = Column(ChoiceType(choices=key2val(settings.SYMBOL_TYPE), impl=db.Integer),
+                           nullable=True,
+                           default=0,
+                           comment='符号前缀（FP/SZ/SH）')
+    risk_level = Column(ChoiceType(choices=key2val(settings.RISK_TYPE), impl=db.Integer),
+                        default=1,
+                        nullable=True,
+                        comment='风险等级')
     is_fe_charge_mode = Column(db.Boolean, comment='收费方式（前端/后端）')
     last_modified = Column(db.TIMESTAMP,
                            nullable=False,
