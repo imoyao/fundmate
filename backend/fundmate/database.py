@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Database module, including the SQLAlchemy database object and DB-related utilities."""
 from datetime import datetime
+from enum import Enum
 from typing import Union
 
 import sqlalchemy.types as types
@@ -186,14 +187,53 @@ class ChoiceType(types.TypeDecorator):
     """
     https://github.com/flask-admin/flask-admin/issues/1134#issuecomment-361821787
     用法：
-    choices=(
-        ('key1', 'value1'),
-        ('key2', 'value2')
-    )
+    ---
+    ## A
+    TYPES = [
+        (u'admin', u'Admin'),
+        (u'regular-user', u'Regular user')
+    ]
 
     filed::
-        db.Column(db.ChoiceType(length=xx, choices=choices))
+        type = db.Column(db.ChoiceType(length=xx, choices=TYPES))
 
+    user = User(type=u'admin')
+    user.type  # Choice(code='admin', value=u'Admin')
+
+    ## B
+    import enum
+
+    class UserType(enum.Enum):
+        admin = 1
+        regular = 2
+
+    type = sa.Column(ChoiceType(UserType, impl=sa.Integer()))
+
+
+    user = User(type=1)
+    user.type  # <UserType.admin: 1>
+
+    ## C
+    from enum import Enum
+    from babel import lazy_gettext as _
+
+
+    class UserType(Enum):
+        admin = 1
+        regular = 2
+
+
+    UserType.admin.label = _(u'Admin')
+    UserType.regular.label = _(u'Regular user')
+
+    type = sa.Column(ChoiceType(UserType, impl=sa.Integer()))
+
+
+    user = User(type=UserType.admin)
+    user.type  # <UserType.admin: 1>
+
+    print(user.type.label)  # u'Admin'
+    ---
     参考:
     [Data types — SQLAlchemy-Utils 0.37.8 documentation]
     (https://sqlalchemy-utils.readthedocs.io/en/latest/data_types.html#module-sqlalchemy_utils.types.choice)
@@ -219,6 +259,12 @@ class ChoiceType(types.TypeDecorator):
     impl = types.String(60)
 
     def __init__(self, choices, **kw):
+        if isinstance(self.impl, types.Integer):
+            # 传的是int类型，则需要检查是否key为int,是才可以继续
+            is_all_key_int = all([isinstance(i, int) for i in choices.keys()])
+            if not is_all_key_int:
+                raise KeyError("Key should be integer.")
+
         if len(choices) == 0:
             raise ValueError("No choices provided!")
 
@@ -241,7 +287,11 @@ class ChoiceType(types.TypeDecorator):
             return self.choices_rev[value]
         if value in self.choices:
             return value
-        raise KeyError("Value not found in choices: %s" % value)
+        raise KeyError(f"Value not found in choices: {value}")
 
     def process_result_value(self, value, dialect):
         return self.choices[value]
+
+
+def key2val(unique_dict: dict) -> dict:
+    return {v: k for k, v in unique_dict.items()}
