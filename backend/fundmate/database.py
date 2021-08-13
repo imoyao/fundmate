@@ -182,9 +182,24 @@ def reference_col(tablename: str,
     )
 
 
-class ChoiceType(types.TypeDecorator):  # noqa
+class ChoiceType(types.TypeDecorator):
     """
-    [zzzeek : The Enum Recipe](https://techspot.zzzeek.org/2011/01/14/the-enum-recipe/)
+    https://github.com/flask-admin/flask-admin/issues/1134#issuecomment-361821787
+    用法：
+    choices=(
+        ('key1', 'value1'),
+        ('key2', 'value2')
+    )
+
+    filed::
+        db.Column(db.ChoiceType(length=xx, choices=choices))
+
+    参考:
+    [Data types — SQLAlchemy-Utils 0.37.8 documentation]
+    (https://sqlalchemy-utils.readthedocs.io/en/latest/data_types.html#module-sqlalchemy_utils.types.choice)
+
+    refs:
+    [Custom Types — SQLAlchemy 1.4 Documentation](https://docs.sqlalchemy.org/en/14/core/custom_types.html)
 
     [python - SQLAlchemy - How to make "django choices" using SQLAlchemy? - Stack Overflow](
     https://stackoverflow.com/questions/6262943/sqlalchemy-how-to-make-django-choices-using-sqlalchemy)
@@ -194,16 +209,39 @@ class ChoiceType(types.TypeDecorator):  # noqa
 
     [python - Best way to do enum in Sqlalchemy? - Stack Overflow](
     https://stackoverflow.com/questions/2676133/best-way-to-do-enum-in-sqlalchemy/2676213)
-    """
 
-    impl = types.String
+    [zzzeek : The Enum Recipe](https://techspot.zzzeek.org/2011/01/14/the-enum-recipe/)
+    """
+    '''
+    String 报错： `sqlalchemy.exc.CompileError: VARCHAR requires a length on dialect mysql`
+    `ChoiceType` 接受关键字参数`length`来自定义字符长度
+    '''
+    impl = types.String(60)
 
     def __init__(self, choices, **kw):
-        self.choices = dict(choices)
+        if len(choices) == 0:
+            raise ValueError("No choices provided!")
+
+        if isinstance(choices, list) or isinstance(choices, tuple):
+            if isinstance(choices[0], str):
+                choices = [(s, s) for s in choices]
+            self.choices = dict(choices)
+        elif isinstance(choices, dict):
+            self.choices = choices
+        num_choices = len(self.choices)
+        if num_choices != len(set(self.choices.keys())):
+            raise KeyError("Choice keys must be unique")
+        if num_choices != len(set(self.choices.values())):
+            raise ValueError("Choice values must be unique")
+        self.choices_rev = {v: k for k, v in self.choices.items()}
         super().__init__(**kw)
 
     def process_bind_param(self, value, dialect):
-        return [k for k, v in self.choices.items() if v == value][0]
+        if value in self.choices_rev:
+            return self.choices_rev[value]
+        if value in self.choices:
+            return value
+        raise KeyError("Value not found in choices: %s" % value)
 
     def process_result_value(self, value, dialect):
         return self.choices[value]
