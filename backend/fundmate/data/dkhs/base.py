@@ -6,7 +6,10 @@ from pathlib import Path
 
 from xalpha.cons import rget_json
 
+from backend.fundmate import settings
+from backend.fundmate.data.utils import data_parser
 from backend.fundmate.exts.flask_loguru import logger
+from backend.fundmate.fund.models import Fund
 
 abs_current_path = Path.cwd().resolve()
 FUND_SYMBOLS_SAVE_FP = f'{str(abs_current_path)}/fund_symbols.json'
@@ -219,6 +222,25 @@ class DKHS:
             json.dump(raw_data, f, ensure_ascii=False)
         return symbols_lists
 
+    def read_json_to_db(self):
+        """
+        从json文件中读取文件并更新信息到数据库
+        """
+        fund_data_list = data_parser.get_data_from_json(FUND_SYMBOLS_SAVE_FP)
+        symbol_set = set()
+        for fund in fund_data_list:
+            code = fund.get('code')
+            symbol = fund.get('symbol')
+            charge_mode = fund.get('charge_mode')
+            investment_risk = int(fund.get('investment_risk'))
+            symbol_prefix = symbol.replace(code, '')
+            symbol_set.add(symbol_prefix)
+            fund_inst = Fund.filter_by_code(code)
+            symbol_val = settings.SYMBOL_TYPE.get(symbol_prefix)
+            fund_inst.update(symbol_prefix=symbol_val, risk_level=investment_risk, is_fe_charge_mode=charge_mode)
+            logger.success(f'Update {fund_inst} successfully.')
+        print(symbol_set)
+
     def fee_raito(self, fund_code: str):
         """
         [兴全合润混合(SZ163406)_基金净值_费率_行情走势](https://www.dkhs.com/s/SZ163406/) “交易须知” 子页面
@@ -231,4 +253,4 @@ class DKHS:
 jcb = DKHS()
 if __name__ == '__main__':
     # print(jcb.api())
-    print(jcb.fund_symbols())
+    print(jcb.read_json_to_db())
