@@ -272,7 +272,7 @@ class ChoiceTypeInteger(BaseChoice):
     """
     impl = types.Integer
 
-    def __init__(self, choices, **kw):
+    def __init__(self, choices: Union[list, tuple, dict], **kw):
         # 传的是int类型，则需要检查是否key为int,是才可以继续
         is_all_key_int = all([isinstance(i, int) for i in choices.keys()])
         if not is_all_key_int:
@@ -305,7 +305,7 @@ class ChoiceType(BaseChoice):
     '''
     impl = types.String(60)
 
-    def __init__(self, choices, **kw):
+    def __init__(self, choices: Union[list, tuple, dict], **kw):
         if len(choices) == 0:
             raise ValueError("No choices provided!")
 
