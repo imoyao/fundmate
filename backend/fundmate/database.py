@@ -41,7 +41,10 @@ class CRUDMixin(object):
         db.session.add(self)
         if commit:
             '''
-            Flask-SQLAlchemy提供了一个SQLALCHEMY_COMMIT_ON_TEARDOWN配置变量，将其设为True可以设置自动调用commit()方法提交数据库会话。因为存在潜在的Bug，目前已不建议使用，而且未来版本中将移除该配置变量。请避免使用该配置变量，可使用手动调用db.session.commit()方法的方式提交数据库会话。
+            Flask-SQLAlchemy提供了一个SQLALCHEMY_COMMIT_ON_TEARDOWN配置变量，
+            将其设为True可以设置自动调用commit()方法提交数据库会话。
+            因为存在潜在的Bug，目前已不建议使用，而且未来版本中将移除该配置变量。
+            请避免使用该配置变量，可使用手动调用db.session.commit()方法的方式提交数据库会话。
             '''
             try:
                 db.session.commit()
@@ -182,7 +185,7 @@ def reference_col(tablename: str,
     )
 
 
-class ChoiceType(types.TypeDecorator):
+class BaseChoice(types.TypeDecorator):
     """
     https://github.com/flask-admin/flask-admin/issues/1134#issuecomment-361821787
     用法：
@@ -251,19 +254,29 @@ class ChoiceType(types.TypeDecorator):
 
     [zzzeek : The Enum Recipe](https://techspot.zzzeek.org/2011/01/14/the-enum-recipe/)
     """
-    '''
-    String 报错： `sqlalchemy.exc.CompileError: VARCHAR requires a length on dialect mysql`
-    `ChoiceType` 接受关键字参数`length`来自定义字符长度
-    '''
-    impl = types.String(60)
+
+    def process_bind_param(self, value, dialect):
+        if value in self.choices_rev:
+            return self.choices_rev[value]
+        if value in self.choices:
+            return value
+        raise KeyError(f"Value not found in choices: {value}")
+
+    def process_result_value(self, value, dialect):
+        return self.choices[value]
+
+
+class ChoiceTypeInteger(BaseChoice):
+    """
+    适用于key为int的
+    """
+    impl = types.Integer
 
     def __init__(self, choices, **kw):
-        if isinstance(self.impl, types.Integer):
-            # 传的是int类型，则需要检查是否key为int,是才可以继续
-            is_all_key_int = all([isinstance(i, int) for i in choices.keys()])
-            if not is_all_key_int:
-                raise KeyError("Key should be integer.")
-
+        # 传的是int类型，则需要检查是否key为int,是才可以继续
+        is_all_key_int = all([isinstance(i, int) for i in choices.keys()])
+        if not is_all_key_int:
+            raise KeyError("Key should be integer.")
         if len(choices) == 0:
             raise ValueError("No choices provided!")
 
@@ -281,15 +294,34 @@ class ChoiceType(types.TypeDecorator):
         self.choices_rev = {v: k for k, v in self.choices.items()}
         super().__init__(**kw)
 
-    def process_bind_param(self, value, dialect):
-        if value in self.choices_rev:
-            return self.choices_rev[value]
-        if value in self.choices:
-            return value
-        raise KeyError(f"Value not found in choices: {value}")
 
-    def process_result_value(self, value, dialect):
-        return self.choices[value]
+class ChoiceType(BaseChoice):
+    """
+    适用于key为string的情况
+    """
+    '''
+    String 报错： `sqlalchemy.exc.CompileError: VARCHAR requires a length on dialect mysql`
+    `ChoiceType` 接受关键字参数`length`来自定义字符长度
+    '''
+    impl = types.String(60)
+
+    def __init__(self, choices, **kw):
+        if len(choices) == 0:
+            raise ValueError("No choices provided!")
+
+        if isinstance(choices, list) or isinstance(choices, tuple):
+            if isinstance(choices[0], str):
+                choices = [(s, s) for s in choices]
+            self.choices = dict(choices)
+        elif isinstance(choices, dict):
+            self.choices = choices
+        num_choices = len(self.choices)
+        if num_choices != len(set(self.choices.keys())):
+            raise KeyError("Choice keys must be unique")
+        if num_choices != len(set(self.choices.values())):
+            raise ValueError("Choice values must be unique")
+        self.choices_rev = {v: k for k, v in self.choices.items()}
+        super().__init__(**kw)
 
 
 def key2val(unique_dict: dict) -> dict:
