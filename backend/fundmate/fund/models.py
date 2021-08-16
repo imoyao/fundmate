@@ -30,7 +30,7 @@ class DailyWorth(PkModel, CreateDateModel):
     """
     price = Column(db.Float, comment='基金单日净值')
     date = Column(db.Date, comment='日期')
-    fund_id = reference_col('funds', column_kwargs={'comment': '基金编号'})  # TODO: 到底使用id还是使用基金的6位编码
+    fund_id = reference_col('funds', column_kwargs={'comment': '基金编号ID'})
     fund = relationship("Fund", uselist=False, back_populates="daily_worth")
 
 
@@ -73,9 +73,9 @@ class Fund(PkModel, UpsertMixin):
     f_var = Column('fund_variety_id', db.Integer, db.ForeignKey('fund_variety.id'), comment='基金大类编号')
     co_id = Column(db.Integer, db.ForeignKey('fund_company.id'), comment='所属基金公司编号')
     create_time = Column(db.DateTime, comment='基金创建时间')
-    symbol_prefix = Column(ChoiceType(choices=key2val(settings.SYMBOL_TYPE), impl=db.Integer),
+    symbol_prefix = Column(ChoiceType(choices=settings.SYMBOL_TYPE),
                            nullable=True,
-                           default=0,
+                           default='FP',
                            comment='符号前缀（FP/SZ/SH）')
     risk_level = Column(ChoiceType(choices=key2val(settings.RISK_TYPE), impl=db.Integer),
                         default=1,
@@ -523,6 +523,7 @@ class OutRule(PkModel):
 
 # 费率类型
 FEE_TYPE = {
+    'unknown': 0,  # 未定义
     'subscribe': 1,  # 基金认购
     'purchase': 2,  # 基金申购
     'redeem': 3,  # 基金赎回
@@ -539,7 +540,10 @@ class FeeRatio(PkModel):
     fund_id = Column(db.Integer, db.ForeignKey('funds.id'), comment='基金编号ID')
     in_rule_id = db.Column(db.Integer, db.ForeignKey('in_rule.id'), nullable=True, comment='申购规则ID')
     out_rule_id = db.Column(db.Integer, db.ForeignKey('out_rule.id'), nullable=True, comment='赎回规则ID')
-    fee_type = Column(ChoiceType(choices=FEE_TYPE), nullable=True, comment='费率类型（认购、申购、赎回）')
+    fee_type = Column(ChoiceType(choices=key2val(FEE_TYPE), impl=db.Integer),
+                      nullable=True,
+                      default=0,
+                      comment='费率类型（认购、申购、赎回）')
     rate = Column(db.Numeric(3, 2), comment='费率百分比')
     fee_amount = Column(db.Numeric(6, 2), comment='收费金额（超过xx万时一次收费，此时rate应该为空）')
 
@@ -554,15 +558,15 @@ class FeeRatio(PkModel):
 #  组合管理人类型
 # TODO: 需要验证int是否支持
 ZH_MGR_TYPE = {
-    'org': 1,  # '机构'
     'personal': 0,  # '个人'
+    'org': 1,  # '机构'
 }
 
 PLAT_TYPE = {
+    'undefined': 0,  # '未定义'
     'qm': 1,  # '且慢'
     'tt': 2,  # '天天基金'
     'dj': 3,  # '蛋卷基金'
-    'undefined': 4,  # '未定义'
 }
 
 
@@ -576,9 +580,15 @@ class FundPortfolio(PkModel, CreateDateModel):
     name = Column(db.String(30), comment='组合名称')
     code = Column(db.String(30), unique=True, comment='组合编码')
     master = Column(db.String(30), comment='主理人')
-    mgr_type = Column(ChoiceType(choices=ZH_MGR_TYPE), nullable=False, comment='组合类型（机构/个人）')
-    platform = Column(ChoiceType(choices=PLAT_TYPE), nullable=True, comment='平台名称')
-    risk_type = Column(ChoiceType(choices=settings.RISK_TYPE), nullable=False, comment='风险类型（稳健/成长等）')
+    mgr_type = Column(ChoiceType(choices=key2val(ZH_MGR_TYPE), impl=db.Integer),
+                      nullable=False,
+                      default=0,
+                      comment='组合类型（机构/个人）')
+    platform = Column(ChoiceType(choices=key2val(PLAT_TYPE), impl=db.Integer), nullable=True, default=0, comment='平台名称')
+    risk_type = Column(ChoiceType(choices=key2val(settings.RISK_TYPE), impl=db.Integer),
+                       nullable=True,
+                       default=0,
+                       comment='风险类型（稳健/成长等）')
     desc = Column(db.String(300), comment='组合描述')
     update_time = Column(db.DateTime, comment='组合更新时间')
 
