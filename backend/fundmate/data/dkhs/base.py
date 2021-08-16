@@ -3,6 +3,7 @@
 # Created by Andy at 2021/8/10 11:30
 import json
 from pathlib import Path
+from typing import Union
 
 from xalpha.cons import rget_json
 
@@ -29,8 +30,7 @@ class DKHS:
 
     def fund_symbols(self):
         """
-        基金编码对应特殊编号需要写入数据库
-
+        基金编码对应特殊编号写入数据库（从网站抓取之后直接写入）
         ---
 
         可以用到的字段：
@@ -175,8 +175,6 @@ class DKHS:
         raw_data = list()
         total_page = _resp.get('total_page')
         symbols_lists = list()
-        symbol_type_set = set()
-        investment_risk_set = set()
         for page in range(1, total_page + 1):
             params = {'page': page}
             item_resp = rget_json(_url, params=params)
@@ -184,78 +182,72 @@ class DKHS:
             raw_data.extend(item_results)
             page_item = list()
             for fund in item_results:
-                # 基金类型
-                symbol_stype_display = fund.get('symbol_stype_display')
-                # symbol_map = {
-                #     'symbol_type': fund.get('symbol_type'),
-                #     'symbol_stype': fund.get('symbol_stype'),
-                #     'symbol_stype_display': symbol_stype_display,
-                # }
-                # print(symbol_map)
-                symbol_type_set.add(symbol_stype_display)
-
-                investment_risk = fund.get('investment_risk')
-                investment_risk_set.add(investment_risk)
-                # investment_risk_display = fund.get('investment_risk_display')
-                # risk_map = {
-                #     'investment_risk': investment_risk,
-                #     'investment_risk_display': investment_risk_display,
-                # }
-                # print(risk_map)
-
+                # 基金基本类型
+                code = fund.get('code')
+                symbol = fund.get('symbol')
+                charge_mode = fund.get('charge_mode')
+                abbr_name = fund.get('abbr_name')
+                investment_risk = int(fund.get('investment_risk'))
                 fund = {
-                    'code': fund.get('code'),
-                    'symbol': fund.get('symbol'),
-                    'charge_mode': fund.get('charge_mode'),
-                    'investment_risk': fund.get('investment_risk'),
+                    'code': code,
+                    'symbol': symbol,
+                    'charge_mode': charge_mode,
+                    'investment_risk': investment_risk,
                     'fund_name': fund.get('fund_name'),
+                    'abbr_name': abbr_name,
                 }
+                fund_inst = self.update_fund_info(code, symbol, charge_mode, investment_risk, abbr_name)
+                if fund_inst:
+                    logger.success(f'Update {fund_inst} successfully.')
+
                 page_item.append(fund)
-                # TODO: 这部分数据需要保存到数据库中
 
             logger.info(f'Data from page:{page} has finished.')
             symbols_lists.extend(page_item)
-        # print(f'investment_risk_set:{investment_risk_set}')
-        # print(f'symbol_type_set:{symbol_type_set}')
-        # print(f'SYMBOLS_LISTS:{symbols_lists}')
-        # 保存文件
+        # 保存裸数据到文件
         with open(FUND_SYMBOLS_SAVE_FP, 'w') as f:
             json.dump(raw_data, f, ensure_ascii=False)
         return symbols_lists
 
-    def read_json_to_db(self):
+    def update_fund_info(self, code, symbol: str, charge_mode: int, investment_risk: Union[int, str], abbr_name: str):
+        """
+        更新某基金信息（包括前缀、风险等级，收费模式<前端（1）/后端（0）>）
+        """
+
+        if charge_mode == 2:  # 源数据中用1/2表示前端和后端，我们强制改为0/1,其中1为前端
+            charge_mode = 0
+        investment_risk = int(investment_risk) if isinstance(investment_risk, str) else investment_risk
+        symbol_prefix = symbol.replace(code, '')
+        fund_inst = Fund.filter_by_code(code)
+        if fund_inst:
+            is_usable_risk = investment_risk in settings.RISK_TYPE.values()
+            is_usable_symbol = symbol_prefix in settings.SYMBOL_TYPE.keys()
+            is_usable_charge_mode = charge_mode in [0, 1]
+            if all([is_usable_risk, is_usable_symbol, is_usable_charge_mode]):
+                fund_inst.update(symbol_prefix=symbol_prefix, risk_level=investment_risk, is_fe_charge_mode=charge_mode)
+                return fund_inst
+            else:
+                raise UnexpectedArgsError(f'Please check your arguments:investment_risk:{investment_risk},'
+                                          f'symbol_val:{symbol_prefix},charge_mode:{charge_mode}')
+        else:
+            logger.error(f'<Fund({code!r}, {abbr_name!r})> info get failed from DB,please check it.')
+
+    def parse_json_to_db(self):
         """
         从json文件中读取文件并更新信息到数据库
+        （目前该接口只能获取到部分基金的信息）
         """
         fund_data_list = data_parser.get_data_from_json(FUND_SYMBOLS_SAVE_FP)
-        symbol_set = set()
         for fund in fund_data_list:
             code = fund.get('code')
             symbol = fund.get('symbol')
             charge_mode = fund.get('charge_mode')
-            if charge_mode == 2:  # 源数据中用1/2表示前端和后端，我们强制改为0/1,其中1为前端
-                charge_mode = 0
+            abbr_name = fund.get('abbr_name')
             investment_risk = int(fund.get('investment_risk'))
-            symbol_prefix = symbol.replace(code, '')
-            symbol_set.add(symbol_prefix)
-            fund_inst = Fund.filter_by_code(code)
+            fund_inst = self.update_fund_info(code, symbol, charge_mode, investment_risk, abbr_name)
             if fund_inst:
-                is_usable_risk = investment_risk in settings.RISK_TYPE.values()
-                is_usable_symbol = symbol_prefix in settings.SYMBOL_TYPE.keys()
-                is_usable_charge_mode = charge_mode in [0, 1]
-                if all([is_usable_risk, is_usable_symbol, is_usable_charge_mode]):
-                    fund_inst.update(symbol_prefix=symbol_prefix,
-                                     risk_level=investment_risk,
-                                     is_fe_charge_mode=charge_mode)
-                else:
-                    raise UnexpectedArgsError(f'Please check your arguments:investment_risk:{investment_risk},'
-                                              f'symbol_val:{symbol_prefix},charge_mode:{charge_mode}')
-            else:
-                abbr_name = fund.get('abbr_name')
-                logger.error(f'<Fund({code!r}, {abbr_name!r})> info get failed from DB,please check it.')
-
-            logger.success(f'Update {fund_inst} successfully.')
-        print(symbol_set)
+                logger.success(f'Update {fund_inst} successfully.')
+        return 0
 
     def fee_raito(self, fund_code: str):
         """
@@ -269,4 +261,4 @@ class DKHS:
 jcb = DKHS()
 if __name__ == '__main__':
     # print(jcb.api())
-    print(jcb.read_json_to_db())
+    print(jcb.parse_json_to_db())
