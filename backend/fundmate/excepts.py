@@ -21,6 +21,13 @@ class CalError(FmException):
     pass
 
 
+class UnexpectedArgsError(FmException):
+    """
+    参数设置错误
+    """
+    pass
+
+
 class LenEqualError(CalError):
     """
     长度不相等的异常

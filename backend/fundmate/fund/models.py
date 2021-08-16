@@ -10,6 +10,7 @@ from backend.fundmate import settings
 from backend.fundmate.database import (
     Base,
     ChoiceType,
+    ChoiceTypeInteger,
     Column,
     CreateDateModel,
     CRUDMixin,
@@ -77,11 +78,11 @@ class Fund(PkModel, UpsertMixin):
                            nullable=True,
                            default='FP',
                            comment='符号前缀（FP/SZ/SH）')
-    risk_level = Column(ChoiceType(choices=key2val(settings.RISK_TYPE), impl=db.Integer),
+    risk_level = Column(ChoiceTypeInteger(choices=key2val(settings.RISK_TYPE)),
                         default=1,
                         nullable=True,
                         comment='风险等级')
-    is_fe_charge_mode = Column(db.Boolean, comment='收费方式（前端/后端）')
+    is_fe_charge_mode = Column(db.Boolean, comment='收费方式（前端/后端）')  #
     last_modified = Column(db.TIMESTAMP,
                            nullable=False,
                            server_default=db.text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
@@ -540,10 +541,7 @@ class FeeRatio(PkModel):
     fund_id = Column(db.Integer, db.ForeignKey('funds.id'), comment='基金编号ID')
     in_rule_id = db.Column(db.Integer, db.ForeignKey('in_rule.id'), nullable=True, comment='申购规则ID')
     out_rule_id = db.Column(db.Integer, db.ForeignKey('out_rule.id'), nullable=True, comment='赎回规则ID')
-    fee_type = Column(ChoiceType(choices=key2val(FEE_TYPE), impl=db.Integer),
-                      nullable=True,
-                      default=0,
-                      comment='费率类型（认购、申购、赎回）')
+    fee_type = Column(ChoiceTypeInteger(choices=key2val(FEE_TYPE)), nullable=True, default=0, comment='费率类型（认购、申购、赎回）')
     rate = Column(db.Numeric(3, 2), comment='费率百分比')
     fee_amount = Column(db.Numeric(6, 2), comment='收费金额（超过xx万时一次收费，此时rate应该为空）')
 
@@ -580,12 +578,9 @@ class FundPortfolio(PkModel, CreateDateModel):
     name = Column(db.String(30), comment='组合名称')
     code = Column(db.String(30), unique=True, comment='组合编码')
     master = Column(db.String(30), comment='主理人')
-    mgr_type = Column(ChoiceType(choices=key2val(ZH_MGR_TYPE), impl=db.Integer),
-                      nullable=False,
-                      default=0,
-                      comment='组合类型（机构/个人）')
-    platform = Column(ChoiceType(choices=key2val(PLAT_TYPE), impl=db.Integer), nullable=True, default=0, comment='平台名称')
-    risk_type = Column(ChoiceType(choices=key2val(settings.RISK_TYPE), impl=db.Integer),
+    mgr_type = Column(ChoiceTypeInteger(choices=key2val(ZH_MGR_TYPE)), nullable=False, default=0, comment='组合类型（机构/个人）')
+    platform = Column(ChoiceTypeInteger(choices=key2val(PLAT_TYPE)), nullable=True, default=0, comment='平台名称')
+    risk_type = Column(ChoiceTypeInteger(choices=key2val(settings.RISK_TYPE)),
                        nullable=True,
                        default=0,
                        comment='风险类型（稳健/成长等）')

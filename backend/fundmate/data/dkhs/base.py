@@ -8,6 +8,7 @@ from xalpha.cons import rget_json
 
 from backend.fundmate import settings
 from backend.fundmate.data.utils import data_parser
+from backend.fundmate.excepts import UnexpectedArgsError
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.fund.models import Fund
 
@@ -232,12 +233,27 @@ class DKHS:
             code = fund.get('code')
             symbol = fund.get('symbol')
             charge_mode = fund.get('charge_mode')
+            if charge_mode == 2:  # 源数据中用1/2表示前端和后端，我们强制改为0/1,其中1为前端
+                charge_mode = 0
             investment_risk = int(fund.get('investment_risk'))
             symbol_prefix = symbol.replace(code, '')
             symbol_set.add(symbol_prefix)
             fund_inst = Fund.filter_by_code(code)
-            symbol_val = settings.SYMBOL_TYPE.get(symbol_prefix)
-            fund_inst.update(symbol_prefix=symbol_val, risk_level=investment_risk, is_fe_charge_mode=charge_mode)
+            if fund_inst:
+                is_usable_risk = investment_risk in settings.RISK_TYPE.values()
+                is_usable_symbol = symbol_prefix in settings.SYMBOL_TYPE.keys()
+                is_usable_charge_mode = charge_mode in [0, 1]
+                if all([is_usable_risk, is_usable_symbol, is_usable_charge_mode]):
+                    fund_inst.update(symbol_prefix=symbol_prefix,
+                                     risk_level=investment_risk,
+                                     is_fe_charge_mode=charge_mode)
+                else:
+                    raise UnexpectedArgsError(f'Please check your arguments:investment_risk:{investment_risk},'
+                                              f'symbol_val:{symbol_prefix},charge_mode:{charge_mode}')
+            else:
+                abbr_name = fund.get('abbr_name')
+                logger.error(f'<Fund({code!r}, {abbr_name!r})> info get failed from DB,please check it.')
+
             logger.success(f'Update {fund_inst} successfully.')
         print(symbol_set)
 
