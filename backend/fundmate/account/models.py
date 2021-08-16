@@ -9,6 +9,7 @@ from backend.fundmate.database import (
     CreateDateModel,
     PkModel,
     db,
+    key2val,
     reference_col,
 )
 from backend.fundmate.settings import RISK_TYPE
@@ -20,7 +21,10 @@ class Account(Base, PkModel, CreateDateModel):
     name = Column(db.String(255), comment='账本名称')
     creator_id = reference_col('users', column_kwargs={'comment': '管理人（类似群主）'})
     comment = Column(db.String(255), comment='账本备注')
-    account_type = Column(ChoiceType(choices=RISK_TYPE), nullable=True, comment='账本类型（四笔钱）')
+    account_type = Column(ChoiceType(choices=key2val(RISK_TYPE), impl=db.Integer),
+                          nullable=True,
+                          default=0,
+                          comment='账本类型（四笔钱）')
 
 
 class AccountFund(Base, PkModel):
@@ -46,7 +50,10 @@ class CashFlow(Base, PkModel):
     __table_args__ = {'comment': '操作记录表'}
 
     user_id = reference_col('users', column_kwargs={'comment': '购买用户编号'})
-    op_type = Column(ChoiceType(choices=FUND_OP_TYPE), nullable=True, comment='操作类型')
+    op_type = Column(ChoiceType(choices=key2val(FUND_OP_TYPE), impl=db.Integer),
+                     default=1,
+                     nullable=True,
+                     comment='操作类型')
     fund_id = reference_col('funds', column_kwargs={'comment': '所购买的基金编号'})
     amount = Column(db.Integer, comment='购买金额')
     date = Column(db.TIMESTAMP, nullable=False, server_default=db.text("CURRENT_TIMESTAMP"), comment='购买日期（确认日期）')

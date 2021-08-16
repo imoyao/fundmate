@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """Database module, including the SQLAlchemy database object and DB-related utilities."""
 from datetime import datetime
-from enum import Enum
 from typing import Union
 
 import sqlalchemy.types as types

@@ -31,6 +31,7 @@ INFO_MAIL_ADDR = 'fundmate@163.com'
 
 # 风险等级
 RISK_TYPE = {
+    'undefined': 0,  # 未定义
     'plain': 1,  # 灵活取用
     'low': 2,  # 稳健增值
     'balance': 3,  # 平衡增长
