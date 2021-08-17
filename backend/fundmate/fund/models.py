@@ -1,7 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # Created by imoyao at 2021/2/13 17:50
-from typing import Union
+from __future__ import annotations
+
+from typing import Type, Union
 
 from sqlalchemy import or_
 from sqlalchemy.ext.hybrid import hybrid_property
@@ -109,7 +111,7 @@ class Fund(PkModel, UpsertMixin):
         return code
 
     @classmethod
-    def filter_by_code(cls, code: str) -> Union[object, None, CRUDMixin]:
+    def filter_by_code(cls, code: str) -> Fund:
         """获取编码所对应的id
         """
         _ins = cls.query.filter_by(fund_code=code).first()
@@ -147,7 +149,7 @@ class Mgr(PkModel, UpsertMixin):
         return f"<Fund Manager({self.mgr_code!r}, {self.name!r})>"
 
     @classmethod
-    def filter_by_code(cls, code: str) -> Union[object, None]:  # TODO: 类型注释有问题
+    def filter_by_code(cls, code: str) -> Mgr:
         """获取编码所对应的id
         """
         _ins = cls.query.filter_by(mgr_code=code).first()
