@@ -2,6 +2,27 @@
 title: 对你的代码进行类型提示
 ---
 
+## 返回类示例
+*   在Python 3.10 或以上版本，直接返回类即可；
+*   Python 3.7+: `from __future__ import annotations`
+```
+from __future__ import annotations
+
+class Position:
+    def __add__(self, other: Position) -> Position:
+        ...
+```
+*   Python <3.7版本: 使用类的string
+
+```python
+class Position:
+    ...
+    def __add__(self, other: 'Position') -> 'Position':
+       ...
+
+```
+参阅：[python - How do I type hint a method with the type of the enclosing class? - Stack Overflow](https://stackoverflow.com/questions/33533148/how-do-i-type-hint-a-method-with-the-type-of-the-enclosing-class)
+
 ## 相关链接
 
 - [typing --- 类型提示支持 — Python 3.9.1 文档](https://docs.python.org/zh-cn/3/library/typing.html)
