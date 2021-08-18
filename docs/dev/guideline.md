@@ -42,3 +42,9 @@ permalink: /dev/guideline
 - 提交代码备注
 
   可以使用中文也可以使用英文，甚至可以混用，但是应该尽量保证清晰明了，尤其是改动较大时。
+
+## docstring
+我们使用`reStructuredtext`风格的 docstring 添加方法注释，在 PyCharm 中具体配置路径为：
+```plain
+File -> Settings -> Tools -> Python Integrated Tools -> Docstrings -> Docstring format
+```
