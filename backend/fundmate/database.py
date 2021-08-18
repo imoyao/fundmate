@@ -10,6 +10,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.sql import func
 
 from backend.fundmate.compat import basestring
+from backend.fundmate.excepts import UniqueInstanceError
 from backend.fundmate.extensions import db
 from backend.fundmate.exts.flask_loguru import logger
 
@@ -85,32 +86,43 @@ class UpsertMixin(CRUDMixin):
         :param unique_query_arg:
         :return:
         """
-        # https://stackoverflow.com/a/41951905
-        for attr, value in unique_query_arg.items():
-            exists = db.session.query(cls.query.filter(getattr(cls, attr) == value).exists()).scalar()
-            if exists:
-                return exists
-        return False
+        # see also: https://stackoverflow.com/a/41951905
+        is_exist = db.session.query(cls.query.filter_by(**unique_query_arg).exists()).scalar()
+        return is_exist
 
     @classmethod
-    def insert_or_update(cls, unique_query_arg: dict, **kwargs: Union[list, dict]):
+    def insert_or_update(cls, unique_query_arg: dict, do_log_flag: bool = False, **kwargs: Union[list, dict]):
         """
         创建或更新
-        :param unique_query_arg:
-        :param kwargs:
+        :param unique_query_arg:查询出来的结果必须是unique的
+        :param do_log_flag:是否记录日志
         :return:
         """
-        ret = None
+        # 更新或创建的时候，更新的数据不能为空
+        if not kwargs:
+            raise ValueError(f'Update kwargs should not be {kwargs}.')
+
         is_inst_exists = cls.check_is_exists(unique_query_arg)
         if is_inst_exists:
-            # 允许多个查询条件 TODO: 可以使用比较运算符 [python - sqlalchemy dynamic filtering - Stack Overflow](
+            # 允许多个查询条件 TODO: 如何写使之可以使用比较运算符 [python - sqlalchemy dynamic filtering - Stack Overflow](
             #  https://stackoverflow.com/questions/41305129/sqlalchemy-dynamic-filtering/41309069#41309069)
-            for attr, value in unique_query_arg.items():
-                ret = cls.query.filter(getattr(cls, attr) == value).update(kwargs)  # TODO:ret = 1
+
+            result = cls.query.filter_by(**unique_query_arg).all()
+
+            if len(result) == 1:
+                inst = result[0]
+                inst.update(kwargs)
                 db.session.commit()
+                if do_log_flag:
+                    logger.success(f'{inst} has been updated successful.')
+            else:
+                raise UniqueInstanceError('The query get the count of instance more than 1.')
+
         else:
-            ret = cls.create(**kwargs)
-        return ret
+            inst = cls.create(**kwargs)
+            if do_log_flag:
+                logger.success(f'{inst} has been created successful.')
+        return inst
 
 
 class Model(CRUDMixin, db.Model):
@@ -291,7 +303,7 @@ class ChoiceTypeInteger(BaseChoice):
             raise KeyError("Choice keys must be unique")
         if num_choices != len(set(self.choices.values())):
             raise ValueError("Choice values must be unique")
-        self.choices_rev = {v: k for k, v in self.choices.items()}
+        self.choices_rev = key2val(self.choices)
         super().__init__(**kw)
 
 
@@ -320,8 +332,17 @@ class ChoiceType(BaseChoice):
             raise KeyError("Choice keys must be unique")
         if num_choices != len(set(self.choices.values())):
             raise ValueError("Choice values must be unique")
-        self.choices_rev = {v: k for k, v in self.choices.items()}
+        self.choices_rev = key2val(self.choices)
         super().__init__(**kw)
+
+    def process_result_value(self, value, dialect):
+        """
+        key是str的直接返回即可
+        :param value:
+        :param dialect:
+        :return:
+        """
+        return value
 
 
 def key2val(unique_dict: dict) -> dict:
