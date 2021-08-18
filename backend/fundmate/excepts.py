@@ -21,6 +21,20 @@ class CalError(FmException):
     pass
 
 
+class UniqueInstanceError(FmException):
+    """
+    该操作必须保证查询结果唯一性
+    """
+    pass
+
+
+class EmptyError(FmException):
+    """
+    查询数据端为空
+    """
+    pass
+
+
 class UnexpectedArgsError(FmException):
     """
     参数设置错误
