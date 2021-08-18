@@ -39,5 +39,13 @@ RISK_TYPE = {
     'high': 5,  # 积极进取
 }
 
-# 基金决策宝的symbol的前缀
-SYMBOL_TYPE = {'FP': 0, 'SZ': 1, 'SH': 2}
+# 基金决策宝的symbol的前缀,UN表示未知
+SYMBOL_TYPE = {'UN': 0, 'FP': 1, 'SZ': 2, 'SH': 3}
+
+# 费率类型
+FEE_TYPE = {
+    'unknown': 0,  # 未定义
+    'subscribe': 1,  # 基金认购
+    'purchase': 2,  # 基金申购
+    'redeem': 3,  # 基金赎回
+}
