@@ -3,7 +3,8 @@
 # Created by imoyao at 2021/2/13 17:50
 from __future__ import annotations
 
-from typing import Type, Union
+from decimal import Decimal
+from typing import Union
 
 from sqlalchemy import or_
 from sqlalchemy.ext.hybrid import hybrid_property
@@ -15,7 +16,6 @@ from backend.fundmate.database import (
     ChoiceTypeInteger,
     Column,
     CreateDateModel,
-    CRUDMixin,
     PkModel,
     UpsertMixin,
     db,
@@ -29,7 +29,6 @@ class DailyWorth(PkModel, CreateDateModel):
     """每日净值（初始净值数据按照基金名称分表存储，然后我们需要合并表）
     1. 考虑分表，主键应该使用uuid
     2. uuid vs GUID
-    3. ~~PkModel~~
     """
     price = Column(db.Float, comment='基金单日净值')
     date = Column(db.Date, comment='日期')
@@ -78,7 +77,7 @@ class Fund(PkModel, UpsertMixin):
     create_time = Column(db.DateTime, comment='基金创建时间')
     symbol_prefix = Column(ChoiceType(choices=settings.SYMBOL_TYPE),
                            nullable=True,
-                           default='FP',
+                           default='UN',
                            comment='符号前缀（FP/SZ/SH）')
     risk_level = Column(ChoiceTypeInteger(choices=key2val(settings.RISK_TYPE)),
                         default=1,
@@ -507,33 +506,63 @@ min_amount,max_amount,min_hold_day,max_hold_day,fee_type,rate,fee_amount
 '''
 
 
-class InRule(PkModel):
+class InRule(PkModel, UpsertMixin):
     """
     可以直接记录结束点，然后每个出入都有3-4条记录，记录字段：分割点、费率、f_code
     """
     __table_args__ = {'comment': '申购/认购规则表'}
 
-    start_quota = Column(db.Numeric(9, 2), comment='计费开始额度（金额：元）')
-    end_quota = Column(db.Numeric(9, 2), comment='计费结束额度（金额：元）')
+    start_quota = Column(db.Numeric(10, 2), comment='计费开始额度（金额：元）')  # max:10000000.00
+    end_quota = Column(db.Numeric(10, 2), comment='计费结束额度（金额：元）')
+
+    def readable_quota(self, quota: Union[int, float]) -> Union[str, int, float]:
+        """
+        将float类型配额转为可读字符
+        Example:
+        ```python
+        In [2]: ir.readable_quota(0)
+        Out[2]: 0
+
+        In [3]: ir.readable_quota(100)
+        Out[3]: 100
+
+        In [4]: ir.readable_quota(10000)
+        Out[4]: '1万'
+
+        In [5]: ir.readable_quota(50000000)
+        Out[5]: '5000 万'
+
+        In [6]: ir.readable_quota(float('inf'))
+        Out[6]: inf
+        ```
+        :param quota:
+        :return:
+        """
+        if quota is None:
+            return float('inf')
+        elif float('inf') > quota >= 10000:
+            return f'{int(quota / 10000)} 万'
+        else:
+            return float(quota) if isinstance(quota, (float, Decimal)) else int(quota)
+
+    def __repr__(self):
+        return f"<InRule(start quota:{self.readable_quota(self.start_quota)!r}," \
+               f"end quota:{self.readable_quota(self.end_quota)!r})> "
 
 
-class OutRule(PkModel):
+class OutRule(PkModel, UpsertMixin):
     __table_args__ = {'comment': '赎回规则表'}
 
     start_day = Column(db.Integer, comment='计费开始天数')
     end_day = Column(db.Integer, comment='计费结束天数')
 
-
-# 费率类型
-FEE_TYPE = {
-    'unknown': 0,  # 未定义
-    'subscribe': 1,  # 基金认购
-    'purchase': 2,  # 基金申购
-    'redeem': 3,  # 基金赎回
-}
+    def __repr__(self):
+        if self.end_day is None:
+            self.end_day = float('inf')
+        return f"<OutRule(start day:{self.start_day!r},end day:{self.end_day!r})>"
 
 
-class FeeRatio(PkModel):
+class FeeRatio(PkModel, UpsertMixin):
     """
     基金和费率表为O2M关系（一个基金有多个收费映射关系）
     费率和费率规则也是O2M关系（一个费率对应多个买入和卖出规则）
@@ -543,9 +572,21 @@ class FeeRatio(PkModel):
     fund_id = Column(db.Integer, db.ForeignKey('funds.id'), comment='基金编号ID')
     in_rule_id = db.Column(db.Integer, db.ForeignKey('in_rule.id'), nullable=True, comment='申购规则ID')
     out_rule_id = db.Column(db.Integer, db.ForeignKey('out_rule.id'), nullable=True, comment='赎回规则ID')
-    fee_type = Column(ChoiceTypeInteger(choices=key2val(FEE_TYPE)), nullable=True, default=0, comment='费率类型（认购、申购、赎回）')
+    fee_type = Column(ChoiceTypeInteger(choices=key2val(settings.FEE_TYPE)),
+                      nullable=True,
+                      default=0,
+                      comment='费率类型（认购、申购、赎回）')
     rate = Column(db.Numeric(3, 2), comment='费率百分比')
     fee_amount = Column(db.Numeric(6, 2), comment='收费金额（超过xx万时一次收费，此时rate应该为空）')
+
+    def __repr__(self):
+        self.code = Fund.get_by_id(self.fund_id).fund_code
+        if self.fee_type in ['subscribe', 'purchase']:
+            rule_class = InRule
+        else:
+            rule_class = OutRule
+        rule_inst = rule_class.get_by_id(self.rule_id)
+        return f"<FeeRatio(code:{self.code!r},type:{self.fee_type!r},{rule_inst!r})>"
 
     @hybrid_property
     def rule_id(self):
@@ -553,6 +594,67 @@ class FeeRatio(PkModel):
         https://stackoverflow.com/a/60053408/14295718
         """
         return self.in_rule_id or self.out_rule_id
+
+    @classmethod
+    def get_rules(cls, fund_code: str, op_type: int):
+        """
+        获取基金对应的rule_id列表
+        """
+        f_id = Fund.filter_by_code(fund_code)
+        rule_item_list = cls.query.filter_by(fund_id=f_id, fee_type=op_type).all()
+        return rule_item_list
+
+    @classmethod
+    def buy_info(cls, fund_code: str, op_type: int = 1):
+        """
+        购买费率（包括申购和购买）
+        """
+        rule_item_list = cls.get_rules(fund_code, op_type)
+        rules = list()
+        for rule in rule_item_list:
+            rule_id = rule.rule_id
+            rule_rate = rule.rate
+            rule_fee_amount = None
+            if not rule_rate:
+                rule_fee_amount = rule.fee_amount
+            rule_inst = InRule.query.get_by_id(rule_id)
+            if rule_inst:
+                start_quota = rule_inst.start_quota
+                end_quota = rule_inst.start_quota
+                rule_info = {
+                    'start_quota': start_quota,
+                    'end_quota': end_quota,
+                    'rate': rule_rate,
+                    'rule_fee_amount': rule_fee_amount,
+                }
+                rules.append(rule_info)
+        return rules
+
+    @classmethod
+    def redeem_info(cls, fund_code: str):
+        """
+        赎回费率
+        """
+        rule_item_list = cls.get_rules(fund_code, 3)
+        rules = list()
+        for rule in rule_item_list:
+            rule_id = rule.rule_id
+            rule_rate = rule.rate
+            rule_fee_amount = None
+            rule_inst = OutRule.query.get_by_id(rule_id)
+            if rule_inst:
+                start_day = rule_inst.start_day
+                end_day = rule_inst.end_day
+                if not rule_rate and end_day is float('inf'):
+                    rule_fee_amount = 0
+                rule_info = {
+                    'start_day': start_day,
+                    'end_day': end_day,
+                    'rate': rule_rate,
+                    'rule_fee_amount': rule_fee_amount,
+                }
+                rules.append(rule_info)
+        return rules
 
 
 #  组合管理人类型
