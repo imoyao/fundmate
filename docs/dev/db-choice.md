@@ -529,7 +529,24 @@ SQL 文件详见 [此处](https://github.com/imoyao/fundmate/blob/master/db/fmt.
 [python - Flask-Migrate No Changes Detected to Schema on first migration - Stack Overflow](https://stackoverflow.com/questions/51783300/flask-migrate-no-changes-detected-to-schema-on-first-migration)
 [python - flask-migrate doesn't detect models - Stack Overflow](https://stackoverflow.com/questions/26564784/flask-migrate-doesnt-detect-models)
 
-- [python - Difference between filter and filter_by in SQLAlchemy - Stack Overflow](https://stackoverflow.com/questions/2128505/difference-between-filter-and-filter-by-in-sqlalchemy)
+- `filter` 和 `filter_by`的区别
+  `filter_by` 用于使用常规 `kwargs` 对列名进行简单查询，如`db.users.filter_by(name='Joe')`
+
+ `filter` 通过使用 '==' 相等运算符也可以实现相同的效果，而不必要使用 `kwargs`，该运算符可以在 db.users.name 对象上重载：`db.users.filter(db.users.name=='Joe')`
+
+我们还可以使用过滤器编写更强大的查询，例如以下表达式：
+
+`db.users.filter(or_(db.users.name=='Ryan', db.users.country=='England'))`
+源码参考：
+```python
+def filter_by(**kwargs):
+    clauses = [
+                _entity_namespace_key(from_entity, key) == value
+                for key, value in kwargs.items()
+            ]
+    return self.filter(*clauses)
+```
+ [python - Difference between filter and filter_by in SQLAlchemy - Stack Overflow](https://stackoverflow.com/questions/2128505/difference-between-filter-and-filter-by-in-sqlalchemy)
 
 ### 规范
 

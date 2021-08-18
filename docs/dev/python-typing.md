@@ -3,16 +3,16 @@ title: 对你的代码进行类型提示
 ---
 
 ## 返回类示例
-*   在Python 3.10 或以上版本，直接返回类即可；
+*   在 Python 3.10 或以上版本，直接返回类即可；
 *   Python 3.7+: `from __future__ import annotations`
-```
+```python
 from __future__ import annotations
 
 class Position:
     def __add__(self, other: Position) -> Position:
         ...
 ```
-*   Python <3.7版本: 使用类的string
+*   Python <3.7 版本: 使用类的`string`形式
 
 ```python
 class Position:
