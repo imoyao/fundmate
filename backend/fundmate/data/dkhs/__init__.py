@@ -4,3 +4,4 @@
 """
 谁牛金融（基金决策宝）
 """
+from .base import jcb  # noqa:F401
