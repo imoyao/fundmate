@@ -57,7 +57,6 @@ def update_db(fund, mgr, company):
 
     注意更新的表顺序：先有基金公司，然后创建基金，最后添加基金经理
     """
-    print(fund, mgr, company)
     if company:
         em.company(save=True)
     if fund:
