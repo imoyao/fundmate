@@ -99,6 +99,9 @@ def register_shell_context(app: Flask):
             'Fund': fund.models.Fund,
             'FundMgr': fund.models.Mgr,
             'MidFundMgr': fund.models.FundMgr,
+            'FeeRatio': fund.models.FeeRatio,
+            'InRule': fund.models.InRule,
+            'OutRule': fund.models.OutRule,
             'FundPortfolio': fund.models.FundPortfolio,
             'Account': account.models.Account,
         }
