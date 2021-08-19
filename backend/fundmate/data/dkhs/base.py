@@ -304,6 +304,7 @@ class DKHS:
             rule_class = InRule
         else:
             rule_class = OutRule
+        # FIXME: 有的rule是存在的，为什么log还是created xx?
         _rule_inst = rule_class.insert_or_update(rule_info, **rule_info)
         rule_id = _rule_inst.id
         fare_ratio = rule_item.get('fare_ratio')
@@ -326,6 +327,7 @@ class DKHS:
 
     def fee_ratio(self, fund_code: str):
         """
+        FIXME: 该接口命中率太低，需要找别的接口替换
         根据基金决策宝网站信息更新费率
         数据来源：[兴全合润混合(SZ163406)_基金净值_费率_行情走势](https://www.dkhs.com/s/SZ163406/) “交易须知” 子页面
         :param fund_code: 基金编码
