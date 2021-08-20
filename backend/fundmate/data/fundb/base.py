@@ -1,9 +1,15 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # Created by Andy at 2021/7/30 17:43
-from xalpha.cons import rpost_json
+import random
+import time
+from typing import Union
+
+from xalpha.cons import JSONDecodeError, rpost_json
 
 from backend.fundmate.data import utils as dt_utils
+from backend.fundmate.excepts import CrawlerException
+from backend.fundmate.exts.flask_loguru import logger
 
 _HEADER_STR = '''authority: api.jiucaishuo.com
 method: POST
@@ -21,11 +27,90 @@ sec-ch-ua-mobile: ?0
 sec-fetch-dest: empty
 sec-fetch-mode: cors
 sec-fetch-site: cross-site
-user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36 Edg/92.0.902.55
-'''
+user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107''' \
+              '''Safari/537.36 Edg/92.0.902.55'''
 
 
 class FundDB:
+
+    def fund_rate(self, fund_code: str) -> Union[dict, None]:
+        """
+        origin: https://funddb.cn/site/fund_details?fund_code=001714
+        基金概览-费率信息
+        :return:
+        """
+        _url = 'https://api.jiucaishuo.com/v2/fund-lists/fundrate'
+        t = time.time()
+        data = {
+            "code": fund_code,
+            "type": "pc",
+            "data_source": "xichou",
+            "version": "1.6.0",
+            "authtoken": "ddQYkiZQ087Z5Kr+ER5CmQMFCpjuC/qW",
+            "act_time": int(round(t * 1000)),
+            "tirgkjfs": "32",
+            "abiokytke": "86",
+            "u54rg5d": "5c",
+            "kf54ge7": "4",
+            "tiklsktr4": "2",
+            "lksytkjh": "8425",
+            "sbnoywr": "48",
+            "bgd7h8tyu54": "5f",
+            "y654b5fs3tr": "0",
+            "bioduytlw": "8",
+            "bd4uy742": "4",
+            "h67456y": "384",
+            "bvytikwqjk": "5f",
+            "ngd4uy551": "84",
+            "bgiuytkw": "69",
+            "nd354uy4752": "1",
+            "ghtoiutkmlg": "0c6",
+            "bd24y6421f": "8d",
+            "tbvdiuytk": "3",
+            "ibvytiqjek": "da",
+            "jnhf8u5231": "69",
+            "fjlkatj": "5cd",
+            "hy5641d321t": "d4",
+            "iogojti": "d",
+            "ngd4yut78": "c6",
+            "nkjhrew": "4",
+            "yt447e13f": "e",
+            "n3bf4uj7y7": "4",
+            "nbf4uj7y432": "86",
+            "yi854tew": "51",
+            "h13ey474": "514",
+            "quikgdky": "fe"
+        }
+        hd = dt_utils.parse_headers(_HEADER_STR)
+        # [httprequest - Python Request Post with param data - Stack Overflow]
+        # (https://stackoverflow.com/questions/15900338/python-request-post-with-param-data)
+        try:
+            resp = rpost_json(_url, headers=hd, json=data)
+            print(resp)
+        except JSONDecodeError:
+            # 爬太快，数据处理不过来？
+            # [python - How to get a random number between a float range? - Stack Overflow]
+            # (https://stackoverflow.com/questions/6088077/how-to-get-a-random-number-between-a-float-range)
+            timeout = round(random.uniform(0.3, 0.7), 2)
+            time.sleep(timeout)
+            resp = rpost_json(_url, headers=hd, json=data)
+            msg = f'fund code:{fund_code}, {resp.text}'
+            logger.error(msg)
+            raise CrawlerException(msg)
+
+        code = resp.get('code')
+        if code == 0:
+            # data = resp.get('data')
+            # buy = data.get('sg')
+            # op = data.get('gl')
+            # redeem = data.get('sh')
+            # info = {
+            #     'buy': buy,
+            #     'op': op,
+            #     'redeem': redeem,
+            # }
+            info = dict()
+            return info
 
     def kjtl(self, is_full: bool = True) -> dict:
         """

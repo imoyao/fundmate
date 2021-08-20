@@ -76,7 +76,7 @@ def thermometer(query_args):
     except dt_except.CrawlerException:
         yzyx_info = None
     jsl_info = jsl.jsl.qz_info(is_full=is_full)
-    dj_info = danjuan.dj.valuation(is_full=is_full)
+    dj_info = danjuan.dj_evl.valuation(is_full=is_full)
     jq_info = fundb.jq_app.kjtl(is_full=is_full)
     info = {'yzyx': yzyx_info, 'jsl': jsl_info, 'dj': dj_info, 'jq': jq_info}
     return info
