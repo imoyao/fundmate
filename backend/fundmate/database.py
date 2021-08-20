@@ -114,14 +114,14 @@ class UpsertMixin(CRUDMixin):
                 inst.update(kwargs)
                 db.session.commit()
                 if do_log_flag:
-                    logger.success(f'{inst} has been updated successful.')
+                    logger.success(f'{inst} has been UPDATED successful.')
             else:
                 raise UniqueInstanceError(f'The query result:{result} get the count of instance more than 1.')
 
         else:
             inst = cls.create(**kwargs)
             if do_log_flag:
-                logger.success(f'{inst} has been created successful.')
+                logger.success(f'{inst} has been CREATED successful.')
         return inst
 
 
