@@ -578,15 +578,20 @@ class FeeRatio(PkModel, UpsertMixin):
                       comment='费率类型（认购、申购、赎回）')
     rate = Column(db.Numeric(3, 2), comment='费率百分比')
     fee_amount = Column(db.Numeric(6, 2), comment='收费金额（超过xx万时一次收费，此时rate应该为空）')
+    last_modified = Column(db.TIMESTAMP,
+                           nullable=False,
+                           server_default=db.text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
+                           comment='数据上次更新时间')
 
     def __repr__(self):
-        self.code = Fund.get_by_id(self.fund_id).fund_code
+        f = Fund.get_by_id(self.fund_id)
+        self.code = f.fund_code
         if self.fee_type in ['subscribe', 'purchase']:
             rule_class = InRule
         else:
             rule_class = OutRule
         rule_inst = rule_class.get_by_id(self.rule_id)
-        return f"<FeeRatio(code:{self.code!r},type:{self.fee_type!r},{rule_inst!r})>"
+        return f"<FeeRatio(id:{self.fund_id},code:{self.code!r},type:{self.fee_type!r},{rule_inst!r})>"
 
     @hybrid_property
     def rule_id(self):
