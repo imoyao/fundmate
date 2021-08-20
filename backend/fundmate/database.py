@@ -116,7 +116,7 @@ class UpsertMixin(CRUDMixin):
                 if do_log_flag:
                     logger.success(f'{inst} has been updated successful.')
             else:
-                raise UniqueInstanceError('The query get the count of instance more than 1.')
+                raise UniqueInstanceError(f'The query result:{result} get the count of instance more than 1.')
 
         else:
             inst = cls.create(**kwargs)
@@ -140,6 +140,28 @@ class PkModel(Model):
 
     __abstract__ = True
     id = Column(db.Integer, primary_key=True)
+
+    # def __repr__(self) -> str:
+    #     return self._repr(id=self.id)
+    #
+    # def _repr(self, **fields: Dict[str, Any]) -> str:
+    #     '''
+    #     see also:[python - SQLAlchemy best way to define __repr__ for large tables - Stack Overflow]
+    #     (https://stackoverflow.com/questions/55713664/sqlalchemy-best-way-to-define-repr-for-large-tables)
+    #     Helper for __repr__
+    #     '''
+    #     field_strings = []
+    #     at_least_one_attached_attribute = False
+    #     for key, field in fields.items():
+    #         try:
+    #             field_strings.append(f'{key}={field!r}')
+    #         except sa.orm.exc.DetachedInstanceError:
+    #             field_strings.append(f'{key}=DetachedInstanceError')
+    #         else:
+    #             at_least_one_attached_attribute = True
+    #     if at_least_one_attached_attribute:
+    #         return f"<{self.__class__.__name__}({','.join(field_strings)})>"
+    #     return f"<{self.__class__.__name__} {id(self)}>"
 
     @classmethod
     def get_by_id(cls, record_id):
@@ -266,6 +288,12 @@ class BaseChoice(types.TypeDecorator):
 
     [zzzeek : The Enum Recipe](https://techspot.zzzeek.org/2011/01/14/the-enum-recipe/)
     """
+    ''':type bool
+    SAWarning: TypeDecorator ChoiceTypeInteger() will not produce a cache key because the ``cache_ok`` flag is not 
+    set to True.  Set this flag to True if this type object's state is safe to use in a cache key, 
+    or False to disable this warning.
+    '''
+    cache_ok = False
 
     def process_bind_param(self, value, dialect):
         if value in self.choices_rev:
