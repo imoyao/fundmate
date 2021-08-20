@@ -28,16 +28,16 @@ class UniqueInstanceError(FmException):
     pass
 
 
-class EmptyError(FmException):
+class UnexpectedArgsError(FmException):
     """
-    查询数据端为空
+    参数设置错误
     """
     pass
 
 
-class UnexpectedArgsError(FmException):
+class UnpackError(FmException):
     """
-    参数设置错误
+    数据解包出错
     """
     pass
 
@@ -84,6 +84,13 @@ class ParseError(CalError):
 class CrawlerException(FmException):
     """
     爬虫类的异常
+    """
+    pass
+
+
+class EmptyError(CrawlerException):
+    """
+    查询数据端为空
     """
     pass
 
