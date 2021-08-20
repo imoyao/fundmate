@@ -309,7 +309,7 @@ class DKHS:
         rule_id = _rule_inst.id
         fare_ratio = rule_item.get('fare_ratio')
         if fare_ratio:
-            rate = float(fare_ratio)
+            rate = float(fare_ratio) if not isinstance(fare_ratio, float) else fare_ratio
         else:
             rate = None
         rate_info = {
@@ -390,6 +390,7 @@ class DKHS:
                 rate_info = self.transfer_rule(fund_id, fee_type, fee_amount, item, rule_info)
                 if rate_info:
                     rule_id = rate_info.pop('rule_id')
+                    # FIXME: rule_id is bug! see:save_fee_info
                     query_args = {'fund_id': fund_id, 'rule_id': rule_id, 'fee_type': fee_type}
                     FeeRatio.insert_or_update(query_args, do_log_flag=True, **rate_info)
         else:
