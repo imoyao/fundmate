@@ -49,6 +49,7 @@ title: 测试你的代码 | 未经测试的代码是不完整的
 
 ## 参考阅读
 - [Examples and customization tricks — pytest documentation](https://docs.pytest.org/en/6.2.x/example/index.html)
+- [pytest-dev/pytest-flask: A set of pytest fixtures to test Flask applications](https://github.com/pytest-dev/pytest-flask)
 - [gothinkster/flask-realworld-example-app: Exemplary real world JSON API built with Flask (Python)](https://github.com/gothinkster/flask-realworld-example-app)
 - [pluralsight/intro-to-pytest: An introduction to PyTest with lots of simple, hackable examples](https://github.com/pluralsight/intro-to-pytest)
 - [Create A Python Test Automation Project Using Pytest | TestProject](https://blog.testproject.io/2019/07/16/python-test-automation-project-using-pytest/)
