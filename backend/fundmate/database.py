@@ -94,6 +94,14 @@ class UpsertMixin(CRUDMixin):
     def insert_or_update(cls, unique_query_arg: dict, do_log_flag: bool = False, **kwargs: Union[list, dict]):
         """
         创建或更新
+        TODO: 改进该方法
+        '''
+        see also:django.db.models.query.QuerySet.update_or_create
+        Looks up an object with the given kwargs, updating one with defaults
+        if it exists, otherwise creates a new one.
+        Returns a tuple (object, created), where created is a boolean
+        specifying whether an object was created.
+        '''
         :param unique_query_arg:查询出来的结果必须是unique的
         :param do_log_flag:是否记录日志
         :return:
