@@ -118,6 +118,8 @@ JWT:由于[此处-Issue #123](https://github.com/mattupstate/flask-jwt/issues/12
 
 [最好的权限设计，是先区分功能权限和数据权限 | 人人都是产品经理](http://www.woshipm.com/pd/2889402.html)
 
+[产品注册&登录设计，需要注意的23条规则 | 人人都是产品经理](http://www.woshipm.com/pd/1483348.html)
+
 [后台经验分享：如何做权限管理系统设计 | 人人都是产品经理](http://www.woshipm.com/pd/835248.html)
 
 [大家心心念念的权限管理功能，这次安排上了！](https://juejin.cn/post/6844904067525771272)
@@ -126,4 +128,4 @@ JWT:由于[此处-Issue #123](https://github.com/mattupstate/flask-jwt/issues/12
 
 [常见权限系统设计模型分析（DAC，MAC，RBAC，ABAC） - 简书](https://www.jianshu.com/p/ce0944b4a903)
 
-   [可能是史上最全的权限系统设计 - 知乎](https://zhuanlan.zhihu.com/p/73414693)
+[可能是史上最全的权限系统设计 - 知乎](https://zhuanlan.zhihu.com/p/73414693)
