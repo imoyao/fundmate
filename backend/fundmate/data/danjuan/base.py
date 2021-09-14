@@ -732,10 +732,8 @@ class DanJuanFundDetail:
             """
             range_str = mid_info_.get('name')
             rate = mid_info_.get('value')
-            float_day_li = self._parse_both_limit(range_str, p_type='d')
-            s_qt = None
-            e_qt = None
             try:
+                float_day_li = self._parse_both_limit(range_str, p_type='d')
                 s_qt, e_qt = float_day_li
             except ValueError as e:
                 err_msg = f'Error{e} to unpack {float_day_li},raw str is {range_str}'
