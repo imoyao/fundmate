@@ -39,7 +39,7 @@ def create_app(config_object: str = "backend.fundmate.settings"):
     return app
 
 
-def register_extensions(app: Flask):
+def register_extensions(app: APIFlask):
     """Register Flask extensions."""
     bcrypt.init_app(app)
     db.init_app(app)
@@ -71,18 +71,25 @@ def register_blueprints(app: Flask):
     return None
 
 
-def register_error_handlers(app: Flask):
-    """Register error handlers."""
+def register_error_handlers(app: APIFlask):
+    """Register error handlers.
+    https://github.com/frostming/flask-vue-todo/blob/e5330497bb0a5457778160aeff0082549214d06a/backend/__init__.py#L41
+    """
 
+    @app.error_processor
     def render_error(error):
         """Render error template."""
         # If a HTTPException, pull the `code` attribute; default to 500
         error_code = getattr(error, "code", 500)
         logger.info(error_code)
-        return 'render_template(f"{error_code}.html"), error_code'
+        detail = error.detail or None
+        try:
+            extra_data = error.extra_data or None
+        except AttributeError:
+            extra_data = {}
+        body = {'error_detail': detail, **extra_data}
+        return body, error.status_code, error.headers
 
-    for errcode in [401, 404, 500]:
-        app.errorhandler(errcode)(render_error)
     return None
 
 
