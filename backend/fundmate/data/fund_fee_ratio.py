@@ -68,6 +68,8 @@ from backend.fundmate.fund.models import Fund
 def init_fee_ratio(fund_code: Union[str, None] = None):
     """
     初始化或者更新费率信息（支持更新单个）
+    蛋卷数据没有反爬但是部分数据有误；
+    韭圈数据暂时没有发现问题，但是有反爬
     :return:
     """
     if not fund_code:
