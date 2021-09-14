@@ -113,7 +113,7 @@ def dj_fr():
         fund_code = fd.fund_code
         try:
             dt = dj_fd.rate(fund_code, to_db=True)
-        except (EmptyError, UnpackError) as e:
+        except (EmptyError, UnpackError, ValueError) as e:
             dt = None
             logger.error(f'{fund_code} get error:{e}')
             print(e)
