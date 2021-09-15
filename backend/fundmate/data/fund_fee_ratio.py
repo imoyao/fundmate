@@ -6,14 +6,14 @@
 1. 尝试基金决策宝
 2. 对于基金决策宝更新失败的 TODO:尝试天天基金或者蛋卷基金？
 """
-from typing import Union
+from typing import List, Union
 
 from backend.fundmate.data.danjuan.base import dj_fd
 from backend.fundmate.data.dkhs.base import jcb
 from backend.fundmate.data.fundb.base import jq_app
 from backend.fundmate.excepts import CrawlerException, EmptyError, UnexpectedArgsError, UnpackError
 from backend.fundmate.exts.flask_loguru import logger
-from backend.fundmate.fund.models import Fund
+from backend.fundmate.fund.models import FeeRatio, Fund
 '''
 网页显示如下：
 ## 认购费率
@@ -98,6 +98,18 @@ def init_fee_ratio(fund_code: Union[str, None] = None):
             logger.warning(f'Failed to update fee ratio of {fund_code}.')
 
 
+def get_no_ratio_funds() -> List:
+    """
+    获取没有添加费率规则的基金列表
+    :return:
+    """
+    # 查询id不在fee_ratio，注意distinct用法
+    has_rule_fd_id_lists = [ratio.fund_id for ratio in FeeRatio.query.distinct(FeeRatio.fund_id).all()]
+    # 注意not_in 用法
+    fund_lists = Fund.query.filter(Fund.id.not_in(has_rule_fd_id_lists)).all()
+    return fund_lists
+
+
 def dj_fr():
     """
     蛋卷基金数据
@@ -107,19 +119,20 @@ def dj_fr():
     ```
     :return:
     """
-    fund_lists = Fund.query.all()
+    fund_lists = get_no_ratio_funds()
     err_count = 0
-    for fd in fund_lists:
-        fund_code = fd.fund_code
-        try:
-            dt = dj_fd.rate(fund_code, to_db=True)
-        except (EmptyError, UnpackError, ValueError) as e:
-            dt = None
-            logger.error(f'{fund_code} get error:{e}')
-            print(e)
-        if not dt:
-            err_count += 1
-    print(err_count, '---------')
+    if fund_lists:
+        for fd in fund_lists:
+            fund_code = fd.fund_code
+            try:
+                dt = dj_fd.rate(fund_code, to_db=True)
+            except (UnpackError, ValueError) as e:
+                dt = None
+                logger.error(f'Fund {fund_code} get Error:{e}')
+                print(e)
+            if not dt:
+                err_count += 1
+    # 计算通过率，后期稳定之后不需要count计算
     pass_rate = f'{1 - (err_count / len(fund_lists)):.2f} %'
     print(f'pass rate: {pass_rate}')
 
