@@ -19,7 +19,7 @@ from xalpha.cons import rget_json
 
 from backend.fundmate import settings, utils
 from backend.fundmate.data import utils as dt_utils
-from backend.fundmate.excepts import EmptyError, ParseError, UnpackError
+from backend.fundmate.excepts import ParseError, UnpackError
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.fund.models import FeeRatio, Fund, InRule, OutRule
 
@@ -736,7 +736,7 @@ class DanJuanFundDetail:
             try:
                 s_qt, e_qt = float_day_li
             except ValueError as e:
-                err_msg = f'Error{e} to unpack {float_day_li},raw str is {range_str}'
+                err_msg = f'Error: {e} to unpack {float_day_li},raw str is {range_str}'
                 # 不够两个无法处理
                 logger.error(err_msg)
                 raise ParseError(err_msg)
@@ -803,6 +803,10 @@ class DanJuanFundDetail:
             if last:
                 l_qt = self.last_day(last)
                 qt_list.append(l_qt)
+        elif len(withdraw_rate_table) == 1:  # 只有一个，即免费
+            free_item = withdraw_rate_table[0]
+            l_qt = self.last_day(free_item)
+            qt_list = [l_qt]
         else:
             raise UnpackError(f'withdraw_rate_table:{withdraw_rate_table}')
         return qt_list
@@ -881,7 +885,8 @@ class DanJuanFundDetail:
                 'withdraw_info': withdraw_info,
             }
             return rate_info
-        raise EmptyError(f'The fund_code {fund_code} from remote get empty response,please check the code is validate?')
+        # raise EmptyError(f'The fund_code {fund_code} from remote get empty response,please check the code is validate?')
+        return None
 
     @staticmethod
     def save_fee_info(fund_code: str, fee_info_tb: list, fee_type: int):
