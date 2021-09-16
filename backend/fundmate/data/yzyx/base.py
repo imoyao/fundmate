@@ -13,6 +13,7 @@ from xalpha.cons import rget
 from backend.fundmate import excepts as dt_except
 from backend.fundmate.data import utils as dt_utils
 from backend.fundmate.exts.flask_loguru import logger
+from backend.fundmate.libs import convert
 from backend.fundmate.utils import deprecated
 
 header_str = '''Host: youzhiyouxing.cn
@@ -98,7 +99,8 @@ class YZYX:
         reg_mat = re.findall(r'：\s*(.+)', update_text)
         update_date = None
         if reg_mat:
-            update_date = reg_mat[0]
+            raw_date = reg_mat[0]
+            update_date = convert.try_parse_date(raw_date).strftime("%Y-%m-%d")
 
         # 全市场温度
         temper_div = '//div[@class="tw-flex tw-items-center"]/div/'
