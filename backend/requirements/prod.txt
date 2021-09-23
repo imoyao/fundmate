@@ -8,7 +8,7 @@ APIFlask==0.9.0
 
 # Database
 Flask-SQLAlchemy==2.5.1
-SQLAlchemy==1.4.23
+SQLAlchemy==1.4.25
 psycopg2-binary==2.9.1
 
 # Migrations
