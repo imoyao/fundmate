@@ -21,6 +21,27 @@ class CalError(FmException):
     pass
 
 
+class UniqueInstanceError(FmException):
+    """
+    该操作必须保证查询结果唯一性
+    """
+    pass
+
+
+class UnexpectedArgsError(FmException):
+    """
+    参数设置错误
+    """
+    pass
+
+
+class UnpackError(FmException):
+    """
+    数据解包出错
+    """
+    pass
+
+
 class LenEqualError(CalError):
     """
     长度不相等的异常
@@ -63,6 +84,13 @@ class ParseError(CalError):
 class CrawlerException(FmException):
     """
     爬虫类的异常
+    """
+    pass
+
+
+class EmptyError(CrawlerException):
+    """
+    查询数据端为空
     """
     pass
 

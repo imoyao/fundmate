@@ -88,15 +88,18 @@ class ParseData:
         pass
 
     @staticmethod
-    def get_data_from_json(json_fp: Union[str, Path]):
+    def get_data_from_json(json_fp: Union[str, Path]) -> Union[dict, list]:
         """
         从指定的json文件中解析数据
         :param json_fp:str,文件路径
         :return:dict,
         """
-        with open(json_fp, encoding='utf-8') as f:
-            data = json.load(f)
-        return data
+        if Path(json_fp).exists():
+            with open(json_fp, encoding='utf-8') as f:
+                data = json.load(f)
+            return data
+        else:
+            raise FileNotFoundError(f'File:{json_fp} not Found.')
 
     @staticmethod
     def get_data_from_yaml(yaml_fp: Union[str, Path]):

@@ -31,9 +31,21 @@ INFO_MAIL_ADDR = 'fundmate@163.com'
 
 # 风险等级
 RISK_TYPE = {
+    'undefined': 0,  # 未定义
     'plain': 1,  # 灵活取用
     'low': 2,  # 稳健增值
     'balance': 3,  # 平衡增长
     'advance': 4,  # 进阶成长
     'high': 5,  # 积极进取
+}
+
+# 基金决策宝的symbol的前缀,UN表示未知
+SYMBOL_TYPE = {'UN': 0, 'FP': 1, 'SZ': 2, 'SH': 3}
+
+# 费率类型
+FEE_TYPE = {
+    'unknown': 0,  # 未定义
+    'subscribe': 1,  # 基金认购
+    'purchase': 2,  # 基金申购
+    'redeem': 3,  # 基金赎回
 }

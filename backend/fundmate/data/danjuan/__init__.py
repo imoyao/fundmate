@@ -4,4 +4,4 @@
 """
 爬取蛋卷基金有关市场估值的数据
 """
-from .base import dj  # noqa: F401
+from .base import dj_evl, dj_fd  # noqa: F401

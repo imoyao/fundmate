@@ -9,7 +9,6 @@ from flask import Flask
 from backend.fundmate import account, commands, fund, public, settings, user
 from backend.fundmate.config import config
 from backend.fundmate.extensions import bcrypt, db, login_manager, loguru, migrate
-# from backend.fundmate.fund.models import Fund, FundMgr, Mgr  # noqa:F401
 from backend.fundmate.settings import env
 
 from .exts.flask_loguru import logger
@@ -33,14 +32,14 @@ def create_app(config_object: str = "backend.fundmate.settings"):
     logger.info('Flask app has created!')
     '''
     RuntimeError: No application found. Either work inside a view function or push an application context. 
-    See http://flask-sqlalchemy.pocoo.org/contexts/.
+    See also: http://flask-sqlalchemy.pocoo.org/contexts/ .
     see also: https://blog.csdn.net/zhongqiushen/article/details/79162792
     '''
     app.app_context().push()
     return app
 
 
-def register_extensions(app: Flask):
+def register_extensions(app: APIFlask):
     """Register Flask extensions."""
     bcrypt.init_app(app)
     db.init_app(app)
@@ -72,18 +71,25 @@ def register_blueprints(app: Flask):
     return None
 
 
-def register_error_handlers(app: Flask):
-    """Register error handlers."""
+def register_error_handlers(app: APIFlask):
+    """Register error handlers.
+    https://github.com/frostming/flask-vue-todo/blob/e5330497bb0a5457778160aeff0082549214d06a/backend/__init__.py#L41
+    """
 
+    @app.error_processor
     def render_error(error):
         """Render error template."""
         # If a HTTPException, pull the `code` attribute; default to 500
         error_code = getattr(error, "code", 500)
         logger.info(error_code)
-        return 'render_template(f"{error_code}.html"), error_code'
+        detail = error.detail or None
+        try:
+            extra_data = error.extra_data or None
+        except AttributeError:
+            extra_data = {}
+        body = {'error_detail': detail, **extra_data}
+        return body, error.status_code, error.headers
 
-    for errcode in [401, 404, 500]:
-        app.errorhandler(errcode)(render_error)
     return None
 
 
@@ -100,7 +106,11 @@ def register_shell_context(app: Flask):
             'Fund': fund.models.Fund,
             'FundMgr': fund.models.Mgr,
             'MidFundMgr': fund.models.FundMgr,
-            'Account': account.models.Account
+            'FeeRatio': fund.models.FeeRatio,
+            'InRule': fund.models.InRule,
+            'OutRule': fund.models.OutRule,
+            'FundPortfolio': fund.models.FundPortfolio,
+            'Account': account.models.Account,
         }
 
     # 当你使用flask shell命令启动Python Shell时，所有使用app.shell_context_processor装饰器注册的shell上下文处理函数
