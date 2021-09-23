@@ -334,5 +334,4 @@ npm-debug.log
 yarn-error.log
 
 # End of https://www.toptal.com/developers/gitignore/api/python,flask,pycharm,vue,vuejs
-# 我们不建议跟踪migrations，因为models已经包含修改的内容
-migrations/
+# 需要跟踪`script.py.mako`和`env.py`
