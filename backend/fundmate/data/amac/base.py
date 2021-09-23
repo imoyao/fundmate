@@ -56,7 +56,6 @@ def agency_info() -> list:
                 info = dict(zip(key, val))
                 query_info = {'org_id': org_id}
                 # 对一些常见的基金公司进行特殊化处理
-                print(USUAL_SALE_COMPS.keys())
                 id2str = str(org_id)
                 if id2str in USUAL_SALE_COMPS.keys():
                     _known_name = USUAL_SALE_COMPS.get(id2str)

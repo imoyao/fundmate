@@ -3,7 +3,6 @@
 
 import datetime
 import math
-import platform
 
 import matplotlib.dates as mdate
 import matplotlib.pyplot as plt

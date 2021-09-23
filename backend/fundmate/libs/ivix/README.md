@@ -1,6 +1,8 @@
 # ivix
 ## 中国波指的计算
 
+[自用VIX指标 - 集思录](https://www.jisilu.cn/question/365778)
+
 vix指数的计算方法如下（ivix也是一样）：
 
 [vix指数的简单计算介绍](http://vix.readthedocs.io/en/latest/)

@@ -4,11 +4,12 @@
 
 from backend.fundmate.database import (
     Base,
-    ChoiceType,
+    ChoiceTypeInteger,
     Column,
     CreateDateModel,
     PkModel,
     db,
+    key2val,
     reference_col,
 )
 from backend.fundmate.settings import RISK_TYPE
@@ -20,7 +21,7 @@ class Account(Base, PkModel, CreateDateModel):
     name = Column(db.String(255), comment='账本名称')
     creator_id = reference_col('users', column_kwargs={'comment': '管理人（类似群主）'})
     comment = Column(db.String(255), comment='账本备注')
-    account_type = Column(ChoiceType(RISK_TYPE), comment='账本类型（四笔钱）')
+    account_type = Column(ChoiceTypeInteger(choices=key2val(RISK_TYPE)), nullable=True, default=0, comment='账本类型（四笔钱）')
 
 
 class AccountFund(Base, PkModel):
@@ -29,7 +30,7 @@ class AccountFund(Base, PkModel):
 
 
 FUND_OP_TYPE = {
-    'hold_in': 1,  # 买入/存入/申购
+    'purchase': 1,  # 买入/存入/申购
     'sale': 2,  # 赎回/卖出/支取
     'transfer': 3,  # 转换/转存
     'regular_invest': 4,  # 定投
@@ -44,12 +45,13 @@ class CashFlow(Base, PkModel):
     记账操作表 # TODO:或许命名为 TransactionRecord 更好
     """
     __table_args__ = {'comment': '操作记录表'}
+
     user_id = reference_col('users', column_kwargs={'comment': '购买用户编号'})
+    op_type = Column(ChoiceTypeInteger(choices=key2val(FUND_OP_TYPE)), default=1, nullable=True, comment='操作类型')
     fund_id = reference_col('funds', column_kwargs={'comment': '所购买的基金编号'})
     amount = Column(db.Integer, comment='购买金额')
     date = Column(db.TIMESTAMP, nullable=False, server_default=db.text("CURRENT_TIMESTAMP"), comment='购买日期（确认日期）')
     comment = Column(db.String(300), comment='复盘备注')
-    op_type = Column(ChoiceType(FUND_OP_TYPE), comment='操作类型')
 
 
 class HandPick(Base, PkModel):

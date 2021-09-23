@@ -13,8 +13,10 @@ from sqlalchemy.orm.exc import FlushError
 from xalpha.cons import rget
 
 from backend.fundmate.data import utils as dt_utils
+from backend.fundmate.data.dkhs import jcb
 from backend.fundmate.data.utils import data_parser
 from backend.fundmate.database import db
+from backend.fundmate.excepts import UnexpectedArgsError
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.fund.models import Fund, FundCompany, FundMgr, FundType, FundVariety, Mgr
 
@@ -137,7 +139,7 @@ class EastMoney:
         """  # noqa: E501
         for mgr_item in fund_mgr_info:
             mgr_code, mgr_name, cmp_code, cmp_name, mgr_fd, mgr_fn, work_days, _best_rt, \
-            best_fd, _, _sum_scale, _ = mgr_item
+                best_fd, _, _sum_scale, _ = mgr_item
             mgr_fd_list = mgr_fd.split(',')
             mgr_fn_list = mgr_fn.split(',')
             mgr_fd_map = dict(zip(mgr_fd_list, mgr_fn_list))
@@ -157,8 +159,7 @@ class EastMoney:
                 'best_rt': best_rt,
             }
             # 更新或插入基金经理信息
-            mgr_ret = Mgr.insert_or_update(mgr_query_info, **mgr_info)
-            logger.info(f'{mgr_ret} create/update successful.')
+            Mgr.insert_or_update(mgr_query_info, do_log_flag=True, **mgr_info)
             # 重新查一次
             mgr_ins = Mgr.filter_by_code(mgr_code)
             if mgr_ins:
@@ -171,43 +172,42 @@ class EastMoney:
             # 查询到的列表不在现有的中
             patch_funds = set(mgr_fd_list) - set(fund_lists_of_mgr)
             if patch_funds:
-                for fund_item in patch_funds:
+                for fund_code in patch_funds:
                     fund_inst = None
                     try:
-                        fund_inst = Fund.query.filter_by(fund_code=fund_item).first()
+                        fund_inst = Fund.filter_by_code(fund_code)
                     except FlushError as e:
                         if fund_inst is None:
                             logger.error(
-                                f'Error:{e},Fund info of {fund_item} get error,maybe a new fund in subscription period?'
+                                f'Error:{e},Fund info of {fund_code} get error,maybe a new fund in subscription period?'
                             )
                             continue
                     # 重新查，否则报错
-                    fund_inst = Fund.query.filter_by(fund_code=fund_item).first()
+                    fund_inst = Fund.filter_by_code(fund_code)
                     if not fund_inst:
                         # 根据已有信息创建一个，后期自动更新
                         logger.error(
-                            f'Query Fund info of {fund_item} error,maybe is a new fund in subscription period? '
+                            f'Query Fund info of {fund_code} error,maybe is a new fund in subscription period? '
                             f'we will try to create it with minimum info.')
                         # 最简创建
-                        fund_name = mgr_fd_map.get(fund_item)
-                        fund_inst = self.subscription_period_fund(fund_item, fund_name)
+                        fund_name = mgr_fd_map.get(fund_code)
+                        fund_inst = self.subscription_period_fund(fund_code, fund_name)
                         logger.info(f'The fund in subscription period created as {fund_inst}')
 
                     _mgr_ins = Mgr.filter_by_code(mgr_code)
                     _mgr_ins.funds.append(fund_inst)
                     db.session.add(_mgr_ins)
-                    '''
-                    注意每一次都必须commit，否则query查询不到 see also:
-                    [python - SQLAlchemy: What's the difference between flush() and commit()? - Stack Overflow]
-                    (https://stackoverflow.com/questions/4201455/sqlalchemy-whats-the-difference-between-flush-and-commit)
-                    '''
-                    # db.session.flush()
-                    db.session.commit()
+                '''
+                ~~注意每一次都必须commit，否则query查询不到~~
+                see also:[python - SQLAlchemy: What's the difference between flush() and commit()? - Stack Overflow]
+                (https://stackoverflow.com/questions/4201455/sqlalchemy-whats-the-difference-between-flush-and-commit)
+                '''
+                db.session.commit()
 
                 # 不再管理的，~~移除掉？~~ TODO: 可能是历史管理基金（如：基金经理跳槽了）
                 # remove_funds = set(fund_lists_of_mgr) - set(mgr_fd_list)
-                # for fund_item in remove_funds:
-                #     fund_inst = Fund.query.filter_by(fund_code=fund_item).first()
+                # for fund_code in remove_funds:
+                #     fund_inst = Fund.query.filter_by(fund_code=fund_code).first()
                 #     mgr_ins.funds.remove(fund_inst)
                 # db.session.commit()
 
@@ -295,7 +295,7 @@ class EastMoney:
             if save:
                 _ret = self.do_save_action(format_, fund_info)
                 if _ret == 0:
-                    logger.info('Save Fund info successfully.')
+                    logger.info('Save Fund info successful.')
                 else:
                     logger.error('Save Fund info failed.')
 
@@ -370,9 +370,10 @@ class EastMoney:
             _fv = f_vt_str
         return _fv, _ft
 
-    def save_fund_to_db(self, _funds: str) -> int:
+    def save_fund_to_db(self, _funds: str) -> int:  # noqa: C901
         """
         保存fund信息到数据库
+        :param _funds:
         :return:
         """
 
@@ -416,17 +417,23 @@ class EastMoney:
                             f_tp = FundType.create(**_ft_info)
                             _ft_id = f_tp.id
                         type_map[ft] = _ft_id
+                try:
+                    symbol = jcb.search_symbol(code)
+                except (UnexpectedArgsError, ValueError):
+                    symbol = 'UN'
+                if not symbol:
+                    symbol = 'UN'
                 info = {
                     'name': name,
                     'sxszm': szm,
                     'qxpy': qpy,
+                    'symbol_prefix': symbol,
                     'fund_code': code,
                     'f_type': _ft_id if _ft_id else None,
                     'f_var': _fv_id,
                 }
                 query_info = {'fund_code': code}
-                _ret = Fund.insert_or_update(query_info, **info)  # TODO: 需要对更新还是创建做区分
-                logger.info(f'{_ret} create successful.')
+                Fund.insert_or_update(query_info, do_log_flag=True, **info)
                 _count += 1
             fetch_count = len(_fund_list)
             if fetch_count == _count:
@@ -469,6 +476,5 @@ if __name__ == '__main__':
     # count = 0
     # if funds:
     #     fund_list = em.be_json(funds)
-    #     print(fund_list, '===fund_list====')
     #     count = em.counts(funds)
     # print(funds, count)

@@ -696,7 +696,6 @@ class XIRR:
         which are almost 0.
         """
         values_cleaned = [amount for amount in values if round(amount, 2) != 0]
-        print(values, values_cleaned, '---values,values_cleaned-------')
         result = None
         try:
             if len(values_cleaned) == len(dates) and all([values_cleaned, dates]):
