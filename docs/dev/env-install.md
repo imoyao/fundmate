@@ -29,7 +29,7 @@ yum install gcc gcc-c++
 node --version
 v12.2.0
 ```
-注意：如果npm不可用，请参考[window系统下使用nvm安装后node生效但是npm不生效_益达木咸醇的博客-CSDN博客](https://blog.csdn.net/weixin_45766506/article/details/106726679) 修复，node对应npm版本参照：[以往的版本 | Node.js](https://nodejs.org/zh-cn/download/releases/)，npm下载镜像：[NPM Mirror](https://npm.taobao.org/mirrors/npm/)
+注意：如果 npm 不可用，请参考[window 系统下使用 nvm 安装后 node 生效但是 npm 不生效_益达木咸醇的博客-CSDN 博客](https://blog.csdn.net/weixin_45766506/article/details/106726679) 修复，node 对应 npm 版本参照：[以往的版本 | Node.js](https://nodejs.org/zh-cn/download/releases/)，npm 下载镜像：[NPM Mirror](https://npm.taobao.org/mirrors/npm/)
 - yarn
 ```bash
 npm install yarn

@@ -118,7 +118,7 @@ JWT:由于[此处-Issue #123](https://github.com/mattupstate/flask-jwt/issues/12
 
 [最好的权限设计，是先区分功能权限和数据权限 | 人人都是产品经理](http://www.woshipm.com/pd/2889402.html)
 
-[产品注册&登录设计，需要注意的23条规则 | 人人都是产品经理](http://www.woshipm.com/pd/1483348.html)
+[产品注册&登录设计，需要注意的 23 条规则 | 人人都是产品经理](http://www.woshipm.com/pd/1483348.html)
 
 [后台经验分享：如何做权限管理系统设计 | 人人都是产品经理](http://www.woshipm.com/pd/835248.html)
 
