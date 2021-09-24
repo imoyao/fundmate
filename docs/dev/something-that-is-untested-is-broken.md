@@ -5,24 +5,49 @@ title: 测试你的代码 | 未经测试的代码是不完整的
 关于测试的重要性不言而喻：
 1. 没有测试过的应用将会使得提高现有代码质量很困难；
 2. 未经测试的应用难于改进现有的代码，因此其开发者会越改进越抓狂。 反之，经过自动测试的代码可以安全的改进，并且可以在测试过程中立即发现错误。
-   如果一个应用拥有自动化测试，那么我们就可以安全的修改然后立刻知道是否有错误。
+   如果一个应用拥有自动化测试，那么我们就可以放心地修改并立刻知道所做修改是否有错误。
    [XML 之父：不对代码做测试就像“上完厕所不洗手”](https://mp.weixin.qq.com/s/AgI0JCRfyaFzqrTAde4C9w)
 
 ## 框架选择
-有的 Flask 教程中使用 unittest 作为测试工具，经过阅读他人文件之后，我们选择 pytest 作为测试的工具，且这与官方文档中给出的选择一脉相承。
-参阅：
-- [Python 测试框架之 pytest 详解_lovedingd 的博客-CSDN 博客_pytest](https://blog.csdn.net/lovedingd/article/details/98952868)
-- [Pytest - 使用介绍 - 简书](https://www.jianshu.com/p/a754e3d47671)
-- 中文文档 [pyTest 官方手册(Release 4.2)之蹩脚翻译(1)_crazyskady 的博客-CSDN 博客](https://blog.csdn.net/crazyskady/article/details/87393268)
-## 现有问题
+有的 Flask 教程中使用 unittest 作为测试工具，我们选择 pytest 作为测试的工具，它易于学习，而且与前者相比，它需要的样板代码更少。
+
+## 使用
 
 网上有很多介绍 pytest 的文章，但是多为简单 demo，很少结合实际开发。本项目介绍力争结合实际项目中如何使用。
 
-## 咳，出发
+咳，出发！
+
+### 结合 PyCharm
+- 设置 PyCharm 默认测试类型
+1. 打开 File > Settings > Tools > Python Integrated Tools > Testing > Default test runner
+2. 修改下拉框，改为"pytest"
+3. 右键单元测试文件，点击"run"，即可执行测试，在下方的"Run"窗口也有相应的测试结果
+- 设置执行所有测试
+  右键"tests"文件夹，选择"Run"
+  接下来就直接跑目录下所有的测试用例了，在下方的"Run"窗口可以看到测试信息。
+  如果报错找不到模块时，需要打开右上角的编辑启动项，先删除旧信息，否则会有缓存
+
+## Postman与 pytest
+
+postman用于前端开发人员对接口进行测试，借助于mock服务器特性，我们可以打破前后端之间相互掣肘的问题，让开发人员各自专注于自己的分内之事，从而减少开发团队发布的消耗时间。
+### postman
+此处参考 [Building Restful API with Flask, Postman & PyTest - Part 2 (Read Time: 10 Mins) - MaxOngZB](https://www.maxongzb.com/building-restful-api-with-flask-postman-and-pytest-part-2-read-time-10-mins/) 
+- Collection
+用于存放我们的API请求。
+-  mocks
+可以选择我们自己创建的collection作为mock的标志。对于后端还没有开发好的接口，可以直接编辑请求。
+
+## pytest
+
+主要参考该系列文章：
+[Flask Rest API - Zero to Yoda Series' Articles - DEV Community](https://dev.to/paurakhsharma/series/3672)
 
 ### TODO
+1. 使用flask-pytest测试我们的flask应用
+2. 区分配置文件`.env`，使用不同的数据库
+3. 测试RESTful接口
 
-1. 区分配置文件`.env`，使用不同的数据库
+## 原则
 
 ### 测试隔离（Test Isolation）
 
@@ -38,16 +63,6 @@ title: 测试你的代码 | 未经测试的代码是不完整的
 基础数据是否可以不遵循此条，否则，可能跑数据需要很久。
 :::
 
-### 结合 PyCharm
-设置 PyCharm 默认测试类型
-打开 File > Settings > Tools > Python Integrated Tools > Testing > Default test runner
-修改下拉框，改为"pytest"
-右键单元测试文件，点击"run"，即可执行测试，在下方的"Run"窗口也有相应的测试结果
-设置执行所有测试
-右键"tests"文件夹，选择"Run"
-接下来就直接跑目录下所有的测试用例了，在下方的"Run"窗口可以看到测试信息
-如果报错找不到模块时，需要打开右上角的编辑启动项，先删除旧信息，否则会有缓存
-
 ## 参考阅读
 
 ### 选择
@@ -55,6 +70,7 @@ title: 测试你的代码 | 未经测试的代码是不完整的
 - [pluralsight/intro-to-pytest: An introduction to PyTest with lots of simple, hackable examples](https://github.com/pluralsight/intro-to-pytest)
 ### 文档
 - [pytest: helps you write better programs — pytest documentation](https://docs.pytest.org/en/6.2.x/index.html)
+- 中文文档: [pyTest 官方手册(Release 4.2)之蹩脚翻译(1)_crazyskady 的博客-CSDN 博客](https://blog.csdn.net/crazyskady/article/details/87393268)
 - 更加顺口：[luizyao/pytest-chinese-doc: pytest 官方文档的中文翻译，但不仅仅是单纯的翻译，也包含自己的理解和实践。](https://github.com/luizyao/pytest-chinese-doc)
 - 更加完整：[Pytest：帮助您编写更好的程序 — pytest documentation](https://www.osgeo.cn/pytest/index.html)
 ### 简单使用
@@ -67,9 +83,9 @@ title: 测试你的代码 | 未经测试的代码是不完整的
 - [End-To-End Tutorial For Pytest Fixtures With Examples](https://www.lambdatest.com/blog/end-to-end-tutorial-for-pytest-fixtures-with-examples/)
 - [测试 Flask 应用 — Flask 0.10.1 文档](http://docs.jinkan.org/docs/flask/testing.html)
 - [Building Restful API with Flask, Postman & PyTest - Part 3 (Read Time: 20 Mins) - MaxOngZB](https://www.maxongzb.com/building-restful-api-with-flask-postman-and-pytest-part-3-read-time-20-mins/)
-- [测试 Flask 应用 — Flask 0.10.1 文档](http://docs.jinkan.org/docs/flask/testing.html)
-- [Building Restful API with Flask, Postman & PyTest - Part 3 (Read Time: 20 Mins) - MaxOngZB](https://www.maxongzb.com/building-restful-api-with-flask-postman-and-pytest-part-3-read-time-20-mins/)
 
 ### 其他
+- [Python 测试框架之 pytest 详解_lovedingd 的博客-CSDN 博客_pytest](https://blog.csdn.net/lovedingd/article/details/98952868)
+- [Pytest - 使用介绍 - 简书](https://www.jianshu.com/p/a754e3d47671)
 - [自动化测试基础篇：Selenium unittest 简介](https://mp.weixin.qq.com/s/D_2fYADN4Ypc2PzfTYPo4Q)
 - [有关单元测试的 5 个建议](https://mp.weixin.qq.com/s/kHqZrDJhsu4v8ZEQ7QJ3wQ)
