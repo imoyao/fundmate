@@ -5,7 +5,8 @@ title: 测试你的代码 | 未经测试的代码是不完整的
 关于测试的重要性不言而喻：
 1. 没有测试过的应用将会使得提高现有代码质量很困难；
 2. 未经测试的应用难于改进现有的代码，因此其开发者会越改进越抓狂。 反之，经过自动测试的代码可以安全的改进，并且可以在测试过程中立即发现错误。
-如果一个应用拥有自动化测试，那么我们就可以安全的修改然后立刻知道是否有错误。
+   如果一个应用拥有自动化测试，那么我们就可以安全的修改然后立刻知道是否有错误。
+   [XML 之父：不对代码做测试就像“上完厕所不洗手”](https://mp.weixin.qq.com/s/AgI0JCRfyaFzqrTAde4C9w)
 
 ## 框架选择
 有的 Flask 教程中使用 unittest 作为测试工具，经过阅读他人文件之后，我们选择 pytest 作为测试的工具，且这与官方文档中给出的选择一脉相承。
@@ -33,7 +34,7 @@ title: 测试你的代码 | 未经测试的代码是不完整的
 
 因此，我们应该始终从空白状态测试一个功能，并且为此最简单的方法是删除数据库中的所有集合。
 
-::: TODO
+::: tip TODO
 基础数据是否可以不遵循此条，否则，可能跑数据需要很久。
 :::
 
@@ -48,15 +49,27 @@ title: 测试你的代码 | 未经测试的代码是不完整的
 如果报错找不到模块时，需要打开右上角的编辑启动项，先删除旧信息，否则会有缓存
 
 ## 参考阅读
-- [Examples and customization tricks — pytest documentation](https://docs.pytest.org/en/6.2.x/example/index.html)
-- [pytest-dev/pytest-flask: A set of pytest fixtures to test Flask applications](https://github.com/pytest-dev/pytest-flask)
-- [gothinkster/flask-realworld-example-app: Exemplary real world JSON API built with Flask (Python)](https://github.com/gothinkster/flask-realworld-example-app)
+
+### 选择
+- [三种最流行的 Python 测试框架，我该用哪一个？ - 测试不将就 | awesometest](https://slxiao.github.io/2019/06/03/py-test/)
 - [pluralsight/intro-to-pytest: An introduction to PyTest with lots of simple, hackable examples](https://github.com/pluralsight/intro-to-pytest)
+### 文档
+- [pytest: helps you write better programs — pytest documentation](https://docs.pytest.org/en/6.2.x/index.html)
+- 更加顺口：[luizyao/pytest-chinese-doc: pytest 官方文档的中文翻译，但不仅仅是单纯的翻译，也包含自己的理解和实践。](https://github.com/luizyao/pytest-chinese-doc)
+- 更加完整：[Pytest：帮助您编写更好的程序 — pytest documentation](https://www.osgeo.cn/pytest/index.html)
+### 简单使用
+- [gothinkster/flask-realworld-example-app: Exemplary real world JSON API built with Flask (Python)](https://github.com/gothinkster/flask-realworld-example-app)
+- [人人都能看懂的 Pytest 简易上手指南！](https://mp.weixin.qq.com/s/Z_lohJ9sVBexofTBRSmlHQ)
 - [Create A Python Test Automation Project Using Pytest | TestProject](https://blog.testproject.io/2019/07/16/python-test-automation-project-using-pytest/)
 - [Effective Python Testing With Pytest – Real Python](https://realpython.com/pytest-python-testing/)
 - [Testing Python Applications with Pytest - Semaphore Tutorial](https://semaphoreci.com/community/tutorials/testing-python-applications-with-pytest)
 - [Flask Rest API -Part:6- Testing REST APIs - DEV Community](https://dev.to/paurakhsharma/flask-rest-api-part-6-testing-rest-apis-4lla)
 - [End-To-End Tutorial For Pytest Fixtures With Examples](https://www.lambdatest.com/blog/end-to-end-tutorial-for-pytest-fixtures-with-examples/)
-- [三种最流行的 Python 测试框架，我该用哪一个？ - 测试不将就 | awesometest](https://slxiao.github.io/2019/06/03/py-test/)
 - [测试 Flask 应用 — Flask 0.10.1 文档](http://docs.jinkan.org/docs/flask/testing.html)
 - [Building Restful API with Flask, Postman & PyTest - Part 3 (Read Time: 20 Mins) - MaxOngZB](https://www.maxongzb.com/building-restful-api-with-flask-postman-and-pytest-part-3-read-time-20-mins/)
+- [测试 Flask 应用 — Flask 0.10.1 文档](http://docs.jinkan.org/docs/flask/testing.html)
+- [Building Restful API with Flask, Postman & PyTest - Part 3 (Read Time: 20 Mins) - MaxOngZB](https://www.maxongzb.com/building-restful-api-with-flask-postman-and-pytest-part-3-read-time-20-mins/)
+
+### 其他
+- [自动化测试基础篇：Selenium unittest 简介](https://mp.weixin.qq.com/s/D_2fYADN4Ypc2PzfTYPo4Q)
+- [有关单元测试的 5 个建议](https://mp.weixin.qq.com/s/kHqZrDJhsu4v8ZEQ7QJ3wQ)
