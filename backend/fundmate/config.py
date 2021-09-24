@@ -47,6 +47,12 @@ class Config:
     # REDIS_URL = 'redis://:password@localhost:6379/0'
     REDIS_URL = env.str('REDIS_PATH', default='redis://localhost:6379/0')
 
+    # openAPI
+    SPEC_FORMAT = env.str('SPEC_FORMAT', 'json')
+    LOCAL_SPEC_PATH = env.str('LOCAL_SPEC_PATH', 'openapi.json')
+    LOCAL_SPEC_JSON_INDENT = env.int('LOCAL_SPEC_JSON_INDENT', 4)
+    SYNC_LOCAL_SPEC = env.bool('SYNC_LOCAL_SPEC', True)
+
     def __init__(self):
         pass
 
@@ -68,10 +74,12 @@ class MySQLConfig:
 
 
 def mysql_url(db):
-    sql_url = f'{MySQLConfig.MYSQL_DIALECT}+{MySQLConfig.MYSQL_DRIVER}://{MySQLConfig.MYSQL_USERNAME}:{MySQLConfig.MYSQL_PASSWORD}@{MySQLConfig.MYSQL_ADDR}/{db}?charset={MySQLConfig.MYSQL_CHARSET}'
+    sql_url = f'{MySQLConfig.MYSQL_DIALECT}+{MySQLConfig.MYSQL_DRIVER}://{MySQLConfig.MYSQL_USERNAME}:' \
+              f'{MySQLConfig.MYSQL_PASSWORD}@{MySQLConfig.MYSQL_ADDR}/{db}?charset={MySQLConfig.MYSQL_CHARSET}'
     return sql_url
 
 
+# TODO: 使用的数据库有待更改
 class DevelopmentConfig(Config):
     DEBUG = settings.DEBUG
     DATABASE = MySQLConfig.MYSQL_DB or 'fmp_dev'
