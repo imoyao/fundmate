@@ -1,7 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # Created by imoyao at 2021/1/15 11:34
+"""
+用于测试 xirr
+"""
 from datetime import date, datetime
+from typing import Dict
 
 import pytest
 from pytest import approx
@@ -9,12 +13,18 @@ from pytest import approx
 from backend.fundmate.libs.cal import rate_of_return as rr
 
 
+@pytest.fixture()
+def values_per_date(values_per_date_string: Dict):
+    return {datetime.fromisoformat(k).date(): v for k, v in values_per_date_string.items()}
+
+
 class TestXIRRNew:
 
     def test_xirr(self):
         x = rr.XIRR()
         assert x.xirr([-18990, -23320, 49490],
-                      [date(2016, 2, 5), date(2018, 1, 26), date(2018, 6, 5)]) == 0.12801613991037272
+                      [date(2016, 2, 5), date(2018, 1, 26), date(2018, 6, 5)]) == pytest.approx(
+                          0.12801613991037272, 0.00000000001)
 
 
 class TestXIRR:
@@ -173,6 +183,7 @@ class TestXNPV:
         }, -0.10, 22.2575),
     ])
     def test_xnpv(self, values_per_date_string, rate, expected):
+        # TODO: this can define a fixture
         values_per_date = {datetime.fromisoformat(k).date(): v for k, v in values_per_date_string.items()}
         actual = rr.xnpv.xnpv(values_per_date, rate)
         if expected:
