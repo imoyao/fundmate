@@ -45,13 +45,14 @@ see also:
 """
 import datetime
 from functools import partial
+from numbers import Number
 from typing import Iterable, List, Union
 
 import numpy_financial as npf
 import scipy.optimize
+from deprecated import deprecated
 
 from backend.fundmate.libs import convert
-from backend.fundmate.utils import deprecated
 
 DAYS_PER_YEAR = 365.0
 MONTH_PER_YEAR = 12
@@ -461,7 +462,7 @@ class IRR:
         return npf.irr(pmt_lists)
 
 
-@deprecated(version='1.0.0', message='Please use class XIRR')
+@deprecated(version='1.0.0', reason='Please use class XIRR')
 class XIRRDeprecated:
     """
     不一定定期发生的现金流的内部收益率
@@ -506,10 +507,10 @@ class XIRRDeprecated:
         return result
 
     @deprecated(version='1.0.0',
-                message="This implementation is simple and does not handle cases where there is no solution."
+                reason="This implementation is simple and does not handle cases where there is no solution."
                 "\nUsers requiring a more robust version should use scipy package "
                 "optimize.newton.just use xirr.")
-    def xirr(self, values, dates):
+    def xirr(self, values: List[Number], dates: List[datetime.date]):
         """
         如果没有安装scipy可以使用分割法去获取一个有答案的值，
         this is a quick and dirty implementation of the secant method that works the same as the scipy function when
