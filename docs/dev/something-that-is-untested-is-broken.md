@@ -30,7 +30,7 @@ title: 测试你的代码 | 未经测试的代码是不完整的
 ## Postman与 pytest
 
 postman用于前端开发人员对接口进行测试，借助于mock服务器特性，我们可以打破前后端之间相互掣肘的问题，让开发人员各自专注于自己的分内之事，从而减少开发团队发布的消耗时间。
-### postman
+## postman
 此处参考 [Building Restful API with Flask, Postman & PyTest - Part 2 (Read Time: 10 Mins) - MaxOngZB](https://www.maxongzb.com/building-restful-api-with-flask-postman-and-pytest-part-2-read-time-10-mins/) 
 - Collection
 用于存放我们的API请求。
@@ -41,6 +41,25 @@ postman用于前端开发人员对接口进行测试，借助于mock服务器特
 
 主要参考该系列文章：
 [Flask Rest API - Zero to Yoda Series' Articles - DEV Community](https://dev.to/paurakhsharma/series/3672)
+
+- conftest
+
+共享作用域
+
+### fixture
+
+> 我们可以把fixture看做是资源，在你的测试用例执行之前需要去配置这些资源，执行完后需要去释放资源。比如module类型的fixture，适合于那些许多测试用例都只需要执行一次的操作。
+fixture还提供了参数化功能，根据配置和不同组件来选择不同的参数。
+fixture主要的目的是为了提供一种可靠和可重复性的手段去运行那些最基本的测试内容。比如在测试网站的功能时，每个测试用例都要登录和退出，利用fixture就可以只做一次，否则每个测试用例都要做这两步也是冗余。
+
+- fixture的作用
+
+fixture 的功能，主要包括以下三点：
+
+1. 传入测试中的数据集 
+2. 配置测试前系统的初始状态
+3. 为批量测试提供数据源
+我们使用`@pytest.fixture()` 装饰器声明一个`fixture`函数
 
 ### TODO
 1. 使用flask-pytest测试我们的flask应用
