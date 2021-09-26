@@ -6,11 +6,11 @@ import datetime
 from typing import Union
 
 import dateparser
+from deprecated import deprecated
 
 from backend.fundmate import utils
 from backend.fundmate.data.baostock.base import trade_days_gen
 from backend.fundmate.fund.models import DailyWorth
-from backend.fundmate.utils import deprecated
 
 
 class Fund:
@@ -69,7 +69,7 @@ class Fund:
         return {'charge_amount': _charge_amount, 'real_amount': _real_amount, 'hold_value': _hold_value}
 
 
-@deprecated(version='1.0.0', message='天天基金有接口：http://fund.eastmoney.com/tools/jiaoyiri.html')
+@deprecated(version='1.0.0', reason='天天基金有接口：http://fund.eastmoney.com/tools/jiaoyiri.html')
 class TradeDate:
     """
     与交易日相关的处理
