@@ -11,9 +11,6 @@ from datetime import datetime, timedelta
 from typing import Union
 
 import dateparser
-from sqlalchemy.util.deprecations import deprecated
-
-deprecated = deprecated
 
 
 def convert_readable_days(number_of_days: int) -> tuple:
