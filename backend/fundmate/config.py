@@ -14,6 +14,9 @@ CURRENT_DIR = Path(__file__).resolve().parent
 
 
 class Config:
+    """
+    基础配置
+    """
     DEBUG = False
     TESTING = False
     CSRF_ENABLED = True
@@ -62,6 +65,9 @@ class Config:
 
 
 class MySQLConfig:
+    """
+    MySQL基础配置
+    """
     MYSQL_USERNAME = env.str('MYSQL_USER')
     MYSQL_PASSWORD = env.str('MYSQL_PASSWORD')  # TODO: 环境变量获取失败
     MYSQL_DB = env.str('MYSQL_DB', '')
@@ -74,6 +80,11 @@ class MySQLConfig:
 
 
 def mysql_url(db):
+    """
+    构造mysql连接url
+    :param db:
+    :return:
+    """
     sql_url = f'{MySQLConfig.MYSQL_DIALECT}+{MySQLConfig.MYSQL_DRIVER}://{MySQLConfig.MYSQL_USERNAME}:' \
               f'{MySQLConfig.MYSQL_PASSWORD}@{MySQLConfig.MYSQL_ADDR}/{db}?charset={MySQLConfig.MYSQL_CHARSET}'
     return sql_url
@@ -81,18 +92,27 @@ def mysql_url(db):
 
 # TODO: 使用的数据库有待更改
 class DevelopmentConfig(Config):
+    """
+    开发环境配置
+    """
     DEBUG = settings.DEBUG
     DATABASE = MySQLConfig.MYSQL_DB or 'fmp_dev'
     SQLALCHEMY_DATABASE_URI = mysql_url(DATABASE)
 
 
 class TestingConfig(Config):
+    """
+    测试环境配置
+    """
     TESTING = True
     DATABASE = MySQLConfig.MYSQL_DB or 'fmp_test'
     SQLALCHEMY_DATABASE_URI = mysql_url(DATABASE)
 
 
 class ProductionConfig(Config):
+    """
+    生产环境配置
+    """
     DATABASE = MySQLConfig.MYSQL_DB or 'fmp_product'
     SQLALCHEMY_DATABASE_URI = mysql_url(DATABASE)
 
