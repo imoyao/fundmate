@@ -47,4 +47,4 @@ dateparser==1.0.0
 pyjson5==1.5.2
 
 # 过期提示
-Deprecated==1.2.11
+Deprecated==1.2.13
