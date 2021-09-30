@@ -1,4 +1,5 @@
 """
+TODO: 移动到统一的测试目录，该代码只有在发包时维护
 Tests for the configuration logger
 """
 from os import environ

@@ -28,7 +28,7 @@
 #  *************************************************************/
 """
 see also:
-- [peliot/XIRR-and-XNPV: python implementation of Microsoft Excel's XNPV and XIRR](https://github.com/peliot/XIRR-and-XNPV/)
+- [python implementation of Microsoft Excel's XNPV and XIRR](https://github.com/peliot/XIRR-and-XNPV/)
 - [tarioch/xirr](https://github.com/tarioch/xirr/)
 - [Tacombel/XIRR.py: XIRR function for PYTHON](https://github.com/Tacombel/XIRR.py)
 - https://github.com/ssikiki/FundXirr
