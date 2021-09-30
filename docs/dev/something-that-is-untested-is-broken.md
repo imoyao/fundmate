@@ -14,6 +14,10 @@ title: 测试你的代码 | 未经测试的代码是不完整的
 
 有的 Flask 教程中使用 unittest 作为测试工具，我们选择 pytest 作为测试的工具，它易于学习，而且与前者相比，它需要的样板代码更少。
 
+具体对比参阅：[Python测试框架对比 - 简书](https://www.jianshu.com/p/b87ec158aad8)
+
+> 总体来说，unittest比较基础，二次开发方便，适合高手使用；pytest/nose更加方便快捷，效率更高，适合小白及追求效率的公司；robot framework由于有界面及美观的报告，易用性更好，灵活性及可定制性略差。
+
 ## 使用
 
 网上有很多介绍 pytest 的文章，但是多为简单 demo，很少结合实际开发。本项目介绍力争结合实际项目中如何使用。
@@ -69,7 +73,7 @@ fixture 的功能主要包括以下三点：
 
 - fixture 的使用
 
-我们使用`@pytest.fixture()` 装饰器声明一个`fixture`函数，该 fixture 函数命名不需要一 test 开头，跟测试用例区分开。
+我们使用`@pytest.fixture()` 装饰器声明一个`fixture`函数，该 fixture 函数命名不需要以 test 开头，跟测试用例区分开。
 基于此有三种不同调用方式：
 
 1. 在测试用例中直接传 fixture 的函数参数名称调用
@@ -178,13 +182,13 @@ def test_bar(before_func):
 import pytest
 
 @pytest.fixture(params=[1, 2, 3])
-def test_pass_data(request):
+def pass_data(request):
     return request.param
 
 
-def test_not_2(test_pass_data):
-    print('test_data: %s' % test_pass_data)
-    assert test_pass_data != 2
+def test_not_2(pass_data):
+    print(f'test_data: {pass_data}')
+    assert pass_data != 2
 ```
 2. 带返回值
 在`before_func`中我们已经实现。
@@ -201,6 +205,8 @@ def test_not_2(test_pass_data):
 
 ### 测试隔离（Test Isolation）
 
+> A good test set is self-sufficient and creates all the data it needs.
+
 测试隔离是测试中最重要的概念之一。 通常在写测试时，我们每次只测试一个业务逻辑。测试隔离的理念是你的测试不应以任何方式影响另一个测试。
 
 假定您在一个测试中创建了一个用户，而在另一个测试中测试登录功能。 为了遵循测试隔离，您不能依赖于用户创建测试中创建的用户进行测试，但应在要测试登录功能的测试中创建新的用户。
@@ -211,11 +217,26 @@ def test_not_2(test_pass_data):
 因此，我们应该始终从空白状态测试一个功能，并且为此最简单的方法是删除数据库中的所有集合。
 
 ::: tip TODO 基础数据是否可以不遵循此条，否则，可能跑数据需要很久。
+
+可以参考：
+1. [关于数据库单元测试 // foolbear的冥想盆](https://jxy.me/2016/05/06/db-unit-test/)
+2. [优雅的进行数据库相关的单元测试 - 小破屋 | SJH Blog](https://songjunhao.github.io/2020/05/04/%E4%BC%98%E9%9B%85%E7%9A%84%E8%BF%9B%E8%A1%8C%E6%95%B0%E6%8D%AE%E5%BA%93%E7%9B%B8%E5%85%B3%E7%9A%84%E5%8D%95%E5%85%83%E6%B5%8B%E8%AF%95/)
 :::
 
+### 创建目录结构
+1. 切换工作目录
+ ```shell
+ cd fundmate/backend
+ ```
+2.复制目录结构到指定目录，不包含文件
+```shell
+find fundmate -type d|grep -v 'venv'|grep -v '__pypackages__'|grep -v '__pycache__'|grep -v 'tests'| sed 's/fundmate/mkdir -p tests/' | sh
+# 查找目录                排除目录                                                                      # 替换字符                        # 执行命令
+```
+注意如果需要，可以替换目录
 ## 参考阅读
 
-### 选择
+### 框架选择
 
 - [三种最流行的 Python 测试框架，我该用哪一个？ - 测试不将就 | awesometest](https://slxiao.github.io/2019/06/03/py-test/)
 - [pluralsight/intro-to-pytest: An introduction to PyTest with lots of simple, hackable examples](https://github.com/pluralsight/intro-to-pytest)
