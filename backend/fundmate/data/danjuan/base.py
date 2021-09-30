@@ -423,7 +423,7 @@ class DanJuanFundDetail:
         带后缀的字符串进行截取，最终获取到数字
         100万 -> 1000000
         7.0天 -> 7
-        2.0年 -> 720
+        2.0年 -> 730
         :param replace_flag: 替代标识，可以替代的后缀
         :param suffix_str: 被替换字符
         :return:
@@ -582,6 +582,7 @@ class DanJuanFundDetail:
 
     def parse_last(self, range_str: str, replace_flag='w', split_signal: str = '<=') -> Union[float, int]:
         """
+        对末尾数据进行解析，取边界值
         Examples:
         ```
         >>> '1000.0万<=买入金额'
@@ -591,7 +592,7 @@ class DanJuanFundDetail:
         ```
         :param range_str:
         :param replace_flag:
-        :param split_signal:
+        :param split_signal:分割符
         :return:
         """
         if split_signal in range_str:

@@ -14,9 +14,9 @@ title: 测试你的代码 | 未经测试的代码是不完整的
 
 有的 Flask 教程中使用 unittest 作为测试工具，我们选择 pytest 作为测试的工具，它易于学习，而且与前者相比，它需要的样板代码更少。
 
-具体对比参阅：[Python测试框架对比 - 简书](https://www.jianshu.com/p/b87ec158aad8)
+具体对比参阅：[Python 测试框架对比 - 简书](https://www.jianshu.com/p/b87ec158aad8)
 
-> 总体来说，unittest比较基础，二次开发方便，适合高手使用；pytest/nose更加方便快捷，效率更高，适合小白及追求效率的公司；robot framework由于有界面及美观的报告，易用性更好，灵活性及可定制性略差。
+> 总体来说，unittest 比较基础，二次开发方便，适合高手使用；pytest/nose 更加方便快捷，效率更高，适合小白及追求效率的公司；robot framework 由于有界面及美观的报告，易用性更好，灵活性及可定制性略差。
 
 ## 使用
 
@@ -195,6 +195,35 @@ def test_not_2(pass_data):
 
 如果想看 fixture 的执行过程，可以用 `--setup-show` 选项
 
+### 多个参数一次测试
+
+有的时候我们的代码里面会逻辑比较复杂，需要多个测试用例去验证，这个时候使用`pytest.mark.parametrize`可以实现批量传参；
+1. argnames
+单值使用`'single_args'`传递，多值可以使用逗号隔开的字符串，形如：`args,with,quota`，或者是内字符串列表或元祖；
+```python
+import pytest
+@pytest.mark.parametrize(['suffix_str', 'replace_flag', 'expected'], [('100万', 'w', 1000000), ('7.0天', 'd', 7),('2.0年', 'n', 730)])
+def test_foo():
+    pass
+
+@pytest.mark.parametrize('suffix_str,replace_flag,expected', [('100万', 'w', 1000000), ('7.0天', 'd', 7), ('2.0年', 'n', 730)])
+def test_foo1():
+    pass
+# 
+@pytest.mark.parametrize(['suffix_str', 'replace_flag', 'expected'], [('100万', 'w', 1000000), ('7.0天', 'd', 7), ('2.0年', 'n', 730)])
+def test_foo2():
+    pass
+```
+2. argvalues
+多个值时使用元祖来传递每一组值。
+TODO: 似乎目前无法不传默认值，参阅：[Error using parametrize with default arguments · Issue #3221 · pytest-dev/pytest](https://github.com/pytest-dev/pytest/issues/3221)
+3. indirect
+如果设置成 True，则把传进来的参数当函数执行，而不是一个参数
+
+### 测试类
+
+可以在`setup_class`中实现类的实例化过程，保证仅被实例化一次。
+
 ### TODO
 
 1. 使用 flask-pytest 测试我们的 flask 应用
@@ -219,7 +248,7 @@ def test_not_2(pass_data):
 ::: tip TODO 基础数据是否可以不遵循此条，否则，可能跑数据需要很久。
 
 可以参考：
-1. [关于数据库单元测试 // foolbear的冥想盆](https://jxy.me/2016/05/06/db-unit-test/)
+1. [关于数据库单元测试 // foolbear 的冥想盆](https://jxy.me/2016/05/06/db-unit-test/)
 2. [优雅的进行数据库相关的单元测试 - 小破屋 | SJH Blog](https://songjunhao.github.io/2020/05/04/%E4%BC%98%E9%9B%85%E7%9A%84%E8%BF%9B%E8%A1%8C%E6%95%B0%E6%8D%AE%E5%BA%93%E7%9B%B8%E5%85%B3%E7%9A%84%E5%8D%95%E5%85%83%E6%B5%8B%E8%AF%95/)
 :::
 
@@ -254,6 +283,7 @@ find fundmate -type d|grep -v 'venv'|grep -v '__pypackages__'|grep -v '__pycache
 
 - [gothinkster/flask-realworld-example-app: Exemplary real world JSON API built with Flask (Python)](https://github.com/gothinkster/flask-realworld-example-app)
 - [人人都能看懂的 Pytest 简易上手指南！](https://mp.weixin.qq.com/s/Z_lohJ9sVBexofTBRSmlHQ)
+  - 系列文章：[测试高级进阶技能系列 - Pytest - 随笔分类(第 2 页) - 小菠萝测试笔记 - 博客园](https://www.cnblogs.com/poloyy/category/1690628.html?page=2) ✨
 - [Create A Python Test Automation Project Using Pytest | TestProject](https://blog.testproject.io/2019/07/16/python-test-automation-project-using-pytest/)
 - [Effective Python Testing With Pytest – Real Python](https://realpython.com/pytest-python-testing/)
 - [Testing Python Applications with Pytest - Semaphore Tutorial](https://semaphoreci.com/community/tutorials/testing-python-applications-with-pytest)

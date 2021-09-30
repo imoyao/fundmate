@@ -14,7 +14,7 @@ from backend.fundmate.libs.cal import rate_of_return as rr
 
 
 @pytest.fixture()
-def values_per_date(values_per_date_string: Dict):
+def values_per_date(values_per_date_string: Dict):  # TODO: use this
     return {datetime.fromisoformat(k).date(): v for k, v in values_per_date_string.items()}
 
 
