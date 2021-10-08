@@ -13,7 +13,7 @@ psycopg2-binary==2.9.1
 
 # Migrations
 Flask-Migrate==3.1.0
-alembic==1.7.3
+alembic==1.7.4
 
 # Forms
 email-validator==1.1.3
@@ -30,19 +30,19 @@ Flask-Login==0.5.0
 Flask-Bcrypt==0.7.1
 
 # Environment variable parsing
-environs==9.3.3
+environs==9.3.4
 
 # logging system 日志系统
 loguru==0.5.3
 
 # 数据缓存
-cachetools==4.2.3
+cachetools==4.2.4
 
 # 基金净值获取
 xalpha==0.11.4
 
 # 日期解析
-dateparser==1.0.0
+dateparser==1.1.0
 # 非标准json字符解析
 pyjson5==1.5.2
 
