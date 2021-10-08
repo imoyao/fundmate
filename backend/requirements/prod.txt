@@ -30,7 +30,7 @@ Flask-Login==0.5.0
 Flask-Bcrypt==0.7.1
 
 # Environment variable parsing
-environs==9.3.3
+environs==9.3.4
 
 # logging system 日志系统
 loguru==0.5.3
