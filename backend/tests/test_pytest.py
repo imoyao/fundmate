@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 # Created by Andy at 2021/9/26 10:27
 """
-对pytest有一个基础认识，测试代码
+通过该部分代码对pytest有一个基础认识，测试代码
 """
 import time
 

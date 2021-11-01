@@ -46,17 +46,26 @@ os.getenv('FLASK_CONFIG', 'default')
 
 从`.env`文件中读取键值对，并将它们添加到环境变量中
 ```bash
-pip install python-dotenv # 安装
-env.dotenv_path = '/opt/myapp/.env' # 指定文件
+# 安装包
+pip install python-dotenv
+# 代码开头添加如下代码段
+from dotenv import load_dotenv
+
+load_dotenv()  # take environment variables from .env.
+
+# Code of your application, which uses environment variables (e.g. from `os.environ` or
+# `os.getenv`) as if they came from the actual environment.
+
 ```
 官方示例参见：[theskumar/python-dotenv: Get and set values in your .env file in local and production servers.](https://github.com/theskumar/python-dotenv#getting-started)
 
 > 当安装了`python-dotenv`时，Flask 在加载环境变量的优先级是：手动(`set/export`)设置的环境变量>`.env`中设置 的环境变量>`.flaskenv`设置的环境变量。
 
 #### 注意事项
-
-##### `python-dotenv`加载的环境变量值都是字符串类型
-
+::: warning
+1. 需要注意`.env`文件应该与程序脚本（通常为`app.py`，本项目中为`autoapp.py`）保持在同一目录等级。参阅：[不要在 Flask 程序上层目录创建 .env 和 .flaskenv 文件 - 知乎](https://zhuanlan.zhihu.com/p/128977263)
+2. `python-dotenv`加载的环境变量值都是字符串类型。
+::: 
 对于环境变量，无论是使用 `python-dotenv` 等工具写入，还是手动使用 `set` / `export` 命令，最终在 Python 里获取的时候都会是字符串类型。所以整型、浮点型和布尔类型需要转换一下。
 
 - 解决方案
@@ -77,6 +86,8 @@ class BaseConfig(object):
 ```
 
 参阅：[用 SendGrid 发送邮件，但在邮箱中收不到邮件 - Flask Web 开发实战 - HelloFlask 论坛](https://discuss.helloflask.com/t/topic/127/3)
+
+这是一种不那么优雅的解决办法，我们也可以使用environs库实现正确的类型加载，具体参见下面的章节。
 
 ##### pipenv 影响了 flask 加载`.env`环境变量
 
@@ -155,7 +166,7 @@ Windows PowerShell
 
 `pipenv shell`不会从`.flaskenv`加载变量，所以如果有经常需要修改的环境变量也可以放在`.flaskenv`。但是我感觉一点也不优雅，因为我习惯把`.flaskenv`也提交到仓库，而留下`.env`在部署端客制化。
 
-### [environs](https://github.com/sloria/environs)
+### 使用 [environs](https://github.com/sloria/environs) 解析配置
 
 尽管`os.environ`对于简单的用例就足够了，但是典型的应用程序需要一种方法来处理和验证原始环境变量。 `environs`抽象了处理环境变量的常见情境。
 

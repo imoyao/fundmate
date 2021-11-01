@@ -2,16 +2,23 @@
 """Defines fixtures available to all tests.
 该文件的作用域是它同级的文件或者文件夹，以及同级文件夹里面的文件或者目录；
 如果放到某个package下，那就在该package内及其下的目录有效。
+参考：
+https://github.com/d2verb/battery/blob/05571f6aa809af64b8e3d45483cebfe15779d48d/tests/conftest.py
+https://github.com/pallets/flask/blob/2.0.2/examples/tutorial/tests/conftest.py
 """
 import os
 
 import pytest
+from environs import Env as EnvParser
 from webtest import TestApp
 
 from backend.fundmate.app import create_app
 from backend.fundmate.database import db as _db
 
 from .factories import UserFactory
+
+env = EnvParser()
+env.read_env()
 
 TestApp.__test__ = False
 
@@ -32,7 +39,7 @@ def app():
 
 
 @pytest.fixture
-def client(app):
+def client(app, request):
     """
     直接使用test_client方法获取测试专用的客户端
     :param app:
@@ -47,13 +54,14 @@ def client(app):
         app.config['TESTING'] = False
         app.config['FLASK_ENV'] = origin_flask_env
 
-    # 读取FLASK_ENV配置
-    origin_flask_env = app.config['FLASK_ENV']
+    # 读取初始FLASK_ENV配置
+    origin_flask_env = env.str("FLASK_ENV", default="default")
+    print(origin_flask_env)
     # 加载测试环境的配置
     app.config['TESTING'] = True
     app.config['FLASK_ENV'] = 'testing'
     # 执行回收函数
-    app.addfinalizer(teardown)
+    request.addfinalizer(teardown)
     return app.test_client()
 
 
