@@ -1508,10 +1508,10 @@
   dependencies:
     "@types/node" "*"
 
-"@types/echarts@^4.9.0":
-  version "4.9.9"
-  resolved "https://registry.nlark.com/@types/echarts/download/@types/echarts-4.9.9.tgz#9c203acc5f700fe46fcf6bc1ec748fcb128d8ed0"
-  integrity sha1-nCA6zF9wD+Rvz2vB7HSPyxKNjtA=
+"@types/echarts@^4.9.11":
+  version "4.9.11"
+  resolved "https://registry.yarnpkg.com/@types/echarts/-/echarts-4.9.11.tgz#556817b23c7ef575708c43380108802121e10599"
+  integrity sha512-0XiaXYu5a4NqPrmkWdT4GYId09pdHEFI+a8qs6UI4pMMiaRVxuV23IKrIffzFZQBWOJ5UH+9Xw+Qsp2XgHZ2uA==
   dependencies:
     "@types/zrender" "*"
 
