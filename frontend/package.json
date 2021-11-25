@@ -22,7 +22,7 @@
     "cors": "^2.8.5",
     "driver.js": "^0.9.8",
     "echarts": "^5.0.2",
-    "element-ui": "^2.15.1",
+    "element-ui": "^2.15.6",
     "faker": "^5.5.2",
     "file-saver": "^2.0.5",
     "fuse.js": "^6.4.6",
