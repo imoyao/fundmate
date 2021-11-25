@@ -145,7 +145,7 @@ export const constantRoutes: RouteConfig[] = [
         path: 'bookkeeping',
         component: () => import(/* webpackChunkName: "bookkeeping" */ '@/views/bookkeeping/index.vue'),
         meta: {
-          title: '记账',
+          title: 'bookkeeping',
           icon: 'component'
         }
       }
@@ -156,26 +156,26 @@ export const constantRoutes: RouteConfig[] = [
     path: '/exchange',
     component: Layout,
     redirect: '/exchange/account',
-    meta: { title: '账本', icon: 'example' },
+    meta: { title: 'exchange', icon: 'example' },
     children: [
       {
         path: 'account', // 账本
         component: () => import(/* webpackChunkName: "account" */ '@/views/exchange/Account/index.vue'),
-        meta: { title: '账户', icon: 'table' }
+        meta: { title: 'account', icon: 'table' }
       }, {
         path: 'asset', // 资产
         component: () => import(/* webpackChunkName: "asset" */ '@/views/exchange/Asset/index.vue'),
-        meta: { title: '资产', icon: 'tree' }
+        meta: { title: 'asset', icon: 'tree' }
       },
       {
         path: 'tree', // 资产，按照购买基金分类
         component: () => import(/* webpackChunkName: "asset" */ '@/views/tree/index.vue'),
-        meta: { title: '资产demo', icon: 'tree' }
+        meta: { title: 'tree', icon: 'tree' }
       },
       {
         path: 'transfer', // 交易账单
         component: () => import(/* webpackChunkName: "transfer" */ '@/views/table/index.vue'),
-        meta: { title: '交易流水', icon: 'form' } // TODO: icon需要添加更多
+        meta: { title: 'transfer', icon: 'form' } // TODO: icon需要添加更多
       }
     ]
   },
@@ -183,17 +183,17 @@ export const constantRoutes: RouteConfig[] = [
   {
     path: '/favor',
     component: Layout,
-    redirect: '/favor/PickedFund',
-    meta: { title: '严选', icon: 'el-icon-s-opportunity' },
+    redirect: '/favor/funds',
+    meta: { title: 'favor', icon: 'el-icon-s-opportunity' },
     children: [
       {
         path: 'funds', // 账本
         component: () => import(/* webpackChunkName: "account" */ '@/views/PickedFund/index.vue'),
-        meta: { title: '自选基金', icon: 'el-icon-star-on' }
+        meta: { title: 'funds', icon: 'el-icon-star-on' }
       }, {
         path: 'mgr', // 资产
         component: () => import(/* webpackChunkName: "asset" */ '@/views/FundMgr/index.vue'),
-        meta: { title: '关注经理', icon: 'peoples' }
+        meta: { title: 'mgr', icon: 'peoples' }
       }
     ]
   }

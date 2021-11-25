@@ -62,7 +62,17 @@ export default {
     clipboard: '粘贴板',
     i18n: '国际化',
     externalLink: '外链',
-    profile: '个人中心'
+    profile: '个人中心',
+    // 自己加的
+    bookkeeping: '记账',
+    exchange: '账本',
+    account: '账户',
+    asset: '资产',
+    transfer: '交易流水',
+    tree: '资产demo',
+    favor: '严选',
+    funds: '基金',
+    mgr: '关注经理'
   },
   navbar: {
     logOut: '退出登录',
