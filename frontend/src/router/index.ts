@@ -101,23 +101,23 @@ export const constantRoutes: RouteConfig[] = [
   //     }
   //   ]
   // },
-  {
-    path: '/guide',
-    component: Layout,
-    redirect: '/guide/index',
-    children: [
-      {
-        path: 'index',
-        component: () => import(/* webpackChunkName: "guide" */ '@/views/guide/index.vue'),
-        name: 'Guide',
-        meta: {
-          title: 'guide',
-          icon: 'guide',
-          noCache: true
-        }
-      }
-    ]
-  },
+  // {
+  //   path: '/guide',
+  //   component: Layout,
+  //   redirect: '/guide/index',
+  //   children: [
+  //     {
+  //       path: 'index',
+  //       component: () => import(/* webpackChunkName: "guide" */ '@/views/guide/index.vue'),
+  //       name: 'Guide',
+  //       meta: {
+  //         title: 'guide',
+  //         icon: 'guide',
+  //         noCache: true
+  //       }
+  //     }
+  //   ]
+  // },
   {
     path: '/profile',
     component: Layout,
@@ -133,6 +133,67 @@ export const constantRoutes: RouteConfig[] = [
           icon: 'user',
           noCache: true
         }
+      }
+    ]
+  },
+  {
+    path: '/record',
+    component: Layout,
+    redirect: '/bookkeeping',
+    children: [
+      {
+        path: 'bookkeeping',
+        component: () => import(/* webpackChunkName: "bookkeeping" */ '@/views/bookkeeping/index.vue'),
+        meta: {
+          title: '记账',
+          icon: 'component'
+        }
+      }
+    ]
+  },
+  // 账本
+  {
+    path: '/exchange',
+    component: Layout,
+    redirect: '/exchange/account',
+    meta: { title: '账本', icon: 'example' },
+    children: [
+      {
+        path: 'account', // 账本
+        component: () => import(/* webpackChunkName: "account" */ '@/views/exchange/Account/index.vue'),
+        meta: { title: '账户', icon: 'table' }
+      }, {
+        path: 'asset', // 资产
+        component: () => import(/* webpackChunkName: "asset" */ '@/views/exchange/Asset/index.vue'),
+        meta: { title: '资产', icon: 'tree' }
+      },
+      {
+        path: 'tree', // 资产，按照购买基金分类
+        component: () => import(/* webpackChunkName: "asset" */ '@/views/tree/index.vue'),
+        meta: { title: '资产demo', icon: 'tree' }
+      },
+      {
+        path: 'transfer', // 交易账单
+        component: () => import(/* webpackChunkName: "transfer" */ '@/views/table/index.vue'),
+        meta: { title: '交易流水', icon: 'form' } // TODO: icon需要添加更多
+      }
+    ]
+  },
+  // 自选/关注
+  {
+    path: '/favor',
+    component: Layout,
+    redirect: '/favor/PickedFund',
+    meta: { title: '严选', icon: 'el-icon-s-opportunity' },
+    children: [
+      {
+        path: 'funds', // 账本
+        component: () => import(/* webpackChunkName: "account" */ '@/views/PickedFund/index.vue'),
+        meta: { title: '自选基金', icon: 'el-icon-star-on' }
+      }, {
+        path: 'mgr', // 资产
+        component: () => import(/* webpackChunkName: "asset" */ '@/views/FundMgr/index.vue'),
+        meta: { title: '关注经理', icon: 'peoples' }
       }
     ]
   }
