@@ -1,11 +1,15 @@
 # -*- coding: utf-8 -*-
 """User views."""
+from typing import Optional
+
 from apiflask import APIBlueprint, Schema, abort, input, output
 from apiflask.fields import Boolean, Email, Integer, String
 from apiflask.validators import Length
 from flask.views import MethodView
 
-from backend.fundmate.base_scheme import PaginationSchema
+from backend.fundmate.account.models import Account
+from backend.fundmate.account.schemas import AccountOutSchema
+from backend.fundmate.base_scheme import EmptySchema, PaginationSchema
 from backend.fundmate.extensions import login_manager
 from backend.fundmate.user.models import User
 from backend.fundmate.view_ext import paginate_query
@@ -102,4 +106,33 @@ class UserFavorFunds(MethodView):
 
     def delete(self, user_id: str, fund_id: str):
         """用户取消关注基金"""
+        pass
+
+
+@bp.route('/<int:user_id>/accounts')
+class UserAccounts(MethodView):
+    """
+    用户所拥有的账本
+    """
+
+    # @input(PaginationSchema, 'query')
+    @input(EmptySchema)
+    @output(AccountOutSchema(many=True))
+    def get(self, user_id: str, account_type: str):
+        """获取用户账本信息
+        根据类型查询自己名下的账户，账户按照类型区分：
+        支持all,stock,fund,bank,
+        """
+        if account_type:
+            accounts = Account.query.filter(creator_id=user_id, account_type=account_type)
+        else:
+            accounts = Account.query.filter_by(creator_id=user_id)
+        return accounts
+
+    def post(self, user_id: str, account_type: str, comment: Optional[str]):
+        """创建用户账本"""
+        pass
+
+    def delete(self, user_id: str, fund_id: str):
+        """删除用户账本"""
         pass

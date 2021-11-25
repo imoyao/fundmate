@@ -16,30 +16,6 @@ from backend.fundmate.view_ext import paginate_query
 bp = APIBlueprint("account", __name__, url_prefix="/accounts")
 
 
-@bp.route('/<int:user_id>')
-class Accounts(MethodView):
-    """
-    用户名下账号区分
-    """
-
-    @input(PaginationSchema, 'query')
-    @input(EmptySchema)
-    @output(AccountOutSchema(many=True))
-    def get(self, query):
-        """
-        根据类型查询自己名下的账户，账户按照类型区分：
-        支持all,stock,fund,bank,
-        :param query:
-        :return:
-        """
-        if query:
-            ret = paginate_query(Account, query)
-        else:
-            pass
-            ret = None
-        return ret
-
-
 @bp.route('/<int:account_id>')
 class AccountsDetail(MethodView):
     """
@@ -47,11 +23,12 @@ class AccountsDetail(MethodView):
     """
 
     @output(AccountOutSchema)
-    def get(self, pet_id):
+    def get(self, account_id: str):
         """查询某个账本基本信息
         名称、描述、包含的基金、比例、金额
         """
-        pass
+        account_inst = Account.get_by_id(account_id)
+        return account_inst
 
     @input(CreateAccountSchema(partial=True))
     @output(AccountOutSchema)
