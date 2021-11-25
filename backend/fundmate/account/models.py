@@ -1,7 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # Created by imoyao at 2021/2/13 18:12
+from typing import Union
 
+from backend.fundmate.compat import basestring
 from backend.fundmate.database import (
     Base,
     ChoiceTypeInteger,
@@ -16,12 +18,27 @@ from backend.fundmate.settings import RISK_TYPE
 
 
 class Account(Base, PkModel, CreateDateModel):
+    """
+    账本类型有两个维度：
+    1. 四笔钱（风险纬度）
+    2. 投资产品（股票、基金、银行理财、现金）
+    """
     __table_args__ = {'comment': '账本（钱包）'}
 
     name = Column(db.String(255), comment='账本名称')
     creator_id = reference_col('users', column_kwargs={'comment': '管理人（类似群主）'})
     comment = Column(db.String(255), comment='账本备注')
     account_type = Column(ChoiceTypeInteger(choices=key2val(RISK_TYPE)), nullable=True, default=0, comment='账本类型（四笔钱）')
+
+    @classmethod
+    def get_by_id(cls, account_id: Union[str, int]):
+        """根据账户编号获取信息"""
+        if any((
+                isinstance(account_id, basestring) and account_id.isdigit(),
+                isinstance(account_id, int),
+        )):
+            return cls.query.get_or_404(int(account_id))
+        return None
 
 
 class AccountFund(Base, PkModel):

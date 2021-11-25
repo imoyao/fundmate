@@ -66,8 +66,11 @@ def register_extensions(app: APIFlask):
 def register_blueprints(app: Flask):
     """Register Flask blueprints."""
     app.register_blueprint(public.views.bp)
+    # 用户相关
     app.register_blueprint(user.views.bp)
     app.register_blueprint(fund.views.bp)
+    # 账号相关
+    app.register_blueprint(account.views.bp)
     return None
 
 
