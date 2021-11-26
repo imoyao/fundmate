@@ -10,8 +10,6 @@ from flask.views import MethodView
 
 from backend.fundmate.account.models import Account
 from backend.fundmate.account.schemas import AccountOutSchema, CreateAccountSchema
-from backend.fundmate.base_scheme import EmptySchema, PaginationSchema
-from backend.fundmate.view_ext import paginate_query
 
 bp = APIBlueprint("account", __name__, url_prefix="/accounts")
 

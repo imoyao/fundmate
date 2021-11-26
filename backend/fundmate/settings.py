@@ -38,7 +38,14 @@ RISK_TYPE = {
     'advance': 4,  # 进阶成长
     'high': 5,  # 积极进取
 }
-
+RISK_TYPE_DISPLAY = {
+    'undefined': '未定义',
+    'plain': '灵活取用',
+    'low': '稳健增值',
+    'balance': '平衡增长',
+    'advance': '进阶成长',
+    'high': '积极进取'
+}
 # 基金决策宝的symbol的前缀,UN表示未知
 SYMBOL_TYPE = {'UN': 0, 'FP': 1, 'SZ': 2, 'SH': 3}
 

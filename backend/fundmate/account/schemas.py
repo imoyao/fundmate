@@ -5,7 +5,10 @@
 类比DRF中的serializer
 """
 from apiflask import Schema
-from apiflask.fields import String
+from apiflask.fields import Integer, String
+from apiflask.validators import OneOf
+
+from backend.fundmate.settings import RISK_TYPE
 
 
 class CreateAccountSchema(Schema):
@@ -17,10 +20,16 @@ class CreateAccountSchema(Schema):
     有知有行：名称、预期年化、投资时间、币种
     投资账本： 名称
     韭圈儿： 名称
+    ---
+    本系统：
+    名称
+    风险等级
+    描述，即投资目标、投资年限等
     '''
-    name = String()
+    usable_risk_types = list(RISK_TYPE.keys())
+    name = String(length=10)
+    account_type = String(required=True, default='undefined', validate=OneOf(usable_risk_types))
     desc = String()
-    # risk_type =
 
 
 class AddAccountItemSchema(Schema):
@@ -33,7 +42,8 @@ class AddAccountItemSchema(Schema):
 
 class AccountOutSchema(Schema):
     """
-    账号输入
+    账号信息返回
     """
+    id = Integer()
     name = String()
-    desc = String()
+    account_type = String()
