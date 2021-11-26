@@ -12,6 +12,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from backend.fundmate import settings
 from backend.fundmate.database import Base, Column, CreateDateModel, PkModel, db, relationship
+from backend.fundmate.excepts import PasswordNotExistsError
 from backend.fundmate.extensions import login_manager
 
 # [多对多双向关系](https://docs.sqlalchemy.org/en/14/orm/basic_relationships.html#many-to-many)
@@ -29,7 +30,7 @@ class Role(Base, PkModel):
     __tablename__ = "roles"
 
     name = Column(db.String(80), unique=True, nullable=False)
-    user = relationship("User", secondary=user_role_table, back_populates="roles")
+    user = relationship("User", secondary=user_role_table, back_populates="role")
 
     def __init__(self, name, **kwargs):
         """Create instance."""
@@ -50,7 +51,7 @@ class User(Base, PkModel, CreateDateModel, UserMixin):
 
     name = Column(db.String(16), comment='用户名')
     username = Column(db.String(16), unique=True, nullable=False, comment='登录用户名')
-    password = Column(db.String(40), nullable=False, comment='用户密码')
+    password = Column(db.String(120), nullable=False, comment='用户密码')
     email = Column(db.String(30), unique=True, nullable=False, comment='注册邮箱')
     phone_num = Column(db.String(11), comment='注册手机号')
     custom_avatar = Column(db.String(512), comment='用户自定义头像')
@@ -62,15 +63,16 @@ class User(Base, PkModel, CreateDateModel, UserMixin):
     last_login = Column(db.TIMESTAMP,
                         nullable=False,
                         server_default=db.text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"))
-    role = relationship("Role", secondary=user_role_table, back_populates="users")
+    role = relationship("Role", secondary=user_role_table, back_populates="user")
 
-    def __init__(self, username, email, password, **kwargs) -> None:
+    def __init__(self, **kwargs) -> None:
         """Create instance."""
-        super().__init__(username, email, password, **kwargs)
+        super().__init__(**kwargs)
+        password = kwargs.get('password')
         if password:
             self.password = self.set_password(password)
         else:
-            self.password = None
+            raise PasswordNotExistsError('创建账户必须提供密码！')
 
     def __repr__(self):
         """Represent instance as a unique string."""
