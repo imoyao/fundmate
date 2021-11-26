@@ -42,6 +42,13 @@ class UnpackError(FmException):
     pass
 
 
+class PasswordNotExistsError(FmException):
+    """
+    必须提供用户密码
+    """
+    pass
+
+
 class LenEqualError(CalError):
     """
     长度不相等的异常

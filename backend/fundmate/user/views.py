@@ -2,16 +2,15 @@
 """User views."""
 from typing import Optional
 
-from apiflask import APIBlueprint, Schema, abort, input, output
-from apiflask.fields import Boolean, Email, Integer, String
-from apiflask.validators import Length
+from apiflask import APIBlueprint, abort, input, output
 from flask.views import MethodView
 
 from backend.fundmate.account.models import Account
-from backend.fundmate.account.schemas import AccountOutSchema
+from backend.fundmate.account.schemas import AccountOutSchema, CreateAccountSchema
 from backend.fundmate.base_scheme import EmptySchema, PaginationSchema
 from backend.fundmate.extensions import login_manager
 from backend.fundmate.user.models import User
+from backend.fundmate.user.schemas import UserInSchema, UserOutSchema
 from backend.fundmate.view_ext import paginate_query
 
 bp = APIBlueprint("user", __name__, url_prefix="/users")
@@ -25,19 +24,6 @@ def load_user(user_id: str):
     return User.get_by_id(int(user_id))
 
 
-class UserOutSchema(Schema):
-    id = Integer()
-    name = String()
-    email = Email(validate=Length(6, 40))
-
-
-class UserInSchema(Schema):
-    username = String(required=True, validate=Length(5, 25))
-    password = String(required=True, validate=Length(6, 40))
-    email = Email(required=True, validate=Length(6, 40))
-    is_activated = Boolean()
-
-
 @bp.route('/')
 class Users(MethodView):
 
@@ -49,14 +35,11 @@ class Users(MethodView):
         return ret
 
     @input(UserInSchema)
+    @output(UserOutSchema)
     def post(self, data: dict) -> User:
         """新建用户"""
-        print(data, '========uuuupppp======')
-        # username = data.pop('username')
-        # password = data.pop('password')
-        # email = data.pop('email')
-        # print(data,'====aft==========')
         _user_obj = User.create(**data)
+        print(_user_obj, '--_user_obj--')
         return _user_obj
 
 
@@ -129,9 +112,12 @@ class UserAccounts(MethodView):
             accounts = Account.query.filter_by(creator_id=user_id)
         return accounts
 
-    def post(self, user_id: str, account_type: str, comment: Optional[str]):
+    @input(CreateAccountSchema)
+    def post(self, data: dict):
         """创建用户账本"""
-        pass
+        print(data)
+        account = Account.create(**data)
+        return account
 
     def delete(self, user_id: str, fund_id: str):
         """删除用户账本"""
