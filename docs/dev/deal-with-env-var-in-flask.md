@@ -87,7 +87,7 @@ class BaseConfig(object):
 
 参阅：[用 SendGrid 发送邮件，但在邮箱中收不到邮件 - Flask Web 开发实战 - HelloFlask 论坛](https://discuss.helloflask.com/t/topic/127/3)
 
-这是一种不那么优雅的解决办法，我们也可以使用environs库实现正确的类型加载，具体参见下面的章节。
+这是一种不那么优雅的解决办法，我们也可以使用 environs 库实现正确的类型加载，具体参见下面的章节。
 
 ##### pipenv 影响了 flask 加载`.env`环境变量
 
