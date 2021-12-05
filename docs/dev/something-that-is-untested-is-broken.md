@@ -46,7 +46,7 @@ postman 用于前端开发人员对接口进行测试，借助于 mock 服务器
 - Collection 用于存放我们的 API 请求。
 - mocks 可以选择我们自己创建的 collection 作为 mock 的标志。对于后端还没有开发好的接口，可以直接编辑请求。
 :::info 讨论
-  [单测时要不要 mock 数据库？ - Jiajun的编程随想](https://jiajunhuang.com/articles/2021_08_27-mock_db_or_not.md.html)
+  [单测时要不要 mock 数据库？ - Jiajun 的编程随想](https://jiajunhuang.com/articles/2021_08_27-mock_db_or_not.md.html)
 :::
 
 ## pytest
