@@ -6,11 +6,12 @@ title: 再一次，认识注册、登录功能
 
 ## token 而不是 cookie
 
-API 通常希望每次请求都将访问凭证/令牌发送到 API。这类似于 web 服务器(Flask)直接返回 html/js 代码时对请求进行身份验证的方式。
+API 通常希望每次请求都将访问凭证/令牌发送到 API。这类似于 web 服务(Flask)直接返回 html/js 代码时对请求进行身份验证的方式。
 
-然而，区别在于客户机用于提交身份验证证明的机制。在后端服务的典型应用程序中，前端代码 cookie 用于存储会话信息，这些 cookie 由客户端(浏览器)随每个请求自动发送到后端。
+然而，区别在于C/S用于提交身份验证证明的机制。在B/S的典型应用程序中，前端代码 cookie 用于存储会话信息，这些 cookie 由客户端(浏览器)随每个请求自动发送到后端。
 
-在您的案例中，Flask Login 查看这些 cookie 并验证它们的真实性，并从服务器上的会话中存储的信息确定是哪个用户发出了请求。
+在通常的Web应用中，通常使用Flask-Login 查看这些 cookie 并验证它们的真实性，并从服务器上的会话中存储的信息确定是哪个用户发出了请求。关于它的使用可以参阅：
+[cookie在flask中的应用、flask-login模块的使用（login_user、@login_required、@login_manager.user_loader）current_user_Null的博客-CSDN博客](https://blog.csdn.net/JENREY/article/details/86671856)
 
 您提到您的客户端是一个使用 Python 请求库的桌面应用程序，因此如果您想继续使用您拥有的 auth 方法，您将希望编程您的桌面客户端使用请求发送请求。会话对象。这基本上封装您的请求并为您存储 cookie。为此，您需要发出一个初始化请求，以使用该请求进行登录。Session 对象，然后所有后续请求将自动发送 cookie，您的 Flask 应用程序将看到您的桌面应用程序已登录。查看文档了解更多信息。
 
@@ -113,6 +114,7 @@ JWT:由于[此处-Issue #123](https://github.com/mattupstate/flask-jwt/issues/12
 7. [细说 API – 认证、授权和凭证 - 知乎](https://zhuanlan.zhihu.com/p/60522006)
 8. [HTTP API 认证授权术 | 酷 壳 - CoolShell](https://coolshell.cn/articles/19395.html)
 9. [REST 接口安全认证方式对比：API Key vs OAuth 令牌 vs JWT_王浩的技术博客-CSDN 博客_apikey 认证方式](https://peterwanghao.blog.csdn.net/article/details/81170785)
+10. [傻傻分不清之 Cookie、Session、Token、JWT - 掘金](https://juejin.cn/post/6844904034181070861)
 
 ## 权限
 
