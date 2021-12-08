@@ -5,7 +5,9 @@ title: 再一次，认识注册、登录功能
 [认证、授权、鉴权和权限控制 | 滩之南](http://www.hyhblog.cn/2018/04/25/user_login_auth_terms/)
 
 ## token 而不是 cookie
-
+:::warning
+这是一段翻译，所以可能读起来有点拗口！
+:::
 API 通常希望每次请求都将访问凭证/令牌发送到 API。这类似于 web 服务(Flask)直接返回 html/js 代码时对请求进行身份验证的方式。
 
 然而，区别在于C/S用于提交身份验证证明的机制。在B/S的典型应用程序中，前端代码 cookie 用于存储会话信息，这些 cookie 由客户端(浏览器)随每个请求自动发送到后端。
@@ -13,13 +15,12 @@ API 通常希望每次请求都将访问凭证/令牌发送到 API。这类似�
 在通常的Web应用中，通常使用Flask-Login 查看这些 cookie 并验证它们的真实性，并从服务器上的会话中存储的信息确定是哪个用户发出了请求。关于它的使用可以参阅：
 [cookie在flask中的应用、flask-login模块的使用（login_user、@login_required、@login_manager.user_loader）current_user_Null的博客-CSDN博客](https://blog.csdn.net/JENREY/article/details/86671856)
 
-您提到您的客户端是一个使用 Python 请求库的桌面应用程序，因此如果您想继续使用您拥有的 auth 方法，您将希望编程您的桌面客户端使用请求发送请求。会话对象。这基本上封装您的请求并为您存储 cookie。为此，您需要发出一个初始化请求，以使用该请求进行登录。Session 对象，然后所有后续请求将自动发送 cookie，您的 Flask 应用程序将看到您的桌面应用程序已登录。查看文档了解更多信息。
 
-但是，使用 api， Flask web 服务器不会直接向客户端提供前端代码。事实上，API 不应该关心客户端是否有前端。所有 API 都知道客户端可能是另一个脚本，或者是在终端上运行 curl 命令的用户等等。重要的是，客户端可能有也可能没有“cookie”的概念。因此，API 需要一种方法来验证传入的请求是否得到了授权。
+但是，如果我们编写 api 接口， Flask web 服务器不会直接向客户端提供前端代码。事实上，API 不关心客户端是否有前端。所有 API 都应该知道客户端可能是来自一个脚本，或者是在终端上运行 curl 命令的用户等等。重要的是，客户端可能有、也可能没有“cookie”的概念。因此，API 需要一种方法来验证传入的请求是否得到了授权。
 
-就像 cookie 需要与每个请求一起发送一样，API 需要与每个请求一起发送“嘿，服务器，我是一个请求，我被授权了。”
+就像 cookie 需要与每个请求一起发送一样，API 需要在每个请求时发送“嘿，服务器，我是一个请求，我被授权了，你看，这是我的凭证（token）”
 
-最明显的解决方案是在每次请求时都发送用户名和密码。这个解决方案非常基本，称为基本认证。显然，这里存在安全问题，但是如果 http 流量是加密的(https)，那么在客户机是一个运行在安全框上的进程(从受保护的文件读取密码)的实例中，基本身份验证就可以了。
+最明显的解决方案是在每次请求时都发送用户名和密码。这个解决方案非常基本，称为基本认证。显然，这里存在安全问题。（在网络传输过程中，可能客户端的用户名密码会被第三方窃取到）。但如果 http 流量是加密的(https)，且客户机是一个运行在安全的进程(从受保护的文件读取密码)的实例中，基本身份验证就可以了。
 
 Python 的 requests 库也可以实现用户名和密码登录：
 ```python
@@ -40,7 +41,7 @@ def some_route():
 ```
 还有一个 [Flask-BasicAuth](https://flask-basicauth.readthedocs.io/en/latest/) 模块，该项目声称可以让 Flask 非常容易地整合 basic auth，尽管我从未使用过它。
 
-然而在客户机的实例不能被认为是超级安全，说一个前端的 web 应用程序，您的开发人员可能不希望将用户名和密码直接存储在浏览器和本地存储等等，有人有机会看到用户凭证。
+然而在客户机的实例不能被认为是超级安全，一个前端的 web 应用程序，开发人员可能不希望将用户名和密码直接存储在浏览器和本地存储等等，因为有人有机会看到用户凭证。
 
 基于令牌的身份验证是另一个更安全的选项，基本上客户机将用户名/密码凭据发送到后端一次，然后用它们交换令牌。然后，这个令牌与客户机发出的每个请求一起发送。在后端，web 服务器可以验证令牌的真实性，并从中提取身份。令牌可以通过 HTTP 头发送，也可以通过 url 查询字符串发送。例如`www.myapi.com/some-end-point?token=12345678`
 
@@ -66,11 +67,25 @@ def some_route():
 
 [RESTful Authentication with Flask - miguelgrinberg.com](https://blog.miguelgrinberg.com/post/restful-authentication-with-flask)
 
+设置token需要注意的事情：
+[关于token存放在cookie中 - SegmentFault 思否](https://segmentfault.com/q/1010000014763987)
+1. token 是否过期，应该后端接口中来判断，不该前端来判断，因为用户拿到一个 token，然后一直在用这个 token，而你在用户登录的时候就设置了过期时间，这样是不准的。
+2. 建议把 token 存在 cookie 上，不设置过期时间，如果 token 失效，就让后端在接口中返回固定的状态（401）表示token 失效，需要重新登录，再重新登录的时候，重新设置 cookie 中的 token 就行。
+3. js 创建 cookie 是用 document.cookie = 'token=221212fsfsfafas' 这里有个更方便的方法，也是更安全的。
+4. 让后端在接口的返回值 header 里添加 set-Cookie，这样的话浏览器会自动把 token 设置到 cookie 里。
+5. 还有，如果接口的返回值 header 里有设，Http-Only: true 的话，js 里是不能直接修改 cookie 的，这样更安全点。
+
+## 对比
+对于一个RESTful API，首先出局的是~~Flask-Login~~。
+
 ### Flask-Login vs Flask-HTTPAuth
 
 > For a REST service you do not need Flask-Login. Typically in web services you do not store client state (what Flask-Login does), instead you authenticate each and every request. Flask-HTTPAuth does this for you.
 >
->You would use both only if you have an application that has a web component and a REST API component. In that case Flask-Login will handle the web app routes, and Flask-HTTPAuth will handle the API routes.
+>  You would use both only if you have an application that has a web component and a REST API component. In that case Flask-Login will handle the web app routes, and Flask-HTTPAuth will handle the API routes.
+[来源](https://stackoverflow.com/a/26221147/14295718)
+
+简单来说，flask-login会存储客户端的状态，而不是每一次请求到来时认证，这对API来说是不够安全的。而且，flask-login继承了太多表单验证的东西，在restful中这些由我们后端自己通过 [marshmallow · PyPI](https://pypi.org/project/marshmallow/) 进行校验。参阅：[Better parameter validation in Flask with marshmallow - Cameron MacLeod](https://www.cameronmacleod.com/blog/better-validation-flask-marshmallow)
 
 ###  Flask-JWT VS Flask-Login
 
@@ -84,7 +99,7 @@ JWT:由于[此处-Issue #123](https://github.com/mattupstate/flask-jwt/issues/12
 :::
 
 满足所有：由于 ~~[Flask-Security — Flask-Security 3.0.0 documentation](https://pythonhosted.org/Flask-Security/)~~ 不再积极维护，我们转向 [Welcome to Flask-Security（TOO） — Flask-Security 4.0.0 documentation](https://flask-security-too.readthedocs.io/en/stable/)
-## [flask-praetorian vs flask-jwt-extended](https://flask-praetorian.readthedocs.io/en/latest/comparison.html#flask-jwt-extended)
+[flask-praetorian vs flask-jwt-extended](https://flask-praetorian.readthedocs.io/en/latest/comparison.html#flask-jwt-extended)
 
 
 一种保护 API 的方式：
@@ -101,7 +116,7 @@ JWT:由于[此处-Issue #123](https://github.com/mattupstate/flask-jwt/issues/12
 2. 如果是 oauth2 登录，则需要绑定邮箱
 
 ## 注销
-用户选择注销，则提示备份数据（可以主动备份并发送给用户）
+用户选择注销账户，则提示备份数据（可以主动备份并发送给用户）
 
 ## 推荐阅读
 0. [security - The definitive guide to form-based website authentication - Stack Overflow](https://stackoverflow.com/questions/549/the-definitive-guide-to-form-based-website-authentication)
