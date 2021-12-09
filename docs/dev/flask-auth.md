@@ -2,7 +2,7 @@
 title: 再一次，认识注册、登录功能
 ---
 
-## 对比
+## 厘清概念
 首先需要厘清token和cookie的区别
 ### token 而不是 cookie
 :::warning
@@ -57,7 +57,14 @@ def some_route():
 
 ### [认证、授权、鉴权和权限控制 | 滩之南](http://www.hyhblog.cn/2018/04/25/user_login_auth_terms/)
 
-### 扩展横向对比
+- Identity（身份识别） – who claims to be making an API request? 
+- Authentication （认证）– are they really who they say they are?
+- Authorization （授权）– are they allowed to do what they are trying to do?
+
+[Do you need API keys? API Identity vs. Authorization - Srimax % | Srimax](https://www.srimax.com/2014/02/19/do-you-need-api-keys-api-identity-vs-authorization/)
+
+
+## 扩展横向对比
 [flask-praetorian comparison to other libraries — flask-praetorian 1.3.0 documentation](https://flask-praetorian.readthedocs.io/en/latest/comparison.html#flask-jwt-extended)
 
 * ~~flask-jwt~~
@@ -67,6 +74,7 @@ def some_route():
 * flask-jwt-extended
 
   flask-jwt的继任者；
+
   与flask-praetorian相比的优势：
      1. 使用Cookie进行JWT存储
      2. 部分路线保护
@@ -75,11 +83,12 @@ def some_route():
      5. CSRF保护
   
   缺点
-        1. 密码哈希法
-        2. 密码验证
-        3. 基于角色的访问
-        4. 电子邮件注册和验证。
-        5. flask-praetorian 的 API 更简单，配置也更少。
+    1. 密码哈希法
+    2. 密码验证
+    3. 基于角色的访问
+    4. 电子邮件注册和验证。
+    5. flask-praetorian 的 API 更简单，配置也更少。
+
   Flask-praetorian 旨在成为一个完整的安全扩展，而 flask-jwt-extended 则侧重于基于 jwt 的 auth 并支持许多访问模式。
 * ~~flask-jwt-simple~~ 
 
@@ -101,17 +110,14 @@ def some_route():
 
 然后出局的是~~Flask-JWT~~。
 ###  ~~Flask-JWT~~ VS Flask-HTTPAuth
-
-[Tutorial on how to combine authentication between Flask-JWT and Flask-Login · Issue #253 · maxcountryman/flask-login](https://github.com/maxcountryman/flask-login/issues/253)
-
-[python - For a REST API, can I use authentication mechanism provided by flask-login or do I explicitly have to use token based authentication like JWT? - Stack Overflow](https://stackoverflow.com/questions/65520316/for-a-rest-api-can-i-use-authentication-mechanism-provided-by-flask-login-or-do)
+[security - API Keys vs HTTP Authentication vs OAuth in a RESTful API - Stack Overflow](https://stackoverflow.com/questions/6767813/api-keys-vs-http-authentication-vs-oauth-in-a-restful-api)
 
 [Using Flask-JWT with Flask-Login - Ivan's Software Engineering BlogIvan's Software Engineering Blog](https://ai-facets.org/using-flask-jwt-with-flask-login/)
 
 ::: warning
 JWT:由于[此处-Issue #123](https://github.com/mattupstate/flask-jwt/issues/123) 提到的原因我们选择 [Flask-JWT-Extended’s Documentation — flask-jwt-extended 3.25.0 documentation](https://flask-jwt-extended.readthedocs.io/en/stable/) 作为实现 JWT 的扩展。
 ::: 
-### ~~Flask-Security~~ ~~Flask-Security（TOO）~~vs Flask-praetorian
+### ~~Flask-Security~~ vs ~~Flask-Security（TOO）~~ vs Flask-praetorian
 满足所有：由于 ~~[Flask-Security — Flask-Security 3.0.0 documentation](https://pythonhosted.org/Flask-Security/)不再积极维护，我们转向 [Welcome to Flask-Security（TOO） — Flask-Security 4.0.0 documentation](https://flask-security-too.readthedocs.io/en/stable/)~~ 基于此处[flask-praetorian comparison to other libraries — flask-praetorian 1.3.0 documentation](https://flask-praetorian.readthedocs.io/en/latest/comparison.html#flask-security) 原因，我们抛弃Flask-Security而选择[Flask-praetorian](https://flask-praetorian.readthedocs.io/en/latest/)
 
 最终，我们决定先使用Flask-HTTPAuth 实现最基本的认证（apiflask内置），之后再考虑Flask-JWT-Extended和Flask-praetorian 之间抉择。
@@ -134,6 +140,24 @@ JWT:由于[此处-Issue #123](https://github.com/mattupstate/flask-jwt/issues/12
 3. js 创建 cookie 时用 `document.cookie = 'token=xxx'` 是更方便也是更安全的方法。
 4. 让后端在接口的返回值 header 里添加 set-Cookie，这样的话浏览器会自动把 token 设置到 cookie 里。
 5. 还有，如果接口的返回值 header 里有设，Http-Only: true 的话，js 里是不能直接修改 cookie 的，这样更安全点。
+
+[Web Authentication Methods Compared | TestDriven.io](https://testdriven.io/blog/web-authentication-methods/)
+
+找回密码，导出数据时有用。
+```python
+
+from time import sleep
+
+import pyotp
+
+if __name__ == "__main__":
+    otp = pyotp.TOTP(pyotp.random_base32())
+    code = otp.now()
+    print(f"OTP generated: {code}")
+    print(f"Verify OTP: {otp.verify(code)}")
+    sleep(30)
+    print(f"Verify after 30s: {otp.verify(code)}")
+```
 
 ## TODO
 以下是一些可能在第一阶段不会完成和实现的功能。
