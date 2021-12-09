@@ -2,17 +2,20 @@
 title: 再一次，认识注册、登录功能
 ---
 
-[认证、授权、鉴权和权限控制 | 滩之南](http://www.hyhblog.cn/2018/04/25/user_login_auth_terms/)
-
-## token 而不是 cookie
+## 对比
+首先需要厘清token和cookie的区别
+### token 而不是 cookie
 :::warning
-这是一段翻译，所以可能读起来有点拗口！
+这是一段翻译，所以可能读起来有点拗口，如果需要深入理解可以阅读这篇文章：👉 [傻傻分不清之 Cookie、Session、Token、JWT - 掘金](https://juejin.cn/post/6844904034181070861)
 :::
+
+[傻傻分不清之 Cookie、Session、Token、JWT - 掘金](https://juejin.cn/post/6844904034181070861)
+
 API 通常希望每次请求都将访问凭证/令牌发送到 API。这类似于 web 服务(Flask)直接返回 html/js 代码时对请求进行身份验证的方式。
 
 然而，区别在于C/S用于提交身份验证证明的机制。在B/S的典型应用程序中，前端代码 cookie 用于存储会话信息，这些 cookie 由客户端(浏览器)随每个请求自动发送到后端。
 
-在通常的Web应用中，通常使用Flask-Login 查看这些 cookie 并验证它们的真实性，并从服务器上的会话中存储的信息确定是哪个用户发出了请求。关于它的使用可以参阅：
+在Web应用中，通常使用Flask-Login 查看这些 cookie 并验证它们的真实性，并从服务器上的会话中存储的信息确定是哪个用户发出了请求。关于该模块的使用可以参阅：
 [cookie在flask中的应用、flask-login模块的使用（login_user、@login_required、@login_manager.user_loader）current_user_Null的博客-CSDN博客](https://blog.csdn.net/JENREY/article/details/86671856)
 
 
@@ -33,11 +36,11 @@ import request
 
 @app.route(...)
 def some_route():
-  username = request.authorization.username
-  password = request.authorization.password
-  # check to make sure username/password is okay
-  # could abstract this code as a decorator and apply it to multiple routes
-  # that you want protected by basic auth
+    username = request.authorization.username
+    password = request.authorization.password
+    # check to make sure username/password is okay
+    # could abstract this code as a decorator and apply it to multiple routes
+    # that you want protected by basic auth
 ```
 还有一个 [Flask-BasicAuth](https://flask-basicauth.readthedocs.io/en/latest/) 模块，该项目声称可以让 Flask 非常容易地整合 basic auth，尽管我从未使用过它。
 
@@ -50,13 +53,70 @@ def some_route():
 如果您想使用基于令牌的认证方法，请查看 JSON Web Tokens (JWT)，特别是以下 Flask 插件: [Flask-JWT-Extended](https://github.com/vimalloc/flask-jwt-extended) [Flask-Praetorian](https://flask-praetorian.readthedocs.io/en/latest/)
 
 
-## 注册
-1. 目前更合理的主流设计是注册的时候不发确认邮件，等用户自行登录后，显示提示需要确认邮件，用户点击发送邮件按钮后再发送邮件。 
-2. 此外，用户如果一个月不登录，则提前一周发送提示邮件并在到期后删除用户账号。
-3. 用户可以选择第三方登录或者邮箱注册：
-    1. 如果使用第三方登录，则需要提示用户绑定邮箱
-    2. 如果使用邮箱注册，则需要加延时，避免骚扰用户。同时用户登录之后提示用户激活邮箱，用户激活设置有效期，避免过期泄露
-4. 通知用户信息功能实现，后端可以自定义发送信息给前端
+第二个需要区分的是认证，授权和权限控制。
+
+### [认证、授权、鉴权和权限控制 | 滩之南](http://www.hyhblog.cn/2018/04/25/user_login_auth_terms/)
+
+### 扩展横向对比
+[flask-praetorian comparison to other libraries — flask-praetorian 1.3.0 documentation](https://flask-praetorian.readthedocs.io/en/latest/comparison.html#flask-jwt-extended)
+
+* ~~flask-jwt~~
+  1. 不再积极维护
+  2. 实现了密码校验（authentication ）但是verification不够完整
+  3. 权限控制不够完整
+* flask-jwt-extended
+
+  flask-jwt的继任者；
+  与flask-praetorian相比的优势：
+     1. 使用Cookie进行JWT存储
+     2. 部分路线保护
+     3. 需要新鲜的token
+     4. 在HTTP请求中自定义JWT（标题，正文等） 
+     5. CSRF保护
+  
+  缺点
+        1. 密码哈希法
+        2. 密码验证
+        3. 基于角色的访问
+        4. 电子邮件注册和验证。
+        5. flask-praetorian 的 API 更简单，配置也更少。
+  Flask-praetorian 旨在成为一个完整的安全扩展，而 flask-jwt-extended 则侧重于基于 jwt 的 auth 并支持许多访问模式。
+* ~~flask-jwt-simple~~ 
+
+  除了生成JWT token和auth_required装饰器外，别无他物。如果是快速成型很好用。
+* ~~flask-security~~ 
+
+  flask-praetorian的灵感来源，但是它**包括 wtform 组件和其他东西不需要Flask为基础的 api**。在 API 中包含所有额外的内容既麻烦又不必要。
+
+对于一个RESTful API，首先出局的是~~Flask-Login~~。
+
+### ~~Flask-Login~~ vs Flask-HTTPAuth
+
+> For a REST service you do not need Flask-Login. Typically in web services you do not store client state (what Flask-Login does), instead you authenticate each and every request. Flask-HTTPAuth does this for you.
+>
+>  You would use both only if you have an application that has a web component and a REST API component. In that case Flask-Login will handle the web app routes, and Flask-HTTPAuth will handle the API routes.
+[来源](https://stackoverflow.com/a/26221147/14295718)
+
+简单来说，flask-login会存储客户端的状态，而不是每一次请求到来时认证，这对API来说是不够安全的。而且，flask-login继承了太多表单验证的东西，在restful中这些由我们后端自己通过 [marshmallow · PyPI](https://pypi.org/project/marshmallow/) 进行校验。参阅：[Better parameter validation in Flask with marshmallow - Cameron MacLeod](https://www.cameronmacleod.com/blog/better-validation-flask-marshmallow)
+
+然后出局的是~~Flask-JWT~~。
+###  ~~Flask-JWT~~ VS Flask-HTTPAuth
+
+[Tutorial on how to combine authentication between Flask-JWT and Flask-Login · Issue #253 · maxcountryman/flask-login](https://github.com/maxcountryman/flask-login/issues/253)
+
+[python - For a REST API, can I use authentication mechanism provided by flask-login or do I explicitly have to use token based authentication like JWT? - Stack Overflow](https://stackoverflow.com/questions/65520316/for-a-rest-api-can-i-use-authentication-mechanism-provided-by-flask-login-or-do)
+
+[Using Flask-JWT with Flask-Login - Ivan's Software Engineering BlogIvan's Software Engineering Blog](https://ai-facets.org/using-flask-jwt-with-flask-login/)
+
+::: warning
+JWT:由于[此处-Issue #123](https://github.com/mattupstate/flask-jwt/issues/123) 提到的原因我们选择 [Flask-JWT-Extended’s Documentation — flask-jwt-extended 3.25.0 documentation](https://flask-jwt-extended.readthedocs.io/en/stable/) 作为实现 JWT 的扩展。
+::: 
+### ~~Flask-Security~~ ~~Flask-Security（TOO）~~vs Flask-praetorian
+满足所有：由于 ~~[Flask-Security — Flask-Security 3.0.0 documentation](https://pythonhosted.org/Flask-Security/)不再积极维护，我们转向 [Welcome to Flask-Security（TOO） — Flask-Security 4.0.0 documentation](https://flask-security-too.readthedocs.io/en/stable/)~~ 基于此处[flask-praetorian comparison to other libraries — flask-praetorian 1.3.0 documentation](https://flask-praetorian.readthedocs.io/en/latest/comparison.html#flask-security) 原因，我们抛弃Flask-Security而选择[Flask-praetorian](https://flask-praetorian.readthedocs.io/en/latest/)
+
+最终，我们决定先使用Flask-HTTPAuth 实现最基本的认证（apiflask内置），之后再考虑Flask-JWT-Extended和Flask-praetorian 之间抉择。
+
+[Web Authentication Methods Compared | TestDriven.io](https://testdriven.io/blog/web-authentication-methods/)
 
 ## 实现
 
@@ -67,71 +127,40 @@ def some_route():
 
 [RESTful Authentication with Flask - miguelgrinberg.com](https://blog.miguelgrinberg.com/post/restful-authentication-with-flask)
 
-设置token需要注意的事情：
-[关于token存放在cookie中 - SegmentFault 思否](https://segmentfault.com/q/1010000014763987)
+设置token需要注意的事情：[关于token存放在cookie中 - SegmentFault 思否](https://segmentfault.com/q/1010000014763987)
+
 1. token 是否过期，应该后端接口中来判断，不该前端来判断，因为用户拿到一个 token，然后一直在用这个 token，而你在用户登录的时候就设置了过期时间，这样是不准的。
 2. 建议把 token 存在 cookie 上，不设置过期时间，如果 token 失效，就让后端在接口中返回固定的状态（401）表示token 失效，需要重新登录，再重新登录的时候，重新设置 cookie 中的 token 就行。
-3. js 创建 cookie 是用 document.cookie = 'token=221212fsfsfafas' 这里有个更方便的方法，也是更安全的。
+3. js 创建 cookie 时用 `document.cookie = 'token=xxx'` 是更方便也是更安全的方法。
 4. 让后端在接口的返回值 header 里添加 set-Cookie，这样的话浏览器会自动把 token 设置到 cookie 里。
 5. 还有，如果接口的返回值 header 里有设，Http-Only: true 的话，js 里是不能直接修改 cookie 的，这样更安全点。
 
-## 对比
-对于一个RESTful API，首先出局的是~~Flask-Login~~。
+## TODO
+以下是一些可能在第一阶段不会完成和实现的功能。
 
-### Flask-Login vs Flask-HTTPAuth
+### 注册
+1. 目前更合理的主流设计是注册的时候不发确认邮件，等用户自行登录后，显示提示需要确认邮件，用户点击发送邮件按钮后再发送邮件。
+2. 此外，用户如果一个月不登录，则提前一周发送提示邮件并在到期后删除用户账号。
+3. 用户可以选择第三方登录或者邮箱注册：
+    1. 如果使用第三方登录，则需要提示用户绑定邮箱
+    2. 如果使用邮箱注册，则需要加延时，避免骚扰用户。同时用户登录之后提示用户激活邮箱，用户激活设置有效期，避免过期泄露
+4. 通知用户信息功能实现，后端可以自定义发送信息给前端
+   - [vue+elementUI+WebSocket 接收后台实时消息推送 - 简书](https://www.jianshu.com/p/c0a29ea2da46)
+   - [全双工通信的 WebSocket](https://halfrost.com/websocket/)
+   - [H5 页面前后端通信 （3 种方式简单介绍） - 吴飞 ff - 博客园](https://www.cnblogs.com/wfblog/p/9814620.html)
+   - [flask-socketio-doc-zh/Flask-SocketIO 中文文档.md at master · shenyushun/flask-socketio-doc-zh](https://github.com/shenyushun/flask-socketio-doc-zh/blob/master/Flask-SocketIO%E4%B8%AD%E6%96%87%E6%96%87%E6%A1%A3.md)
 
-> For a REST service you do not need Flask-Login. Typically in web services you do not store client state (what Flask-Login does), instead you authenticate each and every request. Flask-HTTPAuth does this for you.
->
->  You would use both only if you have an application that has a web component and a REST API component. In that case Flask-Login will handle the web app routes, and Flask-HTTPAuth will handle the API routes.
-[来源](https://stackoverflow.com/a/26221147/14295718)
-
-简单来说，flask-login会存储客户端的状态，而不是每一次请求到来时认证，这对API来说是不够安全的。而且，flask-login继承了太多表单验证的东西，在restful中这些由我们后端自己通过 [marshmallow · PyPI](https://pypi.org/project/marshmallow/) 进行校验。参阅：[Better parameter validation in Flask with marshmallow - Cameron MacLeod](https://www.cameronmacleod.com/blog/better-validation-flask-marshmallow)
-
-###  Flask-JWT VS Flask-Login
-
-[Tutorial on how to combine authentication between Flask-JWT and Flask-Login · Issue #253 · maxcountryman/flask-login](https://github.com/maxcountryman/flask-login/issues/253)
-[python - For a REST API, can I use authentication mechanism provided by flask-login or do I explicitly have to use token based authentication like JWT? - Stack Overflow](https://stackoverflow.com/questions/65520316/for-a-rest-api-can-i-use-authentication-mechanism-provided-by-flask-login-or-do)
-
-[Using Flask-JWT with Flask-Login - Ivan's Software Engineering BlogIvan's Software Engineering Blog](https://ai-facets.org/using-flask-jwt-with-flask-login/)
-
-::: warning
-JWT:由于[此处-Issue #123](https://github.com/mattupstate/flask-jwt/issues/123) 提到的原因我们选择 [Flask-JWT-Extended’s Documentation — flask-jwt-extended 3.25.0 documentation](https://flask-jwt-extended.readthedocs.io/en/stable/) 作为实现 JWT 的扩展。
-:::
-
-满足所有：由于 ~~[Flask-Security — Flask-Security 3.0.0 documentation](https://pythonhosted.org/Flask-Security/)~~ 不再积极维护，我们转向 [Welcome to Flask-Security（TOO） — Flask-Security 4.0.0 documentation](https://flask-security-too.readthedocs.io/en/stable/)
-[flask-praetorian vs flask-jwt-extended](https://flask-praetorian.readthedocs.io/en/latest/comparison.html#flask-jwt-extended)
-
-
-一种保护 API 的方式：
-[python - flask: how to bridge front-end with back-end service to render api authentication? - Stack Overflow](https://stackoverflow.com/questions/61329021/flask-how-to-bridge-front-end-with-back-end-service-to-render-api-authenticatio)
-
-### 相关链接
-- [vue+elementUI+WebSocket 接收后台实时消息推送 - 简书](https://www.jianshu.com/p/c0a29ea2da46)
-- [全双工通信的 WebSocket](https://halfrost.com/websocket/)
-- [H5 页面前后端通信 （3 种方式简单介绍） - 吴飞 ff - 博客园](https://www.cnblogs.com/wfblog/p/9814620.html)
-- [flask-socketio-doc-zh/Flask-SocketIO 中文文档.md at master · shenyushun/flask-socketio-doc-zh](https://github.com/shenyushun/flask-socketio-doc-zh/blob/master/Flask-SocketIO%E4%B8%AD%E6%96%87%E6%96%87%E6%A1%A3.md)
-
-## 登录
+### 登录
 1. 支持 oauth2 登录
 2. 如果是 oauth2 登录，则需要绑定邮箱
 
-## 注销
+### 注销
 用户选择注销账户，则提示备份数据（可以主动备份并发送给用户）
 
-## 推荐阅读
-0. [security - The definitive guide to form-based website authentication - Stack Overflow](https://stackoverflow.com/questions/549/the-definitive-guide-to-form-based-website-authentication)
-1. [Welcome to Flask-HTTPAuth’s documentation! — Flask-HTTPAuth documentation](https://flask-httpauth.readthedocs.io/en/latest/)
-2. [python - flask: how to bridge front-end with back-end service to render api authentication? - Stack Overflow](https://stackoverflow.com/questions/61329021/flask-how-to-bridge-front-end-with-back-end-service-to-render-api-authenticatio)
-3. [Single Page Apps with Vue.js and Flask: JWT Authentication](https://stackabuse.com/single-page-apps-with-vue-js-and-flask-jwt-authentication/)
-4. [Token-Based Authentication With Flask – Real Python](https://realpython.com/token-based-authentication-with-flask/)
-5. [Using Flask-JWT with Flask-Login - Ivan's Software Engineering BlogIvan's Software Engineering Blog](https://ai-facets.org/using-flask-jwt-with-flask-login/)
-6. [RESTful Authentication with Flask - miguelgrinberg.com](https://blog.miguelgrinberg.com/post/restful-authentication-with-flask)
-7. [细说 API – 认证、授权和凭证 - 知乎](https://zhuanlan.zhihu.com/p/60522006)
-8. [HTTP API 认证授权术 | 酷 壳 - CoolShell](https://coolshell.cn/articles/19395.html)
-9. [REST 接口安全认证方式对比：API Key vs OAuth 令牌 vs JWT_王浩的技术博客-CSDN 博客_apikey 认证方式](https://peterwanghao.blog.csdn.net/article/details/81170785)
-10. [傻傻分不清之 Cookie、Session、Token、JWT - 掘金](https://juejin.cn/post/6844904034181070861)
+### 权限控制
 
-## 权限
+一种保护 API 的方式：
+[python - flask: how to bridge front-end with back-end service to render api authentication? - Stack Overflow](https://stackoverflow.com/questions/61329021/flask-how-to-bridge-front-end-with-back-end-service-to-render-api-authenticatio)
 
 [最好的权限设计，是先区分功能权限和数据权限 | 人人都是产品经理](http://www.woshipm.com/pd/2889402.html)
 
@@ -146,3 +175,17 @@ JWT:由于[此处-Issue #123](https://github.com/mattupstate/flask-jwt/issues/12
 [常见权限系统设计模型分析（DAC，MAC，RBAC，ABAC） - 简书](https://www.jianshu.com/p/ce0944b4a903)
 
 [可能是史上最全的权限系统设计 - 知乎](https://zhuanlan.zhihu.com/p/73414693)
+
+## 推荐阅读
+0. [security - The definitive guide to form-based website authentication - Stack Overflow](https://stackoverflow.com/questions/549/the-definitive-guide-to-form-based-website-authentication)
+1. [Welcome to Flask-HTTPAuth’s documentation! — Flask-HTTPAuth documentation](https://flask-httpauth.readthedocs.io/en/latest/)
+2. [python - flask: how to bridge front-end with back-end service to render api authentication? - Stack Overflow](https://stackoverflow.com/questions/61329021/flask-how-to-bridge-front-end-with-back-end-service-to-render-api-authenticatio)
+3. [Single Page Apps with Vue.js and Flask: JWT Authentication](https://stackabuse.com/single-page-apps-with-vue-js-and-flask-jwt-authentication/)
+4. [Token-Based Authentication With Flask – Real Python](https://realpython.com/token-based-authentication-with-flask/)
+5. [Using Flask-JWT with Flask-Login - Ivan's Software Engineering BlogIvan's Software Engineering Blog](https://ai-facets.org/using-flask-jwt-with-flask-login/)
+6. [RESTful Authentication with Flask - miguelgrinberg.com](https://blog.miguelgrinberg.com/post/restful-authentication-with-flask)
+7. [细说 API – 认证、授权和凭证 - 知乎](https://zhuanlan.zhihu.com/p/60522006)
+8. [HTTP API 认证授权术 | 酷 壳 - CoolShell](https://coolshell.cn/articles/19395.html)
+9. [REST 接口安全认证方式对比：API Key vs OAuth 令牌 vs JWT_王浩的技术博客-CSDN 博客_apikey 认证方式](https://peterwanghao.blog.csdn.net/article/details/81170785)
+10. [傻傻分不清之 Cookie、Session、Token、JWT - 掘金](https://juejin.cn/post/6844904034181070861)
+
