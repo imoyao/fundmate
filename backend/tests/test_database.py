@@ -1,13 +1,12 @@
 # -*- coding: utf-8 -*-
 """Database unit tests."""
 import pytest
-from flask_login import UserMixin
 from sqlalchemy.orm.exc import ObjectDeletedError
 
 from backend.fundmate.database import Column, PkModel, db
 
 
-class ExampleUserModel(UserMixin, PkModel):
+class ExampleUserModel(PkModel):
     """Example model class for a user."""
 
     __tablename__ = "testusers"
