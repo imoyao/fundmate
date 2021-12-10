@@ -53,7 +53,7 @@ def some_route():
 如果您想使用基于令牌的认证方法，请查看 JSON Web Tokens (JWT)，特别是以下 Flask 插件: [Flask-JWT-Extended](https://github.com/vimalloc/flask-jwt-extended) [Flask-Praetorian](https://flask-praetorian.readthedocs.io/en/latest/)
 
 
-第二个需要区分的是认证，授权和权限控制。
+第二个需要区分的概念是认证，授权和权限控制。
 
 ### [认证、授权、鉴权和权限控制 | 滩之南](http://www.hyhblog.cn/2018/04/25/user_login_auth_terms/)
 
@@ -95,7 +95,7 @@ def some_route():
   除了生成JWT token和auth_required装饰器外，别无他物。如果是快速成型很好用。
 * ~~flask-security~~ 
 
-  flask-praetorian的灵感来源，但是它**包括 wtform 组件和其他东西不需要Flask为基础的 api**。在 API 中包含所有额外的内容既麻烦又不必要。
+  flask-praetorian的灵感来源，但是它*包括 wtform 组件和其他东西不需要Flask为基础的 api*。在 API 中包含所有额外的内容既麻烦又不必要。
 
 对于一个RESTful API，首先出局的是~~Flask-Login~~。
 
