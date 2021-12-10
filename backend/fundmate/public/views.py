@@ -6,7 +6,6 @@ from flask.views import MethodView
 
 from backend.fundmate import excepts as dt_except
 from backend.fundmate.data import danjuan, fundb, jsl, yzyx
-from backend.fundmate.extensions import login_manager
 from backend.fundmate.fund.models import Fund
 from backend.fundmate.fund.schemas import FundSampleSchema, FundSearchKeySchema
 from backend.fundmate.public.schemas import ThermometerInSchema, ThermometerOutSchema
@@ -14,12 +13,6 @@ from backend.fundmate.schema_ext import RegisterSchema
 from backend.fundmate.user.models import User
 
 bp = APIBlueprint("public", __name__)
-
-
-@login_manager.user_loader
-def load_user(user_id):
-    """Load user by ID."""
-    return User.get_by_id(int(user_id))
 
 
 @bp.route('/')

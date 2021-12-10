@@ -8,7 +8,7 @@ from flask import Flask
 
 from backend.fundmate import account, commands, fund, public, settings, user
 from backend.fundmate.config import config
-from backend.fundmate.extensions import bcrypt, db, login_manager, loguru, migrate
+from backend.fundmate.extensions import auth, bcrypt, db, loguru, migrate
 from backend.fundmate.settings import env
 
 from .exts.flask_loguru import logger
@@ -43,7 +43,7 @@ def register_extensions(app: APIFlask):
     """Register Flask extensions."""
     bcrypt.init_app(app)
     db.init_app(app)
-    login_manager.init_app(app)
+    # auth.init_app(app)
     '''
     - 增加字段长度和类型检测 
     [No changes detected in Alembic autogeneration of migrations with Flask-SQLAlchemy - Stack
@@ -84,16 +84,30 @@ def register_error_handlers(app: APIFlask):
         """Render error template."""
         # If a HTTPException, pull the `code` attribute; default to 500
         error_code = getattr(error, "code", 500)
-        logger.info(error_code)
+        logger.info(str(error_code), '=======')
         detail = error.detail or None
         try:
             extra_data = error.extra_data or None
         except AttributeError:
             extra_data = {}
         body = {'error_detail': detail, **extra_data}
-        return body, error.status_code, error.headers
+        status_code = error.status_code or error_code
+        headers = error.headers or None
+        return body, status_code, headers
 
     return None
+
+
+@auth.error_processor
+def render_auth_error_processor(error):
+    """
+    专门处理auth错误的处理器
+    [Error Handling - APIFlask](https://apiflask.com/error-handling/#custom-error-classes)
+    :param error:
+    :return:
+    """
+    body = {'error_message': error.message, 'error_detail': error.detail, 'status_code': error.status_code}
+    return body, error.status_code, error.headers
 
 
 def register_shell_context(app: Flask):

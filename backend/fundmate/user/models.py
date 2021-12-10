@@ -4,7 +4,6 @@ import hashlib
 from typing import Union
 
 from flask import current_app
-from flask_login import AnonymousUserMixin, UserMixin
 from itsdangerous import BadSignature, SignatureExpired
 from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
 from sqlalchemy import DDL, Table, event
@@ -13,7 +12,6 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from backend.fundmate import settings
 from backend.fundmate.database import Base, Column, CreateDateModel, PkModel, db, relationship
 from backend.fundmate.excepts import PasswordNotExistsError
-from backend.fundmate.extensions import login_manager
 
 # [多对多双向关系](https://docs.sqlalchemy.org/en/14/orm/basic_relationships.html#many-to-many)
 '''
@@ -41,7 +39,7 @@ class Role(Base, PkModel):
         return f"<Role({self.name})>"
 
 
-class User(Base, PkModel, CreateDateModel, UserMixin):
+class User(Base, PkModel, CreateDateModel):
     """用户管理表
     TODO: 用户起始id从1000开始
     """
@@ -128,13 +126,3 @@ class User(Base, PkModel, CreateDateModel, UserMixin):
 
 # 自增id起始值
 event.listen(User.__table__, "after_create", DDL("ALTER TABLE %(table)s AUTO_INCREMENT = 1001;"))
-
-
-class Guest(AnonymousUserMixin):
-
-    @property
-    def is_admin(self):
-        return False
-
-
-login_manager.anonymous_user = Guest

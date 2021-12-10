@@ -1,24 +1,19 @@
 # -*- coding: utf-8 -*-
 """User views."""
-from typing import Optional
-
-from apiflask import APIBlueprint, abort, input, output
+from apiflask import APIBlueprint, abort, auth_required, input, output
 from flask.views import MethodView
 
 from backend.fundmate.account.models import Account
 from backend.fundmate.account.schemas import AccountOutSchema, CreateAccountSchema
 from backend.fundmate.base_scheme import EmptySchema, PaginationSchema
-from backend.fundmate.extensions import login_manager
+from backend.fundmate.extensions import auth
 from backend.fundmate.user.models import User
 from backend.fundmate.user.schemas import UserInSchema, UserOutSchema
 from backend.fundmate.view_ext import paginate_query
 
 bp = APIBlueprint("user", __name__, url_prefix="/users")
 
-# blueprint = Blueprint("user", __name__, url_prefix="/users", static_folder="../static")
 
-
-@login_manager.user_loader
 def load_user(user_id: str):
     """Load user by ID."""
     return User.get_by_id(int(user_id))
@@ -58,7 +53,7 @@ class UserDetail(MethodView):
         """获取指定用户信息"""
         _user_obj = load_user(user_id)
         if _user_obj:
-            abort(404)
+            abort(404, message=f"You can't patch an not exists user id {user_id}.")
         user = User.save(data)
         return user
 
@@ -72,12 +67,12 @@ class UserDetail(MethodView):
 
 
 @bp.route('/<int:user_id>/favors')
+@auth_required(auth)
 class UserFavorFunds(MethodView):
     """
     某人关注的基金
     """
 
-    @output(UserOutSchema)
     def get(self, user_id: str):
         """获取自选基金信息"""
         user_obj = User.get_by_id(int(user_id))
