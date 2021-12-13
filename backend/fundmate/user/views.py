@@ -50,7 +50,7 @@ class UserDetail(MethodView):
     @input(UserInSchema(partial=True))
     @output(UserOutSchema)
     def patch(self, user_id: str, data: dict) -> User:
-        """获取指定用户信息"""
+        """更新指定用户信息"""
         _user_obj = load_user(user_id)
         if _user_obj:
             abort(404, message=f"You can't patch an not exists user id {user_id}.")
@@ -70,7 +70,7 @@ class UserDetail(MethodView):
 @auth_required(auth)
 class UserFavorFunds(MethodView):
     """
-    某人关注的基金
+    用户关注的基金
     """
 
     def get(self, user_id: str):

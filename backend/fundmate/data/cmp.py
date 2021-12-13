@@ -4,12 +4,13 @@
 """
 交银双息和泰康汇选悦泰的收益对比
 """
-import json
 import time
 
 import pandas
 import xalpha as xa
 from xalpha.cons import rget_json
+
+from backend.fundmate import utils
 
 tk_code = 'TK1001'
 page_num = 20
@@ -31,8 +32,7 @@ def get_info():
             info = {'date': date, 'val': val}
             data.append(info)
         time.sleep(.1)
-    with open(f'./{tk_code}.json', 'w') as f:
-        json.dump(data, f)
+    utils.write_json_data(data, f'./{tk_code}.json')
     print(data)
     return data
 

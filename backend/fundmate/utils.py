@@ -3,14 +3,18 @@
 整个项目中的工具函数
 """
 import itertools
+import json
 import os
 import sys
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Union
+from pathlib import Path
+from typing import Dict, List, Union
 
 import dateparser
+
+from backend.fundmate.exts.flask_loguru import logger
 
 
 def convert_readable_days(number_of_days: int) -> tuple:
@@ -118,6 +122,24 @@ def tomorrow_date(str_date: Union[str, None] = None) -> datetime.date:
     :return: 
     """
     return tomorrow(str_date).date()
+
+
+def write_json_data(data: Union[str, List, Dict], fp: Union[str, Path], indent: int = 2):
+    """
+    写json文件
+    :param data:
+    :param fp:
+    :param indent:
+    :return:
+    """
+    fp = Path(fp)
+    dir_name = fp.parent
+    if not dir_name.exists():
+        dir_name.mkdir(parents=True)
+        msg = f'目录:{str(fp)} 新建成功以保存数据。'
+        logger.info(msg)
+    with open(fp, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=indent)
 
 
 if __name__ == '__main__':

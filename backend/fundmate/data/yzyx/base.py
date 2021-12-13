@@ -12,6 +12,7 @@ from lxml import etree
 from xalpha.cons import rget
 
 from backend.fundmate import excepts as dt_except
+from backend.fundmate import utils
 from backend.fundmate.data import utils as dt_utils
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.libs import convert
@@ -187,8 +188,7 @@ class YZYX:
         if reg_mat:
             _info = reg_mat[0]
             data = json.loads(_info)
-            with open(json_fp, 'w') as f:
-                json.dump(data, f)
+            utils.write_json_data(data, json_fp)
             return data
         logger.warning('YZYX temper get Error!')
         raise dt_except.CrawlerException('YZYX temper get Error!')
