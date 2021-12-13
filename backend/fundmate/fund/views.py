@@ -73,6 +73,9 @@ class FundMgrView(MethodView):
 
 @bp.route('/sales/')
 class FundSalesView(MethodView):
+    """
+    基金销售机构
+    """
 
     @input(PaginationSchema, 'query')
     @input(EmptySchema)
@@ -83,12 +86,6 @@ class FundSalesView(MethodView):
         else:
             ret = FundSaleOrg.query.groupby(FundSaleOrg.org_type)
         return ret
-
-    # @input(EmptySchema)
-    # @output(FundSaleOutSchema)
-    # def get(self):
-    #     ret = FundSaleOrg.query.groupby(FundSaleOrg.org_type)
-    #     return ret
 
 
 @bp.route('/<int:fund_id>')

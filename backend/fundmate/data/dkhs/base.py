@@ -1,13 +1,12 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # Created by Andy at 2021/8/10 11:30
-import json
 from pathlib import Path
 from typing import Union
 
 from xalpha.cons import rget_json
 
-from backend.fundmate import settings
+from backend.fundmate import settings, utils
 from backend.fundmate.data.utils import data_parser
 from backend.fundmate.excepts import EmptyError, UnexpectedArgsError
 from backend.fundmate.exts.flask_loguru import logger
@@ -207,8 +206,7 @@ class DKHS:
             logger.info(f'Data from page:{page} has finished.')
             symbols_lists.extend(page_item)
         # 保存裸数据到文件
-        with open(FUND_SYMBOLS_SAVE_FP, 'w') as f:
-            json.dump(raw_data, f, ensure_ascii=False)
+        utils.write_json_data(raw_data, FUND_SYMBOLS_SAVE_FP)
         return symbols_lists
 
     @staticmethod
