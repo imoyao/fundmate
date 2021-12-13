@@ -12,6 +12,7 @@ from requests import Response
 from sqlalchemy.orm.exc import FlushError
 from xalpha.cons import rget
 
+from backend.fundmate import utils
 from backend.fundmate.data import utils as dt_utils
 from backend.fundmate.data.dkhs import jcb
 from backend.fundmate.data.utils import data_parser
@@ -56,6 +57,7 @@ class EastMoney:
         reg_mat = self.match_resp(resp, regex)
         if reg_mat:
             _fund_mgr_info = reg_mat.groups()[0]
+            # 读取速度更快
             fund_mgr_info = pyjson5.loads(_fund_mgr_info)
 
             return fund_mgr_info
@@ -328,8 +330,7 @@ class EastMoney:
 
             file_save_fp = f'{str(current_path)}/{f_name}.json'
             logger.info(f'Data saved to {file_save_fp}.')
-            with open(file_save_fp, 'w') as f:
-                json.dump(fund_info, f, ensure_ascii=False)
+            utils.write_json_data(fund_info, file_save_fp)
             ret_code = 0
         return ret_code
 
