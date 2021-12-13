@@ -454,7 +454,7 @@ PLAT_TYPE = {
 
 class FundPortfolio(PkModel, CreateDateModel):
     """
-    基金组合
+    基金组合（回测、配置型）
     TODO: 爬取一些具有代表性的组合
     """
     __table_args__ = {'comment': '基金组合表'}
@@ -477,7 +477,7 @@ class FundPortfolio(PkModel, CreateDateModel):
 
 class FundPortfolioAdjustDetail(Base, PkModel):
     """
-    组合调仓记录
+    组合调仓历史
     """
     fp_id = reference_col('fund_portfolio', column_kwargs={'comment': '所属组合ID'})
     update_date = Column(db.String(30), comment='调仓时间')

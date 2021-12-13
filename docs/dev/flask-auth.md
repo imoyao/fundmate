@@ -120,7 +120,7 @@ JWT:由于[此处-Issue #123](https://github.com/mattupstate/flask-jwt/issues/12
 ### ~~Flask-Security~~ vs ~~Flask-Security（TOO）~~ vs Flask-praetorian
 满足所有：由于 ~~[Flask-Security — Flask-Security 3.0.0 documentation](https://pythonhosted.org/Flask-Security/)不再积极维护，我们转向 [Welcome to Flask-Security（TOO） — Flask-Security 4.0.0 documentation](https://flask-security-too.readthedocs.io/en/stable/)~~ 基于此处[flask-praetorian comparison to other libraries — flask-praetorian 1.3.0 documentation](https://flask-praetorian.readthedocs.io/en/latest/comparison.html#flask-security) 原因，我们抛弃Flask-Security而选择[Flask-praetorian](https://flask-praetorian.readthedocs.io/en/latest/)
 
-最终，我们决定先使用Flask-HTTPAuth 实现最基本的认证（apiflask内置），之后再考虑Flask-JWT-Extended和Flask-praetorian 之间抉择。
+最终，我们决定先使用Flask-HTTPAuth 实现最基本的认证（apiflask内置），之后再考虑在Flask-JWT-Extended和Flask-praetorian 之间抉择。
 
 [Web Authentication Methods Compared | TestDriven.io](https://testdriven.io/blog/web-authentication-methods/)
 
