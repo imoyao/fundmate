@@ -27,25 +27,4 @@ title: 基金组合功能设计与实现
 
 ## 相关链接
 
-- [ ] [MrDujing/FundCombination: 基金组合研究: 利用python，抓取天天基金网、晨星网数据，分析组合持仓、行业分布、基金参数特征，辅助基金组合投资策略制定](https://github.com/MrDujing/FundCombination)
-
-### 组合爬取
-
-- [ ] [Concyclics/db\_big\_homework: 投资组合评比器，基于python3.8和mysql8.0。由Concyclics和wingholy完成主要编程工作，可实现对于蛋卷基金和且慢基金平台投资组合信息的收集和对比。](https://github.com/Concyclics/db_big_homework)
-
-### 组合净值计算
-
-- [ ] [zhixwang/Stock\_calculation: 模拟基金净值的方式，计算A股、港股、美股全市场的个人实仓组合净值变化。](https://github.com/zhixwang/Stock_calculation)
-
-### 分析计算
-
-- [ ] [基于python进行信息爬取，进行基金组合透视分析\_静笃小塾-CSDN博客](https://blog.csdn.net/cheetahzhang/article/details/110527547)
-- [ ] [SunshowerC/fund-strategy: 基金投资策略分析，基金回测工具](https://github.com/SunshowerC/fund-strategy)
-
-### 设计实现
-
-- [ ] [如何设计理财中的基金组合产品？ | 人人都是产品经理](http://www.woshipm.com/pd/697327.html)
-- [ ] [RichardJerry/Fund: 基金定投、基金组合等相关函数及实例](https://github.com/RichardJerry/Fund)
-- [ ] [基金组合管理系统的设计与实现-手机知网](https://wap.cnki.net/touch/web/Dissertation/Article/10004-1017096882.nh.html)
-
-[来源](https://github.com/imoyao/fundmate/issues/230#issuecomment-986163035)
+[参阅](https://github.com/imoyao/fundmate/issues/230#issuecomment-986163035)

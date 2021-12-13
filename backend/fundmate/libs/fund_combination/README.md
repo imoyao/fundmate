@@ -30,5 +30,3 @@
 
 ## 相关链接
 [MrDujing/FundCombination: 基金组合研究: 利用python，抓取天天基金网、晨星网数据，分析组合持仓、行业分布、基金参数特征，辅助基金组合投资策略制定](https://github.com/MrDujing/FundCombination)
-### 晨星网特殊处理
-[jackluson/fund-morning-star-crawler: 晨星网基金数据爬取&汇总分析](https://github.com/jackluson/fund-morning-star-crawler)
