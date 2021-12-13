@@ -1,0 +1,11 @@
+*.py[cod]
+
+# C extensions
+*.html
+*.json
+*.csv
+*.xlsx
+*.xls
+
+input\*
+output\*
