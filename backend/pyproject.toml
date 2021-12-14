@@ -1,7 +1,17 @@
 [tool.isort]
 profile = "hug"
 skip_glob = ["migrations/*"]
-
+known_third_party=["pytest", "pyjson5","xalpha"]
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+use_parentheses = true
+balanced_wrapping = true
+ensure_newline_before_comments = true
+line_length = 120
+known_flask = ["flask","flask_wtf","wtforms","flask_bcrypt","flask_caching","flask_migrate","flask_sqlalchemy","flask_static_digest"]
+known_test = ["pytest","webtest","factory"]
+sections = ["FUTURE","STDLIB","FLASK","TEST","THIRDPARTY","FIRSTPARTY","LOCALFOLDER"]
 
 [tool.pdm]
 [[tool.pdm.source]]
