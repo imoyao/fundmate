@@ -108,9 +108,18 @@ def some_route():
 
 简单来说，flask-login会存储客户端的状态，而不是每一次请求到来时认证，这对API来说是不够安全的。而且，flask-login继承了太多表单验证的东西，在restful中这些由我们后端自己通过 [marshmallow · PyPI](https://pypi.org/project/marshmallow/) 进行校验。参阅：[Better parameter validation in Flask with marshmallow - Cameron MacLeod](https://www.cameronmacleod.com/blog/better-validation-flask-marshmallow)
 
+<<<<<<< Updated upstream
 然后出局的是~~Flask-JWT~~。
 ###  ~~Flask-JWT~~ VS Flask-HTTPAuth
 [security - API Keys vs HTTP Authentication vs OAuth in a RESTful API - Stack Overflow](https://stackoverflow.com/questions/6767813/api-keys-vs-http-authentication-vs-oauth-in-a-restful-api)
+=======
+[security - API Keys vs HTTP Authentication vs OAuth in a RESTful API - Stack Overflow](https://stackoverflow.com/questions/6767813/api-keys-vs-http-authentication-vs-oauth-in-a-restful-api)
+
+###  Flask-JWT VS Flask-Login
+
+[Tutorial on how to combine authentication between Flask-JWT and Flask-Login · Issue #253 · maxcountryman/flask-login](https://github.com/maxcountryman/flask-login/issues/253)
+[python - For a REST API, can I use authentication mechanism provided by flask-login or do I explicitly have to use token based authentication like JWT? - Stack Overflow](https://stackoverflow.com/questions/65520316/for-a-rest-api-can-i-use-authentication-mechanism-provided-by-flask-login-or-do)
+>>>>>>> Stashed changes
 
 [Using Flask-JWT with Flask-Login - Ivan's Software Engineering BlogIvan's Software Engineering Blog](https://ai-facets.org/using-flask-jwt-with-flask-login/)
 
