@@ -25,6 +25,11 @@ title: 基金组合功能设计与实现
 2. 实现实盘型组合构建（create）、调仓（update）、更新描述（patch）、删除（delete）操作；
 3. 实现组合回测、分析功能；
 
+## 组合研究及数据爬取
+
+[蛋卷基金爬虫——收集蛋卷基金上的投资组合数据_concyclics的博客-CSDN博客_蛋卷基金组合](https://blog.csdn.net/qq_21008741/article/details/117117923)
+[且慢基金爬虫——自动更新x-sign的投资组合爬取_concyclics的博客-CSDN博客](https://blog.csdn.net/qq_21008741/article/details/117845316)
+
 ## 相关链接
 
 [参阅](https://github.com/imoyao/fundmate/issues/230#issuecomment-986163035)
