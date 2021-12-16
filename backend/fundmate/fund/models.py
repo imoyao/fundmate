@@ -459,11 +459,11 @@ class FundPortfolio(PkModel, CreateDateModel):
     """
     __table_args__ = {'comment': '基金组合表'}
 
-    portfolio_id = Column(db.Integer, comment='组合编码')  # 使用雪花算法
+    portfolio_id = Column(db.Integer, comment='组合编码')  # 使用固定数字加随机数
     name = Column(db.String(30), comment='组合名称')
     code = Column(db.String(30), unique=True, comment='组合编码（各平台独有）')
     master = Column(db.String(30), comment='主理人')
-    is_shared = Column(db.Boolean, comment='是否共享可见')
+    is_visible = Column(db.Boolean, comment='是否他人可见')  # 只有创建人（/admin）可以修改
     found_date = Column(db.Date, comment='组合创建日期')
     mgr_type = Column(ChoiceTypeInteger(choices=key2val(ZH_MGR_TYPE)), nullable=False, default=0, comment='组合类型（机构/个人）')
     platform = Column(ChoiceTypeInteger(choices=key2val(PLAT_TYPE)), nullable=True, default=0, comment='平台名称')
