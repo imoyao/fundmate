@@ -459,9 +459,12 @@ class FundPortfolio(PkModel, CreateDateModel):
     """
     __table_args__ = {'comment': '基金组合表'}
 
+    portfolio_id = Column(db.Integer, comment='组合编码')  # 使用雪花算法
     name = Column(db.String(30), comment='组合名称')
-    code = Column(db.String(30), unique=True, comment='组合编码')
+    code = Column(db.String(30), unique=True, comment='组合编码（各平台独有）')
     master = Column(db.String(30), comment='主理人')
+    is_shared = Column(db.Boolean, comment='是否共享可见')
+    found_date = Column(db.Date, comment='组合创建日期')
     mgr_type = Column(ChoiceTypeInteger(choices=key2val(ZH_MGR_TYPE)), nullable=False, default=0, comment='组合类型（机构/个人）')
     platform = Column(ChoiceTypeInteger(choices=key2val(PLAT_TYPE)), nullable=True, default=0, comment='平台名称')
     risk_type = Column(ChoiceTypeInteger(choices=key2val(settings.RISK_TYPE)),
@@ -481,5 +484,25 @@ class FundPortfolioAdjustDetail(Base, PkModel):
     """
     fp_id = reference_col('fund_portfolio', column_kwargs={'comment': '所属组合ID'})
     update_date = Column(db.String(30), comment='调仓时间')
-    code = Column(db.String(30), comment='基金编码')
-    desc = Column(db.String(300), comment='调仓理由')
+    adjust_id = Column(db.Integer, comment='调仓历史编码')  # 使用雪花算法
+    desc = Column(db.String(300), comment='调仓说明')
+
+
+class FundCombinationDetail(Base, PkModel):
+    """
+    组合持仓明细
+    {
+        "trading_id": "281b3d8bad024b7ea2eeb37bfb7b8a5f",
+        "fd_code": "161005",
+        "fd_name": "富国天惠成长混合（LOF）A",
+        "portion": 0.03,
+        "money": 0,
+        "last_portion": 0.0632,
+        "volume": 0,
+        "percent": "3.0%",
+        "last_percent": "6.32%"
+    }
+    """
+    fd_code = Column(db.String(30), comment='基金编码')
+    adjust_id = Column(db.Integer, comment='调仓历史编码')
+    portion = Column(db.Numeric(5, 4), comment='持仓占比，如：0.0716')
