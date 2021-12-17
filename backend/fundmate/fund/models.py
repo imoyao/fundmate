@@ -483,7 +483,7 @@ class FundPortfolioAdjustDetail(Base, PkModel):
     组合调仓历史
     """
     fp_id = reference_col('fund_portfolio', column_kwargs={'comment': '所属组合ID'})
-    update_date = Column(db.String(30), comment='调仓时间')
+    update_date = Column(db.DateTime, comment='调仓时间')
     adjust_id = Column(db.Integer, comment='调仓历史编码')  # 使用雪花算法
     desc = Column(db.String(300), comment='调仓说明')
 
@@ -503,6 +503,6 @@ class FundCombinationDetail(Base, PkModel):
         "last_percent": "6.32%"
     }
     """
-    fd_code = Column(db.String(30), comment='基金编码')
+    fd_code = Column(db.String(6), comment='基金编码')
     adjust_id = Column(db.Integer, comment='调仓历史编码')
     portion = Column(db.Numeric(5, 4), comment='持仓占比，如：0.0716')
