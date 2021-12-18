@@ -80,13 +80,12 @@ class Strategy:
             return int(total_time)
         return None
 
-    def per_trading_remark(self, trade_item):
+    def per_trading_remark(self, trade_item: Dict):
         """
         调仓说明
         :param trade_item:
         :return:
         """
-        print(trade_item, 'trade_item=====')
         remark = trade_item.get('remark')
         return remark
 
@@ -161,6 +160,7 @@ class Strategy:
         获取组合的历史净值
         :param size:
         :param code:
+        :param is_df:
         :return:
         """
         _url = f'https://danjuanapp.com/djapi/plan/nav/history/{code}'
