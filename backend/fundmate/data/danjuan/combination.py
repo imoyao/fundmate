@@ -54,7 +54,7 @@ class Strategy:
                 return {
                     'plan_code': plan_code,
                     'plan_name': plan_name,
-                    'plan_type': plan_type,
+                    'risk_type': plan_type,
                     'found_date': found_date,
                     'manager_name': manager_name,
                     'manager_profile_photo': manager_profile_photo,
@@ -90,6 +90,11 @@ class Strategy:
         return remark
 
     def parse_trading_elements(self, trading_elements_list: list) -> List:
+        """
+        每一次调仓成分基金的解析
+        :param trading_elements_list:
+        :return:
+        """
         trade_list = list()
         for trading_element in trading_elements_list:
             fd_code = trading_element.get('fd_code')
@@ -189,6 +194,7 @@ class Strategy:
 
 if __name__ == '__main__':
     s = Strategy()
-    ret = s.pagination_trade_info('CSI1032')
-    net_val = s.net_worth('CSI1032')
+    code = 'CSI1032'
+    ret = s.pagination_trade_info(code)
+    net_val = s.net_worth(code)
     print(net_val)
