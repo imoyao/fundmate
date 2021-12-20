@@ -44,24 +44,31 @@ class Strategy:
                 plan_name = data.get('plan_name')
                 plan_code = data.get('plan_code')
                 found_date = data.get('found_date')
+                annualized_rate_of_return = data.get('yield_middle')
+                invest_rate_of_return = data.get('yield')
                 plan_type = data.get('type')
                 manager_name = data.get('manager_name')
                 manager_profile_photo = data.get('manager_profile_photo')
-                invest_money_type = data.get('invest_money_type')  # 资金维度  ：积极增值
-                invest_time_type = data.get('invest_time_type')  # 时间纬度：持有3年以上
+                plan_desc_info = data.get('plan_desc')[::-1]
+                plan_desc = plan_desc_info.get('plan_desc')
+                # invest_money_type = data.get('invest_money_type')  # 资金维度  ：积极增值
+                # invest_time_type = data.get('invest_time_type')  # 时间纬度：持有3年以上
                 last_trade_date_fmt = data.get('last_trade_date_fmt')
                 # 费率信息（暂不需要）
                 # plan_rates = data.get('plan_rates')
                 return {
-                    'plan_code': plan_code,
-                    'plan_name': plan_name,
+                    'code': plan_code,
+                    'name': plan_name,
                     'risk_type': plan_type,
                     'found_date': found_date,
-                    'manager_name': manager_name,
-                    'manager_profile_photo': manager_profile_photo,
-                    'invest_money_type': invest_money_type,
-                    'invest_time_type': invest_time_type,
-                    'last_trade_date_fmt': last_trade_date_fmt,
+                    'annualized_rate_of_return': annualized_rate_of_return,
+                    'invest_rate_of_return': invest_rate_of_return,
+                    'manager': manager_name,
+                    'mgr_avatar_url': manager_profile_photo,
+                    'desc': plan_desc,
+                    # 'invest_money_type': invest_money_type,
+                    # 'invest_time_type': invest_time_type,
+                    'update_time': last_trade_date_fmt,
                 }
         return None
 

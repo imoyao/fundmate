@@ -8,13 +8,15 @@
 @desc: 爬取且慢基金的基金组合并保存到数据库，为后期跟踪策略提供数据
 """
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 import pandas as pd
 from xalpha.cons import rget_json
 
 from backend.fundmate.data.qieman import utils
 from backend.fundmate.libs import convert
+
+PdDataframe = pd.Dataframe()
 
 
 class Strategy:
@@ -93,35 +95,41 @@ class Strategy:
             plan_desc = resp.get('poDesc')
             plan_rich_desc = resp.get('poRichDesc')
             mgr_infos = resp.get('poManagers')
+            invest_rate_of_return = resp.get('fromSetupReturn')
+            annualized_rate_of_return = resp.get('annualCompoundedReturn')
+            mgr_infos = resp.get('poManagers')
             mgr_name = ''
             mgr_avatar = ''
             is_verified = False
             if mgr_infos:
                 mgr_name = mgr_infos.get('poManagerName')
                 mgr_avatar = mgr_infos.get('poManagerAvatarUrl')
-                is_verified = mgr_infos.get('verified')  # 认证用户
+                # is_verified = mgr_infos.get('verified')  # 认证用户
             adjust_info = resp.get('adjustInfo')
             last_trade_date_fmt = adjust_info.get('adjustedOn')
             return {
-                'plan_code': plan_code,
-                'plan_name': plan_name,
+                'code': plan_code,
+                'name': plan_name,
                 'risk_type': plan_type,
                 'found_date': found_date,
-                'is_verified': is_verified,
-                'manager_name': mgr_name,
-                'manager_profile_photo': mgr_avatar,
+                'annualized_rate_of_return': annualized_rate_of_return,
+                'invest_rate_of_return': invest_rate_of_return,
+                # 'is_verified': is_verified,
+                'manager': mgr_name,
+                'mgr_avatar_url': mgr_avatar,
                 'desc': plan_desc,
                 'rich_desc': plan_rich_desc,
                 # 'invest_money_type': '',
                 # 'invest_time_type': invest_time_type,
-                'last_trade_date_fmt': last_trade_date_fmt,
+                'update_time': last_trade_date_fmt,
             }
 
         return resp
 
-    def parse_trading_elements(self, trading_elements_list: list) -> List:
+    def parse_trading_elements(self, trading_elements_list: list, is_df: bool = True) -> Union[List, PdDataframe]:
         """
         每一次调仓成分基金的解析
+        :param is_df:
         :param trading_elements_list:
         :return:
         """
@@ -131,6 +139,9 @@ class Strategy:
             portion = trading_element.get('toPercent')
             elem = {'fd_code': fd_code, 'portion': float(portion)}
             trade_list.append(elem)
+        if is_df:
+            trade_df = pd.DataFrame(trade_list)
+            return trade_df
         return trade_list
 
     def trade_history(self, trading_history: List) -> List:
@@ -182,7 +193,7 @@ class Strategy:
                     trade_info.append(per_page_content)
             return trade_info
 
-    def net_worth(self, code: str, is_df=True, is_desc=True) -> List:
+    def net_worth(self, code: str, is_df=True, is_desc=True) -> Union[List, PdDataframe]:
         """
         获取组合的历史净值
         :param code:
