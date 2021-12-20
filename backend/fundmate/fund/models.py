@@ -127,7 +127,7 @@ class Mgr(PkModel, UpsertMixin):
     mgr_code = Column(db.Integer, comment='经理编号（以天天基金为准）')
     name = Column(db.String(30), comment='经理名称')  # 'FAN BING(范冰)' 带英文的字符长度
     company_id = Column(db.Integer, db.ForeignKey('fund_company.id'), comment='所属公司ID')
-    work_days = Column(db.Integer, comment='总任职时间')  # TODO: 此处是否需要这样写死，是否需要自动计算（每天+1），应该写入工作时间（但是那样的话换公司就没法累计了）
+    work_days = Column(db.Integer, comment='总任职时间')  # TODO: 此处不需要写死，只记录上任日期即可，需要修改字段
     sum_scale = Column(db.Numeric(8, 2), nullable=True, comment='现管理资产总规模(亿元) ')  # 长度10，精度2
     best_rt = Column(db.Numeric(7, 2), nullable=True, comment='最佳回报(%) ')  # 长度10，精度2
     last_modified = Column(db.TIMESTAMP,
@@ -455,7 +455,8 @@ PLAT_TYPE = {
 class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
     """
     基金组合（回测、配置型）
-    TODO: 爬取一些具有代表性的组合
+
+    爬取一些具有代表性的组合并保存跟踪
     """
     __table_args__ = {'comment': '基金组合表'}
 

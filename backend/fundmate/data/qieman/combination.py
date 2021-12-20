@@ -94,13 +94,12 @@ class Strategy:
             plan_type = resp.get('risk5Level')
             plan_desc = resp.get('poDesc')
             plan_rich_desc = resp.get('poRichDesc')
-            mgr_infos = resp.get('poManagers')
             invest_rate_of_return = resp.get('fromSetupReturn')
             annualized_rate_of_return = resp.get('annualCompoundedReturn')
             mgr_infos = resp.get('poManagers')
             mgr_name = ''
             mgr_avatar = ''
-            is_verified = False
+            # is_verified = False
             if mgr_infos:
                 mgr_name = mgr_infos.get('poManagerName')
                 mgr_avatar = mgr_infos.get('poManagerAvatarUrl')

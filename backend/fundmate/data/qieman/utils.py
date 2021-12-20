@@ -7,10 +7,9 @@ import time
 
 def get_x_sign(split_len: int = 32):
     """
-    see also: [python/etfplan.py at master · leighjpeter/python](https://github.com/leighjpeter/python/blob/master/practice/etfplan.py)
-    前13位是一个时间戳，后32位则是通过时间戳加密形成的一个加密字符；
-    :param split_len:
-    :return:
+    see also: [python/etfplan.py at master · leighjpeter/python](
+    https://github.com/leighjpeter/python/blob/master/practice/etfplan.py) 前13位是一个时间戳，后32位则是通过时间戳加密形成的一个加密字符； :param
+    split_len: :return:
     """
     cur_time = str(time.time()).replace('.', '')[:13]
     target = f'{float(cur_time) * 1.01}'
