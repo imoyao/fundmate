@@ -102,6 +102,13 @@ class EmptyError(CrawlerException):
     pass
 
 
+class NotSupportPlatError(CrawlerException):
+    """
+    查询数据端为空
+    """
+    pass
+
+
 class FundQueryError(FmException):
     """基金信息查询出错
     """
