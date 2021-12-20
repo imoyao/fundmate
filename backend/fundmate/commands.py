@@ -95,7 +95,7 @@ def lint(fix_imports, check):
         if rv != 0:
             exit(rv)
 
-    # TODO: 配置参数应该统一
+    # TODO: isort配置参数应该统一
     isort_args = []
     # black_args = []
     if check:
