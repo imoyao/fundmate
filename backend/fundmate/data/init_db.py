@@ -22,8 +22,8 @@ class NewDB:
         type_set = set()
         # 11736
         for fund in fund_lists:
-            f_code = fund[0]
-            f_name = fund[2]
+            # f_code = fund[0]
+            # f_name = fund[2]
             f_type = fund[3]
             if f_type not in type_set:
                 type_set.add(f_type)

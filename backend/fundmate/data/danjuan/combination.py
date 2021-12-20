@@ -24,7 +24,8 @@ class Strategy:
 
     def get(self):
         """获取所有组合"""
-        pass
+        portfolios = ['CSI1032', 'CSI1033', 'CSI1069', 'CSI1014']
+        return portfolios
 
     def is_success(self, response: dict) -> bool:
         return response and response.get('result_code') == 0

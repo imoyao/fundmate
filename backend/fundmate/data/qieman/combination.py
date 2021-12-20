@@ -51,11 +51,31 @@ class Strategy:
         return _headers
 
     def get(self):
-        """获取所有组合"""
-        pass
-
-    def is_success(self, response: dict) -> bool:
-        return response and response.get('result_code') == 0
+        """获取所有组合
+        目前手动写死
+        '''
+        参考来源：
+        1. [一石二鸟 - 且慢](https://qieman.com/portfolios/manager/201121)
+        2. [更多投资选择](https://qieman.com/m4/more)
+        '''
+        """
+        portfolios = [
+            'ZH030684',
+            'ZH043108',
+            'ZH035411',
+            'ZH032680',
+            'ZH013136',
+            'ZH000082',
+            'ZH010292',
+            'ZH000129',
+            'ZH006498',
+            'ZH012926',
+            'ZH039784',
+            'ZH000193',
+            'ZH036560',
+            'ZH041288',
+        ]
+        return portfolios
 
     def detail(self, code: str = 'ZH000001') -> Optional[Dict]:
         """
@@ -98,9 +118,6 @@ class Strategy:
             }
 
         return resp
-
-    def per_trading_remark(self, trade_item: Dict):
-        pass
 
     def parse_trading_elements(self, trading_elements_list: list) -> List:
         """
@@ -151,7 +168,6 @@ class Strategy:
         params = {'page': page, 'size': size, 'format': format_type, 'isDesc': is_desc}
         resp = rget_json(_url, headers=self.headers, params=params)
         if resp:
-            # total_elements = resp.get('totalElements')
             total_pages = resp.get('totalPages')
             content = resp.get('content')
             trade_info = list()
