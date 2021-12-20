@@ -12,7 +12,6 @@ from sqlalchemy.ext.hybrid import hybrid_property
 
 from backend.fundmate import settings
 from backend.fundmate.database import (
-    Base,
     ChoiceType,
     ChoiceTypeInteger,
     Column,
@@ -499,7 +498,7 @@ class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
         return f'{fp_identifier:06}'
 
 
-class FundPortfolioAdjustHistory(Base, PkModel):
+class FundPortfolioAdjustHistory(PkModel):
     """
     组合调仓历史
     """
@@ -510,7 +509,7 @@ class FundPortfolioAdjustHistory(Base, PkModel):
     desc = Column(db.String(300), comment='调仓说明')
 
 
-class FundCombinationHoldDetail(Base, PkModel):
+class FundCombinationHoldDetail(PkModel):
     """
     组合持仓明细
     {
