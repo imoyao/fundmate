@@ -4,7 +4,7 @@
 Flask==2.0.2
 Werkzeug==2.0.1
 click>=7.0
-APIFlask==0.10.0
+APIFlask==0.11.0
 
 # Database
 Flask-SQLAlchemy==2.5.1
@@ -43,7 +43,7 @@ xalpha==0.11.4
 # 日期解析
 dateparser==1.1.0
 # 非标准json字符解析
-pyjson5==1.5.2
+pyjson5==1.6.0.post1
 
 # 过期提示
 Deprecated==1.2.13
