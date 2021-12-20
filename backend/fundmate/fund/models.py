@@ -3,10 +3,11 @@
 # Created by imoyao at 2021/2/13 17:50
 from __future__ import annotations
 
+import random
 from decimal import Decimal
 from typing import Union
 
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.ext.hybrid import hybrid_property
 
 from backend.fundmate import settings
@@ -452,17 +453,18 @@ PLAT_TYPE = {
 }
 
 
-class FundPortfolio(PkModel, CreateDateModel):
+class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
     """
     基金组合（回测、配置型）
     TODO: 爬取一些具有代表性的组合
     """
     __table_args__ = {'comment': '基金组合表'}
 
-    portfolio_id = Column(db.Integer, comment='组合编码')  # 使用固定数字加随机数
+    portfolio_code = Column(db.String(30), comment='组合编码')  # 使用固定数字加随机数
     name = Column(db.String(30), comment='组合名称')
     code = Column(db.String(30), unique=True, comment='组合编码（各平台独有）')
-    master = Column(db.String(30), comment='主理人')
+    manager = Column(db.String(30), comment='主理人')
+    mgr_avatar_url = Column(db.String(30), comment='主理人头像链接')  # 是否需要保存到本地
     is_visible = Column(db.Boolean, comment='是否他人可见')  # 只有创建人（/admin）可以修改
     found_date = Column(db.Date, comment='组合创建日期')
     mgr_type = Column(ChoiceTypeInteger(choices=key2val(ZH_MGR_TYPE)), nullable=False, default=0, comment='组合类型（机构/个人）')
@@ -471,24 +473,44 @@ class FundPortfolio(PkModel, CreateDateModel):
                        nullable=True,
                        default=0,
                        comment='风险类型（稳健/成长等）')
+    annualized_rate_of_return = Column(db.Numeric(5, 2), comment='成立以来年化')  # 每天计算净值后更新
+    invest_rate_of_return = Column(db.Numeric(5, 2), comment='成立以来收益')  # 每天计算净值后更新
     desc = Column(db.String(300), comment='组合描述')
+    rich_desc = Column(db.String(1000), comment='组合详细描述')
     update_time = Column(db.DateTime, comment='组合更新时间')
 
     def __repr__(self):
         return f"<FundPortfolio({self.name!r}, {self.risk_type!r})>"
 
+    @classmethod
+    def gen_random_digit(cls) -> str:
+        """
+        生成随机6位识别号
+        :return:
+        """
+        fp_identifier = settings.INITIAL_PORTFOLIO_IDENTIFIER
+        max_identifier = db.session.query(func.max(cls.code)).one_or_none()
+        if max_identifier is not (None, ):
+            max_num = max_identifier[0]
+            if max_num is not None:
+                increase_int = random.randrange(1, 3)
+                fp_identifier = int(max_num) + increase_int
 
-class FundPortfolioAdjustDetail(Base, PkModel):
+        return f'{fp_identifier:06}'
+
+
+class FundPortfolioAdjustHistory(Base, PkModel):
     """
     组合调仓历史
     """
-    fp_id = reference_col('fund_portfolio', column_kwargs={'comment': '所属组合ID'})
+    portfolio_code = Column(db.String(30), comment='组合编码')
     update_date = Column(db.DateTime, comment='调仓时间')
-    adjust_id = Column(db.Integer, comment='调仓历史编码')  # 使用雪花算法
+    adjust_id = Column(db.String(120), comment='调仓历史编码')  # 使用雪花算法
+    plat_trade_id = Column(db.String(120), comment='平台调仓编码（只做记录区分用，不参与系统计算）')
     desc = Column(db.String(300), comment='调仓说明')
 
 
-class FundCombinationDetail(Base, PkModel):
+class FundCombinationHoldDetail(Base, PkModel):
     """
     组合持仓明细
     {
