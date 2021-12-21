@@ -397,12 +397,13 @@ class BoshiFundHandle(object):
 
     def get_summary_data(self):
         """ 获得汇总数据 """
+        now_date = datetime.datetime.utcnow()
         payload = {
             'timeScope': 1,
             'page': 1,
-            'startDate': "{:%Y-%m-%d}".format((datetime.datetime.now() - datetime.timedelta(days=30))),
-            'endDate': "{:%Y-%m-%d}".format(datetime.datetime.now()),
-            'year': "{:%Y}".format(datetime.datetime.now()),
+            'startDate': "{:%Y-%m-%d}".format((now_date - datetime.timedelta(days=30))),
+            'endDate': "{:%Y-%m-%d}".format(now_date),
+            'year': "{:%Y}".format(now_date),
             'halfYear': 'first',
             'season': 1,
             'month': 12

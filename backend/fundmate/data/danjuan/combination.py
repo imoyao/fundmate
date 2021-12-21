@@ -30,6 +30,20 @@ class Strategy:
     def is_success(self, response: dict) -> bool:
         return response and response.get('result_code') == 0
 
+    def get_last_adjust_date(self, code: str):
+        """
+        获取组合最后调仓时间
+        :param code: 
+        :return:
+        """
+        _url = f'https://danjuanapp.com/djapi/plan/{code}'
+        _resp = rget_json(_url)
+        if self.is_success(_resp):
+            data = _resp.get('data')
+            if data:
+                last_trade_date_fmt = data.get('last_trade_date_fmt')
+                return last_trade_date_fmt
+
     def detail(self, code: str) -> Optional[Dict]:
         """
         获取单个组合的信息
@@ -68,7 +82,7 @@ class Strategy:
                     'desc': plan_desc,
                     # 'invest_money_type': invest_money_type,
                     # 'invest_time_type': invest_time_type,
-                    'update_time': last_trade_date_fmt,
+                    'last_adjust_date': last_trade_date_fmt,
                 }
         return None
 
@@ -145,7 +159,7 @@ class Strategy:
 
     def pagination_trade_info(self, code: str, size: int = 20) -> List:
         """
-        翻页查询
+        翻页查询，获取所有调仓信息
         """
         _total_times = self.total_times(code)
         raw_total_pages = _total_times / size

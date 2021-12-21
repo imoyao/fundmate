@@ -7,16 +7,20 @@
 @email: immoyao@gmail.com
 @desc: 基金组合信息入库
 
-一些备忘链接：[深入分析15个基金组合之后，我有这些发现-雪球](https://xueqiu.com/4778574435/199049616?page=15)
+组合分析：[深入分析15个基金组合之后，我有这些发现-雪球](https://xueqiu.com/4778574435/199049616?page=15)
 """
+import datetime
+from typing import List
+
 from flask import current_app
 
 import pandas as pd
 from sqlalchemy import create_engine
 
+from backend.fundmate.app import db
 from backend.fundmate.data.danjuan.combination import Strategy as DJStrategy
 from backend.fundmate.data.qieman.combination import Strategy as QMStrategy
-from backend.fundmate.database import get_table_name
+from backend.fundmate.database import get_table_name, key2val
 from backend.fundmate.excepts import NotSupportPlatError
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.fund.models import PLAT_TYPE, FundCombinationHoldDetail, FundPortfolio, FundPortfolioAdjustHistory
@@ -26,12 +30,60 @@ config = current_app.config
 SQLALCHEMY_DATABASE_URI = config.get('SQLALCHEMY_DATABASE_URI')
 
 
-class InitPortfolio:
+class BasePortfolio:
+    """
+    将初始化和更新公用的接口提出来
+    """
 
     def __init__(self):
         self.dj_po = DJStrategy()
         self.qm_po = QMStrategy()
         self.engine = create_engine(SQLALCHEMY_DATABASE_URI)
+
+    def get_strategy(self, plat_str: str):
+        strategies = {
+            'dj': self.dj_po,
+            'qm': self.qm_po,
+        }
+        stra_obj = strategies.get(plat_str)
+        return stra_obj
+
+    def save_trade_info(self, portfolio_code: str, trade_info: List):
+        sf = snowflake.generator()
+
+        for trade_item in trade_info:
+            plat_trading_id = trade_item.get('trading_id')
+            trade_date = trade_item.get('trade_date')
+            remark = trade_item.get('remark')
+            trading_elements = trade_item.get('trading_elements')
+
+            adjust_id = next(sf)
+            adjust_detail = {
+                'portfolio_code': portfolio_code,
+                'update_date': trade_date,
+                'adjust_id': adjust_id,
+                'plat_trade_id': plat_trading_id,
+                'desc': remark,
+            }
+            # 调仓历史记录
+            adjust_instance = FundPortfolioAdjustHistory.create(**adjust_detail)
+            # 调仓组成基金比例信息记录
+            if not isinstance(trading_elements, pd.DataFrame):
+                trading_elements = pd.DataFrame(trading_elements)
+            trading_elements['adjust_id'] = adjust_instance.adjust_id
+            tb_name = get_table_name(FundCombinationHoldDetail)
+            trading_elements.to_sql(name=tb_name, con=self.engine, if_exists='append', index=False)
+            logger.info(f'{adjust_instance}')
+        return 0
+
+
+class InitPortfolio(BasePortfolio):
+    """
+    初始化组合时调用该接口
+    """
+
+    def __init__(self):
+        super().__init__()
 
     def parse_portfolios(self, portfolios, plat_flag: str):
         if plat_flag == 'dj':
@@ -55,9 +107,11 @@ class InitPortfolio:
             if not is_exists:
                 portfolio_code = FundPortfolio.gen_random_digit()
                 po_detail['portfolio_code'] = portfolio_code
+                po_detail['update_time'] = datetime.datetime.utcnow()
                 po_obj = FundPortfolio.create(**po_detail)
             else:
                 # 该接口只用于初始化，对于已存在的，应该用专门接口去更新
+                logger.warning(f'更新平台组合请使用 `UpdatePortfolio` 类')
                 continue
                 # po_obj = FundPortfolio.update(**po_detail)
             trade_info = None
@@ -67,30 +121,7 @@ class InitPortfolio:
                 trade_info = po_inst.pagination_trade_info(po_code, is_desc=False)
             if trade_info:
                 portfolio_code = po_obj.portfolio_code
-                sf = snowflake.generator()
-
-                for trade_item in trade_info:
-                    plat_trading_id = trade_item.get('trading_id')
-                    trade_date = trade_item.get('trade_date')
-                    remark = trade_item.get('remark')
-                    trading_elements = trade_item.get('trading_elements')
-
-                    adjust_id = next(sf)
-                    adjust_detail = {
-                        'portfolio_code': portfolio_code,
-                        'update_date': trade_date,
-                        'adjust_id': adjust_id,
-                        'plat_trade_id': plat_trading_id,
-                        'desc': remark,
-                    }
-                    # 调仓历史记录
-                    adjust_obj = FundPortfolioAdjustHistory.create(**adjust_detail)
-                    # 调仓信息记录
-                    if not isinstance(trading_elements, pd.DataFrame):
-                        trading_elements = pd.DataFrame(trading_elements)
-                    trading_elements['adjust_id'] = adjust_obj.adjust_id
-                    tb_name = get_table_name(FundCombinationHoldDetail)
-                    trading_elements.to_sql(name=tb_name, con=self.engine, if_exists='append', index=False)
+                self.save_trade_info(portfolio_code, trade_info)
 
     def init_danjuan(self):
         plat_flag = 'dj'
@@ -111,6 +142,68 @@ class InitPortfolio:
         """
         self.init_qieman()
         self.init_danjuan()
+
+
+class UpdatePortfolio(BasePortfolio):
+    """
+    批量更新且慢、蛋卷基金、etc组合
+    """
+
+    def __init__(self):
+        super().__init__()
+
+    def update_portfolio(self):
+        """
+        更新数据库中已经记录的组合
+        1. 查询是否需要更新，依靠get_last_adjust_date
+        2. 对比adjust_count，如果数据库和API获取不一致，说明发生调仓
+        3. 调用save_trade_info保存调仓记录
+        :return:
+        """
+        fpos = db.session.query.filter(FundPortfolio.platform != 0)
+        PLAT_MAP = key2val(PLAT_TYPE)
+        # 遍历获取组合是否调仓，如果调仓，则将其信息存入数据库
+        for po_item in fpos:
+            plt_code = po_item.code
+            portfolio_code = po_item.portfolio_code
+            po_last_adjust_date = po_item.last_adjust_date
+            po_platform = po_item.platform
+            plat_str = PLAT_MAP.get(po_platform)
+            po_obj = self.get_strategy(plat_str)
+            last_trade_date_fmt = po_obj.get_last_adjust_date(plt_code)
+            if po_last_adjust_date != last_trade_date_fmt:
+                # 调仓详情
+                po_details = po_obj.detail(plt_code)
+                po_details['update_time'] = datetime.datetime.utcnow()
+                # 更新组合基本信息
+                FundPortfolio.update(**po_details)
+                trade_info = None
+                if plat_str == 'qm':
+                    adjust_info = po_obj.adjustments(plt_code)
+                    if adjust_info:
+                        total = adjust_info.get('total')
+                        size = adjust_info.get('size')
+                        record_count = FundPortfolioAdjustHistory.adjust_count(portfolio_code)
+                        # 发生了调仓
+                        if record_count < total:
+                            # 期间调整的次数
+                            adjust_size = total - record_count
+                            if adjust_size < size:  # 从里面获取即可
+                                adjust_content = adjust_info.get('content')
+                                trade_info = po_obj.trade_history(adjust_content)
+                            else:
+                                trade_info = po_obj.pagination_trade_info(plt_code, size=adjust_size, is_desc=True)
+
+                elif plat_str == 'dj':
+                    total = po_obj.total_times(plt_code)
+                    record_count = FundPortfolioAdjustHistory.adjust_count(portfolio_code)
+                    if record_count < total:
+                        adjust_size = total - record_count
+                        # 蛋卷基金的直接获取就行，上面的接口不会返回调仓信息
+                        trade_info = po_obj.pagination_trade_info(plt_code, size=adjust_size)
+
+                if trade_info:
+                    self.save_trade_info(portfolio_code, trade_info)
 
 
 if __name__ == '__main__':
