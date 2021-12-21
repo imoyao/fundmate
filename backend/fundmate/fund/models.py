@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import random
 from decimal import Decimal
-from typing import Union
+from typing import Optional, Union
 
 from sqlalchemy import func, or_
 from sqlalchemy.ext.hybrid import hybrid_property
@@ -438,7 +438,6 @@ class FeeRatio(PkModel, UpsertMixin):
 
 
 #  组合管理人类型
-# TODO: 需要验证int是否支持
 ZH_MGR_TYPE = {
     'personal': 0,  # '个人'
     'org': 1,  # '机构'
@@ -451,6 +450,13 @@ PLAT_TYPE = {
     'dj': 3,  # '蛋卷基金'
 }
 
+PLAT_TYPE_DISPLAY = {
+    0: '未定义',
+    1: '且慢',
+    2: '天天基金',
+    3: '蛋卷基金',
+}
+
 
 class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
     """
@@ -460,15 +466,21 @@ class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
     """
     __table_args__ = {'comment': '基金组合表'}
 
-    portfolio_code = Column(db.String(30), comment='组合编码')  # 使用固定数字加随机数
+    portfolio_code = Column(db.String(10), comment='组合编码')  # 使用固定数字加随机数
     name = Column(db.String(30), comment='组合名称')
     code = Column(db.String(30), unique=True, comment='组合编码（各平台独有）')
     manager = Column(db.String(30), comment='主理人')
-    mgr_avatar_url = Column(db.String(30), comment='主理人头像链接')  # 是否需要保存到本地
+    mgr_avatar_url = Column(db.String(300), comment='主理人头像链接')  # 是否需要保存到本地
     is_visible = Column(db.Boolean, comment='是否他人可见')  # 只有创建人（/admin）可以修改
     found_date = Column(db.Date, comment='组合创建日期')
-    mgr_type = Column(ChoiceTypeInteger(choices=key2val(ZH_MGR_TYPE)), nullable=False, default=0, comment='组合类型（机构/个人）')
-    platform = Column(ChoiceTypeInteger(choices=key2val(PLAT_TYPE)), nullable=True, default=0, comment='平台名称')
+    mgr_type = Column(ChoiceTypeInteger(choices=key2val(ZH_MGR_TYPE)),
+                      nullable=False,
+                      default=0,
+                      comment='组合类型（1机构/0个人）')
+    platform = Column(ChoiceTypeInteger(choices=key2val(PLAT_TYPE)),
+                      nullable=True,
+                      default=0,
+                      comment=f'平台名称：{str(PLAT_TYPE_DISPLAY)}')
     risk_type = Column(ChoiceTypeInteger(choices=key2val(settings.RISK_TYPE)),
                        nullable=True,
                        default=0,
@@ -483,20 +495,20 @@ class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
         return f"<FundPortfolio({self.name!r}, {self.risk_type!r})>"
 
     @classmethod
-    def gen_random_digit(cls) -> str:
+    def gen_random_digit(cls) -> Optional[str]:
         """
         生成随机6位识别号
         :return:
         """
         fp_identifier = settings.INITIAL_PORTFOLIO_IDENTIFIER
-        max_identifier = db.session.query(func.max(cls.code)).one_or_none()
-        if max_identifier is not (None, ):
+        max_identifier = db.session.query(func.max(cls.portfolio_code)).one_or_none()
+        if max_identifier != (None, ):
             max_num = max_identifier[0]
             if max_num is not None:
                 increase_int = random.randrange(1, 3)
                 fp_identifier = int(max_num) + increase_int
-
-        return f'{fp_identifier:06}'
+                return f'{fp_identifier:06}'
+        return fp_identifier
 
 
 class FundPortfolioAdjustHistory(PkModel):
@@ -505,7 +517,7 @@ class FundPortfolioAdjustHistory(PkModel):
     """
     portfolio_code = Column(db.String(30), comment='组合编码')
     update_date = Column(db.DateTime, comment='调仓时间')
-    adjust_id = Column(db.String(120), comment='调仓历史编码')  # 使用雪花算法
+    adjust_id = Column(db.BigInteger, comment='调仓历史编码')  # 使用雪花算法
     plat_trade_id = Column(db.String(120), comment='平台调仓编码（只做记录区分用，不参与系统计算）')
     desc = Column(db.String(300), comment='调仓说明')
 
@@ -526,5 +538,5 @@ class FundCombinationHoldDetail(PkModel):
     }
     """
     fd_code = Column(db.String(6), comment='基金编码')
-    adjust_id = Column(db.Integer, comment='调仓历史编码')
+    adjust_id = Column(db.BigInteger, comment='调仓历史编码')
     portion = Column(db.Numeric(5, 4), comment='持仓占比，如：0.0716')

@@ -46,10 +46,10 @@ class Strategy:
                 found_date = data.get('found_date')
                 annualized_rate_of_return = data.get('yield_middle')
                 invest_rate_of_return = data.get('yield')
-                plan_type = data.get('type')
+                plan_type = int(data.get('type'))
                 manager_name = data.get('manager_name')
                 manager_profile_photo = data.get('manager_profile_photo')
-                plan_desc_info = data.get('plan_desc')[::-1]
+                plan_desc_info = data.get('plan_desc')[-1]
                 plan_desc = plan_desc_info.get('plan_desc')
                 # invest_money_type = data.get('invest_money_type')  # 资金维度  ：积极增值
                 # invest_time_type = data.get('invest_time_type')  # 时间纬度：持有3年以上
@@ -204,5 +204,8 @@ if __name__ == '__main__':
     s = Strategy()
     code = 'CSI1032'
     ret = s.pagination_trade_info(code)
+    print(ret)
     net_val = s.net_worth(code)
     print(net_val)
+    detail = s.detail(code)
+    print(detail)
