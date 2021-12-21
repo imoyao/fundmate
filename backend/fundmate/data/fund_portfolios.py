@@ -40,16 +40,17 @@ class InitPortfolio:
             po_inst = self.qm_po
         else:
             raise NotSupportPlatError('暂不支持该平台数据获取！')
+        plat_flag_int = PLAT_TYPE.get(plat_flag)
         for po_code in portfolios:
             po_detail = po_inst.detail(po_code)
             po_code = po_detail.get('code')
 
             query_args = {
-                'platform': plat_flag,
+                'platform': plat_flag_int,
                 'code': po_code,
             }
             is_exists = FundPortfolio.check_is_exists(query_args)
-            po_detail['platform'] = plat_flag
+            po_detail['platform'] = plat_flag_int
             po_detail['is_visible'] = True
             if not is_exists:
                 portfolio_code = FundPortfolio.gen_random_digit()
@@ -61,9 +62,9 @@ class InitPortfolio:
                 # po_obj = FundPortfolio.update(**po_detail)
             trade_info = None
             if plat_flag == 'dj':
-                trade_info = po_inst.pagination_trade_info(po_code, is_desc=False)
-            elif plat_flag == 'qm':
                 trade_info = po_inst.pagination_trade_info(po_code)
+            elif plat_flag == 'qm':
+                trade_info = po_inst.pagination_trade_info(po_code, is_desc=False)
             if trade_info:
                 portfolio_code = po_obj.portfolio_code
                 sf = snowflake.generator()
@@ -92,16 +93,16 @@ class InitPortfolio:
                     trading_elements.to_sql(name=tb_name, con=self.engine, if_exists='append', index=False)
 
     def init_danjuan(self):
+        plat_flag = 'dj'
         portfolios = self.dj_po.get()
-        plat_flag = PLAT_TYPE.get('dj')
         self.parse_portfolios(portfolios, plat_flag)
-        logger.info(f'蛋卷基金组合 {portfolios} 爬取完成!')
+        logger.success(f'蛋卷基金组合 {portfolios} 爬取完成!')
 
     def init_qieman(self):
+        plat_flag = 'qm'
         portfolios = self.qm_po.get()
-        plat_flag = PLAT_TYPE.get('qm')
         self.parse_portfolios(portfolios, plat_flag)
-        logger.info(f'且慢基金组合 {portfolios} 爬取完成!')
+        logger.success(f'且慢基金组合 {portfolios} 爬取完成!')
 
     def init_portfolio(self):
         """

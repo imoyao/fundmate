@@ -96,7 +96,7 @@ class Strategy:
             plan_rich_desc = resp.get('poRichDesc')
             invest_rate_of_return = resp.get('fromSetupReturn')
             annualized_rate_of_return = resp.get('annualCompoundedReturn')
-            mgr_infos = resp.get('poManagers')
+            mgr_infos = resp.get('poManagers')[0]
             mgr_name = ''
             mgr_avatar = ''
             # is_verified = False
@@ -182,14 +182,14 @@ class Strategy:
             content = resp.get('content')
             trade_info = list()
             per_page_content = self.trade_history(content)
-            trade_info.append(per_page_content)
+            trade_info.extend(per_page_content)
             for page_num in range(1, int(total_pages) + 1):
                 params = {'page': page_num, 'size': size, 'format': format_type, 'isDesc': is_desc}
                 resp = rget_json(_url, headers=self.headers, params=params)
                 if resp:
                     content = resp.get('content')
                     per_page_content = self.trade_history(content)
-                    trade_info.append(per_page_content)
+                    trade_info.extend(per_page_content)
             return trade_info
 
     def net_worth(self, code: str, is_df=True, is_desc=True) -> Union[List, PdDataFrame]:
@@ -222,3 +222,5 @@ if __name__ == '__main__':
     print(ret)
     result = s.pagination_trade_info(code)
     print(result)
+    po_detail = s.detail(code)
+    print(po_detail)
