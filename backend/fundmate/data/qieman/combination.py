@@ -79,6 +79,14 @@ class Strategy:
         ]
         return portfolios
 
+    def get_last_adjust_date(self, code: str):
+        url = f'https://qieman.com/pmdj/v1/pomodels/{code}'
+        resp = rget_json(url, headers=self.headers)
+        if resp:
+            adjust_info = resp.get('adjustInfo')
+            last_trade_date_fmt = adjust_info.get('adjustedOn')
+            return last_trade_date_fmt
+
     def detail(self, code: str = 'ZH000001') -> Optional[Dict]:
         """
         获取单个组合的信息
@@ -120,7 +128,7 @@ class Strategy:
                 'rich_desc': plan_rich_desc,
                 # 'invest_money_type': '',
                 # 'invest_time_type': invest_time_type,
-                'update_time': last_trade_date_fmt,
+                'last_adjust_date': last_trade_date_fmt,
             }
 
         return resp
@@ -165,6 +173,36 @@ class Strategy:
             page_items.append(trade_detail)
         return page_items
 
+    def adjustments(self,
+                    code: str,
+                    page: int = 0,
+                    size: int = 20,
+                    format_type: str = 'openapi',
+                    is_desc: bool = True) -> Optional[Dict]:
+        """
+        获取调仓概览信息
+        :param code:
+        :param page:
+        :param size:
+        :param format_type:
+        :param is_desc:
+        :return:
+        """
+        _url = f'https://qieman.com/pmdj/v1/pomodels/{code}/adjustments'
+        params = {'page': page, 'size': size, 'format': format_type, 'isDesc': is_desc}
+        resp = rget_json(_url, headers=self.headers, params=params)
+        if resp:
+            total_pages = resp.get('totalPages')
+            content = resp.get('content')
+            total_count = resp.get('totalElements')
+            el_size = resp.get('size')
+            return {
+                'total': total_count,
+                'total_page': total_pages,
+                'content': content,
+                'size': el_size,
+            }
+
     def pagination_trade_info(self,
                               code: str,
                               page: int = 0,
@@ -175,22 +213,20 @@ class Strategy:
         翻页查询调仓历史
         """
         _url = f'https://qieman.com/pmdj/v1/pomodels/{code}/adjustments'
-        params = {'page': page, 'size': size, 'format': format_type, 'isDesc': is_desc}
-        resp = rget_json(_url, headers=self.headers, params=params)
-        if resp:
-            total_pages = resp.get('totalPages')
-            content = resp.get('content')
-            trade_info = list()
-            per_page_content = self.trade_history(content)
-            trade_info.extend(per_page_content)
-            for page_num in range(1, int(total_pages) + 1):
-                params = {'page': page_num, 'size': size, 'format': format_type, 'isDesc': is_desc}
-                resp = rget_json(_url, headers=self.headers, params=params)
-                if resp:
-                    content = resp.get('content')
-                    per_page_content = self.trade_history(content)
-                    trade_info.extend(per_page_content)
-            return trade_info
+        adjustments_info = self.adjustments(code, page=page, size=size, format_type=format_type, is_desc=is_desc)
+        content = adjustments_info.get('content')
+        total_pages = adjustments_info.get('total_page')
+        trade_info = list()
+        per_page_content = self.trade_history(content)
+        trade_info.extend(per_page_content)
+        for page_num in range(1, int(total_pages) + 1):
+            params = {'page': page_num, 'size': size, 'format': format_type, 'isDesc': is_desc}
+            resp = rget_json(_url, headers=self.headers, params=params)
+            if resp:
+                content = resp.get('content')
+                per_page_content = self.trade_history(content)
+                trade_info.extend(per_page_content)
+        return trade_info
 
     def net_worth(self, code: str, is_df=True, is_desc=True) -> Union[List, PdDataFrame]:
         """

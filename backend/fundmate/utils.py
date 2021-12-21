@@ -94,7 +94,7 @@ def first_day_of_this_month() -> str:
 
 def seconds_today_leaves() -> int:
     tmr = tomorrow()
-    _now = datetime.now()
+    _now = datetime.utcnow()
     now_timedelta = datetime(_now.year, _now.month, _now.day, _now.hour, _now.minute, _now.second)
     return (tmr - now_timedelta).seconds
 

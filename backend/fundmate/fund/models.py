@@ -490,6 +490,7 @@ class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
     desc = Column(db.String(300), comment='组合描述')
     rich_desc = Column(db.String(1000), comment='组合详细描述')
     update_time = Column(db.DateTime, comment='组合更新时间')
+    last_adjust_date = Column(db.Date, comment='组合最后一次调整时间')
 
     def __repr__(self):
         return f"<FundPortfolio({self.name!r}, {self.risk_type!r})>"
@@ -520,6 +521,22 @@ class FundPortfolioAdjustHistory(PkModel):
     adjust_id = Column(db.BigInteger, comment='调仓历史编码')  # 使用雪花算法
     plat_trade_id = Column(db.String(120), comment='平台调仓编码（只做记录区分用，不参与系统计算）')
     desc = Column(db.String(300), comment='调仓说明')
+
+    def __repr__(self):
+        return f"组合(id: {self.id!r} ) ：({self.portfolio_code!r} 调仓时间： {self.update_date!r}，记录编号：{self.adjust_id!r})>"
+
+    # def get_record_adjust_count(self, portfolio_code: str):
+    #     return FundPortfolioAdjustHistory.query.filter_by(portfolio_code=portfolio_code).count()
+
+    @classmethod
+    def adjust_count(cls, portfolio_code: str):
+        """
+        获取某个基金的调仓次数
+        see also: [mysql - Why is SQLAlchemy count() much slower than the raw query? - Stack Overflow](
+        https://stackoverflow.com/questions/14754994/why-is-sqlalchemy-count-much-slower-than-the-raw-query) :param
+        portfolio_code: :return:
+        """
+        return db.session.query(func.count(cls.id)).filter(cls.portfolio_code == portfolio_code).scalar()
 
 
 class FundCombinationHoldDetail(PkModel):
