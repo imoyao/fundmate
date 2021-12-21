@@ -16,7 +16,7 @@ from xalpha.cons import rget_json
 from backend.fundmate.data.qieman import utils
 from backend.fundmate.libs import convert
 
-PdDataframe = pd.Dataframe()
+PdDataFrame = pd.DataFrame
 
 
 class Strategy:
@@ -125,7 +125,7 @@ class Strategy:
 
         return resp
 
-    def parse_trading_elements(self, trading_elements_list: list, is_df: bool = True) -> Union[List, PdDataframe]:
+    def parse_trading_elements(self, trading_elements_list: list, is_df: bool = False) -> Union[List, PdDataFrame]:
         """
         每一次调仓成分基金的解析
         :param is_df:
@@ -192,7 +192,7 @@ class Strategy:
                     trade_info.append(per_page_content)
             return trade_info
 
-    def net_worth(self, code: str, is_df=True, is_desc=True) -> Union[List, PdDataframe]:
+    def net_worth(self, code: str, is_df=True, is_desc=True) -> Union[List, PdDataFrame]:
         """
         获取组合的历史净值
         :param code:
@@ -220,3 +220,5 @@ if __name__ == '__main__':
     code = 'ZH039784'
     ret = s.net_worth(code)
     print(ret)
+    result = s.pagination_trade_info(code)
+    print(result)
