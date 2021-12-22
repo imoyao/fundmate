@@ -104,7 +104,7 @@ class EmptyError(CrawlerException):
 
 class NotSupportPlatError(CrawlerException):
     """
-    查询数据端为空
+    目前未支持该平台
     """
     pass
 

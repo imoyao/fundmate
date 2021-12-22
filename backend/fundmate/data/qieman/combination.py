@@ -79,7 +79,7 @@ class Strategy:
         ]
         return portfolios
 
-    def get_last_adjust_date(self, code: str):
+    def get_last_adjust_date(self, code: str) -> Optional[str]:
         url = f'https://qieman.com/pmdj/v1/pomodels/{code}'
         resp = rget_json(url, headers=self.headers)
         if resp:

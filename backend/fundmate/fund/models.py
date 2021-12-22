@@ -523,7 +523,7 @@ class FundPortfolioAdjustHistory(PkModel):
     desc = Column(db.String(300), comment='调仓说明')
 
     def __repr__(self):
-        return f"组合(id: {self.id!r} ) ：({self.portfolio_code!r} 调仓时间： {self.update_date!r}，记录编号：{self.adjust_id!r})>"
+        return f"组合( {self.portfolio_code!r} ) 调仓时间： {self.update_date!r}，记录编号：{self.adjust_id!r}>"
 
     # def get_record_adjust_count(self, portfolio_code: str):
     #     return FundPortfolioAdjustHistory.query.filter_by(portfolio_code=portfolio_code).count()

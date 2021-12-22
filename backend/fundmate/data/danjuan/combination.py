@@ -30,7 +30,7 @@ class Strategy:
     def is_success(self, response: dict) -> bool:
         return response and response.get('result_code') == 0
 
-    def get_last_adjust_date(self, code: str):
+    def get_last_adjust_date(self, code: str) -> Optional[str]:
         """
         获取组合最后调仓时间
         :param code: 

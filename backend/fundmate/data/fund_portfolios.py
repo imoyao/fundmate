@@ -5,7 +5,9 @@
 @file: fund_portfolios.py
 @author: imoyao
 @email: immoyao@gmail.com
-@desc: 基金组合信息入库
+@desc:
+1. InitPortfolio类用于基金组合信息入库；
+2. UpdatePortfolio 类用于已有组合调仓信息更新
 
 组合分析：[深入分析15个基金组合之后，我有这些发现-雪球](https://xueqiu.com/4778574435/199049616?page=15)
 """
@@ -20,8 +22,8 @@ from sqlalchemy import create_engine
 from backend.fundmate.app import db
 from backend.fundmate.data.danjuan.combination import Strategy as DJStrategy
 from backend.fundmate.data.qieman.combination import Strategy as QMStrategy
-from backend.fundmate.database import get_table_name, key2val
-from backend.fundmate.excepts import NotSupportPlatError
+from backend.fundmate.database import get_table_name
+from backend.fundmate.excepts import FundQueryError, NotSupportPlatError
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.fund.models import PLAT_TYPE, FundCombinationHoldDetail, FundPortfolio, FundPortfolioAdjustHistory
 from backend.fundmate.libs.pysnowflake import snowflake
@@ -65,7 +67,7 @@ class BasePortfolio:
                 'plat_trade_id': plat_trading_id,
                 'desc': remark,
             }
-            # 调仓历史记录
+            # 调仓历史记录 FIXME: 且慢，应该只写入最新的一条，而不是for循环写入查出来的整个结果
             adjust_instance = FundPortfolioAdjustHistory.create(**adjust_detail)
             # 调仓组成基金比例信息记录
             if not isinstance(trading_elements, pd.DataFrame):
@@ -111,7 +113,7 @@ class InitPortfolio(BasePortfolio):
                 po_obj = FundPortfolio.create(**po_detail)
             else:
                 # 该接口只用于初始化，对于已存在的，应该用专门接口去更新
-                logger.warning(f'更新平台组合请使用 `UpdatePortfolio` 类')
+                logger.warning('更新平台组合请使用 `UpdatePortfolio` 类')
                 continue
                 # po_obj = FundPortfolio.update(**po_detail)
             trade_info = None
@@ -152,6 +154,64 @@ class UpdatePortfolio(BasePortfolio):
     def __init__(self):
         super().__init__()
 
+    def update_danjuan(self, plt_code: str, portfolio_code: str):
+        """
+        周期性更新蛋卷基金组合
+        :param plt_code:
+        :param portfolio_code:
+        :return:
+        """
+        if not plt_code.startswith('CSI'):
+            raise FundQueryError(f'请检查输入的平台组合编号 {plt_code} 是否正确？')
+        total = self.dj_po.total_times(plt_code)
+        record_count = FundPortfolioAdjustHistory.adjust_count(portfolio_code)
+        if total is not None:
+            if record_count < total:
+                adjust_size = total - record_count
+                # 蛋卷基金的直接获取就行，total_times接口不会返回调仓信息
+                trade_info = self.dj_po.pagination_trade_info(plt_code, size=adjust_size)
+                if trade_info:
+                    self.save_trade_info(portfolio_code, trade_info)
+                else:
+                    logger.error(f'获取组合 {portfolio_code} 调仓信息出错，请检查确认……')
+            else:
+                logger.info(f'组合 {portfolio_code} 期间未发生调仓……')
+        else:
+            logger.error('获取组合信息出错，请检查网络连接……')
+
+    def update_qieman(self, plt_code: str, portfolio_code: str):
+        """
+        周期性更新且慢基金组合
+        :param plt_code:
+        :param portfolio_code:
+        :return:
+        """
+        if not plt_code.startswith('ZH'):
+            raise FundQueryError(f'请检查输入的平台组合编号 {plt_code} 是否正确？')
+
+        adjust_info = self.qm_po.adjustments(plt_code)
+        if adjust_info:
+            total = adjust_info.get('total')
+            size = adjust_info.get('size')
+            record_count = FundPortfolioAdjustHistory.adjust_count(portfolio_code)
+            # 发生了调仓
+            if record_count < total:
+                # 期间调整的次数
+                adjust_size = total - record_count
+                if adjust_size < size:  # 从里面获取即可
+                    adjust_content = adjust_info.get('content')
+                    trade_info = self.qm_po.trade_history(adjust_content)
+                else:
+                    trade_info = self.qm_po.pagination_trade_info(plt_code, size=adjust_size, is_desc=True)
+                if trade_info:
+                    self.save_trade_info(portfolio_code, trade_info)
+                else:
+                    logger.error(f'获取组合 {portfolio_code} 调仓信息出错，请检查确认……')
+            else:
+                logger.info(f'组合 {portfolio_code} 期间未发生调仓……')
+        else:
+            logger.error('获取组合信息出错，请检查网络连接……')
+
     def update_portfolio(self):
         """
         更新数据库中已经记录的组合
@@ -160,52 +220,44 @@ class UpdatePortfolio(BasePortfolio):
         3. 调用save_trade_info保存调仓记录
         :return:
         """
-        fpos = db.session.query.filter(FundPortfolio.platform != 0)
-        PLAT_MAP = key2val(PLAT_TYPE)
+        fpos = db.session.query(FundPortfolio).filter(FundPortfolio.platform != 0)
         # 遍历获取组合是否调仓，如果调仓，则将其信息存入数据库
         for po_item in fpos:
             plt_code = po_item.code
             portfolio_code = po_item.portfolio_code
             po_last_adjust_date = po_item.last_adjust_date
             po_platform = po_item.platform
-            plat_str = PLAT_MAP.get(po_platform)
-            po_obj = self.get_strategy(plat_str)
+            # plat_str = PLAT_MAP.get(po_platform)
+            po_obj = self.get_strategy(po_platform)
             last_trade_date_fmt = po_obj.get_last_adjust_date(plt_code)
             if po_last_adjust_date != last_trade_date_fmt:
                 # 调仓详情
                 po_details = po_obj.detail(plt_code)
-                po_details['update_time'] = datetime.datetime.utcnow()
+                risk_type = po_details.get('risk_type')
+                annualized_rate_of_return = po_details.get('annualized_rate_of_return')
+                invest_rate_of_return = po_details.get('invest_rate_of_return')
+                update_detail = {
+                    'risk_type': risk_type,
+                    'annualized_rate_of_return': annualized_rate_of_return,
+                    'invest_rate_of_return': invest_rate_of_return,
+                    'update_time': datetime.datetime.utcnow(),
+                    'last_adjust_date': last_trade_date_fmt,
+                }
                 # 更新组合基本信息
-                FundPortfolio.update(**po_details)
-                trade_info = None
-                if plat_str == 'qm':
-                    adjust_info = po_obj.adjustments(plt_code)
-                    if adjust_info:
-                        total = adjust_info.get('total')
-                        size = adjust_info.get('size')
-                        record_count = FundPortfolioAdjustHistory.adjust_count(portfolio_code)
-                        # 发生了调仓
-                        if record_count < total:
-                            # 期间调整的次数
-                            adjust_size = total - record_count
-                            if adjust_size < size:  # 从里面获取即可
-                                adjust_content = adjust_info.get('content')
-                                trade_info = po_obj.trade_history(adjust_content)
-                            else:
-                                trade_info = po_obj.pagination_trade_info(plt_code, size=adjust_size, is_desc=True)
+                fpo = FundPortfolio.query.filter_by(portfolio_code=portfolio_code).one_or_none()
+                if fpo:
+                    fpo.update(**update_detail)
+                if po_platform == 'qm':
+                    self.update_qieman(plt_code, portfolio_code)
 
-                elif plat_str == 'dj':
-                    total = po_obj.total_times(plt_code)
-                    record_count = FundPortfolioAdjustHistory.adjust_count(portfolio_code)
-                    if record_count < total:
-                        adjust_size = total - record_count
-                        # 蛋卷基金的直接获取就行，上面的接口不会返回调仓信息
-                        trade_info = po_obj.pagination_trade_info(plt_code, size=adjust_size)
-
-                if trade_info:
-                    self.save_trade_info(portfolio_code, trade_info)
+                elif po_platform == 'dj':
+                    self.update_danjuan(plt_code, portfolio_code)
 
 
 if __name__ == '__main__':
+    # 初始化调用
     po = InitPortfolio()
     po.init_portfolio()
+    # 日常更新组合调仓信息等
+    update_po = UpdatePortfolio()
+    update_po.update_portfolio()
