@@ -12,7 +12,7 @@
 组合分析：[深入分析15个基金组合之后，我有这些发现-雪球](https://xueqiu.com/4778574435/199049616?page=15)
 """
 import datetime
-from typing import List
+from typing import Dict, List, Optional
 
 from flask import current_app
 
@@ -25,7 +25,13 @@ from backend.fundmate.data.qieman.combination import Strategy as QMStrategy
 from backend.fundmate.database import get_table_name
 from backend.fundmate.excepts import FundQueryError, NotSupportPlatError
 from backend.fundmate.exts.flask_loguru import logger
-from backend.fundmate.fund.models import PLAT_TYPE, FundCombinationHoldDetail, FundPortfolio, FundPortfolioAdjustHistory
+from backend.fundmate.fund.models import (
+    PLAT_TYPE,
+    FundCombinationHoldDetail,
+    FundPortfolio,
+    FundPortfolioAdjustHistory,
+    FundPortfolioMgr,
+)
 from backend.fundmate.libs.pysnowflake import snowflake
 
 config = current_app.config
@@ -98,63 +104,74 @@ class InitPortfolio(BasePortfolio):
     def __init__(self):
         super().__init__()
 
-    def parse_portfolios(self, portfolios, plat_flag: str):
-        if plat_flag == 'dj':
-            po_inst = self.dj_po
-        elif plat_flag == 'qm':
-            po_inst = self.qm_po
-        else:
-            raise NotSupportPlatError('暂不支持该平台数据获取！')
+    def upsert_mgr(self, plat_flag: str, mgr_info: Optional[Dict] = None) -> str:
+        """
+        根据平台特征码和编码查找用户，若无则新建
+        :param plat_flag: 
+        :param mgr_info: 
+        :return: 
+        """
+        mgr_code = mgr_info.get('code')
         plat_flag_int = PLAT_TYPE.get(plat_flag)
-        for po_code in portfolios:
-            po_detail = po_inst.detail(po_code)
-            po_code = po_detail.get('code')
+        unique_query_arg = {
+            'plat_code': mgr_code,
+            'platform': plat_flag_int,
+        }
+        mgr_instance = FundPortfolioMgr.query.filter_by(**unique_query_arg).one_or_none()
+        if not mgr_instance:
+            mgr_code = FundPortfolioMgr.gen_mgr_code()
+            mgr_info['code'] = mgr_code
+            mgr_instance = FundPortfolioMgr.create(**mgr_info)
+        return mgr_instance.code
 
-            query_args = {
-                'platform': plat_flag_int,
-                'code': po_code,
-            }
-            is_exists = FundPortfolio.check_is_exists(query_args)
+    def create_portfolio(self, plt_code: str, plat_flag: str):
+        po_inst = self.get_strategy(plat_flag)
+        if not po_inst:
+            raise NotSupportPlatError(f'暂不支持该平台 {plat_flag} 数据获取！')
+        plat_flag_int = PLAT_TYPE.get(plat_flag)
+        fpo = FundPortfolio.query.filter_by(code=plt_code, platform=plat_flag_int).one_or_none()
+        if fpo is None:
+            po_detail = po_inst.detail(plt_code)
+            mgr_info = po_detail.pop('mgr_info')
+            # 创建组合管理员
+            mgr_code = self.upsert_mgr(plat_flag, mgr_info)
+            portfolio_code = FundPortfolio.gen_random_digit()
+            po_detail['mgr_code'] = mgr_code
             po_detail['platform'] = plat_flag_int
             po_detail['is_visible'] = True
-            if not is_exists:
-                portfolio_code = FundPortfolio.gen_random_digit()
-                po_detail['portfolio_code'] = portfolio_code
-                po_detail['update_time'] = datetime.datetime.utcnow()
-                po_obj = FundPortfolio.create(**po_detail)
-            else:
-                # 该接口只用于初始化，对于已存在的，应该用专门接口去更新
-                logger.warning('更新平台组合请使用 `UpdatePortfolio` 类')
-                continue
-                # po_obj = FundPortfolio.update(**po_detail)
-            trade_info = None
-            if plat_flag == 'dj':
-                trade_info = po_inst.pagination_trade_info(po_code)
-            elif plat_flag == 'qm':
-                trade_info = po_inst.pagination_trade_info(po_code, is_desc=False)
-            if trade_info:
-                portfolio_code = po_obj.portfolio_code
-                self.persist_trade_info(portfolio_code, trade_info)
+            po_detail['portfolio_code'] = portfolio_code
+            po_detail['update_time'] = datetime.datetime.utcnow()
+            po_obj = FundPortfolio.create(**po_detail)
+        else:
+            logger.warning(f'组合 {fpo} 已存在，更新平台组合请使用 `UpdatePortfolio` 类')
+            return None
 
-    def init_danjuan(self):
-        plat_flag = 'dj'
-        portfolios = self.dj_po.get()
-        self.parse_portfolios(portfolios, plat_flag)
-        logger.success(f'蛋卷基金组合 {portfolios} 爬取完成!')
-
-    def init_qieman(self):
-        plat_flag = 'qm'
-        portfolios = self.qm_po.get()
-        self.parse_portfolios(portfolios, plat_flag)
-        logger.success(f'且慢基金组合 {portfolios} 爬取完成!')
+        trade_info = None
+        if plat_flag == 'dj':
+            trade_info = po_inst.pagination_trade_info(plt_code)
+        elif plat_flag == 'qm':
+            trade_info = po_inst.pagination_trade_info(plt_code, is_desc=False)
+        if trade_info:
+            portfolio_code = po_obj.portfolio_code
+            self.persist_trade_info(portfolio_code, trade_info)
+        else:
+            logger.warning(f'获取组合 {po_obj} 调仓信息失败！')
+        return po_obj
 
     def init_portfolio(self):
         """
         初始化组合
         :return:
         """
-        self.init_qieman()
-        self.init_danjuan()
+        # support_platforms = PLAT_TYPE.keys()
+        support_platforms = ['qm', 'dj']
+        for plat_flag in support_platforms:
+            po_obj = self.get_strategy(plat_flag)
+            portfolios = po_obj.list_all()
+            for po_code in portfolios:
+                fpo = self.create_portfolio(po_code, plat_flag)
+                if fpo:
+                    logger.success(f'基金组合 {fpo} 信息保存完成!')
 
 
 class UpdatePortfolio(BasePortfolio):

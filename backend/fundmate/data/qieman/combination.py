@@ -52,7 +52,7 @@ class Strategy:
         }
         return _headers
 
-    def get(self):
+    def list_all(self):
         """获取所有组合
         目前手动写死
         '''
@@ -107,13 +107,23 @@ class Strategy:
             mgr_infos = resp.get('poManagers')[0]
             mgr_name = ''
             mgr_avatar = ''
+            mgr_code = ''
+            mgr_desc = ''
             # is_verified = False
             if mgr_infos:
                 mgr_name = mgr_infos.get('poManagerName')
                 mgr_avatar = mgr_infos.get('poManagerAvatarUrl')
+                mgr_code = mgr_infos.get('poManagerId')
+                mgr_desc = mgr_infos.get('poManagerDesc')
                 # is_verified = mgr_infos.get('verified')  # 认证用户
             adjust_info = resp.get('adjustInfo')
             last_trade_date_fmt = adjust_info.get('adjustedOn')
+            mgr_info = {
+                'plat_code': mgr_code,
+                'name': mgr_name,
+                'mgr_avatar_url': mgr_avatar,
+                'desc': mgr_desc,
+            }
             return {
                 'code': plan_code,
                 'name': plan_name,
@@ -122,9 +132,8 @@ class Strategy:
                 'annualized_rate_of_return': annualized_rate_of_return,
                 'invest_rate_of_return': invest_rate_of_return,
                 # 'is_verified': is_verified,
-                'manager': mgr_name,
-                'mgr_avatar_url': mgr_avatar,
                 'desc': plan_desc,
+                'mgr_info': mgr_info,
                 'rich_desc': plan_rich_desc,
                 # 'invest_money_type': '',
                 # 'invest_time_type': invest_time_type,
