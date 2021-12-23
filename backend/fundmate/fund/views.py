@@ -1,18 +1,21 @@
 # -*- coding: utf-8 -*-
 """User views."""
-from apiflask import APIBlueprint, abort, input, output, pagination_builder
 from flask.views import MethodView
 
+from apiflask import APIBlueprint, abort, input, output, pagination_builder
+
 from backend.fundmate.base_scheme import EmptySchema, PaginationSchema
-from backend.fundmate.fund.models import Fund, FundCompany, FundMgr, FundSaleOrg
+from backend.fundmate.fund.models import Fund, FundCompany, FundMgr, FundPortfolio, FundSaleOrg
 from backend.fundmate.fund.schemas import (
     FundCompanyOutSchema,
     FundInSchema,
     FundOutSchema,
     FundPaginationOutSchema,
+    FundPortfolioOutSchema,
     FundSaleOutSchema,
     FundSampleSchema,
 )
+from backend.fundmate.settings import RISK_TYPE
 from backend.fundmate.view_ext import paginate_query
 
 bp = APIBlueprint("fund", __name__, url_prefix="/funds")
@@ -129,7 +132,7 @@ class FundFavor(MethodView):
         pass
 
 
-@bp.route('/combinations')
+@bp.route('/portfolios')
 class FundCombination(MethodView):
     """
     基金组合
@@ -141,16 +144,19 @@ class FundCombination(MethodView):
         pass
 
 
-@bp.route('/combinations')
+@bp.route('/portfolios/<string:portfolio_code>')
 class CombinationDetail(MethodView):
     """
     单个基金组合详情
     """
 
-    @output(FundOutSchema)
-    def get(self, comb_id: str):
+    @output(FundPortfolioOutSchema)
+    def get(self, portfolio_code: str):
         """获取指定基金组合信息"""
-        pass
+        fpo = FundPortfolio.query.filter_by(portfolio_code=portfolio_code).one_or_none()
+        if fpo is not None:
+            return fpo
+        abort(404)
 
     @input(FundOutSchema)
     def post(self, comb_id: str):

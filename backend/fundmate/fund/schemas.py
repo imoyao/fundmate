@@ -22,6 +22,19 @@ class FundOutSchema(Schema):
     f_type = String()
 
 
+class FundPortfolioOutSchema(Schema):
+    """
+    详细信息
+    """
+    id = Integer()
+    name = String(metadata={'title': 'Fund Portfolio name', 'description': '组合名称'})
+    # mgr = String()
+    portfolio_code = String()
+    code = String()
+    found_date = Date()
+    risk_type = String()
+
+
 class FundSampleSchema(Schema):
     """
     简略信息，目前包含基金编码和基金名称
