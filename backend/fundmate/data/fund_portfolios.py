@@ -32,6 +32,17 @@ config = current_app.config
 SQLALCHEMY_DATABASE_URI = config.get('SQLALCHEMY_DATABASE_URI')
 
 
+def sort_trade_info_by_date(trade_info: List, sort_key: str = 'trade_date') -> List:
+    """
+    调仓历史写入数据库时应该按照日期升序排序
+    :return:
+    """
+    trade_info_df = pd.DataFrame(trade_info)
+    sorted_trade_info_df = trade_info_df.sort_values(by=sort_key, ascending=True)
+    sorted_trade_info = sorted_trade_info_df.to_dict(orient='records')
+    return sorted_trade_info
+
+
 class BasePortfolio:
     """
     将初始化和更新公用的接口提出来
@@ -50,10 +61,10 @@ class BasePortfolio:
         stra_obj = strategies.get(plat_str)
         return stra_obj
 
-    def save_trade_info(self, portfolio_code: str, trade_info: List):
+    def persist_trade_info(self, portfolio_code: str, trade_info: List):
         sf = snowflake.generator()
-
-        for trade_item in trade_info:
+        trade_info_sorted_by_date_asc = sort_trade_info_by_date(trade_info)
+        for trade_item in trade_info_sorted_by_date_asc:
             plat_trading_id = trade_item.get('trading_id')
             trade_date = trade_item.get('trade_date')
             remark = trade_item.get('remark')
@@ -67,7 +78,7 @@ class BasePortfolio:
                 'plat_trade_id': plat_trading_id,
                 'desc': remark,
             }
-            # 调仓历史记录 FIXME: 且慢，应该只写入最新的一条，而不是for循环写入查出来的整个结果
+            # 调仓历史记录
             adjust_instance = FundPortfolioAdjustHistory.create(**adjust_detail)
             # 调仓组成基金比例信息记录
             if not isinstance(trading_elements, pd.DataFrame):
@@ -123,7 +134,7 @@ class InitPortfolio(BasePortfolio):
                 trade_info = po_inst.pagination_trade_info(po_code, is_desc=False)
             if trade_info:
                 portfolio_code = po_obj.portfolio_code
-                self.save_trade_info(portfolio_code, trade_info)
+                self.persist_trade_info(portfolio_code, trade_info)
 
     def init_danjuan(self):
         plat_flag = 'dj'
@@ -171,7 +182,7 @@ class UpdatePortfolio(BasePortfolio):
                 # 蛋卷基金的直接获取就行，total_times接口不会返回调仓信息
                 trade_info = self.dj_po.pagination_trade_info(plt_code, size=adjust_size)
                 if trade_info:
-                    self.save_trade_info(portfolio_code, trade_info)
+                    self.persist_trade_info(portfolio_code, trade_info)
                 else:
                     logger.error(f'获取组合 {portfolio_code} 调仓信息出错，请检查确认……')
             else:
@@ -200,11 +211,13 @@ class UpdatePortfolio(BasePortfolio):
                 adjust_size = total - record_count
                 if adjust_size < size:  # 从里面获取即可
                     adjust_content = adjust_info.get('content')
-                    trade_info = self.qm_po.trade_history(adjust_content)
+                    # 只获取最近没有更新的期信息
+                    amend_adjust_content = adjust_content[:adjust_size]
+                    trade_info = self.qm_po.trade_history(amend_adjust_content)
                 else:
                     trade_info = self.qm_po.pagination_trade_info(plt_code, size=adjust_size, is_desc=True)
                 if trade_info:
-                    self.save_trade_info(portfolio_code, trade_info)
+                    self.persist_trade_info(portfolio_code, trade_info)
                 else:
                     logger.error(f'获取组合 {portfolio_code} 调仓信息出错，请检查确认……')
             else:
@@ -217,7 +230,7 @@ class UpdatePortfolio(BasePortfolio):
         更新数据库中已经记录的组合
         1. 查询是否需要更新，依靠get_last_adjust_date
         2. 对比adjust_count，如果数据库和API获取不一致，说明发生调仓
-        3. 调用save_trade_info保存调仓记录
+        3. 调用persist_trade_info保存调仓记录
         :return:
         """
         fpos = db.session.query(FundPortfolio).filter(FundPortfolio.platform != 0)
