@@ -256,7 +256,6 @@ class UpdatePortfolio(BasePortfolio):
             portfolio_code = po_item.portfolio_code
             po_last_adjust_date = po_item.last_adjust_date
             po_platform = po_item.platform
-            # plat_str = PLAT_MAP.get(po_platform)
             po_obj = self.get_strategy(po_platform)
             last_trade_date_fmt = po_obj.get_last_adjust_date(plt_code)
             if po_last_adjust_date != last_trade_date_fmt:
