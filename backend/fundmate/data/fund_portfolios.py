@@ -26,13 +26,13 @@ from backend.fundmate.database import get_table_name
 from backend.fundmate.excepts import FundQueryError, NotSupportPlatError
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.fund.models import (
-    PLAT_TYPE,
-    FundCombinationHoldDetail,
     FundPortfolio,
     FundPortfolioAdjustHistory,
+    FundPortfolioHoldDetail,
     FundPortfolioMgr,
 )
 from backend.fundmate.libs.pysnowflake import snowflake
+from backend.fundmate.settings import PLAT_TYPE
 
 config = current_app.config
 SQLALCHEMY_DATABASE_URI = config.get('SQLALCHEMY_DATABASE_URI')
@@ -64,8 +64,8 @@ class BasePortfolio:
             'dj': self.dj_po,
             'qm': self.qm_po,
         }
-        stra_obj = strategies.get(plat_str)
-        return stra_obj
+        strategy_obj = strategies.get(plat_str)
+        return strategy_obj
 
     def persist_trade_info(self, portfolio_code: str, trade_info: List):
         sf = snowflake.generator()
@@ -90,7 +90,7 @@ class BasePortfolio:
             if not isinstance(trading_elements, pd.DataFrame):
                 trading_elements = pd.DataFrame(trading_elements)
             trading_elements['adjust_id'] = adjust_instance.adjust_id
-            tb_name = get_table_name(FundCombinationHoldDetail)
+            tb_name = get_table_name(FundPortfolioHoldDetail)
             trading_elements.to_sql(name=tb_name, con=self.engine, if_exists='append', index=False)
             logger.info(f'{adjust_instance}')
         return 0
@@ -104,7 +104,8 @@ class InitPortfolio(BasePortfolio):
     def __init__(self):
         super().__init__()
 
-    def upsert_mgr(self, plat_flag: str, mgr_info: Optional[Dict] = None) -> str:
+    @staticmethod
+    def upsert_mgr(plat_flag: str, mgr_info: Optional[Dict] = None) -> str:
         """
         根据平台特征码和编码查找用户，若无则新建
         :param plat_flag: 
@@ -121,6 +122,7 @@ class InitPortfolio(BasePortfolio):
         if not mgr_instance:
             mgr_code = FundPortfolioMgr.gen_mgr_code()
             mgr_info['code'] = mgr_code
+            mgr_info['platform'] = plat_flag_int
             mgr_instance = FundPortfolioMgr.create(**mgr_info)
         return mgr_instance.code
 

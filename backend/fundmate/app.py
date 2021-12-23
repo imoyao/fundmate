@@ -126,7 +126,7 @@ def register_shell_context(app: Flask):
             'OutRule': fund.models.OutRule,
             'FundPortfolio': fund.models.FundPortfolio,
             'FundPortfolioAdjustHistory': fund.models.FundPortfolioAdjustHistory,
-            'FundCombinationHoldDetail': fund.models.FundCombinationHoldDetail,
+            'FundPortfolioHoldDetail': fund.models.FundPortfolioHoldDetail,
             'Account': account.models.Account,
         }
 

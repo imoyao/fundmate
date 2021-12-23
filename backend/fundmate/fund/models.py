@@ -437,27 +437,6 @@ class FeeRatio(PkModel, UpsertMixin):
         return rules
 
 
-#  组合管理人类型
-ZH_MGR_TYPE = {
-    'personal': 0,  # '个人'
-    'org': 1,  # '机构'
-}
-
-PLAT_TYPE = {
-    'undefined': 0,  # '未定义'
-    'qm': 1,  # '且慢'
-    'tt': 2,  # '天天基金'
-    'dj': 3,  # '蛋卷基金'
-}
-
-PLAT_TYPE_DISPLAY = {
-    0: '未定义',
-    1: '且慢',
-    2: '天天基金',
-    3: '蛋卷基金',
-}
-
-
 class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
     """
     基金组合（回测、配置型）
@@ -472,10 +451,10 @@ class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
     is_visible = Column(db.Boolean, comment='是否他人可见')  # 只有创建人（/admin）可以修改
     found_date = Column(db.Date, comment='组合创建日期')
     mgr_code = Column(db.String(10), unique=True, comment='组合管理人编码')
-    platform = Column(ChoiceTypeInteger(choices=key2val(PLAT_TYPE)),
+    platform = Column(ChoiceTypeInteger(choices=key2val(settings.PLAT_TYPE)),
                       nullable=True,
                       default=0,
-                      comment=f'平台名称：{str(PLAT_TYPE_DISPLAY)}')
+                      comment=f'平台名称：{str(settings.PLAT_TYPE_DISPLAY)}')
     risk_type = Column(ChoiceTypeInteger(choices=key2val(settings.RISK_TYPE)),
                        nullable=True,
                        default=0,
@@ -488,7 +467,7 @@ class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
     last_adjust_date = Column(db.Date, comment='组合最后一次调整时间')
 
     def __repr__(self):
-        return f"<FundPortfolio({self.name!r}, {self.risk_type!r})>"
+        return f"<FundPortfolio({self.name!r}, {self.platform!r}, {self.risk_type!r})>"
 
     @classmethod
     def gen_random_digit(cls) -> Optional[str]:
@@ -515,15 +494,15 @@ class FundPortfolioMgr(PkModel, UpsertMixin):
     code = Column(db.String(10), unique=True, comment='组合管理人编码')  # 使用固定数字加随机数
     name = Column(db.String(30), comment='主理人')
     plat_code = Column(db.String(30), comment='组合管理人编号（各平台独有）')
-    mgr_type = Column(ChoiceTypeInteger(choices=key2val(ZH_MGR_TYPE)),
+    mgr_type = Column(ChoiceTypeInteger(choices=key2val(settings.ZH_MGR_TYPE)),
                       nullable=False,
                       default=0,
                       comment='组合管理人类型（1机构/0个人）')
     mgr_avatar_url = Column(db.String(300), comment='主理人头像链接')  # TODO:是否需要保存到本地
-    platform = Column(ChoiceTypeInteger(choices=key2val(PLAT_TYPE)),
+    platform = Column(ChoiceTypeInteger(choices=key2val(settings.PLAT_TYPE)),
                       nullable=True,
                       default=0,
-                      comment=f'平台名称：{str(PLAT_TYPE_DISPLAY)}')
+                      comment=f'平台名称：{str(settings.PLAT_TYPE_DISPLAY)}')
     desc = Column(db.String(300), comment='组合管理人描述')
 
     @classmethod
@@ -570,7 +549,7 @@ class FundPortfolioAdjustHistory(PkModel):
         return db.session.query(func.count(cls.id)).filter(cls.portfolio_code == portfolio_code).scalar()
 
 
-class FundCombinationHoldDetail(PkModel):
+class FundPortfolioHoldDetail(PkModel):
     """
     组合持仓明细
     {
