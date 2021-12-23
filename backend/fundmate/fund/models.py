@@ -437,6 +437,16 @@ class FeeRatio(PkModel, UpsertMixin):
         return rules
 
 
+def display(display_map: dict, pk_key: str) -> str:
+    """
+    数据库中存的是数字，保存是输入拼音，显示时应为可读信息
+    :param pk_key:
+    :param display_map:
+    :return:
+    """
+    return display_map.get(pk_key)
+
+
 class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
     """
     基金组合（回测、配置型）
@@ -450,7 +460,7 @@ class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
     code = Column(db.String(30), unique=True, comment='组合编码（各平台独有）')
     is_visible = Column(db.Boolean, comment='是否他人可见')  # 只有创建人（/admin）可以修改
     found_date = Column(db.Date, comment='组合创建日期')
-    mgr_code = Column(db.String(10), unique=True, comment='组合管理人编码')
+    mgr_code = Column(db.String(10), comment='组合管理人编码')
     platform = Column(ChoiceTypeInteger(choices=key2val(settings.PLAT_TYPE)),
                       nullable=True,
                       default=0,
@@ -467,7 +477,9 @@ class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
     last_adjust_date = Column(db.Date, comment='组合最后一次调整时间')
 
     def __repr__(self):
-        return f"<FundPortfolio({self.name!r}, {self.platform!r}, {self.risk_type!r})>"
+        plat_name = display(settings.PLAT_TYPE_DISPLAY, self.platform)
+        risk_name = display(settings.RISK_TYPE_DISPLAY, self.risk_type)
+        return f"<FundPortfolio({self.name!r}, {plat_name!r}, {risk_name!r})>"
 
     @classmethod
     def gen_random_digit(cls) -> Optional[str]:
@@ -504,6 +516,10 @@ class FundPortfolioMgr(PkModel, UpsertMixin):
                       default=0,
                       comment=f'平台名称：{str(settings.PLAT_TYPE_DISPLAY)}')
     desc = Column(db.String(300), comment='组合管理人描述')
+
+    def __repr__(self):
+        plat_name = display(settings.PLAT_TYPE_DISPLAY, self.platform)
+        return f"<FundPortfolioMgr({self.name!r}, {plat_name!r} )>"
 
     @classmethod
     def gen_mgr_code(cls) -> Optional[str]:
