@@ -35,6 +35,8 @@ INFO_MAIL_ADDR = 'fundmate@163.com'
 [新中国后,我国第一支股票和基金分别是什么时候发行的._百度知道](https://zhidao.baidu.com/question/215099298.html)
 '''
 INITIAL_PORTFOLIO_IDENTIFIER = '010921'
+# 组合用户编号应该和组合编号有一定区分度：所以长度取长一点
+INITIAL_MGR_IDENTIFIER = '20211202'
 
 # 风险等级
 RISK_TYPE = {

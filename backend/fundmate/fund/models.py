@@ -469,14 +469,9 @@ class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
     portfolio_code = Column(db.String(10), comment='组合编码')  # 使用固定数字加随机数
     name = Column(db.String(30), comment='组合名称')
     code = Column(db.String(30), unique=True, comment='组合编码（各平台独有）')
-    manager = Column(db.String(30), comment='主理人')
-    mgr_avatar_url = Column(db.String(300), comment='主理人头像链接')  # 是否需要保存到本地
     is_visible = Column(db.Boolean, comment='是否他人可见')  # 只有创建人（/admin）可以修改
     found_date = Column(db.Date, comment='组合创建日期')
-    mgr_type = Column(ChoiceTypeInteger(choices=key2val(ZH_MGR_TYPE)),
-                      nullable=False,
-                      default=0,
-                      comment='组合类型（1机构/0个人）')
+    mgr_code = Column(db.String(10), unique=True, comment='组合管理人编码')
     platform = Column(ChoiceTypeInteger(choices=key2val(PLAT_TYPE)),
                       nullable=True,
                       default=0,
@@ -498,7 +493,7 @@ class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
     @classmethod
     def gen_random_digit(cls) -> Optional[str]:
         """
-        生成随机6位识别号
+        生成递增6位识别号
         :return:
         """
         fp_identifier = settings.INITIAL_PORTFOLIO_IDENTIFIER
@@ -509,6 +504,42 @@ class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
                 increase_int = random.randrange(1, 3)
                 fp_identifier = int(max_num) + increase_int
                 return f'{fp_identifier:06}'
+        return fp_identifier
+
+
+class FundPortfolioMgr(PkModel, UpsertMixin):
+    """
+    组合管理人信息表
+    需要注意的是：如果是自建组合，则管理人员信息应该从用户表查询
+    """
+    code = Column(db.String(10), unique=True, comment='组合管理人编码')  # 使用固定数字加随机数
+    name = Column(db.String(30), comment='主理人')
+    plat_code = Column(db.String(30), comment='组合管理人编号（各平台独有）')
+    mgr_type = Column(ChoiceTypeInteger(choices=key2val(ZH_MGR_TYPE)),
+                      nullable=False,
+                      default=0,
+                      comment='组合管理人类型（1机构/0个人）')
+    mgr_avatar_url = Column(db.String(300), comment='主理人头像链接')  # TODO:是否需要保存到本地
+    platform = Column(ChoiceTypeInteger(choices=key2val(PLAT_TYPE)),
+                      nullable=True,
+                      default=0,
+                      comment=f'平台名称：{str(PLAT_TYPE_DISPLAY)}')
+    desc = Column(db.String(300), comment='组合管理人描述')
+
+    @classmethod
+    def gen_mgr_code(cls) -> Optional[str]:
+        """
+        生成递增8+位识别号
+        :return:
+        """
+        fp_identifier = settings.INITIAL_MGR_IDENTIFIER
+        max_identifier = db.session.query(func.max(cls.code)).one_or_none()
+        if max_identifier != (None, ):
+            max_num = max_identifier[0]
+            if max_num is not None:
+                increase_int = random.randrange(1, 3)
+                fp_identifier = int(max_num) + increase_int
+                return f'{fp_identifier:08}'
         return fp_identifier
 
 

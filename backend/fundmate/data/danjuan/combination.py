@@ -22,7 +22,7 @@ class Strategy:
     https://danjuanapp.com/strategy/CSI1033
     """
 
-    def get(self):
+    def list_all(self):
         """获取所有组合"""
         portfolios = ['CSI1032', 'CSI1033', 'CSI1069', 'CSI1014']
         return portfolios
@@ -62,6 +62,7 @@ class Strategy:
                 invest_rate_of_return = data.get('yield')
                 plan_type = int(data.get('type'))
                 manager_name = data.get('manager_name')
+                manager_xq_id = data.get('manager_xq_id')
                 manager_profile_photo = data.get('manager_profile_photo')
                 plan_desc_info = data.get('plan_desc')[-1]
                 plan_desc = plan_desc_info.get('plan_desc')
@@ -70,6 +71,11 @@ class Strategy:
                 last_trade_date_fmt = data.get('last_trade_date_fmt')
                 # 费率信息（暂不需要）
                 # plan_rates = data.get('plan_rates')
+                mgr_info = {
+                    'plat_code': manager_xq_id,
+                    'name': manager_name,
+                    'mgr_avatar_url': manager_profile_photo,
+                }
                 return {
                     'code': plan_code,
                     'name': plan_name,
@@ -77,9 +83,8 @@ class Strategy:
                     'found_date': found_date,
                     'annualized_rate_of_return': annualized_rate_of_return,
                     'invest_rate_of_return': invest_rate_of_return,
-                    'manager': manager_name,
-                    'mgr_avatar_url': manager_profile_photo,
                     'desc': plan_desc,
+                    'mgr_info': mgr_info,
                     # 'invest_money_type': invest_money_type,
                     # 'invest_time_type': invest_time_type,
                     'last_adjust_date': last_trade_date_fmt,
