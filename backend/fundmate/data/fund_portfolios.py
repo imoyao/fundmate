@@ -112,18 +112,15 @@ class InitPortfolio(BasePortfolio):
         :param mgr_info: 
         :return: 
         """
-        mgr_code = mgr_info.get('code')
+        mgr_code = mgr_info.get('plat_code')
         plat_flag_int = PLAT_TYPE.get(plat_flag)
-        unique_query_arg = {
-            'plat_code': mgr_code,
-            'platform': plat_flag_int,
-        }
-        mgr_instance = FundPortfolioMgr.query.filter_by(**unique_query_arg).one_or_none()
-        if not mgr_instance:
+        mgr_instance = FundPortfolioMgr.query.filter_by(plat_code=mgr_code, platform=plat_flag_int).one_or_none()
+        if mgr_instance is None:
             mgr_code = FundPortfolioMgr.gen_mgr_code()
             mgr_info['code'] = mgr_code
             mgr_info['platform'] = plat_flag_int
             mgr_instance = FundPortfolioMgr.create(**mgr_info)
+            logger.success(f'组合管理者 {mgr_instance} 创建成功！')
         return mgr_instance.code
 
     def create_portfolio(self, plt_code: str, plat_flag: str):
