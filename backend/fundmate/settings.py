@@ -72,8 +72,8 @@ ZH_MGR_TYPE = {
     'org': 1,  # '机构'
 }
 ZH_MGR_TYPE_DISPLAY = {
-    'personal': '(0)个人',
-    'org': '(1)机构',
+    'personal': '个人',
+    'org': '机构',
 }
 PLAT_TYPE = {
     'undefined': 0,  # '未定义'
@@ -83,8 +83,8 @@ PLAT_TYPE = {
 }
 
 PLAT_TYPE_DISPLAY = {
-    'undefined': '(0)未定义',
-    'qm': '(1)且慢',
-    'tt': '(2)天天基金',
-    'dj': '(3)蛋卷基金',
+    'undefined': '未定义',
+    'qm': '且慢',
+    'tt': '天天基金',
+    'dj': '蛋卷基金',
 }
