@@ -5,10 +5,11 @@
 类比DRF中的serializer
 """
 from apiflask import PaginationSchema, Schema
-from apiflask.fields import Date, Function, Integer, List, Nested, Number, String
+from apiflask.fields import Date, Function, Integer, List, Method, Nested, Number, String
 from apiflask.validators import Length, OneOf
 
 from backend.fundmate import settings
+from backend.fundmate.fund.models import FundSaleOrg
 from backend.fundmate.schema_ext import CustomPaginationSchema
 
 
@@ -151,11 +152,18 @@ class FundInSchema(Schema):
 
 class SaleSchema(Schema):
 
-    class Meta:
-        fields = ('id', 'name')
+    def as_name(self, obj):
+        """
+        如果有熟悉的名字，则显示，否则，显示完整名称
+        :param obj:
+        :return:
+        """
+        return obj.known_name or obj.name
+
+    org_id = String(data_key='code')
+    name = Method('as_name')
 
 
 class FundSaleOutSchema(Schema):
-    # [python - Is it possible to use a schema for a marshmallow custom field? - Stack Overflow](https://stackoverflow.com/questions/49802142/is-it-possible-to-use-a-schema-for-a-marshmallow-custom-field)  # noqa:E501
-    id = String()
-    name = Function(lambda obj: SaleSchema(many=True).dump(obj.as_name()))
+    hot = List(Nested(SaleSchema))
+    all = List(Nested(SaleSchema))

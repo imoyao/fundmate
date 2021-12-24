@@ -14,6 +14,7 @@ from backend.fundmate.fund.schemas import (
     FundPortfoliosOutSchema,
     FundPortfoliosPaginationSchema,
     FundSaleOutSchema,
+    SaleSchema,
 )
 from backend.fundmate.schema_ext import CustomPaginationSchema, EmptySchema
 from backend.fundmate.view_ext import paginate_query
@@ -80,15 +81,17 @@ class FundSalesView(MethodView):
     基金销售机构
     """
 
-    @input(CustomPaginationSchema, 'query')
-    @input(EmptySchema)
+    # @input(CustomPaginationSchema, 'query')
     @output(FundSaleOutSchema)
-    def get(self, query: dict = None):
-        if query:
-            ret = paginate_query(FundSaleOrg, query)
-        else:
-            ret = FundSaleOrg.query.groupby(FundSaleOrg.org_type)
-        return ret
+    def get(self):
+        # 一些常用的销售渠道，在前面列出来
+        hot_market_place = FundSaleOrg.query.filter(FundSaleOrg.known_name.isnot(None)).all()
+        all_market_place = FundSaleOrg.query.all()
+        market_place = {
+            'hot': hot_market_place,
+            'all': all_market_place,
+        }
+        return market_place
 
 
 @bp.route('/<int:fund_id>')

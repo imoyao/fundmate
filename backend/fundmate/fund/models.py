@@ -221,12 +221,9 @@ class FundSaleOrg(PkModel, UpsertMixin):
     org_id = Column(db.Integer, comment='机构编号')
     name = Column(db.String(30), comment='机构名称')
     known_name = Column(db.String(10), comment='广为人知的代号')
-    addr = Column(db.String(50), comment='注册地')
+    addr = Column(db.String(200), comment='注册地')
     org_type = Column(db.String(30), comment='机构类型')
     date = Column(db.String(10), comment='核准时间')
-
-    def as_name(self):
-        return self.known_name or self.name
 
 
 class FundType(PkModel):
