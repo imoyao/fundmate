@@ -4,7 +4,6 @@ from flask.views import MethodView
 
 from apiflask import APIBlueprint, abort, doc, input, output, pagination_builder
 
-from backend.fundmate.base_scheme import EmptySchema, PaginationSchema
 from backend.fundmate.fund.models import Fund, FundCompany, FundMgr, FundPortfolio, FundPortfolioMgr, FundSaleOrg
 from backend.fundmate.fund.schemas import (
     FundCompanyOutSchema,
@@ -13,16 +12,17 @@ from backend.fundmate.fund.schemas import (
     FundPaginationOutSchema,
     FundPortfolioDetailOutSchema,
     FundPortfoliosOutSchema,
-    FundPortfoliosQuerySchema,
+    FundPortfoliosPaginationSchema,
     FundSaleOutSchema,
 )
+from backend.fundmate.schema_ext import CustomPaginationSchema, EmptySchema
 from backend.fundmate.view_ext import paginate_query
 
 bp = APIBlueprint("fund", __name__, url_prefix="/funds")
 
 
 @bp.get('/')
-@input(PaginationSchema, 'query')
+@input(CustomPaginationSchema, 'query')
 # @input(EmptySchema, 'query')
 @output(FundPaginationOutSchema)  # 注意此处不适用`many=True`
 # @output(FundSampleSchema(many=True))
@@ -46,7 +46,7 @@ def funds(query):
 @bp.route('/companies/')
 class FundCompanyView(MethodView):
 
-    @input(PaginationSchema, 'query')
+    @input(CustomPaginationSchema, 'query')
     @input(EmptySchema)
     @output(FundCompanyOutSchema(many=True))
     def get(self, query: dict = None):
@@ -63,7 +63,7 @@ class FundCompanyView(MethodView):
 @bp.route('/mgrs/')
 class FundMgrView(MethodView):
 
-    @input(PaginationSchema, 'query')
+    @input(CustomPaginationSchema, 'query')
     @input(EmptySchema)
     @output(FundOutSchema)
     def get(self, query: dict = None):
@@ -80,7 +80,7 @@ class FundSalesView(MethodView):
     基金销售机构
     """
 
-    @input(PaginationSchema, 'query')
+    @input(CustomPaginationSchema, 'query')
     @input(EmptySchema)
     @output(FundSaleOutSchema)
     def get(self, query: dict = None):
@@ -138,11 +138,18 @@ class FundCombination(MethodView):
     基金组合
     """
 
-    @input(FundPortfoliosQuerySchema, 'query')
+    @input(FundPortfoliosPaginationSchema, 'query')
     @output(FundPortfoliosOutSchema)
     def get(self, query):
         """获取组合列表"""
-        pagination = FundPortfolio.query.paginate(page=query['page'], per_page=query['per_page'])
+        risk_type = query.get('risk_type')
+        page = query.get('page')
+        per_page = query.get('per_page')
+        if risk_type:
+            pagination = FundPortfolio.query.filter_by(risk_type=risk_type).paginate(page=page, per_page=per_page)
+        else:
+            pagination = FundPortfolio.query.paginate(page=page, per_page=per_page)
+
         portfolios = pagination.items
         return {'portfolios': portfolios, 'pagination': pagination_builder(pagination)}
 

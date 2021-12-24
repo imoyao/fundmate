@@ -8,8 +8,7 @@ from subprocess import call
 import click
 
 from backend.fundmate.data.eastmoney.base import em
-
-from .database import db
+from backend.fundmate.database import db
 
 CURRENT_PATH = Path(__file__).resolve().parent
 PROJECT_ROOT = CURRENT_PATH.parent
