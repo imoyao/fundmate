@@ -2,20 +2,20 @@
 """User views."""
 from flask.views import MethodView
 
-from apiflask import APIBlueprint, abort, input, output, pagination_builder
+from apiflask import APIBlueprint, abort, doc, input, output, pagination_builder
 
 from backend.fundmate.base_scheme import EmptySchema, PaginationSchema
-from backend.fundmate.fund.models import Fund, FundCompany, FundMgr, FundPortfolio, FundSaleOrg
+from backend.fundmate.fund.models import Fund, FundCompany, FundMgr, FundPortfolio, FundPortfolioMgr, FundSaleOrg
 from backend.fundmate.fund.schemas import (
     FundCompanyOutSchema,
     FundInSchema,
     FundOutSchema,
     FundPaginationOutSchema,
-    FundPortfolioOutSchema,
+    FundPortfolioDetailOutSchema,
+    FundPortfoliosOutSchema,
+    FundPortfoliosQuerySchema,
     FundSaleOutSchema,
-    FundSampleSchema,
 )
-from backend.fundmate.settings import RISK_TYPE
 from backend.fundmate.view_ext import paginate_query
 
 bp = APIBlueprint("fund", __name__, url_prefix="/funds")
@@ -138,10 +138,13 @@ class FundCombination(MethodView):
     基金组合
     """
 
-    @output(FundOutSchema)
-    def get(self):
+    @input(FundPortfoliosQuerySchema, 'query')
+    @output(FundPortfoliosOutSchema)
+    def get(self, query):
         """获取组合列表"""
-        pass
+        pagination = FundPortfolio.query.paginate(page=query['page'], per_page=query['per_page'])
+        portfolios = pagination.items
+        return {'portfolios': portfolios, 'pagination': pagination_builder(pagination)}
 
 
 @bp.route('/portfolios/<string:portfolio_code>')
@@ -150,15 +153,17 @@ class CombinationDetail(MethodView):
     单个基金组合详情
     """
 
-    @output(FundPortfolioOutSchema)
+    @output(FundPortfolioDetailOutSchema)
+    @doc(summary='单个组合详情概览', description='该接口用于获取特定组合的详情信息')
     def get(self, portfolio_code: str):
         """获取指定基金组合信息"""
         fpo = FundPortfolio.query.filter_by(portfolio_code=portfolio_code).one_or_none()
         if fpo is not None:
-            return fpo
+            mgr_code = fpo.mgr_code
+            mgr_inst = FundPortfolioMgr.query.filter_by(code=mgr_code).one_or_none()
+            fpo_info = dict()
+            fpo_info['manager'] = mgr_inst
+            # TODO: 对于需要联表查询的对象，是否有更加优雅的处理办法（如果不想将字段联表查询）
+            fpo_info.update(fpo.__dict__)
+            return fpo_info
         abort(404)
-
-    @input(FundOutSchema)
-    def post(self, comb_id: str):
-        """获取指定基金组合信息"""
-        pass
