@@ -5,10 +5,11 @@
 类比DRF中的serializer
 """
 from apiflask import PaginationSchema, Schema
-from apiflask.fields import Date, Function, Integer, List, Method, Nested, Number, String
-from apiflask.validators import Length, Range
+from apiflask.fields import Date, Function, Integer, List, Nested, Number, String
+from apiflask.validators import Length, OneOf
 
 from backend.fundmate import settings
+from backend.fundmate.schema_ext import CustomPaginationSchema
 
 
 class FundOutSchema(Schema):
@@ -59,6 +60,10 @@ class FundPortfolioOutSchema(Schema):
     platform_name = Function(lambda obj: get_platform(obj.platform))
 
 
+class FundPortfoliosPaginationSchema(CustomPaginationSchema):
+    risk_type = String(default=None, validate=OneOf(settings.RISK_TYPE.keys()))
+
+
 class FundPortfoliosOutSchema(Schema):
     """
     组合概览信息列表
@@ -98,11 +103,6 @@ class FundPortfolioDetailOutSchema(Schema):
     rich_desc = String()
     last_adjust_date = Date()
     manager = Nested(FundPortfolioMgrOutSchema)
-
-
-class FundPortfoliosQuerySchema(Schema):
-    page = Integer(load_default=1)
-    per_page = Integer(load_default=20, validate=Range(max=30))
 
 
 class FundSampleSchema(Schema):
