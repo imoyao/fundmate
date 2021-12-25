@@ -128,6 +128,7 @@ def register_shell_context(app: Flask):
             'FundPortfolioMgr': fund.models.FundPortfolioMgr,
             'FundPortfolioAdjustHistory': fund.models.FundPortfolioAdjustHistory,
             'FundPortfolioHoldDetail': fund.models.FundPortfolioHoldDetail,
+            'FundSaleOrg': fund.models.FundSaleOrg,
             'Account': account.models.Account,
         }
 
