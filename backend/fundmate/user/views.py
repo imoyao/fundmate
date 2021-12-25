@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
 """User views."""
-from apiflask import APIBlueprint, abort, auth_required, input, output
 from flask.views import MethodView
+
+from apiflask import APIBlueprint, PaginationSchema, abort, auth_required, input, output
 
 from backend.fundmate.account.models import Account
 from backend.fundmate.account.schemas import AccountOutSchema, CreateAccountSchema
-from backend.fundmate.base_scheme import EmptySchema, PaginationSchema
 from backend.fundmate.extensions import auth
+from backend.fundmate.schema_ext import EmptySchema
 from backend.fundmate.user.models import User
 from backend.fundmate.user.schemas import UserInSchema, UserOutSchema
 from backend.fundmate.view_ext import paginate_query

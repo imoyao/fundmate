@@ -9,7 +9,7 @@ use_parentheses = true
 balanced_wrapping = true
 ensure_newline_before_comments = true
 line_length = 120
-known_flask = ["flask","flask_wtf","wtforms","flask_bcrypt","flask_caching","flask_migrate","flask_sqlalchemy","flask_static_digest"]
+known_flask = ["flask","flask_wtf","wtforms","flask_bcrypt","flask_caching","flask_migrate","flask_sqlalchemy","flask_static_digest","apiflask"]
 known_test = ["pytest","webtest","factory"]
 sections = ["FUTURE","STDLIB","FLASK","TEST","THIRDPARTY","FIRSTPARTY","LOCALFOLDER"]
 

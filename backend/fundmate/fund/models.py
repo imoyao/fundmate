@@ -221,12 +221,9 @@ class FundSaleOrg(PkModel, UpsertMixin):
     org_id = Column(db.Integer, comment='机构编号')
     name = Column(db.String(30), comment='机构名称')
     known_name = Column(db.String(10), comment='广为人知的代号')
-    addr = Column(db.String(50), comment='注册地')
+    addr = Column(db.String(200), comment='注册地')
     org_type = Column(db.String(30), comment='机构类型')
     date = Column(db.String(10), comment='核准时间')
-
-    def as_name(self):
-        return self.known_name or self.name
 
 
 class FundType(PkModel):
@@ -469,8 +466,8 @@ class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
                        nullable=True,
                        default=0,
                        comment='风险类型（稳健/成长等）')
-    annualized_rate_of_return = Column(db.Numeric(5, 2), comment='成立以来年化')  # 每天计算净值后更新
-    invest_rate_of_return = Column(db.Numeric(5, 2), comment='成立以来收益')  # 每天计算净值后更新
+    annualized_rate_of_return = Column(db.Numeric(7, 4), comment='成立以来年化')  # 保留小数点后4位，每天计算净值后更新
+    invest_rate_of_return = Column(db.Numeric(7, 4), comment='成立以来收益')  # 每天计算净值后更新
     desc = Column(db.String(300), comment='组合描述')
     rich_desc = Column(db.String(1000), comment='组合详细描述')
     update_time = Column(db.DateTime, comment='组合更新时间')
