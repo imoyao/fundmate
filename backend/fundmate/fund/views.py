@@ -1,19 +1,38 @@
 # -*- coding: utf-8 -*-
 """User views."""
+import datetime
+
 from apiflask import APIBlueprint, abort, doc, input, output, pagination_builder
+from flask import current_app
 from flask.views import MethodView
 
-from backend.fundmate.fund.models import Fund, FundCompany, FundMgr, FundPortfolio, FundPortfolioMgr, FundSaleOrg
+import pandas as pd
+from sqlalchemy import create_engine
+
+from backend.fundmate.database import db, get_table_name
+from backend.fundmate.errors import NotHundredPercentSumPortion
+from backend.fundmate.fund.models import (
+    Fund,
+    FundCompany,
+    FundMgr,
+    FundPortfolio,
+    FundPortfolioAdjustHistory,
+    FundPortfolioHoldDetail,
+    FundPortfolioMgr,
+    FundSaleOrg,
+)
 from backend.fundmate.fund.schemas import (
     FundCompanyOutSchema,
     FundInSchema,
     FundOutSchema,
     FundPaginationOutSchema,
     FundPortfolioDetailOutSchema,
+    FundPortfolioInSchema,
     FundPortfoliosOutSchema,
     FundPortfoliosPaginationSchema,
     FundSaleOutSchema,
 )
+from backend.fundmate.libs.pysnowflake import snowflake
 from backend.fundmate.schema_ext import CustomPaginationSchema, EmptySchema
 from backend.fundmate.view_ext import paginate_query
 
@@ -79,7 +98,6 @@ class FundSalesView(MethodView):
     基金销售机构
     """
 
-    # @input(CustomPaginationSchema, 'query')
     @output(FundSaleOutSchema)
     def get(self):
         # 一些常用的销售渠道，在前面列出来
@@ -154,6 +172,57 @@ class FundCombination(MethodView):
         portfolios = pagination.items
         return {'portfolios': portfolios, 'pagination': pagination_builder(pagination)}
 
+    @input(FundPortfolioInSchema)
+    @output(FundPortfolioDetailOutSchema, 201)
+    def post(self, data):
+        """
+        平台用户创建组合
+        :param data:
+        :return:
+        """
+        compositions = data.pop('compositions')
+        if compositions:
+            '''
+            同花顺账本：必须大于0，对于没有分配的，后台用现金（000000）填充
+            好买： 必须选择分配完所有比例才可以提交
+            韭圈儿：没有分配的用现金填充
+            '''
+            comp_df = pd.DataFrame(compositions)
+            comp_df['portion'] = comp_df.portion.apply(lambda x: x / 100)
+            total = comp_df['portion'].sum()
+            if total != 1.0:
+                raise NotHundredPercentSumPortion
+
+            portfolio_code = FundPortfolio.gen_random_digit()
+            data['portfolio_code'] = portfolio_code
+            data['synchronize_session'] = False
+            # 写入数据库
+            fpo = FundPortfolio.create(**data)
+
+            sf = snowflake.generator()
+            adjust_id = next(sf)
+            desc = data.get('desc')
+            adjust_info = {
+                'portfolio_code': portfolio_code,
+                'adjust_id': adjust_id,
+                'update_date': datetime.datetime.now(),
+                'desc': desc,
+                'synchronize_session': False
+            }
+            FundPortfolioAdjustHistory.create(**adjust_info)
+
+            comp_df['adjust_id'] = adjust_id
+            tb_name = get_table_name(FundPortfolioHoldDetail)
+            config = current_app.config
+            SQLALCHEMY_DATABASE_URI = config.get('SQLALCHEMY_DATABASE_URI')
+            engine = create_engine(SQLALCHEMY_DATABASE_URI)
+            comp_df.to_sql(name=tb_name, con=engine, if_exists='append', index=False)
+            # 最后提交
+            db.session.commit()
+            # TODO:计算年化收益，夏普比率，波动率，回撤率之后返回
+            # 需要计算组合信息
+            return fpo
+
 
 @bp.route('/portfolios/<string:portfolio_code>')
 class CombinationDetail(MethodView):
@@ -171,7 +240,44 @@ class CombinationDetail(MethodView):
             mgr_inst = FundPortfolioMgr.query.filter_by(code=mgr_code).one_or_none()
             fpo_info = dict()
             fpo_info['manager'] = mgr_inst
-            # TODO: 对于需要联表查询的对象，是否有更加优雅的处理办法（如果不想将字段联表查询）
+            # FIXME: 对于需要联表查询的对象，是否有更加优雅的处理办法（如果不想将字段联表查询），目前的FundPortfolioDetailOutSchema不兼容点查询和get查询
             fpo_info.update(fpo.__dict__)
             return fpo_info
         abort(404)
+
+    # TODO: 需要进行用户鉴权
+    @output({}, 204)
+    @doc(summary='删除指定基金组合', description='该接口用于删除特定组合，需要给出组合编码')
+    def delete(self, portfolio_code: str):
+        """
+        删除回测组合
+        """
+        # 注意：删除组合时，必须删除历史持仓信息和调仓信息
+        fpo_adjust_history = FundPortfolioAdjustHistory.query.filter_by(portfolio_code=portfolio_code)
+        '''synchronize_session see also:[delete - sqlalchemy - Python documentation - Kite](
+        https://www.kite.com/python/docs/sqlalchemy.orm.Query.delete) 
+
+        chooses the strategy for the removal of matched objects from the session. Valid values are:
+        
+        False - don’t synchronize the session. This option is the most efficient and is reliable once the session is 
+        expired, which typically occurs after a commit(), or explicitly using expire_all(). Before the expiration, 
+        objects may still remain in the session which were in fact deleted which can lead to confusing results if 
+        they are accessed via get() or already loaded collections. 
+        
+        'fetch' - performs a select query before the delete to find objects that are matched by the delete query and 
+        need to be removed from the session. Matched objects are removed from the session. 
+        
+        'evaluate' - Evaluate the query’s criteria in Python straight on the objects in the session. If evaluation of 
+        the criteria isn’t implemented, an error is raised. 
+        
+        The expression evaluator currently doesn't account for differing string collations between the database and 
+        Python. '''
+        fpo_adjust_history.delete(synchronize_session=False)  # 显式commit之后真正删除
+        for fah_item in fpo_adjust_history:
+            adjust_id = fah_item.adjust_id
+            fp_hold_details = FundPortfolioHoldDetail.query.filter_by(adjust_id=adjust_id)
+            fp_hold_details.delete(synchronize_session=False)
+        fpo = FundPortfolio.query.filter_by(portfolio_code=portfolio_code)
+        fpo.delete(synchronize_session=False)
+        db.session.commit()
+        return ''

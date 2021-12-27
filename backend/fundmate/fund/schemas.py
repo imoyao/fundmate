@@ -4,9 +4,11 @@
 """
 类比DRF中的serializer
 """
+import datetime
+
 from apiflask import PaginationSchema, Schema
-from apiflask.fields import Date, Function, Integer, List, Method, Nested, Number, String
-from apiflask.validators import Length, OneOf
+from apiflask.fields import Boolean, Date, DateTime, Float, Function, Integer, List, Method, Nested, Number, String
+from apiflask.validators import Equal, Length, OneOf
 
 from backend.fundmate import settings
 from backend.fundmate.schema_ext import CustomPaginationSchema
@@ -72,13 +74,46 @@ class FundPortfoliosOutSchema(Schema):
     pagination = Nested(PaginationSchema)
 
 
+class CompositionsSchema(Schema):
+    fd_code = String(required=True,
+                     Length=6,
+                     data_key='code',
+                     metadata={
+                         'title': '组合品类编号',
+                         'description': '未分配比例部分请按照现金（000000）分配'
+                     })
+    portion = Float(required=True,
+                    min=0,
+                    max=100,
+                    min_inclusive=False,
+                    data_key='ratio',
+                    metadata={
+                        'title': '投资比例',
+                        'description': '请输入 (0-100] 之间的数字作为分配比例'
+                    })
+
+
+class FundPortfolioInSchema(Schema):
+    name = String(required=True, validate=Length(2, 10))
+    found_date = Date(default=datetime.date.today())
+    is_visible = Boolean(default=True)
+    mgr_code = String()
+    platform = String(load_default='own', validate=Equal('own'))  # 用户创建只能是undefined,不然会导致后续出错
+    risk_type = String(default=None, validate=OneOf(settings.RISK_TYPE.keys()))
+    desc = String(validate=Length(0, 300))
+    rich_desc = String(validate=Length(0, 1000))
+    update_time = DateTime(default=datetime.datetime.now(), format='iso')
+    last_adjust_date = Date(default=datetime.date.today())
+    compositions = List(Nested(CompositionsSchema))
+
+
 class FundPortfolioDetailOutSchema(Schema):
     """
     组合详细信息
     """
 
-    def display_risk(self, obj):
-        return settings.RISK_TYPE_DISPLAY.get(obj.get('risk_type'))
+    # def display_risk(self, obj):
+    #     return settings.RISK_TYPE_DISPLAY.get(obj.get('risk_type'))
 
     # def get_platform(self, obj):
     #     return settings.PLAT_TYPE_DISPLAY.get(obj.get('platform'))
@@ -93,10 +128,14 @@ class FundPortfolioDetailOutSchema(Schema):
     code = String(data_key='plat_code')
     found_date = Date(data_key='create_date')
     risk_type = String(data_key='risk_str')
-    risk_display = Function(lambda obj: display_risk(obj.get('risk_type')))
+    # TODO: 如何处理get和.xxx的冲突
+    # risk_display = Function(lambda obj: display_risk(obj.get('risk_type')))
+    risk_display = Function(lambda obj: display_risk(obj.risk_type))
     platform = String(metadata={'title': '所属平台', 'description': '具体请查看`platform_name`字段'})
-    platform_name = Function(lambda obj: get_platform(obj.get('platform')))
-    risk_level = Function(lambda obj: get_risk_level(obj.get('risk_type')))
+    # platform_name = Function(lambda obj: get_platform(obj.get('platform')))
+    platform_name = Function(lambda obj: get_platform(obj.platform))
+    # risk_level = Function(lambda obj: get_risk_level(obj.get('risk_type')))
+    risk_level = Function(lambda obj: get_risk_level(obj.risk_type))
     invest_rate_of_return = Number(metadata={'title': '投资回报率', 'description': ''})
     annualized_rate_of_return = Number(metadata={'title': '年化回报率', 'description': ''})
     desc = String()
@@ -170,4 +209,3 @@ class MidSaleSchema(Schema):
 
 class FundSaleOutSchema(Schema):
     options = List(Nested(MidSaleSchema))
-    # all = Nested(MidSaleSchema)
