@@ -80,6 +80,7 @@ PLAT_TYPE = {
     'qm': 1,  # '且慢'
     'tt': 2,  # '天天基金'
     'dj': 3,  # '蛋卷基金'
+    'own': 4,
 }
 
 PLAT_TYPE_DISPLAY = {
@@ -87,4 +88,5 @@ PLAT_TYPE_DISPLAY = {
     'qm': '且慢',
     'tt': '天天基金',
     'dj': '蛋卷基金',
+    'own': '平台自建',
 }

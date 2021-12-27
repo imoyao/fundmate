@@ -3,8 +3,9 @@
 from datetime import datetime
 from typing import Union
 
-import sqlalchemy.types as types
 from apiflask import pagination_builder
+
+import sqlalchemy.types as types
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.sql import func
@@ -26,8 +27,10 @@ class CRUDMixin(object):
     @classmethod
     def create(cls, **kwargs):
         """Create a new record and save it the database."""
+        commit = kwargs.pop('synchronize_session')
         instance = cls(**kwargs)
-        instance.save()
+
+        instance.save(commit=commit)
         return instance
 
     def update(self, commit: bool = True, **kwargs):

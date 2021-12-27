@@ -3,9 +3,8 @@
 import logging
 import sys
 
-from flask import Flask
-
 from apiflask import APIFlask
+from flask import Flask
 
 from backend.fundmate import account, commands, fund, public, settings, user
 from backend.fundmate.config import config
@@ -30,7 +29,7 @@ def create_app(config_object: str = "backend.fundmate.settings"):
     register_shell_context(app)
     register_commands(app)
     configure_logger(app)
-    logger.info('Flask app has created!')
+    logger.info('Fund Mate has created!')
     '''
     RuntimeError: No application found. Either work inside a view function or push an application context. 
     See also: http://flask-sqlalchemy.pocoo.org/contexts/ .
@@ -85,7 +84,7 @@ def register_error_handlers(app: APIFlask):
         """Render error template."""
         # If a HTTPException, pull the `code` attribute; default to 500
         error_code = getattr(error, "code", 500)
-        detail = error.detail or None
+        detail = error.detail or error.message or None
         try:
             extra_data = error.extra_data
         except AttributeError:
