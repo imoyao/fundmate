@@ -85,10 +85,10 @@ class FundSalesView(MethodView):
         # 一些常用的销售渠道，在前面列出来
         hot_market_place = FundSaleOrg.query.filter(FundSaleOrg.known_name.isnot(None)).all()
         all_market_place = FundSaleOrg.query.all()
-        market_place = {
-            'hot': hot_market_place,
-            'all': all_market_place,
-        }
+        hot_places = {'label': '热门渠道', 'options': hot_market_place}
+        all_places = {'label': '所有渠道', 'options': all_market_place}
+        all_options = [hot_places, all_places]
+        market_place = {'options': all_options}
         return market_place
 
 
