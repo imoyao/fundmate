@@ -163,6 +163,11 @@ class SaleSchema(Schema):
     name = Method('as_name')
 
 
+class MidSaleSchema(Schema):
+    label = String()
+    options = List(Nested(SaleSchema))
+
+
 class FundSaleOutSchema(Schema):
-    hot = List(Nested(SaleSchema))
-    all = List(Nested(SaleSchema))
+    options = List(Nested(MidSaleSchema))
+    # all = Nested(MidSaleSchema)
