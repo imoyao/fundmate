@@ -477,6 +477,9 @@ class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
                            foreign_keys=[mgr_code],
                            primaryjoin='FundPortfolioMgr.code == FundPortfolio.mgr_code')
 
+    # TODO: 如果是平台用户自建，如何获取用户信息？
+    # owner = relationship('User', foreign_keys=[mgr_code], primaryjoin='User.id == FundPortfolio.mgr_code')
+
     def __repr__(self):
         plat_name = display(settings.PLAT_TYPE_DISPLAY, self.platform)
         risk_name = display(settings.RISK_TYPE_DISPLAY, self.risk_type)
