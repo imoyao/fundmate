@@ -255,13 +255,7 @@ class CombinationDetail(MethodView):
         """获取指定基金组合信息"""
         fpo = FundPortfolio.query.filter_by(portfolio_code=portfolio_code).one_or_none()
         if fpo is not None:
-            mgr_code = fpo.mgr_code
-            mgr_inst = FundPortfolioMgr.query.filter_by(code=mgr_code).one_or_none()
-            fpo_info = dict()
-            fpo_info['manager'] = mgr_inst
-            # FIXME: 对于需要联表查询的对象，是否有更加优雅的处理办法（如果不想将字段联表查询），目前的FundPortfolioDetailOutSchema不兼容点查询和get查询
-            fpo_info.update(fpo.__dict__)
-            return fpo_info
+            return fpo
         abort(404)
 
     # TODO: 需要进行用户鉴权

@@ -473,6 +473,10 @@ class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
     update_time = Column(db.DateTime, comment='组合更新时间')
     last_adjust_date = Column(db.Date, comment='组合最后一次调整时间')
 
+    manager = relationship("FundPortfolioMgr",
+                           foreign_keys=[mgr_code],
+                           primaryjoin="FundPortfolioMgr.code == FundPortfolio.mgr_code")
+
     def __repr__(self):
         plat_name = display(settings.PLAT_TYPE_DISPLAY, self.platform)
         risk_name = display(settings.RISK_TYPE_DISPLAY, self.risk_type)
