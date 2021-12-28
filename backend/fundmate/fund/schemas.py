@@ -4,10 +4,8 @@
 """
 类比DRF中的serializer
 """
-import datetime
-
 from apiflask import PaginationSchema, Schema
-from apiflask.fields import Boolean, Date, DateTime, Float, Function, Integer, List, Method, Nested, Number, String
+from apiflask.fields import Boolean, Date, Float, Function, Integer, List, Method, Nested, Number, String
 from apiflask.validators import Equal, Length, OneOf
 
 from backend.fundmate import settings
@@ -95,15 +93,26 @@ class CompositionsSchema(Schema):
 
 class FundPortfolioInSchema(Schema):
     name = String(required=True, validate=Length(2, 10))
-    found_date = Date(default=datetime.date.today())
     is_visible = Boolean(default=True)
-    mgr_code = String()
-    platform = String(load_default='own', validate=Equal('own'))  # 用户创建只能是undefined,不然会导致后续出错
+    mgr_code = String()  # TODO: 应该在函数内部获取
+    platform = String(load_default='own', validate=Equal('own'))  # 用户创建只能是own,不然会导致后续出错
     risk_type = String(default=None, validate=OneOf(settings.RISK_TYPE.keys()))
     desc = String(validate=Length(0, 300))
     rich_desc = String(validate=Length(0, 1000))
-    update_time = DateTime(default=datetime.datetime.now(), format='iso')
-    last_adjust_date = Date(default=datetime.date.today())
+    compositions = List(Nested(CompositionsSchema))
+
+
+class FundPortfolioPatchInSchema(Schema):
+    name = String(required=True, validate=Length(2, 10))
+    is_visible = Boolean(default=True)
+    risk_type = String(default=None, validate=OneOf(settings.RISK_TYPE.keys()))
+    desc = String(validate=Length(0, 300))
+    rich_desc = String(validate=Length(0, 1000))
+    adjust_comment = String(validate=Length(0, 300),
+                            metadata={
+                                'title': '调仓观点',
+                                'description': '在进行调仓操作时，可以输入调仓理由和操作观点，以便后续进行投资复盘。'
+                            })
     compositions = List(Nested(CompositionsSchema))
 
 
@@ -111,13 +120,6 @@ class FundPortfolioDetailOutSchema(Schema):
     """
     组合详细信息
     """
-
-    # def display_risk(self, obj):
-    #     return settings.RISK_TYPE_DISPLAY.get(obj.get('risk_type'))
-
-    # def get_platform(self, obj):
-    #     return settings.PLAT_TYPE_DISPLAY.get(obj.get('platform'))
-
     id = Integer()
     name = String(metadata={'title': '组合名称', 'description': '组合名称'})
     ''':type
@@ -129,12 +131,9 @@ class FundPortfolioDetailOutSchema(Schema):
     found_date = Date(data_key='create_date')
     risk_type = String(data_key='risk_str')
     # TODO: 如何处理get和.xxx的冲突
-    # risk_display = Function(lambda obj: display_risk(obj.get('risk_type')))
     risk_display = Function(lambda obj: display_risk(obj.risk_type))
     platform = String(metadata={'title': '所属平台', 'description': '具体请查看`platform_name`字段'})
-    # platform_name = Function(lambda obj: get_platform(obj.get('platform')))
     platform_name = Function(lambda obj: get_platform(obj.platform))
-    # risk_level = Function(lambda obj: get_risk_level(obj.get('risk_type')))
     risk_level = Function(lambda obj: get_risk_level(obj.risk_type))
     invest_rate_of_return = Number(metadata={'title': '投资回报率', 'description': ''})
     annualized_rate_of_return = Number(metadata={'title': '年化回报率', 'description': ''})
