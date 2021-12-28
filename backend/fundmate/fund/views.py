@@ -139,14 +139,14 @@ class FundDetail(MethodView):
         return user
 
 
-@bp.route('/<int:fund_id>/followers')
+@bp.route('/<int:fund_code>/followers')
 class FundFavor(MethodView):
     """
     某支基金的关注者
     """
 
     @output(FundOutSchema)
-    def get(self, fund_id: str):
+    def get(self, fund_code: str):
         """获取指定基金信息"""
         pass
 
@@ -258,18 +258,18 @@ class CombinationDetail(MethodView):
         https://www.kite.com/python/docs/sqlalchemy.orm.Query.delete) 
 
         chooses the strategy for the removal of matched objects from the session. Valid values are:
-        
+
         False - don’t synchronize the session. This option is the most efficient and is reliable once the session is 
         expired, which typically occurs after a commit(), or explicitly using expire_all(). Before the expiration, 
         objects may still remain in the session which were in fact deleted which can lead to confusing results if 
         they are accessed via get() or already loaded collections. 
-        
+
         'fetch' - performs a select query before the delete to find objects that are matched by the delete query and 
         need to be removed from the session. Matched objects are removed from the session. 
-        
+
         'evaluate' - Evaluate the query’s criteria in Python straight on the objects in the session. If evaluation of 
         the criteria isn’t implemented, an error is raised. 
-        
+
         The expression evaluator currently doesn't account for differing string collations between the database and 
         Python. '''
         fpo_adjust_history.delete(synchronize_session=False)  # 显式commit之后真正删除
