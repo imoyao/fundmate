@@ -7,6 +7,7 @@
 from apiflask import Schema
 from apiflask.fields import Boolean, Email, Integer, String
 from apiflask.validators import Equal, Length
+
 from marshmallow import ValidationError, pre_load
 
 from backend.fundmate.user.models import User
@@ -18,19 +19,14 @@ class UserOutSchema(Schema):
     email = Email()
 
 
-# class UserInSchema(Schema):
-#     username = String(required=True, validate=Length(5, 25))
-#     password = String(required=True, validate=Length(6, 40))
-#     email = Email(required=True, validate=Length(6, 40))
-
-
 class UserInSchema(Schema):
     username = String(required=True, validate=Length(5, 25))
     password = String(required=True, validate=Length(6, 40))
     email = Email(required=True, validate=Length(6, 40))
     is_activated = Boolean()
 
-    # kwargs:[TypeError: pre_load() got an unexpected keyword argument 'many' · Issue #1630 · marshmallow-code/marshmallow](https://github.com/marshmallow-code/marshmallow/issues/1630)
+    # kwargs:[TypeError: pre_load() got an unexpected keyword argument 'many' · Issue #1630 ·
+    # marshmallow-code/marshmallow](https://github.com/marshmallow-code/marshmallow/issues/1630)
     @pre_load(pass_many=True)
     def register_validate(self, data, **kwargs):
         """Validate the form."""
