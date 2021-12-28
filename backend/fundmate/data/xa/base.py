@@ -3,14 +3,16 @@
 # Created by imoyao at 2021/1/28 18:12
 import traceback
 
+from flask import current_app
+
 import xalpha as xa
 from sqlalchemy import create_engine
 
-from backend.fundmate import settings
 from backend.fundmate.exts.flask_loguru import logger
 
-DB_URL = settings.SQLALCHEMY_DATABASE_URI
-engine = create_engine(DB_URL)
+config = current_app.config
+SQLALCHEMY_DATABASE_URI = config.get('SQLALCHEMY_DATABASE_URI')
+engine = create_engine(SQLALCHEMY_DATABASE_URI)
 
 
 def fund_info(fund_code: str, save: bool = False) -> dict:
