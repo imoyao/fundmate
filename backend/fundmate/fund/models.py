@@ -33,12 +33,12 @@ class DailyWorth(PkModel, CreateDateModel):
     price = Column(db.Float, comment='基金单日净值')
     date = Column(db.Date, comment='日期')
     fund_id = reference_col('funds', column_kwargs={'comment': '基金编号ID'})
-    fund = relationship("Fund", uselist=False, back_populates="daily_worth")
+    fund = relationship('Fund', uselist=False, back_populates='daily_worth')
 
 
 class Fund(PkModel, UpsertMixin):
     """基金表"""
-    __tablename__ = "funds"
+    __tablename__ = 'funds'
     __table_args__ = {'comment': '基金表'}
     # TODO: 验证规则
     '''
@@ -86,7 +86,7 @@ class Fund(PkModel, UpsertMixin):
     is_fe_charge_mode = Column(db.Boolean, comment='收费方式（前端/后端）')  #
     last_modified = Column(db.TIMESTAMP,
                            nullable=False,
-                           server_default=db.text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
+                           server_default=db.text('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'),
                            comment='数据上次更新时间')
     '''基金、净值为一对一关系，所以需要对两者都添加`relationship` [Basic Relationship Patterns — SQLAlchemy 1.4 Documentation](
     https://docs.sqlalchemy.org/en/14/orm/basic_relationships.html#one-to-one) '''
@@ -117,11 +117,11 @@ class Fund(PkModel, UpsertMixin):
         return _ins
 
     def __repr__(self):
-        return f"<Fund({self.fund_code!r}, {self.name!r})>"
+        return f'<Fund({self.fund_code!r}, {self.name!r})>'
 
 
 class Mgr(PkModel, UpsertMixin):
-    __tablename__ = "mgrs"
+    __tablename__ = 'mgrs'
     __table_args__ = {'comment': '基金经理'}
 
     mgr_code = Column(db.Integer, comment='经理编号（以天天基金为准）')
@@ -132,7 +132,7 @@ class Mgr(PkModel, UpsertMixin):
     best_rt = Column(db.Numeric(7, 2), nullable=True, comment='最佳回报(%) ')  # 长度10，精度2
     last_modified = Column(db.TIMESTAMP,
                            nullable=False,
-                           server_default=db.text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
+                           server_default=db.text('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'),
                            comment='数据上次更新时间')
     # 在管基金
     '''
@@ -145,7 +145,7 @@ class Mgr(PkModel, UpsertMixin):
     funds = relationship('Fund', secondary='fund_mgr', back_populates='mgrs')
 
     def __repr__(self):
-        return f"<Fund Manager({self.mgr_code!r}, {self.name!r})>"
+        return f'<Fund Manager({self.mgr_code!r}, {self.name!r})>'
 
     @classmethod
     def filter_by_code(cls, code: str) -> Mgr:
@@ -202,7 +202,7 @@ class FundCompany(PkModel, UpsertMixin):
     update_time = Column(db.DateTime, comment='数据更新时间')
     last_modified = Column(db.TIMESTAMP,
                            nullable=False,
-                           server_default=db.text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
+                           server_default=db.text('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'),
                            comment='数据上次更新时间')
 
     @classmethod
@@ -318,8 +318,8 @@ class InRule(PkModel, UpsertMixin):
             return float(quota) if isinstance(quota, (float, Decimal)) else int(quota)
 
     def __repr__(self):
-        return f"<InRule(start quota:{self.readable_quota(self.start_quota)!r}," \
-               f"end quota:{self.readable_quota(self.end_quota)!r})> "
+        return f'<InRule(start quota:{self.readable_quota(self.start_quota)!r},' \
+               f'end quota:{self.readable_quota(self.end_quota)!r})> '
 
 
 class OutRule(PkModel, UpsertMixin):
@@ -331,7 +331,7 @@ class OutRule(PkModel, UpsertMixin):
     def __repr__(self):
         if self.end_day is None:
             self.end_day = float('inf')
-        return f"<OutRule(start day:{self.start_day!r},end day:{self.end_day!r})>"
+        return f'<OutRule(start day:{self.start_day!r},end day:{self.end_day!r})>'
 
 
 class FeeRatio(PkModel, UpsertMixin):
@@ -352,7 +352,7 @@ class FeeRatio(PkModel, UpsertMixin):
     fee_amount = Column(db.Numeric(6, 2), comment='收费金额（超过xx万时一次收费，此时rate应该为空）')
     last_modified = Column(db.TIMESTAMP,
                            nullable=False,
-                           server_default=db.text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
+                           server_default=db.text('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'),
                            comment='数据上次更新时间')
 
     def __repr__(self):
@@ -363,7 +363,7 @@ class FeeRatio(PkModel, UpsertMixin):
         else:
             rule_class = OutRule
         rule_inst = rule_class.get_by_id(self.rule_id)
-        return f"<FeeRatio(id:{self.fund_id},code:{self.code!r},type:{self.fee_type!r},{rule_inst!r})>"
+        return f'<FeeRatio(id:{self.fund_id},code:{self.code!r},type:{self.fee_type!r},{rule_inst!r})>'
 
     @hybrid_property
     def rule_id(self):
@@ -473,14 +473,14 @@ class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
     update_time = Column(db.DateTime, comment='组合更新时间')
     last_adjust_date = Column(db.Date, comment='组合最后一次调整时间')
 
-    manager = relationship("FundPortfolioMgr",
+    manager = relationship('FundPortfolioMgr',
                            foreign_keys=[mgr_code],
-                           primaryjoin="FundPortfolioMgr.code == FundPortfolio.mgr_code")
+                           primaryjoin='FundPortfolioMgr.code == FundPortfolio.mgr_code')
 
     def __repr__(self):
         plat_name = display(settings.PLAT_TYPE_DISPLAY, self.platform)
         risk_name = display(settings.RISK_TYPE_DISPLAY, self.risk_type)
-        return f"<FundPortfolio({self.name!r}, {plat_name!r}, {risk_name!r})>"
+        return f'<FundPortfolio({self.name!r}, {plat_name!r}, {risk_name!r})>'
 
     @classmethod
     def gen_random_digit(cls) -> Optional[str]:
@@ -520,7 +520,7 @@ class FundPortfolioMgr(PkModel, UpsertMixin):
 
     def __repr__(self):
         plat_name = display(settings.PLAT_TYPE_DISPLAY, self.platform)
-        return f"<FundPortfolioMgr({self.name!r}, {plat_name!r} )>"
+        return f'<FundPortfolioMgr({self.name!r}, {plat_name!r} )>'
 
     @classmethod
     def gen_mgr_code(cls) -> Optional[str]:
@@ -550,7 +550,7 @@ class FundPortfolioAdjustHistory(PkModel):
     desc = Column(db.String(300), comment='调仓说明')
 
     def __repr__(self):
-        return f"组合( {self.portfolio_code!r} ) 调仓时间： {self.update_date!r}，记录编号：{self.adjust_id!r}>"
+        return f'组合( {self.portfolio_code!r} ) 调仓时间： {self.update_date!r}，记录编号：{self.adjust_id!r}>'
 
     # def get_record_adjust_count(self, portfolio_code: str):
     #     return FundPortfolioAdjustHistory.query.filter_by(portfolio_code=portfolio_code).count()
