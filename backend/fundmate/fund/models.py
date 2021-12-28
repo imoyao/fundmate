@@ -473,9 +473,13 @@ class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
     update_time = Column(db.DateTime, comment='组合更新时间')
     last_adjust_date = Column(db.Date, comment='组合最后一次调整时间')
 
-    manager = relationship('FundPortfolioMgr',
-                           foreign_keys=[mgr_code],
-                           primaryjoin='FundPortfolioMgr.code == FundPortfolio.mgr_code')
+    manager = relationship(
+        'FundPortfolioMgr',
+        foreign_keys=[mgr_code],
+        primaryjoin='and_(FundPortfolioMgr.code == FundPortfolio.mgr_code, FundPortfolio.platform!=4)')
+
+    # TODO: 如果是平台用户自建，如何获取用户信息？
+    # owner = relationship('User', foreign_keys=[mgr_code], primaryjoin='User.id == FundPortfolio.mgr_code')
 
     def __repr__(self):
         plat_name = display(settings.PLAT_TYPE_DISPLAY, self.platform)

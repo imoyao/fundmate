@@ -10,6 +10,7 @@ from apiflask.validators import Equal, Length, OneOf
 
 from backend.fundmate import settings
 from backend.fundmate.schema_ext import CustomPaginationSchema
+from backend.fundmate.user.models import User
 
 
 class FundOutSchema(Schema):
@@ -116,13 +117,36 @@ class FundPortfolioPatchInSchema(Schema):
     compositions = List(Nested(CompositionsSchema))
 
 
+class FundPortfolioWithUserOutSchema(Schema):
+    id = String(data_key='code')
+    username = String(data_key='name')
+    custom_avatar = String(data_key='mgr_avatar_url')
+    desc = String(default='用户自述')
+
+
+def internal_fpo_manager(obj):
+    """
+    内部用户自建组合的用户信息从`User`表中获取
+    :param obj:
+    :return:
+    """
+    if not obj.manager and obj.platform == 'own':
+        mgr_id = int(obj.mgr_code)
+        user = User.query.filter_by(id=mgr_id).one_or_none()
+        # [python - Is it possible to use a schema for a marshmallow custom field? - Stack Overflow](
+        # https://stackoverflow.com/questions/49802142/is-it-possible-to-use-a-schema-for-a-marshmallow-custom-field)
+        # [Custom Fields — marshmallow 3.14.1 documentation](
+        # https://marshmallow.readthedocs.io/en/stable/custom_fields.html)
+        return FundPortfolioWithUserOutSchema().dump(user)
+
+
 class FundPortfolioDetailOutSchema(Schema):
     """
     组合详细信息
     """
     id = Integer()
     name = String(metadata={'title': '组合名称', 'description': '组合名称'})
-    ''':type
+    '''
     返回值重命名，避免字段暴露 see also: https://apiflask.com/usage/#the-return-value-of-the-view-function
     [What if I want to use a different external field name]
     '''
@@ -130,7 +154,6 @@ class FundPortfolioDetailOutSchema(Schema):
     code = String(data_key='plat_code')
     found_date = Date(data_key='create_date')
     risk_type = String(data_key='risk_str')
-    # TODO: 如何处理get和.xxx的冲突
     risk_display = Function(lambda obj: display_risk(obj.risk_type))
     platform = String(metadata={'title': '所属平台', 'description': '具体请查看`platform_name`字段'})
     platform_name = Function(lambda obj: get_platform(obj.platform))
@@ -140,7 +163,16 @@ class FundPortfolioDetailOutSchema(Schema):
     desc = String()
     rich_desc = String()
     last_adjust_date = Date()
-    manager = Nested(FundPortfolioMgrOutSchema)
+    manager = Nested(FundPortfolioMgrOutSchema,
+                     metadata={
+                         'title': '组合管理者',
+                         'description': '记录组合管理者的信息，包括姓名、所属平台、头像链接等信息'
+                     })
+    extra_owner = Function(lambda obj: internal_fpo_manager(obj),
+                           metadata={
+                               'title': '平台內建组合管理者信息',
+                               'description': '系统除了依靠外部数据维护一部分组合外，内部用户也可以构建自由组合，此时用户信息从该字段中获取。'
+                           })
 
 
 class FundSampleSchema(Schema):
