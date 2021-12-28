@@ -10,6 +10,7 @@ from apiflask.validators import Equal, Length, OneOf
 
 from backend.fundmate import settings
 from backend.fundmate.schema_ext import CustomPaginationSchema
+from backend.fundmate.user.models import User
 
 
 class FundOutSchema(Schema):
@@ -116,6 +117,26 @@ class FundPortfolioPatchInSchema(Schema):
     compositions = List(Nested(CompositionsSchema))
 
 
+class FundPortfolioWithUserOutSchema(Schema):
+    id = String()
+    name = String()
+    # plat_code = 'own'
+    custom_avatar = String()
+    # desc = '用户自述'
+
+
+def get_fpo_manager(obj):
+    print(obj.manager)
+    if not obj.manager:
+        mgr_id = int(obj.mgr_code)
+        user = User.query.filter_by(id=mgr_id).first()
+        print(user, '-------------')
+        # [python - Is it possible to use a schema for a marshmallow custom field? - Stack Overflow](https://stackoverflow.com/questions/49802142/is-it-possible-to-use-a-schema-for-a-marshmallow-custom-field)
+        # [Custom Fields — marshmallow 3.14.1 documentation](https://marshmallow.readthedocs.io/en/stable/custom_fields.html)
+        # BlogSchema().dump(blog)
+        return FundPortfolioWithUserOutSchema().dump(user)
+
+
 class FundPortfolioDetailOutSchema(Schema):
     """
     组合详细信息
@@ -140,7 +161,8 @@ class FundPortfolioDetailOutSchema(Schema):
     desc = String()
     rich_desc = String()
     last_adjust_date = Date()
-    manager = Nested(FundPortfolioMgrOutSchema)
+    manager = Nested(FundPortfolioWithUserOutSchema)
+    extra_owner = Function(lambda obj: get_fpo_manager(obj))
 
 
 class FundSampleSchema(Schema):
