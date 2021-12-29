@@ -19,7 +19,6 @@ from backend.fundmate.fund.models import (
     FundPortfolio,
     FundPortfolioAdjustHistory,
     FundPortfolioHoldDetail,
-    FundPortfolioMgr,
     FundSaleOrg,
 )
 from backend.fundmate.fund.schemas import (
@@ -235,8 +234,8 @@ def fund_portfolio_adjust(portfolio_code: str, adjust_comment: str, comp_df: pd.
     comp_df['adjust_id'] = adjust_id
     tb_name = get_table_name(FundPortfolioHoldDetail)
     config = current_app.config
-    SQLALCHEMY_DATABASE_URI = config.get('SQLALCHEMY_DATABASE_URI')
-    engine = create_engine(SQLALCHEMY_DATABASE_URI)
+    sqlalchemy_database_uri = config.get('SQLALCHEMY_DATABASE_URI')
+    engine = create_engine(sqlalchemy_database_uri)
     comp_df.to_sql(name=tb_name, con=engine, if_exists='append', index=False)
     # 最后提交
     db.session.commit()
