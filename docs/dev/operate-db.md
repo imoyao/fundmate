@@ -49,7 +49,15 @@ WHERE
 
 1. 分步查询，在view函数中将组合管理员信息更新到组合对象中：
 ```python
-
+fpo = FundPortfolio.query.filter_by(portfolio_code=portfolio_code).one_or_none()
+if fpo is not None:
+    mgr_code = fpo.mgr_code
+    mgr_inst = FundPortfolioMgr.query.filter_by(code=mgr_code).one_or_none()
+    fpo_info = dict()
+    fpo_info['manager'] = mgr_inst
+    # FIXME: 对于需要联表查询的对象，是否有更加优雅的处理办法（如果不想将字段联表查询），目前的FundPortfolioDetailOutSchema不兼容点查询和get查询
+    fpo_info.update(fpo.__dict__)
+    return fpo_info
 ```
 这样带来的问题是，我们的`FundPortfolioDetailOutSchema`通用性降低，因为其中个别字段使用`Function`，如此一来，其中的点查询`fpo.manager`将无法获取对象的属性，必须将object当作字典处理来获取信息，即`manager.get('name')`，这显然不是一种优雅的处理方式；
 
@@ -59,7 +67,7 @@ class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
     ...
 
     @property
-    def managers(self):
+    def manager(self):
         return FundPortfolioMgr.query.filter_by(self.platform !="own",code=self.mgr_code).one_or_none()
 ```
 这样就可以使用点查询了：
@@ -79,6 +87,7 @@ class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
                        foreign_keys=[mgr_code],
                        primaryjoin='FundPortfolioMgr.code == FundPortfolio.mgr_code')
 ```
+完整代码参考：[此处](https://github.com/imoyao/fundmate/blob/5723c8304be87c5bde040c0716b8c407c860bea7/backend/fundmate/fund/models.py#L477)
 该方法可以在不使用架构级别的外键设计的同时很方便地将对象关联起来。其中`primaryjoin`参数为两个表的关联条件。
 ::: warning
 在封装内部，会调用`eval()`方法作为查询条件。正如我们知道的那样，不要将不信任的字符传入其中。
@@ -97,8 +106,11 @@ fpo = FundPortfolio.query.filter_by(portfolio_code=portfolio_code).one_or_none()
 ```python
 extra_owner = relationship('User', foreign_keys=[mgr_code], primaryjoin='User.id == FundPortfolio.mgr_code')
 ```
-我们在fund.models导入user.models.User定义并引用时会报错：
-```sqlalchemy.exc.InvalidRequestError: When initializing mapper mapped class FundPortfolio->fund_portfolio, expression 'User.id == FundPortfolio.mgr_code' failed to locate a name ("name 'User' is not defined"). If this is a class name, consider adding this relationship() to the <class 'backend.fundmate.fund.models.FundPortfolio'> class after both dependent classes have been defined.
+完整代码参考：[此处](https://github.com/imoyao/fundmate/blob/5723c8304be87c5bde040c0716b8c407c860bea7/backend/fundmate/fund/models.py#L483)
+
+不过，我们在`fund.models`导入`user.models.User`定义并引用时会报错：
+```
+sqlalchemy.exc.InvalidRequestError: When initializing mapper mapped class FundPortfolio->fund_portfolio, expression 'User.id == FundPortfolio.mgr_code' failed to locate a name ("name 'User' is not defined"). If this is a class name, consider adding this relationship() to the <class 'backend.fundmate.fund.models.FundPortfolio'> class after both dependent classes have been defined.
 ```
 这段话中提示`User`定义未找到，看来两个数据类（`User`和`FundPortfolio`）不在同一个`models.py`文件内这样引用，代码是无法找到数据类定义的！
 
@@ -108,7 +120,7 @@ class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
     ...
     
     @property
-    def managers(self):
+    def manager(self):  # 示例代码中为了避免命名空间重复问题，我们将方法定义为`managers`
         """
         使用装饰器方法变属性
         :return:
@@ -120,6 +132,8 @@ class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
             user = User.query.filter_by(id=mgr_id).one_or_none()
             return user
 ```
+完整代码参考：[此处](https://github.com/imoyao/fundmate/blob/5723c8304be87c5bde040c0716b8c407c860bea7/backend/fundmate/fund/models.py#L490)
+
 但是，考虑到数据类设计的问题，在后续序列化输出的时候，可能我们没法很好地定义。
 
 此外，或许~~我们可以尝试将数据定义类放在一起~~。但是考虑到代码结构设计的问题，我们没有继续探索这条路线的可行性。
