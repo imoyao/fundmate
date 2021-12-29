@@ -3,15 +3,15 @@
 # Created by imoyao at 2021/2/13 17:50
 from __future__ import annotations
 
+import random
 from decimal import Decimal
-from typing import Union
+from typing import Optional, Union
 
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.ext.hybrid import hybrid_property
 
 from backend.fundmate import settings
 from backend.fundmate.database import (
-    Base,
     ChoiceType,
     ChoiceTypeInteger,
     Column,
@@ -23,6 +23,7 @@ from backend.fundmate.database import (
     reference_col,
     relationship,
 )
+from backend.fundmate.user.models import User
 
 
 class DailyWorth(PkModel, CreateDateModel):
@@ -33,12 +34,12 @@ class DailyWorth(PkModel, CreateDateModel):
     price = Column(db.Float, comment='基金单日净值')
     date = Column(db.Date, comment='日期')
     fund_id = reference_col('funds', column_kwargs={'comment': '基金编号ID'})
-    fund = relationship("Fund", uselist=False, back_populates="daily_worth")
+    fund = relationship('Fund', uselist=False, back_populates='daily_worth')
 
 
 class Fund(PkModel, UpsertMixin):
     """基金表"""
-    __tablename__ = "funds"
+    __tablename__ = 'funds'
     __table_args__ = {'comment': '基金表'}
     # TODO: 验证规则
     '''
@@ -86,7 +87,7 @@ class Fund(PkModel, UpsertMixin):
     is_fe_charge_mode = Column(db.Boolean, comment='收费方式（前端/后端）')  #
     last_modified = Column(db.TIMESTAMP,
                            nullable=False,
-                           server_default=db.text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
+                           server_default=db.text('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'),
                            comment='数据上次更新时间')
     '''基金、净值为一对一关系，所以需要对两者都添加`relationship` [Basic Relationship Patterns — SQLAlchemy 1.4 Documentation](
     https://docs.sqlalchemy.org/en/14/orm/basic_relationships.html#one-to-one) '''
@@ -117,22 +118,22 @@ class Fund(PkModel, UpsertMixin):
         return _ins
 
     def __repr__(self):
-        return f"<Fund({self.fund_code!r}, {self.name!r})>"
+        return f'<Fund({self.fund_code!r}, {self.name!r})>'
 
 
 class Mgr(PkModel, UpsertMixin):
-    __tablename__ = "mgrs"
+    __tablename__ = 'mgrs'
     __table_args__ = {'comment': '基金经理'}
 
     mgr_code = Column(db.Integer, comment='经理编号（以天天基金为准）')
     name = Column(db.String(30), comment='经理名称')  # 'FAN BING(范冰)' 带英文的字符长度
     company_id = Column(db.Integer, db.ForeignKey('fund_company.id'), comment='所属公司ID')
-    work_days = Column(db.Integer, comment='总任职时间')  # TODO: 此处是否需要这样写死，是否需要自动计算（每天+1），应该写入工作时间（但是那样的话换公司就没法累计了）
+    work_days = Column(db.Integer, comment='总任职时间')  # TODO: 此处不需要写死，只记录上任日期即可，需要修改字段
     sum_scale = Column(db.Numeric(8, 2), nullable=True, comment='现管理资产总规模(亿元) ')  # 长度10，精度2
     best_rt = Column(db.Numeric(7, 2), nullable=True, comment='最佳回报(%) ')  # 长度10，精度2
     last_modified = Column(db.TIMESTAMP,
                            nullable=False,
-                           server_default=db.text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
+                           server_default=db.text('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'),
                            comment='数据上次更新时间')
     # 在管基金
     '''
@@ -145,7 +146,7 @@ class Mgr(PkModel, UpsertMixin):
     funds = relationship('Fund', secondary='fund_mgr', back_populates='mgrs')
 
     def __repr__(self):
-        return f"<Fund Manager({self.mgr_code!r}, {self.name!r})>"
+        return f'<Fund Manager({self.mgr_code!r}, {self.name!r})>'
 
     @classmethod
     def filter_by_code(cls, code: str) -> Mgr:
@@ -202,7 +203,7 @@ class FundCompany(PkModel, UpsertMixin):
     update_time = Column(db.DateTime, comment='数据更新时间')
     last_modified = Column(db.TIMESTAMP,
                            nullable=False,
-                           server_default=db.text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
+                           server_default=db.text('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'),
                            comment='数据上次更新时间')
 
     @classmethod
@@ -221,12 +222,9 @@ class FundSaleOrg(PkModel, UpsertMixin):
     org_id = Column(db.Integer, comment='机构编号')
     name = Column(db.String(30), comment='机构名称')
     known_name = Column(db.String(10), comment='广为人知的代号')
-    addr = Column(db.String(50), comment='注册地')
+    addr = Column(db.String(200), comment='注册地')
     org_type = Column(db.String(30), comment='机构类型')
     date = Column(db.String(10), comment='核准时间')
-
-    def as_name(self):
-        return self.known_name or self.name
 
 
 class FundType(PkModel):
@@ -321,8 +319,8 @@ class InRule(PkModel, UpsertMixin):
             return float(quota) if isinstance(quota, (float, Decimal)) else int(quota)
 
     def __repr__(self):
-        return f"<InRule(start quota:{self.readable_quota(self.start_quota)!r}," \
-               f"end quota:{self.readable_quota(self.end_quota)!r})> "
+        return f'<InRule(start quota:{self.readable_quota(self.start_quota)!r},' \
+               f'end quota:{self.readable_quota(self.end_quota)!r})> '
 
 
 class OutRule(PkModel, UpsertMixin):
@@ -334,7 +332,7 @@ class OutRule(PkModel, UpsertMixin):
     def __repr__(self):
         if self.end_day is None:
             self.end_day = float('inf')
-        return f"<OutRule(start day:{self.start_day!r},end day:{self.end_day!r})>"
+        return f'<OutRule(start day:{self.start_day!r},end day:{self.end_day!r})>'
 
 
 class FeeRatio(PkModel, UpsertMixin):
@@ -355,7 +353,7 @@ class FeeRatio(PkModel, UpsertMixin):
     fee_amount = Column(db.Numeric(6, 2), comment='收费金额（超过xx万时一次收费，此时rate应该为空）')
     last_modified = Column(db.TIMESTAMP,
                            nullable=False,
-                           server_default=db.text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
+                           server_default=db.text('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'),
                            comment='数据上次更新时间')
 
     def __repr__(self):
@@ -366,7 +364,7 @@ class FeeRatio(PkModel, UpsertMixin):
         else:
             rule_class = OutRule
         rule_inst = rule_class.get_by_id(self.rule_id)
-        return f"<FeeRatio(id:{self.fund_id},code:{self.code!r},type:{self.fee_type!r},{rule_inst!r})>"
+        return f'<FeeRatio(id:{self.fund_id},code:{self.code!r},type:{self.fee_type!r},{rule_inst!r})>'
 
     @hybrid_property
     def rule_id(self):
@@ -437,49 +435,173 @@ class FeeRatio(PkModel, UpsertMixin):
         return rules
 
 
-#  组合管理人类型
-# TODO: 需要验证int是否支持
-ZH_MGR_TYPE = {
-    'personal': 0,  # '个人'
-    'org': 1,  # '机构'
-}
-
-PLAT_TYPE = {
-    'undefined': 0,  # '未定义'
-    'qm': 1,  # '且慢'
-    'tt': 2,  # '天天基金'
-    'dj': 3,  # '蛋卷基金'
-}
-
-
-class FundPortfolio(PkModel, CreateDateModel):
+def display(display_map: dict, pk_key: str) -> str:
     """
-    基金组合
-    TODO: 爬取一些具有代表性的组合
+    数据库中存的是数字，保存是输入拼音，显示时应为可读信息
+    :param pk_key:
+    :param display_map:
+    :return:
+    """
+    return display_map.get(pk_key)
+
+
+class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
+    """
+    基金组合（回测、配置型）
+
+    爬取一些具有代表性的组合并保存跟踪
     """
     __table_args__ = {'comment': '基金组合表'}
 
+    portfolio_code = Column(db.String(10), comment='组合编码')  # 使用固定数字加随机数
     name = Column(db.String(30), comment='组合名称')
-    code = Column(db.String(30), unique=True, comment='组合编码')
-    master = Column(db.String(30), comment='主理人')
-    mgr_type = Column(ChoiceTypeInteger(choices=key2val(ZH_MGR_TYPE)), nullable=False, default=0, comment='组合类型（机构/个人）')
-    platform = Column(ChoiceTypeInteger(choices=key2val(PLAT_TYPE)), nullable=True, default=0, comment='平台名称')
+    code = Column(db.String(30), unique=True, comment='组合编码（各平台独有）')
+    is_visible = Column(db.Boolean, comment='是否他人可见')  # 只有创建人（/admin）可以修改
+    found_date = Column(db.Date, comment='组合创建日期')
+    mgr_code = Column(db.String(10), comment='组合管理人编码')
+    platform = Column(ChoiceTypeInteger(choices=key2val(settings.PLAT_TYPE)),
+                      nullable=True,
+                      default=0,
+                      comment=f'平台名称：{str(settings.PLAT_TYPE_DISPLAY)}')
     risk_type = Column(ChoiceTypeInteger(choices=key2val(settings.RISK_TYPE)),
                        nullable=True,
                        default=0,
                        comment='风险类型（稳健/成长等）')
+    annualized_rate_of_return = Column(db.Numeric(7, 4), comment='成立以来年化')  # 保留小数点后4位，每天计算净值后更新
+    invest_rate_of_return = Column(db.Numeric(7, 4), comment='成立以来收益')  # 每天计算净值后更新
     desc = Column(db.String(300), comment='组合描述')
+    rich_desc = Column(db.String(1000), comment='组合详细描述')
     update_time = Column(db.DateTime, comment='组合更新时间')
+    last_adjust_date = Column(db.Date, comment='组合最后一次调整时间')
+
+    manager = relationship(
+        'FundPortfolioMgr',
+        foreign_keys=[mgr_code],
+        primaryjoin='and_(FundPortfolioMgr.code == FundPortfolio.mgr_code, FundPortfolio.platform!="own")')
+
+    # 这种方法提示`User`类未定义
+    # owner = relationship('User', foreign_keys=[mgr_code], primaryjoin='User.id == FundPortfolio.mgr_code')
+
+    # TODO: 如果是平台用户自建，如何获取用户信息？
+    # owner = relationship('User', foreign_keys=[mgr_code], primaryjoin='User.id == FundPortfolio.mgr_code')
 
     def __repr__(self):
-        return f"<FundPortfolio({self.name!r}, {self.risk_type!r})>"
+        plat_name = display(settings.PLAT_TYPE_DISPLAY, self.platform)
+        risk_name = display(settings.RISK_TYPE_DISPLAY, self.risk_type)
+        return f'<FundPortfolio({self.name!r}, {plat_name!r}, {risk_name!r})>'
+
+    # @property
+    # def managers(self):
+    #     """
+    #     使用装饰器方法变属性
+    #     :return:
+    #     """
+    #     if self.platform != 'own':
+    #         return FundPortfolioMgr.query.filter_by(code=self.mgr_code).one_or_none()
+    #     else:
+    #         mgr_id = int(self.mgr_code)
+    #         user = User.query.filter_by(id=mgr_id).one_or_none()
+    #         return user
+
+    @classmethod
+    def gen_random_digit(cls) -> Optional[str]:
+        """
+        生成递增6位识别号
+        :return:
+        """
+        fp_identifier = settings.INITIAL_PORTFOLIO_IDENTIFIER
+        max_identifier = db.session.query(func.max(cls.portfolio_code)).one_or_none()
+        if max_identifier != (None, ):
+            max_num = max_identifier[0]
+            if max_num is not None:
+                increase_int = random.randrange(1, 3)
+                fp_identifier = int(max_num) + increase_int
+                return f'{fp_identifier:06}'
+        return fp_identifier
 
 
-class FundPortfolioAdjustDetail(Base, PkModel):
+class FundPortfolioMgr(PkModel, UpsertMixin):
     """
-    组合调仓记录
+    组合管理人信息表
+    需要注意的是：如果是自建组合，则管理人员信息应该从用户表查询
     """
-    fp_id = reference_col('fund_portfolio', column_kwargs={'comment': '所属组合ID'})
-    update_date = Column(db.String(30), comment='调仓时间')
-    code = Column(db.String(30), comment='基金编码')
-    desc = Column(db.String(300), comment='调仓理由')
+    code = Column(db.String(10), unique=True, comment='组合管理人编码')  # 使用固定数字加随机数
+    name = Column(db.String(30), comment='主理人')
+    plat_code = Column(db.String(30), comment='组合管理人编号（各平台独有）')
+    mgr_type = Column(ChoiceTypeInteger(choices=key2val(settings.ZH_MGR_TYPE)),
+                      nullable=False,
+                      default=0,
+                      comment='组合管理人类型（1机构/0个人）')
+    mgr_avatar_url = Column(db.String(300), comment='主理人头像链接')  # TODO:是否需要保存到本地
+    platform = Column(ChoiceTypeInteger(choices=key2val(settings.PLAT_TYPE)),
+                      nullable=True,
+                      default=0,
+                      comment=f'平台名称：{str(settings.PLAT_TYPE_DISPLAY)}')
+    desc = Column(db.String(300), comment='组合管理人描述')
+
+    def __repr__(self):
+        plat_name = display(settings.PLAT_TYPE_DISPLAY, self.platform)
+        return f'<FundPortfolioMgr({self.name!r}, {plat_name!r} )>'
+
+    @classmethod
+    def gen_mgr_code(cls) -> Optional[str]:
+        """
+        生成递增8+位识别号
+        :return:
+        """
+        fp_identifier = settings.INITIAL_MGR_IDENTIFIER
+        max_identifier = db.session.query(func.max(cls.code)).one_or_none()
+        if max_identifier != (None, ):
+            max_num = max_identifier[0]
+            if max_num is not None:
+                increase_int = random.randrange(1, 3)
+                fp_identifier = int(max_num) + increase_int
+                return f'{fp_identifier:08}'
+        return fp_identifier
+
+
+class FundPortfolioAdjustHistory(PkModel):
+    """
+    组合调仓历史
+    """
+    portfolio_code = Column(db.String(30), comment='组合编码')
+    update_date = Column(db.DateTime, comment='调仓时间')
+    adjust_id = Column(db.BigInteger, comment='调仓历史编码')  # 使用雪花算法
+    plat_trade_id = Column(db.String(120), comment='平台调仓编码（只做记录区分用，不参与系统计算）')
+    desc = Column(db.String(300), comment='调仓说明')
+
+    def __repr__(self):
+        return f'组合( {self.portfolio_code!r} ) 调仓时间： {self.update_date!r}，记录编号：{self.adjust_id!r}>'
+
+    # def get_record_adjust_count(self, portfolio_code: str):
+    #     return FundPortfolioAdjustHistory.query.filter_by(portfolio_code=portfolio_code).count()
+
+    @classmethod
+    def adjust_count(cls, portfolio_code: str):
+        """
+        获取某个基金的调仓次数
+        see also: [mysql - Why is SQLAlchemy count() much slower than the raw query? - Stack Overflow](
+        https://stackoverflow.com/questions/14754994/why-is-sqlalchemy-count-much-slower-than-the-raw-query) :param
+        portfolio_code: :return:
+        """
+        return db.session.query(func.count(cls.id)).filter(cls.portfolio_code == portfolio_code).scalar()
+
+
+class FundPortfolioHoldDetail(PkModel):
+    """
+    组合持仓明细
+    {
+        "trading_id": "281b3d8bad024b7ea2eeb37bfb7b8a5f",
+        "fd_code": "161005",
+        "fd_name": "富国天惠成长混合（LOF）A",
+        "portion": 0.03,
+        "money": 0,
+        "last_portion": 0.0632,
+        "volume": 0,
+        "percent": "3.0%",
+        "last_percent": "6.32%"
+    }
+    """
+    fd_code = Column(db.String(6), comment='基金编码')
+    adjust_id = Column(db.BigInteger, comment='调仓历史编码')
+    portion = Column(db.Numeric(5, 4), comment='持仓占比，如：0.0716')

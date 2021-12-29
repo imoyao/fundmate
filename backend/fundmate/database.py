@@ -3,8 +3,9 @@
 from datetime import datetime
 from typing import Union
 
-import sqlalchemy.types as types
 from apiflask import pagination_builder
+
+import sqlalchemy.types as types
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.sql import func
@@ -26,8 +27,10 @@ class CRUDMixin(object):
     @classmethod
     def create(cls, **kwargs):
         """Create a new record and save it the database."""
+        commit = kwargs.pop('synchronize_session')
         instance = cls(**kwargs)
-        instance.save()
+
+        instance.save(commit=commit)
         return instance
 
     def update(self, commit: bool = True, **kwargs):
@@ -95,7 +98,6 @@ class UpsertMixin(CRUDMixin):
     def insert_or_update(cls, unique_query_arg: dict, do_log_flag: bool = False, **kwargs: Union[list, dict]):
         """
         创建或更新
-        TODO: 改进该方法
         '''
         see also:django.db.models.query.QuerySet.update_or_create
         Looks up an object with the given kwargs, updating one with defaults
@@ -384,3 +386,14 @@ class ChoiceType(BaseChoice):
 
 def key2val(unique_dict: dict) -> dict:
     return {v: k for k, v in unique_dict.items()}
+
+
+def get_table_name(model_cls_name):
+    """
+    如果类名变了，我们的编辑器可以自动发现错误并提示，但如果是写死的字符串，可能写入的数据会有问题
+
+    see also: [python - How to discover table properties from SQLAlchemy mapped object - Stack Overflow](https://stackoverflow.com/questions/2441796/how-to-discover-table-properties-from-sqlalchemy-mapped-object)
+    :param model_cls_name:
+    :return:
+    """
+    return model_cls_name.__table__.name

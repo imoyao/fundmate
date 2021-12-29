@@ -152,7 +152,7 @@ admin.add_view(UserView(User, db.session, name=u'信息', category=u'用户'))
 
 实现管理员登录带有 CSRF 令牌的安全表单
 
-```plain
+```text
     {% extends 'admin/master.html' %}
     
     {% block body %}
@@ -160,12 +160,7 @@ admin.add_view(UserView(User, db.session, name=u'信息', category=u'用户'))
     {{ super() }}
     
     {% if current_user.is_authenticated %}
-    
-    
-    
-    
-    
-    
+
     
     欢迎来到后台管理系统！
     
@@ -203,36 +198,36 @@ admin.add_view(UserView(User, db.session, name=u'信息', category=u'用户'))
 
 处理管理员登录
 
-```plain
+```python
     #这里的fields和validators是用的Flask-WTForm
     
     from wtforms import fields, validators
     
     class LoginForm(FlaskForm):
     
-    login = fields.StringField(label=u'管理员账号', validators=[validators.required()])
-    
-    password = fields.PasswordField(label=u'密码', validators=[validators.required()])
+        login = fields.StringField(label=u'管理员账号', validators=[validators.required()])
+        
+        password = fields.PasswordField(label=u'密码', validators=[validators.required()])
     
     def validate_login(self, field):
-    
-    user = self.get_user()
+        
+        user = self.get_user()
     
     if user is None:
     
-    raise validators.ValidationError(u'账号不存在')
+        raise validators.ValidationError(u'账号不存在')
+        
+        #这里密码不能明文存储，我用sha256_crypt加密
     
-    #这里密码不能明文存储，我用sha256_crypt加密
-    
-    if not sha256_crypt.verify(self.password.data, user.password):
-    
-    raise validators.ValidationError(u'密码错误')
-    
+        if not sha256_crypt.verify(self.password.data, user.password):
+        
+            raise validators.ValidationError(u'密码错误')
+        
     def get_user(self):
-    
-    #AdminUser是存储管理员用户密码的表
-    
-    return db.session.query(AdminUser).filter_by(login=self.login.data).first()
+        
+        #AdminUser是存储管理员用户密码的表
+        
+        return db.session.query(AdminUser).filter_by(login=self.login.data).first()
 ```
     
 
@@ -243,33 +238,32 @@ pip install flask-login
     
 ```
 
-初始化，调用 init\_login()函数即可
+初始化，调用 `init_login()`函数即可
 
 ```python
     from flask_login import current_user, login_user, logout_user, LoginManager
     
     def init_login():
     
-    login_manager = LoginManager()
-    
-    login_manager.init_app(app)
-    
-    @login_manager.user_loader
-    
-    def load_user(user_id):
-    
-    return db.session.query(AdminUser).get(user_id)
+        login_manager = LoginManager()
+        
+        login_manager.init_app(app)
+        
+        @login_manager.user_loader
+        
+        def load_user(user_id):
+        
+        return db.session.query(AdminUser).get(user_id)
 ```
     
 
 然后在需要管理员权限的才能看到的视图中添加代码
-```plain
+```python
     
-    #决定身份验证可见
+    # 决定身份验证可见
     
     def is_accessible(self):
-    
-    return current_user.is_authenticated
+        return current_user.is_authenticated
     
 ```
 
