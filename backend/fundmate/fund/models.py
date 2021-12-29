@@ -23,6 +23,7 @@ from backend.fundmate.database import (
     reference_col,
     relationship,
 )
+from backend.fundmate.user.models import User
 
 
 class DailyWorth(PkModel, CreateDateModel):
@@ -476,15 +477,28 @@ class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
     manager = relationship(
         'FundPortfolioMgr',
         foreign_keys=[mgr_code],
-        primaryjoin='and_(FundPortfolioMgr.code == FundPortfolio.mgr_code, FundPortfolio.platform!=4)')
+        primaryjoin='and_(FundPortfolioMgr.code == FundPortfolio.mgr_code, FundPortfolio.platform!="own")')
 
-    # TODO: 如果是平台用户自建，如何获取用户信息？
+    # 这种方法提示`User`类未定义
     # owner = relationship('User', foreign_keys=[mgr_code], primaryjoin='User.id == FundPortfolio.mgr_code')
 
     def __repr__(self):
         plat_name = display(settings.PLAT_TYPE_DISPLAY, self.platform)
         risk_name = display(settings.RISK_TYPE_DISPLAY, self.risk_type)
         return f'<FundPortfolio({self.name!r}, {plat_name!r}, {risk_name!r})>'
+
+    # @property
+    # def managers(self):
+    #     """
+    #     使用装饰器方法变属性
+    #     :return:
+    #     """
+    #     if self.platform != 'own':
+    #         return FundPortfolioMgr.query.filter_by(code=self.mgr_code).one_or_none()
+    #     else:
+    #         mgr_id = int(self.mgr_code)
+    #         user = User.query.filter_by(id=mgr_id).one_or_none()
+    #         return user
 
     @classmethod
     def gen_random_digit(cls) -> Optional[str]:
