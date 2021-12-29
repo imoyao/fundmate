@@ -26,9 +26,8 @@ class CreateAccountSchema(Schema):
     风险等级
     描述，即投资目标、投资年限等
     '''
-    usable_risk_types = list(RISK_TYPE.keys())
     name = String(length=10)
-    account_type = String(required=True, default='undefined', validate=OneOf(usable_risk_types))
+    account_type = String(required=True, default='undefined', validate=OneOf(RISK_TYPE.keys()))
     desc = String()
 
 

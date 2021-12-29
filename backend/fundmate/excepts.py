@@ -102,6 +102,13 @@ class EmptyError(CrawlerException):
     pass
 
 
+class NotSupportPlatError(CrawlerException):
+    """
+    目前未支持该平台
+    """
+    pass
+
+
 class FundQueryError(FmException):
     """基金信息查询出错
     """

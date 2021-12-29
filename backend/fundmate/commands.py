@@ -8,8 +8,7 @@ from subprocess import call
 import click
 
 from backend.fundmate.data.eastmoney.base import em
-
-from .database import db
+from backend.fundmate.database import db
 
 CURRENT_PATH = Path(__file__).resolve().parent
 PROJECT_ROOT = CURRENT_PATH.parent
@@ -95,7 +94,7 @@ def lint(fix_imports, check):
         if rv != 0:
             exit(rv)
 
-    # TODO: 配置参数应该统一
+    # TODO: isort配置参数应该统一
     isort_args = []
     # black_args = []
     if check:

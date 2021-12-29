@@ -24,7 +24,7 @@ def snowflake_to_timestamp(_id):
     return _id
 
 
-def generator(worker_id, data_center_id, sleep=lambda x: time.sleep(x / 1000.0)):
+def generator(worker_id=1, data_center_id=1, sleep=lambda x: time.sleep(x / 1000.0)):
     assert 0 <= worker_id <= max_worker_id
     assert 0 <= data_center_id <= max_data_center_id
 
@@ -53,3 +53,14 @@ def generator(worker_id, data_center_id, sleep=lambda x: time.sleep(x / 1000.0))
 
         yield (((timestamp - twepoch) << timestamp_left_shift) | (data_center_id << data_center_id_shift) |
                (worker_id << worker_id_shift) | sequence)
+
+
+if __name__ == '__main__':
+    s = generator(1, 1)
+    a = next(s)
+    b = next(s)
+    c = next(s)
+
+    # convenience to convert a snowflake to a unix timestamp
+    d = snowflake_to_timestamp(1132805168782512128)
+    print([a, b, c, d])

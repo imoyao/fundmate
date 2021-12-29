@@ -3,14 +3,16 @@
 # Created by imoyao at 2021/1/28 18:12
 import traceback
 
+from flask import current_app
+
 import xalpha as xa
 from sqlalchemy import create_engine
 
-from backend.fundmate import settings
 from backend.fundmate.exts.flask_loguru import logger
 
-DB_URL = settings.SQLALCHEMY_DATABASE_URI
-engine = create_engine(DB_URL)
+config = current_app.config
+SQLALCHEMY_DATABASE_URI = config.get('SQLALCHEMY_DATABASE_URI')
+engine = create_engine(SQLALCHEMY_DATABASE_URI)
 
 
 def fund_info(fund_code: str, save: bool = False) -> dict:
@@ -47,7 +49,7 @@ def main(fund_type: str = 'all') -> int:
     获取所有基金信息
     [请问是否有api 可以一次获得所有基金编码？ · Issue #95 · refraction-ray/xalpha](https://github.com/refraction-ray/xalpha/issues/95)
     all,hh,zq, zs, gp, qdii, fof 分别对应全部混合，债券，指数，股票型的全部基金列表
-    TODO: 注意上述接口不够全，最终数据校验可参考此页面：
+    注意上述接口不够全，最终数据校验可参考此页面：
     [基金公司一览表 _ 天天基金网](http://fund.eastmoney.com/company/default.html)
 
     :param fund_type:
@@ -57,7 +59,8 @@ def main(fund_type: str = 'all') -> int:
     start_time = time.time()
     all_funds = xa.misc.get_fund_list(fund_type)
     # 这样会导致表数量明显增多，是否会影响性能？[MySQL 数据库表的数量很多会造成什么不良影响？ - SegmentFault 思否](https://segmentfault.com/q/1010000000523024)
-    # [Have too many tables in a Mysql database can affect performance? - Server Fault](https://serverfault.com/questions/83438/have-too-many-tables-in-a-mysql-database-can-affect-performance)
+    # [Have too many tables in a Mysql database can affect performance? - Server Fault](
+    # https://serverfault.com/questions/83438/have-too-many-tables-in-a-mysql-database-can-affect-performance)
     for fund in all_funds:
         ret = fund_info(fund, save=True)
         print(ret)

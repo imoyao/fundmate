@@ -3,8 +3,9 @@ from __future__ import with_statement
 import logging
 from logging.config import fileConfig
 
-from alembic import context
 from flask import current_app
+
+from alembic import context
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -84,7 +85,7 @@ def render_item(type_, obj, autogen_context):
     see also: https://stackoverflow.com/a/61320562/14295718
     """
     if type_ == 'type' and obj.__class__.__module__.startswith(CUSTOM_APP_PREFIX):
-        print(obj, obj.__class__, obj.__class__.__module__)  # FIXME: import error
+        # FIX: import error
         autogen_context.imports.add(f'import {obj.__class__.__module__}')
         if hasattr(obj, 'choices'):
             return f'{obj.__class__.__module__}.{obj.__class__.__name__}(choices={obj.choices})'

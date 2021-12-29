@@ -29,7 +29,7 @@ def create_app(config_object: str = "backend.fundmate.settings"):
     register_shell_context(app)
     register_commands(app)
     configure_logger(app)
-    logger.info('Flask app has created!')
+    logger.info('Fund Mate has created!')
     '''
     RuntimeError: No application found. Either work inside a view function or push an application context. 
     See also: http://flask-sqlalchemy.pocoo.org/contexts/ .
@@ -84,18 +84,15 @@ def register_error_handlers(app: APIFlask):
         """Render error template."""
         # If a HTTPException, pull the `code` attribute; default to 500
         error_code = getattr(error, "code", 500)
-        logger.info(str(error_code), '=======')
-        detail = error.detail or None
+        detail = error.detail or error.message or None
         try:
-            extra_data = error.extra_data or None
+            extra_data = error.extra_data
         except AttributeError:
             extra_data = {}
         body = {'error_detail': detail, **extra_data}
         status_code = error.status_code or error_code
-        headers = error.headers or None
+        headers = error.headers
         return body, status_code, headers
-
-    return None
 
 
 @auth.error_processor
@@ -127,6 +124,10 @@ def register_shell_context(app: Flask):
             'InRule': fund.models.InRule,
             'OutRule': fund.models.OutRule,
             'FundPortfolio': fund.models.FundPortfolio,
+            'FundPortfolioMgr': fund.models.FundPortfolioMgr,
+            'FundPortfolioAdjustHistory': fund.models.FundPortfolioAdjustHistory,
+            'FundPortfolioHoldDetail': fund.models.FundPortfolioHoldDetail,
+            'FundSaleOrg': fund.models.FundSaleOrg,
             'Account': account.models.Account,
         }
 
