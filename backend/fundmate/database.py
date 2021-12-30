@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """Database module, including the SQLAlchemy database object and DB-related utilities."""
+import random
 from datetime import datetime
-from typing import Union
+from typing import Optional, Union
 
 from apiflask import pagination_builder
 
@@ -10,6 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.sql import func
 
+from backend.fundmate import settings
 from backend.fundmate.compat import basestring
 from backend.fundmate.excepts import UniqueInstanceError
 from backend.fundmate.extensions import db
@@ -397,3 +399,19 @@ def get_table_name(model_cls_name):
     :return:
     """
     return model_cls_name.__table__.name
+
+
+def gen_digit_code(max_code: str, init_identifier: str, min_len: int = 6) -> Optional[str]:
+    """
+    生成递增n位识别号
+    :return:
+    """
+    fp_identifier = init_identifier
+    max_identifier = db.session.query(func.max(max_code)).one_or_none()
+    if max_identifier != (None, ):
+        max_num = max_identifier[0]
+        if max_num is not None:
+            increase_int = random.randrange(1, 3)
+            fp_identifier = int(max_num) + increase_int
+            return f'{fp_identifier:0{min_len}}'
+    return fp_identifier
