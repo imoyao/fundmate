@@ -33,11 +33,7 @@ User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 '''  # noqa: E501
 
 
-class EastMoney:
-    """
-    天天基金网数据接口
-    """
-    headers = dt_utils.parse_headers(REQUEST_STR)
+class BaseParse:
 
     @staticmethod
     def match_resp(resp: Response, regexp: re.Pattern) -> re.Match:
@@ -50,6 +46,13 @@ class EastMoney:
         ret_str = resp.content.decode('utf-8')
         reg_mat = regexp.match(ret_str)
         return reg_mat
+
+
+class EastMoney(BaseParse):
+    """
+    天天基金网数据接口
+    """
+    headers = dt_utils.parse_headers(REQUEST_STR)
 
     def fetch_mgr(self, fund_mgr_url: str) -> Union[object, dict, None]:
         resp = rget(url=fund_mgr_url, headers=self.headers)
@@ -140,8 +143,8 @@ class EastMoney:
         FIXME: 需要注意的是：有一部分基金是新发基金，这个时候funds表中是没有数据的，此时关联基金经理会报错：`FlushError: Can't flush None value found in collection Mgr.funds`，目前的解决方案是直接continue跳过这个数据的写入，后期可能需要优化流程，添加新发基金的信息爬取
         """  # noqa: E501
         for mgr_item in fund_mgr_info:
-            mgr_code, mgr_name, cmp_code, cmp_name, mgr_fd, mgr_fn, work_days, _best_rt, \
-                best_fd, _, _sum_scale, _ = mgr_item
+            mgr_code, mgr_name, cmp_code, cmp_name, mgr_fd, mgr_fn, work_days, \
+                _best_rt, best_fd, _, _sum_scale, _ = mgr_item
             mgr_fd_list = mgr_fd.split(',')
             mgr_fn_list = mgr_fn.split(',')
             mgr_fd_map = dict(zip(mgr_fd_list, mgr_fn_list))

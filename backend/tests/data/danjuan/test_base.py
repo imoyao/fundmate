@@ -28,7 +28,6 @@ class TestDanJuanFundDetail:
         :param expected:
         :return:
         """
-        print(suffix_str, replace_flag, expected)
         assert self.dj_detail.suffix_str_to_num(suffix_str, replace_flag) == expected
 
     def test_parse_first(self):
