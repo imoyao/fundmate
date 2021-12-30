@@ -108,14 +108,14 @@ class Fund(PkModel, UpsertMixin):
     @classmethod
     def code_by_name(cls, name: str) -> str:
         """根据基金名称获取基金编码"""
-        code = cls.query.filter(cls.name.ilike(name)).all()
-        return code
+        funds = cls.query.filter(cls.name.ilike(name)).all()
+        return funds
 
     @classmethod
     def filter_by_code(cls, code: str) -> Fund:
         """获取编码所对应的id
         """
-        _ins = cls.query.filter_by(fund_code=code).first()
+        _ins = cls.query.filter_by(fund_code=code).one_or_none()
         return _ins
 
     def __repr__(self):
