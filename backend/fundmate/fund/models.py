@@ -3,7 +3,6 @@
 # Created by imoyao at 2021/2/13 17:50
 from __future__ import annotations
 
-import random
 from decimal import Decimal
 from typing import Optional, Union
 
@@ -19,11 +18,13 @@ from backend.fundmate.database import (
     PkModel,
     UpsertMixin,
     db,
+    gen_digit_code,
     key2val,
     reference_col,
     relationship,
 )
-from backend.fundmate.user.models import User
+
+# from backend.fundmate.user.models import User
 
 
 class DailyWorth(PkModel, CreateDateModel):
@@ -482,9 +483,6 @@ class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
     # 这种方法提示`User`类未定义
     # owner = relationship('User', foreign_keys=[mgr_code], primaryjoin='User.id == FundPortfolio.mgr_code')
 
-    # TODO: 如果是平台用户自建，如何获取用户信息？
-    # owner = relationship('User', foreign_keys=[mgr_code], primaryjoin='User.id == FundPortfolio.mgr_code')
-
     def __repr__(self):
         plat_name = display(settings.PLAT_TYPE_DISPLAY, self.platform)
         risk_name = display(settings.RISK_TYPE_DISPLAY, self.risk_type)
@@ -504,19 +502,12 @@ class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
     #         return user
 
     @classmethod
-    def gen_random_digit(cls) -> Optional[str]:
+    def gen_portfolio_code(cls) -> Optional[str]:
         """
-        生成递增6位识别号
+        生成递增6位组合识别号
         :return:
         """
-        fp_identifier = settings.INITIAL_PORTFOLIO_IDENTIFIER
-        max_identifier = db.session.query(func.max(cls.portfolio_code)).one_or_none()
-        if max_identifier != (None, ):
-            max_num = max_identifier[0]
-            if max_num is not None:
-                increase_int = random.randrange(1, 3)
-                fp_identifier = int(max_num) + increase_int
-                return f'{fp_identifier:06}'
+        fp_identifier = gen_digit_code(cls.portfolio_code, settings.INITIAL_PORTFOLIO_IDENTIFIER, min_len=6)
         return fp_identifier
 
 
@@ -549,14 +540,15 @@ class FundPortfolioMgr(PkModel, UpsertMixin):
         生成递增8+位识别号
         :return:
         """
-        fp_identifier = settings.INITIAL_MGR_IDENTIFIER
-        max_identifier = db.session.query(func.max(cls.code)).one_or_none()
-        if max_identifier != (None, ):
-            max_num = max_identifier[0]
-            if max_num is not None:
-                increase_int = random.randrange(1, 3)
-                fp_identifier = int(max_num) + increase_int
-                return f'{fp_identifier:08}'
+        fp_identifier = gen_digit_code(cls.code, settings.INITIAL_MGR_IDENTIFIER, min_len=8)
+        # fp_identifier = settings.INITIAL_MGR_IDENTIFIER
+        # max_identifier = db.session.query(func.max(cls.code)).one_or_none()
+        # if max_identifier != (None, ):
+        #     max_num = max_identifier[0]
+        #     if max_num is not None:
+        #         increase_int = random.randrange(1, 3)
+        #         fp_identifier = int(max_num) + increase_int
+        #         return f'{fp_identifier:08}'
         return fp_identifier
 
 
