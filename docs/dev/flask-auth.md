@@ -3,7 +3,7 @@ title: 再一次，认识注册、登录功能
 ---
 
 ## 厘清概念
-首先需要厘清token和cookie的区别
+首先需要厘清 token 和 cookie 的区别
 ### token 而不是 cookie
 :::warning
 这是一段翻译，所以可能读起来有点拗口，如果需要深入理解可以阅读这篇文章：👉 [傻傻分不清之 Cookie、Session、Token、JWT - 掘金](https://juejin.cn/post/6844904034181070861)
@@ -13,10 +13,10 @@ title: 再一次，认识注册、登录功能
 
 API 通常希望每次请求都将访问凭证/令牌发送到 API。这类似于 web 服务(Flask)直接返回 html/js 代码时对请求进行身份验证的方式。
 
-然而，区别在于C/S用于提交身份验证证明的机制。在B/S的典型应用程序中，前端代码 cookie 用于存储会话信息，这些 cookie 由客户端(浏览器)随每个请求自动发送到后端。
+然而，区别在于 C/S 用于提交身份验证证明的机制。在 B/S 的典型应用程序中，前端代码 cookie 用于存储会话信息，这些 cookie 由客户端(浏览器)随每个请求自动发送到后端。
 
-在Web应用中，通常使用Flask-Login 查看这些 cookie 并验证它们的真实性，并从服务器上的会话中存储的信息确定是哪个用户发出了请求。关于该模块的使用可以参阅：
-[cookie在flask中的应用、flask-login模块的使用（login_user、@login_required、@login_manager.user_loader）current_user_Null的博客-CSDN博客](https://blog.csdn.net/JENREY/article/details/86671856)
+在 Web 应用中，通常使用 Flask-Login 查看这些 cookie 并验证它们的真实性，并从服务器上的会话中存储的信息确定是哪个用户发出了请求。关于该模块的使用可以参阅：
+[cookie 在 flask 中的应用、flask-login 模块的使用（login_user、@login_required、@login_manager.user_loader）current_user_Null 的博客-CSDN 博客](https://blog.csdn.net/JENREY/article/details/86671856)
 
 
 但是，如果我们编写 api 接口， Flask web 服务器不会直接向客户端提供前端代码。事实上，API 不关心客户端是否有前端。所有 API 都应该知道客户端可能是来自一个脚本，或者是在终端上运行 curl 命令的用户等等。重要的是，客户端可能有、也可能没有“cookie”的概念。因此，API 需要一种方法来验证传入的请求是否得到了授权。
@@ -69,18 +69,18 @@ def some_route():
 
 * ~~flask-jwt~~
   1. 不再积极维护
-  2. 实现了密码校验（authentication ）但是verification不够完整
+  2. 实现了密码校验（authentication ）但是 verification 不够完整
   3. 权限控制不够完整
 * flask-jwt-extended
 
-  flask-jwt的继任者；
+  flask-jwt 的继任者；
 
-  与flask-praetorian相比的优势：
-     1. 使用Cookie进行JWT存储
+  与 flask-praetorian 相比的优势：
+     1. 使用 Cookie 进行 JWT 存储
      2. 部分路线保护
-     3. 需要新鲜的token
-     4. 在HTTP请求中自定义JWT（标题，正文等） 
-     5. CSRF保护
+     3. 需要新鲜的 token
+     4. 在 HTTP 请求中自定义 JWT（标题，正文等） 
+     5. CSRF 保护
   
   缺点
     1. 密码哈希法
@@ -92,12 +92,12 @@ def some_route():
   Flask-praetorian 旨在成为一个完整的安全扩展，而 flask-jwt-extended 则侧重于基于 jwt 的 auth 并支持许多访问模式。
 * ~~flask-jwt-simple~~ 
 
-  除了生成JWT token和auth_required装饰器外，别无他物。如果是快速成型很好用。
+  除了生成 JWT token 和 auth_required 装饰器外，别无他物。如果是快速成型很好用。
 * ~~flask-security~~ 
 
-  flask-praetorian的灵感来源，但是它*包括 wtform 组件和其他东西不需要Flask为基础的 api*。在 API 中包含所有额外的内容既麻烦又不必要。
+  flask-praetorian 的灵感来源，但是它*包括 wtform 组件和其他东西不需要 Flask 为基础的 api*。在 API 中包含所有额外的内容既麻烦又不必要。
 
-对于一个RESTful API，首先出局的是~~Flask-Login~~。
+对于一个 RESTful API，首先出局的是~~Flask-Login~~。
 
 ### ~~Flask-Login~~ vs Flask-HTTPAuth
 
@@ -106,7 +106,7 @@ def some_route():
 >  You would use both only if you have an application that has a web component and a REST API component. In that case Flask-Login will handle the web app routes, and Flask-HTTPAuth will handle the API routes.
 [来源](https://stackoverflow.com/a/26221147/14295718)
 
-简单来说，flask-login会存储客户端的状态，而不是每一次请求到来时认证，这对API来说是不够安全的。而且，flask-login继承了太多表单验证的东西，在restful中这些由我们后端自己通过 [marshmallow · PyPI](https://pypi.org/project/marshmallow/) 进行校验。参阅：[Better parameter validation in Flask with marshmallow - Cameron MacLeod](https://www.cameronmacleod.com/blog/better-validation-flask-marshmallow)
+简单来说，flask-login 会存储客户端的状态，而不是每一次请求到来时认证，这对 API 来说是不够安全的。而且，flask-login 继承了太多表单验证的东西，在 restful 中这些由我们后端自己通过 [marshmallow · PyPI](https://pypi.org/project/marshmallow/) 进行校验。参阅：[Better parameter validation in Flask with marshmallow - Cameron MacLeod](https://www.cameronmacleod.com/blog/better-validation-flask-marshmallow)
 
 <<<<<<< Updated upstream
 然后出局的是~~Flask-JWT~~。
@@ -127,9 +127,9 @@ def some_route():
 JWT:由于[此处-Issue #123](https://github.com/mattupstate/flask-jwt/issues/123) 提到的原因我们选择 [Flask-JWT-Extended’s Documentation — flask-jwt-extended 3.25.0 documentation](https://flask-jwt-extended.readthedocs.io/en/stable/) 作为实现 JWT 的扩展。
 ::: 
 ### ~~Flask-Security~~ vs ~~Flask-Security（TOO）~~ vs Flask-praetorian
-满足所有：由于 ~~[Flask-Security — Flask-Security 3.0.0 documentation](https://pythonhosted.org/Flask-Security/)不再积极维护，我们转向 [Welcome to Flask-Security（TOO） — Flask-Security 4.0.0 documentation](https://flask-security-too.readthedocs.io/en/stable/)~~ 基于此处[flask-praetorian comparison to other libraries — flask-praetorian 1.3.0 documentation](https://flask-praetorian.readthedocs.io/en/latest/comparison.html#flask-security) 原因，我们抛弃Flask-Security而选择[Flask-praetorian](https://flask-praetorian.readthedocs.io/en/latest/)
+满足所有：由于 ~~[Flask-Security — Flask-Security 3.0.0 documentation](https://pythonhosted.org/Flask-Security/)不再积极维护，我们转向 [Welcome to Flask-Security（TOO） — Flask-Security 4.0.0 documentation](https://flask-security-too.readthedocs.io/en/stable/)~~ 基于此处[flask-praetorian comparison to other libraries — flask-praetorian 1.3.0 documentation](https://flask-praetorian.readthedocs.io/en/latest/comparison.html#flask-security) 原因，我们抛弃 Flask-Security 而选择[Flask-praetorian](https://flask-praetorian.readthedocs.io/en/latest/)
 
-最终，我们决定先使用Flask-HTTPAuth 实现最基本的认证（apiflask内置），之后再考虑在Flask-JWT-Extended和Flask-praetorian 之间抉择。
+最终，我们决定先使用 Flask-HTTPAuth 实现最基本的认证（apiflask 内置），之后再考虑在 Flask-JWT-Extended 和 Flask-praetorian 之间抉择。
 
 [Web Authentication Methods Compared | TestDriven.io](https://testdriven.io/blog/web-authentication-methods/)
 
@@ -142,10 +142,10 @@ JWT:由于[此处-Issue #123](https://github.com/mattupstate/flask-jwt/issues/12
 
 [RESTful Authentication with Flask - miguelgrinberg.com](https://blog.miguelgrinberg.com/post/restful-authentication-with-flask)
 
-设置token需要注意的事情：[关于token存放在cookie中 - SegmentFault 思否](https://segmentfault.com/q/1010000014763987)
+设置 token 需要注意的事情：[关于 token 存放在 cookie 中 - SegmentFault 思否](https://segmentfault.com/q/1010000014763987)
 
 1. token 是否过期，应该后端接口中来判断，不该前端来判断，因为用户拿到一个 token，然后一直在用这个 token，而你在用户登录的时候就设置了过期时间，这样是不准的。
-2. 建议把 token 存在 cookie 上，不设置过期时间，如果 token 失效，就让后端在接口中返回固定的状态（401）表示token 失效，需要重新登录，再重新登录的时候，重新设置 cookie 中的 token 就行。
+2. 建议把 token 存在 cookie 上，不设置过期时间，如果 token 失效，就让后端在接口中返回固定的状态（401）表示 token 失效，需要重新登录，再重新登录的时候，重新设置 cookie 中的 token 就行。
 3. js 创建 cookie 时用 `document.cookie = 'token=xxx'` 是更方便也是更安全的方法。
 4. 让后端在接口的返回值 header 里添加 set-Cookie，这样的话浏览器会自动把 token 设置到 cookie 里。
 5. 还有，如果接口的返回值 header 里有设，Http-Only: true 的话，js 里是不能直接修改 cookie 的，这样更安全点。
