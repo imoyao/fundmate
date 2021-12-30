@@ -134,7 +134,7 @@ class InitPortfolio(BasePortfolio):
             mgr_info = po_detail.pop('mgr_info')
             # 创建组合管理员
             mgr_code = self.upsert_mgr(plat_flag, mgr_info)
-            portfolio_code = FundPortfolio.gen_random_digit()
+            portfolio_code = FundPortfolio.gen_portfolio_code()
             po_detail['mgr_code'] = mgr_code
             po_detail['platform'] = plat_flag_int
             po_detail['is_visible'] = True
