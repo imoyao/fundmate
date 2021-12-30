@@ -32,7 +32,6 @@ from backend.fundmate.fund.models import (
     FundPortfolioMgr,
 )
 from backend.fundmate.libs.pysnowflake import snowflake
-from backend.fundmate.settings import PLAT_TYPE
 
 config = current_app.config
 SQLALCHEMY_DATABASE_URI = config.get('SQLALCHEMY_DATABASE_URI')
@@ -113,12 +112,11 @@ class InitPortfolio(BasePortfolio):
         :return: 
         """
         mgr_code = mgr_info.get('plat_code')
-        plat_flag_int = PLAT_TYPE.get(plat_flag)
-        mgr_instance = FundPortfolioMgr.query.filter_by(plat_code=mgr_code, platform=plat_flag_int).one_or_none()
+        mgr_instance = FundPortfolioMgr.query.filter_by(plat_code=mgr_code, platform=plat_flag).one_or_none()
         if mgr_instance is None:
             mgr_code = FundPortfolioMgr.gen_mgr_code()
             mgr_info['code'] = mgr_code
-            mgr_info['platform'] = plat_flag_int
+            mgr_info['platform'] = plat_flag
             mgr_instance = FundPortfolioMgr.create(**mgr_info)
             logger.success(f'组合管理者 {mgr_instance} 创建成功！')
         return mgr_instance.code
@@ -127,8 +125,7 @@ class InitPortfolio(BasePortfolio):
         po_inst = self.get_strategy(plat_flag)
         if not po_inst:
             raise NotSupportPlatError(f'暂不支持该平台 {plat_flag} 数据获取！')
-        plat_flag_int = PLAT_TYPE.get(plat_flag)
-        fpo = FundPortfolio.query.filter_by(code=plt_code, platform=plat_flag_int).one_or_none()
+        fpo = FundPortfolio.query.filter_by(code=plt_code, platform=plat_flag).one_or_none()
         if fpo is None:
             po_detail = po_inst.detail(plt_code)
             mgr_info = po_detail.pop('mgr_info')
@@ -136,7 +133,7 @@ class InitPortfolio(BasePortfolio):
             mgr_code = self.upsert_mgr(plat_flag, mgr_info)
             portfolio_code = FundPortfolio.gen_portfolio_code()
             po_detail['mgr_code'] = mgr_code
-            po_detail['platform'] = plat_flag_int
+            po_detail['platform'] = plat_flag
             po_detail['is_visible'] = True
             po_detail['portfolio_code'] = portfolio_code
             po_detail['update_time'] = datetime.datetime.utcnow()
