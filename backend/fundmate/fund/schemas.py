@@ -9,13 +9,20 @@ from apiflask.fields import Boolean, Date, Float, Function, Integer, List, Metho
 from apiflask.validators import Equal, Length, OneOf
 
 from backend.fundmate import settings
+from backend.fundmate.fund.models import FundType
 from backend.fundmate.schema_ext import CustomPaginationSchema
 from backend.fundmate.user.models import User
 
 
+def display_fund_type(fd_type_id: int) -> str:
+    ft = FundType.query.filter_by(id=fd_type_id).one_or_none()
+    if ft:
+        return ft.name
+
+
 class FundOutSchema(Schema):
     """
-    详细信息
+    基金概览信息
     """
     id = Integer()
     name = String()
@@ -23,7 +30,8 @@ class FundOutSchema(Schema):
     fund_code = String()
     created_at = Date()
     company = String()
-    f_type = String()
+    f_type = String(data_key='fund_type')
+    fund_type_display = Function(lambda obj: display_fund_type(obj.f_type))
 
 
 class FundPortfolioMgrOutSchema(Schema):

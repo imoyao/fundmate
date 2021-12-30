@@ -111,36 +111,36 @@ class FundSalesView(MethodView):
         return market_place
 
 
-@bp.route('/<int:fund_id>')
+@bp.route('/<string:fund_code>')
 class FundDetail(MethodView):
     """
     基金详情
     """
 
     @output(FundOutSchema)
-    def get(self, fund_id: str):
+    def get(self, fund_code: str):
         """获取指定基金信息"""
-        user_obj = Fund.get_by_id(int(fund_id))
+        user_obj = Fund.filter_by_code(fund_code)
         return user_obj
 
-    def post(self):
-        """
-        新建基金
-        """
-        return {'message': 'Hello,User!'}
+    # def post(self):
+    #     """
+    #     新建基金
+    #     """
+    #     return {'message': 'Hello,User!'}
 
     @input(FundInSchema(partial=True))
     @output(FundOutSchema)
-    def patch(self, fund_id, data):
+    def patch(self, fund_code, data):
         """更新指定基金信息"""
-        _user_obj = Fund.get_by_id(int(fund_id))
+        _user_obj = Fund.filter_by_code(fund_code)
         if _user_obj:
             abort(404)
         user = Fund.save(data)
         return user
 
 
-@bp.route('/<int:fund_code>/followers')
+@bp.route('/<string:fund_code>/followers')
 class FundFavor(MethodView):
     """
     某支基金的关注者

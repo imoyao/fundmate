@@ -170,7 +170,7 @@ def test_bar(before_func):
        print('in test_two()')
    ```
    正所谓能力越大，责任越大。使用该功能时需要谨慎小心并控制测试用例的范围。 比如你的所有测试用例都需要连接同一个数据库，那可以设置为 module，这样只需要连接一次数据库，对于模块内的所有测试，这样可以极大地提高运行效率。
-:::
+::: tip
 - `usefixtures`与传`fixture`区别
 
 如果 fixture 有返回值，那么 usefixture 就无法获取到返回值。
