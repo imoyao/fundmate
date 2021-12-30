@@ -15,15 +15,16 @@ from backend.fundmate.errors import NotHundredPercentSumPortion, PatchWithEmptyD
 from backend.fundmate.fund.models import (
     Fund,
     FundCompany,
-    FundMgr,
     FundPortfolio,
     FundPortfolioAdjustHistory,
     FundPortfolioHoldDetail,
     FundSaleOrg,
+    Mgr,
 )
 from backend.fundmate.fund.schemas import (
-    FundCompanyOutSchema,
+    FundCompanyPaginationOutSchema,
     FundInSchema,
+    FundMgrPaginationOutSchema,
     FundOutSchema,
     FundPaginationOutSchema,
     FundPortfolioDetailOutSchema,
@@ -34,31 +35,25 @@ from backend.fundmate.fund.schemas import (
     FundSaleOutSchema,
 )
 from backend.fundmate.libs.pysnowflake import snowflake
-from backend.fundmate.schema_ext import CustomPaginationSchema, EmptySchema
-from backend.fundmate.view_ext import paginate_query
+from backend.fundmate.schema_ext import CustomPaginationSchema
 
 bp = APIBlueprint("fund", __name__, url_prefix="/funds")
 
 
 @bp.get('/')
 @input(CustomPaginationSchema, 'query')
-# @input(EmptySchema, 'query')
-@output(FundPaginationOutSchema)  # 注意此处不适用`many=True`
-# @output(FundSampleSchema(many=True))
-def funds(query):
+@output(FundPaginationOutSchema)
+def funds(query: dict):
     """
-    获取基金信息
+    获取基金列表信息
     :param query:
     :return:
     """
-    if query:
-        pagination = paginate_query(Fund, query)
-        _items = pagination.items
-        ret = {'funds': _items, 'pagination': pagination_builder(pagination)}
-    else:
-        # FIXME: not work
-        ret = Fund.query.order_by(Fund.fund_code.desc()).all()
-        print(ret)
+    page = query.get('page')
+    per_page = query.get('per_page')
+    pagination = Fund.query.paginate(page=page, per_page=per_page)
+    _items = pagination.items
+    ret = {'funds': _items, 'pagination': pagination_builder(pagination)}
     return ret
 
 
@@ -66,30 +61,33 @@ def funds(query):
 class FundCompanyView(MethodView):
 
     @input(CustomPaginationSchema, 'query')
-    @input(EmptySchema)
-    @output(FundCompanyOutSchema(many=True))
-    def get(self, query: dict = None):
+    @output(FundCompanyPaginationOutSchema)
+    def get(self, query: dict):
         """
         获取基金公司信息
         """
-        if query:
-            ret = paginate_query(FundCompany, query)
-        else:
-            ret = FundCompany.query.order_by(FundCompany.scale.desc()).all()
+        page = query.get('page')
+        per_page = query.get('per_page')
+        pagination = FundCompany.query.paginate(page=page, per_page=per_page)
+        _items = pagination.items
+        ret = {'companies': _items, 'pagination': pagination_builder(pagination)}
         return ret
 
 
-@bp.route('/mgrs/')
+@bp.route('/managers/')
 class FundMgrView(MethodView):
+    """
+    获取基金经理信息
+    """
 
     @input(CustomPaginationSchema, 'query')
-    @input(EmptySchema)
-    @output(FundOutSchema)
+    @output(FundMgrPaginationOutSchema)
     def get(self, query: dict = None):
-        if query:
-            ret = paginate_query(FundMgr, query)
-        else:
-            ret = FundMgr.query.all()
+        page = query.get('page')
+        per_page = query.get('per_page')
+        pagination = Mgr.query.paginate(page=page, per_page=per_page)
+        _items = pagination.items
+        ret = {'managers': _items, 'pagination': pagination_builder(pagination)}
         return ret
 
 

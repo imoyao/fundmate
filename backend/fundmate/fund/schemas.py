@@ -20,14 +20,19 @@ def display_fund_type(fd_type_id: int) -> str:
         return ft.name
 
 
+class FundInSchema(Schema):
+    code = String(validate=Length(5, 25))
+    name = String(validate=Length(6, 40))
+
+
 class FundOutSchema(Schema):
     """
     基金概览信息
     """
     id = Integer()
+    fund_code = String()
     name = String()
     mgr = String()
-    fund_code = String()
     created_at = Date()
     company = String()
     f_type = String(data_key='fund_type')
@@ -217,14 +222,19 @@ class FundCompanyOutSchema(Schema):
     code = String()
     name = String()
     full_name = String()
-    tx_eval = Integer()
+    tx_eval = Integer(metadata={'title': '天相评级', 'description': '五星制，星级越高代表公司越好'})
     create_date = Date()
-    scale = Number()
+    scale = Number(metadata={'title': '资产规模', 'description': '管理资产规模(亿元)'})
 
 
-class FundInSchema(Schema):
-    code = String(validate=Length(5, 25))
-    name = String(validate=Length(6, 40))
+class FundCompanyPaginationOutSchema(Schema):
+    companies = List(Nested(FundCompanyOutSchema))
+    pagination = Nested(PaginationSchema)
+
+
+class FundMgrPaginationOutSchema(Schema):
+    managers = List(Nested(FundMgrOutSchema))
+    pagination = Nested(PaginationSchema)
 
 
 class SaleSchema(Schema):
