@@ -450,19 +450,6 @@ class EastMoney(BaseParse):
             logger.warning('Get fund info error,can you connect to `http://fund.eastmoney.com/`?')
             return 1
 
-    def t_days(self, f_code: str):
-        """
-        获取t+n中的n是几，一般为1
-        :param f_code:
-        :return:
-        """
-        resp = rget(f'http://fund.eastmoney.com/tools/DataHandler.aspx?t=t&ib=1&fc={f_code}')
-        regex = re.compile(r'.*={\s.*:"(\d)"};')
-        reg_mat = self.match_resp(resp, regex)
-        if reg_mat:
-            fund_day = int(reg_mat.groups()[0])
-            return fund_day
-
     def hold_split(self):
         """
         TODO:基金持有时间过短会收取高额的赎回费，所以我们需要增加功能以对持有进行分类
