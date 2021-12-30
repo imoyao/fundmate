@@ -51,7 +51,7 @@ v12.2.0
 ```shell
 npm config set registry https://registry.npm.taobao.org
 ```
-下载yarn
+下载 yarn
 ```bash
 npm install yarn
 ```

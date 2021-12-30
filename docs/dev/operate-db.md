@@ -47,7 +47,7 @@ WHERE
 
 在处理基金组合时，我们没有将组合管理者表`FundPortfolioMgr`和组合表`FundPortfolio`关联起来；这样带来一个问题：在获取组合详情信息时，组合管理者信息的获取不够那么直观，那么有什么办法可以将两者关联起来，以使我们的`@output`装饰器可以很好的序列化呢？
 
-1. 分步查询，在view函数中将组合管理员信息更新到组合对象中：
+1. 分步查询，在 view 函数中将组合管理员信息更新到组合对象中：
 ```python
 fpo = FundPortfolio.query.filter_by(portfolio_code=portfolio_code).one_or_none()
 if fpo is not None:
@@ -59,7 +59,7 @@ if fpo is not None:
     fpo_info.update(fpo.__dict__)
     return fpo_info
 ```
-这样带来的问题是，我们的`FundPortfolioDetailOutSchema`通用性降低，因为其中个别字段使用`Function`，如此一来，其中的点查询`fpo.manager`将无法获取对象的属性，必须将object当作字典处理来获取信息，即`manager.get('name')`，这显然不是一种优雅的处理方式；
+这样带来的问题是，我们的`FundPortfolioDetailOutSchema`通用性降低，因为其中个别字段使用`Function`，如此一来，其中的点查询`fpo.manager`将无法获取对象的属性，必须将 object 当作字典处理来获取信息，即`manager.get('name')`，这显然不是一种优雅的处理方式；
 
 2. 使用`@proprety` 将获取管理员信息的方法变为属性
 ```python
@@ -100,16 +100,16 @@ fpo = FundPortfolio.query.filter_by(portfolio_code=portfolio_code).one_or_none()
 
 4. 同时与两个表关联的设计
 
-在本系统设计中，我们的组合维护有两种数据来源：a)由程序从第三方网站中自动获取；b)平台内部用户自己创建并维护组合；对于平台内部用户创建的组合，我们的用户信息在User表中已经有保存。
+在本系统设计中，我们的组合维护有两种数据来源：a)由程序从第三方网站中自动获取；b)平台内部用户自己创建并维护组合；对于平台内部用户创建的组合，我们的用户信息在 User 表中已经有保存。
 
-为了解决用户信息获取，我们可以：a)简单将用户信息复制一份，这样会导致用户数据重复，且后期维护时需要维护两份数据；b)将3个表关联起来，这样在编写代码时需要建立两个`relationship`关系。我们尝试编写如下代码将`FundPortfolio`与`User`关联： 
+为了解决用户信息获取，我们可以：a)简单将用户信息复制一份，这样会导致用户数据重复，且后期维护时需要维护两份数据；b)将 3 个表关联起来，这样在编写代码时需要建立两个`relationship`关系。我们尝试编写如下代码将`FundPortfolio`与`User`关联： 
 ```python
 extra_owner = relationship('User', foreign_keys=[mgr_code], primaryjoin='User.id == FundPortfolio.mgr_code')
 ```
 完整代码参考：[此处](https://github.com/imoyao/fundmate/blob/5723c8304be87c5bde040c0716b8c407c860bea7/backend/fundmate/fund/models.py#L483)
 
 不过，我们在`fund.models`导入`user.models.User`定义并引用时会报错：
-```
+```python
 sqlalchemy.exc.InvalidRequestError: When initializing mapper mapped class FundPortfolio->fund_portfolio, expression 'User.id == FundPortfolio.mgr_code' failed to locate a name ("name 'User' is not defined"). If this is a class name, consider adding this relationship() to the <class 'backend.fundmate.fund.models.FundPortfolio'> class after both dependent classes have been defined.
 ```
 这段话中提示`User`定义未找到，看来两个数据类（`User`和`FundPortfolio`）不在同一个`models.py`文件内这样引用，代码是无法找到数据类定义的！

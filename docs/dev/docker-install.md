@@ -13,11 +13,11 @@ docker run --name mysql8027 -e MYSQL_ROOT_PASSWORD=123456 -d -p 3307:3306 mysql:
 docker run -p 3306:3306 --restart=always --name mysql8027 -v /opt/docker_v/mysql/conf:/etc/mysql/conf.d  -v /data/mysql/my.cnf:/etc/mysql/my.cnf -v /data/mysql/data:/var/lib/mysql -e MYSQL_ROOT_PASSWORD=123456 -d imageID
 ```
 ::: tip
--p 3306:3306：将主机的3307端口映射到容器的3306端口
--v /opt/docker_v/mysql/conf:/etc/mysql/conf.d：将主机/opt/docker_v/mysql/conf目录挂载到容器的/etc/mysql/conf.d
--e MYSQL_ROOT_PASSWORD=123456：初始化root用户的密码
--d: 后台运行容器，并返回容器ID
-imageID: 指定所使用的上一步拉取的mysql镜像ID
+-p 3306:3306：将主机的 3307 端口映射到容器的 3306 端口
+-v /opt/docker_v/mysql/conf:/etc/mysql/conf.d：将主机/opt/docker_v/mysql/conf 目录挂载到容器的/etc/mysql/conf.d
+-e MYSQL_ROOT_PASSWORD=123456：初始化 root 用户的密码
+-d: 后台运行容器，并返回容器 ID
+imageID: 指定所使用的上一步拉取的 mysql 镜像 ID
 :::
 
 - 进入容器
