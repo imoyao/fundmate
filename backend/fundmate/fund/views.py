@@ -194,7 +194,7 @@ class FundCombination(MethodView):
             if total != 1.0:
                 raise NotHundredPercentSumPortion
 
-            portfolio_code = FundPortfolio.gen_random_digit()
+            portfolio_code = FundPortfolio.gen_portfolio_code()
             data['portfolio_code'] = portfolio_code
             update_time = datetime.datetime.now()
             last_adjust_date = utils.today()
