@@ -2,7 +2,7 @@
   <div>
     <div class="pay-top-content">
       <svg-icon class="pay-success" :icon="['fas', 'check-circle']"></svg-icon>
-      <p>支付成功</p>
+      <p>记账成功</p>
     </div>
     <el-form
       ref="form"
