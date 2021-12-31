@@ -118,8 +118,8 @@ class FundDetail(MethodView):
     @output(FundOutSchema)
     def get(self, fund_code: str):
         """获取指定基金信息"""
-        user_obj = Fund.filter_by_code(fund_code)
-        return user_obj
+        fund_obj = Fund.filter_by_code(fund_code)
+        return fund_obj
 
     # def post(self):
     #     """
@@ -134,8 +134,8 @@ class FundDetail(MethodView):
         _user_obj = Fund.filter_by_code(fund_code)
         if _user_obj:
             abort(404)
-        user = Fund.save(data)
-        return user
+        fund_obj = Fund.save(data)
+        return fund_obj
 
 
 @bp.route('/<string:fund_code>/followers')
