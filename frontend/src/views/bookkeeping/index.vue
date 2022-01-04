@@ -9,10 +9,9 @@
         :lg="{span: 14, offset: 5}"
         :xl="{span: 12, offset: 6}"
       >
-        <el-steps :space="200" :active="active" finish-status="success" align-center class="steps">
-          <el-step title="填写记录信息" icon="el-icon-edit"></el-step>
+        <el-steps :space="200" :active="active" align-center class="steps">
+          <el-step title="填写记录信息"></el-step>
           <el-step title="确认记录信息"></el-step>
-          <el-step title="完成"></el-step>
         </el-steps>
         <step1 v-if="active === 1" @change-step="handleSetStep"></step1>
         <step2

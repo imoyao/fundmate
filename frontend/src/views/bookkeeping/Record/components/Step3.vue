@@ -11,16 +11,19 @@
       label-width="120px"
       class="pay-bottom"
     >
-      <el-form-item label="付款账户：">
+      <el-form-item label="账户名称：">
         {{ infoData.payAccount }}
       </el-form-item>
-      <el-form-item label="收款账户：">
+      <el-form-item label="购买日期：">
         {{ infoData.gatheringAccount }}
       </el-form-item>
-      <el-form-item label="收款人姓名：">
+      <el-form-item label="购买基金：">
         {{ infoData.gatheringName }}
       </el-form-item>
-      <el-form-item label="转账金额：">
+      <el-form-item label="购买基金：">
+        {{ infoData.gatheringName }}
+      </el-form-item>
+      <el-form-item label="购买金额：">
         <strong>
           {{ infoData.price }}
         </strong>
@@ -28,7 +31,8 @@
     </el-form>
     <div class="pay-button-group">
       <el-button type="primary" @click="handlePrev">再记一笔</el-button>
-      <el-button type="info" @click="handlePrev">攒够再来</el-button>
+      <!--  跳转到账本页面-->
+      <el-button type="info" @click="handlePrev">下次再会</el-button>
     </div>
   </div>
 </template>

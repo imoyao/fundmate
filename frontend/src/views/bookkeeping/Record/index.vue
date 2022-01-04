@@ -10,8 +10,7 @@
       >
         <el-steps :space="200" :active="active" align-center class="steps">
           <el-step title="填写转账信息"></el-step>
-          <el-step title="确认转账信息"></el-step>
-          <el-step title="完成"></el-step>
+          <el-step title="确认购买信息"></el-step>
         </el-steps>
         <step1 v-if="active === 1" @change-step="handleSetStep"></step1>
         <step2
