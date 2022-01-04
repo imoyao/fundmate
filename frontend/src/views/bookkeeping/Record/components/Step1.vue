@@ -357,7 +357,8 @@ export default {
     handleSubmit() {
       this.$refs.form.validate((valid) => {
         if (valid) {
-          this.$emit('change-step', 2, this.form)
+          // 默认用户提交即为检查过的，否则操作太繁琐
+          this.$emit('change-step', 3, this.form)
         }
       })
     }
