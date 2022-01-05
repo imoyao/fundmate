@@ -81,6 +81,7 @@ PLAT_TYPE = {
     'tt': 2,  # '天天基金'
     'dj': 3,  # '蛋卷基金'
     'own': 4,
+    'hb': 5,
 }
 
 PLAT_TYPE_DISPLAY = {
@@ -89,4 +90,5 @@ PLAT_TYPE_DISPLAY = {
     'tt': '天天基金',
     'dj': '蛋卷基金',
     'own': '平台自建',
+    'hb': '好买基金',
 }

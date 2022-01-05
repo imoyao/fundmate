@@ -29,7 +29,9 @@ class CRUDMixin(object):
     @classmethod
     def create(cls, **kwargs):
         """Create a new record and save it the database."""
-        commit = kwargs.pop('synchronize_session')
+        commit = True
+        if kwargs.get('synchronize_session'):
+            commit = kwargs.pop('synchronize_session')
         instance = cls(**kwargs)
 
         instance.save(commit=commit)
