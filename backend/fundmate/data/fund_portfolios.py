@@ -21,6 +21,7 @@ from sqlalchemy import create_engine
 
 from backend.fundmate.app import db
 from backend.fundmate.data.danjuan.combination import Strategy as DJStrategy
+from backend.fundmate.data.howbuy.combination import Strategy as HBStrategy
 from backend.fundmate.data.qieman.combination import Strategy as QMStrategy
 from backend.fundmate.database import get_table_name
 from backend.fundmate.excepts import FundQueryError, NotSupportPlatError
@@ -56,12 +57,14 @@ class BasePortfolio:
     def __init__(self):
         self.dj_po = DJStrategy()
         self.qm_po = QMStrategy()
+        self.hb_po = HBStrategy()
         self.engine = create_engine(SQLALCHEMY_DATABASE_URI)
 
     def get_strategy(self, plat_str: str):
         strategies = {
             'dj': self.dj_po,
             'qm': self.qm_po,
+            'hb': self.hb_po,
         }
         strategy_obj = strategies.get(plat_str)
         return strategy_obj
@@ -100,8 +103,13 @@ class InitPortfolio(BasePortfolio):
     初始化组合时调用该接口
     """
 
-    def __init__(self):
+    def __init__(self, is_init_qieman: bool = True, is_init_danjuan: bool = True, is_init_howbuy: bool = True):
         super().__init__()
+        self.init_config = {
+            'qm': is_init_qieman,
+            'dj': is_init_danjuan,
+            'hb': is_init_howbuy,
+        }
 
     @staticmethod
     def upsert_mgr(plat_flag: str, mgr_info: Optional[Dict] = None) -> str:
@@ -145,7 +153,7 @@ class InitPortfolio(BasePortfolio):
         trade_info = None
         if plat_flag == 'dj':
             trade_info = po_inst.pagination_trade_info(plt_code)
-        elif plat_flag == 'qm':
+        elif plat_flag in ['qm', 'hb']:  # 且慢和好买返回的信息默认最近调仓在最前面
             trade_info = po_inst.pagination_trade_info(plt_code, is_desc=False)
         if trade_info:
             portfolio_code = po_obj.portfolio_code
@@ -160,14 +168,22 @@ class InitPortfolio(BasePortfolio):
         :return:
         """
         # support_platforms = PLAT_TYPE.keys()
-        support_platforms = ['qm', 'dj']
+        support_platforms = ['qm', 'dj', 'hb']
+        support_platforms = [plt for plt in self.init_config if self.init_config[plt] is True]
         for plat_flag in support_platforms:
             po_obj = self.get_strategy(plat_flag)
             portfolios = po_obj.list_all()
-            for po_code in portfolios:
-                fpo = self.create_portfolio(po_code, plat_flag)
-                if fpo:
-                    logger.success(f'基金组合 {fpo} 信息保存完成!')
+            if plat_flag != 'hb':
+                for po_code in portfolios:
+                    fpo = self.create_portfolio(po_code, plat_flag)
+                    if fpo:
+                        logger.success(f'基金组合 {fpo} 信息保存完成!')
+            else:
+                for po_item in portfolios:
+                    po_code = po_item.get('urlLink')
+                    fpo = self.create_portfolio(po_code, plat_flag)
+                    if fpo:
+                        logger.success(f'基金组合 {fpo} 信息保存完成!')
 
 
 class UpdatePortfolio(BasePortfolio):
@@ -238,6 +254,13 @@ class UpdatePortfolio(BasePortfolio):
         else:
             logger.error('获取组合信息出错，请检查网络连接……')
 
+    def update_howbuy(self):
+        """
+        周期性更新好买基金平台组合
+        :return:
+        """
+        pass
+
     def update_portfolio(self):
         """
         更新数据库中已经记录的组合
@@ -280,8 +303,11 @@ class UpdatePortfolio(BasePortfolio):
 
 
 if __name__ == '__main__':
-    # 初始化调用
-    po = InitPortfolio()
+    # 初始化，需要保证在Flask上下文中调用
+    is_init_qieman = False
+    is_init_danjuan = False
+    is_init_howbuy = True
+    po = InitPortfolio(is_init_qieman, is_init_danjuan, is_init_howbuy)
     po.init_portfolio()
     # 日常更新组合调仓信息等
     update_po = UpdatePortfolio()

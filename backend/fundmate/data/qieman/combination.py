@@ -254,7 +254,7 @@ class Strategy:
             rename_df['date'] = rename_df.date.apply(lambda x: convert.try_parse_date(str(x)).strftime("%Y-%m-%d"))
             if is_desc:
                 rename_df = rename_df.iloc[::-1].reset_index(drop=True)
-            if not is_df:  # 往数据库中存的话，没有必要转换
+            if not is_df:  # 往数据库中存的话，没有必要转换，使用dataframe更好
                 ret_data = rename_df.to_dict(orient='records')
                 return ret_data
             return rename_df
