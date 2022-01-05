@@ -86,7 +86,6 @@ class FundDB:
         # (https://stackoverflow.com/questions/15900338/python-request-post-with-param-data)
         try:
             resp = rpost_json(_url, headers=hd, json=data)
-            print(resp)
         except JSONDecodeError:
             # 爬太快，数据处理不过来？
             # [python - How to get a random number between a float range? - Stack Overflow]
