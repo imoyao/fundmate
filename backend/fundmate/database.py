@@ -11,7 +11,6 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.sql import func
 
-from backend.fundmate import settings
 from backend.fundmate.compat import basestring
 from backend.fundmate.excepts import UniqueInstanceError
 from backend.fundmate.extensions import db
@@ -396,9 +395,9 @@ def get_table_name(model_cls_name):
     """
     如果类名变了，我们的编辑器可以自动发现错误并提示，但如果是写死的字符串，可能写入的数据会有问题
 
-    see also: [python - How to discover table properties from SQLAlchemy mapped object - Stack Overflow](https://stackoverflow.com/questions/2441796/how-to-discover-table-properties-from-sqlalchemy-mapped-object)
-    :param model_cls_name:
-    :return:
+    see also: [python - How to discover table properties from SQLAlchemy mapped object - Stack Overflow](
+    https://stackoverflow.com/questions/2441796/how-to-discover-table-properties-from-sqlalchemy-mapped-object)
+    :param model_cls_name: :return:
     """
     return model_cls_name.__table__.name
 

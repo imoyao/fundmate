@@ -62,7 +62,7 @@ class TradeDay(BaseParse):
             trade_info = pyjson5.loads(_trade_info)
             raw_deadline = trade_info.get('deadline')
             raw_is_same = bool(int(trade_info.get('IsSame')))
-            deadline = convert.try_parse_date(raw_deadline).strftime("%Y-%m-%d")
+            deadline = str(convert.try_parse_date(raw_deadline))
             trade_info['deadline'] = deadline
             trade_info['IsSame'] = raw_is_same
             new_keys = ['application_date', 'is_same_day', 'maturity', 'deadline']
