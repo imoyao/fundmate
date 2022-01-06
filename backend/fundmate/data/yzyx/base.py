@@ -101,7 +101,7 @@ class YZYX:
         update_date = None
         if reg_mat:
             raw_date = reg_mat[0]
-            update_date = convert.try_parse_date(raw_date).strftime("%Y-%m-%d")
+            update_date = str(convert.try_parse_date(raw_date))
 
         # 全市场温度
         temper_div = '//div[@class="tw-flex tw-items-center"]/div/'
