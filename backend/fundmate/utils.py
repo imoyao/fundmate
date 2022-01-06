@@ -89,7 +89,7 @@ def first_day_of_this_year() -> str:
 
 
 def first_day_of_this_month() -> str:
-    return dateparser.parse(str(datetime.today().month), settings={'PREFER_DAY_OF_MONTH': 'first'}).strftime("%Y-%m-%d")
+    return str(dateparser.parse(str(datetime.today().month), settings={'PREFER_DAY_OF_MONTH': 'first'}).date())
 
 
 def seconds_today_leaves() -> int:
