@@ -151,7 +151,7 @@ class Strategy:
                 trade_date = items.get('trade_date')
                 trading_elements_list = items.get('trading_elements')
                 trading_elements = self.parse_trading_elements(trading_elements_list)
-                iso_date = convert.try_parse_date(str(trade_date)).strftime("%Y-%m-%d")
+                iso_date = str(convert.try_parse_date(str(trade_date)))
                 # 单次调仓信息
                 trade_detail = {
                     'trading_id': trade_id,

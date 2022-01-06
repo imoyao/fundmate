@@ -28,6 +28,7 @@ class Strategy:
         self.base_url = 'https://data.howbuy.com/cgi/fund/'
         self.history_url = self.base_url + 'v731z/clcplsgd.json'
         self.net_worth_url = self.base_url + 'v717z/clcplshb.json'
+        self.over_view_url = self.base_url + 'v717z/clcpday.json'
         self.zo_all_star = {
             'name': '超级股票全明星',
             'description': '超级股票全明星以过往长期业绩优秀的基金为核心基础配置，动态配置大小盘、行业风格的“卫星”基金。多元配置，分散风险，力争在不同市场周期下赚取超额回报。',
@@ -53,6 +54,38 @@ class Strategy:
     def is_success(self, response: dict) -> bool:
         return response and response.get('code') == '0000'
 
+    def get_choice_fund_pools(self, code: str):
+        """
+        获取组合的备选基金池
+        :param code:
+        :return:
+        """
+        params = {'zhdm': code}
+        _resp = rget_json(self.over_view_url, params=params)
+        print(_resp)
+        if self.is_success(_resp):
+            body = _resp.get('body')
+            choice_fund_pools_raw = body.get('bxjjk')  # 备选基金库
+            choice_fund_pools_fund_lists = choice_fund_pools_raw.get('dataList')
+            choice_fund_pools = [fund.get('jjdm') for fund in choice_fund_pools_fund_lists]
+            return choice_fund_pools
+
+    def newest_holds(self, code: str):
+        """
+        最新持仓
+        **注意** 这个里面的日期数据是不准确的
+        :param code:
+        :return:
+        """
+        params = {'zhdm': code}
+        _resp = rget_json(self.over_view_url, params=params)
+        if self.is_success(_resp):
+            body = _resp.get('body')
+            period_detail = body.get('jdpbmx')  # 阶段配比明细
+            trading_elements_list = period_detail.get('fundList')
+            last_trading_elements = self.parse_trading_elements(trading_elements_list)
+            return last_trading_elements
+
     def detail(self, code: str) -> Optional[Dict]:
         """
         获取单个组合的信息
@@ -66,39 +99,35 @@ class Strategy:
         poi_info = _all_pois.get(code)
         plan_name = poi_info.get('name')
         plan_desc = poi_info.get('description')
-        _url = self.base_url + f'v717z/clcpday.json?zhdm={code}'
-        _resp = rget_json(_url)
+        params = {'zhdm': code}
+        _resp = rget_json(self.over_view_url, params=params)
+
         if self.is_success(_resp):
             body = _resp.get('body')
-            period_detail = body.get('jdpbmx')  # 阶段配比明细
             manager = body.get('zlr')  # 主理人
+            plan_rich_desc = body.get('cpjs').get('recommendReason')  # 产品介绍 推荐理由
             mgr_info = {
                 'plat_code': None,
                 'name': manager.get('name'),
                 'mgr_avatar_url': manager.get('picUrl'),
+                'desc': manager.get('recommendReason', None),
             }
-            choice_fund_pools_raw = body.get('bxjjk')  # 备选基金库
-            choice_fund_pools_fund_lists = choice_fund_pools_raw.get('dataList')
-            choice_fund_pools = [fund.get('jjdm') for fund in choice_fund_pools_fund_lists]
 
             base_info = body.get('jbxx')  # 基本信息
             return_info = body.get('syxx')  # 收益信息
             if base_info:
-                # plan_name = data.get('plan_name')
-                # plan_code = data.get('plan_code')
                 raw_found_date = return_info.get('cjrq')  # 创建日期
                 found_date = self.datestr_to_isodatestr(raw_found_date)
                 annualized_rate_of_return = return_info.get('nhhbcl')
-                invest_rate_of_return = return_info.get('hbcl')
-                # max_down_return = return_info.get('zdhccl')  # 最大回撤
-                # plan_desc_info = data.get('plan_desc')[-1]
-                # plan_desc = plan_desc_info.get('plan_desc')
+                invest_rate_of_return = return_info.get('hbcl')  # 回报
+                # max_down_return = return_info.get('zdhccl')  # TODO:最大回撤
                 last_raw_date = base_info.get('zhsjrq')
-                last_trade_date_fmt = self.datestr_to_isodatestr(last_raw_date)
-                trading_elements_list = period_detail.get('fundList')
-                trading_elements = self.parse_trading_elements(trading_elements_list)
-                # 费率信息（暂不需要）
-                # plan_rates = data.get('plan_rates')
+                if last_raw_date:
+                    last_trade_date_fmt = self.datestr_to_isodatestr(last_raw_date)
+                else:
+                    period_detail = body.get('zxgd')  # 最新gd：归档？
+                    last_raw_date = period_detail.get('gdqsrq')
+                    last_trade_date_fmt = self.datestr_to_isodatestr(last_raw_date)
                 return {
                     'code': code,
                     'name': plan_name,
@@ -107,26 +136,26 @@ class Strategy:
                     'annualized_rate_of_return': annualized_rate_of_return,
                     'invest_rate_of_return': invest_rate_of_return,
                     'desc': plan_desc,
+                    'rich_desc': plan_rich_desc,
                     'mgr_info': mgr_info,
                     'last_adjust_date': last_trade_date_fmt,
-                    'choice_fund_pools': choice_fund_pools,
-                    'last_trading_elements': trading_elements,
                 }
         return None
 
     def parse_trading_elements(self, trading_elements_list: list) -> List:
         """
-        每一次调仓成分基金的解析
+        对每一次调仓成分基金进行解析
         :param trading_elements_list:
         :return:
         """
         trade_list = list()
-        for trading_element in trading_elements_list:
-            fd_code = trading_element.get('jjdm')
-            portion = trading_element.get('cczb')  # 资产占比
-            elem = {'fd_code': fd_code, 'portion': float(portion)}
-            trade_list.append(elem)
-        return trade_list
+        if trading_elements_list is not None:
+            for trading_element in trading_elements_list:
+                fd_code = trading_element.get('jjdm')
+                portion = trading_element.get('cczb')  # 资产占比必须转为小数
+                elem = {'fd_code': fd_code, 'portion': float(portion) / 100}
+                trade_list.append(elem)
+            return trade_list
 
     def parse_page_data(self, per_page_data):
         """
@@ -152,7 +181,28 @@ class Strategy:
             page_items.append(trade_detail)
         return page_items
 
-    def trade_history(self, code: str, page: int = 1) -> List:
+    def get_last_adjust_date(self, code: str) -> Optional[str]:
+        """
+        获取组合最后一次调仓真实日期
+        :param code:
+        :return:
+        """
+        params = {'zhdm': code}
+        _resp = rget_json(self.over_view_url, params=params)
+
+        if self.is_success(_resp):
+            body = _resp.get('body')
+            base_info = body.get('jbxx')  # 基本信息
+            last_raw_date = base_info.get('zhsjrq')
+            if last_raw_date:
+                last_trade_date_fmt = self.datestr_to_isodatestr(last_raw_date)
+            else:
+                period_detail = body.get('zxgd')  # 最新gd：归档？
+                last_raw_date = period_detail.get('gdqsrq')
+                last_trade_date_fmt = self.datestr_to_isodatestr(last_raw_date)
+            return last_trade_date_fmt
+
+    def trade_history(self, code: str, size: int = 10, page: int = 1) -> List:
         """
         获取组合的调仓历史，数据库初始化组合时调用该接口
         :param page:
@@ -160,20 +210,37 @@ class Strategy:
         :param code:
         :return:
         """
-        params = {'zhdm': code, 'current': page}
+        params = {'zhdm': code, 'current': page, 'size': size}
         resp = rget_json(self.history_url, params=params)
         if self.is_success(resp):
             data = resp.get('body')
             page_items = self.parse_page_data(data)
             return page_items
 
-    def pagination_trade_info(self, code: str, is_desc: bool = True) -> List:
+    def total_times(self, code):
+        """
+        调仓总次数
+        :param code:
+        :return:
+        """
+        params = {'zhdm': code, 'current': 1}
+        resp = rget_json(self.history_url, params=params)
+        if self.is_success(resp):
+            data = resp.get('body')
+            total = int(data.get('total'))
+            return total
+
+    def pagination_trade_info(self, code: str, size: int = 10, is_desc: bool = True) -> List:
         """
         翻页查询，获取所有调仓信息
         原始网页：
         https://trade.ehowbuy.com/newpig/index.html#/adviser/adjustRecord?investmentAdviser=0&productCode=tzzhqgx&isHistory=1?corpId=&coopId=&HBTag=
+        :param code:
+        :param size:
+        :param is_desc: 默认最新的在最前；只有当获取完整列表时注意，在更新操作时，必须保证为True，否则排在最前面的不是最新持仓
+        :return:
         """
-        params = {'zhdm': code, 'current': 1}
+        params = {'zhdm': code, 'size': size, 'current': 1}
         resp = rget_json(self.history_url, params=params)
         if self.is_success(resp):
             data = resp.get('body')
@@ -185,9 +252,10 @@ class Strategy:
             trade_info.extend(first_page_items)
 
             for page_num in range(2, total_pages + 1):
-                per_page_trade_history = self.trade_history(code, page_num)
+                per_page_trade_history = self.trade_history(code, size, page_num)
                 if per_page_trade_history:
                     trade_info.extend(per_page_trade_history)
+
             if total != len(trade_info):
                 raise LenEqualError('返回数据长度与接口总量不一致！')
             if not is_desc:
@@ -257,12 +325,22 @@ class Strategy:
 
 if __name__ == '__main__':
     s = Strategy()
+    # 所有待抓取的组合
     all_pois = s.list_all()
     print(all_pois)
-    code = 'tzzhqgx'
+    code = 'zozh002'
+    # 备选基金池
+    result = s.get_choice_fund_pools(code)
+    print(result)
+    # 最新持仓
+    newest_holds = s.newest_holds(code)
+    print(newest_holds)
+    # 所有持仓信息
     ret = s.pagination_trade_info(code)
     print(ret)
+    # 净值信息
     net_val = s.net_worth(code)
     print(net_val)
+    # 基金详情信息
     detail = s.detail(code)
     print(detail)
