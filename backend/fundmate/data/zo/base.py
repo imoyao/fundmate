@@ -33,7 +33,7 @@ class QGG:
     """
     该接口用于从中欧财富网站爬取信息之后写入数据库，api获取组合信息需要从数据库中获取
     https://galaxy.qiangungun.com/galaxy/www/index.html?code=073uKgll2ep0s74nFtnl2jwzS82uKglV&state=wxf6c2bee70e049568#/fund/8100000078/weaveFunds?selectedTab=2
-    [超级股票全明星](https://cms.qiangungun.com/zost/113081/index.html)
+    介绍信息：[超级股票全明星](https://cms.qiangungun.com/zost/113081/index.html)
     """
     _full_desc = '''一键买入全市场明星基金经理王牌产品，风格均衡，动态调整。
 
@@ -47,7 +47,7 @@ class QGG:
     '''
 
     @staticmethod
-    def hearders():
+    def headers():
         hd = dt_utils.parse_headers(header_str)
         return hd
 
@@ -106,7 +106,7 @@ class QGG:
 
         """  # noqa: E501
         _url = 'https://mobile.qiangungun.com/v2/product/detail'
-        hd = self.hearders()
+        hd = self.headers()
         # 注意此处的`{{`必须使用双符号，否则报错ValueError: Invalid format specifier
         _data = f'''{{"productId":{fof_id},"includes":["02","01","03"],"parseType":"01","showReportForever":false,
         "userId":null,"sessionId":null,"source":"H","version":"3.20.0","guid":"39b0d57f1134640daf87ef62d13001e8",
@@ -125,7 +125,7 @@ class QGG:
         _url = 'https://mobile.qiangungun.com/v1/product/queryFofRebalanceInfo'
         _data = f'''{{"fofId":{fof_id},"source":"H","guid":"8ce2aa731134640de7b51f77682dcd4a","userId":null,
         "sessionId":null,"version":"3.20.0","appSource":"","appVersion":""}} '''
-        hd = self.hearders()
+        hd = self.headers()
         _resp = rpost_json(_url, headers=hd, data=_data)
         if _resp and _resp.get('code') == '000000':
             info = _resp.get('data')
@@ -192,14 +192,14 @@ class QGG:
             product_list.append(f_item)
         risk_level = int(risk)
         info = {
-            'id': rd.get('fofId'),
+            'code': rd.get('fofId'),
             'name': rd.get('fofName'),
-            'risk_level': risk_level,
+            'risk_type': risk_level,
             'product_list': product_list,
             'desc': _desc,
-            'full_desc': _desc,
+            'rich_desc': _desc,
             'transfer_date': transfer_date,
-            'last_disclosure_date': least_disclosure_day,
+            'last_adjust_date': least_disclosure_day,
         }
         return info
 
