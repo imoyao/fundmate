@@ -29,6 +29,7 @@ from backend.fundmate.fund.schemas import (
     FundPortfolioDetailOutSchema,
     FundPortfolioInSchema,
     FundPortfolioPatchInSchema,
+    FundPortfoliosAdjustOutSchema,
     FundPortfoliosOutSchema,
     FundPortfoliosPaginationSchema,
     FundSaleOutSchema,
@@ -86,6 +87,11 @@ class FundMgrView(MethodView):
     @input(EmptySchema)
     @output(FundOutSchema)
     def get(self, query: dict = None):
+        """
+        获取基金经理列表
+        :param query: 
+        :return:
+        """
         if query:
             ret = paginate_query(FundMgr, query)
         else:
@@ -353,3 +359,23 @@ class CombinationDetail(MethodView):
             # 只更新组合基本信息
             fpo = fpo.update(**data)
         return fpo
+
+
+@bp.route('/portfolios/<string:portfolio_code>/adjustments')
+class PortfoliosAdjust(MethodView):
+    """
+    单一组合调仓信息
+    """
+
+    @input(CustomPaginationSchema, 'query')
+    @output(FundPortfoliosAdjustOutSchema)
+    def get(self, portfolio_code: str, query: dict):
+        """获取组合调仓历史"""
+        page = query.get('page')
+        per_page = query.get('per_page')
+        pagination = FundPortfolioAdjustHistory.query.filter_by(portfolio_code=portfolio_code).order_by(
+            FundPortfolioAdjustHistory.update_date.desc()).paginate(page=page, per_page=per_page)
+
+        portfolios = pagination.items
+
+        return {'adjusts': portfolios, 'pagination': pagination_builder(pagination, portfolio_code=portfolio_code)}

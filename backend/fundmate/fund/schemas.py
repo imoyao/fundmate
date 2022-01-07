@@ -4,12 +4,14 @@
 """
 类比DRF中的serializer
 """
+from typing import Optional
+
 from apiflask import PaginationSchema, Schema
 from apiflask.fields import Boolean, Date, Float, Function, Integer, List, Method, Nested, Number, String
 from apiflask.validators import Equal, Length, OneOf
 
 from backend.fundmate import settings
-from backend.fundmate.fund.models import FundType
+from backend.fundmate.fund.models import Fund, FundType
 from backend.fundmate.schema_ext import CustomPaginationSchema
 from backend.fundmate.user.models import User
 
@@ -78,6 +80,41 @@ class FundPortfoliosOutSchema(Schema):
     组合概览信息列表
     """
     portfolios = List(Nested(FundPortfolioOutSchema))
+    pagination = Nested(PaginationSchema)
+
+
+def get_fund_name(fund_code: str) -> Optional[str]:
+    fund = Fund.query.filter_by(fund_code=fund_code).one_or_none()
+    if fund:
+        return fund.name
+
+
+def float_to_percent(portion):
+    return f'{portion*100:.2f} %'
+
+
+class FundPortfolioAdjustDetailOutSchema(Schema):
+    """
+    组合调仓的持仓信息
+    """
+    fd_code = String()
+    portion = String()
+    fund_name = Function(lambda obj: get_fund_name(obj.fd_code))
+    percent = Function(lambda obj: float_to_percent(obj.portion))
+
+
+class FundPortfolioAdjustHistoryOutSchema(Schema):
+    adjust_id = String()
+    update_date = String(data_key='adjusted_date')
+    desc = String(data_key='comments')
+    details = List(Nested(FundPortfolioAdjustDetailOutSchema))
+
+
+class FundPortfoliosAdjustOutSchema(Schema):
+    """
+    组合调仓信息列表
+    """
+    adjusts = List(Nested(FundPortfolioAdjustHistoryOutSchema))
     pagination = Nested(PaginationSchema)
 
 
@@ -194,7 +231,6 @@ class FundSampleSchema(Schema):
 class FundPaginationOutSchema(Schema):
     """
     带分页器的基金信息输出
-    TODO: 分页器用法（写文档时需要额外说明）
     """
     funds = List(Nested(FundSampleSchema))
     pagination = Nested(PaginationSchema)

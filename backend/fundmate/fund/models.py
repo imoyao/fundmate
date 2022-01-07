@@ -557,10 +557,15 @@ class FundPortfolioAdjustHistory(PkModel):
     组合调仓历史
     """
     portfolio_code = Column(db.String(30), comment='组合编码')
-    update_date = Column(db.DateTime, comment='调仓时间')
-    adjust_id = Column(db.BigInteger, comment='调仓历史编码')  # 使用雪花算法
+    update_date = Column(db.Date, comment='调仓时间')
+    adjust_id = Column(db.BigInteger, unique=True, comment='调仓历史编码')  # 唯一，使用雪花算法
     plat_trade_id = Column(db.String(120), comment='平台调仓编码（只做记录区分用，不参与系统计算）')
     desc = Column(db.String(1500), comment='调仓说明')
+    # 符合关联条件的有多条，所以需要使用`uselist=True`
+    details = relationship('FundPortfolioHoldDetail',
+                           uselist=True,
+                           foreign_keys=[adjust_id],
+                           primaryjoin='FundPortfolioHoldDetail.adjust_id == FundPortfolioAdjustHistory.adjust_id')
 
     def __repr__(self):
         return f'组合( {self.portfolio_code!r} ) 调仓时间： {self.update_date!r}，记录编号：{self.adjust_id!r}>'
@@ -581,6 +586,7 @@ class FundPortfolioAdjustHistory(PkModel):
 
 class FundPortfolioHoldDetail(PkModel):
     """
+    TODO: 需要增加环比增长下降标识
     组合持仓明细
     {
         "trading_id": "281b3d8bad024b7ea2eeb37bfb7b8a5f",
