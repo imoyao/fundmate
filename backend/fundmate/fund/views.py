@@ -15,15 +15,16 @@ from backend.fundmate.errors import NotHundredPercentSumPortion, PatchWithEmptyD
 from backend.fundmate.fund.models import (
     Fund,
     FundCompany,
-    FundMgr,
     FundPortfolio,
     FundPortfolioAdjustHistory,
     FundPortfolioHoldDetail,
     FundSaleOrg,
+    Mgr,
 )
 from backend.fundmate.fund.schemas import (
     FundCompanyOutSchema,
     FundInSchema,
+    FundMgrOutSchema,
     FundOutSchema,
     FundPaginationOutSchema,
     FundPortfolioDetailOutSchema,
@@ -35,7 +36,7 @@ from backend.fundmate.fund.schemas import (
     FundSaleOutSchema,
 )
 from backend.fundmate.libs.pysnowflake import snowflake
-from backend.fundmate.schema_ext import CustomPaginationSchema, EmptySchema
+from backend.fundmate.schema_ext import CustomPaginationSchema
 from backend.fundmate.view_ext import paginate_query
 
 bp = APIBlueprint("fund", __name__, url_prefix="/funds")
@@ -67,16 +68,12 @@ def funds(query):
 class FundCompanyView(MethodView):
 
     @input(CustomPaginationSchema, 'query')
-    @input(EmptySchema)
     @output(FundCompanyOutSchema(many=True))
     def get(self, query: dict = None):
         """
         获取基金公司信息
         """
-        if query:
-            ret = paginate_query(FundCompany, query)
-        else:
-            ret = FundCompany.query.order_by(FundCompany.scale.desc()).all()
+        ret = paginate_query(FundCompany, query)
         return ret
 
 
@@ -84,25 +81,21 @@ class FundCompanyView(MethodView):
 class FundMgrView(MethodView):
 
     @input(CustomPaginationSchema, 'query')
-    @input(EmptySchema)
-    @output(FundOutSchema)
+    @output(FundMgrOutSchema)
     def get(self, query: dict = None):
         """
         获取基金经理列表
         :param query: 
         :return:
         """
-        if query:
-            ret = paginate_query(FundMgr, query)
-        else:
-            ret = FundMgr.query.all()
+        ret = paginate_query(Mgr, query)
         return ret
 
 
 @bp.route('/sale_channels/')
 class FundSalesView(MethodView):
     """
-    基金销售机构
+    基金销售渠道
     """
 
     @output(FundSaleOutSchema)
@@ -110,10 +103,9 @@ class FundSalesView(MethodView):
         """
         获取基金的销售渠道
         分为热门渠道和所有渠道
-
-        TODO：根据账本信息获取曾购买渠道
         :return:
         """
+        # TODO：根据账本信息获取曾购买渠道
         # 一些常用的销售渠道，在前面列出来
         hot_market_place = FundSaleOrg.query.filter(FundSaleOrg.known_name.isnot(None)).all()
         all_market_place = FundSaleOrg.query.all()

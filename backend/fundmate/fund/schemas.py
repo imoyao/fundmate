@@ -11,7 +11,7 @@ from apiflask.fields import Boolean, Date, Float, Function, Integer, List, Metho
 from apiflask.validators import Equal, Length, OneOf
 
 from backend.fundmate import settings
-from backend.fundmate.fund.models import Fund, FundType
+from backend.fundmate.fund.models import Fund, FundPortfolioMgr, FundType
 from backend.fundmate.schema_ext import CustomPaginationSchema
 from backend.fundmate.user.models import User
 
@@ -59,6 +59,21 @@ def display_risk(risk_type: str) -> str:
     return settings.RISK_TYPE_DISPLAY.get(risk_type)
 
 
+def get_manager_name(obj):
+    """
+    获取组合管理人信息
+    该接口和model类中的`managers`属性方法相同
+    :return:
+    """
+    if obj.platform not in ['own', 'undefined']:
+        f_mgr = FundPortfolioMgr.query.filter_by(code=obj.mgr_code).one_or_none()
+        return f_mgr.name
+    else:
+        mgr_id = int(obj.mgr_code)
+        user = User.query.filter_by(id=mgr_id).one_or_none()
+        return user.name or user.username
+
+
 class FundPortfolioOutSchema(Schema):
     """
     单个组合概览信息
@@ -69,6 +84,7 @@ class FundPortfolioOutSchema(Schema):
     risk_display = Function(lambda obj: display_risk(obj.risk_type))
     platform = String(metadata={'title': '组合所属平台', 'description': '具体请查看`platform_name`字段'})
     platform_name = Function(lambda obj: get_platform(obj.platform))
+    manager = Function(lambda obj: get_manager_name(obj), data_key='mgr_name')
 
 
 class FundPortfoliosPaginationSchema(CustomPaginationSchema):
@@ -90,7 +106,7 @@ def get_fund_name(fund_code: str) -> Optional[str]:
 
 
 def float_to_percent(portion):
-    return f'{portion*100:.2f} %'
+    return f'{portion * 100:.2f} %'
 
 
 class FundPortfolioAdjustDetailOutSchema(Schema):
@@ -241,11 +257,14 @@ class FundSearchKeySchema(Schema):
 
 
 class FundMgrOutSchema(Schema):
+    """
+    基金经理输出序列化
+    """
     id = Integer()
     name = String()
     mgr_code = String()
-    created_at = Date()
     company = String()
+    funds = List(Nested(FundSampleSchema))
 
 
 class FundCompanyOutSchema(Schema):
