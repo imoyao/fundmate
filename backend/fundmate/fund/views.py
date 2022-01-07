@@ -79,7 +79,7 @@ class FundCompanyView(MethodView):
         return ret
 
 
-@bp.route('/mgrs/')
+@bp.route('/managers/')
 class FundMgrView(MethodView):
 
     @input(CustomPaginationSchema, 'query')
@@ -93,7 +93,7 @@ class FundMgrView(MethodView):
         return ret
 
 
-@bp.route('/sales/')
+@bp.route('/sale_channels/')
 class FundSalesView(MethodView):
     """
     基金销售机构
@@ -101,6 +101,13 @@ class FundSalesView(MethodView):
 
     @output(FundSaleOutSchema)
     def get(self):
+        """
+        获取基金的销售渠道
+        分为热门渠道和所有渠道
+
+        TODO：根据账本信息获取曾购买渠道
+        :return:
+        """
         # 一些常用的销售渠道，在前面列出来
         hot_market_place = FundSaleOrg.query.filter(FundSaleOrg.known_name.isnot(None)).all()
         all_market_place = FundSaleOrg.query.all()
