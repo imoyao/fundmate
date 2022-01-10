@@ -469,6 +469,9 @@ class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
                        default=0,
                        comment='风险类型（稳健/成长等）')
     annualized_rate_of_return = Column(db.Numeric(7, 4), comment='成立以来年化')  # 保留小数点后4位，每天计算净值后更新
+    max_drawdown = Column(db.Numeric(7, 4), comment='最大回撤率')
+    sharpe = Column(db.Numeric(3, 2), comment='夏普率')
+    volatility = Column(db.Numeric(7, 4), comment='波动率')
     invest_rate_of_return = Column(db.Numeric(7, 4), comment='成立以来收益')  # 每天计算净值后更新
     desc = Column(db.String(300), comment='组合描述')
     rich_desc = Column(db.String(1000), comment='组合详细描述')
