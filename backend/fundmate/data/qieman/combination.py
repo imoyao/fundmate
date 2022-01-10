@@ -82,6 +82,10 @@ class Strategy:
         return set(portfolios)
 
     def recommends(self):
+        """
+        原始链接：https://qieman.com/portfolios/
+        :return:
+        """
         url = 'https://qieman.com/pmdj/v1/special/recommends?poOnly=true'
         resp = rget_json(url, headers=self.headers)
         if resp:
