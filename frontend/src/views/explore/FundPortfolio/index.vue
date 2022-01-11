@@ -1,6 +1,7 @@
 <template>
   <div class="dashboard-editor-container">
     <div class="app-container">
+<!--       筛选条件-->
       <div class="page-header">
         <el-form class="el-form--inline"
                  ref="form"
@@ -46,99 +47,205 @@
           <el-button type="primary" icon="el-icon-search" v-waves @click="handleQuery">查询</el-button>
         </el-form>
       </div>
-
+<!--      卡片列表-->
       <el-row class="panel-group card-panel-col" :gutter="45">
         <el-col :xs="24" :lg="8">
-          <el-card class="box-card" shadow="hover">
+          <el-card shadow="hover" style="margin-bottom: 20px;">
             <div slot="header" class="clearfix">
               <span>成长五剑</span>
               <el-tag size="mini" style="margin-left: 6px;">一石二鸟</el-tag>
               <el-button style="float: right; padding: 3px 0" type="text" icon="el-icon-star-off">加自选</el-button>
             </div>
 
-            <div class="assets-detail">
-              <el-row :gutter="12">
-                <div style="text-align: center">
-                  <el-col :span="24">
-                    <el-card :body-style="{padding: '0px'}" shadow="never" class="box-card" >
-                      <div>
-                        <var class="per-num" style="color:#F56C6C">12.88%</var>
-                        <br>
-                        <span style="line-height: 65px">年化收益率</span>
-                      </div>
-                    </el-card>
+            <el-main style="overflow: hidden">
+              <el-col :span="20">
+                <el-row :gutter="4">
+                  <!--                    指标信息-->
+                  <el-col :span="24" style="text-align: center">
+                    <var class="per-num" style="color:#F56C6C">12.88%</var>
+                    <br>
+                    <span style="line-height: 65px">年化收益率</span>
                   </el-col>
-                </div>
-                <el-col :span="6">
-                  <el-card shadow="never" class="box-card" >
-                    <div>
-                      <var class="per-num">12.88%</var>
-                      <br>
-                      <span style="line-height: 65px;font-size:12px">最大回撤率</span>
-                    </div>
-                  </el-card>
-                </el-col>
-                <el-col :span="6">
-                  <el-card shadow="never" class="box-card" >
-                    <div>
-                      <var class="per-num">2.88</var>
-                      <br>
-                      <span style="line-height: 65px;font-size:12px">夏普率</span>
-                    </div>
-                  </el-card>
-                </el-col>
-                <el-col :span="6">
-                  <el-card shadow="never" class="box-card" >
-                    <div>
-                      <var class="per-num">27.00%</var>
-                      <br>
-                      <span style="line-height: 65px;font-size:12px">波动率</span>
-                    </div>
-                  </el-card>
-                </el-col>
-                <el-col :span="6">
-                  <el-card shadow="never" class="el-card__body box-card">
-                      <el-button type="text" icon="el-icon-arrow-right"></el-button>
-                  </el-card>
-                </el-col>
-              </el-row>
-            </div>
-            <p>这里是组合长长长长长长长长描述</p>
+
+                  <el-col :span="6" style="text-align: left">
+                    <var class="per-num">12.88%</var>
+                    <br>
+                    <span style="line-height: 65px;font-size:12px">最大回撤率</span>
+                  </el-col>
+                  <el-col :span="6" style="text-align: center">
+                    <var class="per-num">2.88</var>
+                    <br>
+                    <span style="line-height: 65px;font-size:12px">夏普率</span>
+                  </el-col>
+                  <el-col :span="6" style="text-align: right">
+                    <var class="per-num">27.00%</var>
+                    <br>
+                    <span style="line-height: 65px;font-size:12px">波动率</span>
+                  </el-col>
+                </el-row>
+              </el-col>
+
+              <el-col :span="4">
+                <el-card shadow="never" class="el-card__body box-card" style="margin-top: 35px;width:200px">
+                  <el-button type="text" icon="el-icon-arrow-right"></el-button>
+                </el-card>
+              </el-col>
+
+            </el-main>
+            <el-footer>
+              <p>这里是组合长长长长长长长长1111描述</p>
+            </el-footer>
           </el-card>
         </el-col>
 
-        <el-col :span="8">
-          <el-card class="box-card" shadow="hover">
-            <div slot="header" class="clearfix">
-              <span>成长五剑</span>
-              <el-tag size="mini" style="margin-left: 6px;">盈米</el-tag>
-              <el-button style="float: right; padding: 3px 0" type="text">操作按钮</el-button>
-            </div>
-            <div v-for="o in 4" :key="o" class="text item">
-              <span>组合描述</span>
-              <span>组合年化收益</span>
-              <span>组合年化收益</span>
-              {{ '列表内容 ' + o }}
-            </div>
-          </el-card>
-        </el-col>
-        <el-col :span="8">
-          <el-card class="box-card" shadow="hover">
+        <el-col :xs="24" :lg="8">
+          <el-card shadow="hover" style="margin-bottom: 20px;">
             <div slot="header" class="clearfix">
               <span>成长五剑</span>
               <el-tag size="mini" style="margin-left: 6px;">一石二鸟</el-tag>
-              <el-button style="float: right; padding: 3px 0" type="text">操作按钮</el-button>
+              <el-button style="float: right; padding: 3px 0" type="text" icon="el-icon-star-off">加自选</el-button>
             </div>
-            <div v-for="o in 4" :key="o" class="text item">
-              <span>组合描述</span>
-              <span>组合年化收益</span>
-              <span>组合年化收益</span>
-              {{ '列表内容 ' + o }}
+
+            <el-main style="overflow: hidden">
+              <el-col :span="20">
+                <el-row :gutter="2">
+                  <!--                    指标信息-->
+                  <el-col :span="24" style="text-align: center">
+                    <var class="per-num" style="color:#F56C6C">12.88%</var>
+                    <br>
+                    <span style="line-height: 65px">年化收益率</span>
+                  </el-col>
+
+                  <el-col :span="6" style="text-align: left">
+                    <var class="per-num">12.88%</var>
+                    <br>
+                    <span style="line-height: 65px;font-size:12px">最大回撤率</span>
+                  </el-col>
+                  <el-col :span="6" style="text-align: center">
+                    <var class="per-num">2.88</var>
+                    <br>
+                    <span style="line-height: 65px;font-size:12px">夏普率</span>
+                  </el-col>
+                  <el-col :span="6" style="text-align: right">
+                    <var class="per-num">27.00%</var>
+                    <br>
+                    <span style="line-height: 65px;font-size:12px">波动率</span>
+                  </el-col>
+                </el-row>
+              </el-col>
+
+              <el-col :span="4">
+                <el-card shadow="never" class="el-card__body box-card" style="margin-top: 35px;width:200px">
+                  <el-button type="text" icon="el-icon-arrow-right"></el-button>
+                </el-card>
+              </el-col>
+
+            </el-main>
+            <el-footer>
+              <p>这里是组合长长长长长长长长描述</p>
+            </el-footer>
+          </el-card>
+        </el-col>
+
+        <el-col :xs="24" :lg="8">
+          <el-card shadow="hover" style="margin-bottom: 20px;">
+            <div slot="header" class="clearfix">
+              <span>成长五剑</span>
+              <el-tag size="mini" style="margin-left: 6px;">一石二鸟</el-tag>
+              <el-button style="float: right; padding: 3px 0" type="text" icon="el-icon-star-off">加自选</el-button>
             </div>
+
+            <el-main style="overflow: hidden">
+              <el-col :span="20">
+                <el-row :gutter="2">
+                  <!--                    指标信息-->
+                  <el-col :span="24" style="text-align: center">
+                    <var class="per-num" style="color:#F56C6C">12.88%</var>
+                    <br>
+                    <span style="line-height: 65px">年化收益率</span>
+                  </el-col>
+
+                  <el-col :span="6" style="text-align: left">
+                    <var class="per-num">12.88%</var>
+                    <br>
+                    <span style="line-height: 65px;font-size:12px">最大回撤率</span>
+                  </el-col>
+                  <el-col :span="6" style="text-align: center">
+                    <var class="per-num">2.88</var>
+                    <br>
+                    <span style="line-height: 65px;font-size:12px">夏普率</span>
+                  </el-col>
+                  <el-col :span="6" style="text-align: right">
+                    <var class="per-num">27.00%</var>
+                    <br>
+                    <span style="line-height: 65px;font-size:12px">波动率</span>
+                  </el-col>
+                </el-row>
+              </el-col>
+
+              <el-col :span="4">
+                <el-card shadow="never" class="el-card__body box-card" style="margin-top: 35px;width:200px">
+                  <el-button type="text" icon="el-icon-arrow-right"></el-button>
+                </el-card>
+              </el-col>
+
+            </el-main>
+            <el-footer>
+              <p>这里是组合长长长长长长长长描述</p>
+            </el-footer>
+          </el-card>
+        </el-col>
+
+        <el-col :xs="24" :lg="8">
+          <el-card shadow="hover" style="margin-bottom: 20px;">
+            <div slot="header" class="clearfix">
+              <span>成长五剑</span>
+              <el-tag size="mini" style="margin-left: 6px;">一石二鸟</el-tag>
+              <el-button style="float: right; padding: 3px 0" type="text" icon="el-icon-star-off">加自选</el-button>
+            </div>
+
+            <el-main style="overflow: hidden">
+              <el-col :span="20">
+                <el-row :gutter="2">
+                  <!--                    指标信息-->
+                  <el-col :span="24" style="text-align: center">
+                    <var class="per-num" style="color:#F56C6C">12.88%</var>
+                    <br>
+                    <span style="line-height: 65px">年化收益率</span>
+                  </el-col>
+
+                  <el-col :span="6" style="text-align: left">
+                    <var class="per-num">12.88%</var>
+                    <br>
+                    <span style="line-height: 65px;font-size:12px">最大回撤率</span>
+                  </el-col>
+                  <el-col :span="6" style="text-align: center">
+                    <var class="per-num">2.88</var>
+                    <br>
+                    <span style="line-height: 65px;font-size:12px">夏普率</span>
+                  </el-col>
+                  <el-col :span="6" style="text-align: right">
+                    <var class="per-num">27.00%</var>
+                    <br>
+                    <span style="line-height: 65px;font-size:12px">波动率</span>
+                  </el-col>
+                </el-row>
+              </el-col>
+
+              <el-col :span="4">
+                <el-card shadow="never" class="el-card__body box-card" style="margin-top: 35px;width:200px">
+                  <el-button type="text" icon="el-icon-arrow-right"></el-button>
+                </el-card>
+              </el-col>
+
+            </el-main>
+            <el-footer>
+              <p>这里是组合长长长长长长长长描述</p>
+            </el-footer>
           </el-card>
         </el-col>
       </el-row>
-
+<!--分页器-->
       <el-pagination
         background
         :current-page="queryForm.pageNo"
@@ -150,7 +257,7 @@
         @size-change="handleSizeChange"></el-pagination>
 
     </div>
-  </div>
+    </div>
 
 </template>
 
