@@ -202,16 +202,16 @@ export const constantRoutes: RouteConfig[] = [
     path: '/explore',
     component: Layout,
     // redirect: '/favor/funds',
-    meta: { title: 'explore', icon: 'edit' },
+    meta: { title: 'explore', icon: 'el-icon-shopping-bag-2' },
     children: [
       {
-        path: 'portfolio', // 组合
+        path: 'portfolios', // 组合
         component: () => import(/* webpackChunkName: "account" */ '@/views/explore/FundPortfolio/index.vue'),
-        meta: { title: 'portfolio', icon: 'el-icon-star-on' }
+        meta: { title: 'portfolio', icon: 'component' }
       }, {
-        path: 'manager', // 基金经理
+        path: 'managers', // 基金经理
         component: () => import(/* webpackChunkName: "asset" */ '@/views/FundMgr/index.vue'),
-        meta: { title: 'mgr', icon: 'peoples' }
+        meta: { title: 'managers', icon: 'peoples' }
       }
     ]
   }
