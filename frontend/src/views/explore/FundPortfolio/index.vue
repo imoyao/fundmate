@@ -1,89 +1,177 @@
 <template>
-  <div class="app-container">
-    <el-row class="panel-group">
-        <el-select v-model="value1" multiple placeholder="请选择">
-          <el-option
-            v-for="item in options"
-            :key="item.value"
-            :label="item.label"
-            :value="item.value">
-          </el-option>
-        </el-select>
+  <div class="dashboard-editor-container">
+    <div class="app-container">
+      <div class="page-header">
+        <el-form class="el-form--inline"
+                 ref="form"
+                 :model="queryForm"
+                 :inline="true"
+                 @submit.native.prevent>
+          <el-form-item label="所属平台" prop="platName" class="el-form-item__label">
+            <el-col>
+              <el-select v-model="value1" multiple placeholder="请选择">
+                <el-option
+                  v-for="item in options"
+                  :key="item.value"
+                  :label="item.label"
+                  :value="item.value">
+                </el-option>
+              </el-select>
+            </el-col>
+          </el-form-item>
+          <el-form-item label="风险等级" prop="riskLevel" class="el-form-item__label">
+            <el-col>
+              <el-select v-model="value1" multiple placeholder="请选择">
+                <el-option
+                  v-for="item in options"
+                  :key="item.value"
+                  :label="item.label"
+                  :value="item.value">
+                </el-option>
+              </el-select>
+            </el-col>
+          </el-form-item>
+          <el-form-item label="主理人类型" prop="fpoMgrType" class="el-form-item__label">
+            <el-col>
+              <el-select v-model="value1" multiple placeholder="请选择">
+                <el-option
+                  v-for="item in options"
+                  :key="item.value"
+                  :label="item.label"
+                  :value="item.value">
+                </el-option>
+              </el-select>
+            </el-col>
+          </el-form-item>
+          <el-button type="primary" icon="el-icon-search" v-waves @click="handleQuery">查询</el-button>
+        </el-form>
+      </div>
 
-        <el-select v-model="value1" multiple placeholder="请选择">
-          <el-option
-            v-for="item in options"
-            :key="item.value"
-            :label="item.label"
-            :value="item.value">
-          </el-option>
-        </el-select>
-    </el-row>
+      <el-row class="panel-group card-panel-col" :gutter="45">
+        <el-col :xs="24" :lg="8">
+          <el-card class="box-card" shadow="hover">
+            <div slot="header" class="clearfix">
+              <span>成长五剑</span>
+              <el-tag size="mini" style="margin-left: 6px;">一石二鸟</el-tag>
+              <el-button style="float: right; padding: 3px 0" type="text" icon="el-icon-star-off">加自选</el-button>
+            </div>
 
-    <el-row class="panel-group" :gutter="45">
-      <el-col :span="8">
-        <el-card class="box-card" shadow="hover">
-          <div slot="header" class="clearfix">
-            <span>成长五剑</span>
-            <el-tag size="mini" style="margin-left: 6px;">一石二鸟</el-tag>
-            <el-button style="float: right; padding: 3px 0" type="text">操作按钮</el-button>
-          </div>
-          <div v-for="o in 4" :key="o" class="text item">
-            <span>组合描述</span>
-            <span>组合年化收益</span>
-            <span>组合年化收益</span>
-            {{ '列表内容 ' + o }}
-          </div>
-        </el-card>
-      </el-col>
-      <el-col :span="8">
-        <el-card class="box-card" shadow="hover">
-          <div slot="header" class="clearfix">
-            <span>成长五剑</span>
-            <el-tag size="mini" style="margin-left: 6px;">盈米</el-tag>
-            <el-button style="float: right; padding: 3px 0" type="text">操作按钮</el-button>
-          </div>
-          <div v-for="o in 4" :key="o" class="text item">
-            <span>组合描述</span>
-            <span>组合年化收益</span>
-            <span>组合年化收益</span>
-            {{ '列表内容 ' + o }}
-          </div>
-        </el-card>
-      </el-col>
-      <el-col :span="8">
-        <el-card class="box-card" shadow="hover">
-          <div slot="header" class="clearfix">
-            <span>成长五剑</span>
-            <el-tag size="mini" style="margin-left: 6px;">一石二鸟</el-tag>
-            <el-button style="float: right; padding: 3px 0" type="text">操作按钮</el-button>
-          </div>
-          <div v-for="o in 4" :key="o" class="text item">
-            <span>组合描述</span>
-            <span>组合年化收益</span>
-            <span>组合年化收益</span>
-            {{ '列表内容 ' + o }}
-          </div>
-        </el-card>
-      </el-col>
-    </el-row>
+            <div class="assets-detail">
+              <el-row :gutter="12">
+                <div style="text-align: center">
+                  <el-col :span="24">
+                    <el-card :body-style="{padding: '0px'}" shadow="never" class="box-card" >
+                      <div>
+                        <var class="per-num" style="color:#F56C6C">12.88%</var>
+                        <br>
+                        <span style="line-height: 65px">年化收益率</span>
+                      </div>
+                    </el-card>
+                  </el-col>
+                </div>
+                <el-col :span="6">
+                  <el-card shadow="never" class="box-card" >
+                    <div>
+                      <var class="per-num">12.88%</var>
+                      <br>
+                      <span style="line-height: 65px;font-size:12px">最大回撤率</span>
+                    </div>
+                  </el-card>
+                </el-col>
+                <el-col :span="6">
+                  <el-card shadow="never" class="box-card" >
+                    <div>
+                      <var class="per-num">2.88</var>
+                      <br>
+                      <span style="line-height: 65px;font-size:12px">夏普率</span>
+                    </div>
+                  </el-card>
+                </el-col>
+                <el-col :span="6">
+                  <el-card shadow="never" class="box-card" >
+                    <div>
+                      <var class="per-num">27.00%</var>
+                      <br>
+                      <span style="line-height: 65px;font-size:12px">波动率</span>
+                    </div>
+                  </el-card>
+                </el-col>
+                <el-col :span="6">
+                  <el-card shadow="never" class="el-card__body box-card">
+                      <el-button type="text" icon="el-icon-arrow-right"></el-button>
+                  </el-card>
+                </el-col>
+              </el-row>
+            </div>
+            <p>这里是组合长长长长长长长长描述</p>
+          </el-card>
+        </el-col>
 
+        <el-col :span="8">
+          <el-card class="box-card" shadow="hover">
+            <div slot="header" class="clearfix">
+              <span>成长五剑</span>
+              <el-tag size="mini" style="margin-left: 6px;">盈米</el-tag>
+              <el-button style="float: right; padding: 3px 0" type="text">操作按钮</el-button>
+            </div>
+            <div v-for="o in 4" :key="o" class="text item">
+              <span>组合描述</span>
+              <span>组合年化收益</span>
+              <span>组合年化收益</span>
+              {{ '列表内容 ' + o }}
+            </div>
+          </el-card>
+        </el-col>
+        <el-col :span="8">
+          <el-card class="box-card" shadow="hover">
+            <div slot="header" class="clearfix">
+              <span>成长五剑</span>
+              <el-tag size="mini" style="margin-left: 6px;">一石二鸟</el-tag>
+              <el-button style="float: right; padding: 3px 0" type="text">操作按钮</el-button>
+            </div>
+            <div v-for="o in 4" :key="o" class="text item">
+              <span>组合描述</span>
+              <span>组合年化收益</span>
+              <span>组合年化收益</span>
+              {{ '列表内容 ' + o }}
+            </div>
+          </el-card>
+        </el-col>
+      </el-row>
+
+      <el-pagination
+        background
+        :current-page="queryForm.pageNo"
+        :layout="layout"
+        :page-sizes="queryForm.pageSizes"
+        :page-size="queryForm.pageSize"
+        :total="total"
+        @current-change="handleCurrentChange"
+        @size-change="handleSizeChange"></el-pagination>
+
+    </div>
   </div>
+
 </template>
 
 <script lang="ts">
 import { Component, Vue } from 'vue-property-decorator'
-import DraggableCard from '@/components/DragableCard/index.vue'
-// import Record from '../Record/index.vue'
+import { getPortfolios } from '@/api/portfolios'
 
 @Component({
-  name: 'FundPortfolio',
-  components: {
-    DraggableCard
-  }
+  name: 'FundPortfolio'
 })
 export default class extends Vue {
-  private options = [{
+  private queryForm = Object.assign({
+    pageNo: 1,
+    pageSize: 15,
+    pageSizes: [10, 15, 20, 30],
+    title: ''
+  })
+
+  private layout='total, sizes, prev, pager, next, jumper'
+  private total= 0
+  private options= [{
     value: '选项1',
     label: '黄金糕'
   }, {
@@ -100,10 +188,61 @@ export default class extends Vue {
     label: '北京烤鸭'
   }]
 
-  private value1 = '1'
+  private value1= '1'
+
+  created() {
+    this.fetchData()
+  }
+
+  public handleSizeChange(val:number) {
+    this.queryForm.pageSize = val
+    this.fetchData()
+  }
+
+  public handleCurrentChange(val:number) {
+    this.queryForm.pageNo = val
+    this.fetchData()
+  }
+
+  public handleQuery() {
+    this.queryForm.pageNo = 1
+    this.fetchData()
+  }
+
+  private async fetchData() {
+    try {
+      const { data } = await getPortfolios({})
+      this.queryForm = data.article
+    } catch (err) {
+      console.error(err)
+    }
+  }
 }
 </script>
-<style>
+<style scoped>
+.dashboard-editor-container {
+  padding: 32px;
+  background-color: rgb(240, 242, 245);
+  position: relative;
+}
+.box-card{
+  border: 0;
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  padding: 20px 20px 0 20px;
+  margin-bottom: 20px;
+  background: #fff;
+  border: 1px solid #ebeef5;
+}
+.panel-group {
+  margin-top: 18px;
+}
+.card-panel-col {
+  margin-bottom: 32px;
+}
 .text {
   font-size: 14px;
 }
