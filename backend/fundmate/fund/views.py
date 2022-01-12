@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """User views."""
 import datetime
+from typing import Dict, Optional
 
 from apiflask import APIBlueprint, abort, doc, input, output, pagination_builder
 from flask import current_app
@@ -9,7 +10,7 @@ from flask.views import MethodView
 import pandas as pd
 from sqlalchemy import create_engine
 
-from backend.fundmate import utils
+from backend.fundmate import settings, utils
 from backend.fundmate.database import db, get_table_name
 from backend.fundmate.errors import NotHundredPercentSumPortion, PatchWithEmptyData
 from backend.fundmate.fund.models import (
@@ -18,6 +19,7 @@ from backend.fundmate.fund.models import (
     FundPortfolio,
     FundPortfolioAdjustHistory,
     FundPortfolioHoldDetail,
+    FundPortfolioMgr,
     FundSaleOrg,
     Mgr,
 )
@@ -34,6 +36,8 @@ from backend.fundmate.fund.schemas import (
     FundPortfoliosOutSchema,
     FundPortfoliosPaginationSchema,
     FundSaleOutSchema,
+    PortfolioQueryOutSchema,
+    PortfolioQuerySchema,
 )
 from backend.fundmate.libs.pysnowflake import snowflake
 from backend.fundmate.schema_ext import CustomPaginationSchema
@@ -60,7 +64,6 @@ def funds(query):
     else:
         # FIXME: not work
         ret = Fund.query.order_by(Fund.fund_code.desc()).all()
-        print(ret)
     return ret
 
 
@@ -302,7 +305,7 @@ class CombinationDetail(MethodView):
     @input(FundPortfolioPatchInSchema(partial=True))
     @output(FundPortfolioDetailOutSchema)
     @doc(summary='部分更新指定基金组合', description='该接口用于更新特定组合（如：名称、风险等级、描述、可见性、投资理念），需要给出组合编码')
-    def patch(self, portfolio_code: str, data: dict):
+    def patch(self, portfolio_code: str, data: Dict):
         """
         更新组合可以更新的字段包括：
         名称、风险、描述、可见性、rich_desc
@@ -351,6 +354,72 @@ class CombinationDetail(MethodView):
             # 只更新组合基本信息
             fpo = fpo.update(**data)
         return fpo
+
+
+@bp.get('/portfolios/options')
+@input(PortfolioQuerySchema, 'query')
+@output(PortfolioQueryOutSchema)
+def get_portfolios_select_options(query: Optional[Dict]):
+    """
+    组合下拉框的显示
+
+    **注意** 由于组合管理员的特殊设计，所以此处查询管理员类型时需要特殊处理，对于平台和未知组合，一律定义类型为“个人”
+    :param query:
+    :return:
+    """
+    if not query:
+        plat_options = settings.PLAT_TYPE_DISPLAY
+        risk_options = settings.RISK_TYPE_DISPLAY
+        mgr_options = settings.ZH_MGR_TYPE_DISPLAY
+        return {
+            'plat_options': plat_options.keys(),
+            'risk_options': risk_options.keys(),
+            'mgr_options': mgr_options.keys(),
+        }
+    else:
+        mgr_option = query.pop('mgr_type', None)
+
+        fpos = FundPortfolio.query.filter_by(**query).distinct(FundPortfolio.platform, FundPortfolio.risk_type,
+                                                               FundPortfolio.mgr_code).all()
+        if fpos:
+            if mgr_option:
+                comb_list = list()
+                for comb in fpos:
+                    # 第三方平台
+                    if comb.platform not in ['own', 'undefined']:
+                        if comb.manager.mgr_type == mgr_option:
+                            comb_list.append(comb)
+                    else:  # 自有或未知
+                        mgr_code = comb.mgr_code
+                        fpo_mgr = FundPortfolioMgr.query.filter_by(code=mgr_code).one_or_none()
+                        if fpo_mgr and fpo_mgr.mgr_type == mgr_option:
+                            comb_list.append(comb)
+
+                fpos = comb_list.copy()
+
+            plat_options = set()
+            risk_options = set()
+            mgr_options = set()
+            for comb_item in fpos:
+                comb_plat_type = comb_item.platform
+                plat_options.add(comb_plat_type)
+                risk_options.add(comb_item.risk_type)
+
+                if comb_plat_type not in ['own', 'undefined']:
+                    mgr_type = comb_item.manager.mgr_type
+                else:
+                    mgr_type = 'personal'
+
+                mgr_options.add(mgr_type)
+
+            results = {
+                'plat_options': plat_options,
+                'risk_options': risk_options,
+                'mgr_options': mgr_options,
+            }
+            return results
+        else:
+            abort(404)
 
 
 @bp.route('/portfolios/<string:portfolio_code>/adjustments')
