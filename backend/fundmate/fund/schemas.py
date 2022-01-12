@@ -4,7 +4,9 @@
 """
 类比DRF中的serializer
 """
-from typing import Optional
+from typing import Dict
+from typing import List as ListType
+from typing import Optional, Set, Union
 
 from apiflask import PaginationSchema, Schema
 from apiflask.fields import Boolean, Date, Float, Function, Integer, List, Method, Nested, Number, String
@@ -303,3 +305,24 @@ class MidSaleSchema(Schema):
 
 class FundSaleOutSchema(Schema):
     options = List(Nested(MidSaleSchema))
+
+
+class PortfolioQuerySchema(Schema):
+    platform = String(default=None, validate=OneOf(settings.PLAT_TYPE.keys()))
+    risk_type = String(default=None, validate=OneOf(settings.RISK_TYPE.keys()))
+    mgr_type = String(default=None, validate=OneOf(settings.ZH_MGR_TYPE.keys()))
+
+
+def get_options(_seq: Union[ListType, Set], display_maps: Dict) -> ListType:
+    options = list()
+    for item in _seq:
+        label = display_maps.get(item)
+        op_item = {'label': label, 'value': item}
+        options.append(op_item)
+    return options
+
+
+class PortfolioQueryOutSchema(Schema):
+    plat_options = Function(lambda obj: get_options(obj.get('plat_options'), settings.PLAT_TYPE_DISPLAY))
+    risk_options = Function(lambda obj: get_options(obj.get('risk_options'), settings.RISK_TYPE_DISPLAY))
+    mgr_options = Function(lambda obj: get_options(obj.get('mgr_options'), settings.ZH_MGR_TYPE_DISPLAY))
