@@ -1,5 +1,6 @@
 <template>
   <div class="dashboard-editor-container">
+<!--     参考github相关页面设计（https://github.com/explore）-->
     <div class="app-container">
 <!--       筛选条件-->
       <div class="page-header">
@@ -49,7 +50,7 @@
       </div>
 <!--      卡片列表-->
       <el-row class="panel-group card-panel-col" :gutter="45">
-        <el-col :xs="24" :lg="8">
+        <el-col :xs="24" :md="12" :lg="8">
           <el-card shadow="hover" style="margin-bottom: 20px;">
             <div slot="header" class="clearfix">
               <span>成长五剑</span>
@@ -59,25 +60,24 @@
 
             <el-main style="overflow: hidden">
               <el-col :span="20">
-                <el-row :gutter="4">
+                <el-row :gutter="4" >
                   <!--                    指标信息-->
                   <el-col :span="24" style="text-align: center">
-                    <var class="per-num" style="color:#F56C6C">12.88%</var>
+                    <var class="per-num" style="color:#F56C6C;font-size:24px">12.88%</var>
                     <br>
-                    <span style="line-height: 65px">年化收益率</span>
+                    <span style="line-height: 65px;font-size:12px">年化收益率</span>
                   </el-col>
-
-                  <el-col :span="6" style="text-align: left">
+                  <el-col :xs="24" :lg="8" style="text-align: center">
                     <var class="per-num">12.88%</var>
                     <br>
                     <span style="line-height: 65px;font-size:12px">最大回撤率</span>
                   </el-col>
-                  <el-col :span="6" style="text-align: center">
+                  <el-col :xs="24" :lg="8" style="text-align: center">
                     <var class="per-num">2.88</var>
                     <br>
                     <span style="line-height: 65px;font-size:12px">夏普率</span>
                   </el-col>
-                  <el-col :span="6" style="text-align: right">
+                  <el-col :xs="24" :lg="8" style="text-align: center">
                     <var class="per-num">27.00%</var>
                     <br>
                     <span style="line-height: 65px;font-size:12px">波动率</span>
@@ -85,7 +85,7 @@
                 </el-row>
               </el-col>
 
-              <el-col :span="4">
+              <el-col :xs="24" :lg="4">
                 <el-card shadow="never" class="el-card__body box-card" style="margin-top: 35px;width:200px">
                   <el-button type="text" icon="el-icon-arrow-right"></el-button>
                 </el-card>
@@ -97,8 +97,7 @@
             </el-footer>
           </el-card>
         </el-col>
-
-        <el-col :xs="24" :lg="8">
+        <el-col :xs="24" :md="12" :lg="8">
           <el-card shadow="hover" style="margin-bottom: 20px;">
             <div slot="header" class="clearfix">
               <span>成长五剑</span>
@@ -108,25 +107,24 @@
 
             <el-main style="overflow: hidden">
               <el-col :span="20">
-                <el-row :gutter="2">
+                <el-row :gutter="4" >
                   <!--                    指标信息-->
                   <el-col :span="24" style="text-align: center">
-                    <var class="per-num" style="color:#F56C6C">12.88%</var>
+                    <var class="per-num" style="color:#F56C6C;font-size:24px">12.88%</var>
                     <br>
-                    <span style="line-height: 65px">年化收益率</span>
+                    <span style="line-height: 65px;font-size:12px">年化收益率</span>
                   </el-col>
-
-                  <el-col :span="6" style="text-align: left">
+                  <el-col :xs="24" :lg="8" style="text-align: center">
                     <var class="per-num">12.88%</var>
                     <br>
                     <span style="line-height: 65px;font-size:12px">最大回撤率</span>
                   </el-col>
-                  <el-col :span="6" style="text-align: center">
+                  <el-col :xs="24" :lg="8" style="text-align: center">
                     <var class="per-num">2.88</var>
                     <br>
                     <span style="line-height: 65px;font-size:12px">夏普率</span>
                   </el-col>
-                  <el-col :span="6" style="text-align: right">
+                  <el-col :xs="24" :lg="8" style="text-align: center">
                     <var class="per-num">27.00%</var>
                     <br>
                     <span style="line-height: 65px;font-size:12px">波动率</span>
@@ -134,7 +132,7 @@
                 </el-row>
               </el-col>
 
-              <el-col :span="4">
+              <el-col :xs="24" :lg="4">
                 <el-card shadow="never" class="el-card__body box-card" style="margin-top: 35px;width:200px">
                   <el-button type="text" icon="el-icon-arrow-right"></el-button>
                 </el-card>
@@ -142,12 +140,11 @@
 
             </el-main>
             <el-footer>
-              <p>这里是组合长长长长长长长长描述</p>
+              <p>这里是组合长长长长长长长长1111描述</p>
             </el-footer>
           </el-card>
         </el-col>
-
-        <el-col :xs="24" :lg="8">
+        <el-col :xs="24" :md="12" :lg="8">
           <el-card shadow="hover" style="margin-bottom: 20px;">
             <div slot="header" class="clearfix">
               <span>成长五剑</span>
@@ -157,25 +154,24 @@
 
             <el-main style="overflow: hidden">
               <el-col :span="20">
-                <el-row :gutter="2">
+                <el-row :gutter="4" >
                   <!--                    指标信息-->
                   <el-col :span="24" style="text-align: center">
-                    <var class="per-num" style="color:#F56C6C">12.88%</var>
+                    <var class="per-num" style="color:#F56C6C;font-size:24px">12.88%</var>
                     <br>
-                    <span style="line-height: 65px">年化收益率</span>
+                    <span style="line-height: 65px;font-size:12px">年化收益率</span>
                   </el-col>
-
-                  <el-col :span="6" style="text-align: left">
+                  <el-col :xs="24" :lg="8" style="text-align: center">
                     <var class="per-num">12.88%</var>
                     <br>
                     <span style="line-height: 65px;font-size:12px">最大回撤率</span>
                   </el-col>
-                  <el-col :span="6" style="text-align: center">
+                  <el-col :xs="24" :lg="8" style="text-align: center">
                     <var class="per-num">2.88</var>
                     <br>
                     <span style="line-height: 65px;font-size:12px">夏普率</span>
                   </el-col>
-                  <el-col :span="6" style="text-align: right">
+                  <el-col :xs="24" :lg="8" style="text-align: center">
                     <var class="per-num">27.00%</var>
                     <br>
                     <span style="line-height: 65px;font-size:12px">波动率</span>
@@ -183,7 +179,7 @@
                 </el-row>
               </el-col>
 
-              <el-col :span="4">
+              <el-col :xs="24" :lg="4">
                 <el-card shadow="never" class="el-card__body box-card" style="margin-top: 35px;width:200px">
                   <el-button type="text" icon="el-icon-arrow-right"></el-button>
                 </el-card>
@@ -191,12 +187,11 @@
 
             </el-main>
             <el-footer>
-              <p>这里是组合长长长长长长长长描述</p>
+              <p>这里是组合长长长长长长长长1111描述</p>
             </el-footer>
           </el-card>
         </el-col>
-
-        <el-col :xs="24" :lg="8">
+        <el-col :xs="24" :md="12" :lg="8">
           <el-card shadow="hover" style="margin-bottom: 20px;">
             <div slot="header" class="clearfix">
               <span>成长五剑</span>
@@ -206,25 +201,24 @@
 
             <el-main style="overflow: hidden">
               <el-col :span="20">
-                <el-row :gutter="2">
+                <el-row :gutter="4" >
                   <!--                    指标信息-->
                   <el-col :span="24" style="text-align: center">
-                    <var class="per-num" style="color:#F56C6C">12.88%</var>
+                    <var class="per-num" style="color:#F56C6C;font-size:24px">12.88%</var>
                     <br>
-                    <span style="line-height: 65px">年化收益率</span>
+                    <span style="line-height: 65px;font-size:12px">年化收益率</span>
                   </el-col>
-
-                  <el-col :span="6" style="text-align: left">
+                  <el-col :xs="24" :lg="8" style="text-align: center">
                     <var class="per-num">12.88%</var>
                     <br>
                     <span style="line-height: 65px;font-size:12px">最大回撤率</span>
                   </el-col>
-                  <el-col :span="6" style="text-align: center">
+                  <el-col :xs="24" :lg="8" style="text-align: center">
                     <var class="per-num">2.88</var>
                     <br>
                     <span style="line-height: 65px;font-size:12px">夏普率</span>
                   </el-col>
-                  <el-col :span="6" style="text-align: right">
+                  <el-col :xs="24" :lg="8" style="text-align: center">
                     <var class="per-num">27.00%</var>
                     <br>
                     <span style="line-height: 65px;font-size:12px">波动率</span>
@@ -232,7 +226,7 @@
                 </el-row>
               </el-col>
 
-              <el-col :span="4">
+              <el-col :xs="24" :lg="4">
                 <el-card shadow="never" class="el-card__body box-card" style="margin-top: 35px;width:200px">
                   <el-button type="text" icon="el-icon-arrow-right"></el-button>
                 </el-card>
@@ -240,7 +234,7 @@
 
             </el-main>
             <el-footer>
-              <p>这里是组合长长长长长长长长描述</p>
+              <p>这里是组合长长长长长长长长1111描述</p>
             </el-footer>
           </el-card>
         </el-col>
@@ -248,6 +242,7 @@
 <!--分页器-->
       <el-pagination
         background
+        style="text-align: center;"
         :current-page="queryForm.pageNo"
         :layout="layout"
         :page-sizes="queryForm.pageSizes"
