@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 """User views."""
-from flask.views import MethodView
-
 from apiflask import APIBlueprint, PaginationSchema, abort, auth_required, input, output
+from flask.views import MethodView
 
 from backend.fundmate.account.models import Account
 from backend.fundmate.account.schemas import AccountOutSchema, CreateAccountSchema

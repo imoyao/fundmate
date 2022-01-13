@@ -4,6 +4,7 @@ import hashlib
 from typing import Union
 
 from flask import current_app
+
 from itsdangerous import BadSignature, SignatureExpired
 from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
 from sqlalchemy import DDL, Table, event
@@ -22,7 +23,7 @@ user_role_table = Table('user_role', Base.metadata, Column('user_id', db.Integer
                         Column('role_id', db.Integer, db.ForeignKey('roles.id')))
 
 
-class Role(Base, PkModel):
+class Role(PkModel):
     """A role for a user."""
 
     __tablename__ = "roles"
@@ -39,7 +40,7 @@ class Role(Base, PkModel):
         return f"<Role({self.name})>"
 
 
-class User(Base, PkModel, CreateDateModel):
+class User(PkModel, CreateDateModel):
     """用户管理表
     TODO: 用户起始id从1000开始
     """
@@ -49,7 +50,7 @@ class User(Base, PkModel, CreateDateModel):
 
     name = Column(db.String(16), comment='用户名')
     username = Column(db.String(16), unique=True, nullable=False, comment='登录用户名')
-    password = Column(db.String(120), nullable=False, comment='用户密码')
+    password = Column(db.String(150), nullable=False, comment='用户密码')
     email = Column(db.String(30), unique=True, nullable=False, comment='注册邮箱')
     phone_num = Column(db.String(11), comment='注册手机号')
     custom_avatar = Column(db.String(512), comment='用户自定义头像')
