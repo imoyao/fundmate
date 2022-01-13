@@ -5,6 +5,9 @@ from flask_bcrypt import Bcrypt
 from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
 
+from flask_mail import Mail
+from flask_praetorian import Praetorian
+
 from .exts.flask_loguru import Loguru
 
 
@@ -32,3 +35,5 @@ auth = HTTPTokenAuth()
 db = SQLAlchemy()
 migrate = Migrate(include_object=tell_migrate_dont_detected_removed_table)
 loguru = Loguru()
+guard = Praetorian()
+mail = Mail()
