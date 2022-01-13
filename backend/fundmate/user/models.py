@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-"""User models."""
+from __future__ import annotations
+
 import hashlib
 from typing import Union
 
@@ -8,22 +9,25 @@ from flask import current_app
 from itsdangerous import BadSignature, SignatureExpired
 from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
 from sqlalchemy import DDL, Table, event
-from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.security import check_password_hash
 
 from backend.fundmate import settings
 from backend.fundmate.database import Base, Column, CreateDateModel, PkModel, db, relationship
-from backend.fundmate.excepts import PasswordNotExistsError
+from backend.fundmate.extensions import guard
 
 # [多对多双向关系](https://docs.sqlalchemy.org/en/14/orm/basic_relationships.html#many-to-many)
 '''
 角色和用户之间互为多对多关系（ bidirectional relationship）
-**注意**：必须继承Base且为第一个继承对象！
 '''
+# FIXME：
+#  1. 如果不继承`Base`且为第一个继承对象，则ForeignKey 会报错；
+#  2. 如果继承`Base`，则无法探测数据表变化
+# [多对多双向关系](https://docs.sqlalchemy.org/en/14/orm/basic_relationships.html#many-to-many)
 user_role_table = Table('user_role', Base.metadata, Column('user_id', db.Integer, db.ForeignKey('users.id')),
                         Column('role_id', db.Integer, db.ForeignKey('roles.id')))
 
 
-class Role(PkModel):
+class Role(Base, PkModel):
     """A role for a user."""
 
     __tablename__ = "roles"
@@ -40,7 +44,7 @@ class Role(PkModel):
         return f"<Role({self.name})>"
 
 
-class User(PkModel, CreateDateModel):
+class User(Base, PkModel, CreateDateModel):
     """用户管理表
     TODO: 用户起始id从1000开始
     """
@@ -58,6 +62,7 @@ class User(PkModel, CreateDateModel):
     is_admin = Column(db.Boolean(), default=False)
     is_vip = Column(db.Boolean(), default=False)
     profile = Column(db.TEXT)
+    is_active = db.Column(db.Boolean(), default=True, comment='是否激活可用，置为False可以禁用用户')
     # TODO: 是否有必要，修改为modified？
     last_login = Column(db.TIMESTAMP,
                         nullable=False,
@@ -70,8 +75,6 @@ class User(PkModel, CreateDateModel):
         password = kwargs.get('password')
         if password:
             self.password = self.set_password(password)
-        else:
-            raise PasswordNotExistsError('创建账户必须提供密码！')
 
     def __repr__(self):
         """Represent instance as a unique string."""
@@ -80,7 +83,7 @@ class User(PkModel, CreateDateModel):
     @staticmethod
     def set_password(password: str) -> str:
         """Set password."""
-        return generate_password_hash(password)
+        return guard.hash_password(password)
 
     def check_password(self, password: str) -> bool:
         """Check password."""
@@ -123,6 +126,67 @@ class User(PkModel, CreateDateModel):
     def generate_token(self, expiration: int = 24 * 60 * 60):
         s = Serializer(current_app.config["SECRET_KEY"], expires_in=expiration)
         return s.dumps({"id": self.id})
+
+    @property
+    def identity(self):
+        """
+        *Required Attribute or Property*
+
+        flask-praetorian requires that the user class has an ``identity`` instance
+        attribute or property that provides the unique id of the user instance
+        """
+        return self.id
+
+    @property
+    def rolenames(self):
+        """
+        *Required Attribute or Property*
+
+        flask-praetorian requires that the user class has a ``rolenames`` instance
+        attribute or property that provides a list of strings that describe the roles
+        attached to the user instance
+        """
+        try:
+            return self.role
+        except Exception:
+            return []
+
+    # TODO: 默认密码即为`hash password`
+    # @property
+    # def password(self):
+    #     """
+    #     *Required Attribute or Property*
+    #
+    #     flask-praetorian requires that the user class has a ``password`` instance
+    #     attribute or property that provides the hashed password assigned to the user
+    #     instance
+    #     """
+    #     return self.hashed_password
+
+    @classmethod
+    def lookup(cls, username):
+        """
+        *Required Method*
+
+        flask-praetorian requires that the user class implements a ``lookup()``
+        class method that takes a single ``username`` argument and returns a user
+        instance if there is one that matches or ``None`` if there is not.
+        """
+        return cls.query.filter_by(username=username).one_or_none()
+
+    @classmethod
+    def identify(cls, id):
+        """
+        *Required Method*
+
+        flask-praetorian requires that the user class implements an ``identify()``
+        class method that takes a single ``id`` argument and returns user instance if
+        there is one that matches or ``None`` if there is not.
+        """
+        return cls.query.get(id)
+
+    def is_valid(self):
+        return self.is_active
 
 
 # 自增id起始值

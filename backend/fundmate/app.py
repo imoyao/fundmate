@@ -4,11 +4,12 @@ import logging
 import sys
 
 from apiflask import APIFlask
-from flask import Flask
+
+from flask_praetorian import PraetorianError
 
 from backend.fundmate import account, commands, fund, public, settings, user
 from backend.fundmate.config import config
-from backend.fundmate.extensions import auth, bcrypt, db, loguru, migrate
+from backend.fundmate.extensions import auth, bcrypt, db, guard, loguru, mail, migrate
 from backend.fundmate.settings import env
 
 from .exts.flask_loguru import logger
@@ -43,7 +44,9 @@ def register_extensions(app: APIFlask):
     """Register Flask extensions."""
     bcrypt.init_app(app)
     db.init_app(app)
-    # auth.init_app(app)
+    # **注意** 此处必须传入User 的定义 see also: https://github.com/dusktreader/flask-praetorian/issues/224
+    guard.init_app(app, user.models.User)
+    mail.init_app(app)
     '''
     - 增加字段长度和类型检测 
     [No changes detected in Alembic autogeneration of migrations with Flask-SQLAlchemy - Stack
@@ -63,7 +66,7 @@ def register_extensions(app: APIFlask):
     return None
 
 
-def register_blueprints(app: Flask):
+def register_blueprints(app: APIFlask):
     """Register Flask blueprints."""
     app.register_blueprint(public.views.bp)
     # 用户相关
@@ -94,6 +97,13 @@ def register_error_handlers(app: APIFlask):
         headers = error.headers
         return body, status_code, headers
 
+    @app.error_processor
+    def render_guard_error(error):
+        app.register_error_handler(
+            PraetorianError,
+            PraetorianError.build_error_handler(lambda e: logger.error(e.message)),
+        )
+
 
 @auth.error_processor
 def render_auth_error_processor(error):
@@ -107,7 +117,7 @@ def render_auth_error_processor(error):
     return body, error.status_code, error.headers
 
 
-def register_shell_context(app: Flask):
+def register_shell_context(app: APIFlask):
     """Register shell context objects.
     注册shell上下文处理函数
     """
@@ -117,6 +127,7 @@ def register_shell_context(app: Flask):
         return {
             "db": db,
             "User": user.models.User,
+            "Role": user.models.Role,
             'Fund': fund.models.Fund,
             'FundMgr': fund.models.Mgr,
             'MidFundMgr': fund.models.FundMgr,
@@ -145,7 +156,7 @@ def make_shell_context():
 '''
 
 
-def register_commands(app: Flask):
+def register_commands(app: APIFlask):
     """Register Click commands."""
     app.cli.add_command(commands.test)
     app.cli.add_command(commands.lint)
@@ -154,14 +165,14 @@ def register_commands(app: Flask):
     app.cli.add_command(commands.update_db)
 
 
-def configure_logger(app: Flask):
+def configure_logger(app: APIFlask):
     """Configure loggers."""
     handler = logging.StreamHandler(sys.stdout)
     if not app.logger.handlers:
         app.logger.addHandler(handler)
 
 
-def update_config(app: Flask):
+def update_config(app: APIFlask):
     """除了setting中的配置，我们对一些根据不同环境（生产、测试、开发）的配置进行区分"""
     amend_conf = config.get(settings.ENV)
     logger.info(amend_conf)
