@@ -8,7 +8,7 @@ from flask import current_app
 
 from itsdangerous import BadSignature, SignatureExpired
 from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
-from sqlalchemy import DDL, Table, event
+from sqlalchemy import DDL, Table, event, or_
 from werkzeug.security import check_password_hash
 
 from backend.fundmate import settings
@@ -19,16 +19,14 @@ from backend.fundmate.extensions import guard
 '''
 角色和用户之间互为多对多关系（ bidirectional relationship）
 '''
-# FIXME：
-#  1. 如果不继承`Base`且为第一个继承对象，则ForeignKey 会报错；
-#  2. 如果继承`Base`，则无法探测数据表变化
 # [多对多双向关系](https://docs.sqlalchemy.org/en/14/orm/basic_relationships.html#many-to-many)
-user_role_table = Table('user_role', Base.metadata, Column('user_id', db.Integer, db.ForeignKey('users.id')),
-                        Column('role_id', db.Integer, db.ForeignKey('roles.id')))
+user_role_table = Table('user_role', db.Model.metadata, Column('user_id', db.Integer, db.ForeignKey('users.id')),
+                        Column('role_id', db.Integer, db.ForeignKey('roles.id')),
+                        db.PrimaryKeyConstraint('user_id', 'role_id'))
 
 
-class Role(Base, PkModel):
-    """A role for a user."""
+class Role(PkModel):
+    """角色表"""
 
     __tablename__ = "roles"
 
@@ -44,7 +42,7 @@ class Role(Base, PkModel):
         return f"<Role({self.name})>"
 
 
-class User(Base, PkModel, CreateDateModel):
+class User(PkModel, CreateDateModel):
     """用户管理表
     TODO: 用户起始id从1000开始
     """
@@ -146,33 +144,18 @@ class User(Base, PkModel, CreateDateModel):
         attribute or property that provides a list of strings that describe the roles
         attached to the user instance
         """
-        try:
-            return self.role
-        except Exception:
-            return []
-
-    # TODO: 默认密码即为`hash password`
-    # @property
-    # def password(self):
-    #     """
-    #     *Required Attribute or Property*
-    #
-    #     flask-praetorian requires that the user class has a ``password`` instance
-    #     attribute or property that provides the hashed password assigned to the user
-    #     instance
-    #     """
-    #     return self.hashed_password
+        return self.role
 
     @classmethod
-    def lookup(cls, username):
+    def lookup(cls, user_unique: str):
         """
         *Required Method*
 
         flask-praetorian requires that the user class implements a ``lookup()``
-        class method that takes a single ``username`` argument and returns a user
+        class method that takes a single ``username`` or ``email`` argument and returns a user
         instance if there is one that matches or ``None`` if there is not.
         """
-        return cls.query.filter_by(username=username).one_or_none()
+        return cls.query.filter(or_(cls.username == user_unique, cls.email == user_unique)).one_or_none()
 
     @classmethod
     def identify(cls, id):
