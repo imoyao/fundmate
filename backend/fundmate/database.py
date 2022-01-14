@@ -28,11 +28,8 @@ class CRUDMixin(object):
     @classmethod
     def create(cls, **kwargs):
         """Create a new record and save it the database."""
-        commit = True
-        if kwargs.get('synchronize_session'):
-            commit = kwargs.pop('synchronize_session')
+        commit = kwargs.pop('synchronize_session', True)
         instance = cls(**kwargs)
-
         instance.save(commit=commit)
         return instance
 
@@ -59,6 +56,8 @@ class CRUDMixin(object):
             except SQLAlchemyError as e:
                 logger.error(e)
                 db.session.rollback()
+        else:
+            db.session.rollback()
         return self
 
     def delete(self, commit: bool = True):
