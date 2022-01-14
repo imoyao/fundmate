@@ -5,8 +5,6 @@ import sys
 
 from apiflask import APIFlask
 
-from flask_praetorian import PraetorianError
-
 from backend.fundmate import account, commands, fund, public, settings, user
 from backend.fundmate.config import config
 from backend.fundmate.extensions import auth, bcrypt, db, guard, loguru, mail, migrate
@@ -96,13 +94,6 @@ def register_error_handlers(app: APIFlask):
         status_code = error.status_code or error_code
         headers = error.headers
         return body, status_code, headers
-
-    @app.error_processor
-    def render_guard_error(error):
-        app.register_error_handler(
-            PraetorianError,
-            PraetorianError.build_error_handler(lambda e: logger.error(e.message)),
-        )
 
 
 @auth.error_processor

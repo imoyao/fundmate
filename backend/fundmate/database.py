@@ -56,8 +56,6 @@ class CRUDMixin(object):
             except SQLAlchemyError as e:
                 logger.error(e)
                 db.session.rollback()
-        else:
-            db.session.rollback()
         return self
 
     def delete(self, commit: bool = True):

@@ -1,5 +1,15 @@
 # -*- coding: utf-8 -*-
-"""User views."""
+"""
+参考 [Flask Rest API -Part:5- Password Reset - DEV Community](https://dev.to/paurakhsharma/flask-rest-api-part-5-password-reset-2f2e)
+注册登录流程：
+1. register
+发送token到注册邮箱（要求唯一），用户点击链接回到网页，在网页上将token返回，然后激活用户
+2. 登录
+验证用户是否激活，只有激活用户才可以登录，登录时验证密码
+3. 忘记密码
+用户发送token到注册邮箱（三次机会），点击回到网页，在网页中填写新密码，和token一起提交，验证通过更新密码
+
+"""
 from apiflask import APIBlueprint, PaginationSchema, abort, auth_required, input, output
 from flask.views import MethodView
 
@@ -7,12 +17,13 @@ import flask_praetorian
 
 from backend.fundmate.account.models import Account
 from backend.fundmate.account.schemas import AccountOutSchema, CreateAccountSchema
-from backend.fundmate.extensions import auth, db, guard
+from backend.fundmate.errors import ConfirmedFirst, NoLookupUser
+from backend.fundmate.extensions import db, guard
 from backend.fundmate.schema_ext import EmptySchema
 from backend.fundmate.user.models import User
 from backend.fundmate.user.schemas import (
-    RegisterSchema,
-    UserAuthOutSchema,
+    ForgetPasswordSchema,
+    ResetPasswordSchema,
     UserInSchema,
     UserLoginSchema,
     UserOutSchema,
@@ -76,16 +87,21 @@ class UserDetail(MethodView):
 
 @bp.post('/login')
 @input(UserLoginSchema(partial=True))
-# @output(UserAuthOutSchema)
 def login(data):
     username = data.get("username", None)
     password = data.get("password", None)
     user = guard.authenticate(username, password)
-    ret = {"access_token": guard.encode_jwt_token(user)}
-    return ret
+    if user:
+        is_user_confirmed = user.is_confirmed
+        # FIXME:is_user_active = user.is_active
+        if is_user_confirmed:
+            result = {"access_token": guard.encode_jwt_token(user)}
+            return result
+        else:
+            raise ConfirmedFirst
+    raise NoLookupUser
 
 
-# see also:https://github.com/dusktreader/flask-praetorian/blob/master/example/register.py
 @bp.post('/register')
 @input(UserInSchema())
 def register(req):
@@ -103,20 +119,19 @@ def register(req):
     username = req.get('username', None)
     email = req.get('email', None)
     password = req.get('password', None)
-    # hash_password = User.set_password(password)
     new_user = User.create(username=username, email=email, password=password, synchronize_session=False)
-    # FIXME: 先发送邮件成功再去创建用户成功，否则用户收不到邮件
-    send_result = guard.send_registration_email(email, user=new_user)
-    print(send_result, '-----------------')
+    # FIXME: 测试环境使用国内邮箱即可，生产环境需要用 SendGrid 等专用平台，否则会限额，无法使用
+    guard.send_registration_email(email, user=new_user)
+    # 邮件发送成功之后再提交数据库创建
     db.session.commit()
-    ret = {'message': 'successfully sent registration email to user {}'.format(new_user.username)}
-    return ret
+    result = {'message': '注册激活邮件已成功发送给用户：{}'.format(new_user.username)}
+    return result
 
 
-@bp.get('/finalize')
-def finalize():
+@bp.get('/confirmation')
+def confirm_and_active_account():
     """
-    将上一步用户携带的token放到header中然后请求完成注册
+    将register用户携带的token放到header中，然后请求完成注册
     Finalizes a user registration with the token that they were issued in their
     registration email
     .. example::
@@ -125,16 +140,19 @@ def finalize():
     """
     registration_token = guard.read_token_from_header()
     user = guard.get_user_from_registration_token(registration_token)
-    # perform 'activation' of user here...like setting 'active' or something
-    ret = {'access_token': guard.encode_jwt_token(user)}
-    return ret
+    if user:
+        user.update(is_confirmed=True)
+        result = {'access_token': guard.encode_jwt_token(user)}
+        return result
+    else:
+        raise NoLookupUser
 
 
-@bp.route('/refresh', methods=['GET'])
-def refresh():
+@bp.get('/refresh')
+def refresh_token():
     """
     Refreshes an existing JWT by creating a new one that is a copy of the old
-    except that it has a refrehsed access expiration.
+    except that it has a refreshed access expiration.
     .. example::
        $ curl http://localhost:5000/refresh -X GET \
          -H "Authorization: Bearer <your_token>"
@@ -145,19 +163,45 @@ def refresh():
     return ret
 
 
-@bp.route('/reset_pw', methods=['POST'])
-def reset_password(data):
-    email = data.get('email')
-    try:
+@bp.route('/password/forget', methods=['POST'])
+@input(ForgetPasswordSchema())
+def forget_password(data):
+    """
+    用户忘记密码
 
+    首先发送邮件给用户，确认本人操作
+    :param data:
+    :return:
+    """
+    email = data.get('email')
+    user = User.query.filter_by(email=email).one_or_none()
+    if user:
         guard.send_reset_email(email)
-        return Response(json.dumps({'message': 'Please check your email to change the password'}),
-                        status=200,
-                        mimetype='application/json')
-    except (ValueError, KeyError, MissingUserError, PraetorianError):
-        return Response(json.dumps({'message': 'Fail to send reset password email'}),
-                        status=200,
-                        mimetype='application/json')
+        result = {'message': '请检查邮箱以完成密码重置。'}
+    else:
+        raise NoLookupUser
+    return result
+
+
+@bp.post('/password/reset')
+@input(ResetPasswordSchema())
+def reset_password(data):
+    """
+    重置密码
+
+    用户点击邮箱中收到的链接，进入重置流程，更新用户密码
+    :param data:
+    :return:
+    """
+    password = data.get('password')
+    reset_token = guard.read_token_from_header()
+    user = guard.validate_reset_token(reset_token)
+    if user:
+        user.update(password=password)
+        result = {'access_token': guard.encode_jwt_token(user)}
+        return result
+    else:
+        raise NoLookupUser
 
 
 @bp.route('/deny', methods=['POST'])
@@ -165,7 +209,7 @@ def reset_password(data):
 @flask_praetorian.roles_required('admin')
 def disable_user(req):
     """
-    禁用某用户
+    管理员禁用用户
     Disables a user in the data store
     .. example::
         $ curl http://localhost:5000/disable_user -X POST \
@@ -248,7 +292,7 @@ def disable_user(req):
 
 
 @bp.route('/<int:user_id>/favors')
-@auth_required(auth)
+@flask_praetorian.auth_required
 class UserFavorFunds(MethodView):
     """
     用户关注的基金
@@ -291,7 +335,6 @@ class UserAccounts(MethodView):
     @input(CreateAccountSchema)
     def post(self, data: dict):
         """创建用户账本"""
-        print(data)
         account = Account.create(**data)
         return account
 
