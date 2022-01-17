@@ -47,3 +47,6 @@ pyjson5==1.5.2
 
 # 过期提示
 Deprecated==1.2.13
+
+# 数据序列化
+marshmallow>=3.14.1
