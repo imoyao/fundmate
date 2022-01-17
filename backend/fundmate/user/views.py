@@ -1,12 +1,15 @@
 # -*- coding: utf-8 -*-
-"""
-参考 [Flask Rest API -Part:5- Password Reset - DEV Community](https://dev.to/paurakhsharma/flask-rest-api-part-5-password-reset-2f2e)
+"""参考 [Flask Rest API -Part:5- Password Reset - DEV Community](
+https://dev.to/paurakhsharma/flask-rest-api-part-5-password-reset-2f2e)
+
 注册登录流程：
 1. register
 发送token到注册邮箱（要求唯一），用户点击链接回到网页，在网页上将token返回，然后激活用户
+
 2. 登录
+
 验证用户是否激活，只有激活用户才可以登录，登录时验证密码
-3. 忘记密码
+3. 忘记密码 
 用户发送token到注册邮箱（三次机会），点击回到网页，在网页中填写新密码，和token一起提交，验证通过更新密码
 
 """
@@ -21,11 +24,11 @@ from flask_praetorian.exceptions import PraetorianError
 
 from backend.fundmate.account.models import Account
 from backend.fundmate.account.schemas import AccountOutSchema, CreateAccountSchema
-from backend.fundmate.constants import ADMIN_ROLE_NAME
 from backend.fundmate.errors import AuthError, ConfirmedFirst, ForbiddenDenyAdminError, NoLookupUser
 from backend.fundmate.extensions import db, guard
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.schema_ext import EmptySchema
+from backend.fundmate.settings import ADMIN_ROLE_NAME
 from backend.fundmate.user.models import User
 from backend.fundmate.user.schemas import (
     DenyUserSchema,
@@ -262,7 +265,7 @@ def active_user(req):
 
 
 @bp.route('/<int:user_id>/favors')
-@flask_praetorian.auth_required
+@auth_required
 class UserFavorFunds(MethodView):
     """
     用户关注的基金
