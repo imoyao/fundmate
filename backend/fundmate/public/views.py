@@ -1,17 +1,14 @@
 # -*- coding: utf-8 -*-
 """Public section, including homepage and signup."""
+from apiflask import APIBlueprint, HTTPError, input, output
 from flask import flash, redirect, request, url_for
 from flask.views import MethodView
-
-from apiflask import APIBlueprint, HTTPError, input, output
 
 from backend.fundmate import excepts as dt_except
 from backend.fundmate.data import danjuan, fundb, jsl, yzyx
 from backend.fundmate.fund.models import Fund
 from backend.fundmate.fund.schemas import FundSampleSchema, FundSearchKeySchema
 from backend.fundmate.public.schemas import ThermometerInSchema, ThermometerOutSchema
-from backend.fundmate.user.models import User
-from backend.fundmate.user.schemas import RegisterSchema
 
 bp = APIBlueprint("public", __name__)
 
@@ -26,19 +23,6 @@ class Home(MethodView):
 
     def get(self):
         return {'message': 'Hello,Flask!'}
-
-
-@bp.route('/register/')
-class Register(MethodView):
-
-    @input(RegisterSchema(partial=True))
-    def post(self, data):
-        User.create(
-            username=data.username,
-            email=data.email,
-            password=data.password,
-            active=True,
-        )
 
 
 @bp.route("/logout/")
