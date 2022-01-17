@@ -33,3 +33,15 @@ class ConfirmedFirst(HTTPError):
     status_code = 400
     message = '为确保本人注册，请查收邮件激活账号！'
     extra_data = {'error_code': 1003, 'docs': ''}
+
+
+class AuthError(HTTPError):
+    status_code = 401
+    message = '认证失败，请联系系统管理员。'
+    extra_data = {'error_code': 1004, 'docs': ''}
+
+
+class ForbiddenDenyAdminError(HTTPError):
+    status_code = 403
+    message = '系统管理员不允许被禁用，以免系统自锁。'
+    extra_data = {'error_code': 1004, 'docs': ''}

@@ -10,18 +10,24 @@
 用户发送token到注册邮箱（三次机会），点击回到网页，在网页中填写新密码，和token一起提交，验证通过更新密码
 
 """
-from apiflask import APIBlueprint, PaginationSchema, abort, auth_required, input, output
+import traceback
+
+from apiflask import APIBlueprint, PaginationSchema, abort, input, output
 from flask.views import MethodView
 
-import flask_praetorian
+import passlib
+from flask_praetorian import auth_required, roles_required
+from flask_praetorian.exceptions import PraetorianError
 
 from backend.fundmate.account.models import Account
 from backend.fundmate.account.schemas import AccountOutSchema, CreateAccountSchema
-from backend.fundmate.errors import ConfirmedFirst, NoLookupUser
+from backend.fundmate.errors import AuthError, ConfirmedFirst, ForbiddenDenyAdminError, NoLookupUser
 from backend.fundmate.extensions import db, guard
+from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.schema_ext import EmptySchema
 from backend.fundmate.user.models import User
 from backend.fundmate.user.schemas import (
+    DenyUserSchema,
     ForgetPasswordSchema,
     ResetPasswordSchema,
     UserInSchema,
@@ -47,14 +53,6 @@ class Users(MethodView):
         """获取所有用户信息"""
         ret = paginate_query(User, query)
         return ret
-
-    # @input(UserInSchema)
-    # @output(UserOutSchema)
-    # def post(self, data: dict) -> User:
-    #     """新建用户"""
-    #     _user_obj = User.create(**data)
-    #     print(_user_obj, '--_user_obj--')
-    #     return _user_obj
 
 
 @bp.route('/<int:user_id>')
@@ -85,23 +83,6 @@ class UserDetail(MethodView):
         return ''
 
 
-@bp.post('/login')
-@input(UserLoginSchema(partial=True))
-def login(data):
-    username = data.get("username", None)
-    password = data.get("password", None)
-    user = guard.authenticate(username, password)
-    if user:
-        is_user_confirmed = user.is_confirmed
-        # FIXME:is_user_active = user.is_active
-        if is_user_confirmed:
-            result = {"access_token": guard.encode_jwt_token(user)}
-            return result
-        else:
-            raise ConfirmedFirst
-    raise NoLookupUser
-
-
 @bp.post('/register')
 @input(UserInSchema())
 def register(req):
@@ -119,11 +100,14 @@ def register(req):
     username = req.get('username', None)
     email = req.get('email', None)
     password = req.get('password', None)
-    new_user = User.create(username=username, email=email, password=password, synchronize_session=False)
     # FIXME: 测试环境使用国内邮箱即可，生产环境需要用 SendGrid 等专用平台，否则会限额，无法使用
-    guard.send_registration_email(email, user=new_user)
-    # 邮件发送成功之后再提交数据库创建
-    db.session.commit()
+    new_user = None
+    try:
+        new_user = User.create(username=username, email=email, password=password)
+        guard.send_registration_email(email, user=new_user)
+    except PraetorianError:
+        db.session.rollback()
+
     result = {'message': '注册激活邮件已成功发送给用户：{}'.format(new_user.username)}
     return result
 
@@ -135,7 +119,7 @@ def confirm_and_active_account():
     Finalizes a user registration with the token that they were issued in their
     registration email
     .. example::
-       $ curl http://localhost:5000/finalize -X GET \
+       $ curl http://localhost:5000/confirmation -X GET \
          -H "Authorization: Bearer <your_token>"
     """
     registration_token = guard.read_token_from_header()
@@ -148,9 +132,40 @@ def confirm_and_active_account():
         raise NoLookupUser
 
 
-@bp.get('/refresh')
+@bp.post('/login')
+@input(UserLoginSchema())
+def login(data):
+    """
+    登录功能
+
+    此处的username实为`email`或者`username`，支持用户名或者密码登录（both）
+    :param data:
+    :return:
+    """
+    # the username can be username or email
+    user_identify = data.get('username', None)
+    password = data.get("password", None)
+    try:
+        user = guard.authenticate(user_identify, password)
+    except passlib.exc.UnknownHashError:
+        logger.error(f'认证失败: {traceback.print_exc()}')
+        raise AuthError
+    if user:
+        # 对于active 字段，`flask_praetorian`会默认校验
+        is_user_confirmed = user.is_confirmed
+        if is_user_confirmed:
+            result = {"access_token": guard.encode_jwt_token(user)}
+            return result
+        else:
+            raise ConfirmedFirst
+    raise NoLookupUser
+
+
+@bp.get('/refresh_token')
 def refresh_token():
     """
+    刷新token
+
     Refreshes an existing JWT by creating a new one that is a copy of the old
     except that it has a refreshed access expiration.
     .. example::
@@ -163,7 +178,7 @@ def refresh_token():
     return ret
 
 
-@bp.route('/password/forget', methods=['POST'])
+@bp.post('/forget_password')
 @input(ForgetPasswordSchema())
 def forget_password(data):
     """
@@ -183,13 +198,13 @@ def forget_password(data):
     return result
 
 
-@bp.post('/password/reset')
+@bp.post('/reset_password')
 @input(ResetPasswordSchema())
 def reset_password(data):
     """
     重置密码
 
-    用户点击邮箱中收到的链接，进入重置流程，更新用户密码
+    用户点击邮箱中收到的链接，进入重置流程，输入新的密码更新用户密码
     :param data:
     :return:
     """
@@ -197,16 +212,18 @@ def reset_password(data):
     reset_token = guard.read_token_from_header()
     user = guard.validate_reset_token(reset_token)
     if user:
-        user.update(password=password)
+        hash_password = user.set_password(password)
+        user.update(password=hash_password)
         result = {'access_token': guard.encode_jwt_token(user)}
         return result
     else:
         raise NoLookupUser
 
 
-@bp.route('/deny', methods=['POST'])
-@flask_praetorian.auth_required
-@flask_praetorian.roles_required('admin')
+@bp.post('/deny')
+@auth_required
+@roles_required('admin')
+@input(DenyUserSchema(partial=True))
 def disable_user(req):
     """
     管理员禁用用户
@@ -216,79 +233,31 @@ def disable_user(req):
           -H "Authorization: Bearer <your_token>" \
           -d '{"username":"Walter"}'
     """
-    user = User.query.filter_by(username=req.get('username', None)).one()
+    user_identify = req.get('username') or req.get('email')
+    user = User.lookup(user_identify)
+    if 'admin' in user.rolenames:
+        raise ForbiddenDenyAdminError
     user.update(is_active=False)
+    return {'message': '用户 {} 已禁用。'.format(user.username)}
 
-    return {'message': 'disabled user {}'.format(user.username)}
 
-
-# class ForgotPassword(Resource):
-#     """
-#     TODO: 参考 [Flask Rest API -Part:5- Password Reset - DEV Community](https://dev.to/paurakhsharma/flask-rest-api-part-5-password-reset-2f2e)
-#     """
-#
-#     def post(self):
-#         url = request.host_url + 'reset/'
-#         try:
-#             body = request.get_json()
-#             email = body.get('email')
-#             if not email:
-#                 raise SchemaValidationError
-#
-#             user = User.objects.get(email=email)
-#             if not user:
-#                 raise EmailDoesnotExistsError
-#
-#             expires = datetime.timedelta(hours=24)
-#             reset_token = create_access_token(str(user.id), expires_delta=expires)
-#
-#             return send_email('[Movie-bag] Reset Your Password',
-#                               sender='support@movie-bag.com',
-#                               recipients=[user.email],
-#                               text_body=render_template('email/reset_password.txt', url=url + reset_token),
-#                               html_body=render_template('email/reset_password.html', url=url + reset_token))
-#         except SchemaValidationError:
-#             raise SchemaValidationError
-#         except EmailDoesnotExistsError:
-#             raise EmailDoesnotExistsError
-#         except Exception as e:
-#             raise InternalServerError
-#
-#
-# class ResetPassword(Resource):
-#
-#     def post(self):
-#         url = request.host_url + 'reset/'
-#         try:
-#             body = request.get_json()
-#             reset_token = body.get('reset_token')
-#             password = body.get('password')
-#
-#             if not reset_token or not password:
-#                 raise SchemaValidationError
-#
-#             user_id = decode_token(reset_token)['identity']
-#
-#             user = User.objects.get(id=user_id)
-#
-#             user.modify(password=password)
-#             user.hash_password()
-#             user.save()
-#
-#             return send_email('[Movie-bag] Password reset successful',
-#                               sender='support@movie-bag.com',
-#                               recipients=[user.email],
-#                               text_body='Password reset was successful',
-#                               html_body='<p>Password reset was successful</p>')
-#
-#         except SchemaValidationError:
-#             raise SchemaValidationError
-#         except ExpiredSignatureError:
-#             raise ExpiredTokenError
-#         except (DecodeError, InvalidTokenError):
-#             raise BadTokenError
-#         except Exception as e:
-#             raise InternalServerError
+@bp.post('/activations')
+@auth_required
+@roles_required('admin')
+@input(DenyUserSchema(partial=True))
+def active_user(req):
+    """
+    系统管理员禁用用户
+    Disables a user in the data store
+    .. example::
+        $ curl http://localhost:5000/disable_user -X POST \
+          -H "Authorization: Bearer <your_token>" \
+          -d '{"username":"Walter"}'
+    """
+    user_identify = req.get('username') or req.get('email')
+    user = User.lookup(user_identify)
+    user.update(is_active=True)
+    return {'message': '用户 {} 已重新激活。'.format(user.username)}
 
 
 @bp.route('/<int:user_id>/favors')
