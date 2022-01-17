@@ -144,7 +144,7 @@ class User(PkModel, CreateDateModel):
         attribute or property that provides a list of strings that describe the roles
         attached to the user instance
         """
-        return self.role
+        return [item.name for item in self.role]
 
     @classmethod
     def lookup(cls, user_unique: str):
