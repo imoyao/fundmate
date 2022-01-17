@@ -92,3 +92,11 @@ PLAT_TYPE_DISPLAY = {
     'own': '平台自建',
     'hb': '好买基金',
 }
+
+# 正则
+'''
+- at least 6 characters
+- must contain at least 1 letter, and 1 number
+- Can contain special characters
+'''
+PASSWORD_REG = r'^(?=.*\d)(?=.*[a-z])(?=.*[a-zA-Z]).{6,}$'

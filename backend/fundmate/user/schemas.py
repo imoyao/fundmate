@@ -5,11 +5,13 @@
 类比DRF中的serializer
 """
 from apiflask import Schema
-from apiflask.fields import Boolean, Email, Integer, String
-from apiflask.validators import Equal, Length
+from apiflask.fields import Email, Integer, String
+from apiflask.validators import Length, Regexp
 
 from marshmallow import ValidationError, pre_load
+from marshmallow.validate import And  # FIXME: 等到apiflask更新之后从它中导入
 
+from backend.fundmate import settings
 from backend.fundmate.user.models import User
 
 
@@ -24,14 +26,9 @@ class UserLoginSchema(Schema):
     password = String()
 
 
-class UserAuthOutSchema(Schema):
-    username = String()
-    password = String()
-
-
 class UserInSchema(Schema):
     username = String(required=True, validate=Length(3, 25))
-    password = String(required=True, validate=Length(6, 40))
+    password = String(required=True, validate=And(Length(6, 40), Regexp(settings.PASSWORD_REG)))
     email = Email(required=True, validate=Length(6, 40))
 
     # kwargs:[TypeError: pre_load() got an unexpected keyword argument 'many' · Issue #1630 ·
@@ -48,13 +45,14 @@ class UserInSchema(Schema):
         return data
 
 
-class RegisterSchema(UserInSchema):
-    re_password = String(required=True, validate=(Length(6, 40), Equal('password')))
-
-
 class ForgetPasswordSchema(Schema):
     email = Email(required=True)
 
 
+class DenyUserSchema(Schema):
+    email = Email(required=True)
+    username = String(required=True)
+
+
 class ResetPasswordSchema(Schema):
-    password = String(required=True, validate=Length(6, 40))
+    password = String(required=True, validate=And(Length(6, 40), Regexp(settings.PASSWORD_REG)))
