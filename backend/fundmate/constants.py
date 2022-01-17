@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""flask-praetorian 配置项"""
+"""flask-praetorian 相关配置项"""
 import pendulum
 
 from backend.fundmate.settings import env
@@ -21,3 +21,5 @@ DEFAULT_RESET_SUBJECT = f'您在 {SITE_NAME} 发起重置密码请求'
 
 DEFAULT_CONFIRMATION_URI = 'http://localhost:5000/register-confirm'
 DEFAULT_RESET_URI = 'http://localhost:5000/reset-password'
+
+ADMIN_ROLE_NAME = 'admin'

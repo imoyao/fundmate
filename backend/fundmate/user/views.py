@@ -21,6 +21,7 @@ from flask_praetorian.exceptions import PraetorianError
 
 from backend.fundmate.account.models import Account
 from backend.fundmate.account.schemas import AccountOutSchema, CreateAccountSchema
+from backend.fundmate.constants import ADMIN_ROLE_NAME
 from backend.fundmate.errors import AuthError, ConfirmedFirst, ForbiddenDenyAdminError, NoLookupUser
 from backend.fundmate.extensions import db, guard
 from backend.fundmate.exts.flask_loguru import logger
@@ -222,7 +223,7 @@ def reset_password(data):
 
 @bp.post('/deny')
 @auth_required
-@roles_required('admin')
+@roles_required(ADMIN_ROLE_NAME)
 @input(DenyUserSchema(partial=True))
 def disable_user(req):
     """
@@ -235,7 +236,7 @@ def disable_user(req):
     """
     user_identify = req.get('username') or req.get('email')
     user = User.lookup(user_identify)
-    if 'admin' in user.rolenames:
+    if ADMIN_ROLE_NAME in user.rolenames:
         raise ForbiddenDenyAdminError
     user.update(is_active=False)
     return {'message': '用户 {} 已禁用。'.format(user.username)}
