@@ -6,7 +6,7 @@ http://www.pythondoc.com/flask/config.html#id6
 """
 from pathlib import Path
 
-from backend.fundmate import constants, settings
+from backend.fundmate import settings
 
 env = settings.env
 
@@ -21,13 +21,13 @@ class Config:
     TESTING = False
     CSRF_ENABLED = True
     SECRET_KEY = env.str('SECRET_KEY', default='MPk2WlUArcLeeU_iohzT')
-    JWT_ACCESS_LIFESPAN = constants.DEFAULT_JWT_ACCESS_LIFESPAN
-    JWT_REFRESH_LIFESPAN = constants.DEFAULT_JWT_REFRESH_LIFESPAN
-    PRAETORIAN_CONFIRMATION_SUBJECT = constants.DEFAULT_CONFIRMATION_SUBJECT
-    PRAETORIAN_RESET_SUBJECT = constants.DEFAULT_RESET_SUBJECT
+    JWT_ACCESS_LIFESPAN = settings.DEFAULT_JWT_ACCESS_LIFESPAN
+    JWT_REFRESH_LIFESPAN = settings.DEFAULT_JWT_REFRESH_LIFESPAN
+    PRAETORIAN_CONFIRMATION_SUBJECT = settings.DEFAULT_CONFIRMATION_SUBJECT
+    PRAETORIAN_RESET_SUBJECT = settings.DEFAULT_RESET_SUBJECT
     # FIXME: 需要替换为真实的uri
-    PRAETORIAN_CONFIRMATION_URI = constants.DEFAULT_CONFIRMATION_URI
-    PRAETORIAN_RESET_URI = constants.DEFAULT_RESET_URI
+    PRAETORIAN_CONFIRMATION_URI = settings.DEFAULT_CONFIRMATION_URI
+    PRAETORIAN_RESET_URI = settings.DEFAULT_RESET_URI
     '''
     # 旧版本
     import random
@@ -52,11 +52,10 @@ class Config:
     MAIL_USE_SSL = True
     MAIL_USERNAME = env.str('MAIL_USERNAME')
     MAIL_PASSWORD = env.str('MAIL_PASSWORD')
-    MAIL_DEFAULT_SENDER = (constants.SITE_NAME, env.str('MAIL_USERNAME'))
-    PRAETORIAN_CONFIRMATION_SENDER = constants.DEFAULT_CONFIRMATION_SENDER
-    PRAETORIAN_RESET_SENDER = constants.DEFAULT_CONFIRMATION_SENDER
+    MAIL_DEFAULT_SENDER = (settings.SITE_NAME, env.str('MAIL_USERNAME'))
+    PRAETORIAN_CONFIRMATION_SENDER = settings.DEFAULT_CONFIRMATION_SENDER
+    PRAETORIAN_RESET_SENDER = settings.DEFAULT_CONFIRMATION_SENDER
     # redis 配置
-    # REDIS_URL = 'redis://:password@localhost:6379/0'
     REDIS_URL = env.str('REDIS_PATH', default='redis://localhost:6379/0')
 
     # openAPI
