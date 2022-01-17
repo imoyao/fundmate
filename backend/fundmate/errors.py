@@ -44,4 +44,10 @@ class AuthError(HTTPError):
 class ForbiddenDenyAdminError(HTTPError):
     status_code = 403
     message = '系统管理员不允许被禁用，以免系统自锁。'
-    extra_data = {'error_code': 1004, 'docs': ''}
+    extra_data = {'error_code': 1005, 'docs': ''}
+
+
+class CurrentUserInfoError(HTTPError):
+    status_code = 500
+    message = '获取用户信息出错，请联系系统管理员。'
+    extra_data = {'error_code': 1006, 'docs': ''}

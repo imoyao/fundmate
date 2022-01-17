@@ -108,9 +108,13 @@ class CompositionsSchema(Schema):
 class FundPortfolioInSchema(Schema):
     name = String(required=True, validate=Length(2, 10))
     is_visible = Boolean(default=True)
-    mgr_code = String()  # TODO: 应该在函数内部获取
     platform = String(load_default='own', validate=Equal('own'))  # 用户创建只能是own,不然会导致后续出错
-    risk_type = String(default=None, validate=OneOf(settings.RISK_TYPE.keys()))
+    risk_type = String(default=None,
+                       validate=OneOf(settings.RISK_TYPE.keys()),
+                       metadata={
+                           'title': '风险类型',
+                           'description': f'{str(settings.RISK_TYPE_DISPLAY)}'
+                       })
     desc = String(validate=Length(0, 300))
     rich_desc = String(validate=Length(0, 1000))
     compositions = List(Nested(CompositionsSchema))
@@ -166,7 +170,7 @@ class FundPortfolioDetailOutSchema(Schema):
     portfolio_code = String(data_key='code')
     code = String(data_key='plat_code')
     found_date = Date(data_key='create_date')
-    risk_type = String(data_key='risk_str')
+    risk_type = String()
     risk_display = Function(lambda obj: display_risk(obj.risk_type))
     platform = String(metadata={'title': '所属平台', 'description': '具体请查看`platform_name`字段'})
     platform_name = Function(lambda obj: get_platform(obj.platform))

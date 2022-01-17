@@ -7,12 +7,12 @@ from flask import current_app
 from flask.views import MethodView
 
 import pandas as pd
-from flask_praetorian import auth_required
+from flask_praetorian import auth_required, current_user
 from sqlalchemy import create_engine
 
 from backend.fundmate import utils
 from backend.fundmate.database import db, get_table_name
-from backend.fundmate.errors import NotHundredPercentSumPortion, PatchWithEmptyData
+from backend.fundmate.errors import CurrentUserInfoError, NotHundredPercentSumPortion, PatchWithEmptyData
 from backend.fundmate.fund.models import (
     Fund,
     FundCompany,
@@ -172,6 +172,7 @@ class FundCombination(MethodView):
         portfolios = pagination.items
         return {'portfolios': portfolios, 'pagination': pagination_builder(pagination)}
 
+    @auth_required
     @input(FundPortfolioInSchema)
     @output(FundPortfolioDetailOutSchema, 201)
     def post(self, data):
@@ -193,7 +194,11 @@ class FundCombination(MethodView):
             if total != 1.0:
                 raise NotHundredPercentSumPortion
 
+            user = current_user()
+            if not user:
+                raise CurrentUserInfoError
             portfolio_code = FundPortfolio.gen_portfolio_code()
+            data['mgr_code'] = user.id
             data['portfolio_code'] = portfolio_code
             update_time = datetime.datetime.now()
             last_adjust_date = utils.today()
@@ -247,6 +252,7 @@ class CombinationDetail(MethodView):
     单个基金组合详情
     """
 
+    @auth_required
     @output(FundPortfolioDetailOutSchema)
     @doc(summary='单个组合详情概览', description='该接口用于获取特定组合的详情信息')
     def get(self, portfolio_code: str):
@@ -299,6 +305,7 @@ class CombinationDetail(MethodView):
         db.session.commit()
         return ''
 
+    @auth_required
     @input(FundPortfolioPatchInSchema(partial=True))
     @output(FundPortfolioDetailOutSchema)
     @doc(summary='部分更新指定基金组合', description='该接口用于更新特定组合（如：名称、风险等级、描述、可见性、投资理念），需要给出组合编码')
