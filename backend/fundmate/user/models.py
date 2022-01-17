@@ -57,7 +57,7 @@ class User(PkModel, CreateDateModel):
     phone_num = Column(db.String(11), comment='注册手机号')
     custom_avatar = Column(db.String(512), comment='用户自定义头像')
     is_confirmed = Column(db.Boolean(), default=False, comment='注册确认')
-    is_admin = Column(db.Boolean(), default=False)
+    is_admin = Column(db.Boolean(), default=False)  # TODO: is this necessary?
     is_vip = Column(db.Boolean(), default=False)
     profile = Column(db.TEXT)
     is_active = db.Column(db.Boolean(), default=True, comment='是否激活可用，置为False可以禁用用户')

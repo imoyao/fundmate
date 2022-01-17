@@ -7,6 +7,7 @@ from flask import current_app
 from flask.views import MethodView
 
 import pandas as pd
+from flask_praetorian import auth_required
 from sqlalchemy import create_engine
 
 from backend.fundmate import utils
@@ -255,12 +256,18 @@ class CombinationDetail(MethodView):
             return fpo
         abort(404)
 
-    # TODO: 需要进行用户鉴权
+    @auth_required
     @output({}, 204)
     @doc(summary='删除指定基金组合', description='该接口用于删除特定组合，需要给出组合编码')
     def delete(self, portfolio_code: str):
         """
         删除回测组合
+
+        # FIXME:
+        1. 必须是经过认证的用户
+        2. 是否为操作者本人？如果是才可以删除，否则报错403
+        3. 如果不是，操作者是否为系统管理员？如果是，且为自有组合，允许删除，否则报错不允许删除外部组合
+
         """
         # 注意：删除组合时，必须删除历史持仓信息和调仓信息
         fpo_adjust_history = FundPortfolioAdjustHistory.query.filter_by(portfolio_code=portfolio_code)
