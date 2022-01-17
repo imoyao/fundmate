@@ -108,7 +108,6 @@ def some_route():
 
 简单来说，flask-login 会存储客户端的状态，而不是每一次请求到来时认证，这对 API 来说是不够安全的。而且，flask-login 继承了太多表单验证的东西，在 restful 中这些由我们后端自己通过 [marshmallow · PyPI](https://pypi.org/project/marshmallow/) 进行校验。参阅：[Better parameter validation in Flask with marshmallow - Cameron MacLeod](https://www.cameronmacleod.com/blog/better-validation-flask-marshmallow)
 
-<<<<<<< Updated upstream
 然后出局的是~~Flask-JWT~~。
 ###  ~~Flask-JWT~~ VS Flask-HTTPAuth
 [security - API Keys vs HTTP Authentication vs OAuth in a RESTful API - Stack Overflow](https://stackoverflow.com/questions/6767813/api-keys-vs-http-authentication-vs-oauth-in-a-restful-api)
@@ -131,6 +130,33 @@ JWT:由于[此处-Issue #123](https://github.com/mattupstate/flask-jwt/issues/12
 
 最终，我们决定先使用 Flask-HTTPAuth 实现最基本的认证（apiflask 内置），之后再考虑在 Flask-JWT-Extended 和 Flask-praetorian 之间抉择。
 
+UPDATE: 目前已实现基于`Flask-praetorian`的认证、登录、找回、重置密码，更新token的操作；大致记录一下需要注意的点：
+1. 在`register_extensions`函数中初始化`Flask-praetorian`时**必须**传入`model.py`中定义的`User`，否则报错`flask_praetorian.exceptions.PraetorianError: The user_class must have a lookup class method`。此外，用户必须定义相应的`lookup`、`identity`等方法；
+```python
+
+def register_extensions(app: APIFlask):
+    """Register Flask extensions."""
+    ...
+    # **注意** 此处必须传入User 的定义 see also: https://github.com/dusktreader/flask-praetorian/issues/224
+    guard.init_app(app, user.models.User)
+    ...
+```
+2. 发送邮件时必须确保系统存在环境变量`PRAETORIAN_CONFIRMATION_SENDER`和`PRAETORIAN_RESET_SENDER`，否则会报错`A sender is required to send confirmation email`；
+3. 注册发送邮件时的token中包含用户id信息，所以必须确保发送邮件前用户信息已经写入数据库；如果没有写入，则token中没有用户的id信息，此时会报错`Could not fetch an id from the registration token`，相关代码参阅[此处](https://github.com/dusktreader/flask-praetorian/blob/c23d10e0d6e34b2b3102b9b71e48f006b8397467/flask_praetorian/base.py#L447)
+```python
+def encode_jwt_token():
+    ...
+    payload_parts = {
+        "iat": moment.int_timestamp,
+        "exp": access_expiration,
+        "jti": str(uuid.uuid4()),
+        "id": user.identity,
+        "rls": ",".join(user.rolenames),
+        REFRESH_EXPIRATION_CLAIM: refresh_expiration,
+    }
+    ...
+```
+
 [Web Authentication Methods Compared | TestDriven.io](https://testdriven.io/blog/web-authentication-methods/)
 
 ## 实现
@@ -144,7 +170,7 @@ JWT:由于[此处-Issue #123](https://github.com/mattupstate/flask-jwt/issues/12
 
 设置 token 需要注意的事情：[关于 token 存放在 cookie 中 - SegmentFault 思否](https://segmentfault.com/q/1010000014763987)
 
-1. token 是否过期，应该后端接口中来判断，不该前端来判断，因为用户拿到一个 token，然后一直在用这个 token，而你在用户登录的时候就设置了过期时间，这样是不准的。
+1. token 是否过期，应该后端接口中来判断，不该前端来判断。正常流程是：用户拿到一个 token，然后一直在用这个 token，直到到达后端设置的系统token过期时间，返回 401 错误。
 2. 建议把 token 存在 cookie 上，不设置过期时间，如果 token 失效，就让后端在接口中返回固定的状态（401）表示 token 失效，需要重新登录，再重新登录的时候，重新设置 cookie 中的 token 就行。
 3. js 创建 cookie 时用 `document.cookie = 'token=xxx'` 是更方便也是更安全的方法。
 4. 让后端在接口的返回值 header 里添加 set-Cookie，这样的话浏览器会自动把 token 设置到 cookie 里。
@@ -172,7 +198,7 @@ if __name__ == "__main__":
 以下是一些可能在第一阶段不会完成和实现的功能。
 
 ### 注册
-1. 目前更合理的主流设计是注册的时候不发确认邮件，等用户自行登录后，显示提示需要确认邮件，用户点击发送邮件按钮后再发送邮件。
+1. 目前更合理的主流设计是注册的时候不发确认邮件，等用户自行登录后，显示提示需要确认邮件，用户点击发送邮件按钮后再发送邮件。（有待商榷）
 2. 此外，用户如果一个月不登录，则提前一周发送提示邮件并在到期后删除用户账号。
 3. 用户可以选择第三方登录或者邮箱注册：
     1. 如果使用第三方登录，则需要提示用户绑定邮箱
