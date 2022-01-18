@@ -77,7 +77,7 @@ class MySQLConfig:
     MySQL基础配置
     """
     MYSQL_USERNAME = env.str('MYSQL_USER')
-    MYSQL_PASSWORD = env.str('MYSQL_PASSWORD')  # TODO: 环境变量获取失败
+    MYSQL_PASSWORD = env.str('MYSQL_PASSWORD')
     MYSQL_DB = env.str('MYSQL_DB', '')
     MYSQL_HOST = env.str('MYSQL_HOST', 'localhost')
     MYSQL_PORT = env.int('MYSQL_PORT', 3306)

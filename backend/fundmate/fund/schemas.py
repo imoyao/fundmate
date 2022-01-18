@@ -203,7 +203,6 @@ class FundSampleSchema(Schema):
 class FundPaginationOutSchema(Schema):
     """
     带分页器的基金信息输出
-    TODO: 分页器用法（写文档时需要额外说明）
     """
     funds = List(Nested(FundSampleSchema))
     pagination = Nested(PaginationSchema)

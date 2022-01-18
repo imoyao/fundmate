@@ -10,9 +10,10 @@ import time
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Union
+from typing import Dict, List, Optional, Union
 
 import dateparser
+import pendulum
 
 from backend.fundmate.exts.flask_loguru import logger
 
@@ -94,21 +95,22 @@ def first_day_of_this_month() -> str:
 
 def seconds_today_leaves() -> int:
     tmr = tomorrow()
-    _now = datetime.utcnow()
-    now_timedelta = datetime(_now.year, _now.month, _now.day, _now.hour, _now.minute, _now.second)
-    return (tmr - now_timedelta).seconds
+    _now = pendulum.now()
+    delta = tmr - _now
+    return delta.seconds
 
 
-def tomorrow(str_date: Union[str, None] = None):
+def tomorrow(str_date: Optional[str] = None) -> datetime.date:
     if not str_date:
-        str_date = str(datetime.strptime(today(), "%Y-%m-%d").date())
+        str_date = pendulum.tomorrow()
+        return str_date
     if not isinstance(str_date, str):
         str_date = str(str_date)
     date = dateparser.parse(str_date)
     return date + timedelta(days=1)
 
 
-def tomorrow_date(str_date: Union[str, None] = None) -> datetime.date:
+def tomorrow_date(str_date: Optional[str] = None) -> datetime.date:
     """
     Examples:
     ```
@@ -143,4 +145,5 @@ def write_json_data(data: Union[str, List, Dict], fp: Union[str, Path], indent: 
 
 
 if __name__ == '__main__':
-    print(first_day_of_this_year(), first_day_of_this_month(), seconds_today_leaves(), tomorrow_date('2021-06-30'))
+    print(first_day_of_this_year(), first_day_of_this_month(), seconds_today_leaves(), tomorrow(),
+          tomorrow_date('2021-06-30'), tomorrow_date())

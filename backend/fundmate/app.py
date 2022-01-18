@@ -140,7 +140,7 @@ def register_shell_context(app: APIFlask):
 
 
 '''
-TODO: 另一种写法
+另一种写法
 see also:https://github.com/miguelgrinberg/flasky/blob/29e3646db8185254f0c9f52522014f83ed095ece/flasky.py#L25
 @app.shell_context_processor
 def make_shell_context():
@@ -169,8 +169,3 @@ def update_config(app: APIFlask):
     amend_conf = config.get(settings.ENV)
     logger.info(amend_conf)
     app.config.from_object(amend_conf)
-
-
-#
-# TODO:Optionally define and set unauthorized callbacks
-# security.unauthz_handler(<your unauth handler>)
