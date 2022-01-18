@@ -6,48 +6,176 @@
 @author: imoyao
 @email: immoyao@gmail.com
 @desc: 暴露给用户端的错误提示，注意和excepts进行区分
+## 大类
+正常：0000
+未知错误：9999
+用户输入错误：1000 开头
+第三方依赖错误：2000 开头
+爬虫服务错误：3000 开头
+客户端错误：4000 开头
+服务端错误：5000 开头
+中间件（数据库）错误：6000 开头
+数据冲突错误：7000 开头
+...
+## 派生类
+继承自大类，如果不指定http状态码，则默认返回继承的类的http状态码，注意：服务端错误码不一定都是5xx，该系统错误是在项目的维度来区分的，和http中的服务端错误不一定相同。
 """
+
+from enum import Enum, unique
 
 from apiflask import HTTPError
 
 
-class NotHundredPercentSumPortion(HTTPError):
-    status_code = 400
-    message = '组合比例必须合计为100%！'
-    extra_data = {'error_code': 1000, 'docs': ''}
+@unique
+class StatusCodeError(Enum):
+    """状态码枚举类，@unique保证错误码唯一"""
+    OK = (0000, '成功')
+    UNKNOWN_ERR = (9999, '未知错误')
+    USER_INPUT_ERR = (1000, '用户输入错误')
+    THIRD_PART_ERR = (2000, '第三方依赖错误')
+    CRAWLER_ERR = (3000, '爬虫服务错误')  # 一般不会报error，而是通过exception处理
+    CLIENT_ERR = (4000, '客户端错误')
+    SERVER_ERR = (5000, '服务端错误')
+    MIDDLEWARE_ERR = (6000, '中间件错误')
+    DATA_CONFLICT_ERR = (7000, '数据冲突错误')
+
+    # 用户输入错误派生
+    NOT_HUNDRED_PERCENT_SUM_PORTION_ERR = (1001, '组合比例必须合计为100%')
+    PATCH_WITH_EMPTY_DATA_ERR = (1002, '更新时提交数据不能为空。')
+    NO_LOOKUP_USER_ERR = (1003, '查找用户失败，请确认邮箱地址是否填写正确？')
+
+    # 第三方依赖错误派生
+    AUTH_ERR = (2001, '认证失败，请联系系统管理员。')
+    # 爬虫服务错误
+    THERMOMETER_ERR = (3001, '市场温度数据获取失败。')
+
+    # 客户端错误派生
+    CONFIRMED_FIRST_ERR = (4001, '为确保本人注册，请查收邮件激活账号！')
+
+    # 服务端错误派生
+    CURRENT_USER_INFO_ERR = (5001, '获取用户信息出错，请联系系统管理员。')
+
+    # 数据冲突错误
+    FORBIDDEN_DENY_ADMIN_ERR = (7001, '系统管理员不允许被禁用，以免系统自锁。')
+
+    @property
+    def status_code(self):
+        """获取状态码"""
+        return self.value[0]
+
+    @property
+    def message(self):
+        """获取状态码信息"""
+        return self.value[1]
+
+    @property
+    def msg(self):
+        return self.message
+
+    @property
+    def code(self):
+        return self.status_code
 
 
-class PatchWithEmptyData(HTTPError):
-    status_code = 400
-    message = '更新时提交数据不能为空。'
-    extra_data = {'error_code': 1001, 'docs': ''}
+# 基础错误类
 
 
-class NoLookupUser(HTTPError):
-    status_code = 400
-    message = '查找用户失败，请确认邮箱地址是否填写正确？'
-    extra_data = {'error_code': 1002, 'docs': ''}
+class BaseStatusOK(HTTPError):
+    status_code = 200
+    message = StatusCodeError.OK.msg
+    extra_data = {'error_code': StatusCodeError.OK.code, 'docs': ''}
 
 
-class ConfirmedFirst(HTTPError):
-    status_code = 400
-    message = '为确保本人注册，请查收邮件激活账号！'
-    extra_data = {'error_code': 1003, 'docs': ''}
-
-
-class AuthError(HTTPError):
-    status_code = 401
-    message = '认证失败，请联系系统管理员。'
-    extra_data = {'error_code': 1004, 'docs': ''}
-
-
-class ForbiddenDenyAdminError(HTTPError):
-    status_code = 403
-    message = '系统管理员不允许被禁用，以免系统自锁。'
-    extra_data = {'error_code': 1005, 'docs': ''}
-
-
-class CurrentUserInfoError(HTTPError):
+class BaseUnknownError(HTTPError):
     status_code = 500
-    message = '获取用户信息出错，请联系系统管理员。'
-    extra_data = {'error_code': 1006, 'docs': ''}
+    message = StatusCodeError.UNKNOWN_ERR.msg
+    extra_data = {'error_code': StatusCodeError.UNKNOWN_ERR.code, 'docs': ''}
+
+
+class BaseUserInputError(HTTPError):
+    status_code = 400
+    message = StatusCodeError.USER_INPUT_ERR.msg
+    extra_data = {'error_code': StatusCodeError.USER_INPUT_ERR.code, 'docs': ''}
+
+
+class BaseThirdPartError(HTTPError):
+    status_code = 500
+    message = StatusCodeError.THIRD_PART_ERR.msg
+    extra_data = {'error_code': StatusCodeError.THIRD_PART_ERR.code, 'docs': ''}
+
+
+class BaseCrawlerError(HTTPError):
+    status_code = 500
+    message = StatusCodeError.CRAWLER_ERR.msg
+    extra_data = {'error_code': StatusCodeError.CRAWLER_ERR.code, 'docs': ''}
+
+
+class BaseClientError(HTTPError):
+    status_code = 400
+    message = StatusCodeError.CLIENT_ERR.msg
+    extra_data = {'error_code': StatusCodeError.CLIENT_ERR.code, 'docs': ''}
+
+
+class BaseServerError(HTTPError):
+    status_code = 500
+    message = StatusCodeError.SERVER_ERR.msg
+    extra_data = {'error_code': StatusCodeError.SERVER_ERR.code, 'docs': ''}
+
+
+class BaseMiddleWareError(HTTPError):
+    status_code = 500
+    message = StatusCodeError.MIDDLEWARE_ERR.msg
+    extra_data = {'error_code': StatusCodeError.MIDDLEWARE_ERR.code, 'docs': ''}
+
+
+class BaseDataConflictError(HTTPError):
+    status_code = 500
+    message = StatusCodeError.DATA_CONFLICT_ERR.msg
+    extra_data = {'error_code': StatusCodeError.DATA_CONFLICT_ERR.code, 'docs': ''}
+
+
+# 派生类
+
+
+class NotHundredPercentSumPortionError(BaseUserInputError):
+    message = StatusCodeError.NOT_HUNDRED_PERCENT_SUM_PORTION_ERR.msg
+    extra_data = {'error_code': StatusCodeError.NOT_HUNDRED_PERCENT_SUM_PORTION_ERR.code, 'docs': ''}
+
+
+class PatchWithEmptyDataError(BaseUserInputError):
+    message = StatusCodeError.PATCH_WITH_EMPTY_DATA_ERR.msg
+    extra_data = {'error_code': StatusCodeError.PATCH_WITH_EMPTY_DATA_ERR.code, 'docs': ''}
+
+
+class NoLookupUserError(BaseUserInputError):
+    message = StatusCodeError.NO_LOOKUP_USER_ERR.code
+    extra_data = {'error_code': StatusCodeError.NO_LOOKUP_USER_ERR.code, 'docs': ''}
+
+
+class ConfirmedFirstError(BaseClientError):
+    message = StatusCodeError.CONFIRMED_FIRST_ERR.msg
+    extra_data = {'error_code': StatusCodeError.CONFIRMED_FIRST_ERR.code, 'docs': ''}
+
+
+class AuthError(BaseThirdPartError):
+    status_code = 401
+    message = StatusCodeError.AUTH_ERR.msg
+    extra_data = {'error_code': StatusCodeError.AUTH_ERR.code, 'docs': ''}
+
+
+class ForbiddenDenyAdminError(BaseThirdPartError):
+    status_code = 403
+    message = StatusCodeError.FORBIDDEN_DENY_ADMIN_ERR.msg
+    extra_data = {'error_code': StatusCodeError.FORBIDDEN_DENY_ADMIN_ERR.code, 'docs': ''}
+
+
+class CurrentUserInfoError(BaseServerError):
+    status_code = 500
+    message = StatusCodeError.CURRENT_USER_INFO_ERR.msg
+    extra_data = {'error_code': StatusCodeError.CURRENT_USER_INFO_ERR.code, 'docs': ''}
+
+
+class ThermometerError(BaseCrawlerError):
+    status_code = 500
+    message = StatusCodeError.THERMOMETER_ERR.msg
+    extra_data = {'error_code': StatusCodeError.THERMOMETER_ERR.code, 'docs': ''}
