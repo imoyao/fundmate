@@ -35,7 +35,7 @@ environs==9.3.5
 loguru==0.5.3
 
 # 数据缓存
-cachetools==4.2.4
+cachetools==5.0.0
 
 # 基金净值获取
 xalpha==0.11.4
