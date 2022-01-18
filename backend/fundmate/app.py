@@ -5,6 +5,8 @@ import sys
 
 from apiflask import APIFlask
 
+from flask_praetorian.exc import PraetorianError
+
 from backend.fundmate import account, commands, fund, public, settings, user
 from backend.fundmate.config import config
 from backend.fundmate.extensions import auth, bcrypt, db, guard, loguru, mail, migrate
@@ -95,6 +97,19 @@ def register_error_handlers(app: APIFlask):
         status_code = error.status_code or error_code
         headers = error.headers
         return body, status_code, headers
+
+
+class UNAUTHORIZED(werkzeug.exceptions.HTTPException):
+    code = 401
+    description = 'Not enough storage space.'
+
+
+def handle_unauthorized_error(error):
+    print(error)
+    return 'Not enough storage space.', 401
+
+
+app.register_error_handler(UNAUTHORIZED, handle_unauthorized_error)
 
 
 @auth.error_processor
