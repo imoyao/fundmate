@@ -12,7 +12,7 @@ from sqlalchemy import create_engine
 
 from backend.fundmate import utils
 from backend.fundmate.database import db, get_table_name
-from backend.fundmate.errors import CurrentUserInfoError, NotHundredPercentSumPortion, PatchWithEmptyData
+from backend.fundmate.errors import CurrentUserInfoError, NotHundredPercentSumPortionError, PatchWithEmptyDataError
 from backend.fundmate.fund.models import (
     Fund,
     FundCompany,
@@ -192,7 +192,7 @@ class FundCombination(MethodView):
             comp_df['portion'] = comp_df.portion.apply(lambda x: x / 100)
             total = comp_df['portion'].sum()
             if total != 1.0:
-                raise NotHundredPercentSumPortion
+                raise NotHundredPercentSumPortionError
 
             user = current_user()
             if not user:
@@ -322,7 +322,7 @@ class CombinationDetail(MethodView):
             abort(404)
 
         if not data:
-            raise PatchWithEmptyData
+            raise PatchWithEmptyDataError
 
         update_time = datetime.datetime.now()
         last_adjust_date = utils.today()
@@ -344,7 +344,7 @@ class CombinationDetail(MethodView):
             comp_df['portion'] = comp_df.portion.apply(lambda x: x / 100)
             total = comp_df['portion'].sum()
             if total != 1.0:
-                raise NotHundredPercentSumPortion
+                raise NotHundredPercentSumPortionError
 
             data['synchronize_session'] = False
             # 调仓说明

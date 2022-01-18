@@ -24,7 +24,7 @@ from flask_praetorian.exceptions import PraetorianError
 
 from backend.fundmate.account.models import Account
 from backend.fundmate.account.schemas import AccountOutSchema, CreateAccountSchema
-from backend.fundmate.errors import AuthError, ConfirmedFirst, ForbiddenDenyAdminError, NoLookupUser
+from backend.fundmate.errors import AuthError, ConfirmedFirstError, ForbiddenDenyAdminError, NoLookupUserError
 from backend.fundmate.extensions import db, guard
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.schema_ext import EmptySchema
@@ -133,7 +133,7 @@ def confirm_and_active_account():
         result = {'access_token': guard.encode_jwt_token(user)}
         return result
     else:
-        raise NoLookupUser
+        raise NoLookupUserError
 
 
 @bp.post('/login')
@@ -161,8 +161,8 @@ def login(data):
             result = {"access_token": guard.encode_jwt_token(user)}
             return result
         else:
-            raise ConfirmedFirst
-    raise NoLookupUser
+            raise ConfirmedFirstError
+    raise NoLookupUserError
 
 
 @bp.get('/refresh_token')
@@ -198,7 +198,7 @@ def forget_password(data):
         guard.send_reset_email(email)
         result = {'message': '请检查邮箱以完成密码重置。'}
     else:
-        raise NoLookupUser
+        raise NoLookupUserError
     return result
 
 
@@ -221,7 +221,7 @@ def reset_password(data):
         result = {'access_token': guard.encode_jwt_token(user)}
         return result
     else:
-        raise NoLookupUser
+        raise NoLookupUserError
 
 
 @bp.post('/deny')

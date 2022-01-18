@@ -78,6 +78,7 @@ def register_blueprints(app: APIFlask):
 def register_error_handlers(app: APIFlask):
     """Register error handlers.
     https://github.com/frostming/flask-vue-todo/blob/e5330497bb0a5457778160aeff0082549214d06a/backend/__init__.py#L41
+    https://thewebdev.info/2020/10/08/python-web-development-with-flask%E2%80%8A-%E2%80%8Aerror-handling/
     """
 
     @app.error_processor
