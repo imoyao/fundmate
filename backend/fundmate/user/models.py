@@ -12,14 +12,13 @@ from sqlalchemy import DDL, Table, event, or_
 from werkzeug.security import check_password_hash
 
 from backend.fundmate import settings
-from backend.fundmate.database import Base, Column, CreateDateModel, PkModel, db, relationship
+from backend.fundmate.database import Column, CreateDateModel, PkModel, db, relationship
 from backend.fundmate.extensions import guard
-
-# [多对多双向关系](https://docs.sqlalchemy.org/en/14/orm/basic_relationships.html#many-to-many)
 '''
 角色和用户之间互为多对多关系（ bidirectional relationship）
+[多对多双向关系](https://docs.sqlalchemy.org/en/14/orm/basic_relationships.html#many-to-many)
 '''
-# [多对多双向关系](https://docs.sqlalchemy.org/en/14/orm/basic_relationships.html#many-to-many)
+
 user_role_table = Table('user_role', db.Model.metadata, Column('user_id', db.Integer, db.ForeignKey('users.id')),
                         Column('role_id', db.Integer, db.ForeignKey('roles.id')),
                         db.PrimaryKeyConstraint('user_id', 'role_id'))
