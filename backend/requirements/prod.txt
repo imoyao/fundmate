@@ -38,12 +38,12 @@ loguru==0.5.3
 cachetools==5.0.0
 
 # 基金净值获取
-xalpha==0.11.4
+xalpha==0.11.5
 
 # 日期解析
 dateparser==1.1.0
 # 非标准json字符解析
-pyjson5==1.5.2
+pyjson5==1.6.0.post1
 
 # 过期提示
 Deprecated==1.2.13
