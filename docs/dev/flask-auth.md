@@ -9,8 +9,6 @@ title: 再一次，认识注册、登录功能
 这是一段翻译，所以可能读起来有点拗口，如果需要深入理解可以阅读这篇文章：👉 [傻傻分不清之 Cookie、Session、Token、JWT - 掘金](https://juejin.cn/post/6844904034181070861)
 :::
 
-[傻傻分不清之 Cookie、Session、Token、JWT - 掘金](https://juejin.cn/post/6844904034181070861)
-
 API 通常希望每次请求都将访问凭证/令牌发送到 API。这类似于 web 服务(Flask)直接返回 html/js 代码时对请求进行身份验证的方式。
 
 然而，区别在于 C/S 用于提交身份验证证明的机制。在 B/S 的典型应用程序中，前端代码 cookie 用于存储会话信息，这些 cookie 由客户端(浏览器)随每个请求自动发送到后端。
@@ -130,7 +128,10 @@ JWT:由于[此处-Issue #123](https://github.com/mattupstate/flask-jwt/issues/12
 
 最终，我们决定先使用 Flask-HTTPAuth 实现最基本的认证（apiflask 内置），之后再考虑在 Flask-JWT-Extended 和 Flask-praetorian 之间抉择。
 
-UPDATE: 目前已实现基于`Flask-praetorian`的认证、登录、找回、重置密码，更新token的操作；大致记录一下需要注意的点：
+::: tip UPDATE
+
+目前已实现基于`Flask-praetorian`的认证、登录、找回、重置密码，更新token的操作；大致记录一下需要注意的点：
+
 1. 在`register_extensions`函数中初始化`Flask-praetorian`时**必须**传入`model.py`中定义的`User`，否则报错`flask_praetorian.exceptions.PraetorianError: The user_class must have a lookup class method`。此外，用户必须定义相应的`lookup`、`identity`等方法；
 ```python
 
@@ -156,6 +157,26 @@ def encode_jwt_token():
     }
     ...
 ```
+4. 禁用自带异常处理
+本节内容主要参考[Error Handling — flask-praetorian 1.3.0 documentation](https://flask-praetorian.readthedocs.io/en/latest/notes.html#error-handling)
+尽管`flask-praetorian`已经自带异常处理，但是它返回的错误信息类似于：
+```python
+{
+    "error": "MissingToken",
+    "message": "Could not find token in any of the given locations: ['header', 'cookie']",
+    "status_code": 401
+}
+```
+而我们系统自定义的的错误为：
+```python
+{
+    "docs": "",
+    "error_code": 7001,
+    "message": "xxxx"       # 中文错误提示
+}
+```
+两者信息并不一致，此外，英文提示对于国内并不友好，无法直接显示给用户；而且，错误码是http的状态码，并不与错误码中定义统一。
+:::
 
 [Web Authentication Methods Compared | TestDriven.io](https://testdriven.io/blog/web-authentication-methods/)
 
