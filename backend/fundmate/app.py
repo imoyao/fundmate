@@ -5,7 +5,9 @@ import sys
 
 from apiflask import APIFlask
 
-from backend.fundmate import account, commands, fund, public, settings, user
+from flask_praetorian import exceptions as praetorian_excepts
+
+from backend.fundmate import account, commands, errors, fund, public, settings, user
 from backend.fundmate.config import config
 from backend.fundmate.extensions import auth, bcrypt, db, guard, loguru, mail, migrate
 from backend.fundmate.settings import env
@@ -91,9 +93,41 @@ def register_error_handlers(app: APIFlask):
             extra_data = error.extra_data
         except AttributeError:
             extra_data = {}
-        body = {'error_detail': detail, **extra_data}
+        body = {'message': detail, **extra_data}
         status_code = error.status_code or error_code
         headers = error.headers
+        return body, status_code, headers
+
+    @app.errorhandler(praetorian_excepts.PraetorianError)
+    def handle_praetorian_error(e: praetorian_excepts.PraetorianError):
+        """
+        接管 PraetorianError，专门处理auth错误的处理器
+
+        参阅：
+        1. [Error Handling - APIFlask](
+        https://apiflask.com/error-handling/#custom-error-classes)
+        2. [Error Handling — flask-praetorian 1.3.0
+        documentation](https://flask-praetorian.readthedocs.io/en/latest/notes.html#error-handling)
+
+        :param e: PraetorianError 实例
+        :return: 
+        """
+        cls_name = e.__class__.__name__
+        msg = e.message or None
+        status_code = getattr(e, 'status_code', 401)
+        error_cls = getattr(praetorian_excepts, cls_name, praetorian_excepts.PraetorianError)
+        extra_data = dict()
+        if isinstance(e, error_cls):
+            custom_error = getattr(errors, cls_name, errors.PraetorianError)
+            custom_msg = custom_error.message
+            extra_data = custom_error.extra_data
+            extra_data['extra_msg'] = msg
+        else:
+            extra_data['error_cls'] = cls_name
+            custom_msg = msg
+            logger.error(f'Get {cls_name} with msg: {msg}')
+        body = {'message': custom_msg, **extra_data}
+        headers = e.headers
         return body, status_code, headers
 
 
@@ -101,7 +135,6 @@ def register_error_handlers(app: APIFlask):
 def render_auth_error_processor(error):
     """
     专门处理auth错误的处理器
-    [Error Handling - APIFlask](https://apiflask.com/error-handling/#custom-error-classes)
     :param error:
     :return:
     """
