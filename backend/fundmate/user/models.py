@@ -6,8 +6,6 @@ from typing import Union
 
 from flask import current_app
 
-from itsdangerous import BadSignature, SignatureExpired
-from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
 from sqlalchemy import DDL, Table, event, or_
 from werkzeug.security import check_password_hash
 
@@ -109,20 +107,6 @@ class User(PkModel, CreateDateModel):
             }
             rv = cls.create(**admin_info)
         return rv
-
-    @classmethod
-    def verify_auth_token(cls, token: str):
-        s = Serializer(current_app.config["SECRET_KEY"])
-        try:
-            data = s.loads(token)
-        except (BadSignature, SignatureExpired):
-            return None
-        user = cls.get_by_id(data["id"])
-        return user
-
-    def generate_token(self, expiration: int = 24 * 60 * 60):
-        s = Serializer(current_app.config["SECRET_KEY"], expires_in=expiration)
-        return s.dumps({"id": self.id})
 
     @property
     def identity(self):
