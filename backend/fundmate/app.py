@@ -9,7 +9,7 @@ from flask_praetorian import exceptions as praetorian_excepts
 
 from backend.fundmate import account, commands, errors, fund, public, settings, user
 from backend.fundmate.config import config
-from backend.fundmate.extensions import auth, bcrypt, db, guard, loguru, mail, migrate
+from backend.fundmate.extensions import db, guard, loguru, mail, migrate
 from backend.fundmate.settings import env
 
 from .exts.flask_loguru import logger
@@ -42,7 +42,6 @@ def create_app(config_object: str = "backend.fundmate.settings"):
 
 def register_extensions(app: APIFlask):
     """Register Flask extensions."""
-    bcrypt.init_app(app)
     db.init_app(app)
     # **注意** 此处必须传入User 的定义 see also: https://github.com/dusktreader/flask-praetorian/issues/224
     guard.init_app(app, user.models.User)
@@ -129,17 +128,6 @@ def register_error_handlers(app: APIFlask):
         body = {'message': custom_msg, **extra_data}
         headers = e.headers
         return body, status_code, headers
-
-
-@auth.error_processor
-def render_auth_error_processor(error):
-    """
-    专门处理auth错误的处理器
-    :param error:
-    :return:
-    """
-    body = {'error_message': error.message, 'error_detail': error.detail, 'status_code': error.status_code}
-    return body, error.status_code, error.headers
 
 
 def register_shell_context(app: APIFlask):
