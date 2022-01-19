@@ -45,7 +45,14 @@ class StatusCodeError(Enum):
     NO_LOOKUP_USER_ERR = (1003, '查找用户失败，请确认邮箱地址是否填写正确？')
 
     # 第三方依赖错误派生
-    AUTH_ERR = (2001, '认证失败，请联系系统管理员。')
+    PRAETORIAN_ERROR = (2001, '组件`flask_praetorian` 发生错误。')
+    MISSING_CLAIM_ERROR = (2002, '认证失败，请联系系统管理员。')
+    EXPIRED_ACCESS_ERROR = (2003, 'Token已过期，请重新认证。')
+    EARLY_REFRESH_ERROR = (2004, '目前不需要刷新 Token')
+    MISSING_TOKEN = (2005, "['header', 'cookie'] 中未找到 Token")
+    INVALID_TOKEN_HEADER = (2006, '非法Token头')
+    AUTHENTICATION_ERROR = (2007, '认证失败，请联系系统管理员。')
+
     # 爬虫服务错误
     THERMOMETER_ERR = (3001, '市场温度数据获取失败。')
 
@@ -159,8 +166,8 @@ class ConfirmedFirstError(BaseClientError):
 
 class AuthError(BaseThirdPartError):
     status_code = 401
-    message = StatusCodeError.AUTH_ERR.msg
-    extra_data = {'error_code': StatusCodeError.AUTH_ERR.code, 'docs': ''}
+    message = StatusCodeError.AUTHENTICATION_ERROR.msg
+    extra_data = {'error_code': StatusCodeError.AUTHENTICATION_ERROR.code, 'docs': ''}
 
 
 class ForbiddenDenyAdminError(BaseThirdPartError):
@@ -179,3 +186,22 @@ class ThermometerError(BaseCrawlerError):
     status_code = 500
     message = StatusCodeError.THERMOMETER_ERR.msg
     extra_data = {'error_code': StatusCodeError.THERMOMETER_ERR.code, 'docs': ''}
+
+
+class PraetorianError(BaseThirdPartError):
+    # def __init__(self, status_code):
+    #     self.status_code = status_code
+    #     super().__init__()
+
+    message = StatusCodeError.PRAETORIAN_ERROR.msg
+    extra_data = {'error_code': StatusCodeError.PRAETORIAN_ERROR.code, 'docs': ''}
+
+
+class MissingToken(PraetorianError):
+    message = StatusCodeError.MISSING_TOKEN.msg
+    extra_data = {'error_code': StatusCodeError.MISSING_TOKEN.code, 'docs': ''}
+
+
+class ExpiredAccessError(PraetorianError):
+    message = StatusCodeError.EXPIRED_ACCESS_ERROR.msg
+    extra_data = {'error_code': StatusCodeError.EXPIRED_ACCESS_ERROR.code, 'docs': ''}
