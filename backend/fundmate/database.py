@@ -300,8 +300,8 @@ class BaseChoice(types.TypeDecorator):
     [zzzeek : The Enum Recipe](https://techspot.zzzeek.org/2011/01/14/the-enum-recipe/)
     """
     ''':type bool
-    SAWarning: TypeDecorator ChoiceTypeInteger() will not produce a cache key because the ``cache_ok`` flag is not 
-    set to True.  Set this flag to True if this type object's state is safe to use in a cache key, 
+    SAWarning: TypeDecorator ChoiceTypeInteger() will not produce a cache key because the ``cache_ok`` flag is not
+    set to True.  Set this flag to True if this type object's state is safe to use in a cache key,
     or False to disable this warning.
     '''
     cache_ok = False

@@ -10,6 +10,8 @@ from pathlib import Path
 import pendulum
 from environs import Env as EnvParser
 
+from backend.fundmate.libs.dataklasses import dataklass
+
 env = EnvParser()
 env.read_env()
 ENV = env.str("FLASK_ENV", default="default")  # default is dev
@@ -39,60 +41,105 @@ INITIAL_PORTFOLIO_IDENTIFIER = '010921'
 # 组合用户编号应该和组合编号有一定区分度：所以长度取长一点
 INITIAL_MGR_IDENTIFIER = '20211202'
 
+
+@dataklass
+class BaseChoiceEnum:
+    label: str
+
+    @property
+    def display(self):
+        return self.label
+
+
+@dataklass
+class ChoiceTypeIntegerEnum(BaseChoiceEnum):
+    key: int
+    value: str
+
+
+@dataklass
+class ChoiceTypeEnum(BaseChoiceEnum):
+    key: str
+    value: str
+
+    @property
+    def display(self):
+        return self.label
+
+
+undefined = ChoiceTypeIntegerEnum(0, 'undefined', '未定义')
+plain = ChoiceTypeIntegerEnum(1, 'plain', '灵活取用')
+low = ChoiceTypeIntegerEnum(2, 'low', '稳健增值')
+balance = ChoiceTypeIntegerEnum(3, 'balance', '平衡增长')
+advance = ChoiceTypeIntegerEnum(4, 'advance', '进阶成长')
+high = ChoiceTypeIntegerEnum(5, 'high', '积极进取')
 # 风险等级
-RISK_TYPE = {
-    'undefined': 0,  # 未定义
-    'plain': 1,  # 灵活取用
-    'low': 2,  # 稳健增值
-    'balance': 3,  # 平衡增长
-    'advance': 4,  # 进阶成长
-    'high': 5,  # 积极进取
-}
-RISK_TYPE_DISPLAY = {
-    'undefined': '未定义',
-    'plain': '灵活取用',
-    'low': '稳健增值',
-    'balance': '平衡增长',
-    'advance': '进阶成长',
-    'high': '积极进取'
-}
+RISK_TYPE = (undefined, plain, low, balance, advance, high)
+
+# RISK_TYPE = {
+#     'undefined': 0,  # 未定义
+#     'plain': 1,  # 灵活取用
+#     'low': 2,  # 稳健增值
+#     'balance': 3,  # 平衡增长
+#     'advance': 4,  # 进阶成长
+#     'high': 5,  # 积极进取
+# }
+# RISK_TYPE_DISPLAY = {
+#     'undefined': '未定义',
+#     'plain': '灵活取用',
+#     'low': '稳健增值',
+#     'balance': '平衡增长',
+#     'advance': '进阶成长',
+#     'high': '积极进取'
+# }
 # 基金决策宝的symbol的前缀,UN表示未知
-SYMBOL_TYPE = {'UN': 0, 'FP': 1, 'SZ': 2, 'SH': 3}
+UN = ChoiceTypeIntegerEnum(0, 'UN', '未知')
+FP = ChoiceTypeIntegerEnum(1, 'FP', '未知FP')
+SZ = ChoiceTypeIntegerEnum(2, 'SZ', '深圳证券交易所')
+SH = ChoiceTypeIntegerEnum(3, 'SH', '上海证券交易所')
+HK = ChoiceTypeIntegerEnum(4, 'HK', '香港证券交易所')
+SYMBOL_TYPE = (UN, FP, SZ, SH, HK)
 
+unknown = ChoiceTypeIntegerEnum(0, 'unknown', '未定义')
+subscribe = ChoiceTypeIntegerEnum(1, 'subscribe', '基金认购')
+purchase = ChoiceTypeIntegerEnum(2, 'purchase', '基金申购')
+redeem = ChoiceTypeIntegerEnum(3, 'redeem', '基金赎回')
 # 费率类型
-FEE_TYPE = {
-    'unknown': 0,  # 未定义
-    'subscribe': 1,  # 基金认购
-    'purchase': 2,  # 基金申购
-    'redeem': 3,  # 基金赎回
-}
+FEE_TYPE = (unknown, subscribe, purchase, redeem)
+# FEE_TYPE = {
+#     'unknown': 0,  # 未定义
+#     'subscribe': 1,  # 基金认购
+#     'purchase': 2,  # 基金申购
+#     'redeem': 3,  # 基金赎回
+# }
+personal = ChoiceTypeIntegerEnum(0, 'personal', '个人')
+org = ChoiceTypeIntegerEnum(1, 'org', '机构')
+#  组合主理人类型
+ZH_MGR_TYPE = (personal, org)
+# ZH_MGR_TYPE = {
+#     'personal': 0,  # '个人'
+#     'org': 1,  # '机构'
+# }
+# ZH_MGR_TYPE_DISPLAY = {
+#     'personal': '个人',
+#     'org': '机构',
+# }
+UN = ChoiceTypeIntegerEnum(0, 'un', '未定义')
+QM = ChoiceTypeIntegerEnum(1, 'qm', '且慢')
+TT = ChoiceTypeIntegerEnum(2, 'tt', '天天基金')
+DJ = ChoiceTypeIntegerEnum(3, 'dj', '蛋卷基金')
+OWN = ChoiceTypeIntegerEnum(4, 'own', '平台自建')
+HB = ChoiceTypeIntegerEnum(5, 'hb', '好买基金')
+PLAT_TYPE = (UN, QM, TT, DJ, OWN, HB)
 
-#  组合管理人类型
-ZH_MGR_TYPE = {
-    'personal': 0,  # '个人'
-    'org': 1,  # '机构'
-}
-ZH_MGR_TYPE_DISPLAY = {
-    'personal': '个人',
-    'org': '机构',
-}
-PLAT_TYPE = {
-    'undefined': 0,  # '未定义'
-    'qm': 1,  # '且慢'
-    'tt': 2,  # '天天基金'
-    'dj': 3,  # '蛋卷基金'
-    'own': 4,
-    'hb': 5,
-}
-
-PLAT_TYPE_DISPLAY = {
-    'undefined': '未定义',
-    'qm': '且慢',
-    'tt': '天天基金',
-    'dj': '蛋卷基金',
-    'own': '平台自建',
-    'hb': '好买基金',
-}
+# PLAT_TYPE_DISPLAY = {
+#     'undefined': '未定义',
+#     'qm': '且慢',
+#     'tt': '天天基金',
+#     'dj': '蛋卷基金',
+#     'own': '平台自建',
+#     'hb': '好买基金',
+# }
 
 # 正则
 '''
