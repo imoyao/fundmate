@@ -47,7 +47,7 @@ class StatusCodeError(Enum):
     # 第三方依赖错误派生
     PRAETORIAN_ERROR = (2001, '组件`flask_praetorian` 发生错误。')
     MISSING_CLAIM_ERROR = (2002, '认证失败，请联系系统管理员。')
-    EXPIRED_ACCESS_ERROR = (2003, 'Token已过期，请重新认证。')
+    EXPIRED_ACCESS_ERROR = (2003, 'Token 已过期，请重新认证。')
     EARLY_REFRESH_ERROR = (2004, '目前不需要刷新 Token')
     MISSING_TOKEN = (2005, "['header', 'cookie'] 中未找到 Token")
     INVALID_TOKEN_HEADER = (2006, '非法Token头')

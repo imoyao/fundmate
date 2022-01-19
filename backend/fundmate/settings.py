@@ -38,6 +38,8 @@ INFO_MAIL_ADDR = 'fundmate@163.com'
 INITIAL_PORTFOLIO_IDENTIFIER = '010921'
 # 组合用户编号应该和组合编号有一定区分度：所以长度取长一点
 INITIAL_MGR_IDENTIFIER = '20211202'
+# 账户起始编号
+INITIAL_ACCOUNT_IDENTIFIER = '1024'
 
 # 风险等级
 RISK_TYPE = {

@@ -6,7 +6,7 @@
 """
 from apiflask import Schema
 from apiflask.fields import Integer, String
-from apiflask.validators import OneOf
+from apiflask.validators import Length, OneOf
 
 from backend.fundmate.settings import RISK_TYPE
 
@@ -26,9 +26,10 @@ class CreateAccountSchema(Schema):
     风险等级
     描述，即投资目标、投资年限等
     '''
-    name = String(length=10)
+    name = String(required=True, validate=Length(2, 10))
     account_type = String(required=True, default='undefined', validate=OneOf(RISK_TYPE.keys()))
-    desc = String()
+    desc = String(validate=Length(max=300))
+    rich_desc = String(validate=Length(max=1000))
 
 
 class AddAccountItemSchema(Schema):
@@ -46,3 +47,4 @@ class AccountOutSchema(Schema):
     id = Integer()
     name = String()
     account_type = String()
+    desc = String()

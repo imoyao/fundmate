@@ -3,6 +3,7 @@
 # Created by Administrator at 2021/12/30 22:27
 """
 每次更新数据时需要去网站获取新的key并设置到`.env`环境中
+注意其中`TENCENTWM_G_TK`从get请求的params中获取
 """
 import time
 
@@ -62,7 +63,7 @@ def get_trans_detail():
                 print(ret_code, data)
                 break
 
-    utils.write_json_data(result, f'./test.json')
+    utils.write_json_data(result, './record.json')
 
 
 if __name__ == '__main__':

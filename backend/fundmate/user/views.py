@@ -19,7 +19,7 @@ from apiflask import APIBlueprint, PaginationSchema, abort, input, output
 from flask.views import MethodView
 
 import passlib
-from flask_praetorian import auth_required, roles_required
+from flask_praetorian import auth_required, current_user, roles_required
 from flask_praetorian.exceptions import PraetorianError
 
 from backend.fundmate.account.models import Account
@@ -285,20 +285,30 @@ class UserFavorFunds(MethodView):
         pass
 
 
-@bp.route('/<int:user_id>/accounts')
+@bp.route('/accounts')
 class UserAccounts(MethodView):
     """
-    用户所拥有的账本
+    用户账本
     """
+    account_links = {
+        'getAccountByUserId': {
+            'operationId': 'getUserAccount',
+            'parameters': {
+                'userId': '$request.path.id'
+            }
+        }
+    }
 
-    # @input(PaginationSchema, 'query')
+    @auth_required
     @input(EmptySchema)
     @output(AccountOutSchema(many=True))
-    def get(self, user_id: str, account_type: str):
+    def get(self, account_type: str):
         """获取用户账本信息
         根据类型查询自己名下的账户，账户按照类型区分：
         支持all,stock,fund,bank,
         """
+        user = current_user()
+        user_id = user.id
         if account_type:
             accounts = Account.query.filter(creator_id=user_id, account_type=account_type)
         else:
@@ -306,8 +316,12 @@ class UserAccounts(MethodView):
         return accounts
 
     @input(CreateAccountSchema)
+    @output(AccountOutSchema, links=account_links)
     def post(self, data: dict):
         """创建用户账本"""
+        user = current_user()
+        user_id = user.id
+        data['creator_id'] = user_id
         account = Account.create(**data)
         return account
 
