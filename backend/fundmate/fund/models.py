@@ -541,14 +541,6 @@ class FundPortfolioMgr(PkModel, UpsertMixin):
         :return:
         """
         fp_identifier = gen_digit_code(cls.code, settings.INITIAL_MGR_IDENTIFIER, min_len=8)
-        # fp_identifier = settings.INITIAL_MGR_IDENTIFIER
-        # max_identifier = db.session.query(func.max(cls.code)).one_or_none()
-        # if max_identifier != (None, ):
-        #     max_num = max_identifier[0]
-        #     if max_num is not None:
-        #         increase_int = random.randrange(1, 3)
-        #         fp_identifier = int(max_num) + increase_int
-        #         return f'{fp_identifier:08}'
         return fp_identifier
 
 
