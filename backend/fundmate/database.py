@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Database module, including the SQLAlchemy database object and DB-related utilities."""
+import enum
 import random
 from datetime import datetime
 from typing import Optional, Union
@@ -307,14 +308,20 @@ class BaseChoice(types.TypeDecorator):
     cache_ok = False
 
     def process_bind_param(self, value, dialect):
-        if value in self.choices_rev:
-            return self.choices_rev[value]
-        if value in self.choices:
+        print(value, type(value), 'int--process_bind_param---------')
+        if isinstance(value, enum.Enum):
             return value
-        raise KeyError(f"Value not found in choices: {value}")
+        elif isinstance(value, int):
+            return value
+        return value.value
+        # if value in self.choices_rev:
+        #     return self.choices_rev[value]
+        # if value in self.choices:
+        #     return value
+        # raise KeyError(f"Value not found in choices: {value}")
 
     def process_result_value(self, value, dialect):
-        return self.choices[value]
+        return value.key
 
 
 class ChoiceTypeInteger(BaseChoice):
@@ -323,27 +330,31 @@ class ChoiceTypeInteger(BaseChoice):
     """
     impl = types.Integer
 
-    def __init__(self, choices: Union[list, tuple, dict], **kw):
+    def __init__(self, choices: Union[list, tuple, dict, enum.Enum], **kw):
+        super().__init__(choices, **kw)
+        # self.choices = choices
+        print(choices, 'int-----------')
+        self.choices = choices
         # 传的是int类型，则需要检查是否key为int,是才可以继续
-        is_all_key_int = all([isinstance(i, int) for i in choices.keys()])
-        if not is_all_key_int:
-            raise KeyError("Key should be integer.")
-        if len(choices) == 0:
-            raise ValueError("No choices provided!")
-
-        if isinstance(choices, list) or isinstance(choices, tuple):
-            if isinstance(choices[0], str):
-                choices = [(s, s) for s in choices]
-            self.choices = dict(choices)
-        elif isinstance(choices, dict):
-            self.choices = choices
-        num_choices = len(self.choices)
-        if num_choices != len(set(self.choices.keys())):
-            raise KeyError("Choice keys must be unique")
-        if num_choices != len(set(self.choices.values())):
-            raise ValueError("Choice values must be unique")
-        self.choices_rev = key2val(self.choices)
-        super().__init__(**kw)
+        # is_all_key_int = all([isinstance(i, int) for i in choices.keys()])
+        # if not is_all_key_int:
+        #     raise KeyError("Key should be integer.")
+        # if len(choices) == 0:
+        #     raise ValueError("No choices provided!")
+        #
+        # if isinstance(choices, list) or isinstance(choices, tuple):
+        #     if isinstance(choices[0], str):
+        #         choices = [(s, s) for s in choices]
+        #     self.choices = dict(choices)
+        # elif isinstance(choices, dict):
+        #     self.choices = choices
+        # num_choices = len(self.choices)
+        # if num_choices != len(set(self.choices.keys())):
+        #     raise KeyError("Choice keys must be unique")
+        # if num_choices != len(set(self.choices.values())):
+        #     raise ValueError("Choice values must be unique")
+        # self.choices_rev = key2val(self.choices)
+        # super().__init__(**kw)
 
 
 class ChoiceType(BaseChoice):
@@ -356,32 +367,36 @@ class ChoiceType(BaseChoice):
     '''
     impl = types.String(60)
 
-    def __init__(self, choices: Union[list, tuple, dict], **kw):
-        if len(choices) == 0:
-            raise ValueError("No choices provided!")
+    def __init__(self, choices: Union[list, tuple, dict, enum.Enum], **kw):
+        super().__init__(choices, **kw)
+        # self.choices = choices
+        print(choices, 'str-----------')
+        self.choices = choices
+        # if len(choices) == 0:
+        #     raise ValueError("No choices provided!")
 
-        if isinstance(choices, list) or isinstance(choices, tuple):
-            if isinstance(choices[0], str):
-                choices = [(s, s) for s in choices]
-            self.choices = dict(choices)
-        elif isinstance(choices, dict):
-            self.choices = choices
-        num_choices = len(self.choices)
-        if num_choices != len(set(self.choices.keys())):
-            raise KeyError("Choice keys must be unique")
-        if num_choices != len(set(self.choices.values())):
-            raise ValueError("Choice values must be unique")
-        self.choices_rev = key2val(self.choices)
+        # if isinstance(choices, list) or isinstance(choices, tuple):
+        #     if isinstance(choices[0], str):
+        #         choices = [(s, s) for s in choices]
+        #     self.choices = dict(choices)
+        # elif isinstance(choices, dict):
+        #     self.choices = choices
+        # num_choices = len(self.choices)
+        # if num_choices != len(set(self.choices.keys())):
+        #     raise KeyError("Choice keys must be unique")
+        # if num_choices != len(set(self.choices.values())):
+        #     raise ValueError("Choice values must be unique")
+        # self.choices_rev = key2val(self.choices)
         super().__init__(**kw)
 
-    def process_result_value(self, value, dialect):
-        """
-        key是str的直接返回即可
-        :param value:
-        :param dialect:
-        :return:
-        """
-        return value
+    # def process_result_value(self, value, dialect):
+    #     """
+    #     key是str的直接返回即可
+    #     :param value:
+    #     :param dialect:
+    #     :return:
+    #     """
+    #     return value.key
 
 
 def key2val(unique_dict: dict) -> dict:
