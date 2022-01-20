@@ -4,15 +4,13 @@ import logging
 import sys
 
 from apiflask import APIFlask
-
 from flask_praetorian import exceptions as praetorian_excepts
 
 from backend.fundmate import account, commands, errors, fund, public, settings, user
 from backend.fundmate.config import config
 from backend.fundmate.extensions import db, guard, loguru, mail, migrate
+from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.settings import env
-
-from .exts.flask_loguru import logger
 
 
 def create_app(config_object: str = "backend.fundmate.settings"):
