@@ -2,6 +2,7 @@
 """Database module, including the SQLAlchemy database object and DB-related utilities."""
 import random
 from datetime import datetime
+from enum import Enum
 from typing import Optional, Union
 
 from apiflask import pagination_builder
@@ -386,6 +387,59 @@ class ChoiceType(BaseChoice):
 
 def key2val(unique_dict: dict) -> dict:
     return {v: k for k, v in unique_dict.items()}
+
+
+class DkBaseChoiceEnum(db.TypeDecorator):
+    cache_ok = False
+
+    def process_bind_param(self, value, dialect):
+        if isinstance(value, Enum):
+            return value
+        elif isinstance(value, int):
+            return value
+        return value.value
+
+    def process_result_value(self, value, dialect):
+        return self.choices[value]
+
+
+class DkChoiceTypeInteger(DkBaseChoiceEnum):
+    impl = db.Integer()
+
+    def __init__(self, enumtype, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        print(enumtype, '-------int---')
+        self._enumtype = enumtype
+
+    def process_bind_param(self, value, dialect):
+        if isinstance(value, Enum):
+            return value
+        elif isinstance(value, int):
+            return value
+        return value.value
+
+    def process_result_value(self, value, dialect):
+        return self._enumtype(value)
+
+
+class DkChoiceType(DkBaseChoiceEnum):
+    impl = types.String(60)
+
+    def __init__(self, enumtype, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        print(enumtype, '-------str---')
+        self._enumtype = enumtype
+
+    def process_bind_param(self, value, dialect):
+        print(type(value), '-------str---')
+        if isinstance(value, Enum):
+            return value
+        elif isinstance(value, int):
+            return value
+        return value.value
+
+    def process_result_value(self, value, dialect):
+        return value
 
 
 def get_table_name(model_cls_name):
