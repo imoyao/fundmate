@@ -556,9 +556,9 @@ class FundPortfolioAdjustHistory(PkModel):
     """
     组合调仓历史
     """
-    portfolio_code = Column(db.String(30), comment='组合编码')
+    portfolio_code = Column(db.String(30), index=True, comment='组合编码')
     update_date = Column(db.DateTime, comment='调仓时间')
-    adjust_id = Column(db.BigInteger, comment='调仓历史编码')  # 使用雪花算法
+    adjust_id = Column(db.BigInteger, index=True, comment='调仓历史编码')  # 使用雪花算法
     plat_trade_id = Column(db.String(120), comment='平台调仓编码（只做记录区分用，不参与系统计算）')
     desc = Column(db.String(1500), comment='调仓说明')
 
@@ -597,3 +597,15 @@ class FundPortfolioHoldDetail(PkModel):
     fd_code = Column(db.String(6), comment='基金编码')
     adjust_id = Column(db.BigInteger, comment='调仓历史编码')
     portion = Column(db.Numeric(5, 4), comment='持仓占比，如：0.0716')
+
+
+#
+# class Test(PkModel):
+#     test_str = Column(ChoiceType(choices=settings.SymbolTypeEnum),
+#                       nullable=True,
+#                       default='UN',
+#                       comment='符号前缀（FP/SZ/SH）')
+#     test_int = Column(ChoiceTypeInteger(choices=settings.PlatTypeEnum),
+#                       nullable=True,
+#                       default=1,
+#                       comment='PlatTypeEnum')

@@ -5,6 +5,7 @@ Most configuration is set via environment variables.
 
 For local development, use a .env file to set environment variables.
 """
+import enum
 from pathlib import Path
 
 import pendulum
@@ -43,7 +44,7 @@ INITIAL_MGR_IDENTIFIER = '20211202'
 
 
 @dataklass
-class BaseChoiceEnum:
+class BaseChoiceDk:
     label: str
 
     @property
@@ -52,29 +53,36 @@ class BaseChoiceEnum:
 
 
 @dataklass
-class ChoiceTypeIntegerEnum(BaseChoiceEnum):
+class ChoiceTypeIntegerDk(BaseChoiceDk):
     key: int
     value: str
 
 
 @dataklass
-class ChoiceTypeEnum(BaseChoiceEnum):
+class ChoiceTypeDk(BaseChoiceDk):
     key: str
-    value: str
-
-    @property
-    def display(self):
-        return self.label
 
 
-undefined = ChoiceTypeIntegerEnum(0, 'undefined', '未定义')
-plain = ChoiceTypeIntegerEnum(1, 'plain', '灵活取用')
-low = ChoiceTypeIntegerEnum(2, 'low', '稳健增值')
-balance = ChoiceTypeIntegerEnum(3, 'balance', '平衡增长')
-advance = ChoiceTypeIntegerEnum(4, 'advance', '进阶成长')
-high = ChoiceTypeIntegerEnum(5, 'high', '积极进取')
+UNDEFINED = ChoiceTypeIntegerDk(0, 'undefined', '未定义')
+PLAIN = ChoiceTypeIntegerDk(1, 'plain', '灵活取用')
+LOW = ChoiceTypeIntegerDk(2, 'low', '稳健增值')
+BALANCE = ChoiceTypeIntegerDk(3, 'balance', '平衡增长')
+ADVANCE = ChoiceTypeIntegerDk(4, 'advance', '进阶成长')
+HIGH = ChoiceTypeIntegerDk(5, 'high', '积极进取')
+
+
 # 风险等级
-RISK_TYPE = (undefined, plain, low, balance, advance, high)
+@enum.unique
+class RiskTypeEnum(enum.Enum):
+    undefined = UNDEFINED
+    plain = PLAIN
+    low = LOW
+    balance = BALANCE
+    advance = ADVANCE
+    high = HIGH
+
+
+# RISK_TYPE = (undefined, plain, low, balance, advance, high)
 
 # RISK_TYPE = {
 #     'undefined': 0,  # 未定义
@@ -93,29 +101,60 @@ RISK_TYPE = (undefined, plain, low, balance, advance, high)
 #     'high': '积极进取'
 # }
 # 基金决策宝的symbol的前缀,UN表示未知
-UN = ChoiceTypeIntegerEnum(0, 'UN', '未知')
-FP = ChoiceTypeIntegerEnum(1, 'FP', '未知FP')
-SZ = ChoiceTypeIntegerEnum(2, 'SZ', '深圳证券交易所')
-SH = ChoiceTypeIntegerEnum(3, 'SH', '上海证券交易所')
-HK = ChoiceTypeIntegerEnum(4, 'HK', '香港证券交易所')
-SYMBOL_TYPE = (UN, FP, SZ, SH, HK)
+UNSE = ChoiceTypeDk('UN', '未知')
+FPSE = ChoiceTypeDk('FP', '未知FP')
+SZSE = ChoiceTypeDk('SZ', '深圳证券交易所')
+SHSE = ChoiceTypeDk('SH', '上海证券交易所')
+SEHK = ChoiceTypeDk('HK', '香港证券交易所')
 
-unknown = ChoiceTypeIntegerEnum(0, 'unknown', '未定义')
-subscribe = ChoiceTypeIntegerEnum(1, 'subscribe', '基金认购')
-purchase = ChoiceTypeIntegerEnum(2, 'purchase', '基金申购')
-redeem = ChoiceTypeIntegerEnum(3, 'redeem', '基金赎回')
+
+@enum.unique
+class SymbolTypeEnum(enum.Enum):
+    UN = UNSE
+    FP = FPSE
+    SZ = SZSE
+    SH = SHSE
+    HK = SEHK
+
+
+# SYMBOL_TYPE = (UN, FP, SZ, SH, HK)
+
+UNKNOWN = ChoiceTypeIntegerDk(0, 'unknown', '未定义')
+SUBSCRIBE = ChoiceTypeIntegerDk(1, 'subscribe', '基金认购')
+PURCHASE = ChoiceTypeIntegerDk(2, 'purchase', '基金申购')
+REDEEM = ChoiceTypeIntegerDk(3, 'redeem', '基金赎回')
+
 # 费率类型
-FEE_TYPE = (unknown, subscribe, purchase, redeem)
+
+
+@enum.unique
+class FeeTypeEnum(enum.Enum):
+    unknown = UNKNOWN
+    subscribe = SUBSCRIBE
+    purchase = PURCHASE
+    redeem = REDEEM
+
+
+# FEE_TYPE = (unknown, subscribe, purchase, redeem)
 # FEE_TYPE = {
 #     'unknown': 0,  # 未定义
 #     'subscribe': 1,  # 基金认购
 #     'purchase': 2,  # 基金申购
 #     'redeem': 3,  # 基金赎回
 # }
-personal = ChoiceTypeIntegerEnum(0, 'personal', '个人')
-org = ChoiceTypeIntegerEnum(1, 'org', '机构')
+ZH_PERSONAL = ChoiceTypeIntegerDk(0, 'personal', '个人')
+ZH_ORG = ChoiceTypeIntegerDk(1, 'org', '机构')
+
 #  组合主理人类型
-ZH_MGR_TYPE = (personal, org)
+# ZH_MGR_TYPE = (personal, org)
+
+
+@enum.unique
+class ZHMgrTypeEnum(enum.Enum):
+    personal = ZH_PERSONAL
+    org = ZH_ORG
+
+
 # ZH_MGR_TYPE = {
 #     'personal': 0,  # '个人'
 #     'org': 1,  # '机构'
@@ -124,13 +163,25 @@ ZH_MGR_TYPE = (personal, org)
 #     'personal': '个人',
 #     'org': '机构',
 # }
-UN = ChoiceTypeIntegerEnum(0, 'un', '未定义')
-QM = ChoiceTypeIntegerEnum(1, 'qm', '且慢')
-TT = ChoiceTypeIntegerEnum(2, 'tt', '天天基金')
-DJ = ChoiceTypeIntegerEnum(3, 'dj', '蛋卷基金')
-OWN = ChoiceTypeIntegerEnum(4, 'own', '平台自建')
-HB = ChoiceTypeIntegerEnum(5, 'hb', '好买基金')
-PLAT_TYPE = (UN, QM, TT, DJ, OWN, HB)
+UN = ChoiceTypeIntegerDk(0, 'un', '未定义')
+QM = ChoiceTypeIntegerDk(1, 'qm', '且慢')
+TT = ChoiceTypeIntegerDk(2, 'tt', '天天基金')
+DJ = ChoiceTypeIntegerDk(3, 'dj', '蛋卷基金')
+OWN = ChoiceTypeIntegerDk(4, 'own', '平台自建')
+HB = ChoiceTypeIntegerDk(5, 'hb', '好买基金')
+
+
+@enum.unique
+class PlatTypeEnum(enum.Enum):
+    undefined = UN
+    qieman = QM
+    tiantian = TT
+    danjuan = DJ
+    own = OWN
+    howbuy = HB
+
+
+# PLAT_TYPE = (UN, QM, TT, DJ, OWN, HB)
 
 # PLAT_TYPE_DISPLAY = {
 #     'undefined': '未定义',
