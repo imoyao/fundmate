@@ -15,6 +15,8 @@ from backend.fundmate.database import (
     ChoiceTypeInteger,
     Column,
     CreateDateModel,
+    DkChoiceType,
+    DkChoiceTypeInteger,
     PkModel,
     UpsertMixin,
     db,
@@ -589,3 +591,16 @@ class FundPortfolioHoldDetail(PkModel):
     fd_code = Column(db.String(6), comment='基金编码')
     adjust_id = Column(db.BigInteger, comment='调仓历史编码')
     portion = Column(db.Numeric(5, 4), comment='持仓占比，如：0.0716')
+
+
+class Test(PkModel):
+    test_str = Column(ChoiceType(choices=settings.SYMBOL_TYPE), nullable=True, default='UN', comment='符号前缀（FP/SZ/SH）')
+    test_int = Column(ChoiceTypeInteger(choices=key2val(settings.PLAT_TYPE)),
+                      nullable=True,
+                      default=0,
+                      comment='PlatTypeEnum')
+    dk_test_str = Column(DkChoiceType(settings.SymbolTypeEnum), nullable=True, default='UN', comment='符号前缀（FP/SZ/SH）')
+    dk_test_int = Column(DkChoiceTypeInteger(settings.PlatTypeEnum),
+                         nullable=True,
+                         default=settings.PlatTypeEnum.undefined.dk_value,
+                         comment='PlatTypeEnum')
