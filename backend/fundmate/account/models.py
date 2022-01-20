@@ -3,9 +3,11 @@
 # Created by imoyao at 2021/2/13 18:12
 from typing import Union
 
+from backend.fundmate import settings
 from backend.fundmate.compat import basestring
 from backend.fundmate.database import (
     Base,
+    ChoiceType,
     ChoiceTypeInteger,
     Column,
     CreateDateModel,
@@ -14,7 +16,6 @@ from backend.fundmate.database import (
     key2val,
     reference_col,
 )
-from backend.fundmate.settings import RISK_TYPE
 
 
 class Account(Base, PkModel, CreateDateModel):
@@ -28,7 +29,10 @@ class Account(Base, PkModel, CreateDateModel):
     name = Column(db.String(255), comment='账本名称')
     creator_id = reference_col('users', column_kwargs={'comment': '管理人（类似群主）'})
     comment = Column(db.String(255), comment='账本备注')
-    account_type = Column(ChoiceTypeInteger(choices=key2val(RISK_TYPE)), nullable=True, default=0, comment='账本类型（四笔钱）')
+    account_type = Column(ChoiceType(choices=db.Enum(settings.RiskTypeEnum)),
+                          nullable=True,
+                          default=settings.RiskTypeEnum.undefined.value.key,
+                          comment='账本类型（四笔钱）')
 
     @classmethod
     def get_by_id(cls, account_id: Union[str, int]):
@@ -46,15 +50,15 @@ class AccountFund(Base, PkModel):
     account_id = Column(db.Integer, comment='账本编号')
 
 
-FUND_OP_TYPE = {
-    'purchase': 1,  # 买入/存入/申购
-    'sale': 2,  # 赎回/卖出/支取
-    'transfer': 3,  # 转换/转存
-    'regular_invest': 4,  # 定投
-    'bonus': 5,  # 分红
-    'adjust': 6,  # 调仓
-    'other': 7,  # 其他
-}
+# FUND_OP_TYPE = {
+#     'purchase': 1,  # 买入/存入/申购
+#     'sale': 2,  # 赎回/卖出/支取
+#     'transfer': 3,  # 转换/转存
+#     'regular_invest': 4,  # 定投
+#     'bonus': 5,  # 分红
+#     'adjust': 6,  # 调仓
+#     'other': 7,  # 其他
+# }
 
 
 class CashFlow(Base, PkModel):
@@ -64,7 +68,7 @@ class CashFlow(Base, PkModel):
     __table_args__ = {'comment': '操作记录表'}
 
     user_id = reference_col('users', column_kwargs={'comment': '购买用户编号'})
-    op_type = Column(ChoiceTypeInteger(choices=key2val(FUND_OP_TYPE)), default=1, nullable=True, comment='操作类型')
+    op_type = Column(ChoiceType(db.Enum(settings.FundOpTypeEnum)), default=1, nullable=True, comment='操作类型')
     fund_id = reference_col('funds', column_kwargs={'comment': '所购买的基金编号'})
     amount = Column(db.Integer, comment='购买金额')
     date = Column(db.TIMESTAMP, nullable=False, server_default=db.text("CURRENT_TIMESTAMP"), comment='购买日期（确认日期）')

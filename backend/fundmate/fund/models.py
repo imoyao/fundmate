@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from enum import Enum
 from typing import Optional, Union
 
 from sqlalchemy import func, or_
@@ -77,12 +78,12 @@ class Fund(PkModel, UpsertMixin):
     f_var = Column('fund_variety_id', db.Integer, db.ForeignKey('fund_variety.id'), comment='基金大类编号')
     co_id = Column(db.Integer, db.ForeignKey('fund_company.id'), comment='所属基金公司编号')
     create_time = Column(db.DateTime, comment='基金创建时间')
-    symbol_prefix = Column(ChoiceType(choices=settings.SYMBOL_TYPE),
+    symbol_prefix = Column(ChoiceType(choices=db.Enum(settings.SymbolTypeEnum)),
                            nullable=True,
                            default='UN',
                            comment='符号前缀（FP/SZ/SH）')
-    risk_level = Column(ChoiceTypeInteger(choices=key2val(settings.RISK_TYPE)),
-                        default=1,
+    risk_level = Column(ChoiceTypeInteger(choices=db.Enum(settings.RiskTypeEnum)),
+                        default=settings.RiskTypeEnum.plain.value.key,
                         nullable=True,
                         comment='风险等级')
     is_fe_charge_mode = Column(db.Boolean, comment='收费方式（前端/后端）')  #
@@ -346,9 +347,9 @@ class FeeRatio(PkModel, UpsertMixin):
     fund_id = Column(db.Integer, db.ForeignKey('funds.id'), comment='基金编号ID')
     in_rule_id = db.Column(db.Integer, db.ForeignKey('in_rule.id'), nullable=True, comment='申购规则ID')
     out_rule_id = db.Column(db.Integer, db.ForeignKey('out_rule.id'), nullable=True, comment='赎回规则ID')
-    fee_type = Column(ChoiceTypeInteger(choices=key2val(settings.FEE_TYPE)),
+    fee_type = Column(ChoiceTypeInteger(choices=db.Enum(settings.FeeTypeEnum)),
                       nullable=True,
-                      default=0,
+                      default=settings.FeeTypeEnum.unknown.value.key,
                       comment='费率类型（认购、申购、赎回）')
     rate = Column(db.Numeric(3, 2), comment='费率百分比')
     fee_amount = Column(db.Numeric(6, 2), comment='收费金额（超过xx万时一次收费，此时rate应该为空）')
@@ -460,13 +461,13 @@ class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
     is_visible = Column(db.Boolean, comment='是否他人可见')  # 只有创建人（/admin）可以修改
     found_date = Column(db.Date, comment='组合创建日期')
     mgr_code = Column(db.String(10), comment='组合管理人编码')
-    platform = Column(ChoiceTypeInteger(choices=key2val(settings.PLAT_TYPE)),
+    platform = Column(ChoiceTypeInteger(choices=db.Enum(settings.PlatTypeEnum)),
                       nullable=True,
-                      default=0,
+                      default=settings.PlatTypeEnum.undefined.value.key,
                       comment=f'平台名称：{str(settings.PLAT_TYPE_DISPLAY)}')
-    risk_type = Column(ChoiceTypeInteger(choices=key2val(settings.RISK_TYPE)),
+    risk_type = Column(ChoiceTypeInteger(choices=db.Enum(settings.RiskTypeEnum)),
                        nullable=True,
-                       default=0,
+                       default=settings.RiskTypeEnum.plain.value.key,
                        comment='风险类型（稳健/成长等）')
     annualized_rate_of_return = Column(db.Numeric(7, 4), comment='成立以来年化')  # 保留小数点后4位，每天计算净值后更新
     invest_rate_of_return = Column(db.Numeric(7, 4), comment='成立以来收益')  # 每天计算净值后更新
@@ -519,14 +520,14 @@ class FundPortfolioMgr(PkModel, UpsertMixin):
     code = Column(db.String(10), unique=True, comment='组合管理人编码')  # 使用固定数字加随机数
     name = Column(db.String(30), comment='主理人')
     plat_code = Column(db.String(30), comment='组合管理人编号（各平台独有）')
-    mgr_type = Column(ChoiceTypeInteger(choices=key2val(settings.ZH_MGR_TYPE)),
+    mgr_type = Column(ChoiceTypeInteger(choices=db.Enum(settings.ZHMgrTypeEnum)),
                       nullable=False,
-                      default=0,
+                      default=settings.ZHMgrTypeEnum.org.value.key,
                       comment='组合管理人类型（1机构/0个人）')
     mgr_avatar_url = Column(db.String(300), comment='主理人头像链接')  # TODO:是否需要保存到本地
-    platform = Column(ChoiceTypeInteger(choices=key2val(settings.PLAT_TYPE)),
+    platform = Column(ChoiceTypeInteger(choices=db.Enum(settings.PlatTypeEnum)),
                       nullable=True,
-                      default=0,
+                      default=settings.PlatTypeEnum.undefined.value.key,
                       comment=f'平台名称：{str(settings.PLAT_TYPE_DISPLAY)}')
     desc = Column(db.String(300), comment='组合管理人描述')
 
@@ -599,13 +600,12 @@ class FundPortfolioHoldDetail(PkModel):
     portion = Column(db.Numeric(5, 4), comment='持仓占比，如：0.0716')
 
 
-#
-# class Test(PkModel):
-#     test_str = Column(ChoiceType(choices=settings.SymbolTypeEnum),
-#                       nullable=True,
-#                       default='UN',
-#                       comment='符号前缀（FP/SZ/SH）')
-#     test_int = Column(ChoiceTypeInteger(choices=settings.PlatTypeEnum),
-#                       nullable=True,
-#                       default=1,
-#                       comment='PlatTypeEnum')
+class Test(PkModel):
+    test_str = Column(ChoiceType(choices=db.Enum(settings.SymbolTypeEnum)),
+                      nullable=True,
+                      default='UN',
+                      comment='符号前缀（FP/SZ/SH）')
+    test_int = Column(ChoiceTypeInteger(choices=db.Enum(settings.PlatTypeEnum)),
+                      nullable=True,
+                      default=settings.PlatTypeEnum.undefined.value.key,
+                      comment='PlatTypeEnum')

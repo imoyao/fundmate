@@ -45,7 +45,7 @@ INITIAL_MGR_IDENTIFIER = '20211202'
 
 @dataklass
 class BaseChoiceDk:
-    label: str
+    key: str
 
     @property
     def display(self):
@@ -54,13 +54,13 @@ class BaseChoiceDk:
 
 @dataklass
 class ChoiceTypeIntegerDk(BaseChoiceDk):
-    key: int
-    value: str
+    value: int
+    label: str
 
 
 @dataklass
 class ChoiceTypeDk(BaseChoiceDk):
-    key: str
+    value: str
 
 
 UNDEFINED = ChoiceTypeIntegerDk(0, 'undefined', '未定义')
@@ -82,6 +82,83 @@ class RiskTypeEnum(enum.Enum):
     high = HIGH
 
 
+OP_PURCHASE = ChoiceTypeIntegerDk(1, 'purchase', '灵活取用')
+SALE = ChoiceTypeIntegerDk(2, 'sale', '稳健增值')
+TRANSFER = ChoiceTypeIntegerDk(3, 'transfer', '平衡增长')
+REGULAR_INVEST = ChoiceTypeIntegerDk(4, 'regular_invest', '进阶成长')
+BONUS = ChoiceTypeIntegerDk(5, 'bonus', '积极进取')
+ADJUST = ChoiceTypeIntegerDk(6, 'adjust', '积极进取')
+OTHER = ChoiceTypeIntegerDk(7, 'other', '积极进取')
+
+
+# 风险等级
+@enum.unique
+class FundOpTypeEnum(enum.Enum):
+    purchase = OP_PURCHASE
+    sale = SALE
+    transfer = TRANSFER
+    regular_invest = REGULAR_INVEST
+    bonus = BONUS
+    adjust = ADJUST
+    other = OTHER
+
+
+# 风险等级
+RISK_TYPE = {
+    'undefined': 0,  # 未定义
+    'plain': 1,  # 灵活取用
+    'low': 2,  # 稳健增值
+    'balance': 3,  # 平衡增长
+    'advance': 4,  # 进阶成长
+    'high': 5,  # 积极进取
+}
+RISK_TYPE_DISPLAY = {
+    'undefined': '未定义',
+    'plain': '灵活取用',
+    'low': '稳健增值',
+    'balance': '平衡增长',
+    'advance': '进阶成长',
+    'high': '积极进取'
+}
+# 基金决策宝的symbol的前缀,UN表示未知
+SYMBOL_TYPE = {'UN': 0, 'FP': 1, 'SZ': 2, 'SH': 3}
+
+# 费率类型
+FEE_TYPE = {
+    'unknown': 0,  # 未定义
+    'subscribe': 1,  # 基金认购
+    'purchase': 2,  # 基金申购
+    'redeem': 3,  # 基金赎回
+}
+
+#  组合管理人类型
+ZH_MGR_TYPE = {
+    'personal': 0,  # '个人'
+    'org': 1,  # '机构'
+}
+ZH_MGR_TYPE_DISPLAY = {
+    'personal': '个人',
+    'org': '机构',
+}
+PLAT_TYPE = {
+    'undefined': 0,  # '未定义'
+    'qm': 1,  # '且慢'
+    'tt': 2,  # '天天基金'
+    'dj': 3,  # '蛋卷基金'
+    'own': 4,
+    'hb': 5,
+}
+
+PLAT_TYPE_DISPLAY = {
+    'undefined': '未定义',
+    'qm': '且慢',
+    'tt': '天天基金',
+    'dj': '蛋卷基金',
+    'own': '平台自建',
+    'hb': '好买基金',
+}
+
+# 基金决策宝的symbol的前缀,UN表示未知
 # RISK_TYPE = (undefined, plain, low, balance, advance, high)
 
 # RISK_TYPE = {
