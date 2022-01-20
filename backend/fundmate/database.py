@@ -310,10 +310,11 @@ class BaseChoice(types.TypeDecorator):
     def process_bind_param(self, value, dialect):
         print(value, type(value), 'int--process_bind_param---------')
         if isinstance(value, enum.Enum):
+            print(value, '==========bbbbb===')
             return value
         elif isinstance(value, int):
             return value
-        return value.value
+        return value
         # if value in self.choices_rev:
         #     return self.choices_rev[value]
         # if value in self.choices:
@@ -321,20 +322,22 @@ class BaseChoice(types.TypeDecorator):
         # raise KeyError(f"Value not found in choices: {value}")
 
     def process_result_value(self, value, dialect):
+        print(value, '----------base---')
         return value.key
 
 
-class ChoiceTypeInteger(BaseChoice):
+class ChoiceTypeInteger(types.TypeDecorator):
     """
     适用于key为int的
     """
     impl = types.Integer
 
-    def __init__(self, choices: Union[list, tuple, dict, enum.Enum], **kw):
-        super().__init__(choices, **kw)
+    def __init__(self, choices: Union[list, tuple, dict, enum.Enum], *args, **kwargs):
+        print(choices, args, kwargs, '------------111---')
+        super().__init__(*args, **kwargs)
         # self.choices = choices
         print(choices, 'int-----------')
-        self.choices = choices
+        self.choices_enum = choices
         # 传的是int类型，则需要检查是否key为int,是才可以继续
         # is_all_key_int = all([isinstance(i, int) for i in choices.keys()])
         # if not is_all_key_int:
@@ -356,8 +359,19 @@ class ChoiceTypeInteger(BaseChoice):
         # self.choices_rev = key2val(self.choices)
         # super().__init__(**kw)
 
+    def process_bind_param(self, value, dialect):
+        if isinstance(value, enum.Enum):
+            print(value, '====process_bind_param==enum===')
+            return value
+        elif isinstance(value, int):
+            return value
+        return value.value
 
-class ChoiceType(BaseChoice):
+    def process_result_value(self, value, dialect):
+        return self.choices_enum.value
+
+
+class ChoiceType(types.TypeDecorator):
     """
     适用于key为string的情况
     """
@@ -389,14 +403,16 @@ class ChoiceType(BaseChoice):
         # self.choices_rev = key2val(self.choices)
         super().__init__(**kw)
 
-    # def process_result_value(self, value, dialect):
-    #     """
-    #     key是str的直接返回即可
-    #     :param value:
-    #     :param dialect:
-    #     :return:
-    #     """
-    #     return value.key
+    def process_result_value(self, value, dialect):
+        """
+        key是str的直接返回即可
+        :param value:
+        :param dialect:
+        :return:
+        """
+        a = self.choices(value)
+        print(a)
+        return a
 
 
 def key2val(unique_dict: dict) -> dict:
