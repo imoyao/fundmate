@@ -15,6 +15,9 @@ from backend.fundmate.database import (
     ChoiceTypeInteger,
     Column,
     CreateDateModel,
+    DkChoiceType,
+    DkChoiceTypeInteger,
+    IntEnum,
     PkModel,
     UpsertMixin,
     db,
@@ -73,18 +76,20 @@ class Fund(PkModel, UpsertMixin):
     '''
     sxszm = Column('abbr_capital_initial_phonetic_alphabet', db.String(30), comment='缩写首字母拼音')
     qxpy = Column('full_capital_phonetic_alphabet', db.String(80), comment='全写拼音')
+    symbol_prefix = Column(db.String(80), comment='全写拼音')
+    risk_level = Column(db.String(80), comment='全写拼音')
     f_type = Column('fund_type_id', db.Integer, db.ForeignKey('fund_type.id'), comment='基金小类编号')
     f_var = Column('fund_variety_id', db.Integer, db.ForeignKey('fund_variety.id'), comment='基金大类编号')
     co_id = Column(db.Integer, db.ForeignKey('fund_company.id'), comment='所属基金公司编号')
     create_time = Column(db.DateTime, comment='基金创建时间')
-    symbol_prefix = Column(ChoiceType(choices=settings.SYMBOL_TYPE),
-                           nullable=True,
-                           default='UN',
-                           comment='符号前缀（FP/SZ/SH）')
-    risk_level = Column(ChoiceTypeInteger(choices=key2val(settings.RISK_TYPE)),
-                        default=1,
-                        nullable=True,
-                        comment='风险等级')
+    # symbol_prefix = Column(ChoiceType(choices=settings.SYMBOL_TYPE),
+    #                        nullable=True,
+    #                        default='UN',
+    #                        comment='符号前缀（FP/SZ/SH）')
+    # risk_level = Column(ChoiceTypeInteger(choices=key2val(settings.RISK_TYPE)),
+    #                     default=1,
+    #                     nullable=True,
+    #                     comment='风险等级')
     is_fe_charge_mode = Column(db.Boolean, comment='收费方式（前端/后端）')  #
     last_modified = Column(db.TIMESTAMP,
                            nullable=False,
@@ -346,10 +351,11 @@ class FeeRatio(PkModel, UpsertMixin):
     fund_id = Column(db.Integer, db.ForeignKey('funds.id'), comment='基金编号ID')
     in_rule_id = db.Column(db.Integer, db.ForeignKey('in_rule.id'), nullable=True, comment='申购规则ID')
     out_rule_id = db.Column(db.Integer, db.ForeignKey('out_rule.id'), nullable=True, comment='赎回规则ID')
-    fee_type = Column(ChoiceTypeInteger(choices=key2val(settings.FEE_TYPE)),
-                      nullable=True,
-                      default=0,
-                      comment='费率类型（认购、申购、赎回）')
+    fee_type = Column(db.String(255), unique=True)
+    # fee_type = Column(ChoiceTypeInteger(choices=key2val(settings.FEE_TYPE)),
+    #                   nullable=True,
+    #                   default=0,
+    #                   comment='费率类型（认购、申购、赎回）')
     rate = Column(db.Numeric(3, 2), comment='费率百分比')
     fee_amount = Column(db.Numeric(6, 2), comment='收费金额（超过xx万时一次收费，此时rate应该为空）')
     last_modified = Column(db.TIMESTAMP,
@@ -460,14 +466,16 @@ class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
     is_visible = Column(db.Boolean, comment='是否他人可见')  # 只有创建人（/admin）可以修改
     found_date = Column(db.Date, comment='组合创建日期')
     mgr_code = Column(db.String(10), comment='组合管理人编码')
-    platform = Column(ChoiceTypeInteger(choices=key2val(settings.PLAT_TYPE)),
-                      nullable=True,
-                      default=0,
-                      comment=f'平台名称：{str(settings.PLAT_TYPE_DISPLAY)}')
-    risk_type = Column(ChoiceTypeInteger(choices=key2val(settings.RISK_TYPE)),
-                       nullable=True,
-                       default=0,
-                       comment='风险类型（稳健/成长等）')
+    platform = Column(db.String(10), comment='组合管理人编码')
+    risk_type = Column(db.String(10), comment='组合管理人编码')
+    # platform = Column(ChoiceTypeInteger(choices=key2val(settings.PLAT_TYPE)),
+    #                   nullable=True,
+    #                   default=0,
+    #                   comment=f'平台名称：{str(settings.PLAT_TYPE_DISPLAY)}')
+    # risk_type = Column(ChoiceTypeInteger(choices=key2val(settings.RISK_TYPE)),
+    #                    nullable=True,
+    #                    default=0,
+    #                    comment='风险类型（稳健/成长等）')
     annualized_rate_of_return = Column(db.Numeric(7, 4), comment='成立以来年化')  # 保留小数点后4位，每天计算净值后更新
     invest_rate_of_return = Column(db.Numeric(7, 4), comment='成立以来收益')  # 每天计算净值后更新
     desc = Column(db.String(300), comment='组合描述')
@@ -519,15 +527,17 @@ class FundPortfolioMgr(PkModel, UpsertMixin):
     code = Column(db.String(10), unique=True, comment='组合管理人编码')  # 使用固定数字加随机数
     name = Column(db.String(30), comment='主理人')
     plat_code = Column(db.String(30), comment='组合管理人编号（各平台独有）')
-    mgr_type = Column(ChoiceTypeInteger(choices=key2val(settings.ZH_MGR_TYPE)),
-                      nullable=False,
-                      default=0,
-                      comment='组合管理人类型（1机构/0个人）')
+    mgr_type = Column(db.String(30), comment='组合管理人编号（各平台独有）')
+    # mgr_type = Column(ChoiceTypeInteger(choices=key2val(settings.ZH_MGR_TYPE)),
+    #                   nullable=False,
+    #                   default=0,
+    #                   comment='组合管理人类型（1机构/0个人）')
     mgr_avatar_url = Column(db.String(300), comment='主理人头像链接')  # TODO:是否需要保存到本地
-    platform = Column(ChoiceTypeInteger(choices=key2val(settings.PLAT_TYPE)),
-                      nullable=True,
-                      default=0,
-                      comment=f'平台名称：{str(settings.PLAT_TYPE_DISPLAY)}')
+    platform = Column(db.String(300), comment='主理人头像链接')  # TODO:是否需要保存到本地
+    # platform = Column(ChoiceTypeInteger(choices=key2val(settings.PLAT_TYPE)),
+    #                   nullable=True,
+    #                   default=0,
+    #                   comment=f'平台名称：{str(settings.PLAT_TYPE_DISPLAY)}')
     desc = Column(db.String(300), comment='组合管理人描述')
 
     def __repr__(self):
@@ -589,3 +599,16 @@ class FundPortfolioHoldDetail(PkModel):
     fd_code = Column(db.String(6), comment='基金编码')
     adjust_id = Column(db.BigInteger, comment='调仓历史编码')
     portion = Column(db.Numeric(5, 4), comment='持仓占比，如：0.0716')
+
+
+class Test(PkModel):
+    # test_str = Column(ChoiceType(choices=settings.SYMBOL_TYPE), nullable=True, default='UN', comment='符号前缀（FP/SZ/SH）')
+    # test_int = Column(ChoiceTypeInteger(choices=key2val(settings.PLAT_TYPE)),
+    #                   nullable=True,
+    #                   default=0,
+    #                   comment='PlatTypeEnum')
+    dk_test_str = Column(db.Enum(settings.SymbolTypeEnum), nullable=True, default='UN', comment='符号前缀（FP/SZ/SH）')
+    dk_test_int = Column(IntEnum(settings.PlatTypeEnum),
+                         nullable=True,
+                         default=settings.PlatTypeEnum.undefined.dk_value,
+                         comment='PlatTypeEnum')

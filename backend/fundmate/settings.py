@@ -5,10 +5,14 @@ Most configuration is set via environment variables.
 
 For local development, use a .env file to set environment variables.
 """
+import enum
 from pathlib import Path
+from types import DynamicClassAttribute
 
 import pendulum
 from environs import Env as EnvParser
+
+from backend.fundmate.libs.dataklasses import dataklass
 
 env = EnvParser()
 env.read_env()
@@ -40,6 +44,99 @@ INITIAL_PORTFOLIO_IDENTIFIER = '010921'
 INITIAL_MGR_IDENTIFIER = '20211202'
 # 账户起始编号
 INITIAL_ACCOUNT_IDENTIFIER = '1024'
+
+
+@dataklass
+class ChoiceTypeIntegerDk:
+    value: int
+    name: str
+    label: str
+
+    @property
+    def display(self):
+        return self.label
+
+
+@dataklass
+class ChoiceTypeDk:
+    value: str
+    label: str
+
+    @property
+    def display(self):
+        return self.label
+
+
+UNDEFINED = ChoiceTypeIntegerDk(0, 'undefined', '未定义')
+PLAIN = ChoiceTypeIntegerDk(1, 'plain', '灵活取用')
+LOW = ChoiceTypeIntegerDk(2, 'low', '稳健增值')
+BALANCE = ChoiceTypeIntegerDk(3, 'balance', '平衡增长')
+ADVANCE = ChoiceTypeIntegerDk(4, 'advance', '进阶成长')
+HIGH = ChoiceTypeIntegerDk(5, 'high', '积极进取')
+
+
+@enum.unique
+class BaseTypeEnum(enum.Enum):
+
+    @DynamicClassAttribute
+    def dk_name(self):
+        """The name of the Enum member."""
+        return self._value_.name or self._name_
+
+    @DynamicClassAttribute
+    def dk_value(self):
+        """The value of the Enum member."""
+        return self._value_.value
+
+    @DynamicClassAttribute
+    def dk_display(self):
+        """The value of the Enum member."""
+        return self._value_.label
+
+    def describe(self):
+        # self is the member here
+        return self.name, self.value
+
+    def __str__(self):
+        return 'my custom str! {0}'.format(self.value)
+
+    @classmethod
+    def favorite(cls):
+        # cls here is the enumeration
+        return cls.BALANCE
+
+
+# 风险等级
+
+
+class RiskTypeEnum(BaseTypeEnum):
+    undefined = UNDEFINED
+    plain = PLAIN
+    low = LOW
+    balance = BALANCE
+    advance = ADVANCE
+    high = HIGH
+
+
+OP_PURCHASE = ChoiceTypeIntegerDk(1, 'purchase', '买入/存入/申购')
+SALE = ChoiceTypeIntegerDk(2, 'sale', '赎回/卖出/支取')
+TRANSFER = ChoiceTypeIntegerDk(3, 'transfer', '转换/转存')
+REGULAR_INVEST = ChoiceTypeIntegerDk(4, 'regular_invest', '定投')
+BONUS = ChoiceTypeIntegerDk(5, 'bonus', '分红')
+ADJUST = ChoiceTypeIntegerDk(6, 'adjust', '调仓')
+OTHER = ChoiceTypeIntegerDk(7, 'other', '其他')
+
+
+# 风险等级
+class FundOpTypeEnum(BaseTypeEnum):
+    purchase = OP_PURCHASE
+    sale = SALE
+    transfer = TRANSFER
+    regular_invest = REGULAR_INVEST
+    bonus = BONUS
+    adjust = ADJUST
+    other = OTHER
+
 
 # 风险等级
 RISK_TYPE = {
@@ -95,6 +192,67 @@ PLAT_TYPE_DISPLAY = {
     'own': '平台自建',
     'hb': '好买基金',
 }
+
+# 基金决策宝的symbol的前缀,UN表示未知
+UNSE = ChoiceTypeDk('UN', '未知')
+FPSE = ChoiceTypeDk('FP', '未知FP')
+SZSE = ChoiceTypeDk('SZ', '深圳证券交易所')
+SHSE = ChoiceTypeDk('SH', '上海证券交易所')
+SEHK = ChoiceTypeDk('HK', '香港证券交易所')
+
+
+@enum.unique
+class SymbolTypeEnum(BaseTypeEnum):
+    UN = UNSE
+    FP = FPSE
+    SZ = SZSE
+    SH = SHSE
+    HK = SEHK
+
+
+UNKNOWN = ChoiceTypeIntegerDk(0, 'unknown', '未定义')
+SUBSCRIBE = ChoiceTypeIntegerDk(1, 'subscribe', '基金认购')
+PURCHASE = ChoiceTypeIntegerDk(2, 'purchase', '基金申购')
+REDEEM = ChoiceTypeIntegerDk(3, 'redeem', '基金赎回')
+
+# 费率类型
+
+
+@enum.unique
+class FeeTypeEnum(BaseTypeEnum):
+    unknown = UNKNOWN
+    subscribe = SUBSCRIBE
+    purchase = PURCHASE
+    redeem = REDEEM
+
+
+ZH_PERSONAL = ChoiceTypeIntegerDk(0, 'personal', '个人')
+ZH_ORG = ChoiceTypeIntegerDk(1, 'org', '机构')
+
+
+@enum.unique
+class ZHMgrTypeEnum(BaseTypeEnum):
+    personal = ZH_PERSONAL
+    org = ZH_ORG
+
+
+UN = ChoiceTypeIntegerDk(0, 'un', '未定义')
+QM = ChoiceTypeIntegerDk(1, 'qm', '且慢')
+TT = ChoiceTypeIntegerDk(2, 'tt', '天天基金')
+DJ = ChoiceTypeIntegerDk(3, 'dj', '蛋卷基金')
+OWN = ChoiceTypeIntegerDk(4, 'own', '平台自建')
+HB = ChoiceTypeIntegerDk(5, 'hb', '好买基金')
+
+
+@enum.unique
+class PlatTypeEnum(BaseTypeEnum):
+    undefined = UN
+    qieman = QM
+    tiantian = TT
+    danjuan = DJ
+    own = OWN
+    howbuy = HB
+
 
 # 正则
 '''
