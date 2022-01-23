@@ -33,7 +33,7 @@ class Account(PkModel, CreateDateModel, UpsertMixin):
     creator_id = reference_col('users', column_kwargs={'comment': '管理人（类似群主）'})
     desc = Column(db.String(300), comment='账本备注')
     rich_desc = Column(db.String(1000), comment='账本详细描述')
-    account_type = Column(ChoiceTypeInteger(choices=key2val(RISK_TYPE)), nullable=True, default=0, comment='账本类型（四笔钱）')
+    # account_type = Column(ChoiceTypeInteger(choices=key2val(RISK_TYPE)), nullable=True, default=0, comment='账本类型（四笔钱）')
 
     @classmethod
     def get_by_id(cls, account_id: Union[str, int]):
@@ -77,7 +77,7 @@ class AccountTransactionRecord(PkModel, CreateDateModel, UpsertMixin):
     __table_args__ = {'comment': '操作记录表'}
 
     user_id = reference_col('users', column_kwargs={'comment': '购买用户编号'})
-    op_type = Column(ChoiceTypeInteger(choices=key2val(FUND_OP_TYPE)), default=1, nullable=True, comment='操作类型')
+    # op_type = Column(ChoiceTypeInteger(choices=key2val(FUND_OP_TYPE)), default=1, nullable=True, comment='操作类型')
     fund_code = Column(db.String(6), comment='所购买的基金编号')
     amount = Column(db.Numeric(32, 4), comment='购买金额')
     charge_fee = Column(db.Numeric(32, 4), comment='操作手续费，如：123456.0716')
