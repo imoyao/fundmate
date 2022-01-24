@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from enum import Enum
 from typing import Optional, Union
 
 from sqlalchemy import func, or_
@@ -19,6 +20,7 @@ from backend.fundmate.database import (
     DkChoiceTypeInteger,
     IntEnum,
     PkModel,
+    SafeNumeric,
     UpsertMixin,
     db,
     gen_digit_code,
@@ -601,6 +603,11 @@ class FundPortfolioHoldDetail(PkModel):
     portion = Column(db.Numeric(5, 4), comment='持仓占比，如：0.0716')
 
 
+class UserType(Enum):
+    admin = 1
+    regular = 2
+
+
 class Test(PkModel):
     # test_str = Column(ChoiceType(choices=settings.SYMBOL_TYPE), nullable=True, default='UN', comment='符号前缀（FP/SZ/SH）')
     # test_int = Column(ChoiceTypeInteger(choices=key2val(settings.PLAT_TYPE)),
@@ -608,7 +615,11 @@ class Test(PkModel):
     #                   default=0,
     #                   comment='PlatTypeEnum')
     dk_test_str = Column(db.Enum(settings.SymbolTypeEnum), nullable=True, default='UN', comment='符号前缀（FP/SZ/SH）')
-    dk_test_int = Column(IntEnum(settings.PlatTypeEnum),
-                         nullable=True,
-                         default=settings.PlatTypeEnum.undefined.dk_value,
-                         comment='PlatTypeEnum')
+    # dk_test_int = Column(IntEnum(settings.PlatTypeEnum),
+    #                      nullable=True,
+    #                      default=settings.PlatTypeEnum.undefined.dk_value,
+    #                      comment='PlatTypeEnum')
+    dk_safe_num = Column(SafeNumeric(8, 2), nullable=True, comment='SafeNumeric')
+    user_type = Column(ChoiceType(UserType))
+    risk_type = Column(ChoiceType(settings.RiskTypeEnum, impl=settings.ChoiceTypeIntegerDk))
+    op_type = Column(ChoiceType(settings.FundOpTypeEnum, impl=settings.ChoiceTypeIntegerDk))

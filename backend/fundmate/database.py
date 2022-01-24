@@ -3,7 +3,8 @@
 import enum
 import random
 from datetime import datetime
-from enum import Enum
+from decimal import Decimal
+from enum import Enum, EnumMeta
 from typing import Optional, Union
 
 from apiflask import pagination_builder
@@ -17,6 +18,7 @@ from backend.fundmate.compat import basestring
 from backend.fundmate.excepts import UniqueInstanceError
 from backend.fundmate.extensions import db
 from backend.fundmate.exts.flask_loguru import logger
+from backend.fundmate.settings import ChoiceTypeDk, ChoiceTypeIntegerDk
 
 # Alias common SQLAlchemy names
 Column = db.Column
@@ -348,42 +350,42 @@ class ChoiceTypeInteger(BaseChoice):
         super().__init__(**kw)
 
 
-class ChoiceType(BaseChoice):
-    """
-    适用于key为string的情况
-    """
-    '''
-    String 报错： `sqlalchemy.exc.CompileError: VARCHAR requires a length on dialect mysql`
-    `ChoiceType` 接受关键字参数`length`来自定义字符长度
-    '''
-    impl = types.String(60)
-
-    def __init__(self, choices: Union[list, tuple, dict], **kw):
-        if len(choices) == 0:
-            raise ValueError("No choices provided!")
-
-        if isinstance(choices, list) or isinstance(choices, tuple):
-            if isinstance(choices[0], str):
-                choices = [(s, s) for s in choices]
-            self.choices = dict(choices)
-        elif isinstance(choices, dict):
-            self.choices = choices
-        num_choices = len(self.choices)
-        if num_choices != len(set(self.choices.keys())):
-            raise KeyError("Choice keys must be unique")
-        if num_choices != len(set(self.choices.values())):
-            raise ValueError("Choice values must be unique")
-        self.choices_rev = key2val(self.choices)
-        super().__init__(**kw)
-
-    def process_result_value(self, value, dialect):
-        """
-        key是str的直接返回即可
-        :param value:
-        :param dialect:
-        :return:
-        """
-        return value
+# class ChoiceType(BaseChoice):
+#     """
+#     适用于key为string的情况
+#     """
+#     '''
+#     String 报错： `sqlalchemy.exc.CompileError: VARCHAR requires a length on dialect mysql`
+#     `ChoiceType` 接受关键字参数`length`来自定义字符长度
+#     '''
+#     impl = types.String(60)
+#
+#     def __init__(self, choices: Union[list, tuple, dict], **kw):
+#         if len(choices) == 0:
+#             raise ValueError("No choices provided!")
+#
+#         if isinstance(choices, list) or isinstance(choices, tuple):
+#             if isinstance(choices[0], str):
+#                 choices = [(s, s) for s in choices]
+#             self.choices = dict(choices)
+#         elif isinstance(choices, dict):
+#             self.choices = choices
+#         num_choices = len(self.choices)
+#         if num_choices != len(set(self.choices.keys())):
+#             raise KeyError("Choice keys must be unique")
+#         if num_choices != len(set(self.choices.values())):
+#             raise ValueError("Choice values must be unique")
+#         self.choices_rev = key2val(self.choices)
+#         super().__init__(**kw)
+#
+#     def process_result_value(self, value, dialect):
+#         """
+#         key是str的直接返回即可
+#         :param value:
+#         :param dialect:
+#         :return:
+#         """
+#         return value
 
 
 def key2val(unique_dict: dict) -> dict:
@@ -459,6 +461,258 @@ class IntEnum(db.TypeDecorator):
 
     def process_result_value(self, value, dialect):
         return self._enumtype(value)
+
+
+class SafeNumeric(db.TypeDecorator):
+    """Adds quantization to Numeric."""
+
+    impl = db.Numeric(8, 2)
+
+    def __init__(self, *arg, **kw):
+        super().__init__(self, *arg, **kw)
+        self.quantize_int = -self.impl.scale
+        self.quantize = Decimal(10)**self.quantize_int
+
+    def process_bind_param(self, value, dialect):
+        print(value, '--------')
+        if isinstance(value, Decimal) and \
+                value.as_tuple()[2] < self.quantize_int:
+            value = value.quantize(self.quantize)
+        return value
+
+
+class Choice(object):
+
+    def __init__(self, code, value):
+        self.code = code
+        self.value = value
+
+    def __eq__(self, other):
+        if isinstance(other, Choice):
+            return self.code == other.code
+        return other == self.code
+
+    def __hash__(self):
+        return hash(self.code)
+
+    def __ne__(self, other):
+        return not (self == other)
+
+    def __str__(self):
+        return str(self.value)
+
+    def __repr__(self):
+        return 'Choice(code={code}, value={value})'.format(code=self.code, value=self.value)
+
+
+class ScalarCoercible:
+    cache_ok = True
+
+    def _coerce(self, value):
+        raise NotImplementedError
+
+    def coercion_listener(self, target, value, oldvalue, initiator):
+        return self._coerce(value)
+
+
+class ChoiceType(ScalarCoercible, types.TypeDecorator):
+    """
+    ChoiceType offers way of having fixed set of choices for given column. It
+    could work with a list of tuple (a collection of key-value pairs), or
+    integrate with :mod:`enum` in the standard library of Python 3.4+ (the
+    enum34_ backported package on PyPI is compatible too for ``< 3.4``).
+
+    .. _enum34: https://pypi.python.org/pypi/enum34
+
+    Columns with ChoiceTypes are automatically coerced to Choice objects while
+    a list of tuple been passed to the constructor. If a subclass of
+    :class:`enum.Enum` is passed, columns will be coerced to :class:`enum.Enum`
+    objects instead.
+
+    ::
+
+        class User(Base):
+            TYPES = [
+                (u'admin', u'Admin'),
+                (u'regular-user', u'Regular user')
+            ]
+
+            __tablename__ = 'user'
+            id = sa.Column(sa.Integer, primary_key=True)
+            name = sa.Column(sa.Unicode(255))
+            type = sa.Column(ChoiceType(TYPES))
+
+
+        user = User(type=u'admin')
+        user.type  # Choice(code='admin', value=u'Admin')
+
+    Or::
+
+        import enum
+
+
+        class UserType(enum.Enum):
+            admin = 1
+            regular = 2
+
+
+        class User(Base):
+            __tablename__ = 'user'
+            id = sa.Column(sa.Integer, primary_key=True)
+            name = sa.Column(sa.Unicode(255))
+            type = sa.Column(ChoiceType(UserType, impl=sa.Integer()))
+
+
+        user = User(type=1)
+        user.type  # <UserType.admin: 1>
+
+
+    ChoiceType is very useful when the rendered values change based on user's
+    locale:
+
+    ::
+
+        from babel import lazy_gettext as _
+
+
+        class User(Base):
+            TYPES = [
+                (u'admin', _(u'Admin')),
+                (u'regular-user', _(u'Regular user'))
+            ]
+
+            __tablename__ = 'user'
+            id = sa.Column(sa.Integer, primary_key=True)
+            name = sa.Column(sa.Unicode(255))
+            type = sa.Column(ChoiceType(TYPES))
+
+
+        user = User(type=u'admin')
+        user.type  # Choice(code='admin', value=u'Admin')
+
+        print user.type  # u'Admin'
+
+    Or::
+
+        from enum import Enum
+        from babel import lazy_gettext as _
+
+
+        class UserType(Enum):
+            admin = 1
+            regular = 2
+
+
+        UserType.admin.label = _(u'Admin')
+        UserType.regular.label = _(u'Regular user')
+
+
+        class User(Base):
+            __tablename__ = 'user'
+            id = sa.Column(sa.Integer, primary_key=True)
+            name = sa.Column(sa.Unicode(255))
+            type = sa.Column(ChoiceType(UserType, impl=sa.Integer()))
+
+
+        user = User(type=UserType.admin)
+        user.type  # <UserType.admin: 1>
+
+        print user.type.label  # u'Admin'
+    """
+    impl = db.Integer()
+
+    cache_ok = True
+
+    def __init__(self, choices, impl=None, **kwargs):
+        self.choices = tuple(choices) if isinstance(choices, list) else choices
+        print(self.choices, '----------------')
+        if Enum is not None and isinstance(choices, type) and issubclass(choices, Enum):
+            self.type_impl = EnumTypeImpl(enum_class=choices)
+        else:
+            self.type_impl = ChoiceTypeImpl(choices=choices)
+
+        if impl:
+            self.impl = impl
+        super().__init__(**kwargs)
+
+    @property
+    def python_type(self):
+        return self.impl.python_type
+
+    def _coerce(self, value):
+        return self.type_impl._coerce(value)
+
+    def process_bind_param(self, value, dialect):
+        print(type(value), '-----ctctctc------')
+        if isinstance(value, enum.EnumMeta):
+            print(value.dk_value, '-----value.dk_value-----')
+            return value.dk_value
+        if hasattr(value, 'dk_value'):
+            print(value.dk_value, '-----123243----')
+        return self.type_impl.process_bind_param(value, dialect)
+
+    def process_result_value(self, value, dialect):
+        return self.type_impl.process_result_value(value, dialect)
+
+
+class ChoiceTypeImpl(object):
+    """The implementation for the ``Choice`` usage."""
+
+    def __init__(self, choices):
+        if not choices:
+            raise ImproperlyConfigured('ChoiceType needs list of choices defined.')
+        self.choices_dict = dict(choices)
+
+    def _coerce(self, value):
+        if value is None:
+            return value
+        if isinstance(value, Choice):
+            return value
+        return Choice(value, self.choices_dict[value])
+
+    def process_bind_param(self, value, dialect):
+        print(type(value), '----1245------')
+        if value and isinstance(value, Choice):
+            return value.code
+        return value
+
+    def process_result_value(self, value, dialect):
+        if value:
+            return Choice(value, self.choices_dict[value])
+        return value
+
+
+class ImproperlyConfigured(Exception):
+    """
+    SQLAlchemy-Utils is improperly configured; normally due to usage of
+    a utility that depends on a missing library.
+    """
+    pass
+
+
+class EnumTypeImpl(object):
+    """The implementation for the ``Enum`` usage."""
+
+    def __init__(self, enum_class):
+        if Enum is None:
+            raise ImproperlyConfigured("'enum34' package is required to use 'EnumType' in Python " "< 3.4")
+        if not issubclass(enum_class, Enum):
+            raise ImproperlyConfigured("EnumType needs a class of enum defined.")
+
+        self.enum_class = enum_class
+
+    def _coerce(self, value):
+        if value is None:
+            return None
+        return self.enum_class(value)
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        return self.enum_class(value).value
+
+    def process_result_value(self, value, dialect):
+        return self._coerce(value)
 
 
 def get_table_name(model_cls_name):
