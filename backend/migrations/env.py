@@ -111,11 +111,11 @@ def render_choice_type(obj, autogen_context):
         choices = obj.type_impl.enum_class.__name__
         import_statement = f"from backend.migrations.choices import {choices}"
         autogen_context.imports.add(import_statement)
-
-    impl = obj.impl
-    if not impl:
-        impl = f"{obj.__class__.__name__}()"
-    return f"{obj.__class__.__name__}(choices={choices}, impl={impl})"
+    #
+    # impl = obj.impl
+    # impl_mp = f"{obj.__class__.__name__}()"
+    # print(impl, impl_mp, '-----------impl-----')
+    return f"{obj.__class__.__name__}(choices={choices})"
 
 
 # def render_item(type_, obj, autogen_context):

@@ -18,7 +18,7 @@ from backend.fundmate.compat import basestring
 from backend.fundmate.excepts import UniqueInstanceError
 from backend.fundmate.extensions import db
 from backend.fundmate.exts.flask_loguru import logger
-from backend.fundmate.settings import ChoiceTypeDk, ChoiceTypeIntegerDk
+from backend.fundmate.settings import BaseTypeEnum, ChoiceTypeDk, ChoiceTypeIntegerDk
 
 # Alias common SQLAlchemy names
 Column = db.Column
@@ -619,16 +619,18 @@ class ChoiceType(ScalarCoercible, types.TypeDecorator):
 
         print user.type.label  # u'Admin'
     """
-    impl = db.Integer()
+    impl = types.Unicode(255)
 
     cache_ok = True
 
     def __init__(self, choices, impl=None, **kwargs):
         self.choices = tuple(choices) if isinstance(choices, list) else choices
-        print(self.choices, '----------------')
+
         if Enum is not None and isinstance(choices, type) and issubclass(choices, Enum):
+            print('aaaaaaaaaaaa')
             self.type_impl = EnumTypeImpl(enum_class=choices)
         else:
+            print('bbbbbbbbbbb')
             self.type_impl = ChoiceTypeImpl(choices=choices)
 
         if impl:
@@ -643,12 +645,6 @@ class ChoiceType(ScalarCoercible, types.TypeDecorator):
         return self.type_impl._coerce(value)
 
     def process_bind_param(self, value, dialect):
-        print(type(value), '-----ctctctc------')
-        if isinstance(value, enum.EnumMeta):
-            print(value.dk_value, '-----value.dk_value-----')
-            return value.dk_value
-        if hasattr(value, 'dk_value'):
-            print(value.dk_value, '-----123243----')
         return self.type_impl.process_bind_param(value, dialect)
 
     def process_result_value(self, value, dialect):
@@ -671,7 +667,6 @@ class ChoiceTypeImpl(object):
         return Choice(value, self.choices_dict[value])
 
     def process_bind_param(self, value, dialect):
-        print(type(value), '----1245------')
         if value and isinstance(value, Choice):
             return value.code
         return value
@@ -680,6 +675,46 @@ class ChoiceTypeImpl(object):
         if value:
             return Choice(value, self.choices_dict[value])
         return value
+
+
+class IntChoiceType(ScalarCoercible, types.TypeDecorator):
+    """""" ""
+    impl = db.Integer()
+
+    cache_ok = True
+
+    def __init__(self, choices, impl=None, **kwargs):
+        self.choices = tuple(choices) if isinstance(choices, list) else choices
+        print(self.choices, '----------------')
+        if Enum is not None and isinstance(choices, type) and issubclass(choices, Enum):
+            self.type_impl = DkEnumTypeImpl(enum_class=choices)
+        else:
+            self.type_impl = ChoiceTypeImpl(choices=choices)
+
+        if impl:
+            self.impl = impl
+        super().__init__(**kwargs)
+
+    @property
+    def python_type(self):
+        return self.impl.python_type
+
+    def _coerce(self, value):
+        return self.type_impl._coerce(value)
+
+    def process_bind_param(self, value, dialect):
+        if isinstance(value, BaseTypeEnum):
+            print(value.dk_value, '-----value.dk_value-----')
+            c = self.type_impl.process_bind_param(value, dialect)
+            print(c)
+            return value.dk_value
+        if hasattr(value, 'dk_value'):
+            return value.dk_value
+        return self.type_impl.process_bind_param(value, dialect)
+
+    def process_result_value(self, value, dialect):
+        print(value, 'get-key')
+        return self.type_impl.process_result_value(value, dialect)
 
 
 class ImproperlyConfigured(Exception):
@@ -704,12 +739,43 @@ class EnumTypeImpl(object):
     def _coerce(self, value):
         if value is None:
             return None
+        print(self.enum_class, value)
         return self.enum_class(value)
 
     def process_bind_param(self, value, dialect):
         if value is None:
             return None
         return self.enum_class(value).value
+
+    def process_result_value(self, value, dialect):
+        return self._coerce(value)
+
+
+class DkEnumTypeImpl(object):
+
+    def __init__(self, enum_class):
+        if Enum is None:
+            raise ImproperlyConfigured("'enum34' package is required to use 'EnumType' in Python " "< 3.4")
+        if not issubclass(enum_class, Enum):
+            raise ImproperlyConfigured("EnumType needs a class of enum defined.")
+
+        dk_enums = dict()
+        for name, member in enum_class.__members__.items():
+            dk_enums[name] = member
+
+        self.enum_class = enum_class
+
+    def _coerce(self, value):
+        if value is None:
+            return None
+        print(self.enum_class, value, '---_coerce----EnumTypeImpl-------')
+        return self.enum_class(value)
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        print(self.enum_class, value, '---process_bind_param----EnumTypeImpl-------')
+        return self.enum_class(value)
 
     def process_result_value(self, value, dialect):
         return self._coerce(value)

@@ -98,7 +98,7 @@ class BaseTypeEnum(enum.Enum):
         return self.name, self.value
 
     def __str__(self):
-        return 'my custom str! {0}'.format(self.value)
+        return 'My custom dataklass {0}'.format(self.value)
 
     @classmethod
     def favorite(cls):

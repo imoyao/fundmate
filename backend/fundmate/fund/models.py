@@ -18,6 +18,7 @@ from backend.fundmate.database import (
     CreateDateModel,
     DkChoiceType,
     DkChoiceTypeInteger,
+    IntChoiceType,
     IntEnum,
     PkModel,
     SafeNumeric,
@@ -621,5 +622,5 @@ class Test(PkModel):
     #                      comment='PlatTypeEnum')
     dk_safe_num = Column(SafeNumeric(8, 2), nullable=True, comment='SafeNumeric')
     user_type = Column(ChoiceType(UserType))
-    risk_type = Column(ChoiceType(settings.RiskTypeEnum, impl=settings.ChoiceTypeIntegerDk))
-    op_type = Column(ChoiceType(settings.FundOpTypeEnum, impl=settings.ChoiceTypeIntegerDk))
+    risk_type = Column(IntChoiceType(settings.RiskTypeEnum, impl=db.Integer()))
+    op_type = Column(IntChoiceType(settings.FundOpTypeEnum, impl=db.Integer()))
