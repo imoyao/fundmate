@@ -19,7 +19,6 @@ from backend.fundmate.database import (
     DkChoiceType,
     DkChoiceTypeInteger,
     IntChoiceType,
-    IntEnum,
     PkModel,
     SafeNumeric,
     UpsertMixin,
@@ -616,11 +615,7 @@ class Test(PkModel):
     #                   default=0,
     #                   comment='PlatTypeEnum')
     dk_test_str = Column(db.Enum(settings.SymbolTypeEnum), nullable=True, default='UN', comment='符号前缀（FP/SZ/SH）')
-    # dk_test_int = Column(IntEnum(settings.PlatTypeEnum),
-    #                      nullable=True,
-    #                      default=settings.PlatTypeEnum.undefined.dk_value,
-    #                      comment='PlatTypeEnum')
     dk_safe_num = Column(SafeNumeric(8, 2), nullable=True, comment='SafeNumeric')
     user_type = Column(ChoiceType(UserType))
-    risk_type = Column(IntChoiceType(settings.RiskTypeEnum, impl=db.Integer()))
-    op_type = Column(IntChoiceType(settings.FundOpTypeEnum, impl=db.Integer()))
+    risk_type = Column(IntChoiceType(settings.RiskTypeEnum, default=settings.RiskTypeEnum, impl=db.Integer()))
+    op_type = Column(IntChoiceType(settings.FundOpTypeEnum, default='UN', impl=db.Integer()))

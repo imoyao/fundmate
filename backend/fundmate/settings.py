@@ -78,6 +78,9 @@ HIGH = ChoiceTypeIntegerDk(5, 'high', '积极进取')
 @enum.unique
 class BaseTypeEnum(enum.Enum):
 
+    def __str__(self):
+        return 'My custom dataklass {0}'.format(self.value)
+
     @DynamicClassAttribute
     def dk_name(self):
         """The name of the Enum member."""
@@ -96,9 +99,6 @@ class BaseTypeEnum(enum.Enum):
     def describe(self):
         # self is the member here
         return self.name, self.value
-
-    def __str__(self):
-        return 'My custom dataklass {0}'.format(self.value)
 
     @classmethod
     def favorite(cls):
