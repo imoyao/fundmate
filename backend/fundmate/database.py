@@ -1,5 +1,29 @@
 # -*- coding: utf-8 -*-
-"""Database module, including the SQLAlchemy database object and DB-related utilities."""
+"""Database module, including the SQLAlchemy database object and DB-related utilities.
+
+TODO: 为了代码条理更加清晰，应该把自定义choices提取出来
+
+class UserType(Enum):
+    admin = 1
+    regular = 2
+
+
+class Test(PkModel):
+    dk_test_str = Column(db.Enum(settings.SymbolTypeEnum),
+                         nullable=True,
+                         default=settings.SymbolTypeEnum.default().dk_value,
+                         comment='符号前缀（FP/SZ/SH）')
+    dk_safe_num = Column(SafeNumeric(8, 2), nullable=True, comment='SafeNumeric')
+    user_type = Column(ChoiceType(UserType))
+    risk_type = Column(IntChoiceDkEnumType(settings.RiskTypeEnum,
+                                           default=settings.RiskTypeEnum.default().dk_value,
+                                           impl=db.Integer()),
+                       comment=settings.RiskTypeEnum.comment())
+    op_type = Column(IntChoiceDkEnumType(settings.FundOpTypeEnum,
+                                         default=settings.FundOpTypeEnum.default().dk_value,
+                                         impl=db.Integer()),
+                     comment=f'测试：{settings.FundOpTypeEnum.comment()}')
+"""
 import random
 from datetime import datetime
 from decimal import Decimal
@@ -528,7 +552,7 @@ class ChoiceType(ScalarCoercible, types.TypeDecorator):
         return self.type_impl.process_result_value(value, dialect)
 
 
-class IntChoiceType(ScalarCoercible, types.TypeDecorator):
+class IntChoiceDkEnumType(ScalarCoercible, types.TypeDecorator):
     """
     存入数据中的值为int的自定义Enum类型
     """
@@ -574,8 +598,8 @@ class DkEnumTypeImpl(object):
         dk_enums = dict()
         for name, member in enum_class.__members__.items():
             key = member.dk_value  # int 作为key
-            enum_value = member.value  # ChoiceTypeIntegerDk() 作为值
-            dk_enums[key] = enum_value
+            # enum_value = member.value  # item of enumeration 作为值
+            dk_enums[key] = member
         self.enum_class = enum_class
         self.dk_enums = dk_enums
 
