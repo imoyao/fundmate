@@ -45,100 +45,6 @@ INITIAL_MGR_IDENTIFIER = '20211202'
 # 账户起始编号
 INITIAL_ACCOUNT_IDENTIFIER = '1024'
 
-
-@dataklass
-class ChoiceTypeIntegerDk:
-    value: int
-    name: str
-    label: str
-
-    @property
-    def display(self):
-        return self.label
-
-
-@dataklass
-class ChoiceTypeDk:
-    value: str
-    label: str
-
-    @property
-    def display(self):
-        return self.label
-
-
-@enum.unique
-class BaseTypeEnum(enum.Enum):
-
-    def __str__(self):
-        return 'My custom dataklass {0}'.format(self.value)
-
-    @DynamicClassAttribute
-    def dk_name(self):
-        """The name of the Enum member."""
-        return self._value_.name or self._name_
-
-    @DynamicClassAttribute
-    def dk_value(self):
-        """The value of the Enum member."""
-        return self._value_.value
-
-    @DynamicClassAttribute
-    def dk_display(self):
-        """The value of the Enum member."""
-        return self._value_.label
-
-    def describe(self):
-        # self is the member here
-        return self.name, self.value
-
-    @classmethod
-    def favorite(cls):
-        # cls here is the enumeration
-        return cls.BALANCE
-
-
-UNDEFINED = ChoiceTypeIntegerDk(0, 'undefined', '未定义')
-PLAIN = ChoiceTypeIntegerDk(1, 'plain', '灵活取用')
-LOW = ChoiceTypeIntegerDk(2, 'low', '稳健增值')
-BALANCE = ChoiceTypeIntegerDk(3, 'balance', '平衡增长')
-ADVANCE = ChoiceTypeIntegerDk(4, 'advance', '进阶成长')
-HIGH = ChoiceTypeIntegerDk(5, 'high', '积极进取')
-
-
-class RiskTypeEnum(BaseTypeEnum):
-    """
-    风险等级
-    """
-    undefined = UNDEFINED
-    plain = PLAIN
-    low = LOW
-    balance = BALANCE
-    advance = ADVANCE
-    high = HIGH
-
-
-OP_PURCHASE = ChoiceTypeIntegerDk(1, 'purchase', '买入/存入/申购')
-SALE = ChoiceTypeIntegerDk(2, 'sale', '赎回/卖出/支取')
-TRANSFER = ChoiceTypeIntegerDk(3, 'transfer', '转换/转存')
-REGULAR_INVEST = ChoiceTypeIntegerDk(4, 'regular_invest', '定投')
-BONUS = ChoiceTypeIntegerDk(5, 'bonus', '分红')
-ADJUST = ChoiceTypeIntegerDk(6, 'adjust', '调仓')
-OTHER = ChoiceTypeIntegerDk(7, 'other', '其他')
-
-
-# 风险等级
-@enum.unique
-class FundOpTypeEnum(BaseTypeEnum):
-    purchase = OP_PURCHASE
-    sale = SALE
-    transfer = TRANSFER
-    regular_invest = REGULAR_INVEST
-    bonus = BONUS
-    adjust = ADJUST
-    other = OTHER
-
-
 # 风险等级
 RISK_TYPE = {
     'undefined': 0,  # 未定义
@@ -194,8 +100,119 @@ PLAT_TYPE_DISPLAY = {
     'hb': '好买基金',
 }
 
+
+@dataklass
+class ChoiceTypeIntegerDk:
+    value: int
+    name: str
+    label: str
+
+    @property
+    def display(self):
+        return self.label
+
+
+@dataklass
+class ChoiceTypeDk:
+    value: str
+    label: str
+
+    @property
+    def display(self):
+        return self.label
+
+
+@enum.unique
+class BaseTypeEnum(enum.Enum):
+
+    def __str__(self):
+        return 'My custom dataklass {0}'.format(self.value)
+
+    @DynamicClassAttribute
+    def dk_name(self):
+        """The name of the Enum member."""
+        return self._value_.name
+
+    @DynamicClassAttribute
+    def dk_value(self):
+        """The value of the Enum member."""
+        return self._value_.value
+
+    @DynamicClassAttribute
+    def dk_display(self):
+        """The value of the Enum member."""
+        return self._value_.label
+
+    def describe(self):
+        # self is the member here
+        return self.name, self.value
+
+    @classmethod
+    def comment(cls) -> str:
+        enum_explains = dict()
+        for name, member in cls.__members__.items():
+            key = member.dk_value
+            enum_explains[key] = member.dk_display
+        return str(enum_explains)
+
+
+UNDEFINED = ChoiceTypeIntegerDk(0, 'undefined', '未定义')
+PLAIN = ChoiceTypeIntegerDk(1, 'plain', '灵活取用')
+LOW = ChoiceTypeIntegerDk(2, 'low', '稳健增值')
+BALANCE = ChoiceTypeIntegerDk(3, 'balance', '平衡增长')
+ADVANCE = ChoiceTypeIntegerDk(4, 'advance', '进阶成长')
+HIGH = ChoiceTypeIntegerDk(5, 'high', '积极进取')
+
+
+class RiskTypeEnum(BaseTypeEnum):
+    """风险等级"""
+    undefined = UNDEFINED
+    plain = PLAIN
+    low = LOW
+    balance = BALANCE
+    advance = ADVANCE
+    high = HIGH
+
+    @classmethod
+    def default(cls):
+        """
+        cls here is the enumeration
+        FIXME: py3.8+ [python - Using property() on classmethods - Stack Overflow](https://stackoverflow.com/questions/128573/using-property-on-classmethods)
+        :return:
+        """
+        return cls.balance
+
+
+OP_PURCHASE = ChoiceTypeIntegerDk(1, 'purchase', '买入/存入/申购')
+SALE = ChoiceTypeIntegerDk(2, 'sale', '赎回/卖出/支取')
+TRANSFER = ChoiceTypeIntegerDk(3, 'transfer', '转换/转存')
+REGULAR_INVEST = ChoiceTypeIntegerDk(4, 'regular_invest', '定投')
+BONUS = ChoiceTypeIntegerDk(5, 'bonus', '分红')
+ADJUST = ChoiceTypeIntegerDk(6, 'adjust', '调仓')
+OTHER = ChoiceTypeIntegerDk(7, 'other', '其他')
+
+
+# 风险等级
+@enum.unique
+class FundOpTypeEnum(BaseTypeEnum):
+    """
+    操作分类
+    """
+    purchase = OP_PURCHASE
+    sale = SALE
+    transfer = TRANSFER
+    regular_invest = REGULAR_INVEST
+    bonus = BONUS
+    adjust = ADJUST
+    other = OTHER
+
+    @classmethod
+    def default(cls):
+        return cls.purchase
+
+
 UNSE = ChoiceTypeDk('UN', '未知')
-FPSE = ChoiceTypeDk('FP', '未知FP')
+FPSE = ChoiceTypeDk('FP', '暂时未知交易所')
 SZSE = ChoiceTypeDk('SZ', '深圳证券交易所')
 SHSE = ChoiceTypeDk('SH', '上海证券交易所')
 SEHK = ChoiceTypeDk('HK', '香港证券交易所')
@@ -209,21 +226,30 @@ class SymbolTypeEnum(BaseTypeEnum):
     SH = SHSE
     HK = SEHK
 
+    @classmethod
+    def default(cls):
+        return cls.UN
+
 
 UNKNOWN = ChoiceTypeIntegerDk(0, 'unknown', '未定义')
 SUBSCRIBE = ChoiceTypeIntegerDk(1, 'subscribe', '基金认购')
 PURCHASE = ChoiceTypeIntegerDk(2, 'purchase', '基金申购')
 REDEEM = ChoiceTypeIntegerDk(3, 'redeem', '基金赎回')
 
-# 费率类型
-
 
 @enum.unique
 class FeeTypeEnum(BaseTypeEnum):
+    """
+    费率类型
+    """
     unknown = UNKNOWN
     subscribe = SUBSCRIBE
     purchase = PURCHASE
     redeem = REDEEM
+
+    @classmethod
+    def default(cls):
+        return cls.unknown
 
 
 ZH_PERSONAL = ChoiceTypeIntegerDk(0, 'personal', '个人')
@@ -234,6 +260,10 @@ ZH_ORG = ChoiceTypeIntegerDk(1, 'org', '机构')
 class ZHMgrTypeEnum(BaseTypeEnum):
     personal = ZH_PERSONAL
     org = ZH_ORG
+
+    @classmethod
+    def default(cls):
+        return cls.personal
 
 
 UN = ChoiceTypeIntegerDk(0, 'un', '未定义')
@@ -252,6 +282,10 @@ class PlatTypeEnum(BaseTypeEnum):
     danjuan = DJ
     own = OWN
     howbuy = HB
+
+    @classmethod
+    def default(cls):
+        return cls.undefined
 
 
 # 正则

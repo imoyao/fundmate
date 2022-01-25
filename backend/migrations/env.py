@@ -81,7 +81,7 @@ def run_migrations_online():
 
 
 def render_item(type_, obj, autogen_context):
-    """Apply rendering for custom sqlalchemy types
+    """Apply custom rendering for selected items.
     see also: https://stackoverflow.com/a/61320562/14295718
     """
     if type_ == "type":
@@ -97,7 +97,6 @@ def render_sqlalchemy_choices_type(obj, autogen_context):
     class_name = obj.__class__.__name__
     import_statement = f"from backend.fundmate.database import {class_name}"
     autogen_context.imports.add(import_statement)
-    print(class_name, '------class_name--------')
     if class_name in ['ChoiceType', 'IntChoiceType']:
         return render_choice_type(obj, autogen_context)
     return f"{class_name}()"
@@ -105,10 +104,8 @@ def render_sqlalchemy_choices_type(obj, autogen_context):
 
 def render_choice_type(obj, autogen_context):
     choices = obj.choices
-    # print(obj.type_impl.__class__.__name__, '------obj.type_impl.__class__.__name__---------')
     if obj.type_impl.__class__.__name__ in ['EnumTypeImpl', 'DkEnumTypeImpl']:
         choices = obj.type_impl.enum_class.__name__
-        # print(choices, '======235346546758==========')
         import_statement = f"from backend.migrations.choices import {choices}"
         autogen_context.imports.add(import_statement)
     return f"{obj.__class__.__name__}(choices={choices})"
