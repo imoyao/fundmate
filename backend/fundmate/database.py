@@ -233,160 +233,6 @@ def reference_col(tablename: str,
     )
 
 
-class BaseChoice(types.TypeDecorator):
-    """
-    https://github.com/flask-admin/flask-admin/issues/1134#issuecomment-361821787
-    用法：
-    ---
-    ## A
-    TYPES = [
-        (u'admin', u'Admin'),
-        (u'regular-user', u'Regular user')
-    ]
-
-    filed::
-        type = db.Column(db.ChoiceType(length=xx, choices=TYPES))
-
-    user = User(type=u'admin')
-    user.type  # Choice(code='admin', value=u'Admin')
-
-    ## B
-    import enum
-
-    class UserType(enum.Enum):
-        admin = 1
-        regular = 2
-
-    type = sa.Column(ChoiceType(UserType, impl=sa.Integer()))
-
-
-    user = User(type=1)
-    user.type  # <UserType.admin: 1>
-
-    ## C
-    from enum import Enum
-    from babel import lazy_gettext as _
-
-
-    class UserType(Enum):
-        admin = 1
-        regular = 2
-
-
-    UserType.admin.label = _(u'Admin')
-    UserType.regular.label = _(u'Regular user')
-
-    type = sa.Column(ChoiceType(UserType, impl=sa.Integer()))
-
-
-    user = User(type=UserType.admin)
-    user.type  # <UserType.admin: 1>
-
-    print(user.type.label)  # u'Admin'
-    ---
-    参考:
-    [Data types — SQLAlchemy-Utils 0.37.8 documentation]
-    (https://sqlalchemy-utils.readthedocs.io/en/latest/data_types.html#module-sqlalchemy_utils.types.choice)
-
-    refs:
-    [Custom Types — SQLAlchemy 1.4 Documentation](https://docs.sqlalchemy.org/en/14/core/custom_types.html)
-
-    [python - SQLAlchemy - How to make "django choices" using SQLAlchemy? - Stack Overflow](
-    https://stackoverflow.com/questions/6262943/sqlalchemy-how-to-make-django-choices-using-sqlalchemy)
-
-    [How to Create Django Like Choices Field in Flask SQLAlchemy | by Erika Dike | The Andela Way | Medium](
-    https://medium.com/the-andela-way/how-to-create-django-like-choices-field-in-flask-sqlalchemy-1ca0e3a3af9d)
-
-    [python - Best way to do enum in Sqlalchemy? - Stack Overflow](
-    https://stackoverflow.com/questions/2676133/best-way-to-do-enum-in-sqlalchemy/2676213)
-
-    [zzzeek : The Enum Recipe](https://techspot.zzzeek.org/2011/01/14/the-enum-recipe/)
-    """
-    ''':type bool
-    SAWarning: TypeDecorator ChoiceTypeInteger() will not produce a cache key because the ``cache_ok`` flag is not 
-    set to True.  Set this flag to True if this type object's state is safe to use in a cache key, 
-    or False to disable this warning.
-    '''
-    cache_ok = False
-
-    def process_bind_param(self, value, dialect):
-        if value in self.choices_rev:
-            return self.choices_rev[value]
-        if value in self.choices:
-            return value
-        raise KeyError(f"Value not found in choices: {value}")
-
-    def process_result_value(self, value, dialect):
-        return self.choices[value]
-
-
-class ChoiceTypeInteger(BaseChoice):
-    """
-    适用于key为int的
-    """
-    impl = types.Integer
-
-    def __init__(self, choices: Union[list, tuple, dict], **kw):
-        # 传的是int类型，则需要检查是否key为int,是才可以继续
-        is_all_key_int = all([isinstance(i, int) for i in choices.keys()])
-        if not is_all_key_int:
-            raise KeyError("Key should be integer.")
-        if len(choices) == 0:
-            raise ValueError("No choices provided!")
-
-        if isinstance(choices, list) or isinstance(choices, tuple):
-            if isinstance(choices[0], str):
-                choices = [(s, s) for s in choices]
-            self.choices = dict(choices)
-        elif isinstance(choices, dict):
-            self.choices = choices
-        num_choices = len(self.choices)
-        if num_choices != len(set(self.choices.keys())):
-            raise KeyError("Choice keys must be unique")
-        if num_choices != len(set(self.choices.values())):
-            raise ValueError("Choice values must be unique")
-        self.choices_rev = key2val(self.choices)
-        super().__init__(**kw)
-
-
-# class ChoiceType(BaseChoice):
-#     """
-#     适用于key为string的情况
-#     """
-#     '''
-#     String 报错： `sqlalchemy.exc.CompileError: VARCHAR requires a length on dialect mysql`
-#     `ChoiceType` 接受关键字参数`length`来自定义字符长度
-#     '''
-#     impl = types.String(60)
-#
-#     def __init__(self, choices: Union[list, tuple, dict], **kw):
-#         if len(choices) == 0:
-#             raise ValueError("No choices provided!")
-#
-#         if isinstance(choices, list) or isinstance(choices, tuple):
-#             if isinstance(choices[0], str):
-#                 choices = [(s, s) for s in choices]
-#             self.choices = dict(choices)
-#         elif isinstance(choices, dict):
-#             self.choices = choices
-#         num_choices = len(self.choices)
-#         if num_choices != len(set(self.choices.keys())):
-#             raise KeyError("Choice keys must be unique")
-#         if num_choices != len(set(self.choices.values())):
-#             raise ValueError("Choice values must be unique")
-#         self.choices_rev = key2val(self.choices)
-#         super().__init__(**kw)
-#
-#     def process_result_value(self, value, dialect):
-#         """
-#         key是str的直接返回即可
-#         :param value:
-#         :param dialect:
-#         :return:
-#         """
-#         return value
-
-
 def key2val(unique_dict: dict) -> dict:
     return {v: k for k, v in unique_dict.items()}
 
@@ -632,6 +478,26 @@ class ChoiceType(ScalarCoercible, types.TypeDecorator):
         user.type  # <UserType.admin: 1>
 
         print user.type.label  # u'Admin'
+
+    参考:
+    https://github.com/flask-admin/flask-admin/issues/1134#issuecomment-361821787
+
+    [Data types — SQLAlchemy-Utils 0.37.8 documentation]
+    (https://sqlalchemy-utils.readthedocs.io/en/latest/data_types.html#module-sqlalchemy_utils.types.choice)
+
+    refs:
+    [Custom Types — SQLAlchemy 1.4 Documentation](https://docs.sqlalchemy.org/en/14/core/custom_types.html)
+
+    [python - SQLAlchemy - How to make "django choices" using SQLAlchemy? - Stack Overflow](
+    https://stackoverflow.com/questions/6262943/sqlalchemy-how-to-make-django-choices-using-sqlalchemy)
+
+    [How to Create Django Like Choices Field in Flask SQLAlchemy | by Erika Dike | The Andela Way | Medium](
+    https://medium.com/the-andela-way/how-to-create-django-like-choices-field-in-flask-sqlalchemy-1ca0e3a3af9d)
+
+    [python - Best way to do enum in Sqlalchemy? - Stack Overflow](
+    https://stackoverflow.com/questions/2676133/best-way-to-do-enum-in-sqlalchemy/2676213)
+
+    [zzzeek : The Enum Recipe](https://techspot.zzzeek.org/2011/01/14/the-enum-recipe/)
     """
     impl = types.String(255)
 

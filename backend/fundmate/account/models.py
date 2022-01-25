@@ -5,19 +5,7 @@ from typing import Optional, Union
 
 from backend.fundmate import settings
 from backend.fundmate.compat import basestring
-from backend.fundmate.database import (
-    Base,
-    ChoiceTypeInteger,
-    Column,
-    CreateDateModel,
-    PkModel,
-    UpsertMixin,
-    db,
-    gen_digit_code,
-    key2val,
-    reference_col,
-)
-from backend.fundmate.settings import RISK_TYPE
+from backend.fundmate.database import Column, CreateDateModel, PkModel, UpsertMixin, db, gen_digit_code, reference_col
 
 
 class Account(PkModel, CreateDateModel, UpsertMixin):
@@ -58,16 +46,6 @@ class Account(PkModel, CreateDateModel, UpsertMixin):
 # class AccountFund(PkModel):
 #     fund_id = reference_col('funds', column_kwargs={'comment': '基金编号'})
 #     account_id = Column(db.Integer, comment='账本编号')
-
-FUND_OP_TYPE = {
-    'purchase': 1,  # 买入/存入/申购
-    'sale': 2,  # 赎回/卖出/支取
-    'transfer': 3,  # 转换/转存
-    'regular_invest': 4,  # 定投
-    'bonus': 5,  # 分红
-    'adjust': 6,  # 调仓
-    'other': 7,  # 其他
-}
 
 
 class AccountTransactionRecord(PkModel, CreateDateModel, UpsertMixin):

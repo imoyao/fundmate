@@ -13,7 +13,6 @@ from sqlalchemy.ext.hybrid import hybrid_property
 from backend.fundmate import settings
 from backend.fundmate.database import (
     ChoiceType,
-    ChoiceTypeInteger,
     Column,
     CreateDateModel,
     IntChoiceType,
@@ -558,9 +557,9 @@ class FundPortfolioAdjustHistory(PkModel):
     """
     组合调仓历史
     """
-    portfolio_code = Column(db.String(30), comment='组合编码')
+    portfolio_code = Column(db.String(30), index=True, comment='组合编码')
     update_date = Column(db.DateTime, comment='调仓时间')
-    adjust_id = Column(db.BigInteger, comment='调仓历史编码')  # 使用雪花算法
+    adjust_id = Column(db.BigInteger, index=True, comment='调仓历史编码')  # 使用雪花算法
     plat_trade_id = Column(db.String(120), comment='平台调仓编码（只做记录区分用，不参与系统计算）')
     desc = Column(db.String(1500), comment='调仓说明')
 
@@ -607,16 +606,7 @@ class UserType(Enum):
 
 
 class Test(PkModel):
-    # test_str = Column(ChoiceType(choices=settings.SYMBOL_TYPE), nullable=True, default='UN', comment='符号前缀（FP/SZ/SH）')
-    # test_int = Column(ChoiceTypeInteger(choices=key2val(settings.PLAT_TYPE)),
-    #                   nullable=True,
-    #                   default=0,
-    #                   comment='PlatTypeEnum')
     dk_test_str = Column(db.Enum(settings.SymbolTypeEnum), nullable=True, default='UN', comment='符号前缀（FP/SZ/SH）')
-    # dk_test_int = Column(IntEnum(settings.PlatTypeEnum),
-    #                      nullable=True,
-    #                      default=settings.PlatTypeEnum.undefined.dk_value,
-    #                      comment='PlatTypeEnum')
     dk_safe_num = Column(SafeNumeric(8, 2), nullable=True, comment='SafeNumeric')
     user_type = Column(ChoiceType(UserType))
     risk_type = Column(IntChoiceType(settings.RiskTypeEnum, impl=db.Integer()))
