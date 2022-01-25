@@ -11,19 +11,9 @@ from sqlalchemy import func, or_
 from sqlalchemy.ext.hybrid import hybrid_property
 
 from backend.fundmate import settings
-from backend.fundmate.database import (
-    ChoiceType,
-    Column,
-    CreateDateModel,
-    IntChoiceType,
-    PkModel,
-    SafeNumeric,
-    UpsertMixin,
-    db,
-    gen_digit_code,
-    key2val,
-    reference_col,
-    relationship,
+from backend.fundmate.database import (  # DkChoiceEnum,
+    ChoiceType, Column, CreateDateModel, IntChoiceType, PkModel, SafeNumeric, UpsertMixin, db, gen_digit_code, key2val,
+    reference_col, relationship,
 )
 
 # from backend.fundmate.user.models import User
@@ -606,8 +596,17 @@ class UserType(Enum):
 
 
 class Test(PkModel):
-    dk_test_str = Column(db.Enum(settings.SymbolTypeEnum), nullable=True, default='UN', comment='符号前缀（FP/SZ/SH）')
+    dk_test_str = Column(db.Enum(settings.SymbolTypeEnum),
+                         nullable=True,
+                         default=settings.SymbolTypeEnum.default().dk_value,
+                         comment='符号前缀（FP/SZ/SH）')
     dk_safe_num = Column(SafeNumeric(8, 2), nullable=True, comment='SafeNumeric')
     user_type = Column(ChoiceType(UserType))
-    risk_type = Column(IntChoiceType(settings.RiskTypeEnum, impl=db.Integer()))
-    op_type = Column(IntChoiceType(settings.FundOpTypeEnum, impl=db.Integer()))
+    risk_type = Column(IntChoiceType(settings.RiskTypeEnum,
+                                     default=settings.RiskTypeEnum.default().dk_value,
+                                     impl=db.Integer()),
+                       comment=settings.RiskTypeEnum.comment())
+    op_type = Column(IntChoiceType(settings.FundOpTypeEnum,
+                                   default=settings.FundOpTypeEnum.default().dk_value,
+                                   impl=db.Integer()),
+                     comment=f'测试：{settings.FundOpTypeEnum.comment()}')
