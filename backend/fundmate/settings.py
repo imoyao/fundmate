@@ -54,14 +54,14 @@ RISK_TYPE = {
     'advance': 4,  # 进阶成长
     'high': 5,  # 积极进取
 }
-RISK_TYPE_DISPLAY = {
-    'undefined': '未定义',
-    'plain': '灵活取用',
-    'low': '稳健增值',
-    'balance': '平衡增长',
-    'advance': '进阶成长',
-    'high': '积极进取'
-}
+# RISK_TYPE_DISPLAY = {
+#     'undefined': '未定义',
+#     'plain': '灵活取用',
+#     'low': '稳健增值',
+#     'balance': '平衡增长',
+#     'advance': '进阶成长',
+#     'high': '积极进取'
+# }
 # 基金决策宝的symbol的前缀,UN表示未知
 SYMBOL_TYPE = {'UN': 0, 'FP': 1, 'SZ': 2, 'SH': 3}
 
@@ -94,6 +94,11 @@ PLAT_TYPE_DISPLAY = {
 
 @dataklass
 class ChoiceTypeIntegerDk:
+    """
+    数据库中存的是数字
+    保存时输入拼音
+    显示时应为可读信息
+    """
     value: int
     name: str
     label: str
@@ -172,6 +177,14 @@ class RiskTypeEnum(BaseTypeEnum):
         :return:
         """
         return cls.balance
+
+    @classmethod
+    def input(cls):
+        """
+        用户请求时需要用到
+        :return:
+        """
+        return [item.dk_name for item in cls]
 
 
 OP_PURCHASE = ChoiceTypeIntegerDk(1, 'purchase', '买入/存入/申购')

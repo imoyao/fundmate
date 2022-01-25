@@ -437,16 +437,6 @@ class FeeRatio(PkModel, UpsertMixin):
         return rules
 
 
-def display(display_map: dict, pk_key: str) -> str:
-    """
-    数据库中存的是数字，保存是输入拼音，显示时应为可读信息
-    :param pk_key:
-    :param display_map:
-    :return:
-    """
-    return display_map.get(pk_key)
-
-
 class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
     """
     基金组合（回测、配置型）
@@ -485,8 +475,8 @@ class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
     # owner = relationship('User', foreign_keys=[mgr_code], primaryjoin='User.id == FundPortfolio.mgr_code')
 
     def __repr__(self):
-        plat_name = display(settings.PLAT_TYPE_DISPLAY, self.platform)
-        risk_name = display(settings.RISK_TYPE_DISPLAY, self.risk_type)
+        plat_name = self.platform.dk_display
+        risk_name = self.risk_type.dk_display
         return f'<FundPortfolio({self.name!r}, {plat_name!r}, {risk_name!r})>'
 
     # @property
@@ -532,7 +522,7 @@ class FundPortfolioMgr(PkModel, UpsertMixin):
     desc = Column(db.String(300), comment='组合管理人描述')
 
     def __repr__(self):
-        plat_name = display(settings.PLAT_TYPE_DISPLAY, self.platform)
+        plat_name = self.platform.dk_display
         return f'<FundPortfolioMgr({self.name!r}, {plat_name!r} )>'
 
     @classmethod
