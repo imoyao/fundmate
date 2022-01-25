@@ -73,15 +73,6 @@ FEE_TYPE = {
     'redeem': 3,  # 基金赎回
 }
 
-#  组合管理人类型
-ZH_MGR_TYPE = {
-    'personal': 0,  # '个人'
-    'org': 1,  # '机构'
-}
-ZH_MGR_TYPE_DISPLAY = {
-    'personal': '个人',
-    'org': '机构',
-}
 PLAT_TYPE = {
     'undefined': 0,  # '未定义'
     'qm': 1,  # '且慢'
@@ -176,7 +167,7 @@ class RiskTypeEnum(BaseTypeEnum):
     @classmethod
     def default(cls):
         """
-        cls here is the enumeration
+        默认值，如果要使用非默认的默认值，则使用普通赋值语句即可
         FIXME: py3.8+ [python - Using property() on classmethods - Stack Overflow](https://stackoverflow.com/questions/128573/using-property-on-classmethods)
         :return:
         """
@@ -258,6 +249,9 @@ ZH_ORG = ChoiceTypeIntegerDk(1, 'org', '机构')
 
 @enum.unique
 class ZHMgrTypeEnum(BaseTypeEnum):
+    """
+    组合管理人类型
+    """
     personal = ZH_PERSONAL
     org = ZH_ORG
 
