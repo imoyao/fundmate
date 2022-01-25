@@ -138,7 +138,6 @@ def register_shell_context(app: APIFlask):
         return {
             "db": db,
             "User": user.models.User,
-            "Test": fund.models.Test,
             "Role": user.models.Role,
             'Fund': fund.models.Fund,
             'FundMgr': fund.models.Mgr,

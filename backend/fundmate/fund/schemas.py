@@ -11,6 +11,7 @@ from apiflask.validators import Equal, Length, OneOf
 from backend.fundmate import settings
 from backend.fundmate.fund.models import FundType
 from backend.fundmate.schema_ext import CustomPaginationSchema
+from backend.fundmate.settings import BaseTypeEnum
 from backend.fundmate.user.models import User
 
 
@@ -50,32 +51,24 @@ class FundPortfolioMgrOutSchema(Schema):
     desc = String()
 
 
-def get_risk_level(risk_type: str) -> str:
-    return settings.RISK_TYPE.get(risk_type)
-
-
-def get_platform(platform: str) -> str:
-    return settings.PLAT_TYPE_DISPLAY.get(platform)
-
-
-def display_risk(risk_type: str) -> str:
-    return settings.RISK_TYPE_DISPLAY.get(risk_type)
-
-
 class FundPortfolioOutSchema(Schema):
     """
     单个组合概览信息
     """
     portfolio_code = String(data_key='code')
     name = String(metadata={'title': '组合名称', 'description': '组合名称'})
-    risk_level = Function(lambda obj: get_risk_level(obj.risk_type))
-    risk_display = Function(lambda obj: display_risk(obj.risk_type))
-    platform = String(metadata={'title': '组合所属平台', 'description': '具体请查看`platform_name`字段'})
-    platform_name = Function(lambda obj: get_platform(obj.platform))
+    risk_level = Function(lambda obj: obj.risk_type.dk_value)
+    risk_display = Function(lambda obj: obj.risk_type.dk_display)
+    platform = Function(lambda obj: obj.platform.dk_name,
+                        metadata={
+                            'title': '组合所属平台',
+                            'description': f'{settings.PlatTypeEnum.comment()}'
+                        })
+    platform_name = Function(lambda obj: obj.platform.dk_display)
 
 
 class FundPortfoliosPaginationSchema(CustomPaginationSchema):
-    risk_type = String(default=None, validate=OneOf(settings.RISK_TYPE.keys()))
+    risk_type = String(default=None, validate=OneOf(settings.RiskTypeEnum.input()))
 
 
 class FundPortfoliosOutSchema(Schema):
@@ -110,10 +103,10 @@ class FundPortfolioInSchema(Schema):
     is_visible = Boolean(default=True)
     platform = String(load_default='own', validate=Equal('own'))  # 用户创建只能是own,不然会导致后续出错
     risk_type = String(default=None,
-                       validate=OneOf(settings.RISK_TYPE.keys()),
+                       validate=OneOf(settings.RiskTypeEnum.input()),
                        metadata={
                            'title': '风险类型',
-                           'description': f'{str(settings.RISK_TYPE_DISPLAY)}'
+                           'description': f'{settings.RiskTypeEnum.comment()}'
                        })
     desc = String(validate=Length(0, 300))
     rich_desc = String(validate=Length(0, 1000))
@@ -171,10 +164,10 @@ class FundPortfolioDetailOutSchema(Schema):
     code = String(data_key='plat_code')
     found_date = Date(data_key='create_date')
     risk_type = String()
-    risk_display = Function(lambda obj: display_risk(obj.risk_type))
+    risk_display = Function(lambda obj: obj.risk_type.dk_display)
     platform = String(metadata={'title': '所属平台', 'description': '具体请查看`platform_name`字段'})
-    platform_name = Function(lambda obj: get_platform(obj.platform))
-    risk_level = Function(lambda obj: get_risk_level(obj.risk_type))
+    platform_name = Function(lambda obj: obj.platform.dk_display)
+    risk_level = Function(lambda obj: obj.risk_type.dk_value)
     invest_rate_of_return = Number(metadata={'title': '投资回报率', 'description': ''})
     annualized_rate_of_return = Number(metadata={'title': '年化回报率', 'description': ''})
     desc = String()
