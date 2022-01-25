@@ -411,7 +411,6 @@ class DkChoiceTypeInteger(DkBaseChoiceEnum):
 
     def __init__(self, enumtype, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        print(enumtype, '-------int---')
         self._enumtype = enumtype
 
     def process_bind_param(self, value, dialect):
@@ -430,11 +429,9 @@ class DkChoiceType(DkBaseChoiceEnum):
 
     def __init__(self, enumtype, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        print(enumtype, '-------str---')
         self._enumtype = enumtype
 
     def process_bind_param(self, value, dialect):
-        print(type(value), '-------str---')
         if isinstance(value, Enum):
             return value
         elif isinstance(value, int):
@@ -443,24 +440,6 @@ class DkChoiceType(DkBaseChoiceEnum):
 
     def process_result_value(self, value, dialect):
         return value
-
-
-class IntEnum(db.TypeDecorator):
-    impl = db.Integer()
-
-    def __init__(self, enumtype, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._enumtype = enumtype
-
-    def process_bind_param(self, value, dialect):
-        if isinstance(value, Enum):
-            return value
-        elif isinstance(value, int):
-            return value
-        return value.value
-
-    def process_result_value(self, value, dialect):
-        return self._enumtype(value)
 
 
 class SafeNumeric(db.TypeDecorator):
@@ -474,11 +453,29 @@ class SafeNumeric(db.TypeDecorator):
         self.quantize = Decimal(10)**self.quantize_int
 
     def process_bind_param(self, value, dialect):
-        print(value, '--------')
         if isinstance(value, Decimal) and \
                 value.as_tuple()[2] < self.quantize_int:
             value = value.quantize(self.quantize)
         return value
+
+
+class ImproperlyConfigured(Exception):
+    """
+    FIXME: 测试通过后移动到excepts中
+    SQLAlchemy-Utils is improperly configured; normally due to usage of
+    a utility that depends on a missing library.
+    """
+    pass
+
+
+class ScalarCoercible:
+    cache_ok = True
+
+    def _coerce(self, value):
+        raise NotImplementedError
+
+    def coercion_listener(self, target, value, oldvalue, initiator):
+        return self._coerce(value)
 
 
 class Choice(object):
@@ -505,13 +502,68 @@ class Choice(object):
         return 'Choice(code={code}, value={value})'.format(code=self.code, value=self.value)
 
 
-class ScalarCoercible:
-    cache_ok = True
+class ChoiceTypeImpl(object):
+    """The implementation for the ``Choice`` usage."""
+
+    def __init__(self, choices):
+        if not choices:
+            raise ImproperlyConfigured('ChoiceType needs list of choices defined.')
+        self.choices_dict = dict(choices)
 
     def _coerce(self, value):
-        raise NotImplementedError
+        if value is None:
+            return value
+        if isinstance(value, Choice):
+            return value
+        return Choice(value, self.choices_dict[value])
 
-    def coercion_listener(self, target, value, oldvalue, initiator):
+    def process_bind_param(self, value, dialect):
+        if value and isinstance(value, Choice):
+            return value.code
+        return value
+
+    def process_result_value(self, value, dialect):
+        if value:
+            return Choice(value, self.choices_dict[value])
+        return value
+
+
+class EnumTypeImpl(object):
+    """The implementation for the ``Enum`` usage."""
+
+    def __init__(self, enum_class):
+        if Enum is None:
+            raise ImproperlyConfigured("'enum34' package is required to use 'EnumType' in Python " "< 3.4")
+        if not issubclass(enum_class, Enum):
+            raise ImproperlyConfigured("EnumType needs a class of enum defined.")
+
+        self.enum_class = enum_class
+
+    def _coerce(self, value):
+        if value is None:
+            return None
+        ret_value = getattr(self.enum_class, value)
+        return ret_value
+
+    def process_bind_param(self, value, dialect):
+        """
+        保存的是enum对象的 `name`
+        :param value:
+        :param dialect:
+        :return:
+        """
+        if value is None:
+            return None
+        # 如果输入的key是enum的name，可以认为也是合法值
+        if isinstance(value, str):
+            enum_names = [item.name for item in self.enum_class]
+            if value in enum_names:
+                return value
+            raise NotImplementedError('The key should be Enum of BaseTypeEnum.')
+
+        return self.enum_class(value).name
+
+    def process_result_value(self, value, dialect):
         return self._coerce(value)
 
 
@@ -567,8 +619,7 @@ class ChoiceType(ScalarCoercible, types.TypeDecorator):
         user.type  # <UserType.admin: 1>
 
 
-    ChoiceType is very useful when the rendered values change based on user's
-    locale:
+    ChoiceType is very useful when the rendered values change based on user's locale:
 
     ::
 
@@ -619,18 +670,15 @@ class ChoiceType(ScalarCoercible, types.TypeDecorator):
 
         print user.type.label  # u'Admin'
     """
-    impl = types.Unicode(255)
+    impl = types.String(255)
 
     cache_ok = True
 
     def __init__(self, choices, impl=None, **kwargs):
         self.choices = tuple(choices) if isinstance(choices, list) else choices
-
         if Enum is not None and isinstance(choices, type) and issubclass(choices, Enum):
-            print('aaaaaaaaaaaa')
             self.type_impl = EnumTypeImpl(enum_class=choices)
         else:
-            print('bbbbbbbbbbb')
             self.type_impl = ChoiceTypeImpl(choices=choices)
 
         if impl:
@@ -651,41 +699,16 @@ class ChoiceType(ScalarCoercible, types.TypeDecorator):
         return self.type_impl.process_result_value(value, dialect)
 
 
-class ChoiceTypeImpl(object):
-    """The implementation for the ``Choice`` usage."""
-
-    def __init__(self, choices):
-        if not choices:
-            raise ImproperlyConfigured('ChoiceType needs list of choices defined.')
-        self.choices_dict = dict(choices)
-
-    def _coerce(self, value):
-        if value is None:
-            return value
-        if isinstance(value, Choice):
-            return value
-        return Choice(value, self.choices_dict[value])
-
-    def process_bind_param(self, value, dialect):
-        if value and isinstance(value, Choice):
-            return value.code
-        return value
-
-    def process_result_value(self, value, dialect):
-        if value:
-            return Choice(value, self.choices_dict[value])
-        return value
-
-
 class IntChoiceType(ScalarCoercible, types.TypeDecorator):
-    """""" ""
+    """
+    存入数据中的值为int
+    """
     impl = db.Integer()
 
     cache_ok = True
 
     def __init__(self, choices, impl=None, **kwargs):
-        self.choices = tuple(choices) if isinstance(choices, list) else choices
-        print(self.choices, '----------------')
+        self.choices = choices
         if Enum is not None and isinstance(choices, type) and issubclass(choices, Enum):
             self.type_impl = DkEnumTypeImpl(enum_class=choices)
         else:
@@ -704,51 +727,11 @@ class IntChoiceType(ScalarCoercible, types.TypeDecorator):
 
     def process_bind_param(self, value, dialect):
         if isinstance(value, BaseTypeEnum):
-            print(value.dk_value, '-----value.dk_value-----')
-            c = self.type_impl.process_bind_param(value, dialect)
-            print(c)
-            return value.dk_value
-        if hasattr(value, 'dk_value'):
             return value.dk_value
         return self.type_impl.process_bind_param(value, dialect)
 
     def process_result_value(self, value, dialect):
-        print(value, 'get-key')
         return self.type_impl.process_result_value(value, dialect)
-
-
-class ImproperlyConfigured(Exception):
-    """
-    SQLAlchemy-Utils is improperly configured; normally due to usage of
-    a utility that depends on a missing library.
-    """
-    pass
-
-
-class EnumTypeImpl(object):
-    """The implementation for the ``Enum`` usage."""
-
-    def __init__(self, enum_class):
-        if Enum is None:
-            raise ImproperlyConfigured("'enum34' package is required to use 'EnumType' in Python " "< 3.4")
-        if not issubclass(enum_class, Enum):
-            raise ImproperlyConfigured("EnumType needs a class of enum defined.")
-
-        self.enum_class = enum_class
-
-    def _coerce(self, value):
-        if value is None:
-            return None
-        print(self.enum_class, value)
-        return self.enum_class(value)
-
-    def process_bind_param(self, value, dialect):
-        if value is None:
-            return None
-        return self.enum_class(value).value
-
-    def process_result_value(self, value, dialect):
-        return self._coerce(value)
 
 
 class DkEnumTypeImpl(object):
@@ -758,24 +741,31 @@ class DkEnumTypeImpl(object):
             raise ImproperlyConfigured("'enum34' package is required to use 'EnumType' in Python " "< 3.4")
         if not issubclass(enum_class, Enum):
             raise ImproperlyConfigured("EnumType needs a class of enum defined.")
-
+        # 组装一个字典，让保存在数据库中的int类型的key去获取对应的ChoiceTypeIntegerDk
         dk_enums = dict()
         for name, member in enum_class.__members__.items():
-            dk_enums[name] = member
-
+            key = member.dk_value  # int 作为key
+            enum_value = member.value  # ChoiceTypeIntegerDk() 作为值
+            dk_enums[key] = enum_value
         self.enum_class = enum_class
+        self.dk_enums = dk_enums
 
     def _coerce(self, value):
         if value is None:
             return None
-        print(self.enum_class, value, '---_coerce----EnumTypeImpl-------')
-        return self.enum_class(value)
+        return self.dk_enums.get(value)
 
     def process_bind_param(self, value, dialect):
         if value is None:
             return None
-        print(self.enum_class, value, '---process_bind_param----EnumTypeImpl-------')
-        return self.enum_class(value)
+        elif isinstance(value, int):
+            return self.dk_enums.get(value)
+        if isinstance(value, str):
+            enum_names = [item.name for item in self.enum_class]
+            if value in enum_names:
+                dk_value = getattr(self.enum_class, value).dk_value
+                return dk_value
+            raise NotImplementedError('The key should be Enum of BaseTypeEnum.')
 
     def process_result_value(self, value, dialect):
         return self._coerce(value)
