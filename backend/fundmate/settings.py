@@ -42,7 +42,7 @@ INFO_MAIL_ADDR = 'fundmate@163.com'
 INITIAL_PORTFOLIO_IDENTIFIER = '010921'
 # 组合用户编号应该和组合编号有一定区分度：所以长度取长一点
 INITIAL_MGR_IDENTIFIER = '20211202'
-
+# 账户起始编号
 INITIAL_ACCOUNT_IDENTIFIER = '1024'
 
 
@@ -65,14 +65,6 @@ class ChoiceTypeDk:
     @property
     def display(self):
         return self.label
-
-
-UNDEFINED = ChoiceTypeIntegerDk(0, 'undefined', '未定义')
-PLAIN = ChoiceTypeIntegerDk(1, 'plain', '灵活取用')
-LOW = ChoiceTypeIntegerDk(2, 'low', '稳健增值')
-BALANCE = ChoiceTypeIntegerDk(3, 'balance', '平衡增长')
-ADVANCE = ChoiceTypeIntegerDk(4, 'advance', '进阶成长')
-HIGH = ChoiceTypeIntegerDk(5, 'high', '积极进取')
 
 
 @enum.unique
@@ -106,10 +98,18 @@ class BaseTypeEnum(enum.Enum):
         return cls.BALANCE
 
 
-# 风险等级
+UNDEFINED = ChoiceTypeIntegerDk(0, 'undefined', '未定义')
+PLAIN = ChoiceTypeIntegerDk(1, 'plain', '灵活取用')
+LOW = ChoiceTypeIntegerDk(2, 'low', '稳健增值')
+BALANCE = ChoiceTypeIntegerDk(3, 'balance', '平衡增长')
+ADVANCE = ChoiceTypeIntegerDk(4, 'advance', '进阶成长')
+HIGH = ChoiceTypeIntegerDk(5, 'high', '积极进取')
 
 
 class RiskTypeEnum(BaseTypeEnum):
+    """
+    风险等级
+    """
     undefined = UNDEFINED
     plain = PLAIN
     low = LOW
@@ -128,6 +128,7 @@ OTHER = ChoiceTypeIntegerDk(7, 'other', '其他')
 
 
 # 风险等级
+@enum.unique
 class FundOpTypeEnum(BaseTypeEnum):
     purchase = OP_PURCHASE
     sale = SALE
@@ -193,7 +194,6 @@ PLAT_TYPE_DISPLAY = {
     'hb': '好买基金',
 }
 
-# 基金决策宝的symbol的前缀,UN表示未知
 UNSE = ChoiceTypeDk('UN', '未知')
 FPSE = ChoiceTypeDk('FP', '未知FP')
 SZSE = ChoiceTypeDk('SZ', '深圳证券交易所')
