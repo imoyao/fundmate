@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
 """Database module, including the SQLAlchemy database object and DB-related utilities."""
-import enum
 import random
 from datetime import datetime
 from decimal import Decimal
-from enum import Enum, EnumMeta
+from enum import Enum
 from typing import Optional, Union
 
 from apiflask import pagination_builder
@@ -18,7 +17,7 @@ from backend.fundmate.compat import basestring
 from backend.fundmate.excepts import UniqueInstanceError
 from backend.fundmate.extensions import db
 from backend.fundmate.exts.flask_loguru import logger
-from backend.fundmate.settings import BaseTypeEnum, ChoiceTypeDk, ChoiceTypeIntegerDk
+from backend.fundmate.settings import BaseTypeEnum
 
 # Alias common SQLAlchemy names
 Column = db.Column
@@ -406,42 +405,6 @@ class DkBaseChoiceEnum(db.TypeDecorator):
         return self.choices[value]
 
 
-class DkChoiceTypeInteger(DkBaseChoiceEnum):
-    impl = db.Integer()
-
-    def __init__(self, enumtype, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._enumtype = enumtype
-
-    def process_bind_param(self, value, dialect):
-        if isinstance(value, Enum):
-            return value
-        elif isinstance(value, int):
-            return value
-        return value.value
-
-    def process_result_value(self, value, dialect):
-        return self._enumtype(value)
-
-
-class DkChoiceType(DkBaseChoiceEnum):
-    impl = types.String(60)
-
-    def __init__(self, enumtype, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._enumtype = enumtype
-
-    def process_bind_param(self, value, dialect):
-        if isinstance(value, Enum):
-            return value
-        elif isinstance(value, int):
-            return value
-        return value.value
-
-    def process_result_value(self, value, dialect):
-        return value
-
-
 class SafeNumeric(db.TypeDecorator):
     """Adds quantization to Numeric."""
 
@@ -701,7 +664,7 @@ class ChoiceType(ScalarCoercible, types.TypeDecorator):
 
 class IntChoiceType(ScalarCoercible, types.TypeDecorator):
     """
-    存入数据中的值为int
+    存入数据中的值为int的自定义Enum类型
     """
     impl = db.Integer()
 
