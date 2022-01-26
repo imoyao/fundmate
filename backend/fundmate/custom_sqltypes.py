@@ -6,6 +6,7 @@
 @author: imoyao
 @email: immoyao@gmail.com
 @desc: 为sqlalchemy自定义数据类型
+参考：https://sqlalchemy-utils.readthedocs.io/en/latest/_modules/sqlalchemy_utils/types/choice.html#ChoiceType
 
 ## 示例代码
 class UserType(Enum):
