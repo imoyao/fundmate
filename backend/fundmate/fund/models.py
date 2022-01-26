@@ -485,7 +485,7 @@ class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
     #     使用装饰器方法变属性
     #     :return:
     #     """
-    #     if self.platform != 'own':
+    #     if self.platform != PlatTypeEnum.own.dk_name:
     #         return FundPortfolioMgr.query.filter_by(code=self.mgr_code).one_or_none()
     #     else:
     #         mgr_id = int(self.mgr_code)

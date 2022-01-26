@@ -8,7 +8,7 @@ from apiflask import Schema
 from apiflask.fields import Integer, String
 from apiflask.validators import Length, OneOf
 
-from backend.fundmate.settings import RISK_TYPE
+from backend.fundmate.settings import RiskTypeEnum
 
 
 class CreateAccountSchema(Schema):
@@ -27,7 +27,7 @@ class CreateAccountSchema(Schema):
     描述，即投资目标、投资年限等
     '''
     name = String(required=True, validate=Length(2, 10))
-    account_type = String(required=True, default='undefined', validate=OneOf(RISK_TYPE.keys()))
+    account_type = String(required=True, default=RiskTypeEnum.undefined.dk_name, validate=OneOf(RiskTypeEnum.input()))
     desc = String(validate=Length(max=300))
     rich_desc = String(validate=Length(max=1000))
 
