@@ -5,10 +5,13 @@ Most configuration is set via environment variables.
 
 For local development, use a .env file to set environment variables.
 """
+import enum
 from pathlib import Path
 
 import pendulum
 from environs import Env as EnvParser
+
+from backend.fundmate.libs.dk_enums import BaseTypeEnum, ChoiceTypeDk, ChoiceTypeIntegerDk
 
 env = EnvParser()
 env.read_env()
@@ -41,60 +44,169 @@ INITIAL_MGR_IDENTIFIER = '20211202'
 # 账户起始编号
 INITIAL_ACCOUNT_IDENTIFIER = '1024'
 
+UNDEFINED = ChoiceTypeIntegerDk(0, 'undefined', '未定义')
+PLAIN = ChoiceTypeIntegerDk(1, 'plain', '灵活取用')
+LOW = ChoiceTypeIntegerDk(2, 'low', '稳健增值')
+BALANCE = ChoiceTypeIntegerDk(3, 'balance', '平衡增长')
+ADVANCE = ChoiceTypeIntegerDk(4, 'advance', '进阶成长')
+HIGH = ChoiceTypeIntegerDk(5, 'high', '积极进取')
+
+
+class RiskTypeEnum(BaseTypeEnum):
+    """风险等级"""
+    undefined = UNDEFINED
+    plain = PLAIN
+    low = LOW
+    balance = BALANCE
+    advance = ADVANCE
+    high = HIGH
+
+    @classmethod
+    def default(cls):
+        """
+        默认值，如果要使用非默认的默认值，则调用普通赋值操作即可
+        FIXME: py3.8+ [python - Using property() on classmethods - Stack Overflow](https://stackoverflow.com/questions/128573/using-property-on-classmethods)
+        :return:
+        """
+        return cls.balance
+
+    @classmethod
+    def input(cls):
+        """
+        用户请求时需要用到
+        **注意：**只有当key为int时才有name属性
+        :return:
+        """
+        return [item.dk_name for item in cls]
+
+
+OP_PURCHASE = ChoiceTypeIntegerDk(1, 'purchase', '买入/存入/申购')
+SALE = ChoiceTypeIntegerDk(2, 'sale', '赎回/卖出/支取')
+TRANSFER = ChoiceTypeIntegerDk(3, 'transfer', '转换/转存')
+REGULAR_INVEST = ChoiceTypeIntegerDk(4, 'regular_invest', '定投')
+BONUS = ChoiceTypeIntegerDk(5, 'bonus', '分红')
+ADJUST = ChoiceTypeIntegerDk(6, 'adjust', '调仓')
+OTHER = ChoiceTypeIntegerDk(7, 'other', '其他')
+
+
 # 风险等级
-RISK_TYPE = {
-    'undefined': 0,  # 未定义
-    'plain': 1,  # 灵活取用
-    'low': 2,  # 稳健增值
-    'balance': 3,  # 平衡增长
-    'advance': 4,  # 进阶成长
-    'high': 5,  # 积极进取
-}
-RISK_TYPE_DISPLAY = {
-    'undefined': '未定义',
-    'plain': '灵活取用',
-    'low': '稳健增值',
-    'balance': '平衡增长',
-    'advance': '进阶成长',
-    'high': '积极进取'
-}
-# 基金决策宝的symbol的前缀,UN表示未知
-SYMBOL_TYPE = {'UN': 0, 'FP': 1, 'SZ': 2, 'SH': 3}
+@enum.unique
+class FundOpTypeEnum(BaseTypeEnum):
+    """
+    操作分类
+    """
+    purchase = OP_PURCHASE
+    sale = SALE
+    transfer = TRANSFER
+    regular_invest = REGULAR_INVEST
+    bonus = BONUS
+    adjust = ADJUST
+    other = OTHER
 
-# 费率类型
-FEE_TYPE = {
-    'unknown': 0,  # 未定义
-    'subscribe': 1,  # 基金认购
-    'purchase': 2,  # 基金申购
-    'redeem': 3,  # 基金赎回
-}
+    @classmethod
+    def default(cls):
+        return cls.purchase
 
-#  组合管理人类型
-ZH_MGR_TYPE = {
-    'personal': 0,  # '个人'
-    'org': 1,  # '机构'
-}
-ZH_MGR_TYPE_DISPLAY = {
-    'personal': '个人',
-    'org': '机构',
-}
-PLAT_TYPE = {
-    'undefined': 0,  # '未定义'
-    'qm': 1,  # '且慢'
-    'tt': 2,  # '天天基金'
-    'dj': 3,  # '蛋卷基金'
-    'own': 4,
-    'hb': 5,
-}
+    @classmethod
+    def input(cls):
+        """
+        **注意：**只有当key为int时才有name属性
+        :return:
+        """
+        return [item.dk_name for item in cls]
 
-PLAT_TYPE_DISPLAY = {
-    'undefined': '未定义',
-    'qm': '且慢',
-    'tt': '天天基金',
-    'dj': '蛋卷基金',
-    'own': '平台自建',
-    'hb': '好买基金',
-}
+
+UNSE = ChoiceTypeDk('UN', '未知')
+FPSE = ChoiceTypeDk('FP', '暂时未知交易所')
+SZSE = ChoiceTypeDk('SZ', '深圳证券交易所')
+SHSE = ChoiceTypeDk('SH', '上海证券交易所')
+SEHK = ChoiceTypeDk('HK', '香港证券交易所')
+
+
+@enum.unique
+class SymbolTypeEnum(BaseTypeEnum):
+    """
+    基金决策宝的symbol的前缀，UN表示未知
+    """
+    UN = UNSE
+    FP = FPSE
+    SZ = SZSE
+    SH = SHSE
+    HK = SEHK
+
+    @classmethod
+    def default(cls):
+        return cls.UN
+
+    @classmethod
+    def input(cls):
+        """
+        用户请求时需要用到
+        **注意：**只有当key为int时才有name属性
+        :return:
+        """
+        return [item.dk_name for item in cls]
+
+
+UNKNOWN = ChoiceTypeIntegerDk(0, 'unknown', '未定义')
+SUBSCRIBE = ChoiceTypeIntegerDk(1, 'subscribe', '基金认购')
+PURCHASE = ChoiceTypeIntegerDk(2, 'purchase', '基金申购')
+REDEEM = ChoiceTypeIntegerDk(3, 'redeem', '基金赎回')
+
+
+@enum.unique
+class FeeTypeEnum(BaseTypeEnum):
+    """
+    费率类型
+    """
+    unknown = UNKNOWN
+    subscribe = SUBSCRIBE
+    purchase = PURCHASE
+    redeem = REDEEM
+
+    @classmethod
+    def default(cls):
+        return cls.unknown
+
+
+ZH_PERSONAL = ChoiceTypeIntegerDk(0, 'personal', '个人')
+ZH_ORG = ChoiceTypeIntegerDk(1, 'org', '机构')
+
+
+@enum.unique
+class ZHMgrTypeEnum(BaseTypeEnum):
+    """
+    组合管理人类型
+    """
+    personal = ZH_PERSONAL
+    org = ZH_ORG
+
+    @classmethod
+    def default(cls):
+        return cls.personal
+
+
+UN = ChoiceTypeIntegerDk(0, 'un', '未定义')
+QM = ChoiceTypeIntegerDk(1, 'qm', '且慢')
+TT = ChoiceTypeIntegerDk(2, 'tt', '天天基金')
+DJ = ChoiceTypeIntegerDk(3, 'dj', '蛋卷基金')
+OWN = ChoiceTypeIntegerDk(4, 'own', '平台自建')
+HB = ChoiceTypeIntegerDk(5, 'hb', '好买基金')
+
+
+@enum.unique
+class PlatTypeEnum(BaseTypeEnum):
+    undefined = UN
+    qieman = QM
+    tiantian = TT
+    danjuan = DJ
+    own = OWN
+    howbuy = HB
+
+    @classmethod
+    def default(cls):
+        return cls.undefined
+
 
 # 正则
 '''
