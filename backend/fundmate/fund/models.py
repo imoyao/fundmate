@@ -10,16 +10,14 @@ from sqlalchemy import func, or_
 from sqlalchemy.ext.hybrid import hybrid_property
 
 from backend.fundmate import settings
+from backend.fundmate.custom_sqltypes import IntChoiceDkEnumType
 from backend.fundmate.database import (
-    ChoiceType,
-    ChoiceTypeInteger,
     Column,
     CreateDateModel,
     PkModel,
     UpsertMixin,
     db,
     gen_digit_code,
-    key2val,
     reference_col,
     relationship,
 )
@@ -77,14 +75,16 @@ class Fund(PkModel, UpsertMixin):
     f_var = Column('fund_variety_id', db.Integer, db.ForeignKey('fund_variety.id'), comment='基金大类编号')
     co_id = Column(db.Integer, db.ForeignKey('fund_company.id'), comment='所属基金公司编号')
     create_time = Column(db.DateTime, comment='基金创建时间')
-    symbol_prefix = Column(ChoiceType(choices=settings.SYMBOL_TYPE),
+    symbol_prefix = Column(db.Enum(settings.SymbolTypeEnum),
                            nullable=True,
-                           default='UN',
-                           comment='符号前缀（FP/SZ/SH）')
-    risk_level = Column(ChoiceTypeInteger(choices=key2val(settings.RISK_TYPE)),
-                        default=1,
+                           default=settings.SymbolTypeEnum.default().dk_value,
+                           comment=f'符号前缀：{settings.SymbolTypeEnum.comment()}')
+    risk_level = Column(IntChoiceDkEnumType(settings.RiskTypeEnum,
+                                            default=settings.RiskTypeEnum.default().dk_value,
+                                            impl=db.Integer()),
                         nullable=True,
-                        comment='风险等级')
+                        comment=f'风险等级：{settings.RiskTypeEnum.comment()}')
+
     is_fe_charge_mode = Column(db.Boolean, comment='收费方式（前端/后端）')  #
     last_modified = Column(db.TIMESTAMP,
                            nullable=False,
@@ -346,10 +346,11 @@ class FeeRatio(PkModel, UpsertMixin):
     fund_id = Column(db.Integer, db.ForeignKey('funds.id'), comment='基金编号ID')
     in_rule_id = db.Column(db.Integer, db.ForeignKey('in_rule.id'), nullable=True, comment='申购规则ID')
     out_rule_id = db.Column(db.Integer, db.ForeignKey('out_rule.id'), nullable=True, comment='赎回规则ID')
-    fee_type = Column(ChoiceTypeInteger(choices=key2val(settings.FEE_TYPE)),
-                      nullable=True,
-                      default=0,
-                      comment='费率类型（认购、申购、赎回）')
+    fee_type = Column(IntChoiceDkEnumType(settings.FeeTypeEnum),
+                      nullable=False,
+                      index=True,
+                      default=settings.FeeTypeEnum.default().dk_value,
+                      comment=f'费率类型：{settings.FeeTypeEnum.comment()}')
     rate = Column(db.Numeric(3, 2), comment='费率百分比')
     fee_amount = Column(db.Numeric(6, 2), comment='收费金额（超过xx万时一次收费，此时rate应该为空）')
     last_modified = Column(db.TIMESTAMP,
@@ -436,16 +437,6 @@ class FeeRatio(PkModel, UpsertMixin):
         return rules
 
 
-def display(display_map: dict, pk_key: str) -> str:
-    """
-    数据库中存的是数字，保存是输入拼音，显示时应为可读信息
-    :param pk_key:
-    :param display_map:
-    :return:
-    """
-    return display_map.get(pk_key)
-
-
 class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
     """
     基金组合（回测、配置型）
@@ -460,14 +451,14 @@ class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
     is_visible = Column(db.Boolean, comment='是否他人可见')  # 只有创建人（/admin）可以修改
     found_date = Column(db.Date, comment='组合创建日期')
     mgr_code = Column(db.String(10), comment='组合管理人编码')
-    platform = Column(ChoiceTypeInteger(choices=key2val(settings.PLAT_TYPE)),
+    platform = Column(IntChoiceDkEnumType(settings.PlatTypeEnum),
                       nullable=True,
-                      default=0,
-                      comment=f'平台名称：{str(settings.PLAT_TYPE_DISPLAY)}')
-    risk_type = Column(ChoiceTypeInteger(choices=key2val(settings.RISK_TYPE)),
+                      default=settings.PlatTypeEnum.default().dk_value,
+                      comment=f'平台名称：{settings.PlatTypeEnum.comment()}')
+    risk_type = Column(IntChoiceDkEnumType(settings.RiskTypeEnum),
                        nullable=True,
-                       default=0,
-                       comment='风险类型（稳健/成长等）')
+                       default=settings.RiskTypeEnum.default().dk_value,
+                       comment=f'风险类型：{settings.RiskTypeEnum.comment()}')
     annualized_rate_of_return = Column(db.Numeric(7, 4), comment='成立以来年化')  # 保留小数点后4位，每天计算净值后更新
     invest_rate_of_return = Column(db.Numeric(7, 4), comment='成立以来收益')  # 每天计算净值后更新
     desc = Column(db.String(300), comment='组合描述')
@@ -484,8 +475,8 @@ class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
     # owner = relationship('User', foreign_keys=[mgr_code], primaryjoin='User.id == FundPortfolio.mgr_code')
 
     def __repr__(self):
-        plat_name = display(settings.PLAT_TYPE_DISPLAY, self.platform)
-        risk_name = display(settings.RISK_TYPE_DISPLAY, self.risk_type)
+        plat_name = self.platform.dk_display
+        risk_name = self.risk_type.dk_display
         return f'<FundPortfolio({self.name!r}, {plat_name!r}, {risk_name!r})>'
 
     # @property
@@ -494,7 +485,7 @@ class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
     #     使用装饰器方法变属性
     #     :return:
     #     """
-    #     if self.platform != 'own':
+    #     if self.platform != PlatTypeEnum.own.dk_name:
     #         return FundPortfolioMgr.query.filter_by(code=self.mgr_code).one_or_none()
     #     else:
     #         mgr_id = int(self.mgr_code)
@@ -519,19 +510,19 @@ class FundPortfolioMgr(PkModel, UpsertMixin):
     code = Column(db.String(10), unique=True, comment='组合管理人编码')  # 使用固定数字加随机数
     name = Column(db.String(30), comment='主理人')
     plat_code = Column(db.String(30), comment='组合管理人编号（各平台独有）')
-    mgr_type = Column(ChoiceTypeInteger(choices=key2val(settings.ZH_MGR_TYPE)),
+    mgr_type = Column(IntChoiceDkEnumType(settings.ZHMgrTypeEnum),
                       nullable=False,
-                      default=0,
-                      comment='组合管理人类型（1机构/0个人）')
+                      default=settings.ZHMgrTypeEnum.default().dk_value,
+                      comment=f'组合管理人类型:{settings.ZHMgrTypeEnum.comment()}')
     mgr_avatar_url = Column(db.String(300), comment='主理人头像链接')  # TODO:是否需要保存到本地
-    platform = Column(ChoiceTypeInteger(choices=key2val(settings.PLAT_TYPE)),
+    platform = Column(IntChoiceDkEnumType(settings.PlatTypeEnum),
                       nullable=True,
-                      default=0,
-                      comment=f'平台名称：{str(settings.PLAT_TYPE_DISPLAY)}')
+                      default=settings.PlatTypeEnum.default().dk_value,
+                      comment=f'平台名称：{settings.PlatTypeEnum.comment()}')
     desc = Column(db.String(300), comment='组合管理人描述')
 
     def __repr__(self):
-        plat_name = display(settings.PLAT_TYPE_DISPLAY, self.platform)
+        plat_name = self.platform.dk_display
         return f'<FundPortfolioMgr({self.name!r}, {plat_name!r} )>'
 
     @classmethod
@@ -548,9 +539,9 @@ class FundPortfolioAdjustHistory(PkModel):
     """
     组合调仓历史
     """
-    portfolio_code = Column(db.String(30), comment='组合编码')
+    portfolio_code = Column(db.String(30), index=True, comment='组合编码')
     update_date = Column(db.DateTime, comment='调仓时间')
-    adjust_id = Column(db.BigInteger, comment='调仓历史编码')  # 使用雪花算法
+    adjust_id = Column(db.BigInteger, index=True, comment='调仓历史编码')  # 使用雪花算法
     plat_trade_id = Column(db.String(120), comment='平台调仓编码（只做记录区分用，不参与系统计算）')
     desc = Column(db.String(1500), comment='调仓说明')
 

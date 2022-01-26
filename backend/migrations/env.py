@@ -84,16 +84,31 @@ def render_item(type_, obj, autogen_context):
     """Apply custom rendering for selected items.
     see also: https://stackoverflow.com/a/61320562/14295718
     """
-    if type_ == 'type' and obj.__class__.__module__.startswith(CUSTOM_APP_PREFIX):
-        # FIX: import error
-        autogen_context.imports.add(f'import {obj.__class__.__module__}')
-        if hasattr(obj, 'choices'):
-            return f'{obj.__class__.__module__}.{obj.__class__.__name__}(choices={obj.choices})'
-        else:
-            return f'{obj.__class__.__module__}.{obj.__class__.__name__}()'
+    if type_ == "type":
+        module_name = obj.__class__.__module__
+        if module_name.startswith(CUSTOM_APP_PREFIX):
+            return render_sqlalchemy_choices_type(obj, autogen_context)
 
     # default rendering for other objects
     return False
+
+
+def render_sqlalchemy_choices_type(obj, autogen_context):
+    class_name = obj.__class__.__name__
+    import_statement = f"from backend.fundmate.database import {class_name}"
+    autogen_context.imports.add(import_statement)
+    if class_name in ['ChoiceType', 'IntChoiceDkEnumType']:
+        return render_choice_type(obj, autogen_context)
+    return f"{class_name}()"
+
+
+def render_choice_type(obj, autogen_context):
+    choices = obj.choices
+    if obj.type_impl.__class__.__name__ in ['EnumTypeImpl', 'DkEnumTypeImpl']:
+        choices = obj.type_impl.enum_class.__name__
+        import_statement = f"from backend.migrations.choices import {choices}"
+        autogen_context.imports.add(import_statement)
+    return f"{obj.__class__.__name__}(choices={choices})"
 
 
 if context.is_offline_mode():

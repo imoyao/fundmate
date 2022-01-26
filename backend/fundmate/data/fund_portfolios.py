@@ -37,7 +37,7 @@ from backend.fundmate.fund.models import (
     FundPortfolioMgr,
 )
 from backend.fundmate.libs.pysnowflake import snowflake
-from backend.fundmate.settings import PLAT_TYPE
+from backend.fundmate.settings import PlatTypeEnum
 
 config = current_app.config
 SQLALCHEMY_DATABASE_URI = config.get('SQLALCHEMY_DATABASE_URI')
@@ -178,7 +178,8 @@ class InitPortfolio(BasePortfolio):
         :return:
         """
         # 配置为True且在支持列表中
-        support_platforms = [plt for plt in self.init_config if self.init_config[plt] is True and plt in PLAT_TYPE]
+        plat_types = [item.dk_name for item in PlatTypeEnum]
+        support_platforms = [plt for plt in self.init_config if self.init_config[plt] is True and plt in plat_types]
         for plat_flag in support_platforms:
             po_obj = self.get_strategy(plat_flag)
             portfolios = po_obj.list_all()
@@ -287,8 +288,8 @@ class UpdatePortfolio(BasePortfolio):
         # 未定义和平台自有不需要更新
         fpos = db.session.query(FundPortfolio).filter(
             and_(
-                FundPortfolio.platform != 'undefined',
-                FundPortfolio.platform != 'own',
+                FundPortfolio.platform != PlatTypeEnum.undefined.dk_name,
+                FundPortfolio.platform != PlatTypeEnum.own.dk_name,
             ))
         # 遍历获取组合是否调仓，如果调仓，则将其信息存入数据库
         for po_item in fpos:

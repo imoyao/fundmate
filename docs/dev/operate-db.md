@@ -61,7 +61,7 @@ if fpo is not None:
 ```
 这样带来的问题是，我们的`FundPortfolioDetailOutSchema`通用性降低，因为其中个别字段使用`Function`，如此一来，其中的点查询`fpo.manager`将无法获取对象的属性，必须将 object 当作字典处理来获取信息，即`manager.get('name')`，这显然不是一种优雅的处理方式；
 
-2. 使用`@proprety` 将获取管理员信息的方法变为属性
+2. 使用`@property` 将获取管理员信息的方法变为属性
 ```python
 class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
     ...

@@ -113,3 +113,11 @@ class FundQueryError(FmException):
     """基金信息查询出错
     """
     pass
+
+
+class ImproperlyConfigured(FmException):
+    """
+    SQLAlchemy-Utils is improperly configured; normally due to usage of
+    a utility that depends on a missing library.
+    """
+    pass

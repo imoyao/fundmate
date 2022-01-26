@@ -23,7 +23,7 @@ API 通常希望每次请求都将访问凭证/令牌发送到 API。这类似�
 
 最明显的解决方案是在每次请求时都发送用户名和密码。这个解决方案非常基本，称为基本认证。显然，这里存在安全问题。（在网络传输过程中，可能客户端的用户名密码会被第三方窃取到）。但如果 http 流量是加密的(https)，且客户机是一个运行在安全的进程(从受保护的文件读取密码)的实例中，基本身份验证就可以了。
 
-Python 的 requests 库也可以实现用户名和密码登录：
+Python 的 `requests` 库也可以实现用户名和密码登录：
 ```python
 import requests
 requests.get('https://api.github.com/user', auth=('user', 'pass'))
@@ -109,14 +109,11 @@ def some_route():
 然后出局的是~~Flask-JWT~~。
 ###  ~~Flask-JWT~~ VS Flask-HTTPAuth
 [security - API Keys vs HTTP Authentication vs OAuth in a RESTful API - Stack Overflow](https://stackoverflow.com/questions/6767813/api-keys-vs-http-authentication-vs-oauth-in-a-restful-api)
-=======
-[security - API Keys vs HTTP Authentication vs OAuth in a RESTful API - Stack Overflow](https://stackoverflow.com/questions/6767813/api-keys-vs-http-authentication-vs-oauth-in-a-restful-api)
 
 ###  Flask-JWT VS Flask-Login
 
 [Tutorial on how to combine authentication between Flask-JWT and Flask-Login · Issue #253 · maxcountryman/flask-login](https://github.com/maxcountryman/flask-login/issues/253)
 [python - For a REST API, can I use authentication mechanism provided by flask-login or do I explicitly have to use token based authentication like JWT? - Stack Overflow](https://stackoverflow.com/questions/65520316/for-a-rest-api-can-i-use-authentication-mechanism-provided-by-flask-login-or-do)
->>>>>>> Stashed changes
 
 [Using Flask-JWT with Flask-Login - Ivan's Software Engineering BlogIvan's Software Engineering Blog](https://ai-facets.org/using-flask-jwt-with-flask-login/)
 
