@@ -10,10 +10,10 @@ from sqlalchemy import func, or_
 from sqlalchemy.ext.hybrid import hybrid_property
 
 from backend.fundmate import settings
+from backend.fundmate.custom_sqltypes import IntChoiceDkEnumType
 from backend.fundmate.database import (
     Column,
     CreateDateModel,
-    IntChoiceDkEnumType,
     PkModel,
     UpsertMixin,
     db,
