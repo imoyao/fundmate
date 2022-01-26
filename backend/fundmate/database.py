@@ -41,7 +41,7 @@ from backend.fundmate.compat import basestring
 from backend.fundmate.excepts import UniqueInstanceError
 from backend.fundmate.extensions import db
 from backend.fundmate.exts.flask_loguru import logger
-from backend.fundmate.settings import BaseTypeEnum
+from backend.fundmate.libs.dk_enums import BaseTypeEnum
 
 # Alias common SQLAlchemy names
 Column = db.Column
@@ -257,26 +257,8 @@ def reference_col(tablename: str,
     )
 
 
-def key2val(unique_dict: dict) -> dict:
-    return {v: k for k, v in unique_dict.items()}
-
-
-class DkBaseChoiceEnum(db.TypeDecorator):
-    cache_ok = False
-
-    def process_bind_param(self, value, dialect):
-        if isinstance(value, Enum):
-            return value
-        elif isinstance(value, int):
-            return value
-        return value.value
-
-    def process_result_value(self, value, dialect):
-        return self.choices[value]
-
-
 class SafeNumeric(db.TypeDecorator):
-    """Adds quantization to Numeric."""
+    """sqlalchemy示例代码：Adds quantization to Numeric."""
 
     impl = db.Numeric(8, 2)
 
@@ -389,7 +371,7 @@ class EnumTypeImpl(object):
             return None
         # 如果输入的key是enum的name，可以认为也是合法值
         if isinstance(value, str):
-            enum_names = [item.name for item in self.enum_class]
+            enum_names = self.enum_class.names()
             if value in enum_names:
                 return value
             raise NotImplementedError('The key should be Enum of BaseTypeEnum.')
@@ -614,7 +596,7 @@ class DkEnumTypeImpl(object):
         elif isinstance(value, int):
             return self.dk_enums.get(value)
         if isinstance(value, str):
-            enum_names = [item.name for item in self.enum_class]
+            enum_names = self.enum_class.names()
             if value in enum_names:
                 dk_value = getattr(self.enum_class, value).dk_value
                 return dk_value

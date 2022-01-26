@@ -7,12 +7,11 @@ For local development, use a .env file to set environment variables.
 """
 import enum
 from pathlib import Path
-from types import DynamicClassAttribute
 
 import pendulum
 from environs import Env as EnvParser
 
-from backend.fundmate.libs.dataklasses import dataklass
+from backend.fundmate.libs.dk_enums import BaseTypeEnum, ChoiceTypeDk, ChoiceTypeIntegerDk
 
 env = EnvParser()
 env.read_env()
@@ -45,113 +44,6 @@ INITIAL_MGR_IDENTIFIER = '20211202'
 # 账户起始编号
 INITIAL_ACCOUNT_IDENTIFIER = '1024'
 
-# 风险等级
-RISK_TYPE = {
-    'undefined': 0,  # 未定义
-    'plain': 1,  # 灵活取用
-    'low': 2,  # 稳健增值
-    'balance': 3,  # 平衡增长
-    'advance': 4,  # 进阶成长
-    'high': 5,  # 积极进取
-}
-# RISK_TYPE_DISPLAY = {
-#     'undefined': '未定义',
-#     'plain': '灵活取用',
-#     'low': '稳健增值',
-#     'balance': '平衡增长',
-#     'advance': '进阶成长',
-#     'high': '积极进取'
-# }
-# 基金决策宝的symbol的前缀,UN表示未知
-SYMBOL_TYPE = {'UN': 0, 'FP': 1, 'SZ': 2, 'SH': 3}
-
-# 费率类型
-FEE_TYPE = {
-    'unknown': 0,  # 未定义
-    'subscribe': 1,  # 基金认购
-    'purchase': 2,  # 基金申购
-    'redeem': 3,  # 基金赎回
-}
-
-PLAT_TYPE = {
-    'undefined': 0,  # '未定义'
-    'qm': 1,  # '且慢'
-    'tt': 2,  # '天天基金'
-    'dj': 3,  # '蛋卷基金'
-    'own': 4,
-    'hb': 5,
-}
-
-PLAT_TYPE_DISPLAY = {
-    'undefined': '未定义',
-    'qm': '且慢',
-    'tt': '天天基金',
-    'dj': '蛋卷基金',
-    'own': '平台自建',
-    'hb': '好买基金',
-}
-
-
-@dataklass
-class ChoiceTypeIntegerDk:
-    """
-    数据库中存的是数字
-    保存时输入拼音
-    显示时应为可读信息
-    """
-    value: int
-    name: str
-    label: str
-
-    @property
-    def display(self):
-        return self.label
-
-
-@dataklass
-class ChoiceTypeDk:
-    value: str
-    label: str
-
-    @property
-    def display(self):
-        return self.label
-
-
-@enum.unique
-class BaseTypeEnum(enum.Enum):
-
-    def __str__(self):
-        return 'My custom dataklass {0}'.format(self.value)
-
-    @DynamicClassAttribute
-    def dk_name(self):
-        """The name of the Enum member."""
-        return self._value_.name
-
-    @DynamicClassAttribute
-    def dk_value(self):
-        """The value of the Enum member."""
-        return self._value_.value
-
-    @DynamicClassAttribute
-    def dk_display(self):
-        """The value of the Enum member."""
-        return self._value_.label
-
-    def describe(self):
-        # self is the member here
-        return self.name, self.value
-
-    @classmethod
-    def comment(cls) -> str:
-        enum_explains = dict()
-        for name, member in cls.__members__.items():
-            key = member.dk_value
-            enum_explains[key] = member.dk_display
-        return str(enum_explains)
-
-
 UNDEFINED = ChoiceTypeIntegerDk(0, 'undefined', '未定义')
 PLAIN = ChoiceTypeIntegerDk(1, 'plain', '灵活取用')
 LOW = ChoiceTypeIntegerDk(2, 'low', '稳健增值')
@@ -172,7 +64,7 @@ class RiskTypeEnum(BaseTypeEnum):
     @classmethod
     def default(cls):
         """
-        默认值，如果要使用非默认的默认值，则使用普通赋值语句即可
+        默认值，如果要使用非默认的默认值，则调用普通赋值操作即可
         FIXME: py3.8+ [python - Using property() on classmethods - Stack Overflow](https://stackoverflow.com/questions/128573/using-property-on-classmethods)
         :return:
         """
@@ -182,6 +74,7 @@ class RiskTypeEnum(BaseTypeEnum):
     def input(cls):
         """
         用户请求时需要用到
+        **注意：**只有当key为int时才有name属性
         :return:
         """
         return [item.dk_name for item in cls]
@@ -214,6 +107,14 @@ class FundOpTypeEnum(BaseTypeEnum):
     def default(cls):
         return cls.purchase
 
+    @classmethod
+    def input(cls):
+        """
+        **注意：**只有当key为int时才有name属性
+        :return:
+        """
+        return [item.dk_name for item in cls]
+
 
 UNSE = ChoiceTypeDk('UN', '未知')
 FPSE = ChoiceTypeDk('FP', '暂时未知交易所')
@@ -224,6 +125,9 @@ SEHK = ChoiceTypeDk('HK', '香港证券交易所')
 
 @enum.unique
 class SymbolTypeEnum(BaseTypeEnum):
+    """
+    基金决策宝的symbol的前缀，UN表示未知
+    """
     UN = UNSE
     FP = FPSE
     SZ = SZSE
@@ -233,6 +137,15 @@ class SymbolTypeEnum(BaseTypeEnum):
     @classmethod
     def default(cls):
         return cls.UN
+
+    @classmethod
+    def input(cls):
+        """
+        用户请求时需要用到
+        **注意：**只有当key为int时才有name属性
+        :return:
+        """
+        return [item.dk_name for item in cls]
 
 
 UNKNOWN = ChoiceTypeIntegerDk(0, 'unknown', '未定义')

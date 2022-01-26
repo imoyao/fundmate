@@ -60,6 +60,10 @@ def merge_iterables_of_dict(shared_key, *iterables):
     return result
 
 
+def key2val(unique_dict: dict) -> dict:
+    return {v: k for k, v in unique_dict.items()}
+
+
 class HiddenPrints:
     """
     禁止调用函数中的打印信息

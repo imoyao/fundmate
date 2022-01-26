@@ -11,7 +11,6 @@ from apiflask.validators import Equal, Length, OneOf
 from backend.fundmate import settings
 from backend.fundmate.fund.models import FundType
 from backend.fundmate.schema_ext import CustomPaginationSchema
-from backend.fundmate.settings import BaseTypeEnum
 from backend.fundmate.user.models import User
 
 
@@ -101,7 +100,8 @@ class CompositionsSchema(Schema):
 class FundPortfolioInSchema(Schema):
     name = String(required=True, validate=Length(2, 10))
     is_visible = Boolean(default=True)
-    platform = String(load_default='own', validate=Equal('own'))  # 用户创建只能是own,不然会导致后续出错
+    platform = String(load_default=settings.PlatTypeEnum.own.dk_name,
+                      validate=Equal(settings.PlatTypeEnum.own.dk_name))  # 用户创建只能是own,不然会导致后续出错
     risk_type = String(default=None,
                        validate=OneOf(settings.RiskTypeEnum.input()),
                        metadata={
@@ -116,7 +116,7 @@ class FundPortfolioInSchema(Schema):
 class FundPortfolioPatchInSchema(Schema):
     name = String(required=True, validate=Length(2, 10))
     is_visible = Boolean(default=True)
-    risk_type = String(default=None, validate=OneOf(settings.RISK_TYPE.keys()))
+    risk_type = String(default=None, validate=OneOf(settings.RiskTypeEnum.input()))
     desc = String(validate=Length(0, 300))
     rich_desc = String(validate=Length(0, 1000))
     adjust_comment = String(validate=Length(0, 300),
@@ -140,7 +140,7 @@ def internal_fpo_manager(obj):
     :param obj:
     :return:
     """
-    if not obj.manager and obj.platform == 'own':
+    if not obj.manager and obj.platform == settings.PlatTypeEnum.own.dk_name:
         mgr_id = int(obj.mgr_code)
         user = User.query.filter_by(id=mgr_id).one_or_none()
         # [python - Is it possible to use a schema for a marshmallow custom field? - Stack Overflow](

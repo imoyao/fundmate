@@ -226,11 +226,11 @@ class DKHS:
         symbol_prefix = symbol.replace(code, '')
         fund_inst = Fund.filter_by_code(code)
         if fund_inst:
-            is_usable_risk = investment_risk in settings.RISK_TYPE.values()
-            is_usable_symbol = symbol_prefix in settings.SYMBOL_TYPE.keys()
+            is_usable_risk = investment_risk in settings.RiskTypeEnum.input()
+            is_usable_symbol = symbol_prefix in settings.SymbolTypeEnum.input()
             is_usable_charge_mode = charge_mode in [0, 1]
             if all([is_usable_risk, is_usable_symbol, is_usable_charge_mode]):
-                if symbol_prefix == 'UN':
+                if symbol_prefix == settings.SymbolTypeEnum.UN.dk_name:
                     # 如果是未知，则默认值没有必要更新
                     fund_inst.update(risk_level=investment_risk, is_fe_charge_mode=charge_mode)
                 else:
@@ -266,7 +266,7 @@ class DKHS:
                 code = fund_obj.get('code')
                 if code == fund_code:
                     symbol_prefix = symbol.replace(code, '')
-                    if symbol_prefix in settings.SYMBOL_TYPE.keys():
+                    if symbol_prefix in settings.SymbolTypeEnum.input():
                         return symbol_prefix
                 else:
                     logger.info(f'Get unexpected code:{code}.')
@@ -357,12 +357,11 @@ class DKHS:
                     min_balance = item.get('min_balance')
                     max_balance = item.get('max_balance')
                     if direction == 0:
-                        dir_type = 'subscribe'
+                        fee_type = settings.FeeTypeEnum.subscribe
                     else:
-                        dir_type = 'purchase'
-                    fee_type = settings.FEE_TYPE.get(dir_type)
-                    # 最大值时按照固定收费，同时修改上线为正无穷
+                        fee_type = settings.FeeTypeEnum.purchase
 
+                    # 最大值时按照固定收费，同时修改上限为正无穷
                     if max_balance == '0.00':
                         min_fare = item.get('min_fare')
                         max_fare = item.get('max_fare')
@@ -376,7 +375,7 @@ class DKHS:
                     }
 
                 elif direction == 1:
-                    fee_type = settings.FEE_TYPE.get('redeem')
+                    fee_type = settings.FeeTypeEnum.redeem
                     start_day = item.get('min_hold')
                     end_day = item.get('max_hold')
 

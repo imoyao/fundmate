@@ -905,10 +905,9 @@ class DanJuanFundDetail:
             class_name = InRule
         else:
             class_name = OutRule
-
-        fee_types = settings.FEE_TYPE.values()
+        fee_types = [item.dk_value for item in settings.FeeTypeEnum]
         if fee_type not in fee_types:
-            raise KeyError(f'The fee type should in {fee_types}')
+            raise KeyError(f'The fee_type should be Integer in {fee_types}')
 
         _fund_inst = Fund.filter_by_code(fund_code)
         fund_id = _fund_inst.id
