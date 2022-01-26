@@ -483,7 +483,6 @@ class DanJuanFundDetail:
         """
         有始有终
         :param first_info:
-        :param rate:
         :return:
         """
         range_str = first_info.get('name')
@@ -690,7 +689,7 @@ class DanJuanFundDetail:
             "name": "30.0天<=持有期限",
             "value": "0.0"
         }]
-        >>> self.remove_duplicate_resort(a)
+        >>> remove_duplicate_resort(a)
         >>> [{'name': '0.0天<持有期限<7.0天', 'value': '1.5'},
              {'name': '0.0天<持有期限<30.0天', 'value': '0.5'},
              {'name': '7.0天<=持有期限<30.0天', 'value': '0.5'},
@@ -798,7 +797,7 @@ class DanJuanFundDetail:
         if len(withdraw_rate_table) >= 2:
             *no_last, last = withdraw_rate_table
             try:
-                qt_list = self._parse_day_have_both(no_last)  # 解析区间值
+                qt_list = self._parse_day_have_both(no_last)  # 解析阈值
             except ParseError:
                 qt_list = list()
             if last:
@@ -886,7 +885,8 @@ class DanJuanFundDetail:
                 'withdraw_info': withdraw_info,
             }
             return rate_info
-        # raise EmptyError(f'The fund_code {fund_code} from remote get empty response,please check the code is validate?')
+        # raise EmptyError(f'The fund_code {fund_code} from remote get empty response,please check the code is
+        # validated?')
         return None
 
     @staticmethod
