@@ -488,6 +488,7 @@ class DkEnumTypeImpl(object):
 ```
 :::warning
 由于使用alembic来实现数据库的改动迁移，我们自定义的数据库字段是没法自动识别的，所以需要修改`migrations`中的`env.py`参阅 [此处](https://stackoverflow.com/a/61320562/14295718) ；此外，通过定义`choices.py`我们实现最小改动下可以导入自定义数据，具体实现逻辑参阅`render_choice_type()`方法。
+参阅 [此处](https://alembic.sqlalchemy.org/en/latest/autogenerate.html#affecting-the-rendering-of-types-themselves)
 :::
 ### 字段使用
 ```python
@@ -515,3 +516,8 @@ class Test(PkModel):
 ```
 ## 总结
 基于dataklasses模块，我们实现了一种可以自定义复杂value的Enum类型，之后再定义`IntChoiceDkEnumType`供数据库定义时使用，这样保存的数据就可以按照我们预期的保存并有限地限制输入非法值的状况，从而实现错误预防和逻辑分离。
+
+## 推荐阅读
+
+- [Moving to Django 3.0’s Field.choices Enumeration Types - Adam Johnson](https://adamj.eu/tech/2020/01/27/moving-to-django-3-field-choices-enumeration-types/)
+- [How to Create Django Like Choices Field in Flask SQLAlchemy | by Erika Dike | The Andela Way | Medium](https://medium.com/the-andela-way/how-to-create-django-like-choices-field-in-flask-sqlalchemy-1ca0e3a3af9d)
