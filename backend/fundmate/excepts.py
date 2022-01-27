@@ -21,6 +21,13 @@ class CalError(FmException):
     pass
 
 
+class NotSupportError(FmException):
+    """
+    暂不支持处理
+    """
+    pass
+
+
 class UniqueInstanceError(FmException):
     """
     该操作必须保证查询结果唯一性
