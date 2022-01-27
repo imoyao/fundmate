@@ -521,3 +521,15 @@ class Test(PkModel):
 
 - [Moving to Django 3.0’s Field.choices Enumeration Types - Adam Johnson](https://adamj.eu/tech/2020/01/27/moving-to-django-3-field-choices-enumeration-types/)
 - [How to Create Django Like Choices Field in Flask SQLAlchemy | by Erika Dike | The Andela Way | Medium](https://medium.com/the-andela-way/how-to-create-django-like-choices-field-in-flask-sqlalchemy-1ca0e3a3af9d)
+-     [Custom Types — SQLAlchemy 1.4 Documentation](https://docs.sqlalchemy.org/en/14/core/custom_types.html)
+
+  [python - SQLAlchemy - How to make "django choices" using SQLAlchemy? - Stack Overflow](
+  https://stackoverflow.com/questions/6262943/sqlalchemy-how-to-make-django-choices-using-sqlalchemy)
+
+  [How to Create Django Like Choices Field in Flask SQLAlchemy | by Erika Dike | The Andela Way | Medium](
+  https://medium.com/the-andela-way/how-to-create-django-like-choices-field-in-flask-sqlalchemy-1ca0e3a3af9d)
+
+  [python - Best way to do enum in Sqlalchemy? - Stack Overflow](
+  https://stackoverflow.com/questions/2676133/best-way-to-do-enum-in-sqlalchemy/2676213)
+
+  [zzzeek : The Enum Recipe](https://techspot.zzzeek.org/2011/01/14/the-enum-recipe/)
