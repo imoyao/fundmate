@@ -87,6 +87,7 @@ REGULAR_INVEST = ChoiceTypeIntegerDk(4, 'regular_invest', '定投')
 BONUS = ChoiceTypeIntegerDk(5, 'bonus', '分红')
 ADJUST = ChoiceTypeIntegerDk(6, 'adjust', '调仓')
 OTHER = ChoiceTypeIntegerDk(7, 'other', '其他')
+TRANSFER_REFUND = ChoiceTypeIntegerDk(8, 'transfer_refund', '基金转换退款')
 
 
 # 风险等级
@@ -102,6 +103,7 @@ class FundOpTypeEnum(BaseTypeEnum):
     bonus = BONUS
     adjust = ADJUST
     other = OTHER
+    transfer_refund = TRANSFER_REFUND
 
     @classmethod
     def default(cls):
