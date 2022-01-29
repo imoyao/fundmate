@@ -19,7 +19,10 @@
 6. 数据集去除 whitespace
 7. 解析交易行为：获取交易性质、交易源产品、交易目标产品
 TODO:
-1. 银行卡转入转出和账户内买入卖出需要区分开！！！
+1. 银行卡转入转出和账户内买入卖出需要区分开！
+2. 自动判断是手机账本还是电脑账本
+FIXME:
+1. 卖出操作现在只有到账金额，卖出份额不可知，需要用户手动补充（或许可以根据买入的日期推算？）
 """
 import csv
 import re
@@ -41,8 +44,8 @@ IS_FROM_PC = False
 
 # ============手机端导出文件配置此处==============
 # MOBILE_FILE_NAME = 'alipay_record_20220119_173409.csv'
-MOBILE_FILE_NAME = 'alipay_record_20220128_161121.csv'
-# MOBILE_FILE_NAME = 'alipay_record_20220128_161241.csv'
+# MOBILE_FILE_NAME = 'alipay_record_20220128_161121.csv'
+MOBILE_FILE_NAME = 'alipay_record_20220128_161241.csv'
 BASE_MOBILE_FILE_EXPORT_NAME = '手机端支付宝交易单导出.csv'
 MOBILE_ALIPAY_RECORDS_FP = Path(current_path).joinpath(MOBILE_FILE_NAME)
 MOBILE_ALIPAY_EXPORT_FP = Path(current_path).joinpath(BASE_MOBILE_FILE_EXPORT_NAME)
@@ -77,11 +80,38 @@ MB_OUTPUT_COLUMNS = {
     'op_type': '程序描述标识',
 }
 # 需要删除的字段列
-MOBILE_DROP_COLUMNS = ['trans_obj', 'trans_account', 'status', 'trans_type', 'bus_code']
+MOBILE_DROP_COLUMNS = ['trans_obj', 'trans_account', 'trans_type', 'bus_code']
+
+RAW_MOBILE_FIRST_LINE_SUBSTR = '电子客户回单'
 # =========PC端导出文件配置此处=========
-PC_FILE_NAME = 'alipay_record_20220119_1630_1.csv'
+RAW_PC_FIRST_LINE_SUBSTR = '支付宝交易记录明细查询'
+PC_FILE_NAME = 'alipay_record_20220130_1025_1.csv'
 BASE_PC_FILE_EXPORT_NAME = 'PC端支付宝交易单导出.csv'
-PC_DROP_COLUMNS = ['trans_create_time', 'trans_pay_time', 'trans_dist', 'trans_refund', 'trans_type', 'bus_code']
+'''
+['交易号',
+ '商家订单号',
+ '交易创建时间',
+ '付款时间',
+ '最近修改时间',
+ '交易来源地',
+ '类型',
+ '交易对方',
+ '商品名称',
+ '金额（元）',
+ '收/支',
+ '交易状态',
+ '服务费（元）',
+ '成功退款（元）',
+ '备注',
+ '资金状态']
+'''
+# FIXME: 目前表头还是硬编码，如果一次修改需要修改多处
+PC_RENAME_LIST = [
+    'trans_code', 'bus_code', 'trans_datetime', 'trans_pay_time', 'trans_modify_time', 'trans_source', 'trans_type',
+    'trans_dist', 'comment', 'amount', 'op_type', 'status', 'trans_cost', 'trans_refund', 'user_comment',
+    'assert_status'
+]
+PC_DROP_COLUMNS = ['trans_modify_time', 'trans_pay_time', 'trans_dist', 'trans_refund', 'trans_type', 'bus_code']
 PC_OUTPUT_COLUMNS = {
     'op_type_read': '交易类型',
     'op_type_desc': '交易类型描述',
@@ -92,10 +122,13 @@ PC_OUTPUT_COLUMNS = {
     'trans_code': '渠道交易流水号',
     'comment': '商品说明',
     'pay_method': '交易方式',
+    'status': '交易状态',
+    'trans_cost': '服务费（元）',  # 组合卖出手续费
+    'trans_refund': '成功退款（元）',  # 目前看到的都是0，可能是淘宝购物时退款订单使用
+    'assert_status': '资金状态',  # 区分银行转账和账户内部交易时可以使用
     'op_type': '程序描述标识',
 }
 
-# r'C:\Users\Andy\Desktop\alipay_record_20220119_173409\alipay_record_20220119_173409.csv'
 PC_ALIPAY_RECORDS_FP = Path(current_path).joinpath(PC_FILE_NAME)
 PC_ALIPAY_EXPORT_FP = Path(current_path).joinpath(BASE_PC_FILE_EXPORT_NAME)
 
@@ -152,29 +185,14 @@ ANT_FORTUNE_BBZ_PART2_STR = '单笔攒入'
 USER_INPUT_EXCEL_DICT = {'purchase': '买入', 'sale': '卖出', 'transfer': '转换'}
 # ===========PC端================
 PC_LAST_COLUMNS_STR = '资金状态'
-'''
-['交易号',
- '商家订单号',
- '交易创建时间',
- '付款时间',
- '最近修改时间',
- '交易来源地',
- '类型',
- '交易对方',
- '商品名称',
- '金额（元）',
- '收/支',
- '交易状态',
- '服务费（元）',
- '成功退款（元）',
- '备注',
- '资金状态']
-'''
-PC_RENAME_LIST = [
-    'trans_code', 'bus_code', 'trans_create_time', 'trans_pay_time', 'trans_modify_time', 'trans_source', 'trans_type',
-    'trans_dist', 'comment', 'amount', 'op_type', 'status', 'trans_cost', 'trans_refund', 'user_comment',
-    'assert_status'
-]
+# 撤单操作（当天买入，15点之前撤回操作）
+ANT_FORTUNE_BUY_ROLLBACK_STR = '买入退款'
+# 定投理财产品时
+STATUS_FREEZE_SUCCESS_STR = '冻结成功'
+# 交易未付款，超时订单关闭
+STATUS_TRADE_CLOSED_STR = '交易关闭'
+# 导出当天购买理财产品份额未确认
+STATUS_PAID_WHILE_UNCONFIRMED_STR = '付款成功，份额确认中'
 
 YUEBAO_LISTS = []
 # WARNING：记录流水号涉及部分个人敏感数据上传，请确保使用时是自主配置该项
@@ -200,13 +218,17 @@ class ALiPayTransfer:
         without_space_columns_df = with_space_columns_df.copy()
         return without_space_columns_df
 
-    def pre_prepared_df(self, df: PdDataFrame, last_columns_str: str = MB_LAST_COLUMNS_STR) -> PdDataFrame:
+    def pre_prepared_df(self,
+                        df: PdDataFrame,
+                        last_columns_str: str = MB_LAST_COLUMNS_STR,
+                        rename_list: List = None) -> PdDataFrame:
         """
         对脏数据进行预处理：
         ## 行：
         去掉表头的 whitespace
         ## 列：
         1. 去掉最后一列无意义空列
+        :param rename_list:
         :param last_columns_str:
         :param df:
         :return:
@@ -216,7 +238,7 @@ class ALiPayTransfer:
         removed_unnamed_columns_list = self.get_remove_unnamed_columns(raw_columns_list,
                                                                        last_columns_str=last_columns_str)
         removed_unnamed_columns_df = striped_columns_df[removed_unnamed_columns_list]
-        rename_dict = self.mk_rename_dict(removed_unnamed_columns_list)
+        rename_dict = self.mk_rename_dict(removed_unnamed_columns_list, rename_list)
         renamed_df = removed_unnamed_columns_df.rename(columns=rename_dict)
         return renamed_df
 
@@ -375,7 +397,7 @@ class ALiPayTransfer:
             op_type = FundOpTypeEnum.purchase
             target_name = YEB_NAME
             # raise NotSupportError(f'暂时无法处理<组合卖出>：{comment_str}')
-        elif tail_comt == ANT_FORTUNE_SALE_TO_YEB:
+        elif tail_comt in [ANT_FORTUNE_SALE_TO_YEB, ANT_FORTUNE_BUY_ROLLBACK_STR]:
             from_name = mid_comt
             op_type = FundOpTypeEnum.sale
             target_name = YEB_NAME
@@ -429,7 +451,7 @@ class ALiPayTransfer:
             from_name = f'<{HB_NAME}>'
             op_type = FundOpTypeEnum.purchase
             target_name = YEB_NAME
-        elif prod == ANT_FORTUNE_RECEIVED_TO_YEB:
+        elif prod in [ANT_FORTUNE_RECEIVED_TO_YEB, ANT_FORTUNE_BANK_CARD_TO_YEB]:
             from_name = REAL_CASH
             op_type = FundOpTypeEnum.purchase
             target_name = YEB_NAME
@@ -511,10 +533,35 @@ class ALiPayTransfer:
         invest_df_cp['to_prod'] = invest_df_cp.comment.map(lambda x: self.analysis_operate(x)[2])
         return invest_df_cp
 
+    def analyse_df_export_results(self,
+                                  invest_df: PdDataFrame,
+                                  drop_columns=None,
+                                  prefix: str = None,
+                                  base_export_file_name: str = None,
+                                  output_columns: List = None):
+        analysis_df = self.parse_comment(invest_df)
+        # 根据用户意愿删除流水号
+        if not IS_RECORD_TRANSACTIONAL_NUMBER:
+            analysis_df.drop(columns='trans_code', inplace=True)
+        else:
+            analysis_df['trans_code'] = analysis_df.trans_code.apply(lambda x: x + '\t')
+            # 删除无用字段
+        analysis_df.drop(columns=drop_columns, inplace=True)
+
+        with_date_name = f'{prefix}-{base_export_file_name}'
+        alipay_export_fp = Path(current_path).joinpath(with_date_name)
+        analysis_df.rename(columns=output_columns, inplace=True)
+
+        analysis_df.to_csv(alipay_export_fp, index=False)
+        print(f'结果已保存到：{alipay_export_fp}')
+
 
 class PCTransfer(ALiPayTransfer):
     """
     网页端导出账单使用该类
+    TODO:
+    1. user_comment 需要和comment拼接起来，可以写成[um:xxxx]？
+    2. trans_cost 用于记录组合卖出的手续费
     """
 
     def __init__(self,
@@ -523,6 +570,7 @@ class PCTransfer(ALiPayTransfer):
                  drop_tail_line_index: int = 7,
                  base_export_file_name=BASE_PC_FILE_EXPORT_NAME,
                  drop_columns=None,
+                 rename_list=None,
                  last_columns_str=PC_LAST_COLUMNS_STR,
                  output_columns=None):
 
@@ -531,6 +579,8 @@ class PCTransfer(ALiPayTransfer):
             output_columns = PC_OUTPUT_COLUMNS
         if not drop_columns:
             drop_columns = PC_DROP_COLUMNS
+        if not rename_list:
+            rename_list = PC_RENAME_LIST
         self.start_data_header = start_data_header
         self.source_fp = source_fp
         self.drop_tail_line_index = drop_tail_line_index
@@ -538,6 +588,7 @@ class PCTransfer(ALiPayTransfer):
         self.base_export_file_name = base_export_file_name
         self.output_columns = output_columns
         self.last_columns_str = last_columns_str
+        self.rename_list = rename_list
 
     def get_datetime_dict(self, fp: Union[str, Path], date_line: int = 2) -> Optional[Dict]:
         """ 获取账单起止日期"""
@@ -555,31 +606,34 @@ class PCTransfer(ALiPayTransfer):
             date_dict = self.get_durations(datetime_text)
             return date_dict
 
+    def filter_invest_df(self, renamed_df: PdDataFrame) -> PdDataFrame:
+        """
+        根据状态清洗一些
+        :param renamed_df:
+        :return:
+        """
+        invest_df = renamed_df.loc[(renamed_df.status != STATUS_FREEZE_SUCCESS_STR)
+                                   & (renamed_df.status != STATUS_TRADE_CLOSED_STR) &
+                                   (renamed_df.status != STATUS_PAID_WHILE_UNCONFIRMED_STR)]
+        return invest_df
+
     def main(self):
         raw_df = self.get_raw_df(self.source_fp, header=self.start_data_header)
-        renamed_df = self.pre_prepared_df(raw_df, self.last_columns_str)
+        renamed_df = self.pre_prepared_df(raw_df, self.last_columns_str, rename_list=self.rename_list)
         date_dict = self.get_datetime_dict(self.source_fp)
         prefix = f'起始时间[{date_dict.get("start_datetime")}]-终止时间[{date_dict.get("end_datetime")}]'
         # 去掉尾部注释性文字（包含用户隐私数据）
         useful_df = self.df_drop_useless_tail(renamed_df, drop_tail_line_index=self.drop_tail_line_index)
         # 去掉数据中的冗余whitespace
-        invest_df = self.strip_df_values(useful_df)
+        striped_df = self.strip_df_values(useful_df)
+        # 注意两者的过滤条件不一样
+        invest_df = self.filter_invest_df(striped_df)
 
-        analysis_df = self.parse_comment(invest_df)
-        # 根据用户意愿删除流水号
-        if not IS_RECORD_TRANSACTIONAL_NUMBER:
-            analysis_df.drop(columns='trans_code', inplace=True)
-        else:
-            analysis_df['trans_code'] = analysis_df.trans_code.apply(lambda x: x + '\t')
-        # 删除无用字段
-        analysis_df.drop(columns=self.drop_columns, inplace=True)
-
-        with_date_name = f'{prefix}-{self.base_export_file_name}'
-        alipay_export_fp = Path(current_path).joinpath(with_date_name)
-        analysis_df.rename(columns=self.output_columns, inplace=True)
-
-        analysis_df.to_csv(alipay_export_fp, index=False)
-        print(f'结果已保存到：{alipay_export_fp}')
+        self.analyse_df_export_results(invest_df,
+                                       self.drop_columns,
+                                       prefix,
+                                       base_export_file_name=self.base_export_file_name,
+                                       output_columns=self.output_columns)
         return 0
 
 
@@ -592,15 +646,18 @@ class MobileTransfer(ALiPayTransfer):
                  start_data_header=1,
                  source_fp: Union[str, Path] = MOBILE_ALIPAY_RECORDS_FP,
                  drop_tail_line_index: int = 20,
-                 base_export_file_name: str = BASE_PC_FILE_EXPORT_NAME,
+                 base_export_file_name: str = BASE_MOBILE_FILE_EXPORT_NAME,
                  last_columns_str: str = MB_LAST_COLUMNS_STR,
                  drop_columns: List = None,
+                 rename_list: List = None,
                  output_columns: List = None):
         super().__init__()
         if output_columns is None:
             output_columns = MB_OUTPUT_COLUMNS
         if not drop_columns:
             drop_columns = MOBILE_DROP_COLUMNS
+        if not rename_list:
+            rename_list = MB_RENAME_LIST
         super().__init__()
         self.start_data_header = start_data_header
         self.source_fp = source_fp
@@ -609,6 +666,7 @@ class MobileTransfer(ALiPayTransfer):
         self.base_export_file_name = base_export_file_name
         self.output_columns = output_columns
         self.last_columns_str = last_columns_str
+        self.rename_list = rename_list
 
     def operate_fund(self, invest_df: PdDataFrame) -> PdDataFrame:
         """
@@ -643,42 +701,41 @@ class MobileTransfer(ALiPayTransfer):
         date_dict = self.get_durations(datetime_text)
         return date_dict
 
-    def main(self):
+    def remove_trans_refund(self, df):
         """
+        如果“成功退款（元）” 都是0，则该选项无意义，可以删除
+        :param df:
         :return:
         """
+        trans_refund_list = df.trans_refund.unique().tolist()
+        if len(trans_refund_list) == 1 and trans_refund_list[0] == 0:
+            df.drop(columns='trans_refund', inplace=True)
+        return df
+
+    def main(self):
         raw_df = self.get_raw_df(self.source_fp, header=self.start_data_header)
 
-        renamed_df = self.pre_prepared_df(raw_df, self.last_columns_str)
+        renamed_df = self.pre_prepared_df(raw_df, self.last_columns_str, rename_list=self.rename_list)
         date_dict = self.get_datetime_dict(renamed_df)
         prefix = f'起始时间[{date_dict.get("start_datetime")}]-终止时间[{date_dict.get("end_datetime")}]'
         # 去掉尾部注释性文字（包含用户隐私数据）
         useful_df = self.df_drop_useless_tail(renamed_df, drop_tail_line_index=20)
         # 只保留基金交易数据
         striped_df = self.strip_df_values(useful_df)
+        # 注意两者的过滤条件不一样
         invest_df = self.filter_invest_df(striped_df)
 
-        analysis_df = self.parse_comment(invest_df)
-        # 根据用户意愿删除流水号
-        if not IS_RECORD_TRANSACTIONAL_NUMBER:
-            analysis_df.drop(columns='trans_code', inplace=True)
-        else:
-            analysis_df['trans_code'] = analysis_df.trans_code.apply(lambda x: x + '\t')
-        # 删除无用字段
-        analysis_df.drop(columns=self.drop_columns, inplace=True)
-
-        with_date_name = f'{prefix}-{self.base_export_file_name}'
-        alipay_export_fp = Path(current_path).joinpath(with_date_name)
-        analysis_df.rename(columns=self.output_columns, inplace=True)
-
-        analysis_df.to_csv(alipay_export_fp, index=False)
-        print(f'结果已保存到：{alipay_export_fp}')
+        self.analyse_df_export_results(invest_df,
+                                       self.drop_columns,
+                                       prefix,
+                                       base_export_file_name=self.base_export_file_name,
+                                       output_columns=self.output_columns)
         return 0
 
 
 if __name__ == '__main__':
     # mb = MobileTransfer()
-    # ret = mb.main()
+    # result = mb.main()
     pc = PCTransfer()
     result = pc.main()
     print(result)
