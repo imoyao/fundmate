@@ -72,6 +72,9 @@ encoding = 'gb18030'
 YEB_NAME = '余额宝'  # 余额宝，背后为货币基金
 YLB_NAME = '余利宝'  # 背后为货币基金
 HB_NAME = '红包'  # 背后为货币基金
+FILTER_INVEST_DATA_STR = '投资理财'
+ANT_FORTUNE_STR = '蚂蚁财富'
+TRADE_TIME_STR = '交易时间'
 '''
 每一次`ANT_FORTUNE_TRANSFER_YEB_STR` 都需要两种产品替换该字段
 '''
@@ -134,7 +137,7 @@ def get_remove_unnamed_columns(raw_columns_list) -> list:
     :param raw_columns_list:
     :return:
     """
-    if raw_columns_list[-2] == '交易时间':
+    if raw_columns_list[-2] == TRADE_TIME_STR:
         remove_unnamed_columns_list = raw_columns_list[:-1]
         return remove_unnamed_columns_list
 
@@ -165,7 +168,7 @@ def operate_fund(invest_df: PdDataFrame) -> PdDataFrame:
     :param invest_df: 
     :return: 
     """
-    invest_df = invest_df.loc[invest_df['comment'].str.contains('蚂蚁财富')]
+    invest_df = invest_df.loc[invest_df['comment'].str.contains(ANT_FORTUNE_STR)]
     return invest_df
 
 
@@ -175,9 +178,8 @@ def filter_invest_df(renamed_df: PdDataFrame) -> PdDataFrame:
     :param renamed_df:
     :return:
     """
-    renamed_df = renamed_df[~renamed_df.trans_type.isnull()]
-    invest_df = renamed_df[renamed_df.trans_type == '投资理财']
-    # invest_df = renamed_df.loc[renamed_df['trans_type'].str.contains('投资理财')]
+    not_null_df = renamed_df[~renamed_df.trans_type.isnull()]
+    invest_df = not_null_df[not_null_df.trans_type == FILTER_INVEST_DATA_STR]
     return invest_df
 
 
@@ -192,7 +194,7 @@ def strip_df_values(df: PdDataFrame) -> PdDataFrame:
     return df
 
 
-def _deal_transfer(comment_str: str):
+def _deal_transfer(comment_str: str) -> tuple:
     """
     处理基金转换的操作
     :param comment_str:
@@ -266,7 +268,7 @@ def _deal_transfer(comment_str: str):
     return op_type, from_name, target_name
 
 
-def _deal_enum_operate(comment_str):
+def _deal_enum_operate(comment_str: str) -> tuple:
     """
     买入、分红、卖出操作
     :param comment_str:
@@ -305,7 +307,7 @@ def _deal_enum_operate(comment_str):
     return op_type, from_name, target_name
 
 
-def _deal_complex_prod(comment_str: str):
+def _deal_complex_prod(comment_str: str) -> tuple:
     """
     有的商品名比较复杂，如：易方达黄金主题(QDII-LOF-FOF)A ，导致分割出错
     :param comment_str: 
@@ -329,7 +331,7 @@ def _deal_complex_prod(comment_str: str):
         raise NotSupportError(f'暂时无法处理交易行为：{comment_str}')
 
 
-def _deal_single_comment(comment_str: str):
+def _deal_single_comment(comment_str: str) -> tuple:
     comment_list = comment_str.split('-')
     prod = comment_list[0]
     if prod == ANT_FORTUNE_HB_REWARD_PURCHASE_STR:
