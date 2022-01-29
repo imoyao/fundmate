@@ -59,6 +59,21 @@ mb_rename_list = [
     'op_type', 'trans_obj', 'trans_account', 'comment', 'pay_method', 'amount', 'status', 'trans_type', 'trans_code',
     'bus_code', 'trans_datetime'
 ]
+# 重命名为普通用户可以看明白的表头
+# TODO: 调整列的顺序
+MB_OUTPUT_COLUMNS = {
+    'op_type_read': '交易类型',
+    'op_type_desc': '交易类型描述',
+    'from_prod': '卖出产品',
+    'to_prod': '买入产品',
+    'amount': '交易金额',
+    'trans_datetime': '交易时间',
+    'trans_code': '渠道交易流水号',
+    'comment': '商品说明',
+    'pay_method': '交易方式',
+    'op_type': '程序描述标识',
+}
+# 需要删除的字段列
 MOBILE_DROP_COLUMNS = ['trans_obj', 'trans_account', 'status', 'trans_type', 'bus_code']
 # =========PC端导出文件配置此处=========
 PC_FILE_NAME = ''
@@ -120,7 +135,7 @@ ANT_FORTUNE_BBZ_PART2_STR = '单笔攒入'
 USER_INPUT_EXCEL_DICT = {'purchase': '买入', 'sale': '卖出', 'transfer': '转换'}
 YUEBAO_LISTS = []
 # WARNING：记录流水号涉及部分个人敏感数据上传，请确保使用时是自主配置该项
-IS_RECORD_TRANSACTIONAL_NUMBER = False
+IS_RECORD_TRANSACTIONAL_NUMBER = True
 
 
 def get_raw_df(raw_fp: Union[str, Path]) -> PdDataFrame:
@@ -507,6 +522,8 @@ def main():
     # 根据用户意愿删除流水号
     if not IS_RECORD_TRANSACTIONAL_NUMBER:
         analysis_df.drop(columns='trans_code', inplace=True)
+    else:
+        analysis_df['trans_code'] = analysis_df.trans_code.apply(lambda x: x + '\t')
     # 删除无用字段
     analysis_df.drop(columns=drop_columns, inplace=True)
 
@@ -516,8 +533,10 @@ def main():
     else:
         with_date_name = f'{prefix}-{BASE_MOBILE_FILE_EXPORT_NAME}'
         alipay_export_fp = Path(current_path).joinpath(with_date_name)
+        analysis_df.rename(columns=MB_OUTPUT_COLUMNS, inplace=True)
 
     analysis_df.to_csv(alipay_export_fp, index=False)
+    print(f'结果已保存到：{alipay_export_fp}')
     return 0
 
 
