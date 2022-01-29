@@ -38,8 +38,8 @@ IS_FROM_PC = False
 
 # ============手机端导出文件配置此处==============
 # MOBILE_FILE_NAME = 'alipay_record_20220119_173409.csv'
-# MOBILE_FILE_NAME = 'alipay_record_20220128_161121.csv'
-MOBILE_FILE_NAME = 'alipay_record_20220128_161241.csv'
+MOBILE_FILE_NAME = 'alipay_record_20220128_161121.csv'
+# MOBILE_FILE_NAME = 'alipay_record_20220128_161241.csv'
 BASE_MOBILE_FILE_EXPORT_NAME = '手机端支付宝交易单导出.csv'
 MOBILE_ALIPAY_RECORDS_FP = Path(current_path).joinpath(MOBILE_FILE_NAME)
 MOBILE_ALIPAY_EXPORT_FP = Path(current_path).joinpath(BASE_MOBILE_FILE_EXPORT_NAME)
@@ -71,6 +71,7 @@ PC_ALIPAY_EXPORT_FP = Path(current_path).joinpath(BASE_PC_FILE_EXPORT_NAME)
 encoding = 'gb18030'
 YEB_NAME = '余额宝'  # 余额宝，背后为货币基金
 YLB_NAME = '余利宝'  # 背后为货币基金
+HB_NAME = '红包'  # 背后为货币基金
 '''
 每一次`ANT_FORTUNE_TRANSFER_YEB_STR` 都需要两种产品替换该字段
 '''
@@ -113,6 +114,7 @@ ANT_FORTUNE_QIAN_MGR_TO_YEB = '钱管家转入'
 ANT_FORTUNE_TRANSFER_YEB_STR = '更换货基转入'
 ANT_FORTUNE_BBZ_PART1_STR = '笔笔攒'
 ANT_FORTUNE_BBZ_PART2_STR = '单笔攒入'
+USER_INPUT_EXCEL_DICT = {'purchase': '买入', 'sale': '卖出', 'transfer': '转换'}
 YUEBAO_LISTS = []
 # WARNING：记录流水号涉及部分个人敏感数据上传，请确保使用时是自主配置该项
 IS_RECORD_TRANSACTIONAL_NUMBER = False
@@ -205,13 +207,13 @@ def _deal_transfer(comment_str: str):
         2. 从现金买入目的产品
         '''
         from_name, target_name = from2target.split(TRANSFER_SYMBOL)
-        op_type = FundOpTypeEnum.transfer.label
+        op_type = FundOpTypeEnum.transfer
     elif from2target in [
             ANT_FORTUNE_AUTO_TO_YEB, ANT_FORTUNE_BANK_CARD_TO_YEB, ANT_FORTUNE_SALE_TO_YEB, ANT_FORTUNE_QIAN_MGR_TO_YEB,
             ANT_FORTUNE_BANK_CARD_BIG_TO_YEB, ANT_FORTUNE_BANK_CARD_SALARY_TO_YEB, ANT_FORTUNE_BANK_CARD_IN_STR
     ]:
         from_name = REAL_CASH
-        op_type = FundOpTypeEnum.purchase.label
+        op_type = FundOpTypeEnum.purchase
         if split_head != YLB_NAME:
             # 1. 发的小红包/好友转账、2. 主动转入 3. 黄金票等提现（也是红包）4. 银行卡定期扣款
             target_name = YEB_NAME
@@ -222,28 +224,28 @@ def _deal_transfer(comment_str: str):
             ANT_FORTUNE_MYXY_AUTO_TO_YEB
     ]:
         from_name = YEB_NAME
-        op_type = FundOpTypeEnum.sale.label
+        op_type = FundOpTypeEnum.sale
         target_name = REAL_CASH
     elif from2target == ANT_FORTUNE_TRANSFER_YEB_STR:
         from_name = YEB_NAME_OLD
-        op_type = FundOpTypeEnum.transfer.label
+        op_type = FundOpTypeEnum.transfer
         target_name = YEB_NAME_NEW
     elif split_head in [ANT_FORTUNE_YLB_TO_YEB_YE, ANT_FORTUNE_WS_INTEREST_TO_YEB]:
         from_name = REAL_CASH
-        op_type = FundOpTypeEnum.purchase.label
+        op_type = FundOpTypeEnum.purchase
         target_name = YEB_NAME
     elif split_head in [ANT_FORTUNE_SALE_PROD_TO_YEB, ANT_FORTUNE_REGULAR_INVEST_SALE_STR]:
         from_name = f'理财产品<{from2target}>'
-        op_type = FundOpTypeEnum.sale.label
+        op_type = FundOpTypeEnum.sale
         target_name = YEB_NAME
     elif split_head in [ANT_FORTUNE_PURCHASE_YEB_TO_PROD, ANT_FORTUNE_REGULAR_INVEST_STR]:
         from_name = YEB_NAME
-        op_type = FundOpTypeEnum.purchase.label
+        op_type = FundOpTypeEnum.purchase
         target_name = f'理财产品<{from2target}>'
     elif split_head == ANT_FORTUNE_YEB_YE_TO_YLB:
         if from2target == ANT_FORTUNE_PURCHASE_FUND_STR:
             from_name = REAL_CASH
-            op_type = FundOpTypeEnum.sale.label
+            op_type = FundOpTypeEnum.sale
             target_name = YLB_NAME
         else:
             raise NotSupportError(f'暂时无法处理交易行为：{comment_str}')
@@ -251,11 +253,11 @@ def _deal_transfer(comment_str: str):
         # FIXME:收益挑战实际是从产品卖出到余额宝的过程
         if ANT_FORTUNE_CHALLENGE_SALE_STR in from2target:
             from_name = REAL_CASH
-            op_type = FundOpTypeEnum.sale.label
+            op_type = FundOpTypeEnum.sale
             target_name = YEB_NAME
         elif ANT_FORTUNE_CHALLENGE_PURCHASE_STR in from2target:
             from_name = REAL_CASH
-            op_type = FundOpTypeEnum.purchase.label
+            op_type = FundOpTypeEnum.purchase
             target_name = YEB_NAME
         else:
             raise NotSupportError(f'暂时无法处理交易行为：{comment_str}')
@@ -275,28 +277,28 @@ def _deal_enum_operate(comment_str):
     # ['卖出至余额宝', '买入', '现金分红至余额宝', '转出至余额宝']
     if tail_comt == ANT_FORTUNE_COMB_TO_YEB:
         from_name = f'组合产品<{mid_comt}>'
-        op_type = FundOpTypeEnum.purchase.label
+        op_type = FundOpTypeEnum.purchase
         target_name = YEB_NAME
         # raise NotSupportError(f'暂时无法处理<组合卖出>：{comment_str}')
     elif tail_comt == ANT_FORTUNE_SALE_TO_YEB:
         from_name = mid_comt
-        op_type = FundOpTypeEnum.sale.label
+        op_type = FundOpTypeEnum.sale
         target_name = YEB_NAME
     elif tail_comt == ANT_FORTUNE_PURCHASE_STR:
         from_name = YEB_NAME
-        op_type = FundOpTypeEnum.purchase.label
+        op_type = FundOpTypeEnum.purchase
         target_name = mid_comt
     elif tail_comt == ANT_FORTUNE_BONUS_TO_YEB:
         from_name = mid_comt
-        op_type = FundOpTypeEnum.bonus.label
+        op_type = FundOpTypeEnum.bonus
         target_name = YEB_NAME
     elif tail_comt in [ANT_FORTUNE_RE_BUY_TO_YEB, ANT_FORTUNE_BANK_CARD_SALARY_TO_YEB]:
         from_name = REAL_CASH
-        op_type = FundOpTypeEnum.purchase.label
+        op_type = FundOpTypeEnum.purchase
         target_name = YEB_NAME
     elif mid_comt == ANT_FORTUNE_BBZ_PART1_STR and tail_comt == ANT_FORTUNE_BBZ_PART2_STR:
         from_name = REAL_CASH
-        op_type = FundOpTypeEnum.purchase.label
+        op_type = FundOpTypeEnum.purchase
         target_name = YEB_NAME
     else:
         raise NotSupportError(f'暂时无法处理交易行为：{comment_str}, tail_comt:{tail_comt}')
@@ -312,7 +314,7 @@ def _deal_complex_prod(comment_str: str):
     comment_list = comment_str.split('-')
     _, *mid_comt_split_list, tail_comt = comment_list
     if tail_comt == ANT_FORTUNE_SALE_TO_YEB:
-        op_type = FundOpTypeEnum.sale.label
+        op_type = FundOpTypeEnum.sale
         # 易方达黄金主题(QDII-LOF-FOF)A
         from_name = '-'.join(mid_comt_split_list)
         target_name = YEB_NAME
@@ -320,7 +322,7 @@ def _deal_complex_prod(comment_str: str):
     elif tail_comt == ANT_FORTUNE_PURCHASE_STR:
         # 易方达黄金主题(QDII-LOF-FOF)A
         from_name = YEB_NAME
-        op_type = FundOpTypeEnum.purchase.label
+        op_type = FundOpTypeEnum.purchase
         target_name = '-'.join(mid_comt_split_list)
         return op_type, from_name, target_name
     else:
@@ -331,16 +333,16 @@ def _deal_single_comment(comment_str: str):
     comment_list = comment_str.split('-')
     prod = comment_list[0]
     if prod == ANT_FORTUNE_HB_REWARD_PURCHASE_STR:
-        from_name = '<红包奖励>'
-        op_type = FundOpTypeEnum.purchase.label
+        from_name = f'<{HB_NAME}>'
+        op_type = FundOpTypeEnum.purchase
         target_name = YEB_NAME
     elif prod == ANT_FORTUNE_RECEIVED_TO_YEB:
         from_name = REAL_CASH
-        op_type = FundOpTypeEnum.purchase.label
+        op_type = FundOpTypeEnum.purchase
         target_name = YEB_NAME
     elif prod == ANT_FORTUNE_YEB_YE_TO_YLB:
         from_name = REAL_CASH
-        op_type = FundOpTypeEnum.sale.label
+        op_type = FundOpTypeEnum.sale
         target_name = YLB_NAME
     else:
         raise NotSupportError(f'暂时无法处理交易行为：{comment_str}')
@@ -366,13 +368,30 @@ def analysis_operate(comment_str: str) -> tuple:
         卖出退款，此时我们对重新买入产品不感兴趣
         '''
         _, from_name, raw_to_name, transfer_status = comment_list
-        op_type = FundOpTypeEnum.transfer_refund.label
+        op_type = FundOpTypeEnum.transfer_refund
         target_name = YEB_NAME
     elif comt_len == 5:
         op_type, from_name, target_name = _deal_complex_prod(comment_str)
     else:
         raise NotSupportError(f'暂时无法处理交易行为：{comment_str}')
     return op_type, from_name, target_name
+
+
+def change_to_user_friendly(comment: str):
+    """
+    根据comment转换为用户可读的内容
+    :param comment:
+    :return:
+    """
+    op_type = analysis_operate(comment)[0]
+    op_desc = op_type.label
+    op_name = op_type.name
+    op_input = USER_INPUT_EXCEL_DICT.get(op_name, op_desc)
+    return {
+        'name': op_name,
+        'desc': op_desc,
+        'input': op_input,
+    }
 
 
 def parse_comment(invest_df: PdDataFrame) -> PdDataFrame:
@@ -386,7 +405,11 @@ def parse_comment(invest_df: PdDataFrame) -> PdDataFrame:
     """
     invest_df_cp = invest_df.copy()
     invest_df_cp.loc[:, 'comment'] = invest_df.comment
-    invest_df_cp['op_type'] = invest_df_cp.comment.map(lambda x: analysis_operate(x)[0])
+
+    invest_df_cp['op_type'] = invest_df_cp.comment.map(lambda x: change_to_user_friendly(x).get('name'))
+    invest_df_cp['op_type_read'] = invest_df_cp.comment.map(lambda x: change_to_user_friendly(x).get('input'))
+    invest_df_cp['op_type_desc'] = invest_df_cp.comment.map(lambda x: change_to_user_friendly(x).get('desc'))
+
     invest_df_cp['from_prod'] = invest_df_cp.comment.map(lambda x: analysis_operate(x)[1])
     invest_df_cp['to_prod'] = invest_df_cp.comment.map(lambda x: analysis_operate(x)[2])
     return invest_df_cp
