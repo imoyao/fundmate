@@ -407,7 +407,7 @@ class ALiPayTransfer:
             target_name = mid_comt
         elif tail_comt == ANT_FORTUNE_BONUS_TO_YEB:
             from_name = mid_comt
-            op_type = FundOpTypeEnum.bonus
+            op_type = FundOpTypeEnum.cash_bonus
             target_name = YEB_NAME
         elif tail_comt in [ANT_FORTUNE_RE_BUY_TO_YEB, ANT_FORTUNE_BANK_CARD_SALARY_TO_YEB]:
             from_name = REAL_CASH

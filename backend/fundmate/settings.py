@@ -84,10 +84,11 @@ OP_PURCHASE = ChoiceTypeIntegerDk(1, 'purchase', '买入/存入/申购')
 SALE = ChoiceTypeIntegerDk(2, 'sale', '赎回/卖出/支取')
 TRANSFER = ChoiceTypeIntegerDk(3, 'transfer', '转换/转存')
 REGULAR_INVEST = ChoiceTypeIntegerDk(4, 'regular_invest', '定投')
-BONUS = ChoiceTypeIntegerDk(5, 'bonus', '分红')
+CASH_BONUS = ChoiceTypeIntegerDk(5, 'cash_bonus', '现金分红')
 ADJUST = ChoiceTypeIntegerDk(6, 'adjust', '调仓')
 OTHER = ChoiceTypeIntegerDk(7, 'other', '其他')
 TRANSFER_REFUND = ChoiceTypeIntegerDk(8, 'transfer_refund', '基金转换退款')
+QUOT_BONUS = ChoiceTypeIntegerDk(9, 'quot_bonus', '份额分红')
 
 
 # 风险等级
@@ -100,10 +101,11 @@ class FundOpTypeEnum(BaseTypeEnum):
     sale = SALE
     transfer = TRANSFER
     regular_invest = REGULAR_INVEST
-    bonus = BONUS
+    cash_bonus = CASH_BONUS
     adjust = ADJUST
     other = OTHER
     transfer_refund = TRANSFER_REFUND
+    quot_bonus = QUOT_BONUS
 
     @classmethod
     def default(cls):
