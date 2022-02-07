@@ -19,7 +19,11 @@
 6. 数据集去除 whitespace
 7. 解析交易行为：获取交易性质、交易源产品、交易目标产品
 TODO:
-1. 银行卡转入转出和账户内买入卖出需要区分开！
+~~1. 银行卡资金转入转出和账户内产品买入卖出需要区分开！~~
+余额到余利宝属于取出
+银行卡到余额宝属于存入
+余利宝到余额属于存入
+余额宝到余额属于卖出
 2. 自动判断是手机账本还是电脑账本
 FIXME:
 1. 卖出操作现在只有到账金额，卖出份额不可知，需要用户手动补充（或许可以根据买入的日期推算？）
@@ -105,7 +109,7 @@ BASE_PC_FILE_EXPORT_NAME = 'PC端支付宝交易单导出.csv'
  '备注',
  '资金状态']
 '''
-# FIXME: 目前表头还是硬编码，如果一次修改需要修改多处
+# FIXME: 目前表头还是硬编码，如果某一个英文描述需要修改则需要修改多处
 PC_RENAME_LIST = [
     'trans_code', 'bus_code', 'trans_datetime', 'trans_pay_time', 'trans_modify_time', 'trans_source', 'trans_type',
     'trans_dist', 'comment', 'amount', 'op_type', 'status', 'trans_cost', 'trans_refund', 'user_comment',
@@ -158,7 +162,7 @@ ANT_FORTUNE_PURCHASE_YEB_TO_PROD = '理财买入'
 ANT_FORTUNE_COMB_TO_YEB = '转出至余额宝'
 ANT_FORTUNE_COMB_YEB_TO_YE = '转出到余额'
 ANT_FORTUNE_AUTO_TO_YEB = '自动转入'
-ANT_FORTUNE_RE_BUY_TO_YEB = '收益发放'
+ANT_FORTUNE_RE_BUY_TO_YEB = '收益发放'  # TODO: 收益发放是否算作买入，可能导致金额对不上
 ANT_FORTUNE_PURCHASE_FUND_STR = '基金申购'
 
 ANT_FORTUNE_CHALLENGE_RATE_TO_YEB = '收益挑战'
@@ -326,23 +330,30 @@ class ALiPayTransfer:
             from_name, target_name = from2target.split(TRANSFER_SYMBOL)
             op_type = FundOpTypeEnum.transfer
         elif from2target in [
-                ANT_FORTUNE_AUTO_TO_YEB, ANT_FORTUNE_BANK_CARD_TO_YEB, ANT_FORTUNE_SALE_TO_YEB,
-                ANT_FORTUNE_QIAN_MGR_TO_YEB, ANT_FORTUNE_BANK_CARD_BIG_TO_YEB, ANT_FORTUNE_BANK_CARD_SALARY_TO_YEB,
+                ANT_FORTUNE_BANK_CARD_TO_YEB, ANT_FORTUNE_SALE_TO_YEB, ANT_FORTUNE_BANK_CARD_SALARY_TO_YEB,
                 ANT_FORTUNE_BANK_CARD_IN_STR
         ]:
             from_name = REAL_CASH
             op_type = FundOpTypeEnum.purchase
             if split_head != YLB_NAME:
-                # 1. 发的小红包/好友转账、2. 主动转入 3. 黄金票等提现（也是红包）4. 银行卡定期扣款
+                # 1. 发的小红包/好友转账、 2. 黄金票等提现（也是红包）
                 target_name = YEB_NAME
             else:
                 target_name = YLB_NAME
-        elif from2target in [
-                ANT_FORTUNE_OUT_TO_BANK_CARD, ANT_FORTUNE_COMB_YEB_TO_YE, ANT_FORTUNE_MYXY_MANUAL_TO_YEB,
-                ANT_FORTUNE_MYXY_AUTO_TO_YEB
-        ]:
+        elif from2target == ANT_FORTUNE_COMB_YEB_TO_YE:
             from_name = YEB_NAME
             op_type = FundOpTypeEnum.sale
+            target_name = REAL_CASH
+        elif from2target in [
+                ANT_FORTUNE_BANK_CARD_BIG_TO_YEB, ANT_FORTUNE_AUTO_TO_YEB, ANT_FORTUNE_MYXY_MANUAL_TO_YEB,
+                ANT_FORTUNE_MYXY_AUTO_TO_YEB, ANT_FORTUNE_QIAN_MGR_TO_YEB
+        ]:
+            from_name = REAL_CASH
+            op_type = FundOpTypeEnum.deposit
+            target_name = YEB_NAME
+        elif from2target == ANT_FORTUNE_OUT_TO_BANK_CARD:
+            from_name = YEB_NAME
+            op_type = FundOpTypeEnum.draw_out
             target_name = REAL_CASH
         elif from2target == ANT_FORTUNE_TRANSFER_YEB_STR:
             from_name = YEB_NAME_OLD
@@ -363,7 +374,7 @@ class ALiPayTransfer:
         elif split_head == ANT_FORTUNE_YEB_YE_TO_YLB:
             if from2target == ANT_FORTUNE_PURCHASE_FUND_STR:
                 from_name = REAL_CASH
-                op_type = FundOpTypeEnum.sale
+                op_type = FundOpTypeEnum.draw_out
                 target_name = YLB_NAME
             else:
                 raise NotSupportError(f'暂时无法处理交易行为：{comment_str}')
@@ -409,13 +420,17 @@ class ALiPayTransfer:
             from_name = mid_comt
             op_type = FundOpTypeEnum.cash_bonus
             target_name = YEB_NAME
-        elif tail_comt in [ANT_FORTUNE_RE_BUY_TO_YEB, ANT_FORTUNE_BANK_CARD_SALARY_TO_YEB]:
+        elif tail_comt == ANT_FORTUNE_RE_BUY_TO_YEB:
             from_name = REAL_CASH
             op_type = FundOpTypeEnum.purchase
             target_name = YEB_NAME
+        elif tail_comt == ANT_FORTUNE_BANK_CARD_SALARY_TO_YEB:
+            from_name = REAL_CASH
+            op_type = FundOpTypeEnum.deposit
+            target_name = YEB_NAME
         elif mid_comt == ANT_FORTUNE_BBZ_PART1_STR and tail_comt == ANT_FORTUNE_BBZ_PART2_STR:
             from_name = REAL_CASH
-            op_type = FundOpTypeEnum.purchase
+            op_type = FundOpTypeEnum.deposit
             target_name = YEB_NAME
         else:
             raise NotSupportError(f'暂时无法处理交易行为：{comment_str}, tail_comt:{tail_comt}')
@@ -451,13 +466,17 @@ class ALiPayTransfer:
             from_name = f'<{HB_NAME}>'
             op_type = FundOpTypeEnum.purchase
             target_name = YEB_NAME
-        elif prod in [ANT_FORTUNE_RECEIVED_TO_YEB, ANT_FORTUNE_BANK_CARD_TO_YEB]:
+        elif prod == ANT_FORTUNE_RECEIVED_TO_YEB:
             from_name = REAL_CASH
             op_type = FundOpTypeEnum.purchase
             target_name = YEB_NAME
+        elif prod == ANT_FORTUNE_BANK_CARD_TO_YEB:
+            from_name = REAL_CASH
+            op_type = FundOpTypeEnum.deposit
+            target_name = YEB_NAME
         elif prod == ANT_FORTUNE_YEB_YE_TO_YLB:
             from_name = REAL_CASH
-            op_type = FundOpTypeEnum.sale
+            op_type = FundOpTypeEnum.draw_out
             target_name = YLB_NAME
         else:
             raise NotSupportError(f'暂时无法处理交易行为：{comment_str}')
