@@ -80,8 +80,8 @@ class RiskTypeEnum(BaseTypeEnum):
         return [item.dk_name for item in cls]
 
 
-OP_PURCHASE = ChoiceTypeIntegerDk(1, 'purchase', '买入/存入/申购')
-SALE = ChoiceTypeIntegerDk(2, 'sale', '赎回/卖出/支取')
+OP_PURCHASE = ChoiceTypeIntegerDk(1, 'purchase', '买入/申购')
+SALE = ChoiceTypeIntegerDk(2, 'sale', '赎回/卖出')
 TRANSFER = ChoiceTypeIntegerDk(3, 'transfer', '转换/转存')
 REGULAR_INVEST = ChoiceTypeIntegerDk(4, 'regular_invest', '定投')
 CASH_BONUS = ChoiceTypeIntegerDk(5, 'cash_bonus', '现金分红')
@@ -89,6 +89,8 @@ ADJUST = ChoiceTypeIntegerDk(6, 'adjust', '调仓')
 OTHER = ChoiceTypeIntegerDk(7, 'other', '其他')
 TRANSFER_REFUND = ChoiceTypeIntegerDk(8, 'transfer_refund', '基金转换退款')
 QUOT_BONUS = ChoiceTypeIntegerDk(9, 'quot_bonus', '份额分红')
+DEPOSIT = ChoiceTypeIntegerDk(10, 'deposit', '存入')  # 从银行卡存入
+DRAW_OUT = ChoiceTypeIntegerDk(11, 'draw_out', '取出')  # 取出到银行卡
 
 
 # 风险等级
@@ -106,6 +108,8 @@ class FundOpTypeEnum(BaseTypeEnum):
     other = OTHER
     transfer_refund = TRANSFER_REFUND
     quot_bonus = QUOT_BONUS
+    deposit = DEPOSIT
+    draw_out = DRAW_OUT
 
     @classmethod
     def default(cls):
