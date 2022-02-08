@@ -38,15 +38,16 @@ import pandas as pd
 from backend.fundmate.excepts import NotSupportError
 from backend.fundmate.settings import FundOpTypeEnum
 from backend.fundmate.types import PdDataFrame
+
+current_path = Path.cwd()
+# ============通用配置==============
 '''
 如果不确定是从手机端还是网页端导出的模板文件，直接配置`TEMPLATE_FILE_NAME`即可；
 如果可以确定，请配置`IS_FROM_PC`变量
 '''
-current_path = Path.cwd()
-# ============通用配置==============
 # 必要配置：模板文件名称和导出后文件名（注意格式必须是.csv）
-# TEMPLATE_FILE_NAME = 'alipay_record_20220130_1025_1.csv'
-TEMPLATE_FILE_NAME = 'alipay_record_20220119_173409.csv'
+TEMPLATE_FILE_NAME = 'alipay_record_20220130_1025_1.csv'
+# TEMPLATE_FILE_NAME = 'alipay_record_20220119_173409.csv'
 # TEMPLATE_FILE_NAME = 'alipay_record_20220128_161121.csv'
 # TEMPLATE_FILE_NAME = 'alipay_record_20220128_161241.csv'
 ALIPAY_RECORDS_TEMPLATE_FP = Path(current_path).joinpath(TEMPLATE_FILE_NAME)
@@ -62,18 +63,19 @@ IS_FROM_PC = None
 MB_FILE_EXPORT_PREFIX = '手机端'
 PC_FILE_EXPORT_PREFIX = 'PC端'
 # ============手机端特殊处理配置==============
-# ['收/支',
-#  '交易对方',
-#  '对方账号',
-#  '商品说明',
-#  '收/付款方式',
-#  '金额',
-#  '交易状态',
-#  '交易分类',
-#  '交易订单号',
-#  '商家订单号',
-#  '交易时间']
-
+'''
+['收/支',
+ '交易对方',
+ '对方账号',
+ '商品说明',
+ '收/付款方式',
+ '金额',
+ '交易状态',
+ '交易分类',
+ '交易订单号',
+ '商家订单号',
+ '交易时间']
+'''
 MB_RENAME_LIST = [
     'op_type', 'trans_obj', 'trans_account', 'comment', 'pay_method', 'amount', 'status', 'trans_type', 'trans_code',
     'bus_code', 'trans_datetime'
@@ -119,10 +121,10 @@ RAW_PC_FIRST_LINE_SUBSTR = '支付宝交易记录明细查询'
 # FIXME: 目前表头还是硬编码，如果某一个英文描述需要修改则需要修改多处
 PC_RENAME_LIST = [
     'trans_code', 'bus_code', 'trans_datetime', 'trans_pay_time', 'trans_modify_time', 'trans_source', 'trans_type',
-    'trans_dist', 'comment', 'amount', 'op_type', 'status', 'trans_cost', 'trans_refund', 'user_comment',
+    'trans_dist', 'comment', 'amount', 'op_type', 'status', 'trans_cost', 'trans_refund', 'transfer_refund_comment',
     'assert_status'
 ]
-PC_DROP_COLUMNS = ['trans_modify_time', 'trans_pay_time', 'trans_dist', 'trans_refund', 'trans_type', 'bus_code']
+PC_DROP_COLUMNS = ['trans_modify_time', 'trans_pay_time', 'trans_dist', 'trans_type', 'bus_code']
 PC_OUTPUT_COLUMNS = {
     'op_type_read': '交易类型',
     'op_type_desc': '交易类型描述',
@@ -598,7 +600,7 @@ class PCTransfer(ALiPayTransfer):
     """
     网页端导出账单使用该类
     TODO:
-    1. user_comment 需要和comment拼接起来，可以写成[um:xxxx]？
+    1. transfer_refund_comment 需要和comment拼接起来，可以写成[um:xxxx]？
     2. trans_cost 用于记录组合卖出的手续费
     """
 
@@ -644,15 +646,65 @@ class PCTransfer(ALiPayTransfer):
             date_dict = self.get_durations(datetime_text)
             return date_dict
 
+    def amend_transfer_refund_comment(self, origin_comment: str, transfer_refund_comment: Optional[str]):
+        """
+        将退款信息追加到注释信息中组成新的备注信息
+
+        TODO:文档知识点：将数据集中的两个字段重新拼接成一个新的字段
+        see also:
+        https://stackoverflow.com/questions/34279378/python-pandas-apply-function-with-two-arguments-to-columns
+        :return:
+        """
+        # df['Value'] = df.apply(lambda row: my_test(row['a'], row['c']), axis=1)
+        if transfer_refund_comment:
+            return f'{origin_comment}[um:{transfer_refund_comment}]'
+        else:
+            return origin_comment
+
+    def drop_trans_source_columns(self, df: PdDataFrame) -> PdDataFrame:
+        """
+        通过外部商家购买的理财产品会多出此字段（trans_source），其余时候皆为NaN，该字段不需要保留
+        其他（包括阿里巴巴和外部商家）"""
+        df.drop(columns='trans_source', inplace=True)
+        return df
+
+    def drop_trans_refund(self, df):
+        """
+        如果“成功退款（元）” 都是0，则该选项无意义，可以删除
+        :param df:
+        :return:
+        """
+        trans_refund_list = df.trans_refund.unique().tolist()
+        if len(trans_refund_list) == 1 and trans_refund_list[0] == 0:
+            df.drop(columns='trans_refund', inplace=True)
+        return df
+
+    def rebase_comment(self, invest_df: PdDataFrame) -> PdDataFrame:
+        """
+        将退款信息合并到comment信息中
+        :param invest_df:
+        :return:
+        """
+        # transfer_refund_comment 为转款退款信息
+        cp_invest_df = invest_df.copy()
+        cp_invest_df['comment'] = cp_invest_df.apply(
+            lambda row: self.amend_transfer_refund_comment(row['comment'], row['transfer_refund_comment']), axis=1)
+        # 删除无用字段
+        cp_invest_df.drop(columns='transfer_refund_comment', inplace=True)
+        return cp_invest_df
+
     def filter_invest_df(self, renamed_df: PdDataFrame) -> PdDataFrame:
         """
-        根据状态清洗一些
+        清洗一些不必要的数据
         :param renamed_df:
         :return:
         """
         invest_df = renamed_df.loc[(renamed_df.status != STATUS_FREEZE_SUCCESS_STR)
                                    & (renamed_df.status != STATUS_TRADE_CLOSED_STR) &
                                    (renamed_df.status != STATUS_PAID_WHILE_UNCONFIRMED_STR)]
+        rebase_comment_df = self.rebase_comment(invest_df)
+        no_trans_source_df = self.drop_trans_source_columns(rebase_comment_df)
+        invest_df = self.drop_trans_refund(no_trans_source_df)
         return invest_df
 
     def main(self):
@@ -696,7 +748,6 @@ class MobileTransfer(ALiPayTransfer):
             drop_columns = MOBILE_DROP_COLUMNS
         if not rename_list:
             rename_list = MB_RENAME_LIST
-        super().__init__()
         self.start_data_header = start_data_header
         self.source_fp = source_fp
         self.drop_tail_line_index = drop_tail_line_index
@@ -738,17 +789,6 @@ class MobileTransfer(ALiPayTransfer):
         datetime_text = dt.iloc[-16:-15]['op_type'].to_list()[0]
         date_dict = self.get_durations(datetime_text)
         return date_dict
-
-    def remove_trans_refund(self, df):
-        """
-        如果“成功退款（元）” 都是0，则该选项无意义，可以删除
-        :param df:
-        :return:
-        """
-        trans_refund_list = df.trans_refund.unique().tolist()
-        if len(trans_refund_list) == 1 and trans_refund_list[0] == 0:
-            df.drop(columns='trans_refund', inplace=True)
-        return df
 
     def main(self):
         raw_df = self.get_raw_df(self.source_fp, header=self.start_data_header)
