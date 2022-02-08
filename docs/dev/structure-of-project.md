@@ -39,7 +39,7 @@ my_blog
 ### [OpenStack](https://blog.csdn.net/llg8212/article/details/19990613)
 
 ::: warning
-本文中以`openstack neutron`为例，且根据 github 上的源码来看，最新版的代码结构与文中展示也有很大差异。而下文的更加合理，结构化。
+本文中以`openstack-neutron`版本为例，且根据 github 上的源码来看，最新版的代码结构与文中展示也有很大差异。而下文的更加合理，结构化。
 :::
 
 ```bash
@@ -124,7 +124,7 @@ my_blog
 
 1. 进入虚拟环境
 ```bash
-source fmp/bin/activate
+source venv/bin/activate
 ```
 2. 安装 cookiecutter
 ```bash
@@ -336,6 +336,7 @@ def home():
 一个大型项目中，会包含很多子业务，比如本项目中我们会有用户管理、基金管理、流水记录等，每一部分都可以是独立的项目，在 Flask 中，按照业务的方式将文件划分开，就是按业务方式来组织项目结构，这样的组织方式有助于并行开发和分而治之。
 
 ## 相关链接
+- [Packaging Python Projects — Python Packaging User Guide](https://packaging.python.org/en/latest/tutorials/packaging-projects/)
 - [项目布局 — Flask 中文文档（ 1.1.1 ）](https://dormousehole.readthedocs.io/en/latest/tutorial/layout.html)
 - [结构化您的工程 — The Hitchhiker's Guide to Python](https://pythonguidecn.readthedocs.io/zh/latest/writing/structure.html)
 - [使用 cookiecutter-flask 快速生成 python 后端项目 - 知乎](https://zhuanlan.zhihu.com/p/25874886)
