@@ -24,7 +24,7 @@ TODO:
 银行卡到余额宝属于存入
 余利宝到余额属于存入
 余额宝到余额属于卖出
-2. 自动判断是手机账本还是电脑账本
+~~2. 自动判断是手机账本还是电脑账本~~
 FIXME:
 1. 卖出操作现在只有到账金额，卖出份额不可知，需要用户手动补充（或许可以根据买入的日期推算？）
 """
@@ -38,21 +38,30 @@ import pandas as pd
 from backend.fundmate.excepts import NotSupportError
 from backend.fundmate.settings import FundOpTypeEnum
 from backend.fundmate.types import PdDataFrame
-
+'''
+如果不确定是从手机端还是网页端导出的模板文件，直接配置`TEMPLATE_FILE_NAME`即可；
+如果可以确定，请配置`IS_FROM_PC`变量
+'''
 current_path = Path.cwd()
-'''
-手机端导出账单用户和PC端导出账单选择其一配置即可
-'''
-# PC: True MOBILE: False
-IS_FROM_PC = False
+# ============通用配置==============
+# 必要配置：模板文件名称和导出后文件名（注意格式必须是.csv）
+# TEMPLATE_FILE_NAME = 'alipay_record_20220130_1025_1.csv'
+TEMPLATE_FILE_NAME = 'alipay_record_20220119_173409.csv'
+# TEMPLATE_FILE_NAME = 'alipay_record_20220128_161121.csv'
+# TEMPLATE_FILE_NAME = 'alipay_record_20220128_161241.csv'
+ALIPAY_RECORDS_TEMPLATE_FP = Path(current_path).joinpath(TEMPLATE_FILE_NAME)
 
-# ============手机端导出文件配置此处==============
-# MOBILE_FILE_NAME = 'alipay_record_20220119_173409.csv'
-# MOBILE_FILE_NAME = 'alipay_record_20220128_161121.csv'
-MOBILE_FILE_NAME = 'alipay_record_20220128_161241.csv'
-BASE_MOBILE_FILE_EXPORT_NAME = '手机端支付宝交易单导出.csv'
-MOBILE_ALIPAY_RECORDS_FP = Path(current_path).joinpath(MOBILE_FILE_NAME)
-MOBILE_ALIPAY_EXPORT_FP = Path(current_path).joinpath(BASE_MOBILE_FILE_EXPORT_NAME)
+BASE_EXPORT_FILE_NAME = '支付宝交易单导出.csv'
+
+# WARNING：记录流水号涉及部分个人敏感数据上传，请确保使用时是自主配置该项
+IS_RECORD_TRANSACTIONAL_NUMBER = False
+# 可选配置：PC: True MOBILE: False
+IS_FROM_PC = None
+
+# 可选配置：增加前缀以区分导出的文件是手机端还是PC端
+MB_FILE_EXPORT_PREFIX = '手机端'
+PC_FILE_EXPORT_PREFIX = 'PC端'
+# ============手机端特殊处理配置==============
 # ['收/支',
 #  '交易对方',
 #  '对方账号',
@@ -69,7 +78,7 @@ MB_RENAME_LIST = [
     'op_type', 'trans_obj', 'trans_account', 'comment', 'pay_method', 'amount', 'status', 'trans_type', 'trans_code',
     'bus_code', 'trans_datetime'
 ]
-# 重命名为普通用户可以看明白的表头
+# 通过该映射，重命名为普通用户可以看明白的表头
 # TODO: 调整列的顺序
 MB_OUTPUT_COLUMNS = {
     'op_type_read': '交易类型',
@@ -87,10 +96,8 @@ MB_OUTPUT_COLUMNS = {
 MOBILE_DROP_COLUMNS = ['trans_obj', 'trans_account', 'trans_type', 'bus_code']
 
 RAW_MOBILE_FIRST_LINE_SUBSTR = '电子客户回单'
-# =========PC端导出文件配置此处=========
+# =========PC端特殊处理配置=========
 RAW_PC_FIRST_LINE_SUBSTR = '支付宝交易记录明细查询'
-PC_FILE_NAME = 'alipay_record_20220130_1025_1.csv'
-BASE_PC_FILE_EXPORT_NAME = 'PC端支付宝交易单导出.csv'
 '''
 ['交易号',
  '商家订单号',
@@ -132,23 +139,31 @@ PC_OUTPUT_COLUMNS = {
     'assert_status': '资金状态',  # 区分银行转账和账户内部交易时可以使用
     'op_type': '程序描述标识',
 }
-
-PC_ALIPAY_RECORDS_FP = Path(current_path).joinpath(PC_FILE_NAME)
-PC_ALIPAY_EXPORT_FP = Path(current_path).joinpath(BASE_PC_FILE_EXPORT_NAME)
-
+# ============逻辑处理变量==============
 ENCODING = 'gb18030'
 YEB_NAME = '余额宝'  # 余额宝，背后为货币基金
 YLB_NAME = '余利宝'  # 背后为货币基金
 HB_NAME = '红包'  # 背后为货币基金
-FILTER_INVEST_DATA_STR = '投资理财'
-ANT_FORTUNE_STR = '蚂蚁财富'
-# ===============手机端匹配字符==================
-MB_LAST_COLUMNS_STR = '交易时间'
-'''
-每一次`ANT_FORTUNE_TRANSFER_YEB_STR` 都需要两种产品替换该字段
-'''
+# 每一次`ANT_FORTUNE_TRANSFER_YEB_STR` 都需要两种产品替换该字段
+ANT_FORTUNE_TRANSFER_YEB_STR = '更换货基转入'
 YEB_NAME_OLD = '旧余额宝货币基金产品名'  # 需要导出文件后手动修改
 YEB_NAME_NEW = '新余额宝货币基金产品名'  # 需要导出文件后手动修改
+USER_INPUT_EXCEL_DICT = {'purchase': '买入', 'sale': '卖出', 'transfer': '转换'}
+# 余额宝背后货币基金产品
+YUEBAO_LISTS = []
+# 根据文字描述解析申购行为
+FILTER_INVEST_DATA_STR = '投资理财'
+ANT_FORTUNE_STR = '蚂蚁财富'
+PC_LAST_COLUMNS_STR = '资金状态'
+# 撤单操作（当天买入，15点之前撤回操作）
+ANT_FORTUNE_BUY_ROLLBACK_STR = '买入退款'
+# 定投理财产品时
+STATUS_FREEZE_SUCCESS_STR = '冻结成功'
+# 交易未付款，超时订单关闭
+STATUS_TRADE_CLOSED_STR = '交易关闭'
+# 导出当天购买理财产品份额未确认
+STATUS_PAID_WHILE_UNCONFIRMED_STR = '付款成功，份额确认中'
+MB_LAST_COLUMNS_STR = '交易时间'
 REAL_CASH = '现金'  # 即余额（可能是羊毛红包，也可能是好友转账转入）
 TRANSFER_SYMBOL = '[转换至]'
 ANT_FORTUNE_SALE_TO_YEB = '卖出至余额宝'
@@ -164,14 +179,12 @@ ANT_FORTUNE_COMB_YEB_TO_YE = '转出到余额'
 ANT_FORTUNE_AUTO_TO_YEB = '自动转入'
 ANT_FORTUNE_RE_BUY_TO_YEB = '收益发放'  # TODO: 收益发放是否算作买入，可能导致金额对不上
 ANT_FORTUNE_PURCHASE_FUND_STR = '基金申购'
-
+# 衍生投资行为
 ANT_FORTUNE_CHALLENGE_RATE_TO_YEB = '收益挑战'
 ANT_FORTUNE_CHALLENGE_PURCHASE_STR = '挑战包买入'
 ANT_FORTUNE_CHALLENGE_SALE_STR = '挑战包卖出'
-
 ANT_FORTUNE_REGULAR_INVEST_STR = '定期理财'
 ANT_FORTUNE_REGULAR_INVEST_SALE_STR = '定期理财赎回'
-
 ANT_FORTUNE_OUT_TO_BANK_CARD = '转出到银行卡'
 ANT_FORTUNE_BANK_CARD_IN_STR = '银行卡转入'
 ANT_FORTUNE_YLB_TO_YEB_YE = '余利宝转出到支付宝'
@@ -183,24 +196,30 @@ ANT_FORTUNE_BANK_CARD_SALARY_TO_YEB = '工资理财'
 ANT_FORTUNE_MYXY_MANUAL_TO_YEB = '蚂蚁星愿主动攒入'
 ANT_FORTUNE_MYXY_AUTO_TO_YEB = '蚂蚁星愿自动攒入'
 ANT_FORTUNE_QIAN_MGR_TO_YEB = '钱管家转入'
-ANT_FORTUNE_TRANSFER_YEB_STR = '更换货基转入'
 ANT_FORTUNE_BBZ_PART1_STR = '笔笔攒'
 ANT_FORTUNE_BBZ_PART2_STR = '单笔攒入'
-USER_INPUT_EXCEL_DICT = {'purchase': '买入', 'sale': '卖出', 'transfer': '转换'}
-# ===========PC端================
-PC_LAST_COLUMNS_STR = '资金状态'
-# 撤单操作（当天买入，15点之前撤回操作）
-ANT_FORTUNE_BUY_ROLLBACK_STR = '买入退款'
-# 定投理财产品时
-STATUS_FREEZE_SUCCESS_STR = '冻结成功'
-# 交易未付款，超时订单关闭
-STATUS_TRADE_CLOSED_STR = '交易关闭'
-# 导出当天购买理财产品份额未确认
-STATUS_PAID_WHILE_UNCONFIRMED_STR = '付款成功，份额确认中'
 
-YUEBAO_LISTS = []
-# WARNING：记录流水号涉及部分个人敏感数据上传，请确保使用时是自主配置该项
-IS_RECORD_TRANSACTIONAL_NUMBER = True
+
+def check_is_pc_template(fp: Union[str, Path]) -> Optional[bool]:
+    """
+    读取csv文件，判断导出的模板类型
+    :param fp:
+    :return:
+    """
+    with open(fp, 'r', encoding=ENCODING) as csv_file:
+        data = csv.reader(csv_file)
+        line = 0
+        for row in data:
+            if line == 0:
+                first_line_text = row[0]
+                break
+
+    if first_line_text == RAW_PC_FIRST_LINE_SUBSTR:
+        return True
+    elif RAW_MOBILE_FIRST_LINE_SUBSTR in first_line_text:
+        return False
+    else:
+        return
 
 
 class ALiPayTransfer:
@@ -246,7 +265,7 @@ class ALiPayTransfer:
         renamed_df = removed_unnamed_columns_df.rename(columns=rename_dict)
         return renamed_df
 
-    def get_remove_unnamed_columns(self, raw_columns_list: list, last_columns_str: str = MB_LAST_COLUMNS_STR) -> list:
+    def get_remove_unnamed_columns(self, raw_columns_list: List, last_columns_str: str = MB_LAST_COLUMNS_STR) -> List:
         """
         去除最后一列：未定义列
         :param last_columns_str:
@@ -257,7 +276,7 @@ class ALiPayTransfer:
             remove_unnamed_columns_list = raw_columns_list[:-1]
             return remove_unnamed_columns_list
 
-    def mk_rename_dict(self, remove_unnamed_columns_list: list, rename_list=None) -> dict:
+    def mk_rename_dict(self, remove_unnamed_columns_list: List, rename_list=None) -> dict:
         """
         组装重命名的映射关系（中文转英文）
         :return:
@@ -584,14 +603,14 @@ class PCTransfer(ALiPayTransfer):
     """
 
     def __init__(self,
-                 start_data_header=4,
-                 source_fp: Union[str, Path] = PC_ALIPAY_RECORDS_FP,
+                 start_data_header: int = 4,
+                 source_fp: Union[str, Path] = ALIPAY_RECORDS_TEMPLATE_FP,
                  drop_tail_line_index: int = 7,
-                 base_export_file_name=BASE_PC_FILE_EXPORT_NAME,
+                 base_export_file_name: Optional[str] = None,
                  drop_columns=None,
                  rename_list=None,
-                 last_columns_str=PC_LAST_COLUMNS_STR,
-                 output_columns=None):
+                 last_columns_str: str = PC_LAST_COLUMNS_STR,
+                 output_columns: List = None):
 
         # super().__init__(self)
         if output_columns is None:
@@ -662,10 +681,10 @@ class MobileTransfer(ALiPayTransfer):
     """
 
     def __init__(self,
-                 start_data_header=1,
-                 source_fp: Union[str, Path] = MOBILE_ALIPAY_RECORDS_FP,
+                 start_data_header: int = 1,
+                 source_fp: Union[str, Path] = ALIPAY_RECORDS_TEMPLATE_FP,
                  drop_tail_line_index: int = 20,
-                 base_export_file_name: str = BASE_MOBILE_FILE_EXPORT_NAME,
+                 base_export_file_name: Optional[str] = None,
                  last_columns_str: str = MB_LAST_COLUMNS_STR,
                  drop_columns: List = None,
                  rename_list: List = None,
@@ -752,9 +771,53 @@ class MobileTransfer(ALiPayTransfer):
         return 0
 
 
+def parse_template(fp: Union[str, Path] = ALIPAY_RECORDS_TEMPLATE_FP):
+    """
+    根据用户配置确定是自动判断模板类型还是根据配置确定性处理：
+    如果只给出文件路径，则根据文件自动判断出模板类型，再根据模板类型去处理
+    如果用户给出标识，则根据用户配置去处理文件（此时必须定义相应的`IS_FROM_PC`变量）
+    :return:
+    """
+    is_pc_case = None
+    # 如果用户明确配置是pc或者mobile
+    if isinstance(IS_FROM_PC, bool):
+        if IS_FROM_PC:
+            is_pc_case = True
+        else:
+            is_pc_case = False
+    else:
+        # 通过程序自动判断
+        if fp.exists() and fp.is_file():
+            is_pc_template = check_is_pc_template(fp)
+            if isinstance(is_pc_template, bool):
+                if is_pc_template:
+                    is_pc_case = True
+                else:
+                    is_pc_case = False
+            else:
+                raise NotSupportError(f'需要解析的目标文件的首行应该包含 {RAW_PC_FIRST_LINE_SUBSTR} 或者 {RAW_MOBILE_FIRST_LINE_SUBSTR}，'
+                                      f'否则请定义变量`IS_FROM_PC`！')
+
+    if isinstance(is_pc_case, bool):
+
+        if is_pc_case:
+            if PC_FILE_EXPORT_PREFIX:
+                bfn = PC_FILE_EXPORT_PREFIX + BASE_EXPORT_FILE_NAME
+            else:
+                bfn = BASE_EXPORT_FILE_NAME
+            pc = PCTransfer(base_export_file_name=bfn)
+            result = pc.main()
+        else:
+            if MB_FILE_EXPORT_PREFIX:
+                bfn = MB_FILE_EXPORT_PREFIX + BASE_EXPORT_FILE_NAME
+            else:
+                bfn = BASE_EXPORT_FILE_NAME
+            mb = MobileTransfer(base_export_file_name=bfn)
+            result = mb.main()
+        return result
+    else:
+        raise NotSupportError('请自定义变量`IS_FROM_PC`及相关配置，或检查`TEMPLATE_FILE_NAME`配置！')
+
+
 if __name__ == '__main__':
-    # mb = MobileTransfer()
-    # result = mb.main()
-    pc = PCTransfer()
-    result = pc.main()
-    print(result)
+    parse_template(ALIPAY_RECORDS_TEMPLATE_FP)
