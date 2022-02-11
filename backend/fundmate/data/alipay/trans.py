@@ -665,11 +665,19 @@ class PCTransfer(ALiPayTransfer):
         else:
             return origin_comment
 
-    def drop_trans_source_columns(self, df: PdDataFrame) -> PdDataFrame:
+    def drop_trans_source_column(self, df: PdDataFrame) -> PdDataFrame:
         """
         通过外部商家购买的理财产品会多出此字段（trans_source），其余时候皆为NaN，该字段不需要保留
         其他（包括阿里巴巴和外部商家）"""
         df.drop(columns='trans_source', inplace=True)
+        return df
+
+    def drop_assert_status_column(self, df: PdDataFrame) -> PdDataFrame:
+        df.drop(columns='assert_status', inplace=True)
+        return df
+
+    def drop_status_column(self, df: PdDataFrame) -> PdDataFrame:
+        df.drop(columns='status', inplace=True)
         return df
 
     def drop_trans_refund(self, df):
@@ -707,8 +715,11 @@ class PCTransfer(ALiPayTransfer):
                                    & (renamed_df.status != STATUS_TRADE_CLOSED_STR) &
                                    (renamed_df.status != STATUS_PAID_WHILE_UNCONFIRMED_STR)]
         rebase_comment_df = self.rebase_comment(invest_df)
-        no_trans_source_df = self.drop_trans_source_columns(rebase_comment_df)
-        invest_df = self.drop_trans_refund(no_trans_source_df)
+        # 删除字段
+        no_trans_source_df = self.drop_trans_source_column(rebase_comment_df)
+        no_assert_status_df = self.drop_assert_status_column(no_trans_source_df)
+        no_status_df = self.drop_status_column(no_assert_status_df)
+        invest_df = self.drop_trans_refund(no_status_df)
         return invest_df
 
     def main(self):
