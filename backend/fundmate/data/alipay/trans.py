@@ -46,8 +46,8 @@ current_path = Path.cwd()
 如果可以确定，请配置`IS_FROM_PC`变量
 '''
 # 必要配置：模板文件名称和导出后文件名（注意格式必须是.csv）
-TEMPLATE_FILE_NAME = 'alipay_record_20220130_1025_1.csv'
-# TEMPLATE_FILE_NAME = 'alipay_record_20220119_173409.csv'
+# TEMPLATE_FILE_NAME = 'alipay_record_20220130_1025_1.csv'
+TEMPLATE_FILE_NAME = 'alipay_record_20220119_173409.csv'
 # TEMPLATE_FILE_NAME = 'alipay_record_20220128_161121.csv'
 # TEMPLATE_FILE_NAME = 'alipay_record_20220128_161241.csv'
 ALIPAY_RECORDS_TEMPLATE_FP = Path(current_path).joinpath(TEMPLATE_FILE_NAME)
@@ -91,6 +91,8 @@ MB_OUTPUT_COLUMNS = {
     'trans_datetime': '交易时间',
     'trans_code': '渠道交易流水号',
     'comment': '商品说明',
+    'status': '交易状态',
+    'trans_cost': '服务费（元）',
     'pay_method': '交易方式',
     'op_type': '程序描述标识',
 }
@@ -136,7 +138,7 @@ PC_OUTPUT_COLUMNS = {
     'comment': '商品说明',
     'pay_method': '交易方式',
     'status': '交易状态',
-    'trans_cost': '服务费（元）',  # 组合卖出手续费
+    'trans_cost': '服务费（元）',  # 买卖手续费（默认只有组合产品有该数据）
     'trans_refund': '成功退款（元）',  # 目前看到的都是0，可能是淘宝购物时退款订单使用
     'assert_status': '资金状态',  # 区分银行转账和账户内部交易时可以使用
     'op_type': '程序描述标识',
@@ -585,8 +587,10 @@ class ALiPayTransfer:
             analysis_df.drop(columns='trans_code', inplace=True)
         else:
             analysis_df['trans_code'] = analysis_df.trans_code.apply(lambda x: x + '\t')
-            # 删除无用字段
+        # 删除无用字段
         analysis_df.drop(columns=drop_columns, inplace=True)
+        # 添加交易手续费字段
+        analysis_df['trans_cost'] = 0
 
         with_date_name = f'{prefix}-{base_export_file_name}'
         alipay_export_fp = Path(current_path).joinpath(with_date_name)
