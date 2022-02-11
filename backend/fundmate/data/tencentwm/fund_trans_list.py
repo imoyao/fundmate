@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 # Created by Administrator at 2021/12/30 22:27
 """
+本脚本用于从理财通导出网页版交易记录
 每次更新数据时需要去网站获取新的key并设置到`.env`环境中
 注意其中`TENCENTWM_G_TK`从get请求的params中获取
 """
@@ -15,13 +16,14 @@ from backend.fundmate import settings, utils
 from backend.fundmate.data import utils as dt_utils
 
 env = settings.env
-
-url = 'https://www.tencentwm.com/app/v2.0/wxh5_fund_trans_list.cgi'
+# =============配置项================
 # 每次更新
 g_tk = env.str('TENCENTWM_G_TK')
 qlskey = env.str('TENCENTWM_QLS_KEY')
 # 用户特征码，只更新一次
 qluin = env.str('TENCENTWM_QLUIN')
+# =============变量定义================
+url = 'https://www.tencentwm.com/app/v2.0/wxh5_fund_trans_list.cgi'
 REQUEST_STR = f'''accept: text/plain, */*; q=0.01
 accept-encoding: gzip, deflate, br
 accept-language: zh-CN,zh;q=0.9,en;q=0.8,en-US;q=0.7

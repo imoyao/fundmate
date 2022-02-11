@@ -91,6 +91,7 @@ TRANSFER_REFUND = ChoiceTypeIntegerDk(8, 'transfer_refund', '基金转换退款'
 QUOT_BONUS = ChoiceTypeIntegerDk(9, 'quot_bonus', '份额分红')
 DEPOSIT = ChoiceTypeIntegerDk(10, 'deposit', '存入')  # 从银行卡存入
 DRAW_OUT = ChoiceTypeIntegerDk(11, 'draw_out', '取出')  # 取出到银行卡
+REVOKE = ChoiceTypeIntegerDk(12, 'revoke', '撤销操作')  # 取出到银行卡
 
 
 # 风险等级
@@ -110,6 +111,7 @@ class FundOpTypeEnum(BaseTypeEnum):
     quot_bonus = QUOT_BONUS
     deposit = DEPOSIT
     draw_out = DRAW_OUT
+    revoke = REVOKE
 
     @classmethod
     def default(cls):
