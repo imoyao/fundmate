@@ -2,18 +2,18 @@
 
 # Flask
 Flask==2.0.2
-Werkzeug==2.0.2
+Werkzeug==2.0.3
 click>=7.0
 APIFlask==0.11.0
 
 # Database
 Flask-SQLAlchemy==2.5.1
-SQLAlchemy==1.4.27
+SQLAlchemy==1.4.31
 psycopg2-binary==2.9.1
 
 # Migrations
 Flask-Migrate==3.1.0
-alembic==1.7.3
+alembic==1.7.6
 
 # Forms
 email-validator==1.1.3
