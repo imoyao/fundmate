@@ -151,7 +151,6 @@ RENAME_COLUMNS_DICT = {
 
 # refund_type = 12 意味着退款
 REVOKE_STATE = '23'
-USER_INPUT_EXCEL_DICT = {'purchase': '买入', 'sale': '卖出', 'transfer': '转换'}
 
 
 def read_raw_data(fp: Union[str, Path]) -> PdDataFrame:
@@ -170,7 +169,7 @@ def change_to_user_friendly(op_type: BaseTypeEnum):
     if op_type:
         op_desc = op_type.label
         op_name = op_type.name
-        op_input = USER_INPUT_EXCEL_DICT.get(op_name, op_desc)
+        op_input = op_desc  # TODO: op_desc没有必要存在了
         return {
             'name': op_name,
             'desc': op_desc,

@@ -152,7 +152,7 @@ HB_NAME = '红包'  # 背后为货币基金
 ANT_FORTUNE_TRANSFER_YEB_STR = '更换货基转入'
 YEB_NAME_OLD = '旧余额宝货币基金产品名'  # 需要导出文件后手动修改
 YEB_NAME_NEW = '新余额宝货币基金产品名'  # 需要导出文件后手动修改
-USER_INPUT_EXCEL_DICT = {'purchase': '买入', 'sale': '卖出', 'transfer': '转换'}
+# USER_INPUT_EXCEL_DICT = {'purchase': '买入', 'sale': '卖出', 'transfer': '转换'}
 # 余额宝背后货币基金产品
 YUEBAO_LISTS = []
 # 根据文字描述解析申购行为
@@ -543,11 +543,11 @@ class ALiPayTransfer:
         if op_type:
             op_desc = op_type.label
             op_name = op_type.name
-            op_input = USER_INPUT_EXCEL_DICT.get(op_name, op_desc)
+            op_input = op_desc
             return {
                 'name': op_name,
                 'desc': op_desc,
-                'input': op_input,
+                'input': op_input,  # TODO: op_desc没有必要存在了
             }
         return {
             'name': None,
