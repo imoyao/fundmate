@@ -580,3 +580,42 @@ class FundPortfolioHoldDetail(PkModel):
     fd_code = Column(db.String(6), comment='基金编码')
     adjust_id = Column(db.BigInteger, comment='调仓历史编码')
     portion = Column(db.Numeric(5, 4), comment='持仓占比，如：0.0716')
+
+
+class InvestProduct(PkModel):
+    """
+    理财产品（如各种p2p产品，组合产品等）
+    {
+        "trading_id": "281b3d8bad024b7ea2eeb37bfb7b8a5f",
+        "fd_code": "161005",
+        "fd_name": "富国天惠成长混合（LOF）A",
+        "portion": 0.03,
+        "money": 0,
+        "last_portion": 0.0632,
+        "volume": 0,
+        "percent": "3.0%",
+        "last_percent": "6.32%"
+    }
+    """
+    plt_code = Column(db.String(16), comment='投资平台自定义产品编码')
+    prod_code = Column(db.String(12), comment='本平台规定的唯一编码')
+    # 如C1010422000605，参见 https://www.chinawealth.com.cn/zzlc/jsp/lccp.jsp
+    verified_code = Column(db.String(32), nullable=True, comment='登记编码')
+    prod_name = Column(db.String(255), comment='产品名称')
+    plat_name = Column(db.String(16), nullable=True, comment='产品购买所属平台（可以为空）')
+
+    @classmethod
+    def gen_prod_code(cls) -> Optional[str]:
+        """
+        生成递增8+位识别号
+        :return:
+        """
+        fp_identifier = gen_digit_code(cls.prod_code, settings.INITIAL_INVEST_PRODUCT_CODE_IDENTIFIER, min_len=8)
+        return fp_identifier
+
+    @classmethod
+    def filter_by_plt_code(cls, plat: str, code: str) -> InvestProduct:
+        """获取编码所对应的id
+        """
+        _ins = cls.query.filter_by(plat_name=plat, fund_code=code).one_or_none()
+        return _ins

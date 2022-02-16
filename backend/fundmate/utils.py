@@ -148,6 +148,18 @@ def write_json_data(data: Union[str, List, Dict], fp: Union[str, Path], indent: 
         json.dump(data, f, ensure_ascii=False, indent=indent)
 
 
+def check_is_csv(fp: Union[str, Path]) -> Optional[bool]:
+    """
+    判断文件存在并确定格式正确
+    :param fp:
+    :return:
+    """
+    path = Path(fp)
+    if path.exists() and path.is_file():
+        file_suffix = path.suffix
+        return file_suffix.lower() == 'csv'
+
+
 if __name__ == '__main__':
     print(first_day_of_this_year(), first_day_of_this_month(), seconds_today_leaves(), tomorrow(),
           tomorrow_date('2021-06-30'), tomorrow_date())

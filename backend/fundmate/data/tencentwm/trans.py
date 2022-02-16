@@ -216,7 +216,7 @@ def transfer_pay_channel(pay_channel: str, receive_type: str, pur_type: str, sta
                     if receive_type == '2':
                         op_type = FundOpTypeEnum.draw_out
                     elif receive_type == '1':
-                        op_type = FundOpTypeEnum.sale
+                        op_type = FundOpTypeEnum.redeem
                 elif pur_type == '13':
                     op_type = FundOpTypeEnum.quot_bonus
                 elif pur_type == '14':
@@ -224,7 +224,7 @@ def transfer_pay_channel(pay_channel: str, receive_type: str, pur_type: str, sta
                 elif pur_type == '22':
                     op_type = FundOpTypeEnum.draw_out
                 else:
-                    op_type = FundOpTypeEnum.sale
+                    op_type = FundOpTypeEnum.redeem
             elif pay_channel in ['4', '5', '9', '26', '30']:
                 op_type = FundOpTypeEnum.deposit
                 if pur_type == '11':
