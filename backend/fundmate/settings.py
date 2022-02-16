@@ -43,6 +43,8 @@ INITIAL_PORTFOLIO_IDENTIFIER = '010921'
 INITIAL_MGR_IDENTIFIER = '20211202'
 # 账户起始编号
 INITIAL_ACCOUNT_IDENTIFIER = '1024'
+# 理财产品起始编号
+INITIAL_INVEST_PRODUCT_CODE_IDENTIFIER = '10000001'
 
 UNDEFINED = ChoiceTypeIntegerDk(0, 'undefined', '未定义')
 PLAIN = ChoiceTypeIntegerDk(1, 'plain', '灵活取用')
@@ -80,9 +82,9 @@ class RiskTypeEnum(BaseTypeEnum):
         return [item.dk_name for item in cls]
 
 
-OP_PURCHASE = ChoiceTypeIntegerDk(1, 'purchase', '买入/申购')
-SALE = ChoiceTypeIntegerDk(2, 'sale', '赎回/卖出')
-TRANSFER = ChoiceTypeIntegerDk(3, 'transfer', '转换/转存')
+OP_PURCHASE = ChoiceTypeIntegerDk(1, 'purchase', '买入')
+REDEEM = ChoiceTypeIntegerDk(2, 'redeem', '卖出')
+TRANSFER = ChoiceTypeIntegerDk(3, 'transfer', '转换')
 REGULAR_INVEST = ChoiceTypeIntegerDk(4, 'regular_invest', '定投')
 CASH_BONUS = ChoiceTypeIntegerDk(5, 'cash_bonus', '现金分红')
 ADJUST = ChoiceTypeIntegerDk(6, 'adjust', '调仓')
@@ -101,7 +103,7 @@ class FundOpTypeEnum(BaseTypeEnum):
     操作分类
     """
     purchase = OP_PURCHASE
-    sale = SALE
+    redeem = REDEEM
     transfer = TRANSFER
     regular_invest = REGULAR_INVEST
     cash_bonus = CASH_BONUS
@@ -120,10 +122,26 @@ class FundOpTypeEnum(BaseTypeEnum):
     @classmethod
     def input(cls):
         """
-        **注意：**只有当key为int时才有name属性
         :return:
         """
         return [item.dk_name for item in cls]
+
+    @classmethod
+    def display(cls):
+        """
+        显示汉字内容
+        :return:
+        """
+        return [item.dk_display for item in cls]
+
+    def columns_map(self) -> dict:
+        """
+        返回英文和中文的映射字典
+        :return:
+        """
+        input_li = self.input()
+        display_li = self.display()
+        return dict(zip(input_li, display_li))
 
 
 UNSE = ChoiceTypeDk('UN', '未知')
@@ -152,10 +170,9 @@ class SymbolTypeEnum(BaseTypeEnum):
     def input(cls):
         """
         用户请求时需要用到
-        **注意：**只有当key为int时才有name属性
         :return:
         """
-        return [item.dk_name for item in cls]
+        return [item.dk_value for item in cls]
 
 
 UNKNOWN = ChoiceTypeIntegerDk(0, 'unknown', '未定义')
@@ -216,6 +233,50 @@ class PlatTypeEnum(BaseTypeEnum):
     @classmethod
     def default(cls):
         return cls.undefined
+
+
+ALIPAY = ChoiceTypeDk('alipay', '蚂蚁财富（支付宝）')
+TCWM = ChoiceTypeDk('tcwm', '腾讯理财通')
+TTJJ = ChoiceTypeDk('tt', '天天基金')
+
+
+@enum.unique
+class SupportInvestPltEnum(BaseTypeEnum):
+    """
+    支持导入文件的平台
+    """
+    zfb = ALIPAY
+    lct = TCWM
+    tt = TTJJ
+
+
+FUND = ChoiceTypeDk('fund', '基金')
+STOCK = ChoiceTypeDk('stock', '股票')
+BOND = ChoiceTypeDk('bond', '可转债')
+FUTURES = ChoiceTypeDk('futures', '期货')
+PORTFOLIO = ChoiceTypeDk('portfolio', '投顾组合')
+FINANCIAL_PRODUCT = ChoiceTypeDk('financial_product', '理财产品')
+
+
+@enum.unique
+class SupportInvestCategoriesEnum(BaseTypeEnum):
+    """
+    支持的交易品类
+    """
+    fund = FUND
+    stock = STOCK
+    bond = BOND
+    futures = FUTURES
+    portfolio = PORTFOLIO
+    financial_product = FINANCIAL_PRODUCT
+
+    @classmethod
+    def input(cls):
+        """
+        用户请求时需要用到
+        :return:
+        """
+        return [item.dk_value for item in cls]
 
 
 # 正则

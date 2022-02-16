@@ -208,7 +208,7 @@ class Booking:
         d_val = DailyWorth.query(fund_id=fund_code, date=d_time).price
         f.purchase_info(amount)
 
-    def sale(
+    def redeem(
         self,
         fund_code: str,
     ):

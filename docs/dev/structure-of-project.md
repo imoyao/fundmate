@@ -337,6 +337,7 @@ def home():
 
 ## 相关链接
 - [Packaging Python Projects — Python Packaging User Guide](https://packaging.python.org/en/latest/tutorials/packaging-projects/)
+- [python - Separation of business logic and data access in django - Stack Overflow](https://stackoverflow.com/questions/12578908/separation-of-business-logic-and-data-access-in-django)
 - [项目布局 — Flask 中文文档（ 1.1.1 ）](https://dormousehole.readthedocs.io/en/latest/tutorial/layout.html)
 - [结构化您的工程 — The Hitchhiker's Guide to Python](https://pythonguidecn.readthedocs.io/zh/latest/writing/structure.html)
 - [使用 cookiecutter-flask 快速生成 python 后端项目 - 知乎](https://zhuanlan.zhihu.com/p/25874886)

@@ -48,11 +48,6 @@ class Account(PkModel, CreateDateModel, UpsertMixin):
         return fp_identifier
 
 
-# class AccountFund(PkModel):
-#     fund_id = reference_col('funds', column_kwargs={'comment': '基金编号'})
-#     account_id = Column(db.Integer, comment='账本编号')
-
-
 class AccountTransactionRecord(PkModel, CreateDateModel, UpsertMixin):
     """
     记账操作表
@@ -64,14 +59,17 @@ class AccountTransactionRecord(PkModel, CreateDateModel, UpsertMixin):
                                          default=settings.FundOpTypeEnum.default().dk_value,
                                          impl=db.Integer()),
                      comment=f'操作类型：{settings.FundOpTypeEnum.comment()}')
-    fund_code = Column(db.String(6), comment='所购买的基金编号')
+    redeem_prod = Column(db.String(36), comment='所赎回的产品编号')  # 当记录产品是理财产品使用平台编码，其余时候使用自有编码
+    purchase_prod = Column(db.String(36), comment='所申购的产品编号')
     amount = Column(db.Numeric(32, 4), comment='购买金额')
     charge_fee = Column(db.Numeric(32, 4), comment='操作手续费，如：123456.0716')
     launch_trans_date = Column(db.DateTime, nullable=True, comment='交易发起日期')
     trans_confirm_date = Column(db.Date, nullable=False, comment='交易确认日期')
-    transaction_id = Column(db.BigInteger, comment='调仓历史编码')  # 使用雪花算法
-    update_time = Column(db.DateTime, comment='数据更新时间')
-    comment = Column(db.String(300), comment='复盘备注')
+    transaction_id = Column(db.BigInteger, comment='交易编码')  # 使用雪花算法
+    record_code = Column(db.String(36), comment='平台交易流水记录号')
+    record_date = Column(db.DateTime, comment='数据更新时间')
+    comment = Column(db.String(300), comment='复盘备注')  # 手动记录时
+    plat_comment = Column(db.String(300), comment='平台备注')  # 批量导入时
 
 
 class HandPick(PkModel):

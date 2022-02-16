@@ -152,7 +152,7 @@ HB_NAME = '红包'  # 背后为货币基金
 ANT_FORTUNE_TRANSFER_YEB_STR = '更换货基转入'
 YEB_NAME_OLD = '旧余额宝货币基金产品名'  # 需要导出文件后手动修改
 YEB_NAME_NEW = '新余额宝货币基金产品名'  # 需要导出文件后手动修改
-# USER_INPUT_EXCEL_DICT = {'purchase': '买入', 'sale': '卖出', 'transfer': '转换'}
+# USER_INPUT_EXCEL_DICT = {'purchase': '买入', 'redeem': '卖出', 'transfer': '转换'}
 # 余额宝背后货币基金产品
 YUEBAO_LISTS = []
 # 根据文字描述解析申购行为
@@ -365,7 +365,7 @@ class ALiPayTransfer:
                 target_name = YLB_NAME
         elif from2target == ANT_FORTUNE_COMB_YEB_TO_YE:
             from_name = YEB_NAME
-            op_type = FundOpTypeEnum.sale
+            op_type = FundOpTypeEnum.redeem
             target_name = REAL_CASH
         elif from2target in [
                 ANT_FORTUNE_BANK_CARD_BIG_TO_YEB, ANT_FORTUNE_AUTO_TO_YEB, ANT_FORTUNE_MYXY_MANUAL_TO_YEB,
@@ -388,7 +388,7 @@ class ALiPayTransfer:
             target_name = YEB_NAME
         elif split_head in [ANT_FORTUNE_SALE_PROD_TO_YEB, ANT_FORTUNE_REGULAR_INVEST_SALE_STR]:
             from_name = f'理财产品<{from2target}>'
-            op_type = FundOpTypeEnum.sale
+            op_type = FundOpTypeEnum.redeem
             target_name = YEB_NAME
         elif split_head in [ANT_FORTUNE_PURCHASE_YEB_TO_PROD, ANT_FORTUNE_REGULAR_INVEST_STR]:
             from_name = YEB_NAME
@@ -405,7 +405,7 @@ class ALiPayTransfer:
             # FIXME:收益挑战实际是从产品卖出到余额宝的过程
             if ANT_FORTUNE_CHALLENGE_SALE_STR in from2target:
                 from_name = REAL_CASH
-                op_type = FundOpTypeEnum.sale
+                op_type = FundOpTypeEnum.redeem
                 target_name = YEB_NAME
             elif ANT_FORTUNE_CHALLENGE_PURCHASE_STR in from2target:
                 from_name = REAL_CASH
@@ -433,7 +433,7 @@ class ALiPayTransfer:
             # raise NotSupportError(f'暂时无法处理<组合卖出>：{comment_str}')
         elif tail_comt in [ANT_FORTUNE_SALE_TO_YEB, ANT_FORTUNE_BUY_ROLLBACK_STR]:
             from_name = mid_comt
-            op_type = FundOpTypeEnum.sale
+            op_type = FundOpTypeEnum.redeem
             target_name = YEB_NAME
         elif tail_comt == ANT_FORTUNE_PURCHASE_STR:
             from_name = YEB_NAME
@@ -468,7 +468,7 @@ class ALiPayTransfer:
         comment_list = comment_str.split('-')
         _, *mid_comt_split_list, tail_comt = comment_list
         if tail_comt == ANT_FORTUNE_SALE_TO_YEB:
-            op_type = FundOpTypeEnum.sale
+            op_type = FundOpTypeEnum.redeem
             # 易方达黄金主题(QDII-LOF-FOF)A
             from_name = '-'.join(mid_comt_split_list)
             target_name = YEB_NAME
