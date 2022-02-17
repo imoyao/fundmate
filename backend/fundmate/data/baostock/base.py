@@ -1,6 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # Created by imoyao at 2021/6/7 17:47
+"""
+该接口似乎不准确？
+"""
 from contextlib import contextmanager
 from datetime import timedelta
 from typing import Union
