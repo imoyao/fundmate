@@ -19,7 +19,9 @@ from backend.fundmate import errors, excepts, utils
 from backend.fundmate.account.deal_trades import ImportColumns, ImportTradeEnum
 from backend.fundmate.account.models import Account, AccountTransactionRecord
 from backend.fundmate.account.schemas import AccountOutSchema, CreateAccountSchema
+from backend.fundmate.data.eastmoney.trade_day import TradeDay
 from backend.fundmate.fund.models import Fund, InvestProduct
+from backend.fundmate.libs import convert
 from backend.fundmate.settings import FundOpTypeEnum, SupportInvestCategoriesEnum
 from backend.fundmate.types import PdDataFrame
 
@@ -147,9 +149,9 @@ def loads_template(df: PdDataFrame):
         repr_name = reverse_name_label_maps.get(op_type_cn)
         return repr_name
 
-    def to_db_code(trade_category: str, prod_code: str) -> str:
+    def _db_code(trade_category: str, prod_code: str) -> str:
         """
-        产品最终保存到
+        产品最终保存到流水记录表时的编码
         :param trade_category:
         :param prod_code:
         :return:
@@ -159,18 +161,48 @@ def loads_template(df: PdDataFrame):
                 SupportInvestCategoriesEnum.bond.dk_value
         ]:
             return prod_code
+        # 理财产品
         elif trade_category == SupportInvestCategoriesEnum.financial_product.dk_value:
             _inst = InvestProduct.filter_by_plt_code(trade_category, prod_code)
             return _inst.prod_code
 
+    def fetch_confirm_datetime(fund_code: str, operate_date: str, op_type: str, trade_category: str):
+        """获取购买基金的确认日期"""
+        temp_datetime = convert.try_parse_date(operate_date)
+        date_str = temp_datetime.strftime("%Y-%m-%d")
+        if trade_category in [SupportInvestCategoriesEnum.fund.dk_value, SupportInvestCategoriesEnum.fund.dk_value]:
+            td = TradeDay()
+            is_after_15o_clock = temp_datetime.hour >= 15
+            is_buy = op_type == FundOpTypeEnum.purchase
+            if trade_category == SupportInvestCategoriesEnum.fund.dk_value:
+                ret = td.get_trade_info(fund_code, date_str, is_buy=is_buy, is_after_15o_clock=is_after_15o_clock)
+                return ret.get('deadline')
+            elif trade_category == SupportInvestCategoriesEnum.financial_product.dk_value:
+                # 理财产品，直接按照t+1的基金产品计算
+                ret = td.get_trade_info('163406', date_str, is_buy=is_buy, is_after_15o_clock=is_after_15o_clock)
+                return ret.get('maturity')
+            else:
+                return date_str
+
+    # 注意顺序不可调整
     if 'trade_repr' in df.columns:
         df.drop(columns='op_type', inplace=True)
         df.rename({'trade_repr': 'op_type'}, inplace=True)
     else:
         df['op_type'] = df.op_type.apply(lambda x: _deal_op_type(x))
 
-    df['purchase_prod'] = df.apply(lambda row: to_db_code(row['purchase_prod'], row['trade_category']), axis=1)
-    df['redeem_prod'] = df.apply(lambda row: to_db_code(row['redeem_prod'], row['trade_category']), axis=1)
+    df['purchase_prod'] = df.apply(lambda row: _db_code(row['trade_category'], row['purchase_prod']), axis=1)
+    df['redeem_prod'] = df.apply(lambda row: _db_code(row['trade_category'], row['redeem_prod']), axis=1)
+    # 交易确定日
+    df['trans_confirm_date'] = df.apply(lambda row: fetch_confirm_datetime(
+        row['redeem_prod'],
+        row['launch_trans_date'],
+        row['trade_category'],
+        row['op_type'],
+    ),
+                                        axis=1)
+    # 交易手续费：如果不是0，则返回，否则，根据购买金额，购买基金、费率计算
+    df['charge_fee'] = df.apply(lambda row: _db_code(row['record_code'], row['trans_confirm_date']), axis=1)
 
 
 class ImportDealingDocuments(MethodView):
