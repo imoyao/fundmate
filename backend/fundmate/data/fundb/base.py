@@ -99,16 +99,16 @@ class FundDB:
 
         code = resp.get('code')
         if code == 0:
-            # data = resp.get('data')
-            # buy = data.get('sg')
-            # op = data.get('gl')
-            # redeem = data.get('sh')
-            # info = {
-            #     'buy': buy,
-            #     'op': op,
-            #     'redeem': redeem,
-            # }
-            info = dict()
+            data = resp.get('data')
+            buy = data.get('sg')
+            op = data.get('gl')
+            redeem = data.get('sh')
+            info = {
+                'buy': buy,
+                'op': op,
+                'redeem': redeem,
+            }
+            # info = dict()
             return info
 
     def kjtl(self, is_full: bool = True) -> dict:
