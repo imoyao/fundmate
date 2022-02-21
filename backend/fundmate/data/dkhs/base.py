@@ -27,7 +27,7 @@ class DKHS:
         _resp = rget_json(_url)
         return _resp
 
-    def fatch_fund_info(self):
+    def fetch_fund_info(self):
         """
         基金编码对应特殊编号写入数据库（从网站抓取之后直接写入）
         此操作在写入数据库的同时还会写入json文件
@@ -334,7 +334,7 @@ class DKHS:
         symbol_prefix = 'UN'
         _fund_inst = Fund.filter_by_code(fund_code)
         if _fund_inst:
-            symbol_prefix = _fund_inst.symbol_prefix
+            symbol_prefix = _fund_inst.symbol_prefix.dk_value
 
         if symbol_prefix == 'UN':
             raise UnexpectedArgsError(f'The symbol of fund {fund_code} is unknown,Please check or update it.')
@@ -357,9 +357,9 @@ class DKHS:
                     min_balance = item.get('min_balance')
                     max_balance = item.get('max_balance')
                     if direction == 0:
-                        fee_type = settings.FeeTypeEnum.subscribe
+                        fee_type = settings.FeeTypeEnum.subscribe.dk_value
                     else:
-                        fee_type = settings.FeeTypeEnum.purchase
+                        fee_type = settings.FeeTypeEnum.purchase.dk_value
 
                     # 最大值时按照固定收费，同时修改上限为正无穷
                     if max_balance == '0.00':
@@ -375,7 +375,7 @@ class DKHS:
                     }
 
                 elif direction == 1:
-                    fee_type = settings.FeeTypeEnum.redeem
+                    fee_type = settings.FeeTypeEnum.redeem.dk_value
                     start_day = item.get('min_hold')
                     end_day = item.get('max_hold')
 
