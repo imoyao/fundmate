@@ -178,7 +178,7 @@ class SymbolTypeEnum(BaseTypeEnum):
 UNKNOWN = ChoiceTypeIntegerDk(0, 'unknown', '未定义')
 SUBSCRIBE = ChoiceTypeIntegerDk(1, 'subscribe', '基金认购')
 PURCHASE = ChoiceTypeIntegerDk(2, 'purchase', '基金申购')
-REDEEM = ChoiceTypeIntegerDk(3, 'redeem', '基金赎回')
+REDEEM_FEE = ChoiceTypeIntegerDk(3, 'redeem', '基金赎回')
 
 
 @enum.unique
@@ -189,7 +189,7 @@ class FeeTypeEnum(BaseTypeEnum):
     unknown = UNKNOWN
     subscribe = SUBSCRIBE
     purchase = PURCHASE
-    redeem = REDEEM
+    redeem = REDEEM_FEE
 
     @classmethod
     def default(cls):
