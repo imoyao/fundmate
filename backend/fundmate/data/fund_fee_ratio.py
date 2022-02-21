@@ -10,7 +10,7 @@ from typing import List, Union
 
 from backend.fundmate.data.danjuan.base import dj_fd
 from backend.fundmate.data.dkhs.base import jcb
-from backend.fundmate.data.fundb.base import jq_app
+from backend.fundmate.data.fundb.base import FundFeeRatio
 from backend.fundmate.excepts import CrawlerException, EmptyError, UnexpectedArgsError, UnpackError
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.fund.models import FeeRatio, Fund
@@ -137,23 +137,20 @@ def dj_fr():
     print(f'pass rate: {pass_rate}')
 
 
-def jc_fr():
+def jq_fr():
     """
     韭圈儿数据（有反爬）
     :return:
     """
-    fund_lists = Fund.query.all()
+    fund_lists = get_no_ratio_funds()
     err_count = 0
+    jq_rt = FundFeeRatio()
     for fd in fund_lists:
         fund_code = fd.fund_code
         try:
-            dt = jq_app.fund_rate(fund_code)
+            dt = jq_rt.rate(fund_code, to_db=True)
         except CrawlerException:
             dt = None
-        # try:
-        #     print(dt.get('rate'))
-        # except KeyError:
-        #     pass
         if not dt:
             err_count += 1
     print(err_count, '---------')
