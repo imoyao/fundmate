@@ -368,7 +368,7 @@ class DkEnumTypeImpl(object):
         if value is None:
             return None
         elif isinstance(value, int):
-            return self.dk_enums.get(value)
+            return self.dk_enums.get(value).dk_value
         if isinstance(value, str):
             enum_names = self.enum_class.names()
             if value in enum_names:
