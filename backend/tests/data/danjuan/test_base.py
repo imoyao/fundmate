@@ -57,33 +57,30 @@ class TestFundFeeRatio:
     def test_parse_last(self, range_str, replace_flag, split_signal, expected):
         assert self.test_dj_fr.parse_last(range_str, replace_flag, split_signal) == expected
 
-    def test_remove_duplicate_resort(self):
-        a = [{
-            "name": "0.0天<持有期限<7.0天",
-            "value": "1.5"
-        }, {
-            "name": "0.0天<持有期限<30.0天",
-            "value": "0.5"
-        }, {
-            "name": "7.0天<=持有期限<30.0天",
-            "value": "0.5"
-        }, {
-            "name": "30.0天<=持有期限",
-            "value": "0.0"
-        }, {
-            "name": "30.0天<=持有期限",
-            "value": "0.0"
-        }]
-        assert self.test_dj_fr.remove_duplicate_resort(a) == [{
-            'name': '0.0天<持有期限<7.0天',
-            'value': '1.5'
-        }, {
-            'name': '0.0天<持有期限<30.0天',
-            'value': '0.5'
-        }, {
-            'name': '7.0天<=持有期限<30.0天',
-            'value': '0.5'
-        }, {
-            'name': '30.0天<=持有期限',
-            'value': '0.0'
-        }]
+    @pytest.mark.parametrize('dup_list,expected', [([{
+        "name": "0.0天<持有期限<7.0天",
+        "value": "1.5"
+    }, {
+        "name": "0.0天<持有期限<30.0天",
+        "value": "0.5"
+    }, {
+        "name": "7.0天<=持有期限<30.0天",
+        "value": "0.5"
+    }, {
+        "name": "30.0天<=持有期限",
+        "value": "0.0"
+    }, {
+        "name": "30.0天<=持有期限",
+        "value": "0.0"
+    }], [{
+        'name': '0.0天<持有期限<7.0天',
+        'value': '1.5'
+    }, {
+        'name': '7.0天<=持有期限<30.0天',
+        'value': '0.5'
+    }, {
+        'name': '30.0天<=持有期限',
+        'value': '0.0'
+    }])])
+    def test_remove_duplicate_resort(self, dup_list, expected):
+        assert self.test_dj_fr.remove_duplicate_resort(dup_list) == expected
