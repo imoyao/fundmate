@@ -3,7 +3,7 @@
 # Created by Andy at 2021/7/30 17:43
 import random
 import time
-from typing import Union
+from typing import Optional, Union
 
 from xalpha.cons import JSONDecodeError, rpost_json
 
@@ -92,7 +92,7 @@ class FundDB:
 
 class FundFeeRatio(dt_utils.BaseRatio):
 
-    def rate(self, fund_code: str, to_db: bool = False) -> Union[dict, None]:
+    def rate(self, fund_code: str, to_db: bool = False) -> Optional[dict]:
         """
         origin: https://funddb.cn/site/fund_details?fund_code=001714
         基金概览-费率信息
@@ -284,7 +284,7 @@ class FundFeeRatio(dt_utils.BaseRatio):
 
     def remove_percent(self, x: str) -> float:
         """
-        存入数字即可
+        去除字符串的%字符
 
         >>> remove_percent('1.5%')
         1.5

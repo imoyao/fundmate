@@ -5,10 +5,7 @@
 @file: test_base.py
 @author: imoyao
 @email: immoyao@gmail.com
-@desc:
-"""
-"""
-对就圈儿爬取数据功能进行测试
+@desc:对韭圈儿爬取数据功能进行测试
 """
 import pytest
 
@@ -24,8 +21,93 @@ class TestFundFeeRatio:
         """
         self.test_jq_fr = FundFeeRatio()
 
+    @pytest.mark.parametrize('fund_code,expected', [('007471', {
+        'purchase': [{
+            'start_quota': 0,
+            'end_quota': None,
+            'fee_amount': 0.0
+        }],
+        'op': [{
+            'name': '管理费率',
+            'val': '1.10% (每年)'
+        }, {
+            'name': '托管费率',
+            'val': '0.15% (每年)'
+        }, {
+            'name': '销售服务费率',
+            'val': '0.40% (每年)'
+        }],
+        'redeem': [{
+            'start_day': 0,
+            'end_day': 7,
+            'rate': 1.5
+        }, {
+            'start_day': 7,
+            'end_day': 30,
+            'rate': 0.5
+        }, {
+            'start_day': 30,
+            'end_day': None,
+            'rate': 0.0
+        }]
+    }),
+                                                    ('163406', {
+                                                        'purchase': [{
+                                                            'start_quota': 0,
+                                                            'end_quota': 500000.0,
+                                                            'rate': 0.12
+                                                        }, {
+                                                            'start_quota': 500000.0,
+                                                            'end_quota': 2000000.0,
+                                                            'rate': 0.08
+                                                        }, {
+                                                            'start_quota': 2000000.0,
+                                                            'end_quota': 5000000.0,
+                                                            'rate': 0.05
+                                                        }, {
+                                                            'start_quota': 5000000.0,
+                                                            'end_quota': None,
+                                                            'fee_amount': 1000.0
+                                                        }],
+                                                        'op': [{
+                                                            'name': '管理费率',
+                                                            'val': '1.50% (每年)'
+                                                        }, {
+                                                            'name': '托管费率',
+                                                            'val': '0.25% (每年)'
+                                                        }, {
+                                                            'name': '销售服务费率',
+                                                            'val': '0.00% (每年)'
+                                                        }],
+                                                        'redeem': [{
+                                                            'start_day': 0,
+                                                            'end_day': 7,
+                                                            'rate': 1.5
+                                                        }, {
+                                                            'start_day': 7,
+                                                            'end_day': 365,
+                                                            'rate': 0.5
+                                                        }, {
+                                                            'start_day': 365,
+                                                            'end_day': 730,
+                                                            'rate': 0.25
+                                                        }, {
+                                                            'start_day': 730,
+                                                            'end_day': None,
+                                                            'rate': 0.0
+                                                        }]
+                                                    })])
+    def test_rate(self, fund_code, expected):
+        """
+        测试费率获取功能
+        :param fund_code:
+        :param expected:
+        :return:
+        """
+        assert self.test_jq_fr.rate(fund_code) == expected
+
     @pytest.mark.parametrize('suffix_str,replace_flag,expected', [('100万', 'w', 1000000), ('7.0天', 'd', 7),
-                                                                  ('2.0年', 'n', 730)])
+                                                                  ('1个月', 'm', 30), ('2.0年', 'n', 730)])
     def test_suffix_str_to_num(self, suffix_str, replace_flag, expected):
         """
         多个参数一次传入示例
@@ -36,8 +118,9 @@ class TestFundFeeRatio:
         """
         assert self.test_jq_fr.suffix_str_to_num(suffix_str, replace_flag) == expected
 
-    def test_parse_first(self):
-        assert self.test_jq_fr.parse_first('买入金额<100.0万') == 1000000
+    @pytest.mark.parametrize('suffix_str,expected', [('买入金额<100.0万', 1000000)])
+    def test_parse_first(self, suffix_str, expected):
+        assert self.test_jq_fr.parse_first(suffix_str) == expected
 
     @pytest.mark.parametrize('qt_name,p_type,expected', [('100.0万<=买入金额<500.0万', 'q', [1000000.0, 5000000.0]),
                                                          ('7天 ≤ 持有期限 < 1年', 'd', [7, 365]),
@@ -191,8 +274,3 @@ class TestFundFeeRatio:
                                                                               ('180.0天<=持有期限', 'd', '<=', 180)])
     def test_parse_last(self, range_str, replace_flag, split_signal, expected):
         assert self.test_jq_fr.parse_last(range_str, replace_flag, split_signal) == expected
-
-    @pytest.mark.parametrize('suffix_str,replace_flag,expected', [('100万', 'w', 1000000.0), ('1个月', 'm', 30),
-                                                                  ('2.0年', 'n', 730)])
-    def test_suffix_str_to_num(self, suffix_str, replace_flag, expected):
-        assert self.test_jq_fr.suffix_str_to_num(suffix_str, replace_flag) == expected
