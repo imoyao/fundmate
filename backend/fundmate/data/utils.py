@@ -126,6 +126,7 @@ class BaseRatio:
     """
     MONTH_SPLIT_STR = '个月'
 
+
     def suffix_str_to_num(self, suffix_str: str, replace_flag: str = 'w') -> Union[int, float]:
         """
         带后缀的字符串进行截取，最终获取到数字
