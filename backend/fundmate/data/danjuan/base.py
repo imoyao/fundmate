@@ -13,6 +13,7 @@ TTM等权市盈率：https://legulegu.com/stockdata/a-ttm-lyr
 from typing import Union
 
 import cachetools.func
+import pandas as pd
 from xalpha.cons import rget_json
 
 from backend.fundmate import utils
@@ -529,7 +530,7 @@ class FundFeeRatio(dt_utils.BaseRatio):
         return _rule_info
 
     @staticmethod
-    def remove_duplicate_resort(dup_dict):
+    def remove_duplicate_resort(with_dup_dict_list: list):
         """
         部分数据中含有重复数据需要对其进行去重，同时需要重新排序（按照费率的反序）
         see also:
@@ -555,15 +556,18 @@ class FundFeeRatio(dt_utils.BaseRatio):
             "value": "0.0"
         }]
         >>> remove_duplicate_resort(a)
-        >>> [{'name': '0.0天<持有期限<7.0天', 'value': '1.5'},
-             {'name': '0.0天<持有期限<30.0天', 'value': '0.5'},
-             {'name': '7.0天<=持有期限<30.0天', 'value': '0.5'},
-             {'name': '30.0天<=持有期限', 'value': '0.0'}]
+        [{'name': '0.0天<持有期限<7.0天', 'value': '1.5'}, {'name': '7.0天<=持有期限<30.0天', 'value': '0.5'},
+               {'name': '30.0天<=持有期限', 'value': '0.0'}]
         ```
         :return:
         """
-        rmv_list = [dict(t) for t in {tuple(d.items()) for d in dup_dict}]
-        rmv_list.sort(key=lambda x: x['value'], reverse=True)
+
+        with_dup_dict_list_df = pd.DataFrame(with_dup_dict_list)
+        # 删除重复数据
+        no_duplicated_df = with_dup_dict_list_df.drop_duplicates(subset=['value', 'name'], keep='first')
+        # 对于费率相同的数据取后一条
+        no_duplicated_value_df = no_duplicated_df.drop_duplicates(subset=['value'], keep='last')
+        rmv_list = no_duplicated_value_df.to_dict(orient='records')
         return rmv_list
 
     def parse_withdraw_rate(self, raw_withdraw_rate_table: list):
