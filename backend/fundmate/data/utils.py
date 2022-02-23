@@ -17,7 +17,7 @@ import yaml
 from backend.fundmate import settings
 from backend.fundmate.excepts import ParseError, UnpackError
 from backend.fundmate.exts.flask_loguru import logger
-from backend.fundmate.fund.models import FeeRatio, Fund, InRule, OutRule
+from backend.fundmate.fund.models import FeeRatio, Fund, PurchaseRule, RedeemRule
 
 
 def parse_headers(raw_header: str) -> dict:
@@ -137,6 +137,7 @@ class BaseRatio:
         30
         >>> self.suffix_str_to_num('2.0年')
         730
+
         :param replace_flag: 替代标识，可以替代的后缀
         :param suffix_str: 被替换字符
         :return:
@@ -163,9 +164,9 @@ class BaseRatio:
         replace_flag = re_mark_replace_flag(suffix_str)
 
         replace_str = replace_map.get(replace_flag)
-        # FIXME：py3.9: see also: https://docs.python.org/3/library/stdtypes.html#str.removesuffix
         if suffix_str.endswith(replace_str):
             '''
+            # FIXME：py3.9: see also: https://docs.python.org/3/library/stdtypes.html#str.removesuffix
             ```
             >>> 'MiscTests'.removesuffix('Tests')
             'Misc'
@@ -246,6 +247,7 @@ class BaseRatio:
         [7,30]
         >>> self._parse_both_limit('7天 ≤ 持有期限 < 30天')
         [7,30]
+
         ```
         :param qt_name: 被匹配的字符串，从中匹配数字
         :param p_type: 匹配规则，可以是额度（q）或者天数（d）
@@ -487,12 +489,12 @@ class BaseRatio:
         :param fee_type: 费率类型
         :return:
         """
-        key = 'out_rule_id'  # 字典的key
+        key = 'redeem_rule_id'  # 字典的key
         if fee_type == 2:
-            key = 'in_rule_id'
-            class_name = InRule
+            key = 'purchase_rule_id'
+            class_name = PurchaseRule
         else:
-            class_name = OutRule
+            class_name = RedeemRule
         fee_types = [item.dk_value for item in settings.FeeTypeEnum]
         if fee_type not in fee_types:
             raise KeyError(f'The fee_type should be Integer in {fee_types}')
