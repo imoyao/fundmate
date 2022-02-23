@@ -126,7 +126,6 @@ class BaseRatio:
     """
     MONTH_SPLIT_STR = '个月'
 
-
     def suffix_str_to_num(self, suffix_str: str, replace_flag: str = 'w') -> Union[int, float]:
         """
         带后缀的字符串进行截取，最终获取到数字
@@ -258,7 +257,7 @@ class BaseRatio:
 
         if qt_name.endswith('年'):
             if p_type == 'd':
-                day_year_match_exp = r'(\d*.\d*)天.+(\d*.\d*)年'
+                day_year_match_exp = r'(\d+\.?\d*)天.+?(\d+\.?\d*)年'
                 regex = re.compile(day_year_match_exp)
                 dy_reg_mat = regex.findall(qt_name)
                 if dy_reg_mat:
@@ -267,7 +266,7 @@ class BaseRatio:
                     return no_suffix_li
                 else:
                     # 2.0年<=持有期限<3.0年
-                    yy_match_exp = r'(\d*.\d*)年.+(\d*.\d*)年'
+                    yy_match_exp = r'(\d+\.?\d*)年.+?(\d+\.?\d*)年'
                     regex = re.compile(yy_match_exp)
                     dy_reg_mat = regex.findall(qt_name)
                     if dy_reg_mat:
@@ -276,7 +275,7 @@ class BaseRatio:
                         return no_suffix_li
                     else:
                         # 1个月<=持有期限<1年
-                        mon_match_exp = fr'(\d*.\d*){self.MONTH_SPLIT_STR}.+(\d*.\d*)年'
+                        mon_match_exp = fr'(\d+\.?\d*){self.MONTH_SPLIT_STR}.+?(\d+\.?\d*)年'
                         regex = re.compile(mon_match_exp)
                         dm_reg_mat = regex.findall(qt_name)
                         if dm_reg_mat:
@@ -286,7 +285,7 @@ class BaseRatio:
 
         elif qt_name.endswith(self.MONTH_SPLIT_STR):
             if p_type == 'd':
-                day_mon_match_exp = fr'(\d*.\d*)天.+(\d*.\d*){self.MONTH_SPLIT_STR}'
+                day_mon_match_exp = fr'(\d+\.?\d*)天.+?(\d+\.?\d*){self.MONTH_SPLIT_STR}'
                 regex = re.compile(day_mon_match_exp)
                 dy_reg_mat = regex.findall(qt_name)
                 if dy_reg_mat:
@@ -295,7 +294,7 @@ class BaseRatio:
                     return no_suffix_li
                 else:
                     # 1个月<=持有期限<3个月
-                    mon_match_exp = fr'(\d*.\d*){self.MONTH_SPLIT_STR}.+(\d*.\d*){self.MONTH_SPLIT_STR}'
+                    mon_match_exp = fr'(\d+\.?\d*){self.MONTH_SPLIT_STR}.+?(\d+\.?\d*){self.MONTH_SPLIT_STR}'
                     regex = re.compile(mon_match_exp)
                     dm_reg_mat = regex.findall(qt_name)
                     if dm_reg_mat:
