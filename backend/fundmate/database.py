@@ -153,6 +153,14 @@ class PkModel(Model):
     __abstract__ = True
     id = Column(db.Integer, primary_key=True)
 
+    @classmethod
+    def table_name(cls):
+        """
+        返回表名称
+        :return:
+        """
+        return cls.__table__.name
+
     # def __repr__(self) -> str:
     #     return self._repr(id=self.id)
     #

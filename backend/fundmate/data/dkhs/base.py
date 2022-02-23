@@ -10,7 +10,7 @@ from backend.fundmate import settings, utils
 from backend.fundmate.data.utils import data_parser
 from backend.fundmate.excepts import EmptyError, UnexpectedArgsError
 from backend.fundmate.exts.flask_loguru import logger
-from backend.fundmate.fund.models import FeeRatio, Fund, InRule, OutRule
+from backend.fundmate.fund.models import FeeRatio, Fund, PurchaseRule, RedeemRule
 
 abs_current_path = Path.cwd().resolve()
 FUND_SYMBOLS_SAVE_FP = f'{str(abs_current_path)}/fund_symbols.json'
@@ -299,9 +299,9 @@ class DKHS:
         is_in = False
         if fee_type in [1, 2]:
             is_in = True
-            rule_class = InRule
+            rule_class = PurchaseRule
         else:
-            rule_class = OutRule
+            rule_class = RedeemRule
         # FIXME: 有的rule是存在的，为什么log还是created xx?
         _rule_inst = rule_class.insert_or_update(rule_info, **rule_info)
         rule_id = _rule_inst.id
@@ -318,9 +318,9 @@ class DKHS:
             'fee_amount': fee_amount,
         }
         if is_in:
-            rate_info.update({'in_rule_id': rule_id})
+            rate_info.update({'purchase_rule_id': rule_id})
         else:
-            rate_info.update({'out_rule_id': rule_id})
+            rate_info.update({'redeem_rule_id': rule_id})
         return rate_info
 
     def fee_ratio(self, fund_code: str):

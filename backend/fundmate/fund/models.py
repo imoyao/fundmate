@@ -280,11 +280,11 @@ class FundVariety(PkModel, UpsertMixin):
             return _ins.id
 
 
-class InRule(PkModel, UpsertMixin):
+class PurchaseRule(PkModel, UpsertMixin):
     """
     可以直接记录结束点，然后每个出入都有3-4条记录，记录字段：分割点、费率、f_code
     """
-    __table_args__ = {'comment': '申购/认购规则表'}
+    __table_args__ = {'comment': '申购规则表'}
 
     start_quota = Column(db.Numeric(10, 2), comment='计费开始额度（金额：元）')  # max:10000000.00
     end_quota = Column(db.Numeric(10, 2), comment='计费结束额度（金额：元）')
@@ -294,20 +294,20 @@ class InRule(PkModel, UpsertMixin):
         将float类型配额转为可读字符
         Example:
         ```python
-        In [2]: ir.readable_quota(0)
-        Out[2]: 0
+        >>> ir.readable_quota(0)
+         0
 
-        In [3]: ir.readable_quota(100)
-        Out[3]: 100
+        >>> ir.readable_quota(100)
+         100
 
-        In [4]: ir.readable_quota(10000)
-        Out[4]: '1 万'
+        >>> ir.readable_quota(10000)
+        >>> '1 万'
 
-        In [5]: ir.readable_quota(50000000)
-        Out[5]: '5000 万'
+        >>> ir.readable_quota(50000000)
+        '5000 万'
 
-        In [6]: ir.readable_quota(float('inf'))
-        Out[6]: inf
+        >>> ir.readable_quota(float('inf'))
+         inf
         ```
         :param quota:
         :return:
@@ -320,11 +320,11 @@ class InRule(PkModel, UpsertMixin):
             return float(quota) if isinstance(quota, (float, Decimal)) else int(quota)
 
     def __repr__(self):
-        return f'<InRule(start quota:{self.readable_quota(self.start_quota)!r},' \
+        return f'<PurchaseRule(start quota:{self.readable_quota(self.start_quota)!r},' \
                f'end quota:{self.readable_quota(self.end_quota)!r})> '
 
 
-class OutRule(PkModel, UpsertMixin):
+class RedeemRule(PkModel, UpsertMixin):
     __table_args__ = {'comment': '赎回规则表'}
 
     start_day = Column(db.Integer, comment='计费开始天数')
@@ -332,8 +332,10 @@ class OutRule(PkModel, UpsertMixin):
 
     def __repr__(self):
         if self.end_day is None:
-            self.end_day = float('inf')
-        return f'<OutRule(start day:{self.start_day!r},end day:{self.end_day!r})>'
+            inf_end_day = float('inf')
+        else:
+            inf_end_day = self.end_day
+        return f'<RedeemRule(start day:{self.start_day!r},end day:{inf_end_day!r})>'
 
 
 class FeeRatio(PkModel, UpsertMixin):
@@ -342,10 +344,16 @@ class FeeRatio(PkModel, UpsertMixin):
     费率和费率规则也是O2M关系（一个费率对应多个买入和卖出规则）
     """
     __table_args__ = {'comment': '费率记录表'}
+    purchase_rule_tb_name = PurchaseRule.table_name()
+    redeem_rule_tb_name = RedeemRule.table_name()
+    fund_tb_name = Fund.table_name()
 
-    fund_id = Column(db.Integer, db.ForeignKey('funds.id'), comment='基金编号ID')
-    in_rule_id = db.Column(db.Integer, db.ForeignKey('in_rule.id'), nullable=True, comment='申购规则ID')
-    out_rule_id = db.Column(db.Integer, db.ForeignKey('out_rule.id'), nullable=True, comment='赎回规则ID')
+    fund_id = Column(db.Integer, db.ForeignKey(f'{fund_tb_name}.id'), comment='基金编号ID')
+    purchase_rule_id = db.Column(db.Integer,
+                                 db.ForeignKey(f'{purchase_rule_tb_name}.id'),
+                                 nullable=True,
+                                 comment='申购规则ID')
+    redeem_rule_id = db.Column(db.Integer, db.ForeignKey(f'{redeem_rule_tb_name}.id'), nullable=True, comment='赎回规则ID')
     fee_type = Column(IntChoiceDkEnumType(settings.FeeTypeEnum),
                       nullable=False,
                       index=True,
@@ -361,10 +369,10 @@ class FeeRatio(PkModel, UpsertMixin):
     def __repr__(self):
         f = Fund.get_by_id(self.fund_id)
         self.code = f.fund_code
-        if self.fee_type in ['subscribe', 'purchase']:
-            rule_class = InRule
+        if self.fee_type in [settings.FeeTypeEnum.subscribe, settings.FeeTypeEnum.purchase]:
+            rule_class = PurchaseRule
         else:
-            rule_class = OutRule
+            rule_class = RedeemRule
         rule_inst = rule_class.get_by_id(self.rule_id)
         return f'<FeeRatio(id:{self.fund_id},code:{self.code!r},type:{self.fee_type!r},{rule_inst!r})>'
 
@@ -373,7 +381,7 @@ class FeeRatio(PkModel, UpsertMixin):
         """
         https://stackoverflow.com/a/60053408/14295718
         """
-        return self.in_rule_id or self.out_rule_id
+        return self.purchase_rule_id or self.redeem_rule_id
 
     @classmethod
     def get_rules(cls, fund_code: str, op_type: int):
@@ -397,7 +405,7 @@ class FeeRatio(PkModel, UpsertMixin):
             rule_fee_amount = None
             if not rule_rate:
                 rule_fee_amount = rule.fee_amount
-            rule_inst = InRule.query.get_by_id(rule_id)
+            rule_inst = PurchaseRule.query.get_by_id(rule_id)
             if rule_inst:
                 start_quota = rule_inst.start_quota
                 end_quota = rule_inst.start_quota
@@ -421,7 +429,7 @@ class FeeRatio(PkModel, UpsertMixin):
             rule_id = rule.rule_id
             rule_rate = rule.rate
             rule_fee_amount = None
-            rule_inst = OutRule.query.get_by_id(rule_id)
+            rule_inst = RedeemRule.query.get_by_id(rule_id)
             if rule_inst:
                 start_day = rule_inst.start_day
                 end_day = rule_inst.end_day
