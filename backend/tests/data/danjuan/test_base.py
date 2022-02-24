@@ -19,7 +19,7 @@ class TestFundFeeRatio:
         self.test_dj_fr = FundFeeRatio()
 
     @pytest.mark.parametrize('suffix_str,replace_flag,expected', [('100万', 'w', 1000000), ('7.0天', 'd', 7),
-                                                                  ('2.0年', 'n', 730)])
+                                                                  ('2.0年', 'y', 730)])
     def test_suffix_str_to_num(self, suffix_str, replace_flag, expected):
         """
         多个参数一次传入示例
