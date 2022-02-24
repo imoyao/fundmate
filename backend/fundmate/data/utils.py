@@ -125,6 +125,22 @@ class BaseRatio:
     蛋卷基金和韭圈儿共同使用的基础类
     """
     MONTH_SPLIT_STR = '个月'
+    REPLACE_MAP = {
+        'w': '万',
+        'd': '天',
+        'y': '年',
+        'm': MONTH_SPLIT_STR,
+    }
+
+    def re_mark_replace_flag(self, ipt):
+        """
+        对于天的处理，需要根据输入重新处理
+        :param ipt:
+        :return:
+        """
+        for k, v in self.REPLACE_MAP.items():
+            if v in ipt:
+                return k
 
     def suffix_str_to_num(self, suffix_str: str, replace_flag: str = 'w') -> Union[int, float]:
         """
@@ -142,29 +158,16 @@ class BaseRatio:
         :param suffix_str: 被替换字符
         :return:
         """
-        replace_map = {
-            'w': '万',
-            'd': '天',
-            'y': '年',
-            'm': self.MONTH_SPLIT_STR,
-        }
+        if not replace_flag != 'w':
+            replace_flag = self.re_mark_replace_flag(suffix_str)
 
-        def re_mark_replace_flag(ipt):
-            """
-            对于天的处理，需要根据输入重新处理
-            :param ipt:
-            :return:
-            """
-            if ipt == 'w':
-                return 'w'
-            for k, v in replace_map.items():
-                if v in ipt:
-                    return k
+        replace_str = self.REPLACE_MAP.get(replace_flag)
+        try:
+            is_excepted_suffix = suffix_str.endswith(replace_str)
+        except AttributeError:
+            is_excepted_suffix = False
 
-        replace_flag = re_mark_replace_flag(suffix_str)
-
-        replace_str = replace_map.get(replace_flag)
-        if suffix_str.endswith(replace_str):
+        if is_excepted_suffix:
             '''
             # FIXME：py3.9: see also: https://docs.python.org/3/library/stdtypes.html#str.removesuffix
             ```
@@ -356,7 +359,7 @@ class BaseRatio:
         180
         >>> parse_last('购买金额 ≥ 1000万')
         10000000.0
-        >>> parse_last('持有期限 ≥ 1个月')
+        >>> parse_last('持有期限 ≥ 1个月',replace_flag='m')
         30
         ```
         :param range_str:
@@ -398,7 +401,7 @@ class BaseRatio:
         }
         return _rule_info
 
-    def last_day(self, last_info: dict, split_signal: str = '<='):
+    def last_level(self, last_info: dict, split_signal: str = '<='):
         """
         最低档赎回费信息
         :param split_signal:
@@ -469,11 +472,11 @@ class BaseRatio:
             except ParseError:
                 qt_list = list()
             if last:
-                l_qt = self.last_day(last)
+                l_qt = self.last_level(last)
                 qt_list.append(l_qt)
         elif len(withdraw_rate_table) == 1:  # 只有一个，即免费
             free_item = withdraw_rate_table[0]
-            l_qt = self.last_day(free_item)
+            l_qt = self.last_level(free_item)
             qt_list = [l_qt]
         else:
             raise UnpackError(f'withdraw_rate_table:{withdraw_rate_table}')

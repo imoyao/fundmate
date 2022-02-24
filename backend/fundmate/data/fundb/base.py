@@ -232,7 +232,7 @@ class FundFeeRatio(dt_utils.BaseRatio):
         """
         if len(withdraw_rate_table) == 1:  # 只有一个，即免费
             free_item = withdraw_rate_table[0]
-            l_qt = self.last_day(free_item)
+            l_qt = self.last_level(free_item)
             qt_list = [l_qt]
         # 韭圈第一个是开区间的
         elif len(withdraw_rate_table) == 2:
@@ -243,7 +243,7 @@ class FundFeeRatio(dt_utils.BaseRatio):
             except ParseError:
                 qt_list = list()
             if last:
-                l_qt = self.last_day(last)
+                l_qt = self.last_level(last)
                 qt_list.append(l_qt)
         elif len(withdraw_rate_table) > 2:
             first, *mid_items, last = withdraw_rate_table
@@ -264,7 +264,7 @@ class FundFeeRatio(dt_utils.BaseRatio):
                 qt_list = list()
 
             if last:
-                l_qt = self.last_day(last)
+                l_qt = self.last_level(last)
                 qt_list.append(l_qt)
         else:
             raise UnpackError(f'withdraw_rate_table:{withdraw_rate_table}')
@@ -344,6 +344,11 @@ class FundFeeRatio(dt_utils.BaseRatio):
         if range_str:
             start_quota = self.parse_last(range_str, split_signal='≥')  # 切割符处理
             amount = amount_str.replace('元/笔', '')
+            # 处理根据rate计算的
+            last_is_rate = amount.endswith('%')
+            if last_is_rate:
+                rate = self.remove_percent(amount)
+                return {'start_quota': start_quota, 'end_quota': None, 'rate': rate}
         else:
             # 免费 007471
             start_quota = 0
@@ -414,7 +419,7 @@ class FundFeeRatio(dt_utils.BaseRatio):
             results = parse_item(mid_info)
         return results
 
-    def last_day(self, last_info: dict, split_signal: str = '≥'):
+    def last_level(self, last_info: dict, split_signal: str = '≥'):
         """
         最低档赎回费信息
         :param split_signal:
@@ -423,7 +428,8 @@ class FundFeeRatio(dt_utils.BaseRatio):
         """
         range_str = last_info.get('time')
         rate = last_info.get('rate')
-        start_day = self.parse_last(range_str, replace_flag='d', split_signal=split_signal)
+        replace_flag = self.re_mark_replace_flag(range_str)
+        start_day = self.parse_last(range_str, replace_flag=replace_flag, split_signal=split_signal)
         _rule_info = {
             'start_day': start_day,
             'end_day': None,
@@ -434,8 +440,10 @@ class FundFeeRatio(dt_utils.BaseRatio):
     def first_day(self, range_str: str):
         """
         最低档赎回费信息
-        >>> first_day('持有期限 < 7天')
+        >>> _jq_fr = FundFeeRatio()
+        >>> _jq_fr.first_day('持有期限 < 7天')
         [0,7]
+
         :param range_str:
         :return:
         """
