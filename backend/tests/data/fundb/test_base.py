@@ -101,6 +101,36 @@ class TestFundFeeRatio:
                                                             'end_day': None,
                                                             'rate': 0.0
                                                         }]
+                                                    }),
+                                                    ('007019', {
+                                                        'purchase': [{
+                                                            'start_quota': 0,
+                                                            'end_quota': None,
+                                                            'fee_amount': 0.0
+                                                        }],
+                                                        'op': [{
+                                                            'name': '管理费率',
+                                                            'val': '0.30% (每年)'
+                                                        }, {
+                                                            'name': '托管费率',
+                                                            'val': '0.10% (每年)'
+                                                        }, {
+                                                            'name': '销售服务费率',
+                                                            'val': '0.35% (每年)'
+                                                        }],
+                                                        'redeem': [{
+                                                            'start_day': 0,
+                                                            'end_day': 7,
+                                                            'rate': 1.5
+                                                        }, {
+                                                            'start_day': 7,
+                                                            'end_day': 30,
+                                                            'rate': 0.1
+                                                        }, {
+                                                            'start_day': 30,
+                                                            'end_day': None,
+                                                            'rate': 0.0
+                                                        }]
                                                     })])
     def test_rate(self, fund_code, expected):
         """
@@ -163,6 +193,16 @@ class TestFundFeeRatio:
                                                                      'rate': '0.00%'
                                                                  }, '≥', {
                                                                      'start_day': 30,
+                                                                     'end_day': None,
+                                                                     'rate': 0.00,
+                                                                 }),
+                                                                 ({
+                                                                     'money': '',
+                                                                     'time': '',
+                                                                     'source': '',
+                                                                     'rate': '0.00%'
+                                                                 }, '≥', {
+                                                                     'start_day': 0,
                                                                      'end_day': None,
                                                                      'rate': 0.00,
                                                                  })])
@@ -338,3 +378,8 @@ class TestFundFeeRatio:
                                                                               ('180.0天<=持有期限', 'd', '<=', 180)])
     def test_parse_last(self, range_str, replace_flag, split_signal, expected):
         assert self.test_jq_fr.parse_last(range_str, replace_flag, split_signal) == expected
+
+    @pytest.mark.parametrize('range_str,split_signal,expected', [('持有期限 < 7天', '<', [0, 7]),
+                                                                 ('持有期限 ≤ 6天', '≤', [0, 6])])
+    def test_first_day(self, range_str, split_signal, expected):
+        assert self.test_jq_fr.first_day(range_str, split_signal) == expected

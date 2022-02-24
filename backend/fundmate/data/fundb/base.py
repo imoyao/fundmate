@@ -192,6 +192,8 @@ class FundFeeRatio(dt_utils.BaseRatio):
               {'money': '', 'time': '持有期限 ≥ 7天', 'source': '', 'rate': '0.50%'}]}
     
             '''
+            logger.info(f'purchase:{purchase},' f'redeem:{redeem}')
+
             purchase_info = None
             redeem_info = None
             if purchase:
@@ -429,25 +431,43 @@ class FundFeeRatio(dt_utils.BaseRatio):
         range_str = last_info.get('time')
         rate = last_info.get('rate')
         replace_flag = self.re_mark_replace_flag(range_str)
-        start_day = self.parse_last(range_str, replace_flag=replace_flag, split_signal=split_signal)
-        _rule_info = {
-            'start_day': start_day,
-            'end_day': None,
-            'rate': self.remove_percent(rate),
-        }
+        test_sign = '>'
+        if range_str:
+            # 部分基金后面是'>'符号
+            if test_sign in range_str:
+                split_signal = test_sign
+
+            start_day = self.parse_last(range_str, replace_flag=replace_flag, split_signal=split_signal)
+            _rule_info = {
+                'start_day': start_day,
+                'end_day': None,
+                'rate': self.remove_percent(rate),
+            }
+        else:
+            _rule_info = {
+                'start_day': 0,
+                'end_day': None,
+                'rate': self.remove_percent(rate),
+            }
         return _rule_info
 
-    def first_day(self, range_str: str):
+    def first_day(self, range_str: str, split_signal: str = '<'):
         """
         最低档赎回费信息
         >>> _jq_fr = FundFeeRatio()
         >>> _jq_fr.first_day('持有期限 < 7天')
         [0,7]
 
+        :param split_signal:
         :param range_str:
         :return:
         """
-        end_day = self.parse_last(range_str, replace_flag='d', split_signal='<')
+        # FIXME: 实际上需要处理开闭区间的问题
+        test_sign = '≤'
+        if test_sign in range_str:
+            split_signal = test_sign
+
+        end_day = self.parse_last(range_str, replace_flag='d', split_signal=split_signal)
         zero_start_rule_li = [0, end_day]
         return zero_start_rule_li
 
