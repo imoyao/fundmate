@@ -13,6 +13,10 @@ from backend.fundmate.data.fundb.base import FundFeeRatio
 
 
 class TestFundFeeRatio:
+    """
+    FIXME:一些需要特殊处理的基金
+    000906：按照美元计算
+    """
 
     def setup_class(self):
         """
