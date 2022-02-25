@@ -176,7 +176,7 @@ cookiecutter https://github.com/sloria/cookiecutter-flask.git
 │  │  ├── __init__.py
 │  │  ├── models.py
 │  │  └── views.py
-│  ├── utils.py
+│  ├── base.py
 │  └── webpack
 ├── LICENSE
 ├── package.json
@@ -231,7 +231,7 @@ cookiecutter https://github.com/sloria/cookiecutter-flask.git
 │     ├── public
 │     ├── settings.py
 │     ├── user
-│     └── utils.py
+│     └── base.py
 ├── __init__.py
 ├── LICENSE
 ├── pyproject.toml
