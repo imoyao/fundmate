@@ -7,7 +7,8 @@ from typing import Optional, Union
 
 from xalpha.cons import JSONDecodeError, rpost_json
 
-from backend.fundmate.data import utils as dt_utils
+from backend.fundmate.data.utils import base as dt_utils
+from backend.fundmate.data.utils import ratio
 from backend.fundmate.excepts import CrawlerException, ParseError, UnpackError
 from backend.fundmate.exts.flask_loguru import logger
 
@@ -90,7 +91,7 @@ class FundDB:
         return info
 
 
-class FundFeeRatio(dt_utils.BaseRatio):
+class FundFeeRatio(ratio.BaseRatio):
 
     def rate(self, fund_code: str, to_db: bool = False) -> Optional[dict]:
         """

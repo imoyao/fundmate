@@ -3,7 +3,9 @@
 # Created by Administrator at 2022/2/24 22:58
 import copy
 import re
-from typing import List, Union
+from typing import List, Optional, Union
+
+import portion
 
 from backend.fundmate import settings
 from backend.fundmate.excepts import ParseError, UnpackError
@@ -18,6 +20,9 @@ class BaseRatio:
     MONTH_SPLIT_STR = '个月'
     REPLACE_MAP = {
         'w': '万',
+        'wud': '万美元',
+        'ud': '美元',
+        'cy': '元',
         'd': '天',
         'y': '年',
         'm': MONTH_SPLIT_STR,
@@ -25,12 +30,16 @@ class BaseRatio:
 
     def re_mark_replace_flag(self, ipt):
         """
-        对于天的处理，需要根据输入重新处理
+        根据结尾获取字段自定义标识
         :param ipt:
         :return:
         """
         for k, v in self.REPLACE_MAP.items():
             if v in ipt:
+                if self.REPLACE_MAP.get('wud') in ipt:
+                    return 'wud'
+                elif self.REPLACE_MAP.get('ud') in ipt:
+                    return 'ud'
                 return k
 
     def suffix_str_to_num(self, suffix_str: str, replace_flag: str = 'w') -> Union[int, float]:
@@ -69,23 +78,25 @@ class BaseRatio:
             ```
             '''
             no_suffix_str = suffix_str.replace(replace_str, '')
-            if replace_flag == 'w':
+            if replace_flag in ['w', 'wud']:
                 return float(no_suffix_str) * 10000
-            elif replace_flag == 'd':
-                int_day = 7
-                try:
-                    int_day = int(float(no_suffix_str))
-                except ValueError:
-                    if no_suffix_str.startswith('='):
-                        # fixme:000005,需要特殊处理（(0,6]）
-                        no_suffix_str = no_suffix_str.replace('=', '')
-                        int_day = int(float(no_suffix_str)) + 1
+            # elif replace_flag == 'd':
+            #     int_day = 7
+            #     try:
+            #         int_day = int(float(no_suffix_str))
+            #     except ValueError:
+            #         if no_suffix_str.startswith('='):
+            #             # fixme:000005,需要特殊处理（(0,6]）
+            #             no_suffix_str = no_suffix_str.replace('=', '')
+            #             int_day = int(float(no_suffix_str)) + 1
             elif replace_flag == 'y':
                 # convert year to day
                 int_day = int(float(no_suffix_str)) * 365
             elif replace_flag == 'm':
                 # convert year to day
                 int_day = int(float(no_suffix_str)) * 30
+            elif replace_flag in ['ud', 'cy', 'd']:
+                int_day = int(float(no_suffix_str))
             else:
                 raise ValueError(f'The suffix_str:{suffix_str} can not be parsed.')
             return int_day
@@ -490,21 +501,199 @@ class BaseRatio:
             results = parse_item(mid_info)
         return results
 
+    def re_split_with_comparison_operators(self, interval_str: str) -> List:
+        """
+        按照比较符号将字段分割
+        :param interval_str:
+        :return:
+        """
+        re_str = self.replace_co_equality(interval_str)
+        reg_items = re.split(r'[<>≤≥\s]', re_str)
+        # keep sort
+        sorted_li = sorted(set(reg_items), key=reg_items.index)
+        if '' in sorted_li:
+            sorted_li.remove('')
+        return sorted_li
 
-def filter_comparison_operators(interval_str):
-    ret = re.split(r'[>=<≤≥\s]', interval_str)
-    sorted_li = sorted(set(ret), key=ret.index)
-    if '' in sorted_li:
-        sorted_li.remove('')
-    return sorted_li
+    @staticmethod
+    def replace_co_equality(raw_str: str) -> str:
+        """
+        将字符串中的:
+        “>=”替换为“≥”
+        “<=”替换为“≤”
+        '＞'替换为“>”
+        '＜'替换为“<”
+        正则查找更加方便
+        :param raw_str:
+        :return:
+        """
+        to_be_replaced_symbols = ['<=', '>=', '＞', '＜']
+        replace_with_symbols = ['≤', '≥', '>', '<']
+        symbols_dict = dict(zip(to_be_replaced_symbols, replace_with_symbols))
+        for symbol in symbols_dict.keys():
+            if symbol in raw_str:
+                raw_str = raw_str.replace(symbol, symbols_dict.get(symbol))
+
+        return raw_str
+
+    def comparison_operators_in_str(self, with_co_str: str) -> Optional[List]:
+        """
+        找出字段中的比较运算符
+        :param with_co_str:
+        :return:
+        """
+        re_str = self.replace_co_equality(with_co_str)
+        regex = re.compile(r'[＞>≧≥＜<≤≦]')
+        co_lists = regex.findall(re_str)
+        if co_lists:
+            return co_lists
+
+    def parse_portion(self, range_str_with_co: str) -> portion:
+        """
+        根据分割符返回区间
+        :param range_str_with_co:
+        :return:返回左闭右开(closedopen)的区间（'[1,5)'）
+        """
+
+        def is_money_suffix(suffix_str: str) -> bool:
+            """
+            代表金额范围的字段
+            :param suffix_str:
+            :return:
+            """
+            money_suffix = ['元', '万']
+            for suffix in money_suffix:
+                if suffix_str.endswith(suffix):
+                    return True
+            return False
+
+        co_lists = self.comparison_operators_in_str(range_str_with_co)
+        sorted_li = self.re_split_with_comparison_operators(range_str_with_co)
+        '''
+        o:open
+        c:closed
+        oc:openclosed
+        co:closedopen
+        '''
+        comp_items = {
+            'less_o': ['<', '<'],
+            'less_c': ['≤', '≤'],
+            'less_oc': ['<', '≤'],
+            'less_co': ['≤', '<'],
+            'less_single_c': ['≤'],
+            'less_single_o': ['<'],
+            'more_o': ['>', '>'],
+            'more_c': ['≥', '≥'],
+            'more_oc': ['>', '≥'],
+            'more_co': ['≥', '>'],
+            'more_single_c': ['≥'],
+            'more_single_o': ['>'],
+        }
+
+        val_lists = list(comp_items.values())
+        if co_lists in val_lists:
+            item_index = val_lists.index(co_lists)
+            item_key = list(comp_items.keys())[item_index]
+            if item_key in ['less_single_c', 'less_single_o']:
+                assert len(sorted_li) == 2
+                right_range_str = sorted_li[1]
+                # 金钱的话，直接转为改为闭区间即可
+                upper_bounds = self.suffix_str_to_num(right_range_str)
+                is_add_upper = False
+                # 时间序列，默认+1
+                if not is_money_suffix(right_range_str):
+                    if item_key == 'less_single_c':
+                        # 时间+1
+                        is_add_upper = True
+                if is_add_upper:
+                    upper_bounds += 1
+                interval_item = portion.closedopen(0, upper_bounds)
+            elif item_key in ['more_single_c', 'more_single_o']:
+                assert len(sorted_li) == 2
+                left_range_str = sorted_li[1]
+                # 金钱的话，直接转为改为闭区间即可
+                lower_bounds = self.suffix_str_to_num(left_range_str)
+                is_minus_bound = False
+                # 时间序列，默认+1
+                if not is_money_suffix(left_range_str):
+                    if item_key == 'more_single_o':
+                        # 时间+1
+                        is_minus_bound = True
+                if is_minus_bound:
+                    lower_bounds -= 1
+                interval_item = portion.closedopen(lower_bounds, portion.inf)
+            elif item_key in ['less_o', 'less_c', 'less_oc', 'less_co']:
+                # 两边都有边界值
+                assert len(sorted_li) == 3
+                lower, _, upper = sorted_li
+                lower_bounds = self.suffix_str_to_num(lower)
+                upper_bounds = self.suffix_str_to_num(upper)
+                if not is_money_suffix(lower):
+                    first_co = co_lists[0]
+                    is_minus_lower = False
+                    is_add_upper = False
+                    if first_co == '<':
+                        # 时间+1
+                        is_minus_lower = True
+                        if item_key == 'less_oc':
+                            is_add_upper = True
+                    elif first_co == '≤':
+                        # 时间+1
+                        if item_key == 'less_c':
+                            is_add_upper = True
+                    if is_minus_lower:
+                        if lower_bounds != 0:
+                            lower_bounds -= 1
+                    if is_add_upper:
+                        upper_bounds += 1
+                interval_item = portion.closedopen(lower_bounds, upper_bounds)
+            elif item_key in ['more_o', 'more_c', 'more_oc', 'more_co']:
+                # 两边都有边界值
+                assert len(sorted_li) == 3
+                # 小的在右边
+                upper, _, lower = sorted_li
+                lower_bounds = self.suffix_str_to_num(lower)
+                upper_bounds = self.suffix_str_to_num(upper)
+                if not is_money_suffix(lower):
+                    first_co = co_lists[0]
+                    is_minus_lower = False
+                    is_add_upper = False
+                    is_add_lower = False
+
+                    if first_co == '>':
+                        if item_key == 'more_o':
+                            if lower_bounds != 0:
+                                is_minus_lower = True
+
+                    elif first_co == '≥':
+                        # 时间+1
+                        is_add_upper = True
+                        if item_key == 'more_co':
+                            is_add_lower = True
+
+                    if is_minus_lower:
+                        if lower_bounds != 0:
+                            lower_bounds -= 1
+                    if is_add_lower:
+                        lower_bounds += 1
+                    if is_add_upper:
+                        upper_bounds += 1
+                interval_item = portion.closedopen(lower_bounds, upper_bounds)
+            else:
+                raise ParseError(f'字段：{range_str_with_co}获取到的区间分割符为：{co_lists}')
+            print(interval_item, type(interval_item))
+            return interval_item
+
+
+def all_comparison_operators():
+    less_intervals = ['＜', '<']
+    right_intervals = less_intervals + ['<=', '≤', '≦']
+    # 大于符号集
+    more_intervals = ['＞', '>']
+    left_intervals = more_intervals + ['≧', '≥', '>=']
+    return ''.join(left_intervals + right_intervals)
 
 
 if __name__ == '__main__':
-
-    test_list = [
-        '7天 ≤ 持有期限 < 1个月', '100.0万<=买入金额<500.0万', '7天 ≤ 持有期限 < 1个月', '7天 ≤ 持有期限 < 30天', '1个月 ≤ 持有期限 < 1年',
-        '1个月<=持有期限<3个月', '1年 ≤ 持有期限 < 2年', '持有期限 ≥ 1个月', '持有期限 >= 1个月', '持有期限 > 1个月', '持有期限 < 7天'
-    ]
-    for item in test_list:
-        ret = filter_comparison_operators(item)
-        print(ret)
+    aco = all_comparison_operators()
+    print(aco)

@@ -17,6 +17,7 @@ class TestFundFeeRatio:
     """
     FIXME:一些需要特殊处理的基金
     000906：按照美元计算
+    000507, 003663
     """
 
     def setup_class(self):

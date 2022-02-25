@@ -7,7 +7,7 @@ from typing import Union
 from xalpha.cons import rget_json
 
 from backend.fundmate import settings, utils
-from backend.fundmate.data.utils import data_parser
+from backend.fundmate.data.utils.base import data_parser
 from backend.fundmate.excepts import EmptyError, UnexpectedArgsError
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.fund.models import FeeRatio, Fund, PurchaseRule, RedeemRule

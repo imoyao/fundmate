@@ -17,7 +17,8 @@ import pandas as pd
 from xalpha.cons import rget_json
 
 from backend.fundmate import utils
-from backend.fundmate.data import utils as dt_utils
+from backend.fundmate.data.utils import base as dt_utils
+from backend.fundmate.data.utils import ratio
 from backend.fundmate.exts.flask_loguru import logger
 
 header_str = '''Accept: application/json, text/plain, */*
@@ -177,7 +178,7 @@ class DanJuanEvl:
         return _info
 
 
-class FundFeeRatio(dt_utils.BaseRatio):
+class FundFeeRatio(ratio.BaseRatio):
     """
     蛋卷基金费率信息获取
     """
