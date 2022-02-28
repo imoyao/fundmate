@@ -3,13 +3,13 @@
 # Created by Andy at 2021/7/30 17:43
 import random
 import time
-from typing import Optional, Union
+from typing import Optional
 
 from xalpha.cons import JSONDecodeError, rpost_json
 
 from backend.fundmate.data.utils import base as dt_utils
 from backend.fundmate.data.utils import ratio
-from backend.fundmate.excepts import CrawlerException, ParseError, UnpackError
+from backend.fundmate.excepts import CrawlerException
 from backend.fundmate.exts.flask_loguru import logger
 
 _HEADER_STR = '''authority: api.jiucaishuo.com
@@ -191,7 +191,7 @@ class FundFeeRatio(ratio.BaseRatio):
               {'name': '销售服务费率', 'val': '0.00% (每年)'}],
              'redeem': [{'money': '', 'time': '持有期限 < 7天', 'source': '', 'rate': '1.50%'},
               {'money': '', 'time': '持有期限 ≥ 7天', 'source': '', 'rate': '0.50%'}]}
-    
+
             '''
             logger.info(f'purchase:{purchase},' f'redeem:{redeem}')
 
@@ -199,12 +199,12 @@ class FundFeeRatio(ratio.BaseRatio):
             redeem_info = None
             if purchase:
                 try:
-                    purchase_info = self.declare_rate(purchase)
+                    purchase_info = self.purchase_rate(purchase, money_key='money', rate_key='rate')
                 except ValueError:
                     raise CrawlerException(f'基金 {fund_code} 处理申购信息 {purchase} 出错！')
             if redeem:
                 try:
-                    redeem_info = self.parse_redeem_info(redeem)
+                    redeem_info = self.redeem_rate(redeem)
                 except ValueError:
                     raise CrawlerException(f'基金 {fund_code} 处理赎回信息 {redeem} 出错！')
 
@@ -223,254 +223,6 @@ class FundFeeRatio(ratio.BaseRatio):
                 'redeem': redeem_info,
             }
             return info
-
-    def parse_redeem_info(self, redeem_list: list):
-        ret = self.withdraw_rate(redeem_list)
-        return ret
-
-    def withdraw_rate(self, withdraw_rate_table: list):
-        """
-        赎回费率信息处理
-        :return:
-        """
-        if len(withdraw_rate_table) == 1:  # 只有一个，即免费
-            free_item = withdraw_rate_table[0]
-            l_qt = self.last_level(free_item)
-            qt_list = [l_qt]
-        # 韭圈第一个是开区间的
-        elif len(withdraw_rate_table) == 2:
-            first, last = withdraw_rate_table
-            try:
-                first_day_fee_info = self.parse_first_day_range(first)  # 解析阈值
-                qt_list = [first_day_fee_info]
-            except ParseError:
-                qt_list = list()
-            if last:
-                l_qt = self.last_level(last)
-                qt_list.append(l_qt)
-        elif len(withdraw_rate_table) > 2:
-            first, *mid_items, last = withdraw_rate_table
-            try:
-                first_day_fee_info = self.parse_first_day_range(first)  # 解析阈值
-                first_list = [first_day_fee_info]
-            except ParseError:
-                first_list = None
-            try:
-                _mid_list = self._parse_day_have_both(mid_items)  # 解析中间阈值
-                if first_list:
-                    qt_list = first_list + _mid_list
-                elif _mid_list:
-                    qt_list = _mid_list
-                else:
-                    qt_list = list()
-            except ParseError:
-                qt_list = list()
-
-            if last:
-                l_qt = self.last_level(last)
-                qt_list.append(l_qt)
-        else:
-            raise UnpackError(f'withdraw_rate_table:{withdraw_rate_table}')
-        return qt_list
-
-    def parse_first_day_range(self, range_item: dict) -> dict:
-        range_str = range_item.get('time')
-        rate = range_item.get('rate')
-        float_day_li = self.first_day(range_str)
-        s_qt, e_qt = float_day_li
-        _results = {
-            'start_day': s_qt,
-            'end_day': e_qt,
-            'rate': self.remove_percent(rate),
-        }
-        return _results
-
-    def remove_percent(self, x: str) -> float:
-        """
-        去除字符串的%字符
-
-        >>> remove_percent('1.5%')
-        1.5
-
-        :param x:
-        :return:
-        """
-        return float(x.strip('%'))
-
-    def first_quota(self, first_info: dict) -> dict:
-        """
-        将第一行的额度转化为前后均有限制的额度
-        :param first_info:
-        :return:
-        """
-        range_str = first_info.get('money')
-        rate = first_info.get('rate')
-        end_quota = self.parse_first(range_str)
-        _rule_info = {
-            'start_quota': 0,
-            'end_quota': end_quota,
-            'rate': self.remove_percent(rate),
-        }
-        return _rule_info
-
-    def parse_middle(self, mid_list):
-        """
-        [{
-                'money': '100.0万<=买入金额<500.0万',
-                'rate': '1.2'
-            }, {
-                'money': '500.0万<=买入金额<1000.0万',
-                'rate': '0.8'
-            }]
-        :return:
-        """
-        mid_qta = []
-        for item in mid_list:
-            name = item.get('money')
-            rate = item.get('rate')
-            float_wan_li = self._parse_both_limit(name)
-            s_qt, e_qt = float_wan_li
-            qt_info = {
-                'start_quota': s_qt,
-                'end_quota': e_qt,
-                'rate': self.remove_percent(rate),
-            }
-            mid_qta.append(qt_info)
-        return mid_qta
-
-    def last_quota(self, last_info: dict) -> dict:
-        """
-        结束时只有开始值，此时按照固定额收费
-        """
-        range_str = last_info.get('money')
-        amount_str = last_info.get('rate')
-        if range_str:
-            start_quota = self.parse_last(range_str, split_signal='≥')  # 切割符处理
-            amount = amount_str.replace('元/笔', '')
-            # 处理根据rate计算的
-            last_is_rate = amount.endswith('%')
-            if last_is_rate:
-                rate = self.remove_percent(amount)
-                return {'start_quota': start_quota, 'end_quota': None, 'rate': rate}
-        else:
-            # 免费 007471
-            start_quota = 0
-            amount = 0
-
-        _rule_info = {
-            'start_quota': start_quota,
-            'end_quota': None,
-            'fee_amount': float(amount),
-        }
-        return _rule_info
-
-    def _parse_day_have_both(self, mid_info: Union[list, dict]) -> list:
-        """"
-        两边数值，中间分隔符的情况
-        """
-
-        def parse_item(mid_info_: dict) -> dict:
-            """
-            解析收费规则
-            :param mid_info_:
-            :return:
-            """
-            range_str = mid_info_.get('time')
-            rate = mid_info_.get('rate')
-            try:
-                float_day_li = self._parse_both_limit(range_str, p_type='d')
-            except ValueError as e:
-                err_msg = f'Error: {e} to parse raw str: {range_str}'
-                logger.error(err_msg)
-                float_day_li = self.first_day(range_str)
-            try:
-                s_qt, e_qt = float_day_li
-            except ValueError as e:
-                err_msg = f'Error: {e} to unpack {float_day_li},raw str is {range_str}'
-                # 不够两个无法处理
-                logger.error(err_msg)
-                raise ParseError(err_msg)
-            '''
-            hack：特殊数据处理
-            convert:
-            {'start_day': 6, 'end_day': 91, 'rate': 0.3},
-              {'start_day': 90, 'end_day': 181, 'rate': 0.2},
-              {'start_day': 180, 'end_day': 271, 'rate': 0.1},
-            to:
-              {'start_day': 7, 'end_day': 90, 'rate': 0.3},
-              {'start_day': 90, 'end_day': 180, 'rate': 0.2},
-              {'start_day': 180, 'end_day': 270, 'rate': 0.1},
-            '''
-            if e_qt:
-                if str(e_qt).endswith('1'):
-                    e_qt -= 1
-                    if s_qt == 6:
-                        s_qt = 7
-                _results = {
-                    'start_day': s_qt,
-                    'end_day': e_qt,
-                    'rate': self.remove_percent(rate),
-                }
-                return _results
-
-        results = []
-        if isinstance(mid_info, list):
-            for item in mid_info:
-                qt_info = parse_item(item)
-                results.append(qt_info)
-        else:
-            results = parse_item(mid_info)
-        return results
-
-    def last_level(self, last_info: dict, split_signal: str = '≥'):
-        """
-        最低档赎回费信息
-        :param split_signal:
-        :param last_info:
-        :return:
-        """
-        range_str = last_info.get('time')
-        rate = last_info.get('rate')
-        replace_flag = self.re_mark_replace_flag(range_str)
-        test_sign = '>'
-        if range_str:
-            # 部分基金后面是'>'符号
-            if test_sign in range_str:
-                split_signal = test_sign
-
-            start_day = self.parse_last(range_str, replace_flag=replace_flag, split_signal=split_signal)
-            _rule_info = {
-                'start_day': start_day,
-                'end_day': None,
-                'rate': self.remove_percent(rate),
-            }
-        else:
-            _rule_info = {
-                'start_day': 0,
-                'end_day': None,
-                'rate': self.remove_percent(rate),
-            }
-        return _rule_info
-
-    def first_day(self, range_str: str, split_signal: str = '<'):
-        """
-        最低档赎回费信息
-        >>> _jq_fr = FundFeeRatio()
-        >>> _jq_fr.first_day('持有期限 < 7天')
-        [0,7]
-
-        :param split_signal:
-        :param range_str:
-        :return:
-        """
-        # FIXME: 实际上需要处理开闭区间的问题
-        test_sign = '≤'
-        if test_sign in range_str:
-            split_signal = test_sign
-
-        end_day = self.parse_last(range_str, replace_flag='d', split_signal=split_signal)
-        zero_start_rule_li = [0, end_day]
-        return zero_start_rule_li
 
 
 jq_app = FundDB()
