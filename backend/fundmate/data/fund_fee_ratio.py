@@ -104,9 +104,9 @@ def get_no_ratio_funds() -> List:
     :return:
     """
     # 查询id不在fee_ratio，注意distinct用法
-    has_rule_fd_id_lists = [ratio.fund_id for ratio in FeeRatio.query.distinct(FeeRatio.fund_id).all()]
+    has_rule_fd_code_lists = [ratio.fund_code for ratio in FeeRatio.query.distinct(FeeRatio.fund_code).all()]
     # 注意not_in 用法
-    fund_lists = Fund.query.filter(Fund.id.not_in(has_rule_fd_id_lists)).all()
+    fund_lists = Fund.query.filter(Fund.fund_code.not_in(has_rule_fd_code_lists)).all()
     return fund_lists
 
 
