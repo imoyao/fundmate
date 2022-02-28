@@ -48,8 +48,9 @@ class TestFundFeeRatio:
 
     @pytest.mark.parametrize('suffix_str,replace_flag,expected', [('100万', 'w', 1000000), ('500.0万', 'w', 5000000),
                                                                   ('500.0万美元', 'wud', 5000000), ('500.0美元', 'ud', 500),
-                                                                  ('500.0万', 'w', 5000000), ('7.0天', 'd', 7),
-                                                                  ('7天', 'd', 7), ('1个月', 'm', 30), ('2.0年', 'y', 730)])
+                                                                  ('500.0万', 'w', 5000000), ('50.0万', 'w', 500000),
+                                                                  ('0.0万', 'w', 0), ('7.0天', 'd', 7), ('7天', 'd', 7),
+                                                                  ('1个月', 'm', 30), ('2.0年', 'y', 730)])
     def test_suffix_str_to_num(self, suffix_str, replace_flag, expected):
         """
         :param suffix_str:
@@ -69,16 +70,18 @@ class TestFundFeeRatio:
         ('x<30天', portion.closedopen(0, 30)),
         ('x≤6天', portion.closedopen(0, 7)),
         ('7天≤x<1年', portion.closedopen(7, 365)),
+        ('7天 ≤ 持有期限 ≤ 30天', portion.closedopen(7, 31)),
+        ('持有期限 > 30天', portion.closedopen(31, portion.inf)),
         ('7天≤x≤1年', portion.closedopen(7, 366)),
-        ('x≤6天', portion.closedopen(0, 7)),
-        ('x>31天', portion.closedopen(30, portion.inf)),
+        ('x>29天', portion.closedopen(30, portion.inf)),
         ('1年>x>31天', portion.closedopen(30, 365)),
         ('1年≥x≥31天', portion.closedopen(31, 366)),
         ('1年≥x≥30天', portion.closedopen(30, 366)),
         ('1年≥x>30天', portion.closedopen(31, 366)),
         ('1年>x≥1个月', portion.closedopen(30, 365)),
         ('x≥30天', portion.closedopen(30, portion.inf)),
-        ('x>31天', portion.closedopen(30, portion.inf)),
+        ('x>30天', portion.closedopen(31, portion.inf)),
+        ('购买金额 ≥ 500万', portion.closedopen(5000000.0, portion.inf)),
     ])
     def test_parse_portion(self, range_str_with_co, expected):
         """

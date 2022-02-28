@@ -10,10 +10,11 @@ TTM等权市盈率：https://legulegu.com/stockdata/a-ttm-lyr
 集思录温度计：https://www.jisilu.cn/data/indicator/
 有知有行温度计：https://youzhiyouxing.cn/thermometer
 """
-from typing import Union
+from typing import Dict, List, Optional, Union
 
 import cachetools.func
 import pandas as pd
+import portion
 from xalpha.cons import rget_json
 
 from backend.fundmate import utils
@@ -416,120 +417,6 @@ class FundFeeRatio(ratio.BaseRatio):
                 rate = data.get('fund_rates')
                 return {'position': position, 'rate': rate}
 
-    def parse_first(self, range_str: str) -> float:
-        """
-        买入金额<100.0万  -> 1000000
-        :param range_str:
-        :return:
-        """
-        split_signal = '<'
-        if split_signal in range_str:
-            data_li = range_str.split(split_signal)
-            data_str = data_li[-1]
-            float_wan = self.suffix_str_to_num(data_str)
-            return float_wan
-        raise ValueError(f"Don't have {split_signal} in the range_str:{range_str}.")
-
-    def first_quota(self, first_info: dict) -> dict:
-        """
-        有始有终
-        :param first_info:
-        :return:
-        """
-        range_str = first_info.get('name')
-        rate = first_info.get('value')
-        end_quota = self.parse_first(range_str)
-        _rule_info = {
-            'start_quota': 0,
-            'end_quota': end_quota,
-            'rate': float(rate),
-        }
-        return _rule_info
-
-    def parse_middle(self, mid_list):
-        """
-        [{
-                'name': '100.0万<=买入金额<500.0万',
-                'value': '1.2'
-            }, {
-                'name': '500.0万<=买入金额<1000.0万',
-                'value': '0.8'
-            }]
-        :return:
-        """
-        mid_qta = []
-        for item in mid_list:
-            name = item.get('name')
-            rate = item.get('value')
-            float_wan_li = self._parse_both_limit(name)
-            s_qt, e_qt = float_wan_li
-            qt_info = {
-                'start_quota': s_qt,
-                'end_quota': e_qt,
-                'rate': float(rate),
-            }
-            mid_qta.append(qt_info)
-        return mid_qta
-
-    def parse_last(self, range_str: str, replace_flag='w', split_signal: str = '<=') -> Union[float, int]:
-        """
-        对末尾数据进行解析，取边界值
-        Examples:
-        ```
-        >>> '1000.0万<=买入金额'
-        >>>10000000.0
-        >>> '180.0天<=持有期限'
-        >>> 180
-        ```
-        :param range_str:
-        :param replace_flag:
-        :param split_signal:分割符
-        :return:
-        """
-        if split_signal in range_str:
-            data_li = range_str.split(split_signal)
-            data_str = data_li[0]
-            no_suffix_num = self.suffix_str_to_num(data_str, replace_flag=replace_flag)
-            return no_suffix_num
-        else:
-            if '<' in range_str:
-                # 270.0天<持有期限
-                no_suffix_num = self.parse_last(range_str, replace_flag=replace_flag, split_signal='<')
-                return no_suffix_num
-
-            raise ValueError(f"Don't have {split_signal} in the range_str:{range_str}.")
-
-    def last_quota(self, last_info: dict) -> dict:
-        """
-        结束时只有开始值，此时按照固定额收费
-        """
-        range_str = last_info.get('name')
-        amount = last_info.get('value')
-        start_quota = self.parse_last(range_str)
-
-        _rule_info = {
-            'start_quota': start_quota,
-            'end_quota': None,
-            'fee_amount': float(amount),
-        }
-        return _rule_info
-
-    def last_day(self, last_info: dict):
-        """
-        最低档赎回费信息
-        :param last_info:
-        :return:
-        """
-        range_str = last_info.get('name')
-        start_day = self.parse_last(range_str, replace_flag='d')
-        rate = last_info.get('value')
-        _rule_info = {
-            'start_day': start_day,
-            'end_day': 0,
-            'rate': float(rate),
-        }
-        return _rule_info
-
     @staticmethod
     def remove_duplicate_resort(with_dup_dict_list: list):
         """
@@ -570,31 +457,6 @@ class FundFeeRatio(ratio.BaseRatio):
         no_duplicated_value_df = no_duplicated_df.drop_duplicates(subset=['value'], keep='last')
         rmv_list = no_duplicated_value_df.to_dict(orient='records')
         return rmv_list
-
-    def parse_withdraw_rate(self, raw_withdraw_rate_table: list):
-        """
-        将数据：
-        ```
-        # 注意此数据中 raw data 本身有重复数据（001778）
-        [{
-            "name": "0.0天<持有期限<7.0天",
-            "value": "1.5"
-        }, {
-            "name": "7.0天<=持有期限<30.0天",
-            "value": "0.5"
-        }, {
-            "name": "30.0天<=持有期限<180.0天",
-            "value": "0.1"
-        }, {
-            "name": "180.0天<=持有期限",
-            "value": "0.0"
-        }]
-        ```
-        :return:
-        """
-        withdraw_rate_table = self.remove_duplicate_resort(raw_withdraw_rate_table)
-        qt_list = self.withdraw_rate(withdraw_rate_table)
-        return qt_list
 
     def rate(self, fund_code, to_db: bool = False):
         """
@@ -647,18 +509,20 @@ class FundFeeRatio(ratio.BaseRatio):
         fd_detail = self.fund_detail(fund_code)
         if fd_detail:
             rate = fd_detail.get('rate')
+            logger.info(f'rate info:{rate}')
             declare_rate_table = rate.get('declare_rate_table')
             withdraw_rate_table = rate.get('withdraw_rate_table')
+            op_info = rate.get('other_rate_table')
 
             declare_info = list()
             if declare_rate_table:
-                declare_info = self.declare_rate(declare_rate_table)
+                declare_info = self.purchase_rate(declare_rate_table, money_key='name', rate_key='value')
                 if to_db:
                     self.save_fee_info(fund_code, declare_info, fee_type=2)
 
             withdraw_info = list()
             if withdraw_rate_table:
-                withdraw_info = self.parse_withdraw_rate(withdraw_rate_table)
+                withdraw_info = self.redeem_rate(withdraw_rate_table, time_key='name', rate_key='value')
                 if to_db:
                     if fund_code not in ['000074']:
                         self.save_fee_info(fund_code, withdraw_info, fee_type=3)
@@ -666,13 +530,111 @@ class FundFeeRatio(ratio.BaseRatio):
                         logger.warning(f'We think the withdraw_info of {fund_code} is error,just skip it.')
 
             rate_info = {
-                'declare_info': declare_info,
-                'withdraw_info': withdraw_info,
+                'purchase': declare_info,
+                'op': op_info,
+                'redeem': withdraw_info,
             }
             return rate_info
         # raise EmptyError(f'The fund_code {fund_code} from remote get empty response,please check the code is
         # validated?')
         return None
+
+    def purchase_parser(self, purchase_info: dict, money_key: str = 'name', rate_key: str = 'value'):
+        """
+        解析申购信息
+        :param rate_key:
+        :param money_key:
+        :param purchase_info:
+        :return:
+        """
+        range_str = purchase_info.get(money_key)
+        rate = purchase_info.get(rate_key)
+        if range_str:
+            portion_info = self.make_purchase_info(range_str)
+            # lower_bounds = portion_info.get('lower')
+            upper_bounds = portion_info.get('end_quota')
+            if upper_bounds is not None:
+                rate_info = {'rate': float(rate) / 10}
+            else:
+                # 处理最后一个区间使用固定金额的情况
+                last_is_rate = float(rate) > 1
+                if last_is_rate or float(rate) == 0:
+                    rate_info = {'fee_amount': float(rate)}
+                else:
+                    rate_info = {'rate': float(rate) / 10}
+
+            portion_info.update(rate_info)
+            _rule_info = portion_info.copy()
+        else:
+            # 免费 007471
+            start_quota = 0
+            amount = 0
+
+            _rule_info = {
+                'start_quota': start_quota,
+                'end_quota': None,
+                'fee_amount': float(amount),
+            }
+        return _rule_info
+
+    def redeem_parser(self, redeem_info: dict, time_key='time', rate_key='rate') -> Optional[Dict]:
+        range_str = redeem_info.get(time_key)
+        rate = redeem_info.get(rate_key)
+        if range_str:
+            _portion_info = self.make_redeem_info(range_str)
+            rate_info = {
+                'rate': float(rate),
+            }
+            _portion_info.update(rate_info)
+            return _portion_info
+
+    def parse_less_single(self, item_key: str, sorted_li: List):
+        """
+        蛋卷对于单符号的处理稍微有点复杂
+        有可能是：x>7也可能是：7<x
+        :param item_key:
+        :param sorted_li:
+        :return:
+        """
+        if item_key == 'less_single_o':
+            digit_is_first = False
+            # 此处有可能条件在区间后面，也有可能条件在区间前面
+            bound = sorted_li[1]
+            if not bound[0].isdigit():
+                digit_is_first = True
+                bound = sorted_li[0]
+                assert bound[0].isdigit()
+        else:
+            bound = sorted_li[0]
+            digit_is_first = True
+            if not bound[0].isdigit():
+                digit_is_first = False
+                bound = sorted_li[1]
+                assert bound[0].isdigit()
+        bound_value = self.suffix_str_to_num(bound)
+        # 时间序列，默认+1
+        if not self.is_money_suffix(bound):
+            if item_key == 'less_single_o':
+                if digit_is_first:
+                    bound_value += 1
+                    interval_item = portion.closedopen(bound_value, portion.inf)
+                else:
+                    interval_item = portion.closedopen(0, bound_value)
+            else:
+                if digit_is_first:
+                    interval_item = portion.closedopen(bound_value, portion.inf)
+                else:
+                    bound_value += 1
+                    interval_item = portion.closedopen(0, bound_value)
+        # 金钱的话，直接转为改为闭区间即可
+        else:
+            if item_key == 'less_single_c':
+                interval_item = portion.closedopen(bound_value, portion.inf)
+            else:
+                if bound_value == 0:
+                    bound_value = portion.inf
+                interval_item = portion.closedopen(0, bound_value)
+        return interval_item
 
 
 dj_fd = FundFeeRatio()

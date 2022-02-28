@@ -15,9 +15,7 @@ from backend.fundmate.excepts import CrawlerException
 
 class TestFundFeeRatio:
     """
-    FIXME:一些需要特殊处理的基金
-    000906：按照美元计算
-    000507, 003663
+    测试基金费率信息
     """
 
     def setup_class(self):
@@ -125,12 +123,134 @@ class TestFundFeeRatio:
                                                             'rate': 1.5
                                                         }, {
                                                             'start_day': 7,
-                                                            'end_day': 30,
+                                                            'end_day': 31,
                                                             'rate': 0.1
                                                         }, {
-                                                            'start_day': 30,
+                                                            'start_day': 31,
                                                             'end_day': None,
                                                             'rate': 0.0
+                                                        }]
+                                                    }),
+                                                    ('000906', {
+                                                        'purchase': [{
+                                                            'start_quota': 0,
+                                                            'end_quota': None,
+                                                            'fee_amount': 0.0
+                                                        }],
+                                                        'op': [{
+                                                            'name': '管理费率',
+                                                            'val': '0.30% (每年)'
+                                                        }, {
+                                                            'name': '托管费率',
+                                                            'val': '0.10% (每年)'
+                                                        }, {
+                                                            'name': '销售服务费率',
+                                                            'val': '0.35% (每年)'
+                                                        }],
+                                                        'redeem': [{
+                                                            'start_day': 0,
+                                                            'end_day': 7,
+                                                            'rate': 1.5
+                                                        }, {
+                                                            'start_day': 7,
+                                                            'end_day': 31,
+                                                            'rate': 0.1
+                                                        }, {
+                                                            'start_day': 31,
+                                                            'end_day': None,
+                                                            'rate': 0.0
+                                                        }]
+                                                    }),
+                                                    ('000507', {
+                                                        'op': [{
+                                                            'name': '管理费率',
+                                                            'val': '0.60% (每年)'
+                                                        }, {
+                                                            'name': '托管费率',
+                                                            'val': '0.25% (每年)'
+                                                        }, {
+                                                            'name': '销售服务费率',
+                                                            'val': '0.00% (每年)'
+                                                        }],
+                                                        'purchase': [{
+                                                            'end_quota': 500000.0,
+                                                            'rate': 0.12,
+                                                            'start_quota': 0
+                                                        }, {
+                                                            'end_quota': 1000000.0,
+                                                            'rate': 0.1,
+                                                            'start_quota': 500000.0
+                                                        }, {
+                                                            'end_quota': 3000000.0,
+                                                            'rate': 0.08,
+                                                            'start_quota': 1000000.0
+                                                        }, {
+                                                            'end_quota': 5000000.0,
+                                                            'rate': 0.06,
+                                                            'start_quota': 3000000.0
+                                                        }, {
+                                                            'end_quota': None,
+                                                            'fee_amount': 1000.0,
+                                                            'start_quota': 5000000.0
+                                                        }],
+                                                        'redeem': [{
+                                                            'end_day': 7,
+                                                            'rate': 1.5,
+                                                            'start_day': 1
+                                                        }, {
+                                                            'end_day': 30,
+                                                            'rate': 0.75,
+                                                            'start_day': 7
+                                                        }, {
+                                                            'end_day': 180,
+                                                            'rate': 0.5,
+                                                            'start_day': 30
+                                                        }, {
+                                                            'end_day': 366,
+                                                            'rate': 0.1,
+                                                            'start_day': 180
+                                                        }, {
+                                                            'end_day': 731,
+                                                            'rate': 0.05,
+                                                            'start_day': 366
+                                                        }, {
+                                                            'end_day': None,
+                                                            'rate': 0.0,
+                                                            'start_day': 731
+                                                        }]
+                                                    }),
+                                                    ('003663', {
+                                                        'op': [{
+                                                            'name': '管理费率',
+                                                            'val': '0.70% (每年)'
+                                                        }, {
+                                                            'name': '托管费率',
+                                                            'val': '0.20% (每年)'
+                                                        }, {
+                                                            'name': '销售服务费率',
+                                                            'val': '0.00% (每年)'
+                                                        }],
+                                                        'purchase': [{
+                                                            'end_quota': 1000000.0,
+                                                            'rate': 0.08,
+                                                            'start_quota': 0
+                                                        }, {
+                                                            'end_quota': 5000000.0,
+                                                            'rate': 0.04,
+                                                            'start_quota': 1000000.0
+                                                        }, {
+                                                            'end_quota': None,
+                                                            'fee_amount': 1000.0,
+                                                            'start_quota': 5000000.0
+                                                        }],
+                                                        'redeem': [{
+                                                            'end_day': 180,
+                                                            'rate': 1.5,
+                                                            'start_day': 0
+                                                        }, {
+                                                            'end_day': None,
+                                                            'rate': 0.0,
+                                                            'start_day': 180
                                                         }]
                                                     })])
     def test_rate(self, fund_code, expected):
@@ -159,108 +279,9 @@ class TestFundFeeRatio:
         """
         assert self.test_jq_fr.suffix_str_to_num(suffix_str, replace_flag) == expected
 
-    @pytest.mark.parametrize('suffix_str,expected', [('买入金额<100.0万', 1000000)])
-    def test_parse_first(self, suffix_str, expected):
-        assert self.test_jq_fr.parse_first(suffix_str) == expected
-
-    @pytest.mark.parametrize('qt_name,p_type,expected', [('100.0万<=买入金额<500.0万', 'q', [1000000.0, 5000000.0]),
-                                                         ('7天 ≤ 持有期限 < 1年', 'd', [7, 365]),
-                                                         ('7天 ≤ 持有期限 < 1个月', 'd', [7, 30]),
-                                                         ('7天 ≤ 持有期限 < 30天', 'd', [7, 30]),
-                                                         ('1个月 ≤ 持有期限 < 1年', 'd', [30, 365]),
-                                                         ('1个月<=持有期限<3个月', 'd', [30, 90]),
-                                                         ('1年 ≤ 持有期限 < 2年', 'd', [365, 730])])
-    def test___parse_both_limit(self, qt_name, p_type, expected):
-        assert self.test_jq_fr._parse_both_limit(qt_name, p_type) == expected
-
     @pytest.mark.parametrize('test_str,expected', [('1.5%', 1.5)])
     def test_remove_percent(self, test_str, expected):
         assert self.test_jq_fr.remove_percent(test_str) == expected
-
-    @pytest.mark.parametrize('last_info,split_signal,expected', [({
-        'money': '',
-        'time': '持有期限 ≥ 2年',
-        'source': '',
-        'rate': '0.00%'
-    }, '≥', {
-        'start_day': 730,
-        'end_day': None,
-        'rate': 0.00,
-    }),
-                                                                 ({
-                                                                     'money': '',
-                                                                     'time': '持有期限 ≥ 1个月',
-                                                                     'source': '',
-                                                                     'rate': '0.00%'
-                                                                 }, '≥', {
-                                                                     'start_day': 30,
-                                                                     'end_day': None,
-                                                                     'rate': 0.00,
-                                                                 }),
-                                                                 ({
-                                                                     'money': '',
-                                                                     'time': '',
-                                                                     'source': '',
-                                                                     'rate': '0.00%'
-                                                                 }, '≥', {
-                                                                     'start_day': 0,
-                                                                     'end_day': None,
-                                                                     'rate': 0.00,
-                                                                 })])
-    def test_last_level(self, last_info, split_signal, expected):
-        assert self.test_jq_fr.last_level(last_info, split_signal) == expected
-
-    @pytest.mark.parametrize('mid_info,expected', [
-        ([{
-            'money': '',
-            'time': '7天 ≤ 持有期限 < 1年',
-            'source': '',
-            'rate': '0.10%'
-        }, {
-            'money': '',
-            'time': '1年 ≤ 持有期限 < 2年',
-            'source': '',
-            'rate': '0.05%'
-        }], [{
-            'start_day': 7,
-            'end_day': 365,
-            'rate': 0.1
-        }, {
-            'start_day': 365,
-            'end_day': 730,
-            'rate': 0.05
-        }]),
-        ([{
-            'money': '',
-            'time': '7天 ≤ 持有期限 < 30天',
-            'source': '',
-            'rate': '0.75%'
-        }, {
-            'money': '',
-            'time': '30天 ≤ 持有期限 < 180天',
-            'source': '',
-            'rate': '0.50%'
-        }, {
-            'money': '',
-            'time': '180天 ≤ 持有期限 < 365天',
-            'source': '',
-            'rate': '0.25%'
-        }], [{
-            'start_day': 7,
-            'end_day': 30,
-            'rate': 0.75
-        }, {
-            'start_day': 30,
-            'end_day': 180,
-            'rate': 0.5
-        }, {
-            'start_day': 180,
-            'end_day': 365,
-            'rate': 0.25
-        }]),
-    ])
-    def test___parse_day_have_both(self, mid_info, expected):
-        assert self.test_jq_fr._parse_day_have_both(mid_info) == expected
 
     @pytest.mark.parametrize('info,expected', [([{
         'money': '',
@@ -327,60 +348,51 @@ class TestFundFeeRatio:
                                                    'end_day': None,
                                                    'rate': 0.0
                                                }])])
-    def test_withdraw_rate(self, info, expected):
-        assert self.test_jq_fr.withdraw_rate(info) == expected
+    def test_redeem_rate(self, info, expected):
+        assert self.test_jq_fr.redeem_rate(info) == expected
 
-    @pytest.mark.parametrize('info, expected', [([{
+    @pytest.mark.parametrize('info,money_key,rate_key, expected', [([{
         'money': '',
         'time': '',
         'source': '',
         'rate': '0.00%'
-    }], [{
+    }], 'money', 'rate', [{
         'start_quota': 0,
         'end_quota': None,
         'fee_amount': 0.0
     }]),
-                                                (
-                                                    [{
-                                                        'money': '购买金额 < 100万',
-                                                        'time': '',
-                                                        'source': '1.50%',
-                                                        'rate': '0.15%'
-                                                    }, {
-                                                        'money': '100万 ≤ 购买金额 < 500万',
-                                                        'time': '',
-                                                        'source': '1.20%',
-                                                        'rate': '0.12%'
-                                                    }, {
-                                                        'money': '购买金额 ≥ 500万',
-                                                        'time': '',
-                                                        'source': '1.00%',
-                                                        'rate': '0.10%'
-                                                    }],
-                                                    [{
-                                                        'start_quota': 0,
-                                                        'end_quota': 1000000.0,
-                                                        'rate': 0.15
-                                                    }, {
-                                                        'start_quota': 1000000.0,
-                                                        'end_quota': 5000000.0,
-                                                        'rate': 0.12
-                                                    }, {
-                                                        'start_quota': 5000000.0,
-                                                        'end_quota': None,
-                                                        'rate': 0.1
-                                                    }],
-                                                )])
-    def test_declare_rate(self, info, expected):
-        assert self.test_jq_fr.declare_rate(info) == expected
-
-    @pytest.mark.parametrize('range_str,replace_flag,split_signal,expected', [('1000.0万<=买入金额', 'w', '<=', 10000000.0),
-                                                                              ('持有期限 ≥ 1个月', 'm', '≥', 30),
-                                                                              ('180.0天<=持有期限', 'd', '<=', 180)])
-    def test_parse_last(self, range_str, replace_flag, split_signal, expected):
-        assert self.test_jq_fr.parse_last(range_str, replace_flag, split_signal) == expected
-
-    @pytest.mark.parametrize('range_str,split_signal,expected', [('持有期限 < 7天', '<', [0, 7]),
-                                                                 ('持有期限 ≤ 6天', '≤', [0, 6])])
-    def test_first_day(self, range_str, split_signal, expected):
-        assert self.test_jq_fr.first_day(range_str, split_signal) == expected
+                                                                   (
+                                                                       [{
+                                                                           'money': '购买金额 < 100万',
+                                                                           'time': '',
+                                                                           'source': '1.50%',
+                                                                           'rate': '0.15%'
+                                                                       }, {
+                                                                           'money': '100万 ≤ 购买金额 < 500万',
+                                                                           'time': '',
+                                                                           'source': '1.20%',
+                                                                           'rate': '0.12%'
+                                                                       }, {
+                                                                           'money': '购买金额 ≥ 500万',
+                                                                           'time': '',
+                                                                           'source': '1.00%',
+                                                                           'rate': '0.10%'
+                                                                       }],
+                                                                       'money',
+                                                                       'rate',
+                                                                       [{
+                                                                           'start_quota': 0,
+                                                                           'end_quota': 1000000.0,
+                                                                           'rate': 0.15
+                                                                       }, {
+                                                                           'start_quota': 1000000.0,
+                                                                           'end_quota': 5000000.0,
+                                                                           'rate': 0.12
+                                                                       }, {
+                                                                           'start_quota': 5000000.0,
+                                                                           'end_quota': None,
+                                                                           'rate': 0.1
+                                                                       }],
+                                                                   )])
+    def test_purchase_rate(self, info, money_key, rate_key, expected):
+        assert self.test_jq_fr.purchase_rate(info, money_key, rate_key) == expected
