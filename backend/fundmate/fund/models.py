@@ -349,6 +349,7 @@ class FeeRatio(PkModel, UpsertMixin):
     fund_tb_name = Fund.table_name()
 
     fund_id = Column(db.Integer, db.ForeignKey(f'{fund_tb_name}.id'), comment='基金编号ID')
+    fund_code = Column(db.String(6), comment='基金编码')
     purchase_rule_id = db.Column(db.Integer,
                                  db.ForeignKey(f'{purchase_rule_tb_name}.id'),
                                  nullable=True,
@@ -368,13 +369,12 @@ class FeeRatio(PkModel, UpsertMixin):
 
     def __repr__(self):
         f = Fund.get_by_id(self.fund_id)
-        self.code = f.fund_code
         if self.fee_type in [settings.FeeTypeEnum.subscribe, settings.FeeTypeEnum.purchase]:
             rule_class = PurchaseRule
         else:
             rule_class = RedeemRule
         rule_inst = rule_class.get_by_id(self.rule_id)
-        return f'<FeeRatio(id:{self.fund_id},code:{self.code!r},type:{self.fee_type!r},{rule_inst!r})>'
+        return f'<FeeRatio(id:{self.fund_id},code:{self.fund_code!r},type:{self.fee_type!r},{rule_inst!r})>'
 
     @hybrid_property
     def rule_id(self):
@@ -388,8 +388,8 @@ class FeeRatio(PkModel, UpsertMixin):
         """
         获取基金对应的rule_id列表
         """
-        f_id = Fund.filter_by_code(fund_code)
-        rule_item_list = cls.query.filter_by(fund_id=f_id, fee_type=op_type).all()
+        # f_id = Fund.filter_by_code(fund_code)
+        rule_item_list = cls.query.filter_by(fund_code=fund_code, fee_type=op_type).all()
         return rule_item_list
 
     @classmethod

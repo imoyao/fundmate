@@ -342,6 +342,8 @@ class DKHS:
         _url = f'https://www.dkhs.com/api/v1/symbols/{symbol_prefix}{fund_code}/fare_ratio/'
         _resp = rget_json(_url)
         fund_id = _fund_inst.id
+        fd_code = _fund_inst.fund_code
+        assert fd_code == fund_code
         if _resp:
             if isinstance(_resp, dict):
                 errors = _resp.get('errors')
@@ -388,7 +390,7 @@ class DKHS:
                 if rate_info:
                     rule_id = rate_info.pop('rule_id')
                     # FIXME: rule_id is bug! see:save_fee_info
-                    query_args = {'fund_id': fund_id, 'rule_id': rule_id, 'fee_type': fee_type}
+                    query_args = {'fund_id': fund_id, 'fund_code': fund_code, 'rule_id': rule_id, 'fee_type': fee_type}
                     FeeRatio.insert_or_update(query_args, do_log_flag=True, **rate_info)
         else:
             raise EmptyError(f'The href: {_url} from remote get empty response.')

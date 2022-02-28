@@ -406,6 +406,8 @@ class BaseRatio:
 
         _fund_inst = Fund.filter_by_code(fund_code)
         fund_id = _fund_inst.id
+        fd_code = _fund_inst.fund_code
+        assert fd_code == fund_code
 
         for rule_info in fee_info_tb:
             # 要么按照费率收费要么按照金额收费，至少有一个
@@ -427,7 +429,7 @@ class BaseRatio:
                 'rate': rate,
                 'fee_amount': fee_amount,
             }
-            query_args = {'fund_id': fund_id, key: rule_id, 'fee_type': fee_type}
+            query_args = {'fund_id': fund_id, 'fund_code': fund_code, key: rule_id, 'fee_type': fee_type}
             FeeRatio.insert_or_update(query_args, do_log_flag=True, **_rate_info)
 
     def _parse_day_have_both(self, mid_info: Union[list, dict]) -> list:
