@@ -17,7 +17,7 @@ import pandas as pd
 import portion
 from xalpha.cons import rget_json
 
-from backend.fundmate import utils
+from backend.fundmate import settings, utils
 from backend.fundmate.data.utils import base as dt_utils
 from backend.fundmate.data.utils import ratio
 from backend.fundmate.exts.flask_loguru import logger
@@ -518,14 +518,14 @@ class FundFeeRatio(ratio.BaseRatio):
             if declare_rate_table:
                 declare_info = self.purchase_rate(declare_rate_table, money_key='name', rate_key='value')
                 if to_db:
-                    self.save_fee_info(fund_code, declare_info, fee_type=2)
+                    self.save_fee_info(fund_code, declare_info, fee_type=settings.FeeTypeEnum.purchase)
 
             withdraw_info = list()
             if withdraw_rate_table:
                 withdraw_info = self.redeem_rate(withdraw_rate_table, time_key='name', rate_key='value')
                 if to_db:
                     if fund_code not in ['000074']:
-                        self.save_fee_info(fund_code, withdraw_info, fee_type=3)
+                        self.save_fee_info(fund_code, withdraw_info, fee_type=settings.FeeTypeEnum.redeem)
                     else:
                         logger.warning(f'We think the withdraw_info of {fund_code} is error,just skip it.')
 
@@ -551,17 +551,16 @@ class FundFeeRatio(ratio.BaseRatio):
         rate = purchase_info.get(rate_key)
         if range_str:
             portion_info = self.make_purchase_info(range_str)
-            # lower_bounds = portion_info.get('lower')
             upper_bounds = portion_info.get('end_quota')
             if upper_bounds is not None:
-                rate_info = {'rate': float(rate) / 10}
+                rate_info = {'rate': float(rate)}
             else:
                 # 处理最后一个区间使用固定金额的情况
                 last_is_rate = float(rate) > 1
                 if last_is_rate or float(rate) == 0:
                     rate_info = {'fee_amount': float(rate)}
                 else:
-                    rate_info = {'rate': float(rate) / 10}
+                    rate_info = {'rate': float(rate)}
 
             portion_info.update(rate_info)
             _rule_info = portion_info.copy()

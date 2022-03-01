@@ -10,6 +10,7 @@ import portion
 from backend.fundmate import settings
 from backend.fundmate.excepts import ParseError
 from backend.fundmate.fund.models import FeeRatio, Fund, PurchaseRule, RedeemRule
+from backend.fundmate.libs.dk_enums import ChoiceTypeIntegerDk
 
 
 class BaseRatio:
@@ -194,13 +195,19 @@ class BaseRatio:
         :param purchase_info:
         :return:
         """
+
+        def no_discount(rate: float):
+            return rate * 10
+
         range_str = purchase_info.get(money_key)
         rate = purchase_info.get(rate_key)
         if range_str:
             portion_info = self.make_purchase_info(range_str)
             upper_bounds = portion_info.get('end_quota')
             if upper_bounds is not None:
-                rate_info = {'rate': self.remove_percent(rate)}
+                discount_rate = self.remove_percent(rate)
+                real_rate = no_discount(discount_rate)
+                rate_info = {'rate': real_rate}
             else:
                 # 处理最后一个区间使用固定金额的情况
                 last_is_rate = rate.endswith('%')
@@ -208,7 +215,9 @@ class BaseRatio:
                     amount = rate.replace('元/笔', '')
                     rate_info = {'fee_amount': float(amount)}
                 else:
-                    rate_info = {'rate': self.remove_percent(rate)}
+                    discount_rate = self.remove_percent(rate)
+                    real_rate = no_discount(discount_rate)
+                    rate_info = {'rate': real_rate}
 
             portion_info.update(rate_info)
             _rule_info = portion_info.copy()
@@ -226,24 +235,23 @@ class BaseRatio:
         return _rule_info
 
     @staticmethod
-    def save_fee_info(fund_code: str, fee_info_tb: list, fee_type: int):
+    def save_fee_info(fund_code: str, fee_info_tb: list, fee_type: ChoiceTypeIntegerDk):
         """
         申购、赎回费率写入数据库
-        FIXME: duplicated with transfer_rule && fee_type 修改为enum项
         :param fund_code: 基金编码
         :param fee_info_tb: 费率信息表
         :param fee_type: 费率类型
         :return:
         """
         key = 'redeem_rule_id'  # 字典的key
-        if fee_type == 2:
+        if fee_type == settings.FeeTypeEnum.purchase:
             key = 'purchase_rule_id'
             class_name = PurchaseRule
         else:
             class_name = RedeemRule
-        fee_types = [item.dk_value for item in settings.FeeTypeEnum]
-        if fee_type not in fee_types:
-            raise KeyError(f'The fee_type should be Integer in {fee_types}')
+
+        if fee_type not in settings.FeeTypeEnum.values():
+            raise KeyError(f'The fee_type should be item of in {settings.FeeTypeEnum}')
 
         _fund_inst = Fund.filter_by_code(fund_code)
         fund_id = _fund_inst.id

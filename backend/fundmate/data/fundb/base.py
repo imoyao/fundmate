@@ -7,6 +7,7 @@ from typing import Optional
 
 from xalpha.cons import JSONDecodeError, rpost_json
 
+from backend.fundmate import settings
 from backend.fundmate.data.utils import base as dt_utils
 from backend.fundmate.data.utils import ratio
 from backend.fundmate.excepts import CrawlerException
@@ -210,10 +211,10 @@ class FundFeeRatio(ratio.BaseRatio):
 
             if to_db:
                 if purchase_info:
-                    self.save_fee_info(fund_code, purchase_info, fee_type=2)
+                    self.save_fee_info(fund_code, purchase_info, fee_type=settings.FeeTypeEnum.purchase)
                 if redeem_info:
                     try:
-                        self.save_fee_info(fund_code, redeem_info, fee_type=3)
+                        self.save_fee_info(fund_code, redeem_info, fee_type=settings.FeeTypeEnum.redeem)
                     except TypeError as e:
                         raise CrawlerException(f'基金 {fund_code} 保存赎回信息 {redeem_info} 出错，出错信息：{e}！')
 
