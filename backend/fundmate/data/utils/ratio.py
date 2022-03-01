@@ -45,13 +45,14 @@ class BaseRatio:
     def suffix_str_to_num(self, suffix_str: str, replace_flag: str = 'w') -> Union[int, float]:
         """
         带后缀的字符串进行截取，最终获取到数字
-        >>> self.suffix_str_to_num('100万')
-        1000000
-        >>> self.suffix_str_to_num('7.0天')
+        >>> br = BaseRatio()
+        >>> br.suffix_str_to_num('100万')
+        1000000.0
+        >>> br.suffix_str_to_num('7.0天')
         7
-        >>> self.suffix_str_to_num('1个月')
+        >>> br.suffix_str_to_num('1个月')
         30
-        >>> self.suffix_str_to_num('2.0年')
+        >>> br.suffix_str_to_num('2.0年')
         730
 
         :param replace_flag: 替代标识，可以替代的后缀
@@ -94,7 +95,7 @@ class BaseRatio:
 
         raise ValueError(f'The suffix_str:{suffix_str} is not end with {replace_str}.')
 
-    def make_purchase_info(self, range_str: str):
+    def make_purchase_info(self, range_str: str) -> Dict:
         """
         构建申购信息
         :param range_str:
@@ -107,7 +108,7 @@ class BaseRatio:
             upper_bounds = None
         return {'start_quota': lower_bounds, 'end_quota': upper_bounds}
 
-    def make_redeem_info(self, range_str: str):
+    def make_redeem_info(self, range_str: str) -> Dict:
         """
         构建赎回信息
         :param range_str:
@@ -136,7 +137,7 @@ class BaseRatio:
     def purchase_rate(self,
                       purchase_info_list: list,
                       money_key: str = 'money',
-                      rate_key: str = 'rate') -> Union[list, None]:
+                      rate_key: str = 'rate') -> Optional[list]:
         """
         重写解析费率的逻辑
         :param rate_key:
@@ -150,7 +151,7 @@ class BaseRatio:
             purchase_items.append(info)
         return purchase_items
 
-    def redeem_rate(self, redeem_info_list: list, time_key='time', rate_key='rate') -> Union[list, None]:
+    def redeem_rate(self, redeem_info_list: list, time_key='time', rate_key='rate') -> Optional[list]:
         """
         费率信息处理
         :param redeem_info_list:
@@ -187,7 +188,7 @@ class BaseRatio:
             _portion_info.update(rate_info)
             return _portion_info
 
-    def purchase_parser(self, purchase_info: dict, money_key: str = 'money', rate_key: str = 'rate'):
+    def purchase_parser(self, purchase_info: dict, money_key: str = 'money', rate_key: str = 'rate') -> Dict:
         """
         解析申购信息
         :param rate_key:
@@ -196,7 +197,7 @@ class BaseRatio:
         :return:
         """
 
-        def no_discount(rate: float):
+        def no_discount(rate: float) -> float:
             return rate * 10
 
         range_str = purchase_info.get(money_key)
@@ -340,8 +341,86 @@ class BaseRatio:
                 is_add_upper = True
         if is_add_upper:
             upper_bounds += 1
-        interval_item = portion.closedopen(0, upper_bounds)
-        return interval_item
+        intervals = portion.closedopen(0, upper_bounds)
+        return intervals
+
+    def parse_more_single(self, item_key: str, sorted_li: List) -> portion:
+        """
+        带大于号的边界值数据处理
+        :param item_key:
+        :param sorted_li:
+        :return:
+        """
+        left_range_str = sorted_li[1]
+        # 金钱的话，直接转为改为闭区间即可
+        lower_bounds = self.suffix_str_to_num(left_range_str)
+        is_add_lower = False
+        # 时间序列，默认+1
+        if not self.is_money_suffix(left_range_str):
+            if item_key == 'more_single_o':
+                # 时间+1
+                is_add_lower = True
+        if is_add_lower:
+            lower_bounds += 1
+        intervals = portion.closedopen(lower_bounds, portion.inf)
+        return intervals
+
+    def parse_more_both_side(self, item_key: str, sorted_li: List, co_lists: List) -> portion:
+        # 小的在右边
+        upper, _, lower = sorted_li
+        lower_bounds = self.suffix_str_to_num(lower)
+        upper_bounds = self.suffix_str_to_num(upper)
+        if not self.is_money_suffix(lower):
+            first_co = co_lists[0]
+            is_minus_lower = False
+            is_add_upper = False
+            is_add_lower = False
+
+            if first_co == '>':
+                if item_key == 'more_o':
+                    if lower_bounds != 0:
+                        is_minus_lower = True
+
+            elif first_co == '≥':
+                # 时间+1
+                is_add_upper = True
+                if item_key == 'more_co':
+                    is_add_lower = True
+
+            if is_minus_lower:
+                if lower_bounds != 0:
+                    lower_bounds -= 1
+            if is_add_lower:
+                lower_bounds += 1
+            if is_add_upper:
+                upper_bounds += 1
+        intervals = portion.closedopen(lower_bounds, upper_bounds)
+        return intervals
+
+    def parse_less_both_side(self, item_key: str, sorted_li: List, co_lists: List) -> portion:
+        lower, _, upper = sorted_li
+        lower_bounds = self.suffix_str_to_num(lower)
+        upper_bounds = self.suffix_str_to_num(upper)
+        if not self.is_money_suffix(lower):
+            first_co = co_lists[0]
+            is_minus_lower = False
+            is_add_upper = False
+            if first_co == '<':
+                # 时间+1
+                is_minus_lower = True
+                if item_key == 'less_oc':
+                    is_add_upper = True
+            elif first_co == '≤':
+                # 时间+1
+                if item_key == 'less_c':
+                    is_add_upper = True
+            if is_minus_lower:
+                if lower_bounds != 0:
+                    lower_bounds -= 1
+            if is_add_upper:
+                upper_bounds += 1
+        intervals = portion.closedopen(lower_bounds, upper_bounds)
+        return intervals
 
     def parse_portion(self, range_str_with_co: str) -> portion:
         """
@@ -379,80 +458,21 @@ class BaseRatio:
             if item_key in ['less_single_c', 'less_single_o']:
                 assert len(sorted_li) == 2
                 interval_item = self.parse_less_single(item_key, sorted_li)
-
             elif item_key in ['more_single_c', 'more_single_o']:
                 assert len(sorted_li) == 2
-                left_range_str = sorted_li[1]
-                # 金钱的话，直接转为改为闭区间即可
-                lower_bounds = self.suffix_str_to_num(left_range_str)
-                is_add_lower = False
-                # 时间序列，默认+1
-                if not self.is_money_suffix(left_range_str):
-                    if item_key == 'more_single_o':
-                        # 时间+1
-                        is_add_lower = True
-                if is_add_lower:
-                    lower_bounds += 1
-                interval_item = portion.closedopen(lower_bounds, portion.inf)
+                interval_item = self.parse_more_single(item_key, sorted_li)
             elif item_key in ['less_o', 'less_c', 'less_oc', 'less_co']:
                 # 两边都有边界值
                 assert len(sorted_li) == 3
-                lower, _, upper = sorted_li
-                lower_bounds = self.suffix_str_to_num(lower)
-                upper_bounds = self.suffix_str_to_num(upper)
-                if not self.is_money_suffix(lower):
-                    first_co = co_lists[0]
-                    is_minus_lower = False
-                    is_add_upper = False
-                    if first_co == '<':
-                        # 时间+1
-                        is_minus_lower = True
-                        if item_key == 'less_oc':
-                            is_add_upper = True
-                    elif first_co == '≤':
-                        # 时间+1
-                        if item_key == 'less_c':
-                            is_add_upper = True
-                    if is_minus_lower:
-                        if lower_bounds != 0:
-                            lower_bounds -= 1
-                    if is_add_upper:
-                        upper_bounds += 1
-                interval_item = portion.closedopen(lower_bounds, upper_bounds)
+                interval_item = self.parse_less_both_side(item_key, sorted_li, co_lists)
             elif item_key in ['more_o', 'more_c', 'more_oc', 'more_co']:
                 # 两边都有边界值
                 assert len(sorted_li) == 3
-                # 小的在右边
-                upper, _, lower = sorted_li
-                lower_bounds = self.suffix_str_to_num(lower)
-                upper_bounds = self.suffix_str_to_num(upper)
-                if not self.is_money_suffix(lower):
-                    first_co = co_lists[0]
-                    is_minus_lower = False
-                    is_add_upper = False
-                    is_add_lower = False
-
-                    if first_co == '>':
-                        if item_key == 'more_o':
-                            if lower_bounds != 0:
-                                is_minus_lower = True
-
-                    elif first_co == '≥':
-                        # 时间+1
-                        is_add_upper = True
-                        if item_key == 'more_co':
-                            is_add_lower = True
-
-                    if is_minus_lower:
-                        if lower_bounds != 0:
-                            lower_bounds -= 1
-                    if is_add_lower:
-                        lower_bounds += 1
-                    if is_add_upper:
-                        upper_bounds += 1
-                interval_item = portion.closedopen(lower_bounds, upper_bounds)
+                interval_item = self.parse_more_both_side(item_key, sorted_li, co_lists)
             else:
                 raise ParseError(f'字段：{range_str_with_co}获取到的区间分割符为：{co_lists}')
+        else:
+            raise ParseError(f'无法解析字段：{range_str_with_co}，{co_lists} 不在预测字符集{val_lists}中。')
 
             return interval_item
 
@@ -467,5 +487,7 @@ def all_comparison_operators():
 
 
 if __name__ == '__main__':
-    aco = all_comparison_operators()
-    print(aco)
+    br = BaseRatio()
+    result = br.parse_portion('7天 ≤ 持有期限 ≤ 30天')
+    print(result)
+    assert result == portion.closedopen(7, 31)
