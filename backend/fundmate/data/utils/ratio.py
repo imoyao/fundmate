@@ -474,7 +474,7 @@ class BaseRatio:
         else:
             raise ParseError(f'无法解析字段：{range_str_with_co}，{co_lists} 不在预测字符集{val_lists}中。')
 
-            return interval_item
+        return interval_item
 
 
 def all_comparison_operators():

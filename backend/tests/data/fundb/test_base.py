@@ -219,6 +219,36 @@ class TestFundFeeRatio:
                                                             'start_day': 731
                                                         }]
                                                     }),
+                                                    ('007450', {
+                                                        'op': [{
+                                                            'name': '管理费率',
+                                                            'val': '1.50% (每年)'
+                                                        }, {
+                                                            'name': '托管费率',
+                                                            'val': '0.25% (每年)'
+                                                        }, {
+                                                            'name': '销售服务费率',
+                                                            'val': '0.60% (每年)'
+                                                        }],
+                                                        'purchase': [{
+                                                            'end_quota': None,
+                                                            'fee_amount': 0.0,
+                                                            'start_quota': 0
+                                                        }],
+                                                        'redeem': [{
+                                                            'end_day': 7,
+                                                            'rate': 1.5,
+                                                            'start_day': 0
+                                                        }, {
+                                                            'end_day': 30,
+                                                            'rate': 0.5,
+                                                            'start_day': 7
+                                                        }, {
+                                                            'end_day': None,
+                                                            'rate': 0.0,
+                                                            'start_day': 30
+                                                        }]
+                                                    }),
                                                     ('003663', {
                                                         'op': [{
                                                             'name': '管理费率',

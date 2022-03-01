@@ -7,7 +7,7 @@ from typing import Union
 from xalpha.cons import rget_json
 
 from backend.fundmate import settings, utils
-from backend.fundmate.data.utils.base import data_parser
+from backend.fundmate.data.utils.base import ParseData
 from backend.fundmate.data.utils.ratio import BaseRatio
 from backend.fundmate.excepts import EmptyError, UnexpectedArgsError
 from backend.fundmate.exts.flask_loguru import logger
@@ -284,6 +284,7 @@ class DKHS:
         从json文件中读取文件并更新信息到数据库，这个接口应该作为search_symbol的补充
         （目前该接口只能获取到部分基金的信息）
         """
+        data_parser = ParseData()
         fund_data_list = data_parser.get_data_from_json(FUND_SYMBOLS_SAVE_FP)
         for fund in fund_data_list:
             code = fund.get('code')
@@ -312,7 +313,7 @@ class FundFeeRatio(BaseRatio):
 
     def rate(self, fund_code: str, to_db: bool = False):
         """
-        FIXME: 该接口命中率太低，需要找别的接口替换
+        使用韭圈儿的数据
         根据基金决策宝网站信息更新费率
         数据来源：[兴全合润混合(SZ163406)_基金净值_费率_行情走势](https://www.dkhs.com/s/SZ163406/) “交易须知” 子页面
         :param to_db:
