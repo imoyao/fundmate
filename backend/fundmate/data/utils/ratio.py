@@ -10,7 +10,6 @@ import portion
 from backend.fundmate import settings
 from backend.fundmate.excepts import ParseError
 from backend.fundmate.fund.models import FeeRatio, Fund, PurchaseRule, RedeemRule
-from backend.fundmate.libs.dk_enums import ChoiceTypeIntegerDk
 
 
 class BaseRatio:
@@ -236,7 +235,7 @@ class BaseRatio:
         return _rule_info
 
     @staticmethod
-    def save_fee_info(fund_code: str, fee_info_tb: list, fee_type: ChoiceTypeIntegerDk):
+    def save_fee_info(fund_code: str, fee_info_tb: list, fee_type):
         """
         申购、赎回费率写入数据库
         :param fund_code: 基金编码
@@ -251,8 +250,11 @@ class BaseRatio:
         else:
             class_name = RedeemRule
 
-        if fee_type not in settings.FeeTypeEnum.values():
-            raise KeyError(f'The fee_type should be item of in {settings.FeeTypeEnum}')
+        fee_type_enums = settings.FeeTypeEnum.values()
+        fee_types = [fee_item.value for fee_item in fee_type_enums]
+
+        if fee_type.dk_value not in fee_types:
+            raise KeyError(f'The fee_type should be item of in {str(settings.FeeTypeEnum)}')
 
         _fund_inst = Fund.filter_by_code(fund_code)
         fund_id = _fund_inst.id
@@ -277,6 +279,7 @@ class BaseRatio:
                 'fund_id': fund_id,  # **注意**：在创建时，必须有fund_id
                 'fee_type': fee_type,
                 'rate': rate,
+                'fund_code': fund_code,
                 'fee_amount': fee_amount,
             }
             query_args = {'fund_id': fund_id, 'fund_code': fund_code, key: rule_id, 'fee_type': fee_type}

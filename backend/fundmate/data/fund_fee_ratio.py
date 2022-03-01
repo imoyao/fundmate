@@ -150,7 +150,7 @@ def dj_init_fr(fund_code: Optional[str] = None):
             logger.error(f'Failed to update fee ratio of {fund_code}.')
 
 
-def jq_init_fr(fund_code: Optional[str] = None) -> Optional[Dict]:
+def jq_init_fr(fund_code: Optional[str] = None, to_db=False) -> Optional[Dict]:
     """
     韭圈儿数据（有反爬）
     :return:
@@ -164,7 +164,7 @@ def jq_init_fr(fund_code: Optional[str] = None) -> Optional[Dict]:
         for fd in fund_lists:
             fund_code = fd.fund_code
             try:
-                result = jq_fr.rate(fund_code, to_db=True)
+                result = jq_fr.rate(fund_code, to_db=to_db)
             except CrawlerException as e:
                 result = None
                 logger.error(f'Fund {fund_code} get Error:{e}')
@@ -180,22 +180,22 @@ def jq_init_fr(fund_code: Optional[str] = None) -> Optional[Dict]:
         logger.info(f'pass rate: {pass_rate}')
     else:
         try:
-            result = jq_fr.rate(fund_code, to_db=True)
-        except (UnexpectedArgsError, EmptyError):
+            result = jq_fr.rate(fund_code, to_db=to_db)
+        except CrawlerException:
             result = None
         if result is None:
             logger.info(f'Failed to update fee ratio of {fund_code}.')
     return result
 
 
-def fee_ratio(fund_code: Optional[str] = None):
+def fee_ratio(fund_code: Optional[str] = None, to_db=True):
     """
     初始化或者更新费率信息（支持更新单个）
     蛋卷数据没有反爬但是部分数据有误；
     韭圈数据暂时没有发现问题，但是有反爬
     :return:
     """
-    result = jq_init_fr(fund_code)
+    result = jq_init_fr(fund_code, to_db=to_db)
     return result
 
 
