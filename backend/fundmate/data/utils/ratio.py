@@ -64,7 +64,7 @@ class BaseRatio:
         replace_str = self.REPLACE_MAP.get(replace_flag)
         try:
             is_excepted_suffix = suffix_str.endswith(replace_str)
-        except AttributeError:
+        except (AttributeError, TypeError):
             is_excepted_suffix = False
 
         if is_excepted_suffix:
