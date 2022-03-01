@@ -30,15 +30,15 @@ class TestFundFeeRatio:
                                                         }],
                                                         'purchase': [{
                                                             'end_quota': 500000.0,
-                                                            'rate': 0.12,
+                                                            'rate': 1.2,
                                                             'start_quota': 0
                                                         }, {
                                                             'end_quota': 2000000.0,
-                                                            'rate': 0.08,
+                                                            'rate': 0.8,
                                                             'start_quota': 500000.0
                                                         }, {
                                                             'end_quota': 5000000.0,
-                                                            'rate': 0.05,
+                                                            'rate': 0.5,
                                                             'start_quota': 2000000.0
                                                         }, {
                                                             'end_quota': None,
@@ -103,15 +103,15 @@ class TestFundFeeRatio:
                                                         }],
                                                         'purchase': [{
                                                             'end_quota': 200000.0,
-                                                            'rate': 0.16,
+                                                            'rate': 1.6,
                                                             'start_quota': 0
                                                         }, {
                                                             'end_quota': 1000000.0,
-                                                            'rate': 0.1,
+                                                            'rate': 1.0,
                                                             'start_quota': 200000.0
                                                         }, {
                                                             'end_quota': 2000000.0,
-                                                            'rate': 0.05,
+                                                            'rate': 0.5,
                                                             'start_quota': 1000000.0
                                                         }, {
                                                             'end_quota': None,
@@ -146,19 +146,19 @@ class TestFundFeeRatio:
                                                         }],
                                                         'purchase': [{
                                                             'end_quota': 500000.0,
-                                                            'rate': 0.12,
+                                                            'rate': 1.2,
                                                             'start_quota': 0
                                                         }, {
                                                             'end_quota': 1000000.0,
-                                                            'rate': 0.1,
+                                                            'rate': 1.0,
                                                             'start_quota': 500000.0
                                                         }, {
                                                             'end_quota': 3000000.0,
-                                                            'rate': 0.08,
+                                                            'rate': 0.8,
                                                             'start_quota': 1000000.0
                                                         }, {
                                                             'end_quota': 5000000.0,
-                                                            'rate': 0.06,
+                                                            'rate': 0.6,
                                                             'start_quota': 3000000.0
                                                         }, {
                                                             'end_quota': None,
@@ -205,11 +205,11 @@ class TestFundFeeRatio:
                                                         }],
                                                         'purchase': [{
                                                             'end_quota': 1000000.0,
-                                                            'rate': 0.08,
+                                                            'rate': 0.8,
                                                             'start_quota': 0
                                                         }, {
                                                             'end_quota': 5000000.0,
-                                                            'rate': 0.04,
+                                                            'rate': 0.4,
                                                             'start_quota': 1000000.0
                                                         }, {
                                                             'end_quota': None,

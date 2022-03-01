@@ -368,7 +368,6 @@ class FeeRatio(PkModel, UpsertMixin):
                            comment='数据上次更新时间')
 
     def __repr__(self):
-        f = Fund.get_by_id(self.fund_id)
         if self.fee_type in [settings.FeeTypeEnum.subscribe, settings.FeeTypeEnum.purchase]:
             rule_class = PurchaseRule
         else:

@@ -43,7 +43,7 @@ class ChoiceTypeDk:
 class BaseTypeEnum(enum.Enum):
 
     def __str__(self):
-        return f'My custom BaseTypeEnum {self.value}'
+        return f'Custom TypeEnum {self.value}'
 
     @DynamicClassAttribute
     def dk_name(self):

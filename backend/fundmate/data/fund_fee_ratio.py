@@ -9,7 +9,7 @@
 from typing import List, Union
 
 from backend.fundmate.data.danjuan.base import dj_fd
-from backend.fundmate.data.dkhs.base import jcb
+from backend.fundmate.data.dkhs.base import frt
 from backend.fundmate.data.fundb.base import FundFeeRatio
 from backend.fundmate.excepts import CrawlerException, EmptyError, UnexpectedArgsError, UnpackError
 from backend.fundmate.exts.flask_loguru import logger
@@ -78,7 +78,7 @@ def init_fee_ratio(fund_code: Union[str, None] = None):
         for fd in fund_lists:
             fund_code = fd.fund_code
             try:
-                ret = jcb.fee_ratio(fund_code)
+                ret = frt.rate(fund_code)
             except (UnexpectedArgsError, EmptyError) as e:
                 logger.error(e)
                 ret = None
@@ -91,7 +91,7 @@ def init_fee_ratio(fund_code: Union[str, None] = None):
                 f'success,they are:{not_success_set}')
     else:
         try:
-            ret = jcb.fee_ratio(fund_code)
+            ret = frt.rate(fund_code)
         except (UnexpectedArgsError, EmptyError):
             ret = None
         if ret is None:
@@ -110,7 +110,7 @@ def get_no_ratio_funds() -> List:
     return fund_lists
 
 
-def dj_fr():
+def dj_init_fr():
     """
     蛋卷基金数据
     ```
@@ -137,7 +137,7 @@ def dj_fr():
     print(f'pass rate: {pass_rate}')
 
 
-def jq_fr():
+def jq_init_fr():
     """
     韭圈儿数据（有反爬）
     :return:
