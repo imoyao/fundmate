@@ -3,10 +3,10 @@
 # Created by Andy at 2021/8/18 16:46
 """
 更新基金费率的脚本
-1. 尝试基金决策宝
-2. 对于基金决策宝更新失败的 TODO:尝试天天基金或者蛋卷基金？
+1. 尝试韭圈儿解析数据
+2. 对于韭圈儿更新失败的，尝试蛋卷基金？
 """
-from typing import List, Union
+from typing import Dict, List, Optional
 
 from backend.fundmate.data.danjuan.base import dj_fd
 from backend.fundmate.data.dkhs.base import frt
@@ -65,39 +65,6 @@ from backend.fundmate.fund.models import FeeRatio, Fund
 '''
 
 
-def init_fee_ratio(fund_code: Union[str, None] = None):
-    """
-    初始化或者更新费率信息（支持更新单个）
-    蛋卷数据没有反爬但是部分数据有误；
-    韭圈数据暂时没有发现问题，但是有反爬
-    :return:
-    """
-    if not fund_code:
-        fund_lists = Fund.query.all()
-        not_success_set = set()
-        for fd in fund_lists:
-            fund_code = fd.fund_code
-            try:
-                ret = frt.rate(fund_code)
-            except (UnexpectedArgsError, EmptyError) as e:
-                logger.error(e)
-                ret = None
-            if ret is None:
-                not_success_set.add(fund_code)
-        if not_success_set:
-            failed_counts = len(not_success_set)
-            logger.warning(
-                f'Hits:{failed_counts} of fund failed to update fee ratio while {len(fund_lists) - failed_counts} '
-                f'success,they are:{not_success_set}')
-    else:
-        try:
-            ret = frt.rate(fund_code)
-        except (UnexpectedArgsError, EmptyError):
-            ret = None
-        if ret is None:
-            logger.warning(f'Failed to update fee ratio of {fund_code}.')
-
-
 def get_no_ratio_funds() -> List:
     """
     获取没有添加费率规则的基金列表
@@ -110,53 +77,128 @@ def get_no_ratio_funds() -> List:
     return fund_lists
 
 
-def dj_init_fr():
+def jcb_init_rate(fund_code: str):
     """
-    蛋卷基金数据
-    ```
-    3789 ---------
-    pass rate: 0.72 %
-    ```
+    决策宝数据初始化
+    :param fund_code:
     :return:
     """
-    fund_lists = get_no_ratio_funds()
-    err_count = 0
-    if fund_lists:
+    if not fund_code:
+        fund_lists = get_no_ratio_funds()
+        failed_counts = 0
+        not_success_set = set()
+
         for fd in fund_lists:
             fund_code = fd.fund_code
             try:
-                dt = dj_fd.rate(fund_code, to_db=True)
-            except (UnpackError, ValueError) as e:
-                dt = None
+                ret = frt.rate(fund_code)
+            except (UnexpectedArgsError, EmptyError) as e:
                 logger.error(f'Fund {fund_code} get Error:{e}')
-                print(e)
-            if not dt:
-                err_count += 1
-    # 计算通过率，后期稳定之后不需要count计算
-    pass_rate = f'{1 - (err_count / len(fund_lists)):.2f} %'
-    print(f'pass rate: {pass_rate}')
+                ret = None
+            if ret is None:
+                not_success_set.add(fund_code)
+        if not_success_set:
+            failed_counts = len(not_success_set)
+            logger.warning(
+                f'Hits:{failed_counts} of fund failed to update fee ratio while {len(fund_lists) - failed_counts} '
+                f'success,they are:{not_success_set}')
+        pass_rate = f'{1 - (failed_counts / len(fund_lists)):.2f} %'
+        logger.info(f'pass rate: {pass_rate}')
+    else:
+        try:
+            ret = frt.rate(fund_code)
+        except (UnexpectedArgsError, EmptyError):
+            ret = None
+        if ret is None:
+            logger.warning(f'Failed to update fee ratio of {fund_code}.')
 
 
-def jq_init_fr():
+def dj_init_fr(fund_code: Optional[str] = None):
+    """
+    蛋卷基金数据
+    :return:
+    """
+    if not fund_code:
+        fund_lists = get_no_ratio_funds()
+        failed_counts = 0
+        if fund_lists:
+            not_success_set = set()
+            for fd in fund_lists:
+                fund_code = fd.fund_code
+                try:
+                    dt = dj_fd.rate(fund_code, to_db=True)
+                except (UnpackError, ValueError) as e:
+                    dt = None
+                    logger.error(f'Fund {fund_code} get Error:{e}')
+
+                if dt is None:
+                    not_success_set.add(fund_code)
+            if not_success_set:
+                failed_counts = len(not_success_set)
+                logger.warning(
+                    f'Hits:{failed_counts} of fund failed to update fee ratio while {len(fund_lists) - failed_counts} '
+                    f'success,they are:{not_success_set}')
+
+        pass_rate = f'{1 - (failed_counts / len(fund_lists)):.2f} %'
+        logger.info(f'pass rate: {pass_rate}')
+    else:
+        try:
+            ret = dj_fd.rate(fund_code, to_db=True)
+        except (UnexpectedArgsError, EmptyError):
+            ret = None
+        if ret is None:
+            logger.error(f'Failed to update fee ratio of {fund_code}.')
+
+
+def jq_init_fr(fund_code: Optional[str] = None) -> Optional[Dict]:
     """
     韭圈儿数据（有反爬）
     :return:
     """
-    fund_lists = get_no_ratio_funds()
-    err_count = 0
-    jq_rt = FundFeeRatio()
-    for fd in fund_lists:
-        fund_code = fd.fund_code
+    jq_fr = FundFeeRatio()
+    if not fund_code:
+        fund_lists = get_no_ratio_funds()
+        not_success_set = set()
+        failed_counts = 0
+
+        for fd in fund_lists:
+            fund_code = fd.fund_code
+            try:
+                result = jq_fr.rate(fund_code, to_db=True)
+            except CrawlerException as e:
+                result = None
+                logger.error(f'Fund {fund_code} get Error:{e}')
+
+            if result is None:
+                not_success_set.add(fund_code)
+        if not_success_set:
+            failed_counts = len(not_success_set)
+            logger.warning(
+                f'Hits:{failed_counts} of fund failed to update fee ratio while {len(fund_lists) - failed_counts} '
+                f'success,they are:{not_success_set}')
+        pass_rate = f'{1 - (failed_counts / len(fund_lists)):.2f} %'
+        logger.info(f'pass rate: {pass_rate}')
+    else:
         try:
-            dt = jq_rt.rate(fund_code, to_db=True)
-        except CrawlerException:
-            dt = None
-        if not dt:
-            err_count += 1
-    print(err_count, '---------')
-    pass_rate = f'{1 - (err_count / len(fund_lists)):.2f} %'
-    print(f'pass rate: {pass_rate}')
+            result = jq_fr.rate(fund_code, to_db=True)
+        except (UnexpectedArgsError, EmptyError):
+            result = None
+        if result is None:
+            logger.info(f'Failed to update fee ratio of {fund_code}.')
+    return result
+
+
+def fee_ratio(fund_code: Optional[str] = None):
+    """
+    初始化或者更新费率信息（支持更新单个）
+    蛋卷数据没有反爬但是部分数据有误；
+    韭圈数据暂时没有发现问题，但是有反爬
+    :return:
+    """
+    result = jq_init_fr(fund_code)
+    return result
 
 
 if __name__ == '__main__':
-    init_fee_ratio()
+    ret = fee_ratio(fund_code='007450')
+    print(ret)

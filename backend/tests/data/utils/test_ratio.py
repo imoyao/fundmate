@@ -81,6 +81,7 @@ class TestFundFeeRatio:
         ('1年>x≥1个月', portion.closedopen(30, 365)),
         ('x≥30天', portion.closedopen(30, portion.inf)),
         ('x>30天', portion.closedopen(31, portion.inf)),
+        ('持有期限 < 7天', portion.closedopen(0, 7)),
         ('购买金额 ≥ 500万', portion.closedopen(5000000.0, portion.inf)),
     ])
     def test_parse_portion(self, range_str_with_co, expected):
