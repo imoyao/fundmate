@@ -371,18 +371,6 @@ class BaseRatio:
 
         return raw_str
 
-    # def split_rn(self, rn_str: str):
-    #     """
-    #     >>> test_str=str('''持有期限(Y) 赎回费率 7日≤Y<1个封闭期 1.00%''')
-    #     >>> r = BaseRatio()
-    #     >>> r.split_rn(test_str)
-    #     '7日≤Y<1个封闭期'
-    #
-    #     :param rn_str:
-    #     :return:
-    #     """
-    #     return rn_str.split()[2]
-
     def replace_whitespace(self, with_whitespace_str: str) -> str:
         return with_whitespace_str.replace(' ', '')
 
@@ -540,7 +528,10 @@ class BaseRatio:
             item_index = val_lists.index(co_lists)
             item_key = list(comp_items.keys())[item_index]
             if item_key in ['less_single_c', 'less_single_o']:
-                assert len(sorted_li) == 2
+                try:
+                    assert len(sorted_li) == 2
+                except AssertionError:
+                    raise ParseError(f'费率区间信息：{range_str_with_co} 无法处理！')
                 interval_item = self.parse_less_single(item_key, sorted_li)
             elif item_key in ['more_single_c', 'more_single_o']:
                 assert len(sorted_li) == 2

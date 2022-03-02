@@ -10,13 +10,12 @@
 import pytest
 
 from backend.fundmate.data.fundb.base import FundFeeRatio
-from backend.fundmate.excepts import CrawlerException
+from backend.fundmate.excepts import CrawlerException, ParseError
 
 
 class TestFundFeeRatio:
     """
     测试基金费率信息
-    FIXME: 005611 处理错误
     """
 
     def setup_class(self):
@@ -394,9 +393,29 @@ class TestFundFeeRatio:
                                                    'start_day': 30,
                                                    'end_day': None,
                                                    'rate': 0.0
-                                               }])])
+                                               }]),
+                                               ([{
+                                                   'money': '',
+                                                   'time': '持有期限(Y) 赎回费率\r\nY<7日 1.50%',
+                                                   'source': '',
+                                                   'rate': '1.50%'
+                                               }, {
+                                                   'money': '',
+                                                   'time': '持有期限(Y) 赎回费率\r\n7日≤Y<1个封闭期 1.00%',
+                                                   'source': '',
+                                                   'rate': '1.00%'
+                                               }, {
+                                                   'money': '',
+                                                   'time': '持有期限(Y) 赎回费率\r\nY≥1个封闭期 0',
+                                                   'source': '',
+                                                   'rate': '0.00%'
+                                               }], ParseError)])
     def test_redeem_rate(self, info, expected):
-        assert self.test_jq_fr.redeem_rate(info) == expected
+        if isinstance(expected, type) and issubclass(expected, Exception):
+            with pytest.raises(expected):
+                self.test_jq_fr.redeem_rate(info)
+        else:
+            assert self.test_jq_fr.redeem_rate(info) == expected
 
     @pytest.mark.parametrize('info,money_key,rate_key, expected', [([{
         'money': '',
