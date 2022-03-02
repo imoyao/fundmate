@@ -320,7 +320,7 @@ class PurchaseRule(PkModel, UpsertMixin):
             return float(quota) if isinstance(quota, (float, Decimal)) else int(quota)
 
     def __repr__(self):
-        return f'<PurchaseRule(start quota:{self.readable_quota(self.start_quota)!r},' \
+        return f'<PurchaseRule(id:{self.id},start quota:{self.readable_quota(self.start_quota)!r},' \
                f'end quota:{self.readable_quota(self.end_quota)!r})> '
 
 
@@ -335,7 +335,7 @@ class RedeemRule(PkModel, UpsertMixin):
             inf_end_day = float('inf')
         else:
             inf_end_day = self.end_day
-        return f'<RedeemRule(start day:{self.start_day!r},end day:{inf_end_day!r})>'
+        return f'<RedeemRule(id:{self.id},start day:{self.start_day!r},end day:{inf_end_day!r})>'
 
 
 class FeeRatio(PkModel, UpsertMixin):
@@ -373,7 +373,7 @@ class FeeRatio(PkModel, UpsertMixin):
         else:
             rule_class = RedeemRule
         rule_inst = rule_class.get_by_id(self.rule_id)
-        return f'<FeeRatio(id:{self.fund_id},code:{self.fund_code!r},type:{self.fee_type!r},{rule_inst!r})>'
+        return f'<FeeRatio(id:{self.id},code:{self.fund_code!r},type:{self.fee_type!r},{rule_inst!r})>'
 
     @hybrid_property
     def rule_id(self):

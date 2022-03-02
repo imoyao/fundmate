@@ -132,14 +132,14 @@ class UpsertMixin(CRUDMixin):
                         logger.success(f'The instance: {inst} has been UPDATED successful.')
                 else:
                     if do_log_flag:
-                        logger.success(f'The instance: {inst} do not need update because it is sub dict of {kwargs}.')
+                        logger.info(f'The instance: {inst} do not need update because it is sub dict of {kwargs}.')
             else:
                 raise UniqueInstanceError(f'The query result:{result} get the count of instance more than 1.')
 
         else:
             inst = cls.create(**kwargs)
             if do_log_flag:
-                logger.success(f'{inst} has been CREATED successful.')
+                logger.success(f'The {inst} has been CREATED successful.')
         return inst
 
 
