@@ -8,7 +8,7 @@ from typing import Dict, List, Optional, Union
 import portion
 
 from backend.fundmate import settings
-from backend.fundmate.excepts import ParseError
+from backend.fundmate.excepts import IsClosedDurationError, ParseError
 from backend.fundmate.fund.models import FeeRatio, Fund, PurchaseRule, RedeemRule
 
 
@@ -17,6 +17,7 @@ class BaseRatio:
     蛋卷基金和韭圈儿共同使用的基础类
     """
     MONTH_SPLIT_STR = '个月'
+    DURATION_STR = '个封闭期'
     REPLACE_MAP = {
         'w': '万',
         'wud': '万美元',
@@ -24,7 +25,9 @@ class BaseRatio:
         'cy': '元',
         'd': '天',
         'y': '年',
+        'r': '日',
         'm': MONTH_SPLIT_STR,
+        'c': DURATION_STR,
     }
 
     def re_mark_replace_flag(self, ipt):
@@ -86,39 +89,45 @@ class BaseRatio:
             elif replace_flag == 'm':
                 # convert year to day
                 int_day = int(float(no_suffix_str)) * 30
-            elif replace_flag in ['ud', 'cy', 'd']:
+            elif replace_flag in ['ud', 'cy', 'd', 'r']:
                 int_day = int(float(no_suffix_str))
+            elif replace_flag == 'c':
+                raise IsClosedDurationError(f'封闭期基金信息: “{suffix_str}” 无法解析信息。')
             else:
                 raise ValueError(f'The suffix_str:{suffix_str} can not be parsed.')
             return int_day
 
-        raise ValueError(f'The suffix_str:{suffix_str} is not end with {replace_str}.')
+        raise ParseError(f'The suffix_str:{suffix_str} is not end with {replace_str}.')
 
-    def make_purchase_info(self, range_str: str) -> Dict:
+    def make_purchase_info(self, range_str: str) -> Optional[Dict]:
         """
         构建申购信息
         :param range_str:
         :return:
         """
         portion_info = self.parse_portion(range_str)
-        lower_bounds = portion_info.lower
-        upper_bounds = portion_info.upper
-        if upper_bounds is portion.inf:
-            upper_bounds = None
-        return {'start_quota': lower_bounds, 'end_quota': upper_bounds}
 
-    def make_redeem_info(self, range_str: str) -> Dict:
+        if portion_info:
+            lower_bounds = portion_info.lower
+            upper_bounds = portion_info.upper
+            if upper_bounds is portion.inf:
+                upper_bounds = None
+            return {'start_quota': lower_bounds, 'end_quota': upper_bounds}
+
+    def make_redeem_info(self, range_str: str) -> Optional[Dict]:
         """
         构建赎回信息
         :param range_str:
         :return:
         """
         portion_info = self.parse_portion(range_str)
-        lower_bounds = portion_info.lower
-        upper_bounds = portion_info.upper
-        if upper_bounds is portion.inf:
-            upper_bounds = None
-        return {'start_day': lower_bounds, 'end_day': upper_bounds}
+
+        if portion_info:
+            lower_bounds = portion_info.lower
+            upper_bounds = portion_info.upper
+            if upper_bounds is portion.inf:
+                upper_bounds = None
+            return {'start_day': lower_bounds, 'end_day': upper_bounds}
 
     @staticmethod
     def is_money_suffix(suffix_str: str) -> bool:
@@ -184,10 +193,11 @@ class BaseRatio:
             rate_info = {
                 'rate': self.remove_percent(rate),
             }
-            _portion_info.update(rate_info)
+            if _portion_info:
+                _portion_info.update(rate_info)
             return _portion_info
 
-    def purchase_parser(self, purchase_info: dict, money_key: str = 'money', rate_key: str = 'rate') -> Dict:
+    def purchase_parser(self, purchase_info: dict, money_key: str = 'money', rate_key: str = 'rate') -> Optional[Dict]:
         """
         解析申购信息
         :param rate_key:
@@ -292,7 +302,8 @@ class BaseRatio:
         :return:
         """
         re_str = self.replace_co_equality(interval_str)
-        reg_items = re.split(r'[<>≤≥\s]', re_str)
+        replaced_str = self.replaced_day(re_str)
+        reg_items = re.split(r'[<>≤≥\s]', replaced_str)
         # keep sort
         sorted_li = sorted(set(reg_items), key=reg_items.index)
         if '' in sorted_li:
@@ -319,6 +330,18 @@ class BaseRatio:
                 raw_str = raw_str.replace(symbol, symbols_dict.get(symbol))
 
         return raw_str
+
+    def replaced_day(self, day_with_suffix):
+        """
+        将字符串中的‘Y<7 日’替换为“Y<7天”
+        >>> br = BaseRatio()
+        >>> br.replaced_day('Y<7 日')
+        Y<7天
+
+        :param day_with_suffix:
+        :return:
+        """
+        return day_with_suffix.replace(' 日', '天')
 
     def comparison_operators_in_str(self, with_co_str: str) -> Optional[List]:
         """
@@ -400,10 +423,13 @@ class BaseRatio:
         intervals = portion.closedopen(lower_bounds, upper_bounds)
         return intervals
 
-    def parse_less_both_side(self, item_key: str, sorted_li: List, co_lists: List) -> portion:
+    def parse_less_both_side(self, item_key: str, sorted_li: List, co_lists: List) -> Optional[portion.Bound]:
         lower, _, upper = sorted_li
-        lower_bounds = self.suffix_str_to_num(lower)
-        upper_bounds = self.suffix_str_to_num(upper)
+        try:
+            lower_bounds = self.suffix_str_to_num(lower)
+            upper_bounds = self.suffix_str_to_num(upper)
+        except ParseError:
+            return None
         if not self.is_money_suffix(lower):
             first_co = co_lists[0]
             is_minus_lower = False

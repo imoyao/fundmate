@@ -10,7 +10,7 @@ from xalpha.cons import JSONDecodeError, rpost_json
 from backend.fundmate import settings
 from backend.fundmate.data.utils import base as dt_utils
 from backend.fundmate.data.utils import ratio
-from backend.fundmate.excepts import CrawlerException, ParseError
+from backend.fundmate.excepts import CrawlerException, IsClosedDurationError, ParseError
 from backend.fundmate.exts.flask_loguru import logger
 
 _HEADER_STR = '''authority: api.jiucaishuo.com
@@ -206,7 +206,7 @@ class FundFeeRatio(ratio.BaseRatio):
             if redeem:
                 try:
                     redeem_info = self.redeem_rate(redeem)
-                except (ValueError, ParseError):
+                except (ValueError, ParseError, IsClosedDurationError):
                     raise CrawlerException(f'基金 {fund_code} 处理赎回信息 {redeem} 出错！')
 
             if to_db:
