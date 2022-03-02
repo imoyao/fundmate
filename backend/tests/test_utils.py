@@ -22,6 +22,41 @@ def test_convert_readable_days(number_of_days, expected):
     assert utils.convert_readable_days(number_of_days) == expected
 
 
+@pytest.mark.parametrize('lite_dict,big_dict,expected', [
+    ({
+        'a': '2',
+        'b': '3'
+    }, {
+        'a': '2',
+        'b': '3',
+        'c': '4'
+    }, True),
+    ({
+        'a': '2',
+        'b': '3'
+    }, {
+        'a': '2',
+        'b': '3'
+    }, True),
+    ({
+        'a': 2,
+        'b': 3
+    }, {
+        'a': '2',
+        'b': '3'
+    }, False),
+    ({
+        'a': [2],
+        'b': [3]
+    }, {
+        'a': '2',
+        'b': '3'
+    }, False),
+])
+def test_is_sub_dict(lite_dict, big_dict, expected):
+    assert utils.is_sub_dict(lite_dict, big_dict) == expected
+
+
 def test_today():
     td_str = utils.today()
     assert isinstance(td_str, str)
