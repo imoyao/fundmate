@@ -302,7 +302,8 @@ class BaseRatio:
         :return:
         """
         re_str = self.replace_co_equality(interval_str)
-        replaced_str = self.replaced_day(re_str)
+        replaced_ws = self.replace_whitespace(re_str)
+        replaced_str = self.replaced_day(replaced_ws)
         reg_items = re.split(r'[<>≤≥\s]', replaced_str)
         # keep sort
         sorted_li = sorted(set(reg_items), key=reg_items.index)
@@ -331,7 +332,10 @@ class BaseRatio:
 
         return raw_str
 
-    def replaced_day(self, day_with_suffix):
+    def replace_whitespace(self, with_whitespace_str: str) -> str:
+        return with_whitespace_str.replace(' ', '')
+
+    def replaced_day(self, day_with_suffix: str) -> str:
         """
         将字符串中的‘Y<7 日’替换为“Y<7天”
         >>> br = BaseRatio()
