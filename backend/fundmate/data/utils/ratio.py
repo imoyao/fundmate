@@ -18,10 +18,11 @@ class BaseRatio:
     """
     MONTH_SPLIT_STR = '个月'
     DURATION_STR = '个封闭期'
+    USD_STR = '美元'
     REPLACE_MAP = {
         'w': '万',
         'wud': '万美元',
-        'ud': '美元',
+        'ud': USD_STR,
         'cy': '元',
         'd': '天',
         'y': '年',
@@ -29,6 +30,8 @@ class BaseRatio:
         'm': MONTH_SPLIT_STR,
         'c': DURATION_STR,
     }
+    PER_US_DOLLER = '美元/笔'
+    PER_CN_YUAN = '元/笔'
 
     def re_mark_replace_flag(self, ipt):
         """
@@ -185,6 +188,27 @@ class BaseRatio:
         """
         return float(x.strip('%'))
 
+    def replace_suffix_usd_cny(self, with_suffix_amount: str) -> Optional[str]:
+        """
+        >>> br = BaseRatio()
+        >>> a = '1000元/笔'
+        >>> b = '1000美元/笔'
+        >>> br.replace_suffix_usd_cny(a)
+        '1000'
+        >>> br.replace_suffix_usd_cny(b)
+        '1000'
+
+        :param with_suffix_amount:
+        :return:
+        """
+        if self.PER_US_DOLLER in with_suffix_amount:
+            amount = with_suffix_amount.replace(self.PER_US_DOLLER, '')
+        elif self.PER_CN_YUAN in with_suffix_amount:
+            amount = with_suffix_amount.replace(self.PER_CN_YUAN, '')
+        else:
+            raise ParseError(f'Invalidate amount {with_suffix_amount}.')
+        return amount
+
     def redeem_parser(self, redeem_info: dict, time_key='time', rate_key='rate') -> Optional[Dict]:
         range_str = redeem_info.get(time_key)
         rate = redeem_info.get(rate_key)
@@ -209,6 +233,15 @@ class BaseRatio:
         def no_discount(rate: float) -> float:
             return rate * 10
 
+        def is_usd_rate(with_suffix_amount: str, rate: float) -> float:
+            """
+            如果收费是美元，则获取的结果即为真实费率
+            :param with_suffix_amount:
+            :param rate:
+            :return:
+            """
+            return self.USD_STR in with_suffix_amount
+
         range_str = purchase_info.get(money_key)
         rate = purchase_info.get(rate_key)
         if range_str:
@@ -216,17 +249,23 @@ class BaseRatio:
             upper_bounds = portion_info.get('end_quota')
             if upper_bounds is not None:
                 discount_rate = self.remove_percent(rate)
-                real_rate = no_discount(discount_rate)
+                if not is_usd_rate(range_str, discount_rate):
+                    real_rate = no_discount(discount_rate)
+                else:
+                    real_rate = discount_rate
                 rate_info = {'rate': real_rate}
             else:
                 # 处理最后一个区间使用固定金额的情况
                 last_is_rate = rate.endswith('%')
                 if not last_is_rate:
-                    amount = rate.replace('元/笔', '')
+                    amount = self.replace_suffix_usd_cny(rate)
                     rate_info = {'fee_amount': float(amount)}
                 else:
                     discount_rate = self.remove_percent(rate)
-                    real_rate = no_discount(discount_rate)
+                    if not is_usd_rate(range_str, discount_rate):
+                        real_rate = no_discount(discount_rate)
+                    else:
+                        real_rate = discount_rate
                     rate_info = {'rate': real_rate}
 
             portion_info.update(rate_info)
@@ -332,6 +371,18 @@ class BaseRatio:
 
         return raw_str
 
+    # def split_rn(self, rn_str: str):
+    #     """
+    #     >>> test_str=str('''持有期限(Y) 赎回费率 7日≤Y<1个封闭期 1.00%''')
+    #     >>> r = BaseRatio()
+    #     >>> r.split_rn(test_str)
+    #     '7日≤Y<1个封闭期'
+    #
+    #     :param rn_str:
+    #     :return:
+    #     """
+    #     return rn_str.split()[2]
+
     def replace_whitespace(self, with_whitespace_str: str) -> str:
         return with_whitespace_str.replace(' ', '')
 
@@ -340,7 +391,7 @@ class BaseRatio:
         将字符串中的‘Y<7 日’替换为“Y<7天”
         >>> br = BaseRatio()
         >>> br.replaced_day('Y<7 日')
-        Y<7天
+        'Y<7天'
 
         :param day_with_suffix:
         :return:
