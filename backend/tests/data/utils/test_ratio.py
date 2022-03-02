@@ -46,6 +46,46 @@ class TestFundFeeRatio:
     def test_re_split_with_comparison_operators(self, raw_str, expected):
         assert self.test_ratio.re_split_with_comparison_operators(raw_str) == expected
 
+    @pytest.mark.parametrize('redeem_rate,time_key,rate_key,expected', [([{
+        'money': '',
+        'time': '持有期限 < 7天',
+        'source': '',
+        'rate': '1.50%'
+    }, {
+        'money': '',
+        'time': '7天 ≤ 持有期限 < 30天',
+        'source': '',
+        'rate': '0.75%'
+    }, {
+        'money': '',
+        'time': '30天 ≤ 持有期限 < 6个月',
+        'source': '',
+        'rate': '0.50%'
+    }, {
+        'money': '',
+        'time': '持有期限 ≥ 6个月',
+        'source': '',
+        'rate': '0.00%'
+    }], 'time', 'rate', [{
+        'end_day': 7,
+        'rate': 1.5,
+        'start_day': 0
+    }, {
+        'end_day': 30,
+        'rate': 0.75,
+        'start_day': 7
+    }, {
+        'end_day': 180,
+        'rate': 0.5,
+        'start_day': 30
+    }, {
+        'end_day': None,
+        'rate': 0.0,
+        'start_day': 180
+    }])])
+    def test_redeem_rate(self, redeem_rate, time_key, rate_key, expected):
+        assert self.test_ratio.redeem_rate(redeem_rate, time_key, rate_key) == expected
+
     @pytest.mark.parametrize('suffix_str,replace_flag,expected', [('100万', 'w', 1000000), ('500.0万', 'w', 5000000),
                                                                   ('500.0万美元', 'wud', 5000000), ('500.0美元', 'ud', 500),
                                                                   ('500.0万', 'w', 5000000), ('50.0万', 'w', 500000),
