@@ -194,7 +194,7 @@ class FundFeeRatio(ratio.BaseRatio):
               {'money': '', 'time': '持有期限 ≥ 7天', 'source': '', 'rate': '0.50%'}]}
 
             '''
-            logger.info(f'purchase:{purchase},' f'redeem:{redeem}')
+            logger.info(f'Fund: {fund_code}, purchase: {purchase}, redeem: {redeem}')
 
             purchase_info = None
             redeem_info = None

@@ -16,6 +16,7 @@ from backend.fundmate.excepts import CrawlerException
 class TestFundFeeRatio:
     """
     测试基金费率信息
+    FIXME: 005611 处理错误
     """
 
     def setup_class(self):
@@ -132,33 +133,49 @@ class TestFundFeeRatio:
                                                         }]
                                                     }),
                                                     ('000906', {
-                                                        'purchase': [{
-                                                            'start_quota': 0,
-                                                            'end_quota': None,
-                                                            'fee_amount': 0.0
-                                                        }],
                                                         'op': [{
                                                             'name': '管理费率',
-                                                            'val': '0.30% (每年)'
+                                                            'val': '1.80% (每年)'
                                                         }, {
                                                             'name': '托管费率',
-                                                            'val': '0.10% (每年)'
+                                                            'val': '0.35% (每年)'
                                                         }, {
                                                             'name': '销售服务费率',
-                                                            'val': '0.35% (每年)'
+                                                            'val': '0.00% (每年)'
+                                                        }],
+                                                        'purchase': [{
+                                                            'end_quota': 200000.0,
+                                                            'rate': 1.6,
+                                                            'start_quota': 0
+                                                        }, {
+                                                            'end_quota': 1000000.0,
+                                                            'rate': 1.0,
+                                                            'start_quota': 200000.0
+                                                        }, {
+                                                            'end_quota': 2000000.0,
+                                                            'rate': 0.5,
+                                                            'start_quota': 1000000.0
+                                                        }, {
+                                                            'end_quota': None,
+                                                            'fee_amount': 200.0,
+                                                            'start_quota': 2000000.0
                                                         }],
                                                         'redeem': [{
-                                                            'start_day': 0,
                                                             'end_day': 7,
-                                                            'rate': 1.5
+                                                            'rate': 1.5,
+                                                            'start_day': 0
                                                         }, {
-                                                            'start_day': 7,
-                                                            'end_day': 31,
-                                                            'rate': 0.1
+                                                            'end_day': 365,
+                                                            'rate': 0.5,
+                                                            'start_day': 7
                                                         }, {
-                                                            'start_day': 31,
+                                                            'end_day': 730,
+                                                            'rate': 0.3,
+                                                            'start_day': 365
+                                                        }, {
                                                             'end_day': None,
-                                                            'rate': 0.0
+                                                            'rate': 0.0,
+                                                            'start_day': 730
                                                         }]
                                                     }),
                                                     ('000507', {
@@ -422,6 +439,48 @@ class TestFundFeeRatio:
                                                                            'start_quota': 5000000.0,
                                                                            'end_quota': None,
                                                                            'rate': 1.0
+                                                                       }],
+                                                                   ),
+                                                                   (
+                                                                       [{
+                                                                           'money': '购买金额 < 10万美元',
+                                                                           'time': '',
+                                                                           'source': '',
+                                                                           'rate': '1.30%'
+                                                                       }, {
+                                                                           'money': '10万美元 ≤ 购买金额 < 20万美元',
+                                                                           'time': '',
+                                                                           'source': '',
+                                                                           'rate': '0.70%'
+                                                                       }, {
+                                                                           'money': '20万美元 ≤ 购买金额 < 100万美元',
+                                                                           'time': '',
+                                                                           'source': '',
+                                                                           'rate': '0.30%'
+                                                                       }, {
+                                                                           'money': '购买金额 ≥ 100万美元',
+                                                                           'time': '',
+                                                                           'source': '',
+                                                                           'rate': '200美元/笔'
+                                                                       }],
+                                                                       'money',
+                                                                       'rate',
+                                                                       [{
+                                                                           'end_quota': 100000.0,
+                                                                           'rate': 1.3,
+                                                                           'start_quota': 0
+                                                                       }, {
+                                                                           'end_quota': 200000.0,
+                                                                           'rate': 0.7,
+                                                                           'start_quota': 100000.0
+                                                                       }, {
+                                                                           'end_quota': 1000000.0,
+                                                                           'rate': 0.3,
+                                                                           'start_quota': 200000.0
+                                                                       }, {
+                                                                           'end_quota': None,
+                                                                           'fee_amount': 200.0,
+                                                                           'start_quota': 1000000.0
                                                                        }],
                                                                    )])
     def test_purchase_rate(self, info, money_key, rate_key, expected):
