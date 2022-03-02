@@ -11,6 +11,7 @@ import portion
 import pytest
 
 from backend.fundmate.data.utils import ratio
+from backend.fundmate.excepts import IsClosedDurationError
 
 
 class TestFundFeeRatio:
@@ -122,6 +123,8 @@ class TestFundFeeRatio:
         ('x≥30天', portion.closedopen(30, portion.inf)),
         ('x>30天', portion.closedopen(31, portion.inf)),
         ('持有期限 < 7天', portion.closedopen(0, 7)),
+        ('7 天≤T<1 个封闭期', IsClosedDurationError),
+        ('7 日≤T<1 年', portion.closedopen(7, 365)),
         ('购买金额 ≥ 500万', portion.closedopen(5000000.0, portion.inf)),
     ])
     def test_parse_portion(self, range_str_with_co, expected):
@@ -130,4 +133,10 @@ class TestFundFeeRatio:
         :param expected:
         :return:
         """
-        assert self.test_ratio.parse_portion(range_str_with_co) == expected
+        # see also: https://stackoverflow.com/questions/56870699/pytest-how-to-parametrize-when-some-values-should
+        # -return-an-error
+        if isinstance(expected, type) and issubclass(expected, Exception):
+            with pytest.raises(expected):
+                self.test_ratio.parse_portion(range_str_with_co)
+        else:
+            assert self.test_ratio.parse_portion(range_str_with_co) == expected
