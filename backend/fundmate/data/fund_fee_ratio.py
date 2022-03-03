@@ -95,8 +95,8 @@ def jcb_init_rate(fund_code: str):
             except (UnexpectedArgsError, EmptyError) as e:
                 logger.error(f'Fund {fund_code} get Error:{e}')
                 ret = None
-            if ret is None:
                 not_success_set.add(fund_code)
+
         if not_success_set:
             failed_counts = len(not_success_set)
             logger.warning(
@@ -109,8 +109,8 @@ def jcb_init_rate(fund_code: str):
             ret = frt.rate(fund_code)
         except (UnexpectedArgsError, EmptyError):
             ret = None
-        if ret is None:
             logger.warning(f'Failed to update fee ratio of {fund_code}.')
+    return ret
 
 
 def dj_init_fr(fund_code: Optional[str] = None):
@@ -126,13 +126,12 @@ def dj_init_fr(fund_code: Optional[str] = None):
             for fd in fund_lists:
                 fund_code = fd.fund_code
                 try:
-                    dt = dj_fd.rate(fund_code, to_db=True)
+                    ret = dj_fd.rate(fund_code, to_db=True)
                 except (UnpackError, ValueError) as e:
-                    dt = None
+                    ret = None
                     logger.error(f'Fund {fund_code} get Error:{e}')
-
-                if dt is None:
                     not_success_set.add(fund_code)
+
             if not_success_set:
                 failed_counts = len(not_success_set)
                 logger.warning(
@@ -146,8 +145,8 @@ def dj_init_fr(fund_code: Optional[str] = None):
             ret = dj_fd.rate(fund_code, to_db=True)
         except (UnexpectedArgsError, EmptyError):
             ret = None
-        if ret is None:
             logger.error(f'Failed to update fee ratio of {fund_code}.')
+    return ret
 
 
 def jq_init_fr(fund_code: Optional[str] = None, to_db=False) -> Optional[Dict]:
@@ -168,9 +167,8 @@ def jq_init_fr(fund_code: Optional[str] = None, to_db=False) -> Optional[Dict]:
             except CrawlerException as e:
                 result = None
                 logger.error(f'Fund {fund_code} get Error:{e}')
-
-            if result is None:
                 not_success_set.add(fund_code)
+
         if not_success_set:
             failed_counts = len(not_success_set)
             logger.warning(
@@ -181,10 +179,9 @@ def jq_init_fr(fund_code: Optional[str] = None, to_db=False) -> Optional[Dict]:
     else:
         try:
             result = jq_fr.rate(fund_code, to_db=to_db)
-        except CrawlerException:
+        except CrawlerException as e:
             result = None
-        if result is None:
-            logger.info(f'Failed to update fee ratio of {fund_code}.')
+            logger.info(f'Failed to update fee ratio of {fund_code} with error:{e}')
     return result
 
 
