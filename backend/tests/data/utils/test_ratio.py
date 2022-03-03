@@ -29,7 +29,8 @@ class TestFundFeeRatio:
         self.test_ratio = ratio.BaseRatio()
 
     @pytest.mark.parametrize('raw_str,expected', [('500.0万', 'w'), ('1个月', 'm'), ('2.0年', 'y'), ('7天', 'd'),
-                                                  ('500.0万美元', 'wud'), ('500.0美元', 'ud'), ('500.0元', 'cy')])
+                                                  ('500.0万美元', 'wusd'), ('500.0万港元', 'whkd'), ('1200港元', 'hkd'),
+                                                  ('500.0万美元', 'wusd'), ('500.0美元', 'usd'), ('500.0元', 'cny')])
     def test_re_mark_replace_flag(self, raw_str, expected):
         assert self.test_ratio.re_mark_replace_flag(raw_str) == expected
 
@@ -88,10 +89,11 @@ class TestFundFeeRatio:
         assert self.test_ratio.redeem_rate(redeem_rate, time_key, rate_key) == expected
 
     @pytest.mark.parametrize('suffix_str,replace_flag,expected', [('100万', 'w', 1000000), ('500.0万', 'w', 5000000),
-                                                                  ('500.0万美元', 'wud', 5000000), ('500.0美元', 'ud', 500),
-                                                                  ('500.0万', 'w', 5000000), ('50.0万', 'w', 500000),
-                                                                  ('0.0万', 'w', 0), ('7.0天', 'd', 7), ('7天', 'd', 7),
-                                                                  ('1个月', 'm', 30), ('2.0年', 'y', 730)])
+                                                                  ('500.0万美元', 'wusd', 5000000),
+                                                                  ('500.0美元', 'usd', 500), ('500.0万', 'w', 5000000),
+                                                                  ('50.0万', 'w', 500000), ('0.0万', 'w', 0),
+                                                                  ('7.0天', 'd', 7), ('7天', 'd', 7), ('1个月', 'm', 30),
+                                                                  ('2.0年', 'y', 730)])
     def test_suffix_str_to_num(self, suffix_str, replace_flag, expected):
         """
         :param suffix_str:

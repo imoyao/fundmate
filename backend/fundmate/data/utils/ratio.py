@@ -18,20 +18,26 @@ class BaseRatio:
     """
     MONTH_SPLIT_STR = '个月'
     DURATION_STR = '个封闭期'
-    USD_STR = '美元'
+    USD_STR = settings.SupportCurrencyEnum.USD.display
+    HKD_STR = settings.SupportCurrencyEnum.HKD.display
+    CNY_STR = '元'
+    WAN_STR = '万'
     REPLACE_MAP = {
-        'w': '万',
-        'wud': '万美元',
-        'ud': USD_STR,
-        'cy': '元',
+        'w': WAN_STR,
+        'wusd': f'{WAN_STR}{USD_STR}',
+        'whkd': f'{WAN_STR}{HKD_STR}',
+        'usd': USD_STR,
+        'cny': CNY_STR,
+        'hkd': HKD_STR,
         'd': '天',
         'y': '年',
         'r': '日',
         'm': MONTH_SPLIT_STR,
         'c': DURATION_STR,
     }
-    PER_US_DOLLER = '美元/笔'
-    PER_CN_YUAN = '元/笔'
+    PER_USD = f'{USD_STR}/笔'
+    PER_CNY = f'{CNY_STR}/笔'
+    PER_HKD = f'{HKD_STR}/笔'
 
     def re_mark_replace_flag(self, ipt):
         """
@@ -41,10 +47,14 @@ class BaseRatio:
         """
         for k, v in self.REPLACE_MAP.items():
             if v in ipt:
-                if self.REPLACE_MAP.get('wud') in ipt:
-                    return 'wud'
-                elif self.REPLACE_MAP.get('ud') in ipt:
-                    return 'ud'
+                if self.REPLACE_MAP.get('wusd') in ipt:
+                    return 'wusd'
+                elif self.REPLACE_MAP.get('usd') in ipt:
+                    return 'usd'
+                elif self.REPLACE_MAP.get('whkd') in ipt:
+                    return 'whkd'
+                elif self.REPLACE_MAP.get('hkd') in ipt:
+                    return 'hkd'
                 return k
 
     def suffix_str_to_num(self, suffix_str: str, replace_flag: str = 'w') -> Union[int, float]:
@@ -84,7 +94,7 @@ class BaseRatio:
             ```
             '''
             no_suffix_str = suffix_str.replace(replace_str, '')
-            if replace_flag in ['w', 'wud']:
+            if replace_flag in ['w', 'wusd', 'whkd']:
                 return float(no_suffix_str) * 10000
             elif replace_flag == 'y':
                 # convert year to day
@@ -92,7 +102,7 @@ class BaseRatio:
             elif replace_flag == 'm':
                 # convert year to day
                 int_day = int(float(no_suffix_str)) * 30
-            elif replace_flag in ['ud', 'cy', 'd', 'r']:
+            elif replace_flag in ['usd', 'cny', 'd', 'r', 'hkd']:
                 int_day = int(float(no_suffix_str))
             elif replace_flag == 'c':
                 raise IsClosedDurationError(f'封闭期基金信息: “{suffix_str}” 无法解析信息。')
@@ -188,23 +198,28 @@ class BaseRatio:
         """
         return float(x.strip('%'))
 
-    def replace_suffix_usd_cny(self, with_suffix_amount: str) -> Optional[str]:
+    def replace_suffix_currency(self, with_suffix_amount: str) -> Optional[str]:
         """
         >>> br = BaseRatio()
         >>> a = '1000元/笔'
         >>> b = '1000美元/笔'
-        >>> br.replace_suffix_usd_cny(a)
+        >>> c = '1000港元/笔'
+        >>> br.replace_suffix_currency(a)
         '1000'
-        >>> br.replace_suffix_usd_cny(b)
+        >>> br.replace_suffix_currency(b)
+        '1000'
+        >>> br.replace_suffix_currency(c)
         '1000'
 
         :param with_suffix_amount:
         :return:
         """
-        if self.PER_US_DOLLER in with_suffix_amount:
-            amount = with_suffix_amount.replace(self.PER_US_DOLLER, '')
-        elif self.PER_CN_YUAN in with_suffix_amount:
-            amount = with_suffix_amount.replace(self.PER_CN_YUAN, '')
+        if self.PER_USD in with_suffix_amount:
+            amount = with_suffix_amount.replace(self.PER_USD, '')
+        elif self.PER_HKD in with_suffix_amount:
+            amount = with_suffix_amount.replace(self.PER_HKD, '')
+        elif self.PER_CNY in with_suffix_amount:
+            amount = with_suffix_amount.replace(self.PER_CNY, '')
         else:
             raise ParseError(f'Invalidate amount {with_suffix_amount}.')
         return amount
@@ -242,6 +257,15 @@ class BaseRatio:
             """
             return self.USD_STR in with_suffix_amount
 
+        def is_ukd_rate(with_suffix_amount: str, rate: float) -> float:
+            """
+            如果收费是美元，则获取的结果即为真实费率
+            :param with_suffix_amount:
+            :param rate:
+            :return:
+            """
+            return self.HKD_STR in with_suffix_amount
+
         range_str = purchase_info.get(money_key)
         rate = purchase_info.get(rate_key)
         if range_str:
@@ -249,16 +273,23 @@ class BaseRatio:
             upper_bounds = portion_info.get('end_quota')
             if upper_bounds is not None:
                 discount_rate = self.remove_percent(rate)
-                if not is_usd_rate(range_str, discount_rate):
+                # 默认打折
+                is_give_discount = True
+                # 港元和美元的rate即为正式费率，人民币获取的rate是打折后的费率，真实费率需要*10
+                if is_ukd_rate(range_str, discount_rate) or is_usd_rate(range_str, discount_rate):
+                    is_give_discount = False
+
+                if is_give_discount:
                     real_rate = no_discount(discount_rate)
                 else:
                     real_rate = discount_rate
+
                 rate_info = {'rate': real_rate}
             else:
                 # 处理最后一个区间使用固定金额的情况
                 last_is_rate = rate.endswith('%')
                 if not last_is_rate:
-                    amount = self.replace_suffix_usd_cny(rate)
+                    amount = self.replace_suffix_currency(rate)
                     rate_info = {'fee_amount': float(amount)}
                 else:
                     discount_rate = self.remove_percent(rate)

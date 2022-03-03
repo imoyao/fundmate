@@ -501,6 +501,43 @@ class TestFundFeeRatio:
                                                                            'fee_amount': 200.0,
                                                                            'start_quota': 1000000.0
                                                                        }],
-                                                                   )])
+                                                                   ),
+                                                                   ([{
+                                                                       'money': '购买金额 < 120万港元',
+                                                                       'time': '',
+                                                                       'source': '',
+                                                                       'rate': '1.60%'
+                                                                   }, {
+                                                                       'money': '120万港元 ≤ 购买金额 < 350万港元',
+                                                                       'time': '',
+                                                                       'source': '',
+                                                                       'rate': '1.00%'
+                                                                   }, {
+                                                                       'money': '350万港元 ≤ 购买金额 < 600万港元',
+                                                                       'time': '',
+                                                                       'source': '',
+                                                                       'rate': '0.80%'
+                                                                   }, {
+                                                                       'money': '购买金额 ≥ 600万港元',
+                                                                       'time': '',
+                                                                       'source': '',
+                                                                       'rate': '1200港元/笔'
+                                                                   }], 'money', 'rate', [{
+                                                                       'end_quota': 1200000.0,
+                                                                       'rate': 1.6,
+                                                                       'start_quota': 0
+                                                                   }, {
+                                                                       'end_quota': 3500000.0,
+                                                                       'rate': 1.0,
+                                                                       'start_quota': 1200000.0
+                                                                   }, {
+                                                                       'end_quota': 6000000.0,
+                                                                       'rate': 0.8,
+                                                                       'start_quota': 3500000.0
+                                                                   }, {
+                                                                       'end_quota': None,
+                                                                       'fee_amount': 1200.0,
+                                                                       'start_quota': 6000000.0
+                                                                   }])])
     def test_purchase_rate(self, info, money_key, rate_key, expected):
         assert self.test_jq_fr.purchase_rate(info, money_key, rate_key) == expected
