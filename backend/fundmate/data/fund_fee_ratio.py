@@ -5,6 +5,7 @@
 更新基金费率的脚本
 1. 尝试韭圈儿解析数据
 2. 对于韭圈儿更新失败的，尝试蛋卷基金？
+3. TODO：并发编程，使用多线程处理数据抓取并保存费率
 """
 from typing import Dict, List, Optional
 

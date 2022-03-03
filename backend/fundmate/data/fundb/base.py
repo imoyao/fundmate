@@ -156,12 +156,9 @@ class FundFeeRatio(ratio.BaseRatio):
             try:
                 resp = rpost_json(_url, headers=hd, json=data)
             except JSONDecodeError:
-                try:
-                    msg = f'Fund code:{fund_code}, {resp.text}'
-                    logger.error(msg)
-                    raise CrawlerException(msg)
-                except AttributeError:
-                    raise CrawlerException('反爬机制导致错误，请稍候重试……')
+                msg = f'基金编码：{fund_code}反爬机制导致错误，请稍候重试……'
+                logger.error(msg)
+                raise CrawlerException(msg)
 
         code = resp.get('code')
         if code == 0:
