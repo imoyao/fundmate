@@ -250,6 +250,77 @@ class SupportInvestPltEnum(BaseTypeEnum):
     tt = TTJJ
 
 
+'''
+CNY（Chinese Yuan）人民币 
+
+FRF（French Franc）法国法郎 
+
+HKD（Hong Kong Dollar）港元 
+
+CHF（ Schweizer Franc）瑞士法郎
+
+USD（United States Dollar）美元 
+
+CAD（Canadian Dollar）加拿大元 
+
+GBP（Great Britain Pound）英镑 
+
+NLG（Netherlandish Guilder）荷兰盾 
+
+DEM（Deutsche M ark）德国马克 
+
+BEF（Belgischer Franc）比利时法郎 
+
+JPY（Japanese Yen）日元 
+
+AUD（Australian Dollar）澳大利亚元
+
+RUB（Russian Ruble）俄罗斯卢布  
+
+PHP（Philippine Peso）菲律宾比索 
+
+ITL （Italian Lira） 意大利里拉          
+
+'''
+CNY = ChoiceTypeDk('CNY', '人民币')
+FRF = ChoiceTypeDk('FRF', '法国法郎')
+HKD = ChoiceTypeDk('HKD', '港元')
+CHF = ChoiceTypeDk('CHF', '瑞士法郎')
+USD = ChoiceTypeDk('USD', '美元')
+CAD = ChoiceTypeDk('CAD', '加拿大元')
+GBP = ChoiceTypeDk('GBP', '英镑')
+NLG = ChoiceTypeDk('NLG', '荷兰盾')
+DEM = ChoiceTypeDk('DEM', '德国马克')
+BEF = ChoiceTypeDk('BEF', '比利时法郎')
+JPY = ChoiceTypeDk('JPY', '日元')
+AUD = ChoiceTypeDk('AUD', '澳大利亚元')
+RUB = ChoiceTypeDk('RUB', '俄罗斯卢布')
+PHP = ChoiceTypeDk('PHP', '菲律宾比索')
+ITL = ChoiceTypeDk('ITL', '意大利里拉')
+
+
+@enum.unique
+class SupportCurrencyEnum(BaseTypeEnum):
+    """
+    支持导入文件的平台
+    """
+    CNY = CNY
+    FRF = FRF
+    HKD = HKD
+    CHF = CHF
+    USD = USD
+    CAD = CAD
+    GBP = GBP
+    NLG = NLG
+    DEM = DEM
+    BEF = BEF
+    JPY = JPY
+    AUD = AUD
+    RUB = RUB
+    PHP = PHP
+    ITL = ITL
+
+
 FUND = ChoiceTypeDk('fund', '基金')
 STOCK = ChoiceTypeDk('stock', '股票')
 BOND = ChoiceTypeDk('bond', '可转债')
