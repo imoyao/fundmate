@@ -68,6 +68,7 @@ from backend.fundmate.fund.models import FeeRatio, Fund
 def get_no_ratio_funds() -> List:
     """
     获取没有添加费率规则的基金列表
+    FIXME: 对于封闭期基金，需要排除或者另行处理
     :return:
     """
     # 查询id不在fee_ratio，注意distinct用法
