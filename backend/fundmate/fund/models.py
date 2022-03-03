@@ -286,8 +286,8 @@ class PurchaseRule(PkModel, UpsertMixin):
     """
     __table_args__ = {'comment': '申购规则表'}
 
-    start_quota = Column(db.Numeric(10, 2), comment='计费开始额度（金额：元）')  # max:10000000.00
-    end_quota = Column(db.Numeric(10, 2), comment='计费结束额度（金额：元）')
+    start_quota = Column(db.Numeric(12, 2), comment='计费开始额度（金额：元）')  # max:百亿
+    end_quota = Column(db.Numeric(12, 2), comment='计费结束额度（金额：元）')
 
     def readable_quota(self, quota: Union[int, float]) -> Union[str, int, float]:
         """

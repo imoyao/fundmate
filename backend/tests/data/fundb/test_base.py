@@ -101,6 +101,52 @@ class TestFundFeeRatio:
                                                             'rate': 0.0
                                                         }]
                                                     }),
+                                                    ('850004', {
+                                                        'op': [{
+                                                            'name': '管理费率',
+                                                            'val': '0.70% (每年)'
+                                                        }, {
+                                                            'name': '托管费率',
+                                                            'val': '0.15% (每年)'
+                                                        }, {
+                                                            'name': '销售服务费率',
+                                                            'val': '0.00% (每年)'
+                                                        }],
+                                                        'purchase': [{
+                                                            'end_quota': 1000000.0,
+                                                            'rate': 1.5,
+                                                            'start_quota': 0
+                                                        }, {
+                                                            'end_quota': 5000000.0,
+                                                            'rate': 0.6,
+                                                            'start_quota': 1000000.0
+                                                        }, {
+                                                            'end_quota': None,
+                                                            'fee_amount': 1000.0,
+                                                            'start_quota': 5000000.0
+                                                        }, {
+                                                            'end_quota': None,
+                                                            'fee_amount': 1000.0,
+                                                            'start_quota': 2000000000
+                                                        }],
+                                                        'redeem': [{
+                                                            'end_day': 7,
+                                                            'rate': 1.5,
+                                                            'start_day': 0
+                                                        }, {
+                                                            'end_day': 30,
+                                                            'rate': 0.75,
+                                                            'start_day': 7
+                                                        }, {
+                                                            'end_day': 365,
+                                                            'rate': 0.5,
+                                                            'start_day': 30
+                                                        }, {
+                                                            'end_day': None,
+                                                            'rate': 0.0,
+                                                            'start_day': 365
+                                                        }]
+                                                    }),
                                                     ('007019', {
                                                         'purchase': [{
                                                             'start_quota': 0,

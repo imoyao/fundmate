@@ -22,6 +22,7 @@ class BaseRatio:
     HKD_STR = settings.SupportCurrencyEnum.HKD.display
     CNY_STR = '元'
     WAN_STR = '万'
+    HM_STR = '亿'
     REPLACE_MAP = {
         'w': WAN_STR,
         'wusd': f'{WAN_STR}{USD_STR}',
@@ -29,6 +30,7 @@ class BaseRatio:
         'usd': USD_STR,
         'cny': CNY_STR,
         'hkd': HKD_STR,
+        'hm': HM_STR,
         'd': '天',
         'y': '年',
         'r': '日',
@@ -70,6 +72,9 @@ class BaseRatio:
         >>> br.suffix_str_to_num('2.0年')
         730
 
+        >>> br.suffix_str_to_num('20亿')
+        2000000000
+
         :param replace_flag: 替代标识，可以替代的后缀
         :param suffix_str: 被替换字符
         :return:
@@ -99,6 +104,9 @@ class BaseRatio:
             elif replace_flag == 'y':
                 # convert year to day
                 int_day = int(float(no_suffix_str)) * 365
+            elif replace_flag == 'hm':
+                # convert year to day
+                int_day = int(float(no_suffix_str)) * 100000000
             elif replace_flag == 'm':
                 # convert year to day
                 int_day = int(float(no_suffix_str)) * 30
