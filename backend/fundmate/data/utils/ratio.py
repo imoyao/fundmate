@@ -181,8 +181,8 @@ class BaseRatio:
         :return:
         """
         redeem_items = list()
-        for purchase_info in redeem_info_list:
-            info = self.redeem_parser(purchase_info, time_key=time_key, rate_key=rate_key)
+        for redeem_info in redeem_info_list:
+            info = self.redeem_parser(redeem_info, time_key=time_key, rate_key=rate_key)
             redeem_items.append(info)
         return redeem_items
 
@@ -235,6 +235,9 @@ class BaseRatio:
             if _portion_info:
                 _portion_info.update(rate_info)
             return _portion_info
+        else:
+            if rate:
+                return {'start_day': 0, 'end_day': None, 'rate': self.remove_percent(rate)}
 
     def purchase_parser(self, purchase_info: dict, money_key: str = 'money', rate_key: str = 'rate') -> Optional[Dict]:
         """
@@ -268,23 +271,28 @@ class BaseRatio:
 
         range_str = purchase_info.get(money_key)
         rate = purchase_info.get(rate_key)
+        # 如果有实际的，则保存实际费率
+        source_rate = purchase_info.get('source', None)
+        if source_rate:
+            rate = source_rate
         if range_str:
             portion_info = self.make_purchase_info(range_str)
             upper_bounds = portion_info.get('end_quota')
             if upper_bounds is not None:
                 discount_rate = self.remove_percent(rate)
-                # 默认打折
-                is_give_discount = True
-                # 港元和美元的rate即为正式费率，人民币获取的rate是打折后的费率，真实费率需要*10
-                if is_ukd_rate(range_str, discount_rate) or is_usd_rate(range_str, discount_rate):
-                    is_give_discount = False
+                # # 默认打折
+                # is_give_discount = True
+                # # 港元和美元的rate即为正式费率，人民币获取的rate是打折后的费率，真实费率需要*10
+                # if is_ukd_rate(range_str, discount_rate) or is_usd_rate(range_str, discount_rate):
+                #     is_give_discount = False
+                #
+                # if is_give_discount:
+                #     real_rate = no_discount(discount_rate)
+                # else:
+                #     real_rate = discount_rate
 
-                if is_give_discount:
-                    real_rate = no_discount(discount_rate)
-                else:
-                    real_rate = discount_rate
-
-                rate_info = {'rate': real_rate}
+                # 直接保存rate即可
+                rate_info = {'rate': discount_rate}
             else:
                 # 处理最后一个区间使用固定金额的情况
                 last_is_rate = rate.endswith('%')
@@ -292,11 +300,11 @@ class BaseRatio:
                     amount = self.replace_suffix_currency(rate)
                     rate_info = {'fee_amount': float(amount)}
                 else:
-                    discount_rate = self.remove_percent(rate)
-                    if not is_usd_rate(range_str, discount_rate):
-                        real_rate = no_discount(discount_rate)
-                    else:
-                        real_rate = discount_rate
+                    real_rate = self.remove_percent(rate)
+                    # if not is_usd_rate(range_str, discount_rate):
+                    #     real_rate = no_discount(discount_rate)
+                    # else:
+                    #     real_rate = discount_rate
                     rate_info = {'rate': real_rate}
 
             portion_info.update(rate_info)
