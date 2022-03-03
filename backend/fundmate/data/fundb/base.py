@@ -156,7 +156,6 @@ class FundFeeRatio(ratio.BaseRatio):
             try:
                 resp = rpost_json(_url, headers=hd, json=data)
             except JSONDecodeError:
-                resp = None
                 try:
                     msg = f'Fund code:{fund_code}, {resp.text}'
                     logger.error(msg)
