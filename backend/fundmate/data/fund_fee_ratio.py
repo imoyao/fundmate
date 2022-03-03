@@ -15,6 +15,7 @@ from backend.fundmate.data.fundb.base import FundFeeRatio
 from backend.fundmate.excepts import CrawlerException, EmptyError, UnexpectedArgsError, UnpackError
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.fund.models import FeeRatio, Fund
+
 '''
 网页显示如下：
 ## 认购费率

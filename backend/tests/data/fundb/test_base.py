@@ -265,6 +265,40 @@ class TestFundFeeRatio:
                                                             'start_day': 30
                                                         }]
                                                     }),
+                                                    ('011779', {
+                                                        'op': [{
+                                                            'name': '管理费率',
+                                                            'val': '0.55% (每年)'
+                                                        }, {
+                                                            'name': '托管费率',
+                                                            'val': '0.10% (每年)'
+                                                        }, {
+                                                            'name': '销售服务费率',
+                                                            'val': '0.00% (每年)'
+                                                        }],
+                                                        'purchase': [{
+                                                            'end_quota': 1000000.0,
+                                                            'rate': 0.8,
+                                                            'start_quota': 0
+                                                        }, {
+                                                            'end_quota': 2000000.0,
+                                                            'rate': 0.4,
+                                                            'start_quota': 1000000.0
+                                                        }, {
+                                                            'end_quota': 5000000.0,
+                                                            'rate': 0.2,
+                                                            'start_quota': 2000000.0
+                                                        }, {
+                                                            'end_quota': None,
+                                                            'fee_amount': 1000.0,
+                                                            'start_quota': 5000000.0
+                                                        }],
+                                                        'redeem': [{
+                                                            'end_day': None,
+                                                            'rate': 0.0,
+                                                            'start_day': 0
+                                                        }]
+                                                    }),
                                                     ('003663', {
                                                         'op': [{
                                                             'name': '管理费率',
