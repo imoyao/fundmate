@@ -373,7 +373,7 @@ class FeeRatio(PkModel, UpsertMixin):
         else:
             rule_class = RedeemRule
         rule_inst = rule_class.get_by_id(self.rule_id)
-        return f'<FeeRatio(id:{self.id},code:{self.fund_code!r},type:{self.fee_type!r},{rule_inst!r})>'
+        return f'<FeeRatio(id:{self.id},code:{self.fund_code!r},type:{self.fee_type.display!r},{rule_inst!r})>'
 
     @hybrid_property
     def rule_id(self):
