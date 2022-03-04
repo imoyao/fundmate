@@ -294,6 +294,7 @@ class PurchaseRule(PkModel, UpsertMixin):
         将float类型配额转为可读字符
         Example:
         ```python
+        >>> ir = PurchaseRule()
         >>> ir.readable_quota(0)
          0
 

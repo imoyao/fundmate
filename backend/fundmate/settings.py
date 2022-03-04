@@ -67,8 +67,10 @@ class RiskTypeEnum(BaseTypeEnum):
     def default(cls):
         """
         默认值，如果要使用非默认的默认值，则调用普通赋值操作即可
-        FIXME: py3.8+ [python - Using property() on classmethods - Stack Overflow](https://stackoverflow.com/questions/128573/using-property-on-classmethods)
         :return:
+
+        FIXME: py3.8+ [python - Using property() on classmethods - Stack Overflow](
+        https://stackoverflow.com/questions/128573/using-property-on-classmethods)
         """
         return cls.balance
 
@@ -371,7 +373,8 @@ DEFAULT_JWT_RESET_LIFESPAN = pendulum.duration(minutes=10)
 DEFAULT_CONFIRMATION_SENDER = env.str('MAIL_USERNAME')
 DEFAULT_CONFIRMATION_SUBJECT = f'请激活你的{SITE_NAME}帐号'
 
-# DEFAULT_RESET_TEMPLATE = ("{}/authentication/templates/reset_email.html".format(dirname(dirname(abspath(__file__))), ))
+# DEFAULT_RESET_TEMPLATE = ("{}/authentication/templates/reset_email.html".format(dirname(dirname(abspath(
+# __file__))), ))
 DEFAULT_RESET_SUBJECT = f'您在 {SITE_NAME} 发起重置密码请求'
 
 DEFAULT_CONFIRMATION_URI = 'http://localhost:5000/register-confirm'
