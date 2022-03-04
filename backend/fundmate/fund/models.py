@@ -384,16 +384,16 @@ class FeeRatio(PkModel, UpsertMixin):
         return self.purchase_rule_id or self.redeem_rule_id
 
     @classmethod
-    def get_rules(cls, fund_code: str, op_type: int):
+    def get_rules(cls, fund_code: str, op_type: settings.FeeTypeEnum):
         """
         获取基金对应的rule_id列表
+        update: 按照费率的倒序排序
         """
-        # f_id = Fund.filter_by_code(fund_code)
-        rule_item_list = cls.query.filter_by(fund_code=fund_code, fee_type=op_type).all()
+        rule_item_list = cls.query.filter_by(fund_code=fund_code, fee_type=op_type).order_by(cls.rate.desc()).all()
         return rule_item_list
 
     @classmethod
-    def buy_info(cls, fund_code: str, op_type: int = 1):
+    def buy_info(cls, fund_code: str, op_type: settings.FeeTypeEnum = settings.FeeTypeEnum.purchase):
         """
         购买费率（包括申购和购买）
         """
@@ -405,10 +405,10 @@ class FeeRatio(PkModel, UpsertMixin):
             rule_fee_amount = None
             if not rule_rate:
                 rule_fee_amount = rule.fee_amount
-            rule_inst = PurchaseRule.query.get_by_id(rule_id)
+            rule_inst = PurchaseRule.get_by_id(rule_id)
             if rule_inst:
                 start_quota = rule_inst.start_quota
-                end_quota = rule_inst.start_quota
+                end_quota = rule_inst.end_quota
                 rule_info = {
                     'start_quota': start_quota,
                     'end_quota': end_quota,
@@ -423,13 +423,13 @@ class FeeRatio(PkModel, UpsertMixin):
         """
         赎回费率
         """
-        rule_item_list = cls.get_rules(fund_code, 3)
+        rule_item_list = cls.get_rules(fund_code, settings.FeeTypeEnum.redeem)
         rules = list()
         for rule in rule_item_list:
             rule_id = rule.rule_id
             rule_rate = rule.rate
             rule_fee_amount = None
-            rule_inst = RedeemRule.query.get_by_id(rule_id)
+            rule_inst = RedeemRule.get_by_id(rule_id)
             if rule_inst:
                 start_day = rule_inst.start_day
                 end_day = rule_inst.end_day
