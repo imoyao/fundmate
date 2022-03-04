@@ -3,6 +3,7 @@
 # Created by Administrator at 2022/2/24 22:58
 import copy
 import re
+from decimal import Decimal
 from typing import Dict, List, Optional, Union
 
 import portion
@@ -362,7 +363,14 @@ class BaseRatio:
             cp_rf = copy.deepcopy(rule_info)
             if 'rate' in cp_rf:
                 fare_ratio = cp_rf.pop('rate')
-                rate = float(fare_ratio) if not isinstance(fare_ratio, float) else fare_ratio
+                '''
+                In [4]: Decimal(0.1)
+                Out[4]: Decimal('0.1000000000000000055511151231257827021181583404541015625')
+                
+                In [5]: Decimal('0.1')
+                Out[5]: Decimal('0.1')
+                '''
+                rate = Decimal(str(fare_ratio)) if not isinstance(fare_ratio, Decimal) else fare_ratio
                 fee_amount = None
             else:
                 rate = None
@@ -378,7 +386,8 @@ class BaseRatio:
                 'fund_code': fund_code,
                 'fee_amount': fee_amount,
             }
-            query_args = {'fund_id': fund_id, 'fund_code': fund_code, key: rule_id, 'fee_type': fee_type}
+            # 费率也必须作为一个查询条件，否则会有遗漏
+            query_args = {'fund_id': fund_id, 'fund_code': fund_code, key: rule_id, 'fee_type': fee_type, 'rate': rate}
             FeeRatio.insert_or_update(query_args, do_log_flag=True, **_rate_info)
 
     def re_split_with_comparison_operators(self, interval_str: str) -> List:
