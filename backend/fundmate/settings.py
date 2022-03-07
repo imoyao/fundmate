@@ -67,8 +67,10 @@ class RiskTypeEnum(BaseTypeEnum):
     def default(cls):
         """
         默认值，如果要使用非默认的默认值，则调用普通赋值操作即可
-        FIXME: py3.8+ [python - Using property() on classmethods - Stack Overflow](https://stackoverflow.com/questions/128573/using-property-on-classmethods)
         :return:
+
+        FIXME: py3.8+ [python - Using property() on classmethods - Stack Overflow](
+        https://stackoverflow.com/questions/128573/using-property-on-classmethods)
         """
         return cls.balance
 
@@ -178,7 +180,7 @@ class SymbolTypeEnum(BaseTypeEnum):
 UNKNOWN = ChoiceTypeIntegerDk(0, 'unknown', '未定义')
 SUBSCRIBE = ChoiceTypeIntegerDk(1, 'subscribe', '基金认购')
 PURCHASE = ChoiceTypeIntegerDk(2, 'purchase', '基金申购')
-REDEEM = ChoiceTypeIntegerDk(3, 'redeem', '基金赎回')
+REDEEM_FEE = ChoiceTypeIntegerDk(3, 'redeem', '基金赎回')
 
 
 @enum.unique
@@ -189,7 +191,7 @@ class FeeTypeEnum(BaseTypeEnum):
     unknown = UNKNOWN
     subscribe = SUBSCRIBE
     purchase = PURCHASE
-    redeem = REDEEM
+    redeem = REDEEM_FEE
 
     @classmethod
     def default(cls):
@@ -250,6 +252,77 @@ class SupportInvestPltEnum(BaseTypeEnum):
     tt = TTJJ
 
 
+'''
+CNY（Chinese Yuan）人民币 
+
+FRF（French Franc）法国法郎 
+
+HKD（Hong Kong Dollar）港元 
+
+CHF（ Schweizer Franc）瑞士法郎
+
+USD（United States Dollar）美元 
+
+CAD（Canadian Dollar）加拿大元 
+
+GBP（Great Britain Pound）英镑 
+
+NLG（Netherlandish Guilder）荷兰盾 
+
+DEM（Deutsche M ark）德国马克 
+
+BEF（Belgischer Franc）比利时法郎 
+
+JPY（Japanese Yen）日元 
+
+AUD（Australian Dollar）澳大利亚元
+
+RUB（Russian Ruble）俄罗斯卢布  
+
+PHP（Philippine Peso）菲律宾比索 
+
+ITL （Italian Lira） 意大利里拉          
+
+'''
+CNY = ChoiceTypeDk('CNY', '人民币')
+FRF = ChoiceTypeDk('FRF', '法国法郎')
+HKD = ChoiceTypeDk('HKD', '港元')
+CHF = ChoiceTypeDk('CHF', '瑞士法郎')
+USD = ChoiceTypeDk('USD', '美元')
+CAD = ChoiceTypeDk('CAD', '加拿大元')
+GBP = ChoiceTypeDk('GBP', '英镑')
+NLG = ChoiceTypeDk('NLG', '荷兰盾')
+DEM = ChoiceTypeDk('DEM', '德国马克')
+BEF = ChoiceTypeDk('BEF', '比利时法郎')
+JPY = ChoiceTypeDk('JPY', '日元')
+AUD = ChoiceTypeDk('AUD', '澳大利亚元')
+RUB = ChoiceTypeDk('RUB', '俄罗斯卢布')
+PHP = ChoiceTypeDk('PHP', '菲律宾比索')
+ITL = ChoiceTypeDk('ITL', '意大利里拉')
+
+
+@enum.unique
+class SupportCurrencyEnum(BaseTypeEnum):
+    """
+    支持导入文件的平台
+    """
+    CNY = CNY
+    FRF = FRF
+    HKD = HKD
+    CHF = CHF
+    USD = USD
+    CAD = CAD
+    GBP = GBP
+    NLG = NLG
+    DEM = DEM
+    BEF = BEF
+    JPY = JPY
+    AUD = AUD
+    RUB = RUB
+    PHP = PHP
+    ITL = ITL
+
+
 FUND = ChoiceTypeDk('fund', '基金')
 STOCK = ChoiceTypeDk('stock', '股票')
 BOND = ChoiceTypeDk('bond', '可转债')
@@ -300,7 +373,8 @@ DEFAULT_JWT_RESET_LIFESPAN = pendulum.duration(minutes=10)
 DEFAULT_CONFIRMATION_SENDER = env.str('MAIL_USERNAME')
 DEFAULT_CONFIRMATION_SUBJECT = f'请激活你的{SITE_NAME}帐号'
 
-# DEFAULT_RESET_TEMPLATE = ("{}/authentication/templates/reset_email.html".format(dirname(dirname(abspath(__file__))), ))
+# DEFAULT_RESET_TEMPLATE = ("{}/authentication/templates/reset_email.html".format(dirname(dirname(abspath(
+# __file__))), ))
 DEFAULT_RESET_SUBJECT = f'您在 {SITE_NAME} 发起重置密码请求'
 
 DEFAULT_CONFIRMATION_URI = 'http://localhost:5000/register-confirm'

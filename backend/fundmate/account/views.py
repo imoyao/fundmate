@@ -205,7 +205,6 @@ def loads_template(df: PdDataFrame):
     ),
                                         axis=1)
     # 交易手续费：如果不是0，则返回，否则，根据购买金额，购买基金、费率计算
-    # TODO: 转向处理费率信息
     df['charge_fee'] = df.apply(lambda row: _db_code(row['record_code'], row['trans_confirm_date']), axis=1)
 
 

@@ -3,7 +3,7 @@
 # Created by imoyao at 2021/1/29 16:03
 from pathlib import Path
 
-from backend.fundmate.data.utils import data_parser
+from backend.fundmate.data.utils.base import data_parser
 
 CURRENT_PATH = Path(__file__).resolve().parent
 ALL_JSON_FP = Path(CURRENT_PATH, 'all.json')

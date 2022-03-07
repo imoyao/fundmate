@@ -30,6 +30,33 @@ def convert_readable_days(number_of_days: int) -> tuple:
     return years, months, days
 
 
+def is_sub_dict(subset_dict: dict, superset_dict: dict):
+    """
+    测试前字典是否为后字典的子集
+    FIXME: PY3.9:  return big | small == big
+
+    >>> d1 = {'a':'2', 'b':'3'}
+    >>> d2 = {'a':'2', 'b':'3','c':'4'}
+    >>> is_sub_dict(d1,d2)
+    True
+
+    >>> d1 = {'a':'2', 'b':'3'}
+    >>> d2 = {'a':'2', 'b':'3'}
+    >>> is_sub_dict(d1,d2)
+    True
+
+    >>> d1 = {'a':1, 'b':4}
+    >>> d2 = {'a':'2', 'b':'3'}
+    >>> is_sub_dict(d1,d2)
+    False
+
+    :param subset_dict:
+    :param superset_dict:
+    :return:
+    """
+    return all(item in superset_dict.items() for item in subset_dict.items())
+
+
 def show_time(func):
     """
     代码耗时时间计算

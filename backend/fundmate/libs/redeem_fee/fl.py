@@ -6,7 +6,8 @@
 import re
 
 from bs4 import BeautifulSoup
-from utils import *  # noqa: E403
+
+from .utils import *  # noqa: E403
 
 
 def _get_fl_table_tag(html):
