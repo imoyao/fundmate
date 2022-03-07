@@ -13,7 +13,7 @@ from xalpha.cons import rget
 
 from backend.fundmate import excepts as dt_except
 from backend.fundmate import utils
-from backend.fundmate.data import utils as dt_utils
+from backend.fundmate.data.utils import base as dt_utils
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.libs import convert
 

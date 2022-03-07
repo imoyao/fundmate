@@ -95,6 +95,13 @@ class ParseError(CalError):
         return self.msg
 
 
+class IsClosedDurationError(CalError):
+    """
+    封闭期基金数据无法解析
+    """
+    pass
+
+
 class CrawlerException(FmException):
     """
     爬虫类的异常
