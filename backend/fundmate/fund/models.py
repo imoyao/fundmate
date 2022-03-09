@@ -49,7 +49,8 @@ class Fund(PkModel, UpsertMixin):
     [基金代码含义及编制规则 - 知乎](https://zhuanlan.zhihu.com/p/24948157)
     '''
     fund_code = Column(db.String(6), unique=True, comment='基金编码')
-    name = Column(db.String(30), comment='基金名称')
+    name = Column(db.String(30), comment='基金简称')
+    full_name = Column(db.String(40), comment='基金全称')
     '''
     此处标准写法应该使用英文，但是可能导致查询啰嗦，所以使用拼音代替变量，后面变量作为列名自解释
     1. [python - Use alias for column name in SQLAlchemy - Stack Overflow]
