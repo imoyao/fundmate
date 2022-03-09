@@ -31,7 +31,7 @@ def init_fund(is_init: bool = False):
         # 保存基本信息
         em.fund(save=True, format_='sql')
 
-    fund_lists = Fund.query.with_entities(Fund.fund_code).all()
+    fund_lists = Fund.query.with_entities(Fund.fund_code).filter(Fund.full_name.is_(None)).all()
     for fund in fund_lists:
         fund_code = fund[0]
         fd_full_name = djf.fund_full_name(fund_code)
