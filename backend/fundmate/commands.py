@@ -8,6 +8,7 @@ from subprocess import call
 import click
 
 from backend.fundmate.data.eastmoney.base import em
+from backend.fundmate.data.fund_info import init_fund
 from backend.fundmate.database import db
 
 CURRENT_PATH = Path(__file__).resolve().parent
@@ -59,7 +60,7 @@ def update_db(fund, mgr, company):
     if company:
         em.company(save=True)
     if fund:
-        em.fund(save=True, format_='sql')
+        init_fund(is_init=True)
     if mgr:
         em.mgr(save=True, format_='sql')
 
