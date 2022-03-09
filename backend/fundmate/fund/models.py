@@ -106,7 +106,7 @@ class Fund(PkModel, UpsertMixin):
         return funds
 
     @classmethod
-    def code_by_name(cls, name: str) -> str:
+    def code_by_name(cls, name: str) -> list:
         """根据基金名称获取基金编码"""
         funds = cls.query.filter(cls.name.ilike(name)).all()
         return funds
