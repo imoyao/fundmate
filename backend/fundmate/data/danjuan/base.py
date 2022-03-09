@@ -45,6 +45,23 @@ User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 '''  # noqa: F501
 
 
+class FundInfo:
+
+    def fund_full_name(self, fund_code: str) -> Optional[str]:
+        """
+        获取基金的全称：fd_full_name
+        :param fund_code:
+        :return:
+        """
+        url = f'https://danjuanapp.com/djapi/fund/{fund_code}'
+        hd = dt_utils.parse_headers(header_str)
+        resp = rget_json(url, headers=hd)
+        data = resp.get('data')
+        if data:
+            fd_full_name = data.get('fd_full_name')
+            return fd_full_name
+
+
 class DanJuanEvl:
     """
     估值信息
