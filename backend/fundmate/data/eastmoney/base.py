@@ -295,7 +295,7 @@ class EastMoney(BaseParse):
         if reg_mat:
             fund_info = reg_mat.groups()[0]
             ct = self.counts(fund_info)
-            logger.info(f'Get {ct} funds from remote……')
+            logger.info(f'Get {ct} funds from east money……')
             # 保存数据
             if save:
                 _ret = self.do_save_action(format_, fund_info)
