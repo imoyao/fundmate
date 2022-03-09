@@ -46,8 +46,8 @@ current_path = Path.cwd()
 如果可以确定，请配置`IS_FROM_PC`变量
 '''
 # 必要配置：模板文件名称和导出后文件名（注意格式必须是.csv）
-# TEMPLATE_FILE_NAME = 'alipay_record_20220130_1025_1.csv'
-TEMPLATE_FILE_NAME = 'alipay_record_20220119_173409.csv'
+TEMPLATE_FILE_NAME = 'alipay_record_20220130_1025_1.csv'
+# TEMPLATE_FILE_NAME = 'alipay_record_20220119_173409.csv'
 # TEMPLATE_FILE_NAME = 'alipay_record_20220128_161121.csv'
 # TEMPLATE_FILE_NAME = 'alipay_record_20220128_161241.csv'
 ALIPAY_RECORDS_TEMPLATE_FP = Path(current_path).joinpath(TEMPLATE_FILE_NAME)
@@ -531,6 +531,9 @@ class ALiPayTransfer:
                 op_type, from_name, target_name = self._deal_complex_prod(comment_str)
             else:
                 raise NotSupportError(f'暂时无法处理交易行为：{comment_str}')
+        # 卖出产品的名称不要带备注
+        if '#' in from_name:
+            from_name = from_name.split('#')[0]
         return op_type, from_name, target_name
 
     def change_to_user_friendly(self, comment: str):
@@ -604,7 +607,7 @@ class PCTransfer(ALiPayTransfer):
     """
     网页端导出账单使用该类
     TODO:
-    1. transfer_refund_comment 需要和comment拼接起来，可以写成[um:xxxx]？
+    - [x] transfer_refund_comment 需要和comment拼接起来，可以写成“#[um:xxxx]”
     2. trans_cost 用于记录组合卖出的手续费
     """
 
@@ -661,7 +664,7 @@ class PCTransfer(ALiPayTransfer):
         """
         # df['Value'] = df.apply(lambda row: my_test(row['a'], row['c']), axis=1)
         if transfer_refund_comment:
-            return f'{origin_comment}[um:{transfer_refund_comment}]'
+            return f'{origin_comment}#[um:{transfer_refund_comment}]'
         else:
             return origin_comment
 
