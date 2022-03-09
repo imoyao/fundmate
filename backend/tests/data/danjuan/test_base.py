@@ -7,7 +7,21 @@
 import portion
 import pytest
 
-from backend.fundmate.data.danjuan.base import FundFeeRatio
+from backend.fundmate.data.danjuan.base import FundFeeRatio, FundInfo
+
+
+class TestFFundInfo:
+
+    def setup_class(self):
+        """
+        类开始时，实例化类
+        :return:
+        """
+        self.test_dj_f = FundInfo()
+
+    @pytest.mark.parametrize('fund_code,expected', [('660010', '农银汇理策略精选混合型证券投资基金')])
+    def test_fund_full_name(self, fund_code, expected):
+        assert self.test_dj_f.fund_full_name(fund_code) == expected
 
 
 class TestFundFeeRatio:
