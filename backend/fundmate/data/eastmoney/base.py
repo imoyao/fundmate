@@ -4,8 +4,9 @@
 import json
 import re
 from pathlib import Path
-from typing import Union
+from typing import Dict, Optional, Union
 
+import pandas as pd
 import pyjson5
 import requests
 from requests import Response
@@ -20,6 +21,7 @@ from backend.fundmate.database import db
 from backend.fundmate.excepts import UnexpectedArgsError
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.fund.models import Fund, FundCompany, FundMgr, FundType, FundVariety, Mgr
+from backend.fundmate.libs import convert
 
 current_path = Path.cwd()  # TODO: 会保存到项目的根目录
 REQUEST_STR = '''Accept: */*
@@ -144,7 +146,7 @@ class EastMoney(BaseParse):
         """  # noqa: E501
         for mgr_item in fund_mgr_info:
             mgr_code, mgr_name, cmp_code, cmp_name, mgr_fd, mgr_fn, work_days, \
-                _best_rt, best_fd, _, _sum_scale, _ = mgr_item
+            _best_rt, best_fd, _, _sum_scale, _ = mgr_item
             mgr_fd_list = mgr_fd.split(',')
             mgr_fn_list = mgr_fn.split(',')
             mgr_fd_map = dict(zip(mgr_fd_list, mgr_fn_list))
@@ -280,6 +282,80 @@ class EastMoney(BaseParse):
                     query_info = {'code': code}
                     comp.insert_or_update(query_info, **comp_info)
             return comps
+
+    def set_first_row_to_columns(self, df):
+        arr = df.values
+        df = pd.DataFrame(arr[1:, 1:], index=arr[1:, 0], columns=arr[0, 1:])
+        df.index.name = arr[0, 0]
+        df.reset_index(inplace=True)
+        return df
+
+    def match_charge_mode(self, charge_mode_str: str) -> bool:
+        regex = re.compile(r'\d*\w+\（(.*)\）')
+        reg_mat = regex.match(charge_mode_str)
+        if reg_mat:
+            mode = reg_mat.groups()[0]
+            if mode:
+                return mode == '前端'
+        return True
+
+    def _fund_variety(self, fv_name: str) -> int:
+        """
+        根据名称查询指定的基金大类，如果没有则创建，否则返回id
+        :param fv_name:
+        :return:
+        """
+        _fv_id = FundVariety.id_by_name(name=fv_name)
+        if not _fv_id:
+            _fv_info = {'name': fv_name}
+            f_tp = FundVariety.create(**_fv_info)
+            _fv_id = f_tp.id
+        return _fv_id
+
+    def fund_base_info(self, fund_code: str) -> Optional[Dict]:
+        """
+        更新基金指定字段：
+        全称、名称、成立日期、申购收费方式
+        :param fund_code:
+        :return:
+        """
+        raw_columns = [
+            '基金全称', '基金代码', '发行日期', '资产规模', '基金管理人', '基金经理人', '管理费率', '销售服务费率', '业绩比较基准', '基金简称', '基金类型', '成立日期/规模',
+            '份额规模', '基金托管人', '成立来分红', '托管费率', '最高认购费率', '跟踪标的'
+        ]
+        repr_cols = [
+            'full_name', 'fund_code_with_end_style', 'issuing_date', 'assert_scale', 'company', 'mgr', 'mgr_fee_rate',
+            'sale_serve_rate', 'perf_comp_base', 'name', 'f_var_name', 'found_date_with_scale', 'share_scale',
+            'trustee', 'bound_times', 'trustee_rate', 'top_subscribe_rate', 'track_mark'
+        ]
+        rename_dict = dict(zip(raw_columns, repr_cols))
+        tb = pd.read_html(f'http://fundf10.eastmoney.com/jbgk_{fund_code}.html')
+        raw_info = tb[1]
+        if not raw_info.empty:
+            if raw_info.shape[1] == 4:
+                left_tb = raw_info[[0, 1]].T
+                right_tb = raw_info[[2, 3]].T
+                left_new_col_df = self.set_first_row_to_columns(left_tb)
+                right_new_col_df = self.set_first_row_to_columns(right_tb)
+                raw_result_df = left_new_col_df.join(right_new_col_df)
+                raw_result_df.rename(columns=rename_dict, inplace=True)
+                useful_df = raw_result_df[[
+                    'full_name', 'fund_code_with_end_style', 'name', 'perf_comp_base', 'found_date_with_scale',
+                    'f_var_name', 'company'
+                ]]
+                # 一列拆分为两列
+                useful_df[['create_time', 'start_scale']] = useful_df['found_date_with_scale'].str.split('/',
+                                                                                                         2,
+                                                                                                         expand=True)
+                useful_df['create_time'] = useful_df.create_time.apply(lambda x: str(convert.try_parse_date(x)))
+                useful_df['is_fe_charge_mode'] = useful_df.fund_code_with_end_style.apply(
+                    lambda x: self.match_charge_mode(x))
+                useful_df['f_var'] = useful_df.f_var_name.apply(lambda x: self._fund_variety(x))
+                useful_df['co_id'] = useful_df.company.apply(lambda company_name: FundCompany.id_by_name(company_name))
+                useful_df.drop(columns=['start_scale', 'found_date_with_scale', 'fund_code_with_end_style'],
+                               inplace=True)
+                fund_info = useful_df.to_dict(orient='records')
+                return fund_info[0]
 
     def fund(self, save: bool = False, format_: str = 'sql') -> Union[str, None]:
         """
