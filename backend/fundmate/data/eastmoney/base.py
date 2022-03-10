@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 from typing import Dict, Optional, Union
 
+import numpy as np
 import pandas as pd
 import pyjson5
 import requests
@@ -290,6 +291,11 @@ class EastMoney(BaseParse):
         df.reset_index(inplace=True)
         return df
 
+    def _nan_to_none(self, nan_str: Union[str, float]) -> Optional[str]:
+        if nan_str == 'nan' or nan_str is np.nan:
+            return None
+        return nan_str
+
     def match_charge_mode(self, charge_mode_str: str) -> bool:
         regex = re.compile(r'\d*\w+\（(.*)\）')
         reg_mat = regex.match(charge_mode_str)
@@ -299,18 +305,20 @@ class EastMoney(BaseParse):
                 return mode == '前端'
         return True
 
-    def _fund_variety(self, fv_name: str) -> int:
+    def _fund_variety(self, fv_name: Optional[str]) -> Optional[int]:
         """
         根据名称查询指定的基金大类，如果没有则创建，否则返回id
         :param fv_name:
         :return:
         """
-        _fv_id = FundVariety.id_by_name(name=fv_name)
-        if not _fv_id:
-            _fv_info = {'name': fv_name}
-            f_tp = FundVariety.create(**_fv_info)
-            _fv_id = f_tp.id
-        return _fv_id
+        fv_name = self._nan_to_none(fv_name)
+        if fv_name is not None:
+            _fv_id = FundVariety.id_by_name(name=fv_name)
+            if not _fv_id:
+                _fv_info = {'name': fv_name}
+                f_tp = FundVariety.create(**_fv_info)
+                _fv_id = f_tp.id
+            return _fv_id
 
     def fund_base_info(self, fund_code: str) -> Optional[Dict]:
         """
@@ -351,6 +359,8 @@ class EastMoney(BaseParse):
                 useful_df['is_fe_charge_mode'] = useful_df.fund_code_with_end_style.apply(
                     lambda x: self.match_charge_mode(x))
                 useful_df['f_var'] = useful_df.f_var_name.apply(lambda x: self._fund_variety(x))
+                # 替换 'nan'
+                useful_df.replace(dict(company={'nan': None}))
                 useful_df['co_id'] = useful_df.company.apply(lambda company_name: FundCompany.id_by_name(company_name))
                 useful_df.drop(columns=['start_scale', 'found_date_with_scale', 'fund_code_with_end_style'],
                                inplace=True)
