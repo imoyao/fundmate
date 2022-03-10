@@ -5,12 +5,19 @@
 一些数据转换的工具模块
 """
 import locale
+import warnings
 from distutils import util
 from typing import Optional, Union
 
 import dateparser
 
 from backend.fundmate import excepts
+
+# ref: https://github.com/scrapinghub/dateparser/issues/1013
+warnings.filterwarnings(
+    "ignore",
+    message="The localize method is no longer necessary, as this time zone supports the fold attribute",
+)
 
 
 def percent2float(x: str) -> float:
@@ -116,7 +123,7 @@ def with_thousands_separator(quota) -> Union[str, float]:
     >>> x = 100000000000
     >>> with_thousands_separator(x)
     '100,000,000,000.0'
-    
+
     :param quota:
     :return:
     """
