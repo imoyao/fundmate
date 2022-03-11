@@ -75,7 +75,7 @@ class Fund(PkModel, UpsertMixin):
     f_type = Column('fund_type_id', db.Integer, db.ForeignKey('fund_type.id'), comment='基金小类编号')
     f_var = Column('fund_variety_id', db.Integer, db.ForeignKey('fund_variety.id'), comment='基金大类编号')
     co_id = Column(db.Integer, db.ForeignKey('fund_company.id'), comment='所属基金公司编号')
-    create_time = Column(db.DateTime, comment='基金创建时间')
+    create_time = Column(db.Date, comment='基金创建时间')
     symbol_prefix = Column(db.Enum(settings.SymbolTypeEnum),
                            nullable=True,
                            default=settings.SymbolTypeEnum.default().dk_value,
@@ -108,9 +108,16 @@ class Fund(PkModel, UpsertMixin):
         return funds
 
     @classmethod
-    def code_by_name(cls, name: str) -> list:
+    def code_by_name(cls, name: str) -> str:
         """根据基金名称获取基金编码"""
-        funds = cls.query.filter(cls.name.ilike(name)).all()
+        fund_inst = cls.query.filter(cls.name == name).first()
+        if fund_inst:
+            return fund_inst.fund_code
+
+    @classmethod
+    def search_name(cls, name: str) -> list:
+        """根据基金名称（可能是全称或者简称）获取基金编码"""
+        funds = cls.query.filter(or_(cls.name == name, cls.full_name.ilike(f'%{name}%'))).all()
         return funds
 
     @classmethod
