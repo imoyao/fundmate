@@ -366,19 +366,24 @@ class EastMoney(BaseParse):
             'trustee', 'bound_times', 'trustee_rate', 'top_subscribe_rate', 'track_mark'
         ]
         rename_dict = dict(zip(raw_columns, repr_cols))
-        tb = pd.read_html(f'http://fundf10.eastmoney.com/jbgk_{fund_code}.html')
+        # 避免卡死： ref: https://segmentfault.com/q/1010000021004098
+        url = f'http://fundf10.eastmoney.com/jbgk_{fund_code}.html'
+        html_text = requests.get(url, timeout=5).text
+        tb = pd.read_html(html_text)
         raw_info = tb[1]
         '''
-                0   	1	                             2	         3
-        0	基金全称	    工银瑞信物流产业股票型证券投资基金	    基金简称    	工银物流产业股票A
-        1	基金代码	    001718（前端）	    基金类型	股票型
-        2	发行日期    	2015年12月21日	    成立日期/规模	2016年03月01日 / 2.504亿份
-        3	资产规模    	55.31亿元（截止至：2021年12月31日）	份额规模	13.2686亿份（截止至：2021年12月31日）
-        4	基金管理人   	工银瑞信基金	    基金托管人	交通银行
-        5	基金经理人   	张宇帆	    成立来分红	每份累计0.00元（0次）
-        6	管理费率	    1.50%（每年）	    托管费率	0.25%（每年）
-        7	销售服务费率  	0.00%（每年）	    最高认购费率	1.20%（前端）
-        8	业绩比较基准  	沪深300运输指数收益率*80%+中债综合财富(总值)指数收益率*20%	跟踪标的	该基金无跟踪标的
+        将：
+                 0                                                  1        2                           3
+         0    基金全称                                  工银瑞信新兴制造混合型证券投资基金     基金简称                   工银新兴制造混合C
+         1    基金代码                                         009708（前端）     基金类型                      混合型-偏股
+         2    发行日期                                        2020年07月31日  成立日期/规模       2020年08月20日 / 3.547亿份
+         3    资产规模                           17.68亿元（截止至：2021年12月31日）     份额规模  10.5677亿份（截止至：2021年12月31日）
+         4   基金管理人                                             工银瑞信基金    基金托管人                        交通银行
+         5   基金经理人                                                张宇帆    成立来分红               每份累计0.00元（0次）
+         6    管理费率                                          1.50%（每年）     托管费率                   0.25%（每年）
+         7  销售服务费率                                          0.40%（每年）   最高认购费率                   0.00%（前端）
+         8  最高申购费率                                          0.00%（前端）   最高赎回费率                   1.50%（前端）
+         9  业绩比较基准  申银万国制造业指数收益率×65%+中证港股通综合指数收益率×5%+中债综合财富(总值)指数收...     跟踪标的                    该基金无跟踪标的
         '''
         if not raw_info.empty:
             if raw_info.shape[1] == 4:
@@ -387,6 +392,18 @@ class EastMoney(BaseParse):
                 left_new_col_df = self.set_first_row_to_columns(left_tb)
                 right_new_col_df = self.set_first_row_to_columns(right_tb)
                 raw_result_df = left_new_col_df.join(right_new_col_df)
+                '''
+                转换为df：
+                ```
+                基金全称        基金代码         发行日期                      资产规模   基金管理人 基金经理人       管理费率  ...              
+                  成立日期/规模                        份额规模 基金托管人          成立来分红       托管费率     最高认购费率      跟踪标的 
+                  0  
+                  工银瑞信物流产业股票型证券投资基金  001718（前端）  2015年12月21日  55.31亿元（截止至：2021年12月31日）  工银瑞信基金   张宇帆  1.50%（每年）  ...  
+                  2016年03月01日 / 2.504亿份  13.2686亿份（截止至：2021年12月31日）  交通银行  每份累计0.00元（0次）  0.25%（每年）  1.20%（前端）  
+                  该基金无跟踪标的 
+                ```
+
+                '''
                 raw_result_df.rename(columns=rename_dict, inplace=True)
                 useful_df = raw_result_df[[
                     'full_name', 'fund_code_with_end_style', 'name', 'perf_comp_base', 'found_date_with_scale',
