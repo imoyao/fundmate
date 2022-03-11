@@ -84,7 +84,6 @@ MB_RENAME_LIST = [
 # TODO: 调整列的顺序
 MB_OUTPUT_COLUMNS = {
     'op_type_read': '交易类型',
-    'op_type_desc': '交易类型描述',
     'from_prod': '卖出产品',
     'to_prod': '买入产品',
     'amount': '交易金额',
@@ -129,7 +128,6 @@ PC_RENAME_LIST = [
 PC_DROP_COLUMNS = ['trans_modify_time', 'trans_pay_time', 'trans_dist', 'trans_type', 'bus_code']
 PC_OUTPUT_COLUMNS = {
     'op_type_read': '交易类型',
-    'op_type_desc': '交易类型描述',
     'from_prod': '卖出产品',
     'to_prod': '买入产品',
     'amount': '交易金额',
@@ -544,17 +542,14 @@ class ALiPayTransfer:
         """
         op_type = self.analysis_operate(comment)[0]
         if op_type:
-            op_desc = op_type.label
+            op_input = op_type.label
             op_name = op_type.name
-            op_input = op_desc
             return {
                 'name': op_name,
-                'desc': op_desc,
-                'input': op_input,  # TODO: op_desc没有必要存在了
+                'input': op_input,
             }
         return {
             'name': None,
-            'desc': None,
             'input': None,
         }
 
@@ -572,7 +567,6 @@ class ALiPayTransfer:
 
         invest_df_cp['op_type'] = invest_df_cp.comment.map(lambda x: self.change_to_user_friendly(x).get('name'))
         invest_df_cp['op_type_read'] = invest_df_cp.comment.map(lambda x: self.change_to_user_friendly(x).get('input'))
-        invest_df_cp['op_type_desc'] = invest_df_cp.comment.map(lambda x: self.change_to_user_friendly(x).get('desc'))
 
         invest_df_cp['from_prod'] = invest_df_cp.comment.map(lambda x: self.analysis_operate(x)[1])
         invest_df_cp['to_prod'] = invest_df_cp.comment.map(lambda x: self.analysis_operate(x)[2])
