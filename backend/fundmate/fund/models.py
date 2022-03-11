@@ -87,7 +87,7 @@ class Fund(PkModel, UpsertMixin):
                         comment=f'风险等级：{settings.RiskTypeEnum.comment()}')
 
     is_fe_charge_mode = Column(db.Boolean, comment='收费方式（前端/后端）')
-    perf_comp_base = Column(db.String(120), comment='业绩比较基准')
+    perf_comp_base = Column(db.String(200), comment='业绩比较基准')
     last_modified = Column(db.TIMESTAMP,
                            nullable=False,
                            server_default=db.text('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'),

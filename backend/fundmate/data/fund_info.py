@@ -15,6 +15,7 @@ from backend.fundmate.data.danjuan.base import FundInfo
 from backend.fundmate.data.eastmoney.base import EastMoney
 from backend.fundmate.data.ten_jqka.base import FundInfo as AiFundInfo
 from backend.fundmate.database import db
+from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.fund.models import Fund
 
 em = EastMoney()
@@ -52,10 +53,11 @@ def init_fund(is_init: bool = False):
         # 保存基本信息
         em.fund(save=True, format_='sql')
 
-    # fund_lists = Fund.query.with_entities(Fund.fund_code).filter(Fund.full_name.is_(None)).all()
-    fund_lists = Fund.query.with_entities(Fund.fund_code).all()
+    fund_lists = Fund.query.with_entities(Fund.fund_code).filter(Fund.full_name.is_(None)).all()
+    # fund_lists = Fund.query.with_entities(Fund.fund_code).all()
     for fund in fund_lists:
         fund_code = fund[0]
         update_fund_info(fund_code)
+        logger.success(f'基金 {fund_code} 信息更新成功……')
 
     return 0

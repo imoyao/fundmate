@@ -14,7 +14,7 @@ from requests import Response
 from sqlalchemy.orm.exc import FlushError
 from xalpha.cons import rget
 
-from backend.fundmate import utils
+from backend.fundmate import excepts, utils
 from backend.fundmate.data.dkhs import jcb
 from backend.fundmate.data.utils import base as dt_utils
 from backend.fundmate.data.utils.base import data_parser
@@ -344,6 +344,18 @@ class EastMoney(BaseParse):
         :param fund_code:
         :return:
         """
+
+        def _parse_date(date_str):
+            """
+            存在被解析字符串为None的情况
+            :param date_str:
+            :return:
+            """
+            try:
+                return str(convert.try_parse_date(date_str))
+            except excepts.ParseError:
+                return None
+
         raw_columns = [
             '基金全称', '基金代码', '发行日期', '资产规模', '基金管理人', '基金经理人', '管理费率', '销售服务费率', '业绩比较基准', '基金简称', '基金类型', '成立日期/规模',
             '份额规模', '基金托管人', '成立来分红', '托管费率', '最高认购费率', '跟踪标的'
@@ -356,6 +368,18 @@ class EastMoney(BaseParse):
         rename_dict = dict(zip(raw_columns, repr_cols))
         tb = pd.read_html(f'http://fundf10.eastmoney.com/jbgk_{fund_code}.html')
         raw_info = tb[1]
+        '''
+                0   	1	                             2	         3
+        0	基金全称	    工银瑞信物流产业股票型证券投资基金	    基金简称    	工银物流产业股票A
+        1	基金代码	    001718（前端）	    基金类型	股票型
+        2	发行日期    	2015年12月21日	    成立日期/规模	2016年03月01日 / 2.504亿份
+        3	资产规模    	55.31亿元（截止至：2021年12月31日）	份额规模	13.2686亿份（截止至：2021年12月31日）
+        4	基金管理人   	工银瑞信基金	    基金托管人	交通银行
+        5	基金经理人   	张宇帆	    成立来分红	每份累计0.00元（0次）
+        6	管理费率	    1.50%（每年）	    托管费率	0.25%（每年）
+        7	销售服务费率  	0.00%（每年）	    最高认购费率	1.20%（前端）
+        8	业绩比较基准  	沪深300运输指数收益率*80%+中债综合财富(总值)指数收益率*20%	跟踪标的	该基金无跟踪标的
+        '''
         if not raw_info.empty:
             if raw_info.shape[1] == 4:
                 left_tb = raw_info[[0, 1]].T
@@ -379,7 +403,7 @@ class EastMoney(BaseParse):
                                                              axis=1,
                                                              result_type='expand')
 
-                useful_df['create_time'] = useful_df.create_time.apply(lambda x: str(convert.try_parse_date(x)))
+                useful_df['create_time'] = useful_df.create_time.apply(lambda x: _parse_date(x))
                 useful_df['is_fe_charge_mode'] = useful_df.fund_code_with_end_style.apply(
                     lambda x: self.match_charge_mode(x))
                 useful_df['f_var'] = useful_df.f_var_name.apply(lambda x: self._fund_variety_id(x))
