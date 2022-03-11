@@ -7,6 +7,8 @@
 @email: immoyao@gmail.com
 @desc:基金信息更新
 """
+from typing import Dict
+
 from sqlalchemy import func
 
 from backend.fundmate.data.danjuan.base import FundInfo
@@ -20,7 +22,7 @@ djf = FundInfo()
 ai_fund = AiFundInfo()
 
 
-def update_fund_info(fund_code: str) -> int:
+def update_fund_info(fund_code: str) -> Dict:
     """
     更新指定基金的信息
     目前只更新full_name字段
@@ -34,7 +36,7 @@ def update_fund_info(fund_code: str) -> int:
 
     fund_inst = Fund.filter_by_code(fund_code)
     fund_inst.update(**fund_info)
-    return 0
+    return fund_info
 
 
 def init_fund(is_init: bool = False):
