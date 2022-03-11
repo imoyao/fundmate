@@ -12,7 +12,7 @@ import pyjson5
 import requests
 from requests import Response
 from sqlalchemy.orm.exc import FlushError
-from xalpha.cons import rget
+from xalpha.cons import rget, rget_json
 
 from backend.fundmate import excepts, utils
 from backend.fundmate.data.dkhs import jcb
@@ -81,6 +81,35 @@ class EastMoney(BaseParse):
             pages_data.extend(per_page_data)
 
         return pages_data
+
+    def search_fund_by_name(self, fund_name: str) -> Optional[str]:
+        """
+        借助天天基金网搜索接口获取基金编码
+        >>> em = EastMoney()
+        >>> f = '兴全合润'
+        >>> em.search_fund_by_name(f)
+        '163406'
+        >>> a = '南方品质优选灵活配置混合'
+        >>> em.search_fund_by_name(a)
+        '002851'
+
+        :param fund_name:
+        :return:
+        """
+        url = f'https://fundsuggest.eastmoney.com/FundSearch/api/FundSearchAPI.ashx?m=1&key={fund_name}'
+        resp = rget_json(url)
+        data = resp.get('Datas')
+        if len(data) == 1:
+            fund_info = data[0]
+            fund_code = fund_info.get('CODE')
+            return fund_code
+        elif len(data) == 2:
+            for fund_info in data:
+                # TODO: 或许可以将之保存到数据库
+                other_names = fund_info.get('FundBaseInfo').get('OTHERNAME').split(',')
+                if fund_name in other_names:
+                    fund_code = fund_info.get('CODE')
+                    return fund_code
 
     @staticmethod
     def remove_specific_str(raw_str: str, replace_str: str) -> Union[float, None]:
