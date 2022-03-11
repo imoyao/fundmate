@@ -174,6 +174,7 @@ class EastMoney(BaseParse):
                 mgr_id = mgr_ins.id
             else:
                 logger.error(f'Cannot find fund manager of code:<{mgr_code}>.')
+                continue
             fund_objs_of_mgr = Mgr.get_by_id(mgr_id).funds
             # 在管基金
             fund_lists_of_mgr = [f.fund_code for f in fund_objs_of_mgr]
@@ -296,8 +297,9 @@ class EastMoney(BaseParse):
             return None
         return nan_str
 
-    def match_charge_mode(self, charge_mode_str: str) -> bool:
-        regex = re.compile(r'\d*\w+\（(.*)\）')
+    @staticmethod
+    def match_charge_mode(charge_mode_str: str) -> bool:
+        regex = re.compile(r'\d*\w+（(.*)）')
         reg_mat = regex.match(charge_mode_str)
         if reg_mat:
             mode = reg_mat.groups()[0]
@@ -305,7 +307,7 @@ class EastMoney(BaseParse):
                 return mode == '前端'
         return True
 
-    def _fund_variety(self, fv_name: Optional[str]) -> Optional[int]:
+    def _fund_variety_id(self, fv_name: Optional[str]) -> Optional[int]:
         """
         根据名称查询指定的基金大类，如果没有则创建，否则返回id
         :param fv_name:
@@ -320,6 +322,21 @@ class EastMoney(BaseParse):
                 _fv_id = f_tp.id
             return _fv_id
 
+    def _fund_type_id(self, ft_name: Optional[str]) -> Optional[int]:
+        """
+        根据名称查询指定的基金大类，如果没有则创建，否则返回id
+        :param ft_name:
+        :return:
+        """
+        not_nan_ft_name = self._nan_to_none(ft_name)
+        if not_nan_ft_name is not None:
+            _ft_id = FundType.id_by_name(name=not_nan_ft_name)
+            if not _ft_id:
+                _ft_info = {'name': not_nan_ft_name}
+                f_tp = FundType.create(**_ft_info)
+                _ft_id = f_tp.id
+            return _ft_id
+
     def fund_base_info(self, fund_code: str) -> Optional[Dict]:
         """
         更新基金指定字段：
@@ -333,7 +350,7 @@ class EastMoney(BaseParse):
         ]
         repr_cols = [
             'full_name', 'fund_code_with_end_style', 'issuing_date', 'assert_scale', 'company', 'mgr', 'mgr_fee_rate',
-            'sale_serve_rate', 'perf_comp_base', 'name', 'f_var_name', 'found_date_with_scale', 'share_scale',
+            'sale_serve_rate', 'perf_comp_base', 'name', 'f_var_type_name', 'found_date_with_scale', 'share_scale',
             'trustee', 'bound_times', 'trustee_rate', 'top_subscribe_rate', 'track_mark'
         ]
         rename_dict = dict(zip(raw_columns, repr_cols))
@@ -349,21 +366,28 @@ class EastMoney(BaseParse):
                 raw_result_df.rename(columns=rename_dict, inplace=True)
                 useful_df = raw_result_df[[
                     'full_name', 'fund_code_with_end_style', 'name', 'perf_comp_base', 'found_date_with_scale',
-                    'f_var_name', 'company'
+                    'f_var_type_name', 'company'
                 ]]
+                # 替换np.nan
+                useful_df.replace({np.nan: None}, inplace=True)
                 # 一列拆分为两列
                 useful_df[['create_time', 'start_scale']] = useful_df['found_date_with_scale'].str.split('/',
                                                                                                          2,
                                                                                                          expand=True)
+                useful_df[['f_var_name',
+                           'f_type_name']] = useful_df.apply(lambda row: self._split_fvt(row['f_var_type_name']),
+                                                             axis=1,
+                                                             result_type='expand')
+
                 useful_df['create_time'] = useful_df.create_time.apply(lambda x: str(convert.try_parse_date(x)))
                 useful_df['is_fe_charge_mode'] = useful_df.fund_code_with_end_style.apply(
                     lambda x: self.match_charge_mode(x))
-                useful_df['f_var'] = useful_df.f_var_name.apply(lambda x: self._fund_variety(x))
-                # 替换 'nan'
-                useful_df.replace(dict(company={'nan': None}))
+                useful_df['f_var'] = useful_df.f_var_name.apply(lambda x: self._fund_variety_id(x))
+                useful_df['f_type'] = useful_df.f_type_name.apply(lambda x: self._fund_type_id(x))
                 useful_df['co_id'] = useful_df.company.apply(lambda company_name: FundCompany.id_by_name(company_name))
-                useful_df.drop(columns=['start_scale', 'found_date_with_scale', 'fund_code_with_end_style'],
-                               inplace=True)
+                useful_df.drop(
+                    columns=['start_scale', 'found_date_with_scale', 'fund_code_with_end_style', 'f_var_type_name'],
+                    inplace=True)
                 fund_info = useful_df.to_dict(orient='records')
                 return fund_info[0]
 
@@ -447,17 +471,27 @@ class EastMoney(BaseParse):
         return _count
 
     @staticmethod
-    def _split_fvt(f_vt_str: str) -> tuple:
+    def _split_fvt(f_vt_str: Optional[str]) -> tuple:
         """
+        >>> em = EastMoney()
         >>> avt = '债券型-混合债'
-        >>> avt.split('-')
-        ['债券型', '混合债']
+        >>> em._split_fvt(avt)
+        ('债券型', '混合债')
+        >>> b = '股票型'
+        >>> em._split_fvt(b)
+        ('股票型', None)
+        >>> c = None
+        >>> em._split_fvt(c)
+        (None, None)
         """
         _ft = None
-        if '-' in f_vt_str:
-            _fv, _ft = f_vt_str.split('-')
+        if f_vt_str is not None:
+            if '-' in f_vt_str:
+                _fv, _ft = f_vt_str.split('-')
+            else:
+                _fv = f_vt_str
         else:
-            _fv = f_vt_str
+            _fv = None
         return _fv, _ft
 
     def save_fund_to_db(self, _funds: str) -> int:  # noqa: C901
@@ -487,10 +521,7 @@ class EastMoney(BaseParse):
                 if fv in cache_fv_map:
                     _fv_id = cache_fv_map.get(fv)
                 else:
-                    _fv_id = FundVariety.id_by_name(name=fv)
-                    if not _fv_id:
-                        f_tp = FundVariety.create(**_fv_info)
-                        _fv_id = f_tp.id
+                    _fv_id = self._fund_variety_id(fv)
                     cache_fv_map[fv] = _fv_id
 
                 # 基金小类处理
@@ -500,12 +531,7 @@ class EastMoney(BaseParse):
                     if ft in type_map:
                         _ft_id = type_map.get(ft)
                     else:
-                        _ft_id = FundType.id_by_name(ft)
-                        # 父类关联写入
-                        _ft_info['var_id'] = _fv_id
-                        if not _ft_id:
-                            f_tp = FundType.create(**_ft_info)
-                            _ft_id = f_tp.id
+                        _ft_id = self._fund_type_id(ft)
                         type_map[ft] = _ft_id
                 try:
                     symbol = jcb.search_symbol(code)
