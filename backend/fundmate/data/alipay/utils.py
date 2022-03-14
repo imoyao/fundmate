@@ -8,13 +8,14 @@
 @desc: 返回产品名称、产品编码、产品类型对应关系
 """
 from pathlib import Path
-from typing import Dict, Optional, Union
+from typing import Dict, List, Optional, Set, Union
 
 import pandas as pd
 
 from backend.fundmate import settings
 from backend.fundmate.data.eastmoney.base import EastMoney
 from backend.fundmate.fund.models import Fund
+from backend.fundmate.types import PdDataFrame
 
 em = EastMoney()
 current_path = Path.cwd()
@@ -49,10 +50,14 @@ def try_match_fund(prod_name: str) -> Optional[Dict]:
         return prod_item
 
 
-def dump_map(result_fp: Union[str, Path] = RESULT_FP, output_fp: Union[str, Path] = OUTPUT_FP):
-    prod_set = unique_prods(result_fp)
-    all_items = []
+def match_code_and_category(prod_set: Set) -> List:
+    """
     # FIXME: 多线程加速
+    :param prod_set:
+    :return:
+    """
+    _item = dict()
+    all_items = []
     for prod_name in prod_set:
         _item = try_match_fund(prod_name)
         if not _item:
@@ -60,10 +65,17 @@ def dump_map(result_fp: Union[str, Path] = RESULT_FP, output_fp: Union[str, Path
             _item = {'prod': prod_name, 'code': None, 'category': None}
 
         all_items.append(_item)
+
+    return all_items
+
+
+def dump_map(result_fp: Union[str, Path] = RESULT_FP, output_fp: Union[str, Path] = OUTPUT_FP):
+    prod_set = unique_prods(result_fp)
+    all_items = match_code_and_category(prod_set)
     pcc_df = pd.DataFrame(all_items)
     pcc_df.to_csv(output_fp, index=False)
     return all_items
 
 
 if __name__ == '__main__':
-    dump_map(RESULT_FP)
+    dump_map(RESULT_FP, OUTPUT_FP)

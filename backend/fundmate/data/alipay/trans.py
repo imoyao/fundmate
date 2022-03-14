@@ -376,10 +376,10 @@ class ALiPayTransfer:
             from_name = YEB_NAME
             op_type = FundOpTypeEnum.draw_out
             target_name = REAL_CASH
-        elif from2target == ANT_FORTUNE_TRANSFER_YEB_STR:
-            from_name = YEB_NAME_OLD
+        elif from2target == ANT_FORTUNE_TRANSFER_YEB_STR:  # 不区分两者的差异
+            from_name = YEB_NAME
             op_type = FundOpTypeEnum.transfer
-            target_name = YEB_NAME_NEW
+            target_name = YEB_NAME
         elif split_head in [ANT_FORTUNE_YLB_TO_YEB_YE, ANT_FORTUNE_WS_INTEREST_TO_YEB]:
             from_name = REAL_CASH
             op_type = FundOpTypeEnum.purchase
