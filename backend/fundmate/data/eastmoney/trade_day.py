@@ -49,16 +49,20 @@ class TradeDay(BaseParse):
                        is_buy: bool = True,
                        is_after_15o_clock=False) -> Optional[Dict]:
         """
+        >>> td = TradeDay()
         >>> td.get_trade_info('163406', '2021-12-31')
-        >>> {'application_date': '2021-12-31', 'is_same_day': True, 'maturity': '2022-01-04', 'deadline': '2022-01-04'}
+         {'application_date': '2021-12-31', 'is_same_day': True, 'maturity': '2022-01-04', 'deadline': '2022-01-04'}
+
         ---
         申请日：2021-12-31
 
         申请所属交易日：2021-12-31（与申请日在同一交易日）
 
         确认日：2022-01-04
+
         >>> td.get_trade_info('163406', '2022-01-01')
-        >>> {'application_date': '2022-01-04', 'is_same_day': False, 'maturity': '2022-01-05', 'deadline': '2022-01-05'}
+        {'application_date': '2022-01-04', 'is_same_day': False, 'maturity': '2022-01-05', 'deadline': '2022-01-05'}
+
         ---
         申请日：2022-01-01
 

@@ -277,7 +277,10 @@ class RedeemInfoSchema(Schema):
     rule_fee_amount = Integer()
 
 
-class PurchaseInfoSchema(Schema):
+class PurchaseInfoOutSchema(Schema):
+    """
+    界面显示时序列化使用
+    """
     start_quota = Function(lambda obj: with_thousands_separator(obj.get('start_quota')))
     end_quota = Function(lambda obj: with_thousands_separator(obj.get('end_quota')))
     rate = Function(lambda obj: to_percent(obj.get('rate')), metadata={'title': '费率', 'description': '实际运算时的费率'})
@@ -285,9 +288,17 @@ class PurchaseInfoSchema(Schema):
     rule_fee_amount = Integer()
 
 
+class PurchaseInfoSchema(PurchaseInfoOutSchema):
+    """
+    实际计算时使用的
+    """
+    start_quota = Function(lambda obj: none_to_inf(obj.get('start_quota')))
+    end_quota = Function(lambda obj: none_to_inf(obj.get('end_quota')))
+
+
 class FundRatioOutSchema(Schema):
     fund_code = String()
-    purchase_info = List(Nested(PurchaseInfoSchema))
+    purchase_info = List(Nested(PurchaseInfoOutSchema))
     redeem_info = List(Nested(RedeemInfoSchema))
 
 
