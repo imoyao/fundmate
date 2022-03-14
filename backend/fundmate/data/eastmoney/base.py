@@ -92,24 +92,38 @@ class EastMoney(BaseParse):
         >>> a = '南方品质优选灵活配置混合'
         >>> em.search_fund_by_name(a)
         '002851'
+        >>> b = '华安策略优选混合'
+        >>> em.search_fund_by_name(b)
+        '040008'
 
         :param fund_name:
         :return:
         """
+        SHORT_JYSLD = '交银施罗德'
+        SHORT_JY = '交银'
+        SHORT_GYRX = '工银瑞信'
+        SHORT_GY = '工银'
+        if fund_name.startswith(SHORT_JYSLD):
+            fund_name = fund_name.replace(SHORT_JYSLD, SHORT_JY)
+        elif fund_name.startswith(SHORT_GYRX):
+            fund_name = fund_name.replace(SHORT_GYRX, SHORT_GY)
+
         url = f'https://fundsuggest.eastmoney.com/FundSearch/api/FundSearchAPI.ashx?m=1&key={fund_name}'
         resp = rget_json(url)
         data = resp.get('Datas')
-        if len(data) == 1:
-            fund_info = data[0]
-            fund_code = fund_info.get('CODE')
-            return fund_code
-        elif len(data) == 2:
-            for fund_info in data:
-                # TODO: 或许可以将之保存到数据库
-                other_names = fund_info.get('FundBaseInfo').get('OTHERNAME').split(',')
-                if fund_name in other_names:
-                    fund_code = fund_info.get('CODE')
-                    return fund_code
+        is_query_success = len(data)
+        if is_query_success:
+            if len(data) == 1:
+                fund_info = data[0]
+                fund_code = fund_info.get('CODE')
+                return fund_code
+            else:
+                for fund_info in data:
+                    # TODO: 或许可以将之保存到数据库
+                    other_names = fund_info.get('FundBaseInfo').get('OTHERNAME').split(',')
+                    if fund_name in other_names:
+                        fund_code = fund_info.get('CODE')
+                        return fund_code
 
     @staticmethod
     def remove_specific_str(raw_str: str, replace_str: str) -> Union[float, None]:

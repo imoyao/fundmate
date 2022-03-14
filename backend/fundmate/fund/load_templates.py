@@ -13,10 +13,10 @@ from typing import Optional, Union
 
 import pandas as pd
 
-from backend.fundmate import errors, excepts, settings, utils
+from backend.fundmate import errors, excepts, utils
 from backend.fundmate.account.deal_trades import ImportColumns, ImportTradeEnum
-from backend.fundmate.account.models import Account, AccountTransactionRecord
-from backend.fundmate.account.schemas import AccountOutSchema, CreateAccountSchema
+from backend.fundmate.account.models import AccountTransactionRecord
+from backend.fundmate.data.alipay.utils import match_code_and_category
 from backend.fundmate.data.eastmoney.trade_day import TradeDay
 from backend.fundmate.fund.models import Fund, InvestProduct
 from backend.fundmate.libs import convert
@@ -190,7 +190,7 @@ def fund_code(df):
     """
     all_prod = df.redeem_prod.unique().to_list() + df.purchase_prod.unique().to_list()
     prod_set = set(all_prod)
-    all_items = foo(prod_set)
+    all_items = match_code_and_category(prod_set)
     prod_set_df = pd.DataFrame(all_items)
     # 增加两列
     # 按照操作的产品名称进行merge
@@ -226,7 +226,6 @@ def main(
 
         # FIXME:需要对赎回和申购的产品都进行拼接（set）
         filter_subset = [ImportTradeEnum.redeem_prod.dk_value, ImportTradeEnum.trade_category.dk_value]
-        print(filter_subset, '--------')
         """
         如果产品编码和类型存在重复，则去重
         """
@@ -287,9 +286,7 @@ def dumps_template():
 
 
 if __name__ == '__main__':
-    # fp = current_path.parent
-    # rfp = fp.joinpath(r'data/alipay/起始时间[20121201-000000]-终止时间[20220130-102530]-PC端支付宝交易单导出.csv')
-    # df = main(rfp)
-    # print(df)
-    bar = foo()
-    print(bar)
+    fp = current_path.parent
+    rfp = fp.joinpath(r'data/alipay/起始时间[20121201-000000]-终止时间[20220130-102530]-PC端支付宝交易单导出.csv')
+    df = main(rfp)
+    print(df)

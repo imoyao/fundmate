@@ -136,13 +136,14 @@ class FundOpTypeEnum(BaseTypeEnum):
         """
         return [item.dk_display for item in cls]
 
-    def columns_map(self) -> dict:
+    @classmethod
+    def columns_map(cls) -> dict:
         """
         返回英文和中文的映射字典
         :return:
         """
-        input_li = self.input()
-        display_li = self.display()
+        input_li = cls.input()
+        display_li = cls.display()
         return dict(zip(input_li, display_li))
 
 
