@@ -7,10 +7,15 @@ from apiflask import APIFlask
 from flask_praetorian import exceptions as praetorian_excepts
 
 from backend.fundmate import account, commands, errors, fund, public, settings, user
+from backend.fundmate.account import views as account_views
 from backend.fundmate.config import config
 from backend.fundmate.extensions import db, guard, loguru, mail, migrate
 from backend.fundmate.exts.flask_loguru import logger
+from backend.fundmate.fund import views as fund_views
+from backend.fundmate.public import views as public_views
 from backend.fundmate.settings import env
+from backend.fundmate.user import models as user_models
+from backend.fundmate.user import views as user_views
 
 
 def create_app(config_object: str = "backend.fundmate.settings"):
@@ -42,7 +47,7 @@ def register_extensions(app: APIFlask):
     """Register Flask extensions."""
     db.init_app(app)
     # **注意** 此处必须传入User 的定义 see also: https://github.com/dusktreader/flask-praetorian/issues/224
-    guard.init_app(app, user.models.User)
+    guard.init_app(app, user_models.User)
     mail.init_app(app)
     '''
     - 增加字段长度和类型检测 
@@ -65,12 +70,12 @@ def register_extensions(app: APIFlask):
 
 def register_blueprints(app: APIFlask):
     """Register Flask blueprints."""
-    app.register_blueprint(public.views.bp)
+    app.register_blueprint(public_views.bp)
     # 用户相关
-    app.register_blueprint(user.views.bp)
-    app.register_blueprint(fund.views.bp)
+    app.register_blueprint(user_views.bp)
+    app.register_blueprint(fund_views.bp)
     # 账号相关
-    app.register_blueprint(account.views.bp)
+    app.register_blueprint(account_views.bp)
     return None
 
 
