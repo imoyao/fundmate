@@ -44,6 +44,27 @@ class Strategy:
                 last_trade_date_fmt = data.get('last_trade_date_fmt')
                 return last_trade_date_fmt
 
+    def indicator(self, code: str) -> Optional[Dict]:
+        """
+        指标分析
+        :return:
+        """
+        _url = 'https://danjuanapp.com/djapi/plan/nav/indicator'
+        params = {'plan_code': code}
+        _resp = rget_json(_url, params=params)
+        if self.is_success(_resp):
+            data = _resp.get('data')
+
+            max_drawdown = data.get('max_drawdown')
+            sharpe = data.get('sharpe')
+            volatility = data.get('volatility')
+
+            return {
+                'max_drawdown': max_drawdown / 100,
+                'sharpe': sharpe,
+                'volatility': volatility / 100,
+            }
+
     def detail(self, code: str) -> Optional[Dict]:
         """
         获取单个组合的信息
@@ -76,19 +97,22 @@ class Strategy:
                     'name': manager_name,
                     'mgr_avatar_url': manager_profile_photo,
                 }
-                return {
+                indicator_info = self.indicator(code)
+                info = {
                     'code': plan_code,
                     'name': plan_name,
                     'risk_type': plan_type,
                     'found_date': found_date,
-                    'annualized_rate_of_return': annualized_rate_of_return,
-                    'invest_rate_of_return': invest_rate_of_return,
+                    'annualized_rate_of_return': float(annualized_rate_of_return) / 100,
+                    'invest_rate_of_return': float(invest_rate_of_return) / 100,
                     'desc': plan_desc,
                     'mgr_info': mgr_info,
+                    'indicator': indicator_info,
                     # 'invest_money_type': invest_money_type,
                     # 'invest_time_type': invest_time_type,
                     'last_adjust_date': last_trade_date_fmt,
                 }
+                return info
         return None
 
     def total_times(self, plan_code: str) -> Optional[int]:
@@ -228,3 +252,5 @@ if __name__ == '__main__':
     print(net_val)
     detail = s.detail(code)
     print(detail)
+    indicator = s.indicator(code)
+    print(indicator)
