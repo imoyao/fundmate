@@ -6,11 +6,18 @@ import sys
 from apiflask import APIFlask
 from flask_praetorian import exceptions as praetorian_excepts
 
-from backend.fundmate import account, commands, errors, fund, public, settings, user
+from backend.fundmate import commands, errors, settings
+from backend.fundmate.account import models as account_models
+from backend.fundmate.account import views as account_views
 from backend.fundmate.config import config
 from backend.fundmate.extensions import db, guard, loguru, mail, migrate
 from backend.fundmate.exts.flask_loguru import logger
+from backend.fundmate.fund import models as fund_models
+from backend.fundmate.fund import views as fund_views
+from backend.fundmate.public import views as public_views
 from backend.fundmate.settings import env
+from backend.fundmate.user import models as user_models
+from backend.fundmate.user import views as user_views
 
 
 def create_app(config_object: str = "backend.fundmate.settings"):
@@ -42,7 +49,7 @@ def register_extensions(app: APIFlask):
     """Register Flask extensions."""
     db.init_app(app)
     # **注意** 此处必须传入User 的定义 see also: https://github.com/dusktreader/flask-praetorian/issues/224
-    guard.init_app(app, user.models.User)
+    guard.init_app(app, user_models.User)
     mail.init_app(app)
     '''
     - 增加字段长度和类型检测 
@@ -65,12 +72,12 @@ def register_extensions(app: APIFlask):
 
 def register_blueprints(app: APIFlask):
     """Register Flask blueprints."""
-    app.register_blueprint(public.views.bp)
+    app.register_blueprint(public_views.bp)
     # 用户相关
-    app.register_blueprint(user.views.bp)
-    app.register_blueprint(fund.views.bp)
+    app.register_blueprint(user_views.bp)
+    app.register_blueprint(fund_views.bp)
     # 账号相关
-    app.register_blueprint(account.views.bp)
+    app.register_blueprint(account_views.bp)
     return None
 
 
@@ -137,20 +144,21 @@ def register_shell_context(app: APIFlask):
         """Shell context objects."""
         return {
             "db": db,
-            "User": user.models.User,
-            "Role": user.models.Role,
-            'Fund': fund.models.Fund,
-            'FundMgr': fund.models.Mgr,
-            'MidFundMgr': fund.models.FundMgr,
-            'FeeRatio': fund.models.FeeRatio,
-            'InRule': fund.models.InRule,
-            'OutRule': fund.models.OutRule,
-            'FundPortfolio': fund.models.FundPortfolio,
-            'FundPortfolioMgr': fund.models.FundPortfolioMgr,
-            'FundPortfolioAdjustHistory': fund.models.FundPortfolioAdjustHistory,
-            'FundPortfolioHoldDetail': fund.models.FundPortfolioHoldDetail,
-            'FundSaleOrg': fund.models.FundSaleOrg,
-            'Account': account.models.Account,
+            "User": user_models.User,
+            "Role": user_models.Role,
+            'Fund': fund_models.Fund,
+            'FundMgr': fund_models.Mgr,
+            'MidFundMgr': fund_models.FundMgr,
+            'FeeRatio': fund_models.FeeRatio,
+            'PurchaseRule': fund_models.PurchaseRule,
+            'RedeemRule': fund_models.RedeemRule,
+            'FundPortfolio': fund_models.FundPortfolio,
+            'FundPortfolioMgr': fund_models.FundPortfolioMgr,
+            'InvestProduct': fund_models.InvestProduct,
+            'FundPortfolioAdjustHistory': fund_models.FundPortfolioAdjustHistory,
+            'FundPortfolioHoldDetail': fund_models.FundPortfolioHoldDetail,
+            'FundSaleOrg': fund_models.FundSaleOrg,
+            'Account': account_models.Account,
         }
 
     # 当你使用flask shell命令启动Python Shell时，所有使用app.shell_context_processor装饰器注册的shell上下文处理函数

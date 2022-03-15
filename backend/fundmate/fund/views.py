@@ -10,10 +10,12 @@ from flask_praetorian import auth_required, current_user
 import pandas as pd
 from sqlalchemy import create_engine
 
-from backend.fundmate import utils
+from backend.fundmate import settings, utils
 from backend.fundmate.database import db, get_table_name
 from backend.fundmate.errors import CurrentUserInfoError, NotHundredPercentSumPortionError, PatchWithEmptyDataError
+from backend.fundmate.fund.base import FundMiddleWare
 from backend.fundmate.fund.models import (
+    FeeRatio,
     Fund,
     FundCompany,
     FundPortfolio,
@@ -33,6 +35,8 @@ from backend.fundmate.fund.schemas import (
     FundPortfolioPatchInSchema,
     FundPortfoliosOutSchema,
     FundPortfoliosPaginationSchema,
+    FundRatioInSchema,
+    FundRatioOutSchema,
     FundSaleOutSchema,
 )
 from backend.fundmate.libs.pysnowflake import snowflake
@@ -92,6 +96,27 @@ class FundMgrView(MethodView):
         return ret
 
 
+@bp.route('/ratios')
+class FundRatioView(MethodView):
+    """
+    获取基金费率信息
+    """
+
+    @input(FundRatioInSchema, 'query')
+    @output(FundRatioOutSchema)
+    def get(self, data: dict):
+        fund_code = data.get('fund_code')
+        fmw = FundMiddleWare()
+        purchase_info = fmw.raw_purchase_info(fund_code)
+        redeem_info = fmw.raw_redeem_info(fund_code)
+        info = {
+            'fund_code': fund_code,
+            'purchase_info': purchase_info,
+            'redeem_info': redeem_info,
+        }
+        return info
+
+
 @bp.route('/sales/')
 class FundSalesView(MethodView):
     """
@@ -121,12 +146,6 @@ class FundDetail(MethodView):
         """获取指定基金信息"""
         fund_obj = Fund.filter_by_code(fund_code)
         return fund_obj
-
-    # def post(self):
-    #     """
-    #     新建基金
-    #     """
-    #     return {'message': 'Hello,User!'}
 
     @input(FundInSchema(partial=True))
     @output(FundOutSchema)

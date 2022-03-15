@@ -5,7 +5,7 @@ from typing import Union
 
 from xalpha.cons import rpost_json
 
-from backend.fundmate.data import utils as dt_utils
+from backend.fundmate.data.utils import base as dt_utils
 from backend.fundmate.excepts import FundQueryError
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.fund.models import Fund
@@ -146,7 +146,7 @@ class QGG:
                 _re_balance_list = list()
                 for fund_item in fund_list:
                     f_name = fund_item.get('fundName')
-                    fund_code_list = Fund.code_by_name(f_name)
+                    fund_code_list = Fund.search_name(f_name)
                     if len(fund_code_list) == 1:
                         fund_code = fund_code_list[0]
                     else:

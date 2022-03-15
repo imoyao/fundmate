@@ -8,10 +8,12 @@ from typing import Optional, Union
 
 from apiflask import pagination_builder
 
+from sqlalchemy import inspect
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.sql import func
 
+from backend.fundmate import utils
 from backend.fundmate.compat import basestring
 from backend.fundmate.excepts import UniqueInstanceError
 from backend.fundmate.extensions import db
@@ -118,22 +120,36 @@ class UpsertMixin(CRUDMixin):
         if is_inst_exists:
             # 允许多个查询条件 TODO: 如何写使之可以使用比较运算符 [python - sqlalchemy dynamic filtering - Stack Overflow](
             #  https://stackoverflow.com/questions/41305129/sqlalchemy-dynamic-filtering/41309069#41309069)
-
             result = cls.query.filter_by(**unique_query_arg).all()
 
             if len(result) == 1:
                 inst = result[0]
-                inst.update(kwargs)
-                db.session.commit()
-                if do_log_flag:
-                    logger.success(f'{inst} has been UPDATED successful.')
+                # 结果转换为dict,ref: https://stackoverflow.com/a/1960546/14295718
+                try:
+                    inst_dict = {col.name: getattr(inst, col.name) for col in cls.__table__.columns}
+                except AttributeError:
+                    '''
+                    When the sqlalchemy ORM class attributes are different from database columns, ref:
+                    https://stackoverflow.com/a/27948279/14295718
+                    当设计数据库的ORM时，如果我们的类属性和数据库的列名不同时，如何获取类的属性
+                    '''
+                    inst_dict = {col[0]: getattr(inst, col[0]) for col in inspect(cls).column_attrs.items()}
+
+                if not utils.is_sub_dict(kwargs, inst_dict):
+                    inst.update(kwargs)
+                    db.session.commit()
+                    if do_log_flag:
+                        logger.success(f'The instance: {inst} has been UPDATED successful.')
+                else:
+                    if do_log_flag:
+                        logger.info(f'The instance: {inst} do not need update because it is sub dict of {kwargs}.')
             else:
                 raise UniqueInstanceError(f'The query result:{result} get the count of instance more than 1.')
 
         else:
             inst = cls.create(**kwargs)
             if do_log_flag:
-                logger.success(f'{inst} has been CREATED successful.')
+                logger.success(f'The {inst} has been CREATED successful.')
         return inst
 
 
@@ -142,9 +158,9 @@ class Model(CRUDMixin, db.Model):
 
     __abstract__ = True
 
-    def to_dict(self):
-        columns = self.__table__.columns.keys()
-        return {key: getattr(self, key) for key in columns}
+    # def to_dict(self):
+    #     columns = self.__table__.columns.keys()
+    #     return {key: getattr(self, key) for key in columns}
 
 
 class PkModel(Model):
@@ -152,6 +168,14 @@ class PkModel(Model):
 
     __abstract__ = True
     id = Column(db.Integer, primary_key=True)
+
+    @classmethod
+    def table_name(cls):
+        """
+        返回表名称
+        :return:
+        """
+        return cls.__table__.name
 
     # def __repr__(self) -> str:
     #     return self._repr(id=self.id)
