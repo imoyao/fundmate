@@ -72,7 +72,10 @@ export default {
     tree: '资产demo',
     favor: '严选',
     funds: '基金',
-    mgr: '关注经理'
+    mgr: '关注经理',
+    explore: '探索',
+    managers: '基金经理',
+    portfolio: '基金组合'
   },
   navbar: {
     logOut: '退出登录',
