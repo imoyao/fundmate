@@ -5,9 +5,9 @@ import datetime
 from apiflask import APIBlueprint, abort, doc, input, output, pagination_builder
 from flask import current_app
 from flask.views import MethodView
+from flask_praetorian import auth_required, current_user
 
 import pandas as pd
-from flask_praetorian import auth_required, current_user
 from sqlalchemy import create_engine
 
 from backend.fundmate import utils
