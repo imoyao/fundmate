@@ -7,20 +7,27 @@ TODO: 用户账户和基金账户容易混淆，可能使用嵌套蓝图更好
 """
 import datetime
 
-from apiflask import APIBlueprint, input, output
+from apiflask import APIBlueprint, abort, input, output
 from flask.views import MethodView
 from flask_praetorian import auth_required, current_user
 
 from backend.fundmate import errors, excepts, utils
 from backend.fundmate.account.deal_trades import ImportColumns, ImportTradeEnum
 from backend.fundmate.account.models import Account, AccountTransactionRecord
-from backend.fundmate.account.schemas import AccountOutSchema, CreateAccountSchema
+from backend.fundmate.account.schemas import (
+    AccountOutSchema,
+    CommitProducts,
+    CreateAccountSchema,
+    InvestProductOut,
+    QueryInvestProduct,
+)
 from backend.fundmate.fund.load_templates import (
     check_isvalid_prods,
     check_isvalid_trade_types,
     loads_template,
     read_csv_for_df,
 )
+from backend.fundmate.fund.models import InvestProduct
 
 bp = APIBlueprint("account", __name__, url_prefix="/accounts")
 
@@ -46,6 +53,54 @@ class AccountsDetail(MethodView):
         名称，描述，
         """
         pass
+
+
+@bp.route('/products')
+class InvestProductView(MethodView):
+
+    @input(QueryInvestProduct, 'query')
+    @output(InvestProductOut)
+    def get(self, query: dict):
+        """
+        根据平台和产品名称查询产品的分类和编码；如果没有查询到，则可以使用post请求创建
+        :param query:
+        :return:
+        """
+        prod_inst = InvestProduct.query.filter_by(**query).one_or_none()
+        if prod_inst:
+            return prod_inst
+        else:
+            abort(404)
+
+    @auth_required
+    @input(CommitProducts)
+    @output(InvestProductOut)
+    def post(self, data: dict):
+        """
+        用户主动提交自己购买的理财产品或组合
+        :return:
+        """
+        platform = data.get('platform')
+        prod_name = data.get('name')
+        prod_type = data.get('prod_type')
+        plt_code = data.get('code')
+        if plt_code:
+            prod_inst = InvestProduct.filter_by_plt_code(platform, prod_type, plt_code)
+        else:
+            prod_inst = InvestProduct.filter_by_name(platform, prod_type, prod_name)
+        if prod_inst:
+            raise errors.ProdAlreadyExistError(status_code=409)
+        # 创建该产品
+        prod_code = InvestProduct.gen_prod_code()
+        prod_info = {
+            'platform': platform,
+            'prod_name': prod_name,
+            'prod_type': prod_type,
+            'plt_code': plt_code,
+            'prod_code': prod_code,
+        }
+        prod_inst = InvestProduct.create(**prod_info)
+        return prod_inst
 
 
 class ImportDealingDocuments(MethodView):

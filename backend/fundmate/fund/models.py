@@ -610,24 +610,20 @@ class FundPortfolioHoldDetail(PkModel):
 class InvestProduct(PkModel):
     """
     理财产品（如各种p2p产品，组合产品等）
-    {
-        "trading_id": "281b3d8bad024b7ea2eeb37bfb7b8a5f",
-        "fd_code": "161005",
-        "fd_name": "富国天惠成长混合（LOF）A",
-        "portion": 0.03,
-        "money": 0,
-        "last_portion": 0.0632,
-        "volume": 0,
-        "percent": "3.0%",
-        "last_percent": "6.32%"
-    }
     """
     plt_code = Column(db.String(16), comment='投资平台自定义产品编码')
-    prod_code = Column(db.String(12), comment='本平台规定的唯一编码')
+    prod_code = Column(db.String(12), unique=True, comment='本平台规定的唯一编码')
     # 如C1010422000605，参见 https://www.chinawealth.com.cn/zzlc/jsp/lccp.jsp
     verified_code = Column(db.String(32), nullable=True, comment='登记编码')
     prod_name = Column(db.String(255), comment='产品名称')
-    plat_name = Column(db.String(16), nullable=True, comment='产品购买所属平台（可以为空）')
+    platform = Column(db.Enum(settings.SupportInvestPltEnum),
+                      nullable=True,
+                      default=settings.SupportInvestPltEnum.unknown.dk_value,
+                      comment=f'产品购买所属平台：{settings.SupportInvestPltEnum.comment()}')
+    prod_type = Column(db.Enum(settings.SupportInvestCategoriesEnum),
+                       nullable=True,
+                       default=settings.SupportInvestCategoriesEnum.financial_product.dk_value,
+                       comment=f'产品类型：{settings.SupportInvestCategoriesEnum.comment()}')
 
     @classmethod
     def gen_prod_code(cls) -> Optional[str]:
@@ -639,8 +635,15 @@ class InvestProduct(PkModel):
         return fp_identifier
 
     @classmethod
-    def filter_by_plt_code(cls, plat: str, code: str) -> InvestProduct:
-        """获取编码所对应的id
+    def filter_by_plt_code(cls, plat: str, prod_type: str, code: str) -> InvestProduct:
+        """获取编码所对应的产品
         """
-        _ins = cls.query.filter_by(plat_name=plat, fund_code=code).one_or_none()
+        _ins = cls.query.filter_by(platform=plat, prod_type=prod_type, plt_code=code).one_or_none()
+        return _ins
+
+    @classmethod
+    def filter_by_name(cls, plat: str, prod_type: str, name: str) -> InvestProduct:
+        """获取名称所对应的产品
+        """
+        _ins = cls.query.filter_by(platform=plat, prod_type=prod_type, prod_name=name).one_or_none()
         return _ins
