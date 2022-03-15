@@ -4,20 +4,13 @@
 """
 与爬虫、数据处理有关的一些工具方法
 """
-import copy
 import json
-import re
 from datetime import datetime
 from pathlib import Path
-from typing import Generator, List, Union
+from typing import Generator, Union
 
 import dateparser
 import yaml
-
-from backend.fundmate import settings
-from backend.fundmate.excepts import ParseError, UnpackError
-from backend.fundmate.exts.flask_loguru import logger
-from backend.fundmate.fund.models import FeeRatio, Fund, PurchaseRule, RedeemRule
 
 
 def parse_headers(raw_header: str) -> dict:
