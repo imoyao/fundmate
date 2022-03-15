@@ -14,6 +14,7 @@ from sqlalchemy import create_engine
 from backend.fundmate import settings, utils
 from backend.fundmate.database import db, get_table_name
 from backend.fundmate.errors import CurrentUserInfoError, NotHundredPercentSumPortionError, PatchWithEmptyDataError
+from backend.fundmate.fund.base import FundMiddleWare
 from backend.fundmate.fund.models import (
     FeeRatio,
     Fund,
@@ -111,8 +112,9 @@ class FundRatioView(MethodView):
     @output(FundRatioOutSchema)
     def get(self, data: dict):
         fund_code = data.get('fund_code')
-        purchase_info = FeeRatio.buy_info(fund_code=fund_code, op_type=settings.FeeTypeEnum.purchase)
-        redeem_info = FeeRatio.redeem_info(fund_code=fund_code)
+        fmw = FundMiddleWare()
+        purchase_info = fmw.raw_purchase_info(fund_code)
+        redeem_info = fmw.raw_redeem_info(fund_code)
         info = {
             'fund_code': fund_code,
             'purchase_info': purchase_info,

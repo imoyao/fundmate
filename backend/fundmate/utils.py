@@ -175,6 +175,16 @@ def write_json_data(data: Union[str, List, Dict], fp: Union[str, Path], indent: 
         json.dump(data, f, ensure_ascii=False, indent=indent)
 
 
+def cal_durations(previous_date: datetime, next_date: datetime) -> int:
+    """
+    基金持有时长(比如持有7天)便是按自然日来计算的
+    :param previous_date: 较小的日期
+    :param next_date: 较大的日期
+    :return:
+    """
+    return (next_date - previous_date).days
+
+
 def check_is_csv(fp: Union[str, Path]) -> Optional[bool]:
     """
     判断文件存在并确定格式正确

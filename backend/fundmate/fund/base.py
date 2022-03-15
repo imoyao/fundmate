@@ -3,21 +3,112 @@
 # Created by imoyao at 2021/1/10 21:56
 import ast
 import datetime
-from typing import Union
+from typing import Dict, List, Union
 
 import dateparser
+import pandas as pd
 from deprecated import deprecated
 
-from backend.fundmate import utils
+from backend.fundmate import settings, utils
 from backend.fundmate.data.baostock.base import trade_days_gen
-from backend.fundmate.fund.models import DailyWorth
-from backend.fundmate.libs.redeem_fee import main
+from backend.fundmate.fund.models import DailyWorth, FeeRatio
+from backend.fundmate.fund.schemas import PurchaseInfoSchema, RedeemInfoSchema
 
 
-class Fund:
+class FundMiddleWare:
 
     def __init__(self):
         pass
+
+    def raw_purchase_info(self, fund_code: str) -> List:
+        fee_ratio = FeeRatio.buy_info(fund_code=fund_code, op_type=settings.FeeTypeEnum.purchase)
+        return fee_ratio
+
+    def purchase_info(self, fund_code: str) -> Dict:
+        """
+        基金的申购费率信息
+        :param fund_code:
+        :return:
+        """
+        fee_ratio = self.raw_purchase_info(fund_code=fund_code)
+        fr_out_schema = PurchaseInfoSchema(many=True)
+        result = fr_out_schema.dump(fee_ratio)
+        return result
+
+    def match_purchase_rate(self, fund_code: str, amount: float):
+        """
+        根据购买的金额匹配到对应的购买费率/扣费金额（如果大于1）
+        :param fund_code:
+        :param amount:
+        :return:
+        """
+        _purchase_info = self.purchase_info(fund_code)
+        bins = [0]
+        max_quota = float('inf')
+        labels = []
+        for item in _purchase_info:
+            quota = item.get('end_quota')
+            bins.append(quota)
+
+            real_rate = item.get('real_rate')
+            if quota == max_quota:
+                real_rate = item.get('rule_fee_amount')
+            labels.append(real_rate)
+
+        if not bins[-1] == max_quota:
+            bins.append(max_quota)
+        data = [{'amount': amount}]
+        df = pd.DataFrame(data)
+        df['cal_rate'] = pd.cut(df['amount'], bins, right=False, labels=labels)
+        ret = df.to_dict(orient='records')
+        cal_rate = ret[0].get('cal_rate')
+        return cal_rate
+
+    def match_redeem_rate(self, fund_code: str, duration_day: float):
+        """
+        根据截止赎回确认日的天数匹配到对应的赎回费率
+        :param fund_code:
+        :param duration_day:
+        :return:
+        """
+        _redeem_info = self.redeem_info(fund_code)
+        bins = [0]
+        max_quota = float('inf')
+        labels = []
+        for item in _redeem_info:
+            day = item.get('end_day')
+            # 如果不是最大值，则转为int
+            if day != max_quota:
+                day = int(day)
+            bins.append(day)
+
+            real_rate = item.get('real_rate')
+            labels.append(real_rate)
+
+        if not bins[-1] == max_quota:
+            bins.append(max_quota)
+
+        data = [{'day': duration_day}]
+        df = pd.DataFrame(data)
+        df['cal_rate'] = pd.cut(df['day'], bins, right=False, labels=labels)
+        ret = df.to_dict(orient='records')
+        cal_rate = ret[0].get('cal_rate')
+        return cal_rate
+
+    def raw_redeem_info(self, fund_code: str) -> List:
+        fee_ratio = FeeRatio.redeem_info(fund_code=fund_code)
+        return fee_ratio
+
+    def redeem_info(self, fund_code: str) -> Dict:
+        """
+        基金的赎回费率信息
+        :param fund_code:
+        :return:
+        """
+        fee_ratio = self.raw_redeem_info(fund_code=fund_code)
+        fr_redeem_schema = RedeemInfoSchema(many=True)
+        result = fr_redeem_schema.dump(fee_ratio)
+        return result
 
     def charge_amount(self, amount: Union[int, float] = 10000, charge_rate: float = 0.15):
         """
@@ -60,12 +151,13 @@ class Fund:
         """
         基金申（认）购费用计算器：
         [基金申（认）购费用计算器 _  东方财富网](https://data.eastmoney.com/money/calc/CalcFundSGRG.html)
-
-        >>> cal_purchase_info(amount=3000, daily_value=5.5340)
-        >>> {'charge_amount': 4.49, 'real_amount': 2995.51, 'hold_value': 541.29}
+        >>> f =Fund()
+        >>> f.cal_purchase_info(amount=3000, daily_value=5.5340)
+        {'charge_amount': 4.49, 'real_amount': 2995.51, 'hold_value': 541.29}
 
         >>> f.cal_purchase_info(amount=3000, daily_value=5.2280)
-        >>> {'charge_amount': 4.49, 'real_amount': 2995.51, 'hold_value': 572.97}
+        {'charge_amount': 4.49, 'real_amount': 2995.51, 'hold_value': 572.97}
+        
         :param amount:
         :param charge_rate:
         :param daily_value:
@@ -82,8 +174,10 @@ class Fund:
                         daily_value: Union[int, float] = 1) -> dict:
         """
         正算：基金赎回费用计算器
-        >>> cal_redeem_info(portion=3000, daily_value=5.2245)
-        >>> {'charge_amount': 23.51, 'real_amount': 15649.99}
+        >>> f= FundMiddleWare()
+        >>> f.cal_redeem_info(portion=3000, daily_value=5.2245)
+        {'charge_amount': 23.51, 'real_amount': 15649.99}
+
         [基金赎回费用计算器 _ 理财计算器 _ 数据中心 _ 东方财富网](https://data.eastmoney.com/money/calc/CalcFundSH.html)
         :param portion: 赎回份额
         :param charge_rate:
@@ -98,7 +192,23 @@ class Fund:
         _real_amount = round(_redeem_amount - _charge_amount, 2)
         return {'charge_amount': rd_charge_amount, 'real_amount': _real_amount}
 
-    def know_amount_cal_charge_fee(self):
+    def check_is_redeem_able(self, hold_shares: float, redeem_shares: float):
+        return hold_shares >= redeem_shares
+
+    def get_share_distribution(self):
+        """
+        2019-02-28 in 1000		2020-03-05 out 1000
+        2019-05-28 in 3000		2020-06-15 out 1000
+        2019-12-28 in 5000		2020-07-15 out 1000
+        2020-05-01 in 1000		2020-09-25 out 1000
+        2021-05-30 in 1000		2021-03-05 out 1000
+
+        :return:
+        """
+        pass
+
+    def know_amount_cal_charge_fee(self, purchase_confirm_date: datetime, redeem_confirm_date: datetime,
+                                   redeem_shares: float):
         """
         已知：赎回时的净值，赎回结算的金额
         需要进一步计算：赎回时的费率
@@ -110,6 +220,9 @@ class Fund:
         返回：赎回的份额
         :return:
         """
+        durations = utils.cal_durations(purchase_confirm_date, redeem_confirm_date)
+        hold_shares = 1000  # TODO: 查询数据库获取持有的份额
+        is_redeem_able = self.check_is_redeem_able(hold_shares, redeem_shares)
         pass
 
 
@@ -147,13 +260,6 @@ class TradeDate:
         with trade_days_gen(date) as days:
             ret = days.to_dict(orient='records')
         return ret[0]['is_trading_day']
-
-    def hold_days(self, end_v_date, start_v_date):
-        """
-        基金持有时长(比如持有7天)便是按自然日来计算的
-        :return:
-        """
-        return end_v_date - start_v_date
 
     def verify_date(self, t_date):
         """
@@ -203,7 +309,7 @@ class TradeDate:
             return tmr
 
 
-f = Fund()
+f = FundMiddleWare()
 td = TradeDate()
 
 
@@ -283,3 +389,8 @@ if __name__ == '__main__':
     print(f.cal_redeem_info(portion=3000, daily_value=5.2245, charge_rate=0))
     print(td.is_trade_day('2021-06-26'))
     print(td.verify_date('2020-06-24'))
+    # =======================
+    fund_code = '001718'
+    p = f.purchase_info(fund_code)
+    r = f.redeem_info(fund_code)
+    print(p, r)
