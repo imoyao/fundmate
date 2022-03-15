@@ -4,12 +4,16 @@
 """
 类比DRF中的serializer
 """
+from typing import Dict
+from typing import List as ListType
+from typing import Optional, Set, Union
+
 from apiflask import PaginationSchema, Schema
 from apiflask.fields import Boolean, Date, Float, Function, Integer, List, Method, Nested, Number, String
 from apiflask.validators import Equal, Length, OneOf
 
 from backend.fundmate import settings
-from backend.fundmate.fund.models import FundType
+from backend.fundmate.fund.models import Fund, FundPortfolioMgr, FundType
 from backend.fundmate.schema_ext import CustomPaginationSchema
 from backend.fundmate.user.models import User
 
@@ -75,6 +79,41 @@ class FundPortfoliosOutSchema(Schema):
     组合概览信息列表
     """
     portfolios = List(Nested(FundPortfolioOutSchema))
+    pagination = Nested(PaginationSchema)
+
+
+def get_fund_name(fund_code: str) -> Optional[str]:
+    fund = Fund.query.filter_by(fund_code=fund_code).one_or_none()
+    if fund:
+        return fund.name
+
+
+def float_to_percent(portion):
+    return f'{portion * 100:.2f} %'
+
+
+class FundPortfolioAdjustDetailOutSchema(Schema):
+    """
+    组合调仓的持仓信息
+    """
+    fd_code = String()
+    portion = String()
+    fund_name = Function(lambda obj: get_fund_name(obj.fd_code))
+    percent = Function(lambda obj: float_to_percent(obj.portion))
+
+
+class FundPortfolioAdjustHistoryOutSchema(Schema):
+    adjust_id = String()
+    update_date = String(data_key='adjusted_date')
+    desc = String(data_key='comments')
+    details = List(Nested(FundPortfolioAdjustDetailOutSchema))
+
+
+class FundPortfoliosAdjustOutSchema(Schema):
+    """
+    组合调仓信息列表
+    """
+    adjusts = List(Nested(FundPortfolioAdjustHistoryOutSchema))
     pagination = Nested(PaginationSchema)
 
 
@@ -206,11 +245,14 @@ class FundSearchKeySchema(Schema):
 
 
 class FundMgrOutSchema(Schema):
+    """
+    基金经理输出序列化
+    """
     id = Integer()
     name = String()
     mgr_code = String()
-    created_at = Date()
     company = String()
+    funds = List(Nested(FundSampleSchema))
 
 
 class FundCompanyOutSchema(Schema):
@@ -254,3 +296,24 @@ class MidSaleSchema(Schema):
 
 class FundSaleOutSchema(Schema):
     options = List(Nested(MidSaleSchema))
+
+
+class PortfolioQuerySchema(Schema):
+    platform = String(default=None, validate=OneOf(settings.PLAT_TYPE.keys()))
+    risk_type = String(default=None, validate=OneOf(settings.RISK_TYPE.keys()))
+    mgr_type = String(default=None, validate=OneOf(settings.ZH_MGR_TYPE.keys()))
+
+
+def get_options(_seq: Union[ListType, Set], display_maps: Dict) -> ListType:
+    options = list()
+    for item in _seq:
+        label = display_maps.get(item)
+        op_item = {'label': label, 'value': item}
+        options.append(op_item)
+    return options
+
+
+class PortfolioQueryOutSchema(Schema):
+    plat_options = Function(lambda obj: get_options(obj.get('plat_options'), settings.PLAT_TYPE_DISPLAY))
+    risk_options = Function(lambda obj: get_options(obj.get('risk_options'), settings.RISK_TYPE_DISPLAY))
+    mgr_options = Function(lambda obj: get_options(obj.get('mgr_options'), settings.ZH_MGR_TYPE_DISPLAY))

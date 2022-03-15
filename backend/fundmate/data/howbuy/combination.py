@@ -29,6 +29,7 @@ class Strategy:
         self.history_url = self.base_url + 'v731z/clcplsgd.json'
         self.net_worth_url = self.base_url + 'v717z/clcplshb.json'
         self.over_view_url = self.base_url + 'v717z/clcpday.json'
+        self.indicator_url = self.base_url + 'v717z/clcphbzst.json'
         self.zo_all_star = {
             'name': '超级股票全明星',
             'description': '超级股票全明星以过往长期业绩优秀的基金为核心基础配置，动态配置大小盘、行业风格的“卫星”基金。多元配置，分散风险，力争在不同市场周期下赚取超额回报。',
@@ -62,7 +63,6 @@ class Strategy:
         """
         params = {'zhdm': code}
         _resp = rget_json(self.over_view_url, params=params)
-        print(_resp)
         if self.is_success(_resp):
             body = _resp.get('body')
             choice_fund_pools_raw = body.get('bxjjk')  # 备选基金库
@@ -85,6 +85,33 @@ class Strategy:
             trading_elements_list = period_detail.get('fundList')
             last_trading_elements = self.parse_trading_elements(trading_elements_list)
             return last_trading_elements
+
+    def indicator(self, code: str) -> Optional[Dict]:
+        """
+        指标分析
+        :return:
+        """
+
+        def _ret_val(info):
+            return info.get('sz1')
+
+        params = {'zhdm': code, 'range': '1N'}
+        _resp = rget_json(self.indicator_url, params=params)
+        if self.is_success(_resp):
+            data = _resp.get('body')
+            raw_indicator_list = data.get('qjzb').get('dataList')
+            if raw_indicator_list:
+
+                _, volatility_info, sharpe_info, max_drawdown_info = raw_indicator_list
+                max_drawdown = _ret_val(max_drawdown_info)
+                sharpe = _ret_val(sharpe_info)
+                volatility = _ret_val(volatility_info)
+
+                return {
+                    'max_drawdown': float(max_drawdown) / 100,
+                    'sharpe': sharpe,
+                    'volatility': float(volatility) / 100,
+                }
 
     def detail(self, code: str) -> Optional[Dict]:
         """
@@ -120,7 +147,7 @@ class Strategy:
                 found_date = self.datestr_to_isodatestr(raw_found_date)
                 annualized_rate_of_return = return_info.get('nhhbcl')
                 invest_rate_of_return = return_info.get('hbcl')  # 回报
-                # max_down_return = return_info.get('zdhccl')  # TODO:最大回撤
+                # max_drawdown = return_info.get('zdhccl')
                 last_raw_date = base_info.get('zhsjrq')
                 if last_raw_date:
                     last_trade_date_fmt = self.datestr_to_isodatestr(last_raw_date)
@@ -128,7 +155,8 @@ class Strategy:
                     period_detail = body.get('zxgd')  # 最新gd：归档？
                     last_raw_date = period_detail.get('gdqsrq')
                     last_trade_date_fmt = self.datestr_to_isodatestr(last_raw_date)
-                return {
+                indicator_info = self.indicator(code)
+                info = {
                     'code': code,
                     'name': plan_name,
                     'risk_type': None,
@@ -138,8 +166,10 @@ class Strategy:
                     'desc': plan_desc,
                     'rich_desc': plan_rich_desc,
                     'mgr_info': mgr_info,
+                    'indicator': indicator_info,
                     'last_adjust_date': last_trade_date_fmt,
                 }
+                return info
         return None
 
     def parse_trading_elements(self, trading_elements_list: list) -> List:
@@ -341,6 +371,9 @@ if __name__ == '__main__':
     # 净值信息
     net_val = s.net_worth(code)
     print(net_val)
-    # 基金详情信息
+    # 组合详情信息
     detail = s.detail(code)
     print(detail)
+    # 技术指标
+    ret = s.indicator(code)
+    print(ret)
