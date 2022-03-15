@@ -184,7 +184,7 @@ export const constantRoutes: RouteConfig[] = [
     path: '/favor',
     component: Layout,
     redirect: '/favor/funds',
-    meta: { title: 'favor', icon: 'el-icon-s-opportunity' },
+    meta: { title: 'favor', icon: 'edit' },
     children: [
       {
         path: 'funds', // 账本
@@ -194,6 +194,24 @@ export const constantRoutes: RouteConfig[] = [
         path: 'mgr', // 资产
         component: () => import(/* webpackChunkName: "asset" */ '@/views/FundMgr/index.vue'),
         meta: { title: 'mgr', icon: 'peoples' }
+      }
+    ]
+  },
+  // 探索（组合）、严选基金经理
+  {
+    path: '/explore',
+    component: Layout,
+    // redirect: '/favor/funds',
+    meta: { title: 'explore', icon: 'el-icon-shopping-bag-2' },
+    children: [
+      {
+        path: 'portfolios', // 组合
+        component: () => import(/* webpackChunkName: "account" */ '@/views/explore/FundPortfolio/index.vue'),
+        meta: { title: 'portfolio', icon: 'component' }
+      }, {
+        path: 'managers', // 基金经理
+        component: () => import(/* webpackChunkName: "asset" */ '@/views/FundMgr/index.vue'),
+        meta: { title: 'managers', icon: 'peoples' }
       }
     ]
   }

@@ -100,7 +100,7 @@ export default class extends Vue {
 }
 </script>
 
-<style lang="scss" scoped>
+<style lang="scss">
 .dashboard-editor-container {
   padding: 32px;
   background-color: rgb(240, 242, 245);

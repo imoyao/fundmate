@@ -130,8 +130,8 @@ class Mgr(PkModel, UpsertMixin):
     name = Column(db.String(30), comment='经理名称')  # 'FAN BING(范冰)' 带英文的字符长度
     company_id = Column(db.Integer, db.ForeignKey('fund_company.id'), comment='所属公司ID')
     work_days = Column(db.Integer, comment='总任职时间')  # TODO: 此处不需要写死，只记录上任日期即可，需要修改字段
-    sum_scale = Column(db.Numeric(8, 2), nullable=True, comment='现管理资产总规模(亿元) ')  # 长度10，精度2
-    best_rt = Column(db.Numeric(7, 2), nullable=True, comment='最佳回报(%) ')  # 长度10，精度2
+    sum_scale = Column(db.Numeric(8, 2), nullable=True, comment='现管理资产总规模(亿元) ')  # 长度8，精度2
+    best_rt = Column(db.Numeric(7, 2), nullable=True, comment='最佳回报(%) ')  # 长度7，精度2
     last_modified = Column(db.TIMESTAMP,
                            nullable=False,
                            server_default=db.text('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'),
@@ -460,6 +460,9 @@ class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
                        default=settings.RiskTypeEnum.default().dk_value,
                        comment=f'风险类型：{settings.RiskTypeEnum.comment()}')
     annualized_rate_of_return = Column(db.Numeric(7, 4), comment='成立以来年化')  # 保留小数点后4位，每天计算净值后更新
+    max_drawdown = Column(db.Numeric(7, 4), comment='最大回撤率')
+    sharpe = Column(db.Numeric(3, 2), comment='夏普率')
+    volatility = Column(db.Numeric(7, 4), comment='波动率')
     invest_rate_of_return = Column(db.Numeric(7, 4), comment='成立以来收益')  # 每天计算净值后更新
     desc = Column(db.String(300), comment='组合描述')
     rich_desc = Column(db.String(1000), comment='组合详细描述')
@@ -544,6 +547,11 @@ class FundPortfolioAdjustHistory(PkModel):
     adjust_id = Column(db.BigInteger, index=True, comment='调仓历史编码')  # 使用雪花算法
     plat_trade_id = Column(db.String(120), comment='平台调仓编码（只做记录区分用，不参与系统计算）')
     desc = Column(db.String(1500), comment='调仓说明')
+    # 符合关联条件的有多条，所以需要使用`uselist=True`
+    details = relationship('FundPortfolioHoldDetail',
+                           uselist=True,
+                           foreign_keys=[adjust_id],
+                           primaryjoin='FundPortfolioHoldDetail.adjust_id == FundPortfolioAdjustHistory.adjust_id')
 
     def __repr__(self):
         return f'组合( {self.portfolio_code!r} ) 调仓时间： {self.update_date!r}，记录编号：{self.adjust_id!r}>'
@@ -564,6 +572,7 @@ class FundPortfolioAdjustHistory(PkModel):
 
 class FundPortfolioHoldDetail(PkModel):
     """
+    TODO: 需要增加环比增长下降标识
     组合持仓明细
     {
         "trading_id": "281b3d8bad024b7ea2eeb37bfb7b8a5f",

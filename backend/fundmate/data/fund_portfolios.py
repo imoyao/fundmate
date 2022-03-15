@@ -147,6 +147,7 @@ class InitPortfolio(BasePortfolio):
         if fpo is None:
             po_detail = po_inst.detail(plt_code)
             mgr_info = po_detail.pop('mgr_info')
+            indicator_info = po_detail.pop('indicator')
             # 创建组合管理员
             mgr_code = self.upsert_mgr(plat_flag, mgr_info)
             portfolio_code = FundPortfolio.gen_portfolio_code()
@@ -155,6 +156,8 @@ class InitPortfolio(BasePortfolio):
             po_detail['is_visible'] = True
             po_detail['portfolio_code'] = portfolio_code
             po_detail['update_time'] = datetime.datetime.utcnow()
+            # 回撤、波动、夏普
+            po_detail.update(indicator_info)
             po_obj = FundPortfolio.create(**po_detail)
         else:
             logger.warning(f'组合 {fpo} 已存在，更新平台组合请使用 `UpdatePortfolio` 类')
@@ -222,7 +225,8 @@ class UpdatePortfolio(BasePortfolio):
         :param portfolio_code:
         :return:
         """
-        if not plt_code.startswith('ZH'):
+        # 对J7特殊处理
+        if not plt_code.startswith('ZH') and (plt_code not in ['J7']):
             raise FundQueryError(f'请检查输入的平台组合编号 {plt_code} 是否正确？')
 
         adjust_info = self.qm_po.adjustments(plt_code)
@@ -304,6 +308,7 @@ class UpdatePortfolio(BasePortfolio):
                 po_details = po_obj.detail(plt_code)
                 annualized_rate_of_return = po_details.get('annualized_rate_of_return')
                 invest_rate_of_return = po_details.get('invest_rate_of_return')
+                indicator_info = po_details.pop('indicator')
                 if po_platform in ['qm', 'dj']:
                     risk_type = po_details.get('risk_type')
                     update_detail = {
@@ -321,6 +326,8 @@ class UpdatePortfolio(BasePortfolio):
                         'update_time': datetime.datetime.utcnow(),
                         'last_adjust_date': last_trade_date_fmt,
                     }
+                # 增加指标信息
+                update_detail.update(indicator_info)
                 # 更新组合基本信息
                 fpo = FundPortfolio.query.filter_by(portfolio_code=portfolio_code).one_or_none()
                 if fpo:
