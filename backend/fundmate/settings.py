@@ -238,6 +238,7 @@ class PlatTypeEnum(BaseTypeEnum):
         return cls.undefined
 
 
+UNPLT = ChoiceTypeDk('unknown', '未知平台')
 ALIPAY = ChoiceTypeDk('alipay', '蚂蚁财富（支付宝）')
 TCWM = ChoiceTypeDk('tcwm', '腾讯理财通')
 TTJJ = ChoiceTypeDk('tt', '天天基金')
@@ -248,9 +249,18 @@ class SupportInvestPltEnum(BaseTypeEnum):
     """
     支持导入文件的平台
     """
-    zfb = ALIPAY
-    lct = TCWM
+    unknown = UNPLT
+    alipay = ALIPAY
+    tcwm = TCWM
     tt = TTJJ
+
+    @classmethod
+    def input(cls):
+        """
+        用户请求时需要用到
+        :return:
+        """
+        return [item.dk_value for item in cls]
 
 
 '''
