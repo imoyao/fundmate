@@ -4,12 +4,15 @@
 """
 类比DRF中的serializer
 """
+from typing import Optional
+
 from apiflask import PaginationSchema, Schema
 from apiflask.fields import Boolean, Date, Float, Function, Integer, List, Method, Nested, Number, String
 from apiflask.validators import Equal, Length, OneOf
 
 from backend.fundmate import settings
 from backend.fundmate.fund.models import FundType
+from backend.fundmate.libs.convert import none_to_inf, to_percent, with_thousands_separator
 from backend.fundmate.schema_ext import CustomPaginationSchema
 from backend.fundmate.user.models import User
 
@@ -245,6 +248,62 @@ class SaleSchema(Schema):
 
     org_id = String(data_key='code')
     name = Method('as_name')
+
+
+def math_rate(rate_val: Optional[float]) -> float:
+    """
+    界面显示费率需要加百分号
+
+    >>> x = 1.2
+    >>> to_percent(x)
+    0.012
+    >>> x = None
+    >>> to_percent(x)
+    0.00
+
+    :param rate_val:
+    :return:
+    """
+    if rate_val is None:
+        rate_val = 0.00
+    return float(rate_val) / 100
+
+
+class RedeemInfoSchema(Schema):
+    start_day = Integer()
+    end_day = Function(lambda obj: none_to_inf(obj.get('end_day')))
+    rate = Function(lambda obj: to_percent(obj.get('rate')), metadata={'title': '费率', 'description': '实际运算时的费率'})
+    real_rate = Function(lambda obj: math_rate(obj.get('rate')), metadata={'title': '费率', 'description': '实际运算时的费率'})
+    rule_fee_amount = Integer()
+
+
+class PurchaseInfoOutSchema(Schema):
+    """
+    界面显示时序列化使用
+    """
+    start_quota = Function(lambda obj: with_thousands_separator(obj.get('start_quota')))
+    end_quota = Function(lambda obj: with_thousands_separator(obj.get('end_quota')))
+    rate = Function(lambda obj: to_percent(obj.get('rate')), metadata={'title': '费率', 'description': '实际运算时的费率'})
+    real_rate = Function(lambda obj: math_rate(obj.get('rate')), metadata={'title': '费率', 'description': '实际运算时的费率'})
+    rule_fee_amount = Integer()
+
+
+class PurchaseInfoSchema(PurchaseInfoOutSchema):
+    """
+    实际计算时使用的
+    """
+    start_quota = Function(lambda obj: none_to_inf(obj.get('start_quota')))
+    end_quota = Function(lambda obj: none_to_inf(obj.get('end_quota')))
+
+
+class FundRatioOutSchema(Schema):
+    fund_code = String()
+    purchase_info = List(Nested(PurchaseInfoOutSchema))
+    redeem_info = List(Nested(RedeemInfoSchema))
+
+
+class FundRatioInSchema(Schema):
+    fund_code = String()
 
 
 class MidSaleSchema(Schema):

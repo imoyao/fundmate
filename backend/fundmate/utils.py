@@ -30,6 +30,33 @@ def convert_readable_days(number_of_days: int) -> tuple:
     return years, months, days
 
 
+def is_sub_dict(subset_dict: dict, superset_dict: dict):
+    """
+    测试前字典是否为后字典的子集
+    FIXME: PY3.9:  return big | small == big
+
+    >>> d1 = {'a':'2', 'b':'3'}
+    >>> d2 = {'a':'2', 'b':'3','c':'4'}
+    >>> is_sub_dict(d1,d2)
+    True
+
+    >>> d1 = {'a':'2', 'b':'3'}
+    >>> d2 = {'a':'2', 'b':'3'}
+    >>> is_sub_dict(d1,d2)
+    True
+
+    >>> d1 = {'a':1, 'b':4}
+    >>> d2 = {'a':'2', 'b':'3'}
+    >>> is_sub_dict(d1,d2)
+    False
+
+    :param subset_dict:
+    :param superset_dict:
+    :return:
+    """
+    return all(item in superset_dict.items() for item in subset_dict.items())
+
+
 def show_time(func):
     """
     代码耗时时间计算
@@ -146,6 +173,16 @@ def write_json_data(data: Union[str, List, Dict], fp: Union[str, Path], indent: 
         logger.info(msg)
     with open(fp, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=indent)
+
+
+def cal_durations(previous_date: datetime, next_date: datetime) -> int:
+    """
+    基金持有时长(比如持有7天)便是按自然日来计算的
+    :param previous_date: 较小的日期
+    :param next_date: 较大的日期
+    :return:
+    """
+    return (next_date - previous_date).days
 
 
 def check_is_csv(fp: Union[str, Path]) -> Optional[bool]:

@@ -13,6 +13,9 @@ line_length = 120
 known_flask = ["flask","flask_wtf","wtforms","flask_bcrypt","flask_caching","flask_migrate","flask_sqlalchemy","flask_static_digest","apiflask","flask_praetorian"]
 known_test = ["pytest","webtest","factory"]
 sections = ["FUTURE","STDLIB","FLASK","TEST","THIRDPARTY","FIRSTPARTY","LOCALFOLDER"]
+# ref: https://github.com/scrapinghub/dateparser/issues/1013
+[tool.pytest.ini_options]
+filterwarnings = ["ignore::pytz_deprecation_shim.PytzUsageWarning"]
 
 [tool.pdm]
 [[tool.pdm.source]]

@@ -6,24 +6,28 @@
 TODO: 用户账户和基金账户容易混淆，可能使用嵌套蓝图更好
 """
 import datetime
-from pathlib import Path
-from typing import Optional, Union
 
-from apiflask import APIBlueprint, input, output
+from apiflask import APIBlueprint, abort, input, output
 from flask.views import MethodView
 from flask_praetorian import auth_required, current_user
-
-import pandas as pd
 
 from backend.fundmate import errors, excepts, utils
 from backend.fundmate.account.deal_trades import ImportColumns, ImportTradeEnum
 from backend.fundmate.account.models import Account, AccountTransactionRecord
-from backend.fundmate.account.schemas import AccountOutSchema, CreateAccountSchema
-from backend.fundmate.data.eastmoney.trade_day import TradeDay
-from backend.fundmate.fund.models import Fund, InvestProduct
-from backend.fundmate.libs import convert
-from backend.fundmate.settings import FundOpTypeEnum, SupportInvestCategoriesEnum
-from backend.fundmate.types import PdDataFrame
+from backend.fundmate.account.schemas import (
+    AccountOutSchema,
+    CommitProducts,
+    CreateAccountSchema,
+    InvestProductOut,
+    QueryInvestProduct,
+)
+from backend.fundmate.fund.load_templates import (
+    check_isvalid_prods,
+    check_isvalid_trade_types,
+    loads_template,
+    read_csv_for_df,
+)
+from backend.fundmate.fund.models import InvestProduct
 
 bp = APIBlueprint("account", __name__, url_prefix="/accounts")
 
@@ -51,162 +55,52 @@ class AccountsDetail(MethodView):
         pass
 
 
-# TODO: 逻辑层分离到单独模块
-def read_csv_for_df(fp: Union[str, Path], has_transfer: bool = False) -> Optional[PdDataFrame]:
-    """
-    读取用户上传的csv，获取文件需要处理的数据集
-    :param has_transfer: 是否包含转换操作
-    :param fp:
-    :return:
-    """
-    df = pd.read_csv(fp)
-    df_columns = df.columns.to_list()
-    if has_transfer:
-        if ImportTradeEnum.trade_out_prod.label not in df_columns:
-            raise excepts.NotSupportError('包含基金“转换”操作时必须包含“赎回产品”列！')
+@bp.route('/products')
+class InvestProductView(MethodView):
 
-    trade = ImportTradeEnum()
-    optional_columns = trade.optional_labels
-    BASE_COLUMNS = trade.required_labels
-    _df_head_cp = BASE_COLUMNS.copy()
-    if set(BASE_COLUMNS).issubset(set(df_columns)):
-        for optional_item in optional_columns:
-            if optional_item in df_columns:
-                _df_head_cp.append(optional_item)
-        useful_df = df[_df_head_cp]
-        return useful_df
-    else:
-        return None
-
-
-def check_isvalid_trade_types(types: Optional[list] = None) -> bool:
-    """
-    检查所有的交易行为都支持
-    :return:
-    """
-    all_types = FundOpTypeEnum.display()
-    return set(types).issubset(set(all_types))
-
-
-def check_isvalid_prods(platform: str, prods: Optional[list] = None) -> bool:
-    """
-    检查用户所购买产品是否都支持导入操作
-    :return:
-    """
-    type_repr = ImportTradeEnum.trade_category.dk_value
-    code_repr = ImportTradeEnum.redeem_prod.dk_value
-
-    p_types = [item.get(type_repr) for item in prods]
-    all_types = SupportInvestCategoriesEnum.input()
-    s_in_types = set(p_types)
-    s_all_types = set(all_types)
-    if not s_in_types.issubset(s_all_types):
-        not_in_types = s_in_types - s_all_types
-        msg = ','.join(not_in_types)
-        raise excepts.NotSupportError(f'不支持的交易品类：{msg}')
-    for p_item in prods:
-        code = p_item.get(code_repr)
-        p_type = p_item.get(type_repr)
-        if p_type == SupportInvestCategoriesEnum.fund.dk_value:
-            f = Fund.filter_by_code(code)
-            if not f:
-                raise excepts.NotSupportError(f'不支持的基金编码：{code}')
-        elif p_type == SupportInvestCategoriesEnum.financial_product.dk_value:
-            prod = InvestProduct.filter_by_plt_code(platform, code)
-            if not prod:
-                # 只要有一个不满足，则break
-                raise excepts.NotSupportError(f'不支持的理财产品编码：{code}')
-        else:
-            raise excepts.NotSupportError('目前仅支持导入基金和部分理财产品！')
-    return True
-
-
-def dumps_template():
-    """
-    从数据中读取内容，导出为文件
-    :return:
-    """
-    pass
-
-
-def loads_template(df: PdDataFrame):
-    """
-    转换模板文件，保存到数据库中
-    1. 交易类型中文转代码
-    2. 产品编码转系统编码
-    3. 交易日期和确认日期确定
-    :return:
-    """
-
-    def _deal_op_type(op_type_cn: str) -> str:
+    @input(QueryInvestProduct, 'query')
+    @output(InvestProductOut)
+    def get(self, query: dict):
         """
-        将用户输入的汉字转为程序
-        :param op_type_cn: 
+        根据平台和产品名称查询产品的分类和编码；如果没有查询到，则可以使用post请求创建
+        :param query:
         :return:
         """
-        name_label_maps = FundOpTypeEnum.columns_map()
-        reverse_name_label_maps = utils.key2val(name_label_maps)
-        repr_name = reverse_name_label_maps.get(op_type_cn)
-        return repr_name
+        prod_inst = InvestProduct.query.filter_by(**query).one_or_none()
+        if prod_inst:
+            return prod_inst
+        else:
+            abort(404)
 
-    def _db_code(trade_category: str, prod_code: str) -> str:
+    @auth_required
+    @input(CommitProducts)
+    @output(InvestProductOut)
+    def post(self, data: dict):
         """
-        产品最终保存到流水记录表时的编码
-        :param trade_category:
-        :param prod_code:
+        用户主动提交自己购买的理财产品或组合
         :return:
         """
-        if trade_category in [
-                SupportInvestCategoriesEnum.fund.dk_value,
-                # SupportInvestCategoriesEnum.stock.dk_value,
-                # SupportInvestCategoriesEnum.bond.dk_value
-        ]:
-            return prod_code
-        # 理财产品
-        elif trade_category == SupportInvestCategoriesEnum.financial_product.dk_value:
-            _inst = InvestProduct.filter_by_plt_code(trade_category, prod_code)
-            return _inst.prod_code
+        platform = data.get('platform')
+        prod_name = data.get('name')
+        prod_type = data.get('prod_type')
+        plt_code = data.get('code')
+        if plt_code:
+            prod_inst = InvestProduct.filter_by_plt_code(platform, prod_type, plt_code)
         else:
-            raise excepts.NotSupportError('目前仅支持导入基金和部分理财产品！')
-
-    def fetch_confirm_datetime(fund_code: str, operate_date: str, op_type: str, trade_category: str):
-        """获取购买基金的确认日期"""
-        temp_datetime = convert.try_parse_date(operate_date)
-        date_str = temp_datetime.strftime("%Y-%m-%d")
-        if trade_category in [SupportInvestCategoriesEnum.fund.dk_value, SupportInvestCategoriesEnum.fund.dk_value]:
-            td = TradeDay()
-            is_after_15o_clock = temp_datetime.hour >= 15
-            is_buy = op_type == FundOpTypeEnum.purchase
-            if trade_category == SupportInvestCategoriesEnum.fund.dk_value:
-                ret = td.get_trade_info(fund_code, date_str, is_buy=is_buy, is_after_15o_clock=is_after_15o_clock)
-                return ret.get('deadline')
-            elif trade_category == SupportInvestCategoriesEnum.financial_product.dk_value:
-                # 理财产品，直接按照t+1的基金产品计算
-                ret = td.get_trade_info('163406', date_str, is_buy=is_buy, is_after_15o_clock=is_after_15o_clock)
-                return ret.get('maturity')
-            else:
-                return date_str
-
-    # 注意顺序不可调整
-    if 'trade_repr' in df.columns:
-        df.drop(columns='op_type', inplace=True)
-        df.rename({'trade_repr': 'op_type'}, inplace=True)
-    else:
-        df['op_type'] = df.op_type.apply(lambda x: _deal_op_type(x))
-
-    df['purchase_prod'] = df.apply(lambda row: _db_code(row['trade_category'], row['purchase_prod']), axis=1)
-    df['redeem_prod'] = df.apply(lambda row: _db_code(row['trade_category'], row['redeem_prod']), axis=1)
-    # 交易确定日
-    df['trans_confirm_date'] = df.apply(lambda row: fetch_confirm_datetime(
-        row['redeem_prod'],
-        row['launch_trans_date'],
-        row['trade_category'],
-        row['op_type'],
-    ),
-                                        axis=1)
-    # 交易手续费：如果不是0，则返回，否则，根据购买金额，购买基金、费率计算
-    # TODO: 转向处理费率信息
-    df['charge_fee'] = df.apply(lambda row: _db_code(row['record_code'], row['trans_confirm_date']), axis=1)
+            prod_inst = InvestProduct.filter_by_name(platform, prod_type, prod_name)
+        if prod_inst:
+            raise errors.ProdAlreadyExistError(status_code=409)
+        # 创建该产品
+        prod_code = InvestProduct.gen_prod_code()
+        prod_info = {
+            'platform': platform,
+            'prod_name': prod_name,
+            'prod_type': prod_type,
+            'plt_code': plt_code,
+            'prod_code': prod_code,
+        }
+        prod_inst = InvestProduct.create(**prod_info)
+        return prod_inst
 
 
 class ImportDealingDocuments(MethodView):
@@ -233,7 +127,7 @@ class ImportDealingDocuments(MethodView):
 
             t = ImportColumns()
             if upload_file_df is not None:
-                rename_dict = FundOpTypeEnum.columns_map()
+                rename_dict = ImportTradeEnum.columns_map()
                 repr_df = upload_file_df.rename(columns=rename_dict)
 
                 # TODO: 需要产品编码和产品品类（基金，理财产品、股票、转债、投顾组合等）
