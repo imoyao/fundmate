@@ -7,10 +7,11 @@ from typing import Union
 from xalpha.cons import rget_json
 
 from backend.fundmate import settings, utils
-from backend.fundmate.data.utils import data_parser
+from backend.fundmate.data.utils.base import ParseData
+from backend.fundmate.data.utils.ratio import BaseRatio
 from backend.fundmate.excepts import EmptyError, UnexpectedArgsError
 from backend.fundmate.exts.flask_loguru import logger
-from backend.fundmate.fund.models import FeeRatio, Fund, InRule, OutRule
+from backend.fundmate.fund.models import Fund
 
 abs_current_path = Path.cwd().resolve()
 FUND_SYMBOLS_SAVE_FP = f'{str(abs_current_path)}/fund_symbols.json'
@@ -27,7 +28,7 @@ class DKHS:
         _resp = rget_json(_url)
         return _resp
 
-    def fatch_fund_info(self):
+    def fetch_fund_info(self):
         """
         基金编码对应特殊编号写入数据库（从网站抓取之后直接写入）
         此操作在写入数据库的同时还会写入json文件
@@ -283,6 +284,7 @@ class DKHS:
         从json文件中读取文件并更新信息到数据库，这个接口应该作为search_symbol的补充
         （目前该接口只能获取到部分基金的信息）
         """
+        data_parser = ParseData()
         fund_data_list = data_parser.get_data_from_json(FUND_SYMBOLS_SAVE_FP)
         for fund in fund_data_list:
             code = fund.get('code')
@@ -295,71 +297,56 @@ class DKHS:
                 logger.success(f'Update {fund_inst} successfully.')
         return 0
 
-    def transfer_rule(self, fund_id: str, fee_type: int, fee_amount: float, rule_item: dict, rule_info: dict):
-        is_in = False
-        if fee_type in [1, 2]:
-            is_in = True
-            rule_class = InRule
-        else:
-            rule_class = OutRule
-        # FIXME: 有的rule是存在的，为什么log还是created xx?
-        _rule_inst = rule_class.insert_or_update(rule_info, **rule_info)
-        rule_id = _rule_inst.id
-        fare_ratio = rule_item.get('fare_ratio')
-        if fare_ratio:
+
+class FundFeeRatio(BaseRatio):
+
+    def rate_parser(self, rate_info: dict):
+        """
+        解析费率信息
+        """
+        fare_ratio = rate_info.get('fare_ratio')
+        if fare_ratio is not None:
             rate = float(fare_ratio) if not isinstance(fare_ratio, float) else fare_ratio
         else:
             rate = None
-        rate_info = {
-            'fund_id': fund_id,
-            'rule_id': rule_id,
-            'fee_type': fee_type,
-            'rate': rate,
-            'fee_amount': fee_amount,
-        }
-        if is_in:
-            rate_info.update({'in_rule_id': rule_id})
-        else:
-            rate_info.update({'out_rule_id': rule_id})
-        return rate_info
+        return rate
 
-    def fee_ratio(self, fund_code: str):
+    def rate(self, fund_code: str, to_db: bool = False):
         """
-        FIXME: 该接口命中率太低，需要找别的接口替换
+        使用韭圈儿的数据
         根据基金决策宝网站信息更新费率
         数据来源：[兴全合润混合(SZ163406)_基金净值_费率_行情走势](https://www.dkhs.com/s/SZ163406/) “交易须知” 子页面
+        :param to_db:
         :param fund_code: 基金编码
         :return:
         """
         symbol_prefix = 'UN'
         _fund_inst = Fund.filter_by_code(fund_code)
         if _fund_inst:
-            symbol_prefix = _fund_inst.symbol_prefix
+            symbol_prefix = _fund_inst.symbol_prefix.dk_value
 
         if symbol_prefix == 'UN':
             raise UnexpectedArgsError(f'The symbol of fund {fund_code} is unknown,Please check or update it.')
 
         _url = f'https://www.dkhs.com/api/v1/symbols/{symbol_prefix}{fund_code}/fare_ratio/'
         _resp = rget_json(_url)
-        fund_id = _fund_inst.id
+
         if _resp:
             if isinstance(_resp, dict):
                 errors = _resp.get('errors')
                 if errors:
                     err_msg = errors.get('symbol_error')
                     raise UnexpectedArgsError(err_msg)
+            purchase_rule_info_items = list()
+            redeem_rule_info_items = list()
 
             for item in _resp:
                 direction = item.get('direction')
                 fee_amount = None
-                # 申购和买入
-                if direction in [0, 6]:
+                # 申购(6)和买入(0)
+                if direction == 0:
                     min_balance = item.get('min_balance')
                     max_balance = item.get('max_balance')
-                    if direction == 0:
-                        fee_type = settings.FeeTypeEnum.subscribe
-                    else:
-                        fee_type = settings.FeeTypeEnum.purchase
 
                     # 最大值时按照固定收费，同时修改上限为正无穷
                     if max_balance == '0.00':
@@ -368,34 +355,42 @@ class DKHS:
                         if min_fare == max_fare:
                             fee_amount = float(min_fare)
                             max_balance = None
+                    rate = self.rate_parser(item)
                     # 更新规则表
                     rule_info = {
-                        'start_quota': min_balance,
-                        'end_quota': max_balance,
+                        'start_quota': float(min_balance),
+                        'end_quota': float(max_balance) if max_balance is not None else None,
+                        'rate': rate,
+                        'fee_amount': fee_amount,
                     }
+                    purchase_rule_info_items.append(rule_info)
 
                 elif direction == 1:
-                    fee_type = settings.FeeTypeEnum.redeem
                     start_day = item.get('min_hold')
                     end_day = item.get('max_hold')
-
+                    rate = self.rate_parser(item)
                     rule_info = {
                         'start_day': start_day,
                         'end_day': end_day,
+                        'rate': rate,
+                        'fee_amount': fee_amount,
                     }
+                    redeem_rule_info_items.append(rule_info)
+                else:
+                    continue
 
-                rate_info = self.transfer_rule(fund_id, fee_type, fee_amount, item, rule_info)
-                if rate_info:
-                    rule_id = rate_info.pop('rule_id')
-                    # FIXME: rule_id is bug! see:save_fee_info
-                    query_args = {'fund_id': fund_id, 'rule_id': rule_id, 'fee_type': fee_type}
-                    FeeRatio.insert_or_update(query_args, do_log_flag=True, **rate_info)
+            rate_info = {'purchase': purchase_rule_info_items, 'redeem': redeem_rule_info_items}
+            if to_db:
+                if purchase_rule_info_items:
+                    self.save_fee_info(fund_code, purchase_rule_info_items, fee_type=settings.FeeTypeEnum.purchase)
+                if redeem_rule_info_items:
+                    self.save_fee_info(fund_code, redeem_rule_info_items, fee_type=settings.FeeTypeEnum.redeem)
+            return rate_info
         else:
             raise EmptyError(f'The href: {_url} from remote get empty response.')
-        return _resp
 
 
 jcb = DKHS()
+frt = FundFeeRatio()
 if __name__ == '__main__':
-    # print(jcb.api())
     print(jcb.parse_json_to_db())

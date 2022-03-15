@@ -58,9 +58,13 @@ class StatusCodeError(Enum):
 
     # 客户端错误派生
     CONFIRMED_FIRST_ERR = (4001, '为确保本人注册，请查收邮件激活账号！')
+    NOT_EXCEPTED_FILE_ERR = (4002, '请确保上传文件格式正确！')
+    NOT_EXCEPTED_PROD_ERR = (4003, '请确保上传文件中所有产品均支持导入！')
+    NOT_SUPPORT_INVEST_TYPE_ERR = (4004, '请确保所有交易操作均支持导入')
 
     # 服务端错误派生
     CURRENT_USER_INFO_ERR = (5001, '获取用户信息出错，请联系系统管理员。')
+    TRANSACTION_RECORD_ERR = (5002, '保存数据到系统出错（列名不匹配）！')
 
     # 数据冲突错误
     FORBIDDEN_DENY_ADMIN_ERR = (7001, '系统管理员不允许被禁用，以免系统自锁。')
@@ -164,6 +168,21 @@ class ConfirmedFirstError(BaseClientError):
     extra_data = {'error_code': StatusCodeError.CONFIRMED_FIRST_ERR.code, 'docs': ''}
 
 
+class NotExceptedFileError(BaseClientError):
+    message = StatusCodeError.NOT_EXCEPTED_FILE_ERR.msg
+    extra_data = {'error_code': StatusCodeError.NOT_EXCEPTED_FILE_ERR.code, 'docs': ''}
+
+
+class NotSupportProduct(BaseClientError):
+    message = StatusCodeError.NOT_EXCEPTED_PROD_ERR.msg
+    extra_data = {'error_code': StatusCodeError.NOT_EXCEPTED_PROD_ERR.code, 'docs': ''}
+
+
+class NotSupportInvestType(BaseClientError):
+    message = StatusCodeError.NOT_SUPPORT_INVEST_TYPE_ERR.msg
+    extra_data = {'error_code': StatusCodeError.NOT_SUPPORT_INVEST_TYPE_ERR.code, 'docs': ''}
+
+
 class AuthError(BaseThirdPartError):
     status_code = 401
     message = StatusCodeError.AUTHENTICATION_ERROR.msg
@@ -177,22 +196,21 @@ class ForbiddenDenyAdminError(BaseThirdPartError):
 
 
 class CurrentUserInfoError(BaseServerError):
-    status_code = 500
     message = StatusCodeError.CURRENT_USER_INFO_ERR.msg
     extra_data = {'error_code': StatusCodeError.CURRENT_USER_INFO_ERR.code, 'docs': ''}
 
 
+class TransactionRecordError(BaseServerError):
+    message = StatusCodeError.TRANSACTION_RECORD_ERR.msg
+    extra_data = {'error_code': StatusCodeError.TRANSACTION_RECORD_ERR.code, 'docs': ''}
+
+
 class ThermometerError(BaseCrawlerError):
-    status_code = 500
     message = StatusCodeError.THERMOMETER_ERR.msg
     extra_data = {'error_code': StatusCodeError.THERMOMETER_ERR.code, 'docs': ''}
 
 
 class PraetorianError(BaseThirdPartError):
-    # def __init__(self, status_code):
-    #     self.status_code = status_code
-    #     super().__init__()
-
     message = StatusCodeError.PRAETORIAN_ERROR.msg
     extra_data = {'error_code': StatusCodeError.PRAETORIAN_ERROR.code, 'docs': ''}
 

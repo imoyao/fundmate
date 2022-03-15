@@ -15,6 +15,7 @@ from backend.fundmate import settings, utils
 from backend.fundmate.database import db, get_table_name
 from backend.fundmate.errors import CurrentUserInfoError, NotHundredPercentSumPortionError, PatchWithEmptyDataError
 from backend.fundmate.fund.models import (
+    FeeRatio,
     Fund,
     FundCompany,
     FundPortfolio,
@@ -36,6 +37,8 @@ from backend.fundmate.fund.schemas import (
     FundPortfoliosAdjustOutSchema,
     FundPortfoliosOutSchema,
     FundPortfoliosPaginationSchema,
+    FundRatioInSchema,
+    FundRatioOutSchema,
     FundSaleOutSchema,
     PortfolioQueryOutSchema,
     PortfolioQuerySchema,
@@ -97,6 +100,26 @@ class FundMgrView(MethodView):
         return ret
 
 
+@bp.route('/ratios')
+class FundRatioView(MethodView):
+    """
+    获取基金费率信息
+    """
+
+    @input(FundRatioInSchema, 'query')
+    @output(FundRatioOutSchema)
+    def get(self, data: dict):
+        fund_code = data.get('fund_code')
+        purchase_info = FeeRatio.buy_info(fund_code=fund_code, op_type=settings.FeeTypeEnum.purchase)
+        redeem_info = FeeRatio.redeem_info(fund_code=fund_code)
+        info = {
+            'fund_code': fund_code,
+            'purchase_info': purchase_info,
+            'redeem_info': redeem_info,
+        }
+        return info
+
+
 @bp.route('/sale_channels/')
 class FundSalesView(MethodView):
     """
@@ -132,12 +155,6 @@ class FundDetail(MethodView):
         """获取指定基金信息"""
         fund_obj = Fund.filter_by_code(fund_code)
         return fund_obj
-
-    # def post(self):
-    #     """
-    #     新建基金
-    #     """
-    #     return {'message': 'Hello,User!'}
 
     @input(FundInSchema(partial=True))
     @output(FundOutSchema)

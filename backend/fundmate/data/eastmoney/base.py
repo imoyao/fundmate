@@ -13,9 +13,9 @@ from sqlalchemy.orm.exc import FlushError
 from xalpha.cons import rget
 
 from backend.fundmate import utils
-from backend.fundmate.data import utils as dt_utils
 from backend.fundmate.data.dkhs import jcb
-from backend.fundmate.data.utils import data_parser
+from backend.fundmate.data.utils import base as dt_utils
+from backend.fundmate.data.utils.base import data_parser
 from backend.fundmate.database import db
 from backend.fundmate.excepts import UnexpectedArgsError
 from backend.fundmate.exts.flask_loguru import logger

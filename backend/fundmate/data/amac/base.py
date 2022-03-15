@@ -7,7 +7,7 @@
 
 from xalpha.cons import rget_json
 
-from backend.fundmate.data import utils as db_utils
+from backend.fundmate.data.utils import base as dt_utils
 from backend.fundmate.fund.models import FundSaleOrg
 
 HEADERS_STR = '''Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9
@@ -38,13 +38,13 @@ def agency_info() -> list:
     :return:
     """
     url = 'https://www.amac.org.cn/portal/front/infopublic/fsAgencyAnno/findFsAgencyAnnos'
-    headers = db_utils.parse_headers(HEADERS_STR)
+    headers = dt_utils.parse_headers(HEADERS_STR)
     resp = rget_json(url, headers=headers)
     size = 50
     org_info = list()
     if resp.get('code') == 200:
         data_counts = resp.get('data').get('data').get('total')
-        for page, size in db_utils.paginate(data_counts, size=size):
+        for page, size in dt_utils.paginate(data_counts, size=size):
             params = {'pageNo': page, 'pageSize': size}
             resp = rget_json(url, headers=headers, params=params)
             agent_infos = resp.get('data').get('data').get('dataList')
