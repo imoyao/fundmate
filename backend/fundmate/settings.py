@@ -136,13 +136,14 @@ class FundOpTypeEnum(BaseTypeEnum):
         """
         return [item.dk_display for item in cls]
 
-    def columns_map(self) -> dict:
+    @classmethod
+    def columns_map(cls) -> dict:
         """
         返回英文和中文的映射字典
         :return:
         """
-        input_li = self.input()
-        display_li = self.display()
+        input_li = cls.input()
+        display_li = cls.display()
         return dict(zip(input_li, display_li))
 
 
@@ -237,6 +238,7 @@ class PlatTypeEnum(BaseTypeEnum):
         return cls.undefined
 
 
+UNPLT = ChoiceTypeDk('unknown', '未知平台')
 ALIPAY = ChoiceTypeDk('alipay', '蚂蚁财富（支付宝）')
 TCWM = ChoiceTypeDk('tcwm', '腾讯理财通')
 TTJJ = ChoiceTypeDk('tt', '天天基金')
@@ -247,9 +249,18 @@ class SupportInvestPltEnum(BaseTypeEnum):
     """
     支持导入文件的平台
     """
-    zfb = ALIPAY
-    lct = TCWM
+    unknown = UNPLT
+    alipay = ALIPAY
+    tcwm = TCWM
     tt = TTJJ
+
+    @classmethod
+    def input(cls):
+        """
+        用户请求时需要用到
+        :return:
+        """
+        return [item.dk_value for item in cls]
 
 
 '''
