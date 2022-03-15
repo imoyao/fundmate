@@ -7,17 +7,19 @@
 @email: immoyao@gmail.com
 @desc:基金信息更新
 """
+from typing import Dict
+
 from sqlalchemy import func
 
 from backend.fundmate.data.eastmoney.base import EastMoney
-from backend.fundmate.data.ten_jqka.base import FundInfo as AiFundInfo
 from backend.fundmate.database import db
+from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.fund.models import Fund
 
 em = EastMoney()
 
 
-def update_fund_info(fund_code: str) -> int:
+def update_fund_info(fund_code: str) -> Dict:
     """
     更新指定基金的信息
     目前只更新full_name字段
@@ -31,7 +33,7 @@ def update_fund_info(fund_code: str) -> int:
 
     fund_inst = Fund.filter_by_code(fund_code)
     fund_inst.update(**fund_info)
-    return 0
+    return fund_info
 
 
 def init_fund(is_init: bool = False):
@@ -52,4 +54,5 @@ def init_fund(is_init: bool = False):
     for fund in fund_lists:
         fund_code = fund[0]
         update_fund_info(fund_code)
+        logger.success(f'基金 {fund_code} 信息更新成功……')
     return 0
