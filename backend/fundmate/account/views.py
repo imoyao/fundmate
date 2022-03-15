@@ -157,14 +157,17 @@ def loads_template(df: PdDataFrame):
         :return:
         """
         if trade_category in [
-                SupportInvestCategoriesEnum.fund.dk_value, SupportInvestCategoriesEnum.stock.dk_value,
-                SupportInvestCategoriesEnum.bond.dk_value
+                SupportInvestCategoriesEnum.fund.dk_value,
+                # SupportInvestCategoriesEnum.stock.dk_value,
+                # SupportInvestCategoriesEnum.bond.dk_value
         ]:
             return prod_code
         # 理财产品
         elif trade_category == SupportInvestCategoriesEnum.financial_product.dk_value:
             _inst = InvestProduct.filter_by_plt_code(trade_category, prod_code)
             return _inst.prod_code
+        else:
+            raise excepts.NotSupportError('目前仅支持导入基金和部分理财产品！')
 
     def fetch_confirm_datetime(fund_code: str, operate_date: str, op_type: str, trade_category: str):
         """获取购买基金的确认日期"""
@@ -202,6 +205,7 @@ def loads_template(df: PdDataFrame):
     ),
                                         axis=1)
     # 交易手续费：如果不是0，则返回，否则，根据购买金额，购买基金、费率计算
+    # TODO: 转向处理费率信息
     df['charge_fee'] = df.apply(lambda row: _db_code(row['record_code'], row['trans_confirm_date']), axis=1)
 
 
