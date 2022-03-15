@@ -6,6 +6,7 @@
 @author: imoyao
 @email: immoyao@gmail.com
 @desc: 为sqlalchemy自定义数据类型
+参考：https://sqlalchemy-utils.readthedocs.io/en/latest/_modules/sqlalchemy_utils/types/choice.html#ChoiceType
 
 ## 示例代码
 class UserType(Enum):
@@ -367,7 +368,7 @@ class DkEnumTypeImpl(object):
         if value is None:
             return None
         elif isinstance(value, int):
-            return self.dk_enums.get(value)
+            return self.dk_enums.get(value).dk_value
         if isinstance(value, str):
             enum_names = self.enum_class.names()
             if value in enum_names:

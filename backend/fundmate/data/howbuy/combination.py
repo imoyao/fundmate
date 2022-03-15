@@ -273,8 +273,10 @@ class Strategy:
 
     def datestr_to_isodatestr(self, str_date: str):
         """
-        >>> datestr_to_isodatestr('20220104')
-        >>> '2022-01-04'
+        >>> stg = Strategy()
+        >>> stg.datestr_to_isodatestr('20220104')
+        '2022-01-04'
+
         :param str_date:
         :return:
         """

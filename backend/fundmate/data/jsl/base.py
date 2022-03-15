@@ -9,7 +9,7 @@ from xalpha.cons import rget, rget_json
 
 from backend.fundmate import excepts as dt_except
 from backend.fundmate import utils
-from backend.fundmate.data import utils as dt_utils
+from backend.fundmate.data.utils import base as dt_utils
 from backend.fundmate.exts.flask_loguru import logger
 
 url = 'https://www.jisilu.cn/data/indicator/get_last_indicator/'

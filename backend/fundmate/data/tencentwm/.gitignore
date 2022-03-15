@@ -57,3 +57,4 @@ env/
 
 # Development database
 *.db
+*.csv
