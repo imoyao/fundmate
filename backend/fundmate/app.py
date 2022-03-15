@@ -6,11 +6,13 @@ import sys
 from apiflask import APIFlask
 from flask_praetorian import exceptions as praetorian_excepts
 
-from backend.fundmate import account, commands, errors, fund, public, settings, user
+from backend.fundmate import commands, errors, settings
+from backend.fundmate.account import models as account_models
 from backend.fundmate.account import views as account_views
 from backend.fundmate.config import config
 from backend.fundmate.extensions import db, guard, loguru, mail, migrate
 from backend.fundmate.exts.flask_loguru import logger
+from backend.fundmate.fund import models as fund_models
 from backend.fundmate.fund import views as fund_views
 from backend.fundmate.public import views as public_views
 from backend.fundmate.settings import env
@@ -142,20 +144,21 @@ def register_shell_context(app: APIFlask):
         """Shell context objects."""
         return {
             "db": db,
-            "User": user.models.User,
-            "Role": user.models.Role,
-            'Fund': fund.models.Fund,
-            'FundMgr': fund.models.Mgr,
-            'MidFundMgr': fund.models.FundMgr,
-            'FeeRatio': fund.models.FeeRatio,
-            'PurchaseRule': fund.models.PurchaseRule,
-            'RedeemRule': fund.models.RedeemRule,
-            'FundPortfolio': fund.models.FundPortfolio,
-            'FundPortfolioMgr': fund.models.FundPortfolioMgr,
-            'FundPortfolioAdjustHistory': fund.models.FundPortfolioAdjustHistory,
-            'FundPortfolioHoldDetail': fund.models.FundPortfolioHoldDetail,
-            'FundSaleOrg': fund.models.FundSaleOrg,
-            'Account': account.models.Account,
+            "User": user_models.User,
+            "Role": user_models.Role,
+            'Fund': fund_models.Fund,
+            'FundMgr': fund_models.Mgr,
+            'MidFundMgr': fund_models.FundMgr,
+            'FeeRatio': fund_models.FeeRatio,
+            'PurchaseRule': fund_models.PurchaseRule,
+            'RedeemRule': fund_models.RedeemRule,
+            'FundPortfolio': fund_models.FundPortfolio,
+            'FundPortfolioMgr': fund_models.FundPortfolioMgr,
+            'InvestProduct': fund_models.InvestProduct,
+            'FundPortfolioAdjustHistory': fund_models.FundPortfolioAdjustHistory,
+            'FundPortfolioHoldDetail': fund_models.FundPortfolioHoldDetail,
+            'FundSaleOrg': fund_models.FundSaleOrg,
+            'Account': account_models.Account,
         }
 
     # 当你使用flask shell命令启动Python Shell时，所有使用app.shell_context_processor装饰器注册的shell上下文处理函数
