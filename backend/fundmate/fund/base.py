@@ -11,6 +11,7 @@ from deprecated import deprecated
 from backend.fundmate import utils
 from backend.fundmate.data.baostock.base import trade_days_gen
 from backend.fundmate.fund.models import DailyWorth
+from backend.fundmate.libs.redeem_fee import main
 
 
 class Fund:
@@ -52,34 +53,76 @@ class Fund:
         hold_value = _real_amount / daily_value
         return round(hold_value, 2)
 
-    def purchase_info(self,
-                      amount: Union[int, float] = 10000,
-                      charge_rate: float = 0.15,
-                      daily_value: Union[int, float] = 1):
+    def cal_purchase_info(self,
+                          amount: Union[int, float] = 10000,
+                          charge_rate: float = 0.15,
+                          daily_value: Union[int, float] = 1) -> dict:
         """
-        购买信息
+        基金申（认）购费用计算器：
+        [基金申（认）购费用计算器 _  东方财富网](https://data.eastmoney.com/money/calc/CalcFundSGRG.html)
+
+        >>> cal_purchase_info(amount=3000, daily_value=5.5340)
+        >>> {'charge_amount': 4.49, 'real_amount': 2995.51, 'hold_value': 541.29}
+
+        >>> f.cal_purchase_info(amount=3000, daily_value=5.2280)
+        >>> {'charge_amount': 4.49, 'real_amount': 2995.51, 'hold_value': 572.97}
         :param amount:
         :param charge_rate:
         :param daily_value:
-        :return:
+        :return: charge_amount: 手续费     hold_value： 成交份额    real_amount：成交金额
         """
         _charge_amount = round(self.charge_amount(amount, charge_rate), 2)
         _real_amount = round(self.real_amount(amount, charge_rate), 2)
         _hold_value = self.share_holders(amount, charge_rate, daily_value)
         return {'charge_amount': _charge_amount, 'real_amount': _real_amount, 'hold_value': _hold_value}
 
+    def cal_redeem_info(self,
+                        portion: Union[int, float] = 10000,
+                        charge_rate: float = 0.15,
+                        daily_value: Union[int, float] = 1) -> dict:
+        """
+        正算：基金赎回费用计算器
+        >>> cal_redeem_info(portion=3000, daily_value=5.2245)
+        >>> {'charge_amount': 23.51, 'real_amount': 15649.99}
+        [基金赎回费用计算器 _ 理财计算器 _ 数据中心 _ 东方财富网](https://data.eastmoney.com/money/calc/CalcFundSH.html)
+        :param portion: 赎回份额
+        :param charge_rate:
+        :param daily_value:
+        :return: 手续费 + 赎回金额
+        """
+        _redeem_amount = portion * daily_value
+        # 赎回手续费
+        _charge_amount = _redeem_amount * charge_rate / 100.0
+        rd_charge_amount = round(_charge_amount, 2)
+        # 赎回金额
+        _real_amount = round(_redeem_amount - _charge_amount, 2)
+        return {'charge_amount': rd_charge_amount, 'real_amount': _real_amount}
 
-@deprecated(version='1.0.0', reason='天天基金有接口：http://fund.eastmoney.com/tools/jiaoyiri.html')
+    def know_amount_cal_charge_fee(self):
+        """
+        已知：赎回时的净值，赎回结算的金额
+        需要进一步计算：赎回时的费率
+        1. 持有天数
+        2. 是否赎回大于现有份额？
+        3. 判断赎回份额的费率分布 比如：赎回5000份，其中3000份持有3年+，1000份持有2年，500分持有1年内，1500分持有30天以内
+        4. 每一部分分别计算，然后最后加起来
+        see also:backend/fundmate/libs/redeem_fee
+        返回：赎回的份额
+        :return:
+        """
+        pass
+
+
+@deprecated(version='1.0.0', reason='请使用天天基金接口：http://fund.eastmoney.com/tools/jiaoyiri.html')
 class TradeDate:
     """
     与交易日相关的处理
-    TODO: 由于交易信息不可信，暂时不使用该类
     """
 
     def real_op_day(self, record_date: str) -> str:
         """
         获取有效操作日，如果是15点之后，则推到下一天，否则为当天
-        如果是从历史账单中导入，则记录时间为确认日，如果是用户手动填入，则不一定纪录日就是确认日
+        ~~如果是从历史账单中导入，则记录时间为确认日，如果是用户手动填入，则不一定纪录日就是确认日~~
         :param record_date:记录单中的交易时间戳
         :return:
         """
@@ -103,7 +146,6 @@ class TradeDate:
             date = str(date)
         with trade_days_gen(date) as days:
             ret = days.to_dict(orient='records')
-        print(ret)
         return ret[0]['is_trading_day']
 
     def hold_days(self, end_v_date, start_v_date):
@@ -206,9 +248,9 @@ class Booking:
         amount = str_to_float(amount)
         count = str_to_float(count)
         d_val = DailyWorth.query(fund_id=fund_code, date=d_time).price
-        f.purchase_info(amount)
+        f.cal_purchase_info(amount)
 
-    def sale(
+    def redeem(
         self,
         fund_code: str,
     ):
@@ -236,7 +278,8 @@ class Booking:
 
 
 if __name__ == '__main__':
-    # print(f.purchase_info(amount=3000, daily_value=5.5340))
-    # print(f.purchase_info(amount=3000, daily_value=5.2280))
+    print(f.cal_purchase_info(amount=3000, daily_value=5.5340))
+    print(f.cal_purchase_info(amount=3000, daily_value=5.2280))
+    print(f.cal_redeem_info(portion=3000, daily_value=5.2245, charge_rate=0))
     print(td.is_trade_day('2021-06-26'))
     print(td.verify_date('2020-06-24'))

@@ -15,8 +15,7 @@ from xalpha.cons import rget_json
 
 from backend.fundmate.data.qieman import utils
 from backend.fundmate.libs import convert
-
-PdDataFrame = pd.DataFrame
+from backend.fundmate.types import PdDataFrame
 
 
 class Strategy:
