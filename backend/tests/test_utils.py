@@ -8,8 +8,8 @@
 @desc:
 """
 import datetime
+from decimal import Decimal
 
-import dateparser
 import pendulum
 import pytest
 
@@ -20,6 +20,59 @@ from backend.fundmate import utils
                                                      (366, (1, 0, 1)), (396, (1, 1, 1))])
 def test_convert_readable_days(number_of_days, expected):
     assert utils.convert_readable_days(number_of_days) == expected
+
+
+@pytest.mark.parametrize('lite_dict,big_dict,expected', [
+    ({
+        'a': '2',
+        'b': '3'
+    }, {
+        'a': '2',
+        'b': '3',
+        'c': '4'
+    }, True),
+    ({
+        'a': '2',
+        'b': '3'
+    }, {
+        'a': '2',
+        'b': '3'
+    }, True),
+    ({
+        'a': 2,
+        'b': 3
+    }, {
+        'a': '2',
+        'b': '3'
+    }, False),
+    ({
+        'redeem_rule_id': 24,
+        'fund_id': 103,
+        'fee_type': "<FeeTypeEnum.redeem: ChoiceTypeIntegerDk(3, 'redeem', '基金赎回')>",
+        'rate': Decimal('0.1'),
+        'fund_code': '000134',
+        'fee_amount': None
+    }, {
+        'id': 578,
+        'fund_id': 103,
+        'fund_code': '000134',
+        'purchase_rule_id': None,
+        'redeem_rule_id': 24,
+        'fee_type': "<FeeTypeEnum.redeem: ChoiceTypeIntegerDk(3, 'redeem', '基金赎回')>",
+        'rate': Decimal('0.10'),
+        'fee_amount': None,
+        'last_modified': datetime.datetime(2022, 3, 1, 10, 29, 54)
+    }, True),
+    ({
+        'a': [2],
+        'b': [3]
+    }, {
+        'a': '2',
+        'b': '3'
+    }, False),
+])
+def test_is_sub_dict(lite_dict, big_dict, expected):
+    assert utils.is_sub_dict(lite_dict, big_dict) == expected
 
 
 def test_today():

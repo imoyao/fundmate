@@ -13,9 +13,9 @@ from sqlalchemy.orm.exc import FlushError
 from xalpha.cons import rget
 
 from backend.fundmate import utils
-from backend.fundmate.data import utils as dt_utils
 from backend.fundmate.data.dkhs import jcb
-from backend.fundmate.data.utils import data_parser
+from backend.fundmate.data.utils import base as dt_utils
+from backend.fundmate.data.utils.base import data_parser
 from backend.fundmate.database import db
 from backend.fundmate.excepts import UnexpectedArgsError
 from backend.fundmate.exts.flask_loguru import logger
@@ -295,7 +295,7 @@ class EastMoney(BaseParse):
         if reg_mat:
             fund_info = reg_mat.groups()[0]
             ct = self.counts(fund_info)
-            logger.info(f'Get {ct} funds from remote……')
+            logger.info(f'Get {ct} funds from east money……')
             # 保存数据
             if save:
                 _ret = self.do_save_action(format_, fund_info)

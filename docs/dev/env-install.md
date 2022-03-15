@@ -49,7 +49,7 @@ v12.2.0
 
 国内镜像加速
 ```shell
-npm config set registry https://registry.npm.taobao.org
+npm config set registry https://registry.npmmirror.com
 ```
 下载 yarn
 ```bash

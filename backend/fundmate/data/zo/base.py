@@ -5,7 +5,7 @@ from typing import Union
 
 from xalpha.cons import rpost_json
 
-from backend.fundmate.data import utils as dt_utils
+from backend.fundmate.data.utils import base as dt_utils
 from backend.fundmate.excepts import FundQueryError
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.fund.models import Fund

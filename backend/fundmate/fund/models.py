@@ -49,7 +49,8 @@ class Fund(PkModel, UpsertMixin):
     [基金代码含义及编制规则 - 知乎](https://zhuanlan.zhihu.com/p/24948157)
     '''
     fund_code = Column(db.String(6), unique=True, comment='基金编码')
-    name = Column(db.String(30), comment='基金名称')
+    name = Column(db.String(30), comment='基金简称')
+    full_name = Column(db.String(40), comment='基金全称')
     '''
     此处标准写法应该使用英文，但是可能导致查询啰嗦，所以使用拼音代替变量，后面变量作为列名自解释
     1. [python - Use alias for column name in SQLAlchemy - Stack Overflow]
@@ -280,34 +281,35 @@ class FundVariety(PkModel, UpsertMixin):
             return _ins.id
 
 
-class InRule(PkModel, UpsertMixin):
+class PurchaseRule(PkModel, UpsertMixin):
     """
     可以直接记录结束点，然后每个出入都有3-4条记录，记录字段：分割点、费率、f_code
     """
-    __table_args__ = {'comment': '申购/认购规则表'}
+    __table_args__ = {'comment': '申购规则表'}
 
-    start_quota = Column(db.Numeric(10, 2), comment='计费开始额度（金额：元）')  # max:10000000.00
-    end_quota = Column(db.Numeric(10, 2), comment='计费结束额度（金额：元）')
+    start_quota = Column(db.Numeric(12, 2), comment='计费开始额度（金额：元）')  # max:百亿
+    end_quota = Column(db.Numeric(12, 2), comment='计费结束额度（金额：元）')
 
     def readable_quota(self, quota: Union[int, float]) -> Union[str, int, float]:
         """
         将float类型配额转为可读字符
         Example:
         ```python
-        In [2]: ir.readable_quota(0)
-        Out[2]: 0
+        >>> ir = PurchaseRule()
+        >>> ir.readable_quota(0)
+         0
 
-        In [3]: ir.readable_quota(100)
-        Out[3]: 100
+        >>> ir.readable_quota(100)
+         100
 
-        In [4]: ir.readable_quota(10000)
-        Out[4]: '1 万'
+        >>> ir.readable_quota(10000)
+        >>> '1 万'
 
-        In [5]: ir.readable_quota(50000000)
-        Out[5]: '5000 万'
+        >>> ir.readable_quota(50000000)
+        '5000 万'
 
-        In [6]: ir.readable_quota(float('inf'))
-        Out[6]: inf
+        >>> ir.readable_quota(float('inf'))
+         inf
         ```
         :param quota:
         :return:
@@ -320,11 +322,11 @@ class InRule(PkModel, UpsertMixin):
             return float(quota) if isinstance(quota, (float, Decimal)) else int(quota)
 
     def __repr__(self):
-        return f'<InRule(start quota:{self.readable_quota(self.start_quota)!r},' \
+        return f'<PurchaseRule(id:{self.id},start quota:{self.readable_quota(self.start_quota)!r},' \
                f'end quota:{self.readable_quota(self.end_quota)!r})> '
 
 
-class OutRule(PkModel, UpsertMixin):
+class RedeemRule(PkModel, UpsertMixin):
     __table_args__ = {'comment': '赎回规则表'}
 
     start_day = Column(db.Integer, comment='计费开始天数')
@@ -332,8 +334,10 @@ class OutRule(PkModel, UpsertMixin):
 
     def __repr__(self):
         if self.end_day is None:
-            self.end_day = float('inf')
-        return f'<OutRule(start day:{self.start_day!r},end day:{self.end_day!r})>'
+            inf_end_day = float('inf')
+        else:
+            inf_end_day = self.end_day
+        return f'<RedeemRule(id:{self.id},start day:{self.start_day!r},end day:{inf_end_day!r})>'
 
 
 class FeeRatio(PkModel, UpsertMixin):
@@ -342,10 +346,17 @@ class FeeRatio(PkModel, UpsertMixin):
     费率和费率规则也是O2M关系（一个费率对应多个买入和卖出规则）
     """
     __table_args__ = {'comment': '费率记录表'}
+    purchase_rule_tb_name = PurchaseRule.table_name()
+    redeem_rule_tb_name = RedeemRule.table_name()
+    fund_tb_name = Fund.table_name()
 
-    fund_id = Column(db.Integer, db.ForeignKey('funds.id'), comment='基金编号ID')
-    in_rule_id = db.Column(db.Integer, db.ForeignKey('in_rule.id'), nullable=True, comment='申购规则ID')
-    out_rule_id = db.Column(db.Integer, db.ForeignKey('out_rule.id'), nullable=True, comment='赎回规则ID')
+    fund_id = Column(db.Integer, db.ForeignKey(f'{fund_tb_name}.id'), comment='基金编号ID')
+    fund_code = Column(db.String(6), comment='基金编码')
+    purchase_rule_id = db.Column(db.Integer,
+                                 db.ForeignKey(f'{purchase_rule_tb_name}.id'),
+                                 nullable=True,
+                                 comment='申购规则ID')
+    redeem_rule_id = db.Column(db.Integer, db.ForeignKey(f'{redeem_rule_tb_name}.id'), nullable=True, comment='赎回规则ID')
     fee_type = Column(IntChoiceDkEnumType(settings.FeeTypeEnum),
                       nullable=False,
                       index=True,
@@ -359,33 +370,31 @@ class FeeRatio(PkModel, UpsertMixin):
                            comment='数据上次更新时间')
 
     def __repr__(self):
-        f = Fund.get_by_id(self.fund_id)
-        self.code = f.fund_code
-        if self.fee_type in ['subscribe', 'purchase']:
-            rule_class = InRule
+        if self.fee_type in [settings.FeeTypeEnum.subscribe, settings.FeeTypeEnum.purchase]:
+            rule_class = PurchaseRule
         else:
-            rule_class = OutRule
+            rule_class = RedeemRule
         rule_inst = rule_class.get_by_id(self.rule_id)
-        return f'<FeeRatio(id:{self.fund_id},code:{self.code!r},type:{self.fee_type!r},{rule_inst!r})>'
+        return f'<FeeRatio(id:{self.id},code:{self.fund_code!r},type:{self.fee_type.display!r},{rule_inst!r})>'
 
     @hybrid_property
     def rule_id(self):
         """
         https://stackoverflow.com/a/60053408/14295718
         """
-        return self.in_rule_id or self.out_rule_id
+        return self.purchase_rule_id or self.redeem_rule_id
 
     @classmethod
-    def get_rules(cls, fund_code: str, op_type: int):
+    def get_rules(cls, fund_code: str, op_type: settings.FeeTypeEnum):
         """
         获取基金对应的rule_id列表
+        update: 按照费率的倒序排序
         """
-        f_id = Fund.filter_by_code(fund_code)
-        rule_item_list = cls.query.filter_by(fund_id=f_id, fee_type=op_type).all()
+        rule_item_list = cls.query.filter_by(fund_code=fund_code, fee_type=op_type).order_by(cls.rate.desc()).all()
         return rule_item_list
 
     @classmethod
-    def buy_info(cls, fund_code: str, op_type: int = 1):
+    def buy_info(cls, fund_code: str, op_type: settings.FeeTypeEnum = settings.FeeTypeEnum.purchase):
         """
         购买费率（包括申购和购买）
         """
@@ -397,10 +406,10 @@ class FeeRatio(PkModel, UpsertMixin):
             rule_fee_amount = None
             if not rule_rate:
                 rule_fee_amount = rule.fee_amount
-            rule_inst = InRule.query.get_by_id(rule_id)
+            rule_inst = PurchaseRule.get_by_id(rule_id)
             if rule_inst:
                 start_quota = rule_inst.start_quota
-                end_quota = rule_inst.start_quota
+                end_quota = rule_inst.end_quota
                 rule_info = {
                     'start_quota': start_quota,
                     'end_quota': end_quota,
@@ -415,13 +424,13 @@ class FeeRatio(PkModel, UpsertMixin):
         """
         赎回费率
         """
-        rule_item_list = cls.get_rules(fund_code, 3)
+        rule_item_list = cls.get_rules(fund_code, settings.FeeTypeEnum.redeem)
         rules = list()
         for rule in rule_item_list:
             rule_id = rule.rule_id
             rule_rate = rule.rate
             rule_fee_amount = None
-            rule_inst = OutRule.query.get_by_id(rule_id)
+            rule_inst = RedeemRule.get_by_id(rule_id)
             if rule_inst:
                 start_day = rule_inst.start_day
                 end_day = rule_inst.end_day
@@ -580,3 +589,42 @@ class FundPortfolioHoldDetail(PkModel):
     fd_code = Column(db.String(6), comment='基金编码')
     adjust_id = Column(db.BigInteger, comment='调仓历史编码')
     portion = Column(db.Numeric(5, 4), comment='持仓占比，如：0.0716')
+
+
+class InvestProduct(PkModel):
+    """
+    理财产品（如各种p2p产品，组合产品等）
+    {
+        "trading_id": "281b3d8bad024b7ea2eeb37bfb7b8a5f",
+        "fd_code": "161005",
+        "fd_name": "富国天惠成长混合（LOF）A",
+        "portion": 0.03,
+        "money": 0,
+        "last_portion": 0.0632,
+        "volume": 0,
+        "percent": "3.0%",
+        "last_percent": "6.32%"
+    }
+    """
+    plt_code = Column(db.String(16), comment='投资平台自定义产品编码')
+    prod_code = Column(db.String(12), comment='本平台规定的唯一编码')
+    # 如C1010422000605，参见 https://www.chinawealth.com.cn/zzlc/jsp/lccp.jsp
+    verified_code = Column(db.String(32), nullable=True, comment='登记编码')
+    prod_name = Column(db.String(255), comment='产品名称')
+    plat_name = Column(db.String(16), nullable=True, comment='产品购买所属平台（可以为空）')
+
+    @classmethod
+    def gen_prod_code(cls) -> Optional[str]:
+        """
+        生成递增8+位识别号
+        :return:
+        """
+        fp_identifier = gen_digit_code(cls.prod_code, settings.INITIAL_INVEST_PRODUCT_CODE_IDENTIFIER, min_len=8)
+        return fp_identifier
+
+    @classmethod
+    def filter_by_plt_code(cls, plat: str, code: str) -> InvestProduct:
+        """获取编码所对应的id
+        """
+        _ins = cls.query.filter_by(plat_name=plat, fund_code=code).one_or_none()
+        return _ins
