@@ -215,27 +215,43 @@ class ZHMgrTypeEnum(BaseTypeEnum):
     def default(cls):
         return cls.personal
 
+    @classmethod
+    def input(cls):
+        """
+        用户请求时需要用到
+        :return:
+        """
+        return [item.dk_name for item in cls]
 
-UN = ChoiceTypeIntegerDk(0, 'un', '未定义')
-QM = ChoiceTypeIntegerDk(1, 'qm', '且慢')
-TT = ChoiceTypeIntegerDk(2, 'tt', '天天基金')
-DJ = ChoiceTypeIntegerDk(3, 'dj', '蛋卷基金')
+
+UNDEFINED_PLT = ChoiceTypeIntegerDk(0, 'un', '未定义')
+QIEMAN = ChoiceTypeIntegerDk(1, 'qm', '且慢')
+TIANTIAN = ChoiceTypeIntegerDk(2, 'tt', '天天基金')
+DANJUAN = ChoiceTypeIntegerDk(3, 'dj', '蛋卷基金')
 OWN = ChoiceTypeIntegerDk(4, 'own', '平台自建')
-HB = ChoiceTypeIntegerDk(5, 'hb', '好买基金')
+HOWBUY = ChoiceTypeIntegerDk(5, 'hb', '好买基金')
 
 
 @enum.unique
 class PlatTypeEnum(BaseTypeEnum):
-    undefined = UN
-    qieman = QM
-    tiantian = TT
-    danjuan = DJ
+    un = UNDEFINED_PLT
+    qm = QIEMAN
+    tt = TIANTIAN
+    dj = DANJUAN
     own = OWN
-    howbuy = HB
+    hb = HOWBUY
 
     @classmethod
     def default(cls):
-        return cls.undefined
+        return cls.un
+
+    @classmethod
+    def input(cls):
+        """
+        用户请求时需要用到
+        :return:
+        """
+        return [item.dk_name for item in cls]
 
 
 UNPLT = ChoiceTypeDk('unknown', '未知平台')

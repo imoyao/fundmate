@@ -292,7 +292,7 @@ class UpdatePortfolio(BasePortfolio):
         # 未定义和平台自有不需要更新
         fpos = db.session.query(FundPortfolio).filter(
             and_(
-                FundPortfolio.platform != PlatTypeEnum.undefined.dk_name,
+                FundPortfolio.platform != PlatTypeEnum.un.dk_name,
                 FundPortfolio.platform != PlatTypeEnum.own.dk_name,
             ))
         # 遍历获取组合是否调仓，如果调仓，则将其信息存入数据库

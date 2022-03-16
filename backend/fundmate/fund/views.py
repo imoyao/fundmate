@@ -45,7 +45,6 @@ from backend.fundmate.fund.schemas import (
 )
 from backend.fundmate.libs.pysnowflake import snowflake
 from backend.fundmate.schema_ext import CustomPaginationSchema
-from backend.fundmate.view_ext import paginate_query
 
 bp = APIBlueprint("fund", __name__, url_prefix="/funds")
 
@@ -398,6 +397,7 @@ def get_portfolios_select_options(query: Optional[Dict]):
     组合下拉框的显示
 
     **注意** 由于组合管理员的特殊设计，所以此处查询管理员类型时需要特殊处理，对于平台和未知组合，一律定义类型为“个人”
+
     :param query:
     :return:
     """
@@ -416,18 +416,19 @@ def get_portfolios_select_options(query: Optional[Dict]):
         fpos = FundPortfolio.query.filter_by(**query).distinct(FundPortfolio.platform, FundPortfolio.risk_type,
                                                                FundPortfolio.mgr_code).all()
         if fpos:
-            own_or_undefined_lists = [settings.PlatTypeEnum.own.dk_value, settings.PlatTypeEnum.undefined.dk_value]
+            own_or_undefined_lists = [settings.PlatTypeEnum.own.dk_name, settings.PlatTypeEnum.un.dk_name]
             if mgr_option:
                 comb_list = list()
                 for comb in fpos:
                     # 第三方平台
-                    if comb.platform not in own_or_undefined_lists:
-                        if comb.manager.mgr_type == mgr_option:
+                    comb_plat_type = comb.platform.dk_name
+                    if comb_plat_type not in own_or_undefined_lists:
+                        comb_mgr_type = comb.manager.mgr_type.dk_name
+                        if comb_mgr_type == mgr_option:
                             comb_list.append(comb)
                     else:  # 自有或未知
-                        mgr_code = comb.mgr_code
-                        fpo_mgr = FundPortfolioMgr.query.filter_by(code=mgr_code).one_or_none()
-                        if fpo_mgr and fpo_mgr.mgr_type == mgr_option:
+                        fpo_mgr_type = settings.ZHMgrTypeEnum.personal.dk_name
+                        if fpo_mgr_type == mgr_option:
                             comb_list.append(comb)
 
                 fpos = comb_list.copy()
@@ -436,14 +437,14 @@ def get_portfolios_select_options(query: Optional[Dict]):
             risk_options = set()
             mgr_options = set()
             for comb_item in fpos:
-                comb_plat_type = comb_item.platform
+                comb_plat_type = comb_item.platform.dk_name
                 plat_options.add(comb_plat_type)
-                risk_options.add(comb_item.risk_type)
+                risk_options.add(comb_item.risk_type.dk_name)
 
                 if comb_plat_type not in own_or_undefined_lists:
-                    mgr_type = comb_item.manager.mgr_type
+                    mgr_type = comb_item.manager.mgr_type.dk_name
                 else:
-                    mgr_type = settings.ZHMgrTypeEnum.personal.dk_value
+                    mgr_type = settings.ZHMgrTypeEnum.personal.dk_name
 
                 mgr_options.add(mgr_type)
 
