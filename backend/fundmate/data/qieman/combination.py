@@ -113,57 +113,59 @@ class Strategy:
         url = f'https://qieman.com/pmdj/v1/pomodels/{code}'
         resp = rget_json(url, headers=self.headers)
         if resp:
-            plan_name = resp.get('poName')
-            plan_code = resp.get('poCode')
-            found_date = resp.get('establishedOn')
-            plan_type = resp.get('risk5Level')
-            plan_desc = resp.get('poDesc')
-            plan_rich_desc = resp.get('poRichDesc')
-            invest_rate_of_return = resp.get('fromSetupReturn')
-            annualized_rate_of_return = resp.get('annualCompoundedReturn')
-            max_drawdown = resp.get('maxDrawdown')
-            sharpe = resp.get('sharpe')
-            volatility = resp.get('volatility')
-            mgr_infos = resp.get('poManagers')[0]
-            mgr_name = ''
-            mgr_avatar = ''
-            mgr_code = ''
-            mgr_desc = ''
-            # is_verified = False
-            if mgr_infos:
-                mgr_name = mgr_infos.get('poManagerName')
-                mgr_avatar = mgr_infos.get('poManagerAvatarUrl')
-                mgr_code = mgr_infos.get('poManagerId')
-                mgr_desc = mgr_infos.get('poManagerDesc')
-                # is_verified = mgr_infos.get('verified')  # 认证用户
-            last_trade_date_fmt = self.parse_adjusted_on(resp)
-            mgr_info = {
-                'plat_code': mgr_code,
-                'name': mgr_name,
-                'mgr_avatar_url': mgr_avatar,
-                'desc': mgr_desc,
-            }
-            indicator_info = {
-                'max_drawdown': max_drawdown,
-                'sharpe': sharpe,
-                'volatility': volatility,
-            }
-            return {
-                'code': plan_code,
-                'name': plan_name,
-                'risk_type': plan_type,
-                'found_date': found_date,
-                'annualized_rate_of_return': annualized_rate_of_return,
-                'invest_rate_of_return': invest_rate_of_return,
-                'desc': plan_desc,
-                'mgr_info': mgr_info,
-                'indicator': indicator_info,
-                'rich_desc': plan_rich_desc,
-                # 'invest_money_type': '',
-                # 'invest_time_type': invest_time_type,
-                'last_adjust_date': last_trade_date_fmt,
-            }
-
+            # 组合信息不存在
+            if resp.get('code', None) != '1600':
+                plan_name = resp.get('poName')
+                plan_code = resp.get('poCode')
+                found_date = resp.get('establishedOn')
+                plan_type = resp.get('risk5Level')
+                plan_desc = resp.get('poDesc')
+                plan_rich_desc = resp.get('poRichDesc')
+                invest_rate_of_return = resp.get('fromSetupReturn')
+                annualized_rate_of_return = resp.get('annualCompoundedReturn')
+                max_drawdown = resp.get('maxDrawdown')
+                sharpe = resp.get('sharpe')
+                volatility = resp.get('volatility')
+                mgr_infos = resp.get('poManagers')[0]
+                mgr_name = ''
+                mgr_avatar = ''
+                mgr_code = ''
+                mgr_desc = ''
+                # is_verified = False
+                if mgr_infos:
+                    mgr_name = mgr_infos.get('poManagerName')
+                    mgr_avatar = mgr_infos.get('poManagerAvatarUrl')
+                    mgr_code = mgr_infos.get('poManagerId')
+                    mgr_desc = mgr_infos.get('poManagerDesc')
+                    # is_verified = mgr_infos.get('verified')  # 认证用户
+                last_trade_date_fmt = self.parse_adjusted_on(resp)
+                mgr_info = {
+                    'plat_code': mgr_code,
+                    'name': mgr_name,
+                    'mgr_avatar_url': mgr_avatar,
+                    'desc': mgr_desc,
+                }
+                indicator_info = {
+                    'max_drawdown': max_drawdown,
+                    'sharpe': sharpe,
+                    'volatility': volatility,
+                }
+                return {
+                    'code': plan_code,
+                    'name': plan_name,
+                    'risk_type': plan_type,
+                    'found_date': found_date,
+                    'annualized_rate_of_return': annualized_rate_of_return,
+                    'invest_rate_of_return': invest_rate_of_return,
+                    'desc': plan_desc,
+                    'mgr_info': mgr_info,
+                    'indicator': indicator_info,
+                    'rich_desc': plan_rich_desc,
+                    # 'invest_money_type': '',
+                    # 'invest_time_type': invest_time_type,
+                    'last_adjust_date': last_trade_date_fmt,
+                }
+            return None
         return resp
 
     def parse_trading_elements(self, trading_elements_list: list, is_df: bool = False) -> Union[List, PdDataFrame]:
