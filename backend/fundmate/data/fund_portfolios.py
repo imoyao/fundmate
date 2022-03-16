@@ -300,44 +300,47 @@ class UpdatePortfolio(BasePortfolio):
             plt_code = po_item.code
             portfolio_code = po_item.portfolio_code
             po_last_adjust_date = po_item.last_adjust_date
-            po_platform = po_item.platform
+            po_platform = po_item.platform.dk_name
             po_obj = self.get_strategy(po_platform)
             last_trade_date_fmt = po_obj.get_last_adjust_date(plt_code)
             if po_last_adjust_date != last_trade_date_fmt:
                 # 调仓详情
                 po_details = po_obj.detail(plt_code)
-                annualized_rate_of_return = po_details.get('annualized_rate_of_return')
-                invest_rate_of_return = po_details.get('invest_rate_of_return')
-                indicator_info = po_details.pop('indicator')
-                if po_platform in ['qm', 'dj']:
-                    risk_type = po_details.get('risk_type')
-                    update_detail = {
-                        'risk_type': risk_type,
-                        'annualized_rate_of_return': annualized_rate_of_return,
-                        'invest_rate_of_return': invest_rate_of_return,
-                        'update_time': datetime.datetime.utcnow(),
-                        'last_adjust_date': last_trade_date_fmt,
-                    }
-                elif po_platform == 'hb':
-                    # 好买基金的风险信息为手动填写，不需要更新
-                    update_detail = {
-                        'annualized_rate_of_return': annualized_rate_of_return,
-                        'invest_rate_of_return': invest_rate_of_return,
-                        'update_time': datetime.datetime.utcnow(),
-                        'last_adjust_date': last_trade_date_fmt,
-                    }
-                # 增加指标信息
-                update_detail.update(indicator_info)
-                # 更新组合基本信息
-                fpo = FundPortfolio.query.filter_by(portfolio_code=portfolio_code).one_or_none()
-                if fpo:
-                    fpo.update(**update_detail)
-                if po_platform == 'qm':
-                    self.update_qieman(plt_code, portfolio_code)
-                elif po_platform == 'dj':
-                    self.update_danjuan(plt_code, portfolio_code)
-                elif po_platform == 'hb':
-                    self.update_howbuy(plt_code, portfolio_code)
+                if po_details:
+                    annualized_rate_of_return = po_details.get('annualized_rate_of_return')
+                    invest_rate_of_return = po_details.get('invest_rate_of_return')
+                    indicator_info = po_details.pop('indicator')
+                    if po_platform in [PlatTypeEnum.qm.dk_name, PlatTypeEnum.dj.dk_name]:
+                        risk_type = po_details.get('risk_type')
+                        update_detail = {
+                            'risk_type': risk_type,
+                            'annualized_rate_of_return': annualized_rate_of_return,
+                            'invest_rate_of_return': invest_rate_of_return,
+                            'update_time': datetime.datetime.utcnow(),
+                            'last_adjust_date': last_trade_date_fmt,
+                        }
+                    elif po_platform == PlatTypeEnum.hb.dk_name:
+                        # 好买基金的风险信息为手动填写，不需要更新
+                        update_detail = {
+                            'annualized_rate_of_return': annualized_rate_of_return,
+                            'invest_rate_of_return': invest_rate_of_return,
+                            'update_time': datetime.datetime.utcnow(),
+                            'last_adjust_date': last_trade_date_fmt,
+                        }
+                    else:
+                        raise NotSupportPlatError(f'暂不支持该平台 {po_platform} 数据更新！')
+                    # 增加指标信息
+                    update_detail.update(indicator_info)
+                    # 更新组合基本信息
+                    fpo = FundPortfolio.query.filter_by(portfolio_code=portfolio_code).one_or_none()
+                    if fpo:
+                        fpo.update(**update_detail)
+                    if po_platform == 'qm':
+                        self.update_qieman(plt_code, portfolio_code)
+                    elif po_platform == 'dj':
+                        self.update_danjuan(plt_code, portfolio_code)
+                    elif po_platform == 'hb':
+                        self.update_howbuy(plt_code, portfolio_code)
 
 
 if __name__ == '__main__':
