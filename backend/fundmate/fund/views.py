@@ -16,7 +16,6 @@ from backend.fundmate.database import db, get_table_name
 from backend.fundmate.errors import CurrentUserInfoError, NotHundredPercentSumPortionError, PatchWithEmptyDataError
 from backend.fundmate.fund.base import FundMiddleWare
 from backend.fundmate.fund.models import (
-    FeeRatio,
     Fund,
     FundCompany,
     FundPortfolio,
@@ -123,7 +122,7 @@ class FundRatioView(MethodView):
         return info
 
 
-@bp.route('/sales/')
+@bp.route('/sale_channels/')
 class FundSalesView(MethodView):
     """
     基金销售渠道
@@ -403,13 +402,13 @@ def get_portfolios_select_options(query: Optional[Dict]):
     :return:
     """
     if not query:
-        plat_options = settings.PLAT_TYPE_DISPLAY
-        risk_options = settings.RISK_TYPE_DISPLAY
-        mgr_options = settings.ZH_MGR_TYPE_DISPLAY
+        plat_options = settings.PlatTypeEnum.names()
+        risk_options = settings.RiskTypeEnum.names()
+        mgr_options = settings.ZHMgrTypeEnum.names()
         return {
-            'plat_options': plat_options.keys(),
-            'risk_options': risk_options.keys(),
-            'mgr_options': mgr_options.keys(),
+            'plat_options': plat_options,
+            'risk_options': risk_options,
+            'mgr_options': mgr_options,
         }
     else:
         mgr_option = query.pop('mgr_type', None)
@@ -417,11 +416,12 @@ def get_portfolios_select_options(query: Optional[Dict]):
         fpos = FundPortfolio.query.filter_by(**query).distinct(FundPortfolio.platform, FundPortfolio.risk_type,
                                                                FundPortfolio.mgr_code).all()
         if fpos:
+            own_or_undefined_lists = [settings.PlatTypeEnum.own.dk_value, settings.PlatTypeEnum.undefined.dk_value]
             if mgr_option:
                 comb_list = list()
                 for comb in fpos:
                     # 第三方平台
-                    if comb.platform not in ['own', 'undefined']:
+                    if comb.platform not in own_or_undefined_lists:
                         if comb.manager.mgr_type == mgr_option:
                             comb_list.append(comb)
                     else:  # 自有或未知
@@ -440,10 +440,10 @@ def get_portfolios_select_options(query: Optional[Dict]):
                 plat_options.add(comb_plat_type)
                 risk_options.add(comb_item.risk_type)
 
-                if comb_plat_type not in ['own', 'undefined']:
+                if comb_plat_type not in own_or_undefined_lists:
                     mgr_type = comb_item.manager.mgr_type
                 else:
-                    mgr_type = 'personal'
+                    mgr_type = settings.ZHMgrTypeEnum.personal.dk_value
 
                 mgr_options.add(mgr_type)
 
