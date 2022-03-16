@@ -296,6 +296,7 @@ class UpdatePortfolio(BasePortfolio):
                 FundPortfolio.platform != PlatTypeEnum.own.dk_name,
             ))
         # 遍历获取组合是否调仓，如果调仓，则将其信息存入数据库
+        # FIXME 只更新当天没有更新的组合，另外可能需要一个可以更新单个组合的接口
         for po_item in fpos:
             plt_code = po_item.code
             portfolio_code = po_item.portfolio_code
