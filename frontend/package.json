@@ -71,7 +71,7 @@
     "@types/node": "^14.14.37",
     "@types/nprogress": "^0.2.0",
     "@types/sortablejs": "^1.10.6",
-    "@types/tinymce": "^4.6.0",
+    "@types/tinymce": "^4.6.5",
     "@types/vue-splitpane": "^1.0.1",
     "@types/vuedraggable": "^2.23.2",
     "@types/webpack-env": "^1.16.0",
