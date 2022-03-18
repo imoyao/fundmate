@@ -47,7 +47,7 @@ cachetools==5.0.0
 xalpha==0.11.6
 
 # 日期解析
-dateparser==1.1.0
+dateparser==1.1.1
 # 非标准json字符解析
 pyjson5==1.6.1
 
