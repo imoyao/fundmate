@@ -74,7 +74,7 @@
     "@types/tinymce": "^4.6.0",
     "@types/vue-splitpane": "^1.0.1",
     "@types/vuedraggable": "^2.23.2",
-    "@types/webpack-env": "^1.16.0",
+    "@types/webpack-env": "^1.16.4",
     "@types/yamljs": "^0.2.31",
     "@typescript-eslint/eslint-plugin": "^4.20.0",
     "@typescript-eslint/parser": "^4.33.0",
