@@ -27,7 +27,7 @@ gunicorn>=19.9.0
 supervisor==4.2.4
 
 # Auth
-Flask-Bcrypt==0.7.1
+Flask-Bcrypt==1.0.1
 flask-buzz==2.0.1
 Flask-HTTPAuth==4.5.0
 Flask-Mail==0.9.1
