@@ -67,3 +67,5 @@ importlib-metadata==4.2.0
 
 # 费率处理区间数据
 portion==2.2.0
+# 更新setuptools 以免遇到安装包时报错
+setuptools>=62.3.2
