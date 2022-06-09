@@ -4,14 +4,16 @@
 """
 类比DRF中的serializer
 """
-from typing import Optional
+from enum import EnumMeta
+from typing import List as ListType
+from typing import Optional, Set, Union
 
 from apiflask import PaginationSchema, Schema
 from apiflask.fields import Boolean, Date, Float, Function, Integer, List, Method, Nested, Number, String
 from apiflask.validators import Equal, Length, OneOf
 
 from backend.fundmate import settings
-from backend.fundmate.fund.models import FundType
+from backend.fundmate.fund.models import Fund, FundType
 from backend.fundmate.libs.convert import none_to_inf, to_percent, with_thousands_separator
 from backend.fundmate.schema_ext import CustomPaginationSchema
 from backend.fundmate.user.models import User
@@ -78,6 +80,41 @@ class FundPortfoliosOutSchema(Schema):
     组合概览信息列表
     """
     portfolios = List(Nested(FundPortfolioOutSchema))
+    pagination = Nested(PaginationSchema)
+
+
+def get_fund_name(fund_code: str) -> Optional[str]:
+    fund = Fund.query.filter_by(fund_code=fund_code).one_or_none()
+    if fund:
+        return fund.name
+
+
+def float_to_percent(portion):
+    return f'{portion * 100:.2f} %'
+
+
+class FundPortfolioAdjustDetailOutSchema(Schema):
+    """
+    组合调仓的持仓信息
+    """
+    fd_code = String()
+    portion = String()
+    fund_name = Function(lambda obj: get_fund_name(obj.fd_code))
+    percent = Function(lambda obj: float_to_percent(obj.portion))
+
+
+class FundPortfolioAdjustHistoryOutSchema(Schema):
+    adjust_id = String()
+    update_date = String(data_key='adjusted_date')
+    desc = String(data_key='comments')
+    details = List(Nested(FundPortfolioAdjustDetailOutSchema))
+
+
+class FundPortfoliosAdjustOutSchema(Schema):
+    """
+    组合调仓信息列表
+    """
+    adjusts = List(Nested(FundPortfolioAdjustHistoryOutSchema))
     pagination = Nested(PaginationSchema)
 
 
@@ -209,11 +246,14 @@ class FundSearchKeySchema(Schema):
 
 
 class FundMgrOutSchema(Schema):
+    """
+    基金经理输出序列化
+    """
     id = Integer()
     name = String()
     mgr_code = String()
-    created_at = Date()
     company = String()
+    funds = List(Nested(FundSampleSchema))
 
 
 class FundCompanyOutSchema(Schema):
@@ -277,7 +317,10 @@ class RedeemInfoSchema(Schema):
     rule_fee_amount = Integer()
 
 
-class PurchaseInfoSchema(Schema):
+class PurchaseInfoOutSchema(Schema):
+    """
+    界面显示时序列化使用
+    """
     start_quota = Function(lambda obj: with_thousands_separator(obj.get('start_quota')))
     end_quota = Function(lambda obj: with_thousands_separator(obj.get('end_quota')))
     rate = Function(lambda obj: to_percent(obj.get('rate')), metadata={'title': '费率', 'description': '实际运算时的费率'})
@@ -285,9 +328,17 @@ class PurchaseInfoSchema(Schema):
     rule_fee_amount = Integer()
 
 
+class PurchaseInfoSchema(PurchaseInfoOutSchema):
+    """
+    实际计算时使用的
+    """
+    start_quota = Function(lambda obj: none_to_inf(obj.get('start_quota')))
+    end_quota = Function(lambda obj: none_to_inf(obj.get('end_quota')))
+
+
 class FundRatioOutSchema(Schema):
     fund_code = String()
-    purchase_info = List(Nested(PurchaseInfoSchema))
+    purchase_info = List(Nested(PurchaseInfoOutSchema))
     redeem_info = List(Nested(RedeemInfoSchema))
 
 
@@ -302,3 +353,24 @@ class MidSaleSchema(Schema):
 
 class FundSaleOutSchema(Schema):
     options = List(Nested(MidSaleSchema))
+
+
+class PortfolioQuerySchema(Schema):
+    platform = String(default=settings.PlatTypeEnum.default(), validate=OneOf(settings.PlatTypeEnum.input()))
+    risk_type = String(default=settings.RiskTypeEnum.default(), validate=OneOf(settings.RiskTypeEnum.input()))
+    mgr_type = String(default=settings.ZHMgrTypeEnum.default(), validate=OneOf(settings.ZHMgrTypeEnum.input()))
+
+
+def get_options(_seq: Union[ListType, Set], enum_class: EnumMeta) -> ListType:
+    options = list()
+    for item in _seq:
+        label = getattr(enum_class, item).label
+        op_item = {'label': label, 'value': item}
+        options.append(op_item)
+    return options
+
+
+class PortfolioQueryOutSchema(Schema):
+    plat_options = Function(lambda obj: get_options(obj.get('plat_options'), settings.PlatTypeEnum))
+    risk_options = Function(lambda obj: get_options(obj.get('risk_options'), settings.RiskTypeEnum))
+    mgr_options = Function(lambda obj: get_options(obj.get('mgr_options'), settings.ZHMgrTypeEnum))

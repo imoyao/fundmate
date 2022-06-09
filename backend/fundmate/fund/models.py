@@ -49,7 +49,8 @@ class Fund(PkModel, UpsertMixin):
     [基金代码含义及编制规则 - 知乎](https://zhuanlan.zhihu.com/p/24948157)
     '''
     fund_code = Column(db.String(6), unique=True, comment='基金编码')
-    name = Column(db.String(30), comment='基金名称')
+    name = Column(db.String(30), comment='基金简称')
+    full_name = Column(db.String(40), comment='基金全称')
     '''
     此处标准写法应该使用英文，但是可能导致查询啰嗦，所以使用拼音代替变量，后面变量作为列名自解释
     1. [python - Use alias for column name in SQLAlchemy - Stack Overflow]
@@ -74,7 +75,7 @@ class Fund(PkModel, UpsertMixin):
     f_type = Column('fund_type_id', db.Integer, db.ForeignKey('fund_type.id'), comment='基金小类编号')
     f_var = Column('fund_variety_id', db.Integer, db.ForeignKey('fund_variety.id'), comment='基金大类编号')
     co_id = Column(db.Integer, db.ForeignKey('fund_company.id'), comment='所属基金公司编号')
-    create_time = Column(db.DateTime, comment='基金创建时间')
+    create_time = Column(db.Date, comment='基金创建时间')
     symbol_prefix = Column(db.Enum(settings.SymbolTypeEnum),
                            nullable=True,
                            default=settings.SymbolTypeEnum.default().dk_value,
@@ -85,7 +86,8 @@ class Fund(PkModel, UpsertMixin):
                         nullable=True,
                         comment=f'风险等级：{settings.RiskTypeEnum.comment()}')
 
-    is_fe_charge_mode = Column(db.Boolean, comment='收费方式（前端/后端）')  #
+    is_fe_charge_mode = Column(db.Boolean, comment='收费方式（前端/后端）')
+    perf_comp_base = Column(db.String(200), comment='业绩比较基准')
     last_modified = Column(db.TIMESTAMP,
                            nullable=False,
                            server_default=db.text('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'),
@@ -108,7 +110,14 @@ class Fund(PkModel, UpsertMixin):
     @classmethod
     def code_by_name(cls, name: str) -> str:
         """根据基金名称获取基金编码"""
-        funds = cls.query.filter(cls.name.ilike(name)).all()
+        fund_inst = cls.query.filter(cls.name == name).first()
+        if fund_inst:
+            return fund_inst.fund_code
+
+    @classmethod
+    def search_name(cls, name: str) -> list:
+        """根据基金名称（可能是全称或者简称）获取基金编码"""
+        funds = cls.query.filter(or_(cls.name == name, cls.full_name.ilike(f'%{name}%'))).all()
         return funds
 
     @classmethod
@@ -130,8 +139,8 @@ class Mgr(PkModel, UpsertMixin):
     name = Column(db.String(30), comment='经理名称')  # 'FAN BING(范冰)' 带英文的字符长度
     company_id = Column(db.Integer, db.ForeignKey('fund_company.id'), comment='所属公司ID')
     work_days = Column(db.Integer, comment='总任职时间')  # TODO: 此处不需要写死，只记录上任日期即可，需要修改字段
-    sum_scale = Column(db.Numeric(8, 2), nullable=True, comment='现管理资产总规模(亿元) ')  # 长度10，精度2
-    best_rt = Column(db.Numeric(7, 2), nullable=True, comment='最佳回报(%) ')  # 长度10，精度2
+    sum_scale = Column(db.Numeric(8, 2), nullable=True, comment='现管理资产总规模(亿元) ')  # 长度8，精度2
+    best_rt = Column(db.Numeric(7, 2), nullable=True, comment='最佳回报(%) ')  # 长度7，精度2
     last_modified = Column(db.TIMESTAMP,
                            nullable=False,
                            server_default=db.text('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'),
@@ -212,6 +221,14 @@ class FundCompany(PkModel, UpsertMixin):
         """获取编码所对应的id
         """
         _ins = cls.query.filter_by(code=code).first()
+        if _ins:
+            return _ins.id
+
+    @classmethod
+    def id_by_name(cls, name: str) -> Union[int, None]:
+        """获取名称为指定分类的编号id
+        """
+        _ins = cls.query.filter_by(name=name).first()
         if _ins:
             return _ins.id
 
@@ -468,6 +485,9 @@ class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
                        default=settings.RiskTypeEnum.default().dk_value,
                        comment=f'风险类型：{settings.RiskTypeEnum.comment()}')
     annualized_rate_of_return = Column(db.Numeric(7, 4), comment='成立以来年化')  # 保留小数点后4位，每天计算净值后更新
+    max_drawdown = Column(db.Numeric(7, 4), comment='最大回撤率')
+    sharpe = Column(db.Numeric(3, 2), comment='夏普率')
+    volatility = Column(db.Numeric(7, 4), comment='波动率')
     invest_rate_of_return = Column(db.Numeric(7, 4), comment='成立以来收益')  # 每天计算净值后更新
     desc = Column(db.String(300), comment='组合描述')
     rich_desc = Column(db.String(1000), comment='组合详细描述')
@@ -552,6 +572,11 @@ class FundPortfolioAdjustHistory(PkModel):
     adjust_id = Column(db.BigInteger, index=True, comment='调仓历史编码')  # 使用雪花算法
     plat_trade_id = Column(db.String(120), comment='平台调仓编码（只做记录区分用，不参与系统计算）')
     desc = Column(db.String(1500), comment='调仓说明')
+    # 符合关联条件的有多条，所以需要使用`uselist=True`
+    details = relationship('FundPortfolioHoldDetail',
+                           uselist=True,
+                           foreign_keys=[adjust_id],
+                           primaryjoin='FundPortfolioHoldDetail.adjust_id == FundPortfolioAdjustHistory.adjust_id')
 
     def __repr__(self):
         return f'组合( {self.portfolio_code!r} ) 调仓时间： {self.update_date!r}，记录编号：{self.adjust_id!r}>'
@@ -572,6 +597,7 @@ class FundPortfolioAdjustHistory(PkModel):
 
 class FundPortfolioHoldDetail(PkModel):
     """
+    TODO: 需要增加环比增长下降标识
     组合持仓明细
     {
         "trading_id": "281b3d8bad024b7ea2eeb37bfb7b8a5f",
@@ -593,24 +619,20 @@ class FundPortfolioHoldDetail(PkModel):
 class InvestProduct(PkModel):
     """
     理财产品（如各种p2p产品，组合产品等）
-    {
-        "trading_id": "281b3d8bad024b7ea2eeb37bfb7b8a5f",
-        "fd_code": "161005",
-        "fd_name": "富国天惠成长混合（LOF）A",
-        "portion": 0.03,
-        "money": 0,
-        "last_portion": 0.0632,
-        "volume": 0,
-        "percent": "3.0%",
-        "last_percent": "6.32%"
-    }
     """
     plt_code = Column(db.String(16), comment='投资平台自定义产品编码')
-    prod_code = Column(db.String(12), comment='本平台规定的唯一编码')
+    prod_code = Column(db.String(12), unique=True, comment='本平台规定的唯一编码')
     # 如C1010422000605，参见 https://www.chinawealth.com.cn/zzlc/jsp/lccp.jsp
     verified_code = Column(db.String(32), nullable=True, comment='登记编码')
     prod_name = Column(db.String(255), comment='产品名称')
-    plat_name = Column(db.String(16), nullable=True, comment='产品购买所属平台（可以为空）')
+    platform = Column(db.Enum(settings.SupportInvestPltEnum),
+                      nullable=True,
+                      default=settings.SupportInvestPltEnum.unknown.dk_value,
+                      comment=f'产品购买所属平台：{settings.SupportInvestPltEnum.comment()}')
+    prod_type = Column(db.Enum(settings.SupportInvestCategoriesEnum),
+                       nullable=True,
+                       default=settings.SupportInvestCategoriesEnum.financial_product.dk_value,
+                       comment=f'产品类型：{settings.SupportInvestCategoriesEnum.comment()}')
 
     @classmethod
     def gen_prod_code(cls) -> Optional[str]:
@@ -622,8 +644,15 @@ class InvestProduct(PkModel):
         return fp_identifier
 
     @classmethod
-    def filter_by_plt_code(cls, plat: str, code: str) -> InvestProduct:
-        """获取编码所对应的id
+    def filter_by_plt_code(cls, plat: str, prod_type: str, code: str) -> InvestProduct:
+        """获取编码所对应的产品
         """
-        _ins = cls.query.filter_by(plat_name=plat, fund_code=code).one_or_none()
+        _ins = cls.query.filter_by(platform=plat, prod_type=prod_type, plt_code=code).one_or_none()
+        return _ins
+
+    @classmethod
+    def filter_by_name(cls, plat: str, prod_type: str, name: str) -> InvestProduct:
+        """获取名称所对应的产品
+        """
+        _ins = cls.query.filter_by(platform=plat, prod_type=prod_type, prod_name=name).one_or_none()
         return _ins
