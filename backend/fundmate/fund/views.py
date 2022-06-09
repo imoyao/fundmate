@@ -3,7 +3,7 @@
 import datetime
 from typing import Dict, Optional
 
-from apiflask import APIBlueprint, abort, doc, input, output, pagination_builder
+from apiflask import APIBlueprint, abort, pagination_builder
 from flask import current_app
 from flask.views import MethodView
 from flask_praetorian import auth_required, current_user
@@ -50,8 +50,8 @@ bp = APIBlueprint("fund", __name__, url_prefix="/funds")
 
 
 @bp.get('/')
-@input(CustomPaginationSchema, 'query')
-@output(FundPaginationOutSchema)
+@bp.input(CustomPaginationSchema, 'query')
+@bp.output(FundPaginationOutSchema)
 def funds(query: dict):
     """
     获取基金列表信息
@@ -69,8 +69,8 @@ def funds(query: dict):
 @bp.route('/companies/')
 class FundCompanyView(MethodView):
 
-    @input(CustomPaginationSchema, 'query')
-    @output(FundCompanyPaginationOutSchema)
+    @bp.input(CustomPaginationSchema, 'query')
+    @bp.output(FundCompanyPaginationOutSchema)
     def get(self, query: dict):
         """
         获取基金公司信息
@@ -89,8 +89,8 @@ class FundMgrView(MethodView):
     获取基金经理信息
     """
 
-    @input(CustomPaginationSchema, 'query')
-    @output(FundMgrPaginationOutSchema)
+    @bp.input(CustomPaginationSchema, 'query')
+    @bp.output(FundMgrPaginationOutSchema)
     def get(self, query: dict = None):
         page = query.get('page')
         per_page = query.get('per_page')
@@ -106,8 +106,8 @@ class FundRatioView(MethodView):
     获取基金费率信息
     """
 
-    @input(FundRatioInSchema, 'query')
-    @output(FundRatioOutSchema)
+    @bp.input(FundRatioInSchema, 'query')
+    @bp.output(FundRatioOutSchema)
     def get(self, data: dict):
         fund_code = data.get('fund_code')
         fmw = FundMiddleWare()
@@ -127,7 +127,7 @@ class FundSalesView(MethodView):
     基金销售渠道
     """
 
-    @output(FundSaleOutSchema)
+    @bp.output(FundSaleOutSchema)
     def get(self):
         """
         获取基金的销售渠道
@@ -151,14 +151,14 @@ class FundDetail(MethodView):
     基金详情
     """
 
-    @output(FundOutSchema)
+    @bp.output(FundOutSchema)
     def get(self, fund_code: str):
         """获取指定基金信息"""
         fund_obj = Fund.filter_by_code(fund_code)
         return fund_obj
 
-    @input(FundInSchema(partial=True))
-    @output(FundOutSchema)
+    @bp.input(FundInSchema(partial=True))
+    @bp.output(FundOutSchema)
     def patch(self, fund_code, data):
         """更新指定基金信息"""
         _user_obj = Fund.filter_by_code(fund_code)
@@ -174,7 +174,7 @@ class FundFavor(MethodView):
     某支基金的关注者
     """
 
-    @output(FundOutSchema)
+    @bp.output(FundOutSchema)
     def get(self, fund_code: str):
         """获取指定基金信息"""
         pass
@@ -186,8 +186,8 @@ class FundCombination(MethodView):
     基金组合
     """
 
-    @input(FundPortfoliosPaginationSchema, 'query')
-    @output(FundPortfoliosOutSchema)
+    @bp.input(FundPortfoliosPaginationSchema, 'query')
+    @bp.output(FundPortfoliosOutSchema)
     def get(self, query):
         """获取组合列表"""
         risk_type = query.get('risk_type')
@@ -202,8 +202,8 @@ class FundCombination(MethodView):
         return {'portfolios': portfolios, 'pagination': pagination_builder(pagination)}
 
     @auth_required
-    @input(FundPortfolioInSchema)
-    @output(FundPortfolioDetailOutSchema, 201)
+    @bp.input(FundPortfolioInSchema)
+    @bp.output(FundPortfolioDetailOutSchema, 201)
     def post(self, data):
         """
         平台用户创建组合
@@ -282,8 +282,8 @@ class CombinationDetail(MethodView):
     """
 
     @auth_required
-    @output(FundPortfolioDetailOutSchema)
-    @doc(summary='单个组合详情概览', description='该接口用于获取特定组合的详情信息')
+    @bp.output(FundPortfolioDetailOutSchema)
+    @bp.doc(summary='单个组合详情概览', description='该接口用于获取特定组合的详情信息')
     def get(self, portfolio_code: str):
         """获取指定基金组合信息"""
         fpo = FundPortfolio.query.filter_by(portfolio_code=portfolio_code).one_or_none()
@@ -292,8 +292,8 @@ class CombinationDetail(MethodView):
         abort(404)
 
     @auth_required
-    @output({}, 204)
-    @doc(summary='删除指定基金组合', description='该接口用于删除特定组合，需要给出组合编码')
+    @bp.output({}, 204)
+    @bp.doc(summary='删除指定基金组合', description='该接口用于删除特定组合，需要给出组合编码')
     def delete(self, portfolio_code: str):
         """
         删除回测组合
@@ -335,9 +335,9 @@ class CombinationDetail(MethodView):
         return ''
 
     @auth_required
-    @input(FundPortfolioPatchInSchema(partial=True))
-    @output(FundPortfolioDetailOutSchema)
-    @doc(summary='部分更新指定基金组合', description='该接口用于更新特定组合（如：名称、风险等级、描述、可见性、投资理念），需要给出组合编码')
+    @bp.input(FundPortfolioPatchInSchema(partial=True))
+    @bp.output(FundPortfolioDetailOutSchema)
+    @bp.doc(summary='部分更新指定基金组合', description='该接口用于更新特定组合（如：名称、风险等级、描述、可见性、投资理念），需要给出组合编码')
     def patch(self, portfolio_code: str, data: Dict):
         """
         更新组合可以更新的字段包括：
@@ -390,8 +390,8 @@ class CombinationDetail(MethodView):
 
 
 @bp.get('/portfolios/options')
-@input(PortfolioQuerySchema, 'query')
-@output(PortfolioQueryOutSchema)
+@bp.input(PortfolioQuerySchema, 'query')
+@bp.output(PortfolioQueryOutSchema)
 def get_portfolios_select_options(query: Optional[Dict]):
     """
     组合下拉框的显示
@@ -464,8 +464,8 @@ class PortfoliosAdjust(MethodView):
     单一组合调仓信息
     """
 
-    @input(CustomPaginationSchema, 'query')
-    @output(FundPortfoliosAdjustOutSchema)
+    @bp.input(CustomPaginationSchema, 'query')
+    @bp.output(FundPortfoliosAdjustOutSchema)
     def get(self, portfolio_code: str, query: dict):
         """获取组合调仓历史"""
         page = query.get('page')

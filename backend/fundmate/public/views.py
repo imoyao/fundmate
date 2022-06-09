@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Public section, including homepage and signup."""
-from apiflask import APIBlueprint, HTTPError, input, output
+from apiflask import APIBlueprint, HTTPError
 from flask import flash, redirect, request, url_for
 from flask.views import MethodView
 
@@ -27,7 +27,6 @@ class Home(MethodView):
 
 
 @bp.route("/logout/")
-# @login_required
 def logout():
     """Logout."""
     # logout_user()
@@ -42,8 +41,8 @@ def about():
 
 
 @bp.get('/thermometers')
-@input(ThermometerInSchema, 'query')
-@output(ThermometerOutSchema)
+@bp.input(ThermometerInSchema, 'query')
+@bp.output(ThermometerOutSchema)
 def thermometer(query_args):
     """
     行情估值信息
@@ -62,8 +61,8 @@ def thermometer(query_args):
 
 
 @bp.get('/search/funds/')
-@input(FundSearchKeySchema, 'query')
-@output(FundSampleSchema(many=True))
+@bp.input(FundSearchKeySchema, 'query')
+@bp.output(FundSampleSchema(many=True))
 def search_fund(search_key):
     """
     通过基金编码，基金名称，基金简拼搜索基金信息
