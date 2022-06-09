@@ -4,22 +4,25 @@
 import json
 import re
 from pathlib import Path
-from typing import Union
+from typing import Dict, Optional, Union
 
+import numpy as np
+import pandas as pd
 import pyjson5
 import requests
 from requests import Response
 from sqlalchemy.orm.exc import FlushError
-from xalpha.cons import rget
+from xalpha.cons import rget, rget_json
 
-from backend.fundmate import utils
-from backend.fundmate.data import utils as dt_utils
+from backend.fundmate import excepts, utils
 from backend.fundmate.data.dkhs import jcb
-from backend.fundmate.data.utils import data_parser
+from backend.fundmate.data.utils import base as dt_utils
+from backend.fundmate.data.utils.base import data_parser
 from backend.fundmate.database import db
 from backend.fundmate.excepts import UnexpectedArgsError
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.fund.models import Fund, FundCompany, FundMgr, FundType, FundVariety, Mgr
+from backend.fundmate.libs import convert
 
 current_path = Path.cwd()  # TODO: 会保存到项目的根目录
 REQUEST_STR = '''Accept: */*
@@ -78,6 +81,49 @@ class EastMoney(BaseParse):
             pages_data.extend(per_page_data)
 
         return pages_data
+
+    def search_fund_by_name(self, fund_name: str) -> Optional[str]:
+        """
+        借助天天基金网搜索接口获取基金编码
+        >>> em = EastMoney()
+        >>> f = '兴全合润'
+        >>> em.search_fund_by_name(f)
+        '163406'
+        >>> a = '南方品质优选灵活配置混合'
+        >>> em.search_fund_by_name(a)
+        '002851'
+        >>> b = '华安策略优选混合'
+        >>> em.search_fund_by_name(b)
+        '040008'
+
+        :param fund_name:
+        :return:
+        """
+        SHORT_JYSLD = '交银施罗德'
+        SHORT_JY = '交银'
+        SHORT_GYRX = '工银瑞信'
+        SHORT_GY = '工银'
+        if fund_name.startswith(SHORT_JYSLD):
+            fund_name = fund_name.replace(SHORT_JYSLD, SHORT_JY)
+        elif fund_name.startswith(SHORT_GYRX):
+            fund_name = fund_name.replace(SHORT_GYRX, SHORT_GY)
+
+        url = f'https://fundsuggest.eastmoney.com/FundSearch/api/FundSearchAPI.ashx?m=1&key={fund_name}'
+        resp = rget_json(url)
+        data = resp.get('Datas')
+        is_query_success = len(data)
+        if is_query_success:
+            if len(data) == 1:
+                fund_info = data[0]
+                fund_code = fund_info.get('CODE')
+                return fund_code
+            else:
+                for fund_info in data:
+                    # TODO: 或许可以将之保存到数据库
+                    other_names = fund_info.get('FundBaseInfo').get('OTHERNAME').split(',')
+                    if fund_name in other_names:
+                        fund_code = fund_info.get('CODE')
+                        return fund_code
 
     @staticmethod
     def remove_specific_str(raw_str: str, replace_str: str) -> Union[float, None]:
@@ -144,7 +190,7 @@ class EastMoney(BaseParse):
         """  # noqa: E501
         for mgr_item in fund_mgr_info:
             mgr_code, mgr_name, cmp_code, cmp_name, mgr_fd, mgr_fn, work_days, \
-                _best_rt, best_fd, _, _sum_scale, _ = mgr_item
+            _best_rt, best_fd, _, _sum_scale, _ = mgr_item
             mgr_fd_list = mgr_fd.split(',')
             mgr_fn_list = mgr_fn.split(',')
             mgr_fd_map = dict(zip(mgr_fd_list, mgr_fn_list))
@@ -171,6 +217,7 @@ class EastMoney(BaseParse):
                 mgr_id = mgr_ins.id
             else:
                 logger.error(f'Cannot find fund manager of code:<{mgr_code}>.')
+                continue
             fund_objs_of_mgr = Mgr.get_by_id(mgr_id).funds
             # 在管基金
             fund_lists_of_mgr = [f.fund_code for f in fund_objs_of_mgr]
@@ -281,6 +328,153 @@ class EastMoney(BaseParse):
                     comp.insert_or_update(query_info, **comp_info)
             return comps
 
+    def set_first_row_to_columns(self, df):
+        arr = df.values
+        df = pd.DataFrame(arr[1:, 1:], index=arr[1:, 0], columns=arr[0, 1:])
+        df.index.name = arr[0, 0]
+        df.reset_index(inplace=True)
+        return df
+
+    def _nan_to_none(self, nan_str: Union[str, float]) -> Optional[str]:
+        if nan_str == 'nan' or nan_str is np.nan:
+            return None
+        return nan_str
+
+    @staticmethod
+    def match_charge_mode(charge_mode_str: str) -> bool:
+        regex = re.compile(r'\d*\w+（(.*)）')
+        reg_mat = regex.match(charge_mode_str)
+        if reg_mat:
+            mode = reg_mat.groups()[0]
+            if mode:
+                return mode == '前端'
+        return True
+
+    def _fund_variety_id(self, fv_name: Optional[str]) -> Optional[int]:
+        """
+        根据名称查询指定的基金大类，如果没有则创建，否则返回id
+        :param fv_name:
+        :return:
+        """
+        fv_name = self._nan_to_none(fv_name)
+        if fv_name is not None:
+            _fv_id = FundVariety.id_by_name(name=fv_name)
+            if not _fv_id:
+                _fv_info = {'name': fv_name}
+                f_tp = FundVariety.create(**_fv_info)
+                _fv_id = f_tp.id
+            return _fv_id
+
+    def _fund_type_id(self, ft_name: Optional[str]) -> Optional[int]:
+        """
+        根据名称查询指定的基金大类，如果没有则创建，否则返回id
+        :param ft_name:
+        :return:
+        """
+        not_nan_ft_name = self._nan_to_none(ft_name)
+        if not_nan_ft_name is not None:
+            _ft_id = FundType.id_by_name(name=not_nan_ft_name)
+            if not _ft_id:
+                _ft_info = {'name': not_nan_ft_name}
+                f_tp = FundType.create(**_ft_info)
+                _ft_id = f_tp.id
+            return _ft_id
+
+    def fund_base_info(self, fund_code: str) -> Optional[Dict]:
+        """
+        更新基金指定字段：
+        全称、名称、成立日期、申购收费方式
+        :param fund_code:
+        :return:
+        """
+
+        def _parse_date(date_str):
+            """
+            存在被解析字符串为None的情况
+            :param date_str:
+            :return:
+            """
+            try:
+                return str(convert.try_parse_date(date_str))
+            except excepts.ParseError:
+                return None
+
+        raw_columns = [
+            '基金全称', '基金代码', '发行日期', '资产规模', '基金管理人', '基金经理人', '管理费率', '销售服务费率', '业绩比较基准', '基金简称', '基金类型', '成立日期/规模',
+            '份额规模', '基金托管人', '成立来分红', '托管费率', '最高认购费率', '跟踪标的'
+        ]
+        repr_cols = [
+            'full_name', 'fund_code_with_end_style', 'issuing_date', 'assert_scale', 'company', 'mgr', 'mgr_fee_rate',
+            'sale_serve_rate', 'perf_comp_base', 'name', 'f_var_type_name', 'found_date_with_scale', 'share_scale',
+            'trustee', 'bound_times', 'trustee_rate', 'top_subscribe_rate', 'track_mark'
+        ]
+        rename_dict = dict(zip(raw_columns, repr_cols))
+        # 避免卡死： ref: https://segmentfault.com/q/1010000021004098
+        url = f'http://fundf10.eastmoney.com/jbgk_{fund_code}.html'
+        html_text = requests.get(url, timeout=5).text
+        tb = pd.read_html(html_text)
+        raw_info = tb[1]
+        '''
+        将：
+                 0                                                  1        2                           3
+         0    基金全称                                  工银瑞信新兴制造混合型证券投资基金     基金简称                   工银新兴制造混合C
+         1    基金代码                                         009708（前端）     基金类型                      混合型-偏股
+         2    发行日期                                        2020年07月31日  成立日期/规模       2020年08月20日 / 3.547亿份
+         3    资产规模                           17.68亿元（截止至：2021年12月31日）     份额规模  10.5677亿份（截止至：2021年12月31日）
+         4   基金管理人                                             工银瑞信基金    基金托管人                        交通银行
+         5   基金经理人                                                张宇帆    成立来分红               每份累计0.00元（0次）
+         6    管理费率                                          1.50%（每年）     托管费率                   0.25%（每年）
+         7  销售服务费率                                          0.40%（每年）   最高认购费率                   0.00%（前端）
+         8  最高申购费率                                          0.00%（前端）   最高赎回费率                   1.50%（前端）
+         9  业绩比较基准  申银万国制造业指数收益率×65%+中证港股通综合指数收益率×5%+中债综合财富(总值)指数收...     跟踪标的                    该基金无跟踪标的
+        '''
+        if not raw_info.empty:
+            if raw_info.shape[1] == 4:
+                left_tb = raw_info[[0, 1]].T
+                right_tb = raw_info[[2, 3]].T
+                left_new_col_df = self.set_first_row_to_columns(left_tb)
+                right_new_col_df = self.set_first_row_to_columns(right_tb)
+                raw_result_df = left_new_col_df.join(right_new_col_df)
+                '''
+                转换为df：
+                ```
+                基金全称        基金代码         发行日期                      资产规模   基金管理人 基金经理人       管理费率  ...              
+                  成立日期/规模                        份额规模 基金托管人          成立来分红       托管费率     最高认购费率      跟踪标的 
+                  0  
+                  工银瑞信物流产业股票型证券投资基金  001718（前端）  2015年12月21日  55.31亿元（截止至：2021年12月31日）  工银瑞信基金   张宇帆  1.50%（每年）  ...  
+                  2016年03月01日 / 2.504亿份  13.2686亿份（截止至：2021年12月31日）  交通银行  每份累计0.00元（0次）  0.25%（每年）  1.20%（前端）  
+                  该基金无跟踪标的 
+                ```
+
+                '''
+                raw_result_df.rename(columns=rename_dict, inplace=True)
+                useful_df = raw_result_df[[
+                    'full_name', 'fund_code_with_end_style', 'name', 'perf_comp_base', 'found_date_with_scale',
+                    'f_var_type_name', 'company'
+                ]]
+                # 替换np.nan
+                useful_df.replace({np.nan: None}, inplace=True)
+                # 一列拆分为两列
+                useful_df[['create_time', 'start_scale']] = useful_df['found_date_with_scale'].str.split('/',
+                                                                                                         2,
+                                                                                                         expand=True)
+                useful_df[['f_var_name',
+                           'f_type_name']] = useful_df.apply(lambda row: self._split_fvt(row['f_var_type_name']),
+                                                             axis=1,
+                                                             result_type='expand')
+
+                useful_df['create_time'] = useful_df.create_time.apply(lambda x: _parse_date(x))
+                useful_df['is_fe_charge_mode'] = useful_df.fund_code_with_end_style.apply(
+                    lambda x: self.match_charge_mode(x))
+                useful_df['f_var'] = useful_df.f_var_name.apply(lambda x: self._fund_variety_id(x))
+                useful_df['f_type'] = useful_df.f_type_name.apply(lambda x: self._fund_type_id(x))
+                useful_df['co_id'] = useful_df.company.apply(lambda company_name: FundCompany.id_by_name(company_name))
+                useful_df.drop(
+                    columns=['start_scale', 'found_date_with_scale', 'fund_code_with_end_style', 'f_var_type_name'],
+                    inplace=True)
+                fund_info = useful_df.to_dict(orient='records')
+                return fund_info[0]
+
     def fund(self, save: bool = False, format_: str = 'sql') -> Union[str, None]:
         """
         获取基金信息
@@ -295,7 +489,7 @@ class EastMoney(BaseParse):
         if reg_mat:
             fund_info = reg_mat.groups()[0]
             ct = self.counts(fund_info)
-            logger.info(f'Get {ct} funds from remote……')
+            logger.info(f'Get {ct} funds from east money……')
             # 保存数据
             if save:
                 _ret = self.do_save_action(format_, fund_info)
@@ -361,17 +555,27 @@ class EastMoney(BaseParse):
         return _count
 
     @staticmethod
-    def _split_fvt(f_vt_str: str) -> tuple:
+    def _split_fvt(f_vt_str: Optional[str]) -> tuple:
         """
+        >>> em = EastMoney()
         >>> avt = '债券型-混合债'
-        >>> avt.split('-')
-        ['债券型', '混合债']
+        >>> em._split_fvt(avt)
+        ('债券型', '混合债')
+        >>> b = '股票型'
+        >>> em._split_fvt(b)
+        ('股票型', None)
+        >>> c = None
+        >>> em._split_fvt(c)
+        (None, None)
         """
         _ft = None
-        if '-' in f_vt_str:
-            _fv, _ft = f_vt_str.split('-')
+        if f_vt_str is not None:
+            if '-' in f_vt_str:
+                _fv, _ft = f_vt_str.split('-')
+            else:
+                _fv = f_vt_str
         else:
-            _fv = f_vt_str
+            _fv = None
         return _fv, _ft
 
     def save_fund_to_db(self, _funds: str) -> int:  # noqa: C901
@@ -401,10 +605,7 @@ class EastMoney(BaseParse):
                 if fv in cache_fv_map:
                     _fv_id = cache_fv_map.get(fv)
                 else:
-                    _fv_id = FundVariety.id_by_name(name=fv)
-                    if not _fv_id:
-                        f_tp = FundVariety.create(**_fv_info)
-                        _fv_id = f_tp.id
+                    _fv_id = self._fund_variety_id(fv)
                     cache_fv_map[fv] = _fv_id
 
                 # 基金小类处理
@@ -414,12 +615,7 @@ class EastMoney(BaseParse):
                     if ft in type_map:
                         _ft_id = type_map.get(ft)
                     else:
-                        _ft_id = FundType.id_by_name(ft)
-                        # 父类关联写入
-                        _ft_info['var_id'] = _fv_id
-                        if not _ft_id:
-                            f_tp = FundType.create(**_ft_info)
-                            _ft_id = f_tp.id
+                        _ft_id = self._fund_type_id(ft)
                         type_map[ft] = _ft_id
                 try:
                     symbol = jcb.search_symbol(code)

@@ -4,7 +4,7 @@
 """
 类比DRF中的serializer
 """
-from typing import Dict
+from enum import EnumMeta
 from typing import List as ListType
 from typing import Optional, Set, Union
 
@@ -13,7 +13,8 @@ from apiflask.fields import Boolean, Date, Float, Function, Integer, List, Metho
 from apiflask.validators import Equal, Length, OneOf
 
 from backend.fundmate import settings
-from backend.fundmate.fund.models import Fund, FundPortfolioMgr, FundType
+from backend.fundmate.fund.models import Fund, FundType
+from backend.fundmate.libs.convert import none_to_inf, to_percent, with_thousands_separator
 from backend.fundmate.schema_ext import CustomPaginationSchema
 from backend.fundmate.user.models import User
 
@@ -24,14 +25,19 @@ def display_fund_type(fd_type_id: int) -> str:
         return ft.name
 
 
+class FundInSchema(Schema):
+    code = String(validate=Length(5, 25))
+    name = String(validate=Length(6, 40))
+
+
 class FundOutSchema(Schema):
     """
     基金概览信息
     """
     id = Integer()
+    fund_code = String()
     name = String()
     mgr = String()
-    fund_code = String()
     created_at = Date()
     company = String()
     f_type = String(data_key='fund_type')
@@ -49,48 +55,24 @@ class FundPortfolioMgrOutSchema(Schema):
     desc = String()
 
 
-def get_risk_level(risk_type: str) -> str:
-    return settings.RISK_TYPE.get(risk_type)
-
-
-def get_platform(platform: str) -> str:
-    return settings.PLAT_TYPE_DISPLAY.get(platform)
-
-
-def display_risk(risk_type: str) -> str:
-    return settings.RISK_TYPE_DISPLAY.get(risk_type)
-
-
-def get_manager_name(obj):
-    """
-    获取组合管理人信息
-    该接口和model类中的`managers`属性方法相同
-    :return:
-    """
-    if obj.platform not in ['own', 'undefined']:
-        f_mgr = FundPortfolioMgr.query.filter_by(code=obj.mgr_code).one_or_none()
-        return f_mgr.name
-    else:
-        mgr_id = int(obj.mgr_code)
-        user = User.query.filter_by(id=mgr_id).one_or_none()
-        return user.name or user.username
-
-
 class FundPortfolioOutSchema(Schema):
     """
     单个组合概览信息
     """
     portfolio_code = String(data_key='code')
     name = String(metadata={'title': '组合名称', 'description': '组合名称'})
-    risk_level = Function(lambda obj: get_risk_level(obj.risk_type))
-    risk_display = Function(lambda obj: display_risk(obj.risk_type))
-    platform = String(metadata={'title': '组合所属平台', 'description': '具体请查看`platform_name`字段'})
-    platform_name = Function(lambda obj: get_platform(obj.platform))
-    manager = Function(lambda obj: get_manager_name(obj), data_key='mgr_name')
+    risk_level = Function(lambda obj: obj.risk_type.dk_value)
+    risk_display = Function(lambda obj: obj.risk_type.dk_display)
+    platform = Function(lambda obj: obj.platform.dk_name,
+                        metadata={
+                            'title': '组合所属平台',
+                            'description': f'{settings.PlatTypeEnum.comment()}'
+                        })
+    platform_name = Function(lambda obj: obj.platform.dk_display)
 
 
 class FundPortfoliosPaginationSchema(CustomPaginationSchema):
-    risk_type = String(default=None, validate=OneOf(settings.RISK_TYPE.keys()))
+    risk_type = String(default=None, validate=OneOf(settings.RiskTypeEnum.input()))
 
 
 class FundPortfoliosOutSchema(Schema):
@@ -158,9 +140,14 @@ class CompositionsSchema(Schema):
 class FundPortfolioInSchema(Schema):
     name = String(required=True, validate=Length(2, 10))
     is_visible = Boolean(default=True)
-    mgr_code = String()  # TODO: 应该在函数内部获取
-    platform = String(load_default='own', validate=Equal('own'))  # 用户创建只能是own,不然会导致后续出错
-    risk_type = String(default=None, validate=OneOf(settings.RISK_TYPE.keys()))
+    platform = String(load_default=settings.PlatTypeEnum.own.dk_name,
+                      validate=Equal(settings.PlatTypeEnum.own.dk_name))  # 用户创建只能是own,不然会导致后续出错
+    risk_type = String(default=None,
+                       validate=OneOf(settings.RiskTypeEnum.input()),
+                       metadata={
+                           'title': '风险类型',
+                           'description': f'{settings.RiskTypeEnum.comment()}'
+                       })
     desc = String(validate=Length(0, 300))
     rich_desc = String(validate=Length(0, 1000))
     compositions = List(Nested(CompositionsSchema))
@@ -169,7 +156,7 @@ class FundPortfolioInSchema(Schema):
 class FundPortfolioPatchInSchema(Schema):
     name = String(required=True, validate=Length(2, 10))
     is_visible = Boolean(default=True)
-    risk_type = String(default=None, validate=OneOf(settings.RISK_TYPE.keys()))
+    risk_type = String(default=None, validate=OneOf(settings.RiskTypeEnum.input()))
     desc = String(validate=Length(0, 300))
     rich_desc = String(validate=Length(0, 1000))
     adjust_comment = String(validate=Length(0, 300),
@@ -193,7 +180,7 @@ def internal_fpo_manager(obj):
     :param obj:
     :return:
     """
-    if not obj.manager and obj.platform == 'own':
+    if not obj.manager and obj.platform == settings.PlatTypeEnum.own.dk_name:
         mgr_id = int(obj.mgr_code)
         user = User.query.filter_by(id=mgr_id).one_or_none()
         # [python - Is it possible to use a schema for a marshmallow custom field? - Stack Overflow](
@@ -216,11 +203,11 @@ class FundPortfolioDetailOutSchema(Schema):
     portfolio_code = String(data_key='code')
     code = String(data_key='plat_code')
     found_date = Date(data_key='create_date')
-    risk_type = String(data_key='risk_str')
-    risk_display = Function(lambda obj: display_risk(obj.risk_type))
+    risk_type = String()
+    risk_display = Function(lambda obj: obj.risk_type.dk_display)
     platform = String(metadata={'title': '所属平台', 'description': '具体请查看`platform_name`字段'})
-    platform_name = Function(lambda obj: get_platform(obj.platform))
-    risk_level = Function(lambda obj: get_risk_level(obj.risk_type))
+    platform_name = Function(lambda obj: obj.platform.dk_display)
+    risk_level = Function(lambda obj: obj.risk_type.dk_value)
     invest_rate_of_return = Number(metadata={'title': '投资回报率', 'description': ''})
     annualized_rate_of_return = Number(metadata={'title': '年化回报率', 'description': ''})
     desc = String()
@@ -274,14 +261,19 @@ class FundCompanyOutSchema(Schema):
     code = String()
     name = String()
     full_name = String()
-    tx_eval = Integer()
+    tx_eval = Integer(metadata={'title': '天相评级', 'description': '五星制，星级越高代表公司越好'})
     create_date = Date()
-    scale = Number()
+    scale = Number(metadata={'title': '资产规模', 'description': '管理资产规模(亿元)'})
 
 
-class FundInSchema(Schema):
-    code = String(validate=Length(5, 25))
-    name = String(validate=Length(6, 40))
+class FundCompanyPaginationOutSchema(Schema):
+    companies = List(Nested(FundCompanyOutSchema))
+    pagination = Nested(PaginationSchema)
+
+
+class FundMgrPaginationOutSchema(Schema):
+    managers = List(Nested(FundMgrOutSchema))
+    pagination = Nested(PaginationSchema)
 
 
 class SaleSchema(Schema):
@@ -298,6 +290,62 @@ class SaleSchema(Schema):
     name = Method('as_name')
 
 
+def math_rate(rate_val: Optional[float]) -> float:
+    """
+    界面显示费率需要加百分号
+
+    >>> x = 1.2
+    >>> to_percent(x)
+    0.012
+    >>> x = None
+    >>> to_percent(x)
+    0.00
+
+    :param rate_val:
+    :return:
+    """
+    if rate_val is None:
+        rate_val = 0.00
+    return float(rate_val) / 100
+
+
+class RedeemInfoSchema(Schema):
+    start_day = Integer()
+    end_day = Function(lambda obj: none_to_inf(obj.get('end_day')))
+    rate = Function(lambda obj: to_percent(obj.get('rate')), metadata={'title': '费率', 'description': '实际运算时的费率'})
+    real_rate = Function(lambda obj: math_rate(obj.get('rate')), metadata={'title': '费率', 'description': '实际运算时的费率'})
+    rule_fee_amount = Integer()
+
+
+class PurchaseInfoOutSchema(Schema):
+    """
+    界面显示时序列化使用
+    """
+    start_quota = Function(lambda obj: with_thousands_separator(obj.get('start_quota')))
+    end_quota = Function(lambda obj: with_thousands_separator(obj.get('end_quota')))
+    rate = Function(lambda obj: to_percent(obj.get('rate')), metadata={'title': '费率', 'description': '实际运算时的费率'})
+    real_rate = Function(lambda obj: math_rate(obj.get('rate')), metadata={'title': '费率', 'description': '实际运算时的费率'})
+    rule_fee_amount = Integer()
+
+
+class PurchaseInfoSchema(PurchaseInfoOutSchema):
+    """
+    实际计算时使用的
+    """
+    start_quota = Function(lambda obj: none_to_inf(obj.get('start_quota')))
+    end_quota = Function(lambda obj: none_to_inf(obj.get('end_quota')))
+
+
+class FundRatioOutSchema(Schema):
+    fund_code = String()
+    purchase_info = List(Nested(PurchaseInfoOutSchema))
+    redeem_info = List(Nested(RedeemInfoSchema))
+
+
+class FundRatioInSchema(Schema):
+    fund_code = String()
+
+
 class MidSaleSchema(Schema):
     label = String()
     options = List(Nested(SaleSchema))
@@ -308,21 +356,21 @@ class FundSaleOutSchema(Schema):
 
 
 class PortfolioQuerySchema(Schema):
-    platform = String(default=None, validate=OneOf(settings.PLAT_TYPE.keys()))
-    risk_type = String(default=None, validate=OneOf(settings.RISK_TYPE.keys()))
-    mgr_type = String(default=None, validate=OneOf(settings.ZH_MGR_TYPE.keys()))
+    platform = String(default=settings.PlatTypeEnum.default(), validate=OneOf(settings.PlatTypeEnum.input()))
+    risk_type = String(default=settings.RiskTypeEnum.default(), validate=OneOf(settings.RiskTypeEnum.input()))
+    mgr_type = String(default=settings.ZHMgrTypeEnum.default(), validate=OneOf(settings.ZHMgrTypeEnum.input()))
 
 
-def get_options(_seq: Union[ListType, Set], display_maps: Dict) -> ListType:
+def get_options(_seq: Union[ListType, Set], enum_class: EnumMeta) -> ListType:
     options = list()
     for item in _seq:
-        label = display_maps.get(item)
+        label = getattr(enum_class, item).label
         op_item = {'label': label, 'value': item}
         options.append(op_item)
     return options
 
 
 class PortfolioQueryOutSchema(Schema):
-    plat_options = Function(lambda obj: get_options(obj.get('plat_options'), settings.PLAT_TYPE_DISPLAY))
-    risk_options = Function(lambda obj: get_options(obj.get('risk_options'), settings.RISK_TYPE_DISPLAY))
-    mgr_options = Function(lambda obj: get_options(obj.get('mgr_options'), settings.ZH_MGR_TYPE_DISPLAY))
+    plat_options = Function(lambda obj: get_options(obj.get('plat_options'), settings.PlatTypeEnum))
+    risk_options = Function(lambda obj: get_options(obj.get('risk_options'), settings.RiskTypeEnum))
+    mgr_options = Function(lambda obj: get_options(obj.get('mgr_options'), settings.ZHMgrTypeEnum))

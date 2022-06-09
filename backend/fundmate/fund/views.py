@@ -6,13 +6,15 @@ from typing import Dict, Optional
 from apiflask import APIBlueprint, abort, doc, input, output, pagination_builder
 from flask import current_app
 from flask.views import MethodView
+from flask_praetorian import auth_required, current_user
 
 import pandas as pd
 from sqlalchemy import create_engine
 
 from backend.fundmate import settings, utils
 from backend.fundmate.database import db, get_table_name
-from backend.fundmate.errors import NotHundredPercentSumPortion, PatchWithEmptyData
+from backend.fundmate.errors import CurrentUserInfoError, NotHundredPercentSumPortionError, PatchWithEmptyDataError
+from backend.fundmate.fund.base import FundMiddleWare
 from backend.fundmate.fund.models import (
     Fund,
     FundCompany,
@@ -24,9 +26,9 @@ from backend.fundmate.fund.models import (
     Mgr,
 )
 from backend.fundmate.fund.schemas import (
-    FundCompanyOutSchema,
+    FundCompanyPaginationOutSchema,
     FundInSchema,
-    FundMgrOutSchema,
+    FundMgrPaginationOutSchema,
     FundOutSchema,
     FundPaginationOutSchema,
     FundPortfolioDetailOutSchema,
@@ -35,35 +37,32 @@ from backend.fundmate.fund.schemas import (
     FundPortfoliosAdjustOutSchema,
     FundPortfoliosOutSchema,
     FundPortfoliosPaginationSchema,
+    FundRatioInSchema,
+    FundRatioOutSchema,
     FundSaleOutSchema,
     PortfolioQueryOutSchema,
     PortfolioQuerySchema,
 )
 from backend.fundmate.libs.pysnowflake import snowflake
 from backend.fundmate.schema_ext import CustomPaginationSchema
-from backend.fundmate.view_ext import paginate_query
 
 bp = APIBlueprint("fund", __name__, url_prefix="/funds")
 
 
 @bp.get('/')
 @input(CustomPaginationSchema, 'query')
-# @input(EmptySchema, 'query')
-@output(FundPaginationOutSchema)  # 注意此处不适用`many=True`
-# @output(FundSampleSchema(many=True))
-def funds(query):
+@output(FundPaginationOutSchema)
+def funds(query: dict):
     """
-    获取基金信息
+    获取基金列表信息
     :param query:
     :return:
     """
-    if query:
-        pagination = paginate_query(Fund, query)
-        _items = pagination.items
-        ret = {'funds': _items, 'pagination': pagination_builder(pagination)}
-    else:
-        # FIXME: not work
-        ret = Fund.query.order_by(Fund.fund_code.desc()).all()
+    page = query.get('page')
+    per_page = query.get('per_page')
+    pagination = Fund.query.paginate(page=page, per_page=per_page)
+    _items = pagination.items
+    ret = {'funds': _items, 'pagination': pagination_builder(pagination)}
     return ret
 
 
@@ -71,28 +70,55 @@ def funds(query):
 class FundCompanyView(MethodView):
 
     @input(CustomPaginationSchema, 'query')
-    @output(FundCompanyOutSchema(many=True))
-    def get(self, query: dict = None):
+    @output(FundCompanyPaginationOutSchema)
+    def get(self, query: dict):
         """
         获取基金公司信息
         """
-        ret = paginate_query(FundCompany, query)
+        page = query.get('page')
+        per_page = query.get('per_page')
+        pagination = FundCompany.query.paginate(page=page, per_page=per_page)
+        _items = pagination.items
+        ret = {'companies': _items, 'pagination': pagination_builder(pagination)}
         return ret
 
 
 @bp.route('/managers/')
 class FundMgrView(MethodView):
+    """
+    获取基金经理信息
+    """
 
     @input(CustomPaginationSchema, 'query')
-    @output(FundMgrOutSchema)
+    @output(FundMgrPaginationOutSchema)
     def get(self, query: dict = None):
-        """
-        获取基金经理列表
-        :param query: 
-        :return:
-        """
-        ret = paginate_query(Mgr, query)
+        page = query.get('page')
+        per_page = query.get('per_page')
+        pagination = Mgr.query.paginate(page=page, per_page=per_page)
+        _items = pagination.items
+        ret = {'managers': _items, 'pagination': pagination_builder(pagination)}
         return ret
+
+
+@bp.route('/ratios')
+class FundRatioView(MethodView):
+    """
+    获取基金费率信息
+    """
+
+    @input(FundRatioInSchema, 'query')
+    @output(FundRatioOutSchema)
+    def get(self, data: dict):
+        fund_code = data.get('fund_code')
+        fmw = FundMiddleWare()
+        purchase_info = fmw.raw_purchase_info(fund_code)
+        redeem_info = fmw.raw_redeem_info(fund_code)
+        info = {
+            'fund_code': fund_code,
+            'purchase_info': purchase_info,
+            'redeem_info': redeem_info,
+        }
+        return info
 
 
 @bp.route('/sale_channels/')
@@ -128,14 +154,8 @@ class FundDetail(MethodView):
     @output(FundOutSchema)
     def get(self, fund_code: str):
         """获取指定基金信息"""
-        user_obj = Fund.filter_by_code(fund_code)
-        return user_obj
-
-    # def post(self):
-    #     """
-    #     新建基金
-    #     """
-    #     return {'message': 'Hello,User!'}
+        fund_obj = Fund.filter_by_code(fund_code)
+        return fund_obj
 
     @input(FundInSchema(partial=True))
     @output(FundOutSchema)
@@ -144,8 +164,8 @@ class FundDetail(MethodView):
         _user_obj = Fund.filter_by_code(fund_code)
         if _user_obj:
             abort(404)
-        user = Fund.save(data)
-        return user
+        fund_obj = Fund.save(data)
+        return fund_obj
 
 
 @bp.route('/<string:fund_code>/followers')
@@ -181,6 +201,7 @@ class FundCombination(MethodView):
         portfolios = pagination.items
         return {'portfolios': portfolios, 'pagination': pagination_builder(pagination)}
 
+    @auth_required
     @input(FundPortfolioInSchema)
     @output(FundPortfolioDetailOutSchema, 201)
     def post(self, data):
@@ -200,9 +221,13 @@ class FundCombination(MethodView):
             comp_df['portion'] = comp_df.portion.apply(lambda x: x / 100)
             total = comp_df['portion'].sum()
             if total != 1.0:
-                raise NotHundredPercentSumPortion
+                raise NotHundredPercentSumPortionError
 
+            user = current_user()
+            if not user:
+                raise CurrentUserInfoError
             portfolio_code = FundPortfolio.gen_portfolio_code()
+            data['mgr_code'] = user.id
             data['portfolio_code'] = portfolio_code
             update_time = datetime.datetime.now()
             last_adjust_date = utils.today()
@@ -256,6 +281,7 @@ class CombinationDetail(MethodView):
     单个基金组合详情
     """
 
+    @auth_required
     @output(FundPortfolioDetailOutSchema)
     @doc(summary='单个组合详情概览', description='该接口用于获取特定组合的详情信息')
     def get(self, portfolio_code: str):
@@ -265,12 +291,18 @@ class CombinationDetail(MethodView):
             return fpo
         abort(404)
 
-    # TODO: 需要进行用户鉴权
+    @auth_required
     @output({}, 204)
     @doc(summary='删除指定基金组合', description='该接口用于删除特定组合，需要给出组合编码')
     def delete(self, portfolio_code: str):
         """
         删除回测组合
+
+        # FIXME:
+        1. 必须是经过认证的用户
+        2. 是否为操作者本人？如果是才可以删除，否则报错403
+        3. 如果不是，操作者是否为系统管理员？如果是，且为自有组合，允许删除，否则报错不允许删除外部组合
+
         """
         # 注意：删除组合时，必须删除历史持仓信息和调仓信息
         fpo_adjust_history = FundPortfolioAdjustHistory.query.filter_by(portfolio_code=portfolio_code)
@@ -302,6 +334,7 @@ class CombinationDetail(MethodView):
         db.session.commit()
         return ''
 
+    @auth_required
     @input(FundPortfolioPatchInSchema(partial=True))
     @output(FundPortfolioDetailOutSchema)
     @doc(summary='部分更新指定基金组合', description='该接口用于更新特定组合（如：名称、风险等级、描述、可见性、投资理念），需要给出组合编码')
@@ -318,7 +351,7 @@ class CombinationDetail(MethodView):
             abort(404)
 
         if not data:
-            raise PatchWithEmptyData
+            raise PatchWithEmptyDataError
 
         update_time = datetime.datetime.now()
         last_adjust_date = utils.today()
@@ -340,7 +373,7 @@ class CombinationDetail(MethodView):
             comp_df['portion'] = comp_df.portion.apply(lambda x: x / 100)
             total = comp_df['portion'].sum()
             if total != 1.0:
-                raise NotHundredPercentSumPortion
+                raise NotHundredPercentSumPortionError
 
             data['synchronize_session'] = False
             # 调仓说明
@@ -364,17 +397,18 @@ def get_portfolios_select_options(query: Optional[Dict]):
     组合下拉框的显示
 
     **注意** 由于组合管理员的特殊设计，所以此处查询管理员类型时需要特殊处理，对于平台和未知组合，一律定义类型为“个人”
+
     :param query:
     :return:
     """
     if not query:
-        plat_options = settings.PLAT_TYPE_DISPLAY
-        risk_options = settings.RISK_TYPE_DISPLAY
-        mgr_options = settings.ZH_MGR_TYPE_DISPLAY
+        plat_options = settings.PlatTypeEnum.names()
+        risk_options = settings.RiskTypeEnum.names()
+        mgr_options = settings.ZHMgrTypeEnum.names()
         return {
-            'plat_options': plat_options.keys(),
-            'risk_options': risk_options.keys(),
-            'mgr_options': mgr_options.keys(),
+            'plat_options': plat_options,
+            'risk_options': risk_options,
+            'mgr_options': mgr_options,
         }
     else:
         mgr_option = query.pop('mgr_type', None)
@@ -382,17 +416,19 @@ def get_portfolios_select_options(query: Optional[Dict]):
         fpos = FundPortfolio.query.filter_by(**query).distinct(FundPortfolio.platform, FundPortfolio.risk_type,
                                                                FundPortfolio.mgr_code).all()
         if fpos:
+            own_or_undefined_lists = [settings.PlatTypeEnum.own.dk_name, settings.PlatTypeEnum.un.dk_name]
             if mgr_option:
                 comb_list = list()
                 for comb in fpos:
                     # 第三方平台
-                    if comb.platform not in ['own', 'undefined']:
-                        if comb.manager.mgr_type == mgr_option:
+                    comb_plat_type = comb.platform.dk_name
+                    if comb_plat_type not in own_or_undefined_lists:
+                        comb_mgr_type = comb.manager.mgr_type.dk_name
+                        if comb_mgr_type == mgr_option:
                             comb_list.append(comb)
                     else:  # 自有或未知
-                        mgr_code = comb.mgr_code
-                        fpo_mgr = FundPortfolioMgr.query.filter_by(code=mgr_code).one_or_none()
-                        if fpo_mgr and fpo_mgr.mgr_type == mgr_option:
+                        fpo_mgr_type = settings.ZHMgrTypeEnum.personal.dk_name
+                        if fpo_mgr_type == mgr_option:
                             comb_list.append(comb)
 
                 fpos = comb_list.copy()
@@ -401,14 +437,14 @@ def get_portfolios_select_options(query: Optional[Dict]):
             risk_options = set()
             mgr_options = set()
             for comb_item in fpos:
-                comb_plat_type = comb_item.platform
+                comb_plat_type = comb_item.platform.dk_name
                 plat_options.add(comb_plat_type)
-                risk_options.add(comb_item.risk_type)
+                risk_options.add(comb_item.risk_type.dk_name)
 
-                if comb_plat_type not in ['own', 'undefined']:
-                    mgr_type = comb_item.manager.mgr_type
+                if comb_plat_type not in own_or_undefined_lists:
+                    mgr_type = comb_item.manager.mgr_type.dk_name
                 else:
-                    mgr_type = 'personal'
+                    mgr_type = settings.ZHMgrTypeEnum.personal.dk_name
 
                 mgr_options.add(mgr_type)
 

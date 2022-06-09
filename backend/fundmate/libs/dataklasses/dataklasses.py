@@ -1,0 +1,206 @@
+"""dataklasses.py
+
+    https://github.com/dabeaz/dataklasses
+
+Author: David Beazley (@dabeaz).
+        http://www.dabeaz.com
+
+Modified By: David Lai (@davidlatwe)
+
+    https://github.com/davidlatwe/dataklasses (fork)
+
+Copyright (C) 2021-2022.
+
+Permission is granted to use, copy, and modify this code in any
+manner as long as this copyright message and disclaimer remain in
+the source code.  There is no warranty.  Try to use the code for the
+greater good.
+
+"""
+
+__all__ = ['dataklass']
+
+import sys
+from functools import lru_cache, reduce
+
+
+def codegen(func):
+
+    @lru_cache()
+    def make_func_code(numfields):
+        names = [f'_{n}' for n in range(numfields)]
+        d = dict()
+        exec(func(names), globals(), d)
+        return d.popitem()[1]
+
+    return make_func_code
+
+
+# Following code object replace backport implementation is referenced
+# from https://github.com/HypothesisWorks/hypothesis/pull/1944
+# specifically, commit: 8f47297fa2e19c426a42b06bb5f8bf1406b8f0f3
+_CODE_FIELD_ORDER = [
+    "co_argcount",
+    "co_kwonlyargcount",
+    "co_nlocals",
+    "co_stacksize",
+    "co_flags",
+    "co_code",
+    "co_consts",
+    "co_names",
+    "co_varnames",
+    "co_filename",
+    "co_name",
+    "co_firstlineno",
+    "co_lnotab",
+    "co_freevars",
+    "co_cellvars",
+]
+if sys.version_info >= (3, 8, 0):
+    # PEP 570 added "positional only arguments"
+    _CODE_FIELD_ORDER.insert(1, "co_posonlyargcount")
+
+
+def code_replace(code, **kwargs):
+    """Python 3.8 CodeType.replace backport
+
+    Related links:
+    https://docs.python.org/3/library/types.html#types.CodeType.replace
+    https://docs.python.org/3/whatsnew/3.8.html#other-language-changes
+    https://bugs.python.org/issue37032
+
+    Implementation reference:
+    https://github.com/pganssle/hypothesis/blob/ffcec4f/hypothesis-python/src/hypothesis/internal/compat.py#L400-L413
+
+    """
+    unpacked = [getattr(code, name) for name in _CODE_FIELD_ORDER]
+    for k, v in kwargs.items():
+        unpacked[_CODE_FIELD_ORDER.index(k)] = v
+    return type(code)(*unpacked)
+
+
+def patch_args_and_attributes(func, fields, defaults, start=0):
+    new_func = type(func)(code_replace(
+        func.__code__,
+        co_names=(*func.__code__.co_names[:start], *fields),
+        co_varnames=('self', *fields),
+    ), func.__globals__)
+    if defaults:
+        new_func.__defaults__ = defaults
+    return new_func
+
+
+def patch_attributes(func, fields, start=0):
+    return type(func)(code_replace(func.__code__, co_names=(*func.__code__.co_names[:start], *fields)),
+                      func.__globals__)
+
+
+def all_hints(cls):
+    return reduce(lambda x, y: {**getattr(y, '__annotations__', {}), **x}, cls.__mro__, {})
+
+
+@codegen
+def make__init__(fields):
+    code = 'def __init__(self, ' + ','.join(fields) + '):\n'
+    return code + '\n'.join(f' self.{name} = {name}\n' for name in fields)
+
+
+@codegen
+def make__repr__(fields):
+    return 'def __repr__(self):\n' \
+           ' return f"{type(self).__name__}(' + \
+           ', '.join('{self.' + name + '!r}' for name in fields) + ')"\n'
+
+
+@codegen
+def make__eq__(fields):
+    selfvals = ','.join(f'self.{name}' for name in fields)
+    othervals = ','.join(f'other.{name}' for name in fields)
+    return f"""def __eq__(self, other):
+    if self.__class__ is other.__class__:
+        return ({selfvals},) == ({othervals},)
+    else:
+        return NotImplemented
+    """
+
+
+@codegen
+def make__iter__(fields):
+    return 'def __iter__(self):\n' + '\n'.join(f'   yield self.{name}' for name in fields)
+
+
+@codegen
+def make__hash__(fields):
+    self_tuple = '(' + ','.join(f'self.{name}' for name in fields) + ',)'
+    return 'def __hash__(self):\n' \
+           f'    return hash({self_tuple})\n'
+
+
+def dataklass(cls):
+    """A different spin on dataclasses.
+
+    Example:
+        >>> @dataklass
+        ... class Coordinates:
+        ...     x: int
+        ...     y: int = 6
+        >>>
+        >>> a = Coordinates(2, 3)
+        >>> b = Coordinates(2, 3)
+        >>> assert a == b
+        >>>
+        >>> Coordinates(5)
+        Coordinates(5, 6)
+        >>> Coordinates(8, 9)
+        Coordinates(8, 9)
+        >>> Coordinates(y=8, x=9)
+        Coordinates(9, 8)
+
+    :param cls:
+    :return:
+    """
+    fields = all_hints(cls)
+    nfields = len(fields)
+    keywords = [k for k in fields.keys() if hasattr(cls, k)]
+    defaults = tuple(getattr(cls, k) for k in keywords)
+    clsdict = vars(cls)
+    if '__init__' not in clsdict:
+        cls.__init__ = patch_args_and_attributes(make__init__(nfields), fields, defaults)
+    if '__repr__' not in clsdict:
+        cls.__repr__ = patch_attributes(make__repr__(nfields), fields, 2)
+    if '__eq__' not in clsdict:
+        cls.__eq__ = patch_attributes(make__eq__(nfields), fields, 1)
+    # if '__iter__' not in clsdict:
+    #   cls.__iter__ = patch_attributes(make__iter__(nfields), fields)
+    # if '__hash__' not in clsdict:
+    #   cls.__hash__ = patch_attributes(make__hash__(nfields), fields, 1)
+    cls.__match_args__ = tuple(fields)
+    return cls
+
+
+# Example use
+if __name__ == '__main__':
+    import doctest
+    doctest.testmod(optionflags=doctest.FAIL_FAST)
+
+    @dataklass
+    class Coordinates:
+        x: int
+        y: int
+
+    a = Coordinates(2, 3)
+    b = Coordinates(2, 4)
+    c = Coordinates(2, 3)
+    assert str(a) == "Coordinates(2, 3)"
+    assert repr(a) == "Coordinates(2, 3)"
+    assert a.x == 2
+    assert a.y == 3
+    assert a != b
+    assert a == c
+    if '__iter__' in vars(Coordinates):
+        assert list(a) == [2, 3]
+    if '__hash__' in vars(Coordinates):
+        coords = set()
+        coords.add(a)
+        assert a in coords
+        assert b not in coords

@@ -126,7 +126,7 @@
     ├── lib
     ├── outcome                      # 数据成果整理子项目
     │   └── mysnowflake.py       # 雪花id生成
-    └── utils.py                 # 一些工具函数，比如登录，设置cookies等
+    └── base.py                 # 一些工具函数，比如登录，设置cookies等
         ├── __init__.py
         ├── cookies.py
         ├── file_op.py

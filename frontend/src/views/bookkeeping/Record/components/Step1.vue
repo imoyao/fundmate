@@ -28,21 +28,33 @@
               </el-select>
             </el-col>
           </el-form-item>
-          <el-form-item label="确认日期" prop="pDateTime">
+          <el-form-item label="买入日期" prop="pDate">
             <el-col>
               <el-date-picker
                 class="select-box"
-                v-model="form.pDateTime"
-                type="datetime"
-                placeholder="选择日期时间（请注意确认15:00之前还是之后）"
+                v-model="form.pDate"
+                type="date"
+                placeholder="选择日期（请注意在下方确认操作时间15:00之前还是之后）"
                 align="right"
                 :picker-options="pickerOptions">
               </el-date-picker>
             </el-col>
           </el-form-item>
-          <el-form-item label="申购基金" prop="fundId">
+          <el-form-item label="申购时间" prop="is15OClock">
+            <el-switch
+              style="display: block;margin-top: 7px;"
+              v-model="is15OClock"
+              active-color="#13ce66"
+              inactive-color="#ff4949"
+              active-text="15:00之后"
+              inactive-text="15:00之前"
+              :active-value="1"
+              :inactive-value="0">
+            </el-switch>
+          </el-form-item>
+          <el-form-item label="基金" prop="fundCode">
             <el-col>
-              <el-select v-model="form.fundId"
+              <el-select v-model="form.fundCode"
                          filterable
                          class="select-box"
                          placeholder="请选择/输入购买基金（名称、拼音、代码）"
@@ -65,31 +77,39 @@
             </el-col>
           </el-form-item>
 
-          <el-form-item label="份额" prop="price">
+          <el-form-item label="购买金额" prop="purchaseAmount">
             <el-col>
-              <el-input v-model="form.price"></el-input>
+              <el-input v-model="form.purchaseAmount" placeholder="请输入交易金额"></el-input>
             </el-col>
           </el-form-item>
           <el-form-item label="手续费计费方式" prop="chargeType">
             <el-col>
               <el-switch
-                style="display: block; margin-top: 8px;"
-                v-model="pType"
+                style="display: block; margin-top: 7px;"
+                v-model="form.isFeeRatio"
                 active-color="#13ce66"
                 inactive-color="#ff4949"
-                active-text="费率（%）"
-                inactive-text="费用（元）">
+                active-text="费用（元）"
+                inactive-text="费率（%）"
+                @change=changeFeeType($event)
+                :active-value="1"
+                :inactive-value="0">
               </el-switch>
             </el-col>
           </el-form-item>
           <!--   TODO：直接在label前面加一个:label=变量名就能实现数据绑定-->
-          <el-form-item label="费率" prop="price">
+          <el-form-item v-if=!isFeeRatio label="费用" prop="tradeFee">
             <el-col>
-              <el-input v-model="form.percent"></el-input>
+              <el-input v-model="form.tradeFee" placeholder="请输入手续费用，如果该笔操作还未确认，请点击上方按钮切换到费率选项"></el-input>
+            </el-col>
+          </el-form-item>
+          <el-form-item v-if=isFeeRatio label="费率" prop="tradeRatio">
+            <el-col>
+              <el-input v-model="form.tradeRatio" placeholder="请输入手续费率，如：1.5；如果已知操作手续费，可点击上方按钮切换到费用选项"></el-input>
             </el-col>
           </el-form-item>
 
-          <el-form-item label="投资心情">
+          <el-form-item label="投资手记">
             <el-col>
               <el-input type="textarea" v-model="form.desc"></el-input>
             </el-col>
@@ -127,8 +147,8 @@
           <el-form-item label="收款账户" prop="gatheringAccount">
             <el-input v-model="form.gatheringAccount"></el-input>
           </el-form-item>
-          <el-form-item label="收款人姓名" prop="fundId">
-            <el-input v-model="form.fundId"></el-input>
+          <el-form-item label="收款人姓名" prop="fundCode">
+            <el-input v-model="form.fundCode"></el-input>
           </el-form-item>
           <el-form-item label="转账金额" prop="price">
             <el-input v-model="form.price"></el-input>
@@ -165,8 +185,8 @@
           <el-form-item label="收款账户" prop="gatheringAccount">
             <el-input v-model="form.gatheringAccount"></el-input>
           </el-form-item>
-          <el-form-item label="收款人姓名" prop="fundId">
-            <el-input v-model="form.fundId"></el-input>
+          <el-form-item label="收款人姓名" prop="fundCode">
+            <el-input v-model="form.fundCode"></el-input>
           </el-form-item>
           <el-form-item label="转账金额" prop="price">
             <el-input v-model="form.price"></el-input>
@@ -212,17 +232,19 @@ export default {
       fundSearchLoading: false,
       pType: '',
       fundOptions: [],
-      pDateTime: '',
+      pDate: '',
+      is15OClock: true,
       activeName: 'first',
+      isFeeRatio: true,
       // 用户已有账户
       userAccounts: [{
-        value: '支付宝',
+        value: '10000',
         label: '支付宝'
       }, {
-        value: '理财通',
+        value: '11000',
         label: '理财通'
       }, {
-        value: '天天基金',
+        value: '12000',
         label: '天天基金'
       }],
       fundInfos: [{
@@ -236,7 +258,7 @@ export default {
         }]
       }, {
         // TODO: 懒加载、去重用户已买
-        label: '全部基金',
+        label: '自选基金',
         options: [
           {
             fCode: '110011',
@@ -254,31 +276,42 @@ export default {
       rules: {},
       purchaseForm: {
         accountName: '理财通',
-        pDateTime: '',
+        pDate: '',
         gatheringAccount: '',
-        fundId: '',
-        price: '10000',
+        fundCode: '',
+        purchaseAmount: '',
         date: '',
         time: '',
+        isFeeRatio: this.isFeeRatio,
+        tradeFee: '',
+        tradeRatio: '',
         chargeType: ''
       },
       purchaseRules: {
         accountName: [
           { required: true, message: '请选择/输入账户信息', trigger: 'blur' }
         ],
-        pDateTime: [
-          { required: true, message: '请选择/输入成交时间', trigger: 'blur' }
+        pDate: [
+          { required: true, message: '请选择/输入成交日期', trigger: 'blur' }
         ],
         gatheringAccount: [
           { required: true, message: '请输入收款账户', trigger: 'blur' },
           { type: 'email', message: '账户名应为邮箱格式', trigger: 'blur' }
         ],
-        fundId: [
+        fundCode: [
           { required: true, message: '请选择/输入购买基金', trigger: 'blur' }
         ],
-        price: [
+        purchaseAmount: [
           { required: true, message: '请输入转账金额', trigger: 'blur' },
           { pattern: /^(\d+)((?:\.\d+)?)$/, message: '请输入合法金额数字' }
+        ],
+        tradeFee: [
+          { required: true, message: '请输入手续费', trigger: 'blur' },
+          { pattern: /^(\d+)((?:\.\d+)?)$/, message: '请输入合法数字' }
+        ],
+        tradeRatio: [
+          { required: true, max: 1.5, message: '请输入手续费率', trigger: 'blur' },
+          { pattern: /^(\d+)((?:\.\d+)?)$/, message: '请输入合法数字' }
         ]
       }
     }
@@ -311,10 +344,21 @@ export default {
     handleClick(tab, event) {
       console.log(tab, event)
     },
+    changeFeeType(inputVal) {
+      console.log(inputVal)
+      if (inputVal === 1) {
+        this.isFeeRatio = false
+        console.log('--------')
+      } else {
+        this.isFeeRatio = true
+        console.log('000000000')
+      }
+    },
     handleSubmit() {
       this.$refs.form.validate((valid) => {
         if (valid) {
-          this.$emit('change-step', 2, this.form)
+          // 默认用户提交即为检查过的，否则操作太繁琐
+          this.$emit('change-step', 3, this.form)
         }
       })
     }

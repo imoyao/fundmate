@@ -1,16 +1,19 @@
 # -*- coding: utf-8 -*-
-"""Database module, including the SQLAlchemy database object and DB-related utilities."""
+"""Database module, including the SQLAlchemy database object and DB-related utilities.
+
+"""
 import random
 from datetime import datetime
 from typing import Optional, Union
 
 from apiflask import pagination_builder
 
-import sqlalchemy.types as types
+from sqlalchemy import inspect
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.sql import func
 
+from backend.fundmate import utils
 from backend.fundmate.compat import basestring
 from backend.fundmate.excepts import UniqueInstanceError
 from backend.fundmate.extensions import db
@@ -28,11 +31,8 @@ class CRUDMixin(object):
     @classmethod
     def create(cls, **kwargs):
         """Create a new record and save it the database."""
-        commit = True
-        if kwargs.get('synchronize_session'):
-            commit = kwargs.pop('synchronize_session')
+        commit = kwargs.pop('synchronize_session', True)
         instance = cls(**kwargs)
-
         instance.save(commit=commit)
         return instance
 
@@ -120,22 +120,36 @@ class UpsertMixin(CRUDMixin):
         if is_inst_exists:
             # 允许多个查询条件 TODO: 如何写使之可以使用比较运算符 [python - sqlalchemy dynamic filtering - Stack Overflow](
             #  https://stackoverflow.com/questions/41305129/sqlalchemy-dynamic-filtering/41309069#41309069)
-
             result = cls.query.filter_by(**unique_query_arg).all()
 
             if len(result) == 1:
                 inst = result[0]
-                inst.update(kwargs)
-                db.session.commit()
-                if do_log_flag:
-                    logger.success(f'{inst} has been UPDATED successful.')
+                # 结果转换为dict,ref: https://stackoverflow.com/a/1960546/14295718
+                try:
+                    inst_dict = {col.name: getattr(inst, col.name) for col in cls.__table__.columns}
+                except AttributeError:
+                    '''
+                    When the sqlalchemy ORM class attributes are different from database columns, ref:
+                    https://stackoverflow.com/a/27948279/14295718
+                    当设计数据库的ORM时，如果我们的类属性和数据库的列名不同时，如何获取类的属性
+                    '''
+                    inst_dict = {col[0]: getattr(inst, col[0]) for col in inspect(cls).column_attrs.items()}
+
+                if not utils.is_sub_dict(kwargs, inst_dict):
+                    inst.update(kwargs)
+                    db.session.commit()
+                    if do_log_flag:
+                        logger.success(f'The instance: {inst} has been UPDATED successful.')
+                else:
+                    if do_log_flag:
+                        logger.info(f'The instance: {inst} do not need update because it is sub dict of {kwargs}.')
             else:
                 raise UniqueInstanceError(f'The query result:{result} get the count of instance more than 1.')
 
         else:
             inst = cls.create(**kwargs)
             if do_log_flag:
-                logger.success(f'{inst} has been CREATED successful.')
+                logger.success(f'The {inst} has been CREATED successful.')
         return inst
 
 
@@ -144,9 +158,9 @@ class Model(CRUDMixin, db.Model):
 
     __abstract__ = True
 
-    def to_dict(self):
-        columns = self.__table__.columns.keys()
-        return {key: getattr(self, key) for key in columns}
+    # def to_dict(self):
+    #     columns = self.__table__.columns.keys()
+    #     return {key: getattr(self, key) for key in columns}
 
 
 class PkModel(Model):
@@ -154,6 +168,14 @@ class PkModel(Model):
 
     __abstract__ = True
     id = Column(db.Integer, primary_key=True)
+
+    @classmethod
+    def table_name(cls):
+        """
+        返回表名称
+        :return:
+        """
+        return cls.__table__.name
 
     # def __repr__(self) -> str:
     #     return self._repr(id=self.id)
@@ -231,164 +253,6 @@ def reference_col(tablename: str,
         nullable=nullable,
         **column_kwargs,
     )
-
-
-class BaseChoice(types.TypeDecorator):
-    """
-    https://github.com/flask-admin/flask-admin/issues/1134#issuecomment-361821787
-    用法：
-    ---
-    ## A
-    TYPES = [
-        (u'admin', u'Admin'),
-        (u'regular-user', u'Regular user')
-    ]
-
-    filed::
-        type = db.Column(db.ChoiceType(length=xx, choices=TYPES))
-
-    user = User(type=u'admin')
-    user.type  # Choice(code='admin', value=u'Admin')
-
-    ## B
-    import enum
-
-    class UserType(enum.Enum):
-        admin = 1
-        regular = 2
-
-    type = sa.Column(ChoiceType(UserType, impl=sa.Integer()))
-
-
-    user = User(type=1)
-    user.type  # <UserType.admin: 1>
-
-    ## C
-    from enum import Enum
-    from babel import lazy_gettext as _
-
-
-    class UserType(Enum):
-        admin = 1
-        regular = 2
-
-
-    UserType.admin.label = _(u'Admin')
-    UserType.regular.label = _(u'Regular user')
-
-    type = sa.Column(ChoiceType(UserType, impl=sa.Integer()))
-
-
-    user = User(type=UserType.admin)
-    user.type  # <UserType.admin: 1>
-
-    print(user.type.label)  # u'Admin'
-    ---
-    参考:
-    [Data types — SQLAlchemy-Utils 0.37.8 documentation]
-    (https://sqlalchemy-utils.readthedocs.io/en/latest/data_types.html#module-sqlalchemy_utils.types.choice)
-
-    refs:
-    [Custom Types — SQLAlchemy 1.4 Documentation](https://docs.sqlalchemy.org/en/14/core/custom_types.html)
-
-    [python - SQLAlchemy - How to make "django choices" using SQLAlchemy? - Stack Overflow](
-    https://stackoverflow.com/questions/6262943/sqlalchemy-how-to-make-django-choices-using-sqlalchemy)
-
-    [How to Create Django Like Choices Field in Flask SQLAlchemy | by Erika Dike | The Andela Way | Medium](
-    https://medium.com/the-andela-way/how-to-create-django-like-choices-field-in-flask-sqlalchemy-1ca0e3a3af9d)
-
-    [python - Best way to do enum in Sqlalchemy? - Stack Overflow](
-    https://stackoverflow.com/questions/2676133/best-way-to-do-enum-in-sqlalchemy/2676213)
-
-    [zzzeek : The Enum Recipe](https://techspot.zzzeek.org/2011/01/14/the-enum-recipe/)
-    """
-    ''':type bool
-    SAWarning: TypeDecorator ChoiceTypeInteger() will not produce a cache key because the ``cache_ok`` flag is not 
-    set to True.  Set this flag to True if this type object's state is safe to use in a cache key, 
-    or False to disable this warning.
-    '''
-    cache_ok = False
-
-    def process_bind_param(self, value, dialect):
-        if value in self.choices_rev:
-            return self.choices_rev[value]
-        if value in self.choices:
-            return value
-        raise KeyError(f"Value not found in choices: {value}")
-
-    def process_result_value(self, value, dialect):
-        return self.choices[value]
-
-
-class ChoiceTypeInteger(BaseChoice):
-    """
-    适用于key为int的
-    """
-    impl = types.Integer
-
-    def __init__(self, choices: Union[list, tuple, dict], **kw):
-        # 传的是int类型，则需要检查是否key为int,是才可以继续
-        is_all_key_int = all([isinstance(i, int) for i in choices.keys()])
-        if not is_all_key_int:
-            raise KeyError("Key should be integer.")
-        if len(choices) == 0:
-            raise ValueError("No choices provided!")
-
-        if isinstance(choices, list) or isinstance(choices, tuple):
-            if isinstance(choices[0], str):
-                choices = [(s, s) for s in choices]
-            self.choices = dict(choices)
-        elif isinstance(choices, dict):
-            self.choices = choices
-        num_choices = len(self.choices)
-        if num_choices != len(set(self.choices.keys())):
-            raise KeyError("Choice keys must be unique")
-        if num_choices != len(set(self.choices.values())):
-            raise ValueError("Choice values must be unique")
-        self.choices_rev = key2val(self.choices)
-        super().__init__(**kw)
-
-
-class ChoiceType(BaseChoice):
-    """
-    适用于key为string的情况
-    """
-    '''
-    String 报错： `sqlalchemy.exc.CompileError: VARCHAR requires a length on dialect mysql`
-    `ChoiceType` 接受关键字参数`length`来自定义字符长度
-    '''
-    impl = types.String(60)
-
-    def __init__(self, choices: Union[list, tuple, dict], **kw):
-        if len(choices) == 0:
-            raise ValueError("No choices provided!")
-
-        if isinstance(choices, list) or isinstance(choices, tuple):
-            if isinstance(choices[0], str):
-                choices = [(s, s) for s in choices]
-            self.choices = dict(choices)
-        elif isinstance(choices, dict):
-            self.choices = choices
-        num_choices = len(self.choices)
-        if num_choices != len(set(self.choices.keys())):
-            raise KeyError("Choice keys must be unique")
-        if num_choices != len(set(self.choices.values())):
-            raise ValueError("Choice values must be unique")
-        self.choices_rev = key2val(self.choices)
-        super().__init__(**kw)
-
-    def process_result_value(self, value, dialect):
-        """
-        key是str的直接返回即可
-        :param value:
-        :param dialect:
-        :return:
-        """
-        return value
-
-
-def key2val(unique_dict: dict) -> dict:
-    return {v: k for k, v in unique_dict.items()}
 
 
 def get_table_name(model_cls_name):

@@ -21,6 +21,13 @@ class CalError(FmException):
     pass
 
 
+class NotSupportError(FmException):
+    """
+    暂不支持处理
+    """
+    pass
+
+
 class UniqueInstanceError(FmException):
     """
     该操作必须保证查询结果唯一性
@@ -88,6 +95,13 @@ class ParseError(CalError):
         return self.msg
 
 
+class IsClosedDurationError(CalError):
+    """
+    封闭期基金数据无法解析
+    """
+    pass
+
+
 class CrawlerException(FmException):
     """
     爬虫类的异常
@@ -111,5 +125,13 @@ class NotSupportPlatError(CrawlerException):
 
 class FundQueryError(FmException):
     """基金信息查询出错
+    """
+    pass
+
+
+class ImproperlyConfigured(FmException):
+    """
+    SQLAlchemy-Utils is improperly configured; normally due to usage of
+    a utility that depends on a missing library.
     """
     pass

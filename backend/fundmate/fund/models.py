@@ -10,16 +10,14 @@ from sqlalchemy import func, or_
 from sqlalchemy.ext.hybrid import hybrid_property
 
 from backend.fundmate import settings
+from backend.fundmate.custom_sqltypes import IntChoiceDkEnumType
 from backend.fundmate.database import (
-    ChoiceType,
-    ChoiceTypeInteger,
     Column,
     CreateDateModel,
     PkModel,
     UpsertMixin,
     db,
     gen_digit_code,
-    key2val,
     reference_col,
     relationship,
 )
@@ -51,7 +49,8 @@ class Fund(PkModel, UpsertMixin):
     [基金代码含义及编制规则 - 知乎](https://zhuanlan.zhihu.com/p/24948157)
     '''
     fund_code = Column(db.String(6), unique=True, comment='基金编码')
-    name = Column(db.String(30), comment='基金名称')
+    name = Column(db.String(30), comment='基金简称')
+    full_name = Column(db.String(40), comment='基金全称')
     '''
     此处标准写法应该使用英文，但是可能导致查询啰嗦，所以使用拼音代替变量，后面变量作为列名自解释
     1. [python - Use alias for column name in SQLAlchemy - Stack Overflow]
@@ -76,16 +75,19 @@ class Fund(PkModel, UpsertMixin):
     f_type = Column('fund_type_id', db.Integer, db.ForeignKey('fund_type.id'), comment='基金小类编号')
     f_var = Column('fund_variety_id', db.Integer, db.ForeignKey('fund_variety.id'), comment='基金大类编号')
     co_id = Column(db.Integer, db.ForeignKey('fund_company.id'), comment='所属基金公司编号')
-    create_time = Column(db.DateTime, comment='基金创建时间')
-    symbol_prefix = Column(ChoiceType(choices=settings.SYMBOL_TYPE),
+    create_time = Column(db.Date, comment='基金创建时间')
+    symbol_prefix = Column(db.Enum(settings.SymbolTypeEnum),
                            nullable=True,
-                           default='UN',
-                           comment='符号前缀（FP/SZ/SH）')
-    risk_level = Column(ChoiceTypeInteger(choices=key2val(settings.RISK_TYPE)),
-                        default=1,
+                           default=settings.SymbolTypeEnum.default().dk_value,
+                           comment=f'符号前缀：{settings.SymbolTypeEnum.comment()}')
+    risk_level = Column(IntChoiceDkEnumType(settings.RiskTypeEnum,
+                                            default=settings.RiskTypeEnum.default().dk_value,
+                                            impl=db.Integer()),
                         nullable=True,
-                        comment='风险等级')
-    is_fe_charge_mode = Column(db.Boolean, comment='收费方式（前端/后端）')  #
+                        comment=f'风险等级：{settings.RiskTypeEnum.comment()}')
+
+    is_fe_charge_mode = Column(db.Boolean, comment='收费方式（前端/后端）')
+    perf_comp_base = Column(db.String(200), comment='业绩比较基准')
     last_modified = Column(db.TIMESTAMP,
                            nullable=False,
                            server_default=db.text('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'),
@@ -108,7 +110,14 @@ class Fund(PkModel, UpsertMixin):
     @classmethod
     def code_by_name(cls, name: str) -> str:
         """根据基金名称获取基金编码"""
-        funds = cls.query.filter(cls.name.ilike(name)).all()
+        fund_inst = cls.query.filter(cls.name == name).first()
+        if fund_inst:
+            return fund_inst.fund_code
+
+    @classmethod
+    def search_name(cls, name: str) -> list:
+        """根据基金名称（可能是全称或者简称）获取基金编码"""
+        funds = cls.query.filter(or_(cls.name == name, cls.full_name.ilike(f'%{name}%'))).all()
         return funds
 
     @classmethod
@@ -215,6 +224,14 @@ class FundCompany(PkModel, UpsertMixin):
         if _ins:
             return _ins.id
 
+    @classmethod
+    def id_by_name(cls, name: str) -> Union[int, None]:
+        """获取名称为指定分类的编号id
+        """
+        _ins = cls.query.filter_by(name=name).first()
+        if _ins:
+            return _ins.id
+
 
 class FundSaleOrg(PkModel, UpsertMixin):
     """基金销售机构
@@ -280,34 +297,35 @@ class FundVariety(PkModel, UpsertMixin):
             return _ins.id
 
 
-class InRule(PkModel, UpsertMixin):
+class PurchaseRule(PkModel, UpsertMixin):
     """
     可以直接记录结束点，然后每个出入都有3-4条记录，记录字段：分割点、费率、f_code
     """
-    __table_args__ = {'comment': '申购/认购规则表'}
+    __table_args__ = {'comment': '申购规则表'}
 
-    start_quota = Column(db.Numeric(10, 2), comment='计费开始额度（金额：元）')  # max:10000000.00
-    end_quota = Column(db.Numeric(10, 2), comment='计费结束额度（金额：元）')
+    start_quota = Column(db.Numeric(12, 2), comment='计费开始额度（金额：元）')  # max:百亿
+    end_quota = Column(db.Numeric(12, 2), comment='计费结束额度（金额：元）')
 
     def readable_quota(self, quota: Union[int, float]) -> Union[str, int, float]:
         """
         将float类型配额转为可读字符
         Example:
         ```python
-        In [2]: ir.readable_quota(0)
-        Out[2]: 0
+        >>> ir = PurchaseRule()
+        >>> ir.readable_quota(0)
+         0
 
-        In [3]: ir.readable_quota(100)
-        Out[3]: 100
+        >>> ir.readable_quota(100)
+         100
 
-        In [4]: ir.readable_quota(10000)
-        Out[4]: '1 万'
+        >>> ir.readable_quota(10000)
+        >>> '1 万'
 
-        In [5]: ir.readable_quota(50000000)
-        Out[5]: '5000 万'
+        >>> ir.readable_quota(50000000)
+        '5000 万'
 
-        In [6]: ir.readable_quota(float('inf'))
-        Out[6]: inf
+        >>> ir.readable_quota(float('inf'))
+         inf
         ```
         :param quota:
         :return:
@@ -320,11 +338,11 @@ class InRule(PkModel, UpsertMixin):
             return float(quota) if isinstance(quota, (float, Decimal)) else int(quota)
 
     def __repr__(self):
-        return f'<InRule(start quota:{self.readable_quota(self.start_quota)!r},' \
+        return f'<PurchaseRule(id:{self.id},start quota:{self.readable_quota(self.start_quota)!r},' \
                f'end quota:{self.readable_quota(self.end_quota)!r})> '
 
 
-class OutRule(PkModel, UpsertMixin):
+class RedeemRule(PkModel, UpsertMixin):
     __table_args__ = {'comment': '赎回规则表'}
 
     start_day = Column(db.Integer, comment='计费开始天数')
@@ -332,8 +350,10 @@ class OutRule(PkModel, UpsertMixin):
 
     def __repr__(self):
         if self.end_day is None:
-            self.end_day = float('inf')
-        return f'<OutRule(start day:{self.start_day!r},end day:{self.end_day!r})>'
+            inf_end_day = float('inf')
+        else:
+            inf_end_day = self.end_day
+        return f'<RedeemRule(id:{self.id},start day:{self.start_day!r},end day:{inf_end_day!r})>'
 
 
 class FeeRatio(PkModel, UpsertMixin):
@@ -342,14 +362,22 @@ class FeeRatio(PkModel, UpsertMixin):
     费率和费率规则也是O2M关系（一个费率对应多个买入和卖出规则）
     """
     __table_args__ = {'comment': '费率记录表'}
+    purchase_rule_tb_name = PurchaseRule.table_name()
+    redeem_rule_tb_name = RedeemRule.table_name()
+    fund_tb_name = Fund.table_name()
 
-    fund_id = Column(db.Integer, db.ForeignKey('funds.id'), comment='基金编号ID')
-    in_rule_id = db.Column(db.Integer, db.ForeignKey('in_rule.id'), nullable=True, comment='申购规则ID')
-    out_rule_id = db.Column(db.Integer, db.ForeignKey('out_rule.id'), nullable=True, comment='赎回规则ID')
-    fee_type = Column(ChoiceTypeInteger(choices=key2val(settings.FEE_TYPE)),
-                      nullable=True,
-                      default=0,
-                      comment='费率类型（认购、申购、赎回）')
+    fund_id = Column(db.Integer, db.ForeignKey(f'{fund_tb_name}.id'), comment='基金编号ID')
+    fund_code = Column(db.String(6), comment='基金编码')
+    purchase_rule_id = db.Column(db.Integer,
+                                 db.ForeignKey(f'{purchase_rule_tb_name}.id'),
+                                 nullable=True,
+                                 comment='申购规则ID')
+    redeem_rule_id = db.Column(db.Integer, db.ForeignKey(f'{redeem_rule_tb_name}.id'), nullable=True, comment='赎回规则ID')
+    fee_type = Column(IntChoiceDkEnumType(settings.FeeTypeEnum),
+                      nullable=False,
+                      index=True,
+                      default=settings.FeeTypeEnum.default().dk_value,
+                      comment=f'费率类型：{settings.FeeTypeEnum.comment()}')
     rate = Column(db.Numeric(3, 2), comment='费率百分比')
     fee_amount = Column(db.Numeric(6, 2), comment='收费金额（超过xx万时一次收费，此时rate应该为空）')
     last_modified = Column(db.TIMESTAMP,
@@ -358,33 +386,31 @@ class FeeRatio(PkModel, UpsertMixin):
                            comment='数据上次更新时间')
 
     def __repr__(self):
-        f = Fund.get_by_id(self.fund_id)
-        self.code = f.fund_code
-        if self.fee_type in ['subscribe', 'purchase']:
-            rule_class = InRule
+        if self.fee_type in [settings.FeeTypeEnum.subscribe, settings.FeeTypeEnum.purchase]:
+            rule_class = PurchaseRule
         else:
-            rule_class = OutRule
+            rule_class = RedeemRule
         rule_inst = rule_class.get_by_id(self.rule_id)
-        return f'<FeeRatio(id:{self.fund_id},code:{self.code!r},type:{self.fee_type!r},{rule_inst!r})>'
+        return f'<FeeRatio(id:{self.id},code:{self.fund_code!r},type:{self.fee_type.display!r},{rule_inst!r})>'
 
     @hybrid_property
     def rule_id(self):
         """
         https://stackoverflow.com/a/60053408/14295718
         """
-        return self.in_rule_id or self.out_rule_id
+        return self.purchase_rule_id or self.redeem_rule_id
 
     @classmethod
-    def get_rules(cls, fund_code: str, op_type: int):
+    def get_rules(cls, fund_code: str, op_type: settings.FeeTypeEnum):
         """
         获取基金对应的rule_id列表
+        update: 按照费率的倒序排序
         """
-        f_id = Fund.filter_by_code(fund_code)
-        rule_item_list = cls.query.filter_by(fund_id=f_id, fee_type=op_type).all()
+        rule_item_list = cls.query.filter_by(fund_code=fund_code, fee_type=op_type).order_by(cls.rate.desc()).all()
         return rule_item_list
 
     @classmethod
-    def buy_info(cls, fund_code: str, op_type: int = 1):
+    def buy_info(cls, fund_code: str, op_type: settings.FeeTypeEnum = settings.FeeTypeEnum.purchase):
         """
         购买费率（包括申购和购买）
         """
@@ -396,10 +422,10 @@ class FeeRatio(PkModel, UpsertMixin):
             rule_fee_amount = None
             if not rule_rate:
                 rule_fee_amount = rule.fee_amount
-            rule_inst = InRule.query.get_by_id(rule_id)
+            rule_inst = PurchaseRule.get_by_id(rule_id)
             if rule_inst:
                 start_quota = rule_inst.start_quota
-                end_quota = rule_inst.start_quota
+                end_quota = rule_inst.end_quota
                 rule_info = {
                     'start_quota': start_quota,
                     'end_quota': end_quota,
@@ -414,13 +440,13 @@ class FeeRatio(PkModel, UpsertMixin):
         """
         赎回费率
         """
-        rule_item_list = cls.get_rules(fund_code, 3)
+        rule_item_list = cls.get_rules(fund_code, settings.FeeTypeEnum.redeem)
         rules = list()
         for rule in rule_item_list:
             rule_id = rule.rule_id
             rule_rate = rule.rate
             rule_fee_amount = None
-            rule_inst = OutRule.query.get_by_id(rule_id)
+            rule_inst = RedeemRule.get_by_id(rule_id)
             if rule_inst:
                 start_day = rule_inst.start_day
                 end_day = rule_inst.end_day
@@ -434,16 +460,6 @@ class FeeRatio(PkModel, UpsertMixin):
                 }
                 rules.append(rule_info)
         return rules
-
-
-def display(display_map: dict, pk_key: str) -> str:
-    """
-    数据库中存的是数字，保存是输入拼音，显示时应为可读信息
-    :param pk_key:
-    :param display_map:
-    :return:
-    """
-    return display_map.get(pk_key)
 
 
 class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
@@ -460,14 +476,14 @@ class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
     is_visible = Column(db.Boolean, comment='是否他人可见')  # 只有创建人（/admin）可以修改
     found_date = Column(db.Date, comment='组合创建日期')
     mgr_code = Column(db.String(10), comment='组合管理人编码')
-    platform = Column(ChoiceTypeInteger(choices=key2val(settings.PLAT_TYPE)),
+    platform = Column(IntChoiceDkEnumType(settings.PlatTypeEnum),
                       nullable=True,
-                      default=0,
-                      comment=f'平台名称：{str(settings.PLAT_TYPE_DISPLAY)}')
-    risk_type = Column(ChoiceTypeInteger(choices=key2val(settings.RISK_TYPE)),
+                      default=settings.PlatTypeEnum.default().dk_value,
+                      comment=f'平台名称：{settings.PlatTypeEnum.comment()}')
+    risk_type = Column(IntChoiceDkEnumType(settings.RiskTypeEnum),
                        nullable=True,
-                       default=0,
-                       comment='风险类型（稳健/成长等）')
+                       default=settings.RiskTypeEnum.default().dk_value,
+                       comment=f'风险类型：{settings.RiskTypeEnum.comment()}')
     annualized_rate_of_return = Column(db.Numeric(7, 4), comment='成立以来年化')  # 保留小数点后4位，每天计算净值后更新
     max_drawdown = Column(db.Numeric(7, 4), comment='最大回撤率')
     sharpe = Column(db.Numeric(3, 2), comment='夏普率')
@@ -487,8 +503,8 @@ class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
     # owner = relationship('User', foreign_keys=[mgr_code], primaryjoin='User.id == FundPortfolio.mgr_code')
 
     def __repr__(self):
-        plat_name = display(settings.PLAT_TYPE_DISPLAY, self.platform)
-        risk_name = display(settings.RISK_TYPE_DISPLAY, self.risk_type)
+        plat_name = self.platform.dk_display
+        risk_name = self.risk_type.dk_display
         return f'<FundPortfolio({self.name!r}, {plat_name!r}, {risk_name!r})>'
 
     # @property
@@ -497,7 +513,7 @@ class FundPortfolio(PkModel, CreateDateModel, UpsertMixin):
     #     使用装饰器方法变属性
     #     :return:
     #     """
-    #     if self.platform != 'own':
+    #     if self.platform != PlatTypeEnum.own.dk_name:
     #         return FundPortfolioMgr.query.filter_by(code=self.mgr_code).one_or_none()
     #     else:
     #         mgr_id = int(self.mgr_code)
@@ -522,19 +538,19 @@ class FundPortfolioMgr(PkModel, UpsertMixin):
     code = Column(db.String(10), unique=True, comment='组合管理人编码')  # 使用固定数字加随机数
     name = Column(db.String(30), comment='主理人')
     plat_code = Column(db.String(30), comment='组合管理人编号（各平台独有）')
-    mgr_type = Column(ChoiceTypeInteger(choices=key2val(settings.ZH_MGR_TYPE)),
+    mgr_type = Column(IntChoiceDkEnumType(settings.ZHMgrTypeEnum),
                       nullable=False,
-                      default=0,
-                      comment='组合管理人类型（1机构/0个人）')
+                      default=settings.ZHMgrTypeEnum.default().dk_value,
+                      comment=f'组合管理人类型:{settings.ZHMgrTypeEnum.comment()}')
     mgr_avatar_url = Column(db.String(300), comment='主理人头像链接')  # TODO:是否需要保存到本地
-    platform = Column(ChoiceTypeInteger(choices=key2val(settings.PLAT_TYPE)),
+    platform = Column(IntChoiceDkEnumType(settings.PlatTypeEnum),
                       nullable=True,
-                      default=0,
-                      comment=f'平台名称：{str(settings.PLAT_TYPE_DISPLAY)}')
+                      default=settings.PlatTypeEnum.default().dk_value,
+                      comment=f'平台名称：{settings.PlatTypeEnum.comment()}')
     desc = Column(db.String(300), comment='组合管理人描述')
 
     def __repr__(self):
-        plat_name = display(settings.PLAT_TYPE_DISPLAY, self.platform)
+        plat_name = self.platform.dk_display
         return f'<FundPortfolioMgr({self.name!r}, {plat_name!r} )>'
 
     @classmethod
@@ -544,14 +560,6 @@ class FundPortfolioMgr(PkModel, UpsertMixin):
         :return:
         """
         fp_identifier = gen_digit_code(cls.code, settings.INITIAL_MGR_IDENTIFIER, min_len=8)
-        # fp_identifier = settings.INITIAL_MGR_IDENTIFIER
-        # max_identifier = db.session.query(func.max(cls.code)).one_or_none()
-        # if max_identifier != (None, ):
-        #     max_num = max_identifier[0]
-        #     if max_num is not None:
-        #         increase_int = random.randrange(1, 3)
-        #         fp_identifier = int(max_num) + increase_int
-        #         return f'{fp_identifier:08}'
         return fp_identifier
 
 
@@ -559,9 +567,9 @@ class FundPortfolioAdjustHistory(PkModel):
     """
     组合调仓历史
     """
-    portfolio_code = Column(db.String(30), comment='组合编码')
-    update_date = Column(db.Date, comment='调仓时间')
-    adjust_id = Column(db.BigInteger, unique=True, comment='调仓历史编码')  # 唯一，使用雪花算法
+    portfolio_code = Column(db.String(30), index=True, comment='组合编码')
+    update_date = Column(db.DateTime, comment='调仓时间')
+    adjust_id = Column(db.BigInteger, index=True, comment='调仓历史编码')  # 使用雪花算法
     plat_trade_id = Column(db.String(120), comment='平台调仓编码（只做记录区分用，不参与系统计算）')
     desc = Column(db.String(1500), comment='调仓说明')
     # 符合关联条件的有多条，所以需要使用`uselist=True`
@@ -606,3 +614,45 @@ class FundPortfolioHoldDetail(PkModel):
     fd_code = Column(db.String(6), comment='基金编码')
     adjust_id = Column(db.BigInteger, comment='调仓历史编码')
     portion = Column(db.Numeric(5, 4), comment='持仓占比，如：0.0716')
+
+
+class InvestProduct(PkModel):
+    """
+    理财产品（如各种p2p产品，组合产品等）
+    """
+    plt_code = Column(db.String(16), comment='投资平台自定义产品编码')
+    prod_code = Column(db.String(12), unique=True, comment='本平台规定的唯一编码')
+    # 如C1010422000605，参见 https://www.chinawealth.com.cn/zzlc/jsp/lccp.jsp
+    verified_code = Column(db.String(32), nullable=True, comment='登记编码')
+    prod_name = Column(db.String(255), comment='产品名称')
+    platform = Column(db.Enum(settings.SupportInvestPltEnum),
+                      nullable=True,
+                      default=settings.SupportInvestPltEnum.unknown.dk_value,
+                      comment=f'产品购买所属平台：{settings.SupportInvestPltEnum.comment()}')
+    prod_type = Column(db.Enum(settings.SupportInvestCategoriesEnum),
+                       nullable=True,
+                       default=settings.SupportInvestCategoriesEnum.financial_product.dk_value,
+                       comment=f'产品类型：{settings.SupportInvestCategoriesEnum.comment()}')
+
+    @classmethod
+    def gen_prod_code(cls) -> Optional[str]:
+        """
+        生成递增8+位识别号
+        :return:
+        """
+        fp_identifier = gen_digit_code(cls.prod_code, settings.INITIAL_INVEST_PRODUCT_CODE_IDENTIFIER, min_len=8)
+        return fp_identifier
+
+    @classmethod
+    def filter_by_plt_code(cls, plat: str, prod_type: str, code: str) -> InvestProduct:
+        """获取编码所对应的产品
+        """
+        _ins = cls.query.filter_by(platform=plat, prod_type=prod_type, plt_code=code).one_or_none()
+        return _ins
+
+    @classmethod
+    def filter_by_name(cls, plat: str, prod_type: str, name: str) -> InvestProduct:
+        """获取名称所对应的产品
+        """
+        _ins = cls.query.filter_by(platform=plat, prod_type=prod_type, prod_name=name).one_or_none()
+        return _ins

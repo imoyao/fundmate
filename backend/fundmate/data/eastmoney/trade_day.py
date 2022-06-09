@@ -18,6 +18,9 @@ from backend.fundmate.libs import convert
 
 
 class TradeDay(BaseParse):
+    """
+    原始链接：http://fund.eastmoney.com/tools/jiaoyiri.html
+    """
     url = 'http://fund.eastmoney.com/tools/DataHandler.aspx'
 
     def t_days(self, f_code: str, is_buy: bool = True) -> Optional[int]:
@@ -45,14 +48,42 @@ class TradeDay(BaseParse):
                        op_date: str,
                        is_buy: bool = True,
                        is_after_15o_clock=False) -> Optional[Dict]:
+        """
+        >>> td = TradeDay()
+        >>> td.get_trade_info('163406', '2021-12-31')
+         {'application_date': '2021-12-31', 'is_same_day': True, 'maturity': '2022-01-04', 'deadline': '2022-01-04'}
+
+        ---
+        申请日：2021-12-31
+
+        申请所属交易日：2021-12-31（与申请日在同一交易日）
+
+        确认日：2022-01-04
+
+        >>> td.get_trade_info('163406', '2022-01-01')
+        {'application_date': '2022-01-04', 'is_same_day': False, 'maturity': '2022-01-05', 'deadline': '2022-01-05'}
+
+        ---
+        申请日：2022-01-01
+
+        申请所属交易日：2022-01-04（与申请日不在同一交易日）
+
+        确认日：2022-01-05
+        ---
+        :param fund_code:
+        :param op_date:
+        :param is_buy:
+        :param is_after_15o_clock:
+        :return:
+        """
         t_day = self.t_days(fund_code, is_buy=is_buy)
-        is_after_dd = int(is_after_15o_clock)
+        is_after_deadline = int(is_after_15o_clock)
 
         params = {
             't': 'confirm',
             'date': op_date,
             'days': t_day,
-            'after': is_after_dd,
+            'after': is_after_deadline,
         }
         resp = rget(self.url, params=params)
         regex = re.compile(r'var\s*apidata\s*=\s*(.+);')
