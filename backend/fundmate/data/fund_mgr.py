@@ -8,7 +8,7 @@
 from xalpha.cons import rget_json
 
 from backend.fundmate import utils
-from backend.fundmate.data import utils as dt_utils
+from backend.fundmate.data.utils import base as dt_utils
 
 
 class FundMgr:

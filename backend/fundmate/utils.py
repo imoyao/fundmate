@@ -10,9 +10,10 @@ import time
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Union
+from typing import Dict, List, Optional, Union
 
 import dateparser
+import pendulum
 
 from backend.fundmate.exts.flask_loguru import logger
 
@@ -27,6 +28,33 @@ def convert_readable_days(number_of_days: int) -> tuple:
     # Calculating days
     days = number_of_days - years * 365 - months * 30
     return years, months, days
+
+
+def is_sub_dict(subset_dict: dict, superset_dict: dict):
+    """
+    测试前字典是否为后字典的子集
+    FIXME: PY3.9:  return big | small == big
+
+    >>> d1 = {'a':'2', 'b':'3'}
+    >>> d2 = {'a':'2', 'b':'3','c':'4'}
+    >>> is_sub_dict(d1,d2)
+    True
+
+    >>> d1 = {'a':'2', 'b':'3'}
+    >>> d2 = {'a':'2', 'b':'3'}
+    >>> is_sub_dict(d1,d2)
+    True
+
+    >>> d1 = {'a':1, 'b':4}
+    >>> d2 = {'a':'2', 'b':'3'}
+    >>> is_sub_dict(d1,d2)
+    False
+
+    :param subset_dict:
+    :param superset_dict:
+    :return:
+    """
+    return all(item in superset_dict.items() for item in subset_dict.items())
 
 
 def show_time(func):
@@ -57,6 +85,10 @@ def merge_iterables_of_dict(shared_key, *iterables):
     for dictionary in result.values():
         dictionary.pop(shared_key)
     return result
+
+
+def key2val(unique_dict: dict) -> dict:
+    return {v: k for k, v in unique_dict.items()}
 
 
 class HiddenPrints:
@@ -94,21 +126,22 @@ def first_day_of_this_month() -> str:
 
 def seconds_today_leaves() -> int:
     tmr = tomorrow()
-    _now = datetime.utcnow()
-    now_timedelta = datetime(_now.year, _now.month, _now.day, _now.hour, _now.minute, _now.second)
-    return (tmr - now_timedelta).seconds
+    _now = pendulum.now()
+    delta = tmr - _now
+    return delta.seconds
 
 
-def tomorrow(str_date: Union[str, None] = None):
+def tomorrow(str_date: Optional[str] = None) -> datetime.date:
     if not str_date:
-        str_date = str(datetime.strptime(today(), "%Y-%m-%d").date())
+        str_date = pendulum.tomorrow()
+        return str_date
     if not isinstance(str_date, str):
         str_date = str(str_date)
     date = dateparser.parse(str_date)
     return date + timedelta(days=1)
 
 
-def tomorrow_date(str_date: Union[str, None] = None) -> datetime.date:
+def tomorrow_date(str_date: Optional[str] = None) -> datetime.date:
     """
     Examples:
     ```
@@ -142,5 +175,28 @@ def write_json_data(data: Union[str, List, Dict], fp: Union[str, Path], indent: 
         json.dump(data, f, ensure_ascii=False, indent=indent)
 
 
+def cal_durations(previous_date: datetime, next_date: datetime) -> int:
+    """
+    基金持有时长(比如持有7天)便是按自然日来计算的
+    :param previous_date: 较小的日期
+    :param next_date: 较大的日期
+    :return:
+    """
+    return (next_date - previous_date).days
+
+
+def check_is_csv(fp: Union[str, Path]) -> Optional[bool]:
+    """
+    判断文件存在并确定格式正确
+    :param fp:
+    :return:
+    """
+    path = Path(fp)
+    if path.exists() and path.is_file():
+        file_suffix = path.suffix
+        return file_suffix.lower() == 'csv'
+
+
 if __name__ == '__main__':
-    print(first_day_of_this_year(), first_day_of_this_month(), seconds_today_leaves(), tomorrow_date('2021-06-30'))
+    print(first_day_of_this_year(), first_day_of_this_month(), seconds_today_leaves(), tomorrow(),
+          tomorrow_date('2021-06-30'), tomorrow_date())

@@ -5,9 +5,13 @@ Most configuration is set via environment variables.
 
 For local development, use a .env file to set environment variables.
 """
+import enum
 from pathlib import Path
 
+import pendulum
 from environs import Env as EnvParser
+
+from backend.fundmate.libs.dk_enums import BaseTypeEnum, ChoiceTypeDk, ChoiceTypeIntegerDk
 
 env = EnvParser()
 env.read_env()
@@ -20,7 +24,7 @@ ENV = env.str("FLASK_ENV", default="default")  # default is dev
 DEBUG = ENV == "development"
 SQLALCHEMY_DATABASE_URI = env.str("DATABASE_URL", '')  # 此处我们使用更小粒度控制
 # SECRET_KEY = env.str("SECRET_KEY")
-SEND_FILE_MAX_AGE_DEFAULT = env.int("SEND_FILE_MAX_AGE_DEFAULT")
+SEND_FILE_MAX_AGE_DEFAULT = env.int("SEND_FILE_MAX_AGE_DEFAULT", 43200)
 BCRYPT_LOG_ROUNDS = env.int("BCRYPT_LOG_ROUNDS", default=13)
 DEBUG_TB_ENABLED = DEBUG
 DEBUG_TB_INTERCEPT_REDIRECTS = False
@@ -37,61 +41,373 @@ INFO_MAIL_ADDR = 'fundmate@163.com'
 INITIAL_PORTFOLIO_IDENTIFIER = '010921'
 # 组合用户编号应该和组合编号有一定区分度：所以长度取长一点
 INITIAL_MGR_IDENTIFIER = '20211202'
+# 账户起始编号
+INITIAL_ACCOUNT_IDENTIFIER = '1024'
+# 理财产品起始编号
+INITIAL_INVEST_PRODUCT_CODE_IDENTIFIER = '10000001'
+
+UNDEFINED = ChoiceTypeIntegerDk(0, 'undefined', '未定义')
+PLAIN = ChoiceTypeIntegerDk(1, 'plain', '灵活取用')
+LOW = ChoiceTypeIntegerDk(2, 'low', '稳健增值')
+BALANCE = ChoiceTypeIntegerDk(3, 'balance', '平衡增长')
+ADVANCE = ChoiceTypeIntegerDk(4, 'advance', '进阶成长')
+HIGH = ChoiceTypeIntegerDk(5, 'high', '积极进取')
+
+
+class RiskTypeEnum(BaseTypeEnum):
+    """风险等级"""
+    undefined = UNDEFINED
+    plain = PLAIN
+    low = LOW
+    balance = BALANCE
+    advance = ADVANCE
+    high = HIGH
+
+    @classmethod
+    def default(cls):
+        """
+        默认值，如果要使用非默认的默认值，则调用普通赋值操作即可
+        :return:
+
+        FIXME: py3.8+ [python - Using property() on classmethods - Stack Overflow](
+        https://stackoverflow.com/questions/128573/using-property-on-classmethods)
+        """
+        return cls.balance
+
+    @classmethod
+    def input(cls):
+        """
+        用户请求时需要用到
+        **注意：**只有当key为int时才有name属性
+        :return:
+        """
+        return [item.dk_name for item in cls]
+
+
+OP_PURCHASE = ChoiceTypeIntegerDk(1, 'purchase', '买入')
+REDEEM = ChoiceTypeIntegerDk(2, 'redeem', '卖出')
+TRANSFER = ChoiceTypeIntegerDk(3, 'transfer', '转换')
+REGULAR_INVEST = ChoiceTypeIntegerDk(4, 'regular_invest', '定投')
+CASH_BONUS = ChoiceTypeIntegerDk(5, 'cash_bonus', '现金分红')
+ADJUST = ChoiceTypeIntegerDk(6, 'adjust', '调仓')
+OTHER = ChoiceTypeIntegerDk(7, 'other', '其他')
+TRANSFER_REFUND = ChoiceTypeIntegerDk(8, 'transfer_refund', '基金转换退款')
+QUOT_BONUS = ChoiceTypeIntegerDk(9, 'quot_bonus', '份额分红')
+DEPOSIT = ChoiceTypeIntegerDk(10, 'deposit', '存入')  # 从银行卡存入
+DRAW_OUT = ChoiceTypeIntegerDk(11, 'draw_out', '取出')  # 取出到银行卡
+REVOKE = ChoiceTypeIntegerDk(12, 'revoke', '撤销操作')  # 取出到银行卡
+
 
 # 风险等级
-RISK_TYPE = {
-    'undefined': 0,  # 未定义
-    'plain': 1,  # 灵活取用
-    'low': 2,  # 稳健增值
-    'balance': 3,  # 平衡增长
-    'advance': 4,  # 进阶成长
-    'high': 5,  # 积极进取
-}
-RISK_TYPE_DISPLAY = {
-    'undefined': '未定义',
-    'plain': '灵活取用',
-    'low': '稳健增值',
-    'balance': '平衡增长',
-    'advance': '进阶成长',
-    'high': '积极进取'
-}
-# 基金决策宝的symbol的前缀,UN表示未知
-SYMBOL_TYPE = {'UN': 0, 'FP': 1, 'SZ': 2, 'SH': 3}
+@enum.unique
+class FundOpTypeEnum(BaseTypeEnum):
+    """
+    操作分类
+    """
+    purchase = OP_PURCHASE
+    redeem = REDEEM
+    transfer = TRANSFER
+    regular_invest = REGULAR_INVEST
+    cash_bonus = CASH_BONUS
+    adjust = ADJUST
+    other = OTHER
+    transfer_refund = TRANSFER_REFUND
+    quot_bonus = QUOT_BONUS
+    deposit = DEPOSIT
+    draw_out = DRAW_OUT
+    revoke = REVOKE
 
-# 费率类型
-FEE_TYPE = {
-    'unknown': 0,  # 未定义
-    'subscribe': 1,  # 基金认购
-    'purchase': 2,  # 基金申购
-    'redeem': 3,  # 基金赎回
-}
+    @classmethod
+    def default(cls):
+        return cls.purchase
 
-#  组合管理人类型
-ZH_MGR_TYPE = {
-    'personal': 0,  # '个人'
-    'org': 1,  # '机构'
-}
-ZH_MGR_TYPE_DISPLAY = {
-    'personal': '个人',
-    'org': '机构',
-}
-PLAT_TYPE = {
-    'undefined': 0,  # '未定义'
-    'qm': 1,  # '且慢'
-    'tt': 2,  # '天天基金'
-    'dj': 3,  # '蛋卷基金'
-    'own': 4,
-    'hb': 5,
-}
+    @classmethod
+    def input(cls):
+        """
+        :return:
+        """
+        return [item.dk_name for item in cls]
 
-PLAT_TYPE_DISPLAY = {
-    'undefined': '未定义',
-    'qm': '且慢',
-    'tt': '天天基金',
-    'dj': '蛋卷基金',
-    'own': '平台自建',
-    'hb': '好买基金',
-}
+    @classmethod
+    def display(cls):
+        """
+        显示汉字内容
+        :return:
+        """
+        return [item.dk_display for item in cls]
+
+    @classmethod
+    def columns_map(cls) -> dict:
+        """
+        返回英文和中文的映射字典
+        :return:
+        """
+        input_li = cls.input()
+        display_li = cls.display()
+        return dict(zip(input_li, display_li))
+
+
+UNSE = ChoiceTypeDk('UN', '未知')
+FPSE = ChoiceTypeDk('FP', '暂时未知交易所')
+SZSE = ChoiceTypeDk('SZ', '深圳证券交易所')
+SHSE = ChoiceTypeDk('SH', '上海证券交易所')
+SEHK = ChoiceTypeDk('HK', '香港证券交易所')
+
+
+@enum.unique
+class SymbolTypeEnum(BaseTypeEnum):
+    """
+    基金决策宝的symbol的前缀，UN表示未知
+    """
+    UN = UNSE
+    FP = FPSE
+    SZ = SZSE
+    SH = SHSE
+    HK = SEHK
+
+    @classmethod
+    def default(cls):
+        return cls.UN
+
+    @classmethod
+    def input(cls):
+        """
+        用户请求时需要用到
+        :return:
+        """
+        return [item.dk_value for item in cls]
+
+
+UNKNOWN = ChoiceTypeIntegerDk(0, 'unknown', '未定义')
+SUBSCRIBE = ChoiceTypeIntegerDk(1, 'subscribe', '基金认购')
+PURCHASE = ChoiceTypeIntegerDk(2, 'purchase', '基金申购')
+REDEEM_FEE = ChoiceTypeIntegerDk(3, 'redeem', '基金赎回')
+
+
+@enum.unique
+class FeeTypeEnum(BaseTypeEnum):
+    """
+    费率类型
+    """
+    unknown = UNKNOWN
+    subscribe = SUBSCRIBE
+    purchase = PURCHASE
+    redeem = REDEEM_FEE
+
+    @classmethod
+    def default(cls):
+        return cls.unknown
+
+
+ZH_PERSONAL = ChoiceTypeIntegerDk(0, 'personal', '个人')
+ZH_ORG = ChoiceTypeIntegerDk(1, 'org', '机构')
+
+
+@enum.unique
+class ZHMgrTypeEnum(BaseTypeEnum):
+    """
+    组合管理人类型
+    """
+    personal = ZH_PERSONAL
+    org = ZH_ORG
+
+    @classmethod
+    def default(cls):
+        return cls.personal
+
+    @classmethod
+    def input(cls):
+        """
+        用户请求时需要用到
+        :return:
+        """
+        return [item.dk_name for item in cls]
+
+
+UNDEFINED_PLT = ChoiceTypeIntegerDk(0, 'un', '未定义')
+QIEMAN = ChoiceTypeIntegerDk(1, 'qm', '且慢')
+TIANTIAN = ChoiceTypeIntegerDk(2, 'tt', '天天基金')
+DANJUAN = ChoiceTypeIntegerDk(3, 'dj', '蛋卷基金')
+OWN = ChoiceTypeIntegerDk(4, 'own', '平台自建')
+HOWBUY = ChoiceTypeIntegerDk(5, 'hb', '好买基金')
+
+
+@enum.unique
+class PlatTypeEnum(BaseTypeEnum):
+    un = UNDEFINED_PLT
+    qm = QIEMAN
+    tt = TIANTIAN
+    dj = DANJUAN
+    own = OWN
+    hb = HOWBUY
+
+    @classmethod
+    def default(cls):
+        return cls.un
+
+    @classmethod
+    def input(cls):
+        """
+        用户请求时需要用到
+        :return:
+        """
+        return [item.dk_name for item in cls]
+
+
+UNPLT = ChoiceTypeDk('unknown', '未知平台')
+ALIPAY = ChoiceTypeDk('alipay', '蚂蚁财富（支付宝）')
+TCWM = ChoiceTypeDk('tcwm', '腾讯理财通')
+TTJJ = ChoiceTypeDk('tt', '天天基金')
+
+
+@enum.unique
+class SupportInvestPltEnum(BaseTypeEnum):
+    """
+    支持导入文件的平台
+    """
+    unknown = UNPLT
+    alipay = ALIPAY
+    tcwm = TCWM
+    tt = TTJJ
+
+    @classmethod
+    def input(cls):
+        """
+        用户请求时需要用到
+        :return:
+        """
+        return [item.dk_value for item in cls]
+
+
+'''
+CNY（Chinese Yuan）人民币 
+
+FRF（French Franc）法国法郎 
+
+HKD（Hong Kong Dollar）港元 
+
+CHF（ Schweizer Franc）瑞士法郎
+
+USD（United States Dollar）美元 
+
+CAD（Canadian Dollar）加拿大元 
+
+GBP（Great Britain Pound）英镑 
+
+NLG（Netherlandish Guilder）荷兰盾 
+
+DEM（Deutsche M ark）德国马克 
+
+BEF（Belgischer Franc）比利时法郎 
+
+JPY（Japanese Yen）日元 
+
+AUD（Australian Dollar）澳大利亚元
+
+RUB（Russian Ruble）俄罗斯卢布  
+
+PHP（Philippine Peso）菲律宾比索 
+
+ITL （Italian Lira） 意大利里拉          
+
+'''
+CNY = ChoiceTypeDk('CNY', '人民币')
+FRF = ChoiceTypeDk('FRF', '法国法郎')
+HKD = ChoiceTypeDk('HKD', '港元')
+CHF = ChoiceTypeDk('CHF', '瑞士法郎')
+USD = ChoiceTypeDk('USD', '美元')
+CAD = ChoiceTypeDk('CAD', '加拿大元')
+GBP = ChoiceTypeDk('GBP', '英镑')
+NLG = ChoiceTypeDk('NLG', '荷兰盾')
+DEM = ChoiceTypeDk('DEM', '德国马克')
+BEF = ChoiceTypeDk('BEF', '比利时法郎')
+JPY = ChoiceTypeDk('JPY', '日元')
+AUD = ChoiceTypeDk('AUD', '澳大利亚元')
+RUB = ChoiceTypeDk('RUB', '俄罗斯卢布')
+PHP = ChoiceTypeDk('PHP', '菲律宾比索')
+ITL = ChoiceTypeDk('ITL', '意大利里拉')
+
+
+@enum.unique
+class SupportCurrencyEnum(BaseTypeEnum):
+    """
+    支持导入文件的平台
+    """
+    CNY = CNY
+    FRF = FRF
+    HKD = HKD
+    CHF = CHF
+    USD = USD
+    CAD = CAD
+    GBP = GBP
+    NLG = NLG
+    DEM = DEM
+    BEF = BEF
+    JPY = JPY
+    AUD = AUD
+    RUB = RUB
+    PHP = PHP
+    ITL = ITL
+
+
+FUND = ChoiceTypeDk('fund', '基金')
+STOCK = ChoiceTypeDk('stock', '股票')
+BOND = ChoiceTypeDk('bond', '可转债')
+FUTURES = ChoiceTypeDk('futures', '期货')
+PORTFOLIO = ChoiceTypeDk('portfolio', '投顾组合')
+FINANCIAL_PRODUCT = ChoiceTypeDk('financial_product', '理财产品')
+
+
+@enum.unique
+class SupportInvestCategoriesEnum(BaseTypeEnum):
+    """
+    支持的交易品类
+    """
+    fund = FUND
+    stock = STOCK
+    bond = BOND
+    futures = FUTURES
+    portfolio = PORTFOLIO
+    financial_product = FINANCIAL_PRODUCT
+
+    @classmethod
+    def input(cls):
+        """
+        用户请求时需要用到
+        :return:
+        """
+        return [item.dk_value for item in cls]
+
+
+# 正则
+'''
+- at least 6 characters
+- must contain at least 1 letter, and 1 number
+- Can contain special characters
+'''
+PASSWORD_REG = r'^(?=.*\d)(?=.*[a-z])(?=.*[a-zA-Z]).{6,}$'
+"""flask-praetorian 相关配置项"""
+
+SITE_NAME = env.str('SITE_NAME', default='你的网站名称')
+
+DEFAULT_JWT_ACCESS_LIFESPAN = pendulum.duration(hours=24)
+DEFAULT_JWT_REFRESH_LIFESPAN = pendulum.duration(days=30)
+DEFAULT_JWT_RESET_LIFESPAN = pendulum.duration(minutes=10)
+
+# DEFAULT_CONFIRMATION_TEMPLATE = ("{}/authentication/templates/registration_email.html".format(
+#     dirname(dirname(abspath(__file__))), ))
+
+DEFAULT_CONFIRMATION_SENDER = env.str('MAIL_USERNAME')
+DEFAULT_CONFIRMATION_SUBJECT = f'请激活你的{SITE_NAME}帐号'
+
+# DEFAULT_RESET_TEMPLATE = ("{}/authentication/templates/reset_email.html".format(dirname(dirname(abspath(
+# __file__))), ))
+DEFAULT_RESET_SUBJECT = f'您在 {SITE_NAME} 发起重置密码请求'
+
+DEFAULT_CONFIRMATION_URI = 'http://localhost:5000/register-confirm'
+DEFAULT_RESET_URI = 'http://localhost:5000/reset-password'
+
+ADMIN_ROLE_NAME = 'admin'
 '''
 # 好买
 年化收益率代表期间内收益率的年化值。注：区间小于1年不展示年化收益率；

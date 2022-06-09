@@ -1,23 +1,15 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # Created by imoyao at 2021/2/13 18:12
-from typing import Union
+from typing import Optional, Union
 
+from backend.fundmate import settings
 from backend.fundmate.compat import basestring
-from backend.fundmate.database import (
-    Base,
-    ChoiceTypeInteger,
-    Column,
-    CreateDateModel,
-    PkModel,
-    db,
-    key2val,
-    reference_col,
-)
-from backend.fundmate.settings import RISK_TYPE
+from backend.fundmate.custom_sqltypes import IntChoiceDkEnumType
+from backend.fundmate.database import Column, CreateDateModel, PkModel, UpsertMixin, db, gen_digit_code, reference_col
 
 
-class Account(Base, PkModel, CreateDateModel):
+class Account(PkModel, CreateDateModel, UpsertMixin):
     """
     账本类型有两个维度：
     1. 四笔钱（风险纬度）
@@ -25,10 +17,16 @@ class Account(Base, PkModel, CreateDateModel):
     """
     __table_args__ = {'comment': '账本（钱包）'}
 
-    name = Column(db.String(255), comment='账本名称')
+    account_code = Column(db.String(10), comment='组合编码')  # 使用固定数字加随机数
+    name = Column(db.String(10), comment='账本名称')
     creator_id = reference_col('users', column_kwargs={'comment': '管理人（类似群主）'})
-    comment = Column(db.String(255), comment='账本备注')
-    account_type = Column(ChoiceTypeInteger(choices=key2val(RISK_TYPE)), nullable=True, default=0, comment='账本类型（四笔钱）')
+    desc = Column(db.String(300), comment='账本备注')
+    rich_desc = Column(db.String(1000), comment='账本详细描述')
+    account_type = Column(IntChoiceDkEnumType(settings.RiskTypeEnum,
+                                              default=settings.RiskTypeEnum.default().dk_value,
+                                              impl=db.Integer()),
+                          nullable=True,
+                          comment=f'账本类型（四笔钱）：{settings.RiskTypeEnum.comment()}')
 
     @classmethod
     def get_by_id(cls, account_id: Union[str, int]):
@@ -40,41 +38,44 @@ class Account(Base, PkModel, CreateDateModel):
             return cls.query.get_or_404(int(account_id))
         return None
 
-
-class AccountFund(Base, PkModel):
-    fund_id = reference_col('funds', column_kwargs={'comment': '基金编号'})
-    account_id = Column(db.Integer, comment='账本编号')
-
-
-FUND_OP_TYPE = {
-    'purchase': 1,  # 买入/存入/申购
-    'sale': 2,  # 赎回/卖出/支取
-    'transfer': 3,  # 转换/转存
-    'regular_invest': 4,  # 定投
-    'bonus': 5,  # 分红
-    'adjust': 6,  # 调仓
-    'other': 7,  # 其他
-}
+    @classmethod
+    def gen_account_code(cls) -> Optional[str]:
+        """
+        生成递增6位组合识别号
+        :return:
+        """
+        fp_identifier = gen_digit_code(cls.account_code, settings.INITIAL_ACCOUNT_IDENTIFIER, min_len=4)
+        return fp_identifier
 
 
-class CashFlow(Base, PkModel):
+class AccountTransactionRecord(PkModel, CreateDateModel, UpsertMixin):
     """
-    记账操作表 # TODO:或许命名为 TransactionRecord 更好
+    记账操作表
     """
     __table_args__ = {'comment': '操作记录表'}
 
     user_id = reference_col('users', column_kwargs={'comment': '购买用户编号'})
-    op_type = Column(ChoiceTypeInteger(choices=key2val(FUND_OP_TYPE)), default=1, nullable=True, comment='操作类型')
-    fund_id = reference_col('funds', column_kwargs={'comment': '所购买的基金编号'})
-    amount = Column(db.Integer, comment='购买金额')
-    date = Column(db.TIMESTAMP, nullable=False, server_default=db.text("CURRENT_TIMESTAMP"), comment='购买日期（确认日期）')
-    comment = Column(db.String(300), comment='复盘备注')
+    op_type = Column(IntChoiceDkEnumType(settings.FundOpTypeEnum,
+                                         default=settings.FundOpTypeEnum.default().dk_value,
+                                         impl=db.Integer()),
+                     comment=f'操作类型：{settings.FundOpTypeEnum.comment()}')
+    redeem_prod = Column(db.String(36), comment='所赎回的产品编号')  # 当记录产品是理财产品使用平台编码，其余时候使用自有编码
+    purchase_prod = Column(db.String(36), comment='所申购的产品编号')
+    amount = Column(db.Numeric(32, 4), comment='购买金额')
+    charge_fee = Column(db.Numeric(32, 4), comment='操作手续费，如：123456.0716')
+    launch_trans_date = Column(db.DateTime, nullable=True, comment='交易发起日期')
+    trans_confirm_date = Column(db.Date, nullable=False, comment='交易确认日期')
+    transaction_id = Column(db.BigInteger, comment='交易编码')  # 使用雪花算法
+    record_code = Column(db.String(36), comment='平台交易流水记录号')
+    record_date = Column(db.DateTime, comment='数据更新时间')
+    comment = Column(db.String(300), comment='复盘备注')  # 手动记录时
+    plat_comment = Column(db.String(300), comment='平台备注')  # 批量导入时
 
 
-class HandPick(Base, PkModel):
+class HandPick(PkModel):
     __table_args__ = {'comment': '自选基金'}
     user_id = reference_col('users', column_kwargs={'comment': '用户编号'})
-    fund_id = reference_col('funds', column_kwargs={'comment': '基金编号'})
+    fund_code = Column(db.String(6), comment='所购买的基金编号')
     pick_time = Column(db.TIMESTAMP,
                        nullable=False,
                        server_default=db.text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),

@@ -3,25 +3,22 @@
     <el-form ref="form" :model="form" :rules="rules" label-width="120px">
       <el-form-item label-width="0">
         <el-alert show-icon>
-          确认转账后，资金将直接打入对方账户，无法退回。
+          请检查并确认交易信息是否正确。
         </el-alert>
       </el-form-item>
-      <el-form-item label="付款账户：">
+      <el-form-item label="账户名称：">
         {{ infoData.payAccount }}
       </el-form-item>
-      <el-form-item label="收款账户：">
+      <el-form-item label="交易基金：">
         {{ infoData.gatheringAccount }}
       </el-form-item>
-      <el-form-item label="收款人姓名：">
-        {{ infoData.gatheringName }}
+      <el-form-item label="购买金额：">
+        {{ infoData.purchaseAmount }}
       </el-form-item>
-      <el-form-item label="转账金额：">
+      <el-form-item label="交易手续费：">
         <strong>
-          {{ infoData.price }}
+          {{ infoData.tradeFee }}
         </strong>
-      </el-form-item>
-      <el-form-item label="支付密码：" prop="password">
-        <el-input v-model="form.password" type="password"/>
       </el-form-item>
     </el-form>
     <div class="pay-button-group">

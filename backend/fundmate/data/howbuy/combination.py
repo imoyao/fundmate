@@ -6,9 +6,11 @@
 @author: imoyao
 @email: immoyao@gmail.com
 @desc: 爬取好买基金的基金组合（牛基宝）并保存到数据库，为后期跟踪策略提供数据
+# TODO: 目前信息中的 float(x)/100 返回值导致精度不正确，需要处理
 
 策略地址：https://trade.ehowbuy.com/newpig/index.html#/adviser/index?productCode={{code}}
 """
+import math
 from typing import Dict, List, Optional
 
 import pandas as pd
@@ -101,7 +103,6 @@ class Strategy:
             data = _resp.get('body')
             raw_indicator_list = data.get('qjzb').get('dataList')
             if raw_indicator_list:
-
                 _, volatility_info, sharpe_info, max_drawdown_info = raw_indicator_list
                 max_drawdown = _ret_val(max_drawdown_info)
                 sharpe = _ret_val(sharpe_info)
@@ -161,7 +162,7 @@ class Strategy:
                     'name': plan_name,
                     'risk_type': None,
                     'found_date': found_date,
-                    'annualized_rate_of_return': annualized_rate_of_return,
+                    'annualized_rate_of_return': annualized_rate_of_return if annualized_rate_of_return else 0,
                     'invest_rate_of_return': invest_rate_of_return,
                     'desc': plan_desc,
                     'rich_desc': plan_rich_desc,
@@ -263,6 +264,7 @@ class Strategy:
     def pagination_trade_info(self, code: str, size: int = 10, is_desc: bool = True) -> List:
         """
         翻页查询，获取所有调仓信息
+
         原始网页：
         https://trade.ehowbuy.com/newpig/index.html#/adviser/adjustRecord?investmentAdviser=0&productCode=tzzhqgx&isHistory=1?corpId=&coopId=&HBTag=
         :param code:
@@ -275,19 +277,19 @@ class Strategy:
         if self.is_success(resp):
             data = resp.get('body')
             total = int(data.get('total'))
-            total_pages = int(data.get('pages'))
+            total_pages = math.ceil(total / size)
             trade_info = list()
             # 第一次请求的即为最新的消息
             first_page_items = self.parse_page_data(data)
             trade_info.extend(first_page_items)
-
-            for page_num in range(2, total_pages + 1):
-                per_page_trade_history = self.trade_history(code, size, page_num)
-                if per_page_trade_history:
-                    trade_info.extend(per_page_trade_history)
-
-            if total != len(trade_info):
-                raise LenEqualError('返回数据长度与接口总量不一致！')
+            if size > 10:
+                for page_num in range(2, total_pages + 1):
+                    per_page_trade_history = self.trade_history(code, size, page_num)
+                    if per_page_trade_history:
+                        trade_info.extend(per_page_trade_history)
+                # 请求size条时，不需要判断total是否等于总的条数
+                if total != len(trade_info):
+                    raise LenEqualError('返回数据长度与接口总量不一致！')
             if not is_desc:
                 # 最旧的排在最前面
                 trade_info = trade_info[::-1]
@@ -303,8 +305,10 @@ class Strategy:
 
     def datestr_to_isodatestr(self, str_date: str):
         """
-        >>> datestr_to_isodatestr('20220104')
-        >>> '2022-01-04'
+        >>> stg = Strategy()
+        >>> stg.datestr_to_isodatestr('20220104')
+        '2022-01-04'
+
         :param str_date:
         :return:
         """
