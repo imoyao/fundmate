@@ -136,13 +136,14 @@ class FundOpTypeEnum(BaseTypeEnum):
         """
         return [item.dk_display for item in cls]
 
-    def columns_map(self) -> dict:
+    @classmethod
+    def columns_map(cls) -> dict:
         """
         返回英文和中文的映射字典
         :return:
         """
-        input_li = self.input()
-        display_li = self.display()
+        input_li = cls.input()
+        display_li = cls.display()
         return dict(zip(input_li, display_li))
 
 
@@ -214,29 +215,46 @@ class ZHMgrTypeEnum(BaseTypeEnum):
     def default(cls):
         return cls.personal
 
+    @classmethod
+    def input(cls):
+        """
+        用户请求时需要用到
+        :return:
+        """
+        return [item.dk_name for item in cls]
 
-UN = ChoiceTypeIntegerDk(0, 'un', '未定义')
-QM = ChoiceTypeIntegerDk(1, 'qm', '且慢')
-TT = ChoiceTypeIntegerDk(2, 'tt', '天天基金')
-DJ = ChoiceTypeIntegerDk(3, 'dj', '蛋卷基金')
+
+UNDEFINED_PLT = ChoiceTypeIntegerDk(0, 'un', '未定义')
+QIEMAN = ChoiceTypeIntegerDk(1, 'qm', '且慢')
+TIANTIAN = ChoiceTypeIntegerDk(2, 'tt', '天天基金')
+DANJUAN = ChoiceTypeIntegerDk(3, 'dj', '蛋卷基金')
 OWN = ChoiceTypeIntegerDk(4, 'own', '平台自建')
-HB = ChoiceTypeIntegerDk(5, 'hb', '好买基金')
+HOWBUY = ChoiceTypeIntegerDk(5, 'hb', '好买基金')
 
 
 @enum.unique
 class PlatTypeEnum(BaseTypeEnum):
-    undefined = UN
-    qieman = QM
-    tiantian = TT
-    danjuan = DJ
+    un = UNDEFINED_PLT
+    qm = QIEMAN
+    tt = TIANTIAN
+    dj = DANJUAN
     own = OWN
-    howbuy = HB
+    hb = HOWBUY
 
     @classmethod
     def default(cls):
-        return cls.undefined
+        return cls.un
+
+    @classmethod
+    def input(cls):
+        """
+        用户请求时需要用到
+        :return:
+        """
+        return [item.dk_name for item in cls]
 
 
+UNPLT = ChoiceTypeDk('unknown', '未知平台')
 ALIPAY = ChoiceTypeDk('alipay', '蚂蚁财富（支付宝）')
 TCWM = ChoiceTypeDk('tcwm', '腾讯理财通')
 TTJJ = ChoiceTypeDk('tt', '天天基金')
@@ -247,9 +265,18 @@ class SupportInvestPltEnum(BaseTypeEnum):
     """
     支持导入文件的平台
     """
-    zfb = ALIPAY
-    lct = TCWM
+    unknown = UNPLT
+    alipay = ALIPAY
+    tcwm = TCWM
     tt = TTJJ
+
+    @classmethod
+    def input(cls):
+        """
+        用户请求时需要用到
+        :return:
+        """
+        return [item.dk_value for item in cls]
 
 
 '''
@@ -381,3 +408,65 @@ DEFAULT_CONFIRMATION_URI = 'http://localhost:5000/register-confirm'
 DEFAULT_RESET_URI = 'http://localhost:5000/reset-password'
 
 ADMIN_ROLE_NAME = 'admin'
+'''
+# 好买
+年化收益率代表期间内收益率的年化值。注：区间小于1年不展示年化收益率；
+
+年化波动率代表产品过去的波动幅度，指标越小越好，指标越大则风险也越高；
+
+夏普比率指区间内的年化夏普比率，代表每承担一份风险，可带来多少超额收益，该值越高说明产品的性价比越高；
+
+最大回撤代表期间组合净值从最高到最低的下降幅度，指标越小越好。
+'''
+# 来自蛋卷组合详情信息返回值
+INDICATOR_DOCS = [{
+    "type": "yield",
+    "title": "年化收益率",
+    "docs": ["组合内成分基金的累计收益率，代表了每只成分基金在组合中截至目前的收益率情况"]
+}, {
+    "type":
+    "max_drawdown",
+    "title":
+    "最大回撤",
+    "docs": [
+        "组合成立以来，净值走到最低点时的收益率回撤幅度的最大值。", "最大回撤用来描述买入产品后可能出现的最糟糕的情况。通常用来衡量该组合的抗风险能力。", "计算组合成立以来时间的回撤，基准指数的时间范围与组合一致。",
+        "指标越小越好"
+    ]
+}, {
+    "type": "votility",
+    "title": "年化波动率",
+    "docs": ["代表组合资产收益率的年化波动程度。通常用来衡量该组合的风险水平。", "以近一年的周涨跌计算年化波动率，若组合成立时间不足半年，不具备参考价值，不展示该数据。", "指标越小越好"]
+}, {
+    "type":
+    "sharpe",
+    "title":
+    "夏普比率",
+    "docs": [
+        "代表每承受一单位总风险，会产生多少的超额报酬。", "如果夏普比率为正值，说明在近一年组合平均收益率超过了无风险利率。", "以近一年的组合数据计算夏普，若组合成立时间不足半年，不具备参考价值，不展示该数据。",
+        "该值越高说明产品的性价比越高"
+    ]
+}, {
+    "type": "annual_returns",
+    "title": "年化收益率",
+    "docs": ["采用XIRR算法计算组合年化收益率。"]
+}, {
+    "type": "total_gain_rate",
+    "title": "组合收益率",
+    "docs": ["组合截至最新日期的累计收益率；收益率=组合累计收益/最大净流入成本。"]
+}, {
+    "type": "position",
+    "title": "持仓分布",
+    "docs": ["按照当前组合持仓的成分基金的持仓比例、类型等，统计得到组合当前持仓分布"]
+}, {
+    "type": "purchase_time",
+    "title": "买入次数",
+    "docs": ["从组合创建开始，发布买入的方案中买入对应成分基金的次数"]
+}, {
+    "type": "hold_days",
+    "title": "持有天数",
+    "docs": ["从组合创建开始，对应成分基金总计的持有天数"]
+}, {
+    "type": "total_benefit_rate",
+    "title": "累计收益率",
+    "docs": ["组合内成分基金的累计收益率，代表了每只成分基金在组合中截至目前的收益率情况"]
+}]

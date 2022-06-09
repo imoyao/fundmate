@@ -8,6 +8,7 @@ from typing import Optional, Union
 
 from apiflask import pagination_builder
 
+from sqlalchemy import inspect
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.sql import func
@@ -123,8 +124,17 @@ class UpsertMixin(CRUDMixin):
 
             if len(result) == 1:
                 inst = result[0]
-                # 结果转换为dict,see also: https://stackoverflow.com/a/1960546/14295718
-                inst_dict = {col.name: getattr(inst, col.name) for col in cls.__table__.columns}
+                # 结果转换为dict,ref: https://stackoverflow.com/a/1960546/14295718
+                try:
+                    inst_dict = {col.name: getattr(inst, col.name) for col in cls.__table__.columns}
+                except AttributeError:
+                    '''
+                    When the sqlalchemy ORM class attributes are different from database columns, ref:
+                    https://stackoverflow.com/a/27948279/14295718
+                    当设计数据库的ORM时，如果我们的类属性和数据库的列名不同时，如何获取类的属性
+                    '''
+                    inst_dict = {col[0]: getattr(inst, col[0]) for col in inspect(cls).column_attrs.items()}
+
                 if not utils.is_sub_dict(kwargs, inst_dict):
                     inst.update(kwargs)
                     db.session.commit()
@@ -148,9 +158,9 @@ class Model(CRUDMixin, db.Model):
 
     __abstract__ = True
 
-    def to_dict(self):
-        columns = self.__table__.columns.keys()
-        return {key: getattr(self, key) for key in columns}
+    # def to_dict(self):
+    #     columns = self.__table__.columns.keys()
+    #     return {key: getattr(self, key) for key in columns}
 
 
 class PkModel(Model):
