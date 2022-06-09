@@ -3,24 +3,23 @@ updates:
   - package-ecosystem: "npm"
     directory: "/frontend/"
     schedule:
-      interval: "daily"
+      interval: "monthly"
+      time: "08:00"
 
   - package-ecosystem: "docker"
     directory: "/backend/"
     schedule:
-      interval: "daily"
+      interval: "monthly"
+      time: "08:00"
 
   - package-ecosystem: "github-actions"
     directory: "/backend"
     schedule:
-      interval: "daily"
+      interval: "monthly"
+      time: "08:00"
 
   - package-ecosystem: "pip"
     directory: "/backend/requirements"
     schedule:
-      interval: "daily"
-
-  - package-ecosystem: "pip"
-    directory: "/backend"
-    schedule:
-      interval: "daily"
+      interval: "monthly"
+      time: "08:00"
