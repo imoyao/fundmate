@@ -69,3 +69,6 @@ importlib-metadata==4.2.0
 portion==2.2.0
 # 更新setuptools 以免遇到安装包时报错
 setuptools>=62.3.2
+
+# 后期可能不需要这个
+baostock==0.8.8
