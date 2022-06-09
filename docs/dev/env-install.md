@@ -15,6 +15,13 @@ python3 --version
 ```
 参阅[Centos7 安装 Python3.7 详细教程](https://blog.csdn.net/xuezhangjun0121/article/details/103903984)
 
+::: warning
+针对`ModuleNotFoundError: No module named '_ctypes'`错误：
+```shell
+yum -y install zlib-devel bzip2-devel openssl-devel ncurses-devel sqlite-devel readline-devel tk-devel gdbm-devel db4-devel libpcap-devel xz-devel
+```
+:::
+
 - c++编译环境
 ```bash
 yum install gcc gcc-c++
