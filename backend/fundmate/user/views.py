@@ -15,7 +15,7 @@ https://dev.to/paurakhsharma/flask-rest-api-part-5-password-reset-2f2e)
 """
 import traceback
 
-from apiflask import APIBlueprint, PaginationSchema, abort, input, output
+from apiflask import APIBlueprint, PaginationSchema, abort
 from flask.views import MethodView
 
 import passlib
@@ -51,8 +51,8 @@ def load_user(user_id: str):
 @bp.route('/')
 class Users(MethodView):
 
-    @input(PaginationSchema, 'query')
-    @output(UserOutSchema)
+    @bp.input(PaginationSchema, 'query')
+    @bp.output(UserOutSchema)
     def get(self, query):
         """获取所有用户信息"""
         ret = paginate_query(User, query)
@@ -62,14 +62,14 @@ class Users(MethodView):
 @bp.route('/<int:user_id>')
 class UserDetail(MethodView):
 
-    @output(UserOutSchema)
+    @bp.output(UserOutSchema)
     def get(self, user_id: str) -> User:
         """获取指定用户信息"""
         user_obj = load_user(user_id)
         return user_obj
 
-    @input(UserInSchema(partial=True))
-    @output(UserOutSchema)
+    @bp.input(UserInSchema(partial=True))
+    @bp.output(UserOutSchema)
     def patch(self, user_id: str, data: dict) -> User:
         """更新指定用户信息"""
         _user_obj = load_user(user_id)
@@ -78,7 +78,7 @@ class UserDetail(MethodView):
         user = User.save(data)
         return user
 
-    @output({}, 204)  # no content
+    @bp.output({}, 204)  # no content
     def delete(self, user_id: str) -> str:
         """删除指定用户"""
         user_obj = load_user(user_id)
@@ -88,7 +88,7 @@ class UserDetail(MethodView):
 
 
 @bp.post('/register')
-@input(UserInSchema())
+@bp.input(UserInSchema())
 def register(req):
     """
     Registers a new user by parsing a POST request containing new user info and
@@ -137,7 +137,7 @@ def confirm_and_active_account():
 
 
 @bp.post('/login')
-@input(UserLoginSchema())
+@bp.input(UserLoginSchema())
 def login(data):
     """
     登录功能
@@ -183,7 +183,7 @@ def refresh_token():
 
 
 @bp.post('/forget_password')
-@input(ForgetPasswordSchema())
+@bp.input(ForgetPasswordSchema())
 def forget_password(data):
     """
     用户忘记密码
@@ -203,7 +203,7 @@ def forget_password(data):
 
 
 @bp.post('/reset_password')
-@input(ResetPasswordSchema())
+@bp.input(ResetPasswordSchema())
 def reset_password(data):
     """
     重置密码
@@ -227,7 +227,7 @@ def reset_password(data):
 @bp.post('/deny')
 @auth_required
 @roles_required(ADMIN_ROLE_NAME)
-@input(DenyUserSchema(partial=True))
+@bp.input(DenyUserSchema(partial=True))
 def disable_user(req):
     """
     管理员禁用用户
@@ -248,7 +248,7 @@ def disable_user(req):
 @bp.post('/activations')
 @auth_required
 @roles_required('admin')
-@input(DenyUserSchema(partial=True))
+@bp.input(DenyUserSchema(partial=True))
 def active_user(req):
     """
     系统管理员禁用用户
@@ -300,8 +300,8 @@ class UserAccounts(MethodView):
     }
 
     @auth_required
-    @input(EmptySchema)
-    @output(AccountOutSchema(many=True))
+    @bp.input(EmptySchema)
+    @bp.output(AccountOutSchema(many=True))
     def get(self, account_type: str):
         """获取用户账本信息
         根据类型查询自己名下的账户，账户按照类型区分：
@@ -315,8 +315,8 @@ class UserAccounts(MethodView):
             accounts = Account.query.filter_by(creator_id=user_id)
         return accounts
 
-    @input(CreateAccountSchema)
-    @output(AccountOutSchema, links=account_links)
+    @bp.input(CreateAccountSchema)
+    @bp.output(AccountOutSchema, links=account_links)
     def post(self, data: dict):
         """创建用户账本"""
         user = current_user()

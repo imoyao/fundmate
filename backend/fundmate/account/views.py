@@ -7,7 +7,7 @@ TODO: 用户账户和基金账户容易混淆，可能使用嵌套蓝图更好
 """
 import datetime
 
-from apiflask import APIBlueprint, abort, input, output
+from apiflask import APIBlueprint, abort
 from flask.views import MethodView
 from flask_praetorian import auth_required, current_user
 
@@ -38,7 +38,7 @@ class AccountsDetail(MethodView):
     获取指定账户的信息
     """
 
-    @output(AccountOutSchema)
+    @bp.output(AccountOutSchema)
     def get(self, account_id: str):
         """查询某个账本基本信息
         名称、描述、包含的基金、比例、金额
@@ -46,8 +46,8 @@ class AccountsDetail(MethodView):
         account_inst = Account.get_by_id(account_id)
         return account_inst
 
-    @input(CreateAccountSchema(partial=True))
-    @output(AccountOutSchema)
+    @bp.input(CreateAccountSchema(partial=True))
+    @bp.output(AccountOutSchema)
     def patch(self, pet_id, data):
         """更新账户信息
         名称，描述，
@@ -58,8 +58,8 @@ class AccountsDetail(MethodView):
 @bp.route('/products')
 class InvestProductView(MethodView):
 
-    @input(QueryInvestProduct, 'query')
-    @output(InvestProductOut)
+    @bp.input(QueryInvestProduct, 'query')
+    @bp.output(InvestProductOut)
     def get(self, query: dict):
         """
         根据平台和产品名称查询产品的分类和编码；如果没有查询到，则可以使用post请求创建
@@ -73,8 +73,8 @@ class InvestProductView(MethodView):
             abort(404)
 
     @auth_required
-    @input(CommitProducts)
-    @output(InvestProductOut)
+    @bp.input(CommitProducts)
+    @bp.output(InvestProductOut)
     def post(self, data: dict):
         """
         用户主动提交自己购买的理财产品或组合
@@ -106,7 +106,7 @@ class InvestProductView(MethodView):
 class ImportDealingDocuments(MethodView):
 
     @auth_required
-    @output(AccountOutSchema)
+    @bp.output(AccountOutSchema)
     def post(self, data: dict):
         """
         通过文件导入账单
