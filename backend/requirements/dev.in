@@ -1,0 +1,8 @@
+-r base.in
+-r tests.in
+-r typing.in
+pip-compile-multi
+tox
+pre-commit
+Flask-Migrate
+flask-shell-ipython

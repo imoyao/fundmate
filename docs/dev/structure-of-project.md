@@ -107,7 +107,6 @@ my_blog
 │     ├── dev.txt
 │     ├── docker.txt
 │     ├── heroku.txt
-│     └── prod.txt
 ├── requirements.txt
 └── tests
     ├── __init__.py
@@ -184,7 +183,6 @@ cookiecutter https://github.com/sloria/cookiecutter-flask.git
 ├── README.md
 ├── requirements
 │  ├── dev.txt
-│  └── prod.txt
 ├── requirements.txt
 ├── setup.cfg
 ├── shell_scripts
@@ -238,7 +236,6 @@ cookiecutter https://github.com/sloria/cookiecutter-flask.git
 ├── README.md
 ├── requirements
 │     ├── dev.txt
-│     └── prod.txt
 ├── requirements.txt
 ├── setup.cfg
 ├── shell_scripts
@@ -254,7 +251,7 @@ cookiecutter https://github.com/sloria/cookiecutter-flask.git
 ### 启动应用
 
 ```bash
-(fmp) [root@localhost backend]# flask run 
+(fmp) [root@localhost backend]# flask run
  * Serving Flask app "autoapp.py" (lazy loading)
  * Environment: development
  * Debug mode: on
@@ -299,7 +296,7 @@ flask run --port=8000
 
 *   从当前目录寻找`app.py`和`wsgi.py`模块，并从中寻找名为`app`或`application`的程序实例。
 *   从环境变量`FLASK_APP`对应的模块名/导入路径寻找名为`app`或`application`的程序实例。如果 你的程序主模块是其他名称，比如 `hello.py`，那么需要设置环境变量`FLASK_APP`，将包含程序 实例的模块名赋值给这个变量。
-    
+
 Linux 或 macOS 系统使用 export 命令：
 ```plain
   $ export FLASK_APP= hello
@@ -308,7 +305,7 @@ Linux 或 macOS 系统使用 export 命令：
 ```plain
  > set FLASK_APP= hello
 ```
-    
+
 :::tip
 注意：由于我们删除了所有的模板文件，所以需要将代码中的`render_template`都暂时修改为`return {{ sth }}`，即返回字符串。
 ```python
