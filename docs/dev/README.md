@@ -47,17 +47,27 @@ yarn run dev
 
 ### 后端
 - 安装开发环境
+目前使用[pip-compile-multi](https://pip-compile-multi.readthedocs.io/en/latest/migration.html) 管理项目依赖的更新。
 ```bash
 cd backend
 python3 -m venv fmp
-source fmp/bin/activate 
-pip install -r requirements.txt
+source fmp/bin/activate
+pip install -Ur requirements/dev.txt
 ```
 - 修改环境变量`.env`
 ```plain
 flask run --host=0.0.0.0
 ```
-- 启动数据库
+- 安装生产环境依赖
+```
+# fundmate/backend
+pip install -Ur requirements/base.txt
+```
+- 更新依赖
+```bash
+pip-compile-multi
+```
+### 启动数据库
 - 初始化数据库
 ```bash
 flask init-db # 更多命令执行flask --help 查看
