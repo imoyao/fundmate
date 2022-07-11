@@ -16,7 +16,7 @@ importlib-resources==5.8.0
     # via jsonschema
 iniconfig==1.1.1
     # via pytest
-jsonschema==4.6.0
+jsonschema==4.6.2
     # via
     #   openapi-schema-validator
     #   openapi-spec-validator
