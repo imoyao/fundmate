@@ -55,7 +55,7 @@ def some_route():
 
 ### [认证、授权、鉴权和权限控制 | 滩之南](http://www.hyhblog.cn/2018/04/25/user_login_auth_terms/)
 
-- Identity（身份识别） – who claims to be making an API request? 
+- Identity（身份识别） – who claims to be making an API request?
 - Authentication （认证）– are they really who they say they are?
 - Authorization （授权）– are they allowed to do what they are trying to do?
 
@@ -77,9 +77,9 @@ def some_route():
      1. 使用 Cookie 进行 JWT 存储
      2. 部分路线保护
      3. 需要新鲜的 token
-     4. 在 HTTP 请求中自定义 JWT（标题，正文等） 
+     4. 在 HTTP 请求中自定义 JWT（标题，正文等）
      5. CSRF 保护
-  
+
   缺点
     1. 密码哈希法
     2. 密码验证
@@ -88,10 +88,10 @@ def some_route():
     5. flask-praetorian 的 API 更简单，配置也更少。
 
   Flask-praetorian 旨在成为一个完整的安全扩展，而 flask-jwt-extended 则侧重于基于 jwt 的 auth 并支持许多访问模式。
-* ~~flask-jwt-simple~~ 
+* ~~flask-jwt-simple~~
 
   除了生成 JWT token 和 auth_required 装饰器外，别无他物。如果是快速成型很好用。
-* ~~flask-security~~ 
+* ~~flask-security~~
 
   flask-praetorian 的灵感来源，但是它*包括 wtform 组件和其他东西不需要 Flask 为基础的 api*。在 API 中包含所有额外的内容既麻烦又不必要。
 
@@ -119,7 +119,7 @@ def some_route():
 
 ::: warning
 JWT:由于[此处-Issue #123](https://github.com/mattupstate/flask-jwt/issues/123) 提到的原因我们选择 [Flask-JWT-Extended’s Documentation — flask-jwt-extended 3.25.0 documentation](https://flask-jwt-extended.readthedocs.io/en/stable/) 作为实现 JWT 的扩展。
-::: 
+:::
 ### ~~Flask-Security~~ vs ~~Flask-Security（TOO）~~ vs Flask-praetorian
 满足所有：由于 ~~[Flask-Security — Flask-Security 3.0.0 documentation](https://pythonhosted.org/Flask-Security/)不再积极维护，我们转向 [Welcome to Flask-Security（TOO） — Flask-Security 4.0.0 documentation](https://flask-security-too.readthedocs.io/en/stable/)~~ 基于此处[flask-praetorian comparison to other libraries — flask-praetorian 1.3.0 documentation](https://flask-praetorian.readthedocs.io/en/latest/comparison.html#flask-security) 原因，我们抛弃 Flask-Security 而选择[Flask-praetorian](https://flask-praetorian.readthedocs.io/en/latest/)
 
@@ -127,7 +127,7 @@ JWT:由于[此处-Issue #123](https://github.com/mattupstate/flask-jwt/issues/12
 
 ::: tip UPDATE
 
-目前已实现基于`Flask-praetorian`的认证、登录、找回、重置密码，更新token的操作；大致记录一下需要注意的点：
+目前已实现基于`Flask-praetorian`的认证、登录、找回、重置密码，更新 token 的操作；大致记录一下需要注意的点：
 
 1. 在`register_extensions`函数中初始化`Flask-praetorian`时**必须**传入`model.py`中定义的`User`，否则报错`flask_praetorian.exceptions.PraetorianError: The user_class must have a lookup class method`。此外，用户必须定义相应的`lookup`、`identity`等方法；
 ```python
@@ -140,7 +140,7 @@ def register_extensions(app: APIFlask):
     ...
 ```
 2. 发送邮件时必须确保系统存在环境变量`PRAETORIAN_CONFIRMATION_SENDER`和`PRAETORIAN_RESET_SENDER`，否则会报错`A sender is required to send confirmation email`；
-3. 注册发送邮件时的token中包含用户id信息，所以必须确保发送邮件前用户信息已经写入数据库；如果没有写入，则token中没有用户的id信息，此时会报错`Could not fetch an id from the registration token`，相关代码参阅[此处](https://github.com/dusktreader/flask-praetorian/blob/c23d10e0d6e34b2b3102b9b71e48f006b8397467/flask_praetorian/base.py#L447)
+3. 注册发送邮件时的 token 中包含用户 id 信息，所以必须确保发送邮件前用户信息已经写入数据库；如果没有写入，则 token 中没有用户的 id 信息，此时会报错`Could not fetch an id from the registration token`，相关代码参阅[此处](https://github.com/dusktreader/flask-praetorian/blob/c23d10e0d6e34b2b3102b9b71e48f006b8397467/flask_praetorian/base.py#L447)
 ```python
 def encode_jwt_token():
     ...
@@ -172,7 +172,7 @@ def encode_jwt_token():
     "message": "xxxx"       # 中文错误提示
 }
 ```
-两者信息并不一致，此外，英文提示对于国内并不友好，无法直接显示给用户；而且，错误码是http的状态码，并不与错误码中定义统一。
+两者信息并不一致，此外，英文提示对于国内并不友好，无法直接显示给用户；而且，错误码是 http 的状态码，并不与错误码中定义统一。
 :::
 
 [Web Authentication Methods Compared | TestDriven.io](https://testdriven.io/blog/web-authentication-methods/)
@@ -188,7 +188,7 @@ def encode_jwt_token():
 
 设置 token 需要注意的事情：[关于 token 存放在 cookie 中 - SegmentFault 思否](https://segmentfault.com/q/1010000014763987)
 
-1. token 是否过期，应该后端接口中来判断，不该前端来判断。正常流程是：用户拿到一个 token，然后一直在用这个 token，直到到达后端设置的系统token过期时间，返回 401 错误。
+1. token 是否过期，应该后端接口中来判断，不该前端来判断。正常流程是：用户拿到一个 token，然后一直在用这个 token，直到到达后端设置的系统 token 过期时间，返回 401 错误。
 2. 建议把 token 存在 cookie 上，不设置过期时间，如果 token 失效，就让后端在接口中返回固定的状态（401）表示 token 失效，需要重新登录，再重新登录的时候，重新设置 cookie 中的 token 就行。
 3. js 创建 cookie 时用 `document.cookie = 'token=xxx'` 是更方便也是更安全的方法。
 4. 让后端在接口的返回值 header 里添加 set-Cookie，这样的话浏览器会自动把 token 设置到 cookie 里。
@@ -265,4 +265,3 @@ if __name__ == "__main__":
 8. [HTTP API 认证授权术 | 酷 壳 - CoolShell](https://coolshell.cn/articles/19395.html)
 9. [REST 接口安全认证方式对比：API Key vs OAuth 令牌 vs JWT_王浩的技术博客-CSDN 博客_apikey 认证方式](https://peterwanghao.blog.csdn.net/article/details/81170785)
 10. [傻傻分不清之 Cookie、Session、Token、JWT - 掘金](https://juejin.cn/post/6844904034181070861)
-

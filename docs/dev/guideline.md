@@ -24,7 +24,7 @@ permalink: /dev/guideline
 ## commit
 
 - 分支备注
-  
+
   对于上传到 git 远程仓库的分支，必须添加分支备注，需要用到的指令为：
   ```bash
   #  添加注释
@@ -38,7 +38,7 @@ permalink: /dev/guideline
   git br
   ```
   具体参阅[git 添加分支注释 - SegmentFault 思否](https://segmentfault.com/a/1190000022256823?utm_source=tag-newest)
-  
+
 - 提交代码备注
 
   可以使用中文也可以使用英文，甚至可以混用，但是应该尽量保证清晰明了，尤其是改动较大时。
@@ -52,7 +52,7 @@ File -> Settings -> Tools -> Python Integrated Tools -> Docstrings -> Docstring 
 
 基于控制项目空间大小和后期代码维护的目的，对于第三方模块的引入和使用基本遵循下面的规则：
 1. 如果项目有可用包`pip install xx`，则直接安装；
-2. 尽量不修改源码，如果实在要修改，尽量去源码提交pr；
-3. 运行时的垃圾文件不要上传到git，避免仓库过大；
-4. 如果必要，使用submodule，关于submodule的使用参考此文：[ submodule的使用方法_THEGREATHXY的博客-CSDN博客_submodule](https://blog.csdn.net/THEGREATHXY/article/details/113880095)
+2. 尽量不修改源码，如果实在要修改，尽量去源码提交 pr；
+3. 运行时的垃圾文件不要上传到 git，避免仓库过大；
+4. 如果必要，使用 submodule，关于 submodule 的使用参考此文：[submodule 的使用方法_THEGREATHXY 的博客-CSDN 博客_submodule](https://blog.csdn.net/THEGREATHXY/article/details/113880095)
 5. 如果时间充足，尽量保证项目经过测试可以跑通；

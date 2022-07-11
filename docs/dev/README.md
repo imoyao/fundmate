@@ -59,7 +59,7 @@ pip install -Ur requirements/dev.txt
 flask run --host=0.0.0.0
 ```
 - 安装生产环境依赖
-```
+```plain
 # fundmate/backend
 pip install -Ur requirements/base.txt
 ```
