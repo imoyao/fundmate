@@ -26,7 +26,7 @@ from backend.fundmate.types import PdDataFrame
 current_path = Path.cwd()
 
 
-def get_df(fp):
+def get_df(fp: Union[str, Path]) -> PdDataFrame:
     df = pd.read_csv(fp)
     return df
 
@@ -74,7 +74,7 @@ def loads_template(df: PdDataFrame):
     def fetch_confirm_datetime(fund_code: str, operate_date: str, op_type: str, trade_category: str):
         """获取购买基金的确认日期"""
         temp_datetime = convert.try_parse_date(operate_date)
-        date_str = temp_datetime.strftime("%Y-%m-%d")
+        date_str = temp_datetime.strftime('%Y-%m-%d')
         if trade_category in [SupportInvestCategoriesEnum.fund.dk_value, SupportInvestCategoriesEnum.fund.dk_value]:
             td = TradeDay()
             is_after_15o_clock = temp_datetime.hour >= 15
@@ -182,7 +182,7 @@ def read_csv_for_df(fp: Union[str, Path], has_transfer: bool = False) -> Optiona
         return None
 
 
-def fund_code(df):
+def fund_code(df: PdDataFrame):
     """
     匹配产品编码
     :param df:
@@ -202,7 +202,7 @@ def fund_code(df):
     return df_with_redeem
 
 
-def file_middle(fp):
+def file_middle(fp: Union[str, Path]):
     """
     导入的df需要增加产品分类字段
     同时自动计算产品编码
@@ -213,9 +213,7 @@ def file_middle(fp):
     fund_code(file_df)
 
 
-def main(
-    fp=r'F:\code\self\fundmate\backend\fundmate\data\alipay\起始时间[20121201-000000]-终止时间[20220130-102530]-PC端支付宝交易单导出.csv'
-):
+def main(fp: Union[str, Path]):
     upload_file_df = get_df(fp)
     t = ImportColumns()
     platform = 'alipay'
@@ -240,13 +238,13 @@ def main(
             isvalid_prods = check_isvalid_prods(platform, prod_codes)
         except excepts.NotSupportError as e:
             msg = str(e)
-            raise errors.NotSupportProduct(message=msg)
+            raise errors.NotSupportProduct(message=msg) from e
 
         all_isvalid = all([isvalid_types, isvalid_prods])
         if all_isvalid:
-            '''
+            """
             # 2. 读取文件并导入
-            '''
+            """
             # user = current_user()
             user_id = '00001'
             all_in_names = t.required_names + t.optional_names
