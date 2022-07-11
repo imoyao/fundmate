@@ -12,12 +12,18 @@ permalink: /dev/import-trade-records
    1. 如果是基金产品，则可以直接匹配编码；
    2. 如果是理财产品，则需要去平台根据名称查询，如果没有查询到，则提交添加申请；
    3. 如果是投资组合，同上；
-   ::: 如何判断我们购买的产品是组合？基金还是理财产品？
-      1. 在“基金”页面选择相应的产品风险类型，点击进入
-       ![选择相应的产品风险类型](https://cdn.jsdelivr.net/gh/masantu/statics/images/Snipaste_2022-03-09_11-12-54.png)
-      2. 在风险类型分类页选择收益明细区域
-       ![选择收益明细](https://cdn.jsdelivr.net/gh/masantu/statics/images/Snipaste_2022-03-09_11-09-41.png)
-      3. 在下级页面查看产品归类
-       ![注意左侧文字](https://cdn.jsdelivr.net/gh/masantu/statics/images/Snipaste_2022-03-09_11-14-45.png)
+   ::: tip 如何判断我们购买的产品是组合？基金还是理财产品？
    :::
+      1. 在“基金”页面选择相应的产品风险类型，点击进入
+
+      ![选择相应的产品风险类型](https://cdn.jsdelivr.net/gh/masantu/statics/images/Snipaste_2022-03-09_11-12-54.png)
+
+      2. 在风险类型分类页选择收益明细区域
+
+      ![选择收益明细](https://cdn.jsdelivr.net/gh/masantu/statics/images/Snipaste_2022-03-09_11-09-41.png)
+
+      3. 在下级页面查看产品归类
+
+      ![注意左侧文字](https://cdn.jsdelivr.net/gh/masantu/statics/images/Snipaste_2022-03-09_11-14-45.png)
+
 3. 梳理结果返回并确认

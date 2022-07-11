@@ -59,7 +59,7 @@ pip install -Ur requirements/dev.txt
 flask run --host=0.0.0.0
 ```
 - 安装生产环境依赖
-```
+```plain
 # fundmate/backend
 pip install -Ur requirements/base.txt
 ```
@@ -81,8 +81,3 @@ flask init-db # 更多命令执行flask --help 查看
 # 默认只更新基金信息
 flask update-db
 ```
-## TODO
-
-- 使用的插件
-
-[aaron-bond/better-comments](https://github.com/aaron-bond/better-comments)
