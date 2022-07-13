@@ -8,9 +8,10 @@ https://github.com/pallets/flask/blob/2.0.2/examples/tutorial/tests/conftest.py
 """
 import os
 
+from webtest import TestApp
+
 import pytest
 from environs import Env as EnvParser
-from webtest import TestApp
 
 from backend.fundmate.app import create_app
 from backend.fundmate.database import db as _db
@@ -42,6 +43,7 @@ def app():
 def client(app, request):
     """
     直接使用test_client方法获取测试专用的客户端
+    :param request:
     :param app:
     :return:
     """
@@ -55,7 +57,7 @@ def client(app, request):
         app.config['FLASK_ENV'] = origin_flask_env
 
     # 读取初始FLASK_ENV配置
-    origin_flask_env = env.str("FLASK_ENV", default="default")
+    origin_flask_env = env.str('FLASK_ENV', default='default')
     print(origin_flask_env)
     # 加载测试环境的配置
     app.config['TESTING'] = True
@@ -85,7 +87,7 @@ def db(app):
 def user(db):
     """Create user for the tests."""
     # TODO: 用户密码可以放到配置文件中
-    user = UserFactory(password="test123456")
+    user = UserFactory(password='test123456')
     db.session.commit()
     return user
 
