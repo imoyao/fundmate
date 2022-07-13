@@ -109,12 +109,12 @@ def test_bar(before_func):
         1. 类中的每个成员方法前用函数进行声明
        ```python
        import pytest
-    
+
        class Test1:
             @pytest.mark.usefixtures("before")
             def test_3(self):
                 print('test_1()')
-         
+
             @pytest.mark.usefixtures("before")
             def test_4(self):
                 print('test_2()')
@@ -122,50 +122,53 @@ def test_bar(before_func):
         2. 在类前声明
        ```python
        import pytest
-       
+
        @pytest.mark.usefixtures("before_func")
        class Test2:
-     
+
            def test_5(self):
                print('test_1()')
-     
+
            def test_6(self):
                print('test_2()')
        ```
-3. 用 autos 调用 fixture 
+3. 用 autos 调用 fixture
+
  fixture 装饰器有一个配置参数 autouse，默认值为 False.
  在默认状态下，可以使用上面的方式调用 fixture，当设置为 True 时，在一个 scope 内的所有测试用例都会自动调用这个 fixture. 注意上面的 scope 的参数用于控制 fixture 的作用范围，其传参可以为：
 
-   - function：函数级，每个测试用例都运行，为默认值
-   - class：类级，每个类的所有测试用例运行一次
-   - module：模块级，每个模块的所有测试用例运行一次
-   - session：session 级，每个 session 级别运行一次
-   及控制范围由大到小是：`session > module > class > function`
+   - function：函数级，结果会在每个测试函数结束后销毁，为默认值
+   - class：类级，结果会在执行完类里的所有测试方法后销毁
+   - module：模块级，结果会在执行完整个模块的所有测试后销毁
+   - package（包）：结果会在执行完整个包的所有测试后销毁。
+   - session：session 级，结果会在测试会话（也就是一次完整的pytest执行过程）结束后销毁。
+
+   其控制范围由大到小是：`session > package > module > class > function`
 
    示例代码：
    ```python
    import pytest
    import time
-   
+
    @pytest.fixture(scope="module", autouse=True)
    def mod_header(request):
        print('\n-----------------')
        print('MODULE      : %s' % request.module.__name__)
        print('-----------------')
-    
-    
+
+
    @pytest.fixture(scope="function", autouse=True)
    def func_header(request):
        print('\n-----------------')
        print('FUNCTION    : %s' % request.function.__name__)
        print('time        : %s' % time.asctime())
        print('-----------------')
-    
-    
+
+
    def test_one():
        print('in test_one()')
-    
-    
+
+
    def test_two():
        print('in test_two()')
    ```
@@ -212,7 +215,7 @@ def test_foo():
 @pytest.mark.parametrize('suffix_str,replace_flag,expected', [('100万', 'w', 1000000), ('7.0天', 'd', 7), ('2.0年', 'n', 730)])
 def test_foo1():
     pass
-# 
+#
 @pytest.mark.parametrize(['suffix_str', 'replace_flag', 'expected'], [('100万', 'w', 1000000), ('7.0天', 'd', 7), ('2.0年', 'n', 730)])
 def test_foo2():
     pass
