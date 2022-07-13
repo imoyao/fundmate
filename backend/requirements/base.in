@@ -2,7 +2,9 @@ Flask
 APIFlask
 Flask-SQLAlchemy
 Flask-Bcrypt
+# 权限控制
 flask-praetorian
+# 环境变量写入dotenv
 environs
 # 日志系统
 loguru
@@ -22,3 +24,5 @@ PyMySQL
 portion
 # 后期可能不需要这个
 baostock
+# 重试机制
+retry

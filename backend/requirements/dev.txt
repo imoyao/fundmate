@@ -18,8 +18,6 @@ build==0.8.0
     # via pip-tools
 cfgv==3.3.1
     # via pre-commit
-decorator==5.1.1
-    # via ipython
 distlib==0.3.4
     # via virtualenv
 filelock==3.7.1

@@ -25,5 +25,5 @@ pyflakes==2.4.0
     # via flake8
 typing-extensions==4.3.0
     # via importlib-metadata
-zipp==3.8.0
+zipp==3.8.1
     # via importlib-metadata
