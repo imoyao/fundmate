@@ -10,7 +10,7 @@
 -r typing.txt
 --trusted-host mirrors.cloud.aliyuncs.com
 
-alembic==1.8.0
+alembic==1.8.1
     # via flask-migrate
 backcall==0.2.0
     # via ipython
@@ -18,7 +18,7 @@ build==0.8.0
     # via pip-tools
 cfgv==3.3.1
     # via pre-commit
-distlib==0.3.4
+distlib==0.3.5
     # via virtualenv
 filelock==3.7.1
     # via
