@@ -69,25 +69,27 @@ class YZYX:
         """
         指数表解析 FIXME: long time,cache this?
         """
-        df = pd.read_html(self.URL)[2]
-        cols = df.columns.tolist()
-        rename_cols = ['index_raw_str', 'index_temper', 'interval_rate', 'yield']
-        rename_map = dict(zip(cols, rename_cols))
-        df.rename(columns=rename_map, inplace=True)
-        '''  # noqa
-        >>> index_raw_str
-        '中证红利  000922.CSI'
-        >>> index_raw_str.split(' ')
-        ['中证红利', '', '000922.CSI']
-        # [python - Pandas FutureWarning: Columnar iteration over characters will be deprecated in future releases - Stack Overflow](https://stackoverflow.com/questions/61313365/pandas-futurewarning-columnar-iteration-over-characters-will-be-deprecated-in-f)
-        equals: df['index_name'], _, df['index_code'] = df['index_raw_str'].str.split(' ').str
-        '''
-        df[['index_name', 'drop_it', 'index_code']] = df['index_raw_str'].str.split(' ', expand=True)
-        data = df.drop(columns=['index_raw_str', 'drop_it'])
-        if not is_df:
-            _info = data.to_dict(orient='records')
-            return _info
-        return data
+        df_tab = pd.read_html(self.URL)
+        if df_tab:
+            df = df_tab[1]
+            cols = df.columns.tolist()
+            rename_cols = ['index_raw_str', 'index_temper', 'interval_rate', 'yield']
+            rename_map = dict(zip(cols, rename_cols))
+            df.rename(columns=rename_map, inplace=True)
+            '''  # noqa
+            >>> index_raw_str
+            '中证红利  000922.CSI'
+            >>> index_raw_str.split(' ')
+            ['中证红利', '', '000922.CSI']
+            # [python - Pandas FutureWarning: Columnar iteration over characters will be deprecated in future releases - Stack Overflow](https://stackoverflow.com/questions/61313365/pandas-futurewarning-columnar-iteration-over-characters-will-be-deprecated-in-f)
+            equals: df['index_name'], _, df['index_code'] = df['index_raw_str'].str.split(' ').str
+            '''
+            df[['index_name', 'drop_it', 'index_code']] = df['index_raw_str'].str.split(' ', expand=True)
+            data = df.drop(columns=['index_raw_str', 'drop_it'])
+            if not is_df:
+                _info = data.to_dict(orient='records')
+                return _info
+            return data
 
     # @show_time
     def daily_temper(self, is_full: bool = False) -> dict:
@@ -122,16 +124,14 @@ class YZYX:
         if is_full:
             # 指数观察
             _valuations = self.valuations()
-            bond_div = '//div[@class="tw-bg-bgd-content-light dark:tw-bg-bgd-content-dark tw-text-t-normal-light ' \
-                       'dark:tw-text-t-normal-dark tw-rounded-1 tw-mb-3 tw-cursor-pointer"]/ '
+            bond_div = '//div[@class="tw-bg-bgd-area tw-text-t-normal tw-rounded-1 tw-mb-3 tw-cursor-pointer"]/ '
             bond_xpath = f'{bond_div}div/p/span/text()'
             bond_temper = html.xpath(bond_xpath)[0]
             ten_ytm_xpath = f'{bond_div}div[2]/p/span/span/text()'
             ten_ytm_rate = html.xpath(ten_ytm_xpath)[0]
             ten_ytm_xpath_update_xp = f'{bond_div}div[2]/label/text()'
             ten_ytm_xpath_update_date = html.xpath(ten_ytm_xpath_update_xp)[0]
-            gdp_div = '//div[@class="tw-bg-bgd-content-light dark:tw-bg-bgd-content-dark tw-text-t-normal-light ' \
-                      'dark:tw-text-t-normal-dark tw-rounded-1 tw-cursor-pointer"]/ '
+            gdp_div = '//div[@class="tw-bg-bgd-area tw-text-t-normal tw-rounded-1 tw-cursor-pointer"]/ '
             gdp_quarter_xp = f'{gdp_div}div/p/span/span/text()'
             gdp_quarter_rate = html.xpath(gdp_quarter_xp)[0]
             gdp_quarter_update_xp = f'{gdp_div}div/label/text()'
@@ -140,19 +140,19 @@ class YZYX:
             gdp_month_rate = html.xpath(gdp_month_xp)[0]
             quarter_date, month_date = gdp_quarter_update_date
             macro_data = {
-                'bond_temper': bond_temper,
+                'bond_temper': bond_temper.strip(),
                 'ten_ytm_rate': {
                     'rate': ten_ytm_rate,
-                    'update_date': ten_ytm_xpath_update_date
+                    'update_date': ten_ytm_xpath_update_date.strip()
                 },
                 'gdp': {
                     'quarter': {
                         'rate': gdp_quarter_rate,
-                        'date': quarter_date
+                        'date': quarter_date.strip()
                     },
                     'month': {
                         'rate': gdp_month_rate,
-                        'date': month_date
+                        'date': month_date.strip()
                     },
                 }
             }
