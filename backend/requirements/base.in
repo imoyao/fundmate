@@ -26,3 +26,7 @@ portion
 baostock
 # 重试机制
 retry
+# 文件解析
+pyyaml
+# 数据库管理
+Flask-Migrate
