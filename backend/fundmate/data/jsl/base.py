@@ -13,12 +13,18 @@ from backend.fundmate.data.utils import base as dt_utils
 from backend.fundmate.exts.flask_loguru import logger
 
 url = 'https://www.jisilu.cn/data/indicator/get_last_indicator/'
-REQUEST_STR = '''Accept: application/json, text/javascript, */*; q=0.01
+REQUEST_STR = """Accept: application/json, text/javascript, */*; q=0.01
 Accept-Encoding: gzip, deflate, br
 Accept-Language: zh-CN,zh;q=0.9,en;q=0.8,en-US;q=0.7
 Connection: keep-alive
 Content-Length: 0
-Cookie: kbzw_r_uname=%E8%A5%BF%E9%A3%8E%E4%B8%8D%E7%98%A6; kbz_newcookie=1; kbzw__Session=a295sqg2agsgc6dqgd786nk613; Hm_lvt_164fe01b1433a19b507595a43bf58262=1622536736,1622596667,1622686815,1623044428; kbzw__user_login=7Obd08_P1ebax9aXXwc1ShoFVzDuV_kamrCW6c3q1e3Q6dvR1YyglaSx25mv0trD15nZ3KTbwqHG16mqmbKirpfbw9nb2Jmcndbd3dPGpJ-pm6uSqJiupbaxv9Gkwtjz1ePO15CspaOYicfK4t3k4OyMxbaWkqelo7OBx8rir6mkmeStlp-BuOfj5MbHxtbE3t2ooaqZpJStl5vDqcSuwKWV1eLX3IK9xtri4qGBs8nm6OLOqKWokKaPq6uqqo-nmJTM1s_a3uCRq5SupaaugbXF26iumqecpZqslaWrpA..; Hm_lpvt_164fe01b1433a19b507595a43bf58262=1623296705
+Cookie: kbzw_r_uname=%E8%A5%BF%E9%A3%8E%E4%B8%8D%E7%98%A6; kbz_newcookie=1; kbzw__Session=a295sqg2agsgc6dqgd786nk613;""" \
+              """Hm_lvt_164fe01b1433a19b507595a43bf58262=1622536736,1622596667,1622686815,1623044428;""" \
+              """kbzw__user_login=7Obd08_P1ebax9aXXwc1ShoFVzDuV_kamrCW6c3q1e3Q6dvR1YyglaSx25mv0trD15nZ3KTbwqHG16""" \
+              """mqmbKirpfbw9nb2Jmcndbd3dPGpJ-pm6uSqJiupbaxv9Gkwtjz1ePO15CspaOYicfK4t3k4OyMxbaWkqelo7OBx8rir6m""" \
+              """kmeStlp-BuOfj5MbHxtbE3t2ooaqZpJStl5vDqcSuwKWV1eLX3IK9xtri4qGBs8nm6OLOqKWokKaPq6uqqo-nmJTM1s""" \
+              """_a3uCRq5SupaaugbXF26iumqecpZqslaWrpA..;""" \
+              """Hm_lpvt_164fe01b1433a19b507595a43bf58262=1623296705
 DNT: 1
 Host: www.jisilu.cn
 Origin: https://www.jisilu.cn
@@ -28,10 +34,11 @@ sec-ch-ua-mobile: ?0
 Sec-Fetch-Dest: empty
 Sec-Fetch-Mode: cors
 Sec-Fetch-Site: same-origin
-User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.77 Safari/537.36 Edg/91.0.864.41
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.77""" \
+              """ Safari/537.36 Edg/91.0.864.41
 X-Requested-With: XMLHttpRequest
-'''  # noqa: E501
-current_path = Path.cwd()
+"""
+current_path = Path(__file__).parent.resolve()
 
 
 class JSL:
@@ -72,10 +79,10 @@ class JSL:
             hd = dt_utils.parse_headers(REQUEST_STR)
             resp = rget('https://www.jisilu.cn/data/indicator/', headers=hd)
             with open(html_fp, 'w') as f:
-                '''
+                """
                 see also: python爬虫抓下来的网页，中间的中文乱码怎么解决？ - 菜鸟分析的回答 - 知乎
 https://www.zhihu.com/question/36938733/answer/573224207
-                '''
+                """
                 resp.encoding = resp.apparent_encoding
                 text = resp.text
                 f.write(text)
@@ -83,7 +90,7 @@ https://www.zhihu.com/question/36938733/answer/573224207
             with open(html_fp) as f:
                 text = f.read()
 
-        reg_mat = re.findall(r"var (.*) = (.*);", text)
+        reg_mat = re.findall(r'var (.*) = (.*);', text)
         info = dict()
         if reg_mat:
             # 索引名称（A股全市场） 10年国债收益率均值 交易日期
@@ -95,12 +102,12 @@ https://www.zhihu.com/question/36938733/answer/573224207
                     if key == '__date':
                         key = 'date'
                     info[key] = eval(item[1])
-        '''
+        """
         PE中值 PE温度 股票数量 IPO数量 ST数量 A股全市场指数点位
-        '''
+        """
         data_useful_key = ['median_PE', 'median_PE_t', 'stock_count', 'IPO_count', 'st_count', 'index_point']
         float2int_iter = ['stock_count', 'IPO_count', 'st_count']
-        data_mat = re.findall(r"\t(.*):\t*(\[.*]),", text)
+        data_mat = re.findall(r'\t(.*):\t*(\[.*]),', text)
         if data_mat:
             _data = dict()
             for item in data_mat:
@@ -118,7 +125,6 @@ https://www.zhihu.com/question/36938733/answer/573224207
             st_count_l = _data.get('st_count')
             index_point_l = _data.get('index_point')
 
-        if info:
             if readable:
                 date = info.get('date')
                 avg_base_ytm = info.get('avg_base_ytm')

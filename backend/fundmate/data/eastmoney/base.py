@@ -24,16 +24,42 @@ from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.fund.models import Fund, FundCompany, FundMgr, FundType, FundVariety, Mgr
 from backend.fundmate.libs import convert
 
-current_path = Path.cwd()  # TODO: 会保存到项目的根目录
-REQUEST_STR = '''Accept: */*
+current_path = Path(__file__).parent.resolve()
+REQUEST_STR = """Accept: */*
 Accept-Encoding: gzip, deflate
 Accept-Language: zh-CN,zh;q=0.9,en;q=0.8,en-US;q=0.7
 Connection: keep-alive
-Cookie: AUTH_FUND.EASTMONEY.COM_GSJZ=AUTH*TTJJ*TOKEN; qgqp_b_id=2fae24fc6356487426dbc8cdfeddb553; searchbar_code=519736; Eastmoney_Fund_Transform=true; Eastmoney_Fund=160222; _qddaz=QD.shtanj.nfcxlq.kpzap3pv; EMFUND0=06-01%2010%3A51%3A26@%23%24%u4EA4%u94F6%u5B9A%u671F%u652F%u4ED8%u53CC%u606F%u5E73%u8861%u6DF7%u5408@%23%24519732; EMFUND1=06-01%2017%3A34%3A55@%23%24%u6C47%u6DFB%u5BCC%u4E2D%u8BC1%u4E3B%u8981%u6D88%u8D39ETF@%23%24159928; EMFUND2=06-01%2017%3A44%3A26@%23%24%u666F%u987A%u957F%u57CE%u7EE9%u4F18%u6210%u957F%u6DF7%u5408@%23%24007412; EMFUND3=06-01%2018%3A02%3A11@%23%24%u56FD%u6CF0%u56FD%u8BC1%u98DF%u54C1%u996E%u6599%u884C%u4E1A%28LOF%29@%23%24160222; EMFUND4=06-02%2016%3A45%3A24@%23%24%u6613%u65B9%u8FBE%u5929%u5929%u7406%u8D22%u8D27%u5E01A@%23%24000009; EMFUND5=06-08%2009%3A56%3A58@%23%24%u5E73%u5B89%u4E2D%u8BC1%u755C%u7267%u517B%u6B96ETF@%23%24516760; EMFUND6=06-08%2009%3A57%3A06@%23%24%u56FD%u6CF0%u4E2D%u8BC1%u755C%u7267%u517B%u6B96ETF@%23%24159865; EMFUND7=06-15%2018%3A30%3A30@%23%24%u534E%u590F%u6210%u957F%u6DF7%u5408@%23%24000001; EMFUND8=06-16%2017%3A27%3A55@%23%24%u94F6%u534E%u65E5%u5229B@%23%24003816; EMFUND9=06-22 13:26:06@#$%u4E2D%u6B27%u65F6%u4EE3%u667A%u6167%u6DF7%u5408A@%23%24005241; cowCookie=true; st_si=01667893795829; st_pvi=80465927611178; st_sp=2021-05-29%2010%3A44%3A08; st_inirUrl=https%3A%2F%2Fwww.baidu.com%2Flink; st_sn=1; st_psi=202106241712486-113300301036-4785882081; st_asi=delete; ASP.NET_SessionId=qndvon01q0acgvbe52lzhu0g
+Cookie: AUTH_FUND.EASTMONEY.COM_GSJZ=AUTH*TTJJ*TOKEN; qgqp_b_id=2fae24fc6356487426dbc8cdfeddb553;""" \
+              """ searchbar_code=519736; Eastmoney_Fund_Transform=true; Eastmoney_Fund=160222;""" \
+              """ _qddaz=QD.shtanj.nfcxlq.kpzap3pv;""" \
+              """EMFUND0=06-01%2010%3A51%3A26@%23%24%u4EA4%u94F6%u5B9A%u671F%u652F%u4ED8%u53CC%u606F%u5E73%u8861%u6""" \
+              """DF7%u5408@%23%24519732;EMFUND1=06-01%2017%3A34%3A55@%23%24%u6C47%u6DFB%u5BCC%u4E2D%u8BC1%u4E3B""" \
+              """%u8981%u6D88%u8D39ETF@%23%24159928;""" \
+              """EMFUND2=06-01%2017%3A44%3A26@%23%24%u666F%u987A%u957F%u57CE%u7EE9%u4F18%u6210%u957F%u6DF7""" \
+              """%u5408@%23%24007412;""" \
+              """EMFUND3=06-01%2018%3A02%3A11@%23%24%u56FD%u6CF0%u56FD%u8BC1%u98DF%u54C1%u996E%u6599%u884C""" \
+              """%u4E1A%28LOF%29@%23%24160222;""" \
+              """EMFUND4=06-02%2016%3A45%3A24@%23%24%u6613%u65B9%u8FBE%u5929%u5929%u7406%u8D22%u8D27""" \
+              """%u5E01A@%23%24000009;""" \
+              """EMFUND5=06-08%2009%3A56%3A58@%23%24%u5E73%u5B89%u4E2D%u8BC1%u755C%u7267%u517B""" \
+              """%u6B96ETF@%23%24516760;""" \
+              """EMFUND6=06-08%2009%3A57%3A06@%23%24%u56FD%u6CF0%u4E2D%u8BC1%u755C%u7267%u517B""" \
+              """%u6B96ETF@%23%24159865;""" \
+              """EMFUND7=06-15%2018%3A30%3A30@%23%24%u534E%u590F%u6210%u957F%u6DF7""" \
+              """%u5408@%23%24000001;""" \
+              """EMFUND8=06-16%2017%3A27%3A55@%23%24%u94F6%u534E%u65E5""" \
+              """%u5229B@%23%24003816;""" \
+              """EMFUND9=06-22 13:26:06@#$%u4E2D%u6B27%u65F6%u4EE3%u667A%u6167%u6DF7""" \
+              """%u5408A@%23%24005241;""" \
+              """cowCookie=true; st_si=01667893795829; st_pvi=80465927611178; st_sp=2021-05-29%2010%3A44%3A08;""" \
+              """st_inirUrl=https%3A%2F%2Fwww.baidu.com%2Flink; st_sn=1;""" \
+              """st_psi=202106241712486-113300301036-4785882081; st_asi=delete;""" \
+              """ASP.NET_SessionId=qndvon01q0acgvbe52lzhu0g
 DNT: 1
 Host: fund.eastmoney.com
-User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36 Edg/91.0.864.54
-'''  # noqa: E501
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)""" \
+              """Chrome/91.0.4472.114 Safari/537.36 Edg/91.0.864.54
+"""
 
 
 class BaseParse:
@@ -75,7 +101,8 @@ class EastMoney(BaseParse):
         page_size = fund_mgr_info.get('pages')
         pages_data = fund_mgr_info.get('data')
         for page in range(2, page_size):
-            _fund_mgr_url = f'http://fund.eastmoney.com/Data/FundDataPortfolio_Interface.aspx?dt=14&mc=returnjson&ft=all&pn=50&pi={page}&sc=abbname&st=asc'  # noqa: E501
+            _fund_mgr_url = f'http://fund.eastmoney.com/Data/FundDataPortfolio_Interface.aspx?dt=14&mc=returnjson' \
+                            f'&ft=all&pn=50&pi={page}&sc=abbname&st=asc'
             resp = self.fetch_mgr(_fund_mgr_url)
             per_page_data = resp.get('data')
             pages_data.extend(per_page_data)
@@ -146,13 +173,15 @@ class EastMoney(BaseParse):
 
         数据来源：[基金经理 _ 天天基金网](http://fund.eastmoney.com/manager/default.html#dt14;mcreturnjson;ftall;pn50;pi2;scabbname;stasc)
         """  # noqa: E501
-        fund_mgr_url = 'http://fund.eastmoney.com/Data/FundDataPortfolio_Interface.aspx?dt=14&mc=returnjson&ft=all&pn=50&pi=1&sc=abbname&st=asc'  # noqa: E501
+        fund_mgr_url = 'http://fund.eastmoney.com/Data/FundDataPortfolio_Interface.aspx?dt=14&mc=returnjson&' \
+                       'ft=all&pn=50&pi=1&sc=abbname&st=asc'
         first_page_info = self.fetch_mgr(fund_mgr_url)
         fund_mgr_info = self.left_page_data(first_page_info)
         '''
         基金经理编码 姓名	公司编码 公司名称 现任基金编码 现任基金名称	累计从业时间（天） 现任基金最佳回报 基金编码 基金名称 现任基金资产总规模
-        ['30634044', '艾定飞', '80053204', '华商基金', '007685,007853', '华商电子行业量化股票,华商计算机行业量化股票', '981', '105.41%', '007685', '华商电子行业量化股票', '5.74亿元', '105.41%']
-        '''  # noqa: E501
+        ['30634044', '艾定飞', '80053204', '华商基金', '007685,007853', '华商电子行业量化股票,华商计算机行业量化股票', '981',
+        '105.41%', '007685', '华商电子行业量化股票', '5.74亿元', '105.41%']
+        '''
         if fund_mgr_info:
             if save:
                 if format_ == 'sql':
@@ -186,16 +215,18 @@ class EastMoney(BaseParse):
     def save_mgr_2db(self, fund_mgr_info: list):  # noqa: C901
         """
         将基金经理信息存入数据表MGRS,此外，还会将基金与基金经理关联起来，信息存入FUND_MGR中间表
-        FIXME: 需要注意的是：有一部分基金是新发基金，这个时候funds表中是没有数据的，此时关联基金经理会报错：`FlushError: Can't flush None value found in collection Mgr.funds`，目前的解决方案是直接continue跳过这个数据的写入，后期可能需要优化流程，添加新发基金的信息爬取
-        """  # noqa: E501
+        FIXME: 需要注意的是：有一部分基金是新发基金，这个时候funds表中是没有数据的，此时关联基金经理会报错：
+        `FlushError: Can't flush None value found in collection Mgr.funds`
+        目前的解决方案是直接continue跳过这个数据的写入，后期可能需要优化流程，添加新发基金的信息爬取
+        """
         for mgr_item in fund_mgr_info:
             mgr_code, mgr_name, cmp_code, cmp_name, mgr_fd, mgr_fn, work_days, \
-            _best_rt, best_fd, _, _sum_scale, _ = mgr_item
+            _best_rt, best_fd, _, _sum_scale, _ = mgr_item  # noqa:E122
             mgr_fd_list = mgr_fd.split(',')
             mgr_fn_list = mgr_fn.split(',')
             mgr_fd_map = dict(zip(mgr_fd_list, mgr_fn_list))
-            best_rt = self.remove_specific_str(_best_rt, "%")
-            sum_scale = self.remove_specific_str(_sum_scale, "亿元")
+            best_rt = self.remove_specific_str(_best_rt, '%')
+            sum_scale = self.remove_specific_str(_sum_scale, '亿元')
 
             mgr_query_info = {'mgr_code': mgr_code}
             cmp_id = FundCompany.filter_by_code(cmp_code)
@@ -301,7 +332,7 @@ class EastMoney(BaseParse):
             '''
             see also:   https://stackoverflow.com/a/50257217
             '''
-            p = re.compile('(?<!\\\\)\'')
+            p = re.compile("(?<!\\\\)\'")
             load_able_str = p.sub('\"', fund_comps_str)
             comps = self.be_json(load_able_str)
             if save:
@@ -438,12 +469,12 @@ class EastMoney(BaseParse):
                 '''
                 转换为df：
                 ```
-                基金全称        基金代码         发行日期                      资产规模   基金管理人 基金经理人       管理费率  ...              
-                  成立日期/规模                        份额规模 基金托管人          成立来分红       托管费率     最高认购费率      跟踪标的 
-                  0  
-                  工银瑞信物流产业股票型证券投资基金  001718（前端）  2015年12月21日  55.31亿元（截止至：2021年12月31日）  工银瑞信基金   张宇帆  1.50%（每年）  ...  
-                  2016年03月01日 / 2.504亿份  13.2686亿份（截止至：2021年12月31日）  交通银行  每份累计0.00元（0次）  0.25%（每年）  1.20%（前端）  
-                  该基金无跟踪标的 
+                基金全称        基金代码         发行日期                      资产规模   基金管理人 基金经理人       管理费率  ...
+                  成立日期/规模                        份额规模 基金托管人          成立来分红       托管费率     最高认购费率      跟踪标的
+                  0
+                  工银瑞信物流产业股票型证券投资基金  001718（前端）  2015年12月21日  55.31亿元（截止至：2021年12月31日）  工银瑞信基金   张宇帆  1.50%（每年）  ...
+                  2016年03月01日 / 2.504亿份  13.2686亿份（截止至：2021年12月31日）  交通银行  每份累计0.00元（0次）  0.25%（每年）  1.20%（前端）
+                  该基金无跟踪标的
                 ```
 
                 '''
@@ -601,7 +632,7 @@ class EastMoney(BaseParse):
                 如果大类名称在缓存字典中，则直接获取，不去查数据库；
                 否则，查询数据库，如果没有查到则创建，并更新缓存字典
                 '''
-                _fv_info = {'name': fv}
+                _fv_info = {'name': fv}  # noqa:F841
                 if fv in cache_fv_map:
                     _fv_id = cache_fv_map.get(fv)
                 else:
@@ -611,7 +642,7 @@ class EastMoney(BaseParse):
                 # 基金小类处理
                 _ft_id = None
                 if ft:
-                    _ft_info = {'name': ft}
+                    _ft_info = {'name': ft}  # noqa:F841
                     if ft in type_map:
                         _ft_id = type_map.get(ft)
                     else:

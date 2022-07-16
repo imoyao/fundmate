@@ -23,7 +23,7 @@ from backend.fundmate.libs import convert
 from backend.fundmate.settings import FundOpTypeEnum, SupportInvestCategoriesEnum
 from backend.fundmate.types import PdDataFrame
 
-current_path = Path.cwd()
+current_path = Path(__file__).parent.resolve()
 
 
 def get_df(fp: Union[str, Path]) -> PdDataFrame:
@@ -106,7 +106,7 @@ def loads_template(df: PdDataFrame):
         row['trade_category'],
         row['op_type'],
     ),
-                                        axis=1)
+                                        axis=1)  # noqa:E122
     # 交易手续费：如果不是0，则返回，否则，根据购买金额，购买基金、费率计算
     df['charge_fee'] = df.apply(lambda row: _db_code(row['record_code'], row['trans_confirm_date']), axis=1)
 

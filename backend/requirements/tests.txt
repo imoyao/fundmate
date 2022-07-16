@@ -12,6 +12,10 @@ attrs==21.4.0
     # via
     #   jsonschema
     #   pytest
+factory-boy==3.2.1
+    # via -r requirements/tests.in
+faker==13.15.0
+    # via factory-boy
 iniconfig==1.1.1
     # via pytest
 jsonschema==4.7.2

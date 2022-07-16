@@ -15,10 +15,9 @@ import pandas as pd
 from backend.fundmate import settings
 from backend.fundmate.data.eastmoney.base import EastMoney
 from backend.fundmate.fund.models import Fund
-from backend.fundmate.types import PdDataFrame
 
 em = EastMoney()
-current_path = Path.cwd()
+current_path = Path(__file__).parent.resolve()
 
 RESULT_FILE_NAME = '起始时间[20121201-000000]-终止时间[20220119-163035]-PC端支付宝交易单导出.csv'
 OUTPUT_FILE_NAME = '产品编号映射表.csv'

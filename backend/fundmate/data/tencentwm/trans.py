@@ -24,7 +24,7 @@ from backend.fundmate.excepts import NotSupportError
 from backend.fundmate.settings import BaseTypeEnum, FundOpTypeEnum
 from backend.fundmate.types import PdDataFrame
 
-current_path = Path.cwd()
+current_path = Path(__file__).parent.resolve()
 TEMPLATE_FILE_NAME = 'record.json'
 LCT_RECORDS_TEMPLATE_FP = Path(current_path).joinpath(TEMPLATE_FILE_NAME)
 USEFUL_COLUMNS = [
@@ -88,7 +88,7 @@ IS_RECORD_TRANSACTIONAL_NUMBER = True
 # ============变量配置===============
 BASE_EXPORT_FILE_NAME = '理财通交易单导出.csv'
 YUE_PLUS_NAME = '余额+'
-fund_types = {"1": "低风险", "2": "中低风险", "4": "中高风险", "7": "保险理财产品", "3": "中低风险保险理财产品", "11": "人保财险理财产品", "5": "P2P理财产品"}
+fund_types = {'1': '低风险', '2': '中低风险', '4': '中高风险', '7': '保险理财产品', '3': '中低风险保险理财产品', '11': '人保财险理财产品', '5': 'P2P理财产品'}
 # business_type_map = {
 #     '0': '买入',
 #     '27': '投顾服务费',
@@ -293,7 +293,8 @@ def get_datetime_dict(df):
         :return:
         """
         date_inst = dateparser.parse(date_str)
-        return f'{date_inst.year}{date_inst.month:02}{date_inst.day:02}-{date_inst.hour:02}{date_inst.minute:02}{date_inst.second:02}'
+        return f'{date_inst.year}{date_inst.month:02}{date_inst.day:02}-{date_inst.hour:02}{date_inst.minute:02}' \
+               f'{date_inst.second:02}'
 
     start = df.iloc[0, :]['acc_time']
     end = df.iloc[-1, :]['acc_time']
