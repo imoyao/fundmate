@@ -13,7 +13,7 @@ from backend.fundmate.excepts import EmptyError, UnexpectedArgsError
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.fund.models import Fund
 
-abs_current_path = Path.cwd().resolve()
+abs_current_path = Path(__file__).parent.resolve()
 FUND_SYMBOLS_SAVE_FP = f'{str(abs_current_path)}/fund_symbols.json'
 
 

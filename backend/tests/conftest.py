@@ -8,8 +8,6 @@ https://github.com/pallets/flask/blob/2.0.2/examples/tutorial/tests/conftest.py
 """
 import os
 
-from webtest import TestApp
-
 import pytest
 from environs import Env as EnvParser
 
@@ -20,8 +18,6 @@ from .factories import UserFactory
 
 env = EnvParser()
 env.read_env()
-
-TestApp.__test__ = False
 
 
 @pytest.fixture(scope='function')
@@ -92,12 +88,12 @@ def user(db):
     return user
 
 
-@pytest.fixture
-def test_app_view(app):
-    """Create Webtest app.
-    图形化界面测试，目前可能用不到
-    """
-    return TestApp(app)
+# @pytest.fixture
+# def test_app_view(app):
+#     """Create Webtest app.
+#     图形化界面测试，目前可能用不到
+#     """
+#     return TestApp(app)
 
 
 @pytest.fixture

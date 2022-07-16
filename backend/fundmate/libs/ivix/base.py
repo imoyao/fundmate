@@ -12,7 +12,7 @@ import pandas as pd
 from pyecharts.charts import Line
 from scipy import interpolate
 
-current_path = Path.cwd()
+current_path = Path(__file__).parent.resolve()
 
 shibor_rate = {}
 options_data = {}

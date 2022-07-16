@@ -34,7 +34,9 @@ Accept-Encoding: gzip, deflate, br
 Accept-Language: zh-CN,zh;q=0.9,en;q=0.8,en-US;q=0.7
 Cookie: _flourish_data=SFMyNTY.g2gDdAAAAAFkAAlkZXZpY2VfaWRtAAAAJGM4MDhkM2YzLTdkZGUtNGEwYi1hODJjLTZlZDg4YmUxNWFiMW4GAELC-uR5AWIAAVGA.xRt-7BqEruLTp87o4zF2WrOEMErTQww_wgQq_rOMiBE; _flourish_key=SFMyNTY.g3QAAAACbQAAAAtfY3NyZl90b2tlbm0AAAAYa3VuV1NFd2RONkhhdkhlUnI1bVROMUZZbQAAAAdyZWZlcmVybQAAACRodHRwczovL3lvdXpoaXlvdXhpbmcuY24vdGhlcm1vbWV0ZXI.DICHDr8U6inf5eLnv8EsGIGkINJBXYLB5XV7b9NVPKc
 '''  # noqa :E501
-current_path = Path.cwd()
+current_path = Path(__file__).parent.resolve()
+FILE_NAME = 'temp.html'
+FILE_PATH = Path.joinpath(current_path, FILE_NAME)
 
 
 class YZYX:
@@ -45,7 +47,7 @@ class YZYX:
     URL = 'https://youzhiyouxing.cn/thermometer'
 
     def __init__(self):
-        self.html_fp = f'{current_path}/temp.html'
+        self.html_fp = FILE_PATH
 
     def get_html_text(self, json_fp=None):
         p = Path(self.html_fp)
@@ -91,7 +93,7 @@ class YZYX:
     def daily_temper(self, is_full: bool = False) -> dict:
         """
         新版市场温度数据
-        :return: 
+        :return:
         """
         text = self.get_html_text()
         html = etree.HTML(text)
@@ -172,7 +174,7 @@ class YZYX:
      {"asset_rate": "385.8761", "avg_return_3": null, "close": "767.3533", "date": "2005-01-14", "degree": 9,
       "return_day": "-0.011090", "rw_pb": "1.9886",...}]
         """
-        '''
+        """
         {'asset_rate': '2761.9669',
          'avg_return_3': '105.1500',    # 持有3年平均收益率
          'close': '5606.7929',  # 万德全A
@@ -180,7 +182,7 @@ class YZYX:
          'degree': 21,      # 温度
          'return_day': '0.005316',
          'rw_pb': '2.0300'}
-        '''
+        """
         json_fp = f'{current_path}/yzyx.json'
         text = self.get_html_text(json_fp=json_fp)
 

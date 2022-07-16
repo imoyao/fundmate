@@ -39,12 +39,12 @@ from backend.fundmate.excepts import NotSupportError
 from backend.fundmate.settings import FundOpTypeEnum
 from backend.fundmate.types import PdDataFrame
 
-current_path = Path.cwd()
+current_path = Path(__file__).parent.resolve()
 # ============通用配置==============
-'''
+"""
 如果不确定是从手机端还是网页端导出的模板文件，直接配置`TEMPLATE_FILE_NAME`即可；
 如果可以确定，请配置`IS_FROM_PC`变量
-'''
+"""
 # 必要配置：模板文件名称和导出后文件名（注意格式必须是.csv）
 TEMPLATE_FILE_NAME = 'alipay_record_20220130_1025_1.csv'
 # TEMPLATE_FILE_NAME = 'alipay_record_20220119_173409.csv'
@@ -63,7 +63,7 @@ IS_FROM_PC = None
 MB_FILE_EXPORT_PREFIX = '手机端'
 PC_FILE_EXPORT_PREFIX = 'PC端'
 # ============手机端特殊处理配置==============
-'''
+"""
 ['收/支',
  '交易对方',
  '对方账号',
@@ -75,7 +75,8 @@ PC_FILE_EXPORT_PREFIX = 'PC端'
  '交易订单号',
  '商家订单号',
  '交易时间']
-'''
+ """
+
 MB_RENAME_LIST = [
     'op_type', 'trans_obj', 'trans_account', 'comment', 'pay_method', 'amount', 'status', 'trans_type', 'trans_code',
     'bus_code', 'trans_datetime'
@@ -101,7 +102,7 @@ MOBILE_DROP_COLUMNS = ['trans_obj', 'trans_account', 'trans_type', 'bus_code']
 RAW_MOBILE_FIRST_LINE_SUBSTR = '电子客户回单'
 # =========PC端特殊处理配置=========
 RAW_PC_FIRST_LINE_SUBSTR = '支付宝交易记录明细查询'
-'''
+"""
 ['交易号',
  '商家订单号',
  '交易创建时间',
@@ -118,7 +119,7 @@ RAW_PC_FIRST_LINE_SUBSTR = '支付宝交易记录明细查询'
  '成功退款（元）',
  '备注',
  '资金状态']
-'''
+"""
 # FIXME: 目前表头还是硬编码，如果某一个英文描述需要修改则需要修改多处
 PC_RENAME_LIST = [
     'trans_code', 'bus_code', 'trans_datetime', 'trans_pay_time', 'trans_modify_time', 'trans_source', 'trans_type',
@@ -709,7 +710,7 @@ class PCTransfer(ALiPayTransfer):
         :return:
         """
         invest_df = renamed_df.loc[(renamed_df.status != STATUS_FREEZE_SUCCESS_STR)
-                                   & (renamed_df.status != STATUS_TRADE_CLOSED_STR) &
+                                   & (renamed_df.status != STATUS_TRADE_CLOSED_STR) &  # noqa:W503
                                    (renamed_df.status != STATUS_PAID_WHILE_UNCONFIRMED_STR)]
         rebase_comment_df = self.rebase_comment(invest_df)
         # 删除字段
