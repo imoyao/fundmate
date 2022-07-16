@@ -123,7 +123,7 @@ class ImportDealingDocuments(MethodView):
                 upload_file_df = read_csv_for_df(upload_file, has_transfer=has_transfer)
             except excepts.NotSupportError as e:
                 msg = str(e)
-                raise errors.NotSupportProduct(message=msg) from excepts.NotSupportError
+                raise errors.NotSupportProduct(message=msg) from e
 
             t = ImportColumns()
             if upload_file_df is not None:
@@ -145,7 +145,7 @@ class ImportDealingDocuments(MethodView):
                     isvalid_prods = check_isvalid_prods(platform, prod_codes)
                 except excepts.NotSupportError as e:
                     msg = str(e)
-                    raise errors.NotSupportProduct(message=msg) from excepts.NotSupportError
+                    raise errors.NotSupportProduct(message=msg) from e
 
                 all_isvalid = all([isvalid_types, isvalid_prods])
                 if all_isvalid:
