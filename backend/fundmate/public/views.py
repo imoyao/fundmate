@@ -11,30 +11,30 @@ from backend.fundmate.fund.models import Fund
 from backend.fundmate.fund.schemas import FundSampleSchema, FundSearchKeySchema
 from backend.fundmate.public.schemas import ThermometerInSchema, ThermometerOutSchema
 
-bp = APIBlueprint("public", __name__)
+bp = APIBlueprint('public', __name__)
 
 
 @bp.route('/')
 class Home(MethodView):
 
     def post(self):
-        flash("You are logged in.", "success")
-        redirect_url = request.args.get("next") or url_for("user.members")
+        flash('You are logged in.', 'success')
+        redirect_url = request.args.get('next') or url_for('user.members')
         return redirect(redirect_url)
 
     def get(self):
         return {'message': 'Hello,Flask!'}
 
 
-@bp.route("/logout/")
+@bp.route('/logout/')
 def logout():
     """Logout."""
     # logout_user()
-    flash("You are logged out.", "info")
-    return redirect(url_for("public.home"))
+    flash('You are logged out.', 'info')
+    return redirect(url_for('public.home'))
 
 
-@bp.route("/about/")
+@bp.route('/about/')
 def about():
     """About page."""
     return 'render_template("public/about.html")'
@@ -44,7 +44,7 @@ def about():
 @bp.input(ThermometerInSchema, 'query')
 @bp.output(ThermometerOutSchema)
 def thermometer(query_args):
-    """
+    """"
     行情估值信息
     目前包括集思录温度、有知有行温度、蛋卷估值
     """
@@ -52,7 +52,7 @@ def thermometer(query_args):
     try:
         yzyx_info = yzyx.yzyx.daily_temper(is_full=is_full)
     except excepts.CrawlerException:
-        raise ThermometerError
+        raise ThermometerError from excepts.CrawlerException
     jsl_info = jsl.jsl.qz_info(is_full=is_full)
     dj_info = danjuan.dj_evl.valuation(is_full=is_full)
     jq_info = fundb.jq_app.kjtl(is_full=is_full)

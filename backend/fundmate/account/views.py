@@ -29,7 +29,7 @@ from backend.fundmate.fund.load_templates import (
 )
 from backend.fundmate.fund.models import InvestProduct
 
-bp = APIBlueprint("account", __name__, url_prefix="/accounts")
+bp = APIBlueprint('account', __name__, url_prefix='/accounts')
 
 
 @bp.route('/<int:account_id>')
@@ -123,7 +123,7 @@ class ImportDealingDocuments(MethodView):
                 upload_file_df = read_csv_for_df(upload_file, has_transfer=has_transfer)
             except excepts.NotSupportError as e:
                 msg = str(e)
-                raise errors.NotSupportProduct(message=msg)
+                raise errors.NotSupportProduct(message=msg) from excepts.NotSupportError
 
             t = ImportColumns()
             if upload_file_df is not None:
@@ -145,14 +145,13 @@ class ImportDealingDocuments(MethodView):
                     isvalid_prods = check_isvalid_prods(platform, prod_codes)
                 except excepts.NotSupportError as e:
                     msg = str(e)
-                    raise errors.NotSupportProduct(message=msg)
+                    raise errors.NotSupportProduct(message=msg) from excepts.NotSupportError
 
                 all_isvalid = all([isvalid_types, isvalid_prods])
                 if all_isvalid:
-                    '''
-                    # 2. 读取文件并导入
-
-                    '''
+                    """
+                    2. 读取文件并导入
+                    """
                     user = current_user()
                     user_id = user.id
                     all_in_names = t.required_names + t.optional_names

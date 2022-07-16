@@ -56,3 +56,7 @@ File -> Settings -> Tools -> Python Integrated Tools -> Docstrings -> Docstring 
 3. 运行时的垃圾文件不要上传到 git，避免仓库过大；
 4. 如果必要，使用 submodule，关于 submodule 的使用参考此文：[submodule 的使用方法_THEGREATHXY 的博客-CSDN 博客_submodule](https://blog.csdn.net/THEGREATHXY/article/details/113880095)
 5. 如果时间充足，尽量保证项目经过测试可以跑通；
+
+- 提交代码备注
+
+  可以使用中文也可以使用英文，甚至可以混用，但是应该尽量保证清晰明了，尤其是改动较大时。
