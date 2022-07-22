@@ -20,7 +20,7 @@ env = EnvParser()
 env.read_env()
 
 
-@pytest.fixture(scope='function')
+@pytest.fixture(scope='session')
 def app():
     """An application for the tests."""
     # 默认加载基础配置
@@ -35,7 +35,7 @@ def app():
     ctx.pop()
 
 
-@pytest.fixture
+@pytest.fixture(scope='session')
 def client(app, request):
     """
     直接使用test_client方法获取测试专用的客户端
@@ -63,7 +63,7 @@ def client(app, request):
     return app.test_client()
 
 
-@pytest.fixture
+@pytest.fixture(scope='session')
 def db(app):
     """Create database for the tests.
     数据库创建
@@ -79,7 +79,7 @@ def db(app):
     _db.drop_all()
 
 
-@pytest.fixture
+@pytest.fixture(scope='session')
 def user(db):
     """Create user for the tests."""
     # TODO: 用户密码可以放到配置文件中
@@ -96,7 +96,7 @@ def user(db):
 #     return TestApp(app)
 
 
-@pytest.fixture
+@pytest.fixture(scope='session')
 def cli_runner(app):
     return app.test_cli_runner()
 
