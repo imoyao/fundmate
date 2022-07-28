@@ -309,10 +309,6 @@ class TradeDate:
             return tmr
 
 
-f = FundMiddleWare()
-td = TradeDate()
-
-
 class Booking:
     """
     记账功能涉及的操作，参考：
@@ -350,10 +346,10 @@ class Booking:
                 return ast.literal_eval(convertable_var)
             return convertable_var
 
-        fee_amount = str_to_float(fee_amount)
         amount = str_to_float(amount)
-        count = str_to_float(count)
-        d_val = DailyWorth.query(fund_id=fund_code, date=d_time).price
+        count = str_to_float(count)  # noqa F811
+        d_val = DailyWorth.query(fund_id=fund_code, date=d_time).price  # noqa F811
+        f = FundMiddleWare()
         f.cal_purchase_info(amount)
 
     def redeem(
@@ -410,9 +406,11 @@ class Booking:
 
 
 if __name__ == '__main__':
+    f = FundMiddleWare()
     print(f.cal_purchase_info(amount=3000, daily_value=5.5340))
     print(f.cal_purchase_info(amount=3000, daily_value=5.2280))
     print(f.cal_redeem_info(portion=3000, daily_value=5.2245, charge_rate=0))
+    td = TradeDate()
     print(td.is_trade_day('2021-06-26'))
     print(td.verify_date('2020-06-24'))
     # =======================

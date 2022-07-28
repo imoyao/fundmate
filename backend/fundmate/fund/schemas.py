@@ -119,22 +119,23 @@ class FundPortfoliosAdjustOutSchema(Schema):
 
 
 class CompositionsSchema(Schema):
-    fd_code = String(required=True,
-                     Length=6,
-                     data_key='code',
-                     metadata={
-                         'title': '组合品类编号',
-                         'description': '未分配比例部分请按照现金（000000）分配'
-                     })
-    portion = Float(required=True,
-                    min=0,
-                    max=100,
-                    min_inclusive=False,
-                    data_key='ratio',
-                    metadata={
-                        'title': '投资比例',
-                        'description': '请输入 (0-100] 之间的数字作为分配比例'
-                    })
+    fd_code = String(metadata={
+        'required': True,
+        'Length': 6,
+        'data_key': 'code',
+        'title': '组合品类编号',
+        'description': '未分配比例部分请按照现金（000000）分配'
+    })
+    portion = Float(
+        metadata={
+            'required': True,
+            'min': 0,
+            'max': 100,
+            'min_inclusive': False,
+            'data_key': 'ratio',
+            'title': '投资比例',
+            'description': '请输入 (0-100] 之间的数字作为分配比例'
+        })
 
 
 class FundPortfolioInSchema(Schema):

@@ -21,7 +21,6 @@ from backend.fundmate.fund.models import (
     FundPortfolio,
     FundPortfolioAdjustHistory,
     FundPortfolioHoldDetail,
-    FundPortfolioMgr,
     FundSaleOrg,
     Mgr,
 )
@@ -46,7 +45,7 @@ from backend.fundmate.fund.schemas import (
 from backend.fundmate.libs.pysnowflake import snowflake
 from backend.fundmate.schema_ext import CustomPaginationSchema
 
-bp = APIBlueprint("fund", __name__, url_prefix="/funds")
+bp = APIBlueprint('fund', __name__, url_prefix='/funds')
 
 
 @bp.get('/')
@@ -307,22 +306,22 @@ class CombinationDetail(MethodView):
         # 注意：删除组合时，必须删除历史持仓信息和调仓信息
         fpo_adjust_history = FundPortfolioAdjustHistory.query.filter_by(portfolio_code=portfolio_code)
         '''synchronize_session see also:[delete - sqlalchemy - Python documentation - Kite](
-        https://www.kite.com/python/docs/sqlalchemy.orm.Query.delete) 
+        https://www.kite.com/python/docs/sqlalchemy.orm.Query.delete)
 
         chooses the strategy for the removal of matched objects from the session. Valid values are:
 
-        False - don’t synchronize the session. This option is the most efficient and is reliable once the session is 
-        expired, which typically occurs after a commit(), or explicitly using expire_all(). Before the expiration, 
-        objects may still remain in the session which were in fact deleted which can lead to confusing results if 
-        they are accessed via get() or already loaded collections. 
+        False - don’t synchronize the session. This option is the most efficient and is reliable once the session is
+        expired, which typically occurs after a commit(), or explicitly using expire_all(). Before the expiration,
+        objects may still remain in the session which were in fact deleted which can lead to confusing results if
+        they are accessed via get() or already loaded collections.
 
-        'fetch' - performs a select query before the delete to find objects that are matched by the delete query and 
-        need to be removed from the session. Matched objects are removed from the session. 
+        'fetch' - performs a select query before the delete to find objects that are matched by the delete query and
+        need to be removed from the session. Matched objects are removed from the session.
 
-        'evaluate' - Evaluate the query’s criteria in Python straight on the objects in the session. If evaluation of 
-        the criteria isn’t implemented, an error is raised. 
+        'evaluate' - Evaluate the query’s criteria in Python straight on the objects in the session. If evaluation of
+        the criteria isn’t implemented, an error is raised.
 
-        The expression evaluator currently doesn't account for differing string collations between the database and 
+        The expression evaluator currently doesn't account for differing string collations between the database and
         Python. '''
         fpo_adjust_history.delete(synchronize_session=False)  # 显式commit之后真正删除
         for fah_item in fpo_adjust_history:
