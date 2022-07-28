@@ -1,8 +1,9 @@
-import pytest
-from apiflask import APIBlueprint, APIFlask, Schema, input, output
+from apiflask import APIBlueprint, APIFlask, Schema
 from apiflask.fields import Integer, String
 from flask import Blueprint
 from flask.views import MethodView
+
+import pytest
 from openapi_spec_validator import validate_spec
 
 from .schemas import BarSchema, FooSchema, PaginationSchema
@@ -44,9 +45,9 @@ def test_view_function_arguments_order(app, client):
         age = Integer(default=123)
 
     @app.post('/pets/<int:pet_id>/toys/<int:toy_id>')
-    @input(QuerySchema, 'query')
-    @input(PaginationSchema, 'query')
-    @input(PetSchema)
+    @app.input(QuerySchema, 'query')
+    @app.input(PaginationSchema, 'query')
+    @app.input(PetSchema)
     def pets(pet_id, toy_id, query, pagination, body):
         return {
             'pet_id': pet_id,
@@ -60,9 +61,9 @@ def test_view_function_arguments_order(app, client):
     @app.route('/animals/<int:pet_id>/toys/<int:toy_id>')
     class Animals(MethodView):
 
-        @input(QuerySchema, 'query')
-        @input(PaginationSchema, 'query')
-        @input(PetSchema)
+        @app.input(QuerySchema, 'query')
+        @app.input(PaginationSchema, 'query')
+        @app.input(PetSchema)
         def post(self, pet_id, toy_id, query, pagination, body):
             return {
                 'pet_id': pet_id,
@@ -204,12 +205,12 @@ def test_schema_name_resolver(app, client, resolver):
     app.schema_name_resolver = resolver
 
     @app.route('/foo')
-    @output(FooSchema)
+    @app.output(FooSchema)
     def foo():
         pass
 
     @app.route('/bar')
-    @output(BarSchema(partial=True))
+    @app.output(BarSchema(partial=True))
     def bar():
         pass
 
