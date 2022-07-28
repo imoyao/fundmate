@@ -24,7 +24,7 @@ filelock==3.7.1
     #   virtualenv
 flask-shell-ipython==0.4.1
     # via -r requirements/dev.in
-identify==2.5.1
+identify==2.5.2
     # via pre-commit
 ipython==7.34.0
     # via flask-shell-ipython
@@ -42,7 +42,7 @@ pexpect==4.8.0
     # via ipython
 pickleshare==0.7.5
     # via ipython
-pip-compile-multi==2.4.5
+pip-compile-multi==2.4.6
     # via -r requirements/dev.in
 pip-tools==6.8.0
     # via pip-compile-multi
@@ -68,7 +68,7 @@ traitlets==5.3.0
     # via
     #   ipython
     #   matplotlib-inline
-virtualenv==20.15.1
+virtualenv==20.16.1
     # via
     #   pre-commit
     #   tox
