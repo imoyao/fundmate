@@ -72,7 +72,7 @@ class FundPortfolioOutSchema(Schema):
 
 
 class FundPortfoliosPaginationSchema(CustomPaginationSchema):
-    risk_type = String(default=None, validate=OneOf(settings.RiskTypeEnum.input()))
+    risk_type = String(dump_default=None, validate=OneOf(settings.RiskTypeEnum.input()))
 
 
 class FundPortfoliosOutSchema(Schema):
@@ -139,10 +139,10 @@ class CompositionsSchema(Schema):
 
 class FundPortfolioInSchema(Schema):
     name = String(required=True, validate=Length(2, 10))
-    is_visible = Boolean(default=True)
+    is_visible = Boolean(dump_default=True)
     platform = String(load_default=settings.PlatTypeEnum.own.dk_name,
                       validate=Equal(settings.PlatTypeEnum.own.dk_name))  # 用户创建只能是own,不然会导致后续出错
-    risk_type = String(default=None,
+    risk_type = String(dump_default=None,
                        validate=OneOf(settings.RiskTypeEnum.input()),
                        metadata={
                            'title': '风险类型',
@@ -155,15 +155,15 @@ class FundPortfolioInSchema(Schema):
 
 class FundPortfolioPatchInSchema(Schema):
     name = String(required=True, validate=Length(2, 10))
-    is_visible = Boolean(default=True)
-    risk_type = String(default=None, validate=OneOf(settings.RiskTypeEnum.input()))
+    is_visible = Boolean(dump_default=True)
+    risk_type = String(dump_default=None, validate=OneOf(settings.RiskTypeEnum.input()))
     desc = String(validate=Length(0, 300))
     rich_desc = String(validate=Length(0, 1000))
     adjust_comment = String(validate=Length(0, 300),
                             metadata={
                                 'title': '调仓观点',
                                 'description': '在进行调仓操作时，可以输入调仓理由和操作观点，以便后续进行投资复盘。'
-                            })
+                            })  # noqa:E126
     compositions = List(Nested(CompositionsSchema))
 
 
@@ -171,7 +171,7 @@ class FundPortfolioWithUserOutSchema(Schema):
     id = String(data_key='code')
     username = String(data_key='name')
     custom_avatar = String(data_key='mgr_avatar_url')
-    desc = String(default='用户自述')
+    desc = String(dump_default='用户自述')
 
 
 def internal_fpo_manager(obj):
@@ -222,7 +222,7 @@ class FundPortfolioDetailOutSchema(Schema):
                            metadata={
                                'title': '平台內建组合管理者信息',
                                'description': '系统除了依靠外部数据维护一部分组合外，内部用户也可以构建自由组合，此时用户信息从该字段中获取。'
-                           })
+                           })  # noqa:E126
 
 
 class FundSampleSchema(Schema):
@@ -356,9 +356,9 @@ class FundSaleOutSchema(Schema):
 
 
 class PortfolioQuerySchema(Schema):
-    platform = String(default=settings.PlatTypeEnum.default(), validate=OneOf(settings.PlatTypeEnum.input()))
-    risk_type = String(default=settings.RiskTypeEnum.default(), validate=OneOf(settings.RiskTypeEnum.input()))
-    mgr_type = String(default=settings.ZHMgrTypeEnum.default(), validate=OneOf(settings.ZHMgrTypeEnum.input()))
+    platform = String(dump_default=settings.PlatTypeEnum.default(), validate=OneOf(settings.PlatTypeEnum.input()))
+    risk_type = String(dump_default=settings.RiskTypeEnum.default(), validate=OneOf(settings.RiskTypeEnum.input()))
+    mgr_type = String(dump_default=settings.ZHMgrTypeEnum.default(), validate=OneOf(settings.ZHMgrTypeEnum.input()))
 
 
 def get_options(_seq: Union[ListType, Set], enum_class: EnumMeta) -> ListType:
