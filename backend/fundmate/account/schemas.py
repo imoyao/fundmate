@@ -28,7 +28,7 @@ class CreateAccountSchema(Schema):
     '''
     name = String(required=True, validate=Length(2, 10))
     account_type = String(required=True,
-                          default=settings.RiskTypeEnum.undefined.dk_name,
+                          dump_default=settings.RiskTypeEnum.undefined.dk_name,
                           validate=OneOf(settings.RiskTypeEnum.input()))
     desc = String(validate=Length(max=300))
     rich_desc = String(validate=Length(max=1000))
@@ -57,10 +57,10 @@ class CommitProducts(Schema):
     用户提交自己购买的理财产品（如组合或者理财产品）
     """
     platform = String(required=True,
-                      default=settings.SupportInvestPltEnum.unknown.dk_value,
+                      dump_default=settings.SupportInvestPltEnum.unknown.dk_value,
                       validate=OneOf(settings.SupportInvestPltEnum.input()))
     prod_type = String(required=True,
-                       default=None,
+                       dump_default=None,
                        validate=OneOf(settings.SupportInvestCategoriesEnum.input()),
                        data_key='type')
     name = String(required=True)
@@ -89,10 +89,10 @@ class QueryInvestProduct(Schema):
     """
     prod_name = String(required=True)
     platform = String(required=True,
-                      default=settings.SupportInvestPltEnum.unknown.dk_value,
+                      dump_default=settings.SupportInvestPltEnum.unknown.dk_value,
                       validate=OneOf(settings.SupportInvestPltEnum.input()))
     plt_code = String()
     prod_type = String(required=False,
-                       default=None,
+                       dump_default=None,
                        validate=OneOf(settings.SupportInvestCategoriesEnum.input()),
                        data_key='type')
