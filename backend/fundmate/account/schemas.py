@@ -64,7 +64,7 @@ class CommitProducts(Schema):
                        validate=OneOf(settings.SupportInvestCategoriesEnum.input()),
                        data_key='type')
     name = String(required=True)
-    code = String(etadata={'title': '产品编码', 'description': '用户可以输入平台专属的编码，后期统一时更好处理'})
+    code = String(metadata={'title': '产品编码', 'description': '用户可以输入平台专属的编码，后期统一时更好处理'})
 
 
 class InvestProductOut(Schema):
@@ -80,7 +80,7 @@ class InvestProductOut(Schema):
                         })
     platform_name = Function(lambda obj: obj.platform.dk_display)
     prod_name = String(required=True)
-    prod_code = String(etadata={'title': '产品编码', 'description': '在导入文件中输入的产品编码'})
+    prod_code = String(metadata={'title': '产品编码', 'description': '在导入文件中输入的产品编码'})
 
 
 class QueryInvestProduct(Schema):

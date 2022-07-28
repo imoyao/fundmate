@@ -1,4 +1,4 @@
-from apiflask import APIFlask, auth_required
+from apiflask import APIFlask
 from apiflask.security import HTTPBasicAuth, HTTPTokenAuth
 
 
@@ -6,7 +6,7 @@ def test_default_auth_error_handler(app, client):
     auth = HTTPTokenAuth()
 
     @app.route('/foo')
-    @auth_required(auth)
+    @app.auth_required(auth)
     def foo():
         pass
 
@@ -23,7 +23,7 @@ def test_bypasss_default_auth_error_handler():
     auth = HTTPTokenAuth()
 
     @app.route('/foo')
-    @auth_required(auth)
+    @app.auth_required(auth)
     def foo():
         pass
 
@@ -42,7 +42,7 @@ def test_custom_auth_error_handler(app, client):
         return 'auth error', status_code
 
     @app.route('/foo')
-    @auth_required(auth)
+    @app.auth_required(auth)
     def foo():
         pass
 
@@ -65,7 +65,7 @@ def test_auth_error_processor(app, client):
         return {'message': 'custom auth error message'}, e.status_code
 
     @app.route('/foo')
-    @auth_required(auth)
+    @app.auth_required(auth)
     def foo():
         pass
 
@@ -86,7 +86,7 @@ def test_current_user_as_property(app, client):
             return {'user': 'foo'}
 
     @app.route('/foo')
-    @auth_required(auth)
+    @app.auth_required(auth)
     def foo():
         return auth.current_user
 
