@@ -30,3 +30,5 @@ retry
 pyyaml
 # 数据库管理
 Flask-Migrate
+# 计算XIRR
+numpy_financial
