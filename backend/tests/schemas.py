@@ -1,5 +1,6 @@
 from apiflask import Schema
 from apiflask.fields import Integer, String
+
 from marshmallow import EXCLUDE
 
 
@@ -39,8 +40,8 @@ class PaginationSchema(Schema):
     class Meta:
         unknown = EXCLUDE
 
-    page = Integer(missing=1)
-    per_page = Integer(missing=10)
+    page = Integer(load_default=1)
+    per_page = Integer(load_default=10)
 
 
 class HeaderSchema(Schema):
@@ -48,7 +49,7 @@ class HeaderSchema(Schema):
     class Meta:
         unknown = EXCLUDE
 
-    foo = String(missing='bar')
+    foo = String(load_default='bar')
 
 
 class ValidationErrorSchema(Schema):

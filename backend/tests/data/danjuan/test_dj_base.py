@@ -276,20 +276,20 @@ class TestFundFeeRatio:
         assert self.test_dj_fr.parse_portion(range_str_with_co) == expected
 
     @pytest.mark.parametrize('dup_list,expected', [([{
-        "name": "0.0天<持有期限<7.0天",
-        "value": "1.5"
+        'name': '0.0天<持有期限<7.0天',
+        'value': '1.5'
     }, {
-        "name": "0.0天<持有期限<30.0天",
-        "value": "0.5"
+        'name': '0.0天<持有期限<30.0天',
+        'value': '0.5'
     }, {
-        "name": "7.0天<=持有期限<30.0天",
-        "value": "0.5"
+        'name': '7.0天<=持有期限<30.0天',
+        'value': '0.5'
     }, {
-        "name": "30.0天<=持有期限",
-        "value": "0.0"
+        'name': '30.0天<=持有期限',
+        'value': '0.0'
     }, {
-        "name": "30.0天<=持有期限",
-        "value": "0.0"
+        'name': '30.0天<=持有期限',
+        'value': '0.0'
     }], [{
         'name': '0.0天<持有期限<7.0天',
         'value': '1.5'
