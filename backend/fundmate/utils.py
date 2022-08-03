@@ -113,15 +113,28 @@ def today() -> str:
     '2021-06-07'
     :return:
     """
-    return datetime.today().strftime("%Y-%m-%d")
+    return str(datetime.today().date())
 
 
 def first_day_of_this_year() -> str:
-    return datetime.today().replace(month=1, day=1).strftime("%Y-%m-%d")
+    return datetime.today().replace(month=1, day=1).strftime('%Y-%m-%d')
 
 
 def first_day_of_this_month() -> str:
-    return str(dateparser.parse(str(datetime.today().month), settings={'PREFER_DAY_OF_MONTH': 'first'}).date())
+    now = pendulum.parse('now')
+    return str(now.replace(day=1).date())
+
+
+def first_day_of_previous_month(is_strict: bool = True) -> str:
+    """
+    :param is_strict:True: 严格一个月之前 今天的时分秒 False: 一个月之前的一号 00：00：00
+    :return:
+    """
+    now = pendulum.parse('now')
+    previous_month = now.subtract(months=1)
+    if not is_strict:
+        previous_month = previous_month.replace(day=1, hour=0, minute=0, second=0)
+    return previous_month.to_datetime_string()
 
 
 def seconds_today_leaves() -> int:
@@ -151,8 +164,8 @@ def tomorrow_date(str_date: Optional[str] = None) -> datetime.date:
     tomorrow_date('2021-06-30')
     2021-07-01
     ```
-    :param str_date: 
-    :return: 
+    :param str_date:
+    :return:
     """
     return tomorrow(str_date).date()
 
