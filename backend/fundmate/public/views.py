@@ -53,9 +53,7 @@ def about():
 @bp.input(ThermometerInSchema, 'query')
 @bp.output(ThermometerOutSchema)
 def thermometer(query_args):
-    """"
-    行情估值信息
-
+    """行情估值信息
     目前包括集思录温度、有知有行温度、蛋卷估值
     """
     is_full = query_args.get('is_full')
