@@ -6,6 +6,9 @@ import sys
 from apiflask import APIFlask
 from flask_praetorian import exceptions as praetorian_excepts
 
+import sentry_sdk
+from sentry_sdk.integrations.flask import FlaskIntegration
+
 from backend.fundmate import commands, errors, settings
 from backend.fundmate.account import models as account_models
 from backend.fundmate.account import views as account_views
@@ -20,7 +23,7 @@ from backend.fundmate.user import models as user_models
 from backend.fundmate.user import views as user_views
 
 
-def create_app(config_object: str = "backend.fundmate.settings"):
+def create_app(config_object: str = 'backend.fundmate.settings'):
     """Create application factory, as explained here: https://flask.pocoo.org/docs/patterns/appfactories/.
 
     :param config_object: The configuration object to use.
@@ -36,8 +39,18 @@ def create_app(config_object: str = "backend.fundmate.settings"):
     register_commands(app)
     configure_logger(app)
     logger.info('Fund Mate has created!')
+    sentry_sdk.init(
+        dsn=env.str('SENTRY_DSN'),
+        integrations=[
+            FlaskIntegration(),
+        ],
+
+        # Set traces_sample_rate to 1.0 to capture 100%
+        # of transactions for performance monitoring.
+        # We recommend adjusting this value in production.
+        traces_sample_rate=1.0)
     '''
-    RuntimeError: No application found. Either work inside a view function or push an application context. 
+    RuntimeError: No application found. Either work inside a view function or push an application context.
     See also: http://flask-sqlalchemy.pocoo.org/contexts/ .
     see also: https://blog.csdn.net/zhongqiushen/article/details/79162792
     '''
@@ -52,20 +65,22 @@ def register_extensions(app: APIFlask):
     guard.init_app(app, user_models.User)
     mail.init_app(app)
     '''
-    - 增加字段长度和类型检测 
+    - 增加字段长度和类型检测
     [No changes detected in Alembic autogeneration of migrations with Flask-SQLAlchemy - Stack
     Overflow]( https://stackoverflow.com/questions/12409724/no-changes-detected-in-alembic-autogeneration-of
     -migrations-with -flask-sqlalchem)
     [[AF] Flask migrate does not recognise a change made in my post model. :flask]
     (https://www.reddit.com/r/flask/comments/98kmhe/af_flask_migrate_does_not_recognise_a_change_made/)
-    - 新更新内容无法探测 
-    [python - Flask-Migrate No Changes Detected to Schema on first migration - Stack Overflow](https://stackoverflow.com/questions/51783300/flask-migrate-no-changes-detected-to-schema-on-first-migration)
-    [python - flask-migrate doesn't detect models - Stack Overflow](https://stackoverflow.com/questions/26564784/flask-migrate-doesnt-detect-models)
+    - 新更新内容无法探测
+    [python - Flask-Migrate No Changes Detected to Schema on first migration - Stack Overflow]
+    (https://stackoverflow.com/questions/51783300/flask-migrate-no-changes-detected-to-schema-on-first-migration)
+    [python - flask-migrate doesn't detect models - Stack Overflow]
+    (https://stackoverflow.com/questions/26564784/flask-migrate-doesnt-detect-models)
     '''  # noqa:E501
     migrate.init_app(app, db, compare_type=True)
     loguru.init_app(app, {
-        "LOG_PATH": env.str('LOG_PATH', default='/home/work/var/log'),
-        "LOG_NAME": env.str('LOG_NAME', default='app.log'),
+        'LOG_PATH': env.str('LOG_PATH', default='/home/work/var/log'),
+        'LOG_NAME': env.str('LOG_NAME', default='app.log'),
     })
     return None
 
@@ -91,7 +106,7 @@ def register_error_handlers(app: APIFlask):
     def render_error(error):
         """Render error template."""
         # If a HTTPException, pull the `code` attribute; default to 500
-        error_code = getattr(error, "code", 500)
+        error_code = getattr(error, 'code', 500)
         detail = error.detail or error.message or None
         try:
             extra_data = error.extra_data
@@ -114,7 +129,7 @@ def register_error_handlers(app: APIFlask):
         documentation](https://flask-praetorian.readthedocs.io/en/latest/notes.html#error-handling)
 
         :param e: PraetorianError 实例
-        :return: 
+        :return:
         """
         cls_name = e.__class__.__name__
         msg = e.message or None
@@ -143,9 +158,9 @@ def register_shell_context(app: APIFlask):
     def shell_context():
         """Shell context objects."""
         return {
-            "db": db,
-            "User": user_models.User,
-            "Role": user_models.Role,
+            'db': db,
+            'User': user_models.User,
+            'Role': user_models.Role,
             'Fund': fund_models.Fund,
             'FundMgr': fund_models.Mgr,
             'MidFundMgr': fund_models.FundMgr,

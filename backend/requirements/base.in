@@ -32,3 +32,5 @@ pyyaml
 Flask-Migrate
 # 计算XIRR
 numpy_financial
+# 日志监控
+sentry-sdk[flask]

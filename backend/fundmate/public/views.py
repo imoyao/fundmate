@@ -34,6 +34,15 @@ def logout():
     return redirect(url_for('public.home'))
 
 
+@bp.route('/sentry/<int:numerator>/divide/<int:denominator>/')
+def test_sentry(numerator, denominator):
+    """
+    测试 sentry 是否正常运行
+    """
+    answer = numerator / denominator
+    return f'{numerator} can be divided by {denominator} with {answer} times.'
+
+
 @bp.route('/about/')
 def about():
     """About page."""
@@ -46,6 +55,7 @@ def about():
 def thermometer(query_args):
     """"
     行情估值信息
+
     目前包括集思录温度、有知有行温度、蛋卷估值
     """
     is_full = query_args.get('is_full')

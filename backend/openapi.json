@@ -78,23 +78,6 @@
                 "parameters": [
                     {
                         "in": "query",
-                        "name": "prev",
-                        "required": false,
-                        "schema": {
-                            "type": "string",
-                            "format": "url"
-                        }
-                    },
-                    {
-                        "in": "query",
-                        "name": "pages",
-                        "required": false,
-                        "schema": {
-                            "type": "integer"
-                        }
-                    },
-                    {
-                        "in": "query",
                         "name": "first",
                         "required": false,
                         "schema": {
@@ -113,15 +96,7 @@
                     },
                     {
                         "in": "query",
-                        "name": "page",
-                        "required": false,
-                        "schema": {
-                            "type": "integer"
-                        }
-                    },
-                    {
-                        "in": "query",
-                        "name": "next",
+                        "name": "prev",
                         "required": false,
                         "schema": {
                             "type": "string",
@@ -138,6 +113,15 @@
                     },
                     {
                         "in": "query",
+                        "name": "next",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "format": "url"
+                        }
+                    },
+                    {
+                        "in": "query",
                         "name": "last",
                         "required": false,
                         "schema": {
@@ -147,7 +131,23 @@
                     },
                     {
                         "in": "query",
+                        "name": "page",
+                        "required": false,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "query",
                         "name": "per_page",
+                        "required": false,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "pages",
                         "required": false,
                         "schema": {
                             "type": "integer"
@@ -187,21 +187,21 @@
                 "parameters": [
                     {
                         "in": "query",
+                        "name": "page",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "default": 1
+                        }
+                    },
+                    {
+                        "in": "query",
                         "name": "per_page",
                         "required": false,
                         "schema": {
                             "type": "integer",
                             "default": 20,
                             "maximum": 30
-                        }
-                    },
-                    {
-                        "in": "query",
-                        "name": "page",
-                        "required": false,
-                        "schema": {
-                            "type": "integer",
-                            "default": 1
                         }
                     }
                 ],
@@ -409,7 +409,7 @@
                     "Public"
                 ],
                 "summary": "\"",
-                "description": "\u884c\u60c5\u4f30\u503c\u4fe1\u606f\n\u76ee\u524d\u5305\u62ec\u96c6\u601d\u5f55\u6e29\u5ea6\u3001\u6709\u77e5\u6709\u884c\u6e29\u5ea6\u3001\u86cb\u5377\u4f30\u503c"
+                "description": "\u884c\u60c5\u4f30\u503c\u4fe1\u606f\n\n\u76ee\u524d\u5305\u62ec\u96c6\u601d\u5f55\u6e29\u5ea6\u3001\u6709\u77e5\u6709\u884c\u6e29\u5ea6\u3001\u86cb\u5377\u4f30\u503c"
             }
         },
         "/search/funds/": {
@@ -625,21 +625,21 @@
                 "parameters": [
                     {
                         "in": "query",
+                        "name": "page",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "default": 1
+                        }
+                    },
+                    {
+                        "in": "query",
                         "name": "per_page",
                         "required": false,
                         "schema": {
                             "type": "integer",
                             "default": 20,
                             "maximum": 30
-                        }
-                    },
-                    {
-                        "in": "query",
-                        "name": "page",
-                        "required": false,
-                        "schema": {
-                            "type": "integer",
-                            "default": 1
                         }
                     }
                 ],
@@ -676,18 +676,11 @@
                 "parameters": [
                     {
                         "in": "query",
-                        "name": "risk_type",
+                        "name": "page",
                         "required": false,
                         "schema": {
-                            "type": "string",
-                            "enum": [
-                                "undefined",
-                                "plain",
-                                "low",
-                                "balance",
-                                "advance",
-                                "high"
-                            ]
+                            "type": "integer",
+                            "default": 1
                         }
                     },
                     {
@@ -702,11 +695,18 @@
                     },
                     {
                         "in": "query",
-                        "name": "page",
+                        "name": "risk_type",
                         "required": false,
                         "schema": {
-                            "type": "integer",
-                            "default": 1
+                            "type": "string",
+                            "enum": [
+                                "undefined",
+                                "plain",
+                                "low",
+                                "balance",
+                                "advance",
+                                "high"
+                            ]
                         }
                     }
                 ],
@@ -782,21 +782,21 @@
                 "parameters": [
                     {
                         "in": "query",
+                        "name": "page",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "default": 1
+                        }
+                    },
+                    {
+                        "in": "query",
                         "name": "per_page",
                         "required": false,
                         "schema": {
                             "type": "integer",
                             "default": 20,
                             "maximum": 30
-                        }
-                    },
-                    {
-                        "in": "query",
-                        "name": "page",
-                        "required": false,
-                        "schema": {
-                            "type": "integer",
-                            "default": 1
                         }
                     }
                 ],
@@ -833,14 +833,6 @@
                 "parameters": [
                     {
                         "in": "query",
-                        "name": "prod_name",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "in": "query",
                         "name": "type",
                         "required": false,
                         "schema": {
@@ -875,6 +867,14 @@
                                 "tcwm",
                                 "tt"
                             ]
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "prod_name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
                         }
                     }
                 ],
@@ -1258,17 +1258,13 @@
                 "parameters": [
                     {
                         "in": "query",
-                        "name": "risk_type",
+                        "name": "mgr_type",
                         "required": false,
                         "schema": {
                             "type": "string",
                             "enum": [
-                                "undefined",
-                                "plain",
-                                "low",
-                                "balance",
-                                "advance",
-                                "high"
+                                "personal",
+                                "org"
                             ]
                         }
                     },
@@ -1290,13 +1286,17 @@
                     },
                     {
                         "in": "query",
-                        "name": "mgr_type",
+                        "name": "risk_type",
                         "required": false,
                         "schema": {
                             "type": "string",
                             "enum": [
-                                "personal",
-                                "org"
+                                "undefined",
+                                "plain",
+                                "low",
+                                "balance",
+                                "advance",
+                                "high"
                             ]
                         }
                     }
@@ -1807,6 +1807,52 @@
                 "description": "\u8be5\u63a5\u53e3\u7528\u4e8e\u5220\u9664\u7279\u5b9a\u7ec4\u5408\uff0c\u9700\u8981\u7ed9\u51fa\u7ec4\u5408\u7f16\u7801"
             }
         },
+        "/sentry/{numerator}/divide/{denominator}/": {
+            "get": {
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "numerator",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "denominator",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        },
+                        "description": "Successful response"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPError"
+                                }
+                            }
+                        },
+                        "description": "Not found"
+                    }
+                },
+                "tags": [
+                    "Public"
+                ],
+                "summary": "\u6d4b\u8bd5 sentry \u662f\u5426\u6b63\u5e38\u8fd0\u884c"
+            }
+        },
         "/funds/portfolios/{portfolio_code}/adjustments": {
             "get": {
                 "parameters": [
@@ -1820,21 +1866,21 @@
                     },
                     {
                         "in": "query",
+                        "name": "page",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "default": 1
+                        }
+                    },
+                    {
+                        "in": "query",
                         "name": "per_page",
                         "required": false,
                         "schema": {
                             "type": "integer",
                             "default": 20,
                             "maximum": 30
-                        }
-                    },
-                    {
-                        "in": "query",
-                        "name": "page",
-                        "required": false,
-                        "schema": {
-                            "type": "integer",
-                            "default": 1
                         }
                     }
                 ],
@@ -1921,12 +1967,12 @@
                     "id": {
                         "type": "integer"
                     },
+                    "username": {
+                        "type": "string"
+                    },
                     "email": {
                         "type": "string",
                         "format": "email"
-                    },
-                    "username": {
-                        "type": "string"
                     }
                 }
             },
@@ -1944,13 +1990,6 @@
             "Pagination": {
                 "type": "object",
                 "properties": {
-                    "prev": {
-                        "type": "string",
-                        "format": "url"
-                    },
-                    "pages": {
-                        "type": "integer"
-                    },
                     "first": {
                         "type": "string",
                         "format": "url"
@@ -1959,21 +1998,28 @@
                         "type": "string",
                         "format": "url"
                     },
-                    "page": {
-                        "type": "integer"
-                    },
-                    "next": {
+                    "prev": {
                         "type": "string",
                         "format": "url"
                     },
                     "total": {
                         "type": "integer"
                     },
+                    "next": {
+                        "type": "string",
+                        "format": "url"
+                    },
                     "last": {
                         "type": "string",
                         "format": "url"
                     },
+                    "page": {
+                        "type": "integer"
+                    },
                     "per_page": {
+                        "type": "integer"
+                    },
+                    "pages": {
                         "type": "integer"
                     }
                 }
@@ -2015,30 +2061,6 @@
                     }
                 }
             },
-            "RedeemInfo": {
-                "type": "object",
-                "properties": {
-                    "rate": {
-                        "readOnly": true,
-                        "title": "\u8d39\u7387",
-                        "description": "\u5b9e\u9645\u8fd0\u7b97\u65f6\u7684\u8d39\u7387"
-                    },
-                    "real_rate": {
-                        "readOnly": true,
-                        "title": "\u8d39\u7387",
-                        "description": "\u5b9e\u9645\u8fd0\u7b97\u65f6\u7684\u8d39\u7387"
-                    },
-                    "start_day": {
-                        "type": "integer"
-                    },
-                    "rule_fee_amount": {
-                        "type": "integer"
-                    },
-                    "end_day": {
-                        "readOnly": true
-                    }
-                }
-            },
             "PurchaseInfoOut": {
                 "type": "object",
                 "properties": {
@@ -2047,38 +2069,62 @@
                         "title": "\u8d39\u7387",
                         "description": "\u5b9e\u9645\u8fd0\u7b97\u65f6\u7684\u8d39\u7387"
                     },
-                    "real_rate": {
-                        "readOnly": true,
-                        "title": "\u8d39\u7387",
-                        "description": "\u5b9e\u9645\u8fd0\u7b97\u65f6\u7684\u8d39\u7387"
-                    },
-                    "start_quota": {
-                        "readOnly": true
-                    },
                     "rule_fee_amount": {
                         "type": "integer"
                     },
                     "end_quota": {
                         "readOnly": true
+                    },
+                    "start_quota": {
+                        "readOnly": true
+                    },
+                    "real_rate": {
+                        "readOnly": true,
+                        "title": "\u8d39\u7387",
+                        "description": "\u5b9e\u9645\u8fd0\u7b97\u65f6\u7684\u8d39\u7387"
+                    }
+                }
+            },
+            "RedeemInfo": {
+                "type": "object",
+                "properties": {
+                    "rate": {
+                        "readOnly": true,
+                        "title": "\u8d39\u7387",
+                        "description": "\u5b9e\u9645\u8fd0\u7b97\u65f6\u7684\u8d39\u7387"
+                    },
+                    "end_day": {
+                        "readOnly": true
+                    },
+                    "start_day": {
+                        "type": "integer"
+                    },
+                    "rule_fee_amount": {
+                        "type": "integer"
+                    },
+                    "real_rate": {
+                        "readOnly": true,
+                        "title": "\u8d39\u7387",
+                        "description": "\u5b9e\u9645\u8fd0\u7b97\u65f6\u7684\u8d39\u7387"
                     }
                 }
             },
             "FundRatioOut": {
                 "type": "object",
                 "properties": {
-                    "redeem_info": {
+                    "purchase_info": {
                         "type": "array",
                         "items": {
-                            "$ref": "#/components/schemas/RedeemInfo"
+                            "$ref": "#/components/schemas/PurchaseInfoOut"
                         }
                     },
                     "fund_code": {
                         "type": "string"
                     },
-                    "purchase_info": {
+                    "redeem_info": {
                         "type": "array",
                         "items": {
-                            "$ref": "#/components/schemas/PurchaseInfoOut"
+                            "$ref": "#/components/schemas/RedeemInfo"
                         }
                     }
                 }
@@ -2086,16 +2132,16 @@
             "ThermometerOut": {
                 "type": "object",
                 "properties": {
-                    "dj": {
+                    "jq": {
+                        "type": "object"
+                    },
+                    "jsl": {
                         "type": "object"
                     },
                     "yzyx": {
                         "type": "object"
                     },
-                    "jq": {
-                        "type": "object"
-                    },
-                    "jsl": {
+                    "dj": {
                         "type": "object"
                     }
                 }
@@ -2131,13 +2177,13 @@
             "AccountOut": {
                 "type": "object",
                 "properties": {
-                    "desc": {
+                    "account_type": {
                         "type": "string"
                     },
                     "id": {
                         "type": "integer"
                     },
-                    "account_type": {
+                    "desc": {
                         "type": "string"
                     },
                     "name": {
@@ -2148,10 +2194,6 @@
             "CreateAccount": {
                 "type": "object",
                 "properties": {
-                    "desc": {
-                        "type": "string",
-                        "maxLength": 300
-                    },
                     "account_type": {
                         "type": "string",
                         "enum": [
@@ -2162,6 +2204,10 @@
                             "advance",
                             "high"
                         ]
+                    },
+                    "desc": {
+                        "type": "string",
+                        "maxLength": 300
                     },
                     "rich_desc": {
                         "type": "string",
@@ -2181,13 +2227,10 @@
             "FundMgrOut": {
                 "type": "object",
                 "properties": {
-                    "mgr_code": {
-                        "type": "string"
-                    },
                     "id": {
                         "type": "integer"
                     },
-                    "company": {
+                    "mgr_code": {
                         "type": "string"
                     },
                     "funds": {
@@ -2195,6 +2238,9 @@
                         "items": {
                             "$ref": "#/components/schemas/FundSample"
                         }
+                    },
+                    "company": {
+                        "type": "string"
                     },
                     "name": {
                         "type": "string"
@@ -2204,22 +2250,25 @@
             "FundMgrPaginationOut": {
                 "type": "object",
                 "properties": {
-                    "pagination": {
-                        "$ref": "#/components/schemas/Pagination"
-                    },
                     "managers": {
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/FundMgrOut"
                         }
+                    },
+                    "pagination": {
+                        "$ref": "#/components/schemas/Pagination"
                     }
                 }
             },
             "FundPortfolioOut": {
                 "type": "object",
                 "properties": {
-                    "code": {
-                        "type": "string"
+                    "platform_name": {
+                        "readOnly": true
+                    },
+                    "risk_display": {
+                        "readOnly": true
                     },
                     "risk_level": {
                         "readOnly": true
@@ -2229,59 +2278,57 @@
                         "title": "\u7ec4\u5408\u540d\u79f0",
                         "description": "\u7ec4\u5408\u540d\u79f0"
                     },
+                    "code": {
+                        "type": "string"
+                    },
                     "platform": {
                         "readOnly": true,
                         "title": "\u7ec4\u5408\u6240\u5c5e\u5e73\u53f0",
                         "description": "{0: '\u672a\u5b9a\u4e49', 1: '\u4e14\u6162', 2: '\u5929\u5929\u57fa\u91d1', 3: '\u86cb\u5377\u57fa\u91d1', 4: '\u5e73\u53f0\u81ea\u5efa', 5: '\u597d\u4e70\u57fa\u91d1'}"
-                    },
-                    "platform_name": {
-                        "readOnly": true
-                    },
-                    "risk_display": {
-                        "readOnly": true
                     }
                 }
             },
             "FundPortfoliosOut": {
                 "type": "object",
                 "properties": {
-                    "pagination": {
-                        "$ref": "#/components/schemas/Pagination"
-                    },
                     "portfolios": {
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/FundPortfolioOut"
                         }
+                    },
+                    "pagination": {
+                        "$ref": "#/components/schemas/Pagination"
                     }
                 }
             },
             "Compositions": {
                 "type": "object",
                 "properties": {
-                    "code": {
-                        "type": "string",
-                        "title": "\u7ec4\u5408\u54c1\u7c7b\u7f16\u53f7",
-                        "description": "\u672a\u5206\u914d\u6bd4\u4f8b\u90e8\u5206\u8bf7\u6309\u7167\u73b0\u91d1\uff08000000\uff09\u5206\u914d"
-                    },
-                    "ratio": {
+                    "portion": {
                         "type": "number",
+                        "required": true,
                         "title": "\u6295\u8d44\u6bd4\u4f8b",
                         "description": "\u8bf7\u8f93\u5165 (0-100] \u4e4b\u95f4\u7684\u6570\u5b57\u4f5c\u4e3a\u5206\u914d\u6bd4\u4f8b"
+                    },
+                    "fd_code": {
+                        "type": "string",
+                        "required": true,
+                        "title": "\u7ec4\u5408\u54c1\u7c7b\u7f16\u53f7",
+                        "description": "\u672a\u5206\u914d\u6bd4\u4f8b\u90e8\u5206\u8bf7\u6309\u7167\u73b0\u91d1\uff08000000\uff09\u5206\u914d"
                     }
-                },
-                "required": [
-                    "code",
-                    "ratio"
-                ]
+                }
             },
             "FundPortfolioIn": {
                 "type": "object",
                 "properties": {
-                    "desc": {
+                    "is_visible": {
+                        "type": "boolean"
+                    },
+                    "rich_desc": {
                         "type": "string",
                         "minLength": 0,
-                        "maxLength": 300
+                        "maxLength": 1000
                     },
                     "risk_type": {
                         "type": "string",
@@ -2296,6 +2343,11 @@
                         "title": "\u98ce\u9669\u7c7b\u578b",
                         "description": "{0: '\u672a\u5b9a\u4e49', 1: '\u7075\u6d3b\u53d6\u7528', 2: '\u7a33\u5065\u589e\u503c', 3: '\u5e73\u8861\u589e\u957f', 4: '\u8fdb\u9636\u6210\u957f', 5: '\u79ef\u6781\u8fdb\u53d6'}"
                     },
+                    "desc": {
+                        "type": "string",
+                        "minLength": 0,
+                        "maxLength": 300
+                    },
                     "name": {
                         "type": "string",
                         "minLength": 2,
@@ -2308,19 +2360,11 @@
                             "own"
                         ]
                     },
-                    "rich_desc": {
-                        "type": "string",
-                        "minLength": 0,
-                        "maxLength": 1000
-                    },
                     "compositions": {
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/Compositions"
                         }
-                    },
-                    "is_visible": {
-                        "type": "boolean"
                     }
                 },
                 "required": [
@@ -2330,16 +2374,16 @@
             "FundPortfolioMgrOut": {
                 "type": "object",
                 "properties": {
-                    "desc": {
-                        "type": "string"
-                    },
                     "mgr_avatar_url": {
                         "type": "string"
                     },
-                    "name": {
+                    "code": {
                         "type": "string"
                     },
-                    "code": {
+                    "desc": {
+                        "type": "string"
+                    },
+                    "name": {
                         "type": "string"
                     },
                     "plat_code": {
@@ -2350,31 +2394,6 @@
             "FundPortfolioDetailOut": {
                 "type": "object",
                 "properties": {
-                    "desc": {
-                        "type": "string"
-                    },
-                    "id": {
-                        "type": "integer"
-                    },
-                    "risk_type": {
-                        "type": "string"
-                    },
-                    "code": {
-                        "type": "string"
-                    },
-                    "invest_rate_of_return": {
-                        "type": "number",
-                        "title": "\u6295\u8d44\u56de\u62a5\u7387",
-                        "description": ""
-                    },
-                    "risk_level": {
-                        "readOnly": true
-                    },
-                    "name": {
-                        "type": "string",
-                        "title": "\u7ec4\u5408\u540d\u79f0",
-                        "description": "\u7ec4\u5408\u540d\u79f0"
-                    },
                     "manager": {
                         "title": "\u7ec4\u5408\u7ba1\u7406\u8005",
                         "description": "\u8bb0\u5f55\u7ec4\u5408\u7ba1\u7406\u8005\u7684\u4fe1\u606f\uff0c\u5305\u62ec\u59d3\u540d\u3001\u6240\u5c5e\u5e73\u53f0\u3001\u5934\u50cf\u94fe\u63a5\u7b49\u4fe1\u606f",
@@ -2384,52 +2403,85 @@
                             }
                         ]
                     },
-                    "create_date": {
-                        "type": "string",
-                        "format": "date"
+                    "platform_name": {
+                        "readOnly": true
                     },
-                    "plat_code": {
-                        "type": "string"
+                    "id": {
+                        "type": "integer"
                     },
-                    "platform": {
-                        "type": "string",
-                        "title": "\u6240\u5c5e\u5e73\u53f0",
-                        "description": "\u5177\u4f53\u8bf7\u67e5\u770b`platform_name`\u5b57\u6bb5"
+                    "risk_display": {
+                        "readOnly": true
                     },
                     "rich_desc": {
                         "type": "string"
                     },
-                    "platform_name": {
+                    "last_adjust_date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "invest_rate_of_return": {
+                        "type": "number",
+                        "title": "\u6295\u8d44\u56de\u62a5\u7387",
+                        "description": ""
+                    },
+                    "risk_type": {
+                        "type": "string"
+                    },
+                    "risk_level": {
                         "readOnly": true
                     },
-                    "risk_display": {
-                        "readOnly": true
+                    "plat_code": {
+                        "type": "string"
+                    },
+                    "desc": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string",
+                        "title": "\u7ec4\u5408\u540d\u79f0",
+                        "description": "\u7ec4\u5408\u540d\u79f0"
+                    },
+                    "code": {
+                        "type": "string"
                     },
                     "extra_owner": {
                         "readOnly": true,
                         "title": "\u5e73\u53f0\u5167\u5efa\u7ec4\u5408\u7ba1\u7406\u8005\u4fe1\u606f",
                         "description": "\u7cfb\u7edf\u9664\u4e86\u4f9d\u9760\u5916\u90e8\u6570\u636e\u7ef4\u62a4\u4e00\u90e8\u5206\u7ec4\u5408\u5916\uff0c\u5185\u90e8\u7528\u6237\u4e5f\u53ef\u4ee5\u6784\u5efa\u81ea\u7531\u7ec4\u5408\uff0c\u6b64\u65f6\u7528\u6237\u4fe1\u606f\u4ece\u8be5\u5b57\u6bb5\u4e2d\u83b7\u53d6\u3002"
                     },
+                    "create_date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "platform": {
+                        "type": "string",
+                        "title": "\u6240\u5c5e\u5e73\u53f0",
+                        "description": "\u5177\u4f53\u8bf7\u67e5\u770b`platform_name`\u5b57\u6bb5"
+                    },
                     "annualized_rate_of_return": {
                         "type": "number",
                         "title": "\u5e74\u5316\u56de\u62a5\u7387",
                         "description": ""
-                    },
-                    "last_adjust_date": {
-                        "type": "string",
-                        "format": "date"
                     }
                 }
             },
             "FundCompanyOut": {
                 "type": "object",
                 "properties": {
+                    "scale": {
+                        "type": "number",
+                        "title": "\u8d44\u4ea7\u89c4\u6a21",
+                        "description": "\u7ba1\u7406\u8d44\u4ea7\u89c4\u6a21(\u4ebf\u5143)"
+                    },
                     "id": {
                         "type": "integer"
                     },
                     "create_date": {
                         "type": "string",
                         "format": "date"
+                    },
+                    "code": {
+                        "type": "string"
                     },
                     "tx_eval": {
                         "type": "integer",
@@ -2439,14 +2491,6 @@
                     "name": {
                         "type": "string"
                     },
-                    "code": {
-                        "type": "string"
-                    },
-                    "scale": {
-                        "type": "number",
-                        "title": "\u8d44\u4ea7\u89c4\u6a21",
-                        "description": "\u7ba1\u7406\u8d44\u4ea7\u89c4\u6a21(\u4ebf\u5143)"
-                    },
                     "full_name": {
                         "type": "string"
                     }
@@ -2455,14 +2499,14 @@
             "FundCompanyPaginationOut": {
                 "type": "object",
                 "properties": {
-                    "pagination": {
-                        "$ref": "#/components/schemas/Pagination"
-                    },
                     "companies": {
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/FundCompanyOut"
                         }
+                    },
+                    "pagination": {
+                        "$ref": "#/components/schemas/Pagination"
                     }
                 }
             },
@@ -2472,10 +2516,15 @@
                     "prod_name": {
                         "type": "string"
                     },
-                    "prod_code": {
-                        "type": "string"
+                    "platform_name": {
+                        "readOnly": true
                     },
-                    "verified_code": {
+                    "prod_code": {
+                        "type": "string",
+                        "title": "\u4ea7\u54c1\u7f16\u7801",
+                        "description": "\u5728\u5bfc\u5165\u6587\u4ef6\u4e2d\u8f93\u5165\u7684\u4ea7\u54c1\u7f16\u7801"
+                    },
+                    "plt_code": {
                         "type": "string"
                     },
                     "platform": {
@@ -2483,10 +2532,7 @@
                         "title": "\u7406\u8d22\u4ea7\u54c1\u6240\u5c5e\u5e73\u53f0",
                         "description": "{0: '\u672a\u5b9a\u4e49', 1: '\u4e14\u6162', 2: '\u5929\u5929\u57fa\u91d1', 3: '\u86cb\u5377\u57fa\u91d1', 4: '\u5e73\u53f0\u81ea\u5efa', 5: '\u597d\u4e70\u57fa\u91d1'}"
                     },
-                    "platform_name": {
-                        "readOnly": true
-                    },
-                    "plt_code": {
+                    "verified_code": {
                         "type": "string"
                     }
                 },
@@ -2497,9 +2543,6 @@
             "CommitProducts": {
                 "type": "object",
                 "properties": {
-                    "code": {
-                        "type": "string"
-                    },
                     "type": {
                         "type": "string",
                         "enum": [
@@ -2510,6 +2553,11 @@
                             "portfolio",
                             "financial_product"
                         ]
+                    },
+                    "code": {
+                        "type": "string",
+                        "title": "\u4ea7\u54c1\u7f16\u7801",
+                        "description": "\u7528\u6237\u53ef\u4ee5\u8f93\u5165\u5e73\u53f0\u4e13\u5c5e\u7684\u7f16\u7801\uff0c\u540e\u671f\u7edf\u4e00\u65f6\u66f4\u597d\u5904\u7406"
                     },
                     "platform": {
                         "type": "string",
@@ -2563,11 +2611,11 @@
             "Sale": {
                 "type": "object",
                 "properties": {
-                    "name": {
-                        "readOnly": true
-                    },
                     "code": {
                         "type": "string"
+                    },
+                    "name": {
+                        "readOnly": true
                     }
                 }
             },
@@ -2614,10 +2662,10 @@
                     "mgr_options": {
                         "readOnly": true
                     },
-                    "plat_options": {
+                    "risk_options": {
                         "readOnly": true
                     },
-                    "risk_options": {
+                    "plat_options": {
                         "readOnly": true
                     }
                 }
@@ -2632,10 +2680,13 @@
                     "id": {
                         "type": "integer"
                     },
-                    "company": {
+                    "fund_code": {
                         "type": "string"
                     },
                     "fund_type": {
+                        "type": "string"
+                    },
+                    "company": {
                         "type": "string"
                     },
                     "name": {
@@ -2643,9 +2694,6 @@
                     },
                     "fund_type_display": {
                         "readOnly": true
-                    },
-                    "fund_code": {
-                        "type": "string"
                     },
                     "mgr": {
                         "type": "string"
@@ -2670,10 +2718,6 @@
             "CreateAccountUpdate": {
                 "type": "object",
                 "properties": {
-                    "desc": {
-                        "type": "string",
-                        "maxLength": 300
-                    },
                     "account_type": {
                         "type": "string",
                         "enum": [
@@ -2684,6 +2728,10 @@
                             "advance",
                             "high"
                         ]
+                    },
+                    "desc": {
+                        "type": "string",
+                        "maxLength": 300
                     },
                     "rich_desc": {
                         "type": "string",
@@ -2699,10 +2747,13 @@
             "FundPortfolioPatchInUpdate": {
                 "type": "object",
                 "properties": {
-                    "desc": {
+                    "is_visible": {
+                        "type": "boolean"
+                    },
+                    "rich_desc": {
                         "type": "string",
                         "minLength": 0,
-                        "maxLength": 300
+                        "maxLength": 1000
                     },
                     "risk_type": {
                         "type": "string",
@@ -2715,16 +2766,6 @@
                             "high"
                         ]
                     },
-                    "name": {
-                        "type": "string",
-                        "minLength": 2,
-                        "maxLength": 10
-                    },
-                    "rich_desc": {
-                        "type": "string",
-                        "minLength": 0,
-                        "maxLength": 1000
-                    },
                     "adjust_comment": {
                         "type": "string",
                         "minLength": 0,
@@ -2732,51 +2773,58 @@
                         "title": "\u8c03\u4ed3\u89c2\u70b9",
                         "description": "\u5728\u8fdb\u884c\u8c03\u4ed3\u64cd\u4f5c\u65f6\uff0c\u53ef\u4ee5\u8f93\u5165\u8c03\u4ed3\u7406\u7531\u548c\u64cd\u4f5c\u89c2\u70b9\uff0c\u4ee5\u4fbf\u540e\u7eed\u8fdb\u884c\u6295\u8d44\u590d\u76d8\u3002"
                     },
+                    "desc": {
+                        "type": "string",
+                        "minLength": 0,
+                        "maxLength": 300
+                    },
+                    "name": {
+                        "type": "string",
+                        "minLength": 2,
+                        "maxLength": 10
+                    },
                     "compositions": {
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/Compositions"
                         }
-                    },
-                    "is_visible": {
-                        "type": "boolean"
                     }
                 }
             },
             "FundPortfolioAdjustDetailOut": {
                 "type": "object",
                 "properties": {
-                    "fund_name": {
-                        "readOnly": true
+                    "portion": {
+                        "type": "string"
                     },
-                    "percent": {
+                    "fund_name": {
                         "readOnly": true
                     },
                     "fd_code": {
                         "type": "string"
                     },
-                    "portion": {
-                        "type": "string"
+                    "percent": {
+                        "readOnly": true
                     }
                 }
             },
             "FundPortfolioAdjustHistoryOut": {
                 "type": "object",
                 "properties": {
-                    "comments": {
-                        "type": "string"
-                    },
-                    "adjusted_date": {
-                        "type": "string"
-                    },
-                    "adjust_id": {
-                        "type": "string"
-                    },
                     "details": {
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/FundPortfolioAdjustDetailOut"
                         }
+                    },
+                    "comments": {
+                        "type": "string"
+                    },
+                    "adjust_id": {
+                        "type": "string"
+                    },
+                    "adjusted_date": {
+                        "type": "string"
                     }
                 }
             },
