@@ -46,7 +46,7 @@ jobs:
           node-version: "12.x"
           registry-url: "https://registry.npmjs.org"
       - name: Install Node dependencies
-        run: npm install
+        run: yarn install
       - name: Run Node lints
         run: yarn run lint-md
   frontendunit:
@@ -58,7 +58,7 @@ jobs:
         with:
           node-version: "12.x"
           registry-url: "https://registry.npmjs.org"
-      - name: Install Node dependencies
+      - name: Install Node dependencies and lint
         run: |
           cd ./frontend
           yarn install
