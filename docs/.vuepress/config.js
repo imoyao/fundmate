@@ -18,6 +18,7 @@ module.exports = {
             {text: '使用', link: '/guide/'},
             {text: '开发', link: '/dev/'},
             {text: '接口', link: '/api/'},
+            {text: '测试', link: '/pytest/'},
             {text: '关于', link: '/about/'},
         ],
         sidebar: [
