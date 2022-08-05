@@ -115,6 +115,7 @@ class TestingConfig(Config):
     测试环境配置
     """
     TESTING = True
+    DEBUG = True
     DATABASE = MySQLConfig.MYSQL_DB or 'fmp_test'
     SQLALCHEMY_DATABASE_URI = mysql_url(DATABASE)
 
@@ -123,6 +124,7 @@ class ProductionConfig(Config):
     """
     生产环境配置
     """
+    DEBUG = False
     DATABASE = MySQLConfig.MYSQL_DB or 'fmp_product'
     SQLALCHEMY_DATABASE_URI = mysql_url(DATABASE)
 
