@@ -157,7 +157,7 @@ class FundMiddleWare:
 
         >>> f.cal_purchase_info(amount=3000, daily_value=5.2280)
         {'charge_amount': 4.49, 'real_amount': 2995.51, 'hold_value': 572.97}
-        
+
         :param amount:
         :param charge_rate:
         :param daily_value:
@@ -223,7 +223,7 @@ class FundMiddleWare:
         durations = utils.cal_durations(purchase_confirm_date, redeem_confirm_date)
         hold_shares = 1000  # TODO: 查询数据库获取持有的份额
         is_redeem_able = self.check_is_redeem_able(hold_shares, redeem_shares)
-        pass
+        return is_redeem_able, durations
 
 
 @deprecated(version='1.0.0', reason='请使用天天基金接口：http://fund.eastmoney.com/tools/jiaoyiri.html')
@@ -243,7 +243,7 @@ class TradeDate:
         _date = parse_ret.date()
         # 15:00之后
         if parse_ret.hour >= 15:
-            date = (_date + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+            date = (_date + datetime.timedelta(days=1)).strftime('%Y-%m-%d')
         else:
             date = str(_date)
         return date
@@ -346,6 +346,7 @@ class Booking:
                 return ast.literal_eval(convertable_var)
             return convertable_var
 
+        fee_amount = str_to_float(fee_amount)  # noqa F811
         amount = str_to_float(amount)
         count = str_to_float(count)  # noqa F811
         d_val = DailyWorth.query(fund_id=fund_code, date=d_time).price  # noqa F811
@@ -356,19 +357,24 @@ class Booking:
         self,
         fund_code: str,
     ):
-        """赎回/卖出/支取"""
+        """
+        赎回/卖出/支取
+        """
         pass
 
     def transfer(self, from_fund: str, to_fund: str):
-        """"""
+        """
+        """
         pass
 
     def regular_invest(self):
-        """"""
+        """
+        """
         pass
 
     def bonus(self):
-        """"""
+        """
+        """
         pass
 
     def adjust(self):
@@ -383,25 +389,6 @@ class Booking:
         fund_code: str,
     ):
         """赎回/卖出/支取"""
-        pass
-
-    def transfer(self, from_fund: str, to_fund: str):
-        """"""
-        pass
-
-    def regular_invest(self):
-        """"""
-        pass
-
-    def bonus(self):
-        """"""
-        pass
-
-    def adjust(self):
-        """
-        TODO:
-        这个是复制的支付宝的，对于用户应该是无感知的
-        """
         pass
 
 

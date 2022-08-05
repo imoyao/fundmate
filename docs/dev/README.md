@@ -67,6 +67,8 @@ pip install -Ur requirements/base.txt
 ```bash
 pip-compile-multi
 ```
+如果报错`UnicodeDecodeError: 'gbk' codec can't decode byte 0xaf in position 87: illegal multibyte sequence`，可能是编码问题，需要配置`set PYTHONUTF8=1`然后重新执行。
+
 ### 启动数据库
 - 初始化数据库
 ```bash

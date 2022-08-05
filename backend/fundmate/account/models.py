@@ -78,6 +78,6 @@ class HandPick(PkModel):
     fund_code = Column(db.String(6), comment='所购买的基金编号')
     pick_time = Column(db.TIMESTAMP,
                        nullable=False,
-                       server_default=db.text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
+                       server_default=db.text('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'),
                        comment='收藏时间（用于计算加入自选以来收益）')
     comment = Column(db.String(300), comment='自选备注')  # TODO: 或许tag更合适
