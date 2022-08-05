@@ -38,7 +38,7 @@ def create_app(config_object: str = 'backend.fundmate.settings'):
     register_shell_context(app)
     register_commands(app)
     configure_logger(app)
-    logger.info('Fund Mate has created!')
+    logger.info('Welcome to Fund Mate!')
     sentry_sdk.init(
         dsn=env.str('SENTRY_DSN'),
         integrations=[
