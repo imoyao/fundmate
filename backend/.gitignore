@@ -53,6 +53,7 @@ env/
 
 # Configuration
 .env
+.flaskenv
 
 # Development database
 *.db
