@@ -51,7 +51,7 @@ deprecated==1.2.13
     #   py-buzz
 environs==9.5.0
     # via -r requirements/base.in
-flask==2.2.0
+flask==2.2.1
     # via
     #   -r requirements/base.in
     #   apiflask
