@@ -52,12 +52,9 @@ def client(app, request):
         app.config['TESTING'] = False
         app.config['FLASK_ENV'] = origin_flask_env
 
-    # 读取初始FLASK_ENV配置
-    origin_flask_env = env.str('FLASK_ENV', default='default')
+    # 读取初始FLASK_ENV配置，默认加载测试环境的配置
+    origin_flask_env = env.str('FLASK_ENV', default='testing')
     print(origin_flask_env)
-    # 加载测试环境的配置
-    app.config['TESTING'] = True
-    app.config['FLASK_ENV'] = 'testing'
     # 执行回收函数
     request.addfinalizer(teardown)
     return app.test_client()
