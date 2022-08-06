@@ -54,6 +54,15 @@ python3 -m venv fmp
 source fmp/bin/activate
 pip install -Ur requirements/dev.txt
 ```
+:::tip
+如果使用默认源不够快可以考虑换源：
+```shell
+pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/
+
+pip config set install.trusted-host mirrors.aliyun.com
+
+```
+:::
 - 修改环境变量`.env`
 ```plain
 flask run --host=0.0.0.0
