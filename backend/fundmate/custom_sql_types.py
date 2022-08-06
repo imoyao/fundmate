@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 @create: 2022/1/26 16:23
-@file: custom_sqltypes.py
+@file: custom_sql_types.py
 @author: imoyao
 @email: immoyao@gmail.com
 @desc: 为sqlalchemy自定义数据类型
@@ -122,9 +122,9 @@ class EnumTypeImpl(object):
 
     def __init__(self, enum_class):
         if Enum is None:
-            raise ImproperlyConfigured("'enum34' package is required to use 'EnumType' in Python " "< 3.4")
+            raise ImproperlyConfigured("'enum34' package is required to use 'EnumType' in Python < 3.4")
         if not issubclass(enum_class, Enum):
-            raise ImproperlyConfigured("EnumType needs a class of enum defined.")
+            raise ImproperlyConfigured('EnumType needs a class of enum defined.')
 
         self.enum_class = enum_class
 
@@ -347,12 +347,12 @@ class DkEnumTypeImpl(object):
 
     def __init__(self, enum_class):
         if Enum is None:
-            raise ImproperlyConfigured("'enum34' package is required to use 'EnumType' in Python " "< 3.4")
+            raise ImproperlyConfigured("'enum34' package is required to use 'EnumType' in Python < 3.4")
         if not issubclass(enum_class, Enum):
-            raise ImproperlyConfigured("EnumType needs a class of enum defined.")
+            raise ImproperlyConfigured('EnumType needs a class of enum defined.')
         # 组装一个字典，让保存在数据库中的int类型的key去获取对应的ChoiceTypeIntegerDk
         dk_enums = dict()
-        for name, member in enum_class.__members__.items():
+        for _, member in enum_class.__members__.items():
             key = member.dk_value  # int 作为key
             # enum_value = member.value  # item of enumeration 作为值
             dk_enums[key] = member

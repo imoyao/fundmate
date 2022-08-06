@@ -5,7 +5,7 @@ from typing import Optional, Union
 
 from backend.fundmate import settings
 from backend.fundmate.compat import basestring
-from backend.fundmate.custom_sqltypes import IntChoiceDkEnumType
+from backend.fundmate.custom_sql_types import IntChoiceDkEnumType
 from backend.fundmate.database import Column, CreateDateModel, PkModel, UpsertMixin, db, gen_digit_code, reference_col
 
 

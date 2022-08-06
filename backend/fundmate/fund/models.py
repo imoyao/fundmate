@@ -10,7 +10,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.ext.hybrid import hybrid_property
 
 from backend.fundmate import settings
-from backend.fundmate.custom_sqltypes import IntChoiceDkEnumType
+from backend.fundmate.custom_sql_types import IntChoiceDkEnumType
 from backend.fundmate.database import (
     Column,
     CreateDateModel,
@@ -148,9 +148,9 @@ class Mgr(PkModel, UpsertMixin):
     # 在管基金
     '''
     # **注意** secondary后面跟表名而不是类名
-    sqlalchemy.exc.ArgumentError: secondary argument <class 'backend.fundmate.fund.models.FundMgr'> 
-    passed to to relationship() Fund.mgrs must be a Table object or other FROM clause; 
-    can't send a mapped class directly as rows in 'secondary' are persisted independently 
+    sqlalchemy.exc.ArgumentError: secondary argument <class 'backend.fundmate.fund.models.FundMgr'>
+    passed to to relationship() Fund.mgrs must be a Table object or other FROM clause;
+    can't send a mapped class directly as rows in 'secondary' are persisted independently
     of a class that is mapped to that same table.
     '''
     funds = relationship('Fund', secondary='fund_mgr', back_populates='mgrs')
