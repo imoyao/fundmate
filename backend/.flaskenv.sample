@@ -5,7 +5,7 @@ FLASK_APP = autoapp.py
 FLASK_DEBUG = True
 # 配置工作模式（此处默认开发模式）
 FLASK_ENV = 'development'
-# 使用的配置环境（默认使用生产配置）
+# 使用的配置环境（默认使用测试配置）
 FLASK_CONFIG = 'default'
 # 指定ip
 FLASK_RUN_HOST = '0.0.0.0'
