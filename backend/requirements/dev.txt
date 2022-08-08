@@ -68,7 +68,7 @@ traitlets==5.3.0
     # via
     #   ipython
     #   matplotlib-inline
-virtualenv==20.16.2
+virtualenv==20.16.3
     # via
     #   pre-commit
     #   tox
