@@ -23,7 +23,7 @@ class Home(MethodView):
         return redirect(redirect_url)
 
     def get(self):
-        return {'message': 'Hello,Flask!'}
+        return {'message': f'Hello,Fund Mate! Please read {request.host}/docs'}
 
 
 @bp.route('/logout/')
