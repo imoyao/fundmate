@@ -21,12 +21,10 @@ ENV = env.str('FLASK_ENV', default='default')  # default is dev
 
 如果你想单独控制调试模式的开关，可以通过FLASK_DEBUG环境变量设置，设为1则开启，设为0 则关闭，不过通常不推荐手动设置这个值。
 """
-DEBUG = ENV == 'development'
 # SQLALCHEMY_DATABASE_URI = env.str('DATABASE_URL', '')  # 此处我们使用更小粒度控制
 # SECRET_KEY = env.str('SECRET_KEY')
 SEND_FILE_MAX_AGE_DEFAULT = env.int('SEND_FILE_MAX_AGE_DEFAULT', 43200)
 BCRYPT_LOG_ROUNDS = env.int('BCRYPT_LOG_ROUNDS', default=13)
-DEBUG_TB_ENABLED = DEBUG
 DEBUG_TB_INTERCEPT_REDIRECTS = False
 CACHE_TYPE = 'simple'  # Can be 'memcached', 'redis', etc.
 SQLALCHEMY_TRACK_MODIFICATIONS = False

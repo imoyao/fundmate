@@ -11,6 +11,7 @@ from backend.fundmate import settings
 env = settings.env
 
 CURRENT_DIR = Path(__file__).resolve().parent
+BACKEND_DIR = CURRENT_DIR.parent
 
 
 class Config:
@@ -89,6 +90,16 @@ class MySQLConfig:
     MYSQL_DRIVER = 'pymysql'  # 指定引擎
 
 
+class SQLiteConfig:
+    """
+    使用sqlite作为数据库时的配置
+    """
+    DATABASE = env.str('DATABASE', 'fmp.db')
+    # 指向项目后端的根目录
+    sqlite_fp = Path.joinpath(BACKEND_DIR, DATABASE)
+    SQLALCHEMY_DATABASE_URI = f'sqlite:///{sqlite_fp}'
+
+
 def mysql_url(db):
     """
     构造mysql连接url
@@ -100,24 +111,21 @@ def mysql_url(db):
     return sql_url
 
 
-# TODO: 使用的数据库有待更改
 class DevelopmentConfig(Config):
     """
     开发环境配置
     """
-    DEBUG = settings.DEBUG
+    DEBUG = True
     DATABASE = MySQLConfig.MYSQL_DB or 'fmp_dev'
     SQLALCHEMY_DATABASE_URI = mysql_url(DATABASE)
 
 
-class TestingConfig(Config):
+class TestingConfig(Config, SQLiteConfig):
     """
-    测试环境配置
+    测试环境配置（默认使用SQLite）
     """
     TESTING = True
     DEBUG = True
-    DATABASE = MySQLConfig.MYSQL_DB or 'fmp_test'
-    SQLALCHEMY_DATABASE_URI = mysql_url(DATABASE)
 
 
 class ProductionConfig(Config):
