@@ -40,7 +40,13 @@ def test_sentry(numerator, denominator):
     测试 sentry 是否正常运行
     """
     answer = numerator / denominator
-    return f'{numerator} can be divided by {denominator} with {answer} times.'
+    data = {
+        'numerator': numerator,
+        'denominator': denominator,
+        'answer': answer,
+    }
+    result = {'detail': data, 'msg': f'{numerator} can be divided by {denominator} with {answer} times.'}
+    return result
 
 
 @bp.route('/about/')
