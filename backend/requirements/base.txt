@@ -9,7 +9,7 @@
 
 alembic==1.8.1
     # via flask-migrate
-apiflask==1.1.1
+apiflask==1.1.2
     # via -r requirements/base.in
 apispec==5.2.2
     # via apiflask
@@ -51,7 +51,7 @@ deprecated==1.2.13
     #   py-buzz
 environs==9.5.0
     # via -r requirements/base.in
-flask==2.2.1
+flask==2.2.2
     # via
     #   -r requirements/base.in
     #   apiflask
@@ -125,7 +125,7 @@ marshmallow==3.17.0
     #   environs
     #   flask-marshmallow
     #   webargs
-matplotlib==3.5.2
+matplotlib==3.5.3
     # via xalpha
 numpy==1.21.6
     # via
@@ -183,7 +183,7 @@ python-dateutil==2.8.2
     #   pendulum
 python-dotenv==0.20.0
     # via environs
-pytz==2022.1
+pytz==2022.2.1
     # via
     #   dateparser
     #   pandas
@@ -201,7 +201,7 @@ retry==0.9.2
     # via -r requirements/base.in
 scipy==1.7.3
     # via xalpha
-sentry-sdk[flask]==1.9.2
+sentry-sdk[flask]==1.9.4
     # via -r requirements/base.in
 simplejson==3.17.6
     # via pyecharts
@@ -213,7 +213,7 @@ sortedcontainers==2.4.0
     # via portion
 soupsieve==2.3.2.post1
     # via beautifulsoup4
-sqlalchemy==1.4.39
+sqlalchemy==1.4.40
     # via
     #   alembic
     #   flask-sqlalchemy
@@ -235,7 +235,7 @@ wcwidth==0.2.5
     # via prettytable
 webargs==8.2.0
     # via apiflask
-werkzeug==2.2.1
+werkzeug==2.2.2
     # via flask
 wrapt==1.14.1
     # via deprecated
