@@ -95,8 +95,9 @@ class SQLiteConfig:
     使用sqlite作为数据库时的配置
     """
     DATABASE = env.str('DATABASE', 'fmp.db')
+    DB_PATH = env.str('DB_PATH', BACKEND_DIR)
     # 指向项目后端的根目录
-    sqlite_fp = Path.joinpath(BACKEND_DIR, DATABASE)
+    sqlite_fp = Path.joinpath(DB_PATH, DATABASE)
     SQLALCHEMY_DATABASE_URI = f'sqlite:///{sqlite_fp}'
 
 

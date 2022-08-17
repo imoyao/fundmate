@@ -7,11 +7,16 @@ https://github.com/d2verb/battery/blob/05571f6aa809af64b8e3d45483cebfe15779d48d/
 https://github.com/pallets/flask/blob/2.0.2/examples/tutorial/tests/conftest.py
 """
 import os
+import sqlite3
+import tempfile
+
+from flask import current_app, g
 
 import pytest
 from environs import Env as EnvParser
 
 from backend.fundmate.app import create_app
+from backend.fundmate.commands import init_db
 from backend.fundmate.database import db as _db
 
 from .factories import UserFactory
@@ -20,19 +25,48 @@ env = EnvParser()
 env.read_env()
 
 
+def prepare_data():
+    """
+    有一些基础数据我们不需要每次重新爬取，定期备份即可
+    """
+    with open(os.path.join(os.path.dirname(__file__), 'data.sql'), 'rb') as f:
+        _data_sql = f.read().decode('utf8')
+    return _data_sql
+
+
+SQL_DATA = prepare_data()
+
+
+def get_db():
+    """Connect to the application's configured database. The connection
+    is unique for each request and will be reused if this is called
+    again.
+    """
+    if 'db' not in g:
+        g.db = sqlite3.connect(current_app.config['DATABASE'], detect_types=sqlite3.PARSE_DECLTYPES)
+        g.db.row_factory = sqlite3.Row
+
+    return g.db
+
+
 @pytest.fixture(scope='session')
 def app():
     """An application for the tests."""
+    # FIXME: 如果和原有配置结合起来
+    db_fd, db_path = tempfile.mkstemp()
     # 默认加载基础配置
-    _app = create_app()
+    app = create_app()
+    app.config.from_object('backend.fundmate.config.TestingConfig')
     # _app.logger.setLevel(logging.CRITICAL)
+    with app.app_context():
+        init_db()
+        get_db().executescript(SQL_DATA)
 
-    ctx = _app.test_request_context()
-    ctx.push()
+    yield app
 
-    yield _app
-
-    ctx.pop()
+    # close and remove the temporary database
+    os.close(db_fd)
+    os.unlink(db_path)
 
 
 @pytest.fixture(scope='session')
@@ -54,7 +88,6 @@ def client(app, request):
 
     # 读取初始FLASK_ENV配置，默认加载测试环境的配置
     origin_flask_env = env.str('FLASK_ENV', default='testing')
-    print(origin_flask_env)
     # 执行回收函数
     request.addfinalizer(teardown)
     return app.test_client()
@@ -74,6 +107,43 @@ def db(app):
     # Explicitly close DB connection
     _db.session.close()
     _db.drop_all()
+
+
+@pytest.fixture(scope='session')
+def db(app, request):  # noqa:F811
+    TEST_DB_PATH = os.path.join(app.instance_path, 'battery.db')
+
+    if os.path.exists(TEST_DB_PATH):
+        os.unlink(TEST_DB_PATH)
+
+    def teardown():
+        _db.drop_all()
+        os.unlink(TEST_DB_PATH)
+
+    _db.app = app
+    _db.create_all()
+
+    request.addfinalizer(teardown)
+    return _db
+
+
+@pytest.fixture(scope='function')
+def session(db, request):
+    connection = db.engine.connect()
+    transaction = connection.begin()
+
+    options = dict(bind=connection, binds={})
+    session = db.create_scoped_session(options=options)
+
+    db.session = session
+
+    def teardown():
+        transaction.rollback()
+        connection.close()
+        session.remove()
+
+    request.addfinalizer(teardown)
+    return session
 
 
 @pytest.fixture(scope='session')
