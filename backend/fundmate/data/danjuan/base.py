@@ -177,7 +177,11 @@ class DanJuanEvl:
                     point = {'grade': grade, 'href': href}
                 elif channel == 'jiucai':
                     spread_td = data.get('spread_td')
-                    point = {'spread_td': spread_td, 'href': href}
+                    point = {
+                        'spread_td': spread_td,
+                        'href': href,
+                        'help_desc': 'https://mp.weixin.qq.com/s/3_-XQILhVHWllEOgQ6Cujw'
+                    }
 
                 item_data.update(point)
 
