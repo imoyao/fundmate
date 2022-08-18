@@ -82,7 +82,7 @@ flask-sqlalchemy==2.5.1
     # via
     #   -r requirements/base.in
     #   flask-migrate
-fonttools==4.34.4
+fonttools==4.36.0
     # via matplotlib
 greenlet==1.1.2
     # via sqlalchemy
@@ -201,7 +201,7 @@ retry==0.9.2
     # via -r requirements/base.in
 scipy==1.7.3
     # via xalpha
-sentry-sdk[flask]==1.9.4
+sentry-sdk[flask]==1.9.5
     # via -r requirements/base.in
 simplejson==3.17.6
     # via pyecharts

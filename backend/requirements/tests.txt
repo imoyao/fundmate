@@ -14,11 +14,11 @@ attrs==22.1.0
     #   pytest
 factory-boy==3.2.1
     # via -r requirements/tests.in
-faker==14.0.0
+faker==14.1.0
     # via factory-boy
 iniconfig==1.1.1
     # via pytest
-jsonschema==4.9.1
+jsonschema==4.10.2
     # via
     #   openapi-schema-validator
     #   openapi-spec-validator
