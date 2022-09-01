@@ -5,20 +5,14 @@
 #
 #    pip-compile-multi
 #
---trusted-host mirrors.cloud.aliyuncs.com
-
 alembic==1.8.1
     # via flask-migrate
 apiflask==1.1.2
-    # via -r requirements/base.in
+    # via -r base.in
 apispec==5.2.2
     # via apiflask
-backports-zoneinfo==0.2.1
-    # via
-    #   pytz-deprecation-shim
-    #   tzlocal
 baostock==0.8.8
-    # via -r requirements/base.in
+    # via -r base.in
 bcrypt==3.2.2
     # via flask-bcrypt
 beautifulsoup4==4.11.1
@@ -28,7 +22,7 @@ blinker==1.5
     #   flask-mail
     #   sentry-sdk
 cachetools==5.2.0
-    # via -r requirements/base.in
+    # via -r base.in
 certifi==2022.6.15
     # via
     #   requests
@@ -42,18 +36,18 @@ click==8.1.3
 cycler==0.11.0
     # via matplotlib
 dateparser==1.1.1
-    # via -r requirements/base.in
+    # via -r base.in
 decorator==5.1.1
     # via retry
 deprecated==1.2.13
     # via
-    #   -r requirements/base.in
+    #   -r base.in
     #   py-buzz
 environs==9.5.0
-    # via -r requirements/base.in
+    # via -r base.in
 flask==2.2.2
     # via
-    #   -r requirements/base.in
+    #   -r base.in
     #   apiflask
     #   flask-bcrypt
     #   flask-buzz
@@ -65,7 +59,7 @@ flask==2.2.2
     #   flask-sqlalchemy
     #   sentry-sdk
 flask-bcrypt==1.0.1
-    # via -r requirements/base.in
+    # via -r base.in
 flask-buzz==2.0.1
     # via flask-praetorian
 flask-httpauth==4.7.0
@@ -75,12 +69,12 @@ flask-mail==0.9.1
 flask-marshmallow==0.14.0
     # via apiflask
 flask-migrate==3.1.0
-    # via -r requirements/base.in
+    # via -r base.in
 flask-praetorian==1.3.0
-    # via -r requirements/base.in
+    # via -r base.in
 flask-sqlalchemy==2.5.1
     # via
-    #   -r requirements/base.in
+    #   -r base.in
     #   flask-migrate
 fonttools==4.36.0
     # via matplotlib
@@ -88,16 +82,6 @@ greenlet==1.1.2
     # via sqlalchemy
 idna==3.3
     # via requests
-importlib-metadata==4.12.0
-    # via
-    #   alembic
-    #   click
-    #   flask
-    #   mako
-    #   prettytable
-    #   sqlalchemy
-importlib-resources==5.9.0
-    # via alembic
 inflection==0.5.1
     # via py-buzz
 itsdangerous==2.1.2
@@ -109,7 +93,7 @@ jinja2==3.1.2
 kiwisolver==1.4.4
     # via matplotlib
 loguru==0.6.0
-    # via -r requirements/base.in
+    # via -r base.in
 lxml==4.9.1
     # via xalpha
 mako==1.2.1
@@ -121,7 +105,7 @@ markupsafe==2.1.1
     #   werkzeug
 marshmallow==3.17.0
     # via
-    #   -r requirements/base.in
+    #   -r base.in
     #   environs
     #   flask-marshmallow
     #   webargs
@@ -135,7 +119,7 @@ numpy==1.21.6
     #   scipy
     #   xalpha
 numpy-financial==1.0.0
-    # via -r requirements/base.in
+    # via -r base.in
 packaging==21.3
     # via
     #   marshmallow
@@ -152,7 +136,7 @@ pendulum==2.1.2
 pillow==9.2.0
     # via matplotlib
 portion==2.2.0
-    # via -r requirements/base.in
+    # via -r base.in
 prettytable==3.3.0
     # via pyecharts
 py==1.11.0
@@ -164,11 +148,11 @@ pycparser==2.21
 pyecharts==1.7.1
     # via xalpha
 pyjson5==1.6.1
-    # via -r requirements/base.in
+    # via -r base.in
 pyjwt==2.4.0
     # via flask-praetorian
 pymysql==1.0.2
-    # via -r requirements/base.in
+    # via -r base.in
 pyparsing==3.0.9
     # via
     #   matplotlib
@@ -192,17 +176,17 @@ pytz-deprecation-shim==0.1.0.post0
 pytzdata==2020.1
     # via pendulum
 pyyaml==6.0
-    # via -r requirements/base.in
+    # via -r base.in
 regex==2022.3.2
     # via dateparser
 requests==2.28.1
     # via xalpha
 retry==0.9.2
-    # via -r requirements/base.in
+    # via -r base.in
 scipy==1.7.3
     # via xalpha
-sentry-sdk[flask]==1.9.5
-    # via -r requirements/base.in
+sentry-sdk[flask]==1.9.6
+    # via -r base.in
 simplejson==3.17.6
     # via pyecharts
 six==1.16.0
@@ -218,11 +202,6 @@ sqlalchemy==1.4.40
     #   alembic
     #   flask-sqlalchemy
     #   xalpha
-typing-extensions==4.3.0
-    # via
-    #   apiflask
-    #   importlib-metadata
-    #   kiwisolver
 tzdata==2022.1
     # via pytz-deprecation-shim
 tzlocal==4.2
@@ -240,10 +219,6 @@ werkzeug==2.2.2
 wrapt==1.14.1
     # via deprecated
 xalpha==0.11.6
-    # via -r requirements/base.in
+    # via -r base.in
 xlrd==2.0.1
     # via xalpha
-zipp==3.8.1
-    # via
-    #   importlib-metadata
-    #   importlib-resources
