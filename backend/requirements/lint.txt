@@ -17,7 +17,7 @@ isort==5.10.1
     # via -r requirements/lint.in
 mccabe==0.7.0
     # via flake8
-pep8-naming==0.13.1
+pep8-naming==0.13.2
     # via -r requirements/lint.in
 pycodestyle==2.9.1
     # via flake8

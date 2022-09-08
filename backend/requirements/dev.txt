@@ -16,7 +16,7 @@ build==0.8.0
     # via pip-tools
 cfgv==3.3.1
     # via pre-commit
-distlib==0.3.5
+distlib==0.3.6
     # via virtualenv
 filelock==3.8.0
     # via
@@ -30,7 +30,7 @@ ipython==7.34.0
     # via flask-shell-ipython
 jedi==0.18.1
     # via ipython
-matplotlib-inline==0.1.5
+matplotlib-inline==0.1.6
     # via ipython
 nodeenv==1.7.0
     # via pre-commit
@@ -50,7 +50,7 @@ platformdirs==2.5.2
     # via virtualenv
 pre-commit==2.20.0
     # via -r requirements/dev.in
-prompt-toolkit==3.0.30
+prompt-toolkit==3.0.31
     # via ipython
 ptyprocess==0.7.0
     # via pexpect
@@ -68,7 +68,7 @@ traitlets==5.3.0
     # via
     #   ipython
     #   matplotlib-inline
-virtualenv==20.16.3
+virtualenv==20.16.4
     # via
     #   pre-commit
     #   tox
