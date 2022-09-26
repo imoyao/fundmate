@@ -16,7 +16,7 @@ import pytest
 from environs import Env as EnvParser
 
 from backend.fundmate.app import create_app
-from backend.fundmate.commands import init_db
+from backend.fundmate.commands import PROJECT_ROOT, init_db
 from backend.fundmate.database import db as _db
 
 from .factories import UserFactory
@@ -29,7 +29,7 @@ def prepare_data():
     """
     有一些基础数据我们不需要每次重新爬取，定期备份即可
     """
-    with open(os.path.join(os.path.dirname(__file__), 'data.sql'), 'rb') as f:
+    with open(os.path.join(PROJECT_ROOT, 'db', 'fund_company.sql'), 'rb') as f:
         _data_sql = f.read().decode('utf8')
     return _data_sql
 
