@@ -15,22 +15,22 @@ attrs==22.1.0
     #   pytest
 factory-boy==3.2.1
     # via -r requirements/tests.in
-faker==14.2.0
+faker==14.2.1
     # via factory-boy
 iniconfig==1.1.1
     # via pytest
-jsonschema==4.15.0
+jsonschema==4.16.0
     # via
     #   jsonschema-spec
     #   openapi-schema-validator
     #   openapi-spec-validator
-jsonschema-spec==0.1.1
+jsonschema-spec==0.1.2
     # via openapi-spec-validator
 lazy-object-proxy==1.7.1
     # via openapi-spec-validator
-openapi-schema-validator==0.3.3
+openapi-schema-validator==0.3.4
     # via openapi-spec-validator
-openapi-spec-validator==0.5.0
+openapi-spec-validator==0.5.1
     # via -r requirements/tests.in
 pathable==0.4.3
     # via jsonschema-spec
