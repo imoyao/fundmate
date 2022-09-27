@@ -13,6 +13,7 @@ import tempfile
 from flask import current_app, g
 
 import pytest
+from click.testing import CliRunner
 from environs import Env as EnvParser
 
 from backend.fundmate.app import create_app
@@ -49,6 +50,11 @@ def get_db():
     return g.db
 
 
+@pytest.fixture(scope='function')
+def runner(request):
+    return CliRunner()
+
+
 @pytest.fixture(scope='session')
 def app():
     """An application for the tests."""
@@ -59,7 +65,18 @@ def app():
     app.config.from_object('backend.fundmate.config.TestingConfig')
     # _app.logger.setLevel(logging.CRITICAL)
     with app.app_context():
-        init_db()
+        '''
+        参阅：
+        [Testing Click Applications — Click Documentation (8.1.x)](https://click.palletsprojects.com/en/8.1.x/testing/)
+        result = runner.invoke(init_db, ['--drop'])     # 传参 即True
+        result = runner.invoke(init_db, [])         # 不传参 即False
+        result = runner.invoke(init_db, ['--drop'], input='n') # 传参，不确认
+        result = runner.invoke(init_db, ['--drop'], input='y') # 传参，确认
+        '''
+        runner = CliRunner()
+        result = runner.invoke(init_db, [])
+        # FIXME: 此处现在返回状态码为 1
+        assert result.exit_code == 0
         get_db().executescript(SQL_DATA)
 
     yield app

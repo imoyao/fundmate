@@ -1,0 +1,24 @@
+---
+title:问题记录
+---
+
+## pytest+click
+
+1. 如何测试`click`包装的命令行？
+
+   参阅[Testing Click Applications — Click Documentation (8.1.x)](https://click.palletsprojects.com/en/8.1.x/testing/)，需要使用`from click.testing import CliRunner`导入相应的包，然后如下调用：
+   ```python
+   runner = CliRunner()
+   result = runner.invoke(function_name, [])
+   ```
+   对于option传参，可以显式传入参数到后面的列表中，也可以不传（此时即为False）
+
+2. 对于需要confirm传参的情况，如何传递`yes`参数给函数？
+
+   参阅:
+   1. [python - How do I pass input to click.confirm without running CLIrunner.invoke() - Stack Overflow](https://stackoverflow.com/questions/60217384/how-do-i-pass-input-to-click-confirm-without-running-clirunner-invoke)
+   2. [click/test_utils.py at main · pallets/click](https://github.com/pallets/click/blob/main/tests/test_utils.py)
+   ```python
+   runner = CliRunner()
+   result = runner.invoke(init_db, ['--drop'], input='n')       # input='y' 为确认
+   ```

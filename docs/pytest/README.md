@@ -8,3 +8,4 @@ title: 单元测试
 2. [pytest 和 allure 测试框架教程及应用【共 14 课时】_自动化测试课程-51CTO 学堂](https://edu.51cto.com/course/18703.html)
 3. [Pytest 自动化测试框架 - 掘金](https://juejin.cn/post/7013949685992259591)
 4. [Testing Flask SQLAlchemy database with pytest - Invalid Input](https://xvrdm.github.io/2017/07/03/testing-flask-sqlalchemy-database-with-pytest/)
+5. 官方示例：https://github.com/pallets/flask/tree/2f0c62f5e6e290843f03c1fa70817c7a3c7fd661/examples/tutorial/tests
