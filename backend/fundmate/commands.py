@@ -36,6 +36,7 @@ def check_before_create(drop=False):
         click.confirm('This operation will delete the database, do you want to continue?', abort=True)
         db.drop_all()
     db.create_all()
+    print(db, '----------------------')
 
 
 @click.command()

@@ -56,7 +56,7 @@ def runner(request):
 
 
 @pytest.fixture(scope='session')
-def app():
+def app(runner):
     """An application for the tests."""
     # FIXME: 如果和原有配置结合起来
     db_fd, db_path = tempfile.mkstemp()
@@ -65,15 +65,14 @@ def app():
     app.config.from_object('backend.fundmate.config.TestingConfig')
     # _app.logger.setLevel(logging.CRITICAL)
     with app.app_context():
-        '''
+        """
         参阅：
         [Testing Click Applications — Click Documentation (8.1.x)](https://click.palletsprojects.com/en/8.1.x/testing/)
         result = runner.invoke(init_db, ['--drop'])     # 传参 即True
         result = runner.invoke(init_db, [])         # 不传参 即False
         result = runner.invoke(init_db, ['--drop'], input='n') # 传参，不确认
         result = runner.invoke(init_db, ['--drop'], input='y') # 传参，确认
-        '''
-        runner = CliRunner()
+        """
         result = runner.invoke(init_db, [])
         # FIXME: 此处现在返回状态码为 1
         assert result.exit_code == 0

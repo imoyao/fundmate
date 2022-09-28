@@ -22,3 +22,6 @@ title:问题记录
    runner = CliRunner()
    result = runner.invoke(init_db, ['--drop'], input='n')       # input='y' 为确认
    ```
+## `print`不生效
+
+有的时候难免使用print大法调试，但是发现不会打印信息，需要执行`pytest -s your_test_script.py`
