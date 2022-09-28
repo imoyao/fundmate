@@ -8,7 +8,6 @@ https://github.com/pallets/flask/blob/2.0.2/examples/tutorial/tests/conftest.py
 """
 import os
 import sqlite3
-import tempfile
 
 from flask import current_app, g
 
@@ -21,6 +20,8 @@ from backend.fundmate.commands import PROJECT_ROOT, init_db
 from backend.fundmate.database import db as _db
 
 from .factories import UserFactory
+
+# import tempfile
 
 env = EnvParser()
 env.read_env()
@@ -50,7 +51,7 @@ def get_db():
     return g.db
 
 
-@pytest.fixture(scope='function')
+@pytest.fixture(scope='session')
 def runner(request):
     return CliRunner()
 
@@ -58,12 +59,12 @@ def runner(request):
 @pytest.fixture(scope='session')
 def app(runner):
     """An application for the tests."""
-    # FIXME: 如果和原有配置结合起来
-    db_fd, db_path = tempfile.mkstemp()
     # 默认加载基础配置
     app = create_app()
     app.config.from_object('backend.fundmate.config.TestingConfig')
     # _app.logger.setLevel(logging.CRITICAL)
+    assert app.config['DEBUG']
+    assert app.config['TESTING']
     with app.app_context():
         """
         参阅：
@@ -76,13 +77,14 @@ def app(runner):
         result = runner.invoke(init_db, [])
         # FIXME: 此处现在返回状态码为 1
         assert result.exit_code == 0
-        get_db().executescript(SQL_DATA)
+        # print(SQL_DATA,'----------')
+        # get_db().executescript(SQL_DATA)
 
     yield app
 
     # close and remove the temporary database
-    os.close(db_fd)
-    os.unlink(db_path)
+    # os.close(db_fd)
+    # os.unlink(db_path)
 
 
 @pytest.fixture(scope='session')
@@ -109,24 +111,41 @@ def client(app, request):
     return app.test_client()
 
 
-@pytest.fixture(scope='session')
-def db(app):
-    """Create database for the tests.
-    数据库创建
+class AuthActions:
     """
-    _db.app = app
-    with app.app_context():
-        _db.create_all()
+    登录与退出
+    """
 
-    yield _db
+    def __init__(self, client):
+        self._client = client
 
-    # Explicitly close DB connection
-    _db.session.close()
-    _db.drop_all()
+    def login(self, username="test", password="test"):
+        """
+        FIXME: 调用生成token的接口
+        :param username:
+        :param password:
+        :return:
+        """
+        return self._client.post("/auth/login", data={"username": username, "password": password})
+
+    def logout(self):
+        """
+        调用退出登录的接口
+        :return:
+        """
+        return self._client.get("/auth/logout")
+
+
+@pytest.fixture
+def auth(client):
+    return AuthActions(client)
 
 
 @pytest.fixture(scope='session')
 def db(app, request):  # noqa:F811
+    """Create database for the tests.
+    数据库创建
+    """
     TEST_DB_PATH = os.path.join(app.instance_path, 'battery.db')
 
     if os.path.exists(TEST_DB_PATH):

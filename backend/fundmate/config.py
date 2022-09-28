@@ -70,9 +70,10 @@ class Config:
     def __init__(self):
         pass
 
-    @staticmethod
-    def init_app(app):
-        pass
+    #
+    # @staticmethod
+    # def init_app(app):
+    #     pass
 
 
 class MySQLConfig:

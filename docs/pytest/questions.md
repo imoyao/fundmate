@@ -25,3 +25,5 @@ title:问题记录
 ## `print`不生效
 
 有的时候难免使用print大法调试，但是发现不会打印信息，需要执行`pytest -s your_test_script.py`
+
+## 固件`request`是什么

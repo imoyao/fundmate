@@ -9,10 +9,9 @@ import sqlite3
 import pytest
 
 from backend.fundmate.commands import init_db
-from backend.fundmate.database import db
 
 
-def test_get_close_db(app):
+def test_get_close_db(app, db):
     with app.app_context():
         with pytest.raises(sqlite3.ProgrammingError) as e:
             db.execute("SELECT 1")
