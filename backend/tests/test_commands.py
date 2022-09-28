@@ -10,15 +10,15 @@ import pytest
 from backend.fundmate.commands import init_db
 
 
-@pytest.mark.parametrize('is_drop,is_confirm', [('--drop', 'n'), ('--drop', 'y'), ('', 'y'), ('', 'n')])
+@pytest.mark.parametrize('is_drop,is_confirm', [('--drop', 'n'), ('--drop', 'y'), (None, 'y'), (None, 'n')])
 def test_init_db(runner, is_drop, is_confirm):
     """
     FIXME:如何引入app使 assert result.exit_code == 0
     """
-    if is_drop == '':
-        is_drop_args = []
-    else:
+    if is_drop:
         is_drop_args = [is_drop]
+    else:
+        is_drop_args = None
     result = runner.invoke(init_db, is_drop_args, input=is_confirm)
     if is_drop:
         if is_confirm == 'n':
