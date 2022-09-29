@@ -24,6 +24,6 @@ title:问题记录
    ```
 ## `print`不生效
 
-有的时候难免使用print大法调试，但是发现不会打印信息，需要执行`pytest -s your_test_script.py`
+有的时候难免使用`print`大法调试，但是发现不会打印信息，这是因为pytest默认会捕捉各种输出，除非测试用例失败否则都过滤掉了，通过`-s`可以关闭捕捉(等于--capture=no)。需要执行`pytest -s your_test_script.py`
 
 ## 固件`request`是什么

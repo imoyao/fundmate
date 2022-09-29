@@ -63,3 +63,13 @@ title:标记(mark)
         assert num % 2 == 1
         assert num2 % 2 == 0
     ```
+
+进行测试的时候，你仍可以用 pytest 命令在默认模式下运行。如果想只跑需要访问数据库的测试，可以用 `pytest -m database_access`。要运行除请求访问数据库之外的所有测试，可以用 `pytest -m "not database_access"`。你甚至可以用 `autouse` fixture 限制那些标着 `database_access` 的测试对数据库的访问。
+
+pytest 提供了一些拿来即用的标识：
+
+- skip ：无条件跳过测试
+- skipif：表达式判定为真则跳过测试
+- xfail：期望测试失败，如果确实失败了，整轮测试的结果仍会是通过
+- parametrize（注意拼写）：创建多个不同值的测试变量当参数。后面会提到
+可以通过 `pytest --markers`查看完整的 pytest 标识列表

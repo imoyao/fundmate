@@ -12,3 +12,4 @@ title: 单元测试
 6. [Using Pytest to setup dynamic testing for your Flask app’s Postgres Database Locally and with Travis-CI | by Alan Swenson | Medium](https://medium.com/@aswens0276/using-pytest-to-setup-dynamic-testing-for-your-flask-apps-postgres-database-locally-and-with-39a14c3dc421)
 7. [How to bite Flask, SQLAlchemy and pytest all at once · Blog](https://piotr.banaszkiewicz.org/blog/2014/02/22/how-to-bite-flask-sqlalchemy-and-pytest-all-at-once/)
 8. [Delightful testing with pytest and Flask-SQLAlchemy | Alex Michael](http://alexmic.net/flask-sqlalchemy-pytest/)
+9. [如何用 pytest 进行高效测试 - 明月轩 | LibertyDream](https://libertydream.github.io/2020/07/12/pytest%E9%AB%98%E6%95%88%E6%B5%8B%E8%AF%95/)
