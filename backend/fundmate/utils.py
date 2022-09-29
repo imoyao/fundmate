@@ -21,12 +21,6 @@ from backend.fundmate.exts.flask_loguru import logger
 def logger_add_ext_before_suffix(logger_file_name: str):
     """
     日志文件添加时间戳
-    ```
-    >>> file_name = 'app.log'
-    >>> int_time = int(time.time())
-    >>> logger_add_ext_before_suffix(file_name)
-    f'app-{int_time}.log'
-    ```
     """
     file_stem = PurePath(logger_file_name).stem
     file_suffix = PurePath(logger_file_name).suffix
