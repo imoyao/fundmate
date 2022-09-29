@@ -23,6 +23,11 @@ def test_convert_readable_days(number_of_days, expected):
     assert utils.convert_readable_days(number_of_days) == expected
 
 
+def test_logger_add_ext_before_suffix():
+    int_time = int(time.time())
+    assert utils.logger_add_ext_before_suffix('app.log') == f'app-{int_time}.log'
+
+
 @pytest.mark.parametrize('lite_dict,big_dict,expected', [
     ({
         'a': '2',
