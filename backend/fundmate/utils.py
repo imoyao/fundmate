@@ -9,13 +9,28 @@ import sys
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Dict, List, Optional, Union
 
 import dateparser
 import pendulum
 
 from backend.fundmate.exts.flask_loguru import logger
+
+
+def logger_add_ext_before_suffix(logger_file_name: str):
+    """
+    日志文件添加时间戳
+    ```
+    >>> file_name = 'app.log'
+    >>> int_time = int(time.time())
+    >>> logger_add_ext_before_suffix(file_name)
+    f'app-{int_time}.log'
+    ```
+    """
+    file_stem = PurePath(logger_file_name).stem
+    file_suffix = PurePath(logger_file_name).suffix
+    return f'{file_stem}-{int(time.time())}{file_suffix}'
 
 
 def convert_readable_days(number_of_days: int) -> tuple:
