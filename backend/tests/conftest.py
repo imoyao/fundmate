@@ -16,7 +16,8 @@ from click.testing import CliRunner
 from environs import Env as EnvParser
 
 from backend.fundmate.app import create_app
-from backend.fundmate.commands import PROJECT_ROOT, init_db
+
+# from backend.fundmate.commands import PROJECT_ROOT, init_db
 from backend.fundmate.database import db as _db
 
 from .factories import UserFactory
@@ -26,17 +27,7 @@ from .factories import UserFactory
 env = EnvParser()
 env.read_env()
 
-
-def prepare_data():
-    """
-    有一些基础数据我们不需要每次重新爬取，定期备份即可
-    """
-    with open(os.path.join(PROJECT_ROOT, 'db', 'fund_company.sql'), 'rb') as f:
-        _data_sql = f.read().decode('utf8')
-    return _data_sql
-
-
-SQL_DATA = prepare_data()
+# SQL_DATA = prepare_data()
 
 
 def get_db():
@@ -65,20 +56,21 @@ def app(runner):
     # _app.logger.setLevel(logging.CRITICAL)
     assert app.config['DEBUG']
     assert app.config['TESTING']
-    with app.app_context():
-        """
-        参阅：
-        [Testing Click Applications — Click Documentation (8.1.x)](https://click.palletsprojects.com/en/8.1.x/testing/)
-        result = runner.invoke(init_db, ['--drop'])     # 传参 即True
-        result = runner.invoke(init_db, [])         # 不传参 即False
-        result = runner.invoke(init_db, ['--drop'], input='n') # 传参，不确认
-        result = runner.invoke(init_db, ['--drop'], input='y') # 传参，确认
-        """
-        result = runner.invoke(init_db, [])
-        # FIXME: 此处现在返回状态码为 1
-        assert result.exit_code == 0
-        # print(SQL_DATA,'----------')
-        # get_db().executescript(SQL_DATA)
+    # with app.app_context():
+    #     """
+    #     参阅：
+    #     [Testing Click Applications — Click Documentation (8.1.x)]
+    #     (https://click.palletsprojects.com/en/8.1.x/testing/)
+    #     result = runner.invoke(init_db, ['--drop'])     # 传参 即True
+    #     result = runner.invoke(init_db, [])         # 不传参 即False
+    #     result = runner.invoke(init_db, ['--drop'], input='n') # 传参，不确认
+    #     result = runner.invoke(init_db, ['--drop'], input='y') # 传参，确认
+    #     """
+    #     result = runner.invoke(init_db, [])
+    #     # FIXME: 此处现在返回状态码为 1
+    #     assert result.exit_code == 0
+    #     # print(SQL_DATA,'----------')
+    #     # get_db().executescript(SQL_DATA)
 
     yield app
 
@@ -146,14 +138,13 @@ def db(app, request):  # noqa:F811
     """Create database for the tests.
     数据库创建
     """
-    TEST_DB_PATH = os.path.join(app.instance_path, 'battery.db')
-
-    if os.path.exists(TEST_DB_PATH):
-        os.unlink(TEST_DB_PATH)
+    test_db_path = app.config.get('DATABASE')
+    if os.path.exists(test_db_path):
+        os.unlink(test_db_path)
 
     def teardown():
         _db.drop_all()
-        os.unlink(TEST_DB_PATH)
+        os.unlink(test_db_path)
 
     _db.app = app
     _db.create_all()

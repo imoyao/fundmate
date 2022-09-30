@@ -98,8 +98,8 @@ class SQLiteConfig:
     SQLITE_PATH = env.path('SQLITE_PATH', default=BACKEND_DIR)
     DATABASE = env.str('DATABASE', default='fmp.db')
     # 指向项目后端的根目录
-    sqlite_fp = Path(SQLITE_PATH).joinpath(DATABASE)
-    SQLALCHEMY_DATABASE_URI = f'sqlite:///{sqlite_fp}'
+    SQLITE_FP = Path(SQLITE_PATH).joinpath(DATABASE)
+    SQLALCHEMY_DATABASE_URI = f'sqlite:///{SQLITE_FP}'
 
 
 def mysql_url(db):
