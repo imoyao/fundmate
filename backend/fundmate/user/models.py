@@ -1,21 +1,24 @@
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
+# Created by imoyao at 2021/2/13 17:50
+"""
+角色和用户之间互为多对多关系（ bidirectional relationship）
+[多对多双向关系](https://docs.sqlalchemy.org/en/14/orm/basic_relationships.html#many-to-many)
+"""
 from __future__ import annotations
 
+import datetime
 import hashlib
 from typing import Union
 
 from flask import current_app
 
-from sqlalchemy import DDL, Table, event, or_
+from sqlalchemy import Table, or_
 from werkzeug.security import check_password_hash
 
 from backend.fundmate import settings
 from backend.fundmate.database import Column, CreateDateModel, PkModel, db, relationship
 from backend.fundmate.extensions import guard
-'''
-角色和用户之间互为多对多关系（ bidirectional relationship）
-[多对多双向关系](https://docs.sqlalchemy.org/en/14/orm/basic_relationships.html#many-to-many)
-'''
 
 user_role_table = Table('user_role', db.Model.metadata, Column('user_id', db.Integer, db.ForeignKey('users.id')),
                         Column('role_id', db.Integer, db.ForeignKey('roles.id')),
@@ -47,6 +50,7 @@ class User(PkModel, CreateDateModel):
     __tablename__ = 'users'
     __table_args__ = {'comment': '用户表'}
 
+    id = Column(db.Integer, db.Sequence('id', start=1001, increment=1), primary_key=True, comment='自增ID起始值1001')
     name = Column(db.String(16), comment='用户名')
     username = Column(db.String(16), unique=True, nullable=False, comment='登录用户名')
     password = Column(db.String(150), nullable=False, comment='用户密码')
@@ -59,9 +63,7 @@ class User(PkModel, CreateDateModel):
     profile = Column(db.TEXT)
     is_active = db.Column(db.Boolean(), default=True, comment='是否激活可用，置为False可以禁用用户')
     # TODO: 是否有必要，修改为modified？
-    last_login = Column(db.TIMESTAMP,
-                        nullable=False,
-                        server_default=db.text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"))
+    last_login = Column(db.TIMESTAMP, nullable=False, server_default=db.func.now(), onupdate=datetime.datetime.now)
     role = relationship("Role", secondary=user_role_table, back_populates="user")
 
     def __init__(self, **kwargs) -> None:
@@ -153,7 +155,3 @@ class User(PkModel, CreateDateModel):
 
     def is_valid(self):
         return self.is_active
-
-
-# 自增id起始值
-event.listen(User.__table__, "after_create", DDL("ALTER TABLE %(table)s AUTO_INCREMENT = 1001;"))
