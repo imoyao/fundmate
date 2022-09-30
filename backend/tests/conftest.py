@@ -143,6 +143,7 @@ def db(app, request):  # noqa:F811
         os.unlink(test_db_path)
 
     def teardown():
+        _db.session.remove()
         _db.drop_all()
         os.unlink(test_db_path)
 
