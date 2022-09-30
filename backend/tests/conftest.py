@@ -138,7 +138,7 @@ def db(app, request):  # noqa:F811
     """Create database for the tests.
     数据库创建
     """
-    test_db_path = app.config.get('DATABASE')
+    test_db_path = app.config.get('SQLITE_FILEPATH')
     if os.path.exists(test_db_path):
         os.unlink(test_db_path)
 
