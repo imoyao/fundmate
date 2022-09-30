@@ -18,13 +18,15 @@ import pendulum
 from backend.fundmate.exts.flask_loguru import logger
 
 
-def logger_add_ext_before_suffix(logger_file_name: str):
+def rename_with_extra_suffix(file_name: str, extra_suffix: Optional[str] = None):
     """
     日志文件添加时间戳
     """
-    file_stem = PurePath(logger_file_name).stem
-    file_suffix = PurePath(logger_file_name).suffix
-    return f'{file_stem}-{int(time.time())}{file_suffix}'
+    if not extra_suffix:
+        extra_suffix = str(int(time.time()))
+    file_stem = PurePath(file_name).stem
+    file_suffix = PurePath(file_name).suffix
+    return f'{file_stem}-{extra_suffix}{file_suffix}'
 
 
 def convert_readable_days(number_of_days: int) -> tuple:

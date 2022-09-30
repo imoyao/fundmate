@@ -22,7 +22,7 @@ from backend.fundmate.public import views as public_views
 from backend.fundmate.settings import env
 from backend.fundmate.user import models as user_models
 from backend.fundmate.user import views as user_views
-from backend.fundmate.utils import logger_add_ext_before_suffix
+from backend.fundmate.utils import rename_with_extra_suffix
 
 
 def create_app(config_object: str = 'backend.fundmate.settings'):
@@ -82,7 +82,7 @@ def register_extensions(app: APIFlask):
     migrate.init_app(app, db, compare_type=True)
     logger_name = env.str('LOG_NAME', default='app.log')
     logger_path = env.str('LOG_PATH', default='/home/work/var/log')
-    with_time_logger_name = logger_add_ext_before_suffix(logger_name)
+    with_time_logger_name = rename_with_extra_suffix(logger_name)
     logger_full_path = Path.joinpath(Path(logger_path), Path(with_time_logger_name))
     loguru.init_app(app, {
         'LOG_PATH': logger_path,
