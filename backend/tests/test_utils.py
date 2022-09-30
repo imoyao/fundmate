@@ -10,6 +10,7 @@
 import datetime
 import time
 from decimal import Decimal
+from pathlib import PurePath
 
 import pendulum
 import pytest
@@ -23,9 +24,17 @@ def test_convert_readable_days(number_of_days, expected):
     assert utils.convert_readable_days(number_of_days) == expected
 
 
-def test_logger_add_ext_before_suffix():
-    int_time = int(time.time())
-    assert utils.logger_add_ext_before_suffix('app.log') == f'app-{int_time}.log'
+@pytest.mark.parametrize('file_name,extra_suffix,excepted', [
+    ('app.log', 'test', 'app-test.log'),
+    ('foo.py', 'bar', 'foo-bar.py'),
+    ('baz.tar.gz', None, 'baz.tar'),
+])
+def test_rename_with_extra_suffix(file_name, extra_suffix, excepted):
+    if not extra_suffix:
+        extra_suffix = str(int(time.time()))
+        file_suffix = PurePath(file_name).suffix
+        excepted = f'{excepted}-{extra_suffix}{file_suffix}'
+    assert utils.rename_with_extra_suffix(file_name, extra_suffix) == excepted
 
 
 @pytest.mark.parametrize('lite_dict,big_dict,expected', [
