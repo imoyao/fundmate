@@ -51,7 +51,6 @@ class User(PkModel, CreateDateModel):
     __table_args__ = {'comment': '用户表'}
     # TODO: 用户起始id从1000开始
     id = Column(db.Integer().with_variant(db.Integer, "sqlite"), primary_key=True)
-    # id = db.Column(db.Integer, primary_key=True, comment='自增ID起始值1001')
     # id = Column(db.Integer, Sequence('user_id_seq', start=1001, increment=1), primary_key=True, comment='自增ID起始值1001')
     name = Column(db.String(16), comment='用户名')
     username = Column(db.String(16), unique=True, nullable=False, comment='登录用户名')
