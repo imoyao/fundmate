@@ -18,7 +18,7 @@ known_test = ["pytest","webtest","factory"]
 sections = ["FUTURE","STDLIB","FLASK","TEST","THIRDPARTY","FIRSTPARTY","LOCALFOLDER"]
 # ref: https://github.com/scrapinghub/dateparser/issues/1013
 [tool.pytest.ini_options]
-filterwarnings = ["ignore::pytz_deprecation_shim.PytzUsageWarning"]
+filterwarnings = ["ignore::pytz_deprecation_shim.PytzUsageWarning","ignore:.*.* is deprecated:DeprecationWarning"]
 [tool.yapf]
 based_on_style = "pep8"
 spaces_before_comment = 2
