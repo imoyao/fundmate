@@ -15,9 +15,7 @@ class TestUser:
 
     def test_get_by_id(self):
         """Get user by ID."""
-        user = User("foo", "foo@bar.com")
-        user.save()
-
+        user = User.create(username="foo", email="foo@bar.com", password="baz123456")
         retrieved = User.get_by_id(user.id)
         assert retrieved == user
 

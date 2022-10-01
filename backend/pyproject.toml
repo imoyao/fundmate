@@ -22,9 +22,9 @@ filterwarnings = ["ignore::pytz_deprecation_shim.PytzUsageWarning"]
 [tool.yapf]
 based_on_style = "pep8"
 spaces_before_comment = 2
-blank_lines_around_top_level_definition = 1
+BLANK_LINES_AROUND_TOP_LEVEL_DEFINITION = 2
 split_before_logical_operator = true
-BLANK_LINES_BETWEEN_TOP_LEVEL_IMPORTS_AND_VARIABLES = 1
+BLANK_LINES_BETWEEN_TOP_LEVEL_IMPORTS_AND_VARIABLES = 2
 BLANK_LINE_BEFORE_NESTED_CLASS_OR_DEF = true
 COLUMN_LIMIT = 120
 [tool.pdm]
