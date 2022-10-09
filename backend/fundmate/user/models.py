@@ -32,7 +32,7 @@ class Role(PkModel):
     __tablename__ = "roles"
 
     name = Column(db.String(80), unique=True, nullable=False)
-    user = relationship("User", secondary=user_role_table, back_populates="role")
+    user = relationship("User", secondary=user_role_table, back_populates="roles")
 
     def __init__(self, name, **kwargs):
         """Create instance."""
@@ -64,7 +64,7 @@ class User(PkModel, CreateDateModel):
     is_active = db.Column(db.Boolean(), default=True, comment='是否激活可用，置为False可以禁用用户')
     # TODO: 是否有必要，修改为modified？
     last_login = Column(db.TIMESTAMP, nullable=False, server_default=db.func.now(), onupdate=datetime.datetime.now)
-    role = relationship("Role", secondary=user_role_table, back_populates="user")
+    roles = relationship("Role", secondary=user_role_table, back_populates="user")
 
     def __init__(self, **kwargs) -> None:
         """Create instance."""
@@ -132,7 +132,7 @@ class User(PkModel, CreateDateModel):
         attribute or property that provides a list of strings that describe the roles
         attached to the user instance
         """
-        return [item.name for item in self.role]
+        return [item.name for item in self.roles]
 
     @classmethod
     def lookup(cls, user_unique: str):
