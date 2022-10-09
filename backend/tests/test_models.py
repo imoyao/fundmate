@@ -39,10 +39,11 @@ class TestUser:
     def test_factory(self, db):
         """Test user factory."""
         # FIXME: 如何使用？
-        # user = UserFactory(password="myprecious")
+        # user = UserFactory()
         user = User.create(username=the_test_user_info.get('username'),
                            email=the_test_user_info.get('email'),
                            password=the_test_user_info.get('password'))
+        # print(user.__dict__, user.password)
         assert bool(user.username)
         assert bool(user.email)
         assert user.created_at

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-"""Database module, including the SQLAlchemy database object and DB-related utilities.
-
+"""
+Database module, including the SQLAlchemy database object and DB-related utilities.
 """
 import random
 from datetime import datetime
@@ -57,7 +57,7 @@ class CRUDMixin(object):
             try:
                 db.session.commit()
             except SQLAlchemyError as e:
-                logger.error(e)
+                logger.error(f'对象{self}保存数据出错 ERROR:{str(e)}')
                 db.session.rollback()
         return self
 
