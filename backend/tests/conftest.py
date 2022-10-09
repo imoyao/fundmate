@@ -8,7 +8,6 @@ https://github.com/pallets/flask/blob/2.0.2/examples/tutorial/tests/conftest.py
 """
 import os
 import sqlite3
-import tempfile
 
 from flask import current_app, g
 
@@ -17,25 +16,18 @@ from click.testing import CliRunner
 from environs import Env as EnvParser
 
 from backend.fundmate.app import create_app
-from backend.fundmate.commands import PROJECT_ROOT, init_db
+
+# from backend.fundmate.commands import PROJECT_ROOT, init_db
 from backend.fundmate.database import db as _db
 
 from .factories import UserFactory
 
+# import tempfile
+
 env = EnvParser()
 env.read_env()
 
-
-def prepare_data():
-    """
-    有一些基础数据我们不需要每次重新爬取，定期备份即可
-    """
-    with open(os.path.join(PROJECT_ROOT, 'db', 'fund_company.sql'), 'rb') as f:
-        _data_sql = f.read().decode('utf8')
-    return _data_sql
-
-
-SQL_DATA = prepare_data()
+# SQL_DATA = prepare_data()
 
 
 def get_db():
@@ -50,40 +42,41 @@ def get_db():
     return g.db
 
 
-@pytest.fixture(scope='function')
+@pytest.fixture(scope='session')
 def runner(request):
     return CliRunner()
 
 
 @pytest.fixture(scope='session')
-def app():
+def app(runner):
     """An application for the tests."""
-    # FIXME: 如果和原有配置结合起来
-    db_fd, db_path = tempfile.mkstemp()
     # 默认加载基础配置
     app = create_app()
     app.config.from_object('backend.fundmate.config.TestingConfig')
     # _app.logger.setLevel(logging.CRITICAL)
-    with app.app_context():
-        '''
-        参阅：
-        [Testing Click Applications — Click Documentation (8.1.x)](https://click.palletsprojects.com/en/8.1.x/testing/)
-        result = runner.invoke(init_db, ['--drop'])     # 传参 即True
-        result = runner.invoke(init_db, [])         # 不传参 即False
-        result = runner.invoke(init_db, ['--drop'], input='n') # 传参，不确认
-        result = runner.invoke(init_db, ['--drop'], input='y') # 传参，确认
-        '''
-        runner = CliRunner()
-        result = runner.invoke(init_db, [])
-        # FIXME: 此处现在返回状态码为 1
-        assert result.exit_code == 0
-        get_db().executescript(SQL_DATA)
+    assert app.config['DEBUG']
+    assert app.config['TESTING']
+    # with app.app_context():
+    #     """
+    #     参阅：
+    #     [Testing Click Applications — Click Documentation (8.1.x)]
+    #     (https://click.palletsprojects.com/en/8.1.x/testing/)
+    #     result = runner.invoke(init_db, ['--drop'])     # 传参 即True
+    #     result = runner.invoke(init_db, [])         # 不传参 即False
+    #     result = runner.invoke(init_db, ['--drop'], input='n') # 传参，不确认
+    #     result = runner.invoke(init_db, ['--drop'], input='y') # 传参，确认
+    #     """
+    #     result = runner.invoke(init_db, [])
+    #     # FIXME: 此处现在返回状态码为 1
+    #     assert result.exit_code == 0
+    #     # print(SQL_DATA,'----------')
+    #     # get_db().executescript(SQL_DATA)
 
     yield app
 
     # close and remove the temporary database
-    os.close(db_fd)
-    os.unlink(db_path)
+    # os.close(db_fd)
+    # os.unlink(db_path)
 
 
 @pytest.fixture(scope='session')
@@ -110,32 +103,49 @@ def client(app, request):
     return app.test_client()
 
 
-@pytest.fixture(scope='session')
-def db(app):
-    """Create database for the tests.
-    数据库创建
+class AuthActions:
     """
-    _db.app = app
-    with app.app_context():
-        _db.create_all()
+    登录与退出
+    """
 
-    yield _db
+    def __init__(self, client):
+        self._client = client
 
-    # Explicitly close DB connection
-    _db.session.close()
-    _db.drop_all()
+    def login(self, username="test", password="test"):
+        """
+        FIXME: 调用生成token的接口
+        :param username:
+        :param password:
+        :return:
+        """
+        return self._client.post("/auth/login", data={"username": username, "password": password})
+
+    def logout(self):
+        """
+        调用退出登录的接口
+        :return:
+        """
+        return self._client.get("/auth/logout")
+
+
+@pytest.fixture
+def auth(client):
+    return AuthActions(client)
 
 
 @pytest.fixture(scope='session')
 def db(app, request):  # noqa:F811
-    TEST_DB_PATH = os.path.join(app.instance_path, 'battery.db')
-
-    if os.path.exists(TEST_DB_PATH):
-        os.unlink(TEST_DB_PATH)
+    """Create database for the tests.
+    数据库创建
+    """
+    test_db_path = app.config.get('SQLITE_FILEPATH')
+    if os.path.exists(test_db_path):
+        os.unlink(test_db_path)
 
     def teardown():
+        _db.session.remove()
         _db.drop_all()
-        os.unlink(TEST_DB_PATH)
+        os.unlink(test_db_path)
 
     _db.app = app
     _db.create_all()

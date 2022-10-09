@@ -70,9 +70,10 @@ class Config:
     def __init__(self):
         pass
 
-    @staticmethod
-    def init_app(app):
-        pass
+    #
+    # @staticmethod
+    # def init_app(app):
+    #     pass
 
 
 class MySQLConfig:
@@ -97,8 +98,8 @@ class SQLiteConfig:
     SQLITE_PATH = env.path('SQLITE_PATH', default=BACKEND_DIR)
     DATABASE = env.str('DATABASE', default='fmp.db')
     # 指向项目后端的根目录
-    sqlite_fp = Path(SQLITE_PATH).joinpath(DATABASE)
-    SQLALCHEMY_DATABASE_URI = f'sqlite:///{sqlite_fp}'
+    SQLITE_FILEPATH = Path(SQLITE_PATH).joinpath(DATABASE)
+    SQLALCHEMY_DATABASE_URI = f'sqlite:///{SQLITE_FILEPATH}'
 
 
 def mysql_url(db):

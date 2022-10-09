@@ -1,4 +1,6 @@
 # [python - What is pyproject.toml file for? - Stack Overflow](https://stackoverflow.com/questions/62983756/what-is-pyproject-toml-file-for)
+#https://pycqa.github.io/isort/
+#[domdfcoding/yapf-isort: yapf 💌 isort](https://github.com/domdfcoding/yapf-isort)
 [tool.isort]
 profile = "hug"
 skip_glob = ["migrations/*"]
@@ -6,6 +8,7 @@ known_third_party=["pytest", "pyjson5","xalpha","pandas","pendulum"]
 multi_line_output = 3
 include_trailing_comma = true
 force_grid_wrap = 0
+lines_after_imports = 2
 use_parentheses = true
 balanced_wrapping = true
 ensure_newline_before_comments = true
@@ -15,8 +18,15 @@ known_test = ["pytest","webtest","factory"]
 sections = ["FUTURE","STDLIB","FLASK","TEST","THIRDPARTY","FIRSTPARTY","LOCALFOLDER"]
 # ref: https://github.com/scrapinghub/dateparser/issues/1013
 [tool.pytest.ini_options]
-filterwarnings = ["ignore::pytz_deprecation_shim.PytzUsageWarning"]
-
+filterwarnings = ["ignore::pytz_deprecation_shim.PytzUsageWarning","ignore:.*.* is deprecated:DeprecationWarning"]
+[tool.yapf]
+based_on_style = "pep8"
+spaces_before_comment = 2
+BLANK_LINES_AROUND_TOP_LEVEL_DEFINITION = 2
+split_before_logical_operator = true
+BLANK_LINES_BETWEEN_TOP_LEVEL_IMPORTS_AND_VARIABLES = 2
+BLANK_LINE_BEFORE_NESTED_CLASS_OR_DEF = true
+COLUMN_LIMIT = 120
 [tool.pdm]
 [[tool.pdm.source]]
 name = "pypi"
@@ -40,4 +50,3 @@ homepage = ""
 [build-system]
 requires = ["pdm-pep517"]
 build-backend = "pdm.pep517.api"
-

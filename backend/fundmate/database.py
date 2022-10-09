@@ -222,7 +222,7 @@ class CreateDateModel(Model):
     参阅：[python - SQLAlchemy default DateTime - Stack Overflow](https://stackoverflow.com/
     questions/13370317/sqlalchemy-default-datetime)
     '''
-    create_at = Column(db.DateTime(timezone=True), default=datetime.now, server_default=func.now(), comment='创建时间')
+    created_at = Column(db.DateTime(timezone=True), default=datetime.now, server_default=func.now(), comment='创建时间')
 
 
 def reference_col(tablename: str,
