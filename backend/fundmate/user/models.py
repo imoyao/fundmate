@@ -12,9 +12,9 @@ import hashlib
 from typing import Union
 
 from flask import current_app
+from flask_praetorian.exceptions import AuthenticationError
 
 from sqlalchemy import DDL, Table, event, or_
-from werkzeug.security import check_password_hash
 
 from backend.fundmate import settings
 from backend.fundmate.database import Column, CreateDateModel, PkModel, db, relationship
@@ -51,7 +51,6 @@ class User(PkModel, CreateDateModel):
     __table_args__ = {'comment': '用户表'}
     # TODO: 用户起始id从1000开始
     id = Column(db.Integer().with_variant(db.Integer, "sqlite"), primary_key=True)
-    # id = Column(db.Integer, Sequence('user_id_seq', start=1001, increment=1), primary_key=True, comment='自增ID起始值1001')
     name = Column(db.String(16), comment='用户名')
     username = Column(db.String(16), unique=True, nullable=False, comment='登录用户名')
     password = Column(db.String(150), nullable=False, comment='用户密码')
@@ -85,10 +84,13 @@ class User(PkModel, CreateDateModel):
 
     def check_password(self, password: str) -> bool:
         """Check password."""
-        return check_password_hash(self.password, password)
+        try:
+            return guard.authenticate(self.username, password) is not None
+        except AuthenticationError:
+            return False
 
     @property
-    def avatar(self) -> str:
+    def avatar(self) -> Column | str:
         """Load custom avatar or get the gravatar image"""
         if self.custom_avatar:
             return self.custom_avatar

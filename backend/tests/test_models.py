@@ -59,20 +59,13 @@ class TestUser:
                            email=the_test_user_info.get('email'),
                            password=the_test_user_info.get('password'))
         pwd = the_test_user_info.get('password')
-        print(pwd, type(pwd), '============')
         assert user.check_password(pwd) is True
-        assert user.check_password("not_right") is False
-
-    def test_full_name(self):
-        """User full name."""
-        user = UserFactory(first_name="Foo", last_name="Bar")
-        assert user.full_name == "Foo Bar"
+        assert user.check_password("i_am_hacker") is False
 
     def test_roles(self):
         """Add a role to a user."""
-        role = Role(name="admin")
-        role.save()
+        role = Role.create(name="admin")
         user = UserFactory()
-        user.roles.append(role)
+        user.role.append(role)
         user.save()
-        assert role in user.roles
+        assert role in user.role
