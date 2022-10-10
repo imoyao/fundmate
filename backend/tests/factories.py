@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Factories to help in tests."""
-from factory import PostGenerationMethodCall, Sequence
+from factory import Faker, PostGenerationMethodCall
 from factory.alchemy import SQLAlchemyModelFactory
 
 from backend.fundmate.database import db
@@ -20,9 +20,9 @@ class BaseFactory(SQLAlchemyModelFactory):
 class UserFactory(BaseFactory):
     """User factory."""
 
-    username = Sequence(lambda n: f"user{n}")
-    email = Sequence(lambda n: f"user{n}@example.com")
-    password = PostGenerationMethodCall("set_password", password="example")
+    username = Faker("name", locale="zh_CN")
+    email = Faker("email")
+    password = PostGenerationMethodCall("set_password", 'example', )  # ！！！注意此处逗号
     is_active = True
 
     class Meta:

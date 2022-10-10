@@ -77,10 +77,11 @@ class User(PkModel, CreateDateModel):
         """Represent instance as a unique string."""
         return f"<User({self.username!r})>"
 
-    @staticmethod
-    def set_password(password: str) -> str:
+    def set_password(self, password: Union[str] = None) -> str:
         """Set password."""
-        return guard.hash_password(password)
+        password_hash = guard.hash_password(password)
+        self.password = password_hash
+        return password_hash
 
     def check_password(self, password: str) -> bool:
         """Check password."""
