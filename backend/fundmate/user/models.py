@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import datetime
 import hashlib
-from typing import Union
+from typing import Optional
 
 from flask import current_app
 from flask_praetorian.exceptions import AuthenticationError
@@ -77,7 +77,7 @@ class User(PkModel, CreateDateModel):
         """Represent instance as a unique string."""
         return f"<User({self.username!r})>"
 
-    def set_password(self, password: Union[str] = None) -> str:
+    def set_password(self, password: Optional[str] = None) -> str:
         """Set password."""
         password_hash = guard.hash_password(password)
         self.password = password_hash
@@ -101,7 +101,7 @@ class User(PkModel, CreateDateModel):
     @classmethod
     def get_admin(cls):
         """Get the admin user. The only one will be returned."""
-        rv: Union[None, User] = cls.query.filter_by(is_admin=True).first()
+        rv: Optional[User] = cls.query.filter_by(is_admin=True).first()
         if not rv:
             admin_info = {
                 'name': 'admin',
