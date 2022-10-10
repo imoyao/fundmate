@@ -1,10 +1,16 @@
 # -*- coding: utf-8 -*-
 """Factories to help in tests."""
+import logging
+
 from factory import Faker, PostGenerationMethodCall
 from factory.alchemy import SQLAlchemyModelFactory
 
 from backend.fundmate.database import db
 from backend.fundmate.user.models import User
+
+
+logger = logging.getLogger('faker')
+logger.setLevel(logging.ERROR)
 
 
 class BaseFactory(SQLAlchemyModelFactory):
