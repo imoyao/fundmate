@@ -3,69 +3,56 @@
 import datetime as dt
 
 import pytest
+from faker import Faker
 
 from backend.fundmate.user.models import Role, User
 
 from .factories import UserFactory
 
 
-@pytest.fixture
-def the_test_user_info():
-    """
-    复用用户信息
-    :return:
-    """
-    return {
-        "username": "foo",
-        "email": "foo@bar.com",
-        "password": "baz123456",
-    }
+@pytest.fixture()
+def user_instance():
+    user = User.create(username=Faker('zh-cn').name(), email=Faker().email(), password=Faker().password())
+    return user
 
 
 @pytest.mark.usefixtures("db")
 class TestUser:
     """User tests."""
 
-    def test_get_by_id(self, the_test_user_info):
-        """Get user by ID."""
-        user = User.create(username=the_test_user_info.get('username'),
-                           email=the_test_user_info.get('email'),
-                           password=the_test_user_info.get('password'))
-        retrieved = User.get_by_id(user.id)
-        assert retrieved == user
-
-    def test_created_at_defaults_to_datetime(self, the_test_user_info):
-        """Test creation date."""
-        user = User.create(username=the_test_user_info.get('username'),
-                           email=the_test_user_info.get('email'),
-                           password=the_test_user_info.get('password'))
-        assert bool(user.created_at)
-        assert isinstance(user.created_at, dt.datetime)
-
-    def test_factory(self, db):
+    def test_factory(self):
         """Test user factory."""
-        user = UserFactory(password="myprecious")
-        db.session.commit()
+        user = UserFactory()
         assert bool(user.username)
         assert bool(user.email)
-        assert bool(user.created_at)
-        assert user.is_admin is False
-        assert user.is_active is True
-        assert user.check_password("myprecious")
+        assert not user.created_at
+        assert not user.is_admin
+        assert user.is_active
 
-    def test_check_password(self, the_test_user_info):
+    @pytest.mark.create_user
+    def test_get_by_id(self, user_instance):
+        """Get user by ID."""
+        retrieved = User.get_by_id(user_instance.id)
+        assert retrieved == user_instance
+
+    @pytest.mark.create_user
+    def test_created_at_defaults_to_datetime(self, user_instance):
+        """Test creation date."""
+        assert bool(user_instance.created_at)
+        assert isinstance(user_instance.created_at, dt.datetime)
+
+    def test_factory_check_password(self):
         """Check password."""
-        user = User.create(username=the_test_user_info.get('username'),
-                           email=the_test_user_info.get('email'),
-                           password=the_test_user_info.get('password'))
-        pwd = the_test_user_info.get('password')
+        fake = Faker()
+        pwd = fake.password()
+        user = UserFactory(password=pwd)
         assert user.check_password(pwd) is True
         assert user.check_password("i_am_hacker") is False
 
     def test_roles(self):
         """Add a role to a user."""
         role = Role.create(name="admin")
-        user = UserFactory()
-        user.role.append(role)
+        user = UserFactory(is_admin=True)
+        user.roles.append(role)
         user.save()
-        assert role in user.role
+        assert role in user.roles
