@@ -19,6 +19,7 @@ from backend.fundmate.excepts import UniqueInstanceError
 from backend.fundmate.extensions import db
 from backend.fundmate.exts.flask_loguru import logger
 
+
 # Alias common SQLAlchemy names
 Column = db.Column
 relationship = db.relationship
@@ -155,7 +156,8 @@ class UpsertMixin(CRUDMixin):
 
 class Model(CRUDMixin, db.Model):
     """Base model class that includes CRUD convenience methods."""
-
+    # ref: [How do I declare a base model class in Flask-SQLAlchemy? - Stack Overflow]
+    # (https://stackoverflow.com/questions/22976445/how-do-i-declare-a-base-model-class-in-flask-sqlalchemy)
     __abstract__ = True
 
     # def to_dict(self):
