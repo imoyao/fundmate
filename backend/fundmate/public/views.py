@@ -11,6 +11,7 @@ from backend.fundmate.fund.models import Fund
 from backend.fundmate.fund.schemas import FundSampleSchema, FundSearchKeySchema
 from backend.fundmate.public.schemas import ThermometerInSchema, ThermometerOutSchema
 
+
 bp = APIBlueprint('public', __name__)
 
 
@@ -23,7 +24,64 @@ class Home(MethodView):
         return redirect(redirect_url)
 
     def get(self):
-        return {'message': f'Hello,Fund Mate! Please visit {request.host}/docs'}
+        index_html = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Hello,Fund Mate!</title>
+</head>
+<body class="fund-mate">
+<main>
+    <div style="margin-left: 20%;">
+
+        <h1>🎈Hello,There!</h1>
+        <div>
+            <pre>
+
+              ___      ___         ___        _____                  ___         ___                 ___
+             /  /\    /__/\       /__/\      /  /::\                /__/\       /  /\        ___    /  /\
+            /  /:/_   \  \:\      \  \:\    /  /:/\:\              |  |::\     /  /::\      /  /\  /  /:/_
+           /  /:/ /\   \  \:\      \  \:\  /  /:/  \:\             |  |:|:\   /  /:/\:\    /  /:/ /  /:/ /\
+          /  /:/ /:___  \  \:\ _____\__\:\/__/:/ \__\:|          __|__|:|\:\ /  /:/~/::\  /  /:/ /  /:/ /:/_
+         /__/:/ /:/__/\  \__\:/__/::::::::\  \:\ /  /:/         /__/::::| \:/__/:/ /:/\:\/  /::\/__/:/ /:/ /\
+         \  \:\/:/\  \:\ /  /:\  \:\~~\~~\/\  \:\  /:/          \  \:\~~\__\\  \:\/:/__\/__/:/\:\  \:\/:/ /:/
+          \  \::/  \  \:\  /:/ \  \:\  ~~~  \  \:\/:/            \  \:\      \  \::/    \__\/  \:\  \::/ /:/
+           \  \:\   \  \:\/:/   \  \:\       \  \::/              \  \:\      \  \:\         \  \:\  \:\/:/
+            \  \:\   \  \::/     \  \:\       \__\/                \  \:\      \  \:\         \__\/\  \::/
+             \__\/    \__\/       \__\/                             \__\/       \__\/               \__\/
+
+            </pre>
+        </div>
+        <div>
+            <p>Please click 👉 <a target="_blank" href="/docs">here</a> to visit API Document!</p>
+            <p>请点击 👉 <a target="_blank" href="/docs">此处</a> 访问 API 文档！</p>
+        </div>
+    </div>
+
+
+</main>
+
+</body>
+<style>
+
+    .fund-mate{{
+        position: relative;
+        display: -webkit-box;
+        display: -ms-flexbox;
+        display: flex;
+        -webkit-box-align: start;
+        -ms-flex-align: start;
+        align-items: flex-start;
+        width: 1000px;
+        padding: 0 16px;
+        margin: 10px auto;
+    }}
+
+</style>
+</html>
+        """  # noqa: W605
+        return index_html
 
 
 @bp.route('/logout/')
