@@ -7,8 +7,6 @@
 @email: immoyao@gmail.com
 @desc: 测试好买基金组合接口
 """
-from typing import Dict, List, Optional
-
 import pytest
 
 from backend.fundmate.data.howbuy.combination import Strategy
