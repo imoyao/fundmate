@@ -136,15 +136,23 @@ def first_day_of_this_month() -> str:
     return str(now.replace(day=1).date())
 
 
-def first_day_of_previous_month(is_strict: bool = True) -> str:
+def first_day_of_previous_n_months(is_strict: bool = True, months: int = 1) -> str:
     """
-    :param is_strict:True: 严格一个月之前 今天的时分秒 False: 一个月之前的一号 00：00：00
+    ```
+    >>> first_day_of_previous_n_months(is_strict=False,months=2)
+    '2022-08-01 00:00:00'
+    ```
+
+    :param is_strict:True:,严格一个月之前 今天的时分秒 False: 一个月之前的一号 00：00：00
+    :param months: 指定N月
     :return:
+
     """
     now = pendulum.parse('now')
-    previous_month = now.subtract(months=1)
+    previous_month = now.subtract(months=months)
     if not is_strict:
         previous_month = previous_month.replace(day=1, hour=0, minute=0, second=0)
+    # print(previous_month)
     return previous_month.to_datetime_string()
 
 

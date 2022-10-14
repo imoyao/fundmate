@@ -91,5 +91,5 @@ class Confidence:
 
 if __name__ == '__main__':
     confidence = Confidence()
-    result = confidence.detail_of_month()
+    result = confidence.detail_of_month(2022, 8)
     print(result)

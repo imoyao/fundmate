@@ -112,16 +112,16 @@ def test_seconds_today_leaves():
     assert sed_lev in range(0, 24 * 60 * 60 + 1)
 
 
-def test_first_day_of_previous_month():
+def test_first_day_of_previous_n_months():
     now_date_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))
     now_time = now_date_str.split()[-1]
 
-    strict_prev_month = utils.first_day_of_previous_month(is_strict=True)
+    strict_prev_month = utils.first_day_of_previous_n_months(is_strict=True)
     strict_prev_month_date = pendulum.parse(strict_prev_month)
     strict_prev_mon = strict_prev_month_date.month
     strict_prev_year = strict_prev_month_date.year
 
-    not_strict_prev_month = utils.first_day_of_previous_month(is_strict=False)
+    not_strict_prev_month = utils.first_day_of_previous_n_months(is_strict=False)
     not_strict_prev_month_date = pendulum.parse(not_strict_prev_month)
     not_strict_prev_mon = not_strict_prev_month_date.month
     not_strict_prev_year = not_strict_prev_month_date.year
