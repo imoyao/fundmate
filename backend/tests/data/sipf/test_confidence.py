@@ -1,7 +1,6 @@
-import pendulum
+import pytest
 
 from backend.fundmate.data.sipf.confidence import Confidence
-from backend.fundmate.utils import first_day_of_previous_n_months, today
 
 
 class TestConfidence:
@@ -13,15 +12,19 @@ class TestConfidence:
         assert result
         assert isinstance(result, dict)
 
-    def test_detail_of_month(self):
-        today_date_str = today()
-        today_date = pendulum.parse(today_date_str)
-        year, month = today_date.year, today_date.month
-        previous_2_months = first_day_of_previous_n_months(is_strict=False, months=4)
-        p_date = pendulum.parse(previous_2_months)
-        p_year, p_month = p_date.year, p_date.month
+    @pytest.mark.parametrize('year,month', [
+        (2022, 1),
+        (None, None),
+    ])
+    def test_detail_of_month(self, year, month):
         result = self.confidence.detail_of_month(year=year, month=month)
-        p_result = self.confidence.detail_of_month(year=p_year, month=p_month)
-        assert p_result
-        assert isinstance(p_result, dict)
-        assert not result
+        if all([year, month]):
+            assert result
+            assert isinstance(result, dict)
+        else:
+            assert not result
+
+    def test_latest_info(self):
+        result = self.confidence.latest_info()
+        assert result
+        assert isinstance(result, dict)

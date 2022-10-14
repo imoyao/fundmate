@@ -5,7 +5,7 @@ from flask import flash, redirect, request, url_for
 from flask.views import MethodView
 
 from backend.fundmate import excepts
-from backend.fundmate.data import danjuan, fundb, jsl, yzyx, zo
+from backend.fundmate.data import danjuan, fundb, jsl, sipf, yzyx, zo
 from backend.fundmate.errors import ThermometerError
 from backend.fundmate.fund.models import Fund
 from backend.fundmate.fund.schemas import FundSampleSchema, FundSearchKeySchema
@@ -150,7 +150,11 @@ def thermometer(query_args):
         zo_view = follow_api.zo_view(is_full=False, is_minimal=False)
     else:
         zo_view = follow_api.zo_view(is_minimal=False)
-    info = {'yzyx': yzyx_info, 'jsl': jsl_info, 'dj': dj_info, 'jq': jq_info, 'zo_view': zo_view}
+
+    confidence = sipf.Confidence()
+    confidence_result = confidence.latest_info()
+    info = {'yzyx': yzyx_info, 'jsl': jsl_info, 'dj': dj_info, 'jq': jq_info, 'zo_view': zo_view,
+            'confidence': confidence_result}
     return info
 
 
