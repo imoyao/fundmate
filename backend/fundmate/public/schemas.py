@@ -14,9 +14,10 @@ class ThermometerInSchema(Schema):
 
 class ThermometerOutSchema(Schema):
     """
-    目前支持有知有行、集思录、蛋卷、韭圈儿信息
+    目前支持有知有行、集思录、蛋卷、韭圈儿、中欧跟我投信息
     """
     yzyx = Dict()
     jsl = Dict()
     dj = Dict()
     jq = Dict()
+    zo_follow = Dict()

@@ -133,7 +133,7 @@ def thermometer(query_args):
 
     follow_api = zo.FollowAip()
     zo_follow_info = follow_api.zo_view(is_full=is_full)
-    info = {'yzyx': yzyx_info, 'jsl': jsl_info, 'dj': dj_info, 'jq': jq_info, 'zo_follow_info': zo_follow_info}
+    info = {'yzyx': yzyx_info, 'jsl': jsl_info, 'dj': dj_info, 'jq': jq_info, 'zo_follow': zo_follow_info}
     return info
 
 

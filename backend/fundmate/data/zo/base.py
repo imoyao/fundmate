@@ -364,11 +364,20 @@ class FollowAip(QGG):
         }
         return result
 
-    def simplify_latest_signal(self, latest_signal):
-        result = dict()
-        for key, value in latest_signal.items():
+    def key_to_snakecase(self, camel_case_dict):
+        """
+        字典key转为snakecase
+        :param camel_case_dict:
+        :return:
+        """
+        _result = dict()
+        for key, value in camel_case_dict.items():
             snakecase_key = self.to_snakecase(key)
-            result[snakecase_key] = value
+            _result[snakecase_key] = value
+        return _result
+
+    def simplify_latest_signal(self, latest_signal):
+        result = self.key_to_snakecase(latest_signal)
         return result
 
     def simplify_query_industry_param(self, query_industry_info):
@@ -408,11 +417,15 @@ class FollowAip(QGG):
             item = self.parse_week_industry(industry_view_vol)
             sample_vol_list.append(item)
         cp_week_view_info['industryViewVos'] = sample_vol_list
-        return cp_week_view_info
+        week_view = self.key_to_snakecase(cp_week_view_info)
+        return week_view
 
     def simplify_view(self) -> Dict:
         info = dict()
         for endpoint in self.ENDPOINT_LIST:
+            # 此参数在简略信息中无必要展示
+            if endpoint == 'query_industry_param':
+                continue
             item = self.view_result(endpoint)
             func_name = 'simplify_' + endpoint
             item_view = getattr(self, func_name)(item)
