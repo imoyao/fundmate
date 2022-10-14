@@ -5,6 +5,7 @@
 import itertools
 import json
 import os
+import re
 import sys
 import time
 from collections import defaultdict
@@ -227,6 +228,25 @@ def check_is_csv(fp: Union[str, Path]) -> Optional[bool]:
     if path.exists() and path.is_file():
         file_suffix = path.suffix
         return file_suffix.lower() == 'csv'
+
+
+def to_camelcase(var: str) -> str:
+    """
+    转小驼峰
+    """
+    pattern = re.compile(r"[_-]+")
+    var = pattern.sub(" ", var).title().replace(" ", "")
+    return var[0].lower() + var[1:]
+
+
+def to_snakecase(var: str) -> str:
+    """
+    转蛇形
+    :param var:
+    :return:
+    """
+    pattern = re.compile(r'(?<!^)(?=[A-Z])')
+    return pattern.sub('_', var).lower()
 
 
 if __name__ == '__main__':

@@ -112,6 +112,19 @@ def about():
     return 'render_template("public/about.html")'
 
 
+@bp.get('/investment_and_service/')
+@bp.input(ThermometerInSchema, 'query')
+def investment_and_service(query_args):
+    """
+    短期信号，展示投顾服务信息
+    :return:
+    """
+    is_full = query_args.get('is_full')
+    follow_api = zo.FollowAip()
+    zo_info = follow_api.zo_view(is_full=is_full)
+    return zo_info
+
+
 @bp.get('/thermometers')
 @bp.input(ThermometerInSchema, 'query')
 @bp.output(ThermometerOutSchema)
@@ -132,8 +145,12 @@ def thermometer(query_args):
     jq_info = fundb.jq_app.kjtl(is_full=is_full)
 
     follow_api = zo.FollowAip()
-    zo_follow_info = follow_api.zo_view(is_full=is_full)
-    info = {'yzyx': yzyx_info, 'jsl': jsl_info, 'dj': dj_info, 'jq': jq_info, 'zo_follow': zo_follow_info}
+    if is_full:
+        # 不需要展示最完整信息
+        zo_view = follow_api.zo_view(is_full=False, is_minimal=False)
+    else:
+        zo_view = follow_api.zo_view(is_minimal=False)
+    info = {'yzyx': yzyx_info, 'jsl': jsl_info, 'dj': dj_info, 'jq': jq_info, 'zo_view': zo_view}
     return info
 
 

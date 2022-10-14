@@ -20,4 +20,4 @@ class ThermometerOutSchema(Schema):
     jsl = Dict()
     dj = Dict()
     jq = Dict()
-    zo_follow = Dict()
+    zo_view = Dict()

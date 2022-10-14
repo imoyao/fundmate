@@ -2,12 +2,12 @@
 # -*- coding: utf-8 -*-
 # Created by Andy at 2021/7/26 14:03
 import logging
-import re
 import secrets
 from typing import Dict, List, Union
 
 from xalpha.cons import rpost_json
 
+from backend.fundmate import utils
 from backend.fundmate.data.utils import base as dt_utils
 from backend.fundmate.excepts import FundQueryError
 from backend.fundmate.exts.flask_loguru import logger
@@ -40,6 +40,7 @@ User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 
 
 class QGG:
+
     @staticmethod
     def headers():
         hd = dt_utils.parse_headers(header_str)
@@ -55,7 +56,8 @@ class QGG:
     @staticmethod
     def guid():
         """
-        guid: https://github.com/yang302/react-router-fetch/blob/0994abf0353a770b03a4e081c7c108e87f2cfc3b/src/fetch/instance.js#L61
+        guid:
+        https://github.com/yang302/react-router-fetch/blob/0994abf0353a770b03a4e081c7c108e87f2cfc3b/src/fetch/instance.js#L61
         ```javascript
         function guid() {
           let guid = "";
@@ -266,26 +268,12 @@ class FollowAip(QGG):
             "appVersion": ""
         }
 
-    @staticmethod
-    def to_camelcase(var: str) -> str:
-        """
-        转小驼峰
-        """
-        pattern = re.compile(r"[_-]+")
-        var = pattern.sub(" ", var).title().replace(" ", "")
-        return var[0].lower() + var[1:]
-
-    @staticmethod
-    def to_snakecase(var: str) -> str:
-        pattern = re.compile(r'(?<!^)(?=[A-Z])')
-        return pattern.sub('_', var).lower()
-
     def view_result(self, endpoint: str = 'this_week_view') -> Dict:
         """
         返回接口结果
         :type endpoint: str
         """
-        camel_endpoint = self.to_camelcase(endpoint)
+        camel_endpoint = utils.to_camelcase(endpoint)
         _url = self._BASE_URL + camel_endpoint
         _data = self.req_body()
         headers = self.headers()
@@ -358,13 +346,14 @@ class FollowAip(QGG):
         other_industry = view_info.get('otherIndustry')
         this_week_industry_list = enumerate_industry(this_week_industry)
         other_week_industry_list = enumerate_industry(other_industry)
-        result = {
+        _result = {
             'this_week_industry': this_week_industry_list,
             'other_industry': other_week_industry_list,
         }
-        return result
+        return _result
 
-    def key_to_snakecase(self, camel_case_dict):
+    @staticmethod
+    def key_to_snakecase(camel_case_dict):
         """
         字典key转为snakecase
         :param camel_case_dict:
@@ -372,18 +361,20 @@ class FollowAip(QGG):
         """
         _result = dict()
         for key, value in camel_case_dict.items():
-            snakecase_key = self.to_snakecase(key)
+            snakecase_key = utils.to_snakecase(key)
             _result[snakecase_key] = value
         return _result
 
     def simplify_latest_signal(self, latest_signal):
-        result = self.key_to_snakecase(latest_signal)
-        return result
+        _result = self.key_to_snakecase(latest_signal)
+        return _result
 
-    def simplify_query_industry_param(self, query_industry_info):
+    @staticmethod
+    def simplify_query_industry_param(query_industry_info):
         return query_industry_info
 
-    def parse_week_industry(self, industry_view_vo):
+    @staticmethod
+    def parse_week_industry(industry_view_vo):
         """
         每周观点信息
         :param industry_view_vo:
@@ -432,6 +423,25 @@ class FollowAip(QGG):
             info[endpoint] = item_view
         return info
 
+    def minimal_view(self) -> Dict:
+        """
+        最简单化信息展示
+        :return:
+        """
+        this_week_view = self.view_result('this_week_view')
+        simplify_week_view_info = self.simplify_this_week_view(this_week_view)
+        industry_view_vos = simplify_week_view_info.get('industry_view_vos')
+        for item in industry_view_vos:
+            item.pop('product_info')
+        simplify_week_view_info['industry_view_vos'] = industry_view_vos
+        latest_signal_view = self.view_result('latest_signal')
+        latest_signal_view_info = self.simplify_latest_signal(latest_signal_view)
+        minimal_view_result = {
+            'latest_signal': latest_signal_view_info,
+            'this_week_view': simplify_week_view_info,
+        }
+        return minimal_view_result
+
     def full_view(self) -> Dict:
         """
         完整观点
@@ -440,13 +450,16 @@ class FollowAip(QGG):
         info = dict()
         for endpoint in self.ENDPOINT_LIST:
             item = self.view_result(endpoint)
-            info[endpoint] = item
+            camel_case = utils.to_camelcase(endpoint)
+            info[camel_case] = item
         return info
 
-    def zo_view(self, is_full: bool = True) -> Dict:
+    def zo_view(self, is_full: bool = True, is_minimal: bool = True) -> Dict:
         if is_full:
             return self.full_view()
         else:
+            if is_minimal:
+                return self.minimal_view()
             return self.simplify_view()
 
 

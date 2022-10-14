@@ -31,22 +31,6 @@ class TestFundFollowAip:
         """
         self.test_fa = FollowAip()
 
-    @pytest.mark.parametrize('params,expected',
-                             [('some_database_field_name', 'someDatabaseFieldName'),
-                              ('Some label that needs to be caramelized', 'someLabelThatNeedsToBeCaramelized'),
-                              ('some-javascript-property', 'someJavascriptProperty'),
-                              ('some-mixed_string with spaces_underscores-and-hyphens',
-                               'someMixedStringWithSpacesUnderscoresAndHyphens'),
-                              ])
-    def test_to_camelcase(self, params, expected):
-        """
-        测试费率获取功能
-        :param params:
-        :param expected:
-        :return:
-        """
-        assert self.test_fa.to_camelcase(params) == expected
-
     @pytest.mark.parametrize('endpoint',
                              FollowAip.ENDPOINT_LIST)
     def test_view_result(self, endpoint):
@@ -436,7 +420,18 @@ class TestFundFollowAip:
         result = self.test_fa.simplify_this_week_view(view_info)
         assert result == expected
 
-    @pytest.mark.parametrize('is_full', [True, False])
-    def test_zo_view(self, is_full):
-        result = self.test_fa.zo_view(is_full=is_full)
+    def test_minimal_view(self):
+        result = self.test_fa.minimal_view()
         assert result
+        assert 'latest_signal' in result and 'this_week_view' in result
+
+    @pytest.mark.parametrize('is_full,is_minimal', [
+        (True, False),
+        (True, True),
+        (False, True),
+        (False, False),
+    ])
+    def test_zo_view(self, is_full, is_minimal):
+        result = self.test_fa.zo_view(is_full=is_full, is_minimal=is_minimal)
+        assert result
+        assert isinstance(result, dict)
