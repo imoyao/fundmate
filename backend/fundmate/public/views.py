@@ -5,7 +5,7 @@ from flask import flash, redirect, request, url_for
 from flask.views import MethodView
 
 from backend.fundmate import excepts
-from backend.fundmate.data import danjuan, fundb, jsl, yzyx
+from backend.fundmate.data import danjuan, fundb, jsl, yzyx, zo
 from backend.fundmate.errors import ThermometerError
 from backend.fundmate.fund.models import Fund
 from backend.fundmate.fund.schemas import FundSampleSchema, FundSearchKeySchema
@@ -124,10 +124,16 @@ def thermometer(query_args):
         yzyx_info = yzyx.yzyx.daily_temper(is_full=is_full)
     except excepts.CrawlerException:
         raise ThermometerError from excepts.CrawlerException
+
     jsl_info = jsl.jsl.qz_info(is_full=is_full)
+
     dj_info = danjuan.dj_evl.valuation(is_full=is_full)
+
     jq_info = fundb.jq_app.kjtl(is_full=is_full)
-    info = {'yzyx': yzyx_info, 'jsl': jsl_info, 'dj': dj_info, 'jq': jq_info}
+
+    follow_api = zo.FollowAip()
+    zo_follow_info = follow_api.zo_view(is_full=is_full)
+    info = {'yzyx': yzyx_info, 'jsl': jsl_info, 'dj': dj_info, 'jq': jq_info, 'zo_follow_info': zo_follow_info}
     return info
 
 
