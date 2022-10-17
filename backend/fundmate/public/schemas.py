@@ -5,21 +5,11 @@
 类比DRF中的serializer
 """
 from apiflask import Schema
-from apiflask.fields import Boolean, Dict, List, Nested, Number
+from apiflask.fields import Boolean, Dict
 
 
 class ThermometerInSchema(Schema):
     is_full = Boolean(default=False)
-
-
-class ConfidenceItem(Schema):
-    base = Number()
-    buy = Number()
-    dataMonth = Number()
-    dataYear = Number()
-    financial = Number()
-    fundamental = Number()
-    market = Number()
 
 
 class ThermometerOutSchema(Schema):
@@ -31,4 +21,4 @@ class ThermometerOutSchema(Schema):
     dj = Dict()
     jq = Dict()
     zo_view = Dict()
-    confidence = List(Nested(ConfidenceItem))
+    confidence = Dict()
