@@ -11,16 +11,17 @@
 策略地址：https://trade.ehowbuy.com/newpig/index.html#/adviser/index?productCode={{code}}
 """
 import math
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 import pandas as pd
 from xalpha.cons import rget_json
 
+from backend.fundmate.data.base import StrategyBase
 from backend.fundmate.excepts import LenEqualError
 from backend.fundmate.libs import convert
 
 
-class Strategy:
+class Strategy(StrategyBase):
     """
     以牛基宝（全股型）为例：
     https://trade.ehowbuy.com/newpig/index.html#/adviser/index?productCode=tzzhqgx
@@ -114,7 +115,7 @@ class Strategy:
                     'volatility': float(volatility) / 100,
                 }
 
-    def detail(self, code: str) -> Optional[Dict]:
+    def detail(self, code: str) -> Union[Dict, List]:
         """
         获取单个组合的信息
         单次调仓时通过该接口获取即可
