@@ -5,7 +5,7 @@ from flask import flash, redirect, request, url_for
 from flask.views import MethodView
 
 from backend.fundmate import excepts
-from backend.fundmate.data import danjuan, fundb, jsl, yzyx
+from backend.fundmate.data import danjuan, fundb, jsl, sipf, yzyx, zo
 from backend.fundmate.errors import ThermometerError
 from backend.fundmate.fund.models import Fund
 from backend.fundmate.fund.schemas import FundSampleSchema, FundSearchKeySchema
@@ -112,6 +112,19 @@ def about():
     return 'render_template("public/about.html")'
 
 
+@bp.get('/investment_and_service/')
+@bp.input(ThermometerInSchema, 'query')
+def investment_and_service(query_args):
+    """
+    短期信号，展示投顾服务信息
+    :return:
+    """
+    is_full = query_args.get('is_full')
+    follow_api = zo.FollowAip()
+    zo_info = follow_api.zo_view(is_full=is_full)
+    return zo_info
+
+
 @bp.get('/thermometers')
 @bp.input(ThermometerInSchema, 'query')
 @bp.output(ThermometerOutSchema)
@@ -124,10 +137,24 @@ def thermometer(query_args):
         yzyx_info = yzyx.yzyx.daily_temper(is_full=is_full)
     except excepts.CrawlerException:
         raise ThermometerError from excepts.CrawlerException
+
     jsl_info = jsl.jsl.qz_info(is_full=is_full)
+
     dj_info = danjuan.dj_evl.valuation(is_full=is_full)
+
     jq_info = fundb.jq_app.kjtl(is_full=is_full)
-    info = {'yzyx': yzyx_info, 'jsl': jsl_info, 'dj': dj_info, 'jq': jq_info}
+
+    follow_api = zo.FollowAip()
+    if is_full:
+        # 不需要展示最完整信息
+        zo_view = follow_api.zo_view(is_full=False, is_minimal=False)
+    else:
+        zo_view = follow_api.zo_view(is_minimal=False)
+
+    confidence = sipf.Confidence()
+    confidence_result = confidence.latest_info()
+    info = {'yzyx': yzyx_info, 'jsl': jsl_info, 'dj': dj_info, 'jq': jq_info, 'zo_view': zo_view,
+            'confidence': confidence_result}
     return info
 
 

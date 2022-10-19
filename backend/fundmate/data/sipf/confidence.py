@@ -8,11 +8,13 @@ https://www.sipf.com.cn/survey/sipf-api/v2/download/investor/index?filename=b488
 originalName=%E6%9C%88%E5%BA%A6%E8%AF%81%E5%88%B8%E6%8A%95%E8%B5%84%E8%80%85%E4%BF%A1%E5%BF%83%E8%B0%83%E6%9F%A\
 5%E4%B8%93%E6%8A%A5%EF%BC%882022%E5%B9%B4%E7%AC%AC7%E6%9C%9F+%E6%80%BB%E7%AC%AC172%E6%9C%9F%EF%BC%89.pdf
 """
-from typing import Optional
+from typing import Dict, Optional
 from urllib import parse
 
+import pendulum
 from xalpha.cons import rget_json
 
+from backend.fundmate import utils
 from backend.fundmate.data.utils import base as dt_utils
 
 
@@ -45,22 +47,23 @@ User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 
 class Confidence:
     """
-    https://www.sipf.com.cn/survey/pc/query/confidence
+    投资者信心
     """
     pdf_base_url = 'https://www.sipf.com.cn/survey/sipf-api/v2/download/investor/index'
     _data_url = 'https://www.sipf.com.cn/survey/sipf-api/v2/investor/index'
+    source_link = 'https://www.sipf.com.cn/survey/pc/query/confidence'
 
     def __init__(self):
         self.headers = dt_utils.parse_headers(header_str)
 
-    def full_chart_data(self, endpoint: str = '/chart') -> Optional[dict]:
+    def full_chart_data(self, endpoint: str = '/chart') -> Optional[Dict]:
         _url = self._data_url + endpoint
         resp = rget_json(_url, headers=self.headers)
         if resp and resp.get('code') == 0:
             return resp
         return None
 
-    def detail_of_month(self, year: int = 2022, month: int = 6) -> Optional[dict]:
+    def detail_of_month(self, year: Optional[int] = 2022, month: Optional[int] = 6) -> Optional[Dict]:
         """
         获取单月数据
         :param year: 年份
@@ -88,8 +91,38 @@ class Confidence:
             return resp
         return None
 
+    def latest_info(self, is_full: bool = True) -> Dict:
+        previous_4_months = utils.first_day_of_previous_n_months(is_strict=False, months=4)
+        p_date = pendulum.parse(previous_4_months)
+        year, month = p_date.year, p_date.month
+        confidence_result = self.detail_of_month(year=year, month=month)
+        data = confidence_result.get('data')
+        if not is_full:
+            new_info = data[0]
+            _result = {
+                'base': new_info.get('base'),
+                'buy': new_info.get('buy'),
+                'dataMonth': new_info.get('dataMonth'),
+                'dataYear': new_info.get('dataYear'),
+                'financial': new_info.get('financial'),
+                'fundamental': new_info.get('fundamental'),
+                'market': new_info.get('market'),
+            }
+            details = [_result]
+        else:
+            details = data
+        _result = {
+            'href': self.source_link,
+            'details': details
+        }
+        return _result
+
 
 if __name__ == '__main__':
     confidence = Confidence()
-    result = confidence.detail_of_month()
+    result = confidence.detail_of_month(2022, 6)
+    full_data = confidence.full_chart_data()
+    result1 = confidence.latest_info()
     print(result)
+    print(full_data)
+    print(result1)

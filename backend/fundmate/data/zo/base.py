@@ -1,17 +1,24 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # Created by Andy at 2021/7/26 14:03
+import logging
 import secrets
-from re import sub
-from typing import Union
+from typing import Dict, List, Union
 
 from xalpha.cons import rpost_json
 
+from backend.fundmate import utils
 from backend.fundmate.data.utils import base as dt_utils
 from backend.fundmate.excepts import FundQueryError
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.fund.models import Fund
 
+
+# 屏蔽爬虫库的debug提示
+logger_xa = logging.getLogger('xalpha')
+logger_xa.setLevel(logging.ERROR)
+logger_urllib3 = logging.getLogger('urllib3')
+logger_urllib3.setLevel(logging.ERROR)
 
 header_str = '''Accept: application/json, text/plain, */*
 Accept-Encoding: gzip, deflate, br
@@ -33,6 +40,7 @@ User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 
 
 class QGG:
+
     @staticmethod
     def headers():
         hd = dt_utils.parse_headers(header_str)
@@ -48,7 +56,8 @@ class QGG:
     @staticmethod
     def guid():
         """
-        guid: https://github.com/yang302/react-router-fetch/blob/0994abf0353a770b03a4e081c7c108e87f2cfc3b/src/fetch/instance.js#L61
+        guid:
+        https://github.com/yang302/react-router-fetch/blob/0994abf0353a770b03a4e081c7c108e87f2cfc3b/src/fetch/instance.js#L61
         ```javascript
         function guid() {
           let guid = "";
@@ -259,19 +268,12 @@ class FollowAip(QGG):
             "appVersion": ""
         }
 
-    @staticmethod
-    def to_camel(s_params):
-        """
-        转小驼峰
-        """
-        s_params = sub(r"(_|-)+", " ", s_params).title().replace(" ", "")
-        return s_params[0].lower() + s_params[1:]
-
-    def sample_result(self, endpoint: str = 'this_week_view'):
+    def view_result(self, endpoint: str = 'this_week_view') -> Dict:
         """
         返回接口结果
+        :type endpoint: str
         """
-        camel_endpoint = self.to_camel(endpoint)
+        camel_endpoint = utils.to_camelcase(endpoint)
         _url = self._BASE_URL + camel_endpoint
         _data = self.req_body()
         headers = self.headers()
@@ -279,10 +281,192 @@ class FollowAip(QGG):
         info = self.response_data(_resp)
         return info
 
+    def sample_view(self) -> Dict:
+        """
+        精简观点
+        :return:
+        """
+        info = dict()
+        for endpoint in self.ENDPOINT_LIST:
+            item = self.view_result(endpoint)
+            info[endpoint] = item
+        return info
+
+    @staticmethod
+    def parse_industry(industry_info: Dict) -> Dict:
+        """
+        解析信息
+        :param industry_info:
+        :return:
+        """
+        industry_view_vo = industry_info.get('industryViewVo')
+        if industry_view_vo:
+            industry_view = {
+                # 'industry_code': industry_view_vo.get('industryCode'),
+                'industry_name': industry_view_vo.get('industryName'),
+                'issue_industry_reason': industry_view_vo.get('issueIndustryReason'),
+                'total_score': industry_view_vo.get('totalScore'),
+                'investment_advice': industry_view_vo.get('investmentAdvice'),
+                'recommended_operation': industry_view_vo.get('recommendedOperation'),
+            }
+        else:
+            industry_view = None
+        product_info = {
+            'product_id': industry_info.get('productId'),
+            'product_name': industry_info.get('productName'),
+            # 'fund_name_list': industry_info.get('fundNameList')
+        }
+        result_info = {
+            'industry_view': industry_view,
+            'product_info': product_info,
+        }
+        return result_info
+
+    def simplify_worth_investing(self, view_info: Dict) -> Dict:
+        """
+        返回信息太冗长了，此处简化信息
+        :param view_info:
+        :return:
+        """
+
+        def enumerate_industry(week_industry: List) -> List:
+            """
+            解析每个品类，只取最重要的部分
+            :param week_industry:
+            :return:
+            """
+            industry_list = list()
+            if week_industry:
+                for _industry_info in week_industry:
+                    _parsed_info = self.parse_industry(_industry_info)
+                    industry_list.append(_parsed_info)
+            return industry_list
+
+        this_week_industry = view_info.get('thisWeekIndustry')
+        other_industry = view_info.get('otherIndustry')
+        this_week_industry_list = enumerate_industry(this_week_industry)
+        other_week_industry_list = enumerate_industry(other_industry)
+        _result = {
+            'this_week_industry': this_week_industry_list,
+            'other_industry': other_week_industry_list,
+        }
+        return _result
+
+    @staticmethod
+    def key_to_snakecase(camel_case_dict):
+        """
+        字典key转为snakecase
+        :param camel_case_dict:
+        :return:
+        """
+        _result = dict()
+        for key, value in camel_case_dict.items():
+            snakecase_key = utils.to_snakecase(key)
+            _result[snakecase_key] = value
+        return _result
+
+    def simplify_latest_signal(self, latest_signal):
+        _result = self.key_to_snakecase(latest_signal)
+        return _result
+
+    @staticmethod
+    def simplify_query_industry_param(query_industry_info):
+        return query_industry_info
+
+    @staticmethod
+    def parse_week_industry(industry_view_vo):
+        """
+        每周观点信息
+        :param industry_view_vo:
+        :return:
+        """
+        industry_view = {
+            # 'industry_code': industry_view_vo.get('industryCode'),
+            'industry_name': industry_view_vo.get('industryName'),
+            'issue_industry_reason': industry_view_vo.get('issueIndustryReason'),
+            'total_score': industry_view_vo.get('totalScore'),
+            'investment_advice': industry_view_vo.get('investmentAdvice'),
+            'recommended_operation': industry_view_vo.get('recommendedOperation'),
+        }
+        product_info = {
+            'product_id': industry_view_vo.get('productId'),
+            'product_name': industry_view_vo.get('productName'),
+            # 'fund_name_list': industry_view_vo.get('fundNameList')
+        }
+        result_info = {
+            'industry_view': industry_view,
+            'product_info': product_info,
+        }
+        return result_info
+
+    def simplify_this_week_view(self, week_view_info):
+        cp_week_view_info = week_view_info.copy()
+        cp_week_view_info.pop('issueSynthesizeView')
+        industry_view_vos = cp_week_view_info.get('industryViewVos')
+        sample_vol_list = list()
+        for industry_view_vol in industry_view_vos:
+            item = self.parse_week_industry(industry_view_vol)
+            sample_vol_list.append(item)
+        cp_week_view_info['industryViewVos'] = sample_vol_list
+        week_view = self.key_to_snakecase(cp_week_view_info)
+        return week_view
+
+    def simplify_view(self) -> Dict:
+        info = dict()
+        for endpoint in self.ENDPOINT_LIST:
+            # 此参数在简略信息中无必要展示
+            if endpoint == 'query_industry_param':
+                continue
+            item = self.view_result(endpoint)
+            func_name = 'simplify_' + endpoint
+            item_view = getattr(self, func_name)(item)
+            info[endpoint] = item_view
+        return info
+
+    def minimal_view(self) -> Dict:
+        """
+        最简单化信息展示
+        :return:
+        """
+        this_week_view = self.view_result('this_week_view')
+        simplify_week_view_info = self.simplify_this_week_view(this_week_view)
+        industry_view_vos = simplify_week_view_info.get('industry_view_vos')
+        for item in industry_view_vos:
+            item.pop('product_info')
+        simplify_week_view_info['industry_view_vos'] = industry_view_vos
+        latest_signal_view = self.view_result('latest_signal')
+        latest_signal_view_info = self.simplify_latest_signal(latest_signal_view)
+        minimal_view_result = {
+            'latest_signal': latest_signal_view_info,
+            'this_week_view': simplify_week_view_info,
+        }
+        return minimal_view_result
+
+    def full_view(self) -> Dict:
+        """
+        完整观点
+        :return:
+        """
+        info = dict()
+        for endpoint in self.ENDPOINT_LIST:
+            item = self.view_result(endpoint)
+            camel_case = utils.to_camelcase(endpoint)
+            info[camel_case] = item
+        return info
+
+    def zo_view(self, is_full: bool = True, is_minimal: bool = True) -> Dict:
+        if is_full:
+            return self.full_view()
+        else:
+            if is_minimal:
+                return self.minimal_view()
+            return self.simplify_view()
+
 
 if __name__ == '__main__':
     zo = Strategy()
     print(zo.latest_info())
     follow_api = FollowAip()
-    last_result = follow_api.sample_result()
-    print(last_result)
+    result = follow_api.zo_view(is_full=False)
+    result1 = follow_api.zo_view(is_full=True)
+    print(result, result1)
