@@ -28,31 +28,7 @@
               </el-select>
             </el-col>
           </el-form-item>
-          <el-form-item label="买入日期" prop="pDate">
-            <el-col>
-              <el-date-picker
-                class="select-box"
-                v-model="form.pDate"
-                type="date"
-                placeholder="选择日期（请注意在下方确认操作时间15:00之前还是之后）"
-                align="right"
-                :picker-options="pickerOptions">
-              </el-date-picker>
-            </el-col>
-          </el-form-item>
-          <el-form-item label="申购时间" prop="is15OClock">
-            <el-switch
-              style="display: block;margin-top: 7px;"
-              v-model="is15OClock"
-              active-color="#13ce66"
-              inactive-color="#ff4949"
-              active-text="15:00之后"
-              inactive-text="15:00之前"
-              :active-value="1"
-              :inactive-value="0">
-            </el-switch>
-          </el-form-item>
-          <el-form-item label="基金" prop="fundCode">
+                    <el-form-item label="基金" prop="fundCode">
             <el-col>
               <el-select v-model="form.fundCode"
                          filterable
@@ -76,38 +52,95 @@
               </el-select>
             </el-col>
           </el-form-item>
+          <!--   TODO：直接在label前面加一个:label=变量名就能实现数据绑定-->
+          <el-form-item label="选择记录方式" prop="chargeRecordType">
+            <el-col>
+              <el-switch
+                style="display: block; margin-top: 7px;"
+                v-model="form.isJustDate"
+                active-color="#13ce66"
+                inactive-color="#ff4949"
+                active-text="按申购日期"
+                inactive-text="按确认日期"
+                @change=changeRecordDateType($event)
+                :active-value="1"
+                :inactive-value="0">
+              </el-switch>
+            </el-col>
+          </el-form-item>
+          <el-form-item v-if=!isJustDate label="买入日期" prop="purchaseDate">
+            <el-col>
+              <el-date-picker
+                class="select-box"
+                v-model="form.pDate"
+                type="date"
+                placeholder="选择日期（请注意在下方确认操作时间15:00之前还是之后）"
+                align="right"
+                :picker-options="pickerOptions">
+              </el-date-picker>
+            </el-col>
+          </el-form-item>
+          <el-form-item v-if=!isJustDate label="申购时间" prop="is15OClock">
+            <el-switch
+              style="display: block;margin-top: 7px;"
+              v-model="is15OClock"
+              active-color="#13ce66"
+              inactive-color="#ff4949"
+              active-text="15:00之后"
+              inactive-text="15:00之前"
+              :active-value="1"
+              :inactive-value="0">
+            </el-switch>
+          </el-form-item>
+          <el-form-item  v-if=isJustDate label="确认日期" prop="confirmDate">
+            <el-col>
+              <el-date-picker
+                class="select-box"
+                v-model="form.pDate"
+                type="date"
+                placeholder="选择日期"
+                align="right"
+                :picker-options="pickerOptions">
+              </el-date-picker>
+            </el-col>
+          </el-form-item>
 
           <el-form-item label="购买金额" prop="purchaseAmount">
             <el-col>
               <el-input v-model="form.purchaseAmount" placeholder="请输入交易金额"></el-input>
             </el-col>
           </el-form-item>
-          <el-form-item label="手续费计费方式" prop="chargeType">
-            <el-col>
-              <el-switch
-                style="display: block; margin-top: 7px;"
-                v-model="form.isFeeRatio"
-                active-color="#13ce66"
-                inactive-color="#ff4949"
-                active-text="费用（元）"
-                inactive-text="费率（%）"
-                @change=changeFeeType($event)
-                :active-value="1"
-                :inactive-value="0">
-              </el-switch>
-            </el-col>
-          </el-form-item>
+<!--          <el-form-item label="手续费计费方式" prop="chargeType">-->
+<!--            <el-col>-->
+<!--              <el-switch-->
+<!--                style="display: block; margin-top: 7px;"-->
+<!--                v-model="form.isFeeRatio"-->
+<!--                active-color="#13ce66"-->
+<!--                inactive-color="#ff4949"-->
+<!--                active-text="费用（元）"-->
+<!--                inactive-text="费率（%）"-->
+<!--                @change=changeFeeType($event)-->
+<!--                :active-value="1"-->
+<!--                :inactive-value="0">-->
+<!--              </el-switch>-->
+<!--            </el-col>-->
+<!--          </el-form-item>-->
           <!--   TODO：直接在label前面加一个:label=变量名就能实现数据绑定-->
-          <el-form-item v-if=!isFeeRatio label="费用" prop="tradeFee">
+          <el-form-item label="费用" prop="tradeFee">
             <el-col>
-              <el-input v-model="form.tradeFee" placeholder="请输入手续费用，如果该笔操作还未确认，请点击上方按钮切换到费率选项"></el-input>
+              <el-input v-model="form.chargeType" class="input-with-select" placeholder="请输入手续费用">
+                 <el-select v-model="form.tradeRatio" slot="prepend" placeholder="请选择">
+                  <el-option label="费用（元）" value="1"></el-option>
+                  <el-option label="费率（%）" value="0"></el-option>
+                </el-select>
+              </el-input>
             </el-col>
           </el-form-item>
-          <el-form-item v-if=isFeeRatio label="费率" prop="tradeRatio">
-            <el-col>
-              <el-input v-model="form.tradeRatio" placeholder="请输入手续费率，如：1.5；如果已知操作手续费，可点击上方按钮切换到费用选项"></el-input>
-            </el-col>
-          </el-form-item>
+<!--          <el-form-item v-if=isFeeRatio label="费率" prop="tradeRatio">-->
+<!--            <el-col>-->
+<!--              <el-input v-model="form.tradeRatio" placeholder="请输入手续费率，如：1.5；如果已知操作手续费，可点击上方按钮切换到费用选项"></el-input>-->
+<!--            </el-col>-->
+<!--          </el-form-item>-->
 
           <el-form-item label="投资手记">
             <el-col>
@@ -236,6 +269,7 @@ export default {
       is15OClock: true,
       activeName: 'first',
       isFeeRatio: true,
+      isJustDate: true,
       // 用户已有账户
       userAccounts: [{
         value: '10000',
@@ -284,7 +318,7 @@ export default {
         time: '',
         isFeeRatio: this.isFeeRatio,
         tradeFee: '',
-        tradeRatio: '',
+        tradeRatio: 1,
         chargeType: ''
       },
       purchaseRules: {
@@ -351,6 +385,16 @@ export default {
         console.log('--------')
       } else {
         this.isFeeRatio = true
+        console.log('000000000')
+      }
+    },
+    changeRecordDateType(inputVal) {
+      console.log(inputVal)
+      if (inputVal === 1) {
+        this.isJustDate = false
+        console.log('--------')
+      } else {
+        this.isJustDate = true
         console.log('000000000')
       }
     },
