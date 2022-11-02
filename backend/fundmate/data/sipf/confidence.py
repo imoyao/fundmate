@@ -96,21 +96,24 @@ class Confidence:
         p_date = pendulum.parse(previous_4_months)
         year, month = p_date.year, p_date.month
         confidence_result = self.detail_of_month(year=year, month=month)
-        data = confidence_result.get('data')
-        if not is_full:
-            new_info = data[0]
-            _result = {
-                'base': new_info.get('base'),
-                'buy': new_info.get('buy'),
-                'dataMonth': new_info.get('dataMonth'),
-                'dataYear': new_info.get('dataYear'),
-                'financial': new_info.get('financial'),
-                'fundamental': new_info.get('fundamental'),
-                'market': new_info.get('market'),
-            }
-            details = [_result]
+        if confidence_result:
+            data = confidence_result.get('data')
+            if not is_full:
+                new_info = data[0]
+                _result = {
+                    'base': new_info.get('base'),
+                    'buy': new_info.get('buy'),
+                    'dataMonth': new_info.get('dataMonth'),
+                    'dataYear': new_info.get('dataYear'),
+                    'financial': new_info.get('financial'),
+                    'fundamental': new_info.get('fundamental'),
+                    'market': new_info.get('market'),
+                }
+                details = [_result]
+            else:
+                details = data
         else:
-            details = data
+            details = None
         _result = {
             'href': self.source_link,
             'details': details
