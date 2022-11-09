@@ -8,7 +8,7 @@ from typing import Optional
 from requests.exceptions import JSONDecodeError as RJSONDecodeError
 from retry import retry
 from xalpha.cons import JSONDecodeError as XJSONDecodeError
-from xalpha.cons import rpost_json
+from xalpha.cons import rget_json, rpost_json
 
 from backend.fundmate import settings
 from backend.fundmate.data.utils import base as dt_utils
@@ -16,26 +16,25 @@ from backend.fundmate.data.utils import ratio
 from backend.fundmate.excepts import CrawlerException, IsClosedDurationError, ParseError
 from backend.fundmate.exts.flask_loguru import logger
 
-# noqa: Q001
-_HEADER_STR = """authority: api.jiucaishuo.com
-method: POST
-path: /v2/kjtl/getbasedata
-scheme: https
-accept: application/json, text/plain, */*
-accept-encoding: gzip, deflate, br
-accept-language: zh-CN,zh;q=0.9,en;q=0.8,en-US;q=0.7
-content-length: 661
-content-type: application/json;charset=UTF-8
-dnt: 1
-origin: https://funddb.cn
-sec-ch-ua: "Chromium";v="92", " Not A;Brand";v="99", "Microsoft Edge";v="92"
-sec-ch-ua-mobile: ?0
-sec-fetch-dest: empty
-sec-fetch-mode: cors
-sec-fetch-site: cross-site
-user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107""" \
-              """Safari/537.36 Edg/92.0.902.55"""
 
+_HEADER_STR = """accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,\
+application/signed-exchange;v=b3;q=0.9
+accept-encoding: gzip, deflate, br
+accept-language: zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6
+cache-control: max-age=0
+dnt: 1
+sec-ch-ua: "Microsoft Edge";v="107", "Chromium";v="107", "Not=A?Brand";v="24"
+sec-ch-ua-mobile: ?0
+sec-ch-ua-platform: "Windows"
+sec-fetch-dest: document
+sec-fetch-mode: navigate
+sec-fetch-site: none
+sec-fetch-user: ?1
+upgrade-insecure-requests: 1
+user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/\
+537.36 Edg/107.0.1418.35
+"""
+print(_HEADER_STR)
 
 def delay_timeout() -> float:
     """
@@ -62,18 +61,19 @@ class FundDB:
         """
         fear_href = 'https://funddb.cn/tool/fear'
         url = 'https://api.jiucaishuo.com/v2/kjtl/getbasedata'
-        data = """{"type":"pc","data_source":"xichou","version":"1.6.0",
-        "authtoken":"ddQYkiZQ087Z5Kr+ER5CmQMFCpjuC/qW","act_time":1627638543548,"tirgkjfs":"08","abiokytke":"0b",
-        "u54rg5d":"b3","kf54ge7":"e","tiklsktr4":"8","lksytkjh":"c14c","sbnoywr":"53","bgd7h8tyu54":"54",
-        "y654b5fs3tr":"5","bioduytlw":"a","bd4uy742":"f","h67456y":"1c1","bvytikwqjk":"54","ngd4uy551":"c1",
-        "bgiuytkw":"9f","nd354uy4752":"d","ghtoiutkmlg":"513","bd24y6421f":"31","tbvdiuytk":"1","ibvytiqjek":"45",
-        "jnhf8u5231":"9f","fjlkatj":"b35","hy5641d321t":"1f","iogojti":"1","ngd4yut78":"13","nkjhrew":"f",
-        "yt447e13f":"4","n3bf4uj7y7":"1","nbf4uj7y432":"0b","yi854tew":"2d","h13ey474":"2de","quikgdky":"7d"}"""
-        hd = dt_utils.parse_headers(_HEADER_STR)
+        # FIXME: 有headers 时报错
+        # data = """{"type":"pc","data_source":"xichou","version":"1.6.0",
+        # "authtoken":"ddQYkiZQ087Z5Kr+ER5CmQMFCpjuC/qW","act_time":1627638543548,"tirgkjfs":"08","abiokytke":"0b",
+        # "u54rg5d":"b3","kf54ge7":"e","tiklsktr4":"8","lksytkjh":"c14c","sbnoywr":"53","bgd7h8tyu54":"54",
+        # "y654b5fs3tr":"5","bioduytlw":"a","bd4uy742":"f","h67456y":"1c1","bvytikwqjk":"54","ngd4uy551":"c1",
+        # "bgiuytkw":"9f","nd354uy4752":"d","ghtoiutkmlg":"513","bd24y6421f":"31","tbvdiuytk":"1","ibvytiqjek":"45",
+        # "jnhf8u5231":"9f","fjlkatj":"b35","hy5641d321t":"1f","iogojti":"1","ngd4yut78":"13","nkjhrew":"f",
+        # "yt447e13f":"4","n3bf4uj7y7":"1","nbf4uj7y432":"0b","yi854tew":"2d","h13ey474":"2de","quikgdky":"7d"}"""
+        # hd = dt_utils.parse_headers(_HEADER_STR)
         try:
-            resp = rpost_json(url, headers=hd, data=data)
+            resp = rget_json(url)
         except (XJSONDecodeError, RJSONDecodeError) as e:
-            raise CrawlerException('对方反爬机制导致错误，请稍候重试……') from e
+            raise CrawlerException(f'对方反爬机制导致错误{e}，请稍候重试……') from e
 
         info = None
         if resp and resp.get('code') == 0:

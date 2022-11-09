@@ -9,7 +9,7 @@
 """
 import pytest
 
-from backend.fundmate.data.fundb.base import FundFeeRatio
+from backend.fundmate.data.fundb.base import FundDB, FundFeeRatio
 from backend.fundmate.excepts import CrawlerException, ParseError
 
 
@@ -54,331 +54,320 @@ class TestFundFeeRatio:
             'end_day': None,
             'rate': 0.0
         }]
-    }),
-                                                    ('163406', {
-                                                        'purchase': [{
-                                                            'start_quota': 0,
-                                                            'end_quota': 500000.0,
-                                                            'rate': 1.2
-                                                        }, {
-                                                            'start_quota': 500000.0,
-                                                            'end_quota': 2000000.0,
-                                                            'rate': 0.8
-                                                        }, {
-                                                            'start_quota': 2000000.0,
-                                                            'end_quota': 5000000.0,
-                                                            'rate': 0.5
-                                                        }, {
-                                                            'start_quota': 5000000.0,
-                                                            'end_quota': None,
-                                                            'fee_amount': 1000.0
-                                                        }],
-                                                        'op': [{
-                                                            'name': '管理费率',
-                                                            'val': '1.50% (每年)'
-                                                        }, {
-                                                            'name': '托管费率',
-                                                            'val': '0.25% (每年)'
-                                                        }, {
-                                                            'name': '销售服务费率',
-                                                            'val': '0.00% (每年)'
-                                                        }],
-                                                        'redeem': [{
-                                                            'start_day': 0,
-                                                            'end_day': 7,
-                                                            'rate': 1.5
-                                                        }, {
-                                                            'start_day': 7,
-                                                            'end_day': 365,
-                                                            'rate': 0.5
-                                                        }, {
-                                                            'start_day': 365,
-                                                            'end_day': 730,
-                                                            'rate': 0.25
-                                                        }, {
-                                                            'start_day': 730,
-                                                            'end_day': None,
-                                                            'rate': 0.0
-                                                        }]
-                                                    }),
-                                                    ('850004', {
-                                                        'op': [{
-                                                            'name': '管理费率',
-                                                            'val': '0.70% (每年)'
-                                                        }, {
-                                                            'name': '托管费率',
-                                                            'val': '0.15% (每年)'
-                                                        }, {
-                                                            'name': '销售服务费率',
-                                                            'val': '0.00% (每年)'
-                                                        }],
-                                                        'purchase': [{
-                                                            'end_quota': 1000000.0,
-                                                            'rate': 1.5,
-                                                            'start_quota': 0
-                                                        }, {
-                                                            'end_quota': 5000000.0,
-                                                            'rate': 0.6,
-                                                            'start_quota': 1000000.0
-                                                        }, {
-                                                            'end_quota': None,
-                                                            'fee_amount': 1000.0,
-                                                            'start_quota': 5000000.0
-                                                        }, {
-                                                            'end_quota': None,
-                                                            'fee_amount': 1000.0,
-                                                            'start_quota': 2000000000
-                                                        }],
-                                                        'redeem': [{
-                                                            'end_day': 7,
-                                                            'rate': 1.5,
-                                                            'start_day': 0
-                                                        }, {
-                                                            'end_day': 30,
-                                                            'rate': 0.75,
-                                                            'start_day': 7
-                                                        }, {
-                                                            'end_day': 365,
-                                                            'rate': 0.5,
-                                                            'start_day': 30
-                                                        }, {
-                                                            'end_day': None,
-                                                            'rate': 0.0,
-                                                            'start_day': 365
-                                                        }]
-                                                    }),
-                                                    ('007019', {
-                                                        'purchase': [{
-                                                            'start_quota': 0,
-                                                            'end_quota': None,
-                                                            'fee_amount': 0.0
-                                                        }],
-                                                        'op': [{
-                                                            'name': '管理费率',
-                                                            'val': '0.30% (每年)'
-                                                        }, {
-                                                            'name': '托管费率',
-                                                            'val': '0.10% (每年)'
-                                                        }, {
-                                                            'name': '销售服务费率',
-                                                            'val': '0.35% (每年)'
-                                                        }],
-                                                        'redeem': [{
-                                                            'start_day': 0,
-                                                            'end_day': 7,
-                                                            'rate': 1.5
-                                                        }, {
-                                                            'start_day': 7,
-                                                            'end_day': 31,
-                                                            'rate': 0.1
-                                                        }, {
-                                                            'start_day': 31,
-                                                            'end_day': None,
-                                                            'rate': 0.0
-                                                        }]
-                                                    }),
-                                                    ('000906', {
-                                                        'op': [{
-                                                            'name': '管理费率',
-                                                            'val': '1.80% (每年)'
-                                                        }, {
-                                                            'name': '托管费率',
-                                                            'val': '0.35% (每年)'
-                                                        }, {
-                                                            'name': '销售服务费率',
-                                                            'val': '0.00% (每年)'
-                                                        }],
-                                                        'purchase': [{
-                                                            'end_quota': 200000.0,
-                                                            'rate': 1.6,
-                                                            'start_quota': 0
-                                                        }, {
-                                                            'end_quota': 1000000.0,
-                                                            'rate': 1.0,
-                                                            'start_quota': 200000.0
-                                                        }, {
-                                                            'end_quota': 2000000.0,
-                                                            'rate': 0.5,
-                                                            'start_quota': 1000000.0
-                                                        }, {
-                                                            'end_quota': None,
-                                                            'fee_amount': 200.0,
-                                                            'start_quota': 2000000.0
-                                                        }],
-                                                        'redeem': [{
-                                                            'end_day': 7,
-                                                            'rate': 1.5,
-                                                            'start_day': 0
-                                                        }, {
-                                                            'end_day': 365,
-                                                            'rate': 0.5,
-                                                            'start_day': 7
-                                                        }, {
-                                                            'end_day': 730,
-                                                            'rate': 0.3,
-                                                            'start_day': 365
-                                                        }, {
-                                                            'end_day': None,
-                                                            'rate': 0.0,
-                                                            'start_day': 730
-                                                        }]
-                                                    }),
-                                                    ('000507', {
-                                                        'op': [{
-                                                            'name': '管理费率',
-                                                            'val': '0.60% (每年)'
-                                                        }, {
-                                                            'name': '托管费率',
-                                                            'val': '0.25% (每年)'
-                                                        }, {
-                                                            'name': '销售服务费率',
-                                                            'val': '0.00% (每年)'
-                                                        }],
-                                                        'purchase': [{
-                                                            'end_quota': 500000.0,
-                                                            'rate': 1.2,
-                                                            'start_quota': 0
-                                                        }, {
-                                                            'end_quota': 1000000.0,
-                                                            'rate': 1.0,
-                                                            'start_quota': 500000.0
-                                                        }, {
-                                                            'end_quota': 3000000.0,
-                                                            'rate': 0.8,
-                                                            'start_quota': 1000000.0
-                                                        }, {
-                                                            'end_quota': 5000000.0,
-                                                            'rate': 0.6,
-                                                            'start_quota': 3000000.0
-                                                        }, {
-                                                            'end_quota': None,
-                                                            'fee_amount': 1000.0,
-                                                            'start_quota': 5000000.0
-                                                        }],
-                                                        'redeem': [{
-                                                            'end_day': 7,
-                                                            'rate': 1.5,
-                                                            'start_day': 1
-                                                        }, {
-                                                            'end_day': 30,
-                                                            'rate': 0.75,
-                                                            'start_day': 7
-                                                        }, {
-                                                            'end_day': 180,
-                                                            'rate': 0.5,
-                                                            'start_day': 30
-                                                        }, {
-                                                            'end_day': 366,
-                                                            'rate': 0.1,
-                                                            'start_day': 180
-                                                        }, {
-                                                            'end_day': 731,
-                                                            'rate': 0.05,
-                                                            'start_day': 366
-                                                        }, {
-                                                            'end_day': None,
-                                                            'rate': 0.0,
-                                                            'start_day': 731
-                                                        }]
-                                                    }),
-                                                    ('007450', {
-                                                        'op': [{
-                                                            'name': '管理费率',
-                                                            'val': '1.50% (每年)'
-                                                        }, {
-                                                            'name': '托管费率',
-                                                            'val': '0.25% (每年)'
-                                                        }, {
-                                                            'name': '销售服务费率',
-                                                            'val': '0.60% (每年)'
-                                                        }],
-                                                        'purchase': [{
-                                                            'end_quota': None,
-                                                            'fee_amount': 0.0,
-                                                            'start_quota': 0
-                                                        }],
-                                                        'redeem': [{
-                                                            'end_day': 7,
-                                                            'rate': 1.5,
-                                                            'start_day': 0
-                                                        }, {
-                                                            'end_day': 30,
-                                                            'rate': 0.5,
-                                                            'start_day': 7
-                                                        }, {
-                                                            'end_day': None,
-                                                            'rate': 0.0,
-                                                            'start_day': 30
-                                                        }]
-                                                    }),
-                                                    ('011779', {
-                                                        'op': [{
-                                                            'name': '管理费率',
-                                                            'val': '0.55% (每年)'
-                                                        }, {
-                                                            'name': '托管费率',
-                                                            'val': '0.10% (每年)'
-                                                        }, {
-                                                            'name': '销售服务费率',
-                                                            'val': '0.00% (每年)'
-                                                        }],
-                                                        'purchase': [{
-                                                            'end_quota': 1000000.0,
-                                                            'rate': 0.8,
-                                                            'start_quota': 0
-                                                        }, {
-                                                            'end_quota': 2000000.0,
-                                                            'rate': 0.4,
-                                                            'start_quota': 1000000.0
-                                                        }, {
-                                                            'end_quota': 5000000.0,
-                                                            'rate': 0.2,
-                                                            'start_quota': 2000000.0
-                                                        }, {
-                                                            'end_quota': None,
-                                                            'fee_amount': 1000.0,
-                                                            'start_quota': 5000000.0
-                                                        }],
-                                                        'redeem': [{
-                                                            'end_day': None,
-                                                            'rate': 0.0,
-                                                            'start_day': 0
-                                                        }]
-                                                    }),
-                                                    ('003663', {
-                                                        'op': [{
-                                                            'name': '管理费率',
-                                                            'val': '0.70% (每年)'
-                                                        }, {
-                                                            'name': '托管费率',
-                                                            'val': '0.20% (每年)'
-                                                        }, {
-                                                            'name': '销售服务费率',
-                                                            'val': '0.00% (每年)'
-                                                        }],
-                                                        'purchase': [{
-                                                            'end_quota': 1000000.0,
-                                                            'rate': 0.8,
-                                                            'start_quota': 0
-                                                        }, {
-                                                            'end_quota': 5000000.0,
-                                                            'rate': 0.4,
-                                                            'start_quota': 1000000.0
-                                                        }, {
-                                                            'end_quota': None,
-                                                            'fee_amount': 1000.0,
-                                                            'start_quota': 5000000.0
-                                                        }],
-                                                        'redeem': [{
-                                                            'end_day': 180,
-                                                            'rate': 1.5,
-                                                            'start_day': 0
-                                                        }, {
-                                                            'end_day': None,
-                                                            'rate': 0.0,
-                                                            'start_day': 180
-                                                        }]
-                                                    })])
+    }), ('163406', {
+        'purchase': [
+            {'start_quota': 0, 'end_quota': 500000.0,
+             'rate': 1.2
+             }, {'start_quota': 500000.0,
+                 'end_quota': 2000000.0,
+                 'rate': 0.8
+                 }, {
+                'start_quota': 2000000.0,
+                'end_quota': 5000000.0,
+                'rate': 0.5
+            }, {
+                'start_quota': 5000000.0,
+                'end_quota': None,
+                'fee_amount': 1000.0
+            }],
+        'op': [{
+            'name': '管理费率',
+            'val': '1.50% (每年)'
+        }, {
+            'name': '托管费率',
+            'val': '0.25% (每年)'
+        }, {
+            'name': '销售服务费率',
+            'val': '0.00% (每年)'
+        }],
+        'redeem': [{
+            'start_day': 0,
+            'end_day': 7,
+            'rate': 1.5
+        }, {
+            'start_day': 7,
+            'end_day': 365,
+            'rate': 0.5
+        }, {
+            'start_day': 365,
+            'end_day': 730,
+            'rate': 0.25
+        }, {
+            'start_day': 730,
+            'end_day': None,
+            'rate': 0.0
+        }]
+    }), ('850004', {
+        'op': [{
+            'name': '管理费率',
+            'val': '0.70% (每年)'
+        }, {
+            'name': '托管费率',
+            'val': '0.15% (每年)'
+        }, {
+            'name': '销售服务费率',
+            'val': '0.00% (每年)'
+        }],
+        'purchase': [{
+            'end_quota': 1000000.0,
+            'rate': 1.5,
+            'start_quota': 0
+        }, {
+            'end_quota': 5000000.0,
+            'rate': 0.6,
+            'start_quota': 1000000.0
+        }, {
+            'end_quota': None,
+            'fee_amount': 1000.0,
+            'start_quota': 5000000.0
+        }, {
+            'end_quota': None,
+            'fee_amount': 1000.0,
+            'start_quota': 2000000000
+        }],
+        'redeem': [{
+            'end_day': 7,
+            'rate': 1.5,
+            'start_day': 0
+        }, {
+            'end_day': 30,
+            'rate': 0.75,
+            'start_day': 7
+        }, {
+            'end_day': 365,
+            'rate': 0.5,
+            'start_day': 30
+        }, {
+            'end_day': None,
+            'rate': 0.0,
+            'start_day': 365
+        }]
+    }), ('007019', {
+        'purchase': [{
+            'start_quota': 0,
+            'end_quota': None,
+            'fee_amount': 0.0
+        }],
+        'op': [{
+            'name': '管理费率',
+            'val': '0.30% (每年)'
+        }, {
+            'name': '托管费率',
+            'val': '0.10% (每年)'
+        }, {
+            'name': '销售服务费率',
+            'val': '0.35% (每年)'
+        }],
+        'redeem': [{
+            'start_day': 0,
+            'end_day': 7,
+            'rate': 1.5
+        }, {
+            'start_day': 7,
+            'end_day': 31,
+            'rate': 0.1
+        }, {
+            'start_day': 31,
+            'end_day': None,
+            'rate': 0.0
+        }]
+    }), ('000906', {
+        'op': [{
+            'name': '管理费率',
+            'val': '1.80% (每年)'
+        }, {
+            'name': '托管费率',
+            'val': '0.35% (每年)'
+        }, {
+            'name': '销售服务费率',
+            'val': '0.00% (每年)'
+        }],
+        'purchase': [{
+            'end_quota': 200000.0,
+            'rate': 1.6,
+            'start_quota': 0
+        }, {
+            'end_quota': 1000000.0,
+            'rate': 1.0,
+            'start_quota': 200000.0
+        }, {
+            'end_quota': 2000000.0,
+            'rate': 0.5,
+            'start_quota': 1000000.0
+        }, {
+            'end_quota': None,
+            'fee_amount': 200.0,
+            'start_quota': 2000000.0
+        }],
+        'redeem': [{
+            'end_day': 7,
+            'rate': 1.5,
+            'start_day': 0
+        }, {
+            'end_day': 365,
+            'rate': 0.5,
+            'start_day': 7
+        }, {
+            'end_day': 730,
+            'rate': 0.3,
+            'start_day': 365
+        }, {
+            'end_day': None,
+            'rate': 0.0,
+            'start_day': 730
+        }]
+    }), ('000507', {
+        'op': [{
+            'name': '管理费率',
+            'val': '0.60% (每年)'
+        }, {
+            'name': '托管费率',
+            'val': '0.25% (每年)'
+        }, {
+            'name': '销售服务费率',
+            'val': '0.00% (每年)'
+        }], 'purchase': [{
+            'end_quota': 500000.0,
+            'rate': 1.2,
+            'start_quota': 0
+        }, {
+            'end_quota': 1000000.0,
+            'rate': 1.0,
+            'start_quota': 500000.0
+        }, {
+            'end_quota': 3000000.0,
+            'rate': 0.8,
+            'start_quota': 1000000.0
+        }, {
+            'end_quota': 5000000.0,
+            'rate': 0.6,
+            'start_quota': 3000000.0
+        }, {
+            'end_quota': None,
+            'fee_amount': 1000.0,
+            'start_quota': 5000000.0
+        }],
+        'redeem': [{
+            'end_day': 7,
+            'rate': 1.5,
+            'start_day': 1
+        }, {
+            'end_day': 30,
+            'rate': 0.75,
+            'start_day': 7
+        }, {
+            'end_day': 180,
+            'rate': 0.5,
+            'start_day': 30
+        }, {
+            'end_day': 366,
+            'rate': 0.1,
+            'start_day': 180
+        }, {
+            'end_day': 731,
+            'rate': 0.05,
+            'start_day': 366
+        }, {
+            'end_day': None,
+            'rate': 0.0,
+            'start_day': 731
+        }]
+    }), ('007450', {
+        'op': [{
+            'name': '管理费率',
+            'val': '1.50% (每年)'
+        }, {
+            'name': '托管费率',
+            'val': '0.25% (每年)'
+        }, {
+            'name': '销售服务费率',
+            'val': '0.60% (每年)'
+        }],
+        'purchase': [{
+            'end_quota': None,
+            'fee_amount': 0.0,
+            'start_quota': 0
+        }],
+        'redeem': [{
+            'end_day': 7,
+            'rate': 1.5,
+            'start_day': 0
+        }, {
+            'end_day': 30,
+            'rate': 0.5,
+            'start_day': 7
+        }, {
+            'end_day': None,
+            'rate': 0.0,
+            'start_day': 30
+        }]
+    }), ('011779', {
+        'op': [{
+            'name': '管理费率',
+            'val': '0.55% (每年)'
+        }, {
+            'name': '托管费率',
+            'val': '0.10% (每年)'
+        }, {
+            'name': '销售服务费率',
+            'val': '0.00% (每年)'
+        }],
+        'purchase': [{
+            'end_quota': 1000000.0,
+            'rate': 0.8,
+            'start_quota': 0
+        }, {
+            'end_quota': 2000000.0,
+            'rate': 0.4,
+            'start_quota': 1000000.0
+        }, {
+            'end_quota': 5000000.0,
+            'rate': 0.2,
+            'start_quota': 2000000.0
+        }, {
+            'end_quota': None,
+            'fee_amount': 1000.0,
+            'start_quota': 5000000.0
+        }],
+        'redeem': [{
+            'end_day': None,
+            'rate': 0.0,
+            'start_day': 0
+        }]
+    }), ('003663', {
+        'op': [{
+            'name': '管理费率',
+            'val': '0.70% (每年)'
+        }, {
+            'name': '托管费率',
+            'val': '0.20% (每年)'
+        }, {
+            'name': '销售服务费率',
+            'val': '0.00% (每年)'
+        }],
+        'purchase': [{
+            'end_quota': 1000000.0,
+            'rate': 0.8,
+            'start_quota': 0
+        }, {
+            'end_quota': 5000000.0,
+            'rate': 0.4,
+            'start_quota': 1000000.0
+        }, {
+            'end_quota': None,
+            'fee_amount': 1000.0,
+            'start_quota': 5000000.0
+        }],
+        'redeem': [{
+            'end_day': 180,
+            'rate': 1.5,
+            'start_day': 0
+        }, {
+            'end_day': None,
+            'rate': 0.0,
+            'start_day': 180
+        }]
+    })])
     def test_rate(self, fund_code, expected):
         """
         测试费率获取功能
@@ -446,50 +435,50 @@ class TestFundFeeRatio:
         'end_day': None,
         'rate': 0.0
     }]),
-                                               ([{
-                                                   'money': '',
-                                                   'time': '持有期限 < 7天',
-                                                   'source': '',
-                                                   'rate': '1.50%'
-                                               }, {
-                                                   'money': '',
-                                                   'time': '7天 ≤ 持有期限 < 1个月',
-                                                   'source': '',
-                                                   'rate': '0.10%'
-                                               }, {
-                                                   'money': '',
-                                                   'time': '持有期限 ≥ 1个月',
-                                                   'source': '',
-                                                   'rate': '0.00%'
-                                               }], [{
-                                                   'start_day': 0,
-                                                   'end_day': 7,
-                                                   'rate': 1.5
-                                               }, {
-                                                   'start_day': 7,
-                                                   'end_day': 30,
-                                                   'rate': 0.1
-                                               }, {
-                                                   'start_day': 30,
-                                                   'end_day': None,
-                                                   'rate': 0.0
-                                               }]),
-                                               ([{
-                                                   'money': '',
-                                                   'time': '持有期限(Y) 赎回费率\r\nY<7日 1.50%',
-                                                   'source': '',
-                                                   'rate': '1.50%'
-                                               }, {
-                                                   'money': '',
-                                                   'time': '持有期限(Y) 赎回费率\r\n7日≤Y<1个封闭期 1.00%',
-                                                   'source': '',
-                                                   'rate': '1.00%'
-                                               }, {
-                                                   'money': '',
-                                                   'time': '持有期限(Y) 赎回费率\r\nY≥1个封闭期 0',
-                                                   'source': '',
-                                                   'rate': '0.00%'
-                                               }], ParseError)])
+        ([{
+            'money': '',
+            'time': '持有期限 < 7天',
+            'source': '',
+            'rate': '1.50%'
+        }, {
+            'money': '',
+            'time': '7天 ≤ 持有期限 < 1个月',
+            'source': '',
+            'rate': '0.10%'
+        }, {
+            'money': '',
+            'time': '持有期限 ≥ 1个月',
+            'source': '',
+            'rate': '0.00%'
+        }], [{
+            'start_day': 0,
+            'end_day': 7,
+            'rate': 1.5
+        }, {
+            'start_day': 7,
+            'end_day': 30,
+            'rate': 0.1
+        }, {
+            'start_day': 30,
+            'end_day': None,
+            'rate': 0.0
+        }]),
+        ([{
+            'money': '',
+            'time': '持有期限(Y) 赎回费率\r\nY<7日 1.50%',
+            'source': '',
+            'rate': '1.50%'
+        }, {
+            'money': '',
+            'time': '持有期限(Y) 赎回费率\r\n7日≤Y<1个封闭期 1.00%',
+            'source': '',
+            'rate': '1.00%'
+        }, {
+            'money': '',
+            'time': '持有期限(Y) 赎回费率\r\nY≥1个封闭期 0',
+            'source': '',
+            'rate': '0.00%'
+        }], ParseError)])
     def test_redeem_rate(self, info, expected):
         if isinstance(expected, type) and issubclass(expected, Exception):
             with pytest.raises(expected):
@@ -507,117 +496,118 @@ class TestFundFeeRatio:
         'end_quota': None,
         'fee_amount': 0.0
     }]),
-                                                                   (
-                                                                       [{
-                                                                           'money': '购买金额 < 100万',
-                                                                           'time': '',
-                                                                           'source': '1.50%',
-                                                                           'rate': '0.15%'
-                                                                       }, {
-                                                                           'money': '100万 ≤ 购买金额 < 500万',
-                                                                           'time': '',
-                                                                           'source': '1.20%',
-                                                                           'rate': '0.12%'
-                                                                       }, {
-                                                                           'money': '购买金额 ≥ 500万',
-                                                                           'time': '',
-                                                                           'source': '1.00%',
-                                                                           'rate': '0.10%'
-                                                                       }],
-                                                                       'money',
-                                                                       'rate',
-                                                                       [{
-                                                                           'start_quota': 0,
-                                                                           'end_quota': 1000000.0,
-                                                                           'rate': 1.5
-                                                                       }, {
-                                                                           'start_quota': 1000000.0,
-                                                                           'end_quota': 5000000.0,
-                                                                           'rate': 1.2
-                                                                       }, {
-                                                                           'start_quota': 5000000.0,
-                                                                           'end_quota': None,
-                                                                           'rate': 1.0
-                                                                       }],
-                                                                   ),
-                                                                   (
-                                                                       [{
-                                                                           'money': '购买金额 < 10万美元',
-                                                                           'time': '',
-                                                                           'source': '',
-                                                                           'rate': '1.30%'
-                                                                       }, {
-                                                                           'money': '10万美元 ≤ 购买金额 < 20万美元',
-                                                                           'time': '',
-                                                                           'source': '',
-                                                                           'rate': '0.70%'
-                                                                       }, {
-                                                                           'money': '20万美元 ≤ 购买金额 < 100万美元',
-                                                                           'time': '',
-                                                                           'source': '',
-                                                                           'rate': '0.30%'
-                                                                       }, {
-                                                                           'money': '购买金额 ≥ 100万美元',
-                                                                           'time': '',
-                                                                           'source': '',
-                                                                           'rate': '200美元/笔'
-                                                                       }],
-                                                                       'money',
-                                                                       'rate',
-                                                                       [{
-                                                                           'end_quota': 100000.0,
-                                                                           'rate': 1.3,
-                                                                           'start_quota': 0
-                                                                       }, {
-                                                                           'end_quota': 200000.0,
-                                                                           'rate': 0.7,
-                                                                           'start_quota': 100000.0
-                                                                       }, {
-                                                                           'end_quota': 1000000.0,
-                                                                           'rate': 0.3,
-                                                                           'start_quota': 200000.0
-                                                                       }, {
-                                                                           'end_quota': None,
-                                                                           'fee_amount': 200.0,
-                                                                           'start_quota': 1000000.0
-                                                                       }],
-                                                                   ),
-                                                                   ([{
-                                                                       'money': '购买金额 < 120万港元',
-                                                                       'time': '',
-                                                                       'source': '',
-                                                                       'rate': '1.60%'
-                                                                   }, {
-                                                                       'money': '120万港元 ≤ 购买金额 < 350万港元',
-                                                                       'time': '',
-                                                                       'source': '',
-                                                                       'rate': '1.00%'
-                                                                   }, {
-                                                                       'money': '350万港元 ≤ 购买金额 < 600万港元',
-                                                                       'time': '',
-                                                                       'source': '',
-                                                                       'rate': '0.80%'
-                                                                   }, {
-                                                                       'money': '购买金额 ≥ 600万港元',
-                                                                       'time': '',
-                                                                       'source': '',
-                                                                       'rate': '1200港元/笔'
-                                                                   }], 'money', 'rate', [{
-                                                                       'end_quota': 1200000.0,
-                                                                       'rate': 1.6,
-                                                                       'start_quota': 0
-                                                                   }, {
-                                                                       'end_quota': 3500000.0,
-                                                                       'rate': 1.0,
-                                                                       'start_quota': 1200000.0
-                                                                   }, {
-                                                                       'end_quota': 6000000.0,
-                                                                       'rate': 0.8,
-                                                                       'start_quota': 3500000.0
-                                                                   }, {
-                                                                       'end_quota': None,
-                                                                       'fee_amount': 1200.0,
-                                                                       'start_quota': 6000000.0
-                                                                   }])])
+        ([{
+            'money': '购买金额 < 100万',
+            'time': '',
+            'source': '1.50%',
+            'rate': '0.15%'
+        }, {
+            'money': '100万 ≤ 购买金额 < 500万',
+            'time': '',
+            'source': '1.20%',
+            'rate': '0.12%'
+        }, {
+            'money': '购买金额 ≥ 500万',
+            'time': '',
+            'source': '1.00%',
+            'rate': '0.10%'
+        }], 'money', 'rate', [{
+            'start_quota': 0,
+            'end_quota': 1000000.0,
+            'rate': 1.5
+        }, {
+            'start_quota': 1000000.0,
+            'end_quota': 5000000.0,
+            'rate': 1.2
+        }, {
+            'start_quota': 5000000.0,
+            'end_quota': None,
+            'rate': 1.0
+        }],), ([{
+            'money': '购买金额 < 10万美元',
+            'time': '',
+            'source': '',
+            'rate': '1.30%'
+        }, {
+            'money': '10万美元 ≤ 购买金额 < 20万美元',
+            'time': '',
+            'source': '',
+            'rate': '0.70%'
+        }, {
+            'money': '20万美元 ≤ 购买金额 < 100万美元',
+            'time': '',
+            'source': '',
+            'rate': '0.30%'
+        }, {
+            'money': '购买金额 ≥ 100万美元',
+            'time': '',
+            'source': '',
+            'rate': '200美元/笔'
+        }], 'money', 'rate', [{
+            'end_quota': 100000.0,
+            'rate': 1.3,
+            'start_quota': 0
+        }, {
+            'end_quota': 200000.0,
+            'rate': 0.7,
+            'start_quota': 100000.0
+        }, {
+            'end_quota': 1000000.0,
+            'rate': 0.3,
+            'start_quota': 200000.0
+        }, {
+            'end_quota': None,
+            'fee_amount': 200.0,
+            'start_quota': 1000000.0
+        }],), ([{
+            'money': '购买金额 < 120万港元',
+            'time': '',
+            'source': '',
+            'rate': '1.60%'
+        }, {
+            'money': '120万港元 ≤ 购买金额 < 350万港元',
+            'time': '',
+            'source': '',
+            'rate': '1.00%'
+        }, {
+            'money': '350万港元 ≤ 购买金额 < 600万港元',
+            'time': '',
+            'source': '',
+            'rate': '0.80%'
+        }, {
+            'money': '购买金额 ≥ 600万港元',
+            'time': '',
+            'source': '',
+            'rate': '1200港元/笔'
+        }], 'money', 'rate', [{
+            'end_quota': 1200000.0,
+            'rate': 1.6,
+            'start_quota': 0
+        }, {
+            'end_quota': 3500000.0,
+            'rate': 1.0,
+            'start_quota': 1200000.0
+        }, {
+            'end_quota': 6000000.0,
+            'rate': 0.8,
+            'start_quota': 3500000.0
+        }, {
+            'end_quota': None,
+            'fee_amount': 1200.0,
+            'start_quota': 6000000.0
+        }])])
     def test_purchase_rate(self, info, money_key, rate_key, expected):
         assert self.test_jq_fr.purchase_rate(info, money_key, rate_key) == expected
+
+
+class TestFundDB:
+    def setup_class(self):
+        """
+        类开始时，实例化类
+        :return:
+        """
+        self.test_jq_base = FundDB()
+
+    def test_kjtl(self):
+        result = self.test_jq_base.kjtl()
+        assert result
