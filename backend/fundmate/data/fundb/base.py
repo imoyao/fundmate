@@ -80,11 +80,11 @@ class FundDB:
             data = resp.get('data')
 
             current_date = data.get('current_time')
-            temper = data.get('num')
+            temperature = data.get('num')
             desc = data.get('status_str')
             ov = {
                 'update_date': current_date,
-                'temper': temper,
+                'temperature': temperature,
                 'desc': desc,
                 'href': fear_href,
             }
@@ -100,7 +100,7 @@ class FundDB:
                     dg = item.get('data').get('series')[0].get('data')
                     desc = item.get('status_str')
                     item_info = {
-                        'temper': f'{dg * 100:.2f}',  # 两位小数
+                        'temperature': f'{dg * 100:.2f}',  # 两位小数
                         'desc': desc
                     }
                     ovl_info.append(item_info)

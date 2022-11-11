@@ -17,6 +17,7 @@ from backend.fundmate.data.utils import base as dt_utils
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.libs import convert
 
+
 header_str = '''Host: youzhiyouxing.cn
 Connection: keep-alive
 Cache-Control: max-age=0
@@ -116,7 +117,7 @@ class YZYX:
         temp_desc = [item.text for item in temp_desc_list]
         desc_list = ['eval', 'trend']
         desc_dict = dict(zip(desc_list, temp_desc))
-        whole_market_temp = {'temper': temp_text, 'desc': desc_dict}
+        whole_market_temp = {'temperature': temp_text, 'desc': desc_dict}
         info = {
             'date': update_date,
             'whole_market_temper': whole_market_temp,
@@ -192,8 +193,8 @@ class YZYX:
             data = json.loads(_info)
             utils.write_json_data(data, json_fp)
             return data
-        logger.warning('YZYX temper get Error!')
-        raise dt_except.CrawlerException('YZYX temper get Error!')
+        logger.warning('Get YZYX temperature Error!')
+        raise dt_except.CrawlerException('YZYX temperature get Error!')
 
     def temp_detail(self):
         return self.daily_temp_old()[-1]
