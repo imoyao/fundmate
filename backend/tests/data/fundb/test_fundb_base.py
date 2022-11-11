@@ -108,23 +108,13 @@ class TestFundFeeRatio:
             'name': '销售服务费率',
             'val': '0.00% (每年)'
         }],
-        'purchase': [{
-            'end_quota': 1000000.0,
-            'rate': 1.5,
-            'start_quota': 0
-        }, {
-            'end_quota': 5000000.0,
-            'rate': 0.6,
-            'start_quota': 1000000.0
-        }, {
-            'end_quota': None,
-            'fee_amount': 1000.0,
-            'start_quota': 5000000.0
-        }, {
-            'end_quota': None,
-            'fee_amount': 1000.0,
-            'start_quota': 2000000000
-        }],
+        'purchase': [
+            {
+                "end_quota": None,
+                "fee_amount": 0.0,
+                "start_quota": 0
+            }
+        ],
         'redeem': [{
             'end_day': 7,
             'rate': 1.5,
