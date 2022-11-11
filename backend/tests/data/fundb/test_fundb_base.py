@@ -7,9 +7,11 @@
 @email: immoyao@gmail.com
 @desc:对韭圈儿爬取数据功能进行测试
 """
+import random
+
 import pytest
 
-from backend.fundmate.data.fundb.base import FundDB, FundFeeRatio
+from backend.fundmate.data.fundb.base import FundDB, FundFeeRatio, IndustryEnum
 from backend.fundmate.excepts import CrawlerException, ParseError
 
 
@@ -600,4 +602,16 @@ class TestFundDB:
 
     def test_kjtl(self):
         result = self.test_jq_base.kjtl()
+        assert result
+
+    get_random_enum = random.choice(list(IndustryEnum))
+
+    @pytest.mark.parametrize('kt_type,is_full',
+                             [(get_random_enum, False), (get_random_enum, True)])
+    def test_industry(self, kt_type, is_full):
+        result = self.test_jq_base.industry(kt_type, is_full)
+        status_str = result.get('status_str')
+        num = result.get('num')
+        assert status_str and isinstance(status_str, str)
+        assert num and isinstance(num, int)
         assert result

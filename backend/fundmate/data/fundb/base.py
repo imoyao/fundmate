@@ -1,9 +1,10 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # Created by Andy at 2021/7/30 17:43
+import enum
 import random
 import time
-from typing import Optional
+from typing import Dict, Optional
 
 from requests.exceptions import JSONDecodeError as RJSONDecodeError
 from retry import retry
@@ -14,6 +15,30 @@ from backend.fundmate import settings
 from backend.fundmate.data.utils import ratio
 from backend.fundmate.excepts import CrawlerException, IsClosedDurationError, ParseError
 from backend.fundmate.exts.flask_loguru import logger
+from backend.fundmate.libs.dk_enums import BaseTypeEnum, ChoiceTypeIntegerDk
+
+
+JG = ChoiceTypeIntegerDk(2, 'PH', '军工')
+QS = ChoiceTypeIntegerDk(3, 'PH', '券商')
+XNC = ChoiceTypeIntegerDk(4, 'TF', '新能车')
+XP = ChoiceTypeIntegerDk(5, 'TF', '芯片')
+HT = ChoiceTypeIntegerDk(6, 'PH', '恒生TECH')
+GF = ChoiceTypeIntegerDk(7, 'TF', '光伏')
+DC = ChoiceTypeIntegerDk(8, 'TF', '电池')
+
+
+@enum.unique
+class IndustryEnum(BaseTypeEnum):
+    """
+    追涨杀跌（择时）
+    """
+    JG = JG
+    QS = QS
+    XNC = XNC
+    XP = XP
+    HT = HT
+    GF = GF
+    DC = DC
 
 
 def delay_timeout() -> float:
@@ -81,6 +106,55 @@ class FundDB:
 
                 info.update({'details': amend_info})
 
+        return info
+
+    def industry(self, kt_type: BaseTypeEnum = IndustryEnum.JG, is_full: bool = True) -> Optional[Dict]:
+        """
+        获取韭圈儿的行业估值数据
+        :param kt_type:
+        :param is_full:
+        :return:
+        """
+        _url = 'https://api.jiucaishuo.com/v2/kjtlother/getbasedata'
+        act_time = int(time.time())
+        version = "2.2.7"
+        json_data = {
+            "kt_type": str(kt_type.dk_value),
+            "type": "h5",
+            "version": version,
+            "ss": "",
+            "act_time": act_time
+        }
+        try:
+            resp = rpost_json(_url, json=json_data)
+        except (XJSONDecodeError, RJSONDecodeError) as e:
+            raise CrawlerException(f'对方反爬机制导致错误{e}，请稍候重试……') from e
+        info = None
+        if resp and resp.get('code') == 0:
+            data = resp.get('data')
+            kt_flag = kt_type.dk_name
+            kt_label = kt_type.label
+            crt = data.get('current_time')
+            status_str = data.get('status_str')
+            num = data.get('num')
+            if is_full:
+                info = {
+                    'current_time': crt,
+                    'name': kt_label,
+                    'num': num,
+                    'status_str': status_str,
+                    'kt_flag': kt_flag,
+                    'list': data.get('list'),
+                    'desc': data.get('desc'),
+                }
+            else:
+                info = {
+                    'current_time': crt,
+                    'name': kt_label,
+                    'num': num,
+                    'kt_flag': kt_flag,
+                    'status_str': status_str
+                }
         return info
 
 
@@ -213,6 +287,8 @@ class FundFeeRatio(ratio.BaseRatio):
 jq_app = FundDB()
 jq_fr = FundFeeRatio()
 if __name__ == '__main__':
-    print(jq_app.kjtl(is_full=True))
-    ratio = jq_fr.rate('001718')
-    print(ratio)
+    # print(jq_app.kjtl(is_full=True))
+    # print(jq_app.industry(is_full=True))
+    print(jq_app.industry(kt_type=IndustryEnum.GF, is_full=False))
+    # ratio = jq_fr.rate('001718')
+    # print(ratio)
