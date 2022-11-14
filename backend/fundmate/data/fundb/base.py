@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 # Created by Andy at 2021/7/30 17:43
 import enum
-import random
 import time
 from typing import Dict, Optional
 
@@ -41,24 +40,13 @@ class IndustryEnum(BaseTypeEnum):
     DC = DC
 
 
-def delay_timeout() -> float:
-    """
-    随机延时，参阅：
-    [python - How to get a random number between a float range? - Stack Overflow]
-    (https://stackoverflow.com/questions/6088077/how-to-get-a-random-number-between-a-float-range)
-
-    :return:
-    """
-    timeout = round(random.uniform(0.3, 0.7), 2)
-    return timeout
-
-
 class FundDB:
 
     @retry(exceptions=(XJSONDecodeError, RJSONDecodeError, CrawlerException),
            tries=10,
-           delay=delay_timeout(),
+           delay=0.5,
            backoff=2,
+           jitter=(0.3, 0.7),
            max_delay=20)
     def kjtl(self, is_full: bool = True) -> dict:
         """
@@ -162,8 +150,9 @@ class FundFeeRatio(ratio.BaseRatio):
 
     @retry(exceptions=(XJSONDecodeError, RJSONDecodeError, CrawlerException),
            tries=5,
-           delay=delay_timeout(),
+           delay=0.5,
            backoff=2,
+           jitter=(0.3, 0.7),
            max_delay=5)
     def rate(self, fund_code: str, to_db: bool = False) -> Optional[dict]:
         """
