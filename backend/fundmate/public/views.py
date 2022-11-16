@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Public section, including homepage and signup."""
 from apiflask import APIBlueprint, HTTPError
-from flask import flash, redirect, request, url_for
+from flask import flash, redirect, url_for
 from flask.views import MethodView
 
 from backend.fundmate import excepts
@@ -17,11 +17,6 @@ bp = APIBlueprint('public', __name__)
 
 @bp.route('/')
 class Home(MethodView):
-
-    def post(self):
-        flash('You are logged in.', 'success')
-        redirect_url = request.args.get('next') or url_for('user.members')
-        return redirect(redirect_url)
 
     def get(self):
         fund_mate_str = r'''
