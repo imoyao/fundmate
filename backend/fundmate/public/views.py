@@ -127,29 +127,47 @@ def thermometer(query_args):
     """行情估值信息
     目前包括集思录温度、有知有行温度、蛋卷估值
     """
-    is_full = query_args.get('is_full')
-    try:
-        yzyx_info = yzyx.yzyx.daily_temper(is_full=is_full)
-    except excepts.CrawlerException:
-        raise ThermometerError from excepts.CrawlerException
-
-    jsl_info = jsl.jsl.qz_info(is_full=is_full)
-
-    dj_info = danjuan.dj_evl.valuation(is_full=is_full)
-
-    jq_info = fundb.jq_app.emotion(is_full=is_full)
-
+    is_minimal = query_args.get('is_minimal', True)
     follow_api = zo.FollowAip()
-    if is_full:
-        # 不需要展示最完整信息
-        zo_view = follow_api.zo_view(is_full=False, is_minimal=False)
+    if is_minimal:
+        # FIXME: 需要增加接口去获取最简单的数据
+        is_full = False
+        yzyx_info = yzyx.yzyx.daily_temper(is_minimal=True)
+        jq_info = fundb.jq_app.kjtl(is_full=is_full)
+        stock_bond_ratio_info = follow_api.stock_bond_ratio(is_minimal=True)
+        dj_info = danjuan.dj_evl.valuation(is_full=is_full)
+        print(stock_bond_ratio_info, dj_info)
+        jq_result = jq_info.get('overview')
+        info = {
+            'jq': jq_result,
+            'yzyx': yzyx_info,
+            'dj': {'num': 68, 'desc': '股债利差'},
+            'lsd': {'num': 68, 'desc': '投资星级'},
+            'zo_view': stock_bond_ratio_info,
+            'confidence': {},
+        }
     else:
-        zo_view = follow_api.zo_view(is_minimal=False)
+        is_full = query_args.get('is_full', False)
+        try:
+            yzyx_info = yzyx.yzyx.daily_temper(is_full=is_full)
+        except excepts.CrawlerException:
+            raise ThermometerError from excepts.CrawlerException
 
-    confidence = sipf.Confidence()
-    confidence_result = confidence.latest_info()
-    info = {'yzyx': yzyx_info, 'jsl': jsl_info, 'dj': dj_info, 'jq': jq_info, 'zo_view': zo_view,
-            'confidence': confidence_result}
+        jsl_info = jsl.jsl.qz_info(is_full=is_full)
+
+        dj_info = danjuan.dj_evl.valuation(is_full=is_full)
+
+        jq_info = fundb.jq_app.emotion(is_full=is_full)
+        if is_full:
+            # 不需要展示最完整信息
+            zo_view = follow_api.zo_view(is_minimal=False, is_full=False)
+        else:
+            zo_view = follow_api.zo_view(is_minimal=False)
+
+        confidence = sipf.Confidence()
+        confidence_result = confidence.latest_info()
+        info = {'yzyx': yzyx_info, 'jsl': jsl_info, 'dj': dj_info, 'jq': jq_info, 'zo_view': zo_view,
+                'confidence': confidence_result}
     return info
 
 

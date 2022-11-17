@@ -246,6 +246,7 @@ class FollowAip(QGG):
     ref：https://galaxy.qiangungun.com/galaxy/share-react/build/index.html#/followAip/guideIndex
     """
     _BASE_URL = 'https://mobile.qiangungun.com/v1/guide/'
+    _STOCK_BOND_RATIO_URL = 'https://mobile.qiangungun.com/v1/stockBondRatio/content'
     ENDPOINT_LIST = [
         'latest_signal',
         'worth_investing',
@@ -454,13 +455,41 @@ class FollowAip(QGG):
             info[camel_case] = item
         return info
 
-    def zo_view(self, is_full: bool = True, is_minimal: bool = True) -> Dict:
+    def zo_view(self, is_minimal: bool = True, is_full: bool = False) -> Dict:
         if is_full:
             return self.full_view()
         else:
             if is_minimal:
                 return self.minimal_view()
             return self.simplify_view()
+
+    def stock_bond_ratio(self, is_minimal: bool = True, is_full: bool = False):
+        """
+        股债性价比
+        来源链接：
+        https://galaxy.qiangungun.com/galaxy/share-react/build/index.html#/scene/stockDebtPage
+        :param is_minimal:
+        :param is_full:
+        :return:
+        """
+        _url = self._STOCK_BOND_RATIO_URL
+        _data = self.req_body()
+        headers = self.headers()
+        _resp = rpost_json(_url, headers=headers, json=_data)
+        info = self.response_data(_resp)
+        if info:
+            if is_minimal:
+                info = {
+                    'score': int(info.get('source')),
+                    'trend': info.get('trend'),
+                    'latestDate': info.get('latestDate')
+                }
+            else:
+                info['score'] = int(info.pop('source'))
+                if not is_full:
+                    info.pop('starLevelVoList')
+        logger.info(info)
+        return info
 
 
 if __name__ == '__main__':

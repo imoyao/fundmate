@@ -93,7 +93,7 @@ class YZYX:
             return data
 
     # @show_time
-    def daily_temper(self, is_full: bool = False) -> dict:
+    def daily_temper(self, is_minimal: bool = True, is_full: bool = False) -> dict:
         """
         新版市场温度数据
         :return:
@@ -112,16 +112,26 @@ class YZYX:
         temper_div = '//div[@class="tw-flex tw-items-center"]/div/'
         temp_path = f'{temper_div}div/text()'
         temp_text = html.xpath(temp_path)[0]
+        temp_digit = re.search(r'(\d+)', temp_text)[0]
+        temp_int = None
+        if temp_digit:
+            temp_int = int(temp_digit)
         temp_desc = f'{temper_div}div[2]/div'
         temp_desc_list = html.xpath(temp_desc)
         temp_desc = [item.text for item in temp_desc_list]
         desc_list = ['eval', 'trend']
         desc_dict = dict(zip(desc_list, temp_desc))
-        whole_market_temp = {'temperature': temp_text, 'desc': desc_dict}
-        info = {
-            'date': update_date,
-            'whole_market_temper': whole_market_temp,
-        }
+        whole_market_temp = {'temperature': temp_int, 'desc': desc_dict}
+        if is_minimal:
+            info = {
+                'date': update_date,
+            }
+            info.update(whole_market_temp)
+        else:
+            info = {
+                'date': update_date,
+                'whole_market_temper': whole_market_temp,
+            }
         if is_full:
             # 指数观察
             _valuations = self.valuations()

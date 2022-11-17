@@ -9,6 +9,7 @@ from apiflask.fields import Boolean, Dict
 
 
 class ThermometerInSchema(Schema):
+    is_minimal = Boolean(default=True)
     is_full = Boolean(default=False)
 
 
