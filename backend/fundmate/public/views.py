@@ -137,7 +137,7 @@ def thermometer(query_args):
 
     dj_info = danjuan.dj_evl.valuation(is_full=is_full)
 
-    jq_info = fundb.jq_app.kjtl(is_full=is_full)
+    jq_info = fundb.jq_app.emotion(is_full=is_full)
 
     follow_api = zo.FollowAip()
     if is_full:

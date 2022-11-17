@@ -615,3 +615,9 @@ class TestFundDB:
         assert status_str and isinstance(status_str, str)
         assert num and isinstance(num, int)
         assert result
+
+    def test_emotion(self):
+        full_info = self.test_jq_base.emotion(is_full=True)
+        not_full_info = self.test_jq_base.emotion(is_full=True)
+        assert full_info
+        assert not_full_info

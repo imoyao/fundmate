@@ -145,6 +145,24 @@ class FundDB:
                 }
         return info
 
+    def emotion(self, is_full: bool = True) -> Optional[Dict]:
+        """
+        恐惧贪婪指数+指数情绪值
+        :param is_full:
+        :return:
+        """
+        kjtl_info = self.kjtl(is_full=is_full)
+        industry_info = list()
+        for industry_enum in IndustryEnum:
+            industry_item = self.industry(kt_type=industry_enum, is_full=is_full)
+            industry_info.append(industry_item)
+        result = {
+            'kjtl': kjtl_info,
+            'industry': industry_info,
+        }
+        logger.info(f'{result}')
+        return result
+
 
 class FundFeeRatio(ratio.BaseRatio):
 
