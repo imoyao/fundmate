@@ -610,11 +610,12 @@ class TestFundDB:
                              [(get_random_enum, False), (get_random_enum, True)])
     def test_industry(self, kt_type, is_full):
         result = self.test_jq_base.industry(kt_type, is_full)
-        status_str = result.get('status_str')
-        num = result.get('num')
-        assert status_str and isinstance(status_str, str)
-        assert num and isinstance(num, int)
-        assert result
+        if result:
+            status_str = result.get('status_str')
+            num = result.get('num')
+            assert status_str and isinstance(status_str, str)
+            assert num and isinstance(num, int)
+            assert result
 
     def test_emotion(self):
         full_info = self.test_jq_base.emotion(is_full=True)

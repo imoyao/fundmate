@@ -96,6 +96,75 @@ class FundDB:
 
         return info
 
+    def match_data(self, kt_type: int) -> dict:
+        """
+        一种粗糙的方法，直接复制body
+        数据链接：
+        https://app.jiucaishuo.com/pagesA/tool/fear_greed_gf?kt_type=3
+        :param kt_type:
+        :return:
+        """
+        act_time = int(time.time() * 1000)
+        payloads = {
+            2: {"kt_type": "2", "type": "h5", "version": "2.2.8", "ss": "", "act_time": act_time, "tirgkjfs": "67",
+                "abiokytke": "63", "u54rg5d": "ed", "kf54ge7": "2", "tiklsktr4": "7", "lksytkjh": "5445",
+                "sbnoywr": "72", "bgd7h8tyu54": "95", "y654b5fs3tr": "a", "bioduytlw": "4", "bd4uy742": "5",
+                "h67456y": "754", "bvytikwqjk": "95", "ngd4uy551": "54", "bgiuytkw": "ea", "nd354uy4752": "5",
+                "ghtoiutkmlg": "a8f", "bd24y6421f": "2e", "tbvdiuytk": "7", "ibvytiqjek": "5c", "jnhf8u5231": "ea",
+                "fjlkatj": "ed2", "hy5641d321t": "e5", "iogojti": "e", "ngd4yut78": "8f", "nkjhrew": "5",
+                "yt447e13f": "4", "n3bf4uj7y7": "4", "nbf4uj7y432": "63", "yi854tew": "75", "h13ey474": "752",
+                "quikgdky": "1f"},
+            3: {"kt_type": "3", "type": "h5", "version": "2.2.8", "ss": "", "act_time": act_time, "tirgkjfs": "07",
+                "abiokytke": "d4", "u54rg5d": "e4", "kf54ge7": "b", "tiklsktr4": "7", "lksytkjh": "0e9e",
+                "sbnoywr": "1c", "bgd7h8tyu54": "f8", "y654b5fs3tr": "c", "bioduytlw": "a", "bd4uy742": "9",
+                "h67456y": "a0e", "bvytikwqjk": "f8", "ngd4uy551": "0e", "bgiuytkw": "6e", "nd354uy4752": "5",
+                "ghtoiutkmlg": "cb1", "bd24y6421f": "cc", "tbvdiuytk": "a", "ibvytiqjek": "81", "jnhf8u5231": "6e",
+                "fjlkatj": "e4f", "hy5641d321t": "c9", "iogojti": "c", "ngd4yut78": "b1", "nkjhrew": "9",
+                "yt447e13f": "1", "n3bf4uj7y7": "e", "nbf4uj7y432": "d4", "yi854tew": "d5", "h13ey474": "d5b",
+                "quikgdky": "3c"},
+            4: {"kt_type": "4", "type": "h5", "version": "2.2.8", "ss": "", "act_time": act_time, "tirgkjfs": "59",
+                "abiokytke": "f2", "u54rg5d": "5e", "kf54ge7": "7", "tiklsktr4": "9", "lksytkjh": "a72c",
+                "sbnoywr": "b3", "bgd7h8tyu54": "cd", "y654b5fs3tr": "1", "bioduytlw": "8", "bd4uy742": "c",
+                "h67456y": "da7", "bvytikwqjk": "cd", "ngd4uy551": "a7", "bgiuytkw": "94", "nd354uy4752": "b",
+                "ghtoiutkmlg": "1f1", "bd24y6421f": "39", "tbvdiuytk": "d", "ibvytiqjek": "08", "jnhf8u5231": "94",
+                "fjlkatj": "5ee", "hy5641d321t": "9c", "iogojti": "9", "ngd4yut78": "f1", "nkjhrew": "c",
+                "yt447e13f": "f", "n3bf4uj7y7": "7", "nbf4uj7y432": "f2", "yi854tew": "db", "h13ey474": "db7",
+                "quikgdky": "fa"},
+            5: {"kt_type": "5", "type": "h5", "version": "2.2.8", "ss": "", "act_time": act_time, "tirgkjfs": "8d",
+                "abiokytke": "54", "u54rg5d": "f9", "kf54ge7": "9", "tiklsktr4": "d", "lksytkjh": "5e11",
+                "sbnoywr": "28", "bgd7h8tyu54": "dc", "y654b5fs3tr": "c", "bioduytlw": "2", "bd4uy742": "4",
+                "h67456y": "a5e", "bvytikwqjk": "dc", "ngd4uy551": "5e", "bgiuytkw": "cf", "nd354uy4752": "3",
+                "ghtoiutkmlg": "ccd", "bd24y6421f": "89", "tbvdiuytk": "a", "ibvytiqjek": "c2", "jnhf8u5231": "cf",
+                "fjlkatj": "f99", "hy5641d321t": "94", "iogojti": "9", "ngd4yut78": "cd", "nkjhrew": "4",
+                "yt447e13f": "7", "n3bf4uj7y7": "e", "nbf4uj7y432": "54", "yi854tew": "83", "h13ey474": "839",
+                "quikgdky": "a1"},
+            6: {"kt_type": "6", "type": "h5", "version": "2.2.8", "ss": "", "act_time": act_time, "tirgkjfs": "49",
+                "abiokytke": "3a", "u54rg5d": "86", "kf54ge7": "f", "tiklsktr4": "9", "lksytkjh": "f462",
+                "sbnoywr": "d2", "bgd7h8tyu54": "a1", "y654b5fs3tr": "8", "bioduytlw": "3", "bd4uy742": "8",
+                "h67456y": "7f4", "bvytikwqjk": "a1", "ngd4uy551": "f4", "bgiuytkw": "4b", "nd354uy4752": "8",
+                "ghtoiutkmlg": "837", "bd24y6421f": "2a", "tbvdiuytk": "7", "ibvytiqjek": "ba", "jnhf8u5231": "4b",
+                "fjlkatj": "864", "hy5641d321t": "a8", "iogojti": "a", "ngd4yut78": "37", "nkjhrew": "8",
+                "yt447e13f": "8", "n3bf4uj7y7": "4", "nbf4uj7y432": "3a", "yi854tew": "88", "h13ey474": "88f",
+                "quikgdky": "52"},
+            7: {"kt_type": "7", "type": "h5", "version": "2.2.8", "ss": "", "act_time": act_time, "tirgkjfs": "5e",
+                "abiokytke": "4e", "u54rg5d": "d0", "kf54ge7": "7", "tiklsktr4": "e", "lksytkjh": "2b0b",
+                "sbnoywr": "bf", "bgd7h8tyu54": "1c", "y654b5fs3tr": "7", "bioduytlw": "5", "bd4uy742": "6",
+                "h67456y": "22b", "bvytikwqjk": "1c", "ngd4uy551": "2b", "bgiuytkw": "02", "nd354uy4752": "f",
+                "ghtoiutkmlg": "7a4", "bd24y6421f": "f5", "tbvdiuytk": "2", "ibvytiqjek": "46", "jnhf8u5231": "02",
+                "fjlkatj": "d05", "hy5641d321t": "56", "iogojti": "5", "ngd4yut78": "a4", "nkjhrew": "6",
+                "yt447e13f": "7", "n3bf4uj7y7": "b", "nbf4uj7y432": "4e", "yi854tew": "0f", "h13ey474": "0f7",
+                "quikgdky": "d4"},
+            8: {"kt_type": "8", "type": "h5", "version": "2.2.8", "ss": "", "act_time": act_time, "tirgkjfs": "47",
+                "abiokytke": "6d", "u54rg5d": "d3", "kf54ge7": "8", "tiklsktr4": "7", "lksytkjh": "5b0d",
+                "sbnoywr": "a4", "bgd7h8tyu54": "62", "y654b5fs3tr": "d", "bioduytlw": "5", "bd4uy742": "1",
+                "h67456y": "55b", "bvytikwqjk": "62", "ngd4uy551": "5b", "bgiuytkw": "82", "nd354uy4752": "8",
+                "ghtoiutkmlg": "d9b", "bd24y6421f": "4d", "tbvdiuytk": "5", "ibvytiqjek": "1d", "jnhf8u5231": "82",
+                "fjlkatj": "d3f", "hy5641d321t": "d1", "iogojti": "d", "ngd4yut78": "9b", "nkjhrew": "1",
+                "yt447e13f": "1", "n3bf4uj7y7": "b", "nbf4uj7y432": "6d", "yi854tew": "68", "h13ey474": "688",
+                "quikgdky": "cc"},
+        }
+        return payloads.get(kt_type)
+
     def industry(self, kt_type: BaseTypeEnum = IndustryEnum.JG, is_full: bool = True) -> Optional[Dict]:
         """
         获取韭圈儿的行业估值数据
@@ -104,15 +173,16 @@ class FundDB:
         :return:
         """
         _url = 'https://api.jiucaishuo.com/v2/kjtlother/getbasedata'
-        act_time = int(time.time())
-        version = "2.2.7"
-        json_data = {
-            "kt_type": str(kt_type.dk_value),
-            "type": "h5",
-            "version": version,
-            "ss": "",
-            "act_time": act_time
-        }
+        # act_time = int(time.time()*1000)
+        # version = "2.2.7"
+        # json_data = {
+        #     "kt_type": str(kt_type.dk_value),
+        #     "type": "h5",
+        #     "version": version,
+        #     "ss": "",
+        #     "act_time": act_time
+        # }
+        json_data = self.match_data(kt_type)
         try:
             resp = rpost_json(_url, json=json_data)
         except (XJSONDecodeError, RJSONDecodeError) as e:
@@ -296,6 +366,10 @@ jq_fr = FundFeeRatio()
 if __name__ == '__main__':
     # print(jq_app.kjtl(is_full=True))
     # print(jq_app.industry(is_full=True))
-    print(jq_app.industry(kt_type=IndustryEnum.GF, is_full=False))
+    for item in IndustryEnum:
+        result = jq_app.industry(kt_type=item, is_full=False)
+        print(result)
+        if not result:
+            break
     # ratio = jq_fr.rate('001718')
     # print(ratio)

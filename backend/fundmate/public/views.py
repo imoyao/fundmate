@@ -127,7 +127,7 @@ def thermometer(query_args):
     """行情估值信息
     目前包括集思录温度、有知有行温度、蛋卷估值
     """
-    is_minimal = query_args.get('is_minimal', True)
+    is_minimal = query_args.get('is_minimal')
     follow_api = zo.FollowAip()
     if is_minimal:
         # FIXME: 需要增加接口去获取最简单的数据
