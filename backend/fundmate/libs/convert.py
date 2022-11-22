@@ -13,6 +13,7 @@ import dateparser
 import pendulum
 
 from backend.fundmate import excepts
+from backend.fundmate.exts.flask_loguru import logger
 
 
 # ref: https://github.com/scrapinghub/dateparser/issues/1013
@@ -36,21 +37,24 @@ def percent2float(x: str) -> float:
 
 def word_for_true(word: str) -> bool:
     """
-    装换为Bool
+    转换为Bool
     :param word:
     :return:
     """
-    return util.strtobool(word)
+    return bool(util.strtobool(word))
 
 
-def try_parse_date(text: str):
+def try_parse_date(text: str,**args):
     """
     尝试将一个字符串解析为date类型
     try and parse date
     :param text: string
     :return: date part of datetime object
     """
-    parse_ret = pendulum.parse(text)
+    try:
+        parse_ret = pendulum.parse(text, **args)
+    except Exception as e:
+        parse_ret = dateparser.parse(text)
     if parse_ret:
         return parse_ret.date()
     else:

@@ -3,7 +3,6 @@
 # Created by imoyao at 2021/6/7 14:42
 import json
 import re
-import sys
 from pathlib import Path
 from typing import Union
 
@@ -38,6 +37,7 @@ Cookie: _flourish_data=SFMyNTY.g2gDdAAAAAFkAAlkZXZpY2VfaWRtAAAAJGM4MDhkM2YzLTdkZ
 '''  # noqa :E501
 current_path = Path(__file__).parent.resolve()
 FILE_NAME = 'temp.html'
+FILE_PATH = Path.joinpath(current_path, FILE_NAME)
 
 
 class YZYX:
@@ -45,35 +45,24 @@ class YZYX:
     有知有行温度计
     每个交易日晚 8 点，更新当日股市温度 TODO: 增加定时获取功能
     """
-    DATA_URL = 'https://youzhiyouxing.cn/data'
-    MARKET_URL = 'https://youzhiyouxing.cn/data/market'
+    URL = 'https://youzhiyouxing.cn/thermometer'
 
     def __init__(self):
-        super().__init__()
+        self.html_fp = FILE_PATH
 
-    def get_html_text(self, json_fp=None, html_fn=None, parse_url=None):
-        """
-        抓取文章内容，缓存到本地，过期（当天）之后重新抓取
-        :param html_fn:
-        :param json_fp:
-        :param parse_url:
-        :return:
-        """
-        if not html_fn:
-            html_fn = FILE_NAME
-        html_fp = Path.joinpath(current_path, html_fn)
-        p = Path(html_fp)
+    def get_html_text(self, json_fp=None):
+        p = Path(self.html_fp)
         # 文件过期则删除重爬
-        dt_utils.delete_overdue(html_fp, json_fp)
+        dt_utils.delete_overdue(self.html_fp, json_fp)
 
         if not p.exists():
             hd = dt_utils.parse_headers(header_str)
-            resp = rget(parse_url, headers=hd)
-            with open(html_fp, 'w') as f:
+            resp = rget(self.URL, headers=hd)
+            with open(self.html_fp, 'w') as f:
                 text = resp.text
                 f.write(text)
         else:
-            with open(html_fp) as f:
+            with open(self.html_fp) as f:
                 text = f.read()
         return text
 
@@ -81,7 +70,7 @@ class YZYX:
         """
         指数表解析 FIXME: long time,cache this?
         """
-        df_tab = pd.read_html(self.MARKET_URL)
+        df_tab = pd.read_html(self.URL)
         if df_tab:
             df = df_tab[1]
             cols = df.columns.tolist()
@@ -109,48 +98,39 @@ class YZYX:
         新版市场温度数据
         :return:
         """
-        date_text = self.get_html_text(html_fn='market.html', parse_url=self.MARKET_URL)
-        html = etree.HTML(date_text)
-        update_date_path = '//div[@class="tw-bg-bgd-area tw-text-t-medium tw-rounded-1 tw-py-4 tw-px-3 tw-text-12 ' \
-                           'tw-mb-3"]/p[1]/span[1]/text() '
-        try:
-            update_text = html.xpath(update_date_path)[0]
-        except Exception as e:
-            logger.error(f'{sys._getframe().f_code.co_name}：获取日期时间错误:{str(e)}')
-            update_text = ''
-
+        text = self.get_html_text()
+        html = etree.HTML(text)
+        update_date_path = '//div[@class="tw-flex tw-justify-between"]/p[1]/text()'
+        update_text = html.xpath(update_date_path)[0]
+        reg_mat = re.findall(r'：\s*(.+)', update_text)
         update_date = None
-        if update_text:
-            reg_mat = re.findall(r'：\s*(.+)', update_text)
-            if reg_mat:
-                raw_date = reg_mat[0]
-                update_date = str(convert.try_parse_date(raw_date))
+        if reg_mat:
+            raw_date = reg_mat[0]
+            update_date = str(convert.try_parse_date(raw_date))
 
         # 全市场温度
-        data_text = self.get_html_text(html_fn='data.html', parse_url=self.DATA_URL)
-        html = etree.HTML(data_text)
-        temp_path = '//div[@class="tw-flex-auto tw-flex tw-items-center tw-space-x-2 tw-text-white"]/div[1]/text()'
+        temper_div = '//div[@class="tw-flex tw-items-center"]/div/'
+        temp_path = f'{temper_div}div/text()'
         temp_text = html.xpath(temp_path)[0]
         temp_digit = re.search(r'(\d+)', temp_text)[0]
         temp_int = None
         if temp_digit:
             temp_int = int(temp_digit)
-        temp_desc = '//div[@class="tw-leading-normal"]/text()'
+        temp_desc = f'{temper_div}div[2]/div'
         temp_desc_list = html.xpath(temp_desc)
-        temp_desc = [item for item in temp_desc_list]
+        temp_desc = [item.text for item in temp_desc_list]
         desc_list = ['eval', 'trend']
         desc_dict = dict(zip(desc_list, temp_desc))
         whole_market_temp = {'temperature': temp_int, 'desc': desc_dict}
+        info = {'href': self.URL}
         if is_minimal:
-            info = {
-                'date': update_date,
-            }
+            info['date'] = update_date,
             info.update(whole_market_temp)
         else:
-            info = {
+            info.update({
                 'date': update_date,
                 'whole_market_temper': whole_market_temp,
-            }
+            })
         if is_full:
             # 指数观察
             _valuations = self.valuations()
