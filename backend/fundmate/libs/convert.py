@@ -10,8 +10,10 @@ from distutils import util
 from typing import Optional, Union
 
 import dateparser
+import pendulum
 
 from backend.fundmate import excepts
+
 
 # ref: https://github.com/scrapinghub/dateparser/issues/1013
 warnings.filterwarnings(
@@ -48,7 +50,7 @@ def try_parse_date(text: str):
     :param text: string
     :return: date part of datetime object
     """
-    parse_ret = dateparser.parse(text)
+    parse_ret = pendulum.parse(text)
     if parse_ret:
         return parse_ret.date()
     else:

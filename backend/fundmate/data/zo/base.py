@@ -12,6 +12,7 @@ from backend.fundmate.data.utils import base as dt_utils
 from backend.fundmate.excepts import FundQueryError
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.fund.models import Fund
+from backend.fundmate.libs import convert
 
 
 # 屏蔽爬虫库的debug提示
@@ -479,16 +480,17 @@ class FollowAip(QGG):
         info = self.response_data(_resp)
         if info:
             if is_minimal:
+                start_date = info.get('latestDate')
+                str_to_date = convert.try_parse_date(start_date)
                 info = {
                     'score': int(info.get('source')),
                     'trend': info.get('trend'),
-                    'latestDate': info.get('latestDate')
+                    'latestDate': str(str_to_date)
                 }
             else:
                 info['score'] = int(info.pop('source'))
                 if not is_full:
                     info.pop('starLevelVoList')
-        logger.info(info)
         return info
 
 
