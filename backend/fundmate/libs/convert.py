@@ -13,7 +13,6 @@ import dateparser
 import pendulum
 
 from backend.fundmate import excepts
-from backend.fundmate.exts.flask_loguru import logger
 
 
 # ref: https://github.com/scrapinghub/dateparser/issues/1013
@@ -44,16 +43,22 @@ def word_for_true(word: str) -> bool:
     return bool(util.strtobool(word))
 
 
-def try_parse_date(text: str,**args):
+def try_parse_date(text: str, **opts):
     """
     尝试将一个字符串解析为date类型
-    try and parse date
+    >>> try_parse_date('20221111')
+    Date(2022, 11, 11)
+    >>> try_parse_date('2022/11/11')
+    Date(2022, 11, 11)
+    >>> try_parse_date('2022年11月22日 20:00')
+    datetime.date(2022, 11, 22)
+
     :param text: string
     :return: date part of datetime object
     """
     try:
-        parse_ret = pendulum.parse(text, **args)
-    except Exception as e:
+        parse_ret = pendulum.parse(text, **opts)
+    except (Exception,):
         parse_ret = dateparser.parse(text)
     if parse_ret:
         return parse_ret.date()
