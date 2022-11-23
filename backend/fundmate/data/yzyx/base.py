@@ -4,7 +4,7 @@
 import json
 import re
 from pathlib import Path
-from typing import Union
+from typing import Dict, List, Union
 
 import pandas as pd
 from deprecated import deprecated
@@ -16,6 +16,7 @@ from backend.fundmate import utils
 from backend.fundmate.data.utils import base as dt_utils
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.libs import convert
+from backend.fundmate.types import PdDataFrame
 
 
 header_str = '''Host: youzhiyouxing.cn
@@ -50,23 +51,38 @@ class YZYX:
     def __init__(self):
         self.html_fp = FILE_PATH
 
-    def get_html_text(self, json_fp=None):
-        p = Path(self.html_fp)
+    def get_html_text(self, html_fp=None, json_fp=None):
+        """
+        如果文档不存在，则去抓取并保存文件内容
+        如果存在，则判断是否过期，过期重新爬取并更新
+        否则，直接读取内容
+        :param json_fp:
+        :param html_fp:
+        :return:
+        """
+        if not html_fp:
+            html_fp = self.html_fp
+        p = Path(html_fp)
         # 文件过期则删除重爬
-        dt_utils.delete_overdue(self.html_fp, json_fp)
-
-        if not p.exists():
-            hd = dt_utils.parse_headers(header_str)
-            resp = rget(self.URL, headers=hd)
-            with open(self.html_fp, 'w') as f:
-                text = resp.text
-                f.write(text)
+        dt_utils.delete_overdue(html_fp, json_fp=json_fp)
+        do_read = False
+        if html_fp:
+            if not p.exists():
+                hd = dt_utils.parse_headers(header_str)
+                resp = rget(self.URL, headers=hd)
+                with open(html_fp, 'w') as f:
+                    text = resp.text
+                    f.write(text)
+            else:
+                do_read = True
         else:
-            with open(self.html_fp) as f:
+            do_read = True
+        if do_read:
+            with open(html_fp) as f:
                 text = f.read()
         return text
 
-    def valuations(self, is_df: bool = False) -> Union[dict, pd.DataFrame]:
+    def valuations(self, is_df: bool = False) -> Union[List[Dict], PdDataFrame]:
         """
         指数表解析 FIXME: long time,cache this?
         """
@@ -107,6 +123,7 @@ class YZYX:
         if reg_mat:
             raw_date = reg_mat[0]
             update_date = str(convert.try_parse_date(raw_date))
+        logger.info(f'==={update_date}=={is_minimal}===={is_full}=====')
 
         # 全市场温度
         temper_div = '//div[@class="tw-flex tw-items-center"]/div/'
