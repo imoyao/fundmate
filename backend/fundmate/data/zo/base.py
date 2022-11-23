@@ -69,6 +69,13 @@ class QGG:
           return guid;
         }
         ```
+
+        >>> a = q.guid()
+        >>> len(a)
+        32
+        >>> type(a)
+        <class 'str'>
+
         """
         return secrets.token_hex(16)
 
@@ -160,7 +167,8 @@ class Strategy(QGG):
         调仓历史
         """
         _url = 'https://mobile.qiangungun.com/v1/product/queryFofRebalanceInfo'
-        _data = f'''{{"fofId":{fof_id},"source":"H","guid":"8ce2aa731134640de7b51f77682dcd4a","userId":null,
+        guid = self.guid()
+        _data = f'''{{"fofId":{fof_id},"source":"H","guid":{guid},"userId":null,
         "sessionId":null,"version":"3.20.0","appSource":"","appVersion":""}} '''
         hd = self.headers()
         _resp = rpost_json(_url, headers=hd, data=_data)
@@ -495,6 +503,9 @@ class FollowAip(QGG):
 
 
 if __name__ == '__main__':
+    import doctest
+    doctest.testmod(extraglobs={'q': QGG()})
+
     zo = Strategy()
     print(zo.latest_info())
     follow_api = FollowAip()
