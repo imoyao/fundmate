@@ -47,6 +47,22 @@ class TestYZYX:
 
     @pytest.mark.parametrize('is_minimal,is_full', [(True, True), (False, False), (True, False), (False, True)])
     def test_daily_temper(self, is_minimal, is_full):
+        """
+        {'href': 'https://youzhiyouxing.cn/thermometer', 'date': '2022-11-24', 'temperature': 24}
+
+        {'href': 'https://youzhiyouxing.cn/thermometer', 'date': '2022-11-24', 'temperature': 24,
+     'desc': {'eval': '低估', 'trend': '温度上升'}}
+
+        :param is_minimal:
+        :param is_full:
+        :return:
+        """
         result = self.test_yzyx.daily_temper(is_minimal=is_minimal, is_full=is_full)
-        logger.info(result)
         assert result
+        assert 'href' in result and 'date' in result and 'temperature' in result and isinstance(
+            result.get('temperature'), int)
+        if not is_minimal:
+            desc = result.get('desc')
+            assert desc and 'eval' in desc and 'trend' in desc
+            if is_full:
+                assert 'valuations' in result

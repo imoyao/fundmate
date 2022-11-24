@@ -84,7 +84,7 @@ class YZYX:
 
     def valuations(self, is_df: bool = False) -> Union[List[Dict], PdDataFrame]:
         """
-        指数表解析 FIXME: long time,cache this?
+        指数表解析
         """
         df_tab = pd.read_html(self.URL)
         if df_tab:
@@ -123,7 +123,6 @@ class YZYX:
         if reg_mat:
             raw_date = reg_mat[0]
             update_date = str(convert.try_parse_date(raw_date))
-        logger.info(f'==={update_date}=={is_minimal}===={is_full}=====')
 
         # 全市场温度
         temper_div = '//div[@class="tw-flex tw-items-center"]/div/'
@@ -133,21 +132,19 @@ class YZYX:
         temp_int = None
         if temp_digit:
             temp_int = int(temp_digit)
+        whole_market_temp = {'temperature': temp_int}
+        info = {'href': self.URL, 'date': update_date}
+        info.update(whole_market_temp)
+        if is_minimal:
+            return info
+
         temp_desc = f'{temper_div}div[2]/div'
         temp_desc_list = html.xpath(temp_desc)
         temp_desc = [item.text for item in temp_desc_list]
         desc_list = ['eval', 'trend']
         desc_dict = dict(zip(desc_list, temp_desc))
-        whole_market_temp = {'temperature': temp_int, 'desc': desc_dict}
-        info = {'href': self.URL}
-        if is_minimal:
-            info['date'] = update_date,
-            info.update(whole_market_temp)
-        else:
-            info.update({
-                'date': update_date,
-                'whole_market_temper': whole_market_temp,
-            })
+        info['desc'] = desc_dict
+
         if is_full:
             # 指数观察
             _valuations = self.valuations()
@@ -188,6 +185,8 @@ class YZYX:
                 'valuations': _valuations,
                 'macro_data': macro_data,
             })
+        else:
+            info.update(whole_market_temp)
         return info
 
     @deprecated(version='1.0.0', reason='有知有行旧版网站可以直接在html中正则获取数据，网站已改版')
