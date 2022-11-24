@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 @create: 2021/12/16 11:09
-@file: test_combination.py
+@file: test_dj_combination.py
 @author: imoyao
 @email: immoyao@gmail.com
 @desc: 测试好买基金组合接口
