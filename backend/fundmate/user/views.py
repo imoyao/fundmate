@@ -9,7 +9,7 @@ https://dev.to/paurakhsharma/flask-rest-api-part-5-password-reset-2f2e)
 2. 登录
 
 验证用户是否激活，只有激活用户才可以登录，登录时验证密码
-3. 忘记密码 
+3. 忘记密码
 用户发送token到注册邮箱（三次机会），点击回到网页，在网页中填写新密码，和token一起提交，验证通过更新密码
 
 """
@@ -17,10 +17,10 @@ import traceback
 
 from apiflask import APIBlueprint, PaginationSchema, abort
 from flask.views import MethodView
-
-import passlib
 from flask_praetorian import auth_required, current_user, roles_required
 from flask_praetorian.exceptions import PraetorianError
+
+import passlib
 
 from backend.fundmate.account.models import Account
 from backend.fundmate.account.schemas import AccountOutSchema, CreateAccountSchema
@@ -39,6 +39,7 @@ from backend.fundmate.user.schemas import (
     UserOutSchema,
 )
 from backend.fundmate.view_ext import paginate_query
+
 
 bp = APIBlueprint("user", __name__, url_prefix="/users")
 
@@ -68,6 +69,7 @@ class UserDetail(MethodView):
         user_obj = load_user(user_id)
         return user_obj
 
+    @auth_required
     @bp.input(UserInSchema(partial=True))
     @bp.output(UserOutSchema)
     def patch(self, user_id: str, data: dict) -> User:
@@ -78,6 +80,7 @@ class UserDetail(MethodView):
         user = User.save(data)
         return user
 
+    @auth_required
     @bp.output({}, 204)  # no content
     def delete(self, user_id: str) -> str:
         """删除指定用户"""
@@ -151,9 +154,9 @@ def login(data):
     password = data.get("password", None)
     try:
         user = guard.authenticate(user_identify, password)
-    except passlib.exc.UnknownHashError:
+    except passlib.exc.UnknownHashError as e:
         logger.error(f'认证失败: {traceback.print_exc()}')
-        raise AuthError
+        raise AuthError from e
     if user:
         # 对于active 字段，`flask_praetorian`会默认校验
         is_user_confirmed = user.is_confirmed
