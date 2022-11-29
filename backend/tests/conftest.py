@@ -16,16 +16,17 @@ from click.testing import CliRunner
 from environs import Env as EnvParser
 
 from backend.fundmate.app import create_app
-
-# from backend.fundmate.commands import PROJECT_ROOT, init_db
+from backend.fundmate.commands import init_db
 from backend.fundmate.database import db as _db
 
 from .factories import UserFactory
+
 
 # import tempfile
 
 env = EnvParser()
 env.read_env()
+
 
 # SQL_DATA = prepare_data()
 
@@ -47,6 +48,12 @@ def runner(request):
     return CliRunner()
 
 
+def read_sql(sql_name=''):
+    with open(os.path.join(os.path.dirname(__file__), 'db_data', sql_name), "rb") as f:
+        _data_sql = f.read().decode("utf8")
+    return _data_sql
+
+
 @pytest.fixture(scope='session')
 def app(runner):
     """An application for the tests."""
@@ -56,7 +63,13 @@ def app(runner):
     # _app.logger.setLevel(logging.CRITICAL)
     assert app.config['DEBUG']
     assert app.config['TESTING']
-    # with app.app_context():
+    with app.app_context():
+        result = runner.invoke(init_db, [])
+        print(result.exit_code)
+        ft_sql = read_sql('fund_type.sql')
+        fv_sql = read_sql('fund_variety.sql')
+        get_db().executescript(ft_sql)
+        get_db().executescript(fv_sql)
     #     """
     #     参阅：
     #     [Testing Click Applications — Click Documentation (8.1.x)]
