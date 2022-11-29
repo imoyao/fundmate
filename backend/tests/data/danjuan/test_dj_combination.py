@@ -13,8 +13,6 @@ from backend.fundmate.data.danjuan.combination import Strategy
 
 class TestStrategy:
     """
-    以牛基宝（全股型）为例：
-    https://trade.ehowbuy.com/newpig/index.html#/adviser/index?productCode=tzzhqgx
     """
 
     def setup_class(self):
