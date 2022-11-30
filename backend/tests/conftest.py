@@ -16,7 +16,8 @@ from click.testing import CliRunner
 from environs import Env as EnvParser
 
 from backend.fundmate.app import create_app
-from backend.fundmate.commands import init_db
+
+# from backend.fundmate.commands import init_db
 from backend.fundmate.database import db as _db
 
 from .factories import UserFactory
@@ -54,6 +55,14 @@ def read_sql(sql_name=''):
     return _data_sql
 
 
+def initial_table():
+    """Clear existing data and create new tables."""
+    db = get_db()
+    schema_sql = read_sql('fmp_schema_sqlite.sql')
+    # print(schema_sql)
+    db.executescript(schema_sql)
+
+
 @pytest.fixture(scope='session')
 def app(runner):
     """An application for the tests."""
@@ -64,12 +73,11 @@ def app(runner):
     assert app.config['DEBUG']
     assert app.config['TESTING']
     with app.app_context():
-        result = runner.invoke(init_db, [])
-        print(result.exit_code)
+        initial_table()
         ft_sql = read_sql('fund_type.sql')
         fv_sql = read_sql('fund_variety.sql')
-        get_db().executescript(ft_sql)
         get_db().executescript(fv_sql)
+        get_db().executescript(ft_sql)
     #     """
     #     参阅：
     #     [Testing Click Applications — Click Documentation (8.1.x)]
@@ -88,6 +96,7 @@ def app(runner):
     yield app
 
     # close and remove the temporary database
+    # FIXME:关闭+删除
     # os.close(db_fd)
     # os.unlink(db_path)
 
