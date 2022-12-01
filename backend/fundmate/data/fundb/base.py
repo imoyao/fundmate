@@ -233,6 +233,36 @@ class FundDB:
         logger.info(f'{result}')
         return result
 
+    def fed(self, year: int = 10, category_type: str = 'cz', pe_category: str = 'fed') -> Optional[Dict]:
+        """
+        股债利差
+        :param year:
+        :param category_type:
+        :param pe_category:
+        :return:
+        """
+        fed_url = 'https://api.jiucaishuo.com/v2/guzhi/fedshowbasedata'
+        act_time = int(time.time() * 1000)
+        try:
+            json_data = {"category_type": category_type, "pe_category": pe_category, "region": "", "year": year,
+                         "type": "pc",
+                         "version": "2.2.7", "authtoken": "", "act_time": act_time, "tirgkjfs": "25",
+                         "abiokytke": "6e", "u54rg5d": "bb", "kf54ge7": "a", "tiklsktr4": "5", "lksytkjh": "e018",
+                         "sbnoywr": "17", "bgd7h8tyu54": "cb", "y654b5fs3tr": "4", "bioduytlw": "a", "bd4uy742": "5",
+                         "h67456y": "7e0", "bvytikwqjk": "cb", "ngd4uy551": "e0", "bgiuytkw": "50", "nd354uy4752": "1",
+                         "ghtoiutkmlg": "46c", "bd24y6421f": "7a", "tbvdiuytk": "7", "ibvytiqjek": "d0",
+                         "jnhf8u5231": "50", "fjlkatj": "bb8", "hy5641d321t": "a5", "iogojti": "a", "ngd4yut78": "6c",
+                         "nkjhrew": "5", "yt447e13f": "0", "n3bf4uj7y7": "0", "nbf4uj7y432": "6e", "yi854tew": "61",
+                         "h13ey474": "61a", "quikgdky": "1a"}
+            resp = rpost_json(fed_url, json=json_data)
+            # FIXME: get error
+        except (XJSONDecodeError, RJSONDecodeError) as e:
+            raise CrawlerException(f'对方反爬机制导致错误{e}，请稍候重试……') from e
+        logger.info(f'=========={resp}=====')
+        if resp and resp.get('code') == 0:
+            data = resp.get('data')
+            return data
+
 
 class FundFeeRatio(ratio.BaseRatio):
 

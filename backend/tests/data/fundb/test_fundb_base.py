@@ -13,6 +13,7 @@ import pytest
 
 from backend.fundmate.data.fundb.base import FundDB, FundFeeRatio, IndustryEnum
 from backend.fundmate.excepts import CrawlerException, ParseError
+from backend.fundmate.exts.flask_loguru import logger
 
 
 class TestFundFeeRatio:
@@ -622,3 +623,8 @@ class TestFundDB:
         not_full_info = self.test_jq_base.emotion(is_full=True)
         assert full_info
         assert not_full_info
+
+    def test_fed(self):
+        result = self.test_jq_base.fed()
+        logger.info(f'====={result}=====')
+        assert result
