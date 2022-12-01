@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 # Created by Andy at 2021/7/30 17:43
 import enum
+import hashlib
 import time
 from typing import Dict, Optional
 
@@ -38,6 +39,99 @@ class IndustryEnum(BaseTypeEnum):
     HT = HT
     GF = GF
     DC = DC
+
+
+def fed_args(type_str='h5', version='2.2.9', act_time=None):
+    """
+    1. 查看源码
+    2. 找js:<script src="static/js/fed.min.js?v=20220804"></script>
+    3. 开发版源码
+    //var res = _fed.utils.fee4(settings.data.type + settings.data.version + settings.data.act_time + _fed.config.fklreialk);
+                            //var yi854tew = res.substr(29, 2);//16
+                            //var u54rg5d = res.substr(2, 2);//
+                            //var bioduytlw = res.substr(5, 1);//3
+                            //var nkjhrew = res.substr(26, 1);//14
+                            //var bvytikwqjk = res.substr(6, 2);//4
+                            //var tiklsktr4 = res.substr(1, 1);//
+                            //var tirgkjfs = res.substr(0, 2);//1
+                            //var bgd7h8tyu54 = res.substr(6, 2);//
+                            //var yt447e13f = res.substr(8, 1);//5
+                            //var nd354uy4752 = res.substr(30, 1);//
+                            //var ghtoiutkmlg = res.substr(11, 3);//7
+                            //var y654b5fs3tr = res.substr(11, 1);//
+                            //var fjlkatj = res.substr(2, 3);//2
+                            //var jnhf8u5231 = res.substr(9, 2);//
+                            //var sbnoywr = res.substr(23, 2);//12
+                            //var kf54ge7 = res.substr(31, 1);//17
+                            //var hy5641d321t = res.substr(25, 2);//
+                            //var bgiuytkw = res.substr(9, 2);//6
+                            //var quikgdky = res.substr(27, 2);//15
+                            //var ngd4uy551 = res.substr(17, 2);//
+                            //var bd4uy742 = res.substr(26, 1);//
+                            //var ngd4yut78 = res.substr(12, 2);//
+                            //var iogojti = res.substr(25, 1);//13
+                            //var h67456y = res.substr(16, 3);//
+                            //var lksytkjh = res.substr(17, 4);//10
+                            //var n3bf4uj7y7 = res.substr(18, 1);//
+                            //var nbf4uj7y432 = res.substr(21, 2);//
+                            //var ibvytiqjek = res.substr(14, 2);//8
+                            //var h13ey474 = res.substr(29, 3);//
+                            //var abiokytke = res.substr(21, 2);//11
+                            //var bd24y6421f = res.substr(24, 2);//
+                            //let tbvdiuytk = res.substr(16, 1);//9
+    :return:
+    """
+    if not act_time:
+        act_time = int(time.time() * 1000)
+    fklreialk = "EWf45rlv#kfsr@k#gfksgkr"
+    useful_data = {
+        'type': type_str,
+        'version': version,
+        'act_time': act_time,
+    }
+    crypt_str = f'{type_str}{version}{act_time}{fklreialk}'
+    res = hashlib.md5(crypt_str.encode()).hexdigest()
+    key_map = {
+        'yi854tew': (29, 2),
+        'u54rg5d': (2, 2),
+        'bioduytlw': (5, 1),
+        'nkjhrew': (26, 1),
+        'bvytikwqjk': (6, 2),
+        'tiklsktr4': (1, 1),
+        'tirgkjfs': (0, 2),
+        'bgd7h8tyu54': (6, 2),
+        'yt447e13f': (8, 1),
+        'nd354uy4752': (30, 1),
+        'ghtoiutkmlg': (11, 3),
+        'y654b5fs3tr': (11, 1),
+        'fjlkatj': (2, 3),
+        'jnhf8u5231': (9, 2),
+        'sbnoywr': (23, 2),
+        'kf54ge7': (31, 1),
+        'hy5641d321t': (25, 2),
+        'bgiuytkw': (9, 2),
+        'quikgdky': (27, 2),
+        'ngd4uy551': (17, 2),
+        'bd4uy742': (26, 1),
+        'ngd4yut78': (12, 2),
+        'iogojti': (25, 1),
+        'h67456y': (16, 3),
+        'lksytkjh': (17, 4),
+        'n3bf4uj7y7': (18, 1),
+        'nbf4uj7y432': (21, 2),
+        'ibvytiqjek': (14, 2),
+        'h13ey474': (29, 3),
+        'abiokytke': (21, 2),
+        'bd24y6421f': (24, 2),
+        'tbvdiuytk': (16, 1),
+    }
+    data_map = dict()
+    for key, v in key_map.items():
+        start, step = v
+        value = res[start:start + step]
+        data_map[key] = value
+    useful_data.update(data_map)
+    return useful_data
 
 
 class FundDB:
@@ -242,18 +336,20 @@ class FundDB:
         :return:
         """
         fed_url = 'https://api.jiucaishuo.com/v2/guzhi/fedshowbasedata'
-        act_time = int(time.time() * 1000)
+        # act_time = int(time.time() * 1000)
         try:
-            json_data = {"category_type": category_type, "pe_category": pe_category, "region": "", "year": year,
-                         "type": "pc",
-                         "version": "2.2.7", "authtoken": "", "act_time": act_time, "tirgkjfs": "25",
-                         "abiokytke": "6e", "u54rg5d": "bb", "kf54ge7": "a", "tiklsktr4": "5", "lksytkjh": "e018",
-                         "sbnoywr": "17", "bgd7h8tyu54": "cb", "y654b5fs3tr": "4", "bioduytlw": "a", "bd4uy742": "5",
-                         "h67456y": "7e0", "bvytikwqjk": "cb", "ngd4uy551": "e0", "bgiuytkw": "50", "nd354uy4752": "1",
-                         "ghtoiutkmlg": "46c", "bd24y6421f": "7a", "tbvdiuytk": "7", "ibvytiqjek": "d0",
-                         "jnhf8u5231": "50", "fjlkatj": "bb8", "hy5641d321t": "a5", "iogojti": "a", "ngd4yut78": "6c",
-                         "nkjhrew": "5", "yt447e13f": "0", "n3bf4uj7y7": "0", "nbf4uj7y432": "6e", "yi854tew": "61",
-                         "h13ey474": "61a", "quikgdky": "1a"}
+
+            json_data = {"category_type": category_type, "pe_category": pe_category, "region": "china",
+                         "rid": "0.8415146282733859",
+                         "year": year, "type": "h5", "version": "2.2.9", "ss": "", "act_time": 1669902116518,
+                         "tirgkjfs": "ee", "abiokytke": "d7", "u54rg5d": "70", "kf54ge7": "4", "tiklsktr4": "e",
+                         "lksytkjh": "3ac4", "sbnoywr": "7c", "bgd7h8tyu54": "61", "y654b5fs3tr": "4", "bioduytlw": "0",
+                         "bd4uy742": "1", "h67456y": "53a", "bvytikwqjk": "61", "ngd4uy551": "3a", "bgiuytkw": "15",
+                         "nd354uy4752": "1", "ghtoiutkmlg": "474", "bd24y6421f": "c5", "tbvdiuytk": "5",
+                         "ibvytiqjek": "25", "jnhf8u5231": "15", "fjlkatj": "704", "hy5641d321t": "51", "iogojti": "5",
+                         "ngd4yut78": "74", "nkjhrew": "1", "yt447e13f": "e", "n3bf4uj7y7": "a", "nbf4uj7y432": "d7",
+                         "yi854tew": "91", "h13ey474": "914", "quikgdky": "b6"}
+            logger.info(f'=========={json_data}=====')
             resp = rpost_json(fed_url, json=json_data)
             # FIXME: get error
         except (XJSONDecodeError, RJSONDecodeError) as e:

@@ -11,7 +11,7 @@ import random
 
 import pytest
 
-from backend.fundmate.data.fundb.base import FundDB, FundFeeRatio, IndustryEnum
+from backend.fundmate.data.fundb.base import FundDB, FundFeeRatio, IndustryEnum, fed_args
 from backend.fundmate.excepts import CrawlerException, ParseError
 from backend.fundmate.exts.flask_loguru import logger
 
@@ -628,3 +628,9 @@ class TestFundDB:
         result = self.test_jq_base.fed()
         logger.info(f'====={result}=====')
         assert result
+
+
+def test_fed_args():
+    result = fed_args(act_time=1669902116518)
+    logger.info(f'====={result}=====')
+    assert result
