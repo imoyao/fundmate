@@ -630,7 +630,46 @@ class TestFundDB:
         assert result
 
 
-def test_fed_args():
-    result = fed_args(act_time=1669902116518)
+@pytest.mark.parametrize('type_str,version,act_time,'
+                         'excepted',
+                         [('pc', '2.2.7', 1669977368593,
+                           {'abiokytke': '96',
+                            'act_time': 1669977368593,
+                            'bd24y6421f': '0a',
+                            'bd4uy742': '2',
+                            'bgd7h8tyu54': '00',
+                            'bgiuytkw': 'e4',
+                            'bioduytlw': 'b',
+                            'bvytikwqjk': '00',
+                            'fjlkatj': '09c',
+                            'ghtoiutkmlg': '888',
+                            'h13ey474': '323',
+                            'h67456y': 'dfe',
+                            'hy5641d321t': 'a2',
+                            'ibvytiqjek': '54',
+                            'iogojti': 'a',
+                            'jnhf8u5231': 'e4',
+                            'kf54ge7': '3',
+                            'lksytkjh': 'fe46',
+                            'n3bf4uj7y7': 'e',
+                            'nbf4uj7y432': '96',
+                            'nd354uy4752': '2',
+                            'ngd4uy551': 'fe',
+                            'ngd4yut78': '88',
+                            'nkjhrew': '2',
+                            'quikgdky': 'bd',
+                            'sbnoywr': '40',
+                            'tbvdiuytk': 'd',
+                            'tiklsktr4': 'd',
+                            'tirgkjfs': '7d',
+                            'type': 'pc',
+                            'u54rg5d': '09',
+                            'version': '2.2.7',
+                            'y654b5fs3tr': '8',
+                            'yi854tew': '32',
+                            'yt447e13f': '3'})])
+def test_fed_args(type_str, version, act_time, excepted):
+    result = fed_args(type_str, version, act_time)
     logger.info(f'====={result}=====')
+    assert result == excepted
     assert result
