@@ -115,7 +115,7 @@ CREATE TABLE "fund_company" (
   "f_counts" INTEGER,
   "mgr" VARCHAR(10),
   "update_time" DATETIME,
-  "last_updated" TIMESTAMP NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  "last_modified" TIMESTAMP NOT NULL DEFAULT (CURRENT_TIMESTAMP),
   PRIMARY KEY ("id")
 );
 

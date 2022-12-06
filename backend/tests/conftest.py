@@ -74,10 +74,13 @@ def app(runner):
     assert app.config['TESTING']
     with app.app_context():
         initial_table()
+        db_cursor = get_db()
         ft_sql = read_sql('fund_type.sql')
         fv_sql = read_sql('fund_variety.sql')
-        get_db().executescript(fv_sql)
-        get_db().executescript(ft_sql)
+        fund_company_sql = read_sql('fund_company.sql')
+        db_cursor.executescript(fv_sql)
+        db_cursor.executescript(ft_sql)
+        db_cursor.executescript(fund_company_sql)
     #     """
     #     参阅：
     #     [Testing Click Applications — Click Documentation (8.1.x)]

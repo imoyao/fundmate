@@ -55,17 +55,17 @@ class TestEastMoney:
         'f_type': 3,
         'co_id': 12
     }), ('004750', {
-        'full_name': '建信结算宝货币市场基金',
-        'name': '建信结算宝货币',
-        'perf_comp_base': '七天通知存款利率(税前)',
-        'company': '建信基金',
-        'create_time': None,
-        'f_var_name': '货币型',
-        'f_type_name': None,
+        'co_id': None,
+        'company': '广发基金',
+        'create_time': '2018-01-16',
+        'f_type': 2,
+        'f_type_name': '灵活',
+        'f_var': 3,
+        'f_var_name': '混合型',
+        'full_name': '广发鑫和灵活配置混合型证券投资基金',
         'is_fe_charge_mode': True,
-        'f_var': 4,
-        'f_type': None,
-        'co_id': 54
+        'name': '广发鑫和灵活配置混合A',
+        'perf_comp_base': '沪深300指数收益率×30%+中证全债指数收益率×70%'
     }), ('000002', {
         'full_name': '华夏成长证券投资基金',
         'name': '华夏成长混合',
