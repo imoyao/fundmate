@@ -79,8 +79,9 @@ class TestEastMoney:
         'f_type': 1,
         'co_id': 5
     })])
-    def test_fund_base_info(self, fund_code, expected):
-        assert self.test_em.fund_base_info(fund_code) == expected
+    def test_fund_base_info(self, app, db, fund_code, expected):
+        with app.app_context():
+            assert self.test_em.fund_base_info(fund_code) == expected
 
     @pytest.mark.parametrize('mode_str,expected', [('001718（前端）', True), ('000002（后端）', False)])
     def test_match_charge_mode(self, mode_str, expected):
