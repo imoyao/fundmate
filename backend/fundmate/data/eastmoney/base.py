@@ -4,10 +4,11 @@
 import json
 import re
 from pathlib import Path
-from typing import Dict, Optional, Union
+from typing import Dict, List, Optional, Union
 
 import numpy as np
 import pandas as pd
+import pendulum
 import pyjson5
 import requests
 from requests import Response
@@ -23,6 +24,7 @@ from backend.fundmate.excepts import UnexpectedArgsError
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.fund.models import Fund, FundCompany, FundMgr, FundType, FundVariety, Mgr
 from backend.fundmate.libs import convert
+
 
 current_path = Path(__file__).parent.resolve()
 REQUEST_STR = """Accept: */*
@@ -337,27 +339,44 @@ class EastMoney(BaseParse):
             comps = self.be_json(load_able_str)
             if save:
                 for cop in comps:
-                    converted_cop = [str(item) or None if isinstance(item, str) else item for item in cop]
-                    comp_info = dict(
-                        zip([
-                            'code', 'full_name', 'create_date', 'f_counts', 'mgr', 'dpy', 'a_un', 'scale', 'tx_eval',
-                            'name', 'b_un', 'update_time'
-                        ], converted_cop))
-                    level_eval = comp_info.get('tx_eval', '')
-                    if level_eval:
-                        level = len(level_eval)
-                    else:
-                        level = None
-
-                    comp_info['tx_eval'] = level
-                    # 两个不知道含义的暂时pop
-                    comp_info.pop('a_un')
-                    comp_info.pop('b_un')
-                    code = comp_info.get('code')
-                    comp = FundCompany()
-                    query_info = {'code': code}
-                    comp.insert_or_update(query_info, **comp_info)
+                    self.save_company_to_db(cop)
             return comps
+
+    @staticmethod
+    def save_company_to_db(company_info_seq: List[str]) -> FundCompany:
+        """
+        将基金公司信息保存到数据库
+        :param company_info_seq: 基金公司信息序列
+        :return:
+        """
+        converted_cop = [str(item) or None if isinstance(item, str) else item for item in company_info_seq]
+        comp_info = dict(
+            zip([
+                'code', 'full_name', 'create_date', 'f_counts', 'mgr', 'dpy', 'a_un', 'scale', 'tx_eval',
+                'name', 'b_un', 'update_time'
+            ], converted_cop))
+        level_eval = comp_info.get('tx_eval', '')
+        if level_eval:
+            level = len(level_eval)
+        else:
+            level = None
+
+        update_time = comp_info.get('update_time', '')
+        create_date = comp_info.get('create_date', '')
+
+        comp_info['tx_eval'] = level
+        dtm = pendulum.parse(update_time)
+        create_date = pendulum.parse(create_date)
+        comp_info['update_time'] = dtm
+        comp_info['create_date'] = create_date
+        # 两个不知道含义的暂时pop
+        comp_info.pop('a_un')
+        comp_info.pop('b_un')
+        code = comp_info.get('code')
+        comp = FundCompany()
+        query_info = {'code': code}
+        result = comp.insert_or_update(query_info, **comp_info)
+        return result
 
     def set_first_row_to_columns(self, df):
         arr = df.values
@@ -431,7 +450,8 @@ class EastMoney(BaseParse):
                 return None
 
         raw_columns = [
-            '基金全称', '基金代码', '发行日期', '资产规模', '基金管理人', '基金经理人', '管理费率', '销售服务费率', '业绩比较基准', '基金简称', '基金类型', '成立日期/规模',
+            '基金全称', '基金代码', '发行日期', '资产规模', '基金管理人', '基金经理人', '管理费率', '销售服务费率',
+            '业绩比较基准', '基金简称', '基金类型', '成立日期/规模',
             '份额规模', '基金托管人', '成立来分红', '托管费率', '最高认购费率', '跟踪标的'
         ]
         repr_cols = [

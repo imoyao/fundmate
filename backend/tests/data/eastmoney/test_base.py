@@ -10,7 +10,7 @@
 import pytest
 
 from backend.fundmate.data.eastmoney.base import EastMoney
-from backend.fundmate.fund.models import FundType
+from backend.fundmate.fund.models import FundCompany, FundType, FundVariety
 
 
 def test_type(app):  # 传入参数request 系统封装参数
@@ -29,7 +29,21 @@ class TestEastMoney:
         """
         self.test_em = EastMoney()
 
-    # FIXME: 必须在数据库上下文中才可以测试，f_var，f_type，co_id会变化
+    @pytest.fixture(scope='class')
+    def create_base_fund_info_data(self, app, db):
+        with app.app_context():
+            vn1 = '股票型'
+            fv1 = FundVariety.create(name=vn1).id
+            vn2 = '债券型'
+            fv2 = FundVariety.create(name=vn2).id
+            vn3 = '混合型'
+            fv3 = FundVariety.create(name=vn3).id
+            FundType.create(var_id=fv1, name='一般股票型')
+            FundType.create(var_id=fv2, name='长债')
+            FundType.create(var_id=fv3, name='灵活')
+            FundType.create(var_id=fv3, name='偏股')
+
+    @pytest.mark.usefixtures("create_base_fund_info_data")      # 使用预制数据
     @pytest.mark.parametrize('fund_code,expected', [('001718', {
         'full_name': '工银瑞信物流产业股票型证券投资基金',
         'name': '工银物流产业股票A',
@@ -39,9 +53,7 @@ class TestEastMoney:
         'f_var_name': '股票型',
         'f_type_name': None,
         'is_fe_charge_mode': True,
-        'f_var': 6,
         'f_type': None,
-        'co_id': 51
     }), ('000033', {
         'full_name': '易方达信用债债券型证券投资基金',
         'name': '易方达信用债债券C',
@@ -51,16 +63,10 @@ class TestEastMoney:
         'f_var_name': '债券型',
         'f_type_name': '长债',
         'is_fe_charge_mode': True,
-        'f_var': 2,
-        'f_type': 3,
-        'co_id': 12
     }), ('004750', {
-        'co_id': None,
         'company': '广发基金',
         'create_time': '2018-01-16',
-        'f_type': 2,
         'f_type_name': '灵活',
-        'f_var': 3,
         'f_var_name': '混合型',
         'full_name': '广发鑫和灵活配置混合型证券投资基金',
         'is_fe_charge_mode': True,
@@ -73,15 +79,32 @@ class TestEastMoney:
         'company': '华夏基金',
         'create_time': '2001-12-18',
         'f_var_name': '混合型',
-        'f_type_name': '偏股',
+        'f_type_name': '灵活',
         'is_fe_charge_mode': False,
-        'f_var': 1,
-        'f_type': 1,
-        'co_id': 5
     })])
-    def test_fund_base_info(self, app, db, fund_code, expected):
+    def test_fund_base_info(self, fund_code, expected):
+        company_name = expected.get('company')
+        company_id = FundCompany.id_by_name(company_name)
+        expected['co_id'] = company_id
+        f_var_name = expected.get('f_var_name')
+        f_var = FundVariety.id_by_name(f_var_name)
+        expected['f_var'] = f_var
+        f_type_name = expected.get('f_type_name')
+        f_type = FundType.id_by_name(f_type_name)
+        expected['f_type'] = f_type
+        assert self.test_em.fund_base_info(fund_code) == expected
+
+    def test_company(self):
+        result = self.test_em.company()
+        assert result
+
+    @pytest.mark.parametrize('company_info_seq', [(['80000222', '华夏基金管理有限公司', '1998-04-09', '589', '李一梅',
+                                                    'HXJJ', '', '10910.98', '★★★★', '华夏基金', '5',
+                                                    '2022/11/29 0:00:00'])])
+    def test_save_company_to_db(self, app, db, company_info_seq):
         with app.app_context():
-            assert self.test_em.fund_base_info(fund_code) == expected
+            result = self.test_em.save_company_to_db(company_info_seq)
+            assert result and isinstance(result, FundCompany)
 
     @pytest.mark.parametrize('mode_str,expected', [('001718（前端）', True), ('000002（后端）', False)])
     def test_match_charge_mode(self, mode_str, expected):
