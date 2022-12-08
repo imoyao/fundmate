@@ -324,7 +324,8 @@ class FundDB:
             'kjtl': kjtl_info,
             'industry': industry_info,
         }
-        logger.info(f'{result}')
+        if not result:
+            logger.error(f'Get emotion error:{result}')
         return result
 
     def fed(self, year: int = 10, category_type: str = 'cz', pe_category: str = 'fed') -> Optional[Dict]:

@@ -25,11 +25,12 @@ class TestStrategy:
         """
         self.sty = Strategy()
 
-    def test_get_choice_fund_pools(self):
-        assert self.sty.get_choice_fund_pools('zozh002')
+    @pytest.mark.parametrize('sty_code', ['zozh002', 'jytg002'])
+    def test_get_choice_fund_pools(self, sty_code):
+        assert self.sty.get_choice_fund_pools(sty_code)
 
     def test_newest_holds(self):
-        assert self.sty.newest_holds('zozh002')
+        assert self.sty.latest_holds('zozh002')
 
     def test_parse_net_worth(self):
         result = self.sty.parse_net_worth('zozh002')

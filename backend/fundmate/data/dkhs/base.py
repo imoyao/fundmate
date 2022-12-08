@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 # Created by Andy at 2021/8/10 11:30
 from pathlib import Path
-from typing import Union
+from typing import Optional, Union
 
 from xalpha.cons import rget_json
 
@@ -12,20 +12,21 @@ from backend.fundmate.data.utils.ratio import BaseRatio
 from backend.fundmate.excepts import EmptyError, UnexpectedArgsError
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.fund.models import Fund
+from backend.fundmate.settings import SymbolTypeEnum
+
 
 abs_current_path = Path(__file__).parent.resolve()
 FUND_SYMBOLS_SAVE_FP = f'{str(abs_current_path)}/fund_symbols.json'
 
 
 class DKHS:
+    DKHS_BASE_URL = 'https://www.dkhs.com/api/v1'
 
-    @staticmethod
-    def api():
+    def api(self):
         """
         获取所有api
         """
-        _url = 'https://www.dkhs.com/api/v1'
-        _resp = rget_json(_url)
+        _resp = rget_json(self.DKHS_BASE_URL)
         return _resp
 
     def fetch_fund_info(self):
@@ -171,7 +172,7 @@ class DKHS:
             'fluctuate_rate': None
         }
         """
-        _url = 'http://www.dkhs.com/api/v1/symbols/funds/'
+        _url = f'{self.DKHS_BASE_URL}/symbols/funds/'
         _resp = rget_json(_url)
         # results = _resp.get('results')
         raw_data = list()
@@ -221,8 +222,12 @@ class DKHS:
         :param abbr_name:基金名称（非全称）
         :return:
         """
-        if charge_mode == 2:  # 源数据中用1/2表示前端和后端，我们强制改为0/1,其中1为前端
-            charge_mode = 0
+        origin_change_mode_map = {
+            1: 1,
+            2: 0,
+        }
+        # 源数据中用1/2表示前端和后端，我们强制改为0/1,其中1为前端
+        charge_mode = origin_change_mode_map.get(charge_mode)
         investment_risk = int(investment_risk) if isinstance(investment_risk, str) else investment_risk
         symbol_prefix = symbol.replace(code, '')
         fund_inst = Fund.filter_by_code(code)
@@ -245,8 +250,7 @@ class DKHS:
         else:
             logger.error(f'<Fund({code!r}, {abbr_name!r})> info get failed from DB,please check it.')
 
-    @staticmethod
-    def search_symbol(fund_code: str) -> Union[str, None]:
+    def search_symbol(self, fund_code: str) -> Union[str, None]:
         """
         通过搜索接口查询symbol
         :param fund_code: 基金编码
@@ -256,8 +260,7 @@ class DKHS:
         special_list = ['202010']
         if fund_code in special_list:
             raise ValueError(f'The code:{fund_code} will return incorrect info,we will skip it.')
-        _url = f'https://www.dkhs.com/api/v1/se' \
-               f'arch/symbols/?symbol_type=3&page_size=1&q={fund_code}'
+        _url = f'{self.DKHS_BASE_URL}/search/symbols/?symbol_type=3&page_size=1&q={fund_code}'
         _resp = rget_json(_url)
         if _resp:
             results = _resp.get('results')
@@ -298,13 +301,13 @@ class DKHS:
         return 0
 
 
-class FundFeeRatio(BaseRatio):
+class FundFeeRatio(DKHS, BaseRatio):
 
     def rate_parser(self, rate_info: dict):
         """
         解析费率信息
         """
-        fare_ratio = rate_info.get('fare_ratio')
+        fare_ratio: Optional[str, float] = rate_info.get('fare_ratio')
         if fare_ratio is not None:
             rate = float(fare_ratio) if not isinstance(fare_ratio, float) else fare_ratio
         else:
@@ -320,15 +323,15 @@ class FundFeeRatio(BaseRatio):
         :param fund_code: 基金编码
         :return:
         """
-        symbol_prefix = 'UN'
+        symbol_prefix = SymbolTypeEnum.UN.dk_value
         _fund_inst = Fund.filter_by_code(fund_code)
         if _fund_inst:
             symbol_prefix = _fund_inst.symbol_prefix.dk_value
 
-        if symbol_prefix == 'UN':
+        if symbol_prefix == SymbolTypeEnum.UN.dk_value:
             raise UnexpectedArgsError(f'The symbol of fund {fund_code} is unknown,Please check or update it.')
 
-        _url = f'https://www.dkhs.com/api/v1/symbols/{symbol_prefix}{fund_code}/fare_ratio/'
+        _url = f'{self.DKHS_BASE_URL}/symbols/{symbol_prefix}{fund_code}/fare_ratio/'
         _resp = rget_json(_url)
 
         if _resp:

@@ -73,7 +73,7 @@ class Strategy(StrategyBase):
             choice_fund_pools = [fund.get('jjdm') for fund in choice_fund_pools_fund_lists]
             return choice_fund_pools
 
-    def newest_holds(self, code: str):
+    def latest_holds(self, code: str):
         """
         最新持仓
         **注意** 这个里面的日期数据是不准确的
@@ -368,8 +368,8 @@ if __name__ == '__main__':
     result = s.get_choice_fund_pools(code)
     print(result)
     # 最新持仓
-    newest_holds = s.newest_holds(code)
-    print(newest_holds)
+    latest_holds_info = s.latest_holds(code)
+    print(latest_holds_info)
     # 所有持仓信息
     ret = s.pagination_trade_info(code)
     print(ret)

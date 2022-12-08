@@ -52,6 +52,8 @@ def try_parse_date(text: str, **opts):
     Date(2022, 11, 11)
     >>> try_parse_date('2022年11月22日 20:00')
     datetime.date(2022, 11, 22)
+    >>> try_parse_date('2022/11/29 10:00:00')
+    Date(2022, 11, 29)
 
     :param text: string
     :return: date part of datetime object
