@@ -12,6 +12,8 @@ from backend.fundmate.data.utils.ratio import BaseRatio
 from backend.fundmate.excepts import EmptyError, UnexpectedArgsError
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.fund.models import Fund
+from backend.fundmate.settings import SymbolTypeEnum
+
 
 abs_current_path = Path(__file__).parent.resolve()
 FUND_SYMBOLS_SAVE_FP = f'{str(abs_current_path)}/fund_symbols.json'
@@ -221,8 +223,12 @@ class DKHS:
         :param abbr_name:基金名称（非全称）
         :return:
         """
-        if charge_mode == 2:  # 源数据中用1/2表示前端和后端，我们强制改为0/1,其中1为前端
-            charge_mode = 0
+        origin_change_mode_map = {
+            1: 1,
+            2: 0,
+        }
+        # 源数据中用1/2表示前端和后端，我们强制改为0/1,其中1为前端
+        charge_mode = origin_change_mode_map.get(charge_mode)
         investment_risk = int(investment_risk) if isinstance(investment_risk, str) else investment_risk
         symbol_prefix = symbol.replace(code, '')
         fund_inst = Fund.filter_by_code(code)
@@ -320,12 +326,12 @@ class FundFeeRatio(BaseRatio):
         :param fund_code: 基金编码
         :return:
         """
-        symbol_prefix = 'UN'
+        symbol_prefix = SymbolTypeEnum.UN.dk_value
         _fund_inst = Fund.filter_by_code(fund_code)
         if _fund_inst:
             symbol_prefix = _fund_inst.symbol_prefix.dk_value
 
-        if symbol_prefix == 'UN':
+        if symbol_prefix == SymbolTypeEnum.UN.dk_value:
             raise UnexpectedArgsError(f'The symbol of fund {fund_code} is unknown,Please check or update it.')
 
         _url = f'https://www.dkhs.com/api/v1/symbols/{symbol_prefix}{fund_code}/fare_ratio/'
