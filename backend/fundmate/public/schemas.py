@@ -19,7 +19,8 @@ class ThermometerOutSchema(Schema):
     """
     yzyx = Dict()
     jsl = Dict()
-    dj = Dict()
+    fed = Dict()
+    invest_grade = Dict()
     jq = Dict()
     zo_view = Dict()
     confidence = Dict()

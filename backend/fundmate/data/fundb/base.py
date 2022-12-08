@@ -352,10 +352,9 @@ class FundDB:
                          "yi854tew": "91", "h13ey474": "914", "quikgdky": "b6"}
             logger.info(f'=========={json_data}=====')
             resp = rpost_json(fed_url, json=json_data)
-            # FIXME: get error
+            # FIXME: now get error
         except (XJSONDecodeError, RJSONDecodeError) as e:
             raise CrawlerException(f'对方反爬机制导致错误{e}，请稍候重试……') from e
-        logger.info(f'=========={resp}=====')
         if resp and resp.get('code') == 0:
             data = resp.get('data')
             return data

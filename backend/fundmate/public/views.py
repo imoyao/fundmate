@@ -7,6 +7,7 @@ from flask.views import MethodView
 from backend.fundmate import excepts
 from backend.fundmate.data import danjuan, fundb, jsl, sipf, yzyx, zo
 from backend.fundmate.errors import ThermometerError
+from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.fund.models import Fund
 from backend.fundmate.fund.schemas import FundSampleSchema, FundSearchKeySchema
 from backend.fundmate.public.schemas import ThermometerInSchema, ThermometerOutSchema
@@ -104,7 +105,7 @@ def test_sentry(numerator, denominator):
 @bp.route('/about/')
 def about():
     """About page."""
-    return 'render_template("public/about.html")'
+    return {'info': '我的投资账本！'}
 
 
 @bp.get('/investment_and_service/')
@@ -136,13 +137,17 @@ def thermometer(query_args):
         jq_info = fundb.jq_app.kjtl(is_full=is_full)
         stock_bond_ratio_info = follow_api.stock_bond_ratio(is_minimal=True)
         dj_info = danjuan.dj_evl.valuation(is_full=is_full)
-        print(stock_bond_ratio_info, dj_info)
+        logger.info(f'{stock_bond_ratio_info}, {dj_info}')
         jq_result = jq_info.get('overview')
+        lsd_grade = dj_info.get('lsd').get('data')
+        jiucai_data = dj_info.get('jiucai').get('data')
+        lsd_grade['title'] = '投资星级'
+        jiucai_data['title'] = '股债利差'
         info = {
             'jq': jq_result,
             'yzyx': yzyx_info,
-            'dj': {'num': 68, 'desc': '股债利差'},
-            'lsd': {'num': 68, 'desc': '投资星级'},
+            'fed': jiucai_data,
+            'invest_grade': lsd_grade,
             'zo_view': stock_bond_ratio_info,
             'confidence': {},
         }
@@ -163,10 +168,12 @@ def thermometer(query_args):
             zo_view = follow_api.zo_view(is_minimal=False, is_full=False)
         else:
             zo_view = follow_api.zo_view(is_minimal=False)
-
+        lsd_grade = dj_info.get('lsd').get('data')
+        jiucai_data = dj_info.get('jiucai').get('data')
         confidence = sipf.Confidence()
         confidence_result = confidence.latest_info()
-        info = {'yzyx': yzyx_info, 'jsl': jsl_info, 'dj': dj_info, 'jq': jq_info, 'zo_view': zo_view,
+        info = {'yzyx': yzyx_info, 'jsl': jsl_info, 'fed': jiucai_data,
+                'invest_grade': lsd_grade, 'jq': jq_info, 'zo_view': zo_view,
                 'confidence': confidence_result}
     return info
 
