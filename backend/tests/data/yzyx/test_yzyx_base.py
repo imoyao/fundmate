@@ -9,7 +9,6 @@ import os
 import pytest
 
 from backend.fundmate.data.yzyx.base import YZYX
-from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.types import PdDataFrame
 
 
@@ -39,7 +38,6 @@ class TestYZYX:
             assert isinstance(result, PdDataFrame)
             set_keys = set(result.columns)
         else:
-            logger.info(result)
             item = result[0]
             set_keys = set(item.keys())
             assert isinstance(result, list)

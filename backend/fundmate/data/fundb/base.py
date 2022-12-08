@@ -230,7 +230,8 @@ class FundDB:
             'kjtl': kjtl_info,
             'industry': industry_info,
         }
-        logger.info(f'{result}')
+        if not result:
+            logger.error(f'Get emotion error:{result}')
         return result
 
 

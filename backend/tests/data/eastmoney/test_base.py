@@ -13,13 +13,6 @@ from backend.fundmate.data.eastmoney.base import EastMoney
 from backend.fundmate.fund.models import FundCompany, FundType, FundVariety
 
 
-def test_type(app):  # 传入参数request 系统封装参数
-    ft = FundType.create(var_id=1, name='偏股')
-    ft.save()
-    ft = FundType.query.filter_by(id=1).one_or_none()
-    assert ft.name
-
-
 class TestEastMoney:
 
     def setup_class(self):
