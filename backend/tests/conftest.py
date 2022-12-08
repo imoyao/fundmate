@@ -17,15 +17,17 @@ from environs import Env as EnvParser
 
 from backend.fundmate.app import create_app
 
-# from backend.fundmate.commands import PROJECT_ROOT, init_db
+# from backend.fundmate.commands import init_db
 from backend.fundmate.database import db as _db
 
 from .factories import UserFactory
+
 
 # import tempfile
 
 env = EnvParser()
 env.read_env()
+
 
 # SQL_DATA = prepare_data()
 
@@ -47,6 +49,20 @@ def runner(request):
     return CliRunner()
 
 
+def read_sql(sql_name=''):
+    with open(os.path.join(os.path.dirname(__file__), 'db_data', sql_name), "rb") as f:
+        _data_sql = f.read().decode("utf8")
+    return _data_sql
+
+
+def initial_table():
+    """Clear existing data and create new tables."""
+    db = get_db()
+    schema_sql = read_sql('fmp_schema_sqlite.sql')
+    # print(schema_sql)
+    db.executescript(schema_sql)
+
+
 @pytest.fixture(scope='session')
 def app(runner):
     """An application for the tests."""
@@ -57,6 +73,10 @@ def app(runner):
     assert app.config['DEBUG']
     assert app.config['TESTING']
     # with app.app_context():
+    #     initial_table()
+    #     db_cursor = get_db()
+    #     fv_sql = read_sql('fund_variety.sql')
+    #     db_cursor.executescript(fv_sql)
     #     """
     #     参阅：
     #     [Testing Click Applications — Click Documentation (8.1.x)]
@@ -75,6 +95,7 @@ def app(runner):
     yield app
 
     # close and remove the temporary database
+    # FIXME:关闭+删除
     # os.close(db_fd)
     # os.unlink(db_path)
 

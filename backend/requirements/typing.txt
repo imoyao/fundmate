@@ -5,15 +5,11 @@
 #
 #    pip-compile-multi
 #
---trusted-host mirrors.cloud.aliyuncs.com
-
-mypy==0.971
-    # via -r requirements/typing.in
+mypy==0.982
+    # via -r typing.in
 mypy-extensions==0.4.3
     # via mypy
 tomli==2.0.1
-    # via mypy
-typed-ast==1.5.4
     # via mypy
 typing-extensions==4.3.0
     # via mypy

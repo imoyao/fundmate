@@ -10,6 +10,7 @@
 import pytest
 
 from backend.fundmate.data.dkhs.base import FundFeeRatio
+from backend.fundmate.fund.models import Fund
 
 
 class TestFundFeeRatio:
@@ -21,7 +22,12 @@ class TestFundFeeRatio:
         """
         self.test_frt = FundFeeRatio()
 
-    # FIXME: 需要调用数据库
+    @pytest.fixture(scope='class')
+    def save_163406_fund_base_data(self, app, db):
+        with app.app_context():
+            Fund.create(fund_code='163406', symbol_prefix='SZ', risk_level=4)
+
+    @pytest.mark.usefixtures("save_163406_fund_base_data")
     @pytest.mark.parametrize('fund_code,expected', [('163406', {
         'purchase': [{
             'start_quota': 0.0,

@@ -435,3 +435,14 @@ class TestFundFollowAip:
         result = self.test_fa.zo_view(is_full=is_full, is_minimal=is_minimal)
         assert result
         assert isinstance(result, dict)
+
+    @pytest.mark.parametrize('is_full,is_minimal', [
+        (True, False),
+        (True, True),
+        (False, True),
+        (False, False),
+    ])
+    def test_stock_bond_ratio(self, is_full, is_minimal):
+        result = self.test_fa.stock_bond_ratio(is_full=is_full, is_minimal=is_minimal)
+        assert result
+        assert isinstance(result, dict)

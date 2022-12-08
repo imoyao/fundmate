@@ -3,7 +3,7 @@
 # Created by imoyao at 2021/6/9 16:06
 """
 投资者信息指数，每月更新，目前只能拿到两个月前的数据，其余数据还需要手动编辑
-http://www.sipf.com.cn/dcpj/xxzs/index.shtml
+https://www.sipf.com.cn/dcpj/xxzs/index.shtml
 https://www.sipf.com.cn/survey/pc/query/confidence
 文件链接：
 https://www.sipf.com.cn/survey/sipf-api/v2/download/investor/index?filename=b48892f95ffb4c21819a5f06b99bfd48.pdf&\
