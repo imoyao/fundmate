@@ -45,7 +45,7 @@ postman 用于前端开发人员对接口进行测试，借助于 mock 服务器
 
 - Collection 用于存放我们的 API 请求。
 - mocks 可以选择我们自己创建的 collection 作为 mock 的标志。对于后端还没有开发好的接口，可以直接编辑请求。
-:::info 讨论
+:::tip 讨论
   [单测时要不要 mock 数据库？ - Jiajun 的编程随想](https://jiajunhuang.com/articles/2021_08_27-mock_db_or_not.md.html)
 :::
 
@@ -141,7 +141,7 @@ def test_bar(before_func):
    - class：类级，结果会在执行完类里的所有测试方法后销毁
    - module：模块级，结果会在执行完整个模块的所有测试后销毁
    - package（包）：结果会在执行完整个包的所有测试后销毁。
-   - session：session 级，结果会在测试会话（也就是一次完整的pytest执行过程）结束后销毁。
+   - session：session 级，结果会在测试会话（也就是一次完整的 pytest 执行过程）结束后销毁。
 
    其控制范围由大到小是：`session > package > module > class > function`
 
@@ -171,7 +171,7 @@ def test_bar(before_func):
 
    def test_two():
        print('in test_two()')
-   ```
+   ```plain
    正所谓能力越大，责任越大。使用该功能时需要谨慎小心并控制测试用例的范围。 比如你的所有测试用例都需要连接同一个数据库，那可以设置为 module，这样只需要连接一次数据库，对于模块内的所有测试，这样可以极大地提高运行效率。
 ::: tip
 - `usefixtures`与传`fixture`区别

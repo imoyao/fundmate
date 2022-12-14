@@ -22,6 +22,7 @@ from backend.fundmate.data.utils import base as dt_utils
 from backend.fundmate.data.utils import ratio
 from backend.fundmate.exts.flask_loguru import logger
 
+
 header_str = """Accept: application/json, text/plain, */*
 Accept-Encoding: gzip, deflate, br
 Accept-Language: zh-CN,zh;q=0.9,en;q=0.8,en-US;q=0.7
@@ -135,17 +136,18 @@ class DanJuanEvl:
 
     CHANNEL_LIST = ['jiucai', 'lsd']
 
-    def get_detail(self, channel: Union[str, None] = None) -> dict:
+    def get_detail(self, channel: Optional[str] = None) -> Optional[dict]:
         """
         实际爬取函数的封装
         :param channel:订阅的数据源，现在支持 韭菜 和 螺丝钉
         :return:
         """
-        assert channel in self.CHANNEL_LIST
-        url = f'https://danjuanapp.com/djapi/fundx/activity/user/vip_valuation/show/detail?source={channel}'
-        hd = dt_utils.parse_headers(header_str)
-        resp = rget_json(url, headers=hd)
-        return resp
+        if channel in self.CHANNEL_LIST:
+            url = f'https://danjuanapp.com/djapi/fundx/activity/user/vip_valuation/show/detail?source={channel}'
+            hd = dt_utils.parse_headers(header_str)
+            resp = rget_json(url, headers=hd)
+            return resp
+        return None
 
     def eval_val(self, is_full: bool = False) -> dict:
         """
@@ -177,7 +179,11 @@ class DanJuanEvl:
                     point = {'grade': grade, 'href': href}
                 elif channel == 'jiucai':
                     spread_td = data.get('spread_td')
-                    point = {'spread_td': spread_td, 'href': href}
+                    point = {
+                        'spread_td': spread_td,
+                        'href': href,
+                        'help_desc': 'https://mp.weixin.qq.com/s/3_-XQILhVHWllEOgQ6Cujw'
+                    }
 
                 item_data.update(point)
 
@@ -541,7 +547,7 @@ class FundFeeRatio(ratio.BaseRatio):
             if withdraw_rate_table:
                 withdraw_info = self.redeem_rate(withdraw_rate_table, time_key='name', rate_key='value')
                 if to_db:
-                    if fund_code not in ['000074']:
+                    if fund_code != '000074':
                         self.save_fee_info(fund_code, withdraw_info, fee_type=settings.FeeTypeEnum.redeem)
                     else:
                         logger.warning(f'We think the withdraw_info of {fund_code} is error,just skip it.')
@@ -619,17 +625,18 @@ class FundFeeRatio(ratio.BaseRatio):
             if not bound[0].isdigit():
                 digit_is_first = True
                 bound = sorted_li[0]
-                assert bound[0].isdigit()
         else:
             bound = sorted_li[0]
             digit_is_first = True
             if not bound[0].isdigit():
                 digit_is_first = False
                 bound = sorted_li[1]
-                assert bound[0].isdigit()
-        bound_value = self.suffix_str_to_num(bound)
+
+        bound_value = None
+        if bound and bound[0].isdigit():
+            bound_value = self.suffix_str_to_num(bound)
         # 时间序列，默认+1
-        if not self.is_money_suffix(bound):
+        if bound_value is not None and not self.is_money_suffix(bound):
             if item_key == 'less_single_o':
                 if digit_is_first:
                     bound_value += 1

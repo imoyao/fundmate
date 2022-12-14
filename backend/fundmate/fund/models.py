@@ -3,6 +3,7 @@
 # Created by imoyao at 2021/2/13 17:50
 from __future__ import annotations
 
+import datetime
 from decimal import Decimal
 from typing import Optional, Union
 
@@ -10,7 +11,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.ext.hybrid import hybrid_property
 
 from backend.fundmate import settings
-from backend.fundmate.custom_sqltypes import IntChoiceDkEnumType
+from backend.fundmate.custom_sql_types import IntChoiceDkEnumType
 from backend.fundmate.database import (
     Column,
     CreateDateModel,
@@ -21,8 +22,6 @@ from backend.fundmate.database import (
     reference_col,
     relationship,
 )
-
-# from backend.fundmate.user.models import User
 
 
 class DailyWorth(PkModel, CreateDateModel):
@@ -90,7 +89,8 @@ class Fund(PkModel, UpsertMixin):
     perf_comp_base = Column(db.String(200), comment='业绩比较基准')
     last_modified = Column(db.TIMESTAMP,
                            nullable=False,
-                           server_default=db.text('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'),
+                           server_default=db.func.now(),
+                           onupdate=datetime.datetime.now,
                            comment='数据上次更新时间')
     '''基金、净值为一对一关系，所以需要对两者都添加`relationship` [Basic Relationship Patterns — SQLAlchemy 1.4 Documentation](
     https://docs.sqlalchemy.org/en/14/orm/basic_relationships.html#one-to-one) '''
@@ -143,14 +143,15 @@ class Mgr(PkModel, UpsertMixin):
     best_rt = Column(db.Numeric(7, 2), nullable=True, comment='最佳回报(%) ')  # 长度7，精度2
     last_modified = Column(db.TIMESTAMP,
                            nullable=False,
-                           server_default=db.text('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'),
+                           server_default=db.func.now(),
+                           onupdate=datetime.datetime.now,
                            comment='数据上次更新时间')
     # 在管基金
     '''
     # **注意** secondary后面跟表名而不是类名
-    sqlalchemy.exc.ArgumentError: secondary argument <class 'backend.fundmate.fund.models.FundMgr'> 
-    passed to to relationship() Fund.mgrs must be a Table object or other FROM clause; 
-    can't send a mapped class directly as rows in 'secondary' are persisted independently 
+    sqlalchemy.exc.ArgumentError: secondary argument <class 'backend.fundmate.fund.models.FundMgr'>
+    passed to to relationship() Fund.mgrs must be a Table object or other FROM clause;
+    can't send a mapped class directly as rows in 'secondary' are persisted independently
     of a class that is mapped to that same table.
     '''
     funds = relationship('Fund', secondary='fund_mgr', back_populates='mgrs')
@@ -211,10 +212,11 @@ class FundCompany(PkModel, UpsertMixin):
     f_counts = Column(db.Integer, comment='拥有基金数量（参考值）')
     mgr = Column(db.String(10), comment='总经理')
     update_time = Column(db.DateTime, comment='数据更新时间')
-    last_modified = Column(db.TIMESTAMP,
-                           nullable=False,
-                           server_default=db.text('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'),
-                           comment='数据上次更新时间')
+    last_updated = Column(db.TIMESTAMP,
+                          nullable=False,
+                          server_default=db.func.now(),
+                          onupdate=datetime.datetime.now,
+                          comment='数据上次更新时间')
 
     @classmethod
     def filter_by_code(cls, code: str) -> Union[int, None]:
@@ -382,7 +384,8 @@ class FeeRatio(PkModel, UpsertMixin):
     fee_amount = Column(db.Numeric(6, 2), comment='收费金额（超过xx万时一次收费，此时rate应该为空）')
     last_modified = Column(db.TIMESTAMP,
                            nullable=False,
-                           server_default=db.text('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'),
+                           server_default=db.func.now(),
+                           onupdate=datetime.datetime.now,
                            comment='数据上次更新时间')
 
     def __repr__(self):

@@ -11,6 +11,7 @@ from backend.fundmate.data.eastmoney.base import em
 from backend.fundmate.data.fund_info import init_fund
 from backend.fundmate.database import db
 
+
 CURRENT_PATH = Path(__file__).resolve().parent
 PROJECT_ROOT = CURRENT_PATH.parent
 TEST_PATH = Path(PROJECT_ROOT, "tests")
@@ -35,7 +36,6 @@ def check_before_create(drop=False):
     if drop:
         click.confirm('This operation will delete the database, do you want to continue?', abort=True)
         db.drop_all()
-    db.create_all()
 
 
 @click.command()
@@ -44,6 +44,8 @@ def init_db(drop):
     """Initialized databases
     """
     check_before_create(drop=drop)
+    db.create_all()
+    click.echo('Initialized database.')
 
 
 @click.command()

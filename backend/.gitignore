@@ -53,6 +53,10 @@ env/
 
 # Configuration
 .env
+.flaskenv
 
 # Development database
 *.db
+.pdm.toml
+# 该文件加入后，对于不同分支合并总是提示冲突，取消跟踪
+openapi.json

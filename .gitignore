@@ -153,7 +153,7 @@ cython_debug/
 .idea/**/usage.statistics.xml
 .idea/**/dictionaries
 .idea/**/shelf
-
+.idea/dataSources.xml
 # AWS User-specific
 .idea/**/aws.xml
 
@@ -335,3 +335,6 @@ yarn-error.log
 # 需要跟踪`script.py.mako`和`env.py`
 
 .VSCodeCounter/
+
+# 我们不建议跟踪migrations，因为models已经包含修改的内容
+migrations/

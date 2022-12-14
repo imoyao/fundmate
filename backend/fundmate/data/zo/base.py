@@ -1,14 +1,25 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # Created by Andy at 2021/7/26 14:03
-from typing import Union
+import logging
+import secrets
+from typing import Dict, List, Union
 
 from xalpha.cons import rpost_json
 
+from backend.fundmate import utils
 from backend.fundmate.data.utils import base as dt_utils
 from backend.fundmate.excepts import FundQueryError
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.fund.models import Fund
+from backend.fundmate.libs import convert
+
+
+# 屏蔽爬虫库的debug提示
+logger_xa = logging.getLogger('xalpha')
+logger_xa.setLevel(logging.ERROR)
+logger_urllib3 = logging.getLogger('urllib3')
+logger_urllib3.setLevel(logging.ERROR)
 
 header_str = '''Accept: application/json, text/plain, */*
 Accept-Encoding: gzip, deflate, br
@@ -30,6 +41,46 @@ User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 
 
 class QGG:
+
+    @staticmethod
+    def headers():
+        hd = dt_utils.parse_headers(header_str)
+        return hd
+
+    @staticmethod
+    def response_data(resp):
+        if resp and resp.get('code') == '000000':
+            info = resp.get('data')
+            return info
+        return None
+
+    @staticmethod
+    def guid():
+        """
+        guid:
+        https://github.com/yang302/react-router-fetch/blob/0994abf0353a770b03a4e081c7c108e87f2cfc3b/src/fetch/instance.js#L61
+        ```javascript
+        function guid() {
+          let guid = "";
+          for (let i = 1; i <= 32; i++) {
+            let n = Math.floor(Math.random() * 16.0).toString(16);
+            guid += n;
+          }
+          return guid;
+        }
+        ```
+
+        >>> a = q.guid()
+        >>> len(a)
+        32
+        >>> type(a)
+        <class 'str'>
+
+        """
+        return secrets.token_hex(16)
+
+
+class Strategy(QGG):
     """
     该接口用于从中欧财富网站爬取信息之后写入数据库，api获取组合信息需要从数据库中获取
     https://galaxy.qiangungun.com/galaxy/www/index.html?code=073uKgll2ep0s74nFtnl2jwzS82uKglV&state=wxf6c2bee70e049568#/fund/8100000078/weaveFunds?selectedTab=2
@@ -46,14 +97,9 @@ class QGG:
 卫星配置：结合基本面、技术面和行业政策等因素适度调仓、持续优化，动态配置大小盘、行业风格的“卫星”基金，力争在不同市场周期下赚取超额回报。
     '''
 
-    @staticmethod
-    def headers():
-        hd = dt_utils.parse_headers(header_str)
-        return hd
-
     def raw_data(self, fof_id: str = '8100000078') -> Union[dict, None]:
         """
-        { "code": "000000", "msg": "成功", "realMsg": null, "data": { "fofId": 8100000078, "fofName": "超级股票全明星",
+                { "code": "000000", "msg": "成功", "realMsg": null, "data": { "fofId": 8100000078, "fofName": "超级股票全明星",
         "productTypeCode": "10", "productTypeDesc": "组合", "fundTypeCode": "31", "fundTypeDesc": "投顾组合",
         "buyStatusCode": "0", "aipStatusCode": "0", "totalRate": "130.52", "dailyRate": "-1.38", "latestWeekRate":
         "0.34", "latestMonthRate": "1.98", "latestQuarterRate": "6.27", "latestHalfYearRate": "1.48",
@@ -102,34 +148,32 @@ class QGG:
         { "targetRatio": "2.00", "fundName": "中欧滚钱宝货币", "ratio": "1.81" }, { "targetRatio": "10.00", "fundName":
         "中欧时代智慧A", "ratio": "0.00" }, { "targetRatio": "10.00", "fundName": "中欧价值智选A", "ratio": "0.00" },
         { "targetRatio": "10.00", "fundName": "嘉实价值精选股票", "ratio": "0.00" } ], "rebalanceDesc":
-        "开年以来，A股市场处于国内经济复苏叠加货币政策回归中性的宏观背景下。市场整体表现较好，但风格开始切换。以必选消费和科技为代表的高估值板块受到紧货币的影响开始逐步调整，而前期滞涨的周期、金融、制造等顺周期行业在全球“再通胀”的背景下出现明显的估值修复。预计在美国财政刺激实质性落地和海外疫情实现有效控制之前，全球经济修复叠加货币政策宽松的交易环境不会发生变化。A股市场运行的主要矛盾在未来1-2个季度仍将持续，我们预计顺周期行业在以上宏观背景下仍有投资机会，同时价值类品种相对成长类的品种会有显著的估值修复行情。因此本次调仓我们会适当降低必选消费科技等前期涨幅过大的高估值板块配置，加大顺周期行业暴露，在压低估值的同时使得组合在行业分布上更为均衡。", "fofReportInfo": null, "transferDate": "20210301" }, "feeTypeName": "Percent", "discount": "0.1000", "realDiscount": "0.1", "fee": "1.50", "aipFeeType": "Percent", "aipDiscount": "0.1000", "aipRealDiscount": "0.1", "aipFee": "1.50", "tieredRate": "0.75", "publishTimes": "3年340天", "fofMaxAPI": "68194200.00", "fofMinAPI": "1000.00", "fofStrategy": "https://static.zocaifu.com/sarli/file/01/1620264653958.jpg", "fofRealDiscount": null, "fofDiscount": null, "fofPurIncrease": "0.01", "fofDate": "20210723", "fofFileJson": "{\"基金投资组合策略说明书（超级股票全明星策略）\":\"https://static.qiangungun.com/sarli/product/FofProduct/A003_a5/rebalanceFileJson/基金投资组合策略说明书（超级股票全明星策略）.pdf\"}", "fofPurRealDiscount": "0.0", "fofPurDiscount": "0.0", "fofAipRealDiscount": "0.0", "fofAipDiscount": "0.0", "fofOperateDate": "", "fofOperateFileInfos": [], "wechatTitle": "超级股票全明星，甄选绩优股基，力争长期超越市场！\r\n", "wechatDesc": "甄选具备超额能力的主动基金，结合市场风格动态调整。", "fofAdvantage": null, "holdingYear": "2年以上", "profitUnit": null, "currencyFof": false, "fofTypeCode": "04", "fofTypeDesc": "投顾", "analogAmount": "10000", "analogRevenue": "2398.00", "simulatedLoss": "-2092.00", "seqNo": null, "navDate": "20210723", "fofPublish": "20200522", "fofGqbPurRealDiscount": "0.0", "fofGqbAipRealDiscount": "0.0", "showTypeDesc": null, "showTypeInfo": null, "showTypeNum": null, "showTypeUnit": null, "deadlineDesc": "建议持有2年以上", "strategyConcept": "投资目标：通过优选基金管理人并结合一定风格、行业轮动，争取高于市场的超额回报。\r\n投资策略：主要投资主动偏股基金，依托中欧主动管理的出色能力，结合市场风格精选优秀管理人，并适时用全市场其他优选基金进行补充。\r\n适合人群：能承受较高波动的积极投资者\r\n建议持有时长：2年以上", "waveLevel": 8, "waveLevel2": null, "newHoldingYear": "2年以上", "rateIntervalName2": "lastMonthRate", "fofReportInfo": null, "fofRiskIndexList": [ { "indexIntervalName": "total", "indexIntervalDesc": null, "fofRiskIndexInfoVo": { "drawdown": "-25.36", "waveRate": "21.16", "sharpeRatio": "1.13", "positiveYield": "100.00", "positiveYieldTypeCode": "lastTwoYearPositiveYield", "positiveYieldTypeDesc": "2年正收益情况", "aboveStandard": "98.57", "minIntervalRate": "--", "maxIntervalRate": "--" } }, { "indexIntervalName": "totalIndex", "indexIntervalDesc": null, "fofRiskIndexInfoVo": { "drawdown": "-42.27", "waveRate": "21.77", "sharpeRatio": "0.79", "positiveYield": "83.00", "positiveYieldTypeCode": "lastTwoYearPositiveYield", "positiveYieldTypeDesc": "2年正收益情况", "aboveStandard": "--", "minIntervalRate": "--", "maxIntervalRate": "--" } } ], "subAckDays": 1, "redAckDays": 1, "subDays": 0, "redDays": 3, "fofStrategyTypeCode": "06", "processTypeCode": "", "holdingTimeCode": "06", "subAgrVersion": "20201225111555", "subAgrUrl": "https://static.qiangungun.com/sarli/product/FofProduct/A003_a5/rebalanceFileJson/基金投资组合策略说明书（超级股票全明星策略）.pdf", "fofRiskIndexList2": [ { "holdingTimeCode": "05", "holdingTimeDesc": "1年以上", "holdingTimeDesc2": "1年", "fofRiskIndexInfoVo": { "drawdown": "-42.27", "waveRate": "21.77", "sharpeRatio": "0.79", "positiveYield": "77.14", "positiveYieldTypeCode": "", "positiveYieldTypeDesc": "", "aboveStandard": "--", "minIntervalRate": "-34.07", "maxIntervalRate": "122.34" } }, { "holdingTimeCode": "06", "holdingTimeDesc": "2年以上", "holdingTimeDesc2": "2年", "fofRiskIndexInfoVo": { "drawdown": "-42.27", "waveRate": "21.77", "sharpeRatio": "0.79", "positiveYield": "83.00", "positiveYieldTypeCode": "", "positiveYieldTypeDesc": "", "aboveStandard": "--", "minIntervalRate": "-30.65", "maxIntervalRate": "144.28" } }, { "holdingTimeCode": "07", "holdingTimeDesc": "3年以上", "holdingTimeDesc2": "3年", "fofRiskIndexInfoVo": { "drawdown": "-42.27", "waveRate": "21.77", "sharpeRatio": "0.79", "positiveYield": "86.20", "positiveYieldTypeCode": "", "positiveYieldTypeDesc": "", "aboveStandard": "--", "minIntervalRate": "-24.57", "maxIntervalRate": "116.50" } } ], "adFee": "0.75", "adRealFee": "0.750000", "adFeediscount": null, "adFeeDesc": "根据投资者授权，中欧财富可通过中欧财富平台或由中欧财富至指定销售平台开立交易账户并代为发起或办理基金交易业务。\r\n\r\n投顾服务费\r\n投顾服务费率0.75%/年，按持有资产总额每日计算，每半年收取；不满半年的，在赎回时收取。\r\n\r\n交易费用\r\n1.\t通过中欧财富平台申购成分基金，按中欧财富平台申赎费减免规则收取相应成分基金申购费（含调仓交易）：中欧旗下产品不收取申购费。调仓赎回时，中欧旗下产品不再收取计入基金财产之外的赎回费用。若持有投顾组合小于7天，部分成分基金将收取1.5%的惩罚性赎回费。\r\n2.\t通过指定平台申购成分基金，由指定平台按其规则收取相应成分基金申赎费（含调仓交易）。\r\n", "strategyPosition": "全市场严选股基，让明星经理为你打工", "frequencyDesc": "季度", "leastDisclosureDay": "20210630", "expectYield": "", "indexStandardDesc": "Wind货币市场基金指数、Wind偏股混合型基金指数", "buyers": 100, "relateLabel": null, "exclusivePensionFlag": false, "productRefUrl": null, "strategyAdvantage": "https://static.qiangungun.com/sarli/product/FofProduct/A003_a5/strategyAdvantage/财富+3@2x.png", "featureService": "https://static.qiangungun.com/sarli/product/FofProduct/A003_a5/featureService/特色服务@2x.png", "teamIntroduction": "https://static.qiangungun.com/sarli/product/FofProduct/A003_a5/teamIntroduce/团队介绍@2x.png", "showAdRiskFlag": true, "recommendVos": [], "recommendDrawdown": null, "attentionFlag": false, "suggestHoldingDay": 730, "fofSubStrategyTypeCode": "", "fofTargetStrategyStatusCode": "", "fofTargetStrategyStatusDesc": "", "fofSaleStartTime": null, "fofSaleEndTime": null, "fofTargetOperateDate": null, "fofObserDate": null, "fofOperateExpireDate": null, "fofObserDays": null, "fofMaxOperateDays": null, "operationDays": null, "fofObserMonths": null, "fofMaxOperateMonths": null, "fofTargetRate": "--", "fofResBuyStatuscode": "", "fofSeriesNo": null, "fofSeriesVo": null, "currentTime": null }, "busAddData": null }
-
-        """  # noqa: E501
+        ……
+        """
         _url = 'https://mobile.qiangungun.com/v2/product/detail'
         hd = self.headers()
         # 注意此处的`{{`必须使用双符号，否则报错ValueError: Invalid format specifier
         _data = f'''{{"productId":{fof_id},"includes":["02","01","03"],"parseType":"01","showReportForever":false,
         "userId":null,"sessionId":null,"source":"H","version":"3.20.0","guid":"39b0d57f1134640daf87ef62d13001e8",
-        "phoneModel":null,"fraudTokenId":"e3Y6ICIyLjUuMCIsIG9zOiAid2ViIiwgczogMTk5LCBlOiAianMgbm90IGRvd25sb2FkIn0="}} 
+        "phoneModel":null,"fraudTokenId":"e3Y6ICIyLjUuMCIsIG9zOiAid2ViIiwgczogMTk5LCBlOiAianMgbm90IGRvd25sb2FkIn0="}}
         '''  # noqa:W291
         _resp = rpost_json(_url, headers=hd, data=_data)
 
-        if _resp and _resp.get('code') == '000000':
-            info = _resp.get('data')
-            return info
+        info = self.response_data(_resp)
+        return info
 
     def history(self, fof_id: str = '8100000078') -> Union[dict, None]:
         """
         调仓历史
         """
         _url = 'https://mobile.qiangungun.com/v1/product/queryFofRebalanceInfo'
-        _data = f'''{{"fofId":{fof_id},"source":"H","guid":"8ce2aa731134640de7b51f77682dcd4a","userId":null,
+        guid = self.guid()
+        _data = f'''{{"fofId":{fof_id},"source":"H","guid":{guid},"userId":null,
         "sessionId":null,"version":"3.20.0","appSource":"","appVersion":""}} '''
         hd = self.headers()
         _resp = rpost_json(_url, headers=hd, data=_data)
-        if _resp and _resp.get('code') == '000000':
-            info = _resp.get('data')
-            return info
+        info = self.response_data(_resp)
+        return info
 
     def remake_his(self, fof_id: str = '8100000078') -> list:
         """
@@ -172,7 +216,7 @@ class QGG:
                 fof_re_balance_list.append(balance_data)
             return fof_re_balance_list
 
-    def data(self):
+    def latest_info(self):
         """组合当前信息
         编号
         """
@@ -204,6 +248,267 @@ class QGG:
         return info
 
 
+class FollowAip(QGG):
+    """
+    中欧带你投行业跟投计划
+    行业景气度追踪I纪律化投资|每周三发信号
+    ref：https://galaxy.qiangungun.com/galaxy/share-react/build/index.html#/followAip/guideIndex
+    """
+    _BASE_URL = 'https://mobile.qiangungun.com/v1/guide/'
+    _STOCK_BOND_RATIO_URL = 'https://mobile.qiangungun.com/v1/stockBondRatio/content'
+    ENDPOINT_LIST = [
+        'latest_signal',
+        'worth_investing',
+        'query_industry_param',
+        'this_week_view'
+    ]
+
+    def req_body(self):
+        """
+        """
+        guid = self.guid()
+        return {
+            "primitive": False,
+            "source": "H",
+            "guid": guid,
+            "userId": None,
+            "sessionId": None,
+            "version": "4.5.0",
+            "appSource": "",
+            "appVersion": ""
+        }
+
+    def view_result(self, endpoint: str = 'this_week_view') -> Dict:
+        """
+        返回接口结果
+        :type endpoint: str
+        """
+        camel_endpoint = utils.to_camelcase(endpoint)
+        _url = self._BASE_URL + camel_endpoint
+        _data = self.req_body()
+        headers = self.headers()
+        _resp = rpost_json(_url, headers=headers, json=_data)
+        info = self.response_data(_resp)
+        return info
+
+    def sample_view(self) -> Dict:
+        """
+        精简观点
+        :return:
+        """
+        info = dict()
+        for endpoint in self.ENDPOINT_LIST:
+            item = self.view_result(endpoint)
+            info[endpoint] = item
+        return info
+
+    @staticmethod
+    def parse_industry(industry_info: Dict) -> Dict:
+        """
+        解析信息
+        :param industry_info:
+        :return:
+        """
+        industry_view_vo = industry_info.get('industryViewVo')
+        if industry_view_vo:
+            industry_view = {
+                # 'industry_code': industry_view_vo.get('industryCode'),
+                'industry_name': industry_view_vo.get('industryName'),
+                'issue_industry_reason': industry_view_vo.get('issueIndustryReason'),
+                'total_score': industry_view_vo.get('totalScore'),
+                'investment_advice': industry_view_vo.get('investmentAdvice'),
+                'recommended_operation': industry_view_vo.get('recommendedOperation'),
+            }
+        else:
+            industry_view = None
+        product_info = {
+            'product_id': industry_info.get('productId'),
+            'product_name': industry_info.get('productName'),
+            # 'fund_name_list': industry_info.get('fundNameList')
+        }
+        result_info = {
+            'industry_view': industry_view,
+            'product_info': product_info,
+        }
+        return result_info
+
+    def simplify_worth_investing(self, view_info: Dict) -> Dict:
+        """
+        返回信息太冗长了，此处简化信息
+        :param view_info:
+        :return:
+        """
+
+        def enumerate_industry(week_industry: List) -> List:
+            """
+            解析每个品类，只取最重要的部分
+            :param week_industry:
+            :return:
+            """
+            industry_list = list()
+            if week_industry:
+                for _industry_info in week_industry:
+                    _parsed_info = self.parse_industry(_industry_info)
+                    industry_list.append(_parsed_info)
+            return industry_list
+
+        this_week_industry = view_info.get('thisWeekIndustry')
+        other_industry = view_info.get('otherIndustry')
+        this_week_industry_list = enumerate_industry(this_week_industry)
+        other_week_industry_list = enumerate_industry(other_industry)
+        _result = {
+            'this_week_industry': this_week_industry_list,
+            'other_industry': other_week_industry_list,
+        }
+        return _result
+
+    @staticmethod
+    def key_to_snakecase(camel_case_dict):
+        """
+        字典key转为snakecase
+        :param camel_case_dict:
+        :return:
+        """
+        _result = dict()
+        for key, value in camel_case_dict.items():
+            snakecase_key = utils.to_snakecase(key)
+            _result[snakecase_key] = value
+        return _result
+
+    def simplify_latest_signal(self, latest_signal):
+        _result = self.key_to_snakecase(latest_signal)
+        return _result
+
+    @staticmethod
+    def simplify_query_industry_param(query_industry_info):
+        return query_industry_info
+
+    @staticmethod
+    def parse_week_industry(industry_view_vo):
+        """
+        每周观点信息
+        :param industry_view_vo:
+        :return:
+        """
+        industry_view = {
+            # 'industry_code': industry_view_vo.get('industryCode'),
+            'industry_name': industry_view_vo.get('industryName'),
+            'issue_industry_reason': industry_view_vo.get('issueIndustryReason'),
+            'total_score': industry_view_vo.get('totalScore'),
+            'investment_advice': industry_view_vo.get('investmentAdvice'),
+            'recommended_operation': industry_view_vo.get('recommendedOperation'),
+        }
+        product_info = {
+            'product_id': industry_view_vo.get('productId'),
+            'product_name': industry_view_vo.get('productName'),
+            # 'fund_name_list': industry_view_vo.get('fundNameList')
+        }
+        result_info = {
+            'industry_view': industry_view,
+            'product_info': product_info,
+        }
+        return result_info
+
+    def simplify_this_week_view(self, week_view_info):
+        cp_week_view_info = week_view_info.copy()
+        cp_week_view_info.pop('issueSynthesizeView')
+        industry_view_vos = cp_week_view_info.get('industryViewVos')
+        sample_vol_list = list()
+        for industry_view_vol in industry_view_vos:
+            item = self.parse_week_industry(industry_view_vol)
+            sample_vol_list.append(item)
+        cp_week_view_info['industryViewVos'] = sample_vol_list
+        week_view = self.key_to_snakecase(cp_week_view_info)
+        return week_view
+
+    def simplify_view(self) -> Dict:
+        info = dict()
+        for endpoint in self.ENDPOINT_LIST:
+            # 此参数在简略信息中无必要展示
+            if endpoint == 'query_industry_param':
+                continue
+            item = self.view_result(endpoint)
+            func_name = 'simplify_' + endpoint
+            item_view = getattr(self, func_name)(item)
+            info[endpoint] = item_view
+        return info
+
+    def minimal_view(self) -> Dict:
+        """
+        最简单化信息展示
+        :return:
+        """
+        this_week_view = self.view_result('this_week_view')
+        simplify_week_view_info = self.simplify_this_week_view(this_week_view)
+        industry_view_vos = simplify_week_view_info.get('industry_view_vos')
+        for item in industry_view_vos:
+            item.pop('product_info')
+        simplify_week_view_info['industry_view_vos'] = industry_view_vos
+        latest_signal_view = self.view_result('latest_signal')
+        latest_signal_view_info = self.simplify_latest_signal(latest_signal_view)
+        minimal_view_result = {
+            'latest_signal': latest_signal_view_info,
+            'this_week_view': simplify_week_view_info,
+        }
+        return minimal_view_result
+
+    def full_view(self) -> Dict:
+        """
+        完整观点
+        :return:
+        """
+        info = dict()
+        for endpoint in self.ENDPOINT_LIST:
+            item = self.view_result(endpoint)
+            camel_case = utils.to_camelcase(endpoint)
+            info[camel_case] = item
+        return info
+
+    def zo_view(self, is_minimal: bool = True, is_full: bool = False) -> Dict:
+        if is_full:
+            return self.full_view()
+        else:
+            if is_minimal:
+                return self.minimal_view()
+            return self.simplify_view()
+
+    def stock_bond_ratio(self, is_minimal: bool = True, is_full: bool = False):
+        """
+        股债性价比
+        来源链接：
+        https://galaxy.qiangungun.com/galaxy/share-react/build/index.html#/scene/stockDebtPage
+        :param is_minimal:
+        :param is_full:
+        :return:
+        """
+        _url = self._STOCK_BOND_RATIO_URL
+        _data = self.req_body()
+        headers = self.headers()
+        _resp = rpost_json(_url, headers=headers, json=_data)
+        info = self.response_data(_resp)
+        if info:
+            if is_minimal:
+                start_date = info.get('latestDate')
+                str_to_date = convert.try_parse_date(start_date)
+                info = {
+                    'score': int(info.get('source')),
+                    'trend': info.get('trend'),
+                    'latestDate': str(str_to_date)
+                }
+            else:
+                info['score'] = int(info.pop('source'))
+                if not is_full:
+                    info.pop('starLevelVoList')
+        return info
+
+
 if __name__ == '__main__':
-    zo = QGG()
-    print(zo.data())
+    import doctest
+    doctest.testmod(extraglobs={'q': QGG()})
+
+    zo = Strategy()
+    print(zo.latest_info())
+    follow_api = FollowAip()
+    result = follow_api.zo_view(is_full=False)
+    result1 = follow_api.zo_view(is_full=True)
+    print(result, result1)

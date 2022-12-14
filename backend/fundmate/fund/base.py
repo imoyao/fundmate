@@ -384,7 +384,10 @@ class Booking:
         """
         pass
 
-    def sale(self, fund_code: str):
+    def sale(
+        self,
+        fund_code: str,
+    ):
         """赎回/卖出/支取"""
         pass
 

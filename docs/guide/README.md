@@ -39,7 +39,7 @@ title: 使用指南
 
 [和讯网](http://www.hexun.com/)早期金融证券资讯服务
 
-[A股交易工具社区](http://www.tdxapi.com/comm/)
+[A 股交易工具社区](http://www.tdxapi.com/comm/)
 
 
 [优矿](https://uqer.io/)老牌在线回测平台

@@ -13,12 +13,13 @@ from typing import Dict, List, Optional, Set, Union
 import pandas as pd
 from xalpha.cons import rget_json
 
+from backend.fundmate.data.base import StrategyBase
 from backend.fundmate.data.qieman import utils
 from backend.fundmate.libs import convert
 from backend.fundmate.types import PdDataFrame
 
 
-class Strategy:
+class Strategy(StrategyBase):
     """
     以基金柠檬的远足为例：https://qieman.com/portfolios/ZH012926
     """

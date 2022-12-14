@@ -95,7 +95,7 @@ def render_item(type_, obj, autogen_context):
 
 def render_sqlalchemy_choices_type(obj, autogen_context):
     class_name = obj.__class__.__name__
-    import_statement = f"from backend.fundmate.database import {class_name}"
+    import_statement = f"from backend.fundmate.custom_sql_types import {class_name}"
     autogen_context.imports.add(import_statement)
     if class_name in ['ChoiceType', 'IntChoiceDkEnumType']:
         return render_choice_type(obj, autogen_context)

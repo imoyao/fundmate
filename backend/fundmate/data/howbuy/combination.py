@@ -11,16 +11,17 @@
 策略地址：https://trade.ehowbuy.com/newpig/index.html#/adviser/index?productCode={{code}}
 """
 import math
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 import pandas as pd
 from xalpha.cons import rget_json
 
+from backend.fundmate.data.base import StrategyBase
 from backend.fundmate.excepts import LenEqualError
 from backend.fundmate.libs import convert
 
 
-class Strategy:
+class Strategy(StrategyBase):
     """
     以牛基宝（全股型）为例：
     https://trade.ehowbuy.com/newpig/index.html#/adviser/index?productCode=tzzhqgx
@@ -72,7 +73,7 @@ class Strategy:
             choice_fund_pools = [fund.get('jjdm') for fund in choice_fund_pools_fund_lists]
             return choice_fund_pools
 
-    def newest_holds(self, code: str):
+    def latest_holds(self, code: str):
         """
         最新持仓
         **注意** 这个里面的日期数据是不准确的
@@ -114,7 +115,7 @@ class Strategy:
                     'volatility': float(volatility) / 100,
                 }
 
-    def detail(self, code: str) -> Optional[Dict]:
+    def detail(self, code: str) -> Union[Dict, List]:
         """
         获取单个组合的信息
         单次调仓时通过该接口获取即可
@@ -367,8 +368,8 @@ if __name__ == '__main__':
     result = s.get_choice_fund_pools(code)
     print(result)
     # 最新持仓
-    newest_holds = s.newest_holds(code)
-    print(newest_holds)
+    latest_holds_info = s.latest_holds(code)
+    print(latest_holds_info)
     # 所有持仓信息
     ret = s.pagination_trade_info(code)
     print(ret)

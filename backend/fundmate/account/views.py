@@ -29,6 +29,7 @@ from backend.fundmate.fund.load_templates import (
 )
 from backend.fundmate.fund.models import InvestProduct
 
+
 bp = APIBlueprint('account', __name__, url_prefix='/accounts')
 
 
@@ -171,7 +172,7 @@ class ImportDealingDocuments(MethodView):
                     dumps_df = repr_df.rename(columns=rename_dict)
                     # 2.1 操作者信息添加user_id列
                     dumps_df['user_id'] = user_id
-                    dumps_df['create_at'] = datetime.datetime.now()
+                    dumps_df['created_at'] = datetime.datetime.now()
                     db_columns = dumps_df.columns.to_list()
                     is_to_db_ok = set(db_columns).issubset(set(all_db_names))
                     # 导入前最后的文件头检查

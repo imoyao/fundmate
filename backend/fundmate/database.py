@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-"""Database module, including the SQLAlchemy database object and DB-related utilities.
-
+"""
+Database module, including the SQLAlchemy database object and DB-related utilities.
 """
 import random
 from datetime import datetime
@@ -18,6 +18,7 @@ from backend.fundmate.compat import basestring
 from backend.fundmate.excepts import UniqueInstanceError
 from backend.fundmate.extensions import db
 from backend.fundmate.exts.flask_loguru import logger
+
 
 # Alias common SQLAlchemy names
 Column = db.Column
@@ -57,7 +58,7 @@ class CRUDMixin(object):
             try:
                 db.session.commit()
             except SQLAlchemyError as e:
-                logger.error(e)
+                logger.error(f'对象{self}保存数据出错 ERROR:{str(e)}')
                 db.session.rollback()
         return self
 
@@ -155,7 +156,8 @@ class UpsertMixin(CRUDMixin):
 
 class Model(CRUDMixin, db.Model):
     """Base model class that includes CRUD convenience methods."""
-
+    # ref: [How do I declare a base model class in Flask-SQLAlchemy? - Stack Overflow]
+    # (https://stackoverflow.com/questions/22976445/how-do-i-declare-a-base-model-class-in-flask-sqlalchemy)
     __abstract__ = True
 
     # def to_dict(self):
@@ -222,7 +224,7 @@ class CreateDateModel(Model):
     参阅：[python - SQLAlchemy default DateTime - Stack Overflow](https://stackoverflow.com/
     questions/13370317/sqlalchemy-default-datetime)
     '''
-    create_at = Column(db.DateTime(timezone=True), default=datetime.now, server_default=func.now(), comment='创建时间')
+    created_at = Column(db.DateTime(timezone=True), default=datetime.now, server_default=func.now(), comment='创建时间')
 
 
 def reference_col(tablename: str,

@@ -1,11 +1,12 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # Created by imoyao at 2021/2/13 18:12
+import datetime
 from typing import Optional, Union
 
 from backend.fundmate import settings
 from backend.fundmate.compat import basestring
-from backend.fundmate.custom_sqltypes import IntChoiceDkEnumType
+from backend.fundmate.custom_sql_types import IntChoiceDkEnumType
 from backend.fundmate.database import Column, CreateDateModel, PkModel, UpsertMixin, db, gen_digit_code, reference_col
 
 
@@ -78,6 +79,7 @@ class HandPick(PkModel):
     fund_code = Column(db.String(6), comment='所购买的基金编号')
     pick_time = Column(db.TIMESTAMP,
                        nullable=False,
-                       server_default=db.text('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'),
+                       server_default=db.func.now(),
+                       onupdate=datetime.datetime.now,
                        comment='收藏时间（用于计算加入自选以来收益）')
     comment = Column(db.String(300), comment='自选备注')  # TODO: 或许tag更合适

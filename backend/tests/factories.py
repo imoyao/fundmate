@@ -1,10 +1,16 @@
 # -*- coding: utf-8 -*-
 """Factories to help in tests."""
-from factory import PostGenerationMethodCall, Sequence
+import logging
+
+from factory import Faker, PostGenerationMethodCall
 from factory.alchemy import SQLAlchemyModelFactory
 
 from backend.fundmate.database import db
 from backend.fundmate.user.models import User
+
+
+logger = logging.getLogger('faker')
+logger.setLevel(logging.ERROR)
 
 
 class BaseFactory(SQLAlchemyModelFactory):
@@ -20,10 +26,10 @@ class BaseFactory(SQLAlchemyModelFactory):
 class UserFactory(BaseFactory):
     """User factory."""
 
-    username = Sequence(lambda n: f"user{n}")
-    email = Sequence(lambda n: f"user{n}@example.com")
-    password = PostGenerationMethodCall("set_password", "example")
-    active = True
+    username = Faker("name", locale="zh_CN")
+    email = Faker("email")
+    password = PostGenerationMethodCall("set_password", 'example', )  # ！！！注意此处逗号
+    is_active = True
 
     class Meta:
         """Factory configuration."""

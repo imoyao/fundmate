@@ -10,8 +10,10 @@ from distutils import util
 from typing import Optional, Union
 
 import dateparser
+import pendulum
 
 from backend.fundmate import excepts
+
 
 # ref: https://github.com/scrapinghub/dateparser/issues/1013
 warnings.filterwarnings(
@@ -34,21 +36,32 @@ def percent2float(x: str) -> float:
 
 def word_for_true(word: str) -> bool:
     """
-    装换为Bool
+    转换为Bool
     :param word:
     :return:
     """
-    return util.strtobool(word)
+    return bool(util.strtobool(word))
 
 
-def try_parse_date(text: str):
+def try_parse_date(text: str, **opts):
     """
     尝试将一个字符串解析为date类型
-    try and parse date
+    >>> try_parse_date('20221111')
+    Date(2022, 11, 11)
+    >>> try_parse_date('2022/11/11')
+    Date(2022, 11, 11)
+    >>> try_parse_date('2022年11月22日 20:00')
+    datetime.date(2022, 11, 22)
+    >>> try_parse_date('2022/11/29 10:00:00')
+    Date(2022, 11, 29)
+
     :param text: string
     :return: date part of datetime object
     """
-    parse_ret = dateparser.parse(text)
+    try:
+        parse_ret = pendulum.parse(text, **opts)
+    except (Exception,):
+        parse_ret = dateparser.parse(text)
     if parse_ret:
         return parse_ret.date()
     else:
