@@ -77,7 +77,7 @@ class UserDetail(MethodView):
         _user_obj = load_user(user_id)
         if _user_obj:
             abort(404, message=f"You can't patch an not exists user id {user_id}.")
-        user = User.save(data)
+        user = User.update(**data)
         return user
 
     @auth_required
@@ -265,27 +265,6 @@ def active_user(req):
     user = User.lookup(user_identify)
     user.update(is_active=True)
     return {'message': '用户 {} 已重新激活。'.format(user.username)}
-
-
-@bp.route('/<int:user_id>/favors')
-@auth_required
-class UserFavorFunds(MethodView):
-    """
-    用户关注的基金
-    """
-
-    def get(self, user_id: str):
-        """获取自选基金信息"""
-        user_obj = User.get_by_id(int(user_id))
-        return user_obj
-
-    def post(self, user_id: str, fund_id: str):
-        """用户关注基金"""
-        pass
-
-    def delete(self, user_id: str, fund_id: str):
-        """用户取消关注基金"""
-        pass
 
 
 @bp.route('/accounts')

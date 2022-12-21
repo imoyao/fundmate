@@ -13,6 +13,7 @@ from environs import Env as EnvParser
 
 from backend.fundmate.libs.dk_enums import BaseTypeEnum, ChoiceTypeDk, ChoiceTypeIntegerDk
 
+
 env = EnvParser()
 env.read_env()
 ENV = env.str('FLASK_ENV', default='default')  # default is dev
@@ -353,7 +354,7 @@ STOCK = ChoiceTypeDk('stock', '股票')
 BOND = ChoiceTypeDk('bond', '可转债')
 FUTURES = ChoiceTypeDk('futures', '期货')
 PORTFOLIO = ChoiceTypeDk('portfolio', '投顾组合')
-FINANCIAL_PRODUCT = ChoiceTypeDk('financial_product', '理财产品')
+FINANCIAL_PRODUCT = ChoiceTypeDk('fina_product', '理财产品')
 
 
 @enum.unique
@@ -370,6 +371,33 @@ class SupportInvestCategoriesEnum(BaseTypeEnum):
 
     @classmethod
     def input(cls):
+        """
+        用户请求时需要用到
+        :return:
+        """
+        return [item.dk_value for item in cls]
+
+
+MANAGERS = ChoiceTypeDk('managers', '基金经理')
+INDEX = ChoiceTypeDk('index', '指数')
+
+
+@enum.unique
+class SupportCollectionsEnum(BaseTypeEnum):
+    """
+    支持自选的类别
+    """
+    fund = FUND
+    stock = STOCK
+    bond = BOND
+    futures = FUTURES
+    portfolio = PORTFOLIO
+    financial_product = FINANCIAL_PRODUCT
+    managers = MANAGERS
+    index = INDEX
+
+    @classmethod
+    def input(cls) -> list:
         """
         用户请求时需要用到
         :return:
@@ -423,24 +451,29 @@ INDICATOR_DOCS = [{
     'docs': ['组合内成分基金的累计收益率，代表了每只成分基金在组合中截至目前的收益率情况']
 }, {
     'type':
-    'max_drawdown',
+        'max_drawdown',
     'title':
-    '最大回撤',
+        '最大回撤',
     'docs': [
-        '组合成立以来，净值走到最低点时的收益率回撤幅度的最大值。', ' 最大回撤用来描述买入产品后可能出现的最糟糕的情况。通常用来衡量该组合的抗风险能力。', '计算组合成立以来时间的回撤，基准指数的时间范围与组合一致。',
+        '组合成立以来，净值走到最低点时的收益率回撤幅度的最大值。',
+        ' 最大回撤用来描述买入产品后可能出现的最糟糕的情况。通常用来衡量该组合的抗风险能力。',
+        '计算组合成立以来时间的回撤，基准指数的时间范围与组合一致。',
         '指标越小越好'
     ]
 }, {
     'type': 'votility',
     'title': '年化波动率',
-    'docs': ['代表组合资产收益率的年化波动 程度。通常用来衡量该组合的风险水平。', '以近一年的周涨跌计算年化波动率，若组合成立时间不足半年，不具备参考价值，不展示该数据。', '指标越小越好']
+    'docs': ['代表组合资产收益率的年化波动 程度。通常用来衡量该组合的风险水平。',
+             '以近一年的周涨跌计算年化波动率，若组合成立时间不足半年，不具备参考价值，不展示该数据。', '指标越小越好']
 }, {
     'type':
-    'sharpe',
+        'sharpe',
     'title':
-    '夏普比率',
+        '夏普比率',
     'docs': [
-        '代表每承受一单位总风险，会产生多少的超额报酬。', ' 如果夏普比率为正值，说明在近一年组合平均收益率超过了无风险利率。', '以近一年的组合数据计算夏普，若组合成立时间不足半年，不具备参考价值，不展示该数据。',
+        '代表每承受一单位总风险，会产生多少的超额报酬。',
+        ' 如果夏普比率为正值，说明在近一年组合平均收益率超过了无风险利率。',
+        '以近一年的组合数据计算夏普，若组合成立时间不足半年，不具备参考价值，不展示该数据。',
         '该值越高说明产品的性价比越高'
     ]
 }, {
