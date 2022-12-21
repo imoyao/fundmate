@@ -88,7 +88,7 @@ def logout():
 
 
 @bp.route('/sentry/<int:numerator>/divide/<int:denominator>/')
-def test_sentry(numerator, denominator):
+def sentry_server(numerator, denominator):
     """
     测试 sentry 是否正常运行
     """
