@@ -8,6 +8,7 @@ from pathlib import Path
 
 from backend.fundmate import settings
 
+
 env = settings.env
 
 CURRENT_DIR = Path(__file__).resolve().parent
@@ -21,6 +22,7 @@ class Config:
     DEBUG = False
     TESTING = False
     CSRF_ENABLED = True
+    # 认证相关
     SECRET_KEY = env.str('SECRET_KEY', default='MPk2WlUArcLeeU_iohzT')
     JWT_ACCESS_LIFESPAN = settings.DEFAULT_JWT_ACCESS_LIFESPAN
     JWT_REFRESH_LIFESPAN = settings.DEFAULT_JWT_REFRESH_LIFESPAN
@@ -31,6 +33,14 @@ class Config:
     # FIXME: 需要替换为真实的uri
     PRAETORIAN_CONFIRMATION_URI = settings.DEFAULT_CONFIRMATION_URI
     PRAETORIAN_RESET_URI = settings.DEFAULT_RESET_URI
+    # 接口认证 see also: [Authentication - APIFlask](https://apiflask.com/authentication/)
+    SECURITY_SCHEMES = {
+        'ApiKeyAuth': {
+            'type': 'apiKey',
+            'in': 'header',
+            'name': 'X-API-Key',
+        }
+    }
     '''
     # 旧版本
     import random
@@ -40,6 +50,7 @@ class Config:
     import secrets
     secrets.token_urlsafe(nbytes=15)
     '''
+    # 数据库相关
     SQLALCHEMY_COMMIT_ON_TEARDOWN = True
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_RECORD_QUERIES = True
