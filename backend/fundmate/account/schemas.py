@@ -85,7 +85,7 @@ class InvestProductOut(Schema):
 
 class QueryInvestProduct(Schema):
     """
-    用户提交自己购买的理财产品（如组合或者理财产品）
+    用户查询自己购买的理财产品（如组合或者理财产品）
     """
     prod_name = String(required=True)
     platform = String(required=True,
