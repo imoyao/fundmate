@@ -3,7 +3,7 @@
 import datetime
 from typing import Dict, Optional
 
-from apiflask import APIBlueprint, abort, pagination_builder
+from apiflask import APIBlueprint, HTTPError, abort, pagination_builder
 from flask import current_app
 from flask.views import MethodView
 from flask_praetorian import auth_required, current_user
@@ -39,11 +39,14 @@ from backend.fundmate.fund.schemas import (
     FundRatioInSchema,
     FundRatioOutSchema,
     FundSaleOutSchema,
+    FundSampleSchema,
+    FundSearchKeySchema,
     PortfolioQueryOutSchema,
     PortfolioQuerySchema,
 )
 from backend.fundmate.libs.pysnowflake import snowflake
 from backend.fundmate.schema_ext import CustomPaginationSchema
+
 
 bp = APIBlueprint('fund', __name__, url_prefix='/funds')
 
@@ -63,6 +66,21 @@ def funds(query: dict):
     _items = pagination.items
     ret = {'funds': _items, 'pagination': pagination_builder(pagination)}
     return ret
+
+
+@bp.get('/search/')
+@bp.input(FundSearchKeySchema, 'query')
+@bp.output(FundSampleSchema(many=True))
+def search_fund(search_key):
+    """
+    通过基金编码，基金名称，基金简拼搜索基金信息
+    """
+    q = search_key.get('q')
+    # 用法参考：https://github.com/greyli/apiflask/blob/fde330b41847727fb1ddeb3963c466f1118dc9db/examples/orm/app.py#L58
+    _funds = Fund.search_key(q)
+    if _funds:
+        return _funds
+    raise HTTPError(404, 'Please check your input keywords.')
 
 
 @bp.route('/companies/')
@@ -336,7 +354,8 @@ class CombinationDetail(MethodView):
     @auth_required
     @bp.input(FundPortfolioPatchInSchema(partial=True))
     @bp.output(FundPortfolioDetailOutSchema)
-    @bp.doc(summary='部分更新指定基金组合', description='该接口用于更新特定组合（如：名称、风险等级、描述、可见性、投资理念），需要给出组合编码')
+    @bp.doc(summary='部分更新指定基金组合',
+            description='该接口用于更新特定组合（如：名称、风险等级、描述、可见性、投资理念），需要给出组合编码')
     def patch(self, portfolio_code: str, data: Dict):
         """
         更新组合可以更新的字段包括：
