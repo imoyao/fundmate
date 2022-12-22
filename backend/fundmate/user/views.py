@@ -24,6 +24,8 @@ import passlib
 
 from backend.fundmate.account.models import Account
 from backend.fundmate.account.schemas import AccountOutSchema, CreateAccountSchema
+
+# from backend.fundmate.auth import auth
 from backend.fundmate.errors import AuthError, ConfirmedFirstError, ForbiddenDenyAdminError, NoLookupUserError
 from backend.fundmate.extensions import db, guard
 from backend.fundmate.exts.flask_loguru import logger
@@ -91,11 +93,13 @@ class UserDetail(MethodView):
 
 
 @bp.post('/register')
-@bp.input(UserInSchema())
+@bp.input(UserInSchema)
 def register(req):
     """
-    Registers a new user by parsing a POST request containing new user info and
-    dispatching an email with a registration token
+    用户注册
+
+    Registers a new user by parsing a POST request containing new user info and dispatching an email with a registration token
+
     .. example::
        $ curl http://localhost:5000/register -X POST \
          -d '{
@@ -169,12 +173,14 @@ def login(data):
 
 
 @bp.get('/refresh_token')
+@bp.doc(security='Bearer')
 def refresh_token():
     """
     刷新token
 
     Refreshes an existing JWT by creating a new one that is a copy of the old
     except that it has a refreshed access expiration.
+
     .. example::
        $ curl http://localhost:5000/refresh -X GET \
          -H "Authorization: Bearer <your_token>"
@@ -192,6 +198,7 @@ def forget_password(data):
     用户忘记密码
 
     首先发送邮件给用户，确认本人操作
+
     :param data:
     :return:
     """
@@ -206,12 +213,14 @@ def forget_password(data):
 
 
 @bp.post('/reset_password')
-@bp.input(ResetPasswordSchema())
+@bp.input(ResetPasswordSchema)
+@bp.doc(security='Bearer')
 def reset_password(data):
     """
     重置密码
 
     用户点击邮箱中收到的链接，进入重置流程，输入新的密码更新用户密码
+
     :param data:
     :return:
     """
@@ -245,7 +254,7 @@ def disable_user(req):
     if ADMIN_ROLE_NAME in user.rolenames:
         raise ForbiddenDenyAdminError
     user.update(is_active=False)
-    return {'message': '用户 {} 已禁用。'.format(user.username)}
+    return {'message': f'用户 {user.username} 已禁用。'}
 
 
 @bp.post('/activations')

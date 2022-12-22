@@ -33,12 +33,17 @@ class Config:
     # FIXME: 需要替换为真实的uri
     PRAETORIAN_CONFIRMATION_URI = settings.DEFAULT_CONFIRMATION_URI
     PRAETORIAN_RESET_URI = settings.DEFAULT_RESET_URI
-    # 接口认证 see also: [Authentication - APIFlask](https://apiflask.com/authentication/)
+    # 自定义接口认证 see also: [Authentication - APIFlask](https://apiflask.com/authentication/)
     SECURITY_SCHEMES = {
         'ApiKeyAuth': {
             'type': 'apiKey',
             'in': 'header',
             'name': 'X-API-Key',
+        },
+        # [OpenAPI - APIFlask](https://apiflask.com/api/openapi/#apiflask.openapi.get_security_scheme)
+        'Bearer': {
+            'type': 'http',
+            'scheme': 'bearer',
         }
     }
     '''
