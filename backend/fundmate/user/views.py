@@ -2,6 +2,7 @@
 """参考 [Flask Rest API -Part:5- Password Reset - DEV Community](
 https://dev.to/paurakhsharma/flask-rest-api-part-5-password-reset-2f2e)
 
+https://github.com/dusktreader/flask-praetorian-tutorial/blob/master/api/src/resources.py
 注册登录流程：
 1. register
 发送token到注册邮箱（要求唯一），用户点击链接回到网页，在网页上将token返回，然后激活用户
@@ -116,7 +117,8 @@ def register(req):
     try:
         new_user = User.create(username=username, email=email, password=password)
         guard.send_registration_email(email, user=new_user)
-    except PraetorianError:
+    except PraetorianError as e:
+        logger.error(f"Couldn't send registration email: {e}")
         db.session.rollback()
 
     result = {'message': '注册激活邮件已成功发送给用户：{}'.format(new_user.username)}

@@ -102,16 +102,36 @@ class User(PkModel, CreateDateModel):
     def get_admin(cls):
         """Get the admin user. The only one will be returned."""
         rv: Optional[User] = cls.query.filter_by(is_admin=True).first()
+        return rv
+
+    @classmethod
+    def set_admin(cls, identity, **kwargs):
+        """
+        设置管理员
+        :return:
+        """
+        rv = cls.get_admin()
         if not rv:
-            admin_info = {
-                'name': 'admin',
-                'email': current_app.config["ADMIN_EMAIL"] or settings.INFO_MAIL_ADDR,
-                'password': current_app.config["DEFAULT_ADMIN_PASSWORD"],
-                'is_admin': True,
-                'is_vip': True,
-                'profile': 'With great power comes great responsibility.'
-            }
-            rv = cls.create(**admin_info)
+            if not identity:
+                admin_info = {
+                    'name': 'admin',
+                    'email': current_app.config.get('ADMIN_EMAIL') or settings.INFO_MAIL_ADDR,
+                    'password': current_app.config.get('DEFAULT_ADMIN_PASSWORD') or 'secret9527',
+                    'is_admin': True,
+                    'is_vip': True,
+                    'profile': 'With great power comes great responsibility.'
+                }
+                rv = cls.create(**admin_info)
+            else:
+                rv = cls.lookup(identity)
+                rv.update(is_admin=True, is_vip=True, **kwargs)
+            if settings.ADMIN_ROLE_NAME not in rv.rolenames:
+                role_inst = Role.query.filter_by(name=settings.ADMIN_ROLE_NAME).first()
+                if not role_inst:
+                    role_inst = Role.create(name=settings.ADMIN_ROLE_NAME)
+
+                rv.roles.append(role_inst)
+                rv.save()
         return rv
 
     @property
@@ -157,8 +177,8 @@ class User(PkModel, CreateDateModel):
         """
         return cls.query.get(identify)
 
-    def is_valid(self):
-        return self.is_active
+    # def is_valid(self):
+    #     return self.is_active
 
 
 """

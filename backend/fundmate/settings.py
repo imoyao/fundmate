@@ -13,6 +13,7 @@ from environs import Env as EnvParser
 
 from backend.fundmate.libs.dk_enums import BaseTypeEnum, ChoiceTypeDk, ChoiceTypeIntegerDk
 
+
 env = EnvParser()
 env.read_env()
 ENV = env.str('FLASK_ENV', default='default')  # default is dev
@@ -30,6 +31,7 @@ CACHE_TYPE = 'simple'  # Can be 'memcached', 'redis', etc.
 SQLALCHEMY_TRACK_MODIFICATIONS = False
 CURRENT_DIR = Path(__file__).resolve().parent
 INFO_MAIL_ADDR = 'fundmate@163.com'
+ADMIN_ROLE_NAME = 'admin'
 """
 1998年3月23日，按该办法要求设立的开元、金泰两家封闭式证券投资基金公开发行上市，标志着我国证券市场新的机构投资者——证券投资基金的出现，我国的投资基金开始了封闭式证券投资基金时代。1998年我国共成立了第一批5只封闭式基金：基金开元、基金金泰、基金兴华、基金安信和基金裕阳。
 2001年9月，经管理层批准，由华安基金管理公司成立了我国第一支开放式证券投资基金--华安创新，我国基金业的发展进入了一个崭新的阶段。
