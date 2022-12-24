@@ -22,8 +22,9 @@ class UserOutSchema(Schema):
 
 
 class UserLoginSchema(Schema):
-    username = String()
-    password = String()
+    username = String(required=True)
+    email = Email(required=True, validate=Length(6, 40))
+    password = String(required=True)
 
 
 class UserInSchema(Schema):

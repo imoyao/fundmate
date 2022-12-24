@@ -132,7 +132,7 @@ def test_bar(before_func):
            def test_6(self):
                print('test_2()')
        ```
-3. 用 autos 调用 fixture
+3. 用 autouse 调用 fixture
 
  fixture 装饰器有一个配置参数 autouse，默认值为 False.
  在默认状态下，可以使用上面的方式调用 fixture，当设置为 True 时，在一个 scope 内的所有测试用例都会自动调用这个 fixture. 注意上面的 scope 的参数用于控制 fixture 的作用范围，其传参可以为：
@@ -171,8 +171,10 @@ def test_bar(before_func):
 
    def test_two():
        print('in test_two()')
-   ```plain
-   正所谓能力越大，责任越大。使用该功能时需要谨慎小心并控制测试用例的范围。 比如你的所有测试用例都需要连接同一个数据库，那可以设置为 module，这样只需要连接一次数据库，对于模块内的所有测试，这样可以极大地提高运行效率。
+   ```
+
+   正所谓能力越大，责任越大。使用该功能时需要谨慎小心并控制测试用例的范围。比如你的所有测试用例都需要连接同一个数据库，那可以设置为 module，这样只需要连接一次数据库，对于模块内的所有测试，这样可以极大地提高运行效率。
+
 ::: tip
 - `usefixtures`与传`fixture`区别
 

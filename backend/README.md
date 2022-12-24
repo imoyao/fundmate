@@ -141,7 +141,7 @@ To apply the migration.
 
 For a full migration command reference, run `docker-compose run --rm manage db --help`.
 
-If you will deploy your application remotely (e.g on Heroku) you should add the `migrations` folder to version control.
+If you deploy your application remotely (e.g. on Heroku) you should add the `migrations` folder to version control.
 You can do this after `flask db migrate` by running the following commands
 
 ```bash

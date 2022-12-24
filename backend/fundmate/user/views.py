@@ -2,6 +2,7 @@
 """参考 [Flask Rest API -Part:5- Password Reset - DEV Community](
 https://dev.to/paurakhsharma/flask-rest-api-part-5-password-reset-2f2e)
 
+https://github.com/dusktreader/flask-praetorian-tutorial/blob/master/api/src/resources.py
 注册登录流程：
 1. register
 发送token到注册邮箱（要求唯一），用户点击链接回到网页，在网页上将token返回，然后激活用户
@@ -77,8 +78,8 @@ class UserDetail(MethodView):
         _user_obj = load_user(user_id)
         if _user_obj:
             abort(404, message=f"You can't patch an not exists user id {user_id}.")
-        user = User.update(**data)
-        return user
+        _user_obj.update(data)
+        return _user_obj
 
     @auth_required
     @bp.output({}, 204)  # no content
@@ -86,16 +87,18 @@ class UserDetail(MethodView):
         """删除指定用户"""
         user_obj = load_user(user_id)
         if user_obj is not None:
-            User.delete(user_obj)
+            user_obj.delete()
         return ''
 
 
 @bp.post('/register')
-@bp.input(UserInSchema())
+@bp.input(UserInSchema)
 def register(req):
     """
-    Registers a new user by parsing a POST request containing new user info and
-    dispatching an email with a registration token
+    用户注册
+
+    Registers a new user by parsing a POST request containing new user info and dispatching an email with a registration token
+
     .. example::
        $ curl http://localhost:5000/register -X POST \
          -d '{
@@ -112,7 +115,8 @@ def register(req):
     try:
         new_user = User.create(username=username, email=email, password=password)
         guard.send_registration_email(email, user=new_user)
-    except PraetorianError:
+    except PraetorianError as e:
+        logger.error(f"Couldn't send registration email: {e}")
         db.session.rollback()
 
     result = {'message': '注册激活邮件已成功发送给用户：{}'.format(new_user.username)}
@@ -123,8 +127,10 @@ def register(req):
 def confirm_and_active_account():
     """
     将register用户携带的token放到header中，然后请求完成注册
+
     Finalizes a user registration with the token that they were issued in their
     registration email
+
     .. example::
        $ curl http://localhost:5000/confirmation -X GET \
          -H "Authorization: Bearer <your_token>"
@@ -140,17 +146,17 @@ def confirm_and_active_account():
 
 
 @bp.post('/login')
-@bp.input(UserLoginSchema())
+@bp.input(UserLoginSchema(partial=True))
 def login(data):
     """
     登录功能
 
-    此处的username实为`email`或者`username`，支持用户名或者密码登录（both）
+    此处的username可以是`email`或者`username`，支持用户名和密码登录
     :param data:
     :return:
     """
     # the username can be username or email
-    user_identify = data.get('username', None)
+    user_identify = data.get('username', None) or data.get('email', None)
     password = data.get("password", None)
     try:
         user = guard.authenticate(user_identify, password)
@@ -169,12 +175,14 @@ def login(data):
 
 
 @bp.get('/refresh_token')
+@bp.doc(security='Bearer')
 def refresh_token():
     """
     刷新token
 
     Refreshes an existing JWT by creating a new one that is a copy of the old
     except that it has a refreshed access expiration.
+
     .. example::
        $ curl http://localhost:5000/refresh -X GET \
          -H "Authorization: Bearer <your_token>"
@@ -192,6 +200,7 @@ def forget_password(data):
     用户忘记密码
 
     首先发送邮件给用户，确认本人操作
+
     :param data:
     :return:
     """
@@ -206,12 +215,14 @@ def forget_password(data):
 
 
 @bp.post('/reset_password')
-@bp.input(ResetPasswordSchema())
+@bp.input(ResetPasswordSchema)
+@bp.doc(security='Bearer')
 def reset_password(data):
     """
     重置密码
 
     用户点击邮箱中收到的链接，进入重置流程，输入新的密码更新用户密码
+
     :param data:
     :return:
     """
@@ -230,6 +241,7 @@ def reset_password(data):
 @bp.post('/deny')
 @auth_required
 @roles_required(ADMIN_ROLE_NAME)
+@bp.doc(security='Bearer')
 @bp.input(DenyUserSchema(partial=True))
 def disable_user(req):
     """
@@ -245,17 +257,20 @@ def disable_user(req):
     if ADMIN_ROLE_NAME in user.rolenames:
         raise ForbiddenDenyAdminError
     user.update(is_active=False)
-    return {'message': '用户 {} 已禁用。'.format(user.username)}
+    return {'message': f'用户 {user.username} 已禁用。'}
 
 
 @bp.post('/activations')
 @auth_required
 @roles_required('admin')
+@bp.doc(security='Bearer')
 @bp.input(DenyUserSchema(partial=True))
 def active_user(req):
     """
-    系统管理员禁用用户
-    Disables a user in the data store
+    系统管理员激活用户
+
+    active a user in the data store
+
     .. example::
         $ curl http://localhost:5000/disable_user -X POST \
           -H "Authorization: Bearer <your_token>" \
@@ -284,6 +299,7 @@ class UserAccounts(MethodView):
     @auth_required
     @bp.input(EmptySchema)
     @bp.output(AccountOutSchema(many=True))
+    @bp.doc(security='Bearer')
     def get(self, account_type: str):
         """获取用户账本信息
         根据类型查询自己名下的账户，账户按照类型区分：
@@ -297,8 +313,10 @@ class UserAccounts(MethodView):
             accounts = Account.query.filter_by(creator_id=user_id)
         return accounts
 
+    @auth_required
     @bp.input(CreateAccountSchema)
     @bp.output(AccountOutSchema, links=account_links)
+    @bp.doc(security='Bearer')
     def post(self, data: dict):
         """创建用户账本"""
         user = current_user()
@@ -307,6 +325,8 @@ class UserAccounts(MethodView):
         account = Account.create(**data)
         return account
 
-    def delete(self, user_id: str, fund_id: str):
+    @auth_required
+    @bp.doc(security='Bearer')
+    def delete(self, fund_id: str):
         """删除用户账本"""
         pass

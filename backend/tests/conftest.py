@@ -3,8 +3,9 @@
 该文件的作用域是它同级的文件或者文件夹，以及同级文件夹里面的文件或者目录；
 如果放到某个package下，那就在该package内及其下的目录有效。
 参考：
-https://github.com/d2verb/battery/blob/05571f6aa809af64b8e3d45483cebfe15779d48d/tests/conftest.py
-https://github.com/pallets/flask/blob/2.0.2/examples/tutorial/tests/conftest.py
+1. https://github.com/d2verb/battery/blob/05571f6aa809af64b8e3d45483cebfe15779d48d/tests/conftest.py
+2. https://github.com/pallets/flask/blob/2.0.2/examples/tutorial/tests/conftest.py
+3. https://github.com/dusktreader/flask-praetorian/blob/master/tests/conftest.py
 """
 import os
 import sqlite3
@@ -166,6 +167,7 @@ def db(app, request):  # noqa:F811
     def teardown():
         _db.session.remove()
         _db.drop_all()
+        _db.session.commit()
         os.unlink(test_db_path)
 
     _db.app = app
@@ -194,12 +196,11 @@ def session(db, request):
     return session
 
 
-@pytest.fixture(scope='session')
-def user(db):
+@pytest.fixture(scope='session', autouse=True)
+def create_test_user(db):
     """Create user for the tests."""
     # TODO: 用户密码可以放到配置文件中
-    user = UserFactory(password='test123456')
-    db.session.commit()
+    user = UserFactory(username='foo', email='foo@bar.com', password='foobar1024')
     return user
 
 
