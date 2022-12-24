@@ -196,7 +196,7 @@ def session(db, request):
     return session
 
 
-@pytest.fixture(scope='session')
+@pytest.fixture(scope='session', autouse=True)
 def create_test_user(db):
     """Create user for the tests."""
     # TODO: 用户密码可以放到配置文件中
