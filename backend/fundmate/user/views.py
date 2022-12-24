@@ -25,8 +25,6 @@ import passlib
 
 from backend.fundmate.account.models import Account
 from backend.fundmate.account.schemas import AccountOutSchema, CreateAccountSchema
-
-# from backend.fundmate.auth import auth
 from backend.fundmate.errors import AuthError, ConfirmedFirstError, ForbiddenDenyAdminError, NoLookupUserError
 from backend.fundmate.extensions import db, guard
 from backend.fundmate.exts.flask_loguru import logger
@@ -80,8 +78,8 @@ class UserDetail(MethodView):
         _user_obj = load_user(user_id)
         if _user_obj:
             abort(404, message=f"You can't patch an not exists user id {user_id}.")
-        user = User.save(data)
-        return user
+        _user_obj.update(data)
+        return _user_obj
 
     @auth_required
     @bp.output({}, 204)  # no content
@@ -89,7 +87,7 @@ class UserDetail(MethodView):
         """删除指定用户"""
         user_obj = load_user(user_id)
         if user_obj is not None:
-            User.delete(user_obj)
+            user_obj.delete()
         return ''
 
 
@@ -129,8 +127,10 @@ def register(req):
 def confirm_and_active_account():
     """
     将register用户携带的token放到header中，然后请求完成注册
+
     Finalizes a user registration with the token that they were issued in their
     registration email
+
     .. example::
        $ curl http://localhost:5000/confirmation -X GET \
          -H "Authorization: Bearer <your_token>"
@@ -146,17 +146,17 @@ def confirm_and_active_account():
 
 
 @bp.post('/login')
-@bp.input(UserLoginSchema())
+@bp.input(UserLoginSchema(partial=True))
 def login(data):
     """
     登录功能
 
-    此处的username实为`email`或者`username`，支持用户名或者密码登录（both）
+    此处的username可以是`email`或者`username`，支持用户名和密码登录
     :param data:
     :return:
     """
     # the username can be username or email
-    user_identify = data.get('username', None)
+    user_identify = data.get('username', None) or data.get('email', None)
     password = data.get("password", None)
     try:
         user = guard.authenticate(user_identify, password)
@@ -241,6 +241,7 @@ def reset_password(data):
 @bp.post('/deny')
 @auth_required
 @roles_required(ADMIN_ROLE_NAME)
+@bp.doc(security='Bearer')
 @bp.input(DenyUserSchema(partial=True))
 def disable_user(req):
     """
@@ -262,11 +263,14 @@ def disable_user(req):
 @bp.post('/activations')
 @auth_required
 @roles_required('admin')
+@bp.doc(security='Bearer')
 @bp.input(DenyUserSchema(partial=True))
 def active_user(req):
     """
-    系统管理员禁用用户
-    Disables a user in the data store
+    系统管理员激活用户
+
+    active a user in the data store
+
     .. example::
         $ curl http://localhost:5000/disable_user -X POST \
           -H "Authorization: Bearer <your_token>" \
@@ -316,6 +320,7 @@ class UserAccounts(MethodView):
     @auth_required
     @bp.input(EmptySchema)
     @bp.output(AccountOutSchema(many=True))
+    @bp.doc(security='Bearer')
     def get(self, account_type: str):
         """获取用户账本信息
         根据类型查询自己名下的账户，账户按照类型区分：
@@ -329,8 +334,10 @@ class UserAccounts(MethodView):
             accounts = Account.query.filter_by(creator_id=user_id)
         return accounts
 
+    @auth_required
     @bp.input(CreateAccountSchema)
     @bp.output(AccountOutSchema, links=account_links)
+    @bp.doc(security='Bearer')
     def post(self, data: dict):
         """创建用户账本"""
         user = current_user()
@@ -339,6 +346,8 @@ class UserAccounts(MethodView):
         account = Account.create(**data)
         return account
 
-    def delete(self, user_id: str, fund_id: str):
+    @auth_required
+    @bp.doc(security='Bearer')
+    def delete(self, fund_id: str):
         """删除用户账本"""
         pass

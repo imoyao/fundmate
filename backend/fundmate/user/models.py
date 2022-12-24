@@ -62,8 +62,7 @@ class User(PkModel, CreateDateModel):
     is_vip = Column(db.Boolean(), default=False)
     profile = Column(db.TEXT)
     is_active = db.Column(db.Boolean(), default=True, comment='是否激活可用，置为False可以禁用用户')
-    # TODO: 是否有必要，修改为modified？
-    last_login = Column(db.TIMESTAMP, nullable=False, server_default=db.func.now(), onupdate=datetime.datetime.now)
+    last_modify = Column(db.TIMESTAMP, nullable=False, server_default=db.func.now(), onupdate=datetime.datetime.now)
     roles = relationship("Role", secondary=user_role_table, back_populates="user")
 
     def __init__(self, **kwargs) -> None:
