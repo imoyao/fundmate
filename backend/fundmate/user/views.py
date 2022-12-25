@@ -71,7 +71,7 @@ class UserDetail(MethodView):
         return user_obj
 
     @auth_required
-    @bp.input(UserInSchema(partial=True))
+    @bp.input(UserInSchema)
     @bp.output(UserOutSchema)
     def patch(self, user_id: str, data: dict) -> User:
         """更新指定用户信息"""
@@ -124,12 +124,21 @@ def register(req):
 
 
 @bp.get('/confirmation')
+@auth_required
+@bp.doc(security='Bearer')
 def confirm_and_active_account():
     """
     将register用户携带的token放到header中，然后请求完成注册
 
     Finalizes a user registration with the token that they were issued in their
     registration email
+
+    基本流程如下：
+    1. 用户注册之后向注册邮箱发送确认邮件
+    2. 用户点击或访问链接进入站内
+    3. 解析用户get请求带的参数，将token放到headers中
+    4. 请求该接口，验证token，如果通过则验证确认并激活用户
+    5. 完成注册流程
 
     .. example::
        $ curl http://localhost:5000/confirmation -X GET \
@@ -146,7 +155,7 @@ def confirm_and_active_account():
 
 
 @bp.post('/login')
-@bp.input(UserLoginSchema(partial=True))
+@bp.input(UserLoginSchema)
 def login(data):
     """
     登录功能
@@ -242,7 +251,7 @@ def reset_password(data):
 @auth_required
 @roles_required(ADMIN_ROLE_NAME)
 @bp.doc(security='Bearer')
-@bp.input(DenyUserSchema(partial=True))
+@bp.input(DenyUserSchema)
 def disable_user(req):
     """
     管理员禁用用户
@@ -262,9 +271,9 @@ def disable_user(req):
 
 @bp.post('/activations')
 @auth_required
-@roles_required('admin')
+@roles_required(ADMIN_ROLE_NAME)
 @bp.doc(security='Bearer')
-@bp.input(DenyUserSchema(partial=True))
+@bp.input(DenyUserSchema)
 def active_user(req):
     """
     系统管理员激活用户

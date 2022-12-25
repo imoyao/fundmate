@@ -140,7 +140,7 @@ class AuthActions:
         :param password:
         :return:
         """
-        return self._client.post("/auth/login", data={"username": username, "password": password})
+        return self._client.post("/login", data={"username": username, "password": password})
 
     def logout(self):
         """
