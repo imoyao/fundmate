@@ -30,7 +30,7 @@ class UserLoginSchema(Schema):
     email = Email(validate=Length(6, 40))
     password = String(required=True)
 
-    @validates_schema
+    @validates_schema(skip_on_field_errors=False)
     def validate_username_or_email_at_least(
             self,
             data: (typing.Mapping[str, typing.Any] | typing.Iterable[typing.Mapping[str, typing.Any]]),
@@ -43,6 +43,12 @@ class UserLoginSchema(Schema):
 
         validates(field_name): to register a method to validate a specified field
         validates_schema: to register a method to validate the whole schema
+
+        **note**
+        When using the validates_schema, notice the skip_on_field_errors is set to True as default:
+
+        If skip_on_field_errors=True, this validation method will be skipped whenever validation errors
+         have been detected when validating fields.
 
         see also:
         1. https://github.com/marshmallow-code/marshmallow/issues/675
@@ -61,7 +67,8 @@ class UserLoginSchema(Schema):
 class UserInSchema(Schema):
     username = String(validate=Length(3, 25))
     email = Email(validate=Length(6, 40))
-    password = String(required=True, validate=And(Length(6, 40), Regexp(settings.PASSWORD_REG)))
+    password = String(required=True,
+                      validate=And(Length(6, 40), Regexp(settings.PASSWORD_REG, error='请提高密码复杂度洁后重试。')))
 
     # kwargs:[TypeError: pre_load() got an unexpected keyword argument 'many' · Issue #1630 ·
     # marshmallow-code/marshmallow](https://github.com/marshmallow-code/marshmallow/issues/1630)
@@ -76,7 +83,7 @@ class UserInSchema(Schema):
             raise ValidationError("该邮箱已经注册，请检查收件箱或者尝试重新找回密码。")
         return data
 
-    @validates_schema
+    @validates_schema(skip_on_field_errors=False)
     def validate_username_or_email_at_least(
             self,
             data: (typing.Mapping[str, typing.Any] | typing.Iterable[typing.Mapping[str, typing.Any]]),
@@ -102,7 +109,7 @@ class DenyUserSchema(Schema):
     email = Email(required=True)
     username = String(required=True)
 
-    @validates_schema
+    @validates_schema(skip_on_field_errors=False)
     def validate_username_or_email_at_least(
             self,
             data: (typing.Mapping[str, typing.Any] | typing.Iterable[typing.Mapping[str, typing.Any]]),

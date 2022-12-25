@@ -111,20 +111,18 @@ def register(req):
     email = req.get('email', None)
     password = req.get('password', None)
     # FIXME: 测试环境使用国内邮箱即可，生产环境需要用 SendGrid 等专用平台，否则会限额，无法使用
-    new_user = None
     try:
         new_user = User.create(username=username, email=email, password=password)
         guard.send_registration_email(email, user=new_user)
+        result = {'message': '注册激活邮件已成功发送给用户：{}'.format(new_user.username)}
     except PraetorianError as e:
         logger.error(f"Couldn't send registration email: {e}")
         db.session.rollback()
-
-    result = {'message': '注册激活邮件已成功发送给用户：{}'.format(new_user.username)}
+        result = {'message': f'用户 {username} 注册失败。'}
     return result
 
 
 @bp.get('/confirmation')
-@auth_required
 @bp.doc(security='Bearer')
 def confirm_and_active_account():
     """

@@ -386,6 +386,7 @@ class SupportInvestCategoriesEnum(BaseTypeEnum):
 - Can contain special characters
 """
 PASSWORD_REG = r'^(?=.*\d)(?=.*[a-z])(?=.*[a-zA-Z]).{6,}$'
+
 """flask-praetorian 相关配置项"""
 
 SITE_NAME = env.str('SITE_NAME', default='你的网站名称')

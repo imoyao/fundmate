@@ -166,7 +166,7 @@ class User(PkModel, CreateDateModel):
         return cls.query.filter(or_(cls.username == user_unique, cls.email == user_unique)).one_or_none()
 
     @classmethod
-    def identify(cls, identify):
+    def identify(cls, id):
         """
         *Required Method*
 
@@ -174,7 +174,7 @@ class User(PkModel, CreateDateModel):
         class method that takes a single ``id`` argument and returns user instance if
         there is one that matches or ``None`` if there is not.
         """
-        return cls.query.get(identify)
+        return cls.query.get(id)
 
     # def is_valid(self):
     #     return self.is_active
