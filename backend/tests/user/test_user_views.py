@@ -10,7 +10,7 @@ from flask_praetorian.constants import IS_REGISTRATION_TOKEN_CLAIM, AccessType
 
 import pytest
 
-from backend.fundmate.errors import ConfirmedFirstError, StatusCodeError
+from backend.fundmate.errors import ConfirmedFirstError, NoLookupUserError, StatusCodeError
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.user.models import User
 
@@ -124,6 +124,8 @@ def test_confirm_and_active_account(app, client, default_guard, mail, data, requ
     ({'username': 'test_foo', 'password': 'foobar2000', 'email': 'test_foo@bar.com'})])
 def test_login(app, client, default_guard, mail, data, request):
     email = data.get('email')
+
+    # 注册流程
     result = client.post("users/register", json=data)
     assert result
     assert result.status_code == 200
@@ -143,6 +145,7 @@ def test_login(app, client, default_guard, mail, data, request):
     assert msg == ConfirmedFirstError.message
     assert error_code == StatusCodeError.CONFIRMED_FIRST_ERR.code
 
+    # 确认流程
     with app.mail.record_messages():
         notify = default_guard.send_registration_email(
             email,
@@ -158,6 +161,7 @@ def test_login(app, client, default_guard, mail, data, request):
     after_confirm_user_inst = User.lookup(email)
     assert after_confirm_user_inst.is_confirmed
 
+    # 登录流程
     # 测试错误密码登录
     login_with_error_pw = copy.deepcopy(data)
     login_with_error_pw['password'] = '_hack' + data.get('password')
@@ -174,12 +178,11 @@ def test_login(app, client, default_guard, mail, data, request):
     assert 'access_token' not in error_resp
     assert 'message' in error_resp
     assert 'error_code' in error_resp
-    assert 'extra_msg' in error_resp
     error_msg = error_resp.get('message')
     error_code = error_resp.get('error_code')
     assert error_msg
-    assert error_msg == StatusCodeError.PRAETORIAN_ERROR.msg
-    assert error_code == StatusCodeError.PRAETORIAN_ERROR.code
+    assert error_msg == NoLookupUserError.message
+    assert error_code == StatusCodeError.NO_LOOKUP_USER_ERR.code
 
     # 测试用户名登录
     login_with_username = {'username': data.get('username'), 'password': data.get('password')}
@@ -191,7 +194,6 @@ def test_login(app, client, default_guard, mail, data, request):
     login_with_email = {'email': data.get('email'), 'password': data.get('password')}
     result2 = try_login(login_with_email)
     assert result2.status_code == 200
-    logger.info(f'{result2.json}==={result1.json}')
     assert 'access_token' in result2.json
 
     request.addfinalizer(lambda: delete_user(after_confirm_user_inst))

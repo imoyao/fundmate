@@ -164,6 +164,10 @@ def login(data):
     """
     # the username can be username or email
     user_identify = data.get('username', None) or data.get('email', None)
+    user = User.lookup(user_identify)
+    if not user:
+        raise NoLookupUserError
+
     password = data.get("password", None)
     try:
         user = guard.authenticate(user_identify, password)
@@ -178,7 +182,6 @@ def login(data):
             return result
         else:
             raise ConfirmedFirstError
-    raise NoLookupUserError
 
 
 @bp.get('/refresh_token')
