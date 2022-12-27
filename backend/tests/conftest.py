@@ -225,7 +225,8 @@ def create_test_user(db):
     """Create user for the tests."""
     # TODO: 用户密码可以放到配置文件中
     user = UserFactory(username='foo', email='foo@bar.com', password='foobar1024')
-    return user
+    yield user
+    user.delete()
 
 
 # @pytest.fixture
