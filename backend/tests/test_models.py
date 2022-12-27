@@ -7,6 +7,7 @@ from faker import Faker
 
 from backend.fundmate.user.models import Role, User
 
+from ..fundmate import settings
 from .factories import UserFactory
 
 
@@ -28,6 +29,7 @@ class TestUser:
         assert not user.created_at
         assert not user.is_admin
         assert user.is_active
+        assert user.is_confirmed
 
     @pytest.mark.create_user
     def test_get_by_id(self, user_instance):
@@ -51,7 +53,7 @@ class TestUser:
 
     def test_roles(self):
         """Add a role to a user."""
-        role = Role.create(name="admin")
+        role = Role.create(name=settings.ADMIN_ROLE_NAME)
         user = UserFactory(is_admin=True)
         user.roles.append(role)
         user.save()

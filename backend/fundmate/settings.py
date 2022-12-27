@@ -408,7 +408,6 @@ DEFAULT_RESET_SUBJECT = f'您在 {SITE_NAME} 发起重置密码请求'
 DEFAULT_CONFIRMATION_URI = 'http://localhost:5000/register-confirm'
 DEFAULT_RESET_URI = 'http://localhost:5000/reset-password'
 
-ADMIN_ROLE_NAME = 'admin'
 """
 # 好买
 年化收益率代表期间内收益率的年化值。注：区间小于1年不展示年化收益率；

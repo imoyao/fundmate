@@ -221,12 +221,15 @@ def session(db, request):
 
 
 @pytest.fixture(scope='session', autouse=True)
-def create_test_user(db):
+def create_test_user(app, db):
     """Create user for the tests."""
-    # TODO: 用户密码可以放到配置文件中
-    user = UserFactory(username='foo', email='foo@bar.com', password='foobar1024')
+    _test_mail = app.config.get('TEST_EMAIL')
+    user = UserFactory(username=app.config.get('TEST_USERNAME'), email=_test_mail,
+                       password=app.config.get('TEST_PASSWORD'))
     yield user
-    user.delete()
+    user = User.lookup(_test_mail)
+    if user:
+        user.delete()
 
 
 # @pytest.fixture

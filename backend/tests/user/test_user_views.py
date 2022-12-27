@@ -123,17 +123,20 @@ def test_confirm_and_active_account(app, client, default_guard, mail, data, requ
 @pytest.mark.parametrize('data', [
     ({'username': 'test_foo', 'password': 'foobar2000', 'email': 'test_foo@bar.com'})])
 def test_login(app, client, default_guard, mail, data, request):
+    data = {'username': app.config.get('TEST_USERNAME'), 'password': app.config.get('TEST_PASSWORD'),
+            'email': app.config.get('TEST_EMAIL')}
     email = data.get('email')
-
-    # 注册流程
-    result = client.post("users/register", json=data)
-    assert result
-    assert result.status_code == 200
-    before_confirm_user_inst = User.lookup(email)
 
     def try_login(login_data):
         _result = client.post("users/login", json=login_data)
         return _result
+
+    user_inst = User.lookup(email)
+    assert user_inst.is_confirmed
+
+    # 将用户置为未确认
+    user_inst.update(is_confirmed=False)
+    assert not user_inst.is_confirmed
 
     # 测试未确认邮件登录
     result = try_login(data)
@@ -145,21 +148,9 @@ def test_login(app, client, default_guard, mail, data, request):
     assert msg == ConfirmedFirstError.message
     assert error_code == StatusCodeError.CONFIRMED_FIRST_ERR.code
 
-    # 确认流程
-    with app.mail.record_messages():
-        notify = default_guard.send_registration_email(
-            email,
-            user=before_confirm_user_inst,
-            confirmation_sender=app.config['PRAETORIAN_CONFIRMATION_SENDER'],
-        )
-        token = notify.get("token")
-    _headers = {'Content-Type': 'application/x-www-form-urlencoded',
-                'Authorization': "Bearer " + token}
-    result = client.get("users/confirmation", headers=_headers)
-    assert result.status_code == 200
-
-    after_confirm_user_inst = User.lookup(email)
-    assert after_confirm_user_inst.is_confirmed
+    # 置为确认
+    user_inst.update(is_confirmed=True)
+    assert user_inst.is_confirmed
 
     # 登录流程
     # 测试错误密码登录
@@ -196,4 +187,4 @@ def test_login(app, client, default_guard, mail, data, request):
     assert result2.status_code == 200
     assert 'access_token' in result2.json
 
-    request.addfinalizer(lambda: delete_user(after_confirm_user_inst))
+    request.addfinalizer(lambda: delete_user(user_inst))
