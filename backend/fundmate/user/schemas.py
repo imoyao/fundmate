@@ -64,11 +64,13 @@ class UserLoginSchema(Schema):
             raise ValidationError('username or email at least one is required.')
 
 
+password_validation = And(Length(6, 40), Regexp(settings.PASSWORD_REG, error='请提高密码复杂度洁后重试。'))
+
+
 class UserInSchema(Schema):
     username = String(validate=Length(3, 25))
     email = Email(validate=Length(6, 40))
-    password = String(required=True,
-                      validate=And(Length(6, 40), Regexp(settings.PASSWORD_REG, error='请提高密码复杂度洁后重试。')))
+    password = String(required=True, validate=password_validation)
 
     # kwargs:[TypeError: pre_load() got an unexpected keyword argument 'many' · Issue #1630 ·
     # marshmallow-code/marshmallow](https://github.com/marshmallow-code/marshmallow/issues/1630)
@@ -127,4 +129,4 @@ class DenyUserSchema(Schema):
 
 
 class ResetPasswordSchema(Schema):
-    password = String(required=True, validate=And(Length(6, 40), Regexp(settings.PASSWORD_REG)))
+    password = String(required=True, validate=password_validation)
