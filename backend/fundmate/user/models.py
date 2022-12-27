@@ -100,7 +100,7 @@ class User(PkModel, CreateDateModel):
     @classmethod
     def get_admin(cls):
         """Get the admin user. The only one will be returned."""
-        rv: Optional[User] = cls.query.filter_by(is_admin=True).first()
+        rv: Optional[User] = cls.query.filter_by(is_admin=True).one_or_none()
         return rv
 
     @classmethod
@@ -125,7 +125,7 @@ class User(PkModel, CreateDateModel):
                 rv = cls.lookup(identity)
                 rv.update(is_admin=True, is_vip=True, **kwargs)
             if settings.ADMIN_ROLE_NAME not in rv.rolenames:
-                role_inst = Role.query.filter_by(name=settings.ADMIN_ROLE_NAME).first()
+                role_inst = Role.query.filter_by(name=settings.ADMIN_ROLE_NAME).one_or_none()
                 if not role_inst:
                     role_inst = Role.create(name=settings.ADMIN_ROLE_NAME)
 

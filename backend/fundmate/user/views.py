@@ -204,7 +204,7 @@ def refresh_token():
 
 
 @bp.post('/forget_password')
-@bp.input(ForgetPasswordSchema())
+@bp.input(ForgetPasswordSchema)
 def forget_password(data):
     """
     用户忘记密码

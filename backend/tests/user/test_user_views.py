@@ -6,7 +6,7 @@
 """
 import copy
 
-from flask_praetorian.constants import IS_REGISTRATION_TOKEN_CLAIM, AccessType
+from flask_praetorian.constants import IS_REGISTRATION_TOKEN_CLAIM, IS_RESET_TOKEN_CLAIM, AccessType
 
 import pytest
 
@@ -120,9 +120,7 @@ def test_confirm_and_active_account(app, client, default_guard, mail, data, requ
     request.addfinalizer(lambda: delete_user(after_confirm_user_inst))
 
 
-@pytest.mark.parametrize('data', [
-    ({'username': 'test_foo', 'password': 'foobar2000', 'email': 'test_foo@bar.com'})])
-def test_login(app, client, default_guard, mail, data, request):
+def test_login(app, client, default_guard, mail, request):
     data = {'username': app.config.get('TEST_USERNAME'), 'password': app.config.get('TEST_PASSWORD'),
             'email': app.config.get('TEST_EMAIL')}
     email = data.get('email')
@@ -188,3 +186,51 @@ def test_login(app, client, default_guard, mail, data, request):
     assert 'access_token' in result2.json
 
     request.addfinalizer(lambda: delete_user(user_inst))
+
+
+@pytest.mark.parametrize('data', [
+    ({'email': 'foo@bar.com'}),
+    ({'email': 'foo1@bar1.com'}),
+    ({'username': 'foo', 'email': 'foo@bar.com'}),
+    ({'username': 'test_foo', 'password': 'foobar2000'}),
+])
+def test_send_forget_password(app, client, default_guard, mail, data):
+    result = client.post("users/forget_password", json=data)
+    assert result
+    user = User.lookup(data.get('email'))
+    if user and len(data) == 1:
+        assert result.status_code == 200
+        with app.mail.record_messages() as outbox:
+            # test a good username
+            notify = default_guard.send_reset_email(
+                email=user.email,
+                reset_sender=app.config['PRAETORIAN_CONFIRMATION_SENDER'],
+            )
+            token = notify["token"]
+
+            # test our own interpretation and what we got back from flask_mail
+            assert token in notify["message"]
+            assert notify["message"] == outbox[0].html
+
+            assert not notify["result"]
+
+        # test our token is good
+        jwt_data = default_guard.extract_jwt_token(
+            notify["token"],
+            access_type=AccessType.reset,
+        )
+        assert jwt_data[IS_RESET_TOKEN_CLAIM]
+
+        validated_user = default_guard.validate_reset_token(token)
+        assert validated_user == user
+        # request.addfinalizer(lambda: delete_user(user))
+    else:
+        logger.info(f'{result.status_code}')
+        # 请求参数不对
+        if result.status_code == 400:
+            if len(data) == 1 and data.get('email'):
+                resp = result.json
+                error_code = resp.get('error_code')
+                msg = resp.get('message')
+                assert msg == NoLookupUserError.message
+                assert error_code == StatusCodeError.NO_LOOKUP_USER_ERR.code
