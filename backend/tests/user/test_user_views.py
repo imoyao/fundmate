@@ -23,6 +23,12 @@ def delete_user(user_inst):
     user_inst.delete()
 
 
+def make_header(token):
+    _headers = {'Content-Type': 'application/json',
+                'Authorization': "Bearer " + token}
+    return _headers
+
+
 def test_get_user(app, client):
     rv = client.get('users/')
     assert rv.status_code == 200
@@ -56,7 +62,6 @@ def test_get_user(app, client):
      )])
 def test_register(app, client, data, resp_body, request):
     result = client.post("users/register", json=data)
-    logger.info(result.json)
     assert result
     if data.get('username') == 'foo' or data.get('email') == 'foo@bar.com':
         assert result.status_code == 400
@@ -94,21 +99,20 @@ def test_confirm_and_active_account(app, client, default_guard, mail, data, requ
             user=before_confirm_user_inst,
             confirmation_sender=app.config['PRAETORIAN_CONFIRMATION_SENDER'],
         )
-        token = notify.get("token")
+        confirm_token = notify.get("token")
         # test our own interpretation and what we got back from flask_mail
         msg = notify.get("message")
-        assert token in msg
+        assert confirm_token in msg
         assert msg == outbox[0].html
         assert not notify.get("result")
 
     # test our token is good
     jwt_data = default_guard.extract_jwt_token(
-        token,
+        confirm_token,
         access_type=AccessType.register,
     )
     assert jwt_data.get(IS_REGISTRATION_TOKEN_CLAIM)
-    _headers = {'Content-Type': 'application/json',
-                'Authorization': "Bearer " + token}
+    _headers = make_header(confirm_token)
     result = client.get("users/confirmation", headers=_headers)
     assert result.status_code == 200
 
@@ -117,7 +121,6 @@ def test_confirm_and_active_account(app, client, default_guard, mail, data, requ
     assert after_confirm_user_inst.is_active
     json_result = result.json
     assert json_result
-    logger.info(json_result)
     assert 'access_token' in json_result
     # addfinalizer 函数传参：https://stackoverflow.com/a/72184887
     request.addfinalizer(lambda: delete_user(after_confirm_user_inst))
@@ -159,7 +162,6 @@ def test_login(app, client, default_guard, mail, request):
     login_with_error_pw['password'] = '_hack' + data.get('password')
     error_result = try_login(login_with_error_pw)
     assert error_result.status_code != 200
-    logger.info(error_result.json)
     assert 'access_token' not in error_result.json
 
     # 测试错误认证信息登录
@@ -227,7 +229,6 @@ def test_send_forget_password(app, client, default_guard, mail, data):
         validated_user = default_guard.validate_reset_token(token)
         assert validated_user == user
     else:
-        logger.info(f'{result.status_code}')
         # 请求参数不对
         if result.status_code == 400:
             if len(data) == 1 and data.get('email'):
@@ -260,22 +261,21 @@ def test_reset_password(app, client, default_guard, request):
         email=user.email,
         reset_sender="you@whatever.com",
     )
-    token = notify["token"]
-    _headers = {'Content-Type': 'application/json',
-                'Authorization': "Bearer " + token}
+    _reset_token = notify["token"]
 
-    def try_reset_pw(reset_data, headers):
+    def try_reset_pw(reset_data, reset_token):
         """
         封装重置请求
         :param reset_data:
-        :param headers:
+        :param reset_token:
         :return:
         """
-        _result = client.post("users/reset_password", json=reset_data, headers=headers)
+        _headers = make_header(reset_token)
+        _result = client.post("users/reset_password", json=reset_data, headers=_headers)
         return _result
 
     data = {'password': '123456'}
-    result = try_reset_pw(data, _headers)
+    result = try_reset_pw(data, _reset_token)
     resp = result.json
     assert result
     assert result.status_code == 400
@@ -283,8 +283,7 @@ def test_reset_password(app, client, default_guard, request):
     # 更新密码之后登录
     new_pw = faker.password()
     new_pw_data = {'password': new_pw}
-    logger.info(f'{(new_pw_data, _headers)}')
-    result_success = try_reset_pw(new_pw_data, _headers)
+    result_success = try_reset_pw(new_pw_data, _reset_token)
     assert result_success
     assert result_success.status_code == 200
     resp_success_resp = result_success.json
@@ -295,19 +294,16 @@ def test_reset_password(app, client, default_guard, request):
     # 新密码登录通过
     with_new_pw_user = default_guard.authenticate(username, new_pw_data.get('password'))
     assert with_new_pw_user
-    # 删除用户
+    # 删除用户 FIXME: 为什么用户删除了还可以继续查询到？
     request.addfinalizer(lambda: delete_user(with_new_pw_user))
+    request.addfinalizer(lambda: delete_user(user))
+    del_user = User.lookup(username)
+    logger.info(del_user.username)
+    assert del_user.username
 
 
-def make_header(token):
-    _headers = {'Content-Type': 'application/json',
-                'Authorization': "Bearer " + token}
-    return _headers
-
-
-def test_disable_user(app, client, default_guard):
-    email = app.config.get('TEST_EMAIL')
-    user = User.lookup(email)
+def test_disable_user(app, client, default_guard, request):
+    user = UserFactory()
     assert user
     assert not user.is_admin
 
@@ -322,7 +318,6 @@ def test_disable_user(app, client, default_guard):
         'username': user.username
     }
     deny_not_admin_result = try_disable(by_username, token)
-    logger.info(f'00000----{deny_not_admin_result.json}')
     not_admin_by_username_resp = deny_not_admin_result.json
     assert deny_not_admin_result.status_code == 403
     assert 'admin' in not_admin_by_username_resp.get('extra_msg')
@@ -334,7 +329,6 @@ def test_disable_user(app, client, default_guard):
     # 设置用户为admin之后禁用自身
     admin_self_deny_result = try_disable(by_username, admin_token)
     is_admin_self_deny_by_username_resp = admin_self_deny_result.json
-    logger.info(f'111111{is_admin_self_deny_by_username_resp}')
     is_admin_self_deny_msg = is_admin_self_deny_by_username_resp.get('message')
     is_admin_self_deny_error_code = is_admin_self_deny_by_username_resp.get('error_code')
     assert is_admin_self_deny_msg
@@ -351,7 +345,6 @@ def test_disable_user(app, client, default_guard):
     assert not_admin_deny_result.status_code == 403
     # admin禁用普通用户
     is_admin_deny_result = try_disable(deny_bad_user_info, admin_token)
-    # is_admin_deny_resp = is_admin_deny_result.json
     assert is_admin_deny_result.status_code == 200
     assert not bad_user.is_active
     # 重新激活
@@ -365,3 +358,6 @@ def test_disable_user(app, client, default_guard):
     is_admin_deny_email_result = try_disable(deny_bad_user_email_info, admin_token)
     assert is_admin_deny_email_result.status_code == 200
     assert not bad_user.is_active
+    # 删除测试用户
+    request.addfinalizer(lambda: delete_user(bad_user))
+    request.addfinalizer(lambda: delete_user(user))
