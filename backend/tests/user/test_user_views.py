@@ -12,7 +12,7 @@ from flask_praetorian.exceptions import AuthenticationError
 import pytest
 from faker import Faker
 
-from backend.fundmate.errors import ConfirmedFirstError, NoLookupUserError, StatusCodeError
+from backend.fundmate.errors import ConfirmedFirstError, ForbiddenDenyAdminError, NoLookupUserError, StatusCodeError
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.user.models import User
 from backend.tests.factories import UserFactory
@@ -297,3 +297,71 @@ def test_reset_password(app, client, default_guard, request):
     assert with_new_pw_user
     # 删除用户
     request.addfinalizer(lambda: delete_user(with_new_pw_user))
+
+
+def make_header(token):
+    _headers = {'Content-Type': 'application/json',
+                'Authorization': "Bearer " + token}
+    return _headers
+
+
+def test_disable_user(app, client, default_guard):
+    email = app.config.get('TEST_EMAIL')
+    user = User.lookup(email)
+    assert user
+    assert not user.is_admin
+
+    def try_disable(deny_data, deny_token):
+        headers = make_header(deny_token)
+        _result = client.post("users/deny", json=deny_data, headers=headers)
+        return _result
+
+    # 未设置为admin的用户禁用自身
+    token = default_guard.encode_jwt_token(user)
+    by_username = {
+        'username': user.username
+    }
+    deny_not_admin_result = try_disable(by_username, token)
+    logger.info(f'00000----{deny_not_admin_result.json}')
+    not_admin_by_username_resp = deny_not_admin_result.json
+    assert deny_not_admin_result.status_code == 403
+    assert 'admin' in not_admin_by_username_resp.get('extra_msg')
+
+    user.set_admin(user.username)
+    assert user.is_admin
+    # 重新获取token
+    admin_token = default_guard.encode_jwt_token(user)
+    # 设置用户为admin之后禁用自身
+    admin_self_deny_result = try_disable(by_username, admin_token)
+    is_admin_self_deny_by_username_resp = admin_self_deny_result.json
+    logger.info(f'111111{is_admin_self_deny_by_username_resp}')
+    is_admin_self_deny_msg = is_admin_self_deny_by_username_resp.get('message')
+    is_admin_self_deny_error_code = is_admin_self_deny_by_username_resp.get('error_code')
+    assert is_admin_self_deny_msg
+    assert is_admin_self_deny_msg == ForbiddenDenyAdminError.message
+    assert is_admin_self_deny_error_code == StatusCodeError.FORBIDDEN_DENY_ADMIN_ERR.code
+
+    bad_user = UserFactory()
+    assert bad_user.is_active
+    deny_bad_user_info = {
+        'username': bad_user.username
+    }
+    # 使用普通token禁用用户
+    not_admin_deny_result = try_disable(deny_bad_user_info, token)
+    assert not_admin_deny_result.status_code == 403
+    # admin禁用普通用户
+    is_admin_deny_result = try_disable(deny_bad_user_info, admin_token)
+    # is_admin_deny_resp = is_admin_deny_result.json
+    assert is_admin_deny_result.status_code == 200
+    assert not bad_user.is_active
+    # 重新激活
+    bad_user.update(is_active=True)
+    assert bad_user.is_active
+    # 通过邮箱禁用
+    deny_bad_user_email_info = {
+        'email': bad_user.email
+    }
+    # admin禁用普通用户
+    is_admin_deny_email_result = try_disable(deny_bad_user_email_info, admin_token)
+    assert is_admin_deny_email_result.status_code == 200
+    assert not bad_user.is_active

@@ -264,9 +264,12 @@ def disable_user(req):
     """
     user_identify = req.get('username') or req.get('email')
     user = User.lookup(user_identify)
-    if ADMIN_ROLE_NAME in user.rolenames:
-        raise ForbiddenDenyAdminError
-    user.update(is_active=False)
+    if user:
+        if ADMIN_ROLE_NAME in user.rolenames:
+            raise ForbiddenDenyAdminError
+        user.update(is_active=False)
+    else:
+        raise NoLookupUserError
     return {'message': f'用户 {user.username} 已禁用。'}
 
 
@@ -288,7 +291,10 @@ def active_user(req):
     """
     user_identify = req.get('username') or req.get('email')
     user = User.lookup(user_identify)
-    user.update(is_active=True)
+    if user:
+        user.update(is_active=True)
+    else:
+        raise NoLookupUserError
     return {'message': '用户 {} 已重新激活。'.format(user.username)}
 
 

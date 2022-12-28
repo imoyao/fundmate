@@ -108,8 +108,8 @@ class ForgetPasswordSchema(Schema):
 
 
 class DenyUserSchema(Schema):
-    email = Email(required=True)
-    username = String(required=True)
+    email = Email()
+    username = String()
 
     @validates_schema(skip_on_field_errors=False)
     def validate_username_or_email_at_least(
