@@ -5,9 +5,9 @@ import datetime as dt
 import pytest
 from faker import Faker
 
+from backend.fundmate import settings
 from backend.fundmate.user.models import Role, User
 
-from ..fundmate import settings
 from .factories import UserFactory
 
 

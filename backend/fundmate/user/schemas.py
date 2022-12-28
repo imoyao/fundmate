@@ -64,7 +64,7 @@ class UserLoginSchema(Schema):
             raise ValidationError('username or email at least one is required.')
 
 
-password_validation = And(Length(6, 40), Regexp(settings.PASSWORD_REG, error='请提高密码复杂度洁后重试。'))
+password_validation = And(Length(6, 40), Regexp(settings.PASSWORD_REG, error='请提高密码复杂度后重试。'))
 
 
 class UserInSchema(Schema):

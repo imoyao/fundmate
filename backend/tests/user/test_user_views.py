@@ -7,12 +7,15 @@
 import copy
 
 from flask_praetorian.constants import IS_REGISTRATION_TOKEN_CLAIM, IS_RESET_TOKEN_CLAIM, AccessType
+from flask_praetorian.exceptions import AuthenticationError
 
 import pytest
+from faker import Faker
 
 from backend.fundmate.errors import ConfirmedFirstError, NoLookupUserError, StatusCodeError
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.user.models import User
+from backend.tests.factories import UserFactory
 
 
 def delete_user(user_inst):
@@ -49,7 +52,7 @@ def test_get_user(app, client):
         "message": "注册激活邮件已成功发送给用户：foobar1"}
      ),
     ({'username': 'foobar2', 'password': '123456', 'email': 'foobaz1@bar.com'},
-     {'message': {'json': {'password': ['请提高密码复杂度洁后重试。']}}}
+     {'message': {'json': {'password': ['请提高密码复杂度后重试。']}}}
      )])
 def test_register(app, client, data, resp_body, request):
     result = client.post("users/register", json=data)
@@ -104,7 +107,7 @@ def test_confirm_and_active_account(app, client, default_guard, mail, data, requ
         access_type=AccessType.register,
     )
     assert jwt_data.get(IS_REGISTRATION_TOKEN_CLAIM)
-    _headers = {'Content-Type': 'application/x-www-form-urlencoded',
+    _headers = {'Content-Type': 'application/json',
                 'Authorization': "Bearer " + token}
     result = client.get("users/confirmation", headers=_headers)
     assert result.status_code == 200
@@ -175,15 +178,15 @@ def test_login(app, client, default_guard, mail, request):
 
     # 测试用户名登录
     login_with_username = {'username': data.get('username'), 'password': data.get('password')}
-    result1 = try_login(login_with_username)
-    assert result1.status_code == 200
-    assert 'access_token' in result1.json
+    result_username = try_login(login_with_username)
+    assert result_username.status_code == 200
+    assert 'access_token' in result_username.json
 
     # 测试邮箱登录
     login_with_email = {'email': data.get('email'), 'password': data.get('password')}
-    result2 = try_login(login_with_email)
-    assert result2.status_code == 200
-    assert 'access_token' in result2.json
+    result_email = try_login(login_with_email)
+    assert result_email.status_code == 200
+    assert 'access_token' in result_email.json
 
     request.addfinalizer(lambda: delete_user(user_inst))
 
@@ -223,7 +226,6 @@ def test_send_forget_password(app, client, default_guard, mail, data):
 
         validated_user = default_guard.validate_reset_token(token)
         assert validated_user == user
-        # request.addfinalizer(lambda: delete_user(user))
     else:
         logger.info(f'{result.status_code}')
         # 请求参数不对
@@ -234,3 +236,64 @@ def test_send_forget_password(app, client, default_guard, mail, data):
                 msg = resp.get('message')
                 assert msg == NoLookupUserError.message
                 assert error_code == StatusCodeError.NO_LOOKUP_USER_ERR.code
+
+
+def test_reset_password(app, client, default_guard, request):
+    """
+    测试重置密码
+    :param app:
+    :param client:
+    :param default_guard:
+    :param request:
+    :return:
+    """
+    faker = Faker()
+    pwd = faker.password()
+    user = UserFactory(password=pwd)
+    username = user.username
+    user = User.lookup(username)
+    assert user
+    user = default_guard.authenticate(username, pwd)
+    assert user
+    # 发送重置信息
+    notify = default_guard.send_reset_email(
+        email=user.email,
+        reset_sender="you@whatever.com",
+    )
+    token = notify["token"]
+    _headers = {'Content-Type': 'application/json',
+                'Authorization': "Bearer " + token}
+
+    def try_reset_pw(reset_data, headers):
+        """
+        封装重置请求
+        :param reset_data:
+        :param headers:
+        :return:
+        """
+        _result = client.post("users/reset_password", json=reset_data, headers=headers)
+        return _result
+
+    data = {'password': '123456'}
+    result = try_reset_pw(data, _headers)
+    resp = result.json
+    assert result
+    assert result.status_code == 400
+    assert resp == {'message': {'json': {'password': ['请提高密码复杂度后重试。']}}}
+    # 更新密码之后登录
+    new_pw = faker.password()
+    new_pw_data = {'password': new_pw}
+    logger.info(f'{(new_pw_data, _headers)}')
+    result_success = try_reset_pw(new_pw_data, _headers)
+    assert result_success
+    assert result_success.status_code == 200
+    resp_success_resp = result_success.json
+    assert 'access_token' in resp_success_resp
+    # 确认旧密码登录不通过
+    with pytest.raises(AuthenticationError):
+        default_guard.authenticate(username, pwd)
+    # 新密码登录通过
+    with_new_pw_user = default_guard.authenticate(username, new_pw_data.get('password'))
+    assert with_new_pw_user
+    # 删除用户
+    request.addfinalizer(lambda: delete_user(with_new_pw_user))
