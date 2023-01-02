@@ -413,6 +413,7 @@ class SupportCollectionsEnum(BaseTypeEnum):
 - Can contain special characters
 """
 PASSWORD_REG = r'^(?=.*\d)(?=.*[a-z])(?=.*[a-zA-Z]).{6,}$'
+
 """flask-praetorian 相关配置项"""
 
 SITE_NAME = env.str('SITE_NAME', default='你的网站名称')
@@ -434,7 +435,6 @@ DEFAULT_RESET_SUBJECT = f'您在 {SITE_NAME} 发起重置密码请求'
 DEFAULT_CONFIRMATION_URI = 'http://localhost:5000/register-confirm'
 DEFAULT_RESET_URI = 'http://localhost:5000/reset-password'
 
-ADMIN_ROLE_NAME = 'admin'
 """
 # 好买
 年化收益率代表期间内收益率的年化值。注：区间小于1年不展示年化收益率；

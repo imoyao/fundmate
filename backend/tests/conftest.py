@@ -11,16 +11,19 @@ import os
 import sqlite3
 
 from flask import current_app, g
+from flask_praetorian import Praetorian
 
 import pytest
 from click.testing import CliRunner
 from environs import Env as EnvParser
+from flask_mail import Mail
 
 from backend.fundmate.app import create_app
 
 # from backend.fundmate.commands import init_db
 from backend.fundmate.database import db as _db
 
+from ..fundmate.user.models import User
 from .factories import UserFactory
 
 
@@ -29,8 +32,9 @@ from .factories import UserFactory
 env = EnvParser()
 env.read_env()
 
-
 # SQL_DATA = prepare_data()
+_guard = Praetorian()
+_mail = Mail()
 
 
 def get_db():
@@ -70,6 +74,10 @@ def app(runner):
     # 默认加载基础配置
     app = create_app()
     app.config.from_object('backend.fundmate.config.TestingConfig')
+    _guard.init_app(app, User)
+
+    _mail.init_app(app)
+    app.mail = _mail
     # _app.logger.setLevel(logging.CRITICAL)
     assert app.config['DEBUG']
     assert app.config['TESTING']
@@ -125,6 +133,22 @@ def client(app, request):
     return app.test_client()
 
 
+@pytest.fixture(scope="session")
+def default_guard():
+    """
+    This fixture fetches the flask-praetorian instance to be used in testing
+    """
+    return _guard
+
+
+@pytest.fixture(scope="session")
+def mail():
+    """
+    This fixture simply fetches the db instance to be used in testing
+    """
+    return _mail
+
+
 class AuthActions:
     """
     登录与退出
@@ -140,7 +164,7 @@ class AuthActions:
         :param password:
         :return:
         """
-        return self._client.post("/auth/login", data={"username": username, "password": password})
+        return self._client.post("/login", data={"username": username, "password": password})
 
     def logout(self):
         """
@@ -197,11 +221,15 @@ def session(db, request):
 
 
 @pytest.fixture(scope='session', autouse=True)
-def create_test_user(db):
+def create_test_user(app, db):
     """Create user for the tests."""
-    # TODO: 用户密码可以放到配置文件中
-    user = UserFactory(username='foo', email='foo@bar.com', password='foobar1024')
-    return user
+    _test_mail = app.config.get('TEST_EMAIL')
+    user = UserFactory(username=app.config.get('TEST_USERNAME'), email=_test_mail,
+                       password=app.config.get('TEST_PASSWORD'))
+    yield user
+    user = User.lookup(_test_mail)
+    if user:
+        user.delete()
 
 
 # @pytest.fixture

@@ -65,7 +65,11 @@ class CRUDMixin(object):
     def delete(self, commit: bool = True):
         """Remove the record from the database."""
         db.session.delete(self)
-        return commit and db.session.commit()
+        if commit:
+            try:
+                db.session.commit()
+            except SQLAlchemyError as e:
+                logger.error(f'对象{self}删除数据出错 ERROR:{str(e)}')
 
     @classmethod
     def paginate_query(cls, query_args):

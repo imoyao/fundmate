@@ -30,6 +30,7 @@ class UserFactory(BaseFactory):
     email = Faker("email")
     password = PostGenerationMethodCall("set_password", 'example', )  # ！！！注意此处逗号
     is_active = True
+    is_confirmed = True
 
     class Meta:
         """Factory configuration."""

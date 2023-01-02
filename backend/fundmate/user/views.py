@@ -71,7 +71,7 @@ class UserDetail(MethodView):
         return user_obj
 
     @auth_required
-    @bp.input(UserInSchema(partial=True))
+    @bp.input(UserInSchema)
     @bp.output(UserOutSchema)
     def patch(self, user_id: str, data: dict) -> User:
         """更新指定用户信息"""
@@ -111,25 +111,32 @@ def register(req):
     email = req.get('email', None)
     password = req.get('password', None)
     # FIXME: 测试环境使用国内邮箱即可，生产环境需要用 SendGrid 等专用平台，否则会限额，无法使用
-    new_user = None
     try:
         new_user = User.create(username=username, email=email, password=password)
         guard.send_registration_email(email, user=new_user)
+        result = {'message': '注册激活邮件已成功发送给用户：{}'.format(new_user.username)}
     except PraetorianError as e:
         logger.error(f"Couldn't send registration email: {e}")
         db.session.rollback()
-
-    result = {'message': '注册激活邮件已成功发送给用户：{}'.format(new_user.username)}
+        result = {'message': f'用户 {username} 注册失败。'}
     return result
 
 
 @bp.get('/confirmation')
+@bp.doc(security='Bearer')
 def confirm_and_active_account():
     """
     将register用户携带的token放到header中，然后请求完成注册
 
     Finalizes a user registration with the token that they were issued in their
     registration email
+
+    基本流程如下：
+    1. 用户注册之后向注册邮箱发送确认邮件
+    2. 用户点击或访问链接进入站内
+    3. 解析用户get请求带的参数，将token放到headers中
+    4. 请求该接口，验证token，如果通过则验证确认并激活用户
+    5. 完成注册流程
 
     .. example::
        $ curl http://localhost:5000/confirmation -X GET \
@@ -146,7 +153,7 @@ def confirm_and_active_account():
 
 
 @bp.post('/login')
-@bp.input(UserLoginSchema(partial=True))
+@bp.input(UserLoginSchema)
 def login(data):
     """
     登录功能
@@ -157,6 +164,10 @@ def login(data):
     """
     # the username can be username or email
     user_identify = data.get('username', None) or data.get('email', None)
+    user = User.lookup(user_identify)
+    if not user:
+        raise NoLookupUserError
+
     password = data.get("password", None)
     try:
         user = guard.authenticate(user_identify, password)
@@ -171,7 +182,6 @@ def login(data):
             return result
         else:
             raise ConfirmedFirstError
-    raise NoLookupUserError
 
 
 @bp.get('/refresh_token')
@@ -194,7 +204,7 @@ def refresh_token():
 
 
 @bp.post('/forget_password')
-@bp.input(ForgetPasswordSchema())
+@bp.input(ForgetPasswordSchema)
 def forget_password(data):
     """
     用户忘记密码
@@ -242,7 +252,7 @@ def reset_password(data):
 @auth_required
 @roles_required(ADMIN_ROLE_NAME)
 @bp.doc(security='Bearer')
-@bp.input(DenyUserSchema(partial=True))
+@bp.input(DenyUserSchema)
 def disable_user(req):
     """
     管理员禁用用户
@@ -254,17 +264,20 @@ def disable_user(req):
     """
     user_identify = req.get('username') or req.get('email')
     user = User.lookup(user_identify)
-    if ADMIN_ROLE_NAME in user.rolenames:
-        raise ForbiddenDenyAdminError
-    user.update(is_active=False)
+    if user:
+        if ADMIN_ROLE_NAME in user.rolenames:
+            raise ForbiddenDenyAdminError
+        user.update(is_active=False)
+    else:
+        raise NoLookupUserError
     return {'message': f'用户 {user.username} 已禁用。'}
 
 
 @bp.post('/activations')
 @auth_required
-@roles_required('admin')
+@roles_required(ADMIN_ROLE_NAME)
 @bp.doc(security='Bearer')
-@bp.input(DenyUserSchema(partial=True))
+@bp.input(DenyUserSchema)
 def active_user(req):
     """
     系统管理员激活用户
@@ -278,7 +291,10 @@ def active_user(req):
     """
     user_identify = req.get('username') or req.get('email')
     user = User.lookup(user_identify)
-    user.update(is_active=True)
+    if user:
+        user.update(is_active=True)
+    else:
+        raise NoLookupUserError
     return {'message': '用户 {} 已重新激活。'.format(user.username)}
 
 
