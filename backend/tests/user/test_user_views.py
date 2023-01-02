@@ -9,6 +9,8 @@ import copy
 from flask_praetorian.constants import IS_REGISTRATION_TOKEN_CLAIM, IS_RESET_TOKEN_CLAIM, AccessType
 from flask_praetorian.exceptions import AuthenticationError
 
+import pendulum
+import plummet as plummet
 import pytest
 from faker import Faker
 
@@ -191,6 +193,35 @@ def test_login(app, client, default_guard, mail, request):
     assert 'access_token' in result_email.json
 
     request.addfinalizer(lambda: delete_user(user_inst))
+
+
+def test_refresh_token(app, client, default_guard):
+    username = app.config.get('TEST_USERNAME')
+    password = app.config.get('TEST_PASSWORD')
+    user = default_guard.authenticate(username, password)
+    assert user
+    token = default_guard.encode_jwt_token(user)
+    _headers = make_header(token)
+
+    def refresh(_headers):
+        result = client.get("users/refresh_token", headers=_headers)
+        return result
+    # 直接刷新返回425
+    result_425 = refresh(_headers)
+    assert result_425
+    assert result_425.status_code == 425
+    # 时间推迟60min之后继续425
+    now = pendulum.now()
+    add_60m_day = now.add(minutes=60).to_datetime_string()
+    with plummet.frozen_time(add_60m_day):
+        result_200 = refresh(_headers)
+        assert result_200.status_code == 425
+    # 时间推迟1天之后token过期，token刷新
+    add_1d_day = now.add(days=1).to_datetime_string()
+    with plummet.frozen_time(add_1d_day):
+        result_200 = refresh(_headers)
+        assert result_200.status_code == 200
+        assert 'access_token' in result_200.json
 
 
 @pytest.mark.parametrize('data', [
