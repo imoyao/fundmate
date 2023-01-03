@@ -31,7 +31,7 @@ class CollectionsView(MethodView):
     @auth_required
     @bp.input(QueryCollectionsSchema, 'query')
     @bp.output(CollectionsOutSchema)
-    @bp.doc(security='ApiKeyAuth')
+    @bp.doc(security='Bearer')
     def get(self, query: Dict):
         """
         获取自选信息
@@ -59,7 +59,7 @@ class CollectionsView(MethodView):
     @auth_required
     @bp.input(CreateCollectionSchema)
     @bp.output(NewCollectionOutSchema)
-    @bp.doc(security='ApiKeyAuth')
+    @bp.doc(security='Bearer')
     def post(self, data: Dict):
         """
         用户添加自选
@@ -74,7 +74,7 @@ class CollectionsView(MethodView):
     @auth_required
     @bp.input(DeleteCollectionSchema)
     @bp.output({}, 204)
-    @bp.doc(security='ApiKeyAuth')
+    @bp.doc(security='Bearer')
     def delete(self, data: Dict):
         """用户删除自选"""
         pass
