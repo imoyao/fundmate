@@ -107,6 +107,7 @@ class InvestProductView(MethodView):
 class ImportDealingDocuments(MethodView):
 
     @auth_required
+    @bp.doc(security='Bearer')
     @bp.output(AccountOutSchema)
     def post(self, data: dict):
         """

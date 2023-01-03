@@ -25,15 +25,71 @@ title:标记(mark)
 
 1.  可以标记测试方法、测试类，标记名可以自定义，最好起有意义的名字；
 2.  同一测试类/方法可同时拥有多个标记；
+   ```python
+   # test_login_logout.py
 
-    # test_login_logout.py import pytest  @pytest.mark.loginclass TestLogin:    """登陆功能测试类"""     @pytest.mark.smoke    @pytest.mark.success    def test_login_sucess(self):        """登陆成功"""         # 实现登陆逻辑        pass     @pytest.mark.failed    def test_login_failed(self):        """登陆失败"""         # 实现登陆逻辑        pass  @pytest.mark.logoutclass TestLogout:    """登出功能测试类"""     @pytest.mark.smoke    @pytest.mark.success    def test_logout_sucess(self):        """登出成功"""         # 实现登出功能        pass     @pytest.mark.failed    def test_logout_failed(self):        """登出失败"""         # 实现登出功能        pass
+   import pytest
 
+
+   @pytest.mark.login
+   class TestLogin:
+       """登陆功能测试类"""
+
+       @pytest.mark.smoke
+       @pytest.mark.success
+       def test_login_sucess(self):
+           """登陆成功"""
+
+           # 实现登陆逻辑
+           pass
+
+       @pytest.mark.failed
+       def test_login_failed(self):
+           """登陆失败"""
+
+           # 实现登陆逻辑
+           pass
+
+
+   @pytest.mark.logout
+   class TestLogout:
+       """登出功能测试类"""
+
+       @pytest.mark.smoke
+       @pytest.mark.success
+       def test_logout_sucess(self):
+           """登出成功"""
+
+           # 实现登出功能
+           pass
+
+       @pytest.mark.failed
+       def test_logout_failed(self):
+           """登出失败"""
+
+           # 实现登出功能
+           pass
+   ```
 ## 运行标记的用例：
 1.  使用 -m 参数运行标记的测试用例；
 2.  -m 参数支持 and、or 、not 等表达式；
-
-    # 运行登陆功能的用例pytest.main(['-m login'])# 运行登出功能的用例pytest.main(['-m logout'])# 运行功能成功的用例pytest.main(['-m success'])# 运行功能失败的用例pytest.main(['-m failed'])# 运行登陆功能但是不运行登陆失败的测试用例pytest.main(['-m login and not failed'])# 运行登出功能但是不运行登出成功的测试用例pytest.main(['-m logout and not success'])# 运行登陆和登出的用例pytest.main(['-m login or logout'])
-
+```python
+import pytest
+# 运行登陆功能的用例
+pytest.main(['-m login'])
+# 运行登出功能的用例
+pytest.main(['-m logout'])
+# 运行功能成功的用例
+pytest.main(['-m success'])
+# 运行功能失败的用例
+pytest.main(['-m failed'])
+# 运行登陆功能但是不运行登陆失败的测试用例
+pytest.main(['-m login and not failed'])
+# 运行登出功能但是不运行登出成功的测试用例
+pytest.main(['-m logout and not success'])
+# 运行登陆和登出的用例
+pytest.main(['-m login or logout'])
+```
 ## 注册、管理 mark 标记：
 
 当使用 -m 参数执行 mark 标记的用例时，pytest 会发出告警信息 “**PytestUnknownMarkWarning: Unknown pytest.mark.login - is this a typo? ”，**告诉你这是一个 pytest 未知的一个标记！为了消除告警，我们需要在 pytest 的配置文件中注册 mark 标记！
@@ -43,8 +99,16 @@ title:标记(mark)
 1.  首先在项目根目录创建一个文件 pytest.ini ，这个是 pytest 的配置文件；
 2.  然后在 pytest.ini 文件的 markers 中写入你的 mark 标记， 冒号 “:” 前面是标记名称，后面是 mark 标记的说明，可以是空字符串；
 3.  **注意：pytest.ini 文件中只能使用纯英文字符，绝对不能使用中文的字符（尤其是冒号和空格）！**
+```python
+# pytest.ini
 
-    # pytest.ini [pytest]markers =     login   : 'marks tests as login'    logout  : 'marks tests as logout'    success : 'marks tests as success'    failed  : 'marks tests as failed'
+[pytest]
+markers =
+    login   : 'marks tests as login'
+    logout  : 'marks tests as logout'
+    success : 'marks tests as success'
+    failed  : 'marks tests as failed'
+```
 
 ### 规范使用 mark 标记：
 

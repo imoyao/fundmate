@@ -1,0 +1,10 @@
+INSERT INTO `fund_type` (`id`, `name`, `var_id`) VALUES (1, '偏股', 1);
+INSERT INTO `fund_type` (`id`, `name`, `var_id`) VALUES (2, '可转债', 2);
+INSERT INTO `fund_type` (`id`, `name`, `var_id`) VALUES (3, '长债', 2);
+INSERT INTO `fund_type` (`id`, `name`, `var_id`) VALUES (4, '股票', 3);
+INSERT INTO `fund_type` (`id`, `name`, `var_id`) VALUES (5, '混合债', 2);
+INSERT INTO `fund_type` (`id`, `name`, `var_id`) VALUES (6, '灵活', 1);
+INSERT INTO `fund_type` (`id`, `name`, `var_id`) VALUES (7, '中短债', 2);
+INSERT INTO `fund_type` (`id`, `name`, `var_id`) VALUES (8, '偏债', 1);
+INSERT INTO `fund_type` (`id`, `name`, `var_id`) VALUES (9, '平衡', 1);
+INSERT INTO `fund_type` (`id`, `name`, `var_id`) VALUES (10, '绝对收益', 10);

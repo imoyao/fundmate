@@ -12,6 +12,7 @@ from backend.fundmate import utils
 from backend.fundmate.data.utils import base as dt_utils
 from backend.fundmate.exts.flask_loguru import logger
 
+
 url = 'https://www.jisilu.cn/data/indicator/get_last_indicator/'
 REQUEST_STR = """Accept: application/json, text/javascript, */*; q=0.01
 Accept-Encoding: gzip, deflate, br
@@ -144,8 +145,8 @@ https://www.zhihu.com/question/36938733/answer/573224207
                 return read_data
 
             return info
-        logger.warning('JSL temper get Error!')
-        raise dt_except.CrawlerException('JSL temper get Error!')
+        logger.warning('JSL temperature get Error!')
+        raise dt_except.CrawlerException('JSL temperature get Error!')
 
     def qz_info(self, is_full: bool = False, is_more: bool = False) -> dict:
         _href = 'https://www.jisilu.cn/data/indicator/'
@@ -153,13 +154,13 @@ https://www.zhihu.com/question/36938733/answer/573224207
         info = dict()
         if ov:
             update_date = ov.get('price_dt')
-            temper = ov.get('median_pb_temperature')
+            temperature = ov.get('median_pb_temperature')
             ov.update({'href': _href})
-            _data = {'update_date': update_date, 'temper': temper}
+            _data = {'update_date': update_date, 'temperature': temperature}
             if not is_full:
                 info = {'overview': _data}
             else:
-                info = {'temper': ov}
+                info = {'temperature': ov}
             if is_more:
                 _more = jsl.more_details()
                 info.update({'details': _more})

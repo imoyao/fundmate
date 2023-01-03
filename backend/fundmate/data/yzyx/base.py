@@ -4,7 +4,7 @@
 import json
 import re
 from pathlib import Path
-from typing import Union
+from typing import Dict, List, Union
 
 import pandas as pd
 from deprecated import deprecated
@@ -16,6 +16,8 @@ from backend.fundmate import utils
 from backend.fundmate.data.utils import base as dt_utils
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.libs import convert
+from backend.fundmate.types import PdDataFrame
+
 
 header_str = '''Host: youzhiyouxing.cn
 Connection: keep-alive
@@ -49,25 +51,40 @@ class YZYX:
     def __init__(self):
         self.html_fp = FILE_PATH
 
-    def get_html_text(self, json_fp=None):
-        p = Path(self.html_fp)
+    def get_html_text(self, html_fp=None, json_fp=None):
+        """
+        如果文档不存在，则去抓取并保存文件内容
+        如果存在，则判断是否过期，过期重新爬取并更新
+        否则，直接读取内容
+        :param json_fp:
+        :param html_fp:
+        :return:
+        """
+        if not html_fp:
+            html_fp = self.html_fp
+        p = Path(html_fp)
         # 文件过期则删除重爬
-        dt_utils.delete_overdue(self.html_fp, json_fp)
-
-        if not p.exists():
-            hd = dt_utils.parse_headers(header_str)
-            resp = rget(self.URL, headers=hd)
-            with open(self.html_fp, 'w') as f:
-                text = resp.text
-                f.write(text)
+        dt_utils.delete_overdue(html_fp, json_fp=json_fp)
+        do_read = False
+        if html_fp:
+            if not p.exists():
+                hd = dt_utils.parse_headers(header_str)
+                resp = rget(self.URL, headers=hd)
+                with open(html_fp, 'w') as f:
+                    text = resp.text
+                    f.write(text)
+            else:
+                do_read = True
         else:
-            with open(self.html_fp) as f:
+            do_read = True
+        if do_read:
+            with open(html_fp) as f:
                 text = f.read()
         return text
 
-    def valuations(self, is_df: bool = False) -> Union[dict, pd.DataFrame]:
+    def valuations(self, is_df: bool = False) -> Union[List[Dict], PdDataFrame]:
         """
-        指数表解析 FIXME: long time,cache this?
+        指数表解析
         """
         df_tab = pd.read_html(self.URL)
         if df_tab:
@@ -92,7 +109,7 @@ class YZYX:
             return data
 
     # @show_time
-    def daily_temper(self, is_full: bool = False) -> dict:
+    def daily_temper(self, is_minimal: bool = True, is_full: bool = False) -> dict:
         """
         新版市场温度数据
         :return:
@@ -111,16 +128,23 @@ class YZYX:
         temper_div = '//div[@class="tw-flex tw-items-center"]/div/'
         temp_path = f'{temper_div}div/text()'
         temp_text = html.xpath(temp_path)[0]
+        temp_digit = re.search(r'(\d+)', temp_text)[0]
+        temp_int = None
+        if temp_digit:
+            temp_int = int(temp_digit)
+        whole_market_temp = {'temperature': temp_int}
+        info = {'href': self.URL, 'date': update_date}
+        info.update(whole_market_temp)
+        if is_minimal:
+            return info
+
         temp_desc = f'{temper_div}div[2]/div'
         temp_desc_list = html.xpath(temp_desc)
         temp_desc = [item.text for item in temp_desc_list]
         desc_list = ['eval', 'trend']
         desc_dict = dict(zip(desc_list, temp_desc))
-        whole_market_temp = {'temper': temp_text, 'desc': desc_dict}
-        info = {
-            'date': update_date,
-            'whole_market_temper': whole_market_temp,
-        }
+        info['desc'] = desc_dict
+
         if is_full:
             # 指数观察
             _valuations = self.valuations()
@@ -161,6 +185,8 @@ class YZYX:
                 'valuations': _valuations,
                 'macro_data': macro_data,
             })
+        else:
+            info.update(whole_market_temp)
         return info
 
     @deprecated(version='1.0.0', reason='有知有行旧版网站可以直接在html中正则获取数据，网站已改版')
@@ -192,8 +218,8 @@ class YZYX:
             data = json.loads(_info)
             utils.write_json_data(data, json_fp)
             return data
-        logger.warning('YZYX temper get Error!')
-        raise dt_except.CrawlerException('YZYX temper get Error!')
+        logger.warning('Get YZYX temperature Error!')
+        raise dt_except.CrawlerException('YZYX temperature get Error!')
 
     def temp_detail(self):
         return self.daily_temp_old()[-1]

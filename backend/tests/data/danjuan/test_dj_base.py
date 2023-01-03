@@ -56,11 +56,11 @@ class TestFundFeeRatio:
     @pytest.mark.parametrize('fund_code,expected', [('007471', None),
                                                     ('163406', {
                                                         'op': [{
-                                                            'name': '基金管理费',
-                                                            'value': '1.5'
-                                                        }, {
                                                             'name': '基金托管费',
-                                                            'value': '0.25'
+                                                            'value': '0.2500'
+                                                        }, {
+                                                            'name': '基金管理费',
+                                                            'value': '1.5000'
                                                         }],
                                                         'purchase': [{
                                                             'end_quota': 500000.0,
@@ -99,14 +99,14 @@ class TestFundFeeRatio:
                                                     }),
                                                     ('007019', {
                                                         'op': [{
-                                                            'name': '基金管理费',
-                                                            'value': '0.3'
-                                                        }, {
                                                             'name': '销售服务费',
-                                                            'value': '0.35'
+                                                            'value': '0.3500'
                                                         }, {
                                                             'name': '基金托管费',
-                                                            'value': '0.1'
+                                                            'value': '0.1000'
+                                                        }, {
+                                                            'name': '基金管理费',
+                                                            'value': '0.3000'
                                                         }],
                                                         'purchase': [{
                                                             'end_quota': None,
@@ -129,11 +129,11 @@ class TestFundFeeRatio:
                                                     }),
                                                     ('000906', {
                                                         'op': [{
-                                                            'name': '基金管理费',
-                                                            'value': '1.8'
-                                                        }, {
                                                             'name': '基金托管费',
-                                                            'value': '0.35'
+                                                            'value': '0.3500'
+                                                        }, {
+                                                            'name': '基金管理费',
+                                                            'value': '1.8000'
                                                         }],
                                                         'purchase': [{
                                                             'end_quota': 200000.0,
@@ -171,13 +171,12 @@ class TestFundFeeRatio:
                                                         }]
                                                     }),
                                                     ('000507', {
-                                                        'op': [{
-                                                            'name': '基金管理费',
-                                                            'value': '0.6'
-                                                        }, {
+                                                        'op': [{'name': '销售服务费', 'value': '0.0000'}, {
                                                             'name': '基金托管费',
-                                                            'value': '0.25'
-                                                        }],
+                                                            'value': '0.2500'
+                                                        }, {'name': '基金管理费',
+                                                            'value': '0.6000'
+                                                            }],
                                                         'purchase': [{
                                                             'end_quota': 500000.0,
                                                             'rate': 1.2,
@@ -231,11 +230,11 @@ class TestFundFeeRatio:
                                                     }),
                                                     ('003663', {
                                                         'op': [{
-                                                            'name': '基金管理费',
-                                                            'value': '0.7'
-                                                        }, {
                                                             'name': '基金托管费',
-                                                            'value': '0.2'
+                                                            'value': '0.2000'
+                                                        }, {
+                                                            'name': '基金管理费',
+                                                            'value': '0.7000'
                                                         }],
                                                         'purchase': [{
                                                             'end_quota': 1000000.0,
