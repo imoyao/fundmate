@@ -11,6 +11,7 @@ from apiflask.validators import OneOf, Range
 from marshmallow.fields import List, Nested
 
 from backend.fundmate import settings
+from backend.fundmate.collection.logics import lookup_collection
 from backend.fundmate.schema_ext import CustomPaginationSchema
 
 
@@ -23,13 +24,15 @@ class QueryCollectionsSchema(Schema):
     per_page = Integer(load_default=20, validate=Range(max=30))
 
 
-def get_collection_details(identify, collect_type):
-    pass
+def get_collection_details(collect_type, identify):
+    _inst = lookup_collection(collect_type, identify)
+    if _inst:
+        pass
 
 
 class CollectionOutSchema(Schema):
     id = Integer()
-    info = Function(lambda obj: get_collection_details(obj.identify, obj.collect_type))
+    info = Function(lambda obj: get_collection_details(obj.collect_type, obj.identify))
 
 
 class CollectionsOutSchema(Schema):

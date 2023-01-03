@@ -10,6 +10,7 @@ from apiflask import APIBlueprint, abort, pagination_builder
 from flask.views import MethodView
 from flask_praetorian import auth_required, current_user
 
+from backend.fundmate.collection.logics import lookup_collection
 from backend.fundmate.collection.models import Collections
 from backend.fundmate.collection.schemas import (
     CollectionsOutSchema,
@@ -18,6 +19,7 @@ from backend.fundmate.collection.schemas import (
     NewCollectionOutSchema,
     QueryCollectionsSchema,
 )
+from backend.fundmate.errors import UnExceptCollectionType
 
 
 bp = APIBlueprint('collections', __name__, url_prefix='/collections')
@@ -28,6 +30,7 @@ class CollectionsView(MethodView):
     """
     用户自选
     """
+
     @auth_required
     @bp.input(QueryCollectionsSchema, 'query')
     @bp.output(CollectionsOutSchema)
@@ -68,8 +71,14 @@ class CollectionsView(MethodView):
         user = current_user()
         creator_id = user.id
         data['creator_id'] = creator_id
-        prod_inst = Collections.create(**data)
-        return prod_inst
+        collection_type = data.get('collection_type')
+        identify = data.get('identify')
+        col_inst = lookup_collection(collection_type, identify)
+
+        if col_inst:
+            prod_inst = Collections.create(**data)
+            return prod_inst
+        raise UnExceptCollectionType
 
     @auth_required
     @bp.input(DeleteCollectionSchema)

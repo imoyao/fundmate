@@ -62,6 +62,7 @@ class StatusCodeError(Enum):
     NOT_EXCEPTED_FILE_ERR = (4002, '请确保上传文件格式正确！')
     NOT_EXCEPTED_PROD_ERR = (4003, '请确保上传文件中所有产品均支持导入！')
     NOT_SUPPORT_INVEST_TYPE_ERR = (4004, '请确保所有交易操作均支持导入')
+    COLLECTION_ERR = (4005, '请确认自选识别码')
 
     # 服务端错误派生
     CURRENT_USER_INFO_ERR = (5001, '获取用户信息出错，请联系系统管理员。')
@@ -187,6 +188,11 @@ class NotSupportProduct(BaseClientError):
 class NotSupportInvestType(BaseClientError):
     message = StatusCodeError.NOT_SUPPORT_INVEST_TYPE_ERR.msg
     extra_data = {'error_code': StatusCodeError.NOT_SUPPORT_INVEST_TYPE_ERR.code, 'docs': ''}
+
+
+class UnExceptCollectionType(BaseClientError):
+    message = StatusCodeError.COLLECTION_ERR.msg
+    extra_data = {'error_code': StatusCodeError.COLLECTION_ERR.code, 'docs': ''}
 
 
 class AuthError(BaseThirdPartError):

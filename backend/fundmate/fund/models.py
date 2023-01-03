@@ -127,6 +127,10 @@ class Fund(PkModel, UpsertMixin):
         _ins = cls.query.filter_by(fund_code=code).one_or_none()
         return _ins
 
+    @classmethod
+    def lookup(cls, identify: str) -> Fund:
+        return cls.filter_by_code(identify)
+
     def __repr__(self):
         return f'<Fund({self.fund_code!r}, {self.name!r})>'
 
@@ -374,7 +378,8 @@ class FeeRatio(PkModel, UpsertMixin):
                                  db.ForeignKey(f'{purchase_rule_tb_name}.id'),
                                  nullable=True,
                                  comment='申购规则ID')
-    redeem_rule_id = db.Column(db.Integer, db.ForeignKey(f'{redeem_rule_tb_name}.id'), nullable=True, comment='赎回规则ID')
+    redeem_rule_id = db.Column(db.Integer, db.ForeignKey(f'{redeem_rule_tb_name}.id'), nullable=True,
+                               comment='赎回规则ID')
     fee_type = Column(IntChoiceDkEnumType(settings.FeeTypeEnum),
                       nullable=False,
                       index=True,
