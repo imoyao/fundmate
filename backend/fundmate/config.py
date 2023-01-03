@@ -82,14 +82,6 @@ class Config:
     LOCAL_SPEC_PATH = env.str('LOCAL_SPEC_PATH', 'openapi.json')
     LOCAL_SPEC_JSON_INDENT = env.int('LOCAL_SPEC_JSON_INDENT', 4)
     SYNC_LOCAL_SPEC = env.bool('SYNC_LOCAL_SPEC', True)
-    # 接口认证 see also: [Authentication - APIFlask](https://apiflask.com/authentication/)
-    SECURITY_SCHEMES = {
-        'ApiKeyAuth': {
-            'type': 'apiKey',
-            'in': 'header',
-            'name': 'X-API-Key',
-        }
-    }
 
     def __init__(self):
         pass
