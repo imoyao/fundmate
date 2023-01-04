@@ -195,9 +195,11 @@ def test_login(app, client, default_guard, mail, request):
     request.addfinalizer(lambda: delete_user(user_inst))
 
 
-def test_refresh_token(app, client, default_guard):
-    username = app.config.get('TEST_USERNAME')
-    password = app.config.get('TEST_PASSWORD')
+def test_refresh_token(app, client, default_guard, request):
+    faker = Faker()
+    password = faker.password()
+    user = UserFactory(password=password)
+    username = user.username
     user = default_guard.authenticate(username, password)
     assert user
     token = default_guard.encode_jwt_token(user)
@@ -206,6 +208,7 @@ def test_refresh_token(app, client, default_guard):
     def refresh(_headers):
         result = client.get("users/refresh_token", headers=_headers)
         return result
+
     # 直接刷新返回425
     result_425 = refresh(_headers)
     assert result_425
@@ -222,6 +225,7 @@ def test_refresh_token(app, client, default_guard):
         result_200 = refresh(_headers)
         assert result_200.status_code == 200
         assert 'access_token' in result_200.json
+    request.addfinalizer(lambda: delete_user(user))
 
 
 @pytest.mark.parametrize('data', [
