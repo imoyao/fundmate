@@ -17,12 +17,27 @@ from faker import Faker
 from backend.fundmate.errors import ConfirmedFirstError, ForbiddenDenyAdminError, NoLookupUserError, StatusCodeError
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.user.models import User
+from backend.fundmate.user.views import load_user
 from backend.tests.factories import UserFactory
+from backend.tests.user.test_user_models import delete_user
 
 
-def delete_user(user_inst):
-    """验证完成删除用户"""
-    user_inst.delete()
+def test_load_user(app):
+    user = User.lookup(app.config.get('TEST_USERNAME'))
+    assert user
+    user_id = user.id
+    user_by_load = load_user(user_id)
+    assert user_by_load is user
+
+
+def test_delete_user():
+    user = UserFactory()
+    username = user.username
+    _user_inst = user.lookup(username)
+    assert _user_inst
+    delete_user(_user_inst)
+    del_user = user.lookup(username)
+    assert not del_user
 
 
 def make_header(token):

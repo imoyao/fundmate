@@ -6,7 +6,7 @@ from factory import Faker, PostGenerationMethodCall
 from factory.alchemy import SQLAlchemyModelFactory
 
 from backend.fundmate.database import db
-from backend.fundmate.user.models import User
+from backend.fundmate.user.models import Role, User
 
 
 logger = logging.getLogger('faker')
@@ -36,3 +36,14 @@ class UserFactory(BaseFactory):
         """Factory configuration."""
 
         model = User
+
+
+class RoleFactory(BaseFactory):
+    """Role factory."""
+
+    name = Faker('name')
+
+    class Meta:
+        """Factory configuration."""
+
+        model = Role

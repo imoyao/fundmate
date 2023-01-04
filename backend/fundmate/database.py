@@ -41,8 +41,7 @@ class CRUDMixin(object):
         """Update specific fields of a record."""
         for attr, value in kwargs.items():
             setattr(self, attr, value)
-        if commit:
-            db.session.commit()
+        self.save(commit=commit)
         return self
 
     def save(self, commit: bool = True):
@@ -64,7 +63,8 @@ class CRUDMixin(object):
 
     def delete(self, commit: bool = True):
         """Remove the record from the database."""
-        db.session.delete(self)
+        if self:
+            db.session.delete(self)
         if commit:
             try:
                 db.session.commit()
@@ -279,7 +279,7 @@ def gen_digit_code(max_code: str, init_identifier: str, min_len: int = 6) -> Opt
     """
     fp_identifier = init_identifier
     max_identifier = db.session.query(func.max(max_code)).one_or_none()
-    if max_identifier != (None, ):
+    if max_identifier != (None,):
         max_num = max_identifier[0]
         if max_num is not None:
             increase_int = random.randrange(1, 3)
