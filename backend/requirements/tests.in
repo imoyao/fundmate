@@ -2,3 +2,4 @@
 pytest
 openapi-spec-validator
 factory-boy
+pytest-cov
