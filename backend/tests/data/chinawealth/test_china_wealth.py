@@ -4,7 +4,10 @@
 @File ：test_china_wealth.py
 @IDE ：PyCharm
 """
+import pathlib
+
 from backend.fundmate.data.chinawealth.products import ChinaWealth
+from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.types import PdDataFrame
 
 
@@ -26,3 +29,7 @@ class TestChinaWealth:
         result = self.test_cw.products()
         assert not result.empty
         assert isinstance(result, PdDataFrame)
+        f_path = pathlib.Path('product.xlsx')
+        if f_path.exists() and f_path.is_file():
+            logger.info('===============')
+            f_path.unlink()
