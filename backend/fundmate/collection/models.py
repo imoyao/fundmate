@@ -18,3 +18,18 @@ class Collections(PkModel, CreateDateModel):
                              nullable=False,
                              default=settings.SupportCollectionsEnum.fund.dk_value,
                              comment=f'自选类型：{settings.SupportCollectionsEnum.comment()}')
+
+    @classmethod
+    def check_has_collected(cls, creator_id: str, collection_type: str, identify: str) -> bool:
+        """
+        检查某人是否已经将某个对象添加为自选
+        :param creator_id: 用户id
+        :param collection_type: 自选类别
+        :param identify: 自选识别码
+        :return:
+        """
+        _col_inst = db.session.execute(db.select(cls).filter_by(creator_id=creator_id, collection_type=collection_type,
+                                                                identify=identify)).scalars().one_or_none()
+        if _col_inst:
+            return True
+        return False
