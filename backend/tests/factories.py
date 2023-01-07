@@ -5,9 +5,13 @@ import logging
 from factory import Faker, PostGenerationMethodCall
 from factory.alchemy import SQLAlchemyModelFactory
 
+from faker import Factory
+
 from backend.fundmate.database import db
 from backend.fundmate.user.models import Role, User
 
+
+fake = Factory().create('zh_CN')
 
 logger = logging.getLogger('faker')
 logger.setLevel(logging.ERROR)

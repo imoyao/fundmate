@@ -10,7 +10,7 @@ from flask_praetorian.constants import IS_REGISTRATION_TOKEN_CLAIM, IS_RESET_TOK
 from flask_praetorian.exceptions import AuthenticationError
 
 import pendulum
-import plummet as plummet
+import plummet
 import pytest
 from faker import Faker
 
