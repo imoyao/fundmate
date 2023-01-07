@@ -11,7 +11,7 @@ from apiflask import APIBlueprint, abort
 from flask.views import MethodView
 from flask_praetorian import auth_required, current_user
 
-from backend.fundmate import errors, excepts, utils
+from backend.fundmate import excepts, utils
 from backend.fundmate.account.deal_trades import ImportColumns, ImportTradeEnum
 from backend.fundmate.account.models import Account, AccountTransactionRecord
 from backend.fundmate.account.schemas import (
@@ -21,6 +21,7 @@ from backend.fundmate.account.schemas import (
     InvestProductOut,
     QueryInvestProduct,
 )
+from backend.fundmate.errors import ClientError, HTTPClientError, HTTPServerError, ServerError, UserInputError
 from backend.fundmate.fund.load_templates import (
     check_isvalid_prods,
     check_isvalid_trade_types,
@@ -90,7 +91,9 @@ class InvestProductView(MethodView):
         else:
             prod_inst = InvestProduct.filter_by_name(platform, prod_type, prod_name)
         if prod_inst:
-            raise errors.ProdAlreadyExistError(status_code=409)
+            error = UserInputError.PROD_ALREADY_EXIST_ERR
+            extra_data = {'error_code': error.code, 'docs': ''}
+            raise HTTPClientError(status_code=409, message=error.msg, extra_data=extra_data)
         # 创建该产品
         prod_code = InvestProduct.gen_prod_code()
         prod_info = {
@@ -119,13 +122,17 @@ class ImportDealingDocuments(MethodView):
         has_transfer = data.get('has_transfer')
         is_csv = utils.check_is_csv(upload_file)
         if not is_csv:
-            raise errors.NotExceptedFileError
+            error = ClientError.NOT_EXCEPTED_FILE_ERR
+            extra_data = {'error_code': error.code, 'docs': ''}
+            raise HTTPClientError(message=error.msg, extra_data=extra_data)
         else:
             try:
                 upload_file_df = read_csv_for_df(upload_file, has_transfer=has_transfer)
             except excepts.NotSupportError as e:
                 msg = str(e)
-                raise errors.NotSupportProduct(message=msg) from e
+                error = ClientError.NOT_EXCEPTED_PROD_ERR
+                extra_data = {'error_code': error.code, 'docs': ''}
+                raise HTTPClientError(message=msg, extra_data=extra_data) from e
 
             t = ImportColumns()
             if upload_file_df is not None:
@@ -147,7 +154,9 @@ class ImportDealingDocuments(MethodView):
                     isvalid_prods = check_isvalid_prods(platform, prod_codes)
                 except excepts.NotSupportError as e:
                     msg = str(e)
-                    raise errors.NotSupportProduct(message=msg) from e
+                    error = ClientError.NOT_EXCEPTED_PROD_ERR
+                    extra_data = {'error_code': error.code, 'docs': ''}
+                    raise HTTPClientError(message=msg, extra_data=extra_data) from e
 
                 all_isvalid = all([isvalid_types, isvalid_prods])
                 if all_isvalid:
@@ -178,15 +187,24 @@ class ImportDealingDocuments(MethodView):
                     is_to_db_ok = set(db_columns).issubset(set(all_db_names))
                     # 导入前最后的文件头检查
                     if not all([is_in_ok, is_to_db_ok]):
-                        raise errors.TransactionRecordError
+                        error = ServerError.TRANSACTION_RECORD_ERR
+                        extra_data = {'error_code': error.code, 'docs': ''}
+                        raise HTTPServerError(message=error.msg, extra_data=extra_data)
                     else:
                         loads_template(dumps_df)
                 else:
                     if not isvalid_types:
-                        raise errors.NotSupportInvestType
+                        error = ClientError.NOT_SUPPORT_INVEST_TYPE_ERR
+                        extra_data = {'error_code': error.code, 'docs': ''}
+                        raise HTTPClientError(message=error.msg, extra_data=extra_data)
                     else:
-                        raise errors.NotSupportProduct
+                        error = ClientError.NOT_EXCEPTED_PROD_ERR
+                        extra_data = {'error_code': error.code, 'docs': ''}
+                        raise HTTPClientError(message=error.msg, extra_data=extra_data)
 
             else:
                 required_labs = t.required_labels
-                raise errors.NotExceptedFileError(message=f'账单导入上传文件必须包含字段：{required_labs}')
+                msg = f'账单导入上传文件必须包含字段：{required_labs}'
+                error = ClientError.NOT_EXCEPTED_FILE_ERR
+                extra_data = {'error_code': error.code, 'docs': ''}
+                raise HTTPClientError(message=msg, extra_data=extra_data)

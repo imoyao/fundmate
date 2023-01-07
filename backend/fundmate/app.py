@@ -144,10 +144,10 @@ def register_error_handlers(app: APIFlask):
         error_cls = getattr(praetorian_excepts, cls_name, praetorian_excepts.PraetorianError)
         extra_data = dict()
         if isinstance(e, error_cls):
-            custom_error = getattr(errors, cls_name, errors.PraetorianError)
+            custom_error = getattr(errors, cls_name, errors.ThirdPartError.PRAETORIAN_ERROR)
             custom_msg = custom_error.message
-            extra_data = custom_error.extra_data
-            extra_data['extra_msg'] = msg
+            extra_msg = {'error_code': errors.ThirdPartError.PRAETORIAN_ERROR.code, 'docs': ''}
+            extra_data['extra_msg'] = extra_msg
         else:
             extra_data['error_cls'] = cls_name
             custom_msg = msg
