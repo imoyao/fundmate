@@ -4,10 +4,10 @@
 from typing import Union
 
 from backend.fundmate import settings
-from backend.fundmate.fund.models import Fund, FundPortfolio, Mgr
+from backend.fundmate.fund.models import Fund, FundPortfolio, Manager
 
 
-def lookup_collection(collection_type: str, identify: str) -> Union[Fund, FundPortfolio, Mgr, None]:
+def lookup_collection(collection_type: str, identify: str) -> Union[Fund, FundPortfolio, Manager, None]:
     """
     根据识别码和类标识查询对应的类实例
     :param collection_type:
@@ -17,7 +17,7 @@ def lookup_collection(collection_type: str, identify: str) -> Union[Fund, FundPo
     type_tables = {
         settings.SupportCollectionsEnum.fund.dk_value: Fund,
         settings.SupportCollectionsEnum.portfolio.dk_value: FundPortfolio,
-        settings.SupportCollectionsEnum.managers.dk_value: Mgr,
+        settings.SupportCollectionsEnum.managers.dk_value: Manager,
         #  FIXME: 目前先支持基金，其他待完善
         # settings.SupportCollectionsEnum.index.dk_value:Index,
         # settings.SupportCollectionsEnum.stock.dk_value:Stock,

@@ -14,7 +14,7 @@ import plummet
 import pytest
 from faker import Faker
 
-from backend.fundmate.errors import ConfirmedFirstError, ForbiddenDenyAdminError, NoLookupUserError, StatusCodeError
+from backend.fundmate.errors import ClientError, UserInputError
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.user.models import User
 from backend.fundmate.user.views import load_user
@@ -166,8 +166,9 @@ def test_login(app, client, default_guard, mail, request):
     msg = resp.get('message')
     error_code = resp.get('error_code')
     assert msg
-    assert msg == ConfirmedFirstError.message
-    assert error_code == StatusCodeError.CONFIRMED_FIRST_ERR.code
+    confirmed_first_error = ClientError.CONFIRMED_FIRST_ERR
+    assert msg == confirmed_first_error.message
+    assert error_code == confirmed_first_error.code
 
     # 置为确认
     user_inst.update(is_confirmed=True)
@@ -192,8 +193,9 @@ def test_login(app, client, default_guard, mail, request):
     error_msg = error_resp.get('message')
     error_code = error_resp.get('error_code')
     assert error_msg
-    assert error_msg == NoLookupUserError.message
-    assert error_code == StatusCodeError.NO_LOOKUP_USER_ERR.code
+    no_lookup_user_error = UserInputError.NO_LOOKUP_USER_ERR
+    assert error_msg == no_lookup_user_error.message
+    assert error_code == no_lookup_user_error.code
 
     # 测试用户名登录
     login_with_username = {'username': data.get('username'), 'password': data.get('password')}
@@ -285,8 +287,9 @@ def test_send_forget_password(app, client, default_guard, mail, data):
                 resp = result.json
                 error_code = resp.get('error_code')
                 msg = resp.get('message')
-                assert msg == NoLookupUserError.message
-                assert error_code == StatusCodeError.NO_LOOKUP_USER_ERR.code
+                no_lookup_user_error = UserInputError.NO_LOOKUP_USER_ERR
+                assert msg == no_lookup_user_error.message
+                assert error_code == no_lookup_user_error.code
 
 
 def test_reset_password(app, client, default_guard, request):
@@ -369,8 +372,8 @@ def test_disable_user(app, client, default_guard, request):
     }
     deny_not_admin_result = try_disable(by_username, token)
     not_admin_by_username_resp = deny_not_admin_result.json
+    logger.info(f'{not_admin_by_username_resp}')
     assert deny_not_admin_result.status_code == 403
-    assert 'admin' in not_admin_by_username_resp.get('extra_msg')
 
     user.set_admin(user.username)
     assert user.is_admin
@@ -382,8 +385,9 @@ def test_disable_user(app, client, default_guard, request):
     is_admin_self_deny_msg = is_admin_self_deny_by_username_resp.get('message')
     is_admin_self_deny_error_code = is_admin_self_deny_by_username_resp.get('error_code')
     assert is_admin_self_deny_msg
-    assert is_admin_self_deny_msg == ForbiddenDenyAdminError.message
-    assert is_admin_self_deny_error_code == StatusCodeError.FORBIDDEN_DENY_ADMIN_ERR.code
+    forbidden_deny_admin_error = ClientError.FORBIDDEN_DENY_ADMIN_ERR
+    assert is_admin_self_deny_msg == forbidden_deny_admin_error.message
+    assert is_admin_self_deny_error_code == forbidden_deny_admin_error.code
 
     bad_user = UserFactory()
     assert bad_user.is_active

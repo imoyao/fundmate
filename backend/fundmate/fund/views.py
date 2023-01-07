@@ -13,7 +13,7 @@ from sqlalchemy import create_engine
 
 from backend.fundmate import settings, utils
 from backend.fundmate.database import db, get_table_name
-from backend.fundmate.errors import CurrentUserInfoError, NotHundredPercentSumPortionError, PatchWithEmptyDataError
+from backend.fundmate.errors import HTTPClientError, HTTPServerError, ServerError, UserInputError
 from backend.fundmate.fund.base import FundMiddleWare
 from backend.fundmate.fund.models import (
     Fund,
@@ -22,7 +22,7 @@ from backend.fundmate.fund.models import (
     FundPortfolioAdjustHistory,
     FundPortfolioHoldDetail,
     FundSaleOrg,
-    Mgr,
+    Manager,
 )
 from backend.fundmate.fund.schemas import (
     FundCompanyPaginationOutSchema,
@@ -46,6 +46,7 @@ from backend.fundmate.fund.schemas import (
 )
 from backend.fundmate.libs.pysnowflake import snowflake
 from backend.fundmate.schema_ext import CustomPaginationSchema
+from backend.fundmate.types import PdDataFrame
 
 
 bp = APIBlueprint('fund', __name__, url_prefix='/funds')
@@ -111,7 +112,7 @@ class FundMgrView(MethodView):
     def get(self, query: dict = None):
         page = query.get('page')
         per_page = query.get('per_page')
-        pagination = Mgr.query.paginate(page=page, per_page=per_page)
+        pagination = Manager.query.paginate(page=page, per_page=per_page)
         _items = pagination.items
         ret = {'managers': _items, 'pagination': pagination_builder(pagination)}
         return ret
@@ -197,6 +198,18 @@ class FundFavor(MethodView):
         pass
 
 
+def check_sum_compositions(compositions: PdDataFrame) -> bool:
+    """
+    检查组合合计为1
+    :param compositions:
+    :return:
+    """
+    comp_df = pd.DataFrame(compositions)
+    comp_df['portion'] = comp_df.portion.apply(lambda x: x / 100)
+    total = comp_df['portion'].sum()
+    return total == 1.0
+
+
 @bp.route('/portfolios')
 class FundCombination(MethodView):
     """
@@ -235,14 +248,18 @@ class FundCombination(MethodView):
             韭圈儿：没有分配的用现金填充
             '''
             comp_df = pd.DataFrame(compositions)
-            comp_df['portion'] = comp_df.portion.apply(lambda x: x / 100)
-            total = comp_df['portion'].sum()
-            if total != 1.0:
-                raise NotHundredPercentSumPortionError
+            is_sum_ok = check_sum_compositions(comp_df)
+
+            if not is_sum_ok:
+                error = UserInputError.NOT_HUNDRED_PERCENT_SUM_PORTION_ERR
+                extra_data = {'error_code': error.code, 'docs': ''}
+                raise HTTPServerError(message=error.msg, extra_data=extra_data)
 
             user = current_user()
             if not user:
-                raise CurrentUserInfoError
+                error = ServerError.CURRENT_USER_INFO_ERR
+                extra_data = {'error_code': error.code, 'docs': ''}
+                raise HTTPServerError(message=error.msg, extra_data=extra_data)
             portfolio_code = FundPortfolio.gen_portfolio_code()
             data['mgr_code'] = user.id
             data['portfolio_code'] = portfolio_code
@@ -369,7 +386,9 @@ class CombinationDetail(MethodView):
             abort(404)
 
         if not data:
-            raise PatchWithEmptyDataError
+            error = UserInputError.PATCH_WITH_EMPTY_DATA_ERR
+            extra_data = {'error_code': error.code, 'docs': ''}
+            raise HTTPClientError(message=error.msg, extra_data=extra_data)
 
         update_time = datetime.datetime.now()
         last_adjust_date = utils.today()
@@ -388,10 +407,11 @@ class CombinationDetail(MethodView):
             data.pop('compositions')
             # 组合调仓
             comp_df = pd.DataFrame(compositions)
-            comp_df['portion'] = comp_df.portion.apply(lambda x: x / 100)
-            total = comp_df['portion'].sum()
-            if total != 1.0:
-                raise NotHundredPercentSumPortionError
+            is_sum_ok = check_sum_compositions(comp_df)
+            if not is_sum_ok:
+                error = UserInputError.NOT_HUNDRED_PERCENT_SUM_PORTION_ERR
+                extra_data = {'error_code': error.code, 'docs': ''}
+                raise HTTPServerError(message=error.msg, extra_data=extra_data)
 
             data['synchronize_session'] = False
             # 调仓说明

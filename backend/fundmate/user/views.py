@@ -21,11 +21,9 @@ from flask.views import MethodView
 from flask_praetorian import auth_required, current_user, roles_required
 from flask_praetorian.exceptions import PraetorianError
 
-import passlib
-
 from backend.fundmate.account.models import Account
 from backend.fundmate.account.schemas import AccountOutSchema, CreateAccountSchema
-from backend.fundmate.errors import AuthError, ConfirmedFirstError, ForbiddenDenyAdminError, NoLookupUserError
+from backend.fundmate.errors import ClientError, HTTPClientError, ThirdPartError, UserInputError
 from backend.fundmate.extensions import db, guard
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.schema_ext import EmptySchema
@@ -97,7 +95,8 @@ def register(req):
     """
     用户注册
 
-    Registers a new user by parsing a POST request containing new user info and dispatching an email with a registration token
+    Registers a new user by parsing a POST request containing new user info and dispatching an email with
+    a registration token
 
     .. example::
        $ curl http://localhost:5000/register -X POST \
@@ -149,7 +148,9 @@ def confirm_and_active_account():
         result = {'access_token': guard.encode_jwt_token(user)}
         return result
     else:
-        raise NoLookupUserError
+        error = UserInputError.NO_LOOKUP_USER_ERR
+        extra_data = {'error_code': error.code, 'docs': ''}
+        raise HTTPClientError(message=error.msg, extra_data=extra_data)
 
 
 @bp.post('/login')
@@ -166,14 +167,18 @@ def login(data):
     user_identify = data.get('username', None) or data.get('email', None)
     user = User.lookup(user_identify)
     if not user:
-        raise NoLookupUserError
+        error = UserInputError.NO_LOOKUP_USER_ERR
+        extra_data = {'error_code': error.code, 'docs': ''}
+        raise HTTPClientError(404, message=error.msg, extra_data=extra_data)
 
     password = data.get("password", None)
     try:
         user = guard.authenticate(user_identify, password)
-    except passlib.exc.UnknownHashError as e:
+    except ValueError as e:
         logger.error(f'认证失败: {traceback.print_exc()}')
-        raise AuthError from e
+        error = ThirdPartError.AUTHENTICATION_ERROR
+        extra_data = {'error_code': error.code, 'docs': ''}
+        raise HTTPClientError(status_code=401, message=str(e), extra_data=extra_data) from e
     if user:
         # 对于active 字段，`flask_praetorian`会默认校验
         is_user_confirmed = user.is_confirmed
@@ -181,7 +186,9 @@ def login(data):
             result = {"access_token": guard.encode_jwt_token(user)}
             return result
         else:
-            raise ConfirmedFirstError
+            error = ClientError.CONFIRMED_FIRST_ERR
+            extra_data = {'error_code': error.code, 'docs': ''}
+            raise HTTPClientError(message=error.msg, extra_data=extra_data)
 
 
 @bp.get('/refresh_token')
@@ -220,7 +227,9 @@ def forget_password(data):
         guard.send_reset_email(email)
         result = {'message': '请检查邮箱以完成密码重置。'}
     else:
-        raise NoLookupUserError
+        error = UserInputError.NO_LOOKUP_USER_ERR
+        extra_data = {'error_code': error.code, 'docs': ''}
+        raise HTTPClientError(404, message=error.msg, extra_data=extra_data)
     return result
 
 
@@ -245,7 +254,9 @@ def reset_password(data):
         result = {'access_token': guard.encode_jwt_token(user)}
         return result
     else:
-        raise NoLookupUserError
+        error = UserInputError.NO_LOOKUP_USER_ERR
+        extra_data = {'error_code': error.code, 'docs': ''}
+        raise HTTPClientError(404, message=error.msg, extra_data=extra_data)
 
 
 @bp.post('/deny')
@@ -266,10 +277,14 @@ def disable_user(req):
     user = User.lookup(user_identify)
     if user:
         if ADMIN_ROLE_NAME in user.rolenames:
-            raise ForbiddenDenyAdminError
+            error = ClientError.FORBIDDEN_DENY_ADMIN_ERR
+            extra_data = {'error_code': error.code, 'docs': ''}
+            raise HTTPClientError(403, message=error.msg, extra_data=extra_data)
         user.update(is_active=False)
     else:
-        raise NoLookupUserError
+        error = UserInputError.NO_LOOKUP_USER_ERR
+        extra_data = {'error_code': error.code, 'docs': ''}
+        raise HTTPClientError(message=error.msg, extra_data=extra_data)
     return {'message': f'用户 {user.username} 已禁用。'}
 
 
@@ -294,7 +309,9 @@ def active_user(req):
     if user:
         user.update(is_active=True)
     else:
-        raise NoLookupUserError
+        error = UserInputError.NO_LOOKUP_USER_ERR
+        extra_data = {'error_code': error.code, 'docs': ''}
+        raise HTTPClientError(message=error.msg, extra_data=extra_data)
     return {'message': '用户 {} 已重新激活。'.format(user.username)}
 
 

@@ -28,7 +28,7 @@ title: 数据库的选择及使用（待整理）
 3. 然后生成数据表
 ```plain
 mysql> create database {DB_NAME};      # 创建数据库
-mysql> use {DB_NAME};                  # 使用已创建的数据库 
+mysql> use {DB_NAME};                  # 使用已创建的数据库
 mysql> set names utf8;           # 设置编码
 mysql> source {SQL_PATH} # 导入备份数据库
 ```
@@ -216,7 +216,7 @@ class Tag(db.Model):
 这里我们配置 Page.tags 加载后作为标签的列表，因为我们并不期望每页出现太多的标签。而每个 tag 的页面列表（ Tag.pages）是一个动态的反向引用。 正如上面提到的，这意味着您会得到一个可以发起 select 的查询对象。
 关联对象模式是多对多模式的一种变体: 当关联表包含左右表的外键之外的其他列时使用它。
 ```python
-class FundMgr(PkModel):
+class FundManager(PkModel):
     pass
 ```
 ```python
@@ -231,7 +231,7 @@ funds = relationship('Fund', secondary='fund_mgr', back_populates='mgrs')
 
 - relationship & ForeignKey
 
-大多数情况下, `db.relationship()` 都能自行找到关系中的外键, 但有时却无法决定把哪一列作为外键。 
+大多数情况下, `db.relationship()` 都能自行找到关系中的外键, 但有时却无法决定把哪一列作为外键。
 
 例如, 如果 User 模型中有两个或以上的列定义为 Role 模型的外键, SQLAlchemy 就不知道该使用哪列。如果无法决定外键，你就要为 db.relationship() 提供额外参数从而确定所用外键。
 
@@ -319,7 +319,7 @@ class Association(Base):
 1. [Basic Relationship Patterns — SQLAlchemy 1.4 Documentation](https://docs.sqlalchemy.org/en/14/orm/basic_relationships.html#association-object)
 2. [Flask/SQLAlchemy - Difference between association model and association table for many-to-many relationship? - Stack Overflow](https://stackoverflow.com/questions/30406808/flask-sqlalchemy-difference-between-association-model-and-association-table-fo)
 
-::: danger WARNING 
+::: danger WARNING
 > 实践中的 SQLAlchemy 的`relationship`在一定程度上反而导致了整体表关联关系的极大复杂化，还有效率的极其低下。
 > 如果你的数据库只有两个表的话，那么 relationship 随便定义随便用。如果只有几百条数据的话，那么也请随便玩。
 
@@ -390,7 +390,7 @@ Note that if you use a linter, it may flag the models as being unused imports. T
 
 在将基金经理信息存入数据表（fund-mgr）时，遇到报错：
 ```bash
-FlushError: Can't flush None value found in collection Mgr.funds
+FlushError: Can't flush None value found in collection Manager.funds
 ```
 查阅资料：
 
@@ -400,10 +400,10 @@ FlushError: Can't flush None value found in collection Mgr.funds
 
 数据库隔离级别导致的问题，MySQL 默认隔离级别是可重复读（REPEATABLE-READ），所以同一个事务里面前后查询结果是相同的；建议您第一次查询后显式提交或回滚事务，然后进行第二次查询。
 
->A Session object is basically an ongoing transaction of changes to a database (update, insert, delete). These operations aren't persisted to the database until they are committed (if your program aborts for some reason in mid-session transaction, any uncommitted changes within are lost). 
-> 
->The session object registers transaction operations with session.add(), but doesn't yet communicate them to the database until session.flush() is called. 
-> 
+>A Session object is basically an ongoing transaction of changes to a database (update, insert, delete). These operations aren't persisted to the database until they are committed (if your program aborts for some reason in mid-session transaction, any uncommitted changes within are lost).
+>
+>The session object registers transaction operations with session.add(), but doesn't yet communicate them to the database until session.flush() is called.
+>
 >session.flush() communicates a series of operations to the database (insert, update, delete). The database maintains them as pending operations in a transaction. The changes aren't persisted permanently to disk, or visible to other transactions until the database receives a COMMIT for the current transaction (which is what session.commit() does).
 >
 >session.commit() commits (persists) those changes to the database.
@@ -449,7 +449,7 @@ Output:
 ```
 解决方案，每一次 append 之后直接 commit。
 ```python
-mgr_ins = Mgr.filter_by_code(mgr_code)
+mgr_ins = Manager.filter_by_code(mgr_code)
 mgr_ins.funds.append(fund_inst)
 db.session.add(mgr_ins)
 db.session.commit()
@@ -521,7 +521,7 @@ SQL 文件详见 [此处](https://github.com/imoyao/fundmate/blob/master/db/fmt.
 
 - 增加字段长度和类型检测
 
-[No changes detected in Alembic autogeneration of migrations with Flask-SQLAlchemy - Stack Overflow](https://stackoverflow.com/questions/12409724/no-changes-detected-in-alembic-autogeneration-of-migrations-with-flask-sqlalchemy) 
+[No changes detected in Alembic autogeneration of migrations with Flask-SQLAlchemy - Stack Overflow](https://stackoverflow.com/questions/12409724/no-changes-detected-in-alembic-autogeneration-of-migrations-with-flask-sqlalchemy)
 [Flask migrate does not recognise a change made in my post model. :flask](https://www.reddit.com/r/flask/comments/98kmhe/af_flask_migrate_does_not_recognise_a_change_made/)
 
 - 新更新内容无法探测

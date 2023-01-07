@@ -148,10 +148,10 @@ def register_error_handlers(app: APIFlask):
         error_cls = getattr(praetorian_excepts, cls_name, praetorian_excepts.PraetorianError)
         extra_data = dict()
         if isinstance(e, error_cls):
-            custom_error = getattr(errors, cls_name, errors.PraetorianError)
+            custom_error = getattr(errors, cls_name, errors.ThirdPartError.PRAETORIAN_ERROR)
             custom_msg = custom_error.message
-            extra_data = custom_error.extra_data
-            extra_data['extra_msg'] = msg
+            extra_msg = {'error_code': errors.ThirdPartError.PRAETORIAN_ERROR.code, 'docs': ''}
+            extra_data['extra_msg'] = extra_msg
         else:
             extra_data['error_cls'] = cls_name
             custom_msg = msg
@@ -173,8 +173,8 @@ def register_shell_context(app: APIFlask):
             'User': user_models.User,
             'Role': user_models.Role,
             'Fund': fund_models.Fund,
-            'FundMgr': fund_models.Mgr,
-            'MidFundMgr': fund_models.FundMgr,
+            'Manager': fund_models.Manager,
+            'FundManager': fund_models.FundManager,
             'FeeRatio': fund_models.FeeRatio,
             'PurchaseRule': fund_models.PurchaseRule,
             'RedeemRule': fund_models.RedeemRule,

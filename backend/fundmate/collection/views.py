@@ -19,7 +19,7 @@ from backend.fundmate.collection.schemas import (
     NewCollectionOutSchema,
     QueryCollectionsSchema,
 )
-from backend.fundmate.errors import HasCollectedError, UnExceptCollectionInstance
+from backend.fundmate.errors import ClientError, HTTPClientError
 
 
 bp = APIBlueprint('collections', __name__, url_prefix='/collections')
@@ -80,8 +80,12 @@ class CollectionsView(MethodView):
             if col_inst:
                 prod_inst = Collections.create(**data)
                 return prod_inst
-            raise UnExceptCollectionInstance
-        raise HasCollectedError
+            error = ClientError.COLLECTION_ERR
+            extra_data = {'error_code': error.code, 'docs': ''}
+            raise HTTPClientError(message=error.msg, extra_data=extra_data)
+        error = ClientError.HAS_COLLECTED_ERR
+        extra_data = {'error_code': error.code, 'docs': ''}
+        raise HTTPClientError(message=error.msg, extra_data=extra_data)
 
     @auth_required
     @bp.input(DeleteCollectionSchema)

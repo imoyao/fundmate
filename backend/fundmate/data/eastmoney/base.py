@@ -22,7 +22,7 @@ from backend.fundmate.data.utils.base import data_parser
 from backend.fundmate.database import db
 from backend.fundmate.excepts import UnexpectedArgsError
 from backend.fundmate.exts.flask_loguru import logger
-from backend.fundmate.fund.models import Fund, FundCompany, FundMgr, FundType, FundVariety, Mgr
+from backend.fundmate.fund.models import Fund, FundCompany, FundManager, FundType, FundVariety, Manager
 from backend.fundmate.libs import convert
 
 
@@ -218,7 +218,7 @@ class EastMoney(BaseParse):
         """
         将基金经理信息存入数据表MGRS,此外，还会将基金与基金经理关联起来，信息存入FUND_MGR中间表
         FIXME: 需要注意的是：有一部分基金是新发基金，这个时候funds表中是没有数据的，此时关联基金经理会报错：
-        `FlushError: Can't flush None value found in collection Mgr.funds`
+        `FlushError: Can't flush None value found in collection Manager.funds`
         目前的解决方案是直接continue跳过这个数据的写入，后期可能需要优化流程，添加新发基金的信息爬取
         """
         for mgr_item in fund_mgr_info:
@@ -243,15 +243,15 @@ class EastMoney(BaseParse):
                 'best_rt': best_rt,
             }
             # 更新或插入基金经理信息
-            Mgr.insert_or_update(mgr_query_info, do_log_flag=True, **mgr_info)
+            Manager.insert_or_update(mgr_query_info, do_log_flag=True, **mgr_info)
             # 重新查一次
-            mgr_ins = Mgr.filter_by_code(mgr_code)
+            mgr_ins = Manager.filter_by_code(mgr_code)
             if mgr_ins:
                 mgr_id = mgr_ins.id
             else:
                 logger.error(f'Cannot find fund manager of code:<{mgr_code}>.')
                 continue
-            fund_objs_of_mgr = Mgr.get_by_id(mgr_id).funds
+            fund_objs_of_mgr = Manager.get_by_id(mgr_id).funds
             # 在管基金
             fund_lists_of_mgr = [f.fund_code for f in fund_objs_of_mgr]
             # 查询到的列表不在现有的中
@@ -279,7 +279,7 @@ class EastMoney(BaseParse):
                         fund_inst = self.subscription_period_fund(fund_code, fund_name)
                         logger.info(f'The fund in subscription period created as {fund_inst}')
 
-                    _mgr_ins = Mgr.filter_by_code(mgr_code)
+                    _mgr_ins = Manager.filter_by_code(mgr_code)
                     _mgr_ins.funds.append(fund_inst)
                     db.session.add(_mgr_ins)
                 '''
@@ -304,7 +304,7 @@ class EastMoney(BaseParse):
                     continue
 
                 fund_id = fund_inst.id
-                fund_mgr_inst = FundMgr.query.filter_by(fund_id=fund_id, mgr_id=mgr_id, end_date=None).first()
+                fund_mgr_inst = FundManager.query.filter_by(fund_id=fund_id, mgr_id=mgr_id, end_date=None).first()
                 if f_code == best_fd:
                     # 更新基金经理的代表作
                     fund_mgr_inst.update(is_classic=True)

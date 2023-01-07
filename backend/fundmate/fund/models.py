@@ -96,9 +96,9 @@ class Fund(PkModel, UpsertMixin):
     https://docs.sqlalchemy.org/en/14/orm/basic_relationships.html#one-to-one) '''
     daily_worth = relationship('DailyWorth', back_populates='fund', uselist=False)
     # 多对多
-    mgrs = relationship('Mgr', secondary='fund_mgr', back_populates='funds')
+    managers = relationship('Manager', secondary='fund_manager', back_populates='funds')
     # 费率关系：一对多
-    rate_rules = db.relationship('FeeRatio')
+    rate_rules = relationship('FeeRatio')
 
     @classmethod
     def search_key(cls, key):
@@ -135,14 +135,13 @@ class Fund(PkModel, UpsertMixin):
         return f'<Fund({self.fund_code!r}, {self.name!r})>'
 
 
-class Mgr(PkModel, UpsertMixin):
-    __tablename__ = 'mgrs'
+class Manager(PkModel, UpsertMixin):
     __table_args__ = {'comment': '基金经理'}
 
     mgr_code = Column(db.Integer, comment='经理编号（以天天基金为准）')
     name = Column(db.String(30), comment='经理名称')  # 'FAN BING(范冰)' 带英文的字符长度
     company_id = Column(db.Integer, db.ForeignKey('fund_company.id'), comment='所属公司ID')
-    work_days = Column(db.Integer, comment='总任职时间')  # TODO: 此处不需要写死，只记录上任日期即可，需要修改字段
+    appointment_date = Column(db.Date, comment='任职起始日')
     sum_scale = Column(db.Numeric(8, 2), nullable=True, comment='现管理资产总规模(亿元) ')  # 长度8，精度2
     best_rt = Column(db.Numeric(7, 2), nullable=True, comment='最佳回报(%) ')  # 长度7，精度2
     last_modified = Column(db.TIMESTAMP,
@@ -153,18 +152,18 @@ class Mgr(PkModel, UpsertMixin):
     # 在管基金
     '''
     # **注意** secondary后面跟表名而不是类名
-    sqlalchemy.exc.ArgumentError: secondary argument <class 'backend.fundmate.fund.models.FundMgr'>
-    passed to to relationship() Fund.mgrs must be a Table object or other FROM clause;
+    sqlalchemy.exc.ArgumentError: secondary argument <class 'backend.fundmate.fund.models.FundManager'>
+    passed to to relationship() Fund.manager must be a Table object or other FROM clause;
     can't send a mapped class directly as rows in 'secondary' are persisted independently
     of a class that is mapped to that same table.
     '''
-    funds = relationship('Fund', secondary='fund_mgr', back_populates='mgrs')
+    funds = relationship('Fund', secondary='fund_manager', back_populates='managers')
 
     def __repr__(self):
         return f'<Fund Manager({self.mgr_code!r}, {self.name!r})>'
 
     @classmethod
-    def filter_by_code(cls, code: str) -> Mgr:
+    def filter_by_code(cls, code: str) -> Manager:
         """获取编码所对应的id
         """
         _ins = cls.query.filter_by(mgr_code=code).first()
@@ -182,14 +181,14 @@ class Mgr(PkModel, UpsertMixin):
             all_now_managed_funds = list()
             for f in all_ever_managed_funds:
                 fund_id = f.id
-                f_inst = FundMgr.query.filter_by(fund_id=fund_id).first()
+                f_inst = FundManager.query.filter_by(fund_id=fund_id).first()
                 if f_inst.end_date is None:
                     all_now_managed_funds.append(f)
             return all_now_managed_funds
 
 
-class FundMgr(PkModel):
-    """relation between Fund and Mgr
+class FundManager(PkModel):
+    """relation between Fund and Manager
     注意：
     1. 基金经理与基金为 M2M
     ~~2. 此表只存现任关系，其他关系需要另一张表~~
@@ -197,7 +196,7 @@ class FundMgr(PkModel):
     __table_args__ = {'comment': '基金与经理关联表'}
 
     fund_id = Column(db.Integer, db.ForeignKey('funds.id'), comment='基金ID')
-    mgr_id = Column(db.Integer, db.ForeignKey('mgrs.id'), comment='基金经理ID')
+    mgr_id = Column(db.Integer, db.ForeignKey('manager.id'), comment='基金经理ID')
     is_classic = Column(db.Boolean, comment='是否属于该经理的代表作')
     start_date = Column(db.DateTime)
     end_date = Column(db.DateTime)
