@@ -22,7 +22,7 @@ from backend.fundmate.fund.models import (
     FundPortfolioAdjustHistory,
     FundPortfolioHoldDetail,
     FundSaleOrg,
-    Mgr,
+    Manager,
 )
 from backend.fundmate.fund.schemas import (
     FundCompanyPaginationOutSchema,
@@ -111,7 +111,7 @@ class FundMgrView(MethodView):
     def get(self, query: dict = None):
         page = query.get('page')
         per_page = query.get('per_page')
-        pagination = Mgr.query.paginate(page=page, per_page=per_page)
+        pagination = Manager.query.paginate(page=page, per_page=per_page)
         _items = pagination.items
         ret = {'managers': _items, 'pagination': pagination_builder(pagination)}
         return ret
