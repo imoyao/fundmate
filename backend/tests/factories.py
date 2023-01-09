@@ -8,6 +8,7 @@ from factory.alchemy import SQLAlchemyModelFactory
 from faker import Factory
 
 from backend.fundmate.database import db
+from backend.fundmate.fund.models import Fund
 from backend.fundmate.user.models import Role, User
 
 
@@ -51,3 +52,15 @@ class RoleFactory(BaseFactory):
         """Factory configuration."""
 
         model = Role
+
+
+class FundFactory(BaseFactory):
+    """Fund factory."""
+    fund_code = Faker("random_number", digits=6, fix_len=True)
+    name = Faker('name', locale="zh_CN")
+    full_name = Faker('text', locale="zh_CN", max_nb_chars=20)
+
+    class Meta:
+        """Factory configuration."""
+
+        model = Fund
