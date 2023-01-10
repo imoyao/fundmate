@@ -154,33 +154,52 @@ class AuthActions:
     登录与退出
     """
 
-    def __init__(self, client):
+    def __init__(self, app, client):
         self._client = client
+        self._app = app
 
-    def login(self, username="test", password="test"):
+    def login(self, username=None, password=None):
         """
         FIXME: 调用生成token的接口
         :param username:
         :param password:
         :return:
         """
-        return self._client.post("/login", data={"username": username, "password": password})
+        if not username:
+            username = self._app.config.get('TEST_USERNAME')
+        if not password:
+            password = self._app.config.get('TEST_PASSWORD')
+        data = {'username': username, 'password': password}
+        return self._client.post("users/login", json=data)
+
+    def token(self, username=None, password=None):
+        result = self.login(username, password)
+        json_result = result.json
+        return json_result.get('access_token')
 
     def logout(self):
         """
         调用退出登录的接口
         :return:
         """
-        return self._client.get("/auth/logout")
+        return self._client.get("/users/logout")
 
 
 @pytest.fixture
-def auth(client):
-    return AuthActions(client)
+def auth(app, client):
+    return AuthActions(app, client)
+
+
+@pytest.fixture
+def bearer_header(auth):
+    token = auth.token()
+    _headers = {'Content-Type': 'application/json',
+                'Authorization': "Bearer " + token}
+    return _headers
 
 
 @pytest.fixture(scope='session')
-def db(app, request):  # noqa:F811
+def db(app, request):
     """Create database for the tests.
     数据库创建
     """
