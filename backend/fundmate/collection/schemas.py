@@ -12,6 +12,7 @@ from marshmallow.fields import List, Nested
 
 from backend.fundmate import settings
 from backend.fundmate.collection.logics import lookup_collection
+from backend.fundmate.fund.schemas import FundSampleSchema
 from backend.fundmate.schema_ext import CustomPaginationSchema
 
 
@@ -27,12 +28,18 @@ class QueryCollectionsSchema(Schema):
 def get_collection_details(collect_type, identify):
     _inst = lookup_collection(collect_type, identify)
     if _inst:
-        pass
+        if collect_type == settings.SupportCollectionsEnum.fund.dk_value:
+            # TODO: 需要使用复杂接口处理成带各种指标的数据
+            fund_schema = FundSampleSchema()
+            _result = fund_schema.dump(_inst)
+            return _result
+        else:
+            pass
 
 
 class CollectionOutSchema(Schema):
-    id = Integer()
-    info = Function(lambda obj: get_collection_details(obj.collect_type, obj.identify))
+    id = Function(lambda obj: obj.id)
+    info = Function(lambda obj: get_collection_details(obj.collection_type.dk_value, obj.identify))
 
 
 class CollectionsOutSchema(Schema):
@@ -55,7 +62,4 @@ class DeleteCollectionSchema(Schema):
     """
     删除自选
     """
-    collection_type = String(required=True,
-                             dump_default=settings.SupportCollectionsEnum.fund.dk_value,
-                             validate=OneOf(settings.SupportCollectionsEnum.input()))
-    identify = String(required=True)
+    id = Integer(required=True)

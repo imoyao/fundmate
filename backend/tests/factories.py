@@ -57,7 +57,7 @@ class RoleFactory(BaseFactory):
 class FundFactory(BaseFactory):
     """Fund factory."""
     fund_code = LazyAttribute(lambda obj: str(obj.fund_code_num))
-    name = Faker('name', locale="zh_CN")
+    name = Faker('word', locale="zh_CN")
     full_name = LazyAttribute(lambda obj: f'{obj.company}{obj.fund_kw}基金')
 
     class Meta:

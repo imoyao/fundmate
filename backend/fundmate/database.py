@@ -63,6 +63,7 @@ class CRUDMixin(object):
 
     def delete(self, commit: bool = True):
         """Remove the record from the database."""
+        # FIXME:删除的确存在没有正在删除的情况
         if self:
             db.session.delete(self)
         if commit:

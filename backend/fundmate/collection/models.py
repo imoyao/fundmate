@@ -4,6 +4,8 @@
 @File ：models.py
 @IDE ：PyCharm
 """
+from __future__ import annotations
+
 from backend.fundmate import settings
 from backend.fundmate.database import Column, CreateDateModel, PkModel, db, reference_col
 
@@ -28,8 +30,13 @@ class Collections(PkModel, CreateDateModel):
         :param identify: 自选识别码
         :return:
         """
-        _col_inst = db.session.execute(db.select(cls).filter_by(creator_id=creator_id, collection_type=collection_type,
-                                                                identify=identify)).scalars().one_or_none()
+        _col_inst = cls.get_collection(creator_id, collection_type, identify)
         if _col_inst:
             return True
         return False
+
+    @classmethod
+    def get_collection(cls, creator_id: str, collection_type: str, identify: str) -> Collections:
+        _col_inst = db.session.execute(db.select(cls).filter_by(creator_id=creator_id, collection_type=collection_type,
+                                                                identify=identify)).scalars().one_or_none()
+        return _col_inst

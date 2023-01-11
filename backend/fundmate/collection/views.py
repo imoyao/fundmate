@@ -19,7 +19,7 @@ from backend.fundmate.collection.schemas import (
     NewCollectionOutSchema,
     QueryCollectionsSchema,
 )
-from backend.fundmate.errors import ClientError, HTTPClientError
+from backend.fundmate.errors import ClientError, HTTPClientError, UserInputError
 
 
 bp = APIBlueprint('collections', __name__, url_prefix='/collections')
@@ -93,4 +93,16 @@ class CollectionsView(MethodView):
     @bp.doc(security='Bearer')
     def delete(self, data: Dict):
         """用户删除自选"""
-        pass
+        collection_id = data.get('id')
+        _collect_inst = Collections.get_by_id(collection_id)
+        if _collect_inst:
+            user = current_user()
+            creator_id = user.id
+            if _collect_inst.creator_id == creator_id:
+                _collect_inst.delete()
+            else:
+                error = UserInputError.FORBIDDEN_DELETE_OTHERS_COLLECTION_ERR
+                extra_data = {'error_code': error.code, 'docs': ''}
+                raise HTTPClientError(403, message=error.msg, extra_data=extra_data)
+        else:
+            return {404: 'Not Found'}

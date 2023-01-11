@@ -73,6 +73,7 @@ class UserInputError(ErrorMixin, Enum, metaclass=ErrorMeta):
     PATCH_WITH_EMPTY_DATA_ERR = (1002, '更新时提交数据不能为空。')
     NO_LOOKUP_USER_ERR = (1003, '查找用户失败，请确认邮箱地址是否填写正确？')
     PROD_ALREADY_EXIST_ERR = (1004, '创建产品已存在，请使用查询页面获取该产品相关信息。')
+    FORBIDDEN_DELETE_OTHERS_COLLECTION_ERR = (1005, '删除失败，请确认自选产品存在。')
 
 
 @unique
