@@ -6,7 +6,7 @@ from flask.views import MethodView
 
 from backend.fundmate import excepts
 from backend.fundmate.data import danjuan, fundb, jsl, sipf, yzyx, zo
-from backend.fundmate.errors import ThermometerError
+from backend.fundmate.errors import CrawlerError, HTTPServerError
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.public.schemas import ThermometerInSchema, ThermometerOutSchema
 
@@ -153,8 +153,11 @@ def thermometer(query_args):
         is_full = query_args.get('is_full', False)
         try:
             yzyx_info = yzyx.yzyx.daily_temper(is_full=is_full)
-        except excepts.CrawlerException:
-            raise ThermometerError from excepts.CrawlerException
+        except excepts.CrawlerException as e:
+            error = CrawlerError.THERMOMETER_ERR
+            msg = str(e)
+            extra_data = {'error_code': error.code, 'docs': ''}
+            raise HTTPServerError(message=msg, extra_data=extra_data) from e
 
         jsl_info = jsl.jsl.qz_info(is_full=is_full)
 
