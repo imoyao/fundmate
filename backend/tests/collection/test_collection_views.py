@@ -11,7 +11,7 @@ import pytest
 from faker import Faker as RealFaker
 
 from backend.fundmate import settings
-from backend.fundmate.collection.models import Collections
+from backend.fundmate.collection.models import Collection
 from backend.fundmate.errors import ClientError, UserInputError
 from backend.fundmate.exts.flask_loguru import logger
 
@@ -66,11 +66,11 @@ def delete_collection_from_db(request):
     """
 
     def delete_all_collections():
-        cols = Collections.query.all()
+        cols = Collection.query.all()
         if cols:
             for row in cols:
                 col_id = row.id
-                _inst = Collections.get_by_id(col_id)
+                _inst = Collection.get_by_id(col_id)
                 if _inst:
                     _inst.delete()
 

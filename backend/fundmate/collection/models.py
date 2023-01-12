@@ -6,20 +6,41 @@
 """
 from __future__ import annotations
 
+from sqlalchemy import Table
+
 from backend.fundmate import settings
 from backend.fundmate.database import Column, CreateDateModel, PkModel, db, reference_col
 
 
-class Collections(PkModel, CreateDateModel):
+collection_category_table = Table('relation_collection_category', db.Model.metadata,
+                                  Column('category_id', db.Integer, db.ForeignKey('collection_category.id')),
+                                  Column('collection_id', db.Integer, db.ForeignKey('collections.id')),
+                                  db.PrimaryKeyConstraint('collection_id', 'category_id'))
+
+collection_label_table = Table('relation_collection_label', db.Model.metadata,
+                               Column('label_id', db.Integer, db.ForeignKey('collection_label.id')),
+                               Column('collection_id', db.Integer, db.ForeignKey('collections.id')),
+                               db.PrimaryKeyConstraint('collection_id', 'label_id'))
+
+
+class Collection(PkModel, CreateDateModel):
     """
     自选数据模型
     """
+    __tablename__ = "collections"
+    __table_args__ = {'comment': '用户自选表'}
     identify = Column(db.String(32), nullable=True, comment='识别编码')
-    creator_id = reference_col('users', column_kwargs={'comment': '收藏人id'})
+    creator_id = reference_col('users', column_kwargs={'comment': '收藏者id'})
     collection_type = Column(db.Enum(settings.SupportCollectionsEnum),
                              nullable=False,
                              default=settings.SupportCollectionsEnum.fund.dk_value,
                              comment=f'自选类型：{settings.SupportCollectionsEnum.comment()}')
+    # 自选产品所属分组
+    categories = db.relationship('CategoriesOfCollection', secondary=collection_category_table,
+                                 back_populates='collections')
+    # 自选产品labels
+    labels = db.relationship('LabelsOfCollection', secondary=collection_label_table,
+                             back_populates='collections')
 
     @classmethod
     def check_has_collected(cls, creator_id: str, collection_type: str, identify: str) -> bool:
@@ -36,7 +57,42 @@ class Collections(PkModel, CreateDateModel):
         return False
 
     @classmethod
-    def get_collection(cls, creator_id: str, collection_type: str, identify: str) -> Collections:
+    def get_collection(cls, creator_id: str, collection_type: str, identify: str) -> Collection:
         _col_inst = db.session.execute(db.select(cls).filter_by(creator_id=creator_id, collection_type=collection_type,
                                                                 identify=identify)).scalars().one_or_none()
         return _col_inst
+
+
+class CategoriesOfCollection(PkModel, CreateDateModel):
+    __tablename__ = "collection_category"
+    __table_args__ = {'comment': '自选分组表'}
+
+    creator_id = reference_col('users', column_kwargs={'comment': '创建人id'})
+    name = Column(db.String(10), nullable=False, comment='分组名称')
+    # 为哪个收藏分类创建的自选组
+    category_type = Column(db.Enum(settings.SupportCollectionsEnum),
+                           nullable=False,
+                           default=settings.SupportCollectionsEnum.fund.dk_value,
+                           comment=f'分类类别：{settings.SupportCollectionsEnum.comment()}')
+    collections = db.relationship('Collection', secondary=collection_category_table, back_populates="categories")
+
+    def __repr__(self):
+        return '<分组 %r>' % self.name
+
+
+class LabelsOfCollection(PkModel, CreateDateModel):
+    """
+    标签表结构
+    """
+    __tablename__ = 'collection_label'
+    __table_args__ = {'comment': '自选标签表'}
+
+    creator_id = reference_col('users', column_kwargs={'comment': '创建人id'})
+    name = db.Column(db.String(4), nullable=False, comment='标签名称')
+    desc = db.Column(db.String(30), comment='标签描述')
+    color = db.Column(db.String(7), nullable=False, comment='标签显示颜色')
+
+    collections = db.relationship('Collection', secondary=collection_label_table, back_populates="labels")
+
+    def __repr__(self):
+        return '<label %r>' % self.name

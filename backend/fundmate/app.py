@@ -185,7 +185,9 @@ def register_shell_context(app: APIFlask):
             'FundPortfolioHoldDetail': fund_models.FundPortfolioHoldDetail,
             'FundSaleOrg': fund_models.FundSaleOrg,
             'Account': account_models.Account,
-            'Collection': collection_models.Collections,
+            'Collection': collection_models.Collection,
+            'CategoriesOfCollection': collection_models.CategoriesOfCollection,
+            'LabelsOfCollection': collection_models.LabelsOfCollection,
         }
 
     # 当你使用flask shell命令启动Python Shell时，所有使用app.shell_context_processor装饰器注册的shell上下文处理函数

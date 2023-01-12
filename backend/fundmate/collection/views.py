@@ -11,7 +11,7 @@ from flask.views import MethodView
 from flask_praetorian import auth_required, current_user
 
 from backend.fundmate.collection.logics import lookup_collection
-from backend.fundmate.collection.models import Collections
+from backend.fundmate.collection.models import Collection
 from backend.fundmate.collection.schemas import (
     CollectionsOutSchema,
     CreateCollectionSchema,
@@ -46,7 +46,7 @@ class CollectionsView(MethodView):
         user = current_user()
         creator_id = user.id
         collection_type = query.get('collection_type')
-        pagination = Collections.query.filter_by(collection_type=collection_type, creator_id=creator_id).paginate(
+        pagination = Collection.query.filter_by(collection_type=collection_type, creator_id=creator_id).paginate(
             page=query.get('page'),
             per_page=query.get('per_page')
         )
@@ -73,12 +73,12 @@ class CollectionsView(MethodView):
         data['creator_id'] = creator_id
         collection_type = data.get('collection_type')
         identify = data.get('identify')
-        is_collected = Collections.check_has_collected(creator_id, collection_type, identify)
+        is_collected = Collection.check_has_collected(creator_id, collection_type, identify)
         if not is_collected:
             col_inst = lookup_collection(collection_type, identify)
 
             if col_inst:
-                prod_inst = Collections.create(**data)
+                prod_inst = Collection.create(**data)
                 return prod_inst
             error = ClientError.COLLECTION_ERR
             extra_data = {'error_code': error.code, 'docs': ''}
@@ -94,7 +94,7 @@ class CollectionsView(MethodView):
     def delete(self, data: Dict):
         """用户删除自选"""
         collection_id = data.get('id')
-        _collect_inst = Collections.get_by_id(collection_id)
+        _collect_inst = Collection.get_by_id(collection_id)
         if _collect_inst:
             user = current_user()
             creator_id = user.id
