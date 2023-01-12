@@ -11,9 +11,10 @@ import pytest
 from faker import Faker as RealFaker
 
 from backend.fundmate import settings
+from backend.fundmate.collection.models import Collections
+from backend.fundmate.errors import ClientError, UserInputError
 from backend.fundmate.exts.flask_loguru import logger
 
-from ...fundmate.errors import ClientError, UserInputError
 from ..factories import FundFactory, UserFactory
 
 
@@ -57,7 +58,27 @@ def delete_collection(client, headers=None, data=None):
     return _result
 
 
-def test_get_collections(client, bearer_header, create_base_data, request):
+@pytest.fixture(scope="function", autouse=True)
+def delete_collection_from_db(request):
+    """
+    删除collection
+    :return:
+    """
+
+    def delete_all_collections():
+        cols = Collections.query.all()
+        if cols:
+            for row in cols:
+                col_id = row.id
+                _inst = Collections.get_by_id(col_id)
+                if _inst:
+                    _inst.delete()
+
+    request.addfinalizer(delete_all_collections)
+    return 0
+
+
+def test_get_collections(db, client, bearer_header, create_base_data):
     # auth required
     no_auth_result = get_collection(client)
     assert no_auth_result.status_code == 401
@@ -94,13 +115,8 @@ def test_get_collections(client, bearer_header, create_base_data, request):
     stack_with_data_result = get_collection(client, headers=bearer_header, params=stock_params)
     assert stack_with_data_result.status_code != 200
 
-    # 最后删除创建的自选 FIXME: 此处有残留
-    for item in collections:
-        del_data = {'id': item.get('id')}
-        request.addfinalizer(lambda: delete_collection(client, headers=bearer_header, data=del_data))
 
-
-def test_create_collections(client, bearer_header, create_base_data, request):
+def test_create_collections(client, bearer_header, create_base_data):
     # 基金数据组装
     fund_list = create_base_data.get('fund')
     logger.info(f'{fund_list}')
@@ -117,7 +133,6 @@ def test_create_collections(client, bearer_header, create_base_data, request):
     # 创建自选基金
     result = create_collection(client, bearer_header, collect_data)
     resp = result.json
-    logger.info(f'---{resp}--------')
     assert result.status_code == 200
     assert resp
     _inst_id = resp.get('id')
@@ -153,22 +168,18 @@ def test_create_collections(client, bearer_header, create_base_data, request):
     assert data_404_fund_resp.get('error_code') == ClientError.COLLECTION_ERR.code
     assert data_404_fund_resp.get('message') == ClientError.COLLECTION_ERR.msg
 
-    del_data = {'id': _inst_id}
-    request.addfinalizer(lambda: delete_collection(client, headers=bearer_header, data=del_data))
-
 
 def test_delete_collections(client, auth, bearer_header, create_base_data):
     # 基金数据组装
     fund_list = create_base_data.get('fund')
-    logger.info(f'{fund_list}')
     fund_code = random.choice(fund_list)
     assert fund_code.isdigit()
     collect_data = {'collection_type': settings.SupportCollectionsEnum.fund.dk_value, 'identify': fund_code}
     result = create_collection(client, bearer_header, collect_data)
     resp = result.json
-    logger.info(resp)
     assert result.status_code == 200
     assert resp
+
     # 删除不是自己的自选
     faker = RealFaker()
     password = faker.password()
@@ -188,12 +199,14 @@ def test_delete_collections(client, auth, bearer_header, create_base_data):
     forbidden_delete_others_collection_error = UserInputError.FORBIDDEN_DELETE_OTHERS_COLLECTION_ERR
     assert error_msg == forbidden_delete_others_collection_error.message
     assert error_code == forbidden_delete_others_collection_error.code
+
     # 删除刚才创建的
     assert _inst_id
     delete_data = {'id': _inst_id}
     del_result = delete_collection(client, bearer_header, delete_data)
     assert del_result.status_code == 204
+
     # 删除不存在的
-    delete_data = {'id': _inst_id + 1}
-    del_result = delete_collection(client, bearer_header, delete_data)
-    assert del_result.status_code == 404
+    delete_no_data = {'id': _inst_id + 1}
+    delete_no_data_result = delete_collection(client, bearer_header, delete_no_data)
+    assert delete_no_data_result.status_code == 404

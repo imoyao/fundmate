@@ -189,7 +189,7 @@ class PkModel(Model):
     #
     # def _repr(self, **fields: Dict[str, Any]) -> str:
     #     '''
-    #     see also:[python - SQLAlchemy best way to define __repr__ for large tables - Stack Overflow]
+    #     see also:[python - SQLAlchemy the best way to define __repr__ for large tables - Stack Overflow]
     #     (https://stackoverflow.com/questions/55713664/sqlalchemy-best-way-to-define-repr-for-large-tables)
     #     Helper for __repr__
     #     '''

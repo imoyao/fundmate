@@ -105,4 +105,4 @@ class CollectionsView(MethodView):
                 extra_data = {'error_code': error.code, 'docs': ''}
                 raise HTTPClientError(403, message=error.msg, extra_data=extra_data)
         else:
-            return {404: 'Not Found'}
+            abort(404)
