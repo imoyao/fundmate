@@ -1,4 +1,4 @@
-Flask<2.2
+Flask
 APIFlask
 Flask-SQLAlchemy<3.0.0
 Flask-Bcrypt

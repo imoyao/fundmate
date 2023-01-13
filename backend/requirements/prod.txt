@@ -63,7 +63,7 @@ PyMySQL==1.0.2
 # jinjia需要
 MarkupSafe>=2.0
 # fix flake8 error
-importlib-metadata==4.2.0
+importlib-metadata
 
 # 费率处理区间数据
 portion==2.2.0

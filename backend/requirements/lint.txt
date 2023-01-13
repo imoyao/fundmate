@@ -5,8 +5,6 @@
 #
 #    pip-compile-multi
 #
---trusted-host mirrors.aliyun.com
-
 flake8==5.0.4
     # via
     #   -r requirements\lint.in
