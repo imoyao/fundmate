@@ -37,13 +37,23 @@ def get_collection_details(collect_type, identify):
             pass
 
 
-class CollectionOutSchema(Schema):
-    id = Function(lambda obj: obj.id)
+class CollectionItemOutSchema(Schema):
+    id = Function(lambda obj: obj.id, required=True)
     info = Function(lambda obj: get_collection_details(obj.collection_type.dk_value, obj.identify))
 
 
 class CollectionsOutSchema(Schema):
-    collections = List(Nested(CollectionOutSchema))
+    collections = List(Nested(CollectionItemOutSchema))
+    pagination = Nested(CustomPaginationSchema)
+
+
+class LabelItemOutSchema(Schema):
+    id = Integer(required=True)
+    info = Function(lambda obj: get_collection_details(obj.collection_type.dk_value, obj.identify))
+
+
+class LabelsOutSchema(Schema):
+    labels = List(Nested(LabelItemOutSchema))
     pagination = Nested(CustomPaginationSchema)
 
 
@@ -56,6 +66,12 @@ class CreateCollectionSchema(Schema):
                              dump_default=settings.SupportCollectionsEnum.fund.dk_value,
                              validate=OneOf(settings.SupportCollectionsEnum.input()))
     identify = String(required=True)
+
+
+class CreateLabelSchema(Schema):
+    name = String(required=True)
+    color = String(required=True)
+    desc = String()
 
 
 class DeleteCollectionSchema(Schema):

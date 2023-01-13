@@ -11,15 +11,18 @@ from apiflask.views import MethodView
 from flask_praetorian import auth_required, current_user
 
 from backend.fundmate.collection.logics import lookup_collection
-from backend.fundmate.collection.models import Collection
+from backend.fundmate.collection.models import Collection, LabelsOfCollection
 from backend.fundmate.collection.schemas import (
     CollectionsOutSchema,
     CreateCollectionSchema,
+    CreateLabelSchema,
     DeleteCollectionSchema,
+    LabelsOutSchema,
     NewCollectionOutSchema,
     QueryCollectionsSchema,
 )
 from backend.fundmate.errors import ClientError, HTTPClientError, UserInputError
+from backend.fundmate.schema_ext import CustomPaginationSchema
 
 
 bp = APIBlueprint('collections', __name__, url_prefix='/collections')
@@ -106,3 +109,59 @@ class CollectionsView(MethodView):
                 raise HTTPClientError(403, message=error.msg, extra_data=extra_data)
         else:
             abort(404)
+
+
+@bp.route('/labels')
+class LabelsOfCollectionsView(MethodView):
+    """
+    自选标签管理
+    """
+
+    @auth_required
+    @bp.input(CustomPaginationSchema, 'query')
+    @bp.output(LabelsOutSchema)
+    @bp.doc(security='Bearer')
+    def get(self, query: Dict):
+        """
+        获取用户创建的标签
+        :param query:
+        :return:
+        """
+        user = current_user()
+        creator_id = user.id
+        pagination = LabelsOfCollection.query.filter_by(creator_id=creator_id).paginate(
+            page=query.get('page'),
+            per_page=query.get('per_page')
+        )
+        labels = pagination.items
+        if labels:
+            return {
+                'labels': labels,
+                'pagination': pagination_builder(pagination)
+            }
+        else:
+            abort(404)
+
+    @auth_required
+    @bp.input(CreateLabelSchema)
+    @bp.output(NewCollectionOutSchema)
+    @bp.doc(security='Bearer')
+    def post(self, data: Dict):
+        """
+        创建标签
+        :param data:
+        :return:
+        """
+        pass
+
+    @auth_required
+    @bp.input(DeleteCollectionSchema)
+    @bp.output({}, 204)
+    @bp.doc(security='Bearer')
+    def delete(self, data: Dict):
+        """
+        删除标签
+        :param data:
+        :return:
+        """
+        pass
