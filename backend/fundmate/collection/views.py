@@ -7,7 +7,7 @@
 from typing import Dict
 
 from apiflask import APIBlueprint, abort, pagination_builder
-from flask.views import MethodView
+from apiflask.views import MethodView
 from flask_praetorian import auth_required, current_user
 
 from backend.fundmate.collection.logics import lookup_collection

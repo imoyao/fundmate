@@ -4,8 +4,8 @@ import datetime
 from typing import Dict, Optional
 
 from apiflask import APIBlueprint, HTTPError, abort, pagination_builder
+from apiflask.views import MethodView
 from flask import current_app
-from flask.views import MethodView
 from flask_praetorian import auth_required, current_user
 
 import pandas as pd

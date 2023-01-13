@@ -17,7 +17,7 @@ https://github.com/dusktreader/flask-praetorian-tutorial/blob/master/api/src/res
 import traceback
 
 from apiflask import APIBlueprint, PaginationSchema, abort
-from flask.views import MethodView
+from apiflask.views import MethodView
 from flask_praetorian import auth_required, current_user, roles_required
 from flask_praetorian.exceptions import PraetorianError
 
