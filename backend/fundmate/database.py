@@ -10,7 +10,7 @@ from apiflask import pagination_builder
 
 from sqlalchemy import inspect
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.sql import func
 
 from backend.fundmate import utils

@@ -174,7 +174,7 @@ class User(PkModel, CreateDateModel):
         class method that takes a single ``id`` argument and returns user instance if
         there is one that matches or ``None`` if there is not.
         """
-        return cls.query.get(id)
+        return db.session.get(cls, id)
 
     # def is_valid(self):
     #     return self.is_active
