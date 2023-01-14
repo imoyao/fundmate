@@ -6,6 +6,8 @@
 """
 from __future__ import annotations
 
+import re
+
 from sqlalchemy import Table
 
 from backend.fundmate import settings
@@ -73,7 +75,7 @@ class CategoriesOfCollection(PkModel, CreateDateModel):
     category_type = Column(db.Enum(settings.SupportCollectionsEnum),
                            nullable=False,
                            default=settings.SupportCollectionsEnum.fund.dk_value,
-                           comment=f'分类类别：{settings.SupportCollectionsEnum.comment()}')
+                           comment=f'自选类别：{settings.SupportCollectionsEnum.comment()}')
     collections = db.relationship('Collection', secondary=collection_category_table, back_populates="categories")
 
     def __repr__(self):
@@ -88,11 +90,29 @@ class LabelsOfCollection(PkModel, CreateDateModel):
     __table_args__ = {'comment': '自选标签表'}
 
     creator_id = reference_col('users', column_kwargs={'comment': '创建人id'})
-    name = db.Column(db.String(4), nullable=False, comment='标签名称')
-    desc = db.Column(db.String(30), comment='标签描述')
+    name = db.Column(db.String(10), nullable=False, comment='标签名称')
     color = db.Column(db.String(7), nullable=False, comment='标签显示颜色')
+    desc = db.Column(db.String(30), comment='标签描述/备注')
 
     collections = db.relationship('Collection', secondary=collection_label_table, back_populates="labels")
+
+    @classmethod
+    def has_same_label_name_by_user(cls, user_id: int, name: str) -> bool:
+        """
+        禁止同一用户创建同名的label
+        :param user_id: 用户编号
+        :param name: label名称
+        :return:
+        """
+        _col_inst = db.session.execute(db.select(cls).filter_by(creator_id=user_id, name=name)).scalars().one_or_none()
+        if _col_inst:
+            return True
+        return False
+
+    @staticmethod
+    def validate_color(hex_str: str) -> bool:
+        _match = re.search(r'^#(?:[0-9a-fA-F]{3}){1,2}$', hex_str)
+        return bool(_match)
 
     def __repr__(self):
         return '<label %r>' % self.name

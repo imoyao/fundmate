@@ -8,10 +8,13 @@ from apiflask import Schema
 from apiflask.fields import Function, Integer, String
 from apiflask.validators import OneOf, Range
 
+from marshmallow import ValidationError
 from marshmallow.fields import List, Nested
+from marshmallow.validate import Length
 
 from backend.fundmate import settings
 from backend.fundmate.collection.logics import lookup_collection
+from backend.fundmate.collection.models import LabelsOfCollection
 from backend.fundmate.fund.schemas import FundSampleSchema
 from backend.fundmate.schema_ext import CustomPaginationSchema
 
@@ -49,7 +52,9 @@ class CollectionsOutSchema(Schema):
 
 class LabelItemOutSchema(Schema):
     id = Integer(required=True)
-    info = Function(lambda obj: get_collection_details(obj.collection_type.dk_value, obj.identify))
+    name = String(required=True)
+    color = String(required=True)
+    desc = String()
 
 
 class LabelsOutSchema(Schema):
@@ -57,7 +62,7 @@ class LabelsOutSchema(Schema):
     pagination = Nested(CustomPaginationSchema)
 
 
-class NewCollectionOutSchema(Schema):
+class WithIdSchema(Schema):
     id = Integer(required=True)
 
 
@@ -68,14 +73,13 @@ class CreateCollectionSchema(Schema):
     identify = String(required=True)
 
 
+def check_color(hex_str: str):
+    label = LabelsOfCollection()
+    if not label.validate_color(hex_str):
+        raise ValidationError('请输入正确的 HEX 值字符')
+
+
 class CreateLabelSchema(Schema):
-    name = String(required=True)
-    color = String(required=True)
+    name = String(required=True, validate=Length(max=10))
+    color = String(required=True, validate=check_color)
     desc = String()
-
-
-class DeleteCollectionSchema(Schema):
-    """
-    删除自选
-    """
-    id = Integer(required=True)

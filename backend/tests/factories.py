@@ -7,8 +7,10 @@ from factory.alchemy import SQLAlchemyModelFactory
 
 from faker import Factory
 
+from backend.fundmate.collection.models import Collection, LabelsOfCollection
 from backend.fundmate.database import db
 from backend.fundmate.fund.models import Fund
+from backend.fundmate.settings import SupportCollectionsEnum
 from backend.fundmate.user.models import Role, User
 
 
@@ -54,6 +56,21 @@ class RoleFactory(BaseFactory):
         model = Role
 
 
+class CollectionFactory(BaseFactory):
+    """Collection factory."""
+    identify = LazyAttribute(lambda obj: str(obj.identify_num))
+    creator_id = 1
+    collection_type = SupportCollectionsEnum.fund.dk_value
+
+    class Meta:
+        """Factory configuration."""
+
+        model = Collection
+
+    class Params:
+        identify_num = Faker("random_number", digits=6, fix_len=True)
+
+
 class FundFactory(BaseFactory):
     """Fund factory."""
     fund_code = LazyAttribute(lambda obj: str(obj.fund_code_num))
@@ -76,3 +93,15 @@ class FundFactory(BaseFactory):
                                        '优选',
                                        '红利',
                                        '稳健', '主题'])
+
+
+class LabelOfCollectionFactory(BaseFactory):
+    creator_id = 1
+    name = Faker('word', locale="zh_CN")
+    desc = Faker('sentence', nb_words=10, locale="zh_CN")
+    color = Faker('color')
+
+    class Meta:
+        """Factory configuration."""
+
+        model = LabelsOfCollection

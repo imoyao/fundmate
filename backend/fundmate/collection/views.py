@@ -16,10 +16,9 @@ from backend.fundmate.collection.schemas import (
     CollectionsOutSchema,
     CreateCollectionSchema,
     CreateLabelSchema,
-    DeleteCollectionSchema,
     LabelsOutSchema,
-    NewCollectionOutSchema,
     QueryCollectionsSchema,
+    WithIdSchema,
 )
 from backend.fundmate.errors import ClientError, HTTPClientError, UserInputError
 from backend.fundmate.schema_ext import CustomPaginationSchema
@@ -64,7 +63,7 @@ class CollectionsView(MethodView):
 
     @auth_required
     @bp.input(CreateCollectionSchema)
-    @bp.output(NewCollectionOutSchema)
+    @bp.output(WithIdSchema)
     @bp.doc(security='Bearer')
     def post(self, data: Dict):
         """
@@ -73,7 +72,7 @@ class CollectionsView(MethodView):
         """
         user = current_user()
         creator_id = user.id
-        data['creator_id'] = creator_id
+
         collection_type = data.get('collection_type')
         identify = data.get('identify')
         is_collected = Collection.check_has_collected(creator_id, collection_type, identify)
@@ -81,17 +80,19 @@ class CollectionsView(MethodView):
             col_inst = lookup_collection(collection_type, identify)
 
             if col_inst:
+                data['creator_id'] = creator_id
                 prod_inst = Collection.create(**data)
                 return prod_inst
             error = ClientError.COLLECTION_ERR
             extra_data = {'error_code': error.code, 'docs': ''}
             raise HTTPClientError(message=error.msg, extra_data=extra_data)
-        error = ClientError.HAS_COLLECTED_ERR
+        error = ClientError.HAS_CREATED_ERR
+        error_msg = '自选产品已存在，请勿重复创建'
         extra_data = {'error_code': error.code, 'docs': ''}
-        raise HTTPClientError(message=error.msg, extra_data=extra_data)
+        raise HTTPClientError(message=error_msg, extra_data=extra_data)
 
     @auth_required
-    @bp.input(DeleteCollectionSchema)
+    @bp.input(WithIdSchema)
     @bp.output({}, 204)
     @bp.doc(security='Bearer')
     def delete(self, data: Dict):
@@ -104,9 +105,10 @@ class CollectionsView(MethodView):
             if _collect_inst.creator_id == creator_id:
                 _collect_inst.delete()
             else:
-                error = UserInputError.FORBIDDEN_DELETE_OTHERS_COLLECTION_ERR
+                error = UserInputError.FORBIDDEN_DELETE_OTHERS_ERR
+                msg = '删除失败，请确认自选产品存在。'
                 extra_data = {'error_code': error.code, 'docs': ''}
-                raise HTTPClientError(403, message=error.msg, extra_data=extra_data)
+                raise HTTPClientError(403, message=msg, extra_data=extra_data)
         else:
             abort(404)
 
@@ -144,7 +146,7 @@ class LabelsOfCollectionsView(MethodView):
 
     @auth_required
     @bp.input(CreateLabelSchema)
-    @bp.output(NewCollectionOutSchema)
+    @bp.output(WithIdSchema)
     @bp.doc(security='Bearer')
     def post(self, data: Dict):
         """
@@ -152,10 +154,22 @@ class LabelsOfCollectionsView(MethodView):
         :param data:
         :return:
         """
-        pass
+        user = current_user()
+        creator_id = user.id
+
+        label_name = data.get('name')
+        has_created = LabelsOfCollection.has_same_label_name_by_user(creator_id, label_name)
+        if not has_created:
+            data['creator_id'] = creator_id
+            label_inst = LabelsOfCollection.create(**data)
+            return label_inst
+        error = ClientError.HAS_CREATED_ERR
+        error_msg = '标签名已存在，请勿重复创建'
+        extra_data = {'error_code': error.code, 'docs': ''}
+        raise HTTPClientError(message=error_msg, extra_data=extra_data)
 
     @auth_required
-    @bp.input(DeleteCollectionSchema)
+    @bp.input(WithIdSchema)
     @bp.output({}, 204)
     @bp.doc(security='Bearer')
     def delete(self, data: Dict):
@@ -164,4 +178,17 @@ class LabelsOfCollectionsView(MethodView):
         :param data:
         :return:
         """
-        pass
+        label_id = data.get('id')
+        _label_inst = LabelsOfCollection.get_by_id(label_id)
+        if _label_inst:
+            user = current_user()
+            creator_id = user.id
+            if _label_inst.creator_id == creator_id:
+                _label_inst.delete()
+            else:
+                error = UserInputError.FORBIDDEN_DELETE_OTHERS_ERR
+                msg = '删除失败，请确认标签存在。'
+                extra_data = {'error_code': error.code, 'docs': ''}
+                raise HTTPClientError(403, message=msg, extra_data=extra_data)
+        else:
+            abort(404)
