@@ -75,6 +75,8 @@ class UserInputError(ErrorMixin, Enum, metaclass=ErrorMeta):
     PROD_ALREADY_EXIST_ERR = (1004, '创建产品已存在，请使用查询页面获取该产品相关信息。')
     # 像这种比较通用的错误提示信息，允许在代码中进行文案自定义
     FORBIDDEN_DELETE_OTHERS_ERR = (1005, '删除失败，请确认被删除对象存在。')
+    FORBIDDEN_UPDATE_OTHERS_ERR = (1006, '更新失败，请确认更新对象存在。')
+    LABEL_IS_NOT_EXIST_ERR = (1007, '更新失败，请确认标签是否存在。')
 
 
 @unique

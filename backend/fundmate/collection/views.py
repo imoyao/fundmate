@@ -16,11 +16,16 @@ from backend.fundmate.collection.schemas import (
     CollectionsOutSchema,
     CreateCollectionSchema,
     CreateLabelSchema,
+    LabelItemOutSchema,
     LabelsOutSchema,
     QueryCollectionsSchema,
+    UpdateLabelOfCollectionsSchema,
+    UpdateLabelOutSchema,
+    UpdateLabelSchema,
     WithIdSchema,
 )
 from backend.fundmate.errors import ClientError, HTTPClientError, UserInputError
+from backend.fundmate.extensions import db
 from backend.fundmate.schema_ext import CustomPaginationSchema
 
 
@@ -39,7 +44,11 @@ class CollectionsView(MethodView):
     @bp.doc(security='Bearer')
     def get(self, query: Dict):
         """
-        获取自选信息
+        获取指定自选的详情信息，包括：
+        1. 自选的标签
+        2. 自选的分类
+        3. 自选的备注（TODO）
+        4. 如果购买过，则返回交易信息
 
         根据平台和产品名称查询产品的分类和编码；如果没有查询到，则可以使用post请求创建
         :param query:
@@ -168,17 +177,105 @@ class LabelsOfCollectionsView(MethodView):
         extra_data = {'error_code': error.code, 'docs': ''}
         raise HTTPClientError(message=error_msg, extra_data=extra_data)
 
+
+@bp.route('/<collection_id>/labels')
+class ManageLabelsOfCollectionsView(MethodView):
+    """
+    自选单品的标签管理
+    """
+
+    @auth_required
+    @bp.input(UpdateLabelOfCollectionsSchema)
+    @bp.output(UpdateLabelOutSchema, status_code=205)
+    @bp.doc(security='Bearer')
+    def patch(self, collection_id: int, data: Dict):
+        """
+        给某个品类增加或者删除 label，用户传输目前的完整 label id list
+        """
+        _col_inst = Collection.get_by_id(collection_id)
+        if _col_inst:
+            user = current_user()
+            user_id = user.id
+            creator_id = _col_inst.creator_id
+            if creator_id == user_id:
+                labels = data.get('labels')
+                labels_of_user = LabelsOfCollection.labels_of_user(user_id)
+                labels_id_list_of_user = [label.id for label in labels_of_user]
+
+                ipt_labels = set(labels)
+                user_labels = set(labels_id_list_of_user)
+
+                if ipt_labels.issubset(user_labels):
+                    if ipt_labels:
+                        new_labels = db.session.query(LabelsOfCollection).filter(
+                            LabelsOfCollection.id.in_(list(ipt_labels))).all()
+                        _col_inst.labels = new_labels
+                    else:
+                        new_labels = []
+                        _col_inst.labels = new_labels
+                    db.session.commit()
+
+                    return {
+                        'labels': new_labels
+                    }
+                else:
+                    error = UserInputError.LABEL_IS_NOT_EXIST_ERR
+                    msg = '修改失败，请确认输入是否正确。'
+                    extra_data = {'error_code': error.code, 'docs': ''}
+                    raise HTTPClientError(400, message=msg, extra_data=extra_data)
+
+            else:
+                error = UserInputError.FORBIDDEN_UPDATE_OTHERS_ERR
+                msg = '修改失败，请确认输入是否正确。'
+                extra_data = {'error_code': error.code, 'docs': ''}
+                raise HTTPClientError(403, message=msg, extra_data=extra_data)
+        else:
+            abort(404)
+
+
+@bp.route('/labels/<label_id>')
+class DetailOfLabelsOfCollectionsView(MethodView):
+    """
+    单个标签的管理
+    """
+
+    @auth_required
+    @bp.input(UpdateLabelSchema)
+    @bp.output(LabelItemOutSchema)
+    @bp.doc(security='Bearer')
+    def patch(self, label_id: int, data: Dict):
+        """
+        修改某个 label 的属性
+        :param label_id:
+        :param data:
+        :return:
+        """
+        _label_inst = LabelsOfCollection.get_by_id(label_id)
+        if _label_inst:
+            user = current_user()
+            creator_id = user.id
+            if _label_inst.creator_id == creator_id:
+                _label_info = _label_inst.update(**data)
+                return _label_info
+            else:
+                error = UserInputError.FORBIDDEN_UPDATE_OTHERS_ERR
+                msg = '更新失败，请确认标签存在。'
+                extra_data = {'error_code': error.code, 'docs': ''}
+                raise HTTPClientError(403, message=msg, extra_data=extra_data)
+        else:
+            abort(404)
+
     @auth_required
     @bp.input(WithIdSchema)
     @bp.output({}, 204)
     @bp.doc(security='Bearer')
-    def delete(self, data: Dict):
+    def delete(self, label_id):
         """
-        删除标签
-        :param data:
+        删除某个指定label
+
+        # INFO: 删除前提示用户会将标签从所有自选品类中移除，用户确认之后直接移除
         :return:
         """
-        label_id = data.get('id')
         _label_inst = LabelsOfCollection.get_by_id(label_id)
         if _label_inst:
             user = current_user()

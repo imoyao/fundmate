@@ -114,5 +114,15 @@ class LabelsOfCollection(PkModel, CreateDateModel):
         _match = re.search(r'^#(?:[0-9a-fA-F]{3}){1,2}$', hex_str)
         return bool(_match)
 
+    @classmethod
+    def labels_of_user(cls, user_id: int):
+        """
+        获取指定用户的labels
+        :param user_id:
+        :return:
+        """
+        _col_inst = db.session.execute(db.select(cls).filter_by(creator_id=user_id)).scalars().all()
+        return _col_inst
+
     def __repr__(self):
         return '<label %r>' % self.name

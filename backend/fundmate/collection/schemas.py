@@ -51,9 +51,9 @@ class CollectionsOutSchema(Schema):
 
 
 class LabelItemOutSchema(Schema):
-    id = Integer(required=True)
-    name = String(required=True)
-    color = String(required=True)
+    id = Integer()
+    name = String()
+    color = String()
     desc = String()
 
 
@@ -83,3 +83,17 @@ class CreateLabelSchema(Schema):
     name = String(required=True, validate=Length(max=10))
     color = String(required=True, validate=check_color)
     desc = String()
+
+
+class UpdateLabelSchema(Schema):
+    name = String(validate=Length(max=10))
+    color = String(validate=check_color)
+    desc = String()
+
+
+class UpdateLabelOutSchema(Schema):
+    labels = List(Nested(LabelItemOutSchema))
+
+
+class UpdateLabelOfCollectionsSchema(Schema):
+    labels = List(Integer())
