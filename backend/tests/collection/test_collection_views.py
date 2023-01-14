@@ -11,11 +11,14 @@ import pytest
 from faker import Faker as RealFaker
 
 from backend.fundmate import settings
-from backend.fundmate.collection.models import Collection
+from backend.fundmate.collection.models import Collection, LabelsOfCollection
 from backend.fundmate.errors import ClientError, UserInputError
 from backend.fundmate.exts.flask_loguru import logger
 
-from ..factories import FundFactory, UserFactory
+from ..factories import FundFactory, LabelOfCollectionFactory, UserFactory
+
+
+base_collections_endpoint = 'collections/'
 
 
 @pytest.fixture(scope='module')
@@ -42,21 +45,21 @@ class TestCollections:
         if not params:
             params = dict()
         #  get url 携带参数：https://stackoverflow.com/a/28056409
-        _result = client.get("collections/", headers=headers, query_string=params)
+        _result = client.get(base_collections_endpoint, headers=headers, query_string=params)
         return _result
 
     @staticmethod
     def create_collection(client, headers=None, data=None):
         if not data:
             data = dict()
-        _result = client.post("collections/", headers=headers, json=data)
+        _result = client.post(base_collections_endpoint, headers=headers, json=data)
         return _result
 
     @staticmethod
     def delete_collection(client, headers=None, data=None):
         if not data:
             data = dict()
-        _result = client.delete("collections/", headers=headers, json=data)
+        _result = client.delete(base_collections_endpoint, headers=headers, json=data)
         return _result
 
     @pytest.fixture(scope="function", autouse=True)
@@ -207,4 +210,152 @@ class TestCollections:
         # 删除不存在的
         delete_no_data = {'id': _inst_id + 1}
         delete_no_data_result = self.delete_collection(client, bearer_header, delete_no_data)
+        assert delete_no_data_result.status_code == 404
+
+
+base_label_endpoint = 'labels'
+label_endpoint = base_collections_endpoint + base_label_endpoint
+
+
+class TestLabels:
+
+    @staticmethod
+    def get_labels(client, headers=None, params=None):
+        if not params:
+            params = dict()
+        #  get url 携带参数：https://stackoverflow.com/a/28056409
+        _result = client.get(label_endpoint, headers=headers, query_string=params)
+        return _result
+
+    @staticmethod
+    def create_label(client, headers=None, data=None):
+        if not data:
+            data = dict()
+        _result = client.post(label_endpoint, headers=headers, json=data)
+        return _result
+
+    @staticmethod
+    def delete_label(client, headers=None, data=None):
+        if not data:
+            data = dict()
+        _result = client.delete(label_endpoint, headers=headers, json=data)
+        return _result
+
+    @pytest.fixture(scope="function", autouse=True)
+    def delete_label_from_db(self, request):
+        """
+        删除labels
+        :return:
+        """
+
+        def delete_all_labels():
+            cols = LabelsOfCollection.query.all()
+            if cols:
+                for row in cols:
+                    col_id = row.id
+                    _inst = LabelsOfCollection.get_by_id(col_id)
+                    if _inst:
+                        _inst.delete()
+
+        request.addfinalizer(delete_all_labels)
+        return 0
+
+    def test_get_labels(self, db, client, bearer_header, create_base_data):
+        # auth required
+        no_auth_result = self.get_labels(client)
+        assert no_auth_result.status_code == 401
+        # 数据为空
+        no_data_result = self.get_labels(client, headers=bearer_header)
+        assert no_data_result.status_code == 404
+
+        # 先创建数据然后再获取
+        LabelOfCollectionFactory()
+        with_data_result = self.get_labels(client, headers=bearer_header)
+        logger.info(with_data_result.json)
+        with_data_resp = with_data_result.json
+        assert with_data_result.status_code == 200
+        assert 'labels' in with_data_resp
+        labels = with_data_resp.get('labels')
+        assert labels
+        random_item = random.choice(labels)
+        assert isinstance(random_item.get('id'), int)
+        assert random_item.get('name')
+        assert random_item.get('color').startswith('#')
+
+    @pytest.mark.parametrize("label_data",
+                             [({'name': 'YYDS', 'color': '#2ba245', 'desc': '那些神一样的基金！'}),
+                              ({'name': '猪队友', 'color': '#c8595b'})])
+    def test_create_label(self, client, auth, bearer_header, label_data):
+        # 测试不带认证参数
+        no_auth_result = self.create_label(client)
+        no_auth_resp = no_auth_result.json
+        logger.info(no_auth_resp)
+        assert no_auth_result.status_code == 401
+
+        # 创建label
+        result = self.create_label(client, bearer_header, label_data)
+        resp = result.json
+        assert result.status_code == 200
+        assert resp
+        _inst_id = resp.get('id')
+        assert _inst_id
+
+        # 测试重复创建label
+        re_create_fund_result = self.create_label(client, bearer_header, label_data)
+        re_fund_resp = re_create_fund_result.json
+        logger.info(re_fund_resp)
+        assert re_create_fund_result.status_code != 200
+        assert re_fund_resp.get('error_code') == ClientError.HAS_CREATED_ERR.code
+        # 测试另一个人创建同名label
+        faker = RealFaker()
+        password = faker.password()
+        user = UserFactory(password=password)
+        token = auth.token(username=user.username, password=password)
+        _headers = {'Content-Type': 'application/json',
+                    'Authorization': "Bearer " + token}
+        other_re_create_label_result = self.create_label(client, _headers, label_data)
+        other_re_label_resp = other_re_create_label_result.json
+        logger.info(other_re_label_resp)
+        assert other_re_create_label_result.status_code == 200
+
+        # 测试不带参数
+        no_data_create_fund_result = self.create_label(client, headers=bearer_header)
+        no_data_fund_resp = no_data_create_fund_result.json
+        assert re_create_fund_result.status_code == 400
+        assert 'Missing data for required field' in json.dumps(no_data_fund_resp)
+
+    def test_delete_label(self, client, auth, bearer_header, create_base_data):
+        label_data = {'name': 'YYDS', 'color': '#2ba245', 'desc': '那些神一样的基金！'}
+        result = self.create_label(client, bearer_header, label_data)
+        resp = result.json
+        assert result.status_code == 200
+        assert resp
+
+        # 删除不是自己的label
+        faker = RealFaker()
+        password = faker.password()
+        user = UserFactory(password=password)
+        _inst_id = resp.get('id')
+        assert _inst_id
+        delete_data = {'id': _inst_id}
+        token = auth.token(username=user.username, password=password)
+        _headers = {'Content-Type': 'application/json',
+                    'Authorization': "Bearer " + token}
+        not_mine_del_result = self.delete_label(client, _headers, delete_data)
+        assert not_mine_del_result.status_code == 403
+        deny_delete_resp = not_mine_del_result.json
+        error_msg = deny_delete_resp.get('message')
+        error_code = deny_delete_resp.get('error_code')
+        assert error_msg
+        forbidden_delete_others_error = UserInputError.FORBIDDEN_DELETE_OTHERS_ERR
+        assert '删除失败' in error_msg
+        assert error_code == forbidden_delete_others_error.code
+
+        # 删除刚才创建的
+        del_result = self.delete_label(client, bearer_header, delete_data)
+        assert del_result.status_code == 204
+
+        # 删除不存在的
+        delete_no_data = {'id': _inst_id + 1}
+        delete_no_data_result = self.delete_label(client, bearer_header, delete_no_data)
         assert delete_no_data_result.status_code == 404
