@@ -81,9 +81,9 @@ def test_register(app, client, data, resp_body, request):
     result = client.post("users/register", json=data)
     assert result
     if data.get('username') == 'foo' or data.get('email') == 'foo@bar.com':
-        assert result.status_code == 400
+        assert result.status_code == 422
     else:
-        if result.status_code == 400:
+        if result.status_code == 422:
             assert result.json.get('message').get('json')
         else:
             assert result.status_code == 200
@@ -331,7 +331,7 @@ def test_reset_password(app, client, default_guard, request):
     result = try_reset_pw(data, _reset_token)
     resp = result.json
     assert result
-    assert result.status_code == 400
+    assert result.status_code == 422
     assert resp == {'message': {'json': {'password': ['请提高密码复杂度后重试。']}}}
     # 更新密码之后登录
     new_pw = faker.password()

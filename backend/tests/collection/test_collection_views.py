@@ -41,6 +41,13 @@ def create_base_data():
     return base_data
 
 
+def create_collection(client, headers=None, data=None):
+    if not data:
+        data = dict()
+    _result = client.post(base_collections_endpoint, headers=headers, json=data)
+    return _result
+
+
 class TestCollections:
     @staticmethod
     def get_collection(client, headers=None, params=None):
@@ -48,13 +55,6 @@ class TestCollections:
             params = dict()
         #  get url 携带参数：https://stackoverflow.com/a/28056409
         _result = client.get(base_collections_endpoint, headers=headers, query_string=params)
-        return _result
-
-    @staticmethod
-    def create_collection(client, headers=None, data=None):
-        if not data:
-            data = dict()
-        _result = client.post(base_collections_endpoint, headers=headers, json=data)
         return _result
 
     @staticmethod
@@ -92,7 +92,7 @@ class TestCollections:
         fund_list = create_base_data.get('fund')
         for fund_code in fund_list:
             collect_data = {'collection_type': settings.SupportCollectionsEnum.fund.dk_value, 'identify': fund_code}
-            result = self.create_collection(client, bearer_header, collect_data)
+            result = create_collection(client, bearer_header, collect_data)
             assert result.status_code == 200
 
         with_data_result = self.get_collection(client, headers=bearer_header, params=params)
@@ -120,13 +120,13 @@ class TestCollections:
         collect_data = {'collection_type': settings.SupportCollectionsEnum.fund.dk_value, 'identify': fund_code}
 
         # 测试不带认证参数
-        no_auth_result = self.create_collection(client)
+        no_auth_result = create_collection(client)
         no_auth_resp = no_auth_result.json
         logger.info(no_auth_resp)
         assert no_auth_result.status_code == 401
 
         # 创建自选基金
-        result = self.create_collection(client, bearer_header, collect_data)
+        result = create_collection(client, bearer_header, collect_data)
         resp = result.json
         assert result.status_code == 200
         assert resp
@@ -134,14 +134,14 @@ class TestCollections:
         assert _inst_id
 
         # 测试重复自选基金
-        re_create_fund_result = self.create_collection(client, bearer_header, collect_data)
+        re_create_fund_result = create_collection(client, bearer_header, collect_data)
         re_fund_resp = re_create_fund_result.json
         logger.info(re_fund_resp)
         assert re_create_fund_result.status_code != 200
         assert re_fund_resp.get('error_code') == ClientError.HAS_CREATED_ERR.code
 
         # 测试不带参数
-        no_data_create_fund_result = self.create_collection(client, headers=bearer_header)
+        no_data_create_fund_result = create_collection(client, headers=bearer_header)
         no_data_fund_resp = no_data_create_fund_result.json
         assert re_create_fund_result.status_code == 400
         assert 'Missing data for required field' in json.dumps(no_data_fund_resp)
@@ -157,7 +157,7 @@ class TestCollections:
 
         _code_404 = func_code_404(fund_list)
         collect_data_404 = {'collection_type': settings.SupportCollectionsEnum.fund.dk_value, 'identify': _code_404}
-        data_404_create_fund_result = self.create_collection(client, bearer_header, collect_data_404)
+        data_404_create_fund_result = create_collection(client, bearer_header, collect_data_404)
         data_404_fund_resp = data_404_create_fund_result.json
         assert data_404_create_fund_result.status_code == 400
         assert data_404_fund_resp.get('error_code') == ClientError.COLLECTION_ERR.code
@@ -169,7 +169,7 @@ class TestCollections:
         fund_code = random.choice(fund_list)
         assert fund_code.isdigit()
         collect_data = {'collection_type': settings.SupportCollectionsEnum.fund.dk_value, 'identify': fund_code}
-        result = self.create_collection(client, bearer_header, collect_data)
+        result = create_collection(client, bearer_header, collect_data)
         resp = result.json
         assert result.status_code == 200
         assert resp
@@ -314,6 +314,108 @@ def endpoint_of_label(label_id):
         return label_endpoint
 
 
+def collection_labels_endpoint(collection_id):
+    if collection_id:
+        return base_collections_endpoint + str(collection_id) + '/' + base_label_endpoint
+
+
+class TestManageLabelsOfCollectionsView:
+    def teardown(self):
+        delete_all_labels()
+        delete_all_collections()
+
+    @staticmethod
+    def patch_labels(client, headers=None, collection_id=None, data=None):
+        if not data:
+            data = dict()
+        _endpoint = collection_labels_endpoint(collection_id)
+        _result = client.patch(_endpoint, headers=headers, json=data)
+        return _result
+
+    def test_patch_labels_of_collections(self, client, auth, bearer_header, create_base_data):
+        labels_data = {'labels': []}
+        no_data_result = self.patch_labels(client, headers=bearer_header, collection_id=10086, data=labels_data)
+        assert no_data_result.status_code == 404
+        # 基金数据组装
+        fund_list = create_base_data.get('fund')
+        logger.info(f'{fund_list}')
+        fund_code = random.choice(fund_list)
+        assert fund_code.isdigit()
+
+        # 用户数据
+        faker = RealFaker()
+        password = faker.password()
+        user = UserFactory(password=password)
+        username = user.username
+        _user_inst = User.lookup(username)
+        token = auth.token(username=username, password=password)
+        _headers = {'Content-Type': 'application/json',
+                    'Authorization': "Bearer " + token}
+        # 添加自选
+        collect_data = {'collection_type': settings.SupportCollectionsEnum.fund.dk_value, 'identify': fund_code}
+        result = create_collection(client, _headers, collect_data)
+        resp = result.json
+        assert resp
+        logger.info(resp)
+        assert result.status_code == 200
+        _col_id = resp.get('id')
+        assert _col_id
+        label_items = list()
+        creator_id = _user_inst.id
+        for _ in range(5):
+            label = LabelOfCollectionFactory(creator_id=creator_id)
+            _label_name = label.name
+            _label_inst = LabelsOfCollection.label_of_user_by_name(creator_id, _label_name)
+            _label_id = _label_inst.id
+            label_items.append(_label_id)
+        #  错误用户创建
+        labels_data = {'labels': label_items}
+        not_mine_result = self.patch_labels(client, headers=bearer_header, collection_id=_col_id, data=labels_data)
+        assert not_mine_result.status_code == 403
+        # 正确用户
+        is_mine_result = self.patch_labels(client, headers=_headers, collection_id=_col_id, data=labels_data)
+        assert is_mine_result.status_code == 205
+        logger.info(f'====is_mine_result.json====={is_mine_result.json}====')
+        is_mine_result_resp = is_mine_result.json
+        labels = is_mine_result_resp.get('labels')
+        assert labels
+        ret_labels_id_list = [item.get('id') for item in labels]
+        in_list = label_items.sort()
+        out_list = ret_labels_id_list.sort()
+        assert in_list == out_list
+
+        # 新用户创建一个label
+        user = UserFactory(password=password)
+        username = user.username
+        _other_user_inst = User.lookup(username)
+        other_id = _other_user_inst.id
+        label = LabelOfCollectionFactory(creator_id=other_id)
+        _label_name = label.name
+        _label_inst = LabelsOfCollection.label_of_user_by_name(other_id, _label_name)
+        new_label_id = _label_inst.id
+        label_items.append(new_label_id)
+        # 测试用户提交数据中包含其他用户的label
+        new_labels_data = {'labels': label_items}
+        is_mine_collection_but_not_all_mine_labels_result = self.patch_labels(client, headers=_headers,
+                                                                              collection_id=_col_id,
+                                                                              data=new_labels_data)
+
+        assert is_mine_collection_but_not_all_mine_labels_result.status_code == 400
+        is_mine_collection_but_not_all_mine_labels_resp = is_mine_collection_but_not_all_mine_labels_result.json
+        logger.info(f'is_mine_collection_but_not_all_mine_labels_resp{is_mine_collection_but_not_all_mine_labels_resp}')
+        label_is_not_exist_err = UserInputError.LABEL_IS_NOT_EXIST_ERR
+        assert '更新失败' in label_is_not_exist_err.msg
+        error_code = is_mine_collection_but_not_all_mine_labels_resp.get('error_code')
+        assert error_code == label_is_not_exist_err.code
+        # 清空关联
+        clear_data = {'labels': []}
+        clear_mine_result = self.patch_labels(client, headers=_headers, collection_id=_col_id, data=clear_data)
+        assert clear_mine_result.status_code == 205
+        clear_mine_resp = clear_mine_result.json
+        assert clear_mine_resp == clear_data
+        logger.info(f'====clear_mine_result====={clear_mine_result.json}')
+
+
 class TestLabelDetail:
 
     @staticmethod
@@ -336,15 +438,6 @@ class TestLabelDetail:
         删除collection
         :return:
         """
-
-        def delete_all_labels():
-            cols = LabelsOfCollection.query.all()
-            if cols:
-                for row in cols:
-                    col_id = row.id
-                    _inst = LabelsOfCollection.get_by_id(col_id)
-                    if _inst:
-                        _inst.delete()
 
         request.addfinalizer(delete_all_labels)
         return 0
