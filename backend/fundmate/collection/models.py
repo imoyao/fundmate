@@ -124,5 +124,17 @@ class LabelsOfCollection(PkModel, CreateDateModel):
         _col_inst = db.session.execute(db.select(cls).filter_by(creator_id=user_id)).scalars().all()
         return _col_inst
 
+    @classmethod
+    def label_of_user_by_name(cls, user_id: int, label_name: str):
+        """
+        通过名称获取指定用户的label
+        :param label_name:
+        :param user_id:
+        :return:
+        """
+        _col_inst = db.session.execute(
+            db.select(cls).filter_by(creator_id=user_id, name=label_name)).scalars().one_or_none()
+        return _col_inst
+
     def __repr__(self):
         return '<label %r>' % self.name

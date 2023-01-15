@@ -86,8 +86,8 @@ class CreateLabelSchema(Schema):
 
 
 class UpdateLabelSchema(Schema):
-    name = String(validate=Length(max=10))
-    color = String(validate=check_color)
+    name = String(required=True, validate=Length(max=10), error_messages={"required": "标签名称必须填写。"})
+    color = String(required=True, validate=check_color, error_messages={"required": "必须为标签设置颜色。"})
     desc = String()
 
 

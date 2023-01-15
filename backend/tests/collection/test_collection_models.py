@@ -5,11 +5,12 @@
 import random
 
 import pytest
-from factories import CollectionFactory, LabelOfCollectionFactory, UserFactory
 
 from backend.fundmate.collection.models import Collection, LabelsOfCollection
 from backend.fundmate.settings import SupportCollectionsEnum
 from backend.fundmate.user.models import User
+from backend.tests.collection.collection_teardown import delete_all_collections, delete_all_labels
+from backend.tests.factories import CollectionFactory, LabelOfCollectionFactory, UserFactory
 
 
 @pytest.fixture(scope='function')
@@ -19,6 +20,8 @@ def random_col_type():
 
 
 class TestCollection:
+    def teardown(self):
+        delete_all_collections()
 
     def test_factory(self, random_col_type):
         col = CollectionFactory(collection_type=random_col_type)
@@ -39,6 +42,10 @@ class TestCollection:
 
 
 class TestLabelsOfCollection:
+
+    def teardown(self):
+        delete_all_labels()
+
     def test_factory(self):
         label = LabelOfCollectionFactory()
         assert label.name
@@ -55,3 +62,44 @@ class TestLabelsOfCollection:
         new_user_id = user_id + 1
         has_created = LabelsOfCollection.has_same_label_name_by_user(new_user_id, new_name)
         assert not has_created
+
+    def test_labels_of_user(self):
+        user = UserFactory()
+        user_inst = User.lookup(user.username)
+        user_id = user_inst.id
+        assert user_id
+        # 没有创建
+        labels = LabelsOfCollection.labels_of_user(user_id)
+        assert not labels
+        # 创建后可以查到
+        label = LabelOfCollectionFactory(creator_id=user_id)
+        now_has_labels = LabelsOfCollection.labels_of_user(user_id)
+        assert label in now_has_labels
+        # 新用户没有
+        new_user = UserFactory()
+        new_user_inst = User.lookup(new_user.username)
+        new_user_id = new_user_inst.id
+        new_user_labels = LabelsOfCollection.labels_of_user(new_user_id)
+        assert not new_user_labels
+
+    def test_label_of_user_by_name(self):
+        user = UserFactory()
+        user_inst = User.lookup(user.username)
+        user_id = user_inst.id
+        assert user_id
+        # 没有创建
+        labels = LabelsOfCollection.label_of_user_by_name(user_id, label_name='测试')
+        assert not labels
+        # 创建后可以查到
+        label = LabelOfCollectionFactory(creator_id=user_id)
+        label_name = label.name
+        now_has_labels = LabelsOfCollection.label_of_user_by_name(user_id, label_name=label_name)
+        assert now_has_labels
+        assert now_has_labels.name == label_name
+        assert label_name in str(now_has_labels)
+        # 新用户没有
+        new_user = UserFactory()
+        new_user_inst = User.lookup(new_user.username)
+        new_user_id = new_user_inst.id
+        new_user_labels = LabelsOfCollection.label_of_user_by_name(new_user_id, label_name=label_name)
+        assert not new_user_labels

@@ -266,7 +266,6 @@ class DetailOfLabelsOfCollectionsView(MethodView):
             abort(404)
 
     @auth_required
-    @bp.input(WithIdSchema)
     @bp.output({}, 204)
     @bp.doc(security='Bearer')
     def delete(self, label_id):

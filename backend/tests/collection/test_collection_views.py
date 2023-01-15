@@ -11,9 +11,11 @@ import pytest
 from faker import Faker as RealFaker
 
 from backend.fundmate import settings
-from backend.fundmate.collection.models import Collection, LabelsOfCollection
+from backend.fundmate.collection.models import LabelsOfCollection
 from backend.fundmate.errors import ClientError, UserInputError
 from backend.fundmate.exts.flask_loguru import logger
+from backend.fundmate.user.models import User
+from backend.tests.collection.collection_teardown import delete_all_collections, delete_all_labels
 
 from ..factories import FundFactory, LabelOfCollectionFactory, UserFactory
 
@@ -68,15 +70,6 @@ class TestCollections:
         删除collection
         :return:
         """
-
-        def delete_all_collections():
-            cols = Collection.query.all()
-            if cols:
-                for row in cols:
-                    col_id = row.id
-                    _inst = Collection.get_by_id(col_id)
-                    if _inst:
-                        _inst.delete()
 
         request.addfinalizer(delete_all_collections)
         return 0
@@ -217,6 +210,13 @@ base_label_endpoint = 'labels'
 label_endpoint = base_collections_endpoint + base_label_endpoint
 
 
+def create_label(client, headers=None, data=None):
+    if not data:
+        data = dict()
+    _result = client.post(label_endpoint, headers=headers, json=data)
+    return _result
+
+
 class TestLabels:
 
     @staticmethod
@@ -228,35 +228,12 @@ class TestLabels:
         return _result
 
     @staticmethod
-    def create_label(client, headers=None, data=None):
-        if not data:
-            data = dict()
-        _result = client.post(label_endpoint, headers=headers, json=data)
-        return _result
-
-    @staticmethod
-    def delete_label(client, headers=None, data=None):
-        if not data:
-            data = dict()
-        _result = client.delete(label_endpoint, headers=headers, json=data)
-        return _result
-
     @pytest.fixture(scope="function", autouse=True)
-    def delete_label_from_db(self, request):
+    def delete_label_from_db(request):
         """
         删除labels
         :return:
         """
-
-        def delete_all_labels():
-            cols = LabelsOfCollection.query.all()
-            if cols:
-                for row in cols:
-                    col_id = row.id
-                    _inst = LabelsOfCollection.get_by_id(col_id)
-                    if _inst:
-                        _inst.delete()
-
         request.addfinalizer(delete_all_labels)
         return 0
 
@@ -287,13 +264,13 @@ class TestLabels:
                               ({'name': '猪队友', 'color': '#c8595b'})])
     def test_create_label(self, client, auth, bearer_header, label_data):
         # 测试不带认证参数
-        no_auth_result = self.create_label(client)
+        no_auth_result = create_label(client)
         no_auth_resp = no_auth_result.json
         logger.info(no_auth_resp)
         assert no_auth_result.status_code == 401
 
         # 创建label
-        result = self.create_label(client, bearer_header, label_data)
+        result = create_label(client, bearer_header, label_data)
         resp = result.json
         assert result.status_code == 200
         assert resp
@@ -301,7 +278,7 @@ class TestLabels:
         assert _inst_id
 
         # 测试重复创建label
-        re_create_fund_result = self.create_label(client, bearer_header, label_data)
+        re_create_fund_result = create_label(client, bearer_header, label_data)
         re_fund_resp = re_create_fund_result.json
         logger.info(re_fund_resp)
         assert re_create_fund_result.status_code != 200
@@ -313,20 +290,120 @@ class TestLabels:
         token = auth.token(username=user.username, password=password)
         _headers = {'Content-Type': 'application/json',
                     'Authorization': "Bearer " + token}
-        other_re_create_label_result = self.create_label(client, _headers, label_data)
+        other_re_create_label_result = create_label(client, _headers, label_data)
         other_re_label_resp = other_re_create_label_result.json
         logger.info(other_re_label_resp)
         assert other_re_create_label_result.status_code == 200
 
         # 测试不带参数
-        no_data_create_fund_result = self.create_label(client, headers=bearer_header)
+        no_data_create_fund_result = create_label(client, headers=bearer_header)
         no_data_fund_resp = no_data_create_fund_result.json
         assert re_create_fund_result.status_code == 400
         assert 'Missing data for required field' in json.dumps(no_data_fund_resp)
 
-    def test_delete_label(self, client, auth, bearer_header, create_base_data):
+
+def endpoint_of_label(label_id):
+    """
+    拼接路由
+    :param label_id:
+    :return:
+    """
+    if label_id:
+        return label_endpoint + f'/{label_id}'
+    else:
+        return label_endpoint
+
+
+class TestLabelDetail:
+
+    @staticmethod
+    def delete_label(client, headers=None, label_id=None):
+        _endpoint = endpoint_of_label(label_id)
+        _result = client.delete(_endpoint, headers=headers)
+        return _result
+
+    @staticmethod
+    def patch_label(client, headers=None, label_id=None, data=None):
+        _endpoint = endpoint_of_label(label_id)
+        if not data:
+            data = dict()
+        _result = client.patch(_endpoint, headers=headers, json=data)
+        return _result
+
+    @pytest.fixture(scope="function", autouse=True)
+    def delete_labels_from_db(self, request):
+        """
+        删除collection
+        :return:
+        """
+
+        def delete_all_labels():
+            cols = LabelsOfCollection.query.all()
+            if cols:
+                for row in cols:
+                    col_id = row.id
+                    _inst = LabelsOfCollection.get_by_id(col_id)
+                    if _inst:
+                        _inst.delete()
+
+        request.addfinalizer(delete_all_labels)
+        return 0
+
+    def test_patch_label(self, client, auth, bearer_header):
+        """
+        更新指定label
+        :param client:
+        :param auth:
+        :return:
+        """
+        faker = RealFaker()
+        password = faker.password()
+        user = UserFactory(password=password)
+        username = user.username
+        user_inst = User.lookup(username)
+        user_id = user_inst.id
+        _label_inst = LabelOfCollectionFactory(creator_id=user_id)
+        _label_name = _label_inst.name
+        _label_inst = LabelsOfCollection.label_of_user_by_name(user_id, _label_name)
+        _label_id = _label_inst.id
+        token = auth.token(username=username, password=password)
+        _headers = {'Content-Type': 'application/json',
+                    'Authorization': "Bearer " + token}
+        # 不带参数，返回错误
+        result = self.patch_label(client, _headers, _label_id)
+        assert result.status_code != 200
+        # 颜色参数不对
+        _word = faker.word()
+        new_name = _label_name + _word
+        update_label_data = {
+            'name': new_name,
+            'color': _word,
+        }
+        result = self.patch_label(client, _headers, _label_id, data=update_label_data)
+        assert result.status_code != 200
+        # 参数正确
+        _word = faker.word()
+        new_name = _label_name + _word
+        color = faker.color()
+        update_label_data = {
+            'name': new_name,
+            'color': color,
+        }
+        patch_result = self.patch_label(client, _headers, _label_id, data=update_label_data)
+        assert patch_result.status_code == 200
+        resp = patch_result.json
+        resp_name = resp.get('name')
+        assert resp_name == new_name
+        # 更新不是自己的label
+        not_my_label_patch_result = self.patch_label(client, bearer_header, _label_id, data=update_label_data)
+        assert not_my_label_patch_result.status_code == 403
+        # 指向不存在的标签
+        patch_result_404 = self.patch_label(client, _headers, _label_id + 1, data=update_label_data)
+        assert patch_result_404.status_code == 404
+
+    def test_delete_label(self, client, auth, bearer_header):
         label_data = {'name': 'YYDS', 'color': '#2ba245', 'desc': '那些神一样的基金！'}
-        result = self.create_label(client, bearer_header, label_data)
+        result = create_label(client, bearer_header, label_data)
         resp = result.json
         assert result.status_code == 200
         assert resp
@@ -337,11 +414,10 @@ class TestLabels:
         user = UserFactory(password=password)
         _inst_id = resp.get('id')
         assert _inst_id
-        delete_data = {'id': _inst_id}
         token = auth.token(username=user.username, password=password)
         _headers = {'Content-Type': 'application/json',
                     'Authorization': "Bearer " + token}
-        not_mine_del_result = self.delete_label(client, _headers, delete_data)
+        not_mine_del_result = self.delete_label(client, _headers, _inst_id)
         assert not_mine_del_result.status_code == 403
         deny_delete_resp = not_mine_del_result.json
         error_msg = deny_delete_resp.get('message')
@@ -352,10 +428,13 @@ class TestLabels:
         assert error_code == forbidden_delete_others_error.code
 
         # 删除刚才创建的
-        del_result = self.delete_label(client, bearer_header, delete_data)
+        del_result = self.delete_label(client, bearer_header, _inst_id)
         assert del_result.status_code == 204
+        # 路由中不带id
+        del_no_id_result = self.delete_label(client, bearer_header)
+        assert del_no_id_result.status_code == 405
 
         # 删除不存在的
-        delete_no_data = {'id': _inst_id + 1}
-        delete_no_data_result = self.delete_label(client, bearer_header, delete_no_data)
+        not_exist_id = _inst_id + 1
+        delete_no_data_result = self.delete_label(client, bearer_header, not_exist_id)
         assert delete_no_data_result.status_code == 404
