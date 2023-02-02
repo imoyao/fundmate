@@ -26,42 +26,8 @@ class UserOutSchema(Schema):
 
 
 class UserLoginSchema(Schema):
-    username = String()
-    email = Email(validate=Length(6, 40))
+    username = String(required=True)
     password = String(required=True)
-
-    @validates_schema(skip_on_field_errors=False)
-    def validate_username_or_email_at_least(
-            self,
-            data: (typing.Mapping[str, typing.Any] | typing.Iterable[typing.Mapping[str, typing.Any]]),
-            **kwargs,
-    ) -> dict[str, list[str]]:
-        """
-        对于用户名和密码，必须有一个是为必传参数
-
-        And there are two decorators to register a validation method:
-
-        validates(field_name): to register a method to validate a specified field
-        validates_schema: to register a method to validate the whole schema
-
-        **note**
-        When using the validates_schema, notice the skip_on_field_errors is set to True as default:
-
-        If skip_on_field_errors=True, this validation method will be skipped whenever validation errors
-         have been detected when validating fields.
-
-        see also:
-        1. https://github.com/marshmallow-code/marshmallow/issues/675
-        2. https://marshmallow.readthedocs.io/en/latest/extending.html#schema-level-validation
-
-        :param data:
-        :param kwargs:
-        :return:
-        """
-        username = data.get('username')
-        email = data.get('email')
-        if not any([username, email]):
-            raise ValidationError('username or email at least one is required.')
 
 
 password_validation = And(Length(6, 40), Regexp(settings.PASSWORD_REG, error='请提高密码复杂度后重试。'))
@@ -93,6 +59,21 @@ class UserInSchema(Schema):
     ) -> dict[str, list[str]]:
         """
         对于用户名和密码，必须有一个是为必传参数
+
+        And there are two decorators to register a validation method:
+
+        validates(field_name): to register a method to validate a specified field
+        validates_schema: to register a method to validate the whole schema
+
+        **note**
+        When using the validates_schema, notice the skip_on_field_errors is set to True as default:
+
+        If skip_on_field_errors=True, this validation method will be skipped whenever validation errors
+         have been detected when validating fields.
+
+        see also:
+        1. https://github.com/marshmallow-code/marshmallow/issues/675
+        2. https://marshmallow.readthedocs.io/en/latest/extending.html#schema-level-validation
         :param data:
         :param kwargs:
         :return:

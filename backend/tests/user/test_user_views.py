@@ -144,9 +144,8 @@ def test_confirm_and_active_account(app, client, default_guard, mail, data, requ
 
 
 def test_login(app, client, default_guard, mail, request):
-    data = {'username': app.config.get('TEST_USERNAME'), 'password': app.config.get('TEST_PASSWORD'),
-            'email': app.config.get('TEST_EMAIL')}
-    email = data.get('email')
+    data = {'username': app.config.get('TEST_USERNAME'), 'password': app.config.get('TEST_PASSWORD')}
+    email = app.config.get('TEST_EMAIL')
 
     def try_login(login_data):
         _result = client.post("users/login", json=login_data)
@@ -204,7 +203,7 @@ def test_login(app, client, default_guard, mail, request):
     assert 'access_token' in result_username.json
 
     # 测试邮箱登录
-    login_with_email = {'email': data.get('email'), 'password': data.get('password')}
+    login_with_email = {'username': email, 'password': data.get('password')}
     result_email = try_login(login_with_email)
     assert result_email.status_code == 200
     assert 'access_token' in result_email.json
