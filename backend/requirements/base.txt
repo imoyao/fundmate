@@ -5,9 +5,11 @@
 #
 #    pip-compile-multi
 #
-alembic==1.9.1
+--trusted-host mirrors.aliyun.com
+
+alembic==1.9.2
     # via flask-migrate
-apiflask==1.2.0
+apiflask==1.2.1
     # via -r requirements\base.in
 apispec==6.0.2
     # via apiflask
@@ -19,13 +21,13 @@ baostock==0.8.8
     # via -r requirements\base.in
 bcrypt==4.0.1
     # via flask-bcrypt
-beautifulsoup4==4.11.1
+beautifulsoup4==4.11.2
     # via xalpha
 blinker==1.5
     # via
     #   flask-mail
     #   sentry-sdk
-cachetools==5.2.1
+cachetools==5.3.0
     # via -r requirements\base.in
 certifi==2022.12.7
     # via
@@ -74,7 +76,7 @@ flask-mail==0.9.1
     # via flask-praetorian
 flask-marshmallow==0.14.0
     # via apiflask
-flask-migrate==4.0.1
+flask-migrate==4.0.3
     # via -r requirements\base.in
 flask-praetorian==1.4.0
     # via -r requirements\base.in
@@ -84,7 +86,7 @@ flask-sqlalchemy==2.5.1
     #   flask-migrate
 fonttools==4.38.0
     # via matplotlib
-greenlet==2.0.1
+greenlet==2.0.2
     # via sqlalchemy
 idna==3.4
     # via requests
@@ -114,7 +116,7 @@ lxml==4.9.2
     # via xalpha
 mako==1.2.4
     # via alembic
-markupsafe==2.1.1
+markupsafe==2.1.2
     # via
     #   jinja2
     #   mako
@@ -152,7 +154,7 @@ pendulum==2.1.2
     # via flask-praetorian
 pillow==9.4.0
     # via matplotlib
-portion==2.3.0
+portion==2.3.1
     # via -r requirements\base.in
 prettytable==3.6.0
     # via pyecharts
@@ -178,9 +180,9 @@ python-dateutil==2.8.2
     #   matplotlib
     #   pandas
     #   pendulum
-python-dotenv==0.21.0
+python-dotenv==0.21.1
     # via environs
-pytz==2022.7
+pytz==2022.7.1
     # via
     #   dateparser
     #   pandas
@@ -198,7 +200,7 @@ retry==0.9.2
     # via -r requirements\base.in
 scipy==1.7.3
     # via xalpha
-sentry-sdk[flask]==1.13.0
+sentry-sdk[flask]==1.14.0
     # via -r requirements\base.in
 simplejson==3.18.1
     # via pyecharts
@@ -210,7 +212,7 @@ sortedcontainers==2.4.0
     # via portion
 soupsieve==2.3.2.post1
     # via beautifulsoup4
-sqlalchemy==1.4.46
+sqlalchemy==2.0.1
     # via
     #   alembic
     #   flask-sqlalchemy
@@ -220,6 +222,7 @@ typing-extensions==4.4.0
     #   apiflask
     #   importlib-metadata
     #   kiwisolver
+    #   sqlalchemy
 tzdata==2022.7
     # via
     #   pytz-deprecation-shim
@@ -230,7 +233,7 @@ urllib3==1.26.14
     # via
     #   requests
     #   sentry-sdk
-wcwidth==0.2.5
+wcwidth==0.2.6
     # via prettytable
 webargs==8.2.0
     # via apiflask
@@ -244,7 +247,7 @@ xalpha==0.11.7
     # via -r requirements\base.in
 xlrd==2.0.1
     # via xalpha
-zipp==3.11.0
+zipp==3.12.0
     # via
     #   importlib-metadata
     #   importlib-resources

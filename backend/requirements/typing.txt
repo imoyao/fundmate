@@ -5,6 +5,8 @@
 #
 #    pip-compile-multi
 #
+--trusted-host mirrors.aliyun.com
+
 mypy==0.991
     # via -r requirements\typing.in
 mypy-extensions==0.4.3

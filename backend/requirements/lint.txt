@@ -5,13 +5,15 @@
 #
 #    pip-compile-multi
 #
+--trusted-host mirrors.aliyun.com
+
 flake8==5.0.4
     # via
     #   -r requirements\lint.in
     #   pep8-naming
 importlib-metadata==4.2.0
     # via flake8
-isort==5.11.4
+isort==5.11.5
     # via -r requirements\lint.in
 mccabe==0.7.0
     # via flake8
@@ -23,5 +25,5 @@ pyflakes==2.5.0
     # via flake8
 typing-extensions==4.4.0
     # via importlib-metadata
-zipp==3.11.0
+zipp==3.12.0
     # via importlib-metadata
