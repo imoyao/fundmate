@@ -106,6 +106,11 @@ class TestCollections:
         assert isinstance(random_item.get('id'), int)
         item_info = random_item.get('info')
         assert 'fund_code' in item_info and 'name' in item_info
+        _labels_of_col = item_info.get('labels')
+        if _labels_of_col:
+            assert _labels_of_col
+            label_item_of_col = random.choice(_labels_of_col)
+            assert 'color' in label_item_of_col and 'name' in label_item_of_col and 'id' in label_item_of_col
         # 获取股票
         stock_params = {'collection_type': settings.SupportCollectionsEnum.stock.dk_value}
         stack_with_data_result = self.get_collection(client, headers=bearer_header, params=stock_params)

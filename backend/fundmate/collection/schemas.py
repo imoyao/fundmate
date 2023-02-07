@@ -14,8 +14,7 @@ from marshmallow.validate import Length
 
 from backend.fundmate import settings
 from backend.fundmate.collection.logics import lookup_collection
-from backend.fundmate.collection.models import LabelsOfCollection
-from backend.fundmate.fund.schemas import FundSampleSchema
+from backend.fundmate.collection.models import Collection, LabelsOfCollection
 from backend.fundmate.schema_ext import CustomPaginationSchema
 
 
@@ -28,12 +27,41 @@ class QueryCollectionsSchema(Schema):
     per_page = Integer(load_default=20, validate=Range(max=30))
 
 
-def get_collection_details(collect_type, identify):
+class LabelItemOutSchema(Schema):
+    """
+    labels输出
+    """
+    id = Integer()
+    name = String()
+    color = String()
+    desc = String()
+
+
+class FundCollectionSampleSchema(Schema):
+    """
+    简略信息，目前包含基金编码和基金名称
+    """
+    fund_code = String()
+    name = String()
+    labels = List(Nested(LabelItemOutSchema))
+
+
+def get_collection_details(collect_type: str, identify: str, col_id: int):
+    """
+    根据不同的自选产品所属分类获取产品的详细信息
+    :param collect_type: 自选产品的类型
+    :param identify: 自选产品的识别码
+    :param col_id: 自选产品id
+    :return:
+    """
     _inst = lookup_collection(collect_type, identify)
+    col_inst = Collection.get_by_id(col_id)
+    _labels = col_inst.labels
     if _inst:
         if collect_type == settings.SupportCollectionsEnum.fund.dk_value:
             # TODO: 需要使用复杂接口处理成带各种指标的数据
-            fund_schema = FundSampleSchema()
+            fund_schema = FundCollectionSampleSchema()
+            _inst.labels = _labels
             _result = fund_schema.dump(_inst)
             return _result
         else:
@@ -42,19 +70,12 @@ def get_collection_details(collect_type, identify):
 
 class CollectionItemOutSchema(Schema):
     id = Function(lambda obj: obj.id, required=True)
-    info = Function(lambda obj: get_collection_details(obj.collection_type.dk_value, obj.identify))
+    info = Function(lambda obj: get_collection_details(obj.collection_type.dk_value, obj.identify, obj.id))
 
 
 class CollectionsOutSchema(Schema):
     collections = List(Nested(CollectionItemOutSchema))
     pagination = Nested(CustomPaginationSchema)
-
-
-class LabelItemOutSchema(Schema):
-    id = Integer()
-    name = String()
-    color = String()
-    desc = String()
 
 
 class LabelsOutSchema(Schema):

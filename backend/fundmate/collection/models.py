@@ -117,7 +117,7 @@ class LabelsOfCollection(PkModel, CreateDateModel):
     @classmethod
     def labels_of_user(cls, user_id: int):
         """
-        获取指定用户的labels
+        获取指定用户自选产品的labels
         :param user_id:
         :return:
         """
@@ -127,7 +127,7 @@ class LabelsOfCollection(PkModel, CreateDateModel):
     @classmethod
     def label_of_user_by_name(cls, user_id: int, label_name: str):
         """
-        通过名称获取指定用户的label
+        通过名称获取指定用户自选产品的label
         :param label_name:
         :param user_id:
         :return:
