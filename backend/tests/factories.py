@@ -7,7 +7,7 @@ from factory.alchemy import SQLAlchemyModelFactory
 
 from faker import Factory
 
-from backend.fundmate.collection.models import Collection, LabelsOfCollection
+from backend.fundmate.collection.models import CategoriesOfCollection, Collection, LabelsOfCollection
 from backend.fundmate.database import db
 from backend.fundmate.fund.models import Fund
 from backend.fundmate.settings import SupportCollectionsEnum
@@ -105,3 +105,14 @@ class LabelOfCollectionFactory(BaseFactory):
         """Factory configuration."""
 
         model = LabelsOfCollection
+
+
+class CategoryOfCollectionFactory(BaseFactory):
+    creator_id = 1
+    name = Faker('word', locale="zh_CN")
+    collection_type = SupportCollectionsEnum.fund.dk_value
+
+    class Meta:
+        """Factory configuration."""
+
+        model = CategoriesOfCollection

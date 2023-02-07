@@ -43,6 +43,7 @@ class CategoryItemOutSchema(Schema):
     """
     id = Integer()
     name = String()
+    count = Function(lambda obj: len(obj.collections))  # 某个分组下自选的数量（参考支付宝，用户删除时可以参考）
 
 
 class FundCollectionSampleSchema(Schema):
@@ -96,6 +97,12 @@ class CategoriesOutSchema(Schema):
     pagination = Nested(CustomPaginationSchema)
 
 
+class CustomQueryCategoryPaginationSchema(CustomPaginationSchema):
+    collection_type = String(required=True,
+                             dump_default=settings.SupportCollectionsEnum.fund.dk_value,
+                             validate=OneOf(settings.SupportCollectionsEnum.input()))
+
+
 class WithIdSchema(Schema):
     id = Integer(required=True)
 
@@ -121,9 +128,9 @@ class CreateLabelSchema(Schema):
 
 class CreateCategorySchema(Schema):
     name = String(required=True, validate=Length(max=10))
-    category_type = String(required=True,
-                           dump_default=settings.SupportCollectionsEnum.fund.dk_value,
-                           validate=OneOf(settings.SupportCollectionsEnum.input()))
+    collection_type = String(required=True,
+                             dump_default=settings.SupportCollectionsEnum.fund.dk_value,
+                             validate=OneOf(settings.SupportCollectionsEnum.input()))
 
 
 class UpdateLabelSchema(Schema):

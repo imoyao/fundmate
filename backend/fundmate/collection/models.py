@@ -71,11 +71,11 @@ class CategoriesOfCollection(PkModel, CreateDateModel):
 
     creator_id = reference_col('users', column_kwargs={'comment': '创建人id'})
     name = Column(db.String(10), nullable=False, comment='分组名称')
-    # 为哪个收藏分类创建的自选组
-    category_type = Column(db.Enum(settings.SupportCollectionsEnum),
-                           nullable=False,
-                           default=settings.SupportCollectionsEnum.fund.dk_value,
-                           comment=f'自选类别：{settings.SupportCollectionsEnum.comment()}')
+    # 为哪个自选分类创建的自选组
+    collection_type = Column(db.Enum(settings.SupportCollectionsEnum),
+                             nullable=False,
+                             default=settings.SupportCollectionsEnum.fund.dk_value,
+                             comment=f'自选类别：{settings.SupportCollectionsEnum.comment()}')
     collections = db.relationship('Collection', secondary=collection_category_table, back_populates="categories")
 
     def __repr__(self):
@@ -90,7 +90,7 @@ class CategoriesOfCollection(PkModel, CreateDateModel):
         :param name: label名称
         :return:
         """
-        _col_inst = db.session.execute(db.select(cls).filter_by(creator_id=user_id, category_type=collection_type,
+        _col_inst = db.session.execute(db.select(cls).filter_by(creator_id=user_id, collection_type=collection_type,
                                                                 name=name)).scalars().one_or_none()
         if _col_inst:
             return True

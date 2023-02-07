@@ -2,6 +2,8 @@
 # Auther : imoyao
 # Date : 2023/1/5 22:10
 # File : test_collection_views.py
+# FIXME: 目前由于基础数据不足，没有测试指数、可转债等相关自选接口
+import copy
 import json
 import random
 
@@ -15,9 +17,13 @@ from backend.fundmate.collection.models import LabelsOfCollection
 from backend.fundmate.errors import ClientError, UserInputError
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.user.models import User
-from backend.tests.collection.collection_teardown import delete_all_collections, delete_all_labels
+from backend.tests.collection.collection_teardown import (
+    delete_all_categories,
+    delete_all_collections,
+    delete_all_labels,
+)
 
-from ..factories import FundFactory, LabelOfCollectionFactory, UserFactory
+from ..factories import CategoryOfCollectionFactory, FundFactory, LabelOfCollectionFactory, UserFactory
 
 
 base_collections_endpoint = 'collections/'
@@ -303,7 +309,126 @@ class TestLabels:
         # 测试不带参数
         no_data_create_fund_result = create_label(client, headers=bearer_header)
         no_data_fund_resp = no_data_create_fund_result.json
-        assert re_create_fund_result.status_code == 400
+        assert no_data_create_fund_result.status_code == 422
+        assert 'Missing data for required field' in json.dumps(no_data_fund_resp)
+
+
+base_category_endpoint = 'categories'
+category_endpoint = base_collections_endpoint + base_category_endpoint
+
+
+def create_category(client, headers=None, data=None):
+    """
+    封装创建分组的操作
+    :param client:
+    :param headers:
+    :param data:
+    :return:
+    """
+    if not data:
+        data = dict()
+    _result = client.post(category_endpoint, headers=headers, json=data)
+    return _result
+
+
+class TestCategories:
+
+    @staticmethod
+    def get_categories(client, headers=None, params=None):
+        if not params:
+            params = dict()
+        #  get url 携带参数：https://stackoverflow.com/a/28056409
+        _result = client.get(category_endpoint, headers=headers, query_string=params)
+        return _result
+
+    @staticmethod
+    @pytest.fixture(scope="function", autouse=True)
+    def delete_category_from_db(request):
+        """
+        删除labels
+        :return:
+        """
+        request.addfinalizer(delete_all_categories)
+        return 0
+
+    def test_get_categories(self, db, client, bearer_header, create_base_data):
+        # auth required
+        no_auth_result = self.get_categories(client)
+        assert no_auth_result.status_code == 401
+        # 数据为空
+        no_data_result = self.get_categories(client, headers=bearer_header)
+        assert no_data_result.status_code == 422
+
+        # 携带必选参数
+        _query_data = {'collection_type': settings.SupportCollectionsEnum.fund.dk_value}
+
+        no_data_result = self.get_categories(client, headers=bearer_header, params=_query_data)
+        assert no_data_result.status_code == 404
+
+        # 先创建数据然后再获取
+        CategoryOfCollectionFactory(name='待到山花烂漫时')
+        with_data_result = self.get_categories(client, headers=bearer_header, params=_query_data)
+        logger.info(with_data_result.json)
+        with_data_resp = with_data_result.json
+        assert with_data_result.status_code == 200
+        assert 'categories' in with_data_resp
+        categories = with_data_resp.get('categories')
+        assert categories
+        random_item = random.choice(categories)
+        assert isinstance(random_item.get('id'), int)
+        assert isinstance(random_item.get('count'), int)
+        assert random_item.get('name')
+
+    @pytest.mark.parametrize("category_data",
+                             [({'name': '嘲风优选'}),
+                              ({'name': '超越巴菲特'})])
+    def test_create_category(self, client, auth, bearer_header, category_data):
+        # 测试不带认证参数
+        no_auth_result = create_category(client)
+        no_auth_resp = no_auth_result.json
+        logger.info(no_auth_resp)
+        assert no_auth_result.status_code == 401
+        # 测试不带类别数据
+        result = create_category(client, bearer_header, category_data)
+        assert result.status_code == 422
+
+        _base_data = {'collection_type': settings.SupportCollectionsEnum.fund.dk_value}
+        # 创建category
+        category_data.update(_base_data)
+        result = create_category(client, bearer_header, category_data)
+        resp = result.json
+        assert result.status_code == 200
+        assert resp
+        _inst_id = resp.get('id')
+        assert _inst_id
+
+        # 测试重复创建category
+        re_create_fund_result = create_category(client, bearer_header, category_data)
+        re_fund_resp = re_create_fund_result.json
+        logger.info(re_fund_resp)
+        assert re_create_fund_result.status_code != 200
+        assert re_fund_resp.get('error_code') == ClientError.HAS_CREATED_ERR.code
+
+        # 测试为不同类别创建同名category
+        other_category_data = copy.deepcopy(category_data)
+        other_category_data['collection_type'] = settings.SupportCollectionsEnum.bond.dk_value
+        other_re_create_fund_result = create_category(client, bearer_header, other_category_data)
+        assert other_re_create_fund_result.status_code == 200
+
+        # 测试另一个人创建同名label
+        faker = RealFaker()
+        password = faker.password()
+        user = UserFactory(password=password)
+        token = auth.token(username=user.username, password=password)
+        _headers = {'Content-Type': 'application/json',
+                    'Authorization': "Bearer " + token}
+        other_re_create_result = create_category(client, _headers, category_data)
+        assert other_re_create_result.status_code == 200
+
+        # 测试不带参数
+        no_data_create_fund_result = create_category(client, headers=bearer_header)
+        no_data_fund_resp = no_data_create_fund_result.json
+        assert no_data_create_fund_result.status_code == 422
         assert 'Missing data for required field' in json.dumps(no_data_fund_resp)
 
 

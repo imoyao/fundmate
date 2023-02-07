@@ -19,6 +19,7 @@ from backend.fundmate.collection.schemas import (
     CreateCategorySchema,
     CreateCollectionSchema,
     CreateLabelSchema,
+    CustomQueryCategoryPaginationSchema,
     LabelItemOutSchema,
     LabelsOutSchema,
     QueryCollectionsSchema,
@@ -189,12 +190,12 @@ class CategoriesOfCollectionsView(MethodView):
     """
 
     @auth_required
-    @bp.input(CustomPaginationSchema, 'query')
+    @bp.input(CustomQueryCategoryPaginationSchema, 'query')
     @bp.output(CategoriesOutSchema)
     @bp.doc(security='Bearer')
     def get(self, query: Dict):
         """
-        获取用户创建的标签
+        获取某个自选分类下用户创建的分组
         :param query:
         :return:
         """
@@ -355,7 +356,7 @@ class DetailOfLabelsOfCollectionsView(MethodView):
 @bp.route('/categories/<category_id>')
 class DetailOfCategoryOfCollectionsView(MethodView):
     """
-    单个标签的管理
+    单个分组的管理
     """
 
     @auth_required
