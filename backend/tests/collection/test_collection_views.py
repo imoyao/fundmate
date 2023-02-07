@@ -2,6 +2,8 @@
 # Auther : imoyao
 # Date : 2023/1/5 22:10
 # File : test_collection_views.py
+# FIXME: 目前由于基础数据不足，没有测试指数、可转债等相关自选接口
+import copy
 import json
 import random
 
@@ -11,13 +13,18 @@ import pytest
 from faker import Faker as RealFaker
 
 from backend.fundmate import settings
-from backend.fundmate.collection.models import LabelsOfCollection
+from backend.fundmate.collection.models import CategoriesOfCollection, LabelsOfCollection
 from backend.fundmate.errors import ClientError, UserInputError
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.user.models import User
-from backend.tests.collection.collection_teardown import delete_all_collections, delete_all_labels
+from backend.tests.collection.collection_teardown import (
+    delete_all_categories,
+    delete_all_collections,
+    delete_all_labels,
+    random_collection_type,
+)
 
-from ..factories import FundFactory, LabelOfCollectionFactory, UserFactory
+from ..factories import CategoryOfCollectionFactory, FundFactory, LabelOfCollectionFactory, UserFactory
 
 
 base_collections_endpoint = 'collections/'
@@ -70,8 +77,10 @@ class TestCollections:
         删除collection
         :return:
         """
-
         request.addfinalizer(delete_all_collections)
+        # 创建第一个自选时会创建labels和默认分组，在测试完成之后删除
+        request.addfinalizer(delete_all_categories)
+        request.addfinalizer(delete_all_labels)
         return 0
 
     def test_get_collections(self, db, client, bearer_header, create_base_data):
@@ -195,7 +204,7 @@ class TestCollections:
         error_msg = deny_delete_resp.get('message')
         error_code = deny_delete_resp.get('error_code')
         assert error_msg
-        forbidden_delete_others_collection_error = UserInputError.FORBIDDEN_DELETE_OTHERS_ERR
+        forbidden_delete_others_collection_error = UserInputError.FORBIDDEN_DELETE_ERR
         assert '删除失败' in error_msg
         assert error_code == forbidden_delete_others_collection_error.code
 
@@ -303,7 +312,126 @@ class TestLabels:
         # 测试不带参数
         no_data_create_fund_result = create_label(client, headers=bearer_header)
         no_data_fund_resp = no_data_create_fund_result.json
-        assert re_create_fund_result.status_code == 400
+        assert no_data_create_fund_result.status_code == 422
+        assert 'Missing data for required field' in json.dumps(no_data_fund_resp)
+
+
+base_category_endpoint = 'categories'
+category_endpoint = base_collections_endpoint + base_category_endpoint
+
+
+def create_category(client, headers=None, data=None):
+    """
+    封装创建分组的操作
+    :param client:
+    :param headers:
+    :param data:
+    :return:
+    """
+    if not data:
+        data = dict()
+    _result = client.post(category_endpoint, headers=headers, json=data)
+    return _result
+
+
+class TestCategories:
+
+    @staticmethod
+    def get_categories(client, headers=None, params=None):
+        if not params:
+            params = dict()
+        #  get url 携带参数：https://stackoverflow.com/a/28056409
+        _result = client.get(category_endpoint, headers=headers, query_string=params)
+        return _result
+
+    @staticmethod
+    @pytest.fixture(scope="function", autouse=True)
+    def delete_category_from_db(request):
+        """
+        删除labels
+        :return:
+        """
+        request.addfinalizer(delete_all_categories)
+        return 0
+
+    def test_get_categories(self, db, client, bearer_header, create_base_data):
+        # auth required
+        no_auth_result = self.get_categories(client)
+        assert no_auth_result.status_code == 401
+        # 数据为空
+        no_data_result = self.get_categories(client, headers=bearer_header)
+        assert no_data_result.status_code == 422
+
+        # 携带必选参数
+        _query_data = {'collection_type': settings.SupportCollectionsEnum.fund.dk_value}
+
+        no_data_result = self.get_categories(client, headers=bearer_header, params=_query_data)
+        assert no_data_result.status_code == 404
+
+        # 先创建数据然后再获取
+        CategoryOfCollectionFactory(name='待到山花烂漫时')
+        with_data_result = self.get_categories(client, headers=bearer_header, params=_query_data)
+        logger.info(with_data_result.json)
+        with_data_resp = with_data_result.json
+        assert with_data_result.status_code == 200
+        assert 'categories' in with_data_resp
+        categories = with_data_resp.get('categories')
+        assert categories
+        random_item = random.choice(categories)
+        assert isinstance(random_item.get('id'), int)
+        assert isinstance(random_item.get('count'), int)
+        assert random_item.get('name')
+
+    @pytest.mark.parametrize("category_data",
+                             [({'name': '嘲风优选'}),
+                              ({'name': '超越巴菲特'})])
+    def test_create_category(self, client, auth, bearer_header, category_data):
+        # 测试不带认证参数
+        no_auth_result = create_category(client)
+        no_auth_resp = no_auth_result.json
+        logger.info(no_auth_resp)
+        assert no_auth_result.status_code == 401
+        # 测试不带类别数据
+        result = create_category(client, bearer_header, category_data)
+        assert result.status_code == 422
+
+        _base_data = {'collection_type': settings.SupportCollectionsEnum.fund.dk_value}
+        # 创建category
+        category_data.update(_base_data)
+        result = create_category(client, bearer_header, category_data)
+        resp = result.json
+        assert result.status_code == 200
+        assert resp
+        _inst_id = resp.get('id')
+        assert _inst_id
+
+        # 测试重复创建category
+        re_create_fund_result = create_category(client, bearer_header, category_data)
+        re_fund_resp = re_create_fund_result.json
+        logger.info(re_fund_resp)
+        assert re_create_fund_result.status_code != 200
+        assert re_fund_resp.get('error_code') == ClientError.HAS_CREATED_ERR.code
+
+        # 测试为不同类别创建同名category
+        other_category_data = copy.deepcopy(category_data)
+        other_category_data['collection_type'] = settings.SupportCollectionsEnum.bond.dk_value
+        other_re_create_fund_result = create_category(client, bearer_header, other_category_data)
+        assert other_re_create_fund_result.status_code == 200
+
+        # 测试另一个人创建同名label
+        faker = RealFaker()
+        password = faker.password()
+        user = UserFactory(password=password)
+        token = auth.token(username=user.username, password=password)
+        _headers = {'Content-Type': 'application/json',
+                    'Authorization': "Bearer " + token}
+        other_re_create_result = create_category(client, _headers, category_data)
+        assert other_re_create_result.status_code == 200
+
+        # 测试不带参数
+        no_data_create_fund_result = create_category(client, headers=bearer_header)
+        no_data_fund_resp = no_data_create_fund_result.json
+        assert no_data_create_fund_result.status_code == 422
         assert 'Missing data for required field' in json.dumps(no_data_fund_resp)
 
 
@@ -418,7 +546,6 @@ class TestManageLabelsOfCollectionsView:
         assert clear_mine_result.status_code == 205
         clear_mine_resp = clear_mine_result.json
         assert clear_mine_resp == clear_data
-        logger.info(f'====clear_mine_result====={clear_mine_result.json}')
 
 
 class TestLabelDetail:
@@ -521,7 +648,7 @@ class TestLabelDetail:
         error_msg = deny_delete_resp.get('message')
         error_code = deny_delete_resp.get('error_code')
         assert error_msg
-        forbidden_delete_others_error = UserInputError.FORBIDDEN_DELETE_OTHERS_ERR
+        forbidden_delete_others_error = UserInputError.FORBIDDEN_DELETE_ERR
         assert '删除失败' in error_msg
         assert error_code == forbidden_delete_others_error.code
 
@@ -536,3 +663,158 @@ class TestLabelDetail:
         not_exist_id = _inst_id + 1
         delete_no_data_result = self.delete_label(client, bearer_header, not_exist_id)
         assert delete_no_data_result.status_code == 404
+
+
+def endpoint_of_category(category_id: int):
+    """
+    拼接路由
+    :param category_id:
+    :return:
+    """
+    if category_id:
+        return category_endpoint + f'/{category_id}'
+    else:
+        return category_endpoint
+
+
+class TestCategoryDetail:
+
+    @staticmethod
+    def delete_category(client, headers=None, category_id=None):
+        _endpoint = endpoint_of_category(category_id)
+        _result = client.delete(_endpoint, headers=headers)
+        return _result
+
+    @staticmethod
+    def patch_category(client, headers=None, category_id=None, data=None):
+        _endpoint = endpoint_of_category(category_id)
+        if not data:
+            data = dict()
+        _result = client.patch(_endpoint, headers=headers, json=data)
+        return _result
+
+    @staticmethod
+    def create_default_category(client, bearer_header, collection_type):
+        default_data = {'name': settings.DEFAULT_CATEGORY_NAME, 'collection_type': collection_type}
+        default_result = create_category(client, bearer_header, default_data)
+        return default_result
+
+    @pytest.fixture(scope="function", autouse=True)
+    def delete_categories_from_db(self, request):
+        """
+        删除 categories
+        :return:
+        """
+        request.addfinalizer(delete_all_categories)
+        return 0
+
+    def test_patch_category(self, client, auth, bearer_header):
+        """
+        更新指定 category
+        :param client:
+        :param auth:
+        :return:
+        """
+        faker = RealFaker()
+        password = faker.password()
+        user = UserFactory(password=password)
+        username = user.username
+        user_inst = User.lookup(username)
+        user_id = user_inst.id
+        collection_type = random_collection_type()
+        _inst = CategoryOfCollectionFactory(creator_id=user_id, collection_type=collection_type)
+        _name = _inst.name
+        _inst = CategoriesOfCollection.category_of_user_by_name(user_id, collection_type, _name)
+        _category_id = _inst.id
+        token = auth.token(username=username, password=password)
+        _headers = {'Content-Type': 'application/json',
+                    'Authorization': "Bearer " + token}
+        # 不带参数，返回错误
+        result = self.patch_category(client, _headers, _category_id)
+        assert result.status_code != 200
+        # 正确处理
+        _word = faker.word()
+        new_name = _name + _word
+        update_data = {
+            'name': new_name,
+        }
+        patch_result = self.patch_category(client, _headers, _category_id, data=update_data)
+        resp = patch_result.json
+        if len(new_name) <= 10:
+            assert patch_result.status_code == 200
+            resp_name = resp.get('name')
+            assert resp_name == new_name
+        else:
+            assert patch_result.status_code == 422
+
+        default_result = self.create_default_category(client, bearer_header, collection_type)
+        default_resp = default_result.json
+        assert default_result.status_code == 200
+        # 更新默认分组
+        _default_category_id = default_resp.get('id')
+        patch_default_result = self.patch_category(client, _headers, _default_category_id, data=update_data)
+        deny_patch_default_resp = patch_default_result.json
+        logger.info(f'============{deny_patch_default_resp}===')
+        assert patch_default_result.status_code == 403
+
+        patch_def_error_code = deny_patch_default_resp.get('error_code')
+        forbidden_patch_def_error = UserInputError.FORBIDDEN_UPDATE_ERR
+        assert patch_def_error_code == forbidden_patch_def_error.code
+
+        # 更新不是自己的label
+        not_my_label_patch_result = self.patch_category(client, bearer_header, _category_id, data=update_data)
+        assert not_my_label_patch_result.status_code == 403
+        # 指向不存在的分组
+        patch_result_404 = self.patch_category(client, _headers, _default_category_id + 1, data=update_data)
+        assert patch_result_404.status_code == 404
+
+    def test_delete_category(self, client, auth, bearer_header):
+        collection_type = random_collection_type()
+        _data = {'name': '划线派', 'collection_type': collection_type}
+        result = create_category(client, bearer_header, _data)
+        resp = result.json
+        assert result.status_code == 200
+        assert resp
+
+        default_result = self.create_default_category(client, bearer_header, collection_type)
+        default_resp = default_result.json
+        assert default_result.status_code == 200
+
+        # 删除不是自己的label
+        faker = RealFaker()
+        password = faker.password()
+        user = UserFactory(password=password)
+        _inst_id = resp.get('id')
+        assert _inst_id
+        token = auth.token(username=user.username, password=password)
+        _headers = {'Content-Type': 'application/json',
+                    'Authorization': "Bearer " + token}
+        not_mine_del_result = self.delete_category(client, _headers, _inst_id)
+        assert not_mine_del_result.status_code == 403
+        deny_delete_resp = not_mine_del_result.json
+        error_msg = deny_delete_resp.get('message')
+        error_code = deny_delete_resp.get('error_code')
+        assert error_msg
+        forbidden_delete_others_error = UserInputError.FORBIDDEN_DELETE_ERR
+        assert '删除失败' in error_msg
+        assert error_code == forbidden_delete_others_error.code
+
+        # 删除刚才创建的
+        del_result = self.delete_category(client, bearer_header, _inst_id)
+        assert del_result.status_code == 204
+        # 删除默认的分组(不允许)
+        _default_inst_id = default_resp.get('id')
+        del_default_result = self.delete_category(client, bearer_header, _default_inst_id)
+        assert del_default_result.status_code == 403
+        deny_delete_default_resp = del_default_result.json
+        del_def_error_code = deny_delete_default_resp.get('error_code')
+        forbidden_delete_def_error = UserInputError.FORBIDDEN_DELETE_ERR
+        assert del_def_error_code == forbidden_delete_def_error.code
+        # 路由中不带id
+        del_no_id_result = self.delete_category(client, bearer_header)
+        assert del_no_id_result.status_code == 405
+
+        # 删除不存在的
+        not_exist_id = _inst_id + 1
+        delete_no_data_result = self.delete_category(client, bearer_header, not_exist_id)
+        assert delete_no_data_result.status_code == 403

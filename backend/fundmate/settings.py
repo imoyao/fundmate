@@ -32,6 +32,7 @@ SQLALCHEMY_TRACK_MODIFICATIONS = False
 CURRENT_DIR = Path(__file__).resolve().parent
 INFO_MAIL_ADDR = 'fundmate@163.com'
 ADMIN_ROLE_NAME = 'admin'
+DEFAULT_CATEGORY_NAME = '全部'
 """
 1998年3月23日，按该办法要求设立的开元、金泰两家封闭式证券投资基金公开发行上市，标志着我国证券市场新的机构投资者——证券投资基金的出现，我国的投资基金开始了封闭式证券投资基金时代。1998年我国共成立了第一批5只封闭式基金：基金开元、基金金泰、基金兴华、基金安信和基金裕阳。
 2001年9月，经管理层批准，由华安基金管理公司成立了我国第一支开放式证券投资基金--华安创新，我国基金业的发展进入了一个崭新的阶段。
@@ -355,7 +356,7 @@ STOCK = ChoiceTypeDk('stock', '股票')
 BOND = ChoiceTypeDk('bond', '可转债')
 FUTURES = ChoiceTypeDk('futures', '期货')
 PORTFOLIO = ChoiceTypeDk('portfolio', '投顾组合')
-FINANCIAL_PRODUCT = ChoiceTypeDk('fina_product', '理财产品')
+FINANCIAL_PRODUCT = ChoiceTypeDk('fin_product', '理财产品')
 
 
 @enum.unique
@@ -368,7 +369,7 @@ class SupportInvestCategoriesEnum(BaseTypeEnum):
     bond = BOND
     futures = FUTURES
     portfolio = PORTFOLIO
-    financial_product = FINANCIAL_PRODUCT
+    fin_product = FINANCIAL_PRODUCT
 
     @classmethod
     def input(cls):
@@ -393,7 +394,7 @@ class SupportCollectionsEnum(BaseTypeEnum):
     bond = BOND
     futures = FUTURES
     portfolio = PORTFOLIO
-    financial_product = FINANCIAL_PRODUCT
+    fin_product = FINANCIAL_PRODUCT
     managers = MANAGERS
     index = INDEX
 

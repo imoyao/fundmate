@@ -638,7 +638,7 @@ class InvestProduct(PkModel):
                       comment=f'产品购买所属平台：{settings.SupportInvestPltEnum.comment()}')
     prod_type = Column(db.Enum(settings.SupportInvestCategoriesEnum),
                        nullable=True,
-                       default=settings.SupportInvestCategoriesEnum.financial_product.dk_value,
+                       default=settings.SupportInvestCategoriesEnum.fin_product.dk_value,
                        comment=f'产品类型：{settings.SupportInvestCategoriesEnum.comment()}')
 
     @classmethod

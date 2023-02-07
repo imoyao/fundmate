@@ -2,12 +2,19 @@
 # Auther : imoyao
 # Date : 2023/1/15 11:03
 # File : collection_teardown.py
-from backend.fundmate.collection.models import Collection, LabelsOfCollection
+import random
+
+from backend.fundmate import settings
+from backend.fundmate.collection.models import CategoriesOfCollection, Collection, LabelsOfCollection
+
+
+def random_collection_type():
+    return random.choice(list(settings.SupportCollectionsEnum)).dk_value
 
 
 def delete_all_labels():
     """
-    测试完成删除labels示例
+    测试完成删除labels
     :return:
     """
     labels = LabelsOfCollection.query.all()
@@ -19,9 +26,23 @@ def delete_all_labels():
                 _inst.delete()
 
 
+def delete_all_categories():
+    """
+    测试完成删除categories
+    :return:
+    """
+    categories = CategoriesOfCollection.query.all()
+    if categories:
+        for row in categories:
+            cate_id = row.id
+            _inst = CategoriesOfCollection.get_by_id(cate_id)
+            if _inst:
+                _inst.delete()
+
+
 def delete_all_collections():
     """
-    测试完成删除自选示例
+    测试完成删除自选
     :return:
     """
     cols = Collection.query.all()

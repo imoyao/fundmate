@@ -10,7 +10,7 @@ from apiflask import APIBlueprint, abort, pagination_builder
 from apiflask.views import MethodView
 from flask_praetorian import auth_required, current_user
 
-from backend.fundmate.collection.logics import lookup_collection
+from backend.fundmate.collection.logics import create_default_category, create_default_labels, lookup_collection
 from backend.fundmate.collection.models import CategoriesOfCollection, Collection, LabelsOfCollection
 from backend.fundmate.collection.schemas import (
     CategoriesOutSchema,
@@ -19,6 +19,7 @@ from backend.fundmate.collection.schemas import (
     CreateCategorySchema,
     CreateCollectionSchema,
     CreateLabelSchema,
+    CustomQueryCategoryPaginationSchema,
     LabelItemOutSchema,
     LabelsOutSchema,
     QueryCollectionsSchema,
@@ -31,6 +32,7 @@ from backend.fundmate.collection.schemas import (
 from backend.fundmate.errors import ClientError, HTTPClientError, UserInputError
 from backend.fundmate.extensions import db
 from backend.fundmate.schema_ext import CustomPaginationSchema
+from backend.fundmate.settings import DEFAULT_CATEGORY_NAME
 
 
 bp = APIBlueprint('collections', __name__, url_prefix='/collections')
@@ -95,6 +97,9 @@ class CollectionsView(MethodView):
             if col_inst:
                 data['creator_id'] = creator_id
                 prod_inst = Collection.create(**data)
+                # 系统创建默认 labels 和 分组
+                create_default_labels(creator_id)
+                create_default_category(creator_id, collection_type)
                 return prod_inst
             error = ClientError.COLLECTION_ERR
             extra_data = {'error_code': error.code, 'docs': ''}
@@ -118,7 +123,7 @@ class CollectionsView(MethodView):
             if _collect_inst.creator_id == creator_id:
                 _collect_inst.delete()
             else:
-                error = UserInputError.FORBIDDEN_DELETE_OTHERS_ERR
+                error = UserInputError.FORBIDDEN_DELETE_ERR
                 msg = '删除失败，请确认自选产品存在。'
                 extra_data = {'error_code': error.code, 'docs': ''}
                 raise HTTPClientError(403, message=msg, extra_data=extra_data)
@@ -164,6 +169,9 @@ class LabelsOfCollectionsView(MethodView):
     def post(self, data: Dict):
         """
         创建标签
+
+        用户第一次添加自选时，默认创建默认的labels
+
         :param data:
         :return:
         """
@@ -189,12 +197,12 @@ class CategoriesOfCollectionsView(MethodView):
     """
 
     @auth_required
-    @bp.input(CustomPaginationSchema, 'query')
+    @bp.input(CustomQueryCategoryPaginationSchema, 'query')
     @bp.output(CategoriesOutSchema)
     @bp.doc(security='Bearer')
     def get(self, query: Dict):
         """
-        获取用户创建的标签
+        获取某个自选分类下用户创建的分组
         :param query:
         :return:
         """
@@ -228,14 +236,14 @@ class CategoriesOfCollectionsView(MethodView):
 
         category_name = data.get('name')
         collection_type = data.get('collection_type')
-        # FIXME:同类同用户不能包含同名
+        # 同类别同用户不能包含同名
         has_created = CategoriesOfCollection.has_same_category_name_by_col(creator_id, collection_type, category_name)
         if not has_created:
             data['creator_id'] = creator_id
             label_inst = CategoriesOfCollection.create(**data)
             return label_inst
         error = ClientError.HAS_CREATED_ERR
-        error_msg = '该类别下分组名已存在，请勿重复创建'
+        error_msg = '分组名已存在，请勿重复创建'
         extra_data = {'error_code': error.code, 'docs': ''}
         raise HTTPClientError(message=error_msg, extra_data=extra_data)
 
@@ -287,7 +295,7 @@ class ManageLabelsOfCollectionsView(MethodView):
                     raise HTTPClientError(400, message=msg, extra_data=extra_data)
 
             else:
-                error = UserInputError.FORBIDDEN_UPDATE_OTHERS_ERR
+                error = UserInputError.FORBIDDEN_UPDATE_ERR
                 msg = '修改失败，请确认输入是否正确。'
                 extra_data = {'error_code': error.code, 'docs': ''}
                 raise HTTPClientError(403, message=msg, extra_data=extra_data)
@@ -320,7 +328,7 @@ class DetailOfLabelsOfCollectionsView(MethodView):
                 _label_info = _label_inst.update(**data)
                 return _label_info
             else:
-                error = UserInputError.FORBIDDEN_UPDATE_OTHERS_ERR
+                error = UserInputError.FORBIDDEN_UPDATE_ERR
                 msg = '更新失败，请确认标签存在。'
                 extra_data = {'error_code': error.code, 'docs': ''}
                 raise HTTPClientError(403, message=msg, extra_data=extra_data)
@@ -344,7 +352,7 @@ class DetailOfLabelsOfCollectionsView(MethodView):
             if _inst.creator_id == creator_id:
                 _inst.delete()
             else:
-                error = UserInputError.FORBIDDEN_DELETE_OTHERS_ERR
+                error = UserInputError.FORBIDDEN_DELETE_ERR
                 msg = '删除失败，请确认标签存在。'
                 extra_data = {'error_code': error.code, 'docs': ''}
                 raise HTTPClientError(403, message=msg, extra_data=extra_data)
@@ -355,7 +363,7 @@ class DetailOfLabelsOfCollectionsView(MethodView):
 @bp.route('/categories/<category_id>')
 class DetailOfCategoryOfCollectionsView(MethodView):
     """
-    单个标签的管理
+    单个分组的管理
     """
 
     @auth_required
@@ -369,15 +377,20 @@ class DetailOfCategoryOfCollectionsView(MethodView):
         :param data:
         :return:
         """
-        _category_inst = CategoriesOfCollection.get_by_id(category_id)
-        if _category_inst:
+        _inst = CategoriesOfCollection.get_by_id(category_id)
+        if _inst:
             user = current_user()
             creator_id = user.id
-            if _category_inst.creator_id == creator_id:
-                _inst_info = _category_inst.update(**data)
+            if _inst.creator_id == creator_id:
+                if _inst.name == DEFAULT_CATEGORY_NAME:
+                    error = UserInputError.FORBIDDEN_DELETE_ERR
+                    msg = '更新失败，系统默认分组不允许更新。'
+                    extra_data = {'error_code': error.code, 'docs': ''}
+                    raise HTTPClientError(403, message=msg, extra_data=extra_data)
+                _inst_info = _inst.update(**data)
                 return _inst_info
             else:
-                error = UserInputError.FORBIDDEN_UPDATE_OTHERS_ERR
+                error = UserInputError.FORBIDDEN_UPDATE_ERR
                 msg = '更新失败，请确认分组存在。'
                 extra_data = {'error_code': error.code, 'docs': ''}
                 raise HTTPClientError(403, message=msg, extra_data=extra_data)
@@ -394,15 +407,21 @@ class DetailOfCategoryOfCollectionsView(MethodView):
         # INFO: 删除前提示用户会将标签从所有自选品类中移除，用户确认之后直接移除
         :return:
         """
-        # FIXME:系统默认创建的分组不能删除
         _inst = CategoriesOfCollection.get_by_id(category_id)
         if _inst:
             user = current_user()
             creator_id = user.id
             if _inst.creator_id == creator_id:
+                # 系统默认创建的分组不能删除
+                if _inst.name == DEFAULT_CATEGORY_NAME:
+                    error = UserInputError.FORBIDDEN_DELETE_ERR
+                    msg = '删除失败，系统默认分组不允许删除。'
+                    extra_data = {'error_code': error.code, 'docs': ''}
+                    raise HTTPClientError(403, message=msg, extra_data=extra_data)
+
                 _inst.delete()
             else:
-                error = UserInputError.FORBIDDEN_DELETE_OTHERS_ERR
+                error = UserInputError.FORBIDDEN_DELETE_ERR
                 msg = '删除失败，请确认标签存在。'
                 extra_data = {'error_code': error.code, 'docs': ''}
                 raise HTTPClientError(403, message=msg, extra_data=extra_data)

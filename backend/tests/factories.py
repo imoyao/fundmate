@@ -1,13 +1,15 @@
 # -*- coding: utf-8 -*-
 """Factories to help in tests."""
 import logging
+import random
 
 from factory import Faker, LazyAttribute, PostGenerationMethodCall
 from factory.alchemy import SQLAlchemyModelFactory
 
 from faker import Factory
 
-from backend.fundmate.collection.models import Collection, LabelsOfCollection
+from backend.fundmate import settings
+from backend.fundmate.collection.models import CategoriesOfCollection, Collection, LabelsOfCollection
 from backend.fundmate.database import db
 from backend.fundmate.fund.models import Fund
 from backend.fundmate.settings import SupportCollectionsEnum
@@ -105,3 +107,14 @@ class LabelOfCollectionFactory(BaseFactory):
         """Factory configuration."""
 
         model = LabelsOfCollection
+
+
+class CategoryOfCollectionFactory(BaseFactory):
+    creator_id = 1
+    name = Faker('word', locale="zh_CN")
+    collection_type = random.choice(list(settings.SupportCollectionsEnum)).dk_value
+
+    class Meta:
+        """Factory configuration."""
+
+        model = CategoriesOfCollection

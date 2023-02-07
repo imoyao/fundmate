@@ -64,6 +64,28 @@ class Collection(PkModel, CreateDateModel):
                                                                 identify=identify)).scalars().one_or_none()
         return _col_inst
 
+    @classmethod
+    def is_first_collection_of_col_type(cls, user_id: str, collection_type: str) -> bool:
+        """
+        指定分类下是否存在特定自选产品
+        :param collection_type:
+        :param user_id:
+        :return:
+        """
+        _col_inst = db.session.execute(
+            db.select(cls).filter_by(creator_id=user_id, collection_type=collection_type)).scalars().all()
+        return bool(_col_inst)
+
+    @classmethod
+    def is_first_collect(cls, user_id: str) -> bool:
+        """
+        是否第一次添加自选，即用户名下没有自选
+        :param user_id:
+        :return:
+        """
+        _col_inst = db.session.execute(db.select(cls).filter_by(creator_id=user_id)).scalars().all()
+        return bool(_col_inst)
+
 
 class CategoriesOfCollection(PkModel, CreateDateModel):
     __tablename__ = "collection_category"
@@ -71,11 +93,11 @@ class CategoriesOfCollection(PkModel, CreateDateModel):
 
     creator_id = reference_col('users', column_kwargs={'comment': '创建人id'})
     name = Column(db.String(10), nullable=False, comment='分组名称')
-    # 为哪个收藏分类创建的自选组
-    category_type = Column(db.Enum(settings.SupportCollectionsEnum),
-                           nullable=False,
-                           default=settings.SupportCollectionsEnum.fund.dk_value,
-                           comment=f'自选类别：{settings.SupportCollectionsEnum.comment()}')
+    # 为哪个自选分类创建的自选组
+    collection_type = Column(db.Enum(settings.SupportCollectionsEnum),
+                             nullable=False,
+                             default=settings.SupportCollectionsEnum.fund.dk_value,
+                             comment=f'自选类别：{settings.SupportCollectionsEnum.comment()}')
     collections = db.relationship('Collection', secondary=collection_category_table, back_populates="categories")
 
     def __repr__(self):
@@ -90,11 +112,23 @@ class CategoriesOfCollection(PkModel, CreateDateModel):
         :param name: label名称
         :return:
         """
-        _col_inst = db.session.execute(db.select(cls).filter_by(creator_id=user_id, category_type=collection_type,
-                                                                name=name)).scalars().one_or_none()
+        _col_inst = cls.category_of_user_by_name(user_id, collection_type, name)
         if _col_inst:
             return True
         return False
+
+    @classmethod
+    def category_of_user_by_name(cls, user_id: int, collection_type: str, name: str):
+        """
+        通过名称获取指定用户自选产品的label
+        :param name:
+        :param collection_type:
+        :param user_id:
+        :return:
+        """
+        _col_inst = db.session.execute(db.select(cls).filter_by(creator_id=user_id, collection_type=collection_type,
+                                                                name=name)).scalars().one_or_none()
+        return _col_inst
 
 
 class LabelsOfCollection(PkModel, CreateDateModel):

@@ -6,11 +6,21 @@ import random
 
 import pytest
 
-from backend.fundmate.collection.models import Collection, LabelsOfCollection
+from backend.fundmate.collection.models import CategoriesOfCollection, Collection, LabelsOfCollection
 from backend.fundmate.settings import SupportCollectionsEnum
 from backend.fundmate.user.models import User
-from backend.tests.collection.collection_teardown import delete_all_collections, delete_all_labels
-from backend.tests.factories import CollectionFactory, LabelOfCollectionFactory, UserFactory
+from backend.tests.collection.collection_teardown import (
+    delete_all_categories,
+    delete_all_collections,
+    delete_all_labels,
+    random_collection_type,
+)
+from backend.tests.factories import (
+    CategoryOfCollectionFactory,
+    CollectionFactory,
+    LabelOfCollectionFactory,
+    UserFactory,
+)
 
 
 @pytest.fixture(scope='function')
@@ -103,3 +113,26 @@ class TestLabelsOfCollection:
         new_user_id = new_user_inst.id
         new_user_labels = LabelsOfCollection.label_of_user_by_name(new_user_id, label_name=label_name)
         assert not new_user_labels
+
+
+class TestCategoriesOfCollection:
+
+    def teardown(self):
+        delete_all_categories()
+
+    def test_factory(self):
+        label = CategoryOfCollectionFactory()
+        assert label.name
+        with_emoji_label = CategoryOfCollectionFactory(name='🤩YYDS')
+        assert with_emoji_label.name
+
+    def test_has_same_category_name_by_col(self):
+        collection_type = random_collection_type()
+        label = CategoryOfCollectionFactory(collection_type=collection_type)
+        new_name = label.name
+        user_id = label.creator_id
+        has_created = CategoriesOfCollection.has_same_category_name_by_col(user_id, collection_type, new_name)
+        assert has_created
+        new_user_id = user_id + 1
+        has_created = CategoriesOfCollection.has_same_category_name_by_col(new_user_id, collection_type, new_name)
+        assert not has_created
