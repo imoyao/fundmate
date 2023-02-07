@@ -37,6 +37,14 @@ class LabelItemOutSchema(Schema):
     desc = String()
 
 
+class CategoryItemOutSchema(Schema):
+    """
+    category输出
+    """
+    id = Integer()
+    name = String()
+
+
 class FundCollectionSampleSchema(Schema):
     """
     简略信息，目前包含基金编码和基金名称
@@ -83,6 +91,11 @@ class LabelsOutSchema(Schema):
     pagination = Nested(CustomPaginationSchema)
 
 
+class CategoriesOutSchema(Schema):
+    categories = List(Nested(CategoryItemOutSchema))
+    pagination = Nested(CustomPaginationSchema)
+
+
 class WithIdSchema(Schema):
     id = Integer(required=True)
 
@@ -106,10 +119,21 @@ class CreateLabelSchema(Schema):
     desc = String()
 
 
+class CreateCategorySchema(Schema):
+    name = String(required=True, validate=Length(max=10))
+    category_type = String(required=True,
+                           dump_default=settings.SupportCollectionsEnum.fund.dk_value,
+                           validate=OneOf(settings.SupportCollectionsEnum.input()))
+
+
 class UpdateLabelSchema(Schema):
     name = String(required=True, validate=Length(max=10), error_messages={"required": "标签名称必须填写。"})
     color = String(required=True, validate=check_color, error_messages={"required": "必须为标签设置颜色。"})
     desc = String()
+
+
+class UpdateCategorySchema(Schema):
+    name = String(required=True, validate=Length(max=10), error_messages={"required": "标签名称必须填写。"})
 
 
 class UpdateLabelOutSchema(Schema):

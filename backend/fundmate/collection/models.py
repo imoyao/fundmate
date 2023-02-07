@@ -81,6 +81,21 @@ class CategoriesOfCollection(PkModel, CreateDateModel):
     def __repr__(self):
         return '<分组 %r>' % self.name
 
+    @classmethod
+    def has_same_category_name_by_col(cls, user_id: int, collection_type: str, name: str) -> bool:
+        """
+        禁止同一用户为同一自选类别创建同名的category
+        :param collection_type:
+        :param user_id: 用户编号
+        :param name: label名称
+        :return:
+        """
+        _col_inst = db.session.execute(db.select(cls).filter_by(creator_id=user_id, category_type=collection_type,
+                                                                name=name)).scalars().one_or_none()
+        if _col_inst:
+            return True
+        return False
+
 
 class LabelsOfCollection(PkModel, CreateDateModel):
     """

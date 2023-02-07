@@ -11,14 +11,18 @@ from apiflask.views import MethodView
 from flask_praetorian import auth_required, current_user
 
 from backend.fundmate.collection.logics import lookup_collection
-from backend.fundmate.collection.models import Collection, LabelsOfCollection
+from backend.fundmate.collection.models import CategoriesOfCollection, Collection, LabelsOfCollection
 from backend.fundmate.collection.schemas import (
+    CategoriesOutSchema,
+    CategoryItemOutSchema,
     CollectionsOutSchema,
+    CreateCategorySchema,
     CreateCollectionSchema,
     CreateLabelSchema,
     LabelItemOutSchema,
     LabelsOutSchema,
     QueryCollectionsSchema,
+    UpdateCategorySchema,
     UpdateLabelOfCollectionsSchema,
     UpdateLabelOutSchema,
     UpdateLabelSchema,
@@ -178,6 +182,64 @@ class LabelsOfCollectionsView(MethodView):
         raise HTTPClientError(message=error_msg, extra_data=extra_data)
 
 
+@bp.route('/categories')
+class CategoriesOfCollectionsView(MethodView):
+    """
+    自选产品分类管理
+    """
+
+    @auth_required
+    @bp.input(CustomPaginationSchema, 'query')
+    @bp.output(CategoriesOutSchema)
+    @bp.doc(security='Bearer')
+    def get(self, query: Dict):
+        """
+        获取用户创建的标签
+        :param query:
+        :return:
+        """
+        user = current_user()
+        creator_id = user.id
+        pagination = CategoriesOfCollection.query.filter_by(creator_id=creator_id).paginate(
+            page=query.get('page'),
+            per_page=query.get('per_page')
+        )
+        categories = pagination.items
+        if categories:
+            return {
+                'categories': categories,
+                'pagination': pagination_builder(pagination)
+            }
+        else:
+            abort(404)
+
+    @auth_required
+    @bp.input(CreateCategorySchema)
+    @bp.output(WithIdSchema)
+    @bp.doc(security='Bearer')
+    def post(self, data: Dict):
+        """
+        创建标签
+        :param data:
+        :return:
+        """
+        user = current_user()
+        creator_id = user.id
+
+        category_name = data.get('name')
+        collection_type = data.get('collection_type')
+        # FIXME:同类同用户不能包含同名
+        has_created = CategoriesOfCollection.has_same_category_name_by_col(creator_id, collection_type, category_name)
+        if not has_created:
+            data['creator_id'] = creator_id
+            label_inst = CategoriesOfCollection.create(**data)
+            return label_inst
+        error = ClientError.HAS_CREATED_ERR
+        error_msg = '该类别下分组名已存在，请勿重复创建'
+        extra_data = {'error_code': error.code, 'docs': ''}
+        raise HTTPClientError(message=error_msg, extra_data=extra_data)
+
+
 @bp.route('/<collection_id>/labels')
 class ManageLabelsOfCollectionsView(MethodView):
     """
@@ -268,19 +330,77 @@ class DetailOfLabelsOfCollectionsView(MethodView):
     @auth_required
     @bp.output({}, 204)
     @bp.doc(security='Bearer')
-    def delete(self, label_id):
+    def delete(self, label_id: int):
         """
         删除某个指定label
 
         # INFO: 删除前提示用户会将标签从所有自选品类中移除，用户确认之后直接移除
         :return:
         """
-        _label_inst = LabelsOfCollection.get_by_id(label_id)
-        if _label_inst:
+        _inst = LabelsOfCollection.get_by_id(label_id)
+        if _inst:
             user = current_user()
             creator_id = user.id
-            if _label_inst.creator_id == creator_id:
-                _label_inst.delete()
+            if _inst.creator_id == creator_id:
+                _inst.delete()
+            else:
+                error = UserInputError.FORBIDDEN_DELETE_OTHERS_ERR
+                msg = '删除失败，请确认标签存在。'
+                extra_data = {'error_code': error.code, 'docs': ''}
+                raise HTTPClientError(403, message=msg, extra_data=extra_data)
+        else:
+            abort(404)
+
+
+@bp.route('/categories/<category_id>')
+class DetailOfCategoryOfCollectionsView(MethodView):
+    """
+    单个标签的管理
+    """
+
+    @auth_required
+    @bp.input(UpdateCategorySchema)
+    @bp.output(CategoryItemOutSchema)
+    @bp.doc(security='Bearer')
+    def patch(self, category_id: int, data: Dict):
+        """
+        修改某个 category 的属性
+        :param category_id:
+        :param data:
+        :return:
+        """
+        _category_inst = CategoriesOfCollection.get_by_id(category_id)
+        if _category_inst:
+            user = current_user()
+            creator_id = user.id
+            if _category_inst.creator_id == creator_id:
+                _inst_info = _category_inst.update(**data)
+                return _inst_info
+            else:
+                error = UserInputError.FORBIDDEN_UPDATE_OTHERS_ERR
+                msg = '更新失败，请确认分组存在。'
+                extra_data = {'error_code': error.code, 'docs': ''}
+                raise HTTPClientError(403, message=msg, extra_data=extra_data)
+        else:
+            abort(404)
+
+    @auth_required
+    @bp.output({}, 204)
+    @bp.doc(security='Bearer')
+    def delete(self, category_id: int):
+        """
+        删除某个指定分组
+
+        # INFO: 删除前提示用户会将标签从所有自选品类中移除，用户确认之后直接移除
+        :return:
+        """
+        # FIXME:系统默认创建的分组不能删除
+        _inst = CategoriesOfCollection.get_by_id(category_id)
+        if _inst:
+            user = current_user()
+            creator_id = user.id
+            if _inst.creator_id == creator_id:
+                _inst.delete()
             else:
                 error = UserInputError.FORBIDDEN_DELETE_OTHERS_ERR
                 msg = '删除失败，请确认标签存在。'
