@@ -383,7 +383,7 @@ class DetailOfCategoryOfCollectionsView(MethodView):
             creator_id = user.id
             if _inst.creator_id == creator_id:
                 if _inst.name == DEFAULT_CATEGORY_NAME:
-                    error = UserInputError.FORBIDDEN_DELETE_ERR
+                    error = UserInputError.FORBIDDEN_UPDATE_ERR
                     msg = '更新失败，系统默认分组不允许更新。'
                     extra_data = {'error_code': error.code, 'docs': ''}
                     raise HTTPClientError(403, message=msg, extra_data=extra_data)

@@ -746,7 +746,15 @@ class TestCategoryDetail:
             assert resp_name == new_name
         else:
             assert patch_result.status_code == 422
+        _default_data = {
+            'name': settings.DEFAULT_CATEGORY_NAME
+        }
 
+        # 不允许更新为默认的名称
+        def_patch_result = self.patch_category(client, _headers, _category_id, data=_default_data)
+        assert def_patch_result.status_code == 422
+
+        # 创建默认分组并更新
         default_result = self.create_default_category(client, bearer_header, collection_type)
         default_resp = default_result.json
         assert default_result.status_code == 200
@@ -754,12 +762,12 @@ class TestCategoryDetail:
         _default_category_id = default_resp.get('id')
         patch_default_result = self.patch_category(client, _headers, _default_category_id, data=update_data)
         deny_patch_default_resp = patch_default_result.json
-        logger.info(f'============{deny_patch_default_resp}===')
         assert patch_default_result.status_code == 403
-
         patch_def_error_code = deny_patch_default_resp.get('error_code')
+        error_def_msg = deny_patch_default_resp.get('message')
         forbidden_patch_def_error = UserInputError.FORBIDDEN_UPDATE_ERR
         assert patch_def_error_code == forbidden_patch_def_error.code
+        assert '更新失败' in error_def_msg
 
         # 更新不是自己的label
         not_my_label_patch_result = self.patch_category(client, bearer_header, _category_id, data=update_data)

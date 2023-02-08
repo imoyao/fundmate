@@ -4,11 +4,15 @@
 @File ：schemas.py
 @IDE ：PyCharm
 """
+from __future__ import annotations
+
+import typing
+
 from apiflask import Schema
 from apiflask.fields import Function, Integer, String
 from apiflask.validators import OneOf, Range
 
-from marshmallow import ValidationError
+from marshmallow import ValidationError, validates_schema
 from marshmallow.fields import List, Nested
 from marshmallow.validate import Length
 
@@ -16,6 +20,7 @@ from backend.fundmate import settings
 from backend.fundmate.collection.logics import lookup_collection
 from backend.fundmate.collection.models import Collection, LabelsOfCollection
 from backend.fundmate.schema_ext import CustomPaginationSchema
+from backend.fundmate.settings import DEFAULT_CATEGORY_NAME
 
 
 class QueryCollectionsSchema(Schema):
@@ -141,6 +146,16 @@ class UpdateLabelSchema(Schema):
 
 class UpdateCategorySchema(Schema):
     name = String(required=True, validate=Length(max=10), error_messages={"required": "标签名称必须填写。"})
+
+    @validates_schema(skip_on_field_errors=False)
+    def validate_category_name(
+            self,
+            data: (typing.Mapping[str, typing.Any] | typing.Iterable[typing.Mapping[str, typing.Any]]),
+            **kwargs,
+    ) -> dict[str, list[str]]:
+        name = data.get('name')
+        if name == DEFAULT_CATEGORY_NAME:
+            raise ValidationError('username or email at least one is required.')
 
 
 class UpdateLabelOutSchema(Schema):
