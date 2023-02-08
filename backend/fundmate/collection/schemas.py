@@ -103,9 +103,9 @@ class CategoriesOutSchema(Schema):
 
 
 class CustomQueryCategoryPaginationSchema(CustomPaginationSchema):
-    collection_type = String(required=True,
-                             dump_default=settings.SupportCollectionsEnum.fund.dk_value,
-                             validate=OneOf(settings.SupportCollectionsEnum.input()))
+    category_type = String(required=True,
+                           dump_default=settings.SupportCollectionsEnum.fund.dk_value,
+                           validate=OneOf(settings.SupportCollectionsEnum.input()))
 
 
 class WithIdSchema(Schema):
@@ -133,9 +133,9 @@ class CreateLabelSchema(Schema):
 
 class CreateCategorySchema(Schema):
     name = String(required=True, validate=Length(max=10))
-    collection_type = String(required=True,
-                             dump_default=settings.SupportCollectionsEnum.fund.dk_value,
-                             validate=OneOf(settings.SupportCollectionsEnum.input()))
+    category_type = String(required=True,
+                           dump_default=settings.SupportCollectionsEnum.fund.dk_value,
+                           validate=OneOf(settings.SupportCollectionsEnum.input()))
 
 
 class UpdateLabelSchema(Schema):

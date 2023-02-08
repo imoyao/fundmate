@@ -96,11 +96,19 @@ class CollectionsView(MethodView):
 
             if col_inst:
                 data['creator_id'] = creator_id
-                prod_inst = Collection.create(**data)
-                # 系统创建默认 labels 和 分组
+                col_inst = Collection.create(**data)
+
+                # 系统创建默认 labels
                 create_default_labels(creator_id)
-                create_default_category(creator_id, collection_type)
-                return prod_inst
+                # 创建默认分组
+                _default_category_inst = CategoriesOfCollection.default_category(creator_id, collection_type)
+                if not _default_category_inst:
+                    _default_category_inst = create_default_category(creator_id, collection_type)
+                # 创建自选添加到默认分组中
+                col_inst.categories.append(_default_category_inst)
+                col_inst.save()
+
+                return col_inst
             error = ClientError.COLLECTION_ERR
             extra_data = {'error_code': error.code, 'docs': ''}
             raise HTTPClientError(message=error.msg, extra_data=extra_data)
@@ -235,9 +243,9 @@ class CategoriesOfCollectionsView(MethodView):
         creator_id = user.id
 
         category_name = data.get('name')
-        collection_type = data.get('collection_type')
+        category_type = data.get('category_type')
         # 同类别同用户不能包含同名
-        has_created = CategoriesOfCollection.has_same_category_name_by_col(creator_id, collection_type, category_name)
+        has_created = CategoriesOfCollection.has_same_category_name_by_col(creator_id, category_type, category_name)
         if not has_created:
             data['creator_id'] = creator_id
             label_inst = CategoriesOfCollection.create(**data)

@@ -13,9 +13,10 @@ import pytest
 from faker import Faker as RealFaker
 
 from backend.fundmate import settings
-from backend.fundmate.collection.models import CategoriesOfCollection, LabelsOfCollection
+from backend.fundmate.collection.models import CategoriesOfCollection, Collection, LabelsOfCollection
 from backend.fundmate.errors import ClientError, UserInputError
 from backend.fundmate.exts.flask_loguru import logger
+from backend.fundmate.settings import DEFAULT_CATEGORY_NAME
 from backend.fundmate.user.models import User
 from backend.tests.collection.collection_teardown import (
     delete_all_categories,
@@ -146,6 +147,10 @@ class TestCollections:
         assert resp
         _inst_id = resp.get('id')
         assert _inst_id
+        _col = Collection.get_by_id(_inst_id)
+        assert _col
+        assert _col.categories
+        assert DEFAULT_CATEGORY_NAME in [cate.name for cate in _col.categories]
 
         # 测试重复自选基金
         re_create_fund_result = create_collection(client, bearer_header, collect_data)
@@ -363,7 +368,7 @@ class TestCategories:
         assert no_data_result.status_code == 422
 
         # 携带必选参数
-        _query_data = {'collection_type': settings.SupportCollectionsEnum.fund.dk_value}
+        _query_data = {'category_type': settings.SupportCollectionsEnum.fund.dk_value}
 
         no_data_result = self.get_categories(client, headers=bearer_header, params=_query_data)
         assert no_data_result.status_code == 404
@@ -395,7 +400,7 @@ class TestCategories:
         result = create_category(client, bearer_header, category_data)
         assert result.status_code == 422
 
-        _base_data = {'collection_type': settings.SupportCollectionsEnum.fund.dk_value}
+        _base_data = {'category_type': settings.SupportCollectionsEnum.fund.dk_value}
         # 创建category
         category_data.update(_base_data)
         result = create_category(client, bearer_header, category_data)
@@ -414,7 +419,7 @@ class TestCategories:
 
         # 测试为不同类别创建同名category
         other_category_data = copy.deepcopy(category_data)
-        other_category_data['collection_type'] = settings.SupportCollectionsEnum.bond.dk_value
+        other_category_data['category_type'] = settings.SupportCollectionsEnum.bond.dk_value
         other_re_create_fund_result = create_category(client, bearer_header, other_category_data)
         assert other_re_create_fund_result.status_code == 200
 
@@ -495,8 +500,11 @@ class TestManageLabelsOfCollectionsView:
         assert _col_id
         label_items = list()
         creator_id = _user_inst.id
-        for _ in range(5):
-            label = LabelOfCollectionFactory(creator_id=creator_id)
+        for index in range(5):
+            # 为了保证名称的唯一性
+            _name_str = faker.name()
+            label_name = f'{_name_str}{str(index)}'
+            label = LabelOfCollectionFactory(creator_id=creator_id, name=label_name)
             _label_name = label.name
             _label_inst = LabelsOfCollection.label_of_user_by_name(creator_id, _label_name)
             _label_id = _label_inst.id
@@ -694,8 +702,8 @@ class TestCategoryDetail:
         return _result
 
     @staticmethod
-    def create_default_category(client, bearer_header, collection_type):
-        default_data = {'name': settings.DEFAULT_CATEGORY_NAME, 'collection_type': collection_type}
+    def create_default_category(client, bearer_header, category_type):
+        default_data = {'name': settings.DEFAULT_CATEGORY_NAME, 'category_type': category_type}
         default_result = create_category(client, bearer_header, default_data)
         return default_result
 
@@ -721,10 +729,10 @@ class TestCategoryDetail:
         username = user.username
         user_inst = User.lookup(username)
         user_id = user_inst.id
-        collection_type = random_collection_type()
-        _inst = CategoryOfCollectionFactory(creator_id=user_id, collection_type=collection_type)
+        category_type = random_collection_type()
+        _inst = CategoryOfCollectionFactory(creator_id=user_id, category_type=category_type)
         _name = _inst.name
-        _inst = CategoriesOfCollection.category_of_user_by_name(user_id, collection_type, _name)
+        _inst = CategoriesOfCollection.category_of_user_by_name(user_id, category_type, _name)
         _category_id = _inst.id
         token = auth.token(username=username, password=password)
         _headers = {'Content-Type': 'application/json',
@@ -755,7 +763,7 @@ class TestCategoryDetail:
         assert def_patch_result.status_code == 422
 
         # 创建默认分组并更新
-        default_result = self.create_default_category(client, bearer_header, collection_type)
+        default_result = self.create_default_category(client, bearer_header, category_type)
         default_resp = default_result.json
         assert default_result.status_code == 200
         # 更新默认分组
@@ -777,14 +785,14 @@ class TestCategoryDetail:
         assert patch_result_404.status_code == 404
 
     def test_delete_category(self, client, auth, bearer_header):
-        collection_type = random_collection_type()
-        _data = {'name': '划线派', 'collection_type': collection_type}
+        category_type = random_collection_type()
+        _data = {'name': '划线派', 'category_type': category_type}
         result = create_category(client, bearer_header, _data)
         resp = result.json
         assert result.status_code == 200
         assert resp
 
-        default_result = self.create_default_category(client, bearer_header, collection_type)
+        default_result = self.create_default_category(client, bearer_header, category_type)
         default_resp = default_result.json
         assert default_result.status_code == 200
 

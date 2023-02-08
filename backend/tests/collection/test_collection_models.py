@@ -127,12 +127,12 @@ class TestCategoriesOfCollection:
         assert with_emoji_label.name
 
     def test_has_same_category_name_by_col(self):
-        collection_type = random_collection_type()
-        label = CategoryOfCollectionFactory(collection_type=collection_type)
+        category_type = random_collection_type()
+        label = CategoryOfCollectionFactory(category_type=category_type)
         new_name = label.name
         user_id = label.creator_id
-        has_created = CategoriesOfCollection.has_same_category_name_by_col(user_id, collection_type, new_name)
+        has_created = CategoriesOfCollection.has_same_category_name_by_col(user_id, category_type, new_name)
         assert has_created
         new_user_id = user_id + 1
-        has_created = CategoriesOfCollection.has_same_category_name_by_col(new_user_id, collection_type, new_name)
+        has_created = CategoriesOfCollection.has_same_category_name_by_col(new_user_id, category_type, new_name)
         assert not has_created

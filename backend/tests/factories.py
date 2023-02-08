@@ -112,7 +112,7 @@ class LabelOfCollectionFactory(BaseFactory):
 class CategoryOfCollectionFactory(BaseFactory):
     creator_id = 1
     name = Faker('word', locale="zh_CN")
-    collection_type = random.choice(list(settings.SupportCollectionsEnum)).dk_value
+    category_type = random.choice(list(settings.SupportCollectionsEnum)).dk_value
 
     class Meta:
         """Factory configuration."""

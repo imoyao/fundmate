@@ -96,17 +96,17 @@ def create_default_labels(user_id: str):
         return 0
 
 
-def create_default_category(user_id: str, collection_type: str):
+def create_default_category(user_id: str, category_type: str):
     """
     自选分类创建默认分组
     :return:
     """
-    if Collection.is_first_collection_of_col_type(user_id, collection_type):
-        if collection_type in settings.SupportCollectionsEnum.input():
+    if Collection.is_first_collection_of_col_type(user_id, category_type):
+        if category_type in settings.SupportCollectionsEnum.input():
             data = {
                 'name': DEFAULT_CATEGORY_NAME,
-                'collection_type': collection_type,
+                'category_type': category_type,
                 'creator_id': user_id
             }
-            CategoriesOfCollection.create(**data)
-        return 0
+            _inst = CategoriesOfCollection.create(**data)
+            return _inst

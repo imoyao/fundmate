@@ -94,40 +94,51 @@ class CategoriesOfCollection(PkModel, CreateDateModel):
     creator_id = reference_col('users', column_kwargs={'comment': '创建人id'})
     name = Column(db.String(10), nullable=False, comment='分组名称')
     # 为哪个自选分类创建的自选组
-    collection_type = Column(db.Enum(settings.SupportCollectionsEnum),
-                             nullable=False,
-                             default=settings.SupportCollectionsEnum.fund.dk_value,
-                             comment=f'自选类别：{settings.SupportCollectionsEnum.comment()}')
+    category_type = Column(db.Enum(settings.SupportCollectionsEnum),
+                           nullable=False,
+                           default=settings.SupportCollectionsEnum.fund.dk_value,
+                           comment=f'自选类别：{settings.SupportCollectionsEnum.comment()}')
     collections = db.relationship('Collection', secondary=collection_category_table, back_populates="categories")
 
     def __repr__(self):
         return '<分组 %r>' % self.name
 
     @classmethod
-    def has_same_category_name_by_col(cls, user_id: int, collection_type: str, name: str) -> bool:
+    def has_same_category_name_by_col(cls, user_id: int, category_type: str, name: str) -> bool:
         """
         禁止同一用户为同一自选类别创建同名的category
-        :param collection_type:
+        :param category_type:
         :param user_id: 用户编号
         :param name: label名称
         :return:
         """
-        _col_inst = cls.category_of_user_by_name(user_id, collection_type, name)
+        _col_inst = cls.category_of_user_by_name(user_id, category_type, name)
         if _col_inst:
             return True
         return False
 
     @classmethod
-    def category_of_user_by_name(cls, user_id: int, collection_type: str, name: str):
+    def category_of_user_by_name(cls, user_id: int, category_type: str, name: str):
         """
         通过名称获取指定用户自选产品的label
         :param name:
-        :param collection_type:
+        :param category_type:
         :param user_id:
         :return:
         """
-        _col_inst = db.session.execute(db.select(cls).filter_by(creator_id=user_id, collection_type=collection_type,
+        _col_inst = db.session.execute(db.select(cls).filter_by(creator_id=user_id, category_type=category_type,
                                                                 name=name)).scalars().one_or_none()
+        return _col_inst
+
+    @classmethod
+    def default_category(cls, user_id: int, category_type: str):
+        """
+        默认分组
+        :param user_id:
+        :param category_type:
+        :return:
+        """
+        _col_inst = cls.category_of_user_by_name(user_id, category_type, settings.DEFAULT_CATEGORY_NAME)
         return _col_inst
 
 
