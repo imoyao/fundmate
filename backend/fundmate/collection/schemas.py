@@ -164,3 +164,11 @@ class UpdateLabelOutSchema(Schema):
 
 class UpdateLabelOfCollectionsSchema(Schema):
     labels = List(Integer())
+
+
+class UpdateCategoriesOutSchema(Schema):
+    categories = List(Nested(CategoryItemOutSchema))
+
+
+class UpdateCategoriesOfCollectionsSchema(Schema):
+    categories = List(Integer(required=True))

@@ -76,7 +76,7 @@ class UserInputError(ErrorMixin, Enum, metaclass=ErrorMeta):
     # 像这种比较通用的错误提示信息，允许在代码中进行文案自定义
     FORBIDDEN_DELETE_ERR = (1005, '删除失败，请确认被删除对象存在。')
     FORBIDDEN_UPDATE_ERR = (1006, '更新失败，请确认更新对象存在。')
-    LABEL_IS_NOT_EXIST_ERR = (1007, '更新失败，请确认标签是否存在。')
+    NOT_EXIST_ERR = (1007, '更新失败，请确认是否存在。')
 
 
 @unique

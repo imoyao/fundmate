@@ -23,6 +23,8 @@ from backend.fundmate.collection.schemas import (
     LabelItemOutSchema,
     LabelsOutSchema,
     QueryCollectionsSchema,
+    UpdateCategoriesOfCollectionsSchema,
+    UpdateCategoriesOutSchema,
     UpdateCategorySchema,
     UpdateLabelOfCollectionsSchema,
     UpdateLabelOutSchema,
@@ -216,7 +218,9 @@ class CategoriesOfCollectionsView(MethodView):
         """
         user = current_user()
         creator_id = user.id
-        pagination = CategoriesOfCollection.query.filter_by(creator_id=creator_id).paginate(
+        category_type = query.get('category_type')
+        pagination = CategoriesOfCollection.query.filter_by(creator_id=creator_id,
+                                                            category_type=category_type).paginate(
             page=query.get('page'),
             per_page=query.get('per_page')
         )
@@ -297,7 +301,68 @@ class ManageLabelsOfCollectionsView(MethodView):
                         'labels': new_labels
                     }
                 else:
-                    error = UserInputError.LABEL_IS_NOT_EXIST_ERR
+                    error = UserInputError.NOT_EXIST_ERR
+                    msg = '修改失败，请确认输入是否正确。'
+                    extra_data = {'error_code': error.code, 'docs': ''}
+                    raise HTTPClientError(400, message=msg, extra_data=extra_data)
+
+            else:
+                error = UserInputError.FORBIDDEN_UPDATE_ERR
+                msg = '修改失败，请确认输入是否正确。'
+                extra_data = {'error_code': error.code, 'docs': ''}
+                raise HTTPClientError(403, message=msg, extra_data=extra_data)
+        else:
+            abort(404)
+
+
+@bp.route('/<collection_id>/categories')
+class ManageCategoriesOfCollectionsView(MethodView):
+    """
+    自选单品的分组管理
+    """
+
+    @auth_required
+    @bp.input(UpdateCategoriesOfCollectionsSchema)
+    @bp.output(UpdateCategoriesOutSchema, status_code=205)
+    @bp.doc(security='Bearer')
+    def patch(self, collection_id: int, data: Dict):
+        """
+        给某个自选增加或者删除 categories，用户传输目前的完整 categories id list
+        """
+        _col_inst = Collection.get_by_id(collection_id)
+        if _col_inst:
+            user = current_user()
+            user_id = user.id
+            creator_id = _col_inst.creator_id
+            if creator_id == user_id:
+                categories = data.get('categories')
+                category_type = _col_inst.collection_type
+                categories_of_user_in_type = CategoriesOfCollection.query.filter_by(creator_id=creator_id,
+                                                                                    category_type=category_type).all()
+                categories_id_list = [category.id for category in categories_of_user_in_type]
+
+                ipt_categories = set(categories)
+                _default_category_inst = CategoriesOfCollection.default_category(creator_id, category_type)
+                _default_category_inst_id = _default_category_inst.id
+                if not ipt_categories or _default_category_inst_id not in ipt_categories:
+                    error = UserInputError.FORBIDDEN_UPDATE_ERR
+                    msg = '修改失败，默认分组不允许移除'
+                    extra_data = {'error_code': error.code, 'docs': ''}
+                    raise HTTPClientError(400, message=msg, extra_data=extra_data)
+                user_categories = set(categories_id_list)
+
+                if ipt_categories.issubset(user_categories):
+                    if ipt_categories:
+                        new_categories = db.session.query(CategoriesOfCollection).filter(
+                            CategoriesOfCollection.id.in_(list(ipt_categories))).all()
+                        _col_inst.categories = new_categories
+                        db.session.commit()
+
+                        return {
+                            'categories': new_categories
+                        }
+                else:
+                    error = UserInputError.NOT_EXIST_ERR
                     msg = '修改失败，请确认输入是否正确。'
                     extra_data = {'error_code': error.code, 'docs': ''}
                     raise HTTPClientError(400, message=msg, extra_data=extra_data)

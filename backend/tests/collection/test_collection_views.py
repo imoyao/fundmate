@@ -106,7 +106,6 @@ class TestCollections:
             assert result.status_code == 200
 
         with_data_result = self.get_collection(client, headers=bearer_header, params=params)
-        logger.info(with_data_result.json)
         with_data_resp = with_data_result.json
         assert with_data_result.status_code == 200
         assert 'collections' in with_data_resp
@@ -129,15 +128,12 @@ class TestCollections:
     def test_create_collections(self, client, bearer_header, create_base_data):
         # 基金数据组装
         fund_list = create_base_data.get('fund')
-        logger.info(f'{fund_list}')
         fund_code = random.choice(fund_list)
         assert fund_code.isdigit()
         collect_data = {'collection_type': settings.SupportCollectionsEnum.fund.dk_value, 'identify': fund_code}
 
         # 测试不带认证参数
         no_auth_result = create_collection(client)
-        no_auth_resp = no_auth_result.json
-        logger.info(no_auth_resp)
         assert no_auth_result.status_code == 401
 
         # 创建自选基金
@@ -155,7 +151,6 @@ class TestCollections:
         # 测试重复自选基金
         re_create_fund_result = create_collection(client, bearer_header, collect_data)
         re_fund_resp = re_create_fund_result.json
-        logger.info(re_fund_resp)
         assert re_create_fund_result.status_code != 200
         assert re_fund_resp.get('error_code') == ClientError.HAS_CREATED_ERR.code
 
@@ -267,7 +262,6 @@ class TestLabels:
         # 先创建数据然后再获取
         LabelOfCollectionFactory()
         with_data_result = self.get_labels(client, headers=bearer_header)
-        logger.info(with_data_result.json)
         with_data_resp = with_data_result.json
         assert with_data_result.status_code == 200
         assert 'labels' in with_data_resp
@@ -284,8 +278,6 @@ class TestLabels:
     def test_create_label(self, client, auth, bearer_header, label_data):
         # 测试不带认证参数
         no_auth_result = create_label(client)
-        no_auth_resp = no_auth_result.json
-        logger.info(no_auth_resp)
         assert no_auth_result.status_code == 401
 
         # 创建label
@@ -299,7 +291,6 @@ class TestLabels:
         # 测试重复创建label
         re_create_fund_result = create_label(client, bearer_header, label_data)
         re_fund_resp = re_create_fund_result.json
-        logger.info(re_fund_resp)
         assert re_create_fund_result.status_code != 200
         assert re_fund_resp.get('error_code') == ClientError.HAS_CREATED_ERR.code
         # 测试另一个人创建同名label
@@ -310,8 +301,6 @@ class TestLabels:
         _headers = {'Content-Type': 'application/json',
                     'Authorization': "Bearer " + token}
         other_re_create_label_result = create_label(client, _headers, label_data)
-        other_re_label_resp = other_re_create_label_result.json
-        logger.info(other_re_label_resp)
         assert other_re_create_label_result.status_code == 200
 
         # 测试不带参数
@@ -368,15 +357,15 @@ class TestCategories:
         assert no_data_result.status_code == 422
 
         # 携带必选参数
-        _query_data = {'category_type': settings.SupportCollectionsEnum.fund.dk_value}
+        category_type = random_collection_type()
+        _query_data = {'category_type': category_type}
 
         no_data_result = self.get_categories(client, headers=bearer_header, params=_query_data)
         assert no_data_result.status_code == 404
 
         # 先创建数据然后再获取
-        CategoryOfCollectionFactory(name='待到山花烂漫时')
+        CategoryOfCollectionFactory(name='待到山花烂漫时', category_type=category_type)
         with_data_result = self.get_categories(client, headers=bearer_header, params=_query_data)
-        logger.info(with_data_result.json)
         with_data_resp = with_data_result.json
         assert with_data_result.status_code == 200
         assert 'categories' in with_data_resp
@@ -393,8 +382,6 @@ class TestCategories:
     def test_create_category(self, client, auth, bearer_header, category_data):
         # 测试不带认证参数
         no_auth_result = create_category(client)
-        no_auth_resp = no_auth_result.json
-        logger.info(no_auth_resp)
         assert no_auth_result.status_code == 401
         # 测试不带类别数据
         result = create_category(client, bearer_header, category_data)
@@ -413,7 +400,6 @@ class TestCategories:
         # 测试重复创建category
         re_create_fund_result = create_category(client, bearer_header, category_data)
         re_fund_resp = re_create_fund_result.json
-        logger.info(re_fund_resp)
         assert re_create_fund_result.status_code != 200
         assert re_fund_resp.get('error_code') == ClientError.HAS_CREATED_ERR.code
 
@@ -458,7 +444,8 @@ def collection_labels_endpoint(collection_id):
 
 
 class TestManageLabelsOfCollectionsView:
-    def teardown(self):
+    @staticmethod
+    def teardown():
         delete_all_labels()
         delete_all_collections()
 
@@ -476,7 +463,6 @@ class TestManageLabelsOfCollectionsView:
         assert no_data_result.status_code == 404
         # 基金数据组装
         fund_list = create_base_data.get('fund')
-        logger.info(f'{fund_list}')
         fund_code = random.choice(fund_list)
         assert fund_code.isdigit()
 
@@ -494,7 +480,6 @@ class TestManageLabelsOfCollectionsView:
         result = create_collection(client, _headers, collect_data)
         resp = result.json
         assert resp
-        logger.info(resp)
         assert result.status_code == 200
         _col_id = resp.get('id')
         assert _col_id
@@ -544,7 +529,7 @@ class TestManageLabelsOfCollectionsView:
         assert is_mine_collection_but_not_all_mine_labels_result.status_code == 400
         is_mine_collection_but_not_all_mine_labels_resp = is_mine_collection_but_not_all_mine_labels_result.json
         logger.info(f'is_mine_collection_but_not_all_mine_labels_resp{is_mine_collection_but_not_all_mine_labels_resp}')
-        label_is_not_exist_err = UserInputError.LABEL_IS_NOT_EXIST_ERR
+        label_is_not_exist_err = UserInputError.NOT_EXIST_ERR
         assert '更新失败' in label_is_not_exist_err.msg
         error_code = is_mine_collection_but_not_all_mine_labels_resp.get('error_code')
         assert error_code == label_is_not_exist_err.code
@@ -625,6 +610,7 @@ class TestLabelDetail:
         patch_result = self.patch_label(client, _headers, _label_id, data=update_label_data)
         assert patch_result.status_code == 200
         resp = patch_result.json
+        logger.info(f'========{resp}======')
         resp_name = resp.get('name')
         assert resp_name == new_name
         # 更新不是自己的label
@@ -685,6 +671,12 @@ def endpoint_of_category(category_id: int):
         return category_endpoint
 
 
+def create_default_category(client, bearer_header, category_type):
+    default_data = {'name': settings.DEFAULT_CATEGORY_NAME, 'category_type': category_type}
+    default_result = create_category(client, bearer_header, default_data)
+    return default_result
+
+
 class TestCategoryDetail:
 
     @staticmethod
@@ -701,11 +693,11 @@ class TestCategoryDetail:
         _result = client.patch(_endpoint, headers=headers, json=data)
         return _result
 
-    @staticmethod
-    def create_default_category(client, bearer_header, category_type):
-        default_data = {'name': settings.DEFAULT_CATEGORY_NAME, 'category_type': category_type}
-        default_result = create_category(client, bearer_header, default_data)
-        return default_result
+    # @staticmethod
+    # def create_default_category(client, bearer_header, category_type):
+    #     default_data = {'name': settings.DEFAULT_CATEGORY_NAME, 'category_type': category_type}
+    #     default_result = create_category(client, bearer_header, default_data)
+    #     return default_result
 
     @pytest.fixture(scope="function", autouse=True)
     def delete_categories_from_db(self, request):
@@ -723,8 +715,8 @@ class TestCategoryDetail:
         :param auth:
         :return:
         """
-        faker = RealFaker()
-        password = faker.password()
+        _faker = RealFaker()
+        password = _faker.password()
         user = UserFactory(password=password)
         username = user.username
         user_inst = User.lookup(username)
@@ -741,7 +733,7 @@ class TestCategoryDetail:
         result = self.patch_category(client, _headers, _category_id)
         assert result.status_code != 200
         # 正确处理
-        _word = faker.word()
+        _word = _faker.word()
         new_name = _name + _word
         update_data = {
             'name': new_name,
@@ -763,7 +755,7 @@ class TestCategoryDetail:
         assert def_patch_result.status_code == 422
 
         # 创建默认分组并更新
-        default_result = self.create_default_category(client, bearer_header, category_type)
+        default_result = create_default_category(client, bearer_header, category_type)
         default_resp = default_result.json
         assert default_result.status_code == 200
         # 更新默认分组
@@ -792,7 +784,7 @@ class TestCategoryDetail:
         assert result.status_code == 200
         assert resp
 
-        default_result = self.create_default_category(client, bearer_header, category_type)
+        default_result = create_default_category(client, bearer_header, category_type)
         default_resp = default_result.json
         assert default_result.status_code == 200
 
@@ -834,3 +826,117 @@ class TestCategoryDetail:
         not_exist_id = _inst_id + 1
         delete_no_data_result = self.delete_category(client, bearer_header, not_exist_id)
         assert delete_no_data_result.status_code == 403
+
+
+def collection_categories_endpoint(collection_id):
+    if collection_id:
+        return base_collections_endpoint + str(collection_id) + '/' + base_category_endpoint
+
+
+class TestManageCategoriesOfCollectionsView:
+    @staticmethod
+    def teardown():
+        delete_all_categories()
+        delete_all_collections()
+
+    @staticmethod
+    def patch_categories(client, headers=None, collection_id=None, data=None):
+        if not data:
+            data = dict()
+        _endpoint = collection_categories_endpoint(collection_id)
+        _result = client.patch(_endpoint, headers=headers, json=data)
+        return _result
+
+    def test_patch_categories_of_collections(self, client, auth, bearer_header, create_base_data):
+        categories_data = {'categories': []}
+        no_data_result = self.patch_categories(client, headers=bearer_header, collection_id=10086, data=categories_data)
+        assert no_data_result.status_code == 404
+        # 基金数据组装
+        fund_list = create_base_data.get('fund')
+        fund_code = random.choice(fund_list)
+        assert fund_code.isdigit()
+
+        # 用户数据
+        faker = RealFaker()
+        password = faker.password()
+        user = UserFactory(password=password)
+        username = user.username
+        _user_inst = User.lookup(username)
+        token = auth.token(username=username, password=password)
+        _headers = {'Content-Type': 'application/json',
+                    'Authorization': "Bearer " + token}
+        # 添加自选
+        _col_type = settings.SupportCollectionsEnum.fund.dk_value
+        collect_data = {'collection_type': _col_type, 'identify': fund_code}
+        result = create_collection(client, _headers, collect_data)
+        resp = result.json
+        assert resp
+        assert result.status_code == 200
+        _col_id = resp.get('id')
+        assert _col_id
+        category_items = list()
+        creator_id = _user_inst.id
+        for index in range(5):
+            # 为了保证名称的唯一性
+            _name_str = faker.name()
+            _name = f'{_name_str}{str(index)}'
+            category = CategoryOfCollectionFactory(creator_id=creator_id, name=_name, category_type=_col_type)
+            _category_name = category.name
+            _inst = CategoriesOfCollection.category_of_user_by_name(creator_id, _col_type, _category_name)
+            _id = _inst.id
+            category_items.append(_id)
+        #  错误用户创建
+        categories = random.choices(category_items, k=random.randint(0, 5))
+        labels_data = {'categories': categories}
+        not_mine_result = self.patch_categories(client, headers=bearer_header, collection_id=_col_id, data=labels_data)
+        assert not_mine_result.status_code == 403
+        # 正确用户
+        is_mine_no_def_result = self.patch_categories(client, headers=_headers, collection_id=_col_id, data=labels_data)
+        logger.info(f'====is_mine_result.json====={is_mine_no_def_result.json}====')
+        assert is_mine_no_def_result.status_code == 400
+        # 默认分组必传
+        def_inst = CategoriesOfCollection.default_category(creator_id, _col_type)
+        assert def_inst
+        def_inst_id = def_inst.id
+        categories.append(def_inst_id)
+        with_def_categories = {'categories': categories}
+        is_mine_result = self.patch_categories(client, headers=_headers, collection_id=_col_id,
+                                               data=with_def_categories)
+        logger.info(f'====is_mine_result.json====={is_mine_result.json}====')
+        assert is_mine_result.status_code == 205
+        is_mine_result_resp = is_mine_result.json
+        out_categories = is_mine_result_resp.get('categories')
+        assert out_categories
+        ret_labels_id_list = [item.get('id') for item in out_categories]
+        assert def_inst_id in ret_labels_id_list
+        ret_labels_id_list.remove(def_inst_id)
+        assert set(ret_labels_id_list).issubset(set(category_items))
+
+        # 新用户创建一个category
+        user = UserFactory(password=password)
+        username = user.username
+        _other_user_inst = User.lookup(username)
+        other_id = _other_user_inst.id
+        label = CategoryOfCollectionFactory(creator_id=other_id, category_type=_col_type)
+        _category_name = label.name
+        _label_inst = CategoriesOfCollection.category_of_user_by_name(other_id, _col_type, _category_name)
+        new_label_id = _label_inst.id
+        # 加入默认分组和刚才创建的别人的分组
+        category_items.extend([new_label_id, def_inst_id])
+        # 测试用户提交数据中包含其他用户的label
+        new_labels_data = {'categories': category_items}
+        is_mine_collection_but_not_all_mine_labels_result = self.patch_categories(client, headers=_headers,
+                                                                                  collection_id=_col_id,
+                                                                                  data=new_labels_data)
+
+        assert is_mine_collection_but_not_all_mine_labels_result.status_code == 400
+        is_mine_collection_but_not_all_mine_labels_resp = is_mine_collection_but_not_all_mine_labels_result.json
+        logger.info(f'is_mine_collection_but_not_all_mine_labels_resp{is_mine_collection_but_not_all_mine_labels_resp}')
+        label_is_not_exist_err = UserInputError.NOT_EXIST_ERR
+        assert '更新失败' in label_is_not_exist_err.msg
+        error_code = is_mine_collection_but_not_all_mine_labels_resp.get('error_code')
+        assert error_code == label_is_not_exist_err.code
+        # 不允许删除全部分组（必须保留至少一个）
+        clear_data = {'categories': []}
+        clear_mine_result = self.patch_categories(client, headers=_headers, collection_id=_col_id, data=clear_data)
+        assert clear_mine_result.status_code == 400
