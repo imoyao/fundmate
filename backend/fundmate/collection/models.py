@@ -12,6 +12,7 @@ from sqlalchemy import Table
 
 from backend.fundmate import settings
 from backend.fundmate.database import Column, CreateDateModel, PkModel, db, reference_col
+from backend.fundmate.excepts import UniqueInstanceError
 
 
 collection_category_table = Table('relation_collection_category', db.Model.metadata,
@@ -149,12 +150,28 @@ class LabelsOfCollection(PkModel, CreateDateModel):
     __tablename__ = 'collection_label'
     __table_args__ = {'comment': '自选标签表'}
 
-    creator_id = reference_col('users', column_kwargs={'comment': '创建人id'})
+    creator_id = reference_col('users', nullable=False, column_kwargs={'comment': '创建人id'})
     name = db.Column(db.String(10), nullable=False, comment='标签名称')
     color = db.Column(db.String(7), nullable=False, comment='标签显示颜色')
     desc = db.Column(db.String(30), comment='标签描述/备注')
 
     collections = db.relationship('Collection', secondary=collection_label_table, back_populates="labels")
+
+    @classmethod
+    def create(cls, **kwargs):
+        """
+        复写创建方法，如果存在则提示用户不可重复创建
+        :param kwargs:
+        :return:
+        """
+        user_id = kwargs.get('creator_id')
+        name = kwargs.get('name')
+        _color = kwargs.get('color')
+        kwargs['color'] = _color.lower()
+        _col_inst = cls.has_same_label_name_by_user(user_id, name)
+        if not _col_inst:
+            return super().create(**kwargs)
+        raise UniqueInstanceError('标签名已存在，请勿重复创建')
 
     @classmethod
     def has_same_label_name_by_user(cls, user_id: int, name: str) -> bool:

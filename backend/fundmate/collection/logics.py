@@ -83,7 +83,7 @@ def create_default_labels(user_id: str):
     2. 用户删除所有预置自选后不再重复创建
     :return:
     """
-    if Collection.is_first_collect(user_id):
+    if not Collection.is_first_collect(user_id):
         for item in LabelsEnum:
             label = item.value
             data = {

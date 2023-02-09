@@ -56,9 +56,10 @@ class CollectionsView(MethodView):
         1. 自选的标签
         2. 自选的分类
         3. 自选的备注（TODO）
-        4. 如果购买过，则返回交易信息
+        4. ~~如果购买过，则返回交易信息~~
 
-        根据平台和产品名称查询产品的分类和编码；如果没有查询到，则可以使用post请求创建
+        根据平台和产品名称查询分类下的自选产品，返回自选的信息
+
         :param query:
         :return:
         """
@@ -85,6 +86,7 @@ class CollectionsView(MethodView):
     def post(self, data: Dict):
         """
         用户添加自选
+
         :return:
         """
         user = current_user()
@@ -109,7 +111,6 @@ class CollectionsView(MethodView):
                 # 创建自选添加到默认分组中
                 col_inst.categories.append(_default_category_inst)
                 col_inst.save()
-
                 return col_inst
             error = ClientError.COLLECTION_ERR
             extra_data = {'error_code': error.code, 'docs': ''}

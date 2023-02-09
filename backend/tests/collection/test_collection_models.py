@@ -5,8 +5,10 @@
 import random
 
 import pytest
+from faker import Faker
 
 from backend.fundmate.collection.models import CategoriesOfCollection, Collection, LabelsOfCollection
+from backend.fundmate.excepts import UniqueInstanceError
 from backend.fundmate.settings import SupportCollectionsEnum
 from backend.fundmate.user.models import User
 from backend.tests.collection.collection_teardown import (
@@ -62,6 +64,23 @@ class TestLabelsOfCollection:
         assert label.color.startswith('#')
         with_emoji_label = LabelOfCollectionFactory(name='🤩YYDS')
         assert with_emoji_label.name
+
+    def test_create(self):
+        faker = Faker(locale="zh_CN")
+        name = faker.word()
+        desc = faker.sentence(nb_words=10)
+        color = faker.color()
+        _data = {
+            "color": color,
+            "desc": desc,
+            "creator_id": 1,
+            "name": name
+        }
+        _inst = LabelsOfCollection.create(**_data)
+        assert _inst
+        with pytest.raises(UniqueInstanceError) as e:
+            LabelsOfCollection.create(**_data)
+        assert '标签名已存在' in str(e)
 
     def test_has_same_label_name_by_user(self):
         label = LabelOfCollectionFactory()
@@ -121,10 +140,12 @@ class TestCategoriesOfCollection:
         delete_all_categories()
 
     def test_factory(self):
-        label = CategoryOfCollectionFactory()
-        assert label.name
-        with_emoji_label = CategoryOfCollectionFactory(name='🤩YYDS')
-        assert with_emoji_label.name
+        category = CategoryOfCollectionFactory()
+        _name = category.name
+        assert str(category) == f'<分组 {_name!r}>'
+        assert _name
+        with_emoji_category = CategoryOfCollectionFactory(name='🤩YYDS')
+        assert with_emoji_category.name
 
     def test_has_same_category_name_by_col(self):
         category_type = random_collection_type()
