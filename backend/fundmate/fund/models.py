@@ -29,7 +29,9 @@ class DailyWorth(PkModel, CreateDateModel):
     1. 考虑分表，主键应该使用uuid
     2. uuid vs GUID
     """
-    price = Column(db.Float, comment='基金单日净值')
+    # ref: https://mp.weixin.qq.com/s/a0kPqx_x6aYjHEk5iwsN0Q
+    price = Column(db.Float, comment='基金单位净值')
+    total_price = Column(db.Float, comment='基金累计净值')
     date = Column(db.Date, comment='日期')
     fund_id = reference_col('funds', column_kwargs={'comment': '基金编号ID'})
     fund = relationship('Fund', uselist=False, back_populates='daily_worth')
