@@ -72,9 +72,14 @@ class CollectionsView(MethodView):
         )
         collections = pagination.items
         if collections:
-            return {
+            data = {
                 'collections': collections,
                 'pagination': pagination_builder(pagination)
+            }
+            return {
+                'data': data,
+                'message': '获取成功',
+                'code': 200
             }
         else:
             abort(404)

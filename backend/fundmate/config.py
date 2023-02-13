@@ -7,6 +7,7 @@ http://www.pythondoc.com/flask/config.html#id6
 from pathlib import Path
 
 from backend.fundmate import settings
+from backend.fundmate.schema_ext import BaseResponse
 
 
 env = settings.env
@@ -82,6 +83,8 @@ class Config:
     LOCAL_SPEC_PATH = env.str('LOCAL_SPEC_PATH', 'openapi.json')
     LOCAL_SPEC_JSON_INDENT = env.int('LOCAL_SPEC_JSON_INDENT', 4)
     SYNC_LOCAL_SPEC = env.bool('SYNC_LOCAL_SPEC', True)
+    # 定义返回体结构
+    BASE_RESPONSE_SCHEMA = BaseResponse
 
     def __init__(self):
         pass

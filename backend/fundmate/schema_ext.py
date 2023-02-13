@@ -5,8 +5,14 @@
 公用schema提取
 """
 from apiflask import Schema
-from apiflask.fields import Integer
+from apiflask.fields import Field, Integer, String
 from apiflask.validators import Range
+
+
+class BaseResponse(Schema):
+    data = Field()  # the data key
+    message = String()
+    code = Integer()
 
 
 class EmptySchema(Schema):
