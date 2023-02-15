@@ -66,6 +66,9 @@ flask db init
 flask db migrate
 flask db upgrade
 ```
+::: danger 数据库升级报错
+如果遇到报错 `ERROR [flask_migrate] Error: Can't locate revision identified by 'xxxx'`，可能是分支切换导致的，可以尝试将数据表`alembic_version`删除后重试。
+:::
 
 ## Deployment
 

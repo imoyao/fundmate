@@ -3,3 +3,5 @@ pytest
 openapi-spec-validator
 factory-boy
 pytest-cov
+# 修改时间，使pendulum返回设置的时间
+plummet<=0.2.1

@@ -144,6 +144,11 @@ class TestingConfig(Config, SQLiteConfig):
     """
     TESTING = True
     DEBUG = True
+    # 测试用户信息 FIXME: 需要从配置中获取更好
+    TEST_USERNAME = 'foo'
+    TEST_EMAIL = 'foo@bar.com'
+    TEST_PASSWORD = 'foobar1024'
+    TEST_ROLE_NAME = 'test'
 
 
 class ProductionConfig(Config):

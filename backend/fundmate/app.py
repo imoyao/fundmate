@@ -13,6 +13,8 @@ from sentry_sdk.integrations.flask import FlaskIntegration
 from backend.fundmate import commands, errors, settings
 from backend.fundmate.account import models as account_models
 from backend.fundmate.account import views as account_views
+from backend.fundmate.collection import models as collection_models
+from backend.fundmate.collection import views as collection_views
 from backend.fundmate.config import config
 from backend.fundmate.extensions import db, guard, loguru, mail, migrate
 from backend.fundmate.exts.flask_loguru import logger
@@ -100,6 +102,8 @@ def register_blueprints(app: APIFlask):
     app.register_blueprint(fund_views.bp)
     # 账号相关
     app.register_blueprint(account_views.bp)
+    # 自选相关
+    app.register_blueprint(collection_views.bp)
     return None
 
 
@@ -144,10 +148,10 @@ def register_error_handlers(app: APIFlask):
         error_cls = getattr(praetorian_excepts, cls_name, praetorian_excepts.PraetorianError)
         extra_data = dict()
         if isinstance(e, error_cls):
-            custom_error = getattr(errors, cls_name, errors.PraetorianError)
+            custom_error = getattr(errors, cls_name, errors.ThirdPartError.PRAETORIAN_ERROR)
             custom_msg = custom_error.message
-            extra_data = custom_error.extra_data
-            extra_data['extra_msg'] = msg
+            extra_msg = {'error_code': errors.ThirdPartError.PRAETORIAN_ERROR.code, 'docs': ''}
+            extra_data['extra_msg'] = extra_msg
         else:
             extra_data['error_cls'] = cls_name
             custom_msg = msg
@@ -169,8 +173,8 @@ def register_shell_context(app: APIFlask):
             'User': user_models.User,
             'Role': user_models.Role,
             'Fund': fund_models.Fund,
-            'FundMgr': fund_models.Mgr,
-            'MidFundMgr': fund_models.FundMgr,
+            'Manager': fund_models.Manager,
+            'FundManager': fund_models.FundManager,
             'FeeRatio': fund_models.FeeRatio,
             'PurchaseRule': fund_models.PurchaseRule,
             'RedeemRule': fund_models.RedeemRule,
@@ -181,6 +185,9 @@ def register_shell_context(app: APIFlask):
             'FundPortfolioHoldDetail': fund_models.FundPortfolioHoldDetail,
             'FundSaleOrg': fund_models.FundSaleOrg,
             'Account': account_models.Account,
+            'Collection': collection_models.Collection,
+            'CategoriesOfCollection': collection_models.CategoriesOfCollection,
+            'LabelsOfCollection': collection_models.LabelsOfCollection,
         }
 
     # 当你使用flask shell命令启动Python Shell时，所有使用app.shell_context_processor装饰器注册的shell上下文处理函数
