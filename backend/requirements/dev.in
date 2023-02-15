@@ -6,3 +6,4 @@ tox
 pre-commit
 Flask-Migrate
 flask-shell-ipython
+importlib-metadata

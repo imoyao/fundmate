@@ -12,10 +12,12 @@ from typing import Dict, Optional
 from urllib import parse
 
 import pendulum
+import requests
 from xalpha.cons import rget_json
 
 from backend.fundmate import utils
 from backend.fundmate.data.utils import base as dt_utils
+from backend.fundmate.exts.flask_loguru import logger
 
 
 confidence_explanation = '''为了解我国证券投资者在当前经济和市场环境下的投资心理和预期变化，2008 年 4 月，投保基金公司在借鉴国内外投资者信心理论研究和\
@@ -74,7 +76,12 @@ class Confidence:
             'dataYear': year,
             'dataMonth': month
         }
-        resp = rget_json(self._data_url, headers=self.headers, params=params)
+        try:
+            resp = rget_json(self._data_url, headers=self.headers, params=params)
+        except requests.exceptions.JSONDecodeError as e:
+            logger.error(f'获取投资者信心信息错误：{str(e)}')
+            resp = None
+
         if resp and resp.get('code') == 0:
             # 组装下载链接
             data = resp.get('data')

@@ -1,6 +1,6 @@
 Flask
 APIFlask
-Flask-SQLAlchemy
+Flask-SQLAlchemy<3.0.0
 Flask-Bcrypt
 # 权限控制
 flask-praetorian
