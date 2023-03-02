@@ -50,7 +50,7 @@ class TestEastMoney:
     }), ('000033', {
         'full_name': '易方达信用债债券型证券投资基金',
         'name': '易方达信用债债券C',
-        'perf_comp_base': '中债-信用债总指数',
+        'perf_comp_base': '中债-优选投资级信用债财富指数',
         'company': '易方达基金',
         'create_time': '2013-04-24',
         'f_var_name': '债券型',
