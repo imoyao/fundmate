@@ -140,9 +140,30 @@ def test_tomorrow_date(str_date, expected):
                           ])
 def test_to_camelcase(params, expected):
     """
-    测试费率获取功能
+    测试驼峰
     :param params:
     :param expected:
     :return:
     """
     assert utils.to_camelcase(params) == expected
+
+
+@pytest.mark.parametrize('params,expected',
+                         [('some_database_field_name', 'some_database_field_name'),
+                          ('someLabelThatNeedsToBeCaramelized', 'some_label_that_needs_to_be_caramelized'),
+                          ('some-javascript-property', 'some-javascript-property'),
+                          ('some-mixed_string with spaces_underscores-and-hyphens',
+                           'some-mixed_string with spaces_underscores-and-hyphens'),
+                          ('someDatabaseFieldName',
+                           'some_database_field_name'),
+                          ('HTML_body',
+                           'h_t_m_l_body'),
+                          ])
+def test_to_snakecase(params, expected):
+    """
+    测试蛇形转换
+    :param params:
+    :param expected:
+    :return:
+    """
+    assert utils.to_snakecase(params) == expected
