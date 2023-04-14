@@ -332,7 +332,7 @@ ITL = ChoiceTypeDk('ITL', '意大利里拉')
 @enum.unique
 class SupportCurrencyEnum(BaseTypeEnum):
     """
-    支持导入文件的平台
+    支持的货币，参阅：ISO 4217
     """
     CNY = CNY
     FRF = FRF
