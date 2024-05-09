@@ -8,8 +8,8 @@ Author: luxuemin2108@gmail.com
 Copyright (c) 2020 Camel Lu
 '''
 
-from .db.connect import connect
-from .utils.index import get_last_quarter_str, get_quarter_date
+from db.connect import connect
+from utils.index import get_last_quarter_str, get_quarter_date
 
 
 class BaseModel(object):
