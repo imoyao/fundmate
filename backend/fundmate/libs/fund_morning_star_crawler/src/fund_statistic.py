@@ -10,19 +10,13 @@ Copyright (c) 2020 Camel Lu
 '''
 import decimal
 import re
-import time
 from pprint import pprint
 
 import numpy as np
 import pandas as pd
 from fund_info.statistic import FundStatistic
 from utils.file_op import read_dir_all_file
-from utils.index import (
-    find_from_list_of_dict,
-    get_last_quarter_str,
-    get_stock_market,
-    update_xlsx_file,
-)
+from utils.index import find_from_list_of_dict, get_last_quarter_str, get_stock_market, update_xlsx_file
 
 
 def get_fund_code_pool(condition_dict):
@@ -42,7 +36,8 @@ def stocks_compare(stock_list, *, market=None, quarter_index=None, is_A_stock=No
         quarter_index = get_last_quarter_str(2)
     print("比较-->quarter_index", quarter_index)
 
-    last_quarter_input_file = './outcome/数据整理/strategy/all_stock_rank/' + quarter_index + '.xlsx'
+    last_quarter_input_file = './outcome/数据整理/strategy/all_stock_rank/' + \
+        quarter_index + '.xlsx'
     data_last_quarter = pd.read_excel(io=last_quarter_input_file,
                                       engine="openpyxl",
                                       dtype={"代码": np.str},
@@ -250,12 +245,14 @@ def all_stock_holder_detail(each_statistic=None, *, quarter_index=None, threshol
         elif bool(re.search("^\d{6}$", stock_code)):
             if bool(re.search("^00(0|1|2|3)\d{3}$", stock_code)):
                 path = 'A股/深证主板'
-            elif bool(re.search("^300\d{3}$", stock_code)):
+            elif bool(re.search("^30(0|1)\d{3}$", stock_code)):
                 path = 'A股/创业板'
             elif bool(re.search("^60(0|1|2|3|5)\d{3}$", stock_code)):
                 path = 'A股/上证主板'
             elif bool(re.search("^68(8|9)\d{3}$", stock_code)):
                 path = 'A股/科创板'
+            elif bool(re.search("^(8|4)(3|7)\d{4}$", stock_code)):
+                path = 'A股/北交所'
             else:
                 print('stock_name_code', stock_name_code)
         hold_fund_list = sorted(stock[1]['fund_list'], key=lambda x: x['持有市值(亿元)'], reverse=True)
@@ -272,33 +269,33 @@ def get_special_fund_code_holder_stock_detail(each_statistic=None, quarter_index
     if each_statistic == None:
         each_statistic = FundStatistic()
     if quarter_index == None:
-        quarter_index = get_last_quarter_str()
+        quarter_index = get_last_quarter_str(1)
         print("quarter_index", quarter_index)
     holder_history_list = [
         {
             '001811': {
                 'name': '中欧明睿新常态混合A',
-                'position': 0.2
+                'radio': 0.2
             },
             '001705': {
                 'name': '泓德战略转型股票',
-                'position': 0.2
+                'radio': 0.2
             },
             '163415': {
                 'name': '兴全商业模式优选混合',
-                'position': 0.2
+                'radio': 0.2
             },
             '001043': {
                 'name': '工银美丽城镇主题股票A',
-                'position': 0.1
+                'radio': 0.1
             },
             '000547': {
                 'name': '建信健康民生混合',
-                'position': 0.1
+                'radio': 0.1
             },
             '450001': {
                 'name': '国富中国收益混合',
-                'position': 0.2
+                'radio': 0.2
             },
         },
         # """
@@ -311,33 +308,73 @@ def get_special_fund_code_holder_stock_detail(each_statistic=None, quarter_index
         {
             '001811': {
                 'name': '中欧明睿新常态混合A',
-                'position': 0.2
+                'radio': 0.2
             },
             '001054': {
                 'name': '工银新金融股票',
-                'position': 0.2
+                'radio': 0.2
             },
             '000991': {
                 'name': '工银瑞信战略转型主题股票A',
-                'position': 0.1
+                'radio': 0.1
             },
             '540003': {
                 'name': '汇丰晋信动态策略混合A',
-                'position': 0.2
+                'radio': 0.2
             },
             '000547': {
                 'name': '建信健康民生混合',
-                'position': 0.1
+                'radio': 0.1
             },
             '163409': {
                 'name': '兴全绿色投资混合(LOF)',
-                'position': 0.2
+                'radio': 0.2
             },
         },
+        [
+            {
+                'code': '519002',
+                'name': '华安安信消费混合',
+                'radio': 0.2
+            },
+            {
+                'code': '001718',
+                'name': '工银瑞信物流产业股票',
+                'radio': 0.2
+            },
+            {
+                'code': '000991',
+                'name': '工银瑞信战略转型主题股票A',
+                'radio': 0.1
+            },
+            {
+                'code': '540003',
+                'name': '汇丰晋信动态策略混合A',
+                'radio': 0.1
+            },
+            {
+                'code': '450001',
+                'name': '国富中国收益混合',
+                'radio': 0.1
+            },
+            {
+                'code': '000547',
+                'name': '建信健康民生混合',
+                'radio': 0.1
+            },
+            {
+                'code': '163409',
+                'name': '兴全绿色投资混合(LOF)',
+                'radio': 0.2
+            },
+        ]
     ]
     # 基金组合信息
-    fund_portfolio = holder_history_list[1]
-    fund_code_pool = list(fund_portfolio.keys())
+    fund_portfolio = holder_history_list[len(holder_history_list) - 1]
+    fund_code_pool = []  #list(fund_portfolio.keys())
+    for item in fund_portfolio:
+        fund_code_pool.append(item.get('code'))
+    print("fund_code_pool", fund_code_pool)
     holder_stock_industry_list = each_statistic.summary_special_funds_stock_detail(fund_code_pool, quarter_index)
     path = './outcome/数据整理/funds/高分权益基金组合十大持仓明细.xlsx'
     columns = [
@@ -351,7 +388,7 @@ def get_special_fund_code_holder_stock_detail(each_statistic=None, quarter_index
 
 
 def calculate_quarter_fund_count():
-    stock_markets = ['A股/上证主板', 'A股/创业板', 'A股/科创板', 'A股/深证主板', '港股', '其他']
+    stock_markets = ['A股/上证主板', 'A股/创业板', 'A股/科创板', 'A股/深证主板', 'A股/北交所', '港股', '其他']
     for market in stock_markets:
         dir_path = './outcome/数据整理/stocks/' + market + '/'
         files = read_dir_all_file(dir_path)
@@ -369,7 +406,7 @@ def calculate_quarter_fund_count():
                 item_quarter_data.append(len(df_cur_sheet))
                 item_quarter_data.append(round(df_cur_sheet['持有市值(亿元)'].sum(), 2))
                 quarter_list.append(item_quarter_data)
-            columns = ["日期", "持有数量", '持有市值']
+            columns = ["日期", "持有数量(只)", '持有市值(亿元)']
             df_quarter_list = pd.DataFrame(quarter_list, columns=columns)
             update_xlsx_file(path, df_quarter_list, sum_column_name)
 
@@ -385,7 +422,7 @@ if __name__ == '__main__':
     # t100_stocks_rank(each_statistic=each_statistic)
 
     # 获取某些基金的十大持仓股票信息
-    # get_special_fund_code_holder_stock_detail(each_statistic)
+    get_special_fund_code_holder_stock_detail()
 
     # calculate_quarter_fund_count()
     select_condition_stocks_rank()
