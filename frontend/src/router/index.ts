@@ -192,7 +192,7 @@ export const constantRoutes: RouteConfig[] = [
         meta: { title: 'funds', icon: 'el-icon-star-on' }
       }, {
         path: 'mgr', // 资产
-        component: () => import(/* webpackChunkName: "asset" */ '@/views/FundMgr/index.vue'),
+        component: () => import(/* webpackChunkName: "asset" */ '@/views/FundManager/index.vue'),
         meta: { title: 'mgr', icon: 'peoples' }
       }
     ]
@@ -210,7 +210,7 @@ export const constantRoutes: RouteConfig[] = [
         meta: { title: 'portfolio', icon: 'component' }
       }, {
         path: 'managers', // 基金经理
-        component: () => import(/* webpackChunkName: "asset" */ '@/views/FundMgr/index.vue'),
+        component: () => import(/* webpackChunkName: "asset" */ '@/views/FundManager/index.vue'),
         meta: { title: 'managers', icon: 'peoples' }
       }
     ]

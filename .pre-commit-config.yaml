@@ -29,17 +29,17 @@ repos:
         - flake8-bugbear
         - flake8-implicit-str-concat
         - flake8-quotes
-      args:
-        - --config=./backend/setup.cfg
+      args: ['--config=backend/setup.cfg']
 - repo: https://github.com/pre-commit/mirrors-yapf
   rev: v0.31.0   # Use the sha / tag you want to point at
   hooks:
   - id: yapf
     name: yapf
+    additional_dependencies: [toml]
     language: python
     args: [-i, -vv]
     types: [python]
-    entry: bash -c 'yapf "$@"; git add -u' --
+    entry: bash -c 'cd backend && yapf "$@"; git add -u' --
 - repo: https://github.com/peterdemin/pip-compile-multi
   rev: v2.4.5
   hooks:

@@ -1,4 +1,6 @@
 # [python - What is pyproject.toml file for? - Stack Overflow](https://stackoverflow.com/questions/62983756/what-is-pyproject-toml-file-for)
+#https://pycqa.github.io/isort/
+#[domdfcoding/yapf-isort: yapf 💌 isort](https://github.com/domdfcoding/yapf-isort)
 [tool.isort]
 profile = "hug"
 skip_glob = ["migrations/*"]
@@ -6,6 +8,7 @@ known_third_party=["pytest", "pyjson5","xalpha","pandas","pendulum"]
 multi_line_output = 3
 include_trailing_comma = true
 force_grid_wrap = 0
+lines_after_imports = 2
 use_parentheses = true
 balanced_wrapping = true
 ensure_newline_before_comments = true
@@ -15,13 +18,25 @@ known_test = ["pytest","webtest","factory"]
 sections = ["FUTURE","STDLIB","FLASK","TEST","THIRDPARTY","FIRSTPARTY","LOCALFOLDER"]
 # ref: https://github.com/scrapinghub/dateparser/issues/1013
 [tool.pytest.ini_options]
-filterwarnings = ["ignore::pytz_deprecation_shim.PytzUsageWarning"]
-
+filterwarnings = ["ignore::pytz_deprecation_shim.PytzUsageWarning","ignore:.*.* is deprecated:DeprecationWarning"]
+[tool.yapf]
+based_on_style = "pep8"
+spaces_before_comment = 2
+BLANK_LINES_AROUND_TOP_LEVEL_DEFINITION = 2
+split_before_logical_operator = true
+BLANK_LINES_BETWEEN_TOP_LEVEL_IMPORTS_AND_VARIABLES = 2
+BLANK_LINE_BEFORE_NESTED_CLASS_OR_DEF = true
+COLUMN_LIMIT = 120
 [tool.pdm]
 [[tool.pdm.source]]
 name = "pypi"
 url = "https://mirrors.aliyun.com/pypi/simple/"
 verify_ssl = true
+
+[tool.pdm.dev-dependencies]
+test = [
+    "pytest>=7.1.3",
+]
 [project]
 name = ""
 version = ""
@@ -29,15 +44,14 @@ description = ""
 authors = [
     {name = "imoyao", email = "immoyao@gmail.com"},
 ]
-dependencies = ["alembic==1.5.2", "appdirs==1.4.4", "attrs==20.3.0", "bcrypt==3.2.0", "beautifulsoup4==4.9.3", "blinker==1.4", "certifi==2020.12.5", "cffi==1.14.4", "chardet==4.0.0", "click==7.1.2", "cycler==0.10.0", "dateparser==1.0.0", "deprecated==1.2.11", "dnspython==2.1.0", "email-validator==1.1.2", "environs==9.3.0", "factory-boy==3.2.0", "faker==5.8.0", "fancycompleter==0.9.1", "flake8==3.8.4", "flake8-blind-except==0.2.0", "flake8-debugger==4.0.0", "flake8-docstrings==1.5.0", "flake8-isort==4.0.0", "flake8-polyfill==1.0.2", "flask==1.1.2", "flask-bcrypt==0.7.1", "flask-caching==1.9.0", "flask-debugtoolbar==0.11.0", "flask-login==0.5.0", "flask-migrate==2.6.0", "flask-sqlalchemy==2.4.4", "flask-static-digest==0.2.1", "flask-wtf==0.14.3", "gevent==21.1.2", "greenlet==1.0.0", "gunicorn==20.0.4", "idna==2.10", "importlib-metadata==3.4.0", "inflect==5.0.2", "iniconfig==1.1.1", "isort==5.7.0", "itsdangerous==1.1.0", "jinja2==3.0.1", "kiwisolver==1.3.1", "loguru==0.5.3", "lxml==4.6.2", "mako==1.1.4", "markupsafe==1.1.1", "marshmallow==3.10.0", "matplotlib==3.3.3", "mccabe==0.6.1", "mypy==0.800", "mypy-extensions==0.4.3", "numpy==1.19.5", "numpy-financial==1.0.0", "packaging==20.8", "pandas==1.2.4", "pathspec==0.8.1", "pdbpp==0.10.2", "pep8-naming==0.11.1", "pillow==8.1.0", "pluggy==0.13.1", "prettytable==2.0.0", "psycopg2-binary==2.8.6", "py==1.10.0", "pycodestyle==2.6.0", "pycparser==2.20", "pydocstyle==5.1.1", "pyecharts==1.7.1", "pyflakes==2.2.0", "pygments==2.7.4", "pymysql==1.0.2", "pyparsing==2.4.7", "pyrepl==0.9.0", "pysocks==1.7.1", "pytest==6.2.2", "python-dateutil==2.8.1", "python-dotenv==0.15.0", "python-editor==1.0.4", "pytz==2020.5", "regex==2020.11.13", "requests==2.25.1", "scipy==1.6.0", "simplejson==3.17.2", "six==1.15.0", "snowballstemmer==2.1.0", "soupsieve==2.1", "sqlacodegen==2.3.0", "sqlalchemy==1.3.22", "supervisor==4.2.1", "testfixtures==6.17.1", "text-unidecode==1.3", "toml==0.10.2", "typed-ast==1.4.2", "typing-extensions==3.7.4.3", "tzlocal==2.1", "urllib3==1.26.3", "waitress==1.4.4", "wcwidth==0.2.5", "webob==1.8.6", "webtest==2.0.35", "werkzeug==1.0.1", "wmctrl==0.3", "wrapt==1.12.1", "wtforms==2.3.3", "xalpha==0.11.2", "xlrd==2.0.1", "yapf==0.30.0", "zipp==3.4.0", "zope.event==4.5.0", "zope.interface==5.2.0"]
+dependencies = [
+    "apiflask>=1.1.3",
+    "importlib-metadata>=5.0.0",
+]
 requires-python = ">=3.7"
-dynamic = ["classifiers"]
-license = {text = "MIT"}
-
-[project.urls]
-homepage = ""
+license = {text = "BSD 2-Clause"}
+[project.optional-dependencies]
 
 [build-system]
-requires = ["pdm-pep517"]
+requires = ["pdm-pep517>=1.0.0"]
 build-backend = "pdm.pep517.api"
-

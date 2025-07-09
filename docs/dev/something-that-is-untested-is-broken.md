@@ -132,7 +132,7 @@ def test_bar(before_func):
            def test_6(self):
                print('test_2()')
        ```
-3. 用 autos 调用 fixture
+3. 用 autouse 调用 fixture
 
  fixture 装饰器有一个配置参数 autouse，默认值为 False.
  在默认状态下，可以使用上面的方式调用 fixture，当设置为 True 时，在一个 scope 内的所有测试用例都会自动调用这个 fixture. 注意上面的 scope 的参数用于控制 fixture 的作用范围，其传参可以为：
@@ -171,8 +171,10 @@ def test_bar(before_func):
 
    def test_two():
        print('in test_two()')
-   ```plain
-   正所谓能力越大，责任越大。使用该功能时需要谨慎小心并控制测试用例的范围。 比如你的所有测试用例都需要连接同一个数据库，那可以设置为 module，这样只需要连接一次数据库，对于模块内的所有测试，这样可以极大地提高运行效率。
+   ```
+
+   正所谓能力越大，责任越大。使用该功能时需要谨慎小心并控制测试用例的范围。比如你的所有测试用例都需要连接同一个数据库，那可以设置为 module，这样只需要连接一次数据库，对于模块内的所有测试，这样可以极大地提高运行效率。
+
 ::: tip
 - `usefixtures`与传`fixture`区别
 
@@ -280,7 +282,7 @@ find fundmate -type d|grep -v 'venv'|grep -v '__pypackages__'|grep -v '__pycache
 
 - [pytest: helps you write better programs — pytest documentation](https://docs.pytest.org/en/6.2.x/index.html)
   - 中文文档: [pyTest 官方手册(Release 4.2)之蹩脚翻译(1)_crazyskady 的博客-CSDN 博客](https://blog.csdn.net/crazyskady/article/details/87393268)
-  - 更加顺口：[luizyao/pytest-chinese-doc: pytest 官方文档的中文翻译，但不仅仅是单纯的翻译，也包含自己的理解和实践。](https://github.com/luizyao/pytest-chinese-doc)
+  - 更加顺口：[pytest 中文文档（v6.1.1）](https://luizyao.github.io/pytest-chinese-doc/)[源码](https://github.com/luizyao/pytest-chinese-doc)
   - 更加完整：[Pytest：帮助您编写更好的程序 — pytest documentation](https://www.osgeo.cn/pytest/index.html)
 
 ### 简单使用

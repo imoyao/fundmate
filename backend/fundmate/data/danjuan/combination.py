@@ -13,11 +13,13 @@ from typing import Dict, List, Optional
 import pandas as pd
 from xalpha.cons import rget_json
 
+from backend.fundmate.data.base import StrategyBase
 from backend.fundmate.libs import convert
 
 
-class Strategy:
+class Strategy(StrategyBase):
     """
+    FIXME: 似乎所有数据均不存在，需要重新找源
     以银行螺丝钉为例
     https://danjuanapp.com/strategy/CSI1033
     """
@@ -33,7 +35,7 @@ class Strategy:
     def get_last_adjust_date(self, code: str) -> Optional[str]:
         """
         获取组合最后调仓时间
-        :param code: 
+        :param code:
         :return:
         """
         _url = f'https://danjuanapp.com/djapi/plan/{code}'

@@ -4,3 +4,4 @@
 """
 中欧超级股票全明星
 """
+from .base import FollowAip, Strategy  # noqa F401

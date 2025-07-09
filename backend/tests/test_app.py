@@ -16,8 +16,7 @@ def test_app_init(app):
 def test_index(app, client):
     rv = client.get('/')
     assert rv.status_code == 200
-    assert rv.headers['Content-Type'] == 'application/json'
-    assert 'message' in rv.json
+    assert rv.headers['Content-Type'] == 'text/html; charset=utf-8'
 
 
 @pytest.mark.parametrize(

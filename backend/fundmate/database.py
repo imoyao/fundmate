@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-"""Database module, including the SQLAlchemy database object and DB-related utilities.
-
+"""
+Database module, including the SQLAlchemy database object and DB-related utilities.
 """
 import random
 from datetime import datetime
@@ -10,7 +10,7 @@ from apiflask import pagination_builder
 
 from sqlalchemy import inspect
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.sql import func
 
 from backend.fundmate import utils
@@ -18,6 +18,7 @@ from backend.fundmate.compat import basestring
 from backend.fundmate.excepts import UniqueInstanceError
 from backend.fundmate.extensions import db
 from backend.fundmate.exts.flask_loguru import logger
+
 
 # Alias common SQLAlchemy names
 Column = db.Column
@@ -40,8 +41,7 @@ class CRUDMixin(object):
         """Update specific fields of a record."""
         for attr, value in kwargs.items():
             setattr(self, attr, value)
-        if commit:
-            db.session.commit()
+        self.save(commit=commit)
         return self
 
     def save(self, commit: bool = True):
@@ -57,14 +57,20 @@ class CRUDMixin(object):
             try:
                 db.session.commit()
             except SQLAlchemyError as e:
-                logger.error(e)
+                logger.error(f'对象{self}保存数据出错 ERROR:{str(e)}')
                 db.session.rollback()
         return self
 
     def delete(self, commit: bool = True):
         """Remove the record from the database."""
-        db.session.delete(self)
-        return commit and db.session.commit()
+        # FIXME:删除的确存在没有正在删除的情况
+        if self:
+            db.session.delete(self)
+        if commit:
+            try:
+                db.session.commit()
+            except SQLAlchemyError as e:
+                logger.error(f'对象{self}删除数据出错 ERROR:{str(e)}')
 
     @classmethod
     def paginate_query(cls, query_args):
@@ -155,7 +161,8 @@ class UpsertMixin(CRUDMixin):
 
 class Model(CRUDMixin, db.Model):
     """Base model class that includes CRUD convenience methods."""
-
+    # ref: [How do I declare a base model class in Flask-SQLAlchemy? - Stack Overflow]
+    # (https://stackoverflow.com/questions/22976445/how-do-i-declare-a-base-model-class-in-flask-sqlalchemy)
     __abstract__ = True
 
     # def to_dict(self):
@@ -182,7 +189,7 @@ class PkModel(Model):
     #
     # def _repr(self, **fields: Dict[str, Any]) -> str:
     #     '''
-    #     see also:[python - SQLAlchemy best way to define __repr__ for large tables - Stack Overflow]
+    #     see also:[python - SQLAlchemy the best way to define __repr__ for large tables - Stack Overflow]
     #     (https://stackoverflow.com/questions/55713664/sqlalchemy-best-way-to-define-repr-for-large-tables)
     #     Helper for __repr__
     #     '''
@@ -222,7 +229,7 @@ class CreateDateModel(Model):
     参阅：[python - SQLAlchemy default DateTime - Stack Overflow](https://stackoverflow.com/
     questions/13370317/sqlalchemy-default-datetime)
     '''
-    create_at = Column(db.DateTime(timezone=True), default=datetime.now, server_default=func.now(), comment='创建时间')
+    created_at = Column(db.DateTime(timezone=True), default=datetime.now, server_default=func.now(), comment='创建时间')
 
 
 def reference_col(tablename: str,
@@ -273,7 +280,7 @@ def gen_digit_code(max_code: str, init_identifier: str, min_len: int = 6) -> Opt
     """
     fp_identifier = init_identifier
     max_identifier = db.session.query(func.max(max_code)).one_or_none()
-    if max_identifier != (None, ):
+    if max_identifier != (None,):
         max_num = max_identifier[0]
         if max_num is not None:
             increase_int = random.randrange(1, 3)

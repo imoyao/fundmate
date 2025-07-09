@@ -104,7 +104,7 @@ def login_morning_star(redirect_url, is_cookies_login=False):
     chrome_options = webdriver.ChromeOptions()
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument('--headless')
-    chrome_driver = webdriver.Chrome(options=chrome_options)
+    chrome_driver = webdriver.Edge()
     chrome_driver.set_page_load_timeout(12000)
     """
     模拟登录,支持两种方式：
@@ -113,7 +113,7 @@ def login_morning_star(redirect_url, is_cookies_login=False):
     """
     login_url = 'https://www.morningstar.cn/membership/signin.aspx'
     cookie_str = os.getenv('login_cookie')
-    if is_cookies_login and cookie_str:
+    if cookie_str:
         target_url = redirect_url if redirect_url else login_url
         set_cookies(chrome_driver, target_url, cookie_str)
     else:

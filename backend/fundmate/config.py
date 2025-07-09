@@ -8,6 +8,7 @@ from pathlib import Path
 
 from backend.fundmate import settings
 
+
 env = settings.env
 
 CURRENT_DIR = Path(__file__).resolve().parent
@@ -21,6 +22,7 @@ class Config:
     DEBUG = False
     TESTING = False
     CSRF_ENABLED = True
+    # 认证相关
     SECRET_KEY = env.str('SECRET_KEY', default='MPk2WlUArcLeeU_iohzT')
     JWT_ACCESS_LIFESPAN = settings.DEFAULT_JWT_ACCESS_LIFESPAN
     JWT_REFRESH_LIFESPAN = settings.DEFAULT_JWT_REFRESH_LIFESPAN
@@ -31,6 +33,19 @@ class Config:
     # FIXME: 需要替换为真实的uri
     PRAETORIAN_CONFIRMATION_URI = settings.DEFAULT_CONFIRMATION_URI
     PRAETORIAN_RESET_URI = settings.DEFAULT_RESET_URI
+    # 自定义接口认证 see also: [Authentication - APIFlask](https://apiflask.com/authentication/)
+    SECURITY_SCHEMES = {
+        'ApiKeyAuth': {
+            'type': 'apiKey',
+            'in': 'header',
+            'name': 'X-API-Key',
+        },
+        # [OpenAPI - APIFlask](https://apiflask.com/api/openapi/#apiflask.openapi.get_security_scheme)
+        'Bearer': {
+            'type': 'http',
+            'scheme': 'bearer',
+        }
+    }
     '''
     # 旧版本
     import random
@@ -40,6 +55,7 @@ class Config:
     import secrets
     secrets.token_urlsafe(nbytes=15)
     '''
+    # 数据库相关
     SQLALCHEMY_COMMIT_ON_TEARDOWN = True
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_RECORD_QUERIES = True
@@ -70,9 +86,10 @@ class Config:
     def __init__(self):
         pass
 
-    @staticmethod
-    def init_app(app):
-        pass
+    #
+    # @staticmethod
+    # def init_app(app):
+    #     pass
 
 
 class MySQLConfig:
@@ -97,8 +114,8 @@ class SQLiteConfig:
     SQLITE_PATH = env.path('SQLITE_PATH', default=BACKEND_DIR)
     DATABASE = env.str('DATABASE', default='fmp.db')
     # 指向项目后端的根目录
-    sqlite_fp = Path(SQLITE_PATH).joinpath(DATABASE)
-    SQLALCHEMY_DATABASE_URI = f'sqlite:///{sqlite_fp}'
+    SQLITE_FILEPATH = Path(SQLITE_PATH).joinpath(DATABASE)
+    SQLALCHEMY_DATABASE_URI = f'sqlite:///{SQLITE_FILEPATH}'
 
 
 def mysql_url(db):
@@ -127,6 +144,11 @@ class TestingConfig(Config, SQLiteConfig):
     """
     TESTING = True
     DEBUG = True
+    # 测试用户信息 FIXME: 需要从配置中获取更好
+    TEST_USERNAME = 'foo'
+    TEST_EMAIL = 'foo@bar.com'
+    TEST_PASSWORD = 'foobar1024'
+    TEST_ROLE_NAME = 'test'
 
 
 class ProductionConfig(Config):

@@ -39,6 +39,7 @@ from backend.fundmate.excepts import NotSupportError
 from backend.fundmate.settings import FundOpTypeEnum
 from backend.fundmate.types import PdDataFrame
 
+
 current_path = Path(__file__).parent.resolve()
 # ============通用配置==============
 """
@@ -440,7 +441,7 @@ class ALiPayTransfer:
             target_name = mid_comt
         elif tail_comt == ANT_FORTUNE_BONUS_TO_YEB:
             from_name = mid_comt
-            op_type = FundOpTypeEnum.cash_bonus
+            op_type = FundOpTypeEnum.cash_dividend
             target_name = YEB_NAME
         elif tail_comt == ANT_FORTUNE_RE_BUY_TO_YEB:
             from_name = REAL_CASH

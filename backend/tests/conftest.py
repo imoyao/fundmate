@@ -3,39 +3,38 @@
 该文件的作用域是它同级的文件或者文件夹，以及同级文件夹里面的文件或者目录；
 如果放到某个package下，那就在该package内及其下的目录有效。
 参考：
-https://github.com/d2verb/battery/blob/05571f6aa809af64b8e3d45483cebfe15779d48d/tests/conftest.py
-https://github.com/pallets/flask/blob/2.0.2/examples/tutorial/tests/conftest.py
+1. https://github.com/d2verb/battery/blob/05571f6aa809af64b8e3d45483cebfe15779d48d/tests/conftest.py
+2. https://github.com/pallets/flask/blob/2.0.2/examples/tutorial/tests/conftest.py
+3. https://github.com/dusktreader/flask-praetorian/blob/master/tests/conftest.py
 """
 import os
 import sqlite3
-import tempfile
 
 from flask import current_app, g
+from flask_praetorian import Praetorian
 
 import pytest
 from click.testing import CliRunner
 from environs import Env as EnvParser
+from flask_mail import Mail
 
 from backend.fundmate.app import create_app
-from backend.fundmate.commands import PROJECT_ROOT, init_db
+
+# from backend.fundmate.commands import init_db
 from backend.fundmate.database import db as _db
 
+from ..fundmate.user.models import User
 from .factories import UserFactory
+
+
+# import tempfile
 
 env = EnvParser()
 env.read_env()
 
-
-def prepare_data():
-    """
-    有一些基础数据我们不需要每次重新爬取，定期备份即可
-    """
-    with open(os.path.join(PROJECT_ROOT, 'db', 'fund_company.sql'), 'rb') as f:
-        _data_sql = f.read().decode('utf8')
-    return _data_sql
-
-
-SQL_DATA = prepare_data()
+# SQL_DATA = prepare_data()
+_guard = Praetorian()
+_mail = Mail()
 
 
 def get_db():
@@ -50,40 +49,64 @@ def get_db():
     return g.db
 
 
-@pytest.fixture(scope='function')
+@pytest.fixture(scope='session')
 def runner(request):
     return CliRunner()
 
 
+def read_sql(sql_name=''):
+    with open(os.path.join(os.path.dirname(__file__), 'db_data', sql_name), "rb") as f:
+        _data_sql = f.read().decode("utf8")
+    return _data_sql
+
+
+def initial_table():
+    """Clear existing data and create new tables."""
+    db = get_db()
+    schema_sql = read_sql('fmp_schema_sqlite.sql')
+    # print(schema_sql)
+    db.executescript(schema_sql)
+
+
 @pytest.fixture(scope='session')
-def app():
+def app(runner):
     """An application for the tests."""
-    # FIXME: 如果和原有配置结合起来
-    db_fd, db_path = tempfile.mkstemp()
     # 默认加载基础配置
     app = create_app()
     app.config.from_object('backend.fundmate.config.TestingConfig')
+    _guard.init_app(app, User)
+
+    _mail.init_app(app)
+    app.mail = _mail
     # _app.logger.setLevel(logging.CRITICAL)
-    with app.app_context():
-        '''
-        参阅：
-        [Testing Click Applications — Click Documentation (8.1.x)](https://click.palletsprojects.com/en/8.1.x/testing/)
-        result = runner.invoke(init_db, ['--drop'])     # 传参 即True
-        result = runner.invoke(init_db, [])         # 不传参 即False
-        result = runner.invoke(init_db, ['--drop'], input='n') # 传参，不确认
-        result = runner.invoke(init_db, ['--drop'], input='y') # 传参，确认
-        '''
-        runner = CliRunner()
-        result = runner.invoke(init_db, [])
-        # FIXME: 此处现在返回状态码为 1
-        assert result.exit_code == 0
-        get_db().executescript(SQL_DATA)
+    assert app.config['DEBUG']
+    assert app.config['TESTING']
+    # with app.app_context():
+    #     initial_table()
+    #     db_cursor = get_db()
+    #     fv_sql = read_sql('fund_variety.sql')
+    #     db_cursor.executescript(fv_sql)
+    #     """
+    #     参阅：
+    #     [Testing Click Applications — Click Documentation (8.1.x)]
+    #     (https://click.palletsprojects.com/en/8.1.x/testing/)
+    #     result = runner.invoke(init_db, ['--drop'])     # 传参 即True
+    #     result = runner.invoke(init_db, [])         # 不传参 即False
+    #     result = runner.invoke(init_db, ['--drop'], input='n') # 传参，不确认
+    #     result = runner.invoke(init_db, ['--drop'], input='y') # 传参，确认
+    #     """
+    #     result = runner.invoke(init_db, [])
+    #     # FIXME: 此处现在返回状态码为 1
+    #     assert result.exit_code == 0
+    #     # print(SQL_DATA,'----------')
+    #     # get_db().executescript(SQL_DATA)
 
     yield app
 
     # close and remove the temporary database
-    os.close(db_fd)
-    os.unlink(db_path)
+    # FIXME:关闭+删除
+    # os.close(db_fd)
+    # os.unlink(db_path)
 
 
 @pytest.fixture(scope='session')
@@ -110,32 +133,85 @@ def client(app, request):
     return app.test_client()
 
 
+@pytest.fixture(scope="session")
+def default_guard():
+    """
+    This fixture fetches the flask-praetorian instance to be used in testing
+    """
+    return _guard
+
+
+@pytest.fixture(scope="session")
+def mail():
+    """
+    This fixture simply fetches the db instance to be used in testing
+    """
+    return _mail
+
+
+class AuthActions:
+    """
+    登录与退出
+    """
+
+    def __init__(self, app, client):
+        self._client = client
+        self._app = app
+
+    def login(self, username=None, password=None):
+        """
+        FIXME: 调用生成token的接口
+        :param username:
+        :param password:
+        :return:
+        """
+        if not username:
+            username = self._app.config.get('TEST_USERNAME')
+        if not password:
+            password = self._app.config.get('TEST_PASSWORD')
+        data = {'username': username, 'password': password}
+        return self._client.post("users/login", json=data)
+
+    def token(self, username=None, password=None):
+        result = self.login(username, password)
+        json_result = result.json
+        return json_result.get('access_token')
+
+    def logout(self):
+        """
+        调用退出登录的接口
+        :return:
+        """
+        return self._client.get("/users/logout")
+
+
+@pytest.fixture
+def auth(app, client):
+    return AuthActions(app, client)
+
+
+@pytest.fixture
+def bearer_header(auth):
+    token = auth.token()
+    _headers = {'Content-Type': 'application/json',
+                'Authorization': "Bearer " + token}
+    return _headers
+
+
 @pytest.fixture(scope='session')
-def db(app):
+def db(app, request):
     """Create database for the tests.
     数据库创建
     """
-    _db.app = app
-    with app.app_context():
-        _db.create_all()
-
-    yield _db
-
-    # Explicitly close DB connection
-    _db.session.close()
-    _db.drop_all()
-
-
-@pytest.fixture(scope='session')
-def db(app, request):  # noqa:F811
-    TEST_DB_PATH = os.path.join(app.instance_path, 'battery.db')
-
-    if os.path.exists(TEST_DB_PATH):
-        os.unlink(TEST_DB_PATH)
+    test_db_path = app.config.get('SQLITE_FILEPATH')
+    if os.path.exists(test_db_path):
+        os.unlink(test_db_path)
 
     def teardown():
+        _db.session.remove()
         _db.drop_all()
-        os.unlink(TEST_DB_PATH)
+        _db.session.commit()
+        os.unlink(test_db_path)
 
     _db.app = app
     _db.create_all()
@@ -163,13 +239,16 @@ def session(db, request):
     return session
 
 
-@pytest.fixture(scope='session')
-def user(db):
+@pytest.fixture(scope='session', autouse=True)
+def create_test_user(app, db):
     """Create user for the tests."""
-    # TODO: 用户密码可以放到配置文件中
-    user = UserFactory(password='test123456')
-    db.session.commit()
-    return user
+    _test_mail = app.config.get('TEST_EMAIL')
+    user = UserFactory(username=app.config.get('TEST_USERNAME'), email=_test_mail,
+                       password=app.config.get('TEST_PASSWORD'))
+    yield user
+    user = User.lookup(_test_mail)
+    if user:
+        user.delete()
 
 
 # @pytest.fixture

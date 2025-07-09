@@ -104,7 +104,7 @@ def smtp_connection():
 
 除了 `yield` 可以实现 `teardown` ，在 `request-context` 对象中注册 `addfinalizer` 方法也可以实现终结函数。
 
-在用法上， `addfinalizer` 跟 `yield` 是不同的，需要你去注册作为终结器使用的函数。例如：增加一个函数 `fin` ，并且注册成终结函数。
+在用法上，`addfinalizer` 跟 `yield` 是不同的，需要你去注册作为终结器使用的函数。例如：增加一个函数 `fin` ，并且注册成终结函数。
 ```python
 import pytest
 

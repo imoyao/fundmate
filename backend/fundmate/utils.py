@@ -5,6 +5,7 @@
 import itertools
 import json
 import os
+import re
 import sys
 import time
 from collections import defaultdict
@@ -136,15 +137,23 @@ def first_day_of_this_month() -> str:
     return str(now.replace(day=1).date())
 
 
-def first_day_of_previous_month(is_strict: bool = True) -> str:
+def first_day_of_previous_n_months(is_strict: bool = True, months: int = 1) -> str:
     """
-    :param is_strict:True: 严格一个月之前 今天的时分秒 False: 一个月之前的一号 00：00：00
+    ```
+    >>> first_day_of_previous_n_months(is_strict=False,months=2)
+    '2022-08-01 00:00:00'
+    ```
+
+    :param is_strict:True:,严格一个月之前 今天的时分秒 False: 一个月之前的一号 00：00：00
+    :param months: 指定N月
     :return:
+
     """
     now = pendulum.parse('now')
-    previous_month = now.subtract(months=1)
+    previous_month = now.subtract(months=months)
     if not is_strict:
         previous_month = previous_month.replace(day=1, hour=0, minute=0, second=0)
+    # print(previous_month)
     return previous_month.to_datetime_string()
 
 
@@ -219,6 +228,25 @@ def check_is_csv(fp: Union[str, Path]) -> Optional[bool]:
     if path.exists() and path.is_file():
         file_suffix = path.suffix
         return file_suffix.lower() == 'csv'
+
+
+def to_camelcase(var: str) -> str:
+    """
+    转小驼峰
+    """
+    pattern = re.compile(r"[_-]+")
+    var = pattern.sub(" ", var).title().replace(" ", "")
+    return var[0].lower() + var[1:]
+
+
+def to_snakecase(var: str) -> str:
+    """
+    转蛇形
+    :param var:
+    :return:
+    """
+    pattern = re.compile(r'(?<!^)(?=[A-Z])')
+    return pattern.sub('_', var).lower()
 
 
 if __name__ == '__main__':

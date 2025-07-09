@@ -9,14 +9,18 @@ from apiflask.fields import Boolean, Dict
 
 
 class ThermometerInSchema(Schema):
+    is_minimal = Boolean(default=True)
     is_full = Boolean(default=False)
 
 
 class ThermometerOutSchema(Schema):
     """
-    目前支持有知有行、集思录、蛋卷、韭圈儿信息
+    目前支持有知有行、集思录、蛋卷、韭圈儿、中欧跟我投信息
     """
     yzyx = Dict()
     jsl = Dict()
-    dj = Dict()
+    fed = Dict()
+    invest_grade = Dict()
     jq = Dict()
+    zo_view = Dict()
+    confidence = Dict()

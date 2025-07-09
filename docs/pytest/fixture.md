@@ -26,27 +26,27 @@ title:固件（Fixture)
 接下来进一步验证关于官方的说法：
 
 ```python
-    import pytest
+import pytest
 
 
-    @pytest.fixture()
-    def connect_db():
-        print("Connect Database in .......")
-        yield
-        print("Close Database out .......")
+@pytest.fixture()
+def connect_db():
+    print("Connect Database in .......")
+    yield
+    print("Close Database out .......")
 
 
-    def read_database(key: str):
-        p_info = {
-            "name": "zhangsan",
-            "address": "China Guangzhou",
-            "age": 99
-        }
-        return p_info[key]
+def read_database(key: str):
+    p_info = {
+        "name": "zhangsan",
+        "address": "China Guangzhou",
+        "age": 99
+    }
+    return p_info[key]
 
 
-    def test_count(connect_db):
-        assert read_database("name") == "zhangsan"
+def test_count(connect_db):
+    assert read_database("name") == "zhangsan"
 
 ```
 
