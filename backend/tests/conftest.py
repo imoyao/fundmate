@@ -3,24 +3,29 @@
 该文件的作用域是它同级的文件或者文件夹，以及同级文件夹里面的文件或者目录；
 如果放到某个package下，那就在该package内及其下的目录有效。
 参考：
-https://github.com/d2verb/battery/blob/05571f6aa809af64b8e3d45483cebfe15779d48d/tests/conftest.py
-https://github.com/pallets/flask/blob/2.0.2/examples/tutorial/tests/conftest.py
+1. https://github.com/d2verb/battery/blob/05571f6aa809af64b8e3d45483cebfe15779d48d/tests/conftest.py
+2. https://github.com/pallets/flask/blob/2.0.2/examples/tutorial/tests/conftest.py
+3. https://github.com/dusktreader/flask-praetorian/blob/master/tests/conftest.py
 """
 import os
 import sqlite3
 
 from flask import current_app, g
+from flask_praetorian import Praetorian
 
 import pytest
 from click.testing import CliRunner
 from environs import Env as EnvParser
+from flask_mail import Mail
 
 from backend.fundmate.app import create_app
 
-# from backend.fundmate.commands import PROJECT_ROOT, init_db
+# from backend.fundmate.commands import init_db
 from backend.fundmate.database import db as _db
 
+from ..fundmate.user.models import User
 from .factories import UserFactory
+
 
 # import tempfile
 
@@ -28,6 +33,8 @@ env = EnvParser()
 env.read_env()
 
 # SQL_DATA = prepare_data()
+_guard = Praetorian()
+_mail = Mail()
 
 
 def get_db():
@@ -47,16 +54,38 @@ def runner(request):
     return CliRunner()
 
 
+def read_sql(sql_name=''):
+    with open(os.path.join(os.path.dirname(__file__), 'db_data', sql_name), "rb") as f:
+        _data_sql = f.read().decode("utf8")
+    return _data_sql
+
+
+def initial_table():
+    """Clear existing data and create new tables."""
+    db = get_db()
+    schema_sql = read_sql('fmp_schema_sqlite.sql')
+    # print(schema_sql)
+    db.executescript(schema_sql)
+
+
 @pytest.fixture(scope='session')
 def app(runner):
     """An application for the tests."""
     # 默认加载基础配置
     app = create_app()
     app.config.from_object('backend.fundmate.config.TestingConfig')
+    _guard.init_app(app, User)
+
+    _mail.init_app(app)
+    app.mail = _mail
     # _app.logger.setLevel(logging.CRITICAL)
     assert app.config['DEBUG']
     assert app.config['TESTING']
     # with app.app_context():
+    #     initial_table()
+    #     db_cursor = get_db()
+    #     fv_sql = read_sql('fund_variety.sql')
+    #     db_cursor.executescript(fv_sql)
     #     """
     #     参阅：
     #     [Testing Click Applications — Click Documentation (8.1.x)]
@@ -75,6 +104,7 @@ def app(runner):
     yield app
 
     # close and remove the temporary database
+    # FIXME:关闭+删除
     # os.close(db_fd)
     # os.unlink(db_path)
 
@@ -103,38 +133,73 @@ def client(app, request):
     return app.test_client()
 
 
+@pytest.fixture(scope="session")
+def default_guard():
+    """
+    This fixture fetches the flask-praetorian instance to be used in testing
+    """
+    return _guard
+
+
+@pytest.fixture(scope="session")
+def mail():
+    """
+    This fixture simply fetches the db instance to be used in testing
+    """
+    return _mail
+
+
 class AuthActions:
     """
     登录与退出
     """
 
-    def __init__(self, client):
+    def __init__(self, app, client):
         self._client = client
+        self._app = app
 
-    def login(self, username="test", password="test"):
+    def login(self, username=None, password=None):
         """
         FIXME: 调用生成token的接口
         :param username:
         :param password:
         :return:
         """
-        return self._client.post("/auth/login", data={"username": username, "password": password})
+        if not username:
+            username = self._app.config.get('TEST_USERNAME')
+        if not password:
+            password = self._app.config.get('TEST_PASSWORD')
+        data = {'username': username, 'password': password}
+        return self._client.post("users/login", json=data)
+
+    def token(self, username=None, password=None):
+        result = self.login(username, password)
+        json_result = result.json
+        return json_result.get('access_token')
 
     def logout(self):
         """
         调用退出登录的接口
         :return:
         """
-        return self._client.get("/auth/logout")
+        return self._client.get("/users/logout")
 
 
 @pytest.fixture
-def auth(client):
-    return AuthActions(client)
+def auth(app, client):
+    return AuthActions(app, client)
+
+
+@pytest.fixture
+def bearer_header(auth):
+    token = auth.token()
+    _headers = {'Content-Type': 'application/json',
+                'Authorization': "Bearer " + token}
+    return _headers
 
 
 @pytest.fixture(scope='session')
-def db(app, request):  # noqa:F811
+def db(app, request):
     """Create database for the tests.
     数据库创建
     """
@@ -145,6 +210,7 @@ def db(app, request):  # noqa:F811
     def teardown():
         _db.session.remove()
         _db.drop_all()
+        _db.session.commit()
         os.unlink(test_db_path)
 
     _db.app = app
@@ -173,13 +239,16 @@ def session(db, request):
     return session
 
 
-@pytest.fixture(scope='session')
-def user(db):
+@pytest.fixture(scope='session', autouse=True)
+def create_test_user(app, db):
     """Create user for the tests."""
-    # TODO: 用户密码可以放到配置文件中
-    user = UserFactory(password='test123456')
-    db.session.commit()
-    return user
+    _test_mail = app.config.get('TEST_EMAIL')
+    user = UserFactory(username=app.config.get('TEST_USERNAME'), email=_test_mail,
+                       password=app.config.get('TEST_PASSWORD'))
+    yield user
+    user = User.lookup(_test_mail)
+    if user:
+        user.delete()
 
 
 # @pytest.fixture

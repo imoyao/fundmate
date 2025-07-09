@@ -196,8 +196,6 @@ cookiecutter https://github.com/sloria/cookiecutter-flask.git
 │  ├── factories.py
 │  ├── __init__.py
 │  ├── settings.py
-│  ├── test_forms.py
-│  ├── test_functional.py
 │  └── test_models.py
 └── webpack.config.js
 

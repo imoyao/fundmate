@@ -12,6 +12,7 @@ from backend.fundmate.data.utils import base as dt_utils
 from backend.fundmate.excepts import FundQueryError
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.fund.models import Fund
+from backend.fundmate.libs import convert
 
 
 # 屏蔽爬虫库的debug提示
@@ -68,6 +69,13 @@ class QGG:
           return guid;
         }
         ```
+
+        >>> a = q.guid()
+        >>> len(a)
+        32
+        >>> type(a)
+        <class 'str'>
+
         """
         return secrets.token_hex(16)
 
@@ -159,7 +167,8 @@ class Strategy(QGG):
         调仓历史
         """
         _url = 'https://mobile.qiangungun.com/v1/product/queryFofRebalanceInfo'
-        _data = f'''{{"fofId":{fof_id},"source":"H","guid":"8ce2aa731134640de7b51f77682dcd4a","userId":null,
+        guid = self.guid()
+        _data = f'''{{"fofId":{fof_id},"source":"H","guid":{guid},"userId":null,
         "sessionId":null,"version":"3.20.0","appSource":"","appVersion":""}} '''
         hd = self.headers()
         _resp = rpost_json(_url, headers=hd, data=_data)
@@ -246,6 +255,7 @@ class FollowAip(QGG):
     ref：https://galaxy.qiangungun.com/galaxy/share-react/build/index.html#/followAip/guideIndex
     """
     _BASE_URL = 'https://mobile.qiangungun.com/v1/guide/'
+    _STOCK_BOND_RATIO_URL = 'https://mobile.qiangungun.com/v1/stockBondRatio/content'
     ENDPOINT_LIST = [
         'latest_signal',
         'worth_investing',
@@ -454,7 +464,7 @@ class FollowAip(QGG):
             info[camel_case] = item
         return info
 
-    def zo_view(self, is_full: bool = True, is_minimal: bool = True) -> Dict:
+    def zo_view(self, is_minimal: bool = True, is_full: bool = False) -> Dict:
         if is_full:
             return self.full_view()
         else:
@@ -462,8 +472,40 @@ class FollowAip(QGG):
                 return self.minimal_view()
             return self.simplify_view()
 
+    def stock_bond_ratio(self, is_minimal: bool = True, is_full: bool = False):
+        """
+        股债性价比
+        来源链接：
+        https://galaxy.qiangungun.com/galaxy/share-react/build/index.html#/scene/stockDebtPage
+        :param is_minimal:
+        :param is_full:
+        :return:
+        """
+        _url = self._STOCK_BOND_RATIO_URL
+        _data = self.req_body()
+        headers = self.headers()
+        _resp = rpost_json(_url, headers=headers, json=_data)
+        info = self.response_data(_resp)
+        if info:
+            if is_minimal:
+                start_date = info.get('latestDate')
+                str_to_date = convert.try_parse_date(start_date)
+                info = {
+                    'score': int(info.get('source')),
+                    'trend': info.get('trend'),
+                    'latestDate': str(str_to_date)
+                }
+            else:
+                info['score'] = int(info.pop('source'))
+                if not is_full:
+                    info.pop('starLevelVoList')
+        return info
+
 
 if __name__ == '__main__':
+    import doctest
+    doctest.testmod(extraglobs={'q': QGG()})
+
     zo = Strategy()
     print(zo.latest_info())
     follow_api = FollowAip()

@@ -2,13 +2,12 @@
 # -*- coding: utf-8 -*-
 """
 @create: 2021/12/16 11:09
-@file: test_combination.py
+@file: test_dj_combination.py
 @author: imoyao
 @email: immoyao@gmail.com
 @desc: 测试好买基金组合接口
 """
-
-from backend.fundmate.data.danjuan.combination import Strategy
+from backend.fundmate.data.qieman.combination import Strategy
 
 
 class TestStrategy:
@@ -23,3 +22,8 @@ class TestStrategy:
         :return:
         """
         self.sty = Strategy()
+
+    def test_get_latest_sign(self):
+        result = self.sty.get_latest_sign()
+        assert result
+        assert len(result) == 45

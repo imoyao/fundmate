@@ -2,6 +2,7 @@
 """参考 [Flask Rest API -Part:5- Password Reset - DEV Community](
 https://dev.to/paurakhsharma/flask-rest-api-part-5-password-reset-2f2e)
 
+https://github.com/dusktreader/flask-praetorian-tutorial/blob/master/api/src/resources.py
 注册登录流程：
 1. register
 发送token到注册邮箱（要求唯一），用户点击链接回到网页，在网页上将token返回，然后激活用户
@@ -9,22 +10,20 @@ https://dev.to/paurakhsharma/flask-rest-api-part-5-password-reset-2f2e)
 2. 登录
 
 验证用户是否激活，只有激活用户才可以登录，登录时验证密码
-3. 忘记密码 
+3. 忘记密码
 用户发送token到注册邮箱（三次机会），点击回到网页，在网页中填写新密码，和token一起提交，验证通过更新密码
 
 """
 import traceback
 
 from apiflask import APIBlueprint, PaginationSchema, abort
-from flask.views import MethodView
-
-import passlib
+from apiflask.views import MethodView
 from flask_praetorian import auth_required, current_user, roles_required
 from flask_praetorian.exceptions import PraetorianError
 
 from backend.fundmate.account.models import Account
 from backend.fundmate.account.schemas import AccountOutSchema, CreateAccountSchema
-from backend.fundmate.errors import AuthError, ConfirmedFirstError, ForbiddenDenyAdminError, NoLookupUserError
+from backend.fundmate.errors import ClientError, HTTPClientError, ThirdPartError, UserInputError
 from backend.fundmate.extensions import db, guard
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.schema_ext import EmptySchema
@@ -39,6 +38,7 @@ from backend.fundmate.user.schemas import (
     UserOutSchema,
 )
 from backend.fundmate.view_ext import paginate_query
+
 
 bp = APIBlueprint("user", __name__, url_prefix="/users")
 
@@ -68,31 +68,36 @@ class UserDetail(MethodView):
         user_obj = load_user(user_id)
         return user_obj
 
-    @bp.input(UserInSchema(partial=True))
+    @auth_required
+    @bp.input(UserInSchema)
     @bp.output(UserOutSchema)
     def patch(self, user_id: str, data: dict) -> User:
         """更新指定用户信息"""
         _user_obj = load_user(user_id)
         if _user_obj:
             abort(404, message=f"You can't patch an not exists user id {user_id}.")
-        user = User.save(data)
-        return user
+        _user_obj.update(data)
+        return _user_obj
 
+    @auth_required
     @bp.output({}, 204)  # no content
     def delete(self, user_id: str) -> str:
         """删除指定用户"""
         user_obj = load_user(user_id)
         if user_obj is not None:
-            User.delete(user_obj)
+            user_obj.delete()
         return ''
 
 
 @bp.post('/register')
-@bp.input(UserInSchema())
+@bp.input(UserInSchema)
 def register(req):
     """
-    Registers a new user by parsing a POST request containing new user info and
-    dispatching an email with a registration token
+    用户注册
+
+    Registers a new user by parsing a POST request containing new user info and dispatching an email with
+    a registration token
+
     .. example::
        $ curl http://localhost:5000/register -X POST \
          -d '{
@@ -105,23 +110,33 @@ def register(req):
     email = req.get('email', None)
     password = req.get('password', None)
     # FIXME: 测试环境使用国内邮箱即可，生产环境需要用 SendGrid 等专用平台，否则会限额，无法使用
-    new_user = None
     try:
         new_user = User.create(username=username, email=email, password=password)
         guard.send_registration_email(email, user=new_user)
-    except PraetorianError:
+        result = {'message': '注册激活邮件已成功发送给用户：{}'.format(new_user.username)}
+    except PraetorianError as e:
+        logger.error(f"Couldn't send registration email: {e}")
         db.session.rollback()
-
-    result = {'message': '注册激活邮件已成功发送给用户：{}'.format(new_user.username)}
+        result = {'message': f'用户 {username} 注册失败。'}
     return result
 
 
 @bp.get('/confirmation')
+@bp.doc(security='Bearer')
 def confirm_and_active_account():
     """
     将register用户携带的token放到header中，然后请求完成注册
+
     Finalizes a user registration with the token that they were issued in their
     registration email
+
+    基本流程如下：
+    1. 用户注册之后向注册邮箱发送确认邮件
+    2. 用户点击或访问链接进入站内
+    3. 解析用户get请求带的参数，将token放到headers中
+    4. 请求该接口，验证token，如果通过则验证确认并激活用户
+    5. 完成注册流程
+
     .. example::
        $ curl http://localhost:5000/confirmation -X GET \
          -H "Authorization: Bearer <your_token>"
@@ -133,27 +148,37 @@ def confirm_and_active_account():
         result = {'access_token': guard.encode_jwt_token(user)}
         return result
     else:
-        raise NoLookupUserError
+        error = UserInputError.NO_LOOKUP_USER_ERR
+        extra_data = {'error_code': error.code, 'docs': ''}
+        raise HTTPClientError(message=error.msg, extra_data=extra_data)
 
 
 @bp.post('/login')
-@bp.input(UserLoginSchema())
+@bp.input(UserLoginSchema)
 def login(data):
     """
     登录功能
 
-    此处的username实为`email`或者`username`，支持用户名或者密码登录（both）
+    此处的username可以是`email`或者`username`，支持用户名和密码登录
     :param data:
     :return:
     """
     # the username can be username or email
-    user_identify = data.get('username', None)
+    user_identify = data.get('username', None) or data.get('email', None)
+    user = User.lookup(user_identify)
+    if not user:
+        error = UserInputError.NO_LOOKUP_USER_ERR
+        extra_data = {'error_code': error.code, 'docs': ''}
+        raise HTTPClientError(404, message=error.msg, extra_data=extra_data)
+
     password = data.get("password", None)
     try:
         user = guard.authenticate(user_identify, password)
-    except passlib.exc.UnknownHashError:
+    except ValueError as e:
         logger.error(f'认证失败: {traceback.print_exc()}')
-        raise AuthError
+        error = ThirdPartError.AUTHENTICATION_ERROR
+        extra_data = {'error_code': error.code, 'docs': ''}
+        raise HTTPClientError(status_code=401, message=str(e), extra_data=extra_data) from e
     if user:
         # 对于active 字段，`flask_praetorian`会默认校验
         is_user_confirmed = user.is_confirmed
@@ -161,17 +186,20 @@ def login(data):
             result = {"access_token": guard.encode_jwt_token(user)}
             return result
         else:
-            raise ConfirmedFirstError
-    raise NoLookupUserError
+            error = ClientError.CONFIRMED_FIRST_ERR
+            extra_data = {'error_code': error.code, 'docs': ''}
+            raise HTTPClientError(message=error.msg, extra_data=extra_data)
 
 
 @bp.get('/refresh_token')
+@bp.doc(security='Bearer')
 def refresh_token():
     """
     刷新token
 
     Refreshes an existing JWT by creating a new one that is a copy of the old
     except that it has a refreshed access expiration.
+
     .. example::
        $ curl http://localhost:5000/refresh -X GET \
          -H "Authorization: Bearer <your_token>"
@@ -183,12 +211,13 @@ def refresh_token():
 
 
 @bp.post('/forget_password')
-@bp.input(ForgetPasswordSchema())
+@bp.input(ForgetPasswordSchema)
 def forget_password(data):
     """
     用户忘记密码
 
     首先发送邮件给用户，确认本人操作
+
     :param data:
     :return:
     """
@@ -198,17 +227,21 @@ def forget_password(data):
         guard.send_reset_email(email)
         result = {'message': '请检查邮箱以完成密码重置。'}
     else:
-        raise NoLookupUserError
+        error = UserInputError.NO_LOOKUP_USER_ERR
+        extra_data = {'error_code': error.code, 'docs': ''}
+        raise HTTPClientError(404, message=error.msg, extra_data=extra_data)
     return result
 
 
 @bp.post('/reset_password')
-@bp.input(ResetPasswordSchema())
+@bp.input(ResetPasswordSchema)
+@bp.doc(security='Bearer')
 def reset_password(data):
     """
     重置密码
 
     用户点击邮箱中收到的链接，进入重置流程，输入新的密码更新用户密码
+
     :param data:
     :return:
     """
@@ -221,13 +254,16 @@ def reset_password(data):
         result = {'access_token': guard.encode_jwt_token(user)}
         return result
     else:
-        raise NoLookupUserError
+        error = UserInputError.NO_LOOKUP_USER_ERR
+        extra_data = {'error_code': error.code, 'docs': ''}
+        raise HTTPClientError(404, message=error.msg, extra_data=extra_data)
 
 
 @bp.post('/deny')
 @auth_required
 @roles_required(ADMIN_ROLE_NAME)
-@bp.input(DenyUserSchema(partial=True))
+@bp.doc(security='Bearer')
+@bp.input(DenyUserSchema)
 def disable_user(req):
     """
     管理员禁用用户
@@ -239,20 +275,30 @@ def disable_user(req):
     """
     user_identify = req.get('username') or req.get('email')
     user = User.lookup(user_identify)
-    if ADMIN_ROLE_NAME in user.rolenames:
-        raise ForbiddenDenyAdminError
-    user.update(is_active=False)
-    return {'message': '用户 {} 已禁用。'.format(user.username)}
+    if user:
+        if ADMIN_ROLE_NAME in user.rolenames:
+            error = ClientError.FORBIDDEN_DENY_ADMIN_ERR
+            extra_data = {'error_code': error.code, 'docs': ''}
+            raise HTTPClientError(403, message=error.msg, extra_data=extra_data)
+        user.update(is_active=False)
+    else:
+        error = UserInputError.NO_LOOKUP_USER_ERR
+        extra_data = {'error_code': error.code, 'docs': ''}
+        raise HTTPClientError(message=error.msg, extra_data=extra_data)
+    return {'message': f'用户 {user.username} 已禁用。'}
 
 
 @bp.post('/activations')
 @auth_required
-@roles_required('admin')
-@bp.input(DenyUserSchema(partial=True))
+@roles_required(ADMIN_ROLE_NAME)
+@bp.doc(security='Bearer')
+@bp.input(DenyUserSchema)
 def active_user(req):
     """
-    系统管理员禁用用户
-    Disables a user in the data store
+    系统管理员激活用户
+
+    active a user in the data store
+
     .. example::
         $ curl http://localhost:5000/disable_user -X POST \
           -H "Authorization: Bearer <your_token>" \
@@ -260,29 +306,13 @@ def active_user(req):
     """
     user_identify = req.get('username') or req.get('email')
     user = User.lookup(user_identify)
-    user.update(is_active=True)
+    if user:
+        user.update(is_active=True)
+    else:
+        error = UserInputError.NO_LOOKUP_USER_ERR
+        extra_data = {'error_code': error.code, 'docs': ''}
+        raise HTTPClientError(message=error.msg, extra_data=extra_data)
     return {'message': '用户 {} 已重新激活。'.format(user.username)}
-
-
-@bp.route('/<int:user_id>/favors')
-@auth_required
-class UserFavorFunds(MethodView):
-    """
-    用户关注的基金
-    """
-
-    def get(self, user_id: str):
-        """获取自选基金信息"""
-        user_obj = User.get_by_id(int(user_id))
-        return user_obj
-
-    def post(self, user_id: str, fund_id: str):
-        """用户关注基金"""
-        pass
-
-    def delete(self, user_id: str, fund_id: str):
-        """用户取消关注基金"""
-        pass
 
 
 @bp.route('/accounts')
@@ -302,6 +332,7 @@ class UserAccounts(MethodView):
     @auth_required
     @bp.input(EmptySchema)
     @bp.output(AccountOutSchema(many=True))
+    @bp.doc(security='Bearer')
     def get(self, account_type: str):
         """获取用户账本信息
         根据类型查询自己名下的账户，账户按照类型区分：
@@ -315,8 +346,10 @@ class UserAccounts(MethodView):
             accounts = Account.query.filter_by(creator_id=user_id)
         return accounts
 
+    @auth_required
     @bp.input(CreateAccountSchema)
     @bp.output(AccountOutSchema, links=account_links)
+    @bp.doc(security='Bearer')
     def post(self, data: dict):
         """创建用户账本"""
         user = current_user()
@@ -325,6 +358,8 @@ class UserAccounts(MethodView):
         account = Account.create(**data)
         return account
 
-    def delete(self, user_id: str, fund_id: str):
+    @auth_required
+    @bp.doc(security='Bearer')
+    def delete(self, fund_id: str):
         """删除用户账本"""
         pass

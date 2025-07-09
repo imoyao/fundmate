@@ -24,6 +24,8 @@ pip-log.txt
 .coverage
 .tox
 nosetests.xml
+# 忽略生成的报告
+htmlcov
 
 # Translations
 *.mo
@@ -58,3 +60,5 @@ env/
 # Development database
 *.db
 .pdm.toml
+# 该文件加入后，对于不同分支合并总是提示冲突，取消跟踪
+openapi.json

@@ -4,10 +4,11 @@
 import json
 import re
 from pathlib import Path
-from typing import Dict, Optional, Union
+from typing import Dict, List, Optional, Union
 
 import numpy as np
 import pandas as pd
+import pendulum
 import pyjson5
 import requests
 from requests import Response
@@ -21,8 +22,9 @@ from backend.fundmate.data.utils.base import data_parser
 from backend.fundmate.database import db
 from backend.fundmate.excepts import UnexpectedArgsError
 from backend.fundmate.exts.flask_loguru import logger
-from backend.fundmate.fund.models import Fund, FundCompany, FundMgr, FundType, FundVariety, Mgr
+from backend.fundmate.fund.models import Fund, FundCompany, FundManager, FundType, FundVariety, Manager
 from backend.fundmate.libs import convert
+
 
 current_path = Path(__file__).parent.resolve()
 REQUEST_STR = """Accept: */*
@@ -216,7 +218,7 @@ class EastMoney(BaseParse):
         """
         将基金经理信息存入数据表MGRS,此外，还会将基金与基金经理关联起来，信息存入FUND_MGR中间表
         FIXME: 需要注意的是：有一部分基金是新发基金，这个时候funds表中是没有数据的，此时关联基金经理会报错：
-        `FlushError: Can't flush None value found in collection Mgr.funds`
+        `FlushError: Can't flush None value found in collection Manager.funds`
         目前的解决方案是直接continue跳过这个数据的写入，后期可能需要优化流程，添加新发基金的信息爬取
         """
         for mgr_item in fund_mgr_info:
@@ -241,15 +243,15 @@ class EastMoney(BaseParse):
                 'best_rt': best_rt,
             }
             # 更新或插入基金经理信息
-            Mgr.insert_or_update(mgr_query_info, do_log_flag=True, **mgr_info)
+            Manager.insert_or_update(mgr_query_info, do_log_flag=True, **mgr_info)
             # 重新查一次
-            mgr_ins = Mgr.filter_by_code(mgr_code)
+            mgr_ins = Manager.filter_by_code(mgr_code)
             if mgr_ins:
                 mgr_id = mgr_ins.id
             else:
                 logger.error(f'Cannot find fund manager of code:<{mgr_code}>.')
                 continue
-            fund_objs_of_mgr = Mgr.get_by_id(mgr_id).funds
+            fund_objs_of_mgr = Manager.get_by_id(mgr_id).funds
             # 在管基金
             fund_lists_of_mgr = [f.fund_code for f in fund_objs_of_mgr]
             # 查询到的列表不在现有的中
@@ -277,7 +279,7 @@ class EastMoney(BaseParse):
                         fund_inst = self.subscription_period_fund(fund_code, fund_name)
                         logger.info(f'The fund in subscription period created as {fund_inst}')
 
-                    _mgr_ins = Mgr.filter_by_code(mgr_code)
+                    _mgr_ins = Manager.filter_by_code(mgr_code)
                     _mgr_ins.funds.append(fund_inst)
                     db.session.add(_mgr_ins)
                 '''
@@ -302,7 +304,7 @@ class EastMoney(BaseParse):
                     continue
 
                 fund_id = fund_inst.id
-                fund_mgr_inst = FundMgr.query.filter_by(fund_id=fund_id, mgr_id=mgr_id, end_date=None).first()
+                fund_mgr_inst = FundManager.query.filter_by(fund_id=fund_id, mgr_id=mgr_id, end_date=None).first()
                 if f_code == best_fd:
                     # 更新基金经理的代表作
                     fund_mgr_inst.update(is_classic=True)
@@ -337,27 +339,44 @@ class EastMoney(BaseParse):
             comps = self.be_json(load_able_str)
             if save:
                 for cop in comps:
-                    converted_cop = [str(item) or None if isinstance(item, str) else item for item in cop]
-                    comp_info = dict(
-                        zip([
-                            'code', 'full_name', 'create_date', 'f_counts', 'mgr', 'dpy', 'a_un', 'scale', 'tx_eval',
-                            'name', 'b_un', 'update_time'
-                        ], converted_cop))
-                    level_eval = comp_info.get('tx_eval', '')
-                    if level_eval:
-                        level = len(level_eval)
-                    else:
-                        level = None
-
-                    comp_info['tx_eval'] = level
-                    # 两个不知道含义的暂时pop
-                    comp_info.pop('a_un')
-                    comp_info.pop('b_un')
-                    code = comp_info.get('code')
-                    comp = FundCompany()
-                    query_info = {'code': code}
-                    comp.insert_or_update(query_info, **comp_info)
+                    self.save_company_to_db(cop)
             return comps
+
+    @staticmethod
+    def save_company_to_db(company_info_seq: List[str]) -> FundCompany:
+        """
+        将基金公司信息保存到数据库
+        :param company_info_seq: 基金公司信息序列
+        :return:
+        """
+        converted_cop = [str(item) or None if isinstance(item, str) else item for item in company_info_seq]
+        comp_info = dict(
+            zip([
+                'code', 'full_name', 'create_date', 'f_counts', 'mgr', 'dpy', 'a_un', 'scale', 'tx_eval',
+                'name', 'b_un', 'update_time'
+            ], converted_cop))
+        level_eval = comp_info.get('tx_eval', '')
+        if level_eval:
+            level = len(level_eval)
+        else:
+            level = None
+
+        update_time = comp_info.get('update_time', '')
+        create_date = comp_info.get('create_date', '')
+
+        comp_info['tx_eval'] = level
+        dtm = pendulum.parse(update_time)
+        create_date = pendulum.parse(create_date)
+        comp_info['update_time'] = dtm
+        comp_info['create_date'] = create_date
+        # 两个不知道含义的暂时pop
+        comp_info.pop('a_un')
+        comp_info.pop('b_un')
+        code = comp_info.get('code')
+        comp = FundCompany()
+        query_info = {'code': code}
+        result = comp.insert_or_update(query_info, **comp_info)
+        return result
 
     def set_first_row_to_columns(self, df):
         arr = df.values
@@ -431,7 +450,8 @@ class EastMoney(BaseParse):
                 return None
 
         raw_columns = [
-            '基金全称', '基金代码', '发行日期', '资产规模', '基金管理人', '基金经理人', '管理费率', '销售服务费率', '业绩比较基准', '基金简称', '基金类型', '成立日期/规模',
+            '基金全称', '基金代码', '发行日期', '资产规模', '基金管理人', '基金经理人', '管理费率', '销售服务费率',
+            '业绩比较基准', '基金简称', '基金类型', '成立日期/规模',
             '份额规模', '基金托管人', '成立来分红', '托管费率', '最高认购费率', '跟踪标的'
         ]
         repr_cols = [

@@ -60,13 +60,13 @@ def loads_template(df: PdDataFrame):
         :return:
         """
         if trade_category in [
-                SupportInvestCategoriesEnum.fund.dk_value,
-                # SupportInvestCategoriesEnum.stock.dk_value,
-                # SupportInvestCategoriesEnum.bond.dk_value
+            SupportInvestCategoriesEnum.fund.dk_value,
+            # SupportInvestCategoriesEnum.stock.dk_value,
+            # SupportInvestCategoriesEnum.bond.dk_value
         ]:
             return prod_code
         # 理财产品
-        elif trade_category == SupportInvestCategoriesEnum.financial_product.dk_value:
+        elif trade_category == SupportInvestCategoriesEnum.fin_product.dk_value:
             _inst = InvestProduct.filter_by_plt_code(trade_category, prod_code)
             return _inst.prod_code
         else:
@@ -83,7 +83,7 @@ def loads_template(df: PdDataFrame):
             if trade_category == SupportInvestCategoriesEnum.fund.dk_value:
                 ret = td.get_trade_info(fund_code, date_str, is_buy=is_buy, is_after_15o_clock=is_after_15o_clock)
                 return ret.get('deadline')
-            elif trade_category == SupportInvestCategoriesEnum.financial_product.dk_value:
+            elif trade_category == SupportInvestCategoriesEnum.fin_product.dk_value:
                 # 理财产品，直接按照t+1的基金产品计算
                 ret = td.get_trade_info('163406', date_str, is_buy=is_buy, is_after_15o_clock=is_after_15o_clock)
                 return ret.get('maturity')
@@ -101,13 +101,9 @@ def loads_template(df: PdDataFrame):
     df['purchase_prod'] = df.apply(lambda row: _db_code(row['trade_category'], row['purchase_prod']), axis=1)
     df['redeem_prod'] = df.apply(lambda row: _db_code(row['trade_category'], row['redeem_prod']), axis=1)
     # 交易确定日
-    df['trans_confirm_date'] = df.apply(lambda row: fetch_confirm_datetime(
-        row['redeem_prod'],
-        row['launch_trans_date'],
-        row['trade_category'],
-        row['op_type'],
-    ),
-                                        axis=1)
+    df['trans_confirm_date'] = df.apply(
+        lambda row: fetch_confirm_datetime(row['redeem_prod'], row['launch_trans_date'], row['trade_category'],
+                                           row['op_type'], ), axis=1)
     # 交易手续费：如果不是0，则返回，否则，根据购买金额，购买基金、费率计算
     df['charge_fee'] = df.apply(lambda row: _db_code(row['record_code'], row['trans_confirm_date']), axis=1)
 
@@ -146,7 +142,7 @@ def check_isvalid_prods(platform: str, prods: Optional[list] = None) -> bool:
             f = Fund.filter_by_code(code)
             if not f:
                 raise excepts.NotSupportError(f'不支持的基金编码：{code}')
-        elif p_type == SupportInvestCategoriesEnum.financial_product.dk_value:
+        elif p_type == SupportInvestCategoriesEnum.fin_product.dk_value:
             prod = InvestProduct.filter_by_plt_code(platform, code)
             if not prod:
                 # 只要有一个不满足，则break
