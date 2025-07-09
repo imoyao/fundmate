@@ -44,7 +44,7 @@ export default class extends Vue {
     const container = (this.$refs.scrollContainer as Vue).$el as HTMLElement
     const containerWidth = container.offsetWidth
     const scrollWrapper = this.scrollWrapper
-    const tagList = this.$parent.$refs.tag as any[]
+    const tagList = this.$parent?.$refs.tag as any[]
 
     let firstTag = null
     let lastTag = null

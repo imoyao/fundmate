@@ -24,7 +24,7 @@
         v-for="item in options"
         :key="item.path"
         :value="item"
-        :label="item.meta.title.join(' > ')"
+        :label="item.meta?.title.join(' > ')"
       />
     </el-select>
   </div>
@@ -147,7 +147,8 @@ export default class extends Vue {
       if (router.meta && router.meta.title) {
         // generate internationalized title
         const i18ntitle = i18n.t(`route.${router.meta.title}`).toString()
-        data.meta.title = [...data.meta.title, i18ntitle]
+        data.meta = data.meta || {}
+        data.meta.title = [...(data.meta.title || []), i18ntitle]
         if (router.redirect !== 'noRedirect') {
           // only push the routes with title
           // special case: need to exclude parent router without redirect
@@ -157,7 +158,7 @@ export default class extends Vue {
 
       // recursive child routes
       if (router.children) {
-        const tempRoutes = this.generateRoutes(router.children, data.path, data.meta.title)
+        const tempRoutes = this.generateRoutes(router.children, data.path, data.meta?.title || [])
         if (tempRoutes.length >= 1) {
           res = [...res, ...tempRoutes]
         }
