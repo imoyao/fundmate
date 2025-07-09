@@ -78,16 +78,20 @@
 
 ### 本地运行前置条件：
 
-1.  安装好 chromedriver 驱动（版本需要和你本地电脑 Chrome 浏览器版本一致）， 安装 tesseract(识别二维码需要，如果是用 cookies 方式则不需要) 并将 tesseract 加到环境变量下，运行报错的话可能没有安装训练库，可参考[https://stackoverflow.com/questions/14800730/tesseract-running-error](https://stackoverflow.com/questions/14800730/tesseract-running-error)，如果是需要连接数据库的话，还要配置好表结构
-2.  如果需要存数据到数据库，需要建好对应表结构，(运行`acquire_fund_snapshot.py`可以存在 Excel，其他目前都是存在数据库中)
+1. 安装好 chromedriver 驱动（版本需要和你本地电脑 Chrome 浏览器版本一致）， 安装 tesseract(识别二维码需要，如果是用 cookies 方式则不需要) 并将 tesseract 加到环境变量下，运行报错的话可能没有安装训练库，可参考[https://stackoverflow.com/questions/14800730/tesseract-running-error](https://stackoverflow.com/questions/14800730/tesseract-running-error)，如果是需要连接数据库的话，还要配置好表结构
 
-3.  从环境参数模板（.env.example）中复制一份文件（.env）,修改本地环境变量
+   Edge浏览器参阅 [selenium.common.exceptions.WebDriverException: Message: ‘MicrosoftWebDriver.exe‘ executable needs to_Spring� 胡的博客-CSDN博客](https://blog.csdn.net/weixin_47498728/article/details/124587083)
+   [tesseract 安装及使用 - osc_8k1i36qg的个人空间 - OSCHINA - 中文开源技术交流社区](https://my.oschina.net/u/4321737/blog/3529887?hmsr=kaifa_aladdin)
+
+3. 如果需要存数据到数据库，需要建好对应表结构，(运行`acquire_fund_snapshot.py`可以存在 Excel，其他目前都是存在数据库中)
+
+4. 从环境参数模板（.env.example）中复制一份文件（.env）,修改本地环境变量
 
     > `cp .env.example .env`
 
     根据自己情况改环境变量值，例如晨星用户名，密码，执行特定的爬虫脚本
 
-4.  运行 -- 先按顺序运行`acquire_fund_snapshot`,`acquire_fund_base`, `acquire_fund_quarter`获取数据源，后面根据自己需要运行统计，分析文件
+5. 运行 -- 先按顺序运行`acquire_fund_snapshot`,`acquire_fund_base`, `acquire_fund_quarter`获取数据源，后面根据自己需要运行统计，分析文件
 
 ### 文件目录介绍
 
@@ -126,7 +130,7 @@
     ├── lib
     ├── outcome                      # 数据成果整理子项目
     │   └── mysnowflake.py       # 雪花id生成
-    └── base.py                 # 一些工具函数，比如登录，设置cookies等
+    └── utils.py                 # 一些工具函数，比如登录，设置cookies等
         ├── __init__.py
         ├── cookies.py
         ├── file_op.py
@@ -187,38 +191,4 @@
 <img width=480  src="./screenshot/qrcode_merge.png" />
 
 如果有问题，有兴趣的话，欢迎提 issue，私聊，star。
-
----
-
-# FundCombination
-基金组合研究: 利用python，抓取天天基金网、晨星网数据，分析组合持仓、行业分布、基金参数特征，辅助基金组合投资策略制定
-
-
-## 组合分析工具用途
-组合分析，晨星网也有组合透视工具，对应该项功能。但是晨星网的组合透视功能存在3项不足，
-1. 只能分析前十重仓，实际应用中，前十不够，依靠前十重仓进行判断容易入坑(亲身体验)；
-2. 行业分析太多粗略，无法为投资策略提供参考；
-3. 当组合内含有QDII或者港股时，晨星网的组合透视计算可能有误。
-   当时发现该点时，我根据晨星网提供的数据，自己用计算器算了几遍，发现晨星网计算的组合持仓确实有误。怀疑晨星网无法有效及时获取QDII、港股的持仓信息。
-   基于此，本工具主要有三个特点：
-    1. 重仓股分析
-       根据天天基金网、晨星网公布的基金前十重仓，结合组合内基金的比例，算出所有前十股票在组合内的持仓比例；
-    2. 一、二级行业分级
-       行业分布，细化到一二级行业，分类更细，方便投资分析
-    3. 针对单个基金，提供工具抓取晨星网上的标准差、风险系统、夏普比、阿尔法、贝塔、R平方、回撤、规模、股票集中度等参数。
-
-
-## 软件输入
-在./input文件夹下，其中group_fund.json里面填入基金组合的比例，stock_info.json里面填入股票的一二级行业(暂时手动添加)，chenxingcode.json填入基金在晨星网的特殊编码(例如https://cn.morningstar.com/quicktake/F0000004AI中的F0000004AI)
-
-
-## 软件输出
-在./output里面，有两类，一类是fund_info.csv，存储单独基金的信息；一类是group_position.csv，存储组合透视分析结果。
-
-## 软件逻辑
-1. acquire_group_fund.py用于获取组合分析结果；
-2. export_fund_info.py用于获取基金具体参数；
-3. FundParameterInfo.py基金类，里面有具体的抓取信息实现，从天天网上抓取时，首先获取网页保存为本地html文件，再进行解析，从晨星网上抓取时，利用selinum+webdriver进行信息抓取。
-
-## 相关链接
-[MrDujing/FundCombination: 基金组合研究: 利用python，抓取天天基金网、晨星网数据，分析组合持仓、行业分布、基金参数特征，辅助基金组合投资策略制定](https://github.com/MrDujing/FundCombination)
+[![Page Views Count](https://badges.toozhao.com/badges/01FYTB9DBYFE4G1408VKKT7H4G/green.svg)](https://badges.toozhao.com/stats/01FYTB9DBYFE4G1408VKKT7H4G "Get your own page views count badge on badges.toozhao.com")
