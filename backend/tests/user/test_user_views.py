@@ -10,19 +10,34 @@ from flask_praetorian.constants import IS_REGISTRATION_TOKEN_CLAIM, IS_RESET_TOK
 from flask_praetorian.exceptions import AuthenticationError
 
 import pendulum
-import plummet as plummet
+import plummet
 import pytest
 from faker import Faker
 
 from backend.fundmate.errors import ClientError, UserInputError
 from backend.fundmate.exts.flask_loguru import logger
 from backend.fundmate.user.models import User
+from backend.fundmate.user.views import load_user
 from backend.tests.factories import UserFactory
+from backend.tests.user.test_user_models import delete_user
 
 
-def delete_user(user_inst):
-    """验证完成删除用户"""
-    user_inst.delete()
+def test_load_user(app):
+    user = User.lookup(app.config.get('TEST_USERNAME'))
+    assert user
+    user_id = user.id
+    user_by_load = load_user(user_id)
+    assert user_by_load is user
+
+
+def test_delete_user():
+    user = UserFactory()
+    username = user.username
+    _user_inst = user.lookup(username)
+    assert _user_inst
+    delete_user(_user_inst)
+    del_user = user.lookup(username)
+    assert not del_user
 
 
 def make_header(token):
@@ -66,9 +81,9 @@ def test_register(app, client, data, resp_body, request):
     result = client.post("users/register", json=data)
     assert result
     if data.get('username') == 'foo' or data.get('email') == 'foo@bar.com':
-        assert result.status_code == 400
+        assert result.status_code == 422
     else:
-        if result.status_code == 400:
+        if result.status_code == 422:
             assert result.json.get('message').get('json')
         else:
             assert result.status_code == 200
@@ -129,9 +144,8 @@ def test_confirm_and_active_account(app, client, default_guard, mail, data, requ
 
 
 def test_login(app, client, default_guard, mail, request):
-    data = {'username': app.config.get('TEST_USERNAME'), 'password': app.config.get('TEST_PASSWORD'),
-            'email': app.config.get('TEST_EMAIL')}
-    email = data.get('email')
+    data = {'username': app.config.get('TEST_USERNAME'), 'password': app.config.get('TEST_PASSWORD')}
+    email = app.config.get('TEST_EMAIL')
 
     def try_login(login_data):
         _result = client.post("users/login", json=login_data)
@@ -189,7 +203,7 @@ def test_login(app, client, default_guard, mail, request):
     assert 'access_token' in result_username.json
 
     # 测试邮箱登录
-    login_with_email = {'email': data.get('email'), 'password': data.get('password')}
+    login_with_email = {'username': email, 'password': data.get('password')}
     result_email = try_login(login_with_email)
     assert result_email.status_code == 200
     assert 'access_token' in result_email.json
@@ -197,7 +211,7 @@ def test_login(app, client, default_guard, mail, request):
     request.addfinalizer(lambda: delete_user(user_inst))
 
 
-def test_refresh_token(app, client, default_guard):
+def test_refresh_token(app, client, default_guard, request):
     faker = Faker()
     password = faker.password()
     user = UserFactory(password=password)
@@ -227,6 +241,7 @@ def test_refresh_token(app, client, default_guard):
         result_200 = refresh(_headers)
         assert result_200.status_code == 200
         assert 'access_token' in result_200.json
+    request.addfinalizer(lambda: delete_user(user))
 
 
 @pytest.mark.parametrize('data', [
@@ -315,7 +330,7 @@ def test_reset_password(app, client, default_guard, request):
     result = try_reset_pw(data, _reset_token)
     resp = result.json
     assert result
-    assert result.status_code == 400
+    assert result.status_code == 422
     assert resp == {'message': {'json': {'password': ['请提高密码复杂度后重试。']}}}
     # 更新密码之后登录
     new_pw = faker.password()

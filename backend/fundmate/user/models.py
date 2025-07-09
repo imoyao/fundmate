@@ -51,8 +51,8 @@ class User(PkModel, CreateDateModel):
     __table_args__ = {'comment': '用户表'}
     # TODO: 用户起始id从1000开始
     id = Column(db.Integer().with_variant(db.Integer, "sqlite"), primary_key=True)
-    name = Column(db.String(16), comment='用户名')
-    username = Column(db.String(16), unique=True, nullable=False, comment='登录用户名')
+    name = Column(db.String(16), comment='用户名')  # 系统外显使用
+    username = Column(db.String(16), unique=True, nullable=False, comment='登录用户名')  # username登录使用，须保证唯一性
     password = Column(db.String(150), nullable=False, comment='用户密码')
     email = Column(db.String(30), unique=True, nullable=False, comment='注册邮箱')
     phone_num = Column(db.String(11), comment='注册手机号')
@@ -174,7 +174,7 @@ class User(PkModel, CreateDateModel):
         class method that takes a single ``id`` argument and returns user instance if
         there is one that matches or ``None`` if there is not.
         """
-        return cls.query.get(id)
+        return db.session.get(cls, id)
 
     # def is_valid(self):
     #     return self.is_active

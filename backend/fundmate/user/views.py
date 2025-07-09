@@ -17,7 +17,7 @@ https://github.com/dusktreader/flask-praetorian-tutorial/blob/master/api/src/res
 import traceback
 
 from apiflask import APIBlueprint, PaginationSchema, abort
-from flask.views import MethodView
+from apiflask.views import MethodView
 from flask_praetorian import auth_required, current_user, roles_required
 from flask_praetorian.exceptions import PraetorianError
 
@@ -313,27 +313,6 @@ def active_user(req):
         extra_data = {'error_code': error.code, 'docs': ''}
         raise HTTPClientError(message=error.msg, extra_data=extra_data)
     return {'message': '用户 {} 已重新激活。'.format(user.username)}
-
-
-@bp.route('/<int:user_id>/favors')
-@auth_required
-class UserFavorFunds(MethodView):
-    """
-    用户关注的基金
-    """
-
-    def get(self, user_id: str):
-        """获取自选基金信息"""
-        user_obj = User.get_by_id(int(user_id))
-        return user_obj
-
-    def post(self, user_id: str, fund_id: str):
-        """用户关注基金"""
-        pass
-
-    def delete(self, user_id: str, fund_id: str):
-        """用户取消关注基金"""
-        pass
 
 
 @bp.route('/accounts')

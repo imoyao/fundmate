@@ -73,6 +73,10 @@ class UserInputError(ErrorMixin, Enum, metaclass=ErrorMeta):
     PATCH_WITH_EMPTY_DATA_ERR = (1002, '更新时提交数据不能为空。')
     NO_LOOKUP_USER_ERR = (1003, '查找用户失败，请确认邮箱地址是否填写正确？')
     PROD_ALREADY_EXIST_ERR = (1004, '创建产品已存在，请使用查询页面获取该产品相关信息。')
+    # 像这种比较通用的错误提示信息，允许在代码中进行文案自定义
+    FORBIDDEN_DELETE_ERR = (1005, '删除失败，请确认被删除对象存在。')
+    FORBIDDEN_UPDATE_ERR = (1006, '更新失败，请确认更新对象存在。')
+    NOT_EXIST_ERR = (1007, '更新失败，请确认是否存在。')
 
 
 @unique
@@ -110,7 +114,9 @@ class ClientError(ErrorMixin, Enum, metaclass=ErrorMeta):
     NOT_EXCEPTED_FILE_ERR = (4002, '请确保上传文件格式正确！')
     NOT_EXCEPTED_PROD_ERR = (4003, '请确保上传文件中所有产品均支持导入！')
     NOT_SUPPORT_INVEST_TYPE_ERR = (4004, '请确保所有交易操作均支持导入')
-    FORBIDDEN_DENY_ADMIN_ERR = (4005, '系统管理员不允许被禁用，以免系统自锁。')
+    FORBIDDEN_DENY_ADMIN_ERR = (4005, '系统管理员不允许被禁用')
+    COLLECTION_ERR = (4006, '请确认添加自选实例存在')
+    HAS_CREATED_ERR = (4007, '已存在，请勿重复创建！')
 
 
 @unique

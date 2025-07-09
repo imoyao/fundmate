@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """Public section, including homepage and signup."""
 from apiflask import APIBlueprint
+from apiflask.views import MethodView
 from flask import flash, redirect, url_for
-from flask.views import MethodView
 
 from backend.fundmate import excepts
 from backend.fundmate.data import danjuan, fundb, jsl, sipf, yzyx, zo
@@ -86,7 +86,7 @@ def logout():
 
 
 @bp.route('/sentry/<int:numerator>/divide/<int:denominator>/')
-def test_sentry(numerator, denominator):
+def sentry_server(numerator, denominator):
     """
     测试 sentry 是否正常运行
     """

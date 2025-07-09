@@ -8,7 +8,7 @@ TODO: 用户账户和基金账户容易混淆，可能使用嵌套蓝图更好
 import datetime
 
 from apiflask import APIBlueprint, abort
-from flask.views import MethodView
+from apiflask.views import MethodView
 from flask_praetorian import auth_required, current_user
 
 from backend.fundmate import excepts, utils

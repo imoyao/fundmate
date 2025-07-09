@@ -29,7 +29,9 @@ class DailyWorth(PkModel, CreateDateModel):
     1. 考虑分表，主键应该使用uuid
     2. uuid vs GUID
     """
-    price = Column(db.Float, comment='基金单日净值')
+    # ref: https://mp.weixin.qq.com/s/a0kPqx_x6aYjHEk5iwsN0Q
+    price = Column(db.Float, comment='基金单位净值')
+    total_price = Column(db.Float, comment='基金累计净值')
     date = Column(db.Date, comment='日期')
     fund_id = reference_col('funds', column_kwargs={'comment': '基金编号ID'})
     fund = relationship('Fund', uselist=False, back_populates='daily_worth')
@@ -126,6 +128,10 @@ class Fund(PkModel, UpsertMixin):
         """
         _ins = cls.query.filter_by(fund_code=code).one_or_none()
         return _ins
+
+    @classmethod
+    def lookup(cls, identify: str) -> Fund:
+        return cls.filter_by_code(identify)
 
     def __repr__(self):
         return f'<Fund({self.fund_code!r}, {self.name!r})>'
@@ -373,7 +379,8 @@ class FeeRatio(PkModel, UpsertMixin):
                                  db.ForeignKey(f'{purchase_rule_tb_name}.id'),
                                  nullable=True,
                                  comment='申购规则ID')
-    redeem_rule_id = db.Column(db.Integer, db.ForeignKey(f'{redeem_rule_tb_name}.id'), nullable=True, comment='赎回规则ID')
+    redeem_rule_id = db.Column(db.Integer, db.ForeignKey(f'{redeem_rule_tb_name}.id'), nullable=True,
+                               comment='赎回规则ID')
     fee_type = Column(IntChoiceDkEnumType(settings.FeeTypeEnum),
                       nullable=False,
                       index=True,
@@ -633,7 +640,7 @@ class InvestProduct(PkModel):
                       comment=f'产品购买所属平台：{settings.SupportInvestPltEnum.comment()}')
     prod_type = Column(db.Enum(settings.SupportInvestCategoriesEnum),
                        nullable=True,
-                       default=settings.SupportInvestCategoriesEnum.financial_product.dk_value,
+                       default=settings.SupportInvestCategoriesEnum.fin_product.dk_value,
                        comment=f'产品类型：{settings.SupportInvestCategoriesEnum.comment()}')
 
     @classmethod

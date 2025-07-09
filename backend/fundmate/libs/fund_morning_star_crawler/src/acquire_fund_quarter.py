@@ -39,7 +39,7 @@ def get_total_asset(fund_code, platform):
 def acquire_fund_quarter():
     lock = Lock()
     each_fund_query = FundQuery()
-    record_total = each_fund_query.get_crawler_quarter_fund_total()  # 获取记录条数
+    record_total = each_fund_query.select_quarter_fund_total()  # 获取记录条数
     print('record_total', record_total)
     idWorker = IdWorker()
     result_dir = './output/'
@@ -134,7 +134,6 @@ def acquire_fund_quarter():
                     'morning_star_rating_5': each_fund.morning_star_rating.get(5),
                     'morning_star_rating_10': each_fund.morning_star_rating.get(10),
                 }
-                print('fund_code', each_fund.fund_code)
                 fund_insert.fund_quarterly_info(quarterly_dict)
                 # 入库十大股票持仓
                 stock_position_total = each_fund.stock_position.get('total', '0.00')
@@ -182,7 +181,7 @@ def acquire_fund_quarter():
             sleep(3)
         chrome_driver.close()
 
-    bootstrap_thread(crawlData, record_total, 4)
+    bootstrap_thread(crawlData, record_total, 8)
     exit()
 
 
