@@ -51,8 +51,8 @@ class User(PkModel, CreateDateModel):
     __table_args__ = {'comment': '用户表'}
     # TODO: 用户起始id从1000开始
     id = Column(db.Integer().with_variant(db.Integer, "sqlite"), primary_key=True)
-    name = Column(db.String(16), comment='用户名')
-    username = Column(db.String(16), unique=True, nullable=False, comment='登录用户名')
+    name = Column(db.String(16), comment='用户名')  # 系统外显使用
+    username = Column(db.String(16), unique=True, nullable=False, comment='登录用户名')  # username登录使用，须保证唯一性
     password = Column(db.String(150), nullable=False, comment='用户密码')
     email = Column(db.String(30), unique=True, nullable=False, comment='注册邮箱')
     phone_num = Column(db.String(11), comment='注册手机号')
@@ -62,8 +62,7 @@ class User(PkModel, CreateDateModel):
     is_vip = Column(db.Boolean(), default=False)
     profile = Column(db.TEXT)
     is_active = db.Column(db.Boolean(), default=True, comment='是否激活可用，置为False可以禁用用户')
-    # TODO: 是否有必要，修改为modified？
-    last_login = Column(db.TIMESTAMP, nullable=False, server_default=db.func.now(), onupdate=datetime.datetime.now)
+    last_modify = Column(db.TIMESTAMP, nullable=False, server_default=db.func.now(), onupdate=datetime.datetime.now)
     roles = relationship("Role", secondary=user_role_table, back_populates="user")
 
     def __init__(self, **kwargs) -> None:
@@ -102,16 +101,36 @@ class User(PkModel, CreateDateModel):
     def get_admin(cls):
         """Get the admin user. The only one will be returned."""
         rv: Optional[User] = cls.query.filter_by(is_admin=True).first()
+        return rv
+
+    @classmethod
+    def set_admin(cls, identity, **kwargs):
+        """
+        设置管理员
+        :return:
+        """
+        rv = cls.get_admin()
         if not rv:
-            admin_info = {
-                'name': 'admin',
-                'email': current_app.config["ADMIN_EMAIL"] or settings.INFO_MAIL_ADDR,
-                'password': current_app.config["DEFAULT_ADMIN_PASSWORD"],
-                'is_admin': True,
-                'is_vip': True,
-                'profile': 'With great power comes great responsibility.'
-            }
-            rv = cls.create(**admin_info)
+            if not identity:
+                admin_info = {
+                    'name': 'admin',
+                    'email': current_app.config.get('ADMIN_EMAIL') or settings.INFO_MAIL_ADDR,
+                    'password': current_app.config.get('DEFAULT_ADMIN_PASSWORD') or 'secret9527',
+                    'is_admin': True,
+                    'is_vip': True,
+                    'profile': 'With great power comes great responsibility.'
+                }
+                rv = cls.create(**admin_info)
+            else:
+                rv = cls.lookup(identity)
+                rv.update(is_admin=True, **kwargs)
+            if settings.ADMIN_ROLE_NAME not in rv.rolenames:
+                role_inst = Role.query.filter_by(name=settings.ADMIN_ROLE_NAME).one_or_none()
+                if not role_inst:
+                    role_inst = Role.create(name=settings.ADMIN_ROLE_NAME)
+
+                rv.roles.append(role_inst)
+                rv.save()
         return rv
 
     @property
@@ -155,10 +174,10 @@ class User(PkModel, CreateDateModel):
         class method that takes a single ``id`` argument and returns user instance if
         there is one that matches or ``None`` if there is not.
         """
-        return cls.query.get(id)
+        return db.session.get(cls, id)
 
-    def is_valid(self):
-        return self.is_active
+    # def is_valid(self):
+    #     return self.is_active
 
 
 """

@@ -10,7 +10,7 @@ from apiflask import pagination_builder
 
 from sqlalchemy import inspect
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.sql import func
 
 from backend.fundmate import utils
@@ -41,8 +41,7 @@ class CRUDMixin(object):
         """Update specific fields of a record."""
         for attr, value in kwargs.items():
             setattr(self, attr, value)
-        if commit:
-            db.session.commit()
+        self.save(commit=commit)
         return self
 
     def save(self, commit: bool = True):
@@ -64,8 +63,14 @@ class CRUDMixin(object):
 
     def delete(self, commit: bool = True):
         """Remove the record from the database."""
-        db.session.delete(self)
-        return commit and db.session.commit()
+        # FIXME:删除的确存在没有正在删除的情况
+        if self:
+            db.session.delete(self)
+        if commit:
+            try:
+                db.session.commit()
+            except SQLAlchemyError as e:
+                logger.error(f'对象{self}删除数据出错 ERROR:{str(e)}')
 
     @classmethod
     def paginate_query(cls, query_args):
@@ -184,7 +189,7 @@ class PkModel(Model):
     #
     # def _repr(self, **fields: Dict[str, Any]) -> str:
     #     '''
-    #     see also:[python - SQLAlchemy best way to define __repr__ for large tables - Stack Overflow]
+    #     see also:[python - SQLAlchemy the best way to define __repr__ for large tables - Stack Overflow]
     #     (https://stackoverflow.com/questions/55713664/sqlalchemy-best-way-to-define-repr-for-large-tables)
     #     Helper for __repr__
     #     '''
@@ -275,7 +280,7 @@ def gen_digit_code(max_code: str, init_identifier: str, min_len: int = 6) -> Opt
     """
     fp_identifier = init_identifier
     max_identifier = db.session.query(func.max(max_code)).one_or_none()
-    if max_identifier != (None, ):
+    if max_identifier != (None,):
         max_num = max_identifier[0]
         if max_num is not None:
             increase_int = random.randrange(1, 3)

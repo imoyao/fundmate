@@ -13,6 +13,7 @@ from environs import Env as EnvParser
 
 from backend.fundmate.libs.dk_enums import BaseTypeEnum, ChoiceTypeDk, ChoiceTypeIntegerDk
 
+
 env = EnvParser()
 env.read_env()
 ENV = env.str('FLASK_ENV', default='default')  # default is dev
@@ -30,6 +31,8 @@ CACHE_TYPE = 'simple'  # Can be 'memcached', 'redis', etc.
 SQLALCHEMY_TRACK_MODIFICATIONS = False
 CURRENT_DIR = Path(__file__).resolve().parent
 INFO_MAIL_ADDR = 'fundmate@163.com'
+ADMIN_ROLE_NAME = 'admin'
+DEFAULT_CATEGORY_NAME = '全部'
 """
 1998年3月23日，按该办法要求设立的开元、金泰两家封闭式证券投资基金公开发行上市，标志着我国证券市场新的机构投资者——证券投资基金的出现，我国的投资基金开始了封闭式证券投资基金时代。1998年我国共成立了第一批5只封闭式基金：基金开元、基金金泰、基金兴华、基金安信和基金裕阳。
 2001年9月，经管理层批准，由华安基金管理公司成立了我国第一支开放式证券投资基金--华安创新，我国基金业的发展进入了一个崭新的阶段。
@@ -86,11 +89,11 @@ OP_PURCHASE = ChoiceTypeIntegerDk(1, 'purchase', '买入')
 REDEEM = ChoiceTypeIntegerDk(2, 'redeem', '卖出')
 TRANSFER = ChoiceTypeIntegerDk(3, 'transfer', '转换')
 REGULAR_INVEST = ChoiceTypeIntegerDk(4, 'regular_invest', '定投')
-CASH_BONUS = ChoiceTypeIntegerDk(5, 'cash_bonus', '现金分红')
+CASH_DIVIDEND = ChoiceTypeIntegerDk(5, 'cash_dividend', '现金分红')
 ADJUST = ChoiceTypeIntegerDk(6, 'adjust', '调仓')
 OTHER = ChoiceTypeIntegerDk(7, 'other', '其他')
 TRANSFER_REFUND = ChoiceTypeIntegerDk(8, 'transfer_refund', '基金转换退款')
-QUOT_BONUS = ChoiceTypeIntegerDk(9, 'quot_bonus', '份额分红')
+DIVIDEND_REINVESTMENT = ChoiceTypeIntegerDk(9, 'dividend_reinvestment', '红利再投资')
 DEPOSIT = ChoiceTypeIntegerDk(10, 'deposit', '存入')  # 从银行卡存入
 DRAW_OUT = ChoiceTypeIntegerDk(11, 'draw_out', '取出')  # 取出到银行卡
 REVOKE = ChoiceTypeIntegerDk(12, 'revoke', '撤销操作')  # 取出到银行卡
@@ -106,11 +109,11 @@ class FundOpTypeEnum(BaseTypeEnum):
     redeem = REDEEM
     transfer = TRANSFER
     regular_invest = REGULAR_INVEST
-    cash_bonus = CASH_BONUS
+    cash_dividend = CASH_DIVIDEND
     adjust = ADJUST
     other = OTHER
     transfer_refund = TRANSFER_REFUND
-    quot_bonus = QUOT_BONUS
+    dividend_reinvest = DIVIDEND_REINVESTMENT
     deposit = DEPOSIT
     draw_out = DRAW_OUT
     revoke = REVOKE
@@ -353,7 +356,7 @@ STOCK = ChoiceTypeDk('stock', '股票')
 BOND = ChoiceTypeDk('bond', '可转债')
 FUTURES = ChoiceTypeDk('futures', '期货')
 PORTFOLIO = ChoiceTypeDk('portfolio', '投顾组合')
-FINANCIAL_PRODUCT = ChoiceTypeDk('financial_product', '理财产品')
+FINANCIAL_PRODUCT = ChoiceTypeDk('fin_product', '理财产品')
 
 
 @enum.unique
@@ -366,10 +369,37 @@ class SupportInvestCategoriesEnum(BaseTypeEnum):
     bond = BOND
     futures = FUTURES
     portfolio = PORTFOLIO
-    financial_product = FINANCIAL_PRODUCT
+    fin_product = FINANCIAL_PRODUCT
 
     @classmethod
     def input(cls):
+        """
+        用户请求时需要用到
+        :return:
+        """
+        return [item.dk_value for item in cls]
+
+
+MANAGERS = ChoiceTypeDk('managers', '基金经理')
+INDEX = ChoiceTypeDk('index', '指数')
+
+
+@enum.unique
+class SupportCollectionsEnum(BaseTypeEnum):
+    """
+    支持自选的类别
+    """
+    fund = FUND
+    stock = STOCK
+    bond = BOND
+    futures = FUTURES
+    portfolio = PORTFOLIO
+    fin_product = FINANCIAL_PRODUCT
+    managers = MANAGERS
+    index = INDEX
+
+    @classmethod
+    def input(cls) -> list:
         """
         用户请求时需要用到
         :return:
@@ -384,6 +414,7 @@ class SupportInvestCategoriesEnum(BaseTypeEnum):
 - Can contain special characters
 """
 PASSWORD_REG = r'^(?=.*\d)(?=.*[a-z])(?=.*[a-zA-Z]).{6,}$'
+
 """flask-praetorian 相关配置项"""
 
 SITE_NAME = env.str('SITE_NAME', default='你的网站名称')
@@ -405,7 +436,6 @@ DEFAULT_RESET_SUBJECT = f'您在 {SITE_NAME} 发起重置密码请求'
 DEFAULT_CONFIRMATION_URI = 'http://localhost:5000/register-confirm'
 DEFAULT_RESET_URI = 'http://localhost:5000/reset-password'
 
-ADMIN_ROLE_NAME = 'admin'
 """
 # 好买
 年化收益率代表期间内收益率的年化值。注：区间小于1年不展示年化收益率；
@@ -423,24 +453,29 @@ INDICATOR_DOCS = [{
     'docs': ['组合内成分基金的累计收益率，代表了每只成分基金在组合中截至目前的收益率情况']
 }, {
     'type':
-    'max_drawdown',
+        'max_drawdown',
     'title':
-    '最大回撤',
+        '最大回撤',
     'docs': [
-        '组合成立以来，净值走到最低点时的收益率回撤幅度的最大值。', ' 最大回撤用来描述买入产品后可能出现的最糟糕的情况。通常用来衡量该组合的抗风险能力。', '计算组合成立以来时间的回撤，基准指数的时间范围与组合一致。',
+        '组合成立以来，净值走到最低点时的收益率回撤幅度的最大值。',
+        ' 最大回撤用来描述买入产品后可能出现的最糟糕的情况。通常用来衡量该组合的抗风险能力。',
+        '计算组合成立以来时间的回撤，基准指数的时间范围与组合一致。',
         '指标越小越好'
     ]
 }, {
     'type': 'votility',
     'title': '年化波动率',
-    'docs': ['代表组合资产收益率的年化波动 程度。通常用来衡量该组合的风险水平。', '以近一年的周涨跌计算年化波动率，若组合成立时间不足半年，不具备参考价值，不展示该数据。', '指标越小越好']
+    'docs': ['代表组合资产收益率的年化波动 程度。通常用来衡量该组合的风险水平。',
+             '以近一年的周涨跌计算年化波动率，若组合成立时间不足半年，不具备参考价值，不展示该数据。', '指标越小越好']
 }, {
     'type':
-    'sharpe',
+        'sharpe',
     'title':
-    '夏普比率',
+        '夏普比率',
     'docs': [
-        '代表每承受一单位总风险，会产生多少的超额报酬。', ' 如果夏普比率为正值，说明在近一年组合平均收益率超过了无风险利率。', '以近一年的组合数据计算夏普，若组合成立时间不足半年，不具备参考价值，不展示该数据。',
+        '代表每承受一单位总风险，会产生多少的超额报酬。',
+        ' 如果夏普比率为正值，说明在近一年组合平均收益率超过了无风险利率。',
+        '以近一年的组合数据计算夏普，若组合成立时间不足半年，不具备参考价值，不展示该数据。',
         '该值越高说明产品的性价比越高'
     ]
 }, {

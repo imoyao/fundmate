@@ -13,9 +13,9 @@ import sys
 import time
 from pprint import pprint
 
-from sql_model.fund_query import FundQuery
-from sql_model.stock_query import StockQuery
-from utils.index import fisrt_match_condition_from_list, get_quarter_index
+from ..sql_model.fund_query import FundQuery
+from ..sql_model.stock_query import StockQuery
+from ..utils.index import fisrt_match_condition_from_list, get_quarter_index
 
 sys.path.append('../')
 sys.path.append(os.getcwd() + '/src')

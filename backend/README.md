@@ -66,6 +66,9 @@ flask db init
 flask db migrate
 flask db upgrade
 ```
+::: danger 数据库升级报错
+如果遇到报错 `ERROR [flask_migrate] Error: Can't locate revision identified by 'xxxx'`，可能是分支切换导致的，可以尝试将数据表`alembic_version`删除后重试。
+:::
 
 ## Deployment
 
@@ -141,7 +144,7 @@ To apply the migration.
 
 For a full migration command reference, run `docker-compose run --rm manage db --help`.
 
-If you will deploy your application remotely (e.g on Heroku) you should add the `migrations` folder to version control.
+If you deploy your application remotely (e.g. on Heroku) you should add the `migrations` folder to version control.
 You can do this after `flask db migrate` by running the following commands
 
 ```bash

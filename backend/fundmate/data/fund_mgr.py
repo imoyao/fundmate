@@ -11,7 +11,7 @@ from backend.fundmate import utils
 from backend.fundmate.data.utils import base as dt_utils
 
 
-class FundMgr:
+class FundManager:
     """
     爬取各种基金经理排名，将其写入数据库
     """
@@ -20,7 +20,8 @@ DNT: 1
 Referer: https://www.cmtzz.cn/
 sec-ch-ua: " Not;A Brand";v="99", "Microsoft Edge";v="91", "Chromium";v="91"
 sec-ch-ua-mobile: ?0
-User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36 Edg/91.0.864.70
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 \
+Safari/537.36 Edg/91.0.864.70
 '''
 
     def cmtzz(self):
@@ -42,7 +43,7 @@ User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
              }
          ……
         }
-        :return: 
+        :return:
         """
         _desc = '''立足于长期：选择管理时间超过3年的现役基金经理，引导长期投资理念；
 
@@ -52,7 +53,7 @@ User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 
 管理人能力评价：结合管理规模、风格稳定性、投研水平、投资管理流程等进行更深度考察；
 参阅 [聪明投资者TOP30基金经理筛选方法和指标|聪明投资者](https://www.cmtzz.cn/article/30118)
-        '''
+        '''  # noqa:F841
         _info = self.cmtzz_info()
         _detail = self.ct_detail()
 
@@ -97,7 +98,7 @@ User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
          'scale': 37995519405.36,   # 管理基金总规模
          'workingDay': 18}          # 累计任职时间（年）
 
-        :return: 
+        :return:
         """
         _url = 'https://api.cmtzz.cn/api/v1/fund-managers'
         hd = dt_utils.parse_headers(self.CT_HEADER_STR)
@@ -109,11 +110,11 @@ User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
         都是图片，如何抓取？
         只能获取媒体报导链接
         [蛋卷基金名人堂](https://danjuanfunds.com/activity/warband-team/jjmrt)
-        :return: 
+        :return:
         """
         pass
 
 
 if __name__ == '__main__':
-    fm = FundMgr()
+    fm = FundManager()
     print(fm.cmtzz())
