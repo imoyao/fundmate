@@ -9139,7 +9139,6 @@ minipass@^3.1.0, minipass@^3.1.3, minipass@^3.1.6:
   dependencies:
     yallist "^4.0.0"
 
-
 minizlib@^2.0.0, minizlib@^2.1.1, minizlib@^2.1.2:
   version "2.1.2"
   resolved "https://registry.npmmirror.com/minizlib/-/minizlib-2.1.2.tgz#e90d3466ba209b932451508a11ce3d3632145931"
@@ -12607,10 +12606,10 @@ tiny-relative-date@^1.3.0:
   resolved "https://registry.npmmirror.com/tiny-relative-date/-/tiny-relative-date-1.3.0.tgz#fa08aad501ed730f31cc043181d995c39a935e07"
   integrity sha512-MOQHpzllWxDCHHaDno30hhLfbouoYlOI8YlMNtvKe1zXbjEVhbcEovQxvZrPvtiYW630GQDoMMarCnjfyfHA+A==
 
-tinymce@^5.7.1:
-  version "5.7.1"
-  resolved "https://registry.yarnpkg.com/tinymce/-/tinymce-5.7.1.tgz#658a6fb4c7d53a8496cc00f8da33f4b8290da06d"
-  integrity sha512-1gY8RClc734srSlkYwY0MQzmkS1j73PuPC+nYtNtrrQVPY9VNcZ4bOiRwzTbdjPPD8GOtv6BAk8Ww/H2RiqKpA==
+tinymce@^8.0.2:
+  version "8.0.2"
+  resolved "https://registry.yarnpkg.com/tinymce/-/tinymce-8.0.2.tgz#babaaa40c154d0832b41332f25f3485b5887a6f2"
+  integrity sha512-Gkvn5mRcZCAK1EKP7hnk3VBzwqPbqpZU2AN0T08BMtvmY9Sg0C0ZqmMghJCQ3vgo+LWA38pDOPiaM8EW7BZEow==
 
 tmp@^0.0.33:
   version "0.0.33"
