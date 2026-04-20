@@ -42,8 +42,13 @@ yarn docs:lint-md
 ```bash
 cd frontend
 yarn install
-yarn run dev
+yarn run serve
 ```
+:::info
+提示 *There is an issue with `node-fibers` *
+
+参阅：[node 16.X 或更高版本 fibers 出错 is missing._fibers.node-CSDN博客](https://blog.csdn.net/weixin_44149645/article/details/121362208)
+:::
 
 ### 后端
 - 安装开发环境
