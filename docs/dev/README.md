@@ -15,22 +15,29 @@ title: 开发指南
 - 预览
 
 你可以使用如下命令在本地生成预览文档：
+
 ```bash
 yarn docs:dev
 ```
+
 - build
+
 ```bash
 yarn docs:build
 ```
+
 - 更新
 
 从 master/dev 分支合并更新
+
 ```bash
 git checkout docs # 因为目录存在docs，所以使用`git switch docs` 切换分支或者 `git checkout master` 切换到 master 分支
 git pull
 git checkout dev docs/*  # dev为要合并的分支，docs为要合并的目录
 ```
+
 - lint 文档
+
 ```bash
 yarn docs:lint-md
 ```
@@ -44,55 +51,74 @@ cd frontend
 yarn install
 yarn run serve
 ```
-:::info
-提示 *There is an issue with `node-fibers` *
 
-参阅：[node 16.X 或更高版本 fibers 出错 is missing._fibers.node-CSDN博客](https://blog.csdn.net/weixin_44149645/article/details/121362208)
+:::info
+提示 *There is an issue with `node-fibers`*
+
+参阅：[node 16.X 或更高版本 fibers 出错 is missing._fibers.node-CSDN 博客](https://blog.csdn.net/weixin_44149645/article/details/121362208)
 :::
 
 ### 后端
+
 - 安装开发环境
 目前使用[pip-compile-multi](https://pip-compile-multi.readthedocs.io/en/latest/migration.html) 管理项目依赖的更新。
+
 ```bash
 cd backend
 python3 -m venv fmp
 source fmp/bin/activate
 pip install -Ur requirements/dev.txt
 ```
+
 :::tip
 如果使用默认源不够快可以考虑换源：
+
 ```shell
 pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/
 
 pip config set install.trusted-host mirrors.aliyun.com
 
 ```
+
 :::
+
 - 修改环境变量`.env`
+
 ```plain
 flask run --host=0.0.0.0
 ```
+
 - 安装生产环境依赖
+
 ```plain
 # fundmate/backend
 pip install -Ur requirements/base.txt
 ```
+
 - 更新依赖
+
 ```bash
 pip-compile-multi
 ```
+
 如果报错`UnicodeDecodeError: 'gbk' codec can't decode byte 0xaf in position 87: illegal multibyte sequence`，可能是编码问题，需要配置`set PYTHONUTF8=1`然后重新执行。
 
 ### 启动数据库
+
 - 初始化数据库
+
 ```bash
 flask init-db # 更多命令执行flask --help 查看
 ```
+
 ## 数据来源
+
 1. `http://fund.eastmoney.com/js/fundcode_search.js` 数据 13420 条
 2. `https://api.doctorxiong.club/v1/fund/all` 数据 11736 条
 3. `http://fund.eastmoney.com/fund.html` 数据 11493 条
+
 - 更新基金相关数据
+
 ```bash
 # 默认只更新基金信息
 flask update-db
