@@ -1,16 +1,17 @@
-# pyproject.toml
 [project]
 name = "showbuy"
 version = "0.1.0"
 description = "个人投资记账系统 V2 - 重构版"
 authors = [
-    {name = "imoyao", email = "immoyao@gmail.com"},
+    { name = "imoyao", email = "immoyao@gmail.com" },
 ]
 dependencies = [
-    "apiflask>=2.0.0",
-    "sqlalchemy>=2.0",
-    "pydantic>=2.0",
+    "apiflask>=3.1.0",
+    "sqlalchemy>=2.0.49",
+    "pydantic>=2.13.4",
     "uv>=0.11.11",
+    "flask>=3.1.3",
+    "uvicorn>=0.46.0",
 ]
 requires-python = ">=3.12"
 
@@ -18,20 +19,10 @@ requires-python = ">=3.12"
 requires = ["pdm-backend"]
 build-backend = "pdm.backend"
 
-[tool.pdm]
-[[tool.pdm.source]]
-name = "pypi"
-url = "https://mirrors.aliyun.com/pypi/simple/"
-verify_ssl = true
-
-[tool.pdm.dev-dependencies]
-test = [
-    "pytest>=7.0",
-]
-
 [dependency-groups]
 dev = [
     "ruff>=0.15.12",
+    "pytest>=9.0.3",
 ]
 
 [tool.ruff]
@@ -42,20 +33,21 @@ target-version = "py312"
 [tool.ruff.lint]
 # 选择规则：启用 pyflakes, pycodestyle, isort
 select = [
-    "E",     # pycodestyle errors
-    "W",     # pycodestyle warnings
-    "F",     # Pyflakes (未使用变量、未定义变量等)
-    "I",     # isort (导入排序)
-    "Q",     # flake8-quotes (引号一致性，本节核心)
+    "E", # pycodestyle errors
+    "W", # pycodestyle warnings
+    "F", # Pyflakes (未使用变量、未定义变量等)
+    "I", # isort (导入排序)
+    "Q", # flake8-quotes (引号一致性，本节核心)
 ]
 # 忽略特定规则，如未使用的变量
-ignore = ["F841"]
+ignore = ["F841", "E501", "Q000", "Q003"]
 
 [tool.ruff.lint.isort]
 # 对应原来的 isort 配置
-known-first-party = ["backend"]
+known-first-party = ["app"]
 known-third-party = ["flask", "apiflask", "sqlalchemy", "pydantic"]
-sections = ["FUTURE", "STDLIB", "THIRDPARTY", "FIRSTPARTY", "LOCALFOLDER"]
+# 如果需要自定义 section 顺序，新版 ruff 要求使用字典格式：
+# section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
 
 [tool.ruff.format]
 # Ruff 的 formatter 默认类似 Black
@@ -67,4 +59,15 @@ skip-magic-trailing-comma = false
 testpaths = ["tests"]
 filterwarnings = [
     "ignore::DeprecationWarning",
+]
+
+[tool.pdm]
+[[tool.pdm.source]]
+name = "pypi"
+url = "https://mirrors.aliyun.com/pypi/simple/"
+verify_ssl = true
+
+[tool.pdm.dev-dependencies]
+test = [
+    "pytest>=7.0",
 ]

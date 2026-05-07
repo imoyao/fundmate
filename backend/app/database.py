@@ -1,12 +1,16 @@
-# app/database.py
+# -*- coding: utf-8 -*-
+"""数据库连接与基础仓储类."""
+
+from contextlib import contextmanager
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
-# 注意：更新为你本地的数据库连接，这里沿用你熟悉的 SQLite
 SQLALCHEMY_DATABASE_URL = 'sqlite:///./invest.db'
 
 engine = create_engine(
-    SQLALCHEMY_DATABASE_URL, connect_args={'check_same_thread': False}
+    SQLALCHEMY_DATABASE_URL,
+    connect_args={'check_same_thread': False},
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -14,21 +18,24 @@ Base = declarative_base()
 
 
 class BaseRepository:
-    """为所有模型提供基础数据库操作的混入类"""
+    """为所有模型提供基础数据库操作的混入类."""
 
     def save(self, db: Session):
+        """保存实例到数据库."""
         db.add(self)
         db.commit()
         db.refresh(self)
         return self
 
     def delete(self, db: Session):
+        """从数据库删除实例."""
         db.delete(self)
         db.commit()
 
 
-# 数据库依赖注入函数，每个API请求都会获取独立的会话
+@contextmanager
 def get_db():
+    """上下文管理器形式的数据库会话，自动关闭连接."""
     db = SessionLocal()
     try:
         yield db
@@ -36,6 +43,6 @@ def get_db():
         db.close()
 
 
-# 初始化数据库，建表
 def init_db():
+    """创建所有数据库表."""
     Base.metadata.create_all(bind=engine)
