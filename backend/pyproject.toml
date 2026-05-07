@@ -1,0 +1,70 @@
+# pyproject.toml
+[project]
+name = "showbuy"
+version = "0.1.0"
+description = "个人投资记账系统 V2 - 重构版"
+authors = [
+    {name = "imoyao", email = "immoyao@gmail.com"},
+]
+dependencies = [
+    "apiflask>=2.0.0",
+    "sqlalchemy>=2.0",
+    "pydantic>=2.0",
+    "uv>=0.11.11",
+]
+requires-python = ">=3.12"
+
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
+
+[tool.pdm]
+[[tool.pdm.source]]
+name = "pypi"
+url = "https://mirrors.aliyun.com/pypi/simple/"
+verify_ssl = true
+
+[tool.pdm.dev-dependencies]
+test = [
+    "pytest>=7.0",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.12",
+]
+
+[tool.ruff]
+# 继承原来 yapf 的配置：120 字符行宽
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+# 选择规则：启用 pyflakes, pycodestyle, isort
+select = [
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # Pyflakes (未使用变量、未定义变量等)
+    "I",     # isort (导入排序)
+    "Q",     # flake8-quotes (引号一致性，本节核心)
+]
+# 忽略特定规则，如未使用的变量
+ignore = ["F841"]
+
+[tool.ruff.lint.isort]
+# 对应原来的 isort 配置
+known-first-party = ["backend"]
+known-third-party = ["flask", "apiflask", "sqlalchemy", "pydantic"]
+sections = ["FUTURE", "STDLIB", "THIRDPARTY", "FIRSTPARTY", "LOCALFOLDER"]
+
+[tool.ruff.format]
+# Ruff 的 formatter 默认类似 Black
+quote-style = "single"
+indent-style = "space"
+skip-magic-trailing-comma = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
