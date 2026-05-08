@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # Auther : imoyao
 # Date : 2026/5/7 21:16
-# File : position.py
+# File : models.py
 
 """持仓数据模型 — 继承自旧版 AccountTransactionRecord 设计，适配统一一张表."""
 
@@ -10,7 +10,7 @@ from datetime import date, datetime
 from sqlalchemy import Date, DateTime, Float, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.database import Base
+from app.core.database import Base
 
 
 class Position(Base):

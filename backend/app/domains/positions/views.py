@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 # Auther : imoyao
 # Date : 2026/5/7 21:19
-# File : positions.py
+# File : views.py
 """持仓相关 API."""
 
 from apiflask import APIBlueprint
 from flask import abort
 
-from app.database import get_db
-from app.models.position import Position
-from app.schemas.position import PositionCreate, PositionOut, PositionUpdate
+from app.core.database import get_db
+from app.domains.positions.models import Position
+from app.domains.positions.schemas import PositionCreate, PositionOut, PositionUpdate
 
 bp = APIBlueprint('positions', __name__, url_prefix='/api/positions')
 

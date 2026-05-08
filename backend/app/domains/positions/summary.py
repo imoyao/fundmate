@@ -8,8 +8,8 @@
 
 from apiflask import APIBlueprint
 
-from app.database import get_db
-from app.models.position import Position
+from app.core.database import get_db
+from app.domains.positions.models import Position
 
 bp = APIBlueprint('summary', __name__, url_prefix='/api')
 

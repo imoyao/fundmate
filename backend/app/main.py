@@ -6,7 +6,10 @@
 
 from apiflask import APIFlask
 
-from app.database import init_db
+from app.core.database import init_db
+from app.domains.health import bp as health_bp
+from app.domains.positions.summary import bp as summary_bp
+from app.domains.positions.views import bp as positions_bp
 
 
 def create_app() -> APIFlask:
@@ -19,15 +22,10 @@ def create_app() -> APIFlask:
     )
 
     # 注册蓝图
-    from app.api.health import bp as health_bp
 
     app.register_blueprint(health_bp)
 
-    from app.api.positions import bp as positions_bp
-
     app.register_blueprint(positions_bp)
-
-    from app.api.summary import bp as summary_bp
 
     app.register_blueprint(summary_bp)
 
