@@ -110,22 +110,28 @@ class FundMiddleWare:
         result = fr_redeem_schema.dump(fee_ratio)
         return result
 
-    def charge_amount(self, amount: Union[int, float] = 10000, charge_rate: float = 0.15):
+    def charge_amount(self, amount: Union[int, float] = 10000, charge_rate: float = 0.15, is_round=False):
         """
         申购费
         :return:
         """
         _real_amount = self.real_amount(amount, charge_rate)
-        fee_value = amount - _real_amount
-        return fee_value
+        _fee_value = amount - _real_amount
+        if is_round:
+            _fee_value = round(_fee_value, 2)
+        return _fee_value
 
     @staticmethod
-    def real_amount(amount: Union[int, float] = 10000, charge_rate: float = 0.15):
+    def real_amount(amount: Union[int, float] = 10000, charge_rate: float = 0.15, is_round=False):
         """
         净申购金额
         :return:
         """
-        return amount / (1 + charge_rate / 100.0)
+        _result = amount / (1 + charge_rate / 100.0)
+        if is_round:
+            _result = round(_result, 2)
+        print(_result)
+        return _result
 
     def share_holders(self,
                       amount: Union[int, float] = 10000,
@@ -192,7 +198,13 @@ class FundMiddleWare:
         _real_amount = round(_redeem_amount - _charge_amount, 2)
         return {'charge_amount': rd_charge_amount, 'real_amount': _real_amount}
 
-    def check_is_redeem_able(self, hold_shares: float, redeem_shares: float):
+    def check_is_able_to_redeem(self, hold_shares: float, redeem_shares: float):
+        """
+        是否可以赎回
+        :param hold_shares:
+        :param redeem_shares:
+        :return:
+        """
         return hold_shares >= redeem_shares
 
     def get_share_distribution(self):
@@ -222,7 +234,7 @@ class FundMiddleWare:
         """
         durations = utils.cal_durations(purchase_confirm_date, redeem_confirm_date)
         hold_shares = 1000  # TODO: 查询数据库获取持有的份额
-        is_redeem_able = self.check_is_redeem_able(hold_shares, redeem_shares)
+        is_redeem_able = self.check_is_able_to_redeem(hold_shares, redeem_shares)
         return is_redeem_able, durations
 
 
@@ -354,8 +366,8 @@ class Booking:
         f.cal_purchase_info(amount)
 
     def redeem(
-        self,
-        fund_code: str,
+            self,
+            fund_code: str,
     ):
         """
         赎回/卖出/支取
@@ -385,8 +397,8 @@ class Booking:
         pass
 
     def sale(
-        self,
-        fund_code: str,
+            self,
+            fund_code: str,
     ):
         """赎回/卖出/支取"""
         pass

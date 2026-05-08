@@ -15,6 +15,7 @@ from backend.fundmate import settings, utils
 from backend.fundmate.database import db, get_table_name
 from backend.fundmate.errors import HTTPClientError, HTTPServerError, ServerError, UserInputError
 from backend.fundmate.fund.base import FundMiddleWare
+from backend.fundmate.fund.logics import check_sum_compositions
 from backend.fundmate.fund.models import (
     Fund,
     FundCompany,
@@ -46,7 +47,6 @@ from backend.fundmate.fund.schemas import (
 )
 from backend.fundmate.libs.pysnowflake import snowflake
 from backend.fundmate.schema_ext import CustomPaginationSchema
-from backend.fundmate.types import PdDataFrame
 
 
 bp = APIBlueprint('fund', __name__, url_prefix='/funds')
@@ -198,18 +198,6 @@ class FundFavor(MethodView):
         pass
 
 
-def check_sum_compositions(compositions: PdDataFrame) -> bool:
-    """
-    检查组合合计为1
-    :param compositions:
-    :return:
-    """
-    comp_df = pd.DataFrame(compositions)
-    comp_df['portion'] = comp_df.portion.apply(lambda x: x / 100)
-    total = comp_df['portion'].sum()
-    return total == 1.0
-
-
 @bp.route('/portfolios')
 class FundCombination(MethodView):
     """
@@ -234,6 +222,7 @@ class FundCombination(MethodView):
     @auth_required
     @bp.input(FundPortfolioInSchema)
     @bp.output(FundPortfolioDetailOutSchema, 201)
+    @bp.doc(security='Bearer')
     def post(self, data):
         """
         平台用户创建组合
@@ -327,7 +316,7 @@ class CombinationDetail(MethodView):
 
     @auth_required
     @bp.output({}, 204)
-    @bp.doc(summary='删除指定基金组合', description='该接口用于删除特定组合，需要给出组合编码')
+    @bp.doc(security='Bearer', summary='删除指定基金组合', description='该接口用于删除特定组合，需要给出组合编码')
     def delete(self, portfolio_code: str):
         """
         删除回测组合
@@ -371,7 +360,7 @@ class CombinationDetail(MethodView):
     @auth_required
     @bp.input(FundPortfolioPatchInSchema(partial=True))
     @bp.output(FundPortfolioDetailOutSchema)
-    @bp.doc(summary='部分更新指定基金组合',
+    @bp.doc(security='Bearer', summary='部分更新指定基金组合',
             description='该接口用于更新特定组合（如：名称、风险等级、描述、可见性、投资理念），需要给出组合编码')
     def patch(self, portfolio_code: str, data: Dict):
         """

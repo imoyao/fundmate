@@ -159,7 +159,6 @@ class TestXIRR:
     ])
     def test_clean_xirr(self, values_per_date_string, expected):
         values_per_date = {datetime.fromisoformat(k).date(): v for k, v in values_per_date_string.items()}
-        print(values_per_date, 'values_per_date-----')
         # return None
         _val_list = list(values_per_date.values())
         _dates = list(values_per_date.keys())

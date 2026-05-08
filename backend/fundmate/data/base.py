@@ -13,10 +13,10 @@ class StrategyMeta(type):
     所有组合爬虫类必须实现detail方法以返回特定组合的持仓
     """
 
-    def __new__(metacls, name, bases, namespace, **kwargs):
+    def __new__(mcs, name, bases, namespace, **kwargs):
         if name != 'Base' and 'detail' not in namespace:
             raise TypeError('Bad StrategyMeta class!')
-        return super().__new__(metacls, name, bases, namespace, **kwargs)
+        return super().__new__(mcs, name, bases, namespace, **kwargs)
 
 
 class StrategyBase(metaclass=StrategyMeta):
@@ -37,14 +37,6 @@ class SB1(StrategyBase):
         pass
 
 
-# class SB2(StrategyBase):
-#     def baz(self):
-#         pass
-
-
 if __name__ == '__main__':
     sb1 = SB1()
     sb1.detail(code='12345')
-    # 未实现detail()方法则报错
-    # sb2 = SB2()
-    # sb2.baz()
