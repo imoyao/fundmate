@@ -10,6 +10,7 @@ from flask import abort
 from app.core.database import get_db
 from app.domains.positions.models import Position
 from app.domains.positions.schemas import PositionCreate, PositionOut, PositionUpdate
+from app.domains.transactions.models import Transaction
 
 bp = APIBlueprint('positions', __name__, url_prefix='/api/positions')
 
@@ -27,11 +28,29 @@ def list_positions():
 @bp.input(PositionCreate)
 @bp.output(PositionOut, status_code=201)
 def create_position(json_data):
-    """新增一条持仓记录."""
+    """新增一条持仓记录，同时自动生成初始买入流水."""
     with get_db() as db:
-        position = Position(**json_data.model_dump())
+        # 分离属于 Position 的字段和属于 Transaction 的字段
+        position_fields = json_data.model_dump(exclude={'fee', 'confirm_date', 'notes'})
+        position = Position(**position_fields)
         position.current_price = position.avg_price
         db.add(position)
+        # 先刷新，拿到 position.id
+        db.flush()
+
+        # 自动创建初始交易流水
+        init_txn = Transaction(
+            position_id=position.id,
+            type='buy',
+            trade_date=position.purchase_date,
+            quantity=position.quantity,
+            price=position.avg_price,
+            fee=json_data.fee or 0.0,
+            amount=position.quantity * position.avg_price,
+            confirm_date=json_data.confirm_date,
+            notes=json_data.notes or '初始买入',
+        )
+        db.add(init_txn)
         db.commit()
         db.refresh(position)
         return position

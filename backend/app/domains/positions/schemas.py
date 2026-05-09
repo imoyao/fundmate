@@ -20,6 +20,10 @@ class PositionCreate(BaseModel):
     avg_price: float = Field(..., gt=0)
     currency: str = 'CNY'
     purchase_date: date
+    # ↓ 新增可选字段
+    fee: Optional[float] = Field(0.0, ge=0)
+    confirm_date: Optional[date] = None
+    notes: Optional[str] = Field(None, max_length=300)
 
 
 class PositionUpdate(BaseModel):
