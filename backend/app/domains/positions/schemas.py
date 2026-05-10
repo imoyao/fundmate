@@ -24,6 +24,13 @@ class PositionCreate(BaseModel):
     fee: Optional[float] = Field(0.0, ge=0)
     confirm_date: Optional[date] = None
     notes: Optional[str] = Field(None, max_length=300)
+    # 🆕 操作相关
+    op_type: Optional[str] = 'buy'
+    position_id: Optional[int] = None
+    # 🆕 其他元数据
+    isAfter15: Optional[bool] = False
+    interestRate: Optional[float] = 0.0
+    allocation: Optional[str] = 'longterm'
 
 
 class PositionUpdate(BaseModel):
@@ -46,6 +53,7 @@ class PositionOut(PositionCreate):
     current_price: float
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    allocation: Optional[str] = 'longterm'  # 确保有这一行
 
     class Config:
         from_attributes = True

@@ -22,6 +22,7 @@ class Position(Base):
     market: Mapped[str] = mapped_column(String(10))
     type: Mapped[str] = mapped_column(String(20))
     account_name: Mapped[str] = mapped_column(String(50))
+    allocation: Mapped[str | None] = mapped_column(String(20), nullable=True, default='longterm')
     quantity: Mapped[float] = mapped_column(Float)
     avg_price: Mapped[float] = mapped_column(Float)
     currency: Mapped[str] = mapped_column(String(3), default='CNY')

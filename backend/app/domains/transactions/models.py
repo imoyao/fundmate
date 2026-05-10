@@ -26,7 +26,12 @@ class Transaction(Base):
     price: Mapped[float] = mapped_column(Float, default=0.0)  # 操作价格 (成交价)
     fee: Mapped[float] = mapped_column(Float, default=0.0)  # 手续费
     amount: Mapped[float] = mapped_column(Float, default=0.0)  # 操作总金额
-
+    # 🆕 交易状态
+    status: Mapped[str] = mapped_column(String(20), default='success')
+    # 🆕 资产名称快照
+    position_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # 🆕 账户/渠道快照
+    account_name: Mapped[str | None] = mapped_column(String(50), nullable=True)
     # --- 进阶记帐要素 (P1 必填，MVP 可选) ---
     confirm_date: Mapped[date | None] = mapped_column(Date, nullable=True)  # 确认日期 (到账日)
     unit_type: Mapped[str | None] = mapped_column(String(20), nullable=True)  # 单位: share, lot, piece

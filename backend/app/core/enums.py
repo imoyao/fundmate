@@ -62,3 +62,22 @@ class OpTypeEnum(int, Enum):
     deposit = 10  # 存入
     draw_out = 11  # 取出
     dividend = 5  # 现金分红
+
+
+TYPE_LABELS = {
+    'stock': '股票',
+    'fund': '基金',
+    'bond': '可转债',
+    'crypto': '虚拟货币',
+    'saving': '银行存款',
+    'cash': '现金',
+    'static': '其他',
+}
+MARKET_LABELS = {'CN_A': 'A股', 'CN_HK': '港股', 'US': '美股', 'CRYPTO': '虚拟币'}
+ALLOCATION_LABELS = {
+    'liquid': '活钱',
+    'stable': '稳健底仓',
+    'longterm': '长期增值',
+    'speculative': '高风险博弈',
+    'security': '保险保障',
+}

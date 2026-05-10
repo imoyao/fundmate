@@ -42,7 +42,10 @@ def summary():
         market_distribution[p.market] += market_value
 
     return {
-        'total_assets_cny': round(total_assets_cny, 2),
-        'total_pnl_cny': round(total_pnl_cny, 2),
-        'market_distribution': {k: round(v, 2) for k, v in market_distribution.items()},
+        'data': {
+            'total_assets_cny': round(total_assets_cny, 2),
+            'total_pnl_cny': round(total_pnl_cny, 2),
+            'market_distribution': {k: round(v, 2) for k, v in market_distribution.items()},
+        },
+        'message': 'ok',
     }
