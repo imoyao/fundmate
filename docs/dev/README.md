@@ -70,8 +70,8 @@ yarn docs:lint-md
 
 ```bash
 cd frontend
-yarn install
-yarn run serve
+pnpm install
+pnpm serve # 也可以使用 pnpm dev
 ```
 
 :::info
