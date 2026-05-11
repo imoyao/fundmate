@@ -29,6 +29,9 @@ export interface Position {
   notes: string | null;
   created_at: string;
   updated_at: string;
+  type_label?: string;
+  market_label?: string;
+  allocation_label?: string;
 }
 
 /** 创建持仓请求体 */

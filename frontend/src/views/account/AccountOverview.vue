@@ -166,13 +166,13 @@
         <el-table-column prop="type" label="类型" width="90">
           <template #default="{ row }">
             <el-tag :type="typeTagType(row.type)" size="small" effect="plain">
-              {{ typeLabel(row.type) }}
+              {{ row.type_label || typeLabel(row.type) }}
             </el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="market" label="市场" width="70">
           <template #default="{ row }">
-            {{ marketLabel(row.market) }}
+            {{ row.market_label || marketLabel(row.market) }}
           </template>
         </el-table-column>
         <el-table-column prop="account_name" label="账户" width="110" />
@@ -414,13 +414,13 @@ function onSizeChange(size: number) {
 // 类型标签样式
 function typeTagType(type: string) {
   const map: Record<string, string> = {
-    stock: "",
+    stock: "primary",
     fund: "warning",
     bond: "info",
     crypto: "danger",
     saving: "success",
     cash: "success",
-    static: ""
+    static: "info"
   };
   return map[type] || "";
 }
