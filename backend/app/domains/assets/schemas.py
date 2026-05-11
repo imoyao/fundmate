@@ -17,7 +17,7 @@ class AssetCreate(BaseModel):
     major_category: str = Field(..., max_length=20)
     minor_category: Optional[str] = Field(None, max_length=50)
     name: str = Field(..., max_length=200)
-    amount: float = Field(..., gt=0)
+    amount: float = Field(..., description='资产金额，正数表示资产，负数表示负债')
     currency: str = 'CNY'
     account_name: Optional[str] = Field(None, max_length=50)
     allocation: Optional[str] = 'longterm'

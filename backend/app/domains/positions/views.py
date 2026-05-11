@@ -20,7 +20,7 @@ bp = APIBlueprint('positions', __name__, url_prefix='/api/positions')
 def _enrich_position_dict(p: Position) -> dict:
     """为持仓对象生成附带标签的字典."""
     d = PositionOut.model_validate(p).model_dump()
-    d['type_label'] = TYPE_LABELS.get(p.type, p.type)
+    d['type_label'] = TYPE_LABELS.get(p.asset_type, p.asset_type)
     d['market_label'] = MARKET_LABELS.get(p.market, p.market)
     d['allocation_label'] = ALLOCATION_LABELS.get(p.allocation, p.allocation or '未分类')
     return d
@@ -49,8 +49,8 @@ def list_positions():
                         'id': p.id,
                         'symbol': p.symbol,
                         'name': p.name,
-                        'type': p.type,
-                        'type_label': TYPE_LABELS.get(p.type, p.type),
+                        'type': p.asset_type,
+                        'type_label': TYPE_LABELS.get(p.asset_type, p.asset_type),
                         'market': p.market,
                         'market_label': MARKET_LABELS.get(p.market, p.market),
                         'allocation': p.allocation,
@@ -72,8 +72,15 @@ def list_positions():
 @bp.post('/')
 @bp.input(PositionCreate)
 def create_position(json_data):
-    """新增/修改持仓，并写入交易流水."""
-    # 合并 op_type 与 position_id 字段到字典
+    """新增/修改持仓，并写入交易流水.
+
+    支持的操作类型:
+    - buy: 买入（创建新持仓 + 买入流水）
+    - sell: 卖出（减少持仓数量 + 卖出流水）
+    - dividend: 分红（不改变持仓数量 + 分红流水）
+    - deposit: 存入（增加持仓 + 存入流水）
+    - withdraw: 取出（减少持仓 + 取出流水）
+    """
     data = json_data.model_dump()
     op_type = data.get('op_type', 'buy')
 
@@ -98,11 +105,10 @@ def create_position(json_data):
 
 @bp.patch('/<int:id>')
 @bp.input(PositionUpdate)
-@bp.output(PositionOut, status_code=200)
-def update_position(p_id, json_data):
+def update_position(id, json_data):
     """使用 PATCH 语义仅更新修改过的字段 (例如 current_price)."""
     with get_db() as db:
-        position = db.query(Position).filter_by(id=p_id).first()
+        position = db.query(Position).filter_by(id=id).first()
         if not position:
             abort(404, description='Position not found')
 

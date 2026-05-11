@@ -7,6 +7,7 @@
 """首页仪表盘聚合数据 API."""
 
 from apiflask import APIBlueprint
+from flask import jsonify  # 新增
 
 from app.core.database import get_db
 from app.domains.assets.models import Asset
@@ -22,7 +23,7 @@ EXCHANGE_RATES = {
 }
 
 
-@bp.get('/summary')
+@bp.get('/summary/')
 def summary():
     """返回首页仪表盘所需的聚合数据，合并 positions + assets."""
     with get_db() as db:
@@ -37,10 +38,8 @@ def summary():
     for p in positions:
         rate = EXCHANGE_RATES.get(p.currency, 1.0)
         market_value = p.quantity * p.current_price * rate
-        # 如果 positions 也支持 is_liability，这里可加判断；MVP 先跳过
         total_assets_cny += market_value
         pnl = (p.current_price - p.avg_price) * p.quantity * rate
-        total_assets_cny += market_value
         total_pnl_cny += pnl
 
         market_distribution.setdefault(p.market, 0.0)
@@ -54,13 +53,15 @@ def summary():
         else:
             total_assets_cny += a.amount
 
-    return {
-        'data': {
-            'total_assets_cny': round(total_assets_cny, 2),
-            'total_liabilities_cny': round(total_liabilities_cny, 2),
-            'net_assets_cny': round(total_assets_cny - total_liabilities_cny, 2),
-            'total_pnl_cny': round(total_pnl_cny, 2),
-            'market_distribution': {k: round(v, 2) for k, v in market_distribution.items()},
-        },
-        'message': 'ok',
-    }
+    return jsonify(
+        {
+            'data': {
+                'total_assets_cny': round(total_assets_cny, 2),
+                'total_liabilities_cny': round(total_liabilities_cny, 2),
+                'net_assets_cny': round(total_assets_cny - total_liabilities_cny, 2),
+                'total_pnl_cny': round(total_pnl_cny, 2),
+                'market_distribution': {k: round(v, 2) for k, v in market_distribution.items()},
+            },
+            'message': 'ok',
+        }
+    )

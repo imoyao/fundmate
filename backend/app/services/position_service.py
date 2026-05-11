@@ -57,6 +57,8 @@ class PositionService:
                 for k, v in data.items()
                 if k not in ('fee', 'confirm_date', 'notes', 'op_type', 'position_id', 'isAfter15', 'interestRate')
             }
+            if 'type' in position_data:
+                position_data['asset_type'] = position_data.pop('type')
             position = Position(**position_data)
             position.current_price = position.avg_price
             db.add(position)
@@ -80,7 +82,7 @@ class PositionService:
         TransactionService.create(
             db=db,
             position_id=position.id,
-            type=txn_type,
+            txn_type=txn_type,
             trade_date=data['purchase_date'],
             quantity=qty,
             price=price,
@@ -136,7 +138,7 @@ class PositionService:
         TransactionService.create(
             db=db,
             position_id=position_id,
-            type=op_type,
+            txn_type=op_type,
             trade_date=data['purchase_date'],
             quantity=qty,
             price=price,
@@ -169,7 +171,7 @@ class PositionService:
         TransactionService.create(
             db=db,
             position_id=position_id,
-            type='dividend',
+            txn_type='dividend',
             trade_date=data['purchase_date'],
             quantity=0,
             price=0,

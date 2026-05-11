@@ -8,7 +8,7 @@ class PositionCreate(BaseModel):
     symbol: Optional[str] = Field('manual', description='代码')
     name: Optional[str] = Field(None, description='名称')
     market: str = Field('CN_A', description='市场')
-    type: str = Field('stock', description='产品类型')
+    asset_type: str = Field('stock', validation_alias='type', description='产品类型')
     account_name: Optional[str] = Field(None, description='所属账户')
     quantity: Optional[float] = Field(None, description='数量')
     avg_price: Optional[float] = Field(None, description='平均价格/金额')
@@ -42,7 +42,7 @@ class PositionOut(BaseModel):
     symbol: str
     name: Optional[str] = None
     market: str
-    type: str
+    type: str = Field(validation_alias='asset_type', serialization_alias='type')
     account_name: str
     quantity: float
     avg_price: float

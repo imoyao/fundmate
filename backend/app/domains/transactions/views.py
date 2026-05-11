@@ -30,7 +30,7 @@ def list_transactions():
         # 筛选：操作类型
         op_type = request.args.get('type')
         if op_type:
-            query = query.filter(Transaction.type == op_type)
+            query = query.filter(Transaction.txn_type == op_type)
 
         # 筛选：时间范围
         time_range = request.args.get('time_range')
@@ -58,7 +58,7 @@ def list_transactions():
         # 筛选：资产类型（通过 positions 表关联）
         asset_type = request.args.get('asset_type')
         if asset_type:
-            position_ids = db.query(Position.id).filter(Position.type == asset_type).all()
+            position_ids = db.query(Position.id).filter(Position.asset_type == asset_type).all()
             pids = [p.id for p in position_ids]
             query = query.filter(Transaction.position_id.in_(pids))
 
@@ -73,7 +73,7 @@ def list_transactions():
                     'id': t.id,
                     'position_id': t.position_id,
                     'position_name': t.position_name or '未知资产',
-                    'type': t.type,
+                    'type': t.txn_type,
                     'trade_date': t.trade_date.isoformat() if t.trade_date else None,
                     'quantity': t.quantity,
                     'price': t.price,

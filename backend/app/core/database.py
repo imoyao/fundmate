@@ -3,8 +3,9 @@
 
 import os
 from contextlib import contextmanager
+from datetime import datetime, timezone
 
-from sqlalchemy import create_engine
+from sqlalchemy import Column, DateTime, Integer, create_engine, func
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
 SQLALCHEMY_DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///./invest.db')
@@ -13,6 +14,7 @@ engine = create_engine(
     SQLALCHEMY_DATABASE_URL,
     connect_args={'check_same_thread': False},
 )
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()
@@ -32,6 +34,19 @@ class BaseRepository:
         """从数据库删除实例."""
         db.delete(self)
         db.commit()
+
+
+class PrimaryKeyMixin:
+    """为模型提供自增 id 主键"""
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+
+class TimestampMixin:
+    """为模型提供创建和更新时间戳"""
+
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), server_default=func.now())
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), server_default=func.now())
 
 
 @contextmanager
