@@ -2,7 +2,7 @@
 import { http } from "@/utils/http";
 import type { ApiResponse, SummaryData } from "./types";
 
-const BASE_URL = "/api/summary";
+const BASE_URL = "/api/summary/";
 
 /** 获取首页仪表盘聚合数据 */
 export function getSummary() {
