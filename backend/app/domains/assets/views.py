@@ -9,6 +9,7 @@ from apiflask import APIBlueprint
 from flask import abort, jsonify, request
 
 from app.core.database import get_db
+from app.core.utils import paginate
 from app.domains.assets.models import Asset
 from app.domains.assets.schemas import AssetCreate, AssetOut, AssetUpdate
 
@@ -30,8 +31,7 @@ def list_assets():
         if major:
             query = query.filter(Asset.major_category == major)
 
-        total = query.count()
-        items = query.offset((page - 1) * per_page).limit(per_page).all()
+        items, total = paginate(query, page=page, per_page=per_page)
 
         return jsonify(
             {

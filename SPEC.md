@@ -38,7 +38,9 @@
 - **用户体验**
     - **30秒效率**：首页仪表盘 30 秒内掌握全局。
     - **分层信息架构**：高频操作入口浅，复杂分析可以深。
-
+- **重构安全（不可妥协）**
+    - 任何代码优化、重构、服务层抽取，**必须保证对外 API 的请求参数、响应结构、状态码、字段名完全不变**。
+    - 前端依赖的接口契约（如筛选参数 `type`、`time_range`、`asset_type` 等）属于不可变部分，修改需同步更新前端并记录 breaking change。
 ---
 
 ### 3. 核心数据模型
@@ -176,8 +178,32 @@
 **当会话达到上限时**，新会话中只需提供：
 1.  **本 `SPEC.md` 文件**
 2.  **当前进度一句话**，如：“MVP 完成，准备从 P1-01（业务逻辑抽取）开始”
-3.  **最新的报错截图或要解决的具体问题**
+3. 文件列表
 
+| 文件                                       | 为什么需要                                 |
+|------------------------------------------|---------------------------------------|
+| backend/app/main.py                      | 蓝图注册全貌，知道有哪些模块                        |
+| backend/app/core/database.py             | get_db 用法、Base 定义                     |
+| backend/app/domains/positions/views.py   | 当前需要重构的核心文件                           |
+| src/api/positions.ts + src/api/assets.ts | API 封装层，前端调用的函数名和参数                   |
+| src/views/asset/AssetPanorama.vue        | 最重的页面，我需要知道 fetchData、sankeyData 等函数名 |
+
+- 前端
+| 文件                                             | 为什么需要                                                      |
+|------------------------------------------------|------------------------------------------------------------|
+| src/views/asset/AssetPanorama.vue              | 最重的页面，包含 fetchData、sankeyData、dimensionGroups、图表初始化等所有核心逻辑 |
+| src/components/QuickEntry/TransactionModal.vue | 记账弹窗，包含动态表单、五笔钱、卖出级联选择等                                    |
+| src/api/positions.ts                           | 持仓 API 封装，函数签名和参数结构                                        |
+| src/api/assets.ts                              | 通用资产 API 封装                                                |
+| src/api/transactions.ts                        | 交易流水 API 封装                                                |
+| src/api/summary.ts                             | 仪表盘聚合 API 封装                                               |
+| src/api/types.d.ts                             | TypeScript 类型定义，Position、SummaryData 等接口                   |
+| src/views/account/AccountOverview.vue          | 账户总览页，含分页、行内编辑                                             |
+| src/views/account/TransactionList.vue          | 交易流水页，含双视图和筛选                                              |
+| src/router/modules/asset.ts                    | 资产相关路由配置，页面结构和导航映射                                         |
+
+3.  **最新的报错截图或要解决的具体问题**
+4. **重构时，必须先对照当前 views.py 的所有分支，确保新代码覆盖所有已有筛选/逻辑。**
 ---
 
 **本文档是 ShowBuy 项目的唯一事实标准。所有后续开发决策，必须参照此文档。**

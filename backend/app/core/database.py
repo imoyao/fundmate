@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
 """数据库连接与基础仓储类."""
 
+import os
 from contextlib import contextmanager
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
-SQLALCHEMY_DATABASE_URL = 'sqlite:///./invest.db'
+SQLALCHEMY_DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///./invest.db')
 
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,

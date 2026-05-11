@@ -11,6 +11,7 @@ from apiflask import APIBlueprint
 from flask import jsonify, request
 
 from app.core.database import get_db
+from app.core.utils import paginate
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
 
@@ -63,11 +64,10 @@ def list_transactions():
 
         # 排序与分页
         query = query.order_by(Transaction.created_at.desc())
-        total = query.count()
-        transactions = query.offset((page - 1) * per_page).limit(per_page).all()
+        items, total = paginate(query, page=page, per_page=per_page)
 
         results = []
-        for t in transactions:
+        for t in items:
             results.append(
                 {
                     'id': t.id,
