@@ -16,8 +16,10 @@
 
 from typing import Optional
 
+from loguru import logger
 from sqlalchemy.orm import Session
 
+from app.core.symbol_utils import get_normalizer
 from app.domains.positions.models import Position
 from app.services.transaction_service import TransactionService
 
@@ -38,6 +40,14 @@ class PositionService:
         qty = data['quantity']
         price = data['avg_price']
         op_type = data.get('op_type', 'buy')
+        symbol = data.get('symbol', '')
+        if symbol:
+            normalizer = get_normalizer()
+            normalized, market = normalizer.normalize(symbol)
+            if normalized:
+                data['symbol'] = normalized
+            else:
+                logger.warning(f'无法标准化符号: {symbol}，保留原值')
 
         # 1. 查找或创建持仓
         same = db.query(Position).filter_by(symbol=symbol, account_name=account).first()

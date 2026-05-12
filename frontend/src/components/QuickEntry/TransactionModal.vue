@@ -80,20 +80,33 @@
           </el-form-item>
         </template>
 
-        <!-- 股票、可转债 -->
+        <!-- 股票、可转债：远程搜索 -->
         <template v-if="['stock', 'bond'].includes(form.type)">
-          <el-row :gutter="12">
-            <el-col :span="8">
-              <el-form-item label="代码" prop="symbol">
-                <el-input v-model="form.symbol" placeholder="00700.HK" />
-              </el-form-item>
-            </el-col>
-            <el-col :span="16">
-              <el-form-item label="名称" prop="name">
-                <el-input v-model="form.name" placeholder="腾讯控股" />
-              </el-form-item>
-            </el-col>
-          </el-row>
+          <el-form-item label="证券" prop="symbol">
+            <el-select
+              v-model="selectedSecurityOption"
+              value-key="symbol"
+              remote
+              filterable
+              reserve-keyword
+              placeholder="输入代码或名称搜索"
+              :remote-method="remoteSearch"
+              :loading="searchLoading"
+              @change="onSecuritySelected"
+              clearable
+              class="w-full"
+            >
+              <el-option
+                v-for="item in securityOptions"
+                :key="item.symbol"
+                :label="`${item.symbol} ${item.name}`"
+                :value="item"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item prop="name" v-show="false">
+            <el-input v-model="form.name" />
+          </el-form-item>
           <el-row :gutter="12">
             <el-col :span="12">
               <el-form-item label="数量(股/张)" prop="quantity">
@@ -117,20 +130,33 @@
           </el-row>
         </template>
 
-        <!-- 场外基金 -->
+        <!-- 场外基金：远程搜索 -->
         <template v-if="form.type === 'fund'">
-          <el-row :gutter="12">
-            <el-col :span="8">
-              <el-form-item label="基金代码" prop="symbol">
-                <el-input v-model="form.symbol" placeholder="009265" />
-              </el-form-item>
-            </el-col>
-            <el-col :span="16">
-              <el-form-item label="基金名称" prop="name">
-                <el-input v-model="form.name" placeholder="易方达消费精选" />
-              </el-form-item>
-            </el-col>
-          </el-row>
+          <el-form-item label="基金" prop="symbol">
+            <el-select
+              v-model="selectedSecurityOption"
+              value-key="symbol"
+              remote
+              filterable
+              reserve-keyword
+              placeholder="输入代码或名称搜索"
+              :remote-method="remoteSearch"
+              :loading="searchLoading"
+              @change="onSecuritySelected"
+              clearable
+              class="w-full"
+            >
+              <el-option
+                v-for="item in securityOptions"
+                :key="item.symbol"
+                :label="`${item.symbol} ${item.name}`"
+                :value="item"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item prop="name" v-show="false">
+            <el-input v-model="form.name" />
+          </el-form-item>
           <el-form-item label="申购时间">
             <el-switch
               v-model="form.isAfter15"
@@ -447,6 +473,8 @@ import { createPosition } from "@/api/positions";
 import { createAsset } from "@/api/assets";
 import { http } from "@/utils/http";
 import type { FormInstance, FormRules } from "element-plus";
+import { searchSecurities } from "@/api/securities";
+import { searchFunds } from "@/api/funds";
 
 // ── 常量 ──
 const LOT_SIZE: Record<string, number> = {
@@ -464,6 +492,15 @@ const quickRatios = [
   { label: "1/2", value: 1 / 2 },
   { label: "3/4", value: 3 / 4 },
   { label: "全部", value: 1 }
+];
+
+const majorCategoryOptions = [
+  { label: '💵 流动资金', value: 'cash' },
+  { label: '🏠 固定资产', value: 'fixed' },
+  { label: '📈 投资理财', value: 'investment' },
+  { label: '🤝 应收款', value: 'receivable' },
+  { label: '📉 负债', value: 'liability' },
+  { label: '🛡️ 保险', value: 'insurance' },
 ];
 
 // ── 表单默认值 ──
@@ -489,16 +526,12 @@ const defaultForm = () => ({
   notes: ""
 });
 
-const majorCategoryOptions = [
-  { label: '💵 流动资金', value: 'cash' },
-  { label: '🏠 固定资产', value: 'fixed' },
-  { label: '📈 投资理财', value: 'investment' },
-  { label: '🤝 应收款', value: 'receivable' },
-  { label: '📉 负债', value: 'liability' },
-  { label: '🛡️ 保险', value: 'insurance' },
-]
-
 const form = reactive(defaultForm());
+
+// ── 远程搜索状态 ──
+const searchLoading = ref(false);
+const securityOptions = ref<any[]>([]);
+const selectedSecurityOption = ref<any>(null);
 
 // ── 状态 ──
 const positionsByAccount = ref<Record<string, any[]>>({});
@@ -602,6 +635,59 @@ function applyQuickRatio(ratio: number) {
   form.quantity = target;
 }
 
+// ── 远程搜索 ──
+const remoteSearch = async (query: string) => {
+  if (!query) {
+    securityOptions.value = [];
+    return;
+  }
+  searchLoading.value = true;
+  try {
+    if (form.type === 'fund') {
+      const res = await searchFunds(query);
+      const dataArr = Array.isArray(res) ? res : (res as any)?.data ?? [];
+      securityOptions.value = dataArr.map((f: any) => ({
+        symbol: f.code,
+        name: f.name,
+        market: 'CN_A',
+        type: 'fund'
+      }));
+    } else if (['stock', 'bond'].includes(form.type)) {
+      const res = await searchSecurities(query);
+      const dataArr = Array.isArray(res) ? res : (res as any)?.data ?? [];
+      securityOptions.value = dataArr.map((s: any) => ({
+        symbol: s.symbol,
+        name: s.name,
+        market: s.market,
+        type: s.type
+      }));
+    } else {
+      securityOptions.value = [];
+    }
+  } catch (e) {
+    ElMessage.error('搜索失败');
+  } finally {
+    searchLoading.value = false;
+  }
+};
+
+// 选中后填充表单
+const onSecuritySelected = (option: any) => {
+  if (!option) {
+    form.symbol = '';
+    form.name = '';
+    form.market = 'CN_A';
+    return;
+  }
+  form.symbol = option.symbol;
+  form.name = option.name;
+  form.market = option.market;
+  if (option.market === 'CN_HK') form.currency = 'HKD';
+  else if (option.market === 'US') form.currency = 'USD';
+  else form.currency = 'CNY';
+  // 不修改 form.type，保持用户已选的产品类型
+};
+
 // ── 数据获取 ──
 async function fetchPositionsByAccount() {
   try {
@@ -633,6 +719,7 @@ function onPositionSelect(positionId: number) {
 }
 
 function onTypeChange() {
+  // 清空原有字段
   form.symbol = "";
   form.name = "";
   form.quantity = 0;
@@ -640,12 +727,17 @@ function onTypeChange() {
   form.isAfter15 = false;
   form.interestRate = 0;
   form.opType = currentOpTypeOptions.value[0]?.value ?? "buy";
+  // 清空远程搜索状态
+  securityOptions.value = [];
+  selectedSecurityOption.value = null;
 }
 
 function resetForm() {
   Object.assign(form, defaultForm());
   selectedPosition.value = null;
   positionsByAccount.value = {};
+  securityOptions.value = [];
+  selectedSecurityOption.value = null;
   formRef.value?.resetFields();
 }
 
@@ -665,11 +757,25 @@ const rules = computed<FormRules>(() => {
     base.type = [
       { required: true, message: "请选择产品类型", trigger: "change" }
     ];
-    if (form.type !== "static" && form.type !== "saving") {
+    // 对于远程搜索的类型，不再强制 name 必填，因为搜索后会自动填充
+    if (!['stock', 'bond', 'fund'].includes(form.type)) {
+      if (form.type !== "static" && form.type !== "saving") {
+        base.symbol = [
+          { required: true, message: "请输入代码", trigger: "blur" }
+        ];
+        base.name = [{ required: true, message: "请输入名称", trigger: "blur" }];
+        base.quantity = [
+          { required: true, message: "请输入数量", trigger: "blur" }
+        ];
+        base.price = [{ required: true, message: "请输入价格", trigger: "blur" }];
+      }
+    } else {
+      // 远程搜索类型：symbol 仍然必填（选择后会填）
       base.symbol = [
-        { required: true, message: "请输入代码", trigger: "blur" }
+        { required: true, message: "请搜索并选择产品", trigger: "change" }
       ];
-      base.name = [{ required: true, message: "请输入名称", trigger: "blur" }];
+      // name 被选择后自动填充，保留验证但可以通过隐藏的 input 实现（已在模板中添加）
+      base.name = [{ required: true, message: "产品名称不可为空", trigger: "blur" }];
       base.quantity = [
         { required: true, message: "请输入数量", trigger: "blur" }
       ];

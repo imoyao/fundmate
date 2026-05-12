@@ -19,7 +19,7 @@ def test_buy_creates_position(client):
         client,
         '/api/positions',
         {
-            'symbol': '00700.HK',
+            'symbol': '00700.HK',  # 用户输入非标准
             'name': '腾讯',
             'type': 'stock',
             'market': 'CN_HK',
@@ -34,7 +34,7 @@ def test_buy_creates_position(client):
     )
     assert resp.status_code == 200
     data = resp.get_json()['data']
-    assert data['symbol'] == '00700.HK'
+    assert data['symbol'] == 'HK00700'  # 期望标准化
     assert data['quantity'] == 100
     assert data['avg_price'] == 350
 

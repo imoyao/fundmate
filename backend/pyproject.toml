@@ -16,6 +16,8 @@ dependencies = [
     "pytest>=9.0.3",
     "loguru>=0.7.3",
     "git+https://gitee.com/imoyao/xalpha.git@master",
+    "akshare>=1.18.60",
+    "fake-useragent>=2.2.0",
 ]
 requires-python = ">=3.12"
 

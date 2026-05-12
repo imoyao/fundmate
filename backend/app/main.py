@@ -4,6 +4,9 @@
 # File : main.py
 """应用入口，使用工厂模式创建 APIFlask 实例."""
 
+from pathlib import Path
+
+import xalpha as xa
 from apiflask import APIFlask
 from flask_cors import CORS
 
@@ -25,6 +28,11 @@ def create_app() -> APIFlask:
         version='0.1.0',
         docs_ui='swagger-ui',  # 启用 Swagger UI 文档
     )
+
+    # ✅ 确保 xalpha 缓存目录存在
+    cache_dir = Path('data/xalpha_cache')
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    xa.set_backend(backend='csv', path=str(cache_dir))
 
     # ✅ 启用 CORS，允许前端跨域访问
     CORS(app, resources={r'/*': {'origins': '*'}})

@@ -9,8 +9,13 @@ from loguru import logger
 
 
 class InterceptHandler(logging.Handler):
-    def emit(self, record):
-        logger.opt(depth=6, exception=record.exc_info).log(record.levelname, record.getMessage())
+    """将标准库 logging 日志转发到 loguru"""
 
-
-logging.basicConfig(handlers=[InterceptHandler()], level=0)
+    def emit(self, record: logging.LogRecord) -> None:
+        # 获取 loguru 对应的日志级别，如果找不到则直接使用数字级别
+        try:
+            level = logger.level(record.levelname).name
+        except ValueError:
+            level = record.levelno
+        # 将异常信息、调用栈等附加信息一并传递
+        logger.opt(depth=6, exception=record.exc_info).log(level, record.getMessage())

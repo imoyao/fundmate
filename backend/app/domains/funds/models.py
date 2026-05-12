@@ -78,6 +78,7 @@ class Fund(Base, PrimaryKeyMixin, TimestampMixin):
     variety = relationship('FundVariety', foreign_keys=[fund_variety_id])
     company = relationship('FundCompany', foreign_keys=[company_id])
     managers = relationship('Manager', secondary='fund_managers', back_populates='funds')
+    daily_worth = relationship('DailyWorth', back_populates='fund', order_by='DailyWorth.date.desc()')
 
 
 class FundManager(Base, PrimaryKeyMixin):
@@ -88,3 +89,16 @@ class FundManager(Base, PrimaryKeyMixin):
     is_classic = Column(Boolean, default=False, comment='代表作品')
     start_date = Column(Date, comment='任职起始')
     end_date = Column(Date, comment='任职结束')
+
+
+class DailyWorth(Base, PrimaryKeyMixin, TimestampMixin):
+    """基金每日净值"""
+
+    __tablename__ = 'daily_worth'
+
+    fund_code = Column(String(6), ForeignKey('funds.fund_code'), nullable=False, comment='基金代码')
+    date = Column(Date, nullable=False, comment='净值日期')
+    unit_nav = Column(Float, comment='单位净值')
+    acc_nav = Column(Float, comment='累计净值')
+
+    fund = relationship('Fund', back_populates='daily_worth')
