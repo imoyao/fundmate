@@ -15,6 +15,7 @@ dependencies = [
     "flask-cors>=6.0.2",
     "pytest>=9.0.3",
     "loguru>=0.7.3",
+    "git+https://gitee.com/imoyao/xalpha.git@master",
 ]
 requires-python = ">=3.12"
 
@@ -74,3 +75,8 @@ verify_ssl = true
 test = [
     "pytest>=7.0",
 ]
+
+[tool.pdm.resolution.overrides]
+sqlalchemy = ">=2.0"
+pandas = ">=2.0"
+numpy = ">=1.24,<2.0"
