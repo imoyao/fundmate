@@ -1,8 +1,8 @@
-## 📋 项目需求规格说明书
+## 📋 项目需求规格说明书 (ShowBuy)
 
-> **版本**: v2.0
-> **最后更新**: 2026-05-10
-> **状态**: MVP 核心闭环完成，P1 规划已确认。
+> **版本**: v3.0
+> **最后更新**: 2026-05-13
+> **状态**: P1 核心模块推进中。
 > **核心原则**: 本项目为**个人使用、本地优先、完全合规**的投资记账工具。
 
 ---
@@ -10,7 +10,7 @@
 ### 1. 项目愿景与技术栈
 
 #### 1.1. 我们要解决什么问题？
-为个人投资者提供一个**安全、私密、可长期维护**的全资产记账与投资分析工具，回答两个核心问题：“我的钱都放在哪儿？”，“我的钱是怎么理得？”。
+为个人投资者提供一个**安全、私密、可长期维护**的全资产记账与投资分析工具，回答两个核心问题：“我的钱都放在哪儿？”，“我的钱是怎么理的？”。
 
 #### 1.2. 核心价值主张
 - **绝对的数据主权**：所有数据存储在本地，不上传云端，用户完全掌控。
@@ -23,13 +23,15 @@
     - **原则**: 视图函数手动返回 `{ data, message }` 格式，不使用 `BASE_RESPONSE_SCHEMA`，确保未来平滑迁移 FastAPI。
 - **前端**: Vue 3 + Vite + TypeScript, pure-admin-thin (骨架), Element Plus, ECharts。
 - **代码质量**: 后端 `ruff`，前端遵循 pure-admin 内置规范。
+- **数据源**: xalpha (基金净值与分析) + AKShare (补充备用)，通过 `DataProvider` 防腐层统一调用。
 
 ---
 
 ### 2. 全局设计原则
+
 - **数据合规与安全 (不可妥协)**
-    - [P0] 支持用户手动在 Web 表单中逐条录入交易。
-    - [P1] 支持用户上传标准格式的 CSV/JSON 文件，系统解析并导入。
+    - 必须支持用户手动在 Web 表单中逐条录入交易。
+    - 应当支持用户上传标准格式的 CSV/JSON 文件，系统解析并导入。
     - **严禁**任何形式的自动登录、爬取券商等非法获取数据的行为。
 - **设计与开发**
     - **“交易资产与非交易资产分离”**：可买卖的金融资产归 `positions`，更广义的资产/负债归 `assets`。
@@ -38,22 +40,27 @@
 - **用户体验**
     - **30秒效率**：首页仪表盘 30 秒内掌握全局。
     - **分层信息架构**：高频操作入口浅，复杂分析可以深。
-- **重构安全（不可妥协）**
-    - 任何代码优化、重构、服务层抽取，**必须保证对外 API 的请求参数、响应结构、状态码、字段名完全不变**。
+- **重构安全 (不可妥协)**
+    - 任何代码优化、重构、服务层抽取，**必须保证对外 API 的请求参数、响应结构、状态码、字段名完全不变**，新增字段须保持向后兼容。
     - 前端依赖的接口契约（如筛选参数 `type`、`time_range`、`asset_type` 等）属于不可变部分，修改需同步更新前端并记录 breaking change。
-- **测试完整性（不可妥协）**
-    - 任何新接口或重构后的接口，必须提供覆盖主要业务场景的自动化测试（至少包含创建、查询、更新、删除、边界错误）。
-    - 禁止仅为通过而写过于简单的测试，必须覆盖核心逻辑分支（如筛选、分页、操作类型、状态码）。
+- **测试完整性 (不可妥协)**
+    - 新接口或重构后的接口必须覆盖主要业务场景的自动化测试（创建、查询、更新、删除、边界错误），并覆盖核心逻辑分支（筛选、分页、操作类型、状态码）。
     - 修改接口行为必须同步更新对应的测试。
-- **URL 规范（不可妥协）**
-    - 所有 API 端点必须使用尾部斜杠（例：`/api/positions/`）。
-    - 后端蓝图路由定义、前端请求、测试辅助函数三者保持一致，避免 308 重定向。
-- **第三方库引入规范（新增）**
-    - 引入任何第三方库时，必须**先阅读其官方文档**（若存在）或多方验证的真实使用案例，**只调用库真正支持的接口**，严禁编造不存在的函数或参数。
-    - 若发现库的接口签名或行为与预期不符，应立即回退到已知可用的版本或替代方案，不得强行适配。
-- **工具库与模型测试规范（新增）**
-    - 任何新建的工具库、标准化类、数据转换器等，必须编写**覆盖所有预设边界的测试用例**（包括正常输入、异常输入、边界值、空值等）。
-    - 测试用例应在代码提交前全部通过，防止因未发现的边缘情况导致数据污染或后续返工。
+- **URL 与 RESTful 规范 (不可妥协)**
+    - 所有 API 端点必须使用尾部斜杠（例：`/api/positions/`），前后端及测试保持一致，避免 308 重定向。
+    - 资源 URL 使用复数名词（如 `/items/`、`/groups/`），嵌套资源体现层级关系（如 `/items/{item_id}/groups/{group_id}/`）。
+    - 动作通过 HTTP 方法表达，URL 中不使用动词。
+- **命名规范 (不可妥协)**
+    - 模型类名必须包含领域前缀（如 `WatchlistItem`），避免跨模块名称冲突。
+    - 视图函数参数禁止单字母缩写，必须见名知意（如 `item_id`、`group_id`）。
+    - Schema 类名与领域模型严格对齐，输入输出后缀明确区分（`Create` / `Update` / `Out`）。
+    - 蓝图变量名需体现所属领域（如 `watchlist_bp`、`funds_bp`）。
+- **第三方库引入规范**
+    - 引入新库时必须先阅读其官方文档或可靠案例，只调用库真正支持的接口，禁止编造不存在的函数或参数。
+    - 若发现接口行为与预期不符，应立即回退到已知可用的版本或替代方案。
+- **工具库与模型测试规范**
+    - 新建的工具库、数据转换器等必须编写覆盖所有预设边界的测试用例（正常输入、异常输入、边界值、空值等），并在提交前全部通过。
+
 ---
 
 ### 3. 核心数据模型
@@ -63,7 +70,7 @@
 
 | 核心字段 | 类型 | 说明 |
 | :--- | :--- | :--- |
-| `id`, `symbol`, `name`, `market`, `type` | - | 基本标识与分类 |
+| `id`, `symbol`, `name`, `market`, `asset_type` | - | `type` 字段因 Python 关键字冲突已重命名为 `asset_type`，API 层映射为 `type` |
 | `account_name` | String | **所属账户** |
 | `quantity`, `avg_price` | Float | 持仓数量与成本价 |
 | `currency`, `current_price` | String, Float | 本币种，当前市价（用户手动更新） |
@@ -79,7 +86,7 @@
 | 核心字段 | 类型 | 说明 |
 | :--- | :--- | :--- |
 | `id`, `position_id` | - | 关联的持仓 |
-| `type` | String | **操作类型**: buy, sell, dividend, deposit, withdraw |
+| `txn_type` | String | **操作类型**: buy, sell, dividend, deposit, withdraw（`type` 已重命名） |
 | `trade_date` | Date | **交易发起日期 (T日)** |
 | `quantity`, `price`, `fee`, `amount` | Float | 交易细节 |
 | `status` | String | **交易状态**: success, failed, cancelled, pending |
@@ -92,58 +99,113 @@
 | :--- | :--- | :--- |
 | `id`, `user_id` | - | 主键，`user_id` 为多用户预留 |
 | `major_category` | String | **大类**: cash, fixed, receivable, liability, insurance |
-| `minor_category` | String | **小类**: 自由定义 (如 mortgage, credit_card, car) |
+| `minor_category` | String | **小类**: 自由定义 |
 | `name`, `amount`, `currency` | - | 资产名，当前价值，币种 |
 | `status` | String | active / closed |
 | `start_date`, `end_date` | Date | 生效与到期/还清日 |
 | `extra` | JSON | **扩展属性** (如房产面积、借款人、保单号等) |
 
-#### 3.4. 未来扩展 (P1)
-- **`securities` / `funds` / `managers`**：股票/基金元数据表，用于前端远程搜索与基本信息展示。
-- **`holding_details`**：基金穿透持仓明细（温数据），用于集中度分析与行业穿透。
+#### 3.4. 证券与基金元数据
+
+- **`securities`** — 交易性金融产品（股票、ETF、可转债等），存储标准化代码 `symbol`（如 `SH600519`、`HK00700`）。
+- **`funds`** — 场外基金，含基金代码、名称、拼音缩写、类型、公司、风险等级等。
+- **`fund_companies`** — 基金公司。
+- **`fund_types` / `fund_varieties`** — 基金小类/大类。
+- **`fund_sales_orgs`** — 销售机构。
+- **`managers`** — 管理人（基金经理/组合主理人），通过 `mgr_type` 区分类型。
+- **`fund_managers`** — 基金与经理多对多关联。
+- **`daily_worth`** — 基金每日净值。
+
+#### 3.5. 自选与关注体系 (P1)
+
+- **`WatchlistItem`** — 自选资产条目，状态由 `positions` + `transactions` 动态推导。
+- **`WatchlistGroup`** — 自选分组（系统分组动态渲染，自定义分组落库）。
+- **`WatchlistItemGroup`** — 资产与分组关联。
+- **`WatchlistTagDef`** — 标签定义。
+- **`WatchlistItemTag`** — 资产与标签关联。
+- **`WatchlistAlert`** — 异动提醒。
+- **`ClearedPosition`** — 清仓仓位快照，支撑清仓分析。
+
+#### 3.6. 数据存储与扩展 (P1-P2)
+
+- **`price_history`** — 证券/基金历史价格（收盘价/单位净值），支撑收益日历和资产走势图。
+- **`benchmark_indices`** — 基准指数日线数据（如沪深300），支撑复盘对比。
+- **`user_preferences`** — 用户偏好设置（默认基准、主题等），核心字段独立列，扩展属性用 JSON。
+- **`review_notes`** — 复盘笔记，按周期关联。
+
+#### 3.7. 符号标准化
+
+所有证券代码统一通过 `StockCodeNormalizer` 标准化为 `{MARKET}{CODE}` 格式（如 `HK00700`、`SH600519`、`US:AAPL`），支持多格式输入自动识别和补零。xalpha、AKShare 等外部数据源通过 `to_xalpha_code()` 等方法转换。
 
 ---
 
 ### 4. 旧项目资产继承
 本系统是旧 `fundmate` 项目思想的重构与延伸。以下设计已完全继承或记录在案：
-- **`settings.py` 枚举体系**：所有 `BaseTypeEnum` 及其业务枚举已在新系统 `app/core/enums.py` 中 100% 继承。
-- **`Fund ↔ Manager` M2M 关系**：已体现为 P1 规划的 `funds` 与 `managers` 表设计。
-- **`FeeRatio` 费率体系**：作为 P2 规划，其核心字段已记录在 SPEC，待实现时直接复用。
-- **`Collection` 自选体系**：完全的模型结构继承在 P1 规划中。
+
+- **枚举体系**：100% 继承至 `app/core/enums.py`。
+- **`Fund ↔ Manager` M2M 关系**：已在 `funds` / `managers` 表中实现。
+- **`FeeRatio` 费率体系**：P2 规划，核心字段已记录。
+- **`Collection` 自选体系**：重构为 `watchlist` 模块，设计理念完整继承。
 
 ---
 
 ### 5. API 设计 (核心端点)
 
-| 方法 | 路径 | 描述 | 关键特性 |
+| 方法 | 路径 | 描述 |
+| :--- | :--- | :--- |
+| `GET/POST` | `/api/positions/` | 持仓 CRUD，POST 为智能接口 |
+| `PATCH,DELETE` | `/api/positions/{id}/` | 更新/删除持仓 |
+| `GET` | `/api/transactions/` | 交易流水（多维筛选+分页） |
+| `GET/POST` | `/api/assets/` | 通用资产 CRUD |
+| `PATCH,DELETE` | `/api/assets/{id}/` | 更新/删除通用资产 |
+| `GET` | `/api/summary/` | 仪表盘聚合数据 |
+| `GET` | `/api/funds/search/` | 基金搜索 |
+| `GET` | `/api/funds/managers/search/` | 经理搜索 |
+| `GET` | `/api/securities/search/` | 证券搜索 |
+| `GET/POST` | `/api/watchlist/items/` | 自选资产列表/添加 |
+| `PATCH/DELETE` | `/api/watchlist/items/{item_id}/` | 更新/删除自选资产 |
+| `GET/POST` | `/api/watchlist/groups/` | 分组列表/创建 |
+| `PATCH/DELETE` | `/api/watchlist/groups/{group_id}/` | 更新/删除分组 |
+| `POST/DELETE` | `/api/watchlist/items/{item_id}/groups/{group_id}/` | 资产与分组关联 |
+| `GET/POST` | `/api/watchlist/tags/` | 标签列表/创建 |
+| `DELETE` | `/api/watchlist/tags/{tag_id}/` | 删除标签 |
+| `POST/DELETE` | `/api/watchlist/items/{item_id}/tags/{tag_id}/` | 资产与标签关联 |
+
+---
+
+### 6. 架构演进与 P1 路线图
+
+#### 6.1. 架构演进目标
+
+- **服务层抽取**：`app/services/position_service.py` 已完成，视图函数控制在 10 行左右。
+- **通用工具封装**：`app/core/utils.py` 中的 `paginate()` 已用于全部列表接口。
+- **防腐层**：`app/services/data_provider.py` 封装 xalpha + AKShare，支持重试与反爬策略。
+- **符号标准化**：`app/core/symbol_utils.py` 统一处理多市场代码。
+
+#### 6.2. P1 任务路线图 (更新于 2026-05-13)
+
+| 编号 | 任务 | 状态 | 备注 |
 | :--- | :--- | :--- | :--- |
-| `GET/POST` | `/api/positions` | 持仓 CRUD | **`POST` 为智能接口**：自动处理买入合并、卖出校验、流水生成。支持 `?group_by=account` |
-| `PATCH,DELETE` | `/api/positions/{id}` | 更新/删除持仓 | `PATCH` 用于更新价格等字段 |
-| `GET` | `/api/transactions` | 获取交易流水 | 支持多维筛选与分页 |
-| `GET/POST` | `/api/assets` | 通用资产 CRUD | 支持按 `major_category` 筛选 |
-| `PATCH,DELETE` | `/api/assets/{id}` | 更新/删除通用资产 | |
-| `GET` | `/api/summary` | **仪表盘聚合数据** | 合并 `positions` 与 `assets`，返回总资产、总负债、净资产、总盈亏等 |
+| P1-01 | 业务逻辑抽取到 `position_service.py` | ✅ 完成 | 测试通过 |
+| P1-02 | 分页函数通用封装 | ✅ 完成 | `paginate` 已用于全部列表接口 |
+| P1-03 | CSV/JSON 文件导入（含全面盘点页面） | ⏸️ 未开始 | 需求已设计，含对账与去重 |
+| P1-04 | 建立股票/基金元数据表及搜索接口 | ✅ 完成 | `securities` + `funds` + `managers` + `DailyWorth`，搜索与标准化模块就绪 |
+| P1-05 | xalpha 集成（净值/行情/穿透） | ✅ 完成 | `DataProvider` 支持基金净值、证券行情同步，反爬重试就绪 |
+| P1-06 | 记账表单远程搜索 | ✅ 完成 | 前端记账弹窗已对接搜索接口 |
+| P1-07 | 自选（关注）功能 | 🔄 进行中 | 数据模型与 API 已完成，前端待开发 |
+| P1-08 | 记账弹窗重构为 Step 向导 | ⏸️ 未开始 | |
+| P1-09 | 数据导出（CSV/JSON 备份） | ⏸️ 未开始 | |
+| P1-10 | 资产复盘页面 | ⏸️ 未开始 | 需求已设计，包含走势图、绩效卡、收益日历、清仓分析等 |
+| P1-11 | 基金经理追踪 | ⏸️ 未开始 | 需求已设计，模型待建 |
+| P1-12 | JWT 用户认证 | ⏸️ 未开始 | |
+| P1-13 | 移动端适配（PWA/响应式） | ⏸️ 未开始 | |
+
+**当前里程碑**：元数据体系与自选后端 API 完成，xalpha 数据通道畅通。下一步聚焦自选前端页面与数据层扩展（`price_history` 表），为复盘模块积累历史数据。
 
 ---
 
-### 6. 架构演进 (P1 规划)
+### 7. xalpha 集成策略
 
-#### 6.1. 服务层抽取
-- **目标**：将 `views.py` 中臃肿的业务逻辑抽取到服务层。
-- **产出**：`app/services/position_service.py`
-- **预期**：视图函数缩减到 10 行以内，只负责参数校验和服务调用。
-
-#### 6.2. 通用工具封装
-- **目标**：消除所有视图函数中重复的分页和数据处理代码。
-- **产出**：`app/core/utils.py` 中的通用 `paginate()` 函数。
-
-#### 6.3. 防腐层（数据提供者）
-- **目标**：封装 xalpha 等外部数据源，避免业务逻辑与外部库直接耦合。
-- **产出**：`app/services/data_provider.py` (统一对外提供基金、股票日线等数据)
-
----
-
-### 7. xalpha 集成策略 (P1)
 - **定位**：xalpha 是 ShowBuy 的数据获取与数学计算引擎，负责“感知市场”。
 - **职责**：
     - 基金元数据、净值、持仓穿透的获取与缓存。
@@ -152,75 +214,45 @@
     - 提供投资组合分析能力（年化、回撤、持仓穿透）。
 - **边界**：
     - xalpha **不涉及**任何用户认证、数据库写入（除其自身缓存）、前端交互或 API 端点生成。
-    - 所有写入我们 `positions`、`transactions` 的业务逻辑，完全由我们自己的 `services/` 层控制。
+    - 所有写入 `positions`、`transactions` 的业务逻辑，完全由 `services/` 层控制。
+- **缓存策略**：使用 CSV 后端缓存，路径 `data/xalpha_cache/`，与业务数据库物理隔离。
+- **分析功能保留**：`CBCalculator`、`QDIIPredict`、`mul` 等特色分析模块通过 `app/services/xalpha_analysis.py` 封装调用。
 
 ---
 
 ### 8. 穿透持仓分析 (P1)
 - **数据分层**：采用“热-温-冷”数据分层架构。
     - **热数据**：`positions`、`transactions`，本地库内保障事务与 CRUD。
-    - **温数据**：穿透持仓明细，定期缓存，设置过期时间。存储于 `holding_details` 表。
+    - **温数据**：穿透持仓明细，定期缓存，设置过期时间，存储于 `holding_details` 表。
     - **冷数据**：海量历史行情，仅作回测，不进入主库。
 - **`holding_details` 表**：关联 `fund_id`，存储报告期、底层标的代码/名称、占比、较上期增减。
 - **工作流**：用户触发分析 → 检查缓存 → 若过期则调 xalpha 获取 → 存入 `holding_details` → 前端可视化。
 
 ---
 
-### 9. P1 任务路线图
-
-### 9. P1 任务路线图（更新于 2026-05-11）
-
-| 编号 | 任务 | 状态 | 备注 |
-| :--- | :--- | :--- | :--- |
-| P1-01 | 业务逻辑抽取到 `position_service.py` | ✅ 完成 | 通过测试，视图函数精简至 20 行内 |
-| P1-02 | 分页函数通用封装 | ✅ 完成 | `paginate` 已用于 positions/transactions/assets |
-| P1-03 | CSV/JSON 文件导入（含 xalpha 辅助解析） | ⏸️ 未开始 | |
-| P1-04 | 建立股票/基金元数据表 (`securities` + `funds` + `managers` 等) | ✅ 完成 | 表已拆分、搜索接口就绪、测试通过 |
-| P1-05 | 集成 xalpha 实现基金信息搜索、净值获取 | 🔴 受阻 | xalpha 依赖与 SQLAlchemy 2.0 冲突，待解决 |
-| P1-06 | 记账表单“代码”输入框改为远程搜索 | ⏸️ 未开始 | 后端搜索接口已就绪 |
-| P1-07 | 自选（关注）功能 | ⏸️ 未开始 | |
-| P1-08 | 记账弹窗重构为 Step 向导 | ⏸️ 未开始 | |
-| P1-09 | 数据导出（CSV/JSON 备份） | ⏸️ 未开始 | |
-| P1-10 | 仪表盘年化收益率计算（基于 xalpha 组合分析） | ⏸️ 未开始 | 依赖 P1-05 |
-| P1-11 | 穿透持仓分析与存储 (`holding_details` 表) | ⏸️ 未开始 | 依赖 P1-05 |
-| P1-12 | JWT 用户认证 | ⏸️ 未开始 | |
-| P1-13 | 移动端适配（PWA/响应式） | ⏸️ 未开始 | |
-
-**当前里程碑**：核心后端重构完成，元数据体系建立，测试覆盖率达到合理水平。xalpha 集成是下一步的关键阻塞点。
-
----
-
-### 10. 断点续传协议
+### 9. 断点续传协议
 
 **当会话达到上限时**，新会话中只需提供：
 1.  **本 `SPEC.md` 文件**
-2.  **当前进度一句话**，如：“MVP 完成，准备从 P1-01（业务逻辑抽取）开始”
-3. 文件列表
+2.  **当前进度一句话**，如：“P1-07 自选 API 完成，正准备开发前端页面”
+3.  **关键文件清单**：
 
-| 文件                                       | 为什么需要                                 |
-|------------------------------------------|---------------------------------------|
-| backend/app/main.py                      | 蓝图注册全貌，知道有哪些模块                        |
-| backend/app/core/database.py             | get_db 用法、Base 定义                     |
-| backend/app/domains/positions/views.py   | 当前需要重构的核心文件                           |
-| src/api/positions.ts + src/api/assets.ts | API 封装层，前端调用的函数名和参数                   |
-| src/views/asset/AssetPanorama.vue        | 最重的页面，我需要知道 fetchData、sankeyData 等函数名 |
+| 文件 | 为什么需要 |
+|------|------------|
+| `backend/app/main.py` | 蓝图注册全貌 |
+| `backend/app/core/database.py` | Base 定义、get_db |
+| `backend/app/core/symbol_utils.py` | 代码标准化 |
+| `backend/app/services/data_provider.py` | 数据获取防腐层 |
+| `backend/app/domains/positions/views.py` | 核心交易接口 |
+| `backend/app/domains/watchlist/models.py` | 自选模型 |
+| `backend/app/domains/watchlist/views.py` | 自选 API |
+| `src/api/positions.ts` | 前端持仓 API |
+| `src/api/watchlist.ts` | 前端自选 API |
+| `src/components/QuickEntry/TransactionModal.vue` | 记账弹窗 |
+| `src/views/asset/AssetPanorama.vue` | 资产全景页 |
 
-- 前端
-| 文件                                             | 为什么需要                                                      |
-|------------------------------------------------|------------------------------------------------------------|
-| src/views/asset/AssetPanorama.vue              | 最重的页面，包含 fetchData、sankeyData、dimensionGroups、图表初始化等所有核心逻辑 |
-| src/components/QuickEntry/TransactionModal.vue | 记账弹窗，包含动态表单、五笔钱、卖出级联选择等                                    |
-| src/api/positions.ts                           | 持仓 API 封装，函数签名和参数结构                                        |
-| src/api/assets.ts                              | 通用资产 API 封装                                                |
-| src/api/transactions.ts                        | 交易流水 API 封装                                                |
-| src/api/summary.ts                             | 仪表盘聚合 API 封装                                               |
-| src/api/types.d.ts                             | TypeScript 类型定义，Position、SummaryData 等接口                   |
-| src/views/account/AccountOverview.vue          | 账户总览页，含分页、行内编辑                                             |
-| src/views/account/TransactionList.vue          | 交易流水页，含双视图和筛选                                              |
-| src/router/modules/asset.ts                    | 资产相关路由配置，页面结构和导航映射                                         |
+4.  **最新的报错截图或要解决的具体问题**
 
-3.  **最新的报错截图或要解决的具体问题**
-4. **重构时，必须先对照当前 views.py 的所有分支，确保新代码覆盖所有已有筛选/逻辑。**
 ---
 
 **本文档是 ShowBuy 项目的唯一事实标准。所有后续开发决策，必须参照此文档。**
