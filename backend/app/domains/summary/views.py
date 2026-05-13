@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Auther : imoyao
+# Author : imoyao
 # Date : 2026/5/7 21:52
 # File : views.py
 # backend/app/api/views.py

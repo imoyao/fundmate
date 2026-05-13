@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Auther : imoyao
+# Author : imoyao
 # Date : 2023/1/5 22:10
 # File : test_collection_views.py
 # FIXME: 目前由于基础数据不足，没有测试指数、可转债等相关自选接口

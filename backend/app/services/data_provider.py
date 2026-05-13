@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Auther : imoyao
+# Author : imoyao
 # Date : 2026/5/12 18:33
 # File : data_provider.py
 """数据提供者 - 基于 xalpha 获取并同步基金、证券、可转债等数据"""

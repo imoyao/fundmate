@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-# Auther : imoyao
+# Author : imoyao
 # Date : 2026/5/11 22:01
 # File : test_summary.py
 # -*- coding: utf-8 -*-
-# Auther : imoyao
+# Author : imoyao
 # Date : 2026/5/11
 # File : test_summary.py
 

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Auther : imoyao
+# Author : imoyao
 # Date : 2026/5/11 19:22
 # File : test_securities.py
 from app.core.symbol_utils import get_normalizer

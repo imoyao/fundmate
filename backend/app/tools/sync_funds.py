@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Auther : imoyao
+# Author : imoyao
 # Date : 2026/5/12 18:35
 # File : sync_funds.py
 # !/usr/bin/env python3

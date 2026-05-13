@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Auther : imoyao
+# Author : imoyao
 # Date : 2026/5/10 17:22
 # File : views.py
 # -*- coding: utf-8 -*-

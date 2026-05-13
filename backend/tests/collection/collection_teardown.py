@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Auther : imoyao
+# Author : imoyao
 # Date : 2023/1/15 11:03
 # File : collection_teardown.py
 import random

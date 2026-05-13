@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Auther : imoyao
+# Author : imoyao
 # Date : 2023/1/12 22:02
 # File : test_collection_models.py
 import random

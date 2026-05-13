@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Auther : imoyao
+# Author : imoyao
 # Date : 2026/5/12 23:03
 # File : insert_test_data.py
 """插入标准化的证券和基金测试数据"""

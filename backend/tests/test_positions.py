@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Auther : imoyao
+# Author : imoyao
 # Date : 2026/5/10 22:48
 # File : test_positions.py
 from datetime import date, timedelta

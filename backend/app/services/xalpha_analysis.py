@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Auther : imoyao
+# Author : imoyao
 # Date : 2026/5/12 18:34
 # File : xalpha_analysis.py
 """基于 xalpha 的专业分析功能（保留特色分析，不依赖数据获取）"""

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Auther : imoyao
+# Author : imoyao
 # Date : 2026/5/7 21:19
 # File : views.py
 """持仓相关 API."""
@@ -89,6 +89,7 @@ def create_position(json_data):
             if op_type in ('sell', 'withdraw'):
                 position = PositionService.process_sell_or_withdraw(db, data)
             elif op_type == 'dividend':
+                data['dividend_amount'] = data.get('avg_price', 0)
                 position = PositionService.process_dividend(db, data)
             elif op_type in ('buy', 'deposit'):
                 position = PositionService.process_buy_or_deposit(db, data)

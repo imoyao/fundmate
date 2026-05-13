@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-# Auther : imoyao
+# Author : imoyao
 # Date : 2026/5/11 22:00
 # File : test_assets.py
 # -*- coding: utf-8 -*-
-# Auther : imoyao
+# Author : imoyao
 # Date : 2026/5/11
 # File : test_assets.py
 from app.domains.assets.models import Asset

@@ -18,6 +18,7 @@ from app.domains.positions.views import bp as positions_bp
 from app.domains.securities.views import bp as securities_bp
 from app.domains.summary.views import bp as summary_bp
 from app.domains.transactions.views import bp as transactions_bp
+from app.domains.watchlist.views import watchlist_bp as watchlist_bp
 
 
 def create_app() -> APIFlask:
@@ -45,6 +46,7 @@ def create_app() -> APIFlask:
     app.register_blueprint(summary_bp)
     app.register_blueprint(securities_bp)
     app.register_blueprint(funds_bp)
+    app.register_blueprint(watchlist_bp)
     # 初始化数据库
     with app.app_context():
         init_db()
