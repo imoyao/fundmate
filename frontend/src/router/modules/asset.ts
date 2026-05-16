@@ -34,6 +34,17 @@ export default {
       }
     },
     {
+      path: "/watchlist",
+      name: "Watchlist",
+      component: () => import("@/views/asset/watchlist/index.vue"),
+      meta: {
+        title: "我的自选",
+        icon: "ep:star",
+        rank: 3,
+        keepAlive: true
+      }
+    },
+    {
       path: "/asset/stocks",
       name: "AssetStocks",
       component: () => import("@/views/asset/stocks/index.vue"),

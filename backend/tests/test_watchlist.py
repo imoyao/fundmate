@@ -7,8 +7,10 @@
 
 from datetime import date
 
+from app.core.database import get_db
 from app.core.symbol_utils import get_normalizer
 from app.domains.positions.models import Position
+from app.domains.watchlist.models import WatchlistItem
 
 normalizer = get_normalizer()
 
@@ -20,6 +22,118 @@ def _post(client, url, data):
 
 def _get(client, url, params=None):
     return client.get(url if url.endswith('/') else url + '/', query_string=params)
+
+
+class TestHomeSummary:
+    def test_home_summary_pinned_first(self, client, app):
+        """首页摘要：置顶资产优先显示"""
+        with get_db() as db:
+            # 创建两个持仓，并加入自选
+            pos1 = Position(
+                symbol='SH600519',
+                name='茅台',
+                asset_type='stock',
+                account_name='华泰',
+                quantity=100,
+                avg_price=1800,
+                current_price=1800,
+            )
+            pos2 = Position(
+                symbol='HK00700',
+                name='腾讯',
+                asset_type='stock',
+                account_name='富途',
+                quantity=200,
+                avg_price=300,
+                current_price=310,
+            )
+            db.add_all([pos1, pos2])
+            db.commit()
+
+            item1 = WatchlistItem(symbol='SH600519', market='SH', status='HOLDING', is_pinned=False)
+            item2 = WatchlistItem(
+                symbol='HK00700', market='HK', status='HOLDING', is_pinned=True, pinned_at=date.today()
+            )
+            db.add_all([item1, item2])
+            db.commit()
+
+        resp = client.get('/api/watchlist/home-summary/')
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert len(data) == 2
+        # 置顶的腾讯应该排在第一位
+        assert data[0]['symbol'] == 'HK00700'
+        assert data[0]['is_pinned']
+        assert data[1]['symbol'] == 'SH600519'
+
+    def test_home_summary_fallback_to_market_value(self, client, app):
+        """无置顶时，按持仓市值降序排列，最多5条"""
+        with get_db() as db:
+            # 持仓1：市值 100*1800=180000
+            pos1 = Position(
+                symbol='SH600519',
+                name='茅台',
+                asset_type='stock',
+                account_name='华泰',
+                quantity=100,
+                avg_price=1800,
+                current_price=1800,
+            )
+            # 持仓2：市值 200*310=62000
+            pos2 = Position(
+                symbol='HK00700',
+                name='腾讯',
+                asset_type='stock',
+                account_name='富途',
+                quantity=200,
+                avg_price=300,
+                current_price=310,
+            )
+            db.add_all([pos1, pos2])
+            db.commit()
+
+            item1 = WatchlistItem(symbol='SH600519', market='SH', status='HOLDING', is_pinned=False)
+            item2 = WatchlistItem(symbol='HK00700', market='HK', status='HOLDING', is_pinned=False)
+            db.add_all([item1, item2])
+            db.commit()
+
+        resp = client.get('/api/watchlist/home-summary/')
+        data = resp.get_json()['data']
+        assert len(data) == 2
+        # 茅台市值更高，应排前面
+        assert data[0]['symbol'] == 'SH600519'
+        assert data[0]['position_market_value'] == 180000.0
+        assert data[1]['symbol'] == 'HK00700'
+
+    def test_home_summary_limit_five(self, client, app):
+        """最多返回5条"""
+        with get_db() as db:
+            for i in range(7):
+                sym = f'SH00000{i}'
+                pos = Position(
+                    symbol=sym,
+                    name=f'股票{i}',
+                    asset_type='stock',
+                    account_name='华泰',
+                    quantity=100,
+                    avg_price=10,
+                    current_price=10,
+                )
+                db.add(pos)
+                db.commit()
+                item = WatchlistItem(symbol=sym, market='SH', status='HOLDING')
+                db.add(item)
+            db.commit()
+
+        resp = client.get('/api/watchlist/home-summary/')
+        data = resp.get_json()['data']
+        assert len(data) == 5
+
+    def test_home_summary_empty(self, client):
+        resp = client.get('/api/watchlist/home-summary/')
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data == []
 
 
 # ─────────────── 资产 CRUD ───────────────
@@ -117,7 +231,10 @@ class TestWatchlistGroups:
         _post(client, '/api/watchlist/groups/', {'name': 'G1'})
         _post(client, '/api/watchlist/groups/', {'name': 'G2'})
         resp = _get(client, '/api/watchlist/groups/')
-        assert len(resp.get_json()['data']) == 2
+        data = resp.get_json()['data']
+        # 现在接口返回系统分组 + 自定义分组，自定义分组至少有 2 个
+        custom_groups = [g for g in data if not g['is_system']]
+        assert len(custom_groups) >= 2
 
     def test_update_group(self, client, db):
         resp = _post(client, '/api/watchlist/groups/', {'name': 'Old'})

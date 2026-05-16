@@ -143,80 +143,15 @@
 
     <!-- 第二部分：高风险资产卡片与风险热力图 -->
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-8">
-      <!-- 高风险资产卡片 (2列) -->
-      <div class="lg:col-span-8 grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <!-- 股票资产 -->
-        <div
-          class="bg-[#fff7f5] rounded-2xl p-4 border border-[#ffe8e0] relative group hover:shadow-md transition-all"
-        >
-          <div
-            class="absolute top-4 right-4 bg-[#ffccc7] p-1.5 rounded-lg text-[#ff4d4f]"
-          >
-            <IconifyIconOffline icon="ep:trend-charts" />
-          </div>
-          <p class="text-gray-500 text-xs mb-1">股票资产</p>
-          <p class="text-xl font-bold text-[#ff4d00] mb-2">¥856,240</p>
-          <div class="flex items-center justify-between text-[10px] mb-3">
-            <span class="text-gray-400">占比 36.5%</span>
-            <span class="px-1.5 py-0.5 bg-[#ffccc7] text-[#ff4d4f] rounded"
-              >高风险</span
-            >
-          </div>
-          <!-- 当日盈亏 -->
-          <div
-            class="text-[10px] text-red-400 font-bold flex items-center mb-1"
-          >
-            <IconifyIconOffline icon="ep:caret-bottom" class="mr-0.5" /> -1.2%
-            <span class="text-gray-400 ml-1 font-normal">今日</span>
-          </div>
-          <!-- 持有盈亏 -->
-          <div class="text-[10px] text-green-500 font-bold flex items-center">
-            <IconifyIconOffline icon="ep:caret-top" class="mr-0.5" /> +5.3%
-            <span class="text-gray-400 ml-1 font-normal">持有盈亏</span>
-          </div>
-        </div>
-        <!-- 基金资产 -->
-        <div
-          class="bg-[#fff9f0] rounded-2xl p-4 border border-[#ffeccf] relative group hover:shadow-md transition-all"
-        >
-          <div
-            class="absolute top-4 right-4 bg-[#ffe7ba] p-1.5 rounded-lg text-[#fa8c16]"
-          >
-            <IconifyIconOffline icon="ep:money" />
-          </div>
-          <p class="text-gray-500 text-xs mb-1">基金资产</p>
-          <p class="text-xl font-bold text-[#fa8c16] mb-2">¥678,950</p>
-          <div class="flex items-center justify-between text-[10px] mb-3">
-            <span class="text-gray-400">占比 28.9%</span>
-            <span class="px-1.5 py-0.5 bg-[#ffe7ba] text-[#fa8c16] rounded"
-              >中风险</span
-            >
-          </div>
-          <!-- 昨日盈亏 -->
-          <div
-            class="text-[10px] text-green-500 font-bold flex items-center mb-1"
-          >
-            <IconifyIconOffline icon="ep:caret-top" class="mr-0.5" /> +0.8%
-            <span class="text-gray-400 ml-1 font-normal">昨日</span>
-          </div>
-          <!-- 持有盈亏 -->
-          <div class="text-[10px] text-red-400 font-bold flex items-center">
-            <IconifyIconOffline icon="ep:caret-bottom" class="mr-0.5" /> -1.2%
-            <span class="text-gray-400 ml-1 font-normal">持有盈亏</span>
-          </div>
-        </div>
+      <!-- 自选资产卡片区域（替代原硬编码卡片） -->
+       <div class="lg:col-span-8">
+        <WatchlistWidget
+            :key="watchlistWidgetKey"
+            @select="onWatchlistSelect"
+            @add="showAddWatchlistModal = true"
+        />
+    </div>
 
-        <!-- 添加资产卡片 -->
-        <div class="lg:col-span-2 flex items-center justify-center">
-          <router-link
-            to="/account/overview"
-            class="flex flex-col items-center justify-center w-full h-full p-6 border-2 border-dashed border-gray-200 rounded-2xl text-gray-400 hover:border-[#a6a6d2] hover:text-[#a6a6d2] transition-all"
-          >
-            <IconifyIconOffline icon="ep:plus" class="text-2xl mb-2" />
-            <span class="text-sm font-medium">添加资产</span>
-          </router-link>
-        </div>
-      </div>
 
       <!-- 风险热力图 -->
       <div
@@ -371,6 +306,8 @@
     <!-- 快速记账 -->
     <QuickFab @open="showModal = true" />
     <TransactionModal v-model="showModal" @submitted="onTransactionSubmitted" />
+    <!-- 添加自选弹窗（独立于记账弹窗） -->
+    <AddToWatchlistModal v-model="showAddWatchlistModal" @submitted="onWatchlistChanged" />
   </div>
 </template>
 
@@ -382,6 +319,8 @@ import { getSummary } from "@/api/summary";
 import type { SummaryData } from "@/api/types";
 import { QuickFab } from "@/components/QuickEntry";
 import { TransactionModal } from "@/components/QuickEntry";
+import WatchlistWidget from "@/components/WatchlistWidget.vue";
+import AddToWatchlistModal from "@/components/QuickEntry/AddToWatchlistModal.vue";
 
 const showModal = ref(false);
 
@@ -402,6 +341,7 @@ const distributionChartRef = ref<HTMLDivElement | null>(null);
 const trendChartRef = ref<HTMLDivElement | null>(null);
 const riskHeatmapRef = ref<HTMLDivElement | null>(null);
 const miniAssetChartRef = ref<HTMLDivElement | null>(null);
+const showAddWatchlistModal = ref(false);
 
 let charts: echarts.ECharts[] = [];
 
@@ -416,6 +356,28 @@ const fetchSummary = async () => {
     console.error("Failed to fetch summary:", e);
   }
 };
+
+const onWatchlistSelect = (item: any) => {
+  // 这里可以设置 TransactionModal 的默认值，或直接跳转。简单起见，打开弹窗并传递 symbol
+  // 需要改造 TransactionModal 支持预填，或直接打开弹窗后由用户操作。
+  // 目前弹窗组件没有接收预设 symbol 的 props，我们可以先打开弹窗，让用户在弹窗里搜索。
+  // 或者我们增加一个 props 传递预填代码。简单处理：打开弹窗并自动聚焦搜索框，需要扩展 TransactionModal。
+  // 但轻量级方案：唤起弹窗，用户手动记账，因为弹窗支持搜索，用户可快速找到该资产。
+  // 为了体验，后续可以优化 TransactionModal 接受 initialSymbol prop。
+  showModal.value = true;
+  // 如果需要自动填充，可以 emit 一个事件携带 symbol，由父组件传递给弹窗。
+  // 暂时不做，后续优化。
+};
+
+
+const onWatchlistChanged = () => {
+  // 通知 WatchlistWidget 刷新数据
+  // 简单做法：通过 key 触发重新挂载，或直接调用其内部的 fetchData
+  // 这里我们使用 watchlistWidgetKey 强制刷新
+  watchlistWidgetKey.value++;
+};
+const watchlistWidgetKey = ref(0);
+
 
 // 原有的图表初始化函数（完全保留）
 const initCharts = () => {
@@ -611,7 +573,11 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener("resize", handleResize);
+  charts.forEach(chart => chart.dispose());
+  charts = [];
 });
+
+
 </script>
 
 <style scoped>
