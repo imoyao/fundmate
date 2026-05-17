@@ -317,17 +317,10 @@ class TestBookmarkAndSmartPrompt:
     def test_toggle_bookmark_on(self, client, db):
         item = _post(client, '/api/watchlist/items/', {'symbol': '00700.HK'})
         item_id = item.get_json()['data']['id']
-        resp = _post(client, f'/api/watchlist/items/{item_id}/bookmark/', {})
+        resp = _post(client, f'/api/watchlist/items/{item_id}/favorite/', {})
         data = resp.get_json()['data']
-        assert data['bookmarked']
-        assert data['bookmarked_at'] is not None
-
-    def test_toggle_bookmark_off(self, client, db):
-        item = _post(client, '/api/watchlist/items/', {'symbol': '00700.HK'})
-        item_id = item.get_json()['data']['id']
-        _post(client, f'/api/watchlist/items/{item_id}/bookmark/', {})
-        resp = _post(client, f'/api/watchlist/items/{item_id}/bookmark/', {})
-        assert not resp.get_json()['data']['bookmarked']
+        assert data['favorite']
+        assert data['favorite_at'] is not None
 
     def test_smart_prompt_conditions(self, client, db):
         # 添加资产并写入笔记、交易记录

@@ -23,7 +23,7 @@ class WatchlistItemUpdate(BaseModel):
     is_pinned: Optional[bool] = Field(None, description='是否置顶')
     status: Optional[str] = Field(None, max_length=20, description='持仓状态')
     venue: Optional[str] = Field(None, max_length=10, description='交易场所')
-    bookmarked: Optional[bool] = Field(None, description='特别关注标记')
+    favorite: Optional[bool] = Field(None, description='特别关注标记')
     notes: Optional[str] = Field(None, max_length=2000, description='投资笔记')
     add_reason: Optional[str] = Field(None, max_length=500, description='关注理由')
 
@@ -37,8 +37,8 @@ class WatchlistItemOut(BaseModel):
     asset_type: Optional[str] = None
     venue: Optional[str] = None
     status: Optional[str] = None
-    bookmarked: Optional[bool] = None
-    bookmarked_at: Optional[date] = None
+    favorite: Optional[bool] = None  # 新增
+    favorite_at: Optional[date] = None  # 新增
     is_pinned: Optional[bool] = None
     pinned_at: Optional[datetime] = None
     add_reason: Optional[str] = None
@@ -89,3 +89,9 @@ class WatchlistTagDefOut(BaseModel):
     id: int
     name: str
     color: Optional[str] = None
+
+
+# schemas.py
+class WatchlistTagDefUpdate(BaseModel):
+    name: Optional[str] = Field(None, max_length=50)
+    color: Optional[str] = Field(None, max_length=7)

@@ -8,8 +8,8 @@ export interface WatchlistItem {
   asset_type: string;
   venue: string;
   status: string;               // HOLDING / WATCHING
-  bookmarked: boolean;
-  bookmarked_at: string | null;
+  favorite: boolean;
+  favorite_at: string | null;
   is_pinned: boolean;
   pinned_at: string | null;
   add_reason: string | null;
@@ -119,4 +119,13 @@ export function createWatchlistTag(data: { name: string; color?: string }) {
 /** 删除标签 */
 export function deleteWatchlistTag(id: number) {
   return http.request<any>("delete", `/api/watchlist/tags/${id}/`);
+}
+
+export function updateWatchlistTag(id: number, data: { name?: string; color?: string }) {
+  return http.request<any>("patch", `/api/watchlist/tags/${id}/`, { data });
+}
+
+
+export function getFavorites() {
+  return http.request<any>("get", "/api/watchlist/favorites/");
 }

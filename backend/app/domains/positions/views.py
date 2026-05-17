@@ -19,6 +19,8 @@ bp = APIBlueprint('positions', __name__, url_prefix='/api/positions')
 
 def _enrich_position_dict(p: Position) -> dict:
     """为持仓对象生成附带标签的字典."""
+    if not p.market:
+        p.market = 'UNKNOWN'  # 兜底，防止验证错误
     d = PositionOut.model_validate(p).model_dump()
     d['type_label'] = TYPE_LABELS.get(p.asset_type, p.asset_type)
     d['market_label'] = MARKET_LABELS.get(p.market, p.market)

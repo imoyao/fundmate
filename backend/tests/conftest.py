@@ -5,14 +5,16 @@
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 import app.domains.assets.models
 import app.domains.funds.models
 
-# 确保所有模型已导入
+# 强制导入所有模型，确保它们注册到 Base
 import app.domains.positions.models
 import app.domains.securities.models
 import app.domains.transactions.models
+import app.domains.watchlist.models
 from app.core.database import Base
 from app.main import create_app
 
@@ -20,16 +22,18 @@ from app.main import create_app
 @pytest.fixture
 def app(monkeypatch):
     """创建使用完全隔离内存数据库的测试应用"""
-    # 1. 建立内存引擎并替换模块级变量
-    test_engine = create_engine('sqlite:///:memory:', connect_args={'check_same_thread': False})
-    test_session_local = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
-    monkeypatch.setattr('app.core.database.engine', test_engine)
-    monkeypatch.setattr('app.core.database.SessionLocal', test_session_local)
+    # 关键：使用 StaticPool 确保所有连接指向同一个内存数据库
+    test_engine = create_engine('sqlite:///:memory:', connect_args={'check_same_thread': False}, poolclass=StaticPool)
+    TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
-    # 2. 建表（此时 engine 已为内存引擎）
+    # 替换全局 engine 和 SessionLocal
+    monkeypatch.setattr('app.core.database.engine', test_engine)
+    monkeypatch.setattr('app.core.database.SessionLocal', TestSessionLocal)
+
+    # 在应用启动前创建所有表
     Base.metadata.create_all(bind=test_engine)
 
-    # 3. 创建应用（内部的 init_db 会再次 create_all，无副作用）
+    # 创建应用（内部 init_db 会再次 create_all，安全无影响）
     app = create_app()
     app.config['TESTING'] = True
     yield app

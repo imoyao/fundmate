@@ -76,8 +76,8 @@ CREATE TABLE watchlist (
     status VARCHAR(20) DEFAULT 'HOLDING' COMMENT 'HOLDING(持仓中) / WATCHING(观察中)。CLEARED 不存储，由前端根据 positions+transactions 推导',
 
     -- 特别关注：清仓后保留深度关系的资产
-    bookmarked BOOLEAN DEFAULT FALSE COMMENT '特别关注标记。清仓后保留的深度研究资产',
-    bookmarked_at DATE COMMENT '设为特别关注的日期',
+    favorite BOOLEAN DEFAULT FALSE COMMENT '特别关注标记。清仓后保留的深度研究资产',
+    favorite_at DATE COMMENT '设为特别关注的日期',
     source_cycle_id INT COMMENT '关联的清仓周期ID，指向 cleared_cycles.id。NULL 表示非清仓保留',
 
     -- 置顶
@@ -487,7 +487,7 @@ function deriveAssetState(symbol):
 │ 同期白酒指数：-8.7%                       │
 │ 你跑赢了 3.6%                             │
 │                                          │
-│ [查看清仓分析] [写笔记] [加回自选]        │
+│ [查看清仓分析] [写笔记] [移回自选]        │
 │ ⏰ 下次复盘：2025-06-12                   │
 └─────────────────────────────────────────┘
 ```

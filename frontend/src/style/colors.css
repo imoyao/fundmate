@@ -1,0 +1,39 @@
+:root {
+  /* 语义色 */
+  --color-primary: #7A7FA8;
+  --color-rise: #C83E66;
+  --color-fall: #81B29A;
+  --color-warning: #D4C898;
+  --color-info: #7A9AA8;
+  --color-accent: #B88A8A;
+
+  /* 背景色 */
+  --bg-primary: #F8F7FC;
+  --bg-card: #FFFFFF;
+  --bg-hover: #F2E4E9;
+
+  /* 文字色 */
+  --text-primary: #333333;
+  --text-secondary: #666666;
+  --text-tertiary: #999999;
+
+  /* 卡片色条 */
+  --card-stock: #7B8FA1;
+  --card-fund: #E8A87C;
+  --card-manager: #B5A4C7;
+  --card-portfolio: #A3B5A1;
+
+  /* 标签/分组色板 */
+  --tag-1: #7A7FA8;
+  --tag-2: #81B29A;
+  --tag-3: #C85A6A;
+  --tag-4: #D4C898;
+  --tag-5: #9D81A9;
+  --tag-6: #A89F94;
+  --tag-7: #7A9AA8;
+  --tag-8: #B88A8A;
+  --tag-9: #8E8B82;
+  --tag-10: #A8CBC0;
+  --tag-11: #C4A68A;
+  --tag-12: #B4BEE0;
+}

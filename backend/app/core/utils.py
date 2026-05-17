@@ -6,9 +6,32 @@
 
 """通用工具函数，如分页等。"""
 
+from functools import wraps
 from typing import Any, List, Tuple
 
+from flask import jsonify
 from sqlalchemy.orm import Query
+
+from app.core.database import get_db
+
+
+def api_response(data=None, message='ok', total=None):
+    """统一 JSON 响应格式."""
+    resp = {'data': data, 'message': message}
+    if total is not None:
+        resp['total'] = total
+    return jsonify(resp)
+
+
+def with_db(func):
+    """装饰器：自动注入数据库会话并返回统一格式."""
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        with get_db() as db:
+            return func(db, *args, **kwargs)
+
+    return wrapper
 
 
 def paginate(query: Query, page: int = 1, per_page: int = 20) -> Tuple[List[Any], int]:

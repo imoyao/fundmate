@@ -11,6 +11,9 @@
           <IconifyIconOffline icon="ep:plus" class="text-base"/>
           添加
         </button>
+        <router-link to="/the-road-not-taken" class="text-xs text-purple-400 hover:text-purple-600 ml-3">
+          特别关注
+        </router-link>
         <router-link
           to="/watchlist"
           class="text-xs text-gray-400 hover:text-[#a6a6d2] transition-colors"

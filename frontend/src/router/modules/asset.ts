@@ -45,6 +45,16 @@ export default {
       }
     },
     {
+      path: "/the-road-not-taken",
+      name: "Favourites",
+      component: () => import("@/views/asset/favorites/index.vue"),
+      meta: {
+        title: "特别关注",
+        icon: "ep:opportunity",
+        rank: 4
+      }
+    },
+    {
       path: "/asset/stocks",
       name: "AssetStocks",
       component: () => import("@/views/asset/stocks/index.vue"),
