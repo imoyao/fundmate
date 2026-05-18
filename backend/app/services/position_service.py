@@ -124,6 +124,7 @@ class PositionService:
                 account_name=position.account_name,
                 confirm_date=data.get('confirm_date'),
                 notes=notes,
+                import_hash=data.get('import_hash'),
             )
 
             # 3. 提交并刷新
@@ -189,6 +190,7 @@ class PositionService:
                 position_name=position_name,
                 account_name=account_name,
                 notes=data.get('notes') or action_cn,
+                import_hash=data.get('import_hash'),
             )
 
             # 4. 提交
@@ -232,6 +234,7 @@ class PositionService:
                 position_name=existing.name,
                 account_name=existing.account_name,
                 notes=data.get('notes') or '现金分红',
+                import_hash=data.get('import_hash'),
             )
 
             db.commit()

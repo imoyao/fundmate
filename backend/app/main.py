@@ -14,6 +14,8 @@ from app.core.database import init_db
 from app.domains.assets.views import bp as assets_bp
 from app.domains.funds.views import bp as funds_bp
 from app.domains.health import bp as health_bp
+from app.domains.importers.views import importers_bp
+from app.domains.ledgers.views import ledgers_bp
 from app.domains.positions.views import bp as positions_bp
 from app.domains.securities.views import bp as securities_bp
 from app.domains.summary.views import bp as summary_bp
@@ -47,6 +49,8 @@ def create_app() -> APIFlask:
     app.register_blueprint(securities_bp)
     app.register_blueprint(funds_bp)
     app.register_blueprint(watchlist_bp)
+    app.register_blueprint(importers_bp)
+    app.register_blueprint(ledgers_bp)
     # 初始化数据库
     with app.app_context():
         init_db()

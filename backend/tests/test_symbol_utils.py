@@ -92,6 +92,11 @@ class TestNormalizeSH:
         assert norm == 'SH600519'
         assert market == 'SH'
 
+    def test_sh_convertible_bond(self, normalizer):
+        norm, market = normalizer.normalize('110067')
+        assert norm == 'SH110067'
+        assert market == 'SH'
+
 
 class TestNormalizeSZ:
     """深交所标准化测试"""

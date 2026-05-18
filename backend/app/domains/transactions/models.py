@@ -23,4 +23,5 @@ class Transaction(Base, PrimaryKeyMixin, TimestampMixin):
     position_name = Column(String(100))
     account_name = Column(String(100))
     confirm_date = Column(Date)  # 确认日期 (到账日)
+    import_hash = Column(String(64), nullable=True, comment='导入去重哈希值')
     notes = Column(Text)  # 复盘备注

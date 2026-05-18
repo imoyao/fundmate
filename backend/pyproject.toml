@@ -18,6 +18,9 @@ dependencies = [
     "git+https://gitee.com/imoyao/xalpha.git@master",
     "akshare>=1.18.60",
     "fake-useragent>=2.2.0",
+    "openpyxl>=3.1.5",
+    "xlrd>=2.0.2",
+    "charset-normalizer>=3.4.7",
 ]
 requires-python = ">=3.12"
 
