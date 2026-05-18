@@ -97,7 +97,7 @@
             :icon="Refresh"
             circle
             :loading="loading"
-            @click="fetchData"
+            @click="resetAndFetch"
           />
         </el-col>
       </el-row>
@@ -179,41 +179,84 @@
       </div>
     </el-card>
 
-    <!-- 时间线视图 -->
-    <el-card v-if="viewMode === 'timeline'" shadow="never">
-      <div v-loading="loading" class="timeline-container">
-        <el-timeline v-if="transactions.length">
-          <el-timeline-item
-            v-for="txn in transactions"
-            :key="txn.id"
-            :timestamp="txn.trade_date"
-            :type="timelineType(txn.type)"
-            :hollow="txn.status !== 'success'"
-          >
-            <div class="flex items-start justify-between">
-              <div>
-                <span :class="{ 'opacity-50': txn.position_id === null }">
-                  {{ txn.position_name }}
-                </span>
-                <span class="text-xs text-gray-400 ml-2"
-                  >({{ txn.account_name }})</span
-                >
-              </div>
-              <div class="text-right">
-                <span :class="amountClass(txn)">
-                  {{ txn.type === "buy" || txn.type === "deposit" ? "+" : "-" }}
-                  ¥{{ Number(txn.amount).toLocaleString() }}
-                </span>
-              </div>
-            </div>
-            <p v-if="txn.notes" class="text-gray-400 text-xs mt-1">
-              {{ txn.notes }}
-            </p>
-          </el-timeline-item>
-        </el-timeline>
-        <div v-else class="text-center py-12 text-gray-400">
+    <!-- 高级时间线视图 -->
+    <el-card v-if="viewMode === 'timeline'" shadow="never" class="overflow-hidden">
+      <div
+        v-loading="loading"
+        class="timeline-container"
+        ref="timelineScrollRef"
+      >
+        <!-- 空状态 -->
+        <div v-if="transactions.length === 0 && !loading" class="text-center py-12 text-gray-400">
           <IconifyIconOffline icon="ep:folder-opened" class="text-4xl mb-2" />
           <p>暂无交易记录</p>
+        </div>
+
+        <!-- 按日期分组的时间线 -->
+        <el-collapse v-else v-model="activeDates" class="border-none">
+          <el-collapse-item
+            v-for="(group, date) in groupedTransactions"
+            :key="date"
+            :title="`📅 ${date}`"
+            class="border-b border-gray-100"
+          >
+            <!-- 当日汇总 -->
+            <div class="day-summary text-xs text-gray-500 mb-3 flex gap-3">
+              <span>笔数：{{ group.length }} 笔</span>
+              <span>收支：
+                <span :class="groupDayBalance[date] >= 0 ? 'text-green-500 font-medium' : 'text-red-500 font-medium'">
+                  ¥{{ Math.abs(groupDayBalance[date] || 0).toFixed(2) }}
+                </span>
+              </span>
+            </div>
+
+            <!-- 时间线 -->
+            <el-timeline class="ml-1">
+              <el-timeline-item v-for="txn in group" :key="txn.id" class="mb-3">
+                <!-- 自定义时间节点：Iconify 图标 -->
+                <template #dot>
+                  <div class="custom-timeline-dot" :class="timelineDotClass(txn.type)">
+                    <IconifyIconOffline :icon="timelineIcon(txn.type)" width="12" />
+                  </div>
+                </template>
+
+                <!-- 交易卡片 -->
+                <el-card class="transaction-card" shadow="hover">
+                  <div class="card-header">
+                    <div class="left">
+                      <span class="font-medium" :class="{ 'opacity-50 grayscale': txn.position_id === null }">
+                        {{ txn.position_name }}
+                      </span>
+                      <el-tag :type="typeTag(txn.type)" size="small" class="ml-2">
+                        {{ opLabel(txn.type) }}
+                      </el-tag>
+                      <el-tag :type="statusTag(txn.status)" size="small" effect="plain" class="ml-1">
+                        {{ statusLabel(txn.status) }}
+                      </el-tag>
+                    </div>
+                    <div class="right" :class="amountClass(txn)">
+                      {{ txn.type === 'sell' || txn.type === 'dividend' || txn.type === 'deposit' ? '+' : '-' }}
+                      ¥{{ Number(txn.amount).toLocaleString() }}
+                    </div>
+                  </div>
+
+                  <div class="card-body text-xs text-gray-500 mt-2 flex flex-wrap gap-x-4 gap-y-1">
+                    <span>账户：{{ txn.account_name }}</span>
+                    <span>手续费：¥{{ Number(txn.fee).toFixed(2) }}</span>
+                  </div>
+
+                  <div v-if="txn.notes" class="card-footer text-xs text-gray-400 mt-2">
+                    备注：{{ txn.notes }}
+                  </div>
+                </el-card>
+              </el-timeline-item>
+            </el-timeline>
+          </el-collapse-item>
+        </el-collapse>
+
+        <!-- 加载更多提示 -->
+        <div v-if="hasMore && viewMode === 'timeline'" class="text-center py-4 text-gray-400 text-sm">
+          <span>下滑加载更多数据</span>
         </div>
       </div>
     </el-card>
@@ -221,7 +264,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, onMounted, watch, nextTick, onUnmounted } from "vue";
 import { Refresh } from "@element-plus/icons-vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import { getTransactions } from "@/api/transactions";
@@ -236,9 +279,14 @@ const viewOptions = [
   { label: "⏳ 时间线", value: "timeline" }
 ];
 
+// 时间线配置
+const activeDates = ref<string[]>([]);
+const timelineScrollRef = ref(null);
+const loadingMore = ref(false);
+const hasMore = ref(true);
+
 const transactions = ref<TransactionRecord[]>([]);
 const loading = ref(false);
-
 const totalCount = computed(() => total.value);
 
 const filters = ref({
@@ -250,113 +298,181 @@ const filters = ref({
 });
 
 const currentPage = ref(1);
-const pageSize = ref(10); // 默认每页10条
+const pageSize = ref(10);
 const total = ref(0);
 
-async function fetchData() {
-  loading.value = true;
+// 按日期分组
+const groupedTransactions = computed(() => {
+  const group: Record<string, TransactionRecord[]> = {};
+  transactions.value.forEach(item => {
+    const date = item.trade_date;
+    if (!group[date]) group[date] = [];
+    group[date].push(item);
+  });
+  return group;
+});
+
+// 每日收支汇总
+const groupDayBalance = computed(() => {
+  const balance: Record<string, number> = {};
+  Object.entries(groupedTransactions.value).forEach(([date, list]) => {
+    let sum = 0;
+    list.forEach(txn => {
+      const val = Number(txn.amount);
+      if (txn.type === 'sell' || txn.type === 'dividend' || txn.type === 'deposit') sum += val;
+      else sum -= val;
+    });
+    balance[date] = sum;
+  });
+  return balance;
+});
+
+// 判断日期是否在30天内
+const isDateInLast30Days = (dateStr: string) => {
+  const target = new Date(dateStr);
+  const now = new Date();
+  const past = new Date(now.setDate(now.getDate() - 30));
+  return target >= past;
+};
+
+// 默认展开最近30天
+const setDefaultExpireDates = () => {
+  const allDates = Object.keys(groupedTransactions.value);
+  const recentDates = allDates.filter(date => isDateInLast30Days(date));
+  activeDates.value = recentDates;
+};
+
+// 数据请求
+const fetchData = async (isLoadMore = false) => {
+  if (loading.value || loadingMore.value) return;
+  isLoadMore ? (loadingMore.value = true) : (loading.value = true);
+
   try {
-    const params: any = {
-      page: currentPage.value,
-      per_page: pageSize.value
-    };
+    const params: any = { page: currentPage.value, per_page: pageSize.value };
     if (filters.value.type) params.type = filters.value.type;
     if (filters.value.assetType) params.asset_type = filters.value.assetType;
     if (filters.value.status) params.status = filters.value.status;
     if (filters.value.timeRange) params.time_range = filters.value.timeRange;
     if (filters.value.customDate) {
       const [start, end] = filters.value.customDate;
-      params.start_date = start.toISOString().slice(0, 10);
-      params.end_date = end.toISOString().slice(0, 10);
+      params.start_date = start.toISOString().slice(0,10);
+      params.end_date = end.toISOString().slice(0,10);
     }
 
     const res = await getTransactions(params);
-    // res 已经是后端返回的完整对象 { data: [...], total: 9, page: 1, ... }
-    transactions.value = res?.data ?? [];
+    const newData = res?.data ?? [];
+    transactions.value = isLoadMore ? [...transactions.value, ...newData] : newData;
     total.value = res?.total ?? 0;
+    hasMore.value = transactions.value.length < total.value;
+    nextTick(() => setDefaultExpireDates());
   } catch (e: any) {
     ElMessage.error(e?.message || "加载流水失败");
   } finally {
     loading.value = false;
+    loadingMore.value = false;
   }
-}
-const fetchTransactions = fetchData;
+};
 
-function onPageChange(page: number) {
-  currentPage.value = page;
-  fetchData();
-}
-
-function onSizeChange(size: number) {
-  pageSize.value = size;
+// 重置刷新
+const resetAndFetch = () => {
   currentPage.value = 1;
+  hasMore.value = true;
   fetchData();
-}
+};
 
-// ── 辅助函数 ──
-function typeTag(type: string): string {
-  const map: Record<string, string> = {
-    buy: "success",
-    sell: "danger",
-    dividend: "warning",
-    deposit: "",
-    withdraw: "info"
-  };
-  return map[type] || "";
-}
-function opLabel(type: string): string {
-  const map: Record<string, string> = {
-    buy: "买入",
-    sell: "卖出",
-    dividend: "分红",
-    deposit: "存入",
-    withdraw: "取出"
-  };
-  return map[type] || type;
-}
-function statusTag(status: string): string {
-  const map: Record<string, string> = {
-    success: "success",
-    failed: "danger",
-    cancelled: "info",
-    pending: "warning"
-  };
-  return map[status] || "";
-}
-function statusLabel(status: string): string {
-  const map: Record<string, string> = {
-    success: "成功",
-    failed: "失败",
-    cancelled: "已撤单",
-    pending: "可撤单"
-  };
-  return map[status] || status;
-}
-function timelineType(
-  type: string
-): "primary" | "success" | "warning" | "danger" | "info" {
-  const map: Record<string, string> = {
-    buy: "success",
-    sell: "danger",
-    dividend: "warning",
-    deposit: "",
-    withdraw: ""
-  };
-  return (map[type] || "primary") as any;
-}
-function amountClass(txn: TransactionRecord): string {
-  if (txn.type === "buy" || txn.type === "deposit")
-    return "text-green-500 font-medium";
-  return "text-red-500 font-medium";
-}
+// 分页
+const onPageChange = (page: number) => { currentPage.value = page; fetchData(); };
+const onSizeChange = (size: number) => { pageSize.value = size; currentPage.value = 1; fetchData(); };
 
-onMounted(() => fetchData());
+// ==============================================
+// 原生JS滚动懒加载（零依赖，无报错）
+// ==============================================
+const handleTimelineScroll = () => {
+  const el = timelineScrollRef.value;
+  if (!el || loadingMore.value || !hasMore.value) return;
+  if (el.scrollTop + el.clientHeight + 100 >= el.scrollHeight) {
+    currentPage.value++;
+    fetchData(true);
+  }
+};
+
+let scrollListener = null;
+const bindScroll = () => {
+  if (viewMode.value === 'timeline' && timelineScrollRef.value && !scrollListener) {
+    scrollListener = handleTimelineScroll;
+    timelineScrollRef.value.addEventListener('scroll', scrollListener);
+  }
+};
+const unbindScroll = () => {
+  if (timelineScrollRef.value && scrollListener) {
+    timelineScrollRef.value.removeEventListener('scroll', scrollListener);
+    scrollListener = null;
+  }
+};
+
+watch(viewMode, (val) => {
+  unbindScroll();
+  nextTick(bindScroll);
+});
+
+// ==============================================
+// 图标 & 样式工具函数
+// ==============================================
+const timelineIcon = (type: string) => {
+  const map = { buy: "ep:arrow-down", sell: "ep:arrow-up", dividend: "ep:present", deposit: "ep:wallet", withdraw: "ep:money" };
+  return map[type] || "ep:arrow-down";
+};
+const timelineDotClass = (type: string) => {
+  const map = { buy: "dot-buy", sell: "dot-sell", dividend: "dot-dividend", deposit: "dot-deposit", withdraw: "dot-withdraw" };
+  return map[type] || "dot-default";
+};
+const amountClass = (txn: TransactionRecord) => {
+  return txn.type === "sell" || txn.type === "dividend" || txn.type === "deposit"
+    ? "text-green-500 font-medium text-sm"
+    : "text-red-500 font-medium text-sm";
+};
+
+// 原有工具函数
+function typeTag(type: string): string { const map = { buy: "success", sell: "danger", dividend: "warning", deposit: "primary", withdraw: "info" }; return map[type] || ""; }
+function opLabel(type: string): string { const map = { buy: "买入", sell: "卖出", dividend: "分红", deposit: "存入", withdraw: "取出" }; return map[type] || type; }
+function statusTag(status: string): string { const map = { success: "success", failed: "danger", cancelled: "info", pending: "warning" }; return map[status] || ""; }
+function statusLabel(status: string): string { const map = { success: "成功", failed: "失败", cancelled: "已撤单", pending: "可撤单" }; return map[status] || status; }
+
+// 生命周期
+onMounted(() => { fetchData(); nextTick(bindScroll); });
+onUnmounted(unbindScroll);
 </script>
 
 <style scoped>
 .timeline-container {
-  max-width: 700px;
-  padding: 20px 0;
+  max-width: 800px;
+  padding: 16px 0;
   margin: 0 auto;
+  max-height: 75vh;
+  overflow-y: auto;
 }
+
+/* 自定义时间线节点 */
+:deep(.el-timeline-item__dot) { display: none; }
+.custom-timeline-dot {
+  width: 20px; height: 20px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+.dot-buy { background: #00b42a; }
+.dot-sell { background: #f53f3f; }
+.dot-dividend { background: #ff7d00; }
+.dot-deposit { background: #4080ff; }
+.dot-withdraw { background: #86909c; }
+.dot-default { background: #ccc; }
+
+/* 卡片样式 */
+.transaction-card { transition: all 0.2s ease; border: 1px solid #f0f0f0; }
+.transaction-card:hover { transform: translateY(-2px); border-color: #e5e6eb; }
+.card-header { display: flex; justify-content: space-between; align-items: center; }
+.left { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+/* 折叠面板 */
+:deep(.el-collapse-item__header) { font-weight: 500; color: #333; background: #fafafa; border-radius: 4px; }
+:deep(.el-collapse-item__content) { padding: 12px 0 0 0 !important; background: #fff; }
 </style>

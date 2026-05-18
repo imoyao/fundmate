@@ -34,6 +34,16 @@ export default {
       }
     },
     {
+      path: "/inventory",
+      name: "Inventory",
+      component: () => import("@/views/asset/inventory/index.vue"),
+      meta: {
+        title: "全面盘点",
+        icon: "ep:document-copy",
+        rank: 2
+      }
+    },
+    {
       path: "/watchlist",
       name: "Watchlist",
       component: () => import("@/views/asset/watchlist/index.vue"),
