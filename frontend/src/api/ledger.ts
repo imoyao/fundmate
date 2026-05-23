@@ -18,3 +18,11 @@ export function getLedgers() {
 export function createLedger(data: { name: string; ledger_type?: string;default_allocation?: string; currency?: string }) {
   return http.request<any>("post", "/api/ledgers/", { data });
 }
+
+export function updateLedger(id: number, data: any) {
+  return http.request("patch", `/api/ledgers/${id}/`, { data });
+}
+
+export function deleteLedger(id: number) {
+  return http.request("delete", `/api/ledgers/${id}/`);
+}

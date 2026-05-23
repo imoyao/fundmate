@@ -101,6 +101,18 @@
   --tag-caramel:         #C4A68A;  /* 焦糖色 */
   --tag-periwinkle:      #B4BEE0;  /* 长春花蓝 */
 
+  --tag-muted-blue-20: rgba(122, 154, 168, 0.2);
+  --tag-thistle-20: rgba(157, 129, 169, 0.2);
+  --color-primary-20: rgba(122, 127, 168, 0.2);
+  --color-danger-20: rgba(200, 62, 102, 0.2);
+  --color-accent-20: rgba(184, 138, 138, 0.2);
+  --asset-stock-20: rgba(123, 143, 161, 0.2);
+  --asset-fund-20: rgba(232, 168, 124, 0.2);
+  --asset-bond-20: rgba(212, 200, 152, 0.2);
+  --asset-etf-20: rgba(168, 203, 192, 0.2);
+  --asset-crypto-20: rgba(196, 166, 138, 0.2);
+  --asset-saving-20: rgba(129, 178, 154, 0.2);
+
   /* ===== 资产类型卡片色（语义化别名） ===== */
   --asset-stock:         var(--tag-muted-blue);    /* 股票：灰蓝 */
   --asset-fund:          var(--color-accent);      /* 基金：玫瑰棕 */

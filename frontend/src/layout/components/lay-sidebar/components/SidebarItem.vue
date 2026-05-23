@@ -218,7 +218,7 @@ function resolvePath(routePath) {
     </template>
 
     <sidebar-item
-      v-for="child in item.children"
+      v-for="child in item.children.filter(c => !c.meta?.hidden && c.meta?.showLink !== false)"
       :key="child.path"
       :is-nest="true"
       :item="child"

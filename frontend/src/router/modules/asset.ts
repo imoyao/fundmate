@@ -41,44 +41,25 @@ export default {
       component: () => import("@/views/asset/investment/batch/index.vue"),
       meta: { title: "批量导入", icon: "ep:upload", rank: 12, showLink: false }
     },
-    // 通用资产录入（保留）
+    // 通用资产录入
     {
-      path: "/asset/asset-entry",
+      path: "asset-entry",
       name: "AssetEntry",
       component: () => import("@/views/asset/AssetEntry.vue"),
       meta: { title: "录入通用资产", icon: "ep:plus", rank: 8, showLink: false }
     },
-    // ── 顶部核心区（直接显示，始终可见）──
-    // {
-    //   path: "panorama",
-    //   name: "AssetPanorama",
-    //   component: () => import("@/views/asset/AssetPanorama.vue"),
-    //   meta: { title: "资产总览", icon: "ep:pie-chart", rank: 1, keepAlive: true }
-    // },
-    // {
-    //   path: "inventory",
-    //   name: "Inventory",
-    //   component: () => import("@/views/asset/inventory/index.vue"),
-    //   meta: { title: "全面盘点", icon: "ep:document-copy", rank: 2 }
-    // },
-    // {
-    //   path: "watchlist",
-    //   name: "Watchlist",
-    //   component: () => import("@/views/asset/watchlist/index.vue"),
-    //   meta: { title: "我的自选", icon: "ep:star", rank: 3, keepAlive: true }
-    // },
-    // {
-    //   path: "transactions",
-    //   name: "TransactionList",
-    //   component: () => import("@/views/asset/TransactionList.vue"),
-    //   meta: { title: "交易流水", icon: "ep:list", rank: 4 }
-    // },
-
+    // 资产总览
+    {
+      path: "panorama",
+      name: "AssetPanorama",
+      component: () => import("@/views/asset/AssetPanorama.vue"),
+      meta: { title: "资产总览", icon: "ep:pie-chart", rank: 1, keepAlive: true }
+    },
     // ── 投资管理（可折叠）──
     {
       path: "investment",
       name: "InvestmentManage",
-      component: EmptyLayout,  // ← 关键：用空布局替代默认 Layout 注入
+      component: EmptyLayout,
       redirect: "/asset/investment/favorites",
       meta: { title: "投资管理", icon: "ep:folder-opened", rank: 10 },
       children: [
@@ -120,22 +101,18 @@ export default {
         }
       ]
     },
-
-    // ── 系统设置（可折叠）──
     {
-      path: "settings",
-      name: "SystemSettings",
-      component: EmptyLayout,  // ← 关键：用空布局替代默认 Layout 注入
-      redirect: "/asset/ledgers",
-      meta: { title: "账户管理", icon: "ep:setting", rank: 20 },
-      children: [
-        {
-          path: "ledgers",
-          name: "AssetLedgers",
-          component: () => import("@/views/account/AccountManagement.vue"),
-          meta: { title: "账户管理", icon: "ep:user", rank: 1 }
-        }
-      ]
+      path: "/asset/ledgers",
+      name: "AssetLedger",
+      component: () => import("@/views/asset/AssetLedger.vue"),
+      meta: { title: "账户管理", icon: "ep:wallet", rank: 30}
+    },
+    // 账户详情（作为 Asset 的子路由，继承 Layout 布局）
+    {
+      path: "/asset/ledgers/:id",
+      name: "LedgerDetail",
+      component: () => import("@/views/asset/LedgerDetail.vue"),
+      meta: { title: "账户详情", icon: "ep:wallet", rank: 31, showLink: false, hidden: true }
     }
   ]
 } satisfies RouteConfigsTable;

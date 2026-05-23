@@ -28,7 +28,8 @@ import {
   type Router,
   type RouteRecordRaw,
   type RouteComponent,
-  createRouter
+  createRouter,
+  createWebHashHistory,
 } from "vue-router";
 import {
   type DataInfo,
