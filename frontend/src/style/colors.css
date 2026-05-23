@@ -42,6 +42,51 @@
   --sankey-speculative:    #C83E66;  /* 高风险博弈：同危险色，警示 */
   --sankey-security:       #B88A8A;  /* 保险保障：同强调色，柔和安全 */
 
+  /* 新增：资产大类专属色 */
+  --category-cash:        #B5C4B1;   /* 流动资金 */
+  --category-fixed:       #A3B5C7;   /* 固定资产 */
+  --category-investment:  #9D81A9;   /* 投资理财 */
+  --category-receivable:  #8E8B82;   /* 应收款 */
+  --category-liability:   #C4A0A8;   /* 负债 */
+  --category-insurance:   #E8D5C4;   /* 保险项目 */
+
+  /* 新增：投资子类型色 */
+  --invest-stock:   #9D81A9;
+  --invest-fund:    #A3B5C7;
+  --invest-bond:    #8E8B82;
+  --invest-etf:     #B5C4B1;
+  --invest-crypto:  #C4A0A8;
+  --invest-saving:  #9CAF88;
+
+  /* 新增：添加类型卡片通用色 */
+  --add-type-cash:        #B5C4B1;
+  --add-type-money-fund:  #9CAF88;
+  --add-type-cash-other:  #8DA3B8;
+  --add-type-house:       #C4A0A8;
+  --add-type-car:         #9B9EB0;
+  --add-type-gold:        #B6B09C;
+  --add-type-personal-loan: #8E8B82;
+  --add-type-prepaid:     #A89F94;
+  --add-type-credit-card: #C4A0A8;
+  --add-type-mortgage:    #B5C4B1;
+  --add-type-car-loan:    #9B9EB0;
+  --add-type-life:        #E8D5C4;
+  --add-type-health:      #D4C5C7;
+  --add-type-annuity:     #C4C8D0;
+
+  /* 投资理财导入卡片 */
+  --import-card-bg:       #E8D5C420;
+  --import-card-icon:     #E8A87C;
+
+  /* 分类激活背景（带透明度） */
+  --category-cash-bg:        rgba(181, 196, 177, 0.13);
+  --category-fixed-bg:       rgba(163, 181, 199, 0.13);
+  --category-investment-bg:  rgba(157, 129, 169, 0.13);
+  --category-receivable-bg:  rgba(142, 139, 130, 0.13);
+  --category-liability-bg:   rgba(196, 160, 168, 0.13);
+  --category-insurance-bg:   rgba(232, 213, 196, 0.13);
+
+
   /* ===== 标签/分组色板（12色，按色相命名） ===== */
   --tag-purple-gray:     #7A7FA8;  /* 灰紫 */
   --tag-sage-green:      #81B29A;  /* 鼠尾草绿 */

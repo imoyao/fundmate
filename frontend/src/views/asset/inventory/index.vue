@@ -6,14 +6,17 @@
       <p class="text-gray-500 text-sm mt-1">选择资产大类，快速录入或导入</p>
     </div>
 
-    <!-- 顶部资产分类标签栏（更大更突出） -->
+    <!-- 顶部资产分类标签栏 -->
     <div class="flex flex-wrap gap-3 mb-10">
       <div
         v-for="cat in categories"
         :key="cat.key"
         class="category-tab"
-        :class="{ active: activeCategory === cat.key }"
-        :style="activeCategory === cat.key ? { backgroundColor: cat.color + '20', borderColor: cat.color } : {}"
+        :class="{
+          active: activeCategory === cat.key,
+          'no-data': getCategoryAmount(cat.key) === '无记录'
+        }"
+        :style="activeCategory === cat.key ? { backgroundColor: `var(--category-${cat.key}-bg)`, borderColor: `var(--category-${cat.key})` } : {}"
         @click="activeCategory = cat.key"
       >
         <span class="category-tab-label">{{ cat.label }}</span>
@@ -37,7 +40,7 @@
         </p>
       </div>
 
-      <!-- 投资理财：按大类聚合卡片，不列出全部持仓 -->
+      <!-- 投资理财：按大类聚合卡片 -->
       <div v-if="activeCategory === 'investment' && investmentGroups.length > 0" class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-5 mb-10">
         <div
           v-for="group in investmentGroups"
@@ -56,31 +59,31 @@
         </div>
       </div>
 
-      <!-- 其他大类：具体资产卡片（数据量少，保留原样） -->
+      <!-- 其他大类：具体资产卡片 -->
       <div v-else-if="activeCategory !== 'investment' && activeItems.length > 0" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 mb-10">
         <div
-  v-for="item in activeItems"
-  :key="item.id"
-  class="asset-card"
-  :class="{ selected: selectedItemId === item.id }"
-  @click="selectedItemId = selectedItemId === item.id ? null : item.id"
->
-  <div class="flex items-start gap-3">
-    <IconifyIconOffline
-      icon="ep:wallet"
-      class="shrink-0 mt-0.5"
-      :class="selectedItemId === item.id ? 'text-2xl text-[#FF6B00]' : 'text-xl text-gray-400'"
-    />
-    <div class="flex-1 min-w-0">
-      <p class="font-semibold text-gray-800 text-lg truncate">{{ item.name }}</p>
-      <p class="text-sm text-gray-500 mt-0.5">{{ item.account_name || '未指定账户' }}</p>
-    </div>
-  </div>
-  <div class="mt-3 pl-9">
-    <p class="text-base font-medium text-gray-700">¥{{ item.amount?.toLocaleString() || '0' }}</p>
-    <p class="text-xs text-gray-400 mt-0.5">{{ item.updated_at?.slice(0, 10) || '' }}</p>
-  </div>
-</div>
+          v-for="item in activeItems"
+          :key="item.id"
+          class="asset-card"
+          :class="{ selected: selectedItemId === item.id }"
+          @click="selectedItemId = selectedItemId === item.id ? null : item.id"
+        >
+          <div class="flex items-start gap-3">
+            <IconifyIconOffline
+              icon="ep:wallet"
+              class="shrink-0 mt-0.5"
+              :class="selectedItemId === item.id ? 'text-2xl text-[#FF6B00]' : 'text-xl text-gray-400'"
+            />
+            <div class="flex-1 min-w-0">
+              <p class="font-semibold text-gray-800 text-lg truncate">{{ item.name }}</p>
+              <p class="text-sm text-gray-500 mt-0.5">{{ item.account_name || '未指定账户' }}</p>
+            </div>
+          </div>
+          <div class="mt-3 pl-9">
+            <p class="text-base font-medium text-gray-700">¥{{ item.amount?.toLocaleString() || '0' }}</p>
+            <p class="text-xs text-gray-400 mt-0.5">{{ item.updated_at?.slice(0, 10) || '' }}</p>
+          </div>
+        </div>
       </div>
 
       <!-- 分类说明卡片 -->
@@ -100,22 +103,22 @@
           @click="handleAddType(type.key)"
         >
           <div class="type-card-content">
-            <div class="type-icon-wrapper" :style="{ backgroundColor: getTypeColor(type.key) + '20' }">
-              <IconifyIconOffline :icon="type.icon" class="type-icon" :style="{ color: getTypeColor(type.key) }" />
+            <div class="type-icon-wrapper" :style="{ backgroundColor: type.color + '20' }">
+              <IconifyIconOffline :icon="type.icon" class="type-icon" :style="{ color: type.color }" />
             </div>
             <span class="type-label">{{ type.label }}</span>
           </div>
         </div>
 
-        <!-- 投资理财专属：导入投资记账卡片 -->
+        <!-- 投资理财导入记账卡片 -->
         <div
           v-if="activeCategory === 'investment'"
           class="add-type-card primary-card"
           @click="$router.push('/inventory/investment/import')"
         >
           <div class="type-card-content">
-            <div class="type-icon-wrapper" style="background-color: #E8D5C420">
-              <IconifyIconOffline icon="ep:upload" class="type-icon" style="color: #E8A87C" />
+            <div class="type-icon-wrapper" style="background-color: var(--import-card-bg)">
+              <IconifyIconOffline icon="ep:upload" class="type-icon" style="color: var(--import-card-icon)" />
             </div>
             <span class="type-label">导入投资记账</span>
           </div>
@@ -143,88 +146,90 @@ import { getAssets } from "@/api/assets";
 import { getPositions } from "@/api/positions";
 
 const router = useRouter();
-const route = useRoute();   // 用于读取 query 参数
+const route = useRoute();
 
 defineOptions({ name: "InventoryHome" });
 
+// ---------- 汇率常量 ----------
+const EXCHANGE_RATES: Record<string, number> = {
+  CNY: 1,
+  USD: 7.25,
+  HKD: 0.92,
+};
 
-// 资产大类定义
+// ---------- 资产大类定义（颜色全部使用 CSS 变量）----------
 const categories = [
-  { key: "cash", label: "流动资金", color: "#B5C4B1", desc: "可随用随取、即时变现的钱，大额存单、定期存单、基金、股票等流动性更低的资产推荐记入投资理财。" },
-  { key: "fixed", label: "固定资产", color: "#A3B5C7", desc: "用于投资或自用的、流动性低的实物类资产。" },
-  { key: "investment", label: "投资理财", color: "#9D81A9", desc: "投资于金融产品，追求保值增值的钱，投资于房产、收藏品等实物类投资资产推荐记入固定资产。" },
-  { key: "receivable", label: "应收款", color: "#8E8B82", desc: "家庭资产中应收未收的款项，如借给他人的钱，为他人垫付的资金。" },
-  { key: "liability", label: "负债", color: "#C4A0A8", desc: "家庭需偿还的债务，如信用卡、房贷、车贷、个人借款等。" },
-  { key: "insurance", label: "保险项目", color: "#E8D5C4", desc: "家庭保障类资产，如寿险、健康险、年金险等。" },
+  { key: "investment", label: "投资理财", color: "var(--category-investment)", desc: "追求保值增值的钱。股票、基金、可转债、银行定期存款、大额存单、银行理财、国债等。这些钱牺牲了部分流动性以换取更高收益。" },
+  { key: "cash", label: "流动资金", color: "var(--category-cash)", desc: "用于日常消费和应急的活钱。银行卡活期、微信/支付宝余额、余额宝等随时可取的货币基金请放这里。如果这笔钱3个月内肯定不用，建议记入投资理财。" },
+  { key: "fixed", label: "固定资产", color: "var(--category-fixed)", desc: "用于投资或自用的、流动性低的实物类资产。" },
+  { key: "liability", label: "负债", color: "var(--category-liability)", desc: "家庭需偿还的债务，如信用卡、房贷、车贷、个人借款等。" },
+  { key: "receivable", label: "应收款", color: "var(--category-receivable)", desc: "家庭资产中应收未收的款项，如借给他人的钱，为他人垫付的资金。" },
+  { key: "insurance", label: "保险项目", color: "var(--category-insurance)", desc: "家庭保障类资产，如寿险、健康险、年金险等。" },
 ];
 
-// 可添加资产类型
+// ---------- 可添加资产类型（颜色全部使用 CSS 变量）----------
 const assetTypeMap: Record<string, { key: string; icon: string; label: string; color: string }[]> = {
   cash: [
-    { key: "bank", icon: "ep:bank", label: "银行活期", color: "#B5C4B1" },
-    { key: "money_fund", icon: "ep:money", label: "货币基金", color: "#9CAF88" },
-    { key: "cash_other", icon: "ep:wallet", label: "其他现金", color: "#8DA3B8" },
-  ],
-  fixed: [
-    { key: "house", icon: "ep:house", label: "房产", color: "#C4A0A8" },
-    { key: "car", icon: "ep:van", label: "汽车", color: "#9B9EB0" },
-    { key: "gold", icon: "ep:medal", label: "黄金", color: "#B6B09C" },
+    { key: "bank", icon: "ep:bank", label: "活期/余额宝", color: "var(--add-type-cash)" },
+    { key: "money_fund", icon: "ep:money", label: "货币基金", color: "var(--add-type-money-fund)" },
+    { key: "cash_other", icon: "ep:wallet", label: "其他现金", color: "var(--add-type-cash-other)" },
   ],
   investment: [
-    { key: "stock", icon: "ep:trend-charts", label: "股票", color: "#9D81A9" },
-    { key: "fund", icon: "ep:money", label: "基金", color: "#A3B5C7" },
-    { key: "bond", icon: "ep:document", label: "可转债", color: "#8E8B82" },
+    { key: "stock", icon: "ep:trend-charts", label: "股票", color: "var(--invest-stock)" },
+    { key: "fund", icon: "ep:money", label: "场外基金", color: "var(--invest-fund)" },
+    { key: "bond", icon: "ep:document", label: "可转债", color: "var(--invest-bond)" },
+    { key: "etf", icon: "ep:pie-chart", label: "ETF", color: "var(--invest-etf)" },
+    { key: "crypto", icon: "ep:coin", label: "虚拟货币", color: "var(--invest-crypto)" },
+    { key: "saving", icon: "ep:bank", label: "定期/理财", color: "var(--invest-saving)" },
+  ],
+  fixed: [
+    { key: "house", icon: "ep:house", label: "房产", color: "var(--add-type-house)" },
+    { key: "car", icon: "ep:van", label: "汽车", color: "var(--add-type-car)" },
+    { key: "gold", icon: "ep:medal", label: "黄金", color: "var(--add-type-gold)" },
   ],
   receivable: [
-    { key: "personal_loan", icon: "ep:user", label: "个人借款", color: "#8E8B82" },
-    { key: "prepaid", icon: "ep:credit-card", label: "预付款", color: "#A89F94" },
+    { key: "personal_loan", icon: "ep:user", label: "个人借款", color: "var(--add-type-personal-loan)" },
+    { key: "prepaid", icon: "ep:credit-card", label: "预付款", color: "var(--add-type-prepaid)" },
   ],
   liability: [
-    { key: "credit_card", icon: "ep:credit-card", label: "信用卡", color: "#C4A0A8" },
-    { key: "mortgage", icon: "ep:house", label: "房屋贷款", color: "#B5C4B1" },
-    { key: "car_loan", icon: "ep:van", label: "汽车贷款", color: "#9B9EB0" },
+    { key: "credit_card", icon: "ep:credit-card", label: "信用卡", color: "var(--add-type-credit-card)" },
+    { key: "mortgage", icon: "ep:house", label: "房屋贷款", color: "var(--add-type-mortgage)" },
+    { key: "car_loan", icon: "ep:van", label: "汽车贷款", color: "var(--add-type-car-loan)" },
   ],
   insurance: [
-    { key: "life", icon: "ep:shield", label: "寿险", color: "#E8D5C4" },
-    { key: "health", icon: "ep:first-aid-kit", label: "健康险", color: "#D4C5C7" },
-    { key: "annuity", icon: "ep:document", label: "年金险", color: "#C4C8D0" },
+    { key: "life", icon: "ep:shield", label: "寿险", color: "var(--add-type-life)" },
+    { key: "health", icon: "ep:first-aid-kit", label: "健康险", color: "var(--add-type-health)" },
+    { key: "annuity", icon: "ep:document", label: "年金险", color: "var(--add-type-annuity)" },
   ],
 };
 
-const activeCategory = ref("cash");
+// ---------- 响应式数据 ----------
+const activeCategory = ref("investment");
 const allAssets = ref<any[]>([]);
 const allPositions = ref<any[]>([]);
+const selectedItemId = ref<number | string | null>(null);
+const loading = ref(false);
 
+// ---------- 计算属性 ----------
 const activeCategoryLabel = computed(() => categories.find(c => c.key === activeCategory.value)?.label || "");
 const activeCategoryDesc = computed(() => categories.find(c => c.key === activeCategory.value)?.desc || "");
 const activeAssetTypes = computed(() => assetTypeMap[activeCategory.value] || []);
 
-// 普通大类（非投资理财）的资产列表
 const activeItems = computed(() => {
   if (activeCategory.value === "investment") return [];
   return allAssets.value.filter(a => a.major_category === activeCategory.value);
 });
 
 const categoryAmountText = computed(() => getCategoryAmount(activeCategory.value));
+const categoryHasAmount = computed(() => categoryAmountText.value !== "无记录");
 
-const categoryHasAmount = computed(() => {
-  const text = categoryAmountText.value;
-  return text !== "无记录";
-});
-
-// 投资理财大类：按类型聚合持仓
+// 投资理财聚合卡片
 const investmentGroups = computed(() => {
   if (activeCategory.value !== "investment") return [];
 
-  // 类型图标与颜色映射
-  const typeMeta: Record<string, { label: string; icon: string; color: string }> = {
-    stock: { label: "股票", icon: "ep:trend-charts", color: "#9D81A9" },
-    fund: { label: "场外基金", icon: "ep:money", color: "#A3B5C7" },
-    bond: { label: "可转债", icon: "ep:document", color: "#8E8B82" },
-    etf: { label: "ETF", icon: "ep:pie-chart", color: "#B5C4B1" },
-    crypto: { label: "虚拟货币", icon: "ep:coin", color: "#C4A0A8" },
-    saving: { label: "银行存款/理财", icon: "ep:bank", color: "#9CAF88" },
-  };
+  const typeMetaMap = Object.fromEntries(
+    assetTypeMap.investment.map(item => [item.key, item])
+  );
 
   const groups: Record<string, { total: number; count: number }> = {};
   allPositions.value.forEach(p => {
@@ -234,30 +239,38 @@ const investmentGroups = computed(() => {
     groups[t].count += 1;
   });
 
-  return Object.entries(groups).map(([type, data]) => ({
-    type,
-    label: typeMeta[type]?.label || type,
-    icon: typeMeta[type]?.icon || "ep:question",
-    color: typeMeta[type]?.color || "#C5C9B8",
-    ...data,
-  }));
+  return Object.entries(groups).map(([type, data]) => {
+    const meta = typeMetaMap[type];
+    return {
+      type,
+      label: meta?.label || type,
+      icon: meta?.icon || "ep:question",
+      color: meta?.color || "var(--color-neutral)",
+      ...data,
+    };
+  });
 });
 
+// ---------- 方法 ----------
 function getCategoryAmount(key: string): string {
   if (key === "investment") {
-    const fromAssets = allAssets.value.filter(a => a.major_category === "investment").reduce((s, a) => s + (a.amount || 0), 0);
+    const fromAssets = allAssets.value
+      .filter(a => a.major_category === "investment")
+      .reduce((s, a) => s + (a.marketValue || 0), 0);
     const fromPositions = allPositions.value.reduce((s, p) => s + (p.marketValue || 0), 0);
     const total = fromAssets + fromPositions;
     return total > 0 ? `¥${total.toLocaleString()}` : "无记录";
   }
-  const total = allAssets.value.filter(a => a.major_category === key).reduce((s, a) => s + (a.amount || 0), 0);
+  const total = allAssets.value
+    .filter(a => a.major_category === key)
+    .reduce((s, a) => s + (a.marketValue || 0), 0);
   return total > 0 ? `¥${total.toLocaleString()}` : "无记录";
 }
 
 function getTypeColor(key: string): string {
   const types = activeAssetTypes.value;
   const found = types.find(t => t.key === key);
-  return found?.color || '#C5C9B8';
+  return found?.color || "var(--color-neutral)";
 }
 
 function handleAddType(typeKey: string) {
@@ -268,7 +281,9 @@ function handleCustomAdd() {
   router.push(`/asset/asset-entry?category=${activeCategory.value}`);
 }
 
+// ---------- 数据获取 ----------
 async function fetchData() {
+  loading.value = true;
   try {
     const [assetsRes, posRes] = await Promise.all([
       getAssets({ per_page: 500 }),
@@ -283,7 +298,6 @@ async function fetchData() {
       const maybe = (assetsRes as any)?.data ?? assetsRes ?? [];
       assetsRaw = Array.isArray(maybe) ? maybe : [];
     }
-    allAssets.value = assetsRaw;
 
     let positionsRaw: any[] = [];
     if (Array.isArray(posRes)) positionsRaw = posRes;
@@ -293,31 +307,43 @@ async function fetchData() {
       const maybe = (posRes as any)?.data ?? posRes ?? [];
       positionsRaw = Array.isArray(maybe) ? maybe : [];
     }
-    allPositions.value = positionsRaw.map((p: any) => ({
-      ...p,
-      marketValue: (p.quantity || 0) * (p.current_price || 0),
-    }));
+
+    allAssets.value = assetsRaw.map((a: any) => {
+      const rate = EXCHANGE_RATES[a.currency || "CNY"] || 1;
+      return { ...a, marketValue: (a.amount || 0) * rate };
+    });
+
+    allPositions.value = positionsRaw.map((p: any) => {
+      const rate = EXCHANGE_RATES[p.currency || "CNY"] || 1;
+      return {
+        ...p,
+        marketValue: (p.quantity || 0) * (p.current_price || 0) * rate,
+      };
+    });
   } catch (e) {
     console.error(e);
+  } finally {
+    loading.value = false;
   }
 }
 
 onMounted(() => {
-  fetchData();
   const tab = route.query.tab as string;
   if (tab && categories.some(c => c.key === tab)) {
     activeCategory.value = tab;
   }
+  fetchData();
 });
 </script>
 
 <style scoped>
-/* 顶部标签（加大尺寸） */
+/* 顶部标签 */
 .category-tab {
   display: flex;
+  flex-direction: column;          /* 改为垂直布局 */
   align-items: center;
-  gap: 10px;
-  padding: 14px 24px;
+  gap: 4px;                        /* 缩小间距 */
+  padding: 18px 24px;
   border-radius: 16px;
   border: 2px solid transparent;
   background: #fff;
@@ -326,17 +352,23 @@ onMounted(() => {
   font-size: 16px;
   font-weight: 500;
   color: #555;
+  min-width: 180px;                /* 保证宽度一致 */
 }
-.category-tab:hover {
-  background: #f5f5f5;
+.category-tab-label {
+  font-size: 14px;
+  color: inherit;
 }
-.category-tab.active {
+.category-tab-amount {
+  font-size: 18px;
   font-weight: 700;
-  color: #333;
+  color: var(--color-primary);
+}
+.category-tab.active .category-tab-amount {
+  color: inherit;
 }
 .category-tab-arrow {
   font-size: 12px;
-  margin-left: 4px;
+  line-height: 1;
 }
 
 /* 资产卡片 */
@@ -351,8 +383,11 @@ onMounted(() => {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
   transform: translateY(-2px);
 }
+.asset-card.selected {
+  background-color: #FFF7F0;
+  border-color: #FF6B00;
+}
 
-/* 投资理财聚合卡片内的图标 */
 .group-icon-wrapper {
   width: 56px;
   height: 56px;
@@ -365,14 +400,12 @@ onMounted(() => {
   font-size: 28px;
 }
 
-/* 说明卡片 */
 .info-card {
   background: #f5f3ff;
   border-radius: 16px;
   padding: 18px 20px;
 }
 
-/* 添加类型卡片 */
 .add-type-card {
   background: #fff;
   border-radius: 16px;

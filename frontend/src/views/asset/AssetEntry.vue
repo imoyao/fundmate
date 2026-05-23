@@ -62,7 +62,7 @@
             clearable
             allow-create
             filterable
-            placeholder="如：招商银行、华泰证券"
+            placeholder="选择或输入新账户名称"
           >
             <el-option
               v-for="ledger in ledgers"
@@ -71,6 +71,10 @@
               :value="ledger.name"
             />
           </el-select>
+          <p class="text-xs text-gray-400 mt-1">
+            <IconifyIconOffline icon="ep:info-filled" class="mr-1 align-middle" />
+            输入新账户名称后按 Enter 即可创建
+          </p>
         </el-form-item>
 
         <el-form-item label="备注">
