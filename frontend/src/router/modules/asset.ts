@@ -1,128 +1,141 @@
 const Layout = () => import("@/layout/index.vue");
+const EmptyLayout = () => import("@/layout/components/EmptyLayout.vue");
 
 export default {
   path: "/asset",
   name: "Asset",
   component: Layout,
-  redirect: "/asset/overview",
+  redirect: "/asset/panorama",
   meta: {
     icon: "ep:coin",
-    title: "资产记账",
+    title: "资产管理",
     rank: 2,
     showLink: true
   },
   children: [
+    // 盘点首页
     {
-      path: "/asset/overview",
-      name: "AssetOverview",
-      component: () => import("@/views/asset/Overview.vue"),
-      meta: {
-        title: "资产总览",
-        icon: "ep:monitor",
-        showLink: true
-      }
-    },
-    {
-      path: "/asset/panorama",
-      name: "AssetPanorama",
-      component: () => import("@/views/asset/AssetPanorama.vue"),
-      meta: {
-        title: "资产全景",
-        icon: "ep:pie-chart",
-        rank: 1,
-        keepAlive: true
-      }
-    },
-    {
-      path: "/inventory",
+      path: "inventory",
       name: "Inventory",
       component: () => import("@/views/asset/inventory/index.vue"),
-      meta: {
-        title: "全面盘点",
-        icon: "ep:document-copy",
-        rank: 2
-      }
+      meta: { title: "全面盘点", icon: "ep:document-copy", rank: 2 }
     },
+    // 投资理财 → 对账单导入
     {
-      path: "/watchlist",
-      name: "Watchlist",
-      component: () => import("@/views/asset/watchlist/index.vue"),
-      meta: {
-        title: "我的自选",
-        icon: "ep:star",
-        rank: 3,
-        keepAlive: true
-      }
+      path: "inventory/investment/import",
+      name: "InvestmentImport",
+      component: () => import("@/views/asset/investment/import/index.vue"),
+      meta: { title: "对账单导入", icon: "ep:document", rank: 10, showLink: false }
     },
+    // 投资理财 → 手动录入（占位）
     {
-      path: "/the-road-not-taken",
-      name: "Favourites",
-      component: () => import("@/views/asset/favorites/index.vue"),
-      meta: {
-        title: "特别关注",
-        icon: "ep:opportunity",
-        rank: 4
-      }
+      path: "inventory/investment/manual",
+      name: "InvestmentManual",
+      component: () => import("@/views/asset/investment/manual/index.vue"),
+      meta: { title: "手动录入", icon: "ep:edit", rank: 11, showLink: false }
     },
+    // 投资理财 → 批量导入（占位）
     {
-      path: "/asset/stocks",
-      name: "AssetStocks",
-      component: () => import("@/views/asset/stocks/index.vue"),
-      meta: {
-        title: "股票",
-        icon: "ep:trend-charts",
-        showLink: true
-      }
+      path: "inventory/investment/batch",
+      name: "InvestmentBatch",
+      component: () => import("@/views/asset/investment/batch/index.vue"),
+      meta: { title: "批量导入", icon: "ep:upload", rank: 12, showLink: false }
     },
+    // 通用资产录入（保留）
     {
-      path: "/asset/funds",
-      name: "AssetFunds",
-      component: () => import("@/views/asset/funds/index.vue"),
-      meta: {
-        title: "基金",
-        icon: "ep:box",
-        showLink: true
-      }
+      path: "/asset/asset-entry",
+      name: "AssetEntry",
+      component: () => import("@/views/asset/AssetEntry.vue"),
+      meta: { title: "录入通用资产", icon: "ep:plus", rank: 8, showLink: false }
     },
+    // ── 顶部核心区（直接显示，始终可见）──
+    // {
+    //   path: "panorama",
+    //   name: "AssetPanorama",
+    //   component: () => import("@/views/asset/AssetPanorama.vue"),
+    //   meta: { title: "资产总览", icon: "ep:pie-chart", rank: 1, keepAlive: true }
+    // },
+    // {
+    //   path: "inventory",
+    //   name: "Inventory",
+    //   component: () => import("@/views/asset/inventory/index.vue"),
+    //   meta: { title: "全面盘点", icon: "ep:document-copy", rank: 2 }
+    // },
+    // {
+    //   path: "watchlist",
+    //   name: "Watchlist",
+    //   component: () => import("@/views/asset/watchlist/index.vue"),
+    //   meta: { title: "我的自选", icon: "ep:star", rank: 3, keepAlive: true }
+    // },
+    // {
+    //   path: "transactions",
+    //   name: "TransactionList",
+    //   component: () => import("@/views/asset/TransactionList.vue"),
+    //   meta: { title: "交易流水", icon: "ep:list", rank: 4 }
+    // },
+
+    // ── 投资管理（可折叠）──
     {
-      path: "/asset/bank",
-      name: "AssetBank",
-      component: () => import("@/views/asset/bank/index.vue"),
-      meta: {
-        title: "银行存款",
-        icon: "ep:wallet",
-        showLink: true
-      }
+      path: "investment",
+      name: "InvestmentManage",
+      component: EmptyLayout,  // ← 关键：用空布局替代默认 Layout 注入
+      redirect: "/asset/investment/favorites",
+      meta: { title: "投资管理", icon: "ep:folder-opened", rank: 10 },
+      children: [
+        {
+          path: "favorites",
+          name: "Favourites",
+          component: () => import("@/views/asset/favorites/index.vue"),
+          meta: { title: "特别关注", icon: "ep:opportunity", rank: 1 }
+        },
+        {
+          path: "stocks",
+          name: "AssetStocks",
+          component: () => import("@/views/asset/stocks/index.vue"),
+          meta: { title: "股票", icon: "ep:trend-charts", rank: 2, showLink: false }
+        },
+        {
+          path: "funds",
+          name: "AssetFunds",
+          component: () => import("@/views/asset/funds/index.vue"),
+          meta: { title: "基金", icon: "ep:box", rank: 3, showLink: false }
+        },
+        {
+          path: "precious",
+          name: "AssetPrecious",
+          component: () => import("@/views/asset/precious/index.vue"),
+          meta: { title: "贵金属", icon: "ep:medal", rank: 4, showLink: false }
+        },
+        {
+          path: "realestate",
+          name: "AssetRealEstate",
+          component: () => import("@/views/asset/realestate/index.vue"),
+          meta: { title: "房产", icon: "ep:house", rank: 5, showLink: false }
+        },
+        {
+          path: "analysis",
+          name: "AssetAnalysis",
+          component: () => import("@/views/asset/IntelligentAnalysis.vue"),
+          meta: { title: "智能分析", icon: "ep:data-analysis", rank: 6, showLink: false }
+        }
+      ]
     },
+
+    // ── 系统设置（可折叠）──
     {
-      path: "/asset/realestate",
-      name: "AssetRealEstate",
-      component: () => import("@/views/asset/realestate/index.vue"),
-      meta: {
-        title: "房产",
-        icon: "ep:house",
-        showLink: true
-      }
-    },
-    {
-      path: "/asset/precious",
-      name: "AssetPrecious",
-      component: () => import("@/views/asset/precious/index.vue"),
-      meta: {
-        title: "贵金属",
-        icon: "ep:medal",
-        showLink: true
-      }
-    },
-    {
-      path: "/asset/analysis",
-      name: "AssetAnalysis",
-      component: () => import("@/views/asset/IntelligentAnalysis.vue"),
-      meta: {
-        title: "智能分析",
-        icon: "ep:data-analysis",
-        showLink: true
-      }
+      path: "settings",
+      name: "SystemSettings",
+      component: EmptyLayout,  // ← 关键：用空布局替代默认 Layout 注入
+      redirect: "/asset/ledgers",
+      meta: { title: "账户管理", icon: "ep:setting", rank: 20 },
+      children: [
+        {
+          path: "ledgers",
+          name: "AssetLedgers",
+          component: () => import("@/views/account/AccountManagement.vue"),
+          meta: { title: "账户管理", icon: "ep:user", rank: 1 }
+        }
+      ]
     }
   ]
 } satisfies RouteConfigsTable;

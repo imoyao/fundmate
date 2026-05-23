@@ -1,21 +1,24 @@
 import sys
 from pathlib import Path
 
+from tools.sync_fund_basics import sync_all_funds
+from tools.sync_security_basics import sync_all_stocks
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import random
 import time
 
 from app.core.database import SessionLocal
+
+# 基金净值同步（从持仓中获取需更新的基金代码）
+from app.domains.positions.models import Position
 from app.services.data_provider import DataProvider
 
 
 def main():
     db = SessionLocal()
     try:
-        # 基金净值同步（从持仓中获取需更新的基金代码）
-        from app.domains.positions.models import Position
-
         fund_codes = db.query(Position.symbol).filter(Position.asset_type == 'fund').distinct().all()
         fund_codes = [c[0] for c in fund_codes] if fund_codes else ['000001', '000002']
 
@@ -38,4 +41,6 @@ def main():
 
 
 if __name__ == '__main__':
+    sync_all_funds()
+    sync_all_stocks()
     main()

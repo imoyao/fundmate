@@ -1,39 +1,66 @@
+/* ============================================
+   ShowBuy 前端色彩规范 v2.0
+   基于低饱和莫兰迪色系 · 见名知意命名体系
+   最后更新: 2026-05-20
+   ============================================ */
+
 :root {
-  /* 语义色 */
-  --color-primary: #7A7FA8;
-  --color-rise: #C83E66;
-  --color-fall: #81B29A;
-  --color-warning: #D4C898;
-  --color-info: #7A9AA8;
-  --color-accent: #B88A8A;
+  /* ===== 语义功能色 ===== */
+  --color-primary:       #7A7FA8;  /* 主色：灰紫蓝，用于主按钮、选中态、导航高亮 */
+  --color-success:       #81B29A;  /* 成功色：鼠尾草绿，用于成功状态、负向收益/下跌🟢 */
+  --color-danger:        #C83E66;  /* 危险色：灰玫瑰红，用于正向收益/上涨🔴、风险提示、删除 */
+  --color-warning:       #D4C898;  /* 警告色：暖沙金，用于告警、待处理、中性状态 */
+  --color-info:          #7A9AA8;  /* 信息色：灰蓝，用于信息提示、次要分类、辅助操作 */
+  --color-neutral:       #8E8B82;  /* 中性色：暖灰，用于默认态、未分类、占位 */
+  --color-accent:        #B88A8A;  /* 强调色：灰玫瑰棕，用于特殊强调、保险/保障类 */
 
-  /* 背景色 */
-  --bg-primary: #F8F7FC;
-  --bg-card: #FFFFFF;
-  --bg-hover: #F2E4E9;
+  /* ===== 背景色 ===== */
+  --bg-page:             #F8F7FC;  /* 页面底色：微紫白 */
+  --bg-card:             #FFFFFF;  /* 卡片/容器底色：纯白 */
+  --bg-hover:            #F2E4E9;  /* 悬停/高亮底色：浅粉灰 */
+  --bg-muted:            #F5F7FA;  /* 次区域底色：淡灰蓝，用于表格条纹、次要区块 */
 
-  /* 文字色 */
-  --text-primary: #333333;
-  --text-secondary: #666666;
-  --text-tertiary: #999999;
+  /* ===== 文字色 ===== */
+  --text-primary:        #333333;  /* 主文字：核心数据、标题 */
+  --text-secondary:      #666666;  /* 次文字：普通文本、标签 */
+  --text-tertiary:       #999999;  /* 辅助文字：说明、时间、提示 */
+  --text-disabled:       #CCCCCC;  /* 禁用文字：不可用状态 */
 
-  /* 卡片色条 */
-  --card-stock: #7B8FA1;
-  --card-fund: #E8A87C;
-  --card-manager: #B5A4C7;
-  --card-portfolio: #A3B5A1;
+  /* ===== 边框与分割线 ===== */
+  --border-default:      #E5E7EB;  /* 默认边框 */
+  --divider-default:     #F0F0F0;  /* 默认分割线 */
 
-  /* 标签/分组色板 */
-  --tag-1: #7A7FA8;
-  --tag-2: #81B29A;
-  --tag-3: #C85A6A;
-  --tag-4: #D4C898;
-  --tag-5: #9D81A9;
-  --tag-6: #A89F94;
-  --tag-7: #7A9AA8;
-  --tag-8: #B88A8A;
-  --tag-9: #8E8B82;
-  --tag-10: #A8CBC0;
-  --tag-11: #C4A68A;
-  --tag-12: #B4BEE0;
+  /* ===== 桑基图枢纽节点色 ===== */
+  --sankey-total-assets:   #7A7FA8;  /* 总资产：同主色 */
+  --sankey-net-worth:      #81B29A;  /* 净资产：同成功色(绿色正向) */
+  --sankey-liability:      #8E8B82;  /* 负债：同中性暖灰 */
+
+  /* ===== 桑基图五笔钱色 ===== */
+  --sankey-liquid:         #7A9AA8;  /* 活钱：灰蓝，流动性 */
+  --sankey-stable:         #9D81A9;  /* 稳健底仓：灰紫，稳健不沉闷 */
+  --sankey-longterm:       #7A7FA8;  /* 长期增值：同主色，核心增值 */
+  --sankey-speculative:    #C83E66;  /* 高风险博弈：同危险色，警示 */
+  --sankey-security:       #B88A8A;  /* 保险保障：同强调色，柔和安全 */
+
+  /* ===== 标签/分组色板（12色，按色相命名） ===== */
+  --tag-purple-gray:     #7A7FA8;  /* 灰紫 */
+  --tag-sage-green:      #81B29A;  /* 鼠尾草绿 */
+  --tag-dusty-rose:      #C85A6A;  /* 灰玫瑰红 */
+  --tag-warm-sand:       #D4C898;  /* 暖沙金 */
+  --tag-thistle:         #9D81A9;  /* 蓟紫 */
+  --tag-warm-taupe:      #A89F94;  /* 暖灰褐 */
+  --tag-muted-blue:      #7A9AA8;  /* 灰蓝 */
+  --tag-rose-taupe:      #B88A8A;  /* 玫瑰棕 */
+  --tag-stone-gray:      #8E8B82;  /* 石灰灰 */
+  --tag-mint-green:      #A8CBC0;  /* 薄荷绿 */
+  --tag-caramel:         #C4A68A;  /* 焦糖色 */
+  --tag-periwinkle:      #B4BEE0;  /* 长春花蓝 */
+
+  /* ===== 资产类型卡片色（语义化别名） ===== */
+  --asset-stock:         var(--tag-muted-blue);    /* 股票：灰蓝 */
+  --asset-fund:          var(--color-accent);      /* 基金：玫瑰棕 */
+  --asset-bond:          var(--tag-warm-sand);     /* 可转债：暖沙金 */
+  --asset-etf:           var(--tag-mint-green);    /* ETF：薄荷绿 */
+  --asset-crypto:        var(--tag-caramel);       /* 虚拟货币：焦糖色 */
+  --asset-saving:        var(--tag-sage-green);    /* 银行存款/理财：鼠尾草绿 */
 }

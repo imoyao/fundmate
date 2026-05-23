@@ -94,7 +94,7 @@ def confirm_import():
                             'name': row.get('name', row['symbol']),
                             'market': row.get('market', 'CN_A'),
                             'type': row.get('type', 'stock'),
-                            'account_name': row.get('account_name', '默认账户'),
+                            'account_name': row.get('account_name'),
                             'quantity': row['quantity'],
                             'avg_price': row['price'],
                             'currency': row.get('currency', 'CNY'),
@@ -103,6 +103,7 @@ def confirm_import():
                             'notes': row.get('notes', ''),
                             'op_type': row['op_type'],
                             'import_hash': row.get('import_hash'),
+                            'allocation': row.get('allocation', 'longterm'),
                         },
                     )
                     imported += 1

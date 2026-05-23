@@ -119,6 +119,63 @@ class TestStandardCSVParse:
         assert len(rows2) == 1
         assert rows2[0]['is_duplicate']  # 应被标记为重复
 
+    def test_import_uses_selected_ledger(self, client, db):
+        # 创建 Ledger
+        ledger_resp = client.post('/api/ledgers/', json={'name': '华泰证券', 'default_allocation': 'longterm'})
+        ledger_name = ledger_resp.get_json()['data']['name']
+        # 解析文件
+        csv_content = (
+            '代码,名称,市场,产品类型,所属账户,操作类型,数量,成交价格,币种,交易日期,手续费,备注\n'
+            '00700.HK,腾讯控股,CN_HK,stock,富途证券,buy,100,350.00,HKD,2025-06-15,0.50,建仓'
+        )
+        resp = client.post('/api/importers/parse', data={'file': (io.BytesIO(csv_content.encode('utf-8')), 'test.csv')})
+        rows = resp.get_json()['data']
+        # 模拟设置账户和配置目标（前端操作）
+        rows[0]['account_name'] = ledger_name
+        rows[0]['allocation'] = 'longterm'
+        # 确认导入
+        confirm_resp = client.post('/api/importers/confirm', json=rows)
+        assert confirm_resp.status_code == 200
+        assert confirm_resp.get_json()['data']['imported'] == 1
+        # 验证持仓表中的账户和配置目标
+        from app.domains.positions.models import Position
+
+        pos = db.query(Position).filter_by(symbol='HK00700').first()
+        assert pos is not None
+        assert pos.account_name == '华泰证券'
+        assert pos.allocation == 'longterm'
+
+    def test_import_should_not_duplicate_across_ledgers(self, client, db):
+        """同一份文件在不同账户下重复导入，应被标记为重复"""
+        # 1. 创建两个 Ledger
+        client.post('/api/ledgers/', json={'name': '账户A'})
+        client.post('/api/ledgers/', json={'name': '账户B'})
+        # 2. 第一次导入到账户A
+        csv_content = (
+            '代码,名称,市场,产品类型,所属账户,操作类型,数量,成交价格,币种,交易日期,手续费,备注\n'
+            '00700.HK,腾讯控股,CN_HK,stock,富途证券,buy,100,350.00,HKD,2025-06-15,0.50,建仓'
+        )
+        resp1 = client.post(
+            '/api/importers/parse', data={'file': (io.BytesIO(csv_content.encode('utf-8')), 'test.csv')}
+        )
+        rows1 = resp1.get_json()['data']
+        rows1[0]['account_name'] = '账户A'
+        client.post('/api/importers/confirm', json=rows1)
+
+        # 3. 第二次导入同一文件到账户B
+        resp2 = client.post(
+            '/api/importers/parse', data={'file': (io.BytesIO(csv_content.encode('utf-8')), 'test.csv')}
+        )
+        rows2 = resp2.get_json()['data']
+        rows2[0]['account_name'] = '账户B'
+        # 预期：标记为重复，因为 import_hash 不随账户变化
+        assert rows2[0]['is_duplicate']
+
+        # 确认导入会跳过重复行
+        confirm_resp = client.post('/api/importers/confirm', json=rows2)
+        assert confirm_resp.get_json()['data']['imported'] == 0
+        assert confirm_resp.get_json()['data']['skipped'] == 1
+
 
 class TestTHSCSVParser:
     """同花顺交割单解析测试"""

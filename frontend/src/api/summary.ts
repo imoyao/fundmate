@@ -8,3 +8,14 @@ const BASE_URL = "/api/summary/";
 export function getSummary() {
   return http.request<ApiResponse<SummaryData>>("get", BASE_URL);
 }
+
+/** 桑基图数据 */
+export type SankeyData = {
+  nodes: Array<{ name: string; itemStyle?: { color: string } }>;
+  links: Array<{ source: string; target: string; value: number }>;
+};
+
+/** 获取桑基图节点与链接数据 */
+export function getSankeyData() {
+  return http.request<ApiResponse<SankeyData>>("get", BASE_URL + "sankey/");
+}

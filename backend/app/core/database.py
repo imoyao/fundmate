@@ -3,7 +3,8 @@
 
 import os
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo  # Python 3.9+ 内置
 
 from sqlalchemy import Column, DateTime, Integer, create_engine, func
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
@@ -43,10 +44,19 @@ class PrimaryKeyMixin:
 
 
 class TimestampMixin:
-    """为模型提供创建和更新时间戳"""
+    """为模型提供中国标准时间（东八区）的创建和更新时间戳"""
 
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), server_default=func.now())
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), server_default=func.now())
+    created_at = Column(
+        DateTime,
+        default=lambda: datetime.now(ZoneInfo('Asia/Shanghai')),
+        server_default=func.now(),  # 保持数据库层面也有默认值，若系统时区正确则一致
+    )
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(ZoneInfo('Asia/Shanghai')),
+        onupdate=lambda: datetime.now(ZoneInfo('Asia/Shanghai')),
+        server_default=func.now(),
+    )
 
 
 @contextmanager

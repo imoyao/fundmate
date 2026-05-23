@@ -60,6 +60,7 @@ export const constantRoutes: Array<RouteRecordRaw> = formatTwoStageRoutes(
   formatFlatteningRoutes(buildHierarchyTree(ascending(routes.flat(Infinity))))
 );
 
+
 /** 初始的静态路由，用于退出登录时重置路由 */
 const initConstantRoutes: Array<RouteRecordRaw> = cloneDeep(constantRoutes);
 
@@ -128,7 +129,6 @@ router.beforeEach((to: ToRouteType, _from, next) => {
 
   if (to.meta?.keepAlive) {
     handleAliveRoute(to, "add");
-    // 页面整体刷新和点击标签页刷新
     if (_from.name === undefined || _from.name === "Redirect") {
       handleAliveRoute(to);
     }
@@ -143,21 +143,17 @@ router.beforeEach((to: ToRouteType, _from, next) => {
       else document.title = item.meta.title as string;
     });
   }
-  /** 如果已经登录并存在登录信息后不能跳转到路由白名单，而是继续保持在当前页面 */
   function toCorrectRoute() {
     whiteList.includes(to.fullPath) ? next(_from.fullPath) : next();
   }
   if (Cookies.get(multipleTabsKey) && userInfo) {
-    // 无权限跳转403页面
     if (to.meta?.roles && !isOneOfArray(to.meta?.roles, userInfo?.roles)) {
       next({ path: "/error/403" });
     }
-    // 开启隐藏首页后在浏览器地址栏手动输入首页welcome路由则跳转到404页面
     if (VITE_HIDE_HOME === "true" && to.fullPath === "/welcome") {
       next({ path: "/error/404" });
     }
     if (_from?.name) {
-      // name为超链接
       if (externalLink) {
         openLink(to?.name as string);
         NProgress.done();
@@ -165,44 +161,50 @@ router.beforeEach((to: ToRouteType, _from, next) => {
         toCorrectRoute();
       }
     } else {
-      // 刷新
+      // ✅ 修复点：首次访问时用静态菜单直接填充，跳过异步拉取
       if (
         usePermissionStoreHook().wholeMenus.length === 0 &&
         to.path !== "/login"
       ) {
-        initRouter().then((router: Router) => {
-          if (!useMultiTagsStoreHook().getMultiTagsCache) {
-            const { path } = to;
-            const route = findRouteByPath(
-              path,
-              router.options.routes[0].children
-            );
-            getTopMenu(true);
-            // query、params模式路由传参数的标签页不在此处处理
-            if (route && route.meta?.title) {
-              if (isAllEmpty(route.parentId) && route.meta?.backstage) {
-                // 此处为动态顶级路由（目录）
-                const { path, name, meta } = route.children[0];
-                useMultiTagsStoreHook().handleTags("push", {
-                  path,
-                  name,
-                  meta
-                });
-              } else {
-                const { path, name, meta } = route;
-                useMultiTagsStoreHook().handleTags("push", {
-                  path,
-                  name,
-                  meta
-                });
-              }
+        usePermissionStoreHook().wholeMenus = constantMenus.filter(item => item?.meta?.icon);
+        // 处理标签页缓存（保持原有多标签功能）
+        if (!useMultiTagsStoreHook().getMultiTagsCache) {
+          const route = findRouteByPath(
+            to.path,
+            router.options.routes[0].children
+          );
+          getTopMenu(true);
+          if (route && route.meta?.title) {
+            if (isAllEmpty(route.parentId) && route.meta?.backstage) {
+              const { path, name, meta } = route.children[0];
+              useMultiTagsStoreHook().handleTags("push", { path, name, meta });
+            } else {
+              const { path, name, meta } = route;
+              useMultiTagsStoreHook().handleTags("push", { path, name, meta });
             }
           }
-          // 确保动态路由完全加入路由列表并且不影响静态路由（注意：动态路由刷新时router.beforeEach可能会触发两次，第一次触发动态路由还未完全添加，第二次动态路由才完全添加到路由列表，如果需要在router.beforeEach做一些判断可以在to.name存在的条件下去判断，这样就只会触发一次）
-          if (isAllEmpty(to.name)) router.push(to.fullPath);
-        });
+        }
+        next(); // 直接放行
+      } else {
+        // 路由已初始化，正常处理标签页并放行
+        if (!useMultiTagsStoreHook().getMultiTagsCache) {
+          const route = findRouteByPath(
+            to.path,
+            router.options.routes[0].children
+          );
+          getTopMenu(true);
+          if (route && route.meta?.title) {
+            if (isAllEmpty(route.parentId) && route.meta?.backstage) {
+              const { path, name, meta } = route.children[0];
+              useMultiTagsStoreHook().handleTags("push", { path, name, meta });
+            } else {
+              const { path, name, meta } = route;
+              useMultiTagsStoreHook().handleTags("push", { path, name, meta });
+            }
+          }
+        }
+        toCorrectRoute();
       }
-      toCorrectRoute();
     }
   } else {
     if (to.path !== "/login") {
@@ -217,7 +219,6 @@ router.beforeEach((to: ToRouteType, _from, next) => {
     }
   }
 });
-
 router.afterEach(to => {
   loadedPaths.add(to.path);
   NProgress.done();

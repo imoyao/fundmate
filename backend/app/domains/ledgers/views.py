@@ -17,16 +17,18 @@ ledgers_bp = APIBlueprint('ledgers', __name__, url_prefix='/api/ledgers')
 def list_ledgers():
     with get_db() as db:
         ledgers = db.query(Ledger).order_by(Ledger.name).all()
-        data = [
-            {
+        data = list()
+        for leg in ledgers:
+            ledger = {
                 'id': leg.id,
                 'name': leg.name,
                 'ledger_type': leg.ledger_type,
                 'currency': leg.currency,
                 'notes': leg.notes,
+                'default_allocation': leg.default_allocation,
             }
-            for leg in ledgers
-        ]
+            data.append(ledger)
+
         return jsonify({'data': data, 'message': 'ok'})
 
 
@@ -41,12 +43,21 @@ def create_ledger():
             ledger_type=data.get('ledger_type', 'general'),
             currency=data.get('currency', 'CNY'),
             notes=data.get('notes', ''),
+            default_allocation=data.get('default_allocation', 'longterm'),
         )
         db.add(ledger)
         db.commit()
         db.refresh(ledger)
         return jsonify(
-            {'data': {'id': ledger.id, 'name': ledger.name, 'ledger_type': ledger.ledger_type}, 'message': 'ok'}
+            {
+                'data': {
+                    'id': ledger.id,
+                    'name': ledger.name,
+                    'ledger_type': ledger.ledger_type,
+                    'default_allocation': ledger.default_allocation,
+                },
+                'message': 'ok',
+            }
         )
 
 
