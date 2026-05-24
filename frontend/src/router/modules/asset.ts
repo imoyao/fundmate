@@ -43,7 +43,7 @@ export default {
     },
     // 特别关注
     {
-      path: "favorites",
+      path: "/the-road-not-taken",
       name: "Favourites",
       component: () => import("@/views/asset/favorites/index.vue"),
       meta: { title: "特别关注", icon: "ep:opportunity", rank: 1 }

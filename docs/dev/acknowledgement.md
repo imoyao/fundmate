@@ -26,6 +26,9 @@ permalink: /acknowledgement
     - 另一个翻译版本[欢迎使用 Flask — Flask 0.10.1 文档](http://docs.jinkan.org/docs/flask/index.html)
 - [简介 - Flask 入门教程](https://read.helloflask.com/)
 
+## 配色参考
+[概念设计配色灵感与方案下载 - in5.cn 配色网](https://in5.cn/list.php)
+
 Flask 是 Python 中最流行的 Web 框架之一，以小巧、灵活、可扩展性强著称，相比 Django，它给了开发者最大限度的自由，如果你不喜欢关系型数据库，ok，没问题，切换成本非常低，而 Django 呢？你能遇到的问题它都帮你想好并且提供了对应解决方案，你自己就不要去重复造轮子了，比如模版引擎，ORM，不爽想替换？这个有点难。
 
 给大家安利几个 Flask 学习资源
