@@ -3,7 +3,6 @@
 # Date : 2026/5/20 23:22
 # File : constants.py
 
-from app.core.enums import ALLOCATION_LABELS
 
 # MVP 阶段的硬编码汇率，后续可迁移到数据库
 EXCHANGE_RATES = {
@@ -29,8 +28,6 @@ CATEGORY_META = {
     'receivable': ('应收款', None),
     'insurance': ('保险项目', None),
 }
-
-ALLOC_LABELS = ALLOCATION_LABELS
 
 # 桑基图需要的常量（之前可能在其他地方定义，统一放这里）
 K_TOTAL = '总资产'

@@ -13,13 +13,6 @@ export default {
     showLink: true
   },
   children: [
-    // 盘点首页
-    {
-      path: "inventory",
-      name: "Inventory",
-      component: () => import("@/views/asset/inventory/index.vue"),
-      meta: { title: "全面盘点", icon: "ep:document-copy", rank: 2 }
-    },
     // 投资理财 → 对账单导入
     {
       path: "inventory/investment/import",
@@ -43,17 +36,17 @@ export default {
     },
     // 通用资产录入
     {
-      path: "asset-entry",
+      path: "/asset/asset-entry",
       name: "AssetEntry",
       component: () => import("@/views/asset/AssetEntry.vue"),
       meta: { title: "录入通用资产", icon: "ep:plus", rank: 8, showLink: false }
     },
-    // 资产总览
+    // 特别关注
     {
-      path: "panorama",
-      name: "AssetPanorama",
-      component: () => import("@/views/asset/AssetPanorama.vue"),
-      meta: { title: "资产总览", icon: "ep:pie-chart", rank: 1, keepAlive: true }
+      path: "favorites",
+      name: "Favourites",
+      component: () => import("@/views/asset/favorites/index.vue"),
+      meta: { title: "特别关注", icon: "ep:opportunity", rank: 1 }
     },
     // ── 投资管理（可折叠）──
     {
@@ -63,12 +56,6 @@ export default {
       redirect: "/asset/investment/favorites",
       meta: { title: "投资管理", icon: "ep:folder-opened", rank: 10 },
       children: [
-        {
-          path: "favorites",
-          name: "Favourites",
-          component: () => import("@/views/asset/favorites/index.vue"),
-          meta: { title: "特别关注", icon: "ep:opportunity", rank: 1 }
-        },
         {
           path: "stocks",
           name: "AssetStocks",
@@ -103,8 +90,8 @@ export default {
     },
     {
       path: "/asset/ledgers",
-      name: "AssetLedger",
-      component: () => import("@/views/asset/AssetLedger.vue"),
+      name: "AssetLedgers",
+      component: () => import("@/views/asset/AssetLedgers.vue"),
       meta: { title: "账户管理", icon: "ep:wallet", rank: 30}
     },
     // 账户详情（作为 Asset 的子路由，继承 Layout 布局）

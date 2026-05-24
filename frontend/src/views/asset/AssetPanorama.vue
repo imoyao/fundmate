@@ -3,8 +3,8 @@
     <!-- 页面标题 -->
     <div class="mb-6 flex justify-between items-center">
       <div>
-        <h2 class="text-2xl font-bold text-gray-800">资产总览</h2>
-        <p class="text-gray-500 text-sm mt-1">多维度审视你的财富版图</p>
+        <h2 class="text-2xl font-bold text-[var(--text-primary)]">资产总览</h2>
+        <p class="text-[var(--text-tertiary)] text-sm mt-1">多维度审视你的财富版图</p>
       </div>
       <el-button :loading="loading" @click="fetchData">
         <IconifyIconOffline icon="ep:refresh" class="mr-1" /> 刷新
@@ -17,24 +17,41 @@
         <el-card shadow="never" class="summary-large-card">
           <div class="flex flex-col justify-between h-full">
             <div>
-              <p class="text-gray-400 text-sm mb-1">总资产（本月）</p>
-              <h2 class="text-5xl font-bold text-[#FF6B00] tracking-tight">
+              <p class="text-[var(--text-tertiary)] text-sm mb-1">总资产（本月）</p>
+              <h2 class="text-5xl font-bold text-[var(--color-primary)] tracking-tight">
                 ¥{{ totalAssets.toLocaleString() }}
               </h2>
+              <div class="flex items-center gap-4 mt-2">
+                <span class="text-[var(--color-success)] text-sm font-medium flex items-center">
+                  <IconifyIconOffline icon="ep:arrow-up-bold" class="mr-1" />
+                  12.3% <span class="text-[var(--text-tertiary)] ml-1 font-normal">较上月</span>
+                </span>
+                <span class="text-[var(--color-success)] text-sm font-medium flex items-center">
+                  <IconifyIconOffline icon="ep:arrow-up-bold" class="mr-1" />
+                  8.7% <span class="text-[var(--text-tertiary)] ml-1 font-normal">较去年同期</span>
+                </span>
+              </div>
+              <div class="mt-3 flex items-center gap-2">
+                <span class="px-2 py-0.5 text-[var(--color-warning)] rounded-full text-xs font-medium"
+                  style="background-color: var(--color-warning-20)">
+                  中等风险
+                </span>
+                <span class="text-xs text-[var(--text-tertiary)]">风险评分：65/100</span>
+              </div>
             </div>
-            <div class="border-t border-gray-100 my-5"></div>
+            <div class="border-t border-[var(--divider-default)] my-5"></div>
             <div class="grid grid-cols-3 gap-4">
               <div>
-                <p class="text-gray-400 text-xs mb-1">总负债</p>
-                <p class="text-lg font-bold text-gray-800">¥{{ totalLiabilities.toLocaleString() }}</p>
+                <p class="text-[var(--text-tertiary)] text-xs mb-1">总负债</p>
+                <p class="text-lg font-bold text-[var(--text-primary)]">¥{{ totalLiabilities.toLocaleString() }}</p>
               </div>
               <div>
-                <p class="text-gray-400 text-xs mb-1">净资产</p>
-                <p class="text-lg font-bold text-[#28A87E]">¥{{ (totalAssets - totalLiabilities).toLocaleString() }}</p>
+                <p class="text-[var(--text-tertiary)] text-xs mb-1">净资产</p>
+                <p class="text-lg font-bold text-[var(--color-success)]">¥{{ (totalAssets - totalLiabilities).toLocaleString() }}</p>
               </div>
               <div>
-                <p class="text-gray-400 text-xs mb-1">总盈亏</p>
-                <p :class="['text-lg font-bold', totalPnl >= 0 ? 'text-red-500' : 'text-green-500']">
+                <p class="text-[var(--text-tertiary)] text-xs mb-1">总盈亏</p>
+                <p :class="['text-lg font-bold', totalPnl >= 0 ? 'text-[var(--color-danger)]' : 'text-[var(--color-success)]']">
                   {{ totalPnl >= 0 ? "+" : "" }}¥{{ totalPnl.toLocaleString() }}
                 </p>
               </div>
@@ -46,7 +63,12 @@
       <el-col :xs="24" :md="12">
         <el-card shadow="never" class="h-full">
           <div class="flex justify-between items-center mb-4">
-            <h3 class="font-semibold text-gray-800">总资产变化</h3>
+            <h3 class="font-semibold text-[var(--text-primary)]">总资产变化</h3>
+            <el-tooltip content="资产月历（后续版本推出）" placement="top">
+              <el-button text type="primary" size="small" class="!px-2">
+                <IconifyIconOffline icon="ep:calendar" class="text-base" />
+              </el-button>
+            </el-tooltip>
           </div>
           <div ref="waterfallChartRef" class="h-[280px]" />
         </el-card>
@@ -56,7 +78,7 @@
     <!-- 桑基图 -->
     <el-card shadow="never" class="mb-4">
       <div class="flex items-center justify-between mb-4">
-        <h3 class="font-semibold text-gray-800">资产构成流向</h3>
+        <h3 class="font-semibold text-[var(--text-primary)]">资产构成流向</h3>
         <el-segmented v-model="sankeyDisplayMode" :options="sankeyDisplayOptions" size="small" class="sub-segmented" />
       </div>
       <SankeyChart :data="sankeyData" :display-mode="sankeyDisplayMode" />
@@ -74,30 +96,21 @@
       <!-- 按资产大类 -->
       <div v-if="detailView === 'category'">
         <div class="flex justify-between items-center mb-6">
-          <!-- 使用独立容器包裹 -->
           <div class="balance-switch">
-            <button
-              class="balance-btn"
-              :class="{ active: balanceTab === 'assets' }"
-              @click="balanceTab = 'assets'"
-            >
+            <button class="balance-btn" :class="{ active: balanceTab === 'assets' }" @click="balanceTab = 'assets'">
               资产端
             </button>
-            <button
-              class="balance-btn"
-              :class="{ active: balanceTab === 'liabilities' }"
-              @click="balanceTab = 'liabilities'"
-            >
+            <button class="balance-btn" :class="{ active: balanceTab === 'liabilities' }" @click="balanceTab = 'liabilities'">
               负债端
             </button>
           </div>
-          <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
+          <span class="text-xs text-[var(--text-tertiary)]">
             {{ balanceTab === 'assets' ? '资产构成' : '负债明细' }}
           </span>
         </div>
 
         <table v-if="balanceTab === 'assets'" class="w-full text-sm">
-          <thead class="text-gray-400 border-b border-gray-50">
+          <thead class="text-[var(--text-tertiary)] border-b border-[var(--divider-default)]">
             <tr>
               <th class="text-left py-3 pl-4 font-normal">资产大类</th>
               <th class="text-right py-3 font-normal w-24">占比</th>
@@ -105,34 +118,29 @@
             </tr>
           </thead>
           <tbody>
-            <tr
-              v-for="item in assetBalanceRows"
-              :key="item.name"
-              class="border-b border-gray-50 hover:bg-gray-50 cursor-pointer transition-colors"
-              @click="goToInventory(item.categoryKey)"
-            >
+            <tr v-for="item in assetBalanceRows" :key="item.name" class="border-b border-[var(--divider-default)] cursor-pointer transition-colors" @click="goToInventory(item.categoryKey)">
               <td class="py-3 pl-4 flex items-center gap-3">
                 <span class="w-2.5 h-2.5 rounded-full shrink-0" :style="{ backgroundColor: item.color }" />
-                <span class="font-medium text-gray-700">{{ item.name }}</span>
+                <span class="font-medium text-[var(--text-primary)]">{{ item.name }}</span>
               </td>
-              <td class="py-3 text-right text-gray-500">
+              <td class="py-3 text-right text-[var(--text-secondary)]">
                 <div class="flex items-center justify-end gap-2">
-                  <div class="h-1.5 w-16 bg-gray-100 rounded-full overflow-hidden">
+                  <div class="h-1.5 w-16 bg-[var(--bg-muted)] rounded-full overflow-hidden">
                     <div class="h-full bg-primary rounded-full" :style="{ width: item.percent + '%' }" />
                   </div>
                   <span>{{ item.percent }}%</span>
                 </div>
               </td>
-              <td class="py-3 text-right pr-4 font-semibold text-gray-800 tabular-nums">
+              <td class="py-3 text-right pr-4 font-semibold text-[var(--text-primary)] tabular-nums">
                 ¥{{ item.value.toLocaleString(undefined, { maximumFractionDigits: 0 }) }}
               </td>
             </tr>
           </tbody>
           <tfoot>
-            <tr class="border-t-2 border-gray-200">
-              <td class="py-3 pl-4 font-medium text-gray-800">合计</td>
-              <td class="py-3 text-right text-gray-500">100%</td>
-              <td class="py-3 text-right pr-4 font-bold text-gray-800 tabular-nums">
+            <tr class="border-t-2 border-[var(--divider-default)]">
+              <td class="py-3 pl-4 font-medium text-[var(--text-primary)]">合计</td>
+              <td class="py-3 text-right text-[var(--text-secondary)]">100%</td>
+              <td class="py-3 text-right pr-4 font-bold text-[var(--text-primary)] tabular-nums">
                 ¥{{ totalAssets.toLocaleString(undefined, { maximumFractionDigits: 0 }) }}
               </td>
             </tr>
@@ -140,7 +148,7 @@
         </table>
 
         <table v-else class="w-full text-sm">
-          <thead class="text-gray-400 border-b border-gray-50">
+          <thead class="text-[var(--text-tertiary)] border-b border-[var(--divider-default)]">
             <tr>
               <th class="text-left py-3 pl-4 font-normal">负债项目</th>
               <th class="text-right py-3 font-normal w-24">占比</th>
@@ -148,34 +156,29 @@
             </tr>
           </thead>
           <tbody>
-            <tr
-              v-for="item in liabilityBalanceRows"
-              :key="item.name"
-              class="border-b border-gray-50 hover:bg-gray-50 cursor-pointer transition-colors"
-              @click="goToInventory('liability')"
-            >
+            <tr v-for="item in liabilityBalanceRows" :key="item.name" class="border-b border-[var(--divider-default)] cursor-pointer transition-colors" @click="goToInventory('liability')">
               <td class="py-3 pl-4 flex items-center gap-3">
                 <span class="w-2.5 h-2.5 rounded-full shrink-0" :style="{ backgroundColor: item.color }" />
-                <span class="font-medium text-gray-700">{{ item.name }}</span>
+                <span class="font-medium text-[var(--text-primary)]">{{ item.name }}</span>
               </td>
-              <td class="py-3 text-right text-gray-500">
+              <td class="py-3 text-right text-[var(--text-secondary)]">
                 <div class="flex items-center justify-end gap-2">
-                  <div class="h-1.5 w-16 bg-gray-100 rounded-full overflow-hidden">
-                    <div class="h-full bg-red-400 rounded-full" :style="{ width: item.percent + '%' }" />
+                  <div class="h-1.5 w-16 bg-[var(--bg-muted)] rounded-full overflow-hidden">
+                    <div class="h-full bg-[var(--color-danger)] rounded-full" :style="{ width: item.percent + '%' }" />
                   </div>
                   <span>{{ item.percent }}%</span>
                 </div>
               </td>
-              <td class="py-3 text-right pr-4 font-semibold text-gray-800 tabular-nums">
+              <td class="py-3 text-right pr-4 font-semibold text-[var(--text-primary)] tabular-nums">
                 ¥{{ item.value.toLocaleString(undefined, { maximumFractionDigits: 0 }) }}
               </td>
             </tr>
           </tbody>
           <tfoot>
-            <tr class="border-t-2 border-gray-200">
-              <td class="py-3 pl-4 font-medium text-gray-800">合计</td>
-              <td class="py-3 text-right text-gray-500">100%</td>
-              <td class="py-3 text-right pr-4 font-bold text-gray-800 tabular-nums">
+            <tr class="border-t-2 border-[var(--divider-default)]">
+              <td class="py-3 pl-4 font-medium text-[var(--text-primary)]">合计</td>
+              <td class="py-3 text-right text-[var(--text-secondary)]">100%</td>
+              <td class="py-3 text-right pr-4 font-bold text-[var(--text-primary)] tabular-nums">
                 ¥{{ totalLiabilities.toLocaleString(undefined, { maximumFractionDigits: 0 }) }}
               </td>
             </tr>
@@ -185,27 +188,21 @@
 
       <!-- 按产品类型 / 账户 / 配置目标 -->
       <div v-else class="space-y-3">
-        <div
-          v-for="group in currentDetailGroups"
-          :key="group.name"
-          class="border rounded-xl overflow-hidden cursor-pointer hover:shadow-sm transition-shadow"
-          :style="{ borderColor: 'var(--border-default)' }"
-          @click="handleGroupClick(group)"
-        >
-          <div class="px-5 py-3 flex justify-between items-center font-medium bg-gray-50">
+        <div v-for="group in currentDetailGroups" :key="group.name" class="border rounded-xl overflow-hidden cursor-pointer hover:shadow-sm transition-shadow" :style="{ borderColor: 'var(--border-default)' }" @click="handleGroupClick(group)">
+          <div class="px-5 py-3 flex justify-between items-center font-medium bg-[var(--bg-muted)]">
             <span :style="{ color: 'var(--text-primary)' }">{{ group.name }}</span>
             <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }">{{ group.items.length }} 项</span>
           </div>
           <div class="px-5 py-2 flex justify-between items-center text-sm">
             <div>
-              <span class="font-semibold" :style="{ color: 'var(--text-primary)' }">
-                ¥{{ group.total.toLocaleString(undefined, { maximumFractionDigits: 0 }) }}
+              <span class="font-semibold" :style="{ color: group.total < 0 ? 'var(--color-success)' : 'var(--text-primary)' }">
+                {{ group.total < 0 ? '−' : '' }}¥{{ Math.abs(group.total).toLocaleString(undefined, { maximumFractionDigits: 0 }) }}
               </span>
               <span class="ml-2 text-xs" :style="{ color: 'var(--text-tertiary)' }">
-                占 {{ ((group.total / totalAssets) * 100).toFixed(1) }}%
+                占 {{ (Math.abs(group.total) / totalAssets * 100).toFixed(1) }}%
               </span>
             </div>
-            <span :class="group.totalPnl >= 0 ? 'text-red-500' : 'text-green-500'">
+            <span :class="group.totalPnl >= 0 ? 'text-[var(--color-danger)]' : 'text-[var(--color-success)]'">
               {{ group.totalPnl >= 0 ? '+' : '' }}¥{{ Math.round(group.totalPnl).toLocaleString() }}
             </span>
           </div>
@@ -216,15 +213,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onActivated, nextTick } from "vue";
+import { ref, computed, onMounted, nextTick } from "vue";
 import { useRouter } from "vue-router";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import SankeyChart from "@/components/Charts/SankeyChart.vue";
 import { getPositions } from "@/api/positions";
 import { getSummary, getSankeyData } from "@/api/summary";
 import { getAssets } from "@/api/assets";
-import { ElMessage } from "element-plus";
 import { getLedgers } from "@/api/ledger";
+import { ElMessage } from "element-plus";
+import * as echarts from "echarts";
 
 defineOptions({ name: "AssetPanorama" });
 
@@ -242,6 +240,8 @@ const loading = ref(false);
 const sankeyDisplayMode = ref<"amount" | "percent" | "hidden">("amount");
 const balanceTab = ref<"assets" | "liabilities">("assets");
 const detailView = ref("category");
+const waterfallChartRef = ref<HTMLDivElement>();
+let waterfallChart: echarts.ECharts | null = null;
 
 const router = useRouter();
 
@@ -258,20 +258,28 @@ const detailViewOptions = [
   { label: "配置目标", value: "allocation" }
 ];
 
-// 将 balanceTabOptions 添加到数据声明区域
-const balanceTabOptions = [
-  { label: '资产', value: 'assets' },
-  { label: '负债', value: 'liabilities' }
-];
+function allocationLabel(a: string | null): string {
+  const meta: Record<string, string> = {
+    liquid: "活钱", stable: "稳健底仓", longterm: "长期增值",
+    speculative: "高风险博弈", security: "保险保障"
+  };
+  return meta[a || ""] || a || "长期增值";
+}
 
-// 统一其他视图的点击跳转函数
+function getTypeRoute(typeName: string): string {
+  const routes: Record<string, string> = {
+    '股票': 'stocks', '基金': 'funds', '可转债': 'stocks',
+    'ETF': 'stocks', '虚拟货币': 'precious', '银行存款': 'funds'
+  };
+  return routes[typeName] || 'stocks';
+}
+
 function handleGroupClick(group: any) {
   if (detailView.value === 'type') {
     router.push(`/asset/investment/${getTypeRoute(group.name)}`);
   } else if (detailView.value === 'account') {
     router.push('/asset/ledgers');
   }
-  // 配置目标暂不跳转
 }
 
 const currentDetailGroups = computed(() => {
@@ -283,7 +291,6 @@ const currentDetailGroups = computed(() => {
   }
 });
 
-// 资产/负债表格数据
 const assetBalanceRows = computed(() => {
   const total = totalAssets.value;
   if (total === 0) return [];
@@ -309,7 +316,7 @@ const liabilityBalanceRows = computed(() => {
   const totalLiab = totalLiabilities.value;
   if (totalLiab === 0) return [];
   const map: Record<string, any> = {};
-  allAssets.value.filter(a => a.major_category === "liability" && a.marketValue > 0).forEach(a => {
+  allAssets.value.filter(a => a.major_category === "liability" && a.marketValue < 0).forEach(a => {
     const key = a.name || "其他负债";
     if (!map[key]) map[key] = { name: key, value: 0 };
     map[key].value += a.marketValue;
@@ -317,17 +324,11 @@ const liabilityBalanceRows = computed(() => {
   return Object.values(map).map(item => ({
     ...item,
     color: "var(--color-neutral)",
-    percent: +((item.value / totalLiab) * 100).toFixed(1)
+    percent: +((Math.abs(item.value) / totalLiab) * 100).toFixed(1),
+    value: Math.abs(item.value)
   }));
 });
 
-// 多维视图分组
-const TYPE_LABELS: Record<string, string> = {
-  stock: "股票", fund: "基金", bond: "可转债", etf: "ETF",
-  crypto: "虚拟货币", saving: "银行存款", cash: "现金"
-};
-
-// 按产品类型分组（增加盈亏汇总）
 const typeDetailGroups = computed(() => {
   const map: Record<string, { items: any[]; total: number; totalPnl: number }> = {};
   allPositions.value.forEach((p: any) => {
@@ -345,13 +346,12 @@ const typeDetailGroups = computed(() => {
   }));
 });
 
-// 按账户分组（增加盈亏汇总）
 const accountDetailGroups = computed(() => {
   const map: Record<string, { items: any[]; total: number; totalPnl: number }> = {};
   allPositions.value.forEach((p: any) => {
     const acc = p.account_name || '未指定账户';
     if (!map[acc]) map[acc] = { items: [], total: 0, totalPnl: 0 };
-    map[acc].items.push({ ...p, type_label: TYPE_LABELS[p.asset_type || p.type] || p.asset_type || p.type });
+    map[acc].items.push({ ...p, type_label: p.type_label|| p.asset_type || p.type });
     map[acc].total += p.marketValue || 0;
     map[acc].totalPnl += p.pnl || 0;
   });
@@ -359,14 +359,8 @@ const accountDetailGroups = computed(() => {
     const acc = a.account_name || '未指定账户';
     if (!map[acc]) map[acc] = { items: [], total: 0, totalPnl: 0 };
     const value = a.marketValue || a.amount || 0;
-    map[acc].items.push({
-      ...a,
-      marketValue: value,
-      type_label: a.minor_category || a.major_category,
-      asset_type: a.major_category
-    });
+    map[acc].items.push({ ...a, marketValue: value, type_label: a.minor_category || a.major_category, asset_type: a.major_category });
     map[acc].total += value;
-    // 通用资产默认无盈亏
   });
   return Object.entries(map).map(([name, data]) => ({
     name,
@@ -376,13 +370,12 @@ const accountDetailGroups = computed(() => {
   }));
 });
 
-// 按配置目标分组（增加盈亏汇总）
 const allocationDetailGroups = computed(() => {
   const map: Record<string, { items: any[]; total: number; totalPnl: number }> = {};
   allPositions.value.forEach((p: any) => {
     const alloc = p.allocation_label || allocationLabel(p.allocation) || '未配置';
     if (!map[alloc]) map[alloc] = { items: [], total: 0, totalPnl: 0 };
-    map[alloc].items.push({ ...p, type_label: TYPE_LABELS[p.asset_type || p.type] || p.asset_type || p.type });
+    map[alloc].items.push({ ...p, type_label: p.type_label || p.asset_type || p.type });
     map[alloc].total += p.marketValue || 0;
     map[alloc].totalPnl += p.pnl || 0;
   });
@@ -394,46 +387,95 @@ const allocationDetailGroups = computed(() => {
   }));
 });
 
-function goToAccount(accountName: string) {
-  // 查找对应 ledger id，若不存在则跳转到未归类页面
-  const ledger = ledgers.find((l: any) => l.name === accountName);
-  if (ledger) {
-    router.push(`/asset/ledgers/${ledger.id}`);
-  } else {
-    router.push(`/asset/ledgers/unclassified?name=${encodeURIComponent(accountName)}`);
-  }
-}
-
-// 产品类型名称到路由路径的映射
-function getTypeRoute(typeName: string): string {
-  const routes: Record<string, string> = {
-    '股票': 'stocks',
-    '基金': 'funds',
-    '可转债': 'stocks',   // 假设跳转到股票页或转债页
-    'ETF': 'stocks',
-    '虚拟货币': 'precious',  // 暂时放在贵金属或自定义
-    '银行存款': 'funds'
-  };
-  return routes[typeName] || 'stocks';
-}
-
-function allocationLabel(a: string | null): string {
-  const meta: Record<string, string> = {
-    liquid: "活钱", stable: "稳健底仓", longterm: "长期增值",
-    speculative: "高风险博弈", security: "保险保障"
-  };
-  return meta[a || ""] || a || "长期增值";
-}
-
 function goToInventory(categoryKey: string) {
   router.push(`/asset/inventory?tab=${categoryKey}`);
 }
 
+function initWaterfallChart() {
+  if (!waterfallChartRef.value || allPositions.value.length === 0) return;
+  if (waterfallChart) waterfallChart.dispose();
+  waterfallChart = echarts.init(waterfallChartRef.value);
+  const style = getComputedStyle(document.documentElement);
+  const primaryColor = style.getPropertyValue('--color-primary').trim() || '#7A7FA8';
+  const infoColor = style.getPropertyValue('--color-info').trim() || '#7A9AA8';
+  const dangerColor = style.getPropertyValue('--color-danger').trim() || '#C83E66';
+  const successColor = style.getPropertyValue('--color-success').trim() || '#81B29A';
+  const neutralColor = style.getPropertyValue('--color-neutral').trim() || '#8E8B82';
+
+  const start = 2800000;
+  const changes = [
+    { name: "流动资金", value: -233251 },
+    { name: "固定资产", value: 0 },
+    { name: "投资理财", value: 262225 },
+    { name: "负债", value: -20406 }
+  ];
+  const end = start + changes.reduce((s, c) => s + c.value, 0);
+  const cumulativeValues: number[] = [start];
+  changes.forEach((item, index) => {
+    cumulativeValues.push(cumulativeValues[index] + item.value);
+  });
+  const allData = [
+    { name: "上期末", height: start, change: start, isEndpoint: true },
+    ...changes.map((item, index) => ({
+      name: item.name,
+      height: cumulativeValues[index + 1],
+      change: item.value,
+      isEndpoint: false
+    })),
+    { name: "本期末", height: end, change: end, isEndpoint: true }
+  ];
+
+  waterfallChart.setOption({
+    tooltip: { trigger: "axis" },
+    grid: { left: "8%", right: "4%", top: 20, bottom: 50, containLabel: true },
+    xAxis: {
+      type: "category",
+      data: allData.map(d => d.name),
+      axisLabel: { rotate: 30, fontSize: 10, interval: 0, color: "#999" },
+      axisLine: { lineStyle: { color: "#eee" } }
+    },
+    yAxis: {
+      type: "value",
+      min: 0,
+      splitLine: { lineStyle: { color: "#f5f5f5" } },
+      axisLabel: { color: "#999", fontSize: 11, formatter: (v: number) => v.toLocaleString() }
+    },
+    series: [{
+      type: "bar",
+      data: allData.map(d => d.height),
+      barWidth: "30%",
+      barMinHeight: 4,
+      itemStyle: {
+        borderRadius: 4,
+        color: (params: any) => {
+          const d = allData[params.dataIndex];
+          if (d.isEndpoint && d.name === "上期末") return primaryColor;
+          if (d.isEndpoint && d.name === "本期末") return infoColor;
+          if (d.change > 0) return dangerColor;
+          if (d.change < 0) return successColor;
+          return neutralColor;
+        }
+      },
+      label: {
+        show: true,
+        position: "top",
+        fontSize: 10,
+        color: "#666",
+        formatter: (params: any) => {
+          const d = allData[params.dataIndex];
+          if (d.isEndpoint) return "¥" + d.height.toLocaleString();
+          if (d.change === 0) return "¥0";
+          return (d.change >= 0 ? "+" : "") + d.change.toLocaleString();
+        }
+      }
+    }]
+  });
+}
+
 async function fetchData() {
-  console.log('[AssetPanorama] fetchData 开始')
   loading.value = true;
   try {
-    const [posRes, sumRes, assetsRes, sankeyRes,ledgerRes] = await Promise.all([
+    const [posRes, sumRes, assetsRes, sankeyRes, ledgerRes] = await Promise.all([
       getPositions({ per_page: 500 }),
       getSummary(),
       getAssets({ per_page: 500 }),
@@ -465,22 +507,18 @@ async function fetchData() {
 
     allAssets.value = assetsRaw.map((a: any) => ({
       ...a,
-      marketValue: (a.amount || 0) * (EXCHANGE_RATES[a.currency || "CNY"] || 1)
+      marketValue: a.signed_amount ?? (a.amount || 0)
     }));
 
     totalAssets.value = (sumRes as any)?.data?.total_assets_cny || 0;
     totalLiabilities.value = (sumRes as any)?.data?.total_liabilities_cny || 0;
     totalPnl.value = (sumRes as any)?.data?.total_pnl_cny || 0;
-    sankeyData.value = {
-      nodes: sankeyRaw.nodes || [],
-      links: sankeyRaw.links || []
-    };
+    sankeyData.value = { nodes: sankeyRaw.nodes || [], links: sankeyRaw.links || [] };
   } catch (e: any) {
     ElMessage.error(e?.message || "加载失败");
   } finally {
     loading.value = false;
     await nextTick();
-    // 瀑布图可在此初始化
   }
 }
 
@@ -497,7 +535,6 @@ onMounted(() => fetchData());
   display: flex;
   gap: 4px;
 }
-
 .balance-btn {
   background: transparent;
   border: none;
@@ -510,12 +547,9 @@ onMounted(() => fetchData());
   position: relative;
   font-weight: 400;
 }
-
 .balance-btn.active {
-  color: var(--color-primary);
   font-weight: 600;
 }
-
 .balance-btn.active::after {
   content: '';
   position: absolute;
@@ -527,7 +561,4 @@ onMounted(() => fetchData());
   border-radius: 1px;
 }
 
-.balance-btn:hover:not(.active) {
-  color: var(--color-primary);
-}
 </style>

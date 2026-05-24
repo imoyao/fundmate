@@ -264,13 +264,7 @@ function getCategoryAmount(key: string): string {
   const total = allAssets.value
     .filter(a => a.major_category === key)
     .reduce((s, a) => s + (a.marketValue || 0), 0);
-  return total > 0 ? `¥${total.toLocaleString()}` : "无记录";
-}
-
-function getTypeColor(key: string): string {
-  const types = activeAssetTypes.value;
-  const found = types.find(t => t.key === key);
-  return found?.color || "var(--color-neutral)";
+  return Math.abs(total) > 0 ? `¥${Math.abs(total).toLocaleString()}` : "无记录";
 }
 
 function handleAddType(typeKey: string) {
@@ -310,7 +304,7 @@ async function fetchData() {
 
     allAssets.value = assetsRaw.map((a: any) => {
       const rate = EXCHANGE_RATES[a.currency || "CNY"] || 1;
-      return { ...a, marketValue: (a.amount || 0) * rate };
+      return { ...a, marketValue: (a.signed_amount ?? (a.amount || 0)) * rate };
     });
 
     allPositions.value = positionsRaw.map((p: any) => {

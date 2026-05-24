@@ -10,7 +10,7 @@ from apiflask import APIBlueprint
 from flask import jsonify
 
 from app.core.database import get_db
-from app.services.summary_service import get_sankey_data, get_summary_data
+from app.services.summary_service import get_account_groups, get_sankey_data, get_summary_data
 
 bp = APIBlueprint('summary', __name__, url_prefix='/api')
 
@@ -21,6 +21,8 @@ def summary():
     try:
         with get_db() as db:
             data = get_summary_data(db)
+            account_groups = get_account_groups(db)
+            data['account_groups'] = account_groups
         return jsonify({'data': data, 'message': 'ok'})
     except Exception as e:
         return jsonify({'data': {}, 'message': f'服务器内部错误: {str(e)}'}), 500

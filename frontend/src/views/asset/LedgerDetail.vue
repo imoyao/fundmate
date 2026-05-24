@@ -32,7 +32,7 @@
           <h2 class="text-2xl font-bold" :style="{ color: 'var(--text-primary)' }">{{ accountName }}</h2>
           <p class="text-sm mt-1" :style="{ color: 'var(--text-tertiary)' }">
             {{ subTitle }}
-            <template v-if="accountInfo?.default_allocation"> · {{ allocLabel(accountInfo.default_allocation) }}</template>
+            <template v-if="accountInfo?.default_allocation"> · {{ accountInfo.default_allocation_label || '未配置'}}</template>
           </p>
         </div>
 
@@ -41,7 +41,7 @@
           <el-col :span="8">
             <el-card shadow="never">
               <p class="text-xs" :style="{ color: 'var(--text-tertiary)' }">{{ totalLabel }}</p>
-              <p class="text-xl font-bold" :style="{ color: 'var(--color-primary)' }">¥{{ totalMarketValue.toLocaleString() }}</p>
+              <p class="text-xl font-bold" :style="{ color: 'var(--color-primary)' }">¥{{ Math.abs(totalMarketValue).toLocaleString() }}</p>
             </el-card>
           </el-col>
           <el-col :span="8">
@@ -66,7 +66,7 @@
                 <el-table-column prop="name" label="名称" min-width="140">
                   <template #default="{ row }">{{ row.name || row.symbol }}</template>
                 </el-table-column>
-                <el-table-column label="类型" width="100">
+                <el-table-column label="资产类型" width="100">
                   <template #default="{ row }">
                     <span class="px-2 py-0.5 rounded-full text-xs" :style="{ color: getTypeColor(row.asset_type || row.type) }">
                       {{ row.type_label }}
@@ -102,6 +102,13 @@
                     </span>
                   </template>
                 </el-table-column>
+
+                <el-table-column label="操作" width="80" fixed="right" v-if="!isUnclassified">
+                  <template #default="{ row }">
+                    <el-button text size="small" @click="openMigrateDialog(row)">迁移</el-button>
+                  </template>
+                </el-table-column>
+
                 <el-table-column v-if="isUnclassified" label="归入账户" width="160">
                   <template #default="{ row }">
                     <el-select v-model="assignMap[row.id]" placeholder="选择账户" size="small" @change="handleAssign(row.id)">
@@ -182,11 +189,36 @@
         <el-button type="primary" :loading="saving" @click="handleUpdate">保存</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="migrateDialogVisible" title="迁移资产到其他账户" width="400px" destroy-on-close>
+      <el-form label-width="80px">
+        <el-form-item label="资产名称">
+          <span>{{ migratingItem?.name || migratingItem?.symbol }}</span>
+        </el-form-item>
+        <el-form-item label="目标账户">
+          <el-select v-model="migrateTargetLedgerId" placeholder="选择账户" class="w-full">
+            <el-option
+              v-for="ledger in ledgers"
+              :key="ledger.id"
+              :label="ledger.name"
+              :value="ledger.id"
+            />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="migrateDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="handleMigrate" :disabled="!migrateTargetLedgerId">
+          确认迁移
+        </el-button>
+      </template>
+    </el-dialog>
+
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onActivated, onMounted } from "vue";
+import { ref, computed, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { Loading } from "@element-plus/icons-vue";
@@ -201,12 +233,11 @@ defineOptions({ name: "LedgerDetail" });
 const route = useRoute();
 const router = useRouter();
 
-// 路由参数可能变化，使用 computed 动态响应
 const ledgerId = computed(() => route.params.id as string);
 const isUnclassified = computed(() => ledgerId.value === "unclassified" || !!route.query.name);
 const targetAccountName = computed(() => route.query.name as string | undefined);
 
-const loading = ref(false);
+const loading = ref(true);
 const ledgers = ref<any[]>([]);
 const allPositions = ref<any[]>([]);
 const allAssets = ref<any[]>([]);
@@ -228,14 +259,35 @@ const transactionsPage = ref(1);
 const transactionsPageSize = 20;
 const activeTab = ref("holdings");
 
-const TYPE_LABELS: Record<string, string> = {
-  stock: "股票", fund: "基金", bond: "可转债", etf: "ETF",
-  crypto: "虚拟货币", saving: "银行存款", cash: "现金",
-};
-const ALLOC_LABELS: Record<string, string> = {
-  liquid: "活钱", stable: "稳健底仓", longterm: "长期增值",
-  speculative: "高风险博弈", security: "保险保障",
-};
+// 迁移相关状态
+const migrateDialogVisible = ref(false);
+const migratingItem = ref<any>(null);
+const migrateTargetLedgerId = ref<number | null>(null);
+
+function openMigrateDialog(row: any) {
+  migratingItem.value = row;
+  migrateTargetLedgerId.value = null;
+  migrateDialogVisible.value = true;
+}
+
+async function handleMigrate() {
+  if (!migrateTargetLedgerId.value || !migratingItem.value) return;
+  const ledger = ledgers.value.find((l: any) => l.id === migrateTargetLedgerId.value);
+  if (!ledger) return;
+
+  try {
+    if (migratingItem.value.id > 100000) {
+      await updateAsset(migratingItem.value.id - 100000, { account_name: ledger.name });
+    } else {
+      await updatePosition(migratingItem.value.id, { account_name: ledger.name });
+    }
+    ElMessage.success(`已迁移至「${ledger.name}」`);
+    migrateDialogVisible.value = false;
+    await fetchData(); // 刷新列表，该资产将从当前页面消失（如果迁移到其他账户）
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || "迁移失败");
+  }
+}
 
 function getTypeColor(type: string) {
   const map: Record<string, string> = {
@@ -252,9 +304,7 @@ function getAllocColor(alloc: string | null) {
   };
   return map[alloc || ""] || "var(--color-neutral)";
 }
-function allocLabel(key: string | null) {
-  return ALLOC_LABELS[key || ""] || key || "未配置";
-}
+
 
 const accountInfo = computed(() => {
   if (isUnclassified.value) return null;
@@ -279,31 +329,49 @@ const totalLabel = computed(() => {
   return isUnclassified.value ? "待归置市值" : (accountInfo.value?.ledger_type === 'liability' ? "总负债" : "总市值");
 });
 
+// 所有已知 Ledger 名称的集合，用于过滤已归入同名账户的资产
+const ledgerNames = computed(() => new Set(ledgers.value.map(l => l.name)));
+
 const holdings = computed(() => {
   const posList = allPositions.value
     .filter((p: any) => {
       const acc = p.account_name || "未指定账户";
-      if (isUnclassified.value) return acc === "未指定账户" || acc === targetAccountName.value;
+      if (isUnclassified.value) {
+        // 游离资产：账户名为 "未指定账户" 或不在任何已知 Ledger 中
+        if (acc === "未指定账户") return true;
+        if (ledgerNames.value.has(acc)) return false; // 已有同名 Ledger，视为已归入
+        if (targetAccountName.value) {
+          return acc === targetAccountName.value;
+        }
+        return true;
+      }
       return accountInfo.value && acc === accountInfo.value.name;
     })
     .map((p: any) => ({
       ...p,
-      type_label: TYPE_LABELS[p.asset_type || p.type] || p.asset_type || p.type,
-      allocation_label: ALLOC_LABELS[p.allocation] || p.allocation || "未配置",
+      type_label: p.type_label || p.type || '其他',
+      allocation_label: p.allocation_label || p.allocation || '未配置',
       pnlRate: p.avg_price ? ((p.current_price - p.avg_price) / p.avg_price * 100) : 0,
-    }));
+    }))
 
   const assetList = allAssets.value
     .filter((a: any) => {
       const acc = a.account_name || "未指定账户";
-      if (isUnclassified.value) return acc === "未指定账户" || acc === targetAccountName.value;
+      if (isUnclassified.value) {
+        if (acc === "未指定账户") return true;
+        if (ledgerNames.value.has(acc)) return false;
+        if (targetAccountName.value) {
+          return acc === targetAccountName.value;
+        }
+        return true;
+      }
       return accountInfo.value && acc === accountInfo.value.name;
     })
     .map((a: any) => ({
       ...a,
       id: a.id + 100000,
-      type_label: a.minor_category || a.major_category,
-      allocation_label: ALLOC_LABELS[a.allocation] || a.allocation || "未配置",
+      type_label: a.type_label || a.major_category || '其他',   // 使用后端标签
+      allocation_label: a.allocation_label || a.allocation || '未配置',  // 使用后端标签
       marketValue: a.marketValue || a.amount || 0,
       asset_type: a.major_category,
       pnl: 0,
@@ -318,10 +386,12 @@ const totalMarketValue = computed(() => holdings.value.reduce((s, i) => s + (i.m
 const allocationSummary = computed(() => {
   const map: Record<string, number> = {};
   holdings.value.forEach((h: any) => {
+    // 排除负债及无效资产
+    if (h.major_category === 'liability' || (h.marketValue || 0) <= 0) return;
     const alloc = h.allocation_label || "未配置";
     map[alloc] = (map[alloc] || 0) + (h.marketValue || 0);
   });
-  const total = totalMarketValue.value || 1;
+  const total = Object.values(map).reduce((s, v) => s + v, 0) || 1;
   return Object.entries(map)
     .map(([k, v]) => `${k} ${((v / total) * 100).toFixed(0)}%`)
     .join(" / ") || "暂无";
@@ -361,6 +431,7 @@ async function handleAssign(itemId: number) {
   if (!targetLedgerId) return;
   const ledger = ledgers.value.find((l: any) => l.id === targetLedgerId);
   if (!ledger) return;
+
   try {
     if (itemId > 100000) {
       await updateAsset(itemId - 100000, { account_name: ledger.name });
@@ -407,14 +478,19 @@ async function handleDelete() {
   try {
     await deleteLedger(Number(ledgerId.value));
     ElMessage.success("账户已删除");
-    router.push("/asset/ledgers");
+    router.push({ name: "AssetLedgers" });
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || "删除失败");
   }
 }
 
+let abortController: AbortController | null = null;
+
 async function fetchData() {
-  console.log('[AccountDetail] fetchData 开始')
+  if (abortController) {
+    abortController.abort();
+  }
+  abortController = new AbortController();
   loading.value = true;
   try {
     const [ledgerRes, posRes, assetsRes, txnRes] = await Promise.all([
@@ -442,7 +518,7 @@ async function fetchData() {
     assetRaw = Array.isArray(assetData) ? assetData : assetData?.data || [];
     allAssets.value = assetRaw.map((a: any) => ({
       ...a,
-      marketValue: a.amount || 0,
+      marketValue: a.signed_amount ?? (a.amount || 0),
     }));
 
     let txnRaw: any[] = [];
@@ -456,13 +532,7 @@ async function fetchData() {
   }
 }
 
-// 组件首次挂载时加载数据
 onMounted(() => {
-  fetchData();
-});
-
-// 组件激活时也重新获取
-onActivated(() => {
   fetchData();
 });
 </script>

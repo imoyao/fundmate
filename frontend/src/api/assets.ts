@@ -30,9 +30,9 @@ export function createAsset(data: any) {
 }
 
 export function updateAsset(id: number, data: any) {
-  return http.request<any>('patch', `${BASE_URL}/${id}`, { data })
+  return http.request<any>('patch', `${BASE_URL}/${id}/`, { data })
 }
 
 export function deleteAsset(id: number) {
-  return http.request<any>('delete', `${BASE_URL}/${id}`)
+  return http.request<any>('delete', `${BASE_URL}/${id}/`)
 }

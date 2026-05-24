@@ -9,6 +9,7 @@ from apiflask import APIBlueprint
 from flask import abort, jsonify, request
 
 from app.core.database import get_db
+from app.core.enums import ALLOCATION_LABELS, ASSET_CATEGORY_LABELS
 from app.core.utils import paginate
 from app.domains.assets.models import Asset
 from app.domains.assets.schemas import AssetCreate, AssetOut, AssetUpdate
@@ -31,11 +32,18 @@ def list_assets():
         if major:
             query = query.filter(Asset.major_category == major)
 
-        items, total = paginate(query, page=page, per_page=per_page)
+        assets, total = paginate(query, page=page, per_page=per_page)
 
+        data = list()
+        for asset in assets:
+            asset.signed_amount = asset.amount if asset.major_category != 'liability' else -asset.amount
+            asset.allocation_label = ALLOCATION_LABELS.get(asset.allocation, asset.allocation or '未配置')
+            asset.type_label = ASSET_CATEGORY_LABELS.get(asset.major_category, asset.major_category)
+            json_asset = AssetOut.model_validate(asset).model_dump()
+            data.append(json_asset)
         return jsonify(
             {
-                'data': [AssetOut.model_validate(a).model_dump() for a in items],
+                'data': data,
                 'total': total,
                 'page': page,
                 'per_page': per_page,
@@ -54,15 +62,18 @@ def create_asset(json_data):
         db.add(asset)
         db.commit()
         db.refresh(asset)
+        asset.allocation_label = ALLOCATION_LABELS.get(asset.allocation, asset.allocation or '未配置')
+        asset.signed_amount = asset.amount if asset.major_category != 'liability' else -asset.amount
+        asset.type_label = ASSET_CATEGORY_LABELS.get(asset.major_category, asset.major_category)
         return jsonify({'data': AssetOut.model_validate(asset).model_dump(), 'message': 'ok'})
 
 
-@bp.patch('/<int:id>')
+@bp.patch('/<int:id>/')
 @bp.input(AssetUpdate)
 def update_asset(id, json_data):
     """PATCH 语义更新通用资产."""
     with get_db() as db:
-        asset = db.query(Asset).filter_by(id=id, user_id=1).first()
+        asset = db.query(Asset).filter_by(id=id).first()
         if not asset:
             abort(404, description='资产不存在')
 
@@ -72,14 +83,17 @@ def update_asset(id, json_data):
 
         db.commit()
         db.refresh(asset)
+        asset.allocation_label = ALLOCATION_LABELS.get(asset.allocation, asset.allocation or '未配置')
+        asset.type_label = ASSET_CATEGORY_LABELS.get(asset.major_category, asset.major_category)
+        asset.signed_amount = asset.amount if asset.major_category != 'liability' else -asset.amount
         return jsonify({'data': AssetOut.model_validate(asset).model_dump(), 'message': 'ok'})
 
 
-@bp.delete('/<int:id>')
+@bp.delete('/<int:id>/')
 def delete_asset(id):
     """删除一条通用资产."""
     with get_db() as db:
-        asset = db.query(Asset).filter_by(id=id, user_id=1).first()
+        asset = db.query(Asset).filter_by(id=id).first()
         if not asset:
             abort(404, description='资产不存在')
         db.delete(asset)

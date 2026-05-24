@@ -81,3 +81,14 @@ ALLOCATION_LABELS = {
     'speculative': '高风险博弈',
     'security': '保险保障',
 }
+
+
+# 通用资产大类标签
+ASSET_CATEGORY_LABELS = {
+    'cash': '流动资金',
+    'fixed': '固定资产',
+    'investment': '投资理财',
+    'receivable': '应收款',
+    'liability': '负债',
+    'insurance': '保险项目',
+}

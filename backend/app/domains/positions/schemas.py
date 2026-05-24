@@ -43,7 +43,7 @@ class PositionOut(BaseModel):
     name: Optional[str] = None
     market: str
     type: str = Field(validation_alias='asset_type', serialization_alias='type')
-    account_name: str
+    account_name: Optional[str] = None
     quantity: float
     avg_price: float
     currency: str

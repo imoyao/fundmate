@@ -17,7 +17,7 @@ class AssetCreate(BaseModel):
     major_category: str = Field(..., max_length=20)
     minor_category: Optional[str] = Field(None, max_length=50)
     name: str = Field(..., max_length=200)
-    amount: float = Field(..., description='资产金额，正数表示资产，负数表示负债')
+    amount: float = Field(..., gt=0, description='资产金额，必须大于0')
     currency: str = 'CNY'
     account_name: Optional[str] = Field(None, max_length=50)
     allocation: Optional[str] = 'longterm'
@@ -45,11 +45,24 @@ class AssetUpdate(BaseModel):
     extra: Optional[dict] = None
 
 
-class AssetOut(AssetCreate):
-    """返回给前端的通用资产数据."""
-
+class AssetOut(BaseModel):
     id: int
     user_id: int
+    major_category: str
+    minor_category: Optional[str] = None
+    name: str
+    amount: float  # 没有 gt 限制
+    signed_amount: float  # 负债为负，资产为正
+    currency: str = 'CNY'
+    account_name: Optional[str] = None
+    allocation: Optional[str] = None
+    allocation_label: Optional[str] = None
+    type_label: Optional[str] = None  # 新增
+    status: str = 'active'
+    notes: Optional[str] = None
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    extra: Optional[dict] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

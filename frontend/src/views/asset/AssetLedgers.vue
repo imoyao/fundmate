@@ -11,7 +11,8 @@
     </div>
 
     <div v-if="loading" class="text-center py-20" :style="{ color: 'var(--text-tertiary)' }">
-<!--      <el-icon class="is-loading" :size="32"><Loading /></el-icon>-->
+      <!-- 注释原因：Element Plus is-loading 类在 Keep-Alive 缓存恢复时会导致 SVG 渲染崩溃 -->
+      <!-- <el-icon class="is-loading" :size="32"><Loading /></el-icon> -->
       <p class="mt-2">加载中...</p>
     </div>
 
@@ -50,9 +51,13 @@
                 >未关联</span>
               </div>
               <p class="text-xs mt-0.5" :style="{ color: 'var(--text-tertiary)' }">
-                {{ account.hasLedger ? (account.ledger_type === 'cash' ? '现金账户' : account.ledger_type === 'family' ? '家庭账户' : '通用账户') : '待归类' }}
+                {{ account.hasLedger
+                  ? (account.ledger_type === 'cash' ? '现金账户'
+                    : account.ledger_type === 'family' ? '家庭账户'
+                    : '通用账户')
+                  : '待归类' }}
                 <template v-if="account.hasLedger && account.default_allocation">
-                  · {{ getAllocLabel(account.default_allocation) }}
+                  · {{ account.default_allocation_label || account.default_allocation || '未配置'  }}
                 </template>
               </p>
             </div>
@@ -77,9 +82,9 @@
         <div class="grid grid-cols-2 gap-3">
           <div>
             <p class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
-              {{ account.hasLedger ? (account.ledger_type === 'liability' ? '总负债' : '总市值') : '总市值' }}
+              {{ account.hasLedger && account.ledger_type === 'liability' ? '总负债' : '总市值' }}
             </p>
-            <p class="text-lg font-bold" :style="{ color: 'var(--color-primary)' }">¥{{ account.total.toLocaleString() }}</p>
+            <p class="text-lg font-bold" :style="{ color: 'var(--color-primary)' }">¥{{ Math.abs(account.total).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })  }}</p>
           </div>
           <div>
             <p class="text-xs" :style="{ color: 'var(--text-tertiary)' }">持仓数量</p>
@@ -113,17 +118,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onActivated,watchEffect  } from "vue";
-import { useRoute,useRouter } from "vue-router";
+import { ref, computed, onMounted } from "vue";
+import { useRoute, useRouter } from "vue-router"; // 修复：添加缺失的空格
 import { ElMessage } from "element-plus";
-import { Loading } from "@element-plus/icons-vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import { getLedgers, createLedger, deleteLedger } from "@/api/ledger";
 import { getPositions } from "@/api/positions";
 import { getAssets } from "@/api/assets";
 
-defineOptions({ name: "AssetLedger" });
+// 组件名与路由配置中的 name 保持一致，确保 Keep-Alive 正常工作
+defineOptions({ name: "AssetLedgers" });
 
+// TODO: 后续可提取到全局常量文件 @/core/constants 中统一管理
 const EXCHANGE_RATES: Record<string, number> = { CNY: 1, USD: 7.25, HKD: 0.92 };
 
 const router = useRouter();
@@ -137,26 +143,6 @@ const showCreateDialog = ref(false);
 const creating = ref(false);
 const createForm = ref({ name: "", ledger_type: "general", notes: "" });
 
-const TYPE_LABELS: Record<string, string> = {
-  stock: "股票", fund: "基金", bond: "可转债", etf: "ETF",
-  crypto: "虚拟货币", saving: "银行存款", cash: "现金",
-};
-const ALLOC_LABELS: Record<string, string> = {
-  liquid: "活钱", stable: "稳健底仓", longterm: "长期增值",
-  speculative: "高风险博弈", security: "保险保障",
-};
-
-function getTypeColor(type: string): string {
-  const map: Record<string, string> = {
-    stock: "var(--asset-stock)", fund: "var(--asset-fund)", bond: "var(--asset-bond)",
-    etf: "var(--asset-etf)", crypto: "var(--asset-crypto)", saving: "var(--asset-saving)",
-  };
-  return map[type] || "var(--color-neutral)";
-}
-function getAllocLabel(key: string | null): string {
-  return ALLOC_LABELS[key || ""] || key || "未配置";
-}
-
 async function handleDeleteLedger(id: number) {
   try {
     await deleteLedger(id);
@@ -167,12 +153,15 @@ async function handleDeleteLedger(id: number) {
   }
 }
 
+// 注意：此处使用 ref 是为了触发 allAccounts 计算属性更新
+// 优化建议：后续可改为普通变量，在 fetchData 末尾手动触发计算
 const accountHoldingsCache = ref<Map<string, any[]>>(new Map());
 const accountTotalCache = ref<Map<string, number>>(new Map());
 
 const allAccounts = computed(() => {
   const map = new Map<string, any>();
 
+  // 1. Ledger 账户
   ledgers.value.forEach((l: any) => {
     const holdings = accountHoldingsCache.value.get(l.name) || [];
     const total = accountTotalCache.value.get(l.name) || 0;
@@ -182,13 +171,18 @@ const allAccounts = computed(() => {
       hasLedger: true,
       ledger_type: l.ledger_type || "general",
       default_allocation: l.default_allocation,
+      default_allocation_label: l.default_allocation_label || '',
       total,
       count: holdings.length,
     });
   });
 
+  // 2. 游离账户（排除与 Ledger 同名的）
+  const ledgerNameSet = new Set(ledgers.value.map(l => l.name));
   accountHoldingsCache.value.forEach((holdings, accountName) => {
     const key = accountName || "未指定账户";
+    // 如果 Ledger 中已存在同名账户，则这些资产不应视为游离
+    if (ledgerNameSet.has(key)) return;
     if (!map.has(key) && holdings.length > 0) {
       const total = accountTotalCache.value.get(accountName) || 0;
       map.set(key, {
@@ -252,7 +246,6 @@ async function handleCreate() {
 }
 
 async function fetchData() {
-  console.log('--------111111111111111-----------')
   loading.value = true;
   try {
     const [ledgerRes, posRes, assetsRes] = await Promise.all([
@@ -261,28 +254,26 @@ async function fetchData() {
       getAssets({ per_page: 500 }),
     ]);
 
-    // 1. 先在本地处理所有数据，不更新任何响应式变量
-    const newLedgers = Array.isArray((ledgerRes as any)?.data)
-      ? (ledgerRes as any).data
-      : (ledgerRes as any)?.data?.data || [];
+    // 1. 统一解析 API 响应格式（兼容后端不同的返回结构）
+    const newLedgers = (ledgerRes as any)?.data?.data ?? (ledgerRes as any)?.data ?? [];
 
     let posRaw: any[] = [];
-    const posData = (posRes as any)?.data || posRes;
-    posRaw = Array.isArray(posData) ? posData : posData?.data || [];
+    const posData = (posRes as any)?.data ?? posRes;
+    posRaw = Array.isArray(posData) ? posData : posData?.data ?? [];
     const newPositions = posRaw.map((p: any) => ({
       ...p,
       marketValue: (p.quantity || 0) * (p.current_price || 0) * (EXCHANGE_RATES[p.currency || "CNY"] || 1),
     }));
 
     let assetRaw: any[] = [];
-    const assetData = (assetsRes as any)?.data || assetsRes;
-    assetRaw = Array.isArray(assetData) ? assetData : assetData?.data || [];
+    const assetData = (assetsRes as any)?.data ?? assetsRes;
+    assetRaw = Array.isArray(assetData) ? assetData : assetData?.data ?? [];
     const newAssets = assetRaw.map((a: any) => ({
       ...a,
-      marketValue: a.amount || 0,
+      marketValue: a.signed_amount ?? (a.amount || 0),
     }));
 
-    // 2. 构建新的缓存
+    // 2. 构建本地缓存
     const newHoldingsMap = new Map<string, any[]>();
     const newTotalMap = new Map<string, number>();
 
@@ -291,8 +282,8 @@ async function fetchData() {
       if (!newHoldingsMap.has(acc)) newHoldingsMap.set(acc, []);
       newHoldingsMap.get(acc)!.push({
         ...p,
-        type_label: TYPE_LABELS[p.asset_type || p.type] || p.asset_type || p.type,
-        allocation_label: ALLOC_LABELS[p.allocation] || p.allocation || "未配置",
+        type_label: p.type_label || p.type,
+        allocation_label: p.allocation_label || p.allocation|| "未配置",
       });
     });
 
@@ -303,7 +294,7 @@ async function fetchData() {
         ...a,
         id: a.id + 100000,
         type_label: a.minor_category || a.major_category,
-        allocation_label: ALLOC_LABELS[a.allocation] || a.allocation || "未配置",
+        allocation_label: a.allocation_label || a.allocation || "未配置",
         marketValue: a.marketValue || a.amount || 0,
         asset_type: a.major_category,
       });
@@ -313,7 +304,7 @@ async function fetchData() {
       newTotalMap.set(acc, items.reduce((s, i) => s + (i.marketValue || 0), 0));
     });
 
-    // 3. ✅ 一次性更新所有响应式变量，完全避免中间状态
+    // 3. 一次性更新所有响应式变量，避免中间状态渲染
     ledgers.value = newLedgers;
     allPositions.value = newPositions;
     allAssets.value = newAssets;
@@ -327,22 +318,10 @@ async function fetchData() {
   }
 }
 
-// 生命周期：首次挂载和每次激活时都重新拉取数据
+// 根元素已添加 :key="$route.fullPath"，每次进入都会重新挂载
+// 仅保留 onMounted 即可保证数据加载
 onMounted(() => {
-  fetchData();  // ← 必须调用
-});
-
-onActivated(() => {
   fetchData();
-});
-
-// 强制监听当前路由，一旦匹配到列表页路径，立即重新加载数据
-watchEffect(() => {
-  if (route.path === '/asset/ledgers') {
-    console.log('[AccountManagement] 强制激活，重新加载数据');
-    loading.value = true;
-    fetchData();
-  }
 });
 </script>
 

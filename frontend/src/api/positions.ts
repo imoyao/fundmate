@@ -26,12 +26,12 @@ export function createPosition(data: PositionCreate) {
 
 /** 更新一条持仓记录 (PATCH) */
 export function updatePosition(id: number, data: PositionUpdate) {
-  return http.request<ApiResponse<Position>>("patch", `${BASE_URL}/${id}`, {
+  return http.request<ApiResponse<Position>>("patch", `${BASE_URL}/${id}/`, {
     data
   });
 }
 
 /** 删除一条持仓记录 */
 export function deletePosition(id: number) {
-  return http.request<ApiResponse<null>>("delete", `${BASE_URL}/${id}`);
+  return http.request<ApiResponse<null>>("delete", `${BASE_URL}/${id}/`);
 }

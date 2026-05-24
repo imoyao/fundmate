@@ -7,7 +7,7 @@
 from collections import defaultdict
 from typing import Any
 
-from app.core.constants import ALLOC_LABELS, CATEGORY_META, EXCHANGE_RATES
+from app.core.constants import ALLOCATION_LABELS, CATEGORY_META, EXCHANGE_RATES
 from app.core.database import Session
 from app.core.enums import TYPE_LABELS
 from app.domains.assets.models import Asset
@@ -134,7 +134,7 @@ def get_sankey_data(db: Session, user_id: int = 1) -> dict[str, list[dict[str, A
         alloc_map[alloc] += mv
 
         # 产品类型明细（翻译为中文标签）
-        alloc_label = ALLOC_LABELS.get(alloc, alloc)
+        alloc_label = ALLOCATION_LABELS.get(alloc, alloc)
         type_name = p.asset_type or _UNKNOWN_TYPE
         display_name = TYPE_LABELS.get(type_name, type_name)
         alloc_type_map[alloc_label][display_name] += mv
@@ -173,7 +173,7 @@ def get_sankey_data(db: Session, user_id: int = 1) -> dict[str, list[dict[str, A
         # 五笔钱与未配置资产
         configured_total = sum(alloc_map.values())
         for alloc_key, total_val in alloc_map.items():
-            label = ALLOC_LABELS.get(alloc_key, alloc_key)
+            label = ALLOCATION_LABELS.get(alloc_key, alloc_key)
             _add_node(label)
             _add_link(_NET_NODE, label, total_val)
 
@@ -199,3 +199,41 @@ def get_sankey_data(db: Session, user_id: int = 1) -> dict[str, list[dict[str, A
             _add_link(_LIABILITY_NODE, name, amount)
 
     return {'nodes': nodes, 'links': links}
+
+
+def get_account_groups(db: Session, user_id: int = 1) -> list[dict]:
+    """返回按账户分组的汇总数据，负债金额为负数"""
+    positions = db.query(Position).all()
+    assets = db.query(Asset).filter(Asset.user_id == user_id).all()
+
+    groups: dict[str, dict[str, float | int]] = defaultdict(lambda: {'total': 0.0, 'count': 0})
+
+    # 1. 处理持仓 (均为资产)
+    for p in positions:
+        acc = p.account_name or '未指定账户'
+        rate = EXCHANGE_RATES.get(p.currency, 1.0)
+        market_value = p.quantity * (p.current_price or 0.0) * rate
+        if market_value == 0:
+            continue
+        groups[acc]['total'] += market_value
+        groups[acc]['count'] += 1
+
+    # 2. 处理通用资产 (负债取负)
+    for a in assets:
+        acc = a.account_name or '未指定账户'
+        amount = a.amount or 0.0
+        if amount <= 0:
+            continue
+        if a.major_category == 'liability':
+            amount = -amount
+        groups[acc]['total'] += amount
+        groups[acc]['count'] += 1
+
+    # 3. 转换为列表并排序 (金额大的在上)
+    result = [
+        {'name': name, 'total': round(data['total'], 2), 'count': data['count']}
+        for name, data in groups.items()
+        if data['count'] > 0
+    ]
+    result.sort(key=lambda x: abs(x['total']), reverse=True)
+    return result

@@ -33,124 +33,125 @@
 
       <!-- 步骤2：文件上传 / 解析中 -->
       <div v-else-if="currentStep === 1" class="upload-step">
-  <!-- 解析中骨架屏 -->
-  <div v-show="parsing" class="parsing-status">
-    <p class="text-sm text-gray-500 mb-4">
-      <IconifyIconOffline icon="ep:loading" class="loading-icon" />
-      正在解析文件，请稍候...
-    </p>
-    <p class="text-xs text-gray-400 mb-4">
-      正在处理 {{ fileSize }}，预计需要 5-10 秒
-    </p>
-    <el-skeleton :rows="8" animated />
-  </div>
-
-  <!-- 正常状态：账户选择 + 文件上传 -->
-  <div v-show="!parsing">
-    <!-- 账户选择模块 -->
-    <div class="ledger-select-area">
-      <el-form label-position="top">
-        <el-form-item style="display: block">
-          <template #label>
-            <span class="text-base font-medium text-gray-700">这笔交易发生在哪个账户？</span>
-          </template>
-
-          <!-- 第一行：下拉框 + 按钮 -->
-          <div class="flex gap-3 items-start">
-            <el-select
-              v-model="selectedLedgerId"
-              placeholder="例如：华泰证券、支付宝基金"
-              class="flex-1"
-              style="min-width: 280px"
-              :disabled="parsing"
-              size="large"
-              @change="onLedgerSelected"
-              @blur="ledgerTouched = true"
-            >
-              <el-option
-                v-for="ledger in ledgers"
-                :key="ledger.id"
-                :label="ledger.name"
-                :value="ledger.id"
-              />
-            </el-select>
-            <el-button
-              :disabled="parsing"
-              @click="showCreateLedgerDialog = true"
-              size="large"
-              plain
-              class="add-ledger-btn"
-            >
-              <IconifyIconOffline icon="ep:plus" class="mr-1" />
-              添加新账户
-            </el-button>
-          </div>
-
-          <!-- 第二行：错误提示（仅交互后显示） -->
-          <div v-if="!selectedLedgerId && ledgerTouched" class="ledger-error">
-            <IconifyIconOffline icon="ep:warning-filled" class="mr-1" />
-            请先选择一个账户，才能上传文件
-          </div>
-
-          <!-- 第三行：辅助说明 -->
-          <p class="ledger-hint">
-            选择账户后，上传的交易将自动归属到该账户下
+        <!-- 解析中骨架屏 -->
+        <div v-show="parsing" class="parsing-status">
+          <p class="text-sm text-gray-500 mb-4">
+            <IconifyIconOffline icon="ep:loading" class="loading-icon" />
+            正在解析文件，请稍候...
           </p>
-        </el-form-item>
-      </el-form>
-    </div>
+          <p class="text-xs text-gray-400 mb-4">
+            正在处理 {{ fileSize }}，预计需要 5-10 秒
+          </p>
+          <el-skeleton :rows="8" animated />
+        </div>
 
-    <!-- 上传区域 -->
-    <div class="upload-area">
-      <el-upload
-        ref="uploadRef"
-        :accept="'.csv,.xls,.xlsx'"
-        :before-upload="beforeUpload"
-        :http-request="handleUpload"
-        :show-file-list="false"
-        drag
-        :disabled="!selectedLedgerId || parsing"
-        class="golden-upload"
-      >
-        <IconifyIconOffline icon="ep:upload-filled" class="upload-icon" />
-        <p class="upload-text">将 CSV/Excel 文件拖到此处，或<span class="upload-link">点击上传</span></p>
-        <p class="upload-hint">
-          {{ selectedMode === 'ths' ? '同花顺历史交割单导出文件' : '使用标准模板格式的文件' }}
-        </p>
-      </el-upload>
-    </div>
-  </div>
+        <!-- 正常状态：账户选择 + 文件上传 -->
+        <div v-show="!parsing">
+          <!-- 账户选择模块 -->
+          <div class="ledger-select-area">
+            <el-form label-position="top">
+              <el-form-item style="display: block">
+                <template #label>
+                  <span class="text-base font-medium text-gray-700">这笔交易发生在哪个账户？</span>
+                </template>
 
-  <!-- 新建账户弹窗 -->
-  <el-dialog v-model="showCreateLedgerDialog" title="添加新账户" width="360px" :close-on-click-modal="false">
-    <el-form label-position="top">
-      <el-form-item label="账户名称" required>
-        <el-input
-          v-model="newLedgerName"
-          placeholder="例如：华泰证券、招商银行储蓄卡"
-          size="large"
-          @keyup.enter="createLedger"
-        />
-      </el-form-item>
-       <!-- 新增：默认配置目标 -->
-      <el-form-item label="默认配置目标">
-        <el-select v-model="newLedgerAllocation" size="large">
-          <el-option label="💧 活钱" value="liquid" />
-          <el-option label="🛡️ 稳健底仓" value="stable" />
-          <el-option label="📈 长期增值" value="longterm" />
-          <el-option label="⚡ 高风险博弈" value="speculative" />
-          <el-option label="🛟 保险保障" value="security" />
-        </el-select>
-      </el-form-item>
-    </el-form>
-    <template #footer>
-      <div class="flex justify-end gap-3">
-        <el-button @click="showCreateLedgerDialog = false">取消</el-button>
-        <el-button type="primary" @click="createLedger">确认添加</el-button>
+                <!-- 第一行：下拉框 + 按钮 -->
+                <div class="flex gap-3 items-start">
+                  <el-select
+                    v-model="selectedLedgerId"
+                    placeholder="例如：华泰证券、支付宝基金"
+                    class="flex-1"
+                    style="min-width: 280px"
+                    :disabled="parsing"
+                    size="large"
+                    @change="onLedgerSelected"
+                    @blur="ledgerTouched = true"
+                  >
+                    <el-option
+                      v-for="ledger in ledgers"
+                      :key="ledger.id"
+                      :label="ledger.name"
+                      :value="ledger.id"
+                    />
+                  </el-select>
+                  <el-button
+                    :disabled="parsing"
+                    @click="showCreateLedgerDialog = true"
+                    size="large"
+                    plain
+                    class="add-ledger-btn"
+                  >
+                    <IconifyIconOffline icon="ep:plus" class="mr-1" />
+                    添加新账户
+                  </el-button>
+                </div>
+
+                <!-- 第二行：错误提示（仅交互后显示） -->
+                <div v-if="!selectedLedgerId && ledgerTouched" class="ledger-error">
+                  <IconifyIconOffline icon="ep:warning-filled" class="mr-1" />
+                  请先选择一个账户，才能上传文件
+                </div>
+
+                <!-- 第三行：辅助说明 -->
+                <p class="ledger-hint">
+                  选择账户后，上传的交易将自动归属到该账户下
+                </p>
+              </el-form-item>
+            </el-form>
+          </div>
+
+          <!-- 上传区域 -->
+          <div class="upload-area">
+            <el-upload
+              ref="uploadRef"
+              :accept="'.csv,.xls,.xlsx'"
+              :before-upload="beforeUpload"
+              :http-request="handleUpload"
+              :show-file-list="false"
+              drag
+              :disabled="!selectedLedgerId || parsing"
+              class="golden-upload"
+            >
+              <IconifyIconOffline icon="ep:upload-filled" class="upload-icon" />
+              <p class="upload-text">将 CSV/Excel 文件拖到此处，或<span class="upload-link">点击上传</span></p>
+              <p class="upload-hint">
+                {{ selectedMode === 'ths' ? '同花顺历史交割单导出文件' : '使用标准模板格式的文件' }}
+              </p>
+            </el-upload>
+          </div>
+        </div>
+
+        <!-- 新建账户弹窗 -->
+        <el-dialog v-model="showCreateLedgerDialog" title="添加新账户" width="360px" :close-on-click-modal="false">
+          <el-form label-position="top">
+            <el-form-item label="账户名称" required>
+              <el-input
+                v-model="newLedgerName"
+                placeholder="例如：华泰证券、招商银行储蓄卡"
+                size="large"
+                @keyup.enter="createLedger"
+              />
+            </el-form-item>
+            <!-- 默认配置目标 -->
+            <el-form-item label="默认配置目标">
+              <el-select v-model="newLedgerAllocation" size="large">
+                <el-option label="活钱" value="liquid" />
+                <el-option label="稳健底仓" value="stable" />
+                <el-option label="长期增值" value="longterm" />
+                <el-option label="高风险博弈" value="speculative" />
+                <el-option label="保险保障" value="security" />
+              </el-select>
+            </el-form-item>
+          </el-form>
+          <template #footer>
+            <div class="flex justify-end gap-3">
+              <el-button @click="showCreateLedgerDialog = false">取消</el-button>
+              <el-button type="primary" @click="createLedger">确认添加</el-button>
+            </div>
+          </template>
+        </el-dialog>
       </div>
-    </template>
-  </el-dialog>
-</div>
+
       <!-- 步骤3：预览与修正 -->
       <div v-else-if="currentStep === 2" class="preview-table">
         <el-alert
@@ -190,17 +191,17 @@
             </el-button>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item @click="batchSetAllocation('liquid')">💧 活钱</el-dropdown-item>
-                <el-dropdown-item @click="batchSetAllocation('stable')">🛡️ 稳健底仓</el-dropdown-item>
-                <el-dropdown-item @click="batchSetAllocation('longterm')">📈 长期增值</el-dropdown-item>
-                <el-dropdown-item @click="batchSetAllocation('speculative')">⚡ 高风险博弈</el-dropdown-item>
-                <el-dropdown-item @click="batchSetAllocation('security')">🛟 保险保障</el-dropdown-item>
+                <el-dropdown-item @click="batchSetAllocation('liquid')">活钱</el-dropdown-item>
+                <el-dropdown-item @click="batchSetAllocation('stable')">稳健底仓</el-dropdown-item>
+                <el-dropdown-item @click="batchSetAllocation('longterm')">长期增值</el-dropdown-item>
+                <el-dropdown-item @click="batchSetAllocation('speculative')">高风险博弈</el-dropdown-item>
+                <el-dropdown-item @click="batchSetAllocation('security')">保险保障</el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
         </div>
 
-        <!-- 表格：去掉固定高度，使用前端分页保证性能 -->
+        <!-- 表格 -->
         <el-table
           :data="filteredPagedData"
           row-key="_rowKey"
@@ -284,8 +285,7 @@
                     @vue:mounted="(el) => el?.input?.focus()"
                   />
                   <div class="flex justify-end gap-2">
-                    <el-button type="primary" size="small" @click.stop="finishEdit(row, 'quantity', true)">确认
-                    </el-button>
+                    <el-button type="primary" size="small" @click.stop="finishEdit(row, 'quantity', true)">确认</el-button>
                     <el-button size="small" @click.stop="cancelEdit(row, 'quantity')">取消</el-button>
                   </div>
                 </div>
@@ -420,16 +420,16 @@
 </template>
 
 <script setup lang="ts">
-import {parseFile, confirmImport as confirmImportApi} from '@/api/importer';
-import type {UploadRequestOptions} from 'element-plus';
-import {ArrowDown, Warning} from '@element-plus/icons-vue'
-import {ref, onUnmounted, onMounted, computed} from 'vue';
-import {useRouter} from 'vue-router';
-import {ElMessage} from 'element-plus';
-import {getLedgers, createLedger as createLedgerApi} from '@/api/ledger';
-import type {LedgerItem} from '@/api/ledger';
+import { parseFile, confirmImport as confirmImportApi } from '@/api/importer';
+import type { UploadRequestOptions } from 'element-plus';
+import { ArrowDown, Warning } from '@element-plus/icons-vue'
+import { ref, onUnmounted, onMounted, computed } from 'vue';
+import { useRouter } from 'vue-router';
+import { ElMessage } from 'element-plus';
+import { getLedgers, createLedger as createLedgerApi } from '@/api/ledger';
+import type { LedgerItem } from '@/api/ledger';
 
-defineOptions({name: 'Inventory'});
+defineOptions({ name: 'Inventory' });
 
 const router = useRouter();
 
@@ -453,11 +453,7 @@ const ledgers = ref<LedgerItem[]>([]);
 const selectedLedgerId = ref<number | null>(null);
 const showCreateLedgerDialog = ref(false);
 const newLedgerName = ref('');
-const ledgerTouched = ref(false)
-
-const validateLedger = () => {
-  ledgerTouched.value = true
-}
+const ledgerTouched = ref(false);
 
 // ---------- 分页 ----------
 const currentPage = ref(1);
@@ -474,15 +470,14 @@ const showProblemOnly = ref(false);
 // ---------- 导入错误反馈 ----------
 const importErrors = ref<any[]>([]);
 
-// ---------- 骨架屏（现在只用 CSS 动画，无需 JS 定时器） ----------
 const importModes = [
-  {key: 'standard', icon: 'ep:document', title: '标准模板', description: '使用 ShowBuy 通用模板导入交易记录'},
-  {key: 'ths', icon: 'ep:bank-card', title: '同花顺交割单', description: '直接上传同花顺导出的历史交割单'},
+  { key: 'standard', icon: 'ep:document', title: '标准模板', description: '使用 ShowBuy 通用模板导入交易记录' },
+  { key: 'ths', icon: 'ep:bank-card', title: '同花顺交割单', description: '直接上传同花顺导出的历史交割单' },
 ];
 
 // ---------- 工具函数 ----------
 function addRowKeys(data: any[]) {
-  return data.map((item, idx) => ({...item, _rowKey: `row_${idx}`}));
+  return data.map((item, idx) => ({ ...item, _rowKey: `row_${idx}` }));
 }
 
 // 判断行是否因数量/价格为0且非资金划转而不能导入
@@ -665,16 +660,24 @@ function cancelEdit(row: any, field: string) {
   finishEdit(row, field, false);
 }
 
-function syncRowState(row: any) {
-  if (!isRowBlocked(row)) {
-    if (isAllSelected.value) {
-      selectedKeys.value.add(row._rowKey);
-      selectedKeys.value = new Set(selectedKeys.value);
-    }
-  } else {
-    selectedKeys.value.delete(row._rowKey);
-    selectedKeys.value = new Set(selectedKeys.value);
+function smartFill(row: any, field: string) {
+  const qty = parseFloat(row.quantity);
+  const prc = parseFloat(row.price);
+  const amt = parseFloat(row.amount);
+  if (field === 'quantity' && isNaN(qty) && !isNaN(prc) && !isNaN(amt)) {
+    row.quantity = parseFloat((amt / prc).toFixed(4));
+    row.smartFilled = true;
+  } else if (field === 'price' && isNaN(prc) && !isNaN(qty) && !isNaN(amt)) {
+    row.price = parseFloat((amt / qty).toFixed(4));
+    row.smartFilled = true;
   }
+}
+
+function saveAllEditingRows() {
+  previewData.value.forEach(row => {
+    if (row.isEditingQty) finishEdit(row, 'quantity', true);
+    if (row.isEditingPrice) finishEdit(row, 'price', true);
+  });
 }
 
 // ---------- 步骤控制 ----------
@@ -737,6 +740,13 @@ function beforeUpload(file: File) {
 // ---------- 上传解析 ----------
 async function handleUpload(options: UploadRequestOptions) {
   const file = options.file as File;
+
+  // 防御性校验：再次确认账户已选
+  if (!selectedLedgerId.value) {
+    ElMessage.warning('请先选择一个账户');
+    return;
+  }
+
   parsing.value = true;
   await new Promise(resolve => setTimeout(resolve, 50));
 
@@ -788,36 +798,27 @@ async function handleUpload(options: UploadRequestOptions) {
   }
 }
 
-function smartFill(row: any, field: string) {
-  const qty = parseFloat(row.quantity);
-  const prc = parseFloat(row.price);
-  const amt = parseFloat(row.amount);
-  if (field === 'quantity' && isNaN(qty) && !isNaN(prc) && !isNaN(amt)) {
-    row.quantity = parseFloat((amt / prc).toFixed(4));
-    row.smartFilled = true;
-  } else if (field === 'price' && isNaN(prc) && !isNaN(qty) && !isNaN(amt)) {
-    row.price = parseFloat((amt / qty).toFixed(4));
-    row.smartFilled = true;
-  }
-}
-
-function saveAllEditingRows() {
-  previewData.value.forEach(row => {
-    if (row.isEditingQty) finishEdit(row, 'quantity', true);
-    if (row.isEditingPrice) finishEdit(row, 'price', true);
-  });
-}
-
 // ---------- 确认导入 ----------
 async function confirmImport() {
+  // 1. 校验账户
+  if (!selectedLedgerId.value) {
+    ElMessage.warning('请先在第二步选择导入账户');
+    return;
+  }
+
+  const ledger = ledgers.value.find(l => l.id === selectedLedgerId.value);
+  if (!ledger) {
+    ElMessage.error('所选账户无效，请重新选择');
+    return;
+  }
+
   saveAllEditingRows();
-  const ledgerName = ledgers.value.find(l => l.id === selectedLedgerId.value)?.name || '默认账户';
   const rowsToImport = previewData.value.filter(row => {
     if (!selectedKeys.value.has(row._rowKey)) return false;
     if (row.is_duplicate || row.error) return false;
     if (row.is_cash_transfer) return false;
     if (isRowBlocked(row)) return false;
-    row.account_name = ledgerName;
+    row.account_name = ledger.name;
     return true;
   });
 
@@ -856,7 +857,7 @@ function batchSetAllocation(target: string) {
 
 // ---------- 其他操作 ----------
 function goToTransactions() {
-  router.push('/account/transactions');
+  router.push('/transactions');
 }
 
 function goToLiabilityForm() {
@@ -943,7 +944,7 @@ onUnmounted(() => {
   line-height: 1.5;
 }
 
-/* 黄金比例上传区域（宽屏版） */
+/* 上传区域 */
 .upload-step {
   display: flex;
   justify-content: center;
@@ -1026,43 +1027,16 @@ onUnmounted(() => {
   to { transform: rotate(360deg); }
 }
 
-/* ---------- 骨架屏呼吸动画 ---------- */
-.skeleton-animate {
-  background: linear-gradient(90deg, #f0f2f5 25%, #f5f7fa 50%, #f0f2f5 75%);
-  background-size: 200% 100%;
-  animation: skeleton-loading 2.8s linear infinite forwards;
-  border-radius: 4px;
-}
-
-@keyframes skeleton-loading {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
-  }
-}
-
-/* 🔹 卡片整体样式：和Element Plus风格统一，柔和阴影 */
-.upload-step-card {
-  border-radius: 12px;
-  background: #fff;
-}
-
-/* 🔹 输入框和按钮尺寸统一，更协调 */
-:deep(.el-select--large) {
-  --el-input-height: 44px;
+/* 账户选择区域 */
+.ledger-select-area {
+  width: 680px;
+  margin-bottom: 24px;
 }
 
 .ledger-select-area :deep(.el-form-item__content) {
   display: block !important;
 }
 
-:deep(.el-button--large) {
-  height: 44px;
-}
-
-/* 错误提示 */
 .ledger-error {
   display: flex;
   align-items: center;
@@ -1084,64 +1058,7 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
-/* 上传区域（黄金比例） */
-.upload-area {
-  width: 100%;
-  display: flex;
-  justify-content: center;
-}
-
-.golden-upload {
-  width: 680px;
-  height: 420px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  border: 2px dashed #d9d9d9;
-  border-radius: 16px;
-  background: #fafafa;
-  transition: all 0.3s;
-}
-
-.golden-upload:hover {
-  border-color: var(--color-primary);
-  background: #f8f8ff;
-}
-
-.golden-upload :deep(.el-upload-dragger) {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-}
-
-.upload-icon {
-  font-size: 56px;
-  color: var(--color-primary);
-  margin-bottom: 16px;
-}
-
-.upload-text {
-  font-size: 16px;
-  color: #333;
-  margin: 0 0 12px;
-}
-
-.upload-link {
-  color: var(--color-primary);
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.upload-hint {
-  font-size: 12px;
-  color: #999;
-  margin: 0;
-}
-
+/* 预览表格 */
 .preview-table {
   padding-bottom: 80px;
 }
@@ -1210,116 +1127,10 @@ onUnmounted(() => {
   text-align: center;
 }
 
-/* 步骤2 整合卡片 */
-.step2-card {
-  border-radius: 16px;
-  max-width: 780px;
-  margin: 0 auto;
-  background: #fff;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
-}
-
-/* 账户选择区域 */
-.ledger-select-area {
-  width: 680px;
-  margin-bottom: 24px;
-}
-
-/* 分割线 */
-.section-divider {
-  height: 1px;
-  background: #f0f0f0;
-  margin: 8px 0 20px;
-}
-
-/* 柔和的错误提示 */
-.hint-text {
+/* 分页 */
+.pagination-bar {
+  margin-top: 16px;
   display: flex;
-  align-items: center;
-  font-size: 13px;
-  color: #f56c6c;
-  margin-top: 8px;
-  background: #fef0f0;
-  padding: 6px 12px;
-  border-radius: 6px;
+  justify-content: flex-end;
 }
-
-/* 辅助说明文字 */
-.help-text {
-  font-size: 12px;
-  color: #999;
-  margin-top: 12px;
-}
-
-/* 上传区域 */
-.upload-section {
-  padding: 0;
-}
-
-.upload-area {
-  width: 100%;
-  display: flex;
-  justify-content: center;
-}
-
-.golden-upload {
-  width: 100%;
-  height: 320px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  border: 2px dashed #d9d9d9;
-  border-radius: 16px;
-  background: #fafafa;
-  transition: all 0.3s;
-}
-
-.golden-upload:hover {
-  border-color: var(--color-primary);
-  background: #f8f8ff;
-}
-
-.golden-upload :deep(.el-upload-dragger) {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-}
-
-.upload-icon {
-  font-size: 48px;
-  color: var(--color-primary);
-  margin-bottom: 12px;
-}
-
-.upload-text {
-  font-size: 15px;
-  color: #333;
-  margin: 0 0 8px;
-}
-
-.upload-link {
-  color: var(--color-primary);
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.upload-hint {
-  font-size: 12px;
-  color: #999;
-  margin: 0;
-}
-
-.add-ledger-btn {
-  flex-shrink: 0;
-}
-
-/* 弹窗内表单 */
-:deep(.el-dialog__body) {
-  padding-top: 16px;
-}
-
 </style>

@@ -8,6 +8,7 @@ from apiflask import APIBlueprint
 from flask import abort, jsonify, request
 
 from app.core.database import get_db
+from app.core.enums import ALLOCATION_LABELS
 from app.domains.ledgers.models import Ledger
 
 ledgers_bp = APIBlueprint('ledgers', __name__, url_prefix='/api/ledgers')
@@ -26,6 +27,9 @@ def list_ledgers():
                 'currency': leg.currency,
                 'notes': leg.notes,
                 'default_allocation': leg.default_allocation,
+                'default_allocation_label': ALLOCATION_LABELS.get(
+                    leg.default_allocation, leg.default_allocation or '未配置'
+                ),
             }
             data.append(ledger)
 
@@ -55,6 +59,44 @@ def create_ledger():
                     'name': ledger.name,
                     'ledger_type': ledger.ledger_type,
                     'default_allocation': ledger.default_allocation,
+                    'default_allocation_label': ALLOCATION_LABELS.get(
+                        ledger.default_allocation, ledger.default_allocation or '未配置'
+                    ),
+                },
+                'message': 'ok',
+            }
+        )
+
+
+@ledgers_bp.patch('/<int:id>/')
+def update_ledger(id):
+    """更新账户信息"""
+    data = request.get_json()
+    if not data:
+        abort(400, '请求数据为空')
+    with get_db() as db:
+        ledger = db.query(Ledger).get(id)
+        if not ledger:
+            abort(404, '账户不存在')
+        if 'name' in data:
+            if not data['name'].strip():
+                abort(400, '名称不能为空')
+            ledger.name = data['name']
+        if 'ledger_type' in data:
+            ledger.ledger_type = data['ledger_type']
+        if 'notes' in data:
+            ledger.notes = data['notes']
+        if 'default_allocation' in data:
+            ledger.default_allocation = data['default_allocation']
+        db.commit()
+        return jsonify(
+            {
+                'data': {
+                    'id': ledger.id,
+                    'name': ledger.name,
+                    'ledger_type': ledger.ledger_type,
+                    'default_allocation': ledger.default_allocation,
+                    'notes': ledger.notes,
                 },
                 'message': 'ok',
             }

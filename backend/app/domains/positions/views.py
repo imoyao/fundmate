@@ -106,7 +106,7 @@ def create_position(json_data):
         return jsonify({'data': wrap_position, 'message': 'ok'})
 
 
-@bp.patch('/<int:id>')
+@bp.patch('/<int:id>/')
 @bp.input(PositionUpdate)
 def update_position(id, json_data):
     """使用 PATCH 语义仅更新修改过的字段 (例如 current_price)."""
@@ -126,7 +126,7 @@ def update_position(id, json_data):
         return jsonify({'data': _enrich_position_dict(position), 'message': 'ok'})
 
 
-@bp.delete('/<int:id>')
+@bp.delete('/<int:id>/')
 def delete_position(id):
     """删除某条持仓记录."""
     with get_db() as db:
