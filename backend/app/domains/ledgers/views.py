@@ -7,8 +7,8 @@
 from apiflask import APIBlueprint
 from flask import abort, jsonify, request
 
+from app.core.constants import ALLOCATION_LABELS
 from app.core.database import get_db
-from app.core.enums import ALLOCATION_LABELS
 from app.domains.ledgers.models import Ledger
 
 ledgers_bp = APIBlueprint('ledgers', __name__, url_prefix='/api/ledgers')

@@ -8,8 +8,8 @@
 from apiflask import APIBlueprint
 from flask import abort, jsonify, request
 
+from app.core.constants import ALLOCATION_LABELS, ASSET_CATEGORY_LABELS
 from app.core.database import get_db
-from app.core.enums import ALLOCATION_LABELS, ASSET_CATEGORY_LABELS
 from app.core.utils import paginate
 from app.domains.assets.models import Asset
 from app.domains.assets.schemas import AssetCreate, AssetOut, AssetUpdate

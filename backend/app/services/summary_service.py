@@ -7,9 +7,8 @@
 from collections import defaultdict
 from typing import Any
 
-from app.core.constants import CATEGORY_META, EXCHANGE_RATES
+from app.core.constants import ALLOCATION_LABELS, CATEGORY_META, EXCHANGE_RATES, TYPE_LABELS
 from app.core.database import Session
-from app.core.enums import ALLOCATION_LABELS, TYPE_LABELS
 from app.domains.assets.models import Asset
 from app.domains.positions.models import Position
 

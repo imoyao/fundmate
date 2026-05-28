@@ -7,6 +7,7 @@
 import hashlib
 import io
 import re
+import uuid
 from datetime import date, datetime
 from pathlib import PurePath
 from typing import Optional
@@ -15,26 +16,18 @@ import pandas as pd
 from loguru import logger
 from sqlalchemy.orm import Session
 
+from app.core.constants import (
+    CASH_SYMBOL,
+    DEFAULT_MARKET_CN,
+    DEFAULT_THS_ACCOUNT,
+    DEFAULT_TYPE_CASH,
+    DEFAULT_TYPE_STOCK,
+    OP_TYPE_LABEL,
+    THS_OP_TYPE_MAP,
+)
 from app.core.symbol_utils import get_normalizer
+from app.domains.importers.templates import STANDARD_TEMPLATE, ImportTemplate
 from app.domains.transactions.models import Transaction
-
-from .templates import STANDARD_TEMPLATE, THS_OP_TYPE_MAP, ImportTemplate
-
-# 常量
-CASH_SYMBOL = '__CASH__'
-DEFAULT_THS_ACCOUNT = '默认证券账户'
-DEFAULT_MARKET_CN = 'CN_A'
-DEFAULT_TYPE_CASH = 'cash'
-DEFAULT_TYPE_STOCK = 'stock'
-
-OP_TYPE_LABEL = {
-    'buy': '买入',
-    'sell': '卖出',
-    'dividend': '分红',
-    'deposit': '存入',
-    'withdraw': '取出',
-    'split': '拆分',
-}
 
 
 class TransactionParser:
@@ -49,6 +42,32 @@ class TransactionParser:
     def _contains_chinese(self, text: str) -> bool:
         """检测字符串是否包含中文字符"""
         return bool(re.search(r'[\u4e00-\u9fff]', text))
+
+    def _link_bond_interest_and_tax(self, rows: list[dict]) -> list[dict]:
+        """
+        识别同日期同代码的"债券兑息"和"债券兑息兑付"，
+        为它们生成相同的 link_group_id，不做数据合并。
+        """
+
+        # 收集所有配对候选项
+        interest_by_key: dict[tuple, dict] = {}
+        tax_by_key: dict[tuple, dict] = {}
+
+        for row in rows:
+            key = (row['symbol'], row['trade_date'])
+
+            if row.get('op_type') == 'dividend' and row.get('notes') == '债券兑息':
+                interest_by_key[key] = row
+            elif row.get('op_type') == 'tax' and row.get('notes') == '债券兑息兑付':
+                tax_by_key[key] = row
+
+        # 为配对的记录添加相同的 link_group_id
+        for key in set(interest_by_key.keys()) & set(tax_by_key.keys()):
+            group_id = str(uuid.uuid4())
+            interest_by_key[key]['link_group_id'] = group_id
+            tax_by_key[key]['link_group_id'] = group_id
+
+        return rows
 
     def parse(self, file_bytes: bytes, filename: str = '', encoding: str = 'utf-8') -> list[dict]:
         ext = PurePath(filename).suffix.lstrip('.').lower() if filename else 'csv'
@@ -171,7 +190,7 @@ class TransactionParser:
             if not symbol_raw:
                 return None
 
-            normalized, market = self.normalizer.normalize(symbol_raw)
+            normalized, market, suggested_type = self.normalizer.normalize(symbol_raw)
             symbol = normalized if normalized else symbol_raw
 
             # 重命名后的列名是 'purchase_date'
@@ -202,8 +221,6 @@ class TransactionParser:
             return {'symbol': str(raw.get('symbol', '')), 'error': f'解析失败: {str(e)}', 'is_cash_transfer': False}
 
     def _parse_ths_row(self, raw: pd.Series) -> Optional[dict]:
-        import re
-
         op_type_cn = str(raw.get('op_type', '')).strip()
 
         # 处理带问号的特殊格式（如 OTC现金宝交?0）
@@ -248,19 +265,35 @@ class TransactionParser:
             return None  # 明确需要过滤的记录（如指定交易）
 
         symbol_raw = str(raw.get('symbol', '')).strip()
+        normalized, market, suggested_type = self.normalizer.normalize(symbol_raw)
+        symbol = normalized if normalized else symbol_raw
+        market = market or DEFAULT_MARKET_CN
+
+        # 确定产品类型
+        if suggested_type:
+            row_type = suggested_type
+        elif mapped_op == 'dividend' and op_type_cn == '利息归本':
+            row_type = 'cash'  # 利息归本视为现金
+        else:
+            row_type = DEFAULT_TYPE_STOCK
+
+        # 对于现金管理类，自动设置配置目标为活钱
+        allocation = 'liquid' if row_type in ('money_fund', 'reverse_repo') else None
+
         if not symbol_raw:
             # 无代码但未过滤的记录，保留为“其他”
             return {
                 'symbol': 'UNKNOWN',
                 'name': op_type_cn,
+                'market': market,
+                'type': row_type,
+                'allocation': allocation,  # 如果为 None，前端会使用账户默认值
                 'op_type': 'other',
                 'op_type_label': '其他',
                 'amount': abs(float(raw.get('net_amount', 0) or 0)),
                 'trade_date': self._parse_ths_date(raw),
                 'account_name': DEFAULT_THS_ACCOUNT,
                 'is_cash_transfer': False,
-                'market': DEFAULT_MARKET_CN,
-                'type': 'other',
                 'quantity': 0,
                 'price': 0,
                 'fee': 0,
@@ -271,7 +304,6 @@ class TransactionParser:
                 'net_amount': abs(float(raw.get('net_amount', 0) or 0)),
             }
 
-        normalized, market = self.normalizer.normalize(symbol_raw)
         symbol = normalized if normalized else symbol_raw
 
         trade_date_str = self._parse_ths_date(raw)
@@ -281,14 +313,27 @@ class TransactionParser:
         contract_id = str(raw.get('contract_id', '')).strip()
 
         trade_amount = float(raw.get('amount', 0) or 0)
-        net_amount = abs(float(raw.get('net_amount', 0) or 0))
-        actual_amount = trade_amount if trade_amount > 0 else net_amount
+        net_amount_raw = float(raw.get('net_amount', 0) or 0)
+        net_amount_abs = abs(net_amount_raw)
+        actual_amount = trade_amount if trade_amount > 0 else net_amount_abs
+
+        # 如果是扣税，金额应为负（支出）
+        if mapped_op == 'tax':
+            actual_amount = -net_amount_abs if net_amount_raw < 0 else -abs(trade_amount)
+        if suggested_type:
+            row_type = suggested_type
+        else:
+            row_type = DEFAULT_TYPE_STOCK
+
+            # 现金管理类产品自动归入“活钱”
+        allocation = 'liquid' if row_type in ('money_fund', 'reverse_repo') else None
 
         return {
             'symbol': symbol,
             'name': str(raw.get('name', '')).strip() or symbol,
             'market': market or DEFAULT_MARKET_CN,
-            'type': DEFAULT_TYPE_STOCK,
+            'type': row_type,
+            'allocation': allocation,
             'account_name': DEFAULT_THS_ACCOUNT,
             'op_type': mapped_op,
             'op_type_label': OP_TYPE_LABEL.get(mapped_op, op_type_cn),
@@ -296,7 +341,7 @@ class TransactionParser:
             'price': price,
             'amount': actual_amount,
             'trade_amount': trade_amount,
-            'net_amount': net_amount,
+            'net_amount': net_amount_abs,
             'currency': str(raw.get('currency', 'CNY')).strip(),
             'trade_date': trade_date_str,
             'fee': fee,
@@ -324,6 +369,7 @@ class TransactionParser:
             else:
                 raw = f"{row['symbol']}|{row['trade_date']}|{row['op_type']}|{row['quantity']}|{row['price']}"
             row['import_hash'] = hashlib.md5(raw.encode()).hexdigest()
+        rows = self._link_bond_interest_and_tax(rows)
         return rows
 
     def check_duplicates(self, db: Session, rows: list[dict]) -> list[dict]:

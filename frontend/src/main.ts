@@ -23,6 +23,9 @@ import "element-plus/dist/index.css";
 // 导入字体图标
 import "./assets/iconfont/iconfont.js";
 import "./assets/iconfont/iconfont.css";
+import { addCollection } from '@iconify/vue';
+import { icons as epIcons } from '@iconify-json/ep';
+addCollection(epIcons);
 
 const app = createApp(App);
 

@@ -223,6 +223,8 @@ import { getAssets } from "@/api/assets";
 import { getLedgers } from "@/api/ledger";
 import { ElMessage } from "element-plus";
 import * as echarts from "echarts";
+import { useEnumOptions } from '@/composables/useEnumOptions'
+
 
 defineOptions({ name: "AssetPanorama" });
 
@@ -242,6 +244,11 @@ const balanceTab = ref<"assets" | "liabilities">("assets");
 const detailView = ref("category");
 const waterfallChartRef = ref<HTMLDivElement>();
 let waterfallChart: echarts.ECharts | null = null;
+// 从持仓数据中提取配置目标选项
+const allocationOptions = useEnumOptions(allPositions, 'allocation', 'allocation_label')
+// 从持仓数据中提取产品类型选项
+const typeOptions = useEnumOptions(allPositions, 'asset_type', 'type_label')
+
 
 const router = useRouter();
 

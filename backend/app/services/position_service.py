@@ -67,6 +67,32 @@ class PositionService:
         qty = data.get('quantity', 0)
         price = data.get('avg_price', 0)
         op_type = data.get('op_type', 'buy')
+        asset_type = data.get('type', 'stock')  # 获取类型字段
+
+        # 现金管理类产品：只记录流水，不创建持仓，跳过数量/价格校验
+        if asset_type in ('money_fund', 'reverse_repo'):
+            try:
+                TransactionService.create(
+                    db=db,
+                    position_id=None,  # 不关联持仓
+                    txn_type='buy',  # 保持交易类型为买入
+                    trade_date=data['purchase_date'],
+                    quantity=0,
+                    price=0,
+                    fee=0,
+                    amount=abs(float(data.get('net_amount', 0) or 0)),  # 金额取发生额的绝对值
+                    status='success',
+                    position_name=data.get('name', symbol),
+                    account_name=account,
+                    notes=data.get('notes') or '现金管理产品申赎',
+                    import_hash=data.get('import_hash'),
+                    entry_status='orphan',  # 标记为孤立交易，不影响持仓
+                )
+                db.flush()  # 注意：只 flush 不 commit，事务控制权在调用方
+                return None  # 无持仓返回
+            except Exception:
+                db.rollback()
+                raise
 
         # 输入校验
         if qty <= 0:
@@ -115,6 +141,7 @@ class PositionService:
                 position_id=position.id,
                 txn_type=txn_type,
                 trade_date=data['purchase_date'],
+                link_group_id=data.get('link_group_id'),
                 quantity=qty,
                 price=price,
                 fee=data.get('fee', 0.0),
@@ -128,7 +155,7 @@ class PositionService:
             )
 
             # 3. 提交并刷新
-            db.commit()
+            db.flush()
             db.refresh(position)
             return position
 
@@ -182,6 +209,7 @@ class PositionService:
                 position_id=position_id,
                 txn_type=op_type,
                 trade_date=data['purchase_date'],
+                link_group_id=data.get('link_group_id'),
                 quantity=qty,
                 price=price,
                 fee=data.get('fee', 0.0),
@@ -194,7 +222,7 @@ class PositionService:
             )
 
             # 4. 提交
-            db.commit()
+            db.flush()
             if is_cleared:
                 return None
             db.refresh(existing)
@@ -226,6 +254,7 @@ class PositionService:
                 position_id=position_id,
                 txn_type='dividend',
                 trade_date=data['purchase_date'],
+                link_group_id=data.get('link_group_id'),
                 quantity=0,
                 price=0,
                 fee=0,
@@ -237,10 +266,135 @@ class PositionService:
                 import_hash=data.get('import_hash'),
             )
 
-            db.commit()
+            db.flush()
             return existing
 
         except Exception:
             db.rollback()
             logger.exception('分红操作失败')
             raise
+
+    @staticmethod
+    def process_orphan_sell_or_withdraw(db: Session, data: dict) -> Optional[Position]:
+        """
+        处理卖出/取出记录，优先尝试关联持仓；找不到持仓则创建孤立流水。
+
+        data 必须包含：symbol, account_name, quantity, avg_price(卖出单价),
+                       purchase_date, op_type (sell/withdraw)
+        """
+        asset_type = data.get('type', 'stock')
+        if asset_type in ('money_fund', 'reverse_repo'):
+            try:
+                TransactionService.create(
+                    db=db,
+                    position_id=None,
+                    txn_type='sell',
+                    trade_date=data['purchase_date'],
+                    quantity=0,
+                    price=0,
+                    fee=0,
+                    amount=abs(float(data.get('net_amount', 0) or 0)),
+                    status='success',
+                    position_name=data.get('name', ''),
+                    account_name=data.get('account_name', ''),
+                    notes=data.get('notes') or '现金管理产品赎回',
+                    import_hash=data.get('import_hash'),
+                    entry_status='orphan',
+                )
+                db.flush()
+                return None
+            except Exception:
+                db.rollback()
+                raise
+
+        symbol = data.get('symbol', '')
+        account = data.get('account_name', '')
+        op_type = data.get('op_type', 'sell')
+        qty = data.get('quantity', 0)
+        price = data.get('avg_price', 0)
+        trade_date = data.get('purchase_date')
+
+        # 尝试查找现有持仓
+        existing = db.query(Position).filter_by(symbol=symbol, account_name=account).first()
+
+        if existing:
+            # 有持仓，走正常卖出流程
+            return PositionService.process_sell_or_withdraw(
+                db,
+                {
+                    'position_id': existing.id,
+                    'quantity': qty,
+                    'avg_price': price,
+                    'purchase_date': trade_date,
+                    'op_type': op_type,
+                    'fee': data.get('fee', 0.0),
+                    'notes': data.get('notes', ''),
+                    'import_hash': data.get('import_hash'),
+                },
+            )
+        else:
+            # 无持仓，创建孤立流水
+            amount = qty * price
+            TransactionService.create(
+                db=db,
+                position_id=None,
+                txn_type=op_type,
+                trade_date=trade_date,
+                quantity=qty,
+                price=price,
+                fee=data.get('fee', 0.0),
+                amount=amount,
+                status='success',
+                position_name=data.get('name', symbol),
+                account_name=account,
+                notes=data.get('notes') or ('卖出' if op_type == 'sell' else '取出'),
+                import_hash=data.get('import_hash'),
+                entry_status='orphan',
+            )
+            db.flush()
+            return None
+
+    @staticmethod
+    def process_orphan_dividend(db: Session, data: dict) -> Optional[Position]:
+        """
+        处理分红记录，优先尝试关联持仓；找不到持仓则创建孤立流水。
+
+        data 必须包含：symbol, account_name, dividend_amount, purchase_date
+        """
+        symbol = data.get('symbol', '')
+        account = data.get('account_name', '')
+        dividend_amount = data.get('dividend_amount', data.get('avg_price', 0))
+
+        existing = db.query(Position).filter_by(symbol=symbol, account_name=account).first()
+
+        if existing:
+            return PositionService.process_dividend(
+                db,
+                {
+                    'position_id': existing.id,
+                    'dividend_amount': dividend_amount,
+                    'purchase_date': data.get('purchase_date'),
+                    'notes': data.get('notes', ''),
+                    'import_hash': data.get('import_hash'),
+                },
+            )
+        else:
+            TransactionService.create(
+                db=db,
+                position_id=None,
+                txn_type='dividend',
+                trade_date=data.get('purchase_date'),
+                link_group_id=data.get('link_group_id'),
+                quantity=0,
+                price=0,
+                fee=0,
+                amount=dividend_amount,
+                status='success',
+                position_name=data.get('name', symbol),
+                account_name=account,
+                notes=data.get('notes') or '现金分红',
+                import_hash=data.get('import_hash'),
+                entry_status='orphan',
+            )
+            db.flush()
+            return None

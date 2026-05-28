@@ -7,14 +7,14 @@
 from apiflask import APIBlueprint
 from flask import abort, jsonify, request
 
+from app.core.constants import ALLOCATION_LABELS, MARKET_LABELS, TYPE_LABELS
 from app.core.database import get_db
-from app.core.enums import ALLOCATION_LABELS, MARKET_LABELS, TYPE_LABELS
 from app.core.utils import paginate
 from app.domains.positions.models import Position
 from app.domains.positions.schemas import PositionCreate, PositionOut, PositionUpdate
 from app.services.position_service import PositionService
 
-bp = APIBlueprint('positions', __name__, url_prefix='/api/positions')
+bp = APIBlueprint('positions', __name__, url_prefix='/api/positions/')
 
 
 def _enrich_position_dict(p: Position) -> dict:

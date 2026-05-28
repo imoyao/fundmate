@@ -14,7 +14,7 @@ def test_transaction_types_coverage(client):
     # 1. 买入创建持仓
     _post(
         client,
-        '/api/positions',
+        '/api/positions/',
         {
             'symbol': '00700.HK',
             'name': '腾讯',
@@ -27,13 +27,13 @@ def test_transaction_types_coverage(client):
             'purchase_date': '2026-05-01',
         },
     )
-    list_resp = _get(client, '/api/positions')
+    list_resp = _get(client, '/api/positions/')
     pos_id = list_resp.get_json()['data'][0]['id']
 
     # 2. 卖出部分
     _post(
         client,
-        '/api/positions',
+        '/api/positions/',
         {
             'op_type': 'sell',
             'position_id': pos_id,
@@ -46,7 +46,7 @@ def test_transaction_types_coverage(client):
     # 3. 分红
     _post(
         client,
-        '/api/positions',
+        '/api/positions/',
         {
             'op_type': 'dividend',
             'position_id': pos_id,
@@ -58,7 +58,7 @@ def test_transaction_types_coverage(client):
     # 4. 存入
     _post(
         client,
-        '/api/positions',
+        '/api/positions/',
         {
             'op_type': 'deposit',
             'symbol': '00700.HK',
@@ -75,7 +75,7 @@ def test_transaction_types_coverage(client):
     # 5. 取出（先取出部分，避免清空）
     _post(
         client,
-        '/api/positions',
+        '/api/positions/',
         {
             'op_type': 'withdraw',
             'position_id': pos_id,
@@ -98,7 +98,7 @@ def test_transactions_filter_by_type(client):
     """按操作类型筛选"""
     _post(
         client,
-        '/api/positions',
+        '/api/positions/',
         {
             'symbol': 'AAPL',
             'name': '苹果',
@@ -111,11 +111,11 @@ def test_transactions_filter_by_type(client):
             'purchase_date': '2026-05-01',
         },
     )
-    list_resp = _get(client, '/api/positions')
+    list_resp = _get(client, '/api/positions/')
     pos_id = list_resp.get_json()['data'][0]['id']
     _post(
         client,
-        '/api/positions',
+        '/api/positions/',
         {
             'op_type': 'sell',
             'position_id': pos_id,
@@ -141,7 +141,7 @@ def test_transactions_time_range(client):
 
     _post(
         client,
-        '/api/positions',
+        '/api/positions/',
         {
             'symbol': '00700.HK',
             'name': '腾讯',
@@ -156,7 +156,7 @@ def test_transactions_time_range(client):
     )
     _post(
         client,
-        '/api/positions',
+        '/api/positions/',
         {
             'symbol': '00700.HK',
             'name': '腾讯',
@@ -181,7 +181,7 @@ def test_transactions_pagination(client):
     for i in range(5):
         _post(
             client,
-            '/api/positions',
+            '/api/positions/',
             {
                 'symbol': f'00{i}00.HK',
                 'name': f'股票{i}',
@@ -206,7 +206,7 @@ def test_transactions_asset_type_filter(client):
     """按资产类型筛选（stock / fund）"""
     _post(
         client,
-        '/api/positions',
+        '/api/positions/',
         {
             'symbol': '00700.HK',
             'name': '腾讯',
@@ -221,7 +221,7 @@ def test_transactions_asset_type_filter(client):
     )
     _post(
         client,
-        '/api/positions',
+        '/api/positions/',
         {
             'symbol': '000001',
             'name': '华夏成长',
@@ -249,7 +249,7 @@ def test_transactions_status_filter(client, db):
     # 先创建一个普通 success 记录
     _post(
         client,
-        '/api/positions',
+        '/api/positions/',
         {
             'symbol': '00700.HK',
             'name': '腾讯',
@@ -288,7 +288,7 @@ def test_transaction_type_field(client):
     """交易流水返回的 type 字段正确映射"""
     _post(
         client,
-        '/api/positions',
+        '/api/positions/',
         {
             'symbol': '00700.HK',
             'name': '腾讯',
