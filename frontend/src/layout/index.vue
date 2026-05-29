@@ -31,11 +31,19 @@ import NavVertical from "./components/lay-sidebar/NavVertical.vue";
 import NavHorizontal from "./components/lay-sidebar/NavHorizontal.vue";
 import BackTopIcon from "@/assets/svg/back_top.svg?component";
 
+import { QuickFab, TransactionDrawer  } from "@/components/QuickEntry";
+
 const appWrapperRef = ref();
 const { isDark } = useDark();
 const { layout } = useLayout();
 const isMobile = deviceDetection();
 const pureSetting = useSettingStoreHook();
+// 全局记账抽屉
+const showTransactionDrawer = ref(false);
+const onTransactionSubmitted = () => {
+  // 记账成功后，可以在这里触发全局的资产刷新
+  // 例如调用 store 中的 action 来更新仪表盘数据
+};
 const { $storage } = useGlobal<GlobalPropertiesApi>();
 
 const set: setType = reactive({
@@ -198,6 +206,9 @@ const LayHeader = defineComponent({
     </div>
     <!-- 系统设置 -->
     <LaySetting />
+     <!-- 全局快速记账入口 -->
+    <QuickFab @open="showTransactionDrawer = true" />
+    <TransactionDrawer v-model="showTransactionDrawer" @submitted="onTransactionSubmitted" />
   </div>
 </template>
 

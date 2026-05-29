@@ -5,7 +5,7 @@ export default {
   path: "/asset",
   name: "Asset",
   component: Layout,
-  redirect: "/asset/panorama",
+  redirect: "/panorama",
   meta: {
     icon: "ep:coin",
     title: "资产管理",

@@ -23,7 +23,15 @@ def search_funds():
             .limit(20)
             .all()
         )
-        result = [{'code': f.fund_code, 'name': f.name, 'type': 'fund'} for f in funds]
+        result = [
+            {
+                'code': f.fund_code,
+                'name': f.name,
+                'type': 'fund',
+                'subscription_rate': 0.015,
+            }
+            for f in funds
+        ]
         return jsonify({'data': result, 'message': 'ok'})
 
 

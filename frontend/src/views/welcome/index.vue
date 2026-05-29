@@ -303,10 +303,7 @@
         </div>
       </div>
     </div>
-    <!-- 快速记账 -->
-    <QuickFab @open="showModal = true" />
-    <TransactionModal v-model="showModal" @submitted="onTransactionSubmitted" />
-    <!-- 添加自选弹窗（独立于记账弹窗） -->
+   <!-- 添加自选弹窗（独立于记账弹窗） -->
     <AddToWatchlistModal v-model="showAddWatchlistModal" @submitted="onWatchlistChanged" />
   </div>
 </template>
@@ -317,17 +314,9 @@ import * as echarts from "echarts";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import { getSummary } from "@/api/summary";
 import type { SummaryData } from "@/api/types";
-import { QuickFab } from "@/components/QuickEntry";
-import { TransactionModal } from "@/components/QuickEntry";
 import WatchlistWidget from "@/components/WatchlistWidget.vue";
 import AddToWatchlistModal from "@/components/QuickEntry/AddToWatchlistModal.vue";
 
-const showModal = ref(false);
-
-const onTransactionSubmitted = () => {
-  // 重新拉取汇总数据，刷新仪表盘
-  fetchSummary();
-};
 
 defineOptions({
   name: "Welcome"
@@ -364,7 +353,6 @@ const onWatchlistSelect = (item: any) => {
   // 或者我们增加一个 props 传递预填代码。简单处理：打开弹窗并自动聚焦搜索框，需要扩展 TransactionModal。
   // 但轻量级方案：唤起弹窗，用户手动记账，因为弹窗支持搜索，用户可快速找到该资产。
   // 为了体验，后续可以优化 TransactionModal 接受 initialSymbol prop。
-  showModal.value = true;
   // 如果需要自动填充，可以 emit 一个事件携带 symbol，由父组件传递给弹窗。
   // 暂时不做，后续优化。
 };

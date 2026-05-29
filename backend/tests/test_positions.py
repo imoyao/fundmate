@@ -6,7 +6,14 @@ from datetime import date, timedelta
 
 # 辅助函数
 def _post(client, url, data):
-    return client.post(url if url.endswith('/') else url + '/', json=data)
+    resp = client.post(url if url.endswith('/') else url + '/', json=data)
+    # 打印后端返回的完整 JSON，便于调试
+    print(f'POST {url} -> {resp.status_code}')
+    try:
+        print(resp.get_json())
+    except Exception:
+        print('响应无法解析为 JSON')
+    return resp
 
 
 def _get(client, url, params=None):
@@ -116,7 +123,7 @@ class TestPositionSell:
                 'type': 'stock',
                 'market': 'CN_HK',
                 'account_name': '富途',
-                'quantity': 100,
+                'quantity': 200,  # 改为两手
                 'avg_price': 350,
                 'currency': 'HKD',
                 'purchase_date': '2026-05-01',
@@ -128,11 +135,17 @@ class TestPositionSell:
         resp = _post(
             client,
             '/api/positions/',
-            {'op_type': 'sell', 'position_id': pos_id, 'quantity': 30, 'avg_price': 400, 'purchase_date': '2026-05-03'},
+            {
+                'op_type': 'sell',
+                'position_id': pos_id,
+                'quantity': 100,
+                'avg_price': 400,
+                'purchase_date': '2026-05-03',
+            },  # 卖出一手
         )
         assert resp.status_code == 200
         data = resp.get_json()['data']
-        assert data['quantity'] == 70
+        assert data['quantity'] == 100  # 剩余100股
         assert data['avg_price'] == 350
 
     def test_sell_all_clears_position(self, client):
@@ -392,3 +405,40 @@ class TestPositionLabels:
         for pos in data:
             assert 'type_label' in pos
             assert 'allocation_label' in pos
+
+    def test_sell_below_lot_size(self, client):
+        """卖出不足一手时，应只能全部卖出"""
+        # 先买入 50 股（不足一手）
+        _post(
+            client,
+            '/api/positions/',
+            {
+                'symbol': '00700.HK',
+                'name': '腾讯',
+                'type': 'stock',
+                'market': 'CN_HK',
+                'account_name': '富途',
+                'quantity': 50,
+                'avg_price': 350,
+                'currency': 'HKD',
+                'purchase_date': '2026-05-01',
+            },
+        )
+        list_resp = _get(client, '/api/positions/')
+        pos_id = list_resp.get_json()['data'][0]['id']
+
+        # 尝试卖出 30 股（应被拒绝，因为不足一手且未全卖）
+        resp = _post(
+            client,
+            '/api/positions/',
+            {'op_type': 'sell', 'position_id': pos_id, 'quantity': 30, 'avg_price': 400, 'purchase_date': '2026-05-03'},
+        )
+        assert resp.status_code == 400  # 或前端限制无法触发
+
+        # 全部卖出 50 股（应成功）
+        resp = _post(
+            client,
+            '/api/positions/',
+            {'op_type': 'sell', 'position_id': pos_id, 'quantity': 50, 'avg_price': 400, 'purchase_date': '2026-05-03'},
+        )
+        assert resp.status_code == 200

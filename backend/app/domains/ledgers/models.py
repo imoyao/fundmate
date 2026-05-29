@@ -4,16 +4,62 @@
 # File : models.py
 """资金容器/账户模型"""
 
-from sqlalchemy import Column, String
+# -*- coding: utf-8 -*-
+from sqlalchemy import Column, String, Text
 
 from app.core.database import Base, PrimaryKeyMixin, TimestampMixin
 
 
 class Ledger(Base, PrimaryKeyMixin, TimestampMixin):
+    """
+    fee_config JSON 结构示例
+    股票账户 (ledger_type='stock')
+    {
+      "commission": {
+        "rate": 0.00025,
+        "min": null,
+        "comment": "佣金费率万2.5，min为null表示免5"
+      },
+      "stamp_duty": {
+        "rate": 0.005,
+        "scope": "sell_only",
+        "comment": "印花税，仅卖出收取"
+      },
+      "transfer_fee": {
+        "rate": 0.0001,
+        "scope": "both",
+        "comment": "过户费，双边收取"
+      },
+      "bond_commission": {
+        "rate": 0.0001,
+        "min": null,
+        "comment": "可转债专用佣金"
+      }
+    }
+
+    基金账户 (ledger_type='fund')
+    {
+      "subscription_discount": 0.1,
+      "comment": "申购费打1折。0.1=1折，0.01=0.1折，0=免申购费"
+    }
+    """
+
     __tablename__ = 'ledgers'
 
-    name = Column(String(50), nullable=False, comment='账户名称，如"华泰证券"、"支付宝基金"')
-    ledger_type = Column(String(20), default='general', comment='类型: general/cash/family')
-    currency = Column(String(3), default='CNY')
-    notes = Column(String(200))
-    default_allocation = Column(String(20), nullable=True, comment='默认配置目标（五笔钱）')
+    name = Column(String(100), nullable=False, comment='账户名称，如"华泰证券"')
+    ledger_type = Column(
+        String(20),
+        default='general',
+        comment='类型: stock(股票账户) / fund(基金账户) / general(综合账户) / cash(现金账户) / family(家庭账户)',
+    )
+    default_allocation = Column(
+        String(20),
+        default='longterm',
+        comment='默认五笔钱配置目标: liquid / stable / longterm / speculative / security',
+    )
+    fee_config = Column(
+        Text,
+        nullable=True,
+        comment='费率配置，JSON格式。stock账户记录佣金/印花税等；fund账户记录subscription_discount（申购费折扣）',
+    )
+    notes = Column(Text, comment='备注')

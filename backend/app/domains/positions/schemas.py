@@ -22,6 +22,8 @@ class PositionCreate(BaseModel):
     position_id: Optional[int] = Field(None, description='关联持仓ID')
     isAfter15: Optional[bool] = Field(False, description='基金申购是否在15:00之后')
     interestRate: Optional[float] = Field(None, description='年化利率')
+    model_config = ConfigDict(extra='allow')  # 允许前端传未知字段，避免 400
+    amount: Optional[float] = Field(None, description='交易金额')  # ⭐ 新增
 
 
 class PositionUpdate(BaseModel):

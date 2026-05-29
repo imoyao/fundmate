@@ -348,3 +348,70 @@ class TestAssignAssetToLedger:
         assert resp.status_code == 200
         db.refresh(asset)
         assert asset.account_name == '招商银行'
+
+
+class TestLedgerFeeConfig:
+    """测试 fee_config JSON 字段"""
+
+    def test_create_ledger_with_fee_config_stock(self, client, db):
+        """创建股票账户并设置 fee_config"""
+        fee_config = {
+            'commission': {'rate': 0.00025, 'min': None},
+            'stamp_duty': {'rate': 0.005, 'scope': 'sell_only'},
+            'transfer_fee': {'rate': 0.0001, 'scope': 'both'},
+        }
+        resp = client.post('/api/ledgers/', json={'name': '华泰证券', 'ledger_type': 'stock', 'fee_config': fee_config})
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['name'] == '华泰证券'
+        assert data['ledger_type'] == 'stock'
+        assert data['fee_config'] == fee_config
+
+    def test_create_ledger_with_fee_config_fund(self, client, db):
+        """创建基金账户并设置折扣"""
+        fee_config = {'subscription_discount': 0.1}
+        resp = client.post(
+            '/api/ledgers/', json={'name': '支付宝基金', 'ledger_type': 'fund', 'fee_config': fee_config}
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['fee_config'] == fee_config
+
+    def test_update_ledger_fee_config(self, client, db):
+        """更新已有账户的 fee_config"""
+        # 先创建一个股票账户
+        resp = client.post('/api/ledgers/', json={'name': '中信证券', 'ledger_type': 'stock'})
+        assert resp.status_code == 200
+        ledger_id = resp.get_json()['data']['id']
+
+        # 更新 fee_config
+        new_config = {'commission': {'rate': 0.0002, 'min': 5}, 'stamp_duty': {'rate': 0.005, 'scope': 'sell_only'}}
+        resp = client.patch(f'/api/ledgers/{ledger_id}/', json={'fee_config': new_config})
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['fee_config'] == new_config
+
+    def test_update_ledger_fee_config_clear(self, client, db):
+        """将 fee_config 设置为 null"""
+        resp = client.post('/api/ledgers/', json={'name': '测试', 'fee_config': {'test': True}})
+        assert resp.status_code == 200
+        ledger_id = resp.get_json()['data']['id']
+
+        # 清空
+        resp = client.patch(f'/api/ledgers/{ledger_id}/', json={'fee_config': None})
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['fee_config'] is None
+
+    def test_ledger_list_includes_fee_config(self, client, db):
+        """列表接口应包含 fee_config"""
+        client.post('/api/ledgers/', json={'name': 'L1', 'fee_config': {'key': 'value'}})
+        client.post('/api/ledgers/', json={'name': 'L2'})
+        resp = client.get('/api/ledgers/')
+        ledgers = resp.get_json()['data']
+        l1 = next((led for led in ledgers if led['name'] == 'L1'), None)
+        l2 = next((led for led in ledgers if led['name'] == 'L2'), None)
+        assert l1 is not None
+        assert l1['fee_config'] == {'key': 'value'}
+        assert l2 is not None
+        assert not l2['fee_config']

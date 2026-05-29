@@ -1,5 +1,5 @@
 // src/api/positions.ts
-import { http } from "@/utils/http";
+import {http} from "@/utils/http";
 import type {
   ApiResponse,
   Position,
@@ -11,7 +11,7 @@ const BASE_URL = "/api/positions";
 
 /** 获取所有持仓记录 */
 export function getPositions(params?: Record<string, any>) {
-  return http.request<any>("get", BASE_URL, { params });
+  return http.request<any>("get", BASE_URL, {params});
 }
 
 /** 新增一条持仓记录 */
@@ -21,7 +21,10 @@ export function createPosition(data: PositionCreate) {
     ...data,
     currency: data.currency || "CNY"
   };
-  return http.request<ApiResponse<Position>>("post", BASE_URL, { data: body });
+  return http.request<ApiResponse<Position>>("post", BASE_URL, {
+    data: body,
+    headers: {'Content-Type': 'application/json'},
+  });
 }
 
 /** 更新一条持仓记录 (PATCH) */

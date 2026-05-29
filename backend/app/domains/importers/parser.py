@@ -190,7 +190,10 @@ class TransactionParser:
             if not symbol_raw:
                 return None
 
-            normalized, market, suggested_type = self.normalizer.normalize(symbol_raw)
+            try:
+                normalized, market, suggested_type = self.normalizer.normalize(symbol_raw)
+            except Exception:
+                normalized, market, suggested_type = symbol_raw, DEFAULT_MARKET_CN, None
             symbol = normalized if normalized else symbol_raw
 
             # 重命名后的列名是 'purchase_date'
@@ -265,7 +268,13 @@ class TransactionParser:
             return None  # 明确需要过滤的记录（如指定交易）
 
         symbol_raw = str(raw.get('symbol', '')).strip()
-        normalized, market, suggested_type = self.normalizer.normalize(symbol_raw)
+
+        try:
+            normalized, market, suggested_type = self.normalizer.normalize(symbol_raw)
+        except Exception:
+            normalized, market, suggested_type = symbol_raw, DEFAULT_MARKET_CN, None
+        symbol = normalized if normalized else symbol_raw
+
         symbol = normalized if normalized else symbol_raw
         market = market or DEFAULT_MARKET_CN
 

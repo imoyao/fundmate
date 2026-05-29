@@ -14,12 +14,14 @@
 - 业务异常通过 ValueError 抛出，由视图层捕获并转为 HTTP 异常
 """
 
+from datetime import datetime
 from typing import Optional
 
 from loguru import logger
 from sqlalchemy.orm import Session
 
 from app.core.symbol_utils import get_normalizer
+from app.core.utils import get_confirm_date
 from app.domains.positions.models import Position
 from app.services.transaction_service import TransactionService
 
@@ -100,18 +102,38 @@ class PositionService:
         if price <= 0:
             raise ValueError('价格必须大于 0')
 
+        # 标准化 symbol（同时生成搜索用的符号）
+        search_symbol = symbol
         # 标准化 symbol（只更新局部变量，不污染原始 data）
         try:
             normalizer = get_normalizer()
-            normalized, _ = normalizer.normalize(symbol)
+            normalized, _, _ = normalizer.normalize(symbol)
             if normalized:
                 symbol = normalized
+                search_symbol = normalized
         except Exception:
             logger.warning(f'无法标准化符号: {symbol}，保留原值')
+        # 查找或创建持仓
+        # 优先用标准化后的符号查找
+        same = db.query(Position).filter_by(symbol=search_symbol, account_name=account).first()
+        # 如果没找到，尝试用原始符号再查一次（兼容历史数据）
+        if not same and search_symbol != symbol:
+            same = db.query(Position).filter_by(symbol=symbol, account_name=account).first()
+
+        # 用于最终存储的符号（统一为搜索到的符号，确保一致性）
+        final_symbol = search_symbol
+
+        # 输入校验
+        # 防御性处理：确保 quantity 和 price 不是 None
+        qty = data.get('quantity', 0) or 0
+        price = data.get('avg_price', 0) or 0
+        if qty <= 0:
+            raise ValueError('数量必须大于 0')
+        if price <= 0:
+            raise ValueError('价格必须大于 0')
 
         try:
             # 1. 查找或创建持仓
-            same = db.query(Position).filter_by(symbol=symbol, account_name=account).first()
             if same:
                 # 合并持仓：更新均价、数量，保留 current_price（不覆盖为成本价）
                 total_qty = same.quantity + qty
@@ -125,7 +147,9 @@ class PositionService:
                 position_data = {k: v for k, v in data.items() if k in _ALLOWED_POSITION_FIELDS}
                 if 'type' in data:
                     position_data['asset_type'] = data['type']
-                position_data['symbol'] = symbol
+                elif 'asset_type' in data:
+                    position_data['asset_type'] = data['asset_type']
+                position_data['symbol'] = final_symbol
                 position = Position(**position_data)
                 position.current_price = position.avg_price  # 初始市价默认为成本价
                 db.add(position)
@@ -136,6 +160,19 @@ class PositionService:
             txn_type = op_type if op_type in ('buy', 'deposit') else 'buy'
             notes = data.get('notes') or _get_default_notes(op_type, is_new)
 
+            # 计算场外基金确认日（使用中国交易日历）
+            confirm_date = data.get('confirm_date')  # 前端传的预估，仅作后备
+            if asset_type == 'fund' and data.get('purchase_date'):
+                try:
+                    purchase_date = data['purchase_date']
+                    if isinstance(purchase_date, str):
+                        purchase_date = datetime.strptime(purchase_date, '%Y-%m-%d').date()
+                    is_after_15 = data.get('isAfter15', False)
+                    # 基金类型默认 'domestic'，后期可从证券元数据获取是否 QDII
+                    fund_type = data.get('fund_type', 'domestic')
+                    confirm_date = get_confirm_date(purchase_date, fund_type=fund_type, is_after_15=is_after_15)
+                except Exception:
+                    logger.warning('确认日计算失败，使用前端传入值')
             TransactionService.create(
                 db=db,
                 position_id=position.id,
@@ -188,6 +225,37 @@ class PositionService:
         if existing.quantity < qty:
             logger.error(f'持仓数量不足: 持有{existing.quantity}, 拟操作{qty}')
             raise ValueError(f'持仓数量不足：当前持有 {existing.quantity}，拟操作 {qty}')
+
+        # 一手规则校验（仅限场内交易品种）
+        asset_type = existing.asset_type or 'stock'
+        market = existing.market or ''
+        symbol = existing.symbol or ''
+
+        if asset_type in ('stock', 'etf', 'bond') and market not in ('US', 'CRYPTO'):
+            lot_size = 1
+            if asset_type == 'bond':
+                lot_size = 10
+            elif market in ('SH', 'SZ'):
+                if symbol.startswith('688'):
+                    lot_size = 200
+                elif symbol.startswith('8'):
+                    lot_size = 100
+                else:
+                    lot_size = 100
+            elif market == 'CN_HK':
+                lot_size = 100  # MVP 固定，后期可查询
+
+            if existing.quantity < lot_size:
+                if qty != existing.quantity:
+                    raise ValueError(
+                        f'当前持仓不足一手（{lot_size}股/张），只能一次性全部卖出（当前持有{existing.quantity}）'
+                    )
+            else:
+                allow_increment = market in ('SH', 'SZ') and (symbol.startswith('688') or symbol.startswith('8'))
+                if not allow_increment and qty % lot_size != 0:
+                    raise ValueError(f'卖出数量必须是{lot_size}的整数倍')
+                if qty < lot_size:
+                    raise ValueError(f'卖出数量不能低于一手（{lot_size}股/张）')
 
         try:
             # 2. 扣减数量（删除前保存快照）

@@ -17,7 +17,7 @@ def search_securities():
 
     normalizer = get_normalizer()
     # 尝试标准化为精确代码
-    normalized_q, _ = normalizer.normalize(q)
+    normalized_q, _, _ = normalizer.normalize(q)
 
     with get_db() as db:
         query = db.query(Security)

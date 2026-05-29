@@ -4,6 +4,8 @@
 # File : views.py
 """持仓相关 API."""
 
+import traceback
+
 from apiflask import APIBlueprint
 from flask import abort, jsonify, request
 
@@ -85,7 +87,6 @@ def create_position(json_data):
     """
     data = json_data.model_dump()
     op_type = data.get('op_type', 'buy')
-
     with get_db() as db:
         try:
             if op_type in ('sell', 'withdraw'):
@@ -94,15 +95,31 @@ def create_position(json_data):
                 data['dividend_amount'] = data.get('avg_price', 0)
                 position = PositionService.process_dividend(db, data)
             elif op_type in ('buy', 'deposit'):
-                position = PositionService.process_buy_or_deposit(db, data)
+                try:
+                    position = PositionService.process_buy_or_deposit(db, data)
+                except Exception as e:
+                    print(f'========== {e}==========')
+                    traceback.print_exc()
+                    print(data, '===========1111111111111========')
             else:
                 abort(400, description=f'不支持的操作类型: {op_type}')
         except ValueError as e:
-            abort(400, description=str(e))
+            print(data, '===================')
+            traceback.print_exc()
+            # 业务逻辑错误，返回明确提示
+            return jsonify({'message': str(e), 'data': None}), 400
+        except Exception:
+            # ⭐ 捕获所有未预期的异常，打印完整堆栈
+            print('========== 创建持仓异常 ==========')
+            traceback.print_exc()
+            print('==================================')
+            db.rollback()
+            abort(500, description='服务器内部错误，请稍后重试')
 
         if position is None:
             return jsonify({'message': '持仓已清空', 'data': None})
         wrap_position = _enrich_position_dict(position)
+        db.commit()  # ⭐ 显式提交事务
         return jsonify({'data': wrap_position, 'message': 'ok'})
 
 

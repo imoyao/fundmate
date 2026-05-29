@@ -21,6 +21,7 @@ dependencies = [
     "openpyxl>=3.1.5",
     "xlrd>=2.0.2",
     "charset-normalizer>=3.4.7",
+    "chinese-calendar>=1.11.0",
 ]
 requires-python = ">=3.12"
 
