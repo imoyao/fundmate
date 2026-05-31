@@ -15,7 +15,7 @@ dependencies = [
     "flask-cors>=6.0.2",
     "pytest>=9.0.3",
     "loguru>=0.7.3",
-    "git+https://gitee.com/imoyao/xalpha.git@master",
+    "xalpha @ git+https://gitee.com/imoyao/xalpha.git@master",
     "akshare>=1.18.60",
     "fake-useragent>=2.2.0",
     "openpyxl>=3.1.5",
@@ -24,6 +24,8 @@ dependencies = [
     "chinese-calendar>=1.11.0",
     "pendulum>=3.2.0",
     "dotenv>=0.9.9",
+    "python-dotenv>=1.2.2",
+    "pypinyin>=0.55.0",
 ]
 requires-python = ">=3.12"
 
@@ -35,6 +37,7 @@ build-backend = "pdm.backend"
 dev = [
     "ruff>=0.15.12",
     "pytest>=9.0.3",
+    "ipython>=9.14.0",
 ]
 
 [tool.ruff]
@@ -71,6 +74,9 @@ skip-magic-trailing-comma = false
 testpaths = ["tests"]
 filterwarnings = [
     "ignore::DeprecationWarning",
+]
+markers = [
+    "slow: 慢速测试，需要联网或耗时较长",
 ]
 
 [tool.pdm]
