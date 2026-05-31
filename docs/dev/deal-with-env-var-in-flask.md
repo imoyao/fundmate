@@ -126,22 +126,20 @@ pipenv shell
 在主目录下新建一个`app.py`，拷贝下面代码，以后使用`python app.py`启动。
 
 ```python
-#base.py
+# base.py
 # coding=utf-8
 
 
 import os
 from dotenv import load_dotenv
 
-dotenv_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), '.env')
+dotenv_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), '../../backend/.env')
 if os.path.exists(dotenv_path):
-    load_dotenv(dotenv_path, override=True)  #  override=True: 覆写已存在的变量
+    load_dotenv(dotenv_path, override=True)  # override=True: 覆写已存在的变量
 
 from apps.web import create_app
 
-
 app = create_app()
-
 
 if __name__ == "__main__":
     app.run()

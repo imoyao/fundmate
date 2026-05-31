@@ -251,7 +251,7 @@ def create_item(json_data):
         abort(400, '代码不能为空')
 
     normalizer = get_normalizer()
-    normalized, market = normalizer.normalize(symbol)
+    normalized, market, _ = normalizer.normalize(symbol)
     if normalized:
         data['symbol'] = normalized
         data['market'] = data.get('market') or market

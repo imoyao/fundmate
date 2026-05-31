@@ -1,0 +1,72 @@
+[
+  {
+    "symbol": "SZ000001",
+    "name": "平安银行",
+    "market": "SZ",
+    "type": "stock",
+    "currency": "CNY"
+  },
+  {
+    "symbol": "SZ000002",
+    "name": "万  科Ａ",
+    "market": "SZ",
+    "type": "stock",
+    "currency": "CNY"
+  },
+  {
+    "symbol": "SZ000004",
+    "name": "*ST国华",
+    "market": "SZ",
+    "type": "stock",
+    "currency": "CNY"
+  },
+  {
+    "symbol": "SZ000006",
+    "name": "深振业Ａ",
+    "market": "SZ",
+    "type": "stock",
+    "currency": "CNY"
+  },
+  {
+    "symbol": "SZ000007",
+    "name": "全新好",
+    "market": "SZ",
+    "type": "stock",
+    "currency": "CNY"
+  },
+  {
+    "symbol": "SZ000008",
+    "name": "神州高铁",
+    "market": "SZ",
+    "type": "stock",
+    "currency": "CNY"
+  },
+  {
+    "symbol": "SZ000009",
+    "name": "中国宝安",
+    "market": "SZ",
+    "type": "stock",
+    "currency": "CNY"
+  },
+  {
+    "symbol": "SZ000010",
+    "name": "*ST美丽",
+    "market": "SZ",
+    "type": "stock",
+    "currency": "CNY"
+  },
+  {
+    "symbol": "SZ000011",
+    "name": "深物业A",
+    "market": "SZ",
+    "type": "stock",
+    "currency": "CNY"
+  },
+  {
+    "symbol": "SZ000012",
+    "name": "南  玻Ａ",
+    "market": "SZ",
+    "type": "stock",
+    "currency": "CNY"
+  }
+]

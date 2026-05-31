@@ -1,0 +1,62 @@
+[
+  {
+    "fund_code": "000001",
+    "name": "华夏成长混合",
+    "fund_type": "混合型-灵活",
+    "company_name": ""
+  },
+  {
+    "fund_code": "000002",
+    "name": "华夏成长混合(后端)",
+    "fund_type": "混合型-灵活",
+    "company_name": ""
+  },
+  {
+    "fund_code": "000003",
+    "name": "中海可转债债券A",
+    "fund_type": "债券型-混合二级",
+    "company_name": ""
+  },
+  {
+    "fund_code": "000004",
+    "name": "中海可转债债券C",
+    "fund_type": "债券型-混合二级",
+    "company_name": ""
+  },
+  {
+    "fund_code": "000005",
+    "name": "嘉实增强信用定期债券",
+    "fund_type": "债券型-混合一级",
+    "company_name": ""
+  },
+  {
+    "fund_code": "000006",
+    "name": "西部利得量化成长混合A",
+    "fund_type": "混合型-偏股",
+    "company_name": ""
+  },
+  {
+    "fund_code": "000008",
+    "name": "嘉实中证500ETF联接A",
+    "fund_type": "指数型-股票",
+    "company_name": ""
+  },
+  {
+    "fund_code": "000009",
+    "name": "易方达天天理财货币A",
+    "fund_type": "货币型-普通货币",
+    "company_name": ""
+  },
+  {
+    "fund_code": "000010",
+    "name": "易方达天天理财货币B",
+    "fund_type": "货币型-普通货币",
+    "company_name": ""
+  },
+  {
+    "fund_code": "000011",
+    "name": "华夏大盘精选混合A",
+    "fund_type": "混合型-灵活",
+    "company_name": ""
+  }
+]

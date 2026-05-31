@@ -4,7 +4,7 @@
 import os
 from contextlib import contextmanager
 from datetime import datetime
-from zoneinfo import ZoneInfo  # Python 3.9+ 内置
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import Column, DateTime, Integer, create_engine, func
 from sqlalchemy.orm import Session, declarative_base, sessionmaker

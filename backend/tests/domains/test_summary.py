@@ -9,7 +9,7 @@
 
 from app.domains.assets.models import Asset
 from app.domains.positions.models import Position
-from tests.test_positions import _post
+from tests.domains.test_positions import _post
 
 
 def test_summary_empty(client):

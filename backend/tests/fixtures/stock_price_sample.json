@@ -1,0 +1,112 @@
+[
+  {
+    "symbol": "SH600519",
+    "trade_date": "2025-05-30",
+    "open": 1485.26,
+    "high": 1489.93,
+    "low": 1461.23,
+    "close": 1467.75,
+    "volume": 3123918.0,
+    "adj_close": 1467.75,
+    "source": "akshare_sina"
+  },
+  {
+    "symbol": "SH600519",
+    "trade_date": "2025-06-03",
+    "open": 1454.26,
+    "high": 1464.86,
+    "low": 1451.38,
+    "close": 1455.22,
+    "volume": 2897918.0,
+    "adj_close": 1455.22,
+    "source": "akshare_sina"
+  },
+  {
+    "symbol": "SH600519",
+    "trade_date": "2025-06-04",
+    "open": 1456.66,
+    "high": 1468.72,
+    "low": 1455.43,
+    "close": 1456.14,
+    "volume": 2300809.0,
+    "adj_close": 1456.14,
+    "source": "akshare_sina"
+  },
+  {
+    "symbol": "SH600519",
+    "trade_date": "2025-06-05",
+    "open": 1460.04,
+    "high": 1461.97,
+    "low": 1448.66,
+    "close": 1460.04,
+    "volume": 2321366.0,
+    "adj_close": 1460.04,
+    "source": "akshare_sina"
+  },
+  {
+    "symbol": "SH600519",
+    "trade_date": "2025-06-06",
+    "open": 1459.85,
+    "high": 1464.83,
+    "low": 1449.43,
+    "close": 1452.7,
+    "volume": 2502307.0,
+    "adj_close": 1452.7,
+    "source": "akshare_sina"
+  },
+  {
+    "symbol": "SH600519",
+    "trade_date": "2025-06-09",
+    "open": 1451.38,
+    "high": 1454.93,
+    "low": 1432.73,
+    "close": 1433.14,
+    "volume": 4495867.0,
+    "adj_close": 1433.14,
+    "source": "akshare_sina"
+  },
+  {
+    "symbol": "SH600519",
+    "trade_date": "2025-06-10",
+    "open": 1433.04,
+    "high": 1438.82,
+    "low": 1422.24,
+    "close": 1422.44,
+    "volume": 3049220.0,
+    "adj_close": 1422.44,
+    "source": "akshare_sina"
+  },
+  {
+    "symbol": "SH600519",
+    "trade_date": "2025-06-11",
+    "open": 1424.16,
+    "high": 1440.75,
+    "low": 1423.49,
+    "close": 1427.25,
+    "volume": 3089282.0,
+    "adj_close": 1427.25,
+    "source": "akshare_sina"
+  },
+  {
+    "symbol": "SH600519",
+    "trade_date": "2025-06-12",
+    "open": 1427.25,
+    "high": 1430.98,
+    "low": 1402.27,
+    "close": 1407.0,
+    "volume": 4990361.0,
+    "adj_close": 1407.0,
+    "source": "akshare_sina"
+  },
+  {
+    "symbol": "SH600519",
+    "trade_date": "2025-06-13",
+    "open": 1392.93,
+    "high": 1398.29,
+    "low": 1374.27,
+    "close": 1376.09,
+    "volume": 5911325.0,
+    "adj_close": 1376.09,
+    "source": "akshare_sina"
+  }
+]

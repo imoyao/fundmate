@@ -20,6 +20,7 @@ from typing import Optional
 from loguru import logger
 from sqlalchemy.orm import Session
 
+from app.core.exceptions import ErrorCode, SBException
 from app.core.symbol_utils import get_normalizer
 from app.core.utils import get_confirm_date
 from app.domains.positions.models import Position
@@ -98,9 +99,19 @@ class PositionService:
 
         # 输入校验
         if qty <= 0:
-            raise ValueError('数量必须大于 0')
+            raise SBException(
+                code=ErrorCode.INVALID_PARAMS.code,
+                message=ErrorCode.INVALID_PARAMS.msg,
+                status_code=400,
+                detail={'field': 'quantity', 'value': qty},
+            )
         if price <= 0:
-            raise ValueError('价格必须大于 0')
+            raise SBException(
+                code=ErrorCode.INVALID_PARAMS.code,
+                message=ErrorCode.INVALID_PARAMS.msg,
+                status_code=400,
+                detail={'field': 'avg_price', 'value': price},
+            )
 
         # 标准化 symbol（同时生成搜索用的符号）
         search_symbol = symbol
@@ -202,12 +213,13 @@ class PositionService:
             raise
 
     @staticmethod
-    def process_sell_or_withdraw(db: Session, data: dict) -> Optional[Position]:
+    def process_sell_or_withdraw(db: Session, data: dict, skip_lot_check: bool = False) -> Optional[Position]:
         """
         执行卖出或取出操作。
         成功返回更新后的持仓，若数量减至 0 则删除持仓并返回 None。
 
         data 必须包含：position_id, quantity, avg_price(卖出单价), purchase_date, op_type (sell/withdraw)
+        skip_lot_check: 若为 True，跳过一手规则校验（用于导入历史交易）
         """
         position_id = data['position_id']
         op_type = data['op_type']
@@ -226,37 +238,37 @@ class PositionService:
             logger.error(f'持仓数量不足: 持有{existing.quantity}, 拟操作{qty}')
             raise ValueError(f'持仓数量不足：当前持有 {existing.quantity}，拟操作 {qty}')
 
-        # 一手规则校验（仅限场内交易品种）
-        asset_type = existing.asset_type or 'stock'
-        market = existing.market or ''
-        symbol = existing.symbol or ''
+        # 一手规则校验（仅限场内交易品种，且非导入场景）
+        if not skip_lot_check:
+            asset_type = existing.asset_type or 'stock'
+            market = existing.market or ''
+            symbol = existing.symbol or ''
 
-        if asset_type in ('stock', 'etf', 'bond') and market not in ('US', 'CRYPTO'):
-            lot_size = 1
-            if asset_type == 'bond':
-                lot_size = 10
-            elif market in ('SH', 'SZ'):
-                if symbol.startswith('688'):
-                    lot_size = 200
-                elif symbol.startswith('8'):
-                    lot_size = 100
+            if asset_type in ('stock', 'etf', 'bond') and market not in ('US', 'CRYPTO'):
+                lot_size = 1
+                if asset_type == 'bond':
+                    lot_size = 10
+                elif market in ('SH', 'SZ'):
+                    if symbol.startswith('688'):
+                        lot_size = 200
+                    elif symbol.startswith('8'):
+                        lot_size = 100
+                    else:
+                        lot_size = 100
+                elif market == 'CN_HK':
+                    lot_size = 100  # MVP 固定，后期可查询
+
+                if existing.quantity < lot_size:
+                    if qty != existing.quantity:
+                        raise ValueError(
+                            f'当前持仓不足一手（{lot_size}股/张），只能一次性全部卖出（当前持有{existing.quantity}）'
+                        )
                 else:
-                    lot_size = 100
-            elif market == 'CN_HK':
-                lot_size = 100  # MVP 固定，后期可查询
-
-            if existing.quantity < lot_size:
-                if qty != existing.quantity:
-                    raise ValueError(
-                        f'当前持仓不足一手（{lot_size}股/张），只能一次性全部卖出（当前持有{existing.quantity}）'
-                    )
-            else:
-                allow_increment = market in ('SH', 'SZ') and (symbol.startswith('688') or symbol.startswith('8'))
-                if not allow_increment and qty % lot_size != 0:
-                    raise ValueError(f'卖出数量必须是{lot_size}的整数倍')
-                if qty < lot_size:
-                    raise ValueError(f'卖出数量不能低于一手（{lot_size}股/张）')
-
+                    allow_increment = market in ('SH', 'SZ') and (symbol.startswith('688') or symbol.startswith('8'))
+                    if not allow_increment and qty % lot_size != 0:
+                        raise ValueError(f'卖出数量必须是{lot_size}的整数倍')
+                    if qty < lot_size:
+                        raise ValueError(f'卖出数量不能低于一手（{lot_size}股/张）')
         try:
             # 2. 扣减数量（删除前保存快照）
             position_name = existing.name
@@ -399,6 +411,7 @@ class PositionService:
                     'notes': data.get('notes', ''),
                     'import_hash': data.get('import_hash'),
                 },
+                skip_lot_check=True,  # 新增参数
             )
         else:
             # 无持仓，创建孤立流水

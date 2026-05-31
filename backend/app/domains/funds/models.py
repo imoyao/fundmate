@@ -4,7 +4,7 @@
 # File : models.py
 """场外基金元数据模型"""
 
-from sqlalchemy import Boolean, Column, Date, Float, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Column, Date, DateTime, Float, ForeignKey, Integer, String, text
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base, PrimaryKeyMixin, TimestampMixin
@@ -73,6 +73,9 @@ class Fund(Base, PrimaryKeyMixin, TimestampMixin):
     benchmark = Column(String(200), comment='业绩比较基准')
     create_time = Column(Date, comment='成立日期')
     symbol_prefix = Column(String(10), comment='代码前缀')
+    is_active = Column(Boolean, default=True, server_default=text('1'), comment='是否参与净值同步')
+    last_nav_check = Column(DateTime, comment='最后一次净值检查时间')
+    nav_fail_count = Column(Integer, default=0, comment='连续获取净值失败次数')
 
     fund_type = relationship('FundType', foreign_keys=[fund_type_id])
     variety = relationship('FundVariety', foreign_keys=[fund_variety_id])

@@ -30,7 +30,7 @@ def test_convert_readable_days(number_of_days, expected):
     'file_name,extra_suffix,excepted',
     [
         ('app.log', 'test', 'app-test.log'),
-        ('foo.py', 'bar', 'foo-bar.py'),
+        ('save_fixtures.py', 'bar', 'foo-bar.py'),
         ('baz.tar.gz', None, 'baz.tar'),
     ],
 )

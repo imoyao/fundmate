@@ -273,7 +273,6 @@ class TransactionParser:
             normalized, market, suggested_type = self.normalizer.normalize(symbol_raw)
         except Exception:
             normalized, market, suggested_type = symbol_raw, DEFAULT_MARKET_CN, None
-        symbol = normalized if normalized else symbol_raw
 
         symbol = normalized if normalized else symbol_raw
         market = market or DEFAULT_MARKET_CN
@@ -360,12 +359,15 @@ class TransactionParser:
         }
 
     def _parse_ths_date(self, raw: pd.Series) -> str:
-        # 重命名后的列名是 'purchase_date'，因为模板中 '交收日期' -> 'purchase_date'
         date_str = str(raw.get('purchase_date', '')).strip()
+        if not date_str:
+            logger.warning('同花顺记录缺少交收日期，跳过该行')
+            raise ValueError('交收日期为空')  # 由上层捕获并标记错误行
         try:
             parsed = datetime.strptime(date_str, '%Y%m%d').date()
             return parsed.isoformat()
         except ValueError:
+            logger.warning(f'无效的日期格式: {date_str}，使用今日日期作为兜底')
             return date.today().isoformat()
 
     def compute_hashes(self, rows: list[dict]) -> list[dict]:

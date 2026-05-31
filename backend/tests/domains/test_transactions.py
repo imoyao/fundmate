@@ -6,7 +6,7 @@
 from datetime import date, timedelta
 
 from app.domains.transactions.models import Transaction
-from tests.test_positions import _get, _post
+from tests.domains.test_positions import _get, _post
 
 
 def test_transaction_types_coverage(client):

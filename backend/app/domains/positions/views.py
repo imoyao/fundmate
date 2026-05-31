@@ -98,21 +98,17 @@ def create_position(json_data):
                 try:
                     position = PositionService.process_buy_or_deposit(db, data)
                 except Exception as e:
-                    print(f'========== {e}==========')
                     traceback.print_exc()
-                    print(data, '===========1111111111111========')
+                    return jsonify({'message': str(e), 'data': None}), 400
             else:
                 abort(400, description=f'不支持的操作类型: {op_type}')
         except ValueError as e:
-            print(data, '===================')
             traceback.print_exc()
             # 业务逻辑错误，返回明确提示
             return jsonify({'message': str(e), 'data': None}), 400
         except Exception:
             # ⭐ 捕获所有未预期的异常，打印完整堆栈
-            print('========== 创建持仓异常 ==========')
             traceback.print_exc()
-            print('==================================')
             db.rollback()
             abort(500, description='服务器内部错误，请稍后重试')
 

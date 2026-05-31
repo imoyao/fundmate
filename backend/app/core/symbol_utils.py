@@ -125,6 +125,19 @@ class StockCodeNormalizer:
         # 北交所、港股、美股、加密货币默认不推断具体类型
         return None
 
+    def to_sina_code(self, normalized_code: str) -> Optional[str]:
+        """将标准化代码转为新浪接口需要的格式（sh600519, sz000001）"""
+        if not normalized_code:
+            return None
+        market, code = self._split_normalized(normalized_code)
+        if market == 'SH':
+            return f'sh{code}'
+        elif market == 'SZ':
+            return f'sz{code}'
+        elif market == 'BJ':
+            return f'b{code}'  # 新浪对北交所可能支持有限，先按此转换
+        return None
+
     def normalize(
         self, code: str, hint_market: Optional[str] = None
     ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
