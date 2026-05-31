@@ -82,6 +82,9 @@ class Fund(Base, PrimaryKeyMixin, TimestampMixin):
     company = relationship('FundCompany', foreign_keys=[company_id])
     managers = relationship('Manager', secondary='fund_managers', back_populates='funds')
     daily_worth = relationship('DailyWorth', back_populates='fund', order_by='DailyWorth.date.desc()')
+    money_fund_daily_worth = relationship(
+        'MoneyFundDailyWorth', back_populates='fund', order_by='MoneyFundDailyWorth.date.desc()'
+    )
 
 
 class FundManager(Base, PrimaryKeyMixin):
@@ -136,3 +139,16 @@ class FeeRatio(Base, PrimaryKeyMixin, TimestampMixin):
     fee_amount = Column(Float, nullable=True, comment='固定金额(元), 与rate互斥')
     purchase_rule_id = Column(Integer, ForeignKey('purchase_rules.id'), nullable=True)
     redeem_rule_id = Column(Integer, ForeignKey('redeem_rules.id'), nullable=True)
+
+
+class MoneyFundDailyWorth(Base, PrimaryKeyMixin, TimestampMixin):
+    """货币基金每日万份收益与七日年化"""
+
+    __tablename__ = 'money_fund_daily_worth'
+
+    fund_code = Column(String(6), ForeignKey('funds.fund_code'), nullable=False, comment='基金代码')
+    date = Column(Date, nullable=False, comment='日期')
+    nav_per_10k = Column(Float, comment='万份收益(元)')
+    annual_return_7d = Column(Float, comment='七日年化收益率(%)')
+
+    fund = relationship('Fund', back_populates='money_fund_daily_worth')

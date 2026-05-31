@@ -11,7 +11,7 @@ from typing import List
 from loguru import logger
 
 from app.core.time_utils import now_shanghai
-from app.domains.funds.models import DailyWorth
+from app.domains.funds.models import DailyWorth, MoneyFundDailyWorth
 from app.models.sync_log import SyncLog
 from app.services.sync.jobs.base import SyncJob
 
@@ -82,6 +82,27 @@ class FundNavSyncJob(SyncJob):
     # ── 保存 ──
 
     def _save_data(self, new_data: List[dict]) -> None:
-        if new_data:
-            self.db.bulk_insert_mappings(DailyWorth, new_data)
+        if not new_data:
+            return
+
+        money_records = []
+        normal_records = []
+        for item in new_data:
+            if item.pop('is_money_fund', False):
+                money_records.append(
+                    {
+                        'fund_code': item['fund_code'],
+                        'date': item['date'],
+                        'nav_per_10k': item['unit_nav'],
+                        'annual_return_7d': None,  # 暂不计算
+                    }
+                )
+            else:
+                normal_records.append(item)
+
+        if normal_records:
+            self.db.bulk_insert_mappings(DailyWorth, normal_records)
+        if money_records:
+            self.db.bulk_insert_mappings(MoneyFundDailyWorth, money_records)
+        if normal_records or money_records:
             self.db.commit()

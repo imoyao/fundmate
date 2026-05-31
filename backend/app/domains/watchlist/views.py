@@ -38,6 +38,7 @@ from app.domains.watchlist.schemas import (
     WatchlistTagDefOut,
     WatchlistTagDefUpdate,
 )
+from app.services.async_backfill import trigger_backfill
 
 watchlist_bp = APIBlueprint('watchlist', __name__, url_prefix='/api/watchlist')
 
@@ -285,6 +286,12 @@ def create_item(json_data):
         db.add(item)
         db.commit()
         db.refresh(item)
+        try:
+            # 根据 symbol 判断类型：6位数字为基金，否则为股票
+            asset_type = 'fund' if (symbol.isdigit() and len(symbol) == 6) else 'stock'
+            trigger_backfill(asset_type, symbol)
+        except Exception:
+            pass
 
         return jsonify({'data': _enrich_item(item, db), 'message': 'ok'})
 

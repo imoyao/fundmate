@@ -16,10 +16,12 @@ import xalpha as xa
 from loguru import logger
 
 from app.services.sync.adapters.base import DataSourceAdapter
+from app.services.sync.money_fund_utils import compute_money_fund_yields
 
 
 class XalphaAdapter(DataSourceAdapter):
     def __init__(self):
+        self._fund_nav_errors = None
         self.logger = logger.bind(adapter='xalpha')
         # 启用 xalpha 本地 CSV 缓存，避免重复网络请求
         xa.set_backend(backend='csv', path='data/xalpha_cache')
@@ -30,6 +32,26 @@ class XalphaAdapter(DataSourceAdapter):
     def get_version(self) -> str:
         return getattr(xa, '__version__', 'unknown')
 
+    def get_fund_with_type(self, fund_code: str):
+        """
+        尝试获取基金对象，自动识别普通基金或货币基金。
+
+        Returns:
+            (fund, is_money_fund): fund 为 xalpha 对象，is_money_fund 为布尔值。
+            如果获取失败，返回 (None, False)。
+        """
+        try:
+            return xa.fundinfo(fund_code), False
+        except xa.exceptions.FundTypeError:
+            try:
+                return xa.mfundinfo(fund_code), True
+            except Exception as e:
+                self._log_fund_error_once(fund_code, f'mfundinfo 初始化失败: {e}')
+                return None, False
+        except Exception as e:
+            self._log_fund_error_once(fund_code, f'xalpha 初始化失败: {e}')
+            return None, False
+
     # ── 基金列表（不支持） ──
 
     def fetch_fund_list(self) -> List[dict]:
@@ -37,35 +59,36 @@ class XalphaAdapter(DataSourceAdapter):
 
     # ── 基金净值 ──
 
-    def fetch_fund_nav(
-        self,
-        fund_code: str,
-        start_date: Optional[date] = None,
-        end_date: Optional[date] = None,
-    ) -> List[dict]:
-        """
-        获取基金历史净值。
-        返回统一格式的列表，单只基金失败返回空列表，不抛异常。
-        """
-        # 防御：记录已报错的基金代码，避免日志刷屏
-        if not hasattr(self, '_fund_nav_errors'):
-            self._fund_nav_errors = set()
-
-        try:
-            fund = xa.fundinfo(fund_code)
-            nav_df = fund.price
-        except xa.exceptions.FundTypeError:
-            # 货币基金：静默跳过
-            self.logger.debug(f'基金 {fund_code} 是货币基金，跳过净值同步')
-            return []
-        except Exception as e:
-            self._log_fund_error_once(fund_code, f'xalpha 初始化失败: {e}')
+    def fetch_fund_nav(self, fund_code, start_date=None, end_date=None):
+        fund, is_money_fund = self.get_fund_with_type(fund_code)
+        if fund is None:
             return []
 
+        nav_df = fund.price
         if nav_df is None or nav_df.empty:
             return []
 
-        return self._parse_nav_dataframe(nav_df, fund_code)
+        if is_money_fund:
+            records = compute_money_fund_yields(nav_df)
+            for r in records:
+                r['fund_code'] = fund_code
+                r['unit_nav'] = r.pop('nav_per_10k')
+                r['is_money_fund'] = True
+            return records
+        else:
+            records = []
+            for idx, row in nav_df.iterrows():
+                date_val = self._extract_date(idx)
+                records.append(
+                    {
+                        'fund_code': fund_code,
+                        'date': date_val,
+                        'unit_nav': float(row.get('netvalue', 0)),
+                        'acc_nav': float(row.get('totvalue', 0)),
+                        'is_money_fund': False,
+                    }
+                )
+            return records
 
     def _parse_nav_dataframe(self, nav_df: pd.DataFrame, fund_code: str) -> List[dict]:
         """将 xalpha 返回的净值 DataFrame 转换为统一格式的字典列表"""

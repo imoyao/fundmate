@@ -24,6 +24,7 @@ from app.core.exceptions import ErrorCode, SBException
 from app.core.symbol_utils import get_normalizer
 from app.core.utils import get_confirm_date
 from app.domains.positions.models import Position
+from app.services.async_backfill import trigger_backfill
 from app.services.transaction_service import TransactionService
 
 # 允许写入持仓模型的字段白名单（防止注入无效字段）
@@ -205,6 +206,11 @@ class PositionService:
             # 3. 提交并刷新
             db.flush()
             db.refresh(position)
+            try:
+                trigger_backfill(asset_type, symbol)
+            except Exception:
+                # 回填失败不影响主流程
+                pass
             return position
 
         except Exception:
