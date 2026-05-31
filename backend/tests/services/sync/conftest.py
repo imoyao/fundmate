@@ -7,6 +7,9 @@ from unittest.mock import patch
 
 import pytest
 
+import app.domains.price_history.models  # noqa: F401
+import app.models.sync_log  # noqa: F401
+
 
 @pytest.fixture(autouse=True)
 def skip_lock(monkeypatch):

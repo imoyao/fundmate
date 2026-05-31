@@ -5,7 +5,7 @@
 # -*- coding: utf-8 -*-
 # app/services/sync/adapters/akshare_adapter.py
 from datetime import date, datetime, timedelta
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 import akshare as ak
 from loguru import logger
@@ -254,3 +254,70 @@ class AkshareAdapter(DataSourceAdapter):
         except Exception as e:
             self.logger.warning(f'筛选基金经理出错: {e}')
             return []
+
+    def fetch_fund_detail(self, fund_code: str) -> Dict[str, Any]:
+        """
+        获取单只基金的详细信息 (ak.fund_info_ths)
+        返回字典，键为 model 字段名，值为解析后的数据。解析失败返回空字典。
+        """
+        result = {}
+        try:
+            df = ak.fund_info_ths(symbol=fund_code)
+            if df is None or df.empty:
+                self.logger.warning(f'fund_info_ths 返回空: {fund_code}')
+                return result
+
+            # 将两列 DataFrame 转换为 dict
+            info = dict(zip(df['字段'], df['值']))
+            if not info:
+                return result
+
+            # 基金类型 -> fund_type_id (先存原始字符串，后续由 Job 映射)
+            raw_type = info.get('投资类型', '') or info.get('基金类型', '')
+            result['fund_type_raw'] = raw_type
+
+            # 基金管理人 -> company_id (Job 中根据名称查找或创建)
+            company_name = info.get('基金管理人', '')
+            result['company_name'] = company_name
+
+            # 成立日期 -> create_time
+            raw_date = info.get('成立日期', '')
+            if raw_date:
+                try:
+                    result['create_time'] = datetime.strptime(raw_date.strip(), '%Y-%m-%d').date()
+                except (ValueError, IndexError):
+                    self.logger.warning(f'{fund_code} 成立日期解析失败: {raw_date}')
+
+            # 业绩比较基准 -> benchmark
+            benchmark = info.get('业绩比较基准', '')
+            if benchmark and benchmark != '无':
+                result['benchmark'] = benchmark
+
+            # 风险等级 -> risk_level (字符串转数字)
+            risk_str = info.get('风险等级', '')
+            if risk_str:
+                risk_mapping = {
+                    '低风险': 1,
+                    '中低风险': 2,
+                    '中风险': 3,
+                    '中高风险': 4,
+                    '高风险': 5,
+                }
+                for key, val in risk_mapping.items():
+                    if key in risk_str:
+                        result['risk_level'] = val
+                        break
+
+            # 管理费率、最高申购费、最高赎回费可作为费率参考
+            result['management_fee'] = info.get('管理费', '')  # 字符串 "1.20%"
+            result['max_purchase_fee'] = info.get('最高申购费', '')
+            result['max_redeem_fee'] = info.get('最高赎回费', '')
+
+            # 基金经理姓名 -> managers (仅姓名，无编码)
+            manager_names = info.get('基金经理', '')
+            if manager_names:
+                result['manager_names'] = [n.strip() for n in manager_names.split('、') if n.strip()]
+
+        except Exception as e:
+            self.logger.warning(f'获取基金 {fund_code} 详情失败: {e}')
+        return result

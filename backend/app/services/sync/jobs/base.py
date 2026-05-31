@@ -16,6 +16,20 @@ from sqlalchemy.orm import Session
 from app.core.exceptions import ErrorCode, SBException
 from app.core.time_utils import now_shanghai
 
+# 批次大小常量
+BATCH_SIZE_FULL_SYNC = 50  # 全量同步每批处理标的数
+BATCH_SIZE_DETAIL_ENRICH = 50  # 详情填充每批提交数
+MAX_RETRIES = 3  # 最大重试次数
+DEFAULT_INCREMENTAL_DAYS = 30  # 增量同步默认回溯天数
+
+
+# 费率类型枚举
+class FeeType:
+    SUBSCRIBE = 'subscribe'  # 认购
+    PURCHASE = 'purchase'  # 申购
+    REDEEM = 'redeem'  # 赎回
+    MANAGEMENT = 'management'  # 管理费
+
 
 class JobStatus(Enum):
     PENDING = 'pending'

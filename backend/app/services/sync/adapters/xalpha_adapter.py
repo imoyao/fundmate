@@ -5,7 +5,7 @@
 # -*- coding: utf-8 -*-
 # app/services/sync/adapters/xalpha_adapter.py
 from datetime import date
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 import pandas as pd
 import xalpha as xa
@@ -80,6 +80,68 @@ class XalphaAdapter(DataSourceAdapter):
                 self.logger.warning(f'获取基金 {fund_code} 净值失败: {e}')
                 self._fund_nav_errors.add(fund_code)
             return []
+
+    # 在 app/services/sync/adapters/xalpha_adapter.py 类中新增方法
+
+    def fetch_fund_fee(self, fund_code: str) -> Dict[str, Any]:
+        """
+        获取基金费率信息 (xalpha)
+        返回字典包含:
+            - purchase_rate: 优惠申购费率 (float 百分比)
+            - redemption_schedule: 赎回费率阶梯列表 [{'start': int, 'end': int or None, 'rate': float}, ...]
+            - management_rate: 管理费率 (暂不可用, 返回 None)
+        解析失败返回空字典。
+        """
+        result = {}
+        try:
+            fund = xa.fundinfo(fund_code)
+        except Exception as e:
+            self.logger.warning(f'xalpha 初始化基金 {fund_code} 失败: {e}')
+            return result
+
+        # 申购费率 (优惠后)
+        try:
+            rate_str = fund.rate  # 如 "0.15%"
+            if rate_str and isinstance(rate_str, str):
+                result['purchase_rate'] = float(rate_str.rstrip('%'))
+        except Exception:
+            pass
+
+        # 赎回费率阶梯
+        try:
+            feeinfo = fund.feeinfo  # 如 ['小于7天', '1.50%', '大于等于7天，小于30天', '0.75%', ...]
+            if isinstance(feeinfo, list) and len(feeinfo) >= 2:
+                schedule = []
+                # 按相邻两个一组解析
+                for i in range(0, len(feeinfo), 2):
+                    if i + 1 >= len(feeinfo):
+                        break
+                    desc = feeinfo[i]  # "小于7天"
+                    rate_str = feeinfo[i + 1]  # "1.50%"
+                    rate = float(rate_str.rstrip('%')) if isinstance(rate_str, str) else None
+                    # 解析天数区间 (简化处理: 提取数字)
+                    import re
+
+                    numbers = re.findall(r'\d+', desc)
+                    if '大于等于' in desc and '小于' in desc:
+                        start = int(numbers[0]) if numbers else None
+                        end = int(numbers[1]) if len(numbers) > 1 else None
+                    elif '小于' in desc:
+                        start = 0
+                        end = int(numbers[0]) if numbers else None
+                    elif '大于等于' in desc:
+                        start = int(numbers[0]) if numbers else None
+                        end = None
+                    else:
+                        start = None
+                        end = None
+                    if start is not None and rate is not None:
+                        schedule.append({'start_day': start, 'end_day': end, 'rate': rate})
+                result['redemption_schedule'] = schedule
+        except Exception:
+            pass
+
+        return result
 
     # ── 基金经理 ──
     def fetch_fund_manager(self, fund_code: str) -> List[dict]:

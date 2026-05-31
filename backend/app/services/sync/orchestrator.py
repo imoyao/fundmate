@@ -20,6 +20,7 @@ from app.core.time_utils import now_shanghai
 from app.models.sync_log import SyncLog
 from app.services.sync.adapters.akshare_adapter import AkshareAdapter
 from app.services.sync.adapters.xalpha_adapter import XalphaAdapter
+from app.services.sync.jobs.fund_detail_enrich_job import FundDetailEnrichJob
 from app.services.sync.jobs.fund_list_job import FundListSyncJob
 from app.services.sync.jobs.fund_manager_job import FundManagerSyncJob
 from app.services.sync.jobs.fund_nav_job import FundNavSyncJob
@@ -71,6 +72,9 @@ class DataSyncOrchestrator:
         self.jobs['fund_manager'] = FundManagerSyncJob(self.data_sources['akshare'], self.db)
         self.jobs['fund_nav'] = FundNavSyncJob(self.data_sources['xalpha'], self.db)
         self.jobs['price_history'] = PriceHistorySyncJob(self.data_sources['akshare'], self.db)
+        self.jobs['fund_detail_enrich'] = FundDetailEnrichJob(
+            self.data_sources['akshare'], self.data_sources['xalpha'], self.db
+        )
 
     def _backup_database(self):
         """根据 DATABASE_URL 自动选择备份方式"""
@@ -176,7 +180,7 @@ class DataSyncOrchestrator:
         try:
             self._backup_database()
 
-            order = ['stock_list', 'fund_list', 'fund_nav', 'price_history']
+            order = ['stock_list', 'fund_list', 'fund_detail_enrich', 'fund_nav', 'price_history']
             results = {}
             for name in order:
                 if name in self.jobs:

@@ -105,3 +105,34 @@ class DailyWorth(Base, PrimaryKeyMixin, TimestampMixin):
     acc_nav = Column(Float, comment='累计净值')
 
     fund = relationship('Fund', back_populates='daily_worth')
+
+
+class PurchaseRule(Base, PrimaryKeyMixin, TimestampMixin):
+    """申购/认购费率阶梯的金额区间规则"""
+
+    __tablename__ = 'purchase_rules'
+
+    start_quota = Column(Float, nullable=False, default=0, comment='起始金额(元), 包含')
+    end_quota = Column(Float, nullable=True, comment='结束金额(元), 不包含, NULL表示正无穷')
+
+
+class RedeemRule(Base, PrimaryKeyMixin, TimestampMixin):
+    """赎回费率阶梯的持有天数区间规则"""
+
+    __tablename__ = 'redeem_rules'
+
+    start_day = Column(Integer, nullable=False, default=0, comment='起始天数, 包含')
+    end_day = Column(Integer, nullable=True, comment='结束天数, 不包含, NULL表示正无穷')
+
+
+class FeeRatio(Base, PrimaryKeyMixin, TimestampMixin):
+    """基金费率与规则的关联表"""
+
+    __tablename__ = 'fee_ratios'
+
+    fund_code = Column(String(6), ForeignKey('funds.fund_code'), nullable=False, comment='基金代码')
+    fee_type = Column(String(20), nullable=False, comment='费率类型: subscribe/purchase/redeem/management')
+    rate = Column(Float, nullable=True, comment='费率百分比, 如1.5表示1.5%')
+    fee_amount = Column(Float, nullable=True, comment='固定金额(元), 与rate互斥')
+    purchase_rule_id = Column(Integer, ForeignKey('purchase_rules.id'), nullable=True)
+    redeem_rule_id = Column(Integer, ForeignKey('redeem_rules.id'), nullable=True)
