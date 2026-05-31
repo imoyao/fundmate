@@ -26,6 +26,45 @@ class AkshareAdapter(DataSourceAdapter):
         return getattr(ak, '__version__', 'unknown')
 
     # ── 股票列表 ──
+
+    # app/services/sync/adapters/akshare_adapter.py
+
+    def _parse_fund_info_dataframe(self, df, fund_code: str) -> Dict[str, Any]:
+        """
+        将 ak.fund_info_ths 返回的 DataFrame 解析为结构化字典。
+        返回空字典表示解析失败。
+        """
+        if df is None or df.empty:
+            self.logger.warning(f'fund_info_ths 返回空: {fund_code}')
+            return {}
+
+        # 列名是 "字段" 和 "值"
+        if '字段' not in df.columns or '值' not in df.columns:
+            self.logger.warning(f'fund_info_ths 列名异常: {df.columns.tolist()}')
+            return {}
+
+        info = dict(zip(df['字段'], df['值']))
+        if not info:
+            return {}
+
+        result = dict()
+        result['fund_type_raw'] = info.get('投资类型', '') or info.get('基金类型', '')
+        result['company_name'] = info.get('基金管理人', '')
+        result['fund_full_name'] = info.get('基金全称', '')
+        raw_date = info.get('成立日期', '')
+        if raw_date:
+            try:
+                result['create_time'] = datetime.strptime(raw_date.strip(), '%Y-%m-%d').date()
+            except (ValueError, IndexError):
+                self.logger.warning(f'{fund_code} 成立日期解析失败: {raw_date}')
+        benchmark = info.get('业绩比较基准', '')
+        if benchmark and benchmark != '无':
+            result['benchmark'] = benchmark
+        manager_names = info.get('基金经理', '')
+        if manager_names:
+            result['manager_names'] = [n.strip() for n in manager_names.split(',') if n.strip()]
+        return result
+
     def fetch_stock_price(
         self,
         symbol: str,
@@ -307,6 +346,9 @@ class AkshareAdapter(DataSourceAdapter):
                     if key in risk_str:
                         result['risk_level'] = val
                         break
+
+            # 基金全称 -> full_name
+            result['fund_full_name'] = info.get('基金全称', '')
 
             # 管理费率、最高申购费、最高赎回费可作为费率参考
             result['management_fee'] = info.get('管理费', '')  # 字符串 "1.20%"

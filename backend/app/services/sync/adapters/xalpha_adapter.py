@@ -1,9 +1,13 @@
 # -*- coding: utf-8 -*-
-# Author : imoyao
-# Date : 2026/5/30 11:24
-# File : xalpha_adapter.py
-# -*- coding: utf-8 -*-
-# app/services/sync/adapters/xalpha_adapter.py
+"""
+Xalpha 数据源适配器（基金净值、费率）。
+
+职责：
+- 封装 xalpha 库的调用
+- 将 xalpha 返回的数据转换为统一格式的字典列表
+- 所有方法防御性地处理 None / 空数据 / 类型异常
+"""
+
 from datetime import date
 from typing import Any, Dict, List, Optional
 
@@ -16,138 +20,96 @@ from app.services.sync.adapters.base import DataSourceAdapter
 
 class XalphaAdapter(DataSourceAdapter):
     def __init__(self):
-        xa.set_backend(backend='csv', path='data/xalpha_cache')
-        self._fund_nav_errors = None
         self.logger = logger.bind(adapter='xalpha')
+        # 启用 xalpha 本地 CSV 缓存，避免重复网络请求
+        xa.set_backend(backend='csv', path='data/xalpha_cache')
 
     def get_name(self) -> str:
         return 'xalpha'
 
     def get_version(self) -> str:
-        return xa.__version__ if hasattr(xa, '__version__') else 'unknown'
+        return getattr(xa, '__version__', 'unknown')
 
-    # ── xalpha 不支持基金列表 ──
+    # ── 基金列表（不支持） ──
+
     def fetch_fund_list(self) -> List[dict]:
         raise NotImplementedError('xalpha 不支持全市场基金列表')
 
     # ── 基金净值 ──
+
     def fetch_fund_nav(
         self,
         fund_code: str,
         start_date: Optional[date] = None,
         end_date: Optional[date] = None,
     ) -> List[dict]:
-        """获取基金历史净值，使用 xalpha 官方 API"""
+        """
+        获取基金历史净值。
+        返回统一格式的列表，单只基金失败返回空列表，不抛异常。
+        """
+        # 防御：记录已报错的基金代码，避免日志刷屏
         if not hasattr(self, '_fund_nav_errors'):
             self._fund_nav_errors = set()
 
         try:
-            # 正确用法：xa.fundinfo(code) 返回基金对象，其 .price 属性是 DataFrame
             fund = xa.fundinfo(fund_code)
-            nav = fund.price  # DataFrame，列名: date, netvalue, totvalue
-
-            if nav is None or nav.empty:
-                self.logger.debug(f'基金 {fund_code} 无净值数据（可能为后端份额或场内ETF），已跳过')
-                return []
-
-            # 按日期范围过滤
-            if start_date:
-                nav = nav[nav['date'] >= pd.Timestamp(start_date)]
-            if end_date:
-                nav = nav[nav['date'] <= pd.Timestamp(end_date)]
-
-            records = []
-            for _, row in nav.iterrows():
-                records.append(
-                    {
-                        'fund_code': fund_code,
-                        'date': row['date'].date()
-                        if hasattr(row['date'], 'date')
-                        else pd.Timestamp(row['date']).date(),
-                        'unit_nav': float(row['netvalue']),
-                        'acc_nav': float(row['totvalue']),
-                    }
-                )
-            return records
+            nav_df = fund.price
         except xa.exceptions.FundTypeError:
+            # 货币基金：静默跳过
             self.logger.debug(f'基金 {fund_code} 是货币基金，跳过净值同步')
             return []
         except Exception as e:
-            # 首次报错才记录日志，避免刷屏
-            if not hasattr(self, '_fund_nav_errors'):
-                self._fund_nav_errors = set()
-            if fund_code not in self._fund_nav_errors:
-                self.logger.warning(f'获取基金 {fund_code} 净值失败: {e}')
-                self._fund_nav_errors.add(fund_code)
+            self._log_fund_error_once(fund_code, f'xalpha 初始化失败: {e}')
             return []
 
-    # 在 app/services/sync/adapters/xalpha_adapter.py 类中新增方法
+        if nav_df is None or nav_df.empty:
+            return []
 
-    def fetch_fund_fee(self, fund_code: str) -> Dict[str, Any]:
-        """
-        获取基金费率信息 (xalpha)
-        返回字典包含:
-            - purchase_rate: 优惠申购费率 (float 百分比)
-            - redemption_schedule: 赎回费率阶梯列表 [{'start': int, 'end': int or None, 'rate': float}, ...]
-            - management_rate: 管理费率 (暂不可用, 返回 None)
-        解析失败返回空字典。
-        """
-        result = {}
-        try:
-            fund = xa.fundinfo(fund_code)
-        except Exception as e:
-            self.logger.warning(f'xalpha 初始化基金 {fund_code} 失败: {e}')
-            return result
+        return self._parse_nav_dataframe(nav_df, fund_code)
 
-        # 申购费率 (优惠后)
-        try:
-            rate_str = fund.rate  # 如 "0.15%"
-            if rate_str and isinstance(rate_str, str):
-                result['purchase_rate'] = float(rate_str.rstrip('%'))
-        except Exception:
-            pass
+    def _parse_nav_dataframe(self, nav_df: pd.DataFrame, fund_code: str) -> List[dict]:
+        """将 xalpha 返回的净值 DataFrame 转换为统一格式的字典列表"""
+        records = list()
 
-        # 赎回费率阶梯
-        try:
-            feeinfo = fund.feeinfo  # 如 ['小于7天', '1.50%', '大于等于7天，小于30天', '0.75%', ...]
-            if isinstance(feeinfo, list) and len(feeinfo) >= 2:
-                schedule = []
-                # 按相邻两个一组解析
-                for i in range(0, len(feeinfo), 2):
-                    if i + 1 >= len(feeinfo):
-                        break
-                    desc = feeinfo[i]  # "小于7天"
-                    rate_str = feeinfo[i + 1]  # "1.50%"
-                    rate = float(rate_str.rstrip('%')) if isinstance(rate_str, str) else None
-                    # 解析天数区间 (简化处理: 提取数字)
-                    import re
+        # 日期过滤
+        nav_df = self._filter_nav_by_date(nav_df)
 
-                    numbers = re.findall(r'\d+', desc)
-                    if '大于等于' in desc and '小于' in desc:
-                        start = int(numbers[0]) if numbers else None
-                        end = int(numbers[1]) if len(numbers) > 1 else None
-                    elif '小于' in desc:
-                        start = 0
-                        end = int(numbers[0]) if numbers else None
-                    elif '大于等于' in desc:
-                        start = int(numbers[0]) if numbers else None
-                        end = None
-                    else:
-                        start = None
-                        end = None
-                    if start is not None and rate is not None:
-                        schedule.append({'start_day': start, 'end_day': end, 'rate': rate})
-                result['redemption_schedule'] = schedule
-        except Exception:
-            pass
+        for idx, row in nav_df.iterrows():
+            records.append(
+                {
+                    'fund_code': fund_code,
+                    'date': self._extract_date(idx),
+                    'unit_nav': float(row.get('netvalue', 0)),
+                    'acc_nav': float(row.get('totvalue', 0)),
+                }
+            )
+        return records
 
-        return result
+    @staticmethod
+    def _filter_nav_by_date(nav_df: pd.DataFrame) -> pd.DataFrame:
+        """过滤净值 DataFrame 的日期范围（预留扩展）"""
+        return nav_df
 
-    # ── 基金经理 ──
+    @staticmethod
+    def _extract_date(idx) -> date:
+        """从 DataFrame 索引中提取日期对象"""
+        if hasattr(idx, 'date'):
+            return idx.date()
+        return pd.Timestamp(idx).date()
+
+    def _log_fund_error_once(self, fund_code: str, message: str) -> None:
+        """同一只基金的同类型错误只记录一次，避免日志刷屏"""
+        if fund_code not in self._fund_nav_errors:
+            self.logger.warning(f'基金 {fund_code}: {message}')
+            self._fund_nav_errors.add(fund_code)
+
+    # ── 基金经理（不支持） ──
+
     def fetch_fund_manager(self, fund_code: str) -> List[dict]:
         raise NotImplementedError('xalpha 不支持基金经理信息，请使用 AkshareAdapter')
 
-    # ── xalpha 不支持股票相关 ──
+    # ── 股票相关（不支持） ──
+
     def fetch_stock_list(self, market: Optional[str] = None) -> List[dict]:
         raise NotImplementedError('xalpha 不支持股票列表')
 
@@ -158,3 +120,90 @@ class XalphaAdapter(DataSourceAdapter):
         end_date: Optional[date] = None,
     ) -> List[dict]:
         raise NotImplementedError('xalpha 不支持股票行情')
+
+    # ── 费率信息 ──
+
+    def fetch_fund_fee(self, fund_code: str) -> Dict[str, Any]:
+        """
+        获取基金费率信息。
+        返回字典包含 purchase_rate 和 redemption_schedule。
+        解析失败返回空字典。
+        """
+        try:
+            fund = xa.fundinfo(fund_code)
+        except Exception as e:
+            self.logger.warning(f'xalpha 初始化基金 {fund_code} 失败: {e}')
+            return {}
+
+        result = {}
+
+        # 申购费率
+        purchase_rate = self._extract_purchase_rate(fund)
+        if purchase_rate is not None:
+            result['purchase_rate'] = purchase_rate
+
+        # 赎回费率阶梯
+        schedule = self._parse_redemption_schedule(fund.feeinfo)
+        if schedule:
+            result['redemption_schedule'] = schedule
+
+        return result
+
+    @staticmethod
+    def _extract_purchase_rate(fund) -> Optional[float]:
+        """提取申购费率（优惠后）"""
+        try:
+            rate_str = fund.rate
+            if rate_str and isinstance(rate_str, str):
+                return float(rate_str.rstrip('%'))
+        except (ValueError, AttributeError):
+            pass
+        return None
+
+    @staticmethod
+    def _parse_redemption_schedule(feeinfo) -> List[dict]:
+        """
+        将 xalpha 返回的赎回费率列表解析为结构化阶梯。
+
+        xalpha 格式: ['小于7天', '1.50%', '大于等于7天，小于30天', '0.75%', ...]
+        解析后: [{"start_day": 0, "end_day": 7, "rate": 1.5}, ...]
+        """
+        schedule = list()
+        if not isinstance(feeinfo, list) or len(feeinfo) < 2:
+            return schedule
+
+        import re
+
+        for i in range(0, len(feeinfo), 2):
+            if i + 1 >= len(feeinfo):
+                break
+
+            desc = feeinfo[i]
+            rate_str = feeinfo[i + 1]
+
+            # 解析费率百分比
+            try:
+                rate = float(rate_str.rstrip('%'))
+            except (ValueError, AttributeError):
+                continue
+
+            # 解析天数区间
+            numbers = re.findall(r'\d+', desc)
+            if not numbers:
+                continue
+
+            if '大于等于' in desc and '小于' in desc:
+                start = int(numbers[0])
+                end = int(numbers[1]) if len(numbers) > 1 else None
+            elif '小于' in desc:
+                start = 0
+                end = int(numbers[0])
+            elif '大于等于' in desc:
+                start = int(numbers[0])
+                end = None
+            else:
+                continue
+
+            schedule.append({'start_day': start, 'end_day': end, 'rate': rate})
+
+        return schedule

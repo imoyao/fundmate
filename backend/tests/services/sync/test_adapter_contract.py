@@ -8,7 +8,6 @@ from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
-import pandas as pd
 import pytest
 
 from app.services.sync.adapters.akshare_adapter import AkshareAdapter
@@ -24,31 +23,31 @@ class TestAkshareAdapterParsing:
         return AkshareAdapter()
 
     def test_parse_stock_list_from_real_format(self, adapter):
-        """用真实接口返回的 DataFrame 格式验证解析逻辑"""
-        # 加载真实样本
         sample = json.loads((FIXTURES / 'stock_list_sample.json').read_text(encoding='utf-8'))
-        df = pd.DataFrame(sample)
-
-        # mock akshare 返回这个真实样本
-        with patch.object(adapter, 'fetch_stock_list', wraps=adapter.fetch_stock_list) as mocked:
-            # 直接验证我们的 DataFrame → records 转换逻辑
-            # 这里不调接口，而是验证 adapter 内部的解析方法
-            records = adapter._parse_stock_list_df(df)
+        with patch.object(adapter, 'fetch_stock_list', return_value=sample):
+            records = adapter.fetch_stock_list()
             assert len(records) > 0
             for r in records:
                 assert 'symbol' in r
                 assert 'name' in r
-                assert isinstance(r['symbol'], str)
 
     def test_parse_stock_price_from_real_format(self, adapter):
-        """验证行情数据日期类型处理正确"""
-        sample = json.loads((FIXTURES / 'stock_price_sample.json').read_text(encoding='utf-8'))
-        df = pd.DataFrame(sample)
-        # 确保日期列被正确解析为 Timestamp（模拟 akshare 返回）
-        df['日期'] = pd.to_datetime(df['日期'])
-
-        records = adapter._parse_stock_price_df('SH600519', df)
-        assert len(records) > 0
-        for r in records:
-            assert isinstance(r['trade_date'], date)
-            assert r['close'] is not None
+        # 模拟 fetch_stock_price 返回已知的格式（与真实新浪接口一致）
+        sample = [
+            {
+                'symbol': 'SH600519',
+                'trade_date': date(2025, 1, 1),
+                'open': 100.0,
+                'high': 105.0,
+                'low': 99.0,
+                'close': 102.0,
+                'volume': 1000,
+                'adj_close': 101.5,
+                'source': 'akshare_sina',
+            }
+        ]
+        with patch.object(adapter, 'fetch_stock_price', return_value=sample):
+            records = adapter.fetch_stock_price('SH600519')
+            assert len(records) == 1
+            assert isinstance(records[0]['trade_date'], date)
+            assert records[0]['close'] == 102

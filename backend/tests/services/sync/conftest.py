@@ -7,8 +7,15 @@ from unittest.mock import patch
 
 import pytest
 
-import app.domains.price_history.models  # noqa: F401
 import app.models.sync_log  # noqa: F401
+from app.domains.funds.models import FeeRatio, PurchaseRule, RedeemRule  # noqa: F401
+
+
+@pytest.fixture(autouse=True)
+def mock_xalpha_backend(monkeypatch):
+    import xalpha as xa
+
+    monkeypatch.setattr(xa, 'set_backend', lambda **kw: None)
 
 
 @pytest.fixture(autouse=True)

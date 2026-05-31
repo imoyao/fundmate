@@ -1,34 +1,33 @@
-# -*- coding: utf-8 -*-
-# Author : imoyao
-# Date : 2026/5/31 14:13
-# File : fund_detail_enrich_job.py
 # app/services/sync/jobs/fund_detail_enrich_job.py
+"""
+基金详细信息补充任务。
+对传入的目标基金列表，补充分类、公司、费率、拼音等静态信息。
+"""
 
 import time
 from datetime import date
 from typing import Any, Dict, List
 
 from loguru import logger
+from pypinyin import lazy_pinyin
 from sqlalchemy.orm import Session
 
 from app.core.time_utils import now_shanghai
-from app.domains.funds.models import FeeRatio, Fund, FundCompany, FundType, FundVariety, PurchaseRule, RedeemRule
-from app.services.sync.jobs.base import BATCH_SIZE_DETAIL_ENRICH, FeeType, JobStatus, SyncJob
+from app.domains.funds.models import FeeRatio, Fund, FundCompany, FundType, PurchaseRule, RedeemRule
+from app.services.sync.jobs.base import BATCH_SIZE_DETAIL_ENRICH, JobStatus, SyncJob
 
 
 class FundDetailEnrichJob(SyncJob):
-    """补充基金详细信息（分类、公司、费率等）"""
-
     def __init__(self, akshare_adapter, xalpha_adapter, db: Session):
-        super().__init__(akshare_adapter, db)  # 基类需要
+        super().__init__(akshare_adapter, db)
         self.akshare_adapter = akshare_adapter
         self.xalpha_adapter = xalpha_adapter
 
     def get_name(self) -> str:
         return 'fund_detail_enrich'
 
-    # 本 Job 不使用基类标准流程，以下方法仅作为抽象方法占位
-    def _fetch_data(self, full_sync: bool) -> List[dict]:
+    # 以下四个方法是基类抽象方法的占位实现（本 Job 使用自定义 run 流程）
+    def _fetch_data(self, full_sync: bool, targets: List[str]) -> List[dict]:
         return []
 
     def _validate_data(self, raw_data: List[dict]) -> List[dict]:
@@ -40,51 +39,40 @@ class FundDetailEnrichJob(SyncJob):
     def _save_data(self, new_data: List[dict]) -> None:
         pass
 
-    # ---------- 目标代码 ----------
-    def _get_target_codes(self) -> List[str]:
-        """复用 target_file_codes 或从数据库获取核心池代码"""
-        if hasattr(self, 'target_file_codes') and self.target_file_codes:
-            return [c for c in self.target_file_codes if c.isdigit() and len(c) == 6]
-        # 默认：所有活跃基金
-        funds = self.db.query(Fund).filter(Fund.is_active).all()
-        codes = [fund.fund_code for fund in funds]
-        return codes
+    # ── 主流程 ──
 
-    # ---------- 主流程 ----------
-    def run(self, full_sync: bool = False) -> Dict[str, Any]:
+    def run(self, full_sync: bool = False, targets: List[str] = None) -> Dict[str, Any]:
         self.snapshot_time = now_shanghai()
         self.status = JobStatus.RUNNING
         self._pre_run()
         self.logger.info('开始补充基金详情')
 
-        # 初始化统计字典
         self.stats = {'enriched': 0, 'skipped': 0, 'errors': []}
 
-        codes = self._get_target_codes()
-        if not codes:
+        if not targets:
             self.logger.info('无基金需要补充详情')
             self.status = JobStatus.SUCCESS
             return self._build_result()
 
-        total = len(codes)
-        batch_size = BATCH_SIZE_DETAIL_ENRICH
+        total = len(targets)
+        batch_size = getattr(self, 'batch_size', BATCH_SIZE_DETAIL_ENRICH)
 
         for i in range(0, total, batch_size):
-            batch = codes[i : i + batch_size]
+            batch = targets[i : i + batch_size]
             self.logger.info(f'详情进度: {min(i + batch_size, total)}/{total}')
 
             for code in batch:
                 try:
-                    # 获取已有记录，跳过今日已处理的
                     fund = self.db.query(Fund).filter_by(fund_code=code).first()
                     if not fund:
                         continue
+                    # 今日已处理则跳过
                     if fund.last_nav_check and fund.last_nav_check.date() == date.today():
                         self.stats['skipped'] += 1
                         continue
 
-                    # 获取详情
-                    akshare_detail = self.adapter.fetch_fund_detail(code)
+                    # 获取详情和费率
+                    akshare_detail = self.akshare_adapter.fetch_fund_detail(code)
                     xalpha_fee = self.xalpha_adapter.fetch_fund_fee(code)
 
                     # 更新基本信息
@@ -105,69 +93,93 @@ class FundDetailEnrichJob(SyncJob):
             except Exception as e:
                 self.db.rollback()
                 logger.error(f'批次提交失败: {e}')
-                time.sleep(1)  # 避免请求过快
+
+            time.sleep(1)  # 避免请求过快
 
         self._post_run()
         self.status = JobStatus.SUCCESS
         self.logger.info(
-            f"基金详情补充完成: 新增 {self.stats['enriched']}, 跳过 {self.stats['skipped']}, 错误 {len(self.stats['errors'])}"
+            f"基金详情补充完成: 新增 {self.stats['enriched']}, "
+            f"跳过 {self.stats['skipped']}, 错误 {len(self.stats['errors'])}"
         )
         return self._build_result()
 
-    # ---------- 内部辅助方法 ----------
-    def _update_fund_basics(self, fund: Fund, detail: Dict[str, Any]):
-        """更新基金静态信息字段"""
+    # ── 基本信息更新 ──
+
+    def _update_fund_basics(self, fund: Fund, detail: Dict[str, Any]) -> None:
+        """根据 akshare 详情更新 fund 表的静态字段"""
         if not detail:
             return
 
         # 基金类型映射
         raw_type = detail.get('fund_type_raw')
-        if raw_type:
-            fund_type_id = self._get_or_create_fund_type(raw_type)
-            if fund_type_id:
-                fund.fund_type_id = fund_type_id
-                # 尝试推断大类 (简化: 取类型字符串分割的第一部分)
-                variety_name = raw_type.split('-')[0] if '-' in raw_type else raw_type
-                variety_id = self._get_or_create_fund_variety(variety_name)
-                if variety_id:
-                    fund.fund_variety_id = variety_id
+        if raw_type and not fund.fund_type_id:
+            fund.fund_type_id = self._get_or_create_fund_type(raw_type)
 
         # 基金公司
         company_name = detail.get('company_name')
-        if company_name:
-            company_id = self._get_or_create_company(company_name)
-            if company_id:
-                fund.company_id = company_id
+        if company_name and not fund.company_id:
+            fund.company_id = self._get_or_create_company(company_name)
 
-        # 其他字段
-        if detail.get('create_time'):
+        # 全称
+        if detail.get('fund_full_name') and not fund.full_name:
+            fund.full_name = detail['fund_full_name']
+
+        # 成立日期
+        if detail.get('create_time') and not fund.create_time:
             fund.create_time = detail['create_time']
-        if detail.get('benchmark'):
+
+        # 业绩比较基准
+        if detail.get('benchmark') and not fund.benchmark:
             fund.benchmark = detail['benchmark']
-        if detail.get('risk_level'):
+
+        if detail.get('risk_level') and not fund.risk_level:
             fund.risk_level = detail['risk_level']
 
-    def _update_fund_fees(self, fund_code: str, fee_info: Dict[str, Any]):
-        """根据 xalpha 费率数据创建/关联规则"""
+        # 拼音简拼
+        if fund.name and not fund.pinyin_abbr:
+            fund.pinyin_abbr = self._generate_pinyin_abbr(fund.name)
+
+    @staticmethod
+    def _generate_pinyin_abbr(name: str) -> str:
+        """
+        生成拼音首字母简拼（仿天天基金规则：英文/数字原样保留，特殊符号跳过）。
+        示例: "华夏成长混合" -> "HXCZHH"
+        """
+        result = list()
+        for char in name:
+            if '\u4e00' <= char <= '\u9fff':
+                # 汉字：取拼音首字母大写
+                pinyin_list = lazy_pinyin(char)
+                if pinyin_list:
+                    result.append(pinyin_list[0][0].upper())
+            elif char.isalnum():
+                # 英文/数字：原样保留
+                result.append(char.upper())
+            # 特殊符号跳过
+        return ''.join(result)
+
+    # ── 费率更新 ──
+
+    def _update_fund_fees(self, fund_code: str, fee_info: Dict[str, Any]) -> None:
+        """根据 xalpha 返回的费率信息创建/关联费率规则"""
         if not fee_info:
             return
 
         # 申购费率
         purchase_rate = fee_info.get('purchase_rate')
         if purchase_rate is not None:
-            self._save_single_fee(fund_code, FeeType.PURCHASE, rate=purchase_rate, start_quota=0, end_quota=None)
+            self._save_single_fee(fund_code, 'purchase', rate=purchase_rate, start_quota=0, end_quota=None)
 
         # 赎回费率阶梯
-        redemption_schedule = fee_info.get('redemption_schedule')
-        if redemption_schedule:
-            for item in redemption_schedule:
-                self._save_single_fee(
-                    fund_code, FeeType.REDEEM, rate=item['rate'], start_day=item['start_day'], end_day=item['end_day']
-                )
+        for item in fee_info.get('redemption_schedule', []):
+            self._save_single_fee(
+                fund_code, 'redeem', rate=item['rate'], start_day=item['start_day'], end_day=item['end_day']
+            )
 
-    def _save_single_fee(self, fund_code: str, fee_type: str, **kwargs):
-        """保存单条费率记录，自动复用规则"""
-        if fee_type in (FeeType.PURCHASE,):
+    def _save_single_fee(self, fund_code: str, fee_type: str, **kwargs) -> None:
+        """保存单条费率记录，自动复用已有规则"""
+        if fee_type == 'purchase':
             rule = self._get_or_create_purchase_rule(kwargs.get('start_quota', 0), kwargs.get('end_quota'))
             purchase_rule_id = rule.id if rule else None
             redeem_rule_id = None
@@ -195,7 +207,8 @@ class FundDetailEnrichJob(SyncJob):
             )
             self.db.add(fee_ratio)
 
-    # ---------- 规则复用方法 ----------
+    # ── 规则复用方法 ──
+
     def _get_or_create_purchase_rule(self, start_quota: float, end_quota: float = None):
         rule = self.db.query(PurchaseRule).filter_by(start_quota=start_quota, end_quota=end_quota).first()
         if not rule:
@@ -220,15 +233,8 @@ class FundDetailEnrichJob(SyncJob):
             self.db.flush()
         return inst.id
 
-    def _get_or_create_fund_variety(self, variety_name: str) -> int:
-        inst = self.db.query(FundVariety).filter_by(name=variety_name).first()
-        if not inst:
-            inst = FundVariety(name=variety_name)
-            self.db.add(inst)
-            self.db.flush()
-        return inst.id
-
     def _get_or_create_company(self, company_name: str) -> int:
+        # FundCompany.code 必填，用公司名称作为 code
         inst = self.db.query(FundCompany).filter_by(name=company_name).first()
         if not inst:
             inst = FundCompany(name=company_name, code=company_name)

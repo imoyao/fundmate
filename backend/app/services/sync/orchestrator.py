@@ -1,9 +1,16 @@
-# -*- coding: utf-8 -*-
-# Author : imoyao
-# Date : 2026/5/30 11:26
-# File : orchestrator.py
-# -*- coding: utf-8 -*-
 # app/services/sync/orchestrator.py
+"""
+元数据同步调度器。
+
+职责：
+- 注册和管理所有 SyncJob 实例
+- 解析同步目标代码列表（CSV / 持仓+自选 / 全量）
+- 按依赖顺序执行多个 Job
+- 同步前自动备份数据库
+- 记录审计日志
+"""
+
+import csv
 import os
 import shutil
 import subprocess
@@ -14,9 +21,12 @@ from typing import Any, Dict, List, Optional
 from loguru import logger
 from sqlalchemy.orm import Session
 
+# 项目根目录：从 app 包的物理路径推导
 import app
-from app.core.database import SQLALCHEMY_DATABASE_URL
+from app.core.database import SQLALCHEMY_DATABASE_URL as DB_URL
 from app.core.time_utils import now_shanghai
+from app.domains.positions.models import Position
+from app.domains.watchlist.models import WatchlistItem
 from app.models.sync_log import SyncLog
 from app.services.sync.adapters.akshare_adapter import AkshareAdapter
 from app.services.sync.adapters.xalpha_adapter import XalphaAdapter
@@ -30,10 +40,18 @@ from app.services.sync.jobs.stock_list_job import StockListSyncJob
 BASE_DIR = Path(app.__path__[0]).parent
 
 
-def acquire_lock(lock_file: Path):
+# ============================================================
+# 跨平台原子文件锁
+# ============================================================
+
+
+def acquire_lock(lock_file: Path) -> tuple:
     """
     尝试获取原子文件锁。
-    返回 (成功标志, 文件描述符或None)。
+
+    返回:
+        (成功标志, 文件描述符)。
+        如果获取失败，返回 (False, None)。
     """
     lock_file.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -53,35 +71,138 @@ def acquire_lock(lock_file: Path):
         return False, None
 
 
+# ============================================================
+# 调度器主体
+# ============================================================
+
+
 class DataSyncOrchestrator:
-    def __init__(self, db: Session, target_file_codes: Optional[List[str]] = None):
+    """
+    元数据同步调度器。
+
+    用法:
+        with get_db() as db:
+            orch = DataSyncOrchestrator(db)
+            orch.run_all_jobs(full_sync=False)
+    """
+
+    def __init__(self, db: Session):
         self.db = db
-        self.data_sources = {}
-        self.target_file_codes = target_file_codes
+        self.data_sources: Dict[str, Any] = {}
         self.jobs: Dict[str, Any] = {}
         self._register_data_sources()
         self._register_jobs()
 
-    def _register_data_sources(self):
+    # ── 初始化 ──
+
+    def _register_data_sources(self) -> None:
+        """注册数据源适配器（硬编码，避免过度配置）"""
         self.data_sources['xalpha'] = XalphaAdapter()
         self.data_sources['akshare'] = AkshareAdapter()
 
-    def _register_jobs(self):
+    def _register_jobs(self) -> None:
+        """注册所有同步任务，明确指定每个 Job 使用的数据源"""
         self.jobs['stock_list'] = StockListSyncJob(self.data_sources['akshare'], self.db)
         self.jobs['fund_list'] = FundListSyncJob(self.data_sources['akshare'], self.db)
-        self.jobs['fund_manager'] = FundManagerSyncJob(self.data_sources['akshare'], self.db)
-        self.jobs['fund_nav'] = FundNavSyncJob(self.data_sources['xalpha'], self.db)
-        self.jobs['price_history'] = PriceHistorySyncJob(self.data_sources['akshare'], self.db)
+        # FundDetailEnrichJob 需要两个适配器：akshare 获取详情，xalpha 获取费率
         self.jobs['fund_detail_enrich'] = FundDetailEnrichJob(
             self.data_sources['akshare'], self.data_sources['xalpha'], self.db
         )
+        self.jobs['fund_manager'] = FundManagerSyncJob(self.data_sources['akshare'], self.db)
+        self.jobs['fund_nav'] = FundNavSyncJob(self.data_sources['xalpha'], self.db)
+        self.jobs['price_history'] = PriceHistorySyncJob(self.data_sources['akshare'], self.db)
 
-    def _backup_database(self):
-        """根据 DATABASE_URL 自动选择备份方式"""
-        backup_dir = BASE_DIR / 'data/backups'
+    # ── 目标代码解析 ──
+
+    def resolve_targets(self, target_file: Optional[str] = None) -> Dict[str, List[str]]:
+        """
+        解析本次同步的目标代码列表，按类型分为 'fund' 和 'stock'。
+
+        优先级:
+            1. 命令行传入的 --target-file CSV 文件
+            2. 数据库中的持仓 + 自选标的
+            3. 空列表（增量同步在无持仓时会跳过）
+
+        Returns:
+            {"fund": [...], "stock": [...]}
+        """
+        if target_file:
+            codes = self._load_codes_from_csv(target_file)
+        else:
+            codes = self._load_codes_from_database()
+
+        # 按类型分类：6 位纯数字为基金代码，其余为股票代码
+        fund_codes = [c for c in codes if c.isdigit() and len(c) == 6]
+        stock_codes = [c for c in codes if not (c.isdigit() and len(c) == 6)]
+        return {'fund': fund_codes, 'stock': stock_codes}
+
+    def _load_codes_from_csv(self, filepath: str) -> List[str]:
+        """
+        从 CSV 文件读取目标代码列表。
+
+        CSV 格式要求:
+            - 每行一个代码，第一列有效
+            - 支持表头行（自动跳过 "code", "代码", "symbol"）
+            - 使用 utf-8-sig 编码，兼容 Excel 导出的 BOM 头
+        """
+        codes = list()
+        with open(filepath, encoding='utf-8-sig') as f:
+            reader = csv.reader(f)
+            for row in reader:
+                if not row:
+                    continue
+                code = row[0].strip().strip('"')
+                if not code:
+                    continue
+                # 跳过表头行
+                if code in ('code', '代码', 'symbol'):
+                    continue
+                codes.append(code)
+        logger.info(f'从 CSV 文件读取到 {len(codes)} 个代码')
+        return codes
+
+    def _load_codes_from_database(self) -> List[str]:
+        """
+        从数据库的持仓表和自选表中提取所有需要同步的代码。
+        合并去重后返回。
+
+        数据来源:
+            - positions 表：用户实际持有的基金/股票
+            - watchlist_items 表：用户关注但未持有的标的
+        """
+
+        codes = set()
+
+        # 持仓标的
+        positions = self.db.query(Position.symbol).distinct().all()
+        for (symbol,) in positions:
+            if symbol:
+                codes.add(symbol)
+
+        # 自选标的
+        watchlist = self.db.query(WatchlistItem.symbol).distinct().all()
+        for (symbol,) in watchlist:
+            if symbol:
+                codes.add(symbol)
+
+        logger.info(f'从数据库提取到 {len(codes)} 个目标代码')
+        return list(codes)
+
+    # ── 数据库备份 ──
+
+    def _backup_database(self) -> None:
+        """
+        同步前自动备份数据库。
+        根据 DB_URL 自动选择备份方式：
+            - SQLite: 复制 .db 文件
+            - PostgreSQL: 调用 pg_dump
+            - MySQL: 调用 mysqldump
+        备份保留最近 7 个。
+        """
+        backup_dir = BASE_DIR / 'data' / 'backups'
         backup_dir.mkdir(parents=True, exist_ok=True)
         timestamp = now_shanghai().strftime('%Y%m%d_%H%M%S')
-        db_url = SQLALCHEMY_DATABASE_URL
+        db_url = DB_URL
 
         if db_url.startswith('sqlite'):
             self._backup_sqlite(db_url, backup_dir, timestamp)
@@ -92,12 +213,13 @@ class DataSyncOrchestrator:
         else:
             logger.warning(f"不支持的数据库类型，跳过备份: {db_url.split(':')[0]}")
 
-    def _backup_sqlite(self, db_url, backup_dir, timestamp):
-        # 提取文件路径 (去掉 sqlite:/// 前缀)
+    def _backup_sqlite(self, db_url: str, backup_dir: Path, timestamp: str) -> None:
+        """SQLite 文件级备份"""
+        # 去掉 "sqlite:///" 前缀，得到文件路径
         if db_url.startswith('sqlite:///'):
-            db_path = Path(db_url[10:])  # 使用 Path 自动处理分隔符
+            db_path = Path(db_url[10:])
             if not db_path.is_absolute():
-                db_path = BASE_DIR / db_path  # 相对路径转为绝对路径
+                db_path = BASE_DIR / db_path
         else:
             db_path = Path(db_url)
 
@@ -110,7 +232,8 @@ class DataSyncOrchestrator:
         logger.info(f'SQLite 备份完成: {backup_path}')
         self._rotate_backups(backup_dir, 'showbuy_backup_*.db')
 
-    def _backup_postgresql(self, db_url, backup_dir, timestamp):
+    def _backup_postgresql(self, db_url: str, backup_dir: Path, timestamp: str) -> None:
+        """PostgreSQL 逻辑备份"""
         if not shutil.which('pg_dump'):
             logger.warning('pg_dump 未安装，跳过备份')
             return
@@ -122,7 +245,8 @@ class DataSyncOrchestrator:
         except (subprocess.CalledProcessError, FileNotFoundError) as e:
             logger.warning(f'pg_dump 备份失败: {e}')
 
-    def _backup_mysql(self, db_url, backup_dir, timestamp):
+    def _backup_mysql(self, db_url: str, backup_dir: Path, timestamp: str) -> None:
+        """MySQL 逻辑备份"""
         if not shutil.which('mysqldump'):
             logger.warning('mysqldump 未安装，跳过备份')
             return
@@ -137,31 +261,51 @@ class DataSyncOrchestrator:
             logger.warning(f'mysqldump 备份失败: {e}')
 
     @staticmethod
-    def _rotate_backups(backup_dir: Path, pattern: str, keep: int = 7):
+    def _rotate_backups(backup_dir: Path, pattern: str, keep: int = 7) -> None:
+        """清理旧备份，只保留最近 keep 个"""
         backups = sorted(backup_dir.glob(pattern))
         for old in backups[:-keep]:
             old.unlink()
 
-    def _save_sync_log(self, job_name, result, full_sync):
-        log_entry = SyncLog(
-            job_name=job_name,
-            status=result['status'],
-            full_sync=full_sync,
-            stats=str(result.get('stats', {})),
-            error_detail=str(result.get('stats', {}).get('errors', [])),
-            data_source=self.jobs[job_name].adapter.get_name(),
-            data_source_version=self.jobs[job_name].adapter.get_version(),
-            started_at=self.jobs[job_name].snapshot_time,
-            finished_at=now_shanghai(),
-            duration_seconds=result.get('duration', 0),
-        )
-        self.db.add(log_entry)
-        self.db.commit()
+    # ── Job 执行 ──
 
-    def _execute_job(self, job_name: str, full_sync: bool) -> Dict[str, Any]:
-        """执行单个 Job，处理异常并返回结果字典"""
+    def run_job(self, job_name: str, full_sync: bool = False, targets: Optional[List[str]] = None) -> Dict[str, Any]:
+        """
+        执行单个同步任务。
+
+        Args:
+            job_name: 任务名（如 'fund_nav'）
+            full_sync: 是否全量同步
+            targets: 目标代码列表（可选，用于分层同步）
+
+        Returns:
+            包含 status 和 stats 的结果字典
+        """
+        if job_name not in self.jobs:
+            raise ValueError(f'未知任务: {job_name}')
+
+        job = self.jobs[job_name]
+        logger.info(f"开始执行 {job_name} (全量={full_sync}, 目标数={len(targets) if targets else '全部'})")
+
+        # 注入目标代码列表
+        if targets:
+            job.target_file_codes = targets
+
+        result = job.run(full_sync, targets=targets)
+        result['duration'] = (now_shanghai() - job.snapshot_time).total_seconds()
+        self._save_sync_log(job_name, result, full_sync)
+        return result
+
+    def _execute_job(self, job_name: str, full_sync: bool, targets: Optional[List[str]] = None) -> Dict[str, Any]:
+        """
+        执行单个 Job 并处理异常。
+        单个 Job 失败不中断后续 Job。
+
+        Returns:
+            结果字典。如果失败，status 为 'error'。
+        """
         try:
-            result = self.run_job(job_name, full_sync)
+            result = self.run_job(job_name, full_sync, targets=targets)
             if result['status'] != 'success':
                 logger.error(f"任务 {job_name} 失败（状态：{result['status']}），继续执行下一个任务")
             else:
@@ -171,8 +315,16 @@ class DataSyncOrchestrator:
             logger.exception(f'任务 {job_name} 异常: {e}，继续执行下一个任务')
             return {'job_name': job_name, 'status': 'error', 'error': str(e)}
 
-    def run_all_jobs(self, full_sync: bool = False) -> Dict[str, Any]:
-        lock_file = BASE_DIR / 'data/sync.lock'
+    def run_all_jobs(self, full_sync: bool = False, target_file: Optional[str] = None) -> Dict[str, Any]:
+        """
+        按依赖顺序执行所有同步任务。
+
+        执行顺序:
+            stock_list → fund_list → fund_detail_enrich → fund_nav → price_history
+
+        单实例锁保证同时只有一个同步进程运行。
+        """
+        lock_file = BASE_DIR / 'data' / 'sync.lock'
         locked, fd = acquire_lock(lock_file)
         if not locked:
             raise RuntimeError('另一个同步进程正在运行')
@@ -180,28 +332,46 @@ class DataSyncOrchestrator:
         try:
             self._backup_database()
 
-            order = ['stock_list', 'fund_list', 'fund_detail_enrich', 'fund_nav', 'price_history']
+            # 解析目标代码列表
+            targets = self.resolve_targets(target_file)
+            fund_targets = targets.get('fund', [])
+            stock_targets = targets.get('stock', [])
+
+            # 执行顺序：列表类 Job 不需要目标列表，净值/行情需要
+            execution_plan = [
+                ('stock_list', ['__full__']),  # 全量刷新股票列表，不需要目标列表
+                ('fund_list', ['__full__']),  # 全量刷新基金列表
+                ('fund_detail_enrich', fund_targets),  # 补充基金详情（核心池）
+                ('fund_nav', fund_targets),  # 净值增量同步（核心池）
+                ('price_history', stock_targets),  # 行情增量同步（核心池）
+            ]
+
             results = {}
-            for name in order:
-                if name in self.jobs:
-                    results[name] = self._execute_job(name, full_sync)
+            for job_name, job_targets in execution_plan:
+                if job_name in self.jobs:
+                    results[job_name] = self._execute_job(job_name, full_sync, job_targets)
             return results
         finally:
             if fd is not None:
                 os.close(fd)
             lock_file.unlink(missing_ok=True)
 
-    def run_job(self, job_name: str, full_sync: bool = False) -> Dict[str, Any]:
-        if job_name not in self.jobs:
-            raise ValueError(f'未知任务: {job_name}')
-        logger.info(f'开始执行 {job_name} (全量={full_sync})')
+    # ── 审计日志 ──
 
+    def _save_sync_log(self, job_name: str, result: Dict[str, Any], full_sync: bool) -> None:
+        """将同步结果写入 sync_logs 表"""
         job = self.jobs[job_name]
-        # 注入从 CSV 文件读取的目标代码列表（如果存在）
-        if self.target_file_codes and hasattr(job, 'target_file_codes'):
-            job.target_file_codes = self.target_file_codes
-
-        result = job.run(full_sync)
-        result['duration'] = (now_shanghai() - job.snapshot_time).total_seconds()
-        self._save_sync_log(job_name, result, full_sync)
-        return result
+        log_entry = SyncLog(
+            job_name=job_name,
+            status=result.get('status', 'unknown'),
+            full_sync=full_sync,
+            stats=str(result.get('stats', {})),
+            error_detail=str(result.get('stats', {}).get('errors', [])),
+            data_source=job.adapter.get_name(),
+            data_source_version=job.adapter.get_version(),
+            started_at=job.snapshot_time,
+            finished_at=now_shanghai(),
+            duration_seconds=result.get('duration', 0),
+        )
+        self.db.add(log_entry)
+        self.db.commit()

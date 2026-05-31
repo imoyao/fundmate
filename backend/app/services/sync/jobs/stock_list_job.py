@@ -1,47 +1,66 @@
-# -*- coding: utf-8 -*-
-# Author : imoyao
-# Date : 2026/5/30 11:26
-# File : stock_list_job.py
-# -*- coding: utf-8 -*-
 # app/services/sync/jobs/stock_list_job.py
+"""证券列表同步任务（全量）"""
 
 from typing import List
 
-from app.core.db_utils import bulk_insert_if_not_exists
+from loguru import logger
+
 from app.domains.securities.models import Security
 from app.services.sync.jobs.base import SyncJob
 
 
 class StockListSyncJob(SyncJob):
+    @property
+    def _allow_empty_data(self) -> bool:
+        return True
+
     def get_name(self) -> str:
         return 'stock_list'
 
-    def _fetch_data(self, full_sync: bool) -> List[dict]:
-        # 全量同步股票列表
+    # ── 数据获取 ──
+
+    def _fetch_data(self, full_sync: bool, targets: List[str]) -> List[dict]:
+        """全量获取所有 A 股股票基本信息（忽略传入的 targets）"""
         return self.adapter.fetch_stock_list()
 
+    # ── 数据校验 ──
+
     def _validate_data(self, raw_data: List[dict]) -> List[dict]:
-        # 基本清洗：去除空值，确保必填字段存在
-        validated = []
+        """清洗股票列表数据：确保 symbol 和 name 非空，补充默认值"""
+        validated = list()
         for item in raw_data:
             if not item.get('symbol') or not item.get('name'):
                 continue
-            # 补充默认值
             item.setdefault('market', 'CN_A')
             item.setdefault('type', 'stock')
             item.setdefault('currency', 'CNY')
             validated.append(item)
         return validated
 
+    # ── 去重 ──
+
     def _deduplicate(self, data: List[dict]) -> List[dict]:
-        # 使用基类通用去重，唯一键为 symbol
+        """基于 symbol 去重"""
         return self._deduplicate_by_unique_key(data, Security, 'symbol')
 
+    # ── 保存 ──
+
     def _save_data(self, new_data: List[dict]) -> None:
-        try:
-            inserted = bulk_insert_if_not_exists(self.db, Security, new_data, 'symbol')
-            self.db.commit()
-            self.logger.info(f'已保存 {inserted} 条证券记录')
-        except Exception:
-            self.db.rollback()
-            raise
+        """批量插入新的证券记录"""
+        if not new_data:
+            return
+
+        # 批量插入（数据库会自动跳过已存在的 symbol 因为 unique 约束）
+        existing_symbols = {
+            row[0]
+            for row in self.db.query(Security.symbol)
+            .filter(Security.symbol.in_([item['symbol'] for item in new_data]))
+            .all()
+        }
+        new_records = [item for item in new_data if item['symbol'] not in existing_symbols]
+
+        if new_records:
+            self.db.bulk_insert_mappings(Security, new_records)
+            logger.info(f'新增 {len(new_records)} 只证券')
+
+        self.db.commit()

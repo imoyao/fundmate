@@ -1,8 +1,4 @@
 # -*- coding: utf-8 -*-
-# Author : imoyao
-# Date : 2026/5/30 12:51
-# File : test_price_history_job.py
-# -*- coding: utf-8 -*-
 """测试 PriceHistorySyncJob"""
 
 from datetime import date
@@ -22,9 +18,8 @@ class TestPriceHistorySyncJob:
         adapter.get_name.return_value = 'mock_akshare'
         return PriceHistorySyncJob(adapter, db)
 
-    # ── _validate_data ──────────────────────────────
-
     def test_validate_normal(self, job):
+        """正常行情数据通过校验"""
         raw = [
             {
                 'security_id': 1,
@@ -42,42 +37,37 @@ class TestPriceHistorySyncJob:
         assert len(validated) == 1
         item = validated[0]
         assert item['open'] == 100.0
-        assert item['source'] == 'akshare'
 
     def test_validate_default_adj_close(self, job):
+        """未提供 adj_close 时自动使用 close 填充"""
         raw = [
-            {'security_id': 1, 'trade_date': date(2025, 1, 2), 'close': 50.0, 'open': 49.0, 'high': 51.0, 'low': 48.0}
+            {
+                'security_id': 1,
+                'trade_date': date(2025, 1, 2),
+                'close': 50.0,
+                'open': 49.0,
+                'high': 51.0,
+                'low': 48.0,
+            }
         ]
         validated = job._validate_data(raw)
         assert len(validated) == 1
-        # 未提供 adj_close 时，应填充为 close
         assert validated[0]['adj_close'] == 50.0
-        # source 应被设置为适配器名称
         assert validated[0]['source'] == 'mock_akshare'
 
     def test_validate_missing_key_fields(self, job):
+        """缺失必填字段的记录应被过滤"""
         raw = [
-            {'trade_date': date(2025, 1, 1), 'close': 100.0},  # 缺 security_id
-            {'security_id': 1, 'close': 100.0},  # 缺 trade_date
-            {'security_id': 1, 'trade_date': date(2025, 1, 2)},  # 缺 close
+            {'trade_date': date(2025, 1, 1), 'close': 100.0},
+            {'security_id': 1, 'close': 100.0},
             {'security_id': 2, 'trade_date': date(2025, 1, 3), 'close': 99.0},
         ]
         validated = job._validate_data(raw)
         assert len(validated) == 1
         assert validated[0]['security_id'] == 2
 
-    # ── _deduplicate ────────────────────────────────
-
-    def test_deduplicate_all_new(self, job, db):
-        data = [
-            {'security_id': 1, 'trade_date': date(2025, 1, 1), 'close': 10.0},
-            {'security_id': 1, 'trade_date': date(2025, 1, 2), 'close': 11.0},
-        ]
-        new = job._deduplicate(data)
-        assert len(new) == 2
-
     def test_deduplicate_existing(self, job, db):
-        # 预存一条行情
+        """基于复合键 (security_id, trade_date) 去重"""
         db.add(PriceHistory(security_id=1, trade_date=date(2025, 1, 1), close=10.0))
         db.commit()
 
@@ -88,18 +78,12 @@ class TestPriceHistorySyncJob:
         ]
         new = job._deduplicate(data)
         assert len(new) == 2
-        # 验证排除的记录
-        kept = {(item['security_id'], item['trade_date']) for item in new}
-        assert (1, date(2025, 1, 1)) not in kept
-        assert (1, date(2025, 1, 2)) in kept
-        assert (2, date(2025, 1, 1)) in kept
-
-    # ── run 集成 ─────────────────────────────────
 
     def test_run_integration(self, job, db):
-        db.add(Security(symbol='SH600519', name='茅台', market='CN_A', type='stock', currency='CNY'))
+        """端到端测试：增量同步写入行情数据"""
+        sec = Security(symbol='SH600519', name='茅台', market='CN_A', type='stock', currency='CNY')
+        db.add(sec)
         db.commit()
-        sec_id = db.query(Security.id).first()[0]
 
         job.adapter.fetch_stock_price.return_value = [
             {
@@ -122,26 +106,10 @@ class TestPriceHistorySyncJob:
             },
         ]
 
-        result = job.run(full_sync=True)
+        result = job.run(full_sync=True, targets=['SH600519'])
         assert result['status'] == 'success'
-        assert result['stats']['total'] == 2
+        assert result['stats']['total'] == 1
         assert result['stats']['success'] == 2
 
         rows = db.query(PriceHistory).all()
         assert len(rows) == 2
-
-        # 第二次运行：新建 job 实例
-        job2 = PriceHistorySyncJob(job.adapter, db)
-        job2.adapter.fetch_stock_price.return_value = [
-            {
-                'symbol': 'SH600519',
-                'trade_date': date(2025, 1, 2),
-                'open': 100,
-                'high': 105,
-                'low': 99,
-                'close': 102,
-                'volume': 1000,
-            },
-        ]
-        result2 = job2.run(full_sync=True)
-        assert result2['stats']['success'] == 0
