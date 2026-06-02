@@ -30,7 +30,7 @@ supervisor==4.2.4
 Flask-Bcrypt==1.0.1
 flask-buzz==2.0.1
 Flask-HTTPAuth==4.7.0
-Flask-Mail==0.9.1
+Flask-Mail==0.10.0
 flask-marshmallow==0.14.0
 Flask-Migrate==3.1.0
 flask-praetorian==1.4.0
