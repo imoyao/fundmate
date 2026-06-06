@@ -6,7 +6,10 @@
 
 from dataclasses import dataclass, field
 
+from app.core.decorators import deprecated
 
+
+@deprecated('请使用 app/services/importer/parsers/ 下的解析器')
 @dataclass
 class ImportTemplate:
     """导入模板基类"""
@@ -70,4 +73,45 @@ THS_TEMPLATE = ImportTemplate(
     core_columns=['证券代码', '操作', '成交数量', '成交均价', '交收日期'],  # 核心特征列
     required_columns=['证券代码', '操作', '成交数量', '成交均价', '交收日期'],
     optional_columns=['证券名称', '证券中文全称', '佣金', '手续费', '印花税', '过户费', '其他杂费', '币种', '合同编号'],
+)
+# 基金标准模板（前端 standard_fund）
+FUND_STANDARD_TEMPLATE = ImportTemplate(
+    name='基金标准模板',
+    description='ShowBuy 基金交易导入模板',
+    column_map={
+        '确认日期': 'purchase_date',
+        '交易日期': 'trade_date',
+        '基金代码': 'symbol',
+        '基金名称': 'name',
+        '业务类型': 'op_type',
+        '份额': 'quantity',
+        '净值': 'avg_price',
+        '金额': 'amount',
+        '手续费': 'fee',
+        '账户名称': 'account_name',
+        '交易流水号': 'contract_id',
+    },
+    required_columns=['基金代码', '业务类型', '金额', '确认日期'],
+    optional_columns=['基金名称', '份额', '净值', '手续费', '账户名称', '交易流水号'],
+)
+
+# 股票标准模板（前端 standard_stock）
+STOCK_STANDARD_TEMPLATE = ImportTemplate(
+    name='股票标准模板',
+    description='ShowBuy 股票交易导入模板',
+    column_map={
+        '确认日期': 'purchase_date',
+        '交易日期': 'trade_date',
+        '股票代码': 'symbol',
+        '股票名称': 'name',
+        '业务类型': 'op_type',
+        '数量(股)': 'quantity',
+        '成交均价': 'avg_price',
+        '成交金额': 'amount',
+        '手续费': 'fee',
+        '账户名称': 'account_name',
+        '合同编号': 'contract_id',
+    },
+    required_columns=['股票代码', '业务类型', '数量(股)', '成交均价', '确认日期'],
+    optional_columns=['股票名称', '成交金额', '手续费', '账户名称', '合同编号'],
 )

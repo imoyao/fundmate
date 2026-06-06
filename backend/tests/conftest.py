@@ -7,14 +7,15 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-import app.domains.assets.models
-import app.domains.funds.models
+import app.domains.assets.models  # noqa: F401
+import app.domains.funds.models  # noqa: F401
 
 # 强制导入所有模型，确保它们注册到 Base
-import app.domains.positions.models
-import app.domains.securities.models
-import app.domains.transactions.models
-import app.domains.watchlist.models
+import app.domains.positions.models  # noqa: F401
+import app.domains.price_history.models  # noqa: F401
+import app.domains.securities.models  # noqa: F401
+import app.domains.transactions.models  # noqa: F401
+import app.domains.watchlist.models  # noqa: F401
 from app.core.database import Base
 from app.main import create_app
 

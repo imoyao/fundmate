@@ -101,6 +101,8 @@
   --tag-caramel:         #C4A68A;  /* 焦糖色 */
   --tag-periwinkle:      #B4BEE0;  /* 长春花蓝 */
 
+  --color-primary-10: rgba(122, 127, 168, 0.1);
+
   --tag-muted-blue-20: rgba(122, 154, 168, 0.2);
   --tag-thistle-20: rgba(157, 129, 169, 0.2);
   --color-primary-20: rgba(122, 127, 168, 0.2);

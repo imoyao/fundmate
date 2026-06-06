@@ -14,7 +14,7 @@
         </template>
         <div class="text-center py-2">
           <p class="text-[#8b7d6b] text-base leading-loose italic tracking-wide font-serif">
-            “也许多少年后在某个地方，我将轻声叹息将往事回顾，<br />一片树林里分出两条路，而我选择了人迹更少的一条，<br />从此决定了我一生的道路。”
+            “也许多少年后在某个地方，我会轻声叹息将往事回顾，<br />一片树林里分出两条路，而我选择了人迹更少的一条，<br />从此决定了我一生的道路。”
           </p>
           <p class="text-[#b8a99a] text-xs mt-3">—— 罗伯特·弗罗斯特《未选择的路》</p>
         </div>

@@ -1,47 +1,67 @@
 <template>
   <div class="inventory-page">
     <el-steps :active="currentStep" finish-status="success" align-center>
-      <el-step title="选择导入模式"/>
-      <el-step title="上传文件"/>
-      <el-step title="预览与修正"/>
-      <el-step title="导入完成"/>
+      <el-step v-for="(step, index) in steps" :key="index" :title="step.title" />
     </el-steps>
 
 
     <div class="step-content">
-      <!-- 步骤1：选择导入模式（保持不变） -->
+      <!-- 步骤0：选择导入账户 -->
       <div v-if="currentStep === 0">
-        <div class="import-mode-cards">
-          <div v-for="mode in importModes" :key="mode.key" class="mode-card"
-               :class="{ active: selectedMode === mode.key }" @click="selectMode(mode.key)">
-            <IconifyIconOffline :icon="mode.icon" class="mode-icon"/>
-            <h4 class="mode-title">{{ mode.title }}</h4>
-            <p class="mode-desc">{{ mode.description }}</p>
+        <div class="import-mode-group">
+          <h3 class="import-group-title">选择导入账户</h3>
+          <div class="account-select-area">
+            <el-select
+              v-model="selectedLedgerId"
+              placeholder="请选择要导入的账户"
+              size="large"
+              class="account-select"
+              @change="onAccountSelected"
+            >
+              <el-option-group
+                v-for="group in ledgerGroups"
+                :key="group.label"
+                :label="group.label"
+              >
+                <el-option
+                  v-for="ledger in group.ledgers"
+                  :key="ledger.id"
+                  :label="ledger.name"
+                  :value="ledger.id"
+                  :disabled="ledger.ledger_type === 'family'"
+                >
+                  <span class="ledger-option">
+                    <span>{{ ledger.name }}</span>
+                    <el-tag size="small" :type="ledger.ledger_type === 'family' ? 'info' : 'primary'">
+                      {{ ledgerTypeMap[ledger.ledger_type] || ledger.ledger_type }}
+                    </el-tag>
+                  </span>
+                </el-option>
+              </el-option-group>
+            </el-select>
+
+            <p class="account-hint">
+              选择账户后，系统将根据账户类型自动匹配导入模板。
+              家庭账户不可用于导入交易数据。
+            </p>
+
           </div>
-          <div
-            class="mode-card"
-            @click="goToManualEntry"
-          >
-            <IconifyIconOffline icon="ep:edit" class="mode-icon"/>
+        </div>
+
+        <!-- 手动录入和负债卡片保持不变 -->
+        <div class="import-mode-cards">
+          <div class="mode-card" @click="goToManualEntry">
+            <IconifyIconOffline icon="ep:edit" class="mode-icon" />
             <h4 class="mode-title">手动批量录入</h4>
             <p class="mode-desc">没有文件？在网页表格中逐行快速录入交易记录</p>
           </div>
           <div class="mode-card" @click="goToLiabilityForm">
-            <IconifyIconOffline icon="ep:document-add" class="mode-icon"/>
+            <IconifyIconOffline icon="ep:document-add" class="mode-icon" />
             <h4 class="mode-title">录入负债 / 应收款</h4>
             <p class="mode-desc">记录信用卡、房贷等非交易类资产</p>
           </div>
         </div>
-
-        <div class="template-download-area">
-          <p class="template-download-desc">使用标准模板导入？先下载模板，按格式填写数据后再上传。</p>
-          <a :href="templateDownloadUrl" download class="template-link">
-            <IconifyIconOffline icon="ep:download" class="mr-1"/>
-            下载标准模板（CSV）
-          </a>
-        </div>
       </div>
-
       <!-- 步骤2：文件上传 / 解析中 -->
       <div v-else-if="currentStep === 1" class="upload-step">
         <!-- 解析中骨架屏 -->
@@ -60,98 +80,97 @@
         <div v-show="!parsing" class="upload-layout">
           <!-- 左侧：账户选择 + 上传区域 -->
           <div class="upload-left">
-            <!-- 账户选择模块 -->
+            <!-- 原 ledger-select-area 改为只读显示 -->
             <div class="ledger-select-area">
-              <el-form label-position="top">
-                <el-form-item style="display: block">
-                  <template #label>
-                    <span class="text-base font-medium text-gray-700">
-                      请选择交易所属账户 <span class="required-star">*</span>
-                    </span>
-                  </template>
-                  <div class="flex gap-3 items-start">
-                    <el-select
-                      ref="ledgerSelectRef"
-                      v-model="selectedLedgerId"
-                      placeholder="请选择交易所属账户"
-                      class="flex-1"
-                      style="min-width: 220px"
-                      :disabled="parsing"
-                      size="large"
-                      @change="onLedgerSelected"
-                      @blur="ledgerTouched = true"
-                    >
-                      <el-option
-                        v-for="ledger in ledgers"
-                        :key="ledger.id"
-                        :label="ledger.name"
-                        :value="ledger.id"
-                      />
-                    </el-select>
-                    <el-button
-                      :disabled="parsing"
-                      @click="showCreateLedgerDialog = true"
-                      size="large"
-                      plain
-                      class="add-ledger-btn"
-                    >
-                      <IconifyIconOffline icon="ep:plus" class="mr-1" />
-                      添加新账户
-                    </el-button>
-                  </div>
-                  <p class="ledger-hint">
-                    <IconifyIconOffline icon="ep:info-filled" class="mr-1" style="font-size: 14px; vertical-align: middle;" />
-                    选择账户后，上传的交易将自动归属到该账户下
-                  </p>
-                  <div v-if="!selectedLedgerId && ledgerTouched" class="ledger-error">
-                    <IconifyIconOffline icon="ep:warning-filled" class="mr-1" />
-                    请先选择交易所属账户
-                  </div>
-                </el-form-item>
-              </el-form>
+              <div class="flex items-center gap-4">
+                <span class="text-base font-medium text-gray-700">交易账户：</span>
+                <el-tag size="large" type="primary">{{ selectedLedgerName }}（{{ ledgerTypeLabel }}）</el-tag>
+                <el-button type="primary" link @click="currentStep = 0">更换账户</el-button>
+              </div>
             </div>
 
+            <!-- 醒目下载按钮 -->
+            <div v-if="isStandardMode" class="template-download-section">
+              <el-button
+                type="primary"
+                size="large"
+                class="download-template-btn"
+                :loading="downloading"
+                @click="handleDownloadTemplate"
+              >
+                <IconifyIconOffline icon="ep:download" class="mr-2" />
+                下载{{ templateNameForAccount }}（CSV）
+              </el-button>
+              <p class="download-hint">
+                按模板填写后上传，即可批量导入{{ accountType }}交易记录<br>
+                模板包含：{{ templateFields }}
+              </p>
+            </div>
+
+            <!-- 导入格式选择（移到下载按钮下方，左对齐） -->
+            <div class="import-mode-select">
+              <span class="import-mode-label">导入格式：</span>
+              <el-select v-model="selectedMode" size="large" style="width: 220px">
+                <el-option
+                  v-for="mode in availableModes"
+                  :key="mode.value"
+                  :label="mode.label"
+                  :value="mode.value"
+                />
+              </el-select>
+              <span class="import-mode-hint">选择与您的文件来源匹配的格式</span>
+            </div>
             <!-- 上传区域 -->
             <div class="upload-area-wrapper">
-              <el-upload
-                ref="uploadRef"
-                :accept="'.csv,.xls,.xlsx'"
-                :before-upload="beforeUpload"
-                :http-request="handleUpload"
-                :show-file-list="false"
-                drag
-                :disabled="!selectedLedgerId || parsing"
-                class="golden-upload"
-              >
-                <template #default>
-                  <div class="upload-content" :class="{ 'is-dragover': isDragover }">
-                    <IconifyIconOffline
-                      icon="ep:upload-filled"
-                      class="upload-icon"
-                      :class="{ 'icon-active': isDragover }"
-                    />
-                    <p class="upload-text">将文件拖到此处，或</p>
-                    <el-button
-                      type="primary"
-                      size="default"
-                      class="upload-btn"
-                      :disabled="!selectedLedgerId"
-                      @click="handleUploadClick"
-                    >
-                      点击上传
-                    </el-button>
-                    <p class="upload-hint">
-                      {{ selectedMode === 'ths' ? '同花顺历史交割单导出文件' : '使用标准模板格式的文件' }}
-                    </p>
-                    <p class="upload-format-info">支持 XLS、XLSX、CSV ｜ 最大 10MB</p>
-                  </div>
-                </template>
-              </el-upload>
-            </div>
+      <el-upload
+        ref="uploadRef"
+        :accept="'.csv,.xls,.xlsx'"
+        :before-upload="beforeUpload"
+        :http-request="handleUpload"
+        :show-file-list="false"
+        drag
+        :disabled="!selectedLedgerId || parsing"
+        class="golden-upload"
+      >
+        <template #default>
+          <IconifyIconOffline icon="ep:upload-filled" class="upload-icon" :class="{ 'icon-active': isDragover }" />
+          <p class="upload-text">将文件拖到此处，或</p>
+          <el-button type="primary" size="default" class="upload-btn" :disabled="!selectedLedgerId || uploading" :loading="uploading" @click="handleUploadClick">
+            {{ uploading ? '正在上传...' : '点击上传' }}
+          </el-button>
+          <p class="upload-hint">
+            {{ isStandardMode ? '使用标准模板格式的文件' : `直接上传${formatName}导出的文件` }}
+          </p>
+          <p class="upload-format-info">
+            支持 Excel、CSV 格式 ｜ 最大 5MB
+          </p>
+        </template>
+      </el-upload>
+
+      <!-- 错误提示移到此处，居中显示 -->
+      <div v-if="uploadError" class="upload-error">
+        <IconifyIconOffline icon="ep:warning-filled" class="mr-1" />
+        {{ uploadError }}
+        <div class="upload-error-detail">
+          请检查：
+          <template v-if="selectedMode === 'ths'">
+            1. 是否为同花顺客户端导出的原始文件<br>
+            2. 文件是否完整，没有被修改过<br>
+            3. 导出格式是否为"制表符分隔的文本文件"
+          </template>
+          <template v-else>
+            1. 是否为纯CSV格式（不是.xlsx直接改后缀）<br>
+            2. 表头是否与下载的模板完全一致<br>
+            3. 日期格式是否为 YYYY-MM-DD<br>
+            4. 股票代码/基金代码是否正确
+          </template>
+        </div>
+      </div>
+    </div>
           </div>
 
           <!-- 右侧：格式说明卡片 -->
-          <div v-if="formatGuides[selectedMode]" class="upload-right">
+          <div class="upload-right" v-if="formatGuides[selectedMode]">
             <div class="format-guide">
               <div class="format-guide-header">
                 <IconifyIconOffline icon="ep:info-filled" class="format-guide-icon" />
@@ -160,12 +179,13 @@
               <ol class="format-guide-list">
                 <li v-for="(tip, index) in formatGuides[selectedMode].tips" :key="index">{{ tip }}</li>
               </ol>
-              <div v-if="selectedMode === 'ths'" class="format-guide-footer">
-                <a href="#" @click.prevent="showMoreBrokers">查看更多券商导出指南</a>
-              </div>
             </div>
           </div>
         </div>
+
+        <p style="text-align: center; margin-top: 24px; font-size: 13px; color: var(--text-tertiary);">
+          上传后将进入预览页面，您可以修正错误后确认导入。如有问题，请参考帮助文档。
+        </p>
 
         <!-- 新建账户弹窗 -->
         <el-dialog v-model="showCreateLedgerDialog" title="添加新账户" width="360px" :close-on-click-modal="false">
@@ -186,6 +206,7 @@
             </div>
           </template>
         </el-dialog>
+
       </div>
 
       <!-- 步骤3：预览与修正（左右分栏重构） -->
@@ -211,39 +232,31 @@
               <div class="summary-cards">
                 <div class="summary-card summary-card--success">
                   <div class="summary-card-header">
-                    <span class="summary-card-title">已校验</span>
-                  </div>
-                  <div class="summary-card-count">
-                    <el-tag type="success" size="default">{{ validRowsCount }} 条</el-tag>
+                    <span class="summary-card-title">
+                      已校验
+                      <el-badge :value="validRowsCount" :type="validRowsCount > 0 ? 'success' : 'info'" class="summary-badge" />
+                    </span>
                   </div>
                   <div class="summary-card-body">
                     <p>代码已匹配、字段完整、无重复，可直接导入</p>
-                    <p class="summary-card-hint" v-if="validRowsCount === selectedCount && validRowsCount > 0">
-                      已选中全部有效数据
-                    </p>
-                    <p class="summary-card-hint" v-else-if="validRowsCount > 0 && selectedCount > 0">
-                      已选中 {{ selectedCount }} / {{ validRowsCount }} 条有效数据
-                    </p>
                   </div>
                 </div>
+
                 <div v-if="duplicateCount > 0" class="summary-card summary-card--warning">
                   <div class="summary-card-header">
-                    <span class="summary-card-title">重复项</span>
-                  </div>
-                  <div class="summary-card-count">
-                    <el-tag type="warning" size="small">{{ duplicateCount }} 条</el-tag>
-                  </div>
-                  <div class="summary-card-body">
-                    <p>已自动跳过，如需保留请手动勾选</p>
+                    <span class="summary-card-title">
+                      重复项
+                      <el-badge :value="duplicateCount" type="warning" class="summary-badge" />
+                    </span>
                   </div>
                 </div>
 
                 <div v-if="blockedCount > 0 || errorCount > 0" class="summary-card summary-card--danger">
                   <div class="summary-card-header">
-                    <span class="summary-card-title">待确认</span>
-                  </div>
-                  <div class="summary-card-count">
-                    <el-tag type="danger" size="small">{{ blockedCount + errorCount }} 条</el-tag>
+                    <span class="summary-card-title">
+                      待确认
+                      <el-badge :value="blockedCount + errorCount" type="danger" class="summary-badge" />
+                    </span>
                   </div>
                   <div class="summary-card-body">
                     <p v-if="errorCount > 0">· {{ errorCount }} 条解析错误</p>
@@ -520,7 +533,13 @@
                   >
                     <!-- 状态列 -->
                     <template v-if="col.slot === 'status'" #default="{ row }">
-                      <el-tag v-if="row.is_duplicate" type="warning" size="small">重复</el-tag>
+                      <el-tooltip
+                        v-if="row.is_duplicate"
+                        content="该交易已存在于系统中，默认跳过。如需强制导入，请手动勾选"
+                        placement="top"
+                      >
+                        <el-tag type="warning" size="small">重复</el-tag>
+                      </el-tooltip>
                       <el-tag v-else-if="row.error" type="danger" size="small">错误</el-tag>
                       <el-tag v-else-if="isRowBlocked(row)" type="info" size="small">待补全</el-tag>
                       <el-tag v-else type="success" size="small">正常</el-tag>
@@ -530,7 +549,17 @@
                     <template v-else-if="col.slot === 'product'" #default="{ row }">
                       <div class="product-cell">
                         <span class="product-name">{{ row.name || row.symbol || '--' }}</span>
-                        <span class="product-code"># {{ row.symbol || '--' }}</span>
+                        <div class="product-code-row">
+                          <span class="product-code"># {{ row.symbol || '--' }}</span>
+                          <el-tag
+                            v-if="row.display_type"
+                            size="small"
+                            :color="getFundTypeColor(row.display_type)"
+                            class="type-tag-inline"
+                          >
+                            {{ row.display_type }}
+                          </el-tag>
+                        </div>
                       </div>
                     </template>
 
@@ -539,7 +568,7 @@
                       <div class="op-type-cell">
                         <span class="op-type-label">{{ row.op_type_label || '--' }}</span>
                         <el-tag
-                          v-if="!row.is_merged"
+                          v-if="!row.is_merged && row.type !== 'fund'"
                           :color="getTypeColor(row.type)"
                           size="small"
                           class="type-tag-inline"
@@ -719,6 +748,7 @@
                   <div class="number-item">
                     <span class="number-value" style="color: var(--text-tertiary)">{{ skippedCount }}</span>
                     <span class="number-label">笔跳过</span>
+                    （重复 {{ duplicateCount }} 条 / 错误 {{ errorCount }} 条）
                   </div>
                 </div>
 
@@ -817,8 +847,7 @@
 <script setup lang="ts">
 import {parseFile, confirmImport as confirmImportApi} from '@/api/importer';
 import type {UploadRequestOptions} from 'element-plus';
-import {ArrowDown, Warning} from '@element-plus/icons-vue'
-import {ref, onMounted, computed, watch, nextTick} from 'vue';
+import {ref, onMounted, computed, reactive, nextTick} from 'vue';
 import {useRouter} from 'vue-router';
 import {ElMessage} from 'element-plus';
 import {getLedgers, createLedger as createLedgerApi} from '@/api/ledger';
@@ -843,27 +872,6 @@ const fileSize = ref('');
 const editingRowKey = ref<string | null>(null);
 const newLedgerAllocation = ref('longterm');
 
-const formatGuides: Record<string, { title: string; tips: string[] }> = {
-  standard: {
-    title: '标准模板格式说明',
-    tips: [
-      '下载标准模板 CSV 文件，按表头填写数据',
-      '代码格式：A股 6 位数字，港股 5 位数字，美股字母代码',
-      '日期格式：YYYY-MM-DD，如 2026-01-15',
-      '操作类型：buy=买入, sell=卖出, dividend=分红',
-    ],
-  },
-  ths: {
-    title: '同花顺交割单导出说明',
-    tips: [
-      '打开同花顺客户端 → 交易记录 → 历史交割单',
-      '选择日期范围，点击"导出" → 选择"导出全部"',
-      '导出格式选择"制表符分隔的文本文件"',
-      '直接上传导出的文件即可，无需修改',
-    ],
-  },
-};
-
 // 配置目标分组设置
 const showAllocationGroupPanel = ref(false);
 // 账户相关
@@ -883,6 +891,20 @@ const allocationOptions = [
   {value: 'speculative', label: '高风险博弈'},
   {value: 'security', label: '保险保障'},
 ];
+
+const fundTypeColorMap: Record<string, string> = {
+  '股票型': 'var(--invest-stock)',
+  '混合型': 'var(--invest-fund)',
+  '债券型': 'var(--invest-bond)',
+  '货币型': 'var(--tag-sage-green)',
+  '指数型': 'var(--invest-etf)',
+  'QDII': 'var(--tag-periwinkle)',
+  'FOF': 'var(--tag-thistle)',
+};
+
+function getFundTypeColor(typeName: string): string {
+  return fundTypeColorMap[typeName] || 'var(--tag-stone-gray)';
+}
 
 // 类型映射
 const typeLabels: Record<string, string> = {
@@ -909,7 +931,12 @@ const typeColorMap: Record<string, string> = {
   static: 'var(--tag-stone-gray)',
 };
 
-const templateDownloadUrl = '/templates/showbuy_import_template.csv';
+const steps = [
+  { title: '选择导入账户' },
+  { title: '上传交易文件' },
+  { title: '预览与修正' },
+  { title: '导入完成' },
+];
 
 // 分页
 const currentPage = ref(1);
@@ -931,6 +958,7 @@ const showFullTable = ref(true);
 const showBatchFix = ref(false);
 const batchCodeInput = ref('');
 const showLeftPanel = ref(false);  // 控制左侧面板显示/折叠
+const uploading = ref(false);  // 上传中状态，给按钮加 loading
 
 // 导入错误
 const importErrors = ref<any[]>([]);
@@ -938,11 +966,22 @@ const importErrors = ref<any[]>([]);
 // 新增状态：标记重复数据是否已被用户处理
 const duplicatesHandled = ref(false);
 
-const ledgerSelectRef = ref<any>(null);
+const uploadError = ref('');
 
 const importModes = [
-  {key: 'standard', icon: 'ep:document', title: '标准模板', description: '使用 ShowBuy 通用模板导入交易记录'},
-  {key: 'ths', icon: 'ep:bank-card', title: '同花顺交割单', description: '直接上传同花顺导出的历史交割单'},
+  {
+    label: '股票数据来源',
+    options: [
+      { key: 'standard_stock', icon: 'ep:document', title: 'ShowBuy 股票标准模板', description: '下载模板，按格式填写后上传' },
+      { key: 'ths_stock', icon: 'ep:bank-card', title: '同花顺交割单', description: '直接上传同花顺导出的历史交割单' },
+    ]
+  },
+  {
+    label: '基金数据来源',
+    options: [
+      { key: 'standard_fund', icon: 'ep:document', title: 'ShowBuy 基金标准模板', description: '下载模板，按格式填写后上传' },
+    ]
+  },
 ];
 
 const selectedLedgerName = computed(() => {
@@ -952,6 +991,66 @@ const selectedLedgerName = computed(() => {
 
 // 拖拽状态
 const isDragover = ref(false);
+
+
+
+// 模板名称映射
+const templateNameForAccount = computed(() => {
+  if (selectedMode.value === 'standard_fund') return '基金标准模板';
+  return '股票标准模板';
+});
+
+// 账户类型文字
+const accountType = computed(() => {
+  if (selectedMode.value === 'standard_fund') return '基金';
+  return '股票';
+});
+
+// 模板字段描述
+const templateFields = computed(() => {
+  if (selectedMode.value === 'standard_fund')
+    return '确认日期、交易日期、基金代码、基金名称、业务类型、份额、金额、手续费、净值、账户名称';
+  return '确认日期、交易日期、股票代码、股票名称、业务类型、数量(股)、成交均价、成交金额、手续费、账户名称';
+});
+
+// 当前格式名称
+const formatName = computed(() => {
+  if (selectedMode.value === 'ths') return '同花顺';
+  if (selectedMode.value === 'standard_fund') return '基金标准模板';
+  return '股票标准模板';
+});
+
+// 右侧格式说明（增加 ths 说明）
+const formatGuides = reactive({
+  standard_stock: {
+    title: '股票标准模板格式说明',
+    tips: [
+      '下载 CSV 模板填写数据，或直接上传同花顺等券商导出的 Excel/CSV 文件',
+      '代码格式：A股 6 位数字，港股 5 位数字，美股字母代码',
+      '日期格式：YYYY-MM-DD，如 2026-01-15',
+      '业务类型：买入(BUY)、卖出(SELL)、现金分红(DIVIDEND_CASH)、送股(SPLIT)',
+    ],
+  },
+  standard_fund: {
+    title: '基金标准模板格式说明',
+    tips: [
+      '下载 CSV 模板填写数据，或直接上传基金平台导出的 CSV 文件',
+      '代码为6位基金代码（如 014330）',
+      '日期格式：YYYY-MM-DD，如 2023-06-01',
+      '业务类型：申购(BUY)、赎回(SELL)、现金分红(DIVIDEND_CASH)、红利再投资(DIVIDEND_REINVEST)',
+      '份额、净值为选填，手续费默认为0',
+    ],
+  },
+  ths: {
+    title: '同花顺交割单导出说明',
+    tips: [
+      '打开同花顺客户端 → 交易记录 → 历史交割单',
+      '选择日期范围，点击"导出" → 选择"导出全部"',
+      '导出格式选择"制表符分隔的文本文件"',
+      '直接上传导出的文件即可，无需修改',
+    ],
+  },
+});
 
 // 按产品类型分组的配置目标
 const allocationGroupsByType = computed(() => {
@@ -976,22 +1075,76 @@ const allocationGroupsByType = computed(() => {
 
 const currentAllocationGroups = computed(() => allocationGroupsByType.value);
 
+const downloading = ref(false);
 
 // 表格列配置
-const tableColumns = computed(() => [
-  {prop: 'status', label: '状态', width: 80, slot: 'status', align: 'center'},
-  {prop: 'product', label: '产品信息', width: 160, slot: 'product'},
-  {prop: 'opType', label: '操作类型', width: 110, slot: 'opType'},
-  {prop: 'trade_date', label: '日期', width: 100},
-  {prop: 'quantity', label: '数量', width: 90, slot: 'quantity', align: 'right', cellClass: 'cell-highlight-quantity'},
-  {prop: 'price', label: '单价', width: 90, slot: 'price', align: 'right', cellClass: 'cell-highlight-price'},
-  {prop: 'amount', label: '交易金额', width: 120, align: 'right'},
-  {prop: 'fee', label: '手续费', width: 90, align: 'right', cellClass: 'cell-highlight-fee'},
-  {prop: 'contract_id', label: '合同编号', width: 110},
-  {prop: 'net_amount', label: '发生金额', width: 120, align: 'right'},
-  {prop: 'allocation', label: '配置目标', width: 120, slot: 'allocation'},
-  {prop: 'notes', label: '备注', minWidth: 120},
-]);
+const tableColumns = computed(() => {
+  if (isFundMode.value) {
+    // 基金模板：隐藏合同编号、发生金额，显示份额、净值
+    return [
+      { prop: 'status', label: '状态', width: 80, slot: 'status', align: 'center' },
+      { prop: 'product', label: '产品信息', width: 160, slot: 'product' },
+      { prop: 'opType', label: '操作类型', width: 110, slot: 'opType' },
+      { prop: 'trade_date', label: '日期', width: 100 },
+      { prop: 'quantity', label: '份额', width: 90, align: 'right' },
+      { prop: 'price', label: '净值', width: 90, align: 'right' },
+      { prop: 'amount', label: '金额', width: 120, align: 'right' },
+      { prop: 'fee', label: '手续费', width: 90, align: 'right' },
+      { prop: 'allocation', label: '配置目标', width: 120, slot: 'allocation' },
+      { prop: 'notes', label: '备注', minWidth: 120 },
+    ];
+  } else {
+    // 股票模板：原有列不变
+    return [
+      { prop: 'status', label: '状态', width: 80, slot: 'status', align: 'center' },
+      { prop: 'product', label: '产品信息', width: 160, slot: 'product' },
+      { prop: 'opType', label: '操作类型', width: 110, slot: 'opType' },
+      { prop: 'trade_date', label: '日期', width: 100 },
+      { prop: 'quantity', label: '数量', width: 90, slot: 'quantity', align: 'right', cellClass: 'cell-highlight-quantity' },
+      { prop: 'price', label: '单价', width: 90, slot: 'price', align: 'right', cellClass: 'cell-highlight-price' },
+      { prop: 'amount', label: '交易金额', width: 120, align: 'right' },
+      { prop: 'fee', label: '手续费', width: 90, align: 'right', cellClass: 'cell-highlight-fee' },
+      { prop: 'contract_id', label: '合同编号', width: 110 },
+      { prop: 'net_amount', label: '发生金额', width: 120, align: 'right' },
+      { prop: 'allocation', label: '配置目标', width: 120, slot: 'allocation' },
+      { prop: 'notes', label: '备注', minWidth: 120 },
+    ];
+  }
+});
+
+const isFundMode = computed(() => {
+  return selectedMode.value === 'standard_fund';
+});
+
+const templateDownloadLabel = computed(() => {
+  if (selectedMode.value === 'standard_fund') return '下载基金标准模板（CSV）';
+  if (selectedMode.value === 'standard_stock') return '下载股票标准模板（CSV）';
+  return '下载标准模板（CSV）';
+});
+
+const templateDownloadDesc = computed(() => {
+  if (selectedMode.value === 'standard_fund') {
+    return '使用基金标准模板导入？先下载模板，按格式填写数据后再上传。';
+  } else if (selectedMode.value === 'standard_stock') {
+    return '使用股票标准模板导入？先下载模板，按格式填写数据后再上传。';
+  }
+  return '使用标准模板导入？先下载模板，按格式填写数据后再上传。';
+});
+
+const templateModeKeyMap: Record<string, string> = {
+  standard_fund: 'fund',
+  standard_stock: 'stock',
+};
+
+const templateDownloadUrl = computed(() => {
+  const key = templateModeKeyMap[selectedMode.value] || 'standard';
+  return `/api/importers/template/${key}`;
+});
+
+// 是否标准模板模式
+const isStandardMode = computed(() => {
+  return selectedMode.value === 'standard_stock' || selectedMode.value === 'standard_fund';
+});
 
 // 问题分类
 const problemCategories = computed(() => {
@@ -1213,9 +1366,69 @@ const filteredTotal = computed(() => {
 
 const selectedCount = computed(() => selectedKeys.value.size);
 
+function handleDownloadTemplate() {
+  const ledger = ledgers.value.find(l => l.id === selectedLedgerId.value);
+  if (!ledger) return;
+  const key = getTemplateKeyForLedger(ledger);
+  const urlMap: Record<string, string> = {
+    standard_fund: '/api/importers/template/fund',
+    standard_stock: '/api/importers/template/stock',
+  };
+  const url = urlMap[key] || '/api/importers/template/standard';
+
+  downloading.value = true;
+  window.open(url);
+  setTimeout(() => downloading.value = false, 1500);
+}
+
 function isRowSelected(row: any): boolean {
   return selectedKeys.value.has(row._rowKey);
 }
+
+// 按账户类型分组
+const ledgerGroups = computed(() => {
+  const groups: Record<string, { label: string; ledgers: LedgerItem[] }> = {};
+  const order = ['stock', 'fund', 'cash', 'general', 'family'];
+  for (const ledger of ledgers.value) {
+    const type = ledger.ledger_type || 'general';
+    if (!groups[type]) {
+      groups[type] = { label: ledgerTypeMap[type] || type, ledgers: [] };
+    }
+    groups[type].ledgers.push(ledger);
+  }
+  return order.filter(o => groups[o]).map(o => groups[o]);
+});
+
+function onAccountSelected(ledgerId: number) {
+  const ledger = ledgers.value.find(l => l.id === ledgerId);
+  if (!ledger) return;
+  const templateKey = getTemplateKeyForLedger(ledger);
+  if (templateKey) {
+    selectedMode.value = templateKey;
+  } else {
+    // general 账户需要手动选择模板，这里先给个默认值
+    selectedMode.value = 'standard_fund';
+  }
+  currentStep.value = 1;
+}
+
+const templateDownloadLabelForAccount = computed(() => {
+  const ledger = ledgers.value.find(l => l.id === selectedLedgerId.value);
+  if (!ledger) return '下载标准模板';
+  const key = getTemplateKeyForLedger(ledger);
+  if (key === 'standard_fund') return '下载基金标准模板（CSV）';
+  if (key === 'standard_stock') return '下载股票标准模板（CSV）';
+  return '下载标准模板（CSV）';
+});
+
+const templateDownloadDescForAccount = computed(() => {
+  const ledger = ledgers.value.find(l => l.id === selectedLedgerId.value);
+  if (!ledger) return '选择账户后将显示对应模板';
+  const key = getTemplateKeyForLedger(ledger);
+  if (key === 'standard_fund') return '按模板填写后上传，即可批量导入基金交易记录';
+  if (key === 'standard_stock') return '按模板填写后上传，即可批量导入股票交易记录';
+  return '选择账户后将显示对应模板';
+});
 
 function handleRowCheckboxChange(row: any, checked: boolean) {
   if (checked) {
@@ -1250,6 +1463,99 @@ function flashLedgerSelect() {
   }, 600);
 }
 
+// 根据账户类型返回锁定的模板 key
+function getTemplateKeyForLedger(ledger: LedgerItem | null): string {
+  if (!ledger) return '';
+  switch (ledger.ledger_type) {
+    case 'stock':
+      return 'standard_stock';   // 股票账户默认走股票标准模板
+    case 'fund':
+    case 'cash':                 // 现金账户本质是货币基金，走基金模板
+      return 'standard_fund';
+    default:
+      return '';                 // general 等需要用户手动选，此处返回空
+  }
+}
+
+// 当前锁定的模板 key
+const lockedTemplateKey = computed(() => {
+  const ledger = ledgers.value.find(l => l.id === selectedLedgerId.value);
+  return getTemplateKeyForLedger(ledger || null);
+});
+
+// 是否显示账户类型标签
+const ledgerTypeLabel = computed(() => {
+  const ledger = ledgers.value.find(l => l.id === selectedLedgerId.value);
+  if (!ledger) return '';
+  const typeMap: Record<string, string> = {
+    stock: '股票账户',
+    fund: '基金账户',
+    cash: '现金账户',
+    general: '综合账户',
+    family: '家庭账户',
+  };
+  return typeMap[ledger.ledger_type] || '';
+});
+
+const ledgerType = computed(() => {
+  const ledger = ledgers.value.find(l => l.id === selectedLedgerId.value);
+  return ledger?.ledger_type || '';
+});
+
+const ledgerTypeMap: Record<string, string> = {
+  stock: '股票账户',
+  fund: '基金账户',
+  cash: '现金账户',
+  general: '综合账户',
+  family: '家庭账户',
+};
+
+const availableModes = computed(() => {
+  const allModes = [
+    { label: '股票标准模板', value: 'standard_stock' },
+    { label: '同花顺交割单', value: 'ths' },
+    { label: '基金标准模板', value: 'standard_fund' },
+  ];
+  // 根据账户类型过滤可用模板
+  if (ledgerType.value === 'stock') {
+    // 股票账户：只显示股票标准模板和同花顺
+    return allModes.filter(m => m.value === 'standard_stock' || m.value === 'ths');
+  } else if (ledgerType.value === 'fund' || ledgerType.value === 'cash') {
+    // 基金/现金账户：只显示基金标准模板
+    return allModes.filter(m => m.value === 'standard_fund');
+  } else {
+    // general（综合）或未知：显示全部，但引导用户选择特定类型账户
+    return allModes;
+  }
+});
+
+function onAccountCardSelected(ledger: LedgerItem) {
+  if (ledger.ledger_type === 'family') return; // 家庭账户不可选
+  const previousLedger = ledgers.value.find(l => l.id === selectedLedgerId.value);
+  const typeChanged = previousLedger && previousLedger.ledger_type !== ledger.ledger_type;
+
+  if (typeChanged) {
+    // 账户类型变化，清除解析结果
+    previewData.value = [];
+    selectedKeys.value = new Set();
+    duplicateCount.value = 0;
+    errorCount.value = 0;
+    validRowsCount.value = 0;
+    uploadError.value = '';
+  }
+
+  selectedLedgerId.value = ledger.id;
+  // 根据账户类型自动锁定模板
+  const templateKey = getTemplateKeyForLedger(ledger);
+  if (templateKey) {
+    selectedMode.value = templateKey;
+  } else {
+    // general 账户没有锁定模板，回退到原有选择模式
+    selectedMode.value = 'standard_fund';
+  }
+  currentStep.value = 1;
+}
+
 // 处理未选账户时的上传点击
 function handleUploadClick() {
   if (!selectedLedgerId.value) {
@@ -1276,10 +1582,16 @@ function beforeUpload(file: File) {
   const allowedExtensions = ['.csv', '.xls', '.xlsx'];
   const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
   if (!allowedExtensions.includes(ext)) {
-    ElMessage.error('仅支持 CSV 或 Excel 文件');
+    ElMessage.error('仅支持 CSV 文件');
+    return false;
+  }
+
+  if (file.size > 5 * 1024 * 1024) {
+    ElMessage.error('文件大小不能超过5MB');
     return false;
   }
   fileSize.value = formatFileSize(file.size);
+  uploadError.value = '';
   return true;
 }
 
@@ -1298,8 +1610,10 @@ function getTypeColor(type: string): string {
 
 function isRowBlocked(row: any): boolean {
   if (row.is_cash_transfer || row.error || row.is_duplicate) return false;
-  if (row.op_type === 'tax') return false;  // 扣税行不校验
-  if (row.type === 'money_fund' || row.type === 'reverse_repo') return false; // 现金管理产品不校验
+  if (row.op_type === 'tax' || row.op_type === 'dividend' ||
+      row.op_type === 'dividend_cash' || row.op_type === 'dividend_reinvest' ||
+      row.op_type === 'split') return false;
+  if (row.type === 'money_fund' || row.type === 'reverse_repo') return false;
   const qty = Number(row.quantity);
   const prc = Number(row.price);
   return (isNaN(qty) || qty <= 0) || (isNaN(prc) || prc <= 0);
@@ -1587,6 +1901,25 @@ async function createLedger() {
   }
 }
 
+// handleUpload 中，解析成功后、进入步骤3之前
+function checkFileCompatibility(records: any[], lockedTemplate: string): boolean {
+  if (lockedTemplate === 'standard_fund') {
+    // 基金模板的文件应有6位数字的基金代码
+    const hasFundCode = records.some(r => r.symbol && /^\d{6}$/.test(r.symbol));
+    if (!hasFundCode && records.length > 0) {
+      return false;
+    }
+  }
+  if (lockedTemplate === 'standard_stock') {
+    // 股票模板的文件应有带市场前缀的股票代码
+    const hasStockCode = records.some(r => r.symbol && /^(SH|SZ|BJ)\d{6}$/.test(r.symbol));
+    if (!hasStockCode && records.length > 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
 async function handleUpload(options: UploadRequestOptions) {
   const file = options.file as File;
 
@@ -1596,10 +1929,11 @@ async function handleUpload(options: UploadRequestOptions) {
   }
 
   parsing.value = true;
+  uploadError.value = '';
   await new Promise(resolve => setTimeout(resolve, 50));
 
   try {
-    const res = await parseFile(file, selectedMode.value);
+    const res = await parseFile(file, selectedMode.value, selectedLedgerId.value);
     const rawData = (res as any).data ?? [];
     previewData.value = addRowKeys(rawData);
     totalRows.value = previewData.value.length;
@@ -1629,17 +1963,38 @@ async function handleUpload(options: UploadRequestOptions) {
     recalcValidRowsCount();
     selectAllValid();
     showFullTable.value = true;
-    // 新增解析完成提示
-    ElMessage({
-        message: `解析完成，共识别 ${totalRows.value} 条记录`,
-        type: 'success',
-        duration: 5000,
-      });
 
-    currentStep.value = 2;
+    // 防呆检查：文件特征与锁定模板是否匹配
+    const warning = (res as any).compatibility_warning;
+    if (warning) {
+      await ElMessageBox.confirm(warning, '文件格式提醒', {
+        confirmButtonText: '继续导入',
+        cancelButtonText: '返回重选',
+        type: 'warning',
+      }).then(() => {
+        currentStep.value = 2;
+      }).catch(() => {
+        // 用户取消，停留在上传页
+        parsing.value = false;
+        return;
+      });
+    } else {
+      ElMessage.success(`解析完成，共识别 ${totalRows.value} 条记录`);
+      currentStep.value = 2;
+    }
+
     options.onSuccess(res);
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || '文件解析失败');
+    const errorMsg = e?.response?.data?.message || '文件解析失败';
+    const guidance = [
+      '文件解析失败，请检查：',
+      '1. 是否为纯CSV格式（不是.xlsx直接改后缀）',
+      '2. 表头是否与下载的模板完全一致',
+      '3. 日期格式是否为 YYYY-MM-DD',
+      '4. 股票代码/基金代码是否正确'
+    ].join('\n');
+    uploadError.value = errorMsg;
+    ElMessage.error({ message: `${errorMsg}\n\n${guidance}`, duration: 8000 });
     options.onError(e);
   } finally {
     parsing.value = false;
@@ -1813,8 +2168,11 @@ function reimport() {
 }
 
 function resetImport() {
+  // 保留账户和模板选择
+  const savedLedgerId = selectedLedgerId.value;
+  const savedMode = selectedMode.value;
+
   currentStep.value = 0;
-  selectedMode.value = 'standard';
   previewData.value = [];
   selectedKeys.value = new Set();
   duplicateCount.value = 0;
@@ -1830,6 +2188,11 @@ function resetImport() {
   tableTypeFilter.value = [];
   tableStatusFilter.value = '';
   duplicatesHandled.value = false;
+  uploadError.value = '';
+
+  // 恢复账户选择
+  selectedLedgerId.value = savedLedgerId;
+  selectedMode.value = savedMode;
 }
 
 function handleSizeChange(val: number) {
@@ -1853,6 +2216,53 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+
+.el-button--large {
+  height: 40px;
+}
+
+.download-template-btn,
+.upload-btn {
+  height: 40px;
+}
+
+.el-message--error {
+  --el-message-text-color: var(--color-danger);
+}
+
+.text-error {
+  color: var(--color-danger);
+}
+
+:deep(.el-step__head.is-finish) {
+  cursor: pointer;
+}
+
+:deep(.el-step__title.is-finish) {
+  cursor: pointer;
+}
+
+.account-select-area {
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 24px 0;
+  text-align: center;
+}
+.account-select {
+  width: 100%;
+}
+.ledger-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+.account-hint {
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+
 /* ============================================
    1. 步骤 1 - 模式选择卡片
    ============================================ */
@@ -1904,18 +2314,6 @@ onMounted(async () => {
   margin-top: 32px;
 }
 
-/* 模板下载区域 */
-.template-download-area {
-  margin-top: 24px;
-  text-align: center;
-}
-
-.template-download-desc {
-  font-size: 13px;
-  color: var(--text-tertiary);
-  margin-bottom: 8px;
-}
-
 .template-link {
   font-size: 14px;
   color: var(--color-primary);
@@ -1929,46 +2327,73 @@ onMounted(async () => {
 }
 
 /* ============================================
-   2. 步骤 2 - 左右分栏布局
+   2. 步骤 2 - 左右分栏布局（最终完美版）
    ============================================ */
 .upload-step {
-  padding: 8px 0;
-  min-height: 420px;
+  padding: 0;
+  min-height: 380px;
 }
 
-
-/* 左右分栏容器 */
+/* 左右分栏容器 - 顶部自然对齐 */
 .upload-layout {
   display: flex;
-  gap: 28px;
+  gap: 24px;
   align-items: flex-start;
   max-width: 1100px;
   margin: 0 auto;
 }
 
-/* 左侧：账户 + 上传 */
+/* 左侧：核心操作区 */
 .upload-left {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
-/* 右侧：格式说明 */
+/* 右侧：辅助说明区 - 核心修复：向下偏移，与上传区域顶部对齐 */
 .upload-right {
-  width: 300px;
+  width: 340px;
   flex-shrink: 0;
+  margin-top: 120px; /* 精确计算：账户区域高度(40px) + 下载区域高度(64px) = 104px */
 }
 
-/* 格式说明卡片（放在右侧后无需 margin-top） */
+/* 模板下载区域 */
+.template-download-section {
+  margin: 0 0 16px 0;
+  text-align: left;
+}
+
+.download-template-btn,
+.upload-btn {
+  height: 40px;
+  border-radius: 8px;
+  font-size: 14px;
+  padding: 0 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.download-hint {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  text-align: left;
+  max-width: 700px;
+}
+
+/* 格式说明卡片 - 高度自动，刚好容纳内容 */
 .upload-right .format-guide {
   margin-top: 0;
-  padding: 20px;
-  background: var(--bg-muted);
+  padding: 16px;
+  background: #fff;
   border-radius: 10px;
   border: 1px solid var(--border-default);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
 }
 
-/* 格式说明列表 */
 .format-guide-list {
   list-style: none;
   padding-left: 0;
@@ -1979,7 +2404,7 @@ onMounted(async () => {
 .format-guide-list li {
   font-size: 13px;
   color: var(--text-secondary);
-  line-height: 1.7;
+  line-height: 1.6;
   margin-bottom: 8px;
   display: flex;
   align-items: baseline;
@@ -2002,7 +2427,7 @@ onMounted(async () => {
   font-weight: 600;
   font-size: 15px;
   color: var(--text-primary);
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 
 .format-guide-icon {
@@ -2019,6 +2444,184 @@ onMounted(async () => {
 
 .format-guide-footer a {
   color: var(--color-primary);
+}
+
+.guide-example {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  background: #f5f7fa;
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin-top: 12px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  white-space: nowrap;
+  overflow-x: auto;
+}
+
+/* 上传区域 */
+.upload-area-wrapper {
+  flex: 1;
+}
+
+.golden-upload {
+  width: 100%;
+  height: 300px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  border: 2px dashed #999;
+  border-radius: 14px;
+  background: var(--bg-card);
+  transition: all 0.3s;
+  padding: 32px;
+}
+
+.golden-upload:hover {
+  border-color: var(--color-primary);
+  background: #ecf5ff;
+}
+
+.golden-upload.is-dragover {
+  border: 2px solid var(--color-primary) !important;
+  background: var(--color-primary-10) !important;
+}
+
+.golden-upload.is-dragover .upload-icon {
+  transform: scale(1.1);
+  color: var(--color-primary) !important;
+}
+
+.upload-icon {
+  font-size: 64px;
+  color: var(--color-primary);
+  margin-bottom: 16px;
+  transition: color 0.2s;
+}
+
+.upload-text {
+  font-size: 16px;
+  color: var(--text-primary);
+  margin: 0 0 16px;
+  font-weight: 500;
+}
+
+/* 统一的导入格式选择器 */
+.import-mode-select {
+  margin: 0 0 20px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.import-mode-label {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+.import-mode-hint {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+/* 错误提示样式 */
+.upload-error {
+  margin-top: 16px;
+  padding: 12px 16px;
+  background: var(--color-danger-10);
+  border: 1px solid var(--color-danger-30);
+  border-radius: 6px;
+  color: var(--color-danger);
+  font-size: 14px;
+  text-align: center;
+}
+.upload-error-detail {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: left;
+}
+
+/* 上传区域样式修正（去掉内部白色，统一背景） */
+.golden-upload {
+  width: 100%;
+  height: 300px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  border: 2px dashed #888;
+  border-radius: 14px;
+  background: #f5f7fa;
+  transition: all 0.3s;
+  padding: 32px;
+}
+.golden-upload:hover {
+  border-color: var(--color-primary);
+}
+.golden-upload.is-dragover {
+  border: 2px solid var(--color-primary) !important;
+  background: var(--color-primary-10) !important;
+}
+.golden-upload.is-dragover .upload-icon {
+  transform: scale(1.1);
+  color: var(--color-primary);
+}
+.upload-icon {
+  font-size: 64px;
+  color: var(--color-primary);
+  margin-bottom: 16px;
+  transition: color 0.2s, transform 0.2s;
+}
+.upload-text {
+  font-size: 16px;
+  color: var(--text-primary);
+  margin: 0 0 16px;
+  font-weight: 500;
+}
+.upload-hint {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin: 12px 0 0 0;
+}
+.upload-format-info {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-top: 6px;
+}
+.upload-btn:hover {
+  opacity: 0.9;
+}
+
+.upload-content.is-dragover {
+  background-color: #ecf5ff;
+  border-color: var(--color-primary);
+}
+
+.upload-content.is-dragover .upload-icon {
+  color: var(--color-primary);
+}
+
+.upload-icon.icon-active {
+  color: var(--color-primary);
+}
+
+.upload-btn:hover {
+  opacity: 0.9;
+}
+
+.upload-btn:active {
+  transform: scale(0.98);
+}
+
+.upload-hint {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin: 12px 0 0 0;
+}
+
+.upload-format-info {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-top: 6px;
 }
 
 /* 解析中骨架屏 */
@@ -2042,7 +2645,7 @@ onMounted(async () => {
 
 /* 账户选择 */
 .ledger-select-area {
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 
 .ledger-select-area :deep(.el-form-item__content) {
@@ -2073,95 +2676,6 @@ onMounted(async () => {
 .required-star {
   color: var(--color-danger);
   margin-left: 2px;
-}
-
-/* 上传组件 */
-.upload-area-wrapper {
-  /* 移除居中，左侧自然对齐 */
-}
-
-.golden-upload {
-  width: 100%;
-  max-width: 680px;
-  height: 300px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  border: 2px dashed var(--border-default);
-  border-radius: 14px;
-  background: var(--bg-card);
-  transition: all 0.3s;
-}
-
-.golden-upload:hover {
-  border-color: var(--color-primary);
-  background: var(--bg-hover);
-}
-
-.golden-upload :deep(.el-upload-dragger) {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  border: none;
-  background: transparent;
-}
-
-.upload-content {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  padding: 20px;
-}
-
-.upload-content.is-dragover {
-  background-color: var(--color-primary-20);
-  border-radius: 14px;
-}
-
-.upload-icon {
-  font-size: 48px;
-  color: var(--text-disabled);
-  margin-bottom: 12px;
-  transition: color 0.2s;
-}
-
-.upload-icon.icon-active {
-  color: var(--color-primary);
-}
-
-.upload-text {
-  font-size: 16px;
-  color: var(--text-primary);
-  margin: 0 0 14px;
-}
-
-.upload-btn {
-  margin-bottom: 12px;
-}
-
-.upload-btn:hover {
-  opacity: 0.9;
-}
-
-.upload-btn:active {
-  transform: scale(0.98);
-}
-
-.upload-hint {
-  font-size: 12px;
-  color: var(--text-tertiary);
-  margin: 0;
-}
-
-.upload-format-info {
-  font-size: 12px;
-  color: var(--text-tertiary);
-  margin-top: 6px;
 }
 
 /* 账户选择框闪烁动画 */
@@ -2330,10 +2844,14 @@ onMounted(async () => {
   color: var(--text-secondary);
 }
 
-.summary-card-hint {
-  font-size: 12px;
-  color: var(--text-tertiary);
-  margin-top: 4px;
+.summary-badge {
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.summary-card-title {
+  display: flex;
+  align-items: center;
 }
 
 /* 批量修正入口 */
@@ -2488,17 +3006,6 @@ onMounted(async () => {
   background: var(--bg-hover);
 }
 
-/* 账户选择框闪烁动画 */
-@keyframes ledgerFlash {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(122, 127, 168, 0.4); }
-  50% { box-shadow: 0 0 0 4px rgba(122, 127, 168, 0.15); }
-}
-
-.ledger-select-flash :deep(.el-input__wrapper) {
-  animation: ledgerFlash 0.6s ease-in-out 2;
-  border-color: var(--color-primary) !important;
-}
-
 .allocation-group-info {
   display: flex;
   align-items: center;
@@ -2569,6 +3076,19 @@ onMounted(async () => {
   border-left: 3px solid var(--color-danger);
 }
 
+.import-mode-group {
+  margin-bottom: 32px;
+}
+
+.import-group-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+  padding-left: 4px;
+  border-left: 3px solid var(--color-primary);
+}
+
 /* 表格内部样式 */
 :deep(.el-table .cell) {
   white-space: nowrap;
@@ -2605,30 +3125,10 @@ onMounted(async () => {
   background-color: var(--bg-muted);
 }
 
-.merge-expand-content {
-  padding: 8px 16px;
-  background-color: var(--bg-muted);
+.product-code-row {
   display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: 6px;
-}
-
-.merge-expand-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 13px;
-}
-
-.merge-expand-type {
-  color: var(--text-secondary);
-  display: flex;
-  align-items: center;
-}
-
-.merge-expand-amount {
-  font-weight: 500;
-  color: var(--text-primary);
 }
 
 /* 产品信息列 */
@@ -2772,9 +3272,8 @@ onMounted(async () => {
    8. 全局步骤内容容器
    ============================================ */
 .step-content {
-  margin-top: 32px;
-  min-height: 400px;
-  /* 移除固定高度和 overflow: hidden，让第二步可以自然撑开或滚动 */
+  margin-top: 20px;
+  min-height: 380px;
   height: auto;
   overflow: visible;
 }

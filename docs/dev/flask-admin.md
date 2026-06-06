@@ -270,13 +270,14 @@ pip install flask-login
 ### 管理上传文件和图片
 
 文件上传，很简单的调用 FileAdmin 即可
+
 ```python
 
 from flask_admin.contrib.fileadmin import FileAdmin
 
 import os.path as op
 
-file_path = op.join(op.dirname(__file__), 'static')
+file_path = op.join(op.dirname(__file__), '../../backend/static')
 
 admin.add_view(FileAdmin(file_path, '/static/', name='文件'))
 

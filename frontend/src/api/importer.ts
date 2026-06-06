@@ -1,10 +1,16 @@
 import { http } from "@/utils/http";
 
 /** 解析上传的交易文件，返回预览数据 */
-export function parseFile(file: File, template: string = 'standard') {
+export function parseFile(file: File, template: string, ledgerId: number | null) {
   const formData = new FormData();
   formData.append('file', file);
-  return http.request<any>("post", `/api/importers/parse?template=${template}`, {
+  // 构建查询参数
+  const params = new URLSearchParams();
+  params.set('template', template);
+  if (ledgerId) {
+    params.set('ledger_id', String(ledgerId));
+  }
+  return http.request<any>("post", `/api/importers/parse?${params.toString()}`, {
     data: formData,
     headers: { 'Content-Type': 'multipart/form-data' }
   });

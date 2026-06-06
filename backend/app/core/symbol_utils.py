@@ -15,6 +15,7 @@
 """
 
 import re
+from functools import lru_cache
 from typing import Dict, Optional, Tuple
 
 
@@ -138,6 +139,7 @@ class StockCodeNormalizer:
             return f'b{code}'  # 新浪对北交所可能支持有限，先按此转换
         return None
 
+    @lru_cache(maxsize=512)
     def normalize(
         self, code: str, hint_market: Optional[str] = None
     ) -> Tuple[Optional[str], Optional[str], Optional[str]]:

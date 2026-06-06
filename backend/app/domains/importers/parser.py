@@ -25,11 +25,13 @@ from app.core.constants import (
     OP_TYPE_LABEL,
     THS_OP_TYPE_MAP,
 )
+from app.core.decorators import deprecated
 from app.core.symbol_utils import get_normalizer
 from app.domains.importers.templates import STANDARD_TEMPLATE, ImportTemplate
 from app.domains.transactions.models import Transaction
 
 
+@deprecated('请使用 app/services/importer/ 下的新解析器')
 class TransactionParser:
     """交易记录解析器"""
 
