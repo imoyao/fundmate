@@ -115,16 +115,20 @@ class PositionService:
             )
 
         # 标准化 symbol（同时生成搜索用的符号）
+        # 修改后：
+        asset_type = data.get('type', 'stock')
         search_symbol = symbol
-        # 标准化 symbol（只更新局部变量，不污染原始 data）
-        try:
-            normalizer = get_normalizer()
-            normalized, _, _ = normalizer.normalize(symbol)
-            if normalized:
-                symbol = normalized
-                search_symbol = normalized
-        except Exception:
-            logger.warning(f'无法标准化符号: {symbol}，保留原值')
+        if asset_type not in ('fund', 'money_fund', 'reverse_repo', 'bond'):
+            # 股票、ETF等场内品种需要标准化代码（添加市场前缀）
+            try:
+                normalizer = get_normalizer()
+                normalized, _, _ = normalizer.normalize(symbol)
+                if normalized:
+                    symbol = normalized
+                    search_symbol = normalized
+            except Exception:
+                logger.warning(f'无法标准化符号: {symbol}，保留原值')
+
         # 查找或创建持仓
         # 优先用标准化后的符号查找
         same = db.query(Position).filter_by(symbol=search_symbol, account_name=account).first()

@@ -153,6 +153,13 @@ class XalphaAdapter(DataSourceAdapter):
         解析失败返回空字典。
         """
         try:
+            _, is_money_fund = self.get_fund_with_type(fund_code)
+            if is_money_fund:
+                return {}
+        except Exception:
+            pass  # 无法判断时继续尝试获取，但后续异常会被捕获
+
+        try:
             fund = xa.fundinfo(fund_code)
         except Exception as e:
             self.logger.warning(f'xalpha 初始化基金 {fund_code} 失败: {e}')

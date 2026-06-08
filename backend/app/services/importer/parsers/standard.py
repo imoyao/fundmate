@@ -121,7 +121,8 @@ class StandardTemplateParser(BaseImportParser):
             raise ValueError('证券代码不能为空')
         symbol = self._normalize_code(symbol_raw)
         if not symbol:
-            raise ValueError(f'无法识别证券代码: {symbol_raw}')
+            code_type = '基金代码' if self._asset_type == 'fund' else '证券代码'
+            raise ValueError(f'无法识别{code_type}: {symbol_raw}')
 
         confirm_date = parse_date(row.get('confirm_date', ''))
         if not confirm_date:

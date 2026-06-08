@@ -12,6 +12,7 @@
 
 import threading
 
+import pandas as pd
 from loguru import logger
 
 from app.core.database import SessionLocal
@@ -38,9 +39,28 @@ def _backfill_fund_nav(fund_code: str):
                 r['fund_code'] = fund_code
             target_model = MoneyFundDailyWorth
         else:
-            records = []
+            records = list()
             for idx, row in nav_df.iterrows():
-                date_val = idx.date() if hasattr(idx, 'date') else idx
+                # 优先使用列中的日期
+                if 'date' in row and row['date'] is not None:
+                    raw_date = row['date']
+                    if hasattr(raw_date, 'date'):
+                        date_val = raw_date.date()
+                    else:
+                        date_val = pd.Timestamp(raw_date).date()
+                else:
+                    # 尝试从 index 转换
+                    if hasattr(idx, 'date'):
+                        date_val = idx.date()
+                    elif isinstance(idx, (int, float, str)):
+                        try:
+                            date_val = pd.Timestamp(idx).date()
+                        except Exception:
+                            logger.warning(f'无法解析日期: {idx}, 跳过')
+                            continue
+                    else:
+                        continue
+
                 records.append(
                     {
                         'fund_code': fund_code,

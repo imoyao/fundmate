@@ -3,7 +3,6 @@
 # Date : 2026/5/30 11:27
 # File : sync_metadata.py
 # !/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 ShowBuy 元数据同步脚本
 
@@ -81,6 +80,7 @@ def main():
     parser.add_argument('--job', type=str, help='单独同步某个 Job')
     parser.add_argument('--full-sync', action='store_true', help='全量同步（默认增量）')
     parser.add_argument('--target-file', type=str, help='通过CSV文件指定待同步的代码列表')
+    parser.add_argument('--targets', type=str, help='直接指定基金/股票代码列表，逗号分隔')
     args = parser.parse_args()
 
     if not args.all and not args.job:
@@ -108,15 +108,16 @@ def main():
                 # 同时保留 JSON 日志供调试
                 logger.debug(f'详细结果: {results}')
             elif args.job:
-                # 单独执行某个 Job 时，从 CSV 或数据库解析目标列表
                 targets = None
-                if args.target_file:
+                if args.targets:
+                    # 直接指定代码列表（逗号分隔）
+                    targets = [code.strip() for code in args.targets.split(',') if code.strip()]
+                elif args.target_file:
                     all_targets = orchestrator.resolve_targets(target_file=args.target_file)
                     if args.job in ('fund_nav', 'fund_detail_enrich', 'fund_manager'):
                         targets = all_targets.get('fund', [])
                     elif args.job == 'price_history':
                         targets = all_targets.get('stock', [])
-                    # stock_list、fund_list 等 Job 不需要目标列表
 
                 result = orchestrator.run_job(args.job, full_sync=args.full_sync, targets=targets)
                 logger.info(f'任务 {args.job} 执行完成: {result}')

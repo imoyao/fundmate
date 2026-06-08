@@ -15,7 +15,8 @@ from loguru import logger
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ErrorCode, SBException
-from app.domains.funds.models import Fund
+from app.domains.funds.models import Fund, FundVariety
+from app.domains.ledgers.models import Ledger
 from app.domains.securities.models import Security
 from app.domains.transactions.models import Transaction
 from app.services.async_backfill import trigger_backfill
@@ -155,6 +156,8 @@ class ImportOrchestrator:
         valid_rows = [
             r for r in raw_rows if not r.get('is_duplicate') and not r.get('error') and not r.get('is_cash_transfer')
         ]
+        filter_skipped = len(raw_rows) - len(valid_rows)
+
         if not valid_rows:
             return {'imported': 0, 'skipped': len(raw_rows), 'orphan_count': 0, 'errors': []}
 
@@ -185,7 +188,9 @@ class ImportOrchestrator:
                 )
             )
 
-        return self.commit(records)
+        result = self.commit(records)
+        result['skipped'] += filter_skipped
+        return result
 
     # ── 解析 ──
 
@@ -248,28 +253,28 @@ class ImportOrchestrator:
         fund_codes = set()
         stock_codes = set()
 
-        # 第一遍：收集所有需要查询的代码，同时补全账户名称
+        # 第一遍：收集代码并补全账户
         for r in records:
             if not r.account_name and frontend_account:
                 r.account_name = frontend_account
-            if not r.name:  # 名称缺失才查询
-                if r.asset_type == 'fund':
-                    fund_codes.add(r.symbol)
-                elif r.asset_type == 'stock':
-                    stock_codes.add(r.symbol)
-            # 基金 display_type 缺失也需要查询
-            if r.asset_type == 'fund' and not r.display_type:
+            if r.asset_type == 'fund':
                 fund_codes.add(r.symbol)
+            elif r.asset_type == 'stock':
+                stock_codes.add(r.symbol)
 
-        # 批量查询基金信息
+        # 批量查询基金信息（联表加载 variety）
         fund_name_map = {}
         fund_type_map = {}
         if fund_codes:
-            funds = self.db.query(Fund).filter(Fund.fund_code.in_(fund_codes)).all()
-            fund_name_map = {f.fund_code: f.name for f in funds}
-            for f in funds:
-                variety_name = f.variety.name if f.variety else ''
-                fund_type_map[f.fund_code] = variety_name
+            funds = (
+                self.db.query(Fund.fund_code, Fund.name, FundVariety.name.label('variety_name'))
+                .outerjoin(FundVariety, Fund.fund_variety_id == FundVariety.id)
+                .filter(Fund.fund_code.in_(fund_codes))
+                .all()
+            )
+            for fund_code, fund_name, variety_name in funds:
+                fund_name_map[fund_code] = fund_name or fund_code
+                fund_type_map[fund_code] = variety_name or ''
 
         # 批量查询股票信息
         stock_map = {}
@@ -278,15 +283,19 @@ class ImportOrchestrator:
                 s.symbol: s.name for s in self.db.query(Security).filter(Security.symbol.in_(stock_codes)).all()
             }
 
-        # 第二遍：填充名称和类型
+        # 第二遍：填充名称和类型，识别货币基金
         for r in records:
             if not r.name:
                 if r.asset_type == 'fund':
                     r.name = fund_name_map.get(r.symbol, r.symbol)
                 else:
                     r.name = stock_map.get(r.symbol, r.symbol)
+
             if r.asset_type == 'fund' and not r.display_type:
                 r.display_type = fund_type_map.get(r.symbol, '')
+                # 识别货币基金
+                if '货币' in r.display_type:
+                    r.asset_type = 'money_fund'
 
     # ── 入库 ──
 
@@ -304,8 +313,33 @@ class ImportOrchestrator:
                         skipped += 1
                         continue
 
-                if record.asset_type == 'cash':
-                    skipped += 1
+                if record.asset_type in ('cash', 'money_fund'):  # 货币基金也视为现金转移
+                    data = self._build_import_data(record)
+                    # 检查是否有可用的现金账户
+                    cash_ledger = self.db.query(Ledger).filter_by(ledger_type='cash').first()
+                    if cash_ledger:
+                        # 有现金账户：直接关联
+                        data['account_name'] = cash_ledger.name
+                        entry_status = None
+                    else:
+                        # 无现金账户：标记为 pending_cash
+                        entry_status = 'pending_cash'
+                    TransactionService.create(
+                        db=self.db,
+                        txn_type=data['op_type'],
+                        trade_date=data['purchase_date'],
+                        quantity=0,
+                        price=0,
+                        fee=0,
+                        amount=data['net_amount'],
+                        status='success',
+                        position_name=data.get('name', ''),
+                        account_name=data.get('account_name', ''),
+                        notes=data.get('notes', ''),
+                        import_hash=data.get('import_hash'),
+                        entry_status=entry_status,
+                    )
+                    imported += 1
                     continue
 
                 data = self._build_import_data(record)
@@ -430,7 +464,7 @@ class ImportOrchestrator:
             'notes': '',
             'import_hash': record.import_hash,
             'allocation': 'liquid' if record.asset_type in ('money_fund', 'reverse_repo') else 'longterm',
-            'op_type': BusinessType.get_service_code(record.business_type),
+            'op_type': record.business_type,
             'link_group_id': record.link_group_id,
             'dividend_amount': float(record.amount) if is_dividend else 0,
             'net_amount': float(record.net_amount) if record.net_amount else float(record.amount),

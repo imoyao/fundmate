@@ -72,7 +72,7 @@ class TestStandardFundParser:
         # 应有一条记录，但带有错误信息
         assert len(records) == 1
         assert records[0].error is not None
-        assert '无法识别证券代码' in records[0].error
+        assert '无法识别基金代码' in records[0].error
         # 没有解析层面的致命错误
         assert len(errors) == 0
 

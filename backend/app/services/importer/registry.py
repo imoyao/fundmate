@@ -12,6 +12,7 @@
 from app.services.importer.base import BaseImportParser
 from app.services.importer.parsers.standard import FundStandardParser, StockStandardParser
 from app.services.importer.parsers.ths_stock import THSStockParser
+from app.services.importer.parsers.tiantian_fund import TiantianFundParser
 
 # source → 解析器实例
 PARSER_REGISTRY: dict[str, BaseImportParser] = {}
@@ -38,3 +39,4 @@ register_parser('standard', StockStandardParser())
 register_parser('standard_stock', StockStandardParser())
 register_parser('ths_stock', THSStockParser())
 register_parser('ths', THSStockParser())  # 兼容旧前端参数
+register_parser('tiantian_fund', TiantianFundParser())
