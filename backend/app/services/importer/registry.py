@@ -10,6 +10,8 @@
 """
 
 from app.services.importer.base import BaseImportParser
+from app.services.importer.parsers.alipay_fund import AlipayFundParser
+from app.services.importer.parsers.alipay_pdf import AlipayPDFParser
 from app.services.importer.parsers.standard import FundStandardParser, StockStandardParser
 from app.services.importer.parsers.ths_stock import THSStockParser
 from app.services.importer.parsers.tiantian_fund import TiantianFundParser
@@ -40,3 +42,5 @@ register_parser('standard_stock', StockStandardParser())
 register_parser('ths_stock', THSStockParser())
 register_parser('ths', THSStockParser())  # 兼容旧前端参数
 register_parser('tiantian_fund', TiantianFundParser())
+register_parser('alipay_fund', AlipayFundParser())
+register_parser('alipay_pdf', AlipayPDFParser())

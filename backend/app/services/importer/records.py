@@ -48,6 +48,7 @@ class StandardTransactionRecord:
     display_type: str = ''  # 产品细分类型，如“混合型”、“货币型”，前端展示用
     error: str = ''  # 解析失败时存放错误信息
     raw_op_type: str = ''  # 新增：原始中文操作类型，用于关联交易配对
+    is_calculated: bool = False  # 份额和净值是否为系统自动推算
 
 
 @dataclass

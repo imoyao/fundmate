@@ -11,3 +11,10 @@ export function searchFunds(keyword: string) {
     params: { q: keyword }
   });
 }
+
+// frontend/src/api/importer.ts
+export function calcFundNav(symbols: string[], date: string) {
+  return http.request<any>("post", "/api/funds/nav/", {
+    data: { symbols, date }
+  });
+}

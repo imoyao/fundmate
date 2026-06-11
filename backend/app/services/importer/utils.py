@@ -104,21 +104,25 @@ def parse_date(raw: str) -> Optional[date]:
     if not raw or not isinstance(raw, str):
         return None
 
-    cleaned = raw.strip().replace('年', '-').replace('月', '-').replace('日', '').replace('/', '-').replace('.', '-')
+    cleaned = raw.strip()
+    # 去掉时间部分（如果有）
+    if ' ' in cleaned:
+        cleaned = cleaned.split(' ')[0]
 
-    # 纯数字 YYYYMMDD 格式
+    cleaned = cleaned.replace('年', '-').replace('月', '-').replace('日', '').replace('/', '-').replace('.', '-')
+
+    # 纯数字 YYYYMMDD
     if len(cleaned) == 8 and cleaned.isdigit():
         try:
             return datetime.strptime(cleaned, '%Y%m%d').date()
         except ValueError:
             pass
 
-    # 标准格式
-    for fmt in ['%Y-%m-%d', '%Y-%m-%d']:
-        try:
-            return datetime.strptime(cleaned, fmt).date()
-        except ValueError:
-            continue
+    # 标准格式 YYYY-MM-DD
+    try:
+        return datetime.strptime(cleaned, '%Y-%m-%d').date()
+    except ValueError:
+        pass
 
     return None
 

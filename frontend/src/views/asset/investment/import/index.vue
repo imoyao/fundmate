@@ -1,7 +1,7 @@
 <template>
   <div class="inventory-page">
     <el-steps :active="currentStep" finish-status="success" align-center>
-      <el-step v-for="(step, index) in steps" :key="index" :title="step.title" />
+      <el-step v-for="(step, index) in steps" :key="index" :title="step.title"/>
     </el-steps>
 
     <div class="step-content">
@@ -46,12 +46,12 @@
 
         <div class="import-mode-cards">
           <div class="mode-card" @click="goToManualEntry">
-            <IconifyIconOffline icon="ep:edit" class="mode-icon" />
+            <IconifyIconOffline icon="ep:edit" class="mode-icon"/>
             <h4 class="mode-title">手动批量录入</h4>
             <p class="mode-desc">没有文件？在网页表格中逐行快速录入交易记录</p>
           </div>
           <div class="mode-card" @click="goToLiabilityForm">
-            <IconifyIconOffline icon="ep:document-add" class="mode-icon" />
+            <IconifyIconOffline icon="ep:document-add" class="mode-icon"/>
             <h4 class="mode-title">录入负债 / 应收款</h4>
             <p class="mode-desc">记录信用卡、房贷等非交易类资产</p>
           </div>
@@ -62,10 +62,11 @@
       <div v-else-if="currentStep === 1" class="upload-step">
         <div v-show="parsing" class="parsing-status">
           <p class="text-sm text-gray-500 mb-4">
-            <IconifyIconOffline icon="ep:loading" class="loading-icon" /> 正在解析文件，请稍候...
+            <IconifyIconOffline icon="ep:loading" class="loading-icon"/>
+            正在解析文件，请稍候...
           </p>
           <p class="text-xs text-gray-400 mb-4">正在处理 {{ fileSize }}，预计需要 5-10 秒</p>
-          <el-skeleton :rows="8" animated />
+          <el-skeleton :rows="8" animated/>
         </div>
 
         <div v-show="!parsing" class="upload-layout">
@@ -79,12 +80,13 @@
             </div>
 
             <div v-if="isStandardMode" class="template-download-section">
-              <el-button type="primary" size="large" class="download-template-btn" :loading="downloading" @click="handleDownloadTemplate">
-                <IconifyIconOffline icon="ep:download" class="mr-2" />
+              <el-button type="primary" size="large" class="download-template-btn" :loading="downloading"
+                         @click="handleDownloadTemplate">
+                <IconifyIconOffline icon="ep:download" class="mr-2"/>
                 下载{{ templateNameForAccount }}（CSV）
               </el-button>
               <p class="download-hint">
-                按模板填写后上传，即可批量导入{{ accountType }}交易记录<br />
+                按模板填写后上传，即可批量导入{{ accountType }}交易记录<br/>
                 模板包含：{{ templateFields }}
               </p>
             </div>
@@ -92,7 +94,7 @@
             <div class="import-mode-select">
               <span class="import-mode-label">导入格式：</span>
               <el-select v-model="selectedMode" size="large" style="width: 220px">
-                <el-option v-for="mode in availableModes" :key="mode.value" :label="mode.label" :value="mode.value" />
+                <el-option v-for="mode in availableModes" :key="mode.value" :label="mode.label" :value="mode.value"/>
               </el-select>
               <span class="import-mode-hint">选择与您的文件来源匹配的格式</span>
             </div>
@@ -100,7 +102,7 @@
             <div class="upload-area-wrapper">
               <el-upload
                 ref="uploadRef"
-                :accept="'.csv,.xls,.xlsx'"
+                :accept="uploadAccept"
                 :before-upload="beforeUpload"
                 :http-request="handleUpload"
                 :show-file-list="false"
@@ -109,34 +111,38 @@
                 class="golden-upload"
               >
                 <template #default>
-                  <IconifyIconOffline icon="ep:upload-filled" class="upload-icon" :class="{ 'icon-active': isDragover }" />
+                  <IconifyIconOffline icon="ep:upload-filled" class="upload-icon"
+                                      :class="{ 'icon-active': isDragover }"/>
                   <p class="upload-text">将文件拖到此处，或</p>
-                  <el-button type="primary" size="default" class="upload-btn" :disabled="!selectedLedgerId || uploading" :loading="uploading" @click="handleUploadClick">
+                  <el-button type="primary" size="default" class="upload-btn" :disabled="!selectedLedgerId || uploading"
+                             :loading="uploading" @click="handleUploadClick">
                     {{ uploading ? '正在上传...' : '点击上传' }}
                   </el-button>
-                  <p class="upload-hint">{{ isStandardMode ? '使用标准模板格式的文件' : `直接上传${formatName}导出的文件` }}</p>
+                  <p class="upload-hint">
+                    {{ isStandardMode ? '使用标准模板格式的文件' : `直接上传${formatName}导出的文件` }}</p>
                   <p class="upload-format-info">支持 Excel、CSV 格式 ｜ 最大 5MB</p>
                 </template>
               </el-upload>
 
               <div v-if="uploadError" class="upload-error">
-                <IconifyIconOffline icon="ep:warning-filled" class="mr-1" /> {{ uploadError }}
+                <IconifyIconOffline icon="ep:warning-filled" class="mr-1"/>
+                {{ uploadError }}
                 <div class="upload-error-detail">
                   请检查：
                   <template v-if="selectedMode === 'ths'">
-                    1. 是否为同花顺客户端导出的原始文件<br />
-                    2. 文件是否完整，没有被修改过<br />
+                    1. 是否为同花顺客户端导出的原始文件<br/>
+                    2. 文件是否完整，没有被修改过<br/>
                     3. 导出格式是否为"制表符分隔的文本文件"
                   </template>
                   <template v-else-if="selectedMode === 'tiantian_fund'">
-                    1. 是否从天天基金网页完整复制了表格数据<br />
-                    2. 确认日期、基金代码、业务类型、确认金额等关键列是否存在<br />
+                    1. 是否从天天基金网页完整复制了表格数据<br/>
+                    2. 确认日期、基金代码、业务类型、确认金额等关键列是否存在<br/>
                     3. 文件编码是否为 UTF-8
                   </template>
                   <template v-else>
-                    1. 是否为纯CSV格式（不是.xlsx直接改后缀）<br />
-                    2. 表头是否与下载的模板完全一致<br />
-                    3. 日期格式是否为 YYYY-MM-DD<br />
+                    1. 是否为纯CSV格式（不是.xlsx直接改后缀）<br/>
+                    2. 表头是否与下载的模板完全一致<br/>
+                    3. 日期格式是否为 YYYY-MM-DD<br/>
                     4. 股票代码/基金代码是否正确
                   </template>
                 </div>
@@ -147,7 +153,7 @@
           <div class="upload-right" v-if="formatGuides[selectedMode]">
             <div class="format-guide">
               <div class="format-guide-header">
-                <IconifyIconOffline icon="ep:info-filled" class="format-guide-icon" />
+                <IconifyIconOffline icon="ep:info-filled" class="format-guide-icon"/>
                 <span>{{ formatGuides[selectedMode].title }}</span>
               </div>
               <ol class="format-guide-list">
@@ -164,11 +170,12 @@
         <el-dialog v-model="showCreateLedgerDialog" title="添加新账户" width="360px" :close-on-click-modal="false">
           <el-form label-position="top">
             <el-form-item label="账户名称" required>
-              <el-input v-model="newLedgerName" placeholder="例如：华泰证券、招商银行储蓄卡" size="large" @keyup.enter="createLedger" />
+              <el-input v-model="newLedgerName" placeholder="例如：华泰证券、招商银行储蓄卡" size="large"
+                        @keyup.enter="createLedger"/>
             </el-form-item>
             <el-form-item label="默认配置目标">
               <el-select v-model="newLedgerAllocation" size="large">
-                <el-option v-for="opt in allocationOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
+                <el-option v-for="opt in allocationOptions" :key="opt.value" :label="opt.label" :value="opt.value"/>
               </el-select>
             </el-form-item>
           </el-form>
@@ -188,7 +195,7 @@
           <span class="header-ledger">导入账户：{{ selectedLedgerName }}</span>
           <div class="header-actions ml-auto flex items-center gap-3">
             <el-button size="default" @click="toggleAllocationPanel">
-              <IconifyIconOffline icon="ep:setting" class="mr-1" />
+              <IconifyIconOffline icon="ep:setting" class="mr-1"/>
               {{ showAllocationGroupPanel ? '收起配置' : '设置配置目标' }}
             </el-button>
           </div>
@@ -201,19 +208,22 @@
                 <div class="summary-card summary-card--success">
                   <div class="summary-card-header">
                     <span class="summary-card-title">
-                      已校验 <el-badge :value="validRowsCount" :type="validRowsCount > 0 ? 'success' : 'info'" class="summary-badge" />
+                      已校验 <el-badge :value="validRowsCount" :type="validRowsCount > 0 ? 'success' : 'info'"
+                                       class="summary-badge"/>
                     </span>
                   </div>
                   <div class="summary-card-body"><p>代码已匹配、字段完整、无重复，可直接导入</p></div>
                 </div>
                 <div v-if="duplicateCount > 0" class="summary-card summary-card--warning">
                   <div class="summary-card-header">
-                    <span class="summary-card-title">重复项 <el-badge :value="duplicateCount" type="warning" class="summary-badge" /></span>
+                    <span class="summary-card-title">重复项 <el-badge :value="duplicateCount" type="warning"
+                                                                      class="summary-badge"/></span>
                   </div>
                 </div>
                 <div v-if="blockedCount > 0 || errorCount > 0" class="summary-card summary-card--danger">
                   <div class="summary-card-header">
-                    <span class="summary-card-title">待确认 <el-badge :value="blockedCount + errorCount" type="danger" class="summary-badge" /></span>
+                    <span class="summary-card-title">待确认 <el-badge :value="blockedCount + errorCount" type="danger"
+                                                                      class="summary-badge"/></span>
                   </div>
                   <div class="summary-card-body">
                     <p v-if="errorCount > 0">· {{ errorCount }} 条解析错误</p>
@@ -225,36 +235,111 @@
 
             <div v-if="(blockedCount + errorCount) > 0" class="batch-fix-bar">
               <el-button :type="showBatchFix ? '' : 'primary'" @click="toggleBatchFix" size="default">
-                <IconifyIconOffline icon="ep:setting" class="mr-1" />
+                <IconifyIconOffline icon="ep:setting" class="mr-1"/>
                 {{ showBatchFix ? '收起批量修正' : '批量修正问题数据' }}
               </el-button>
               <span class="batch-fix-hint" v-if="!showBatchFix">{{ blockedCount + errorCount }} 条待处理</span>
+              <el-button
+                v-if="hasFundRecordsForNav"
+                type="primary"
+                size="default"
+                :loading="enrichingNav"
+                @click="fetchAndFillFundNav"
+              >
+                获取净值和份额（{{ fundRecordsCount }}只）
+              </el-button>
+              <el-button
+                v-if="calculatedCount > 0"
+                type="warning"
+                size="default"
+                @click="confirmAllCalculated"
+              >
+                确认所有推算数据（{{ calculatedCount }} 条）
+              </el-button>
             </div>
 
             <div v-if="showBatchFix && problemCategories.length > 0" class="batch-fix-panel">
-              <div v-for="cat in problemCategories" :key="cat.key" class="batch-fix-group" :class="{ 'batch-fix-group--active': isCategoryActive(cat.key) }" @click="filterByCategory(cat.key)">
+              <div v-for="cat in problemCategories" :key="cat.key" class="batch-fix-group"
+                   :class="{ 'batch-fix-group--active': isCategoryActive(cat.key) }" @click="filterByCategory(cat.key)">
                 <div class="batch-fix-card">
                   <div class="batch-fix-card-header">
                     <div class="batch-fix-info">
                       <span class="batch-fix-label">{{ cat.label }}</span>
                       <span class="batch-fix-desc">{{ getCategoryDesc(cat.key) }}</span>
                     </div>
-                    <el-tag size="small" effect="dark" :type="getCategoryTagType(cat.key, cat.count)">{{ cat.count }} 条</el-tag>
+                    <el-tag size="small" effect="dark" :type="getCategoryTagType(cat.key, cat.count)">{{ cat.count }}
+                      条
+                    </el-tag>
                   </div>
                   <div class="batch-fix-actions" @click.stop>
                     <template v-if="cat.key === 'missingCode'">
-                      <el-input v-model="batchCodeInput" placeholder="输入证券代码" size="small" class="batch-fix-input" />
-                      <el-button type="primary" size="small" class="batch-fix-btn batch-fix-btn--primary" @click="batchFillCode(cat.rows, batchCodeInput)">应用到当前 {{ cat.count }} 条</el-button>
+                      <!-- 分别处理基金和股票 -->
+                      <template v-for="assetType in ['fund', 'stock']" :key="assetType">
+                        <template v-if="getMissingRowsByType(cat.rows, assetType).length > 0">
+                          <!-- 基金：单条显示输入框，多条显示抽屉按钮 -->
+                          <template v-if="assetType === 'fund'">
+                            <template v-if="getMissingRowsByType(cat.rows, 'fund').length === 1">
+                              <el-input
+                                v-model="batchCodeInput"
+                                placeholder="输入基金代码"
+                                size="small"
+                                class="batch-fix-input"
+                              />
+                              <el-button
+                                type="primary"
+                                size="small"
+                                class="batch-fix-btn batch-fix-btn--primary"
+                                @click="batchFillCode(getMissingRowsByType(cat.rows, 'fund'), batchCodeInput)"
+                              >
+                                应用到当前 1 条
+                              </el-button>
+                            </template>
+                            <template v-else>
+                              <el-button
+                                type="primary"
+                                size="small"
+                                @click="showMatchDrawer = true"
+                              >
+                                匹配基金代码（{{ getMissingRowsByType(cat.rows, 'fund').length }}只）
+                              </el-button>
+                            </template>
+                          </template>
+
+                          <!-- 股票：暂不支持批量匹配，使用输入框 -->
+                          <template v-if="assetType === 'stock'">
+                            <el-input
+                              v-model="batchCodeInput"
+                              placeholder="输入股票代码"
+                              size="small"
+                              class="batch-fix-input"
+                            />
+                            <el-button
+                              type="primary"
+                              size="small"
+                              class="batch-fix-btn batch-fix-btn--primary"
+                              @click="batchFillCode(getMissingRowsByType(cat.rows, 'stock'), batchCodeInput)"
+                            >
+                              应用到当前 {{ getMissingRowsByType(cat.rows, 'stock').length }} 条
+                            </el-button>
+                          </template>
+                        </template>
+                      </template>
                     </template>
                     <template v-if="cat.key === 'mismatch'">
                       <el-tooltip content="以数量×价格为准修正金额" placement="top">
-                        <el-button type="primary" size="small" class="batch-fix-btn batch-fix-btn--primary" @click="batchFixAmount(cat.rows)">修正金额</el-button>
+                        <el-button type="primary" size="small" class="batch-fix-btn batch-fix-btn--primary"
+                                   @click="batchFixAmount(cat.rows)">修正金额
+                        </el-button>
                       </el-tooltip>
                     </template>
                     <template v-if="cat.key === 'missingQtyPrice'">
-                      <el-button type="primary" size="small" class="batch-fix-btn batch-fix-btn--primary" @click="showFullTable = true; showProblemOnly = true">展开查看并手动编辑</el-button>
+                      <el-button type="primary" size="small" class="batch-fix-btn batch-fix-btn--primary"
+                                 @click="showFullTable = true; showProblemOnly = true">展开查看并手动编辑
+                      </el-button>
                     </template>
-                    <el-button size="small" class="batch-fix-btn batch-fix-btn--secondary" @click="skipCategory(cat.rows)">跳过当前</el-button>
+                    <el-button size="small" class="batch-fix-btn batch-fix-btn--secondary"
+                               @click="skipCategory(cat.rows)">跳过当前
+                    </el-button>
                   </div>
                 </div>
               </div>
@@ -273,51 +358,69 @@
                 <span class="allocation-group-label">已选行批量设置</span>
                 <el-tag size="small" type="primary">{{ selectedCount }} 条已选</el-tag>
               </div>
-              <el-select model-value="" placeholder="选择配置目标" size="small" style="width: 140px" @change="(val: string) => batchSetAllocation(val)">
-                <el-option v-for="opt in allocationOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
+              <el-select model-value="" placeholder="选择配置目标" size="small" style="width: 140px"
+                         @change="(val: string) => batchSetAllocation(val)">
+                <el-option v-for="opt in allocationOptions" :key="opt.value" :label="opt.label" :value="opt.value"/>
               </el-select>
             </div>
             <div class="allocation-group-list">
-              <div v-for="group in currentAllocationGroups" :key="group.type || group.account" class="allocation-group-item">
+              <div v-for="group in currentAllocationGroups" :key="group.type || group.account"
+                   class="allocation-group-item">
                 <div class="allocation-group-info">
                   <span class="allocation-group-label">{{ group.label }}</span>
                   <el-tag size="small" type="info">{{ group.count }} 条</el-tag>
                 </div>
-                <el-select :model-value="group.currentAllocation" size="small" style="width: 140px" @change="(val: string) => applyAllocationGroupSetting(group, val)">
-                  <el-option v-for="opt in allocationOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
+                <el-select :model-value="group.currentAllocation" size="small" style="width: 140px"
+                           @change="(val: string) => applyAllocationGroupSetting(group, val)">
+                  <el-option v-for="opt in allocationOptions" :key="opt.value" :label="opt.label" :value="opt.value"/>
                 </el-select>
               </div>
-              <div v-if="currentAllocationGroups.length === 0" class="text-center text-gray-400 py-4">所有数据已手动设置配置目标，无需分组调整</div>
+              <div v-if="currentAllocationGroups.length === 0" class="text-center text-gray-400 py-4">
+                所有数据已手动设置配置目标，无需分组调整
+              </div>
             </div>
           </div>
 
           <div class="step3-divider" @click="toggleLeftPanel" :title="showLeftPanel ? '收起侧边栏' : '展开数据摘要'">
-            <IconifyIconOffline :icon="showLeftPanel ? 'ep:d-arrow-left' : 'ep:d-arrow-right'" class="divider-icon" />
+            <IconifyIconOffline :icon="showLeftPanel ? 'ep:d-arrow-left' : 'ep:d-arrow-right'" class="divider-icon"/>
             <span v-if="!showLeftPanel" class="divider-text">摘要</span>
           </div>
 
           <div class="step3-right">
             <div class="table-controls">
               <div class="flex items-center gap-4 flex-wrap">
-                <el-select v-model="tableStatusFilter" placeholder="按状态筛选" size="small" style="width: 130px" clearable>
-                  <el-option label="全部" value="" />
-                  <el-option label="待补全" value="blocked" />
-                  <el-option label="重复" value="duplicate" />
-                  <el-option label="错误" value="error" />
-                  <el-option label="正常" value="normal" />
+                <el-select v-model="tableStatusFilter" placeholder="按状态筛选" size="small" style="width: 130px"
+                           clearable>
+                  <el-option label="全部" value=""/>
+                  <el-option label="待补全" value="blocked"/>
+                  <el-option label="重复" value="duplicate"/>
+                  <el-option label="错误" value="error"/>
+                  <el-option label="正常" value="normal"/>
                 </el-select>
-                <el-switch v-model="showProblemOnly" active-text="只看问题数据" inactive-text="全部数据" />
-                <el-input v-model="tableFilterKeyword" placeholder="搜索代码或名称" size="small" style="width: 200px" clearable />
-                <el-select v-model="tableTypeFilter" placeholder="按类型筛选" size="small" style="width: 140px" clearable multiple collapse-tags collapse-tags-tooltip>
-                  <el-option v-for="(label, key) in typeLabels" :key="key" :label="label" :value="key" />
+                <el-switch v-model="showProblemOnly" active-text="只看问题数据" inactive-text="全部数据"/>
+                <el-input v-model="tableFilterKeyword" placeholder="搜索代码或名称" size="small" style="width: 200px"
+                          clearable/>
+                <el-select v-model="tableTypeFilter" placeholder="按类型筛选" size="small" style="width: 140px"
+                           clearable multiple collapse-tags collapse-tags-tooltip>
+                  <el-option v-for="(label, key) in typeLabels" :key="key" :label="label" :value="key"/>
                 </el-select>
               </div>
               <div class="flex items-center gap-2">
-                <el-button v-if="duplicateCount > 0" size="small" :type="duplicatesHandled ? 'warning' : ''" @click="deselectAllDuplicates">
-                  {{ duplicatesHandled ? '恢复查看重复行' : '取消显示重复行' }}
-                </el-button>
-                <el-button type="text" @click="showFullTable = !showFullTable">
-                  <IconifyIconOffline :icon="showFullTable ? 'ep:arrow-up' : 'ep:arrow-down'" />
+                <el-tooltip content="请切换到“只看问题数据”视图后使用" :disabled="showProblemOnly">
+                  <span>
+                    <el-button
+                      v-if="duplicateCount > 0"
+                      size="small"
+                      :type="duplicatesHandled ? 'warning' : ''"
+                      :disabled="!showProblemOnly"
+                      @click="deselectAllDuplicates"
+                    >
+                      {{ duplicatesHandled ? '恢复查看重复行' : '取消显示重复行' }}
+                    </el-button>
+                  </span>
+                </el-tooltip>
+                <el-button type="text" @click="toggleFullTable">
+                  <IconifyIconOffline :icon="showFullTable ? 'ep:arrow-up' : 'ep:arrow-down'"/>
                   {{ showFullTable ? '收起列表' : '展开列表' }}
                 </el-button>
               </div>
@@ -329,21 +432,30 @@
             </div>
 
             <div v-show="showFullTable" class="table-wrapper">
-              <el-table :data="filteredPagedData" row-key="_rowKey" :tree-props="{ children: 'children', hasChildren: 'hasChildren' }" default-expand-all stripe size="default" :row-class-name="getRowClassName" :cell-class-name="getCellClassName" @selection-change="handleSelectionChange">
+              <el-table :data="filteredPagedData" row-key="_rowKey"
+                        :tree-props="{ children: 'children', hasChildren: 'hasChildren' }" default-expand-all stripe
+                        size="default" :row-class-name="getRowClassName" :cell-class-name="getCellClassName"
+                        @selection-change="handleSelectionChange">
                 <el-table-column width="80" fixed="left">
                   <template #header>
-                    <el-checkbox v-model="isAllSelected" :indeterminate="isIndeterminate" @change="handleHeaderCheckboxChange" />
+                    <el-checkbox v-model="isAllSelected" :indeterminate="isIndeterminate"
+                                 @change="handleHeaderCheckboxChange"/>
                   </template>
                   <template #default="{ row }">
                     <el-tooltip v-if="row.is_cash_transfer" content="资金划转暂不支持导入" placement="top">
-                      <el-checkbox :model-value="false" disabled />
+                      <el-checkbox :model-value="false" disabled/>
                     </el-tooltip>
-                    <el-checkbox v-else :model-value="isRowSelected(row)" :disabled="row.is_duplicate || row.error || isRowBlocked(row)" @change="(val: boolean) => handleRowCheckboxChange(row, val)" />
+                    <el-checkbox v-else :model-value="isRowSelected(row)"
+                                 :disabled="row.is_duplicate || row.error || isRowBlocked(row)"
+                                 @change="(val: boolean) => handleRowCheckboxChange(row, val)"/>
+
+                    <el-tag v-if="row.is_calculated" size="small" type="warning" class="ml-1">待确认</el-tag>
                   </template>
                 </el-table-column>
                 <el-table-column v-for="col in tableColumns" :key="col.prop || col.type" v-bind="col">
                   <template v-if="col.slot === 'status'" #default="{ row }">
-                    <el-tooltip v-if="row.is_duplicate" content="该交易已存在于系统中，默认跳过。如需强制导入，请手动勾选" placement="top">
+                    <el-tooltip v-if="row.is_duplicate" content="该交易已存在于系统中，默认跳过。如需强制导入，请手动勾选"
+                                placement="top">
                       <el-tag type="warning" size="small">重复</el-tag>
                     </el-tooltip>
                     <el-tag v-else-if="row.error" type="danger" size="small">错误</el-tag>
@@ -355,49 +467,74 @@
                       <span class="product-name">{{ row.name || row.symbol || '--' }}</span>
                       <div class="product-code-row">
                         <span class="product-code"># {{ row.symbol || '--' }}</span>
-                        <el-tag v-if="row.display_type" size="small" :color="getFundTypeColor(row.display_type)" class="type-tag-inline">{{ row.display_type }}</el-tag>
+                        <el-tag v-if="row.display_type" size="small" :color="getFundTypeColor(row.display_type)"
+                                class="type-tag-inline">{{ row.display_type }}
+                        </el-tag>
                       </div>
                     </div>
                   </template>
                   <template v-else-if="col.slot === 'opType'" #default="{ row }">
                     <div class="op-type-cell">
                       <span class="op-type-label">{{ row.op_type_label || '--' }}</span>
-                      <el-tag v-if="!row.is_merged && row.type !== 'fund'" :color="getTypeColor(row.type)" size="small" class="type-tag-inline">{{ typeLabels[row.type] || row.type || '未知' }}</el-tag>
+                      <el-tag v-if="!row.is_merged && row.type !== 'fund'" :color="getTypeColor(row.type)" size="small"
+                              class="type-tag-inline">{{ typeLabels[row.type] || row.type || '未知' }}
+                      </el-tag>
                     </div>
                   </template>
                   <template v-else-if="col.slot === 'quantity'" #default="{ row }">
-                    <el-popover :visible="row.isEditingQty" placement="bottom-start" :width="200" trigger="manual" :hide-after="0" :persistent="true" teleported>
+                    <el-popover :visible="row.isEditingQty" placement="bottom-start" :width="200" trigger="manual"
+                                :hide-after="0" :persistent="true" teleported>
                       <div class="flex flex-col gap-2" @mousedown.stop>
-                        <div class="text-xs text-gray-500">{{ row.symbol }} {{ row.name }} - <span class="font-semibold">数量</span></div>
-                        <el-input-number v-model="row.quantity" size="default" :precision="4" :min="0" class="w-full" controls-position="right" ref="inputRef" @vue:mounted="(el: any) => el?.input?.focus()" />
+                        <div class="text-xs text-gray-500">{{ row.symbol }} {{ row.name }} - <span
+                          class="font-semibold">数量</span></div>
+                        <el-input-number v-model="row.quantity" size="default" :precision="4" :min="0" class="w-full"
+                                         controls-position="right" ref="inputRef"
+                                         @vue:mounted="(el: any) => el?.input?.focus()"/>
                         <div class="flex justify-end gap-2">
-                          <el-button type="primary" size="small" @click.stop="finishEdit(row, 'quantity', true)">确认</el-button>
+                          <el-button type="primary" size="small" @click.stop="finishEdit(row, 'quantity', true)">确认
+                          </el-button>
                           <el-button size="small" @click.stop="cancelEdit(row, 'quantity')">取消</el-button>
                         </div>
                       </div>
                       <template #reference>
-                        <span class="cursor-pointer hover:text-blue-500 select-none" @click.stop="startEdit(row, 'quantity')" @mousedown.prevent>{{ row.quantity }}</span>
+                        <span class="cursor-pointer hover:text-blue-500 select-none"
+                              @click.stop="startEdit(row, 'quantity')" @mousedown.prevent>
+                          {{ row.quantity }}
+                          <el-tag v-if="row.is_calculated" size="small" type="warning" class="ml-1">待确认</el-tag>
+                        </span>
                       </template>
                     </el-popover>
                   </template>
                   <template v-else-if="col.slot === 'price'" #default="{ row }">
-                    <el-popover :visible="row.isEditingPrice" placement="bottom-start" :width="200" trigger="manual" :hide-after="0" :persistent="true" teleported>
+                    <el-popover :visible="row.isEditingPrice" placement="bottom-start" :width="200" trigger="manual"
+                                :hide-after="0" :persistent="true" teleported>
                       <div class="flex flex-col gap-2" @mousedown.stop>
-                        <div class="text-xs text-gray-500">{{ row.symbol }} {{ row.name }} - <span class="font-semibold">价格</span></div>
-                        <el-input-number v-model="row.price" size="default" :precision="4" :min="0" class="w-full" controls-position="right" ref="inputRef" @vue:mounted="(el: any) => el?.input?.focus()" />
+                        <div class="text-xs text-gray-500">{{ row.symbol }} {{ row.name }} - <span
+                          class="font-semibold">价格</span></div>
+                        <el-input-number v-model="row.price" size="default" :precision="4" :min="0" class="w-full"
+                                         controls-position="right" ref="inputRef"
+                                         @vue:mounted="(el: any) => el?.input?.focus()"/>
                         <div class="flex justify-end gap-2">
-                          <el-button type="primary" size="small" @click.stop="finishEdit(row, 'price', true)">确认</el-button>
+                          <el-button type="primary" size="small" @click.stop="finishEdit(row, 'price', true)">确认
+                          </el-button>
                           <el-button size="small" @click.stop="cancelEdit(row, 'price')">取消</el-button>
                         </div>
                       </div>
                       <template #reference>
-                        <span class="cursor-pointer hover:text-blue-500 select-none" @click.stop="startEdit(row, 'price')" @mousedown.prevent>{{ row.price }}</span>
+                        <span class="cursor-pointer hover:text-blue-500 select-none"
+                              @click.stop="startEdit(row, 'price')" @mousedown.prevent>
+                          {{ row.price }}
+                          <el-tag v-if="row.is_calculated" size="small" type="warning" class="ml-1">待确认</el-tag>
+                        </span>
                       </template>
                     </el-popover>
                   </template>
                   <template v-else-if="col.slot === 'allocation'" #default="{ row }">
-                    <el-select v-model="row.allocation" size="small" :disabled="row.is_cash_transfer || row.is_duplicate || row.error" @change="onRowAllocationChange(row)">
-                      <el-option v-for="opt in allocationOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
+                    <el-select v-model="row.allocation" size="small"
+                               :disabled="row.is_cash_transfer || row.is_duplicate || row.error"
+                               @change="onRowAllocationChange(row)">
+                      <el-option v-for="opt in allocationOptions" :key="opt.value" :label="opt.label"
+                                 :value="opt.value"/>
                     </el-select>
                   </template>
                 </el-table-column>
@@ -425,13 +562,19 @@
             <span class="selected-count">
               本次导入识别 {{ totalRows }} 条，已选中 <strong>{{ selectedCount }}</strong> 条有效数据
               <span v-if="(duplicateCount + blockedCount + errorCount) > 0">
-                ，另有 {{ duplicateCount + blockedCount + errorCount }} 条待处理（{{ duplicateCount }}条重复 / {{ blockedCount }}条待补全
+                ，另有 {{ duplicateCount + blockedCount + errorCount }} 条待处理（{{
+                  duplicateCount
+                }}条重复 / {{ blockedCount }}条待补全
                 <template v-if="errorCount > 0"> / {{ errorCount }}条错误</template>）
               </span>
             </span>
             <div class="flex gap-3">
-              <el-button v-if="(duplicateCount + blockedCount + errorCount) > 0" @click="importNormalOnly" :loading="importing">仅导入校验通过的数据</el-button>
-              <el-button type="primary" :disabled="selectedCount === 0" :loading="importing" @click="confirmImport" class="import-btn">确认导入 {{ selectedCount }} 条</el-button>
+              <el-button v-if="(duplicateCount + blockedCount + errorCount) > 0" @click="importNormalOnly"
+                         :loading="importing">仅导入校验通过的数据
+              </el-button>
+              <el-button type="primary" :disabled="selectedCount === 0" :loading="importing" @click="confirmImport"
+                         class="import-btn">确认导入 {{ selectedCount }} 条
+              </el-button>
             </div>
           </div>
         </div>
@@ -448,7 +591,7 @@
                     <span class="number-value" style="color: var(--color-success)">{{ importedCount }}</span>
                     <span class="number-label">笔导入成功</span>
                   </div>
-                  <div class="number-divider" />
+                  <div class="number-divider"/>
                   <div class="number-item">
                     <span class="number-value" style="color: var(--text-tertiary)">{{ skippedCount }}</span>
                     <span class="number-label">笔跳过</span>（重复 {{ duplicateCount }} 条 / 错误 {{ errorCount }} 条）
@@ -465,12 +608,14 @@
                 </div>
 
                 <div v-if="importErrors.length > 0" class="mt-4">
-                  <el-alert :title="`导入过程中 ${importErrors.length} 条记录因以下原因被跳过`" type="warning" :closable="false" show-icon>
+                  <el-alert :title="`导入过程中 ${importErrors.length} 条记录因以下原因被跳过`" type="warning"
+                            :closable="false" show-icon>
                     <template #default>
                       <div v-for="group in errorSummary" :key="group.reason" class="error-group">
                         <p class="error-reason">{{ group.reason }}（共 {{ group.count }} 条）</p>
                         <el-collapse v-if="group.items.length > 1" class="error-collapse">
-                          <el-collapse-item :title="`涉及标的：${group.items.slice(0, 3).join('、')}${group.items.length > 3 ? ' 等' : ''}`">
+                          <el-collapse-item
+                            :title="`涉及标的：${group.items.slice(0, 3).join('、')}${group.items.length > 3 ? ' 等' : ''}`">
                             <ul class="list-disc pl-4 text-xs">
                               <li v-for="item in group.items" :key="item">{{ item }}</li>
                             </ul>
@@ -496,7 +641,9 @@
                 </div>
               </div>
               <div class="flex gap-2 justify-center mt-6">
-                <el-button type="primary" @click="goToTransactions" v-if="importedCount > 0 || orphanCount > 0">查看交易流水</el-button>
+                <el-button type="primary" @click="goToTransactions" v-if="importedCount > 0 || orphanCount > 0">
+                  查看交易流水
+                </el-button>
                 <el-button @click="continueImport">继续导入</el-button>
               </div>
             </template>
@@ -512,7 +659,8 @@
                     <div v-for="group in errorSummary" :key="group.reason" class="error-group">
                       <p class="error-reason">{{ group.reason }}（共 {{ group.count }} 条）</p>
                       <el-collapse v-if="group.items.length > 1" class="error-collapse">
-                        <el-collapse-item :title="`涉及标的：${group.items.slice(0, 3).join('、')}${group.items.length > 3 ? ' 等' : ''}`">
+                        <el-collapse-item
+                          :title="`涉及标的：${group.items.slice(0, 3).join('、')}${group.items.length > 3 ? ' 等' : ''}`">
                           <ul class="list-disc pl-4 text-xs">
                             <li v-for="item in group.items" :key="item">{{ item }}</li>
                           </ul>
@@ -532,29 +680,40 @@
         </template>
       </div>
     </div>
+
+    <FundMatchDrawer
+      v-model="showMatchDrawer"
+      :missing-fund-names="missingFundNames"
+      :preview-data="previewData"
+      @match-complete="onMatchComplete"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { parseFile, confirmImport as confirmImportApi } from '@/api/importer';
-import type { UploadRequestOptions } from 'element-plus';
-import { ref, onMounted, computed, reactive, nextTick } from 'vue';
-import { useRouter } from 'vue-router';
-import { ElMessage, ElMessageBox } from 'element-plus';
-import { getLedgers, createLedger as createLedgerApi } from '@/api/ledger';
-import type { LedgerItem } from '@/api/ledger';
+import {parseFile, confirmImport as confirmImportApi } from '@/api/importer';
+import {calcFundNav } from '@/api/funds';
+import type {UploadRequestOptions} from 'element-plus';
+import {ref, onMounted, computed, reactive, nextTick} from 'vue';
+import {useRouter} from 'vue-router';
+import {ElMessage, ElMessageBox} from 'element-plus';
+import {getLedgers, createLedger as createLedgerApi} from '@/api/ledger';
+import type {LedgerItem} from '@/api/ledger';
+import FundMatchDrawer from "./components/FundMatchDrawer.vue";
 
-defineOptions({ name: 'Inventory' });
+defineOptions({name: 'Inventory'});
 
 const router = useRouter();
 
+const showMatchDrawer = ref(false);
+
 // ── 静态配置 ──
 const allocationOptions = [
-  { value: 'liquid', label: '活钱' },
-  { value: 'stable', label: '稳健底仓' },
-  { value: 'longterm', label: '长期增值' },
-  { value: 'speculative', label: '高风险博弈' },
-  { value: 'security', label: '保险保障' },
+  {value: 'liquid', label: '活钱'},
+  {value: 'stable', label: '稳健底仓'},
+  {value: 'longterm', label: '长期增值'},
+  {value: 'speculative', label: '高风险博弈'},
+  {value: 'security', label: '保险保障'},
 ];
 
 const fundTypeColorMap: Record<string, string> = {
@@ -621,14 +780,32 @@ const formatGuides = reactive({
       '保存 CSV，在 ShowBuy 选择“天天基金”格式上传',
     ],
   },
+  alipay_fund: {
+  title: '支付宝导入说明',
+  tips: [
+    '在支付宝 → 我的 → 账单 → 更多 → 开具交易流水证明',
+    '申请“用于个人对账”的流水，下载后解压得到 .csv 文件',
+    '在 ShowBuy 选择“支付宝”格式上传该文件即可',
+    '余额宝交易将自动归入活钱，不产生持仓',
+    ],
+  },
+  alipay_pdf: {
+    title: '支付宝 PDF 导入说明',
+    tips: [
+      '在支付宝 → 我的 → 账单 → 开具交易流水证明',
+      '申请“基金交易明细”（PDF 格式）',
+      '下载后直接上传该 PDF 文件即可',
+      '自动提取确认日期、份额、净值、手续费等完整信息',
+    ],
+  },
 });
 
 // ── 步骤定义 ──
 const steps = [
-  { title: '选择导入账户' },
-  { title: '上传交易文件' },
-  { title: '预览与修正' },
-  { title: '导入完成' },
+  {title: '选择导入账户'},
+  {title: '上传交易文件'},
+  {title: '预览与修正'},
+  {title: '导入完成'},
 ];
 
 // ── 核心状态 ──
@@ -697,7 +874,7 @@ const ledgerGroups = computed(() => {
   const order = ['stock', 'fund', 'cash', 'general', 'family'];
   for (const ledger of ledgers.value) {
     const type = ledger.ledger_type || 'general';
-    if (!groups[type]) groups[type] = { label: ledgerTypeMap[type] || type, ledgers: [] };
+    if (!groups[type]) groups[type] = {label: ledgerTypeMap[type] || type, ledgers: []};
     groups[type].ledgers.push(ledger);
   }
   return order.filter(o => groups[o]).map(o => groups[o]);
@@ -705,13 +882,17 @@ const ledgerGroups = computed(() => {
 
 const availableModes = computed(() => {
   const allModes = [
-    { label: '股票标准模板', value: 'standard_stock' },
-    { label: '同花顺交割单', value: 'ths' },
-    { label: '基金标准模板', value: 'standard_fund' },
-    { label: '天天基金', value: 'tiantian_fund' },
+    {label: '股票标准模板', value: 'standard_stock'},
+    {label: '同花顺交割单', value: 'ths'},
+    {label: '基金标准模板', value: 'standard_fund'},
+    {label: '天天基金', value: 'tiantian_fund'},
+    {label: '支付宝（PDF）', value: 'alipay_pdf'},
+    {label: '支付宝', value: 'alipay_fund'},
   ];
-  if (ledgerType.value === 'stock') return allModes.filter(m => m.value === 'standard_stock' || m.value === 'ths');
-  if (ledgerType.value === 'fund' || ledgerType.value === 'cash') return allModes.filter(m => m.value === 'standard_fund' || m.value === 'tiantian_fund');
+  if (ledgerType.value === 'stock')
+    return allModes.filter(m => m.value === 'standard_stock' || m.value === 'ths');
+  if (ledgerType.value === 'fund' || ledgerType.value === 'cash')
+    return allModes.filter(m => m.value === 'standard_fund' || m.value === 'tiantian_fund' || m.value === 'alipay_fund'|| m.value === 'alipay_pdf');
   return allModes;
 });
 
@@ -735,31 +916,31 @@ const isFundMode = computed(() => selectedMode.value === 'standard_fund' || sele
 const tableColumns = computed(() => {
   if (isFundMode.value) {
     return [
-      { prop: 'status', label: '状态', width: 70, slot: 'status', align: 'center' },
-      { prop: 'product', label: '产品信息', width: 160, slot: 'product' },
-      { prop: 'opType', label: '操作类型', width: 110, slot: 'opType' },
-      { prop: 'trade_date', label: '日期', width: 100 },
-      { prop: 'quantity', label: '份额', width: 90, align: 'right' },
-      { prop: 'price', label: '净值', width: 90, align: 'right' },
-      { prop: 'amount', label: '金额', width: 120, align: 'right' },
-      { prop: 'fee', label: '手续费', width: 90, align: 'right' },
-      { prop: 'allocation', label: '配置目标', width: 120, slot: 'allocation' },
-      { prop: 'notes', label: '备注', minWidth: 120 },
+      {prop: 'status', label: '状态', width: 70, slot: 'status', align: 'center'},
+      {prop: 'product', label: '产品信息', width: 160, slot: 'product'},
+      {prop: 'opType', label: '操作类型', width: 110, slot: 'opType'},
+      {prop: 'trade_date', label: '日期', width: 100},
+      {prop: 'quantity', label: '份额', width: 90, align: 'right'},
+      {prop: 'price', label: '确认净值', width: 90, align: 'right'},
+      {prop: 'amount', label: '金额', width: 120, align: 'right'},
+      {prop: 'fee', label: '手续费', width: 90, align: 'right'},
+      {prop: 'allocation', label: '配置目标', width: 120, slot: 'allocation'},
+      {prop: 'notes', label: '备注', minWidth: 120},
     ];
   }
   return [
-    { prop: 'status', label: '状态', width: 70, slot: 'status', align: 'center' },
-    { prop: 'product', label: '产品信息', width: 160, slot: 'product' },
-    { prop: 'opType', label: '操作类型', width: 110, slot: 'opType' },
-    { prop: 'trade_date', label: '日期', width: 100 },
-    { prop: 'quantity', label: '数量', width: 90, slot: 'quantity', align: 'right' },
-    { prop: 'price', label: '单价', width: 90, slot: 'price', align: 'right' },
-    { prop: 'amount', label: '交易金额', width: 120, align: 'right' },
-    { prop: 'fee', label: '手续费', width: 90, align: 'right' },
-    { prop: 'contract_id', label: '合同编号', width: 110 },
-    { prop: 'net_amount', label: '发生金额', width: 120, align: 'right' },
-    { prop: 'allocation', label: '配置目标', width: 120, slot: 'allocation' },
-    { prop: 'notes', label: '备注', minWidth: 120 },
+    {prop: 'status', label: '状态', width: 70, slot: 'status', align: 'center'},
+    {prop: 'product', label: '产品信息', width: 160, slot: 'product'},
+    {prop: 'opType', label: '操作类型', width: 110, slot: 'opType'},
+    {prop: 'trade_date', label: '日期', width: 100},
+    {prop: 'quantity', label: '数量', width: 90, slot: 'quantity', align: 'right'},
+    {prop: 'price', label: '单价', width: 90, slot: 'price', align: 'right'},
+    {prop: 'amount', label: '交易金额', width: 120, align: 'right'},
+    {prop: 'fee', label: '手续费', width: 90, align: 'right'},
+    {prop: 'contract_id', label: '合同编号', width: 110},
+    {prop: 'net_amount', label: '发生金额', width: 120, align: 'right'},
+    {prop: 'allocation', label: '配置目标', width: 120, slot: 'allocation'},
+    {prop: 'notes', label: '备注', minWidth: 120},
   ];
 });
 
@@ -784,26 +965,37 @@ const allocationGroupsByType = computed(() => {
   previewData.value.forEach(row => {
     if (row.is_duplicate || row.error || row.is_cash_transfer || isRowBlocked(row) || row._allocationManual) return;
     const type = row.type || 'unknown';
-    if (!groups[type]) groups[type] = { label: typeLabels[type] || type, count: 0, currentAllocation: row.allocation || 'longterm' };
+    if (!groups[type]) groups[type] = {
+      label: typeLabels[type] || type,
+      count: 0,
+      currentAllocation: row.allocation || 'longterm'
+    };
     groups[type].count++;
   });
-  return Object.entries(groups).map(([type, data]) => ({ type, ...data }));
+  return Object.entries(groups).map(([type, data]) => ({type, ...data}));
 });
 
 const currentAllocationGroups = computed(() => allocationGroupsByType.value);
 
 const problemCategories = computed(() => {
   const cats = [
-    { key: 'missingCode', label: '代码未匹配', count: 0, rows: [] as any[] },
-    { key: 'missingQtyPrice', label: '数量或价格缺失', count: 0, rows: [] as any[] },
-    { key: 'mismatch', label: '数据不一致', count: 0, rows: [] as any[] },
+    {key: 'missingCode', label: '代码未匹配', count: 0, rows: [] as any[]},
+    {key: 'missingQtyPrice', label: '数量或价格缺失', count: 0, rows: [] as any[]},
+    {key: 'mismatch', label: '数据不一致', count: 0, rows: [] as any[]},
   ];
   previewData.value.forEach(row => {
     if (row.is_duplicate || row.error || row.is_cash_transfer) return;
     const qty = Number(row.quantity), prc = Number(row.price), amt = Number(row.amount);
-    if (!row.symbol || row.symbol === 'UNKNOWN') { cats[0].rows.push(row); cats[0].count++; }
-    else if (isRowBlocked(row)) { cats[1].rows.push(row); cats[1].count++; }
-    else if (!isNaN(qty) && qty > 0 && !isNaN(prc) && prc > 0 && !isNaN(amt) && Math.abs(qty * prc - amt) > 0.01) { cats[2].rows.push(row); cats[2].count++; }
+    if (!row.symbol || row.symbol === 'UNKNOWN') {
+      cats[0].rows.push(row);
+      cats[0].count++;
+    } else if (isRowBlocked(row)) {
+      cats[1].rows.push(row);
+      cats[1].count++;
+    } else if (!isNaN(qty) && qty > 0 && !isNaN(prc) && prc > 0 && !isNaN(amt) && Math.abs(qty * prc - amt) > 0.01) {
+      cats[2].rows.push(row);
+      cats[2].count++;
+    }
   });
   return cats.filter(c => c.count > 0);
 });
@@ -813,11 +1005,11 @@ const errorSummary = computed(() => {
   importErrors.value.forEach(err => {
     const reason = err.error || '未知错误';
     const name = err.name || err.symbol || '--';
-    if (!groups[reason]) groups[reason] = { count: 0, items: [] };
+    if (!groups[reason]) groups[reason] = {count: 0, items: []};
     groups[reason].count++;
     groups[reason].items.push(name);
   });
-  return Object.entries(groups).map(([reason, data]) => ({ reason, ...data }));
+  return Object.entries(groups).map(([reason, data]) => ({reason, ...data}));
 });
 
 const filteredPagedData = computed(() => {
@@ -855,7 +1047,7 @@ const filteredPagedData = computed(() => {
         const taxRow = groupRows.find(r => r.op_type === 'tax') || groupRows[1];
         const netAmount = (interestRow.amount || 0) + (taxRow.amount || 0);
         const parentKey = `merged_${interestRow._rowKey}`;
-        const detailRows = groupRows.map(r => ({ ...r }));
+        const detailRows = groupRows.map(r => ({...r}));
         mergedList.push({
           ...interestRow, _rowKey: parentKey, amount: netAmount, net_amount: netAmount,
           is_merged: true, children: detailRows,
@@ -872,6 +1064,87 @@ const filteredPagedData = computed(() => {
   const start = (currentPage.value - 1) * pageSize.value;
   return mergedList.slice(start, start + pageSize.value);
 });
+
+const calculatedCount = computed(() => {
+  return previewData.value.filter(row => row.is_calculated).length;
+});
+
+const enrichingNav = ref(false);
+
+// 需要填充净值的基金记录：非货币，有代码，有日期，但净值或份额为空
+const fundRecordsForNav = computed(() => {
+  return previewData.value.filter(row =>
+    row.type === 'fund' && row.type !== 'money_fund' &&
+    row.symbol && row.symbol !== '__CASH__' &&
+    row.trade_date &&
+    (!row.price || !row.quantity || row.price === 0)
+  );
+});
+
+const hasFundRecordsForNav = computed(() => fundRecordsForNav.value.length > 0);
+const fundRecordsCount = computed(() => fundRecordsForNav.value.length);
+
+async function fetchAndFillFundNav() {
+  if (!fundRecordsForNav.value.length) return;
+
+  // 按确认日期分组，收集代码
+  const dateGroups: Record<string, string[]> = {};
+  fundRecordsForNav.value.forEach(row => {
+    const date = row.trade_date;
+    if (!date) return;
+    if (!dateGroups[date]) dateGroups[date] = [];
+    if (!dateGroups[date].includes(row.symbol)) {
+      dateGroups[date].push(row.symbol);
+    }
+  });
+
+  enrichingNav.value = true;
+  try {
+    for (const [date, symbols] of Object.entries(dateGroups)) {
+      const res = await calcFundNav(symbols, date);
+      const items = (res as any)?.data ?? []; // 改为数组
+
+      // 将数组转为 { fund_code: unit_nav } 映射
+      const navMap: Record<string, number> = {};
+      items.forEach((item: any) => {
+        if (item.unit_nav > 0) {
+          navMap[item.fund_code] = item.unit_nav;
+        }
+      });
+
+      previewData.value.forEach(row => {
+        if (
+          row.type === 'fund' &&
+          row.type !== 'money_fund' &&
+          row.trade_date === date &&
+          row.symbol &&
+          symbols.includes(row.symbol)
+        ) {
+          const nav = navMap[row.symbol];
+          if (nav && nav > 0) {
+            row.price = nav;
+            row.quantity = row.amount / nav;
+            row.is_calculated = true;
+          }
+        }
+      });
+    }
+    previewData.value = [...previewData.value];
+    ElMessage.success('已填充净值和份额，请检查确认');
+  } catch (e) {
+    ElMessage.error('获取净值失败，请稍后重试');
+  } finally {
+    enrichingNav.value = false;
+  }
+}
+
+function confirmAllCalculated() {
+  previewData.value.forEach(row => {
+    if (row.is_calculated) row.is_calculated = false;
+  });
+  previewData.value = [...previewData.value];
+  ElMessage.success('所有推算数据已确认');
+}
 
 const filteredTotal = computed(() => {
   let list = previewData.value;
@@ -902,8 +1175,13 @@ const filteredTotal = computed(() => {
     const groupId = row.link_group_id;
     if (groupId && !processedGroupIds.has(groupId)) {
       const groupRows = list.filter(r => r.link_group_id === groupId);
-      if (groupRows.length === 2) { mergedList.push(groupRows[0]); processedGroupIds.add(groupId); }
-      else { groupRows.forEach(r => mergedList.push(r)); processedGroupIds.add(groupId); }
+      if (groupRows.length === 2) {
+        mergedList.push(groupRows[0]);
+        processedGroupIds.add(groupId);
+      } else {
+        groupRows.forEach(r => mergedList.push(r));
+        processedGroupIds.add(groupId);
+      }
     } else if (!groupId) mergedList.push(row);
   }
   return mergedList.length;
@@ -913,9 +1191,13 @@ const filteredTotal = computed(() => {
 function getTemplateKeyForLedger(ledger: LedgerItem | null): string {
   if (!ledger) return '';
   switch (ledger.ledger_type) {
-    case 'stock': return 'standard_stock';
-    case 'fund': case 'cash': return 'standard_fund';
-    default: return '';
+    case 'stock':
+      return 'standard_stock';
+    case 'fund':
+    case 'cash':
+      return 'standard_fund';
+    default:
+      return '';
   }
 }
 
@@ -944,7 +1226,7 @@ function getTypeColor(type: string): string {
 }
 
 function addRowKeys(data: any[]) {
-  return data.map((item, idx) => ({ ...item, _rowKey: `row_${idx}` }));
+  return data.map((item, idx) => ({...item, _rowKey: `row_${idx}`}));
 }
 
 function isRowSelected(row: any): boolean {
@@ -958,9 +1240,16 @@ function recalcValidRowsCount() {
 function updateSelectAllState() {
   const totalValid = validRowsCount.value;
   const current = selectedKeys.value.size;
-  if (current === 0) { isAllSelected.value = false; isIndeterminate.value = false; }
-  else if (current >= totalValid) { isAllSelected.value = true; isIndeterminate.value = false; }
-  else { isAllSelected.value = false; isIndeterminate.value = true; }
+  if (current === 0) {
+    isAllSelected.value = false;
+    isIndeterminate.value = false;
+  } else if (current >= totalValid) {
+    isAllSelected.value = true;
+    isIndeterminate.value = false;
+  } else {
+    isAllSelected.value = false;
+    isIndeterminate.value = true;
+  }
 }
 
 function clearImportState() {
@@ -996,7 +1285,10 @@ function handleDownloadTemplate() {
   const ledger = ledgers.value.find(l => l.id === selectedLedgerId.value);
   if (!ledger) return;
   const key = getTemplateKeyForLedger(ledger);
-  const urlMap: Record<string, string> = { standard_fund: '/api/importers/template/fund', standard_stock: '/api/importers/template/stock' };
+  const urlMap: Record<string, string> = {
+    standard_fund: '/api/importers/template/fund',
+    standard_stock: '/api/importers/template/stock'
+  };
   const url = urlMap[key] || '/api/importers/template/standard';
   downloadLoading.value = true;
   window.open(url);
@@ -1015,20 +1307,51 @@ function handleUploadClick() {
   }
 }
 
+function toggleFullTable() {
+  showFullTable.value = !showFullTable.value;
+  if (showFullTable.value) {
+    showProblemOnly.value = false;
+  }
+}
+
+const uploadAccept = computed(() => {
+  return selectedMode.value === 'alipay_pdf' ? '.pdf' : '.csv,.xls,.xlsx';
+});
+
 function beforeUpload(file: File) {
   if (!selectedLedgerId.value) {
     ElMessage.warning('请先选择交易所属账户');
     return false;
   }
-  const allowedExtensions = ['.csv', '.xls', '.xlsx'];
   const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
-  if (!allowedExtensions.includes(ext)) { ElMessage.error('仅支持 CSV、Excel 文件'); return false; }
-  if (file.size > 5 * 1024 * 1024) { ElMessage.error('文件大小不能超过5MB'); return false; }
+
+  if (selectedMode.value === 'alipay_pdf') {
+    // PDF 模式专用校验
+    if (ext !== '.pdf') {
+      ElMessage.error('仅支持 PDF 文件');
+      return false;
+    }
+    if (file.size > 10 * 1024 * 1024) {  // PDF 可能稍大，放宽至 10MB
+      ElMessage.error('文件大小不能超过10MB');
+      return false;
+    }
+  } else {
+    // 原有逻辑
+    const allowedExtensions = ['.csv', '.xls', '.xlsx'];
+    if (!allowedExtensions.includes(ext)) {
+      ElMessage.error('仅支持 CSV、Excel 文件');
+      return false;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      ElMessage.error('文件大小不能超过5MB');
+      return false;
+    }
+  }
+
   fileSize.value = formatFileSize(file.size);
   uploadError.value = '';
   return true;
 }
-
 async function handleUpload(options: UploadRequestOptions) {
   const file = options.file as File;
   if (!selectedLedgerId.value) return ElMessage.warning('请先选择一个账户');
@@ -1066,16 +1389,24 @@ async function handleUpload(options: UploadRequestOptions) {
 
     const warning = (res as any).compatibility_warning;
     if (warning) {
-      await ElMessageBox.confirm(warning, '文件格式提醒', { confirmButtonText: '继续导入', cancelButtonText: '返回重选', type: 'warning' })
+      await ElMessageBox.confirm(warning, '文件格式提醒', {
+        confirmButtonText: '继续导入',
+        cancelButtonText: '返回重选',
+        type: 'warning'
+      })
         .then(() => currentStep.value = 2)
-        .catch(() => { parsing.value = false; return; });
+        .catch(() => {
+          parsing.value = false;
+          return;
+        });
     } else {
       ElMessage.success(`解析完成，共识别 ${totalRows.value} 条记录`);
       currentStep.value = 2;
     }
     options.onSuccess(res);
   } catch (e: any) {
-    uploadError.value = e?.response?.data?.message || '文件解析失败';
+    const errorMsg = e?.response?.data?.message || e?.message || '文件解析失败';
+    uploadError.value = errorMsg;
     options.onError(e);
   } finally {
     parsing.value = false;
@@ -1140,10 +1471,14 @@ function continueImport() {
   currentStep.value = 1;
 }
 
-function reimport() { resetImport(); }
+function reimport() {
+  resetImport();
+}
 
 // ── 选择与勾选 ──
-function handleHeaderCheckboxChange(checked: boolean) { checked ? selectAllValid() : clearAllSelection(); }
+function handleHeaderCheckboxChange(checked: boolean) {
+  checked ? selectAllValid() : clearAllSelection();
+}
 
 function selectAllValid() {
   const newKeys = new Set<string>();
@@ -1151,10 +1486,15 @@ function selectAllValid() {
     if (!row.is_duplicate && !row.error && !isRowBlocked(row) && !row.is_cash_transfer) newKeys.add(row._rowKey);
   });
   selectedKeys.value = newKeys;
-  isAllSelected.value = true; isIndeterminate.value = false;
+  isAllSelected.value = true;
+  isIndeterminate.value = false;
 }
 
-function clearAllSelection() { selectedKeys.value = new Set(); isAllSelected.value = false; isIndeterminate.value = false; }
+function clearAllSelection() {
+  selectedKeys.value = new Set();
+  isAllSelected.value = false;
+  isIndeterminate.value = false;
+}
 
 function handleRowCheckboxChange(row: any, checked: boolean) {
   if (checked) selectedKeys.value.add(row._rowKey); else selectedKeys.value.delete(row._rowKey);
@@ -1162,19 +1502,86 @@ function handleRowCheckboxChange(row: any, checked: boolean) {
   updateSelectAllState();
 }
 
+async function fillNavForRecords(rows: any[]) {
+  // 过滤出需要净值的记录：非货币、有代码、有日期、缺少价格或份额
+  const needed = rows.filter(row =>
+    row.type === 'fund' && row.type !== 'money_fund' &&
+    row.symbol && row.symbol !== '__CASH__' &&
+    row.trade_date &&
+    (!row.price || !row.quantity || row.price === 0)
+  );
+  if (!needed.length) return;
+
+  // 按确认日期分组，收集唯一的 symbol
+  const dateGroups: Record<string, string[]> = {};
+  needed.forEach(row => {
+    const dt = row.trade_date;
+    if (!dt) return;
+    if (!dateGroups[dt]) dateGroups[dt] = [];
+    if (!dateGroups[dt].includes(row.symbol)) {
+      dateGroups[dt].push(row.symbol);
+    }
+  });
+
+  // 逐日请求
+  for (const [date, symbols] of Object.entries(dateGroups)) {
+    try {
+      const res = await calcFundNav(symbols, date);
+      const items = (res as any)?.data ?? []; // 接口返回数组
+      const navMap: Record<string, number> = {};
+      items.forEach((item: any) => {
+        if (item.unit_nav > 0) {
+          navMap[item.fund_code] = item.unit_nav;
+        }
+      });
+
+      // 更新所有相关行
+      needed.forEach(row => {
+        if (row.trade_date === date && symbols.includes(row.symbol)) {
+          const nav = navMap[row.symbol];
+          if (nav && nav > 0) {
+            row.price = nav;
+            row.quantity = row.amount / nav;
+            row.is_calculated = true;
+          } else {
+            row.price = 0;
+            row.is_calculated = false;
+            row._dataMissing = true;
+          }
+        }
+      });
+    } catch {
+      // 静默失败，不影响主流程
+    }
+  }
+  // 刷新表格视图
+  previewData.value = [...previewData.value];
+}
+
 // ── 批量修正 ──
 async function batchFillCode(rows: any[], code: string) {
   if (!code.trim()) return ElMessage.warning('请输入有效的证券代码');
   rows.forEach(r => r.symbol = code.trim());
-  recalcValidRowsCount(); updateSelectAllState();
-  await nextTick(); previewData.value = [...previewData.value];
+  recalcValidRowsCount();
+  updateSelectAllState();
+  await nextTick();
+
+  // 自动填充净值和份额
+  await fillNavForRecords(rows);
+
+  previewData.value = [...previewData.value];
   ElMessage.success(`已为 ${rows.length} 条记录设置代码「${code}」`);
 }
 
 async function batchFixAmount(rows: any[]) {
-  rows.forEach(r => { const qty = Number(r.quantity), prc = Number(r.price); if (!isNaN(qty) && !isNaN(prc)) r.amount = parseFloat((qty * prc).toFixed(2)); });
-  recalcValidRowsCount(); updateSelectAllState();
-  await nextTick(); previewData.value = [...previewData.value];
+  rows.forEach(r => {
+    const qty = Number(r.quantity), prc = Number(r.price);
+    if (!isNaN(qty) && !isNaN(prc)) r.amount = parseFloat((qty * prc).toFixed(2));
+  });
+  recalcValidRowsCount();
+  updateSelectAllState();
+  await nextTick();
+  previewData.value = [...previewData.value];
   ElMessage.success(`已修正 ${rows.length} 条记录的金额`);
 }
 
@@ -1182,45 +1589,72 @@ async function skipCategory(rows: any[]) {
   rows.forEach(row => selectedKeys.value.delete(row._rowKey));
   selectedKeys.value = new Set(selectedKeys.value);
   updateSelectAllState();
-  await nextTick(); previewData.value = [...previewData.value];
+  await nextTick();
+  previewData.value = [...previewData.value];
   ElMessage.success(`已跳过 ${rows.length} 条记录`);
 }
 
 function deselectAllDuplicates() {
+  // 1. 先浅拷贝一份（避免直接修改原数组触发大量响应式更新）
+  const data = [...previewData.value];
+
   if (duplicatesHandled.value) {
-    // 恢复全部重复行
-    previewData.value.forEach(row => { if (row.is_duplicate) row._duplicateHandled = false; });
+    // 恢复所有重复行
+    for (const row of data) {
+      if (row.is_duplicate) row._duplicateHandled = false;
+    }
     duplicatesHandled.value = false;
   } else {
-    // 取消显示重复行
-    previewData.value.forEach(row => {
+    // 隐藏所有重复行
+    for (const row of data) {
       if (row.is_duplicate) {
         row._duplicateHandled = true;
         selectedKeys.value.delete(row._rowKey);
       }
-    });
+    }
     selectedKeys.value = new Set(selectedKeys.value);
     duplicatesHandled.value = true;
   }
-  // 关键：触发 previewData 的响应式更新
-  previewData.value = [...previewData.value];
+
+  // 2. 一次性替换，只触发一次响应式更新
+  previewData.value = data;
   recalcValidRowsCount();
   updateSelectAllState();
-  ElMessage.success(duplicatesHandled.value ? `已取消 ${duplicateCount.value} 条重复数据的展示` : '已恢复全部重复数据');
+
+  ElMessage.success(
+    duplicatesHandled.value
+      ? `已取消 ${duplicateCount.value} 条重复数据的展示`
+      : '已恢复全部重复数据'
+  );
 }
 
 function filterByCategory(key: string) {
-  showFullTable.value = true; showProblemOnly.value = false; tableStatusFilter.value = '';
+  showFullTable.value = true;
+  showProblemOnly.value = false;
+  tableStatusFilter.value = '';
   if (key === 'missingCode') activeCategoryFilter.value = 'missingCode';
   else if (key === 'missingQtyPrice') tableStatusFilter.value = 'blocked';
   else if (key === 'mismatch') activeCategoryFilter.value = 'mismatch';
+}
+
+function onMatchComplete() {
+  previewData.value = [...previewData.value];
+  showFullTable.value = true;
+  recalcValidRowsCount();
+  selectAllValid();
+  updateSelectAllState();
+  showBatchFix.value = false;
+  tableStatusFilter.value = '';
+  activeCategoryFilter.value = '';
 }
 
 function batchSetAllocation(target: string) {
   let applied = 0;
   previewData.value.forEach(row => {
     if (selectedKeys.value.has(row._rowKey) && !row.is_cash_transfer && !row.is_duplicate && !row.error) {
-      row.allocation = target; row._allocationManual = true; applied++;
+      row.allocation = target;
+      row._allocationManual = true;
+      applied++;
     }
   });
   previewData.value = [...previewData.value];
@@ -1230,13 +1664,18 @@ function batchSetAllocation(target: string) {
 function applyAllocationGroupSetting(group: any, allocation: string) {
   previewData.value.forEach(row => {
     if (row.is_duplicate || row.error || row.is_cash_transfer || isRowBlocked(row)) return;
-    if (row.type === group.type) { row.allocation = allocation; row._allocationManual = true; }
+    if (row.type === group.type) {
+      row.allocation = allocation;
+      row._allocationManual = true;
+    }
   });
   previewData.value = [...previewData.value];
   ElMessage.success(`已将「${group.label}」的配置目标设为「${allocationOptions.find(o => o.value === allocation)?.label}」`);
 }
 
-function onRowAllocationChange(row: any) { row._allocationManual = true; }
+function onRowAllocationChange(row: any) {
+  row._allocationManual = true;
+}
 
 function toggleAllocationPanel() {
   showAllocationGroupPanel.value = !showAllocationGroupPanel.value;
@@ -1262,8 +1701,13 @@ function startEdit(row: any, field: string) {
     closeAllEditing();
   }
   row._oldValue = row[field];
-  if (field === 'quantity') { row.isEditingQty = true; row.isEditingPrice = false; }
-  else if (field === 'price') { row.isEditingPrice = true; row.isEditingQty = false; }
+  if (field === 'quantity') {
+    row.isEditingQty = true;
+    row.isEditingPrice = false;
+  } else if (field === 'price') {
+    row.isEditingPrice = true;
+    row.isEditingQty = false;
+  }
   editingRowKey.value = row._rowKey;
   previewData.value = [...previewData.value];  // 新增
 }
@@ -1277,21 +1721,34 @@ function finishEdit(row: any, field: string, save: boolean = true) {
 
   const nowBlocked = isRowBlocked(row);
   if (wasBlocked && !nowBlocked) {
-    selectedKeys.value.add(row._rowKey); selectedKeys.value = new Set(selectedKeys.value);
-    if (showProblemOnly.value) { showProblemOnly.value = false; ElMessage.success('数据已修正，已自动切换为全部数据视图'); }
-    else ElMessage.success('数据已自动勾选');
-  } else if (!wasBlocked && nowBlocked) { selectedKeys.value.delete(row._rowKey); selectedKeys.value = new Set(selectedKeys.value); }
+    selectedKeys.value.add(row._rowKey);
+    selectedKeys.value = new Set(selectedKeys.value);
+    if (showProblemOnly.value) {
+      showProblemOnly.value = false;
+      ElMessage.success('数据已修正，已自动切换为全部数据视图');
+    } else ElMessage.success('数据已自动勾选');
+  } else if (!wasBlocked && nowBlocked) {
+    selectedKeys.value.delete(row._rowKey);
+    selectedKeys.value = new Set(selectedKeys.value);
+  }
   previewData.value = [...previewData.value];
   recalcValidRowsCount();
   updateSelectAllState();
 }
 
-function cancelEdit(row: any, field: string) { finishEdit(row, field, false); }
+function cancelEdit(row: any, field: string) {
+  finishEdit(row, field, false);
+}
 
 function smartFill(row: any, field: string) {
   const qty = parseFloat(row.quantity), prc = parseFloat(row.price), amt = parseFloat(row.amount);
-  if (field === 'quantity' && isNaN(qty) && !isNaN(prc) && !isNaN(amt)) { row.quantity = parseFloat((amt / prc).toFixed(4)); row.smartFilled = true; }
-  else if (field === 'price' && isNaN(prc) && !isNaN(qty) && !isNaN(amt)) { row.price = parseFloat((amt / qty).toFixed(4)); row.smartFilled = true; }
+  if (field === 'quantity' && isNaN(qty) && !isNaN(prc) && !isNaN(amt)) {
+    row.quantity = parseFloat((amt / prc).toFixed(4));
+    row.smartFilled = true;
+  } else if (field === 'price' && isNaN(prc) && !isNaN(qty) && !isNaN(amt)) {
+    row.price = parseFloat((amt / qty).toFixed(4));
+    row.smartFilled = true;
+  }
 }
 
 function saveAllEditingRows() {
@@ -1303,20 +1760,26 @@ function saveAllEditingRows() {
 
 function closeAllEditing() {
   previewData.value.forEach(row => {
-    if (row.isEditingQty) { row.isEditingQty = false; delete row._oldValue; }
-    if (row.isEditingPrice) { row.isEditingPrice = false; delete row._oldValue; }
+    if (row.isEditingQty) {
+      row.isEditingQty = false;
+      delete row._oldValue;
+    }
+    if (row.isEditingPrice) {
+      row.isEditingPrice = false;
+      delete row._oldValue;
+    }
   });
   editingRowKey.value = null;
   previewData.value = [...previewData.value];  // 新增
 }
 
-function getRowClassName({ row }: { row: any }) {
+function getRowClassName({row}: { row: any }) {
   if (row.is_duplicate) return 'row-duplicate';
   if (row.error || isRowBlocked(row)) return 'row-blocked';
   return '';
 }
 
-function getCellClassName({ row, column }: { row: any; column: any }) {
+function getCellClassName({row, column}: { row: any; column: any }) {
   const prop = column.property;
   if (prop === 'quantity' && isRowBlocked(row) && !row.is_duplicate && !row.error) return 'cell-blocked';
   if (prop === 'price' && isRowBlocked(row) && !row.is_duplicate && !row.error) return 'cell-blocked';
@@ -1325,12 +1788,19 @@ function getCellClassName({ row, column }: { row: any; column: any }) {
 }
 
 function getCategoryDesc(key: string): string {
-  const map: Record<string, string> = { missingCode: '系统无法识别以下证券代码', missingQtyPrice: '数量或价格缺失', mismatch: '金额与数量×价格不符' };
+  const map: Record<string, string> = {
+    missingCode: '系统无法识别以下证券代码',
+    missingQtyPrice: '数量或价格缺失',
+    mismatch: '金额与数量×价格不符'
+  };
   return map[key] || '';
 }
 
 function getCategoryTagType(key: string, count: number): 'danger' | 'warning' | 'success' | 'info' {
-  if (count > 200) return 'danger'; if (count > 50) return 'warning'; if (count > 10) return 'info'; return 'success';
+  if (count > 200) return 'danger';
+  if (count > 50) return 'warning';
+  if (count > 10) return 'info';
+  return 'success';
 }
 
 function isCategoryActive(key: string): boolean {
@@ -1341,21 +1811,41 @@ function isCategoryActive(key: string): boolean {
 }
 
 // ── 导航 ──
-function goToTransactions() { router.push('/transactions'); }
-function goToManualEntry() { router.push('/asset/inventory/investment/manual'); }
-function goToLiabilityForm() { router.push('/asset/asset-entry'); }
-function goToImportGuide() { ElMessage.info('当前支持买入、卖出、分红操作类型。其他类型暂不支持。'); }
+function goToTransactions() {
+  router.push('/transactions');
+}
+
+function goToManualEntry() {
+  router.push('/asset/inventory/investment/manual');
+}
+
+function goToLiabilityForm() {
+  router.push('/asset/asset-entry');
+}
+
+function goToImportGuide() {
+  ElMessage.info('当前支持买入、卖出、分红操作类型。其他类型暂不支持。');
+}
 
 // ── 数据获取 ──
 async function fetchLedgers() {
-  try { const res = await getLedgers(); ledgers.value = (res as any).data ?? []; } catch (e) { console.error(e); }
+  try {
+    const res = await getLedgers();
+    ledgers.value = (res as any).data ?? [];
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+function getMissingRowsByType(rows: any[], type: string) {
+  return rows.filter((r: any) => r.type === type);
 }
 
 async function createLedger() {
   const name = newLedgerName.value.trim();
   if (!name) return;
   try {
-    const res = await createLedgerApi({ name, default_allocation: newLedgerAllocation.value });
+    const res = await createLedgerApi({name, default_allocation: newLedgerAllocation.value});
     await fetchLedgers();
     const newId = (res as any).data?.id;
     if (newId) selectedLedgerId.value = newId;
@@ -1363,14 +1853,36 @@ async function createLedger() {
     newLedgerName.value = '';
     newLedgerAllocation.value = 'longterm';
     ElMessage.success(`已添加账户「${name}」`);
-  } catch (e: any) { ElMessage.error(e?.response?.data?.message || '添加失败'); }
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || '添加失败');
+  }
 }
 
-function handleSizeChange(val: number) { pageSize.value = val; currentPage.value = 1; }
-function handlePageChange(val: number) { currentPage.value = val; }
-function handleSelectionChange() {}
+function handleSizeChange(val: number) {
+  pageSize.value = val;
+  currentPage.value = 1;
+}
 
-onMounted(async () => { await fetchLedgers(); });
+function handlePageChange(val: number) {
+  currentPage.value = val;
+}
+
+const missingFundNames = computed(() => {
+  const groups: Record<string, number> = {};
+  previewData.value.forEach(row => {
+    if (!row.symbol && row.name && row.type === 'fund') {
+      groups[row.name] = (groups[row.name] || 0) + 1;
+    }
+  });
+  return Object.entries(groups).map(([name, count]) => ({ name, count }));
+});
+
+function handleSelectionChange() {
+}
+
+onMounted(async () => {
+  await fetchLedgers();
+});
 </script>
 
 <style scoped>
@@ -1406,15 +1918,18 @@ onMounted(async () => { await fetchLedgers(); });
   padding: 24px 0;
   text-align: center;
 }
+
 .account-select {
   width: 100%;
 }
+
 .ledger-option {
   display: flex;
   align-items: center;
   justify-content: space-between;
   width: 100%;
 }
+
 .account-hint {
   margin-top: 12px;
   font-size: 13px;
@@ -1543,10 +2058,12 @@ onMounted(async () => { await fetchLedgers(); });
   align-items: center;
   gap: 8px;
 }
+
 .import-mode-label {
   font-size: 14px;
   color: var(--text-secondary);
 }
+
 .import-mode-hint {
   font-size: 12px;
   color: var(--text-tertiary);
@@ -1569,13 +2086,16 @@ onMounted(async () => { await fetchLedgers(); });
   transition: all 0.3s;
   padding: 32px;
 }
+
 .golden-upload:hover {
   border-color: var(--color-primary);
 }
+
 .golden-upload.is-dragover {
   border: 2px solid var(--color-primary) !important;
   background: var(--color-primary-10) !important;
 }
+
 .golden-upload.is-dragover .upload-icon {
   transform: scale(1.1);
   color: var(--color-primary);
@@ -1587,25 +2107,30 @@ onMounted(async () => { await fetchLedgers(); });
   margin-bottom: 16px;
   transition: color 0.2s, transform 0.2s;
 }
+
 .upload-text {
   font-size: 16px;
   color: var(--text-primary);
   margin: 0 0 16px;
   font-weight: 500;
 }
+
 .upload-hint {
   font-size: 12px;
   color: var(--text-tertiary);
   margin: 12px 0 0 0;
 }
+
 .upload-format-info {
   font-size: 12px;
   color: var(--text-tertiary);
   margin-top: 6px;
 }
+
 .upload-btn:hover {
   opacity: 0.9;
 }
+
 .upload-btn:active {
   transform: scale(0.98);
 }
@@ -1620,6 +2145,7 @@ onMounted(async () => { await fetchLedgers(); });
   font-size: 14px;
   text-align: center;
 }
+
 .upload-error-detail {
   margin-top: 8px;
   font-size: 12px;
@@ -1641,8 +2167,12 @@ onMounted(async () => { await fetchLedgers(); });
 }
 
 @keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .format-guide {
@@ -1653,6 +2183,7 @@ onMounted(async () => { await fetchLedgers(); });
   border: 1px solid var(--border-default);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
 }
+
 .format-guide-header {
   display: flex;
   align-items: center;
@@ -1662,16 +2193,19 @@ onMounted(async () => { await fetchLedgers(); });
   color: var(--text-primary);
   margin-bottom: 12px;
 }
+
 .format-guide-icon {
   color: var(--color-primary);
   font-size: 18px;
 }
+
 .format-guide-list {
   list-style: none;
   padding-left: 0;
   margin: 0;
   counter-reset: step-counter;
 }
+
 .format-guide-list li {
   font-size: 13px;
   color: var(--text-secondary);
@@ -1681,6 +2215,7 @@ onMounted(async () => { await fetchLedgers(); });
   align-items: baseline;
   counter-increment: step-counter;
 }
+
 .format-guide-list li::before {
   content: counter(step-counter) ".";
   color: var(--color-primary);
@@ -1698,17 +2233,20 @@ onMounted(async () => { await fetchLedgers(); });
   overflow: hidden;
   margin-top: 16px;
 }
+
 .step3-header {
   display: flex;
   align-items: center;
   margin-bottom: 16px;
   flex-shrink: 0;
 }
+
 .header-ledger {
   margin-left: 16px;
   font-weight: 500;
   color: var(--text-secondary);
 }
+
 .step3-body {
   flex: 1;
   display: flex;
@@ -1716,6 +2254,7 @@ onMounted(async () => { await fetchLedgers(); });
   overflow: hidden;
   min-height: 0;
 }
+
 .step3-left {
   width: 340px;
   flex-shrink: 0;
@@ -1724,12 +2263,14 @@ onMounted(async () => { await fetchLedgers(); });
   border-right: 1px solid var(--border-default);
   transition: width 0.25s ease;
 }
+
 .step3-left.collapsed {
   width: 0;
   padding-right: 0;
   border-right: none;
   overflow: hidden;
 }
+
 .step3-divider {
   width: 32px;
   flex-shrink: 0;
@@ -1744,25 +2285,31 @@ onMounted(async () => { await fetchLedgers(); });
   margin: 0 4px;
   transition: background 0.2s;
 }
+
 .step3-divider:hover {
   background: var(--color-primary-20);
 }
+
 .divider-icon {
   font-size: 16px;
   color: var(--text-tertiary);
   transition: color 0.2s;
 }
+
 .step3-divider:hover .divider-icon {
   color: var(--color-primary);
 }
+
 .divider-text {
   font-size: 11px;
   color: var(--text-tertiary);
   transition: color 0.2s;
 }
+
 .step3-divider:hover .divider-text {
   color: var(--color-primary);
 }
+
 .step3-right {
   flex: 1;
   display: flex;
@@ -1776,10 +2323,12 @@ onMounted(async () => { await fetchLedgers(); });
   flex-shrink: 0;
   margin-bottom: 16px;
 }
+
 .summary-cards {
   display: flex;
   gap: 16px;
 }
+
 .summary-card {
   flex: 1;
   padding: 16px;
@@ -1787,32 +2336,39 @@ onMounted(async () => { await fetchLedgers(); });
   border: 1px solid var(--border-default);
   background: var(--bg-card);
 }
+
 .summary-card--success {
   border-left: 4px solid var(--color-success);
 }
+
 .summary-card--warning {
   border-left: 4px solid var(--color-warning);
 }
+
 .summary-card--danger {
   border-left: 4px solid var(--color-danger);
 }
+
 .summary-card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 8px;
 }
+
 .summary-card-title {
   font-weight: 600;
   color: var(--text-primary);
   display: flex;
   align-items: center;
 }
+
 .summary-card-body p {
   margin: 0;
   font-size: 13px;
   color: var(--text-secondary);
 }
+
 .summary-badge {
   margin-left: 8px;
   vertical-align: middle;
@@ -1826,23 +2382,28 @@ onMounted(async () => { await fetchLedgers(); });
   padding: 8px 0;
   flex-shrink: 0;
 }
+
 .batch-fix-hint {
   font-size: 13px;
   color: var(--text-tertiary);
 }
+
 .batch-fix-panel {
   display: flex;
   flex-direction: column;
   gap: 16px;
   margin-bottom: 16px;
 }
+
 .batch-fix-group {
   cursor: pointer;
   transition: transform 0.15s;
 }
+
 .batch-fix-group:hover {
   transform: translateX(2px);
 }
+
 .batch-fix-card {
   padding: 16px;
   border: 1px solid var(--border-default);
@@ -1851,59 +2412,71 @@ onMounted(async () => { await fetchLedgers(); });
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
   transition: border-color 0.2s, box-shadow 0.2s;
 }
+
 .batch-fix-card:hover {
   border-color: var(--color-primary);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
+
 .batch-fix-group--active .batch-fix-card {
   border-left: 4px solid var(--color-primary);
   background: var(--color-primary-20);
   border-color: var(--color-primary);
   box-shadow: 0 2px 12px rgba(122, 127, 168, 0.15);
 }
+
 .batch-fix-card-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   margin-bottom: 12px;
 }
+
 .batch-fix-info {
   display: flex;
   flex-direction: column;
   gap: 4px;
   flex: 1;
 }
+
 .batch-fix-label {
   font-weight: 600;
   font-size: 14px;
   color: var(--text-primary);
 }
+
 .batch-fix-desc {
   font-size: 12px;
   color: var(--text-tertiary);
   line-height: 1.4;
 }
+
 .batch-fix-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
 }
+
 .batch-fix-input {
   width: 160px;
 }
+
 .batch-fix-input :deep(.el-input__wrapper) {
   background-color: var(--bg-muted);
   border-color: var(--border-default);
   box-shadow: none;
 }
+
 .batch-fix-input :deep(.el-input__wrapper:hover) {
   border-color: var(--color-primary);
 }
+
 .batch-fix-input :deep(.el-input__wrapper.is-focus) {
   border-color: var(--color-primary);
   box-shadow: 0 0 0 1px var(--color-primary-20);
 }
+
 .batch-fix-btn {
   min-width: 140px;
   text-align: center;
@@ -1920,6 +2493,7 @@ onMounted(async () => { await fetchLedgers(); });
   margin-bottom: 16px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
 }
+
 .allocation-group-header {
   display: flex;
   justify-content: space-between;
@@ -1928,11 +2502,13 @@ onMounted(async () => { await fetchLedgers(); });
   padding-bottom: 12px;
   border-bottom: 1px solid var(--border-default);
 }
+
 .allocation-group-list {
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
+
 .allocation-group-item {
   display: flex;
   justify-content: space-between;
@@ -1942,14 +2518,17 @@ onMounted(async () => { await fetchLedgers(); });
   border-radius: 8px;
   transition: background 0.15s;
 }
+
 .allocation-group-item:hover {
   background: var(--bg-hover);
 }
+
 .allocation-group-info {
   display: flex;
   align-items: center;
   gap: 8px;
 }
+
 .allocation-group-label {
   font-weight: 500;
   font-size: 14px;
@@ -1965,11 +2544,13 @@ onMounted(async () => { await fetchLedgers(); });
   flex-wrap: wrap;
   gap: 8px;
 }
+
 .table-controls > div:last-child {
   display: flex;
   align-items: center;
   gap: 8px;
 }
+
 .table-wrapper {
   flex: 1;
   overflow-y: auto;
@@ -1984,21 +2565,25 @@ onMounted(async () => { await fetchLedgers(); });
   color: var(--text-secondary);
   flex-shrink: 0;
 }
+
 .legend-item {
   display: flex;
   align-items: center;
   gap: 6px;
 }
+
 .legend-color {
   width: 16px;
   height: 16px;
   border-radius: 3px;
   flex-shrink: 0;
 }
+
 .legend-color--duplicate {
   background-color: var(--color-warning-20);
   border: 1px solid var(--border-default);
 }
+
 .legend-color--blocked {
   background-color: var(--bg-card);
   border-left: 3px solid var(--color-danger);
@@ -2009,26 +2594,32 @@ onMounted(async () => { await fetchLedgers(); });
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
 :deep(.el-table__header-wrapper) {
   position: sticky;
   top: 0;
   z-index: 3;
   background: var(--bg-card);
 }
+
 :deep(.row-duplicate) {
   background-color: var(--color-warning-20) !important;
 }
+
 :deep(.row-blocked) {
   border-left: 3px solid var(--color-danger) !important;
   background-color: var(--color-danger-20) !important;
 }
+
 :deep(.cell-blocked) {
   background-color: var(--color-danger-20) !important;
 }
+
 :deep(.cell-missing) {
   background-color: var(--bg-muted) !important;
   border-bottom: 1px dashed var(--border-default);
 }
+
 :deep(.el-table__row--level-1) {
   background-color: var(--bg-muted);
 }
@@ -2039,16 +2630,19 @@ onMounted(async () => { await fetchLedgers(); });
   gap: 2px;
   line-height: 1.3;
 }
+
 .product-name {
   font-size: 14px;
   font-weight: 500;
   color: var(--text-primary);
 }
+
 .product-code-row {
   display: flex;
   align-items: center;
   gap: 6px;
 }
+
 .product-code {
   font-size: 12px;
   color: var(--text-tertiary);
@@ -2059,11 +2653,13 @@ onMounted(async () => { await fetchLedgers(); });
   align-items: center;
   gap: 6px;
 }
+
 .op-type-label {
   font-size: 13px;
   color: var(--text-primary);
   white-space: nowrap;
 }
+
 .type-tag-inline {
   font-size: 11px;
   padding: 0 6px;
@@ -2089,6 +2685,7 @@ onMounted(async () => { await fetchLedgers(); });
   z-index: 10;
   margin-top: 12px;
 }
+
 .action-content {
   max-width: 1200px;
   margin: 0 auto;
@@ -2097,10 +2694,12 @@ onMounted(async () => { await fetchLedgers(); });
   justify-content: space-between;
   align-items: center;
 }
+
 .selected-count {
   color: var(--text-secondary);
   font-size: 14px;
 }
+
 .import-btn {
   min-width: 160px;
   font-weight: 500;
@@ -2111,28 +2710,34 @@ onMounted(async () => { await fetchLedgers(); });
   margin-top: 64px;
   text-align: center;
 }
+
 .result-summary {
   margin-top: 16px;
 }
+
 .result-numbers {
   display: flex;
   justify-content: center;
   align-items: center;
   gap: 24px;
 }
+
 .number-item {
   text-align: center;
 }
+
 .number-value {
   font-size: 28px;
   font-weight: 700;
   line-height: 1.2;
 }
+
 .number-label {
   display: block;
   font-size: 14px;
   color: var(--text-tertiary);
 }
+
 .number-divider {
   width: 1px;
   height: 40px;
@@ -2142,11 +2747,13 @@ onMounted(async () => { await fetchLedgers(); });
 .error-group {
   margin-bottom: 12px;
 }
+
 .error-reason {
   font-weight: 600;
   color: var(--text-primary);
   margin-bottom: 4px;
 }
+
 .error-collapse {
   margin-top: 4px;
   border: none;
@@ -2161,9 +2768,14 @@ onMounted(async () => { await fetchLedgers(); });
 }
 
 @keyframes ledgerFlash {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(122, 127, 168, 0.4); }
-  50% { box-shadow: 0 0 0 4px rgba(122, 127, 168, 0.15); }
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(122, 127, 168, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(122, 127, 168, 0.15);
+  }
 }
+
 .ledger-select-flash :deep(.el-input__wrapper) {
   animation: ledgerFlash 0.6s ease-in-out 2;
   border-color: var(--color-primary) !important;

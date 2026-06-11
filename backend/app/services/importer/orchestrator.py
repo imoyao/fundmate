@@ -6,20 +6,25 @@
 """
 
 import re
+import time
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ErrorCode, SBException
+from app.core.utils import show_time
 from app.domains.funds.models import Fund, FundVariety
 from app.domains.ledgers.models import Ledger
+from app.domains.positions.models import Position
 from app.domains.securities.models import Security
 from app.domains.transactions.models import Transaction
+from app.domains.watchlist.models import WatchlistItem
 from app.services.async_backfill import trigger_backfill
+from app.services.fund_data_service import get_fund_nav_map
 from app.services.importer.mappings import OP_TYPE_LABEL, BusinessType
 from app.services.importer.records import SBImportError, StandardTransactionRecord
 from app.services.importer.registry import get_parser
@@ -78,10 +83,7 @@ class ImportOrchestrator:
     def parse_and_preview(self, file_bytes: bytes, template_key: str, frontend_account: str = '') -> dict:
         """解析文件并返回预览数据，包含去重信息"""
         parser = get_parser(template_key)
-        if parser is None:
-            raise SBException(ErrorCode.UNSUPPORTED_FILE_FORMAT.code, f'不支持的导入模板: {template_key}')
-
-        records, errors = parser.parse(file_bytes)
+        records, errors = self._parse_internal(template_key, file_bytes)
         if errors and not records:
             raise SBException(ErrorCode.FILE_PARSE_ERROR.code, errors[0].message)
 
@@ -123,6 +125,7 @@ class ImportOrchestrator:
                     'net_amount': rec.net_amount,
                     'notes': rec.raw_op_type or '',
                     'source': rec.source,  # 新增，前端回传用
+                    'is_calculated': rec.is_calculated,
                 }
             )
 
@@ -194,26 +197,26 @@ class ImportOrchestrator:
 
     # ── 解析 ──
 
+    def _parse_internal(
+        self, source: str, file_bytes: bytes
+    ) -> Tuple[List[StandardTransactionRecord], List[SBImportError]]:
+        parser = get_parser(source)
+        if parser is None:
+            raise SBException(ErrorCode.UNSUPPORTED_FILE_FORMAT.code, f'不支持的导入来源: {source}')
+        records, errors = parser.parse(file_bytes)
+        for record in records:
+            record.source = source
+            if not record.import_hash:
+                record.import_hash = parser.compute_import_hash(record)
+        return records, errors
+
     def parse(self, source: str, file_bytes: bytes) -> Tuple[List[StandardTransactionRecord], List[SBImportError]]:
         """调用对应解析器解析文件，生成哈希和批次ID"""
 
-        parser = get_parser(source)
-        if parser is None:
-            raise SBException(
-                code=ErrorCode.UNSUPPORTED_FILE_FORMAT.code,
-                message=f'不支持的导入来源: {source}',
-                status_code=400,
-            )
-
-        records, errors = parser.parse(file_bytes)
-
-        # 为每条记录生成 import_hash 和 batch_id
+        records, errors = self._parse_internal(source, file_bytes)
         self.batch_id = str(uuid.uuid4())
         for record in records:
-            record.import_hash = parser.compute_import_hash(record)
             record.batch_id = self.batch_id
-            record.source = source
-
         logger.info(f'解析完成: source={source}, 记录={len(records)}, 错误={len(errors)}')
         return records, errors
 
@@ -247,22 +250,43 @@ class ImportOrchestrator:
             errors.append(SBImportError(line_num, 'confirm_date', '确认日期不能晚于今天'))
         return errors
 
-    # ── 补全 ──
-
     def enrich(self, records: List[StandardTransactionRecord], frontend_account: str = '') -> None:
-        fund_codes = set()
-        stock_codes = set()
+        start = time.time()
+        self._fill_account_and_match_codes(records, frontend_account)
+        logger.info(f'enrich 补全账户+名称匹配耗时: {time.time() - start:.3f}s')
 
-        # 第一遍：收集代码并补全账户
+        start2 = time.time()
+        fund_map, stock_map = self._batch_query_asset_info(records)
+        logger.info(f'enrich 批量查询资产信息耗时: {time.time() - start2:.3f}s')
+
+        start3 = time.time()
+        self._fill_names_and_types(records, fund_map, stock_map)
+        logger.info(f'enrich 填充名称和类型耗时: {time.time() - start3:.3f}s')
+
+        start4 = time.time()
+        self._fill_missing_nav_and_shares(records)
+        logger.info(f'enrich 填充净值份额耗时: {time.time() - start4:.3f}s')
+        logger.info(f'enrich 总耗时: {time.time() - start:.3f}s')
+
+    def _fill_account_and_match_codes(self, records, frontend_account):
+        match_cache = {}
         for r in records:
             if not r.account_name and frontend_account:
                 r.account_name = frontend_account
-            if r.asset_type == 'fund':
-                fund_codes.add(r.symbol)
-            elif r.asset_type == 'stock':
-                stock_codes.add(r.symbol)
+            if r.asset_type == 'fund' and not r.symbol and r.name:
+                if r.name in match_cache:
+                    r.symbol = match_cache[r.name]
+                else:
+                    matched = self._match_fund_by_name(r.name)
+                    if matched:
+                        r.symbol = matched
+                        match_cache[r.name] = matched
 
-        # 批量查询基金信息（联表加载 variety）
+    def _batch_query_asset_info(self, records):
+        """批量查询基金和股票的名称、类型"""
+        fund_codes = {r.symbol for r in records if r.asset_type == 'fund' and r.symbol}
+        stock_codes = {r.symbol for r in records if r.asset_type == 'stock' and r.symbol}
+
         fund_name_map = {}
         fund_type_map = {}
         if fund_codes:
@@ -276,26 +300,104 @@ class ImportOrchestrator:
                 fund_name_map[fund_code] = fund_name or fund_code
                 fund_type_map[fund_code] = variety_name or ''
 
-        # 批量查询股票信息
         stock_map = {}
         if stock_codes:
             stock_map = {
                 s.symbol: s.name for s in self.db.query(Security).filter(Security.symbol.in_(stock_codes)).all()
             }
 
-        # 第二遍：填充名称和类型，识别货币基金
+        return (fund_name_map, fund_type_map), stock_map
+
+    def _fill_names_and_types(self, records, fund_map, stock_map):
+        """填充名称和显示类型，识别货币基金"""
+        fund_name_map, fund_type_map = fund_map
         for r in records:
             if not r.name:
                 if r.asset_type == 'fund':
                     r.name = fund_name_map.get(r.symbol, r.symbol)
-                else:
+                elif r.asset_type == 'stock':
                     r.name = stock_map.get(r.symbol, r.symbol)
 
             if r.asset_type == 'fund' and not r.display_type:
                 r.display_type = fund_type_map.get(r.symbol, '')
-                # 识别货币基金
                 if '货币' in r.display_type:
                     r.asset_type = 'money_fund'
+
+    from app.services.fund_data_service import get_fund_nav_map
+
+    def _fill_missing_nav_and_shares(self, records):
+        needed = [
+            r for r in records if r.asset_type == 'fund' and r.symbol and r.confirm_date and (not r.nav or not r.shares)
+        ]
+        if not needed:
+            return
+
+        # 按日期分组
+        date_groups = {}
+        for r in needed:
+            dt = r.confirm_date
+            if dt not in date_groups:
+                date_groups[dt] = set()
+            date_groups[dt].add(r.symbol)
+
+        for dt, symbols in date_groups.items():
+            symbol_list = list(symbols)
+            nav_map = get_fund_nav_map(self.db, symbol_list, dt)
+            for r in needed:
+                if r.confirm_date == dt and r.symbol in nav_map:
+                    nav = nav_map[r.symbol]
+                    if nav and nav > 0:
+                        r.nav = nav.quantize(Decimal('0.0001'))
+                        if r.amount and r.amount > 0:
+                            r.shares = (r.amount / r.nav).quantize(Decimal('0.00'))
+                        r.is_calculated = True
+
+    @show_time
+    def _match_fund_by_name(self, fund_name: str) -> Optional[str]:
+        clean_input = self._clean_fund_name(fund_name)
+        search_pattern = f'%{clean_input}%'
+
+        # 1. 持仓优先
+        pos_fund = (
+            self.db.query(Fund.fund_code)
+            .join(Position, Position.symbol == Fund.fund_code)
+            .filter(Fund.name.ilike(search_pattern))
+            .first()
+        )
+        if pos_fund:
+            return pos_fund[0]
+
+        # 2. 自选
+        watch_fund = (
+            self.db.query(Fund.fund_code)
+            .join(WatchlistItem, WatchlistItem.symbol == Fund.fund_code)
+            .filter(Fund.name.ilike(search_pattern))
+            .first()
+        )
+        if watch_fund:
+            return watch_fund[0]
+
+        # 3. 全库搜索，限制 10 条
+        candidates = self.db.query(Fund.fund_code, Fund.name).filter(Fund.name.ilike(search_pattern)).limit(10).all()
+        if not candidates:
+            return None
+
+        # 相似度选择
+        scored = []
+        for code, name in candidates:
+            clean_name = self._clean_fund_name(name)
+            similarity = abs(len(clean_input) - len(clean_name))
+            scored.append((similarity, code))
+        scored.sort(key=lambda x: x[0])
+        if len(scored) > 1 and scored[0][0] == scored[1][0]:
+            return None  # 多个最佳匹配，放弃自动匹配
+        return scored[0][1]
+
+    def _clean_fund_name(self, name: str) -> str:
+        for word in ['LOF', 'ETF', '联接', '发起', '指数']:
+            name = name.replace(word, '')
+        name = name.replace('（', '(').replace('）', ')')
+        return re.sub(r'\s+', '', name)
 
     # ── 入库 ──
 
@@ -307,6 +409,7 @@ class ImportOrchestrator:
 
         for record in records:
             try:
+                self.db.begin_nested()
                 if record.import_hash:
                     existing = self.db.query(Transaction).filter_by(import_hash=record.import_hash).first()
                     if existing:
@@ -427,6 +530,8 @@ class ImportOrchestrator:
                 imported += 1
 
             except Exception as e:
+                # 失败回滚到保存点，不影响其他记录
+                self.db.rollback()
                 logger.exception(f'入库单条记录失败: symbol={record.symbol}, business_type={record.business_type}')
                 commit_errors.append({'symbol': record.symbol, 'name': record.name, 'error': str(e)})
 
@@ -487,14 +592,14 @@ class ImportOrchestrator:
         for code in fund_codes:
             try:
                 trigger_backfill('fund', code)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f'元数据更新触发失败: fund {code}, error={e}')
 
         for symbol in stock_symbols:
             try:
                 trigger_backfill('stock', symbol)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f'元数据更新触发失败: stock {symbol}, error={e}')
 
         if fund_codes or stock_symbols:
             logger.info(f'已触发元数据更新: 基金={len(fund_codes)}只, 股票={len(stock_symbols)}只')

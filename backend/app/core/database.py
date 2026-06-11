@@ -6,15 +6,27 @@ from contextlib import contextmanager
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import Column, DateTime, Integer, create_engine, func
+from sqlalchemy import Column, DateTime, Engine, Integer, create_engine, event, func
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
 SQLALCHEMY_DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///./invest.db')
 
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,
-    connect_args={'check_same_thread': False},
+    connect_args={
+        'check_same_thread': False,
+        'timeout': 30,  # 写锁等待 30 秒，避免立即报 locked
+    },
 )
+
+
+@event.listens_for(Engine, 'connect')
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    """启用 WAL 模式，提升并发读写性能"""
+    cursor = dbapi_connection.cursor()
+    cursor.execute('PRAGMA journal_mode=WAL;')
+    cursor.close()
+
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

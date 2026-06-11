@@ -4,7 +4,7 @@
 # File : models.py
 """场外基金元数据模型"""
 
-from sqlalchemy import Boolean, Column, Date, DateTime, Float, ForeignKey, Integer, String, text
+from sqlalchemy import Boolean, Column, Date, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint, text
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base, PrimaryKeyMixin, TimestampMixin
@@ -108,6 +108,8 @@ class DailyWorth(Base, PrimaryKeyMixin, TimestampMixin):
     acc_nav = Column(Float, comment='累计净值')
 
     fund = relationship('Fund', back_populates='daily_worth')
+
+    __table_args__ = (UniqueConstraint('fund_code', 'date', name='uq_daily_worth_code_date'),)
 
 
 class PurchaseRule(Base, PrimaryKeyMixin, TimestampMixin):

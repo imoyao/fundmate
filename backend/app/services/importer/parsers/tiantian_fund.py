@@ -10,7 +10,6 @@
 选择“天天基金”格式上传。解析器自动跳过复制混入的多余表头、
 过滤失败记录、映射天天基金的中文业务类型。
 """
-# app/services/importer/parsers/tiantian_fund.py
 
 import csv
 import io

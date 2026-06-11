@@ -12,7 +12,8 @@ export function parseFile(file: File, template: string, ledgerId: number | null)
   }
   return http.request<any>("post", `/api/importers/parse?${params.toString()}`, {
     data: formData,
-    headers: { 'Content-Type': 'multipart/form-data' }
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 10000,
   });
 }
 

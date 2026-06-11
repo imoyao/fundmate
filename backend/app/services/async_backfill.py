@@ -16,6 +16,7 @@ import pandas as pd
 from loguru import logger
 
 from app.core.database import SessionLocal
+from app.core.db_utils import bulk_insert_if_not_exists
 from app.domains.funds.models import DailyWorth, MoneyFundDailyWorth
 from app.services.sync.adapters.xalpha_adapter import XalphaAdapter
 from app.services.sync.money_fund_utils import compute_money_fund_yields
@@ -71,13 +72,17 @@ def _backfill_fund_nav(fund_code: str):
                 )
             target_model = DailyWorth
 
-        existing_dates = {row[0] for row in db.query(target_model.date).filter_by(fund_code=fund_code).all()}
-        new_records = [r for r in records if r['date'] not in existing_dates]
-        if new_records:
-            db.bulk_insert_mappings(target_model, new_records)
-            db.commit()
-            logger.info(f'异步回填基金 {fund_code} 净值 {len(new_records)} 条')
+        if records:
+            total = bulk_insert_if_not_exists(
+                db,
+                target_model,
+                records,
+                unique_key='fund_code',  # 兼容旧参数
+                unique_columns=['fund_code', 'date'],  # 实际使用的联合键
+            )
+            logger.info(f'异步回填基金 {fund_code} 净值 {total} 条')
     except Exception as e:
+        db.rollback()
         logger.warning(f'异步回填基金 {fund_code} 净值失败: {e}')
     finally:
         db.close()
@@ -109,18 +114,17 @@ def _backfill_stock_price(symbol: str):
         for r in records:
             r['security_id'] = sec.id
 
-        existing = set(
-            (row.security_id, row.trade_date)
-            for row in db.query(PriceHistory.security_id, PriceHistory.trade_date)
-            .filter(PriceHistory.security_id == sec.id)
-            .all()
-        )
-        new_records = [r for r in records if (r['security_id'], r['trade_date']) not in existing]
-        if new_records:
-            db.bulk_insert_mappings(PriceHistory, new_records)
-            db.commit()
-            logger.info(f'异步回填股票 {symbol} 行情 {len(new_records)} 条')
+        if records:
+            total = bulk_insert_if_not_exists(
+                db,
+                PriceHistory,
+                records,
+                unique_key='security_id',
+                unique_columns=['security_id', 'trade_date'],
+            )
+            logger.info(f'异步回填股票 {symbol} 行情 {total} 条')
     except Exception as e:
+        db.rollback()
         logger.warning(f'异步回填股票 {symbol} 行情失败: {e}')
     finally:
         db.close()

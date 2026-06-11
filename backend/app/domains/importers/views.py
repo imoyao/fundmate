@@ -75,8 +75,13 @@ def parse_file():
     file = request.files['file']
     template_key = request.args.get('template', 'standard_stock')
 
-    if not file.filename or not file.filename.lower().endswith(('csv', 'xls', 'xlsx')):
-        abort(400, '仅支持 CSV 或 Excel 文件')
+    # 根据模板允许不同的文件类型
+    if template_key == 'alipay_pdf':
+        if not file.filename or not file.filename.lower().endswith('.pdf'):
+            abort(400, '仅支持 PDF 文件')
+    else:
+        if not file.filename or not file.filename.lower().endswith(('csv', 'xls', 'xlsx')):
+            abort(400, '仅支持 CSV 或 Excel 文件')
 
     # 获取前端账户名称
     frontend_account = ''
@@ -123,7 +128,16 @@ def parse_file():
         ), 400
     except Exception as e:
         logger.exception(f'文件解析未知异常: {e}')
-        abort(400, '文件解析失败，请检查文件格式或重新上传')
+        return jsonify(
+            {
+                'data': [],
+                'total': 0,
+                'error_count': 1,
+                'duplicate_count': 0,
+                'cash_transfer_count': 0,
+                'message': f'服务器内部错误: {str(e)}',
+            }
+        ), 500  # 注意返回 500，前端能识别
 
 
 # ── 确认导入 ──

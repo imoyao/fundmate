@@ -21,16 +21,45 @@ from app.services.sync.money_fund_utils import compute_money_fund_yields
 
 class XalphaAdapter(DataSourceAdapter):
     def __init__(self):
-        self._fund_nav_errors = None
+        self._fund_nav_errors = set()
         self.logger = logger.bind(adapter='xalpha')
-        # 启用 xalpha 本地 CSV 缓存，避免重复网络请求
-        xa.set_backend(backend='csv', path='data/xalpha_cache')
 
     def get_name(self) -> str:
         return 'xalpha'
 
     def get_version(self) -> str:
         return getattr(xa, '__version__', 'unknown')
+
+    def fetch_fund_nav_by_date(self, fund_code: str, target_date: date) -> Optional[float]:
+        """获取指定日期的单位净值，失败返回 None"""
+        try:
+            fund = xa.fundinfo(fund_code)
+            if fund is None:
+                return None
+            nav_df = fund.price
+            if nav_df is None or nav_df.empty:
+                return None
+
+            # 优先使用 date 列匹配（确保在 index 非日期时也能工作）
+            if 'date' in nav_df.columns:
+                # 将 date 列转为日期类型并匹配
+                date_col = pd.to_datetime(nav_df['date']).dt.date
+                matched = nav_df.loc[date_col == target_date, 'netvalue']
+                if not matched.empty:
+                    return float(matched.iloc[0])
+
+            # 兜底：尝试 index 匹配
+            ts = pd.Timestamp(target_date)
+            if ts in nav_df.index:
+                return float(nav_df.loc[ts, 'netvalue'])
+            date_str = target_date.strftime('%Y-%m-%d')
+            if date_str in nav_df.index:
+                return float(nav_df.loc[date_str, 'netvalue'])
+
+            return None
+        except Exception as e:
+            logger.warning(f'xalpha 获取基金 {fund_code} 在 {target_date} 的净值失败: {e}')
+            return None
 
     def get_fund_with_type(self, fund_code: str):
         """

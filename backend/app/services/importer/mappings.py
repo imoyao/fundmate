@@ -122,3 +122,50 @@ TIANTIAN_OP_MAP = {
     '其他收入': BusinessType.DEPOSIT.code,
     '其他支出': BusinessType.WITHDRAW.code,
 }
+
+ALIPAY_PDF_OP_MAP = {
+    '用户买入': BusinessType.BUY.code,
+    '用户卖出': BusinessType.SELL.code,
+    '营销买入': BusinessType.BUY.code,
+    '用户跨TA转换': BusinessType.BUY.code,  # 暂归入申购
+    '机构分红': BusinessType.DIVIDEND_CASH.code,
+}
+
+# ── 支付宝平台映射 ──
+# 根据“商品名称”列的关键字匹配交易类型
+ALIPAY_OP_MAP = {
+    # 基金申购
+    '买入': BusinessType.BUY.code,
+    '转入': BusinessType.BUY.code,  # 余额宝转入
+    '基金申购': BusinessType.BUY.code,
+    '转入余额宝': BusinessType.BUY.code,
+    # 基金赎回
+    '卖出至余额宝': BusinessType.SELL.code,
+    '卖出': BusinessType.SELL.code,
+    '理财赎回': BusinessType.SELL.code,
+    '转出': BusinessType.SELL.code,
+    # 分红
+    '现金分红至余额宝': BusinessType.DIVIDEND_CASH.code,
+    '现金分红': BusinessType.DIVIDEND_CASH.code,
+    # 余额宝收益
+    '收益发放': BusinessType.DEPOSIT.code,
+    # 资金存取
+    '转出到银行卡': BusinessType.WITHDRAW.code,
+    '银行卡转入': BusinessType.DEPOSIT.code,
+    '单次转入': BusinessType.DEPOSIT.code,
+    '大额转入': BusinessType.DEPOSIT.code,
+    '工资理财': BusinessType.DEPOSIT.code,
+    '自动转入': BusinessType.DEPOSIT.code,
+    '转账收款到余额宝': BusinessType.DEPOSIT.code,
+    # 其他
+    '退款': BusinessType.DEPOSIT.code,
+    '活动发放': BusinessType.DEPOSIT.code,
+    '红包奖励发放': BusinessType.DEPOSIT.code,
+    '账户结息': BusinessType.DEPOSIT.code,  # 网商银行计息
+    '蚂蚁星愿主动攒入': BusinessType.DEPOSIT.code,
+    '蚂蚁星愿自动攒入': BusinessType.DEPOSIT.code,
+    '钱管家转入': BusinessType.DEPOSIT.code,
+    '笔笔攒': BusinessType.DEPOSIT.code,
+    '收益挑战包卖出': BusinessType.SELL.code,
+    '收益挑战包买入': BusinessType.BUY.code,
+}

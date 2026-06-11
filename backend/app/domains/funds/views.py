@@ -2,11 +2,14 @@
 # Author : imoyao
 # Date : 2026/5/11 19:33
 # File : views.py
+
 from apiflask import APIBlueprint
 from flask import jsonify, request
 
 from app.core.database import get_db
 from app.domains.funds.models import Fund, Manager
+from app.domains.funds.schemas import FundNavRequest
+from app.services.fund_data_service import get_fund_nav_map
 
 bp = APIBlueprint('funds', __name__, url_prefix='/api/funds')
 
@@ -44,3 +47,18 @@ def search_managers():
         mgrs = db.query(Manager).filter(Manager.name.ilike(f'%{q}%')).limit(20).all()
         result = [{'code': m.mgr_code, 'name': m.name, 'type': m.mgr_type} for m in mgrs]
         return jsonify({'data': result, 'message': 'ok'})
+
+
+@bp.post('/nav/')
+@bp.input(FundNavRequest, location='json')
+def get_fund_nav_by_date(json_data: FundNavRequest):
+    target_date = json_data.target_date
+    symbols = json_data.symbols
+
+    with get_db() as db:
+        nav_map = get_fund_nav_map(db, symbols, target_date)
+
+    result = list()
+    for code, nav in nav_map.items():
+        result.append({'fund_code': code, 'unit_nav': float(nav), 'date': target_date.strftime('%Y-%m-%d')})
+    return jsonify({'data': result, 'message': 'ok'})

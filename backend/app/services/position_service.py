@@ -408,42 +408,51 @@ class PositionService:
         existing = db.query(Position).filter_by(symbol=symbol, account_name=account).first()
 
         if existing:
-            # 有持仓，走正常卖出流程
-            return PositionService.process_sell_or_withdraw(
-                db,
-                {
-                    'position_id': existing.id,
-                    'quantity': qty,
-                    'avg_price': price,
-                    'purchase_date': trade_date,
-                    'op_type': op_type,
-                    'fee': data.get('fee', 0.0),
-                    'notes': data.get('notes', ''),
-                    'import_hash': data.get('import_hash'),
-                },
-                skip_lot_check=True,  # 新增参数
-            )
-        else:
-            # 无持仓，创建孤立流水
-            amount = qty * price
-            TransactionService.create(
-                db=db,
-                position_id=None,
-                txn_type=op_type,
-                trade_date=trade_date,
-                quantity=qty,
-                price=price,
-                fee=data.get('fee', 0.0),
-                amount=amount,
-                status='success',
-                position_name=data.get('name', symbol),
-                account_name=account,
-                notes=data.get('notes') or ('卖出' if op_type == 'sell' else '取出'),
-                import_hash=data.get('import_hash'),
-                entry_status='orphan',
-            )
-            db.flush()
-            return None
+            # 尝试正常卖出，若持仓数量不足则自动转为孤儿交易
+            try:
+                return PositionService.process_sell_or_withdraw(
+                    db,
+                    {
+                        'position_id': existing.id,
+                        'quantity': qty,
+                        'avg_price': price,
+                        'purchase_date': trade_date,
+                        'op_type': op_type,
+                        'fee': data.get('fee', 0.0),
+                        'notes': data.get('notes', ''),
+                        'import_hash': data.get('import_hash'),
+                    },
+                    skip_lot_check=True,
+                )
+            except ValueError as e:
+                if '持仓数量不足' in str(e):
+                    logger.warning(
+                        f'持仓 {existing.symbol} 数量不足（持有 {existing.quantity}，需要 {qty}），转为孤儿交易'
+                    )
+                    # 数量不足时不抛异常，而是创建孤儿交易
+                else:
+                    raise  # 其他 ValueError 继续抛出
+
+            # 无持仓，或者有持仓但数量不足，统一创建孤儿流水
+        amount = qty * price
+        TransactionService.create(
+            db=db,
+            position_id=None,
+            txn_type=op_type,
+            trade_date=trade_date,
+            quantity=qty,
+            price=price,
+            fee=data.get('fee', 0.0),
+            amount=amount,
+            status='success',
+            position_name=data.get('name', symbol),
+            account_name=account,
+            notes=data.get('notes') or ('卖出' if op_type == 'sell' else '取出'),
+            import_hash=data.get('import_hash'),
+            entry_status='orphan',
+        )
+        db.flush()
+        return None
 
     @staticmethod
     def process_orphan_dividend(db: Session, data: dict) -> Optional[Position]:

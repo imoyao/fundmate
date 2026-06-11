@@ -76,9 +76,6 @@ def get_confirm_date(purchase_date: date, fund_type: str = 'domestic', is_after_
     return find_workday(delta_days=delta_days, date=purchase_date)
 
 
-# ========== 以下为从 fundmate 迁移的工具函数，已去除旧依赖 ==========
-
-
 def rename_with_extra_suffix(file_name: str, extra_suffix: Optional[str] = None) -> str:
     """给文件名添加后缀（在扩展名前）。"""
     if not extra_suffix:
