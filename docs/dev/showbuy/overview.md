@@ -24,7 +24,7 @@ permalink: /overview
 
 | 表/模型                       | 核心字段                                                                                                                                                                 | 状态           | 后续规划                               |
 |:---------------------------|:---------------------------------------------------------------------------------------------------------------------------------------------------------------------|:-------------|:-----------------------------------|
-| `positions` (持仓表)          | `id`, `symbol`, `name`, `market`, `type`, `account_name`, `quantity`, `avg_price`, `currency`, `current_price`, `purchase_date`, `notes`, `created_at`, `updated_at` | ✅ **已创建**    | MVP 正常运行中。`family_id` 字段看情况，需要时再加。 |
+| `positions` (持仓表)          | `id`, `symbol`, `name`, `market`, `type`, `account_name`, `quantity`, `avg_price`, `currency`, `current_price`, `trade_date`, `notes`, `created_at`, `updated_at` | ✅ **已创建**    | MVP 正常运行中。`family_id` 字段看情况，需要时再加。 |
 | `securities` (证券元数据表)      | `id`, `symbol`, `name`, `market`, `type`, `exchange`, `sector`, `industry`, `is_active`                                                                              | 🕒 **P1 搭建** | 首批基金或股票导入时即建表                      |
 | `funds` (基金元数据表)           | `id`, `fund_code`, `name`, `full_name`, `fund_type`, `company`, `risk_level`, `inception_date`, `management_fee`                                                     | 🕒 **P1 搭建** | 同上                                 |
 | `managers` (基金经理表)         | `id`, `name`, `company`, `appointment_date`, `sum_scale`                                                                                                             | 🕒 **P1 搭建** | 同上                                 |

@@ -39,21 +39,21 @@ def calc_fund_confirm_date():
     """
     计算场外基金的确认日。
     参数：
-        purchase_date: 购买日期 (YYYY-MM-DD)
+        trade_date: 购买日期 (YYYY-MM-DD)
         fund_type: 基金类型 (domestic / qdii)，默认 domestic
         is_after_15: 是否在15:00之后 (true/false)，默认 false
     """
-    purchase_date_str = request.args.get('purchase_date', '')
+    trade_date_str = request.args.get('trade_date', '')
     fund_type = request.args.get('fund_type', 'domestic')
     is_after_15 = request.args.get('is_after_15', 'false').lower() == 'true'
 
     try:
-        purchase_date = datetime.strptime(purchase_date_str, '%Y-%m-%d').date()
+        trade_date = datetime.strptime(trade_date_str, '%Y-%m-%d').date()
     except ValueError:
         abort(400, '购买日期格式错误，应为 YYYY-MM-DD')
 
     try:
-        confirm_date = get_confirm_date(purchase_date, fund_type=fund_type, is_after_15=is_after_15)
+        confirm_date = get_confirm_date(trade_date, fund_type=fund_type, is_after_15=is_after_15)
         return jsonify({'data': confirm_date.isoformat(), 'message': 'ok'})
     except Exception as e:
         abort(400, f'确认日计算失败: {str(e)}')

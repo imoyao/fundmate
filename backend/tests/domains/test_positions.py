@@ -36,7 +36,7 @@ class TestPositionCreate:
                 'quantity': 100,
                 'avg_price': 350,
                 'currency': 'HKD',
-                'purchase_date': '2026-05-01',
+                'trade_date': '2026-05-01',
                 'allocation': 'longterm',
                 'op_type': 'buy',
             },
@@ -63,7 +63,7 @@ class TestPositionCreate:
                 'quantity': 100,
                 'avg_price': 350,
                 'currency': 'HKD',
-                'purchase_date': '2026-05-01',
+                'trade_date': '2026-05-01',
             },
         )
         resp = _post(
@@ -78,7 +78,7 @@ class TestPositionCreate:
                 'quantity': 50,
                 'avg_price': 380,
                 'currency': 'HKD',
-                'purchase_date': '2026-05-02',
+                'trade_date': '2026-05-02',
                 'op_type': 'buy',
             },
         )
@@ -126,7 +126,7 @@ class TestPositionSell:
                 'quantity': 200,  # 改为两手
                 'avg_price': 350,
                 'currency': 'HKD',
-                'purchase_date': '2026-05-01',
+                'trade_date': '2026-05-01',
             },
         )
         list_resp = _get(client, '/api/positions/')
@@ -140,7 +140,7 @@ class TestPositionSell:
                 'position_id': pos_id,
                 'quantity': 100,
                 'avg_price': 400,
-                'purchase_date': '2026-05-03',
+                'trade_date': '2026-05-03',
             },  # 卖出一手
         )
         assert resp.status_code == 200
@@ -161,7 +161,7 @@ class TestPositionSell:
                 'quantity': 50,
                 'avg_price': 180,
                 'currency': 'USD',
-                'purchase_date': '2026-05-01',
+                'trade_date': '2026-05-01',
             },
         )
         list_resp = _get(client, '/api/positions/')
@@ -170,7 +170,7 @@ class TestPositionSell:
         resp = _post(
             client,
             '/api/positions/',
-            {'op_type': 'sell', 'position_id': pos_id, 'quantity': 50, 'avg_price': 190, 'purchase_date': '2026-05-05'},
+            {'op_type': 'sell', 'position_id': pos_id, 'quantity': 50, 'avg_price': 190, 'trade_date': '2026-05-05'},
         )
         assert resp.status_code == 200
         assert resp.get_json()['message'] == '持仓已清空'
@@ -179,7 +179,7 @@ class TestPositionSell:
         resp = _post(
             client,
             '/api/positions/',
-            {'op_type': 'sell', 'quantity': 10, 'avg_price': 100, 'purchase_date': '2026-05-01'},
+            {'op_type': 'sell', 'quantity': 10, 'avg_price': 100, 'trade_date': '2026-05-01'},
         )
         assert resp.status_code == 400
 
@@ -196,7 +196,7 @@ class TestPositionSell:
                 'quantity': 10,
                 'avg_price': 180,
                 'currency': 'USD',
-                'purchase_date': '2026-05-01',
+                'trade_date': '2026-05-01',
             },
         )
         list_resp = _get(client, '/api/positions/')
@@ -205,7 +205,7 @@ class TestPositionSell:
         resp = _post(
             client,
             '/api/positions/',
-            {'op_type': 'sell', 'position_id': pos_id, 'quantity': 20, 'avg_price': 200, 'purchase_date': '2026-05-02'},
+            {'op_type': 'sell', 'position_id': pos_id, 'quantity': 20, 'avg_price': 200, 'trade_date': '2026-05-02'},
         )
         assert resp.status_code == 400
 
@@ -230,7 +230,7 @@ class TestTransactions:
                 'quantity': 100,
                 'avg_price': 350,
                 'currency': 'HKD',
-                'purchase_date': old_date,
+                'trade_date': old_date,
                 'op_type': 'buy',
             },
         )
@@ -246,7 +246,7 @@ class TestTransactions:
                 'quantity': 50,
                 'avg_price': 380,
                 'currency': 'HKD',
-                'purchase_date': recent_date,
+                'trade_date': recent_date,
                 'op_type': 'buy',
             },
         )
@@ -269,7 +269,7 @@ class TestTransactions:
                 'quantity': 100,
                 'avg_price': 350,
                 'currency': 'HKD',
-                'purchase_date': '2026-05-01',
+                'trade_date': '2026-05-01',
                 'op_type': 'buy',
             },
         )
@@ -295,7 +295,7 @@ class TestPositionUpdateDelete:
                 'quantity': 100,
                 'avg_price': 350,
                 'currency': 'HKD',
-                'purchase_date': '2026-05-01',
+                'trade_date': '2026-05-01',
             },
         )
         list_resp = _get(client, '/api/positions/')
@@ -322,7 +322,7 @@ class TestPositionUpdateDelete:
                 'quantity': 10,
                 'avg_price': 10,
                 'currency': 'CNY',
-                'purchase_date': '2026-05-01',
+                'trade_date': '2026-05-01',
             },
         )
         list_resp = _get(client, '/api/positions/')
@@ -356,7 +356,7 @@ class TestPositionLabels:
                 'quantity': 100,
                 'avg_price': 350,
                 'currency': 'HKD',
-                'purchase_date': '2026-05-01',
+                'trade_date': '2026-05-01',
             },
         )
         data = resp.get_json()['data']
@@ -378,7 +378,7 @@ class TestPositionLabels:
                 'quantity': 10,
                 'avg_price': 180,
                 'allocation': 'speculative',
-                'purchase_date': '2026-05-01',
+                'trade_date': '2026-05-01',
             },
         )
         data = resp.get_json()['data']
@@ -413,15 +413,15 @@ class TestPositionLabels:
             client,
             '/api/positions/',
             {
-                'symbol': '00700.HK',
-                'name': '腾讯',
+                'symbol': '600519',  # 改为 A 股
+                'name': '贵州茅台',
                 'type': 'stock',
-                'market': 'CN_HK',
-                'account_name': '富途',
+                'market': 'CN_A',  # 改为 A 股市场
+                'account_name': '华泰证券',
                 'quantity': 50,
                 'avg_price': 350,
-                'currency': 'HKD',
-                'purchase_date': '2026-05-01',
+                'currency': 'CNY',
+                'trade_date': '2026-05-01',
             },
         )
         list_resp = _get(client, '/api/positions/')
@@ -431,14 +431,167 @@ class TestPositionLabels:
         resp = _post(
             client,
             '/api/positions/',
-            {'op_type': 'sell', 'position_id': pos_id, 'quantity': 30, 'avg_price': 400, 'purchase_date': '2026-05-03'},
+            {'op_type': 'sell', 'position_id': pos_id, 'quantity': 30, 'avg_price': 400, 'trade_date': '2026-05-03'},
         )
-        assert resp.status_code == 400  # 或前端限制无法触发
+        assert resp.status_code == 400
 
         # 全部卖出 50 股（应成功）
         resp = _post(
             client,
             '/api/positions/',
-            {'op_type': 'sell', 'position_id': pos_id, 'quantity': 50, 'avg_price': 400, 'purchase_date': '2026-05-03'},
+            {'op_type': 'sell', 'position_id': pos_id, 'quantity': 50, 'avg_price': 400, 'trade_date': '2026-05-03'},
+        )
+        assert resp.status_code == 200
+
+    def test_lot_rule_a_stock_main(self, client):
+        """A股主板：不足一手只能全卖，一手以上必须整数倍"""
+        _post(
+            client,
+            '/api/positions/',
+            {
+                'symbol': '000001',
+                'name': '平安银行',
+                'type': 'stock',
+                'market': 'CN_A',
+                'account_name': '券商',
+                'quantity': 80,
+                'avg_price': 12.0,
+                'currency': 'CNY',
+                'trade_date': '2026-05-01',
+            },
+        )
+        list_resp = _get(client, '/api/positions/')
+        pos_id = list_resp.get_json()['data'][0]['id']
+
+        # 不足一手，只能全卖，尝试卖 50 股应被拒
+        resp = _post(
+            client,
+            '/api/positions/',
+            {'op_type': 'sell', 'position_id': pos_id, 'quantity': 50, 'avg_price': 12.5, 'trade_date': '2026-05-03'},
+        )
+        assert resp.status_code == 400
+
+        # 全卖 80 股应成功
+        resp = _post(
+            client,
+            '/api/positions/',
+            {'op_type': 'sell', 'position_id': pos_id, 'quantity': 80, 'avg_price': 12.5, 'trade_date': '2026-05-03'},
+        )
+        assert resp.status_code == 200
+
+    def test_lot_rule_star_market(self, client):
+        """科创板：一手200股，不足一手只能全卖，足一手需整数倍"""
+        _post(
+            client,
+            '/api/positions/',
+            {
+                'symbol': '688001',
+                'name': '华兴源创',
+                'type': 'stock',
+                'market': 'CN_A',
+                'account_name': '券商',
+                'quantity': 150,
+                'avg_price': 30.0,
+                'currency': 'CNY',
+                'trade_date': '2026-05-01',
+            },
+        )
+        list_resp = _get(client, '/api/positions/')
+        pos_id = list_resp.get_json()['data'][0]['id']
+
+        # 不足一手（200股），只能全卖，尝试卖 100 股应被拒
+        resp = _post(
+            client,
+            '/api/positions/',
+            {'op_type': 'sell', 'position_id': pos_id, 'quantity': 100, 'avg_price': 32.0, 'trade_date': '2026-05-03'},
+        )
+        assert resp.status_code == 400
+
+        # 全卖 150 股应成功
+        resp = _post(
+            client,
+            '/api/positions/',
+            {'op_type': 'sell', 'position_id': pos_id, 'quantity': 150, 'avg_price': 32.0, 'trade_date': '2026-05-03'},
+        )
+        assert resp.status_code == 200
+
+        # 再买一手（200股），然后尝试卖 201 股（不是整数倍），应被拒
+        _post(
+            client,
+            '/api/positions/',
+            {
+                'symbol': '688002',
+                'name': '测试科创',
+                'type': 'stock',
+                'market': 'CN_A',
+                'account_name': '券商',
+                'quantity': 200,
+                'avg_price': 50.0,
+                'currency': 'CNY',
+                'trade_date': '2026-05-01',
+            },
+        )
+        list_resp2 = _get(client, '/api/positions/')
+        pos_id2 = [p for p in list_resp2.get_json()['data'] if p['symbol'] == 'SH688002'][0]['id']
+        resp = _post(
+            client,
+            '/api/positions/',
+            {'op_type': 'sell', 'position_id': pos_id2, 'quantity': 201, 'avg_price': 55.0, 'trade_date': '2026-05-03'},
+        )
+        assert resp.status_code == 400
+
+    def test_no_lot_rule_hk(self, client):
+        """港股：无一手规则限制，可任意数量卖出"""
+        _post(
+            client,
+            '/api/positions/',
+            {
+                'symbol': '00700.HK',
+                'name': '腾讯',
+                'type': 'stock',
+                'market': 'CN_HK',
+                'account_name': '富途',
+                'quantity': 50,
+                'avg_price': 350.0,
+                'currency': 'HKD',
+                'trade_date': '2026-05-01',
+            },
+        )
+        list_resp = _get(client, '/api/positions/')
+        pos_id = list_resp.get_json()['data'][0]['id']
+
+        # 卖出 30 股，应成功（不受A股一手规则限制）
+        resp = _post(
+            client,
+            '/api/positions/',
+            {'op_type': 'sell', 'position_id': pos_id, 'quantity': 30, 'avg_price': 400.0, 'trade_date': '2026-05-03'},
+        )
+        assert resp.status_code == 200
+
+    def test_no_lot_rule_us(self, client):
+        """美股：无一手规则限制，可任意数量卖出"""
+        _post(
+            client,
+            '/api/positions/',
+            {
+                'symbol': 'AAPL',
+                'name': '苹果',
+                'type': 'stock',
+                'market': 'US',
+                'account_name': '富途',
+                'quantity': 5,
+                'avg_price': 180.0,
+                'currency': 'USD',
+                'trade_date': '2026-05-01',
+            },
+        )
+        list_resp = _get(client, '/api/positions/')
+        pos_id = list_resp.get_json()['data'][0]['id']
+
+        # 卖出 3 股，应成功（美股无一手规则）
+        resp = _post(
+            client,
+            '/api/positions/',
+            {'op_type': 'sell', 'position_id': pos_id, 'quantity': 3, 'avg_price': 200.0, 'trade_date': '2026-05-03'},
         )
         assert resp.status_code == 200

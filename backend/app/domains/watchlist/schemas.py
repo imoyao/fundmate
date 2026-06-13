@@ -91,7 +91,6 @@ class WatchlistTagDefOut(BaseModel):
     color: Optional[str] = None
 
 
-# schemas.py
 class WatchlistTagDefUpdate(BaseModel):
     name: Optional[str] = Field(None, max_length=50)
     color: Optional[str] = Field(None, max_length=7)

@@ -23,6 +23,7 @@ from app.domains.funds.views import bp as funds_bp  # noqa: E402
 from app.domains.health import bp as health_bp  # noqa: E402
 from app.domains.importers.views import importers_bp  # noqa: E402
 from app.domains.ledgers.views import ledgers_bp  # noqa: E402
+from app.domains.performance.views import bp as performance_bp  # noqa: E402
 from app.domains.positions.views import bp as positions_bp  # noqa: E402
 from app.domains.securities.views import bp as securities_bp  # noqa: E402
 from app.domains.summary.views import bp as summary_bp  # noqa: E402
@@ -67,6 +68,7 @@ def create_app() -> APIFlask:
     app.register_blueprint(importers_bp)
     app.register_blueprint(ledgers_bp)
     app.register_blueprint(utils_bp)
+    app.register_blueprint(performance_bp)
 
     # 初始化数据库
     with app.app_context():

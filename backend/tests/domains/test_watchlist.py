@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-# -*- coding: utf-8 -*-
 # Author : imoyao
 # Date : 2026/5/13
 # File : test_watchlist.py
@@ -17,7 +16,13 @@ normalizer = get_normalizer()
 
 # ─────────────── 辅助函数 ───────────────
 def _post(client, url, data):
-    return client.post(url if url.endswith('/') else url + '/', json=data)
+    resp = client.post(url if url.endswith('/') else url + '/', json=data)
+    if resp.status_code != 200:
+        # 临时诊断输出，定位后删除
+        print(f'\n[ERROR] POST {url} -> {resp.status_code}')
+        print(f'Response: {resp.get_json()}')
+        print(f'Request data: {data}\n')
+    return resp
 
 
 def _get(client, url, params=None):
@@ -183,7 +188,6 @@ class TestWatchlistItemCRUD:
             quantity=100,
             avg_price=1800,
             current_price=1800,
-            purchase_date=date.today(),
         )
         db.add(position)
         db.commit()

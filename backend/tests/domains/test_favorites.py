@@ -28,7 +28,7 @@ def setup_favorites(app, db):  # ← 接收 conftest.py 提供的 db fixture
         ('000001', '平安银行', 'stock', 'SZ'),
     ]
     for raw, name, typ, market in securities:
-        norm, mkt = normalizer.normalize(raw)
+        norm, mkt, _ = normalizer.normalize(raw)
         if norm and not db.query(Security).filter_by(symbol=norm).first():
             db.add(Security(symbol=norm, name=name, market=mkt, type=typ))
     db.commit()

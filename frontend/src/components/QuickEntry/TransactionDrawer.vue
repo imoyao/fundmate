@@ -213,9 +213,9 @@
       </template>
 
       <!-- 交易日期（通用） -->
-      <el-form-item label="交易日期" prop="purchase_date">
+      <el-form-item label="交易日期" prop="trade_date">
         <el-date-picker
-          v-model="form.purchase_date"
+          v-model="form.trade_date"
           type="date"
           class="w-full"
           value-format="YYYY-MM-DD"
@@ -383,7 +383,7 @@ const defaultForm = () => ({
   quantity: 0,
   price: 0,
   account_name: '',
-  purchase_date: new Date().toISOString().slice(0, 10),
+  trade_date: new Date().toISOString().slice(0, 10),
   confirm_date: '', // 基金确认日，由计算得来
   fee: 0,
   allocation: 'longterm',
@@ -497,12 +497,12 @@ function getAccountFeeConfig(accountName: string): any | null {
 
 
 async function fetchTradingDay() {
-  if (form.opType !== 'buy' || selectedSecurityOption.value?.type === 'fund' || !form.purchase_date) {
+  if (form.opType !== 'buy' || selectedSecurityOption.value?.type === 'fund' || !form.trade_date) {
     isTradingDay.value = null;
     return;
   }
   try {
-    const res = await checkTradingDay(form.purchase_date);
+    const res = await checkTradingDay(form.trade_date);
     isTradingDay.value = (res as any)?.data?.is_trading_day ?? false;
   } catch {
     isTradingDay.value = null;
@@ -510,13 +510,13 @@ async function fetchTradingDay() {
 }
 
 async function fetchConfirmDate() {
-  if (form.opType !== 'buy' || selectedSecurityOption.value?.type !== 'fund' || !form.purchase_date) {
+  if (form.opType !== 'buy' || selectedSecurityOption.value?.type !== 'fund' || !form.trade_date) {
     confirmDate.value = '';
     return;
   }
   try {
     const res = await calcFundConfirmDate({
-      purchase_date: form.purchase_date,
+      trade_date: form.trade_date,
       fund_type: 'domestic',
       is_after_15: form.isAfter15,
     });
@@ -860,7 +860,7 @@ const rules = computed<FormRules>(() => {
     opType: [{ required: true, message: '请选择操作', trigger: 'change' }],
     symbol: [{ required: true, message: '请选择证券', trigger: 'change' }],
     account_name: [{ required: true, message: '请选择账户', trigger: 'change' }],
-    purchase_date: [{ required: true, message: '请选择日期', trigger: 'change' }],
+    trade_date: [{ required: true, message: '请选择日期', trigger: 'change' }],
   };
 
   // 买入时增加价格和金额必填
@@ -930,7 +930,7 @@ async function handleSubmit() {
       }
     }
 
-    const purchaseDate = form.purchase_date || new Date().toISOString().slice(0, 10);
+    const purchaseDate = form.trade_date || new Date().toISOString().slice(0, 10);
 
     const body: any = {
       symbol: form.symbol,
@@ -944,7 +944,7 @@ async function handleSubmit() {
       avg_price: price,
       amount: amount,
       currency: form.currency || 'CNY',
-      purchase_date: purchaseDate,
+      trade_date: purchaseDate,
       confirm_date: form.opType === 'buy' && form.type === 'fund' ? confirmDate.value : null,
       fee: form.fee,
       notes: form.notes,
@@ -992,7 +992,7 @@ function goToInventory() {
   // 跳转逻辑由父组件处理，或者通过 router
 }
 
-watch([() => form.purchase_date, () => form.isAfter15, () => selectedSecurityOption.value], () => {
+watch([() => form.trade_date, () => form.isAfter15, () => selectedSecurityOption.value], () => {
   fetchTradingDay();
   fetchConfirmDate();
 });

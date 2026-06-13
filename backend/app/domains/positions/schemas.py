@@ -13,7 +13,7 @@ class PositionCreate(BaseModel):
     quantity: Optional[float] = Field(None, description='数量')
     avg_price: Optional[float] = Field(None, description='平均价格/金额')
     currency: str = Field('CNY', description='币种')
-    purchase_date: Optional[date] = Field(None, description='交易日期')
+    trade_date: Optional[date] = Field(None, description='交易日期')
     allocation: Optional[str] = Field(None, description='配置目标')
     notes: Optional[str] = Field(None, description='备注')
     fee: Optional[float] = Field(0.0, description='手续费')
@@ -33,7 +33,7 @@ class PositionUpdate(BaseModel):
     avg_price: Optional[float] = Field(None, description='平均价格')
     current_price: Optional[float] = Field(None, description='当前价格')
     currency: Optional[str] = Field(None, description='币种')
-    purchase_date: Optional[date] = Field(None, description='交易日期')
+    trade_date: Optional[date] = Field(None, description='交易日期')
     notes: Optional[str] = Field(None, description='备注')
 
 
@@ -50,7 +50,7 @@ class PositionOut(BaseModel):
     avg_price: float
     currency: str
     current_price: float
-    purchase_date: Optional[date] = None
+    confirm_date: Optional[date] = None
     notes: Optional[str] = None
     allocation: Optional[str] = None
     created_at: Optional[datetime] = None

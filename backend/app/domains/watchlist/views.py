@@ -39,6 +39,7 @@ from app.domains.watchlist.schemas import (
     WatchlistTagDefUpdate,
 )
 from app.services.async_backfill import trigger_backfill
+from app.services.watchlist_service import build_groups_data
 
 watchlist_bp = APIBlueprint('watchlist', __name__, url_prefix='/api/watchlist')
 
@@ -327,119 +328,17 @@ def delete_item(item_id):
 # ─────────────── 分组 CRUD ───────────────
 @watchlist_bp.get('/groups/')
 def list_groups():
-    """获取所有分组（系统 + 自定义），并附带资产数量"""
     with get_db() as db:
-        groups_data = list()
-
-        # 1. 全部
-        groups_data.append(
-            {
-                'key': 'all',
-                'label': '全部',
-                'color': GROUP_COLORS['all'],
-                'count': db.query(WatchlistItem).count(),
-                'is_system': True,
-            }
-        )
-
-        # 2. 持仓
-        groups_data.append(
-            {
-                'key': 'holding',
-                'label': '持仓',
-                'color': GROUP_COLORS['holding'],
-                'count': db.query(WatchlistItem).filter(WatchlistItem.status == 'HOLDING').count(),
-                'is_system': True,
-            }
-        )
-
-        # 3. 观察中
-        groups_data.append(
-            {
-                'key': 'watching',
-                'label': '观察中',
-                'color': GROUP_COLORS['watching'],
-                'count': db.query(WatchlistItem).filter(WatchlistItem.status == 'WATCHING').count(),
-                'is_system': True,
-            }
-        )
-
-        # 4. 已清仓
-        position_sum = (
-            db.query(Position.symbol, func.sum(Position.quantity).label('total_qty'))
-            .group_by(Position.symbol)
-            .subquery()
-        )
-        cleared_symbols = db.query(position_sum.c.symbol).filter(position_sum.c.total_qty == 0).subquery()
-        groups_data.append(
-            {
-                'key': 'cleared',
-                'label': '已清仓',
-                'color': GROUP_COLORS['cleared'],
-                'count': db.query(WatchlistItem).filter(WatchlistItem.symbol.in_(cleared_symbols)).count(),
-                'is_system': True,
-            }
-        )
-
-        # 5. 场内资产
-        groups_data.append(
-            {
-                'key': 'exchange',
-                'label': '场内资产',
-                'color': GROUP_COLORS['exchange'],
-                'count': db.query(WatchlistItem).filter(WatchlistItem.venue == 'EXCHANGE').count(),
-                'is_system': True,
-            }
-        )
-
-        # 6. 场外基金
-        groups_data.append(
-            {
-                'key': 'otc',
-                'label': '场外基金',
-                'color': GROUP_COLORS['otc'],
-                'count': db.query(WatchlistItem).filter(WatchlistItem.venue == 'OTC').count(),
-                'is_system': True,
-            }
-        )
-
-        # 7. 特别关注
-        groups_data.append(
-            {
-                'key': 'favorite',
-                'label': '特别关注',
-                'color': GROUP_COLORS['favorite'],
-                'count': db.query(WatchlistItem).filter(WatchlistItem.favorite).count(),
-                'is_system': True,
-            }
-        )
-
-        # 8. 自定义分组
-        custom_groups = (
-            db.query(WatchlistGroup).filter(not WatchlistGroup.is_system).order_by(WatchlistGroup.sort_order).all()
-        )
-        for g in custom_groups:
-            groups_data.append(
-                {
-                    'id': g.id,
-                    'name': g.name,
-                    'color': g.color or '#C5C9B8',
-                    'sort_order': g.sort_order,
-                    'is_system': False,
-                    'entity_type': g.entity_type,
-                    'count': db.query(WatchlistItemGroup).filter(WatchlistItemGroup.group_id == g.id).count(),
-                }
-            )
-
-        return jsonify({'data': groups_data, 'message': 'ok'})
+        data = build_groups_data(db)
+    return jsonify({'data': data, 'message': 'ok'})
 
 
 @watchlist_bp.post('/groups/')
 @watchlist_bp.input(WatchlistGroupCreate)
 def create_group(json_data):
-    """创建自定义分组"""
     with get_db() as db:
         group = WatchlistGroup(**json_data.model_dump())
+        group.is_system = False
         db.add(group)
         db.commit()
         db.refresh(group)

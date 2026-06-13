@@ -3,7 +3,7 @@
 # Date : 2026/5/7 21:52
 # File : views.py
 # backend/app/api/views.py
-# backend/app/api/views.py
+
 """首页仪表盘聚合数据 API."""
 
 from apiflask import APIBlueprint

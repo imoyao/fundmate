@@ -40,7 +40,7 @@ STANDARD_TEMPLATE = ImportTemplate(
         '数量': 'quantity',
         '成交价格': 'avg_price',
         '币种': 'currency',
-        '交易日期': 'purchase_date',
+        '交易日期': 'trade_date',
         '手续费': 'fee',
         '备注': 'notes',
     },
@@ -67,7 +67,7 @@ THS_TEMPLATE = ImportTemplate(
         '过户费': None,
         '其他杂费': None,
         '币种': 'currency',
-        '交收日期': 'purchase_date',
+        '交收日期': 'trade_date',
         '合同编号': 'contract_id',
     },
     core_columns=['证券代码', '操作', '成交数量', '成交均价', '交收日期'],  # 核心特征列
@@ -79,7 +79,7 @@ FUND_STANDARD_TEMPLATE = ImportTemplate(
     name='基金标准模板',
     description='ShowBuy 基金交易导入模板',
     column_map={
-        '确认日期': 'purchase_date',
+        '确认日期': 'trade_date',
         '交易日期': 'trade_date',
         '基金代码': 'symbol',
         '基金名称': 'name',
@@ -100,7 +100,7 @@ STOCK_STANDARD_TEMPLATE = ImportTemplate(
     name='股票标准模板',
     description='ShowBuy 股票交易导入模板',
     column_map={
-        '确认日期': 'purchase_date',
+        '确认日期': 'trade_date',
         '交易日期': 'trade_date',
         '股票代码': 'symbol',
         '股票名称': 'name',

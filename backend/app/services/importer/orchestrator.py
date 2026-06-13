@@ -13,6 +13,7 @@ from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ErrorCode, SBException
@@ -124,7 +125,7 @@ class ImportOrchestrator:
                     'trade_amount': rec.trade_amount,
                     'net_amount': rec.net_amount,
                     'notes': rec.raw_op_type or '',
-                    'source': rec.source,  # 新增，前端回传用
+                    'source': rec.source,  # 前端回传用
                     'is_calculated': rec.is_calculated,
                 }
             )
@@ -323,7 +324,12 @@ class ImportOrchestrator:
                 if '货币' in r.display_type:
                     r.asset_type = 'money_fund'
 
-    from app.services.fund_data_service import get_fund_nav_map
+            # 临时方案：名称关键词兜底（后续依赖元数据同步，届时移除）
+            if r.asset_type == 'fund' and r.name:
+                name_lower = r.name.lower()
+                if any(kw in name_lower for kw in ['货币', '现金', '宝', '增利', '天天益']):
+                    r.asset_type = 'money_fund'
+                    r.display_type = '货币型'
 
     def _fill_missing_nav_and_shares(self, records):
         needed = [
@@ -409,28 +415,26 @@ class ImportOrchestrator:
 
         for record in records:
             try:
-                self.db.begin_nested()
                 if record.import_hash:
                     existing = self.db.query(Transaction).filter_by(import_hash=record.import_hash).first()
                     if existing:
                         skipped += 1
                         continue
 
-                if record.asset_type in ('cash', 'money_fund'):  # 货币基金也视为现金转移
+                if record.asset_type in ('cash', 'money_fund'):
                     data = self._build_import_data(record)
-                    # 检查是否有可用的现金账户
                     cash_ledger = self.db.query(Ledger).filter_by(ledger_type='cash').first()
                     if cash_ledger:
-                        # 有现金账户：直接关联
                         data['account_name'] = cash_ledger.name
                         entry_status = None
                     else:
-                        # 无现金账户：标记为 pending_cash
                         entry_status = 'pending_cash'
                     TransactionService.create(
                         db=self.db,
                         txn_type=data['op_type'],
-                        trade_date=data['purchase_date'],
+                        trade_date=data.get('trade_date'),
+                        confirm_date=data.get('confirm_date'),
+                        asset_type=data.get('type'),
                         quantity=0,
                         price=0,
                         fee=0,
@@ -443,10 +447,25 @@ class ImportOrchestrator:
                         entry_status=entry_status,
                     )
                     imported += 1
+                    orphan_count += 1
                     continue
 
                 data = self._build_import_data(record)
                 bt = record.business_type
+
+                # 基本校验
+                if bt in (
+                    BusinessType.BUY.code,
+                    BusinessType.DEPOSIT.code,
+                    BusinessType.SELL.code,
+                    BusinessType.WITHDRAW.code,
+                ):
+                    if data.get('quantity', 0) <= 0:
+                        commit_errors.append({'symbol': record.symbol, 'name': record.name, 'error': '数量必须大于 0'})
+                        continue
+                    if bt in (BusinessType.BUY.code, BusinessType.DEPOSIT.code) and data.get('avg_price', 0) <= 0:
+                        commit_errors.append({'symbol': record.symbol, 'name': record.name, 'error': '价格必须大于 0'})
+                        continue
 
                 # 特殊操作：扣税
                 if bt == BusinessType.TAX.code:
@@ -454,11 +473,13 @@ class ImportOrchestrator:
                         db=self.db,
                         position_id=None,
                         txn_type='dividend_tax',
-                        trade_date=data['purchase_date'],
+                        trade_date=data.get('trade_date'),
+                        confirm_date=data.get('confirm_date'),
+                        asset_type=data.get('type'),
                         quantity=0,
                         price=0,
                         fee=0,
-                        amount=-abs(data['net_amount']),  # 扣税金额为负
+                        amount=-abs(data['net_amount']),
                         status='success',
                         position_name=data.get('name', data['symbol']),
                         account_name=data.get('account_name', ''),
@@ -477,7 +498,9 @@ class ImportOrchestrator:
                         db=self.db,
                         position_id=None,
                         txn_type='bond_redeem',
-                        trade_date=data['purchase_date'],
+                        trade_date=data.get('trade_date'),
+                        confirm_date=data.get('confirm_date'),
+                        asset_type=data.get('type'),
                         quantity=data['quantity'],
                         price=data.get('avg_price', 0),
                         fee=0,
@@ -506,7 +529,9 @@ class ImportOrchestrator:
                         db=self.db,
                         position_id=None,
                         txn_type='split',
-                        trade_date=data['purchase_date'],
+                        trade_date=data.get('trade_date'),
+                        confirm_date=data.get('confirm_date'),
+                        asset_type=data.get('type'),
                         quantity=data['quantity'],
                         price=data.get('avg_price', 0),
                         fee=0,
@@ -529,9 +554,13 @@ class ImportOrchestrator:
                     orphan_count += 1
                 imported += 1
 
-            except Exception as e:
-                # 失败回滚到保存点，不影响其他记录
+            except SQLAlchemyError as e:
+                # 数据库致命错误，事务已无效，必须整体回滚并终止
                 self.db.rollback()
+                logger.exception(f'数据库操作失败: symbol={record.symbol}, error={e}')
+                raise
+            except Exception as e:
+                # 业务错误（ValueError 等），记录并继续处理后续记录
                 logger.exception(f'入库单条记录失败: symbol={record.symbol}, business_type={record.business_type}')
                 commit_errors.append({'symbol': record.symbol, 'name': record.name, 'error': str(e)})
 
@@ -546,12 +575,14 @@ class ImportOrchestrator:
         return {'imported': imported, 'skipped': skipped, 'orphan_count': orphan_count, 'errors': commit_errors}
 
     def _build_import_data(self, record: StandardTransactionRecord) -> Dict[str, Any]:
-        """将 StandardTransactionRecord 转换为 PositionService 需要的字典格式"""
-        trade_date = record.confirm_date
+        confirm_date = record.confirm_date
+        if isinstance(confirm_date, datetime):
+            confirm_date = confirm_date.date()
+
+        trade_date = record.trade_date
         if isinstance(trade_date, datetime):
             trade_date = trade_date.date()
 
-        # 分红类型：用 amount 作为交易金额（同时作为 dividend_amount）
         is_dividend = record.business_type in ('dividend_cash', 'dividend_reinvest')
         avg_price = float(record.amount) if is_dividend else (float(record.nav) if record.nav else 0)
 
@@ -564,7 +595,8 @@ class ImportOrchestrator:
             'quantity': float(record.shares) if record.shares else 0,
             'avg_price': avg_price,
             'currency': 'CNY',
-            'purchase_date': trade_date,
+            'confirm_date': confirm_date,  # 确认日（必填）
+            'trade_date': trade_date,  # 交易发起日（可为 None）
             'fee': float(record.fee),
             'notes': '',
             'import_hash': record.import_hash,

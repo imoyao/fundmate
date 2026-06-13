@@ -1,8 +1,8 @@
 # ShowBuy 项目需求规格说明书
 
-**版本**: v3.7
-**最后更新**: 2026-06-11
-**状态**: P1-09 基金交割单导入收尾完成，支付宝 PDF 解析器上线，全面测试通过；历史讨论遗漏内容已补全；即将开启 P1-10 年化收益率计算
+**版本**: v3.8
+**最后更新**: 2026-06-12
+**状态**: P1-10 年化收益率计算后端完成，前端仪表盘年化收益率卡片上线；即将开启 P1-20 定时任务体系或 P1-12 投资目标 CRUD
 
 **核心原则**: 本项目为**个人使用、本地优先、完全合规**的投资记账工具。
 
@@ -12,6 +12,7 @@
 
 | 版本 | 日期 | 变更说明 |
 |------|------|---------|
+| v3.8 | 2026-06-12 | P1-10 年化收益率核心功能上线：XIRR 计算引擎（pyxirr + 纯 Python 兜底）、单持仓与组合维度 API、前端仪表盘展示；`Transaction` 表新增 `asset_type` 字段支持资产类型过滤；现金流规则修正（排除 deposit/withdraw）；货币基金识别临时关键词方案；`confirm_date` 语义修复（positions 表 purchase_date → confirm_date）；导入模块测试全面通过；更新进度总览、技术债务、决策记录与核心文件清单 |
 | v3.7 | 2026-06-11 | 补充历史讨论遗漏内容：基于 Quicken 对标分析新增 P2 功能（按平台分组统计盈亏、交易记录全量导出、隐私保护）；新增投资组合管理（Portfolio）规划；新增持仓分布可视化规划；补充 xalpha 概念辨析决策记录；更新进度总览和技术债务 |
 | v3.6 | 2026-06-11 | 支付宝 PDF 解析器上线（支持跨页合并、净值计算）；基金净值接口修复与响应重构（返回数组）；异步回填锁冲突修复（WAL 模式、超时、分批提交）；持仓不足自动转为孤儿交易；前端交互优化（重复行按钮、抽屉关闭）；腾讯理财通评估为复杂格式，记录为技术债务；新增 PDF 解析器全覆盖测试；更新任务进度、技术债务、决策记录与核心文件清单 |
 | v3.5 | 2026-06-10 | 导入系统全面完善：支付宝解析器上线、净值自动填充功能实现、基金代码匹配抽屉交互完成、前端组件轻量重构、`enrich` 逻辑拆分与优化、净值获取服务抽取独立模块、事务安全加固、性能大幅提升；更新任务进度、技术债务、决策记录与核心文件清单 |
@@ -193,11 +194,11 @@
 
 ## 5.1 positions 可交易持仓资产
 
-核心存储用户股票、基金、ETF 持仓，记录成本、数量、配置目标、归属账户，是收益计算、配置分析的核心数据源。关键字段：symbol、name、market、asset_type、account_name、quantity、avg_price、current_price、allocation、snapshot 相关审计字段。
+核心存储用户股票、基金、ETF 持仓，记录成本、数量、配置目标、归属账户，是收益计算、配置分析的核心数据源。关键字段：symbol、name、market、asset_type、account_name、quantity、avg_price、current_price、confirm_date、allocation、snapshot 相关审计字段。
 
 ## 5.2 transactions 交易流水
 
-存储每一笔买入、卖出、分红、定投记录，保留 position_name、account_name 快照。目的：持仓删除后，历史流水不丢失，保证复盘数据永久可追溯。
+存储每一笔买入、卖出、分红、定投记录，保留 position_name、account_name 快照。新增 `asset_type` 字段作为资产类型快照，用于过滤和统计。目的：持仓删除后，历史流水不丢失，保证复盘数据永久可追溯。
 
 ## 5.3 assets 通用资产负债表
 
@@ -332,8 +333,9 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 |DELETE|/api/watchlist/tags/{tag_id}/|删除标签|
 |POST/DELETE|/api/watchlist/items/{item_id}/tags/{tag_id}/|资产绑定/解绑标签|
 |POST|/api/funds/nav/|基金净值批量查询（响应格式为数组）|
+|GET|/api/performance/xirr/|年化收益率查询（新增于 v3.8）|
 
-# 9. 项目四象限路线图 & 完整进度表（2026-06-11 更新）
+# 9. 项目四象限路线图 & 完整进度表（2026-06-12 更新）
 
 ## 9.1 四象限优先级定义（永久标准）
 
@@ -358,10 +360,8 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 | P1-07 | price_history 历史行情填充 | **✅ 已完成** | ⭐⭐⭐⭐⭐ | 🟡 | Ⅱ | 已实现全量/增量同步、分批写入、断点续传 |
 | — | 元数据同步系统重构 | **✅ 已完成** | ⭐⭐⭐⭐⭐ | 🔴 | Ⅰ | 基类统一流程、分层更新、费率规则表、静默回填、人类可读摘要、货币基金独立表 |
 | **P1-09** | **基金交割单导入模板 + 解析器** | **🔄 核心完成，收尾完成** | ⭐⭐⭐⭐⭐ | 🔴 | Ⅰ | 天天基金解析器上线、支付宝解析器上线（含余额宝现金处理、基金代码自动匹配、净值自动填充）；同花顺股票解析器稳定；支付宝 PDF 解析器上线（支持跨页合并、净值计算）；基金代码匹配抽屉交互完成；前端组件轻量重构；净值获取服务已抽取为独立模块；导入预览页面增加净值自动填充和一键确认功能；持仓不足自动转为孤儿交易；腾讯理财通待后续支持 |
-| P1-10 | 组合年化收益率计算（XIRR） | ⏸️ 未开始 | ⭐⭐⭐⭐⭐ | 🟡 | Ⅱ | 仪表盘核心指标，数据基础已就绪，下一阶段优先实施。方案设计已完成（pyxirr + 纯 Python 兜底，聚焦 XIRR，排除货币基金/逆回购） |
-| P1-14 | 投资组合管理（Portfolio） | ⏸️ 未开始 | ⭐⭐⭐⭐ | 🟢 | Ⅱ | 支持创建多个独立投资组合（如养老/子女教育/短期理财），导入时选择归属，单独统计盈亏和持仓。与 Ledger（券商账户）形成两级账户体系 |
-| P1-15 | 持仓分布可视化 | ⏸️ 未开始 | ⭐⭐⭐ | 🟢 | Ⅱ | 资产大类/市场/基金类型三个维度的饼图，集成到仪表盘或资产全景页 |
-| P1-20 | 定时任务体系 (APScheduler) | ⏸️ 规划中 | ⭐⭐⭐ | 🟢 | Ⅱ | 统一管理净值、行情、异动，以及孤儿交易自动回填 |
+| **P1-10** | **组合年化收益率计算（XIRR）** | **🔄 后端完成，前端仪表盘卡片上线** | ⭐⭐⭐⭐⭐ | 🟡 | Ⅱ | XIRR 计算引擎（pyxirr + 纯 Python 兜底）已上线，支持组合整体维度；`Transaction` 新增 `asset_type` 字段支持资产类型过滤；现金流规则已修正（排除 deposit/withdraw）；前端仪表盘年化收益率卡片已展示；持仓详情页单持仓 XIRR 前端延后 |
+| P1-20 | 定时任务体系 (APScheduler) | ⏸️ 未开始 | ⭐⭐⭐ | 🟢 | Ⅱ | 统一管理净值、行情、异动，以及孤儿交易自动回填 |
 | P1-12 | 投资目标 (Objective) CRUD | ⏸️ 未开始 | ⭐⭐⭐⭐ | 🟢 | Ⅱ | 心理账户概念落地 |
 | P1-08 | 特别关注页面功能增强 | 基础完成 | ⭐⭐⭐ | 🟢 | Ⅳ | 暂缓优化 |
 | P1-06 | 全局UI细节微调 | **✅ 已完成** | ⭐⭐ | 🟢 | Ⅳ | 永久停止投入 |
@@ -392,7 +392,7 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 | 导入模块（通用） | **95%** | 解析器架构稳定，事务安全加固，持仓不足自动转为孤儿交易 |
 | 简记弹窗 | 100% | 已测试通过 |
 | 手动记账（完整页面） | 0% | 全部待开发（P2-1） |
-| 仪表盘 | 50% | 年化收益率计算（P1-10）、持仓分布可视化（P1-15）、按平台分组盈亏（P2-14） |
+| 仪表盘 | **75%** | 年化收益率卡片已上线；持仓分布可视化（P1-15）、按平台分组盈亏（P2-14） |
 | 数据基建 | 95% | 异步回填锁冲突已修复，数据库 WAL 模式启用，定时任务（P1-20）、指数行情同步 |
 | 全局 UI | 90% | 移动端适配（远期） |
 
@@ -403,6 +403,8 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 | 腾讯理财通格式复杂 | 中 | 理财通导出格式非标准CSV，需专门解析器 | P2 实现 |
 | 孤儿交易无自动回填机制 | 中 | 需定时任务扫描并关联后续新增的持仓 | P1-20 实现 |
 | 持仓分布可视化缺失 | 中 | 仪表盘仅有总资产展示，无配置结构图 | P1-15 实现 |
+| 货币基金识别依赖关键词硬编码 | 中 | 元数据同步未完全覆盖所有货币基金名称，临时使用关键词匹配兜底 | 待元数据同步覆盖率足够后移除关键词逻辑 |
+| 持仓详情页单持仓 XIRR 前端展示 | 低 | 页面路径未确定 | 后端接口已可用，前端延后至 P2 |
 | 导入时出现 SAWarning: Identity map already had an identity for... | 低 | 同一 Session 内多次加载同一持仓后尝试 flush，导致 ORM 身份映射冲突 | 后续优化 PositionService 会话管理，当前不影响数据正确性 |
 | PDF 解析器对无效日期行的处理 | 低 | 当前跳过且不记录错误 | 后续增加错误报告 |
 | 前端 `Inventory.vue` 虽经轻量重构，仍有 800+ 行，未完全拆分 | 中 | 功能迭代优先级高于重构，拆分延后 | P2 拆分 |
@@ -431,10 +433,14 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 
 | 决策日期 | 决策主题 | 完整决策细节 |
 |---------|---------|-------------|
+| 2026-06-12 | deposit/withdraw 不参与 XIRR 计算 | 账户资金划转（deposit/withdraw）属于内部资金调度，不是投资行为。将其作为现金流会严重拉高投入基数导致 XIRR 异常。XIRR 现金流只包含 buy、sell、dividend_cash、dividend_reinvest 四种投资交易类型 |
+| 2026-06-12 | Transaction 表新增 asset_type 字段 | 为交易记录增加资产类型快照字段，与 `position_name`、`account_name` 同属快照设计模式。解决孤儿交易无法判断资产类型的问题，避免 XIRR 计算时 JOIN 表查询。历史数据通过 SQL 回填，新数据在导入时自动写入 |
+| 2026-06-12 | 货币基金识别临时关键词方案 | 在元数据同步未完全覆盖所有货币基金名称前，`_fill_names_and_types` 增加临时关键词匹配（货币、现金、宝、增利、天天益）。待元数据同步覆盖率足够后移除该逻辑 |
+| 2026-06-12 | 持仓详情页单持仓 XIRR 前端展示延后 | 后端接口已可用，因持仓详情页页面路径未确定，前端卡片暂未实现，记录为技术债务，延后至 P2 |
 | 2026-06-11 | xalpha 概念辨析：封闭系统 vs 开放系统 | ShowBuy 用户场景是典型的开放系统（随时买卖、定投、赎回），对应 xalpha 的 `mul` 系统。净值曲线仅在无资金进出的时间段有意义，多数场景应使用 XIRR 衡量投资效果。TWR（时间加权收益率）更适合作封闭系统的业绩归因，属于 P2 功能 |
 | 2026-06-11 | 货币基金/逆回购不参与收益率计算 | 货币基金、逆回购属于"活钱管理"，收益率极低且无净值波动，不纳入 XIRR 计算。其收益率在仪表盘单独展示（P2） |
 | 2026-06-11 | 红利再投资的现金流处理 | 红利再投资（dividend_reinvest）视为一笔负现金流。本质是用分红金额买入更多份额，简化为一笔等额现金流出 |
-| 2026-06-11 | 支付宝 PDF 解析器上线 | 支付宝基金交易确认单 PDF 通过 pdfplumber 解析，支持36列表头页与12列数据页混合提取，跨页断裂通过"有效日期前缀"精确合并；字段级拼接避免数据错乱；输出标准化为 StandardTransactionRecord 进入导入流水线 |
+| 2026-06-11 | 支付宝 PDF 解析器上线 | 支付宝基金交易确认单 PDF 通过 pdfplumber 解析，支持36列表头页与12列数据页混合提取，跨页断裂通过“有效日期前缀”精确合并；字段级拼接避免数据错乱；输出标准化为 StandardTransactionRecord 进入导入流水线 |
 | 2026-06-11 | 净值接口响应结构重构 | POST /api/funds/nav/ 返回格式改为数组，每个元素包含 fund_code、unit_nav、date，增强自解释性和前端可靠性 |
 | 2026-06-11 | 异步回填数据库锁解决 | 采用 WAL 模式、连接超时30s、分批写入且直接 commit 释放锁，解决多线程导入时 database is locked 问题 |
 | 2026-06-11 | 持仓不足处理策略 | 导入卖出/赎回时若持仓数量不足，由 process_orphan_sell_or_withdraw 内部捕获异常并转为孤儿交易（entry_status='orphan'），保证数据不丢失，待 P1-20 定时任务自动回填 |
@@ -443,7 +449,7 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 | 2026-06-10 | 支付宝 CSV 分隔符确定为逗号 | 实测支付宝导出文件使用逗号分隔（非制表符），解析器统一使用 `delimiter=','` 配合 `csv.reader` 处理引号内逗号 |
 | 2026-06-10 | 解析性能优化：单次 csv.reader 读取 + 分批净值查询 | 不再逐行创建 `csv.reader`，改为一次性读取所有数据行；编码检测只读取前 1KB；`_fill_missing_nav_and_shares` 按日期分组并用 `IN` 查询，每批最多 50 个代码；`daily_worth` 表增加 `(fund_code, date)` 联合索引 |
 | 2026-06-10 | 基金代码匹配增强：清洗名称 + 数据库 LIKE 查询 | 不再加载全表到内存，改用 SQL `LIKE` 查询并限制返回 10 条；清洗名称去除类别词（LOF/ETF/联接/发起等）后双向匹配；多个候选时按名称长度差选最佳，相同则放弃自动匹配 |
-| 2026-06-10 | 导入预览增加净值自动填充和一键确认 | 用户匹配基金代码后，前端自动调用 `/api/funds/nav/` 获取净值并计算份额，标记 `is_calculated=true`，表格显示"待确认"标签；提供"确认所有推算数据"按钮一键清除标签 |
+| 2026-06-10 | 导入预览增加净值自动填充和一键确认 | 用户匹配基金代码后，前端自动调用 `/api/funds/nav/` 获取净值并计算份额，标记 `is_calculated=true`，表格显示“待确认”标签；提供“确认所有推算数据”按钮一键清除标签 |
 | 2026-06-10 | 导入事务安全加固 | `commit` 方法在每处理一条记录前创建保存点（`begin_nested`），单条失败只回滚当前保存点，不影响其他已成功记录 |
 | 2026-05-31 | P1-09 优先于 P1-10 | 基金交割单导入是用户数据输入的瓶颈，必须优先实现。没有准确的交易数据，年化收益率计算无法开展 |
 | 2026-05-31 | 货币基金独立建表 | 货币基金的万份收益与普通基金的单位净值含义完全不同，混存会导致计算复杂、查询困难。独立建表语义清晰 |
@@ -464,18 +470,18 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 # 13. 断点续传协议
 
 后续任何会话接续开发，只需携带：
-1. 本完整 SPEC 文档（v3.7）
-2. 当前进度一句话，如："P1-09 基金交割单导入收尾完成，支付宝 PDF 解析器上线，全面测试通过；历史讨论遗漏内容已补全；P1-10 方案设计已完成，即将开发"
-3. 核心文件清单（更新于 2026-06-11）：
+1. 本完整 SPEC 文档（v3.8）
+2. 当前进度一句话，如："P1-10 年化收益率计算后端完成，前端仪表盘卡片上线；下一阶段优先 P1-20 定时任务体系或 P1-12 投资目标 CRUD"
+3. 核心文件清单（更新于 2026-06-12）：
 
 | 文件路径 | 作用说明 |
 |---------|---------|
-| `backend/app/main.py` | 项目入口、全局蓝图注册 |
-| `backend/app/core/database.py` | 数据库基类、会话工厂（增加 WAL 模式、连接超时） |
+| `backend/app/main.py` | 项目入口、全局蓝图注册（含 performance 蓝图） |
+| `backend/app/core/database.py` | 数据库基类、会话工厂（WAL 模式、连接超时） |
 | `backend/app/core/symbol_utils.py` | 全市场证券代码标准化 |
 | `backend/app/core/time_utils.py` | 统一时区工具（上海时区） |
-| `backend/app/core/db_utils.py` | 批量插入去重工具（新增 bulk_insert_if_not_exists） |
-| `backend/app/services/importer/orchestrator.py` | 导入协调器：完整 enrich → validate → commit 流程 |
+| `backend/app/core/db_utils.py` | 批量插入去重工具（含 bulk_insert_if_not_exists） |
+| `backend/app/services/importer/orchestrator.py` | 导入协调器（含 asset_type 写入和货币基金识别） |
 | `backend/app/services/importer/parsers/alipay_fund.py` | 支付宝交易记录解析器 |
 | `backend/app/services/importer/parsers/alipay_pdf.py` | 支付宝基金交易 PDF 解析器 |
 | `backend/app/services/importer/parsers/tiantian_fund.py` | 天天基金交易记录解析器 |
@@ -483,7 +489,7 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 | `backend/app/services/fund_data_service.py` | 基金数据服务：批量获取净值、实时拉取并存入数据库 |
 | `backend/app/domains/positions/views.py` | 持仓核心业务接口 |
 | `backend/app/domains/positions/schemas.py` | 持仓 Schema 定义 |
-| `backend/app/services/position_service.py` | 持仓业务逻辑服务层（增加持仓不足转孤儿交易） |
+| `backend/app/services/position_service.py` | 持仓业务逻辑服务层（含持仓不足转孤儿交易、confirm_date 写入） |
 | `backend/app/domains/ledgers/models.py` | Ledger 模型定义 |
 | `backend/app/domains/ledgers/views.py` | Ledger API |
 | `backend/app/domains/utils/views.py` | 交易日校验与基金确认日 API |
@@ -498,16 +504,25 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 | `backend/app/domains/securities/models.py` | 证券模型 |
 | `backend/app/domains/price_history/models.py` | 历史行情模型 |
 | `backend/app/models/sync_log.py` | 同步审计日志模型 |
+| `backend/app/services/performance/__init__.py` | 年化收益率服务模块导出 |
+| `backend/app/services/performance/constants.py` | XIRR 计算共享常量 |
+| `backend/app/services/performance/xirr_engine.py` | XIRR 核心算法（pyxirr + 纯 Python 兜底）与现金流生成 |
+| `backend/app/services/performance/calculators.py` | 单持仓与组合年化收益率计算器 |
+| `backend/app/domains/performance/views.py` | 年化收益率 API 端点 |
+| `backend/app/domains/performance/schemas.py` | 请求/响应 Schema |
 | `frontend/src/components/QuickEntry/TransactionDrawer.vue` | 简记弹窗（抽屉）组件 |
-| `frontend/src/views/asset/investment/import/index.vue` | 导入工作台：增加净值自动填充、一键确认、基金代码匹配抽屉、支付宝 PDF 选项 |
-| `frontend/src/views/asset/investment/import/components/FundMatchDrawer.vue` | 基金代码匹配抽屉组件（增加净值填充） |
+| `frontend/src/views/asset/investment/import/index.vue` | 导入工作台（含支付宝 PDF 选项） |
+| `frontend/src/views/asset/investment/import/components/FundMatchDrawer.vue` | 基金代码匹配抽屉组件 |
+| `frontend/src/views/welcome/index.vue` | 仪表盘首页（含年化收益率卡片） |
 | `frontend/src/api/positions.ts` | 前端持仓请求封装 |
 | `frontend/src/api/ledger.ts` | 前端 Ledger 请求封装 |
 | `frontend/src/api/importer.ts` | 导入 API 封装 |
-| `frontend/src/api/funds.ts` | 前端基金 API 封装（含 calcFundNav） |
+| `frontend/src/api/funds.ts` | 前端基金 API 封装 |
+| `frontend/src/api/performance.ts` | 前端年化收益率 API 封装 |
 | `frontend/src/api/utils.ts` | 前端工具 API 封装 |
 | `tests/domains/test_funds.py` | 基金 API 测试（适配新响应格式） |
 | `tests/services/importer/test_alipay_pdf_parser.py` | 支付宝 PDF 解析器测试 |
+| `tests/services/performance/test_xirr_engine.py` | XIRR 核心算法测试 |
 
 4. 最新的报错截图或要解决的具体问题
 

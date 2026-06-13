@@ -285,7 +285,7 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="purchase_date" label="买入日期" width="110" />
+        <el-table-column prop="trade_date" label="买入日期" width="110" />
         <el-table-column label="操作" width="80" fixed="right">
           <template #default="{ row }">
             <el-popconfirm

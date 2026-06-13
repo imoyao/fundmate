@@ -25,7 +25,7 @@ export interface Position {
   avg_price: number;
   currency: string;
   current_price: number;
-  purchase_date: string;
+  trade_date: string;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -44,7 +44,7 @@ export interface PositionCreate {
   quantity: number;
   avg_price: number;
   currency?: string;
-  purchase_date: string;
+  trade_date: string;
   fee?: number;
   confirm_date?: string;
   notes?: string;
@@ -58,7 +58,7 @@ export interface PositionUpdate {
   avg_price?: number;
   current_price?: number;
   currency?: string;
-  purchase_date?: string;
+  trade_date?: string;
   notes?: string;
 }
 

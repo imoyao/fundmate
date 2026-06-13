@@ -28,13 +28,14 @@ class Transaction(Base, PrimaryKeyMixin, TimestampMixin):
     trade_date = Column(Date)  # 交易发起日期 (T日)
     quantity = Column(Float)  # 操作数量 (股/张/份)
     price = Column(Float)  # 操作价格 (成交价)
+    confirm_date = Column(Date)  # 确认日期 (到账日)
     fee = Column(Float, default=0.0)  # 手续费
     amount = Column(Float)  # 操作总金额
     status = Column(String(20), default='success')
     entry_status = Column(String(20), nullable=True)  # 记录处理阶段（orphan/pending/confirmed）
     link_group_id = Column(String(36), nullable=True, comment='关联交易组ID，用于绑定同一业务的多笔记录')
     position_name = Column(String(100))
+    asset_type = Column(String(20), nullable=True, default=None, comment='资产类型快照，用于过滤和统计')
     account_name = Column(String(100))
-    confirm_date = Column(Date)  # 确认日期 (到账日)
     import_hash = Column(String(64), nullable=True, comment='导入去重哈希值')
     notes = Column(Text)  # 复盘备注

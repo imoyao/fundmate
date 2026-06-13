@@ -22,19 +22,21 @@ from app.main import create_app
 
 @pytest.fixture
 def app(monkeypatch):
-    """创建使用完全隔离内存数据库的测试应用"""
-    # 关键：使用 StaticPool 确保所有连接指向同一个内存数据库
     test_engine = create_engine('sqlite:///:memory:', connect_args={'check_same_thread': False}, poolclass=StaticPool)
     TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
-    # 替换全局 engine 和 SessionLocal
     monkeypatch.setattr('app.core.database.engine', test_engine)
     monkeypatch.setattr('app.core.database.SessionLocal', TestSessionLocal)
 
-    # 在应用启动前创建所有表
+    # 彻底禁用异步回填线程（直接替换已导入的引用）
+    import app.services.importer.orchestrator
+    import app.services.position_service
+
+    monkeypatch.setattr(app.services.position_service, 'trigger_backfill', lambda *a, **kw: None)
+    monkeypatch.setattr(app.services.importer.orchestrator, 'trigger_backfill', lambda *a, **kw: None)
+
     Base.metadata.create_all(bind=test_engine)
 
-    # 创建应用（内部 init_db 会再次 create_all，安全无影响）
     app = create_app()
     app.config['TESTING'] = True
     yield app

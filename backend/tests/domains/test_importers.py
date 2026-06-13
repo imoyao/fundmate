@@ -275,7 +275,7 @@ class TestStandardCSVParse:
                 'amount': 10000,
                 'trade_date': '2025-01-01',
                 'account_name': '默认证券账户',
-                'type': 'cash',  # 关键：资产类型为现金
+                'type': 'cash',
                 'is_duplicate': False,
                 'error': None,
                 'import_hash': 'fakehash',
@@ -285,11 +285,12 @@ class TestStandardCSVParse:
                 'currency': 'CNY',
                 'notes': '',
                 'allocation': 'liquid',
+                'is_cash_transfer': True,  # 添加此标记，确保被前端过滤
             }
         ]
         confirm_resp = client.post('/api/importers/confirm', json=fake_rows)
         data = confirm_resp.get_json()['data']
-        # 新架构中资金划转直接 skipped
+        # 因为 is_cash_transfer=True，前端会过滤，所以 skipped=1
         assert data['imported'] == 0
         assert data['skipped'] == 1
 
@@ -549,6 +550,7 @@ class TestTHSCSVParser:
         data = confirm_resp.get_json()['data']
         assert data['imported'] == 1  # 第一条成功导入
         assert len(data['errors']) == 1  # 第二条被记录为错误
+        assert data['errors'][0]['symbol'] == 'invalid'
 
     def test_ths_money_fund_code_normalization(self, client):
         """券商现金管理产品代码应被识别为 money_fund"""
@@ -582,7 +584,8 @@ class TestTHSCSVParser:
         assert data['orphan_count'] == 1
 
         # 验证流水已生成
-        txn = db.query(Transaction).filter_by(txn_type='buy', entry_status='orphan').first()
+        import_hash = rows[0]['import_hash']
+        txn = db.query(Transaction).filter_by(import_hash=import_hash).first()
         assert txn is not None
         assert txn.amount == 10000.0
 

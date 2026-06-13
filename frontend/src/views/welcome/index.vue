@@ -141,17 +141,55 @@
       </div>
     </div>
 
+    <!-- 年化收益率卡片（新增） -->
+    <div class="mb-8">
+      <div class="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+        <div class="flex items-center gap-8">
+          <!-- 左侧：年化收益率 -->
+          <div class="flex flex-col">
+            <span class="text-gray-400 text-xs mb-1">年化收益率 (XIRR)</span>
+            <div
+              :class="[
+                'text-3xl font-bold',
+                (portfolioXirr?.xirr ?? 0) >= 0 ? 'text-red-500' : 'text-green-500'
+              ]"
+            >
+              {{ portfolioXirr != null ? (portfolioXirr.xirr * 100).toFixed(2) + '%' : '--' }}
+            </div>
+            <span class="text-gray-300 text-[10px] mt-1"
+              >基于所有主动投资交易，不含货币基金</span
+            >
+          </div>
+
+          <!-- 右侧：当前市值和总投入 -->
+          <div class="flex gap-8 ml-auto">
+            <div class="flex flex-col">
+              <span class="text-gray-400 text-xs mb-1">当前市值</span>
+              <span class="text-lg font-bold text-gray-700">
+                {{ portfolioXirr?.current_value?.toLocaleString() ?? '--' }}
+              </span>
+            </div>
+            <div class="flex flex-col">
+              <span class="text-gray-400 text-xs mb-1">总投入</span>
+              <span class="text-lg font-bold text-gray-700">
+                {{ portfolioXirr?.total_invested?.toLocaleString() ?? '--' }}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- 第二部分：高风险资产卡片与风险热力图 -->
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-8">
       <!-- 自选资产卡片区域（替代原硬编码卡片） -->
-       <div class="lg:col-span-8">
+      <div class="lg:col-span-8">
         <WatchlistWidget
-            :key="watchlistWidgetKey"
-            @select="onWatchlistSelect"
-            @add="showAddWatchlistModal = true"
+          :key="watchlistWidgetKey"
+          @select="onWatchlistSelect"
+          @add="showAddWatchlistModal = true"
         />
-    </div>
-
+      </div>
 
       <!-- 风险热力图 -->
       <div
@@ -303,7 +341,7 @@
         </div>
       </div>
     </div>
-   <!-- 添加自选弹窗（独立于记账弹窗） -->
+    <!-- 添加自选弹窗（独立于记账弹窗） -->
     <AddToWatchlistModal v-model="showAddWatchlistModal" @submitted="onWatchlistChanged" />
   </div>
 </template>
@@ -313,10 +351,10 @@ import { ref, onMounted, nextTick, onUnmounted } from "vue";
 import * as echarts from "echarts";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import { getSummary } from "@/api/summary";
+import { getPortfolioXirr } from "@/api/performance";
 import type { SummaryData } from "@/api/types";
 import WatchlistWidget from "@/components/WatchlistWidget.vue";
 import AddToWatchlistModal from "@/components/QuickEntry/AddToWatchlistModal.vue";
-
 
 defineOptions({
   name: "Welcome"
@@ -325,6 +363,7 @@ defineOptions({
 // 仪表盘核心数据
 const summary = ref<SummaryData | null>(null);
 const lastUpdate = ref<string>("");
+const portfolioXirr = ref<any>(null);
 
 const distributionChartRef = ref<HTMLDivElement | null>(null);
 const trendChartRef = ref<HTMLDivElement | null>(null);
@@ -346,33 +385,30 @@ const fetchSummary = async () => {
   }
 };
 
-const onWatchlistSelect = (item: any) => {
-  // 这里可以设置 TransactionModal 的默认值，或直接跳转。简单起见，打开弹窗并传递 symbol
-  // 需要改造 TransactionModal 支持预填，或直接打开弹窗后由用户操作。
-  // 目前弹窗组件没有接收预设 symbol 的 props，我们可以先打开弹窗，让用户在弹窗里搜索。
-  // 或者我们增加一个 props 传递预填代码。简单处理：打开弹窗并自动聚焦搜索框，需要扩展 TransactionModal。
-  // 但轻量级方案：唤起弹窗，用户手动记账，因为弹窗支持搜索，用户可快速找到该资产。
-  // 为了体验，后续可以优化 TransactionModal 接受 initialSymbol prop。
-  // 如果需要自动填充，可以 emit 一个事件携带 symbol，由父组件传递给弹窗。
-  // 暂时不做，后续优化。
+// 获取年化收益率
+const fetchXirr = async () => {
+  try {
+    const res = await getPortfolioXirr();
+    portfolioXirr.value = res.data;
+  } catch (e) {
+    console.error("获取年化收益率失败", e);
+  }
 };
 
+const onWatchlistSelect = (item: any) => {
+  // 预留交互
+};
 
 const onWatchlistChanged = () => {
-  // 通知 WatchlistWidget 刷新数据
-  // 简单做法：通过 key 触发重新挂载，或直接调用其内部的 fetchData
-  // 这里我们使用 watchlistWidgetKey 强制刷新
   watchlistWidgetKey.value++;
 };
 const watchlistWidgetKey = ref(0);
 
-
-// 原有的图表初始化函数（完全保留）
+// 原有的图表初始化函数
 const initCharts = () => {
-  // 1. 资产分布饼图（可以先使用 market_distribution 数据）
+  // 1. 资产分布饼图
   if (distributionChartRef.value) {
     const chart = echarts.init(distributionChartRef.value);
-    // 为了初步效果，可以继续使用模拟分布，后续接入 summary.market_distribution
     chart.setOption({
       tooltip: { trigger: "item" },
       legend: {
@@ -476,7 +512,7 @@ const initCharts = () => {
     charts.push(chart);
   }
 
-  // 3. 风险热力图 (柱状图)
+  // 3. 风险热力图
   if (riskHeatmapRef.value) {
     const chart = echarts.init(riskHeatmapRef.value);
     chart.setOption({
@@ -517,7 +553,7 @@ const initCharts = () => {
     charts.push(chart);
   }
 
-  // 4. 有知有行版小柱状图
+  // 4. 迷你资产变动图
   if (miniAssetChartRef.value) {
     const chart = echarts.init(miniAssetChartRef.value);
     chart.setOption({
@@ -556,6 +592,7 @@ onMounted(() => {
       initCharts();
     });
   });
+  fetchXirr();
   window.addEventListener("resize", handleResize);
 });
 
@@ -564,8 +601,6 @@ onUnmounted(() => {
   charts.forEach(chart => chart.dispose());
   charts = [];
 });
-
-
 </script>
 
 <style scoped>

@@ -24,7 +24,7 @@ def test_transaction_types_coverage(client):
             'quantity': 100,
             'avg_price': 350,
             'currency': 'HKD',
-            'purchase_date': '2026-05-01',
+            'trade_date': '2026-05-01',
         },
     )
     list_resp = _get(client, '/api/positions/')
@@ -39,7 +39,7 @@ def test_transaction_types_coverage(client):
             'position_id': pos_id,
             'quantity': 30,
             'avg_price': 400,
-            'purchase_date': '2026-05-03',
+            'trade_date': '2026-05-03',
             'account_name': '富途',
         },
     )
@@ -51,7 +51,7 @@ def test_transaction_types_coverage(client):
             'op_type': 'dividend',
             'position_id': pos_id,
             'avg_price': 500,  # 分红金额暂存
-            'purchase_date': '2026-05-04',
+            'trade_date': '2026-05-04',
             'account_name': '富途',
         },
     )
@@ -69,7 +69,7 @@ def test_transaction_types_coverage(client):
             'quantity': 50,
             'avg_price': 360,
             'currency': 'HKD',
-            'purchase_date': '2026-05-02',
+            'trade_date': '2026-05-02',
         },
     )
     # 5. 取出（先取出部分，避免清空）
@@ -81,7 +81,7 @@ def test_transaction_types_coverage(client):
             'position_id': pos_id,
             'quantity': 20,
             'avg_price': 370,
-            'purchase_date': '2026-05-05',
+            'trade_date': '2026-05-05',
             'account_name': '富途',
         },
     )
@@ -108,7 +108,7 @@ def test_transactions_filter_by_type(client):
             'quantity': 10,
             'avg_price': 180,
             'currency': 'USD',
-            'purchase_date': '2026-05-01',
+            'trade_date': '2026-05-01',
         },
     )
     list_resp = _get(client, '/api/positions/')
@@ -121,7 +121,7 @@ def test_transactions_filter_by_type(client):
             'position_id': pos_id,
             'quantity': 10,
             'avg_price': 190,
-            'purchase_date': '2026-05-05',
+            'trade_date': '2026-05-05',
             'account_name': '富途',
         },
     )
@@ -151,7 +151,7 @@ def test_transactions_time_range(client):
             'quantity': 100,
             'avg_price': 350,
             'currency': 'HKD',
-            'purchase_date': old_date,
+            'trade_date': old_date,
         },
     )
     _post(
@@ -166,7 +166,7 @@ def test_transactions_time_range(client):
             'quantity': 50,
             'avg_price': 380,
             'currency': 'HKD',
-            'purchase_date': recent_date,
+            'trade_date': recent_date,
         },
     )
 
@@ -191,7 +191,7 @@ def test_transactions_pagination(client):
                 'quantity': 10,
                 'avg_price': 100,
                 'currency': 'HKD',
-                'purchase_date': '2026-05-01',
+                'trade_date': '2026-05-01',
             },
         )
 
@@ -216,7 +216,7 @@ def test_transactions_asset_type_filter(client):
             'quantity': 100,
             'avg_price': 350,
             'currency': 'HKD',
-            'purchase_date': '2026-05-01',
+            'trade_date': '2026-05-01',
         },
     )
     _post(
@@ -231,7 +231,7 @@ def test_transactions_asset_type_filter(client):
             'quantity': 1000,
             'avg_price': 1.5,
             'currency': 'CNY',
-            'purchase_date': '2026-05-01',
+            'trade_date': '2026-05-01',
         },
     )
 
@@ -259,7 +259,7 @@ def test_transactions_status_filter(client, db):
             'quantity': 100,
             'avg_price': 350,
             'currency': 'HKD',
-            'purchase_date': '2026-05-01',
+            'trade_date': '2026-05-01',
         },
     )
 
@@ -298,7 +298,7 @@ def test_transaction_type_field(client):
             'quantity': 10,
             'avg_price': 350,
             'currency': 'HKD',
-            'purchase_date': '2026-05-01',
+            'trade_date': '2026-05-01',
         },
     )
     resp = _get(client, '/api/transactions')

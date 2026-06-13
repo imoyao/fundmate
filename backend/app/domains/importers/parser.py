@@ -198,8 +198,8 @@ class TransactionParser:
                 normalized, market, suggested_type = symbol_raw, DEFAULT_MARKET_CN, None
             symbol = normalized if normalized else symbol_raw
 
-            # 重命名后的列名是 'purchase_date'
-            trade_date_str = str(raw.get('purchase_date', '')).strip()
+            # 重命名后的列名是 'trade_date'
+            trade_date_str = str(raw.get('trade_date', '')).strip()
             trade_date = datetime.strptime(trade_date_str, '%Y-%m-%d').date() if trade_date_str else date.today()
 
             op_type = str(raw.get('op_type', 'buy')).strip()
@@ -361,7 +361,7 @@ class TransactionParser:
         }
 
     def _parse_ths_date(self, raw: pd.Series) -> str:
-        date_str = str(raw.get('purchase_date', '')).strip()
+        date_str = str(raw.get('trade_date', '')).strip()
         if not date_str:
             logger.warning('同花顺记录缺少交收日期，跳过该行')
             raise ValueError('交收日期为空')  # 由上层捕获并标记错误行

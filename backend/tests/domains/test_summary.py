@@ -2,10 +2,6 @@
 # Author : imoyao
 # Date : 2026/5/11 22:01
 # File : test_summary.py
-# -*- coding: utf-8 -*-
-# Author : imoyao
-# Date : 2026/5/11
-# File : test_summary.py
 
 from app.domains.assets.models import Asset
 from app.domains.positions.models import Position
@@ -27,7 +23,7 @@ def test_summary_with_positions_and_liabilities(client):
     # 1. 创建港股持仓：100股腾讯，成本350 HKD，当前价同成本，盈亏为0
     _post(
         client,
-        '/api/positions',
+        '/api/positions/',
         {
             'symbol': '00700.HK',
             'name': '腾讯',
@@ -37,7 +33,7 @@ def test_summary_with_positions_and_liabilities(client):
             'quantity': 100,
             'avg_price': 350,
             'currency': 'HKD',
-            'purchase_date': '2026-05-01',
+            'trade_date': '2026-05-01',
         },
     )
     # 2. 创建现金资产：10万人民币
@@ -72,7 +68,7 @@ def test_summary_with_pnl_and_multi_currency(client):
     # 港股持仓：100股腾讯，成本350，现价400，盈利
     _post(
         client,
-        '/api/positions',
+        '/api/positions/',
         {
             'symbol': '00700.HK',
             'name': '腾讯',
@@ -82,19 +78,19 @@ def test_summary_with_pnl_and_multi_currency(client):
             'quantity': 100,
             'avg_price': 350,
             'currency': 'HKD',
-            'purchase_date': '2026-05-01',
+            'trade_date': '2026-05-01',
         },
     )
     # 更新市价为400（通过 PATCH 接口）
     list_resp = client.get('/api/positions/')
     positions = list_resp.get_json()['data']
     tencent = [p for p in positions if p['name'] == '腾讯'][0]
-    client.patch(f'/api/positions/{tencent["id"]}', json={'current_price': 400.0})
+    client.patch(f'/api/positions/{tencent["id"]}/', json={'current_price': 400.0})
 
     # 美股持仓：10股苹果，成本180 USD，现价200 USD
     _post(
         client,
-        '/api/positions',
+        '/api/positions/',
         {
             'symbol': 'AAPL',
             'name': '苹果',
@@ -104,14 +100,14 @@ def test_summary_with_pnl_and_multi_currency(client):
             'quantity': 10,
             'avg_price': 180,
             'currency': 'USD',
-            'purchase_date': '2026-05-01',
+            'trade_date': '2026-05-01',
         },
     )
     # 查找苹果持仓（因 symbol 可能被标准化，按名称查找更可靠）
     list_resp2 = client.get('/api/positions/')
     positions2 = list_resp2.get_json()['data']
     apple = [p for p in positions2 if p['name'] == '苹果'][0]
-    client.patch(f'/api/positions/{apple["id"]}', json={'current_price': 200.0})
+    client.patch(f'/api/positions/{apple["id"]}/', json={'current_price': 200.0})
 
     # 汇总
     resp = client.get('/api/summary/')

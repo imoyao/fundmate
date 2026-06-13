@@ -113,6 +113,7 @@ def create_position(json_data):
             abort(500, description='服务器内部错误，请稍后重试')
 
         if position is None:
+            db.commit()  # 清仓时需要提交交易流水
             return jsonify({'message': '持仓已清空', 'data': None})
         wrap_position = _enrich_position_dict(position)
         db.commit()  # ⭐ 显式提交事务

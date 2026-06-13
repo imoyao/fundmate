@@ -7,7 +7,7 @@ export function checkTradingDay(date: string) {
 
 /** 计算场外基金确认日 */
 export function calcFundConfirmDate(params: {
-  purchase_date: string;
+  trade_date: string;
   fund_type?: string;
   is_after_15?: boolean;
 }) {
