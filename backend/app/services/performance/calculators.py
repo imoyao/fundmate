@@ -15,12 +15,13 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.domains.funds.models import DailyWorth
+from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
 from app.domains.price_history.models import PriceHistory
 from app.domains.securities.models import Security
 from app.domains.transactions.models import Transaction
 from app.services.performance.constants import EXCLUDED_ASSET_TYPES
-from app.services.performance.xirr_engine import calculate_xirr, generate_cashflows
+from app.services.performance.xirr_engine import calculate_xirr, generate_cashflows, generate_portfolio_cashflows
 
 
 def _get_fund_latest_nav(db: Session, fund_code: str) -> float:
@@ -227,6 +228,55 @@ def calculate_portfolio_xirr(db: Session) -> Dict[str, Any]:
         f'组合XIRR计算：交易笔数={len(filtered_transactions)}, '
         f'持仓数={len(positions)}, 总市值={total_value:.2f}, '
         f'现金流笔数={len(cashflows)}'
+    )
+
+    return _calculate_xirr_for_cashflows(cashflows, total_value)
+
+
+def calculate_portfolio_xirr_by_id(db: Session, portfolio_id: int) -> Dict[str, Any]:
+    """
+    计算指定投资组合的年化收益率 (XIRR)。
+
+    步骤：
+    1. 获取组合关联的所有 Ledger
+    2. 计算这些 Ledger 下合规资产的持仓总市值
+    3. 生成组合现金流（含内部划转过滤）
+    4. 送入 XIRR 引擎计算
+    """
+
+    # 获取组合关联的所有 Ledger 名称
+    ledger_names = [row[0] for row in db.query(Ledger.name).filter(Ledger.portfolio_id == portfolio_id).all()]
+
+    if not ledger_names:
+        return {
+            'xirr': 0.0,
+            'total_invested': 0.0,
+            'current_value': 0.0,
+            'total_withdrawn': 0.0,
+            'total_return': 0.0,
+            'cashflow_count': 0,
+        }
+
+    # 获取这些账户下的持仓总市值
+    positions = (
+        db.query(Position)
+        .filter(
+            Position.account_name.in_(ledger_names),
+            Position.asset_type.not_in(EXCLUDED_ASSET_TYPES),
+            Position.quantity > 0,
+        )
+        .all()
+    )
+
+    value_map = _batch_get_position_values(db, positions)
+    total_value = sum(value_map.values())
+
+    cashflows = generate_portfolio_cashflows(db, portfolio_id, total_value)
+
+    logger.debug(
+        f'组合 XIRR 计算(portfolio_id={portfolio_id}): '
+        f'账户数={len(ledger_names)}, 持仓数={len(positions)}, '
+        f'总市值={total_value:.2f}, 现金流笔数={len(cashflows)}'
     )
 
     return _calculate_xirr_for_cashflows(cashflows, total_value)

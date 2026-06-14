@@ -1,6 +1,7 @@
 # backend/app/core/constants.py
 """项目级常量定义（汇率、标签映射、桑基图节点名称等）"""
 
+CURRENT_USER_ID = 1
 # ── 汇率（MVP 阶段硬编码，后续可迁移到数据库）──
 EXCHANGE_RATES = {
     'CNY': 1.0,
@@ -12,11 +13,24 @@ EXCHANGE_RATES = {
 TYPE_LABELS = {
     'stock': '股票',
     'fund': '基金',
-    'bond': '可转债',
-    'crypto': '虚拟货币',
-    'saving': '银行存款',
+    'etf': 'ETF',
+    'bond': '债券',
     'cash': '现金',
+    'real_estate': '房产',
+    'insurance': '保险',
+    'precious_metal': '贵金属',
+    'crypto': '加密货币',
     'static': '其他',
+    'liability': '负债',
+}
+
+
+LEDGER_TYPE_LABELS = {
+    'stock': '证券账户',
+    'fund': '基金平台',
+    'cash': '现金/活钱',
+    'general': '通用账户',
+    'family': '家庭账户',
 }
 
 # ── 市场标签 ──

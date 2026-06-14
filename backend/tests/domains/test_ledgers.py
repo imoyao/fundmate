@@ -4,21 +4,9 @@
 # File : test_ledgers.py
 """测试资金容器 CRUD"""
 
-import pytest
-
 from app.domains.assets.models import Asset
+from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
-
-
-@pytest.fixture(autouse=True)
-def debug_routes(app):
-    """打印所有已注册的 positions 和 assets 路由，用于排查 404"""
-    print('\n===== 已注册的路由（positions / assets / ledgers）=====')
-    for rule in app.url_map.iter_rules():
-        if any(x in rule.rule for x in ['positions', 'assets', 'ledgers']):
-            print(f'  {rule.methods} -> {rule.rule}')
-    print('======================================================\n')
-    yield
 
 
 class TestLedgerCRUD:
@@ -27,7 +15,7 @@ class TestLedgerCRUD:
         assert resp.status_code == 200
         data = resp.get_json()['data']
         assert data['name'] == '华泰证券'
-        assert data['ledger_type'] == 'general'
+        assert data['ledger_type'] == 'stock'
 
     def test_list_ledgers(self, client, db):
         client.post('/api/ledgers/', json={'name': 'L1'})
@@ -415,3 +403,292 @@ class TestLedgerFeeConfig:
         assert l1['fee_config'] == {'key': 'value'}
         assert l2 is not None
         assert not l2['fee_config']
+
+
+class TestLedgerLinkedCash:
+    """测试关联现金账户"""
+
+    def test_create_stock_with_valid_cash_ledger(self, client, db):
+        """证券账户关联有效的现金账户"""
+        cash_resp = client.post('/api/ledgers/', json={'name': '招商银行', 'ledger_type': 'cash'})
+        cash_id = cash_resp.get_json()['data']['id']
+        resp = client.post(
+            '/api/ledgers/', json={'name': '华泰证券', 'ledger_type': 'stock', 'linked_cash_ledger_id': cash_id}
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['linked_cash_ledger_id'] == cash_id
+
+    def test_create_fund_with_valid_cash_ledger(self, client, db):
+        """基金平台关联有效的现金账户"""
+        cash_resp = client.post('/api/ledgers/', json={'name': '余额宝', 'ledger_type': 'cash'})
+        cash_id = cash_resp.get_json()['data']['id']
+        resp = client.post(
+            '/api/ledgers/', json={'name': '蚂蚁基金', 'ledger_type': 'fund', 'linked_cash_ledger_id': cash_id}
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['linked_cash_ledger_id'] == cash_id
+
+    def test_create_stock_with_nonexistent_cash_ledger(self, client):
+        """关联不存在的现金账户应拒绝"""
+        resp = client.post(
+            '/api/ledgers/', json={'name': '华泰证券', 'ledger_type': 'stock', 'linked_cash_ledger_id': 9999}
+        )
+        assert resp.status_code == 400
+        assert '不存在' in resp.get_json()['message']
+
+    def test_create_stock_with_non_cash_ledger(self, client, db):
+        """关联的账户类型不是现金应拒绝"""
+        # 创建一个股票账户
+        stock_resp = client.post('/api/ledgers/', json={'name': '某证券', 'ledger_type': 'stock'})
+        stock_id = stock_resp.get_json()['data']['id']
+        # 尝试将其作为现金账户关联
+        resp = client.post(
+            '/api/ledgers/', json={'name': '另一证券', 'ledger_type': 'stock', 'linked_cash_ledger_id': stock_id}
+        )
+        assert resp.status_code == 400
+        assert '不是现金账户' in resp.get_json()['message']
+
+    def test_create_cash_ledger_cannot_link_cash(self, client):
+        """现金账户自身不能关联现金账户"""
+        cash_resp = client.post('/api/ledgers/', json={'name': '招商银行', 'ledger_type': 'cash'})
+        cash_id = cash_resp.get_json()['data']['id']
+        resp = client.post(
+            '/api/ledgers/', json={'name': '另一个现金', 'ledger_type': 'cash', 'linked_cash_ledger_id': cash_id}
+        )
+        assert resp.status_code == 400
+        assert '只有证券账户或基金平台' in resp.get_json()['message']
+
+    def test_update_ledger_link_cash(self, client, db):
+        """更新账户关联现金账户"""
+        # 创建现金账户和证券账户
+        cash_resp = client.post('/api/ledgers/', json={'name': '招商银行', 'ledger_type': 'cash'})
+        cash_id = cash_resp.get_json()['data']['id']
+        stock_resp = client.post('/api/ledgers/', json={'name': '华泰证券', 'ledger_type': 'stock'})
+        stock_id = stock_resp.get_json()['data']['id']
+
+        # 更新关联
+        resp = client.patch(f'/api/ledgers/{stock_id}/', json={'linked_cash_ledger_id': cash_id})
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['linked_cash_ledger_id'] == cash_id
+
+    def test_update_ledger_unlink_cash(self, client, db):
+        """解绑现金账户（设为 null）"""
+        cash_resp = client.post('/api/ledgers/', json={'name': '招商银行', 'ledger_type': 'cash'})
+        cash_id = cash_resp.get_json()['data']['id']
+        stock_resp = client.post(
+            '/api/ledgers/', json={'name': '华泰证券', 'ledger_type': 'stock', 'linked_cash_ledger_id': cash_id}
+        )
+        stock_id = stock_resp.get_json()['data']['id']
+
+        resp = client.patch(f'/api/ledgers/{stock_id}/', json={'linked_cash_ledger_id': None})
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['linked_cash_ledger_id'] is None
+
+    def test_update_ledger_change_type_clears_cash(self, client, db):
+        """将证券账户改为现金类型时，应清空关联的现金账户（前端已处理，后端应允许）"""
+        cash_resp = client.post('/api/ledgers/', json={'name': '招商银行', 'ledger_type': 'cash'})
+        cash_id = cash_resp.get_json()['data']['id']
+        stock_resp = client.post(
+            '/api/ledgers/', json={'name': '华泰证券', 'ledger_type': 'stock', 'linked_cash_ledger_id': cash_id}
+        )
+        stock_id = stock_resp.get_json()['data']['id']
+
+        # 直接修改类型为 cash，同时不传 linked_cash_ledger_id
+        resp = client.patch(f'/api/ledgers/{stock_id}/', json={'ledger_type': 'cash'})
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['ledger_type'] == 'cash'
+        # 注意：当前后端在修改类型时不会自动清空关联，但前端会在切换时清空并传递 null。
+        # 为保险，可以在测试中显式传递 null，我们额外测一次。
+        # 如果只改类型而不传 linked_cash_ledger_id，字段保持不变（设计如此），所以本测试仅验证状态。
+        # 可补充一个用例：同时传递 ledger_type 和 linked_cash_ledger_id=null。
+        resp2 = client.patch(f'/api/ledgers/{stock_id}/', json={'ledger_type': 'cash', 'linked_cash_ledger_id': None})
+        assert resp2.status_code == 200
+        assert resp2.get_json()['data']['linked_cash_ledger_id'] is None
+
+
+class TestLedgerOverview:
+    """测试账户资金全景接口"""
+
+    def test_overview_empty(self, client):
+        """无账户时应返回空结构"""
+        resp = client.get('/api/ledgers/overview/')
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert 'groups' in data
+        assert data['liability_total'] == 0
+        assert data['net_worth'] == 0
+
+    def test_overview_with_accounts_and_positions(self, client, db):
+        """有账户和持仓时，应正确汇总"""
+        # 创建账户
+        cash = client.post('/api/ledgers/', json={'name': '招商银行', 'ledger_type': 'cash'})
+        cash_id = cash.get_json()['data']['id']
+        stock = client.post('/api/ledgers/', json={'name': '华泰证券', 'ledger_type': 'stock'})
+        stock_id = stock.get_json()['data']['id']
+
+        # 创建持仓（关联到证券账户）
+        pos = Position(
+            symbol='000001',
+            name='平安银行',
+            market='CN_A',
+            asset_type='stock',
+            account_name='华泰证券',
+            quantity=1000,
+            avg_price=10,
+            current_price=12,
+        )
+        db.add(pos)
+        # 创建现金持仓（通过资产表）
+        asset_cash = Asset(
+            user_id=1, major_category='cash', name='储蓄', amount=50000, account_name='招商银行', currency='CNY'
+        )
+        db.add(asset_cash)
+        # 负债
+        asset_liability = Asset(
+            user_id=1, major_category='liability', name='房贷', amount=300000, account_name='招商银行', currency='CNY'
+        )
+        db.add(asset_liability)
+        db.commit()
+
+        resp = client.get('/api/ledgers/overview/')
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        groups = {g['type']: g for g in data['groups']}
+        # 证券账户：1个，市值 1000*12=12000
+        stock_group = groups.get('stock')
+        assert stock_group is not None
+        assert stock_group['count'] == 1
+        assert stock_group['total'] == 12000
+        # 现金账户：1个，市值 50000
+        cash_group = groups.get('cash')
+        assert cash_group is not None
+        assert cash_group['count'] == 1
+        assert cash_group['total'] == 50000
+        # 负债总额 300000
+        assert data['liability_total'] == 300000
+        # 净资产 = (12000+50000) - 300000 = -238000
+        assert data['net_worth'] == -238000
+
+    def test_overview_with_deleted_account(self, client, db):
+        """已删除账户的持仓应出现在 'deleted' 分组"""
+        # 创建账户
+        resp = client.post('/api/ledgers/', json={'name': '已删证券', 'ledger_type': 'stock'})
+        lid = resp.get_json()['data']['id']
+        # 创建持仓关联到该账户名
+        pos = Position(
+            symbol='000002',
+            name='万科',
+            market='CN_A',
+            asset_type='stock',
+            account_name='已删证券',
+            quantity=500,
+            avg_price=8,
+            current_price=10,
+        )
+        db.add(pos)
+        db.commit()
+        # 绕过 API 保护，直接通过 ORM 删除账户（模拟手动删除）
+        ledger = db.query(Ledger).get(lid)
+        db.delete(ledger)
+        db.commit()
+
+        resp = client.get('/api/ledgers/overview/')
+        data = resp.get_json()['data']
+        groups = {g['type']: g for g in data['groups']}
+        assert 'deleted' in groups
+        deleted_group = groups['deleted']
+        assert deleted_group['count'] == 1
+        assert deleted_group['total'] == 5000.0
+
+
+class TestLedgerBatchMigrate:
+    """测试账户持仓批量迁移"""
+
+    def test_migrate_stock_to_stock(self, client, db):
+        """正常迁移：两个证券账户，迁移后源为空，目标增加"""
+        # 创建两个证券账户
+        src = client.post('/api/ledgers/', json={'name': '华泰证券', 'ledger_type': 'stock'})
+        tgt = client.post('/api/ledgers/', json={'name': '中信证券', 'ledger_type': 'stock'})
+        src_id = src.get_json()['data']['id']
+        tgt_id = tgt.get_json()['data']['id']
+
+        # 创建持仓和资产（关联到源账户）
+        pos = Position(
+            symbol='000001',
+            name='平安银行',
+            market='CN_A',
+            asset_type='stock',
+            account_name='华泰证券',
+            quantity=1000,
+            avg_price=10,
+            current_price=12,
+        )
+        db.add(pos)
+        asset_cash = Asset(
+            user_id=1, major_category='cash', name='余额', amount=5000, account_name='华泰证券', currency='CNY'
+        )
+        db.add(asset_cash)
+        # 另一个资产（非负债）
+        asset_other = Asset(user_id=1, major_category='fixed', name='房产', amount=100000, account_name='华泰证券')
+        db.add(asset_other)
+        db.commit()
+
+        # 执行迁移
+        resp = client.post(f'/api/ledgers/{src_id}/migrations/', json={'target_ledger_id': tgt_id})
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['total'] == 3  # 1 position + 2 assets
+        assert '中信证券' in resp.get_json()['message']
+
+        # 验证源账户下已无持仓/资产
+        src_positions = db.query(Position).filter(Position.account_name == '华泰证券').all()
+        src_assets = db.query(Asset).filter(Asset.account_name == '华泰证券').all()
+        assert len(src_positions) == 0
+        assert len(src_assets) == 0
+
+        # 验证目标账户下已增加
+        tgt_positions = db.query(Position).filter(Position.account_name == '中信证券').all()
+        tgt_assets = db.query(Asset).filter(Asset.account_name == '中信证券').all()
+        assert len(tgt_positions) == 1
+        assert len(tgt_assets) == 2
+
+    def test_migrate_cross_type_rejected(self, client, db):
+        """跨类型迁移应被拒绝"""
+        src = client.post('/api/ledgers/', json={'name': '华泰证券', 'ledger_type': 'stock'})
+        tgt = client.post('/api/ledgers/', json={'name': '招商银行', 'ledger_type': 'cash'})
+        src_id = src.get_json()['data']['id']
+        tgt_id = tgt.get_json()['data']['id']
+
+        resp = client.post(f'/api/ledgers/{src_id}/migrations/', json={'target_ledger_id': tgt_id})
+        assert resp.status_code == 400
+        assert '同类型' in resp.get_json()['message']
+
+    def test_migrate_target_not_found(self, client, db):
+        """目标账户不存在"""
+        src = client.post('/api/ledgers/', json={'name': '华泰证券', 'ledger_type': 'stock'})
+        src_id = src.get_json()['data']['id']
+
+        resp = client.post(f'/api/ledgers/{src_id}/migrations/', json={'target_ledger_id': 9999})
+        assert resp.status_code == 404
+
+    def test_migrate_source_not_found(self, client):
+        """源账户不存在"""
+        resp = client.post('/api/ledgers/9999/migrations/', json={'target_ledger_id': 1})
+        assert resp.status_code == 404
+
+    def test_migrate_empty_source(self, client, db):
+        """源账户无持仓/资产时，迁移成功但数量为0"""
+        src = client.post('/api/ledgers/', json={'name': '空账户', 'ledger_type': 'stock'})
+        tgt = client.post('/api/ledgers/', json={'name': '目标账户', 'ledger_type': 'stock'})
+        src_id = src.get_json()['data']['id']
+        tgt_id = tgt.get_json()['data']['id']
+
+        resp = client.post(f'/api/ledgers/{src_id}/migrations/', json={'target_ledger_id': tgt_id})
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['total'] == 0

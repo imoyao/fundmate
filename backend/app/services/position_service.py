@@ -80,6 +80,7 @@ class PositionService:
                 TransactionService.create(
                     db=db,
                     position_id=None,  # 不关联持仓
+                    symbol=symbol,
                     txn_type='buy',  # 保持交易类型为买入
                     trade_date=data.get('trade_date'),
                     confirm_date=data.get('confirm_date'),
@@ -196,6 +197,7 @@ class PositionService:
                 db=db,
                 position_id=position.id,
                 txn_type=txn_type,
+                symbol=symbol,
                 trade_date=data.get('trade_date'),
                 confirm_date=confirm_date,
                 asset_type=data.get('type'),
@@ -277,6 +279,7 @@ class PositionService:
             TransactionService.create(
                 db=db,
                 position_id=position_id,
+                symbol=data.get('symbol'),
                 txn_type=op_type,
                 trade_date=data.get('trade_date'),
                 confirm_date=data.get('confirm_date'),
@@ -324,6 +327,7 @@ class PositionService:
                 db=db,
                 position_id=position_id,
                 txn_type='dividend',
+                symbol=data.get('symbol'),
                 trade_date=data.get('trade_date'),
                 confirm_date=data.get('confirm_date'),
                 asset_type=data.get('type'),
@@ -361,6 +365,7 @@ class PositionService:
                     db=db,
                     position_id=None,
                     txn_type='sell',
+                    symbol=data.get('symbol'),
                     trade_date=data.get('trade_date'),
                     confirm_date=data.get('confirm_date'),
                     asset_type=data.get('type'),
@@ -424,6 +429,7 @@ class PositionService:
             db=db,
             position_id=None,
             txn_type=op_type,
+            symbol=symbol,
             trade_date=data.get('trade_date'),
             confirm_date=data.get('confirm_date'),
             asset_type=data.get('type'),
@@ -470,6 +476,7 @@ class PositionService:
             TransactionService.create(
                 db=db,
                 position_id=None,
+                symbol=symbol,
                 txn_type='dividend',
                 trade_date=data.get('trade_date'),
                 confirm_date=data.get('confirm_date'),

@@ -91,15 +91,35 @@ export default {
     {
       path: "/asset/ledgers",
       name: "AssetLedgers",
-      component: () => import("@/views/asset/AssetLedgers.vue"),
+      component: () => import("@/views/asset/ledgers/index.vue"),
       meta: { title: "账户管理", icon: "ep:wallet", rank: 30}
     },
     // 账户详情（作为 Asset 的子路由，继承 Layout 布局）
     {
       path: "/asset/ledgers/:id",
       name: "LedgerDetail",
-      component: () => import("@/views/asset/LedgerDetail.vue"),
+      component: () => import("@/views/asset/ledgers/detail.vue"),
       meta: { title: "账户详情", icon: "ep:wallet", rank: 31, showLink: false, hidden: true }
+    },
+        // 投资组合管理（隐藏）
+    {
+      path: "/asset/portfolios",
+      name: "PortfolioList",
+      component: () => import("@/views/asset/portfolio/index.vue"),
+      meta: { title: "投资组合", icon: "ep:collection", rank: 32, showLink: false }
+    },
+    // 组合详情（隐藏）
+    {
+      path: "/asset/portfolios/:id",
+      name: "PortfolioDetail",
+      component: () => import("@/views/asset/portfolio/detail.vue"),
+      meta: { title: "组合详情", icon: "ep:collection", rank: 33, showLink: false }
+    },
+    {
+      path: "/asset/strategies",
+      name: "Strategies",
+      component: () => import("@/views/asset/strategies/index.vue"),
+      meta: { title: "策略分析", icon: "ep:data-analysis", rank: 34, showLink: true }
     }
   ]
 } satisfies RouteConfigsTable;

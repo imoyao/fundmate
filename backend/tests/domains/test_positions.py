@@ -1,7 +1,15 @@
 # backend/tests/test_positions.py
-"""测试持仓相关接口及标签字段"""
+"""
+持仓相关 API 测试扩展：交易明细查询、删除持仓（含级联删除交易）
+"""
 
 from datetime import date, timedelta
+
+from sqlalchemy import exists
+
+from app.domains.ledgers.models import Ledger
+from app.domains.positions.models import Position
+from app.domains.transactions.models import Transaction
 
 
 # 辅助函数
@@ -595,3 +603,195 @@ class TestPositionLabels:
             {'op_type': 'sell', 'position_id': pos_id, 'quantity': 3, 'avg_price': 200.0, 'trade_date': '2026-05-03'},
         )
         assert resp.status_code == 200
+
+
+class TestPositionTransactions:
+    """测试持仓交易明细端点"""
+
+    def test_get_transactions_success(self, client, db):
+        """有交易记录时返回正确列表"""
+        ledger = Ledger(name='测试账户', ledger_type='stock')
+        db.add(ledger)
+        db.commit()
+
+        pos = Position(
+            symbol='000001',
+            name='平安银行',
+            asset_type='stock',
+            account_name='测试账户',
+            market='CN_A',
+            quantity=100,
+            avg_price=10.0,
+            current_price=12.0,
+            confirm_date=date.today(),
+        )
+        db.add(pos)
+        db.commit()
+
+        # 创建两笔交易
+        txn1 = Transaction(
+            symbol='000001',  # 新增
+            position_name='平安银行',
+            account_name='测试账户',
+            asset_type='stock',
+            txn_type='buy',
+            quantity=100,
+            price=10.0,
+            amount=1000.0,
+            position_id=pos.id,
+            confirm_date=date.today(),
+        )
+        txn2 = Transaction(
+            symbol='000001',
+            position_name='平安银行',
+            account_name='测试账户',
+            asset_type='stock',
+            txn_type='sell',
+            quantity=50,
+            price=12.0,
+            amount=600.0,
+            confirm_date=date.today(),
+        )
+        db.add_all([txn1, txn2])
+        db.commit()
+
+        resp = client.get(f'/api/positions/{pos.id}/transactions/')
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert len(data) == 2
+        assert data[0]['txn_type'] == 'buy'
+        assert data[1]['txn_type'] == 'sell'
+
+    def test_get_transactions_empty(self, client, db):
+        """无关联交易时返回空数组"""
+        ledger = Ledger(name='空账户', ledger_type='stock')
+        db.add(ledger)
+        db.commit()
+
+        pos = Position(
+            symbol='000002',
+            name='万科A',
+            asset_type='stock',
+            account_name='空账户',
+            market='CN_A',
+            quantity=200,
+            avg_price=8.0,
+            current_price=8.0,
+            confirm_date=date.today(),
+        )
+        db.add(pos)
+        db.commit()
+
+        resp = client.get(f'/api/positions/{pos.id}/transactions/')
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data == []
+
+    def test_get_transactions_position_not_found(self, client):
+        """不存在的持仓返回404"""
+        resp = client.get('/api/positions/99999/transactions/')
+        assert resp.status_code == 404
+
+
+class TestDeletePosition:
+    """测试删除持仓端点"""
+
+    def test_delete_position_only(self, client, db):
+        ledger = Ledger(name='测试账户', ledger_type='stock')
+        db.add(ledger)
+        db.commit()
+
+        pos = Position(
+            symbol='000001',
+            name='平安银行',
+            asset_type='stock',
+            account_name='测试账户',
+            market='CN_A',
+            quantity=100,
+            avg_price=10.0,
+            current_price=12.0,
+            confirm_date=date.today(),
+        )
+        db.add(pos)
+        db.commit()
+
+        txn = Transaction(
+            symbol='000001',
+            position_name='平安银行',
+            account_name='测试账户',
+            asset_type='stock',
+            txn_type='buy',
+            quantity=100,
+            price=10.0,
+            amount=1000.0,
+            position_id=pos.id,
+            confirm_date=date.today(),
+        )
+        db.add(txn)
+        db.commit()
+
+        pos_id = pos.id
+        txn_id = txn.id
+
+        resp = client.delete(f'/api/positions/{pos_id}/?delete_transactions=false')
+        assert resp.status_code == 200
+
+        # 用 exists 查询验证，绕过 session 缓存
+        pos_exists = db.query(exists().where(Position.id == pos_id)).scalar()
+        assert not pos_exists
+
+        txn_exists = db.query(exists().where(Transaction.id == txn_id)).scalar()
+        assert txn_exists
+
+    def test_delete_position_with_transactions(self, client, db):
+        ledger = Ledger(name='测试账户', ledger_type='stock')
+        db.add(ledger)
+        db.commit()
+
+        pos = Position(
+            symbol='000002',
+            name='万科A',
+            asset_type='stock',
+            account_name='测试账户',
+            market='CN_A',
+            quantity=200,
+            avg_price=8.0,
+            current_price=8.0,
+            confirm_date=date.today(),
+        )
+        db.add(pos)
+        db.commit()
+
+        txn = Transaction(
+            symbol='000002',
+            position_name='万科A',
+            account_name='测试账户',
+            asset_type='stock',
+            txn_type='buy',
+            quantity=200,
+            price=8.0,
+            amount=1600.0,
+            confirm_date=date.today(),
+            position_id=pos.id,
+        )
+        db.add(txn)
+        db.commit()
+
+        # 保存 ID
+        pos_id = pos.id
+        txn_id = txn.id
+
+        resp = client.delete(f'/api/positions/{pos_id}/?delete_transactions=true')
+        assert resp.status_code == 200
+
+        # 用 exists 查询验证，使用本地 ID 避免访问过期对象
+        pos_exists = db.query(exists().where(Position.id == pos_id)).scalar()
+        assert not pos_exists
+
+        txn_exists = db.query(exists().where(Transaction.id == txn_id)).scalar()
+        assert not txn_exists
+
+    def test_delete_position_not_found(self, client):
+        """删除不存在的持仓返回404"""
+        resp = client.delete('/api/positions/99999/')
+        assert resp.status_code == 404

@@ -35,6 +35,14 @@ export function updatePosition(id: number, data: PositionUpdate) {
 }
 
 /** 删除一条持仓记录 */
-export function deletePosition(id: number) {
-  return http.request<ApiResponse<null>>("delete", `${BASE_URL}/${id}/`);
+/** 删除持仓，可选择同时删除关联交易 */
+export function deletePosition(id: number, deleteTransactions: boolean = false) {
+  return http.request<any>("delete", `${BASE_URL}/${id}/`, {
+    params: { delete_transactions: deleteTransactions },
+  });
+}
+
+/** 获取持仓的关联交易明细 */
+export function getPositionTransactions(id: number) {
+  return http.request<any>("get", `${BASE_URL}/${id}/transactions/`);
 }

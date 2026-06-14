@@ -24,6 +24,7 @@ class Transaction(Base, PrimaryKeyMixin, TimestampMixin):
     __tablename__ = 'transactions'
 
     position_id = Column(Integer)
+    symbol = Column(String(30), nullable=True, comment='资产代码快照')
     txn_type = Column('type', String(20))
     trade_date = Column(Date)  # 交易发起日期 (T日)
     quantity = Column(Float)  # 操作数量 (股/张/份)

@@ -1,5 +1,5 @@
 <template>
-  <div> <!-- 新增根元素 -->
+  <div>
     <div class="account-detail p-4 md:p-6 min-h-full" :style="{ backgroundColor: 'var(--bg-page)' }">
       <!-- 顶部操作栏 -->
       <div class="mb-4 flex justify-between items-center">
@@ -10,13 +10,23 @@
           <el-button @click="openEditDialog">
             <IconifyIconOffline icon="ep:edit" class="mr-1" /> 编辑
           </el-button>
-          <el-popconfirm title="确定删除此账户？账户下的持仓不会被删除，但会变为未关联状态。" @confirm="handleDelete">
-            <template #reference>
-              <el-button type="danger" text>
-                <IconifyIconOffline icon="ep:delete" class="mr-1" /> 删除
-              </el-button>
-            </template>
-          </el-popconfirm>
+
+          <el-button @click="openBatchMigrateDialog" v-if="!isUnclassified && holdings.length > 0">
+            <IconifyIconOffline icon="ep:share" class="mr-1" /> 批量迁移持仓
+          </el-button>
+
+          <div class="flex items-center gap-1">
+            <!-- 删除按钮改为打开对话框 -->
+            <el-button
+              v-if="!isUnclassified && accountInfo"
+              type="danger"
+              text
+              @click="openDeleteDialog(accountInfo)"
+            >
+              <IconifyIconOffline icon="ep:delete" class="mr-1" /> 删除
+            </el-button>
+            <IconifyIconOffline icon="ep:arrow-right" :style="{ color: 'var(--text-tertiary)' }" />
+          </div>
         </div>
       </div>
 
@@ -33,6 +43,7 @@
           <p class="text-sm mt-1" :style="{ color: 'var(--text-tertiary)' }">
             {{ subTitle }}
             <template v-if="accountInfo?.default_allocation"> · {{ accountInfo.default_allocation_label || '未配置'}}</template>
+            <template v-if="accountInfo?.portfolio_name"> · 组合: {{ accountInfo.portfolio_name }}</template>
           </p>
         </div>
 
@@ -62,20 +73,24 @@
         <el-card shadow="never">
           <el-tabs v-model="activeTab">
             <el-tab-pane label="持仓明细" name="holdings">
-              <el-table :data="pagedHoldings" stripe size="default" :default-sort="{ prop: 'marketValue', order: 'descending' }">
-                <el-table-column prop="name" label="名称" min-width="140">
-                  <template #default="{ row }">{{ row.name || row.symbol }}</template>
-                </el-table-column>
-                <el-table-column label="资产类型" width="100">
+              <el-table :data="pagedHoldings"
+                        stripe
+                        @row-click="expandPosition"
+                        size="default"
+                        :default-sort="{ prop: 'marketValue', order: 'descending' }">
+                <el-table-column label="名称 / 代码" min-width="180">
                   <template #default="{ row }">
-                    <span class="px-2 py-0.5 rounded-full text-xs" :style="{ color: getTypeColor(row.asset_type || row.type) }">
-                      {{ row.type_label }}
-                    </span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="代码" width="100" v-if="!isUnclassified">
-                  <template #default="{ row }">
-                    <span :style="{ color: 'var(--text-tertiary)' }">{{ row.symbol || '-' }}</span>
+                    <div class="product-cell">
+                      <span class="product-name">{{ row.name || row.symbol || '--' }}</span>
+                      <div class="product-code-row">
+                        <span class="product-code"># {{ row.symbol || '--' }}</span>
+                        <span
+                          v-if="row.type_label"
+                          class="type-tag-inline ml-2 px-2 py-0.5 rounded-full text-xs"
+                          :style="{ backgroundColor: 'var(--bg-page)', color: 'var(--text-secondary)' }"
+                        >{{ row.type_label }}</span>
+                      </div>
+                    </div>
                   </template>
                 </el-table-column>
                 <el-table-column label="市值" width="130" align="right" sortable prop="marketValue">
@@ -106,6 +121,7 @@
                 <el-table-column label="操作" width="80" fixed="right" v-if="!isUnclassified">
                   <template #default="{ row }">
                     <el-button text size="small" @click="openMigrateDialog(row)">迁移</el-button>
+                    <el-button text size="small" type="danger" @click="confirmDeletePosition(row)">删除</el-button>
                   </template>
                 </el-table-column>
 
@@ -117,6 +133,25 @@
                   </template>
                 </el-table-column>
               </el-table>
+
+              <div v-if="expandedPositionId" class="mt-4 p-4 bg-gray-50 rounded-xl">
+                <h4 class="text-sm font-semibold mb-2" :style="{ color: 'var(--text-primary)' }">交易明细</h4>
+                <el-table :data="expandedTransactions" stripe size="small">
+                  <el-table-column prop="trade_date" label="日期" width="100" />
+                  <el-table-column label="类型" width="60">
+                    <template #default="{ row }">{{ txnTypeLabel(row.txn_type) }}</template>
+                  </el-table-column>
+                  <el-table-column label="数量" width="80" align="right">
+                    <template #default="{ row }">{{ row.quantity }}</template>
+                  </el-table-column>
+                  <el-table-column label="价格" width="100" align="right">
+                    <template #default="{ row }">¥{{ (row.price || 0).toLocaleString() }}</template>
+                  </el-table-column>
+                  <el-table-column label="金额" width="100" align="right">
+                    <template #default="{ row }">¥{{ (row.amount || 0).toLocaleString() }}</template>
+                  </el-table-column>
+                </el-table>
+              </div>
               <div class="flex justify-end mt-4">
                 <el-pagination v-model:current-page="holdingsPage" :page-size="holdingsPageSize" layout="prev, pager, next" :total="holdings.length" small />
               </div>
@@ -161,17 +196,11 @@
 
     <!-- 编辑账户弹窗 -->
     <el-dialog v-model="showEditDialog" title="编辑账户" width="420px" destroy-on-close>
-      <el-form :model="editForm" label-width="90px">
+      <el-form :model="editForm" label-width="100px">
         <el-form-item label="账户名称" required>
           <el-input v-model="editForm.name" />
         </el-form-item>
-        <el-form-item label="账户类型">
-          <el-select v-model="editForm.ledger_type" class="w-full">
-            <el-option label="通用账户" value="general" />
-            <el-option label="现金账户" value="cash" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="默认配置目标">
+        <el-form-item label="配置目标">
           <el-select v-model="editForm.default_allocation" class="w-full" clearable>
             <el-option label="活钱" value="liquid" />
             <el-option label="稳健底仓" value="stable" />
@@ -180,6 +209,16 @@
             <el-option label="保险保障" value="security" />
           </el-select>
         </el-form-item>
+
+        <AccountFormFields
+          v-model:ledger-type="editForm.ledger_type"
+          v-model:linked-cash-id="editForm.linked_cash_ledger_id"
+          v-model:portfolio-id="editForm.portfolio_id"
+          v-model:fee-config="editForm.fee_config"
+          :cash-ledgers="cashLedgers"
+          :portfolio-list="portfolioList"
+        />
+
         <el-form-item label="备注">
           <el-input v-model="editForm.notes" type="textarea" :rows="2" />
         </el-form-item>
@@ -214,19 +253,57 @@
       </template>
     </el-dialog>
 
+
+    <el-dialog v-model="batchMigrateVisible" title="批量迁移持仓" width="400px" destroy-on-close>
+      <p class="mb-4" :style="{ color: 'var(--text-secondary)' }">
+        将账户「{{ accountName }}」下的所有持仓迁移到目标账户。
+      </p>
+      <el-form label-width="80px">
+        <el-form-item label="目标账户">
+          <el-select v-model="batchTargetLedgerId" class="w-full" placeholder="选择同类型账户">
+            <el-option
+              v-for="ledger in sameTypeLedgers"
+              :key="ledger.id"
+              :label="ledger.name"
+              :value="ledger.id"
+              :disabled="ledger.id === Number(ledgerId)"
+            />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="batchMigrateVisible = false">取消</el-button>
+        <el-button type="primary" :disabled="!batchTargetLedgerId" :loading="batchMigrating" @click="handleBatchMigrate">
+          确认迁移（{{ holdings.length }} 项）
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 删除确认对话框 -->
+    <DeleteLedgerDialog
+      v-model:visible="deleteDialogVisible"
+      :ledger-id="deletingAccount?.id ?? 0"
+      :ledger-name="deletingAccount?.name ?? ''"
+      :position-count="holdings.length"
+      @deleted="router.push({ name: 'AssetLedgers' })"
+    />
+
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { ElMessage } from "element-plus";
+import {ElMessage, ElMessageBox} from "element-plus";
 import { Loading } from "@element-plus/icons-vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
-import { getLedgers, updateLedger, deleteLedger } from "@/api/ledger";
-import { getPositions, updatePosition } from "@/api/positions";
+import { getLedgers, updateLedger, migrateLedgerPositions  } from "@/api/ledger";
+import { getPortfolios } from "@/api/portfolio";  // 新增导入
+import { getPositions, updatePosition, deletePosition, getPositionTransactions } from "@/api/positions";
 import { getAssets, updateAsset } from "@/api/assets";
 import { getTransactions } from "@/api/transactions";
+import AccountFormFields from "./components/AccountFormFields.vue";
+import DeleteLedgerDialog from "./components/DeleteLedgerDialog.vue";
 
 defineOptions({ name: "LedgerDetail" });
 
@@ -243,14 +320,38 @@ const allPositions = ref<any[]>([]);
 const allAssets = ref<any[]>([]);
 const allTransactions = ref<any[]>([]);
 const assignMap = ref<Record<number, number>>({});
+const deleteDialogVisible = ref(false);
+const deletingAccount = ref<any>(null);
+
+const batchMigrateVisible = ref(false);
+const batchMigrating = ref(false);
+const batchTargetLedgerId = ref<number | null>(null);
+const expandedPositionId = ref<number | null>(null);
+const expandedTransactions = ref<any[]>([]);
+
+const cashLedgers = computed(() => ledgers.value.filter((l: any) => l.ledger_type === 'cash'));
+
+// 同类型账户列表（排除自身）
+const sameTypeLedgers = computed(() =>
+  accountInfo.value
+    ? ledgers.value.filter(
+        (l: any) =>
+          l.ledger_type === accountInfo.value!.ledger_type &&
+          l.id !== Number(ledgerId.value)
+      )
+    : []
+);
 
 const showEditDialog = ref(false);
 const saving = ref(false);
 const editForm = ref({
   name: "",
-  ledger_type: "general",
+  ledger_type: "stock",
   default_allocation: null as string | null,
   notes: "",
+  portfolio_id: null as number | null,  // 新增
+  linked_cash_ledger_id: null as number | null,
+  fee_config: null,
 });
 
 const holdingsPage = ref(1);
@@ -263,6 +364,51 @@ const activeTab = ref("holdings");
 const migrateDialogVisible = ref(false);
 const migratingItem = ref<any>(null);
 const migrateTargetLedgerId = ref<number | null>(null);
+
+// 组合列表（新增）
+const portfolioList = ref<any[]>([]);
+
+async function expandPosition(row: any) {
+  if (expandedPositionId.value === row.id) {
+    expandedPositionId.value = null;
+    expandedTransactions.value = [];
+    return;
+  }
+  expandedPositionId.value = row.id;
+  try {
+    const res = await getPositionTransactions(row.id);
+    expandedTransactions.value = (res as any)?.data ?? [];
+  } catch (e) {
+    ElMessage.error("获取交易明细失败");
+    expandedTransactions.value = [];
+  }
+}
+
+function openBatchMigrateDialog() {
+  batchTargetLedgerId.value = null;
+  batchMigrateVisible.value = true;
+}
+
+async function handleBatchMigrate() {
+  if (!batchTargetLedgerId.value) return;
+  batchMigrating.value = true;
+  try {
+    const res = await migrateLedgerPositions(Number(ledgerId.value), batchTargetLedgerId.value);
+    const result = (res as any)?.data;
+    ElMessage.success(result?.message || `迁移成功`);
+    batchMigrateVisible.value = false;
+    await fetchData();
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || "迁移失败");
+  } finally {
+    batchMigrating.value = false;
+  }
+}
+
+function openDeleteDialog(account: any) {
+  deletingAccount.value = account;
+  deleteDialogVisible.value = true;
+}
 
 function openMigrateDialog(row: any) {
   migratingItem.value = row;
@@ -320,9 +466,11 @@ const accountName = computed(() => {
 const subTitle = computed(() => {
   if (isUnclassified.value) return "将以下资产关联到已有账户";
   const type = accountInfo.value?.ledger_type;
-  if (type === "cash") return "现金账户";
+  if (type === "stock") return "证券账户";
+  if (type === "fund") return "基金平台";
+  if (type === "cash") return "现金/活钱";
   if (type === "family") return "家庭账户";
-  return "通用账户";
+  return "其他";
 });
 
 const totalLabel = computed(() => {
@@ -370,8 +518,8 @@ const holdings = computed(() => {
     .map((a: any) => ({
       ...a,
       id: a.id + 100000,
-      type_label: a.type_label || a.major_category || '其他',   // 使用后端标签
-      allocation_label: a.allocation_label || a.allocation || '未配置',  // 使用后端标签
+      type_label: a.type_label || a.major_category || '其他',
+      allocation_label: a.allocation_label || a.allocation || '未配置',
       marketValue: a.marketValue || a.amount || 0,
       asset_type: a.major_category,
       pnl: 0,
@@ -426,6 +574,31 @@ function getTxnTypeClass(type: string) {
   return "text-[var(--color-info)]";
 }
 
+async function confirmDeletePosition(row: any) {
+  try {
+    await ElMessageBox.confirm(
+      `确定删除持仓「${row.name || row.symbol}」吗？可选择同时删除关联交易记录。`,
+      '删除持仓',
+      {
+        confirmButtonText: '仅删除持仓',
+        cancelButtonText: '删除持仓及交易',
+        distinguishCancelAndClose: true,
+        type: 'warning',
+      }
+    ).then(async () => {
+      await deletePosition(row.id, false);
+    }).catch(async (action: string) => {
+      if (action === 'cancel') {
+        await deletePosition(row.id, true);
+      }
+    });
+    ElMessage.success('持仓已删除');
+    await fetchData();
+  } catch (e: any) {
+    // 取消操作
+  }
+}
+
 async function handleAssign(itemId: number) {
   const targetLedgerId = assignMap.value[itemId];
   if (!targetLedgerId) return;
@@ -449,9 +622,12 @@ function openEditDialog() {
   if (!accountInfo.value) return;
   editForm.value = {
     name: accountInfo.value.name,
-    ledger_type: accountInfo.value.ledger_type || "general",
+    ledger_type: accountInfo.value.ledger_type || "stock",
     default_allocation: accountInfo.value.default_allocation || null,
     notes: accountInfo.value.notes || "",
+    portfolio_id: accountInfo.value.portfolio_id || null,  // 回填
+    linked_cash_ledger_id: accountInfo.value.linked_cash_ledger_id || null,
+    fee_config: accountInfo.value.fee_config
   };
   showEditDialog.value = true;
 }
@@ -474,16 +650,6 @@ async function handleUpdate() {
   }
 }
 
-async function handleDelete() {
-  try {
-    await deleteLedger(Number(ledgerId.value));
-    ElMessage.success("账户已删除");
-    router.push({ name: "AssetLedgers" });
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "删除失败");
-  }
-}
-
 let abortController: AbortController | null = null;
 
 async function fetchData() {
@@ -493,12 +659,13 @@ async function fetchData() {
   abortController = new AbortController();
   loading.value = true;
   try {
-    const [ledgerRes, posRes, assetsRes, txnRes] = await Promise.all([
+    const [ledgerRes, posRes, assetsRes, txnRes, portfolioRes] = await Promise.all([
       getLedgers(),
       getPositions({ per_page: 500 }),
       getAssets({ per_page: 500 }),
       getTransactions({ per_page: 1000 }),
-    ]);
+      getPortfolios(),  // 新增
+  ]);
 
     ledgers.value = Array.isArray((ledgerRes as any)?.data)
       ? (ledgerRes as any).data
@@ -525,6 +692,10 @@ async function fetchData() {
     const txnData = (txnRes as any)?.data || txnRes;
     txnRaw = Array.isArray(txnData) ? txnData : txnData?.data || [];
     allTransactions.value = txnRaw;
+
+    // 保存组合列表
+    const newPortfolios = (portfolioRes as any)?.data?.data ?? (portfolioRes as any)?.data ?? [];
+    portfolioList.value = newPortfolios;
   } catch (e: any) {
     ElMessage.error(e?.message || "加载失败");
   } finally {
@@ -536,3 +707,10 @@ onMounted(() => {
   fetchData();
 });
 </script>
+<style scoped>
+.product-cell { display: flex; flex-direction: column; gap: 2px; line-height: 1.3; }
+.product-name { font-size: 14px; font-weight: 500; color: var(--text-primary); }
+.product-code-row { display: flex; align-items: center; gap: 6px; }
+.product-code { font-size: 12px; color: var(--text-tertiary); }
+.type-tag-inline { font-size: 11px; padding: 0 6px; height: 20px; line-height: 20px; border: none; color: #fff; background-color: var(--bg-page); }
+</style>

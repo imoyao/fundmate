@@ -14,6 +14,7 @@ from app.core.database import get_db
 from app.core.utils import paginate
 from app.domains.positions.models import Position
 from app.domains.positions.schemas import PositionCreate, PositionOut, PositionUpdate
+from app.domains.transactions.models import Transaction
 from app.services.position_service import PositionService
 
 bp = APIBlueprint('positions', __name__, url_prefix='/api/positions/')
@@ -71,6 +72,45 @@ def list_positions():
         items, total = paginate(query, page=page, per_page=per_page)
         data = [_enrich_position_dict(p) for p in items]
         return jsonify({'data': data, 'total': total, 'page': page, 'per_page': per_page, 'message': 'ok'})
+
+
+@bp.get('/<int:id>/transactions/')
+def get_position_transactions(id: int):
+    with get_db() as db:
+        position = db.query(Position).get(id)
+        if not position:
+            abort(404, '持仓不存在')
+
+        # 优先用 position_id，若为空则用 symbol + account_name
+        if position.id and db.query(Transaction).filter(Transaction.position_id == position.id).first() is not None:
+            transactions = (
+                db.query(Transaction)
+                .filter(Transaction.position_id == position.id)
+                .order_by(Transaction.confirm_date.asc())
+                .all()
+            )
+        else:
+            transactions = (
+                db.query(Transaction)
+                .filter(Transaction.symbol == position.symbol, Transaction.account_name == position.account_name)
+                .order_by(Transaction.confirm_date.asc())
+                .all()
+            )
+
+        data = []
+        for t in transactions:
+            data.append(
+                {
+                    'id': t.id,
+                    'trade_date': t.confirm_date.isoformat() if t.confirm_date else None,
+                    'txn_type': t.txn_type,
+                    'quantity': t.quantity,
+                    'price': t.price,
+                    'amount': t.amount,
+                    'notes': t.notes,
+                }
+            )
+        return jsonify({'data': data, 'message': 'ok'})
 
 
 @bp.post('/')
@@ -143,10 +183,21 @@ def update_position(id, json_data):
 @bp.delete('/<int:id>/')
 def delete_position(id):
     """删除某条持仓记录."""
+    delete_txns = request.args.get('delete_transactions', 'false').lower() == 'true'
     with get_db() as db:
         position = db.query(Position).filter_by(id=id).first()
         if not position:
             abort(404, description='Position not found')
+
+        if delete_txns:
+            # 优先使用 position_id 删除
+            deleted = db.query(Transaction).filter(Transaction.position_id == id).delete()
+            if deleted == 0:
+                # 兜底：无 position_id 时用 symbol + account_name 匹配
+                db.query(Transaction).filter(
+                    Transaction.symbol == position.symbol, Transaction.account_name == position.account_name
+                ).delete()
+
         db.delete(position)
         db.commit()
         return jsonify({'message': 'ok', 'data': None})

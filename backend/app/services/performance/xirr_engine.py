@@ -27,6 +27,9 @@ except ImportError:
     PYXIRR_AVAILABLE = False
     logger.warning('pyxirr 不可用，将使用纯 Python 实现作为兜底')
 
+from app.domains.ledgers.models import Ledger
+from app.domains.portfolios.models import Portfolio
+from app.domains.transactions.models import Transaction
 from app.services.importer.mappings import BusinessType
 from app.services.performance.constants import EXCLUDED_ASSET_TYPES
 
@@ -216,3 +219,123 @@ def generate_cashflows(
 
     cashflows.sort(key=lambda x: x[0])
     return cashflows
+
+
+def _exclude_internal_transfers(
+    transfer_candidates: list[dict],
+    portfolio_ledger_names: set[str],
+) -> set[int]:
+    """
+    识别并返回应排除的内部划转交易索引集合。
+
+    配对条件：同日、金额相等（分精度）、方向相反、分属本组合内不同账户。
+    """
+    excluded = set()
+    deposit_code = BusinessType.DEPOSIT.code
+    withdraw_code = BusinessType.WITHDRAW.code
+
+    for i, a in enumerate(transfer_candidates):
+        if i in excluded:
+            continue
+        for j, b in enumerate(transfer_candidates):
+            if j <= i or j in excluded:
+                continue
+            if a['date'] != b['date']:
+                continue
+            if a['amount_cents'] != b['amount_cents']:
+                continue
+            if a['account_name'] == b['account_name']:
+                continue
+            # 方向相反
+            a_out = a['txn_type'] == deposit_code and b['txn_type'] == withdraw_code
+            b_out = b['txn_type'] == deposit_code and a['txn_type'] == withdraw_code
+            if not (a_out or b_out):
+                continue
+            if a['account_name'] not in portfolio_ledger_names or b['account_name'] not in portfolio_ledger_names:
+                continue
+            excluded.update([i, j])
+            logger.debug(
+                f'内部划转已排除: {a["date"]} ' f'{a["account_name"]}↔{b["account_name"]} ' f'金额={a["amount"]:.2f}'
+            )
+            break
+    return excluded
+
+
+def generate_portfolio_cashflows(
+    db_session,
+    portfolio_id: int,
+    current_value: float = 0.0,
+    end_date: Optional[dt.date] = None,
+) -> List[Tuple[dt.date, float]]:
+    """为指定投资组合生成 XIRR 现金流列表，过滤内部划转与非投资资产。"""
+    if end_date is None:
+        end_date = dt.date.today()
+    elif isinstance(end_date, dt.datetime):
+        end_date = end_date.date()
+
+    # 1. 校验组合存在且未删除，获取关联账户名
+    portfolio = (
+        db_session.query(Portfolio).filter(Portfolio.id == portfolio_id, Portfolio.is_deleted.is_(False)).first()
+    )
+    if not portfolio:
+        raise ValueError(f'投资组合不存在: {portfolio_id}')
+
+    ledger_names = [row[0] for row in db_session.query(Ledger.name).filter(Ledger.portfolio_id == portfolio_id).all()]
+    if not ledger_names:
+        return []
+
+    ledger_set = set(ledger_names)
+
+    # 2. 查询所有相关交易
+    transactions = db_session.query(Transaction).filter(Transaction.account_name.in_(ledger_names)).all()
+
+    # 3. 分类交易
+    outflow_types = {BusinessType.BUY.code, BusinessType.DIVIDEND_REINVEST.code}
+    inflow_types = {BusinessType.SELL.code, BusinessType.DIVIDEND_CASH.code}
+
+    investment_cf: List[Tuple[dt.date, float]] = []
+    transfer_candidates: List[dict] = []
+
+    for txn in transactions:
+        txn_date = txn.confirm_date
+        if isinstance(txn_date, dt.datetime):
+            txn_date = txn_date.date()
+        if txn_date is None:
+            continue
+
+        if getattr(txn, 'asset_type', None) in EXCLUDED_ASSET_TYPES:
+            continue
+
+        amount = getattr(txn, 'amount', None)
+        if amount is None:
+            continue
+        try:
+            amount_f = float(amount)
+        except (TypeError, ValueError):
+            continue
+
+        txn_type = txn.txn_type
+        if txn_type in (BusinessType.DEPOSIT.code, BusinessType.WITHDRAW.code):
+            transfer_candidates.append(
+                {
+                    'date': txn_date,
+                    'amount': amount_f,
+                    'amount_cents': round(amount_f * 100),
+                    'txn_type': txn_type,
+                    'account_name': txn.account_name,
+                }
+            )
+        elif txn_type in outflow_types:
+            investment_cf.append((txn_date, -amount_f))
+        elif txn_type in inflow_types:
+            investment_cf.append((txn_date, amount_f))
+
+    # 4. 剔除内部划转
+    _ = _exclude_internal_transfers(transfer_candidates, ledger_set)
+
+    # 5. 添加虚拟卖出
+    if current_value > 1e-8:
+        investment_cf.append((end_date, current_value))
+
+    investment_cf.sort(key=lambda x: x[0])
+    return investment_cf

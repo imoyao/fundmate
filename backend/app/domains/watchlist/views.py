@@ -201,7 +201,7 @@ def list_items():
                 query = query.filter(WatchlistItem.status == status)
             elif status == 'cleared':
                 # 3. 筛选条件用显式的select构造
-                query = query.filter(WatchlistItem.symbol.in_(cleared_symbols))
+                query = query.filter(WatchlistItem.symbol.in_(select(cleared_symbols)))
 
         # 其他筛选
         if venue:

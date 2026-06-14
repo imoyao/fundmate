@@ -8,7 +8,7 @@
 from apiflask import APIBlueprint
 from flask import abort, jsonify, request
 
-from app.core.constants import ALLOCATION_LABELS, ASSET_CATEGORY_LABELS
+from app.core.constants import ALLOCATION_LABELS, ASSET_CATEGORY_LABELS, CURRENT_USER_ID
 from app.core.database import get_db
 from app.core.utils import paginate
 from app.domains.assets.models import Asset
@@ -19,18 +19,24 @@ bp = APIBlueprint('assets', __name__, url_prefix='/api/assets')
 
 @bp.get('/')
 def list_assets():
-    """获取所有通用资产，支持分页和大类筛选."""
+    """获取所有通用资产，支持分页、大类筛选、排除指定类型."""
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 20, type=int)
     major = request.args.get('major_category', '')
+    exclude = request.args.get('exclude', '')  # 新增：逗号分隔的排除类型
 
     with get_db() as db:
         query = db.query(Asset).order_by(Asset.updated_at.desc())
-        # MVP 阶段默认 user_id=1，后续多用户时动态切换
-        query = query.filter(Asset.user_id == 1)
+        query = query.filter(Asset.user_id == CURRENT_USER_ID)
 
         if major:
             query = query.filter(Asset.major_category == major)
+
+        # 新增：排除指定的大类
+        if exclude:
+            exclude_list = [e.strip() for e in exclude.split(',') if e.strip()]
+            if exclude_list:
+                query = query.filter(Asset.major_category.not_in(exclude_list))
 
         assets, total = paginate(query, page=page, per_page=per_page)
 

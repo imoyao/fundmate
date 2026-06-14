@@ -11,8 +11,9 @@ from pydantic import BaseModel, Field
 class XirrRequest(BaseModel):
     """年化收益率查询参数"""
 
-    scope: str = Field(..., description='查询范围: position 或 portfolio')
+    scope: str = Field(..., description='查询范围: position / portfolio')
     position_id: Optional[int] = Field(None, description='持仓ID（scope=position时必填）')
+    portfolio_id: Optional[int] = Field(None, description='投资组合ID（scope=portfolio时用于指定组合）')
 
 
 class XirrResponse(BaseModel):

@@ -5,7 +5,7 @@
 """资金容器/账户模型"""
 
 # -*- coding: utf-8 -*-
-from sqlalchemy import Column, String, Text
+from sqlalchemy import Column, ForeignKey, Integer, String, Text
 
 from app.core.database import Base, PrimaryKeyMixin, TimestampMixin
 
@@ -63,3 +63,15 @@ class Ledger(Base, PrimaryKeyMixin, TimestampMixin):
         comment='费率配置，JSON格式。stock账户记录佣金/印花税等；fund账户记录subscription_discount（申购费折扣）',
     )
     notes = Column(Text, comment='备注')
+    portfolio_id = Column(
+        Integer,
+        ForeignKey('portfolios.id', ondelete='SET NULL'),
+        nullable=True,
+        comment='关联的投资组合（删除组合时自动解绑）',
+    )
+    linked_cash_ledger_id = Column(
+        Integer,
+        ForeignKey('ledgers.id', ondelete='SET NULL'),
+        nullable=True,
+        comment='关联的现金账户（仅 stock/fund 类型可用）',
+    )
