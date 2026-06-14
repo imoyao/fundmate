@@ -99,10 +99,12 @@ def get_position_transactions(id: int):
 
         data = []
         for t in transactions:
+            # 优先使用 confirm_date，为空时回退 trade_date
+            display_date = t.confirm_date or t.trade_date
             data.append(
                 {
                     'id': t.id,
-                    'trade_date': t.confirm_date.isoformat() if t.confirm_date else None,
+                    'trade_date': display_date.isoformat() if display_date else None,
                     'txn_type': t.txn_type,
                     'quantity': t.quantity,
                     'price': t.price,

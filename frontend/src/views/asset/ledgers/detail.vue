@@ -78,7 +78,7 @@
                         @row-click="expandPosition"
                         size="default"
                         :default-sort="{ prop: 'marketValue', order: 'descending' }">
-                <el-table-column label="名称 / 代码" min-width="180">
+                <el-table-column label="产品信息" min-width="140" show-overflow-tooltip>
                   <template #default="{ row }">
                     <div class="product-cell">
                       <span class="product-name">{{ row.name || row.symbol || '--' }}</span>
@@ -93,24 +93,24 @@
                     </div>
                   </template>
                 </el-table-column>
-                <el-table-column label="市值" width="130" align="right" sortable prop="marketValue">
+                <el-table-column label="市值" width="110" align="right" sortable prop="marketValue" show-overflow-tooltip>
                   <template #default="{ row }">¥{{ (row.marketValue || 0).toLocaleString() }}</template>
                 </el-table-column>
-                <el-table-column label="盈亏" width="120" align="right" sortable prop="pnl">
+                <el-table-column label="盈亏" width="110" align="right" sortable prop="pnl" show-overflow-tooltip>
                   <template #default="{ row }">
                     <span :class="(row.pnl || 0) >= 0 ? 'text-[var(--color-danger)]' : 'text-[var(--color-success)]'">
                       {{ (row.pnl || 0) >= 0 ? '+' : '' }}¥{{ Math.abs(row.pnl || 0).toLocaleString() }}
                     </span>
                   </template>
                 </el-table-column>
-                <el-table-column label="盈亏率" width="90" align="right" sortable prop="pnlRate">
+                <el-table-column label="盈亏率" width="100" align="right" sortable prop="pnlRate" show-overflow-tooltip>
                   <template #default="{ row }">
                     <span :class="(row.pnlRate || 0) >= 0 ? 'text-[var(--color-danger)]' : 'text-[var(--color-success)]'">
                       {{ (row.pnlRate || 0) >= 0 ? '+' : '' }}{{ (row.pnlRate || 0).toFixed(2) }}%
                     </span>
                   </template>
                 </el-table-column>
-                <el-table-column label="配置目标" width="110" align="right">
+                <el-table-column label="配置目标" width="90" align="right" show-overflow-tooltip>
                   <template #default="{ row }">
                     <span class="px-2 py-0.5 rounded-full text-xs" :style="{ color: getAllocColor(row.allocation) }">
                       {{ row.allocation_label }}
@@ -118,10 +118,12 @@
                   </template>
                 </el-table-column>
 
-                <el-table-column label="操作" width="80" fixed="right" v-if="!isUnclassified">
+                <el-table-column label="操作" width="130" fixed="right" v-if="!isUnclassified">
                   <template #default="{ row }">
-                    <el-button text size="small" @click="openMigrateDialog(row)">迁移</el-button>
-                    <el-button text size="small" type="danger" @click="confirmDeletePosition(row)">删除</el-button>
+                    <div class="flex items-center gap-1" style="white-space: nowrap;">
+                      <el-button text size="small" @click.stop="openMigrateDialog(row)">迁移</el-button>
+                      <el-button text size="small" type="danger" @click.stop="confirmDeletePosition(row)">删除</el-button>
+                    </div>
                   </template>
                 </el-table-column>
 
@@ -235,9 +237,9 @@
           <span>{{ migratingItem?.name || migratingItem?.symbol }}</span>
         </el-form-item>
         <el-form-item label="目标账户">
-          <el-select v-model="migrateTargetLedgerId" placeholder="选择账户" class="w-full">
+          <el-select v-model="migrateTargetLedgerId" placeholder="选择同类型账户" class="w-full">
             <el-option
-              v-for="ledger in ledgers"
+              v-for="ledger in sameTypeLedgers"
               :key="ledger.id"
               :label="ledger.name"
               :value="ledger.id"
@@ -585,17 +587,27 @@ async function confirmDeletePosition(row: any) {
         distinguishCancelAndClose: true,
         type: 'warning',
       }
-    ).then(async () => {
-      await deletePosition(row.id, false);
-    }).catch(async (action: string) => {
-      if (action === 'cancel') {
-        await deletePosition(row.id, true);
-      }
-    });
+    );
+    // 用户点击“仅删除持仓”
+    await deletePosition(row.id, false);
     ElMessage.success('持仓已删除');
+    expandedPositionId.value = null;
+    expandedTransactions.value = [];
     await fetchData();
-  } catch (e: any) {
-    // 取消操作
+  } catch (action: any) {
+    if (action === 'cancel') {
+      // 用户点击“删除持仓及交易”
+      try {
+        await deletePosition(row.id, true);
+        ElMessage.success('持仓及关联交易已删除');
+        expandedPositionId.value = null;
+        expandedTransactions.value = [];
+        await fetchData();
+      } catch (e: any) {
+        ElMessage.error(e?.response?.data?.message || '删除失败');
+      }
+    }
+    // 点击关闭或其它操作，不执行任何动作
   }
 }
 
