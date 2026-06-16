@@ -5,7 +5,7 @@
 """仪表盘聚合与桑基图数据服务."""
 
 from collections import defaultdict
-from typing import Any
+from typing import Any, Type
 
 from app.core.constants import ALLOCATION_LABELS, CATEGORY_META, EXCHANGE_RATES, TYPE_LABELS
 from app.core.database import Session
@@ -26,7 +26,7 @@ _LIABILITY_NODE = '总负债'
 _UNCONFIGURED_NODE = '未配置资产'
 
 
-def _load_user_assets(db: Session, user_id: int) -> tuple[list[Position], list[Asset]]:
+def _load_user_assets(db: Session, user_id: int) -> tuple[list[Type[Position]], Any]:
     """统一加载用户资产数据（持仓 + 通用资产）"""
     positions = db.query(Position).all()
     assets = db.query(Asset).filter(Asset.user_id == user_id).all()
@@ -62,7 +62,7 @@ def get_summary_data(db: Session, user_id: int = 1) -> dict[str, Any]:
     # 一次遍历 assets，区分负债与资产（暂不做汇率转换）
     total_liabilities = 0.0
     for a in assets:
-        amount = Money.cents_to_yuan(a.amount)  # 已是分，转元
+        amount = Money.cents_to_yuan(a.amount)
         if amount <= 0:
             continue
         if a.major_category == _LIABILITY_KEY:
@@ -80,7 +80,7 @@ def get_summary_data(db: Session, user_id: int = 1) -> dict[str, Any]:
 
 
 def get_sankey_data(db: Session, user_id: int = 1) -> dict[str, list[dict[str, Any]]]:
-    """返回桑基图数据（合并资产/负债，负债从总资产流出）"""
+    """返回桑基图数据（双流并行模型：资产流在上，负债流在下，无交叉）"""
     positions, assets = _load_user_assets(db, user_id)
 
     nodes: list[dict[str, Any]] = []
@@ -111,7 +111,7 @@ def get_sankey_data(db: Session, user_id: int = 1) -> dict[str, list[dict[str, A
     liability_details: list[tuple[str, float]] = []  # 收集负债项，避免二次遍历
 
     for a in assets:
-        amount = Money.cents_to_yuan(a.amount)  # 转元
+        amount = Money.cents_to_yuan(a.amount)
         if amount <= 0:
             continue
         if a.major_category == _LIABILITY_KEY:
@@ -197,12 +197,12 @@ def get_sankey_data(db: Session, user_id: int = 1) -> dict[str, list[dict[str, A
     # 负债分支（后添加，使其在净资产下方）
     if total_liabilities > 0:
         _add_node(_LIABILITY_NODE)
-        _add_link(_CENTER_NODE, _LIABILITY_NODE, total_liabilities)
-
-        # 具体负债项（直接使用第一次遍历时收集的明细）
+        # 1. 构建具体负债项
         for name, amount in liability_details:
             _add_node(name)
             _add_link(_LIABILITY_NODE, name, amount)
+        # 2. 【关键】建立总资产到总负债的连线
+        _add_link(_CENTER_NODE, _LIABILITY_NODE, total_liabilities)
 
     return {'nodes': nodes, 'links': links}
 
@@ -225,7 +225,7 @@ def get_account_groups(db: Session, user_id: int = 1) -> list[dict]:
     # 2. 处理通用资产 (负债取负)
     for a in assets:
         acc = a.account_name or '未指定账户'
-        amount = Money.cents_to_yuan(a.amount)  # 转元
+        amount = Money.cents_to_yuan(a.amount)
         if amount <= 0:
             continue
         if a.major_category == 'liability':

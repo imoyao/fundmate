@@ -1232,7 +1232,7 @@ const initSankeyChart = () => {
         nodeAlign: "justify",
         nodeGap: 18,
         nodeWidth: 20,
-        layoutIterations: 32,
+        layoutIterations: 0,
         silent: false
       }
     ]

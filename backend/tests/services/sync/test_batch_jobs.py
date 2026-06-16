@@ -81,8 +81,22 @@ class TestPriceHistoryBatch:
 
     def test_resume_after_interruption(self, job, db, securities):
         """断点续传：已存在的数据被跳过"""
-        db.add(PriceHistory(security_id=securities[0].id, trade_date=date(2025, 1, 1), close=100))
-        db.add(PriceHistory(security_id=securities[1].id, trade_date=date(2025, 1, 1), close=100))
+        db.add(
+            PriceHistory(
+                security_id=securities[0].id,
+                symbol=securities[0].symbol,  # 新增
+                trade_date=date(2025, 1, 1),
+                close=100,
+            )
+        )
+        db.add(
+            PriceHistory(
+                security_id=securities[1].id,
+                symbol=securities[1].symbol,  # 新增
+                trade_date=date(2025, 1, 1),
+                close=100,
+            )
+        )
         db.commit()
 
         job.adapter.fetch_stock_price.side_effect = lambda symbol, *a, **kw: _make_mock_price_data(symbol)

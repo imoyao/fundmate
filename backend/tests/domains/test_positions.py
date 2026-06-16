@@ -263,7 +263,7 @@ class TestTransactions:
         resp = _get(client, '/api/transactions/', {'time_range': '1m'})
         data = resp.get_json()['data']
         assert len(data) == 1
-        assert data[0]['trade_date'].startswith('2026-06-10')
+        assert data[0]['trade_date'] == recent_date
 
     def test_transactions_type_filter(self, client):
         _post(

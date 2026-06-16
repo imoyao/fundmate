@@ -120,3 +120,24 @@ def test_get_fund_nav_realtime_fetch(client, db):
     assert item['fund_code'] == '000001', f'未能获取到 {test_date} 的净值'
     assert item['unit_nav'] > 0, '获取到的净值必须大于 0'
     assert item['date'] == test_date.strftime('%Y-%m-%d')
+
+
+def test_safe_numeric_write_read(db):
+    """验证 SafeNumeric 写入和读取的精度"""
+    from datetime import date
+    from decimal import Decimal
+
+    from app.domains.funds.models import DailyWorth
+
+    dw = DailyWorth(
+        fund_code='000001',
+        date=date(2025, 1, 1),
+        unit_nav=Decimal('1.234567'),
+        acc_nav=Decimal('1.234567'),
+    )
+    db.add(dw)
+    db.commit()
+
+    dw_read = db.query(DailyWorth).filter_by(fund_code='000001', date=date(2025, 1, 1)).first()
+    assert dw_read.unit_nav == Decimal('1.234567')
+    assert dw_read.acc_nav == Decimal('1.234567')

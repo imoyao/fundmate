@@ -68,7 +68,14 @@ class TestPriceHistorySyncJob:
 
     def test_deduplicate_existing(self, job, db):
         """基于复合键 (security_id, trade_date) 去重"""
-        db.add(PriceHistory(security_id=1, trade_date=date(2025, 1, 1), close=10.0))
+        db.add(
+            PriceHistory(
+                security_id=1,
+                symbol='TEST1',  # 新增，任意非空字符串
+                trade_date=date(2025, 1, 1),
+                close=10.0,
+            )
+        )
         db.commit()
 
         data = [

@@ -6,10 +6,13 @@
 
 """数据库工具函数，如批量插入去重等"""
 
+from decimal import Decimal
 from typing import List
 
+from loguru import logger
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
+from sqlalchemy.types import Numeric, TypeDecorator
 
 
 def bulk_insert_if_not_exists(
@@ -62,3 +65,43 @@ def bulk_insert_if_not_exists(
 
     db.commit()
     return total_inserted
+
+
+class SafeNumeric(TypeDecorator):
+    """
+    Numeric 安全适配器。
+
+    - 写入时自动量化到指定位数
+    - 读取时绕过 Numeric 默认处理器，直接处理原始值（兼容 SQLite TEXT）
+    - 适用于所有数据库
+    """
+
+    impl = Numeric
+    cache_ok = True
+
+    def __init__(self, *arg, **kw):
+        super().__init__(*arg, **kw)
+        self.quantize_exp = -self.impl.scale
+        self.quantize_val = Decimal(10) ** self.quantize_exp
+
+    def process_bind_param(self, value, dialect):
+        """写入前量化到指定位数"""
+        if isinstance(value, Decimal) and value.as_tuple()[2] < self.quantize_exp:
+            value = value.quantize(self.quantize_val)
+        return value
+
+    def result_processor(self, dialect, coltype):
+        """返回自定义结果处理器，代替 Numeric 默认的 DecimalResultProcessor"""
+
+        def process(value):
+            if value is None:
+                return None
+            if isinstance(value, Decimal):
+                return value
+            try:
+                return Decimal(str(value))
+            except (ValueError, TypeError):
+                logger.warning(f'Invalid numeric value from DB: {value!r}')
+                return None
+
+        return process

@@ -20,6 +20,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base, PrimaryKeyMixin, TimestampMixin
+from app.core.db_utils import SafeNumeric
 
 
 class FundCompany(Base, PrimaryKeyMixin, TimestampMixin):
@@ -116,8 +117,8 @@ class DailyWorth(Base, PrimaryKeyMixin, TimestampMixin):
 
     fund_code = Column(String(6), ForeignKey('funds.fund_code'), nullable=False, comment='基金代码')
     date = Column(Date, nullable=False, comment='净值日期')
-    unit_nav = Column(Numeric(18, 6), comment='单位净值（元），精度6位小数')
-    acc_nav = Column(Numeric(18, 6), comment='累计净值（元），6位小数')
+    unit_nav = Column(SafeNumeric(18, 6), comment='单位净值（元），精度6位小数')
+    acc_nav = Column(SafeNumeric(18, 6), comment='累计净值（元），精度6位小数')
 
     fund = relationship('Fund', back_populates='daily_worth')
 

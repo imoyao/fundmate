@@ -15,31 +15,32 @@ class MockTransaction:
 class TestGenerateCashflows:
     def test_basic_buy_sell(self):
         txn = [
-            MockTransaction(dt.date(2025, 1, 1), BusinessType.BUY.code, 1000.0),
-            MockTransaction(dt.date(2025, 6, 1), BusinessType.SELL.code, 1200.0),
+            MockTransaction(dt.date(2025, 1, 1), BusinessType.BUY.code, 100000),  # 1000元 -> 100000分
+            MockTransaction(dt.date(2025, 6, 1), BusinessType.SELL.code, 120000),  # 1200元 -> 120000分
         ]
         cf = generate_cashflows(txn, current_value=0)
         assert len(cf) == 2
+        # 引擎会转回元，所以断言值仍是 -1000.0 / 1200.0
         assert cf[0] == (dt.date(2025, 1, 1), -1000.0)
         assert cf[1] == (dt.date(2025, 6, 1), 1200.0)
 
     def test_with_virtual_sale(self):
-        txn = [MockTransaction(dt.date(2025, 1, 1), BusinessType.BUY.code, 1000.0)]
-        cf = generate_cashflows(txn, current_value=1100.0)
+        txn = [MockTransaction(dt.date(2025, 1, 1), BusinessType.BUY.code, 100000)]
+        cf = generate_cashflows(txn, current_value=1100.0)  # current_value 仍是元
         assert len(cf) == 2
         assert cf[1] == (dt.date.today(), 1100.0)
 
     def test_skip_none_date(self):
-        txn = [MockTransaction(None, BusinessType.BUY.code, 500.0)]
+        txn = [MockTransaction(None, BusinessType.BUY.code, 50000)]  # 500元 -> 50000分
         cf = generate_cashflows(txn, current_value=0)
         assert len(cf) == 0
 
     def test_mixed_types(self):
         txn = [
-            MockTransaction(dt.date(2025, 1, 1), BusinessType.BUY.code, 1000),
-            MockTransaction(dt.date(2025, 2, 1), 'dividend_cash', 50),
-            MockTransaction(dt.date(2025, 3, 1), 'dividend_reinvest', 20),
-            MockTransaction(dt.date(2025, 4, 1), BusinessType.SELL.code, 500),
+            MockTransaction(dt.date(2025, 1, 1), BusinessType.BUY.code, 100000),
+            MockTransaction(dt.date(2025, 2, 1), 'dividend_cash', 5000),
+            MockTransaction(dt.date(2025, 3, 1), 'dividend_reinvest', 2000),
+            MockTransaction(dt.date(2025, 4, 1), BusinessType.SELL.code, 50000),
         ]
         cf = generate_cashflows(txn, current_value=0)
         assert cf == [
