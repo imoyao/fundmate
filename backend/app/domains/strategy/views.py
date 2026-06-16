@@ -12,6 +12,7 @@ from flask import abort, jsonify
 
 from app.core.constants import CURRENT_USER_ID, TYPE_LABELS
 from app.core.database import get_db
+from app.core.money import Money
 from app.domains.assets.models import Asset
 from app.domains.positions.models import Position
 from app.domains.strategy.models import PositionStrategyTag, StrategyTag
@@ -88,9 +89,9 @@ def get_strategy_overview():
                 'name': p.name,
                 'type': p.asset_type or p.type,
                 'type_label': TYPE_LABELS.get(p.asset_type or p.type, p.asset_type or p.type),
-                'quantity': p.quantity,
-                'current_price': p.current_price,
-                'avg_price': p.avg_price,
+                'quantity': Money.min_unit_to_shares(p.quantity),
+                'current_price': Money.cents_to_yuan(p.current_price),
+                'avg_price': Money.cents_to_yuan(p.avg_price),
                 'account_name': p.account_name,
             }
         )

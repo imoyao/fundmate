@@ -14,6 +14,8 @@ from __future__ import annotations
 import datetime as dt
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
+from app.core.money import Money
+
 if TYPE_CHECKING:
     from app.domains.transactions.models import Transaction  # 实际路径待确认
 
@@ -202,7 +204,7 @@ def generate_cashflows(
         if amount_raw is None:
             continue
         try:
-            amount = float(amount_raw)
+            amount = Money.cents_to_yuan(int(amount_raw))  # 分 → 元
         except (TypeError, ValueError):
             continue
 

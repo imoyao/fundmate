@@ -1,8 +1,8 @@
 # ShowBuy 项目需求规格说明书
 
-**版本**: v4.3
-**最后更新**: 2026-06-14
-**状态**: P1-12 投资组合与策略视图完成，账户管理重构完成，持仓管理增强（交易明细下钻、删除、费率编辑、批量迁移）；下一阶段 P1-20 定时任务或高优技术债务
+**版本**: v4.4
+**最后更新**: 2026-06-16
+**状态**: 金融精度改造完成，所有金额/份额统一采用整数分/最小单位存储；前端数据显示问题已修复；测试通过；技术债务已更新
 
 **核心原则**: 本项目为**个人使用、本地优先、完全合规**的投资记账工具。
 
@@ -12,6 +12,7 @@
 
 | 版本 | 日期 | 变更说明 |
 |------|------|---------|
+| v4.4 | 2026-06-16 | 金融精度改造完成：所有金额/价格字段改为Integer存储分（元×100），份额字段改为Integer存储最小单位（份×10000），净值字段改为Decimal(18,6)；新增`Money`精度转换工具类；改造全部写入/读取路径；数据迁移脚本；修复前端账户详情页显示异常（数据混合问题）；编写全链路精度测试；技术债务新增接口性能优化、`confirm_date`回填、`type`列空值等 |
 | v4.3 | 2026-06-14 | 持仓管理增强：交易明细下钻（行点击展开）、持仓删除（可选清理关联交易）、费率编辑（证券/基金类型折叠面板）、批量迁移端点（`POST /api/ledgers/{id}/migrations/`）；新增 `transactions.symbol` 字段作为不可更改快照；前端表格合并规范（名称/代码/类型复合列）；修复删除弹窗误删 Bug；测试用例补全（持仓交易明细、删除持仓、批量迁移）；更新进度总览、技术债务、决策记录与核心文件清单 |
 | v4.2 | 2026-06-14 | 账户管理重构：资金全景卡片（净资产/分类汇总/游离提示）、账户列表按类型分组、关联现金账户（`linked_cash_ledger_id`）及校验、删除保护（有持仓禁止删除）；引入 `CURRENT_USER_ID` 常量统一用户隔离、`LEDGER_TYPE_LABELS` 映射；视图函数错误响应标准化（`return jsonify`）；技术债务新增 overview 聚合性能风险、`fee_config` 重复逻辑；测试用例补全（关联现金、overview 等 46 个用例全通过） |
 | v4.1 | 2026-06-13 | P1-12 投资组合后端编码完成，策略视图上线（含标签管理、分组展示、负债过滤、浮点精度临时兜底）；策略标签 CRUD 与 overview 接口；组合详情页增加持仓明细、收益率自动加载、全量排序、账户关联选择与已关联组合标签展示；技术债务新增浮点精度、type 列空值、跨日划转过滤、Ledger views 重构；测试用例覆盖策略标签 10 个场景 |
@@ -114,6 +115,10 @@
 4. **业务计算层**：总资产、净值、盈亏、占比、图表汇总，**只使用 signed_amount**，前端禁止二次运算正负
 5. **界面展示层**：负债文本展示可用绝对值美化，颜色风险化区分，但不改变计算数据源
 
+## 2.11 金融数据精度强制规范（新增）
+
+> 所有直接关联用户资金的字段，必须使用整数存储分（最小货币单位）或最小份额单位，禁止使用 float/double。非资金类字段（如基金净值）使用 DECIMAL 精确存储。所有读写操作必须通过 `Money` 工具类进行单位转换，禁止在业务代码中直接进行乘除运算。
+
 # 3. 前端 UI 全局强制统一规范（根治样式杂乱、长期可维护）
 
 本章节为项目**UI 统一强制标准**，用于彻底解决页面丑陋、风格割裂、随意写样式、新旧页面不统一的问题，所有组件、页面、样式必须遵守。
@@ -161,7 +166,7 @@
 
 所有功能页面强制统一结构：页面标题+描述说明 → 筛选/操作区 → 核心卡片容器 → 表格/表单主体 → 底部操作按钮，杜绝结构混乱。
 
-## 3.8 持仓/资产列表通用展示规范（新增）
+## 3.8 持仓/资产列表通用展示规范
 
 - **复合列强制合并**：所有展示持仓或资产的表格，必须将“名称、代码、资产类型”合并为单一复合列。名称使用大号字体，代码使用小号灰色字体前缀 `#`，资产类型以标签形式内联展示。参照导入页 `Inventory.vue` 中的产品单元格样式。
 - **交易明细下钻规范**：持仓明细表格支持点击行展开关联交易记录，交易明细显示在表格下方的独立区域，形成主-从视图。
@@ -206,26 +211,32 @@
 
 核心存储用户股票、基金、ETF 持仓，记录成本、数量、配置目标、归属账户，是收益计算、配置分析的核心数据源。关键字段：symbol、name、market、asset_type、account_name、quantity、avg_price、current_price、confirm_date、allocation、snapshot 相关审计字段。
 
+**精度规范**（v4.4）：`quantity` 为 Integer，存储最小份额单位（份×10000）；`avg_price` 和 `current_price` 为 Integer，存储分（元×100）。所有读写通过 `Money` 工具类转换。
+
 ## 5.2 transactions 交易流水
 
 存储每一笔买入、卖出、分红、定投记录，保留 position_name、account_name 快照。新增 `symbol` 字段作为资产代码快照（不可更改），新增 `asset_type` 字段作为资产类型快照，用于过滤和统计。目的：持仓删除后，历史流水不丢失，保证复盘数据永久可追溯。
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| symbol | String(30) | **新增** — 资产代码快照，不可更改，用于关联查询和盈亏曲线 |
+| symbol | String(30) | 资产代码快照，不可更改，用于关联查询和盈亏曲线 |
 | asset_type | String(20) | 资产类型快照，用于过滤和统计 |
 | position_name | String(100) | 持仓名称快照 |
 | account_name | String(100) | 账户名称快照 |
 
-**快照设计原因**：持仓改名或删除后，历史交易记录仍能通过快照字段还原当时的资产信息，保证复盘数据永久可追溯。
+**精度规范**（v4.4）：`price`、`amount`、`fee` 为 Integer，存储分；`quantity` 为 Integer，存储最小份额单位。
 
 ## 5.3 assets 通用资产负债表
 
 承载全量非交易资产与负债，是资产全景视图的底层支撑。核心区分：amount（用户原始录入正数）、signed_amount（系统计算唯一统计字段）。负债统一归入此类，不进入持仓体系。
 
+**精度规范**（v4.4）：`amount` 为 Integer，存储分。
+
 ## 5.4 金融元数据体系
 
 securities、funds、fund_companies、managers、fund_managers、daily_worth 全套基础金融数据，支撑搜索、行情刷新、净值获取、持仓穿透。
+
+**精度规范**（v4.4）：`daily_worth.unit_nav` 和 `acc_nav` 改为 `DECIMAL(18,6)`，避免浮点误差。
 
 ## 5.5 自选关注体系
 
@@ -243,7 +254,7 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 
 ### 5.8.1 purchase_rules（申购费率规则）
 
-存储按金额区间的申购/认购费率阶梯。关键字段：start_quota（起始金额，包含）、end_quota（结束金额，不包含，NULL 表示正无穷）。
+存储按金额区间的申购/认购费率阶梯。关键字段：start_quota（起始金额，包含）、end_quota（结束金额，不包含，NULL 表示正无穷）。**精度规范**（v4.4）：`start_quota`、`end_quota` 为 Integer，存储分。
 
 ### 5.8.2 redeem_rules（赎回费率规则）
 
@@ -251,7 +262,7 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 
 ### 5.8.3 fee_ratios（基金费率关联表）
 
-关联基金与费率规则，存储具体费率值。关键字段：fund_code、fee_type（purchase/redeem/management）、rate（费率百分比）、fee_amount（固定金额，与 rate 互斥）、purchase_rule_id、redeem_rule_id。
+关联基金与费率规则，存储具体费率值。关键字段：fund_code、fee_type（purchase/redeem/management）、rate（费率百分比）、fee_amount（固定金额，与 rate 互斥）、purchase_rule_id、redeem_rule_id。**精度规范**（v4.4）：`rate` 改为 `DECIMAL(10,6)`，`fee_amount` 改为 Integer 存储分。
 
 **设计要点**：
 - 相同区间的规则被多只基金复用，减少冗余。
@@ -274,8 +285,8 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 | id | Integer | 主键 |
 | fund_code | String(6) | 基金代码 |
 | date | Date | 日期 |
-| nav_per_10k | Float | 万份收益（元） |
-| annual_return_7d | Float | 七日年化收益率（暂不计算） |
+| nav_per_10k | **Integer** | 万份收益（分） |
+| annual_return_7d | Float | 七日年化收益率（暂不计算），精度校验 round(value, 4) |
 
 **万份收益计算**：从 `xalpha.mfundinfo().price` 的累计净值反向计算 `(今日累计净值 - 昨日累计净值) × 10000`，四舍五入保留 4 位小数。
 
@@ -283,6 +294,8 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 - 货币基金无单位净值概念，与普通场外基金的数据结构完全不同。
 - 混合存储会导致字段语义混乱，影响后续收益率计算和统计。
 - 独立建表可复用普通基金的去重、分批写入等基础设施。
+-
+**精度规范**（v4.4）：`nav_per_10k` 改为 Integer 存储分。`annual_return_7d` 保留 Float，但写入前强制 `round(value, 4)` 控制精度。
 
 ## 5.11 投资组合 (Portfolio)（已实现）
 
@@ -389,7 +402,7 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 |---|---|---|
 |GET/POST|/api/positions/|持仓列表查询、新增持仓|
 |PATCH/DELETE|/api/positions/{id}/|更新、删除单条持仓（支持 `delete_transactions` 参数）|
-|**GET**|**/api/positions/{id}/transactions/**|**获取持仓的关联交易明细（新增）**|
+|**GET**|**/api/positions/{id}/transactions/**|**获取持仓的关联交易明细**|
 |GET|/api/transactions/|交易流水分页筛选查询|
 |GET/POST|/api/assets/|通用资产负债查询（支持 `exclude` 参数排除负债）、新增|
 |PATCH/DELETE|/api/assets/{id}/|更新、删除通用资产|
@@ -413,7 +426,7 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 |**GET**|**/api/portfolios/{id}/holdings/**|**组合持仓明细（聚合关联账户的 positions + assets）**|
 |PATCH|/api/ledgers/{id}/|更新账户时已支持设置 `portfolio_id`、`linked_cash_ledger_id`、`fee_config`|
 |**GET**|**/api/ledgers/overview/**|**账户资金全景（按类型分组市值、负债、净资产、已删除账户）**|
-|**POST**|**/api/ledgers/{id}/migrations/**|**批量迁移持仓到同类型目标账户（新增）**|
+|**POST**|**/api/ledgers/{id}/migrations/**|**批量迁移持仓到同类型目标账户**|
 |**GET/POST**|**/api/strategy/**|**策略标签列表、创建**|
 |**DELETE**|**/api/strategy/{id}/**|**删除策略标签（级联解绑）**|
 |**POST/DELETE**|**/api/strategy/{tag_id}/positions/{position_id}/**|**持仓绑定/解绑策略标签**|
@@ -422,7 +435,7 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 
 > 注：`/api/portfolios/{id}/summary/` 组合概览端点计划在 P2 实现，当前不提供。
 
-# 9. 项目四象限路线图 & 完整进度表（2026-06-14 更新）
+# 9. 项目四象限路线图 & 完整进度表（2026-06-16 更新）
 
 ## 9.1 四象限优先级定义（永久标准）
 
@@ -448,7 +461,7 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 | — | 元数据同步系统重构 | **✅ 已完成** | ⭐⭐⭐⭐⭐ | 🔴 | Ⅰ | 基类统一流程、分层更新、费率规则表、静默回填、人类可读摘要、货币基金独立表 |
 | **P1-09** | **基金交割单导入模板 + 解析器** | **🔄 核心完成，收尾完成** | ⭐⭐⭐⭐⭐ | 🔴 | Ⅰ | 天天基金解析器上线、支付宝解析器上线（含余额宝现金处理、基金代码自动匹配、净值自动填充）；同花顺股票解析器稳定；支付宝 PDF 解析器上线（支持跨页合并、净值计算）；基金代码匹配抽屉交互完成；前端组件轻量重构；净值获取服务已抽取为独立模块；导入预览页面增加净值自动填充和一键确认功能；持仓不足自动转为孤儿交易；腾讯理财通待后续支持 |
 | **P1-10** | **组合年化收益率计算（XIRR）** | **🔄 后端完成，前端仪表盘卡片上线** | ⭐⭐⭐⭐⭐ | 🟡 | Ⅱ | XIRR 计算引擎（pyxirr + 纯 Python 兜底）已上线，支持组合整体维度；`Transaction` 新增 `asset_type` 字段支持资产类型过滤；现金流规则已修正（排除 deposit/withdraw）；前端仪表盘年化收益率卡片已展示；持仓详情页单持仓 XIRR 前端延后 |
-| **P1-12** | **投资组合 (Portfolio) CRUD** | **🟡 后端编码完成，前端策略视图与账户管理上线，持仓管理增强** | ⭐⭐⭐⭐ | 🟢 | Ⅱ | Portfolio 模型/API/收益率计算已实现；策略视图支持标签分组分析；账户管理重构（资金全景卡片、按类型分组、关联现金账户、删除保护、批量迁移）；持仓管理增强（交易明细下钻、删除、费率编辑）；`transactions.symbol` 快照字段；剩余：浮点精度修复、type 列数据回填、跨日划转过滤 |
+| **P1-12** | **投资组合 (Portfolio) CRUD** | **🟡 后端编码完成，前端策略视图与账户管理上线，金融精度改造完成** | ⭐⭐⭐⭐ | 🟢 | Ⅱ | Portfolio 模型/API/收益率计算已实现；策略视图支持标签分组分析；账户管理重构（资金全景卡片、按类型分组、关联现金账户、删除保护、批量迁移）；金融精度改造（整数分存储）；`transactions.symbol` 快照字段；剩余：接口性能优化、type 列数据回填、跨日划转过滤 |
 | P1-20 | 定时任务体系 (APScheduler) | ⏸️ 未开始 | ⭐⭐⭐ | 🟢 | Ⅱ | 统一管理净值、行情、异动，以及孤儿交易自动回填 |
 | P1-08 | 特别关注页面功能增强 | 基础完成 | ⭐⭐⭐ | 🟢 | Ⅳ | 暂缓优化 |
 | P1-06 | 全局UI细节微调 | **✅ 已完成** | ⭐⭐ | 🟢 | Ⅳ | 永久停止投入 |
@@ -479,10 +492,10 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 | 导入模块（通用） | **95%** | 解析器架构稳定，事务安全加固，持仓不足自动转为孤儿交易 |
 | 简记弹窗 | 100% | 已测试通过 |
 | 手动记账（完整页面） | 0% | 全部待开发（P2-1） |
-| 仪表盘 | **75%** | 年化收益率卡片已上线；持仓分布可视化（P1-15）、按平台分组盈亏（P2-14） |
-| 数据基建 | 95% | 异步回填锁冲突已修复，数据库 WAL 模式启用，定时任务（P1-20）、指数行情同步 |
+| 仪表盘 | **85%** | 年化收益率卡片已上线；持仓分布可视化（P1-15）、按平台分组盈亏（P2-14） |
+| 数据基建 | **98%** | 金融精度改造完成，数据库 WAL 模式启用，定时任务（P1-20）、指数行情同步 |
 | 全局 UI | 90% | 移动端适配（远期） |
-| **投资组合** | **90%** | **后端与策略视图完成；账户管理重构完成；持仓管理增强完成；浮点精度修复、type 列数据回填、跨日划转过滤待处理** |
+| **投资组合** | **92%** | **后端与策略视图完成；账户管理重构完成；金融精度改造完成；接口性能优化、type 列数据回填、跨日划转过滤待处理** |
 
 # 10. 技术债务 & 开口项明细（可追溯）
 
@@ -506,12 +519,14 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 | 基金经理信息未同步 | 低 | `ak.fund_manager_em` 接口不稳定 | 调研替代方案，暂不实现 |
 | 指数行情同步不可用 | 低 | 新浪接口不支持指数代码 | 改用 `xa.indexinfo`，待实现 |
 | 全量同步时 `stock_list` / `fund_list` 需传入占位 `["__full__"]` | 低 | 重构遗留问题 | 后续优化为在 Job 中声明不需要 targets |
-| 组合收益计算未支持跨日划转识别 | 低 | 需要交易级时间戳 + 人工标记，MVP 仅支持同日配对 | 当用户反馈超过 5% 的 Portfolio 存在跨日划转需求时启动修复 (TD-P1-12-01) |
+| 组合收益计算未支持跨日划转识别 | 低 | 需要交易级时间戳 + 人工标记，MVP 仅支持同日配对 | 当用户反馈超过 5% 的 Portfolio 存在跨日划转需求时启动修复 |
 | Ledger views 代码为半成品 | 高 | `update_ledger` 中存在 `'key' in data` 检查不精确、部分逻辑耦合等问题 | **已于 v4.2 重构完成** |
-| **浮点精度导致金额、市值、盈亏出现多余小数位** | **高** | **`Position`/`Asset` 表使用 `Float` 存储数量、价格、金额；SQLite REAL 为 IEEE 754 双精度，乘除运算累积二进制误差** | **1. 将金额/数量/价格改为 `Integer` 存储分；2. 改造所有读写逻辑适配整数分；3. 历史数据迁移；4. 暂用 `round(×100)/100` 接口层兜底，待核心修复后移除** |
-| **`positions.type` 列存在 NULL/空值，导致组合持仓过滤不完整** | **高** | **部分导入解析器/手动录入未写入 `asset_type`** | **统一回填所有持仓的 `asset_type`，并修复所有写入入口，完成后移除临时关键词匹配逻辑** |
 | **`GET /api/ledgers/overview/` 全量加载聚合，大数据量时存在性能风险** | **中** | **全量查询 Position/Asset 后在应用层聚合，未使用数据库 SUM/GROUP BY** | **待持仓量破万时改为 SQL 聚合，同时迁移 `account_name` → `ledger_id`** |
 | **`fee_config` 处理逻辑在 `create_ledger` 和 `update_ledger` 中重复** | **低** | **两处对 fee_config 的序列化/验证逻辑相同，未抽取公共方法** | **下次重构时统一抽取为模型方法或服务函数** |
+| **`Transaction.confirm_date` 存在 NULL 值** | **高** | **写入源头未统一赋值** | **回填历史数据，修复所有写入入口** |
+| **`positions.type` 列存在 NULL/空值** | **高** | **部分导入解析器/手动录入未写入 `asset_type`** | **统一回填所有持仓的 `asset_type`，并修复所有写入入口，完成后移除临时关键词匹配逻辑** |
+| **账户详情页一次性请求过多全量接口** | **高** | **前端 `fetchData` 同时请求所有持仓、资产、交易，且 `per_page` 设置过大** | **改为按需加载，默认只请求当前账户数据，`per_page` 调小，账户列表仅在编辑时加载** |
+| **`daily_worth.unit_nav` 和 `acc_nav` 改为 DECIMAL(18,6)** | **中** | **xalpha 返回值需用 Decimal 解析，避免 float 中转** | **本次已完成模型修改，需同步改造元数据同步系统以 Decimal 写入** |
 
 # 11. 远期 IDEAS 归档明细（不参与当前迭代）
 
@@ -527,6 +542,9 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 
 | 决策日期 | 决策主题 | 完整决策细节 |
 |---------|---------|-------------|
+| 2026-06-15 | 金融数据存储精度方案（最终决策） | 所有直接关联用户资金的字段（金额、份额）采用整数存储分（×100）或最小份额单位（×10000）。基金净值改为 DECIMAL(18,6)。所有读写通过 `Money` 工具类统一转换，禁止业务代码直接乘除。详细变更见 5.1-5.10 节。 |
+| 2026-06-15 | 前端数据异常根因 | `LedgerDetail.vue` 中 `fetchData` 自行计算市值（`marketValue = quantity * current_price`），而后端 `_enrich_position_dict` 已将单位转为元/份额。数据库新旧数据混合导致前端计算结果异常。最终通过彻底统一数据库数据（执行二次迁移）解决。 |
+| 2026-06-15 | XIRR 计算适配精度改造 | `generate_cashflows` 和 `generate_portfolio_cashflows` 中读取 `Transaction.amount` 时用 `Money.cents_to_yuan` 转换，`calculators.py` 中所有持仓市值计算统一使用 Money 工具类。 |
 | 2026-06-14 | 新增 `transactions.symbol` 快照字段 | 在 Transaction 表中新增 `symbol` 列作为资产代码的不可更改快照，用于关联查询和盈亏曲线生成。与 `position_name`、`account_name` 同为快照设计模式。 |
 | 2026-06-14 | 持仓/资产列表通用展示规范 | 所有展示持仓或资产的表格，必须将“名称、代码、资产类型”合并为单一复合列。名称大字体，代码小字灰色前缀 `#`，类型标签内联。参照导入页 `Inventory.vue` 的产品单元格样式。 |
 | 2026-06-14 | 批量迁移持仓端点设计 | 采用 `POST /api/ledgers/{id}/migrations/` 嵌套资源端点，目标账户 ID 放在请求体。限定同类型账户迁移，防止数据混乱。 |
@@ -581,9 +599,9 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 # 13. 断点续传协议
 
 后续任何会话接续开发，只需携带：
-1. 本完整 SPEC 文档（v4.3）
-2. 当前进度一句话，如："P1-12 投资组合与策略视图完成，账户管理重构完成，持仓管理增强完成；下一阶段 P1-20 定时任务或修复高优技术债务"
-3. 核心文件清单（更新于 2026-06-14）：
+1. 本完整 SPEC 文档（v4.4）
+2. 当前进度一句话，如："金融精度改造完成，P1-12 投资组合与策略视图完成，账户管理重构完成；下一阶段接口性能优化或 P1-20 定时任务"
+3. 核心文件清单（更新于 2026-06-16）：
 
 | 文件路径 | 作用说明 |
 |---------|---------|
@@ -593,26 +611,27 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 | `backend/app/core/time_utils.py` | 统一时区工具（上海时区） |
 | `backend/app/core/db_utils.py` | 批量插入去重工具（含 bulk_insert_if_not_exists） |
 | `backend/app/core/constants.py` | 全局常量（TYPE_LABELS、ALLOCATION_LABELS、CURRENT_USER_ID、LEDGER_TYPE_LABELS 等） |
-| `backend/app/services/importer/orchestrator.py` | 导入协调器（含 asset_type 写入和货币基金识别） |
+| **`backend/app/core/money.py`** | **金融精度转换工具类（元↔分、份额↔最小单位）** |
+| `backend/app/services/importer/orchestrator.py` | 导入协调器（含 asset_type 写入和货币基金识别，已适配 Money 转换） |
 | `backend/app/services/importer/parsers/alipay_fund.py` | 支付宝交易记录解析器 |
 | `backend/app/services/importer/parsers/alipay_pdf.py` | 支付宝基金交易 PDF 解析器 |
 | `backend/app/services/importer/parsers/tiantian_fund.py` | 天天基金交易记录解析器 |
 | `backend/app/services/importer/registry.py` | 解析器注册表 |
 | `backend/app/services/fund_data_service.py` | 基金数据服务：批量获取净值、实时拉取并存入数据库 |
-| `backend/app/domains/positions/views.py` | 持仓核心业务接口（含交易明细查询、删除含级联清理交易） |
+| `backend/app/domains/positions/views.py` | 持仓核心业务接口（含交易明细查询、删除含级联清理交易，已适配 Money 读取转换） |
 | `backend/app/domains/positions/schemas.py` | 持仓 Schema 定义 |
-| `backend/app/services/position_service.py` | 持仓业务逻辑服务层（含持仓不足转孤儿交易、confirm_date 写入） |
-| `backend/app/domains/transactions/models.py` | 交易流水模型（新增 `symbol` 快照字段） |
+| **`backend/app/services/position_service.py`** | **持仓业务逻辑服务层（含持仓不足转孤儿交易、confirm_date 写入，已适配 Money 写入转换）** |
+| `backend/app/domains/transactions/models.py` | 交易流水模型（新增 `symbol` 快照字段，金额/份额字段改为 Integer） |
 | `backend/app/domains/ledgers/models.py` | Ledger 模型定义（新增 portfolio_id、linked_cash_ledger_id 字段） |
-| `backend/app/domains/ledgers/views.py` | Ledger API（已重构，支持 portfolio_id、linked_cash_ledger_id 读写，增加删除保护、overview 接口、批量迁移端点） |
-| `backend/app/domains/assets/views.py` | 资产 API（支持 exclude 参数排除负债） |
+| `backend/app/domains/ledgers/views.py` | Ledger API（已重构，支持 portfolio_id、linked_cash_ledger_id 读写，增加删除保护、overview 接口、批量迁移端点，已适配 Money 转换） |
+| `backend/app/domains/assets/views.py` | 资产 API（支持 exclude 参数排除负债，已适配 Money 转换） |
 | `backend/app/domains/utils/views.py` | 交易日校验与基金确认日 API |
 | `backend/app/core/utils.py` | 通用工具函数 |
 | `backend/app/services/sync/` | 元数据同步系统（适配器、Job、Orchestrator） |
 | `backend/app/services/sync/money_fund_utils.py` | 货币基金万份收益计算 |
 | `backend/app/services/async_backfill.py` | 静默历史数据回填（修复锁冲突） |
 | `backend/app/tools/sync_metadata.py` | 元数据同步 CLI 入口 |
-| `backend/app/domains/funds/models.py` | 基金、费率规则、净值、货币基金净值等模型 |
+| `backend/app/domains/funds/models.py` | 基金、费率规则、净值、货币基金净值等模型（金额/净值字段已适配精度改造） |
 | `backend/app/domains/funds/views.py` | 基金 API：净值批量查询接口（响应重构为数组） |
 | `backend/app/domains/funds/schemas.py` | 基金请求 Schema |
 | `backend/app/domains/securities/models.py` | 证券模型 |
@@ -620,15 +639,15 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 | `backend/app/models/sync_log.py` | 同步审计日志模型 |
 | `backend/app/services/performance/__init__.py` | 年化收益率服务模块导出 |
 | `backend/app/services/performance/constants.py` | XIRR 计算共享常量 |
-| `backend/app/services/performance/xirr_engine.py` | XIRR 核心算法、现金流生成、组合现金流生成与内部划转过滤 |
-| `backend/app/services/performance/calculators.py` | 单持仓/组合/指定组合年化收益率计算器 |
+| `backend/app/services/performance/xirr_engine.py` | XIRR 核心算法、现金流生成、组合现金流生成与内部划转过滤（已适配 Money 转换） |
+| `backend/app/services/performance/calculators.py` | 单持仓/组合/指定组合年化收益率计算器（已适配 Money 转换） |
 | `backend/app/domains/performance/views.py` | 年化收益率 API 端点（扩展 portfolio_id 参数） |
 | `backend/app/domains/performance/schemas.py` | 请求/响应 Schema |
 | `backend/app/domains/portfolios/models.py` | 投资组合数据模型 |
-| `backend/app/domains/portfolios/views.py` | 投资组合 CRUD API（含软删除自动解绑、持仓明细） |
+| `backend/app/domains/portfolios/views.py` | 投资组合 CRUD API（含软删除自动解绑、持仓明细，已适配 Money 转换） |
 | `backend/app/domains/portfolios/schemas.py` | 投资组合请求/响应 Schema |
 | `backend/app/domains/strategy/models.py` | 策略标签模型（StrategyTag、PositionStrategyTag） |
-| `backend/app/domains/strategy/views.py` | 策略标签 CRUD、绑定/解绑、relations、overview 接口 |
+| `backend/app/domains/strategy/views.py` | 策略标签 CRUD、绑定/解绑、relations、overview 接口（已适配 Money 转换） |
 | `backend/app/domains/strategy/schemas.py` | 策略标签请求/响应 Schema |
 | `frontend/src/components/QuickEntry/TransactionDrawer.vue` | 简记弹窗（抽屉）组件 |
 | `frontend/src/views/asset/investment/import/index.vue` | 导入工作台（含支付宝 PDF 选项） |
@@ -656,6 +675,8 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 | `tests/domains/test_strategy.py` | 策略标签 API 测试（10 个用例覆盖 CRUD、绑定/解绑、relations、overview） |
 | `tests/domains/test_ledgers.py` | Ledger API 测试（46 个用例，覆盖 CRUD、配置目标标签、持仓归入、fee_config、关联现金账户、overview、批量迁移） |
 | `tests/domains/test_positions.py` | 持仓 API 测试（26 个用例，覆盖 CRUD、交易明细查询、删除含级联清理交易） |
+| **`tests/core/test_money.py`** | **Money 工具类精度测试（30 个用例）** |
+| **`tests/domains/test_e2e_precision.py`** | **全链路精度验证测试** |
 
 4. 最新的报错截图或要解决的具体问题
 

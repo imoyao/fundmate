@@ -1,5 +1,6 @@
 from datetime import date
 
+from app.core.money import Money
 from app.domains.ledgers.models import Ledger
 from app.domains.portfolios.models import Portfolio
 from app.domains.positions.models import Position
@@ -32,9 +33,9 @@ def test_portfolio_holdings_with_position(client, db):
         asset_type='stock',
         account_name='测试账户',
         market='CN_A',
-        quantity=100,
-        avg_price=10.0,
-        current_price=12.0,
+        quantity=Money.shares_to_min_unit(100),
+        avg_price=Money.yuan_to_cents(10.0),
+        current_price=Money.yuan_to_cents(12.0),
         confirm_date=date.today(),
     )
     db.add(position)

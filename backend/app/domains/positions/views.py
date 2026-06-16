@@ -11,6 +11,7 @@ from flask import abort, jsonify, request
 
 from app.core.constants import ALLOCATION_LABELS, MARKET_LABELS, TYPE_LABELS
 from app.core.database import get_db
+from app.core.money import Money
 from app.core.utils import paginate
 from app.domains.positions.models import Position
 from app.domains.positions.schemas import PositionCreate, PositionOut, PositionUpdate
@@ -21,13 +22,16 @@ bp = APIBlueprint('positions', __name__, url_prefix='/api/positions/')
 
 
 def _enrich_position_dict(p: Position) -> dict:
-    """为持仓对象生成附带标签的字典."""
     if not p.market:
-        p.market = 'UNKNOWN'  # 兜底，防止验证错误
+        p.market = 'UNKNOWN'
     d = PositionOut.model_validate(p).model_dump()
     d['type_label'] = TYPE_LABELS.get(p.asset_type, p.asset_type)
     d['market_label'] = MARKET_LABELS.get(p.market, p.market)
     d['allocation_label'] = ALLOCATION_LABELS.get(p.allocation, p.allocation or '未分类')
+    # 转换内部单位到展示单位
+    d['quantity'] = Money.min_unit_to_shares(p.quantity)
+    d['avg_price'] = Money.cents_to_yuan(p.avg_price)
+    d['current_price'] = Money.cents_to_yuan(p.current_price)
     return d
 
 
@@ -60,10 +64,10 @@ def list_positions():
                         'market_label': MARKET_LABELS.get(p.market, p.market),
                         'allocation': p.allocation,
                         'allocation_label': ALLOCATION_LABELS.get(p.allocation, p.allocation or '未分类'),
-                        'quantity': p.quantity,
-                        'avg_price': p.avg_price,
+                        'quantity': Money.min_unit_to_shares(p.quantity),
+                        'avg_price': Money.cents_to_yuan(p.avg_price),
                         'currency': p.currency,
-                        'current_price': p.current_price,
+                        'current_price': Money.cents_to_yuan(p.current_price),
                     }
                 )
             return jsonify({'data': result, 'message': 'ok'})
@@ -106,9 +110,9 @@ def get_position_transactions(id: int):
                     'id': t.id,
                     'trade_date': display_date.isoformat() if display_date else None,
                     'txn_type': t.txn_type,
-                    'quantity': t.quantity,
-                    'price': t.price,
-                    'amount': t.amount,
+                    'quantity': Money.min_unit_to_shares(t.quantity),
+                    'price': Money.cents_to_yuan(t.price),
+                    'amount': Money.cents_to_yuan(t.amount),
                     'notes': t.notes,
                 }
             )
@@ -165,16 +169,18 @@ def create_position(json_data):
 @bp.patch('/<int:id>/')
 @bp.input(PositionUpdate)
 def update_position(id, json_data):
-    """使用 PATCH 语义仅更新修改过的字段 (例如 current_price)."""
     with get_db() as db:
         position = db.query(Position).filter_by(id=id).first()
         if not position:
             abort(404, description='Position not found')
 
-        # model_dump(exclude_unset=True) 仅返回用户实际发送的字段
-        # 例如，用户仅提供 {"current_price": 160.5}，则返回 {"current_price": 160.5}
         update_data = json_data.model_dump(exclude_unset=True)
         for field, value in update_data.items():
+            # 金额/份额字段转换为内部单位
+            if field in ('current_price', 'avg_price'):
+                value = Money.yuan_to_cents(value)
+            elif field == 'quantity':
+                value = Money.shares_to_min_unit(value)
             setattr(position, field, value)
 
         db.commit()

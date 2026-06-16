@@ -14,6 +14,7 @@ from loguru import logger
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.core.money import Money
 from app.domains.funds.models import DailyWorth
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
@@ -58,11 +59,9 @@ def _get_stock_latest_price(db: Session, symbol: str) -> float:
 
 
 def _batch_get_position_values(db: Session, positions: List[Position]) -> Dict[int, float]:
-    """批量计算多个持仓的当前市值，避免 N+1 查询"""
     fund_codes = [p.symbol for p in positions if p.asset_type == 'fund' and p.symbol]
     stock_symbols = [p.symbol for p in positions if p.asset_type in ('stock', 'etf') and p.symbol]
 
-    # 批量查询基金最新净值（保持不变）
     fund_nav_map: Dict[str, float] = {}
     if fund_codes:
         latest = (
@@ -78,10 +77,8 @@ def _batch_get_position_values(db: Session, positions: List[Position]) -> Dict[i
         )
         fund_nav_map = {code: float(nav) for code, nav in results if nav}
 
-    # 批量查询股票最新价格（通过 Security 表获取 security_id）
     stock_price_map: Dict[str, float] = {}
     if stock_symbols:
-        # 获取 symbol -> security_id 映射
         sec_map = {
             sec.symbol: sec.id
             for sec in db.query(Security.symbol, Security.id).filter(Security.symbol.in_(stock_symbols)).all()
@@ -102,43 +99,41 @@ def _batch_get_position_values(db: Session, positions: List[Position]) -> Dict[i
                 )
                 .all()
             )
-            # 将 security_id 转换回 symbol
             id_to_price = {sid: float(price) for sid, price in results if price}
             for symbol, sid in sec_map.items():
                 if sid in id_to_price:
                     stock_price_map[symbol] = id_to_price[sid]
 
-    # 计算每个持仓的市值
     value_map: Dict[int, float] = {}
     for pos in positions:
-        unit_price = 0.0
+        # 将内部单位转为元 / 份
+        shares = Money.min_unit_to_shares(pos.quantity)
+
         if pos.asset_type == 'fund' and pos.symbol:
-            unit_price = fund_nav_map.get(pos.symbol, 0.0)
+            unit_price = fund_nav_map.get(pos.symbol, 0.0)  # 净值已是元
         elif pos.asset_type in ('stock', 'etf') and pos.symbol:
             unit_price = stock_price_map.get(pos.symbol, 0.0)
         else:
-            unit_price = float(pos.current_price) if pos.current_price else 0.0
+            unit_price = Money.cents_to_yuan(pos.current_price) if pos.current_price else 0.0
 
-        value_map[pos.id] = float(pos.quantity) * unit_price if unit_price > 1e-8 else 0.0
+        value_map[pos.id] = shares * unit_price if unit_price > 1e-8 else 0.0
 
     return value_map
 
 
 def _get_position_current_value(db: Session, position: Position) -> float:
-    """获取单个持仓的当前市值"""
-    unit_price = 0.0
+    shares = Money.min_unit_to_shares(position.quantity)
+
     if position.asset_type == 'fund' and position.symbol:
         unit_price = _get_fund_latest_nav(db, position.symbol)
     elif position.asset_type in ('stock', 'etf') and position.symbol:
         unit_price = _get_stock_latest_price(db, position.symbol)
     else:
-        unit_price = float(position.current_price) if position.current_price else 0.0
-        if unit_price > 0:
-            logger.debug(f'使用持仓表兜底价格: symbol={position.symbol}, price={unit_price}')
+        unit_price = Money.cents_to_yuan(position.current_price) if position.current_price else 0.0
 
     if unit_price <= 1e-8:
         return 0.0
-    return float(position.quantity) * unit_price
+    return shares * unit_price
 
 
 def _calculate_xirr_for_cashflows(

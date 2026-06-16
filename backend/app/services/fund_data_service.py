@@ -19,21 +19,21 @@ from app.domains.funds.models import DailyWorth
 from app.services.sync.adapters.xalpha_adapter import XalphaAdapter
 
 
-def _fetch_one_nav(fund_code: str, target_date: date) -> Optional[float]:
+def _fetch_one_nav(fund_code: str, target_date: date) -> Optional[Decimal]:
     """
     纯函数：通过 XalphaAdapter 拉取单只基金指定日期的单位净值。
-    不接触数据库。
+    直接返回 Decimal，避免 float 中转。
     """
     adapter = XalphaAdapter()
     result = adapter.fetch_fund_nav_by_date(fund_code, target_date)
-    logger.info(f'拉取 {fund_code} 在 {target_date} 的净值: {result}')  # 临时调试
-    return result
+    if result is None:
+        return None
+    return Decimal(str(result))
 
 
-def _persist_navs(nav_map: Dict[str, float], target_date: date) -> None:
+def _persist_navs(nav_map: Dict[str, Decimal], target_date: date) -> None:
     """
     独立会话持久化：已存在则更新净值，不存在则插入。
-    数据库已有 (fund_code, date) 唯一约束，此逻辑安全。
     """
     with SessionLocal() as db:
         try:
@@ -78,16 +78,19 @@ def get_fund_nav_map(db: Session, symbols: List[str], target_date: date) -> Dict
         .filter(DailyWorth.fund_code.in_(symbols), DailyWorth.date == target_date)
         .all()
     )
-    nav_map: Dict[str, Decimal] = {code: Decimal(str(nav)) for code, nav in nav_records if nav and nav > 0}
+    nav_map: Dict[str, Decimal] = {}
+    for code, nav in nav_records:
+        if nav is not None and nav > 0:
+            nav_map[code] = Decimal(str(nav))
 
     # 2. 检查缺失
     missing_codes = [s for s in symbols if s not in nav_map]
     if not missing_codes:
         return nav_map
 
-    # 3. 并发实时拉取（线程安全，XalphaAdapter 不再触碰全局 xalpha 配置）
+    # 3. 并发实时拉取
     logger.info(f'数据库中无净值，尝试实时拉取: {missing_codes}')
-    fetched: Dict[str, float] = {}
+    fetched: Dict[str, Decimal] = {}
     with ThreadPoolExecutor(max_workers=5) as executor:
         futures = {executor.submit(_fetch_one_nav, code, target_date): code for code in missing_codes}
         for future in as_completed(futures):
@@ -104,7 +107,5 @@ def get_fund_nav_map(db: Session, symbols: List[str], target_date: date) -> Dict
         _persist_navs(fetched, target_date)
 
     # 5. 合并返回
-    for code, nav_val in fetched.items():
-        nav_map[code] = Decimal(str(nav_val))
-
+    nav_map.update(fetched)
     return nav_map

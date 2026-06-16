@@ -7,7 +7,7 @@ import type {
   PositionUpdate
 } from "./types";
 
-const BASE_URL = "/api/positions";
+const BASE_URL = "/api/positions/";
 
 /** 获取所有持仓记录 */
 export function getPositions(params?: Record<string, any>) {

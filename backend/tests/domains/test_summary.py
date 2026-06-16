@@ -3,6 +3,7 @@
 # Date : 2026/5/11 22:01
 # File : test_summary.py
 
+from app.core.money import Money
 from app.domains.assets.models import Asset
 from app.domains.positions.models import Position
 from tests.domains.test_positions import _post
@@ -141,9 +142,9 @@ class TestSankeyEndpoint:
             name='贵州茅台',
             market='SH',
             asset_type='stock',
-            quantity=100,
-            avg_price=1600.0,
-            current_price=1800.0,
+            quantity=Money.shares_to_min_unit(100),
+            avg_price=Money.yuan_to_cents(1600.0),
+            current_price=Money.yuan_to_cents(1800.0),
             currency='CNY',
             allocation='longterm',
         )
@@ -173,8 +174,16 @@ class TestSankeyEndpoint:
 
     def test_only_assets_no_positions(self, client, db):
         """仅有通用资产数据，投资理财分支消失，负债分支正常"""
-        house = Asset(user_id=1, major_category='fixed', name='阳光花园', amount=5_000_000, currency='CNY')
-        credit = Asset(user_id=1, major_category='liability', name='招商银行信用卡', amount=5000, currency='CNY')
+        house = Asset(
+            user_id=1, major_category='fixed', name='阳光花园', amount=Money.yuan_to_cents(5_000_000), currency='CNY'
+        )
+        credit = Asset(
+            user_id=1,
+            major_category='liability',
+            name='招商银行信用卡',
+            amount=Money.yuan_to_cents(5000),
+            currency='CNY',
+        )
         db.add_all([house, credit])
         db.commit()
 
@@ -205,9 +214,9 @@ class TestSankeyEndpoint:
             name='茅台',
             market='SH',
             asset_type='stock',
-            quantity=50,
-            avg_price=1600,
-            current_price=1800,
+            quantity=Money.shares_to_min_unit(50),
+            avg_price=Money.yuan_to_cents(1600),
+            current_price=Money.yuan_to_cents(1800),
             currency='CNY',
             allocation='longterm',
         )
@@ -216,16 +225,20 @@ class TestSankeyEndpoint:
             name='某基金',
             market='SZ',
             asset_type='fund',
-            quantity=1000,
-            avg_price=1.5,
-            current_price=1.8,
+            quantity=Money.shares_to_min_unit(1000),
+            avg_price=Money.yuan_to_cents(1.5),
+            current_price=Money.yuan_to_cents(1.8),
             currency='CNY',
             allocation='stable',
         )
         db.add_all([stock, fund])
 
-        cash = Asset(user_id=1, major_category='cash', name='活期存款', amount=200_000, currency='CNY')
-        mortgage = Asset(user_id=1, major_category='liability', name='房屋贷款', amount=100_000, currency='CNY')
+        cash = Asset(
+            user_id=1, major_category='cash', name='活期存款', amount=Money.yuan_to_cents(200_000), currency='CNY'
+        )
+        mortgage = Asset(
+            user_id=1, major_category='liability', name='房屋贷款', amount=Money.yuan_to_cents(100_000), currency='CNY'
+        )
         db.add_all([cash, mortgage])
         db.commit()
 
@@ -265,9 +278,9 @@ class TestSankeyEndpoint:
             name='腾讯控股',
             market='HK',
             asset_type='stock',
-            quantity=100,
-            avg_price=300,
-            current_price=350,
+            quantity=Money.shares_to_min_unit(100),
+            avg_price=Money.yuan_to_cents(300),
+            current_price=Money.yuan_to_cents(350),
             currency='HKD',
         )
         db.add(pos)
@@ -284,8 +297,20 @@ class TestSankeyEndpoint:
 
     def test_node_deduplication(self, client, db):
         """重复节点名称不重复添加"""
-        p1 = Position(symbol='A', name='股A', asset_type='stock', quantity=1, current_price=10)
-        p2 = Position(symbol='B', name='股B', asset_type='stock', quantity=1, current_price=20)
+        p1 = Position(
+            symbol='A',
+            name='股A',
+            asset_type='stock',
+            quantity=Money.shares_to_min_unit(1),
+            current_price=Money.yuan_to_cents(10),
+        )
+        p2 = Position(
+            symbol='B',
+            name='股B',
+            asset_type='stock',
+            quantity=Money.shares_to_min_unit(1),
+            current_price=Money.yuan_to_cents(20),
+        )
         db.add_all([p1, p2])
         db.commit()
 
@@ -299,8 +324,8 @@ class TestSankeyEndpoint:
     def test_aggregation_by_category(self, client, db):
         """同一大类多条资产正确聚合"""
         # 两条流动资金
-        a1 = Asset(user_id=1, major_category='cash', name='银行卡A', amount=10000, currency='CNY')
-        a2 = Asset(user_id=1, major_category='cash', name='银行卡B', amount=20000, currency='CNY')
+        a1 = Asset(user_id=1, major_category='cash', name='银行卡A', amount=Money.yuan_to_cents(10000), currency='CNY')
+        a2 = Asset(user_id=1, major_category='cash', name='银行卡B', amount=Money.yuan_to_cents(20000), currency='CNY')
         db.add_all([a1, a2])
         db.commit()
 
@@ -319,15 +344,17 @@ class TestSankeyEndpoint:
             name='茅台',
             market='SH',
             asset_type='stock',
-            quantity=10,
-            avg_price=1000,
-            current_price=2000,
+            quantity=Money.shares_to_min_unit(10),
+            avg_price=Money.yuan_to_cents(1000),
+            current_price=Money.yuan_to_cents(2000),
             currency='CNY',
             allocation='speculative',
         )
         db.add(pos)
         # 负债
-        liability = Asset(user_id=1, major_category='liability', name='花呗', amount=5000, currency='CNY')
+        liability = Asset(
+            user_id=1, major_category='liability', name='花呗', amount=Money.yuan_to_cents(5000), currency='CNY'
+        )
         db.add(liability)
         db.commit()
 
@@ -342,7 +369,9 @@ class TestSankeyEndpoint:
 
     def test_zero_value_assets_ignored(self, client, db):
         """金额为 0 的资产不参与桑基图"""
-        zero_asset = Asset(user_id=1, major_category='cash', name='空账户', amount=0, currency='CNY')
+        zero_asset = Asset(
+            user_id=1, major_category='cash', name='空账户', amount=Money.yuan_to_cents(0), currency='CNY'
+        )
         db.add(zero_asset)
         db.commit()
 

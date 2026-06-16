@@ -4,6 +4,9 @@
 # File : test_ledgers.py
 """测试资金容器 CRUD"""
 
+from datetime import date
+
+from app.core.money import Money
 from app.domains.assets.models import Asset
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
@@ -538,19 +541,30 @@ class TestLedgerOverview:
             market='CN_A',
             asset_type='stock',
             account_name='华泰证券',
-            quantity=1000,
-            avg_price=10,
-            current_price=12,
+            quantity=Money.shares_to_min_unit(1000),
+            avg_price=Money.yuan_to_cents(10.0),
+            current_price=Money.yuan_to_cents(12.0),
+            confirm_date=date.today(),
         )
         db.add(pos)
         # 创建现金持仓（通过资产表）
         asset_cash = Asset(
-            user_id=1, major_category='cash', name='储蓄', amount=50000, account_name='招商银行', currency='CNY'
+            user_id=1,
+            major_category='cash',
+            name='储蓄',
+            amount=Money.yuan_to_cents(50000),
+            account_name='招商银行',
+            currency='CNY',
         )
         db.add(asset_cash)
         # 负债
         asset_liability = Asset(
-            user_id=1, major_category='liability', name='房贷', amount=300000, account_name='招商银行', currency='CNY'
+            user_id=1,
+            major_category='liability',
+            name='房贷',
+            amount=Money.yuan_to_cents(300000),
+            account_name='招商银行',
+            currency='CNY',
         )
         db.add(asset_liability)
         db.commit()
@@ -586,9 +600,9 @@ class TestLedgerOverview:
             market='CN_A',
             asset_type='stock',
             account_name='已删证券',
-            quantity=500,
-            avg_price=8,
-            current_price=10,
+            quantity=Money.shares_to_min_unit(500),
+            avg_price=Money.yuan_to_cents(8.0),
+            current_price=Money.yuan_to_cents(10.0),
         )
         db.add(pos)
         db.commit()

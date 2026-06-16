@@ -18,6 +18,9 @@ from loguru import logger
 from app.core.database import SessionLocal
 from app.core.db_utils import bulk_insert_if_not_exists
 from app.domains.funds.models import DailyWorth, MoneyFundDailyWorth
+from app.domains.price_history.models import PriceHistory
+from app.domains.securities.models import Security
+from app.services.sync.adapters.akshare_adapter import AkshareAdapter
 from app.services.sync.adapters.xalpha_adapter import XalphaAdapter
 from app.services.sync.money_fund_utils import compute_money_fund_yields
 
@@ -89,38 +92,34 @@ def _backfill_fund_nav(fund_code: str):
 
 
 def _backfill_stock_price(symbol: str):
-    """
-    回填单只股票的全部历史行情。
-    此函数在线程中运行，所有异常被静默处理。
-    """
-    from app.core.database import SessionLocal
-    from app.domains.price_history.models import PriceHistory
-    from app.domains.securities.models import Security
-    from app.services.sync.adapters.akshare_adapter import AkshareAdapter
-
     db = SessionLocal()
     try:
-        # 查找 security_id
         sec = db.query(Security).filter(Security.symbol == symbol).first()
         if not sec:
             return
+        security_id = sec.id
+        stock_symbol = sec.symbol
 
         adapter = AkshareAdapter()
         records = adapter.fetch_stock_price(symbol)
         if not isinstance(records, list) or not records:
             return
 
-        # 关联 security_id 并去重
+        allowed_columns = {c.name for c in PriceHistory.__table__.columns}
+        clean_records = []
         for r in records:
-            r['security_id'] = sec.id
+            r['security_id'] = security_id
+            r['symbol'] = stock_symbol
+            filtered = {k: v for k, v in r.items() if k in allowed_columns}
+            clean_records.append(filtered)
 
-        if records:
+        if clean_records:
             total = bulk_insert_if_not_exists(
                 db,
                 PriceHistory,
-                records,
-                unique_key='security_id',
-                unique_columns=['security_id', 'trade_date'],
+                clean_records,
+                unique_key='symbol',
+                unique_columns=['symbol', 'trade_date'],
             )
             logger.info(f'异步回填股票 {symbol} 行情 {total} 条')
     except Exception as e:

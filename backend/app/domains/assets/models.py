@@ -7,7 +7,7 @@
 
 from datetime import date, datetime
 
-from sqlalchemy import JSON, Date, DateTime, Float, Integer, String, func
+from sqlalchemy import JSON, Date, DateTime, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -37,7 +37,7 @@ class Asset(Base):
 
     # 基本描述
     name: Mapped[str] = mapped_column(String(200), comment='资产名称，如"招商银行房贷"')
-    amount: Mapped[float] = mapped_column(Float, default=0.0, comment='当前价值/余额（元）')
+    amount: Mapped[int] = mapped_column(Integer, default=0, comment='当前价值/余额（单位：分）')
     currency: Mapped[str] = mapped_column(String(3), default='CNY')
 
     # 归属

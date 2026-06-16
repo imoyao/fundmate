@@ -186,7 +186,8 @@ class TestStandardCSVParse:
         # 验证持仓数量变为 100
         pos = db.query(Position).filter_by(symbol=buy_symbol).first()
         assert pos is not None
-        assert pos.quantity == 100
+        # 修改为（金额现在为分）
+        assert pos.quantity == 1000000
 
     def test_sell_without_position_creates_orphan(self, client, db):
         """卖出时无对应持仓，应生成孤立交易，不影响持仓表"""
@@ -219,7 +220,7 @@ class TestStandardCSVParse:
 
         txn = db.query(Transaction).filter_by(txn_type='dividend', entry_status='orphan').first()
         assert txn is not None
-        assert txn.amount == 30.0
+        assert txn.amount == 3000
         assert txn.quantity == 0
 
     def test_mixed_operations_time_order_and_orphan_count(self, client, db):
@@ -255,7 +256,7 @@ class TestStandardCSVParse:
         # 验证持仓状态：贵州茅台应剩 50 股
         pos = db.query(Position).filter_by(symbol=maotai_symbol).first()
         assert pos is not None
-        assert pos.quantity == 50
+        assert pos.quantity == 500000
 
         # 验证分红流水正常关联持仓
         div_txn = db.query(Transaction).filter_by(txn_type='dividend', entry_status=None).first()
@@ -396,7 +397,7 @@ class TestTHSCSVParser:
 
         txn = db.query(Transaction).filter_by(txn_type='dividend_tax').first()
         assert txn is not None
-        assert txn.amount == -5.0
+        assert txn.amount == -500
         assert txn.entry_status == 'orphan'
 
     def test_ths_op_type_labels_complete(self):
@@ -521,7 +522,7 @@ class TestTHSCSVParser:
 
         txn = db.query(Transaction).filter_by(txn_type='bond_redeem').first()
         assert txn is not None
-        assert txn.amount == 3000.0
+        assert txn.amount == 300000
         assert txn.entry_status == 'orphan'
 
     def test_confirm_import_rollback_on_error(self, client, db):
@@ -587,7 +588,7 @@ class TestTHSCSVParser:
         import_hash = rows[0]['import_hash']
         txn = db.query(Transaction).filter_by(import_hash=import_hash).first()
         assert txn is not None
-        assert txn.amount == 10000.0
+        assert txn.amount == 1000000
 
     def test_ths_money_fund_duplicate(self, client, db):
         """现金管理产品重复导入应被检测"""

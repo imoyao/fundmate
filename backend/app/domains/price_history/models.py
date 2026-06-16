@@ -21,6 +21,7 @@ class PriceHistory(Base, PrimaryKeyMixin, TimestampMixin):
         nullable=False,
         comment='关联证券ID',
     )
+    symbol = Column(String(30), nullable=False, index=True)
     trade_date = Column(Date, nullable=False, comment='交易日期')
     open = Column(Float, comment='开盘价')
     high = Column(Float, comment='最高价')
@@ -31,4 +32,7 @@ class PriceHistory(Base, PrimaryKeyMixin, TimestampMixin):
     source = Column(String(20), default='akshare', comment='数据源')
 
     # 复合唯一索引
-    __table_args__ = (Index('ix_price_history_security_date', 'security_id', 'trade_date', unique=True),)
+    __table_args__ = (
+        Index('ix_ph_symbol_date', 'symbol', 'trade_date', unique=True),  # 主查询索引 + 唯一约束
+        Index('ix_ph_security_id', 'security_id'),  # 按 security_id 查询的索引
+    )

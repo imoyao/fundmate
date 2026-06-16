@@ -11,6 +11,7 @@ from apiflask import APIBlueprint
 from flask import jsonify, request
 
 from app.core.database import get_db
+from app.core.money import Money
 from app.core.utils import paginate
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
@@ -74,11 +75,11 @@ def list_transactions():
                     'position_id': t.position_id,
                     'position_name': t.position_name or '未知资产',
                     'type': t.txn_type,
-                    'trade_date': t.trade_date.isoformat() if t.trade_date else None,
-                    'quantity': t.quantity,
-                    'price': t.price,
-                    'fee': t.fee,
-                    'amount': t.amount,
+                    'trade_date': t.trade_date.strftime('%Y-%m-%d') if t.trade_date else None,
+                    'quantity': Money.min_unit_to_shares(t.quantity),
+                    'price': Money.cents_to_yuan(t.price),
+                    'fee': Money.cents_to_yuan(t.fee),
+                    'amount': Money.cents_to_yuan(t.amount),
                     'status': t.status,
                     'account_name': t.account_name or '未知账户',
                     'notes': t.notes,

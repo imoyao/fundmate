@@ -17,6 +17,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ErrorCode, SBException
+from app.core.money import Money
 from app.core.utils import show_time
 from app.domains.funds.models import Fund, FundVariety
 from app.domains.ledgers.models import Ledger
@@ -406,6 +407,45 @@ class ImportOrchestrator:
         return re.sub(r'\s+', '', name)
 
     # ── 入库 ──
+    # app/services/importer/orchestrator.py
+
+    def _build_import_data(self, record: StandardTransactionRecord) -> Dict[str, Any]:
+        """将标准记录转换为业务字典，所有值保持原始单位（元/份），不进行分/最小单位转换。"""
+        confirm_date = record.confirm_date
+        if isinstance(confirm_date, datetime):
+            confirm_date = confirm_date.date()
+
+        trade_date = record.trade_date
+        if isinstance(trade_date, datetime):
+            trade_date = trade_date.date()
+
+        is_dividend = record.business_type in ('dividend_cash', 'dividend_reinvest')
+        # 使用 Decimal 或安全转换避免 float 精度问题，但 Money 方法内部会通过 Decimal(str(x)) 处理，此处直接传 Decimal 亦可
+        avg_price = float(record.amount) if is_dividend else (float(record.nav) if record.nav else 0.0)
+        qty = float(record.shares) if record.shares else 0.0
+        fee_val = float(record.fee)
+        net_amount_val = float(record.net_amount) if record.net_amount else float(record.amount)
+
+        return {
+            'symbol': record.symbol,
+            'name': record.name,
+            'market': 'CN_A',
+            'type': record.asset_type,
+            'account_name': record.account_name,
+            'quantity': qty,  # 原始份额
+            'avg_price': avg_price,  # 原始元
+            'currency': 'CNY',
+            'confirm_date': confirm_date,
+            'trade_date': trade_date,
+            'fee': fee_val,  # 原始元
+            'notes': '',
+            'import_hash': record.import_hash,
+            'allocation': 'liquid' if record.asset_type in ('money_fund', 'reverse_repo') else 'longterm',
+            'op_type': record.business_type,
+            'link_group_id': record.link_group_id,
+            'dividend_amount': float(record.amount) if is_dividend else 0.0,  # 原始元
+            'net_amount': net_amount_val,  # 原始元
+        }
 
     def commit(self, records: List[StandardTransactionRecord]) -> Dict[str, Any]:
         imported = 0
@@ -421,6 +461,7 @@ class ImportOrchestrator:
                         skipped += 1
                         continue
 
+                # ---- 现金管理类产品 ----
                 if record.asset_type in ('cash', 'money_fund'):
                     data = self._build_import_data(record)
                     cash_ledger = self.db.query(Ledger).filter_by(ledger_type='cash').first()
@@ -429,6 +470,8 @@ class ImportOrchestrator:
                         entry_status = None
                     else:
                         entry_status = 'pending_cash'
+                    # net_amount 转换为分
+                    amount_cents = Money.yuan_to_cents(abs(data['net_amount']))
                     TransactionService.create(
                         db=self.db,
                         txn_type=data['op_type'],
@@ -438,7 +481,7 @@ class ImportOrchestrator:
                         quantity=0,
                         price=0,
                         fee=0,
-                        amount=data['net_amount'],
+                        amount=amount_cents,
                         status='success',
                         position_name=data.get('name', ''),
                         account_name=data.get('account_name', ''),
@@ -450,6 +493,7 @@ class ImportOrchestrator:
                     orphan_count += 1
                     continue
 
+                # ---- 常规投资品种 ----
                 data = self._build_import_data(record)
                 bt = record.business_type
 
@@ -469,6 +513,8 @@ class ImportOrchestrator:
 
                 # 特殊操作：扣税
                 if bt == BusinessType.TAX.code:
+                    # net_amount 是元，转为分，扣税为负值
+                    tax_cents = -Money.yuan_to_cents(abs(data['net_amount']))
                     TransactionService.create(
                         db=self.db,
                         position_id=None,
@@ -479,7 +525,7 @@ class ImportOrchestrator:
                         quantity=0,
                         price=0,
                         fee=0,
-                        amount=-abs(data['net_amount']),
+                        amount=tax_cents,
                         status='success',
                         position_name=data.get('name', data['symbol']),
                         account_name=data.get('account_name', ''),
@@ -494,6 +540,10 @@ class ImportOrchestrator:
 
                 # 特殊操作：债券兑付
                 if bt == BusinessType.BOND_REDEEM.code:
+                    # 数量和金额都需要转换
+                    qty_units = Money.shares_to_min_unit(data['quantity'])
+                    price_cents = Money.yuan_to_cents(data.get('avg_price', 0))
+                    amount_cents = Money.yuan_to_cents(data['net_amount'])
                     TransactionService.create(
                         db=self.db,
                         position_id=None,
@@ -501,10 +551,10 @@ class ImportOrchestrator:
                         trade_date=data.get('trade_date'),
                         confirm_date=data.get('confirm_date'),
                         asset_type=data.get('type'),
-                        quantity=data['quantity'],
-                        price=data.get('avg_price', 0),
+                        quantity=qty_units,
+                        price=price_cents,
                         fee=0,
-                        amount=data['net_amount'],
+                        amount=amount_cents,
                         status='success',
                         position_name=data.get('name', data['symbol']),
                         account_name=data.get('account_name', ''),
@@ -517,14 +567,16 @@ class ImportOrchestrator:
                     imported += 1
                     continue
 
-                # 常规操作
+                # 常规操作 (BUY/DEPOSIT, SELL/WITHDRAW, DIVIDEND)
                 if bt in (BusinessType.BUY.code, BusinessType.DEPOSIT.code):
-                    result = PositionService.process_buy_or_deposit(self.db, data)
+                    result = PositionService.process_buy_or_deposit(self.db, data, skip_lot_check=True)
                 elif bt in (BusinessType.SELL.code, BusinessType.WITHDRAW.code):
                     result = PositionService.process_orphan_sell_or_withdraw(self.db, data)
                 elif bt in (BusinessType.DIVIDEND_CASH.code, BusinessType.DIVIDEND_REINVEST.code):
                     result = PositionService.process_orphan_dividend(self.db, data)
                 elif bt == BusinessType.SPLIT.code:
+                    # 转股：数量需转换，金额为 0
+                    qty_units = Money.shares_to_min_unit(data['quantity'])
                     TransactionService.create(
                         db=self.db,
                         position_id=None,
@@ -532,8 +584,8 @@ class ImportOrchestrator:
                         trade_date=data.get('trade_date'),
                         confirm_date=data.get('confirm_date'),
                         asset_type=data.get('type'),
-                        quantity=data['quantity'],
-                        price=data.get('avg_price', 0),
+                        quantity=qty_units,
+                        price=data.get('avg_price', 0),  # avg_price 可能为 0，转股无价格，保留原值
                         fee=0,
                         amount=0,
                         status='success',
@@ -555,12 +607,10 @@ class ImportOrchestrator:
                 imported += 1
 
             except SQLAlchemyError as e:
-                # 数据库致命错误，事务已无效，必须整体回滚并终止
                 self.db.rollback()
                 logger.exception(f'数据库操作失败: symbol={record.symbol}, error={e}')
                 raise
             except Exception as e:
-                # 业务错误（ValueError 等），记录并继续处理后续记录
                 logger.exception(f'入库单条记录失败: symbol={record.symbol}, business_type={record.business_type}')
                 commit_errors.append({'symbol': record.symbol, 'name': record.name, 'error': str(e)})
 
@@ -573,39 +623,6 @@ class ImportOrchestrator:
 
         logger.info(f'入库完成: 导入={imported}, 跳过={skipped}, 孤立={orphan_count}, 错误={len(commit_errors)}')
         return {'imported': imported, 'skipped': skipped, 'orphan_count': orphan_count, 'errors': commit_errors}
-
-    def _build_import_data(self, record: StandardTransactionRecord) -> Dict[str, Any]:
-        confirm_date = record.confirm_date
-        if isinstance(confirm_date, datetime):
-            confirm_date = confirm_date.date()
-
-        trade_date = record.trade_date
-        if isinstance(trade_date, datetime):
-            trade_date = trade_date.date()
-
-        is_dividend = record.business_type in ('dividend_cash', 'dividend_reinvest')
-        avg_price = float(record.amount) if is_dividend else (float(record.nav) if record.nav else 0)
-
-        return {
-            'symbol': record.symbol,
-            'name': record.name,
-            'market': 'CN_A',
-            'type': record.asset_type,
-            'account_name': record.account_name,
-            'quantity': float(record.shares) if record.shares else 0,
-            'avg_price': avg_price,
-            'currency': 'CNY',
-            'confirm_date': confirm_date,  # 确认日（必填）
-            'trade_date': trade_date,  # 交易发起日（可为 None）
-            'fee': float(record.fee),
-            'notes': '',
-            'import_hash': record.import_hash,
-            'allocation': 'liquid' if record.asset_type in ('money_fund', 'reverse_repo') else 'longterm',
-            'op_type': record.business_type,
-            'link_group_id': record.link_group_id,
-            'dividend_amount': float(record.amount) if is_dividend else 0,
-            'net_amount': float(record.net_amount) if record.net_amount else float(record.amount),
-        }
 
     # ── 元数据更新 ──
 

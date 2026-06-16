@@ -11,6 +11,7 @@ from flask import abort, jsonify, request
 
 from app.core.constants import ALLOCATION_LABELS, CURRENT_USER_ID, LEDGER_TYPE_LABELS
 from app.core.database import get_db
+from app.core.money import Money
 from app.domains.assets.models import Asset
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
@@ -65,8 +66,8 @@ def get_ledgers_overview():
                     'type': name_to_type.get(acc, 'deleted' if acc not in known_names else 'general'),
                     'total': 0.0,
                 }
-            value = (pos.quantity or 0) * (pos.current_price or 0)
-            account_totals[acc]['total'] += value
+            value = Money.multiply_price_quantity(pos.current_price, pos.quantity)
+            account_totals[acc]['total'] += Money.cents_to_yuan(value)
 
         for asset in assets:
             acc = asset.account_name or '未指定账户'
@@ -76,8 +77,8 @@ def get_ledgers_overview():
                     'total': 0.0,
                 }
             if asset.major_category != 'liability':
-                value = asset.amount or 0
-                account_totals[acc]['total'] += value
+                value = asset.amount  # amount 现在已是分，需转元
+                account_totals[acc]['total'] += Money.cents_to_yuan(value)
 
         # 按类型分组汇总
         type_groups: dict[str, dict] = {}
@@ -89,8 +90,7 @@ def get_ledgers_overview():
             type_groups[t]['total'] += info['total']
 
         # 负债总额
-        liability_total = sum((a.amount or 0) for a in assets if a.major_category == 'liability')
-
+        liability_total = sum(Money.cents_to_yuan(a.amount) for a in assets if a.major_category == 'liability')
         total_assets = sum(g['total'] for g in type_groups.values())
         net_worth = total_assets - liability_total
 

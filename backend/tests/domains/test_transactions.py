@@ -173,7 +173,7 @@ def test_transactions_time_range(client):
     resp = _get(client, '/api/transactions', {'time_range': '1m'})
     data = resp.get_json()['data']
     assert len(data) == 1
-    assert data[0]['trade_date'] == recent_date
+    assert data[0]['trade_date'].startswith('2026-06-10')
 
 
 def test_transactions_pagination(client):

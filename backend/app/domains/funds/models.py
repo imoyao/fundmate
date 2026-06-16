@@ -4,7 +4,19 @@
 # File : models.py
 """场外基金元数据模型"""
 
-from sqlalchemy import Boolean, Column, Date, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint, text
+from sqlalchemy import (
+    Boolean,
+    Column,
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base, PrimaryKeyMixin, TimestampMixin
@@ -104,8 +116,8 @@ class DailyWorth(Base, PrimaryKeyMixin, TimestampMixin):
 
     fund_code = Column(String(6), ForeignKey('funds.fund_code'), nullable=False, comment='基金代码')
     date = Column(Date, nullable=False, comment='净值日期')
-    unit_nav = Column(Float, comment='单位净值')
-    acc_nav = Column(Float, comment='累计净值')
+    unit_nav = Column(Numeric(18, 6), comment='单位净值（元），精度6位小数')
+    acc_nav = Column(Numeric(18, 6), comment='累计净值（元），6位小数')
 
     fund = relationship('Fund', back_populates='daily_worth')
 
@@ -117,8 +129,8 @@ class PurchaseRule(Base, PrimaryKeyMixin, TimestampMixin):
 
     __tablename__ = 'purchase_rules'
 
-    start_quota = Column(Float, nullable=False, default=0, comment='起始金额(元), 包含')
-    end_quota = Column(Float, nullable=True, comment='结束金额(元), 不包含, NULL表示正无穷')
+    start_quota = Column(Integer, comment='起始金额(分)，包含')
+    end_quota = Column(Integer, comment='结束金额(分)，不包含，NULL表示正无穷')
 
 
 class RedeemRule(Base, PrimaryKeyMixin, TimestampMixin):
@@ -137,8 +149,8 @@ class FeeRatio(Base, PrimaryKeyMixin, TimestampMixin):
 
     fund_code = Column(String(6), ForeignKey('funds.fund_code'), nullable=False, comment='基金代码')
     fee_type = Column(String(20), nullable=False, comment='费率类型: subscribe/purchase/redeem/management')
-    rate = Column(Float, nullable=True, comment='费率百分比, 如1.5表示1.5%')
-    fee_amount = Column(Float, nullable=True, comment='固定金额(元), 与rate互斥')
+    rate = Column(Numeric(10, 6), comment='费率(如0.015000=1.5%)')
+    fee_amount = Column(Integer, comment='固定金额(分)，与rate互斥')
     purchase_rule_id = Column(Integer, ForeignKey('purchase_rules.id'), nullable=True)
     redeem_rule_id = Column(Integer, ForeignKey('redeem_rules.id'), nullable=True)
 
@@ -150,7 +162,7 @@ class MoneyFundDailyWorth(Base, PrimaryKeyMixin, TimestampMixin):
 
     fund_code = Column(String(6), ForeignKey('funds.fund_code'), nullable=False, comment='基金代码')
     date = Column(Date, nullable=False, comment='日期')
-    nav_per_10k = Column(Float, comment='万份收益(元)')
-    annual_return_7d = Column(Float, comment='七日年化收益率(%)')
+    nav_per_10k = Column(Integer, default=0, comment='万份收益(分)')
+    annual_return_7d = Column(Float, comment='七日年化收益率(%)，精度0.0001')
 
     fund = relationship('Fund', back_populates='money_fund_daily_worth')

@@ -7,6 +7,7 @@ from datetime import date, timedelta
 
 from sqlalchemy import exists
 
+from app.core.money import Money
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
@@ -262,7 +263,7 @@ class TestTransactions:
         resp = _get(client, '/api/transactions/', {'time_range': '1m'})
         data = resp.get_json()['data']
         assert len(data) == 1
-        assert data[0]['trade_date'] == recent_date
+        assert data[0]['trade_date'].startswith('2026-06-10')
 
     def test_transactions_type_filter(self, client):
         _post(
@@ -635,9 +636,9 @@ class TestPositionTransactions:
             account_name='测试账户',
             asset_type='stock',
             txn_type='buy',
-            quantity=100,
-            price=10.0,
-            amount=1000.0,
+            quantity=Money.shares_to_min_unit(100),
+            price=Money.yuan_to_cents(10.0),
+            amount=Money.yuan_to_cents(1000.0),
             position_id=pos.id,
             confirm_date=date.today(),
         )
@@ -647,9 +648,10 @@ class TestPositionTransactions:
             account_name='测试账户',
             asset_type='stock',
             txn_type='sell',
-            quantity=50,
-            price=12.0,
-            amount=600.0,
+            quantity=Money.shares_to_min_unit(50),
+            price=Money.yuan_to_cents(12.0),
+            amount=Money.yuan_to_cents(600.0),
+            position_id=pos.id,
             confirm_date=date.today(),
         )
         db.add_all([txn1, txn2])

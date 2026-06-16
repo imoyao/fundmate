@@ -30,3 +30,8 @@ def compute_money_fund_yields(nav_df):
         )
         prev_netvalue = netvalue
     return records
+
+
+def validate_annual_return(value: float) -> float:
+    """限制七日年化收益率精度到 0.0001%"""
+    return round(value, 4)

@@ -17,6 +17,9 @@ import app.domains.securities.models  # noqa: F401
 import app.domains.transactions.models  # noqa: F401
 import app.domains.watchlist.models  # noqa: F401
 from app.core.database import Base
+from app.core.money import Money
+from app.domains.assets.models import Asset
+from app.domains.positions.models import Position
 from app.main import create_app
 
 
@@ -71,3 +74,27 @@ def clean_db(app):
         session.execute(table.delete())
     session.commit()
     session.close()
+
+
+def make_position(db, **kwargs):
+    """构造 Position 时自动转换金额/份额到内部单位"""
+    if 'quantity' in kwargs:
+        kwargs['quantity'] = Money.shares_to_min_unit(kwargs['quantity'])
+    if 'avg_price' in kwargs:
+        kwargs['avg_price'] = Money.yuan_to_cents(kwargs['avg_price'])
+    if 'current_price' in kwargs:
+        kwargs['current_price'] = Money.yuan_to_cents(kwargs['current_price'])
+    pos = Position(**kwargs)
+    db.add(pos)
+    db.commit()
+    return pos
+
+
+def make_asset(db, **kwargs):
+    """构造 Asset 时自动转换 amount 到分"""
+    if 'amount' in kwargs:
+        kwargs['amount'] = Money.yuan_to_cents(kwargs['amount'])
+    asset = Asset(**kwargs)
+    db.add(asset)
+    db.commit()
+    return asset

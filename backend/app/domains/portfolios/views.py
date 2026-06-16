@@ -13,6 +13,7 @@ from sqlalchemy import update
 
 from app.core.constants import TYPE_LABELS
 from app.core.database import get_db
+from app.core.money import Money
 from app.domains.assets.models import Asset
 from app.domains.ledgers.models import Ledger
 from app.domains.portfolios.models import Portfolio
@@ -196,11 +197,9 @@ def get_portfolio_holdings(portfolio_id: int):
         # 5. 构造持仓列表（包含市值和盈亏）
         holdings = []
         for pos in positions:
-            market_value = (pos.quantity or 0) * (pos.current_price or 0)
-            pnl = ((pos.current_price or 0) - (pos.avg_price or 0)) * (pos.quantity or 0)
-            # TODO:临时兜底：消除浮点多余小数，待改为整数分存储后移除
-            market_value = round(market_value * 100) / 100
-            pnl = round(pnl * 100) / 100
+            market_value = Money.multiply_price_quantity(pos.current_price, pos.quantity)
+            pnl = Money.multiply_price_quantity(pos.current_price - pos.avg_price, pos.quantity) if pos.avg_price else 0
+
             holdings.append(
                 {
                     'id': pos.id,
@@ -209,11 +208,11 @@ def get_portfolio_holdings(portfolio_id: int):
                     'type': pos.asset_type,
                     'type_label': TYPE_LABELS.get(pos.asset_type, pos.asset_type),
                     'account_name': pos.account_name,
-                    'quantity': pos.quantity,
-                    'current_price': pos.current_price,
-                    'avg_price': pos.avg_price,
-                    'market_value': market_value,
-                    'pnl': pnl,
+                    'quantity': Money.min_unit_to_shares(pos.quantity),
+                    'current_price': Money.cents_to_yuan(pos.current_price),
+                    'avg_price': Money.cents_to_yuan(pos.avg_price),
+                    'market_value': Money.cents_to_yuan(market_value),
+                    'pnl': Money.cents_to_yuan(pnl),
                     'pnl_rate': round((pos.current_price - pos.avg_price) / pos.avg_price * 100, 2)
                     if pos.avg_price
                     else 0.0,
@@ -221,7 +220,6 @@ def get_portfolio_holdings(portfolio_id: int):
             )
 
         for asset in assets:
-            market_value = round((asset.amount or 0) * 100) / 100
             holdings.append(
                 {
                     'id': asset.id + 100000,
@@ -231,9 +229,9 @@ def get_portfolio_holdings(portfolio_id: int):
                     'type_label': TYPE_LABELS.get(asset.major_category, asset.major_category or '其他'),
                     'account_name': asset.account_name,
                     'quantity': 1,
-                    'current_price': asset.amount or 0,  # 使用 amount 字段
-                    'avg_price': asset.amount or 0,
-                    'market_value': market_value,
+                    'current_price': Money.cents_to_yuan(asset.amount),
+                    'avg_price': Money.cents_to_yuan(asset.amount),
+                    'market_value': Money.cents_to_yuan(asset.amount),
                     'pnl': 0.0,
                     'pnl_rate': 0.0,
                 }

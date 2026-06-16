@@ -9,6 +9,7 @@ from typing import Any
 
 from app.core.constants import ALLOCATION_LABELS, CATEGORY_META, EXCHANGE_RATES, TYPE_LABELS
 from app.core.database import Session
+from app.core.money import Money
 from app.domains.assets.models import Asset
 from app.domains.positions.models import Position
 
@@ -43,10 +44,16 @@ def get_summary_data(db: Session, user_id: int = 1) -> dict[str, Any]:
     # 一次遍历 positions，完成市值、盈亏、市场分布
     for p in positions:
         rate = EXCHANGE_RATES.get(p.currency, 1.0)
-        market_value = p.quantity * (p.current_price or 0.0) * rate
+        # 市值 = 数量(份) * 当前价(元) * 汇率
+        market_value = Money.min_unit_to_shares(p.quantity) * Money.cents_to_yuan(p.current_price) * rate
         total_assets += market_value
 
-        pnl = ((p.current_price or 0.0) - (p.avg_price or 0.0)) * p.quantity * rate
+        # 盈亏 = (当前价 - 成本价) * 数量
+        pnl = (
+            (Money.cents_to_yuan(p.current_price) - Money.cents_to_yuan(p.avg_price))
+            * Money.min_unit_to_shares(p.quantity)
+            * rate
+        )
         total_pnl += pnl
 
         market = p.market or '其他市场'
@@ -55,7 +62,7 @@ def get_summary_data(db: Session, user_id: int = 1) -> dict[str, Any]:
     # 一次遍历 assets，区分负债与资产（暂不做汇率转换）
     total_liabilities = 0.0
     for a in assets:
-        amount = a.amount or 0.0
+        amount = Money.cents_to_yuan(a.amount)  # 已是分，转元
         if amount <= 0:
             continue
         if a.major_category == _LIABILITY_KEY:
@@ -104,7 +111,7 @@ def get_sankey_data(db: Session, user_id: int = 1) -> dict[str, list[dict[str, A
     liability_details: list[tuple[str, float]] = []  # 收集负债项，避免二次遍历
 
     for a in assets:
-        amount = a.amount or 0.0
+        amount = Money.cents_to_yuan(a.amount)  # 转元
         if amount <= 0:
             continue
         if a.major_category == _LIABILITY_KEY:
@@ -122,7 +129,7 @@ def get_sankey_data(db: Session, user_id: int = 1) -> dict[str, list[dict[str, A
 
     for p in positions:
         rate = EXCHANGE_RATES.get(p.currency, 1.0)
-        mv = p.quantity * (p.current_price or 0.0) * rate
+        mv = Money.min_unit_to_shares(p.quantity) * Money.cents_to_yuan(p.current_price) * rate
         if mv <= 0:
             continue
 
@@ -202,16 +209,14 @@ def get_sankey_data(db: Session, user_id: int = 1) -> dict[str, list[dict[str, A
 
 def get_account_groups(db: Session, user_id: int = 1) -> list[dict]:
     """返回按账户分组的汇总数据，负债金额为负数"""
-    positions = db.query(Position).all()
-    assets = db.query(Asset).filter(Asset.user_id == user_id).all()
-
+    positions, assets = _load_user_assets(db, user_id)
     groups: dict[str, dict[str, float | int]] = defaultdict(lambda: {'total': 0.0, 'count': 0})
 
     # 1. 处理持仓 (均为资产)
     for p in positions:
         acc = p.account_name or '未指定账户'
         rate = EXCHANGE_RATES.get(p.currency, 1.0)
-        market_value = p.quantity * (p.current_price or 0.0) * rate
+        market_value = Money.min_unit_to_shares(p.quantity) * Money.cents_to_yuan(p.current_price) * rate
         if market_value == 0:
             continue
         groups[acc]['total'] += market_value
@@ -220,7 +225,7 @@ def get_account_groups(db: Session, user_id: int = 1) -> list[dict]:
     # 2. 处理通用资产 (负债取负)
     for a in assets:
         acc = a.account_name or '未指定账户'
-        amount = a.amount or 0.0
+        amount = Money.cents_to_yuan(a.amount)  # 转元
         if amount <= 0:
             continue
         if a.major_category == 'liability':

@@ -21,6 +21,7 @@ from loguru import logger
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ErrorCode, SBException
+from app.core.money import Money
 from app.core.symbol_utils import get_normalizer
 from app.core.utils import get_confirm_date
 from app.domains.positions.models import Position
@@ -46,7 +47,7 @@ _ALLOWED_POSITION_FIELDS = {
 
 
 def _get_default_notes(op_type: str, is_new: bool) -> str:
-    """生成默认的交易备注，避免嵌套 if-else."""
+    """生成默认的交易备注."""
     mapping = {
         (False, 'buy'): '追加买入',
         (False, 'deposit'): '追加存入',
@@ -55,75 +56,97 @@ def _get_default_notes(op_type: str, is_new: bool) -> str:
     return mapping.get((is_new, op_type), '存入')
 
 
+def _create_cash_transfer_transaction(db: Session, data: dict, txn_type: str) -> None:
+    """
+    为现金管理产品（货币基金/逆回购）创建孤立交易流水。
+    金额转换为分后存储。
+    """
+    net_amount = abs(float(data.get('net_amount', 0) or 0))
+    TransactionService.create(
+        db=db,
+        position_id=None,
+        symbol=data.get('symbol', ''),
+        txn_type=txn_type,
+        trade_date=data.get('trade_date'),
+        confirm_date=data.get('confirm_date'),
+        asset_type=data.get('type'),
+        quantity=0,
+        price=0,
+        fee=0,
+        amount=Money.yuan_to_cents(net_amount),
+        status='success',
+        position_name=data.get('name', ''),
+        account_name=data.get('account_name', ''),
+        notes=data.get('notes') or ('现金管理产品申赎' if txn_type == 'buy' else '现金管理产品赎回'),
+        import_hash=data.get('import_hash'),
+        entry_status='orphan',
+    )
+    db.flush()
+
+
+def _create_orphan_transaction(
+    db: Session,
+    data: dict,
+    txn_type: str,
+    quantity: float,
+    price: float,
+    amount: float,
+    notes: str,
+) -> None:
+    """
+    创建孤立交易流水（无法匹配到持仓时使用）。
+    所有金额和数量转换为内部单位后存储。
+    """
+    qty_units = Money.shares_to_min_unit(quantity)
+    price_cents = Money.yuan_to_cents(price)
+    amount_cents = Money.yuan_to_cents(amount) if amount else Money.multiply_price_quantity(price_cents, qty_units)
+    fee_cents = Money.yuan_to_cents(float(data.get('fee', 0) or 0))
+
+    TransactionService.create(
+        db=db,
+        position_id=None,
+        symbol=data.get('symbol', ''),
+        txn_type=txn_type,
+        trade_date=data.get('trade_date'),
+        confirm_date=data.get('confirm_date'),
+        asset_type=data.get('type'),
+        quantity=qty_units,
+        price=price_cents,
+        fee=fee_cents,
+        amount=amount_cents,
+        status='success',
+        position_name=data.get('name', ''),
+        account_name=data.get('account_name', ''),
+        notes=notes,
+        import_hash=data.get('import_hash'),
+        entry_status='orphan',
+    )
+    db.flush()
+
+
 class PositionService:
     # ── 公开方法 ──────────────────────────────────────────
 
     @staticmethod
-    def process_buy_or_deposit(db: Session, data: dict) -> Position:
+    def process_buy_or_deposit(db: Session, data: dict, skip_lot_check: bool = False) -> Optional[Position]:
         """
         执行买入或存入操作，返回更新或新建的持仓实例。
-
-        data 必须包含：symbol, account_name, quantity, avg_price, trade_date,
-                       op_type (buy/deposit)
-        可选：fee, confirm_date, notes, type, market, currency, allocation
         """
         symbol = data.get('symbol', '')
         account = data.get('account_name', '')
         qty = data.get('quantity', 0)
         price = data.get('avg_price', 0)
         op_type = data.get('op_type', 'buy')
-        asset_type = data.get('type', 'stock')  # 获取类型字段
-
-        # 现金管理类产品：只记录流水，不创建持仓，跳过数量/价格校验
-        if asset_type in ('money_fund', 'reverse_repo'):
-            try:
-                TransactionService.create(
-                    db=db,
-                    position_id=None,  # 不关联持仓
-                    symbol=symbol,
-                    txn_type='buy',  # 保持交易类型为买入
-                    trade_date=data.get('trade_date'),
-                    confirm_date=data.get('confirm_date'),
-                    asset_type=data.get('type'),
-                    quantity=0,
-                    price=0,
-                    fee=0,
-                    amount=abs(float(data.get('net_amount', 0) or 0)),  # 金额取发生额的绝对值
-                    status='success',
-                    position_name=data.get('name', symbol),
-                    account_name=account,
-                    notes=data.get('notes') or '现金管理产品申赎',
-                    import_hash=data.get('import_hash'),
-                    entry_status='orphan',  # 标记为孤立交易，不影响持仓
-                )
-                db.flush()  # 注意：只 flush 不 commit，事务控制权在调用方
-                return None  # 无持仓返回
-            except Exception:
-                raise
-
-        # 输入校验
-        # 获取当前持仓（用于合并校验）
-        existing_position = db.query(Position).filter_by(symbol=symbol, account_name=account).first()
-        current_hold = existing_position.quantity if existing_position else 0
-
-        valid, err_msg = validate_buy(symbol, data.get('market', ''), asset_type, current_hold, qty)
-        if not valid:
-            raise ValueError(err_msg)
-
-        if price <= 0:
-            raise SBException(
-                code=ErrorCode.INVALID_PARAMS.code,
-                message=ErrorCode.INVALID_PARAMS.msg,
-                status_code=400,
-                detail={'field': 'avg_price', 'value': price},
-            )
-
-        # 标准化 symbol（同时生成搜索用的符号）
-        # 修改后：
         asset_type = data.get('type', 'stock')
+
+        # 现金管理类产品：只记录流水，不创建持仓
+        if asset_type in ('money_fund', 'reverse_repo'):
+            _create_cash_transfer_transaction(db, data, 'buy')
+            return None
+
+        # 标准化 symbol
         search_symbol = symbol
         if asset_type not in ('fund', 'money_fund', 'reverse_repo', 'bond'):
-            # 股票、ETF等场内品种需要标准化代码（添加市场前缀）
             try:
                 normalizer = get_normalizer()
                 normalized, _, _ = normalizer.normalize(symbol)
@@ -133,18 +156,13 @@ class PositionService:
             except Exception:
                 logger.warning(f'无法标准化符号: {symbol}，保留原值')
 
-        # 查找或创建持仓
-        # 优先用标准化后的符号查找
+        # 查找现有持仓
         same = db.query(Position).filter_by(symbol=search_symbol, account_name=account).first()
-        # 如果没找到，尝试用原始符号再查一次（兼容历史数据）
         if not same and search_symbol != symbol:
             same = db.query(Position).filter_by(symbol=symbol, account_name=account).first()
-
-        # 用于最终存储的符号（统一为搜索到的符号，确保一致性）
         final_symbol = search_symbol
 
-        # 输入校验
-        # 防御性处理：确保 quantity 和 price 不是 None
+        # 校验数量/价格
         qty = data.get('quantity', 0) or 0
         price = data.get('avg_price', 0) or 0
         if qty <= 0:
@@ -152,47 +170,72 @@ class PositionService:
         if price <= 0:
             raise ValueError('价格必须大于 0')
 
+        existing_position = db.query(Position).filter_by(symbol=symbol, account_name=account).first()
+        current_hold_shares = Money.min_unit_to_shares(existing_position.quantity) if existing_position else 0.0
+        if not skip_lot_check:
+            valid, err_msg = validate_buy(symbol, data.get('market', ''), asset_type, current_hold_shares, qty)
+            if not valid:
+                raise ValueError(err_msg)
+
+        if price <= 0:
+            raise SBException(
+                code=ErrorCode.INVALID_PARAMS.code,
+                message=ErrorCode.INVALID_PARAMS.msg,
+                status_code=400,
+                detail={'field': 'avg_price', 'value': price},
+            )
+
+        # 转换为内部存储单位
+        qty_units = Money.shares_to_min_unit(qty)
+        price_cents = Money.yuan_to_cents(price)
+
         try:
-            # 1. 查找或创建持仓
             if same:
-                # 合并持仓：更新均价、数量，保留 current_price（不覆盖为成本价）
-                total_qty = same.quantity + qty
-                same.avg_price = (same.avg_price * same.quantity + price * qty) / total_qty
-                same.quantity = total_qty
+                # 合并持仓
+                total_qty_units = same.quantity + qty_units
+                old_cost = Money.multiply_price_quantity(same.avg_price, same.quantity)
+                new_cost = old_cost + Money.multiply_price_quantity(price_cents, qty_units)
+                # 用 Decimal 计算均价以避免精度损失
+                total_qty = Money.min_unit_to_shares(total_qty_units)
+                total_cost = Money.cents_to_yuan(old_cost) + Money.cents_to_yuan(
+                    Money.multiply_price_quantity(price_cents, qty_units)
+                )
+                new_avg_price = Money.yuan_to_cents(round(total_cost / total_qty, 4))
+                same.avg_price = new_avg_price
+                same.quantity = total_qty_units
                 db.flush()
                 position = same
                 is_new = False
             else:
-                # 新建持仓：只使用白名单字段
+                # 新建持仓
                 position_data = {k: v for k, v in data.items() if k in _ALLOWED_POSITION_FIELDS}
                 if 'type' in data:
                     position_data['asset_type'] = data['type']
-                elif 'asset_type' in data:
-                    position_data['asset_type'] = data['asset_type']
+                position_data['avg_price'] = price_cents
+                position_data['quantity'] = qty_units
+                position_data['current_price'] = price_cents
                 position_data['symbol'] = final_symbol
                 position = Position(**position_data)
-                position.current_price = position.avg_price  # 初始市价默认为成本价
                 db.add(position)
                 db.flush()
                 is_new = True
 
-            # 2. 创建交易流水
+            # 创建交易流水
             txn_type = op_type if op_type in ('buy', 'deposit') else 'buy'
             notes = data.get('notes') or _get_default_notes(op_type, is_new)
 
-            # 计算场外基金确认日（使用中国交易日历）
-            confirm_date = data.get('confirm_date')  # 前端传的预估，仅作后备
+            confirm_date = data.get('confirm_date')
             if asset_type == 'fund' and data.get('confirm_date'):
                 try:
                     trade_date = data.get('trade_date')
                     if isinstance(trade_date, str):
                         trade_date = datetime.strptime(trade_date, '%Y-%m-%d').date()
                     is_after_15 = data.get('isAfter15', False)
-                    # 基金类型默认 'domestic'，后期可从证券元数据获取是否 QDII
                     fund_type = data.get('fund_type', 'domestic')
                     confirm_date = get_confirm_date(trade_date, fund_type=fund_type, is_after_15=is_after_15)
                 except Exception:
                     logger.warning('确认日计算失败，使用前端传入值')
+
             TransactionService.create(
                 db=db,
                 position_id=position.id,
@@ -202,10 +245,10 @@ class PositionService:
                 confirm_date=confirm_date,
                 asset_type=data.get('type'),
                 link_group_id=data.get('link_group_id'),
-                quantity=qty,
-                price=price,
-                fee=data.get('fee', 0.0),
-                amount=qty * price,
+                quantity=qty_units,
+                price=price_cents,
+                fee=Money.yuan_to_cents(float(data.get('fee', 0) or 0)),
+                amount=Money.multiply_price_quantity(price_cents, qty_units),
                 status='success',
                 position_name=position.name,
                 account_name=position.account_name,
@@ -213,13 +256,11 @@ class PositionService:
                 import_hash=data.get('import_hash'),
             )
 
-            # 3. 提交并刷新
             db.flush()
             db.refresh(position)
             try:
                 trigger_backfill(asset_type, symbol)
             except Exception:
-                # 回填失败不影响主流程
                 pass
             return position
 
@@ -232,40 +273,41 @@ class PositionService:
         """
         执行卖出或取出操作。
         成功返回更新后的持仓，若数量减至 0 则删除持仓并返回 None。
-
-        data 必须包含：position_id, quantity, avg_price(卖出单价), trade_date, op_type (sell/withdraw)
-        skip_lot_check: 若为 True，跳过一手规则校验（用于导入历史交易）
         """
         position_id = data['position_id']
         op_type = data['op_type']
-        qty = data['quantity']
-        price = data['avg_price']  # 实际语义：卖出单价
+        qty_shares = data['quantity']
+        price_yuan = data['avg_price']
 
-        # 1. 校验
+        qty_units = Money.shares_to_min_unit(qty_shares)
+        price_cents = Money.yuan_to_cents(price_yuan)
+
         existing = db.query(Position).filter_by(id=position_id).first()
         if not existing:
-            logger.error(f'持仓不存在: position_id={position_id}')
             raise ValueError('指定的持仓不存在')
-        if qty <= 0:
-            logger.error(f'操作数量非法: qty={qty}')
+        if qty_units <= 0:
             raise ValueError('操作数量必须大于 0')
-        if existing.quantity < qty:
-            logger.error(f'持仓数量不足: 持有{existing.quantity}, 拟操作{qty}')
-            raise ValueError(f'持仓数量不足：当前持有 {existing.quantity}，拟操作 {qty}')
+        if existing.quantity < qty_units:
+            raise ValueError(
+                f'持仓数量不足：当前持有 {Money.min_unit_to_shares(existing.quantity)}，拟操作 {qty_shares}'
+            )
 
-        # 一手规则校验（仅限场内交易品种，且非导入场景）
         if not skip_lot_check:
             symbol = existing.symbol or ''
             valid, err_msg = validate_sell(
-                symbol, existing.market or '', existing.asset_type or 'stock', existing.quantity, qty
+                symbol,
+                existing.market or '',
+                existing.asset_type or 'stock',
+                Money.min_unit_to_shares(existing.quantity),  # 转回份
+                Money.min_unit_to_shares(qty_units),
             )
             if not valid:
                 raise ValueError(err_msg)
+
         try:
-            # 2. 扣减数量（删除前保存快照）
             position_name = existing.name
             account_name = existing.account_name
-            existing.quantity -= qty
+            existing.quantity -= qty_units
 
             is_cleared = existing.quantity == 0
             if is_cleared:
@@ -274,8 +316,6 @@ class PositionService:
             else:
                 db.flush()
 
-            # 3. 创建流水
-            action_cn = '卖出' if op_type == 'sell' else '取出'
             TransactionService.create(
                 db=db,
                 position_id=position_id,
@@ -285,18 +325,17 @@ class PositionService:
                 confirm_date=data.get('confirm_date'),
                 asset_type=data.get('type'),
                 link_group_id=data.get('link_group_id'),
-                quantity=qty,
-                price=price,
-                fee=data.get('fee', 0.0),
-                amount=qty * price,
+                quantity=qty_units,
+                price=price_cents,
+                fee=Money.yuan_to_cents(float(data.get('fee', 0) or 0)),
+                amount=Money.multiply_price_quantity(price_cents, qty_units),
                 status='success',
                 position_name=position_name,
                 account_name=account_name,
-                notes=data.get('notes') or action_cn,
+                notes=data.get('notes') or ('卖出' if op_type == 'sell' else '取出'),
                 import_hash=data.get('import_hash'),
             )
 
-            # 4. 提交
             db.flush()
             if is_cleared:
                 return None
@@ -309,11 +348,7 @@ class PositionService:
 
     @staticmethod
     def process_dividend(db: Session, data: dict) -> Position:
-        """
-        处理分红记录，不改变持仓数量。
-
-        data 必须包含：position_id, dividend_amount(分红金额), trade_date
-        """
+        """处理分红记录，不改变持仓数量。"""
         position_id = data['position_id']
         dividend_amount = data.get('dividend_amount', data.get('avg_price', 0))
 
@@ -335,7 +370,7 @@ class PositionService:
                 quantity=0,
                 price=0,
                 fee=0,
-                amount=dividend_amount,
+                amount=Money.yuan_to_cents(dividend_amount),
                 status='success',
                 position_name=existing.name,
                 account_name=existing.account_name,
@@ -354,50 +389,21 @@ class PositionService:
     def process_orphan_sell_or_withdraw(db: Session, data: dict) -> Optional[Position]:
         """
         处理卖出/取出记录，优先尝试关联持仓；找不到持仓则创建孤立流水。
-
-        data 必须包含：symbol, account_name, quantity, avg_price(卖出单价),
-                       trade_date, op_type (sell/withdraw)
         """
         asset_type = data.get('type', 'stock')
         if asset_type in ('money_fund', 'reverse_repo'):
-            try:
-                TransactionService.create(
-                    db=db,
-                    position_id=None,
-                    txn_type='sell',
-                    symbol=data.get('symbol'),
-                    trade_date=data.get('trade_date'),
-                    confirm_date=data.get('confirm_date'),
-                    asset_type=data.get('type'),
-                    quantity=0,
-                    price=0,
-                    fee=0,
-                    amount=abs(float(data.get('net_amount', 0) or 0)),
-                    status='success',
-                    position_name=data.get('name', ''),
-                    account_name=data.get('account_name', ''),
-                    notes=data.get('notes') or '现金管理产品赎回',
-                    import_hash=data.get('import_hash'),
-                    entry_status='orphan',
-                )
-                db.flush()
-                return None
-            except Exception:
-                raise
+            _create_cash_transfer_transaction(db, data, 'sell')
+            return None
 
         symbol = data.get('symbol', '')
         account = data.get('account_name', '')
-        op_type = data.get('op_type', 'sell')
         qty = data.get('quantity', 0)
         price = data.get('avg_price', 0)
-        trade_date = data.get('trade_date')
-        confirm_date = data.get('confirm_date')
 
         # 尝试查找现有持仓
         existing = db.query(Position).filter_by(symbol=symbol, account_name=account).first()
 
         if existing:
-            # 尝试正常卖出，若持仓数量不足则自动转为孤儿交易
             try:
                 return PositionService.process_sell_or_withdraw(
                     db,
@@ -405,9 +411,9 @@ class PositionService:
                         'position_id': existing.id,
                         'quantity': qty,
                         'avg_price': price,
-                        'trade_date': trade_date,
-                        'confirm_date': confirm_date,
-                        'op_type': op_type,
+                        'trade_date': data.get('trade_date'),
+                        'confirm_date': data.get('confirm_date'),
+                        'op_type': data.get('op_type', 'sell'),
                         'fee': data.get('fee', 0.0),
                         'notes': data.get('notes', ''),
                         'import_hash': data.get('import_hash'),
@@ -415,44 +421,26 @@ class PositionService:
                     skip_lot_check=True,
                 )
             except ValueError as e:
-                if '持仓数量不足' in str(e):
-                    logger.warning(
-                        f'持仓 {existing.symbol} 数量不足（持有 {existing.quantity}，需要 {qty}），转为孤儿交易'
-                    )
-                    # 数量不足时不抛异常，而是创建孤儿交易
-                else:
-                    raise  # 其他 ValueError 继续抛出
+                if '持仓数量不足' not in str(e):
+                    raise
+                logger.warning(f'持仓 {existing.symbol} 数量不足，转为孤儿交易')
 
-        # 无持仓，或者有持仓但数量不足，统一创建孤儿流水
-        amount = qty * price
-        TransactionService.create(
-            db=db,
-            position_id=None,
-            txn_type=op_type,
-            symbol=symbol,
-            trade_date=data.get('trade_date'),
-            confirm_date=data.get('confirm_date'),
-            asset_type=data.get('type'),
+        # 无持仓或数量不足，统一创建孤儿流水
+        _create_orphan_transaction(
+            db,
+            data,
+            txn_type=data.get('op_type', 'sell'),
             quantity=qty,
             price=price,
-            fee=data.get('fee', 0.0),
-            amount=amount,
-            status='success',
-            position_name=data.get('name', symbol),
-            account_name=account,
-            notes=data.get('notes') or ('卖出' if op_type == 'sell' else '取出'),
-            import_hash=data.get('import_hash'),
-            entry_status='orphan',
+            amount=0,  # 自动计算
+            notes=data.get('notes') or ('卖出' if data.get('op_type') == 'sell' else '取出'),
         )
-        db.flush()
         return None
 
     @staticmethod
     def process_orphan_dividend(db: Session, data: dict) -> Optional[Position]:
         """
         处理分红记录，优先尝试关联持仓；找不到持仓则创建孤立流水。
-
-        data 必须包含：symbol, account_name, dividend_amount, trade_date
         """
         symbol = data.get('symbol', '')
         account = data.get('account_name', '')
@@ -473,25 +461,13 @@ class PositionService:
                 },
             )
         else:
-            TransactionService.create(
-                db=db,
-                position_id=None,
-                symbol=symbol,
+            _create_orphan_transaction(
+                db,
+                data,
                 txn_type='dividend',
-                trade_date=data.get('trade_date'),
-                confirm_date=data.get('confirm_date'),
-                asset_type=data.get('type'),
-                link_group_id=data.get('link_group_id'),
                 quantity=0,
                 price=0,
-                fee=0,
                 amount=dividend_amount,
-                status='success',
-                position_name=data.get('name', symbol),
-                account_name=account,
                 notes=data.get('notes') or '现金分红',
-                import_hash=data.get('import_hash'),
-                entry_status='orphan',
             )
-            db.flush()
             return None
