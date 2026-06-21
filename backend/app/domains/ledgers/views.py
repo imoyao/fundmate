@@ -124,7 +124,7 @@ def list_ledgers():
             item['total_market_value'] = 0.0
             item['pnl'] = 0.0
             item['position_count'] = 0
-            item['cash_balance'] = None
+            item['cash_balance'] = 0.0  # 🔥 统一初始化 cash_balance，防止前端 undefined
 
             if ledger.ledger_type in ('stock', 'fund'):
                 stats = LedgerService.get_portfolio_stats(db, ledger.id)
@@ -138,10 +138,13 @@ def list_ledgers():
                 item['total_market_value'] = stats['total_market_value']
                 item['pnl'] = 0  # bank 不直接显示盈亏
                 item['position_count'] = stats.get('position_count', 0)
+                # 🔥 修复：后端返回 current_balance，前端在前端模板里读的却是 cash_balance，这里给它映射过去！
+                item['cash_balance'] = stats['current_balance']
             elif ledger.ledger_type == 'property':
                 stats = LedgerService.get_property_stats(db, ledger.id)
                 item['total_market_value'] = stats['total_market_value']
                 item['position_count'] = stats['asset_count']
+                item['cash_balance'] = 0.0  # 实物资产无现金，补个 0 即可
 
             result.append(item)
 

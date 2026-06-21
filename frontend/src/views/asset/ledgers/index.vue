@@ -26,13 +26,13 @@
       <p class="mt-2">加载中...</p>
     </div>
 
-    <div v-else-if="allLedgers.length === 0 && !hasOrphanAssets" class="text-center py-20" :style="{ color: 'var(--text-tertiary)' }">
+    <div v-else-if="allLedgers.length === 0" class="text-center py-20" :style="{ color: 'var(--text-tertiary)' }">
       <IconifyIconOffline icon="ep:wallet" class="text-5xl mb-3 opacity-30" />
       <p class="text-lg">暂无账户，点击上方按钮新增</p>
     </div>
 
     <template v-else>
-      <!-- 全局汇总卡片 -->
+      <!-- 全局汇总卡片（三层结构） -->
       <div class="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 mb-4">
         <div class="flex items-baseline justify-between">
           <div>
@@ -62,7 +62,7 @@
         </div>
       </div>
 
-      <!-- 分类汇总卡片（保留 overview 的 group 信息） -->
+      <!-- 第二层：分类汇总卡片 -->
       <div v-if="overviewData?.groups?.length" class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
         <div
           v-for="group in overviewData.groups.filter((g: any) => g.type !== 'deleted')"
@@ -77,23 +77,21 @@
         </div>
       </div>
 
-      <!-- 已删除账户的持仓警告 -->
+      <!-- 已删除账户持仓提示 -->
       <div
-        v-if="orphanGroup"
+        v-if="orphanGroup?.count > 0"
         class="bg-orange-50 border border-orange-200 rounded-xl p-4 mb-4 text-sm flex items-center gap-2"
         :style="{ color: 'var(--text-secondary)' }"
       >
         <IconifyIconOffline icon="ep:warning-filled" class="text-orange-400 shrink-0" />
         <span>
-          存在 {{ orphanGroup.count }} 个已删除账户的持仓，
-          合计 ¥{{ orphanGroup.total.toLocaleString() }}。
+          存在 {{ orphanGroup.count }} 个已删除账户的持仓，合计 ¥{{ orphanGroup.total?.toLocaleString() ?? '0' }}。
           建议将这些持仓归入现有账户或手动清理。
         </span>
       </div>
 
-      <!-- 按类型分组的账户卡片 -->
+      <!-- 按类型分组的账户卡片列表 -->
       <div v-for="group in groupedLedgers" :key="group.type" class="mb-8">
-        <!-- 分组标题（含汇总） -->
         <div class="flex items-center justify-between mb-3">
           <h3 class="font-semibold text-base" :style="{ color: 'var(--text-primary)' }">
             {{ group.label }}
@@ -103,7 +101,6 @@
           </h3>
         </div>
 
-        <!-- 卡片行 -->
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           <div
             v-for="ledger in group.ledgers"
@@ -111,17 +108,17 @@
             class="ledger-card bg-white rounded-2xl p-5 border border-gray-100 shadow-sm cursor-pointer transition-all hover:shadow-md hover:-translate-y-1"
             @click="goToDetail(ledger)"
           >
-            <!-- 标题行：名称 + 类型缩写 Badge -->
+            <!-- 标题行：名称 + 类型标签（支持 LEDGER_TYPE_SHORT） -->
             <div class="flex items-center justify-between mb-4">
               <div class="flex items-center gap-2 min-w-0">
                 <span class="font-semibold text-base truncate" :style="{ color: 'var(--text-primary)' }">
                   {{ ledger.name }}
                 </span>
                 <span
-                  class="px-1.5 py-0.5 rounded text-xs font-medium shrink-0"
+                  class="px-2 py-0.5 rounded-full text-xs shrink-0"
                   :style="{ backgroundColor: getTypeColor(ledger.ledger_type) + '20', color: getTypeColor(ledger.ledger_type) }"
                 >
-                  {{ getLedgerTypeShort(ledger.ledger_type) }}
+                  {{ LEDGER_TYPE_SHORT[ledger.ledger_type] || getLedgerTypeLabel(ledger.ledger_type) }}
                 </span>
               </div>
               <!-- 删除按钮 -->
@@ -138,21 +135,16 @@
 
             <!-- 核心指标（三行） -->
             <div class="space-y-2">
-              <!-- 总资产 -->
               <div class="flex justify-between items-center">
                 <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }">总资产</span>
                 <span class="text-lg font-bold" :style="{ color: 'var(--color-primary)' }">
                   ¥{{ (ledger.total_market_value || 0).toLocaleString() }}
                 </span>
               </div>
-
-              <!-- 当日盈亏（占位） -->
               <div class="flex justify-between items-center">
                 <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }">当日盈亏</span>
                 <span class="text-sm" :style="{ color: 'var(--text-tertiary)' }">--</span>
               </div>
-
-              <!-- 持仓盈亏（仅 stock/fund）或资产分布提示（bank/property） -->
               <div class="flex justify-between items-center">
                 <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
                   {{ ledger.ledger_type === 'bank' ? '活期余额' : ledger.ledger_type === 'property' ? '估值' : '持仓盈亏' }}
@@ -239,11 +231,10 @@ import { Loading } from "@element-plus/icons-vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import { getLedgers, getLedgersOverview, createLedger } from "@/api/ledger";
 import { getPortfolios } from "@/api/portfolio";
-import { getLedgerTypeLabel, LEDGER_TYPE_SHORT } from "@/constants";
+import { LEDGER_TYPE_LABELS, LEDGER_TYPE_SHORT, getLedgerTypeLabel } from "@/constants";
 import AccountFormFields from "./components/AccountFormFields.vue";
 import DeleteLedgerDialog from "./components/DeleteLedgerDialog.vue";
 
-// 组件名与路由配置中的 name 保持一致，确保 Keep-Alive 正常工作
 defineOptions({ name: "AssetLedgers" });
 
 const router = useRouter();
@@ -268,13 +259,8 @@ const createForm = ref({
   fee_config: null as any,
 });
 
-// 新增：关联现金账户列表
 const cashLedgers = computed(() => allLedgers.value.filter((l: any) => l.ledger_type === 'bank'));
-
-// 新增：组合列表
 const portfolioList = ref<any[]>([]);
-
-// 删除相关
 const deleteDialogVisible = ref(false);
 const deletingAccount = ref<any>(null);
 
@@ -288,14 +274,7 @@ const orphanGroup = computed(() =>
   overviewData.value?.groups?.find((g: any) => g.type === 'deleted')
 );
 
-const hasOrphanAssets = computed(() => orphanGroup.value?.count > 0);
-
-// 辅助函数：获取类型缩写
-function getLedgerTypeShort(type: string): string {
-  return LEDGER_TYPE_SHORT[type] || type;
-}
-
-// 分组展示（正常账户 + 未归置）
+// 分组展示（按类型分组，并排序，追加未归置持仓）
 const groupedLedgers = computed(() => {
   const groups: Record<string, any> = {};
   for (const ledger of allLedgers.value) {
@@ -317,7 +296,7 @@ const groupedLedgers = computed(() => {
   const order = ["bank", "stock", "fund", "property"];
   const result = order.map((type) => groups[type]).filter(Boolean);
 
-  // 追加未归置分组
+  // 追加未归置分组（防止孤立资产出现缺漏）
   if (orphanGroup.value && orphanGroup.value.count > 0) {
     result.push({
       type: 'deleted',
@@ -339,7 +318,7 @@ const groupedLedgers = computed(() => {
   return result;
 });
 
-// 颜色映射（使用 CSS 变量）
+// 根据账户类型返回颜色
 function getTypeColor(type: string): string {
   const map: Record<string, string> = {
     bank: "var(--tag-mint-green)",

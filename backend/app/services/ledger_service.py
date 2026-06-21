@@ -199,7 +199,8 @@ class LedgerService:
         total_balance = current_amount + fund_mv
         return {
             'total_market_value': Money.cents_to_yuan(total_balance),
-            'current_balance': Money.cents_to_yuan(current_amount),
+            'current_balance': Money.cents_to_yuan(current_amount),  # 保持向后兼容
+            'cash_balance': Money.cents_to_yuan(current_amount),  # 🔥 新增规范字段，与前端对齐
             'fund_value': Money.cents_to_yuan(fund_mv),
             'position_count': len(positions),
         }
