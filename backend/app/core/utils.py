@@ -9,6 +9,7 @@
 import datetime
 import json
 import os
+import re
 import sys
 import time
 from datetime import date
@@ -211,8 +212,6 @@ def check_is_csv(fp: Union[str, Path]) -> bool:
 def to_camelcase(var: str) -> str:
     """转换为小驼峰命名（lowerCamelCase）。"""
     # 将下划线/横线分隔的单词转为驼峰
-    import re
-
     pattern = re.compile(r'[_-]+')
     var = pattern.sub(' ', var).title().replace(' ', '')
     return var[0].lower() + var[1:] if var else var
@@ -220,8 +219,6 @@ def to_camelcase(var: str) -> str:
 
 def to_snakecase(var: str) -> str:
     """转换为蛇形命名（snake_case）。"""
-    import re
-
     pattern = re.compile(r'(?<!^)(?=[A-Z])')
     return pattern.sub('_', var).lower()
 

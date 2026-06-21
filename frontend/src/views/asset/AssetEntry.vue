@@ -57,7 +57,8 @@
         <el-form-item label="所属账户" prop="account_name">
           <div class="account-select-row">
             <el-select
-              v-model="form.account_name"
+              v-model="form.ledger_id"
+              @change="onLedgerSelected"
               class="flex-1"
               clearable
               filterable
@@ -159,11 +160,10 @@ const form = reactive({
 });
 
 // 选择账户后自动填充 account_name（快照用）
-function onLedgerSelected(ledgerId: number) {
+function onLedgerSelected(ledgerId: number | undefined) {
+  if (ledgerId == null) return;
   const ledger = ledgers.value.find(l => l.id === ledgerId);
-  if (ledger) {
-    form.account_name = ledger.name;
-  }
+  if (ledger) form.account_name = ledger.name;
 }
 
 // 校验规则修改

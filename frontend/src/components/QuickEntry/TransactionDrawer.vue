@@ -60,6 +60,7 @@ import { ElMessage } from "element-plus";
 import { getLedgers } from "@/api/ledger";
 import BuyForm from "./BuyForm.vue";
 import SellForm from "./SellForm.vue";
+import { emitter } from '@/utils/mitt';
 
 // ── v-model ──
 const props = defineProps<{ modelValue: boolean }>();
@@ -115,6 +116,8 @@ function onTabChange() {
 function onSubmitSuccess() {
   visible.value = false;
   emit("submitted");
+  // 🔥 新增：无论用户在哪，发送一条全局刷新指令
+  emitter.emit('refresh-ledger-data');
 }
 
 // 提交按钮点击，委托给子组件

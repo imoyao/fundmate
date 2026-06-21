@@ -14,6 +14,7 @@ from app.core.money import Money
 from app.core.utils import paginate
 from app.domains.assets.models import Asset
 from app.domains.assets.schemas import AssetCreate, AssetOut, AssetUpdate
+from app.domains.ledgers.models import Ledger
 
 bp = APIBlueprint('assets', __name__, url_prefix='/api/assets')
 
@@ -59,9 +60,17 @@ def list_assets():
 def create_asset(json_data):
     data = json_data.model_dump()
     data['amount'] = Money.yuan_to_cents(data.get('amount', 0))
+
+    # 如果传了 ledger_id，确保 account_name 快照正确
+    if data.get('ledger_id'):
+        with get_db() as db:
+            ledger = db.query(Ledger).filter_by(id=data['ledger_id']).first()
+            if ledger:
+                data['account_name'] = ledger.name
+
     with get_db() as db:
         asset = Asset(**data)
-        asset.user_id = 1
+        asset.user_id = CURRENT_USER_ID
         db.add(asset)
         db.commit()
         db.refresh(asset)

@@ -14,8 +14,6 @@ from __future__ import annotations
 import datetime as dt
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
-from app.core.money import Money
-
 if TYPE_CHECKING:
     from app.domains.transactions.models import Transaction  # 实际路径待确认
 
@@ -29,6 +27,7 @@ except ImportError:
     PYXIRR_AVAILABLE = False
     logger.warning('pyxirr 不可用，将使用纯 Python 实现作为兜底')
 
+from app.core.money import Money
 from app.domains.ledgers.models import Ledger
 from app.domains.portfolios.models import Portfolio
 from app.domains.transactions.models import Transaction

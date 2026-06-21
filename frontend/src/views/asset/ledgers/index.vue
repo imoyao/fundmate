@@ -227,7 +227,7 @@
 import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
-import { Loading } from "@element-plus/icons-vue";
+import { usePageRefresh } from '@/composables/usePageRefresh';
 import { IconifyIconOffline } from "@/components/ReIcon";
 import { getLedgers, getLedgersOverview, createLedger } from "@/api/ledger";
 import { getPortfolios } from "@/api/portfolio";
@@ -397,6 +397,11 @@ async function fetchData() {
     loading.value = false;
   }
 }
+
+// 只需一行，列表全自动刷新
+usePageRefresh(() => {
+  fetchData();
+});
 
 onMounted(() => {
   fetchData();

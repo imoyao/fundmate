@@ -117,7 +117,7 @@
             <IconifyIconOffline icon="ep:pie-chart" class="text-lg" /> 资产配置分布
           </div>
           <!-- 核心修复：强制高度 100% 或 min-h-[200px]，确保饼图有足够空间展现 -->
-          <div class="flex-1 min-h-[200px] w-full flex justify-center items-center" ref="chartRef"></div>
+          <div class="flex-1 min-h-[200px] w-full overflow-hidden" ref="chartRef"></div>
           <div v-if="holdingsList.length === 0" class="text-xs text-center" :style="{ color: 'var(--text-tertiary)' }">
             暂无持仓数据
           </div>
@@ -341,18 +341,19 @@ import {
   deleteLedgerTransaction,
 } from "@/api/ledger";
 import { getPortfolios } from "@/api/portfolio";
-import { getPositionTransactions } from "@/api/positions";
 import { updateAsset } from "@/api/assets";
 import AccountFormFields from "./components/AccountFormFields.vue";
 import DeleteLedgerDialog from "./components/DeleteLedgerDialog.vue";
 import { getLedgerTypeLabel, ALLOCATION_OPTIONS } from '@/constants'
 import PositionTransactionsDrawer from "./components/PositionTransactionsDrawer.vue";
+import { usePageRefresh } from '@/composables/usePageRefresh';
 
 defineOptions({ name: "LedgerDetail" });
 
 const route = useRoute();
 const router = useRouter();
 
+let resizeTimer: number | null = null;
 const ledgerId = computed(() => route.params.id as string);
 const isUnclassified = computed(() => ledgerId.value === "unclassified" || !!route.query.name);
 const targetAccountName = computed(() => route.query.name as string | undefined);
@@ -451,6 +452,7 @@ const sameTypeLedgers = computed(() =>
 
 // 初始化加载
 onMounted(async () => {
+  window.addEventListener('resize', handleWindowResize);
   loading.value = true;
   try {
     const [ledgerRes, portfolioRes] = await Promise.all([
@@ -474,6 +476,18 @@ onMounted(async () => {
 function openPositionDrawer(row: any) {
   selectedPosition.value = row; // 把当前点击的持仓数据传进去
   drawerVisible.value = true;   // 打开抽屉
+}
+
+async function handleGlobalRefresh() {
+  console.log('收到全局记账完成信号，刷新当前页面数据...');
+  if (!isUnclassified.value) {
+    await loadSummary();
+  }
+  await loadHoldings();
+  // 如果当前用户正在看的是交易记录 Tab，顺便刷新交易记录
+  if (activeTab.value === 'transactions') {
+    await loadTransactions();
+  }
 }
 
 async function loadSummary() {
@@ -704,22 +718,43 @@ async function handleUpdate() {
 async function confirmDeletePosition(row: any) {
   const positionId = row.id;
   try {
-    ElMessageBox.confirm(`确定删除持仓「${row.name || row.symbol}」吗？可选择同时删除关联交易记录。`, '删除持仓', {
-      confirmButtonText: '仅删除持仓',
-      cancelButtonText: '删除持仓及交易',
-      distinguishCancelAndClose: true,
-      type: 'warning',
-    });
-    await deleteLedgerPosition(Number(ledgerId.value), positionId, false);
-    ElMessage.success('持仓已删除');
+    const action = await ElMessageBox.confirm(
+      `确定删除持仓「${row.name || row.symbol}」吗？可选择同时删除关联交易记录。`,
+      '删除持仓',
+      {
+        confirmButtonText: '删除持仓及交易',
+        cancelButtonText: '仅删除持仓',
+        distinguishCancelAndClose: true,
+        type: 'warning',
+      }
+    );
+
+    // ✅ 用户点击了【删除持仓及交易】
+    await deleteLedgerPosition(Number(ledgerId.value), positionId, true);
+    ElMessage.success('持仓及关联交易已删除');
+
+    // 刷新持仓列表
     loadHoldings();
+    // 🔥 核心修复：清除交易列表缓存，保证用户切换 Tab 后会自动拉取最新数据
+    transactionsList.value = [];
+    transactionsTotal.value = 0;
+
   } catch (action: any) {
+    // ✅ 用户点击了【仅删除持仓】
     if (action === 'cancel') {
       try {
-        await deleteLedgerPosition(Number(ledgerId.value), positionId, true);
-        ElMessage.success('持仓及关联交易已删除');
+        await deleteLedgerPosition(Number(ledgerId.value), positionId, false);
+        ElMessage.success('持仓已删除，交易记录保留');
+
+        // 刷新持仓列表
         loadHoldings();
-      } catch (e: any) { ElMessage.error(e?.response?.data?.message || '删除失败'); }
+        // 🔥 核心修复：虽然保留了交易记录，但交易列表引用的是内存缓存，强制置空以触发刷新
+        transactionsList.value = [];
+        transactionsTotal.value = 0;
+
+      } catch (e: any) {
+        ElMessage.error(e?.response?.data?.message || '删除失败');
+      }
     }
   }
 }
@@ -741,18 +776,92 @@ async function handleUpdateTransaction() {
   } catch (e: any) { ElMessage.error(e?.response?.data?.message || "更新失败"); }
 }
 
-async function confirmDeleteTxn(row: any) {
+
+// 窗口改变时重绘图表（防抖）
+const handleWindowResize = () => {
+  if (resizeTimer) clearTimeout(resizeTimer);
+  resizeTimer = window.setTimeout(() => {
+    chartInstance?.resize();
+    lineChartInstance?.resize();
+    resizeTimer = null;
+  }, 200);
+};
+
+// 只需一行，页面全自动刷新
+usePageRefresh(async () => {
+  if (!isUnclassified.value) await loadSummary();
+  await loadHoldings();
+  if (activeTab.value === 'transactions') await loadTransactions();
+});
+
+// 在 onMounted 中加入监听：
+onMounted(async () => {
+  window.addEventListener('resize', handleWindowResize);
+  loading.value = true;
   try {
-    ElMessageBox.confirm("确定删除该交易记录吗？", "警告", {
-      confirmButtonText: "确定",
-      cancelButtonText: "取消",
-      type: "warning",
-    });
-    await deleteLedgerTransaction(Number(ledgerId.value), row.id);
-    ElMessage.success("交易已删除");
-    loadTransactions(transactionsPage.value);
+    const [ledgerRes, portfolioRes] = await Promise.all([
+      getLedgers(),
+      getPortfolios(),
+    ]);
+    ledgers.value = (ledgerRes as any)?.data ?? [];
+    portfolioList.value = (portfolioRes as any)?.data ?? [];
+
+    if (!isUnclassified.value) {
+      await loadSummary();
+    }
+    await loadHoldings();
   } catch (e: any) {
-    if (e !== "cancel") { ElMessage.error(e?.response?.data?.message || "删除失败"); }
+    ElMessage.error(e?.message || "加载失败");
+  } finally {
+    loading.value = false;
+  }
+});
+
+// 在 onBeforeUnmount 中移除监听
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', handleWindowResize);
+  chartInstance?.dispose();
+  lineChartInstance?.dispose();
+});
+
+// 🔥 修复：确认删除交易
+async function confirmDeleteTxn(row: any) {
+  // 1. 查找这笔交易对应的持仓对象
+  const targetPos = holdingsList.value.find(p => p.symbol === row.symbol);
+
+  // 2. 如果找到了关联持仓，做防呆处理
+  if (targetPos) {
+    try {
+      await ElMessageBox.confirm(
+        `确定要删除这笔交易记录吗？<br/><br/>
+        <span style="color: var(--color-warning); font-weight: bold;">⚠️ 重要提示</span><br/>
+        当前持仓「${targetPos.name || targetPos.symbol}」共持有 ${targetPos.quantity} 份/股。<br/>
+        如果删除这笔历史交易，<b style="color: var(--color-danger);">该持仓将丢失成本来源，变成“幽灵持仓”</b>。<br/><br/>
+        <b>✅ 推荐操作：前往「持仓明细」Tab，找到该持仓并点击“删除”，选择“删除持仓及交易”。</b>`,
+        '删除交易风险确认',
+        {
+          confirmButtonText: '我理解风险，只删除交易',
+          cancelButtonText: '取消，我去持仓页操作',
+          dangerouslyUseHTMLString: true,
+          type: 'warning',
+        }
+      );
+      // 用户执意只删交易
+      await deleteLedgerTransaction(Number(ledgerId.value), row.id);
+      ElMessage.warning('交易记录已删除（持仓已变成幽灵数据）');
+      loadTransactions(transactionsPage.value);
+      loadHoldings(); // 更新持仓成本
+    } catch (e: any) {
+      if (e !== 'cancel') {
+        ElMessage.error(e?.response?.data?.message || '删除失败');
+      }
+    }
+  } else {
+    // 3. 如果找不到对应的持仓（说明本来就是个幽灵交易），直接删
+    await deleteLedgerTransaction(Number(ledgerId.value), row.id);
+    ElMessage.success('孤立交易已删除');
+    loadTransactions(transactionsPage.value);
+    loadHoldings();
   }
 }
 
@@ -762,6 +871,7 @@ function openDeleteDialog(account: any) {
 }
 
 onBeforeUnmount(() => {
+  window.removeEventListener('resize', handleWindowResize);
   chartInstance?.dispose();
   lineChartInstance?.dispose();
 });

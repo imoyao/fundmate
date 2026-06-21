@@ -612,7 +612,7 @@ async function handleSubmit() {
     amount: computedAmount.value,
     currency: form.currency,
     trade_date: form.trade_date,
-    confirm_date: form.type === "fund" ? confirmDate.value : null,
+    confirm_date: form.type === "fund" ? confirmDate.value : form.trade_date,
     fee: form.fee,
     notes: form.notes,
     allocation: form.allocation,

@@ -156,8 +156,12 @@
         </el-radio-group>
       </div>
       <div class="text-xs mt-1" style="color: var(--text-tertiary)">
+        <!-- 👇 修改这里：改成和 BuyForm 一致的确认日提示 -->
         <span v-if="form.isAfter15 && selectedPosition?.type === 'fund'">
-          15:00后赎回，按下一交易日（T+1）净值计算
+          15:00后赎回，按下一交易日（T+1）净值计算 · 预计确认日：{{ confirmDate || '计算中...' }}
+        </span>
+        <span v-else-if="!form.isAfter15 && selectedPosition?.type === 'fund'">
+          预计确认日：{{ confirmDate || '计算中...' }}
         </span>
       </div>
     </el-form-item>
@@ -190,13 +194,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from "vue";
+import { ref, reactive, computed, onMounted, watch} from "vue";
 import { ElMessage } from "element-plus";
 import type { FormInstance, FormRules } from "element-plus";
 import { createPosition, getPositions } from "@/api/positions";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import { LEDGER_TYPE_SHORT } from "@/constants";
 import { getLedgerColor, bgFromColor } from "@/utils/ledger";
+import { calcFundConfirmDate } from "@/api/utils";
 import {
   getStep,
   supportsOneShare,
@@ -226,6 +231,8 @@ const defaultForm = () => ({
 
 const form = reactive(defaultForm());
 const formRef = ref<FormInstance>();
+// ── 确认日计算 ──
+const confirmDate = ref("");
 
 const positionsByAccount = ref<Record<string, any[]>>({});
 const selectedPosition = ref<any>(null);
@@ -342,6 +349,24 @@ function onPositionSelect(positionId: number) {
   form.currency = pos.currency;
   form.price = pos.current_price ?? pos.avg_price;
   form.quantity = undefined;
+  fetchConfirmDate();
+}
+
+async function fetchConfirmDate() {
+  if (selectedPosition.value?.type !== "fund" || !form.trade_date) {
+    confirmDate.value = "";
+    return;
+  }
+  try {
+    const res = await calcFundConfirmDate({
+      trade_date: form.trade_date,
+      fund_type: "domestic",
+      is_after_15: form.isAfter15,
+    });
+    confirmDate.value = (res as any)?.data ?? "";
+  } catch {
+    confirmDate.value = "";
+  }
 }
 
 function applySellQuickRatio(ratio: number) {
@@ -388,6 +413,7 @@ async function handleSubmit() {
     avg_price: price,
     amount: quantity * price,
     currency: form.currency,
+    confirm_date: form.type === "fund" ? confirmDate.value : form.trade_date,
     trade_date: form.trade_date,
     fee: 0,
     notes: form.notes,
@@ -408,12 +434,21 @@ function resetForm() {
   Object.assign(form, defaultForm());
   selectedPosition.value = null;
   positionsByAccount.value = {};
+  confirmDate.value = "";
   formRef.value?.resetFields();
 }
 
 function goToInventory() {
   emit("close");
 }
+
+// 监听日期和 15:00 切换，重新计算确认日
+watch(
+  [() => form.trade_date, () => form.isAfter15],
+  () => {
+    fetchConfirmDate();
+  }
+);
 
 defineExpose({ handleSubmit, resetForm });
 </script>

@@ -19,6 +19,7 @@ class AssetCreate(BaseModel):
     name: str = Field(..., max_length=200)
     amount: float = Field(..., gt=0, description='资产金额，必须大于0')
     currency: str = 'CNY'
+    ledger_id: Optional[int] = None  # 新增：关联账户 ID
     account_name: Optional[str] = Field(None, max_length=50)
     allocation: Optional[str] = 'longterm'
     status: str = 'active'
@@ -36,6 +37,7 @@ class AssetUpdate(BaseModel):
     name: Optional[str] = None
     amount: Optional[float] = None
     currency: Optional[str] = None
+    ledger_id: Optional[int] = None  # 新增
     account_name: Optional[str] = None
     allocation: Optional[str] = None
     status: Optional[str] = None
@@ -54,6 +56,7 @@ class AssetOut(BaseModel):
     amount: float  # 没有 gt 限制
     signed_amount: float  # 负债为负，资产为正
     currency: str = 'CNY'
+    ledger_id: Optional[int] = None  # 新增：前端列表/详情需要
     account_name: Optional[str] = None
     allocation: Optional[str] = None
     allocation_label: Optional[str] = None
