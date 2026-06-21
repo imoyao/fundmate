@@ -36,6 +36,7 @@ _ALLOWED_POSITION_FIELDS = {
     'market',
     'asset_type',
     'account_name',
+    'ledger_id',
     'quantity',
     'avg_price',
     'currency',
@@ -70,6 +71,7 @@ def _create_cash_transfer_transaction(db: Session, data: dict, txn_type: str) ->
         trade_date=data.get('trade_date'),
         confirm_date=data.get('confirm_date'),
         asset_type=data.get('type'),
+        ledger_id=data.get('ledger_id'),
         quantity=0,
         price=0,
         fee=0,
@@ -114,6 +116,7 @@ def _create_orphan_transaction(
         price=price_cents,
         fee=fee_cents,
         amount=amount_cents,
+        ledger_id=data.get('ledger_id'),
         status='success',
         position_name=data.get('name', ''),
         account_name=data.get('account_name', ''),
@@ -157,7 +160,8 @@ class PositionService:
                 logger.warning(f'无法标准化符号: {symbol}，保留原值')
 
         # 查找现有持仓
-        same = db.query(Position).filter_by(symbol=search_symbol, account_name=account).first()
+        ledger_id = data.get('ledger_id')
+        same = db.query(Position).filter_by(symbol=search_symbol, ledger_id=ledger_id).first()
         if not same and search_symbol != symbol:
             same = db.query(Position).filter_by(symbol=symbol, account_name=account).first()
         final_symbol = search_symbol
@@ -215,6 +219,7 @@ class PositionService:
                 position_data['quantity'] = qty_units
                 position_data['current_price'] = price_cents
                 position_data['symbol'] = final_symbol
+                position_data['ledger_id'] = ledger_id
                 position = Position(**position_data)
                 db.add(position)
                 db.flush()
@@ -253,6 +258,7 @@ class PositionService:
                 position_name=position.name,
                 account_name=position.account_name,
                 notes=notes,
+                ledger_id=ledger_id,
                 import_hash=data.get('import_hash'),
             )
 
@@ -331,6 +337,7 @@ class PositionService:
                 amount=Money.multiply_price_quantity(price_cents, qty_units),
                 status='success',
                 position_name=position_name,
+                ledger_id=existing.ledger_id,
                 account_name=account_name,
                 notes=data.get('notes') or ('卖出' if op_type == 'sell' else '取出'),
                 import_hash=data.get('import_hash'),
@@ -374,6 +381,7 @@ class PositionService:
                 status='success',
                 position_name=existing.name,
                 account_name=existing.account_name,
+                ledger_id=existing.ledger_id,
                 notes=data.get('notes') or '现金分红',
                 import_hash=data.get('import_hash'),
             )

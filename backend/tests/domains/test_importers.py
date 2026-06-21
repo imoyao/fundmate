@@ -9,6 +9,7 @@ import io
 from datetime import date
 
 from app.core.constants import OP_TYPE_LABEL
+from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
 
@@ -28,7 +29,7 @@ class TestStandardCSVParse:
         data = resp.get_json()['data']
         assert len(data) == 1
         row = data[0]
-        assert row['symbol'] == 'SH600519'  # 标准化后
+        assert row['symbol'] == 'SH600519'
         assert row['op_type'] == 'buy'
         assert row['quantity'] == 100
         assert row['price'] == 1650.0
@@ -47,16 +48,26 @@ class TestStandardCSVParse:
         )
         assert resp.status_code == 400
 
-    def test_duplicate_detection(self, client, db):
+    def test_duplicate_detection(self, client, db, make_position):
         symbol = 'SH600519'
         trade_date = '2025-06-15'
         business_type = 'buy'
         quantity = 100.0
         price = 1650.0
         source = 'standard_stock'
-        # 统一哈希规则
         raw = f'{source}|{trade_date}|{symbol}|{business_type}|{quantity:.4f}|{price:.4f}'
         hash_val = hashlib.md5(raw.encode()).hexdigest()
+
+        # 通过 make_position 创建一个持仓，从而自动获得 ledger_id
+        pos = make_position(
+            symbol='SH600519',
+            name='贵州茅台',
+            account_name='华泰证券',
+            quantity=100,
+            avg_price=1650,
+            current_price=1650,
+        )
+        ledger_id = pos.ledger_id
 
         txn = Transaction(
             txn_type='buy',
@@ -67,6 +78,7 @@ class TestStandardCSVParse:
             position_name='贵州茅台',
             account_name='华泰证券',
             import_hash=hash_val,
+            ledger_id=ledger_id,
         )
         db.add(txn)
         db.commit()
@@ -569,6 +581,10 @@ class TestTHSCSVParser:
 
     def test_ths_money_fund_import(self, client, db):
         """现金管理产品应被正确导入为孤立交易，不影响持仓"""
+        # 确保默认账户存在
+        ledger = Ledger(name='默认证券账户', ledger_type='bank')
+        db.add(ledger)
+        db.commit()
         csv_content = (
             '证券代码\t证券名称\t操作\t成交数量\t成交均价\t成交金额\t股票余额\t发生金额\t手续费\t印花税\t其他杂费\t资金余额\t合同编号\t交收日期\t证券中文全称\t佣金\t过户费\t清算费(B股)\t币种\n'
             '970164\t银河水星现金添利\t基金申购拨出\t0\t0\t0\t0\t-10000\t0\t0\t0\t0\t\t20221223\t银河水星现金添利\t0\t0\t0\t人民币'
@@ -578,6 +594,7 @@ class TestTHSCSVParser:
             '/api/importers/parse?template=ths', data={'file': (io.BytesIO(csv_content.encode('utf-8')), 'test.csv')}
         )
         rows = resp.get_json()['data']
+        rows[0]['ledger_id'] = ledger.id
         confirm_resp = client.post('/api/importers/confirm', json=rows)
         assert confirm_resp.status_code == 200
         data = confirm_resp.get_json()['data']
@@ -592,6 +609,9 @@ class TestTHSCSVParser:
 
     def test_ths_money_fund_duplicate(self, client, db):
         """现金管理产品重复导入应被检测"""
+        ledger = Ledger(name='默认证券账户', ledger_type='bank')
+        db.add(ledger)
+        db.commit()
         csv_content = (
             '证券代码\t证券名称\t操作\t成交数量\t成交均价\t成交金额\t股票余额\t发生金额\t手续费\t印花税\t其他杂费\t资金余额\t合同编号\t交收日期\t证券中文全称\t佣金\t过户费\t清算费(B股)\t币种\n'
             '970164\t银河水星现金添利\t基金申购拨出\t0\t0\t0\t0\t-10000\t0\t0\t0\t0\t\t20221223\t银河水星现金添利\t0\t0\t0\t人民币'
@@ -601,6 +621,7 @@ class TestTHSCSVParser:
             '/api/importers/parse?template=ths', data={'file': (io.BytesIO(csv_content.encode('utf-8')), 'test.csv')}
         )
         rows1 = resp1.get_json()['data']
+        rows1[0]['ledger_id'] = ledger.id
         confirm1 = client.post('/api/importers/confirm', json=rows1)
         assert confirm1.get_json()['data']['imported'] == 1
 

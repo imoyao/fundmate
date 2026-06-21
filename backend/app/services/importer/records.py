@@ -28,6 +28,7 @@ class StandardTransactionRecord:
     business_type: str  # 标准化交易类型枚举
     amount: Decimal  # 确认金额
     account_name: str  # 资金账户名称
+    ledger_id: Optional[int] = None  # 资金账户名称
 
     # ── 可选字段 ──
     trade_date: Optional[date] = None  # 交易申请日期（下单日，用于持有天数计算）

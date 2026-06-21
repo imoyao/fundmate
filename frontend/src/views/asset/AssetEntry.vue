@@ -45,11 +45,12 @@
 
         <el-form-item label="配置目标" v-if="form.major_category !== 'liability'">
           <el-select v-model="form.allocation" class="w-full" clearable placeholder="请选择配置目标">
-            <el-option label="活钱" value="liquid" />
-            <el-option label="稳健底仓" value="stable" />
-            <el-option label="长期增值" value="longterm" />
-            <el-option label="高风险博弈" value="speculative" />
-            <el-option label="保险保障" value="security" />
+            <el-option
+              v-for="opt in ALLOCATION_OPTIONS"
+              :key="opt.value"
+              :label="opt.label"
+              :value="opt.value"
+            />
           </el-select>
         </el-form-item>
 
@@ -66,7 +67,7 @@
                 v-for="ledger in ledgers"
                 :key="ledger.id"
                 :label="ledger.name"
-                :value="ledger.name"
+                :value="ledger.id"
               />
             </el-select>
             <el-button class="add-ledger-btn" size="large" @click="showCreateLedgerDialog = true">
@@ -102,6 +103,16 @@
         <el-form-item label="账户名称" required>
           <el-input v-model="newLedgerForm.name" placeholder="如：招商银行、华泰证券" />
         </el-form-item>
+        <el-form-item label="账户类型" required>
+          <el-select v-model="newLedgerForm.ledger_type" class="w-full" placeholder="选择账户类型">
+            <el-option
+              v-for="opt in LEDGER_TYPE_OPTIONS"
+              :key="opt.value"
+              :label="opt.label"
+              :value="opt.value"
+            />
+          </el-select>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="showCreateLedgerDialog = false" size="large">取消</el-button>
@@ -121,6 +132,7 @@ import { createAsset } from "@/api/assets";
 import { getLedgers, createLedger } from "@/api/ledger";
 import type { FormInstance, FormRules } from "element-plus";
 import { useRoute } from "vue-router";
+import { ALLOCATION_OPTIONS, LEDGER_TYPE_OPTIONS  } from '@/constants'
 
 const route = useRoute();
 
@@ -130,15 +142,31 @@ const formRef = ref<FormInstance>();
 const submitting = ref(false);
 const ledgers = ref<any[]>([]);
 
+// 新增账户相关
+const showCreateLedgerDialog = ref(false);
+const creatingLedger = ref(false);
+const newLedgerForm = reactive({ name: "", ledger_type: "bank" });
+
+// 表单数据
 const form = reactive({
   name: "",
   major_category: "cash",
   amount: 0,
   allocation: null,
-  account_name: "",
+  ledger_id: null as number | null,   // 新增
+  account_name: "",                    // 保留为后端回填的快照
   notes: ""
 });
 
+// 选择账户后自动填充 account_name（快照用）
+function onLedgerSelected(ledgerId: number) {
+  const ledger = ledgers.value.find(l => l.id === ledgerId);
+  if (ledger) {
+    form.account_name = ledger.name;
+  }
+}
+
+// 校验规则修改
 const rules: FormRules = {
   name: [{ required: true, message: "请输入资产名称", trigger: "blur" }],
   major_category: [{ required: true, message: "请选择资产大类", trigger: "change" }],
@@ -155,13 +183,48 @@ const rules: FormRules = {
       trigger: "blur"
     }
   ],
-  account_name: [{ required: true, message: "请选择所属账户", trigger: "change" }]
+  ledger_id: [{ required: true, message: "请选择所属账户", trigger: "change" }]  // 改为 ledger_id
 };
 
-// 新增账户相关
-const showCreateLedgerDialog = ref(false);
-const creatingLedger = ref(false);
-const newLedgerForm = reactive({ name: "" });
+// 提交逻辑
+async function handleSubmit() {
+  const valid = await formRef.value?.validate().catch(() => false);
+  if (!valid) return;
+
+  submitting.value = true;
+  try {
+    const payload: any = {
+      major_category: form.major_category,
+      name: form.name,
+      amount: form.amount,
+      ledger_id: form.ledger_id,           // 关键：传递 ledger_id
+      account_name: form.account_name || undefined,
+      notes: form.notes || undefined
+    };
+    if (form.major_category !== 'liability' && form.allocation) {
+      payload.allocation = form.allocation;
+    }
+    await createAsset(payload);
+    ElMessage.success(`已录入资产「${form.name}」`);
+    handleReset();
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || "录入失败");
+  } finally {
+    submitting.value = false;
+  }
+}
+
+// 重置时也要清空 ledger_id
+function handleReset() {
+  formRef.value?.resetFields();
+  form.name = "";
+  form.major_category = "cash";
+  form.amount = 0;
+  form.allocation = null;
+  form.ledger_id = null;
+  form.account_name = "";
+  form.notes = "";
+}
 
 async function fetchLedgers() {
   try {
@@ -179,55 +242,19 @@ async function handleCreateLedger() {
   }
   creatingLedger.value = true;
   try {
-    const res = await createLedger({ name: newLedgerForm.name, ledger_type: "general", currency: "CNY" });
+    const res = await createLedger({ name: newLedgerForm.name, ledger_type: newLedgerForm.ledger_type, currency: "CNY" });
     const newLedger = (res as any).data || res;
     ElMessage.success("账户已创建");
     showCreateLedgerDialog.value = false;
     newLedgerForm.name = "";
     await fetchLedgers();
+    form.ledger_id = newLedger.id || (res as any).id;
     form.account_name = newLedger.name || newLedgerForm.name;
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || "创建失败");
   } finally {
     creatingLedger.value = false;
   }
-}
-
-async function handleSubmit() {
-  const valid = await formRef.value?.validate().catch(() => false);
-  if (!valid) return;
-
-  submitting.value = true;
-  try {
-    const payload = {
-        major_category: form.major_category,
-        name: form.name,
-        amount: form.amount,
-        account_name: form.account_name || undefined,
-        notes: form.notes || undefined
-      };
-      // 负债不传配置目标
-      if (form.major_category !== 'liability' && form.allocation) {
-        payload.allocation = form.allocation;
-      }
-      await createAsset(payload);
-    ElMessage.success(`已录入资产「${form.name}」`);
-    handleReset();
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "录入失败");
-  } finally {
-    submitting.value = false;
-  }
-}
-
-function handleReset() {
-  formRef.value?.resetFields();
-  form.name = "";
-  form.major_category = "cash";
-  form.amount = 0;
-  form.allocation = null;
-  form.account_name = "";
-  form.notes = "";
 }
 
 onMounted(() => {

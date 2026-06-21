@@ -1,6 +1,90 @@
+<!-- frontend/src/layout/index.vue -->
+<template>
+  <div ref="appWrapperRef" :class="['app-wrapper', set.classes]">
+    <div
+      v-show="
+        set.device === 'mobile' &&
+        set.sidebar.opened &&
+        layout.includes('vertical')
+      "
+      class="app-mask"
+      @click="useAppStoreHook().toggleSideBar()"
+    />
+    <NavVertical
+      v-show="
+        !pureSetting.hiddenSideBar &&
+        (layout.includes('vertical') || layout.includes('mix'))
+      "
+    />
+    <div
+      :class="[
+        'main-container',
+        pureSetting.hiddenSideBar ? 'main-hidden' : ''
+      ]"
+    >
+      <div v-if="set.fixedHeader">
+        <!-- 替换原来的 <LayHeader /> -->
+        <div
+          :class="{ 'fixed-header': set.fixedHeader }"
+          :style="[
+            set.hideTabs && layout.includes('horizontal')
+              ? isDark
+                ? 'box-shadow: 0 1px 4px #0d0d0d'
+                : 'box-shadow: 0 1px 4px rgba(0, 21, 41, 0.08)'
+              : ''
+          ]"
+        >
+          <LayNavbar
+            v-if="!pureSetting.hiddenSideBar && (layout.includes('vertical') || layout.includes('mix'))"
+          />
+          <NavHorizontal
+            v-if="!pureSetting.hiddenSideBar && layout.includes('horizontal')"
+          />
+          <LayTag />
+        </div>
+        <!-- 主体内容 -->
+        <LayContent :fixed-header="set.fixedHeader" />
+      </div>
+      <el-scrollbar v-else>
+        <el-backtop
+          title="回到顶部"
+          target=".main-container .el-scrollbar__wrap"
+        >
+          <BackTopIcon />
+        </el-backtop>
+        <!-- 替换原来的 <LayHeader /> -->
+        <div
+          :class="{ 'fixed-header': set.fixedHeader }"
+          :style="[
+            set.hideTabs && layout.includes('horizontal')
+              ? isDark
+                ? 'box-shadow: 0 1px 4px #0d0d0d'
+                : 'box-shadow: 0 1px 4px rgba(0, 21, 41, 0.08)'
+              : ''
+          ]"
+        >
+          <LayNavbar
+            v-if="!pureSetting.hiddenSideBar && (layout.includes('vertical') || layout.includes('mix'))"
+          />
+          <NavHorizontal
+            v-if="!pureSetting.hiddenSideBar && layout.includes('horizontal')"
+          />
+          <LayTag />
+        </div>
+        <!-- 主体内容 -->
+        <LayContent :fixed-header="set.fixedHeader" />
+      </el-scrollbar>
+    </div>
+    <!-- 系统设置 -->
+    <LaySetting />
+     <!-- 全局快速记账入口 -->
+    <QuickFab @open="showTransactionDrawer = true" />
+    <TransactionDrawer v-model="showTransactionDrawer" @submitted="onTransactionSubmitted" />
+  </div>
+</template>
+
 <script setup lang="ts">
 import "animate.css";
-// 引入 src/components/ReIcon/src/offlineIcon.ts 文件中所有使用addIcon添加过的本地图标
 import "@/components/ReIcon/src/offlineIcon";
 import { setType } from "./types";
 import { useLayout } from "./hooks/useLayout";
@@ -131,86 +215,7 @@ onMounted(() => {
 onBeforeMount(() => {
   useDataThemeChange().dataThemeChange($storage.layout?.overallStyle);
 });
-
-const LayHeader = defineComponent({
-  name: "LayHeader",
-  render() {
-    return h(
-      "div",
-      {
-        class: { "fixed-header": set.fixedHeader },
-        style: [
-          set.hideTabs && layout.value.includes("horizontal")
-            ? isDark.value
-              ? "box-shadow: 0 1px 4px #0d0d0d"
-              : "box-shadow: 0 1px 4px rgba(0, 21, 41, 0.08)"
-            : ""
-        ]
-      },
-      {
-        default: () => [
-          !pureSetting.hiddenSideBar &&
-          (layout.value.includes("vertical") || layout.value.includes("mix"))
-            ? h(LayNavbar)
-            : null,
-          !pureSetting.hiddenSideBar && layout.value.includes("horizontal")
-            ? h(NavHorizontal)
-            : null,
-          h(LayTag)
-        ]
-      }
-    );
-  }
-});
 </script>
-
-<template>
-  <div ref="appWrapperRef" :class="['app-wrapper', set.classes]">
-    <div
-      v-show="
-        set.device === 'mobile' &&
-        set.sidebar.opened &&
-        layout.includes('vertical')
-      "
-      class="app-mask"
-      @click="useAppStoreHook().toggleSideBar()"
-    />
-    <NavVertical
-      v-show="
-        !pureSetting.hiddenSideBar &&
-        (layout.includes('vertical') || layout.includes('mix'))
-      "
-    />
-    <div
-      :class="[
-        'main-container',
-        pureSetting.hiddenSideBar ? 'main-hidden' : ''
-      ]"
-    >
-      <div v-if="set.fixedHeader">
-        <LayHeader />
-        <!-- 主体内容 -->
-        <LayContent :fixed-header="set.fixedHeader" />
-      </div>
-      <el-scrollbar v-else>
-        <el-backtop
-          title="回到顶部"
-          target=".main-container .el-scrollbar__wrap"
-        >
-          <BackTopIcon />
-        </el-backtop>
-        <LayHeader />
-        <!-- 主体内容 -->
-        <LayContent :fixed-header="set.fixedHeader" />
-      </el-scrollbar>
-    </div>
-    <!-- 系统设置 -->
-    <LaySetting />
-     <!-- 全局快速记账入口 -->
-    <QuickFab @open="showTransactionDrawer = true" />
-    <TransactionDrawer v-model="showTransactionDrawer" @submitted="onTransactionSubmitted" />
-  </div>
-</template>
 
 <style lang="scss" scoped>
 .app-wrapper {

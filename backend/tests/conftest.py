@@ -19,6 +19,7 @@ import app.domains.watchlist.models  # noqa: F401
 from app.core.database import Base
 from app.core.money import Money
 from app.domains.assets.models import Asset
+from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
 from app.main import create_app
 
@@ -76,25 +77,45 @@ def clean_db(app):
     session.close()
 
 
-def make_position(db, **kwargs):
-    """构造 Position 时自动转换金额/份额到内部单位"""
-    if 'quantity' in kwargs:
-        kwargs['quantity'] = Money.shares_to_min_unit(kwargs['quantity'])
-    if 'avg_price' in kwargs:
-        kwargs['avg_price'] = Money.yuan_to_cents(kwargs['avg_price'])
-    if 'current_price' in kwargs:
-        kwargs['current_price'] = Money.yuan_to_cents(kwargs['current_price'])
-    pos = Position(**kwargs)
-    db.add(pos)
-    db.commit()
-    return pos
+# -------------------- 测试辅助 fixtures --------------------
+def _ensure_ledger(db, name, ledger_type='bank'):
+    ledger = db.query(Ledger).filter_by(name=name).first()
+    if not ledger:
+        ledger = Ledger(name=name, ledger_type=ledger_type)
+        db.add(ledger)
+        db.flush()
+    return ledger.id
 
 
-def make_asset(db, **kwargs):
-    """构造 Asset 时自动转换 amount 到分"""
-    if 'amount' in kwargs:
-        kwargs['amount'] = Money.yuan_to_cents(kwargs['amount'])
-    asset = Asset(**kwargs)
-    db.add(asset)
-    db.commit()
-    return asset
+@pytest.fixture
+def make_position(db):
+    def _make(**kwargs):
+        if 'ledger_id' not in kwargs and 'account_name' in kwargs:
+            kwargs['ledger_id'] = _ensure_ledger(db, kwargs['account_name'])
+        if 'quantity' in kwargs:
+            kwargs['quantity'] = Money.shares_to_min_unit(kwargs['quantity'])
+        if 'avg_price' in kwargs:
+            kwargs['avg_price'] = Money.yuan_to_cents(kwargs['avg_price'])
+        if 'current_price' in kwargs:
+            kwargs['current_price'] = Money.yuan_to_cents(kwargs['current_price'])
+        pos = Position(**kwargs)
+        db.add(pos)
+        db.commit()
+        return pos
+
+    return _make
+
+
+@pytest.fixture
+def make_asset(db):
+    def _make(**kwargs):
+        if 'ledger_id' not in kwargs and 'account_name' in kwargs:
+            kwargs['ledger_id'] = _ensure_ledger(db, kwargs['account_name'])
+        if 'amount' in kwargs:
+            kwargs['amount'] = Money.yuan_to_cents(kwargs['amount'])
+        asset = Asset(**kwargs)
+        db.add(asset)
+        db.commit()
+        return asset
+
+    return _make

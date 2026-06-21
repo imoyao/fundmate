@@ -1,8 +1,8 @@
 # ShowBuy 项目需求规格说明书
 
-**版本**: v4.3.1
-**最后更新**: 2026-06-16
-**状态**: 金融精度改造完成，所有金额/份额统一采用整数分/最小单位存储；前端数据显示问题已修复；测试通过；技术债务已更新
+**版本**: v4.3.4
+**最后更新**: 2026-06-21
+**状态**: 账户详情页 UI/UX 深度重构完成；简记弹窗核心体验优化；账户列表页分组与样式统一；布局渲染问题修复；资产录入 `ledger_id` 问题定位，待应用修复。
 
 **核心原则**: 本项目为**个人使用、本地优先、完全合规**的投资记账工具。
 
@@ -10,8 +10,11 @@
 
 ## 更新记录
 
-| 版本     | 日期 | 变更说明 |
-|--------|------|---------|
+| 版本 | 日期 | 变更说明 |
+|------|------|---------|
+| **v4.3.4** | **2026-06-21** | 前端账户详情页 UI/UX 深度重构：卡片矩阵布局重设计（涨红跌绿强制规范）；新增资产配置环形图（`getComputedStyle` 动态读取 CSS 变量）；抽取 `PositionTransactionsDrawer.vue` 独立抽屉组件替换行内展开；修复 `<Transition>` 单根节点警告；简记弹窗优化：买入/卖出 Tab 切换、金额/份额 prepend 插槽、账户缩写标签、交易日期与下单时间合并、手续费智能折叠、基金卖出浮点精度修正、极简创建账户增加类型选择；账户列表页分组标题汇总信息、类型缩写 Badge、未归置卡片恢复；修复 Layout 中 `LayHeader` 渲染导致抽屉无法弹出的问题；`ledger_id` 缺失定位（简记弹窗已修复、资产录入方案已出）。 |
+| v4.3.3 | 2026-06-18 | 代码审查发现 8 个遗留 Bug/缺失：SQL 聚合市值分母错误、Python/SQL 数据单位混用导致市值放大 100 倍、`get_ledger_summary` 分支逻辑错误（bank/property 无数据）、货基统计传参错误、`delete_ledger`/`migrate_positions` 未适配 `ledger_id`、前端响应解析路径不匹配、列表接口缺摘要字段；修正技术债务和进度描述；新增「放弃 SQL 聚合」决策 |
+| v4.3.2 | 2026-06-18 | 账户体系重构：`positions`、`transactions`、`assets` 新增 `ledger_id` 外键并回填数据；新建 `LedgerService` 提取业务逻辑；`overview` 改用 SQL 聚合；全面切换基于 `ledger_id` 的查询与写入；统一账户类型为 `bank/stock/fund/property`；修复 28 个测试；前端 API 层扩展；页面重构待继续 |
 | v4.3.1 | 2026-06-16 | 修复金融精度改造后续数据混合问题、修复 SafeNumeric 类型适配、修复 XIRR 测试断言、修复交易时间范围测试、新增 `Ledger.ledger_type` 缺少 `property` 类型等技术债务条目；新增版本号管理规范 |
 | v4.3   | 2026-06-16 | 金融精度改造完成：所有金额/价格字段改为Integer存储分（元×100），份额字段改为Integer存储最小单位（份×10000），净值字段改为Decimal(18,6)；新增`Money`精度转换工具类；改造全部写入/读取路径；数据迁移脚本；修复前端账户详情页显示异常（数据混合问题）；编写全链路精度测试；技术债务新增接口性能优化、`confirm_date`回填、`type`列空值等 |
 | v4.2.1 | 2026-06-14 | 持仓管理增强：交易明细下钻（行点击展开）、持仓删除（可选清理关联交易）、费率编辑（证券/基金类型折叠面板）、批量迁移端点（`POST /api/ledgers/{id}/migrations/`）；新增 `transactions.symbol` 字段作为不可更改快照；前端表格合并规范（名称/代码/类型复合列）；修复删除弹窗误删 Bug；测试用例补全（持仓交易明细、删除持仓、批量迁移）；更新进度总览、技术债务、决策记录与核心文件清单 |
@@ -351,6 +354,43 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 
 **消费场景**：策略视图页 `/asset/strategies`，按标签分组展示持仓，含汇总卡片和分组内分页。负债已在后端自动过滤。
 
+## 5.12 账户类型与资产归属规范（v4.3.1 最终确定）
+
+### 5.12.1 账户类型定义
+
+系统仅支持四种账户类型，不再增减：
+
+| 类型 | 标识 | 含义 | 示例 |
+|------|------|------|------|
+| 银行账户 | `bank` | 一张具体的银行卡，承载该卡内所有资产（活期、货币基金、银行理财、通过该行购买的基金等） | "招商银行卡(6214)" |
+| 证券账户 | `stock` | 券商账户，承载股票、ETF、可转债等交易所资产 | "华泰证券" |
+| 场外基金平台 | `fund` | 独立基金销售平台，承载场外公募基金 | "支付宝基金""天天基金" |
+| 实物资产 | `property` | 房产、车辆、黄金、收藏品等非金融资产 | "家庭房产" |
+
+### 5.12.2 核心规则（硬规则，无智能判断）
+
+1. **同账户内操作**：用户在同一个 `bank` 账户内记"买入理财"，系统视为**资产形态转换**（活期→理财），不生成出入金流水。
+2. **跨账户操作**：资金离开当前账户时，用户必须使用"转账"操作关联两个账户，系统生成标准转账流水。
+3. **用户自主决策**：系统不判断"银行体系内外"。用户通过选择账户和操作类型，自然决定资金流向规则。
+
+### 5.12.3 银行渠道买基金的归属
+
+用户通过银行 App 直接购买的基金（钱未离开银行卡），持仓直接记录在该银行卡账户下，不单独创建 `fund` 账户。交易记录的 `source` 字段标记购买渠道（如"招商银行"）。
+
+### 5.12.4 交易类型（固定，不膨胀）
+
+`bank` 账户仅支持 5 个通用操作：`存入活期` / `取出资金` / `买入理财` / `赎回理财` / `转账`。
+
+用户选择"买入理财"后，自由输入：资产名称（如"朝朝宝"）、资产类型（从 6 个通用标签中选择）、金额。
+
+### 5.12.5 资产类型标签
+
+预设 6 个通用标签：`活期存款` / `货币基金` / `定期理财` / `债券基金` / `股票基金` / `混合资产`。用户可在设置中手动新增自定义标签（如"黄金积存"），系统不自动新增。
+
+### 5.12.6 防错提示原则
+
+仅对不可逆操作（删除账户、删除持仓、大额转账）进行二次确认。日常记账操作不弹出"你是不是想选另一个操作"类提示——用户选什么就执行什么。
+
 # 6. 第三方集成架构（xalpha 完整边界定义）
 
 - **职责边界**：仅负责外部数据获取、净值解析、组合数学计算，不参与业务入库、不参与前端交互、不参与权限逻辑
@@ -491,17 +531,22 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 | 导入模块（股票） | **100%** | ✅ 已完成 |
 | 导入模块（基金） | **95%** | 支付宝 PDF 解析器完成，天天基金稳定，腾讯理财通待支持（P2） |
 | 导入模块（通用） | **95%** | 解析器架构稳定，事务安全加固，持仓不足自动转为孤儿交易 |
-| 简记弹窗 | 100% | 已测试通过 |
+| 简记弹窗 | **98%** | 买入/卖出交互优化已完成；需拆分 BuyForm/SellForm（下一阶段重构） |
 | 手动记账（完整页面） | 0% | 全部待开发（P2-1） |
-| 仪表盘 | **85%** | 年化收益率卡片已上线；持仓分布可视化（P1-15）、按平台分组盈亏（P2-14） |
-| 数据基建 | **98%** | 金融精度改造完成，数据库 WAL 模式启用，定时任务（P1-20）、指数行情同步 |
-| 全局 UI | 90% | 移动端适配（远期） |
-| **投资组合** | **92%** | **后端与策略视图完成；账户管理重构完成；金融精度改造完成；接口性能优化、type 列数据回填、跨日划转过滤待处理** |
+| **仪表盘** | **90%** | 年化收益率卡片上线；资产配置环形图已实现；盈亏走势图基础占位铺设（P1-20 数据接入后可激活）。 |
+| 数据基建 | **97%** | `ledger_id` 外键迁移完成；`delete_ledger`/`migrate_positions` 已适配 `ledger_id`；SQL 聚合 Bug 已修复；`positions.type` 和 `confirm_date` 回填待执行 |
+| **全局 UI** | **92%** | 详情页布局重构、色彩规范及移动端适配基础完成；组件拆分抽离持续推进；列表页分组与缩写标签已优化。 |
+| **投资组合** | **92%** | 后端与策略视图完成；账户管理重构遗留 Bug 已修复；接口性能优化完成，type 列数据回填、跨日划转过滤待处理 |
+| **账户管理** | **85%** | **后端 Service 层 Bug 已修复；前端详情页 UI 重构与独立抽屉组件已完成；列表页分组、未归置卡片已完善。资产录入 `ledger_id` 问题待应用修复。** |
 
-# 10. 技术债务 & 开口项明细（可追溯）
+# 10. 技术债务 & 开口项明细
 
-|问题描述|优先级|产生原因|处理策略|
+| 问题描述 | 优先级 | 产生原因 | 处理策略 |
 |---|---|---|---|
+| （保留原 4 个后端 BUG） | 🔴 致命 | `Position.current_price`(分) × `Position.quantity`(最小单位) 正确市值(分) = 乘积 / 1,000,000，代码中 `/10000` 导致放大 100 倍；同时 Python 聚合和 SQL 聚合返回的数据单位不一致（分 vs 元），前端展示混乱 | 统一改为 Python 聚合调用 `Money.multiply_price_quantity` + `Money.cents_to_yuan`，移除所有 SQL 市值聚合 |
+| **成交价格与净值自动填充及校验接口** | 中 | 目前买入/卖出仅依赖手动输入价格。为提升用户体验并防止误操作，需要后端提供股票/基金的当日价格区间（股票需要最高/最低价校验，基金需要按确认日净值自动回填）。 | **P2 阶段细化实现**。设计接口：股票（`GET /api/securities/{symbol}/price-range/?date=...`），基金（`GET /api/funds/{code}/nav/?date=...`）。前端在 `BuyForm` 和 `SellForm` 选中产品后调用，自动填入默认值，并限制用户输入的数值在价格区间内（用于股票）。 |
+| （保留原 `get_ledger_summary` 问题） | 🔴 严重 | bank/property 分支写在 `if ledger_type in ('stock','fund')` 的 elif 中，永远不执行 | 将 bank/property 提升为与 stock/fund 同级的独立分支 |
+| （保留原前端 API 路径问题） | 🔴 严重 | 后端返回 `{data: [...], total, page}`，前端解析为 `res.data.data` | 后端统一包裹为 `{data: {items, total, page, per_page}}` |
 | 腾讯理财通格式复杂 | 中 | 理财通导出格式非标准CSV，需专门解析器 | P2 实现 |
 | 孤儿交易无自动回填机制 | 中 | 需定时任务扫描并关联后续新增的持仓 | P1-20 实现 |
 | 持仓分布可视化缺失 | 中 | 仪表盘仅有总资产展示，无配置结构图 | P1-15 实现 |
@@ -522,13 +567,15 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 | 指数行情同步不可用 | 低 | 新浪接口不支持指数代码 | 改用 `xa.indexinfo`，待实现 |
 | 全量同步时 `stock_list` / `fund_list` 需传入占位 `["__full__"]` | 低 | 重构遗留问题 | 后续优化为在 Job 中声明不需要 targets |
 | 组合收益计算未支持跨日划转识别 | 低 | 需要交易级时间戳 + 人工标记，MVP 仅支持同日配对 | 当用户反馈超过 5% 的 Portfolio 存在跨日划转需求时启动修复 |
-| Ledger views 代码为半成品 | 高 | `update_ledger` 中存在 `'key' in data` 检查不精确、部分逻辑耦合等问题 | **已于 v4.2 重构完成** |
-| **`GET /api/ledgers/overview/` 全量加载聚合，大数据量时存在性能风险** | **中** | **全量查询 Position/Asset 后在应用层聚合，未使用数据库 SUM/GROUP BY** | **待持仓量破万时改为 SQL 聚合，同时迁移 `account_name` → `ledger_id`** |
-| **`fee_config` 处理逻辑在 `create_ledger` 和 `update_ledger` 中重复** | **低** | **两处对 fee_config 的序列化/验证逻辑相同，未抽取公共方法** | **下次重构时统一抽取为模型方法或服务函数** |
-| **`Transaction.confirm_date` 存在 NULL 值** | **高** | **写入源头未统一赋值** | **回填历史数据，修复所有写入入口** |
-| **`positions.type` 列存在 NULL/空值** | **高** | **部分导入解析器/手动录入未写入 `asset_type`** | **统一回填所有持仓的 `asset_type`，并修复所有写入入口，完成后移除临时关键词匹配逻辑** |
-| **账户详情页一次性请求过多全量接口** | **高** | **前端 `fetchData` 同时请求所有持仓、资产、交易，且 `per_page` 设置过大** | **改为按需加载，默认只请求当前账户数据，`per_page` 调小，账户列表仅在编辑时加载** |
-| **`daily_worth.unit_nav` 和 `acc_nav` 改为 DECIMAL(18,6)** | **中** | **xalpha 返回值需用 Decimal 解析，避免 float 中转** | **本次已完成模型修改，需同步改造元数据同步系统以 Decimal 写入** |
+| `Transaction.confirm_date` 存在 NULL 值 | 高 | 写入源头未统一赋值 | 回填历史数据，修复所有写入入口 |
+| `positions.type` 列存在 NULL/空值 | 高 | 部分导入解析器/手动录入未写入 `asset_type` | 统一回填所有持仓的 `asset_type`，并修复所有写入入口，完成后移除临时关键词匹配逻辑 |
+| **`get_money_fund_stats` 调用传入 `ledger.name` 而非 `ledger.id`** | 🟡 中 | 参数类型为 `int` 但传入了字符串，导致货基占比/金额永远为空 | 改为传入 `ledger.id` |
+| **`delete_ledger` / `migrate_positions` 未跟随 `ledger_id` 迁移** | 🟡 中 | 仍使用 `Position.account_name == ledger.name` 过滤，账户改名后会产生漏删/漏迁 | 改为 `Position.ledger_id == ledger_id`，迁移时同步更新 `account_name` 快照 |
+| **`GET /api/ledgers/` 未返回账户摘要数据** | 🔴 严重 | 列表页卡片依赖 `total_market_value`、`pnl`、`position_count` 等字段，但接口只返回基础字段 | 在 `list_ledgers` 中为每个账户附加摘要统计 |
+| **`position_ratio` 返回类型不一致** | 🟡 中 | `get_position_page` 中 `round()` 结果可能因单位混用而异常，且类型可能是 float 或 str | 修 B1 后统一确保返回 float |
+| **同花顺解析器操作类型映射不完整** | 中 | `test_ths_otc_cash_format` 测试中 `OTC现金宝交` 的操作类型无法从映射表确定方向，测试被跳过 | 完善 `THS_OP_TYPE_MAP` 映射，补全测试断言 |
+| **`get_ledgers_overview` 中总资产计算依赖净资产的推导** | 低 | 当前总资产通过 `net_worth + liability_total` 反推，而非直接从各组市值汇总 | 在 Service 层增加 `total_assets` 字段，直接汇总各类型市值 |
+| **导入模块视图层仍较厚** | 低 | `app/domains/importers/views.py` 未完全拆分，部分校验逻辑耦合在视图函数中 | 后续提取 ImportService |
 
 # 11. 远期 IDEAS 归档明细（不参与当前迭代）
 
@@ -544,6 +591,17 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 
 | 决策日期 | 决策主题 | 完整决策细节 |
 |---------|---------|-------------|
+| 2026-06-21 | ECharts 图表颜色动态读取 CSS 变量 | 放弃在组件中硬编码十六进制颜色，改为通过 JS `getComputedStyle` 在运行时动态读取 `colors.css` 中定义的变量（如 `--invest-stock`、`--sankey-liquid`），确保图表颜色与全局主题保持严格一致，且能响应未来可能的暗黑模式或主题切换。 |
+| 2026-06-21 | 抽取独立抽屉组件 `PositionTransactionsDrawer.vue` | 原详情页中点击持仓行在表格下方展开交易明细，导致父组件逻辑膨胀且交互受限。决定将其重构为右侧 `el-drawer` 独立组件，接收 `position-data` prop 并内部调用 `GET /api/positions/{id}/transactions/` 获取数据，实现关注点分离和更灵活的布局。 |
+| 2026-06-21 | 简记弹窗买入/卖出交互优化 | 将“买入/卖出”由 `el-radio-group` 改为 `el-tabs` 切换；合并交易日期与下单时间至同一行并采用 `el-radio-button` 组；金额/份额切换改为 `el-input` 的 `prepend` 插槽实现下拉选择模式；基金卖出份额支持小数精度（4 位）；极简账户创建增加必选的账户类型下拉框，类型选项排除 `property`。 |
+| 2026-06-21 | 账户列表页分组标题增加汇总信息及缩写 Badge | 在每个分组标题（如“银行账户”）后显示账户数与总金额（如 `(2 个账户 · ¥12,345)`）；卡片内类型标签由完整名称改为单字缩写（银/股/基/物），使用与分组标题匹配的半透明彩色背景小徽章，降低视觉冗余。 |
+| 2026-06-21 | 修复 Layout 中 `LayHeader` 渲染导致全局抽屉无法弹出 | `LayHeader` 原本在 `<script setup>` 中使用 `defineComponent` + `h()` 渲染，导致插槽上下文丢失，影响全局 `TransactionDrawer` 的挂载。修复方案：去除 `defineComponent` 定义，直接在模板中替换为原始 HTML 结构，保持功能完全一致。 |
+| 2026-06-21 | `ledger_id` 缺失写入入口排查与修复方案 | 发现资产录入 (`AssetEntry.vue`) 和简记弹窗早期版本均未传递 `ledger_id` 导致数据游离。简记弹窗已修复：账户选择改为绑定 `ledger_id`，提交时传递该字段。资产录入同样需改为 `ledger_id` 绑定，方案已定待应用。 |
+| 2026-06-21 | 账户详情页概览卡片重构与图表规划 | 将原有卡片改为网格布局，强制涨红跌绿；新增环形图展示资产配置分布；预留走势图位置（依赖 P1-20 快照数据）。图表颜色全部通过 CSS 变量获取，保证零硬编码。 |
+| 2026-06-18 | 放弃 SQL 聚合，统一使用 Python 聚合计算市值 | SQL 中 `price(分) × quantity(最小单位) / 10000` 与正确的 `Money.multiply_price_quantity` 内部逻辑不一致，且分母应为 1,000,000 而非 10,000，导致市值放大 100 倍。同时 Python 聚合和 SQL 聚合返回值单位（分 vs 元）在后续转换中产生混用。鉴于当前数据量下性能无差异，决定统一改用 Python 聚合，消除双路径维护成本和单位混淆风险。 |
+| 2026-06-17 | 账户类型体系最终确定 | 砍掉 `family`/`general`/`cash`，最终保留四种类型：`bank`（银行账户）、`stock`（证券账户）、`fund`（场外基金平台）、`property`（实物资产）。核心规则：同账户内操作 = 资产形态转换，跨账户操作 = 转账。银行渠道买基金直接挂在银行卡账户下，不单独建 `fund` 账户。 |
+| 2026-06-17 | `cash` 账户类型重命名为 `bank` | 将原先的现金/活钱账户类型从 `cash` 改为 `bank`，语义更清晰，表示一张具体的银行卡，承载活期、理财、基金等全部行内资产。同时 `linked_cash_ledger_id` 的校验也改为检查 `ledger_type='bank'`。 |
+| 2026-06-18 | 引入 `ledger_id` 外键替代字符串关联 | `positions`、`transactions`、`assets` 增加 `ledger_id` 字段，通过外键与 `ledgers` 关联。`account_name` 保留为快照字段。所有核心查询和写入均基于 `ledger_id`，提升性能和数据完整性。 |
 | 2026-06-15 | 金融数据存储精度方案（最终决策） | 所有直接关联用户资金的字段（金额、份额）采用整数存储分（×100）或最小份额单位（×10000）。基金净值改为 DECIMAL(18,6)。所有读写通过 `Money` 工具类统一转换，禁止业务代码直接乘除。详细变更见 5.1-5.10 节。 |
 | 2026-06-15 | 前端数据异常根因 | `LedgerDetail.vue` 中 `fetchData` 自行计算市值（`marketValue = quantity * current_price`），而后端 `_enrich_position_dict` 已将单位转为元/份额。数据库新旧数据混合导致前端计算结果异常。最终通过彻底统一数据库数据（执行二次迁移）解决。 |
 | 2026-06-15 | XIRR 计算适配精度改造 | `generate_cashflows` 和 `generate_portfolio_cashflows` 中读取 `Transaction.amount` 时用 `Money.cents_to_yuan` 转换，`calculators.py` 中所有持仓市值计算统一使用 Money 工具类。 |
@@ -601,9 +659,9 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 # 13. 断点续传协议
 
 后续任何会话接续开发，只需携带：
-1. 本完整 SPEC 文档（v4.3.1）
-2. 当前进度一句话，如："金融精度改造完成，P1-12 投资组合与策略视图完成，账户管理重构完成；下一阶段接口性能优化或 P1-20 定时任务"
-3. 核心文件清单（更新于 2026-06-16）：
+1. 本完整 SPEC 文档（v4.3.3）
+2. 当前进度一句话，如："账户体系重构遗留了 8 个 Bug/缺失，包括市值计算错误、summary 分支死代码、前端数据提取不匹配等，待修复"
+3. 核心文件清单（更新于 2026-06-18）：
 
 | 文件路径 | 作用说明 |
 |---------|---------|
@@ -614,6 +672,7 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 | `backend/app/core/db_utils.py` | 批量插入去重工具（含 bulk_insert_if_not_exists） |
 | `backend/app/core/constants.py` | 全局常量（TYPE_LABELS、ALLOCATION_LABELS、CURRENT_USER_ID、LEDGER_TYPE_LABELS 等） |
 | **`backend/app/core/money.py`** | **金融精度转换工具类（元↔分、份额↔最小单位）** |
+| `backend/app/services/ledger_service.py` | **账户维度数据聚合与计算服务（新，存在 4 个 Bug 待修复）** |
 | `backend/app/services/importer/orchestrator.py` | 导入协调器（含 asset_type 写入和货币基金识别，已适配 Money 转换） |
 | `backend/app/services/importer/parsers/alipay_fund.py` | 支付宝交易记录解析器 |
 | `backend/app/services/importer/parsers/alipay_pdf.py` | 支付宝基金交易 PDF 解析器 |
@@ -625,8 +684,9 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 | **`backend/app/services/position_service.py`** | **持仓业务逻辑服务层（含持仓不足转孤儿交易、confirm_date 写入，已适配 Money 写入转换）** |
 | `backend/app/domains/transactions/models.py` | 交易流水模型（新增 `symbol` 快照字段，金额/份额字段改为 Integer） |
 | `backend/app/domains/ledgers/models.py` | Ledger 模型定义（新增 portfolio_id、linked_cash_ledger_id 字段） |
-| `backend/app/domains/ledgers/views.py` | Ledger API（已重构，支持 portfolio_id、linked_cash_ledger_id 读写，增加删除保护、overview 接口、批量迁移端点，已适配 Money 转换） |
+| `backend/app/domains/ledgers/views.py` | Ledger API（已重构，存在 `delete_ledger`、`migrate_positions` 未适配 `ledger_id` 的问题） |
 | `backend/app/domains/assets/views.py` | 资产 API（支持 exclude 参数排除负债，已适配 Money 转换） |
+| `backend/app/domains/assets/models.py` | 资产模型，新增 `ledger_id` 外键 |
 | `backend/app/domains/utils/views.py` | 交易日校验与基金确认日 API |
 | `backend/app/core/utils.py` | 通用工具函数 |
 | `backend/app/services/sync/` | 元数据同步系统（适配器、Job、Orchestrator） |
@@ -651,19 +711,31 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 | `backend/app/domains/strategy/models.py` | 策略标签模型（StrategyTag、PositionStrategyTag） |
 | `backend/app/domains/strategy/views.py` | 策略标签 CRUD、绑定/解绑、relations、overview 接口（已适配 Money 转换） |
 | `backend/app/domains/strategy/schemas.py` | 策略标签请求/响应 Schema |
+| `frontend/src/layout/index.vue` | **全局布局文件，已修复 `LayHeader` 渲染问题** |
+| `frontend/src/components/QuickEntry/TransactionDrawer.vue` | **简记弹窗核心组件（已优化交互、修复 `ledger_id`）** |
+| `frontend/src/components/QuickEntry/QuickFab.vue` | 全局悬浮按钮，触发简记弹窗 |
+| `frontend/src/views/asset/ledgers/index.vue` | 账户列表页（已增加分组汇总、缩写标签、未归置卡片） |
+| `frontend/src/views/asset/ledgers/detail.vue` | 账户详情页（已重构卡片、图表、抽屉触发） |
+| `frontend/src/views/asset/ledgers/components/PositionTransactionsDrawer.vue` | **新增独立抽屉组件，展示单持仓交易明细** |
+| `frontend/src/views/asset/entry/index.vue` (AssetEntry.vue) | 资产录入页面（`ledger_id` 待修复） |
+| `frontend/src/views/asset/inventory/index.vue` (InventoryHome.vue) | 全面盘点页面（投资类资产入口待调整） |
+| `backend/app/services/ledger_service.py` | 账户服务层（Bug 已全部修复） |
+| `backend/app/domains/ledgers/views.py` | 账户 API（`delete_ledger` / `migrate_positions` 已适配 `ledger_id`） |
+| `backend/app/domains/positions/schemas.py` | 持仓 Schema（已增加 `ledger_id` 字段） |
+| `backend/app/domains/assets/views.py` | 资产 API（需确认创建资产时接受 `ledger_id`） |
 | `frontend/src/components/QuickEntry/TransactionDrawer.vue` | 简记弹窗（抽屉）组件 |
 | `frontend/src/views/asset/investment/import/index.vue` | 导入工作台（含支付宝 PDF 选项） |
 | `frontend/src/views/asset/investment/import/components/FundMatchDrawer.vue` | 基金代码匹配抽屉组件 |
 | `frontend/src/views/welcome/index.vue` | 仪表盘首页（含年化收益率卡片） |
-| `frontend/src/views/asset/ledgers/index.vue` | 账户管理页（含资金全景卡片、分类分组、投资组合/策略入口） |
-| `frontend/src/views/asset/ledgers/detail.vue` | 账户详情页（编辑时可关联组合和现金账户、批量迁移持仓、持仓下钻交易明细、删除持仓） |
+| `frontend/src/views/asset/ledgers/index.vue` | 账户管理列表页（待重构，接口数据未匹配） |
+| `frontend/src/views/asset/ledgers/detail.vue` | 账户详情页（待重构，接口数据未匹配） |
 | `frontend/src/views/asset/ledgers/components/AccountFormFields.vue` | 账户表单复用组件（类型/现金账户/组合选择/费率折叠面板） |
 | `frontend/src/views/asset/ledgers/components/DeleteLedgerDialog.vue` | 删除账户确认对话框（可选清理持仓） |
 | `frontend/src/views/asset/portfolio/index.vue` | 投资组合列表页 |
 | `frontend/src/views/asset/portfolio/detail.vue` | 投资组合详情页（收益、持仓明细、关联账户管理） |
 | `frontend/src/views/asset/strategies/index.vue` | 策略视图页（标签管理、分组展示、汇总卡片） |
 | `frontend/src/api/positions.ts` | 前端持仓请求封装（含 deletePosition、getPositionTransactions） |
-| `frontend/src/api/ledger.ts` | 前端 Ledger 请求封装（含 overview、deleteLedgerWithOptions、migrateLedgerPositions） |
+| `frontend/src/api/ledger.ts` | 前端 Ledger 请求封装（含 overview、deleteLedgerWithOptions、migrateLedgerPositions、新增 7 个详情接口） |
 | `frontend/src/api/importer.ts` | 导入 API 封装 |
 | `frontend/src/api/funds.ts` | 前端基金 API 封装 |
 | `frontend/src/api/performance.ts` | 前端年化收益率 API 封装 |

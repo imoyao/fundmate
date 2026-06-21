@@ -300,7 +300,7 @@
           sortable
         >
           <template #default="{ row }">
-            {{ row.allocation_label || allocationLabel(row.allocation) }}
+            {{ row.allocation_label || getAllocationLabel(row.allocation) }}
           </template>
         </el-table-column>
         <el-table-column
@@ -362,6 +362,7 @@ import { getSummary } from "@/api/summary";
 import { getAssets } from '@/api/assets'
 import { ElMessage } from "element-plus";
 import * as echarts from "echarts";
+import { ALLOCATION_COLORS, ALLOCATION_OPTIONS, ALLOCATION_LABELS, getAllocationLabel } from '@/constants';
 
 const assetChangeChartRef = ref<HTMLDivElement | null>(null);
 const sankeyChartRef = ref<HTMLDivElement | null>(null);
@@ -438,21 +439,11 @@ let barChart: echarts.ECharts | null = null;
 let waterfallChart: echarts.ECharts | null = null;
 
 const dimensionOptions = [
-  { label: "🏷️ 配置目标", value: "allocation" },
-  { label: "📦 产品类型", value: "type" },
-  { label: "🏦 账户", value: "account_name" },
-  { label: "🌍 市场", value: "market" }
+  { label: "配置目标", value: "allocation" },
+  { label: "产品类型", value: "type" },
+  { label: "账户", value: "account_name" },
+  { label: "市场", value: "market" }
 ];
-
-// —— 分组定义 ——
-const ALLOC_META: Record<string, { label: string; icon: string }> = {
-  liquid: { label: "活钱", icon: "💧" },
-  stable: { label: "稳健底仓", icon: "🛡️" },
-  longterm: { label: "长期增值", icon: "📈" },
-  speculative: { label: "高风险博弈", icon: "⚡" },
-  security: { label: "保险保障", icon: "🛟" }
-};
-const ALLOC_KEYS = ["liquid", "stable", "longterm", "speculative", "security"];
 
 // 桑基图相关
 const sankeyDisplayMode = ref<"amount" | "percent" | "hidden">("amount");
@@ -573,7 +564,7 @@ const sankeyData = computed(() => {
 
 const allocationGroups = computed(() => {
   const groups: Record<string, any[]> = {}
-  ALLOC_KEYS.forEach(k => (groups[k] = []))
+  ALLOCATION_OPTIONS.forEach(opt => (groups[opt.value] = []))
 
   allPositions.value.forEach(p => {
     const a = p.allocation || 'longterm'
@@ -582,12 +573,12 @@ const allocationGroups = computed(() => {
 
   const grandTotal = allPositions.value.reduce((s, p) => s + p.marketValue, 0)
 
-  return ALLOC_KEYS.map(key => {
-    const items = groups[key]
+  return ALLOCATION_OPTIONS.map(opt => {
+    const items = groups[opt.value]
     const total = items.reduce((s, p) => s + p.marketValue, 0)
     return {
-      key,
-      label: ALLOC_META[key]?.label || key,
+      key: opt.value,
+      label: opt.label,
       total,
       percent: grandTotal > 0 ? +((total / grandTotal) * 100).toFixed(1) : 0,
       count: items.length,
@@ -598,14 +589,7 @@ const allocationGroups = computed(() => {
 })
 
 function getColorForAlloc(key: string): string {
-  const colors: Record<string, string> = {
-    liquid: "#3b82f6",
-    stable: "#10b981",
-    longterm: "#f59e0b",
-    speculative: "#ef4444",
-    security: "#8b5cf6"
-  };
-  return colors[key] || "#6b7280";
+  return ALLOCATION_COLORS[key] || 'var(--text-tertiary)';
 }
 
 const dimensionGroups = computed(() => {
@@ -669,9 +653,6 @@ function typeTag(type: string) {
     static: "info"
   };
   return m[type] || "info";
-}
-function allocationLabel(a: string | null) {
-  return ALLOC_META[a || ""]?.label || a || "长期增值";
 }
 
 // —— 瀑布图初始化（模拟总资产变化） ——

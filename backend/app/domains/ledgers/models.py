@@ -49,8 +49,8 @@ class Ledger(Base, PrimaryKeyMixin, TimestampMixin):
     name = Column(String(100), nullable=False, comment='账户名称，如"华泰证券"')
     ledger_type = Column(
         String(20),
-        default='general',
-        comment='类型: stock(股票账户) / fund(基金账户) / general(综合账户) / cash(现金账户) / family(家庭账户)',
+        default='bank',
+        comment='类型: stock(股票账户) / fund(基金账户) / property(实物资产) / bank(现金账户) / family(家庭账户)',
     )
     default_allocation = Column(
         String(20),

@@ -68,20 +68,3 @@ export interface SummaryData {
   total_pnl_cny: number;
   market_distribution: Record<string, number>;
 }
-
-/** 五笔钱分组枚举 */
-export type AllocationType =
-  | "liquid"
-  | "stable"
-  | "longterm"
-  | "speculative"
-  | "security";
-
-/** 五笔钱分组标签映射 */
-export const AllocationLabels: Record<AllocationType, string> = {
-  liquid: "活钱",
-  stable: "稳健底仓",
-  longterm: "长期增值",
-  speculative: "高风险博弈",
-  security: "保险保障"
-};

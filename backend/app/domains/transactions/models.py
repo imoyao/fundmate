@@ -13,7 +13,7 @@ confirmed（已确认）
 关系	一条孤立的卖出记录，交易本身是成功的	但它关联不到持仓，需要标记处理阶段
 """
 
-from sqlalchemy import Column, Date, DateTime, Integer, String, Text
+from sqlalchemy import Column, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 
 from app.core.database import Base, PrimaryKeyMixin, TimestampMixin
 
@@ -35,6 +35,23 @@ class Transaction(Base, PrimaryKeyMixin, TimestampMixin):
     link_group_id = Column(String(36), nullable=True, comment='关联交易组ID')
     position_name = Column(String(100))
     asset_type = Column(String(20), nullable=True, default=None, comment='资产类型快照')
+    ledger_id = Column(
+        Integer,
+        ForeignKey('ledgers.id', ondelete='RESTRICT'),
+        nullable=True,
+        comment='关联账户ID (冗余account_name快照，此为真外键)',
+    )
     account_name = Column(String(100))
     import_hash = Column(String(64), nullable=True, comment='导入去重哈希值')
     notes = Column(Text)
+
+    __table_args__ = (
+        # 防重复导入
+        UniqueConstraint('import_hash', name='uq_txn_import_hash'),
+        # 核心查询加速：按账户 + 日期排序
+        Index('idx_txn_ledger_date', 'ledger_id', 'confirm_date'),
+        # 其他常用查询
+        Index('idx_txn_position_id', 'position_id'),
+        Index('idx_txn_symbol', 'symbol'),
+        Index('idx_txn_account_name', 'account_name'),
+    )

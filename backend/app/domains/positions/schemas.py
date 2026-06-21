@@ -10,6 +10,7 @@ class PositionCreate(BaseModel):
     market: str = Field('CN_A', description='市场')
     asset_type: str = Field('stock', validation_alias='type', description='产品类型')
     account_name: Optional[str] = Field(None, description='所属账户')
+    ledger_id: Optional[int] = Field(None, description='所属账户ID')  # 新增
     quantity: Optional[float] = Field(None, description='数量')
     avg_price: Optional[float] = Field(None, description='平均价格/金额')
     currency: str = Field('CNY', description='币种')
@@ -22,13 +23,14 @@ class PositionCreate(BaseModel):
     position_id: Optional[int] = Field(None, description='关联持仓ID')
     isAfter15: Optional[bool] = Field(False, description='基金申购是否在15:00之后')
     interestRate: Optional[float] = Field(None, description='年化利率')
-    model_config = ConfigDict(extra='allow')  # 允许前端传未知字段，避免 400
-    amount: Optional[float] = Field(None, description='交易金额')  # ⭐ 新增
+    amount: Optional[float] = Field(None, description='交易金额')
+    model_config = ConfigDict(extra='allow')
 
 
 class PositionUpdate(BaseModel):
     name: Optional[str] = Field(None, description='名称')
     account_name: Optional[str] = Field(None, description='所属账户')
+    ledger_id: Optional[int] = Field(None, description='所属账户ID')  # 新增
     quantity: Optional[float] = Field(None, description='数量')
     avg_price: Optional[float] = Field(None, description='平均价格')
     current_price: Optional[float] = Field(None, description='当前价格')
@@ -46,6 +48,7 @@ class PositionOut(BaseModel):
     market: str
     type: str = Field(validation_alias='asset_type', serialization_alias='type')
     account_name: Optional[str] = None
+    ledger_id: Optional[int] = None  # 新增
     quantity: float
     avg_price: float
     currency: str

@@ -2,9 +2,12 @@
   <div>
     <el-form-item label="账户类型">
       <el-select :model-value="ledgerType" @update:model-value="onTypeChange" class="w-full">
-        <el-option label="证券账户" value="stock" />
-        <el-option label="基金平台" value="fund" />
-        <el-option label="现金/活钱" value="cash" />
+        <el-option
+          v-for="opt in LEDGER_TYPE_OPTIONS"
+          :key="opt.value"
+          :label="opt.label"
+          :value="opt.value"
+        />
       </el-select>
     </el-form-item>
 
@@ -125,6 +128,7 @@
 
 <script setup lang="ts">
 import { ref, watch } from "vue";
+import { LEDGER_TYPE_OPTIONS } from '@/constants'
 
 interface Props {
   ledgerType: string

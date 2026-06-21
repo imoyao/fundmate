@@ -49,3 +49,42 @@ export function migrateLedgerPositions(sourceLedgerId: number, targetLedgerId: n
     data: { target_ledger_id: targetLedgerId },
   });
 }
+
+// ── 账户详情页专用 ──
+
+/** 获取账户概览卡片数据 */
+export function getLedgerSummary(ledgerId: number) {
+  return http.request("get", `/api/ledgers/${ledgerId}/summary/`);
+}
+
+/** 获取账户持仓明细（分页） */
+export function getLedgerPositions(ledgerId: number, params: { page: number; per_page: number }) {
+  return http.request("get", `/api/ledgers/${ledgerId}/positions/`, { params });
+}
+
+/** 获取账户交易记录（分页） */
+export function getLedgerTransactions(ledgerId: number, params: { page: number; per_page: number }) {
+  return http.request("get", `/api/ledgers/${ledgerId}/transactions/`, { params });
+}
+
+/** 编辑持仓 */
+export function updateLedgerPosition(ledgerId: number, positionId: number, data: Record<string, any>) {
+  return http.request("patch", `/api/ledgers/${ledgerId}/positions/${positionId}/`, { data });
+}
+
+/** 删除持仓（可选级联删除交易） */
+export function deleteLedgerPosition(ledgerId: number, positionId: number, deleteTransactions = false) {
+  return http.request("delete", `/api/ledgers/${ledgerId}/positions/${positionId}/`, {
+    params: { delete_transactions: deleteTransactions },
+  });
+}
+
+/** 编辑交易 */
+export function updateLedgerTransaction(ledgerId: number, transactionId: number, data: Record<string, any>) {
+  return http.request("patch", `/api/ledgers/${ledgerId}/transactions/${transactionId}/`, { data });
+}
+
+/** 删除交易 */
+export function deleteLedgerTransaction(ledgerId: number, transactionId: number) {
+  return http.request("delete", `/api/ledgers/${ledgerId}/transactions/${transactionId}/`);
+}

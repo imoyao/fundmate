@@ -76,6 +76,7 @@ def list_transactions():
                     'position_name': t.position_name or '未知资产',
                     'type': t.txn_type,
                     'trade_date': t.trade_date.strftime('%Y-%m-%d') if t.trade_date else None,
+                    'confirm_date': t.confirm_date.strftime('%Y-%m-%d') if t.confirm_date else None,
                     'quantity': Money.min_unit_to_shares(t.quantity),
                     'price': Money.cents_to_yuan(t.price),
                     'fee': Money.cents_to_yuan(t.fee),

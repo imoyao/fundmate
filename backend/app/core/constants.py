@@ -16,6 +16,7 @@ TYPE_LABELS = {
     'etf': 'ETF',
     'bond': '债券',
     'cash': '现金',
+    'bank': '银行',
     'real_estate': '房产',
     'insurance': '保险',
     'precious_metal': '贵金属',
@@ -26,11 +27,10 @@ TYPE_LABELS = {
 
 
 LEDGER_TYPE_LABELS = {
+    'bank': '银行账户',
     'stock': '证券账户',
-    'fund': '基金平台',
-    'cash': '现金/活钱',
-    'general': '通用账户',
-    'family': '家庭账户',
+    'fund': '场外基金平台',
+    'property': '实物资产',
 }
 
 # ── 市场标签 ──

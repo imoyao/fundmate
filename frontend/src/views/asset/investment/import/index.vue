@@ -175,7 +175,7 @@
             </el-form-item>
             <el-form-item label="默认配置目标">
               <el-select v-model="newLedgerAllocation" size="large">
-                <el-option v-for="opt in allocationOptions" :key="opt.value" :label="opt.label" :value="opt.value"/>
+                <el-option v-for="opt in ALLOCATION_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value"/>
               </el-select>
             </el-form-item>
           </el-form>
@@ -360,7 +360,7 @@
               </div>
               <el-select model-value="" placeholder="选择配置目标" size="small" style="width: 140px"
                          @change="(val: string) => batchSetAllocation(val)">
-                <el-option v-for="opt in allocationOptions" :key="opt.value" :label="opt.label" :value="opt.value"/>
+                <el-option v-for="opt in ALLOCATION_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value"/>
               </el-select>
             </div>
             <div class="allocation-group-list">
@@ -372,7 +372,7 @@
                 </div>
                 <el-select :model-value="group.currentAllocation" size="small" style="width: 140px"
                            @change="(val: string) => applyAllocationGroupSetting(group, val)">
-                  <el-option v-for="opt in allocationOptions" :key="opt.value" :label="opt.label" :value="opt.value"/>
+                  <el-option v-for="opt in ALLOCATION_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value"/>
                 </el-select>
               </div>
               <div v-if="currentAllocationGroups.length === 0" class="text-center text-gray-400 py-4">
@@ -533,7 +533,7 @@
                     <el-select v-model="row.allocation" size="small"
                                :disabled="row.is_cash_transfer || row.is_duplicate || row.error"
                                @change="onRowAllocationChange(row)">
-                      <el-option v-for="opt in allocationOptions" :key="opt.value" :label="opt.label"
+                      <el-option v-for="opt in ALLOCATION_OPTIONS" :key="opt.value" :label="opt.label"
                                  :value="opt.value"/>
                     </el-select>
                   </template>
@@ -700,21 +700,13 @@ import {ElMessage, ElMessageBox} from 'element-plus';
 import {getLedgers, createLedger as createLedgerApi} from '@/api/ledger';
 import type {LedgerItem} from '@/api/ledger';
 import FundMatchDrawer from "./components/FundMatchDrawer.vue";
+import { ALLOCATION_OPTIONS } from '@/constants'
 
 defineOptions({name: 'Inventory'});
 
 const router = useRouter();
 
 const showMatchDrawer = ref(false);
-
-// ── 静态配置 ──
-const allocationOptions = [
-  {value: 'liquid', label: '活钱'},
-  {value: 'stable', label: '稳健底仓'},
-  {value: 'longterm', label: '长期增值'},
-  {value: 'speculative', label: '高风险博弈'},
-  {value: 'security', label: '保险保障'},
-];
 
 const fundTypeColorMap: Record<string, string> = {
   '股票型': 'var(--invest-stock)',
@@ -1658,7 +1650,7 @@ function batchSetAllocation(target: string) {
     }
   });
   previewData.value = [...previewData.value];
-  ElMessage.success(applied > 0 ? `已将 ${applied} 条已选数据的配置目标设为「${allocationOptions.find(o => o.value === target)?.label}」` : '没有可设置的数据');
+  ElMessage.success(applied > 0 ? `已将 ${applied} 条已选数据的配置目标设为「${ALLOCATION_OPTIONS.find(o => o.value === target)?.label}」` : '没有可设置的数据');
 }
 
 function applyAllocationGroupSetting(group: any, allocation: string) {
@@ -1670,7 +1662,7 @@ function applyAllocationGroupSetting(group: any, allocation: string) {
     }
   });
   previewData.value = [...previewData.value];
-  ElMessage.success(`已将「${group.label}」的配置目标设为「${allocationOptions.find(o => o.value === allocation)?.label}」`);
+  ElMessage.success(`已将「${group.label}」的配置目标设为「${ALLOCATION_OPTIONS.find(o => o.value === allocation)?.label}」`);
 }
 
 function onRowAllocationChange(row: any) {

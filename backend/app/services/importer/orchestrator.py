@@ -82,7 +82,9 @@ class ImportOrchestrator:
                     message='文件内容与所选账户不匹配：多数记录为基金代码，请选择基金账户后重新上传。',
                 )
 
-    def parse_and_preview(self, file_bytes: bytes, template_key: str, frontend_account: str = '') -> dict:
+    def parse_and_preview(
+        self, file_bytes: bytes, template_key: str, frontend_account: str = '', ledger_id: int | None = None
+    ) -> dict:
         """解析文件并返回预览数据，包含去重信息"""
         parser = get_parser(template_key)
         records, errors = self._parse_internal(template_key, file_bytes)
@@ -92,7 +94,7 @@ class ImportOrchestrator:
         # 文件类型校验
         self.validate_file_type(records, template_key)
         # 补全
-        self.enrich(records, frontend_account)
+        self.enrich(records, frontend_account, ledger_id)
 
         # 生成 import_hash（如果缺失）
         for rec in records:
@@ -190,6 +192,7 @@ class ImportOrchestrator:
                     transaction_id=row.get('contract_id', ''),
                     import_hash=row.get('import_hash'),
                     source=row.get('source', ''),
+                    ledger_id=row.get('ledger_id'),
                 )
             )
 
@@ -252,9 +255,9 @@ class ImportOrchestrator:
             errors.append(SBImportError(line_num, 'confirm_date', '确认日期不能晚于今天'))
         return errors
 
-    def enrich(self, records: List[StandardTransactionRecord], frontend_account: str = '') -> None:
+    def enrich(self, records: List[StandardTransactionRecord], frontend_account: str = '', ledger_id=None) -> None:
         start = time.time()
-        self._fill_account_and_match_codes(records, frontend_account)
+        self._fill_account_and_match_codes(records, frontend_account, ledger_id)
         logger.info(f'enrich 补全账户+名称匹配耗时: {time.time() - start:.3f}s')
 
         start2 = time.time()
@@ -270,9 +273,10 @@ class ImportOrchestrator:
         logger.info(f'enrich 填充净值份额耗时: {time.time() - start4:.3f}s')
         logger.info(f'enrich 总耗时: {time.time() - start:.3f}s')
 
-    def _fill_account_and_match_codes(self, records, frontend_account):
+    def _fill_account_and_match_codes(self, records, frontend_account, ledger_id):
         match_cache = {}
         for r in records:
+            r.ledger_id = ledger_id
             if not r.account_name and frontend_account:
                 r.account_name = frontend_account
             if r.asset_type == 'fund' and not r.symbol and r.name:
@@ -431,6 +435,7 @@ class ImportOrchestrator:
             'name': record.name,
             'market': 'CN_A',
             'type': record.asset_type,
+            'ledger_id': record.ledger_id,
             'account_name': record.account_name,
             'quantity': qty,  # 原始份额
             'avg_price': avg_price,  # 原始元
@@ -464,10 +469,14 @@ class ImportOrchestrator:
                 # ---- 现金管理类产品 ----
                 if record.asset_type in ('cash', 'money_fund'):
                     data = self._build_import_data(record)
-                    cash_ledger = self.db.query(Ledger).filter_by(ledger_type='cash').first()
-                    if cash_ledger:
-                        data['account_name'] = cash_ledger.name
-                        entry_status = None
+                    entry_status = None
+                    if not data.get('ledger_id'):
+                        logger.warning('现金管理产品缺少 ledger_id，跳过')
+                        continue
+                    bank_ledger = self.db.query(Ledger).filter_by(ledger_type='bank').first()
+                    if bank_ledger:
+                        data['account_name'] = bank_ledger.name
+                        data['ledger_id'] = bank_ledger.id
                     else:
                         entry_status = 'pending_cash'
                     # net_amount 转换为分
@@ -484,6 +493,7 @@ class ImportOrchestrator:
                         amount=amount_cents,
                         status='success',
                         position_name=data.get('name', ''),
+                        ledger_id=data['ledger_id'],
                         account_name=data.get('account_name', ''),
                         notes=data.get('notes', ''),
                         import_hash=data.get('import_hash'),

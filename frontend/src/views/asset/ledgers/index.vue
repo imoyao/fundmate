@@ -1,9 +1,12 @@
 <template>
-  <div class="account-page p-4 md:p-6 min-h-full" :style="{ backgroundColor: 'var(--bg-page)' }" :key="$route.fullPath">
+  <div class="ledger-list p-4 md:p-6 min-h-full" :style="{ backgroundColor: 'var(--bg-page)' }">
+    <!-- 页面标题 & 操作栏 -->
     <div class="mb-6 flex justify-between items-center">
       <div>
         <h2 class="text-2xl font-bold" :style="{ color: 'var(--text-primary)' }">账户管理</h2>
-        <p class="text-sm mt-1" :style="{ color: 'var(--text-tertiary)' }">按资金账户查看持仓明细，管理账户信息</p>
+        <p class="text-sm mt-1" :style="{ color: 'var(--text-tertiary)' }">
+          管理您的银行账户、证券账户、基金平台和实物资产
+        </p>
       </div>
       <div class="flex gap-2">
         <el-button @click="$router.push('/asset/portfolios')">
@@ -12,7 +15,7 @@
         <el-button @click="$router.push('/asset/strategies')">
           <IconifyIconOffline icon="ep:data-analysis" class="mr-1" /> 策略分析
         </el-button>
-        <el-button type="primary" @click="showCreateDialog = true">
+        <el-button type="primary" @click="openCreateDialog">
           <IconifyIconOffline icon="ep:plus" class="mr-1" /> 新增账户
         </el-button>
       </div>
@@ -23,30 +26,32 @@
       <p class="mt-2">加载中...</p>
     </div>
 
-    <div v-else-if="allAccounts.length === 0" class="text-center py-20" :style="{ color: 'var(--text-tertiary)' }">
+    <div v-else-if="allLedgers.length === 0 && !hasOrphanAssets" class="text-center py-20" :style="{ color: 'var(--text-tertiary)' }">
       <IconifyIconOffline icon="ep:wallet" class="text-5xl mb-3 opacity-30" />
       <p class="text-lg">暂无账户，点击上方按钮新增</p>
     </div>
 
     <template v-else>
-      <!-- ========== 汇总区域（三层结构） ========== -->
-      <!-- 第一层：净资产（核心数字） -->
+      <!-- 全局汇总卡片 -->
       <div class="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 mb-4">
         <div class="flex items-baseline justify-between">
           <div>
             <p class="text-sm" :style="{ color: 'var(--text-tertiary)' }">净资产</p>
             <p
               class="text-4xl font-bold tracking-tight mt-1"
-              :class="overviewData?.net_worth >= 0 ? 'text-[var(--color-danger)]' : 'text-[var(--color-success)]'"
+              :class="overviewData.net_worth >= 0 ? 'text-[var(--color-danger)]' : 'text-[var(--color-success)]'"
             >
-              {{ overviewData?.net_worth >= 0 ? '+' : '' }}{{ Math.abs(overviewData?.net_worth).toLocaleString() }}
+              {{ overviewData.net_worth >= 0 ? '+' : '' }}{{ Math.abs(overviewData.net_worth).toLocaleString() }}
             </p>
             <div class="flex gap-6 mt-2 text-sm">
               <span :style="{ color: 'var(--text-secondary)' }">
                 总资产 ¥{{ totalAssets.toLocaleString() }}
               </span>
               <span :style="{ color: 'var(--color-success)' }">
-                负债 ¥{{ overviewData?.liability_total?.toLocaleString() ?? '0' }}
+                负债 ¥{{ (overviewData.liability_total || 0).toLocaleString() }}
+              </span>
+              <span v-if="overviewData.liability_total > totalAssets * 0.5" class="text-[var(--color-danger)] text-xs">
+                负债率偏高
               </span>
             </div>
           </div>
@@ -57,7 +62,7 @@
         </div>
       </div>
 
-      <!-- 第二层：分类汇总卡片 -->
+      <!-- 分类汇总卡片（保留 overview 的 group 信息） -->
       <div v-if="overviewData?.groups?.length" class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
         <div
           v-for="group in overviewData.groups.filter((g: any) => g.type !== 'deleted')"
@@ -72,102 +77,125 @@
         </div>
       </div>
 
-      <!-- 第三层：已删除/游离账户 -->
+      <!-- 已删除账户的持仓警告 -->
       <div
-        v-if="overviewData?.groups?.some((g: any) => g.type === 'deleted' && g.count > 0)"
+        v-if="orphanGroup"
         class="bg-orange-50 border border-orange-200 rounded-xl p-4 mb-4 text-sm flex items-center gap-2"
         :style="{ color: 'var(--text-secondary)' }"
       >
         <IconifyIconOffline icon="ep:warning-filled" class="text-orange-400 shrink-0" />
         <span>
-          存在 {{ overviewData.groups.find((g: any) => g.type === 'deleted')?.count ?? 0 }} 个已删除账户的持仓，
-          合计 ¥{{ overviewData.groups.find((g: any) => g.type === 'deleted')?.total?.toLocaleString() ?? '0' }}。
+          存在 {{ orphanGroup.count }} 个已删除账户的持仓，
+          合计 ¥{{ orphanGroup.total.toLocaleString() }}。
           建议将这些持仓归入现有账户或手动清理。
         </span>
       </div>
 
-      <!-- ========== 账户列表（按类型分组） ========== -->
-      <div v-for="group in accountGroups" :key="group.label" class="mb-8">
+      <!-- 按类型分组的账户卡片 -->
+      <div v-for="group in groupedLedgers" :key="group.type" class="mb-8">
+        <!-- 分组标题（含汇总） -->
         <div class="flex items-center justify-between mb-3">
           <h3 class="font-semibold text-base" :style="{ color: 'var(--text-primary)' }">
             {{ group.label }}
             <span class="text-sm font-normal ml-2" :style="{ color: 'var(--text-tertiary)' }">
-              {{ group.accounts.length }} 个账户
+              ({{ group.count }} 个账户 · ¥{{ group.total.toLocaleString() }})
             </span>
           </h3>
         </div>
+
+        <!-- 卡片行 -->
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           <div
-            v-for="account in group.accounts"
-            :key="account.id"
-            class="account-card"
-            :class="{
-              unlinked: !account.hasLedger,
-              'account-card--large': account.isLarge && account.hasLedger
-            }"
-            @click="goToDetail(account)"
+            v-for="ledger in group.ledgers"
+            :key="ledger.id"
+            class="ledger-card bg-white rounded-2xl p-5 border border-gray-100 shadow-sm cursor-pointer transition-all hover:shadow-md hover:-translate-y-1"
+            @click="goToDetail(ledger)"
           >
+            <!-- 标题行：名称 + 类型缩写 Badge -->
             <div class="flex items-center justify-between mb-4">
-              <div class="flex items-center gap-3">
-                <div
-                  class="w-11 h-11 rounded-xl flex items-center justify-center"
-                  :style="{ backgroundColor: getAccountColor(account) + '20' }"
+              <div class="flex items-center gap-2 min-w-0">
+                <span class="font-semibold text-base truncate" :style="{ color: 'var(--text-primary)' }">
+                  {{ ledger.name }}
+                </span>
+                <span
+                  class="px-1.5 py-0.5 rounded text-xs font-medium shrink-0"
+                  :style="{ backgroundColor: getTypeColor(ledger.ledger_type) + '20', color: getTypeColor(ledger.ledger_type) }"
                 >
-                  <IconifyIconOffline
-                    :icon="getAccountIcon(account)"
-                    class="text-xl"
-                    :style="{ color: getAccountColor(account) }"
-                  />
-                </div>
-                <div>
-                  <div class="flex items-center gap-2">
-                    <h3 class="font-semibold text-base" :style="{ color: 'var(--text-primary)' }">{{ account.name }}</h3>
-                    <span
-                      v-if="!account.hasLedger"
-                      class="px-2 py-0.5 text-xs rounded-full"
-                      :style="{ backgroundColor: 'var(--color-warning)', color: '#fff' }"
-                    >未关联</span>
-                  </div>
-                  <p class="text-xs mt-0.5" :style="{ color: 'var(--text-tertiary)' }">
-                    <template v-if="account.hasLedger && account.default_allocation">
-                      {{ account.default_allocation_label || account.default_allocation || '未配置' }}
-                    </template>
-                    <template v-if="!account.hasLedger">待归类</template>
-                  </p>
-                </div>
+                  {{ getLedgerTypeShort(ledger.ledger_type) }}
+                </span>
               </div>
-              <div class="flex items-center gap-1">
-                <!-- 删除按钮改为打开对话框 -->
-                <el-button
-                  v-if="account.hasLedger && typeof account.id === 'number'"
-                  type="danger"
-                  size="small"
-                  circle
-                  @click.stop="openDeleteDialog(account)"
-                >
-                  <IconifyIconOffline icon="ep:delete" />
-                </el-button>
-                <IconifyIconOffline icon="ep:arrow-right" :style="{ color: 'var(--text-tertiary)' }" />
-              </div>
+              <!-- 删除按钮 -->
+              <el-button
+                v-if="typeof ledger.id === 'number'"
+                type="danger"
+                size="small"
+                circle
+                @click.stop="openDeleteDialog(ledger)"
+              >
+                <IconifyIconOffline icon="ep:delete" />
+              </el-button>
             </div>
 
-            <div class="grid grid-cols-2 gap-3">
-              <div>
-                <p class="text-xs" :style="{ color: 'var(--text-tertiary)' }">总市值</p>
-                <p class="text-lg font-bold" :style="{ color: 'var(--color-primary)' }">¥{{ Math.abs(account.total).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}</p>
+            <!-- 核心指标（三行） -->
+            <div class="space-y-2">
+              <!-- 总资产 -->
+              <div class="flex justify-between items-center">
+                <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }">总资产</span>
+                <span class="text-lg font-bold" :style="{ color: 'var(--color-primary)' }">
+                  ¥{{ (ledger.total_market_value || 0).toLocaleString() }}
+                </span>
               </div>
-              <div>
-                <p class="text-xs" :style="{ color: 'var(--text-tertiary)' }">持仓数量</p>
-                <p class="text-lg font-bold" :style="{ color: 'var(--text-primary)' }">{{ account.count }} 项</p>
+
+              <!-- 当日盈亏（占位） -->
+              <div class="flex justify-between items-center">
+                <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }">当日盈亏</span>
+                <span class="text-sm" :style="{ color: 'var(--text-tertiary)' }">--</span>
+              </div>
+
+              <!-- 持仓盈亏（仅 stock/fund）或资产分布提示（bank/property） -->
+              <div class="flex justify-between items-center">
+                <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
+                  {{ ledger.ledger_type === 'bank' ? '活期余额' : ledger.ledger_type === 'property' ? '估值' : '持仓盈亏' }}
+                </span>
+                <span
+                  v-if="ledger.ledger_type === 'bank' && ledger.cash_balance !== undefined && ledger.cash_balance !== null"
+                  class="text-sm font-medium"
+                  :style="{ color: 'var(--text-secondary)' }"
+                >
+                  ¥{{ ledger.cash_balance.toLocaleString() }}
+                </span>
+                <span
+                  v-else-if="ledger.ledger_type === 'property'"
+                  class="text-sm font-medium"
+                  :style="{ color: 'var(--text-secondary)' }"
+                >
+                  {{ ledger.position_count || 0 }} 项
+                </span>
+                <span
+                  v-else
+                  class="text-sm font-semibold"
+                  :class="(ledger.pnl || 0) >= 0 ? 'text-[var(--color-danger)]' : 'text-[var(--color-success)]'"
+                >
+                  {{ (ledger.pnl || 0) >= 0 ? '+' : '' }}¥{{ Math.abs(ledger.pnl || 0).toLocaleString() }}
+                </span>
               </div>
             </div>
+          </div>
+
+          <!-- 末尾占位卡片：新建账户 -->
+          <div
+            class="ledger-card bg-white rounded-2xl p-5 border border-dashed border-gray-300 flex flex-col items-center justify-center text-center cursor-pointer hover:border-[var(--color-primary)] transition-all"
+            @click="openCreateDialog"
+          >
+            <IconifyIconOffline icon="ep:plus" class="text-2xl mb-2" :style="{ color: 'var(--text-tertiary)' }" />
+            <span class="text-sm" :style="{ color: 'var(--text-secondary)' }">新增账户</span>
           </div>
         </div>
       </div>
     </template>
 
-    <!-- 新增账户对话框（不变） -->
-    <el-dialog v-model="showCreateDialog" title="新增账户" width="420px" destroy-on-close>
+    <!-- 新增账户对话框 -->
+    <el-dialog v-model="showCreateDialog" title="创建账户" width="420px" destroy-on-close>
       <el-form :model="createForm" label-width="100px">
         <el-form-item label="账户名称" required>
           <el-input v-model="createForm.name" placeholder="如：华泰证券、招商银行" />
@@ -197,7 +225,7 @@
       v-model:visible="deleteDialogVisible"
       :ledger-id="deletingAccount?.id ?? 0"
       :ledger-name="deletingAccount?.name ?? ''"
-      :position-count="deletingAccount?.count ?? 0"
+      :position-count="deletingAccount?.position_count ?? 0"
       @deleted="fetchData"
     />
   </div>
@@ -205,31 +233,29 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
+import { Loading } from "@element-plus/icons-vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
-import { getLedgers, createLedger, getLedgersOverview } from "@/api/ledger";
-import { getPositions } from "@/api/positions";
+import { getLedgers, getLedgersOverview, createLedger } from "@/api/ledger";
 import { getPortfolios } from "@/api/portfolio";
-import { getAssets } from "@/api/assets";
+import { getLedgerTypeLabel, LEDGER_TYPE_SHORT } from "@/constants";
 import AccountFormFields from "./components/AccountFormFields.vue";
 import DeleteLedgerDialog from "./components/DeleteLedgerDialog.vue";
 
 // 组件名与路由配置中的 name 保持一致，确保 Keep-Alive 正常工作
 defineOptions({ name: "AssetLedgers" });
 
-// TODO: 后续可提取到全局常量文件 @/core/constants 中统一管理
-const EXCHANGE_RATES: Record<string, number> = { CNY: 1, USD: 7.25, HKD: 0.92 };
-
 const router = useRouter();
-const route = useRoute();
+
 const loading = ref(true);
-const ledgers = ref<any[]>([]);
-const allPositions = ref<any[]>([]);
-const allAssets = ref<any[]>([]);
-const overviewData = ref<any>(null);
+const allLedgers = ref<any[]>([]);
+const overviewData = ref<{ net_worth: number; liability_total: number; groups: any[] }>({
+  net_worth: 0,
+  liability_total: 0,
+  groups: [],
+});
 const lastUpdate = ref("");
-const deleting = ref(false);
 
 const showCreateDialog = ref(false);
 const creating = ref(false);
@@ -239,164 +265,114 @@ const createForm = ref({
   notes: "",
   linked_cash_ledger_id: null as number | null,
   portfolio_id: null as number | null,
-  fee_config: null,
-});
-const cashLedgers = computed(() => ledgers.value.filter((l: any) => l.ledger_type === 'cash'));
-const portfolioList = ref<any[]>([]);  // 从 API 获取，类似编辑页面
-
-// 计算总资产（用于净资产卡片）
-const totalAssets = computed(() => {
-  return overviewData.value?.groups?.reduce((sum: number, g: any) => sum + (g.total || 0), 0) ?? 0;
+  fee_config: null as any,
 });
 
-// 按类型分组账户（用于列表展示）
-const accountGroups = computed(() => {
-  const order = ['stock', 'fund', 'cash', 'general', 'family'];
-  const labels: Record<string, string> = {
-    stock: '证券账户',
-    fund: '基金平台',
-    cash: '现金/活钱',
-    general: '通用账户',
-    family: '家庭账户',
-  };
+// 新增：关联现金账户列表
+const cashLedgers = computed(() => allLedgers.value.filter((l: any) => l.ledger_type === 'bank'));
 
-  const groups: Record<string, any[]> = {};
+// 新增：组合列表
+const portfolioList = ref<any[]>([]);
 
-  // 有 Ledger 的账户按类型分组
-  allAccounts.value
-    .filter(acc => acc.hasLedger)
-    .forEach(acc => {
-      const type = acc.ledger_type || 'general';
-      if (!groups[type]) groups[type] = [];
-      groups[type].push(acc);
-    });
+// 删除相关
+const deleteDialogVisible = ref(false);
+const deletingAccount = ref<any>(null);
 
-  // 计算平均值用于高亮标记
-  const allTotals = allAccounts.value
-    .filter(a => a.hasLedger)
-    .map(a => Math.abs(a.total));
-  const avg = allTotals.length
-    ? allTotals.reduce((s, v) => s + v, 0) / allTotals.length
-    : 0;
+// 总资产（从 overview groups 汇总）
+const totalAssets = computed(() =>
+  overviewData.value?.groups?.reduce((sum: number, g: any) => sum + (g.total || 0), 0) ?? 0
+);
 
-  const result = order
-    .filter(type => groups[type]?.length)
-    .map(type => ({
-      label: labels[type] || type,
-      accounts: groups[type].map(acc => ({
-        ...acc,
-        isLarge: Math.abs(acc.total) > avg * 2 && avg > 0,
-      })),
-    }));
+// 已删除账户的持仓信息（来自 overview）
+const orphanGroup = computed(() =>
+  overviewData.value?.groups?.find((g: any) => g.type === 'deleted')
+);
 
-  // 未关联账户（游离/已删除）单独展示
-  const unlinked = allAccounts.value.filter(acc => !acc.hasLedger);
-  if (unlinked.length > 0) {
+const hasOrphanAssets = computed(() => orphanGroup.value?.count > 0);
+
+// 辅助函数：获取类型缩写
+function getLedgerTypeShort(type: string): string {
+  return LEDGER_TYPE_SHORT[type] || type;
+}
+
+// 分组展示（正常账户 + 未归置）
+const groupedLedgers = computed(() => {
+  const groups: Record<string, any> = {};
+  for (const ledger of allLedgers.value) {
+    const type = ledger.ledger_type || "bank";
+    if (!groups[type]) {
+      groups[type] = {
+        type,
+        label: getLedgerTypeLabel(type),
+        total: 0,
+        count: 0,
+        ledgers: [],
+      };
+    }
+    groups[type].count++;
+    groups[type].total += ledger.total_market_value || 0;
+    groups[type].ledgers.push(ledger);
+  }
+
+  const order = ["bank", "stock", "fund", "property"];
+  const result = order.map((type) => groups[type]).filter(Boolean);
+
+  // 追加未归置分组
+  if (orphanGroup.value && orphanGroup.value.count > 0) {
     result.push({
-      label: '未关联账户',
-      accounts: unlinked.map(acc => ({ ...acc, isLarge: false })),
+      type: 'deleted',
+      label: '未归置持仓',
+      total: orphanGroup.value.total,
+      count: orphanGroup.value.count,
+      ledgers: [{
+        id: 'orphan',
+        name: '已删除账户的持仓',
+        total_market_value: orphanGroup.value.total,
+        position_count: orphanGroup.value.count,
+        pnl: 0,
+        ledger_type: 'deleted',
+        cash_balance: null,
+      }],
     });
   }
 
   return result;
 });
 
-const accountHoldingsCache = ref<Map<string, any[]>>(new Map());
-const accountTotalCache = ref<Map<string, number>>(new Map());
-
-const deleteDialogVisible = ref(false);
-const deletingAccount = ref<any>(null);
-
-const allAccounts = computed(() => {
-  const map = new Map<string, any>();
-
-  // 1. Ledger 账户
-  ledgers.value.forEach((l: any) => {
-    const holdings = accountHoldingsCache.value.get(l.name) || [];
-    const total = accountTotalCache.value.get(l.name) || 0;
-    map.set(`ledger-${l.id}`, {
-      id: l.id,
-      name: l.name,
-      hasLedger: true,
-      ledger_type: l.ledger_type || "general",
-      default_allocation: l.default_allocation,
-      default_allocation_label: l.default_allocation_label || '',
-      total,
-      count: holdings.length,
-    });
-  });
-
-  // 2. 游离账户（排除与 Ledger 同名的）
-  const ledgerNameSet = new Set(ledgers.value.map(l => l.name));
-  accountHoldingsCache.value.forEach((holdings, accountName) => {
-    const key = accountName || "未指定账户";
-    // 如果 Ledger 中已存在同名账户，则这些资产不应视为游离
-    if (ledgerNameSet.has(key)) return;
-    if (!map.has(key) && holdings.length > 0) {
-      const total = accountTotalCache.value.get(accountName) || 0;
-      map.set(key, {
-        id: key === "未指定账户" ? "unclassified" : key,
-        name: key,
-        hasLedger: false,
-        ledger_type: "general",
-        default_allocation: null,
-        total,
-        count: holdings.length,
-      });
-    }
-  });
-
-  return Array.from(map.values());
-});
-
-function openDeleteDialog(account: any) {
-  deletingAccount.value = account;
-  deleteDialogVisible.value = true;
+// 颜色映射（使用 CSS 变量）
+function getTypeColor(type: string): string {
+  const map: Record<string, string> = {
+    bank: "var(--tag-mint-green)",
+    stock: "var(--color-danger)",
+    fund: "var(--color-warning)",
+    property: "var(--color-accent)",
+    deleted: "var(--color-neutral)",
+  };
+  return map[type] || "var(--color-neutral)";
 }
 
-function getAccountColor(account: any): string {
-  if (!account.hasLedger) return "var(--color-warning)";
-  const type = account.ledger_type;
-  if (type === "cash") return "var(--tag-mint-green)";
-  if (type === "family") return "var(--color-accent)";
-  return "var(--tag-muted-blue)";
-}
-
-function getAccountIcon(account: any): string {
-  if (!account.hasLedger) return "ep:warning";
-  const type = account.ledger_type;
-  if (type === "cash") return "ep:bank";
-  if (type === "family") return "ep:share";
-  return "ep:wallet";
-}
-
-function goToDetail(account: any) {
-  if (account.id === "unclassified") {
-    router.push("/asset/ledgers/unclassified");
-  } else if (account.hasLedger && typeof account.id === "number") {
-    router.push(`/asset/ledgers/${account.id}`);
-  } else {
-    router.push(`/asset/ledgers/unclassified?name=${encodeURIComponent(account.name)}`);
-  }
+function openCreateDialog() {
+  createForm.value = {
+    name: "",
+    ledger_type: "stock",
+    notes: "",
+    linked_cash_ledger_id: null,
+    portfolio_id: null,
+    fee_config: null,
+  };
+  showCreateDialog.value = true;
 }
 
 async function handleCreate() {
   if (!createForm.value.name.trim()) {
-    ElMessage.warning("请输入账户名称");
+    ElMessage.warning("名称不能为空");
     return;
   }
   creating.value = true;
   try {
-    await createLedger({ ...createForm.value, currency: "CNY" });
-    ElMessage.success("账户已创建");
+    await createLedger(createForm.value);
+    ElMessage.success("账户创建成功");
     showCreateDialog.value = false;
-    createForm.value = {
-      name: "",
-      ledger_type: "stock",
-      notes: "",
-      linked_cash_ledger_id: null,
-      portfolio_id: null,
-    };
     await fetchData();
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || "创建失败");
@@ -405,87 +381,36 @@ async function handleCreate() {
   }
 }
 
+function openDeleteDialog(account: any) {
+  deletingAccount.value = account;
+  deleteDialogVisible.value = true;
+}
+
+function goToDetail(ledger: any) {
+  if (ledger.id === 'orphan') {
+    router.push('/asset/ledgers/unclassified');
+  } else {
+    router.push({ name: "LedgerDetail", params: { id: ledger.id } });
+  }
+}
+
 async function fetchData() {
   loading.value = true;
   try {
-    const [ledgerRes, posRes, assetsRes, overviewRes, portfolioRes] = await Promise.all([
+    const [ledgersRes, overviewRes, portfolioRes] = await Promise.all([
       getLedgers(),
-      getPositions({ per_page: 500 }),
-      getAssets({ per_page: 500 }),
       getLedgersOverview(),
       getPortfolios(),
     ]);
-
-    // 1. 解析 Ledger
-    const newLedgers = (ledgerRes as any)?.data?.data ?? (ledgerRes as any)?.data ?? [];
-
-    // 2. 解析持仓
-    let posRaw: any[] = [];
-    const posData = (posRes as any)?.data ?? posRes;
-    posRaw = Array.isArray(posData) ? posData : posData?.data ?? [];
-    const newPositions = posRaw.map((p: any) => ({
-      ...p,
-      marketValue: (p.quantity || 0) * (p.current_price || 0) * (EXCHANGE_RATES[p.currency || "CNY"] || 1),
-    }));
-
-    // 3. 解析资产
-    let assetRaw: any[] = [];
-    const assetData = (assetsRes as any)?.data ?? assetsRes;
-    assetRaw = Array.isArray(assetData) ? assetData : assetData?.data ?? [];
-    const newAssets = assetRaw.map((a: any) => ({
-      ...a,
-      marketValue: a.signed_amount ?? (a.amount || 0),
-    }));
-
-    // 4. 构建本地缓存
-    const newHoldingsMap = new Map<string, any[]>();
-    const newTotalMap = new Map<string, number>();
-
-    newPositions.forEach((p: any) => {
-      const acc = p.account_name || "未指定账户";
-      if (!newHoldingsMap.has(acc)) newHoldingsMap.set(acc, []);
-      newHoldingsMap.get(acc)!.push({
-        ...p,
-        type_label: p.type_label || p.type,
-        allocation_label: p.allocation_label || p.allocation|| "未配置",
-      });
-    });
-
-    newAssets.forEach((a: any) => {
-      const acc = a.account_name || "未指定账户";
-      if (!newHoldingsMap.has(acc)) newHoldingsMap.set(acc, []);
-      newHoldingsMap.get(acc)!.push({
-        ...a,
-        id: a.id + 100000,
-        type_label: a.minor_category || a.major_category,
-        allocation_label: a.allocation_label || a.allocation || "未配置",
-        marketValue: a.marketValue || a.amount || 0,
-        asset_type: a.major_category,
-      });
-    });
-
-    newHoldingsMap.forEach((items, acc) => {
-      newTotalMap.set(acc, items.reduce((s, i) => s + (i.marketValue || 0), 0));
-    });
-
-    // 3. 一次性更新所有响应式变量，避免中间状态渲染
-    ledgers.value = newLedgers;
-    allPositions.value = newPositions;
-    allAssets.value = newAssets;
-    accountHoldingsCache.value = newHoldingsMap;
-    accountTotalCache.value = newTotalMap;
-
-    // 6. 汇总数据
-    overviewData.value = (overviewRes as any)?.data ?? null;
-
-    // 7. 组合列表
-    const newPortfolios = (portfolioRes as any)?.data?.data ?? (portfolioRes as any)?.data ?? [];
-    portfolioList.value = newPortfolios;
-
-    // 8. 时间戳
-    lastUpdate.value = new Date().toLocaleString('zh-CN', {
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit',
+    allLedgers.value = (ledgersRes as any)?.data ?? [];
+    overviewData.value = (overviewRes as any)?.data ?? { net_worth: 0, liability_total: 0, groups: [] };
+    portfolioList.value = (portfolioRes as any)?.data ?? [];
+    lastUpdate.value = new Date().toLocaleString("zh-CN", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
     });
   } catch (e: any) {
     ElMessage.error(e?.message || "加载失败");
@@ -494,33 +419,19 @@ async function fetchData() {
   }
 }
 
-// 根元素已添加 :key="$route.fullPath"，每次进入都会重新挂载
-// 仅保留 onMounted 即可保证数据加载
 onMounted(() => {
   fetchData();
 });
 </script>
 
 <style scoped>
-.account-page {
+.ledger-list {
   font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
 }
-.account-card {
-  background: var(--bg-card);
-  border-radius: 16px;
-  padding: 20px;
-  border: 1px solid var(--border-default);
-  cursor: pointer;
-  transition: all 0.2s;
+.ledger-card {
+  transition: all 0.2s ease;
 }
-.account-card:hover {
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
-  transform: translateY(-2px);
-}
-.account-card.unlinked {
-  border-color: var(--color-warning);
-}
-.account-card--large {
-  border-left: 4px solid var(--tag-muted-blue);
+.ledger-card:hover {
+  box-shadow: var(--el-box-shadow-light);
 }
 </style>

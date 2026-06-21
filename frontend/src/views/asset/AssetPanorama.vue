@@ -224,7 +224,7 @@ import { getLedgers } from "@/api/ledger";
 import { ElMessage } from "element-plus";
 import * as echarts from "echarts";
 import { useEnumOptions } from '@/composables/useEnumOptions'
-
+import { ALLOCATION_OPTIONS, getAllocationLabel } from '@/constants'
 
 defineOptions({ name: "AssetPanorama" });
 
@@ -244,13 +244,19 @@ const balanceTab = ref<"assets" | "liabilities">("assets");
 const detailView = ref("category");
 const waterfallChartRef = ref<HTMLDivElement>();
 let waterfallChart: echarts.ECharts | null = null;
-// 从持仓数据中提取配置目标选项
-const allocationOptions = useEnumOptions(allPositions, 'allocation', 'allocation_label')
-// 从持仓数据中提取产品类型选项
-const typeOptions = useEnumOptions(allPositions, 'asset_type', 'type_label')
 
+// 从 CSS 变量提取颜色（在 onMounted 中赋值）
+const cssColors = ref<Record<string, string>>({})
 
 const router = useRouter();
+
+const fallbackColors = {
+  primary: '#7A7FA8',
+  success: '#81B29A',
+  danger: '#C83E66',
+  info: '#7A9AA8',
+  neutral: '#8E8B82',
+};
 
 const sankeyDisplayOptions = [
   { label: "金额", value: "amount" },
@@ -264,14 +270,6 @@ const detailViewOptions = [
   { label: "账户", value: "account" },
   { label: "配置目标", value: "allocation" }
 ];
-
-function allocationLabel(a: string | null): string {
-  const meta: Record<string, string> = {
-    liquid: "活钱", stable: "稳健底仓", longterm: "长期增值",
-    speculative: "高风险博弈", security: "保险保障"
-  };
-  return meta[a || ""] || a || "长期增值";
-}
 
 function getTypeRoute(typeName: string): string {
   const routes: Record<string, string> = {
@@ -380,7 +378,7 @@ const accountDetailGroups = computed(() => {
 const allocationDetailGroups = computed(() => {
   const map: Record<string, { items: any[]; total: number; totalPnl: number }> = {};
   allPositions.value.forEach((p: any) => {
-    const alloc = p.allocation_label || allocationLabel(p.allocation) || '未配置';
+    const alloc = p.allocation_label || getAllocationLabel (p.allocation) || '未配置';
     if (!map[alloc]) map[alloc] = { items: [], total: 0, totalPnl: 0 };
     map[alloc].items.push({ ...p, type_label: p.type_label || p.asset_type || p.type });
     map[alloc].total += p.marketValue || 0;
@@ -402,12 +400,11 @@ function initWaterfallChart() {
   if (!waterfallChartRef.value || allPositions.value.length === 0) return;
   if (waterfallChart) waterfallChart.dispose();
   waterfallChart = echarts.init(waterfallChartRef.value);
-  const style = getComputedStyle(document.documentElement);
-  const primaryColor = style.getPropertyValue('--color-primary').trim() || '#7A7FA8';
-  const infoColor = style.getPropertyValue('--color-info').trim() || '#7A9AA8';
-  const dangerColor = style.getPropertyValue('--color-danger').trim() || '#C83E66';
-  const successColor = style.getPropertyValue('--color-success').trim() || '#81B29A';
-  const neutralColor = style.getPropertyValue('--color-neutral').trim() || '#8E8B82';
+  const primaryColor = cssColors.value['--color-primary'] || fallbackColors.primary
+  const infoColor    = cssColors.value['--color-info'] || fallbackColors.info
+  const dangerColor  = cssColors.value['--color-danger'] || fallbackColors.danger
+  const successColor = cssColors.value['--color-success'] || fallbackColors.success
+  const neutralColor = cssColors.value['--color-neutral'] || fallbackColors.neutral
 
   const start = 2800000;
   const changes = [
@@ -526,10 +523,32 @@ async function fetchData() {
   } finally {
     loading.value = false;
     await nextTick();
+    initWaterfallChart();
   }
 }
 
-onMounted(() => fetchData());
+onMounted(async () => {
+  const style = getComputedStyle(document.documentElement)
+  const keys = [
+    '--color-primary', '--color-success', '--color-danger', '--color-warning',
+    '--color-info', '--color-neutral', '--color-accent',
+    '--tag-mint-green', '--tag-warm-taupe', '--tag-periwinkle', '--tag-stone-gray',
+    '--sankey-total-assets', '--sankey-net-worth', '--sankey-liability',
+    '--sankey-liquid', '--sankey-stable', '--sankey-longterm',
+    '--sankey-speculative', '--sankey-security',
+    '--category-cash', '--category-fixed', '--category-investment',
+    '--category-receivable', '--category-liability', '--category-insurance',
+    ...ALLOCATION_OPTIONS.map(opt => `--sankey-${opt.value}`) // 动态覆盖
+  ]
+  const map: Record<string, string> = {}
+  keys.forEach(k => {
+    const val = style.getPropertyValue(k).trim()
+    if (val) map[k] = val
+  })
+  cssColors.value = map
+
+  await fetchData()
+})
 </script>
 
 <style scoped>

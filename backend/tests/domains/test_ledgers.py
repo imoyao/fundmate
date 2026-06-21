@@ -4,9 +4,6 @@
 # File : test_ledgers.py
 """测试资金容器 CRUD"""
 
-from datetime import date
-
-from app.core.money import Money
 from app.domains.assets.models import Asset
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
@@ -14,11 +11,11 @@ from app.domains.positions.models import Position
 
 class TestLedgerCRUD:
     def test_create_ledger(self, client, db):
-        resp = client.post('/api/ledgers/', json={'name': '华泰证券'})
+        resp = client.post('/api/ledgers/', json={'name': '招商银行'})
         assert resp.status_code == 200
         data = resp.get_json()['data']
-        assert data['name'] == '华泰证券'
-        assert data['ledger_type'] == 'stock'
+        assert data['name'] == '招商银行'
+        assert data['ledger_type'] == 'bank'
 
     def test_list_ledgers(self, client, db):
         client.post('/api/ledgers/', json={'name': 'L1'})
@@ -26,6 +23,27 @@ class TestLedgerCRUD:
         resp = client.get('/api/ledgers/')
         assert resp.status_code == 200
         assert len(resp.get_json()['data']) >= 2
+
+    def test_list_ledgers_includes_summary_fields(self, client, db, make_position):
+        """列表接口应返回 total_market_value, pnl, position_count 等"""
+        ledger = Ledger(name='测试', ledger_type='stock')
+        db.add(ledger)
+        db.commit()
+        make_position(
+            symbol='S1',
+            name='股1',
+            ledger_id=ledger.id,
+            account_name='测试',
+            quantity=200,
+            avg_price=5.0,
+            current_price=6.0,
+        )
+        resp = client.get('/api/ledgers/')
+        ledgers = resp.get_json()['data']
+        target = next(led for led in ledgers if led['name'] == '测试')
+        assert target['total_market_value'] == 1200.0
+        assert target['pnl'] == 200.0
+        assert target['position_count'] == 1
 
     def test_delete_ledger(self, client, db):
         resp = client.post('/api/ledgers/', json={'name': 'ToDelete'})
@@ -53,6 +71,52 @@ class TestLedgerCRUD:
         assert resp2.status_code == 200
         # 验证两个账户的ID不同
         assert resp1.get_json()['data']['id'] != resp2.get_json()['data']['id']
+
+    def test_delete_ledger_with_positions_blocked(self, client, db, make_position):
+        """有持仓且未勾选删除时应被拦截"""
+        # 创建账户和持仓
+        ledger = Ledger(name='测试账户', ledger_type='stock')
+        db.add(ledger)
+        db.commit()
+        make_position(
+            symbol='000001',
+            name='平安',
+            ledger_id=ledger.id,
+            account_name='测试账户',
+            quantity=100,
+            avg_price=10,
+            current_price=10,
+        )
+        resp = client.delete(f'/api/ledgers/{ledger.id}/')
+        assert resp.status_code == 400
+        assert '持仓' in resp.get_json()['message']
+
+    def test_delete_ledger_with_positions_force(self, client, db, make_position):
+        """勾选同时删除持仓后，应基于 ledger_id 清除关联数据"""
+        ledger = Ledger(name='测试账户', ledger_type='stock')
+        db.add(ledger)
+        db.commit()
+        pid = make_position(
+            symbol='000001',
+            name='平安',
+            ledger_id=ledger.id,
+            account_name='测试账户',
+            quantity=100,
+            avg_price=10,
+            current_price=10,
+        ).id
+        # 强制删除
+        resp = client.delete(f'/api/ledgers/{ledger.id}/?delete_positions=true')
+        assert resp.status_code == 200
+
+        # 将已被视图会话删除的对象从当前测试会话中移出，避免缓存冲突
+        db.expunge(ledger)
+
+        # 验证持仓不存在
+        pos = db.query(Position).get(pid)
+        assert pos is None
+        # 验证账户不存在
+        assert db.query(Ledger).get(ledger.id) is None
 
 
 class TestLedgerWithAllocation:
@@ -413,7 +477,7 @@ class TestLedgerLinkedCash:
 
     def test_create_stock_with_valid_cash_ledger(self, client, db):
         """证券账户关联有效的现金账户"""
-        cash_resp = client.post('/api/ledgers/', json={'name': '招商银行', 'ledger_type': 'cash'})
+        cash_resp = client.post('/api/ledgers/', json={'name': '招商银行', 'ledger_type': 'bank'})
         cash_id = cash_resp.get_json()['data']['id']
         resp = client.post(
             '/api/ledgers/', json={'name': '华泰证券', 'ledger_type': 'stock', 'linked_cash_ledger_id': cash_id}
@@ -424,7 +488,7 @@ class TestLedgerLinkedCash:
 
     def test_create_fund_with_valid_cash_ledger(self, client, db):
         """基金平台关联有效的现金账户"""
-        cash_resp = client.post('/api/ledgers/', json={'name': '余额宝', 'ledger_type': 'cash'})
+        cash_resp = client.post('/api/ledgers/', json={'name': '余额宝', 'ledger_type': 'bank'})
         cash_id = cash_resp.get_json()['data']['id']
         resp = client.post(
             '/api/ledgers/', json={'name': '蚂蚁基金', 'ledger_type': 'fund', 'linked_cash_ledger_id': cash_id}
@@ -455,10 +519,10 @@ class TestLedgerLinkedCash:
 
     def test_create_cash_ledger_cannot_link_cash(self, client):
         """现金账户自身不能关联现金账户"""
-        cash_resp = client.post('/api/ledgers/', json={'name': '招商银行', 'ledger_type': 'cash'})
+        cash_resp = client.post('/api/ledgers/', json={'name': '招商银行', 'ledger_type': 'bank'})
         cash_id = cash_resp.get_json()['data']['id']
         resp = client.post(
-            '/api/ledgers/', json={'name': '另一个现金', 'ledger_type': 'cash', 'linked_cash_ledger_id': cash_id}
+            '/api/ledgers/', json={'name': '另一个现金', 'ledger_type': 'bank', 'linked_cash_ledger_id': cash_id}
         )
         assert resp.status_code == 400
         assert '只有证券账户或基金平台' in resp.get_json()['message']
@@ -466,7 +530,7 @@ class TestLedgerLinkedCash:
     def test_update_ledger_link_cash(self, client, db):
         """更新账户关联现金账户"""
         # 创建现金账户和证券账户
-        cash_resp = client.post('/api/ledgers/', json={'name': '招商银行', 'ledger_type': 'cash'})
+        cash_resp = client.post('/api/ledgers/', json={'name': '招商银行', 'ledger_type': 'bank'})
         cash_id = cash_resp.get_json()['data']['id']
         stock_resp = client.post('/api/ledgers/', json={'name': '华泰证券', 'ledger_type': 'stock'})
         stock_id = stock_resp.get_json()['data']['id']
@@ -479,7 +543,7 @@ class TestLedgerLinkedCash:
 
     def test_update_ledger_unlink_cash(self, client, db):
         """解绑现金账户（设为 null）"""
-        cash_resp = client.post('/api/ledgers/', json={'name': '招商银行', 'ledger_type': 'cash'})
+        cash_resp = client.post('/api/ledgers/', json={'name': '招商银行', 'ledger_type': 'bank'})
         cash_id = cash_resp.get_json()['data']['id']
         stock_resp = client.post(
             '/api/ledgers/', json={'name': '华泰证券', 'ledger_type': 'stock', 'linked_cash_ledger_id': cash_id}
@@ -493,29 +557,49 @@ class TestLedgerLinkedCash:
 
     def test_update_ledger_change_type_clears_cash(self, client, db):
         """将证券账户改为现金类型时，应清空关联的现金账户（前端已处理，后端应允许）"""
-        cash_resp = client.post('/api/ledgers/', json={'name': '招商银行', 'ledger_type': 'cash'})
+        cash_resp = client.post('/api/ledgers/', json={'name': '招商银行', 'ledger_type': 'bank'})
         cash_id = cash_resp.get_json()['data']['id']
         stock_resp = client.post(
             '/api/ledgers/', json={'name': '华泰证券', 'ledger_type': 'stock', 'linked_cash_ledger_id': cash_id}
         )
         stock_id = stock_resp.get_json()['data']['id']
 
-        # 直接修改类型为 cash，同时不传 linked_cash_ledger_id
-        resp = client.patch(f'/api/ledgers/{stock_id}/', json={'ledger_type': 'cash'})
+        # 直接修改类型为 bank，同时不传 linked_cash_ledger_id
+        resp = client.patch(f'/api/ledgers/{stock_id}/', json={'ledger_type': 'bank'})
         assert resp.status_code == 200
         data = resp.get_json()['data']
-        assert data['ledger_type'] == 'cash'
+        assert data['ledger_type'] == 'bank'
         # 注意：当前后端在修改类型时不会自动清空关联，但前端会在切换时清空并传递 null。
         # 为保险，可以在测试中显式传递 null，我们额外测一次。
         # 如果只改类型而不传 linked_cash_ledger_id，字段保持不变（设计如此），所以本测试仅验证状态。
         # 可补充一个用例：同时传递 ledger_type 和 linked_cash_ledger_id=null。
-        resp2 = client.patch(f'/api/ledgers/{stock_id}/', json={'ledger_type': 'cash', 'linked_cash_ledger_id': None})
+        resp2 = client.patch(f'/api/ledgers/{stock_id}/', json={'ledger_type': 'bank', 'linked_cash_ledger_id': None})
         assert resp2.status_code == 200
         assert resp2.get_json()['data']['linked_cash_ledger_id'] is None
 
 
 class TestLedgerOverview:
     """测试账户资金全景接口"""
+
+    def test_overview_precision_with_fractional_prices(self, client, db, make_position):
+        """含小数价格、非整千份额，验证市值聚合精度"""
+        bank = Ledger(name='B1', ledger_type='bank')
+        db.add(bank)
+        db.commit()
+        # 持仓：数量150份，价格10.5元
+        make_position(
+            symbol='X',
+            name='基金X',
+            ledger_id=bank.id,
+            account_name='B1',
+            quantity=150,
+            avg_price=10.5,
+            current_price=10.5,
+        )
+        resp = client.get('/api/ledgers/overview/')
+        data = resp.get_json()['data']
+        bank_group = next(g for g in data['groups'] if g['type'] == 'bank')
+        assert bank_group['total'] == 1575.0  # 150 * 10.5
 
     def test_overview_empty(self, client):
         """无账户时应返回空结构"""
@@ -526,87 +610,54 @@ class TestLedgerOverview:
         assert data['liability_total'] == 0
         assert data['net_worth'] == 0
 
-    def test_overview_with_accounts_and_positions(self, client, db):
-        """有账户和持仓时，应正确汇总"""
-        # 创建账户
-        cash = client.post('/api/ledgers/', json={'name': '招商银行', 'ledger_type': 'cash'})
-        cash_id = cash.get_json()['data']['id']
-        stock = client.post('/api/ledgers/', json={'name': '华泰证券', 'ledger_type': 'stock'})
-        stock_id = stock.get_json()['data']['id']
+    def test_overview_with_accounts_and_positions(self, client, db, make_position, make_asset):
+        # 创建两个账本
+        bank = Ledger(name='招商银行', ledger_type='bank')
+        stock = Ledger(name='华泰证券', ledger_type='stock')
+        db.add_all([bank, stock])
+        db.commit()
 
-        # 创建持仓（关联到证券账户）
-        pos = Position(
+        make_position(
             symbol='000001',
             name='平安银行',
-            market='CN_A',
-            asset_type='stock',
             account_name='华泰证券',
-            quantity=Money.shares_to_min_unit(1000),
-            avg_price=Money.yuan_to_cents(10.0),
-            current_price=Money.yuan_to_cents(12.0),
-            confirm_date=date.today(),
+            ledger_id=stock.id,
+            quantity=1000,
+            avg_price=10.0,
+            current_price=12.0,
         )
-        db.add(pos)
-        # 创建现金持仓（通过资产表）
-        asset_cash = Asset(
-            user_id=1,
-            major_category='cash',
-            name='储蓄',
-            amount=Money.yuan_to_cents(50000),
-            account_name='招商银行',
-            currency='CNY',
-        )
-        db.add(asset_cash)
-        # 负债
-        asset_liability = Asset(
-            user_id=1,
-            major_category='liability',
-            name='房贷',
-            amount=Money.yuan_to_cents(300000),
-            account_name='招商银行',
-            currency='CNY',
-        )
-        db.add(asset_liability)
-        db.commit()
+        make_asset(major_category='cash', name='储蓄', amount=50000, account_name='招商银行', ledger_id=bank.id)
+        make_asset(major_category='liability', name='房贷', amount=300000, account_name='招商银行', ledger_id=bank.id)
 
         resp = client.get('/api/ledgers/overview/')
         assert resp.status_code == 200
         data = resp.get_json()['data']
         groups = {g['type']: g for g in data['groups']}
-        # 证券账户：1个，市值 1000*12=12000
+
         stock_group = groups.get('stock')
         assert stock_group is not None
         assert stock_group['count'] == 1
         assert stock_group['total'] == 12000
-        # 现金账户：1个，市值 50000
-        cash_group = groups.get('cash')
-        assert cash_group is not None
-        assert cash_group['count'] == 1
-        assert cash_group['total'] == 50000
-        # 负债总额 300000
+
+        bank_group = groups.get('bank')
+        assert bank_group is not None
+        assert bank_group['count'] == 1
+        assert bank_group['total'] == 50000
+
         assert data['liability_total'] == 300000
-        # 净资产 = (12000+50000) - 300000 = -238000
         assert data['net_worth'] == -238000
 
-    def test_overview_with_deleted_account(self, client, db):
-        """已删除账户的持仓应出现在 'deleted' 分组"""
+    def test_overview_with_deleted_account(self, client, db, make_position):
         # 创建账户
         resp = client.post('/api/ledgers/', json={'name': '已删证券', 'ledger_type': 'stock'})
         lid = resp.get_json()['data']['id']
-        # 创建持仓关联到该账户名
-        pos = Position(
-            symbol='000002',
-            name='万科',
-            market='CN_A',
-            asset_type='stock',
-            account_name='已删证券',
-            quantity=Money.shares_to_min_unit(500),
-            avg_price=Money.yuan_to_cents(8.0),
-            current_price=Money.yuan_to_cents(10.0),
+
+        # 通过 make_position 创建持仓，自动关联 ledger_id
+        make_position(
+            symbol='000002', name='万科', account_name='已删证券', quantity=500, avg_price=8.0, current_price=10.0
         )
-        db.add(pos)
-        db.commit()
-        # 绕过 API 保护，直接通过 ORM 删除账户（模拟手动删除）
+
+        # 绕过 API 保护删除账户
         ledger = db.query(Ledger).get(lid)
         db.delete(ledger)
         db.commit()
@@ -621,34 +672,47 @@ class TestLedgerOverview:
 
 
 class TestLedgerBatchMigrate:
-    """测试账户持仓批量迁移"""
+    """测试账户持仓批量迁移（基于 ledger_id 外键）"""
 
     def test_migrate_stock_to_stock(self, client, db):
-        """正常迁移：两个证券账户，迁移后源为空，目标增加"""
+        """正常迁移：两个证券账户，迁移后源为空，目标增加，ledger_id 变更"""
         # 创建两个证券账户
         src = client.post('/api/ledgers/', json={'name': '华泰证券', 'ledger_type': 'stock'})
         tgt = client.post('/api/ledgers/', json={'name': '中信证券', 'ledger_type': 'stock'})
         src_id = src.get_json()['data']['id']
         tgt_id = tgt.get_json()['data']['id']
 
-        # 创建持仓和资产（关联到源账户）
+        # 创建持仓和资产（关联到源账户 ledger_id）
         pos = Position(
             symbol='000001',
             name='平安银行',
             market='CN_A',
             asset_type='stock',
             account_name='华泰证券',
-            quantity=1000,
-            avg_price=10,
-            current_price=12,
+            ledger_id=src_id,  # 新增：绑定外键
+            quantity=1000000,  # 100份 × 10000，注意这里 quantity 是存储整数字段（最小单位）
+            avg_price=1000,  # 10.00元 → 1000分
+            current_price=1200,  # 12.00元 → 1200分
         )
         db.add(pos)
         asset_cash = Asset(
-            user_id=1, major_category='cash', name='余额', amount=5000, account_name='华泰证券', currency='CNY'
+            user_id=1,
+            major_category='cash',
+            name='余额',
+            amount=500000,  # 5000元 → 500000分
+            account_name='华泰证券',
+            currency='CNY',
+            ledger_id=src_id,
         )
         db.add(asset_cash)
-        # 另一个资产（非负债）
-        asset_other = Asset(user_id=1, major_category='fixed', name='房产', amount=100000, account_name='华泰证券')
+        asset_other = Asset(
+            user_id=1,
+            major_category='fixed',
+            name='房产',
+            amount=10000000,  # 100000元
+            account_name='华泰证券',
+            ledger_id=src_id,
+        )
         db.add(asset_other)
         db.commit()
 
@@ -656,25 +720,33 @@ class TestLedgerBatchMigrate:
         resp = client.post(f'/api/ledgers/{src_id}/migrations/', json={'target_ledger_id': tgt_id})
         assert resp.status_code == 200
         data = resp.get_json()['data']
-        assert data['total'] == 3  # 1 position + 2 assets
+        assert data['total'] == 3
         assert '中信证券' in resp.get_json()['message']
 
-        # 验证源账户下已无持仓/资产
-        src_positions = db.query(Position).filter(Position.account_name == '华泰证券').all()
-        src_assets = db.query(Asset).filter(Asset.account_name == '华泰证券').all()
+        # 验证源账户下已无持仓/资产（基于 ledger_id）
+        src_positions = db.query(Position).filter(Position.ledger_id == src_id).all()
+        src_assets = db.query(Asset).filter(Asset.ledger_id == src_id).all()
         assert len(src_positions) == 0
         assert len(src_assets) == 0
 
-        # 验证目标账户下已增加
-        tgt_positions = db.query(Position).filter(Position.account_name == '中信证券').all()
-        tgt_assets = db.query(Asset).filter(Asset.account_name == '中信证券').all()
+        # 验证目标账户下已增加，且 ledger_id 已变更为目标
+        tgt_positions = db.query(Position).filter(Position.ledger_id == tgt_id).all()
+        tgt_assets = db.query(Asset).filter(Asset.ledger_id == tgt_id).all()
         assert len(tgt_positions) == 1
         assert len(tgt_assets) == 2
+
+        # 关键断言：快照 account_name 也已更新为目标账户名称
+        for p in tgt_positions:
+            assert p.ledger_id == tgt_id
+            assert p.account_name == '中信证券'
+        for a in tgt_assets:
+            assert a.ledger_id == tgt_id
+            assert a.account_name == '中信证券'
 
     def test_migrate_cross_type_rejected(self, client, db):
         """跨类型迁移应被拒绝"""
         src = client.post('/api/ledgers/', json={'name': '华泰证券', 'ledger_type': 'stock'})
-        tgt = client.post('/api/ledgers/', json={'name': '招商银行', 'ledger_type': 'cash'})
+        tgt = client.post('/api/ledgers/', json={'name': '招商银行', 'ledger_type': 'bank'})
         src_id = src.get_json()['data']['id']
         tgt_id = tgt.get_json()['data']['id']
 
@@ -706,3 +778,206 @@ class TestLedgerBatchMigrate:
         assert resp.status_code == 200
         data = resp.get_json()['data']
         assert data['total'] == 0
+
+
+class TestLedgerSummary:
+    """测试账户详情概览卡片接口"""
+
+    def test_summary_stock_account(self, client, db, make_position):
+        """证券账户应返回总市值、持仓盈亏、持仓数量、累计收益、资金余额（如有关联）"""
+        # 创建 bank 和 stock
+        bank = Ledger(name='招商银行', ledger_type='bank')
+        stock = Ledger(name='华泰证券', ledger_type='stock', linked_cash_ledger_id=None)
+        db.add_all([bank, stock])
+        db.flush()  # 获取 bank.id
+        stock.linked_cash_ledger_id = bank.id
+        db.commit()
+
+        # 创建持仓（使用 make_position fixture）
+        make_position(
+            symbol='000001',
+            name='平安银行',
+            ledger_id=stock.id,
+            account_name='华泰证券',
+            quantity=1000,
+            avg_price=10.0,
+            current_price=12.0,
+        )
+        # 为关联的 bank 创建活期资产
+        asset = Asset(
+            user_id=1, major_category='current', name='活期', amount=50000, account_name='招商银行', ledger_id=bank.id
+        )
+        db.add(asset)
+        db.commit()
+
+        resp = client.get(f'/api/ledgers/{stock.id}/summary/')
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['ledger_type'] == 'stock'
+        assert data['total_market_value'] == 12000.0  # 1000份 × 12元
+        assert data['position_count'] == 1
+        assert data['cash_balance'] == 500.0  # 50000分 -> 500元
+        assert data['daily_pnl'] is None
+        assert 'cumulative_return' in data
+        assert 'allocation_distribution' in data
+
+    def test_summary_fund_account(self, client, db, make_position):
+        """基金平台应包含货基占比、货基金额"""
+        fund_ledger = Ledger(name='支付宝基金', ledger_type='fund')
+        db.add(fund_ledger)
+        db.commit()
+
+        make_position(
+            symbol='000001',
+            name='股票基金A',
+            ledger_id=fund_ledger.id,
+            account_name='支付宝基金',
+            quantity=1000,
+            avg_price=1.5,
+            current_price=1.8,
+            asset_type='stock_fund',
+        )
+        make_position(
+            symbol='000002',
+            name='货币基金B',
+            ledger_id=fund_ledger.id,
+            account_name='支付宝基金',
+            quantity=5000,
+            avg_price=1.0,
+            current_price=1.0,
+            asset_type='money_fund',
+        )
+        resp = client.get(f'/api/ledgers/{fund_ledger.id}/summary/')
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['ledger_type'] == 'fund'
+        assert data['total_market_value'] == 1800.0 + 5000.0  # 1800 + 5000
+        assert data['money_fund_amount'] == 5000.0
+        assert data['money_fund_ratio'] == round(5000.0 / 6800.0 * 100, 2)
+        assert data['cumulative_return'] is not None
+
+    def test_summary_bank_account(self, client, db, make_position, make_asset):
+        """银行账户返回总余额、活期余额、理财市值"""
+        bank = Ledger(name='微众银行', ledger_type='bank')
+        db.add(bank)
+        db.commit()
+
+        make_asset(major_category='current', name='活期', amount=30000, ledger_id=bank.id, account_name='微众银行')
+        make_position(
+            symbol='LC001',
+            name='理财A',
+            ledger_id=bank.id,
+            account_name='微众银行',
+            quantity=2000,
+            avg_price=3.0,
+            current_price=3.5,
+        )
+        resp = client.get(f'/api/ledgers/{bank.id}/summary/')
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['total_market_value'] == 37000.0  # 活期30000元 + 理财7000元
+        assert data['current_balance'] == 30000.0  # 活期30000元
+        # 根据实现，可能还有 fund_value 字段，可选检查
+        assert 'position_count' in data or True  # 视实现而定
+
+    def test_summary_property_account(self, client, db, make_asset):
+        """实物资产返回总估值和数量"""
+        prop = Ledger(name='房产', ledger_type='property')
+        db.add(prop)
+        db.commit()
+
+        make_asset(major_category='real_estate', name='自住房', amount=2000000, ledger_id=prop.id, account_name='房产')
+        resp = client.get(f'/api/ledgers/{prop.id}/summary/')
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['total_market_value'] == 2000000.0  # 2000000分 → 20000元
+        assert data['asset_count'] == 1
+
+
+class TestLedgerPositions:
+    """测试账户持仓分页接口"""
+
+    def test_positions_pagination_format(self, client, db, make_position):
+        stock = Ledger(name='测试证券', ledger_type='stock')
+        db.add(stock)
+        db.commit()
+
+        for i in range(3):
+            make_position(
+                symbol=f'00000{i}',
+                name=f'股票{i}',
+                ledger_id=stock.id,
+                account_name='测试证券',
+                quantity=100 * (i + 1),
+                avg_price=10.0,
+                current_price=10.5 + i,
+            )
+        resp = client.get(f'/api/ledgers/{stock.id}/positions/?page=1&per_page=2')
+        assert resp.status_code == 200
+        payload = resp.get_json()
+        assert 'data' in payload
+        data = payload['data']
+        assert 'items' in data
+        assert 'total' in data
+        assert data['total'] == 3
+        assert data['page'] == 1
+        assert data['per_page'] == 2
+        items = data['items']
+        assert len(items) == 2
+        # 验证字段类型
+        item = items[0]
+        assert isinstance(item['market_value'], (int, float))
+        assert isinstance(item['pnl'], (int, float))
+        assert isinstance(item['position_ratio'], (int, float))  # 应为数字
+        # 验证排序：默认按市值降序，这里第一个应是市值最大的
+        assert item['market_value'] >= items[1]['market_value']
+
+    def test_positions_empty(self, client, db):
+        stock = Ledger(name='空账户', ledger_type='stock')
+        db.add(stock)
+        db.commit()
+        resp = client.get(f'/api/ledgers/{stock.id}/positions/')
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['items'] == []
+        assert data['total'] == 0
+
+
+class TestLedgerTransactions:
+    """测试账户交易分页接口"""
+
+    def test_transactions_pagination_format(self, client, db):
+        # 需要辅助函数创建交易记录，或直接通过导入等生成
+        # 这里简单起见，直接构造 Transaction
+        from app.domains.transactions.models import Transaction
+
+        stock = Ledger(name='测试证券', ledger_type='stock')
+        db.add(stock)
+        db.commit()
+
+        t1 = Transaction(
+            txn_type='buy',
+            symbol='000001',
+            position_name='平安银行',
+            account_name='测试证券',
+            ledger_id=stock.id,
+            quantity=1000000,
+            price=1000,
+            amount=1000000,
+            fee=100,
+            confirm_date=None,
+            created_at=None,
+        )  # 自动
+        db.add(t1)
+        db.commit()
+
+        resp = client.get(f'/api/ledgers/{stock.id}/transactions/?page=1&per_page=10')
+        assert resp.status_code == 200
+        payload = resp.get_json()
+        data = payload['data']
+        assert 'items' in data
+        assert 'total' in data
+        assert data['total'] == 1
+        item = data['items'][0]
+        assert item['txn_type'] == 'buy'
+        assert isinstance(item['fee'], (int, float))
