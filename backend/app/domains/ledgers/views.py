@@ -5,7 +5,6 @@
 """资金容器 API — 基本 CRUD"""
 
 import json
-import traceback
 
 from apiflask import APIBlueprint
 from flask import abort, jsonify, request
@@ -16,7 +15,7 @@ from app.core.money import Money
 from app.domains.assets.models import Asset
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
-from app.domains.positions.views import _enrich_position_dict
+from app.domains.positions.views import enrich_position_dict
 from app.domains.transactions.models import Transaction
 from app.services.ledger_service import LedgerService
 
@@ -81,35 +80,30 @@ def create_ledger():
                 return jsonify({'data': None, 'message': '关联的现金账户不存在或类型不是现金账户'}), 400
 
     with get_db() as db:
-        try:
-            ledger = Ledger(
-                name=name,
-                ledger_type=ledger_type,
-                default_allocation=data.get('default_allocation', 'longterm'),
-                notes=data.get('notes', ''),
-                portfolio_id=data.get('portfolio_id'),
-                linked_cash_ledger_id=linked_cash_id,
-            )
+        ledger = Ledger(
+            name=name,
+            ledger_type=ledger_type,
+            default_allocation=data.get('default_allocation', 'longterm'),
+            notes=data.get('notes', ''),
+            portfolio_id=data.get('portfolio_id'),
+            linked_cash_ledger_id=linked_cash_id,
+        )
 
-            # 处理 fee_config JSON 字段
-            fee_config = data.get('fee_config')
-            if fee_config is not None:
-                # 前端传入的可能是一个 dict，直接序列化；也可以是字符串
-                if isinstance(fee_config, dict):
-                    ledger.fee_config = json.dumps(fee_config, ensure_ascii=False)
-                elif isinstance(fee_config, str):
-                    ledger.fee_config = fee_config  # 信任前端传的 JSON 字符串
-                else:
-                    abort(400, 'fee_config 格式无效')
+        # 处理 fee_config JSON 字段
+        fee_config = data.get('fee_config')
+        if fee_config is not None:
+            # 前端传入的可能是一个 dict，直接序列化；也可以是字符串
+            if isinstance(fee_config, dict):
+                ledger.fee_config = json.dumps(fee_config, ensure_ascii=False)
+            elif isinstance(fee_config, str):
+                ledger.fee_config = fee_config  # 信任前端传的 JSON 字符串
+            else:
+                abort(400, 'fee_config 格式无效')
 
-            db.add(ledger)
-            db.commit()
-            db.refresh(ledger)
-            return jsonify({'data': _ledger_to_dict(ledger), 'message': 'ok'})
-        except Exception:
-            traceback.print_exc()  # 临时添加，定位问题后删除
-            db.rollback()
-            abort(500, '创建账户失败')
+        db.add(ledger)
+        db.commit()
+        db.refresh(ledger)
+        return jsonify({'data': _ledger_to_dict(ledger), 'message': 'ok'})
 
 
 @ledgers_bp.get('/')
@@ -124,7 +118,7 @@ def list_ledgers():
             item['total_market_value'] = 0.0
             item['pnl'] = 0.0
             item['position_count'] = 0
-            item['cash_balance'] = 0.0  # 🔥 统一初始化 cash_balance，防止前端 undefined
+            item['cash_balance'] = 0.0  # 统一初始化 cash_balance
 
             if ledger.ledger_type in ('stock', 'fund'):
                 stats = LedgerService.get_portfolio_stats(db, ledger.id)
@@ -133,18 +127,27 @@ def list_ledgers():
                 item['position_count'] = stats['position_count']
                 if ledger.ledger_type == 'stock':
                     item['cash_balance'] = LedgerService.get_cash_balance(db, ledger)
+
             elif ledger.ledger_type == 'bank':
                 stats = LedgerService.get_bank_stats(db, ledger.id)
                 item['total_market_value'] = stats['total_market_value']
                 item['pnl'] = 0  # bank 不直接显示盈亏
                 item['position_count'] = stats.get('position_count', 0)
-                # 🔥 修复：后端返回 current_balance，前端在前端模板里读的却是 cash_balance，这里给它映射过去！
                 item['cash_balance'] = stats['current_balance']
+                # 🔥 负债必须从 stats 拿，视图层不做 SQL 聚合
+                item['linked_liability'] = stats.get('linked_liability', 0.0)
+
+                # 🔥 货基统计必须在这里写上
+                money_fund_stats = LedgerService.get_money_fund_stats(db, ledger.id)
+                item['money_fund_amount'] = money_fund_stats.get('money_fund_amount', 0.0)
+                item['money_fund_ratio'] = money_fund_stats.get('money_fund_ratio', 0.0)
+
             elif ledger.ledger_type == 'property':
                 stats = LedgerService.get_property_stats(db, ledger.id)
                 item['total_market_value'] = stats['total_market_value']
                 item['position_count'] = stats['asset_count']
-                item['cash_balance'] = 0.0  # 实物资产无现金，补个 0 即可
+                item['asset_count'] = stats['asset_count']
+                item['cash_balance'] = 0.0
 
             result.append(item)
 
@@ -418,7 +421,7 @@ def update_ledger_position(ledger_id: int, position_id: int):
             pos.notes = data['notes']
         db.commit()
         db.refresh(pos)
-        return jsonify({'data': _enrich_position_dict(pos), 'message': 'ok'})
+        return jsonify({'data': enrich_position_dict(pos), 'message': 'ok'})
 
 
 @ledgers_bp.delete('/<int:ledger_id>/positions/<int:position_id>/')

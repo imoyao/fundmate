@@ -68,26 +68,40 @@
         </div>
 
         <!-- 3. 持仓数量 + 资金余额（合并为一个卡片，类似同花顺的“仓位”卡片） -->
-        <div class="bg-white p-4 md:p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-between">
-          <div class="flex items-center gap-2 text-xs font-medium" :style="{ color: 'var(--text-secondary)' }">
-            <IconifyIconOffline icon="ep:box" class="text-base" /> 持仓与余额
-          </div>
-          <div class="mt-2 flex gap-6">
-            <div>
-              <div class="text-xs" :style="{ color: 'var(--text-tertiary)' }">持仓数量</div>
-              <div class="text-lg font-bold mt-1">{{ summaryData?.position_count || 0 }} 项</div>
-            </div>
-            <div>
-              <div class="text-xs" :style="{ color: 'var(--text-tertiary)' }">资金余额</div>
-              <div class="text-lg font-bold mt-1">
-                {{ summaryData?.cash_balance != null ? '¥' + summaryData.cash_balance.toLocaleString() : '--' }}
-              </div>
-            </div>
+            <!-- 3. 持仓数量 + 资金余额（合并为一个卡片，类似同花顺的“仓位”卡片） -->
+    <div class="bg-white p-4 md:p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-between">
+      <div class="flex items-center gap-2 text-xs font-medium" :style="{ color: 'var(--text-secondary)' }">
+        <IconifyIconOffline icon="ep:box" class="text-base" /> 持仓与余额
+      </div>
+      <div class="mt-2 flex gap-6">
+        <div>
+          <div class="text-xs" :style="{ color: 'var(--text-tertiary)' }">持仓数量</div>
+          <div class="text-lg font-bold mt-1">{{ summaryData?.position_count || 0 }} 项</div>
+        </div>
+        <div>
+          <div class="text-xs" :style="{ color: 'var(--text-tertiary)' }">资金余额</div>
+          <div class="text-lg font-bold mt-1">
+            {{ summaryData?.cash_balance != null ? '¥' + summaryData.cash_balance.toLocaleString() : '--' }}
           </div>
         </div>
       </div>
 
-            <!-- 资产配置与盈亏走势双列布局 -->
+      <!-- 🔥 修复：将负债写在这个卡片 div 里面，而不是外面！ -->
+      <div
+        v-if="summaryData?.ledger_type === 'bank' && summaryData?.linked_liability > 0"
+        class="mt-3 pt-2 border-t border-gray-50 flex justify-between"
+      >
+        <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }">关联负债</span>
+        <span class="text-xs font-semibold" :style="{ color: 'var(--color-danger)' }">
+          -¥{{ summaryData.linked_liability.toLocaleString() }}
+        </span>
+      </div>
+
+    </div>
+
+      </div>
+
+        <!-- 资产配置与盈亏走势双列布局 -->
       <div class="grid grid-cols-2 gap-4 mb-6 bg-white p-4 rounded-xl shadow-sm border border-gray-100">
 
         <!-- 左列：盈亏走势（flex 自动居中，避免大留白） -->
@@ -450,29 +464,6 @@ const sameTypeLedgers = computed(() =>
     : []
 );
 
-// 初始化加载
-onMounted(async () => {
-  window.addEventListener('resize', handleWindowResize);
-  loading.value = true;
-  try {
-    const [ledgerRes, portfolioRes] = await Promise.all([
-      getLedgers(),
-      getPortfolios(),
-    ]);
-    ledgers.value = (ledgerRes as any)?.data ?? [];
-    portfolioList.value = (portfolioRes as any)?.data ?? [];
-
-    if (!isUnclassified.value) {
-      await loadSummary();
-    }
-    await loadHoldings();
-  } catch (e: any) {
-    ElMessage.error(e?.message || "加载失败");
-  } finally {
-    loading.value = false;
-  }
-});
-
 function openPositionDrawer(row: any) {
   selectedPosition.value = row; // 把当前点击的持仓数据传进去
   drawerVisible.value = true;   // 打开抽屉
@@ -685,8 +676,25 @@ async function handleAssign(itemId: number) {
   }
 }
 
-function openEditDialog() {
+// 原有的 openEditDialog
+async function openEditDialog() {
   if (!accountInfo.value) return;
+
+  // 🔥 新增：点开编辑弹窗时，才去拉取关联的下拉列表数据
+  try {
+    // 为了不阻塞用户体验，可以加个 loading
+    const [ledgerRes, portfolioRes] = await Promise.all([
+      getLedgers(),
+      getPortfolios(),
+    ]);
+    ledgers.value = (ledgerRes as any)?.data ?? [];
+    portfolioList.value = (portfolioRes as any)?.data ?? [];
+  } catch (e: any) {
+    ElMessage.error('加载关联账户或组合列表失败');
+    return; // 加载失败不打开弹窗
+  }
+
+  // 构建编辑表单
   editForm.value = {
     name: accountInfo.value.name,
     ledger_type: accountInfo.value.ledger_type || "bank",
@@ -799,13 +807,6 @@ onMounted(async () => {
   window.addEventListener('resize', handleWindowResize);
   loading.value = true;
   try {
-    const [ledgerRes, portfolioRes] = await Promise.all([
-      getLedgers(),
-      getPortfolios(),
-    ]);
-    ledgers.value = (ledgerRes as any)?.data ?? [];
-    portfolioList.value = (portfolioRes as any)?.data ?? [];
-
     if (!isUnclassified.value) {
       await loadSummary();
     }

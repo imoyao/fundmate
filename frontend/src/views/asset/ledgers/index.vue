@@ -135,16 +135,19 @@
 
             <!-- 核心指标（三行） -->
             <div class="space-y-2">
+              <!-- 1. 总资产 -->
               <div class="flex justify-between items-center">
                 <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }">总资产</span>
                 <span class="text-lg font-bold" :style="{ color: 'var(--color-primary)' }">
                   ¥{{ (ledger.total_market_value || 0).toLocaleString() }}
                 </span>
               </div>
+              <!-- 2. 当日盈亏 -->
               <div class="flex justify-between items-center">
                 <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }">当日盈亏</span>
                 <span class="text-sm" :style="{ color: 'var(--text-tertiary)' }">--</span>
               </div>
+              <!-- 3. 活期/盈亏 -->
               <div class="flex justify-between items-center">
                 <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
                   {{ ledger.ledger_type === 'bank' ? '活期余额' : ledger.ledger_type === 'property' ? '估值' : '持仓盈亏' }}
@@ -169,6 +172,17 @@
                   :class="(ledger.pnl || 0) >= 0 ? 'text-[var(--color-danger)]' : 'text-[var(--color-success)]'"
                 >
                   {{ (ledger.pnl || 0) >= 0 ? '+' : '' }}¥{{ Math.abs(ledger.pnl || 0).toLocaleString() }}
+                </span>
+              </div>
+
+              <!-- 🔥 新增：银行账户的关联负债（房贷） -->
+              <div
+                v-if="ledger.ledger_type === 'bank' && ledger.linked_liability > 0"
+                class="flex justify-between items-center pt-1 border-t border-gray-50"
+              >
+                <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }">关联负债</span>
+                <span class="text-xs font-semibold" :style="{ color: 'var(--color-danger)' }">
+                  -¥{{ ledger.linked_liability.toLocaleString() }}
                 </span>
               </div>
             </div>

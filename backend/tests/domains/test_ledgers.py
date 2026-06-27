@@ -981,3 +981,80 @@ class TestLedgerTransactions:
         item = data['items'][0]
         assert item['txn_type'] == 'buy'
         assert isinstance(item['fee'], (int, float))
+
+
+class TestLedgerListSummaryFields:
+    """测试列表接口返回的摘要字段完整性（新增字段）"""
+
+    def test_list_ledgers_bank_has_money_fund_fields(self, client, db, make_position):
+        """银行账户列表应返回 money_fund_amount 和 money_fund_ratio"""
+        # 1. 创建银行账户
+        bank = Ledger(name='测试银行卡', ledger_type='bank')
+        db.add(bank)
+        db.commit()
+
+        # 2. 创建两笔持仓：一笔普通基金，一笔货币基金
+        make_position(
+            symbol='PF001',
+            name='普通基金',
+            ledger_id=bank.id,
+            account_name='测试银行卡',
+            quantity=1000,
+            avg_price=2.0,
+            current_price=2.5,
+            asset_type='stock_fund',  # 非货基
+        )
+        make_position(
+            symbol='MF001',
+            name='货币基金',
+            ledger_id=bank.id,
+            account_name='测试银行卡',
+            quantity=5000,
+            avg_price=1.0,
+            current_price=1.0,
+            asset_type='money_fund',  # 货基
+        )
+
+        # 3. 调用列表接口
+        resp = client.get('/api/ledgers/')
+        assert resp.status_code == 200
+        ledgers = resp.get_json()['data']
+        target = next(led for led in ledgers if led['name'] == '测试银行卡')
+
+        # 4. 验证货基字段存在且值正确
+        assert 'money_fund_amount' in target
+        assert 'money_fund_ratio' in target
+        # 市值计算：货基 5000份 * 1.0元 = 5000元；普通基金 1000份 * 2.5元 = 2500元；总市值 7500元
+        # 货基占比 = 5000 / 7500 = 66.666... 四舍五入保留两位小数 -> 66.67%
+        assert target['money_fund_amount'] == 5000.0
+        assert target['money_fund_ratio'] == 66.67
+
+    def test_list_ledgers_property_has_asset_count_and_no_pnl(self, client, db, make_asset):
+        """实物资产账户应返回 asset_count，且 pnl 应为 0（或不存在）"""
+        # 1. 创建实物资产账户
+        prop = Ledger(name='家庭房产', ledger_type='property')
+        db.add(prop)
+        db.commit()
+
+        # 2. 添加两笔资产（比如房产和汽车）
+        make_asset(
+            major_category='real_estate', name='自住房', amount=2000000, ledger_id=prop.id, account_name='家庭房产'
+        )
+        make_asset(major_category='vehicle', name='家用车', amount=200000, ledger_id=prop.id, account_name='家庭房产')
+
+        # 3. 调用列表接口
+        resp = client.get('/api/ledgers/')
+        assert resp.status_code == 200
+        ledgers = resp.get_json()['data']
+        target = next(led for led in ledgers if led['name'] == '家庭房产')
+
+        # 4. 验证字段
+        assert 'asset_count' in target
+        assert target['asset_count'] == 2
+        # 实物资产返回的 total_market_value 应为估值总和（2200000元）
+        assert target['total_market_value'] == 2200000.0
+        # 实物资产不应有 pnl 字段，或者 pnl 为 0.0（取决于后端实现，我们统一初始化为 0）
+        # 如果后端没有为 property 设置 pnl，应使用默认值 0.0
+        assert target.get('pnl', 0.0) == 0.0
+        # cash_balance 应为 0.0
+        assert target['cash_balance'] == 0.0

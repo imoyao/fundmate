@@ -1,4 +1,4 @@
-# backend/tests/test_assets.py
+# backend/tests/domains/test_assets.py
 """测试通用资产 CRUD 及标签字段"""
 
 
@@ -171,3 +171,102 @@ class TestAssetValidation:
         """缺少必填字段应返回 422"""
         resp = client.post('/api/assets/', json={'name': '缺少分类'})
         assert resp.status_code == 422
+
+
+class TestAssetLedgerBinding:
+    """测试资产与账户绑定的防御性校验（新增）"""
+
+    def test_create_asset_block_fixed_on_bank(self, client):
+        """创建资产时：银行账户拒绝绑定固定资产（房产/车辆）"""
+        # 1. 创建一个银行账户
+        bank_resp = client.post('/api/ledgers/', json={'name': '招商银行', 'ledger_type': 'bank'})
+        assert bank_resp.status_code == 200
+        bank_id = bank_resp.get_json()['data']['id']
+
+        # 2. 尝试将房产(real_estate)绑定到该银行账户
+        resp = client.post(
+            '/api/assets/',
+            json={
+                'major_category': 'real_estate',
+                'name': '海边别墅',
+                'amount': 5000000,
+                'ledger_id': bank_id,
+            },
+        )
+        # 期望被拦截
+        assert resp.status_code == 400
+        assert '固定资产' in resp.get_json()['message']
+        assert '不能绑定到银行账户' in resp.get_json()['message']
+
+    def test_create_asset_allow_fixed_on_property(self, client):
+        """创建资产时：实物资产账户允许绑定固定资产"""
+        # 1. 创建一个实物资产账户
+        prop_resp = client.post('/api/ledgers/', json={'name': '家庭房产', 'ledger_type': 'property'})
+        assert prop_resp.status_code == 200
+        prop_id = prop_resp.get_json()['data']['id']
+
+        # 2. 将房产绑定到实物资产账户（应成功）
+        resp = client.post(
+            '/api/assets/',
+            json={
+                'major_category': 'real_estate',
+                'name': '自住房',
+                'amount': 2200000,
+                'ledger_id': prop_id,
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['ledger_id'] == prop_id
+        assert data['major_category'] == 'real_estate'
+
+    def test_update_asset_block_moving_fixed_to_bank(self, client):
+        """更新资产时：禁止将现有固定资产迁移到银行账户"""
+        # 1. 在实物资产账户下创建一笔房产
+        prop_resp = client.post('/api/ledgers/', json={'name': '家庭资产', 'ledger_type': 'property'})
+        prop_id = prop_resp.get_json()['data']['id']
+        create_resp = client.post(
+            '/api/assets/',
+            json={
+                'major_category': 'real_estate',
+                'name': '老房子',
+                'amount': 1000000,
+                'ledger_id': prop_id,
+            },
+        )
+        asset_id = create_resp.get_json()['data']['id']
+
+        # 2. 创建一个银行账户
+        bank_resp = client.post('/api/ledgers/', json={'name': '兴业银行', 'ledger_type': 'bank'})
+        bank_id = bank_resp.get_json()['data']['id']
+
+        # 3. 尝试将该资产迁移到银行账户
+        update_resp = client.patch(f'/api/assets/{asset_id}/', json={'ledger_id': bank_id})
+        assert update_resp.status_code == 400
+        assert '固定资产不能迁移到银行账户' in update_resp.get_json()['message']
+
+    def test_update_asset_allow_moving_fixed_to_property(self, client):
+        """更新资产时：允许将固定资产从一个实物资产账户迁移到另一个"""
+        # 1. 创建两个实物资产账户
+        prop1_resp = client.post('/api/ledgers/', json={'name': '房产A', 'ledger_type': 'property'})
+        prop1_id = prop1_resp.get_json()['data']['id']
+        prop2_resp = client.post('/api/ledgers/', json={'name': '房产B', 'ledger_type': 'property'})
+        prop2_id = prop2_resp.get_json()['data']['id']
+
+        # 2. 在房产A下创建车辆资产
+        create_resp = client.post(
+            '/api/assets/',
+            json={
+                'major_category': 'vehicle',  # 测试 vehicle 类型
+                'name': '家用SUV',
+                'amount': 300000,
+                'ledger_id': prop1_id,
+            },
+        )
+        asset_id = create_resp.get_json()['data']['id']
+
+        # 3. 迁移到房产B（应成功）
+        update_resp = client.patch(f'/api/assets/{asset_id}/', json={'ledger_id': prop2_id})
+        assert update_resp.status_code == 200
+        data = update_resp.get_json()['data']
+        assert data['ledger_id'] == prop2_id

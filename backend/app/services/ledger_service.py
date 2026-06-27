@@ -170,6 +170,7 @@ class LedgerService:
 
     @staticmethod
     def get_money_fund_stats(db: Session, ledger_id: int) -> dict:
+        """计算货基持仓占比及金额"""
         positions = db.query(Position).filter(Position.ledger_id == ledger_id).all()
         valid_positions = [p for p in positions if p.current_price and p.quantity]
 
@@ -189,20 +190,32 @@ class LedgerService:
 
     @staticmethod
     def get_bank_stats(db: Session, ledger_id: int) -> dict:
+        # 1. 现金/活期余额
         current_amount = (
             db.query(func.coalesce(func.sum(Asset.amount), 0))
             .filter(Asset.ledger_id == ledger_id, Asset.major_category == 'current')
             .scalar()
         )
+        # 2. 理财/基金持仓
         positions = db.query(Position).filter(Position.ledger_id == ledger_id).all()
         fund_mv = sum(Money.multiply_price_quantity(p.current_price, p.quantity) for p in positions)
         total_balance = current_amount + fund_mv
+
+        # 🔥 3. 新增：查询该银行卡下关联的负债（房贷）
+        liability_cents = (
+            db.query(func.coalesce(func.sum(Asset.amount), 0))
+            .filter(Asset.ledger_id == ledger_id, Asset.major_category == 'liability')
+            .scalar()
+        )
+
         return {
             'total_market_value': Money.cents_to_yuan(total_balance),
-            'current_balance': Money.cents_to_yuan(current_amount),  # 保持向后兼容
-            'cash_balance': Money.cents_to_yuan(current_amount),  # 🔥 新增规范字段，与前端对齐
+            'current_balance': Money.cents_to_yuan(current_amount),
+            'cash_balance': Money.cents_to_yuan(current_amount),
             'fund_value': Money.cents_to_yuan(fund_mv),
             'position_count': len(positions),
+            # 🔥 新增字段，直接暴露给视图层
+            'linked_liability': Money.cents_to_yuan(liability_cents) if liability_cents else 0.0,
         }
 
     @staticmethod

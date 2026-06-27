@@ -21,7 +21,7 @@ from app.services.position_service import PositionService
 bp = APIBlueprint('positions', __name__, url_prefix='/api/positions/')
 
 
-def _enrich_position_dict(p: Position) -> dict:
+def enrich_position_dict(p: Position) -> dict:
     if not p.market:
         p.market = 'UNKNOWN'
     d = PositionOut.model_validate(p).model_dump()
@@ -74,7 +74,7 @@ def list_positions():
 
         # 分页模式
         items, total = paginate(query, page=page, per_page=per_page)
-        data = [_enrich_position_dict(p) for p in items]
+        data = [enrich_position_dict(p) for p in items]
         return jsonify({'data': data, 'total': total, 'page': page, 'per_page': per_page, 'message': 'ok'})
 
 
@@ -161,7 +161,7 @@ def create_position(json_data):
         if position is None:
             db.commit()  # 清仓时需要提交交易流水
             return jsonify({'message': '持仓已清空', 'data': None})
-        wrap_position = _enrich_position_dict(position)
+        wrap_position = enrich_position_dict(position)
         db.commit()  # ⭐ 显式提交事务
         return jsonify({'data': wrap_position, 'message': 'ok'})
 
@@ -185,7 +185,7 @@ def update_position(id, json_data):
 
         db.commit()
         db.refresh(position)
-        return jsonify({'data': _enrich_position_dict(position), 'message': 'ok'})
+        return jsonify({'data': enrich_position_dict(position), 'message': 'ok'})
 
 
 @bp.delete('/<int:id>/')
