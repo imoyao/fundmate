@@ -7,6 +7,9 @@ import LaySidebarFullScreen from "../lay-sidebar/components/SidebarFullScreen.vu
 import LaySidebarBreadCrumb from "../lay-sidebar/components/SidebarBreadCrumb.vue";
 import LaySidebarTopCollapse from "../lay-sidebar/components/SidebarTopCollapse.vue";
 
+// 🆕 新增
+import { useTheme } from '@/utils/theme';
+
 import LogoutCircleRLine from "~icons/ri/logout-circle-r-line";
 import Setting from "~icons/ri/settings-3-line";
 
@@ -21,10 +24,13 @@ const {
   avatarsStyle,
   toggleSideBar
 } = useNav();
+
+// 🆕 主题切换
+const { isDarkMode, toggleThemeMode } = useTheme();
 </script>
 
 <template>
-  <div class="navbar bg-[#fff] shadow-xs shadow-[rgba(0,21,41,0.08)]">
+  <div class="navbar" :style="{ backgroundColor: 'var(--bg-card)' }">
     <LaySidebarTopCollapse
       v-if="device === 'mobile'"
       class="hamburger-container"
@@ -42,6 +48,16 @@ const {
     <div v-if="layout === 'vertical'" class="vertical-header-right">
       <!-- 菜单搜索 -->
       <LaySearch id="header-search" />
+
+      <!-- 🆕 主题切换快捷按钮 -->
+      <span
+        class="navbar-bg-hover cursor-pointer px-2 text-base flex items-center"
+        :title="isDarkMode ? '切换到亮色模式' : '切换到暗色模式'"
+        @click="toggleThemeMode"
+      >
+        <IconifyIconOffline :icon="isDarkMode ? 'ep:sunny' : 'ep:moon'" />
+      </span>
+
       <!-- 全屏 -->
       <LaySidebarFullScreen id="full-screen" />
       <!-- 消息通知 -->

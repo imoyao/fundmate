@@ -1,37 +1,41 @@
 # ShowBuy 项目需求规格说明书
 
-**版本**: v4.3.5
-**最后更新**: 2026-06-21
-**状态**: 简记弹窗架构拆分完成；`confirm_date` / `type` 污染源全部堵上；资产录入 `ledger_id` 前后端链路贯通；技术债批量清理；确认 `deposit/withdraw` 不参与组合 XIRR 计算，跨日划转过滤问题不适用。
+**版本**: v4.3.7
+**最后更新**: 2026-06-27
+**状态**: UI 设计规范 v2.3.2 及暗色模式 v1.4 强制决策同步完成；设计语言体系完整闭环；通用业务组件规范已建立。
 
 **核心原则**: 本项目为**个人使用、本地优先、完全合规**的投资记账工具。
 
 **文档属性**: 项目唯一事实标准，所有开发必须严格遵守，禁止私自变更规则。本版本保留**全量决策细节、进度追溯、技术细节、踩坑记录**，用于长期维护、后期回忆、迭代复盘。
 
+> **UI/UX 设计规范**：完整的视觉设计语言请参阅 `/frontend/design.md`（亮色模式）和 `/frontend/design.dark.md`（暗色模式）。本文档仅记录与业务/技术架构有交集的强制决策。
+
 ## 更新记录
 
 | 版本 | 日期 | 变更说明 |
 |------|------|---------|
-| **v4.3.5** | **2026-06-21** | 简记弹窗深度重构：`TransactionDrawer.vue` 拆分为 `BuyForm.vue` / `SellForm.vue` + 壳层，消除 1200+ 行上帝组件，买卖业务流完全解耦；抽取共用工具模块 `utils/ledger.ts` / `utils/trading.ts`；卖出表单补上基金确认日计算（与买入对称）；资产录入 `AssetEntry.vue` 前端绑定修复 + 后端 `AssetCreate`/`AssetUpdate` Schema 补全 `ledger_id` 字段；`confirm_date` 污染源治理：全部写入入口已堵上，存量仅 1 条 NULL（占 0.1%）；确认 `get_money_fund_stats` 参数类型正确、`delete_ledger`/`migrate_positions` 已适配 `ledger_id`；确认组合 XIRR 不纳入 deposit/withdraw，「跨日划转过滤」技术债标记为不适用；新增前端数据缓存与防错规范（SPEC 4.9）；技术债务表清理 |
-| v4.3.4 | 2026-06-21 | 前端账户详情页 UI/UX 深度重构：卡片矩阵布局重设计（涨红跌绿强制规范）；新增资产配置环形图（`getComputedStyle` 动态读取 CSS 变量）；抽取 `PositionTransactionsDrawer.vue` 独立抽屉组件替换行内展开；修复 `<Transition>` 单根节点警告；简记弹窗优化：买入/卖出 Tab 切换、金额/份额 prepend 插槽、账户缩写标签、交易日期与下单时间合并、手续费智能折叠、基金卖出浮点精度修正、极简创建账户增加类型选择；账户列表页分组标题汇总信息、类型缩写 Badge、未归置卡片恢复；修复 Layout 中 `LayHeader` 渲染导致抽屉无法弹出的问题；`ledger_id` 缺失定位（简记弹窗已修复、资产录入方案已出）。 |
-| v4.3.3 | 2026-06-18 | 代码审查发现 8 个遗留 Bug/缺失：SQL 聚合市值分母错误、Python/SQL 数据单位混用导致市值放大 100 倍、`get_ledger_summary` 分支逻辑错误（bank/property 无数据）、货基统计传参错误、`delete_ledger`/`migrate_positions` 未适配 `ledger_id`、前端响应解析路径不匹配、列表接口缺摘要字段；修正技术债务和进度描述；新增「放弃 SQL 聚合」决策 |
-| v4.3.2 | 2026-06-18 | 账户体系重构：`positions`、`transactions`、`assets` 新增 `ledger_id` 外键并回填数据；新建 `LedgerService` 提取业务逻辑；`overview` 改用 SQL 聚合；全面切换基于 `ledger_id` 的查询与写入；统一账户类型为 `bank/stock/fund/property`；修复 28 个测试；前端 API 层扩展；页面重构待继续 |
-| v4.3.1 | 2026-06-16 | 修复金融精度改造后续数据混合问题、修复 SafeNumeric 类型适配、修复 XIRR 测试断言、修复交易时间范围测试、新增 `Ledger.ledger_type` 缺少 `property` 类型等技术债务条目；新增版本号管理规范 |
-| v4.3   | 2026-06-16 | 金融精度改造完成：所有金额/价格字段改为Integer存储分（元×100），份额字段改为Integer存储最小单位（份×10000），净值字段改为Decimal(18,6)；新增`Money`精度转换工具类；改造全部写入/读取路径；数据迁移脚本；修复前端账户详情页显示异常（数据混合问题）；编写全链路精度测试；技术债务新增接口性能优化、`confirm_date`回填、`type`列空值等 |
-| v4.2.1 | 2026-06-14 | 持仓管理增强：交易明细下钻（行点击展开）、持仓删除（可选清理关联交易）、费率编辑（证券/基金类型折叠面板）、批量迁移端点（`POST /api/ledgers/{id}/migrations/`）；新增 `transactions.symbol` 字段作为不可更改快照；前端表格合并规范（名称/代码/类型复合列）；修复删除弹窗误删 Bug；测试用例补全（持仓交易明细、删除持仓、批量迁移）；更新进度总览、技术债务、决策记录与核心文件清单 |
-| v4.2   | 2026-06-14 | 账户管理重构：资金全景卡片（净资产/分类汇总/游离提示）、账户列表按类型分组、关联现金账户（`linked_cash_ledger_id`）及校验、删除保护（有持仓禁止删除）；引入 `CURRENT_USER_ID` 常量统一用户隔离、`LEDGER_TYPE_LABELS` 映射；视图函数错误响应标准化（`return jsonify`）；技术债务新增 overview 聚合性能风险、`fee_config` 重复逻辑；测试用例补全（关联现金、overview 等 46 个用例全通过） |
-| v4.1   | 2026-06-13 | P1-12 投资组合后端编码完成，策略视图上线（含标签管理、分组展示、负债过滤、浮点精度临时兜底）；策略标签 CRUD 与 overview 接口；组合详情页增加持仓明细、收益率自动加载、全量排序、账户关联选择与已关联组合标签展示；技术债务新增浮点精度、type 列空值、跨日划转过滤、Ledger views 重构；测试用例覆盖策略标签 10 个场景 |
-| v4.0   | 2026-06-13 | P1-12 Portfolio 后端编码完成：数据模型实现（砍掉 risk_level 冗余字段）、CRUD API 上线（含软删除自动解绑账户）、Ledger 关联字段实现、组合收益率计算扩展（含内部划转过滤）、XIRR 端点扩展 portfolio_id 参数；更新进度总览、技术债务（新增 Ledger views 重构需求）、决策记录与核心文件清单 |
-| v3.9   | 2026-06-13 | P1-12 投资组合设计完成；交易规则引擎重构；测试修复 |
-| v3.8   | 2026-06-12 | P1-10 年化收益率核心功能上线：XIRR 计算引擎（pyxirr + 纯 Python 兜底）、单持仓与组合维度 API、前端仪表盘展示；`Transaction` 表新增 `asset_type` 字段支持资产类型过滤；现金流规则修正（排除 deposit/withdraw）；货币基金识别临时关键词方案；`confirm_date` 语义修复（positions 表 purchase_date → confirm_date）；导入模块测试全面通过；更新进度总览、技术债务、决策记录与核心文件清单 |
-| v3.7   | 2026-06-11 | 补充历史讨论遗漏内容：基于 Quicken 对标分析新增 P2 功能（按平台分组统计盈亏、交易记录全量导出、隐私保护）；新增投资组合管理（Portfolio）规划；新增持仓分布可视化规划；补充 xalpha 概念辨析决策记录；更新进度总览和技术债务 |
-| v3.6   | 2026-06-11 | 支付宝 PDF 解析器上线（支持跨页合并、净值计算）；基金净值接口修复与响应重构（返回数组）；异步回填锁冲突修复（WAL 模式、超时、分批提交）；持仓不足自动转为孤儿交易；前端交互优化（重复行按钮、抽屉关闭）；腾讯理财通评估为复杂格式，记录为技术债务；新增 PDF 解析器全覆盖测试；更新任务进度、技术债务、决策记录与核心文件清单 |
-| v3.5   | 2026-06-10 | 导入系统全面完善：支付宝解析器上线、净值自动填充功能实现、基金代码匹配抽屉交互完成、前端组件轻量重构、`enrich` 逻辑拆分与优化、净值获取服务抽取独立模块、事务安全加固、性能大幅提升；更新任务进度、技术债务、决策记录与核心文件清单 |
-| v3.4   | 2026-06-06 | 导入系统架构全面重构完成：删除旧 TransactionParser 和 StandardCompatParser，所有解析器迁移至新架构；哈希规则全局统一；commit 分支使用 BusinessType 枚举消除魔术字符串；dividend_cash/dividend_reinvest 分支完善；修复 net_amount 传递及 skipped 计数 bug；导入测试全部通过 |
-| v3.3   | 2026-05-31 | 货币基金万份收益计算与独立存储完成；费率规则表、基金详情补充、静默回填全部落地；决策优先级调整：P1-09（基金交割单导入）优先于 P1-10（年化收益率）；技术债务更新 |
-| v3.2   | 2026-05-31 | 元数据同步系统全面重构：基类统一流程，目标代码解析上提到Orchestrator，引入分层更新（核心池/全量/CSV导入），新增费率规则表、基金详情补充Job、静默历史数据回填、人类可读同步摘要输出；更新任务进度、技术债务、决策记录 |
-| v3.1   | 2026-05-29 | 简记弹窗全面重构完成；Ledger 模型扩展；交易规则落地；交易日校验与基金确认日 API 上线；基于 Quicken 对标分析新增 P2 功能规划 |
-| v3.0   | 2026-05-24 | 原始完整版 |
+| **v4.3.7** | **2026-06-27** | **新增通用业务组件规范（SPEC 3.11）**：定义 `MoneyDisplay` 金额展示组件和 `RiseFallText` 涨跌文本组件的 Props、使用示例及编码红线，确保全站金额/涨跌展示统一。 |
+| **v4.3.6** | **2026-06-27** | **UI 设计规范强制决策同步**：新增涨红跌绿语义与品牌色统一规范（SPEC 3.1）；新增前端色彩变量编码红线（SPEC 2.12）；新增前端数字显示统一规范（SPEC 3.9）；新增暗色模式规划与编码预埋约束（SPEC 10）；新增可访问性（A11y）规范（SPEC 2.0.6）；新增前端组件交互反馈规范（SPEC 3.10）；SPEC 版本号升级为 v4.3.6，变更说明记录为"同步 UI 设计规范 v2.3.2 及暗色模式 v1.4 强制决策（色彩语义分离、数字格式、软按钮交互、A11y 自动化测试）" |
+| v4.3.5 | 2026-06-21 | 简记弹窗深度重构；`confirm_date`/`type` 污染源治理；资产录入 `ledger_id` 链路贯通；技术债批量清理 |
+| v4.3.4 | 2026-06-21 | 前端账户详情页 UI/UX 深度重构；卡片矩阵布局重设计；资产配置环形图；抽取独立抽屉组件 |
+| v4.3.3 | 2026-06-18 | 代码审查发现 8 个遗留 Bug/缺失；修正技术债务和进度描述 |
+| v4.3.2 | 2026-06-18 | 账户体系重构：`ledger_id` 外键迁移；`LedgerService` 提取；`overview` SQL 聚合 |
+| v4.3.1 | 2026-06-16 | 修复金融精度改造后续数据混合问题；版本号管理规范新增 |
+| v4.3 | 2026-06-16 | 金融精度改造完成；`Money` 精度转换工具类；全链路精度测试 |
+| v4.2.1 | 2026-06-14 | 持仓管理增强（交易明细下钻、持仓删除、费率编辑、批量迁移） |
+| v4.2 | 2026-06-14 | 账户管理重构（资金全景卡片、账户列表分组、关联现金账户） |
+| v4.1 | 2026-06-13 | P1-12 投资组合后端编码完成；策略视图上线 |
+| v4.0 | 2026-06-13 | P1-12 Portfolio 后端编码完成；数据模型与 CRUD API 上线 |
+| v3.9 | 2026-06-13 | P1-12 投资组合设计完成；交易规则引擎重构 |
+| v3.8 | 2026-06-12 | P1-10 年化收益率核心功能上线：XIRR 计算引擎 |
+| v3.7 | 2026-06-11 | 补充历史讨论遗漏内容；新增 P2 功能规划 |
+| v3.6 | 2026-06-11 | 支付宝 PDF 解析器上线；基金净值接口修复 |
+| v3.5 | 2026-06-10 | 导入系统全面完善：支付宝解析器、净值自动填充 |
+| v3.4 | 2026-06-06 | 导入系统架构全面重构完成 |
+| v3.3 | 2026-05-31 | 货币基金万份收益计算与独立存储 |
+| v3.2 | 2026-05-31 | 元数据同步系统全面重构 |
+| v3.1 | 2026-05-29 | 简记弹窗全面重构；Ledger 模型扩展 |
+| v3.0 | 2026-05-24 | 原始完整版 |
 
 # 1. 项目概述
 
@@ -120,20 +124,29 @@
 4. **业务计算层**：总资产、净值、盈亏、占比、图表汇总，**只使用 signed_amount**，前端禁止二次运算正负
 5. **界面展示层**：负债文本展示可用绝对值美化，颜色风险化区分，但不改变计算数据源
 
-## 2.11 金融数据精度强制规范（新增）
+## 2.11 金融数据精度强制规范
 
 > 所有直接关联用户资金的字段，必须使用整数存储分（最小货币单位）或最小份额单位，禁止使用 float/double。非资金类字段（如基金净值）使用 DECIMAL 精确存储。所有读写操作必须通过 `Money` 工具类进行单位转换，禁止在业务代码中直接进行乘除运算。
+
+## 2.12 前端色彩变量编码红线（新增）
+
+- **禁止直接调用 `--brand-*` 系列变量**。所有涨跌颜色必须通过 `--color-rise` / `--color-fall` 间接引用，确保暗色模式切换时全站自动同步。
+- 原因：`--brand-*` 为品牌基础色，`--color-rise`/`--color-fall` 为业务语义色。业务层应依赖语义层而非基础层，确保暗色模式等主题切换时无需修改业务代码。
+- 完整色彩变量定义与使用规范详见 `/frontend/design.md`。
 
 # 3. 前端 UI 全局强制统一规范（根治样式杂乱、长期可维护）
 
 本章节为项目**UI 统一强制标准**，用于彻底解决页面丑陋、风格割裂、随意写样式、新旧页面不统一的问题，所有组件、页面、样式必须遵守。
 
-## 3.1 色彩体系零硬编码规范
+## 3.1 色彩体系与金融语义（更新）
 
 - 全局禁止任何 `#xxxxxx` 十六进制色值硬编码，全部使用 `colors.css` 语义变量
-- 金融涨跌色固定：涨红、跌绿，完全贴合国内用户习惯，禁止反色、自定义色
+- **涨红跌绿**为 ShowBuy 的金融语义标准，与国内股市习惯一致（红色=涨/盈利/正收益，绿色=跌/亏损/负收益）
+- 品牌色（暖红珊瑚 `#E34F38`）与涨色保持一致，形成"好事 = 我们的品牌"的正向情绪强化
+- 系统危险色（删除/错误/破坏性操作）独立于品牌色，使用 `#D4364A`，避免"删除 = 好事"的语义混淆
 - 功能色固定：主色、成功、警告、危险、信息色全局统一
 - 标签、图表、分类配色统一使用项目12色莫兰迪色板，保证全站视觉一致性
+- 完整设计语言参见 `/frontend/design.md`
 
 ## 3.2 布局、间距、圆角、对齐强制统一
 
@@ -173,8 +186,108 @@
 
 ## 3.8 持仓/资产列表通用展示规范
 
-- **复合列强制合并**：所有展示持仓或资产的表格，必须将“名称、代码、资产类型”合并为单一复合列。名称使用大号字体，代码使用小号灰色字体前缀 `#`，资产类型以标签形式内联展示。参照导入页 `Inventory.vue` 中的产品单元格样式。
+- **复合列强制合并**：所有展示持仓或资产的表格，必须将"名称、代码、资产类型"合并为单一复合列。名称使用大号字体，代码使用小号灰色字体前缀 `#`，资产类型以标签形式内联展示。参照导入页 `Inventory.vue` 中的产品单元格样式。
 - **交易明细下钻规范**：持仓明细表格支持点击行展开关联交易记录，交易明细显示在表格下方的独立区域，形成主-从视图。
+
+## 3.9 前端数字显示统一规范（新增）
+
+| 规则 | 标准 | 示例 |
+|------|------|------|
+| 千分位分隔符 | 使用逗号 | `¥12,345.67` |
+| 小数点位数 | 金额保留 2 位 | `¥3,245.67` |
+| 份额/数量 | 保留 2 位 | `1,234.56 份` |
+| 百分比 | 保留 2 位，带 `%` | `+12.34%` |
+| 负数 | 使用减号 `-` | `-¥1,234.56` |
+| 零值 | 统一格式 | `¥0.00` 或 `0.00%` |
+| 超大数值（≥1 亿） | 默认显示完整数字，可选"缩写模式" | `¥123,456,789.00` → `¥1.23亿` |
+
+> 缩写模式为全局开关（用户偏好设置），默认关闭。
+
+## 3.10 前端组件交互反馈规范（新增）
+
+- **主按钮（Primary）**：`:active` 状态下增加 `transform: translateY(1px)`，配合阴影消失，模拟物理按压反馈
+- **软按钮（Soft Button）**：`:active` 状态下**不进行位移**，通过背景色加深（如 `--brand-100` → `--brand-200`）或边框消失来反馈，保持轻量感
+- 原因：软按钮背景通透，位移会破坏其"轻量、辅助"的视觉定位
+- 完整按钮变体与状态定义参见 `/frontend/design.md`
+
+## 3.11 通用业务组件规范（新增）
+
+> 以下组件为 ShowBuy 设计语言体系中的核心业务组件，已封装为跨页面复用的通用组件，所有开发必须优先使用。
+
+### 3.11.1 MoneyDisplay 金额展示组件
+
+**组件路径**：`@/components/MoneyDisplay/index.vue`
+
+**用途**：统一展示金额数据，自动处理千分位格式化、货币符号、正负号及涨跌色。
+
+**Props 定义**：
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `value` | `number \| string` | **必填** | 金额数值 |
+| `currency` | `string` | `'¥'` | 货币符号 |
+| `showSign` | `boolean` | `true` | 是否显示正负号（`+`/`-`） |
+| `showCurrency` | `boolean` | `true` | 是否显示货币符号 |
+| `precision` | `number` | `2` | 小数位数 |
+| `autoColor` | `boolean` | `true` | 是否根据正负自动着色（涨红跌绿） |
+| `customColor` | `string` | `''` | 自定义颜色（覆盖自动着色） |
+| `suffix` | `string` | `''` | 后缀文本（如 `'万'`、`'%'`） |
+
+**使用示例**：
+```vue
+<MoneyDisplay :value="12345.67" />                 <!-- +¥12,345.67 (红色) -->
+<MoneyDisplay :value="-1234.56" />                <!-- -¥1,234.56 (绿色) -->
+<MoneyDisplay :value="0" />                       <!-- ¥0.00 (灰色) -->
+<MoneyDisplay :value="123456789" :showSign="false" />  <!-- ¥123,456,789.00 -->
+```
+
+**编码红线**：
+- 所有金额展示**必须**使用 `MoneyDisplay` 组件，禁止手写 `{{ amount.toLocaleString() }}` 等格式化逻辑
+- 金额数字**必须**通过 `value` prop 传入，禁止在组件内部自行计算
+
+### 3.11.2 RiseFallText 涨跌文本组件
+
+**组件路径**：`@/components/RiseFallText/index.vue`
+
+**用途**：统一展示涨跌幅/收益率，自动处理正负号、百分比格式及涨跌色。
+
+**Props 定义**：
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `value` | `number \| string` | **必填** | 数值（正数=涨，负数=跌） |
+| `suffix` | `string` | `'%'` | 后缀文本 |
+| `showSign` | `boolean` | `true` | 是否显示正负号（`+`/`-`） |
+| `precision` | `number` | `2` | 小数位数 |
+| `autoColor` | `boolean` | `true` | 是否根据正负自动着色（涨红跌绿） |
+| `customColor` | `string` | `''` | 自定义颜色（覆盖自动着色） |
+| `size` | `'sm' \| 'md' \| 'lg'` | `'md'` | 尺寸 |
+
+**使用示例**：
+```vue
+<RiseFallText :value="12.34" />                  <!-- +12.34% (红色) -->
+<RiseFallText :value="-5.67" />                  <!-- -5.67% (绿色) -->
+<RiseFallText :value="0" />                      <!-- 0.00% (灰色) -->
+<RiseFallText :value="12.34" size="lg" />        <!-- +12.34% (大号) -->
+```
+
+**编码红线**：
+- 所有收益率/涨跌幅展示**必须**使用 `RiseFallText` 组件，禁止手写 `+12.34%` 等硬编码格式
+- 数值**必须**通过 `value` prop 传入，禁止在组件内部自行计算
+
+### 3.11.3 组件导入规范
+
+所有通用业务组件统一从 `@/components` 目录导入：
+
+```typescript
+import MoneyDisplay from '@/components/MoneyDisplay/index.vue';
+import RiseFallText from '@/components/RiseFallText/index.vue';
+```
+
+**禁止行为**：
+- 禁止在业务页面中手写金额/涨跌的格式化逻辑
+- 禁止使用 Emoji 或非 Iconify 图标替代组件符号
+- 禁止在组件外部自行实现涨红跌绿的颜色判断逻辑
 
 # 4. 开发踩坑准则（长期维护避坑、细节追溯）
 
@@ -210,22 +323,21 @@
 
 组件 defineOptions.name 必须与路由 name 完全一致，否则 keep-alive 缓存失效、页面白屏。
 
-### 4.9 前端数据缓存与防错规范（新增）
+## 4.9 前端数据缓存与防错规范
 
-在前端开发中，列表（Table/List）数据通常会使用本地数组变量进行缓存（如 `list.value` 和 `total.value`），以减少不必要的 API 请求。这种机制需要配合严谨的**“主动缓存清理”**策略，否则会因状态残留导致用户看到过时数据。
+在前端开发中，列表（Table/List）数据通常会使用本地数组变量进行缓存（如 `list.value` 和 `total.value`），以减少不必要的 API 请求。这种机制需要配合严谨的 **"主动缓存清理"** 策略，否则会因状态残留导致用户看到过时数据。
 
 **核心原则：**
-在涉及数据的“新增（POST）”、“修改（PATCH）”、“删除（DELETE）”操作成功后，必须在 `then` 回调中**主动清空关联的列表缓存**，以此强制触发下一次切换或访问时的 API 重新拉取。
+在涉及数据的"新增（POST）"、"修改（PATCH）"、"删除（DELETE）"操作成功后，必须在 `then` 回调中**主动清空关联的列表缓存**，以此强制触发下一次切换或访问时的 API 重新拉取。
 
 **强制执行规范：**
 1. **列表重置**：对于受影响的列表数据，在执行了增删改操作后，必须将 `list.value = []` 和 `total.value = 0`。
-2. **强制刷新**：清空缓存后，不应立即调用 `loadList()` 拉取数据。而是利用页面现有的“条件加载逻辑”（如 Tab 切换、页面主动加载逻辑）**自动触发**新的请求，避免重复请求。
+2. **强制刷新**：清空缓存后，不应立即调用 `loadList()` 拉取数据。而是利用页面现有的"条件加载逻辑"（如 Tab 切换、页面主动加载逻辑）**自动触发**新的请求，避免重复请求。
 3. **关联清理**：删除主数据（如持仓）时，必须连带清理关联的从数据缓存（如交易记录），防止用户切换查看模式时看到残留的死数据。
 
 **应用示例场景：**
-- 在**账户详情页**删除持仓时，除了刷新持仓列表，必须主动重置交易记录列表数组（`transactionsList.value = []`）。这样当用户再次点击“交易记录”Tab 时，条件判断逻辑会自动触发 `loadTransactions()` 请求，确保交易列表干净、同步。
-- 在**账户列表页**删除账户后，不仅需要触发列表刷新，也要确保已删除的账户从“现金账户下拉选择框”等关联控件中即时消失。
-
+- 在**账户详情页**删除持仓时，除了刷新持仓列表，必须主动重置交易记录列表数组（`transactionsList.value = []`）。这样当用户再次点击"交易记录"Tab 时，条件判断逻辑会自动触发 `loadTransactions()` 请求，确保交易列表干净、同步。
+- 在**账户列表页**删除账户后，不仅需要触发列表刷新，也要确保已删除的账户从"现金账户下拉选择框"等关联控件中即时消失。
 
 # 5. 核心数据模型完整规范（可维护细节版）
 
@@ -316,12 +428,12 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 - 货币基金无单位净值概念，与普通场外基金的数据结构完全不同。
 - 混合存储会导致字段语义混乱，影响后续收益率计算和统计。
 - 独立建表可复用普通基金的去重、分批写入等基础设施。
--
+
 **精度规范**（v4.4）：`nav_per_10k` 改为 Integer 存储分。`annual_return_7d` 保留 Float，但写入前强制 `round(value, 4)` 控制精度。
 
 ## 5.11 投资组合 (Portfolio)（已实现）
 
-**设计定位**：回答“我的钱按什么策略投资”。与 Ledger（账户：钱放哪里）和 Allocation（五笔钱：风险等级）互补，为可选的高级分析工具。
+**设计定位**：回答"我的钱按什么策略投资"。与 Ledger（账户：钱放哪里）和 Allocation（五笔钱：风险等级）互补，为可选的高级分析工具。
 
 **核心约束**：
 - 一个 Ledger 最多关联一个 Portfolio（多对一），不拆分持仓。
@@ -335,7 +447,7 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 | id | Integer | 主键 |
 | name | String(100) | 组合名称（必填） |
 | description | String(500) | 组合描述 |
-| purpose | String(200) | 投资目的，如“养老金”（原 Objective 概念降级并入） |
+| purpose | String(200) | 投资目的，如"养老金"（原 Objective 概念降级并入） |
 | target_return | Numeric(5,2) | 年化目标收益率（%） |
 | target_amount | Numeric(15,2) | 目标金额 |
 | target_date | Date | 目标日期 |
@@ -356,7 +468,7 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 
 ### 5.11.3 策略标签（持仓风格分析）（已实现）
 
-**设计定位**：纯展示层分析工具，用于按投资风格（如“成长”“价值”“大盘”）分类查看持仓。不参与 XIRR 计算，不影响 Portfolio 资金流隔离逻辑。
+**设计定位**：纯展示层分析工具，用于按投资风格（如"成长""价值""大盘"）分类查看持仓。不参与 XIRR 计算，不影响 Portfolio 资金流隔离逻辑。
 
 **数据模型**：
 - `strategy_tags` 表：`id / name（UNIQUE）/ created_at`
@@ -494,7 +606,7 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 
 > 注：`/api/portfolios/{id}/summary/` 组合概览端点计划在 P2 实现，当前不提供。
 
-# 9. 项目四象限路线图 & 完整进度表（2026-06-21 更新）
+# 9. 项目四象限路线图 & 完整进度表（2026-06-27 更新）
 
 ## 9.1 四象限优先级定义（永久标准）
 
@@ -556,6 +668,8 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 | **全局 UI** | **92%** | 详情页布局重构、色彩规范及移动端适配基础完成；组件拆分抽离持续推进；列表页分组与缩写标签已优化。 |
 | **投资组合** | **95%** | 后端与策略视图完成；账户管理重构完成；技术债清理完毕 |
 | **账户管理** | **95%** | 资产录入 `ledger_id` 已修复；详情页 UI 重构完成；列表页分组完善 |
+| **设计语言体系** | **100%** | ✅ 亮色模式 v2.3.2 与暗色模式 v1.4 已完成封箱，详见 `/frontend/design.md` 和 `/frontend/design.dark.md` |
+| **通用业务组件** | **100%** | ✅ `MoneyDisplay` 和 `RiseFallText` 组件已完成封装，详见 SPEC 3.11 |
 
 # 10. 技术债务 & 开口项明细
 
@@ -595,27 +709,34 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 | **导入模块视图层仍较厚** | 低 | `app/domains/importers/views.py` 未完全拆分，部分校验逻辑耦合在视图函数中 | 后续提取 ImportService |
 | 组合收益计算未支持跨日划转识别 | ~~低~~ **不适用** | 原逻辑：需交易级时间戳 + 人工标记 | **经审查确认：`deposit/withdraw` 不进入组合 XIRR 现金流，跨日划转不影响收益率。此技术债不适用，留待 P2 转账配对功能再评估。** |
 
-# 11. 远期 IDEAS 归档明细（不参与当前迭代）
+# 11. 暗色模式规划（新增）
 
-- 资金划转自动归集现金资产
-- 基金申购净值自动回填（已通过静默更新实现）
-- JS 驱动呼吸动画骨架屏
-- 盘点对账差异对比模式
-- 自选页 Sparkline 迷你走势图
-- 标签颜色实时预览
-- 表格行内编辑快捷键切换
+> ShowBuy 暗色模式采用独立的设计规范（详见 `/frontend/design.dark.md`），核心方向：
+> - 背景使用深灰层级（非纯黑）
+> - 品牌色饱和度降低 20%，避免在暗色背景下"震动"
+> - 涨跌颜色通过 `--color-rise`/`--color-fall` 变量自动切换，业务代码零修改
+> - 层次感通过"边框提亮 + 内阴影"实现，替代传统投影
+
+## 11.1 编码预埋约束
+
+- 所有业务代码必须通过 `--color-rise` / `--color-fall` 引用涨跌色，禁止直接使用 `--brand-*`
+- 暗色模式切换时仅需更新 CSS 变量值，业务代码无需任何改动
+- 品牌色的饱和度降低和涨跌色的提亮，建议通过 CSS 自定义属性（HSL 色值）动态计算，而非硬编码独立色值
+- 完整暗色模式设计规范参见 `/frontend/design.dark.md`
 
 # 12. 重要决策完整记录表（带日期+细节，永久回溯）
 
 | 决策日期 | 决策主题 | 完整决策细节 |
 |---------|---------|-------------|
+| **2026-06-27** | **通用业务组件封装决策（新增）** | 决定封装 `MoneyDisplay` 和 `RiseFallText` 两个通用业务组件，统一全站金额和涨跌文本的展示规范。组件路径：`@/components/MoneyDisplay/` 和 `@/components/RiseFallText/`。编码红线：所有金额/涨跌展示必须使用这两个组件，禁止手写格式化逻辑。 |
+| **2026-06-27** | **UI 设计规范 v2.3.2 及暗色模式 v1.4 同步** | 完成设计语言体系封箱：亮色模式 `/frontend/design.md`（v2.3.2），暗色模式 `/frontend/design.dark.md`（v1.4）。强制决策同步至 SPEC：涨红跌绿与品牌色统一（品牌色即涨色）、前端色彩变量编码红线（禁止直接调用 `--brand-*`）、数字显示规范、组件交互反馈规范（主按钮位移、软按钮遮罩）、暗色模式预埋约束（HSL 动态计算）、可访问性自动化测试约束。 |
 | 2026-06-21 | 跨日划转过滤不适用于当前架构 | 审查 `generate_portfolio_cashflows` 确认：deposit/withdraw 被归入 `transfer_candidates`，从始至终未加入 XIRR 现金流列表。组合收益率只计算买入/卖出/分红等投资类交易。无论同日还是跨日，资金划转都不会污染收益率计算。「跨日划转过滤」技术债标记为不适用，待 P2 转账配对功能上线后再评估。 |
 | 2026-06-21 | 卖出表单补上基金确认日计算 | `SellForm.vue` 新增 `fetchConfirmDate` 逻辑，卖出基金时调用 `calcFundConfirmDate` API 获取确认日，与 `BuyForm.vue` 完全对称。卖出非基金时 `confirm_date` 直接用 `trade_date`（股票/ETF T日成交即确定）。 |
 | 2026-06-21 | 资产录入不拆分为多页面 | 通用资产录入保持单一 `AssetEntry.vue`，投资理财类资产等专门功能上线后再决定是否分离。extra 扩展字段的录入模板延后至 P2，与资产详情页展示同步实现。 |
 | 2026-06-21 | ECharts 图表颜色动态读取 CSS 变量 | 放弃在组件中硬编码十六进制颜色，改为通过 JS `getComputedStyle` 在运行时动态读取 `colors.css` 中定义的变量（如 `--invest-stock`、`--sankey-liquid`），确保图表颜色与全局主题保持严格一致，且能响应未来可能的暗黑模式或主题切换。 |
 | 2026-06-21 | 抽取独立抽屉组件 `PositionTransactionsDrawer.vue` | 原详情页中点击持仓行在表格下方展开交易明细，导致父组件逻辑膨胀且交互受限。决定将其重构为右侧 `el-drawer` 独立组件，接收 `position-data` prop 并内部调用 `GET /api/positions/{id}/transactions/` 获取数据，实现关注点分离和更灵活的布局。 |
-| 2026-06-21 | 简记弹窗买入/卖出交互优化 | 将“买入/卖出”由 `el-radio-group` 改为 `el-tabs` 切换；合并交易日期与下单时间至同一行并采用 `el-radio-button` 组；金额/份额切换改为 `el-input` 的 `prepend` 插槽实现下拉选择模式；基金卖出份额支持小数精度（4 位）；极简账户创建增加必选的账户类型下拉框，类型选项排除 `property`。 |
-| 2026-06-21 | 账户列表页分组标题增加汇总信息及缩写 Badge | 在每个分组标题（如“银行账户”）后显示账户数与总金额（如 `(2 个账户 · ¥12,345)`）；卡片内类型标签由完整名称改为单字缩写（银/股/基/物），使用与分组标题匹配的半透明彩色背景小徽章，降低视觉冗余。 |
+| 2026-06-21 | 简记弹窗买入/卖出交互优化 | 将"买入/卖出"由 `el-radio-group` 改为 `el-tabs` 切换；合并交易日期与下单时间至同一行并采用 `el-radio-button` 组；金额/份额切换改为 `el-input` 的 `prepend` 插槽实现下拉选择模式；基金卖出份额支持小数精度（4 位）；极简账户创建增加必选的账户类型下拉框，类型选项排除 `property`。 |
+| 2026-06-21 | 账户列表页分组标题增加汇总信息及缩写 Badge | 在每个分组标题（如"银行账户"）后显示账户数与总金额（如 `(2 个账户 · ¥12,345)`）；卡片内类型标签由完整名称改为单字缩写（银/股/基/物），使用与分组标题匹配的半透明彩色背景小徽章，降低视觉冗余。 |
 | 2026-06-21 | 修复 Layout 中 `LayHeader` 渲染导致全局抽屉无法弹出 | `LayHeader` 原本在 `<script setup>` 中使用 `defineComponent` + `h()` 渲染，导致插槽上下文丢失，影响全局 `TransactionDrawer` 的挂载。修复方案：去除 `defineComponent` 定义，直接在模板中替换为原始 HTML 结构，保持功能完全一致。 |
 | 2026-06-21 | `ledger_id` 缺失写入入口排查与修复方案 | 发现资产录入 (`AssetEntry.vue`) 和简记弹窗早期版本均未传递 `ledger_id` 导致数据游离。简记弹窗已修复：账户选择改为绑定 `ledger_id`，提交时传递该字段。资产录入同样需改为 `ledger_id` 绑定，方案已定待应用。 |
 | 2026-06-21 | 账户详情页概览卡片重构与图表规划 | 将原有卡片改为网格布局，强制涨红跌绿；新增环形图展示资产配置分布；预留走势图位置（依赖 P1-20 快照数据）。图表颜色全部通过 CSS 变量获取，保证零硬编码。 |
@@ -627,7 +748,7 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 | 2026-06-15 | 前端数据异常根因 | `LedgerDetail.vue` 中 `fetchData` 自行计算市值（`marketValue = quantity * current_price`），而后端 `enrich_position_dict ` 已将单位转为元/份额。数据库新旧数据混合导致前端计算结果异常。最终通过彻底统一数据库数据（执行二次迁移）解决。 |
 | 2026-06-15 | XIRR 计算适配精度改造 | `generate_cashflows` 和 `generate_portfolio_cashflows` 中读取 `Transaction.amount` 时用 `Money.cents_to_yuan` 转换，`calculators.py` 中所有持仓市值计算统一使用 Money 工具类。 |
 | 2026-06-14 | 新增 `transactions.symbol` 快照字段 | 在 Transaction 表中新增 `symbol` 列作为资产代码的不可更改快照，用于关联查询和盈亏曲线生成。与 `position_name`、`account_name` 同为快照设计模式。 |
-| 2026-06-14 | 持仓/资产列表通用展示规范 | 所有展示持仓或资产的表格，必须将“名称、代码、资产类型”合并为单一复合列。名称大字体，代码小字灰色前缀 `#`，类型标签内联。参照导入页 `Inventory.vue` 的产品单元格样式。 |
+| 2026-06-14 | 持仓/资产列表通用展示规范 | 所有展示持仓或资产的表格，必须将"名称、代码、资产类型"合并为单一复合列。名称大字体，代码小字灰色前缀 `#`，类型标签内联。参照导入页 `Inventory.vue` 的产品单元格样式。 |
 | 2026-06-14 | 批量迁移持仓端点设计 | 采用 `POST /api/ledgers/{id}/migrations/` 嵌套资源端点，目标账户 ID 放在请求体。限定同类型账户迁移，防止数据混乱。 |
 | 2026-06-14 | 持仓删除可选清理交易 | `DELETE /api/positions/{id}/?delete_transactions=true`，默认仅删持仓保留交易记录，传参则级联删除关联交易。 |
 | 2026-06-14 | 交易明细下钻展示位置 | 持仓明细表格点击行展开关联交易记录，交易明细显示在表格下方的独立区域，形成主-从视图，避免行内展开导致的横向空间不足。 |
@@ -635,14 +756,14 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 | 2026-06-14 | 新增 `LEDGER_TYPE_LABELS` 枚举映射 | 在 `app/core/constants.py` 中新增 `LEDGER_TYPE_LABELS` 字典，统一账户类型中文文案（证券账户、基金平台、现金/活钱等），`_ledger_type_label()` 函数和前端映射均引用此常量，消除多处理编码不一致。 |
 | 2026-06-14 | 删除账户时增加持仓关联检查 | 在 `DELETE /api/ledgers/{id}/` 中增加检查：若存在关联持仓且未勾选"同时删除持仓"，返回 400 错误并提示用户先清空或迁移持仓。勾选后级联删除。 |
 | 2026-06-14 | 视图函数错误响应标准化 | 将所有 `abort(400, 'msg')` 替换为 `return jsonify({'data': None, 'message': 'msg'}), 400`，确保自定义错误消息在统一响应格式中正确返回。 |
-| 2026-06-13 | 策略标签独立建模，不混用自选标签 | 策略标签作用域为实际持仓，语义为“我的持仓属于什么风格”，与自选标签（“我在关注什么”）物理隔离，分别建表。两者概念不重叠，互不干扰。 |
+| 2026-06-13 | 策略标签独立建模，不混用自选标签 | 策略标签作用域为实际持仓，语义为"我的持仓属于什么风格"，与自选标签（"我在关注什么"）物理隔离，分别建表。两者概念不重叠，互不干扰。 |
 | 2026-06-13 | 策略视图负债过滤机制 | 负债不参与任何收益或风格分析，后端 `/api/strategy/overview/` 在查询资产时自动排除 `major_category='liability'`，前端无需任何过滤代码。`/api/assets/` 接口新增 `exclude` 参数供策略视图使用，不影响其他页面。 |
 | 2026-06-13 | 策略视图数据合并为单一接口 | 为避免前端四次请求的延迟，新增 `GET /api/strategy/overview/` 一次性返回持仓、资产、标签、关联关系，性能提升显著。 |
 | 2026-06-13 | 浮点精度临时兜底方案 | 发现 `Float` 存储金额/数量导致市值出现 `1999.995` 等误差。短期在接口层用 `round(value×100)/100` 消除多余小数；长期将存储改为整数分（`Integer`），彻底消除浮点误差。历史数据需一次性迁移。 |
 | 2026-06-13 | 投资组合 (Portfolio) 核心设计原则 | 采用「用账户隔离策略」：Ledger 关联 Portfolio，通过账户自然隔离不同策略，不拆分持仓。同一账户内多策略区分场景不予支持，引导用户创建子账户。 |
-| 2026-06-13 | 移除 Portfolio.risk_level 字段 | `purpose` 已可表达投资风险倾向（如“短线博弈”），`risk_level` 与其语义重叠且无业务逻辑消费，为遵守“概念降噪”原则予以删除。 |
+| 2026-06-13 | 移除 Portfolio.risk_level 字段 | `purpose` 已可表达投资风险倾向（如"短线博弈"），`risk_level` 与其语义重叠且无业务逻辑消费，为遵守"概念降噪"原则予以删除。 |
 | 2026-06-13 | 组合收益率内部划转过滤策略 | 采用同日配对识别：同一日期、金额按分精度匹配、相反方向、两账户同属一个组合的 deposit/withdraw 双向排除，防止收益率失真。跨日划转暂不处理。 |
-| 2026-06-13 | 金融数据存储精度方案 | 发现 `Float` 存储金额/数量导致市值、盈亏出现 `1999.995` 等误差。决定采用“整数分”存储（`Integer`，单位为分），彻底消除浮点误差。所有输入/输出乘以/除以 100。历史数据需一次性迁移。此为长期方案，短期保留接口层 `round(×100)/100` 作为兜底。 |
+| 2026-06-13 | 金融数据存储精度方案 | 发现 `Float` 存储金额/数量导致市值、盈亏出现 `1999.995` 等误差。决定采用"整数分"存储（`Integer`，单位为分），彻底消除浮点误差。所有输入/输出乘以/除以 100。历史数据需一次性迁移。此为长期方案，短期保留接口层 `round(×100)/100` 作为兜底。 |
 | 2026-06-12 | deposit/withdraw 不参与 XIRR 计算 | 账户资金划转（deposit/withdraw）属于内部资金调度，不是投资行为。将其作为现金流会严重拉高投入基数导致 XIRR 异常。XIRR 现金流只包含 buy、sell、dividend_cash、dividend_reinvest 四种投资交易类型 |
 | 2026-06-12 | Transaction 表新增 asset_type 字段 | 为交易记录增加资产类型快照字段，与 `position_name`、`account_name` 同属快照设计模式。解决孤儿交易无法判断资产类型的问题，避免 XIRR 计算时 JOIN 表查询。历史数据通过 SQL 回填，新数据在导入时自动写入 |
 | 2026-06-12 | 货币基金识别临时关键词方案 | 在元数据同步未完全覆盖所有货币基金名称前，`_fill_names_and_types` 增加临时关键词匹配（货币、现金、宝、增利、天天益）。待元数据同步覆盖率足够后移除该逻辑 |
@@ -650,7 +771,7 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 | 2026-06-11 | xalpha 概念辨析：封闭系统 vs 开放系统 | ShowBuy 用户场景是典型的开放系统（随时买卖、定投、赎回），对应 xalpha 的 `mul` 系统。净值曲线仅在无资金进出的时间段有意义，多数场景应使用 XIRR 衡量投资效果。TWR（时间加权收益率）更适合作封闭系统的业绩归因，属于 P2 功能 |
 | 2026-06-11 | 货币基金/逆回购不参与收益率计算 | 货币基金、逆回购属于"活钱管理"，收益率极低且无净值波动，不纳入 XIRR 计算。其收益率在仪表盘单独展示（P2） |
 | 2026-06-11 | 红利再投资的现金流处理 | 红利再投资（dividend_reinvest）视为一笔负现金流。本质是用分红金额买入更多份额，简化为一笔等额现金流出 |
-| 2026-06-11 | 支付宝 PDF 解析器上线 | 支付宝基金交易确认单 PDF 通过 pdfplumber 解析，支持36列表头页与12列数据页混合提取，跨页断裂通过“有效日期前缀”精确合并；字段级拼接避免数据错乱；输出标准化为 StandardTransactionRecord 进入导入流水线 |
+| 2026-06-11 | 支付宝 PDF 解析器上线 | 支付宝基金交易确认单 PDF 通过 pdfplumber 解析，支持36列表头页与12列数据页混合提取，跨页断裂通过"有效日期前缀"精确合并；字段级拼接避免数据错乱；输出标准化为 StandardTransactionRecord 进入导入流水线 |
 | 2026-06-11 | 净值接口响应结构重构 | POST /api/funds/nav/ 返回格式改为数组，每个元素包含 fund_code、unit_nav、date，增强自解释性和前端可靠性 |
 | 2026-06-11 | 异步回填数据库锁解决 | 采用 WAL 模式、连接超时30s、分批写入且直接 commit 释放锁，解决多线程导入时 database is locked 问题 |
 | 2026-06-11 | 持仓不足处理策略 | 导入卖出/赎回时若持仓数量不足，由 process_orphan_sell_or_withdraw 内部捕获异常并转为孤儿交易（entry_status='orphan'），保证数据不丢失，待 P1-20 定时任务自动回填 |
@@ -659,7 +780,7 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 | 2026-06-10 | 支付宝 CSV 分隔符确定为逗号 | 实测支付宝导出文件使用逗号分隔（非制表符），解析器统一使用 `delimiter=','` 配合 `csv.reader` 处理引号内逗号 |
 | 2026-06-10 | 解析性能优化：单次 csv.reader 读取 + 分批净值查询 | 不再逐行创建 `csv.reader`，改为一次性读取所有数据行；编码检测只读取前 1KB；`_fill_missing_nav_and_shares` 按日期分组并用 `IN` 查询，每批最多 50 个代码；`daily_worth` 表增加 `(fund_code, date)` 联合索引 |
 | 2026-06-10 | 基金代码匹配增强：清洗名称 + 数据库 LIKE 查询 | 不再加载全表到内存，改用 SQL `LIKE` 查询并限制返回 10 条；清洗名称去除类别词（LOF/ETF/联接/发起等）后双向匹配；多个候选时按名称长度差选最佳，相同则放弃自动匹配 |
-| 2026-06-10 | 导入预览增加净值自动填充和一键确认 | 用户匹配基金代码后，前端自动调用 `/api/funds/nav/` 获取净值并计算份额，标记 `is_calculated=true`，表格显示“待确认”标签；提供“确认所有推算数据”按钮一键清除标签 |
+| 2026-06-10 | 导入预览增加净值自动填充和一键确认 | 用户匹配基金代码后，前端自动调用 `/api/funds/nav/` 获取净值并计算份额，标记 `is_calculated=true`，表格显示"待确认"标签；提供"确认所有推算数据"按钮一键清除标签 |
 | 2026-06-10 | 导入事务安全加固 | `commit` 方法在每处理一条记录前创建保存点（`begin_nested`），单条失败只回滚当前保存点，不影响其他已成功记录 |
 | 2026-05-31 | P1-09 优先于 P1-10 | 基金交割单导入是用户数据输入的瓶颈，必须优先实现。没有准确的交易数据，年化收益率计算无法开展 |
 | 2026-05-31 | 货币基金独立建表 | 货币基金的万份收益与普通基金的单位净值含义完全不同，混存会导致计算复杂、查询困难。独立建表语义清晰 |
@@ -680,87 +801,12 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 # 13. 断点续传协议
 
 后续任何会话接续开发，只需携带：
-1. 本完整 SPEC 文档（v4.3.5）
-2. 当前进度一句话，如："简记弹窗拆分完成，confirm_date/type污染源治理完毕，技术债批量清零，准备启动 P1-20 定时任务"
-3. 核心文件清单（更新于 2026-06-21）：
-
-| 文件路径 | 作用说明 |
-|---------|---------|
-| `backend/app/main.py` | 项目入口、全局蓝图注册（含 portfolios、strategy 蓝图） |
-| `backend/app/core/database.py` | 数据库基类、会话工厂（WAL 模式、连接超时） |
-| `backend/app/core/symbol_utils.py` | 全市场证券代码标准化 |
-| `backend/app/core/time_utils.py` | 统一时区工具（上海时区） |
-| `backend/app/core/db_utils.py` | 批量插入去重工具（含 bulk_insert_if_not_exists） |
-| `backend/app/core/constants.py` | 全局常量（TYPE_LABELS、ALLOCATION_LABELS、CURRENT_USER_ID、LEDGER_TYPE_LABELS 等） |
-| **`backend/app/core/money.py`** | **金融精度转换工具类（元↔分、份额↔最小单位）** |
-| `backend/app/services/ledger_service.py` | 账户维度数据聚合与计算服务 |
-| `backend/app/services/importer/orchestrator.py` | 导入协调器（含 asset_type 写入和货币基金识别） |
-| `backend/app/services/importer/parsers/alipay_fund.py` | 支付宝交易记录解析器 |
-| `backend/app/services/importer/parsers/alipay_pdf.py` | 支付宝基金交易 PDF 解析器 |
-| `backend/app/services/importer/parsers/tiantian_fund.py` | 天天基金交易记录解析器 |
-| `backend/app/services/importer/registry.py` | 解析器注册表 |
-| `backend/app/services/fund_data_service.py` | 基金数据服务：批量获取净值、实时拉取并存入数据库 |
-| `backend/app/domains/positions/views.py` | 持仓核心业务接口 |
-| `backend/app/domains/positions/schemas.py` | 持仓 Schema 定义 |
-| `backend/app/services/position_service.py` | 持仓业务逻辑服务层 |
-| `backend/app/domains/transactions/models.py` | 交易流水模型 |
-| `backend/app/domains/ledgers/models.py` | Ledger 模型定义 |
-| `backend/app/domains/ledgers/views.py` | Ledger API |
-| `backend/app/domains/assets/views.py` | 资产 API |
-| `backend/app/domains/assets/models.py` | 资产模型 |
-| `backend/app/domains/utils/views.py` | 交易日校验与基金确认日 API |
-| `backend/app/core/utils.py` | 通用工具函数 |
-| `backend/app/services/sync/` | 元数据同步系统 |
-| `backend/app/services/sync/money_fund_utils.py` | 货币基金万份收益计算 |
-| `backend/app/services/async_backfill.py` | 静默历史数据回填 |
-| `backend/app/tools/sync_metadata.py` | 元数据同步 CLI 入口 |
-| `backend/app/domains/funds/models.py` | 基金、费率规则等模型 |
-| `backend/app/domains/funds/views.py` | 基金 API |
-| `backend/app/domains/funds/schemas.py` | 基金请求 Schema |
-| `backend/app/domains/securities/models.py` | 证券模型 |
-| `backend/app/domains/price_history/models.py` | 历史行情模型 |
-| `backend/app/models/sync_log.py` | 同步审计日志模型 |
-| `backend/app/services/performance/__init__.py` | 年化收益率服务模块导出 |
-| `backend/app/services/performance/constants.py` | XIRR 计算共享常量 |
-| `backend/app/services/performance/xirr_engine.py` | XIRR 核心算法、现金流生成 |
-| `backend/app/services/performance/calculators.py` | 收益率计算器 |
-| `backend/app/domains/performance/views.py` | 年化收益率 API 端点 |
-| `backend/app/domains/performance/schemas.py` | 请求/响应 Schema |
-| `backend/app/domains/portfolios/models.py` | 投资组合数据模型 |
-| `backend/app/domains/portfolios/views.py` | 投资组合 CRUD API |
-| `backend/app/domains/portfolios/schemas.py` | 投资组合 Schema |
-| `backend/app/domains/strategy/models.py` | 策略标签模型 |
-| `backend/app/domains/strategy/views.py` | 策略标签 API |
-| `backend/app/domains/strategy/schemas.py` | 策略标签 Schema |
-| `frontend/src/layout/index.vue` | 全局布局文件 |
-| `frontend/src/components/QuickEntry/TransactionDrawer.vue` | 简记弹窗壳层（BuyForm/SellForm 容器） |
-| `frontend/src/components/QuickEntry/BuyForm.vue` | 纯买入表单 |
-| `frontend/src/components/QuickEntry/SellForm.vue` | 纯卖出表单（含基金确认日计算） |
-| `frontend/src/components/QuickEntry/QuickFab.vue` | 全局悬浮按钮 |
-| `frontend/src/utils/ledger.ts` | 账户颜色工具函数 |
-| `frontend/src/utils/trading.ts` | 交易规则工具（最小单位、碎股、快捷比例） |
-| `frontend/src/views/asset/ledgers/index.vue` | 账户列表页 |
-| `frontend/src/views/asset/ledgers/detail.vue` | 账户详情页 |
-| `frontend/src/views/asset/ledgers/components/PositionTransactionsDrawer.vue` | 持仓交易明细独立抽屉 |
-| `frontend/src/views/asset/entry/index.vue` (AssetEntry.vue) | 资产录入页面（`ledger_id` 已修复） |
-| `frontend/src/views/asset/inventory/index.vue` (InventoryHome.vue) | 全面盘点页面 |
-| `frontend/src/views/asset/investment/import/index.vue` | 导入工作台 |
-| `frontend/src/views/asset/investment/import/components/FundMatchDrawer.vue` | 基金代码匹配抽屉 |
-| `frontend/src/views/welcome/index.vue` | 仪表盘首页 |
-| `frontend/src/views/asset/portfolio/index.vue` | 投资组合列表页 |
-| `frontend/src/views/asset/portfolio/detail.vue` | 投资组合详情页 |
-| `frontend/src/views/asset/strategies/index.vue` | 策略视图页 |
-| `frontend/src/api/positions.ts` | 前端持仓请求封装 |
-| `frontend/src/api/ledger.ts` | 前端 Ledger 请求封装 |
-| `frontend/src/api/importer.ts` | 导入 API 封装 |
-| `frontend/src/api/funds.ts` | 前端基金 API 封装 |
-| `frontend/src/api/performance.ts` | 前端年化收益率 API 封装 |
-| `frontend/src/api/portfolio.ts` | 投资组合 API 封装 |
-| `frontend/src/api/strategy.ts` | 策略标签 API 封装 |
-| `frontend/src/api/utils.ts` | 前端工具 API 封装 |
-| `tests/` | 全量测试用例 |
-
+1. 本完整 SPEC 文档（v4.3.7）
+2. 当前进度一句话
+3. 核心文件清单
 4. 最新的报错截图或要解决的具体问题
+
+> **UI/UX 设计规范索引**：完整视觉设计语言请参阅 `/frontend/design.md`（亮色模式 v2.3.2）和 `/frontend/design.dark.md`（暗色模式 v1.4）。本文档仅记录与业务/技术架构有交集的强制决策。
 
 # 14. 最终编码通用守则
 
@@ -769,7 +815,7 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 - 禁止私自变更既定架构与业务规则，所有优化必须遵守时间盒与优先级
 - 所有问题可追溯、所有决策有记录、所有规范可落地
 
-# 14.1 版本号管理规范（新增）
+# 14.1 版本号管理规范
 
 本项目遵循语义化版本规范（Semantic Versioning 2.0），所有版本号升级必须严格遵守以下规则：
 
@@ -790,8 +836,6 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 - 主版本升级前必须经过完整的技术评审和迁移方案设计。
 
 # 15. AI编码行为强制约束规范（Karpathy准则增补·最终闭环）
-
-本章为项目底层**强制编码执行标准**，补齐项目规范体系中缺失的编码思维、修改边界、工程尺度、落地验证规则，彻底规避AI编码常见问题：主观假设需求、过度工程设计、冗余代码堆积、随意改动存量逻辑、无验证迭代等问题。项目所有新增开发、代码修改、Bug修复、架构重构、功能优化工作，均需严格遵守本章节所有规则，与前文技术规范、业务规范具备同等强制效力。
 
 本章为项目**AI 编码底层强制规范**，补齐原有体系缺失的编码思维、边界控制、防过度工程、落地验证能力，专门杜绝AI编码通病：盲目假设、过度架构、冗余臃肿、乱改存量代码、无验证迭代。所有新增、修改、重构、Bug修复、迭代优化必须严格遵守。
 
@@ -826,7 +870,6 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 - 多步骤复杂任务必须提前拆分执行步骤，明确每一步的落地目标与验证标准，分步执行、分步自检，避免做偏、做漏、做一半
 - 任务全部完成后，必须自主全量校验，确认完全达成预设成功标准、无副作用、无遗留问题，方可收尾提交
 
----
 
 **文档结束语**：本文档为 ShowBuy 项目唯一权威、完整闭环的长期维护标准，覆盖项目愿景、业务规则、架构设计、UI规范、开发准则、测试要求、进度管理、决策追溯、技术债务、AI编码约束全维度内容。所有规则均来自实战踩坑复盘与标准化落地总结，无模糊定义、无冲突规则、无遗漏约束，可完全支撑项目长期迭代、自主维护、版本复盘、开发接续与项目交接，为全生命周期开发提供统一、唯一、不可私自变更的事实依据。
 

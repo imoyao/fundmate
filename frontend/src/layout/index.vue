@@ -1,6 +1,7 @@
 <!-- frontend/src/layout/index.vue -->
 <template>
-  <div ref="appWrapperRef" :class="['app-wrapper', set.classes]">
+  <!-- 绑定背景色 -->
+  <div ref="appWrapperRef" :class="['app-wrapper', set.classes]" :style="{ backgroundColor: 'var(--bg-page)' }">
     <div
       v-show="
         set.device === 'mobile' &&

@@ -1,0 +1,75 @@
+/* ============================================
+   ShowBuy 设计令牌（Design Tokens）
+   语义层 · 对接设计语言 v2.3.2
+   最后更新: 2026-06-27
+   用途：为组件提供语义化变量名，与具体色值解耦
+   ============================================ */
+
+@import './colors.css';
+
+:root {
+  /* ============================================================
+     所有设计令牌已定义在 colors.css 中
+     本文件仅作为语义别名层，确保组件引用统一的变量名
+     如果组件直接引用以下变量，请确保 colors.css 已加载
+     ============================================================ */
+
+  /* 注：以下为已定义变量的语义别名，供组件引用时统一语义 */
+
+  /* 品牌色（语义别名） */
+  --brand: var(--brand-700);
+  --brand-hover: var(--brand-800);
+  --brand-active: var(--brand-900);
+  --brand-bg: var(--brand-100);
+  --brand-border: var(--brand-400);
+
+  /* 金融语义 */
+  --rise: var(--color-rise);
+  --fall: var(--color-fall);
+
+  /* 系统语义 */
+  --danger: var(--color-danger-system);
+
+  /* 背景语义 */
+  --bg-page: var(--bg-page);
+  --bg-card: var(--bg-card);
+  --bg-warm: var(--bg-warm);
+  --bg-soft: var(--bg-soft);
+  --bg-hover: var(--bg-hover);
+  --bg-muted: var(--bg-muted);
+
+  /* 文字语义 */
+  --text-primary: var(--text-primary);
+  --text-secondary: var(--text-secondary);
+  --text-tertiary: var(--text-tertiary);
+  --text-disabled: var(--text-disabled);
+
+  /* 边框语义 */
+  --border: var(--border-default);
+  --border-light: var(--border-light);
+  --border-subtle: var(--border-subtle);
+
+  /* 阴影语义 */
+  --shadow-card: var(--shadow-raised);
+  --shadow-popover: var(--shadow-float);
+  --shadow-modal: var(--shadow-modal);
+
+  /* 圆角语义 */
+  --radius-button: var(--radius-sm);
+  --radius-card: var(--radius-md);
+  --radius-modal: var(--radius-lg);
+  --radius-pill: var(--radius-pill);
+
+  /* 字体语义 */
+  --font-hero: var(--font-serif);
+  --font-ui: var(--font-sans);
+  --font-number: var(--font-mono);
+
+  /* 间距语义 */
+  --spacing-xs: var(--space-1);
+  --spacing-sm: var(--space-2);
+  --spacing-md: var(--space-3);
+  --spacing-compact: var(--space-compact);
+  --spacing-standard: var(--space-standard);
+  --spacing-loose: var(--space-loose);
+}

@@ -161,52 +161,29 @@ router.beforeEach((to: ToRouteType, _from, next) => {
       } else {
         toCorrectRoute();
       }
-    } else {
-      // ✅ 修复点：首次访问时用静态菜单直接填充，跳过异步拉取
-      if (
-        usePermissionStoreHook().wholeMenus.length === 0 &&
-        to.path !== "/login"
-      ) {
-        usePermissionStoreHook().wholeMenus = constantMenus.filter(item => item?.meta?.icon);
-        // 处理标签页缓存（保持原有多标签功能）
-        if (!useMultiTagsStoreHook().getMultiTagsCache) {
-          const route = findRouteByPath(
-            to.path,
-            router.options.routes[0].children
-          );
-          getTopMenu(true);
-          if (route && route.meta?.title) {
-            if (isAllEmpty(route.parentId) && route.meta?.backstage) {
-              const { path, name, meta } = route.children[0];
-              useMultiTagsStoreHook().handleTags("push", { path, name, meta });
-            } else {
-              const { path, name, meta } = route;
-              useMultiTagsStoreHook().handleTags("push", { path, name, meta });
-            }
-          }
-        }
-        next(); // 直接放行
       } else {
-        // 路由已初始化，正常处理标签页并放行
-        if (!useMultiTagsStoreHook().getMultiTagsCache) {
-          const route = findRouteByPath(
-            to.path,
-            router.options.routes[0].children
-          );
-          getTopMenu(true);
-          if (route && route.meta?.title) {
-            if (isAllEmpty(route.parentId) && route.meta?.backstage) {
-              const { path, name, meta } = route.children[0];
-              useMultiTagsStoreHook().handleTags("push", { path, name, meta });
-            } else {
-              const { path, name, meta } = route;
-              useMultiTagsStoreHook().handleTags("push", { path, name, meta });
-            }
+    // ✅ 首次访问时用静态菜单直接填充，跳过异步拉取
+    if (usePermissionStoreHook().wholeMenus.length === 0 && to.path !== "/login") {
+      usePermissionStoreHook().wholeMenus = buildHierarchyTree(constantMenus.filter(item => item?.meta?.icon));
+      // 处理标签页缓存（保持原有多标签功能）
+      if (!useMultiTagsStoreHook().getMultiTagsCache) {
+        const route = findRouteByPath(to.path, router.options.routes[0].children);
+        getTopMenu(true);
+        if (route && route.meta?.title) {
+          if (isAllEmpty(route.parentId) && route.meta?.backstage) {
+            const { path, name, meta } = route.children[0];
+            useMultiTagsStoreHook().handleTags("push", { path, name, meta });
+          } else {
+            const { path, name, meta } = route;
+            useMultiTagsStoreHook().handleTags("push", { path, name, meta });
           }
         }
-        toCorrectRoute();
       }
     }
+
+    // 🔥 恢复为 Vue Router 原生逻辑：正常放行，无需拦截
+    next();
+  }
   } else {
     if (to.path !== "/login") {
       if (whiteList.indexOf(to.path) !== -1) {

@@ -1,7 +1,26 @@
 // const { VITE_HIDE_HOME } = import.meta.env;
 const Layout = () => import("@/layout/index.vue");
 
-export default {
+// 1. 定义一个基础 Rank (总览排在最前面，用 0)
+const BASE_RANK = 0;
+
+// 2. 定义一个工厂函数，用来包裹并处理路由配置
+const createHomeRoutes = (routeConfig: any) => {
+  const children = routeConfig.children.map((child: any) => ({
+    ...child,
+    meta: {
+      ...child.meta,
+      rank: (child.meta?.rank || 0) + BASE_RANK
+    }
+  }));
+  return {
+    ...routeConfig,
+    children
+  };
+};
+
+// 3. 定义原始路由配置
+const HomeRouteConfig = {
   path: "/",
   name: "Home",
   component: Layout,
@@ -9,7 +28,7 @@ export default {
   meta: {
     icon: "ep/home-filled",
     title: "总览",
-    rank: 0,
+    rank: BASE_RANK, // 父级rank
     showLink: false
   },
   children: [
@@ -17,10 +36,7 @@ export default {
       path: "/welcome",
       name: "Welcome",
       component: () => import("@/views/welcome/index.vue"),
-      meta: {
-        title: "总览",
-        showLink: false
-      }
+      meta: { title: "总览", showLink: false }
     },
     {
       path: "/panorama",
@@ -47,4 +63,7 @@ export default {
       meta: { title: "交易流水", icon: "ep:list", rank: 4 }
     },
   ]
-} satisfies RouteConfigsTable;
+};
+
+// 4. 导出处理后的路由
+export default createHomeRoutes(HomeRouteConfig);

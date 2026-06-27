@@ -58,6 +58,7 @@ watch(
     v-if="device !== 'mobile'"
     v-loading="usePermissionStoreHook().wholeMenus.length === 0"
     class="horizontal-header"
+    :style="{ backgroundColor: 'var(--bg-card)' }"
   >
     <el-menu
       ref="menuRef"

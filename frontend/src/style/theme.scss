@@ -93,3 +93,57 @@ html[data-theme="auroraGreen"] {
   --pure-theme-menu-title-hover: #fff;
   --pure-theme-menu-active-before: #60ac80;
 }
+
+
+/* ============================================================
+   ShowBuy 专属主题（新增）
+   设计语言 v2.3.2 · 亮色模式
+   ============================================================ */
+
+html[data-theme="showbuy"] {
+  /* ===== 菜单基础色 ===== */
+  --pure-theme-menu-bg: var(--bg-card);
+  --pure-theme-sub-menu-bg: var(--bg-soft);
+
+  /* ===== 菜单文字色 ===== */
+  --pure-theme-menu-text: var(--text-secondary);
+  --pure-theme-sub-menu-active-text: var(--brand-700);
+
+  /* ===== 菜单交互色 ===== */
+  --pure-theme-menu-hover: var(--bg-hover);
+  --pure-theme-menu-title-hover: var(--text-primary);
+
+  /* ===== 菜单激活指示 ===== */
+  --pure-theme-menu-active-before: var(--brand-700);
+
+  /* ===== 侧边栏 Logo ===== */
+  --pure-theme-sidebar-logo: var(--bg-card);
+
+  /* ===== 🆕 菜单激活文字颜色（Element Plus） ===== */
+  --el-menu-active-color: var(--brand-700);
+
+  /* ===== 🆕 菜单悬停背景（Element Plus） ===== */
+  --el-menu-hover-bg-color: var(--bg-hover);
+}
+
+/* ===== 🆕 菜单激活项左侧指示条 ===== */
+html[data-theme="showbuy"] .el-menu-item.is-active {
+  color: var(--brand-700) !important;
+  background-color: var(--bg-hover) !important;
+}
+
+/* ===== 🆕 子菜单激活项 ===== */
+html[data-theme="showbuy"] .el-sub-menu .el-menu-item.is-active {
+  color: var(--brand-700) !important;
+  background-color: var(--bg-hover) !important;
+}
+
+/* ===== 🆕 菜单项悬停 ===== */
+html[data-theme="showbuy"] .el-menu-item:hover {
+  background-color: var(--bg-hover) !important;
+}
+
+/* ===== 🆕 侧边栏 Logo 文字颜色 ===== */
+html[data-theme="showbuy"] .sidebar-logo-container .sidebar-title {
+  color: var(--brand-700) !important;
+}

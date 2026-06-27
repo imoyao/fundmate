@@ -1,56 +1,63 @@
 /* ============================================
-   ShowBuy 前端色彩规范 v2.0
+   ShowBuy 前端色彩规范 v2.1
    基于低饱和莫兰迪色系 · 见名知意命名体系
-   最后更新: 2026-05-20
+   同步设计语言 v2.3.2
+   最后更新: 2026-06-27
    ============================================ */
 
 :root {
-  /* ===== 语义功能色 ===== */
+  /* ============================================================
+     第一部分：保留原有变量（向后兼容，不删除任何内容）
+     ============================================================ */
+
+  /* ===== 语义功能色（原有，保持兼容） ===== */
   --color-primary:       #7A7FA8;  /* 主色：灰紫蓝，用于主按钮、选中态、导航高亮 */
   --color-success:       #81B29A;  /* 成功色：鼠尾草绿，用于成功状态、负向收益/下跌🟢 */
-  --color-danger:        #C83E66;  /* 危险色：灰玫瑰红，用于正向收益/上涨🔴、风险提示、删除 */
+  --color-danger:        #C83E66;  /* ⚠️ 保留原值，逐步迁移至 --color-rise */
   --color-warning:       #D4C898;  /* 警告色：暖沙金，用于告警、待处理、中性状态 */
   --color-info:          #7A9AA8;  /* 信息色：灰蓝，用于信息提示、次要分类、辅助操作 */
   --color-neutral:       #8E8B82;  /* 中性色：暖灰，用于默认态、未分类、占位 */
   --color-accent:        #B88A8A;  /* 强调色：灰玫瑰棕，用于特殊强调、保险/保障类 */
 
-  /* ===== 背景色 ===== */
-  --bg-page:             #F8F7FC;  /* 页面底色：微紫白 */
+  /* ===== 背景色（原有，逐步迁移） ===== */
+  --bg-page:             #FDFBF7;  /* 🆕 暖奶油白（原 #F8F7FC） */
   --bg-card:             #FFFFFF;  /* 卡片/容器底色：纯白 */
-  --bg-hover:            #F2E4E9;  /* 悬停/高亮底色：浅粉灰 */
+  --bg-hover:            #F2EDE8;  /* 🆕 悬停底色（原 #F2E4E9） */
   --bg-muted:            #F5F7FA;  /* 次区域底色：淡灰蓝，用于表格条纹、次要区块 */
 
-  /* ===== 文字色 ===== */
-  --text-primary:        #333333;  /* 主文字：核心数据、标题 */
-  --text-secondary:      #666666;  /* 次文字：普通文本、标签 */
-  --text-tertiary:       #999999;  /* 辅助文字：说明、时间、提示 */
-  --text-disabled:       #CCCCCC;  /* 禁用文字：不可用状态 */
+  /* ===== 文字色（原有，逐步迁移） ===== */
+  --text-primary:        #2D2A24;  /* 🆕 暖黑（原 #333333） */
+  --text-secondary:      #6B655C;  /* 🆕 暖灰（原 #666666） */
+  --text-tertiary:       #8C8478;  /* 🆕 暖灰加深（原 #999999） */
+  --text-disabled:       #C9C2B8;  /* 🆕 暖灰（原 #CCCCCC） */
 
-  /* ===== 边框与分割线 ===== */
-  --border-default:      #E5E7EB;  /* 默认边框 */
-  --divider-default:     #F0F0F0;  /* 默认分割线 */
+  /* ===== 边框与分割线（原有） ===== */
+  --border-default:      #E5DDD4;  /* 🆕 暖边框（原 #E5E7EB） */
+  --divider-default:     #F0EBE4;  /* 🆕 暖分割线（原 #F0F0F0） */
 
-  /* ===== 桑基图枢纽节点色 ===== */
-  --sankey-total-assets:   #7A7FA8;  /* 总资产：同主色 */
-  --sankey-net-worth:      #81B29A;  /* 净资产：同成功色(绿色正向) */
-  --sankey-liability:      #8E8B82;  /* 负债：同中性暖灰 */
+  /* ===== 以下所有原有变量保持不变 ===== */
 
-  /* ===== 桑基图五笔钱色 ===== */
-  --sankey-liquid:         #7A9AA8;  /* 活钱：灰蓝，流动性 */
-  --sankey-stable:         #9D81A9;  /* 稳健底仓：灰紫，稳健不沉闷 */
-  --sankey-longterm:       #7A7FA8;  /* 长期增值：同主色，核心增值 */
-  --sankey-speculative:    #C83E66;  /* 高风险博弈：同危险色，警示 */
-  --sankey-security:       #B88A8A;  /* 保险保障：同强调色，柔和安全 */
+  /* 桑基图枢纽节点色 */
+  --sankey-total-assets:   #7A7FA8;
+  --sankey-net-worth:      #81B29A;
+  --sankey-liability:      #8E8B82;
 
-  /* 新增：资产大类专属色 */
-  --category-cash:        #B5C4B1;   /* 流动资金 */
-  --category-fixed:       #A3B5C7;   /* 固定资产 */
-  --category-investment:  #9D81A9;   /* 投资理财 */
-  --category-receivable:  #8E8B82;   /* 应收款 */
-  --category-liability:   #C4A0A8;   /* 负债 */
-  --category-insurance:   #E8D5C4;   /* 保险项目 */
+  /* 桑基图五笔钱色 */
+  --sankey-liquid:         #7A9AA8;
+  --sankey-stable:         #9D81A9;
+  --sankey-longterm:       #7A7FA8;
+  --sankey-speculative:    #C83E66;
+  --sankey-security:       #B88A8A;
 
-  /* 新增：投资子类型色 */
+  /* 资产大类专属色 */
+  --category-cash:        #B5C4B1;
+  --category-fixed:       #A3B5C7;
+  --category-investment:  #9D81A9;
+  --category-receivable:  #8E8B82;
+  --category-liability:   #C4A0A8;
+  --category-insurance:   #E8D5C4;
+
+  /* 投资子类型色 */
   --invest-stock:   #9D81A9;
   --invest-fund:    #A3B5C7;
   --invest-bond:    #8E8B82;
@@ -58,7 +65,7 @@
   --invest-crypto:  #C4A0A8;
   --invest-saving:  #9CAF88;
 
-  /* 新增：添加类型卡片通用色 */
+  /* 添加类型卡片通用色 */
   --add-type-cash:        #B5C4B1;
   --add-type-money-fund:  #9CAF88;
   --add-type-cash-other:  #8DA3B8;
@@ -86,20 +93,19 @@
   --category-liability-bg:   rgba(196, 160, 168, 0.13);
   --category-insurance-bg:   rgba(232, 213, 196, 0.13);
 
-
-  /* ===== 标签/分组色板（12色，按色相命名） ===== */
-  --tag-purple-gray:     #7A7FA8;  /* 灰紫 */
-  --tag-sage-green:      #81B29A;  /* 鼠尾草绿 */
-  --tag-dusty-rose:      #C85A6A;  /* 灰玫瑰红 */
-  --tag-warm-sand:       #D4C898;  /* 暖沙金 */
-  --tag-thistle:         #9D81A9;  /* 蓟紫 */
-  --tag-warm-taupe:      #A89F94;  /* 暖灰褐 */
-  --tag-muted-blue:      #7A9AA8;  /* 灰蓝 */
-  --tag-rose-taupe:      #B88A8A;  /* 玫瑰棕 */
-  --tag-stone-gray:      #8E8B82;  /* 石灰灰 */
-  --tag-mint-green:      #A8CBC0;  /* 薄荷绿 */
-  --tag-caramel:         #C4A68A;  /* 焦糖色 */
-  --tag-periwinkle:      #B4BEE0;  /* 长春花蓝 */
+  /* 标签/分组色板（12色） */
+  --tag-purple-gray:     #7A7FA8;
+  --tag-sage-green:      #81B29A;
+  --tag-dusty-rose:      #C85A6A;
+  --tag-warm-sand:       #D4C898;
+  --tag-thistle:         #9D81A9;
+  --tag-warm-taupe:      #A89F94;
+  --tag-muted-blue:      #7A9AA8;
+  --tag-rose-taupe:      #B88A8A;
+  --tag-stone-gray:      #8E8B82;
+  --tag-mint-green:      #A8CBC0;
+  --tag-caramel:         #C4A68A;
+  --tag-periwinkle:      #B4BEE0;
 
   --color-primary-10: rgba(122, 127, 168, 0.1);
 
@@ -116,11 +122,92 @@
   --asset-crypto-20: rgba(196, 166, 138, 0.2);
   --asset-saving-20: rgba(129, 178, 154, 0.2);
 
-  /* ===== 资产类型卡片色（语义化别名） ===== */
-  --asset-stock:         var(--tag-muted-blue);    /* 股票：灰蓝 */
-  --asset-fund:          var(--color-accent);      /* 基金：玫瑰棕 */
-  --asset-bond:          var(--tag-warm-sand);     /* 可转债：暖沙金 */
-  --asset-etf:           var(--tag-mint-green);    /* ETF：薄荷绿 */
-  --asset-crypto:        var(--tag-caramel);       /* 虚拟货币：焦糖色 */
-  --asset-saving:        var(--tag-sage-green);    /* 银行存款/理财：鼠尾草绿 */
+  /* 资产类型卡片色（语义化别名） */
+  --asset-stock:         var(--tag-muted-blue);
+  --asset-fund:          var(--color-accent);
+  --asset-bond:          var(--tag-warm-sand);
+  --asset-etf:           var(--tag-mint-green);
+  --asset-crypto:        var(--tag-caramel);
+  --asset-saving:        var(--tag-sage-green);
+
+
+  /* ============================================================
+     第二部分：🆕 新增语义变量（设计语言 v2.3.2 强制规范）
+     所有新代码必须使用以下变量
+     ============================================================ */
+
+  /* ===== 品牌色（暖红珊瑚） ===== */
+  --brand-100:           #FFF5F3;
+  --brand-200:           #FEEDE8;
+  --brand-300:           #FDD9D0;
+  --brand-400:           #FABDB0;
+  --brand-500:           #F69988;
+  --brand-600:           #F06B57;
+  --brand-700:           #E34F38;   /* 品牌主色 / 涨色 */
+  --brand-800:           #CC3D27;
+  --brand-900:           #A52E1C;
+  --brand-1000:          #7A2010;
+
+  /* ===== 金融语义色（涨红跌绿） ===== */
+  --color-rise:          var(--brand-700);  /* 涨/盈利/正收益 */
+  --color-fall:          #7BC49A;           /* 跌/亏损/负收益（柔和灰绿） */
+
+  /* ===== 系统语义色（独立于品牌色） ===== */
+  --color-danger-system: #D4364A;   /* 删除/错误/破坏性操作（独立危险色） */
+
+  /* ===== 新增背景层级 ===== */
+  --bg-warm:             #FAF6F0;   /* 次级背景 / 区块分隔 */
+  --bg-soft:             #F5F0EB;   /* 柔和表面 / 毛玻璃基底 */
+
+  /* ===== 新增边框层级 ===== */
+  --border-light:        #F0EBE4;   /* 极浅边框 */
+  --border-subtle:       rgba(229, 221, 212, 0.5); /* 卡片内分割线（降低权重） */
+
+  /* ===== 暖调阴影 ===== */
+  --shadow-raised:       0 2px 16px rgba(180, 150, 130, 0.06);
+  --shadow-float:        0 8px 32px rgba(180, 150, 130, 0.08);
+  --shadow-modal:        0 16px 48px rgba(180, 150, 130, 0.12);
+
+  /* ===== Focus 环 ===== */
+  --focus-ring-gap:      var(--bg-card);
+  --focus-ring:          0 0 0 2px var(--focus-ring-gap), 0 0 0 4px var(--brand-700);
+
+  /* ===== 字体族 ===== */
+  --font-serif:          Georgia, "Times New Roman", "Liberation Serif", serif;
+  --font-sans:           Inter, -apple-system, "PingFang SC", sans-serif;
+  --font-mono:           "SF Mono", "JetBrains Mono", monospace;
+
+  /* ===== 间距 ===== */
+  --space-1:             4px;
+  --space-2:             8px;
+  --space-3:             12px;
+  --space-compact:       16px;
+  --space-5:             20px;
+  --space-standard:      24px;
+  --space-loose:         32px;
+  --space-12:            48px;
+  --space-16:            64px;
+
+  /* ===== 圆角 ===== */
+  --radius-sm:           6px;
+  --radius-md:           12px;
+  --radius-lg:           16px;
+  --radius-pill:         9999px;
+
+  /* ===== 图表色 ===== */
+  --chart-01:            #E34F38;
+  --chart-02:            #F06B57;
+  --chart-03:            #E8A87C;
+  --chart-04:            #D4A68A;
+  --chart-05:            #C9B89C;
+  --chart-06:            #7BC49A;
+  --chart-07:            #A3B5C7;
+  --chart-08:            #D5C4C4;
 }
+
+
+/* ============================================================
+   第三部分：暗色模式变量（规划中，供 dark.scss 引用）
+   ============================================================ */
+
+/* 暗色模式变量在 dark.scss 中通过 [data-theme="dark"] 选择器覆盖 */

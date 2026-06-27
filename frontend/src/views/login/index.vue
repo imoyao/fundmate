@@ -56,8 +56,9 @@ const onLogin = async (formEl: FormInstance | undefined) => {
             // 获取后端路由
             return initRouter().then(() => {
               disabled.value = true;
+              // 🔥 核心修复：不要根据菜单去跳，强制、优雅地跳转到欢迎页
               router
-                .push(getTopMenu(true).path)
+                .push('/')
                 .then(() => {
                   message("登录成功", { type: "success" });
                 })
