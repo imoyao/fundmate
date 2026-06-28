@@ -26,42 +26,65 @@ const HomeRouteConfig = {
   component: Layout,
   redirect: "/welcome",
   meta: {
-    icon: "ep/home-filled",
+    icon: "ep:home-filled",
     title: "总览",
-    rank: BASE_RANK, // 父级rank
-    showLink: false
+    rank: BASE_RANK,
+    showLink: false // 父级作为目录，不直接显示链接
   },
   children: [
     {
       path: "/welcome",
       name: "Welcome",
       component: () => import("@/views/welcome/index.vue"),
-      meta: { title: "总览", showLink: false }
+      meta: {
+        title: "投资概览",
+        icon: "ep:data-analysis",
+        rank: 1,
+        showLink: true
+      }
     },
     {
       path: "/panorama",
       name: "AssetPanorama",
       component: () => import("@/views/asset/AssetPanorama.vue"),
-      meta: { title: "资产总览", icon: "ep:pie-chart", rank: 1, keepAlive: true }
+      meta: {
+        title: "资产总览",
+        icon: "ep:pie-chart",
+        rank: 2,
+        keepAlive: true
+      }
     },
     {
       path: "inventory",
       name: "Inventory",
       component: () => import("@/views/asset/inventory/index.vue"),
-      meta: { title: "全面盘点", icon: "ep:document-copy", rank: 2 }
+      meta: {
+        title: "全面盘点",
+        icon: "ep:document-checked",
+        rank: 3
+      }
     },
     {
       path: "watchlist",
       name: "Watchlist",
       component: () => import("@/views/asset/watchlist/index.vue"),
-      meta: { title: "我的自选", icon: "ep:star", rank: 3, keepAlive: true }
+      meta: {
+        title: "我的自选",
+        icon: "ep:star",
+        rank: 4,
+        keepAlive: true
+      }
     },
     {
       path: "transactions",
       name: "TransactionList",
       component: () => import("@/views/asset/TransactionList.vue"),
-      meta: { title: "交易流水", icon: "ep:list", rank: 4 }
-    },
+      meta: {
+        title: "交易流水",
+        icon: "ep:list",
+        rank: 5
+      }
+    }
   ]
 };
 

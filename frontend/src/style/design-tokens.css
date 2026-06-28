@@ -61,7 +61,7 @@
   --radius-pill: var(--radius-pill);
 
   /* 字体语义 */
-  --font-hero: var(--font-serif);
+  --font-hero: var(--font-sans);
   --font-ui: var(--font-sans);
   --font-number: var(--font-mono);
 
@@ -72,4 +72,15 @@
   --spacing-compact: var(--space-compact);
   --spacing-standard: var(--space-standard);
   --spacing-loose: var(--space-loose);
+
+  /* ===== 字阶系统 ===== */
+  --text-hero: 57px;
+  --text-display: 32px;
+  --text-title: 24px;
+  --text-heading: 20px;
+  --text-body: 16px;
+  --text-small: 14px;
+  --text-label: 13px;
+  --text-mono: 16px;
+  --text-mono-small: 14px;
 }

@@ -1,391 +1,615 @@
 <template>
   <div
-    class="welcome-container p-4 md:p-8 bg-[#f5f7fa] min-h-full font-sans text-[#333]"
+    class="welcome-container p-4 md:p-8 min-h-full"
+    :style="{ backgroundColor: 'var(--bg-page)' }"
   >
     <!-- 顶部欢迎语 -->
     <div class="flex justify-between items-center mb-6">
       <div class="flex items-center gap-2">
-        <span class="text-sm font-medium text-gray-400"
-          >别人恐惧我贪婪，别人贪婪我更贪婪</span
+        <span
+          class="text-sm font-medium"
+          :style="{ color: 'var(--text-tertiary)' }"
         >
+          别人恐惧我贪婪，别人贪婪我更贪婪
+        </span>
       </div>
     </div>
 
-    <!-- 第一部分：核心资产看板 + 收益趋势 -->
-    <div class="grid grid-cols-1 xl:grid-cols-12 gap-6 mb-8">
-      <!-- 左侧：家庭资产看板 (2/3 宽度) -->
-      <div
-        class="xl:col-span-8 bg-white rounded-2xl p-8 shadow-sm border border-gray-100 relative group"
-      >
-        <router-link
-          to="/account/overview"
-          class="absolute top-6 right-8 p-2 rounded-full bg-gray-50 text-gray-400 hover:bg-[#a6a6d2] hover:text-white transition-all shadow-sm z-20"
-          title="查看资产详情"
-        >
-          <IconifyIconOffline icon="ep:full-screen" class="text-lg" />
-        </router-link>
-
-        <div class="flex justify-between items-start mb-8">
-          <div>
-            <h3 class="text-gray-800 font-bold text-lg mb-1">家庭资产看板</h3>
-            <p class="text-gray-300 text-xs">{{ lastUpdate }} 更新</p>
-          </div>
+    <!-- ===== 第一排：核心资产看板 + 收益趋势 ===== -->
+    <div class="grid grid-cols-1 xl:grid-cols-12 gap-8 mb-8">
+      <!-- 左侧：家庭资产看板 -->
+      <div class="xl:col-span-8 flex flex-col gap-3 card-hover card-enter">
+        <div class="flex justify-between items-center h-8">
+          <h3
+            class="font-bold text-lg"
+            :style="{ color: 'var(--text-primary)' }"
+          >
+            家庭资产看板
+          </h3>
+          <router-link
+            to="/panorama"
+            class="p-2 rounded-full transition-all shadow-sm hover-card-btn"
+            :style="{
+              backgroundColor: 'var(--bg-soft)',
+              color: 'var(--text-tertiary)'
+            }"
+            title="查看资产详情"
+          >
+            <IconifyIconOffline icon="ep:full-screen" class="text-lg" />
+          </router-link>
         </div>
-
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-          <!-- 左侧：资产概览数据（从 API 动态获取） -->
-          <div class="flex flex-col gap-6">
-            <div>
-              <p class="text-gray-400 text-sm mb-2">家庭总资产</p>
-              <div class="flex items-baseline gap-1">
-                <h2
-                  class="text-4xl md:text-5xl font-bold text-[#ff4d00] tracking-tight"
+        <div
+          class="rounded-2xl p-8 relative h-full"
+          :style="{
+            backgroundColor: 'var(--bg-card)',
+            boxShadow: 'var(--shadow-raised)',
+            border: '1px solid var(--border-light)'
+          }"
+        >
+          <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+            <div class="lg:col-span-7 flex flex-col gap-6">
+              <div>
+                <p
+                  class="text-sm mb-2"
+                  :style="{ color: 'var(--text-tertiary)' }"
                 >
-                  {{ summary?.total_assets_cny?.toLocaleString() ?? "--" }}
-                </h2>
-                <span class="text-gray-400 text-sm">元</span>
-              </div>
-            </div>
-
-            <!-- 总盈亏 -->
-            <div class="flex gap-6">
-              <div class="flex flex-col">
-                <span class="text-gray-400 text-[10px] mb-1"
-                  >总盈亏 (人民币)</span
-                >
-                <div
-                  :class="[
-                    'flex items-center font-bold text-sm',
-                    (summary?.total_pnl_cny ?? 0) >= 0
-                      ? 'text-red-500'
-                      : 'text-green-500'
-                  ]"
-                >
-                  <IconifyIconOffline
-                    :icon="
-                      (summary?.total_pnl_cny ?? 0) >= 0
-                        ? 'ep:caret-top'
-                        : 'ep:caret-bottom'
-                    "
-                    class="mr-1"
+                  家庭总资产
+                </p>
+                <div class="flex items-baseline gap-2">
+                  <MoneyDisplay
+                    :value="summary?.total_assets_cny ?? 0"
+                    size="hero"
+                    :show-sign="false"
                   />
-                  {{
-                    summary?.total_pnl_cny != null
-                      ? `${summary.total_pnl_cny >= 0 ? "+" : ""}${summary.total_pnl_cny.toLocaleString()}`
-                      : "--"
-                  }}
+                  <span
+                    class="text-xl font-medium"
+                    :style="{ color: 'var(--text-secondary)' }"
+                    >元</span
+                  >
+                </div>
+              </div>
+              <div class="flex gap-6">
+                <div class="flex flex-col">
+                  <span
+                    class="text-xs mb-1"
+                    :style="{ color: 'var(--text-tertiary)' }"
+                    >总盈亏（人民币）</span
+                  >
+                  <MoneyDisplay
+                    :value="summary?.total_pnl_cny ?? 0"
+                    size="xl"
+                  />
+                </div>
+              </div>
+              <div
+                class="grid grid-cols-2 gap-4 pt-6"
+                :style="{ borderTop: '1px solid var(--border-light)' }"
+              >
+                <div class="flex flex-col">
+                  <span
+                    class="text-xs mb-1"
+                    :style="{ color: 'var(--text-tertiary)' }"
+                    >本月资产增加</span
+                  >
+                  <!-- TODO: 接入真实 API 数据 -->
+                  <MoneyDisplay
+                    :value="28973.83"
+                    size="lg"
+                    :show-currency="true"
+                  />
+                </div>
+                <div class="flex flex-col">
+                  <span
+                    class="text-xs mb-1"
+                    :style="{ color: 'var(--text-tertiary)' }"
+                    >本月负债减少</span
+                  >
+                  <!-- TODO: 接入真实 API 数据 -->
+                  <MoneyDisplay
+                    :value="-20406.12"
+                    size="lg"
+                    :show-currency="true"
+                  />
                 </div>
               </div>
             </div>
-
-            <!-- 资产增加/负债减少文字显示 -->
-            <div class="grid grid-cols-2 gap-4 pt-6 border-t border-gray-50">
-              <div class="flex flex-col">
-                <span class="text-gray-400 text-[10px] mb-1">本月资产增加</span>
-                <span class="text-base font-bold text-red-400"
-                  >+28,973.83
-                  <span class="text-[10px] font-normal">元</span></span
-                >
-              </div>
-              <div class="flex flex-col">
-                <span class="text-gray-400 text-[10px] mb-1">本月负债减少</span>
-                <span class="text-base font-bold text-green-400"
-                  >-20,406.12
-                  <span class="text-[10px] font-normal">元</span></span
-                >
-              </div>
-            </div>
-          </div>
-
-          <!-- 右侧：资产构成图表（暂保留静态模拟） -->
-          <div
-            class="flex flex-col items-center justify-center border-l border-gray-50 pl-8 h-full"
-          >
-            <div class="w-full flex justify-between items-center mb-4">
-              <span class="text-gray-500 font-bold text-sm">资产构成分布</span>
-              <div class="flex items-center gap-2">
+            <div
+              class="lg:col-span-5 flex flex-col items-center justify-center h-full"
+              :style="{ borderLeft: '1px solid var(--border-light)' }"
+            >
+              <div class="w-full flex justify-between items-center mb-4">
                 <span
-                  class="px-2 py-0.5 bg-orange-50 text-orange-400 text-[10px] rounded font-bold"
+                  class="font-bold text-sm"
+                  :style="{ color: 'var(--text-secondary)' }"
+                  >资产构成分布</span
+                >
+                <span
+                  class="px-2 py-0.5 rounded text-[10px] font-bold"
+                  :style="{
+                    backgroundColor: 'var(--brand-100)',
+                    color: 'var(--brand-700)'
+                  }"
                   >中等风险</span
                 >
               </div>
+              <div ref="distributionChartRef" class="h-[220px] w-full" />
             </div>
-            <div ref="distributionChartRef" class="h-[240px] w-full" />
           </div>
         </div>
       </div>
 
-      <!-- 右侧：收益趋势 (保留静态) -->
-      <div
-        class="xl:col-span-4 bg-white rounded-2xl p-6 shadow-sm border border-gray-100"
-      >
-        <div class="flex justify-between items-center mb-6">
-          <h3 class="text-gray-800 font-bold">收益趋势</h3>
-          <div class="flex bg-gray-100 p-1 rounded-lg text-[10px]">
-            <button
-              class="px-3 py-1 bg-white text-[#ff4d00] rounded shadow-sm font-bold"
+      <!-- 右侧：收益趋势 -->
+      <div class="xl:col-span-4 flex flex-col gap-3 card-hover card-enter">
+        <div class="flex justify-between items-center h-8">
+          <h3
+            class="font-bold text-lg"
+            :style="{ color: 'var(--text-primary)' }"
+          >
+            收益趋势
+          </h3>
+          <el-button-group size="small">
+            <el-button
+              :type="trendMode === 'month' ? 'primary' : 'default'"
+              @click="trendMode = 'month'"
+              >月度</el-button
             >
-              月度
-            </button>
-            <button class="px-3 py-1 text-gray-400">季度</button>
-          </div>
+            <el-button
+              :type="trendMode === 'quarter' ? 'primary' : 'default'"
+              @click="trendMode = 'quarter'"
+              >季度</el-button
+            >
+          </el-button-group>
         </div>
-        <div ref="trendChartRef" class="h-[220px] w-full" />
-        <div class="mt-4 pt-4 border-t border-gray-50">
-          <p class="text-[10px] text-gray-400 mb-2">风险评分建议</p>
-          <div class="flex items-center justify-between">
-            <span class="text-sm font-bold text-gray-700">65/100</span>
-            <span class="text-[10px] text-orange-400">建议增加稳健型配置</span>
+        <div
+          class="rounded-2xl p-6 h-full flex flex-col"
+          :style="{
+            backgroundColor: 'var(--bg-card)',
+            boxShadow: 'var(--shadow-raised)',
+            border: '1px solid var(--border-light)'
+          }"
+        >
+          <div ref="trendChartRef" class="flex-1 min-h-[180px] w-full" />
+          <div
+            class="mt-4 pt-4 flex flex-col gap-0.5"
+            :style="{ borderTop: '1px solid var(--border-light)' }"
+          >
+            <p
+              class="text-[10px] mb-1"
+              :style="{ color: 'var(--text-tertiary)' }"
+            >
+              风险评分建议
+            </p>
+            <div class="flex items-center justify-between">
+              <span
+                class="text-xl font-bold"
+                :style="{ color: 'var(--text-primary)' }"
+                >65/100</span
+              >
+            </div>
+            <span class="text-[10px]" :style="{ color: 'var(--brand-700)' }"
+              >建议增加稳健型配置</span
+            >
           </div>
         </div>
       </div>
     </div>
 
-    <!-- 年化收益率卡片（新增） -->
-    <div class="mb-8">
-      <div class="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
-        <div class="flex items-center gap-8">
-          <!-- 左侧：年化收益率 -->
+    <!-- ===== 第二排：年化收益追踪 ===== -->
+    <div class="mb-8 flex flex-col gap-3 card-hover card-enter">
+      <div class="flex justify-between items-center h-8">
+        <h3 class="font-bold text-lg" :style="{ color: 'var(--text-primary)' }">
+          年化收益追踪
+        </h3>
+      </div>
+      <div
+        class="rounded-2xl p-6"
+        :style="{
+          backgroundColor: 'var(--bg-card)',
+          boxShadow: 'var(--shadow-raised)',
+          border: '1px solid var(--border-light)'
+        }"
+      >
+        <div class="flex justify-between items-center gap-8">
           <div class="flex flex-col">
-            <span class="text-gray-400 text-xs mb-1">年化收益率 (XIRR)</span>
-            <div
-              :class="[
-                'text-3xl font-bold',
-                (portfolioXirr?.xirr ?? 0) >= 0 ? 'text-red-500' : 'text-green-500'
-              ]"
+            <span
+              class="text-xs mb-1"
+              :style="{ color: 'var(--text-tertiary)' }"
+              >年化收益率（XIRR）</span
             >
-              {{ portfolioXirr != null ? (portfolioXirr.xirr * 100).toFixed(2) + '%' : '--' }}
-            </div>
-            <span class="text-gray-300 text-[10px] mt-1"
+            <RiseFallText
+              :value="portfolioXirr?.xirr ?? 0"
+              size="lg"
+              :precision="2"
+            />
+            <span
+              class="text-[10px] mt-1"
+              :style="{ color: 'var(--text-tertiary)' }"
               >基于所有主动投资交易，不含货币基金</span
             >
           </div>
-
-          <!-- 右侧：当前市值和总投入 -->
-          <div class="flex gap-8 ml-auto">
+          <div class="flex gap-8">
             <div class="flex flex-col">
-              <span class="text-gray-400 text-xs mb-1">当前市值</span>
-              <span class="text-lg font-bold text-gray-700">
-                {{ portfolioXirr?.current_value?.toLocaleString() ?? '--' }}
-              </span>
+              <span
+                class="text-xs mb-1"
+                :style="{ color: 'var(--text-tertiary)' }"
+                >当前市值</span
+              >
+              <MoneyDisplay
+                :value="portfolioXirr?.current_value ?? 0"
+                size="md"
+                :show-sign="false"
+              />
             </div>
             <div class="flex flex-col">
-              <span class="text-gray-400 text-xs mb-1">总投入</span>
-              <span class="text-lg font-bold text-gray-700">
-                {{ portfolioXirr?.total_invested?.toLocaleString() ?? '--' }}
-              </span>
+              <span
+                class="text-xs mb-1"
+                :style="{ color: 'var(--text-tertiary)' }"
+                >总投入</span
+              >
+              <MoneyDisplay
+                :value="portfolioXirr?.total_invested ?? 0"
+                size="md"
+                :show-sign="false"
+              />
             </div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- 第二部分：高风险资产卡片与风险热力图 -->
-    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-8">
-      <!-- 自选资产卡片区域（替代原硬编码卡片） -->
-      <div class="lg:col-span-8">
+    <!-- ===== 第三排：持仓市值最大资产 + 风险热力图 ===== -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 mb-8">
+      <!-- 左侧：持仓市值最大资产 -->
+      <div
+        class="lg:col-span-8 flex flex-col gap-3 card-hover card-enter h-full"
+      >
+        <div class="flex justify-between items-center h-8">
+          <h3
+            class="font-bold text-lg"
+            :style="{ color: 'var(--text-primary)' }"
+          >
+            {{ watchlistTitle }}
+          </h3>
+          <div class="flex items-center gap-2">
+            <el-button
+              size="small"
+              type="primary"
+              plain
+              @click="showAddWatchlistModal = true"
+            >
+              <template #icon><IconifyIconOffline icon="ep:plus" /></template
+              >添加
+            </el-button>
+            <el-button
+              size="small"
+              type="text"
+              @click="$router.push('/the-road-not-taken')"
+              >特别关注</el-button
+            >
+            <el-button
+              size="small"
+              type="text"
+              @click="$router.push('/watchlist')"
+              >查看全部</el-button
+            >
+          </div>
+        </div>
         <WatchlistWidget
+          ref="watchlistWidgetRef"
           :key="watchlistWidgetKey"
+          class="flex-1"
           @select="onWatchlistSelect"
           @add="showAddWatchlistModal = true"
         />
       </div>
 
-      <!-- 风险热力图 -->
-      <div
-        class="lg:col-span-4 bg-white rounded-2xl p-6 shadow-sm border border-gray-100"
-      >
-        <h3 class="text-gray-800 font-bold mb-4">风险热力图</h3>
-        <div ref="riskHeatmapRef" class="h-[180px] w-full" />
-        <div class="flex justify-center gap-4 mt-2 text-[8px] text-gray-400">
-          <div class="flex items-center gap-1">
-            <span class="w-2 h-2 bg-[#52c41a] rounded-sm" />低风险
+      <!-- 右侧：风险热力图 -->
+      <div class="lg:col-span-4 flex flex-col gap-3 card-hover card-enter">
+        <div class="flex justify-between items-center h-8">
+          <h3
+            class="font-bold text-lg"
+            :style="{ color: 'var(--text-primary)' }"
+          >
+            风险热力图
+          </h3>
+        </div>
+        <div
+          class="rounded-2xl p-6 h-full flex flex-col"
+          :style="{
+            backgroundColor: 'var(--bg-card)',
+            boxShadow: 'var(--shadow-raised)',
+            border: '1px solid var(--border-light)'
+          }"
+        >
+          <div class="flex-1 flex items-center justify-center w-full pb-4">
+            <div ref="riskHeatmapRef" class="w-full h-full max-h-[240px]" />
           </div>
-          <div class="flex items-center gap-1">
-            <span class="w-2 h-2 bg-[#fa8c16] rounded-sm" />中风险
-          </div>
-          <div class="flex items-center gap-1">
-            <span class="w-2 h-2 bg-[#ff4d4f] rounded-sm" />高风险
+          <!-- 🆕 图例颜色改为 CSS 变量 -->
+          <div class="flex justify-center gap-4 mt-3 text-[8px]">
+            <div
+              class="flex items-center gap-1"
+              :style="{ color: 'var(--text-tertiary)' }"
+            >
+              <span
+                class="w-2 h-2 rounded-sm"
+                :style="{ backgroundColor: 'var(--color-fall)' }"
+              />低风险
+            </div>
+            <div
+              class="flex items-center gap-1"
+              :style="{ color: 'var(--text-tertiary)' }"
+            >
+              <span
+                class="w-2 h-2 rounded-sm"
+                :style="{ backgroundColor: 'var(--color-warning)' }"
+              />中风险
+            </div>
+            <div
+              class="flex items-center gap-1"
+              :style="{ color: 'var(--text-tertiary)' }"
+            >
+              <span
+                class="w-2 h-2 rounded-sm"
+                :style="{ backgroundColor: 'var(--color-danger)' }"
+              />高风险
+            </div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- 第三部分：有知有行特色指标与心理账户 -->
+    <!-- ===== 第四排：财务晴雨表 + 心理账户 ===== -->
     <div class="flex flex-col lg:flex-row gap-8">
-      <!-- 财务晴雨表群 -->
-      <div class="flex-1">
-        <h3 class="text-gray-800 font-bold mb-4 flex items-center gap-2">
-          财务晴雨表
-          <IconifyIconOffline
-            icon="ep:info-filled"
-            class="text-gray-300 text-sm cursor-help"
-          />
-        </h3>
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <div
-            class="bg-white rounded-2xl p-5 shadow-sm border border-gray-100"
+      <!-- 财务晴雨表 -->
+      <div class="flex-1 flex flex-col gap-3">
+        <div class="flex justify-between items-center h-8">
+          <h3
+            class="font-bold text-lg flex items-center gap-2"
+            :style="{ color: 'var(--text-primary)' }"
           >
-            <p class="text-gray-400 text-[10px] mb-2">资产负债率</p>
-            <p class="text-xl font-bold">
-              49.03<span class="text-[10px] font-normal ml-0.5">%</span>
-            </p>
-            <p class="text-[8px] text-orange-300 mt-2 font-medium">偿债能力</p>
-          </div>
+            财务晴雨表
+            <IconifyIconOffline
+              icon="ep:info-filled"
+              class="text-sm cursor-help"
+              :style="{ color: 'var(--text-tertiary)' }"
+            />
+          </h3>
+        </div>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div
-            class="bg-white rounded-2xl p-5 shadow-sm border border-gray-100"
+            v-for="metric in financialMetrics"
+            :key="metric.label"
+            class="rounded-2xl p-6 card-hover"
+            :style="{
+              backgroundColor: 'var(--bg-card)',
+              boxShadow: 'var(--shadow-raised)',
+              border: '1px solid var(--border-light)'
+            }"
           >
-            <p class="text-gray-400 text-[10px] mb-2">预估储蓄率</p>
-            <p class="text-xl font-bold">
-              46.06<span class="text-[10px] font-normal ml-0.5">%</span>
+            <p
+              class="text-[10px] mb-2"
+              :style="{ color: 'var(--text-tertiary)' }"
+            >
+              {{ metric.label }}
             </p>
-            <p class="text-[8px] text-orange-300 mt-2 font-medium">储蓄能力</p>
-          </div>
-          <div
-            class="bg-white rounded-2xl p-5 shadow-sm border border-gray-100"
-          >
-            <p class="text-gray-400 text-[10px] mb-2">财务自由度</p>
-            <p class="text-xl font-bold">
-              22.83<span class="text-[10px] font-normal ml-0.5">%</span>
+            <p
+              class="text-xl font-bold"
+              :style="{ color: 'var(--text-primary)' }"
+            >
+              {{ metric.value
+              }}<span
+                class="text-[10px] font-normal ml-0.5"
+                :style="{ color: 'var(--text-tertiary)' }"
+                >%</span
+              >
             </p>
-            <p class="text-[8px] text-orange-300 mt-2 font-medium">自由指标</p>
-          </div>
-          <div
-            class="bg-white rounded-2xl p-5 shadow-sm border border-gray-100"
-          >
-            <p class="text-gray-400 text-[10px] mb-2">躺平度</p>
-            <p class="text-xl font-bold">
-              12.31<span class="text-[10px] font-normal ml-0.5">%</span>
+            <p
+              class="text-[8px] mt-2 font-medium"
+              :style="{ color: 'var(--text-tertiary)' }"
+            >
+              {{ metric.subLabel }}
             </p>
-            <p class="text-[8px] text-gray-300 mt-2 font-medium">2026年</p>
           </div>
         </div>
-
-        <!-- 家庭资产变动微图 -->
-        <div class="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+        <div
+          class="rounded-2xl p-6 card-hover"
+          :style="{
+            backgroundColor: 'var(--bg-card)',
+            boxShadow: 'var(--shadow-raised)',
+            border: '1px solid var(--border-light)'
+          }"
+        >
           <div class="flex justify-between items-center mb-4">
-            <span class="text-gray-700 font-bold text-sm">资产变动趋势</span>
+            <span
+              class="font-bold text-sm"
+              :style="{ color: 'var(--text-secondary)' }"
+              >资产变动趋势</span
+            >
             <div ref="miniAssetChartRef" class="w-48 h-12" />
           </div>
+          <div
+            class="mt-6 pt-4"
+            :style="{ borderTop: '1px solid var(--border-light)' }"
+          >
+            <div class="flex items-center justify-between mb-3">
+              <span
+                class="text-sm font-medium"
+                :style="{ color: 'var(--text-secondary)' }"
+                >近期动态</span
+              >
+              <span
+                class="text-[10px]"
+                :style="{ color: 'var(--text-tertiary)' }"
+                >暂无记录</span
+              >
+            </div>
+            <div class="space-y-2 opacity-60">
+              <div
+                class="h-2 rounded-full w-3/4"
+                :style="{ backgroundColor: 'var(--bg-soft)' }"
+              />
+              <div
+                class="h-2 rounded-full w-1/2"
+                :style="{ backgroundColor: 'var(--bg-soft)' }"
+              />
+            </div>
+          </div>
         </div>
       </div>
 
-      <!-- 右侧：心理账户 -->
-      <div class="w-full lg:w-80 shrink-0">
+      <!-- 心理账户 -->
+      <div class="w-full lg:w-80 shrink-0 flex flex-col gap-3 h-full">
+        <div class="flex justify-between items-center h-8">
+          <h3
+            class="font-bold text-lg"
+            :style="{ color: 'var(--text-primary)' }"
+          >
+            心理账户
+          </h3>
+          <el-button
+            type="text"
+            :icon="Plus"
+            size="small"
+            class="text-tertiary hover:text-brand-700"
+          />
+        </div>
         <div
-          class="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 h-full flex flex-col"
+          class="rounded-2xl p-6 h-full flex flex-col flex-1 card-hover card-enter"
+          :style="{
+            backgroundColor: 'var(--bg-card)',
+            boxShadow: 'var(--shadow-raised)',
+            border: '1px solid var(--border-light)'
+          }"
         >
-          <div class="flex justify-between items-center mb-6">
-            <h3 class="font-bold text-gray-700">心理账户</h3>
-            <IconifyIconOffline
-              icon="ep:plus"
-              class="text-gray-300 cursor-pointer hover:text-[#a6a6d2]"
-            />
-          </div>
-
-          <div class="flex flex-col gap-4">
+          <div class="flex flex-col gap-4 flex-1 justify-between">
+            <!-- TODO: 心理账户数据应接入 API，当前为静态示例 -->
             <div
-              class="p-3 rounded-xl border border-gray-50 hover:bg-gray-50 transition-colors cursor-pointer group"
+              v-for="account in mentalAccounts"
+              :key="account.name"
+              class="mental-account-item p-3 rounded-xl cursor-pointer group"
+              :style="{ border: '1px solid var(--border-light)' }"
             >
               <div class="flex justify-between items-center mb-1">
-                <span class="text-xs font-bold text-gray-700">不动如山</span>
-                <span class="text-[10px] font-bold text-[#a6a6d2]">72%</span>
+                <span
+                  class="text-xs font-bold"
+                  :style="{ color: 'var(--text-primary)' }"
+                  >{{ account.name }}</span
+                >
+                <span
+                  class="text-[10px] font-bold"
+                  :style="{ color: account.color }"
+                  >{{ account.percent }}%</span
+                >
               </div>
               <div
-                class="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden"
+                class="w-full h-1.5 rounded-full overflow-hidden"
+                :style="{ backgroundColor: 'var(--bg-soft)' }"
               >
                 <div
-                  class="bg-[#a6a6d2] h-full rounded-full"
-                  style="width: 72%"
+                  class="h-full rounded-full transition-all"
+                  :style="{
+                    backgroundColor: account.color,
+                    width: account.percent + '%'
+                  }"
                 />
               </div>
-              <p class="text-[10px] text-gray-400 mt-2 font-bold">¥2,150,000</p>
-            </div>
-
-            <div
-              class="p-3 rounded-xl border border-gray-50 hover:bg-gray-50 transition-colors cursor-pointer group"
-            >
-              <div class="flex justify-between items-center mb-1">
-                <span class="text-xs font-bold text-gray-700">自由计划</span>
-                <span class="text-[10px] font-bold text-[#ffbb96]">19%</span>
-              </div>
-              <div
-                class="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden"
-              >
-                <div
-                  class="bg-[#ffbb96] h-full rounded-full"
-                  style="width: 19%"
-                />
-              </div>
-              <p class="text-[10px] text-gray-400 mt-2 font-bold">¥561,043</p>
-            </div>
-
-            <div
-              class="p-3 rounded-xl border border-gray-50 hover:bg-gray-50 transition-colors cursor-pointer group"
-            >
-              <div class="flex justify-between items-center mb-1">
-                <span class="text-xs font-bold text-gray-700">生活备用金</span>
-                <span class="text-[10px] font-bold text-[#b7eb8f]">65%</span>
-              </div>
-              <div
-                class="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden"
-              >
-                <div
-                  class="bg-[#b7eb8f] h-full rounded-full"
-                  style="width: 65%"
-                />
-              </div>
-              <p class="text-[10px] text-gray-400 mt-2 font-bold">¥196,136</p>
+              <MoneyDisplay
+                :value="account.amount"
+                size="xs"
+                :show-sign="false"
+                :show-currency="true"
+              />
             </div>
           </div>
         </div>
       </div>
     </div>
-    <!-- 添加自选弹窗（独立于记账弹窗） -->
-    <AddToWatchlistModal v-model="showAddWatchlistModal" @submitted="onWatchlistChanged" />
+
+    <!-- 添加自选弹窗 -->
+    <AddToWatchlistModal
+      v-model="showAddWatchlistModal"
+      @submitted="onWatchlistChanged"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick, onUnmounted } from "vue";
+import { ref, onMounted, nextTick, onUnmounted, computed } from "vue";
 import * as echarts from "echarts";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
+import { Plus } from "@element-plus/icons-vue";
 import { getSummary } from "@/api/summary";
 import { getPortfolioXirr } from "@/api/performance";
 import type { SummaryData } from "@/api/types";
 import WatchlistWidget from "@/components/WatchlistWidget.vue";
 import AddToWatchlistModal from "@/components/QuickEntry/AddToWatchlistModal.vue";
 
+import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
+import RiseFallText from "@/components/RiseFallText/index.vue";
+
 defineOptions({
   name: "Welcome"
 });
 
-// 仪表盘核心数据
+// ===== 数据 =====
 const summary = ref<SummaryData | null>(null);
-const lastUpdate = ref<string>("");
 const portfolioXirr = ref<any>(null);
+const trendMode = ref<"month" | "quarter">("month");
 
 const distributionChartRef = ref<HTMLDivElement | null>(null);
 const trendChartRef = ref<HTMLDivElement | null>(null);
 const riskHeatmapRef = ref<HTMLDivElement | null>(null);
 const miniAssetChartRef = ref<HTMLDivElement | null>(null);
 const showAddWatchlistModal = ref(false);
+const watchlistWidgetKey = ref(0);
 
 let charts: echarts.ECharts[] = [];
 
-// 获取真实汇总数据
+// ===== 静态数据（待接入 API） =====
+const financialMetrics = [
+  { label: "资产负债率", value: "49.03", subLabel: "偿债能力" }, // TODO: 接入 API
+  { label: "预估储蓄率", value: "46.06", subLabel: "储蓄能力" },
+  { label: "财务自由度", value: "22.83", subLabel: "自由指标" },
+  { label: "躺平度", value: "12.31", subLabel: "2026年" }
+];
+
+const mentalAccounts = [
+  { name: "不动如山", percent: 72, amount: 2150000, color: "var(--brand-700)" },
+  {
+    name: "自由计划",
+    percent: 19,
+    amount: 561043,
+    color: "var(--tag-caramel)"
+  },
+  {
+    name: "生活备用金",
+    percent: 65,
+    amount: 196136,
+    color: "var(--tag-sage-green)"
+  }
+];
+
+// 新增：WatchlistWidget 的 ref，用于读取 hasPinned
+const watchlistWidgetRef = ref<InstanceType<typeof WatchlistWidget> | null>(
+  null
+);
+
+// 新增：动态标题
+const watchlistTitle = computed(() => {
+  if (!watchlistWidgetRef.value) return "自选资产";
+  return watchlistWidgetRef.value.hasPinned ? "置顶资产" : "持仓市值最大资产";
+});
+
+// ===== API 请求 =====
 const fetchSummary = async () => {
   try {
     const res = await getSummary();
     summary.value = res.data;
-    const now = new Date();
-    lastUpdate.value = `${now.getFullYear()}.${now.getMonth() + 1}.${now.getDate()}`;
   } catch (e) {
     console.error("Failed to fetch summary:", e);
   }
 };
 
-// 获取年化收益率
 const fetchXirr = async () => {
   try {
     const res = await getPortfolioXirr();
@@ -395,20 +619,41 @@ const fetchXirr = async () => {
   }
 };
 
+// ===== 事件处理 =====
 const onWatchlistSelect = (item: any) => {
-  // 预留交互
+  // TODO: 跳转到资产详情
 };
 
 const onWatchlistChanged = () => {
   watchlistWidgetKey.value++;
 };
-const watchlistWidgetKey = ref(0);
 
-// 原有的图表初始化函数
+// ===== 工具函数：读取 CSS 变量 =====
+// 工具函数：读取 CSS 变量
+const getCSSColor = (varName: string): string => {
+  if (typeof window === "undefined") return "";
+  return getComputedStyle(document.documentElement)
+    .getPropertyValue(varName)
+    .trim();
+};
+
+// ===== 图表初始化 =====
 const initCharts = () => {
   // 1. 资产分布饼图
   if (distributionChartRef.value) {
     const chart = echarts.init(distributionChartRef.value);
+
+    const chartColors = [
+      getCSSColor("--chart-01"),
+      getCSSColor("--chart-02"),
+      getCSSColor("--chart-03"),
+      getCSSColor("--chart-04")
+    ];
+
+    const hasData =
+      summary.value?.market_distribution &&
+      Object.keys(summary.value.market_distribution).length > 0;
+
     chart.setOption({
       tooltip: { trigger: "item" },
       legend: {
@@ -416,27 +661,30 @@ const initCharts = () => {
         left: "center",
         icon: "circle",
         itemWidth: 8,
-        textStyle: { fontSize: 10 }
+        textStyle: {
+          fontSize: 10,
+          color: getCSSColor("--text-tertiary")
+        }
       },
       series: [
         {
           type: "pie",
-          radius: ["50%", "80%"],
+          radius: ["45%", "70%"],
           avoidLabelOverlap: false,
-          itemStyle: { borderRadius: 6, borderColor: "#fff", borderWidth: 2 },
+          itemStyle: {
+            borderRadius: 6,
+            borderColor: getCSSColor("--bg-card"),
+            borderWidth: 2
+          },
           label: { show: false },
-          data: summary.value?.market_distribution
-            ? Object.entries(summary.value.market_distribution).map(
-                ([name, value]) => ({
+          animationDuration: 1000,
+          data: hasData
+            ? Object.entries(summary.value!.market_distribution!).map(
+                ([name, value], index) => ({
                   name,
                   value,
                   itemStyle: {
-                    color:
-                      name === "US"
-                        ? "#ff4d00"
-                        : name === "CN_A"
-                          ? "#fa8c16"
-                          : "#52c41a"
+                    color: chartColors[index % chartColors.length]
                   }
                 })
               )
@@ -444,22 +692,22 @@ const initCharts = () => {
                 {
                   value: 856240,
                   name: "股票",
-                  itemStyle: { color: "#ff4d00" }
+                  itemStyle: { color: chartColors[0] }
                 },
                 {
                   value: 678950,
                   name: "基金",
-                  itemStyle: { color: "#fa8c16" }
+                  itemStyle: { color: chartColors[1] }
                 },
                 {
                   value: 810488,
                   name: "房产",
-                  itemStyle: { color: "#006d1f" }
+                  itemStyle: { color: chartColors[2] }
                 },
                 {
                   value: 212400,
                   name: "贵金属",
-                  itemStyle: { color: "#ffe7ba" }
+                  itemStyle: { color: chartColors[3] }
                 }
               ]
         }
@@ -471,6 +719,8 @@ const initCharts = () => {
   // 2. 收益趋势折线图
   if (trendChartRef.value) {
     const chart = echarts.init(trendChartRef.value);
+    const riseColor = getCSSColor("--color-rise");
+
     chart.setOption({
       grid: {
         left: "3%",
@@ -483,29 +733,41 @@ const initCharts = () => {
         type: "category",
         boundaryGap: false,
         data: ["1月", "2月", "3月", "4月", "5月", "6月", "7月"],
-        axisLine: { lineStyle: { color: "#f0f0f0" } },
-        axisLabel: { color: "#999", fontSize: 10 }
+        axisLine: {
+          lineStyle: { color: getCSSColor("--border-light") }
+        },
+        axisLabel: {
+          color: getCSSColor("--text-tertiary"),
+          fontSize: 10
+        }
       },
       yAxis: {
         type: "value",
-        splitLine: { lineStyle: { color: "#f5f5f5" } },
-        axisLabel: { color: "#999", fontSize: 10 }
+        splitLine: {
+          lineStyle: { color: getCSSColor("--border-light") }
+        },
+        axisLabel: {
+          color: getCSSColor("--text-tertiary"),
+          fontSize: 10
+        }
       },
       series: [
         {
+          // TODO: 接入收益趋势 API 替换静态数据
           data: [120, 190, 170, 220, 280, 250, 310],
           type: "line",
           smooth: true,
           symbol: "circle",
           symbolSize: 6,
-          itemStyle: { color: "#ff4d00" },
-          lineStyle: { width: 3, color: "#ff4d00" },
+          itemStyle: { color: riseColor },
+          lineStyle: { width: 3, color: riseColor },
           areaStyle: {
             color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-              { offset: 0, color: "rgba(255, 77, 0, 0.2)" },
-              { offset: 1, color: "rgba(255, 77, 0, 0)" }
+              { offset: 0, color: riseColor + "33" },
+              { offset: 1, color: riseColor + "00" }
             ])
-          }
+          },
+          animationDuration: 1200
         }
       ]
     });
@@ -515,6 +777,11 @@ const initCharts = () => {
   // 3. 风险热力图
   if (riskHeatmapRef.value) {
     const chart = echarts.init(riskHeatmapRef.value);
+    const textColor = getCSSColor("--text-tertiary");
+    const lowRiskColor = getCSSColor("--color-fall");
+    const midRiskColor = getCSSColor("--color-warning");
+    const highRiskColor = getCSSColor("--color-danger");
+
     chart.setOption({
       grid: {
         left: "3%",
@@ -528,25 +795,28 @@ const initCharts = () => {
         data: ["股票", "基金", "房产", "贵金属"],
         axisLine: { show: false },
         axisTick: { show: false },
-        axisLabel: { color: "#999", fontSize: 10 }
+        axisLabel: { color: textColor, fontSize: 10 }
       },
       yAxis: {
         type: "value",
         max: 100,
-        splitLine: { lineStyle: { color: "#f5f5f5" } },
-        axisLabel: { color: "#999", fontSize: 10 }
+        splitLine: {
+          lineStyle: { color: getCSSColor("--border-light") }
+        },
+        axisLabel: { color: textColor, fontSize: 10 }
       },
       series: [
         {
           data: [
-            { value: 85, itemStyle: { color: "#ff4d4f" } },
-            { value: 60, itemStyle: { color: "#fa8c16" } },
-            { value: 30, itemStyle: { color: "#52c41a" } },
-            { value: 55, itemStyle: { color: "#fa8c16" } }
+            { value: 85, itemStyle: { color: highRiskColor } },
+            { value: 60, itemStyle: { color: midRiskColor } },
+            { value: 30, itemStyle: { color: lowRiskColor } },
+            { value: 55, itemStyle: { color: midRiskColor } }
           ],
           type: "bar",
           barWidth: 20,
-          itemStyle: { borderRadius: [4, 4, 0, 0] }
+          itemStyle: { borderRadius: [4, 4, 0, 0] },
+          animationDuration: 800
         }
       ]
     });
@@ -556,6 +826,9 @@ const initCharts = () => {
   // 4. 迷你资产变动图
   if (miniAssetChartRef.value) {
     const chart = echarts.init(miniAssetChartRef.value);
+    const brandColor = getCSSColor("--brand-700");
+    const softColor = getCSSColor("--bg-soft");
+
     chart.setOption({
       grid: { left: 0, right: 0, top: 10, bottom: 0 },
       xAxis: {
@@ -568,10 +841,10 @@ const initCharts = () => {
         {
           type: "bar",
           data: [
-            { value: 15, itemStyle: { color: "#f0f2f5" } },
-            { value: 25, itemStyle: { color: "#f0f2f5" } },
-            { value: 45, itemStyle: { color: "#a6a6d2" } },
-            { value: 65, itemStyle: { color: "#a6a6d2" } }
+            { value: 15, itemStyle: { color: softColor } },
+            { value: 25, itemStyle: { color: softColor } },
+            { value: 45, itemStyle: { color: brandColor } },
+            { value: 65, itemStyle: { color: brandColor } }
           ],
           barWidth: 10,
           itemStyle: { borderRadius: [2, 2, 0, 0] }
@@ -586,11 +859,10 @@ const handleResize = () => {
   charts.forEach(chart => chart.resize());
 };
 
+// ===== 生命周期 =====
 onMounted(() => {
   fetchSummary().then(() => {
-    nextTick(() => {
-      initCharts();
-    });
+    nextTick(initCharts);
   });
   fetchXirr();
   window.addEventListener("resize", handleResize);
@@ -604,9 +876,81 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* 与之前一致，保持不变 */
 .welcome-container {
-  font-family:
-    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue",
-    Helvetica, Arial, sans-serif;
+  font-family: var(
+    --font-sans,
+    "PingFang SC",
+    "Hiragino Sans GB",
+    "Microsoft YaHei",
+    sans-serif
+  );
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.card-enter {
+  animation: fadeUp 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  opacity: 0;
+}
+.card-enter:nth-child(1) {
+  animation-delay: 0.05s;
+}
+.card-enter:nth-child(2) {
+  animation-delay: 0.1s;
+}
+.card-enter:nth-child(3) {
+  animation-delay: 0.15s;
+}
+.card-enter:nth-child(4) {
+  animation-delay: 0.2s;
+}
+.card-enter:nth-child(5) {
+  animation-delay: 0.25s;
+}
+
+.card-hover {
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.card-hover:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-float) !important;
+}
+
+.mental-account-item {
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease;
+}
+.mental-account-item:hover {
+  background-color: var(--bg-hover);
+  border-color: var(--border-default) !important;
+}
+
+.hover-card-btn {
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    transform 0.2s ease;
+}
+.hover-card-btn:hover {
+  background-color: var(--brand-700) !important;
+  color: var(--bg-card) !important;
+  transform: scale(1.05);
+}
+
+.text-hero {
+  font-family: var(--font-sans, Inter, -apple-system, sans-serif);
+  font-weight: 600;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 </style>

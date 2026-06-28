@@ -58,20 +58,105 @@ const AssetRouteConfig = {
       redirect: "/asset/investment/favorites",
       meta: { title: "投资管理", icon: "ep:folder-opened", rank: 2 },
       children: [
-        { path: "stocks", name: "AssetStocks", component: () => import("@/views/asset/stocks/index.vue"), meta: { title: "股票", icon: "ep:trend-charts", rank: 1, showLink: false } },
-        { path: "funds", name: "AssetFunds", component: () => import("@/views/asset/funds/index.vue"), meta: { title: "基金", icon: "ep:box", rank: 2, showLink: false } },
-        { path: "precious", name: "AssetPrecious", component: () => import("@/views/asset/precious/index.vue"), meta: { title: "贵金属", icon: "ep:medal", rank: 3, showLink: false } },
-        { path: "realestate", name: "AssetRealEstate", component: () => import("@/views/asset/realestate/index.vue"), meta: { title: "房产", icon: "ep:house", rank: 4, showLink: false } },
-        { path: "analysis", name: "AssetAnalysis", component: () => import("@/views/asset/IntelligentAnalysis.vue"), meta: { title: "智能分析", icon: "ep:data-analysis", rank: 5, showLink: false } },
-        { path: "inventory/investment/import", name: "InvestmentImport", component: () => import("@/views/asset/investment/import/index.vue"), meta: { title: "对账单导入", icon: "ep:document", rank: 6, showLink: false } },
-        { path: "inventory/investment/manual", name: "InvestmentManual", component: () => import("@/views/asset/investment/manual/index.vue"), meta: { title: "手动录入", icon: "ep:edit", rank: 7, showLink: false } },
-        { path: "inventory/investment/batch", name: "InvestmentBatch", component: () => import("@/views/asset/investment/batch/index.vue"), meta: { title: "批量导入", icon: "ep:upload", rank: 8, showLink: false } },
+        {
+          path: "stocks",
+          name: "AssetStocks",
+          component: () => import("@/views/asset/stocks/index.vue"),
+          meta: {
+            title: "股票",
+            icon: "ep:trend-charts",
+            rank: 1,
+            showLink: false
+          }
+        },
+        {
+          path: "funds",
+          name: "AssetFunds",
+          component: () => import("@/views/asset/funds/index.vue"),
+          meta: { title: "基金", icon: "ep:box", rank: 2, showLink: false }
+        },
+        {
+          path: "precious",
+          name: "AssetPrecious",
+          component: () => import("@/views/asset/precious/index.vue"),
+          meta: { title: "贵金属", icon: "ep:medal", rank: 3, showLink: false }
+        },
+        {
+          path: "realestate",
+          name: "AssetRealEstate",
+          component: () => import("@/views/asset/realestate/index.vue"),
+          meta: { title: "房产", icon: "ep:house", rank: 4, showLink: false }
+        },
+        {
+          path: "analysis",
+          name: "AssetAnalysis",
+          component: () => import("@/views/asset/IntelligentAnalysis.vue"),
+          meta: {
+            title: "智能分析",
+            icon: "ep:data-analysis",
+            rank: 5,
+            showLink: false
+          }
+        },
+        {
+          path: "inventory/investment/import",
+          name: "InvestmentImport",
+          component: () => import("@/views/asset/investment/import/index.vue"),
+          meta: {
+            title: "对账单导入",
+            icon: "ep:document",
+            rank: 6,
+            showLink: false
+          }
+        },
+        {
+          path: "inventory/investment/manual",
+          name: "InvestmentManual",
+          component: () => import("@/views/asset/investment/manual/index.vue"),
+          meta: { title: "手动录入", icon: "ep:edit", rank: 7, showLink: false }
+        },
+        {
+          path: "inventory/investment/batch",
+          name: "InvestmentBatch",
+          component: () => import("@/views/asset/investment/batch/index.vue"),
+          meta: {
+            title: "批量导入",
+            icon: "ep:upload",
+            rank: 8,
+            showLink: false
+          }
+        }
       ]
     },
     {
-      path: "/asset/ledgers", name: "AssetLedgers", component: () => import("@/views/asset/ledgers/index.vue"), meta: { title: "账户管理", icon: "ep:wallet", rank: 3 }
+      path: "/asset/ledgers",
+      name: "AssetLedgers",
+      component: () => import("@/views/asset/ledgers/index.vue"),
+      meta: { title: "账户管理", icon: "ep:wallet", rank: 3 }
     },
-    { path: "/asset/strategies", name: "Strategies", component: () => import("@/views/asset/strategies/index.vue"), meta: { title: "策略分析", icon: "ep:data-analysis", rank: 4, showLink: true }
+    // 账户详情（作为 Asset 的子路由，继承 Layout 布局）
+    {
+      path: "/asset/ledgers/:id",
+      name: "LedgerDetail",
+      component: () => import("@/views/asset/ledgers/detail.vue"),
+      meta: {
+        title: "账户详情",
+        icon: "ep:wallet",
+        rank: 31,
+        showLink: false,
+        hidden: true
+      }
+    },
+    {
+      path: "/asset/strategies",
+      name: "Strategies",
+      component: () => import("@/views/asset/strategies/index.vue"),
+      meta: {
+        title: "策略分析",
+        icon: "ep:data-analysis",
+        rank: 4,
+        showLink: true
+      }
     }
   ]
 };

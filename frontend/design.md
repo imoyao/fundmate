@@ -105,26 +105,21 @@ ShowBuy 是一套专为个人全资产记账设计的视觉语言，基于现有
 
 ### 字体家族
 
+### 字体家族
+
 | 用途 | 字体 | 说明 |
 |------|------|------|
-| 大号标题 | **Georgia**, "Times New Roman", "Liberation Serif", serif | 仅用于总资产数字和页面主标题，**不超过 2 处** |
-| 正文 / UI | **Inter**, -apple-system, "PingFang SC", sans-serif | 所有其他场景 |
-| 数字 / 金额 | **SF Mono**, "JetBrains Mono", monospace | 等宽，`tabular-nums` |
+| 正文 / UI | **Inter**, -apple-system, "PingFang SC", sans-serif | 全场景通用无衬线体系 |
+| 数字 / 金额 | **SF Mono**, "JetBrains Mono", monospace | 等宽字体，强制 `tabular-nums` |
 
-> **重要约束**：Georgia（衬线体）的使用场景**严格限制**为 `--text-hero` 和 `--text-display` 两处，禁止在其他位置使用。
->
-> **降级方案**：在 Windows / Linux 系统中，Georgia 渲染可能发虚。使用 `"Times New Roman", "Liberation Serif", serif` 作为降级，并在 Hero 数字上强制开启抗锯齿：
-> ```css
-> -webkit-font-smoothing: antialiased;
-> -moz-osx-font-smoothing: grayscale;
-> ```
+> **数字等宽对齐**：所有金额数字必须使用 `font-variant-numeric: tabular-nums`，确保小数点绝对对齐。
 
 ### 字阶系统
 
 | Token | 字号 | 字重 | 行高 | 字距 | 字体 | 用途 |
 |-------|------|------|------|------|------|------|
-| `--text-hero` | 48px | **600** | 56px | -0.5px | Georgia | 总资产数字（加粗锚点） |
-| `--text-display` | 32px | **300** | 40px | -0.3px | Georgia | 页面主标题（细体优雅） |
+| `--text-hero` | 48px | **600** | 56px | -0.5px | Inter | 总资产数字（加粗锚点） |
+| `--text-display` | 32px | **300** | 40px | -0.3px | Inter | 页面主标题（细体优雅） |
 | `--text-title` | 24px | 500 | 32px | 0 | Inter | 区块标题 |
 | `--text-heading` | 20px | 600 | 28px | 0 | Inter | 卡片标题 |
 | `--text-body` | 16px | 400 | 24px | 0 | Inter | 正文 |
@@ -423,7 +418,7 @@ ShowBuy 是一套专为个人全资产记账设计的视觉语言，基于现有
 - 用大量留白让数据呼吸
 - 用暖红珊瑚作为品牌色（涨 = 好事）
 - 用独立危险色（`#D4364A`）表示删除/错误
-- 核心位置（总资产）用 Georgia + 字重 600 建立视觉锚点
+- 核心位置（总资产）用 Inter + 字重 600 建立视觉锚点
 - 所有金额使用等宽字体 + `tabular-nums`
 - 正负符号与数字保持同色（涨红跌绿）
 - 图表颜色通过 `getComputedStyle` 动态读取
@@ -435,7 +430,7 @@ ShowBuy 是一套专为个人全资产记账设计的视觉语言，基于现有
 - **所有 CSS 变量（颜色）变更必须通过 axe-core 或 Lighthouse 进行对比度回归测试**
 
 **Don't:**
-- 不在非 Hero 位置使用 Georgia（衬线体）
+- 不使用 Georgia（衬线体）
 - 不用冷白色或灰白色作为主背景
 - 不用小圆角（<6px）作为卡片圆角
 - 不用绿色传递正面情绪（国内语境绿 = 跌）
