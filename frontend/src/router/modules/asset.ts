@@ -125,6 +125,18 @@ const AssetRouteConfig = {
             rank: 8,
             showLink: false
           }
+        },
+        // 通用资产录入
+        {
+          path: "/asset/asset-entry",
+          name: "AssetEntry",
+          component: () => import("@/views/asset/AssetEntry.vue"),
+          meta: {
+            title: "录入通用资产",
+            icon: "ep:plus",
+            rank: 9,
+            showLink: false
+          }
         }
       ]
     },

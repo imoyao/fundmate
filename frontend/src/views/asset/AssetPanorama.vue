@@ -1,10 +1,18 @@
 <template>
-  <div class="panorama p-4 md:p-6 bg-[#f5f7fa] min-h-full">
+  <div
+    class="panorama p-4 md:p-6 min-h-full"
+    :style="{ backgroundColor: 'var(--bg-page)' }"
+  >
     <!-- 页面标题 -->
     <div class="mb-6 flex justify-between items-center">
       <div>
-        <h2 class="text-2xl font-bold text-[var(--text-primary)]">资产总览</h2>
-        <p class="text-[var(--text-tertiary)] text-sm mt-1">
+        <h2
+          class="text-2xl font-bold"
+          :style="{ color: 'var(--text-primary)' }"
+        >
+          资产总览
+        </h2>
+        <p class="text-sm mt-1" :style="{ color: 'var(--text-tertiary)' }">
           多维度审视你的财富版图
         </p>
       </div>
@@ -16,112 +24,162 @@
     <!-- 总览大卡片 -->
     <el-row :gutter="16" class="mb-6">
       <el-col :xs="24" :md="12" class="mb-4 md:mb-0">
-        <el-card shadow="never" class="summary-large-card">
+        <div
+          class="summary-card rounded-2xl p-6 h-full"
+          :style="{
+            backgroundColor: 'var(--bg-card)',
+            boxShadow: 'var(--shadow-raised)',
+            border: '1px solid var(--border-light)'
+          }"
+        >
           <div class="flex flex-col justify-between h-full">
             <div>
-              <p class="text-[var(--text-tertiary)] text-sm mb-1">
+              <p
+                class="text-sm mb-2"
+                :style="{ color: 'var(--text-tertiary)' }"
+              >
                 总资产（本月）
               </p>
-              <h2
-                class="text-5xl font-bold text-[var(--color-primary)] tracking-tight"
-              >
-                ¥{{ totalAssets.toLocaleString() }}
-              </h2>
-              <div class="flex items-center gap-4 mt-2">
-                <span
-                  class="text-[var(--color-success)] text-sm font-medium flex items-center"
+              <MoneyDisplay
+                :value="totalAssets"
+                size="hero"
+                :show-sign="false"
+                :show-currency="true"
+              />
+              <div class="flex items-center gap-4 mt-3">
+                <RiseFallText :value="12.3" suffix="%" size="sm" />
+                <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }"
+                  >较上月</span
                 >
-                  <IconifyIconOffline icon="ep:arrow-up-bold" class="mr-1" />
-                  12.3%
-                  <span class="text-[var(--text-tertiary)] ml-1 font-normal"
-                    >较上月</span
-                  >
-                </span>
-                <span
-                  class="text-[var(--color-success)] text-sm font-medium flex items-center"
+                <RiseFallText :value="8.7" suffix="%" size="sm" />
+                <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }"
+                  >较去年同期</span
                 >
-                  <IconifyIconOffline icon="ep:arrow-up-bold" class="mr-1" />
-                  8.7%
-                  <span class="text-[var(--text-tertiary)] ml-1 font-normal"
-                    >较去年同期</span
-                  >
-                </span>
               </div>
-              <div class="mt-3 flex items-center gap-2">
+              <div class="mt-4 flex items-center gap-2">
                 <span
-                  class="px-2 py-0.5 text-[var(--color-warning)] rounded-full text-xs font-medium"
-                  style="background-color: var(--color-warning-20)"
+                  class="px-2 py-0.5 rounded-full text-xs font-medium"
+                  :style="{
+                    backgroundColor: 'var(--color-warning)',
+                    color: 'var(--bg-card)'
+                  }"
                 >
                   中等风险
                 </span>
-                <span class="text-xs text-[var(--text-tertiary)]"
-                  >风险评分：65/100</span
+                <span
+                  class="text-xs"
+                  :style="{ color: 'var(--text-tertiary)' }"
                 >
+                  风险评分：65/100
+                </span>
               </div>
             </div>
-            <div class="border-t border-[var(--divider-default)] my-5"></div>
+            <div
+              class="my-5"
+              :style="{ borderTop: '1px solid var(--border-light)' }"
+            />
             <div class="grid grid-cols-3 gap-4">
               <div>
-                <p class="text-[var(--text-tertiary)] text-xs mb-1">总负债</p>
-                <p class="text-lg font-bold text-[var(--text-primary)]">
-                  ¥{{ totalLiabilities.toLocaleString() }}
-                </p>
-              </div>
-              <div>
-                <p class="text-[var(--text-tertiary)] text-xs mb-1">净资产</p>
-                <p class="text-lg font-bold text-[var(--color-success)]">
-                  ¥{{ (totalAssets - totalLiabilities).toLocaleString() }}
-                </p>
-              </div>
-              <div>
-                <p class="text-[var(--text-tertiary)] text-xs mb-1">总盈亏</p>
                 <p
-                  :class="[
-                    'text-lg font-bold',
-                    totalPnl >= 0
-                      ? 'text-[var(--color-danger)]'
-                      : 'text-[var(--color-success)]'
-                  ]"
+                  class="text-xs mb-1"
+                  :style="{ color: 'var(--text-tertiary)' }"
                 >
-                  {{ totalPnl >= 0 ? "+" : "" }}¥{{ totalPnl.toLocaleString() }}
+                  总负债
                 </p>
+                <MoneyDisplay
+                  :value="totalLiabilities"
+                  size="md"
+                  :show-sign="false"
+                  :show-currency="true"
+                />
+              </div>
+              <div>
+                <p
+                  class="text-xs mb-1"
+                  :style="{ color: 'var(--text-tertiary)' }"
+                >
+                  净资产
+                </p>
+                <MoneyDisplay
+                  :value="totalAssets - totalLiabilities"
+                  size="md"
+                  :show-sign="false"
+                  :show-currency="true"
+                />
+              </div>
+              <div>
+                <p
+                  class="text-xs mb-1"
+                  :style="{ color: 'var(--text-tertiary)' }"
+                >
+                  总盈亏
+                </p>
+                <MoneyDisplay
+                  :value="totalPnl"
+                  size="md"
+                  :show-currency="true"
+                />
               </div>
             </div>
           </div>
-        </el-card>
+        </div>
       </el-col>
 
       <el-col :xs="24" :md="12">
-        <el-card shadow="never" class="h-full">
+        <div
+          class="rounded-2xl p-6 h-full"
+          :style="{
+            backgroundColor: 'var(--bg-card)',
+            boxShadow: 'var(--shadow-raised)',
+            border: '1px solid var(--border-light)'
+          }"
+        >
           <div class="flex justify-between items-center mb-4">
-            <h3 class="font-semibold text-[var(--text-primary)]">总资产变化</h3>
+            <h3 class="font-semibold" :style="{ color: 'var(--text-primary)' }">
+              总资产变化
+            </h3>
             <el-tooltip content="资产月历（后续版本推出）" placement="top">
-              <el-button text type="primary" size="small" class="!px-2">
+              <el-button text size="small">
                 <IconifyIconOffline icon="ep:calendar" class="text-base" />
               </el-button>
             </el-tooltip>
           </div>
           <div ref="waterfallChartRef" class="h-[280px]" />
-        </el-card>
+        </div>
       </el-col>
     </el-row>
 
     <!-- 桑基图 -->
-    <el-card shadow="never" class="mb-4">
+    <div
+      class="rounded-2xl p-6 mb-4"
+      :style="{
+        backgroundColor: 'var(--bg-card)',
+        boxShadow: 'var(--shadow-raised)',
+        border: '1px solid var(--border-light)'
+      }"
+    >
       <div class="flex items-center justify-between mb-4">
-        <h3 class="font-semibold text-[var(--text-primary)]">资产构成流向</h3>
+        <h3 class="font-semibold" :style="{ color: 'var(--text-primary)' }">
+          资产构成流向
+        </h3>
         <el-segmented
           v-model="sankeyDisplayMode"
           :options="sankeyDisplayOptions"
           size="small"
-          class="sub-segmented"
         />
       </div>
       <SankeyChart :data="sankeyData" :display-mode="sankeyDisplayMode" />
-    </el-card>
+    </div>
 
-    <!-- 多维视图切换表格 -->
-    <el-card shadow="never">
+    <!-- 多维视图表格 -->
+    <div
+      class="rounded-2xl p-6"
+      :style="{
+        backgroundColor: 'var(--bg-card)',
+        boxShadow: 'var(--shadow-raised)',
+        border: '1px solid var(--border-light)'
+      }"
+    >
       <div class="flex items-center justify-between mb-5">
         <el-segmented v-model="detailView" :options="detailViewOptions" />
         <el-button
@@ -153,26 +211,31 @@
               负债端
             </button>
           </div>
-          <span class="text-xs text-[var(--text-tertiary)]">
+          <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
             {{ balanceTab === "assets" ? "资产构成" : "负债明细" }}
           </span>
         </div>
 
         <table v-if="balanceTab === 'assets'" class="w-full text-sm">
           <thead
-            class="text-[var(--text-tertiary)] border-b border-[var(--divider-default)]"
+            class="text-left text-xs border-b"
+            :style="{
+              color: 'var(--text-tertiary)',
+              borderColor: 'var(--border-light)'
+            }"
           >
             <tr>
-              <th class="text-left py-3 pl-4 font-normal">资产大类</th>
-              <th class="text-right py-3 font-normal w-24">占比</th>
-              <th class="text-right py-3 pr-4 font-normal w-36">价值</th>
+              <th class="py-3 pl-4 font-normal">资产大类</th>
+              <th class="py-3 font-normal text-right w-24">占比</th>
+              <th class="py-3 pr-4 font-normal text-right w-36">价值</th>
             </tr>
           </thead>
           <tbody>
             <tr
               v-for="item in assetBalanceRows"
               :key="item.name"
-              class="border-b border-[var(--divider-default)] cursor-pointer transition-colors"
+              class="border-b cursor-pointer transition-colors"
+              :style="{ borderColor: 'var(--border-light)' }"
               @click="goToInventory(item.categoryKey)"
             >
               <td class="py-3 pl-4 flex items-center gap-3">
@@ -180,48 +243,64 @@
                   class="w-2.5 h-2.5 rounded-full shrink-0"
                   :style="{ backgroundColor: item.color }"
                 />
-                <span class="font-medium text-[var(--text-primary)]">{{
-                  item.name
-                }}</span>
+                <span
+                  class="font-medium"
+                  :style="{ color: 'var(--text-primary)' }"
+                >
+                  {{ item.name }}
+                </span>
               </td>
-              <td class="py-3 text-right text-[var(--text-secondary)]">
+              <td
+                class="py-3 text-right"
+                :style="{ color: 'var(--text-secondary)' }"
+              >
                 <div class="flex items-center justify-end gap-2">
                   <div
-                    class="h-1.5 w-16 bg-[var(--bg-muted)] rounded-full overflow-hidden"
+                    class="h-1.5 w-16 rounded-full overflow-hidden"
+                    :style="{ backgroundColor: 'var(--bg-soft)' }"
                   >
                     <div
-                      class="h-full bg-primary rounded-full"
-                      :style="{ width: item.percent + '%' }"
+                      class="h-full rounded-full"
+                      :style="{
+                        backgroundColor: item.color,
+                        width: item.percent + '%'
+                      }"
                     />
                   </div>
                   <span>{{ item.percent }}%</span>
                 </div>
               </td>
-              <td
-                class="py-3 text-right pr-4 font-semibold text-[var(--text-primary)] tabular-nums"
-              >
-                ¥{{
-                  item.value.toLocaleString(undefined, {
-                    maximumFractionDigits: 0
-                  })
-                }}
+              <td class="py-3 text-right pr-4">
+                <MoneyDisplay
+                  :value="item.value"
+                  size="sm"
+                  :show-sign="false"
+                  :show-currency="true"
+                />
               </td>
             </tr>
           </tbody>
           <tfoot>
-            <tr class="border-t-2 border-[var(--divider-default)]">
-              <td class="py-3 pl-4 font-medium text-[var(--text-primary)]">
+            <tr :style="{ borderTop: '2px solid var(--border-light)' }">
+              <td
+                class="py-3 pl-4 font-medium"
+                :style="{ color: 'var(--text-primary)' }"
+              >
                 合计
               </td>
-              <td class="py-3 text-right text-[var(--text-secondary)]">100%</td>
               <td
-                class="py-3 text-right pr-4 font-bold text-[var(--text-primary)] tabular-nums"
+                class="py-3 text-right"
+                :style="{ color: 'var(--text-secondary)' }"
               >
-                ¥{{
-                  totalAssets.toLocaleString(undefined, {
-                    maximumFractionDigits: 0
-                  })
-                }}
+                100%
+              </td>
+              <td class="py-3 text-right pr-4">
+                <MoneyDisplay
+                  :value="totalAssets"
+                  size="sm"
+                  :show-sign="false"
+                  :show-currency="true"
+                />
               </td>
             </tr>
           </tfoot>
@@ -229,19 +308,24 @@
 
         <table v-else class="w-full text-sm">
           <thead
-            class="text-[var(--text-tertiary)] border-b border-[var(--divider-default)]"
+            class="text-left text-xs border-b"
+            :style="{
+              color: 'var(--text-tertiary)',
+              borderColor: 'var(--border-light)'
+            }"
           >
             <tr>
-              <th class="text-left py-3 pl-4 font-normal">负债项目</th>
-              <th class="text-right py-3 font-normal w-24">占比</th>
-              <th class="text-right py-3 pr-4 font-normal w-36">金额</th>
+              <th class="py-3 pl-4 font-normal">负债项目</th>
+              <th class="py-3 font-normal text-right w-24">占比</th>
+              <th class="py-3 pr-4 font-normal text-right w-36">金额</th>
             </tr>
           </thead>
           <tbody>
             <tr
               v-for="item in liabilityBalanceRows"
               :key="item.name"
-              class="border-b border-[var(--divider-default)] cursor-pointer transition-colors"
+              class="border-b cursor-pointer transition-colors"
+              :style="{ borderColor: 'var(--border-light)' }"
               @click="goToInventory('liability')"
             >
               <td class="py-3 pl-4 flex items-center gap-3">
@@ -249,48 +333,64 @@
                   class="w-2.5 h-2.5 rounded-full shrink-0"
                   :style="{ backgroundColor: item.color }"
                 />
-                <span class="font-medium text-[var(--text-primary)]">{{
-                  item.name
-                }}</span>
+                <span
+                  class="font-medium"
+                  :style="{ color: 'var(--text-primary)' }"
+                >
+                  {{ item.name }}
+                </span>
               </td>
-              <td class="py-3 text-right text-[var(--text-secondary)]">
+              <td
+                class="py-3 text-right"
+                :style="{ color: 'var(--text-secondary)' }"
+              >
                 <div class="flex items-center justify-end gap-2">
                   <div
-                    class="h-1.5 w-16 bg-[var(--bg-muted)] rounded-full overflow-hidden"
+                    class="h-1.5 w-16 rounded-full overflow-hidden"
+                    :style="{ backgroundColor: 'var(--bg-soft)' }"
                   >
                     <div
-                      class="h-full bg-[var(--color-danger)] rounded-full"
-                      :style="{ width: item.percent + '%' }"
+                      class="h-full rounded-full"
+                      :style="{
+                        backgroundColor: 'var(--color-neutral)',
+                        width: item.percent + '%'
+                      }"
                     />
                   </div>
                   <span>{{ item.percent }}%</span>
                 </div>
               </td>
-              <td
-                class="py-3 text-right pr-4 font-semibold text-[var(--text-primary)] tabular-nums"
-              >
-                ¥{{
-                  item.value.toLocaleString(undefined, {
-                    maximumFractionDigits: 0
-                  })
-                }}
+              <td class="py-3 text-right pr-4">
+                <MoneyDisplay
+                  :value="item.value"
+                  size="sm"
+                  :show-sign="false"
+                  :show-currency="true"
+                />
               </td>
             </tr>
           </tbody>
           <tfoot>
-            <tr class="border-t-2 border-[var(--divider-default)]">
-              <td class="py-3 pl-4 font-medium text-[var(--text-primary)]">
+            <tr :style="{ borderTop: '2px solid var(--border-light)' }">
+              <td
+                class="py-3 pl-4 font-medium"
+                :style="{ color: 'var(--text-primary)' }"
+              >
                 合计
               </td>
-              <td class="py-3 text-right text-[var(--text-secondary)]">100%</td>
               <td
-                class="py-3 text-right pr-4 font-bold text-[var(--text-primary)] tabular-nums"
+                class="py-3 text-right"
+                :style="{ color: 'var(--text-secondary)' }"
               >
-                ¥{{
-                  totalLiabilities.toLocaleString(undefined, {
-                    maximumFractionDigits: 0
-                  })
-                }}
+                100%
+              </td>
+              <td class="py-3 text-right pr-4">
+                <MoneyDisplay
+                  :value="totalLiabilities"
+                  size="sm"
+                  :show-sign="false"
+                  :show-currency="true"
+                />
               </td>
             </tr>
           </tfoot>
@@ -302,37 +402,29 @@
         <div
           v-for="group in currentDetailGroups"
           :key="group.name"
-          class="border rounded-xl overflow-hidden cursor-pointer hover:shadow-sm transition-shadow"
+          class="border rounded-xl overflow-hidden cursor-pointer transition-shadow hover:shadow-sm"
           :style="{ borderColor: 'var(--border-default)' }"
           @click="handleGroupClick(group)"
         >
           <div
-            class="px-5 py-3 flex justify-between items-center font-medium bg-[var(--bg-muted)]"
+            class="px-5 py-3 flex justify-between items-center font-medium"
+            :style="{ backgroundColor: 'var(--bg-soft)' }"
           >
             <span :style="{ color: 'var(--text-primary)' }">{{
               group.name
             }}</span>
-            <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }"
-              >{{ group.items.length }} 项</span
-            >
+            <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
+              {{ group.items.length }} 项
+            </span>
           </div>
-          <div class="px-5 py-2 flex justify-between items-center text-sm">
+          <div class="px-5 py-3 flex justify-between items-center text-sm">
             <div>
-              <span
-                class="font-semibold"
-                :style="{
-                  color:
-                    group.total < 0
-                      ? 'var(--color-success)'
-                      : 'var(--text-primary)'
-                }"
-              >
-                {{ group.total < 0 ? "−" : "" }}¥{{
-                  Math.abs(group.total).toLocaleString(undefined, {
-                    maximumFractionDigits: 0
-                  })
-                }}
-              </span>
+              <MoneyDisplay
+                :value="group.total"
+                size="sm"
+                :show-sign="false"
+                :show-currency="true"
+              />
               <span
                 class="ml-2 text-xs"
                 :style="{ color: 'var(--text-tertiary)' }"
@@ -341,21 +433,15 @@
                 {{ ((Math.abs(group.total) / totalAssets) * 100).toFixed(1) }}%
               </span>
             </div>
-            <span
-              :class="
-                group.totalPnl >= 0
-                  ? 'text-[var(--color-danger)]'
-                  : 'text-[var(--color-success)]'
-              "
-            >
-              {{ group.totalPnl >= 0 ? "+" : "" }}¥{{
-                Math.round(group.totalPnl).toLocaleString()
-              }}
-            </span>
+            <MoneyDisplay
+              :value="group.totalPnl"
+              size="sm"
+              :show-currency="true"
+            />
           </div>
         </div>
       </div>
-    </el-card>
+    </div>
   </div>
 </template>
 
@@ -364,14 +450,15 @@ import { ref, computed, onMounted, nextTick } from "vue";
 import { useRouter } from "vue-router";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import SankeyChart from "@/components/Charts/SankeyChart.vue";
+import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
+import RiseFallText from "@/components/RiseFallText/index.vue";
 import { getPositions } from "@/api/positions";
 import { getSummary, getSankeyData } from "@/api/summary";
 import { getAssets } from "@/api/assets";
 import { getLedgers } from "@/api/ledger";
 import { ElMessage } from "element-plus";
 import * as echarts from "echarts";
-import { useEnumOptions } from "@/composables/useEnumOptions";
-import { ALLOCATION_OPTIONS, getAllocationLabel } from "@/constants";
+import { getAllocationLabel } from "@/constants";
 
 defineOptions({ name: "AssetPanorama" });
 
@@ -395,18 +482,7 @@ const detailView = ref("category");
 const waterfallChartRef = ref<HTMLDivElement>();
 let waterfallChart: echarts.ECharts | null = null;
 
-// 从 CSS 变量提取颜色（在 onMounted 中赋值）
-const cssColors = ref<Record<string, string>>({});
-
 const router = useRouter();
-
-const fallbackColors = {
-  primary: "#7A7FA8",
-  success: "#81B29A",
-  danger: "#C83E66",
-  info: "#7A9AA8",
-  neutral: "#8E8B82"
-};
 
 const sankeyDisplayOptions = [
   { label: "金额", value: "amount" },
@@ -420,6 +496,14 @@ const detailViewOptions = [
   { label: "账户", value: "account" },
   { label: "配置目标", value: "allocation" }
 ];
+
+// 工具函数：安全读取 CSS 变量（无 fallback 硬编码）
+const getCSSColor = (varName: string): string => {
+  if (typeof window === "undefined") return "";
+  return getComputedStyle(document.documentElement)
+    .getPropertyValue(varName)
+    .trim();
+};
 
 function getTypeRoute(typeName: string): string {
   const routes: Record<string, string> = {
@@ -608,15 +692,12 @@ function initWaterfallChart() {
   if (!waterfallChartRef.value || allPositions.value.length === 0) return;
   if (waterfallChart) waterfallChart.dispose();
   waterfallChart = echarts.init(waterfallChartRef.value);
-  const primaryColor =
-    cssColors.value["--color-primary"] || fallbackColors.primary;
-  const infoColor = cssColors.value["--color-info"] || fallbackColors.info;
-  const dangerColor =
-    cssColors.value["--color-danger"] || fallbackColors.danger;
-  const successColor =
-    cssColors.value["--color-success"] || fallbackColors.success;
-  const neutralColor =
-    cssColors.value["--color-neutral"] || fallbackColors.neutral;
+
+  const primaryColor = getCSSColor("--brand-700");
+  const infoColor = getCSSColor("--color-info");
+  const riseColor = getCSSColor("--color-rise");
+  const fallColor = getCSSColor("--color-fall");
+  const neutralColor = getCSSColor("--color-neutral");
 
   const start = 2800000;
   const changes = [
@@ -647,15 +728,19 @@ function initWaterfallChart() {
     xAxis: {
       type: "category",
       data: allData.map(d => d.name),
-      axisLabel: { rotate: 30, fontSize: 10, interval: 0, color: "#999" },
-      axisLine: { lineStyle: { color: "#eee" } }
+      axisLabel: {
+        rotate: 30,
+        fontSize: 10,
+        color: getCSSColor("--text-tertiary")
+      },
+      axisLine: { lineStyle: { color: getCSSColor("--border-light") } }
     },
     yAxis: {
       type: "value",
       min: 0,
-      splitLine: { lineStyle: { color: "#f5f5f5" } },
+      splitLine: { lineStyle: { color: getCSSColor("--border-light") } },
       axisLabel: {
-        color: "#999",
+        color: getCSSColor("--text-tertiary"),
         fontSize: 11,
         formatter: (v: number) => v.toLocaleString()
       }
@@ -672,8 +757,8 @@ function initWaterfallChart() {
             const d = allData[params.dataIndex];
             if (d.isEndpoint && d.name === "上期末") return primaryColor;
             if (d.isEndpoint && d.name === "本期末") return infoColor;
-            if (d.change > 0) return dangerColor;
-            if (d.change < 0) return successColor;
+            if (d.change > 0) return riseColor;
+            if (d.change < 0) return fallColor;
             return neutralColor;
           }
         },
@@ -681,7 +766,7 @@ function initWaterfallChart() {
           show: true,
           position: "top",
           fontSize: 10,
-          color: "#666",
+          color: getCSSColor("--text-secondary"),
           formatter: (params: any) => {
             const d = allData[params.dataIndex];
             if (d.isEndpoint) return "¥" + d.height.toLocaleString();
@@ -755,53 +840,12 @@ async function fetchData() {
   }
 }
 
-onMounted(async () => {
-  const style = getComputedStyle(document.documentElement);
-  const keys = [
-    "--color-primary",
-    "--color-success",
-    "--color-danger",
-    "--color-warning",
-    "--color-info",
-    "--color-neutral",
-    "--color-accent",
-    "--tag-mint-green",
-    "--tag-warm-taupe",
-    "--tag-periwinkle",
-    "--tag-stone-gray",
-    "--sankey-total-assets",
-    "--sankey-net-worth",
-    "--sankey-liability",
-    "--sankey-liquid",
-    "--sankey-stable",
-    "--sankey-longterm",
-    "--sankey-speculative",
-    "--sankey-security",
-    "--category-cash",
-    "--category-fixed",
-    "--category-investment",
-    "--category-receivable",
-    "--category-liability",
-    "--category-insurance",
-    ...ALLOCATION_OPTIONS.map(opt => `--sankey-${opt.value}`) // 动态覆盖
-  ];
-  const map: Record<string, string> = {};
-  keys.forEach(k => {
-    const val = style.getPropertyValue(k).trim();
-    if (val) map[k] = val;
-  });
-  cssColors.value = map;
-
-  await fetchData();
+onMounted(() => {
+  fetchData();
 });
 </script>
 
 <style scoped>
-.summary-large-card {
-  height: 100%;
-  border-radius: 12px;
-  transition: all 0.2s;
-}
 .balance-switch {
   display: flex;
   gap: 4px;
@@ -820,6 +864,7 @@ onMounted(async () => {
 }
 .balance-btn.active {
   font-weight: 600;
+  color: var(--text-primary);
 }
 .balance-btn.active::after {
   content: "";
@@ -828,7 +873,32 @@ onMounted(async () => {
   left: 8px;
   right: 8px;
   height: 2px;
-  background: var(--color-primary);
+  background: var(--brand-700);
   border-radius: 1px;
+}
+.summary-card {
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.summary-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-float);
+}
+
+/* 胶囊形状：el-tag */
+:deep(.el-tag) {
+  border-radius: 9999px;
+}
+
+/* 胶囊形状：el-segmented */
+:deep(.el-segmented) {
+  border-radius: 9999px;
+}
+:deep(.el-segmented .el-segmented__item) {
+  border-radius: 9999px;
+}
+
+/* 胶囊形状：资产端/负债端切换按钮 */
+.balance-btn {
+  border-radius: 9999px;
 }
 </style>
