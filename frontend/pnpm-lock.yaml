@@ -10,13 +10,13 @@ importers:
     dependencies:
       '@pureadmin/descriptions':
         specifier: ^1.2.1
-        version: 1.2.1(echarts@6.0.0)(element-plus@2.11.5(vue@3.5.22(typescript@5.9.3)))(typescript@5.9.3)
+        version: 1.2.1(echarts@6.1.0)(element-plus@2.11.5(vue@3.5.22(typescript@5.9.3)))(typescript@5.9.3)
       '@pureadmin/table':
         specifier: ^3.3.0
         version: 3.3.0(element-plus@2.11.5(vue@3.5.22(typescript@5.9.3)))(typescript@5.9.3)
       '@pureadmin/utils':
         specifier: ^2.6.2
-        version: 2.6.2(echarts@6.0.0)(vue@3.5.22(typescript@5.9.3))
+        version: 2.6.2(echarts@6.1.0)(vue@3.5.22(typescript@5.9.3))
       '@vueuse/core':
         specifier: ^14.0.0
         version: 14.0.0(vue@3.5.22(typescript@5.9.3))
@@ -33,8 +33,8 @@ importers:
         specifier: ^1.11.18
         version: 1.11.18
       echarts:
-        specifier: ^6.0.0
-        version: 6.0.0
+        specifier: ^6.1.0
+        version: 6.1.0
       element-plus:
         specifier: ^2.11.5
         version: 2.11.5(vue@3.5.22(typescript@5.9.3))
@@ -1946,8 +1946,8 @@ packages:
   eastasianwidth@0.2.0:
     resolution: {integrity: sha512-I88TYZWc9XiYHRQ4/3c5rjjfgkjhLyW2luGIheGERbNQ6OY7yTybanSpDXZa8y7VUP9YmDcYa+eyq4ca7iLqWA==}
 
-  echarts@6.0.0:
-    resolution: {integrity: sha512-Tte/grDQRiETQP4xz3iZWSvoHrkCQtwqd6hs+mifXcjrCuo2iKWbajFObuLJVBlDIJlOzgQPd1hsaKt/3+OMkQ==}
+  echarts@6.1.0:
+    resolution: {integrity: sha512-q0yaFPggC9FUdsWH4blavRWFmxdrIodbkoKNAjJudAI6CA9gNPxHtV2RcZNEepZVlk4yvBYkOkbk6HIVpIyHZA==}
 
   electron-to-chromium@1.5.240:
     resolution: {integrity: sha512-OBwbZjWgrCOH+g6uJsA2/7Twpas2OlepS9uvByJjR2datRDuKGYeD+nP8lBBks2qnB7bGJNHDUx7c/YLaT3QMQ==}
@@ -2243,6 +2243,7 @@ packages:
   git-raw-commits@4.0.0:
     resolution: {integrity: sha512-ICsMM1Wk8xSGMowkOmPrzo2Fgmfo4bMHLNX6ytHjajRJUqvHOw/TFapQ+QG75c3X/tTDDhOSRPGC52dDbNM8FQ==}
     engines: {node: '>=16'}
+    deprecated: Deprecated and no longer maintained. Use @conventional-changelog/git-client instead.
     hasBin: true
 
   glob-parent@5.1.2:
@@ -2256,6 +2257,7 @@ packages:
   glob@11.0.3:
     resolution: {integrity: sha512-2Nim7dha1KVkaiF4q6Dj+ngPPMdfvLJEOpZk/jKiUAkqKebpGAWQXAq9z1xu9HKu5lWfqw/FASuccEjyznjPaA==}
     engines: {node: 20 || >=22}
+    deprecated: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
     hasBin: true
 
   global-directory@4.0.1:
@@ -2777,8 +2779,8 @@ packages:
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
-  nanoid@3.3.12:
-    resolution: {integrity: sha512-ZB9RH/39qpq5Vu6Y+NmUaFhQR6pp+M2Xt76XBnEwDaGcVAqhlvxrl3B2bKS5D3NH3QR76v3aSrKaF/Kiy7lEtQ==}
+  nanoid@3.3.15:
+    resolution: {integrity: sha512-y7Wygv/7mEOvxTuEQDB8StXdMRBWf1kR/tlhAzBRUFkB2jfcLOAxO/SHmOO2zgz1pVgK29/kyupn059/bCHdjA==}
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
@@ -3161,8 +3163,8 @@ packages:
   postcss-value-parser@4.2.0:
     resolution: {integrity: sha512-1NNCs6uurfkVbeXG4S8JFT9t19m45ICnif8zWLd5oPSZ50QnwMfK+H3jv408d4jw/7Bttv5axS5IiHoLaVNHeQ==}
 
-  postcss@8.5.14:
-    resolution: {integrity: sha512-SoSL4+OSEtR99LHFZQiJLkT59C5B1amGO1NzTwj7TT1qCUgUO6hxOvzkOYxD+vMrXBM3XJIKzokoERdqQq/Zmg==}
+  postcss@8.5.16:
+    resolution: {integrity: sha512-vuwillviilfKZsg0VGj5R/YwwcHx4SLsIOI/7K6mQkWx+l5cUHTjj5g0AasTBcyXsbfTgrwsUNmVUb5xVwyPwg==}
     engines: {node: ^10 || ^12 || >=14}
 
   postcss@8.5.6:
@@ -3845,8 +3847,8 @@ packages:
     resolution: {integrity: sha512-AyeEbWOu/TAXdxlV9wmGcR0+yh2j3vYPGOECcIj2S7MkrLyC7ne+oye2BKTItt0ii2PHk4cDy+95+LshzbXnGg==}
     engines: {node: '>=12.20'}
 
-  zrender@6.0.0:
-    resolution: {integrity: sha512-41dFXEEXuJpNecuUQq6JlbybmnHaqqpGlbH1yxnA5V9MMP4SbohSVZsJIwz+zdjQXSSlR1Vc34EgH1zxyTDvhg==}
+  zrender@6.1.0:
+    resolution: {integrity: sha512-oEGMDB6pOP2S6OwRR4PdVv610zrjnA3Bh+JnSG12fYJlBKjtNAoEb5fSUoCOOINlH96I2fU38/A2UpRKs67xYQ==}
 
 snapshots:
 
@@ -4614,10 +4616,10 @@ snapshots:
 
   '@popperjs/core@2.11.8': {}
 
-  '@pureadmin/descriptions@1.2.1(echarts@6.0.0)(element-plus@2.11.5(vue@3.5.22(typescript@5.9.3)))(typescript@5.9.3)':
+  '@pureadmin/descriptions@1.2.1(echarts@6.1.0)(element-plus@2.11.5(vue@3.5.22(typescript@5.9.3)))(typescript@5.9.3)':
     dependencies:
       '@element-plus/icons-vue': 2.3.2(vue@3.5.22(typescript@5.9.3))
-      '@pureadmin/utils': 2.6.2(echarts@6.0.0)(vue@3.5.22(typescript@5.9.3))
+      '@pureadmin/utils': 2.6.2(echarts@6.1.0)(vue@3.5.22(typescript@5.9.3))
       element-plus: 2.11.5(vue@3.5.22(typescript@5.9.3))
       vue: 3.5.22(typescript@5.9.3)
     transitivePeerDependencies:
@@ -4631,9 +4633,9 @@ snapshots:
     transitivePeerDependencies:
       - typescript
 
-  '@pureadmin/utils@2.6.2(echarts@6.0.0)(vue@3.5.22(typescript@5.9.3))':
+  '@pureadmin/utils@2.6.2(echarts@6.1.0)(vue@3.5.22(typescript@5.9.3))':
     optionalDependencies:
-      echarts: 6.0.0
+      echarts: 6.1.0
       vue: 3.5.22(typescript@5.9.3)
 
   '@rolldown/pluginutils@1.0.0-beta.29': {}
@@ -5558,10 +5560,10 @@ snapshots:
 
   eastasianwidth@0.2.0: {}
 
-  echarts@6.0.0:
+  echarts@6.1.0:
     dependencies:
       tslib: 2.3.0
-      zrender: 6.0.0
+      zrender: 6.1.0
 
   electron-to-chromium@1.5.240: {}
 
@@ -6368,7 +6370,7 @@ snapshots:
 
   nanoid@3.3.11: {}
 
-  nanoid@3.3.12: {}
+  nanoid@3.3.15: {}
 
   natural-compare@1.4.0: {}
 
@@ -6700,9 +6702,9 @@ snapshots:
       cssesc: 3.0.0
       util-deprecate: 1.0.2
 
-  postcss-sorting@9.1.0(postcss@8.5.14):
+  postcss-sorting@9.1.0(postcss@8.5.16):
     dependencies:
-      postcss: 8.5.14
+      postcss: 8.5.16
 
   postcss-svgo@7.1.0(postcss@8.5.6):
     dependencies:
@@ -6717,9 +6719,9 @@ snapshots:
 
   postcss-value-parser@4.2.0: {}
 
-  postcss@8.5.14:
+  postcss@8.5.16:
     dependencies:
-      nanoid: 3.3.12
+      nanoid: 3.3.15
       picocolors: 1.1.1
       source-map-js: 1.2.1
 
@@ -7018,8 +7020,8 @@ snapshots:
 
   stylelint-order@7.0.0(stylelint@16.25.0(typescript@5.9.3)):
     dependencies:
-      postcss: 8.5.14
-      postcss-sorting: 9.1.0(postcss@8.5.14)
+      postcss: 8.5.16
+      postcss-sorting: 9.1.0(postcss@8.5.16)
       stylelint: 16.25.0(typescript@5.9.3)
 
   stylelint-prettier@5.0.3(prettier@3.6.2)(stylelint@16.25.0(typescript@5.9.3)):
@@ -7439,6 +7441,6 @@ snapshots:
 
   yocto-queue@1.2.1: {}
 
-  zrender@6.0.0:
+  zrender@6.1.0:
     dependencies:
       tslib: 2.3.0
