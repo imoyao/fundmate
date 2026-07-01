@@ -12,7 +12,8 @@ import Fullscreen from "~icons/ri/fullscreen-fill";
 import ExitFullscreen from "~icons/ri/fullscreen-exit-fill";
 
 defineOptions({
-  name: "ReDialog"
+  name: "ReDialog",
+  inheritAttrs: false
 });
 
 const sureBtnMap = ref({});

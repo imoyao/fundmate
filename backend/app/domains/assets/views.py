@@ -7,6 +7,7 @@
 
 from apiflask import APIBlueprint
 from flask import abort, jsonify, request
+from sqlalchemy import func
 
 from app.core.constants import ALLOCATION_LABELS, ASSET_CATEGORY_LABELS, CURRENT_USER_ID
 from app.core.database import get_db
@@ -129,3 +130,41 @@ def delete_asset(id):
         db.delete(asset)
         db.commit()
         return jsonify({'message': 'ok', 'data': None})
+
+
+@bp.get('/summary/')
+def get_assets_summary():
+    """获取各类通用资产的大类汇总金额（自带结构化标签，自解释性API）"""
+    from app.core.constants import ASSET_CATEGORY_LABELS  # 确保导入了常量
+
+    with get_db() as db:
+        results = (
+            db.query(Asset.major_category, func.coalesce(func.sum(Asset.amount), 0).label('total_cents'))
+            .filter(Asset.user_id == CURRENT_USER_ID)
+            .group_by(Asset.major_category)
+            .all()
+        )
+
+        # 将数据库结果转为字典方便查找
+        db_result_map = {cat: cents for cat, cents in results}
+
+        # 定义一个明确的顺序（按业务逻辑排序，不再是乱序的键值对）
+        category_order = ['cash', 'fixed', 'liability', 'receivable', 'insurance']
+
+        summary_list = []
+        for key in category_order:
+            cents = db_result_map.get(key, 0)
+            yuan = Money.cents_to_yuan(cents)
+            # 负债处理为负数
+            if key == 'liability':
+                yuan = -yuan
+
+            summary_list.append(
+                {
+                    'code': key,  # 分类代码（用于前端匹配）
+                    'label': ASSET_CATEGORY_LABELS.get(key, key),  # 分类中文名（自带解释）
+                    'value': yuan,  # 汇总金额
+                }
+            )
+
+        return jsonify({'data': summary_list, 'message': 'ok'})

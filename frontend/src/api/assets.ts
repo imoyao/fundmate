@@ -19,7 +19,7 @@ export interface AssetRecord {
   updated_at: string | null
 }
 
-const BASE_URL = '/api/assets'
+const BASE_URL = '/api/assets/'
 
 export function getAssets(params?: Record<string, any>) {
   return http.request<any>('get', BASE_URL, { params })
@@ -35,4 +35,9 @@ export function updateAsset(id: number, data: any) {
 
 export function deleteAsset(id: number) {
   return http.request<any>('delete', `${BASE_URL}/${id}/`)
+}
+
+// 🔥 补充：新增获取各大类金额汇总的接口
+export function getAssetsSummary() {
+  return http.request<any>('get', `${BASE_URL}/summary/`)
 }

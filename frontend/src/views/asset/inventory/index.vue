@@ -3,7 +3,7 @@
     class="inventory-home p-4 md:p-8 min-h-full"
     :style="{ backgroundColor: 'var(--bg-page)' }"
   >
-    <!-- 页面标题（呼吸感增强） -->
+    <!-- 页面标题 -->
     <div class="mb-10">
       <h2 class="text-2xl font-bold" :style="{ color: 'var(--text-primary)' }">
         全面盘点
@@ -13,8 +13,8 @@
       </p>
     </div>
 
-    <!-- 顶部资产分类标签栏（非胶囊，标准圆角） -->
-    <div class="grid grid-cols-3 md:grid-cols-6 gap-4 mb-12">
+    <!-- 顶部资产分类标签栏 -->
+    <div class="grid grid-cols-3 md:grid-cols-6 gap-4 mb-8">
       <div
         v-for="cat in categories"
         :key="cat.key"
@@ -25,10 +25,10 @@
       >
         <span class="category-tab-label">{{ cat.label }}</span>
         <span class="category-tab-amount">
-          <template v-if="getCategoryTotal(cat.key) > 0">
+          <template v-if="Math.abs(getCategoryTotal(cat.key)) > 0">
             <MoneyDisplay
               :value="getCategoryTotal(cat.key)"
-              :show-sign="false"
+              :show-sign="true"
               :show-currency="true"
               size="sm"
             />
@@ -49,7 +49,7 @@
 
     <!-- 下方内容区域 -->
     <div class="content-area">
-      <!-- 第一层：大类注释卡片（间距加大） -->
+      <!-- 第一层：大类注释卡片 -->
       <div
         class="mb-10 rounded-xl p-6 flex items-start gap-3"
         :style="{ backgroundColor: 'var(--bg-soft)' }"
@@ -67,18 +67,18 @@
         </p>
       </div>
 
-      <!-- 场景 A：投资理财 -->
+      <!-- ==================== 场景 A：投资理财 ==================== -->
       <template v-if="activeCategory === 'investment'">
-        <!-- 投资分布（标题字号加大，间距拉大） -->
+        <!-- 1. 投资分布（统一 mt-10 mb-10） -->
         <h4
-          class="text-lg font-semibold mt-14 mb-12"
+          class="text-lg font-semibold mt-10 mb-10"
           :style="{ color: 'var(--text-primary)' }"
         >
           投资分布
         </h4>
         <div
           v-if="investmentGroups.length > 0"
-          class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-4"
+          class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-4 mb-8 mt-4"
         >
           <div
             v-for="group in investmentGroups"
@@ -121,15 +121,104 @@
           </div>
         </div>
 
-        <!-- 持仓明细（标题间距加大，卡片内边距增加） -->
+        <!-- 2. 快捷操作（统一 mt-10 mb-10，容器 mb-8） -->
         <h4
-          class="text-lg font-semibold mt-14 mb-12"
+          class="text-lg font-semibold mt-10 mb-10"
+          :style="{ color: 'var(--text-primary)' }"
+        >
+          快捷操作
+        </h4>
+        <div
+          class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 mb-8 mt-4"
+        >
+          <div
+            class="summary-card-item rounded-xl p-5 sm:p-6 cursor-pointer transition-all"
+            :style="{
+              backgroundColor: 'var(--bg-card)',
+              border: '1px solid var(--border-default)',
+              boxShadow: 'var(--shadow-raised)'
+            }"
+            @click="$router.push('/inventory/investment/manual')"
+          >
+            <div class="flex items-center gap-3">
+              <div
+                class="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center"
+                :style="{
+                  backgroundColor: getColorWithAlpha('var(--brand-700)', 0.2)
+                }"
+              >
+                <IconifyIconOffline
+                  icon="ep:trend-charts"
+                  class="text-lg"
+                  :style="{ color: 'var(--brand-700)' }"
+                />
+              </div>
+              <div>
+                <p
+                  class="font-medium text-sm"
+                  :style="{ color: 'var(--text-primary)' }"
+                >
+                  记录投资交易
+                </p>
+                <p
+                  class="text-xs mt-1"
+                  :style="{ color: 'var(--text-tertiary)' }"
+                >
+                  记录股票、基金、可转债、ETF
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div
+            class="summary-card-item rounded-xl p-5 sm:p-6 cursor-pointer transition-all"
+            :style="{
+              backgroundColor: 'var(--bg-card)',
+              border: '1px solid var(--border-default)',
+              boxShadow: 'var(--shadow-raised)'
+            }"
+            @click="$router.push('/inventory/investment/import')"
+          >
+            <div class="flex items-center gap-3">
+              <div
+                class="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center"
+                :style="{
+                  backgroundColor: getColorWithAlpha('var(--brand-700)', 0.2)
+                }"
+              >
+                <IconifyIconOffline
+                  icon="ep:upload"
+                  class="text-lg"
+                  :style="{ color: 'var(--brand-700)' }"
+                />
+              </div>
+              <div>
+                <p
+                  class="font-medium text-sm"
+                  :style="{ color: 'var(--text-primary)' }"
+                >
+                  导入投资记账
+                </p>
+                <p
+                  class="text-xs mt-1"
+                  :style="{ color: 'var(--text-tertiary)' }"
+                >
+                  批量导入基金/股票交割单
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. 持仓明细（统一 mt-10 mb-10） -->
+        <h4
+          class="text-lg font-semibold mt-10 mb-10"
           :style="{ color: 'var(--text-primary)' }"
         >
           持仓明细
         </h4>
         <div
-          class="rounded-xl p-6 sm:p-8 flex flex-col"
+          class="rounded-xl p-6 sm:p-8 flex flex-col mt-4"
           :style="{
             backgroundColor: 'var(--bg-card)',
             border: '1px solid var(--border-default)',
@@ -189,16 +278,61 @@
         </div>
       </template>
 
-      <!-- 场景 B：其他大类 -->
+      <!-- ==================== 场景 B：其他大类 ==================== -->
       <template v-else>
+        <!-- 1. 快捷操作（顺序调整到资产明细上方，mt-10 mb-10） -->
         <h4
-          class="text-lg font-semibold mt-14 mb-12"
+          class="text-lg font-semibold mt-10 mb-10"
+          :style="{ color: 'var(--text-primary)' }"
+        >
+          快捷操作
+        </h4>
+        <div
+          class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 mb-8 mt-4"
+        >
+          <div
+            v-for="type in activeAssetTypes"
+            :key="type.key"
+            class="summary-card-item rounded-xl p-5 sm:p-6 cursor-pointer transition-all"
+            :style="{
+              backgroundColor: 'var(--bg-card)',
+              border: '1px solid var(--border-default)',
+              boxShadow: 'var(--shadow-raised)'
+            }"
+            @click="handleAddType(type.key)"
+          >
+            <div class="flex items-center gap-3">
+              <div
+                class="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center"
+                :style="{ backgroundColor: getColorWithAlpha(type.color, 0.2) }"
+              >
+                <IconifyIconOffline
+                  :icon="type.icon"
+                  class="text-lg"
+                  :style="{ color: type.color }"
+                />
+              </div>
+              <div>
+                <p
+                  class="font-medium text-sm"
+                  :style="{ color: 'var(--text-primary)' }"
+                >
+                  {{ type.label }}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. 资产明细（统一 mt-10 mb-10） -->
+        <h4
+          class="text-lg font-semibold mt-10 mb-10"
           :style="{ color: 'var(--text-primary)' }"
         >
           资产明细
         </h4>
         <div
-          v-if="activeItems.length > 0"
+          v-if="currentAssets.length > 0"
           class="rounded-xl p-6 sm:p-8"
           :style="{
             backgroundColor: 'var(--bg-card)',
@@ -207,8 +341,8 @@
           }"
         >
           <el-table
-            :height="activeItems.length >= 5 ? 400 : null"
-            :data="activeItems"
+            :height="currentAssets.length >= 5 ? 400 : null"
+            :data="currentAssets"
             style="width: 100%"
             :header-cell-style="{
               color: 'var(--text-tertiary)',
@@ -245,9 +379,14 @@
                 {{ getMajorCategoryLabel(row.major_category) }}
               </template>
             </el-table-column>
+            <!-- 🔥 修复：使用 signed_amount 显示正负值 -->
             <el-table-column label="金额" width="130" align="right">
               <template #default="{ row }">
-                <MoneyDisplay :value="row.amount" :show-sign="true" size="sm" />
+                <MoneyDisplay
+                  :value="row.signed_amount"
+                  :show-sign="true"
+                  size="sm"
+                />
               </template>
             </el-table-column>
             <el-table-column label="配置目标" width="100" align="center">
@@ -282,7 +421,7 @@
 
         <div
           v-else
-          class="rounded-xl py-6 sm:py-8 px-10 text-center border border-dashed"
+          class="rounded-xl py-6 sm:py-8 px-10 text-center border border-dashed mt-4"
           :style="{
             borderColor: 'var(--border-default)',
             backgroundColor: 'var(--bg-card)'
@@ -293,137 +432,6 @@
           </p>
         </div>
       </template>
-
-      <!-- 第三层：操作入口（与投资分布卡片完全对齐） -->
-      <h4
-        class="text-lg font-semibold mt-14 mb-12"
-        :style="{ color: 'var(--text-primary)' }"
-      >
-        操作入口
-      </h4>
-
-      <!-- 投资类操作入口：使用相同卡片结构，padding 稍小 -->
-      <div
-        v-if="activeCategory === 'investment'"
-        class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 mb-16"
-      >
-        <div
-          class="summary-card-item rounded-xl p-5 sm:p-6 cursor-pointer transition-all"
-          :style="{
-            backgroundColor: 'var(--bg-card)',
-            border: '1px solid var(--border-default)',
-            boxShadow: 'var(--shadow-raised)'
-          }"
-          @click="$router.push('/inventory/investment/manual')"
-        >
-          <div class="flex items-center gap-3">
-            <div
-              class="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center"
-              :style="{
-                backgroundColor: getColorWithAlpha('var(--brand-700)', 0.2)
-              }"
-            >
-              <IconifyIconOffline
-                icon="ep:trend-charts"
-                class="text-lg"
-                :style="{ color: 'var(--brand-700)' }"
-              />
-            </div>
-            <div>
-              <p
-                class="font-medium text-sm"
-                :style="{ color: 'var(--text-primary)' }"
-              >
-                记录投资交易
-              </p>
-              <p
-                class="text-xs mt-1"
-                :style="{ color: 'var(--text-tertiary)' }"
-              >
-                记录股票、基金、可转债、ETF
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div
-          class="summary-card-item rounded-xl p-5 sm:p-6 cursor-pointer transition-all"
-          :style="{
-            backgroundColor: 'var(--bg-card)',
-            border: '1px solid var(--border-default)',
-            boxShadow: 'var(--shadow-raised)'
-          }"
-          @click="$router.push('/inventory/investment/import')"
-        >
-          <div class="flex items-center gap-3">
-            <div
-              class="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center"
-              :style="{
-                backgroundColor: getColorWithAlpha('var(--brand-700)', 0.2)
-              }"
-            >
-              <IconifyIconOffline
-                icon="ep:upload"
-                class="text-lg"
-                :style="{ color: 'var(--brand-700)' }"
-              />
-            </div>
-            <div>
-              <p
-                class="font-medium text-sm"
-                :style="{ color: 'var(--text-primary)' }"
-              >
-                导入投资记账
-              </p>
-              <p
-                class="text-xs mt-1"
-                :style="{ color: 'var(--text-tertiary)' }"
-              >
-                批量导入基金/股票交割单
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 其他大类：同样使用横向卡片 -->
-      <div
-        v-else
-        class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 mb-16"
-      >
-        <div
-          v-for="type in activeAssetTypes"
-          :key="type.key"
-          class="summary-card-item rounded-xl p-5 sm:p-6 cursor-pointer transition-all"
-          :style="{
-            backgroundColor: 'var(--bg-card)',
-            border: '1px solid var(--border-default)',
-            boxShadow: 'var(--shadow-raised)'
-          }"
-          @click="handleAddType(type.key)"
-        >
-          <div class="flex items-center gap-3">
-            <div
-              class="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center"
-              :style="{ backgroundColor: getColorWithAlpha(type.color, 0.2) }"
-            >
-              <IconifyIconOffline
-                :icon="type.icon"
-                class="text-lg"
-                :style="{ color: type.color }"
-              />
-            </div>
-            <div>
-              <p
-                class="font-medium text-sm"
-                :style="{ color: 'var(--text-primary)' }"
-              >
-                {{ type.label }}
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
 
     <!-- 编辑资产弹窗 -->
@@ -466,7 +474,12 @@ import { ref, computed, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { IconifyIconOffline } from "@/components/ReIcon";
-import { getAssets, updateAsset, deleteAsset } from "@/api/assets";
+import {
+  getAssets,
+  getAssetsSummary,
+  updateAsset,
+  deleteAsset
+} from "@/api/assets";
 import { getPositions } from "@/api/positions";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
@@ -668,6 +681,11 @@ const loading = ref(false);
 const investmentPage = ref(1);
 const pageSize = 10;
 
+// 🔥 新增：汇总缓存与按需加载数据源
+const assetsSummary = ref<Record<string, number>>({});
+const assetCache = ref<Record<string, any[]>>({});
+const currentAssets = ref<any[]>([]);
+
 const editAssetDialogVisible = ref(false);
 const savingAsset = ref(false);
 const editAssetForm = ref<{ id: number | null; amount: number; notes: string }>(
@@ -725,11 +743,6 @@ const activeCategoryDesc = computed(
 const activeAssetTypes = computed(
   () => assetTypeMap[activeCategory.value] || []
 );
-
-const activeItems = computed(() => {
-  if (activeCategory.value === "investment") return [];
-  return allAssets.value.filter(a => a.major_category === activeCategory.value);
-});
 
 const paginatedInvestments = computed(() => {
   const start = (investmentPage.value - 1) * pageSize;
@@ -800,21 +813,42 @@ const getColorWithAlpha = (colorVar: string, alpha: number): string => {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 };
 
+// 🔥 优化：不再遍历全量列表，只读汇总接口的数据
 const getCategoryTotal = (key: string): number => {
   if (key === "investment") {
-    const fromAssets = allAssets.value
-      .filter(a => a.major_category === "investment")
-      .reduce((s, a) => s + (a.marketValue || 0), 0);
+    const fromAssets = 0; // 投资理财不依赖汇总接口
     const fromPositions = allPositions.value.reduce(
       (s, p) => s + (p.marketValue || 0),
       0
     );
     return fromAssets + fromPositions;
   }
-  return allAssets.value
-    .filter(a => a.major_category === key)
-    .reduce((s, a) => s + (a.marketValue || 0), 0);
+  return assetsSummary.value[key] || 0;
 };
+
+// 🔥 优化：按需加载该大类的具体资产数据
+const loadCategoryAssets = async (category: string) => {
+  if (category === "investment") {
+    currentAssets.value = [];
+    return;
+  }
+  if (assetCache.value[category]) {
+    currentAssets.value = assetCache.value[category];
+    return;
+  }
+  try {
+    const res = await getAssets({ major_category: category, per_page: 500 });
+    const items = (res as any)?.data ?? [];
+    assetCache.value[category] = items;
+    currentAssets.value = items;
+  } catch (e) {
+    console.error("加载分类资产失败", e);
+  }
+};
+
+watch(activeCategory, (newVal) => {
+  loadCategoryAssets(newVal);
+});
 
 watch(activeCategory, () => {
   investmentPage.value = 1;
@@ -874,49 +908,33 @@ async function confirmDeleteAsset(row: any) {
   }
 }
 
+// 🔥 全新 fetchData：只请求基础的持仓和汇总接口
 async function fetchData() {
   loading.value = true;
   try {
-    const [assetsRes, posRes] = await Promise.all([
-      getAssets({ per_page: 500 }),
-      getPositions({ per_page: 500 })
+    const [posRes, summaryRes] = await Promise.all([
+      getPositions({ per_page: 500 }),
+      getAssetsSummary()
     ]);
 
-    let assetsRaw: any[] = [];
-    if (Array.isArray(assetsRes)) assetsRaw = assetsRes;
-    else if (assetsRes && Array.isArray((assetsRes as any).data))
-      assetsRaw = (assetsRes as any).data;
-    else if (
-      assetsRes &&
-      (assetsRes as any).data &&
-      Array.isArray((assetsRes as any).data.data)
-    )
-      assetsRaw = (assetsRes as any).data.data;
-    else {
-      const maybe = (assetsRes as any)?.data ?? assetsRes ?? [];
-      assetsRaw = Array.isArray(maybe) ? maybe : [];
-    }
-
+    // 🔥 修复 1：必须正确解析 positions 的各种可能返回结构
     let positionsRaw: any[] = [];
-    if (Array.isArray(posRes)) positionsRaw = posRes;
-    else if (posRes && Array.isArray((posRes as any).data))
+    if (Array.isArray(posRes)) {
+      positionsRaw = posRes;
+    } else if (posRes && Array.isArray((posRes as any).data)) {
       positionsRaw = (posRes as any).data;
-    else if (
+    } else if (
       posRes &&
       (posRes as any).data &&
       Array.isArray((posRes as any).data.data)
-    )
+    ) {
       positionsRaw = (posRes as any).data.data;
-    else {
+    } else {
       const maybe = (posRes as any)?.data ?? posRes ?? [];
       positionsRaw = Array.isArray(maybe) ? maybe : [];
     }
 
-    allAssets.value = assetsRaw.map((a: any) => {
-      const rate = EXCHANGE_RATES[a.currency || "CNY"] || 1;
-      return { ...a, marketValue: (a.signed_amount ?? (a.amount || 0)) * rate };
-    });
-
+    // 🔥 修复 2：必须补回 marketValue 和 pnl 的映射计算！
     allPositions.value = positionsRaw.map((p: any) => {
       const rate = EXCHANGE_RATES[p.currency || "CNY"] || 1;
       return {
@@ -925,6 +943,26 @@ async function fetchData() {
         pnl: (p.pnl || 0) * rate
       };
     });
+
+    // 汇总数据直接赋值
+    // 🔥 核心修复：同时兼容后端返回的【数组格式】和【旧对象格式】
+    const summaryData = (summaryRes as any)?.data ?? {};
+    let summaryDict = {};
+
+    if (Array.isArray(summaryData)) {
+      // 情况1：如果后端返回的是数组（[{code, value}, ...]）
+      summaryData.forEach(item => {
+        summaryDict[item.code] = item.value;
+      });
+    } else {
+      // 情况2：如果后端返回的还是旧的对象（{ cash: 0, fixed: ... }）
+      summaryDict = summaryData;
+    }
+    assetsSummary.value = summaryDict;
+
+    if (activeCategory.value !== "investment") {
+      await loadCategoryAssets(activeCategory.value);
+    }
   } catch (e) {
     console.error(e);
   } finally {
@@ -979,12 +1017,12 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px; /* 加大了字号，更显眼 */
+  font-size: 16px;
   color: var(--text-tertiary);
-  margin-top: 2px; /* 微调一下让它和文字视觉上居中 */
+  margin-top: 2px;
 }
 
-/* 统一卡片样式（投资分布 & 操作入口共用） */
+/* 统一卡片样式（投资分布 & 快捷操作共用） */
 .summary-card-item {
   transition: all 0.2s ease;
 }
