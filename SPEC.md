@@ -18,6 +18,7 @@
 
 | 版本     | 日期 | 变更说明 |
 |--------|------|---------|
+| v4.4.1 | 2026-07-02 | 后端数据精度与命名规范化：修复 B5 精度问题，强制 position_ratio 返回 float 类型，消除前端解析歧义。将 Service 层分页方法重命名为 get_positions_paginated 和 get_transactions_paginated，提升代码语义清晰度。 |
 | **v4.4.0** | **2026-07-01** | **重大架构与性能重构**：“全面盘点”页面深度重构，新增后端 `/api/assets/summary/` 轻量汇总接口实现按需加载（首次仅拉取持仓与汇总），解决 500+ 数据量全量加载问题。新增全局组合式函数 `usePageRefresh` 彻底解决记账后页面数据不刷新问题。提取全局组件 `ProductDisplay` 统一资产复合列展示。修正负债正负值计算与展示，统一各章节排版间距与“操作前置”布局。 |
 | **v4.3.7** | **2026-06-27** | **新增通用业务组件规范（SPEC 3.11）**：定义 `MoneyDisplay` 金额展示组件和 `RiseFallText` 涨跌文本组件的 Props、使用示例及编码红线，确保全站金额/涨跌展示统一。 |
 | **v4.3.6** | **2026-06-27** | **UI 设计规范强制决策同步**：新增涨红跌绿语义与品牌色统一规范（SPEC 3.1）；新增前端色彩变量编码红线（SPEC 2.12）；新增前端数字显示统一规范（SPEC 3.9）；新增暗色模式规划与编码预埋约束（SPEC 10）；新增可访问性（A11y）规范（SPEC 2.0.6）；新增前端组件交互反馈规范（SPEC 3.10）；SPEC 版本号升级为 v4.3.6，变更说明记录为“同步 UI 设计规范 v2.3.2 及暗色模式 v1.4 强制决策（色彩语义分离、数字格式、软按钮交互、A11y 自动化测试）” |
@@ -743,7 +744,7 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 | `get_money_fund_stats` 调用传入 `ledger.name` 而非 `ledger.id` | ~~🟡 中~~ **✅ 已验证** | 原怀疑参数类型错误 | 代码审查确认已传入 `ledger.id`，货基统计正常 |
 | `delete_ledger` / `migrate_positions` 未跟随 `ledger_id` 迁移 | ~~🟡 中~~ **✅ 已验证** | 原怀疑仍用字符串过滤 | 已改为 `Position.ledger_id == ledger_id`，迁移同步更新快照 |
 | **`GET /api/ledgers/` 未返回账户摘要数据** | 🔴 严重 | 列表页卡片依赖 `total_market_value`、`pnl`、`position_count` 等字段，但接口只返回基础字段 | 在 `list_ledgers` 中为每个账户附加摘要统计 |
-| **`position_ratio` 返回类型不一致** | 🟡 中 | `get_position_page` 中 `round()` 结果可能因单位混用而异常，且类型可能是 float 或 str | 修 B1 后统一确保返回 float |
+| **`position_ratio` 返回类型不一致** | 🟡 中 | `get_position_page` 中 `round()` 结果可能因单位混用而异常，且类型可能是 float 或 str | **✅ 已验证，已修复。在 v4.4.1 中强制转为 `float(0.0)` 兜底，消除了前端解析歧义。** |
 | **同花顺解析器操作类型映射不完整** | 中 | `test_ths_otc_cash_format` 测试中 `OTC现金宝交` 的操作类型无法从映射表确定方向，测试被跳过 | 完善 `THS_OP_TYPE_MAP` 映射，补全测试断言 |
 | **`get_ledgers_overview` 中总资产计算依赖净资产的推导** | 低 | 当前总资产通过 `net_worth + liability_total` 反推，而非直接从各组市值汇总 | 在 Service 层增加 `total_assets` 字段，直接汇总各类型市值 |
 | **导入模块视图层仍较厚** | 低 | `app/domains/importers/views.py` 未完全拆分，部分校验逻辑耦合在视图函数中 | 后续提取 ImportService |
@@ -770,6 +771,7 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 
 | 决策日期 | 决策主题 | 完整决策细节 |
 |---------|---------|-------------|
+| 2026-07-02 | 后端 Service 命名规范化与 B5 精度强制 | 将 LedgerService 中模糊的分页方法 get_position_page 和 get_transaction_page 重命名为 get_positions_paginated 和 get_transactions_paginated。同时修复 position_ratio 精度隐患，当 total_mv_cents 为 0 时，明确返回 float(0.0) 而不是整数 0，从源头彻底消除前端数字类型解析隐患。 |
 | **2026-07-01** | **提取全局组件与组合式函数** | **1. 全局组件 `ProductDisplay`**：统一全站持仓/资产表格的“名称、代码、类型”复合列展示，彻底消灭各行其是的 DOM 结构。**2. 组合式函数 `usePageRefresh`**：采用全局 `mitt` 事件总线与组件挂载/销毁生命周期自解绑机制，规范所有页面在“简记记账成功”后的数据刷新逻辑，替代早期的暴力 `:key` 重绘方案。 |
 | **2026-07-01** | **“全面盘点”页按需加载策略（降维打击）** | 为解决“进入页面全量拉取 500+ 条通用资产”的性能隐患，新增轻量汇总接口 `/api/assets/summary/`。页面初始化仅拉取 `positions` 和各类资产汇总金额，点击“固定资产/负债”等具体标签时，触发 `watch` 实现该分类数据的“懒加载”与前端 `assetCache` 缓存，实现毫秒级切换。 |
 | **2026-07-01** | **前端布局操作前置与排版核心策略** | 将“操作入口”统一提至所有分类的“投资分布/资产明细”摘要卡片下方，确立“先看摘要、再做操作、后看明细”的动线。全站二级标题统一定义边距为 `mt-10 mb-10`，彻底解决模块间因 `margin` 杂乱导致的忽大忽小问题。 |

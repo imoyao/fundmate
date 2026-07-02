@@ -229,8 +229,8 @@ class LedgerService:
         }
 
     @staticmethod
-    def get_position_page(db: Session, ledger_id: int, page: int, per_page: int) -> tuple[list[dict], int]:
-        """持仓明细分页查询（Python 聚合版）"""
+    def get_positions_paginated(db: Session, ledger_id: int, page: int, per_page: int) -> tuple[list[dict], int]:
+        """获取持仓分页列表（修复命名与 B5 精度）"""
         query = db.query(Position).filter(Position.ledger_id == ledger_id)
         total = query.count()
         positions = (
@@ -250,8 +250,11 @@ class LedgerService:
             pnl_cents = Money.multiply_price_quantity(p.current_price - p.avg_price, p.quantity) if p.avg_price else 0
             cur = p.current_price  # 分
             avg = p.avg_price  # 分
-            pnl_rate = round((cur - avg) / avg * 100, 2) if avg else 0
-            ratio = round(mv_cents / total_mv_cents * 100, 2) if total_mv_cents else 0
+            pnl_rate = round((cur - avg) / avg * 100, 2) if avg else 0.0
+
+            # 🔥 修复 B5：确保 total_mv_cents=0 时返回 0.0 (浮点数)，防止前端解析为整数 0
+            ratio = float(round(mv_cents / total_mv_cents * 100, 2)) if total_mv_cents else 0.0
+
             back = None
             if cur and avg and cur < avg:
                 back = round((avg - cur) / cur * 100, 2)
@@ -269,7 +272,7 @@ class LedgerService:
                     'current_price': Money.cents_to_yuan(cur),
                     'allocation': p.allocation,
                     'allocation_label': ALLOCATION_LABELS.get(p.allocation, p.allocation or '未配置'),
-                    'position_ratio': ratio,  # 现在是 float
+                    'position_ratio': ratio,  # 绝对为 float
                     'back_to_cost_rate': back,
                     'fund_category': None,
                 }
@@ -278,8 +281,8 @@ class LedgerService:
         return items, total
 
     @staticmethod
-    def get_transaction_page(db: Session, ledger_id: int, page: int, per_page: int) -> tuple[list[dict], int]:
-        """交易记录分页查询"""
+    def get_transactions_paginated(db: Session, ledger_id: int, page: int, per_page: int) -> tuple[list[dict], int]:
+        """获取交易记录分页列表（修复命名）"""
         query = db.query(Transaction).filter(Transaction.ledger_id == ledger_id)
         total = query.count()
         txn_list = (

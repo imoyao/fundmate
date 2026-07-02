@@ -356,7 +356,7 @@ def get_ledger_positions(ledger_id: int):
         ledger = db.query(Ledger).get(ledger_id)
         if not ledger:
             return jsonify({'data': None, 'message': '账户不存在'}), 404
-        items, total = LedgerService.get_position_page(db, ledger.id, page, per_page)
+        items, total = LedgerService.get_positions_paginated(db, ledger.id, page, per_page)
         return jsonify(
             {
                 'data': {
@@ -380,7 +380,7 @@ def get_ledger_transactions(ledger_id: int):
         ledger = db.query(Ledger).get(ledger_id)
         if not ledger:
             return jsonify({'data': None, 'message': '账户不存在'}), 404
-        items, total = LedgerService.get_transaction_page(db, ledger.id, page, per_page)
+        items, total = LedgerService.get_transactions_paginated(db, ledger.id, page, per_page)
         return jsonify(
             {
                 'data': {
