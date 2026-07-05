@@ -85,9 +85,16 @@ class SafeNumeric(TypeDecorator):
         self.quantize_val = Decimal(10) ** self.quantize_exp
 
     def process_bind_param(self, value, dialect):
-        """写入前量化到指定位数"""
+        """写入前转为数据库接受的数值类型"""
+        if value is None:
+            return None
         if isinstance(value, Decimal) and value.as_tuple()[2] < self.quantize_exp:
             value = value.quantize(self.quantize_val)
+
+        # SQLite 严格模式下 REAL 列拒绝字符串，必须传入数值
+        if dialect.name == 'sqlite':
+            return float(value)
+        # PostgreSQL 等可直接使用 Decimal
         return value
 
     def result_processor(self, dialect, coltype):

@@ -36,6 +36,12 @@
   filter: invert(80%);
 }
 
+/* 全局样式补充 */
+.hide-global-fab .global-fab,
+.hide-global-fab .back-to-top {
+  display: none !important;
+}
+
 /* ============================================
    🆕 ShowBuy 设计令牌
    ============================================ */

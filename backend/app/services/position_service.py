@@ -140,7 +140,7 @@ class PositionService:
         qty = data.get('quantity', 0)
         price = data.get('avg_price', 0)
         op_type = data.get('op_type', 'buy')
-        asset_type = data.get('type', 'stock')
+        asset_type = data.get('asset_type') or data.get('type', 'stock')
 
         # 现金管理类产品：只记录流水，不创建持仓
         if asset_type in ('money_fund', 'reverse_repo'):

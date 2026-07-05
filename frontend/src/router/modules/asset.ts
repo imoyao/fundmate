@@ -109,11 +109,17 @@ const AssetRouteConfig = {
             showLink: false
           }
         },
+        // 投资理财 → 手动录入
         {
-          path: "inventory/investment/manual",
+          path: "investment/manual",
           name: "InvestmentManual",
           component: () => import("@/views/asset/investment/manual/index.vue"),
-          meta: { title: "手动录入", icon: "ep:edit", rank: 7, showLink: false }
+          meta: {
+            title: "手动记账",
+            icon: "ep:edit",
+            rank: 7,
+            showLink: false
+          }
         },
         {
           path: "inventory/investment/batch",

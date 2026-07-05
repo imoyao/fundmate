@@ -5,7 +5,9 @@
 """
 
 import time
+import traceback
 from datetime import date
+from decimal import Decimal
 from typing import Any, Dict, List
 
 from loguru import logger
@@ -81,10 +83,10 @@ class FundDetailEnrichJob(SyncJob):
                     try:
                         self._update_fund_fees(code, xalpha_fee)
                     except Exception as e:
-                        logger.warning(f'更新基金 {code} 费率失败: {e}')
-                    # 更新时间戳
-                    fund.last_nav_check = now_shanghai()
-                    self.stats['enriched'] += 1
+                        logger.warning(f'更新基金 {code} 费率失败: {e}\n{traceback.format_exc()}')
+                    else:  # ✅ 只有没报错，才执行这行统计和标记
+                        fund.last_nav_check = now_shanghai()
+                        self.stats['enriched'] += 1
 
                 except Exception as e:
                     logger.warning(f'补充基金 {code} 详情失败: {e}')
@@ -200,14 +202,45 @@ class FundDetailEnrichJob(SyncJob):
         if purchase_rate is not None:
             self._save_single_fee(fund_code, 'purchase', rate=purchase_rate, start_quota=0, end_quota=None)
 
-        # 赎回费率阶梯
-        for item in fee_info.get('redemption_schedule', []):
-            self._save_single_fee(
-                fund_code, 'redeem', rate=item['rate'], start_day=item['start_day'], end_day=item['end_day']
-            )
+        # 🔥 关键修复：赎回费率阶梯可能是多个对象的列表，必须循环保存
+        redemption_schedule = fee_info.get('redemption_schedule', [])
+        if isinstance(redemption_schedule, list):
+            for item in redemption_schedule:
+                if isinstance(item, dict):  # 确保只处理字典类型的费率数据
+                    self._save_single_fee(
+                        fund_code,
+                        'redeem',
+                        rate=item.get('rate'),
+                        start_day=item.get('start_day'),
+                        end_day=item.get('end_day'),
+                    )
 
     def _save_single_fee(self, fund_code: str, fee_type: str, **kwargs) -> None:
-        """保存单条费率记录，自动复用已有规则"""
+        """保存单条费率记录，自动复用已有规则
+
+        上游数据为百分数（如 1.5），需转为小数（0.015）存入 Decimal 列。
+        """
+        rate_raw = kwargs.get('rate')
+        fee_amount_raw = kwargs.get('fee_amount')
+
+        # ── 安全的 rate 转换 (小数) ──
+        safe_rate = None
+        if rate_raw is not None:
+            try:
+                # 先转为 Decimal，再除以 100 得到小数
+                safe_rate = Decimal(str(rate_raw)) / Decimal('100')
+            except Exception:
+                safe_rate = Decimal('0')
+
+        # ── 安全的 fee_amount 转换 ──
+        safe_fee_amount = None
+        if fee_amount_raw is not None:
+            try:
+                safe_fee_amount = int(fee_amount_raw)  # Integer 列
+            except (ValueError, TypeError):
+                safe_fee_amount = None
+
+        # 复用或创建规则
         if fee_type == 'purchase':
             rule = self._get_or_create_purchase_rule(kwargs.get('start_quota', 0), kwargs.get('end_quota'))
             purchase_rule_id = rule.id if rule else None
@@ -217,26 +250,28 @@ class FundDetailEnrichJob(SyncJob):
             purchase_rule_id = None
             redeem_rule_id = rule.id if rule else None
 
-        # 检查是否已存在相同关联
+        # 查重
         existing = (
             self.db.query(FeeRatio)
             .filter_by(
-                fund_code=fund_code, fee_type=fee_type, purchase_rule_id=purchase_rule_id, redeem_rule_id=redeem_rule_id
+                fund_code=fund_code,
+                fee_type=fee_type,
+                purchase_rule_id=purchase_rule_id,
+                redeem_rule_id=redeem_rule_id,
             )
             .first()
         )
+
         if not existing:
             fee_ratio = FeeRatio(
                 fund_code=fund_code,
                 fee_type=fee_type,
-                rate=kwargs.get('rate'),
-                fee_amount=kwargs.get('fee_amount'),
+                rate=safe_rate,  # Decimal 小数
+                fee_amount=safe_fee_amount,
                 purchase_rule_id=purchase_rule_id,
                 redeem_rule_id=redeem_rule_id,
             )
             self.db.add(fee_ratio)
-
-    # ── 规则复用方法 ──
 
     def _get_or_create_purchase_rule(self, start_quota: float, end_quota: float = None):
         rule = self.db.query(PurchaseRule).filter_by(start_quota=start_quota, end_quota=end_quota).first()

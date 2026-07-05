@@ -17,6 +17,7 @@ from app.domains.positions.models import Position
 from app.domains.positions.schemas import PositionCreate, PositionOut, PositionUpdate
 from app.domains.transactions.models import Transaction
 from app.services.position_service import PositionService
+from app.services.trade_rules import TradeService
 
 bp = APIBlueprint('positions', __name__, url_prefix='/api/positions/')
 
@@ -45,14 +46,37 @@ def list_positions():
     with get_db() as db:
         query = db.query(Position).order_by(Position.updated_at.desc())
 
-        # 分组模式
         if group_by == 'account':
             positions = query.all()
             result = {}
+
+            # 一次性查询所有持仓的首次买入确认日（性能优化）
+            pos_ids = [p.id for p in positions]
+            first_buy_dates = {}
+            if pos_ids:
+                from sqlalchemy import func
+
+                buy_dates_query = (
+                    db.query(Transaction.position_id, func.min(Transaction.confirm_date).label('confirm_date'))
+                    .filter(
+                        Transaction.position_id.in_(pos_ids),
+                        Transaction.txn_type.in_(['buy', 'deposit']),
+                    )
+                    .group_by(Transaction.position_id)
+                    .all()
+                )
+                first_buy_dates = {row.position_id: row.confirm_date for row in buy_dates_query}
+
             for p in positions:
                 account = p.account_name
                 if account not in result:
                     result[account] = []
+
+                # 获取首次买入确认日
+                buy_confirm = first_buy_dates.get(p.id)
+                if buy_confirm is None:
+                    buy_confirm = p.confirm_date  # 兼容无交易记录的回退
+
                 result[account].append(
                     {
                         'id': p.id,
@@ -68,11 +92,13 @@ def list_positions():
                         'avg_price': Money.cents_to_yuan(p.avg_price),
                         'currency': p.currency,
                         'current_price': Money.cents_to_yuan(p.current_price),
+                        'confirm_date': buy_confirm.isoformat() if buy_confirm else None,
+                        'ledger_id': p.ledger_id,
                     }
                 )
             return jsonify({'data': result, 'message': 'ok'})
 
-        # 分页模式
+        # 分页模式保持不变
         items, total = paginate(query, page=page, per_page=per_page)
         data = [enrich_position_dict(p) for p in items]
         return jsonify({'data': data, 'total': total, 'page': page, 'per_page': per_page, 'message': 'ok'})
@@ -209,3 +235,19 @@ def delete_position(id):
         db.delete(position)
         db.commit()
         return jsonify({'message': 'ok', 'data': None})
+
+
+@bp.post('/validate/')
+def validate_trade_order():
+    data = request.get_json()
+    symbol = data.get('symbol')
+    market = data.get('market', 'CN_A')
+    asset_type = data.get('type')
+    current_hold = data.get('current_hold', 0)
+    order_qty = data.get('order_qty', 0)
+    op_type = data.get('op_type', 'buy')
+
+    # 🔥 核心：一行代码调用你封装好的 TradeService
+    result = TradeService.validate_transaction(symbol, market, asset_type, current_hold, order_qty, op_type)
+
+    return jsonify(result)

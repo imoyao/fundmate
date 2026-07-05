@@ -1,34 +1,30 @@
-/**
- * 交易规则工具
- * 包含最小交易单位、碎股判断、快捷比例常量等。
- */
+// frontend/src/utils/trading.ts
 
 /**
- * 计算最小交易单位（一手股数）
- * 纯函数，便于买入/卖出复用
+ * 计算最小交易单位（一手股数/张数）
+ * 用于前端 UI 的步长控制和最小起购限制
  */
 export function getStep(params: {
   type: string;
   market: string;
   symbol: string;
 }): number {
-  // 场外基金永远按 1 份交易
   if (params.type === "fund") return 1;
 
   const { market, type, symbol } = params;
   if (market === "US" || market === "CRYPTO") return 1;
   if (market === "CN_HK") return 100;
-  if (type === "bond") return 10; // 可转债 10 张
+  if (type === "bond") return 10;
 
   if (type === "stock" || type === "etf") {
-    if (symbol.startsWith("688")) return 200; // 科创板
-    if (symbol.startsWith("8")) return 100;   // 北交所
-    return 100; // 主板、创业板
+    if (symbol.startsWith("688")) return 200;
+    if (symbol.startsWith("8")) return 100;
+    return 100;
   }
   return 1;
 }
 
-/** 是否支持 1 股递增 */
+/** 是否支持 1 股递增（用于碎股卖出场景） */
 export function supportsOneShare(params: {
   type: string;
   market: string;
@@ -42,7 +38,7 @@ export function supportsOneShare(params: {
   return symbol.startsWith("688") || symbol.startsWith("8");
 }
 
-/** 小数精度 */
+/** 小数精度（用于 UI 输入框的控制） */
 export function getPrecision(type: string): number {
   return type === "fund" ? 4 : 0;
 }

@@ -43,6 +43,7 @@ class Transaction(Base, PrimaryKeyMixin, TimestampMixin):
     )
     account_name = Column(String(100))
     import_hash = Column(String(64), nullable=True, comment='导入去重哈希值')
+    extra = Column(Text, nullable=True)  # 用来存 JSON 字符串
     notes = Column(Text)
 
     __table_args__ = (

@@ -9,7 +9,6 @@
 当前版本使用函数式设计，后续可封装为 TradeLotRuleEngine 类。
 """
 
-from loguru import logger
 
 # ---------- 规则配置 ----------
 
@@ -48,14 +47,6 @@ def _get_rule(symbol: str, market: str, asset_type: str) -> dict:
 
 
 def validate_buy(symbol: str, market: str, asset_type: str, current_hold: float, order_qty: float) -> tuple[bool, str]:
-    """
-    买入数量校验。
-    :param asset_type: 资产类别
-    :param market: 所属市场
-    :param symbol: 编码
-    :param current_hold: 现有持仓数量（份额，可带小数）
-    :param order_qty: 本次买入数量（份额，可带小数）
-    """
     if order_qty <= 0:
         return False, '买入数量必须大于0'
     rule = _get_rule(symbol, market, asset_type)
@@ -63,21 +54,20 @@ def validate_buy(symbol: str, market: str, asset_type: str, current_hold: float,
     step = rule['step']
     if current_hold < min_unit:
         return True, ''
-    else:
-        if order_qty < min_unit:
-            msg = f'买入数量不能低于{min_unit}股/张'
-            logger.warning(f'{msg}: symbol={symbol}, current_hold={current_hold}, order_qty={order_qty}, rule={rule}')
-            return False, msg
-        if (order_qty - min_unit) % step != 0:
-            msg = f'买入数量必须符合{min_unit}股/张起，步长{step}'
-            logger.warning(f'{msg}: symbol={symbol}, current_hold={current_hold}, order_qty={order_qty}, rule={rule}')
-            return False, msg
-        return True, ''
+    if order_qty < min_unit:
+        return False, f'买入数量不能低于{min_unit}股/张'
+    # 🔥 核心修复：如果是基金/货币基金，步长永远是1，直接跳过取模运算，彻底杜绝浮点数精度陷阱！
+    if asset_type not in ('fund', 'money_fund') and (order_qty - min_unit) % step != 0:
+        return False, f'买入数量必须符合{min_unit}股/张起，步长{step}'
+    return True, ''
 
 
 def validate_sell(symbol: str, market: str, asset_type: str, total_hold: float, order_qty: float) -> tuple[bool, str]:
     """
     卖出数量校验。
+    :param asset_type:
+    :param market:
+    :param symbol:
     :param total_hold: 总持仓数量（份额，可带小数）
     :param order_qty: 本次卖出数量（份额，可带小数）
     """
@@ -91,19 +81,28 @@ def validate_sell(symbol: str, market: str, asset_type: str, total_hold: float, 
     if order_qty == total_hold:
         return True, ''
     if total_hold < min_unit:
-        msg = f'当前持仓不足{min_unit}股/张，只能一次性全部卖出（当前持有{total_hold}）'
-        logger.warning(f'{msg}: symbol={symbol}, total_hold={total_hold}, order_qty={order_qty}, rule={rule}')
-        return False, msg
+        return False, f'当前持仓不足{min_unit}股/张，只能一次性全部卖出'
     if order_qty < min_unit:
-        msg = f'卖出数量不能低于{min_unit}股/张'
-        logger.warning(f'{msg}: symbol={symbol}, total_hold={total_hold}, order_qty={order_qty}, rule={rule}')
-        return False, msg
+        return False, f'卖出数量不能低于{min_unit}股/张'
     if (order_qty - min_unit) % step != 0:
-        msg = f'卖出数量必须符合{min_unit}股/张起，步长{step}'
-        logger.warning(f'{msg}: symbol={symbol}, total_hold={total_hold}, order_qty={order_qty}, rule={rule}')
-        return False, msg
+        return False, f'卖出数量必须符合{min_unit}股/张起，步长{step}'
     if order_qty != total_hold and (total_hold - order_qty) < min_unit and (total_hold - order_qty) != 0:
-        msg = '禁止单独卖出不足一手的零散持仓'
-        logger.warning(f'{msg}: symbol={symbol}, total_hold={total_hold}, order_qty={order_qty}, rule={rule}')
-        return False, msg
+        return False, '禁止单独卖出不足一手的零散持仓'
     return True, ''
+
+
+class TradeService:
+    """交易规则校验服务（零耦合，直接对接后端）"""
+
+    @staticmethod
+    def validate_transaction(
+        symbol: str, market: str, asset_type: str, current_hold: float, order_qty: float, op_type: str
+    ) -> dict:
+        if op_type == 'buy':
+            valid, msg = validate_buy(symbol, market, asset_type, current_hold, order_qty)
+        elif op_type == 'sell':
+            valid, msg = validate_sell(symbol, market, asset_type, current_hold, order_qty)
+        else:
+            return {'valid': False, 'message': '不支持的操作类型'}
+
+        return {'valid': valid, 'message': msg}

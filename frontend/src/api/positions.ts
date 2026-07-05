@@ -46,3 +46,16 @@ export function deletePosition(id: number, deleteTransactions: boolean = false) 
 export function getPositionTransactions(id: number) {
   return http.request<any>("get", `${BASE_URL}/${id}/transactions/`);
 }
+
+// frontend/src/api/positions.ts 追加
+
+export function validateTradeOrder(data: {
+  symbol: string;
+  market?: string;
+  type: string;
+  current_hold: number;
+  order_qty: number;
+  op_type: 'buy' | 'sell';
+}) {
+  return http.request<any>("post", `${BASE_URL}/validate/`, { data });
+}

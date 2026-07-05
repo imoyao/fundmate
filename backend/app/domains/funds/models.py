@@ -12,7 +12,6 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
-    Numeric,
     String,
     UniqueConstraint,
     text,
@@ -150,7 +149,7 @@ class FeeRatio(Base, PrimaryKeyMixin, TimestampMixin):
 
     fund_code = Column(String(6), ForeignKey('funds.fund_code'), nullable=False, comment='基金代码')
     fee_type = Column(String(20), nullable=False, comment='费率类型: subscribe/purchase/redeem/management')
-    rate = Column(Numeric(10, 6), comment='费率(如0.015000=1.5%)')
+    rate = Column(SafeNumeric(10, 6), comment='费率(如0.015000=1.5%)')
     fee_amount = Column(Integer, comment='固定金额(分)，与rate互斥')
     purchase_rule_id = Column(Integer, ForeignKey('purchase_rules.id'), nullable=True)
     redeem_rule_id = Column(Integer, ForeignKey('redeem_rules.id'), nullable=True)

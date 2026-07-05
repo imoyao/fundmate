@@ -138,7 +138,7 @@
               border: '1px solid var(--border-default)',
               boxShadow: 'var(--shadow-raised)'
             }"
-            @click="$router.push('/inventory/investment/manual')"
+            @click="$router.push('/investment/manual')"
           >
             <div class="flex items-center gap-3">
               <div

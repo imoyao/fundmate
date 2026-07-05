@@ -2,6 +2,8 @@
 # Author : imoyao
 # Date : 2026/5/10 23:00
 # File : conftest.py
+from datetime import date, datetime
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -9,8 +11,6 @@ from sqlalchemy.pool import StaticPool
 
 import app.domains.assets.models  # noqa: F401
 import app.domains.funds.models  # noqa: F401
-
-# 强制导入所有模型，确保它们注册到 Base
 import app.domains.positions.models  # noqa: F401
 import app.domains.price_history.models  # noqa: F401
 import app.domains.securities.models  # noqa: F401
@@ -21,6 +21,7 @@ from app.core.money import Money
 from app.domains.assets.models import Asset
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
+from app.domains.transactions.models import Transaction
 from app.main import create_app
 
 
@@ -119,3 +120,58 @@ def make_asset(db):
         return asset
 
     return _make
+
+
+@pytest.fixture
+def make_transaction(db):
+    """
+    生成一条交易记录 (Transaction) 的 Fixture。
+    自动处理金额、价格、数量的分/最小单位转换。
+    """
+
+    def _make_transaction(
+        position_id: int,
+        ledger_id: int,
+        txn_type: str = 'buy',
+        quantity: float = 100.0,
+        price: float = 1.0,
+        amount: float = None,
+        confirm_date: date = None,  # 确认日，用 date 类型
+        trade_date: datetime = None,  # 🔥 交易日期，统一改成 datetime 类型
+        account_name: str = None,
+        position_name: str = '测试持仓',
+        symbol: str = '000001',
+        **kwargs,
+    ):
+        # 兜底日期
+        from datetime import datetime
+
+        if trade_date is None:
+            # ✅ 保证存入数据库的是带时间的 datetime 对象
+            trade_date = datetime.now()
+        if confirm_date is None:
+            confirm_date = trade_date.date()  # 从 datetime 中提取 date
+
+        if amount is None:
+            amount = quantity * price
+
+        txn = Transaction(
+            position_id=position_id,
+            ledger_id=ledger_id,
+            txn_type=txn_type,
+            symbol=symbol,
+            position_name=position_name,
+            account_name=account_name or '测试账户',
+            quantity=Money.shares_to_min_unit(quantity),
+            price=Money.yuan_to_cents(price),
+            amount=Money.yuan_to_cents(amount),
+            confirm_date=confirm_date,
+            trade_date=trade_date,
+            status='success',
+            **kwargs,
+        )
+        db.add(txn)
+        db.flush()
+        return txn
+
+    return _make_transaction
