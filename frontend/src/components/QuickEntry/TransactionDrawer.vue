@@ -11,7 +11,12 @@
       <div class="flex items-center justify-between w-full">
         <span>记录交易</span>
         <el-tooltip content="导入交割单或手动录入持仓" placement="bottom">
-          <el-button type="text" size="small" @click="goToInventory" class="text-gray-400 hover:text-primary">
+          <el-button
+            type="text"
+            size="small"
+            class="text-gray-400 hover:text-primary"
+            @click="goToInventory"
+          >
             导入持仓 >
           </el-button>
         </el-tooltip>
@@ -43,11 +48,7 @@
 
     <template #footer>
       <el-button @click="visible = false">取消</el-button>
-      <el-button
-        type="primary"
-        :loading="submitting"
-        @click="handleSubmit"
-      >
+      <el-button type="primary" :loading="submitting" @click="handleSubmit">
         确认记账
       </el-button>
     </template>
@@ -57,86 +58,56 @@
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
 import { ElMessage } from "element-plus";
-import { getLedgers } from "@/api/ledger";
 import BuyForm from "./BuyForm.vue";
 import SellForm from "./SellForm.vue";
-import { emitter } from '@/utils/mitt';
+import {
+  useQuickEntry,
+  useQuickEntrySubmit
+} from "@/composables/useQuickEntry";
 
-// ── v-model ──
 const props = defineProps<{ modelValue: boolean }>();
 const emit = defineEmits<{
   (e: "update:modelValue", value: boolean): void;
-  (e: "submitted"): void; // 保持原有事件名
+  (e: "submitted"): void;
 }>();
 
 const visible = computed({
   get: () => props.modelValue,
-  set: (val) => emit("update:modelValue", val),
+  set: val => emit("update:modelValue", val)
 });
 
-// ── 状态 ──
 const opType = ref<"buy" | "sell">("buy");
-const ledgers = ref<any[]>([]);
-const submitting = ref(false);
-
 const buyFormRef = ref<InstanceType<typeof BuyForm>>();
 const sellFormRef = ref<InstanceType<typeof SellForm>>();
 
-// 控制 body 类（抽屉打开时隐藏 fab）
-watch(visible, (val) => {
-  if (val) document.body.classList.add("drawer-open");
-  else document.body.classList.remove("drawer-open");
-});
+const { ledgers, loadLedgers } = useQuickEntry();
+const { submitting, handleSubmit, emitRefresh, resetForms } =
+  useQuickEntrySubmit(opType, buyFormRef, sellFormRef);
 
-// 加载账户
-async function loadLedgers() {
-  try {
-    const res = await getLedgers();
-    let data = (res as any)?.data;
-    if (data && typeof data === "object" && !Array.isArray(data)) {
-      data = data.data ?? data;
-    }
-    ledgers.value = Array.isArray(data) ? data : [];
-  } catch {
-    ledgers.value = [];
+watch(visible, val => {
+  if (val) {
+    document.body.classList.add("drawer-open");
+    loadLedgers();
+  } else {
+    document.body.classList.remove("drawer-open");
   }
-}
-
-// 打开时加载账户
-watch(visible, (val) => {
-  if (val) loadLedgers();
 });
 
-// tab 切换时，子组件内部已有各自的重置逻辑（v-if 销毁），无需额外操作
-function onTabChange() {
-  // v-if 会导致子组件重新创建，自然重置
-}
+function onTabChange() {} // v-if 自动重置
 
-// 子组件提交成功
 function onSubmitSuccess() {
   visible.value = false;
   emit("submitted");
-  // 🔥 新增：无论用户在哪，发送一条全局刷新指令
-  emitter.emit('refresh-ledger-data');
-}
-
-// 提交按钮点击，委托给子组件
-async function handleSubmit() {
-  if (opType.value === "buy") {
-    await buyFormRef.value?.handleSubmit();
-  } else {
-    await sellFormRef.value?.handleSubmit();
-  }
+  emitRefresh();
 }
 
 function resetForm() {
-  // 子组件已经由 v-if 和 destroy-on-close 销毁，无需手动重置
   opType.value = "buy";
+  resetForms();
 }
 
 function goToInventory() {
   visible.value = false;
-  // 如果需要跳转，由父组件统一处理路由，此处仅关闭抽屉
 }
 </script>
 

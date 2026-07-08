@@ -42,6 +42,11 @@ export function estimateRedeemFee(params: RedeemFeeEstimateParams) {
   );
 }
 
+// 在 openFeeRateDialog 附近添加函数
+export function syncFundFees(fundCode: string) {
+  return http.post(`/api/funds/${fundCode}/fee-sync/`);
+}
+
 export function searchFunds(query: string) {
   return http.request<any>("get", "/api/funds/search/", {
     params: { q: query }

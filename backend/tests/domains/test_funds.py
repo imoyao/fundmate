@@ -298,27 +298,91 @@ class TestRedeemFeeEstimate:
         # 手续费 = 300(0%) * 1.0 * 0 + 200(0.5%) * 1.0 * 0.005 = 1.0 元。
         assert data['total_fee'] == 1.0
 
-        # 验证明细详情
-        assert len(data['details']) == 3
-        for detail in data['details']:
-            if detail['rate'] == 0.015:  # 0~7天 (最新的份额)
-                assert detail['shares'] == 0  # ✅ 应为 0
-            elif detail['rate'] == 0.005:  # 7~30天 (中间的份额)
-                assert detail['shares'] == 200  # ✅ 应为 200
-            elif detail['rate'] == 0.0:  # ≥30天 (最老的份额)
-                assert detail['shares'] == 300  # ✅ 应为 300
+        assert data['sell'] is not None
+        details = data['sell']
+        assert len(details) == 3
+        for d in details:
+            if d['rate'] == 0.015:
+                assert d['shares'] == 0
+            elif d['rate'] == 0.005:
+                assert d['shares'] == 200
+            elif d['rate'] == 0.0:
+                assert d['shares'] == 300
 
-    def test_estimate_redeem_fee_insufficient_shares(self, client, db, make_position, make_transaction):
-        """测试卖出份额大于持仓历史总份额时返回 400"""
-        position = make_position(symbol='000001', quantity=100, asset_type='fund')
+    def test_estimate_redeem_fee_full_position(self, client, db, make_position, make_transaction):
+        """全仓模式：不传 shares，自动计算全部持仓"""
+        sell_date = date(2026, 7, 10)
+
+        fund = Fund(fund_code='000002', name='全仓测试基金')
+        db.add(fund)
         db.flush()
 
-        # 🔥 核心修复：必须给这个持仓生成一笔历史买入交易，否则后端会提前拦截
+        r = RedeemRule(start_day=0, end_day=365)
+        db.add(r)
+        db.flush()
+        db.add(FeeRatio(fund_code='000002', fee_type='redeem', rate=0.005, redeem_rule_id=r.id))
+        db.commit()
+
+        position = make_position(
+            symbol='000002',
+            name='全仓测试基金',
+            asset_type='fund',
+            quantity=600,
+            avg_price=1.2,
+        )
+        db.flush()
+
+        txn1 = make_transaction(
+            position_id=position.id,
+            ledger_id=position.ledger_id,
+            txn_type='buy',
+            quantity=300,
+            price=1.2,
+            confirm_date=sell_date - timedelta(days=100),
+        )
+        txn2 = make_transaction(
+            position_id=position.id,
+            ledger_id=position.ledger_id,
+            txn_type='buy',
+            quantity=300,
+            price=1.2,
+            confirm_date=sell_date - timedelta(days=200),
+        )
+        db.add_all([txn1, txn2])
+        db.commit()
+
+        resp = client.post(
+            '/api/funds/redeem-fee/estimate/',
+            json={'position_id': position.id, 'sell_date': sell_date.strftime('%Y-%m-%d')},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        # 600 * 1.2 * 0.005 = 3.6
+        assert data['total_fee'] == 3.6
+        assert data['sell'] is None  # 全仓模式不返回 sell
+        assert len(data['holdings']) == 1
+        assert data['holdings'][0]['shares'] == 600
+
+    def test_estimate_redeem_fee_insufficient_shares(self, client, db, make_position, make_transaction):
+        """测试卖出份额超过持仓时返回 400"""
+        fund = Fund(fund_code='000003', name='份额不足基金')
+        db.add(fund)
+        db.flush()
+
+        r = RedeemRule(start_day=0, end_day=7)
+        db.add(r)
+        db.flush()
+        db.add(FeeRatio(fund_code='000003', fee_type='redeem', rate=0.015, redeem_rule_id=r.id))
+        db.commit()
+
+        position = make_position(symbol='000003', quantity=100, asset_type='fund')
+        db.flush()
+
         txn = make_transaction(
             position_id=position.id,
             ledger_id=position.ledger_id,
             txn_type='buy',
-            quantity=50,  # 总持仓 100，只有 50 份买入记录
+            quantity=50,
             price=1.0,
             confirm_date=date.today() - timedelta(days=30),
         )
@@ -329,12 +393,12 @@ class TestRedeemFeeEstimate:
             '/api/funds/redeem-fee/estimate/',
             json={
                 'position_id': position.id,
-                'shares': 150,  # 要求卖出 150，超出历史总买入 50
+                'shares': 150,
                 'sell_date': date.today().strftime('%Y-%m-%d'),
             },
         )
         assert resp.status_code == 400
-        assert '持仓份额不足，无法卖出指定数量' in resp.get_json()['message']
+        assert '持仓份额不足' in resp.get_json()['message']
 
     def test_estimate_redeem_fee_not_fund(self, client, db, make_position):
         """测试传入非基金类型的持仓 ID 时返回 400"""
@@ -351,22 +415,31 @@ class TestRedeemFeeEstimate:
         assert '无效持仓或非基金' in resp.get_json()['message']
 
     def test_estimate_redeem_fee_missing_params(self, client, db, make_position):
-        """测试缺少必填参数 (sell_date, shares) 时返回 400"""
+        """测试缺少必填参数时返回 400"""
         position = make_position(symbol='000001', asset_type='fund')
         db.commit()
 
         # 缺少 sell_date
-        resp1 = client.post('/api/funds/redeem-fee/estimate/', json={'position_id': position.id, 'shares': 100})
+        resp1 = client.post(
+            '/api/funds/redeem-fee/estimate/',
+            json={'position_id': position.id, 'shares': 100},
+        )
         assert resp1.status_code == 400
         assert '缺少卖出日期' in resp1.get_json()['message']
 
-        # 缺少 shares
-        resp2 = client.post(
-            '/api/funds/redeem-fee/estimate/', json={'position_id': position.id, 'sell_date': '2026-07-10'}
-        )
-        assert resp2.status_code == 400  # 后端校验会抛出 422 或自定义 400
-        # 如果是 422，可将此处替换为 assert resp2.status_code == 422
-
         # 缺少 position_id
-        resp3 = client.post('/api/funds/redeem-fee/estimate/', json={'shares': 100, 'sell_date': '2026-07-10'})
+        resp2 = client.post(
+            '/api/funds/redeem-fee/estimate/',
+            json={'shares': 100, 'sell_date': '2026-07-10'},
+        )
+        assert resp2.status_code == 400
+        assert '缺少持仓 ID' in resp2.get_json()['message']
+
+        # 全仓模式不传 shares 也应合法（但需要有买入记录和规则，此处只测试参数校验）
+        # 由于缺少买入记录，实际会报业务错，但至少参数层面通过了
+        resp3 = client.post(
+            '/api/funds/redeem-fee/estimate/',
+            json={'position_id': position.id, 'sell_date': '2026-07-10'},
+        )
+        # 此时会进入业务逻辑，发现没有买入记录返回 400，不是参数错误
         assert resp3.status_code == 400

@@ -58,6 +58,8 @@
       <el-form-item label="选择持仓" prop="positionId">
         <el-select
           v-model="form.positionId"
+          v-if="showPositionSelect"
+          :key="positionSelectKey"
           class="w-full"
           filterable
           placeholder="选择持仓"
@@ -266,22 +268,63 @@
       <span v-else>未关联现金账户，资金将计入当前账户余额</span>
     </div>
 
-    <!-- 费率查询弹窗 -->
+    <!-- 费率查询弹窗（根据是否有输入份额动态显示列） -->
     <el-dialog
       v-model="feeRateDialogVisible"
-      title="卖出费率分布"
-      width="500px"
+      title="赎回费率分布"
+      width="600px"
       destroy-on-close
     >
-      <el-table :data="feeRateTableData" stripe style="width: 100%">
-        <el-table-column prop="range" label="持有天数" />
-        <el-table-column prop="shares" label="区间份额" align="right" />
-        <el-table-column prop="rate" label="卖出费率" align="right">
-          <template #default="{ row }">
-            {{ (row.rate * 100).toFixed(2) }}%
+      <div v-if="!selectedPosition" class="text-center py-8 text-secondary">
+        请先选择持仓
+      </div>
+      <template v-else>
+        <div class="text-sm mb-3" style="color: var(--text-secondary)">
+          当前持有 {{ maxQuantity.toFixed(4) }} 份
+          <template v-if="enteredShares > 0">
+            ，拟赎回 {{ enteredShares.toFixed(4) }} 份
           </template>
-        </el-table-column>
-      </el-table>
+        </div>
+        <el-table :data="mergedFeeData" stripe style="width: 100%">
+          <el-table-column prop="range" label="持有天数" min-width="100" />
+          <el-table-column prop="rate" label="费率" align="right" width="80">
+            <template #default="{ row }">
+              {{ (row.rate * 100).toFixed(2) }}%
+            </template>
+          </el-table-column>
+          <el-table-column
+            prop="holdShares"
+            label="持有份额"
+            align="right"
+            width="110"
+          />
+          <el-table-column
+            v-if="enteredShares > 0"
+            prop="sellShares"
+            label="卖出份额"
+            align="right"
+            width="110"
+          >
+            <template #default="{ row }">
+              {{ row.sellShares !== null ? row.sellShares : "--" }}
+            </template>
+          </el-table-column>
+        </el-table>
+        <div
+          v-if="maxQuantity > totalCalculatedHold"
+          class="text-xs mt-2"
+          style="color: var(--color-warning)"
+        >
+          注：当前持有 {{ maxQuantity.toFixed(4) }} 份，其中
+          {{
+            totalCalculatedHold.toFixed(4)
+          }}
+          份有买入记录，可用于费率计算，其余份额未纳入分布。
+        </div>
+        <div class="mt-4 text-xs" style="color: var(--text-tertiary)">
+          注：卖出份额按先进先出（FIFO）规则，从最早买入份额开始扣减。
+        </div>
+      </template>
       <template #footer>
         <el-button type="primary" @click="feeRateDialogVisible = false"
           >确定</el-button
@@ -292,8 +335,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, watch } from "vue";
-import { ElMessage } from "element-plus";
+import { ref, reactive, computed, onMounted, watch, nextTick } from "vue";
+import { ElMessage, ElMessageBox } from "element-plus";
 import type { FormInstance, FormRules } from "element-plus";
 import { createPosition, getPositions } from "@/api/positions";
 import { IconifyIconOffline } from "@/components/ReIcon";
@@ -301,7 +344,7 @@ import { LEDGER_TYPE_SHORT } from "@/constants";
 import { getLedgerColor, bgFromColor } from "@/utils/ledger";
 import { validateTradeOrder } from "@/api/positions";
 import { getStep, SELL_QUICK_RATIOS } from "@/utils/trading";
-import { estimateRedeemFee } from "@/api/funds";
+import { estimateRedeemFee, syncFundFees } from "@/api/funds";
 import { calcFundConfirmDate } from "@/api/utils";
 
 const props = defineProps<{
@@ -314,7 +357,10 @@ const emit = defineEmits<{
   (e: "close"): void;
   (e: "go-to-inventory"): void;
   (e: "positions-loaded", ledgerIds: number[]): void;
+  (e: "go-sync"): void;
 }>();
+
+const feeError = ref("");
 
 const defaultForm = () => ({
   ledger_id: null as number | null,
@@ -332,12 +378,16 @@ const defaultForm = () => ({
   fee: 0 as number | undefined
 });
 
+const positionSelectKey = ref(0);
+const showPositionSelect = ref(true);
 const form = reactive(defaultForm());
 const formRef = ref<FormInstance>();
 const positionsByAccount = ref<Record<string, any[]>>({});
 const selectedPosition = ref<any>(null);
 const feeRateDialogVisible = ref(false);
-const feeRateTableData = ref<any[]>([]);
+const feeRateTableData = ref<any[]>([]); // 保留用于兼容，但主要使用 holdFeeDetails
+const holdFeeDetails = ref<any[]>([]); // 全仓持有分布
+const sellFeeData = ref<any[]>([]); // 指定份额分布
 const feeManuallyChanged = ref(false);
 
 const confirmDate = ref("");
@@ -396,7 +446,34 @@ const showIsAfter15 = computed(() => {
   return false;
 });
 
-// 自定义验证器：根据 form.type 动态返回错误消息
+// 计算实际可用于费率计算的买入总份额
+const totalCalculatedHold = computed(() => {
+  return holdFeeDetails.value.reduce((sum, item) => sum + item.shares, 0);
+});
+
+// 当前输入的份额（>0 时有效）
+const enteredShares = computed(() => {
+  const q = form.quantity;
+  return q !== undefined && q !== null && q > 0 ? q : 0;
+});
+
+// 合并全仓和指定份额数据，用于弹窗表格
+const mergedFeeData = computed(() => {
+  const holdData = holdFeeDetails.value;
+  const sellData = sellFeeData.value;
+  if (holdData.length === 0) return [];
+  const sellMap: Record<number, number> = {};
+  sellData.forEach((item: any) => {
+    sellMap[item.rate] = (sellMap[item.rate] || 0) + item.shares;
+  });
+  return holdData.map((h: any) => ({
+    range: h.range,
+    rate: h.rate,
+    holdShares: h.shares,
+    sellShares: sellMap[h.rate] ?? 0
+  }));
+});
+
 const validateQuantity = (_rule: any, value: any, callback: any) => {
   if (value === undefined || value === null || value === "") {
     callback(
@@ -416,14 +493,11 @@ const rules: FormRules = {
   trade_date: [{ required: true, message: "请选择日期", trigger: "change" }]
 };
 
-// emits 定义中增加
-
-
+// ---------- 数据获取 ----------
 async function fetchPositionsByAccount() {
   try {
     const res = await getPositions({ group_by: "account" });
     positionsByAccount.value = (res as any)?.data ?? {};
-    // 提取有持仓的 ledger_id
     const ids = new Set<number>();
     for (const accountName in positionsByAccount.value) {
       const positions = positionsByAccount.value[accountName];
@@ -431,13 +505,14 @@ async function fetchPositionsByAccount() {
         if (p.ledger_id) ids.add(p.ledger_id);
       });
     }
-    emit('positions-loaded', Array.from(ids));
+    emit("positions-loaded", Array.from(ids));
   } catch {
     positionsByAccount.value = {};
-    emit('positions-loaded', []);
+    emit("positions-loaded", []);
   }
 }
 
+// ---------- 交互方法 ----------
 function applySellQuickRatio(ratio: number) {
   const total = maxQuantity.value;
   if (ratio === 1) {
@@ -454,9 +529,34 @@ function applySellQuickRatio(ratio: number) {
   form.quantity = Math.min(target, total);
 }
 
+function clearFormData() {
+  showPositionSelect.value = false;
+  nextTick(() => {
+    const currentLedgerId = form.ledger_id;
+    const defaults = defaultForm();
+    Object.keys(defaults).forEach(key => {
+      (form as any)[key] = defaults[key];
+    });
+    form.ledger_id = currentLedgerId;
+    form.positionId = null;
+
+    selectedPosition.value = null;
+    feeManuallyChanged.value = false;
+    confirmDate.value = "";
+    actualNavDate.value = "";
+    holdFeeDetails.value = [];
+    sellFeeData.value = [];
+    feeRateDialogVisible.value = false;
+
+    +positionSelectKey.value++;
+    formRef.value?.clearValidate();
+    showPositionSelect.value = true;
+  });
+}
+
 function onAccountChange(_ledgerId: number) {
-  form.positionId = null;
-  selectedPosition.value = null;
+  // 直接调用 clearFormData，它内部会保存并恢复 ledger_id
+  clearFormData();
 }
 
 function onPositionSelect(positionId: number) {
@@ -500,21 +600,31 @@ async function fetchConfirmAndNavDate() {
   }
 }
 
+// ---------- 费率请求（改造为使用新后端接口） ----------
 const fetchFundFeeRules = async (
   positionId: number,
   tradeDate: string,
-  shares: number
+  shares?: number
 ) => {
-  const res = await estimateRedeemFee({
+  const payload: any = {
     position_id: positionId,
-    shares: shares,
     sell_date: tradeDate
-  });
+  };
+  if (shares !== undefined && shares !== null && shares > 0) {
+    payload.shares = shares;
+  }
+  const res = await estimateRedeemFee(payload);
+  const data = res.data;
   return {
-    total_fee: res.data?.total_fee || 0,
-    details: (res.data?.details || []).map((r: any) => ({
+    total_fee: data?.total_fee || 0,
+    holdings: (data?.holdings || []).map((r: any) => ({
       range: r.range,
-      shares: (r.shares || 0).toFixed(2),
+      shares: r.shares,
+      rate: r.rate
+    })),
+    sell: (data?.sell || []).map((r: any) => ({
+      range: r.range,
+      shares: r.shares,
       rate: r.rate
     }))
   };
@@ -523,17 +633,21 @@ const fetchFundFeeRules = async (
 const calculateFeeAndRate = async () => {
   if (!selectedPosition.value || form.type !== "fund" || !form.trade_date) {
     form.fee = 0;
-    feeRateTableData.value = [];
+    holdFeeDetails.value = [];
+    sellFeeData.value = [];
+    feeError.value = "";
     return;
   }
   const buyDate = selectedPosition.value.confirm_date;
   if (!buyDate) {
-    feeRateTableData.value = [];
+    holdFeeDetails.value = [];
+    sellFeeData.value = [];
+    feeError.value = "";
     return;
   }
 
   try {
-    const { total_fee, details } = await fetchFundFeeRules(
+    const { total_fee, holdings, sell } = await fetchFundFeeRules(
       selectedPosition.value.id,
       form.trade_date,
       form.quantity || 0
@@ -541,10 +655,22 @@ const calculateFeeAndRate = async () => {
     if (!feeManuallyChanged.value) {
       form.fee = total_fee;
     }
-    feeRateTableData.value = details;
-  } catch (e) {
-    console.warn("费率查询失败", e);
-    feeRateTableData.value = [];
+    holdFeeDetails.value = holdings;
+    sellFeeData.value = sell.length > 0 ? sell : [];
+    feeRateTableData.value = holdings;
+    feeError.value = "";
+  } catch (e: any) {
+    // 从 Axios 错误中提取后端返回的 message
+    let msg = "暂时无法获取费率分布";
+    if (e?.response?.data?.message) {
+      msg = e.response.data.message; // 后端返回的业务错误消息
+    } else if (e?.message) {
+      msg = e.message;
+    }
+    console.warn("费率查询失败", msg, e);
+    holdFeeDetails.value = [];
+    sellFeeData.value = [];
+    feeError.value = msg;
   }
 };
 
@@ -563,14 +689,53 @@ const openFeeRateDialog = async () => {
     );
     return;
   }
-  try {
-    await calculateFeeAndRate();
-    feeRateDialogVisible.value = true;
-  } catch (e) {
-    ElMessage.error("获取费率分布失败，请检查网络或稍后重试");
+  await calculateFeeAndRate();
+
+  if (holdFeeDetails.value.length === 0) {
+    if (feeError.value.includes("暂无赎回费率规则")) {
+      // 自定义弹窗：提供“更新费率”按钮
+      ElMessageBox.confirm(
+        "该基金尚未收录费率信息，是否立即更新？",
+        "费率数据缺失",
+        {
+          confirmButtonText: "立即更新",
+          cancelButtonText: "我知道了",
+          type: "warning",
+          beforeClose: async (action, instance, done) => {
+            if (action === "confirm") {
+              instance.confirmButtonLoading = true;
+              try {
+                await syncFundFees(selectedPosition.value.symbol);
+                ElMessage.success("费率更新成功");
+                // 重新计算费率（此时应该能获取到数据）
+                await calculateFeeAndRate();
+                if (holdFeeDetails.value.length > 0) {
+                  feeRateDialogVisible.value = true; // 打开费率分布弹窗
+                } else {
+                  ElMessage.info("费率已更新但仍无法计算，请手动输入费用");
+                }
+              } catch (e: any) {
+                ElMessage.error("更新失败，请稍后重试或手动输入费用");
+              } finally {
+                instance.confirmButtonLoading = false;
+                done();
+              }
+            } else {
+              done();
+            }
+          }
+        }
+      );
+    } else {
+      ElMessage.error(feeError.value || "暂时无法获取费率分布");
+    }
+    return;
   }
+  // 正常打开费率分布
+  feeRateDialogVisible.value = true;
 };
 
+// ---------- 提交 ----------
 async function handleSubmit() {
   const valid = await formRef.value?.validate().catch(() => false);
   if (!valid) return;
@@ -627,12 +792,14 @@ function resetForm() {
   positionsByAccount.value = {};
   feeManuallyChanged.value = false;
   formRef.value?.resetFields();
+  positionSelectKey.value++;
 
   if (props.hideAccountSelect && props.defaultLedgerId) {
     form.ledger_id = props.defaultLedgerId;
   }
 }
 
+// ---------- 监听 ----------
 watch(
   [
     () => form.trade_date,
@@ -641,6 +808,7 @@ watch(
     () => form.price
   ],
   () => {
+    if (!selectedPosition.value) return;
     fetchConfirmAndNavDate();
     calculateFeeAndRate();
   }
@@ -651,6 +819,7 @@ watch(
   newVal => {
     if (props.hideAccountSelect && newVal) {
       form.ledger_id = newVal;
+      clearFormData();
     }
   },
   { immediate: true }
@@ -667,21 +836,71 @@ defineExpose({ handleSubmit, resetForm });
 .text-xs {
   font-size: 0.75rem;
 }
+
 .quick-ratio-btn {
-  transform-origin: center;
+  height: 40px;
+  padding: 0 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-default);
+  background-color: transparent;
+  color: var(--text-secondary);
+  font-weight: 500;
+  transition:
+    background-color 0.2s,
+    border-color 0.2s,
+    color 0.2s,
+    transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.quick-ratio-btn:hover {
+  background-color: var(--brand-100);
+  border-color: var(--brand-700);
+  color: var(--brand-700);
+}
+
+.quick-ratio-btn:active {
+  transform: scale(0.92);
+  background-color: var(--brand-200);
+  border-color: var(--brand-700);
+  color: var(--brand-700);
+}
+
+:deep(.el-button--primary) {
+  height: 40px;
   transition:
     transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1),
-    border-color 0.2s,
-    color 0.2s;
-  border-color: var(--border-default);
-  color: var(--text-secondary);
+    box-shadow 0.15s;
 }
-.quick-ratio-btn:hover {
-  border-color: var(--color-primary) !important;
-  color: var(--color-primary) !important;
-  background-color: var(--color-primary-10) !important;
+:deep(.el-button--primary:active) {
+  transform: translateY(1px);
+  box-shadow: none !important;
 }
-.quick-ratio-btn:active {
-  transform: scale(0.92) !important;
+
+/* 输入框通用 */
+:deep(.el-input__wrapper) {
+  height: 40px;
+  border-radius: var(--radius-sm);
+  --el-input-border-color: var(--border-default);
+  --el-input-hover-border-color: var(--brand-500);
+  --el-input-focus-border-color: var(--brand-700);
+  --el-input-focus-shadow:
+    inset 0 0 0 1px var(--brand-700), 0 0 0 2px var(--bg-card),
+    0 0 0 4px var(--brand-700);
+}
+
+:deep(.el-select .el-input__wrapper) {
+  height: 40px;
+  border-radius: var(--radius-sm);
+  --el-input-border-color: var(--border-default);
+  --el-input-hover-border-color: var(--brand-500);
+  --el-input-focus-border-color: var(--brand-700);
+  --el-input-focus-shadow:
+    inset 0 0 0 1px var(--brand-700), 0 0 0 2px var(--bg-card),
+    0 0 0 4px var(--brand-700);
+}
+
+/* 避免校验错误过渡闪烁 */
+:deep(.el-form-item__error) {
+  transition: none;
 }
 </style>

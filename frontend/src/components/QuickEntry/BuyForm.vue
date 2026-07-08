@@ -685,7 +685,7 @@ async function onSecuritySelected(option: any) {
   selectedSecurityOption.value = option;
 
   // 🔥 新增：如果是基金，去拉取详细费率（用来更新 subscription_rate）
-  if (option.type === 'fund') {
+  if (option.type === "fund") {
     try {
       const res = await getFundFeeRates(option.symbol);
       const data = res.data;
@@ -696,7 +696,7 @@ async function onSecuritySelected(option: any) {
         selectedSecurityOption.value.subscription_rate = defaultRate;
       }
     } catch (e) {
-      console.warn('拉取详细费率失败', e);
+      console.warn("拉取详细费率失败", e);
     }
   }
 
@@ -796,7 +796,7 @@ async function handleSubmit() {
   // 🔥 修复5：统一计算实际手续费，确保传给后端的是金额（元）
   let finalFee = form.fee || 0;
   // 如果在费率模式，用户填的是百分比，必须转成金额
-  if (feeMode.value === 'rate') {
+  if (feeMode.value === "rate") {
     finalFee = (form.buyAmount || 0) * (form.fee / 100);
   }
 
@@ -867,25 +867,31 @@ watch(
 );
 
 // 🔥 核心修复：监听日期和 15:00 切换，先算确认日，再用确认日拉净值
-watch([() => form.trade_date, () => form.isAfter15, selectedSecurityOption], async () => {
-  fetchTradingDay();
+watch(
+  [() => form.trade_date, () => form.isAfter15, selectedSecurityOption],
+  async () => {
+    fetchTradingDay();
 
-  if (selectedSecurityOption.value?.type === 'fund' && form.trade_date) {
-    await fetchConfirmDate();
+    if (selectedSecurityOption.value?.type === "fund" && form.trade_date) {
+      await fetchConfirmDate();
 
-    if (actualNavDate.value) {
-      try {
-        const res = await calcFundNav([selectedSecurityOption.value.symbol], actualNavDate.value);
-        const navData = (res as any)?.data || [];
-        if (navData.length > 0 && navData[0].unit_nav) {
-          form.price = navData[0].unit_nav;
+      if (actualNavDate.value) {
+        try {
+          const res = await calcFundNav(
+            [selectedSecurityOption.value.symbol],
+            actualNavDate.value
+          );
+          const navData = (res as any)?.data || [];
+          if (navData.length > 0 && navData[0].unit_nav) {
+            form.price = navData[0].unit_nav;
+          }
+        } catch (e) {
+          console.warn("净值获取失败，需用户手动输入", e);
         }
-      } catch (e) {
-        console.warn('净值获取失败，需用户手动输入', e);
       }
     }
   }
-});
+);
 
 // 🔥 核心联动：统一监听【买入金额、手续费、基金净值】。
 // 只要这三个值全了就立刻联动，绝不卡住！
@@ -913,35 +919,70 @@ defineExpose({ handleSubmit, resetForm });
 </script>
 
 <style scoped>
-.quick-add-account {
-  border-color: var(--border-default);
-}
 .text-xs {
   font-size: 0.75rem;
 }
-:deep(.el-select__wrapper) {
-  justify-content: center !important;
-}
-/* 🔥 视觉微雕：融合手续费下拉框与输入框 */
-/* 取消下拉框右侧圆角与边框 */
-:deep(.el-select__wrapper) {
-  border-top-right-radius: 0 !important;
-  border-bottom-right-radius: 0 !important;
-  border-right-color: transparent !important;
-}
-/* 取消数字输入框左侧圆角与边框 */
-:deep(.fee-number-input .el-input__wrapper) {
-  border-top-left-radius: 0 !important;
-  border-bottom-left-radius: 0 !important;
-  border-left-color: transparent !important;
+
+.quick-ratio-btn {
+  height: 40px;
+  padding: 0 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-default);
+  background-color: transparent;
+  color: var(--text-secondary);
+  font-weight: 500;
+  transition:
+    background-color 0.2s,
+    border-color 0.2s,
+    color 0.2s,
+    transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-/* 让日期旁边的 Radio 按钮具备按压反馈 */
-:deep(.el-radio-button__inner:active) {
-  transform: scale(0.95);
+.quick-ratio-btn:hover {
+  background-color: var(--brand-100);
+  border-color: var(--brand-700);
+  color: var(--brand-700);
 }
-:deep(.el-radio-button.is-active .el-radio-button__inner) {
-  background-color: var(--color-danger) !important;
-  border-color: var(--color-danger) !important;
+
+.quick-ratio-btn:active {
+  transform: scale(0.92);
+  background-color: var(--brand-200);
+  border-color: var(--brand-700);
+  color: var(--brand-700);
+}
+
+:deep(.el-button--primary) {
+  height: 40px;
+  transition:
+    transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1),
+    box-shadow 0.15s;
+}
+:deep(.el-button--primary:active) {
+  transform: translateY(1px);
+  box-shadow: none !important;
+}
+
+/* 输入框统一样式（高度、圆角、边框颜色、聚焦阴影） */
+:deep(.el-input__wrapper) {
+  height: 40px;
+  border-radius: var(--radius-sm);
+  --el-input-border-color: var(--border-default);
+  --el-input-hover-border-color: var(--brand-500);
+  --el-input-focus-border-color: var(--brand-700);
+  --el-input-focus-shadow:
+    inset 0 0 0 1px var(--brand-700), 0 0 0 2px var(--bg-card),
+    0 0 0 4px var(--brand-700);
+}
+
+/* 下拉框复用同样变量 */
+:deep(.el-select .el-input__wrapper) {
+  height: 40px;
+  border-radius: var(--radius-sm);
+  --el-input-border-color: var(--border-default);
+  --el-input-hover-border-color: var(--brand-500);
+  --el-input-focus-border-color: var(--brand-700);
+  --el-input-focus-shadow:
+    inset 0 0 0 1px var(--brand-700), 0 0 0 2px var(--bg-card),
+    0 0 0 4px var(--brand-700);
 }
 </style>

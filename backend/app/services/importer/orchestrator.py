@@ -26,7 +26,7 @@ from app.domains.securities.models import Security
 from app.domains.transactions.models import Transaction
 from app.domains.watchlist.models import WatchlistItem
 from app.services.async_backfill import trigger_backfill
-from app.services.fund_data_service import get_fund_nav_map
+from app.services.fund_service import FundService
 from app.services.importer.mappings import OP_TYPE_LABEL, BusinessType
 from app.services.importer.records import SBImportError, StandardTransactionRecord
 from app.services.importer.registry import get_parser
@@ -353,7 +353,7 @@ class ImportOrchestrator:
 
         for dt, symbols in date_groups.items():
             symbol_list = list(symbols)
-            nav_map = get_fund_nav_map(self.db, symbol_list, dt)
+            nav_map = FundService.get_fund_nav_map(self.db, symbol_list, dt)
             for r in needed:
                 if r.confirm_date == dt and r.symbol in nav_map:
                     nav = nav_map[r.symbol]
