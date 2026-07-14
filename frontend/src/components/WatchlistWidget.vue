@@ -7,12 +7,11 @@
       border: '1px solid var(--border-light)'
     }"
   >
-    <!-- 说明文案 -->
     <div
       class="flex-none mb-4 border-b"
       :style="{ borderColor: 'var(--border-light)' }"
     >
-      <p class="text-[10px] pb-3" :style="{ color: 'var(--text-tertiary)' }">
+      <p class="text-xs pb-3" :style="{ color: 'var(--text-tertiary)' }">
         {{ description }}
       </p>
     </div>
@@ -53,7 +52,7 @@
         />
       </div>
 
-      <!-- 表格列表 -->
+      <!-- 表格 -->
       <div
         v-if="!loading && displayItems.length > 0"
         class="flex-1 flex flex-col overflow-x-auto"
@@ -165,10 +164,8 @@
                       backgroundColor: 'var(--brand-100)',
                       color: 'var(--brand-700)'
                     }"
+                    >持仓</span
                   >
-                    持仓
-                  </span>
-                  <!-- 状态标签：场外 -->
                   <span
                     v-if="item.venue === 'OTC'"
                     class="px-1.5 py-0.5 text-[10px] rounded"
@@ -176,11 +173,8 @@
                       backgroundColor: 'var(--bg-soft)',
                       color: 'var(--text-tertiary)'
                     }"
+                    >场外</span
                   >
-                    场外
-                  </span>
-
-                  <!-- 快速记账按钮（统一改为 el-button 的 text 模式） -->
                   <el-button
                     text
                     size="small"
@@ -274,14 +268,6 @@ defineExpose({ hasPinned });
 }
 .table-row-hover:hover {
   background-color: var(--bg-hover) !important;
-}
-
-/* 快速记账按钮悬浮 */
-.quick-edit-btn {
-  color: var(--text-tertiary);
-}
-.quick-edit-btn:hover {
-  color: var(--brand-700);
 }
 
 /* 查看全部链接悬浮 */

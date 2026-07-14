@@ -1,8 +1,7 @@
 # ShowBuy 项目需求规格说明书
 
-**版本**: v4.5.0
-**最后更新**: 2026-07-08
-**核心变更**：赎回费率预览与同步、卖出表单账户切换清空逻辑、费率缺失的用户引导
+**版本**: v4.5.1
+**最后更新**: 2026-07-14
 **状态**: “全面盘点”页面深度重构与性能优化完成；新增全局数据同步组合式函数 `usePageRefresh`；全新提取 `ProductDisplay` 复合列组件；后端新增 `/api/assets/summary/` 轻量汇总接口；投资理财与通用资产数据流向实现按需加载与缓存。
 
 **核心原则**: 本项目为**个人使用、本地优先、完全合规**的投资记账工具。
@@ -15,7 +14,8 @@
 
 | 版本     | 日期 | 变更说明 |
 |--------|------|---------|
-|4.5.0	| 2026-07-08	|赎回费率估算接口全面升级：• /api/funds/redeem-fee/estimate/ 支持全仓（不传 shares）返回持有分布，传入份额时返回卖出分布和费用；• 新增 POST /api/funds/{fund_code}/fee-sync/ 单基金费率同步端点；• 前端 SellForm 增加费率缺失时的即时同步引导，账户切换时清空持仓选择逻辑重构；• 提取 FundService 统一基金数据与费率服务，移除 fund_data_service.py、fund_fee_service.py 冗余文件。|
+| **v4.5.1** | **2026-07-14** | **严重技术债务清理**：<br>• 确认 `get_ledger_summary` 分支逻辑已修复；<br>• 确认前端 API 路径解析问题已消除（Axios 拦截器 + 响应结构统一）；<br>• 确认 `GET /api/ledgers/` 已返回账户摘要数据。 |
+| v4.5.0 | 2026-07-08 | 赎回费率估算接口全面升级：• /api/funds/redeem-fee/estimate/ 支持全仓（不传 shares）返回持有分布，传入份额时返回卖出分布和费用；• 新增 POST /api/funds/{fund_code}/fee-sync/ 单基金费率同步端点；• 前端 SellForm 增加费率缺失时的即时同步引导，账户切换时清空持仓选择逻辑重构；• 提取 FundService 统一基金数据与费率服务，移除 fund_data_service.py、fund_fee_service.py 冗余文件。 |
 | v4.4.1 | 2026-07-02 | 后端数据精度与命名规范化：修复 B5 精度问题，强制 position_ratio 返回 float 类型，消除前端解析歧义。将 Service 层分页方法重命名为 get_positions_paginated 和 get_transactions_paginated，提升代码语义清晰度。 |
 | **v4.4.0** | **2026-07-01** | **重大架构与性能重构**：“全面盘点”页面深度重构，新增后端 `/api/assets/summary/` 轻量汇总接口实现按需加载（首次仅拉取持仓与汇总），解决 500+ 数据量全量加载问题。新增全局组合式函数 `usePageRefresh` 彻底解决记账后页面数据不刷新问题。提取全局组件 `ProductDisplay` 统一资产复合列展示。修正负债正负值计算与展示，统一各章节排版间距与“操作前置”布局。 |
 | **v4.3.7** | **2026-06-27** | **新增通用业务组件规范（SPEC 3.11）**：定义 `MoneyDisplay` 金额展示组件和 `RiseFallText` 涨跌文本组件的 Props、使用示例及编码红线，确保全站金额/涨跌展示统一。 |
@@ -608,8 +608,8 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 
 |方法|接口路径|功能说明|
 |---|---|---|
-|POST	|/api/funds/redeem-fee/estimate/|	预估基金赎回费用及费率分布，支持全仓与指定份额模式|
-|POST|	/api/funds/{fund_code}/fee-sync/|	同步单只基金的申购/赎回费率信息|
+|POST|/api/funds/redeem-fee/estimate/|预估基金赎回费用及费率分布，支持全仓与指定份额模式|
+|POST|/api/funds/{fund_code}/fee-sync/|同步单只基金的申购/赎回费率信息|
 |GET/POST|/api/positions/|持仓列表查询、新增持仓|
 |PATCH/DELETE|/api/positions/{id}/|更新、删除单条持仓（支持 `delete_transactions` 参数）|
 |**GET**|**/api/positions/{id}/transactions/**|**获取持仓的关联交易明细**|
@@ -718,8 +718,8 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 |---|---|---|---|
 | （保留原 4 个后端 BUG） | 🔴 致命 | `Position.current_price`(分) × `Position.quantity`(最小单位) 正确市值(分) = 乘积 / 1,000,000，代码中 `/10000` 导致放大 100 倍；同时 Python 聚合和 SQL 聚合返回的数据单位不一致（分 vs 元），前端展示混乱 | 统一改为 Python 聚合调用 `Money.multiply_price_quantity` + `Money.cents_to_yuan`，移除所有 SQL 市值聚合 |
 | **成交价格与净值自动填充及校验接口** | 中 | 目前买入/卖出仅依赖手动输入价格。为提升用户体验并防止误操作，需要后端提供股票/基金的当日价格区间（股票需要最高/最低价校验，基金需要按确认日净值自动回填）。 | **P2 阶段细化实现**。设计接口：股票（`GET /api/securities/{symbol}/price-range/?date=...`），基金（`GET /api/funds/{code}/nav/?date=...`）。前端在 `BuyForm` 和 `SellForm` 选中产品后调用，自动填入默认值，并限制用户输入的数值在价格区间内（用于股票）。 |
-| （保留原 `get_ledger_summary` 问题） | 🔴 严重 | bank/property 分支写在 `if ledger_type in ('stock','fund')` 的 elif 中，永远不执行 | 将 bank/property 提升为与 stock/fund 同级的独立分支 |
-| （保留原前端 API 路径问题） | 🔴 严重 | 后端返回 `{data: [...], total, page}`，前端解析为 `res.data.data` | 后端统一包裹为 `{data: {items, total, page, per_page}}` |
+| ~~（保留原 `get_ledger_summary` 问题）~~ | ~~🔴 严重~~ **✅ 已修复** | ~~bank/property 分支写在 `if ledger_type in ('stock','fund')` 的 elif 中，永远不执行~~ | ~~将 bank/property 提升为与 stock/fund 同级的独立分支~~ |
+| ~~（保留原前端 API 路径问题）~~ | ~~🔴 严重~~ **✅ 已修复** | ~~后端返回 `{data: [...], total, page}`，前端解析为 `res.data.data`~~ | ~~后端统一包裹为 `{data: {items, total, page, per_page}}`~~ |
 | 腾讯理财通格式复杂 | 中 | 理财通导出格式非标准CSV，需专门解析器 | P2 实现 |
 | 孤儿交易无自动回填机制 | 中 | 需定时任务扫描并关联后续新增的持仓 | P1-20 实现 |
 | 持仓分布可视化缺失 | 中 | 仪表盘仅有总资产展示，无配置结构图 | P1-15 实现 |
@@ -743,7 +743,7 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 | `positions.type` 列存在 NULL/空值 | **已消除** | 部分导入解析器/手动录入未写入 `asset_type` | 数据库验证已清零，所有入口均已适配 |
 | `get_money_fund_stats` 调用传入 `ledger.name` 而非 `ledger.id` | ~~🟡 中~~ **✅ 已验证** | 原怀疑参数类型错误 | 代码审查确认已传入 `ledger.id`，货基统计正常 |
 | `delete_ledger` / `migrate_positions` 未跟随 `ledger_id` 迁移 | ~~🟡 中~~ **✅ 已验证** | 原怀疑仍用字符串过滤 | 已改为 `Position.ledger_id == ledger_id`，迁移同步更新快照 |
-| **`GET /api/ledgers/` 未返回账户摘要数据** | 🔴 严重 | 列表页卡片依赖 `total_market_value`、`pnl`、`position_count` 等字段，但接口只返回基础字段 | 在 `list_ledgers` 中为每个账户附加摘要统计 |
+| **`GET /api/ledgers/` 未返回账户摘要数据** | ~~🔴 严重~~ **✅ 已修复** | 列表页卡片依赖 `total_market_value`、`pnl`、`position_count` 等字段，但接口只返回基础字段 | 在 `list_ledgers` 中为每个账户附加摘要统计 |
 | **`position_ratio` 返回类型不一致** | 🟡 中 | `get_position_page` 中 `round()` 结果可能因单位混用而异常，且类型可能是 float 或 str | **✅ 已验证，已修复。在 v4.4.1 中强制转为 `float(0.0)` 兜底，消除了前端解析歧义。** |
 | **同花顺解析器操作类型映射不完整** | 中 | `test_ths_otc_cash_format` 测试中 `OTC现金宝交` 的操作类型无法从映射表确定方向，测试被跳过 | 完善 `THS_OP_TYPE_MAP` 映射，补全测试断言 |
 | **`get_ledgers_overview` 中总资产计算依赖净资产的推导** | 低 | 当前总资产通过 `net_worth + liability_total` 反推，而非直接从各组市值汇总 | 在 Service 层增加 `total_assets` 字段，直接汇总各类型市值 |
@@ -771,6 +771,7 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 
 | 决策日期       | 决策主题                                      | 完整决策细节 |
 |------------|-------------------------------------------|-------------|
+| 2026-07-14 | **v4.5.1 严重技术债务清理** | 确认三个严重 Bug 已修复：`get_ledger_summary` 分支逻辑、前端 API 路径解析、`GET /api/ledgers/` 摘要数据返回。修改相应的技术债务状态为“✅ 已修复”。 |
 | 2026-07-08 | 	**赎回费率估算与单基金费率同步策略**                     |	决定将赎回费率估算接口重构为一次请求返回全仓持有分布（holdings）和指定份额卖出分布（sell），前端不再并行请求两次。同时，当费率数据缺失时，不自动跳转，而是通过 POST /api/funds/{fund_code}/fee-sync/ 允许用户在当前页面一键同步费率，避免上下文丢失。后端服务层合并 fund_data_service.py 和 fund_fee_service.py 为 FundService，消除重复，遵循“薄视图、厚服务”原则。|
 |2026-07-08| 	**卖出表单账户切换清空交互优化**	                      |经过多次尝试，最终采用 v-if + :key + nextTick 组合方式，在赎回操作切换账户时强制清空持仓下拉框，避免残留旧持仓数据。申购操作（BuyForm）保持原有行为，只清空产品选择。该逻辑被封装在 SellForm 的 clearFormData 中，不影响其他组件。|
 | 2026-07-02 | 后端 Service 命名规范化与 B5 精度强制                 | 将 LedgerService 中模糊的分页方法 get_position_page 和 get_transaction_page 重命名为 get_positions_paginated 和 get_transactions_paginated。同时修复 position_ratio 精度隐患，当 total_mv_cents 为 0 时，明确返回 float(0.0) 而不是整数 0，从源头彻底消除前端数字类型解析隐患。 |
@@ -850,7 +851,7 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 # 13. 断点续传协议
 
 后续任何会话接续开发，只需携带：
-1. 本完整 SPEC 文档（v4.4.0）
+1. 本完整 SPEC 文档（v4.5.1）
 2. 当前进度一句话
 3. 核心文件清单
 4. 最新的报错截图或要解决的具体问题

@@ -55,6 +55,11 @@ export function createWatchlistGroup(data: { name: string; color?: string }) {
   return http.request<any>("post", "/api/watchlist/groups/", { data });
 }
 
+/** 更新自定义分组名称或颜色 */
+export function updateWatchlistGroup(id: number, data: { name?: string; color?: string }) {
+  return http.request<any>("patch", `/api/watchlist/groups/${id}/`, { data });
+}
+
 export function deleteWatchlistGroup(id: number) {
   return http.request<any>("delete", `/api/watchlist/groups/${id}/`);
 }
