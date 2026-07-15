@@ -1,7 +1,7 @@
 <template>
   <el-dialog
-    class="add-watchlist-dialog"
     v-model="visible"
+    class="add-watchlist-dialog"
     title="添加自选资产"
     width="520px"
     destroy-on-close
@@ -20,9 +20,9 @@
           placeholder="输入代码或名称搜索..."
           :remote-method="remoteSearch"
           :loading="searchLoading"
-          @change="onAssetSelected"
           clearable
           class="w-full"
+          @change="onAssetSelected"
         >
           <el-option
             v-for="item in searchResults"
@@ -57,7 +57,8 @@
           <el-tag
             v-if="!assetAlreadyExists"
             size="small"
-            :style="venueTagStyle(selectedAsset.venue)"
+            class="venue-tag"
+            :class="selectedAsset.venue === 'OTC' ? 'tag-otc' : 'tag-exchange'"
           >
             {{ selectedAsset.venue === "OTC" ? "场外" : "场内" }}
           </el-tag>
@@ -100,6 +101,7 @@
             >加入分组（可选）</span
           >
           <el-select
+            ref="groupSelectRef"
             v-model="selectedGroupIds"
             multiple
             filterable
@@ -107,7 +109,6 @@
             class="w-full"
             size="small"
             @change="handleGroupSelect"
-            ref="groupSelectRef"
           >
             <el-option
               v-for="g in availableGroups"
@@ -118,8 +119,10 @@
               <div class="flex items-center gap-2">
                 <span
                   class="w-3 h-3 rounded-full"
-                  :style="{ backgroundColor: g.color || '#C5C9B8' }"
-                ></span>
+                  :style="{
+                    backgroundColor: g.color || 'var(--text-disabled)'
+                  }"
+                />
                 <span>{{ g.name }}</span>
               </div>
             </el-option>
@@ -154,8 +157,10 @@
                 <div class="flex items-center gap-2">
                   <span
                     class="w-3 h-3 rounded-full"
-                    :style="{ backgroundColor: tag.color || '#C5C9B8' }"
-                  ></span>
+                    :style="{
+                      backgroundColor: tag.color || 'var(--text-disabled)'
+                    }"
+                  />
                   <span>{{ tag.name }}</span>
                 </div>
               </el-option>
@@ -181,12 +186,8 @@
               <button
                 v-for="c in presetColors"
                 :key="c"
-                class="w-5 h-5 rounded-full border-2 transition-colors cursor-pointer"
-                :class="
-                  newTagColor === c
-                    ? 'border-gray-800 scale-110'
-                    : 'border-transparent'
-                "
+                class="color-swatch-btn"
+                :class="newTagColor === c ? 'is-selected' : ''"
                 :style="{ backgroundColor: c }"
                 @click="newTagColor = c"
               />
@@ -237,14 +238,14 @@ import { ElMessage } from "element-plus";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import { searchSecurities } from "@/api/securities";
 import { searchFunds } from "@/api/funds";
-import { http } from "@/utils/http";
 import {
   getWatchlistGroups,
   getWatchlistTags,
   createWatchlistTag,
   addItemToGroup,
   addTagToItem,
-  getWatchlistItems
+  getWatchlistItems,
+  createWatchlistItem // ✅ 新增 API 封装
 } from "@/api/watchlist";
 import type { WatchlistGroup, WatchlistTag } from "@/api/watchlist";
 
@@ -319,7 +320,7 @@ const fetchTags = async () => {
     availableTags.value =
       (res as any).data?.map((tag: WatchlistTag) => ({
         ...tag,
-        color: tag.color || "#C5C9B8"
+        color: tag.color || "var(--text-disabled)"
       })) ?? [];
   } catch (e) {
     console.error("获取标签失败：", e);
@@ -430,25 +431,28 @@ const handleSubmit = async () => {
   }
   submitting.value = true;
   try {
-    const itemRes = await http.request("post", "/api/watchlist/items/", {
-      data: {
-        symbol: selectedAsset.value.symbol,
-        market: selectedAsset.value.market,
-        asset_type: selectedAsset.value.type,
-        venue:
-          selectedAsset.value.venue ||
-          (selectedAsset.value.type === "fund" ? "OTC" : "EXCHANGE"),
-        add_reason: addReason.value || undefined,
-        is_pinned: pinToTop.value
-      }
+    // 创建自选资产
+    const itemRes = await createWatchlistItem({
+      symbol: selectedAsset.value.symbol,
+      market: selectedAsset.value.market,
+      asset_type: selectedAsset.value.type,
+      venue:
+        selectedAsset.value.venue ||
+        (selectedAsset.value.type === "fund" ? "OTC" : "EXCHANGE"),
+      add_reason: addReason.value || undefined,
+      is_pinned: pinToTop.value
     });
     const newItem = (itemRes as any).data;
+
+    const promises: Promise<any>[] = [];
     for (const gid of selectedGroupIds.value) {
-      await addItemToGroup(newItem.id, gid);
+      promises.push(addItemToGroup(newItem.id, gid));
     }
     for (const tid of selectedTagIds.value) {
-      await addTagToItem(newItem.id, tid);
+      promises.push(addTagToItem(newItem.id, tid));
     }
+    await Promise.all(promises);
+
     ElMessage.success("资产已成功添加到自选！");
     visible.value = false;
     emit("submitted");
@@ -461,7 +465,7 @@ const handleSubmit = async () => {
   }
 };
 
-// 工具方法：使用 CSS 变量或设计系统颜色
+// 工具方法
 const getMarketColor = (market: string): string => {
   const map: Record<string, string> = {
     HK: "var(--chart-04)",
@@ -491,14 +495,6 @@ const getTypeLabel = (type: string): string => {
     index: "指数"
   };
   return map[type] || type;
-};
-
-const venueTagStyle = (venue: string) => {
-  return {
-    backgroundColor: venue === "OTC" ? "var(--brand-100)" : "var(--bg-soft)",
-    color: venue === "OTC" ? "var(--brand-700)" : "var(--text-secondary)",
-    border: "none"
-  };
 };
 
 const resetForm = () => {
@@ -568,8 +564,40 @@ onMounted(async () => {
   padding: 0 8px;
 }
 
+/* venue 类型标签 */
+.venue-tag.tag-otc {
+  background-color: var(--brand-100);
+  color: var(--brand-700);
+  border: none;
+}
+.venue-tag.tag-exchange {
+  background-color: var(--bg-soft);
+  color: var(--text-secondary);
+  border: none;
+}
+
 /* 颜色选择按钮 */
-:deep(.flex.gap-1 button) {
+.color-swatch-btn {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid transparent;
   cursor: pointer;
+  transition: all 0.2s ease;
+}
+.color-swatch-btn.is-selected {
+  border-color: var(--brand-700);
+  transform: scale(1.15);
+  box-shadow:
+    0 0 0 2px var(--bg-card),
+    0 0 0 4px var(--brand-700);
+}
+
+/* 全局焦点环（确保所有可交互元素有键盘反馈） */
+:deep(.el-button:focus-visible),
+:deep(.el-input__wrapper:focus-within),
+:deep(.el-select .el-input__wrapper:focus-within),
+:deep(.el-switch:focus-visible .el-switch__core) {
+  box-shadow: var(--focus-ring) !important;
 }
 </style>

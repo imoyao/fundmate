@@ -14,7 +14,7 @@ class WatchlistItemCreate(BaseModel):
     symbol: str = Field(..., max_length=50, description='标准化代码')
     market: Optional[str] = Field(None, max_length=10, description='市场代码')
     asset_type: Optional[str] = Field(None, max_length=20, description='资产类型')
-    venue: Optional[str] = Field('EXCHANGE', max_length=10, description='交易场所')
+    venue: Optional[str] = Field(None, max_length=10, description='交易场所')
     add_reason: Optional[str] = Field(None, max_length=500, description='关注理由')
     is_pinned: Optional[bool] = Field(False, description='置顶自选')
 

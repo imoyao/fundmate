@@ -102,20 +102,30 @@
             @click="activeGroup = group.key"
           >
             <!-- 编辑态 -->
-            <template v-if="editingGroupId !== null && group.key === `custom_${editingGroupId}`">
-  <el-input
-    v-model="editGroupName"
-    size="small"
-    class="flex-1 mr-1"
-    @blur="saveEditGroup"
-    @keyup.enter="saveEditGroup"
-    @keyup.esc="cancelEditGroup"
-    @click.stop
-  />
-  <el-button link size="small" @click.stop="cancelEditGroup" class="shrink-0">
-    <IconifyIconOffline icon="ep:close" class="text-xs" />
-  </el-button>
-</template>
+            <template
+              v-if="
+                editingGroupId !== null &&
+                group.key === `custom_${editingGroupId}`
+              "
+            >
+              <el-input
+                v-model="editGroupName"
+                size="small"
+                class="flex-1 mr-1"
+                @blur="saveEditGroup"
+                @keyup.enter="saveEditGroup"
+                @keyup.esc="cancelEditGroup"
+                @click.stop
+              />
+              <el-button
+                link
+                size="small"
+                class="shrink-0"
+                @click.stop="cancelEditGroup"
+              >
+                <IconifyIconOffline icon="ep:close" class="text-xs" />
+              </el-button>
+            </template>
             <!-- 正常态 -->
             <template v-else>
               <div class="flex items-center gap-2">
@@ -142,26 +152,30 @@
               </span>
               <Transition name="fade-scale">
                 <div
-                  v-if="hoveringGroupKey === group.key && group.key.startsWith('custom_') && !editingGroupId"
+                  v-if="
+                    hoveringGroupKey === group.key &&
+                    group.key.startsWith('custom_') &&
+                    !editingGroupId
+                  "
                   class="flex items-center gap-0.5"
                   @click.stop
                   @mouseenter.stop
-              >
-                <el-button link size="small" @click="startEditGroup(group)">
-                  <IconifyIconOffline icon="ep:edit" class="text-xs" />
-                </el-button>
-                <el-popconfirm
-                  title="确定删除该分组？分组内的资产不会被删除。"
-                  :teleported="false"
-                  @confirm="deleteGroupConfirm(group)"
                 >
-                  <template #reference>
-                    <el-button link size="small" type="danger">
-                      <IconifyIconOffline icon="ep:delete" class="text-xs" />
-                    </el-button>
-                  </template>
-                </el-popconfirm>
-              </div>
+                  <el-button link size="small" @click="startEditGroup(group)">
+                    <IconifyIconOffline icon="ep:edit" class="text-xs" />
+                  </el-button>
+                  <el-popconfirm
+                    title="确定删除该分组？分组内的资产不会被删除。"
+                    :teleported="false"
+                    @confirm="deleteGroupConfirm(group)"
+                  >
+                    <template #reference>
+                      <el-button link size="small" type="danger">
+                        <IconifyIconOffline icon="ep:delete" class="text-xs" />
+                      </el-button>
+                    </template>
+                  </el-popconfirm>
+                </div>
               </Transition>
             </div>
           </div>
@@ -177,6 +191,31 @@
           boxShadow: 'var(--shadow-raised)'
         }"
       >
+        <!-- 资产类型快捷筛选胶囊 -->
+        <div class="flex items-center gap-2 mb-3">
+          <button
+            v-for="item in VENUE_FILTER_OPTIONS"
+            :key="item.value"
+            class="px-3 py-1 text-xs rounded-full border transition-colors cursor-pointer"
+            :class="
+              currentVenueFilter === item.value
+                ? 'bg-[var(--brand-100)] text-[var(--brand-700)] border-[var(--brand-400)]'
+                : 'bg-transparent text-[var(--text-secondary)] border-[var(--border-default)] hover:bg-[var(--bg-hover)]'
+            "
+            @click="setVenueFilter(item.value)"
+          >
+            {{ item.label }}
+            <template v-if="item.value === 'all'">{{
+              venueStats.total
+            }}</template>
+            <template v-if="item.value === 'EXCHANGE'">{{
+              venueStats.exchange
+            }}</template>
+            <template v-if="item.value === 'OTC'">{{
+              venueStats.otc
+            }}</template>
+          </button>
+        </div>
         <!-- 标签筛选与批量管理 -->
         <div class="flex flex-wrap items-center justify-between mb-4 gap-2">
           <p
@@ -276,6 +315,11 @@
                   :symbol="row.symbol"
                   :type-label="row.type_label || ''"
                 />
+                <!-- 基金标识 -->
+                <span
+                  v-if="row.venue === 'OTC'"
+                  class="fund-tag"
+                >[基]</span>
                 <div class="flex items-center gap-1 flex-shrink-0">
                   <template v-if="row.tag_ids && row.tag_ids.length > 0">
                     <el-tag
@@ -336,16 +380,27 @@
           <el-table-column
             prop="change_pct"
             label="涨跌幅"
-            width="90"
+            width="100"
             align="right"
           >
             <template #default="{ row }">
-              <RiseFallText
+              <span
                 v-if="row.change_pct != null"
-                :value="row.change_pct"
-                suffix="%"
-                size="sm"
-              />
+                class="inline-block px-1.5 py-0.5 rounded text-xs font-medium"
+                :class="{ 'font-bold': Math.abs(row.change_pct) >= 2 }"
+                :style="{
+                  backgroundColor:
+                    row.change_pct >= 0
+                      ? 'rgba(227, 79, 56, 0.08)'
+                      : 'rgba(123, 196, 154, 0.1)',
+                  color:
+                    row.change_pct >= 0
+                      ? 'var(--color-rise)'
+                      : 'var(--color-fall)'
+                }"
+              >
+                {{ row.change_pct >= 0 ? '▲' : '▼' }}{{ Math.abs(row.change_pct).toFixed(2) }}%
+              </span>
               <span v-else :style="{ color: 'var(--text-tertiary)' }">--</span>
             </template>
           </el-table-column>
@@ -767,7 +822,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from "vue";
+import {
+  ref,
+  computed,
+  onMounted,
+  onBeforeUnmount,
+  watch,
+  nextTick
+} from "vue";
 import { Search, Close, Delete } from "@element-plus/icons-vue";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import { ElMessage, ElMessageBox } from "element-plus";
@@ -897,6 +959,22 @@ const hoveringGroupKey = ref<string | null>(null);
 const editingGroupId = ref<number | null>(null);
 const editGroupName = ref("");
 
+const venueStats = computed(() => {
+  const total = items.value.length;
+  const exchange = items.value.filter(i => i.venue === "EXCHANGE").length;
+  const otc = items.value.filter(i => i.venue === "OTC").length;
+  return { total, exchange, otc };
+});
+
+// 资产类型筛选选项
+const VENUE_FILTER_OPTIONS = [
+  { label: "全部", value: "all" },
+  { label: "股票", value: "EXCHANGE" },
+  { label: "基金", value: "OTC" }
+] as const;
+
+const currentVenueFilter = ref<"all" | "EXCHANGE" | "OTC">("all");
+
 // 🆕 批量操作
 const batchMode = ref(false);
 const selectedItems = ref<WatchlistItem[]>([]);
@@ -955,6 +1033,9 @@ const fetchParams = computed(() => {
       });
     }
   }
+  if (currentVenueFilter.value !== "all") {
+    params.venue = currentVenueFilter.value;
+  }
   if (currentView.value === "exchange") params.venue = "EXCHANGE";
   else if (currentView.value === "otc") params.venue = "OTC";
   if (searchKeyword.value) params.q = searchKeyword.value;
@@ -972,6 +1053,11 @@ function toggleBatchMode() {
   if (!batchMode.value) {
     selectedItems.value = [];
   }
+}
+
+function setVenueFilter(venue: "all" | "EXCHANGE" | "OTC") {
+  currentVenueFilter.value = venue;
+  fetchData();   // 始终使用 fetchData，它会从 fetchParams 中读取 currentVenueFilter
 }
 
 function handleSelectionChange(selection: WatchlistItem[]) {
@@ -1014,15 +1100,20 @@ function startEditGroup(group: any) {
     editGroupName.value = group.label;
     // 添加全局点击监听，点击外部取消编辑
     nextTick(() => {
-      if (outsideClickHandler) document.removeEventListener('click', outsideClickHandler);
+      if (outsideClickHandler)
+        document.removeEventListener("click", outsideClickHandler);
       outsideClickHandler = (e: MouseEvent) => {
         const target = e.target as HTMLElement;
         // 点击在分组项内部或弹窗内不取消
-        if (target.closest('.group-item') || target.closest('.el-popconfirm')) return;
+        if (target.closest(".group-item") || target.closest(".el-popconfirm"))
+          return;
         cancelEditGroup();
       };
       // 延迟绑定，避免立即触发起始按钮的 click
-      setTimeout(() => document.addEventListener('click', outsideClickHandler!), 0);
+      setTimeout(
+        () => document.addEventListener("click", outsideClickHandler!),
+        0
+      );
     });
   } else {
     ElMessage.info("系统分组暂不支持编辑");
@@ -1033,7 +1124,7 @@ function cancelEditGroup() {
   editingGroupId.value = null;
   editGroupName.value = "";
   if (outsideClickHandler) {
-    document.removeEventListener('click', outsideClickHandler);
+    document.removeEventListener("click", outsideClickHandler);
     outsideClickHandler = null;
   }
 }
@@ -1050,7 +1141,7 @@ async function saveEditGroup() {
   }
   try {
     await updateWatchlistGroup(editingGroupId.value, {
-      name: editGroupName.value.trim(),
+      name: editGroupName.value.trim()
     });
     ElMessage.success("分组已更新");
     cancelEditGroup();
@@ -1234,7 +1325,7 @@ async function executeRemove() {
 
 onBeforeUnmount(() => {
   if (outsideClickHandler) {
-    document.removeEventListener('click', outsideClickHandler);
+    document.removeEventListener("click", outsideClickHandler);
     outsideClickHandler = null;
   }
 });
@@ -1502,6 +1593,17 @@ onMounted(() => {
   opacity: 1;
 }
 
+/* 基金标识标签 */
+.fund-tag {
+  font-size: 10px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background-color: var(--brand-100);
+  color: var(--brand-700);
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
 /* 编辑标签时的输入框宽度控制 */
 .edit-tag-input {
   width: 100px;
@@ -1654,5 +1756,14 @@ onMounted(() => {
     border-radius: var(--radius-sm);
     --el-input-border-color: var(--border-default);
   }
+}
+
+/* 操作列按钮默认隐藏，行悬停时浮现 */
+:deep(.el-table__row .el-button) {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+:deep(.el-table__row:hover .el-button) {
+  opacity: 1;
 }
 </style>

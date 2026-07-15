@@ -47,6 +47,18 @@ export interface WatchlistGroup {
   count: number;         // 新增：资产数量
 }
 
+/** 创建自选资产 */
+export function createWatchlistItem(data: {
+  symbol: string;
+  market?: string;
+  asset_type?: string;
+  venue?: string;
+  add_reason?: string;
+  is_pinned?: boolean;
+}) {
+  return http.request<any>("post", "/api/watchlist/items/", { data });
+}
+
 export function getWatchlistGroups() {
   return http.request<any>("get", "/api/watchlist/groups/");
 }

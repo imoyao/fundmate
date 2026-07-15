@@ -11,10 +11,9 @@ from datetime import date
 from apiflask import APIBlueprint
 from flask import Response, abort, jsonify, request
 from loguru import logger
-from sqlalchemy import desc, distinct, func, select
+from sqlalchemy import desc, func
 
 from app.core.database import get_db
-from app.core.symbol_utils import get_normalizer
 from app.core.utils import api_response, with_db
 from app.domains.funds.models import Fund
 from app.domains.positions.models import Position
@@ -38,8 +37,12 @@ from app.domains.watchlist.schemas import (
     WatchlistTagDefOut,
     WatchlistTagDefUpdate,
 )
-from app.services.async_backfill import trigger_backfill
-from app.services.watchlist_service import build_groups_data
+from app.services.watchlist_service import (
+    build_groups_data,
+    build_home_summary,
+    create_watchlist_item,
+    get_filtered_items_query,
+)
 
 watchlist_bp = APIBlueprint('watchlist', __name__, url_prefix='/api/watchlist')
 
@@ -94,151 +97,38 @@ def _compute_avg_current_price(symbol, db):
 
 @watchlist_bp.get('/home-summary/')
 def home_summary():
-    """首页自选摘要：置顶优先，无置顶时按持仓市值降序，最多5条"""
+    """首页自选摘要"""
     with get_db() as db:
-        # 1. 获取置顶资产（按置顶时间倒序，最多6个，后续截断）
-        pinned = (
-            db.query(WatchlistItem)
-            .filter(WatchlistItem.is_pinned)
-            .order_by(WatchlistItem.pinned_at.desc())
-            .limit(6)
-            .all()
-        )
-
-        result_items = list(pinned)
-        pinned_ids = {item.id for item in pinned}
-
-        # 2. 如果不足5个，补充持仓资产
-        if len(result_items) < 5:
-            needed = 5 - len(result_items)
-            # 子查询：持仓市值汇总
-            market_value_subq = (
-                db.query(Position.symbol, func.sum(Position.quantity * Position.current_price).label('market_value'))
-                .group_by(Position.symbol)
-                .subquery()
-            )
-
-            # 查询状态为HOLDING的watchlist资产，并关联持仓市值
-            holding_items = (
-                db.query(WatchlistItem, market_value_subq.c.market_value)
-                .filter(WatchlistItem.status == 'HOLDING', ~WatchlistItem.id.in_(pinned_ids) if pinned_ids else True)
-                .outerjoin(market_value_subq, WatchlistItem.symbol == market_value_subq.c.symbol)
-                .order_by(market_value_subq.c.market_value.desc().nullslast())
-                .limit(needed)
-                .all()
-            )
-
-            for item, market_val in holding_items:
-                result_items.append(item)
-
-        # 3. 截取前5个
-        result_items = result_items[:5]
-
-        # 4. 组装返回数据
-        data = []
-        for item in result_items:
-            display_name = _get_display_info(item.symbol, db)  # 复用
-            position_value = _compute_position_market_value(item.symbol, db)  # 新增复用
-            current_price = _compute_avg_current_price(item.symbol, db)
-
-            data.append(
-                {
-                    'id': item.id,
-                    'symbol': item.symbol,
-                    'display_name': display_name,
-                    'is_pinned': item.is_pinned,
-                    'current_price': round(current_price, 2) if current_price else None,
-                    'change_pct': None,
-                    'position_market_value': round(position_value, 2),
-                    'status': item.status,
-                    'venue': item.venue,
-                }
-            )
-
-        return api_response(data=data)
-
-        return jsonify({'data': data, 'message': 'ok'})
+        data = build_home_summary(db)
+    return jsonify({'data': data, 'message': 'ok'})
 
 
 # ─────────────── 自选资产 CRUD ───────────────
+
+
 @watchlist_bp.get('/items/')
 def list_items():
     """获取自选列表，支持多种筛选和置顶优先排序"""
-    status = request.args.get('status')
-    venue = request.args.get('venue')
-    market = request.args.get('market')
-    group_id = request.args.get('group_id', type=int)
-    search = request.args.get('q')
-    favorite = request.args.get('favorite', type=bool, default=False)
-    symbol = request.args.get('symbol')
-    tag_ids_str = request.args.get('tag_ids')  # 新增：逗号分隔的多个ID
-    tag_id = request.args.get('tag_id', type=int)  # 保留兼容
+    params = {
+        'status': request.args.get('status'),
+        'venue': request.args.get('venue'),
+        'market': request.args.get('market'),
+        'group_id': request.args.get('group_id', type=int),
+        'search': request.args.get('q'),
+        'favorite': request.args.get('favorite', type=bool, default=False),
+        'symbol': request.args.get('symbol'),
+        'tag_ids_str': request.args.get('tag_ids'),
+        'tag_id': request.args.get('tag_id', type=int),
+    }
 
     with get_db() as db:
-        query = db.query(WatchlistItem)
+        try:
+            query, total = get_filtered_items_query(db, **params)
+        except ValueError as e:
+            abort(400, str(e))
 
-        # 精确符号查询
-        if symbol:
-            query = query.filter(WatchlistItem.symbol == symbol)
-
-        # 分组筛选（仅自定义分组）
-        if group_id:
-            query = query.join(WatchlistItem.group_links).filter(WatchlistItemGroup.group_id == group_id)
-
-        # 定义清仓symbol的select构造（提前定义，两处复用）
-        cleared_symbols = None
-        if status and status == 'cleared':
-            # 1. 先构建子查询（计算持仓总数）
-            position_sum = (
-                select(Position.symbol, func.sum(Position.quantity).label('total_qty'))
-                .group_by(Position.symbol)
-                .subquery()
-            )
-            cleared_symbols = select(position_sum.c.symbol).where(position_sum.c.total_qty == 0).subquery()
-        # 状态筛选
-        if status:
-            if status in ('HOLDING', 'WATCHING'):
-                query = query.filter(WatchlistItem.status == status)
-            elif status == 'cleared':
-                # 3. 筛选条件用显式的select构造
-                query = query.filter(WatchlistItem.symbol.in_(select(cleared_symbols)))
-
-        # 其他筛选
-        if venue:
-            query = query.filter(WatchlistItem.venue == venue)
-        if market:
-            query = query.filter(WatchlistItem.market == market)
-        if favorite:
-            query = query.filter(WatchlistItem.favorite)
-        if tag_ids_str:
-            try:
-                tag_id_list = [int(tid.strip()) for tid in tag_ids_str.split(',') if tid.strip()]
-            except ValueError:
-                abort(400, 'tag_ids 参数格式错误')
-            if tag_id_list:
-                # 资产拥有任一选中标签即显示（OR 逻辑）
-                # 使用子查询：找出包含任意一个标签的资产ID
-                item_ids_sub_query = (
-                    db.query(distinct(WatchlistItemTag.item_id))
-                    .filter(WatchlistItemTag.tag_id.in_(tag_id_list))
-                    .subquery()
-                )
-                query = query.filter(WatchlistItem.id.in_(item_ids_sub_query))
-        elif tag_id:
-            query = query.join(WatchlistItem.tag_links).filter(WatchlistItemTag.tag_id == tag_id)
-        if search:
-            query = query.filter(WatchlistItem.symbol.ilike(f'%{search}%'))
-
-        # 排序查询结果
         items = query.order_by(WatchlistItem.is_pinned.desc(), WatchlistItem.updated_at.desc()).all()
         data = [_enrich_item(item, db) for item in items]
-
-        # 计算总数（清仓状态下也用同一个select构造）
-        if status == 'cleared' and cleared_symbols is not None:
-            # 4. 计数时也传入显式的select构造，彻底消除警告
-            total = db.query(WatchlistItem).filter(WatchlistItem.symbol.in_(cleared_symbols)).count()
-        else:
-            total = len(data)
 
         return jsonify({'data': data, 'total': total, 'message': 'ok'})
 
@@ -248,53 +138,20 @@ def list_items():
 def create_item(json_data):
     """添加自选资产"""
     data = json_data.model_dump()
-    symbol = data['symbol'].strip().upper()
-    if not symbol:
+    if not data['symbol'].strip():
         abort(400, '代码不能为空')
 
-    normalizer = get_normalizer()
-    normalized, market, _ = normalizer.normalize(symbol)
-    if normalized:
-        data['symbol'] = normalized
-        data['market'] = data.get('market') or market
-    else:
-        data['symbol'] = symbol
-        data['market'] = data.get('market') or 'UNKNOWN'
-
     with get_db() as db:
-        existing = (
-            db.query(WatchlistItem)
-            .filter_by(symbol=data['symbol'], market=data['market'], venue=data.get('venue', 'EXCHANGE'))
-            .first()
-        )
-        if existing:
-            abort(409, '该资产已在自选列表中')
-
-        # 判断持仓状态
-        has_position = db.query(Position).filter(Position.symbol == data['symbol']).first()
-        status = 'HOLDING' if has_position else 'WATCHING'
-
-        item = WatchlistItem(
-            symbol=data['symbol'],
-            market=data['market'],
-            asset_type=data.get('asset_type'),
-            venue=data.get('venue', 'EXCHANGE'),
-            status=status,
-            add_reason=data.get('add_reason'),
-            is_pinned=data.get('is_pinned', False),
-            pinned_at=date.today() if data.get('is_pinned') else None,
-        )
-        db.add(item)
-        db.commit()
-        db.refresh(item)
         try:
-            # 根据 symbol 判断类型：6位数字为基金，否则为股票
-            asset_type = 'fund' if (symbol.isdigit() and len(symbol) == 6) else 'stock'
-            trigger_backfill(asset_type, symbol)
-        except Exception:
-            pass
-
-        return jsonify({'data': _enrich_item(item, db), 'message': 'ok'})
+            item = create_watchlist_item(db, data)
+            return jsonify({'data': _enrich_item(item, db), 'message': 'ok'})
+        except ValueError as e:
+            msg = str(e)
+            print(f'--------MSG--1111111111111----{msg}')
+            if '已在自选' in msg:
+                return jsonify({'data': None, 'message': msg}), 409
+            else:
+                return jsonify({'data': None, 'message': msg}), 400
 
 
 @watchlist_bp.patch('/items/<int:item_id>/')
@@ -599,26 +456,26 @@ def update_tag(tag_id, json_data):
 @watchlist_bp.get('/items/export/')
 def export_items():
     """导出当前筛选条件下的自选列表为 CSV"""
-    # 获取与 list_items 相同的筛选参数
-    status = request.args.get('status')
-    venue = request.args.get('venue')
-    market = request.args.get('market')
-    group_id = request.args.get('group_id', type=int)
-    tag_ids_str = request.args.get('tag_ids')
-    search = request.args.get('q')
-    favorite = request.args.get('favorite', type=bool, default=False)
-    symbol = request.args.get('symbol')
+    params = {
+        'status': request.args.get('status'),
+        'venue': request.args.get('venue'),
+        'market': request.args.get('market'),
+        'group_id': request.args.get('group_id', type=int),
+        'search': request.args.get('q'),
+        'favorite': request.args.get('favorite', type=bool, default=False),
+        'symbol': request.args.get('symbol'),
+        'tag_ids_str': request.args.get('tag_ids'),
+        'tag_id': request.args.get('tag_id', type=int),
+    }
 
     with get_db() as db:
-        query = db.query(WatchlistItem)
-        # 完全相同的筛选逻辑（复制 list_items 中的筛选部分，保持同步）
-        # ... 为了节省篇幅，这里假设已经编写了筛选函数，可以直接调用 list_items 的逻辑，
-        # 但 list_items 是视图函数，不便复用。建议将筛选逻辑抽取到服务函数中，
-        # 或者在 export 中重复一次（暂时）。
-        # 这里简略实现，实际建议抽取公共逻辑。
-        items = query.all()
+        try:
+            query, _ = get_filtered_items_query(db, **params)
+        except ValueError as e:
+            abort(400, str(e))
 
-        # 生成 CSV
+        items = query.all()  # 导出不分页
+
         output = io.StringIO()
         writer = csv.writer(output)
         writer.writerow(['代码', '名称', '市场', '类型', '场内/场外', '状态', '置顶', '特别关注', '标签'])
