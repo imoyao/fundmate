@@ -316,10 +316,10 @@
                   :type-label="row.type_label || ''"
                 />
                 <!-- 基金标识 -->
-                <span
-                  v-if="row.venue === 'OTC'"
-                  class="fund-tag"
-                >[基]</span>
+                <AssetTypeBadge
+                    v-if="row.venue === 'OTC'"
+                    type="fund"
+                  />
                 <div class="flex items-center gap-1 flex-shrink-0">
                   <template v-if="row.tag_ids && row.tag_ids.length > 0">
                     <el-tag
@@ -834,6 +834,7 @@ import { Search, Close, Delete } from "@element-plus/icons-vue";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import type { ElInput } from "element-plus";
+import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
 import AddToWatchlistModal from "@/components/QuickEntry/AddToWatchlistModal.vue";
 import {
   getWatchlistItems,

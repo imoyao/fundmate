@@ -1,9 +1,17 @@
 <template>
-  <div class="ledger-list p-4 md:p-6 min-h-full" :style="{ backgroundColor: 'var(--bg-page)' }">
+  <div
+    class="ledger-list p-4 md:p-6 min-h-full"
+    :style="{ backgroundColor: 'var(--bg-page)' }"
+  >
     <!-- 页面标题 & 操作栏 -->
     <div class="mb-6 flex justify-between items-center">
       <div>
-        <h2 class="text-2xl font-bold" :style="{ color: 'var(--text-primary)' }">账户管理</h2>
+        <h2
+          class="text-2xl font-bold"
+          :style="{ color: 'var(--text-primary)' }"
+        >
+          账户管理
+        </h2>
         <p class="text-sm mt-1" :style="{ color: 'var(--text-tertiary)' }">
           管理您的银行账户、证券账户、基金平台和实物资产
         </p>
@@ -22,26 +30,43 @@
     </div>
 
     <!-- 加载 / 空状态 -->
-    <div v-if="loading" class="text-center py-20" :style="{ color: 'var(--text-tertiary)' }">
+    <div
+      v-if="loading"
+      class="text-center py-20"
+      :style="{ color: 'var(--text-tertiary)' }"
+    >
       <p class="mt-2">加载中...</p>
     </div>
 
-    <div v-else-if="allLedgers.length === 0" class="text-center py-20" :style="{ color: 'var(--text-tertiary)' }">
+    <div
+      v-else-if="allLedgers.length === 0"
+      class="text-center py-20"
+      :style="{ color: 'var(--text-tertiary)' }"
+    >
       <IconifyIconOffline icon="ep:wallet" class="text-5xl mb-3 opacity-30" />
       <p class="text-lg">暂无账户，点击上方按钮新增</p>
     </div>
 
     <template v-else>
       <!-- 全局汇总卡片（三层结构） -->
-      <div class="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 mb-4">
+      <div
+        class="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 mb-4"
+      >
         <div class="flex items-baseline justify-between">
           <div>
-            <p class="text-sm" :style="{ color: 'var(--text-tertiary)' }">净资产</p>
+            <p class="text-sm" :style="{ color: 'var(--text-tertiary)' }">
+              净资产
+            </p>
             <p
               class="text-4xl font-bold tracking-tight mt-1"
-              :class="overviewData.net_worth >= 0 ? 'text-[var(--color-danger)]' : 'text-[var(--color-success)]'"
+              :class="
+                overviewData.net_worth >= 0
+                  ? 'text-[var(--color-danger)]'
+                  : 'text-[var(--color-success)]'
+              "
             >
-              {{ overviewData.net_worth >= 0 ? '+' : '' }}{{ Math.abs(overviewData.net_worth).toLocaleString() }}
+              {{ overviewData.net_worth >= 0 ? "+" : ""
+              }}{{ Math.abs(overviewData.net_worth).toLocaleString() }}
             </p>
             <div class="flex gap-6 mt-2 text-sm">
               <span :style="{ color: 'var(--text-secondary)' }">
@@ -50,30 +75,52 @@
               <span :style="{ color: 'var(--color-success)' }">
                 负债 ¥{{ (overviewData.liability_total || 0).toLocaleString() }}
               </span>
-              <span v-if="overviewData.liability_total > totalAssets * 0.5" class="text-[var(--color-danger)] text-xs">
+              <span
+                v-if="overviewData.liability_total > totalAssets * 0.5"
+                class="text-[var(--color-danger)] text-xs"
+              >
                 负债率偏高
               </span>
             </div>
           </div>
           <div class="hidden md:block text-right">
-            <p class="text-xs" :style="{ color: 'var(--text-tertiary)' }">更新于</p>
-            <p class="text-sm font-medium" :style="{ color: 'var(--text-primary)' }">{{ lastUpdate }}</p>
+            <p class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
+              更新于
+            </p>
+            <p
+              class="text-sm font-medium"
+              :style="{ color: 'var(--text-primary)' }"
+            >
+              {{ lastUpdate }}
+            </p>
           </div>
         </div>
       </div>
 
       <!-- 第二层：分类汇总卡片 -->
-      <div v-if="overviewData?.groups?.length" class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+      <div
+        v-if="overviewData?.groups?.length"
+        class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4"
+      >
         <div
-          v-for="group in overviewData.groups.filter((g: any) => g.type !== 'deleted')"
+          v-for="group in overviewData.groups.filter(
+            (g: any) => g.type !== 'deleted'
+          )"
           :key="group.type"
           class="bg-white rounded-xl p-4 shadow-sm border border-gray-100"
         >
-          <p class="text-xs mb-1" :style="{ color: 'var(--text-tertiary)' }">{{ group.label }}</p>
-          <p class="text-xl font-bold" :style="{ color: 'var(--color-primary)' }">
+          <p class="text-xs mb-1" :style="{ color: 'var(--text-tertiary)' }">
+            {{ group.label }}
+          </p>
+          <p
+            class="text-xl font-bold"
+            :style="{ color: 'var(--color-primary)' }"
+          >
             ¥{{ group.total.toLocaleString() }}
           </p>
-          <p class="text-xs mt-1" :style="{ color: 'var(--text-tertiary)' }">{{ group.count }} 个账户</p>
+          <p class="text-xs mt-1" :style="{ color: 'var(--text-tertiary)' }">
+            {{ group.count }} 个账户
+          </p>
         </div>
       </div>
 
@@ -83,19 +130,29 @@
         class="bg-orange-50 border border-orange-200 rounded-xl p-4 mb-4 text-sm flex items-center gap-2"
         :style="{ color: 'var(--text-secondary)' }"
       >
-        <IconifyIconOffline icon="ep:warning-filled" class="text-orange-400 shrink-0" />
+        <IconifyIconOffline
+          icon="ep:warning-filled"
+          class="text-orange-400 shrink-0"
+        />
         <span>
-          存在 {{ orphanGroup.count }} 个已删除账户的持仓，合计 ¥{{ orphanGroup.total?.toLocaleString() ?? '0' }}。
-          建议将这些持仓归入现有账户或手动清理。
+          存在 {{ orphanGroup.count }} 个已删除账户的持仓，合计 ¥{{
+            orphanGroup.total?.toLocaleString() ?? "0"
+          }}。 建议将这些持仓归入现有账户或手动清理。
         </span>
       </div>
 
       <!-- 按类型分组的账户卡片列表 -->
       <div v-for="group in groupedLedgers" :key="group.type" class="mb-8">
         <div class="flex items-center justify-between mb-3">
-          <h3 class="font-semibold text-base" :style="{ color: 'var(--text-primary)' }">
+          <h3
+            class="font-semibold text-base"
+            :style="{ color: 'var(--text-primary)' }"
+          >
             {{ group.label }}
-            <span class="text-sm font-normal ml-2" :style="{ color: 'var(--text-tertiary)' }">
+            <span
+              class="text-sm font-normal ml-2"
+              :style="{ color: 'var(--text-tertiary)' }"
+            >
               ({{ group.count }} 个账户 · ¥{{ group.total.toLocaleString() }})
             </span>
           </h3>
@@ -111,15 +168,13 @@
             <!-- 标题行：名称 + 类型标签（支持 LEDGER_TYPE_SHORT） -->
             <div class="flex items-center justify-between mb-4">
               <div class="flex items-center gap-2 min-w-0">
-                <span class="font-semibold text-base truncate" :style="{ color: 'var(--text-primary)' }">
+                <span
+                  class="font-semibold text-base truncate"
+                  :style="{ color: 'var(--text-primary)' }"
+                >
                   {{ ledger.name }}
                 </span>
-                <span
-                  class="px-2 py-0.5 rounded-full text-xs shrink-0"
-                  :style="{ backgroundColor: getTypeColor(ledger.ledger_type) + '20', color: getTypeColor(ledger.ledger_type) }"
-                >
-                  {{ LEDGER_TYPE_SHORT[ledger.ledger_type] || getLedgerTypeLabel(ledger.ledger_type) }}
-                </span>
+                <AssetTypeBadge :type="ledger.ledger_type" />
               </div>
               <!-- 删除按钮 -->
               <el-button
@@ -137,23 +192,45 @@
             <div class="space-y-2">
               <!-- 1. 总资产 -->
               <div class="flex justify-between items-center">
-                <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }">总资产</span>
-                <span class="text-lg font-bold" :style="{ color: 'var(--color-primary)' }">
+                <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }"
+                  >总资产</span
+                >
+                <span
+                  class="text-lg font-bold"
+                  :style="{ color: 'var(--color-primary)' }"
+                >
                   ¥{{ (ledger.total_market_value || 0).toLocaleString() }}
                 </span>
               </div>
               <!-- 2. 当日盈亏 -->
               <div class="flex justify-between items-center">
-                <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }">当日盈亏</span>
-                <span class="text-sm" :style="{ color: 'var(--text-tertiary)' }">--</span>
+                <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }"
+                  >当日盈亏</span
+                >
+                <span class="text-sm" :style="{ color: 'var(--text-tertiary)' }"
+                  >--</span
+                >
               </div>
               <!-- 3. 活期/盈亏 -->
               <div class="flex justify-between items-center">
-                <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
-                  {{ ledger.ledger_type === 'bank' ? '活期余额' : ledger.ledger_type === 'property' ? '估值' : '持仓盈亏' }}
+                <span
+                  class="text-xs"
+                  :style="{ color: 'var(--text-tertiary)' }"
+                >
+                  {{
+                    ledger.ledger_type === "bank"
+                      ? "活期余额"
+                      : ledger.ledger_type === "property"
+                        ? "估值"
+                        : "持仓盈亏"
+                  }}
                 </span>
                 <span
-                  v-if="ledger.ledger_type === 'bank' && ledger.cash_balance !== undefined && ledger.cash_balance !== null"
+                  v-if="
+                    ledger.ledger_type === 'bank' &&
+                    ledger.cash_balance !== undefined &&
+                    ledger.cash_balance !== null
+                  "
                   class="text-sm font-medium"
                   :style="{ color: 'var(--text-secondary)' }"
                 >
@@ -169,19 +246,32 @@
                 <span
                   v-else
                   class="text-sm font-semibold"
-                  :class="(ledger.pnl || 0) >= 0 ? 'text-[var(--color-danger)]' : 'text-[var(--color-success)]'"
+                  :class="
+                    (ledger.pnl || 0) >= 0
+                      ? 'text-[var(--color-danger)]'
+                      : 'text-[var(--color-success)]'
+                  "
                 >
-                  {{ (ledger.pnl || 0) >= 0 ? '+' : '' }}¥{{ Math.abs(ledger.pnl || 0).toLocaleString() }}
+                  {{ (ledger.pnl || 0) >= 0 ? "+" : "" }}¥{{
+                    Math.abs(ledger.pnl || 0).toLocaleString()
+                  }}
                 </span>
               </div>
 
               <!-- 🔥 新增：银行账户的关联负债（房贷） -->
               <div
-                v-if="ledger.ledger_type === 'bank' && ledger.linked_liability > 0"
+                v-if="
+                  ledger.ledger_type === 'bank' && ledger.linked_liability > 0
+                "
                 class="flex justify-between items-center pt-1 border-t border-gray-50"
               >
-                <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }">关联负债</span>
-                <span class="text-xs font-semibold" :style="{ color: 'var(--color-danger)' }">
+                <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }"
+                  >关联负债</span
+                >
+                <span
+                  class="text-xs font-semibold"
+                  :style="{ color: 'var(--color-danger)' }"
+                >
                   -¥{{ ledger.linked_liability.toLocaleString() }}
                 </span>
               </div>
@@ -193,18 +283,32 @@
             class="ledger-card bg-white rounded-2xl p-5 border border-dashed border-gray-300 flex flex-col items-center justify-center text-center cursor-pointer hover:border-[var(--color-primary)] transition-all"
             @click="openCreateDialog"
           >
-            <IconifyIconOffline icon="ep:plus" class="text-2xl mb-2" :style="{ color: 'var(--text-tertiary)' }" />
-            <span class="text-sm" :style="{ color: 'var(--text-secondary)' }">新增账户</span>
+            <IconifyIconOffline
+              icon="ep:plus"
+              class="text-2xl mb-2"
+              :style="{ color: 'var(--text-tertiary)' }"
+            />
+            <span class="text-sm" :style="{ color: 'var(--text-secondary)' }"
+              >新增账户</span
+            >
           </div>
         </div>
       </div>
     </template>
 
     <!-- 新增账户对话框 -->
-    <el-dialog v-model="showCreateDialog" title="创建账户" width="420px" destroy-on-close>
+    <el-dialog
+      v-model="showCreateDialog"
+      title="创建账户"
+      width="420px"
+      destroy-on-close
+    >
       <el-form :model="createForm" label-width="100px">
         <el-form-item label="账户名称" required>
-          <el-input v-model="createForm.name" placeholder="如：华泰证券、招商银行" />
+          <el-input
+            v-model="createForm.name"
+            placeholder="如：华泰证券、招商银行"
+          />
         </el-form-item>
 
         <AccountFormFields
@@ -222,7 +326,9 @@
       </el-form>
       <template #footer>
         <el-button @click="showCreateDialog = false">取消</el-button>
-        <el-button type="primary" :loading="creating" @click="handleCreate">确认创建</el-button>
+        <el-button type="primary" :loading="creating" @click="handleCreate"
+          >确认创建</el-button
+        >
       </template>
     </el-dialog>
 
@@ -241,11 +347,12 @@
 import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
-import { usePageRefresh } from '@/composables/usePageRefresh';
+import { usePageRefresh } from "@/composables/usePageRefresh";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import { getLedgers, getLedgersOverview, createLedger } from "@/api/ledger";
 import { getPortfolios } from "@/api/portfolio";
-import { LEDGER_TYPE_LABELS, LEDGER_TYPE_SHORT, getLedgerTypeLabel } from "@/constants";
+import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
+import { getLedgerTypeLabel } from "@/constants";
 import AccountFormFields from "./components/AccountFormFields.vue";
 import DeleteLedgerDialog from "./components/DeleteLedgerDialog.vue";
 
@@ -255,10 +362,14 @@ const router = useRouter();
 
 const loading = ref(true);
 const allLedgers = ref<any[]>([]);
-const overviewData = ref<{ net_worth: number; liability_total: number; groups: any[] }>({
+const overviewData = ref<{
+  net_worth: number;
+  liability_total: number;
+  groups: any[];
+}>({
   net_worth: 0,
   liability_total: 0,
-  groups: [],
+  groups: []
 });
 const lastUpdate = ref("");
 
@@ -270,22 +381,28 @@ const createForm = ref({
   notes: "",
   linked_cash_ledger_id: null as number | null,
   portfolio_id: null as number | null,
-  fee_config: null as any,
+  fee_config: null as any
 });
 
-const cashLedgers = computed(() => allLedgers.value.filter((l: any) => l.ledger_type === 'bank'));
+const cashLedgers = computed(() =>
+  allLedgers.value.filter((l: any) => l.ledger_type === "bank")
+);
 const portfolioList = ref<any[]>([]);
 const deleteDialogVisible = ref(false);
 const deletingAccount = ref<any>(null);
 
 // 总资产（从 overview groups 汇总）
-const totalAssets = computed(() =>
-  overviewData.value?.groups?.reduce((sum: number, g: any) => sum + (g.total || 0), 0) ?? 0
+const totalAssets = computed(
+  () =>
+    overviewData.value?.groups?.reduce(
+      (sum: number, g: any) => sum + (g.total || 0),
+      0
+    ) ?? 0
 );
 
 // 已删除账户的持仓信息（来自 overview）
 const orphanGroup = computed(() =>
-  overviewData.value?.groups?.find((g: any) => g.type === 'deleted')
+  overviewData.value?.groups?.find((g: any) => g.type === "deleted")
 );
 
 // 分组展示（按类型分组，并排序，追加未归置持仓）
@@ -299,7 +416,7 @@ const groupedLedgers = computed(() => {
         label: getLedgerTypeLabel(type),
         total: 0,
         count: 0,
-        ledgers: [],
+        ledgers: []
       };
     }
     groups[type].count++;
@@ -308,24 +425,26 @@ const groupedLedgers = computed(() => {
   }
 
   const order = ["bank", "stock", "fund", "property"];
-  const result = order.map((type) => groups[type]).filter(Boolean);
+  const result = order.map(type => groups[type]).filter(Boolean);
 
   // 追加未归置分组（防止孤立资产出现缺漏）
   if (orphanGroup.value && orphanGroup.value.count > 0) {
     result.push({
-      type: 'deleted',
-      label: '未归置持仓',
+      type: "deleted",
+      label: "未归置持仓",
       total: orphanGroup.value.total,
       count: orphanGroup.value.count,
-      ledgers: [{
-        id: 'orphan',
-        name: '已删除账户的持仓',
-        total_market_value: orphanGroup.value.total,
-        position_count: orphanGroup.value.count,
-        pnl: 0,
-        ledger_type: 'deleted',
-        cash_balance: null,
-      }],
+      ledgers: [
+        {
+          id: "orphan",
+          name: "已删除账户的持仓",
+          total_market_value: orphanGroup.value.total,
+          position_count: orphanGroup.value.count,
+          pnl: 0,
+          ledger_type: "deleted",
+          cash_balance: null
+        }
+      ]
     });
   }
 
@@ -339,7 +458,7 @@ function getTypeColor(type: string): string {
     stock: "var(--color-danger)",
     fund: "var(--color-warning)",
     property: "var(--color-accent)",
-    deleted: "var(--color-neutral)",
+    deleted: "var(--color-neutral)"
   };
   return map[type] || "var(--color-neutral)";
 }
@@ -351,7 +470,7 @@ function openCreateDialog() {
     notes: "",
     linked_cash_ledger_id: null,
     portfolio_id: null,
-    fee_config: null,
+    fee_config: null
   };
   showCreateDialog.value = true;
 }
@@ -380,8 +499,8 @@ function openDeleteDialog(account: any) {
 }
 
 function goToDetail(ledger: any) {
-  if (ledger.id === 'orphan') {
-    router.push('/asset/ledgers/unclassified');
+  if (ledger.id === "orphan") {
+    router.push("/asset/ledgers/unclassified");
   } else {
     router.push({ name: "LedgerDetail", params: { id: ledger.id } });
   }
@@ -393,17 +512,21 @@ async function fetchData() {
     const [ledgersRes, overviewRes, portfolioRes] = await Promise.all([
       getLedgers(),
       getLedgersOverview(),
-      getPortfolios(),
+      getPortfolios()
     ]);
     allLedgers.value = (ledgersRes as any)?.data ?? [];
-    overviewData.value = (overviewRes as any)?.data ?? { net_worth: 0, liability_total: 0, groups: [] };
+    overviewData.value = (overviewRes as any)?.data ?? {
+      net_worth: 0,
+      liability_total: 0,
+      groups: []
+    };
     portfolioList.value = (portfolioRes as any)?.data ?? [];
     lastUpdate.value = new Date().toLocaleString("zh-CN", {
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
       hour: "2-digit",
-      minute: "2-digit",
+      minute: "2-digit"
     });
   } catch (e: any) {
     ElMessage.error(e?.message || "加载失败");

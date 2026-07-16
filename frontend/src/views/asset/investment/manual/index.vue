@@ -58,21 +58,7 @@
             >
               <div class="flex items-center justify-between w-full">
                 <span>{{ ledger.name }}</span>
-                <el-tag
-                  size="small"
-                  round
-                  class="px-1.5 py-0.5"
-                  :style="{
-                    backgroundColor: bgFromColor(
-                      getLedgerColor(ledger.ledger_type)
-                    ),
-                    color: getLedgerColor(ledger.ledger_type)
-                  }"
-                >
-                  {{
-                    LEDGER_TYPE_SHORT[ledger.ledger_type] || ledger.ledger_type
-                  }}
-                </el-tag>
+                <AssetTypeBadge :type="ledger.ledger_type" variant="tag"/>
               </div>
             </el-option>
           </el-select>
@@ -268,15 +254,14 @@ import { ref, computed, onMounted, onBeforeUnmount, watch } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { IconifyIconOffline } from "@/components/ReIcon";
-import { createLedger as createLedgerApi } from "@/api/ledger";
-import { LEDGER_TYPE_SHORT, LEDGER_TYPE_OPTIONS } from "@/constants";
-import { getLedgerColor, bgFromColor } from "@/utils/ledger";
+import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
 import BuyForm from "@/components/QuickEntry/BuyForm.vue";
 import SellForm from "@/components/QuickEntry/SellForm.vue";
 import {
   useQuickEntry,
   useQuickEntrySubmit
 } from "@/composables/useQuickEntry";
+import { LEDGER_TYPE_OPTIONS } from "@/constants";
 
 defineOptions({ name: "ManualEntry" });
 

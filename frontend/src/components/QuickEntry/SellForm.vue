@@ -25,15 +25,7 @@
           >
             <div class="flex items-center justify-between w-full">
               <span>{{ acc.name }}</span>
-              <el-tag
-                class="px-1.5 py-0.5 rounded text-xs font-medium shrink-0"
-                :style="{
-                  backgroundColor: bgFromColor(getLedgerColor(acc.ledger_type)),
-                  color: getLedgerColor(acc.ledger_type)
-                }"
-              >
-                {{ LEDGER_TYPE_SHORT[acc.ledger_type] || acc.ledger_type }}
-              </el-tag>
+              <AssetTypeBadge :type="acc.ledger_type" variant="tag"/>
             </div>
           </el-option>
         </el-select>
@@ -81,7 +73,7 @@
                 class="text-xs whitespace-nowrap"
                 :style="{ color: 'var(--text-tertiary)' }"
               >
-                可用 {{ Number(pos.quantity).toFixed(2) }}
+                可用 {{ Number(pos.quantity).toFixed(2) }} 份
               </span>
             </div>
           </el-option>
@@ -346,6 +338,7 @@ import { validateTradeOrder } from "@/api/positions";
 import { getStep, SELL_QUICK_RATIOS } from "@/utils/trading";
 import { estimateRedeemFee, syncFundFees } from "@/api/funds";
 import { calcFundConfirmDate } from "@/api/utils";
+import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
 
 const props = defineProps<{
   ledgers: any[];

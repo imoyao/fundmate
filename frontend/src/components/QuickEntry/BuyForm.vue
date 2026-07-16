@@ -28,19 +28,7 @@
             >
               <div class="flex items-center justify-between w-full">
                 <span>{{ ledger.name }}</span>
-                <el-tag
-                  class="px-1.5 py-0.5 rounded text-xs font-medium shrink-0"
-                  :style="{
-                    backgroundColor: bgFromColor(
-                      getLedgerColor(ledger.ledger_type)
-                    ),
-                    color: getLedgerColor(ledger.ledger_type)
-                  }"
-                >
-                  {{
-                    LEDGER_TYPE_SHORT[ledger.ledger_type] || ledger.ledger_type
-                  }}
-                </el-tag>
+                <AssetTypeBadge :type="ledger.ledger_type" variant="tag" />
               </div>
             </el-option>
           </el-select>
