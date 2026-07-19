@@ -16,7 +16,6 @@
       </p>
     </div>
 
-    <!-- 内容区 -->
     <div class="flex-1 flex flex-col min-h-20">
       <!-- 空状态 -->
       <div
@@ -83,10 +82,9 @@
               class="table-row-hover cursor-pointer"
               @click="handleItemClick(item)"
             >
-              <!-- 🔥 重构核心：直接复用 ProductDisplay 全局组件 -->
               <td class="py-2.5 pr-4">
                 <div class="flex items-center gap-2">
-                  <!-- 置顶星星 -->
+                  <!-- 置顶标记 -->
                   <span
                     v-if="item.is_pinned === true"
                     class="text-yellow-500 text-xs shrink-0"
@@ -95,16 +93,19 @@
                     <IconifyIconOffline icon="ep:star-filled" />
                   </span>
 
-                  <!-- 全局组件显示资产信息 -->
+                  <!-- 产品信息 -->
                   <ProductDisplay
                     :name="item.display_name || item.symbol"
                     :symbol="item.symbol"
                     :type-label="item.type_label"
                   />
+
+                  <!-- 基金标识（场外） -->
+                  <AssetTypeBadge v-if="item.venue === 'OTC'" type="fund" />
                 </div>
               </td>
 
-              <!-- 最新价（复用 MoneyDisplay） -->
+              <!-- 最新价 -->
               <td class="py-2.5 text-right font-mono font-medium">
                 <MoneyDisplay
                   v-if="item.current_price != null"
@@ -121,7 +122,7 @@
                 >
               </td>
 
-              <!-- 涨跌幅（复用 RiseFallText） -->
+              <!-- 涨跌幅 -->
               <td class="py-2.5 text-right">
                 <RiseFallText
                   v-if="item.change_pct != null"
@@ -137,7 +138,7 @@
                 >
               </td>
 
-              <!-- 持仓市值（复用 MoneyDisplay） -->
+              <!-- 持仓市值 -->
               <td class="py-2.5 text-right font-medium">
                 <MoneyDisplay
                   v-if="item.position_market_value != null"
@@ -153,28 +154,22 @@
                 >
               </td>
 
-              <!-- 操作区（采用 el-button 统一规范） -->
+              <!-- 操作区 -->
               <td class="py-2.5 text-right">
                 <div class="flex items-center justify-end gap-1.5">
-                  <!-- 状态标签：持仓 -->
-                  <span
+                  <!-- 统一使用 AssetTypeBadge 替换原有内联标签 -->
+                  <AssetTypeBadge
                     v-if="item.status === 'HOLDING'"
-                    class="px-1.5 py-0.5 text-[10px] rounded"
-                    :style="{
-                      backgroundColor: 'var(--brand-100)',
-                      color: 'var(--brand-700)'
-                    }"
-                    >持仓</span
-                  >
-                  <span
+                    type="stock"
+                    label="持仓"
+                    variant="tag"
+                  />
+                  <AssetTypeBadge
                     v-if="item.venue === 'OTC'"
-                    class="px-1.5 py-0.5 text-[10px] rounded"
-                    :style="{
-                      backgroundColor: 'var(--bg-soft)',
-                      color: 'var(--text-tertiary)'
-                    }"
-                    >场外</span
-                  >
+                    type="fund"
+                    variant="tag"
+                  />
+
                   <el-button
                     text
                     size="small"
@@ -204,11 +199,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, defineEmits } from "vue";
+import { ref, computed, onMounted } from "vue";
 import { getHomeSummary, type HomeSummaryItem } from "@/api/watchlist";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
+import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 
 const emit = defineEmits<{
@@ -219,12 +215,10 @@ const emit = defineEmits<{
 const items = ref<HomeSummaryItem[]>([]);
 const loading = ref(true);
 
-// 严格布尔判断置顶状态
 const hasPinned = computed(() =>
   items.value.some(item => item.is_pinned === true)
 );
 
-// 有置顶资产则只显示置顶，否则显示全部（按市值降序）
 const displayItems = computed(() => {
   if (hasPinned.value) {
     return items.value.filter(item => item.is_pinned === true);
@@ -256,12 +250,10 @@ async function fetchData() {
 }
 
 onMounted(fetchData);
-// 暴露置顶状态给父组件，用于动态标题
 defineExpose({ hasPinned });
 </script>
 
 <style scoped>
-/* 表格行悬浮 */
 .table-row-hover {
   background-color: var(--bg-card);
   transition: background-color 0.15s ease;
@@ -270,7 +262,6 @@ defineExpose({ hasPinned });
   background-color: var(--bg-hover) !important;
 }
 
-/* 查看全部链接悬浮 */
 .view-all-link {
   color: var(--text-tertiary);
 }

@@ -1,0 +1,65 @@
+name: Build Status
+
+on:
+  - push
+
+jobs:
+  backendunit:
+    name: backend check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.7
+      - name: Install Python dependencies
+        env:
+          FLASK_APP: autoapp.py
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+          SEND_FILE_MAX_AGE_DEFAULT: ${{ secrets.SEND_FILE_MAX_AGE_DEFAULT }}
+          BCRYPT_LOG_ROUNDS: ${{ secrets.BCRYPT_LOG_ROUNDS }}
+          MAIL_SERVER: ${{ secrets.MAIL_SERVER }}
+          MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
+          LOG_PATH: ${{ secrets.LOG_PATH }}
+          LOG_NAME: ${{ secrets.LOG_NAME }}
+          MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
+          MYSQL_USER: ${{ secrets.MYSQL_USER }}
+          MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
+          MYSQL_PORT: ${{ secrets.MYSQL_PORT }}
+        run: |
+          cd ./backend
+          python -m pip install --upgrade pip
+          pip install -r requirements/dev.txt
+          sudo mkdir -p /home/work/var/log
+          sudo touch app.log
+#          TODO: 暂时取消
+#          flask lint --check
+#          flask test
+  docsunit:
+    name: docs lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-node@v2.1.2
+        with:
+          node-version: "14.x"
+          registry-url: "https://registry.npmjs.org"
+      - name: Install Node dependencies
+        run: yarn install
+      - name: Run Node lints
+        run: yarn run lint-md
+  frontendunit:
+    name: frontend lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-node@v2.1.2
+        with:
+          node-version: "14.x"
+          registry-url: "https://registry.npmjs.org"
+      - name: Install Node dependencies and lint
+        run: |
+          cd ./frontend
+          yarn install
+          yarn run lint

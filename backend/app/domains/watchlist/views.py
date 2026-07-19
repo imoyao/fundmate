@@ -76,11 +76,18 @@ def _get_display_info(symbol: str, db) -> str:
 
 
 def _enrich_item(item: WatchlistItem, db) -> dict:
-    """将 WatchlistItem 转为前端需要的字典，补充展示名称和关联ID"""
     out = WatchlistItemOut.model_validate(item).model_dump()
     out['display_name'] = _get_display_info(item.symbol, db)
     out['group_ids'] = [link.group_id for link in item.group_links]
     out['tag_ids'] = [link.tag_id for link in item.tag_links]
+
+    # 补充价格与市值信息（从持仓表计算静态值）
+    position_value = _compute_position_market_value(item.symbol, db)
+    current_price = _compute_avg_current_price(item.symbol, db)
+    out['current_price'] = round(current_price, 2) if current_price else None
+    out['change_pct'] = None  # 暂不提供，后续可通过元数据同步填充
+    out['position_market_value'] = round(position_value, 2)
+
     return out
 
 

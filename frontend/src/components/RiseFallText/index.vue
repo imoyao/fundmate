@@ -10,11 +10,11 @@
   - 零值显示为 0.00% (灰色)
 
   使用示例：
-  <RiseFallText :value="12.34" />           <!-- +12.34% (红色) -->
-  <RiseFallText :value="-5.67" />           <!-- -5.67% (绿色) -->
-  <RiseFallText :value="0" />               <!-- 0.00% (灰色) -->
-  <RiseFallText :value="12.34" suffix="%" :precision="1" />  <!-- +12.3% (红色) -->
-  ============================================================ -->
+  <RiseFallText :value="12.34" />            +12.34% (红色) -->
+<!--  <RiseFallText :value="-5.67" />           &lt;!&ndash; -5.67% (绿色) &ndash;&gt;-->
+<!--  <RiseFallText :value="0" />               &lt;!&ndash; 0.00% (灰色) &ndash;&gt;-->
+<!--  <RiseFallText :value="12.34" suffix="%" :precision="1" />  &lt;!&ndash; +12.3% (红色) &ndash;&gt;-->
+<!--  ============================================================ &ndash;&gt;-->
 
 <template>
   <span
@@ -30,7 +30,7 @@
   >
     <!-- 正负号 -->
     <span v-if="showSign && !isZero" class="sign">
-      {{ isRise ? '+' : '-' }}
+      {{ isRise ? "+" : "-" }}
     </span>
 
     <!-- 数值 -->
@@ -42,7 +42,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed } from "vue";
 
 export interface RiseFallTextProps {
   /** 数值（正数=涨，负数=跌） */
@@ -64,21 +64,22 @@ export interface RiseFallTextProps {
   customColor?: string;
 
   /** 尺寸：'sm' | 'md' | 'lg'，默认 'md' */
-  size?: 'sm' | 'md' | 'lg';
+  size?: "sm" | "md" | "lg";
 }
 
 const props = withDefaults(defineProps<RiseFallTextProps>(), {
-  suffix: '%',
+  suffix: "%",
   showSign: true,
   precision: 2,
   autoColor: true,
-  customColor: '',
-  size: 'md',
+  customColor: "",
+  size: "md"
 });
 
 /** 数值转换为数字 */
 const numericValue = computed(() => {
-  const val = typeof props.value === 'string' ? parseFloat(props.value) : props.value;
+  const val =
+    typeof props.value === "string" ? parseFloat(props.value) : props.value;
   return isNaN(val) ? 0 : val;
 });
 
@@ -104,9 +105,9 @@ const formattedValue = computed(() => {
 /** 尺寸类名 */
 const sizeClass = computed(() => {
   const map = {
-    sm: 'text-sm',
-    md: 'text-base',
-    lg: 'text-lg font-semibold',
+    sm: "text-sm",
+    md: "text-base",
+    lg: "text-lg font-semibold"
   };
   return map[props.size] || map.md;
 });
@@ -122,7 +123,7 @@ const sizeClass = computed(() => {
 
 /* ===== 数字字体（等宽） ===== */
 .rise-fall-text .number {
-  font-family: var(--font-mono, 'SF Mono', 'JetBrains Mono', monospace);
+  font-family: var(--font-mono, "SF Mono", "JetBrains Mono", monospace);
   font-weight: 500;
 }
 
@@ -145,31 +146,31 @@ const sizeClass = computed(() => {
 
 /* ===== 涨（红） ===== */
 .rise-fall-text.is-rise {
-  color: var(--color-rise, #E34F38);
+  color: var(--color-rise, #e34f38);
 }
 
 /* ===== 跌（绿） ===== */
 .rise-fall-text.is-fall {
-  color: var(--color-fall, #7BC49A);
+  color: var(--color-fall, #7bc49a);
 }
 
 /* ===== 零值 ===== */
 .rise-fall-text.is-zero {
-  color: var(--text-secondary, #6B655C);
+  color: var(--text-secondary, #6b655c);
 }
 
 /* ===== 自定义颜色（覆盖涨跌） ===== */
 .rise-fall-text.no-color {
-  color: var(--text-primary, #2D2A24);
+  color: var(--text-primary, #2d2a24);
 }
 
 /* ===== 暗色模式适配 ===== */
-[data-theme='dark'] .rise-fall-text.is-rise {
-  color: var(--color-rise, #D45A44);
+[data-theme="dark"] .rise-fall-text.is-rise {
+  color: var(--color-rise, #d45a44);
 }
 
-[data-theme='dark'] .rise-fall-text.is-fall {
-  color: var(--color-fall, #5DAF85);
+[data-theme="dark"] .rise-fall-text.is-fall {
+  color: var(--color-fall, #5daf85);
 }
 
 /* ===== 尺寸变体 ===== */

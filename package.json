@@ -1,0 +1,27 @@
+{
+  "name": "fundmate",
+  "version": "1.0.0",
+  "description": "基伴，你的理财帮手！",
+  "main": "index.js",
+  "repository": "git@github.com:imoyao/fundmate.git",
+  "author": "imoyao",
+  "license": "MIT",
+  "devDependencies": {
+    "vuepress": "^1.9.7",
+    "vuepress-plugin-homebadge": "^0.1.0"
+  },
+  "scripts": {
+    "docs:dev": "vuepress dev docs",
+    "docs:build": "vuepress build docs",
+    "docs:lint-md": "lint-md docs -f"
+  },
+  "dependencies": {
+    "babel-runtime": "^6.26.0",
+    "core-js": "^2.6.11",
+    "lint-md": "^0.2.0",
+    "lint-md-cli": "^0.1.2",
+    "vuepress-plugin-auto-sidebar": "^1.5.0",
+    "vuepress-theme-antdocs": "^1.3.5",
+    "yarn": "1.22.19"
+  }
+}

@@ -25,7 +25,7 @@
           >
             <div class="flex items-center justify-between w-full">
               <span>{{ acc.name }}</span>
-              <AssetTypeBadge :type="acc.ledger_type" variant="tag"/>
+              <AssetTypeBadge :type="acc.ledger_type" variant="tag" />
             </div>
           </el-option>
         </el-select>
@@ -49,9 +49,9 @@
     <template v-if="form.ledger_id">
       <el-form-item label="选择持仓" prop="positionId">
         <el-select
-          v-model="form.positionId"
           v-if="showPositionSelect"
           :key="positionSelectKey"
+          v-model="form.positionId"
           class="w-full"
           filterable
           placeholder="选择持仓"
@@ -308,9 +308,7 @@
           style="color: var(--color-warning)"
         >
           注：当前持有 {{ maxQuantity.toFixed(4) }} 份，其中
-          {{
-            totalCalculatedHold.toFixed(4)
-          }}
+          {{ totalCalculatedHold.toFixed(4) }}
           份有买入记录，可用于费率计算，其余份额未纳入分布。
         </div>
         <div class="mt-4 text-xs" style="color: var(--text-tertiary)">

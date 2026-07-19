@@ -1,0 +1,19 @@
+# .github/workflows/keep-alive.yml
+name: Supabase Keep-Alive
+
+on:
+  schedule:
+    # 每 6 天运行一次 (Supabase 是 7 天休眠，6 天刚好安全)
+    - cron: '0 10 */6 * *'
+  workflow_dispatch: # 允许手动触发
+
+jobs:
+  ping-supabase:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase REST API
+        run: |
+          curl -s -o /dev/null -w "%{http_code}" \
+          -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
+          -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
+          "${{ secrets.SUPABASE_URL }}/rest/v1/health_check?select=id&limit=1"

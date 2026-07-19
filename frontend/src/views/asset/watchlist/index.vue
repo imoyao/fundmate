@@ -3,13 +3,12 @@
     class="watchlist-page p-4 md:p-6 min-h-full"
     :style="{ backgroundColor: 'var(--bg-page)' }"
   >
-    <!-- 顶部操作栏（统一 small 尺寸，紧凑现代） -->
+    <!-- 顶部操作栏 (已移除 size="small" 和 CSS 强制 32px 高度) -->
     <div class="flex flex-wrap items-center justify-between gap-4 mb-6 top-bar">
       <div class="flex items-center gap-3">
         <el-segmented
           v-model="currentView"
           :options="viewOptions"
-          size="small"
           @change="handleViewChange"
         />
         <div class="flex items-center relative">
@@ -18,7 +17,6 @@
             placeholder="搜索当前自选列表..."
             clearable
             class="w-48"
-            size="small"
             :prefix-icon="Search"
             @input="debounceSearch"
           />
@@ -37,35 +35,85 @@
       </div>
 
       <div class="flex items-center gap-2">
-        <!-- ✅ 主按钮：强制 small，靠品牌色突出，不再靠体积 -->
-        <el-button type="primary" size="small" @click="showAddModal = true">
-          <IconifyIconOffline icon="ep:plus" class="mr-1" />
-          添加自选
-        </el-button>
+        <!-- 批量模式下的特殊工具栏 -->
+        <template v-if="batchMode">
+          <div class="flex items-center gap-3">
+            <span
+              class="text-sm font-medium shrink-0"
+              :style="{ color: 'var(--text-primary)' }"
+            >
+              已选 {{ selectedItems.length }} 项
+            </span>
+            <el-select
+              v-model="batchMoveGroupId"
+              placeholder="移动到分组"
+              class="batch-move-select"
+              clearable
+              @change="handleBatchMoveToGroup"
+            >
+              <el-option
+                v-for="group in customGroups"
+                :key="group.id"
+                :label="group.name"
+                :value="group.id"
+              >
+                <div class="flex items-center gap-2">
+                  <span
+                    class="w-2.5 h-2.5 rounded-full"
+                    :style="{ backgroundColor: group.color || '#C5C9B8' }"
+                  />
+                  <span>{{ group.name }}</span>
+                </div>
+              </el-option>
+            </el-select>
+            <el-button
+              class="batch-delete-btn"
+              :disabled="selectedItems.length === 0"
+              @click="handleBatchDelete"
+            >
+              <IconifyIconOffline icon="ep:delete" class="mr-1" />
+              删除选中
+            </el-button>
+            <el-button type="primary" @click="toggleBatchMode">
+              退出批量模式
+            </el-button>
+          </div>
+        </template>
 
-        <!-- ✅ 次要按钮：全部用 plain，强制 small -->
-        <el-button size="small" plain @click="exportData">
-          <IconifyIconOffline icon="ep:download" class="mr-1" />
-          导出
-        </el-button>
-        <el-button size="small" plain @click="showTagManager = true">
-          <IconifyIconOffline icon="ep:setting" class="mr-1" />
-          管理标签
-        </el-button>
+        <!-- 正常模式下的工具栏 -->
+        <template v-else>
+          <el-button type="primary" @click="showAddModal = true">
+            <IconifyIconOffline icon="ep:plus" class="mr-1" />
+            添加自选
+          </el-button>
 
-        <!-- ✅ 刷新建议也统一为 plain 或 text，保持横向节奏 -->
-        <el-button size="small" plain @click="fetchData">
-          <IconifyIconOffline icon="ep:refresh" class="mr-1" />
-          刷新
-        </el-button>
+          <el-button plain @click="fetchData">
+            <IconifyIconOffline icon="ep:refresh" class="mr-1" />
+            刷新
+          </el-button>
+
+          <el-button plain @click="exportData">
+            <IconifyIconOffline icon="ep:download" class="mr-1" />
+            导出
+          </el-button>
+
+          <el-button plain @click="realtime.toggle()">
+            {{ toggleBtnText }}
+          </el-button>
+
+          <el-button plain @click="showSettingsDrawer = true">
+            <IconifyIconOffline icon="ep:setting" class="mr-1" />
+            管理
+          </el-button>
+        </template>
       </div>
     </div>
 
-    <!-- 主区域：分组 + 表格 -->
+    <!-- 主区域 -->
     <div class="flex gap-6 flex-wrap">
-      <!-- 左侧分组树（新增悬停交互） -->
+      <!-- 左侧分组 (改为 p-6, 使用 group-hover 纯CSS控制) -->
       <div
-        class="w-56 shrink-0 rounded-2xl p-4 h-fit"
+        class="w-56 shrink-0 rounded-2xl p-6 h-fit"
         :style="{
           backgroundColor: 'var(--bg-card)',
           border: '1px solid var(--border-light)',
@@ -84,7 +132,7 @@
           <div
             v-for="group in allGroups"
             :key="group.key"
-            class="group-item relative flex items-center justify-between px-3 py-1.5 rounded-lg text-sm cursor-pointer transition-colors"
+            class="group-item relative flex items-center justify-between px-3 py-1.5 rounded-lg text-sm cursor-pointer transition-colors group"
             :style="
               activeGroup === group.key
                 ? {
@@ -97,8 +145,6 @@
                     backgroundColor: 'transparent'
                   }
             "
-            @mouseenter="hoveringGroupKey = group.key"
-            @mouseleave="hoveringGroupKey = null"
             @click="activeGroup = group.key"
           >
             <!-- 编辑态 -->
@@ -139,44 +185,35 @@
 
             <div class="flex items-center gap-1">
               <span
-                v-if="
-                  !(
-                    editingGroupId !== null &&
-                    group.key === `custom_${editingGroupId}`
-                  )
-                "
-                class="text-xs"
-                :style="{ color: 'var(--text-tertiary)' }"
+                v-if="!(editingGroupId !== null && group.key === `custom_${editingGroupId}`)"
+                class="text-xs font-mono"
+                :style="{ color: activeGroup === group.key ? 'var(--brand-700)' : 'var(--text-tertiary)' }"
               >
                 {{ group.count }}
               </span>
-              <Transition name="fade-scale">
-                <div
-                  v-if="
-                    hoveringGroupKey === group.key &&
-                    group.key.startsWith('custom_') &&
-                    !editingGroupId
-                  "
-                  class="flex items-center gap-0.5"
-                  @click.stop
-                  @mouseenter.stop
+
+              <!-- ✅ 核心修复：用 w-0 加 w-auto 动态撑开宽度，解决隐形占位导致的挤位问题 -->
+              <div
+                v-if="group.key.startsWith('custom_') && !editingGroupId"
+                class="flex items-center gap-0.5 transition-all duration-200 opacity-0 group-hover:opacity-100 w-0 overflow-hidden group-hover:w-auto group-hover:ml-1"
+                @click.stop
+                @mouseenter.stop
+              >
+                <el-button link size="small" @click="startEditGroup(group)">
+                  <IconifyIconOffline icon="ep:edit" class="text-xs" />
+                </el-button>
+                <el-popconfirm
+                  title="确定删除该分组？分组内的资产不会被删除。"
+                  :teleported="false"
+                  @confirm="deleteGroupConfirm(group)"
                 >
-                  <el-button link size="small" @click="startEditGroup(group)">
-                    <IconifyIconOffline icon="ep:edit" class="text-xs" />
-                  </el-button>
-                  <el-popconfirm
-                    title="确定删除该分组？分组内的资产不会被删除。"
-                    :teleported="false"
-                    @confirm="deleteGroupConfirm(group)"
-                  >
-                    <template #reference>
-                      <el-button link size="small" type="danger">
-                        <IconifyIconOffline icon="ep:delete" class="text-xs" />
-                      </el-button>
-                    </template>
-                  </el-popconfirm>
-                </div>
-              </Transition>
+                  <template #reference>
+                    <el-button link size="small" type="danger">
+                      <IconifyIconOffline icon="ep:delete" class="text-xs" />
+                    </el-button>
+                  </template>
+                </el-popconfirm>
+              </div>
             </div>
           </div>
         </div>
@@ -191,61 +228,127 @@
           boxShadow: 'var(--shadow-raised)'
         }"
       >
-        <!-- 资产类型快捷筛选胶囊 -->
-        <div class="flex items-center gap-2 mb-3">
-          <button
-            v-for="item in VENUE_FILTER_OPTIONS"
-            :key="item.value"
-            class="px-3 py-1 text-xs rounded-full border transition-colors cursor-pointer"
-            :class="
-              currentVenueFilter === item.value
-                ? 'bg-[var(--brand-100)] text-[var(--brand-700)] border-[var(--brand-400)]'
-                : 'bg-transparent text-[var(--text-secondary)] border-[var(--border-default)] hover:bg-[var(--bg-hover)]'
-            "
-            @click="setVenueFilter(item.value)"
-          >
-            {{ item.label }}
-            <template v-if="item.value === 'all'">{{
-              venueStats.total
-            }}</template>
-            <template v-if="item.value === 'EXCHANGE'">{{
-              venueStats.exchange
-            }}</template>
-            <template v-if="item.value === 'OTC'">{{
-              venueStats.otc
-            }}</template>
-          </button>
-        </div>
-        <!-- 标签筛选与批量管理 -->
-        <div class="flex flex-wrap items-center justify-between mb-4 gap-2">
-          <p
-            class="text-xs shrink-0"
-            :style="{ color: 'var(--text-tertiary)' }"
-          >
-            {{ activeGroupLabel }} · {{ totalItems }} 项
-            <el-button text size="small" class="ml-2" @click="toggleBatchMode">
-              {{ batchMode ? "取消" : "批量管理" }}
+        <!-- 估值横幅与状态 -->
+        <!-- ✅ 核心修复：用 template 包裹，加上 v-if 物理移除整个模块 -->
+        <template v-if="realtimeEnabled">
+          <RealtimeWarningBanner :on-toggle="realtime.toggle" />
+
+          <div class="flex items-center gap-2 mb-2">
+            <RealtimeStatusIndicator
+              :status="realtime.status.value"
+              :lastUpdateTime="realtime.lastUpdateTime.value || ''"
+            />
+            <el-button
+              v-if="realtimeEnabled"
+              text
+              :style="{ color: 'var(--text-secondary)' }"
+              @click="realtime.manualRefresh()"
+            >
+              <IconifyIconOffline icon="ep:refresh" class="mr-1 text-xs" />
+              刷新估值
             </el-button>
+          </div>
+
+          <!-- 估值汇总卡片 -->
+          <div
+            v-if="realtime.summary"
+            class="mb-3 p-3 rounded-lg"
+            :style="{
+              backgroundColor: 'var(--bg-soft)',
+              border: '1px solid var(--border-light)'
+            }"
+          >
+            <div class="flex items-center gap-6 text-sm">
+              <span>
+                总市值：<strong :style="{ color: 'var(--text-primary)' }">
+                  {{ realtime.summary.totalMarketValue?.toFixed(2) ?? "--" }}
+                </strong>
+              </span>
+              <span>
+                总成本：<strong :style="{ color: 'var(--text-primary)' }">
+                  {{ realtime.summary.totalCost?.toFixed(2) ?? "--" }}
+                </strong>
+              </span>
+              <span>
+                总盈亏：<strong
+                  :style="{
+                    color:
+                      (realtime.summary.totalPnl ?? 0) >= 0
+                        ? 'var(--color-rise)'
+                        : 'var(--color-fall)'
+                  }"
+                >
+                  {{ (realtime.summary.totalPnl ?? 0) >= 0 ? "+" : ""
+                  }}{{ realtime.summary.totalPnl?.toFixed(2) ?? "--" }}
+                </strong>
+                (<span
+                  :style="{
+                    color:
+                      (realtime.summary.totalPnlPercent ?? 0) >= 0
+                        ? 'var(--color-rise)'
+                        : 'var(--color-fall)'
+                  }"
+                >
+                  {{ (realtime.summary.totalPnlPercent ?? 0) >= 0 ? "+" : ""
+                  }}{{
+                    realtime.summary.totalPnlPercent?.toFixed(2) ?? "--"
+                  }}% </span
+                >)
+              </span>
+            </div>
+          </div>
+        </template>
+
+        <!-- 表格上方的分类切换与筛选行 (去除冗余文字，保留核心胶囊与下拉框) -->
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-4 pb-3 border-b border-[var(--border-light)]">
+          <!-- 左侧：资产分类快速切换（28px 标准胶囊高度） -->
+          <div class="flex items-center gap-2">
+            <button
+              v-for="item in VENUE_FILTER_OPTIONS"
+              :key="item.value"
+              class="flex items-center gap-1.5 px-3 py-1 rounded-full border transition-colors duration-200 cursor-pointer text-xs whitespace-nowrap"
+              :class="
+                currentVenueFilter === item.value
+                  ? 'bg-[var(--brand-100)] text-[var(--brand-700)] border-[var(--brand-400)] shadow-sm'
+                  : 'bg-transparent text-[var(--text-tertiary)] border-[var(--border-default)] hover:bg-[var(--bg-hover)]'
+              "
+              @click="setVenueFilter(item.value)"
+            >
+              <span>{{ item.label }}</span>
+              <!-- 数量以轻微的透明度展示，层次分明 -->
+              <template v-if="item.value === 'all'">
+                <span class="opacity-70 font-normal">{{ venueStats.total }}</span>
+              </template>
+              <template v-if="item.value === 'EXCHANGE'">
+                <span class="opacity-70 font-normal">{{ venueStats.exchange }}</span>
+              </template>
+              <template v-if="item.value === 'OTC'">
+                <span class="opacity-70 font-normal">{{ venueStats.otc }}</span>
+              </template>
+            </button>
+          </div>
+
+          <!-- 右侧：标签筛选下拉与批量删除 -->
+          <div class="flex items-center gap-2">
             <el-button
               v-if="batchMode && selectedItems.length > 0"
               type="danger"
-              size="small"
               plain
-              class="ml-1"
+              size="small"
+              class="!h-7 !px-3 !text-xs"
               @click="handleBatchDelete"
             >
               删除选中 ({{ selectedItems.length }})
             </el-button>
-          </p>
-          <div class="flex items-center gap-2">
+
             <el-select
               v-model="selectedFilterTagIds"
               multiple
               filterable
               clearable
               placeholder="按标签筛选..."
-              size="small"
               class="w-56 min-w-[180px] modern-filter-select"
+              size="small"
               @change="handleTagFilterChange"
             >
               <el-option
@@ -266,24 +369,22 @@
           </div>
         </div>
 
+        <!-- 表格 (改为 size="large" 实现 40px 行高) -->
         <el-table
           v-loading="loading"
           :data="items"
           stripe
-          size="default"
-          :row-style="{ height: '48px' }"
+          size="large"
+          :row-style="{ height: '40px' }"
           @row-click="handleRowClick"
           @selection-change="handleSelectionChange"
         >
-          <!-- 批量选择列（仅批量模式下显示） -->
           <el-table-column
             v-if="batchMode"
             type="selection"
             width="50"
             align="center"
           />
-
-          <!-- 标记列 -->
           <el-table-column width="50" align="center" class-name="marker-column">
             <template #default="{ row }">
               <div class="flex items-center justify-center gap-0.5">
@@ -305,21 +406,16 @@
             </template>
           </el-table-column>
 
-          <!-- 产品信息列（与标签同行） -->
+          <!-- 产品信息列 -->
           <el-table-column label="代码/名称" min-width="200">
             <template #default="{ row }">
               <div class="flex items-center gap-2 h-full py-2">
-                <!-- 产品主体信息 -->
                 <ProductDisplay
                   :name="row.display_name || row.symbol"
                   :symbol="row.symbol"
                   :type-label="row.type_label || ''"
                 />
-                <!-- 基金标识 -->
-                <AssetTypeBadge
-                    v-if="row.venue === 'OTC'"
-                    type="fund"
-                  />
+                <AssetTypeBadge v-if="row.venue === 'OTC'" type="fund" />
                 <div class="flex items-center gap-1 flex-shrink-0">
                   <template v-if="row.tag_ids && row.tag_ids.length > 0">
                     <el-tag
@@ -335,7 +431,6 @@
                     >
                       {{ getTagName(tagId) }}
                     </el-tag>
-                    <!-- 如果标签超过2个，显示 +N -->
                     <span
                       v-if="row.tag_ids.length > 2"
                       class="text-xs"
@@ -359,52 +454,51 @@
             </template>
           </el-table-column>
 
-          <el-table-column
-            prop="current_price"
-            label="最新价"
-            width="110"
-            align="right"
-          >
+          <!-- 最新价 -->
+          <el-table-column label="最新价" width="110" align="right">
             <template #default="{ row }">
-              <MoneyDisplay
-                v-if="row.current_price != null"
-                :value="row.current_price"
-                :show-sign="false"
-                :show-currency="false"
-                size="sm"
-              />
-              <span v-else :style="{ color: 'var(--text-tertiary)' }">--</span>
+              <template v-if="realtimeEnabled && getValuationItem(row.symbol)">
+                <MoneyDisplay
+                  :value="getValuationItem(row.symbol)!.currentPrice"
+                  :show-sign="false"
+                  :show-currency="false"
+                />
+              </template>
+              <template v-else>
+                <MoneyDisplay
+                  v-if="row.current_price != null"
+                  :value="row.current_price"
+                  :show-sign="false"
+                  :show-currency="false"
+                />
+                <span v-else :style="{ color: 'var(--text-tertiary)' }"
+                  >--</span
+                >
+              </template>
             </template>
           </el-table-column>
 
-          <el-table-column
-            prop="change_pct"
-            label="涨跌幅"
-            width="100"
-            align="right"
-          >
+          <!-- 涨跌幅 (替换为全局 RiseFallText 组件) -->
+          <el-table-column label="涨跌幅" width="100" align="right">
             <template #default="{ row }">
-              <span
-                v-if="row.change_pct != null"
-                class="inline-block px-1.5 py-0.5 rounded text-xs font-medium"
-                :class="{ 'font-bold': Math.abs(row.change_pct) >= 2 }"
-                :style="{
-                  backgroundColor:
-                    row.change_pct >= 0
-                      ? 'rgba(227, 79, 56, 0.08)'
-                      : 'rgba(123, 196, 154, 0.1)',
-                  color:
-                    row.change_pct >= 0
-                      ? 'var(--color-rise)'
-                      : 'var(--color-fall)'
-                }"
-              >
-                {{ row.change_pct >= 0 ? '▲' : '▼' }}{{ Math.abs(row.change_pct).toFixed(2) }}%
-              </span>
-              <span v-else :style="{ color: 'var(--text-tertiary)' }">--</span>
+              <template v-if="realtimeEnabled && getValuationItem(row.symbol)">
+                <RiseFallText
+                  :value="getValuationItem(row.symbol)!.changePct"
+                />
+              </template>
+              <template v-else>
+                <RiseFallText
+                  v-if="row.change_pct != null"
+                  :value="row.change_pct"
+                />
+                <span v-else :style="{ color: 'var(--text-tertiary)' }"
+                  >--</span
+                >
+              </template>
             </template>
           </el-table-column>
 
+          <!-- 持仓市值 -->
           <el-table-column
             prop="position_market_value"
             label="持仓市值"
@@ -416,13 +510,12 @@
                 v-if="row.position_market_value != null"
                 :value="row.position_market_value"
                 :show-sign="false"
-                size="sm"
               />
               <span v-else :style="{ color: 'var(--text-tertiary)' }">--</span>
             </template>
           </el-table-column>
 
-          <!-- 操作列（批量模式下隐藏部分操作） -->
+          <!-- 操作列 -->
           <el-table-column
             label="操作"
             width="120"
@@ -479,7 +572,6 @@
                 </el-tooltip>
               </template>
               <template v-else>
-                <!-- 批量模式下禁用单行操作 -->
                 <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }"
                   >-</span
                 >
@@ -502,7 +594,7 @@
       </div>
     </div>
 
-    <!-- 弹窗部分（逻辑保持不变） -->
+    <!-- 弹窗部分 -->
     <AddToWatchlistModal
       v-model="showAddModal"
       :initial-group-id="activeCustomGroupId"
@@ -510,10 +602,14 @@
     />
 
     <el-dialog v-model="showGroupDialog" title="新建分组" width="320px">
-      <el-input v-model="newGroupName" placeholder="分组名称" />
+      <el-input v-model="newGroupName" placeholder="分组名称" size="large" />
       <template #footer>
-        <el-button @click="showGroupDialog = false">取消</el-button>
-        <el-button type="primary" @click="createGroup">确定</el-button>
+        <el-button size="large" @click="showGroupDialog = false"
+          >取消</el-button
+        >
+        <el-button size="large" type="primary" @click="createGroup"
+          >确定</el-button
+        >
       </template>
     </el-dialog>
 
@@ -541,8 +637,12 @@
         </el-radio-group>
       </div>
       <template #footer>
-        <el-button @click="removeDialogVisible = false">取消</el-button>
-        <el-button type="danger" @click="executeRemove">确定</el-button>
+        <el-button size="large" @click="removeDialogVisible = false"
+          >取消</el-button
+        >
+        <el-button size="large" type="danger" @click="executeRemove"
+          >确定</el-button
+        >
       </template>
     </el-dialog>
 
@@ -569,7 +669,7 @@
             filterable
             placeholder="搜索并选择标签..."
             class="w-full"
-            size="default"
+            size="large"
             popper-class="tag-manager-select-dropdown"
             @change="handleSelectChange"
           >
@@ -590,7 +690,7 @@
           </el-select>
         </div>
 
-        <!-- 2. 已选标签操作列表（点击可直接编辑） -->
+        <!-- 2. 已选标签操作列表 -->
         <div v-if="selectedTagIdsForManager.length > 0" class="mb-4">
           <div class="text-xs mb-2" :style="{ color: 'var(--text-tertiary)' }">
             已选标签（点击可编辑）
@@ -632,13 +732,12 @@
         >
           <div class="flex flex-wrap items-end gap-3">
             <div class="flex-1 min-w-[150px]">
-              <!-- ✅ 修复 v-model 报错：使用 v-if/v-else 区分 -->
               <el-input
                 v-if="editingTagId"
                 ref="editInputRef"
                 v-model="editTagName"
                 placeholder="修改标签名称..."
-                size="default"
+                size="large"
                 class="w-full"
                 @keyup.enter="saveEditTag(editingTagId)"
               />
@@ -646,7 +745,7 @@
                 v-else
                 v-model="newTagNameInManager"
                 placeholder="输入新标签名..."
-                size="default"
+                size="large"
                 class="w-full"
                 @keyup.enter="addNewTagInManager"
               />
@@ -670,7 +769,7 @@
             <el-button
               v-if="editingTagId"
               type="primary"
-              size="default"
+              size="large"
               @click="saveEditTag(editingTagId)"
             >
               保存修改
@@ -678,14 +777,13 @@
             <el-button
               v-else
               type="primary"
-              size="default"
+              size="large"
               @click="addNewTagInManager"
             >
               添加标签
             </el-button>
           </div>
 
-          <!-- 只有在编辑模式下才展示危险删除按钮 -->
           <div v-if="editingTagId" class="flex justify-end mt-3">
             <el-popconfirm
               title="确定要删除该标签吗？"
@@ -701,9 +799,7 @@
         </div>
       </div>
       <template #footer>
-        <el-button size="default" @click="showTagManager = false"
-          >关闭</el-button
-        >
+        <el-button size="large" @click="showTagManager = false">关闭</el-button>
       </template>
     </el-dialog>
 
@@ -756,7 +852,7 @@
             filterable
             placeholder="选择标签"
             class="flex-1"
-            size="small"
+            size="large"
           >
             <el-option
               v-for="tag in availableTagsForEditor"
@@ -773,7 +869,7 @@
               </div>
             </el-option>
           </el-select>
-          <el-button size="small" @click="showNewTagFormInEditor = true">
+          <el-button size="large" @click="showNewTagFormInEditor = true">
             <IconifyIconOffline icon="ep:plus" />
           </el-button>
         </div>
@@ -785,7 +881,7 @@
           <el-input
             v-model="newTagNameInEditor"
             placeholder="标签名"
-            size="small"
+            size="large"
             class="w-24"
           />
           <div class="flex gap-1">
@@ -802,22 +898,42 @@
               @click="newTagColorInEditor = c"
             />
           </div>
-          <el-button type="primary" size="small" @click="createTagInEditor"
+          <el-button type="primary" size="large" @click="createTagInEditor"
             >确定</el-button
           >
-          <el-button size="small" @click="showNewTagFormInEditor = false"
+          <el-button size="large" @click="showNewTagFormInEditor = false"
             >取消</el-button
           >
         </div>
       </div>
 
       <template #footer>
-        <el-button @click="showTagEditor = false">取消</el-button>
-        <el-button type="primary" :loading="savingTags" @click="saveTagChanges"
+        <el-button size="large" @click="showTagEditor = false">取消</el-button>
+        <el-button
+          type="primary"
+          size="large"
+          :loading="savingTags"
+          @click="saveTagChanges"
           >保存</el-button
         >
       </template>
     </el-dialog>
+
+    <SettingsDrawer
+      v-model="showSettingsDrawer"
+      @manage-groups="
+        showGroupDialog = true;
+        showSettingsDrawer = false;
+      "
+      @manage-tags="
+        showTagManager = true;
+        showSettingsDrawer = false;
+      "
+      @manage-batch="
+        toggleBatchMode();
+        showSettingsDrawer = false;
+      "
+    />
   </div>
 </template>
 
@@ -836,6 +952,7 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import type { ElInput } from "element-plus";
 import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
 import AddToWatchlistModal from "@/components/QuickEntry/AddToWatchlistModal.vue";
+import SettingsDrawer from "@/components/Watchlist/SettingsDrawer.vue";
 import {
   getWatchlistItems,
   getWatchlistGroups,
@@ -850,20 +967,23 @@ import {
   deleteWatchlistTag,
   addTagToItem,
   removeTagFromItem,
+  addItemToGroup,
   createWatchlistTag,
   type WatchlistItem,
   type WatchlistGroup,
   type WatchlistTag
 } from "@/api/watchlist";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
-import RiseFallText from "@/components/RiseFallText/index.vue";
+import RiseFallText from "@/components/RiseFallText/index.vue"; // 加入此组件引入
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
+import { useRealtimeQuotes } from "@/composables/useRealtimeQuotes";
+import RealtimeWarningBanner from "@/components/RealtimeWarningBanner/index.vue";
+import RealtimeStatusIndicator from "@/components/RealtimeStatusIndicator/index.vue";
+import type { Holding } from "@/utils/valuationEngine";
 
 defineOptions({ name: "Watchlist" });
 
-// ─────────────────────────────────────────────
-// 基础配置
-// ─────────────────────────────────────────────
+// ── 基础配置 ──
 const currentView = ref("all");
 const viewOptions = [
   { label: "全部", value: "all" },
@@ -915,14 +1035,79 @@ const presetColors = [
   "#B6B09C"
 ];
 
-// ─────────────────────────────────────────────
-// 响应式数据
-// ─────────────────────────────────────────────
+// ── 响应式数据 ──
 const activeGroup = ref("holding");
 const allGroups = ref<any[]>([]);
 const customGroups = ref<WatchlistGroup[]>([]);
 
 const items = ref<WatchlistItem[]>([]);
+
+// 估值相关
+const getValuationItem = (symbol: string) => {
+  return realtime.items.value?.find(item => item.symbol === symbol);
+};
+
+const getHoldings = (): Holding[] => {
+  return items.value
+    .filter(item => item.symbol)
+    .map(item => ({
+      symbol: item.symbol,
+      type:
+        item.asset_type === "fund" || item.venue === "OTC" ? "fund" : "stock",
+      quantity: item.status === "HOLDING" ? 1 : 0,
+      costPrice: item.status === "HOLDING" ? 1 : 0
+    }));
+};
+
+const getStaticPrice = (symbol: string) => {
+  const item = items.value.find(i => i.symbol === symbol);
+  return item
+    ? { currentPrice: item.current_price, changePct: item.change_pct }
+    : undefined;
+};
+
+// ... 你的其他代码 ...
+
+const realtime = useRealtimeQuotes(getHoldings, getStaticPrice);
+
+// ✅ 1. 新增：一个专门控制按钮文字的 computed，解决文字不更新的脏数据问题
+const toggleBtnText = computed(() => {
+  return realtime.enabled.value ? "关闭实时估值" : "开启实时估值";
+});
+
+// ✅ 2. 修复：原 watch 导致的死循环/卡顿，重构为更稳定的版本
+watch(
+  () => items.value,
+  () => {
+    if (realtime.enabled.value) {
+      // 强制捕获异常，避免卡断响应式更新
+      try {
+        realtime.manualRefresh();
+      } catch (e) {
+        console.warn("手动刷新失败", e);
+      }
+    }
+  }
+);
+
+// ✅ 3. 修改：监听实时行情数据，更新绿灯和时间
+watch(
+  () => realtime.items.value,
+  newItems => {
+    if (newItems && newItems.length > 0) {
+      const hasValidPrice = newItems.some(item => item.currentPrice > 0);
+      if (hasValidPrice) {
+        realtime.status.value = "success";
+        const now = new Date();
+        const pad = (n: number) => n.toString().padStart(2, "0");
+        const timeStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+        realtime.lastUpdateTime.value = timeStr;
+      }
+    }
+  },
+  { deep: true }
+);
+
 const loading = ref(false);
 const searchKeyword = ref("");
 const currentPage = ref(1);
@@ -955,10 +1140,11 @@ const newTagColorInEditor = ref("#B6B09C");
 const newTagNameInManager = ref("");
 const newTagColorInManager = ref("#B6B09C");
 
-// 🆕 分组管理
-const hoveringGroupKey = ref<string | null>(null);
+// 已移除 hoveringGroupKey，改用 CSS group-hover 实现
 const editingGroupId = ref<number | null>(null);
 const editGroupName = ref("");
+
+const showSettingsDrawer = ref(false);
 
 const venueStats = computed(() => {
   const total = items.value.length;
@@ -975,13 +1161,13 @@ const VENUE_FILTER_OPTIONS = [
 ] as const;
 
 const currentVenueFilter = ref<"all" | "EXCHANGE" | "OTC">("all");
-
-// 🆕 批量操作
 const batchMode = ref(false);
 const selectedItems = ref<WatchlistItem[]>([]);
-// ─────────────────────────────────────────────
+
+// 批量移动相关
+const batchMoveGroupId = ref<number | null>(null);
+
 // 计算属性
-// ─────────────────────────────────────────────
 const activeGroupLabel = computed(() => {
   const group = allGroups.value.find(g => g.key === activeGroup.value);
   return group?.label || "全部";
@@ -1048,17 +1234,16 @@ const availableTagsForEditor = computed(() => {
   const existingIds = new Set(editingItem.value.tag_ids);
   return allTags.value.filter(t => !existingIds.has(t.id));
 });
-// 批量操作相关方法
+
+// 方法
 function toggleBatchMode() {
   batchMode.value = !batchMode.value;
-  if (!batchMode.value) {
-    selectedItems.value = [];
-  }
+  if (!batchMode.value) selectedItems.value = [];
 }
 
 function setVenueFilter(venue: "all" | "EXCHANGE" | "OTC") {
   currentVenueFilter.value = venue;
-  fetchData();   // 始终使用 fetchData，它会从 fetchParams 中读取 currentVenueFilter
+  fetchData();
 }
 
 function handleSelectionChange(selection: WatchlistItem[]) {
@@ -1077,7 +1262,7 @@ async function handleBatchDelete() {
       try {
         await deleteWatchlistItem(item.id);
       } catch (e) {
-        // 忽略单个失败
+        /* ignore */
       }
     }
     ElMessage.success("批量移除完成");
@@ -1085,14 +1270,31 @@ async function handleBatchDelete() {
     selectedItems.value = [];
     fetchData();
   } catch (e) {
-    // 用户取消
+    /* 用户取消 */
   }
 }
+
+const handleBatchMoveToGroup = async (groupId: number | null) => {
+  if (!groupId || selectedItems.value.length === 0) return;
+  try {
+    const promises = selectedItems.value.map(item =>
+      addItemToGroup(item.id, groupId)
+    );
+    await Promise.all(promises);
+    ElMessage.success(
+      `已将 ${selectedItems.value.length} 个资产移动到所选分组`
+    );
+    batchMoveGroupId.value = null;
+    toggleBatchMode();
+    fetchData();
+  } catch (e) {
+    ElMessage.error("批量移动失败");
+  }
+};
 
 function startEditGroup(group: any) {
   if (group.key.startsWith("custom_")) {
     const id = parseInt(group.key.replace("custom_", ""));
-    // 如果已经在编辑当前分组，则取消编辑
     if (editingGroupId.value === id) {
       cancelEditGroup();
       return;
@@ -1105,12 +1307,10 @@ function startEditGroup(group: any) {
         document.removeEventListener("click", outsideClickHandler);
       outsideClickHandler = (e: MouseEvent) => {
         const target = e.target as HTMLElement;
-        // 点击在分组项内部或弹窗内不取消
         if (target.closest(".group-item") || target.closest(".el-popconfirm"))
           return;
         cancelEditGroup();
       };
-      // 延迟绑定，避免立即触发起始按钮的 click
       setTimeout(
         () => document.addEventListener("click", outsideClickHandler!),
         0
@@ -1135,7 +1335,6 @@ async function saveEditGroup() {
   const originalGroup = allGroups.value.find(
     g => g.key === `custom_${editingGroupId.value}`
   );
-  // 名称未改变，直接退出编辑态（无需请求后端）
   if (originalGroup && editGroupName.value.trim() === originalGroup.label) {
     cancelEditGroup();
     return;
@@ -1379,7 +1578,6 @@ const openTagEditor = (row: WatchlistItem) => {
   showTagEditor.value = true;
 };
 
-// ✅ 新增：处理下拉框变更重置状态
 const handleSelectChange = () => {
   if (selectedTagIdsForManager.value.length === 0) {
     editingTagId.value = null;
@@ -1387,7 +1585,6 @@ const handleSelectChange = () => {
   }
 };
 
-// ✅ 新增：点击已选标签卡片进入编辑态
 const selectTagForEdit = (tagId: number) => {
   const tag = allTags.value.find(t => t.id === tagId);
   if (!tag) return;
@@ -1402,13 +1599,11 @@ const selectTagForEdit = (tagId: number) => {
   editTagName.value = tag.name;
   editTagColor.value = tag.color || "#B6B09C";
 
-  // 自动聚焦
   nextTick(() => {
     editInputRef.value?.focus();
   });
 };
 
-// ✅ 新增：移除已选标签卡片
 const removeTagFromSelection = (tagId: number) => {
   selectedTagIdsForManager.value = selectedTagIdsForManager.value.filter(
     id => id !== tagId
@@ -1432,7 +1627,6 @@ const addNewTagInManager = async () => {
       name: newTag.name,
       color: newTag.color || newTagColorInManager.value
     });
-    // ✅ 新增：自动选中刚创建的标签
     selectedTagIdsForManager.value.push(newTag.id);
 
     newTagNameInManager.value = "";
@@ -1528,7 +1722,6 @@ const saveEditTag = async (tagId: number) => {
     ElMessage.success("标签已更新");
     editingTagId.value = null;
     await fetchTags();
-    // 确保编辑态自动退出
     editingTagId.value = null;
     editTagName.value = "";
   } catch (e: any) {
@@ -1551,7 +1744,6 @@ const deleteTag = async (tagId: number) => {
     ElMessage.success("标签已删除");
     await fetchTags();
 
-    // 清理
     removeTagFromSelection(tagId);
     selectedTagIdsForManager.value = selectedTagIdsForManager.value.filter(
       id => id !== tagId
@@ -1574,6 +1766,15 @@ onMounted(() => {
     fetchData();
   });
 });
+
+onBeforeUnmount(() => {
+  if (outsideClickHandler) {
+    document.removeEventListener("click", outsideClickHandler);
+    outsideClickHandler = null;
+  }
+});
+
+const realtimeEnabled = computed(() => realtime.enabled.value);
 </script>
 
 <style scoped>
@@ -1605,11 +1806,6 @@ onMounted(() => {
   white-space: nowrap;
 }
 
-/* 编辑标签时的输入框宽度控制 */
-.edit-tag-input {
-  width: 100px;
-}
-
 /* 颜色选择按钮 */
 .color-swatch-btn {
   width: 20px;
@@ -1634,7 +1830,61 @@ onMounted(() => {
 }
 
 /* ======================================
-   基础输入框/下拉框样式（不规定高度，交由组件自己控制）
+   批量模式工具栏优化
+   ====================================== */
+.batch-move-select {
+  min-width: 180px;
+}
+.batch-move-select :deep(.el-input__wrapper) {
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-card);
+  box-shadow: none;
+  border: 1px solid var(--border-default);
+  transition: all 0.2s ease;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.batch-move-select :deep(.el-input__suffix) {
+  display: flex;
+  align-items: center;
+}
+.batch-move-select :deep(.el-input__wrapper:hover) {
+  border-color: var(--brand-500);
+}
+.batch-move-select :deep(.el-input__wrapper.is-focus) {
+  border-color: var(--brand-700);
+  box-shadow: var(--focus-ring);
+}
+
+/* 删除选中按钮：幽灵危险按钮 */
+.batch-delete-btn {
+  border: 1px solid var(--color-danger);
+  color: var(--color-danger);
+  background-color: transparent;
+  border-radius: var(--radius-sm);
+  transition: all 0.2s ease;
+}
+.batch-delete-btn:hover {
+  background-color: var(--color-danger);
+  color: #fff;
+  border-color: var(--color-danger);
+}
+.batch-delete-btn:active {
+  transform: translateY(1px);
+}
+.batch-delete-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  border-color: var(--text-disabled);
+  color: var(--text-disabled);
+}
+.batch-delete-btn:disabled:hover {
+  background-color: transparent;
+  color: var(--text-disabled);
+}
+
+/* ======================================
+   基础输入框/下拉框样式
    ====================================== */
 :deep(.el-input__wrapper) {
   border-radius: var(--radius-sm);
@@ -1656,25 +1906,11 @@ onMounted(() => {
 }
 
 /* ======================================
-   ✅ 核心修正区：仅对顶部工具栏 (class="top-bar") 强制 32px 高度
-   绝对不会影响表格里的圆按钮、标签或其他地方的按钮！
+   ✅ 已移除强制 32px 高度逻辑，按钮和输入框默认跟随 Element Plus 尺寸
    ====================================== */
-.top-bar :deep(.el-input.el-input--small .el-input__wrapper) {
-  height: 32px !important;
-  padding: 0 12px !important;
-}
-.top-bar :deep(.el-button.el-button--small) {
-  height: 32px !important;
-  padding: 6px 14px !important;
-  min-height: 32px !important;
-}
-.top-bar :deep(.el-button--primary.el-button--small) {
-  height: 32px !important;
-}
 
 /* 顶部筛选下拉框（现代极简风） */
 .top-bar :deep(.modern-filter-select .el-input__wrapper) {
-  height: 32px !important;
   background-color: var(--bg-warm);
   border: none !important;
   box-shadow: none !important;
@@ -1696,20 +1932,15 @@ onMounted(() => {
 }
 
 /* ======================================
-   按钮动效（移除所有对 height 的强制覆盖，纯动效过渡）
+   按钮物理反馈（去除缩放，仅保留符合规范的 translateY）
    ====================================== */
 :deep(.el-button--primary:active) {
-  transform: translateY(1px) scale(0.96);
+  transform: translateY(1px);
   box-shadow: none !important;
 }
-:deep(.el-button:not(.el-button--primary)) {
-  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-:deep(.el-button:not(.el-button--primary):active) {
-  transform: scale(0.94);
-}
+/* 规范要求：软按钮/其他按钮点击不进行缩放位移，仅背景加深 */
 :deep(.el-button.is-text:active) {
-  transform: scale(0.96);
+  transform: none;
 }
 
 .tag-fade-enter-active,

@@ -30,6 +30,16 @@ export default [
       showLink: false
     }
   },
+  // 🔥 探市·研究 —— 独立全屏页面，不经过 Layout
+  {
+    path: "/explore",
+    name: "Explore",
+    component: () => import("@/views/explore/index.vue"),
+    meta: {
+      title: "探市",
+      showLink: false,        // 不在菜单中显示
+    }
+  },
   {
     path: "/redirect",
     component: Layout,

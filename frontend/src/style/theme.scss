@@ -147,3 +147,29 @@ html[data-theme="showbuy"] .el-menu-item:hover {
 html[data-theme="showbuy"] .sidebar-logo-container .sidebar-title {
   color: var(--brand-700) !important;
 }
+
+// frontend/src/style/theme.scss（在文件末尾添加）
+
+/* ============================================================
+   Element Plus 主题色覆盖 —— ShowBuy 品牌色
+   ============================================================ */
+
+:root {
+  --el-color-primary: var(--brand-700);
+  --el-color-primary-light-3: var(--brand-500);
+  --el-color-primary-light-5: var(--brand-400);
+  --el-color-primary-light-7: var(--brand-300);
+  --el-color-primary-light-8: var(--brand-200);
+  --el-color-primary-light-9: var(--brand-100);
+  --el-color-primary-dark-2: var(--brand-800);
+}
+
+/* 确保按钮等组件使用品牌色 */
+.el-button--primary {
+  --el-button-bg-color: var(--brand-700);
+  --el-button-border-color: var(--brand-700);
+  --el-button-hover-bg-color: var(--brand-800);
+  --el-button-hover-border-color: var(--brand-800);
+  --el-button-active-bg-color: var(--brand-900);
+  --el-button-active-border-color: var(--brand-900);
+}
