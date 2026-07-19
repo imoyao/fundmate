@@ -18,7 +18,7 @@
     "lint:prettier": "prettier --write  \"src/**/*.{js,ts,json,tsx,css,scss,vue,html,md}\"",
     "lint:stylelint": "stylelint --cache --fix \"**/*.{html,vue,css,scss}\" --cache-location node_modules/.cache/stylelint/",
     "lint": "pnpm lint:eslint && pnpm lint:prettier && pnpm lint:stylelint",
-    "prepare": "husky",
+    "prepare": "husky || true",
     "preinstall": "npx only-allow pnpm"
   },
   "keywords": [
@@ -140,32 +140,5 @@
   "engines": {
     "node": "22.x",
     "pnpm": ">=9"
-  },
-  "pnpm": {
-    "allowedDeprecatedVersions": {
-      "are-we-there-yet": "*",
-      "sourcemap-codec": "*",
-      "lodash.isequal": "*",
-      "domexception": "*",
-      "w3c-hr-time": "*",
-      "inflight": "*",
-      "npmlog": "*",
-      "rimraf": "*",
-      "stable": "*",
-      "gauge": "*",
-      "abab": "*",
-      "glob": "*"
-    },
-    "onlyBuiltDependencies": [
-      "@parcel/watcher",
-      "core-js",
-      "es5-ext",
-      "esbuild",
-      "typeit",
-      "vue-demi"
-    ],
-    "ignoredBuiltDependencies": [
-      "@tailwindcss/oxide"
-    ]
   }
 }
