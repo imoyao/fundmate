@@ -5,15 +5,23 @@ on:
   schedule:
     # 每 6 天运行一次 (Supabase 是 7 天休眠，6 天刚好安全)
     - cron: '0 10 */6 * *'
-  workflow_dispatch: # 允许手动触发
+  workflow_dispatch: # 允许在 GitHub 页面手动点击触发
 
 jobs:
   ping-supabase:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping Supabase REST API
+      - name: Wake up Supabase Auth & DB
         run: |
-          curl -s -o /dev/null -w "%{http_code}" \
-          -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
-          -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
-          "${{ secrets.SUPABASE_URL }}/rest/v1/health_check?select=id&limit=1"
+          echo "正在唤醒 Supabase..."
+          # 请求 Auth 的公开 settings 接口，无需建表，绝对成功
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
+            "${{ secrets.SUPABASE_URL }}/auth/v1/settings")
+
+          if [ "$HTTP_STATUS" -eq 200 ]; then
+            echo "✅ 唤醒成功！HTTP 状态码: $HTTP_STATUS"
+          else
+            echo "❌ 唤醒异常！HTTP 状态码: $HTTP_STATUS"
+            exit 1 # 标记为失败，方便你在 GitHub 收到邮件报警
+          }
