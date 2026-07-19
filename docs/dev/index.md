@@ -1,6 +1,5 @@
 ---
 title: 全景式资产清单
-permalink: /index
 ---
 
 ## 使用 Ruff 替代 isort 和 yapf 这两个工具
