@@ -25,7 +25,7 @@ title:标记(mark)
 
 1.  可以标记测试方法、测试类，标记名可以自定义，最好起有意义的名字；
 2.  同一测试类/方法可同时拥有多个标记；
-   ```python
+```python
    # test_login_logout.py
 
    import pytest
@@ -69,7 +69,8 @@ title:标记(mark)
 
            # 实现登出功能
            pass
-   ```
+```
+
 ## 运行标记的用例：
 1.  使用 -m 参数运行标记的测试用例；
 2.  -m 参数支持 and、or 、not 等表达式；
@@ -90,11 +91,11 @@ pytest.main(['-m logout and not success'])
 # 运行登陆和登出的用例
 pytest.main(['-m login or logout'])
 ```
-## 注册、管理 mark 标记：
+## 注册、管理 mark 标记
 
 当使用 -m 参数执行 mark 标记的用例时，pytest 会发出告警信息 “**PytestUnknownMarkWarning: Unknown pytest.mark.login - is this a typo? ”，**告诉你这是一个 pytest 未知的一个标记！为了消除告警，我们需要在 pytest 的配置文件中注册 mark 标记！
 
-### 注册 mark 标记：
+### 注册 mark 标记
 
 1.  首先在项目根目录创建一个文件 pytest.ini ，这个是 pytest 的配置文件；
 2.  然后在 pytest.ini 文件的 markers 中写入你的 mark 标记， 冒号 “:” 前面是标记名称，后面是 mark 标记的说明，可以是空字符串；
@@ -110,13 +111,13 @@ markers =
     failed  : 'marks tests as failed'
 ```
 
-### 规范使用 mark 标记：
+### 规范使用 mark 标记
 
-注册完 mark 标记之后 pytest 便不会再告警，但是有时手残容易写错 mark 名，导致 pytest 找不到用例，一时想不开很难debug，尤其是团队协作时很容易出现类似问题，所以我们需要 “addopts = --strict” 参数来严格规范 mark 标记的使用！
+注册完 mark 标记之后 pytest 便不会再告警，但是有时手残容易写错 mark 名，导致 pytest 找不到用例，一时想不开很难 debug，尤其是团队协作时很容易出现类似问题，所以我们需要 “addopts = --strict” 参数来严格规范 mark 标记的使用！
 
 1. 在 pytest.ini 文件中添加参数 “addopts = --strict”；
 2. 注意要另起一行，不要在 markers 中添加；
-3. 添加该参数后，当使用未注册的 mark 标记时，pytest会直接报错：“ 'xxx' not found in \`markers\` configuration option ”，不执行测试任务；
+3. 添加该参数后，当使用未注册的 mark 标记时，pytest 会直接报错：“ 'xxx' not found in \`markers\` configuration option ”，不执行测试任务；
 4. **注意：pytest.ini 配置文件不支持注释，不支持注释，不支持注释...**
 ```ini
 # pytest.ini
@@ -142,4 +143,4 @@ pytest 提供了一些拿来即用的标识：
 
 ## 参考链接
 
-[【pytest】使用 mark 标记及运行测试用例，注册、管理 mark 标记_waitan2018的博客-CSDN博客](https://blog.csdn.net/waitan2018/article/details/104022709)
+[【pytest】使用 mark 标记及运行测试用例，注册、管理 mark 标记_waitan2018 的博客-CSDN 博客](https://blog.csdn.net/waitan2018/article/details/104022709)

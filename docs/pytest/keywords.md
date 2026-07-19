@@ -3,7 +3,7 @@ title:关键字
 ---
 # 一些涉及的关键字及用法
 
-## yield实现teardown
+## yield 实现 teardown
 
 用 `fixture` 实现 `teardown` 并不是一个独立的函数，而是用 `yield` 关键字来开启 `teardown` 操作。
 
@@ -86,7 +86,7 @@ test_demo.py 这里返回了一个token
 *   如果 yield 前面的代码，即 setup 部分已经抛出异常，则不会执行 yield 后面的 teardown 内容。
 *   如果测试用例抛出异常，yield 后面的 teardown 内容还是会正常执行。
 
-## yield+with的结合
+## yield+with 的结合
 
 yield 也可以配合 with 语句使用。
 ```python
@@ -100,7 +100,7 @@ def smtp_connection():
         yield smtp_connection
 
 ```
-## addfinalizer终结函数
+## addfinalizer 终结函数
 
 除了 `yield` 可以实现 `teardown` ，在 `request-context` 对象中注册 `addfinalizer` 方法也可以实现终结函数。
 
@@ -146,7 +146,7 @@ test_demo.py 这里返回了一个token
 ============================== 1 passed in 0.02s ==============================
 ```
 
-### yield 与 addfinalizer 的区别：
+### yield 与 addfinalizer 的区别
 
 `addfinalizer 可以注册多个终结函数。`
 
@@ -219,4 +219,4 @@ test_demo.py 这里返回了一个token
 
 ## 参考链接
 
-[pytest零基础入门到精通（04）conftest文件详解_七月的小尾巴的博客-CSDN博客](https://blog.csdn.net/weixin_43865008/article/details/121532380)
+[pytest 零基础入门到精通（04）conftest 文件详解_七月的小尾巴的博客-CSDN 博客](https://blog.csdn.net/weixin_43865008/article/details/121532380)

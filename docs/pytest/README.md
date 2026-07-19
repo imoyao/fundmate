@@ -13,4 +13,4 @@ title: 单元测试
 7. [How to bite Flask, SQLAlchemy and pytest all at once · Blog](https://piotr.banaszkiewicz.org/blog/2014/02/22/how-to-bite-flask-sqlalchemy-and-pytest-all-at-once/)
 8. [Delightful testing with pytest and Flask-SQLAlchemy | Alex Michael](http://alexmic.net/flask-sqlalchemy-pytest/)
 9. [如何用 pytest 进行高效测试 - 明月轩 | LibertyDream](https://libertydream.github.io/2020/07/12/pytest%E9%AB%98%E6%95%88%E6%B5%8B%E8%AF%95/)
-10. [利用Factory-boy来生成实例数据 - 月色深潭 - 博客园](https://www.cnblogs.com/moonpool/p/11352705.html)
+10. [利用 Factory-boy 来生成实例数据 - 月色深潭 - 博客园](https://www.cnblogs.com/moonpool/p/11352705.html)

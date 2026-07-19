@@ -20,7 +20,7 @@ permalink: /account-overview
 
 ---
 
-## 二、是否存在冗余？
+## 二、是否存在冗余
 
 | 对比维度 | Allocation（五笔钱） | Objective（投资目标） |
 |:---|:---|:---|
@@ -45,7 +45,7 @@ permalink: /account-overview
 
 ## 三、概念层级关系图
 
-```
+```plain
 Ledger (交易账户) ← 资金存放渠道
   │
   └── Position (持仓) ← 具体持有的某只股票/基金
@@ -91,7 +91,7 @@ Ledger (交易账户) ← 资金存放渠道
 
 ### 4.3 典型案例：用户“为养老买入腾讯”
 
-```
+```plain
 1. 用户选择 Ledger: "华泰证券"
 2. 导入交易: 买入 100 股腾讯控股
 3. 设置 Allocation: "长期增值"（因为腾讯是股票，风险高、期限长）
@@ -99,7 +99,7 @@ Ledger (交易账户) ← 资金存放渠道
 ```
 
 最终数据关系：
-```
+```plain
 Ledger: 华泰证券
   └── Position: 腾讯控股
         ├── Allocation: longterm
