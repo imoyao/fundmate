@@ -486,7 +486,7 @@ GRANT ALL PRIVILEGES ON *.* TO 'root'@'%'IDENTIFIED BY '{PASS_WORD}' WITH GRANT 
 该图示只用于数据库关系设计，具体字段定义以代码中实现为准！
 :::
 
-在线预览参见[基伴 - freedgo.com](https://www.freedgo.com/draw-index.html#O100929310168186882)
+在线预览参见[叽咕 - freedgo.com](https://www.freedgo.com/draw-index.html#O100929310168186882)
 
 ### SQL 语句
 

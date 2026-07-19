@@ -32,7 +32,7 @@ title: 开发指南
 
 ## 文档
 
-基伴使用[VuePress](https://vuepress.vuejs.org/zh/)生成文档系统。
+叽咕使用[VuePress](https://vuepress.vuejs.org/zh/)生成文档系统。
 
 - 预览
 

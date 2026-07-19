@@ -1,5 +1,5 @@
 module.exports = {
-    title: '基伴',
+    title: '叽咕',
     description: '基金理财好伙伴！',
     theme: 'antdocs',
     // 释出目录

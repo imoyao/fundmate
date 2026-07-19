@@ -1,7 +1,7 @@
 {
   "name": "fundmate",
   "version": "1.0.0",
-  "description": "基伴，你的理财帮手！",
+  "description": "叽咕，你的理财帮手！",
   "main": "index.js",
   "repository": "git@github.com:imoyao/fundmate.git",
   "author": "imoyao",

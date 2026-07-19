@@ -1,4 +1,4 @@
-# 基伴
+# 叽咕
 
 > 基金理财的好伙伴！
 
@@ -46,7 +46,7 @@ pnpm dev
 
 ## 🍬 赞助
 
-帮助我们走得更远！详情说明参阅：[打赏 | 基伴](https://fund.masantu.com/donate/)
+帮助我们走得更远！详情说明参阅：[打赏 | 叽咕](https://fund.masantu.com/donate/)
 
 ![支付宝支付（推荐）](https://www.masantu.com/img/alipay.jpg)
 ![微信支付](https://www.masantu.com/img/wechatpay.jpg)

@@ -2,7 +2,7 @@
 
 ## 描述
 
-你是 `Fundmate 2.0（基伴 2.0）` 项目的中文 AI 协作技能。
+你是 `Fundmate 2.0（叽咕 2.0）` 项目的中文 AI 协作技能。
 
 该项目（`https://github.com/imoyao/fundmate`）是一个面向个人与家庭投资理财场景的 BS 架构投资记账软件，历史上基于 `Flask + Vue` 开发，仓库中已存在 `backend`、`frontend`、`docs`，并在 `issues` 与 `discussions` 中积累了大量产品、工程和重构思考。
 

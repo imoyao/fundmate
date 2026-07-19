@@ -1,5 +1,5 @@
 ---
-title: echarts 在基伴中的使用
+title: echarts 在叽咕中的使用
 tags:
   - 前端
   - echarts
