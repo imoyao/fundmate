@@ -101,7 +101,7 @@ my_blog
 │     ├── script.py.mako
 │     └── versions
 ├── Procfile
-├── README.md
+├── index.md
 ├── requirements
 │     ├── common.txt
 │     ├── dev.txt
@@ -180,7 +180,7 @@ cookiecutter https://github.com/sloria/cookiecutter-flask.git
 ├── LICENSE
 ├── package.json
 ├── pyproject.toml
-├── README.md
+├── index.md
 ├── requirements
 │  ├── dev.txt
 ├── requirements.txt
@@ -231,7 +231,7 @@ cookiecutter https://github.com/sloria/cookiecutter-flask.git
 ├── __init__.py
 ├── LICENSE
 ├── pyproject.toml
-├── README.md
+├── index.md
 ├── requirements
 │     ├── dev.txt
 ├── requirements.txt
