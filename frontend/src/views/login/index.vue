@@ -41,21 +41,33 @@
               </el-form-item>
             </Motion>
 
+            <!-- 昵称（仅注册模式） -->
+            <Motion v-if="isRegisterMode" :delay="150">
+              <el-form-item prop="username">
+                <el-input
+                  v-model="ruleForm.username"
+                  clearable
+                  placeholder="昵称（用于展示）"
+                  :prefix-icon="useRenderIcon(User)"
+                />
+              </el-form-item>
+            </Motion>
+
             <!-- 密码 -->
-            <Motion :delay="150">
+            <Motion :delay="200">
               <el-form-item prop="password">
                 <el-input
                   v-model="ruleForm.password"
                   clearable
                   show-password
-                  placeholder="密码（至少6位）"
+                  placeholder="密码（至少8位）"
                   :prefix-icon="useRenderIcon(Lock)"
                 />
               </el-form-item>
             </Motion>
 
             <!-- 确认密码（仅注册模式） -->
-            <Motion v-if="isRegisterMode" :delay="200">
+            <Motion v-if="isRegisterMode" :delay="250">
               <el-form-item prop="confirmPassword">
                 <el-input
                   v-model="ruleForm.confirmPassword"
@@ -68,29 +80,22 @@
             </Motion>
 
             <!-- 隐私政策（仅注册模式） -->
-            <Motion v-if="isRegisterMode" :delay="250">
+            <Motion v-if="isRegisterMode" :delay="300">
               <el-form-item prop="agreePolicy">
                 <div class="privacy-policy-wrapper">
-                  <el-checkbox
-                    v-model="ruleForm.agreePolicy"
-                    class="privacy-checkbox"
-                  />
+                  <el-checkbox v-model="ruleForm.agreePolicy" class="privacy-checkbox" />
                   <span class="privacy-text">
                     我已阅读并同意
-                    <el-link type="primary" @click="openPrivacyPolicy">
-                      《隐私政策》
-                    </el-link>
+                    <el-link type="primary" @click="openPrivacyPolicy">《隐私政策》</el-link>
                     <span class="privacy-separator">·</span>
-                    <el-link type="primary" @click="openTerms">
-                      《服务条款》
-                    </el-link>
+                    <el-link type="primary" @click="openTerms">《服务条款》</el-link>
                   </span>
                 </div>
               </el-form-item>
             </Motion>
 
             <!-- 提交按钮 -->
-            <Motion :delay="isRegisterMode ? 300 : 250">
+            <Motion :delay="isRegisterMode ? 350 : 250">
               <el-button
                 class="w-full mt-4!"
                 size="default"
@@ -112,6 +117,23 @@
                 {{ isRegisterMode ? "去登录" : "立即注册" }}
               </el-link>
             </span>
+          </div>
+
+          <!-- 登录提示 -->
+          <div v-if="!isRegisterMode" class="login-hint mt-3">
+            <span class="text-xs" style="color: var(--text-tertiary)">
+              💡 使用注册时填写的邮箱登录
+            </span>
+          </div>
+
+          <!-- 注册成功提示 -->
+          <div v-if="!isRegisterMode && showRegisterSuccess" class="register-success mt-3">
+            <el-alert
+              title="注册成功！请查收验证邮件激活账户"
+              type="success"
+              :closable="false"
+              show-icon
+            />
           </div>
         </div>
       </div>
@@ -140,7 +162,6 @@ import darkIcon from "@/assets/svg/dark.svg?component";
 import Lock from "~icons/ri/lock-fill";
 import User from "~icons/ri/user-3-fill";
 
-// 🔥 Supabase
 import { supabase } from "@/utils/supabase";
 
 defineOptions({
@@ -152,6 +173,7 @@ const loading = ref(false);
 const disabled = ref(false);
 const ruleFormRef = ref<FormInstance>();
 const isRegisterMode = ref(false);
+const showRegisterSuccess = ref(false);
 
 const { initStorage } = useLayout();
 initStorage();
@@ -165,10 +187,25 @@ const { title } = useNav();
 // ============================================
 const ruleForm = reactive({
   email: "",
+  username: "",
   password: "",
   confirmPassword: "",
   agreePolicy: false
 });
+
+// ============================================
+// 登录验证规则
+// ============================================
+const loginRules = computed<FormRules>(() => ({
+  email: [
+    { required: true, message: "请输入邮箱", trigger: "blur" },
+    { type: "email", message: "请输入有效的邮箱地址", trigger: "blur" }
+  ],
+  password: [
+    { required: true, message: "请输入密码", trigger: "blur" },
+    { min: 8, message: "密码至少 8 位", trigger: "blur" }
+  ]
+}));
 
 // ============================================
 // 注册验证规则
@@ -178,9 +215,18 @@ const registerRules = computed<FormRules>(() => ({
     { required: true, message: "请输入邮箱", trigger: "blur" },
     { type: "email", message: "请输入有效的邮箱地址", trigger: "blur" }
   ],
+  username: [
+    { required: true, message: "请输入昵称", trigger: "blur" },
+    { min: 2, max: 20, message: "昵称长度 2-20 个字符", trigger: "blur" },
+    {
+      pattern: /^[\u4e00-\u9fa5a-zA-Z0-9_]+$/,
+      message: "昵称只能包含中文、字母、数字和下划线",
+      trigger: "blur"
+    }
+  ],
   password: [
     { required: true, message: "请输入密码", trigger: "blur" },
-    { min: 6, message: "密码至少 6 位", trigger: "blur" }
+    { min: 8, message: "密码至少 8 位", trigger: "blur" }
   ],
   confirmPassword: [
     { required: true, message: "请确认密码", trigger: "blur" },
@@ -214,22 +260,27 @@ const registerRules = computed<FormRules>(() => ({
 // ============================================
 const toggleMode = () => {
   isRegisterMode.value = !isRegisterMode.value;
+  showRegisterSuccess.value = false;
   ruleForm.email = "";
+  ruleForm.username = "";
   ruleForm.password = "";
   ruleForm.confirmPassword = "";
   ruleForm.agreePolicy = false;
 };
 
 // ============================================
-// 隐私政策弹窗
+// 打开隐私政策
 // ============================================
-const showPrivacyPolicy = () => {
-  // TODO: 打开隐私政策弹窗或跳转页面
-  message("隐私政策内容", { type: "info" });
+const openPrivacyPolicy = () => {
+  window.open("/privacy", "_blank");
+};
+
+const openTerms = () => {
+  window.open("/terms", "_blank");
 };
 
 // ============================================
-// 提交表单（登录 / 注册）
+// 提交表单
 // ============================================
 const onSubmit = async (formEl: FormInstance | undefined) => {
   if (!formEl) return;
@@ -243,25 +294,49 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
     try {
       if (isRegisterMode.value) {
         // 🔥 注册
-        const { error } = await supabase.auth.signUp({
+        const { data, error } = await supabase.auth.signUp({
           email: ruleForm.email.trim(),
           password: ruleForm.password,
           options: {
-            emailRedirectTo: `${window.location.origin}/welcome`
+            emailRedirectTo: `${window.location.origin}/welcome`,
+            data: {
+              username: ruleForm.username.trim()
+            }
           }
         });
+
         if (error) throw error;
+
+        // 注册成功后，创建 profile 记录
+        if (data.user) {
+          const { error: profileError } = await supabase.from("profiles").insert({
+            id: data.user.id,
+            username: ruleForm.username.trim()
+          });
+
+          if (profileError) {
+            console.warn("创建 profile 失败:", profileError);
+            // 不阻塞注册流程，profile 可以通过触发器或重试机制补充
+          }
+        }
+
+        showRegisterSuccess.value = true;
         message("注册成功！请查收验证邮件", { type: "success" });
-        isRegisterMode.value = false;
-        ruleForm.password = "";
-        ruleForm.confirmPassword = "";
-        ruleForm.agreePolicy = false;
+        // 切换到登录模式
+        setTimeout(() => {
+          isRegisterMode.value = false;
+          showRegisterSuccess.value = false;
+          ruleForm.password = "";
+          ruleForm.confirmPassword = "";
+          ruleForm.agreePolicy = false;
+        }, 2000);
       } else {
         // 🔥 登录
-        const { error } = await supabase.auth.signInWithPassword({
+        const { data, error } = await supabase.auth.signInWithPassword({
           email: ruleForm.email.trim(),
           password: ruleForm.password
         });
+
         if (error) throw error;
 
         message("登录成功", { type: "success" });
@@ -306,11 +381,7 @@ useEventListener(document, "keydown", ({ code }) => {
   padding: 0;
 }
 
-.register-hint {
-  margin-top: 8px;
-}
-
-/* 隐私政策区域（对齐优化） */
+/* 隐私政策 */
 .privacy-policy-wrapper {
   display: flex;
   align-items: center;
@@ -339,6 +410,14 @@ useEventListener(document, "keydown", ({ code }) => {
       color: var(--border-default);
     }
   }
+}
+
+.login-hint {
+  text-align: center;
+}
+
+.register-success {
+  margin-top: 12px;
 }
 
 /* 响应式 */
