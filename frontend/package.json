@@ -139,13 +139,6 @@
     "vue-eslint-parser": "^10.2.0",
     "vue-tsc": "^3.1.2"
   },
-  "pnpm": {
-  "onlyBuiltDependencies": [
-    "@parcel/watcher",
-    "esbuild",
-    "vue-demi"
-  ]
-},
   "engines": {
     "node": "22.x",
     "pnpm": ">=9"
