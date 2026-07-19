@@ -11,7 +11,8 @@
     "vuepress-plugin-homebadge": "^0.1.0"
   },
   "scripts": {
-    "docs:dev": "vuepress dev docs",
+    "postinstall": "node scripts/patch-theme.js",
+    "docs:dev": "node scripts/patch-theme.js && vuepress dev docs",
     "docs:build": "vuepress build docs",
     "docs:lint-md": "lint-md docs -f"
   },
