@@ -1,6 +1,7 @@
 import Cookies from "js-cookie";
 import { useUserStoreHook } from "@/store/modules/user";
 import { storageLocal, isString, isIncludeAllChildren } from "@pureadmin/utils";
+import { supabase } from "@/utils/supabase";
 
 export interface DataInfo<T> {
   /** token */
@@ -120,6 +121,8 @@ export function removeToken() {
   Cookies.remove(TokenKey);
   Cookies.remove(multipleTabsKey);
   storageLocal().removeItem(userKey);
+  // 新增：清理 Supabase session
+  supabase.auth.signOut();
 }
 
 /** 格式化token（jwt格式） */

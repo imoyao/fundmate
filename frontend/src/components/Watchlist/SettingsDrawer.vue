@@ -35,10 +35,7 @@
             >
               管理分组
             </h4>
-            <p
-              class="text-xs"
-              :style="{ color: 'var(--text-tertiary)' }"
-            >
+            <p class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
               创建、重命名或删除自定义分组
             </p>
           </div>
@@ -78,10 +75,7 @@
             >
               管理标签
             </h4>
-            <p
-              class="text-xs"
-              :style="{ color: 'var(--text-tertiary)' }"
-            >
+            <p class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
               编辑、新建或删除资产标签
             </p>
           </div>
@@ -121,10 +115,7 @@
             >
               批量管理自选
             </h4>
-            <p
-              class="text-xs"
-              :style="{ color: 'var(--text-tertiary)' }"
-            >
+            <p class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
               批量移动、删除自选资产
             </p>
           </div>
@@ -133,6 +124,18 @@
             class="text-sm"
             :style="{ color: 'var(--text-tertiary)' }"
           />
+        </div>
+      </div>
+
+      <div
+        v-if="hasPendingExploreData"
+        class="setting-item cursor-pointer"
+        @click="handleImportExploreData"
+      >
+        <div class="setting-item-left">
+          <el-icon><Download /></el-icon>
+          <span>导入探市数据</span>
+          <el-badge :value="'!'" type="danger" class="ml-2" />
         </div>
       </div>
 
@@ -163,10 +166,7 @@
             >
               排序设置
             </h4>
-            <p
-              class="text-xs"
-              :style="{ color: 'var(--text-disabled)' }"
-            >
+            <p class="text-xs" :style="{ color: 'var(--text-disabled)' }">
               自定义列表排序规则（开发中）
             </p>
           </div>
@@ -186,23 +186,36 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
-import { IconifyIconOffline } from '@/components/ReIcon';
+import { computed } from "vue";
+import { ElMessage } from "element-plus";
+import { IconifyIconOffline } from "@/components/ReIcon";
+import { useSupabaseAuth } from "@/composables/useSupabaseAuth";
+
+const { hasPendingExploreData, manualMigrate } = useSupabaseAuth();
+
+const handleImportExploreData = async () => {
+  try {
+    const count = await manualMigrate();
+    ElMessage.success(`成功导入 ${count} 个资产到「观察仓」`);
+  } catch (e: any) {
+    ElMessage.error(e.message || "导入失败");
+  }
+};
 
 const props = defineProps<{
   modelValue: boolean;
 }>();
 
 const emit = defineEmits<{
-  'update:modelValue': [value: boolean];
-  'manage-groups': [];
-  'manage-tags': [];
-  'manage-batch': [];
+  "update:modelValue": [value: boolean];
+  "manage-groups": [];
+  "manage-tags": [];
+  "manage-batch": [];
 }>();
 
 const visible = computed({
   get: () => props.modelValue,
-  set: val => emit('update:modelValue', val),
+  set: val => emit("update:modelValue", val)
 });
 </script>
 

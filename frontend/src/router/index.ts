@@ -29,7 +29,7 @@ import {
   type RouteRecordRaw,
   type RouteComponent,
   createRouter,
-  createWebHashHistory,
+  createWebHashHistory
 } from "vue-router";
 import {
   type DataInfo,
@@ -37,6 +37,11 @@ import {
   removeToken,
   multipleTabsKey
 } from "@/utils/auth";
+
+// ============================================
+// 🔥 Supabase 集成
+// ============================================
+import { supabase } from "@/utils/supabase";
 
 /** 自动导入全部静态路由，无需再手动引入！匹配 src/router/modules 目录（任何嵌套级别）中具有 .ts 扩展名的所有文件，除了 remaining.ts 文件
  * 如何匹配所有文件请看：https://github.com/mrmlnc/fast-glob#basic-syntax
@@ -60,7 +65,6 @@ Object.keys(modules).forEach(key => {
 export const constantRoutes: Array<RouteRecordRaw> = formatTwoStageRoutes(
   formatFlatteningRoutes(buildHierarchyTree(ascending(routes.flat(Infinity))))
 );
-
 
 /** 初始的静态路由，用于退出登录时重置路由 */
 const initConstantRoutes: Array<RouteRecordRaw> = cloneDeep(constantRoutes);
@@ -116,12 +120,15 @@ export function resetRouter() {
   resetLoadedPaths();
 }
 
-/** 路由白名单 */
-const whiteList = ["/login", "/explore"];
+/** 路由白名单（不需要登录即可访问） */
+const whiteList = ["/login", "/explore", "/access-denied"];
 
 const { VITE_HIDE_HOME } = import.meta.env;
 
-router.beforeEach((to: ToRouteType, _from, next) => {
+// ============================================
+// 🔥 路由守卫（Supabase 认证）
+// ============================================
+router.beforeEach(async (to: ToRouteType, _from, next) => {
   to.meta.loaded = loadedPaths.has(to.path);
 
   if (!to.meta.loaded) {
@@ -134,7 +141,41 @@ router.beforeEach((to: ToRouteType, _from, next) => {
       handleAliveRoute(to);
     }
   }
+
+  // ============================================
+  // 🔥 核心改动：使用 Supabase 验证登录状态
+  // ============================================
+  const { data } = await supabase.auth.getSession();
+  const isAuthenticated = !!data.session;
+
+  // 获取本地存储的用户信息（用于角色/权限判断）
   const userInfo = storageLocal().getItem<DataInfo<number>>(userKey);
+
+  // 同步状态：如果 Supabase 有 session 但本地没有 userInfo，则从 session 构造
+  if (isAuthenticated && !userInfo && data.session?.user) {
+    // 从 Supabase 用户信息构造 DataInfo
+    const supabaseUser = data.session.user;
+    const userData: DataInfo<number> = {
+      // @ts-ignore - 兼容现有类型
+      id: supabaseUser.id,
+      username: supabaseUser.email || supabaseUser.phone || "",
+      roles: supabaseUser.user_metadata?.roles || ["user"],
+      // 其他字段从 user_metadata 获取
+      ...supabaseUser.user_metadata
+    };
+    storageLocal().setItem(userKey, userData);
+    // 也设置 cookie（兼容现有逻辑）
+    Cookies.set(multipleTabsKey, "true", { expires: 7 });
+  }
+
+  // 如果 Supabase 没有 session，但本地有 cookie，清理掉
+  if (!isAuthenticated && Cookies.get(multipleTabsKey)) {
+    removeToken();
+  }
+
+  // ============================================
+  // 外部链接处理
+  // ============================================
   const externalLink = isUrl(to?.name as string);
   if (!externalLink) {
     to.matched.some(item => {
@@ -144,10 +185,16 @@ router.beforeEach((to: ToRouteType, _from, next) => {
       else document.title = item.meta.title as string;
     });
   }
+
   function toCorrectRoute() {
     whiteList.includes(to.fullPath) ? next(_from.fullPath) : next();
   }
-  if (Cookies.get(multipleTabsKey) && userInfo) {
+
+  // ============================================
+  // 🔥 登录状态判断（使用 Supabase session）
+  // ============================================
+  if (isAuthenticated && Cookies.get(multipleTabsKey)) {
+    // ✅ 已登录用户
     if (to.meta?.roles && !isOneOfArray(to.meta?.roles, userInfo?.roles)) {
       next({ path: "/error/403" });
     }
@@ -161,34 +208,35 @@ router.beforeEach((to: ToRouteType, _from, next) => {
       } else {
         toCorrectRoute();
       }
-      } else {
-    // ✅ 首次访问时用静态菜单直接填充，跳过异步拉取
-    if (usePermissionStoreHook().wholeMenus.length === 0 && to.path !== "/login") {
-      usePermissionStoreHook().wholeMenus = buildHierarchyTree(constantMenus.filter(item => item?.meta?.icon));
-      // 处理标签页缓存（保持原有多标签功能）
-      if (!useMultiTagsStoreHook().getMultiTagsCache) {
-        const route = findRouteByPath(to.path, router.options.routes[0].children);
-        getTopMenu(true);
-        if (route && route.meta?.title) {
-          if (isAllEmpty(route.parentId) && route.meta?.backstage) {
-            const { path, name, meta } = route.children[0];
-            useMultiTagsStoreHook().handleTags("push", { path, name, meta });
-          } else {
-            const { path, name, meta } = route;
-            useMultiTagsStoreHook().handleTags("push", { path, name, meta });
+    } else {
+      // 首次访问时用静态菜单直接填充，跳过异步拉取
+      if (usePermissionStoreHook().wholeMenus.length === 0 && to.path !== "/login") {
+        usePermissionStoreHook().wholeMenus = buildHierarchyTree(
+          constantMenus.filter(item => item?.meta?.icon)
+        );
+        if (!useMultiTagsStoreHook().getMultiTagsCache) {
+          const route = findRouteByPath(to.path, router.options.routes[0]?.children);
+          getTopMenu(true);
+          if (route && route.meta?.title) {
+            if (isAllEmpty(route.parentId) && route.meta?.backstage) {
+              const { path, name, meta } = route.children[0];
+              useMultiTagsStoreHook().handleTags("push", { path, name, meta });
+            } else {
+              const { path, name, meta } = route;
+              useMultiTagsStoreHook().handleTags("push", { path, name, meta });
+            }
           }
         }
       }
+      next();
     }
-
-    // 🔥 恢复为 Vue Router 原生逻辑：正常放行，无需拦截
-    next();
-  }
   } else {
+    // ❌ 未登录用户
     if (to.path !== "/login") {
       if (whiteList.indexOf(to.path) !== -1) {
         next();
       } else {
+        // 清理残留数据
         removeToken();
         next({ path: "/login" });
       }
@@ -197,6 +245,7 @@ router.beforeEach((to: ToRouteType, _from, next) => {
     }
   }
 });
+
 router.afterEach(to => {
   loadedPaths.add(to.path);
   NProgress.done();

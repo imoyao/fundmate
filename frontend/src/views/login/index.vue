@@ -1,99 +1,7 @@
-<script setup lang="ts">
-import Motion from "./utils/motion";
-import { useRouter } from "vue-router";
-import { message } from "@/utils/message";
-import { loginRules } from "./utils/rule";
-import { ref, reactive, toRaw } from "vue";
-import { debounce } from "@pureadmin/utils";
-import { useNav } from "@/layout/hooks/useNav";
-import { useEventListener } from "@vueuse/core";
-import type { FormInstance } from "element-plus";
-import { useLayout } from "@/layout/hooks/useLayout";
-import { useUserStoreHook } from "@/store/modules/user";
-import { initRouter, getTopMenu } from "@/router/utils";
-import { bg, avatar, illustration } from "./utils/static";
-import { useRenderIcon } from "@/components/ReIcon/src/hooks";
-import { useDataThemeChange } from "@/layout/hooks/useDataThemeChange";
-
-import dayIcon from "@/assets/svg/day.svg?component";
-import darkIcon from "@/assets/svg/dark.svg?component";
-import Lock from "~icons/ri/lock-fill";
-import User from "~icons/ri/user-3-fill";
-
-defineOptions({
-  name: "Login"
-});
-
-const router = useRouter();
-const loading = ref(false);
-const disabled = ref(false);
-const ruleFormRef = ref<FormInstance>();
-
-const { initStorage } = useLayout();
-initStorage();
-
-const { dataTheme, overallStyle, dataThemeChange } = useDataThemeChange();
-dataThemeChange(overallStyle.value);
-const { title } = useNav();
-
-const ruleForm = reactive({
-  username: "admin",
-  password: "admin123"
-});
-
-const onLogin = async (formEl: FormInstance | undefined) => {
-  if (!formEl) return;
-  await formEl.validate(valid => {
-    if (valid) {
-      loading.value = true;
-      useUserStoreHook()
-        .loginByUsername({
-          username: ruleForm.username,
-          password: ruleForm.password
-        })
-        .then(res => {
-          if (res.success) {
-            // 获取后端路由
-            return initRouter().then(() => {
-              disabled.value = true;
-              // 🔥 核心修复：不要根据菜单去跳，强制、优雅地跳转到欢迎页
-              router
-                .push('/')
-                .then(() => {
-                  message("登录成功", { type: "success" });
-                })
-                .finally(() => (disabled.value = false));
-            });
-          } else {
-            message("登录失败", { type: "error" });
-          }
-        })
-        .finally(() => (loading.value = false));
-    }
-  });
-};
-
-const immediateDebounce: any = debounce(
-  formRef => onLogin(formRef),
-  1000,
-  true
-);
-
-useEventListener(document, "keydown", ({ code }) => {
-  if (
-    ["Enter", "NumpadEnter"].includes(code) &&
-    !disabled.value &&
-    !loading.value
-  )
-    immediateDebounce(ruleFormRef.value);
-});
-</script>
-
 <template>
   <div class="select-none">
     <img :src="bg" class="wave" />
     <div class="flex-c absolute right-5 top-3">
-      <!-- 主题 -->
       <el-switch
         v-model="dataTheme"
         inline-prompt
@@ -110,65 +18,284 @@ useEventListener(document, "keydown", ({ code }) => {
         <div class="login-form">
           <avatar class="avatar" />
           <Motion>
-            <h2 class="outline-hidden">{{ title }}</h2>
+            <h2 class="outline-hidden">
+              {{ isRegisterMode ? "创建账户" : title }}
+            </h2>
           </Motion>
 
           <el-form
             ref="ruleFormRef"
             :model="ruleForm"
-            :rules="loginRules"
+            :rules="isRegisterMode ? registerRules : loginRules"
             size="large"
           >
+            <!-- 邮箱 -->
             <Motion :delay="100">
-              <el-form-item
-                :rules="[
-                  {
-                    required: true,
-                    message: '请输入账号',
-                    trigger: 'blur'
-                  }
-                ]"
-                prop="username"
-              >
+              <el-form-item prop="email">
                 <el-input
-                  v-model="ruleForm.username"
+                  v-model="ruleForm.email"
                   clearable
-                  placeholder="账号"
+                  placeholder="邮箱地址"
                   :prefix-icon="useRenderIcon(User)"
                 />
               </el-form-item>
             </Motion>
 
+            <!-- 密码 -->
             <Motion :delay="150">
               <el-form-item prop="password">
                 <el-input
                   v-model="ruleForm.password"
                   clearable
                   show-password
-                  placeholder="密码"
+                  placeholder="密码（至少6位）"
                   :prefix-icon="useRenderIcon(Lock)"
                 />
               </el-form-item>
             </Motion>
 
-            <Motion :delay="250">
+            <!-- 确认密码（仅注册模式） -->
+            <Motion v-if="isRegisterMode" :delay="200">
+              <el-form-item prop="confirmPassword">
+                <el-input
+                  v-model="ruleForm.confirmPassword"
+                  clearable
+                  show-password
+                  placeholder="确认密码"
+                  :prefix-icon="useRenderIcon(Lock)"
+                />
+              </el-form-item>
+            </Motion>
+
+            <!-- 隐私政策（仅注册模式） -->
+            <Motion v-if="isRegisterMode" :delay="250">
+              <el-form-item prop="agreePolicy">
+                <div class="privacy-policy-wrapper">
+                  <el-checkbox
+                    v-model="ruleForm.agreePolicy"
+                    class="privacy-checkbox"
+                  />
+                  <span class="privacy-text">
+                    我已阅读并同意
+                    <el-link type="primary" @click="openPrivacyPolicy">
+                      《隐私政策》
+                    </el-link>
+                    <span class="privacy-separator">·</span>
+                    <el-link type="primary" @click="openTerms">
+                      《服务条款》
+                    </el-link>
+                  </span>
+                </div>
+              </el-form-item>
+            </Motion>
+
+            <!-- 提交按钮 -->
+            <Motion :delay="isRegisterMode ? 300 : 250">
               <el-button
                 class="w-full mt-4!"
                 size="default"
                 type="primary"
                 :loading="loading"
                 :disabled="disabled"
-                @click="onLogin(ruleFormRef)"
+                @click="onSubmit(ruleFormRef)"
               >
-                登录
+                {{ isRegisterMode ? "注册" : "登录" }}
               </el-button>
             </Motion>
           </el-form>
+
+          <!-- 切换登录/注册 -->
+          <div class="flex justify-center mt-4">
+            <span class="text-sm" style="color: var(--text-secondary)">
+              {{ isRegisterMode ? "已有账户？" : "还没有账户？" }}
+              <el-link type="primary" @click="toggleMode">
+                {{ isRegisterMode ? "去登录" : "立即注册" }}
+              </el-link>
+            </span>
+          </div>
         </div>
       </div>
     </div>
   </div>
 </template>
+
+<script setup lang="ts">
+import Motion from "./utils/motion";
+import { useRouter } from "vue-router";
+import { message } from "@/utils/message";
+import { loginRules } from "./utils/rule";
+import { ref, reactive, toRaw, computed } from "vue";
+import { debounce } from "@pureadmin/utils";
+import { useNav } from "@/layout/hooks/useNav";
+import { useEventListener } from "@vueuse/core";
+import type { FormInstance, FormRules } from "element-plus";
+import { useLayout } from "@/layout/hooks/useLayout";
+import { initRouter } from "@/router/utils";
+import { bg, avatar, illustration } from "./utils/static";
+import { useRenderIcon } from "@/components/ReIcon/src/hooks";
+import { useDataThemeChange } from "@/layout/hooks/useDataThemeChange";
+
+import dayIcon from "@/assets/svg/day.svg?component";
+import darkIcon from "@/assets/svg/dark.svg?component";
+import Lock from "~icons/ri/lock-fill";
+import User from "~icons/ri/user-3-fill";
+
+// 🔥 Supabase
+import { supabase } from "@/utils/supabase";
+
+defineOptions({
+  name: "Login"
+});
+
+const router = useRouter();
+const loading = ref(false);
+const disabled = ref(false);
+const ruleFormRef = ref<FormInstance>();
+const isRegisterMode = ref(false);
+
+const { initStorage } = useLayout();
+initStorage();
+
+const { dataTheme, overallStyle, dataThemeChange } = useDataThemeChange();
+dataThemeChange(overallStyle.value);
+const { title } = useNav();
+
+// ============================================
+// 表单数据
+// ============================================
+const ruleForm = reactive({
+  email: "",
+  password: "",
+  confirmPassword: "",
+  agreePolicy: false
+});
+
+// ============================================
+// 注册验证规则
+// ============================================
+const registerRules = computed<FormRules>(() => ({
+  email: [
+    { required: true, message: "请输入邮箱", trigger: "blur" },
+    { type: "email", message: "请输入有效的邮箱地址", trigger: "blur" }
+  ],
+  password: [
+    { required: true, message: "请输入密码", trigger: "blur" },
+    { min: 6, message: "密码至少 6 位", trigger: "blur" }
+  ],
+  confirmPassword: [
+    { required: true, message: "请确认密码", trigger: "blur" },
+    {
+      validator: (_rule, value, callback) => {
+        if (value !== ruleForm.password) {
+          callback(new Error("两次输入的密码不一致"));
+        } else {
+          callback();
+        }
+      },
+      trigger: "blur"
+    }
+  ],
+  agreePolicy: [
+    {
+      validator: (_rule, value, callback) => {
+        if (!value) {
+          callback(new Error("请阅读并同意隐私政策"));
+        } else {
+          callback();
+        }
+      },
+      trigger: "change"
+    }
+  ]
+}));
+
+// ============================================
+// 切换模式
+// ============================================
+const toggleMode = () => {
+  isRegisterMode.value = !isRegisterMode.value;
+  ruleForm.email = "";
+  ruleForm.password = "";
+  ruleForm.confirmPassword = "";
+  ruleForm.agreePolicy = false;
+};
+
+// ============================================
+// 隐私政策弹窗
+// ============================================
+const showPrivacyPolicy = () => {
+  // TODO: 打开隐私政策弹窗或跳转页面
+  message("隐私政策内容", { type: "info" });
+};
+
+// ============================================
+// 提交表单（登录 / 注册）
+// ============================================
+const onSubmit = async (formEl: FormInstance | undefined) => {
+  if (!formEl) return;
+
+  formEl.validate(async valid => {
+    if (!valid) return;
+
+    loading.value = true;
+    disabled.value = true;
+
+    try {
+      if (isRegisterMode.value) {
+        // 🔥 注册
+        const { error } = await supabase.auth.signUp({
+          email: ruleForm.email.trim(),
+          password: ruleForm.password,
+          options: {
+            emailRedirectTo: `${window.location.origin}/welcome`
+          }
+        });
+        if (error) throw error;
+        message("注册成功！请查收验证邮件", { type: "success" });
+        isRegisterMode.value = false;
+        ruleForm.password = "";
+        ruleForm.confirmPassword = "";
+        ruleForm.agreePolicy = false;
+      } else {
+        // 🔥 登录
+        const { error } = await supabase.auth.signInWithPassword({
+          email: ruleForm.email.trim(),
+          password: ruleForm.password
+        });
+        if (error) throw error;
+
+        message("登录成功", { type: "success" });
+        await initRouter();
+        router.push("/welcome");
+      }
+    } catch (err: any) {
+      message(err.message || "操作失败，请重试", { type: "error" });
+    } finally {
+      disabled.value = false;
+      loading.value = false;
+    }
+  });
+};
+
+// ============================================
+// 回车键提交
+// ============================================
+const immediateDebounce: any = debounce(
+  formRef => onSubmit(formRef),
+  1000,
+  true
+);
+
+useEventListener(document, "keydown", ({ code }) => {
+  if (
+    ["Enter", "NumpadEnter"].includes(code) &&
+    !disabled.value &&
+    !loading.value
+  ) {
+    immediateDebounce(ruleFormRef.value);
+  }
+});
+</script>
 
 <style scoped>
 @import url("@/style/login.css");
@@ -177,5 +304,55 @@ useEventListener(document, "keydown", ({ code }) => {
 <style lang="scss" scoped>
 :deep(.el-input-group__append, .el-input-group__prepend) {
   padding: 0;
+}
+
+.register-hint {
+  margin-top: 8px;
+}
+
+/* 隐私政策区域（对齐优化） */
+.privacy-policy-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  user-select: none;
+
+  .privacy-checkbox {
+    flex-shrink: 0;
+    margin-right: 0;
+  }
+
+  .privacy-text {
+    font-size: 14px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+
+    .el-link {
+      font-size: 14px;
+      padding: 0 2px;
+      vertical-align: baseline;
+    }
+
+    .privacy-separator {
+      margin: 0 4px;
+      color: var(--border-default);
+    }
+  }
+}
+
+/* 响应式 */
+@media (max-width: 480px) {
+  .privacy-policy-wrapper {
+    align-items: flex-start;
+
+    .privacy-checkbox {
+      margin-top: 2px;
+    }
+
+    .privacy-text {
+      font-size: 13px;
+    }
+  }
 }
 </style>
