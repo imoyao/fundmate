@@ -6,18 +6,11 @@
 </template>
 
 <script lang="ts">
-import { defineComponent } from "vue";
+import { defineComponent, ref, onMounted, computed } from "vue";
 import { ElConfigProvider } from "element-plus";
 import { ReDialog } from "@/components/ReDialog";
 import zhCn from "element-plus/es/locale/lang/zh-cn";
-import { onMounted } from "vue";
 import { useSupabaseAuth } from "@/composables/useSupabaseAuth";
-
-const { initAuthListener } = useSupabaseAuth();
-
-onMounted(() => {
-  initAuthListener();
-});
 
 export default defineComponent({
   name: "app",
@@ -25,10 +18,18 @@ export default defineComponent({
     [ElConfigProvider.name]: ElConfigProvider,
     ReDialog
   },
-  computed: {
-    currentLocale() {
-      return zhCn;
-    }
+  setup() {
+    const { initAuthListener } = useSupabaseAuth();
+
+    onMounted(() => {
+      initAuthListener();
+    });
+
+    const currentLocale = computed(() => zhCn);
+
+    return {
+      currentLocale
+    };
   }
 });
 </script>

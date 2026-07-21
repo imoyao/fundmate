@@ -10,7 +10,7 @@ export function useSupabaseAuth() {
   const loading = ref(true);
   const isAuthenticated = computed(() => !!user.value);
 
-  // 是否有待迁移的探市数据
+  // 检查是否有待迁移的探市数据
   const hasPendingExploreData = computed(() => {
     if (!user.value) return false;
     const raw = localStorage.getItem("showbuy_explore_v1");
@@ -24,12 +24,13 @@ export function useSupabaseAuth() {
   });
 
   // 注册
-  const signUp = async (email: string, password: string) => {
+  const signUp = async (email: string, password: string, username?: string) => {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        emailRedirectTo: `${window.location.origin}/welcome`
+        emailRedirectTo: `${window.location.origin}/welcome`,
+        data: { username }
       }
     });
     if (error) throw error;
@@ -87,7 +88,7 @@ export function useSupabaseAuth() {
     });
   };
 
-  // 检查并迁移探市数据
+  // 检查并迁移探市数据（略）
   const checkAndMigrateExploreData = async () => {
     const raw = localStorage.getItem("showbuy_explore_v1");
     if (!raw) return;

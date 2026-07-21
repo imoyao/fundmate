@@ -194,9 +194,16 @@ router.beforeEach(async (to: ToRouteType, _from, next) => {
   // 🔥 登录状态判断（使用 Supabase session）
   // ============================================
   if (isAuthenticated && Cookies.get(multipleTabsKey)) {
+
+    // 🔥 探市页面独立布局，直接放行
+    if (to.path === "/explore") {
+      next();
+      return;
+    }
     // ✅ 已登录用户
     if (to.meta?.roles && !isOneOfArray(to.meta?.roles, userInfo?.roles)) {
       next({ path: "/error/403" });
+      return;
     }
     if (VITE_HIDE_HOME === "true" && to.fullPath === "/welcome") {
       next({ path: "/error/404" });

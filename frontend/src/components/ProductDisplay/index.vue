@@ -14,7 +14,6 @@
 </template>
 
 <script setup lang="ts">
-import { defineProps } from "vue";
 
 defineProps({
   /** 持仓名称，如 "金地集团" */

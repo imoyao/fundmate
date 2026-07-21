@@ -127,15 +127,45 @@
         </div>
       </div>
 
+      <!-- 导入探市数据 -->
       <div
         v-if="hasPendingExploreData"
-        class="setting-item cursor-pointer"
+        class="settings-card rounded-xl p-4 cursor-pointer transition-shadow"
+        :style="{
+          backgroundColor: 'var(--bg-card)',
+          border: '1px solid var(--brand-400)',
+          boxShadow: 'var(--shadow-raised)'
+        }"
         @click="handleImportExploreData"
       >
-        <div class="setting-item-left">
-          <el-icon><Download /></el-icon>
-          <span>导入探市数据</span>
-          <el-badge :value="'!'" type="danger" class="ml-2" />
+        <div class="flex items-center gap-3">
+          <div
+            class="w-10 h-10 rounded-lg flex items-center justify-center"
+            :style="{ backgroundColor: 'var(--brand-100)' }"
+          >
+            <IconifyIconOffline
+              icon="ep:download"
+              class="text-lg"
+              :style="{ color: 'var(--brand-700)' }"
+            />
+          </div>
+          <div class="flex-1">
+            <h4
+              class="text-sm font-medium mb-1"
+              :style="{ color: 'var(--text-primary)' }"
+            >
+              导入探市数据
+              <el-badge :value="'!'" type="danger" class="ml-1" />
+            </h4>
+            <p class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
+              将「探市」中的观察资产迁移到自选列表
+            </p>
+          </div>
+          <IconifyIconOffline
+            icon="ep:arrow-right"
+            class="text-sm"
+            :style="{ color: 'var(--text-tertiary)' }"
+          />
         </div>
       </div>
 

@@ -307,19 +307,6 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
 
         if (error) throw error;
 
-        // 注册成功后，创建 profile 记录
-        if (data.user) {
-          const { error: profileError } = await supabase.from("profiles").insert({
-            id: data.user.id,
-            username: ruleForm.username.trim()
-          });
-
-          if (profileError) {
-            console.warn("创建 profile 失败:", profileError);
-            // 不阻塞注册流程，profile 可以通过触发器或重试机制补充
-          }
-        }
-
         showRegisterSuccess.value = true;
         message("注册成功！请查收验证邮件", { type: "success" });
         // 切换到登录模式
