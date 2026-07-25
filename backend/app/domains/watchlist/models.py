@@ -32,7 +32,7 @@ class WatchlistItem(Base, PrimaryKeyMixin, TimestampMixin):
     group_links = relationship('WatchlistItemGroup', back_populates='watchlist_item', cascade='all, delete-orphan')
     tag_links = relationship('WatchlistItemTag', back_populates='watchlist_item', cascade='all, delete-orphan')
 
-    __table_args__ = (UniqueConstraint('symbol', 'market', 'venue', name='uk_watchlist_symbol_market_venue'),)
+    __table_args__ = (UniqueConstraint('symbol', 'venue', name='uk_watchlist_symbol_venue'),)
 
 
 class WatchlistGroup(Base, PrimaryKeyMixin, TimestampMixin):

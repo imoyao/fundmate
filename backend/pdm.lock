@@ -5,7 +5,7 @@
 groups = ["default", "dev", "test"]
 strategy = []
 lock_version = "4.5.0"
-content_hash = "sha256:39159215784dac5400727bdcff4ea6b326d0bcc3597aebce6e31032f0c796f7a"
+content_hash = "sha256:eb33ade4682390eb0105729a0ce158d57a1b6c8bb2412cd7b5e9405b7ebef63f"
 
 [[metadata.targets]]
 requires_python = ">=3.12"
@@ -1318,6 +1318,25 @@ files = [
 ]
 
 [[package]]
+name = "playwright"
+version = "1.61.0"
+summary = ""
+dependencies = [
+    "greenlet",
+    "pyee",
+]
+files = [
+    {file = "playwright-1.61.0-py3-none-macosx_10_13_x86_64.whl", hash = "sha256:ff138c3a604f69911e9d42fd036e55c2a171e5616edf04c1e7f60a2a285540b0"},
+    {file = "playwright-1.61.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:009588c2a7e499bc5a8b425b61fa65490968bbda9cd69e0cf2cff10f8304659a"},
+    {file = "playwright-1.61.0-py3-none-macosx_11_0_universal2.whl", hash = "sha256:9f7de4536088d12037c13a52b7ea34b59270b78926bb56935070597ffac6b1af"},
+    {file = "playwright-1.61.0-py3-none-manylinux1_x86_64.whl", hash = "sha256:54f3b39f6eab832e33458c1dd7da0b5682aedab3b09ae731b5c59fa12fd2024e"},
+    {file = "playwright-1.61.0-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:93454322ade8c11d5d6c211bfd91bdfb9ffb4810e3e026371bcbc4bec1b7ee4c"},
+    {file = "playwright-1.61.0-py3-none-win32.whl", hash = "sha256:372d55a6f1248fa1dd47599686980cb8fb5bbe6fcda59eab793eb657c11d8a9b"},
+    {file = "playwright-1.61.0-py3-none-win_amd64.whl", hash = "sha256:35c6cc4589a5d00964a59d7b3e59641e0aac0c02f15479a7af77d20f6bc79597"},
+    {file = "playwright-1.61.0-py3-none-win_arm64.whl", hash = "sha256:e9fcbffcf557a8620fdedd92491eb59a32d18e23d6f3b4f6214b952be324fe51"},
+]
+
+[[package]]
 name = "pluggy"
 version = "1.6.0"
 summary = ""
@@ -1529,6 +1548,18 @@ dependencies = [
 ]
 files = [
     {file = "pyecharts-1.9.1-py3-none-any.whl", hash = "sha256:5a4cab66bacfc644919ef652bc9e9985f532aba832af9f2992e8e3802eb718e2"},
+]
+
+[[package]]
+name = "pyee"
+version = "13.0.1"
+summary = ""
+dependencies = [
+    "typing-extensions",
+]
+files = [
+    {file = "pyee-13.0.1-py3-none-any.whl", hash = "sha256:af2f8fede4171ef667dfded53f96e2ed0d6e6bd7ee3bb46437f77e3b57689228"},
+    {file = "pyee-13.0.1.tar.gz", hash = "sha256:0b931f7c14535667ed4c7e0d531716368715e860b988770fc7eb8578d1f67fc8"},
 ]
 
 [[package]]

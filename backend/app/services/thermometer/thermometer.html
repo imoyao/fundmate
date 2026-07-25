@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>市场温度看板</title>
+<style>
+  :root{
+    --bg:#0e1014; --panel:#171a21; --card:#1c2029; --line:#262b36;
+    --txt:#e8eaed; --sub:#9aa3b2; --dim:#6b7280;
+    --cold:#3b82f6; --cold2:#60a5fa; --mid:#f59e0b; --warm:#ef4444; --warm2:#f87171;
+    --ok:#22c55e; --bad:#ef4444;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+       background:radial-gradient(1200px 600px at 50% -10%,#1a1f2b 0%,var(--bg) 60%);
+       color:var(--txt);padding:28px 20px 60px;max-width:1080px;margin:0 auto;line-height:1.5}
+  a{color:var(--cold2);text-decoration:none}
+
+  /* ── 顶部总览 ── */
+  .hero{display:flex;align-items:center;gap:20px;flex-wrap:wrap;
+        background:linear-gradient(135deg,#1b2230,#141821);border:1px solid var(--line);
+        border-radius:18px;padding:20px 24px;margin-bottom:10px}
+  .gauge{position:relative;width:96px;height:96px;flex:0 0 auto}
+  .gauge svg{transform:rotate(-90deg)}
+  .gauge .num{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+  .gauge .num b{font-size:26px;line-height:1}
+  .gauge .num span{font-size:11px;color:var(--sub)}
+  .hero .meta{flex:1;min-width:220px}
+  .hero h1{font-size:20px;margin-bottom:4px}
+  .hero .ts{color:var(--sub);font-size:12px}
+  .verdict{display:inline-flex;align-items:center;gap:8px;margin-top:10px;
+           padding:6px 14px;border-radius:999px;font-weight:700;font-size:15px}
+  .hero .hint{color:var(--dim);font-size:12px;margin-top:8px}
+
+  .sec{margin-top:26px}
+  .sec h2{font-size:14px;color:var(--sub);font-weight:600;letter-spacing:.5px;
+          margin-bottom:12px;display:flex;align-items:center;gap:8px}
+  .sec h2::before{content:"";width:4px;height:14px;background:var(--cold);border-radius:2px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(232px,1fr));gap:14px}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;
+        padding:16px 16px 14px;position:relative;overflow:hidden;transition:.15s}
+  .card:hover{transform:translateY(-2px);border-color:#36404f}
+  .card .src{font-size:11px;color:var(--dim);letter-spacing:.3px}
+  .card .name{font-size:13px;color:var(--sub);margin:5px 0 10px}
+  .val{font-size:32px;font-weight:800;line-height:1;letter-spacing:-1px}
+  .val .u{font-size:13px;font-weight:500;color:var(--sub);margin-left:4px}
+  .val.na{color:var(--dim);font-size:26px;font-weight:600}
+  .lab{display:inline-block;margin-top:11px;padding:3px 11px;border-radius:999px;
+       font-size:12.5px;font-weight:700}
+  .bar{height:7px;border-radius:999px;background:#262b36;margin-top:13px;overflow:hidden}
+  .bar>i{display:block;height:100%;border-radius:999px}
+  .note{font-size:11px;color:var(--dim);margin-top:10px;line-height:1.55;
+        word-break:break-all;max-height:48px;overflow:hidden}
+  .note:hover{max-height:none}
+  .stale{opacity:.55}
+  .stale .val{color:var(--dim)}
+
+  /* 标签配色 */
+  .l-放量{background:rgba(239,68,68,.16);color:var(--warm2)}
+  .l-缩量{background:rgba(59,130,246,.16);color:var(--cold2)}
+  .l-温和{background:rgba(34,197,94,.16);color:var(--ok)}
+  .l-中性,.l-中估,.l-合理,.l-适中,.l-中{background:rgba(245,158,11,.16);color:var(--mid)}
+  .l-恐惧,.l-偏恐惧,.l-极度恐惧,.l-偏冷,.l-极冷,.l-冷,.l-低估,.l-较低估{background:rgba(59,130,246,.18);color:var(--cold2)}
+  .l-贪婪,.l-偏贪婪,.l-极度贪婪,.l-偏热,.l-极热,.l-热,.l-高估{background:rgba(239,68,68,.18);color:var(--warm2)}
+  .l-待接入,.l-待提供token,.l-待解析,.l-获取失败,.l-无数据,.l-登录态失效{background:rgba(154,163,178,.16);color:var(--sub)}
+
+  /* ── 行业拥挤度热力表 ── */
+  table.ind{width:100%;border-collapse:collapse;font-size:13px;
+            background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  table.ind th,table.ind td{padding:11px 14px;text-align:left;border-bottom:1px solid var(--line)}
+  table.ind th{font-size:12px;color:var(--sub);font-weight:600;background:#191d26}
+  table.ind tr:last-child td{border-bottom:none}
+  .pill{display:inline-block;min-width:42px;text-align:center;padding:3px 10px;border-radius:999px;
+        font-weight:700;font-size:12.5px}
+  .p-cold{background:rgba(59,130,246,.18);color:var(--cold2)}
+  .p-mid{background:rgba(245,158,11,.18);color:var(--mid)}
+  .p-warm{background:rgba(239,68,68,.18);color:var(--warm2)}
+  .heat{height:6px;border-radius:999px;background:#262b36;overflow:hidden;margin-top:6px}
+  .heat>i{display:block;height:100%}
+  .deg{color:var(--dim);font-size:12px;padding:18px;text-align:center}
+
+  .footer{margin-top:30px;font-size:12px;color:var(--dim);line-height:1.8;border-top:1px solid var(--line);padding-top:16px}
+  .badge{display:inline-block;font-size:10.5px;color:var(--dim);border:1px solid var(--line);
+         border-radius:6px;padding:1px 6px;margin-left:6px}
+</style>
+</head>
+<body>
+
+  <div class="hero">
+    <div class="gauge">
+      <svg width="96" height="96">
+        <circle cx="48" cy="48" r="42" stroke="#262b36" stroke-width="9" fill="none"/>
+        <circle id="g-arc" cx="48" cy="48" r="42" stroke="var(--cold)" stroke-width="9"
+                fill="none" stroke-linecap="round" stroke-dasharray="263.9" stroke-dashoffset="263.9"/>
+      </svg>
+      <div class="num"><b id="g-val">--</b><span>综合温度</span></div>
+    </div>
+    <div class="meta">
+      <h1>📊 市场温度看板</h1>
+      <div class="ts" id="updated"></div>
+      <span class="verdict" id="verdict"></span>
+      <div class="hint" id="hint"></div>
+    </div>
+  </div>
+
+  <div id="board"></div>
+
+  <div class="footer">
+    数据来源：东财(公开行情) · 韭圈儿(恐贪+中长期温度) · 集思录(可转债温度) · 且慢(MCP) · 有知有行(网页) · 富来智投(指数宝) · 行业拥挤度(自算)。<br>
+    本页为前端原型，<b>数据已写死（mock）</b>，结构 1:1 对应 <code>market_thermometer.py → aggregate()</code> 的 JSON 输出；
+    真实运行把该 JSON 注入 <code>render(DATA)</code> 即可，无需改样式。
+  </div>
+
+<script>
+/* ============================================================
+   硬编码 mock 数据 —— 严格遵循 aggregate() 输出的 JSON 结构：
+   { updated_at, items:[ {source,name,value,label,updated_at,stale,note} ] }
+   此处构造"全量正常"的快照，用于演示完整看板（含富来智投3项 + 行业拥挤度多行）。
+   ============================================================ */
+const DATA = {
+  "updated_at": "2026-07-21 15:16:02",
+  "items": [
+    /* —— 量能 —— */
+    {"source":"东财","name":"全市场成交额(亿)","value":11842.3,"label":"温和","stale":false,
+     "updated_at":"2026-07-21 15:16:02",
+     "note":"上证4540.1亿(+0.07%) 深证6842.5亿(-1.36%) 北证459.7亿(-2.86%)"},
+
+    /* —— 情绪 —— */
+    {"source":"韭圈儿","name":"恐惧贪婪指数","value":4,"label":"极度恐惧","stale":false,
+     "updated_at":"2026-07-21 15:16:02",
+     "note":"韭圈儿官方页面渲染取值(短期情绪)；数据日期~7-17"},
+
+    /* —— 市场温度（0-100） —— */
+    {"source":"韭圈儿","name":"中长期温度(股债性价)","value":43,"label":"适中","stale":false,
+     "updated_at":"2026-07-21 15:16:02",
+     "note":"韭圈儿官方页面渲染取值(股债性价/FED模型)；数据日期~7-17"},
+    {"source":"且慢","name":"市场温度计(中证全A)","value":22.7,"label":"较低估","stale":false,
+     "updated_at":"2026-07-21 15:16:02",
+     "note":"且慢MCP·GetLatestQuotations；中证全A22.68°(较低估) 沪深30016.27°(低估) 中证50057.39°(合理)"},
+    {"source":"有知有行","name":"全市场温度","value":40,"label":"中估","stale":false,
+     "updated_at":"2026-07-21 15:16:02",
+     "note":"有知有行网页SSR；沪深300 55° 中证500 68° 上证50 67°；更新:2026年7月17日 20:00"},
+
+    /* —— 可转债 —— */
+    {"source":"集思录","name":"可转债温度(近似)","value":56.0,"label":"适中","stale":false,
+     "updated_at":"2026-07-21 15:16:02",
+     "note":"中位价129.3 / 中位溢价率7.7% (样本30只；未登录仅返回30只，会员cookie可获全量)"},
+
+    /* —— 富来智投（指数宝）增量：资金利率 / 板块强弱 / 龙虎榜 —— */
+    {"source":"富来智投","name":"资金利率(货基收益)","value":1.73,"label":"中性","stale":false,
+     "updated_at":"2026-07-21 19:11:38",
+     "note":"最新资金利率/货基收益 1.73%；数据自2005起共5330点（富来智投·index/money）"},
+    {"source":"富来智投","name":"板块强弱","value":10.59,"label":"极冷","stale":false,
+     "updated_at":"2026-07-21 19:11:38",
+     "note":"板块强弱 10.59%（越低=板块轮动越弱）；参考沪深300=4598.32（富来智投·markets/strong）"},
+    {"source":"富来智投","name":"龙虎榜主力","value":null,"label":"获取失败","stale":true,
+     "updated_at":"2026-07-21 19:11:38",
+     "note":"接口暂不可用 code=10001 wrong（路径/参数待确认）"},
+
+    /* —— 行业拥挤度（自算，韭菜单行业方法；值=拥挤度百分位，标签=冷/中/热） —— */
+    {"source":"行业拥挤度","name":"中证消费","value":7.7,"label":"冷","stale":false,
+     "updated_at":"2026-07-21 15:16:02","note":"拥挤度7.7% · 倍数0.62 行业PB3.1 分母PB5.0"},
+    {"source":"行业拥挤度","name":"中证金融","value":10.9,"label":"冷","stale":false,
+     "updated_at":"2026-07-21 15:16:02","note":"拥挤度10.9% · 倍数0.71 行业PB4.2 分母PB5.0"},
+    {"source":"行业拥挤度","name":"中证医药","value":54.6,"label":"中","stale":false,
+     "updated_at":"2026-07-21 15:16:02","note":"拥挤度54.6% · 倍数1.05 行业PB5.3 分母PB5.0"},
+    {"source":"行业拥挤度","name":"中证煤炭","value":35.2,"label":"中","stale":false,
+     "updated_at":"2026-07-21 15:16:02","note":"拥挤度35.2% · 倍数0.91 行业PB4.6 分母PB5.0"},
+    {"source":"行业拥挤度","name":"中证白酒","value":88.3,"label":"热","stale":false,
+     "updated_at":"2026-07-21 15:16:02","note":"拥挤度88.3% · 倍数1.62 行业PB8.1 分母PB5.0"},
+    {"source":"行业拥挤度","name":"中证信息","value":99.6,"label":"热","stale":false,
+     "updated_at":"2026-07-21 15:16:02","note":"拥挤度99.6% · 倍数2.56 行业PB12.8 分母PB5.0"}
+  ]
+};
+
+/* ───────────────── 渲染逻辑 ───────────────── */
+const ORDER = ["市场温度","情绪","量能","可转债","行业拥挤度","资金流向"];
+function groupOf(it){
+  if(it.source==="行业拥挤度") return "行业拥挤度";
+  if(it.source==="富来智投")   return "资金流向";
+  if(it.source==="东财")       return "量能";
+  if(it.source==="集思录")     return "可转债";
+  if(it.source==="韭圈儿" && it.name.includes("恐惧贪婪")) return "情绪";
+  return "市场温度"; // 且慢 / 有知有行 / 韭圈儿中长期
+}
+const SEC_TITLE = {"市场温度":"市场温度（整体冷热）","情绪":"市场情绪","量能":"量能",
+  "可转债":"可转债温度","行业拥挤度":"行业拥挤度（自算·冷埋伏/热规避）","资金流向":"资金面 & 板块强弱（富来智投·指数宝）"};
+
+// 0-100 温度计配色
+function tColor(v){
+  if(v==null) return "var(--dim)";
+  if(v<25) return "var(--cold)"; if(v<45) return "var(--cold2)";
+  if(v<55) return "var(--mid)";  if(v<75) return "#fb923c"; return "var(--warm)";
+}
+function tLabel(v){
+  if(v==null) return "";
+  if(v<20) return "极冷"; if(v<40) return "偏冷"; if(v<60) return "适中";
+  if(v<80) return "偏热"; return "极热";
+}
+// 顶部综合判定（避免与 tLabel 的"偏/极"前缀叠字）
+function verdictLabel(v){
+  if(v<20) return "极冷"; if(v<40) return "偏冷"; if(v<60) return "中性";
+  if(v<80) return "偏热"; return "极热";
+}
+// 行业标签 → 配色类
+function pClass(lab){ return lab==="冷" ? "p-cold" : (lab==="热" ? "p-warm" : "p-mid"); }
+
+// 综合温度：取各 0-100 温度源均值
+function overallTemp(items){
+  const temps = items.filter(i=>!i.stale && typeof i.value==="number"
+      && ["韭圈儿","集思录","且慢","有知有行"].includes(i.source)
+      && i.value>=0 && i.value<=100).map(i=>i.value);
+  if(!temps.length) return null;
+  return Math.round(temps.reduce((a,b)=>a+b,0)/temps.length);
+}
+
+function cardHtml(it){
+  const isTemp = typeof it.value==="number" && it.value>=0 && it.value<=100
+                 && ["韭圈儿","集思录","且慢","有知有行","行业拥挤度"].includes(it.source);
+  const valHtml = it.value==null
+      ? `<div class="val na">—</div>`
+      : `<div class="val">${it.value}<span class="u">${it.source==="东财"?"亿":""}</span></div>`;
+  const bar = (!it.stale && isTemp)
+      ? `<div class="bar"><i style="width:${it.value}%;background:${tColor(it.value)}"></i></div>` : "";
+  return `<div class="card${it.stale?" stale":""}">
+      <div class="src">${it.source}</div>
+      <div class="name">${it.name}</div>
+      ${valHtml}
+      <span class="lab l-${it.label}">${it.label}</span>
+      ${bar}
+      <div class="note">${it.note||""}</div>
+    </div>`;
+}
+
+function industryTable(rows){
+  if(!rows.length)
+    return `<div class="deg">行业拥挤度暂不可用（分母数据源限流/未配置，本机运行即恢复）</div>`;
+  const head = `<tr><th>行业</th><th>拥挤度</th><th>热度</th><th>说明（倍数 / 行业PB / 分母PB）</th></tr>`;
+  const body = rows.map(it=>{
+    const p = pClass(it.label);
+    const w = Math.max(2, Math.min(100, it.value||0));
+    const heatColor = it.label==="热"?"var(--warm)":(it.label==="冷"?"var(--cold)":"var(--mid)");
+    return `<tr>
+        <td>${it.name}</td>
+        <td><b>${it.value==null?"—":it.value+"%"}</b></td>
+        <td><span class="pill ${p}">${it.label}</span>
+            <div class="heat"><i style="width:${w}%;background:${heatColor}"></i></div></td>
+        <td style="color:var(--sub);font-size:12px">${it.note||""}</td>
+      </tr>`;
+  }).join("");
+  return `<table class="ind">${head}${body}</table>`;
+}
+
+function render(d){
+  document.getElementById("updated").textContent = "更新时间：" + d.updated_at;
+
+  // 综合温度仪表
+  const ov = overallTemp(d.items);
+  const circ = document.getElementById("g-arc");
+  const C = 2*Math.PI*42;
+  if(ov==null){
+    document.getElementById("g-val").textContent = "—";
+    circ.style.stroke = "var(--dim)"; circ.style.strokeDashoffset = C;
+    document.getElementById("verdict").textContent = "数据不足";
+    document.getElementById("verdict").style.background = "rgba(154,163,178,.16)";
+    document.getElementById("verdict").style.color = "var(--sub)";
+  }else{
+    document.getElementById("g-val").textContent = ov;
+    circ.style.stroke = tColor(ov);
+    circ.style.strokeDashoffset = C*(1-ov/100);
+    const v = document.getElementById("verdict");
+    v.textContent = "综合" + verdictLabel(ov);
+    v.style.background = (ov<45?"rgba(59,130,246,.18)":(ov<55?"rgba(245,158,11,.18)":"rgba(239,68,68,.18)"));
+    v.style.color = tColor(ov);
+  }
+  document.getElementById("hint").textContent =
+    "综合温度 = 且慢/有知有行/韭圈儿/集思录 等 0-100 温度源均值（仅为展示，不参与投资判断）";
+
+  // 分组
+  const groups = {};
+  d.items.forEach(it=>{ (groups[groupOf(it)] ||= []).push(it); });
+
+  const board = document.getElementById("board");
+  board.innerHTML = "";
+  ORDER.forEach(g=>{
+    const rows = groups[g]; if(!rows || !rows.length) return;
+    const sec = document.createElement("div"); sec.className = "sec";
+    const h2 = document.createElement("h2"); h2.textContent = SEC_TITLE[g]||g; sec.appendChild(h2);
+    if(g==="行业拥挤度"){
+      const w = document.createElement("div"); w.innerHTML = industryTable(rows); sec.appendChild(w);
+    }else{
+      const grid = document.createElement("div"); grid.className="grid";
+      grid.innerHTML = rows.map(cardHtml).join(""); sec.appendChild(grid);
+    }
+    board.appendChild(sec);
+  });
+}
+
+render(DATA);
+</script>
+</body>
+</html>

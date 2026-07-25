@@ -15,6 +15,7 @@ import xalpha as xa  # noqa: E402
 from apiflask import APIFlask  # noqa: E402
 from flask import jsonify  # noqa: E402
 from flask_cors import CORS  # noqa: E402
+from loguru import logger  # noqa: E402
 
 from app.core.database import init_db  # noqa: E402
 from app.core.exceptions import ErrorCode, SBException  # noqa: E402
@@ -29,9 +30,10 @@ from app.domains.positions.views import bp as positions_bp  # noqa: E402
 from app.domains.securities.views import bp as securities_bp  # noqa: E402
 from app.domains.strategy.views import strategy_bp  # noqa: E402
 from app.domains.summary.views import bp as summary_bp  # noqa: E402
+from app.domains.temperature.views import thermometer_bp  # noqa: E402
 from app.domains.transactions.views import bp as transactions_bp  # noqa: E402
 from app.domains.utils.views import utils_bp  # noqa: E402
-from app.domains.watchlist.views import watchlist_bp as watchlist_bp  # noqa: E402
+from app.domains.watchlist.views import watchlist_bp  # noqa: E402
 
 
 def create_app() -> APIFlask:
@@ -73,6 +75,7 @@ def create_app() -> APIFlask:
     app.register_blueprint(performance_bp)
     app.register_blueprint(portfolios_bp)
     app.register_blueprint(strategy_bp)
+    app.register_blueprint(thermometer_bp)
 
     # 初始化数据库
     with app.app_context():
@@ -121,7 +124,6 @@ def register_error_handlers(app: APIFlask):
     def handle_internal_error(e):
         """处理未捕获的系统异常。"""
         # 记录完整堆栈（使用 loguru）
-        from loguru import logger
 
         logger.opt(exception=True).error('未捕获的系统异常')
         response = {

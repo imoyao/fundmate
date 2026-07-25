@@ -35,13 +35,18 @@ import sys
 import time
 from pathlib import Path
 
-# 将项目根目录添加到 Python 路径
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
+from dotenv import load_dotenv
 from loguru import logger
 
 from app.core.database import get_db, init_db
 from app.services.sync.orchestrator import DataSyncOrchestrator
+
+# 将项目根目录添加到 Python 路径
+sys.path.insert(0, str(Path(__file__).parent.parent))
+# ✅ 在入口文件顶部加载 .env（相对于 backend/ 目录）
+# 当前文件在 backend/app/tools/，需要向上两级到 backend/
+env_path = Path(__file__).parent.parent.parent / '.env'
+load_dotenv(dotenv_path=env_path)
 
 
 def ensure_fund_sync_fields(db_session):
