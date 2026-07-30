@@ -20,43 +20,31 @@
     <!-- 温度数据卡片网格                                              -->
     <!-- ============================================================ -->
     <section class="temperature-grid">
-      <!-- 综合温度（自研，突出展示） -->
-      <div class="temp-card temp-card-main">
+      <!-- 一级锚点区（不等宽 2:1:1） -->
+      <!-- 综合温度（hero，占位占最大块） -->
+      <div class="temp-card temp-card-main temp-card-hero">
         <div class="temp-card-header">
           <span class="temp-card-title">综合温度</span>
-          <span class="temp-card-badge badge-dev">开发中</span>
+          <span class="temp-card-badge badge-dev">占位</span>
         </div>
         <div class="temp-card-body">
-          <span class="temp-card-value">--</span>
-          <span class="temp-card-label">算法开发中</span>
-        </div>
-        <div class="temp-card-footer">
-          <span>基于多源数据加权计算</span>
-        </div>
-      </div>
-
-      <!-- 综合估值 -->
-      <div class="temp-card">
-        <div class="temp-card-header">
-          <span class="temp-card-title">综合估值</span>
-        </div>
-        <div class="temp-card-body">
-          <span class="temp-card-value">{{ tempPE !== null ? tempPE : '--' }}</span>
-          <span class="temp-card-sub">PE</span>
-          <span class="temp-card-percent">{{ tempPercent !== null ? tempPercent : '--' }}%</span>
-          <span class="temp-card-level" :class="tempLevelClass">{{ tempLevel }}</span>
+          <span class="temp-card-value">{{ compositeTemperature?.value != null ? compositeTemperature.value : '--' }}</span>
+          <span class="temp-card-label" :class="compositeLevelClass">{{ compositeTemperature?.level || '算法开发中' }}</span>
         </div>
         <div class="temp-card-bar">
           <div class="temp-card-track">
-            <div class="temp-card-fill" :style="{ width: (tempPercent !== null ? Math.max(0, Math.min(100, tempPercent)) : 0) + '%' }" />
+            <div class="temp-card-fill" :style="{ width: (compositeTemperature?.value != null ? Math.max(0, Math.min(100, compositeTemperature.value)) : 0) + '%' }" />
           </div>
+        </div>
+        <div class="temp-card-footer">
+          <span>加权参考 ⊕ 自算·股债利差（合成中）</span>
         </div>
       </div>
 
       <!-- 恐惧贪婪指数 -->
-      <div class="temp-card">
+      <div class="temp-card temp-card-anchor">
         <div class="temp-card-header">
-          <span class="temp-card-title">短期情绪</span>
+          <span class="temp-card-title">恐惧贪婪指数</span>
         </div>
         <div class="temp-card-body">
           <span class="temp-card-value">{{ fearData ? fearData.value : '--' }}</span>
@@ -64,104 +52,107 @@
         </div>
       </div>
 
-      <!-- 可转债温度 -->
-      <div class="temp-card">
+      <!-- 自算·股债利差 -->
+      <div class="temp-card temp-card-anchor">
         <div class="temp-card-header">
-          <span class="temp-card-title">可转债</span>
+          <span class="temp-card-title">自算·股债利差</span>
         </div>
         <div class="temp-card-body">
-          <span class="temp-card-value">{{ cbTemperature !== null ? cbTemperature : '--' }}</span>
-          <span class="temp-card-unit">%</span>
-          <span class="temp-card-label" :class="cbLabel === '偏高' ? 'label-high' : cbLabel === '偏低' ? 'label-low' : 'label-mid'">{{ cbLabel || '数据暂缺' }}</span>
+          <span class="temp-card-value">{{ selfCalcPercent != null ? selfCalcPercent : '--' }}<span class="temp-card-unit">%</span></span>
+          <span class="temp-card-label" :class="selfCalcLevelClass">{{ selfCalcLevel }}</span>
+        </div>
+        <div class="temp-card-footer">
+          <span>股债利差 · 不涉 PE</span>
         </div>
       </div>
 
-      <!-- 且慢温度 -->
-      <div class="temp-card temp-card-placeholder">
-        <div class="temp-card-header">
-          <span class="temp-card-title">且慢</span>
-        </div>
-        <div class="temp-card-body">
-          <span class="temp-card-value">{{ qiemanData ? qiemanData.value : '--' }}</span>
-          <span class="temp-card-label">{{ qiemanData?.label || '数据暂缺' }}</span>
-        </div>
-      </div>
-
-      <!-- 有知有行温度 -->
-      <div class="temp-card temp-card-placeholder">
-        <div class="temp-card-header">
-          <span class="temp-card-title">有知有行</span>
-        </div>
-        <div class="temp-card-body">
-          <span class="temp-card-value">{{ youzhiData ? youzhiData.value : '--' }}</span>
-          <span class="temp-card-label">{{ youzhiData?.label || '数据暂缺' }}</span>
-        </div>
-      </div>
-
-      <!-- 韭圈儿中长期温度 -->
-      <div class="temp-card">
-        <div class="temp-card-header">
-          <span class="temp-card-title">韭圈儿中长期</span>
-        </div>
-        <div class="temp-card-body">
-          <span class="temp-card-value">{{ jiucaishuoMediumData ? jiucaishuoMediumData.value : '--' }}</span>
-          <span class="temp-card-label">{{ jiucaishuoMediumData?.label || '数据暂缺' }}</span>
-        </div>
-      </div>
-
-      <!-- 全市场估值 -->
-      <div class="temp-card">
-        <div class="temp-card-header">
-          <span class="temp-card-title">全市场估值</span>
-        </div>
-        <div class="temp-card-body">
-          <div class="temp-card-row">
-            <span class="temp-card-key">中位PB</span>
-            <span class="temp-card-value-sm">{{ jisiluIndicator?.median_pb ?? '--' }}</span>
-            <span class="temp-card-temp">{{ jisiluIndicator?.median_pb_temperature ?? '--' }}%</span>
+      <!-- 二级 · 市场情绪 -->
+      <div class="temp-group">
+        <div class="temp-group-title">市场情绪</div>
+        <div class="temp-group-cards">
+          <div class="temp-card">
+            <div class="temp-card-header"><span class="temp-card-title">韭圈儿中长期</span></div>
+            <div class="temp-card-body">
+              <span class="temp-card-value">{{ jiucaishuoMediumData ? jiucaishuoMediumData.value : '--' }}</span>
+              <span class="temp-card-label">{{ jiucaishuoMediumData?.label || '数据暂缺' }}</span>
+            </div>
           </div>
-          <div class="temp-card-row">
-            <span class="temp-card-key">中位PE</span>
-            <span class="temp-card-value-sm">{{ jisiluIndicator?.median_pe ?? '--' }}</span>
-            <span class="temp-card-temp">{{ jisiluIndicator?.median_pe_temperature ?? '--' }}%</span>
+          <div class="temp-card">
+            <div class="temp-card-header"><span class="temp-card-title">且慢</span></div>
+            <div class="temp-card-body">
+              <span class="temp-card-value">{{ qiemanData ? qiemanData.value : '--' }}</span>
+              <span class="temp-card-label">{{ qiemanData?.label || '数据暂缺' }}</span>
+            </div>
+          </div>
+          <div class="temp-card">
+            <div class="temp-card-header"><span class="temp-card-title">有知有行</span></div>
+            <div class="temp-card-body">
+              <span class="temp-card-value">{{ youzhiData ? youzhiData.value : '--' }}</span>
+              <span class="temp-card-label">{{ youzhiData?.label || '数据暂缺' }}</span>
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- 成交量 -->
-      <div class="temp-card">
-        <div class="temp-card-header">
-          <span class="temp-card-title">成交额</span>
-        </div>
-        <div class="temp-card-body">
-          <span class="temp-card-value">{{ volumeData ? volumeData.value : '--' }}</span>
-          <span class="temp-card-unit">亿</span>
-          <span class="temp-card-label" :class="volumeData?.label === '放量' ? 'label-high' : volumeData?.label === '缩量' ? 'label-low' : 'label-mid'">{{ volumeData?.label || '数据暂缺' }}</span>
-        </div>
-      </div>
-
-      <!-- 指数快照 -->
-      <div class="temp-card temp-card-index">
-        <div class="temp-card-header">
-          <span class="temp-card-title">指数快照</span>
-        </div>
-        <div class="temp-card-body">
-          <div v-for="idx in indexData" :key="idx.code" class="temp-card-row">
-            <span class="temp-card-key">{{ idx.name }}</span>
-            <span class="temp-card-value-sm">{{ idx.price }}</span>
-            <span class="temp-card-change"><RiseFallText :value="idx.changePercent" /></span>
+      <!-- 二级 · 估值与专项 -->
+      <div class="temp-group">
+        <div class="temp-group-title">估值与专项</div>
+        <div class="temp-group-cards">
+          <div class="temp-card">
+            <div class="temp-card-header"><span class="temp-card-title">全市场估值</span></div>
+            <div class="temp-card-body">
+              <div class="temp-card-row">
+                <span class="temp-card-key">中位PB</span>
+                <span class="temp-card-value-sm">{{ jisiluIndicator?.median_pb ?? '--' }}</span>
+                <span class="temp-card-temp">{{ jisiluIndicator?.median_pb_temperature ?? '--' }}%</span>
+              </div>
+              <div class="temp-card-row">
+                <span class="temp-card-key">中位PE</span>
+                <span class="temp-card-value-sm">{{ jisiluIndicator?.median_pe ?? '--' }}</span>
+                <span class="temp-card-temp">{{ jisiluIndicator?.median_pe_temperature ?? '--' }}%</span>
+              </div>
+            </div>
+          </div>
+          <div class="temp-card">
+            <div class="temp-card-header"><span class="temp-card-title">可转债</span></div>
+            <div class="temp-card-body">
+              <span class="temp-card-value">{{ cbTemperature != null ? cbTemperature : '--' }}</span>
+              <span class="temp-card-unit">%</span>
+              <span class="temp-card-label" :class="cbLabel === '偏高' ? 'label-high' : cbLabel === '偏低' ? 'label-low' : 'label-mid'">{{ cbLabel || '数据暂缺' }}</span>
+            </div>
+          </div>
+          <div class="temp-card temp-card-index">
+            <div class="temp-card-header"><span class="temp-card-title">指数快照</span></div>
+            <div class="temp-card-body">
+              <div v-for="idx in indexData" :key="idx.code" class="temp-card-row">
+                <span class="temp-card-key">{{ idx.name }}</span>
+                <span class="temp-card-value-sm">{{ idx.price }}</span>
+                <span class="temp-card-change"><RiseFallText :value="idx.changePercent" /></span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- 深度入口 -->
-      <div class="temp-card temp-card-entry">
-        <div class="temp-card-header">
-          <span class="temp-card-title">深度分析</span>
-        </div>
-        <div class="temp-card-body">
-          <el-button type="text" class="entry-btn" @click="handleShowIndustryCrowding">行业拥挤度 →</el-button>
-          <el-button type="text" class="entry-btn" @click="handleShowSectorFlow">板块资金流 →</el-button>
+      <!-- 二级 · 流动性 -->
+      <div class="temp-group">
+        <div class="temp-group-title">流动性</div>
+        <div class="temp-group-cards">
+          <div class="temp-card">
+            <div class="temp-card-header"><span class="temp-card-title">成交额</span></div>
+            <div class="temp-card-body">
+              <span class="temp-card-value">{{ volumeData ? volumeData.value : '--' }}</span>
+              <span class="temp-card-unit">亿</span>
+              <span class="temp-card-label" :class="volumeData?.label === '放量' ? 'label-high' : volumeData?.label === '缩量' ? 'label-low' : 'label-mid'">{{ volumeData?.label || '数据暂缺' }}</span>
+            </div>
+          </div>
+          <div class="temp-card temp-card-entry">
+            <div class="temp-card-header"><span class="temp-card-title">深度分析</span></div>
+            <div class="temp-card-body">
+              <el-button type="text" class="entry-btn" @click="handleShowIndustryCrowding">行业拥挤度 →</el-button>
+              <el-button type="text" class="entry-btn" @click="handleShowSectorFlow">板块资金流 →</el-button>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -300,14 +291,20 @@
     <!-- ============================================================ -->
     <footer class="footer-section">
       <div class="footer-inner">
+        <div class="footer-legend">
+          <span class="legend-item"><span class="legend-dot legend-low"></span>绿=低温·机会区</span>
+          <span class="legend-item"><span class="legend-dot legend-high"></span>红=高温·谨慎区</span>
+          <span class="legend-item"><span class="legend-dot legend-mid"></span>金=适中·平稳</span>
+          <span class="legend-note">温度色与观察列表「红涨绿跌」相互独立</span>
+        </div>
         <div class="footer-sources">
           <span class="footer-label">数据来源：</span>
-          <span class="footer-source">集思录</span>
-          <span class="footer-source">韭圈儿</span>
-          <span class="footer-source">东方财富</span>
-          <span class="footer-source">且慢</span>
-          <span class="footer-source">有知有行</span>
-          <span class="footer-source">自算·股债利差</span>
+          <a v-if="links.jiucaishuo" class="footer-source" :href="links.jiucaishuo" target="_blank" rel="noopener">韭圈儿</a>
+          <a v-if="links.jisilu" class="footer-source" :href="links.jisilu" target="_blank" rel="noopener">集思录</a>
+          <a v-if="links.eastmoney" class="footer-source" :href="links.eastmoney" target="_blank" rel="noopener">东方财富</a>
+          <a v-if="links.qieman" class="footer-source" :href="links.qieman" target="_blank" rel="noopener">且慢</a>
+          <a v-if="links.youzhiyouxing" class="footer-source" :href="links.youzhiyouxing" target="_blank" rel="noopener">有知有行</a>
+          <span class="footer-source footer-source-self">自算·股债利差</span>
           <span class="footer-source footer-source-dev">行业拥挤度（开发中）</span>
           <span class="footer-source footer-source-dev">板块资金流（开发中）</span>
         </div>
@@ -465,15 +462,17 @@ const fetchIndexData = async () => {
 // ================================================================
 // 市场温度数据
 // ================================================================
-const activeTab = ref("temperature");
 const tempLoading = ref(false);
 
-// L0 综合估值
-const tempPE = ref<number | null>(null);
-const tempPercent = ref<number | null>(null);
-const tempLevel = ref<string>("数据暂缺");
-const tempUpdatedAt = ref<string>("");
-const tempSource = ref<string>("");
+// 综合温度（后端两源合成，当前占位）
+const compositeTemperature = ref<{ value: number; level: string } | null>(null);
+
+// 自算·股债利差（不涉 PE）
+const selfCalcPercent = ref<number | null>(null);
+const selfCalcLevel = ref<string>("数据暂缺");
+
+// 来源链接（底部来源条）
+const links = ref<Record<string, string>>({});
 
 // 成交量
 const volumeData = ref<{ value: number; label: string } | null>(null);
@@ -499,17 +498,20 @@ const fetchTemperature = async () => {
     const data = res.data;
     if (!data) throw new Error("无效响应");
 
-    // L0：综合估值
+    // 自算·股债利差（不涉 PE）
     const selfCalc = data.composites?.self_calc;
     if (selfCalc) {
-      tempPE.value = selfCalc.pe || null;
-      tempPercent.value = selfCalc.percent || null;
-      tempLevel.value = selfCalc.level || "正常";
-      tempUpdatedAt.value = data.updated_at || "";
-      tempSource.value = "自算·股债利差";
+      selfCalcPercent.value = selfCalc.percent ?? null;
+      selfCalcLevel.value = selfCalc.level || "正常";
     } else {
-      tempLevel.value = "数据暂缺";
+      selfCalcLevel.value = "数据暂缺";
     }
+
+    // 综合温度（两源合成）
+    compositeTemperature.value = data.composites?.composite_temperature || null;
+
+    // 来源链接
+    links.value = data.links || {};
 
     // 成交量
     const vol = data.singles?.find((s: any) => s.source === "eastmoney_volume");
@@ -559,12 +561,12 @@ const fetchTemperature = async () => {
       };
     }
 
-    if (tempLevel.value === "数据暂缺") {
-      console.warn("市场温度数据暂缺，显示占位");
+    if (selfCalcLevel.value === "数据暂缺") {
+      console.warn("自算股债利差数据暂缺，显示占位");
     }
   } catch (error) {
     console.warn("获取市场温度失败:", error);
-    tempLevel.value = "数据暂缺";
+    selfCalcLevel.value = "数据暂缺";
   } finally {
     tempLoading.value = false;
   }
@@ -573,18 +575,25 @@ const fetchTemperature = async () => {
 // ================================================================
 // 计算属性和方法
 // ================================================================
-const tempLevelClass = computed(() => {
-  const level = tempLevel.value;
-  if (level === "偏低" || level === "低估") return "level-low";
-  if (level === "偏高" || level === "高估") return "level-high";
-  return "level-mid";
+const selfCalcLevelClass = computed(() => {
+  const level = selfCalcLevel.value;
+  if (level === "偏低" || level === "低估") return "label-low";
+  if (level === "偏高" || level === "高估") return "label-high";
+  return "label-mid";
+});
+
+const compositeLevelClass = computed(() => {
+  const level = compositeTemperature.value?.level;
+  if (level === "偏低" || level === "低估") return "label-low";
+  if (level === "偏高" || level === "高估") return "label-high";
+  return "label-mid";
 });
 
 const getFearClass = (label: string | undefined) => {
-  if (!label) return "fear-mid";
-  if (label.includes("极度恐惧") || label.includes("恐惧")) return "fear-low";
-  if (label.includes("极度贪婪") || label.includes("贪婪")) return "fear-high";
-  return "fear-mid";
+  if (!label) return "label-mid";
+  if (label.includes("极度恐惧") || label.includes("恐惧")) return "label-low";
+  if (label.includes("极度贪婪") || label.includes("贪婪")) return "label-high";
+  return "label-mid";
 };
 
 // L3 深度入口
@@ -898,6 +907,17 @@ onMounted(() => {
 </script>
 
 <style lang="scss" scoped>
+/* ===== 温度专用 token（临时补充，后续应迁移到 colors.css） ===== */
+.explore-page {
+  --temp-low: #4F9D69;
+  --temp-mid: var(--tag-warm-sand, #D4C898);
+  --temp-high: #D9534F;
+  --temp-low-bg: rgba(79, 157, 105, 0.14);
+  --temp-mid-bg: rgba(212, 200, 152, 0.20);
+  --temp-high-bg: rgba(217, 83, 79, 0.14);
+}
+
+/* ===== 布局重置（清理旧样式） ===== */
 .explore-page {
   min-height: 100vh;
   background: var(--bg-page);
@@ -949,531 +969,225 @@ onMounted(() => {
   }
 }
 
-/* ===== HERO ===== */
-.hero-section {
+/* ===== 温度卡片网格 ===== */
+.temperature-grid {
   max-width: 1280px;
   margin: 0 auto;
-  padding: 40px 24px 32px;
-  text-align: center;
-
-  h1 {
-    font-size: 28px;
-    font-weight: 700;
-    color: var(--text-primary);
-    margin-bottom: 8px;
-  }
-
-  p {
-    font-size: 15px;
-    color: var(--text-secondary);
-    margin-bottom: 20px;
-  }
-
-  .hero-actions {
-    display: flex;
-    gap: 12px;
-    justify-content: center;
-  }
-}
-
-/* ================================================================
-   市场概览区
-   ================================================================ */
-.market-overview {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 0 24px 24px;
-  display: flex;
-  flex-direction: column;
+  padding: 0 24px 16px;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
   gap: 12px;
 }
 
-/* L0：综合估值 */
-.valuation-card {
-  background: var(--bg-card);
-  border-radius: 12px;
-  padding: 16px 20px;
-  border: 1px solid var(--border-light);
-  box-shadow: var(--shadow-raised);
-
-  .valuation-header {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 8px;
-  }
-
-  .valuation-title {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-
-  .valuation-loading {
-    font-size: 12px;
-    color: var(--text-tertiary);
-  }
-
-  .valuation-body {
-    display: flex;
-    align-items: center;
-    gap: 20px;
-    flex-wrap: wrap;
-  }
-
-  .valuation-pe {
-    display: flex;
-    align-items: baseline;
-    gap: 4px;
-    flex-shrink: 0;
-
-    .pe-label {
-      font-size: 13px;
-      color: var(--text-tertiary);
-    }
-
-    .pe-value {
-      font-size: 26px;
-      font-weight: 700;
-      color: var(--text-primary);
-      font-family: var(--font-mono);
-      font-variant-numeric: tabular-nums;
-      line-height: 1.2;
-    }
-  }
-
-  .valuation-bar-wrapper {
-    flex: 1;
-    min-width: 120px;
-  }
-
-  .valuation-bar {
-    height: 6px;
-    border-radius: 3px;
-    background: var(--bg-soft);
-    overflow: hidden;
-    position: relative;
-  }
-
-  .valuation-fill {
-    height: 100%;
-    border-radius: 3px;
-    background: linear-gradient(to right, var(--color-fall), var(--tag-warm-sand), var(--color-rise));
-    transition: width 0.8s ease;
-  }
-
-  .valuation-labels {
-    display: flex;
-    justify-content: space-between;
-    font-size: 10px;
-    color: var(--text-tertiary);
-    margin-top: 2px;
-  }
-
-  .valuation-right {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-shrink: 0;
-  }
-
-  .valuation-percent {
-    font-size: 18px;
-    font-weight: 600;
-    color: var(--text-primary);
-    font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .valuation-level {
-    font-size: 12px;
-    padding: 2px 12px;
-    border-radius: 10px;
-    font-weight: 500;
-
-    &.level-low {
-      background: var(--color-fall);
-      color: #fff;
-    }
-    &.level-mid {
-      background: var(--tag-warm-sand);
-      color: var(--text-primary);
-    }
-    &.level-high {
-      background: var(--color-rise);
-      color: #fff;
-    }
-  }
-
-  .valuation-source {
-    font-size: 11px;
-    color: var(--text-tertiary);
-  }
-
-  .valuation-footer {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    margin-top: 8px;
-    padding-top: 8px;
-    border-top: 1px solid var(--border-light);
-    flex-wrap: wrap;
-  }
-
-  .valuation-updated {
-    font-size: 11px;
-    color: var(--text-tertiary);
-  }
-
-  .valuation-disclaimer {
-    font-size: 10px;
-    color: var(--text-tertiary);
-  }
+/* 一级锚点：综合温度(4份宽) + 恐惧贪婪 + 自算(各1份) */
+.temp-card-hero {
+  grid-column: span 4;
+}
+.temp-card-anchor {
+  grid-column: span 1;
 }
 
-/* L1：市场快照 */
-.snapshot-row {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 10px 16px;
-  background: var(--bg-card);
-  border-radius: 10px;
-  border: 1px solid var(--border-light);
-  box-shadow: var(--shadow-raised);
-  flex-wrap: wrap;
+/* 二级：语义分组（整行容器 + 内部 6 列） */
+.temp-group {
+  grid-column: span 6;
 }
-
-.snapshot-index {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-
-  .snapshot-name {
-    font-size: 13px;
-    color: var(--text-secondary);
-    font-weight: 500;
-  }
-
-  .snapshot-price {
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--text-primary);
-    font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .snapshot-change {
-    font-size: 13px;
-  }
+.temp-group-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin: 8px 0 6px;
 }
-
-.snapshot-divider {
-  width: 1px;
-  height: 24px;
-  background: var(--border-light);
-}
-
-.snapshot-volume {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-
-  .snapshot-volume-value {
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--text-primary);
-    font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .snapshot-volume-unit {
-    font-size: 12px;
-    color: var(--text-tertiary);
-  }
-
-  .snapshot-volume-label {
-    font-size: 12px;
-    padding: 1px 10px;
-    border-radius: 10px;
-
-    &.vol-high {
-      background: rgba(239, 68, 68, 0.15);
-      color: var(--warm);
-    }
-    &.vol-mid {
-      background: rgba(34, 197, 94, 0.12);
-      color: var(--ok);
-    }
-    &.vol-low {
-      background: rgba(59, 130, 246, 0.15);
-      color: var(--cold2);
-    }
-  }
-}
-
-/* L2：标签页 */
-.tabs-wrapper {
-  background: var(--bg-card);
-  border-radius: 10px;
-  border: 1px solid var(--border-light);
-  box-shadow: var(--shadow-raised);
-  overflow: hidden;
-}
-
-.market-tabs {
-  :deep(.el-tabs__header) {
-    margin: 0;
-    padding: 0 16px;
-    border-bottom: 1px solid var(--border-light);
-  }
-
-  :deep(.el-tabs__item) {
-    font-size: 13px;
-    color: var(--text-secondary);
-    padding: 0 16px;
-    height: 40px;
-    line-height: 40px;
-
-    &:hover {
-      color: var(--brand-700);
-    }
-
-    &.is-active {
-      color: var(--brand-700);
-    }
-  }
-
-  :deep(.el-tabs__active-bar) {
-    background: var(--brand-700);
-  }
-
-  :deep(.el-tabs__content) {
-    padding: 16px;
-  }
-}
-
-.tab-content {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-/* 综合温度（3源并排） */
-.temp-sources {
+.temp-group-cards {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 12px;
+}
+.temp-group .temp-card {
+  grid-column: span 2;
 }
 
-.temp-source-item {
-  background: var(--bg-soft);
-  border-radius: 8px;
-  padding: 12px 16px;
-  text-align: center;
+/* 卡片基础样式 */
+.temp-card {
+  background: var(--bg-card);
+  border-radius: 10px;
+  padding: 12px 14px;
   border: 1px solid var(--border-light);
+  box-shadow: var(--shadow-raised);
+  transition: all 0.2s;
 
-  .source-name {
-    display: block;
-    font-size: 11px;
-    color: var(--text-tertiary);
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-float);
+  }
+
+  .temp-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     margin-bottom: 4px;
   }
 
-  .source-value {
+  .temp-card-title {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-tertiary);
+    letter-spacing: 0.3px;
+  }
+
+  .temp-card-body {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+
+  .temp-card-value {
     font-size: 22px;
     font-weight: 700;
     color: var(--text-primary);
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
+    line-height: 1.2;
   }
 
-  .source-label {
-    display: block;
-    font-size: 12px;
-    color: var(--text-secondary);
-    margin-top: 2px;
-  }
-
-  .source-placeholder {
-    font-size: 12px;
-    color: var(--text-tertiary);
-  }
-}
-
-/* 短期情绪 */
-.fear-greed {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 16px;
-  background: var(--bg-soft);
-  border-radius: 8px;
-  border: 1px solid var(--border-light);
-
-  .fear-greed-label {
-    font-size: 13px;
-    color: var(--text-secondary);
-    font-weight: 500;
-  }
-
-  .fear-greed-value {
-    font-size: 20px;
-    font-weight: 700;
-    color: var(--text-primary);
-    font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .fear-greed-tag {
-    font-size: 12px;
-    padding: 2px 12px;
-    border-radius: 10px;
-
-    &.fear-low {
-      background: rgba(59, 130, 246, 0.18);
-      color: var(--cold2);
-    }
-    &.fear-mid {
-      background: rgba(245, 158, 11, 0.18);
-      color: var(--mid);
-    }
-    &.fear-high {
-      background: rgba(239, 68, 68, 0.18);
-      color: var(--warm);
-    }
-  }
-}
-
-/* 全市场估值 */
-.market-valuation-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
-
-.mv-item {
-  background: var(--bg-soft);
-  border-radius: 8px;
-  padding: 14px 16px;
-  border: 1px solid var(--border-light);
-
-  .mv-label {
-    font-size: 12px;
-    color: var(--text-tertiary);
-    display: block;
-    margin-bottom: 4px;
-  }
-
-  .mv-value {
-    font-size: 20px;
+  .temp-card-value-sm {
+    font-size: 16px;
     font-weight: 600;
     color: var(--text-primary);
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
   }
 
-  .mv-bar {
-    height: 4px;
-    border-radius: 2px;
-    background: var(--bg-card);
-    overflow: hidden;
-    margin: 6px 0 4px;
+  .temp-card-unit {
+    font-size: 13px;
+    color: var(--text-tertiary);
+    margin-left: 0px;
   }
 
-  .mv-fill {
+  .temp-card-label {
+    font-size: 11px;
+    padding: 1px 8px;
+    border-radius: 8px;
+    font-weight: 500;
+    margin-left: auto;
+
+    &.label-low {
+      background: var(--temp-low-bg);
+      color: var(--temp-low);
+    }
+    &.label-mid {
+      background: var(--temp-mid-bg);
+      color: var(--temp-mid);
+    }
+    &.label-high {
+      background: var(--temp-high-bg);
+      color: var(--temp-high);
+    }
+  }
+
+  .temp-card-bar {
+    margin-top: 6px;
+  }
+
+  .temp-card-track {
+    height: 3px;
+    border-radius: 2px;
+    background: var(--bg-soft);
+    overflow: hidden;
+  }
+
+  .temp-card-fill {
     height: 100%;
     border-radius: 2px;
     background: linear-gradient(to right, var(--color-fall), var(--tag-warm-sand), var(--color-rise));
-    transition: width 0.6s ease;
+    transition: width 0.8s ease;
   }
 
-  .mv-temp {
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--text-secondary);
-  }
-}
-
-/* 专项温度 */
-.special-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 20px;
-  background: var(--bg-soft);
-  border-radius: 8px;
-  border: 1px solid var(--border-light);
-
-  .special-label {
-    font-size: 13px;
-    color: var(--text-secondary);
-    font-weight: 500;
-  }
-
-  .special-value {
-    font-size: 24px;
-    font-weight: 700;
-    color: var(--text-primary);
-    font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .special-unit {
-    font-size: 14px;
-    color: var(--text-tertiary);
-  }
-
-  .special-tag {
-    font-size: 12px;
-    padding: 2px 12px;
-    border-radius: 10px;
-
-    &.tag-low {
-      background: rgba(59, 130, 246, 0.15);
-      color: var(--cold2);
-    }
-    &.tag-mid {
-      background: rgba(245, 158, 11, 0.15);
-      color: var(--mid);
-    }
-    &.tag-high {
-      background: rgba(239, 68, 68, 0.15);
-      color: var(--warm);
-    }
-  }
-
-  .special-note {
-    font-size: 11px;
-    color: var(--text-tertiary);
-    margin-left: auto;
-  }
-}
-
-/* L3：深度入口 */
-.depth-entry {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 8px 16px;
-  background: var(--bg-card);
-  border-radius: 10px;
-  border: 1px solid var(--border-light);
-  box-shadow: var(--shadow-raised);
-
-  .depth-btn {
+  .temp-card-row {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
+    width: 100%;
+    padding: 2px 0;
+
+    .temp-card-key {
+      font-size: 12px;
+      color: var(--text-tertiary);
+      min-width: 48px;
+    }
+
+    .temp-card-temp {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      margin-left: auto;
+    }
+
+    .temp-card-change {
+      font-size: 12px;
+      margin-left: auto;
+    }
+  }
+
+  .temp-card-badge {
+    font-size: 9px;
+    padding: 0 6px;
+    border-radius: 4px;
+
+    &.badge-dev {
+      background: var(--brand-100);
+      color: var(--brand-700);
+    }
+    &.badge-pending {
+      background: var(--bg-soft);
+      color: var(--text-tertiary);
+    }
+  }
+}
+
+/* 特殊卡片尺寸 */
+.temp-card-main {
+  grid-column: span 4;
+  background: linear-gradient(135deg, var(--bg-card), var(--brand-100));
+  border-color: var(--brand-400);
+
+  .temp-card-value {
+    font-size: 32px;
+    color: var(--brand-700);
+  }
+
+  .temp-card-label {
     font-size: 13px;
     color: var(--text-secondary);
+  }
+
+  .temp-card-footer {
+    font-size: 10px;
+    color: var(--text-tertiary);
+    margin-top: 4px;
+    width: 100%;
+  }
+}
+
+.temp-card-index {
+  grid-column: span 2;
+}
+
+.temp-card-entry {
+  grid-column: span 1;
+
+  .temp-card-body {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .entry-btn {
+    font-size: 13px;
+    color: var(--text-secondary);
+    padding: 2px 0;
 
     &:hover {
       color: var(--brand-700);
-    }
-
-    .depth-icon {
-      font-size: 14px;
     }
   }
 }
@@ -1690,392 +1404,11 @@ onMounted(() => {
 }
 
 @keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.3;
-  }
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
 }
 
-/* ===== 底部转化区 ===== */
-.conversion-section {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 0 24px 48px;
-}
-
-.conversion-card {
-  background: var(--bg-card);
-  border-radius: 12px;
-  padding: 40px 32px;
-  text-align: center;
-  box-shadow: var(--shadow-raised);
-  border: 1px solid var(--border-light);
-}
-
-.conversion-content {
-  max-width: 480px;
-  margin: 0 auto;
-
-  .conversion-icon {
-    margin-bottom: 12px;
-  }
-
-  h3 {
-    font-size: 18px;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin-bottom: 8px;
-  }
-
-  p {
-    font-size: 14px;
-    color: var(--text-secondary);
-    margin-bottom: 16px;
-  }
-
-  .loss-aversion {
-    padding: 12px 16px;
-    border-radius: 8px;
-    background: var(--brand-100);
-    color: var(--brand-700);
-    font-size: 14px;
-    margin-bottom: 20px;
-  }
-
-  .migrate-hint {
-    display: block;
-    margin-top: 12px;
-    font-size: 13px;
-    color: var(--text-tertiary);
-  }
-}
-
-/* ===== 响应式 ===== */
-@media (max-width: 768px) {
-  .valuation-card .valuation-body {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 12px;
-  }
-
-  .valuation-right {
-    justify-content: flex-start;
-  }
-
-  .snapshot-row {
-    gap: 10px;
-    padding: 10px 14px;
-  }
-
-  .snapshot-index {
-    flex: 1;
-    min-width: 80px;
-  }
-
-  .snapshot-divider {
-    display: none;
-  }
-
-  .temp-sources {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .market-valuation-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .special-item {
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-
-  .special-note {
-    margin-left: 0 !important;
-    width: 100%;
-  }
-
-  .add-form-row {
-    flex-direction: column;
-
-    .input-wrapper,
-    .type-select,
-    .price-input,
-    .qty-input {
-      width: 100%;
-      flex-shrink: 1;
-    }
-
-    .type-select {
-      width: 100%;
-    }
-  }
-
-  .hot-section {
-    flex-direction: column;
-    align-items: flex-start;
-
-    .hot-cards {
-      width: 100%;
-    }
-  }
-
-  .summary-bar {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .hero-section h1 {
-    font-size: 22px;
-  }
-
-  .conversion-card {
-    padding: 32px 20px;
-  }
-}
-
-/* ===== 温度卡片网格 ===== */
-.temperature-grid {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 0 24px 16px;
-  display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 12px;
-}
-
-.temp-card {
-  background: var(--bg-card);
-  border-radius: 10px;
-  padding: 12px 14px;
-  border: 1px solid var(--border-light);
-  box-shadow: var(--shadow-raised);
-  transition: all 0.2s;
-
-  &:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-float);
-  }
-
-  .temp-card-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 4px;
-  }
-
-  .temp-card-title {
-    font-size: 11px;
-    font-weight: 500;
-    color: var(--text-tertiary);
-    letter-spacing: 0.3px;
-  }
-
-  .temp-card-body {
-    display: flex;
-    align-items: baseline;
-    gap: 4px;
-    flex-wrap: wrap;
-  }
-
-  .temp-card-value {
-    font-size: 22px;
-    font-weight: 700;
-    color: var(--text-primary);
-    font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
-    line-height: 1.2;
-  }
-
-  .temp-card-value-sm {
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--text-primary);
-    font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .temp-card-unit {
-    font-size: 13px;
-    color: var(--text-tertiary);
-    margin-left: 0px;
-  }
-
-  .temp-card-label {
-    font-size: 11px;
-    padding: 1px 8px;
-    border-radius: 8px;
-    font-weight: 500;
-    margin-left: auto;
-
-    &.label-low {
-      background: rgba(59, 130, 246, 0.15);
-      color: var(--cold2);
-    }
-    &.label-mid {
-      background: rgba(245, 158, 11, 0.15);
-      color: var(--mid);
-    }
-    &.label-high {
-      background: rgba(239, 68, 68, 0.15);
-      color: var(--warm);
-    }
-  }
-
-  .temp-card-percent {
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--text-secondary);
-    font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
-    margin-left: 4px;
-  }
-
-  .temp-card-level {
-    font-size: 11px;
-    padding: 1px 10px;
-    border-radius: 8px;
-    font-weight: 500;
-    margin-left: 6px;
-
-    &.level-low {
-      background: var(--color-fall);
-      color: #fff;
-    }
-    &.level-mid {
-      background: var(--tag-warm-sand);
-      color: var(--text-primary);
-    }
-    &.level-high {
-      background: var(--color-rise);
-      color: #fff;
-    }
-  }
-
-  .temp-card-sub {
-    font-size: 13px;
-    color: var(--text-tertiary);
-    margin-right: 4px;
-  }
-
-  .temp-card-bar {
-    margin-top: 6px;
-  }
-
-  .temp-card-track {
-    height: 3px;
-    border-radius: 2px;
-    background: var(--bg-soft);
-    overflow: hidden;
-  }
-
-  .temp-card-fill {
-    height: 100%;
-    border-radius: 2px;
-    background: linear-gradient(to right, var(--color-fall), var(--tag-warm-sand), var(--color-rise));
-    transition: width 0.8s ease;
-  }
-
-  .temp-card-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    width: 100%;
-    padding: 2px 0;
-
-    .temp-card-key {
-      font-size: 12px;
-      color: var(--text-tertiary);
-      min-width: 48px;
-    }
-
-    .temp-card-temp {
-      font-size: 12px;
-      font-weight: 500;
-      color: var(--text-secondary);
-      margin-left: auto;
-    }
-
-    .temp-card-change {
-      font-size: 12px;
-      margin-left: auto;
-    }
-  }
-
-  .temp-card-badge {
-    font-size: 9px;
-    padding: 0 6px;
-    border-radius: 4px;
-
-    &.badge-dev {
-      background: var(--brand-100);
-      color: var(--brand-700);
-    }
-    &.badge-pending {
-      background: var(--bg-soft);
-      color: var(--text-tertiary);
-    }
-  }
-}
-
-/* 特殊卡片尺寸 */
-.temp-card-main {
-  grid-column: span 2;
-  background: linear-gradient(135deg, var(--bg-card), var(--brand-100));
-  border-color: var(--brand-400);
-
-  .temp-card-value {
-    font-size: 32px;
-    color: var(--brand-700);
-  }
-
-  .temp-card-label {
-    font-size: 13px;
-    color: var(--text-secondary);
-  }
-
-  .temp-card-footer {
-    font-size: 10px;
-    color: var(--text-tertiary);
-    margin-top: 4px;
-    width: 100%;
-  }
-}
-
-.temp-card-placeholder {
-  opacity: 0.6;
-
-  .temp-card-value {
-    color: var(--text-tertiary);
-  }
-}
-
-.temp-card-index {
-  grid-column: span 2;
-}
-
-.temp-card-entry {
-  grid-column: span 1;
-
-  .temp-card-body {
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .entry-btn {
-    font-size: 13px;
-    color: var(--text-secondary);
-    padding: 2px 0;
-
-    &:hover {
-      color: var(--brand-700);
-    }
-  }
-}
-
-/* ===== 底部 ===== */
+/* ===== 底部：数据来源 + 免责声明 ===== */
 .footer-section {
   max-width: 1280px;
   margin: 0 auto;
@@ -2087,6 +1420,33 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.footer-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+}
+.legend-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 5px;
+}
+.legend-low { background: var(--temp-low); }
+.legend-mid { background: var(--temp-mid); }
+.legend-high { background: var(--temp-high); }
+.legend-note {
+  color: var(--text-tertiary);
+  margin-left: 4px;
 }
 
 .footer-sources {
@@ -2120,6 +1480,9 @@ onMounted(() => {
     color: var(--text-tertiary);
     font-style: italic;
   }
+  &.footer-source-self {
+    cursor: default;
+  }
 }
 
 .footer-disclaimer-text {
@@ -2138,11 +1501,10 @@ onMounted(() => {
   .temperature-grid {
     grid-template-columns: repeat(4, 1fr);
   }
-
-  .temp-card-main,
-  .temp-card-index {
-    grid-column: span 2;
-  }
+  .temp-card-hero { grid-column: span 4; }
+  .temp-card-anchor { grid-column: span 2; }
+  .temp-group { grid-column: span 4; }
+  .temp-card-index { grid-column: span 2; }
 }
 
 @media (max-width: 768px) {
@@ -2151,27 +1513,20 @@ onMounted(() => {
     gap: 8px;
     padding: 0 16px 12px;
   }
-
-  .temp-card {
-    padding: 10px 12px;
-  }
-
-  .temp-card-main {
+  .temp-card { padding: 10px 12px; }
+  .temp-card-hero,
+  .temp-card-main,
+  .temp-card-anchor {
     grid-column: span 2;
   }
-
-  .temp-card-index {
-    grid-column: span 2;
+  .temp-group { grid-column: span 2; }
+  .temp-group-cards {
+    grid-template-columns: repeat(2, 1fr);
   }
-
-  .temp-card-entry {
-    grid-column: span 2;
-    flex-direction: row;
-  }
-
-  .footer-sources {
-    gap: 2px 8px;
-  }
+  .temp-group .temp-card { grid-column: span 1; }
+  .temp-card-index { grid-column: span 2; }
+  .temp-card-entry { grid-column: span 2; }
+  .footer-sources { gap: 2px 8px; }
 }
 
 @media (max-width: 480px) {
@@ -2179,40 +1534,16 @@ onMounted(() => {
     grid-template-columns: 1fr 1fr;
     gap: 6px;
   }
-
-  .temp-card-main {
+  .temp-card-hero,
+  .temp-card-main,
+  .temp-card-anchor {
     grid-column: span 2;
   }
-
   .temp-card .temp-card-value {
     font-size: 18px;
   }
-
   .temp-card-main .temp-card-value {
     font-size: 26px;
-  }
-}
-
-@media (max-width: 480px) {
-  .temp-sources {
-    grid-template-columns: 1fr;
-  }
-
-  .snapshot-row {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 6px;
-  }
-
-  .snapshot-index {
-    display: flex;
-    justify-content: space-between;
-    padding: 4px 0;
-    border-bottom: 1px solid var(--border-light);
-  }
-
-  .snapshot-index:last-child {
-    border-bottom: none;
   }
 }
 </style>

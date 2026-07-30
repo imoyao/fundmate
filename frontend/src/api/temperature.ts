@@ -9,17 +9,23 @@ export interface TemperatureOverviewResponse {
       value: number;
       label: string;
       unit: string;
-      collected_at: string;
+      /** 平台原生更新时间（精确到秒，尊重平台规范） */
+      updated_at: string;
     }>;
     composites: {
       self_calc?: {
-        pe: number;
         percent: number;
         level: string;
         spread_pct: number;
         y10: number;
         cpi: number;
         collected_at: string;
+      };
+      composite_temperature?: {
+        value: number;
+        level: string;
+        weights?: Record<string, number>;
+        available?: string[];
       };
       jisilu_indicator?: {
         median_pb: number;

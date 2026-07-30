@@ -33,3 +33,12 @@ docker stop {{CONTAINER_ID}}
 - [Docker 安装 MySQL | 菜鸟教程](https://www.runoob.com/docker/docker-install-mysql.html)
 - [Docker 安装 Mysql 5.7 - 叨叨软件测试 - 博客园](https://www.cnblogs.com/daodaotest/p/13172272.html)
 - [Docker 创建运行多个 mysql 容器 - 小何同學 - 博客园](https://www.cnblogs.com/heyangyi/p/9288402.html)
+
+## 应用部署
+
+生产环境建议以 `Docker` + `Gunicorn` + `supervisor` + `Nginx` 的组合部署应用。
+
+实操参考：[nginx+uwsgi 和 nginx+gunicorn 区别、如何部署 - 简书](https://www.jianshu.com/p/be2b587a900e)
+
+- [Deploy Flask Applications with uWSGI and Nginx](https://hackersandslackers.com/deploy-flask-uwsgi-nginx/)
+- [Gunicorn 与 uWSGI 之我见 · 跬步](https://zhu327.github.io/2018/08/29/gunicorn%E4%B8%8Euwsgi%E4%B9%8B%E6%88%91%E8%A7%81/)

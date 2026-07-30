@@ -10,97 +10,218 @@
 符合总纲 §3.1 "统一结构" 原则
 """
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
-import akshare as ak
-import pandas as pd
 from loguru import logger
 from sqlalchemy import func
 
 from app.core.database import SessionLocal
+from app.core.time_utils import now_shanghai, today_shanghai
 from app.domains.temperature.models import MarketComposite, MarketSingleValue
-from app.services.thermometer.fetchers import (
-    fetch_eastmoney_volume,
-    fetch_jisilu_cb_temperature,
-    fetch_jisilu_indicator,
-    fetch_qieman,
-    fetch_youzhiyouxing,
-)
+from app.services.thermometer.constants import LINKS as THERMOMETER_LINKS
+from app.services.thermometer.fetchers import COMPOSITE_FETCHERS, SINGLE_FETCHERS
+
+
+def _naive(dt: Optional[datetime]) -> Optional[datetime]:
+    """统一转为无时区的本地时间，避免 aware/naive 混用导致 func.date() 比较异常"""
+    if dt is None:
+        return None
+    return dt.replace(tzinfo=None) if dt.tzinfo else dt
+
+
+def _single_val(singles: list, source: str) -> Optional[float]:
+    """从单值列表里取某个源的 value。"""
+    for s in singles or []:
+        if s.get('source') == source:
+            v = s.get('value')
+            return float(v) if v is not None else None
+    return None
+
+
+def _compute_composite_temperature(singles: list, composites: dict) -> Optional[dict]:
+    """综合温度：第三方参考按权重 + 自算·股债利差，加权合成（0-100）。
+
+    综合温度 = Σ(各源归一值 × 权重) / Σ(已获得源的权重)。
+    归一：恐惧贪婪/中长期/且慢/有知有行/集思录PE温度/自算分位本身即 0-100 尺度；
+    东财成交额按 放量/温和/缩量 → 70/50/30。任一源缺失时按剩余源重新归一权重（容错）。
+    """
+    comp = composites or {}
+    jisilu = comp.get('jisilu_indicator') or {}
+    self_calc = comp.get('self_calc') or {}
+    vol_label = None
+    for s in singles or []:
+        if s.get('source') == 'eastmoney_volume':
+            vol_label = s.get('label')
+    vol_val = {'放量': 70, '温和': 50, '缩量': 30}.get(vol_label)
+
+    def clamp(v):
+        return max(0.0, min(100.0, float(v))) if v is not None else None
+
+    parts = [
+        ('jiucaishuo_fear', 0.25, clamp(_single_val(singles, 'jiucaishuo_fear'))),
+        ('jiucaishuo_medium', 0.15, clamp(_single_val(singles, 'jiucaishuo_medium'))),
+        ('qieman', 0.15, clamp(_single_val(singles, 'qieman'))),
+        ('youzhiyouxing', 0.15, clamp(_single_val(singles, 'youzhiyouxing'))),
+        ('jisilu_indicator', 0.10, clamp(jisilu.get('median_pe_temperature'))),
+        ('eastmoney_volume', 0.05, clamp(vol_val)),
+        ('self_calc', 0.15, clamp(self_calc.get('percent'))),
+    ]
+
+    acc, total_w, used = 0.0, 0.0, []
+    for name, w, v in parts:
+        if v is not None:
+            acc += w * v
+            total_w += w
+            used.append(name)
+    if total_w <= 0:
+        return None
+
+    value = round(acc / total_w, 1)
+    if value > 70:
+        level = '偏高'
+    elif value > 40:
+        level = '适中'
+    else:
+        level = '偏低'
+    return {
+        'value': value,
+        'level': level,
+        'weights': {name: w for name, w, _ in parts},
+        'available': used,
+    }
 
 
 class TemperatureService:
     """市场温度聚合服务"""
 
-    # 数据源 → 存储方式映射
-    SINGLE_SOURCES = {
-        'eastmoney_volume': {'name': '全市场成交额', 'fetcher': fetch_eastmoney_volume},
-        'qieman': {'name': '市场温度计(中证全A)', 'fetcher': fetch_qieman},
-        'youzhiyouxing': {'name': '全市场温度', 'fetcher': fetch_youzhiyouxing},
-        'jisilu_cb': {'name': '可转债温度', 'fetcher': fetch_jisilu_cb_temperature},
-    }
+    # 数据源 → 存储方式映射（由 fetchers 注册表驱动，避免重复维护名称/单位）
+    SINGLE_SOURCES = {src: {'name': f.name, 'unit': f.unit, 'fetcher': f} for src, f in SINGLE_FETCHERS.items()}
+    COMPOSITE_SOURCES = {src: {'fetcher': f} for src, f in COMPOSITE_FETCHERS.items()}
 
-    COMPOSITE_SOURCES = {
-        'jisilu_indicator': {'fetcher': fetch_jisilu_indicator},
-        'self_calc': {'fetcher': None},  # 本地计算，无 fetcher
-    }
+    # 概览展示的单值源：在 SINGLE_SOURCES 基础上补充韭圈儿等独立抓取源
+    # （韭圈儿由 jobs.py 经 Playwright 抓取，不入 SINGLE_SOURCES 的 fetcher 循环）
+    OVERVIEW_SINGLE_SOURCES = [
+        'eastmoney_volume',
+        'qieman',
+        'youzhiyouxing',
+        'jisilu_cb',
+        'jiucaishuo_fear',
+        'jiucaishuo_medium',
+    ]
 
     # 外部链接
-    LINKS = {
-        'jisilu': 'https://www.jisilu.cn/data/indicator/',
-        'jiucaishuo': 'https://app.jiucaishuo.com/',
-        'qieman': 'https://qieman.com/',
-        'youzhiyouxing': 'https://youzhiyouxing.cn/thermometer',
-        'eastmoney': 'https://quote.eastmoney.com/',
-    }
+    LINKS = THERMOMETER_LINKS
 
     @classmethod
-    def fetch_all_singles(cls) -> Dict[str, Dict[str, Any]]:
-        """拉取所有单值指标的最新数据"""
-        result = {}
-        for source, config in cls.SINGLE_SOURCES.items():
-            try:
-                data = config['fetcher']()
-                if data:
-                    result[source] = {
-                        'source': source,
-                        'name': config['name'],
-                        'value': data.get('value'),
-                        'label': data.get('label'),
-                        'unit': data.get('unit'),
-                        'collected_at': datetime.now(),
-                        'stale': False,
-                        'raw': data.get('raw'),
-                    }
-                else:
-                    result[source] = {
-                        'source': source,
-                        'name': config['name'],
-                        'value': None,
-                        'label': '数据暂缺',
-                        'unit': None,
-                        'collected_at': datetime.now(),
-                        'stale': True,
-                        'raw': None,
-                    }
-            except Exception as e:
-                logger.error(f'获取 {source} 失败: {e}')
-                result[source] = {
-                    'source': source,
-                    'name': config['name'],
-                    'value': None,
-                    'label': '获取失败',
-                    'unit': None,
-                    'collected_at': datetime.now(),
-                    'stale': True,
-                    'raw': None,
-                }
+    def get_today_single(cls, source: str) -> Optional['MarketSingleValue']:
+        """查询当日已抓取且未失效的单值记录（用于跳过重复抓取）"""
+        today = today_shanghai()
+        db = SessionLocal()
+        try:
+            return (
+                db.query(MarketSingleValue)
+                .filter(MarketSingleValue.source == source)
+                .filter(MarketSingleValue.stale.is_(False))
+                .filter(func.date(MarketSingleValue.collected_at) == today)
+                .order_by(MarketSingleValue.collected_at.desc())
+                .first()
+            )
+        finally:
+            db.close()
+
+    @classmethod
+    def _single_from_record(cls, record, skipped: bool = False) -> Dict[str, Any]:
+        """将数据库记录转换为结构化单值结果（保留平台原生更新时间）"""
+        return {
+            'source': record.source,
+            'name': record.name,
+            'value': float(record.value) if record.value is not None else None,
+            'label': record.label,
+            'unit': record.unit,
+            'collected_at': record.collected_at,
+            'stale': False,
+            'raw': None,
+            'skipped': skipped,
+        }
+
+    @classmethod
+    def fetch_all_singles(cls, skip_existing_today: bool = True) -> Dict[str, Dict[str, Any]]:
+        """并发拉取所有单值指标的最新数据
+
+        Args:
+            skip_existing_today: 若当日已抓取且未失效，则复用库内数据，跳过网络抓取（节省资源）
+        """
+        result: Dict[str, Dict[str, Any]] = {}
+        today = today_shanghai()
+        db = SessionLocal()
+        try:
+            # 1) 预检：当日已有且未失效 → 复用库内数据，跳过网络抓取
+            to_fetch = {}
+            for source, config in cls.SINGLE_SOURCES.items():
+                if skip_existing_today:
+                    existing = (
+                        db.query(MarketSingleValue)
+                        .filter(MarketSingleValue.source == source)
+                        .filter(MarketSingleValue.stale.is_(False))
+                        .filter(func.date(MarketSingleValue.collected_at) == today)
+                        .order_by(MarketSingleValue.collected_at.desc())
+                        .first()
+                    )
+                    if existing:
+                        result[source] = cls._single_from_record(existing, skipped=True)
+                        continue
+                to_fetch[source] = config
+
+            # 2) 并发抓取其余源（各 fetcher 持有独立 Session，线程安全）
+            if to_fetch:
+                futures_map = {}
+                with ThreadPoolExecutor(max_workers=min(len(to_fetch), 8)) as ex:
+                    for source, config in to_fetch.items():
+                        futures_map[ex.submit(config['fetcher'].fetch)] = source
+                    for fut in as_completed(futures_map):
+                        source = futures_map[fut]
+                        config = to_fetch[source]
+                        try:
+                            data = fut.result()
+                        except Exception as e:  # noqa: BLE001
+                            logger.error(f'获取 {source} 失败: {e}')
+                            data = None
+
+                        if not data:
+                            result[source] = {
+                                'source': source,
+                                'name': config['name'],
+                                'value': None,
+                                'label': '数据暂缺',
+                                'unit': config.get('unit'),
+                                'collected_at': _naive(now_shanghai()),
+                                'stale': True,
+                                'raw': None,
+                                'skipped': False,
+                            }
+                        else:
+                            collected_at = _naive(data.get('updated_at')) or _naive(now_shanghai())
+                            result[source] = {
+                                'source': source,
+                                'name': config['name'],
+                                'value': data.get('value'),
+                                'label': data.get('label'),
+                                'unit': data.get('unit'),
+                                'collected_at': collected_at,
+                                'stale': False,
+                                'raw': data.get('raw'),
+                                'skipped': False,
+                            }
+        finally:
+            db.close()
         return result
 
     @classmethod
     def fetch_jisilu_indicator(cls) -> Optional[Dict[str, Any]]:
         """拉取集思录估值指标"""
-        data = fetch_jisilu_indicator()
+        data = COMPOSITE_FETCHERS['jisilu_indicator'].fetch()
         if not data:
             return None
         return {
@@ -112,87 +233,8 @@ class TemperatureService:
 
     @classmethod
     def compute_self_calc(cls) -> Optional[Dict[str, Any]]:
-        """
-        自算估值分位（沪深300 + 10Y国债 + CPI）
-        参考总纲 §5.5 / §6 B2-B
-        """
-        try:
-            # 1. 获取沪深300 PE
-            pe_df = ak.stock_index_pe_lg(symbol='沪深300')
-            if pe_df is None or pe_df.empty:
-                return None
-            pe_df = pe_df[['日期', '滚动市盈率']].rename(columns={'滚动市盈率': 'pe'})
-            pe_df['日期'] = pd.to_datetime(pe_df['日期'])
-            pe_df = pe_df.dropna()
-            if pe_df.empty:
-                return None
-
-            # 2. 获取 10Y 国债收益率
-            bond_df = ak.bond_zh_us_rate()
-            if bond_df is None or bond_df.empty:
-                return None
-            bond_df = bond_df[['日期', '中国国债收益率10年']].rename(columns={'中国国债收益率10年': 'y10'})
-            bond_df['日期'] = pd.to_datetime(bond_df['日期'])
-            bond_df = bond_df.dropna()
-
-            # 3. 获取 CPI 同比
-            cpi_df = ak.macro_china_cpi()
-            if cpi_df is None or cpi_df.empty:
-                return None
-            cpi_df = cpi_df[['月份', '全国-同比增长']].rename(columns={'全国-同比增长': 'cpi_yoy'})
-            cpi_df['月份'] = cpi_df['月份'].astype(str).str.replace('份', '', regex=False)
-            cpi_df['月份'] = pd.to_datetime(cpi_df['月份'], format='%Y年%m月')
-            cpi_df = cpi_df.dropna()
-            cpi_series = cpi_df.set_index('月份')['cpi_yoy']
-
-            # 4. 合并数据
-            df = pe_df.set_index('日期')
-            df['y10'] = bond_df.set_index('日期')['y10']
-            df = df.dropna()
-
-            # CPI 按月前向填充
-            cpi_map = {pd.Period(m, 'M'): v for m, v in cpi_series.items()}
-            df['cpi_yoy'] = df.index.to_series().dt.to_period('M').map(cpi_map)
-            df['cpi_yoy'] = df['cpi_yoy'].ffill()
-            df = df.dropna()
-
-            if df.empty:
-                return None
-
-            # 5. 计算股债利差
-            df['ey'] = 1.0 / df['pe']
-            df['spread'] = df['ey'] - df['y10'] / 100.0 + 0.3 * df['cpi_yoy'] / 100.0
-
-            # 6. 今日利差历史分位
-            cur = df.iloc[-1]
-            percent = (df['spread'] < cur['spread']).mean() * 100.0
-            percent = round(percent, 1)
-
-            # 7. 标签
-            if percent < 30:
-                level = '偏低'
-            elif percent <= 70:
-                level = '正常'
-            else:
-                level = '偏高'
-
-            return {
-                'source': 'self_calc',
-                'data': {
-                    'pe': round(cur['pe'], 2),
-                    'percent': percent,
-                    'level': level,
-                    'spread_pct': round(cur['spread'] * 100, 2),
-                    'y10': round(cur['y10'], 2),
-                    'cpi': round(cur['cpi_yoy'], 2),
-                    'collected_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                },
-                'collected_at': datetime.now(),
-                'stale': False,
-            }
-        except Exception as e:
-            logger.error(f'自算估值分位失败: {e}')
-            return None
+        """自算估值分位（沪深300 + 10Y国债 + CPI），实现见 :class:`SelfCalcFetcher`。"""
+        return COMPOSITE_FETCHERS['self_calc'].fetch()
 
     @classmethod
     def get_overview(cls) -> Dict[str, Any]:
@@ -211,10 +253,10 @@ class TemperatureService:
         try:
             # 1. 从数据库获取最新的单值指标
             singles = []
-            for source in cls.SINGLE_SOURCES.keys():
+            for source in cls.OVERVIEW_SINGLE_SOURCES:
                 record = (
                     db.query(MarketSingleValue)
-                    .filter(MarketSingleValue.source == source, MarketSingleValue.stale._is(False))
+                    .filter(MarketSingleValue.source == source, MarketSingleValue.stale.is_(False))
                     .order_by(MarketSingleValue.collected_at.desc())
                     .first()
                 )
@@ -226,7 +268,10 @@ class TemperatureService:
                             'value': float(record.value) if record.value is not None else None,
                             'label': record.label,
                             'unit': record.unit,
-                            'collected_at': record.collected_at.strftime('%Y-%m-%d %H:%M:%S'),
+                            # 单个数据源保留精确更新时间（精确到秒，尊重平台规范）
+                            'updated_at': record.collected_at.strftime('%Y-%m-%d %H:%M:%S')
+                            if record.collected_at
+                            else None,
                         }
                     )
 
@@ -243,13 +288,14 @@ class TemperatureService:
                 if record:
                     composites[source] = record.data
 
-            # 3. 获取最新更新时间
+            # 2.5 综合温度：两源合成（第三方参考加权 + 自算·股债利差）
+            composite_temperature = _compute_composite_temperature(singles, composites)
+            if composite_temperature:
+                composites['composite_temperature'] = composite_temperature
+
+            # 3. 获取最新更新时间（总数据只返回日期）
             latest = db.query(MarketSingleValue).order_by(MarketSingleValue.collected_at.desc()).first()
-            updated_at = (
-                latest.collected_at.strftime('%Y-%m-%d %H:%M:%S')
-                if latest
-                else datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            )
+            updated_at = latest.collected_at.strftime('%Y-%m-%d') if latest else today_shanghai().strftime('%Y-%m-%d')
 
             return {
                 'updated_at': updated_at,
@@ -262,13 +308,20 @@ class TemperatureService:
 
     @classmethod
     def save_singles(cls, data: Dict[str, Dict[str, Any]]) -> int:
-        """保存单值指标到数据库"""
+        """保存单值指标到数据库
+
+        当日已抓取且未失效的数据（item['skipped']=True）会被跳过写入，
+        直接复用既有记录，避免重复删除/插入。
+        """
         db = SessionLocal()
         try:
             count = 0
+            today = today_shanghai()
             for source, item in data.items():
+                # 当日已抓取 → 跳过写入（已在抓取阶段复用，无需重复操作）
+                if item.get('skipped'):
+                    continue
                 # 删除当天旧数据（避免重复）
-                today = datetime.now().date()
                 db.query(MarketSingleValue).filter(
                     MarketSingleValue.source == source,
                     MarketSingleValue.name == item['name'],
@@ -281,7 +334,7 @@ class TemperatureService:
                     value=item.get('value'),
                     label=item.get('label'),
                     unit=item.get('unit'),
-                    collected_at=item.get('collected_at', datetime.now()),
+                    collected_at=_naive(item.get('collected_at')) or _naive(now_shanghai()),
                     stale=item.get('stale', False),
                 )
                 db.add(record)

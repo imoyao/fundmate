@@ -6,7 +6,7 @@ permalink: /dev/guideline
 
 ## 约定
 ### 编码
-1. 项目应该尽可能遵循 PEP8 代码规范，更多请参阅[此页面](/dev/code-style)
+1. 项目应该尽可能遵循 PEP8 代码规范（详见 [PEP 8](https://peps.python.org/pep-0008/)）
 2. 引入 typing，需要对代码中的输入输出做类型提示；
 4. assert 不应该用于参数校验，原因参见
    [Python: Don’t use assert for Data Evaluation | by Bala Vignesh | Medium](https://medium.com/@crystelpheonix/python-dont-use-assert-for-data-evaluation-721bfa93c571)
@@ -60,3 +60,67 @@ File -> Settings -> Tools -> Python Integrated Tools -> Docstrings -> Docstring 
 - 提交代码备注
 
   可以使用中文也可以使用英文，甚至可以混用，但是应该尽量保证清晰明了，尤其是改动较大时。
+
+## 工具（flake8 / isort / yapf / mypy / pre-commit）
+
+> 除人工遵循 PEP8 外，引入以下工具在提交前自动检查与格式化。
+
+### flake8
+
+我们使用 flake8 进行 pep8 规范检查。
+
+```buildoutcfg
+[flake8]
+ignore = D401,D202,E226,E302,E41
+max-line-length = 120
+exclude = migrations/*,.git,__pycache__,old,build,dist
+max-complexity = 10
+```
+
+### isort
+
+使用 isort 自动整理 import 顺序。
+
+```buildoutcfg
+[isort]
+multi_line_output = 3
+include_trailing_comma = True
+force_grid_wrap = 0
+use_parentheses = True
+balanced_wrapping = True
+ensure_newline_before_comments = True
+line_length = 120
+known_flask = flask,flask_wtf,wtforms,flask_login,flask_bcrypt,flask_caching,flask_migrate,flask_sqlalchemy,flask_static_digest
+known_test = pytest,webtest,factory
+sections = FUTURE,STDLIB,FLASK,TEST,FIRSTPARTY,THIRDPARTY,LOCALFOLDER
+```
+
+### yapf
+
+一种自动修复 pep8 错误的工具。
+
+```buildoutcfg
+[yapf]
+based_on_style = pep8
+spaces_before_comment = 2
+split_before_logical_operator = true
+BLANK_LINE_BEFORE_NESTED_CLASS_OR_DEF = true
+COLUMN_LIMIT = 120
+```
+
+### mypy
+
+进行静态类型检查，参考 [Applying mypy to real world projects](http://calpaterson.com/mypy-hints.html)。
+
+### pre-commit
+
+```bash
+pip install pre-commit
+pre-commit install
+pre-commit run --all-files
+```
+
+相关阅读：
+
+- [我为什么不喜欢 black - 小明明 s à domicile](https://www.dongwm.com/post/why-i-dont-like-black/)
+- [How I use black, flake8 and isort to format Python2 code](https://thecesrom.dev/2021/03/06/how-i-use-black-flake8-and-isort-to-format-python2-code/)

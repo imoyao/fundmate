@@ -199,3 +199,6 @@ def handle_error(self, app):
 - [使用 Flask 设计 RESTful APIs — Designing a RESTful API with Python and Flask 1.0 documentation](http://www.pythondoc.com/flask-restful/index.html) TODO
 - [flask - 项目结构及开发规范 - 《Lin CMS 文档手册》 - 书栈网 · BookStack](https://www.bookstack.cn/read/Lin-CMS/2227eb2232b6e6d3.md#API%20%E8%A7%84%E8%8C%83)
 - [Flask 最佳实践 - 知乎](https://zhuanlan.zhihu.com/p/22774028)
+- [flask-api 项目（flask-restful 的替代方案之一）](https://github.com/bingjin/flask-api)
+
+> 注：`flask-restful` 目前已停止维护（见 [Flask-RESTful Issue #883](https://github.com/flask-restful/flask-restful/issues/883)）。作者推荐转向 [`MethodView`](https://flask.palletsprojects.com/en/stable/api/#flask.views.MethodView) + [webargs/Marshmallow](https://webargs.readthedocs.io/) + [Flask-CORS](https://flask-cors.readthedocs.io/)。本项目的红图 / 响应封装方案见上文。

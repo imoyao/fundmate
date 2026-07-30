@@ -142,3 +142,7 @@ DEFAULT_THS_ACCOUNT = '默认证券账户'
 DEFAULT_MARKET_CN = 'CN_A'
 DEFAULT_TYPE_CASH = 'cash'
 DEFAULT_TYPE_STOCK = 'stock'
+
+# ── 网络请求通用 ──
+USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+DEFAULT_REQUEST_TIMEOUT = 15

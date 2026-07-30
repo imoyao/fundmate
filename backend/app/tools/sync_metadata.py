@@ -126,6 +126,10 @@ def main():
 
                 result = orchestrator.run_job(args.job, full_sync=args.full_sync, targets=targets)
                 logger.info(f'任务 {args.job} 执行完成: {result}')
+                # 打印逐数据源成功/失败明细（若有）
+                detail = format_source_results(result)
+                if detail:
+                    print(detail)
         except KeyboardInterrupt:
             logger.warning('用户中断同步')
             sys.exit(130)
@@ -185,9 +189,9 @@ def format_summary(results: dict, elapsed: float) -> str:
             total_skipped += skip_count
 
             if total_count == 0 and new_count == 0:
-                lines.append(f'\n  ✅ {label}: 无新数据')
+                lines.append(f'\n  [成功] {label}: 无新数据')
             else:
-                lines.append(f'\n  ✅ {label}:')
+                lines.append(f'\n  [成功] {label}:')
                 if total_count:
                     lines.append(f'     - 检查了 {total_count} 个标的')
                 if new_count:
@@ -197,18 +201,23 @@ def format_summary(results: dict, elapsed: float) -> str:
                 if error_count:
                     lines.append(f'     - 有 {error_count} 个标的获取失败')
 
+                # 逐数据源明细（如市场温度任务）
+                src_detail = format_source_results(job_result)
+                if src_detail:
+                    lines.append(src_detail)
+
         elif status == 'failed':
             total_failed += 1
             error_msg = job_result.get('stats', {}).get('error', job_result.get('error', '未知错误'))
-            lines.append(f'\n  ❌ {label}: 失败 — {error_msg}')
+            lines.append(f'\n  [失败] {label}: 失败 — {error_msg}')
 
         elif status == 'manual_intervention':
             total_failed += 1
             error_msg = job_result.get('stats', {}).get('error', job_result.get('error', '未知'))
-            lines.append(f'\n  ⚠️ {label}: 需人工介入 — {error_msg}')
+            lines.append(f'\n  [人工] {label}: 需人工介入 — {error_msg}')
 
         else:
-            lines.append(f'\n  ❓ {label}: 状态未知 ({status})')
+            lines.append(f'\n  [未知] {label}: 状态未知 ({status})')
 
     # 汇总
     lines.append('\n' + '-' * 60)
@@ -217,6 +226,44 @@ def format_summary(results: dict, elapsed: float) -> str:
         lines.append(f'  数据变更: 新增 {total_new} 条, 跳过 {total_skipped} 条')
     lines.append('=' * 60)
 
+    return '\n'.join(lines)
+
+
+def format_source_results(result: dict) -> str:
+    """
+    将单个任务返回的逐数据源明细（stats.source_results）格式化为可读文本。
+
+    仅当结果中包含 source_results 时返回非空字符串，否则返回 ''。
+    """
+    stats = result.get('stats', {})
+    source_results = stats.get('source_results')
+    if not source_results:
+        return ''
+
+    icon = {'success': '[成功]', 'failed': '[失败]', 'skipped': '[复用]'}
+    lines = []
+    lines.append('  ' + '-' * 46)
+    lines.append('  数据源更新明细:')
+    for r in source_results:
+        mark = icon.get(r.get('status'), '[未知]')
+        name = r.get('name') or r.get('source')
+        source = r.get('source')
+        if r.get('status') == 'failed':
+            lines.append(f'    {mark} {name} ({source}): 失败 - {r.get("error")}')
+        elif r.get('status') == 'skipped':
+            val = r.get('value')
+            val_str = f' = {val}' if val is not None else ''
+            lines.append(f'    {mark} {name} ({source}): 复用今日数据{val_str}')
+        else:
+            val = r.get('value')
+            val_str = f' = {val}' if val is not None else ''
+            lines.append(f'    {mark} {name} ({source}): 成功{val_str}')
+
+    s = sum(1 for r in source_results if r['status'] == 'success')
+    k = sum(1 for r in source_results if r['status'] == 'skipped')
+    f = sum(1 for r in source_results if r['status'] == 'failed')
+    lines.append('  ' + '-' * 46)
+    lines.append(f'  成功 {s} / 复用 {k} / 失败 {f}')
     return '\n'.join(lines)
 
 
