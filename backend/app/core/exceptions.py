@@ -40,6 +40,8 @@ class ErrorCode(Enum):
     RESOURCE_NOT_FOUND = (1002, '资源不存在', 404)
     DUPLICATE_ENTRY = (1003, '数据已存在', 409)
     OPERATION_FAILED = (1004, '操作失败', 400)
+    UNAUTHORIZED = (1005, '未授权，请先登录', 401)
+    FORBIDDEN = (1006, '没有权限执行此操作', 403)
 
     # 业务错误 2xxx（持仓/交易相关）
     INSUFFICIENT_QUANTITY = (2001, '持仓数量不足', 400)

@@ -16,6 +16,7 @@ from apiflask import APIFlask  # noqa: E402
 from flask import jsonify  # noqa: E402
 from flask_cors import CORS  # noqa: E402
 from loguru import logger  # noqa: E402
+from werkzeug.exceptions import HTTPException  # noqa: E402
 
 from app.core.database import init_db  # noqa: E402
 from app.core.exceptions import ErrorCode, SBException  # noqa: E402
@@ -81,27 +82,51 @@ def create_app() -> APIFlask:
     with app.app_context():
         init_db()
 
+    # 注册全局异常处理器（统一 {data, message, error_code} 信封）。
+    # 必须在 create_app() 内部注册，否则测试 fixture 直接调用 create_app()
+    # 得到的 app 不会挂载处理器，导致错误契约在测试环境失效。
+    register_error_handlers(app)
+
     return app
 
 
+# HTTP 状态码 → 业务错误码 映射，用于把 abort() 抛出的 HTTPException
+# 统一收敛到 SPEC 的 {data, message, error_code} 信封，避免框架默认响应绕过契约。
+_HTTP_STATUS_TO_ERROR_CODE = {
+    400: ErrorCode.INVALID_PARAMS,
+    401: ErrorCode.UNAUTHORIZED,
+    403: ErrorCode.FORBIDDEN,
+    404: ErrorCode.RESOURCE_NOT_FOUND,
+    409: ErrorCode.DUPLICATE_ENTRY,
+    422: ErrorCode.INVALID_PARAMS,
+    500: ErrorCode.INTERNAL_ERROR,
+    503: ErrorCode.DATA_SOURCE_ERROR,
+    504: ErrorCode.DATA_SOURCE_TIMEOUT,
+}
+
+
 def register_error_handlers(app: APIFlask):
-    """注册全局异常处理器。"""
+    """注册全局异常处理器。
+
+    所有异常统一返回 {data, message, error_code} 信封，满足 SPEC 错误契约。
+    abort() 抛出的 werkzeug HTTPException（400/404/409/500 等）也在此统一处理，
+    不再依赖框架默认的 HTML 页面或裸 JSON 响应。
+    APIFlask 的输入校验错误属于 HTTPError（非 HTTPException），由框架自带处理器
+    返回 422 JSON（同样带 message 字段），此处不重复处理。
+    """
 
     @app.errorhandler(SBException)
-    def handle_app_exception(e):
+    def handle_app_exception(e: SBException):
         """处理自定义业务异常。"""
         response = {
-            'data': e.detail,
+            'data': e.detail if e.detail else None,
             'message': e.message,
             'error_code': e.code,
         }
-        # 如果 detail 为空，不返回 data 字段或保持 data: null
-        if not e.detail:
-            response['data'] = None
         return jsonify(response), e.status_code
 
     @app.errorhandler(ValueError)
-    def handle_value_error(e):
+    def handle_value_error(e: ValueError):
         """处理参数校验错误（如 Service 层抛出的 ValueError）。"""
         response = {
             'data': None,
@@ -110,21 +135,21 @@ def register_error_handlers(app: APIFlask):
         }
         return jsonify(response), 400
 
-    @app.errorhandler(404)
-    def handle_not_found(e):
-        """处理 404 路由未找到。"""
+    @app.errorhandler(HTTPException)
+    def handle_http_exception(e: HTTPException):
+        """统一处理 abort() 抛出的 HTTP 异常，返回信封。"""
+        error_code = _HTTP_STATUS_TO_ERROR_CODE.get(e.code, ErrorCode.OPERATION_FAILED)
+        message = e.description if e.description else error_code.msg
         response = {
             'data': None,
-            'message': '请求的资源不存在',
-            'error_code': ErrorCode.RESOURCE_NOT_FOUND.code,
+            'message': message,
+            'error_code': error_code.code,
         }
-        return jsonify(response), 404
+        return jsonify(response), e.code
 
-    @app.errorhandler(500)
-    def handle_internal_error(e):
-        """处理未捕获的系统异常。"""
-        # 记录完整堆栈（使用 loguru）
-
+    @app.errorhandler(Exception)
+    def handle_unexpected(e: Exception):
+        """兜底：未预期的未知异常，避免泄露堆栈、统一 500 信封。"""
         logger.opt(exception=True).error('未捕获的系统异常')
         response = {
             'data': None,
@@ -135,4 +160,3 @@ def register_error_handlers(app: APIFlask):
 
 
 app = create_app()
-register_error_handlers(app)

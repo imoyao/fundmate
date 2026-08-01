@@ -13,6 +13,7 @@ from app.core.constants import ALLOCATION_LABELS, ASSET_CATEGORY_LABELS, CURRENT
 from app.core.database import get_db
 from app.core.money import Money
 from app.core.utils import paginate
+from app.core.validation import parse_body
 from app.domains.assets.models import Asset
 from app.domains.assets.schemas import AssetCreate, AssetOut, AssetUpdate
 from app.domains.ledgers.models import Ledger
@@ -57,8 +58,8 @@ def list_assets():
 
 
 @bp.post('/')
-@bp.input(AssetCreate)
-def create_asset(json_data):
+def create_asset():
+    json_data = parse_body(AssetCreate)
     data = json_data.model_dump()
     data['amount'] = Money.yuan_to_cents(data.get('amount', 0))
 
@@ -88,8 +89,8 @@ def create_asset(json_data):
 
 
 @bp.patch('/<int:id>/')
-@bp.input(AssetUpdate)
-def update_asset(id, json_data):
+def update_asset(id):
+    json_data = parse_body(AssetUpdate)
     with get_db() as db:
         asset = db.query(Asset).filter_by(id=id).first()
         if not asset:
