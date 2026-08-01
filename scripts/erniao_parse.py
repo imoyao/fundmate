@@ -15,7 +15,7 @@
 
 环境变量（从 backend/.env 读取，兼容已存在的命名）：
   ARK_API_KEY   必填，火山方舟 API Key
-  DOUBAN_MODEL  模型/端点 ID；缺失或无效时回退 DEFAULT_MODEL
+  ARK_MODEL  模型/端点 ID；缺失或无效时回退 DEFAULT_MODEL
   ARK_BASE_URL  默认 https://ark.cn-beijing.volces.com/api/v3
 
 依赖：openai>=1.x  （建议在 backend/.venv 下运行，已预装；
@@ -171,8 +171,8 @@ def main() -> int:
     api_key = os.getenv("ARK_API_KEY") or env.get("ARK_API_KEY")
     model = (
         args.model
-        or os.getenv("DOUBAN_MODEL")
-        or env.get("DOUBAN_MODEL")
+        or os.getenv("ARK_MODEL")
+        or env.get("ARK_MODEL")
         or DEFAULT_MODEL
     )
     base_url = os.getenv("ARK_BASE_URL") or env.get("ARK_BASE_URL") or ARK_BASE_URL

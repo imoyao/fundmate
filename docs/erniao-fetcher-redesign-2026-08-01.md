@@ -248,7 +248,7 @@ jobs:
 端到端跑通并推送到 `origin/main-v2`（提交 `03fa254`）：
 
 - **新增 `scripts/erniao_parse.py`**：二鸟说手抄报 → 结构化数据（火山引擎 Ark 解析）。
-  - 读 `backend/.env` 的 `ARK_API_KEY` / `DOUBAN_MODEL`（兼容现有命名），base_url 默认 `https://ark.cn-beijing.volces.com/api/v3`。
+  - 读 `backend/.env` 的 `ARK_API_KEY` / `ARK_MODEL`（兼容现有命名），base_url 默认 `https://ark.cn-beijing.volces.com/api/v3`。
   - 输入文章全文（`.erniao_article.txt`），输出 `erniao_sync.py` 期望的结构化 JSON（`issues[]`：issue_no/title/publish_date/source_url/coefficient/sentiment/portfolios/market_view/empirical_actions[]）。
   - `source_url` 由调用方 `--source-url` 注入，**不靠模型猜链接**。
   - 含 `validate()` 校验、JSON 围栏剥离、模型失败明确报错。
@@ -257,14 +257,18 @@ jobs:
 - **`.gitignore` 新增** `.erniao_*.json` / `.erniao_*.txt`，避免自动化临时文件入版本库。
 - **自动化改造**：任务 `automation-1785551801256` prompt 已升级为「WebFetch 取全文 → `erniao_parse.py`(Ark) → `erniao_sync.py` → 推送」，并保留 Ark 失败退化为 WebFetch 字段提取的兜底。
 
-### ⚠️ 待你修正（唯一 blocker）
-- `backend/.env` 里的 `DOUBAN_MODEL=apikey-20260801101722-99m7v` **不是有效模型/端点**（Ark 返回 404）。`ARK_API_KEY` 已验证有效、网络可达。
-- 解析脚本在 `DOUBAN_MODEL` 缺失/无效时**自动回退**到 `doubao-seed-2-1-pro-260628`（已实测可用），所以当前自动化能跑；但建议你把 `DOUBAN_MODEL` 改成下列任一有效值以用你的偏好模型：
-  - `doubao-seed-2-1-pro-260628`（最新最强，推荐用于抽取+后续周报研判）
-  - `doubao-seed-2-0-pro-260215`（强、稳）
-  - `doubao-seed-2-0-mini-260215` / `doubao-seed-1-6-flash-250715`（便宜快，纯字段抽取够用）
-- 列出本 key 可访问的全部模型可通过 `client.models.list()`（已验证可列出几十个豆包模型）。
+### ✅ 模型配置已确认可用
+- 你已将模型 key 改为 `ARK_MODEL`，当前值 `doubao-seed-2-1-pro-260628` 已实测可用（API 返回正常），满足 P1 结构化抽取。
+- 该模型是 Seed 2.1 Pro，对中文抽取、JSON 遵循和后续周报研判都足够；每周只跑 3 次，成本可忽略，**建议保持不动**。
+- 若后续想省钱/加速，可切换为 `doubao-seed-1-6-flash` 等轻量模型；纯字段抽取够用，但当前模型对 P2 研判更保险。
 
 ### 关于「正文入库 / 周报研判」
 - 用户明确：**正文不入库**，前端展示直接给雪球原文链接，不做内容备份 → 链路 A（写 `market_composites` 存全文）**取消**，仓库只保留链接归档 `index.json`。
-- 「AI 根据结构化数据 + 搜索，形成每周行情综述/研判」为**后续增强（P2+），本期延后**。评估：难度中等、可行——核心是给 Ark/搜索结果做 RAG 式 grounding + 固定专业输出模板 + 引用标注防幻觉；可在 P1 结构化数据稳定后单独做。
+- 「AI 根据结构化数据 + 搜索，形成每周行情综述/研判」已作为 **P2-17** 写入 `SPEC.md`，待 P1 数据稳定后实施。
+
+---
+
+## 11. P2 — 已写入 SPEC.md
+
+- 已在 `SPEC.md` §9.3 新增 **P2-17 二鸟说每周行情 AI 研判**。
+- 核心设计：消费 `docs/er-niao/index.json` 的多期结构化数据，结合 Ark 联网搜索/搜索 grounding，生成「本周市场风格、情绪、板块、操作建议」的专业综述；输出需带引用来源与置信标注，降低模型幻觉。
