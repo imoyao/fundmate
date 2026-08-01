@@ -5,11 +5,11 @@
     <header class="explore-header">
       <div class="header-inner">
         <div class="logo-area">
-          <span class="logo">ShowBuy</span>
+          <span class="logo">多倍贝</span>
           <span class="badge">探市 · 研究</span>
         </div>
         <div class="nav-actions">
-          <el-button link @click="showWhyModal">关于 ShowBuy</el-button>
+          <el-button link @click="showWhyModal">关于 多倍贝</el-button>
           <el-button type="primary" size="small" @click="scrollToAdd"
             >开始体验 ↓</el-button
           >
@@ -533,7 +533,7 @@
             >市场数据仅供参考，不构成投资建议。</span
           >
         </div>
-        <div class="footer-copyright">© 2026 ShowBuy · 让投资更从容</div>
+        <div class="footer-copyright">© 2026 多倍贝 · 让投资更从容</div>
       </div>
     </footer>
   </div>
@@ -1144,7 +1144,7 @@ const goToRegister = () => {
 };
 
 const showWhyModal = () => {
-  ElMessage.info("ShowBuy：全资产记账 + 投资分析工具");
+  ElMessage.info("多倍贝：全资产记账 + 投资分析工具");
 };
 
 // ================================================================

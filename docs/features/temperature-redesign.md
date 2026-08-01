@@ -5,7 +5,7 @@ permalink: /ai-recover
 
 > 版本：v1.0（定稿） · 日期：2026-07-29
 > 适用范围：`frontend/src/views/explore/index.vue` 温度区（`temperature-grid`）
-> 设计依据：ShowBuy 设计语言 v2.3.3（`frontend/design.md`）、`frontend/src/style/colors.css`
+> 设计依据：多倍贝 设计语言 v2.3.3（`frontend/design.md`）、`frontend/src/style/colors.css`
 > 关联实现任务：清理死样式 + 修颜色 bug、模板重做、后端去 PE、综合温度合成接口
 
 ---

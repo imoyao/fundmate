@@ -1,10 +1,8 @@
-# ShowBuy
+# 多倍贝
 
 > 个人投资记账与家庭资产管理平台 · 代码仓库：`fundmate`
 
 基于 **Flask（APIFlask）** 与 **Vue 3（pure-admin）** 的前后端分离 Web 应用，用于记录基金 / 股票等投资交易、追踪资产与收益，并内置「市场温度计」等分析工具。
-
-> ⚠️ 命名说明：本仓库历史文档曾使用「叽咕」等名称，当前 `SPEC.md` 与代码（`backend/app/main.py`）统一为 **ShowBuy**。若品牌名已有最终定论，请同步修改本文件与代码中的 `title`。
 
 ## 技术栈
 
@@ -18,7 +16,7 @@
 
 ```
 fundmate/
-├─ backend/      # 后端服务；V2 代码在 backend/app/（backend/fundmate/ 为已退役 V1，勿用）
+├─ backend/      # 后端服务；V2 代码在 backend/app/（V1 已退役，备份于 .backup-v1-2026-08-01/）
 ├─ frontend/     # 前端应用（Vue 3 + Vite）
 ├─ docs/         # 文档与开发笔记
 ├─ scripts/      # 工程脚本（含 V1 引用守卫、本地启动脚本）
@@ -32,14 +30,23 @@ fundmate/
 
 ### 一键启动（推荐）
 
-```bash
-./scripts/dev.sh
+项目提供跨平台启动脚本，按你的环境选一个即可——都会同时拉起后端（`:8000`）与前端（`:8848`），按 `Ctrl + C` 一并退出。
+
+**Windows（原生，推荐）**
+
+在文件管理器双击 `dev.cmd`，或在 CMD / PowerShell 中运行：
+
+```cmd
+dev.cmd
+dev.cmd -Install      # 首次或依赖变更时重装依赖
 ```
 
-脚本会同时拉起后端（`:8000`）与前端（`:8848`），按 `Ctrl + C` 一并退出。
-首次运行或依赖变更时加 `--install` 重新安装：
+> 若 PowerShell 报「禁止运行脚本」，直接用 `dev.cmd` 即可（它已用 `-ExecutionPolicy Bypass` 绕过执行策略）；或先执行 `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`。
+
+**Git Bash / WSL / Linux / macOS**
 
 ```bash
+./scripts/dev.sh
 ./scripts/dev.sh --install
 ```
 

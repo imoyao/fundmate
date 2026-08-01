@@ -352,4 +352,8 @@ db/
 frontend/.env.development
 frontend/.env.production
 frontend/.env.staging
+
+# 本地回滚与工具内部（不入库）
+.backup-v1*/
+.workbuddy/
 .idea/

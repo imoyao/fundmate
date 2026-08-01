@@ -4,7 +4,7 @@
 # File : sync_metadata.py
 # !/usr/bin/env python
 """
-ShowBuy 元数据同步脚本
+多倍贝 元数据同步脚本
 
 用法:
     # 日常增量更新（推荐每天运行）
@@ -151,7 +151,7 @@ def format_summary(results: dict, elapsed: float) -> str:
     """
     lines = list()
     lines.append('=' * 60)
-    lines.append('  ShowBuy 元数据同步报告')
+    lines.append('  多倍贝 元数据同步报告')
     lines.append(f'  耗时: {elapsed:.1f}s')
     lines.append('=' * 60)
 

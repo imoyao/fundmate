@@ -41,7 +41,7 @@ def create_app() -> APIFlask:
     """创建并配置 APIFlask 应用."""
     app = APIFlask(
         __name__,
-        title='ShowBuy',
+        title='多倍贝',
         version='0.1.0',
         docs_ui='swagger-ui',  # 启用 Swagger UI 文档
     )
