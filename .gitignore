@@ -353,3 +353,10 @@ frontend/.env.development
 frontend/.env.production
 frontend/.env.staging
 .idea/
+
+# 二鸟说手抄报自动化临时文件（由 WorkBuddy 自动化生成，勿入版本库）
+.erniao_article.txt
+.erniao_input.json
+.erniao_parsed_test.json
+.erniao_*.json
+.erniao_*.txt
