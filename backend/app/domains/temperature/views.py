@@ -10,7 +10,6 @@
 from apiflask import APIBlueprint
 from flask import jsonify, request
 
-from app.services.thermometer.fetchers import ErNiaoFetcher
 from app.services.thermometer.service import TemperatureService
 
 thermometer_bp = APIBlueprint('temperature', __name__, url_prefix='/api/temperature')
@@ -45,30 +44,3 @@ def get_temperature_overview():
     """
     data = TemperatureService.get_overview()
     return jsonify({'data': data, 'message': 'success'})
-
-
-# 在 views.py 中新增端点
-
-
-@thermometer_bp.post('/parse-er-niao')
-def parse_er_niao():
-    """
-    用户手动提交二鸟说文章文本，用 LLM 解析
-
-    Request: {"text": "文章全文"}
-    Response: {"data": {...}, "message": "success"}
-    """
-    req = request.get_json()
-    text = req.get('text')
-    if not text:
-        return jsonify({'message': '请提供文章文本'}), 400
-
-    fetcher = ErNiaoFetcher()
-    result = fetcher.parse_with_llm(text)
-    if not result:
-        return jsonify({'message': '解析失败，请重试'}), 400
-
-    if not fetcher.validate(result):
-        return jsonify({'message': '解析结果校验失败'}), 400
-
-    return jsonify({'data': result, 'message': 'success'})

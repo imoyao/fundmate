@@ -272,3 +272,27 @@ jobs:
 
 - 已在 `SPEC.md` §9.3 新增 **P2-17 二鸟说每周行情 AI 研判**。
 - 核心设计：消费 `docs/er-niao/index.json` 的多期结构化数据，结合 Ark 联网搜索/搜索 grounding，生成「本周市场风格、情绪、板块、操作建议」的专业综述；输出需带引用来源与置信标注，降低模型幻觉。
+
+---
+
+## 12. 拆分为独立项目 WeChatRSS（2026-08-01 下午）
+
+**决策**：二鸟说数据抽取从 fundmate 拆出，迁入已有的 **WeChatRSS** 仓库（`D:\codes\WeChatRSS`）。
+理由与架构：
+
+- **WeChatRSS 是现成的"微信公众号 → RSS"摄取底座**（用 mp 登录态 Cookie 抓 `getmsg`，输出 `feeds/{号}.xml`，含真实 `mp.weixin.qq.com/s?__biz=...` 微信原文链接）。它正好补上 fundmate 后端网络拿不到的"微信原文链接"短板。
+- **可插拔设计**：`gen_rss.py` 通用摄取任意号；`src/analyzers/` 是按号注册的分析插件。`erniao.py` 是第一个插件：读 `feeds/二鸟说.xml` → 用 `MP_COOKIE` 取全文 → Ark 结构化 → 写 `data/er-niao/index.json`。新增别的号只需加一个 Analyzer 并在 `ANALYZERS` 注册，主流程不动。
+- **双轨运行**：
+  - 主链路 = WeChatRSS GitHub Action（`rss.yml` 在 `gen_rss` 后跑 `analyze.py`，需 `ARK_API_KEY` Secret）。
+  - 兜底/手动重放 = WorkBuddy 自动化（WebFetch 取全文 + Ark）→ 写 WeChatRSS 仓库。
+- **干净分离**：fundmate 侧删除 `ErNiaoFetcher`/`ER_NIAO_SOURCES`/`SENTIMENT_MAP`/`PORTFOLIO_ENUMS`、`jobs.py` 二鸟说分支、`views.py` 的 `/parse-er-niao` 端点、`scripts/erniao_*.py`、`docs/er-niao/`，并移除 `.gitignore` 的 `.erniao_*` 条目。fundmate 恢复纯记账，不含内容管道。
+
+**迁移产物（WeChatRSS 侧）**：
+- `src/analyzers/base.py`（基类+共用工具）、`src/analyzers/erniao.py`（二鸟说插件）、`src/analyzers/__init__.py`（注册表）、`src/analyze.py`（运行入口，支持 `--feed` / `--article` / `--from-json`）。
+- `requirements.txt` 增加 `openai`；`.env.example` 增加 `ARK_*`；`.github/workflows/rss.yml` 增加 analyze 步骤并 `git add data`；`.gitignore` 忽略临时输入。
+- `data/er-niao/index.json`：迁入 186 期（source_url 暂用雪球镜像，待配置 `__biz` 后由插件覆盖为 mp 原文链接）。
+
+**后续待办（用户）**：
+- 在 `accounts.txt` 的 `二鸟说` 行补上 `__biz`（从任意二鸟说文章 URL 的 `__biz=` 取得），CI 插件方能真正抓到全文并覆盖 source_url。
+- 给 WeChatRSS 仓库 Secrets 加 `ARK_API_KEY`（CI 分析用）；本地 `.env` 也放一份供兜底/手动使用。
+- 改名：用户拟在迁移稳定后给 WeChatRSS 起更好的名字（本方案暂沿用）。

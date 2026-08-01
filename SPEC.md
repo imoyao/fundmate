@@ -1,8 +1,8 @@
 # ShowBuy 项目需求规格说明书
 
-**版本**: v4.5.2
-**最后更新**: 2026-07-15
-**状态**: “全面盘点”页面深度重构与性能优化完成；新增全局数据同步组合式函数 `usePageRefresh`；全新提取 `ProductDisplay` 复合列组件；后端新增 `/api/assets/summary/` 轻量汇总接口；投资理财与通用资产数据流向实现按需加载与缓存。
+**版本**: v4.5.8
+**最后更新**: 2026-08-01
+**状态**: 2026-08-01 完成 **V1（`backend/fundmate/`）受控退役与物理清除**：删除 `fundmate/`、`migrations/`、`autoapp.py` 及全部 V1 移植测试（29 文件），`libs/cal` 经审计确认 V2 已有等价 `xirr_engine` 故直删不移植；V2（`backend/app/`）为唯一代码库，测试套件单轨化（459→460 用例全绿，唯一失败为 eastmoney 实时联网测试、属网络环境依赖）；同步修正 §1.2 数据主权为**数据分级**策略、§2.1 厘清“自动抓取”边界、§2.5 测试单轨化、#10 市值除数笔误（当前 `Money` 以 ÷`SHARE_FACTOR(10000)` 计算且被测试锁定，禁止改成 ÷1e6）。
 
 **核心原则**: 本项目为**个人使用、本地优先、完全合规**的投资记账工具。
 
@@ -14,6 +14,11 @@
 
 | 版本         | 日期 | 变更说明 |
 |------------|------|---------|
+| **v4.5.8** | **2026-08-01** | **错误信封契约闭环（高优先级技术债清除）**：<br>• **根因（已实证）**：`register_error_handlers` 仅挂在模块级 `app`（`main.py` 末行），而测试 fixture 直接 `create_app()` 得到的是另一个实例 → 错误处理器在测试环境根本未挂载；且 `app/` 内约 71 处 `abort()` 仅 404/500 被覆盖，400/409 等走框架默认响应、缺 `error_code`/`data` 字段，违反 SPEC 信封契约。<br>• **修复（最小侵入、反向压测通过）**：将 `register_error_handlers(app)` 移入 `create_app()`；新增通用 `HTTPException` 处理器把 `abort()` 全部状态码统一收敛到 `{data, message, error_code}` 信封；`ErrorCode` 增补 `UNAUTHORIZED(1005)`/`FORBIDDEN(1006)`。`PROPAGATE_EXCEPTIONS` 维持 `True`（保持不变，避免改动测试既有行为）。校验错误（APIFlask `HTTPError`，非 `HTTPException`）仍由框架返回 422 JSON（自带 `message`，前端兼容）。<br>• **验证**：新增 `tests/test_error_envelope.py` 证实 `create_app()` 实例已挂载处理器且 400/404/409/500/SBException 均返回信封；全量 `pytest` 466 passed / 1 failed（唯一失败为 eastmoney 实时联网依赖，非回归）。 |
+| **v4.5.6** | **2026-08-01** | **`libs/cal` 与测试目录大瘦身决策**：<br>• `fundmate/libs/cal` 经审计确认 V2 已有等价 `app/services/performance/xirr_engine.py` 且 `app/` 零引用，决策**直接删除、不移植**（原 v4.5.5 债务行的“迁入 V2”改为“删除”）；<br>• 测试目录双轨制确认：29 个文件指向 V1（`backend.fundmate`）为移植残留，应分期移除；V2 激活套件（36 文件）为权威；<br>• 删除 V1 测试前须先迁移 XIRR 金值并跑绿 V2，随后补 `tests/test_exceptions.py` 覆盖 V2 `SBException`。 |
+| **v4.5.5** | **2026-08-01** | **V1 `data/` 数据源审计与 §2.1 边界细化**：<br>• 完成 Phase 1 数据源审计：对 V1 `data/` 全部 20 个源在 `backend/app` 做引用扫描，**引用数均为 0**，整体冗余；V2 已通过 `services/sync`(akshare/xalpha) 与 `services/thermometer/fetchers.py`（eastmoney/jisilu/qieman/youzhiyouxing/jiucaishuo/self_calc/er_niao）独立覆盖全部所需公开数据与市场温度；蛋卷/且慢/好买/聚宽等券商平台**持仓自动导入类源违反 §2.1**，随 V1 删除、**不移植**；<br>• §2.1 细化“自动抓取”边界：允许“用户触发/展示用的公开市场数据抓取”（基金公开净值经 akshare/xalpha、市场情绪指数经探市 fetcher），严禁“用户券商/平台持仓的自动登录/爬取/同步”；<br>• 保留 v4.5.4 的 V1 退役决策与 v4.5.3 的数据分级/市值笔误更正。 |
+| **v4.5.4** | **2026-08-01** | **V1 退役决策与架构澄清**：<br>• 更正 v4.5.3 对“双代码库”的误判——经核实 `autoapp.py` 指向 V1 为**陈旧残留入口**，README 实际以 `flask --app app.main:app` 运行 **V2**；前端 API 契约、测试 conftest、DB 模型均指向 V2，V1 是已被取代的遗留代码；<br>• 决策：**V2（`backend/app/`）为唯一代码库，V1 按受控退役流程清除**，详见 `docs/v1-decommission-analysis-2026-08-01.md`。 |
+| **v4.5.3** | **2026-08-01** | **代码现状审查与规范对齐（初版 SPEC 纠偏）**：<br>• 修订“绝对不上云”为**数据分级**策略（核心账本本地、自选/社交类非敏感数据可云端同步且须用户授权，见 §1.2/§2.1）；<br>• 更正 #10/§12 市值除数笔误（当前 `Money.multiply_price_quantity` 以 `price_cents × quantity_units / SHARE_FACTOR(10000)` 计算且被测试锁定，禁止改成 ÷1e6）；<br>• 披露双代码库现状与 V1 `errors.py:201` NameError 真实缺陷至技术债务。 |
 | **v4.5.2** | **2026-07-15** | **自选模块深度优化与 bug 修复**：<br>• 修复基金代码被错误标准化（添加 SZ 前缀）的严重 bug，调整 `normalize_and_infer_venue` 逻辑，强制要求前端提供 `asset_type`/`venue`；<br>• 后端全面重构：将自选业务逻辑从 `views.py` 抽取至 `app/services/watchlist_service.py`（`create_watchlist_item`、`get_filtered_items_query`、`build_home_summary`），视图层极薄化；<br>• 前端 `WatchlistPage.vue` 多项 UI 优化：基金行增加 `[基]` 标识标签、涨跌幅增加 `▲`/`▼` 箭头及绝对值大于 2% 时加粗、操作按钮 Hover 显隐；<br>• 新增 `AddToWatchlistModal` 前端组件，封装 `createWatchlistItem` API 调用，并正确传递 `venue`/`asset_type`；<br>• 补充测试用例覆盖基金标准化异常、ETF 标准化、缺少参数返回 400 等场景；<br>• 修复重复添加资产返回 400 而非 409 的 bug（区分 ValueError 消息）。 |
 | **v4.5.1** | **2026-07-14** | **严重技术债务清理**：<br>• 确认 `get_ledger_summary` 分支逻辑已修复；<br>• 确认前端 API 路径解析问题已消除（Axios 拦截器 + 响应结构统一）；<br>• 确认 `GET /api/ledgers/` 已返回账户摘要数据。 |
 | v4.5.0     | 2026-07-08 | 赎回费率估算接口全面升级：• /api/funds/redeem-fee/estimate/ 支持全仓（不传 shares）返回持有分布，传入份额时返回卖出分布和费用；• 新增 POST /api/funds/{fund_code}/fee-sync/ 单基金费率同步端点；• 前端 SellForm 增加费率缺失时的即时同步引导，账户切换时清空持仓选择逻辑重构；• 提取 FundService 统一基金数据与费率服务，移除 fund_data_service.py、fund_fee_service.py 冗余文件。 |
@@ -50,7 +55,7 @@
 
 ## 1.2 核心价值主张
 
-- **绝对数据主权**：全量数据本地 SQLite 存储，不上云、不采集、不泄露，用户100%掌控自有数据，无第三方数据风险
+- **数据分级主权（v4.5.3 修订“绝对不上云”为数据分级）**：全量**核心账本数据**（持仓/交易/资产/账户/余额）本地 SQLite 存储，永不上云、不采集、不泄露，用户 100% 掌控；**仅自选/社交类非敏感数据**（当前 Supabase 仅同步 `watchlist_items`/`watchlist_groups` 等）允许云端同步，且须用户显式授权、可一键关闭。任何核心记账数据触云均属违规。
 - **绝对合规性**：仅支持手动逐条录入、标准 CSV/JSON 文件导入，全程无自动登录券商、无爬虫抓包、无接口窃取数据等违规行为，完全合规
 - **记账+分析闭环**：不止流水记录，支持基金持仓穿透、组合年化计算、收益复盘、风险集中度分析、配置目标优化，形成投资闭环
 - **全资产统一管理**：统一覆盖股票、基金、ETF 交易资产，同时兼容现金、固收、房产、保险、应收、负债等广义资产，真正做到「一张表看全身家」
@@ -69,7 +74,7 @@
 ## 2.1 数据合规与安全规范
 
 - 合法录入渠道仅两种：用户手动 Web 表单录入、用户自行上传标准结构化文件导入
-- 系统全程无任何自动爬取、自动登录、自动抓包、自动同步券商数据逻辑，永久禁用
+- **自动抓取边界（v4.5.5 细化）**：允许“用户触发/展示用的公开市场数据抓取”——基金公开净值经 akshare/xalpha、市场情绪指数（探市温度计）经 `services/thermometer/fetchers.py` 抓取，属合规展示数据；**严禁“用户券商/平台持仓的自动登录、爬取、抓包、同步”**（蛋卷/且慢/好买/聚宽等组合自动导入类逻辑永久禁用，此类源已随 V1 删除、不移植）。系统不得静默自动同步任何用户持仓。
 
 ## 2.2 核心业务分层规范（核心架构边界）
 
@@ -92,6 +97,7 @@
 
 - 新增接口、重构接口必须覆盖：正常增删改查、边界值、空数据、异常报错、权限/状态分支
 - 业务逻辑变更必须同步更新测试用例，提交前 pytest 全量通过方可合并
+- **单一代码库测试（v4.5.6 定调）**：V1（`backend/fundmate/`）已于 2026-08-01 退役清除，测试目录单轨化——`backend/tests/` 仅保留指向 V2 `app` 的激活套件（由 `tests/conftest.py` 驱动）。提交前 `pytest` 全量须通过；**禁止新增任何 `backend.fundmate` 引用**（CI 守卫见 `scripts/forbid_v1_refs.sh`）。金融核心须持续有测试锁死：`tests/core/test_money.py`、`tests/domains/test_{positions,portfolios,ledgers,summary,watchlist}.py`、`tests/services/performance/test_xirr_engine.py`、`tests/test_exceptions.py`。
 
 ## 2.6 RESTful 与 URL 统一规范
 
@@ -694,7 +700,7 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 | P2-14 | 按平台分组统计盈亏 | 按 source 字段分组展示各平台（支付宝/同花顺/天天基金）的盈亏汇总，支持与平台账单对账 | 全能中枢 |
 | P2-15 | 交易记录全量导出备份 | 交易记录页面增加“导出 CSV”按钮，复用 StandardTransactionRecord 逻辑 | 数据备份 |
 | P2-16 | 隐私保护（隐藏金额） | 一键隐藏所有金额，适合公共场合使用 | 隐私保护 |
-| **P2-17** | **二鸟说每周行情 AI 研判** | 基于 `docs/er-niao/index.json` 结构化数据 + 联网搜索（Ark/搜索引擎），生成每周投资市场风格、情绪、板块与操作建议的专业综述；输出需带引用来源与置信标注，降低幻觉；可自动化推送或前端展示 | — |
+| **P2-17** | **二鸟说每周行情 AI 研判** | 数据已迁至独立项目 **WeChatRSS**（`data/er-niao/index.json`，由可插拔分析器 `src/analyzers/erniao.py` 产出）。基于该结构化数据 + 联网搜索（Ark/搜索引擎），生成每周投资市场风格、情绪、板块与操作建议的专业综述；输出需带引用来源与置信标注，降低幻觉；可自动化推送或前端展示 | — |
 
 ### 9.4 当前进度总览
 
@@ -722,7 +728,7 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 | ~~自选列表筛选条件不生效~~ | ~~🟡 中~~ **✅ 已修复 (v4.6.0)** | ~~前端 `setVenueFilter` 调用了不存在的方法~~ | ~~修正为统一调用 `fetchData`~~ |
 | ~~添加自选弹窗直接裸写 http 请求~~ | ~~🟡 中~~ **✅ 已修复 (v4.6.0)** | ~~未封装 API~~ | ~~新增 `createWatchlistItem` API 封装，并在 `AddToWatchlistModal` 中使用~~ |
 | 自选模块视图层业务逻辑过重 | ~~🟡 中~~ **✅ 已修复 (v4.6.0)** | ~~`list_items`、`create_item` 等直接在 views 中处理 ORM 查询~~ | ~~抽取至 `app/services/watchlist_service.py`~~ |
-| （保留原 4 个后端 BUG） | 🔴 致命 | `Position.current_price`(分) × `Position.quantity`(最小单位) 正确市值(分) = 乘积 / 1,000,000，代码中 `/10000` 导致放大 100 倍；同时 Python 聚合和 SQL 聚合返回的数据单位不一致（分 vs 元），前端展示混乱 | 统一改为 Python 聚合调用 `Money.multiply_price_quantity` + `Money.cents_to_yuan`，移除所有 SQL 市值聚合 |
+| ~~（保留原 4 个后端 BUG：市值放大）~~ | ~~🔴 致命~~ **✅ 已修复 + 文档纠偏 (v4.5.3/v4.5.7)** | ~~原描述“`/10000` 导致放大 100 倍、分母应为 1,000,000”系 SPEC 笔误~~ | **事实更正（重要）**：当前 `Money.multiply_price_quantity` 以 `price_cents × quantity_units / SHARE_FACTOR(10000)` 计算，**单位换算正确，不存在 100× 放大**；该实现已被 `tests/core/test_money.py` 锁死（`1050×1001234 → 105130`）。**禁止依据旧 SPEC 把代码改为 ÷1,000,000，否则会引入真实的 100× 错误**。SQL 市值聚合已移除，统一走 Python 聚合 + `Money.cents_to_yuan`。 |
 | **成交价格与净值自动填充及校验接口** | 中 | 目前买入/卖出仅依赖手动输入价格。为提升用户体验并防止误操作，需要后端提供股票/基金的当日价格区间（股票需要最高/最低价校验，基金需要按确认日净值自动回填）。 | **P2 阶段细化实现**。设计接口：股票（`GET /api/securities/{symbol}/price-range/?date=...`），基金（`GET /api/funds/{code}/nav/?date=...`）。前端在 `BuyForm` 和 `SellForm` 选中产品后调用，自动填入默认值，并限制用户输入的数值在价格区间内（用于股票）。 |
 | ~~（保留原 `get_ledger_summary` 问题）~~ | ~~🔴 严重~~ **✅ 已修复** | ~~bank/property 分支写在 `if ledger_type in ('stock','fund')` 的 elif 中，永远不执行~~ | ~~将 bank/property 提升为与 stock/fund 同级的独立分支~~ |
 | ~~（保留原前端 API 路径问题）~~ | ~~🔴 严重~~ **✅ 已修复** | ~~后端返回 `{data: [...], total, page}`，前端解析为 `res.data.data`~~ | ~~后端统一包裹为 `{data: {items, total, page, per_page}}`~~ |
@@ -757,6 +763,11 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 | 组合收益计算未支持跨日划转识别 | ~~低~~ **不适用** | 原逻辑：需交易级时间戳 + 人工标记 | **经审查确认：`deposit/withdraw` 不进入组合 XIRR 现金流，跨日划转不影响收益率。此技术债不适用，留待 P2 转账配对功能再评估。** |
 | **投资理财与通用资产按需加载依赖校验** | 低 | 全面盘点页面依赖后端 `/api/assets/summary/` 接口呈现顶部汇总金额。如果接口因网络问题失效，顶部卡片将失去数据 | 需在前端 `fetchData` 中对 summary 接口添加健壮的错误处理与降级展示。 |
 | **`usePageRefresh` 全局数据同步尚未覆盖所有页面** | 中 | 目前只有账户详情页 (`LedgerDetail.vue`) 和全面盘点 (`InventoryHome.vue`) 接入了该组合式函数 | 后续开发新页面（如自选、交易流水等）时，必须引入 `usePageRefresh` 以保持数据同步。 |
+| ~~双代码库：V1 为遗留残留、V2 为唯一代码库~~ | ~~🟠 高~~ **✅ 已闭环 (2026-08-01)** | `autoapp.py` 启动遗留 V1，README 实际运行 V2；前端/测试/DB 均指向 V2，且 V1 被 `.gitignore` 忽略 | **已执行物理清除**：删除 `fundmate/`、`migrations/`、`autoapp.py` 及 29 个 V1 移植测试；备份于 `.backup-v1-2026-08-01/`。V2 为唯一代码库。 |
+| ~~V1 `data/` 数据源冗余~~ | ~~🟠 高~~ **✅ 已闭环 (2026-08-01)** | V1 `data/` 20+ 源在 `backend/app` 引用数均为 0；V2 经 `services/sync`+`services/thermometer` 独立覆盖；券商持仓自动导入类源违反 §2.1 | **随 V1 一并删除、不移植**。 |
+| ~~`fundmate/libs/cal` 残留计算库~~ | ~~🟠 高~~ **✅ 已闭环 (2026-08-01)** | V2 已有等价 `app/services/performance/xirr_engine.py`，`app/` 零引用 | **直接删除不移植**；XIRR 数值金值迁入 `tests/services/performance/test_xirr_engine.py`。 |
+| ~~测试目录双轨（V1 移植残留 29 文件）~~ | ~~🟠 高~~ **✅ 已闭环 (2026-08-01)** | `tests/` 含指向 `backend.fundmate` 的移植测试，由不被自动加载的 `conftest_fm.py` 支撑 | **删除 29 个 V1 测试文件 + 辅助**；测试单轨化，`pytest` 全绿；新增 `scripts/forbid_v1_refs.sh` 守卫禁止回引。 |
+| ~~V2 `app/main.py` 错误契约未入 `create_app` 且 `abort()` 绕过 `{data,message}` 信封~~ | ~~高~~ **✅ 已修复 (2026-08-01, v4.5.8)** | `register_error_handlers` 仅在模块级 `app` 注册，未放进 `create_app()`；`app/` 内约 65 处 `abort()` 返回缺 `data` 字段 | **实测修正（反向压力测试通过）**：未将 65 处 `abort()` 逐一改为 `SBException`（改动面大、回归风险高），改为在 `create_app()` 内挂载全局异常处理器，并新增通用 `HTTPException` 处理器把 `abort()` 各状态码（400/404/409/500…）统一收敛到 `{data, message, error_code}` 信封；`ErrorCode` 增补 `UNAUTHORIZED(1005)`/`FORBIDDEN(1006)` 以覆盖 401/403 映射。新增 `tests/test_error_envelope.py` 直接验证 `create_app()` 实例（即测试 fixture 实际所用 app）已挂载处理器且各状态码均返回信封。全量 `pytest` 466 passed / 1 failed（唯一失败为 eastmoney 实时联网依赖）。 |
 
 # 11. 暗色模式规划（新增）
 
@@ -778,6 +789,9 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 | 决策日期       | 决策主题                                      | 完整决策细节 |
 |------------|-------------------------------------------|-------------|
 | **2026-08-01** | **二鸟说手抄报自动化 P1 完成与 P2 规划** | 确认火山引擎 `ARK_MODEL=doubao-seed-2-1-pro-260628` 可用，P1「链接归档 + Ark 结构化抽取」跑通并推送到 `main-v2`；仓库仅保留 `docs/er-niao/index.json`（约 1KB/期），正文不入库、前端直接跳雪球原文。将「AI 根据结构化数据 + 搜索生成每周行情综述/研判」作为 P2-17 写入 SPEC，待数据稳定后实施。 |
+| **2026-08-01** | **二鸟说拆分为独立项目 WeChatRSS（可插拔扩展）** | 决定把二鸟说数据抽取从 fundmate 拆出，迁入已有的 **WeChatRSS**（微信公众号→RSS 摄取底座，自带 mp 原文链接）。采用「双轨」：WeChatRSS 内置 `src/analyzers/erniao.py` 可插拔分析器（CI 主链路）+ WorkBuddy 自动化作为手动重放/兜底。fundmate 侧**删除**后端死代码（`ErNiaoFetcher`/`ER_NIAO_SOURCES`/`jobs.py` 二鸟说分支/`/parse-er-niao` 端点/`scripts/erniao_*.py`/`docs/er-niao/`，干净分离）。二鸟说结构化数据现位于 `WeChatRSS/data/er-niao/index.json`；P2-17 数据源相应更新。 |
+| **2026-08-01** | **V1（`backend/fundmate/`）退役清除（实测闭环）** | 经核实 `autoapp.py` 指向 V1 为**陈旧残留入口**（README 实际以 `flask --app app.main:app` 运行 V2）；前端 API 契约、测试 conftest、DB 模型均指向 V2；V1 整体被 `.gitignore` 忽略、不在版本控制。决策：**V2 为唯一代码库，V1 受控退役**。执行：删除 `fundmate/`、`migrations/`、`autoapp.py` 及 29 个 V1 移植测试；`libs/cal` 因 V2 已有等价 `xirr_engine` 直删不移植（XIRR 金值已迁入 V2 测试）；删前物理备份 `.backup-v1-2026-08-01/`（15.9MB，可回滚）。结果：V2 测试 459→460 全绿（唯一失败为 eastmoney 实时联网测试、属网络环境依赖）；新增 `tests/test_exceptions.py`、`scripts/forbid_v1_refs.sh` 守卫。详见 `docs/v1-decommission-analysis-2026-08-01.md`、`docs/libs-cal-and-tests-slimming-2026-08-01.md`。 |
+| **2026-08-01** | **错误信封契约闭环（高优先级技术债 v4.5.8）** | 实证定位根因：`register_error_handlers` 仅挂在 `main.py` 模块级 `app`，而测试 fixture 直接 `create_app()` 得到另一实例 → 处理器在测试环境未挂载；约 71 处 `abort()` 仅 404/500 被覆盖，其余状态码绕 SPEC `{data,message,error_code}` 信封。决策：**不逐一改写 `abort()` 为 `SBException`**（改动面大、回归风险高），改为在 `create_app()` 内挂载处理器 + 新增通用 `HTTPException` 处理器统一收敛 `abort()` 各状态码到信封；`ErrorCode` 增补 `UNAUTHORIZED(1005)`/`FORBIDDEN(1006)`。`PROPAGATE_EXCEPTIONS` 维持 `True` 不变（避免改动测试既有行为）；APIFlask 校验错误（`HTTPError`，非 `HTTPException`）仍走框架 422 JSON（自带 `message`，前端已兼容）。验证：新增 `tests/test_error_envelope.py` 直接断言 `create_app()` 实例已挂载处理器且 400/404/409/500/SBException 均返回信封；全量 `pytest` 466 passed / 1 failed（唯一失败为 eastmoney 实时联网依赖，非回归）。 |
 | **2026-07-15** | **自选模块标准化逻辑修正与前端体验优化** | 决定强制要求前端传递 `venue` 或 `asset_type` 字段，后端不再自动猜测资产类型，避免基金代码被错误标准化。同时将自选业务逻辑彻底抽取至服务层，视图层仅保留参数校验。前端增加基金标识标签、涨跌箭头、操作按钮 Hover 显隐等 UI 优化。 |
 | 2026-07-14 | **v4.5.1 严重技术债务清理** | 确认三个严重 Bug 已修复：`get_ledger_summary` 分支逻辑、前端 API 路径解析、`GET /api/ledgers/` 摘要数据返回。修改相应的技术债务状态为“✅ 已修复”。 |
 | 2026-07-08 | 	**赎回费率估算与单基金费率同步策略**                     |	决定将赎回费率估算接口重构为一次请求返回全仓持有分布（holdings）和指定份额卖出分布（sell），前端不再并行请求两次。同时，当费率数据缺失时，不自动跳转，而是通过 POST /api/funds/{fund_code}/fee-sync/ 允许用户在当前页面一键同步费率，避免上下文丢失。后端服务层合并 fund_data_service.py 和 fund_fee_service.py 为 FundService，消除重复，遵循“薄视图、厚服务”原则。|
@@ -798,7 +812,7 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 | 2026-06-21 | 修复 Layout 中 `LayHeader` 渲染导致全局抽屉无法弹出      | `LayHeader` 原本在 `<script setup>` 中使用 `defineComponent` + `h()` 渲染，导致插槽上下文丢失，影响全局 `TransactionDrawer` 的挂载。修复方案：去除 `defineComponent` 定义，直接在模板中替换为原始 HTML 结构，保持功能完全一致。 |
 | 2026-06-21 | `ledger_id` 缺失写入入口排查与修复方案                 | 发现资产录入 (`AssetEntry.vue`) 和简记弹窗早期版本均未传递 `ledger_id` 导致数据游离。简记弹窗已修复：账户选择改为绑定 `ledger_id`，提交时传递该字段。资产录入同样需改为 `ledger_id` 绑定，方案已定待应用。 |
 | 2026-06-21 | 账户详情页概览卡片重构与图表规划                          | 将原有卡片改为网格布局，强制涨红跌绿；新增环形图展示资产配置分布；预留走势图位置（依赖 P1-20 快照数据）。图表颜色全部通过 CSS 变量获取，保证零硬编码。 |
-| 2026-06-18 | 放弃 SQL 聚合，统一使用 Python 聚合计算市值              | SQL 中 `price(分) × quantity(最小单位) / 10000` 与正确的 `Money.multiply_price_quantity` 内部逻辑不一致，且分母应为 1,000,000 而非 10,000，导致市值放大 100 倍。同时 Python 聚合和 SQL 聚合返回值单位（分 vs 元）在后续转换中产生混用。鉴于当前数据量下性能无差异，决定统一改用 Python 聚合，消除双路径维护成本和单位混淆风险。 |
+| 2026-06-18 | 放弃 SQL 聚合，统一使用 Python 聚合计算市值（**除数描述已纠偏 v4.5.3**） | SQL 市值聚合与 `Money.multiply_price_quantity` 单位/路径不一致，产生双路径维护成本与单位混淆风险，故统一改用 Python 聚合。⚠️ **历史备注“分母应为 1,000,000、÷10000 放大 100 倍”为笔误**：当前 `Money` 以 ÷`SHARE_FACTOR(10000)` 计算且被测试锁定，正确无放大；**切勿据此把代码改为 ÷1e6**。 |
 | 2026-06-17 | 账户类型体系最终确定                                | 砍掉 `family`/`general`/`cash`，最终保留四种类型：`bank`（银行账户）、`stock`（证券账户）、`fund`（场外基金平台）、`property`（实物资产）。核心规则：同账户内操作 = 资产形态转换，跨账户操作 = 转账。银行渠道买基金直接挂在银行卡账户下，不单独建 `fund` 账户。 |
 | 2026-06-17 | `cash` 账户类型重命名为 `bank`                    | 将原先的现金/活钱账户类型从 `cash` 改为 `bank`，语义更清晰，表示一张具体的银行卡，承载活期、理财、基金等全部行内资产。同时 `linked_cash_ledger_id` 的校验也改为检查 `ledger_type='bank'`。 |
 | 2026-06-18 | 引入 `ledger_id` 外键替代字符串关联                  | `positions`、`transactions`、`assets` 增加 `ledger_id` 字段，通过外键与 `ledgers` 关联。`account_name` 保留为快照字段。所有核心查询和写入均基于 `ledger_id`，提升性能和数据完整性。 |

@@ -19,7 +19,6 @@ from app.services.sync.jobs.base import SyncJob
 from app.services.thermometer.fetchers import (
     COMPOSITE_FETCHERS,
     SINGLE_FETCHERS,
-    ErNiaoFetcher,
     JiucaishuoFetcher,
 )
 from app.services.thermometer.service import TemperatureService
@@ -192,48 +191,6 @@ class TemperatureJob(SyncJob):
                     }
                 )
                 errors.append({'source': source, 'error': str(e)})
-
-        # ---- 4. 二鸟说手抄报（周频） ----
-        try:
-            today = datetime.now().date()
-            if today.weekday() in (0, 4):  # 周一或周五
-                er_niao = ErNiaoFetcher().fetch()
-                if er_niao and not er_niao.get('stale'):
-                    records.append(
-                        {
-                            'kind': 'composite',
-                            'source': 'er_niao',
-                            'data': er_niao.get('data'),
-                            'collected_at': collected_at,
-                            'stale': False,
-                        }
-                    )
-                    logger.info('二鸟说抓取成功')
-                else:
-                    records.append(
-                        {
-                            'kind': 'composite',
-                            'source': 'er_niao',
-                            'data': None,
-                            'collected_at': collected_at,
-                            'stale': True,
-                        }
-                    )
-                    errors.append({'source': 'er_niao', 'error': '抓取失败'})
-            else:
-                logger.debug('二鸟说跳过（非周一/周五）')
-        except Exception as e:
-            logger.error(f'二鸟说异常: {e}')
-            records.append(
-                {
-                    'kind': 'composite',
-                    'source': 'er_niao',
-                    'data': None,
-                    'collected_at': collected_at,
-                    'stale': True,
-                }
-            )
-            errors.append({'source': 'er_niao', 'error': str(e)})
 
         # ---- 5. 多维列表（预留，如乖离度、行业拥挤度等） ----
         # 此处可添加 bias、industry_crowding 等

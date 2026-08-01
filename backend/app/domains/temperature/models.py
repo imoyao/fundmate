@@ -59,7 +59,6 @@ class MarketComposite(Base, PrimaryKeyMixin, TimestampMixin):
     适用数据源：
       - jisilu_indicator: 集思录估值指标（中位PB/PE、温度等）
       - self_calc: 自算估值分位（沪深300 PE + 股债利差）
-      - er_niao: 二鸟说手抄报
     """
 
     __tablename__ = 'market_composites'
