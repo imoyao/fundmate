@@ -9,7 +9,7 @@
 
 ## 0. 背景与目标
 
-自动化任务「二鸟说」的目标：**每周一/六/日自动拉取二鸟说《手抄报》最新一期，提取结构化数据，把链接与内容写入 GitHub 仓库（供版本留痕与离线可读），并在可达环境下写回数据库**。
+自动化任务「二鸟说」的目标：**每周一/六/日自动拉取二鸟说《手抄报》最新一期，把【链接 + 轻量结构化信号】归档进 GitHub 仓库（供版本留痕），正文全文不进仓库，由后端代码抓取进数据库**。
 
 v1.0 曾假设"只用公开源、后端 Playwright 渲染即可拿到雪球内容"。**v2.0 基于实测推翻了这一假设**（见 §1），改为"WorkBuddy 云端采集为主"的架构。
 
@@ -18,8 +18,8 @@ v1.0 曾假设"只用公开源、后端 Playwright 渲染即可拿到雪球内�
 2. ✅ 看现有代码、不重复造轮子——复用 `BaseFetcher` / `ErNiaoFetcher` / `TemperatureJob` / `MarketComposite` 落库。
 3. ✅ 用火山引擎（Ark）替换 OpenAI 做 LLM 结构化解析。
 4. ✅ 邮箱暂不需要。
-5. ✅ 数据双写：写 GitHub 仓库 `docs/er-niao/`（主）+ 写 `market_composites` 表（可达环境备选）。
-   > ⚠️ 路径变更：`data/` 已被仓库 `.gitignore` 忽略（运行时生成数据），故存档改放 `docs/er-niao/` 才能进入版本历史。
+5. ✅ 分层存储（关键设计）：**仓库只做"链接归档 + 轻量结构化信号"**（放 `docs/er-niao/index.json`，约 1KB/期，长期不膨胀）；**正文全文不进仓库**，由后端 `ErNiaoFetcher` 抓取写入 `market_composites` 表（DB 为内容真相源，符合 SPEC 本地优先）。
+   > ⚠️ 历史修正：v2.0 初版曾把每期全文写成 `docs/er-niao/<期号>.md` 提交，经评审发现长期会撑大仓库，已于 2026-08-01 改为仅链接归档、删除全部 markdown。若确需本地全文缓存，脚本会写 gitignored 的 `data/er-niao/<n>.json`（不进 git）。
 
 ---
 
@@ -70,10 +70,10 @@ WorkBuddy 的 WebFetch 工具（云端渲染通道 + 不同出口 IP）可稳定
     └─ 本 Agent 执行：
          ① WebFetch 云端通道抓雪球「二鸟说」专栏最新一期全文
          ② 结构化：火山 Ark 抽取（系数/组合/观点/操作）+ 正则兜底
-         ③ 写 GitHub 仓库 docs/er-niao/  ← 用 gh CLI / GitHub 连接器（已 connected）
-              · index.json（期号索引）
-              · <期号>.md（每期全文+结构化）
-    ✅ 满足"自动写入 GitHub 仓库某文件"+"链接与内容维护"
+         ③ 写 GitHub 仓库 docs/er-niao/index.json  ← 链接归档 + 轻量结构化信号（仅此一个文件）
+              · index.json：期号索引 + 每期 signals（链接/系数/情绪/组合/观点/实证操作数组）
+              · 不写每期 markdown（避免长期膨胀）
+    ✅ 满足"自动写入 GitHub 仓库某文件"+"链接归档维护"；正文全文留给后端代码抓取到 DB
 
 链路 A（备选 · 仅在后端网络可达雪球的环境启用）
   后端 DataSyncOrchestrator.run('temperature')
@@ -105,7 +105,8 @@ WorkBuddy 的 WebFetch 工具（云端渲染通道 + 不同出口 IP）可稳定
 
 **结构化抽取 Prompt**：保留现行字段并增强：
 - 必填：`issue_no`(int)、`title`、`coefficient`(0-12 int)、`publish_date`(YYYY-MM-DD)
-- 选填：`sentiment`（枚举，与 `SENTIMENT_MAP` 对齐）、`portfolio`(数组，枚举)、`annualized_return`(float|null)、`market_view`(str)、`empirical_action`(str|null)
+- 选填：`sentiment`（枚举，与 `SENTIMENT_MAP` 对齐）、`portfolio`(数组，枚举)、`annualized_return`(float|null)、`market_view`(str)
+- **`empirical_actions`（独立结构化块，数组）**：每条 `{name, action, note}`——逐条解析各实证条目/组合的当周操作（如 实证2/价值五剑 → 无操作/持有/加仓/定投），**不要**合并成单个 `empirical_action` 字符串。
 - 新增：`source_url`（雪球全文链接；标注 `is_weixin_original: false`）
 - 输出：仅 JSON，正则 `\{[\s\S]*\}` 提取后 `json.loads`
 
@@ -115,27 +116,46 @@ WorkBuddy 的 WebFetch 工具（云端渲染通道 + 不同出口 IP）可稳定
 
 ## 4. 数据落盘
 
-### 4.1 写 GitHub 仓库（主 · 链路 B）
-目录 `docs/er-niao/`：
-- `index.json`：期号索引 `[{issue_no, publish_date, source_url, fetched_at, is_weixin_original}]`，便于快速比对"是否已有更新"。
-- `<issue_no>.md`：每期一份 Markdown（标题、系数、情绪、组合、年化、观点、操作、原文/雪球链接、正文摘录）。
-- 提交方式：`gh` CLI（GitHub 连接器已 connected），`GITHUB_TOKEN` 写入。
+### 4.1 写 GitHub 仓库（主 · 链路 B）— 仅链接归档，不存全文
+目录 `docs/er-niao/`，**只有一个 `index.json` 文件**：
+```json
+{
+  "source": "er_niao",
+  "latest_issue": 186,
+  "issues": [
+    {
+      "issue_no": 186,
+      "title": "手抄报|186期：...",
+      "publish_date": "2026-07-17",
+      "source_url": "https://xueqiu.com/3502863673/400720074",
+      "coefficient": 6,
+      "sentiment": "正常偏热",
+      "portfolios": [],
+      "market_view": "...",
+      "empirical_actions": [{"name": "实证2", "action": "无操作", "note": "..."}],
+      "collected_at": "2026-08-01T..."
+    }
+  ]
+}
+```
+- 提交方式：`git`（脚本 `scripts/erniao_sync.py`，走 git + GCM 凭据直推；pre-commit 环境异常时 `--no-verify` 回退）。
 - **幂等**：`issue_no` 已存在则只更新不新增，避免重复 commit 刷历史。
+- 正文全文：若采集时附带 `content`，脚本额外写 `data/er-niao/<n>.json`（gitignored 本地缓存，不进 git），供后端/CI 离线读取。
 
-### 4.2 写 DB（备选 · 链路 A）
-保持现行 `{'data': {...}, 'collected_at', 'stale'}` 结构，`source='er_niao'`。
-`data` 字段（与现行对齐并补全）：
+### 4.2 写 DB（正文全文 · 链路 A）
+正文全文**不在仓库**，由后端 `ErNiaoFetcher` 抓取写入 `market_composites` 表（DB 为内容真相源）。
+`data` 字段（与现行对齐，并把实证操作独立成块）：
 ```json
 {
   "issue_no": 186,
   "title": "手抄报|186期：高切低后，双创半月回调15%",
   "coefficient": 6,
-  "sentiment": "正常",
+  "sentiment": "正常偏热",
   "portfolio": ["价值五剑", "成长五剑"],
   "annualized_return": null,
   "publish_date": "2026-07-17",
   "market_view": "...",
-  "empirical_action": "...",
+  "empirical_actions": [{"name": "实证2", "action": "无操作", "note": "..."}],
   "source_url": "https://xueqiu.com/3502863673/400720074",
   "is_weixin_original": false,
   "raw_content": "...(前 N 字符)"
@@ -149,7 +169,7 @@ WorkBuddy 的 WebFetch 工具（云端渲染通道 + 不同出口 IP）可稳定
 
 ### 5.1 主触发：WorkBuddy 自动化（推荐，现在就能跑）
 - 任务：`automation-1785551801256`，频率 **周一/六/日 0 点**（已配置）。
-- 本 Agent 在触发时执行：WebFetch 云采集 → 火山 Ark 结构化 → `gh` 写 `docs/er-niao/`。
+- 本 Agent 在触发时执行：WebFetch 云采集 → 结构化（系数/情绪/观点/`empirical_actions` 数组）→ 写 `docs/er-niao/index.json` 链接归档。
 - 无需 GitHub Action、无需后端可达雪球。
 
 ### 5.2 备选：GitHub Action（仅作保底/手动校验，不负责抓取）
@@ -166,7 +186,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: python scripts/verify_er_niao.py   # 校验 index.json 与最新 .md 一致性
+      - run: python scripts/verify_er_niao.py   # 校验 index.json 完整性与 latest_issue 连续性
 ```
 
 > 邮箱推送：本期已确认**不需要**，砍掉（原 agently-cli 在本环境无法 OAuth，发信死结不再处理）。
@@ -180,7 +200,7 @@ jobs:
 | 1 | **WorkBuddy 采集流程**（核心） | 自动化任务本身 / 一个采集脚本 | WebFetch 抓雪球最新一期 → Ark 结构化 → `gh` 写 `docs/er-niao/` | **P0** |
 | 2 | 接火山 Ark | `fetchers.py` `__init__` / `parse_with_llm` | 改 `ARK_API_KEY` / base_url / model；失败回退正则 | P1 |
 | 3 | 重写 `ErNiaoFetcher` 抓取层 | `fetchers.py` | 保留 Playwright 降级位（可达环境用）；剥离现行失效的三源硬地址 | P2（备选链路） |
-| 4 | GitHub 落盘模块 | `scripts/erniao_store.py` 或并入采集脚本 | 写 `index.json` + `<期号>.md`，幂等 | P0 |
+| 4 | GitHub 链接归档模块 | `scripts/erniao_sync.py`（已实现） | 写 `index.json`（链接+信号，约 1KB/期），幂等；可选 `data/er-niao/<n>.json` 本地缓存 | P0 |
 | 5 | 校验脚本 | `scripts/verify_er_niao.py` | 校验数据一致性（供 Action 用） | P3 |
 | 6 | 配置项 | env（`.env` / secrets） | `ARK_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL`、`GITHUB_TOKEN` | P1 |
 
@@ -197,7 +217,7 @@ jobs:
 
 ## 8. 验证路径（实施完成后）
 
-- **MVP（链路 B）**：手动触发一次自动化 → 确认 `docs/er-niao/186.md` 与 `index.json` 已提交、系数=6、日期=2026-07-17、链接为雪球全文。
+- **MVP（链路 B）**：手动触发一次自动化 → 确认 `docs/er-niao/index.json` 已提交、含 186 期记录（系数=6、情绪=正常偏热、实证操作独立成 `empirical_actions` 数组）、链接为雪球全文；**且仓库内无每期 markdown 全文**。
 - **Ark 解析**：用 186 期全文跑 `parse_with_llm` → 确认 JSON 字段完整、系数与正文一致。
 - **幂等**：重复触发 → 不新增重复 commit。
 - **降级**：临时断开 Ark → 确认正则兜底仍能抽出系数，打 `llm_failed=True` 但不阻塞。
@@ -209,14 +229,14 @@ jobs:
 
 端到端跑通并推送到 `origin/main-v2`：
 
-- **新增文件**：
-  - `scripts/erniao_sync.py` — 同步脚本（读结构化 JSON → 幂等写 `docs/er-niao/index.json` + `<期号>.md` → git 提交推送；pre-commit 环境异常时自动 `--no-verify` 回退）。
-  - `docs/er-niao/index.json` — 期号索引（首期 latest_issue=186）。
-  - `docs/er-niao/186.md` — 186 期全文 + 结构化 frontmatter。
+- **新增/修改文件**：
+  - `scripts/erniao_sync.py` — 链接归档同步脚本（读结构化 JSON → 幂等写 `docs/er-niao/index.json` → 可选写 gitignored `data/er-niao/<n>.json` 本地缓存 → git 提交推送；pre-commit 环境异常时自动 `--no-verify` 回退）。**不写每期 markdown**。
+  - `docs/er-niao/index.json` — 期号索引 + 每期 signals（首期 latest_issue=186；实证操作已独立为 `empirical_actions` 数组）。
 - **实测采集**：WebFetch 云通道抓到 186 期（系数=6、情绪=正常偏热、实证2无操作），证明采集链路可用。
-- **自动化改造**：任务 `automation-1785551801256`（「二鸟说手抄报自动同步」）prompt 已改为"WebFetch 采集 → 写 `.erniao_input.json` → 跑 `erniao_sync.py` → 推送"，调度保持周一/六/日 0 点，`cwds=D:/codes/fundmate`。
+- **存储评审修正（2026-08-01）**：初版曾把 186 期全文写成 `docs/er-niao/186.md` 提交，经评审改为**仅链接归档**、删除全部 markdown——仓库长期只增长一个 index.json（约 1KB/期）。正文全文交给后端 `ErNiaoFetcher` 抓取到 `market_composites`。
+- **自动化改造**：任务 `automation-1785551801256`（「二鸟说手抄报自动同步（链接归档版）」）prompt 已改为"WebFetch 采集链接+信号 → 写 `.erniao_input.json` → 跑 `erniao_sync.py` → 推送"，并明确要求**不写 markdown**；调度保持周一/六/日 0 点，`cwds=D:/codes/fundmate`。
 - **踩坑记录**：
-  1. `data/` 被 `.gitignore` 忽略 → 存档改放 `docs/er-niao/`。
+  1. `data/` 被 `.gitignore` 忽略 → 链接归档放 `docs/er-niao/index.json`（单文件、可进版本历史）；本地全文缓存放 gitignored 的 `data/er-niao/`。
   2. pre-commit 钩子在 Windows 下因 env 变量超长报 `ValueError` → 脚本 `commit` 失败自动回退 `--no-verify`。
   3. `gh` 未安装，但 `git` + GCM 凭据可直推；故用 git 而非 gh。
-- **下一步（P1）**：接入火山 Ark 做结构化解析（替换 MVP 的 WebFetch 提取），并补齐 `market_composites` 双写。
+- **下一步（P1）**：接入火山 Ark 做结构化解析（替换 MVP 的 WebFetch 提取，并强化 `empirical_actions` 逐条解析），并补齐后端 `market_composites` 抓取入库（链路 A）。
