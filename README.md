@@ -18,9 +18,9 @@
 fundmate/
 ├─ backend/      # 后端服务；V2 代码在 backend/app/（V1 已退役，备份于 .backup-v1-2026-08-01/）
 ├─ frontend/     # 前端应用（Vue 3 + Vite）
-├─ docs/         # 文档与开发笔记
+├─ docs/
+│  └─ spec/      # 需求规格与开发规范（多文件体系，入口 docs/spec/index.md）
 ├─ scripts/      # 工程脚本（含 V1 引用守卫、本地启动脚本）
-├─ SPEC.md       # 需求规格说明书
 └─ README.md
 ```
 
@@ -80,7 +80,7 @@ pnpm dev
 
 ## 文档
 
-完整需求与开发规范见 `docs/` 与根目录 `SPEC.md`。
+完整需求与开发规范见 `docs/spec/index.md`（原根目录 `SPEC.md` 已拆分为多文件体系）。
 
 ## License
 
