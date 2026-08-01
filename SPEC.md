@@ -1,8 +1,8 @@
 # 多倍贝 项目需求规格说明书
 
-**版本**: v4.5.8
+**版本**: v4.5.9
 **最后更新**: 2026-08-01
-**状态**: 2026-08-01 完成 **V1（`backend/fundmate/`）受控退役与物理清除**：删除 `fundmate/`、`migrations/`、`autoapp.py` 及全部 V1 移植测试（29 文件），`libs/cal` 经审计确认 V2 已有等价 `xirr_engine` 故直删不移植；V2（`backend/app/`）为唯一代码库，测试套件单轨化（459→460 用例全绿，唯一失败为 eastmoney 实时联网测试、属网络环境依赖）；同步修正 §1.2 数据主权为**数据分级**策略、§2.1 厘清“自动抓取”边界、§2.5 测试单轨化、#10 市值除数笔误（当前 `Money` 以 ÷`SHARE_FACTOR(10000)` 计算且被测试锁定，禁止改成 ÷1e6）。
+**状态**: 2026-08-01 完成 **V1（`backend/fundmate/`）受控退役与物理清除**：删除 `fundmate/`、`migrations/`、`autoapp.py` 及全部 V1 移植测试（29 文件），`libs/cal` 经审计确认 V2 已有等价 `xirr_engine` 故直删不移植；V2（`backend/app/`）为唯一代码库，测试套件单轨化（459→460 用例全绿，唯一失败为 eastmoney 实时联网测试、属网络环境依赖）；同步修正 §1.2 数据主权为**数据分级**策略、§2.1 厘清“自动抓取”边界、§2.5 测试单轨化、#10 市值除数笔误（当前 `Money` 以 ÷`SHARE_FACTOR(10000)` 计算且被测试锁定，禁止改成 ÷1e6）。**新增乖离率（BIAS）模块落地**：覆盖申万一级 31 行业 + 6 宽基，午间/盘后双次计算，存入 `market_multi_items`，通过 `/api/temperature/overview` 返回。
 
 **核心原则**: 本项目为**个人使用、本地优先、完全合规**的投资记账工具。
 
@@ -14,7 +14,8 @@
 
 | 版本         | 日期 | 变更说明 |
 |------------|------|---------|
-| **v4.5.8** | **2026-08-01** | **错误信封契约闭环（高优先级技术债清除）**：<br>• **根因（已实证）**：`register_error_handlers` 仅挂在模块级 `app`（`main.py` 末行），而测试 fixture 直接 `create_app()` 得到的是另一个实例 → 错误处理器在测试环境根本未挂载；且 `app/` 内约 71 处 `abort()` 仅 404/500 被覆盖，400/409 等走框架默认响应、缺 `error_code`/`data` 字段，违反 SPEC 信封契约。<br>• **修复（最小侵入、反向压测通过）**：将 `register_error_handlers(app)` 移入 `create_app()`；新增通用 `HTTPException` 处理器把 `abort()` 全部状态码统一收敛到 `{data, message, error_code}` 信封；`ErrorCode` 增补 `UNAUTHORIZED(1005)`/`FORBIDDEN(1006)`。`PROPAGATE_EXCEPTIONS` 维持 `True`（保持不变，避免改动测试既有行为）。校验错误（APIFlask `HTTPError`，非 `HTTPException`）仍由框架返回 422 JSON（自带 `message`，前端兼容）。<br>• **验证**：新增 `tests/test_error_envelope.py` 证实 `create_app()` 实例已挂载处理器且 400/404/409/500/SBException 均返回信封；全量 `pytest` 466 passed / 1 failed（唯一失败为 eastmoney 实时联网依赖，非回归）。 |
+| **v4.5.9** | **2026-08-01** | **乖离率（BIAS）模块落地与 SPEC 补全**：<br>• 新增乖离率独立模块（`services/bias/`），覆盖 31 个申万一级行业 + 6 个宽基指数，采用刘晨明减法版算法（`(ln(close) - EMA20(ln(close))) × 100`）；<br>• 数据存入 `market_multi_items` 表（`source='bias'`），保留 30 天；午间（12:00）与盘后（15:30）双次计算；<br>• 新增 §5.13 乖离率数据模型、§5.14 温度模块三表设计、§7.4 乖离度模块设计细节、§8 新增 `/api/temperature/overview` 端点、§9.2 P1-21 任务、§12 乖离率决策记录；<br>• SPEC 版本号升级为 v4.5.9。 |
+| **v4.5.8** | **2026-08-01** | **错误信封契约闭环（高优先级技术债清除）**：<br>• 根因（已实证）：`register_error_handlers` 仅挂在模块级 `app`（`main.py` 末行），而测试 fixture 直接 `create_app()` 得到的是另一个实例 → 错误处理器在测试环境根本未挂载；且 `app/` 内约 71 处 `abort()` 仅 404/500 被覆盖，400/409 等走框架默认响应、缺 `error_code`/`data` 字段，违反 SPEC 信封契约。<br>• 修复（最小侵入、反向压测通过）：将 `register_error_handlers(app)` 移入 `create_app()`；新增通用 `HTTPException` 处理器把 `abort()` 全部状态码统一收敛到 `{data, message, error_code}` 信封；`ErrorCode` 增补 `UNAUTHORIZED(1005)`/`FORBIDDEN(1006)`。`PROPAGATE_EXCEPTIONS` 维持 `True`（保持不变，避免改动测试既有行为）。校验错误（APIFlask `HTTPError`，非 `HTTPException`）仍由框架返回 422 JSON（自带 `message`，前端兼容）。<br>• 验证：新增 `tests/test_error_envelope.py` 证实 `create_app()` 实例已挂载处理器且 400/404/409/500/SBException 均返回信封；全量 `pytest` 466 passed / 1 failed（唯一失败为 eastmoney 实时联网依赖，非回归）。 |
 | **v4.5.6** | **2026-08-01** | **`libs/cal` 与测试目录大瘦身决策**：<br>• `fundmate/libs/cal` 经审计确认 V2 已有等价 `app/services/performance/xirr_engine.py` 且 `app/` 零引用，决策**直接删除、不移植**（原 v4.5.5 债务行的“迁入 V2”改为“删除”）；<br>• 测试目录双轨制确认：29 个文件指向 V1（`backend.fundmate`）为移植残留，应分期移除；V2 激活套件（36 文件）为权威；<br>• 删除 V1 测试前须先迁移 XIRR 金值并跑绿 V2，随后补 `tests/test_exceptions.py` 覆盖 V2 `SBException`。 |
 | **v4.5.5** | **2026-08-01** | **V1 `data/` 数据源审计与 §2.1 边界细化**：<br>• 完成 Phase 1 数据源审计：对 V1 `data/` 全部 20 个源在 `backend/app` 做引用扫描，**引用数均为 0**，整体冗余；V2 已通过 `services/sync`(akshare/xalpha) 与 `services/thermometer/fetchers.py`（eastmoney/jisilu/qieman/youzhiyouxing/jiucaishuo/self_calc/er_niao）独立覆盖全部所需公开数据与市场温度；蛋卷/且慢/好买/聚宽等券商平台**持仓自动导入类源违反 §2.1**，随 V1 删除、**不移植**；<br>• §2.1 细化“自动抓取”边界：允许“用户触发/展示用的公开市场数据抓取”（基金公开净值经 akshare/xalpha、市场情绪指数经探市 fetcher），严禁“用户券商/平台持仓的自动登录/爬取/同步”；<br>• 保留 v4.5.4 的 V1 退役决策与 v4.5.3 的数据分级/市值笔误更正。 |
 | **v4.5.4** | **2026-08-01** | **V1 退役决策与架构澄清**：<br>• 更正 v4.5.3 对“双代码库”的误判——经核实 `autoapp.py` 指向 V1 为**陈旧残留入口**，README 实际以 `flask --app app.main:app` 运行 **V2**；前端 API 契约、测试 conftest、DB 模型均指向 V2，V1 是已被取代的遗留代码；<br>• 决策：**V2（`backend/app/`）为唯一代码库，V1 按受控退役流程清除**，详见 `docs/working-notes/code-audit-and-remediation-2026-08-01.md`。 |
@@ -565,6 +566,49 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 
 仅对不可逆操作（删除账户、删除持仓、大额转账）进行二次确认。日常记账操作不弹出“你是不是想选另一个操作”类提示——用户选什么就执行什么。
 
+## 5.13 乖离率（BIAS）数据模型（新增，v4.5.9）
+
+乖离率模块为独立技术指标，支持申万一级行业、宽基指数、ETF、场外基金、股票等多种品种类型，采用刘晨明减法版乖离率算法：`BIAS = (ln(close) - EMA20(ln(close))) × 100`。
+
+乖离率计算结果统一存入 `market_multi_items` 表（与温度模块共享），不独立建表：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `source` | String(30) | 固定值 `'bias'` |
+| `item_type` | String(30) | 品种类型：`industry` / `index` / `etf` / `fund` / `stock` |
+| `item_code` | String(20) | 品种代码（如 `801120.SI` 为申万一级行业代码） |
+| `item_name` | String(50) | 品种名称 |
+| `data` | JSON | 乖离率数据：`{bias, label, position, position_label, close, ema20, data_date}` |
+| `collected_at` | Date | 数据日期 |
+
+**品种列表**：
+- 31个申万一级行业（代码格式 `801XXX.SI`）
+- 6个宽基指数（沪深300、中证500、创业板指、科创50、上证50、中证1000）
+- 用户持仓/自选品种（动态获取，不写入静态配置）
+
+**计算频率**：午间（12:00）一次 + 盘后（15:30）一次
+
+**数据保留**：30天（乖离度为短期技术指标，超过30天的数据对当前判断无参考价值）
+
+**信号阈值**（刘晨明/广发策略）：
+
+| 乖离率值 | 信号标签 |
+|----------|----------|
+| ≥ 15% | 极度高位(止盈) |
+| ≥ 5% | 高位区(绿卖) |
+| ≥ -5% | 中性区 |
+| < -5% | 低位区(红买) |
+
+## 5.14 温度模块三表设计（新增，v4.5.9）
+
+温度模块采用三表设计，已全量落地：
+
+| 表名 | 用途 | 数据保留 |
+|------|------|----------|
+| `market_single_values` | 单值指标（综合温度、恐贪指数、股债性价比、成交额等） | **永久** |
+| `market_composites` | 复合指标（集思录估值指标、自算估值分位、二鸟说手抄报） | **1年** |
+| `market_multi_items` | 多维列表数据（乖离率、行业拥挤度、板块资金流） | **1年** |
+
 # 6. 第三方集成架构（xalpha 完整边界定义）
 
 - **职责边界**：仅负责外部数据获取、净值解析、组合数学计算，不参与业务入库、不参与前端交互、不参与权限逻辑
@@ -611,6 +655,32 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 
 每次同步完成后，输出自然语言格式的摘要报告，包含：各任务成功/失败状态、新增/跳过记录数、失败原因。
 
+## 7.4 乖离度模块设计细节（新增，v4.5.9）
+
+**模块位置**：`backend/app/services/bias/`
+
+| 文件 | 职责 |
+|------|------|
+| `constants.py` | 申万一级行业代码映射（31个）、计算参数（EMA周期20天）、阈值（±5/±15） |
+| `schemas.py` | Pydantic 模型（`BiasResult`, `BiasBatchResult`） |
+| `calculator.py` | 核心计算逻辑（`logbias` 纯函数、`PriceFetcher`、`BiasCalculator`），含重试+指数退避 |
+| `provider.py` | 品种列表提供者（行业列表、宽基指数、用户持仓/自选） |
+| `job.py` | 调度适配器（被 `TemperatureJob` 调用） |
+
+**数据流**：
+```
+BiasJob._fetch_data()
+  → ProductProvider.get_default_list()  (行业 + 宽基)
+  → BiasCalculator.calculate_batch()
+  → 转换为 market_multi_items 存储格式
+  → TemperatureService.save_multi_items()
+  → 写入 market_multi_items 表 (source='bias')
+```
+
+**计算频率**：午间（12:00）一次 + 盘后（15:30）一次
+
+**数据保留**：30天
+
 # 8. 核心 API 完整端点清单（可对接追溯）
 
 |方法|接口路径|功能说明|
@@ -650,6 +720,7 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 |**POST/DELETE**|**/api/strategy/{tag_id}/positions/{position_id}/**|**持仓绑定/解绑策略标签**|
 |**GET**|**/api/strategy/relations/**|**获取全部持仓-标签关联映射**|
 |**GET**|**/api/strategy/overview/**|**策略视图全局数据（持仓、资产、标签、关联，一次返回）**|
+|**GET**|**/api/temperature/overview**|**获取温度概览（含综合温度、单值指标、复合指标、多维列表数据如乖离率）** ✅ 已实现|
 
 > 注：`/api/portfolios/{id}/summary/` 组合概览端点计划在 P2 实现，当前不提供。
 
@@ -684,6 +755,7 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 | P1-08 | 特别关注页面功能增强 | 基础完成 | ⭐⭐⭐ | 🟢 | Ⅳ | 暂缓优化 |
 | P1-06 | 全局UI细节微调 | **✅ 已完成** | ⭐⭐ | 🟢 | Ⅳ | 永久停止投入 |
 | P1-13 | 移动端响应式 / PWA | 未开始 | ⭐⭐ | 🟢 | Ⅳ | 长期规划 |
+| **P1-21** | **乖离率（BIAS）模块** | **✅ 已完成** | ⭐⭐⭐⭐ | 🟡 | Ⅱ | 31个申万一级行业 + 6个宽基指数乖离率计算，午间/盘后双次计算，数据存入 `market_multi_items`，通过 `/api/temperature/overview` 返回 |
 
 ### 9.3 新增 P2 功能规划（基于 Quicken Classic 对标分析）
 
@@ -719,6 +791,7 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 | **全面盘点** | **98%** | **资产分类按需加载与轻量汇总接口已上线；操作入口前置优化；各章节间距与呼吸感统一完成。** |
 | **设计语言体系** | **100%** | ✅ 亮色模式 v2.3.2 与暗色模式 v1.4 已完成封箱 |
 | **通用业务组件** | **100%** | ✅ `MoneyDisplay`、`RiseFallText`、`ProductDisplay`、`usePageRefresh` 封装完成 |
+| **乖离率模块** | **100%** | ✅ 31行业 + 6宽基乖离率计算、存储、API 返回已完成 |
 
 # 10. 技术债务 & 开口项明细
 
@@ -789,6 +862,7 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 
 | 决策日期       | 决策主题                                      | 完整决策细节 |
 |------------|-------------------------------------------|-------------|
+| **2026-08-01** | **乖离率（BIAS）模块设计与落地** | 决定采用刘晨明减法版乖离率算法（`(ln(close) - EMA20(ln(close))) × 100`），覆盖31个申万一级行业 + 6个宽基指数。行业代码写死在 `constants.py`（无需外部维护），用户持仓/自选品种动态获取。数据保留30天，午间（12:00）和盘后（15:30）双次计算。乖离率模块独立于温度模块（`services/bias/`），计算结果存入 `market_multi_items` 表，通过 `/api/temperature/overview` 的 `multi.bias` 字段返回前端。 |
 | **2026-08-01** | **二鸟说手抄报自动化 P1 完成与 P2 规划** | 确认火山引擎 `ARK_MODEL=doubao-seed-2-1-pro-260628` 可用，P1「链接归档 + Ark 结构化抽取」跑通并推送到 `main-v2`；仓库仅保留 `docs/er-niao/index.json`（约 1KB/期），正文不入库、前端直接跳雪球原文。将「AI 根据结构化数据 + 搜索生成每周行情综述/研判」作为 P2-17 写入 SPEC，待数据稳定后实施。 |
 | **2026-08-01** | **二鸟说拆分为独立项目 WeChatRSS（可插拔扩展）** | 决定把二鸟说数据抽取从 fundmate 拆出，迁入已有的 **WeChatRSS**（微信公众号→RSS 摄取底座，自带 mp 原文链接）。采用「双轨」：WeChatRSS 内置 `src/analyzers/erniao.py` 可插拔分析器（CI 主链路）+ WorkBuddy 自动化作为手动重放/兜底。fundmate 侧**删除**后端死代码（`ErNiaoFetcher`/`ER_NIAO_SOURCES`/`jobs.py` 二鸟说分支/`/parse-er-niao` 端点/`scripts/erniao_*.py`/`docs/er-niao/`，干净分离）。二鸟说结构化数据现位于 `WeChatRSS/data/er-niao/index.json`；P2-17 数据源相应更新。 |
 | **2026-08-01** | **V1（`backend/fundmate/`）退役清除（实测闭环）** | 经核实 `autoapp.py` 指向 V1 为**陈旧残留入口**（README 实际以 `flask --app app.main:app` 运行 V2）；前端 API 契约、测试 conftest、DB 模型均指向 V2；V1 整体被 `.gitignore` 忽略、不在版本控制。决策：**V2 为唯一代码库，V1 受控退役**。执行：删除 `fundmate/`、`migrations/`、`autoapp.py` 及 29 个 V1 移植测试；`libs/cal` 因 V2 已有等价 `xirr_engine` 直删不移植（XIRR 金值已迁入 V2 测试）；删前物理备份 `.backup-v1-2026-08-01/`（15.9MB，可回滚）。结果：V2 测试 459→460 全绿（唯一失败为 eastmoney 实时联网测试、属网络环境依赖）；新增 `tests/test_exceptions.py`、`scripts/forbid_v1_refs.sh` 守卫。详见 `docs/working-notes/code-audit-and-remediation-2026-08-01.md`、`docs/working-notes/code-audit-and-remediation-2026-08-01.md`。 |
@@ -881,47 +955,47 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 
 > **UI/UX 设计规范索引**：完整视觉设计语言请参阅 `/frontend/design.md`（亮色模式 v2.3.2）和 `/frontend/design.dark.md`（暗色模式 v1.4）。本文档仅记录与业务/技术架构有交集的强制决策。
 
-# 13. 前端区域布局与组件交互规范（2026-06-27 确立）
+# 14. 前端区域布局与组件交互规范（2026-06-27 确立）
 
 本章节规范专门用于约束 Vue 前端页面的**布局结构、组件渲染策略与交互反馈**，与 `design.md`（视觉风格）和 `SPEC.md`（业务逻辑）互补，形成从“UI 样式”到“组件架构”的完整闭环。
 
-## 13.1 仪表盘区块“外部标题”统一结构
+## 14.1 仪表盘区块“外部标题”统一结构
 所有仪表盘卡片区块，强制采用 **「外部独立标题行 + 下方独立内容卡片」** 的排布结构。
 - **标题外置**：区块标题（`<h3>`）必须位于卡片容器的外部，与内容卡片构成 `flex-col` 的上下堆叠关系。
 - **组件剥离**：包含内部标题的组件（如原 `WatchlistWidget`），必须在父组件中剥离其内部标题，将其重构为“纯渲染容器”。外部标题与操作按钮统一由父级页面掌控。
 - **上沿强制对齐**：所有外部标题行的容器高度强制统一为 `h-8`，并使用 `items-center` 布局，确保相邻区块标题和操作按钮处于同一条绝对水平线上。
 
-## 13.2 卡片等高与留白填充强制规则
+## 14.2 卡片等高与留白填充强制规则
 为解决数据多寡导致卡片高度不一、底部出现“断崖留白”的问题：
 - **等高强制拉伸**：左右双栏布局容器（如使用 `grid-cols-12`）**必须**使用默认的 `items-stretch` 属性，使左右两侧的卡片容器物理高度保持一致。
 - **内部空间吸收**：右侧卡片内部必须使用 `h-full flex flex-col flex-1` 的结构组合。当外层被强制拉伸时，内部元素应利用 `flex-1` 吸收多余的高度空间，防止出现底部空白断层。
 - **数据列表撑满**：列表/表格组件（如 `WatchlistWidget`）在最外层加入 `flex-1 min-h-[80px]`，确保即使只有 1 条数据，组件底部的空白也会被自动吸满，绝不出现露底。
 
-## 13.3 图表防拉伸变形约束
+## 14.3 图表防拉伸变形约束
 为避免左侧列表加载大量数据导致右侧长条图表被拉成“细长条”：
 - **高度封顶**：右侧长条/柱状图表（如风险热力图）内部容器必须设置 `max-h-[240px]` 硬性封顶，阻止无限拉伸。
 - **垂直居中**：高度封顶的图表外层需使用 `flex-1 flex items-center justify-center` 容器包裹。这样在卡片被撑高时，图表会保持在规定高度范围内，并在卡片空间内**垂直居中**，上下留白均匀。
 
-## 13.4 入场动画与“呼吸感”交互规范
+## 14.4 入场动画与“呼吸感”交互规范
 - **入场级联动画**：核心卡片应添加 `fadeUp` 级联淡入动画。
   - 参数：`opacity: 0 → 1`, `transform: translateY(24px) → 0`, 时长为 `0.6s cubic-bezier(0.4, 0, 0.2, 1)`。
   - 延迟：多张卡片依次使用 `nth-child` 设置 `animation-delay: 0.05s` 至 `0.25s` 递增。
 - **悬浮物理反馈**：所有卡片 `:hover` 时，使用 `transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1)` 丝滑过渡，执行 `transform: translateY(-3px)` 轻微上浮，并配合 `box-shadow: var(--shadow-float)` 加深阴影。
 - **禁止内联重绘**：**禁止在 `<template>` 中使用 `@mouseenter` 和 `@mouseleave` 强行修改内联 `style.backgroundColor`**。所有交互反馈必须由纯 CSS 类（如 `:hover` 和 `transition`）驱动，避免强制重绘。
 
-## 13.5 组件剥离与外部统管原则
+## 14.5 组件剥离与外部统管原则
 当一个组件（如 `WatchlistWidget`）因为业务逻辑（如区分“置顶资产”和“持仓市值最大资产”）内部包含了动态标题时，**正确的架构是父组件剥离其标题，组件自身只保留内容区。**
 - 父组件在外部统揽标题与按钮区的渲染，使其与页面其他区块的“外部标题”结构保持一致。
 - 组件内部通过 `props` 接收父级传递的数据配置（如显示何种说明文案），保持自身作为“纯渲染容器”的高内聚。
 
-# 14. 最终编码通用守则
+# 15. 最终编码通用守则
 
 - 数据准确性优先级最高，优于视觉美化、功能花哨
 - 所有代码、样式、接口、命名、交互严格统一
 - 禁止私自变更既定架构与业务规则，所有优化必须遵守时间盒与优先级
 - 所有问题可追溯、所有决策有记录、所有规范可落地
 
-# 14.1 版本号管理规范
+# 15.1 版本号管理规范
 
 本项目遵循语义化版本规范（Semantic Versioning 2.0），所有版本号升级必须严格遵守以下规则：
 
@@ -941,18 +1015,18 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 - 禁止将多个修订号变更合并为一次次版本升级。
 - 主版本升级前必须经过完整的技术评审和迁移方案设计。
 
-# 15. AI编码行为强制约束规范（Karpathy准则增补·最终闭环）
+# 16. AI编码行为强制约束规范（Karpathy准则增补·最终闭环）
 
 本章为项目**AI 编码底层强制规范**，补齐原有体系缺失的编码思维、边界控制、防过度工程、落地验证能力，专门杜绝AI编码通病：盲目假设、过度架构、冗余臃肿、乱改存量代码、无验证迭代。所有新增、修改、重构、Bug修复、迭代优化必须严格遵守。
 
-## 15.1 编码前思考规则（禁止假设、禁止藏疑、必须权衡）
+## 16.1 编码前思考规则（禁止假设、禁止藏疑、必须权衡）
 
 - 禁止私自假设任何业务逻辑、字段含义、接口规则、需求细节，存在任何不确定点，必须前置澄清，不猜测编码
 - 需求、逻辑、边界存在歧义时，必须列出多种可行方案及对应的利弊权衡，不默认自选方案直接执行
 - 发现现有代码、架构、方案存在冗余、不合理、可优化问题时，必须主动提出异议并说明具体理由，不盲从旧逻辑
 - 自身存在困惑、认知模糊、逻辑看不懂的场景，立即暂停开发，优先澄清问题，严格遵循**存疑不编码、不懂不改动、模糊不落地**
 
-## 15.2 简洁优先规则（禁止过度工程、禁止臃肿冗余）
+## 16.2 简洁优先规则（禁止过度工程、禁止臃肿冗余）
 
 - 严格按需开发，只实现需求明确要求的功能，不新增需求以外的逻辑、配置、扩展能力、兼容逻辑
 - 拒绝过度工程化，简单业务逻辑、一次性执行逻辑，禁止强行封装多层抽象、通用类、工具方法、复杂架构
@@ -960,7 +1034,7 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 - 代码以「精简、直白、可维护」为核心标准，同等功能下优先更少代码、更简单逻辑，杜绝50行可实现逻辑扩为数百行臃肿架构
 - 落地校验标准：以资深工程师视角判断，若存在过度设计、多余抽象、冗余代码，必须无条件简化重构
 
-## 15.3 精准修改规则（严控改动边界、禁止无效乱改）
+## 16.3 精准修改规则（严控改动边界、禁止无效乱改）
 
 - 所有迭代修改、Bug修复仅改动本次任务必需的代码、配置、文件，禁止改动任何无关代码、注释、格式、样式、变量、空行
 - 线上正常运行、无Bug、无业务问题的存量代码，严格遵循**不坏不修改、稳定不重构**，禁止私自优化、重构、微调格式
@@ -968,7 +1042,7 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 - 仅允许删除**本次改动直接产生**的冗余导入、无效变量、废弃函数、孤儿代码；项目原有历史死代码、冗余代码，禁止私自删除，可备注提示留存
 - 所有代码改动内容必须100%可追溯至用户明确需求、任务要求、Bug问题点，无溯源的改动一律禁止
 
-## 15.4 目标驱动执行规则（先定标准、分步验证、闭环落地）
+## 16.4 目标驱动执行规则（先定标准、分步验证、闭环落地）
 
 - 所有开发、修复、重构、优化任务，**开发前必须先定义可量化、可验证的成功标准**，无标准不开发
 - Bug修复强制闭环：先编写可稳定复现问题的测试用例 → 针对性修复问题 → 验证测试用例全部通过，禁止无测试、无验证的盲修
