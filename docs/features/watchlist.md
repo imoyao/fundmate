@@ -60,7 +60,7 @@ permalink: /watchlists
 
 #### 1.3 数据模型设计
 
-> **核心原则**：与 `SPEC.md` 中定义的 `positions` 表完全对齐。自选对象从单纯的资产，扩展为"资产"与"基金经理"两类可追踪实体。**清仓不再作为 `watchlist` 的状态存储，改为从 `transactions` 表动态推导。**
+> **核心原则**：与 `docs/spec/data-model.md` 中定义的 `positions` 表完全对齐。自选对象从单纯的资产，扩展为"资产"与"基金经理"两类可追踪实体。**清仓不再作为 `watchlist` 的状态存储，改为从 `transactions` 表动态推导。**
 
 ##### 1.3.1 自选资产关注表 `watchlist`
 

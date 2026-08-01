@@ -22,7 +22,7 @@ title: 开发指南
 
     *   **关键规范**：RESTful 接口风格、Pydantic Schema 定义、对外 API 响应结构约定。
 
-    *   **清单指引**：直接链接到我们现有的文档，如 `SPEC.md`、`CHECKLIST.md`。
+    *   **清单指引**：直接链接到我们现有的文档，如 `docs/spec/index.md`（需求与开发规范体系）、`CHECKLIST.md`。
 
     *   **特点**：像一张藏宝图，告诉开发者代码在哪里、怎么改、有什么规矩。
 

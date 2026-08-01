@@ -5,7 +5,7 @@ permalink: /holding-record
 
 ### 需求文档：记账功能增强 — 简记、全面盘点与数据去重
 
-**依赖**：`SPEC.md v1.1` 中定义的 `transactions` 数据模型与 API 契约
+**依赖**：`docs/spec/data-model.md`（原 `SPEC.md` v1.1）中定义的 `transactions` 数据模型与 API 契约
 
 ---
 
@@ -136,7 +136,7 @@ permalink: /holding-record
 
 ### 附录：开发计划更新
 
-此需求对应 `SPEC.md v1.1` 开发阶段更新如下：
+此需求对应 `docs/spec/data-model.md`（原 `SPEC.md` v1.1）开发阶段更新如下：
 
 | 编号 | 任务名 | 说明 | 优先级 |
 |------|--------|------|--------|
