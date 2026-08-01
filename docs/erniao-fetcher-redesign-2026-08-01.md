@@ -240,3 +240,31 @@ jobs:
   2. pre-commit 钩子在 Windows 下因 env 变量超长报 `ValueError` → 脚本 `commit` 失败自动回退 `--no-verify`。
   3. `gh` 未安装，但 `git` + GCM 凭据可直推；故用 git 而非 gh。
 - **下一步（P1）**：接入火山 Ark 做结构化解析（替换 MVP 的 WebFetch 提取，并强化 `empirical_actions` 逐条解析），并补齐后端 `market_composites` 抓取入库（链路 A）。
+
+---
+
+## 10. P1 火山 Ark 结构化解析 — 已完成（2026-08-01）
+
+端到端跑通并推送到 `origin/main-v2`（提交 `03fa254`）：
+
+- **新增 `scripts/erniao_parse.py`**：二鸟说手抄报 → 结构化数据（火山引擎 Ark 解析）。
+  - 读 `backend/.env` 的 `ARK_API_KEY` / `DOUBAN_MODEL`（兼容现有命名），base_url 默认 `https://ark.cn-beijing.volces.com/api/v3`。
+  - 输入文章全文（`.erniao_article.txt`），输出 `erniao_sync.py` 期望的结构化 JSON（`issues[]`：issue_no/title/publish_date/source_url/coefficient/sentiment/portfolios/market_view/empirical_actions[]）。
+  - `source_url` 由调用方 `--source-url` 注入，**不靠模型猜链接**。
+  - 含 `validate()` 校验、JSON 围栏剥离、模型失败明确报错。
+  - 依赖 `openai>=1.x` → 自动化里用 `backend/.venv/Scripts/python.exe` 调用（已预装）。
+- **实测验证**：用 186 期全文喂 Ark（`doubao-seed-2-1-pro-260628`），正确抽出 系数=6、情绪=正常偏热、市场观点摘要、`empirical_actions=[{name:"实证2", action:"无操作", note:"…高切低…"}]`。整条链路 WebFetch→Ark→index.json 闭环成立。
+- **`.gitignore` 新增** `.erniao_*.json` / `.erniao_*.txt`，避免自动化临时文件入版本库。
+- **自动化改造**：任务 `automation-1785551801256` prompt 已升级为「WebFetch 取全文 → `erniao_parse.py`(Ark) → `erniao_sync.py` → 推送」，并保留 Ark 失败退化为 WebFetch 字段提取的兜底。
+
+### ⚠️ 待你修正（唯一 blocker）
+- `backend/.env` 里的 `DOUBAN_MODEL=apikey-20260801101722-99m7v` **不是有效模型/端点**（Ark 返回 404）。`ARK_API_KEY` 已验证有效、网络可达。
+- 解析脚本在 `DOUBAN_MODEL` 缺失/无效时**自动回退**到 `doubao-seed-2-1-pro-260628`（已实测可用），所以当前自动化能跑；但建议你把 `DOUBAN_MODEL` 改成下列任一有效值以用你的偏好模型：
+  - `doubao-seed-2-1-pro-260628`（最新最强，推荐用于抽取+后续周报研判）
+  - `doubao-seed-2-0-pro-260215`（强、稳）
+  - `doubao-seed-2-0-mini-260215` / `doubao-seed-1-6-flash-250715`（便宜快，纯字段抽取够用）
+- 列出本 key 可访问的全部模型可通过 `client.models.list()`（已验证可列出几十个豆包模型）。
+
+### 关于「正文入库 / 周报研判」
+- 用户明确：**正文不入库**，前端展示直接给雪球原文链接，不做内容备份 → 链路 A（写 `market_composites` 存全文）**取消**，仓库只保留链接归档 `index.json`。
+- 「AI 根据结构化数据 + 搜索，形成每周行情综述/研判」为**后续增强（P2+），本期延后**。评估：难度中等、可行——核心是给 Ark/搜索结果做 RAG 式 grounding + 固定专业输出模板 + 引用标注防幻觉；可在 P1 结构化数据稳定后单独做。
