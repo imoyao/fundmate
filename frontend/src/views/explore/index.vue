@@ -25,7 +25,7 @@
       <!-- 综合温度 + 恐惧贪婪 + 股债性价比（比例 2:1:1） -->
       <div class="primary-grid">
         <!-- 综合温度 -->
-        <div class="primary-card primary-card-main">
+        <div class="primary-card primary-card-main" @click="goToTemperature">
           <div class="primary-ring">
             <svg width="80" height="80" viewBox="0 0 80 80">
               <circle
@@ -63,11 +63,12 @@
           <div class="primary-content">
             <div class="primary-header">
               <span class="primary-title">综合温度</span>
-              <span class="primary-badge" :class="compositeLevelClass">
-                {{ compositeTemperature?.level || "暂无" }}
-              </span>
+              <TemperatureLevelBadge :level="compositeTemperature?.level || '暂无'" />
             </div>
-            <div class="primary-desc">综合6个市场指标</div>
+            <div class="primary-desc">
+              综合6个市场指标
+              <span class="primary-link">查看温度计 ›</span>
+            </div>
             <div class="primary-bar">
               <div class="primary-track">
                 <div
@@ -93,11 +94,7 @@
             <span class="primary-value">{{
               fearData ? fearData.value : "--"
             }}</span>
-            <span
-              class="primary-label"
-              :class="getFearClass(fearData?.label)"
-              >{{ fearData?.label || "暂无数据" }}</span
-            >
+            <TemperatureLevelBadge :level="fearData?.label || '暂无数据'" size="sm" />
           </div>
         </div>
 
@@ -111,9 +108,7 @@
               >{{ selfCalcPercent != null ? selfCalcPercent : "--"
               }}<span class="primary-unit">%</span></span
             >
-            <span class="primary-label" :class="selfCalcLevelClass">{{
-              selfCalcLevel
-            }}</span>
+            <TemperatureLevelBadge :level="selfCalcLevel" size="sm" />
           </div>
         </div>
       </div>
@@ -130,7 +125,7 @@
                 qiemanData ? qiemanData.value : "--"
               }}</span>
               <span class="mini-degree">°</span>
-              <span class="mini-label">{{ qiemanData?.label || "暂无" }}</span>
+              <TemperatureLevelBadge :level="qiemanData?.label || '暂无'" size="sm" />
             </div>
             <div class="mini-card">
               <span class="mini-source">有知有行</span>
@@ -138,7 +133,7 @@
                 youzhiData ? youzhiData.value : "--"
               }}</span>
               <span class="mini-degree">°</span>
-              <span class="mini-label">{{ youzhiData?.label || "暂无" }}</span>
+              <TemperatureLevelBadge :level="youzhiData?.label || '暂无'" size="sm" />
             </div>
             <div class="mini-card">
               <span class="mini-source">韭圈儿中长期</span>
@@ -146,9 +141,7 @@
                 jiucaishuoMediumData ? jiucaishuoMediumData.value : "--"
               }}</span>
               <span class="mini-degree">°</span>
-              <span class="mini-label">{{
-                jiucaishuoMediumData?.label || "暂无"
-              }}</span>
+              <TemperatureLevelBadge :level="jiucaishuoMediumData?.label || '暂无'" size="sm" />
             </div>
           </div>
         </div>
@@ -181,17 +174,7 @@
                 >{{ cbTemperature != null ? cbTemperature : "--" }}</span
               >
               <span class="mini-degree">°</span>
-              <span
-                class="mini-label"
-                :class="
-                  cbLabel === '偏高'
-                    ? 'label-high'
-                    : cbLabel === '偏低'
-                      ? 'label-low'
-                      : 'label-mid'
-                "
-                >{{ cbLabel || "暂无" }}</span
-              >
+              <TemperatureLevelBadge :level="cbLabel || '暂无'" size="sm" />
             </div>
           </div>
         </div>
@@ -206,17 +189,7 @@
                 volumeData ? volumeData.value : "--"
               }}</span>
               <span class="mini-unit">亿</span>
-              <span
-                class="mini-label"
-                :class="
-                  volumeData?.label === '放量'
-                    ? 'label-high'
-                    : volumeData?.label === '缩量'
-                      ? 'label-low'
-                      : 'label-mid'
-                "
-                >{{ volumeData?.label || "暂无" }}</span
-              >
+              <TemperatureLevelBadge :level="volumeData?.label || '暂无'" size="sm" />
             </div>
             <div class="mini-card mini-wide">
               <span class="mini-source">深度分析</span>
@@ -550,6 +523,7 @@ import { useAssetSearch } from "@/composables/useAssetSearch";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
+import TemperatureLevelBadge from "@/components/TemperatureLevelBadge/index.vue";
 import { batchFetchQuotes } from "@/utils/realtimeDataSources";
 import { getTemperatureOverview } from "@/api/temperature";
 
@@ -794,26 +768,6 @@ const fetchTemperature = async () => {
 // ================================================================
 // 计算属性和方法
 // ================================================================
-const selfCalcLevelClass = computed(() => {
-  const level = selfCalcLevel.value;
-  if (level === "偏低" || level === "低估") return "label-low";
-  if (level === "偏高" || level === "高估") return "label-high";
-  return "label-mid";
-});
-
-const compositeLevelClass = computed(() => {
-  const level = compositeTemperature.value?.level;
-  if (level === "偏低" || level === "低估") return "label-low";
-  if (level === "偏高" || level === "高估") return "label-high";
-  return "label-mid";
-});
-
-const getFearClass = (label: string | undefined) => {
-  if (!label) return "label-mid";
-  if (label.includes("极度恐惧") || label.includes("恐惧")) return "label-low";
-  if (label.includes("极度贪婪") || label.includes("贪婪")) return "label-high";
-  return "label-mid";
-};
 
 // L3 深度入口
 const handleShowIndustryCrowding = () => {
@@ -1143,6 +1097,10 @@ const goToRegister = () => {
   router.push({ path: "/login", query: { from: "explore" } });
 };
 
+const goToTemperature = () => {
+  router.push("/temperature");
+};
+
 const showWhyModal = () => {
   ElMessage.info("多倍贝：全资产记账 + 投资分析工具");
 };
@@ -1161,16 +1119,9 @@ onMounted(() => {
 
 <style lang="scss" scoped>
 /* ============================================================
-   1. 设计 Token（温度专用）
+   1. 设计 Token
+   温度三色(--temp-*) 已在全局 colors.css 中定义，此处直接复用，不重复声明
    ============================================================ */
-.explore-page {
-  --temp-low: #4f9d69;
-  --temp-mid: var(--tag-warm-sand, #d4c898);
-  --temp-high: #d9534f;
-  --temp-low-bg: rgba(79, 157, 105, 0.14);
-  --temp-mid-bg: rgba(212, 200, 152, 0.2);
-  --temp-high-bg: rgba(217, 83, 79, 0.14);
-}
 
 /* ============================================================
    2. 布局重置
@@ -1291,50 +1242,17 @@ onMounted(() => {
     color: var(--text-secondary);
   }
 
-  .primary-label {
-    font-size: 12px;
-    padding: 2px 10px;
-    border-radius: 8px;
-    font-weight: 500;
-
-    &.label-low {
-      background: var(--temp-low-bg);
-      color: var(--temp-low);
-    }
-    &.label-mid {
-      background: var(--temp-mid-bg);
-      color: var(--temp-mid);
-    }
-    &.label-high {
-      background: var(--temp-high-bg);
-      color: var(--temp-high);
-    }
-  }
-
-  .primary-badge {
-    font-size: 11px;
-    padding: 1px 12px;
-    border-radius: 10px;
-    font-weight: 500;
-
-    &.level-low {
-      background: var(--temp-low);
-      color: #fff;
-    }
-    &.level-mid {
-      background: var(--temp-mid);
-      color: var(--text-primary);
-    }
-    &.level-high {
-      background: var(--temp-high);
-      color: #fff;
-    }
-  }
-
   .primary-desc {
     font-size: 12px;
     color: var(--text-tertiary);
     margin-bottom: 4px;
+
+    .primary-link {
+      margin-left: 6px;
+      color: var(--el-color-primary);
+      cursor: pointer;
+      white-space: nowrap;
+    }
   }
 
   .primary-bar {
@@ -1359,6 +1277,14 @@ onMounted(() => {
 
 /* 综合温度卡片占2份，内部用flex，环形图较小 */
 .primary-card-main {
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-raised), 0 0 0 1px var(--el-color-primary);
+  }
+
   .primary-ring {
     position: relative;
     width: 80px;
@@ -1477,27 +1403,6 @@ onMounted(() => {
 .mini-unit {
   font-size: 13px;
   color: var(--text-tertiary);
-}
-
-.mini-label {
-  font-size: 12px;
-  padding: 1px 10px;
-  border-radius: 8px;
-  font-weight: 500;
-  margin-left: auto;
-
-  &.label-low {
-    background: var(--temp-low-bg);
-    color: var(--temp-low);
-  }
-  &.label-mid {
-    background: var(--temp-mid-bg);
-    color: var(--temp-mid);
-  }
-  &.label-high {
-    background: var(--temp-high-bg);
-    color: var(--temp-high);
-  }
 }
 
 .mini-temp {
