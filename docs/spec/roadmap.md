@@ -90,3 +90,4 @@
 
 ### 2.3 其它待定项
 - 前端 `service.py` 早绑定 `SessionLocal` 导致测试隔离隐患（详见 `test_thermometer_overview.py` 的 `_patch_thermo_session` 备注），后续可统一改为动态引用。
+- **开发任务集合（invoke + rich）已落地**（`backend/tasks.py`）：已封装抓取（grab.*）、测试（test）、启动（serve）、文档（docs.*）。**后续后端接口级任务**（单接口冒烟、mock 数据生成、按接口批量回归）列为远期项，待主线（B3/B5）收尾后逐步补进 `tasks.py`，避免分散精力。优先级：第四象限（不重要不紧急，纯工具打磨）。
