@@ -240,6 +240,21 @@
 
 ## Components
 
+> **设计语言层只规定「用什么、长什么样」的令牌与原则；组件怎么用、props/阈值/栅格列宽等实现细节，统一收口在 `docs/design/components.md`。** 下列组件为页面级 UI 强制复用清单，禁止各页面重新手写同类结构。
+
+### 强制复用组件清单
+
+| 组件 | 路径 | 一句话职责 |
+|------|------|-----------|
+| `SectionHeader` | `components/SectionHeader` | 区块统一标题行（标题 + 信息图标 + 右侧操作槽） |
+| `MetricCard` | `components/MetricCard` | 单指标卡（标题 → 大数字 + 单位 + 等级标签 → 副文案） |
+| `MetricGrid` | `components/MetricGrid` | 指标网格容器（flex 自均分，禁止右侧大片空白） |
+| `TemperatureGaugeCard` | `components/TemperatureGaugeCard` | 温度环形卡（探市 / 温度计 / 达报三页复用，纯 SVG） |
+| `TemperatureContextCard` | `components/TemperatureContextCard` | 温度上下文解读卡（等级 + 恐惧贪婪 + 短中长期） |
+| `PageHeaderBar` | `components/PageHeaderBar` | 页面统一页头（标题 / 副标题 / 更新时间胶囊） |
+| `PageFooter` / `MarketFooter` | `components/PageFooter` / `components/MarketFooter` | 探市 / 温度计页脚（复盘引导 + 公众号） |
+| `AppFooter`（全站页脚） | `layout/components/lay-footer` | 三栏品牌/导航/公众号 + 风险免责 + 版权 |
+
 ### 交互状态映射（通用规则）
 
 | 状态 | 背景 | 边框 | 阴影 |
@@ -442,23 +457,8 @@
 - **不跳过自动化对比度测试直接修改颜色变量**
 
 
-## 版本兼容说明
+## 变更与过程记录
 
-| 变更类型 | 影响范围 | 兼容性 |
-|----------|----------|--------|
-| `--bg-page` 色值调整 | 全局背景 | ✅ 视觉变更，无破坏 |
-| `--text-tertiary` 色值加深 | 辅助文字 | ✅ 视觉变更，无破坏 |
-| `--color-danger` 语义分离 | 删除/危险按钮 | ⚠️ 需手动更新组件 |
-| 新增 `--color-rise` / `--color-fall` | 涨跌语义 | ✅ 纯新增 |
-| 新增 `--color-danger`（独立值） | 删除/错误 | ✅ 纯新增 |
-| 新增 `--space-compact` | 密集数据区 | ✅ 纯新增 |
-| 新增 `--focus-ring` | 焦点样式 | ✅ 纯新增 |
-| 更新阴影值 | 卡片/浮层 | ✅ 视觉变更，无破坏 |
-| 新增 `--glow-brand` | 暗色模式预留 | ✅ 纯新增 |
-| 主按钮 Active 物理反馈 | 主按钮 | ✅ 纯新增 |
-| 新增 `--border-subtle` | 卡片内分割线 | ✅ 纯新增 |
-| 新增软按钮变体 | 按钮 | ✅ 纯新增 |
-| 暗色模式卡片边框/内阴影 | 暗色模式 | ✅ 纯新增 |
+设计令牌 / 原则的**变更历史**与**单次改动的决策理由**，不保留在本文件（避免污染「设计语言唯一标准」），统一归档至 `docs/spec/changelog.md`。组件级的 props、阈值、栅格列宽等**实现细节**收口于 `docs/design/components.md`。本文件只回答「视觉令牌 + 设计原则 + 全局规范」。
 
-
-*本文档为 多倍贝 项目视觉设计唯一标准，所有 UI 开发必须遵循。现有代码逐步向本规范靠拢，新功能开发严格按此执行。*
+*本文档为 多倍贝 项目视觉设计语言（令牌与原则）的唯一标准，所有 UI 开发必须遵循。组件实现细节见 `docs/design/components.md`，变更记录见 `docs/spec/changelog.md`。现有代码逐步向本规范靠拢，新功能开发严格按此执行。*

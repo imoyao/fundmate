@@ -1,7 +1,7 @@
 # 版本更新记录（changelog）
 
-**版本**: v4.5.9
-**最后更新**: 2026-08-01
+**版本**: v4.6.0
+**最后更新**: 2026-08-02
 **核心原则**: 本项目为**个人使用、本地优先、完全合规**的投资记账工具。
 **文档属性**: `docs/spec/` 体系为项目唯一事实标准（原单一 `SPEC.md` 已于 2026-08-01 拆分为本多文件体系）。所有开发必须严格遵守，禁止私自变更规则。
 
@@ -9,6 +9,7 @@
 
 | 版本         | 日期 | 变更说明 |
 |------------|------|---------|
+| **v4.6.0** | **2026-08-02** | **`frontend/design.md` 设计语言与实现层分离（文档瘦身）**：<br>• 根因：`design.md` 作为「设计语言唯一标准」被历次 UI 改进污染，混入了三类不该在正文的内容——(A) 组件级实现规格（TemperatureGaugeCard 阈值、TemperatureContextCard、PageHeaderBar、PageFooter 复盘文案、12 列栅格类名系统等）；(B) 变更记录与单次改动理由（版本兼容说明整节、各处「设计决策」引用块里的单次理由）；(C) 特定页面沉淀的文案示例。<br>• 处理：(A) 全部下沉至新建 `docs/design/components.md`（组件强制复用清单、标签位置、SectionHeader、12 列栅格、MetricCard/MetricGrid、温度卡系、页头页脚规范、文案落地示例）；`design.md` 的 Components 章仅保留「强制复用清单 + 一句话职责」；<br>• (B/C) 变更记录与过程理由归档至本 changelog（v4.6.0 条目），不再留在设计语言正文；<br>• 修正事实 bug：栅格系统原引用未定义的 `--space-7`，统一为已定义的 `--space-5`（24px）；<br>• 设计语言正文现在只回答「视觉令牌 + 设计原则 + 全局规范」，组件细节与过程记录外移，避免互相打架。<br>• 关联：`docs/design/components.md`。 |
 | **v4.5.9** | **2026-08-01** | **乖离率（BIAS）模块落地与 SPEC 补全**：<br>• 新增乖离率独立模块（`services/bias/`），覆盖 31 个申万一级行业 + 6 个宽基指数，采用刘晨明减法版算法（`(ln(close) - EMA20(ln(close))) × 100`）；<br>• 数据存入 `market_multi_items` 表（`source='bias'`），保留 30 天；午间（12:00）与盘后（15:30）双次计算；<br>• 新增 §5.13 乖离率数据模型、§5.14 温度模块三表设计、§7.4 乖离度模块设计细节、§8 新增 `/api/temperature/overview` 端点、§9.2 P1-21 任务、§12 乖离率决策记录；<br>• SPEC 版本号升级为 v4.5.9。 |
 | **v4.5.8** | **2026-08-01** | **错误信封契约闭环（高优先级技术债清除）**：<br>• 根因（已实证）：`register_error_handlers` 仅挂在模块级 `app`（`main.py` 末行），而测试 fixture 直接 `create_app()` 得到的是另一个实例 → 错误处理器在测试环境根本未挂载；且 `app/` 内约 71 处 `abort()` 仅 404/500 被覆盖，400/409 等走框架默认响应、缺 `error_code`/`data` 字段，违反 SPEC 信封契约。<br>• 修复（最小侵入、反向压测通过）：将 `register_error_handlers(app)` 移入 `create_app()`；新增通用 `HTTPException` 处理器把 `abort()` 全部状态码统一收敛到 `{data, message, error_code}` 信封；`ErrorCode` 增补 `UNAUTHORIZED(1005)`/`FORBIDDEN(1006)`。`PROPAGATE_EXCEPTIONS` 维持 `True`（保持不变，避免改动测试既有行为）。校验错误（APIFlask `HTTPError`，非 `HTTPException`）仍由框架返回 422 JSON（自带 `message`，前端兼容）。<br>• 验证：新增 `tests/test_error_envelope.py` 证实 `create_app()` 实例已挂载处理器且 400/404/409/500/SBException 均返回信封；全量 `pytest` 466 passed / 1 failed（唯一失败为 eastmoney 实时联网依赖，非回归）。 |
 | **v4.5.6** | **2026-08-01** | **`libs/cal` 与测试目录大瘦身决策**：<br>• `fundmate/libs/cal` 经审计确认 V2 已有等价 `app/services/performance/xirr_engine.py` 且 `app/` 零引用，决策**直接删除、不移植**（原 v4.5.5 债务行的"迁入 V2"改为"删除"）；<br>• 测试目录双轨制确认：29 个文件指向 V1（`backend.fundmate`）为移植残留，应分期移除；V2 激活套件（36 文件）为权威；<br>• 删除 V1 测试前须先迁移 XIRR 金值并跑绿 V2，随后补 `tests/test_exceptions.py` 覆盖 V2 `SBException`。 |
