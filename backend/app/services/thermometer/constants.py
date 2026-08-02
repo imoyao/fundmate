@@ -6,7 +6,18 @@
 避免在多处重复书写、便于维护。
 """
 
-from typing import Dict
+from enum import Enum
+from typing import Dict, Optional
+
+
+# ─── 温度档位枚举（唯一权威来源）───
+# 所有「温度类」指标的定性档位必须取自此处，禁止在 fetchers / service 中
+# 硬编码 '偏低' / '适中' / '偏高' 或混用 '正常' 等近义词，避免前后端语义割裂。
+class TempLevel(str, Enum):
+    LOW = '偏低'
+    MID = '适中'
+    HIGH = '偏高'
+
 
 # ─── 东财：全市场成交额 ───
 EASTMONEY_BOARDS: Dict[str, str] = {
@@ -50,9 +61,15 @@ def label_volume(total: float) -> str:
     return '放量' if total > 12000 else ('缩量' if total < 8000 else '温和')
 
 
-def label_temp(value: float) -> str:
-    """温度定性标签（可转债温度等）。"""
-    return '偏高' if value > 70 else ('适中' if value > 40 else '偏低')
+def label_temp(value: Optional[float]) -> str:
+    """温度定性标签（可转债温度 / 综合温度等）。唯一权威来源，禁止散落副本。"""
+    if value is None:
+        return '未知'
+    if value > 70:
+        return TempLevel.HIGH.value
+    if value > 40:
+        return TempLevel.MID.value
+    return TempLevel.LOW.value
 
 
 def label_fear(n) -> str:

@@ -55,7 +55,6 @@ from typing import Any, Callable, Dict, Optional
 import akshare as ak
 import pandas as pd
 import requests
-from bs4 import BeautifulSoup
 from loguru import logger
 
 try:
@@ -635,12 +634,10 @@ class SelfCalcFetcher(BaseFetcher):
                 percent = (df['spread'] < cur['spread']).mean() * 100.0
                 percent = round(percent, 1)
 
-                if percent < 30:
-                    level = '偏低'
-                elif percent <= 70:
-                    level = '正常'
+                if percent is None:
+                    level = '未知'
                 else:
-                    level = '偏高'
+                    level = label_temp(percent)
 
                 return {
                     'data': {

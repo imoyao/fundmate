@@ -18,6 +18,7 @@ from app.core.database import SessionLocal
 from app.core.time_utils import today_shanghai
 from app.domains.temperature.models import MarketComposite, MarketMultiItem, MarketSingleValue
 from app.services.thermometer.constants import LINKS as THERMOMETER_LINKS
+from app.services.thermometer.constants import label_temp
 
 # 注意：这里需要根据新的三表设计，从旧表迁移到新表
 # 本 service 同时兼容旧表，但优先使用新表
@@ -494,12 +495,7 @@ class TemperatureService:
             return None
 
         value = round(acc / total_w, 1)
-        if value > 70:
-            level = '偏高'
-        elif value > 40:
-            level = '适中'
-        else:
-            level = '偏低'
+        level = label_temp(value)
 
         return {'value': value, 'level': level}
 

@@ -32,7 +32,7 @@ def get_temperature_overview():
             {"source": "eastmoney_volume", "name": "全市场成交额", "value": 12581.48, "label": "温和", "unit": "亿", "collected_at": "2026-07-23 15:00:00"}
           ],
           "composites": {
-            "self_calc": {"pe": 12.3, "percent": 45.0, "level": "正常", "collected_at": "2026-07-23 21:00:00"},
+            "self_calc": {"pe": 12.3, "percent": 45.0, "level": "适中", "collected_at": "2026-07-23 21:00:00"},
             "jisilu_indicator": {"median_pb": 2.35, "median_pb_temperature": 22.75, ...}
           },
           "links": {
