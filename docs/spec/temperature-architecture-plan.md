@@ -120,3 +120,34 @@
 - `fix(temperature): 陈旧提示改为折角胶囊 + hover 气泡`
 - `docs(spec): 更新投资概览页评估与后端排期`
 - 注意：勿将 `design.md` / `components.md` 的零散改动混入上述提交。
+
+## 7. 同步指令速查（2026-08-02 新增）
+
+统一入口 `backend/app/tools/sync_cli.py`（封装常用同步指令）。在 `backend` 目录下用 pdm 运行：
+
+```powershell
+# 跑市场温度（集思录估值温度 / 韭圈儿 / 自算估值分位；乖离率已跳过）
+pdm run python -m app.tools.sync_cli temperature
+
+# 跑全部同步任务
+pdm run python -m app.tools.sync_cli all
+
+# 单独跑某个 Job（透传 Orchestrator.run_job）
+pdm run python -m app.tools.sync_cli job fund_nav
+
+# 只读诊断：确认 jisilu_indicator 是否已含 level（B2 端到端验证）
+pdm run python -m app.tools.sync_cli verify-jisilu
+```
+
+或沿用旧入口 `sync_metadata.py`（等价）：
+```powershell
+pdm run python -m app.tools.sync_metadata --job temperature
+```
+
+> `verify-jisilu` 期望输出 `level 字段: ['median_pb_level', 'median_pe_level']`；若为空说明 B2 尚未在真实数据生效，需先跑 `temperature` 抓取。
+
+## 8. 乖离率计算暂停（2026-08-02）
+
+- **现状**：`TemperatureJob._fetch_data` 内的乖离率块在运行时会出错。已在 `jobs.py` 顶部加 `SKIP_BIAS = True` 开关，跳过时记 `logger.warning` 提醒，**不落库乖离率数据**。原逻辑保留为注释块（`TODO(乖离率)`）备查。
+- **放开条件**：后期找到可行方案后，将 `SKIP_BIAS` 置 `False` 并取消原逻辑块注释即可。放开不影响 `sync_cli.py` 用法。
+- **影响**：本次温度同步不含乖离率（前端若依赖乖离率展示需另行处理，当前概览页三连不依赖）。
