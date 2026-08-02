@@ -8,6 +8,11 @@
       :navs="headerNavs"
     />
 
+    <PageHeaderBar
+      title="市场探市"
+      subtitle="指数快照、行业机会与流动性一览，辅助判断当前布局方向"
+    />
+
     <!-- ============================================================ -->
     <!-- 温度数据仪表盘                                                -->
     <!-- ============================================================ -->
@@ -396,6 +401,7 @@ import TemperatureGaugeCard from "@/components/TemperatureGaugeCard/index.vue";
 import MetricCard from "@/components/MetricCard/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
+import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
 import { MARKET_LOGO, useMarketHeaderNavs } from "@/components/MarketHeader/config";
 import { marketFooterLegend, buildMarketFooterSources } from "@/components/MarketFooter/config";
 import { batchFetchQuotes } from "@/utils/realtimeDataSources";
