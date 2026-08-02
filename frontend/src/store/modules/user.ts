@@ -11,10 +11,12 @@ import {
   type UserResult,
   type RefreshTokenResult,
   getLogin,
-  refreshTokenApi
+  refreshTokenApi,
+  logoutApi
 } from "@/api/user";
 import { useMultiTagsStoreHook } from "./multiTags";
 import { type DataInfo, setToken, removeToken, userKey } from "@/utils/auth";
+import { supabase } from "@/utils/supabase";
 
 export const useUserStore = defineStore("pure-user", {
   state: (): userType => ({
@@ -76,15 +78,26 @@ export const useUserStore = defineStore("pure-user", {
           });
       });
     },
-    /** 前端登出（不调用接口） */
-    logOut() {
-      this.username = "";
-      this.roles = [];
-      this.permissions = [];
-      removeToken();
-      useMultiTagsStoreHook().handleTags("equal", [...routerArrays]);
-      resetRouter();
-      router.push("/login");
+    /** 登出：统一走后端 /api/auth/logout，由后端负责服务端作废会话 */
+    async logOut() {
+      try {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token ?? null;
+        await logoutApi(token);
+      } catch (e) {
+        // 后端登出失败也不阻塞前端退出
+        console.warn("后端退出接口调用失败，仍继续前端清理：", e);
+      } finally {
+        this.username = "";
+        this.roles = [];
+        this.permissions = [];
+        removeToken();
+        // 清本地 Supabase session（local 仅清本地存储，不发网络请求）
+        supabase.auth.signOut({ scope: "local" }).catch(() => {});
+        useMultiTagsStoreHook().handleTags("equal", [...routerArrays]);
+        resetRouter();
+        router.push("/login");
+      }
     },
     /** 刷新`token` */
     async handRefreshToken(data) {

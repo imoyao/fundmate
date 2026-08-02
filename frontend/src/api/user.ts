@@ -43,3 +43,14 @@ export const getLogin = (data?: object) => {
 export const refreshTokenApi = (data?: object) => {
   return http.request<RefreshTokenResult>("post", "/refresh-token", { data });
 };
+
+/** 退出登录（统一走后端接口，由后端负责服务端作废 Supabase session） */
+export const logoutApi = (supabaseToken?: string | null) => {
+  return http.request<{ success: boolean }>(
+    "post",
+    "/auth/logout",
+    supabaseToken
+      ? { headers: { Authorization: `Bearer ${supabaseToken}` } }
+      : {}
+  );
+};

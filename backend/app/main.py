@@ -21,6 +21,7 @@ from werkzeug.exceptions import HTTPException  # noqa: E402
 from app.core.database import init_db  # noqa: E402
 from app.core.exceptions import ErrorCode, SBException  # noqa: E402
 from app.domains.assets.views import bp as assets_bp  # noqa: E402
+from app.domains.auth.views import auth_bp  # noqa: E402
 from app.domains.funds.views import bp as funds_bp  # noqa: E402
 from app.domains.health import bp as health_bp  # noqa: E402
 from app.domains.importers.views import importers_bp  # noqa: E402
@@ -64,6 +65,7 @@ def create_app() -> APIFlask:
     # 注册蓝图
     app.register_blueprint(health_bp)
     app.register_blueprint(positions_bp)
+    app.register_blueprint(auth_bp)
     app.register_blueprint(assets_bp)
     app.register_blueprint(transactions_bp)
     app.register_blueprint(summary_bp)

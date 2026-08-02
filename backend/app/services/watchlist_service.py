@@ -226,8 +226,6 @@ def build_home_summary(db: Session) -> List[Dict[str, Any]]:
     pinned_ids = {item.id for item in pinned}
 
     if len(result_items) < 5:
-        from sqlalchemy import func
-
         needed = 5 - len(result_items)
         market_value_subq = (
             db.query(Position.symbol, func.sum(Position.quantity * Position.current_price).label('market_value'))

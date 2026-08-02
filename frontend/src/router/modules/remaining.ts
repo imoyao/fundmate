@@ -40,6 +40,17 @@ export default [
       showLink: false,        // 不在菜单中显示
     }
   },
+  // 在 remaining 路由数组中新增温度计页面
+  {
+    path: "/temperature",
+    name: "Temperature",
+    component: () => import("@/views/temperature/index.vue"),
+    meta: {
+      title: "市场温度计",
+      showLink: false,
+      requiresAuth: true, // 专属数据，需要登录才能访问
+    },
+  },
   {
     path: "/redirect",
     component: Layout,
@@ -51,7 +62,11 @@ export default [
       {
         path: "/redirect/:path(.*)",
         name: "Redirect",
-        component: () => import("@/layout/redirect.vue")
+        component: () => import("@/layout/redirect.vue"),
+        meta: {
+          title: "Redirect",
+          showLink: false
+        }
       }
     ]
   }

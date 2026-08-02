@@ -65,6 +65,12 @@ export function useSupabaseAuth() {
     return data.session;
   };
 
+  // 获取当前会话的 access_token（用于退出时传给后端做服务端作废）
+  const getAccessToken = async (): Promise<string | null> => {
+    const { data } = await supabase.auth.getSession();
+    return data.session?.access_token ?? null;
+  };
+
   // 初始化认证监听
   const initAuthListener = () => {
     supabase.auth.onAuthStateChange((event, newSession) => {

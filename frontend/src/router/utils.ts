@@ -46,6 +46,10 @@ function ascending(arr: any[]) {
     if (!v.meta) {
       v.meta = {};
     }
+    // 递归兜底：子路由的 meta 也可能缺失（如 redirect 子路由），同样补 {}
+    if (v.children && v.children.length) {
+      ascending(v.children);
+    }
     // 当rank不存在时，根据顺序自动创建，首页路由永远在第一位
     if (handRank(v)) v.meta.rank = index + 2;
   });
@@ -56,15 +60,20 @@ function ascending(arr: any[]) {
   );
 }
 
-/** 过滤meta中showLink为false的菜单 */
+/** 过滤meta中showLink为false的菜单
+ * 注意：showLink 为 false 的父级通常是“目录型标题”（如「总览」），自身不可点击，
+ * 但只要其下仍有可见子项，就应保留该父级以渲染子菜单，而非整棵删除。 */
 function filterTree(data: RouteComponent[]) {
-  const newTree = cloneDeep(data).filter(
-    (v: { meta: { showLink: boolean } }) => v.meta?.showLink !== false
+  const newTree = cloneDeep(data);
+  newTree.forEach((v: any) => {
+    if (v.children) v.children = filterTree(v.children);
+  });
+  // 自身不可见（showLink:false）且无可见子项的节点才被移除
+  return newTree.filter(
+    (v: any) =>
+      v.meta?.showLink !== false ||
+      (v.children && v.children.length !== 0)
   );
-  newTree.forEach(
-    (v: { children }) => v.children && (v.children = filterTree(v.children))
-  );
-  return newTree;
 }
 
 /** 过滤children长度为0的的目录，当目录下没有菜单时，会过滤此目录，目录没有赋予roles权限，当目录下只要有一个菜单有显示权限，那么此目录就会显示 */

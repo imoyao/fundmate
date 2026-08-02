@@ -1,7 +1,6 @@
 import Cookies from "js-cookie";
 import { useUserStoreHook } from "@/store/modules/user";
 import { storageLocal, isString, isIncludeAllChildren } from "@pureadmin/utils";
-import { supabase } from "@/utils/supabase";
 
 export interface DataInfo<T> {
   /** token */
@@ -121,8 +120,8 @@ export function removeToken() {
   Cookies.remove(TokenKey);
   Cookies.remove(multipleTabsKey);
   storageLocal().removeItem(userKey);
-  // 新增：清理 Supabase session
-  supabase.auth.signOut();
+  // 注意：Supabase session 的清理统一由后端 /api/auth/logout 负责，
+  // 前端不再直连 supabase.co，避免把认证请求暴露在公网。
 }
 
 /** 格式化token（jwt格式） */
