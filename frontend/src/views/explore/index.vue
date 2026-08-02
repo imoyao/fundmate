@@ -1,212 +1,144 @@
 <!-- frontend/src/views/explore/index.vue -->
 <template>
   <div class="explore-page">
-    <!-- ===== 顶部导航 ===== -->
-    <header class="explore-header">
-      <div class="header-inner">
-        <div class="logo-area">
-          <span class="logo">多倍贝</span>
-          <span class="badge">探市 · 研究</span>
-        </div>
-        <div class="nav-actions">
-          <el-button link @click="showWhyModal">关于 多倍贝</el-button>
-          <el-button type="primary" size="small" @click="scrollToAdd"
-            >开始体验 ↓</el-button
-          >
-          <el-button type="primary" @click="goToRegister">立即注册 →</el-button>
-        </div>
-      </div>
-    </header>
+    <!-- ===== 顶部导航（公共组件，与温度计完全一致） ===== -->
+    <MarketHeader
+      :logo="MARKET_LOGO"
+      badge="探市"
+      :navs="headerNavs"
+    />
 
     <!-- ============================================================ -->
     <!-- 温度数据仪表盘                                                -->
     <!-- ============================================================ -->
     <section class="temperature-dashboard">
       <!-- 综合温度 + 恐惧贪婪 + 股债性价比（比例 2:1:1） -->
-      <div class="primary-grid">
+      <MetricGrid>
         <!-- 综合温度 -->
-        <div class="primary-card primary-card-main" @click="goToTemperature">
-          <div class="primary-ring">
-            <svg width="80" height="80" viewBox="0 0 80 80">
-              <circle
-                cx="40"
-                cy="40"
-                r="34"
-                stroke="var(--bg-soft)"
-                stroke-width="6"
-                fill="none"
-              />
-              <circle
-                class="primary-ring-fill"
-                cx="40"
-                cy="40"
-                r="34"
-                stroke="var(--temp-mid)"
-                stroke-width="6"
-                fill="none"
-                stroke-linecap="round"
-                :stroke-dasharray="213.63"
-                :stroke-dashoffset="
-                  213.63 * (1 - (compositeTemperature?.value ?? 0) / 100)
-                "
-              />
-            </svg>
-            <div class="primary-ring-value">
-              <span class="primary-number">{{
-                compositeTemperature?.value != null
-                  ? compositeTemperature.value
-                  : "--"
-              }}</span>
-              <span class="primary-degree">°</span>
-            </div>
-          </div>
-          <div class="primary-content">
-            <div class="primary-header">
-              <span class="primary-title">综合温度</span>
-              <TemperatureLevelBadge :level="compositeTemperature?.level || '暂无'" />
-            </div>
-            <div class="primary-desc">
-              综合6个市场指标
-              <span class="primary-link">查看温度计 ›</span>
-            </div>
+        <TemperatureGaugeCard
+          class="gauge-card--featured"
+          :value="compositeTemperature?.value ?? null"
+          title="综合温度"
+          :level="compositeTemperature?.level || '暂无'"
+          caption="综合6个市场指标"
+          size="sm"
+          clickable
+          @click="goToTemperature"
+        >
+          <template #footer>
             <div class="primary-bar">
-              <div class="primary-track">
-                <div
-                  class="primary-fill"
-                  :style="{
-                    width:
-                      (compositeTemperature?.value != null
-                        ? Math.max(0, Math.min(100, compositeTemperature.value))
-                        : 0) + '%'
-                  }"
-                />
-              </div>
+              <div
+                class="primary-fill"
+                :style="{
+                  width:
+                    (compositeTemperature?.value != null
+                      ? Math.max(0, Math.min(100, compositeTemperature.value))
+                      : 0) + '%',
+                  background: progressColor
+                }"
+              />
             </div>
-          </div>
-        </div>
+            <span class="primary-link">查看温度计 ›</span>
+          </template>
+        </TemperatureGaugeCard>
 
         <!-- 恐惧贪婪 -->
-        <div class="primary-card">
-          <div class="primary-header">
-            <span class="primary-title">恐惧贪婪</span>
-          </div>
-          <div class="primary-body">
-            <span class="primary-value">{{
-              fearData ? fearData.value : "--"
-            }}</span>
-            <TemperatureLevelBadge :level="fearData?.label || '暂无数据'" size="sm" />
-          </div>
-        </div>
+        <MetricCard
+          title="恐惧贪婪"
+          :value="fearData ? fearData.value : null"
+          :level="fearData?.label || '暂无数据'"
+        />
 
         <!-- 股债性价比 -->
-        <div class="primary-card">
-          <div class="primary-header">
-            <span class="primary-title">股债性价比</span>
-          </div>
-          <div class="primary-body">
-            <span class="primary-value"
-              >{{ selfCalcPercent != null ? selfCalcPercent : "--"
-              }}<span class="primary-unit">%</span></span
-            >
-            <TemperatureLevelBadge :level="selfCalcLevel" size="sm" />
-          </div>
+        <MetricCard
+          title="股债性价比"
+          :value="selfCalcPercent != null ? selfCalcPercent : null"
+          unit="%"
+          :level="selfCalcLevel"
+        />
+      </MetricGrid>
+
+      <!-- L2：市场情绪 + 估值指标（两列等宽，避免重心偏左） -->
+      <div class="metrics-row">
+        <!-- 市场情绪 -->
+        <div class="metrics-group metrics-group--half">
+          <SectionHeader title="市场情绪" />
+          <MetricGrid>
+            <MetricCard
+              title="且慢"
+              :value="qiemanData ? qiemanData.value : null"
+              unit="°"
+              :level="qiemanData?.label || '暂无'"
+            />
+            <MetricCard
+              title="有知有行"
+              :value="youzhiData ? youzhiData.value : null"
+              unit="°"
+              :level="youzhiData?.label || '暂无'"
+            />
+            <MetricCard
+              title="韭圈儿中长期"
+              :value="jiucaishuoMediumData ? jiucaishuoMediumData.value : null"
+              unit="°"
+              :level="jiucaishuoMediumData?.label || '暂无'"
+            />
+          </MetricGrid>
+        </div>
+
+        <!-- 估值指标 -->
+        <div class="metrics-group metrics-group--half">
+          <SectionHeader title="估值指标" />
+          <MetricGrid>
+            <MetricCard
+              title="中位PB"
+              :value="jisiluIndicator?.median_pb ?? null"
+              unit="倍"
+              :level="pbLevel"
+              :caption="pbCaption"
+            />
+            <MetricCard
+              title="中位PE"
+              :value="jisiluIndicator?.median_pe ?? null"
+              unit="倍"
+              :level="peLevel"
+              :caption="peCaption"
+            />
+            <MetricCard
+              title="可转债"
+              :value="cbTemperature != null ? cbTemperature : null"
+              unit="°"
+              :level="cbLabel || '暂无'"
+            />
+          </MetricGrid>
         </div>
       </div>
 
-      <!-- L2：分组卡片 -->
-      <div class="group-grid">
-        <!-- 市场情绪 -->
-        <div class="group-block">
-          <div class="group-title">市场情绪</div>
-          <div class="group-cards">
-            <div class="mini-card">
-              <span class="mini-source">且慢</span>
-              <span class="mini-value">{{
-                qiemanData ? qiemanData.value : "--"
-              }}</span>
-              <span class="mini-degree">°</span>
-              <TemperatureLevelBadge :level="qiemanData?.label || '暂无'" size="sm" />
-            </div>
-            <div class="mini-card">
-              <span class="mini-source">有知有行</span>
-              <span class="mini-value">{{
-                youzhiData ? youzhiData.value : "--"
-              }}</span>
-              <span class="mini-degree">°</span>
-              <TemperatureLevelBadge :level="youzhiData?.label || '暂无'" size="sm" />
-            </div>
-            <div class="mini-card">
-              <span class="mini-source">韭圈儿中长期</span>
-              <span class="mini-value">{{
-                jiucaishuoMediumData ? jiucaishuoMediumData.value : "--"
-              }}</span>
-              <span class="mini-degree">°</span>
-              <TemperatureLevelBadge :level="jiucaishuoMediumData?.label || '暂无'" size="sm" />
-            </div>
-          </div>
-        </div>
-
-        <!-- 估值与专项 -->
-        <div class="group-block">
-          <div class="group-title">估值与专项</div>
-          <div class="group-cards">
-            <div class="mini-card mini-compact">
-              <span class="mini-source">中位PB</span>
-              <span class="mini-value">{{
-                jisiluIndicator?.median_pb ?? "--"
-              }}</span>
-              <span class="mini-temp"
-                >{{ jisiluIndicator?.median_pb_temperature ?? "--" }}°</span
-              >
-            </div>
-            <div class="mini-card mini-compact">
-              <span class="mini-source">中位PE</span>
-              <span class="mini-value">{{
-                jisiluIndicator?.median_pe ?? "--"
-              }}</span>
-              <span class="mini-temp"
-                >{{ jisiluIndicator?.median_pe_temperature ?? "--" }}°</span
-              >
-            </div>
-            <div class="mini-card">
-              <span class="mini-source">可转债</span>
-              <span class="mini-value"
-                >{{ cbTemperature != null ? cbTemperature : "--" }}</span
-              >
-              <span class="mini-degree">°</span>
-              <TemperatureLevelBadge :level="cbLabel || '暂无'" size="sm" />
-            </div>
-          </div>
-        </div>
-
-        <!-- 流动性 -->
-        <div class="group-block">
-          <div class="group-title">流动性</div>
-          <div class="group-cards">
-            <div class="mini-card mini-wide">
-              <span class="mini-source">成交额</span>
-              <span class="mini-value">{{
-                volumeData ? volumeData.value : "--"
-              }}</span>
-              <span class="mini-unit">亿</span>
-              <TemperatureLevelBadge :level="volumeData?.label || '暂无'" size="sm" />
-            </div>
-            <div class="mini-card mini-wide">
-              <span class="mini-source">深度分析</span>
-              <div class="mini-actions">
-                <el-button
-                  type="text"
-                  class="mini-btn"
-                  @click="handleShowIndustryCrowding"
-                  >行业拥挤度 →</el-button
-                >
-                <el-button
-                  type="text"
-                  class="mini-btn"
-                  @click="handleShowSectorFlow"
-                  >板块资金流 →</el-button
-                >
+      <!-- L3：流动性（独占一行，横向大卡片，信息更聚焦） -->
+      <div class="metrics-row metrics-row--single">
+        <div class="liquidity-block">
+          <SectionHeader title="流动性" />
+          <div class="liquidity-card">
+            <div class="liquidity-metric">
+              <span class="liquidity-metric__label">今日成交额</span>
+              <div class="liquidity-metric__body">
+                <span class="liquidity-metric__value">{{ volumeData ? volumeData.value : '--' }}</span>
+                <span class="liquidity-metric__unit">亿</span>
+                <TemperatureLevelBadge :level="volumeData?.label || '暂无'" size="sm" />
               </div>
+              <span class="liquidity-metric__hint">成交量热度反映市场活跃度</span>
+            </div>
+            <div class="liquidity-divider" />
+            <div class="liquidity-actions">
+              <el-button
+                type="text"
+                class="liquidity-btn"
+                @click="handleShowIndustryCrowding"
+              >行业拥挤度 →</el-button>
+              <el-button
+                type="text"
+                class="liquidity-btn"
+                @click="handleShowSectorFlow"
+              >板块资金流 →</el-button>
             </div>
           </div>
         </div>
@@ -436,79 +368,13 @@
     </section>
 
     <!-- ============================================================ -->
-    <!-- 底部：数据来源 + 免责声明                                     -->
+    <!-- 底部（公共组件）：数据来源 + 免责声明                         -->
     <!-- ============================================================ -->
-    <footer class="footer-section">
-      <div class="footer-inner">
-        <div class="footer-legend">
-          <span class="legend-item"
-            ><span class="legend-dot legend-low"></span>偏低（机会）</span
-          >
-          <span class="legend-item"
-            ><span class="legend-dot legend-mid"></span>适中</span
-          >
-          <span class="legend-item"
-            ><span class="legend-dot legend-high"></span>偏高（谨慎）</span
-          >
-        </div>
-        <div class="footer-sources">
-          <span class="footer-label">数据来源：</span>
-          <a
-            v-if="links.jiucaishuo"
-            class="footer-source"
-            :href="links.jiucaishuo"
-            target="_blank"
-            rel="noopener"
-            >韭圈儿</a
-          >
-          <a
-            v-if="links.jisilu"
-            class="footer-source"
-            :href="links.jisilu"
-            target="_blank"
-            rel="noopener"
-            >集思录</a
-          >
-          <a
-            v-if="links.eastmoney"
-            class="footer-source"
-            :href="links.eastmoney"
-            target="_blank"
-            rel="noopener"
-            >东方财富</a
-          >
-          <a
-            v-if="links.qieman"
-            class="footer-source"
-            :href="links.qieman"
-            target="_blank"
-            rel="noopener"
-            >且慢</a
-          >
-          <a
-            v-if="links.youzhiyouxing"
-            class="footer-source"
-            :href="links.youzhiyouxing"
-            target="_blank"
-            rel="noopener"
-            >有知有行</a
-          >
-          <span class="footer-source footer-source-self">自算·股债性价比</span>
-          <span class="footer-source footer-source-dev"
-            >行业拥挤度（开发中）</span
-          >
-          <span class="footer-source footer-source-dev"
-            >板块资金流（开发中）</span
-          >
-        </div>
-        <div class="footer-disclaimer">
-          <span class="footer-disclaimer-text"
-            >市场数据仅供参考，不构成投资建议。</span
-          >
-        </div>
-        <div class="footer-copyright">© 2026 多倍贝 · 让投资更从容</div>
-      </div>
-    </footer>
+    <MarketFooter
+      :legend="footerLegend"
+      :sources="footerSources"
+      copyright="© 2026 多倍贝 · 让投资更从容"
+    />
   </div>
 </template>
 
@@ -524,6 +390,14 @@ import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import TemperatureLevelBadge from "@/components/TemperatureLevelBadge/index.vue";
+import MarketHeader from "@/components/MarketHeader/index.vue";
+import MarketFooter from "@/components/MarketFooter/index.vue";
+import TemperatureGaugeCard from "@/components/TemperatureGaugeCard/index.vue";
+import MetricCard from "@/components/MetricCard/index.vue";
+import MetricGrid from "@/components/MetricGrid/index.vue";
+import SectionHeader from "@/components/SectionHeader/index.vue";
+import { MARKET_LOGO, useMarketHeaderNavs } from "@/components/MarketHeader/config";
+import { marketFooterLegend, buildMarketFooterSources } from "@/components/MarketFooter/config";
 import { batchFetchQuotes } from "@/utils/realtimeDataSources";
 import { getTemperatureOverview } from "@/api/temperature";
 
@@ -660,6 +534,38 @@ const tempLoading = ref(false);
 // 综合温度（后端两源合成，当前占位）
 const compositeTemperature = ref<{ value: number; level: string } | null>(null);
 
+// 综合温度进度条颜色：按温度档位取色，偏低时为绿色
+const progressColor = computed(() => {
+  const v = compositeTemperature.value?.value;
+  if (v == null || Number.isNaN(v)) return "var(--temp-mid)";
+  if (v < 40) return "var(--temp-low)";
+  if (v > 60) return "var(--temp-high)";
+  return "var(--temp-mid)";
+});
+
+// 根据估值温度推断等级（PB/PE 温度越低代表估值越便宜）
+const inferValuationLevel = (temperature: number | null | undefined): string => {
+  if (temperature == null || Number.isNaN(temperature)) return "暂无";
+  if (temperature < 30) return "偏低";
+  if (temperature > 70) return "偏高";
+  return "适中";
+};
+
+const pbLevel = computed(() => inferValuationLevel(jisiluIndicator.value?.median_pb_temperature));
+const peLevel = computed(() => inferValuationLevel(jisiluIndicator.value?.median_pe_temperature));
+
+const pbCaption = computed(() => {
+  const temp = jisiluIndicator.value?.median_pb_temperature;
+  if (temp == null) return "估值温度 --";
+  return `估值温度 ${temp}° · 越低越便宜`;
+});
+
+const peCaption = computed(() => {
+  const temp = jisiluIndicator.value?.median_pe_temperature;
+  if (temp == null) return "估值温度 --";
+  return `估值温度 ${temp}° · 越低越便宜`;
+});
+
 // 自算·股债利差（不涉 PE）
 const selfCalcPercent = ref<number | null>(null);
 const selfCalcLevel = ref<string>("数据暂缺");
@@ -680,8 +586,10 @@ const cbLabel = ref<string>("");
 const jisiluIndicator = ref<{
   median_pb: number;
   median_pb_temperature: number;
+  median_pb_level?: string;
   median_pe: number;
   median_pe_temperature: number;
+  median_pe_level?: string;
 } | null>(null);
 
 const fetchTemperature = async () => {
@@ -695,7 +603,7 @@ const fetchTemperature = async () => {
     const selfCalc = data.composites?.self_calc;
     if (selfCalc) {
       selfCalcPercent.value = selfCalc.percent ?? null;
-      selfCalcLevel.value = selfCalc.level || "正常";
+      selfCalcLevel.value = selfCalc.level ?? "暂无";
     } else {
       selfCalcLevel.value = "数据暂缺";
     }
@@ -749,8 +657,10 @@ const fetchTemperature = async () => {
       jisiluIndicator.value = {
         median_pb: indicator.median_pb,
         median_pb_temperature: indicator.median_pb_temperature,
+        median_pb_level: indicator.median_pb_level,
         median_pe: indicator.median_pe,
-        median_pe_temperature: indicator.median_pe_temperature
+        median_pe_temperature: indicator.median_pe_temperature,
+        median_pe_level: indicator.median_pe_level
       };
     }
 
@@ -1070,40 +980,17 @@ const getTypeLabel = (type: string): string => {
 // ================================================================
 // 页面方法
 // ================================================================
-const scrollToAdd = () => {
-  document
-    .getElementById("add-section")
-    ?.scrollIntoView({ behavior: "smooth" });
-};
-
-const loadDemoData = () => {
-  hotAssets.forEach(item => {
-    try {
-      addHolding({
-        symbol: item.symbol,
-        name: item.name,
-        type: item.type,
-        costPrice: item.costPrice,
-        quantity: item.quantity
-      });
-    } catch {
-      // ignore
-    }
-  });
-  ElMessage.success("已加载演示数据");
-};
-
-const goToRegister = () => {
-  router.push({ path: "/login", query: { from: "explore" } });
-};
-
 const goToTemperature = () => {
   router.push("/temperature");
 };
 
-const showWhyModal = () => {
-  ElMessage.info("多倍贝：全资产记账 + 投资分析工具");
-};
+// ================================================================
+// Header / Footer 公共组件数据
+// ================================================================
+const headerNavs = useMarketHeaderNavs();
+
+const footerLegend = marketFooterLegend;
+const footerSources = computed(() => buildMarketFooterSources(links.value));
 
 // ================================================================
 // 生命周期
@@ -1134,51 +1021,6 @@ onMounted(() => {
 /* ============================================================
    3. 顶部导航
    ============================================================ */
-.explore-header {
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  backdrop-filter: blur(12px);
-  background: rgba(255, 255, 255, 0.7);
-  border-bottom: 1px solid var(--border-light);
-
-  .header-inner {
-    max-width: 1280px;
-    margin: 0 auto;
-    padding: 0 24px;
-    height: 64px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  .logo-area {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-
-    .logo {
-      font-weight: 700;
-      font-size: 18px;
-      color: var(--brand-700);
-    }
-
-    .badge {
-      font-size: 12px;
-      color: var(--text-secondary);
-      background: var(--bg-soft);
-      padding: 2px 10px;
-      border-radius: 12px;
-    }
-  }
-
-  .nav-actions {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-  }
-}
-
 /* ============================================================
    4. 温度仪表盘
    ============================================================ */
@@ -1191,161 +1033,42 @@ onMounted(() => {
   gap: 16px;
 }
 
-/* ---- 4.0 综合温度 + 恐惧贪婪 + 股债性价比（比例 2:1:1） ---- */
-.primary-grid {
-  display: grid;
-  grid-template-columns: 2fr 1fr 1fr;
-  gap: 16px;
+/* 探市「综合温度」卡内的进度条与跳转提示（来自 TemperatureGaugeCard 的 footer 插槽，属父组件作用域） */
+.primary-bar {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--bg-soft);
+  overflow: hidden;
 }
 
-.primary-card {
-  background: var(--bg-card);
-  border-radius: 12px;
-  padding: 16px 20px;
-  border: 1px solid var(--border-light);
-  box-shadow: var(--shadow-raised);
-  display: flex;
-  align-items: center;
-  gap: 16px;
-
-  .primary-header {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-
-  .primary-title {
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--text-tertiary);
-  }
-
-  .primary-body {
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-    flex-wrap: wrap;
-  }
-
-  .primary-value {
-    font-size: 28px;
-    font-weight: 700;
-    color: var(--text-primary);
-    font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
-    line-height: 1.2;
-  }
-
-  .primary-unit {
-    font-size: 14px;
-    color: var(--text-secondary);
-  }
-
-  .primary-desc {
-    font-size: 12px;
-    color: var(--text-tertiary);
-    margin-bottom: 4px;
-
-    .primary-link {
-      margin-left: 6px;
-      color: var(--el-color-primary);
-      cursor: pointer;
-      white-space: nowrap;
-    }
-  }
-
-  .primary-bar {
-    height: 3px;
-    border-radius: 2px;
-    background: var(--bg-soft);
-    overflow: hidden;
-  }
-
-  .primary-fill {
-    height: 100%;
-    border-radius: 2px;
-    background: linear-gradient(
-      to right,
-      var(--temp-low),
-      var(--temp-mid),
-      var(--temp-high)
-    );
-    transition: width 0.8s ease;
-  }
+.primary-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.8s ease, background 0.6s ease;
 }
 
-/* 综合温度卡片占2份，内部用flex，环形图较小 */
-.primary-card-main {
+.primary-link {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--el-color-primary);
   cursor: pointer;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
-
-  &:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-raised), 0 0 0 1px var(--el-color-primary);
-  }
-
-  .primary-ring {
-    position: relative;
-    width: 80px;
-    height: 80px;
-    flex-shrink: 0;
-  }
-
-  .primary-ring svg {
-    width: 100%;
-    height: 100%;
-    transform: rotate(-90deg);
-  }
-
-  .primary-ring-fill {
-    transition:
-      stroke-dashoffset 0.8s ease,
-      stroke 0.6s ease;
-  }
-
-  .primary-ring-value {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 1px;
-  }
-
-  .primary-number {
-    font-size: 22px;
-    font-weight: 700;
-    color: var(--text-primary);
-    font-family: var(--font-mono),serif;
-    font-variant-numeric: tabular-nums;
-    line-height: 1;
-  }
-
-  .primary-degree {
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--text-secondary);
-  }
-
-  .primary-content {
-    flex: 1;
-    min-width: 120px;
-  }
-
-  .primary-header {
-    margin-bottom: 2px;
-  }
+  white-space: nowrap;
 }
 
-/* ---- 4.2 分组卡片 ---- */
-.group-grid {
+/* ---- 4.2 分组指标区：情绪/估值两列等宽，流动性独占一行 ---- */
+.metrics-row {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: 1fr 1fr;
   gap: 16px;
+  margin-top: 16px;
+
+  &--single {
+    grid-template-columns: 1fr;
+  }
 }
 
-.group-block {
+.metrics-group {
   background: var(--bg-card);
   border-radius: 12px;
   padding: 16px 18px;
@@ -1353,81 +1076,85 @@ onMounted(() => {
   box-shadow: var(--shadow-raised);
 }
 
-.group-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  margin-bottom: 10px;
-  letter-spacing: 0.3px;
-}
-
-.group-cards {
+.liquidity-block {
+  background: var(--bg-card);
+  border-radius: 12px;
+  padding: 16px 18px;
+  border: 1px solid var(--border-light);
+  box-shadow: var(--shadow-raised);
   display: flex;
   flex-direction: column;
-  gap: 8px;
 }
 
-.mini-card {
+.liquidity-card {
   display: flex;
+  flex-direction: row;
   align-items: center;
-  gap: 6px;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--border-light);
-  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 24px;
+  margin-top: 4px;
+  padding: 8px 4px;
+}
 
-  &:last-child {
-    border-bottom: none;
+.liquidity-metric {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  text-align: left;
+
+  &__label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+  }
+
+  &__body {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  &__value {
+    font-size: 42px;
+    font-weight: 700;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+  }
+
+  &__unit {
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--text-secondary);
+  }
+
+  &__hint {
+    font-size: 12px;
+    color: var(--text-tertiary);
   }
 }
 
-.mini-source {
-  font-size: 12px;
-  color: var(--text-tertiary);
-  min-width: 60px;
+.liquidity-divider {
+  width: 1px;
+  height: 64px;
+  background: var(--border-light);
+  flex-shrink: 0;
 }
 
-.mini-value {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--text-primary);
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-}
-
-.mini-degree {
-  font-size: 14px;
-  font-weight: 400;
-  color: var(--text-tertiary);
-}
-
-.mini-unit {
-  font-size: 13px;
-  color: var(--text-tertiary);
-}
-
-.mini-temp {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  margin-left: auto;
-}
-
-.mini-compact .mini-source {
-  min-width: 50px;
-}
-
-.mini-wide {
-  flex-wrap: wrap;
-}
-
-.mini-actions {
+.liquidity-actions {
   display: flex;
-  gap: 8px;
-  margin-left: auto;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 120px;
 }
 
-.mini-btn {
-  font-size: 12px;
+.liquidity-btn {
+  justify-content: flex-start;
+  font-size: 13px;
   color: var(--text-secondary);
   padding: 0;
 
@@ -1707,110 +1434,22 @@ onMounted(() => {
 }
 
 /* ============================================================
-   7. 底部（数据来源 + 免责声明）
-   ============================================================ */
-.footer-section {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 16px 24px 32px;
-  border-top: 1px solid var(--border-light);
-}
-
-.footer-inner {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.footer-legend {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 16px;
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.legend-item {
-  display: inline-flex;
-  align-items: center;
-}
-
-.legend-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  margin-right: 5px;
-}
-.legend-low {
-  background: var(--temp-low);
-}
-.legend-mid {
-  background: var(--temp-mid);
-}
-.legend-high {
-  background: var(--temp-high);
-}
-
-.legend-note {
-  color: var(--text-tertiary);
-  margin-left: 4px;
-}
-
-.footer-sources {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 12px;
-}
-
-.footer-label {
-  font-size: 12px;
-  color: var(--text-tertiary);
-  font-weight: 500;
-}
-
-.footer-source {
-  font-size: 12px;
-  color: var(--text-secondary);
-
-  &::before {
-    content: "·";
-    margin-right: 8px;
-    color: var(--text-tertiary);
-  }
-
-  &:first-of-type::before {
-    display: none;
-  }
-
-  &.footer-source-dev {
-    color: var(--text-tertiary);
-    font-style: italic;
-  }
-  &.footer-source-self {
-    cursor: default;
-  }
-}
-
-.footer-disclaimer-text {
-  font-size: 11px;
-  color: var(--text-tertiary);
-  line-height: 1.6;
-}
-
-.footer-copyright {
-  font-size: 11px;
-  color: var(--text-disabled);
-}
-
-/* ============================================================
    8. 响应式
    ============================================================ */
 @media (max-width: 1024px) {
-  .group-grid {
-    grid-template-columns: 1fr 1fr;
+  .metrics-row {
+    grid-template-columns: 1fr;
+  }
+
+  .liquidity-card {
+    flex-direction: row;
+    align-items: center;
+    gap: 20px;
+  }
+
+  .liquidity-divider {
+    width: 1px;
+    height: 64px;
   }
 }
 
@@ -1819,42 +1458,39 @@ onMounted(() => {
     padding: 0 16px 12px;
   }
 
-  .primary-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .primary-card-main .primary-ring {
-    width: 64px;
-    height: 64px;
-  }
-  .primary-card-main .primary-number {
-    font-size: 18px;
-  }
-  .primary-card-main .primary-degree {
-    font-size: 13px;
-  }
-
-  .group-grid {
-    grid-template-columns: 1fr;
-  }
-
   .snapshot-items {
     gap: 12px;
+  }
+
+  .liquidity-card {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 16px;
+  }
+
+  .liquidity-metric {
+    align-items: center;
+    text-align: center;
+  }
+
+  .liquidity-divider {
+    width: auto;
+    height: 1px;
+  }
+
+  .liquidity-actions {
+    flex-direction: row;
+    justify-content: center;
   }
 }
 
 @media (max-width: 480px) {
-  .primary-card-main .primary-number {
-    font-size: 18px;
-  }
-  .primary-card-main .primary-degree {
-    font-size: 13px;
-  }
   .core-value {
     font-size: 26px;
   }
-  .mini-value {
-    font-size: 16px;
+
+  .liquidity-metric__value {
+    font-size: 28px;
   }
 }
 </style>
