@@ -36,6 +36,17 @@
         </MetricGrid>
       </section>
 
+      <!-- 温度解读：承接仪表卡拆出的文字信息（恐贪 / 短中长期温度），与圆环卡配套 -->
+      <section class="context-section">
+        <TemperatureContextCard
+          :temperature="compositeValue"
+          :fear-greed="fearGreedValue"
+          :fear-greed-label="fearGreedLabel"
+          :periods="tempPeriods"
+          caption="综合 6 个市场指标与市场情绪推导"
+        />
+      </section>
+
       <!-- 温度趋势图 -->
       <section class="chart-section">
         <SectionHeader title="综合温度趋势">
@@ -140,6 +151,7 @@ import TemperatureGaugeCard from "@/components/TemperatureGaugeCard/index.vue";
 import MetricCard from "@/components/MetricCard/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
+import TemperatureContextCard from "@/components/TemperatureContextCard/index.vue";
 import { MARKET_LOGO, useMarketHeaderNavs } from "@/components/MarketHeader/config";
 import { marketFooterLegend, buildMarketFooterSources } from "@/components/MarketFooter/config";
 
@@ -190,6 +202,32 @@ const compositeValue = computed(() => {
 
 const compositeLevel = computed(() => {
   return overview.value?.composites?.composite_temperature?.level || "";
+});
+
+// 温度解读卡（TemperatureContextCard）所需数据，从 overview 推导
+const fearGreedValue = computed<number | null>(() => {
+  const fear = overview.value?.singles?.find(
+    (s: { source?: string }) => s.source === "jiucaishuo_fear"
+  );
+  const v = fear?.value;
+  return typeof v === "number" ? v : null;
+});
+const fearGreedLabel = computed(() => {
+  const fear = overview.value?.singles?.find(
+    (s: { source?: string }) => s.source === "jiucaishuo_fear"
+  );
+  return fear?.label || "";
+});
+const tempPeriods = computed(() => {
+  const bands = overview.value?.composites?.temperature_bands;
+  if (!bands) return [];
+  return (["short", "medium", "long"] as const)
+    .map(k => bands[k])
+    .filter(Boolean)
+    .map((b: { name?: string; value?: number }) => ({
+      label: b.name || "",
+      value: typeof b.value === "number" ? b.value : null
+    }));
 });
 
 // 核心指标（从 singles 中提取）
@@ -445,6 +483,10 @@ watch(historyDays, () => {
 
 /* 仪表盘区域 */
 .dashboard-section {
+  margin-bottom: 24px;
+}
+
+.context-section {
   margin-bottom: 24px;
 }
 
