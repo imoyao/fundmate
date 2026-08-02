@@ -19,25 +19,21 @@
     <div class="grid grid-cols-1 xl:grid-cols-12 gap-8 mb-8">
       <!-- 左侧：家庭资产看板 -->
       <div class="xl:col-span-8 flex flex-col gap-3 card-hover card-enter">
-        <div class="flex justify-between items-center h-8">
-          <h3
-            class="font-bold text-lg"
-            :style="{ color: 'var(--text-primary)' }"
-          >
-            家庭资产看板
-          </h3>
-          <router-link
-            to="/panorama"
-            class="p-2 rounded-full transition-all shadow-sm hover-card-btn"
-            :style="{
-              backgroundColor: 'var(--bg-soft)',
-              color: 'var(--text-tertiary)'
-            }"
-            title="查看资产详情"
-          >
-            <IconifyIconOffline icon="ep:full-screen" class="text-lg" />
-          </router-link>
-        </div>
+        <SectionHeader title="家庭资产看板">
+          <template #action>
+            <router-link
+              to="/panorama"
+              class="p-2 rounded-full transition-all shadow-sm hover-card-btn"
+              :style="{
+                backgroundColor: 'var(--bg-soft)',
+                color: 'var(--text-tertiary)'
+              }"
+              title="查看资产详情"
+            >
+              <IconifyIconOffline icon="ep:full-screen" class="text-lg" />
+            </router-link>
+          </template>
+        </SectionHeader>
         <div
           class="rounded-2xl p-8 relative h-full"
           :style="{
@@ -194,22 +190,19 @@
       </div>
     </div>
 
-    <!-- ===== 第二排：年化收益追踪 ===== -->
-    <div class="mb-8 flex flex-col gap-3 card-hover card-enter">
-      <div class="flex justify-between items-center h-8">
-        <h3 class="font-bold text-lg" :style="{ color: 'var(--text-primary)' }">
-          年化收益追踪
-        </h3>
-      </div>
-      <div
-        class="rounded-2xl p-6"
-        :style="{
-          backgroundColor: 'var(--bg-card)',
-          boxShadow: 'var(--shadow-raised)',
-          border: '1px solid var(--border-light)'
-        }"
-      >
-        <div class="flex justify-between items-center gap-8">
+    <!-- ===== 第二排：年化收益追踪 + 市场温度（同一层级） ===== -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+      <!-- 左：年化收益追踪 -->
+      <div class="flex flex-col gap-3 card-hover card-enter h-full">
+        <SectionHeader title="年化收益追踪" />
+        <div
+          class="rounded-2xl p-6 h-full flex flex-col justify-center gap-4"
+          :style="{
+            backgroundColor: 'var(--bg-card)',
+            boxShadow: 'var(--shadow-raised)',
+            border: '1px solid var(--border-light)'
+          }"
+        >
           <div class="flex flex-col">
             <span
               class="text-xs mb-1"
@@ -227,7 +220,10 @@
               >基于所有主动投资交易，不含货币基金</span
             >
           </div>
-          <div class="flex gap-8">
+          <div
+            class="flex gap-8 pt-4"
+            :style="{ borderTop: '1px solid var(--border-light)' }"
+          >
             <div class="flex flex-col">
               <span
                 class="text-xs mb-1"
@@ -255,6 +251,31 @@
           </div>
         </div>
       </div>
+
+      <!-- 右：市场温度 -->
+      <div class="flex flex-col gap-3 card-hover card-enter h-full">
+        <SectionHeader title="市场温度">
+          <template #action>
+            <router-link
+              to="/explore"
+              class="text-sm font-medium transition-colors hover:opacity-80"
+              :style="{ color: 'var(--text-tertiary)' }"
+              >探市 →</router-link
+            >
+          </template>
+        </SectionHeader>
+        <TemperatureGaugeCard
+          class="flex-1"
+          style="height: 100%"
+          size="sm"
+          :value="compositeTemperature?.value ?? null"
+          :level="compositeTemperature?.level || ''"
+          title="综合市场温度"
+          caption="市场冷热 · 点击查看详细指标"
+          clickable
+          @click="$router.push('/explore')"
+        />
+      </div>
     </div>
 
     <!-- ===== 第三排：持仓市值最大资产 + 风险热力图 ===== -->
@@ -263,37 +284,33 @@
       <div
         class="lg:col-span-8 flex flex-col gap-3 card-hover card-enter h-full"
       >
-        <div class="flex justify-between items-center h-8">
-          <h3
-            class="font-bold text-lg"
-            :style="{ color: 'var(--text-primary)' }"
-          >
-            {{ watchlistTitle }}
-          </h3>
-          <div class="flex items-center gap-2">
-            <el-button
-              size="small"
-              type="primary"
-              plain
-              @click="showAddWatchlistModal = true"
-            >
-              <template #icon><IconifyIconOffline icon="ep:plus" /></template
-              >添加
-            </el-button>
-            <el-button
-              size="small"
-              type="text"
-              @click="$router.push('/the-road-not-taken')"
-              >特别关注</el-button
-            >
-            <el-button
-              size="small"
-              type="text"
-              @click="$router.push('/watchlist')"
-              >查看全部</el-button
-            >
-          </div>
-        </div>
+        <SectionHeader :title="watchlistTitle">
+          <template #action>
+            <div class="flex items-center gap-2">
+              <el-button
+                size="small"
+                type="primary"
+                plain
+                @click="showAddWatchlistModal = true"
+              >
+                <template #icon><IconifyIconOffline icon="ep:plus" /></template
+                >添加
+              </el-button>
+              <el-button
+                size="small"
+                type="text"
+                @click="$router.push('/the-road-not-taken')"
+                >特别关注</el-button
+              >
+              <el-button
+                size="small"
+                type="text"
+                @click="$router.push('/watchlist')"
+                >查看全部</el-button
+              >
+            </div>
+          </template>
+        </SectionHeader>
         <WatchlistWidget
           ref="watchlistWidgetRef"
           :key="watchlistWidgetKey"
@@ -305,14 +322,7 @@
 
       <!-- 右侧：风险热力图 -->
       <div class="lg:col-span-4 flex flex-col gap-3 card-hover card-enter">
-        <div class="flex justify-between items-center h-8">
-          <h3
-            class="font-bold text-lg"
-            :style="{ color: 'var(--text-primary)' }"
-          >
-            风险热力图
-          </h3>
-        </div>
+        <SectionHeader title="风险热力图" />
         <div
           class="rounded-2xl p-6 h-full flex flex-col"
           :style="{
@@ -358,23 +368,14 @@
       </div>
     </div>
 
-    <!-- ===== 第四排：财务晴雨表 + 心理账户 ===== -->
-    <div class="flex flex-col lg:flex-row gap-8">
+    <!-- ===== 第四排：财务晴雨表 + 心理账户（统一 12 列栅格 + 等宽右栏） ===== -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 mb-8">
       <!-- 财务晴雨表 -->
-      <div class="flex-1 flex flex-col gap-3">
-        <div class="flex justify-between items-center h-8">
-          <h3
-            class="font-bold text-lg flex items-center gap-2"
-            :style="{ color: 'var(--text-primary)' }"
-          >
-            财务晴雨表
-            <IconifyIconOffline
-              icon="ep:info-filled"
-              class="text-sm cursor-help"
-              :style="{ color: 'var(--text-tertiary)' }"
-            />
-          </h3>
-        </div>
+      <div class="lg:col-span-8 flex flex-col gap-3">
+        <SectionHeader
+          title="财务晴雨表"
+          info="基于你的资产负债表与现金流测算的四项关键财务健康度指标"
+        />
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div
             v-for="metric in financialMetrics"
@@ -457,22 +458,9 @@
         </div>
       </div>
 
-      <!-- 心理账户 -->
-      <div class="w-full lg:w-80 shrink-0 flex flex-col gap-3 h-full">
-        <div class="flex justify-between items-center h-8">
-          <h3
-            class="font-bold text-lg"
-            :style="{ color: 'var(--text-primary)' }"
-          >
-            心理账户
-          </h3>
-          <el-button
-            type="text"
-            :icon="Plus"
-            size="small"
-            class="text-tertiary hover:text-brand-700"
-          />
-        </div>
+      <!-- 心理账户（与财务晴雨表同宽右栏 4 列，外层已统一白底卡片容器） -->
+      <div class="lg:col-span-4 flex flex-col gap-3 h-full">
+        <SectionHeader title="心理账户" />
         <div
           class="rounded-2xl p-6 h-full flex flex-col flex-1 card-hover card-enter"
           :style="{
@@ -536,16 +524,17 @@
 <script setup lang="ts">
 import { ref, onMounted, nextTick, onUnmounted, computed } from "vue";
 import * as echarts from "echarts";
-import { Icon as IconifyIconOffline } from "@iconify/vue";
-import { Plus } from "@element-plus/icons-vue";
 import { getSummary } from "@/api/summary";
 import { getPortfolioXirr } from "@/api/performance";
+import { getTemperatureOverview } from "@/api/temperature";
 import type { SummaryData } from "@/api/types";
 import WatchlistWidget from "@/components/WatchlistWidget.vue";
 import AddToWatchlistModal from "@/components/QuickEntry/AddToWatchlistModal.vue";
 
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
+import TemperatureGaugeCard from "@/components/TemperatureGaugeCard/index.vue";
+import SectionHeader from "@/components/SectionHeader/index.vue";
 
 defineOptions({
   name: "Welcome"
@@ -555,6 +544,9 @@ defineOptions({
 const summary = ref<SummaryData | null>(null);
 const portfolioXirr = ref<any>(null);
 const trendMode = ref<"month" | "quarter">("month");
+
+// 综合市场温度（第二排右卡）
+const compositeTemperature = ref<{ value: number; level: string } | null>(null);
 
 const distributionChartRef = ref<HTMLDivElement | null>(null);
 const trendChartRef = ref<HTMLDivElement | null>(null);
@@ -579,13 +571,13 @@ const mentalAccounts = [
     name: "自由计划",
     percent: 19,
     amount: 561043,
-    color: "var(--tag-caramel)"
+    color: "var(--brand-500)"
   },
   {
     name: "生活备用金",
     percent: 65,
     amount: 196136,
-    color: "var(--tag-sage-green)"
+    color: "var(--brand-300)"
   }
 ];
 
@@ -616,6 +608,24 @@ const fetchXirr = async () => {
     portfolioXirr.value = res.data;
   } catch (e) {
     console.error("获取年化收益率失败", e);
+  }
+};
+
+// 综合市场温度（首页概览级，只取综合值，轻量）
+const fetchTemperature = async () => {
+  try {
+    const res = await getTemperatureOverview();
+    const data = (res as any)?.data;
+    if (!data) return;
+    const composite = data.composites?.composite_temperature;
+    if (composite) {
+      compositeTemperature.value = {
+        value: composite.value,
+        level: composite.level || ""
+      };
+    }
+  } catch (e) {
+    console.error("获取市场温度失败:", e);
   }
 };
 
@@ -865,6 +875,7 @@ onMounted(() => {
     nextTick(initCharts);
   });
   fetchXirr();
+  fetchTemperature();
   window.addEventListener("resize", handleResize);
 });
 
