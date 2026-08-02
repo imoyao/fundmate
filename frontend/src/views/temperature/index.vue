@@ -153,10 +153,16 @@
       </section>
     </div>
 
-    <!-- 底部（公共组件，与探市一致） -->
-    <MarketFooter
+    <!-- 底部（页面级页脚，探市 / 温度计 复用） -->
+    <PageFooter
+      revisit-text="温度计给出的是市场冷热参考，不构成投资建议。可前往探市页查看指数快照与行业机会。"
+      :revisit-items="[
+        '回看温度计各指标口径，逐项核对计算方式',
+        '把当前市场冷热记录下来，做纵向对比',
+        '关注公众号获取更多市场温度解读'
+      ]"
       :sources="footerSources"
-      :legend="footerLegend"
+      copyright="© 2026 多倍贝 · 让投资更从容"
     />
   </div>
 </template>
@@ -171,7 +177,7 @@ import { LineChart } from "echarts/charts";
 import { TitleComponent, TooltipComponent, LegendComponent, GridComponent } from "echarts/components";
 import { getTemperatureOverview, getTemperatureHistory, getMultiItems } from "@/api/temperature";
 import MarketHeader from "@/components/MarketHeader/index.vue";
-import MarketFooter from "@/components/MarketFooter/index.vue";
+import PageFooter from "@/components/PageFooter/index.vue";
 import TemperatureGaugeCard from "@/components/TemperatureGaugeCard/index.vue";
 import MetricCard from "@/components/MetricCard/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
@@ -180,7 +186,7 @@ import TemperatureContextCard from "@/components/TemperatureContextCard/index.vu
 import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
 import { useTemperatureStore } from "@/store/modules/temperature";
 import { MARKET_LOGO, useMarketHeaderNavs } from "@/components/MarketHeader/config";
-import { marketFooterLegend, buildMarketFooterSources } from "@/components/MarketFooter/config";
+import { buildMarketFooterSources } from "@/components/MarketFooter/config";
 
 // 注册 ECharts 组件
 use([CanvasRenderer, LineChart, TitleComponent, TooltipComponent, LegendComponent, GridComponent]);
@@ -474,7 +480,6 @@ const fetchBias = async () => {
 // ================================================================
 const headerNavs = useMarketHeaderNavs();
 
-const footerLegend = marketFooterLegend;
 const footerSources = buildMarketFooterSources();
 
 // 温度 store：承载综合温度、股债性价比与市场机会清单

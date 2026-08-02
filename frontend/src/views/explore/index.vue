@@ -375,8 +375,13 @@
     <!-- ============================================================ -->
     <!-- 底部（公共组件）：数据来源 + 免责声明                         -->
     <!-- ============================================================ -->
-    <MarketFooter
-      :legend="footerLegend"
+    <PageFooter
+      revisit-text="探市页汇总指数快照与行业机会，辅助判断布局方向，不构成投资建议。"
+      :revisit-items="[
+        '回看探市各指数与行业的计算口径',
+        '把当前行业冷热记录下来，做纵向对比',
+        '关注公众号获取更多市场监测解读'
+      ]"
       :sources="footerSources"
       copyright="© 2026 多倍贝 · 让投资更从容"
     />
@@ -396,14 +401,14 @@ import RiseFallText from "@/components/RiseFallText/index.vue";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import TemperatureLevelBadge from "@/components/TemperatureLevelBadge/index.vue";
 import MarketHeader from "@/components/MarketHeader/index.vue";
-import MarketFooter from "@/components/MarketFooter/index.vue";
+import PageFooter from "@/components/PageFooter/index.vue";
 import TemperatureGaugeCard from "@/components/TemperatureGaugeCard/index.vue";
 import MetricCard from "@/components/MetricCard/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
 import { MARKET_LOGO, useMarketHeaderNavs } from "@/components/MarketHeader/config";
-import { marketFooterLegend, buildMarketFooterSources } from "@/components/MarketFooter/config";
+import { buildMarketFooterSources } from "@/components/MarketFooter/config";
 import { batchFetchQuotes } from "@/utils/realtimeDataSources";
 import { getTemperatureOverview } from "@/api/temperature";
 
@@ -995,7 +1000,6 @@ const goToTemperature = () => {
 // ================================================================
 const headerNavs = useMarketHeaderNavs();
 
-const footerLegend = marketFooterLegend;
 const footerSources = computed(() => buildMarketFooterSources(links.value));
 
 // ================================================================
