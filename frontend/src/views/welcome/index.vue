@@ -265,8 +265,6 @@
           </template>
         </SectionHeader>
         <TemperatureGaugeCard
-          class="flex-1"
-          style="height: 100%"
           size="sm"
           :value="compositeTemperature?.value ?? null"
           :level="compositeTemperature?.level || ''"
@@ -275,6 +273,20 @@
           clickable
           @click="$router.push('/explore')"
         />
+        <!-- P3: 短/中/长期温度行内三连（数据来自 temperature_bands，颜色令牌留前端） -->
+        <div v-if="temperatureBands" class="temp-bands">
+          <div
+            v-for="band in [temperatureBands.short, temperatureBands.medium, temperatureBands.long]"
+            :key="band?.name"
+            class="temp-band"
+          >
+            <span class="temp-band__label">{{ band?.name }}</span>
+            <span class="temp-band__value">{{ band?.value != null ? band.value.toFixed(1) + "°" : "—" }}</span>
+            <span class="temp-band__pill" :style="bandPillStyle(band?.level || '未知')">{{
+              band?.level || "暂无"
+            }}</span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -548,6 +560,32 @@ const trendMode = ref<"month" | "quarter">("month");
 // 综合市场温度（第二排右卡）
 const compositeTemperature = ref<{ value: number; level: string } | null>(null);
 
+// B1/P3: 短/中/长期温度分解（概览页行内三连）。仅消费后端 value/level，颜色令牌留前端。
+type TempBand = { name: string; value: number | null; level: string };
+const temperatureBands = ref<{
+  short?: TempBand;
+  medium?: TempBand;
+  long?: TempBand;
+} | null>(null);
+
+// level → 温度语义色令牌（B3 边界：色令牌留前端，禁后端下发颜色码）
+const levelColorVar: Record<string, string> = {
+  偏低: "var(--temp-low)",
+  适中: "var(--temp-mid)",
+  偏高: "var(--temp-high)",
+  未知: "var(--text-tertiary)"
+};
+const levelBgVar: Record<string, string> = {
+  偏低: "var(--temp-low-bg)",
+  适中: "var(--temp-mid-bg)",
+  偏高: "var(--temp-high-bg)",
+  未知: "var(--bg-soft)"
+};
+const bandPillStyle = (level: string) => ({
+  color: levelColorVar[level] || levelColorVar["未知"],
+  backgroundColor: levelBgVar[level] || levelBgVar["未知"]
+});
+
 const distributionChartRef = ref<HTMLDivElement | null>(null);
 const trendChartRef = ref<HTMLDivElement | null>(null);
 const riskHeatmapRef = ref<HTMLDivElement | null>(null);
@@ -622,6 +660,20 @@ const fetchTemperature = async () => {
       compositeTemperature.value = {
         value: composite.value,
         level: composite.level || ""
+      };
+    }
+    const bands = data.composites?.temperature_bands;
+    if (bands) {
+      temperatureBands.value = {
+        short: bands.short
+          ? { name: bands.short.name, value: bands.short.value, level: bands.short.level || "" }
+          : undefined,
+        medium: bands.medium
+          ? { name: bands.medium.name, value: bands.medium.value, level: bands.medium.level || "" }
+          : undefined,
+        long: bands.long
+          ? { name: bands.long.name, value: bands.long.value, level: bands.long.level || "" }
+          : undefined
       };
     }
   } catch (e) {
@@ -963,5 +1015,41 @@ onUnmounted(() => {
   font-weight: 600;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* ===== 短/中/长期温度行内三连（P3） ===== */
+.temp-bands {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin-top: 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--bg-soft);
+}
+.temp-band {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.temp-band__label {
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.temp-band__value {
+  font-family: var(--font-mono, monospace);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.temp-band__pill {
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
 }
 </style>
