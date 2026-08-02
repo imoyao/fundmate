@@ -207,7 +207,4 @@ const transitionMain = defineComponent({
   width: 100%;
 }
 
-.main-content {
-  margin: 24px;
-}
 </style>

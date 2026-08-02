@@ -46,3 +46,19 @@
    🆕 多倍贝 设计令牌
    ============================================ */
 @import "./design-tokens.css";
+
+/* ============================================
+   内容区与页脚统一最大宽度（design.md Viewport）
+   保证折叠/展开侧边栏时,页脚与内容左右边缘严格对齐
+   ============================================ */
+.main-content {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: var(--space-12);
+}
+
+@media (max-width: 960px) {
+  .main-content {
+    padding: var(--space-5);
+  }
+}
