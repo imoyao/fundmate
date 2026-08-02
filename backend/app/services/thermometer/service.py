@@ -8,7 +8,7 @@
 整合所有数据源，提供统一查询接口
 """
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from loguru import logger
@@ -199,15 +199,14 @@ class TemperatureService:
     def save_multi_items(cls, items: List[dict]) -> int:
         """
         保存多维列表数据到数据库（新表 temperature_multi_items）
-        items 格式：
-        {
-            'source': 'bias',
-            'collected_at': datetime,
-            'items': [
-                {'item_type': 'index', 'item_code': '000300', 'item_name': '沪深300', 'data': {...}},
-                ...
-            ]
-        }
+
+        兼容两种入参格式：
+        1) 嵌套：{'source': 'bias', 'collected_at': datetime, 'items': [{每条一行}]}
+        2) 扁平：列表里每条本身就是一行（乖离率 BiasJob._convert_to_records
+           与 TemperatureJob 实际产出，带 item_type/item_code/item_name/data/stale）
+
+        每条子记录可携带 'stale' 标记（东财抓取失败时回退旧数据置 True），
+        会原样写入 MarketMultiItem.stale，供前端提示数据滞后。
         """
         db = SessionLocal()
         try:
@@ -215,32 +214,49 @@ class TemperatureService:
 
             count = 0
             today = today_shanghai()
+
+            # 兼容两种入参：
+            #  - 嵌套：{'source':.., 'collected_at':.., 'items':[{每条一行}]}
+            #  - 扁平：列表里每条本身即一行（乖离率 BiasJob / TemperatureJob 实际产出）
+            # 先归一化为 (source, collected_at, sub_dict) 序列，避免逐条删除把前面已插的行清掉。
+            rows = []
+            sources = set()
             for batch in items:
                 source = batch.get('source')
                 collected_at = batch.get('collected_at')
-                sub_items = batch.get('items', [])
+                sub_items = batch.get('items')
+                if sub_items is None:
+                    # 扁平记录：batch 自身即一行
+                    if batch.get('item_type') is not None:
+                        sub_items = [batch]
+                    else:
+                        continue
+                for sub in sub_items:
+                    rows.append((source, collected_at, sub))
+                    sources.add(source)
 
-                if not sub_items:
-                    continue
+            if not rows:
+                return 0
 
-                # 删除当天旧数据
+            # 每个 source 仅删除当天旧数据一次，再批量插入
+            for source in sources:
                 db.query(MarketMultiItem).filter(
                     MarketMultiItem.source == source,
                     func.date(MarketMultiItem.collected_at) == today,
                 ).delete()
 
-                for sub in sub_items:
-                    record = MarketMultiItem(
-                        source=source,
-                        item_type=sub.get('item_type'),
-                        item_code=sub.get('item_code'),
-                        item_name=sub.get('item_name'),
-                        data=sub.get('data'),
-                        collected_at=collected_at,
-                        stale=False,
-                    )
-                    db.add(record)
-                    count += 1
+            for source, collected_at, sub in rows:
+                record = MarketMultiItem(
+                    source=source,
+                    item_type=sub.get('item_type'),
+                    item_code=sub.get('item_code'),
+                    item_name=sub.get('item_name'),
+                    data=sub.get('data'),
+                    collected_at=collected_at,
+                    stale=sub.get('stale', False),
+                )
+                db.add(record)
+                count += 1
             db.commit()
             return count
         except Exception as e:
@@ -252,21 +268,21 @@ class TemperatureService:
 
     @classmethod
     def get_latest_multi_items(cls, source: str, item_type: Optional[str] = None) -> List[dict]:
-        """获取某个多维列表的最新数据"""
+        """获取某个多维列表的最新数据（按最新日期筛选）"""
         db = SessionLocal()
         try:
+            # 不过滤 stale：乖离率在东财抓取失败时落库 stale=True 的滞后数据，
+            # 前端据此提示「数据滞后」，故需一并返回（取最新日期即可，最新日期本身可能整体滞后）。
             query = db.query(MarketMultiItem).filter(
                 MarketMultiItem.source == source,
-                MarketMultiItem.stale.is_(False),
             )
             if item_type:
                 query = query.filter(MarketMultiItem.item_type == item_type)
 
-            # 子查询：该 source 的最新日期
+            # 子查询：该 source 的最新日期（含 stale，否则全为 stale 时取不到日期而返回空）
             subquery = (
                 db.query(func.max(MarketMultiItem.collected_at).label('max_date'))
                 .filter(MarketMultiItem.source == source)
-                .filter(MarketMultiItem.stale.is_(False))
                 .subquery()
             )
 
@@ -280,9 +296,104 @@ class TemperatureService:
                         'item_code': r.item_code,
                         'item_name': r.item_name,
                         'data': r.data,
+                        'stale': r.stale,
                     }
                 )
             return result
+        finally:
+            db.close()
+
+    @classmethod
+    def get_multi_items(cls, source: str, date: Optional[date] = None) -> Dict[str, Any]:
+        """
+        获取多维列表数据（薄服务层，对照 /multi 接口）
+
+        Args:
+            source: 数据源，如 bias / crowding / sector_flow（必填，由视图层校验）
+            date: 指定日期；为空则取该 source 最新非失效日期
+        Returns:
+            {'source': str, 'date': str|None, 'items': List[dict]}
+        """
+        db = SessionLocal()
+        try:
+            # 不过滤 stale：乖离率在东财抓取失败时落库 stale=True 的滞后数据，
+            # 前端据此提示「数据滞后」，故需一并返回。最新日期本身可能整体滞后。
+            query = db.query(MarketMultiItem).filter(
+                MarketMultiItem.source == source,
+            )
+
+            if date:
+                query = query.filter(MarketMultiItem.collected_at == date)
+            else:
+                subquery = (
+                    db.query(func.max(MarketMultiItem.collected_at).label('max_date'))
+                    .filter(MarketMultiItem.source == source)
+                    .subquery()
+                )
+                query = query.filter(MarketMultiItem.collected_at == subquery.c.max_date)
+
+            records = query.order_by(MarketMultiItem.item_code).all()
+
+            items = [
+                {
+                    'item_type': r.item_type,
+                    'item_code': r.item_code,
+                    'item_name': r.item_name,
+                    'data': r.data,
+                    'stale': r.stale,
+                }
+                for r in records
+            ]
+            data_date = records[0].collected_at.strftime('%Y-%m-%d') if records else None
+            # 顶层 stale：任一记录滞后即视为整体滞后，便于前端直接判断
+            overall_stale = any(r.stale for r in records)
+            return {'source': source, 'date': data_date, 'items': items, 'stale': overall_stale}
+        finally:
+            db.close()
+
+    @classmethod
+    def get_history(cls, source: str, days: int = 90) -> Dict[str, Any]:
+        """
+        获取指定指标来源的近 N 天历史趋势（薄服务层，对照 /history 接口）
+
+        Args:
+            source: 指标来源；'composite_temperature' 取 MarketComposite，其余取 MarketSingleValue
+            days: 最近天数，最大 365
+        Returns:
+            {'source': str, 'dates': list, 'values': list, 'levels'/'labels': list}
+        """
+        if days > 365:
+            days = 365
+        db = SessionLocal()
+        try:
+            if source == 'composite_temperature':
+                records = (
+                    db.query(MarketComposite)
+                    .filter(MarketComposite.source == 'composite_temperature')
+                    .filter(MarketComposite.stale.is_(False))
+                    .order_by(MarketComposite.collected_at.desc())
+                    .limit(days)
+                    .all()
+                )
+                records.reverse()
+                dates = [r.collected_at.strftime('%Y-%m-%d') for r in records]
+                values = [r.data.get('value') if r.data else None for r in records]
+                levels = [r.data.get('level') if r.data else None for r in records]
+                return {'source': source, 'dates': dates, 'values': values, 'levels': levels}
+            else:
+                records = (
+                    db.query(MarketSingleValue)
+                    .filter(MarketSingleValue.source == source)
+                    .filter(MarketSingleValue.stale.is_(False))
+                    .order_by(MarketSingleValue.collected_at.desc())
+                    .limit(days)
+                    .all()
+                )
+                records.reverse()
+                dates = [r.collected_at.strftime('%Y-%m-%d') for r in records]
+                values = [float(r.value) if r.value is not None else None for r in records]
+                labels = [r.label for r in records]
+                return {'source': source, 'dates': dates, 'values': values, 'labels': labels}
         finally:
             db.close()
 

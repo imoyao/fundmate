@@ -86,7 +86,7 @@ class BiasJob(SyncJob):
                         'data_date': r.data_date.isoformat(),
                     },
                     'collected_at': now_shanghai(),
-                    'stale': False,
+                    'stale': r.stale,
                 }
             )
         return records
@@ -111,13 +111,30 @@ class BiasJob(SyncJob):
         count = service.save_multi_items(new_data)
         logger.info(f'保存乖离率数据: {count} 条')
 
-    def run_with_context(self, context: str = '收盘') -> None:
+    def run_with_context(self, context: str = '收盘') -> List[dict]:
         """
-        带上下文的执行（用于午间/盘后区分）
+        带上下文的乖离率计算（午间/盘后区分）。
+
+        仅计算并返回记录，不自行落库——由调用方（TemperatureJob）统一分流保存。
+        真正的「双次」执行依赖外部调度在午间与收盘各触发一次同步。
 
         Args:
             context: "午间" 或 "收盘"
+
+        Returns:
+            可保存的记录列表（market_multi_items 格式）
         """
         logger.info(f'开始乖离率计算 ({context})')
-        # 复用 run 方法，但 context 仅用于日志
-        self.run(full_sync=False)
+
+        products = self.provider.get_default_list()
+        if not products:
+            logger.warning('没有品种需要计算乖离率')
+            return []
+
+        data_date = date.today()
+        results = self.calculator.calculate_batch(products, data_date)
+        if not results:
+            logger.warning('乖离率计算结果为空')
+            return []
+
+        return self._convert_to_records(results)

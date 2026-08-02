@@ -98,3 +98,7 @@ test = [
 sqlalchemy = ">=2.0"
 pandas = ">=2.0"
 numpy = ">=1.24,<2.0"
+
+[tool.pdm.scripts]
+# 元数据/市场温度(含乖离度)同步：pdm run sync --all / pdm run sync --job temperature
+sync = "python app/tools/sync_metadata.py"

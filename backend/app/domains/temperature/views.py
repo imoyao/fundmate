@@ -7,6 +7,8 @@
 市场温度 API 路由
 """
 
+from datetime import datetime
+
 from apiflask import APIBlueprint
 from flask import jsonify, request
 
@@ -44,3 +46,47 @@ def get_temperature_overview():
     """
     data = TemperatureService.get_overview()
     return jsonify({'data': data, 'message': 'success'})
+
+
+# backend/app/apis/temperature/views.py
+
+# 在现有代码后追加
+
+
+@thermometer_bp.get('/history')
+def get_temperature_history():
+    """
+    获取综合温度历史趋势（薄视图，业务逻辑委托给 TemperatureService）
+
+    Query Parameters:
+        days: 获取最近多少天的数据，默认 90
+        source: 指标来源，默认 composite_temperature（综合温度）
+    """
+    days = request.args.get('days', 90, type=int)
+    source = request.args.get('source', 'composite_temperature')
+
+    try:
+        data = TemperatureService.get_history(source, days)
+        return jsonify({'data': data, 'message': 'success'})
+    except Exception as e:
+        return jsonify({'message': str(e)}), 500
+
+
+@thermometer_bp.get('/multi')
+def get_multi_items():
+    """获取多维列表数据（薄视图，业务逻辑委托给 TemperatureService）"""
+    source = request.args.get('source')
+    date_str = request.args.get('date')
+
+    if not source:
+        return jsonify({'message': 'source 参数必填'}), 400
+
+    target_date = None
+    if date_str:
+        target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+
+    try:
+        data = TemperatureService.get_multi_items(source, target_date)
+        return jsonify({'data': data, 'message': 'success'})
+    except Exception as e:
+        return jsonify({'message': str(e)}), 500

@@ -218,9 +218,8 @@ router.beforeEach(async (to: ToRouteType, _from, next) => {
     } else {
       // 首次访问时用静态菜单直接填充，跳过异步拉取
       if (usePermissionStoreHook().wholeMenus.length === 0 && to.path !== "/login") {
-        usePermissionStoreHook().wholeMenus = buildHierarchyTree(
-          constantMenus.filter(item => item?.meta?.icon)
-        );
+        // 统一走标准菜单组装（与登录路径一致），避免「总览」等 showLink:false 目录项丢失
+        usePermissionStoreHook().handleWholeMenus([]);
         if (!useMultiTagsStoreHook().getMultiTagsCache) {
           const route = findRouteByPath(to.path, router.options.routes[0]?.children);
           getTopMenu(true);
@@ -240,7 +239,7 @@ router.beforeEach(async (to: ToRouteType, _from, next) => {
   } else {
     // ❌ 未登录用户
     if (to.path !== "/login") {
-      if (whiteList.indexOf(to.path) !== -1) {
+      if (whiteList.indexOf(to.path) !== -1 || to.meta?.requiresAuth === false) {
         next();
       } else {
         // 清理残留数据

@@ -40,16 +40,22 @@ ref:[微信公众平台](https://mp.weixin.qq.com/s/yoDNm2TSrWCvvedu_Xozgw)
 
 """
 
+import json
 import logging
-from datetime import date, datetime
+import random
+import time
+from datetime import date, datetime, timedelta
+from pathlib import Path
 from typing import List, Optional, Tuple
 
+import akshare as ak
 import numpy as np
 import pandas as pd
 
-from app.services.bias.schemas import BiasResult
-
-from .constants import (
+# 全局请求补丁：确保即使本模块被单独 import（如单测）也自动启用东财友好会话；
+# 正常由 app/__init__ 安装，此处为幂等兜底，避免遗漏调用点。
+from app.core.requests_patch import install_requests_patch
+from app.services.bias.constants import (
     BIAS_PERIOD,
     BIAS_THRESHOLD_HIGH,
     BIAS_THRESHOLD_LOW,
@@ -61,6 +67,10 @@ from .constants import (
     ITEM_TYPE_INDUSTRY,
     ITEM_TYPE_STOCK,
 )
+from app.services.bias.schemas import BiasResult
+
+# 幂等安装请求补丁（置于 import 之后，避免 E402）
+install_requests_patch()
 
 logger = logging.getLogger(__name__)
 
@@ -121,18 +131,85 @@ def position_label(pos: float) -> str:
         return '低位区(红买)'
 
 
+# 价格持久化缓存目录：遵循项目 data/ 约定（与 xalpha_cache 同级）
+_DEFAULT_CACHE_DIR = Path(__file__).resolve().parents[3] / 'data' / 'bias_price_cache'
+
+
 class PriceFetcher:
     """
     价格数据获取器（与品种类型解耦）
     支持：指数、ETF、场外基金、股票
+
+    缓存策略（缓解东财限流 + 断网可降级）：
+      - 进程内 dict 去重（同进程秒级复用）
+      - 文件缓存（backend/data/bias_price_cache/*.json）：按 (symbol, item_type) 存
+        最近 N 日收盘价序列 + 数据最后交易日；当日已抓过则直接复用，避免每天冷启动全量重抓。
+      - 实时抓取失败且本地有旧缓存时，回退旧数据并标记 stale=True（前端可感知数据滞后）。
     """
 
-    def __init__(self, days: int = DEFAULT_HISTORY_DAYS):
+    def __init__(
+        self,
+        days: int = DEFAULT_HISTORY_DAYS,
+        max_retries: int = 3,
+        retry_backoff: float = 0.5,
+        cache_dir: Optional[Path] = None,
+    ):
         self.days = days
+        self.max_retries = max_retries
+        self.retry_backoff = retry_backoff
+        self.cache_dir = cache_dir or _DEFAULT_CACHE_DIR
+        # 同一进程内去重缓存，避免重复请求同一品种
+        self._cache: dict = {}
+        # (symbol, item_type) -> 是否滞后（实时抓取失败回退旧数据时为 True）
+        self._stale: dict = {}
+
+    # ---------- 持久化缓存 ----------
+    def _file_path(self, symbol: str, item_type: str) -> Path:
+        safe = f"{item_type}__{symbol.replace('.', '_')}.json"
+        return self.cache_dir / safe
+
+    def _load_cache(self, symbol: str, item_type: str) -> Optional[dict]:
+        try:
+            p = self._file_path(symbol, item_type)
+            if p.exists():
+                with open(p, 'r', encoding='utf-8') as fh:
+                    return json.load(fh)
+        except Exception:  # noqa: BLE001
+            pass
+        return None
+
+    def _save_cache(self, symbol: str, item_type: str, values: List[float], data_last_date: str) -> None:
+        try:
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
+            payload = {
+                'symbol': symbol,
+                'item_type': item_type,
+                'values': values,
+                'data_last_date': data_last_date,
+                'fetched_at': datetime.now().isoformat(timespec='seconds'),
+            }
+            with open(self._file_path(symbol, item_type), 'w', encoding='utf-8') as fh:
+                json.dump(payload, fh, ensure_ascii=False)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f'乖离度价格缓存写入失败 {symbol} ({item_type}): {e}')
+
+    @staticmethod
+    def _is_fresh(date_str: str) -> bool:
+        """数据最后交易日（或抓取日）是否在过去 2 天内（容忍周末/周一盘前）。"""
+        if not date_str:
+            return False
+        try:
+            d = datetime.strptime(date_str[:10], '%Y-%m-%d').date()
+        except Exception:  # noqa: BLE001
+            return False
+        return d >= (datetime.now().date() - timedelta(days=2))
 
     def fetch(self, symbol: str, item_type: str) -> Optional[List[float]]:
         """
-        获取品种的日线收盘价/净值序列（最新在末位）
+        获取品种的日线收盘价/净值序列（最新在末位）。
+
+        优先级：进程内缓存 → 文件缓存(当日新鲜) → 实时抓取 → 回退旧文件缓存(标 stale)。
+        最终仍失败且无任何缓存返回 None，真实异常类型已在日志透出。
 
         Args:
             symbol: 代码
@@ -141,41 +218,93 @@ class PriceFetcher:
         Returns:
             收盘价列表，失败返回 None
         """
-        from datetime import datetime, timedelta
+        cache_key = (symbol, item_type)
+        if cache_key in self._cache:
+            return self._cache[cache_key]
 
-        import akshare as ak
+        cached = self._load_cache(symbol, item_type)
+        fresh_date = (cached.get('data_last_date') or cached.get('fetched_at', '')) if cached else ''
+        if cached and self._is_fresh(fresh_date):
+            values = cached['values']
+            self._cache[cache_key] = values
+            self._stale[cache_key] = False
+            return values
 
+        values, data_last_date = self._fetch_live(symbol, item_type)
+        if values is not None:
+            self._cache[cache_key] = values
+            self._save_cache(symbol, item_type, values, data_last_date)
+            self._stale[cache_key] = False
+            return values
+
+        # 实时失败 → 回退任何本地缓存（旧数据也好过无数据）
+        if cached:
+            logger.warning(f'获取 {symbol} ({item_type}) 实时失败，回退本地缓存（数据可能滞后）')
+            self._cache[cache_key] = cached['values']
+            self._stale[cache_key] = True
+            return cached['values']
+
+        return None
+
+    # ── 数据源 fallback 候选（已源码核实，暂缓实现，待实网验证） ──
+    # 东财按出口 IP 限流/封禁；社区方案（aiagents-stock / UZI-SKILL / 腾讯云文章）一致：
+    # 切换腾讯/新浪源（不封 IP）。akshare 已核实可用备用函数：
+    #   - 股票 : ak.stock_zh_a_hist_tx(symbol="sh600000")  → 腾讯 proxy.finance.qq.com，返回列 date/close（英文）
+    #   - ETF   : ak.fund_etf_hist_sina(symbol="sh510050") → 新浪，返回列 date/close（英文），依赖 py_mini_racer
+    #   - 指数 / 场外基金：akshare 无腾讯/新浪后端（仅东财），无法 fallback（靠本缓存降级兜底）
+    # 实现要点（未实测，需退出代理后实网验证）：
+    #   1) symbol 需转 sh/sz/bj 市场前缀；2) 列名映射 date→日期、close→收盘；3) 东财失败再调备用源。
+    def _fetch_live(self, symbol: str, item_type: str):
+        """实时抓取东财，返回 (values, data_last_date)；失败返回 (None, None)。"""
         end_date = datetime.now().strftime('%Y%m%d')
         start_date = (datetime.now() - timedelta(days=self.days + 10)).strftime('%Y%m%d')
 
-        try:
-            if item_type in (ITEM_TYPE_INDEX, ITEM_TYPE_INDUSTRY):
-                df = ak.index_zh_a_hist(symbol=symbol, period='daily', start_date=start_date, end_date=end_date)
-                col = '收盘'
-            elif item_type == ITEM_TYPE_ETF:
-                df = ak.fund_etf_hist_em(symbol=symbol, period='daily', start_date=start_date, end_date=end_date)
-                col = '收盘'
-            elif item_type == ITEM_TYPE_STOCK:
-                df = ak.stock_zh_a_hist(symbol=symbol, period='daily', start_date=start_date, end_date=end_date)
-                col = '收盘'
-            elif item_type in (ITEM_TYPE_FUND, 'fund_cum'):
-                indicator = '累计净值走势' if item_type == 'fund_cum' else '单位净值走势'
-                df = ak.fund_open_fund_info_em(symbol=symbol, indicator=indicator)
-                col = '累计净值' if item_type == 'fund_cum' else '单位净值'
-            else:
-                raise ValueError(f'不支持的品种类型: {item_type}')
+        last_err: Optional[Exception] = None
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                if item_type in (ITEM_TYPE_INDEX, ITEM_TYPE_INDUSTRY):
+                    df = ak.index_zh_a_hist(symbol=symbol, period='daily', start_date=start_date, end_date=end_date)
+                    col = '收盘'
+                elif item_type == ITEM_TYPE_ETF:
+                    df = ak.fund_etf_hist_em(symbol=symbol, period='daily', start_date=start_date, end_date=end_date)
+                    col = '收盘'
+                elif item_type == ITEM_TYPE_STOCK:
+                    df = ak.stock_zh_a_hist(symbol=symbol, period='daily', start_date=start_date, end_date=end_date)
+                    col = '收盘'
+                elif item_type in (ITEM_TYPE_FUND, 'fund_cum'):
+                    indicator = '累计净值走势' if item_type == 'fund_cum' else '单位净值走势'
+                    df = ak.fund_open_fund_info_em(symbol=symbol, indicator=indicator)
+                    col = '累计净值' if item_type == 'fund_cum' else '单位净值'
+                else:
+                    raise ValueError(f'不支持的品种类型: {item_type}')
 
-            if df is None or df.empty:
-                return None
+                if df is None or df.empty:
+                    last_err = RuntimeError('返回空数据')
+                    break  # 空数据不可重试
 
-            # 确保数据按日期升序
-            df = df.sort_values(df.columns[0]) if '日期' in df.columns else df
-            values = df[col].astype(float).tolist()
-            return values if len(values) >= BIAS_PERIOD else None
+                # 确保数据按日期升序
+                df = df.sort_values(df.columns[0]) if '日期' in df.columns else df
+                values = df[col].astype(float).tolist()
+                if len(values) < BIAS_PERIOD:
+                    last_err = RuntimeError(f'数据不足{BIAS_PERIOD}日(仅{len(values)}日)')
+                    break  # 数据不足不可重试
 
-        except Exception as e:
-            logger.warning(f'获取 {symbol} ({item_type}) 失败: {e}')
-            return None
+                data_last_date = str(df['日期'].iloc[-1]) if '日期' in df.columns else ''
+                return values, data_last_date
+
+            except Exception as e:
+                last_err = e
+                if attempt < self.max_retries:
+                    wait = self.retry_backoff * (2 ** (attempt - 1))
+                    logger.warning(
+                        f'获取 {symbol} ({item_type}) 第{attempt}次失败: {type(e).__name__}: {e}，'
+                        f'{wait:.1f}s 后重试'
+                    )
+                    time.sleep(wait)
+                else:
+                    logger.error(f'获取 {symbol} ({item_type}) 重试{self.max_retries}次仍失败: {type(e).__name__}: {e}')
+
+        return None, None
 
 
 class BiasCalculator:
@@ -234,7 +363,7 @@ class BiasCalculator:
             position_label=position_label(pos),
             data_date=data_date or date.today(),
             calculated_at=datetime.now(),
-            stale=False,
+            stale=self.fetcher._stale.get((symbol, item_type), False),
         )
 
     def calculate_batch(
@@ -242,6 +371,7 @@ class BiasCalculator:
         products: List[Tuple[str, str, str]],  # (symbol, item_type, name)
         data_date: Optional[date] = None,
         max_workers: int = 4,
+        request_interval: float = 3.0,
     ) -> List[BiasResult]:
         """
         批量计算乖离率
@@ -249,12 +379,14 @@ class BiasCalculator:
         Args:
             products: 品种列表 [(symbol, item_type, name), ...]
             data_date: 数据日期（默认今天）
-            max_workers: 并发数（暂未实现并发，顺序执行）
+            max_workers: 预留并发参数（当前顺序执行，避免并发触发东财限流）
+            request_interval: 相邻请求间隔（秒），限速用，缓解连续请求断连
 
         Returns:
-            BiasResult 列表（失败的品种被过滤掉）
+            BiasResult 列表（失败的品种被过滤，并在日志汇总透出）
         """
         results: List[BiasResult] = []
+        failures: List[Tuple[str, str, str]] = []
         total = len(products)
 
         for idx, (symbol, item_type, name) in enumerate(products, 1):
@@ -264,6 +396,15 @@ class BiasCalculator:
             result = self.calculate_item(symbol, item_type, name, data_date)
             if result:
                 results.append(result)
+            else:
+                failures.append((symbol, item_type, name))
 
-        logger.info(f'乖离率计算完成: 成功 {len(results)}/{total}')
+            # 限速：相邻请求随机间隔，缓解东方财富连续请求断连(RemoteDisconnected)
+            if idx < total and request_interval > 0:
+                time.sleep(request_interval + random.uniform(-0.5, 0.5))
+
+        logger.info(f'乖离率计算完成: 成功 {len(results)}/{total}，失败 {len(failures)}')
+        if failures:
+            detail = ', '.join(f'{s}({t})' for s, t, _ in failures)
+            logger.warning(f'乖离率失败品种({len(failures)}): {detail}')
         return results

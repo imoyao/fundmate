@@ -7,6 +7,12 @@ import logging
 
 from loguru import logger
 
+# 全局请求补丁：进程启动时让所有 akshare/requests 调用自动走「浏览器头 + 连接复用 + 重试」会话，
+# 缓解东方财富按 IP 限流/临时封导致的 RemoteDisconnected（详见 app/core/requests_patch.py；根因仍待退出代理后 diag 验收）。
+from app.core.requests_patch import install_requests_patch
+
+install_requests_patch()
+
 
 class InterceptHandler(logging.Handler):
     """将标准库 logging 日志转发到 loguru"""

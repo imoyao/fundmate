@@ -39,7 +39,7 @@ LINKS = {
     'qieman': 'https://qieman.com/',
     'youzhiyouxing': 'https://youzhiyouxing.cn/thermometer',
     'jisilu': 'https://www.jisilu.cn/data/indicator/',
-    'jiucaishuo': 'https://app.jiucaishuo.com/',
+    'jiucaishuo': 'https://funddb.cn/tool/fear/',
     'eastmoney': 'https://quote.eastmoney.com/',
 }
 

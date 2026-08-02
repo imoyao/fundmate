@@ -197,16 +197,13 @@ class TemperatureJob(SyncJob):
         # ---- 乖离率（午间/盘后双次） ----
         try:
             bias_job = BiasJob(self.adapter, self.db)
-            # 判断当前时间，决定上下文
+            # 判断当前时间，决定上下文（午间 11:00-13:00，其余视为收盘）
             now = datetime.now()
-            if 11 <= now.hour < 13:
-                context = '午间'
-            else:
-                context = '收盘'
-            bias_data = bias_job._fetch_data(full_sync=False, targets=[])
+            context = '午间' if 11 <= now.hour < 13 else '收盘'
+            bias_data = bias_job.run_with_context(context)
             if bias_data:
                 records.extend(bias_data)
-                logger.info(f'乖离率数据获取成功 ({context})')
+                logger.info(f'乖离率数据获取成功 ({context}): {len(bias_data)} 条')
             else:
                 logger.warning('乖离率数据获取失败')
         except Exception as e:
@@ -217,8 +214,17 @@ class TemperatureJob(SyncJob):
         return records
 
     def _validate_data(self, raw_data: List[dict]) -> List[dict]:
-        """过滤掉 stale 的记录（不保存失效数据）"""
-        return [r for r in raw_data if not r.get('stale', False)]
+        """过滤失效数据：single/composite 源 stale=完全失败丢弃；multi(乖离率) stale=滞后但可用，保留。"""
+        kept = []
+        for r in raw_data:
+            if r.get('stale'):
+                if r.get('kind') == 'multi':
+                    kept.append(r)  # 乖离率滞后数据仍可用，保留落库供前端提示
+                else:
+                    logger.debug(f"丢弃失效源记录: {r.get('source')}")
+            else:
+                kept.append(r)
+        return kept
 
     def _deduplicate(self, data: List[dict]) -> List[dict]:
         """去重由 _save_data 内部处理，此处原样返回"""
