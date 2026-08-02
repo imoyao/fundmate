@@ -1,114 +1,86 @@
 <!-- frontend/src/views/temperature/index.vue -->
 <template>
   <div class="temperature-page">
-    <!-- 顶部导航 -->
-    <header class="temp-header">
-      <div class="header-inner">
-        <div class="logo-area">
-          <span class="logo">ShowBuy</span>
-          <span class="badge">温度计</span>
-        </div>
-        <div class="nav-actions">
-          <el-button link @click="goToExplore">探市</el-button>
-          <el-button link @click="goToDashboard">仪表盘</el-button>
-          <el-button type="primary" @click="goToWatchlist">自选</el-button>
-        </div>
-      </div>
-    </header>
+    <!-- 顶部导航（公共组件，与探市完全一致） -->
+    <MarketHeader
+      :logo="MARKET_LOGO"
+      badge="温度计"
+      :navs="headerNavs"
+    />
 
     <!-- 页面内容 -->
     <div class="page-content" v-loading="loading">
       <!-- 综合仪表盘 -->
       <section class="dashboard-section">
-        <div class="dashboard-grid">
+        <MetricGrid>
           <!-- 综合温度仪表（大） -->
-          <div class="gauge-card">
-            <div class="gauge-ring">
-              <svg width="120" height="120" viewBox="0 0 120 120">
-                <circle cx="60" cy="60" r="50" stroke="var(--bg-soft)" stroke-width="8" fill="none"/>
-                <circle
-                  class="gauge-fill"
-                  cx="60"
-                  cy="60"
-                  r="50"
-                  stroke="var(--temp-mid)"
-                  stroke-width="8"
-                  fill="none"
-                  stroke-linecap="round"
-                  :stroke-dasharray="314.16"
-                  :stroke-dashoffset="314.16 * (1 - (compositeValue ?? 0) / 100)"
-                />
-              </svg>
-              <div class="gauge-value">
-                <span class="gauge-number">{{ compositeValue ?? '--' }}</span>
-                <span class="gauge-degree">°</span>
-              </div>
-            </div>
-            <div class="gauge-info">
-              <div class="gauge-title">综合温度</div>
-              <TemperatureLevelBadge :level="compositeLevel" />
-              <div class="gauge-desc">基于多源市场数据计算</div>
-              <div class="gauge-updated">更新：{{ updatedAt }}</div>
-            </div>
-          </div>
+          <TemperatureGaugeCard
+            :value="compositeValue"
+            title="综合市场温度"
+            :level="compositeLevel"
+            caption="基于多源市场数据计算"
+            :updated-at="updatedAt"
+            size="lg"
+            featured
+          />
 
           <!-- 核心指标卡片 -->
-          <div class="metric-card" v-for="metric in coreMetrics" :key="metric.key">
-            <div class="metric-title">{{ metric.label }}</div>
-            <div class="metric-value">{{ metric.value !== null ? metric.value : '--' }}</div>
-            <div class="metric-unit" v-if="metric.unit">{{ metric.unit }}</div>
-            <TemperatureLevelBadge :level="metric.labelText" size="sm" />
-          </div>
-        </div>
+        <MetricCard
+          v-for="metric in coreMetrics"
+          :key="metric.key"
+          :title="metric.title"
+          :value="metric.value"
+          :unit="metric.unit"
+          :level="metric.level"
+        />
+        </MetricGrid>
       </section>
 
       <!-- 温度趋势图 -->
       <section class="chart-section">
-        <div class="section-header">
-          <h3>综合温度趋势</h3>
-          <div class="chart-controls">
+        <SectionHeader title="综合温度趋势">
+          <template #action>
             <el-radio-group v-model="historyDays" size="small" @change="fetchHistory">
               <el-radio-button :value="30">30天</el-radio-button>
               <el-radio-button :value="90">90天</el-radio-button>
               <el-radio-button :value="180">半年</el-radio-button>
             </el-radio-group>
-          </div>
-        </div>
+          </template>
+        </SectionHeader>
         <div class="chart-wrapper">
           <v-chart ref="chartRef" :option="chartOption" :autoresize="true" style="width:100%;height:300px;" />
         </div>
       </section>
 
-      <!-- 全部温度卡片 -->
+      <!-- 全部温度卡片（过滤已在顶部展示的核心指标，避免信息重复） -->
       <section class="cards-section">
-        <div class="section-header">
-          <h3>全部市场温度指标</h3>
-        </div>
-        <div class="cards-grid">
-          <div v-for="item in allSingles" :key="item.source" class="temp-card">
-            <div class="temp-card-title">{{ item.name }}</div>
-            <div class="temp-card-value">{{ item.value !== null ? item.value : '--' }}</div>
-            <div class="temp-card-unit" v-if="item.unit">{{ item.unit }}</div>
-            <TemperatureLevelBadge :level="item.label" size="sm" />
-          </div>
-        </div>
+        <SectionHeader title="全部市场温度指标" />
+        <MetricGrid>
+          <MetricCard
+            v-for="item in detailMetrics"
+            :key="item.source"
+            :title="item.name"
+            :value="item.value"
+            :unit="item.unit"
+            :level="item.label"
+          />
+        </MetricGrid>
       </section>
 
       <!-- 行业乖离度排行 -->
       <section class="bias-section">
-        <div class="section-header">
-          <h3>行业乖离度排行</h3>
-          <span class="bias-updated">更新：{{ biasDate || '暂无' }}</span>
-        </div>
-        <el-alert
-          v-if="biasStale"
-          type="warning"
-          show-icon
-          :closable="false"
-          class="bias-stale-alert"
-          title="数据滞后提示"
-          description="东财行情接口暂不可用，当前乖离率基于最近一次成功抓取的价格计算（已标记「滞后」），非实时数据，仅供参考。"
-        />
+        <SectionHeader title="行业乖离度排行">
+          <template #action>
+            <span class="bias-updated">更新：{{ biasDate || '暂无' }}</span>
+            <el-tooltip
+              v-if="biasStale"
+              content="东财行情接口暂不可用，当前乖离率基于最近一次成功抓取的价格计算，非实时数据，仅供参考。"
+              placement="top"
+            >
+              <span class="bias-stale-pill">数据滞后</span>
+            </el-tooltip>
+          </template>
+        </SectionHeader>
         <el-table :data="biasItems" border style="width:100%" v-loading="biasLoading" max-height="400">
           <el-table-column prop="item_name" label="行业" min-width="100">
             <template #default="{ row }">
@@ -145,37 +117,16 @@
       </section>
     </div>
 
-    <!-- 底部 -->
-    <footer class="footer-section">
-      <div class="footer-inner">
-        <div class="footer-legend">
-          <span class="legend-item"><span class="legend-dot legend-low"></span>绿=偏低（机会）</span>
-          <span class="legend-item"><span class="legend-dot legend-mid"></span>金=适中</span>
-          <span class="legend-item"><span class="legend-dot legend-high"></span>红=偏高（谨慎）</span>
-          <span class="legend-note">温度色与涨跌色相互独立</span>
-        </div>
-        <div class="footer-sources">
-          <span class="footer-label">数据来源：</span>
-          <span class="footer-source">韭圈儿</span>
-          <span class="footer-source">集思录</span>
-          <span class="footer-source">且慢</span>
-          <span class="footer-source">有知有行</span>
-          <span class="footer-source">东方财富</span>
-          <span class="footer-source">自算·股债性价比</span>
-          <span class="footer-source">乖离率(自算)</span>
-        </div>
-        <div class="footer-disclaimer">
-          <span class="footer-disclaimer-text">市场数据仅供参考，不构成投资建议。</span>
-        </div>
-        <div class="footer-copyright">© 2026 ShowBuy · 让投资更从容</div>
-      </div>
-    </footer>
+    <!-- 底部（公共组件，与探市一致） -->
+    <MarketFooter
+      :sources="footerSources"
+      :legend="footerLegend"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from "vue";
-import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import VChart from "vue-echarts";
 import { use } from "echarts/core";
@@ -183,7 +134,14 @@ import { CanvasRenderer } from "echarts/renderers";
 import { LineChart } from "echarts/charts";
 import { TitleComponent, TooltipComponent, LegendComponent, GridComponent } from "echarts/components";
 import { getTemperatureOverview, getTemperatureHistory, getMultiItems } from "@/api/temperature";
-import TemperatureLevelBadge from "@/components/TemperatureLevelBadge/index.vue";
+import MarketHeader from "@/components/MarketHeader/index.vue";
+import MarketFooter from "@/components/MarketFooter/index.vue";
+import TemperatureGaugeCard from "@/components/TemperatureGaugeCard/index.vue";
+import MetricCard from "@/components/MetricCard/index.vue";
+import MetricGrid from "@/components/MetricGrid/index.vue";
+import SectionHeader from "@/components/SectionHeader/index.vue";
+import { MARKET_LOGO, useMarketHeaderNavs } from "@/components/MarketHeader/config";
+import { marketFooterLegend, buildMarketFooterSources } from "@/components/MarketFooter/config";
 
 // 注册 ECharts 组件
 use([CanvasRenderer, LineChart, TitleComponent, TooltipComponent, LegendComponent, GridComponent]);
@@ -207,8 +165,6 @@ const TEMP_COLORS = {
 defineOptions({
   name: "TemperaturePage"
 });
-
-const router = useRouter();
 
 // ================================================================
 // 数据状态
@@ -249,9 +205,9 @@ const coreMetrics = computed(() => {
   if (fear) {
     result.push({
       key: "fear",
-      label: "恐惧贪婪",
+      title: "恐惧贪婪",
       value: fear.value,
-      labelText: fear.label,
+      level: fear.label,
     });
   }
 
@@ -260,10 +216,10 @@ const coreMetrics = computed(() => {
   if (selfCalc) {
     result.push({
       key: "self_calc",
-      label: "股债性价比",
+      title: "股债性价比",
       value: selfCalc.percent,
       unit: "%",
-      labelText: selfCalc.level,
+      level: selfCalc.level,
     });
   }
 
@@ -272,10 +228,10 @@ const coreMetrics = computed(() => {
   if (cb) {
     result.push({
       key: "cb",
-      label: "可转债",
+      title: "可转债",
       value: cb.value,
-      unit: "%",
-      labelText: cb.label,
+      unit: "°",
+      level: cb.label,
     });
   }
 
@@ -284,19 +240,23 @@ const coreMetrics = computed(() => {
   if (vol) {
     result.push({
       key: "volume",
-      label: "成交额",
+      title: "成交额",
       value: vol.value,
       unit: "亿",
-      labelText: vol.label,
+      level: vol.label,
     });
   }
 
   return result;
 });
 
-// 全部单值指标
-const allSingles = computed(() => {
-  return overview.value?.singles || [];
+// 已在顶部核心指标展示过的 singles source，底部「全部市场温度指标」区域过滤掉，避免同页信息重复
+const CORE_SINGLE_SOURCES = ["jiucaishuo_fear", "jisilu_cb", "eastmoney_volume"];
+
+// 全部单值指标（过滤核心指标，按数据分层展示）
+const detailMetrics = computed(() => {
+  const singles = overview.value?.singles || [];
+  return singles.filter((s: any) => !CORE_SINGLE_SOURCES.includes(s.source));
 });
 
 // ECharts 配置
@@ -444,18 +404,13 @@ const fetchBias = async () => {
   }
 };
 
-// 导航方法
-const goToExplore = () => {
-  router.push("/explore");
-};
+// ================================================================
+// Header / Footer 公共组件数据
+// ================================================================
+const headerNavs = useMarketHeaderNavs();
 
-const goToDashboard = () => {
-  router.push("/welcome");
-};
-
-const goToWatchlist = () => {
-  router.push("/watchlist");
-};
+const footerLegend = marketFooterLegend;
+const footerSources = buildMarketFooterSources();
 
 // ================================================================
 // 生命周期
@@ -481,52 +436,6 @@ watch(historyDays, () => {
   background: var(--bg-page);
 }
 
-/* 顶部导航 */
-.temp-header {
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  backdrop-filter: blur(12px);
-  background: rgba(255, 255, 255, 0.7);
-  border-bottom: 1px solid var(--border-light);
-
-  .header-inner {
-    max-width: 1280px;
-    margin: 0 auto;
-    padding: 0 24px;
-    height: 64px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  .logo-area {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-
-    .logo {
-      font-weight: 700;
-      font-size: 18px;
-      color: var(--brand-700);
-    }
-
-    .badge {
-      font-size: 12px;
-      color: var(--text-secondary);
-      background: var(--bg-soft);
-      padding: 2px 10px;
-      border-radius: 12px;
-    }
-  }
-
-  .nav-actions {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-  }
-}
-
 /* 页面内容 */
 .page-content {
   max-width: 1280px;
@@ -539,118 +448,6 @@ watch(historyDays, () => {
   margin-bottom: 24px;
 }
 
-.dashboard-grid {
-  display: grid;
-  grid-template-columns: 2fr 1fr 1fr 1fr;
-  gap: 16px;
-}
-
-.gauge-card {
-  background: linear-gradient(135deg, var(--bg-card), var(--brand-100));
-  border-radius: 16px;
-  padding: 24px 28px;
-  border: 1px solid var(--brand-400);
-  box-shadow: var(--shadow-raised);
-  display: flex;
-  align-items: center;
-  gap: 24px;
-}
-
-.gauge-ring {
-  position: relative;
-  width: 120px;
-  height: 120px;
-  flex-shrink: 0;
-}
-
-.gauge-ring svg {
-  width: 100%;
-  height: 100%;
-  transform: rotate(-90deg);
-}
-
-.gauge-fill {
-  transition: stroke-dashoffset 0.8s ease, stroke 0.6s ease;
-}
-
-.gauge-value {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-}
-
-.gauge-number {
-  font-size: 32px;
-  font-weight: 700;
-  color: var(--text-primary);
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
-}
-
-.gauge-degree {
-  font-size: 16px;
-  font-weight: 500;
-  color: var(--text-secondary);
-}
-
-.gauge-info {
-  flex: 1;
-}
-
-.gauge-title {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.gauge-desc {
-  font-size: 13px;
-  color: var(--text-tertiary);
-  margin-top: 4px;
-}
-
-.gauge-updated {
-  font-size: 12px;
-  color: var(--text-tertiary);
-  margin-top: 2px;
-}
-
-.metric-card {
-  background: var(--bg-card);
-  border-radius: 12px;
-  padding: 16px 18px;
-  border: 1px solid var(--border-light);
-  box-shadow: var(--shadow-raised);
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-}
-
-.metric-title {
-  font-size: 13px;
-  color: var(--text-tertiary);
-  margin-bottom: 4px;
-}
-
-.metric-value {
-  font-size: 28px;
-  font-weight: 700;
-  color: var(--text-primary);
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  line-height: 1.2;
-}
-
-.metric-unit {
-  font-size: 13px;
-  color: var(--text-tertiary);
-  margin-left: 2px;
-}
-
 /* 图表区域 */
 .chart-section {
   background: var(--bg-card);
@@ -661,27 +458,6 @@ watch(historyDays, () => {
   margin-bottom: 24px;
 }
 
-.section-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-  flex-wrap: wrap;
-  gap: 12px;
-
-  h3 {
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin: 0;
-  }
-
-  .chart-controls {
-    display: flex;
-    gap: 8px;
-  }
-}
-
 .chart-wrapper {
   width: 100%;
   height: 300px;
@@ -690,41 +466,6 @@ watch(historyDays, () => {
 /* 全部温度卡片 */
 .cards-section {
   margin-bottom: 24px;
-}
-
-.cards-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 12px;
-}
-
-.temp-card {
-  background: var(--bg-card);
-  border-radius: 10px;
-  padding: 14px 16px;
-  border: 1px solid var(--border-light);
-  box-shadow: var(--shadow-raised);
-
-  .temp-card-title {
-    font-size: 12px;
-    color: var(--text-tertiary);
-    margin-bottom: 4px;
-  }
-
-  .temp-card-value {
-    font-size: 22px;
-    font-weight: 700;
-    color: var(--text-primary);
-    font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
-    display: inline;
-  }
-
-  .temp-card-unit {
-    font-size: 13px;
-    color: var(--text-tertiary);
-    margin-left: 2px;
-  }
 }
 
 /* 乖离度排行 */
@@ -742,8 +483,18 @@ watch(historyDays, () => {
   color: var(--text-tertiary);
 }
 
-.bias-stale-alert {
-  margin-bottom: 12px;
+.bias-stale-pill {
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 6px 6px 6px 0;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--color-warning, #d97706);
+  background: color-mix(in srgb, var(--color-warning, #d97706) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-warning, #d97706) 35%, transparent);
+  cursor: help;
+  white-space: nowrap;
 }
 
 .bias-stale-tag {
@@ -758,143 +509,13 @@ watch(historyDays, () => {
   font-size: 14px;
 }
 
-/* 底部 */
-.footer-section {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 16px 24px 32px;
-  border-top: 1px solid var(--border-light);
-}
-
-.footer-inner {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.footer-legend {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 16px;
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.legend-item {
-  display: inline-flex;
-  align-items: center;
-}
-
-.legend-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  margin-right: 5px;
-}
-.legend-low { background: var(--temp-low); }
-.legend-mid { background: var(--temp-mid); }
-.legend-high { background: var(--temp-high); }
-
-.legend-note {
-  color: var(--text-tertiary);
-  margin-left: 4px;
-}
-
-.footer-sources {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 12px;
-}
-
-.footer-label {
-  font-size: 12px;
-  color: var(--text-tertiary);
-  font-weight: 500;
-}
-
-.footer-source {
-  font-size: 12px;
-  color: var(--text-secondary);
-
-  &::before {
-    content: "·";
-    margin-right: 8px;
-    color: var(--text-tertiary);
-  }
-  &:first-of-type::before {
-    display: none;
-  }
-}
-
-.footer-disclaimer-text {
-  font-size: 11px;
-  color: var(--text-tertiary);
-  line-height: 1.6;
-}
-
-.footer-copyright {
-  font-size: 11px;
-  color: var(--text-disabled);
-}
-
 /* ===== 响应式 ===== */
-@media (max-width: 1024px) {
-  .dashboard-grid {
-    grid-template-columns: 1fr 1fr;
-  }
-  .gauge-card {
-    grid-column: span 2;
-  }
-}
-
 @media (max-width: 768px) {
-  .dashboard-grid {
-    grid-template-columns: 1fr;
-  }
-  .gauge-card {
-    grid-column: span 1;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    padding: 20px;
-  }
-  .gauge-ring {
-    width: 100px;
-    height: 100px;
-  }
-  .gauge-number {
-    font-size: 28px;
-  }
-  .cards-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-  .section-header {
-    flex-direction: column;
-    align-items: flex-start;
-  }
   .header-inner {
     flex-wrap: wrap;
     height: auto;
     padding: 12px 16px;
     gap: 8px;
-  }
-}
-
-@media (max-width: 480px) {
-  .cards-grid {
-    grid-template-columns: 1fr;
-  }
-  .metric-card {
-    padding: 12px 14px;
-  }
-  .metric-value {
-    font-size: 24px;
-  }
-  .gauge-number {
-    font-size: 24px;
   }
 }
 </style>
