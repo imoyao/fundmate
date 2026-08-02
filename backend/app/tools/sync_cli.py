@@ -39,31 +39,29 @@ env_path = Path(__file__).parent.parent.parent / '.env'
 load_dotenv(dotenv_path=env_path)
 
 
-def _new_orchestrator():
+def _build_orchestrator(db):
     # 惰性导入：orchestrator → akshare_adapter → akshare → pandas/numpy 的 C 扩展加载开销极大，
     # 仅在真正需要抓取的命令（temperature/all/job）才导入；只读诊断命令（verify-jisilu）不触碰此链路。
     from app.services.sync.orchestrator import DataSyncOrchestrator
 
-    init_db()
-    db = next(get_db())
-    return DataSyncOrchestrator(db), db
+    return DataSyncOrchestrator(db)
 
 
 def cmd_temperature(args):
     """跑市场温度同步（集思录估值温度 / 韭圈儿 / 自算估值分位；乖离率跳过）。"""
-    orch, db = _new_orchestrator()
-    try:
+    init_db()
+    with get_db() as db:
+        orch = _build_orchestrator(db)
         result = orch.run_job('temperature', full_sync=args.full_sync)
         logger.info(f"temperature 执行完成: {result.get('status')}")
         return 0 if result.get('status') == 'success' else 1
-    finally:
-        db.close()
 
 
 def cmd_all(args):
     """跑全部同步任务。"""
-    orch, db = _new_orchestrator()
-    try:
+    init_db()
+    with get_db() as db:
+        orch = _build_orchestrator(db)
         results = orch.run_all_jobs(full_sync=args.full_sync)
         failed = [k for k, v in results.items() if v.get('status') != 'success']
         for name, res in results.items():
@@ -73,19 +71,16 @@ def cmd_all(args):
             return 1
         logger.info('全部同步任务成功')
         return 0
-    finally:
-        db.close()
 
 
 def cmd_job(args):
     """透传跑单个 Job。"""
-    orch, db = _new_orchestrator()
-    try:
+    init_db()
+    with get_db() as db:
+        orch = _build_orchestrator(db)
         result = orch.run_job(args.job, full_sync=args.full_sync)
         logger.info(f"{args.job} 执行完成: {result.get('status')}")
         return 0 if result.get('status') == 'success' else 1
-    finally:
-        db.close()
 
 
 def cmd_verify_jisilu(args):
