@@ -31,7 +31,6 @@ from dotenv import load_dotenv
 from loguru import logger
 
 from app.core.database import get_db, init_db
-from app.services.sync.orchestrator import DataSyncOrchestrator
 
 # 将项目根目录加入 Python 路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -41,6 +40,10 @@ load_dotenv(dotenv_path=env_path)
 
 
 def _new_orchestrator():
+    # 惰性导入：orchestrator → akshare_adapter → akshare → pandas/numpy 的 C 扩展加载开销极大，
+    # 仅在真正需要抓取的命令（temperature/all/job）才导入；只读诊断命令（verify-jisilu）不触碰此链路。
+    from app.services.sync.orchestrator import DataSyncOrchestrator
+
     init_db()
     db = next(get_db())
     return DataSyncOrchestrator(db), db
