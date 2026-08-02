@@ -356,4 +356,8 @@ frontend/.env.staging
 # 本地回滚与工具内部（不入库）
 .backup-v1*/
 .workbuddy/
+.codebuddy/
 .idea/
+
+# 前端设计草稿（已落地沉淀至 frontend/design.md，非最终代码，不入库）
+docs/draft-dashboard-temperature.html
