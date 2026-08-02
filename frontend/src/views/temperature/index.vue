@@ -126,6 +126,25 @@
         </el-table>
         <div v-if="!biasItems.length" class="empty-state">暂无乖离率数据</div>
       </section>
+
+      <!-- 市场机会（来自 temperature store，由综合温度与股债性价比推导） -->
+      <section v-if="tempStore.opportunityList.length" class="opportunity-section">
+        <SectionHeader title="市场机会" />
+        <div class="opportunity-list">
+          <div
+            v-for="op in tempStore.opportunityList"
+            :key="op.name"
+            class="opportunity-item"
+            :class="`opportunity-item--${op.tone}`"
+          >
+            <div class="opportunity-head">
+              <span class="opportunity-name">{{ op.name }}</span>
+              <span class="opportunity-tag">{{ op.tone === 'safe' ? '机会' : op.tone === 'danger' ? '风险' : '中性' }}</span>
+            </div>
+            <p class="opportunity-desc">{{ op.desc }}</p>
+          </div>
+        </div>
+      </section>
     </div>
 
     <!-- 底部（公共组件，与探市一致） -->
@@ -152,6 +171,7 @@ import MetricCard from "@/components/MetricCard/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import TemperatureContextCard from "@/components/TemperatureContextCard/index.vue";
+import { useTemperatureStore } from "@/store/modules/temperature";
 import { MARKET_LOGO, useMarketHeaderNavs } from "@/components/MarketHeader/config";
 import { marketFooterLegend, buildMarketFooterSources } from "@/components/MarketFooter/config";
 
@@ -450,6 +470,9 @@ const headerNavs = useMarketHeaderNavs();
 const footerLegend = marketFooterLegend;
 const footerSources = buildMarketFooterSources();
 
+// 温度 store：承载综合温度、股债性价比与市场机会清单
+const tempStore = useTemperatureStore();
+
 // ================================================================
 // 生命周期
 // ================================================================
@@ -457,6 +480,8 @@ onMounted(async () => {
   await fetchOverview();
   await fetchHistory();
   await fetchBias();
+  // NOTE: 与 fetchOverview 各自调用一次 getTemperatureOverview，后续可合并为单一数据源
+  await tempStore.fetchTemperature();
 });
 
 // 当历史天数变化时重新获取
@@ -518,6 +543,75 @@ watch(historyDays, () => {
   border: 1px solid var(--border-light);
   box-shadow: var(--shadow-raised);
   margin-bottom: 24px;
+}
+
+/* 市场机会（temperature store） */
+.opportunity-section {
+  margin-bottom: 24px;
+}
+
+.opportunity-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--space-compact);
+}
+
+.opportunity-item {
+  background: var(--bg-card);
+  border-radius: 12px;
+  padding: 16px 18px;
+  border: 1px solid var(--border-light);
+  box-shadow: var(--shadow-raised);
+  border-left: 3px solid var(--text-tertiary);
+}
+
+.opportunity-item--safe {
+  border-left-color: var(--temp-low);
+}
+
+.opportunity-item--danger {
+  border-left-color: var(--temp-high);
+}
+
+.opportunity-item--normal {
+  border-left-color: var(--temp-mid);
+}
+
+.opportunity-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.opportunity-name {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.opportunity-tag {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+}
+
+.opportunity-item--safe .opportunity-tag {
+  background: color-mix(in srgb, var(--temp-low) 18%, transparent);
+  color: var(--temp-low);
+}
+
+.opportunity-item--danger .opportunity-tag {
+  background: color-mix(in srgb, var(--temp-high) 18%, transparent);
+  color: var(--temp-high);
+}
+
+.opportunity-desc {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary);
 }
 
 .bias-updated {
