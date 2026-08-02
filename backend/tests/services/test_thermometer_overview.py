@@ -8,22 +8,9 @@
 #       此处验证 overview 对含 level 的 data 的透传逻辑正确。
 from datetime import date
 
-import pytest
-
 from app.domains.temperature.models import MarketComposite, MarketSingleValue
-from app.services.thermometer import service as thermo_service
 from app.services.thermometer.constants import TempLevel, label_temp
 from app.services.thermometer.service import TemperatureService
-
-
-@pytest.fixture(autouse=True)
-def _patch_thermo_session(app, monkeypatch):
-    # conftest 的 app fixture 已把 app.core.database.SessionLocal 重定向到内存引擎，
-    # 但 service 模块在 import 时早绑定了 SessionLocal，monkeypatch 改模块属性对其不生效，
-    # 会导致 get_overview 连到真实库。此处把 service.SessionLocal 对齐到内存引擎。
-    from app.core.database import SessionLocal as PatchedSessionLocal
-
-    monkeypatch.setattr(thermo_service, 'SessionLocal', PatchedSessionLocal)
 
 
 def test_label_temp_authoritative_thresholds():

@@ -65,6 +65,19 @@ def db(app):
 
 
 @pytest.fixture(autouse=True)
+def _patch_thermo_session(app, monkeypatch):
+    # service 模块在 import 时早绑定了 app.core.database.SessionLocal，
+    # 而 app fixture 把 app.core.database.SessionLocal 重定向到内存引擎，
+    # monkeypatch 改模块属性只对 app.core.database 生效，对 service 模块的早绑定无效，
+    # 会导致 TemperatureService 连到真实库。此处把 service.SessionLocal 对齐到内存引擎，
+    # 修复测试隔离隐患（原本只有 test_thermometer_overview.py 局部处理）。
+    import app.services.thermometer.service as thermo_service
+    from app.core.database import SessionLocal as PatchedSessionLocal
+
+    monkeypatch.setattr(thermo_service, 'SessionLocal', PatchedSessionLocal)
+
+
+@pytest.fixture(autouse=True)
 def clean_db(app):
     """每个测试结束后自动清空所有表，保证隔离"""
     yield
