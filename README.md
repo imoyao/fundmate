@@ -72,6 +72,27 @@ pdm run python app/tools/sync_metadata.py --job temperature
 pdm run sync --all / pdm run sync --job temperature
 ```
 
+### 开发任务集合（invoke + rich，推荐）
+
+日常开发指令（抓取 / 测试 / 启动 / 文档）已统一封装到 `backend/tasks.py`，用 [invoke](https://www.pyinvoke.org/) + [rich](https://github.com/Textualize/rich) 提供美化输出与单一入口，避免指令散落在命令行记忆里。依赖 `invoke`、`rich` 已加入 dev 依赖组（`pdm install -G dev`）。
+
+```bash
+cd backend
+pdm run invoke --list              # 列出全部任务
+pdm run invoke grab.temperature    # 市场温度同步（乖离率跳过）
+pdm run invoke grab.all            # 全部同步任务
+pdm run invoke grab.job fund_nav   # 透传跑单个 Job
+pdm run invoke grab.verify-jisilu  # 只读诊断：jisilu_indicator 是否含 level
+pdm run invoke test                # 跑全部后端测试
+pdm run invoke test --path tests/services   # 限定目录
+pdm run invoke test --path tests/services/foo.py --k test_x  # 限定用例（-k）
+pdm run invoke serve               # 启动 API（uvicorn，默认 :5000，热重载）
+pdm run invoke docs.dev            # 本地文档预览（需 frontend 依赖已装）
+pdm run invoke help                # 打印任务速查表
+```
+
+> 抓取 / 验证类任务直接复用 `app/tools/sync_cli.py`，保证单一事实来源；`tasks.py` 不重复实现业务逻辑。Windows 终端为 GBK 编码时 rich 输出偶发乱码但不影响命令执行（符号已规避非 ASCII）。
+
 前端：
 
 ```bash
