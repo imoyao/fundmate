@@ -61,13 +61,40 @@ def label_volume(total: float) -> str:
     return '放量' if total > 12000 else ('缩量' if total < 8000 else '温和')
 
 
-def label_temp(value: Optional[float]) -> str:
-    """温度定性标签（可转债温度 / 综合温度等）。唯一权威来源，禁止散落副本。"""
+def _to_float(value: object) -> Optional[float]:
+    """把温度输入安全转 float；无法转换（字符串脏值 '--'/空串/None）返回 None。
+
+    集思录等数据源改版后，数值字段可能以字符串形式返回（如 '22.75'），
+    也可能返回 '--'/'N/A'/空串等不可解析脏值。统一在此容错，
+    避免 label_temp 内 ``value > 70`` 出现 str 与 int 比较的运行时崩溃。
+    """
     if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        s = value.strip()
+        if not s or s in ('--', 'N/A', 'NA', 'null', 'None'):
+            return None
+        try:
+            return float(s)
+        except ValueError:
+            return None
+    return None
+
+
+def label_temp(value: object) -> str:
+    """温度定性标签（可转债温度 / 综合温度等）。唯一权威来源，禁止散落副本。
+
+    输入容错：字符串数值（如 '22.75'）、脏值（'--'/空串/None）均安全处理，
+    解析失败返回 '未知'，不会因类型不匹配抛出 TypeError。
+    """
+    v = _to_float(value)
+    if v is None:
         return '未知'
-    if value > 70:
+    if v > 70:
         return TempLevel.HIGH.value
-    if value > 40:
+    if v > 40:
         return TempLevel.MID.value
     return TempLevel.LOW.value
 

@@ -76,6 +76,7 @@ from app.services.thermometer.constants import (
     QIEMAN_PROTOCOL_VERSION,
     QIEMAN_TOOL,
     YOUZHIYOUXING_URL,
+    _to_float,
     label_fear,
     label_temp,
     label_volume,
@@ -557,16 +558,16 @@ class JisiluIndicatorFetcher(BaseFetcher):
             data = resp.json()
             result = {
                 'price_dt': data.get('price_dt'),
-                'median_pb': float(data.get('median_pb', 0)),
-                'median_pb_temperature': float(data.get('median_pb_temperature', 0)),
+                'median_pb': _to_float(data.get('median_pb')) or 0.0,
+                'median_pb_temperature': _to_float(data.get('median_pb_temperature')) or 0.0,
                 'median_pb_level': label_temp(data.get('median_pb_temperature')),
-                'median_pe': float(data.get('median_pe', 0)),
-                'median_pe_temperature': float(data.get('median_pe_temperature', 0)),
+                'median_pe': _to_float(data.get('median_pe')) or 0.0,
+                'median_pe_temperature': _to_float(data.get('median_pe_temperature')) or 0.0,
                 'median_pe_level': label_temp(data.get('median_pe_temperature')),
-                'stock_count': float(data.get('stock_count', 0)),
-                'ipo_count': float(data.get('IPO_count', 0)),
-                'st_count': float(data.get('st_count', 0)),
-                'index_point': float(data.get('index_point', 0)),
+                'stock_count': _to_float(data.get('stock_count')) or 0.0,
+                'ipo_count': _to_float(data.get('IPO_count')) or 0.0,
+                'st_count': _to_float(data.get('st_count')) or 0.0,
+                'index_point': _to_float(data.get('index_point')) or 0.0,
             }
             return {'data': result, 'raw': data}
         except Exception as e:  # noqa: BLE001
