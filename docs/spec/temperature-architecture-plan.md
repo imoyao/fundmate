@@ -89,9 +89,10 @@
 ## 3. 需要后端接口 / 改造（排期）
 
 ### P1（先打通数据，解除前端重复计算）—— 阻塞项，优先做前半
-- **B4 统一权威阈值（先于其它）**：后端**强制使用同一个 Enum**，`constants.py` 与 `fetchers.py` 语义对齐（统一为「偏低 / 适中 / 偏高」，消灭 `fetchers.py` 的「正常」）。**严禁前端在 P2 做 `"正常" => "适中"` 字符串替换**，否则产生新的脆弱处理。
-- **B2 `jisilu_indicator` 补 `level`**：`median_pb_temperature` / `median_pe_temperature` 返回档位，消除前端 `explore.inferValuationLevel`。
-- **B1 短/中/长期 composite 分解**：`/overview` 的 `composites` 增加 `short` / `medium` / `long` 温度及各自 `level`，支撑概览页三层架构。
+- [x] **B4 统一权威阈值（先于其它）**：✅ 已落地。`constants.py` 新增 `TempLevel` 枚举作唯一权威来源；`label_temp` 收敛到枚举（并处理 None→`未知`）；`fetchers.py` self_calc 与 `service.py` composite 散落阈值逻辑均改用 `label_temp`，消灭 `fetchers.py` 的「正常」与不一致的 30/70 阈值；`views.py` 示例 payload 的「正常」亦改为「适中」。前端 `explore` 的 `selfCalcLevel` 兜底由「正常」改为「暂无」。
+- [x] **B2 `jisilu_indicator` 补 `level`**：✅ 已落地。后端 `fetchers.py` 的 `jisilu_indicator` 新增 `median_pb_level` / `median_pe_level`（`label_temp` 派生）；前端 `explore` 删除本地 `inferValuationLevel`，`pbLevel`/`peLevel` 改用后端 `level`。
+- [x] **B1 短/中/长期 composite 分解**：✅ 已落地。`/overview` 的 `composites` 新增 `temperature_bands`：`short`(短期情绪=jiucaishuo_fear) / `medium`(中期温度=jiucaishuo_medium) / `long`(长期估值=self_calc.percent)，各含 `name`/`value`/`level`。
+  - ⚠️ **待产品复核**：「长期」当前取股债利差估值分位原值（高=估值贵=热，与 PB/PE 温度同向，不反向）；其「历史低位」等解读文案归 B3，不在 B1 生成。若你希望「长期」改为有知有行/且慢等其它长周期源，或反向表达，需调整 `_compute_temperature_bands`。
 
 ### P2（文案 / 数据归集）
 - **B3 解读文案后端归集**：`/overview` 增加 `insights`（每项 `name`/`desc`/`tone`），消除前端 `store.buildOpportunities`；各 singles 补充 `caption` 字段，消除前端动态文案。
