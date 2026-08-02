@@ -33,7 +33,12 @@ def get_temperature_overview():
           ],
           "composites": {
             "self_calc": {"pe": 12.3, "percent": 45.0, "level": "适中", "collected_at": "2026-07-23 21:00:00"},
-            "jisilu_indicator": {"median_pb": 2.35, "median_pb_temperature": 22.75, ...}
+            "jisilu_indicator": {"median_pb": 2.35, "median_pb_temperature": 22.75, "median_pb_level": "偏低", ...},
+            "temperature_bands": {
+              "short": {"name": "短期情绪", "value": 30.8, "level": "偏低"},
+              "medium": {"name": "中期温度", "value": 49.0, "level": "适中"},
+              "long": {"name": "长期估值", "value": 44.0, "level": "适中"}
+            }
           },
           "links": {
             "jisilu": "https://www.jisilu.cn/data/indicator/",

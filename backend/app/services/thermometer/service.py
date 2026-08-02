@@ -437,6 +437,11 @@ class TemperatureService:
         if composite_temp:
             composites['composite_temperature'] = composite_temp
 
+        # 4.1 B1: 短/中/长期温度分解（概览页三层架构数据源）
+        bands = cls._compute_temperature_bands(singles, composites)
+        if bands:
+            composites['temperature_bands'] = bands
+
         # 5. 更新时间
         latest = db.query(MarketSingleValue).order_by(MarketSingleValue.collected_at.desc()).first()
         updated_at = latest.collected_at.strftime('%Y-%m-%d') if latest else today_shanghai().strftime('%Y-%m-%d')
@@ -498,6 +503,47 @@ class TemperatureService:
         level = label_temp(value)
 
         return {'value': value, 'level': level}
+
+    @classmethod
+    def _compute_temperature_bands(cls, singles: List[dict], composites: dict) -> Optional[dict]:
+        """
+        B1: 短 / 中 / 长期温度分解，供概览页三层架构展示。
+
+        假设（待产品复核）：
+          - 短期 = 韭圈儿「短期情绪」(jiucaishuo_fear)，高=贪婪=热。
+          - 中期 = 韭圈儿「中长期温度」(jiucaishuo_medium)。
+          - 长期 = 自算「股债利差估值分位」(self_calc.percent)，
+                   直接作为估值温度原值（高=估值贵=热，与 PB/PE 温度同向），
+                   不再反向。其「历史低位」等解读文案归 B3 后端归集，
+                   不在此处生成。
+        各 band 仅返回 value + level（档位由权威 label_temp 派生），
+        颜色等展示令牌留前端。
+        """
+
+        def _get_single(source: str) -> Optional[float]:
+            for s in singles or []:
+                if s.get('source') == source:
+                    v = s.get('value')
+                    return float(v) if v is not None else None
+            return None
+
+        self_calc = composites.get('self_calc') or {}
+        fear = _get_single('jiucaishuo_fear')
+        medium = _get_single('jiucaishuo_medium')
+        long_val = self_calc.get('percent')
+
+        def _band(name: str, value: Optional[float]) -> dict:
+            return {
+                'name': name,
+                'value': round(value, 1) if value is not None else None,
+                'level': label_temp(value),
+            }
+
+        return {
+            'short': _band('短期情绪', fear),
+            'medium': _band('中期温度', medium),
+            'long': _band('长期估值', long_val),
+        }
 
     # ---- 清理 ----
 
