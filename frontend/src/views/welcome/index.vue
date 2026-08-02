@@ -547,6 +547,7 @@ import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import TemperatureGaugeCard from "@/components/TemperatureGaugeCard/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
+import { useOverviewStore } from "@/store/modules/overview";
 
 defineOptions({
   name: "Welcome"
@@ -603,21 +604,32 @@ const financialMetrics = [
   { label: "躺平度", value: "12.31", subLabel: "2026年" }
 ];
 
-const mentalAccounts = [
-  { name: "不动如山", percent: 72, amount: 2150000, color: "var(--brand-700)" },
-  {
-    name: "自由计划",
-    percent: 19,
-    amount: 561043,
-    color: "var(--brand-500)"
-  },
-  {
-    name: "生活备用金",
-    percent: 65,
-    amount: 196136,
-    color: "var(--brand-300)"
-  }
-];
+// 心理账户：接入 overview store（store 内为示例数据，待后端提供真实接口）
+const overviewStore = useOverviewStore();
+const mentalAccounts = computed(() => {
+  const accounts = overviewStore.psychAccount.accounts;
+  const parsed = accounts.map(a => ({
+    name: a.label,
+    tone: a.tone,
+    amount: Number(String(a.value).replace(/[^\d.]/g, "")) || 0
+  }));
+  const total = parsed.reduce((s, a) => s + a.amount, 0) || 1;
+  const toneColor: Record<string, string> = {
+    safe: "var(--c-success)",
+    neutral: "var(--brand-700)",
+    warning: "var(--color-warning)",
+    danger: "var(--color-danger)"
+  };
+  return parsed.map(a => ({
+    name: a.name,
+    amount: `¥${a.amount.toLocaleString("zh-CN", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    })}`,
+    percent: Math.round((a.amount / total) * 100),
+    color: toneColor[a.tone] || "var(--brand-700)"
+  }));
+});
 
 // 新增：WatchlistWidget 的 ref，用于读取 hasPinned
 const watchlistWidgetRef = ref<InstanceType<typeof WatchlistWidget> | null>(
