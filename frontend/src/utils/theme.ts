@@ -48,7 +48,7 @@ export function setThemeMode(mode: ThemeMode): void {
 
   // 保存到 localStorage
   const storage = storageLocal();
-  const layout = storage.getItem('layout') || {};
+  const layout = (storage.getItem('layout') as Record<string, any>) || {};
   storage.setItem('layout', {
     ...layout,
     overallStyle: mode,
@@ -66,7 +66,7 @@ export function setThemeColor(color: ThemeColor): void {
 
   // 保存到 localStorage
   const storage = storageLocal();
-  const layout = storage.getItem('layout') || {};
+  const layout = (storage.getItem('layout') as Record<string, any>) || {};
   storage.setItem('layout', {
     ...layout,
     themeColor: color,
@@ -118,7 +118,7 @@ export function watchSystemTheme(callback: (isDark: boolean) => void): () => voi
  */
 export function getCurrentThemeMode(): ThemeMode {
   const storage = storageLocal();
-  const layout = storage.getItem('layout') || {};
+  const layout = (storage.getItem('layout') as Record<string, any>) || {};
   return (layout?.overallStyle as ThemeMode) || 'system';
 }
 
@@ -128,8 +128,8 @@ export function getCurrentThemeMode(): ThemeMode {
  */
 export function getCurrentThemeColor(): ThemeColor {
   const storage = storageLocal();
-  const layout = storage.getItem('layout') || {};
-  return (layout?.themeColor as ThemeColor) || getConfig().Theme || 'showbuy';
+  const layout = (storage.getItem('layout') as Record<string, any>) || {};
+  return (layout?.themeColor as ThemeColor) || (getConfig().Theme as ThemeColor) || 'showbuy';
 }
 
 /**
@@ -153,7 +153,7 @@ export function initTheme(): void {
       }
       // 更新 storage 中的 darkMode
       const storage = storageLocal();
-      const layout = storage.getItem('layout') || {};
+      const layout = (storage.getItem('layout') as Record<string, any>) || {};
       storage.setItem('layout', {
         ...layout,
         darkMode: isDark

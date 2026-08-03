@@ -2,7 +2,7 @@
 import { onUnmounted, ref } from 'vue';
 import { emitter } from '@/utils/mitt';
 
-const REFRESH_EVENT = 'refresh-ledger-data';
+const REFRESH_EVENT = 'refresh-ledger-data' as const;
 // 防抖计时器
 let timeoutId: ReturnType<typeof setTimeout> | null = null;
 

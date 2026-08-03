@@ -38,6 +38,8 @@ export interface TemperatureOverviewResponse {
         st_count: number;
         index_point: number;
         price_dt: string;
+        median_pb_level?: string;
+        median_pe_level?: string;
       };
     };
     links: {

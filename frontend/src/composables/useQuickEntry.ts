@@ -1,4 +1,4 @@
-import { ref } from "vue";
+import { ref, type Ref } from "vue";
 import { getLedgers } from "@/api/ledger";
 import { emitter } from "@/utils/mitt";
 
