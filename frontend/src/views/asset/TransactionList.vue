@@ -433,9 +433,9 @@ const amountClass = (txn: TransactionRecord) => {
 };
 
 // 原有工具函数
-function typeTag(type: string): string { const map = { buy: "success", sell: "danger", dividend: "warning", deposit: "primary", withdraw: "info" }; return map[type] || ""; }
+function typeTag(type: string): "primary" | "success" | "warning" | "info" | "danger" { const map: Record<string, "primary" | "success" | "warning" | "info" | "danger"> = { buy: "success", sell: "danger", dividend: "warning", deposit: "primary", withdraw: "info" }; return map[type] || "primary"; }
 function opLabel(type: string): string { const map = { buy: "买入", sell: "卖出", dividend: "分红", deposit: "存入", withdraw: "取出" }; return map[type] || type; }
-function statusTag(status: string): string { const map = { success: "success", failed: "danger", cancelled: "info", pending: "warning" }; return map[status] || ""; }
+function statusTag(status: string): "primary" | "success" | "warning" | "info" | "danger" { const map: Record<string, "primary" | "success" | "warning" | "info" | "danger"> = { success: "success", failed: "danger", cancelled: "info", pending: "warning" }; return map[status] || "primary"; }
 function statusLabel(status: string): string { const map = { success: "成功", failed: "失败", cancelled: "已撤单", pending: "可撤单" }; return map[status] || status; }
 
 // 生命周期

@@ -80,7 +80,7 @@
             </div>
 
             <div v-if="isStandardMode" class="template-download-section">
-              <el-button type="primary" size="large" class="download-template-btn" :loading="downloading"
+              <el-button type="primary" size="large" class="download-template-btn" :loading="downloadLoading"
                          @click="handleDownloadTemplate">
                 <IconifyIconOffline icon="ep:download" class="mr-2"/>
                 下载{{ templateNameForAccount }}（CSV）
@@ -482,7 +482,7 @@
                     </div>
                   </template>
                   <template v-else-if="col.slot === 'quantity'" #default="{ row }">
-                    <el-popover :visible="row.isEditingQty" placement="bottom-start" :width="200" trigger="manual"
+                    <el-popover :visible="row.isEditingQty" placement="bottom-start" :width="200" :trigger="'manual' as any"
                                 :hide-after="0" :persistent="true" teleported>
                       <div class="flex flex-col gap-2" @mousedown.stop>
                         <div class="text-xs text-gray-500">{{ row.symbol }} {{ row.name }} - <span
@@ -506,7 +506,7 @@
                     </el-popover>
                   </template>
                   <template v-else-if="col.slot === 'price'" #default="{ row }">
-                    <el-popover :visible="row.isEditingPrice" placement="bottom-start" :width="200" trigger="manual"
+                    <el-popover :visible="row.isEditingPrice" placement="bottom-start" :width="200" :trigger="'manual' as any"
                                 :hide-after="0" :persistent="true" teleported>
                       <div class="flex flex-col gap-2" @mousedown.stop>
                         <div class="text-xs text-gray-500">{{ row.symbol }} {{ row.name }} - <span

@@ -88,8 +88,8 @@ import 'v3-waterfall/dist/style.css'
 const store = useFavoritesStore();
 store.fetchList();
 
-const filter = ref('all');
-const sort = ref('updated_at');
+const filter = ref<'all' | 'stock' | 'fund' | 'manager' | 'portfolio'>('all');
+const sort = ref<'updated_at' | 'favorite_at' | 'holding_days'>('updated_at');
 const search = ref('');
 
 const noteEditorVisible = ref(false);

@@ -642,8 +642,8 @@ const filteredTableData = computed(() => {
 });
 
 // —— 辅助函数 ——
-function typeTag(type: string) {
-  const m: Record<string, string> = {
+function typeTag(type: string): "primary" | "success" | "warning" | "info" | "danger" {
+  const m: Record<string, "primary" | "success" | "warning" | "info" | "danger"> = {
     stock: "primary",
     fund: "warning",
     bond: "info",
