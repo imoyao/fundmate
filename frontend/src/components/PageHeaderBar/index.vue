@@ -32,11 +32,13 @@ withDefaults(
 <style lang="scss" scoped>
 /* 单一来源：frontend/design.md · 页头规范 */
 .page-header {
+  max-width: 1280px;
+  margin: 0 auto var(--space-section);
+  padding: 0 24px;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: var(--space-section);
 
   &__title {
     font-size: 24px;

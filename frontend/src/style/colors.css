@@ -203,6 +203,7 @@
   --space-loose:         32px;
   --space-12:            48px;
   --space-16:            64px;
+  --space-section:        48px;  /* 区块/页脚与内容的纵向间隔（PageHeaderBar / PageFooter 共用） */
 
   /* ===== 圆角 ===== */
   --radius-sm:           6px;

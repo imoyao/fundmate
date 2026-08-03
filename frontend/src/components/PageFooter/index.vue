@@ -10,11 +10,8 @@
 -->
 <template>
   <footer class="page-footer">
-    <div class="section-divider" />
-
     <div class="page-footer__inner">
       <div class="page-footer__revisit">
-        <h3 class="revisit-header">复盘</h3>
         <p class="revisit-text">{{ revisitText }}</p>
         <ul v-if="revisitItems && revisitItems.length" class="revisit-list">
           <li v-for="item in revisitItems" :key="item">{{ item }}</li>
@@ -118,14 +115,14 @@ withDefaults(
 /* 单一来源：frontend/design.md · 页脚规范 */
 .page-footer {
   margin-top: var(--space-section);
-
-  .section-divider {
-    height: 1px;
-    background: var(--border-light);
-    margin-bottom: 16px;
-  }
+  padding-top: var(--space-standard);
+  background: var(--bg-page);
+  border-top: 1px solid var(--border-light);
 
   &__inner {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 0 24px;
     display: flex;
     flex-wrap: wrap;
     gap: 16px;
@@ -135,13 +132,6 @@ withDefaults(
 
   &__revisit {
     flex: 1 1 320px;
-  }
-
-  .revisit-header {
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin: 0 0 10px;
   }
 
   .revisit-text {
@@ -238,7 +228,9 @@ withDefaults(
   }
 
   &__copyright {
-    margin: 16px 0 0;
+    max-width: 1280px;
+    margin: 16px auto 0;
+    padding: 0 24px;
     font-size: 12px;
     color: var(--text-tertiary);
     text-align: center;

@@ -8,12 +8,6 @@
       :navs="headerNavs"
     />
 
-    <PageHeaderBar
-      title="市场温度计"
-      subtitle="综合多源市场温度数据，给出当前冷热与市场机会提示"
-      :updated-at="updatedAt"
-    />
-
     <!-- 页面内容 -->
     <div class="page-content" v-loading="loading">
       <!-- 综合仪表盘 -->
@@ -183,7 +177,6 @@ import MetricCard from "@/components/MetricCard/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import TemperatureContextCard from "@/components/TemperatureContextCard/index.vue";
-import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
 import { useTemperatureStore } from "@/store/modules/temperature";
 import { MARKET_LOGO, useMarketHeaderNavs } from "@/components/MarketHeader/config";
 import { buildMarketFooterSources } from "@/components/MarketFooter/config";
@@ -515,7 +508,7 @@ watch(historyDays, () => {
 .page-content {
   max-width: 1280px;
   margin: 0 auto;
-  padding: 24px 24px 16px;
+  padding: var(--space-standard) 24px 16px;
 }
 
 /* 仪表盘区域 */
