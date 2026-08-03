@@ -240,6 +240,13 @@ router.beforeEach(async (to: ToRouteType, _from, next) => {
     // ❌ 未登录用户
     if (to.path !== "/login") {
       if (whiteList.indexOf(to.path) !== -1 || to.meta?.requiresAuth === false) {
+        // 兜底：已通过 Supabase 认证（isAuthenticated 为真），但因 multipleTabsKey
+        // cookie 缺失未进入上方「首次访问」分支，导致 wholeMenus 始终为空、
+        // 侧边栏 v-loading（依赖 wholeMenus.length === 0）一直转。
+        // 此处用静态菜单填充，确保放行进入的页面侧边栏能正常渲染。
+        if (isAuthenticated && usePermissionStoreHook().wholeMenus.length === 0) {
+          usePermissionStoreHook().handleWholeMenus([]);
+        }
         next();
       } else {
         // 清理残留数据
