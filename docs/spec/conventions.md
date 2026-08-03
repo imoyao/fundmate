@@ -46,6 +46,7 @@
 - 所有变量、参数禁止单字母缩写，语义自解释
 - Pydantic Schema 严格对齐模型字段，后缀区分 Create / Update / Out
 - 蓝图变量名绑定业务领域，清晰可维护
+- **前端命名规范（补充）**：Vue 组件 PascalCase、工具/API 文件 camelCase、组合式函数 `useXxx`、内置封装沿用 Pure Admin `Re` 前缀（业务组件禁用）；变量/函数 camelCase、常量 UPPER_SNAKE、类型 PascalCase 禁 I 前缀；**禁止 `any`/`Record<string, any>`/`object` 作 API 入参响应，须对齐后端契约**；类型集中管理。完整条款与不规范点清单见 [`frontend-naming.md`](./frontend-naming.md) / [`frontend-naming-audit.md`](./frontend-naming-audit.md)（2026-08-03 决策）。
 
 ### 2.8 第三方库与工具类开发规范
 
