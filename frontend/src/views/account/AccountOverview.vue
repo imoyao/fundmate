@@ -412,8 +412,8 @@ function onSizeChange(size: number) {
 }
 
 // 类型标签样式
-function typeTagType(type: string) {
-  const map: Record<string, string> = {
+function typeTagType(type: string): "primary" | "success" | "warning" | "info" | "danger" {
+  const map: Record<string, "primary" | "success" | "warning" | "info" | "danger"> = {
     stock: "primary",
     fund: "warning",
     bond: "info",
@@ -422,7 +422,7 @@ function typeTagType(type: string) {
     cash: "success",
     static: "info"
   };
-  return map[type] || "";
+  return map[type] || "primary";
 }
 
 function typeLabel(type: string) {
