@@ -1,37 +1,28 @@
 import type { App } from "vue";
 import * as echarts from "echarts/core";
 import { PieChart, BarChart, LineChart, SankeyChart } from "echarts/charts";
-import { CanvasRenderer, SVGRenderer } from "echarts/renderers";
+import { CanvasRenderer } from "echarts/renderers";
 import {
   GridComponent,
-  TitleComponent,
-  PolarComponent,
   LegendComponent,
   GraphicComponent,
-  ToolboxComponent,
-  TooltipComponent,
-  DataZoomComponent,
-  VisualMapComponent
+  TooltipComponent
 } from "echarts/components";
 
 const { use } = echarts;
 
+// 仅注册项目实际使用的图表类型和组件（经 2026-08-04 全量审计）
+// 移除：SVGRenderer, PolarComponent, TitleComponent, ToolboxComponent, DataZoomComponent, VisualMapComponent
 use([
   PieChart,
   BarChart,
   LineChart,
   SankeyChart,
   CanvasRenderer,
-  SVGRenderer,
   GridComponent,
-  TitleComponent,
-  PolarComponent,
   LegendComponent,
-  GraphicComponent,
-  ToolboxComponent,
-  TooltipComponent,
-  DataZoomComponent,
-  VisualMapComponent
+  GraphicComponent,   // 用于 echarts.graphic.LinearGradient 面积渐变
+  TooltipComponent
 ]);
 
 /**
