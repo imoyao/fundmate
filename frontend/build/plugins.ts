@@ -6,6 +6,7 @@ import vue from "@vitejs/plugin-vue";
 import { viteBuildInfo } from "./info";
 import svgLoader from "vite-svg-loader";
 import Icons from "unplugin-icons/vite";
+import ElementPlus from "unplugin-element-plus/vite";
 import type { PluginOption } from "vite";
 import vueJsx from "@vitejs/plugin-vue-jsx";
 import tailwindcss from "@tailwindcss/vite";
@@ -41,6 +42,18 @@ export function getPluginsList(
     Icons({
       compiler: "vue3",
       scale: 1
+    }),
+    // Element Plus 样式按需引入（替代全量 import 'element-plus/dist/index.css'）
+    ElementPlus({
+      ignoreComponents: [
+        "TableV2",          // ElTableV2 被插件错误映射到 auto-resizer
+        "PopoverDirective", // 指令类型，无对应组件样式文件
+        "Loading",          // 插件服务，无对应组件样式文件
+        "InfiniteScroll",   // 指令类型，无对应组件样式文件
+        "Message",          // 服务类型，无对应组件样式文件
+        "MessageBox",       // 服务类型，无对应组件样式文件
+        "Notification"      // 服务类型，无对应组件样式文件
+      ]
     }),
     // 🔥 完全注释掉 CDN 插件
     // VITE_CDN ? cdn : null,

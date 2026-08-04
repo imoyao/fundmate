@@ -8,7 +8,7 @@ import {
   ElAffix,
   ElAlert,
   ElAutocomplete,
-  ElAutoResizer,
+  // ElAutoResizer,  // 未使用，且 unplugin-element-plus 样式映射有问题
   ElAvatar,
   ElAnchor,
   ElAnchorLink,
@@ -89,7 +89,7 @@ import {
   ElSwitch,
   ElTable,
   ElTableColumn,
-  ElTableV2,
+  // ElTableV2,  // 未使用，且 unplugin-element-plus 映射错误→auto-resizer
   ElTabs,
   ElTabPane,
   ElTag,
@@ -124,7 +124,7 @@ const components = [
   ElAffix,
   ElAlert,
   ElAutocomplete,
-  ElAutoResizer,
+  // ElAutoResizer,  // 未使用，且 unplugin-element-plus 样式映射有问题
   ElAvatar,
   ElAnchor,
   ElAnchorLink,
@@ -205,7 +205,7 @@ const components = [
   ElSwitch,
   ElTable,
   ElTableColumn,
-  ElTableV2,
+  // ElTableV2,  // 未使用，且 unplugin-element-plus 映射错误→auto-resizer
   ElTabs,
   ElTabPane,
   ElTag,
