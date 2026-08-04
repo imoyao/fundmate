@@ -364,7 +364,7 @@
               </el-select>
             </div>
             <div class="allocation-group-list">
-              <div v-for="group in currentAllocationGroups" :key="group.type || group.account"
+              <div v-for="(group, key) in currentAllocationGroups" :key="key"
                    class="allocation-group-item">
                 <div class="allocation-group-info">
                   <span class="allocation-group-label">{{ group.label }}</span>
@@ -375,7 +375,7 @@
                   <el-option v-for="opt in ALLOCATION_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value"/>
                 </el-select>
               </div>
-              <div v-if="currentAllocationGroups.length === 0" class="text-center text-gray-400 py-4">
+              <div v-if="Object.keys(currentAllocationGroups).length === 0" class="text-center text-gray-400 py-4">
                 所有数据已手动设置配置目标，无需分组调整
               </div>
             </div>
@@ -452,7 +452,7 @@
                     <el-tag v-if="row.is_calculated" size="small" type="warning" class="ml-1">待确认</el-tag>
                   </template>
                 </el-table-column>
-                <el-table-column v-for="col in tableColumns" :key="col.prop || col.type" v-bind="col">
+                <el-table-column v-for="col in tableColumns" :key="col.prop" v-bind="col">
                   <template v-if="col.slot === 'status'" #default="{ row }">
                     <el-tooltip v-if="row.is_duplicate" content="该交易已存在于系统中，默认跳过。如需强制导入，请手动勾选"
                                 placement="top">
@@ -682,7 +682,7 @@
     </div>
 
     <FundMatchDrawer
-      v-model="showMatchDrawer"
+      :visible="showMatchDrawer"
       :missing-fund-names="missingFundNames"
       :preview-data="previewData"
       @match-complete="onMatchComplete"

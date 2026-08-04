@@ -78,7 +78,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, nextTick } from "vue";
-import * as echarts from "echarts";
+import echarts from "@/plugins/echarts";
 
 const monthlyProfitChartRef = ref<HTMLCanvasElement | null>(null);
 const assetAllocationChartRef = ref<HTMLCanvasElement | null>(null);

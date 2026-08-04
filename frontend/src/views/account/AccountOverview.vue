@@ -199,14 +199,14 @@
                   'cursor-pointer hover:underline',
                   priceChangeClass(row)
                 ]"
-                @click="startEditPrice(row)"
+                @click="startEditPrice(row as Position)"
               >
-                ¥{{ row.current_price.toFixed(2) }}
+                ¥{{ (row as Position).current_price.toFixed(2) }}
               </span>
               <IconifyIconOffline
                 icon="ep:edit"
                 class="text-gray-300 text-xs cursor-pointer hover:text-blue-400"
-                @click="startEditPrice(row)"
+                @click="startEditPrice(row as Position)"
               />
             </div>
           </template>
@@ -221,7 +221,7 @@
         >
           <template #default="{ row }">
             <div
-              v-if="row.id === editingPriceId"
+              v-if="(row as Position).id === editingPriceId"
               class="flex items-center gap-1"
             >
               <el-input-number
@@ -235,7 +235,7 @@
               <el-button
                 type="primary"
                 size="small"
-                @click="confirmEditPrice(row)"
+                @click="confirmEditPrice(row as Position)"
               >
                 确认
               </el-button>
@@ -448,9 +448,10 @@ function marketLabel(market: string) {
   return map[market] || market;
 }
 
-function priceChangeClass(row: Position) {
-  if (row.current_price > row.avg_price) return "text-red-500";
-  if (row.current_price < row.avg_price) return "text-green-500";
+function priceChangeClass(row: Position  | any) {
+  const r = row as Position;
+  if (r.current_price > r.avg_price) return "text-red-500";
+  if (r.current_price < r.avg_price) return "text-green-500";
   return "text-gray-500";
 }
 
@@ -467,7 +468,7 @@ async function fetchPositions() {
     positions.value = posRes?.data ?? [];
     total.value = posRes?.total ?? 0;
 
-    summaryData.value = sumRes?.data ?? sumRes ?? null;
+    summaryData.value = (sumRes as any)?.data ?? sumRes ?? null;
   } catch (e: any) {
     ElMessage.error(e?.message || "加载数据失败");
   } finally {
@@ -495,15 +496,17 @@ async function handleDelete(id: number) {
 const editingPriceId = ref<number | null>(null);
 const editingPriceValue = ref(0);
 
-function startEditPrice(row: Position) {
-  editingPriceId.value = row.id;
-  editingPriceValue.value = row.current_price;
+function startEditPrice(row: Position  | any) {
+  const r = row as Position;
+  editingPriceId.value = r.id;
+  editingPriceValue.value = r.current_price;
 }
 
-async function confirmEditPrice(row: Position) {
+async function confirmEditPrice(row: Position  | any) {
+  const r = row as Position;
   try {
-    await updatePosition(row.id, { current_price: editingPriceValue.value });
-    row.current_price = editingPriceValue.value;
+    await updatePosition(r.id, { current_price: editingPriceValue.value });
+    r.current_price = editingPriceValue.value;
     editingPriceId.value = null;
     ElMessage.success("价格已更新");
     // 重新拉取汇总数据

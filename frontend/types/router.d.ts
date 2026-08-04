@@ -60,6 +60,8 @@ declare global {
     loaded?: boolean;
     /** 是否需要登录鉴权（默认`true`，设为`false`则允许未登录访问）`可选` */
     requiresAuth?: boolean;
+    /** 菜单排序，数值越小越靠前 `可选` */
+    rank?: number;
   }
 
   /**

@@ -1,4 +1,4 @@
-import { ref, onBeforeUnmount } from "vue";
+import { ref, onBeforeUnmount, type Ref } from "vue";
 import {
   calculateHoldingsValuation,
   type Holding,
@@ -9,12 +9,22 @@ import { http } from "@/utils/http";
 
 const STORAGE_KEY = "showbuy_realtime_quotes_enabled";
 
+export interface RealtimeQuotesReturn {
+  enabled: Ref<boolean>;
+  toggle: (value?: boolean) => void;
+  status: Ref<"idle" | "trading" | "closed" | "error">;
+  items: Ref<ValuationItem[]>;
+  summary: Ref<ValuationSummary | null>;
+  lastUpdateTime: Ref<string>;
+  manualRefresh: () => Promise<void>;
+}
+
 export function useRealtimeQuotes(
   getHoldings: () => Holding[],
   getStaticPrice: (
     symbol: string
   ) => { currentPrice?: number; changePct?: number } | undefined
-) {
+): RealtimeQuotesReturn {
   const enabled = ref(localStorage.getItem(STORAGE_KEY) === "true");
   const status = ref<"idle" | "trading" | "closed" | "error">("idle");
   const items = ref<ValuationItem[]>([]);

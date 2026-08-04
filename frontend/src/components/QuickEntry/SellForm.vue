@@ -604,7 +604,7 @@ const fetchFundFeeRules = async (
   if (shares !== undefined && shares !== null && shares > 0) {
     payload.shares = shares;
   }
-  const res = await estimateRedeemFee(payload);
+  const res: any = await estimateRedeemFee(payload);
   const data = res.data;
   return {
     total_fee: data?.total_fee || 0,

@@ -361,7 +361,7 @@ import { getPositions } from "@/api/positions";
 import { getSummary } from "@/api/summary";
 import { getAssets } from '@/api/assets'
 import { ElMessage } from "element-plus";
-import * as echarts from "echarts";
+import echarts from "@/plugins/echarts";
 import { ALLOCATION_COLORS, ALLOCATION_OPTIONS, ALLOCATION_LABELS, getAllocationLabel } from '@/constants';
 
 const assetChangeChartRef = ref<HTMLDivElement | null>(null);

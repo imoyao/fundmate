@@ -337,13 +337,14 @@ function getPagedHoldings(tag: string) {
 }
 
 // ---------- 标签操作（局部更新）----------
-async function unbindTag(row: EnrichedHolding, tagName: string) {
+async function unbindTag(row: EnrichedHolding  | any, tagName: string) {
+  const r = row as EnrichedHolding;
   const tag = allTags.value.find(t => t.name === tagName);
   if (!tag) return;
   try {
-    await unbindPositionTag(tag.id, row.id);
-    if (positionTagMap.value[row.id]) {
-      positionTagMap.value[row.id] = positionTagMap.value[row.id].filter((n: string) => n !== tagName);
+    await unbindPositionTag(tag.id, r.id);
+    if (positionTagMap.value[r.id]) {
+      positionTagMap.value[r.id] = positionTagMap.value[r.id].filter((n: string) => n !== tagName);
     }
     ElMessage.success("已移除标签");
   } catch (e: any) {
@@ -351,30 +352,32 @@ async function unbindTag(row: EnrichedHolding, tagName: string) {
   }
 }
 
-async function updateTags(row: EnrichedHolding, selected: string[]) {
-  const current = positionTagMap.value[row.id] || [];
+async function updateTags(row: EnrichedHolding  | any, selected: string[]) {
+  const r = row as EnrichedHolding;
+  const current = positionTagMap.value[r.id] || [];
   const toAdd = selected.filter(t => !current.includes(t));
   const toRemove = current.filter(t => !selected.includes(t));
 
   for (const tagName of toAdd) {
     const tag = allTags.value.find(t => t.name === tagName);
     if (tag) {
-      try { await bindPositionTag(tag.id, row.id); } catch (e) {}
+      try { await bindPositionTag(tag.id, r.id); } catch (e) {}
     }
   }
   for (const tagName of toRemove) {
     const tag = allTags.value.find(t => t.name === tagName);
     if (tag) {
-      try { await unbindPositionTag(tag.id, row.id); } catch (e) {}
+      try { await unbindPositionTag(tag.id, r.id); } catch (e) {}
     }
   }
 
-  positionTagMap.value[row.id] = selected;
+  positionTagMap.value[r.id] = selected;
   ElMessage.success("标签已更新");
 }
 
-async function createTagForRow(row: EnrichedHolding) {
-  const name = (newTagNames.value[row.id] || '').trim();
+async function createTagForRow(row: EnrichedHolding  | any) {
+  const r = row as EnrichedHolding;
+  const name = (newTagNames.value[r.id] || '').trim();
   if (!name) return;
   try {
     const res: any = await createStrategyTag({ name });
@@ -382,11 +385,11 @@ async function createTagForRow(row: EnrichedHolding) {
     if (!newTag?.id) throw new Error('创建标签失败');
 
     allTags.value.push(newTag);
-    await bindPositionTag(newTag.id, row.id);
-    if (!positionTagMap.value[row.id]) positionTagMap.value[row.id] = [];
-    positionTagMap.value[row.id] = [...positionTagMap.value[row.id], name];
+    await bindPositionTag(newTag.id, r.id);
+    if (!positionTagMap.value[r.id]) positionTagMap.value[r.id] = [];
+    positionTagMap.value[r.id] = [...positionTagMap.value[r.id], name];
 
-    newTagNames.value[row.id] = '';
+    newTagNames.value[r.id] = '';
     ElMessage.success("标签已添加并绑定");
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || "创建失败");

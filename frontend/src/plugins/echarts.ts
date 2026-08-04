@@ -1,6 +1,6 @@
 import type { App } from "vue";
 import * as echarts from "echarts/core";
-import { PieChart, BarChart, LineChart } from "echarts/charts";
+import { PieChart, BarChart, LineChart, SankeyChart } from "echarts/charts";
 import { CanvasRenderer, SVGRenderer } from "echarts/renderers";
 import {
   GridComponent,
@@ -20,6 +20,7 @@ use([
   PieChart,
   BarChart,
   LineChart,
+  SankeyChart,
   CanvasRenderer,
   SVGRenderer,
   GridComponent,

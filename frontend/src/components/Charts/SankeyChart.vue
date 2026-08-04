@@ -18,7 +18,7 @@
 
 <script setup lang="ts">
 import { ref, onBeforeUnmount, watch, nextTick } from "vue";
-import * as echarts from "echarts";
+import echarts from "@/plugins/echarts";
 import { IconifyIconOffline } from "@/components/ReIcon";
 
 const props = defineProps<{

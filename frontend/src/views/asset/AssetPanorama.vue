@@ -457,7 +457,7 @@ import { getSummary, getSankeyData } from "@/api/summary";
 import { getAssets } from "@/api/assets";
 import { getLedgers } from "@/api/ledger";
 import { ElMessage } from "element-plus";
-import * as echarts from "echarts";
+import echarts from "@/plugins/echarts";
 import { getAllocationLabel } from "@/constants";
 
 defineOptions({ name: "AssetPanorama" });

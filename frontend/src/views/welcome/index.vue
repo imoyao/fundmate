@@ -535,7 +535,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, nextTick, onUnmounted, computed } from "vue";
-import * as echarts from "echarts";
+import echarts from "@/plugins/echarts";
 import { getSummary } from "@/api/summary";
 import { getPortfolioXirr } from "@/api/performance";
 import { getTemperatureOverview } from "@/api/temperature";

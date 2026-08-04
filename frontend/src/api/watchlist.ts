@@ -20,6 +20,7 @@ export interface WatchlistItem {
   current_price?: number;
   change_pct?: number;
   position_market_value?: number;
+  type_label?: string;          // 资产类型中文标签（后端动态字段）
 }
 
 export interface HomeSummaryItem {
@@ -32,6 +33,7 @@ export interface HomeSummaryItem {
   position_market_value: number;
   status: string;
   venue: string;
+  type_label?: string;   // 资产类型中文标签（后端动态字段）
 }
 // 分组相关
 export interface WatchlistGroup {

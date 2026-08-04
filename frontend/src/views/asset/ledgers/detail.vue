@@ -676,7 +676,7 @@ import { useRoute, useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { Loading } from "@element-plus/icons-vue";
 // 新增 ECharts 图表
-import * as echarts from "echarts";
+import echarts from "@/plugins/echarts";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import {

@@ -58,7 +58,20 @@ export default ({ mode }: ConfigEnv): UserConfigExport => {
         output: {
           chunkFileNames: "static/js/[name]-[hash].js",
           entryFileNames: "static/js/[name]-[hash].js",
-          assetFileNames: "static/[ext]/[name]-[hash].[ext]"
+          assetFileNames: "static/[ext]/[name]-[hash].[ext]",
+          // 手动分包：将大依赖独立拆分，降低 Rollup 合并阶段内存峰值
+          manualChunks: {
+            // Vue 生态核心
+            vue: ["vue", "vue-router", "pinia", "@vueuse/core", "@vueuse/motion"],
+            // Element Plus UI 框架
+            elementPlus: ["element-plus", "@element-plus/icons-vue"],
+            // ECharts 图表库（按需引入后体积减小，但仍独立分包）
+            echarts: ["echarts", "vue-echarts"],
+            // PureAdmin 表格/描述组件
+            pureAdmin: ["@pureadmin/table", "@pureadmin/utils"],
+            // 工具库集合
+            utils: ["axios", "dayjs", "qs", "mitt", "js-cookie", "pinyin-pro", "sortablejs", "localforage", "nprogress"],
+          }
         }
       }
     },

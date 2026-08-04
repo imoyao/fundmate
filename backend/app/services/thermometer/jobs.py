@@ -237,6 +237,20 @@ class TemperatureJob(SyncJob):
                 logger.error(f'乖离率计算异常: {e}')
                 errors.append({'source': 'bias', 'error': str(e)})
 
+        # ---- 行业拥挤度（legulegu 免费行情自算，可选源，失败整组标灰） ----
+        try:
+            from app.services.thermometer.industry_crowding import fetch_industry_crowding
+
+            crowding_records = fetch_industry_crowding()
+            if crowding_records:
+                records.extend(crowding_records)
+                logger.info(f'行业拥挤度获取成功: {len(crowding_records)} 条')
+            else:
+                logger.warning('行业拥挤度返回为空')
+        except Exception as e:
+            logger.error(f'行业拥挤度计算异常: {e}')
+            errors.append({'source': 'industry_crowding', 'error': str(e)})
+
         self.stats['errors'] = errors
         return records
 

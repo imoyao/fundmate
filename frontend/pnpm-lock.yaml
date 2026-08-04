@@ -120,9 +120,6 @@ importers:
       '@iconify-json/ep':
         specifier: ^1.2.4
         version: 1.2.4
-      '@iconify/json':
-        specifier: ^2.2.508
-        version: 2.2.508
       '@iconify/vue':
         specifier: 4.2.0
         version: 4.2.0(vue@3.5.40(typescript@5.9.3))
@@ -1091,9 +1088,6 @@ packages:
 
   '@iconify-json/ep@1.2.4':
     resolution: {integrity: sha512-dtKOueYp1CRxAUW+GayIiuHqOlELfO0W3QiHOH4NjvKtBn2uxZbByIKQ+7B1Hj+AgZrhWTie3QKYkZn+VQVZrw==}
-
-  '@iconify/json@2.2.508':
-    resolution: {integrity: sha512-oUwfUoJP2LvwZY56x1wl2MngIUkiKsyrxRc69GA161Qi87uBEZ5rA3wIG9UD3cBc6tIST6/sWowHfP4dznyQBQ==}
 
   '@iconify/types@2.0.0':
     resolution: {integrity: sha512-+wluvCrRhXrhyOmRDJ3q8mux9JkKy5SJ/v8ol2tu4FVjyYvtEzkc/3pK15ET6RKg4b4w4BmTk1+gsCUhf21Ykg==}
@@ -4729,11 +4723,6 @@ snapshots:
   '@iconify-json/ep@1.2.4':
     dependencies:
       '@iconify/types': 2.0.0
-
-  '@iconify/json@2.2.508':
-    dependencies:
-      '@iconify/types': 2.0.0
-      pathe: 2.0.3
 
   '@iconify/types@2.0.0': {}
 

@@ -357,7 +357,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, nextTick } from "vue";
-import * as echarts from "echarts";
+import echarts from "@/plugins/echarts";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 
 const distributionChartRef = ref<HTMLCanvasElement | null>(null);

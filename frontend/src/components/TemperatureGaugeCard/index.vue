@@ -260,6 +260,7 @@ const onClick = () => {
 .gauge-card--featured {
   background: linear-gradient(135deg, var(--bg-card), var(--brand-100));
   border-color: var(--brand-400);
+  max-width: 520px;
 }
 
 /* ===== 可点击（探市入口卡） ===== */

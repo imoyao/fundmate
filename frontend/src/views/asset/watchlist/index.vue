@@ -261,37 +261,37 @@
             <div class="flex items-center gap-6 text-sm">
               <span>
                 总市值：<strong :style="{ color: 'var(--text-primary)' }">
-                  {{ realtime.summary.totalMarketValue?.toFixed(2) ?? "--" }}
+                  {{ (realtime.summary as any).totalMarketValue?.toFixed(2) ?? "--" }}
                 </strong>
               </span>
               <span>
                 总成本：<strong :style="{ color: 'var(--text-primary)' }">
-                  {{ realtime.summary.totalCost?.toFixed(2) ?? "--" }}
+                  {{ (realtime.summary as any).totalCost?.toFixed(2) ?? "--" }}
                 </strong>
               </span>
               <span>
                 总盈亏：<strong
                   :style="{
                     color:
-                      (realtime.summary.totalPnl ?? 0) >= 0
+                      ((realtime.summary as any).totalPnl ?? 0) >= 0
                         ? 'var(--color-rise)'
                         : 'var(--color-fall)'
                   }"
                 >
-                  {{ (realtime.summary.totalPnl ?? 0) >= 0 ? "+" : ""
-                  }}{{ realtime.summary.totalPnl?.toFixed(2) ?? "--" }}
+                  {{ ((realtime.summary as any).totalPnl ?? 0) >= 0 ? "+" : ""
+                  }}{{ (realtime.summary as any).totalPnl?.toFixed(2) ?? "--" }}
                 </strong>
                 (<span
                   :style="{
                     color:
-                      (realtime.summary.totalPnlPercent ?? 0) >= 0
+                      ((realtime.summary as any).totalPnlPercent ?? 0) >= 0
                         ? 'var(--color-rise)'
                         : 'var(--color-fall)'
                   }"
                 >
-                  {{ (realtime.summary.totalPnlPercent ?? 0) >= 0 ? "+" : ""
+                  {{ ((realtime.summary as any).totalPnlPercent ?? 0) >= 0 ? "+" : ""
                   }}{{
-                    realtime.summary.totalPnlPercent?.toFixed(2) ?? "--"
+                    (realtime.summary as any).totalPnlPercent?.toFixed(2) ?? "--"
                   }}% </span
                 >)
               </span>
@@ -1097,7 +1097,7 @@ watch(
     if (newItems && newItems.length > 0) {
       const hasValidPrice = newItems.some(item => item.currentPrice > 0);
       if (hasValidPrice) {
-        realtime.status.value = "success";
+        realtime.status.value = "trading";
         const now = new Date();
         const pad = (n: number) => n.toString().padStart(2, "0");
         const timeStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
@@ -1474,10 +1474,11 @@ function resetFilters() {
   selectedFilterTagIds.value = [];
 }
 
-async function handleTogglePin(row: WatchlistItem) {
+async function handleTogglePin(row: WatchlistItem  | any) {
+  const r = row as WatchlistItem;
   try {
-    await updateWatchlistItem(row.id, { is_pinned: !row.is_pinned });
-    ElMessage.success(row.is_pinned ? "已取消置顶" : "已置顶");
+    await updateWatchlistItem(r.id, { is_pinned: !r.is_pinned });
+    ElMessage.success(r.is_pinned ? "已取消置顶" : "已置顶");
     fetchData();
   } catch (e) {
     ElMessage.error("置顶操作失败");
@@ -1485,10 +1486,11 @@ async function handleTogglePin(row: WatchlistItem) {
   }
 }
 
-async function handleToggleFavorite(row: WatchlistItem) {
+async function handleToggleFavorite(row: WatchlistItem  | any) {
+  const r = row as WatchlistItem;
   try {
-    await updateWatchlistItem(row.id, { favorite: !row.favorite });
-    ElMessage.success(row.favorite ? "已取消特别关注" : "已设为特别关注");
+    await updateWatchlistItem(r.id, { favorite: !r.favorite });
+    ElMessage.success(r.favorite ? "已取消特别关注" : "已设为特别关注");
     fetchData();
   } catch (e) {
     ElMessage.error("关注操作失败");
@@ -1498,8 +1500,8 @@ async function handleToggleFavorite(row: WatchlistItem) {
 
 function handleRowClick(row: WatchlistItem) {}
 
-function confirmRemove(row: WatchlistItem) {
-  removingItem.value = row;
+function confirmRemove(row: WatchlistItem  | any) {
+  removingItem.value = row as WatchlistItem;
   removeScope.value = "all";
   removeDialogVisible.value = true;
 }
@@ -1571,8 +1573,8 @@ async function createGroup() {
 // ─────────────────────────────────────────────
 // 标签管理相关
 // ─────────────────────────────────────────────
-const openTagEditor = (row: WatchlistItem) => {
-  editingItem.value = row;
+const openTagEditor = (row: WatchlistItem  | any) => {
+  editingItem.value = row as WatchlistItem;
   editingItemNewTagIds.value = [];
   showNewTagFormInEditor.value = false;
   showTagEditor.value = true;
