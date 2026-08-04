@@ -67,6 +67,11 @@ from app.services.bias.constants import (
     ITEM_TYPE_INDUSTRY,
     ITEM_TYPE_STOCK,
 )
+from app.services.bias.direct_feeds import (
+    _eastmoney_secid,
+    fetch_close_eastmoney,
+    fetch_close_tencent,
+)
 from app.services.bias.schemas import BiasResult
 
 # 幂等安装请求补丁（置于 import 之后，避免 E402）
@@ -157,7 +162,8 @@ class PriceFetcher:
         self.days = days
         self.max_retries = max_retries
         self.retry_backoff = retry_backoff
-        self.cache_dir = cache_dir or _DEFAULT_CACHE_DIR
+        # 统一转为 pathlib.Path，避免传入 str/py.path.local 时 "/" 运算符抛 TypeError（被 _save_cache 吞掉，导致文件缓存永不写入）
+        self.cache_dir = Path(cache_dir) if cache_dir is not None else _DEFAULT_CACHE_DIR
         # 同一进程内去重缓存，避免重复请求同一品种
         self._cache: dict = {}
         # (symbol, item_type) -> 是否滞后（实时抓取失败回退旧数据时为 True）
@@ -246,16 +252,43 @@ class PriceFetcher:
 
         return None
 
-    # ── 数据源 fallback 候选（已源码核实，暂缓实现，待实网验证） ──
-    # 东财按出口 IP 限流/封禁；社区方案（aiagents-stock / UZI-SKILL / 腾讯云文章）一致：
-    # 切换腾讯/新浪源（不封 IP）。akshare 已核实可用备用函数：
-    #   - 股票 : ak.stock_zh_a_hist_tx(symbol="sh600000")  → 腾讯 proxy.finance.qq.com，返回列 date/close（英文）
-    #   - ETF   : ak.fund_etf_hist_sina(symbol="sh510050") → 新浪，返回列 date/close（英文），依赖 py_mini_racer
-    #   - 指数 / 场外基金：akshare 无腾讯/新浪后端（仅东财），无法 fallback（靠本缓存降级兜底）
-    # 实现要点（未实测，需退出代理后实网验证）：
-    #   1) symbol 需转 sh/sz/bj 市场前缀；2) 列名映射 date→日期、close→收盘；3) 东财失败再调备用源。
+    # ── 数据源优先级（直连绕开 akshare/东财限流）：腾讯 > 东财 > akshare 兜底 ──
+    def _fetch_direct(self, symbol: str, item_type: str):
+        """直连行情：申万行业走东财(90.x)，股票/ETF/宽基走腾讯；返回 (values, data_last_date)。"""
+        try:
+            if item_type == ITEM_TYPE_INDUSTRY:
+                secid = _eastmoney_secid(symbol)
+                if secid:
+                    res = fetch_close_eastmoney(secid, self.days)
+                    if res:
+                        return res
+                return None, None
+
+            # 股票 / ETF / 宽基：腾讯优先
+            res = fetch_close_tencent(symbol, self.days)
+            if res:
+                return res
+            # 宽基指数腾讯兜底到东财
+            if item_type == ITEM_TYPE_INDEX:
+                secid = _eastmoney_secid(symbol)
+                if secid:
+                    res = fetch_close_eastmoney(secid, self.days)
+                    if res:
+                        return res
+            return None, None
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f'直连抓取 {symbol} ({item_type}) 异常: {e}')
+            return None, None
+
     def _fetch_live(self, symbol: str, item_type: str):
-        """实时抓取东财，返回 (values, data_last_date)；失败返回 (None, None)。"""
+        """实时抓取：直连优先，失败回退 akshare（最后手段）。"""
+        values, data_last_date = self._fetch_direct(symbol, item_type)
+        if values is not None:
+            return values, data_last_date
+        return self._fetch_akshare(symbol, item_type)
+
+    def _fetch_akshare(self, symbol: str, item_type: str):
+        """akshare 兜底（东财后端）：场外基金/直连失败时使用，保留重试退避。"""
         end_date = datetime.now().strftime('%Y%m%d')
         start_date = (datetime.now() - timedelta(days=self.days + 10)).strftime('%Y%m%d')
 

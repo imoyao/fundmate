@@ -11,7 +11,8 @@ from app.services.bias.calculator import BIAS_PERIOD, BiasCalculator, PriceFetch
 from app.services.bias.constants import ITEM_TYPE_INDEX
 
 
-def _make_df(n: int = 30, end: str = '2026-08-01'):
+def _make_df(n: int = 30, end: str = None):
+    end = end or datetime.now().strftime('%Y-%m-%d')
     dates = pd.date_range(end=end, periods=n, freq='D').strftime('%Y-%m-%d')
     closes = [float(i) + 10.0 for i in range(n)]
     return pd.DataFrame({'日期': dates, '收盘': closes})
