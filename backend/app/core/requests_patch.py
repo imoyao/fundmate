@@ -13,15 +13,20 @@
 #   真实根因（本机）倾向 DevSidecar 边车代理 TLS 干扰或出口 IP 被封，待退出代理后 diag 验收确认。
 #
 # 做法（零配置、零手动维护）：
-#   进程启动时把 requests 的 get/post（模块级与类级）全局替换为「push2 子域重写 + 浏览器头 + 连接复用 + 重试」会话。
-#   用标准 requests（裸请求本就能通，加浏览器头仅防未来东财加 UA 校验），不做 TLS 指纹伪装。
+#   进程启动时给 requests.Session 的 request 方法包一层装饰器（不替换实例，避免丢失
+#   调用方在 session 上设置的 headers/cookies），实现：
+#     · 仅对 eastmoney 域名注入东财浏览器头 + 伪造 nid cookie（legulegu 等第三方源保持原样，
+#       否则带东财专属非法头会让 legulegu 返回空 body/403，导致全A中位PB分母取不到）；
+#     · push2 数字前缀子域统一重写到 push2.eastmoney.com（保险）；
+#     · 给每个 Session 挂带重试的 HTTPAdapter（连接/读重试）。
+#   模块级 requests.get/post 也包装，保证走到同一逻辑。
 #
-# 覆盖范围：只要在 app 进程内（所有 akshare 调用点共用此会话），一处安装，全进程生效。
+# 覆盖范围：只要在 app 进程内（所有 akshare 调用点共用），一处安装，全进程生效。
+import functools
 import logging
 import random
 import re
 import time
-from unittest import mock
 from urllib.parse import urlparse, urlunparse
 
 import requests
@@ -56,46 +61,41 @@ def _make_nid_cookie() -> str:
 # 此处重写仅作保险（不改数据正确性），真正断连源于网络/代理层，见文件头背景说明。
 # 只动「数字前缀的 push2」子域，不影响 push2his / push2delay 等其它服务。
 _PUSH2_HOST_RE = re.compile(r'^(\d+)\.push2\.eastmoney\.com$')
+# 仅对东财域名注入浏览器头/伪造 cookie；其它域名（legulegu 等）保持调用方原始请求头不动。
+_EM_HOST_RE = re.compile(r'eastmoney\.com$', re.I)
 
 
-class _EMSession(requests.Session):
-    """东财会话（保险性 host 重写）：发送前把 `N.push2.eastmoney.com` 重写为 `push2.eastmoney.com`。
+def _wrap_request(original):
+    """包装 Session.request：保留调用方在 session 上设置的 headers/cookies，
+    仅对 eastmoney 域名补充东财头 + nid cookie，并对 push2 数字前缀子域做 host 重写。"""
 
-    注：host 重写非断连根因（两 host 本机均 schannel 失败），仅作保险；
-    真实的重试/限速在 _build_session 的 Retry 适配器与 PriceFetcher 重试逻辑。
-    """
-
-    def request(self, method, url, *args, **kwargs):
+    @functools.wraps(original)
+    def _request(self, method, url, *args, **kwargs):
         try:
             p = urlparse(url)
             if _PUSH2_HOST_RE.match(p.netloc):
                 rewritten = urlunparse(p._replace(netloc='push2.eastmoney.com'))
-                logger.debug(f'[requests_patch] 重写 host: {p.netloc} -> push2.eastmoney.com ({method} {rewritten})')
+                logger.debug(f'[requests_patch] 重写 host: {p.netloc} -> push2.eastmoney.com ({method})')
                 url = rewritten
         except Exception:
             pass
-        return super().request(method, url, *args, **kwargs)
+
+        # 仅东财域名注入浏览器头 + nid；其它域名完全保留调用方（akshare/legulegu）原头，避免污染。
+        if _EM_HOST_RE.search(urlparse(url).netloc):
+            headers = dict(kwargs.get('headers') or {})
+            headers = dict(_EM_HEADERS) | headers  # 东财默认头打底，调用方头覆盖
+            headers['Cookie'] = _make_nid_cookie()
+            kwargs['headers'] = headers
+        return original(self, method, url, *args, **kwargs)
+
+    return _request
 
 
-def _build_session():
-    """构造全局会话：浏览器头 + 连接复用 + urllib3 重试。
-
-    实证结论（2026-08-01 本机 diag_em.py 验证）：
-      - 东财对裸 python requests 放行（无需伪装 TLS 指纹），A 基准裸请求直接 200；
-      - 反而 curl_cffi 在 akshare 多请求链路里偶发 curl:(56) Connection closed abruptly。
-    故默认用标准 requests + 浏览器头（防未来东财加 UA 检查）+ 重试，不启用 curl_cffi。
-
-    Returns:
-        (session, transport_name)
-    """
+def _install_retry_adapter(session):
+    """给 session 挂带重试的 HTTPAdapter（连接/读重试），不改动其已有 headers/cookies。"""
     from requests.adapters import HTTPAdapter
     from urllib3.util.retry import Retry
 
-    s = _EMSession()
-    # 不做 proxies 硬编码：跟随环境（有 HTTP_PROXY/HTTPS_PROXY 则走，无则直连）。
-    # 云上/本地统一此行为，零配置零维护；若本地 env 代理指向不可用地址，属本地配置问题而非代码问题。
-    s.headers.update(_EM_HEADERS)
-    s.headers['Cookie'] = _make_nid_cookie()
     retry = Retry(
         total=3,
         backoff_factor=0.5,
@@ -106,27 +106,33 @@ def _build_session():
         raise_on_status=False,
     )
     adapter = HTTPAdapter(max_retries=retry, pool_connections=10, pool_maxsize=10)
-    s.mount('https://', adapter)
-    s.mount('http://', adapter)
-    return s, 'requests+headers+retry'
+    session.mount('https://', adapter)
+    session.mount('http://', adapter)
 
 
 def install_requests_patch():
     """全局安装请求补丁（幂等，可重复调用）。
 
-    在 app/__init__ 顶部调用一次即可覆盖整个进程；
-    路由模块级与类级的 get/post 到我们的会话，不影响 requests.exceptions 等其它属性。
+    在 app/__init__ 顶部调用一次即可覆盖整个进程；包装 Session.request 与模块级
+    get/post，保留调用方原有 headers/cookies，仅东财域补充友好头 + 重试。
     """
     global _INSTALLED
     if _INSTALLED:
         return
 
-    session, transport = _build_session()
-    # 模块级与类级都替换，确保 akshare 无论是 requests.get 还是自建 Session().get 都走我们的会话
-    mock.patch('requests.get', session.get).start()
-    mock.patch('requests.post', session.post).start()
-    mock.patch('requests.Session.get', session.get).start()
-    mock.patch('requests.Session.post', session.post).start()
+    # 1) 包装 Session 实例方法（不替换实例，保留 akshare 在 session 上设的 headers/cookies）
+    requests.Session.request = _wrap_request(requests.Session.request)
+    # 2) 给未来新建的 Session 默认挂重试适配器（monkey-patch __init__）
+    _orig_session_init = requests.Session.__init__
+
+    @functools.wraps(_orig_session_init)
+    def _session_init(self, *args, **kwargs):
+        _orig_session_init(self, *args, **kwargs)
+        _install_retry_adapter(self)
+
+    requests.Session.__init__ = _session_init
+    # 3) 模块级 requests.get/post 也走包装后的 Session.request（requests.get 内部用默认 Session）
+    #    通过给默认 Session 已挂重试 + 包装 request，模块级调用自然生效，无需再单独 patch。
 
     _INSTALLED = True
-    logger.info(f'[requests_patch] 已全局启用东财友好会话，传输层={transport}')
+    logger.info('[requests_patch] 已全局启用东财友好会话（按域名注入头 + 重试），不影响 legulegu 等第三方源')
