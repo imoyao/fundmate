@@ -16,7 +16,6 @@ dependencies = [
     "pytest>=9.0.3",
     "loguru>=0.7.3",
     "xalpha @ git+https://gitee.com/imoyao/xalpha.git@master",
-    "akshare>=1.18.60",
     "fake-useragent>=2.2.0",
     "openpyxl>=3.1.5",
     "xlrd>=2.0.2",
@@ -30,6 +29,7 @@ dependencies = [
     "pyxirr>=0.10.8",
     "playwright>=1.61.0",
     "mcp>=2.0.0",
+    "akshare>=1.18.81",
 ]
 requires-python = ">=3.12"
 
