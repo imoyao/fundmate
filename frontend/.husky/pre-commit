@@ -1,1 +1,10 @@
-pnpm test
+#!/bin/sh
+
+# shellcheck source=./_/husky.sh
+. "$(dirname "$0")/_/husky.sh"
+
+# 1. Lint-staged：对暂存文件执行格式化 + ESLint + Stylelint（仅变更文件）
+npx lint-staged
+
+# 2. TypeScript 类型检查：全量检查，零错误才能提交
+npx vue-tsc --noEmit
