@@ -1,0 +1,288 @@
+# 多倍贝落地页 · 文案唯一可编辑源
+# 仅含「可见文案」。结构 / SVG 艺术 / 配色见 landing.template.html 与脚本。
+# 修改此处后运行：pnpm run build:landing
+
+brand: 多倍贝· 投资账本
+brandBeta: "Beta 预览版"
+
+nav:
+  links:
+    - { label: 核心能力, href: "#features" }
+    - { label: 支持导入, href: "#ecosystem" }
+    - { label: 适用场景, href: "#scenarios" }
+    - { label: 为什么不同, href: "#compare" }
+    - { label: 诚实承诺, href: "#honesty" }
+  cta: 免费开始
+
+hero:
+  tag: "投资账本 · 数据主权"
+  titleBefore: 看见你的
+  titleCoral: 复利增长
+  sub: 一个帮你算清真实收益、让复利增长清晰可见的投资账本。手动归集、穿透持仓、算准 XIRR，数据始终在你手里。
+  ctaPrimary: 免费开始
+  ctaSecondary: 了解功能
+  note: "不连接券商账户 · 不自动抓取 · 数据可一键导出"
+  trust:
+    - { k: XIRR, v: "精确到日，真实年化收益" }
+    - { k: "0", v: "广告 · 不开屏 · 不荐股" }
+    - { k: "100%", v: "数据由你手动录入 / 导入" }
+    - { k: 一键, v: "导出全部数据（CSV）" }
+
+features:
+  eyebrow: SIX CORE CAPABILITIES
+  title1: 六大核心能力，
+  title2: 算清你的投资账本
+  lead: 从归集到复盘，每一步都围绕一个目标：让你看到真实的收益数字。
+
+core:
+  - num: "01"
+    tone: coral
+    icon: layers
+    title: 多账户归集合并
+    desc: 股票、基金、理财散落在不同券商和平台，总收益一笔糊涂账。手动归集全量资产与交易，合并计算真实收益率——不再需要三个 App 反复切换对账。
+  - num: "02"
+    tone: fall
+    icon: trending-up
+    title: XIRR 精确年化
+    desc: 券商 App 的「累计收益」只是个绝对值，不反映资金进出的时间。自动算 XIRR（精确到日），真实的年化收益一眼就能看清。
+  - num: "03"
+    tone: coral-light
+    icon: list
+    title: 全交易类型记录
+    desc: 分红、配股、手续费、逆回购……每一笔都影响真实成本。全类型记录，成本一笔笔算准，全部纳入 XIRR 计算。
+  - num: "04"
+    tone: coral
+    icon: upload
+    title: 免密码交割单导入
+    desc: 上传 CSV / PDF 交割单即可导入，无需输入券商账号密码。支持支付宝、天天基金、同花顺、东方财富等主流平台——数据怎么来，你说了算。
+  - num: "05"
+    tone: fall
+    icon: info
+    title: 算法透明可追溯
+    desc: 同口径展示 XIRR（资金加权）、时间加权、Modified Dietz 三种收益率，每笔现金流与每日资产变动都可追溯。基于公开标准（Excel XIRR 同源），不偷偷调算法美化收益。
+  - num: "06"
+    tone: coral-light
+    icon: shield
+    title: 数据主权保障
+    desc: 数据存在云端，主权归你：一键导出 CSV、随时可带走；无广告、不开屏、不荐股、不导流理财。你的交易记录，由你掌控。
+
+eco:
+  headTitle: 一份交割单，直接读懂你的账
+  headSub: 支持 CSV / Excel 导入，无需输入券商账号密码
+  row1: [天天基金, 支付宝, 同花顺]
+  row2: [基金标准模板, 股票标准模板]
+  row3: [更多平台，敬请期待]
+
+scenarios:
+  eyebrow: FOR EVERY INVESTOR
+  title1: 每个投资者，
+  title2: 各有一套
+  lead: 不同的人，同一个问题：我的真实收益到底是多少？多倍贝覆盖多种投资场景，选择适合你的用法。
+  items:
+    - tone: coral
+      icon: monitor
+      tag: "独立开发者 · FIRE 践行者"
+      title: 数据主权优先
+      desc: 不连券商，数据存在云端、主权归你。XIRR 算出来那一刻，就知道这半年折腾到底值不值。
+      kit: 开发者专属工作流
+    - tone: blue
+      icon: user
+      tag: "上班族 · 基金定投"
+      title: 家人也能看懂
+      desc: 推荐给父母记基金，第一次看懂真实收益率。以前只知道「赚了」或「亏了」，现在能说出具体数字——原来那只「明星基」其实跑输通胀。
+      kit: 家庭记账套件
+    - tone: green
+      icon: users
+      tag: "追牛猎手 · 多账户持有者"
+      title: 三个券商合并算
+      desc: 三个券商的账户记了大半年，以前每家说的收益都不一样，搞不清哪个对。现在合并在一起算，终于知道退休金的真实回报率是多少。
+      kit: 多账户归集
+    - tone: purple
+      icon: activity
+      tag: "混合投资者 · 股票+基金"
+      title: 分红再投不再盲区
+      desc: 分红再投一直是我记账的盲区，手动算成本太麻烦。多倍贝把分红自动纳入 XIRR 计算，省了每周日对账的时间。
+      kit: 全类型交易记录
+    - tone: amber
+      icon: file
+      tag: "财务爱好者 · 记账达人"
+      title: 算法透明不玩黑盒
+      desc: 同花顺显示 12.69% 却不解释怎么算出来的。多倍贝三种收益率同屏展示，每笔现金流可追溯，账算得清清楚楚。
+      kit: 专业复盘工具
+    - tone: teal
+      icon: lock
+      tag: 隐私敏感型用户
+      title: 零广告零追踪
+      desc: 受够了 App 开屏广告和信息流推荐？多倍贝无广告、不开屏、不荐股、不导流理财。商业模式不依赖你的注意力。
+      kit: 隐私优先设计
+    - tone: blue
+      icon: grad-cap
+      tag: "学生 · 理财新手"
+      title: 第一笔定投从零算
+      desc: 第一次记账也能看懂。XIRR 自动算，定投成本一笔笔摊平，少走新手弯路，不被「复利神话」忽悠。
+      kit: 新手起步套件
+    - tone: amber
+      icon: refresh
+      tag: 可转债爱好者
+      title: 打新与转股记录
+      desc: 可转债的申购、转股、赎回各有成本。全类型记录不丢一笔，转股时的真实收益也能算清。
+      kit: 可转债专用
+    - tone: green
+      icon: layers
+      tag: "指数基金党 · ETF 定投"
+      title: 定投成本摊薄
+      desc: 周定投、月定投的成本怎么摊？XIRR 自动加权，看清定投的真实年化回报，而不是被「微笑曲线」带节奏。
+      kit: 定投回测
+    - tone: teal
+      icon: shield-check
+      tag: "长期持有 · 养老年金"
+      title: 穿越牛熊的回报
+      desc: 长期持有的年金，用 XIRR 看穿越周期的真实年化——不是某一年暴涨的数字，是十年里每一笔的加权。
+      kit: 长期视角
+
+compare:
+  eyebrow: 为什么不同
+  title: 同样是投资记账，差距在算得准不准
+  lead: 我们不替你做决定，只把真实收益算到你能看懂。这是多倍贝和同类产品最本质的区别。
+  col1: 能力
+  colUs: 多倍贝
+  colOther: 普通记账 App
+  rows:
+    - capability: XIRR 真实年化（精确到日）
+      us: "✓ 内置计算"
+      other: "✗ 多只看累计收益"
+    - capability: 穿透持仓，合并多账户真实收益率
+      us: "✓ 支持"
+      other: "✗ 多为单账户视图"
+    - capability: 不连接券商、不自动抓取
+      us: "✓ 数据在你手里"
+      other: "⊘ 需授权读取账户"
+    - capability: 广告 / 开屏 / 荐股
+      us: "✓ 全无"
+      other: "⊘ 部分含广告或理财引导"
+    - capability: 数据可一键导出
+      us: "✓ CSV 自由导出"
+      other: "⊘ 导出受限或付费"
+    - capability: 收益率算法透明（XIRR / 时间加权 / Modified Dietz 同屏可查）
+      us: "✓ 多口径 + 每笔现金流可追溯"
+      other: "✗ 单一黑盒数值，不解释算法"
+    - capability: 回撤分布曲线（连续回撤轮廓，而非仅标最大值）
+      us: "✓ 绘制连续回撤曲线"
+      other: "✗ 仅标记最大回撤极值"
+
+honesty:
+  eyebrow: 诚实承诺
+  title: 我们选择说实话，即使这并不讨好
+  lead: 很多产品只展示自己好的一面。我们觉得，你应该知道这个工具擅长什么、不擅长什么。
+  items:
+    - icon: activity
+      cls: ""
+      title: 计算口径诚实
+      desc: XIRR 精确到日、资金加权，不含未实现浮盈的误导性美化。我们算的是你真实的持仓回报率，不是模拟出来的漂亮数字。
+    - icon: shield
+      cls: ""
+      title: 数据主权
+      desc: 数据存于云端，主权归你：一键导出 CSV、随时可带走，也不用于任何营销或广告。你的交易记录，由你掌控。
+    - icon: rect
+      cls: ""
+      title: 不靠广告变现
+      desc: 无开屏广告、无信息流广告、不导流理财。我们的商业模式不依赖你的注意力，所以不需要用广告打断你。
+    - icon: circle-x
+      cls: ""
+      title: 不荐股不跟单
+      desc: 纯工具，不做任何投资建议，不做跟单社区。我们不告诉你买什么卖什么——那是你的决定，不是我们的。
+    - icon: file-text
+      cls: ""
+      title: 算法透明
+      desc: 同口径同步展示 XIRR（资金加权）、时间加权、Modified Dietz 三种收益率，每笔现金流与每日资产变动都可追溯。基于公开标准（Excel XIRR 同源），不会偷偷调整算法来美化你的收益曲线。算就是算，不玩花活。
+    - icon: info
+      cls: limitation
+      title: 我们也做不到的事
+      desc: 不支持期货/加密货币实时估值；分红再投需手动标记；不支持自动同步券商交割单（这是刻意的设计选择，不是技术限制）。这些已知边界会持续公开。
+
+story:
+  title: 为什么做这件事
+  paragraphs:
+    - 2024 年底，我开始认真整理自己的投资账户——三个券商 App、两个基金平台、还有零散的银行理财。每家都告诉我"累计收益"，但数字对不上。A 说赚了 12%，B 说 8%，我自己手算出来又是另一个数。
+    - 问题出在哪？分红再投没记、手续费被忽略、资金进出时间没加权。券商展示的"累计收益"根本不是真正的年化收益率——它只是一个绝对值，骗你觉得赚了不少，或者亏得没那么多。
+    - 我是个写代码的人。我想，与其每次打开 Excel 手动算 XIRR，不如写个工具让自己用。第一版很粗糙——一个命令行脚本，读 CSV，输出一个数字。但就是这个数字，第一次让我看清了自己真实的投资回报。
+    - 后来我把这个工具给家人用。我妈记了大半年的基金交易，第一次看到自己的 XIRR 时说："原来我买的这只'明星基'其实跑输通胀啊。"
+    - 那一刻我觉得，这个工具不该只有我一个人用。
+  meta1: 关于"多倍贝" —— 名字来自一个简单的信念：复利是普通人最可靠的财富增长方式，而看清复利的前提是把账算对。"备贝多"——未雨绸缪，有备无患。
+  meta2: "独立开发 · 目前完全免费 · 由阿垚维护"
+  sidebarTitle: 我们的立场
+  sidebarText: 我们不荐股、不跟单、不预测市场——只帮你把账算清楚。买还是卖？你自己判断。
+
+pro:
+  eyebrow: 专业复盘
+  title: 大厂工具缺的那口气，我们补上
+  lead: 主流券商 App 的账本能算收益，但从不在意你怎么看懂它。专业用户值得更诚实的复盘——算得清，也要说得清。
+  items:
+    - icon: info
+      title: 算法公开，每一步可追溯
+      desc: 同口径同步展示 XIRR（资金加权）、时间加权、Modified Dietz 三种收益率，并追溯每笔现金流与每日资产变动。不再有"这个 12.69% 到底怎么算的"这种疑问。
+    - icon: chart
+      title: 回撤分布曲线，不只是极值
+      desc: 不只标一个"最大回撤"。绘制连续回撤曲线，让你看到一波波行情中每次颠簸的轮廓——真正有用的不是最惨的那一次，是分布。
+
+testimonials:
+  eyebrow: 用户怎么说
+  title: 不同的人，同一个问题：我的真实收益到底是多少？
+  items:
+    - avatar: 周
+      name: FIRE路上的老周
+      role: "独立开发者 · FIRE理念践行者"
+      quote: "我最在意的就一件事：数据主权。多倍贝不连券商，数据虽然在云端，但是归我自己掌控，随时可以导出保存本地。XIRR 一出来，我才知道这半年瞎折腾到底值不值。"
+    - avatar: 琳
+      name: 养基少女Linda
+      role: "上班族 · 基金投资者"
+      quote: "我让我妈用多倍贝记基金，她头一回看清自己的真实收益率。以前她只会说'赚'或'亏'，现在能报出具体数字——那只被吹上天的'明星基'，其实连通胀都没跑赢。"
+    - avatar: 张
+      name: 爱记账的张阿姨
+      role: "退休大妈 · 多账户持有者"
+      quote: "我三个券商的账户记了小半年，每家报的收益都不一样，越看越糊涂。合到一块儿一算，我才弄清退休金真实的年化回报到底是多少。"
+    - avatar: 陈
+      name: 量化民工阿Chen
+      role: "朋友 · 股票+基金混合"
+      quote: "分红再投以前是我记账的死角，手动摊成本太费劲。多倍贝把分红自动算进 XIRR，我周日再也不用趴桌上对账了。"
+
+privacy:
+  eyebrow: 隐私与技术
+  title: 你的数据，只属于你
+  lead: 多倍贝不自动抓取任何账户信息，所有数据由你手动录入或从交割单导入（CSV / PDF 解析）。
+  items:
+    - icon: bell-off
+      title: 不自动抓取
+      desc: 不连接任何券商账户，不存储任何账户密码或令牌。
+    - icon: lock
+      title: 不用于营销
+      desc: 你的交易数据不会被用于广告投放或商业分析。
+    - icon: user-plus
+      title: 不向第三方共享
+      desc: 你的数据不会被出售或提供给任何第三方服务。
+    - icon: download
+      title: 支持一键导出
+      desc: 随时导出全部数据（CSV），数据始终在你手里。
+
+cta:
+  title: 把账算明白，从今天开始
+  text: 不荐股、不跟单、不预测市场——只帮你算清真实收益。
+  btn: 免费开始
+
+footer:
+  tagline: 记账即复利。多倍贝，备贝多——未雨绸缪，稳扎稳打。
+  productLinks:
+    - { label: 核心能力, href: "#features" }
+    - { label: 支持导入, href: "#ecosystem" }
+    - { label: 适用场景, href: "#scenarios" }
+    - { label: 为什么不同, href: "#compare" }
+    - { label: 诚实承诺, href: "#honesty" }
+    - { label: 品牌故事, href: "#story" }
+    - { label: 专业复盘, href: "#pro-anchor" }
+    - { label: 进入工具, href: "/app" }
+  aboutLinks:
+    - { label: GitHub, href: "#" }
+    - { label: 联系开发者, href: "#" }
+    - { label: 隐私政策, href: "#" }
+  bottom1: "开发者 · 阿垚   |   技术支持 · imoyao"
+  bottom2: "© 2026 多倍贝 Duobeibei · 不荐股 · 不跟单 · 数据主权"

@@ -1,7 +1,8 @@
 {
     "version": 2,
-	"routes": [
-	  { "handle": "filesystem" },
-	  { "src": "/(.*)", "status": 404, "dest": "/404.html" }
-	]
+    "build": "pnpm run build:landing",
+    "routes": [
+      { "handle": "filesystem" },
+      { "src": "/(.*)", "status": 404, "dest": "/404.html" }
+    ]
 }
