@@ -4,7 +4,7 @@ fundmate 开发任务集合（invoke + rich）
 
 把日常开发指令统一到一个入口，避免散落在 README / 命令行记忆里：
   - 数据抓取（复用 app.tools.sync_cli）
-  - 测试（pytest，按模块/全量）
+  - 测试（pytest，默认单进程；按模块/全量）
   - 后端启动（uvicorn）
   - 文档（前端 docs 站点，需到 frontend 目录）
 
@@ -65,7 +65,7 @@ def _list_tasks() -> None:
         ('grab.all', '全部同步任务（元数据 + 温度）'),
         ('grab.job <name>', '透传跑单个 Job（如 fund_nav / temperature）'),
         ('grab.verify-jisilu', '只读诊断：确认 jisilu_indicator 已含 level 字段'),
-        ('test', '跑后端 pytest（默认全量，可用 --path 限定）'),
+        ('test', '跑后端 pytest（默认全量、单进程；可用 --path 限定）'),
         ('serve', '启动 API（uvicorn，默认 0.0.0.0:5000）'),
         ('docs.dev', '本地文档预览（vuepress dev，需 frontend 环境）'),
         ('docs.build', '构建静态文档（vuepress build）'),
@@ -123,14 +123,19 @@ def verify_jisilu(c):
 # --------------------------------------------------------------------------- #
 @task
 def test(c, path='tests', k=''):
-    """跑后端 pytest。path 限定目录（相对 backend/），k 限定用例名（-k）。"""
+    """跑后端 pytest（默认单进程，强制禁用 xdist 并行）。
+
+    单进程原因：pypinyin(3.2MB 词典) + pandas + akshare + playwright 等重型依赖在
+    xdist 多 worker 下会被各进程重复加载，撑爆本机内存导致 OOM；单进程下全部测试正常。
+    -p no:xdist 显式禁用并行，防止误加 -n 破坏（即便环境装了 pytest-xdist 也不会并行）。
+    """
     # tasks.py 在 backend/ 下执行，path 统一相对 BACKEND_ROOT 解析，避免传仓库根路径前缀。
     target = (BACKEND_ROOT / path).as_posix() if not Path(path).is_absolute() else path
     extra = f' -k {k}' if k else ''
     return _run(
         c,
-        f'pdm run python -m pytest {target}{extra}',
-        f'后端测试 ({path}{" -k " + k if k else ""})',
+        f'pdm run python -m pytest -p no:xdist {target}{extra}',
+        f'后端测试 ({path}{" -k " + k if k else ""}, 单进程)',
     )
 
 
