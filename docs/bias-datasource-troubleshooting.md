@@ -10,8 +10,14 @@
 **应用层代码已经修通了**（落库 / 读取 / stale 透传 / 前端提示，全部有测试覆盖）。
 当前乖离率拿不到数据，**断点在数据源层**：`akshare` 依赖的东方财富网页接口在本机连不上。
 
-不是你项目代码的 bug，是**数据源（东财）2026 年普遍限流/封 IP + 本机 DevSidecar 代理叠加 TLS 干扰**。
-因为没有实时数据、回退用的旧缓存也从未成功落库过（是空的），所以前端永远显示「暂无乖离率数据」。
+不是你项目代码的 bug，是**数据源（东财）2026 年普遍限流/封 IP + 本机系统代理残留**叠加导致。
+
+> ⚠️ **2026-08-05 重要修正（见 `docs/working-notes/eastmoney-antiscrape-2026-08-05.md`）**：
+> 原先归因为「DevSidecar 代理 TLS 干扰」**已被推翻**。今天实测根因是**系统代理残留**
+> （已死的 `127.0.0.1:31181` 边车代理，代理软件关了但系统代理开关仍解析为 https 代理），
+> 已在 `requests_patch.py` 用 `trust_env=False + proxies=None` 强制直连修复（`ProxyError` 消失）。
+> 但**东财出口 IP 封是真实存在的第二层问题**（强制直连后 A/B 仍 `RemoteDisconnected`），代理开关都无效正因此。
+> **替代源 baostock 已装并验证可达**，是绕开东财 IP 封的正解（不采纳 westock-data 等未知 CLI 源）。
 
 > ⚠️ 关键提醒：**不要再到应用层（后端 service / 前端 vue）打转了**。那里已经测过、没问题。继续改代码解决不了「数据源连不上」。
 
@@ -50,9 +56,13 @@
 - **akshare issue #7099（2026-02~03）**：`RemoteDisconnected: Remote end closed connection without response` 频发，东财侧主动断开；多名用户同期复现，维护者关闭为 completed（视为东财侧临时策略）。
 - 技术文章（gitcode 等）结论一致：东财 2025 起大幅加强反爬（IP 封禁 / 验证码 / 频率检测），`RemoteDisconnected` 是典型表现。
 
-### 3.3 本机叠加因素（用户 curl 实测）
-- 退出 DevSidecar 代理**之前**：`80.push2` 与 `push2` 两个 host 用 curl 均 **schannel 失败**。
-- 这落在 `diag_em.py` 的判读分支「**A 与 B 都失败**」→ 出口 IP 被封 / 代理 TLS 干扰，**host 重写无效**。
+### 3.3 本机叠加因素（2026-08-05 实测推翻旧结论）
+- ❌ 旧结论「退出 DevSidecar 代理前 curl schannel 失败 = 代理 TLS 干扰」**不准确**。
+- ✅ 真实情况：**系统代理残留**（已死的 `127.0.0.1:31181` 边车代理）。`requests` 默认 `trust_env=True`
+  继承系统代理，把东财请求甩到已死端口 → `ProxyError`。代理软件关了残留仍在。
+- 已在 `requests_patch.py` 用 `trust_env=False + proxies=None` 强制直连修复（`ProxyError` 消失）。
+- **东财出口 IP 封是叠加的第二层真实问题**：强制直连后 `diag_em.py` A/B 仍 `RemoteDisconnected`
+  （判读分支「A 与 B 都失败（非 Proxy）→ 出口 IP 被封」）。代理开关都试过不行，正因为根因在 IP 层。
 
 ---
 

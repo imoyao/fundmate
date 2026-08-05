@@ -4,7 +4,7 @@ layout: home
 hero:
   name: 多倍贝
   text: 看见你的复利增长
-  tagline: 记账即复利。多倍贝，备贝多——未雨绸缪，稳扎稳打。
+  tagline: 记账即复利。多倍贝，备贝多——有备无患，自然倍多。。
   image:
     src: /logo.svg
     alt: 多倍贝
@@ -35,26 +35,44 @@ features:
   - icon: 🪙
     title: 开源免费 · 基础功能不收费
     details: 基础记账与账单导出长期免费。代码开源，原理透明，欢迎自行部署与审计。
+
+featuresConfig:
+  badge: 为什么选择
+  title: "为什么选择 "
+  subtitle: "多倍贝？"
+  description: 不托管资金、不看账户密码，把数据权还给你自己
+
+quickStart:
+  badge: 三步上手
+  title: "零配置 快速开始"
+  subtitle: "零配置"
+  description: 无需注册账号，本地即可运行
+
+  steps:
+    - step: "01"
+      title: 克隆项目
+      description: 从 GitHub 拉取源码到本地
+      code: "git clone https://github.com/imoyao/fundmate.git && cd fundmate"
+      icon: download
+      color: blue
+    - step: "02"
+      title: 安装依赖
+      description: 使用 pnpm 安装前后端依赖（后端用 PDM）
+      code: |
+        pnpm install
+        cd backend && pdm install && cd ..
+      icon: cog-6-tooth
+      color: green
+    - step: "03"
+      title: 启动服务
+      description: 分别启动文档站和后端 API 服务
+      code: |
+        pnpm run docs:dev       # 文档预览
+        cd backend && pdm run uvicorn app.main:app --reload   # API 服务
+      icon: rocket-launch
+      color: purple
+
+  helpText: 详细使用指南请参考
+  helpLink: /guide/
+  helpLinkText: 快速开始文档
 ---
-
-## 多倍贝 · 投资账本
-
-> 为什么我们需要一个基金记账工具？
-
-理财 APP 只告诉你「今日收益」和「持仓市值」，却把**真实收益率**、**资金进出**、**穿透持仓**藏了起来。多倍贝要做的事很简单：把这些被藏起来的东西，重新摆到你面前。
-
-- **手动归集**：多账户、多平台买的基金，手动归集到一个账本，数据在你手里。
-- **穿透持仓**：基金→持仓标的→标的历史估值，自动穿透，看清底层。
-- **算准 XIRR**：用资金加权收益率还原真实收益，别被 APP 的「累计收益」误导。
-- **投资温度计**：用估值分位给市场热度打分（近 1、3、5、10 年 PE 分位），辅助你判断贵贱。
-- **申万一级行业**：持仓按申万行业归类，看清板块分布与集中度。
-
-> 多倍贝，让投资更从容。
-
-## 反馈
-
-如果您在使用产品中遇到任何问题，欢迎到 [GitHub Issues](https://github.com/imoyao/fundmate/issues) 反馈。
-
-## 赞助我们
-
-如果多倍贝对你有帮助，欢迎[赞赏作者](https://github.com/imoyao/fundmate#sponsor)支持持续维护。
