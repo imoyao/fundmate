@@ -1,0 +1,20 @@
+/* 叽咕品牌样式 · 配色取自 branding/logo.svg（多倍贝 logo）
+ * 主色 #E34F38（珊瑚红/砖红） | 浅色 #FDFBF7（暖白）
+ */
+:root {
+  /* duxweb 主题（Tailwind v4）品牌色变量 */
+  --brand: #e34f38;
+  --color-primary: #e34f38;
+  --primary: #e34f38;
+
+  /* VitePress 标准品牌色梯度（确保内部引用一致） */
+  --vp-c-brand-1: #e34f38;
+  --vp-c-brand-2: #d8452f;
+  --vp-c-brand-3: #c43d29;
+  --vp-c-brand-soft: rgba(227, 79, 56, 0.14);
+}
+
+/* 首页 hero 主色呼应品牌 */
+:root {
+  --vp-home-hero-name-color: #e34f38;
+}

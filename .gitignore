@@ -361,3 +361,11 @@ frontend/.env.staging
 
 # 前端设计草稿（已落地沉淀至 frontend/design.md，非最终代码，不入库）
 docs/draft-dashboard-temperature.html
+
+# 由构建生成的落地页（源为 landing.template.html + landing.content.yml）
+/landing.html
+
+# VitePress 构建产物（保留 .vitepress/theme 源码与 config.mjs）
+docs/.vitepress/.temp/
+docs/.vitepress/cache/
+# docs/.vitepress/dist 已由上方全局 dist/ 规则忽略

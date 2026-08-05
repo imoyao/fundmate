@@ -36,7 +36,7 @@
 ```
 
 **编码红线**：
-- 所有金额展示**必须**使用 `MoneyDisplay` 组件，禁止手写 `{{ amount.toLocaleString() }}` 等格式化逻辑
+- 所有金额展示**必须**使用 `MoneyDisplay` 组件，禁止手写 &#123;&#123; amount.toLocaleString() &#125;&#125; 等格式化逻辑
 - 金额数字**必须**通过 `value` prop 传入，禁止在组件内部自行计算
 
 ### 1.2 RiseFallText 涨跌文本组件
