@@ -18,13 +18,13 @@ permalink: /feedback
 
 #### 讨论
 
-关于产品功能的吐槽请点击该链接反馈：[叽咕](https://support.qq.com/products/299319?)
+关于产品功能的吐槽请点击该链接反馈：[多倍贝](https://support.qq.com/products/299319?)
 
 #### 用户反馈 QQ 群
 
-点击链接加入群聊：[叽咕用户交流反馈群](https://jq.qq.com/?_wv=1027&k=dk3FEiLX)
+点击链接加入群聊：[多倍贝用户交流反馈群](https://jq.qq.com/?_wv=1027&k=dk3FEiLX)
 
-<a target="_blank" href="https://qm.qq.com/cgi-bin/qm/qr?k=VpcqQEgq3qXUNQNpDN2ucPEOS-wfaU7x&jump_from=webapi"><img border="0" src="//pub.idqqimg.com/wpa/images/group.png" alt="叽咕用户交流反馈群" title="叽咕用户交流反馈群"></a>
+<a target="_blank" href="https://qm.qq.com/cgi-bin/qm/qr?k=VpcqQEgq3qXUNQNpDN2ucPEOS-wfaU7x&jump_from=webapi"><img border="0" src="//pub.idqqimg.com/wpa/images/group.png" alt="多倍贝用户交流反馈群" title="多倍贝用户交流反馈群"></a>
 
 #### 愿望单
 

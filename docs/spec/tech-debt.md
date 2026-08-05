@@ -86,7 +86,7 @@
 | 问题描述 | 优先级 | 处理策略 |
 |:---|:---|:---|
 | **用户手册内容缺口大**：`guide/` 仅 3 篇，缺"新增持仓/更新价格/导出备份/CSV 导入"等核心流程图文 | 低（不紧急） | 按 `guide/index.md` 的"纯实操截图+步骤"标准，从 `features/` 用户向章节拆分补全 |
-| **品牌名未统一**：文档站仍用"叽咕 / fundmate"，主站已定"多倍贝 / Duobeibei" | 中 | 全站文档替换品牌名；`docs/README.md` 的 `heroText/tagline` 及 `site/about.md` 同步改写 |
+| **品牌名未统一**：文档站仍用"叽咕 / fundmate"，主站已定"多倍贝 / Duobeibei" | 中 | ~~全站文档替换品牌名~~ ✅ 已完成（2026-08）：`docs/README.md` hero 对齐主站落地页 slogan（看见你的复利增长 / 记账即复利·备贝多），`site/about` `faq` `feedback` `privacy` 品牌名已统一为多倍贝，开发者历史笔记（dev/）保留"叽咕"作历史项目名 |
 | **站点页未对齐 v1.6 品牌语言**：`site/faq` `about` `privacy` 文案/措辞与 brand-v1.6 不一致 | 低 | 以 `docs/design/brand-v1.6.md` 为基准重写站点页文案（数据主权、不荐股不跟单等主张） |
 | **文档站构建技术未定**：当前 `docs/README.md` 为 docsify 风格（`home:true`/`heroText`），钱迹参考站为 GitBook | 低 | 评估 docsify→VitePress/GitBook 迁移；用户手册结构按钱迹"产品模块 + 疑问式标题"组织 |
 | **落地页视频/动效场景待补充**（参考 WorkBuddy） | 低 | WorkBuddy 在 Hero 区嵌入了产品截图/视频展示应用场景，多倍贝当前为纯静态 HTML。后期可补充：(a) 工具实际使用录屏（Lottie/MP4 嵌入 Hero 或功能区）；(b) 产品界面截图轮播；(c) 数据可视化动态演示（XIRR 曲线绘制过程）。需先录制素材再编码嵌入，属于视觉打磨阶段 |
