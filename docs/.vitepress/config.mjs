@@ -6,6 +6,23 @@ import { resolve } from 'node:path'
 // 多倍贝文档站 · 正式迁移配置（vuepress v1 → VitePress + @duxweb/vitepress-theme）
 // 品牌色来自 branding/logo.svg：主色 #E34F38、浅色 #FDFBF7
 // 品牌名 / slogan 与主站（落地页、前端 App）保持一致：多倍贝 · 看见你的复利增长
+// 修复 vitepress-plugin-auto-sidebar 在 Windows 下生成的链接问题：
+// 1) 插件用 path.resolve + String.replace 生成 link，Windows 下会得到反斜杠（\guide\foo.md）；
+// 2) 只去掉 contentRoot 前缀，.md 后缀残留。
+// VitePress 需要正斜杠、无 .md 的干净路由（/guide/foo），否则侧边栏点击 → 404。
+function normalizeSidebar(sidebar) {
+  const fix = (items) =>
+    (items || []).map((it) => {
+      const n = { ...it }
+      if (typeof n.link === 'string') {
+        n.link = n.link.replace(/\\/g, '/').replace(/\.md$/, '')
+      }
+      if (n.items) n.items = fix(n.items)
+      return n
+    })
+  return (sidebar || []).map((g) => ({ ...g, items: fix(g.items) }))
+}
+
 export default withDuxTheme(
   defineConfig({
     title: '多倍贝 · 看见你的复利增长',
@@ -47,7 +64,8 @@ export default withDuxTheme(
         { text: '关于', link: '/about/' },
       ],
       // auto-sidebar：自动按目录结构生成侧边栏（替代 vuepress 的 auto-sidebar 插件）
-      sidebar: getSidebar({
+      // 注：该插件在 Windows 下生成的 link 含反斜杠且残留 .md，须经 normalizeSidebar 修正
+      sidebar: normalizeSidebar(getSidebar({
         contentRoot: 'docs',
         contentDirs: [
           { path: 'guide', title: '使用' },
@@ -63,7 +81,7 @@ export default withDuxTheme(
         collapsible: true,
         collapsed: false,
         useFrontmatter: true,
-      }),
+      })),
       socialLinks: [
         { icon: 'github', link: 'https://github.com/imoyao/fundmate' },
       ],
