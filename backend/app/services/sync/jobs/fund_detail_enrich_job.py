@@ -2,6 +2,11 @@
 """
 基金详细信息补充任务。
 对传入的目标基金列表，补充分类、公司、费率、拼音等静态信息。
+
+注意：pypinyin 是重型依赖（自带 3.2MB 词典），仅在生成拼音简拼时才需要，
+因此刻意不放在模块顶层导入，避免应用启动/无关路径（如批量测试、其他 Job）
+加载它导致峰值内存暴涨（曾在本机多进程 pytest-xdist 下触发 OOM）。
+这是与 tasks.py 中 `-p no:xdist` 正交的额外防护，不要挪回顶层。
 """
 
 import time
@@ -11,7 +16,6 @@ from decimal import Decimal
 from typing import Any, Dict, List
 
 from loguru import logger
-from pypinyin import lazy_pinyin
 from sqlalchemy.orm import Session
 
 from app.core.time_utils import now_shanghai
@@ -176,7 +180,13 @@ class FundDetailEnrichJob(SyncJob):
         """
         生成拼音首字母简拼（仿天天基金规则：英文/数字原样保留，特殊符号跳过）。
         示例: "华夏成长混合" -> "HXCZHH"
+
+        延迟导入 pypinyin：该库自带 3.2MB 词典属重型依赖，仅在真正需要生成
+        简拼时才加载，避免模块导入即拉起，降低无关路径的内存与启动开销。
         """
+        # 延迟导入：pypinyin 是重型依赖，仅此函数用到，刻意不放模块顶层
+        from pypinyin import lazy_pinyin
+
         result = list()
         for char in name:
             if '\u4e00' <= char <= '\u9fff':
