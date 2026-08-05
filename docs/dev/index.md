@@ -32,37 +32,39 @@ title: 开发指南
 
 ## 文档
 
-叽咕使用[VuePress](https://vuepress.vuejs.org/zh/)生成文档系统。
+多倍贝文档站使用 [VitePress](https://vitepress.dev/) + `@duxweb/vitepress-theme` 生成（由早期 VuePress v1 迁移而来，见提交 `291000a`）。包管理统一为 **pnpm**，请勿混用 npm / yarn。
 
-- 预览
-
-你可以使用如下命令在本地生成预览文档：
+- 本地预览
 
 ```bash
-yarn docs:dev
+pnpm docs:dev
 ```
 
-- build
+- 构建产物
 
 ```bash
-yarn docs:build
-```
-
-- 更新
-
-从 master/dev 分支合并更新
-
-```bash
-git checkout docs # 因为目录存在docs，所以使用`git switch docs` 切换分支或者 `git checkout master` 切换到 master 分支
-git pull
-git checkout dev docs/*  # dev为要合并的分支，docs为要合并的目录
+pnpm docs:build   # 输出到 docs/.vitepress/dist，部署时发布该目录
 ```
 
 - lint 文档
 
 ```bash
-yarn docs:lint-md
+pnpm docs:lint-md
 ```
+
+### 访问管控（哪些文档对外可见）
+
+文档按敏感程度分为三层，由 `docs/.vitepress/config.mjs` 控制：
+
+| 层级 | 目录 | 对外表现 |
+|---|---|---|
+| 公开 | `guide/` `features/` `site/` `api/` | 顶栏导航 + 侧边栏均收录，普通用户可见 |
+| 内部可见 | `dev/` `pytest/` `ops/` `spec/` `design/` | 仅侧边栏收录（不在顶栏），协作者可见；无敏感信息 |
+| 彻底屏蔽 | `working-notes/` + 根目录备忘 `.md` | 由 `config.mjs` 的 `srcExclude` 排除出构建，不进产物，远端访问即 404，仅仓库源码可见 |
+
+屏蔽文件清单与说明见 [内部资产/备忘索引](/spec/internal-index.html)。
+新增需屏蔽的备忘时，在 `config.mjs` 的 `srcExclude` 列表登记，并同步在该索引页登记。
+
 
 ## 预览
 

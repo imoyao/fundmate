@@ -10,6 +10,16 @@ export default withDuxTheme(
   defineConfig({
     title: '多倍贝 · 看见你的复利增长',
     description: '一个帮你算清真实收益、让复利增长清晰可见的投资账本。手动归集、穿透持仓、算准 XIRR，数据始终在你手里。',
+      // 访问管控：srcExclude 使这些源文件/目录根本不参与构建，不进入产物（dist），
+      // 远端用户访问即 404。源文件仍保留在仓库源码中。glob 相对于 srcDir（即 docs/）。
+      // 屏蔽清单与说明见 docs/spec/internal-index.md。
+      srcExclude: [
+        'working-notes/**',
+        'backend-restructure-edgeone-dualengine.md',
+        'bias-datasource-troubleshooting.md',
+        'erniao-ingest-research-2026-08-02.md',
+        'overview-bias-stale-2026-08-02.md',
+      ],
       // 采用 VitePress 默认的 outDir(.vitepress/dist) 与 publicDir，二者天然分离避免冲突。
       // 部署时发布 docs/.vitepress/dist。logo 放在默认 publicDir 下由构建自动复制。
       lastUpdated: true,
@@ -32,9 +42,8 @@ export default withDuxTheme(
       nav: [
         { text: '首页', link: '/' },
         { text: '使用', link: '/guide/' },
-        { text: '开发', link: '/dev/' },
+        { text: '功能', link: '/features/' },
         { text: '接口', link: '/api/' },
-        { text: '测试', link: '/pytest/' },
         { text: '关于', link: '/about/' },
       ],
       // auto-sidebar：自动按目录结构生成侧边栏（替代 vuepress 的 auto-sidebar 插件）
@@ -50,7 +59,6 @@ export default withDuxTheme(
           { path: 'design', title: '设计' },
           { path: 'site', title: '站点' },
           { path: 'ops', title: '运维' },
-          { path: 'working-notes', title: '工作笔记' },
         ],
         collapsible: true,
         collapsed: false,
