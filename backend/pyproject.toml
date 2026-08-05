@@ -30,6 +30,7 @@ dependencies = [
     "playwright>=1.61.0",
     "mcp>=2.0.0",
     "akshare>=1.18.81",
+    "scipy==1.13.1",
 ]
 requires-python = ">=3.12"
 
@@ -44,6 +45,7 @@ dev = [
     "ipython>=9.14.0",
     "invoke>=2.2.0",
     "rich>=13.0.0",
+    "pip-audit>=2.10.1",
 ]
 
 [tool.ruff]
