@@ -1,7 +1,8 @@
 // 多倍贝文档站主题入口：桥接 @duxweb/vitepress-theme 并注入品牌样式
 import { theme } from '@duxweb/vitepress-theme'
-import './style.css'
 import '@duxweb/vitepress-theme/dist/index.css'
+// 品牌样式必须在 dux 主题 CSS 之后 import，才能覆盖其默认的 emerald 主色
+import './style.css'
 
 // 修复 @duxweb/vitepress-theme 硬编码的英文 UI 文本
 // 主题将 "Documentation Navigation" 和 "Reading Time" 写死在组件里，

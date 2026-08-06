@@ -1,20 +1,37 @@
-/* 叽咕品牌样式 · 配色取自 branding/logo.svg（多倍贝 logo）
- * 主色 #E34F38（珊瑚红/砖红） | 浅色 #FDFBF7（暖白）
+/* 多倍贝文档站 · 品牌配色覆盖
+ * ------------------------------------------------------------
+ * @duxweb/vitepress-theme 默认把主色板 primary 别名映射到 emerald（翡翠绿），
+ * 与品牌（暖红珊瑚 #E34F38）不符。这里在运行时重定义整套 --color-primary-* 色阶，
+ * 所有引用 var(--color-primary-*) 的工具类（按钮、链接、导航 active、区块底色等）
+ * 随之变为品牌珊瑚红。
+ *
+ * 注意：只覆盖 primary 别名，不动 emerald 语义色（success 等仍保留绿色）。
+ * 本文件必须在 dux 主题 CSS 之后加载（见 theme/index.ts 的 import 顺序），
+ * 否则会被主题默认值覆盖。
  */
-:root {
-  /* duxweb 主题（Tailwind v4）品牌色变量 */
-  --brand: #e34f38;
-  --color-primary: #e34f38;
-  --primary: #e34f38;
 
-  /* VitePress 标准品牌色梯度（确保内部引用一致） */
-  --vp-c-brand-1: #e34f38;
-  --vp-c-brand-2: #d8452f;
-  --vp-c-brand-3: #c43d29;
+:root {
+  /* 品牌珊瑚红主色阶（Tailwind 风格 50–950，500 = 品牌主色 #E34F38 = --brand-700） */
+  --color-primary-50:  #FEF1EE;
+  --color-primary-100: #FDE0DB;
+  --color-primary-200: #FBC4BA;
+  --color-primary-300: #F79E8F;
+  --color-primary-400: #F2775F;
+  --color-primary-500: #E34F38;
+  --color-primary-600: #D8452F;
+  --color-primary-700: #CC3D27;
+  --color-primary-800: #A82F1F;
+  --color-primary-900: #8B2A1C;
+  --color-primary-950: #4A140E;
+
+  /* VitePress 标准品牌色梯度：保障搜索框、链接、代码高亮等默认组件一致 */
+  --vp-c-brand-1: #E34F38;
+  --vp-c-brand-2: #D8452F;
+  --vp-c-brand-3: #CC3D27;
   --vp-c-brand-soft: rgba(227, 79, 56, 0.14);
 }
 
 /* 首页 hero 主色呼应品牌 */
 :root {
-  --vp-home-hero-name-color: #e34f38;
+  --vp-home-hero-name-color: #E34F38;
 }
