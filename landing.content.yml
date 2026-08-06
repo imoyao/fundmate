@@ -272,7 +272,7 @@ cta:
   btn: 免费开始
 
 footer:
-  tagline: 记账即复利。<br/>多倍贝，备贝多——有备无患，自然倍多。
+  tagline: 记账即复利。<br/>多倍贝，备贝多——有备无患，贝自倍多。
   productLinks: []
   aboutLinks:
     - { label: 品牌故事, href: "story.html" }
