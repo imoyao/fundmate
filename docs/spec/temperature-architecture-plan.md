@@ -95,13 +95,13 @@
   - ⚠️ **待产品复核**：「长期」当前取股债利差估值分位原值（高=估值贵=热，与 PB/PE 温度同向，不反向）；其「历史低位」等解读文案归 B3，不在 B1 生成。若你希望「长期」改为有知有行/且慢等其它长周期源，或反向表达，需调整 `_compute_temperature_bands`。
 
 ### P2（文案 / 数据归集）
-- **B3 解读文案后端归集**：`/overview` 增加 `insights`（每项 `name`/`desc`/`tone`），消除前端 `store.buildOpportunities`；各 singles 补充 `caption` 字段，消除前端动态文案。
-- **B3 边界（防矫枉过正）**：后端只给 `level` 字符串；**颜色 Token / CSS 变量必须留在前端** `computed`。前端维护一份 `level → { label, colorVar, class }` 映射表（如 `{ '偏低': { color: '--tag-low' } }`），为暗色模式留余地。绝不可把颜色码塞进 JSON。
-- **B5 流动性资金流向数据接入 explore**：确认复用 `/multi` 的 `sector_flow` 或新增接口，支撑流动性卡右侧可视化。
+- [x] **B3 解读文案后端归集**：✅ 已落地（2026-08-07）。`/overview` 新增 `insights`（每项 `name`/`desc`/`tone`）与 `conclusion`（综合温度环下方结论副文案，由 `temperature_bands` 档位拼接）；前端删除 `store.buildOpportunities`，改为消费后端 `insights`。各 singles `caption` 归集（消除如「估值温度 X° · 越低越便宜」等动态文案）尚未做，暂缓。
+- **B3 边界（防矫枉过正）**：后端只给 `level` 字符串；**颜色 Token / CSS 变量必须留在前端** `computed`。前端维护一份 `level → { label, colorVar, class }` 映射表（如 `{ '偏低': { color: '--tag-low' } }`），为暗色模式留余地。绝不可把颜色码塞进 JSON。⚠️ 本次 B3 落地中 `insights.tone` 为语义枚举（safe/normal/danger）而非颜色码，前端映射 `tone→CSS 类`，符合该边界。
+- **B5 流动性资金流向数据接入 explore**：**已列入技术债务（2026-08-07）**——`sector_flow` 无数据源在抓，需先建设数据源（akshare `fund_flow_industry` 等）再接入，另行排期。
 
 ### P3（页面层）
 - [x] **概览页短/中/长期落地（行内三连）**：✅ 已落地。`welcome/index.vue` 综合温度卡下方接入 `temperature_bands` 行内三连（短期/中期/长期，各含数值°+档位胶囊），颜色令牌用前端 `level→--temp-*` 映射（符合 B3 边界），未下发颜色码。
-  - 待 B3：综合温度环下方的「结论副文案」（如「短期情绪偏冷，中期估值适中，长期处于历史低位」）应由后端 `insights` 归集返回，前端不写死。当前未实现该文案。
+  - [x] 综合温度环下方的「结论副文案」：✅ 已落地（2026-08-07）。后端 `conclusion` 归集返回，前端 `welcome/index.vue` 温度环三连下方展示，前端不写死文案。
   - ⚠️ 仍依赖 B1 的「长期」映射待复核决策（见 P1 B1 说明）。
 
 ## 4. 概览页落地执行记录（前端，纯展示层）

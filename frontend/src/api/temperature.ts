@@ -42,6 +42,14 @@ export interface TemperatureOverviewResponse {
         median_pe_level?: string;
       };
     };
+    /** B3: 市场机会解读文案（name/desc/tone），后端归集、前端仅映射样式 */
+    insights: Array<{
+      name: string;
+      desc: string;
+      tone: "safe" | "normal" | "danger";
+    }>;
+    /** B3: 综合温度环下方结论副文案 */
+    conclusion: string;
     links: {
       jisilu: string;
       jiucaishuo: string;
@@ -54,7 +62,9 @@ export interface TemperatureOverviewResponse {
 }
 
 export const getTemperatureOverview = () => {
-  return http.get<TemperatureOverviewResponse, unknown>("/api/temperature/overview");
+  return http.get<TemperatureOverviewResponse, unknown>(
+    "/api/temperature/overview"
+  );
 };
 
 // ============================================================
@@ -77,8 +87,13 @@ export interface TemperatureHistoryResponse {
  * @param days 最近天数，默认 90
  * @param source 指标来源，默认 composite_temperature
  */
-export const getTemperatureHistory = (days: number = 90, source: string = "composite_temperature") => {
-  return http.get<TemperatureHistoryResponse, unknown>(`/api/temperature/history?days=${days}&source=${source}`);
+export const getTemperatureHistory = (
+  days: number = 90,
+  source: string = "composite_temperature"
+) => {
+  return http.get<TemperatureHistoryResponse, unknown>(
+    `/api/temperature/history?days=${days}&source=${source}`
+  );
 };
 
 export interface MultiItemsResponse {

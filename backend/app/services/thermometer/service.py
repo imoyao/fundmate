@@ -442,6 +442,12 @@ class TemperatureService:
         if bands:
             composites['temperature_bands'] = bands
 
+        # 4.2 B3: 市场机会解读文案后端归集（替代前端 store.buildOpportunities）
+        insights = cls._build_insights(composites)
+
+        # 4.3 B3: 综合温度环下方结论副文案（短/中/长期档位拼接）
+        conclusion = cls._build_conclusion(bands)
+
         # 5. 更新时间
         latest = db.query(MarketSingleValue).order_by(MarketSingleValue.collected_at.desc()).first()
         updated_at = latest.collected_at.strftime('%Y-%m-%d') if latest else today_shanghai().strftime('%Y-%m-%d')
@@ -451,6 +457,8 @@ class TemperatureService:
             'singles': singles,
             'composites': composites,
             'multi': multi,
+            'insights': insights,
+            'conclusion': conclusion,
             'links': cls.LINKS,
         }
 
@@ -544,6 +552,57 @@ class TemperatureService:
             'medium': _band('中期温度', medium),
             'long': _band('长期估值', long_val),
         }
+
+    @classmethod
+    def _build_insights(cls, composites: dict) -> List[dict]:
+        """
+        B3: 市场机会解读文案后端归集。
+
+        消除前端 store.buildOpportunities：解读（desc/tone）由后端语义派生，
+        前端仅保留 tone → 颜色令牌 / 类名映射，禁止在此下发颜色码。
+        """
+        insights: List[dict] = []
+        self_calc = composites.get('self_calc') or {}
+        if isinstance(self_calc.get('spread_pct'), (int, float)):
+            spread = self_calc['spread_pct']
+            tone = 'safe' if spread > 3 else ('danger' if spread < 1.5 else 'normal')
+            insights.append(
+                {
+                    'name': '股债性价比',
+                    'desc': f"利差 {spread:.2f}%，{self_calc.get('level') or '中性'}",
+                    'tone': tone,
+                }
+            )
+        composite_temp = composites.get('composite_temperature') or {}
+        temp_val = composite_temp.get('value')
+        if isinstance(temp_val, (int, float)):
+            tone = 'safe' if temp_val < 40 else ('danger' if temp_val > 60 else 'normal')
+            insights.append(
+                {
+                    'name': '综合温度',
+                    'desc': f"当前 {temp_val:.1f}，{composite_temp.get('level') or '中性'}",
+                    'tone': tone,
+                }
+            )
+        return insights
+
+    @classmethod
+    def _build_conclusion(cls, bands: Optional[dict]) -> str:
+        """
+        B3: 综合温度环下方「结论副文案」（如「短期情绪偏冷，中期估值适中，长期处于历史低位」）。
+
+        由 temperature_bands 各档位拼接；任一带缺失或 level 为「未知」时跳过该段，
+        全部缺失返回空串（前端隐藏副文案）。
+        """
+        if not bands:
+            return ''
+        parts: List[str] = []
+        for key in ('short', 'medium', 'long'):
+            band = bands.get(key) or {}
+            level = band.get('level')
+            if level and level != '未知':
+                parts.append(f"{band.get('name', '')}{level}")
+        return '，'.join(parts)
 
     # ---- 清理 ----
 

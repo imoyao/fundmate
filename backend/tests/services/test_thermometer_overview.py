@@ -47,7 +47,7 @@ def test_overview_temperature_bands(db):
         MarketComposite(
             source='self_calc',
             collected_at=date.today(),
-            data={'pe': 12.3, 'percent': 44.0, 'level': '适中'},
+            data={'pe': 12.3, 'percent': 44.0, 'level': '适中', 'spread_pct': 2.5},
         )
     )
     db.add(
@@ -81,6 +81,12 @@ def test_overview_temperature_bands(db):
     jisilu = composites['jisilu_indicator']
     assert jisilu['median_pb_level'] == '偏低'
     assert jisilu['median_pe_level'] == '偏低'
+
+    # B3 核心：insights 文案后端归集 + 结论副文案
+    insights = data.get('insights', [])
+    assert any(i['name'] == '股债性价比' and i['tone'] == 'normal' for i in insights)
+    assert any(i['name'] == '综合温度' and i['tone'] == 'normal' for i in insights)
+    assert data['conclusion'] == '短期情绪偏低，中期温度适中，长期估值适中'
 
 
 def test_overview_bands_missing_source_yields_unknown(db):

@@ -44,7 +44,12 @@ def get_temperature_overview():
             "jisilu": "https://www.jisilu.cn/data/indicator/",
             "jiucaishuo": "https://app.jiucaishuo.com/",
             ...
-          }
+          },
+          "insights": [
+            {"name": "股债性价比", "desc": "利差 2.50%，适中", "tone": "normal"},
+            {"name": "综合温度", "desc": "当前 30.8，偏低", "tone": "safe"}
+          ],
+          "conclusion": "短期情绪偏冷，中期温度适中，长期估值适中"
         },
         "message": "success"
       }

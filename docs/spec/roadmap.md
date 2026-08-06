@@ -84,8 +84,8 @@
 - **注意**：放开不影响 `sync_cli.py` 用法。
 
 ### 2.2 温度模块剩余项（来自 temperature-architecture-plan.md）
-- **B3 文案后端归集**：`/overview` 增加 `insights`（name/desc/tone），消除前端 `store.buildOpportunities`；综合温度环下方「结论副文案」也归此项。
-- **B5 资金流向接入**：确认复用 `/multi` 的 `sector_flow` 或新增接口，支撑流动性卡右侧可视化。
+- **B3 文案后端归集**：✅ **已落地（2026-08-07）**。`/overview` 新增 `insights`（`name`/`desc`/`tone`，后端语义派生，前端仅保留 `tone→颜色令牌/类名` 映射）与 `conclusion`（综合温度环下方结论副文案，由 `temperature_bands` 档位拼接）；前端删除 `store.buildOpportunities` 改消费后端 `insights`。B3 边界（颜色令牌留前端、禁下发颜色码）未破坏。
+- **B5 资金流向接入**：**已列入技术债务（2026-08-07）**。`sector_flow` 无任何 job/fetcher 在抓数据，`get_multi_items('sector_flow')` 恒空；需先建设数据源（akshare `fund_flow_industry` 等公开市场资金流）再接入 `/multi` 可视化，属独立数据源建设，另行排期（见 `tech-debt.md`）。
 - **B1「长期」映射复核**：当前取股债利差估值分位原值（高=贵=热），待产品确认是否改第三方长周期源或反向表达。
 
 ### 2.3 其它待定项

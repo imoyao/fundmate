@@ -33,8 +33,14 @@ export interface TemperatureState {
     cb?: { value: number | null; caption: string };
     bse50?: { value: number | null; caption: string };
   } | null;
-  /** 市场机会清单 */
-  opportunityList: Array<{ name: string; desc: string; tone: "safe" | "normal" | "danger" }>;
+  /** 市场机会清单（B3：后端 insights 归集，前端只映射 tone→样式，不生成文案） */
+  opportunityList: Array<{
+    name: string;
+    desc: string;
+    tone: "safe" | "normal" | "danger";
+  }>;
+  /** 综合温度环下方结论副文案（B3：后端 conclusion 归集） */
+  conclusion: string;
   /** 加载态 */
   loading: {
     temperature: boolean;
@@ -58,6 +64,7 @@ const emptyState = (): TemperatureState => ({
   marketBreadth: null,
   indices: null,
   opportunityList: [],
+  conclusion: "",
   loading: {
     temperature: false,
     cbTemperature: false,
@@ -103,7 +110,10 @@ export const useTemperatureStore = defineStore("temperature", {
         if (jisilu) {
           this.cbTemperature = {
             value: jisilu.median_pb_temperature ?? null,
-            label: jisilu.median_pb_temperature != null ? this.cbLevel(jisilu.median_pb_temperature) : "",
+            label:
+              jisilu.median_pb_temperature != null
+                ? this.cbLevel(jisilu.median_pb_temperature)
+                : "",
             caption: jisilu.price_dt ? `数据时间 ${jisilu.price_dt}` : ""
           };
         }
@@ -111,10 +121,20 @@ export const useTemperatureStore = defineStore("temperature", {
         // 指数快照：从 singles 映射
         const indices: TemperatureState["indices"] = {};
         for (const s of d.singles ?? []) {
-          const key = s.source;
-          const allow = ["hs300", "zz500", "cyb", "kcb50", "sh", "sz", "cb", "bse50"];
+          const allow = [
+            "hs300",
+            "zz500",
+            "cyb",
+            "kcb50",
+            "sh",
+            "sz",
+            "cb",
+            "bse50"
+          ];
           // singles.source 为后端指标源名，按 name 宽松匹配
-          const matched = allow.find(k => s.name.includes(k.toUpperCase()) || s.source.includes(k));
+          const matched = allow.find(
+            k => s.name.includes(k.toUpperCase()) || s.source.includes(k)
+          );
           if (matched) {
             (indices as any)[matched] = {
               value: typeof s.value === "number" ? s.value : null,
@@ -134,9 +154,14 @@ export const useTemperatureStore = defineStore("temperature", {
           };
         }
 
-        // 市场机会：基于 self_calc 股债利差做简单解读
-        const self = d.composites?.self_calc;
-        this.opportunityList = this.buildOpportunities(self, this.temperature);
+        // 市场机会：B3 后端 insights 归集（name/desc/tone），前端不再自算文案
+        this.opportunityList = (d.insights ?? []).map(i => ({
+          name: i.name,
+          desc: i.desc,
+          tone: i.tone
+        }));
+        // 综合温度环下方结论副文案（B3 后端 conclusion）
+        this.conclusion = d.conclusion ?? "";
       } catch {
         this.error.temperature = true;
       } finally {
@@ -168,20 +193,23 @@ export const useTemperatureStore = defineStore("temperature", {
     fetchMarketBreadth(force = false) {
       if (this.loading.marketBreadth && !force) return;
       this.loading.marketBreadth = true;
-      return this.fetchTemperature(force)
-        .finally(() => (this.loading.marketBreadth = false));
+      return this.fetchTemperature(force).finally(
+        () => (this.loading.marketBreadth = false)
+      );
     },
     fetchIndices(force = false) {
       if (this.loading.indices && !force) return;
       this.loading.indices = true;
-      return this.fetchTemperature(force)
-        .finally(() => (this.loading.indices = false));
+      return this.fetchTemperature(force).finally(
+        () => (this.loading.indices = false)
+      );
     },
     fetchOpportunities(force = false) {
       if (this.loading.opportunities && !force) return;
       this.loading.opportunities = true;
-      return this.fetchTemperature(force)
-        .finally(() => (this.loading.opportunities = false));
+      return this.fetchTemperature(force).finally(
+        () => (this.loading.opportunities = false)
+      );
     },
     /** 可转债温度 → 档位文案 */
     cbLevel(v: number): string {
@@ -190,29 +218,6 @@ export const useTemperatureStore = defineStore("temperature", {
       if (v <= 65) return "中性";
       if (v <= 85) return "偏热";
       return "极热·谨慎";
-    },
-    buildOpportunities(
-      self: { spread_pct?: number; level?: string } | undefined,
-      temp: number | null
-    ): TemperatureState["opportunityList"] {
-      const list: TemperatureState["opportunityList"] = [];
-      if (self && typeof self.spread_pct === "number") {
-        const tone = self.spread_pct > 3 ? "safe" : self.spread_pct < 1.5 ? "danger" : "normal";
-        list.push({
-          name: "股债性价比",
-          desc: `利差 ${self.spread_pct.toFixed(2)}%，${self.level ?? "中性"}`,
-          tone
-        });
-      }
-      if (temp != null) {
-        const tone = temp < 40 ? "safe" : temp > 60 ? "danger" : "normal";
-        list.push({
-          name: "综合温度",
-          desc: `当前 ${temp.toFixed(1)}，${this.temperatureLabel || "中性"}`,
-          tone
-        });
-      }
-      return list;
     }
   }
 });

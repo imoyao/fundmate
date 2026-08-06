@@ -276,16 +276,28 @@
         <!-- P3: 短/中/长期温度行内三连（数据来自 temperature_bands，颜色令牌留前端） -->
         <div v-if="temperatureBands" class="temp-bands">
           <div
-            v-for="band in [temperatureBands.short, temperatureBands.medium, temperatureBands.long]"
+            v-for="band in [
+              temperatureBands.short,
+              temperatureBands.medium,
+              temperatureBands.long
+            ]"
             :key="band?.name"
             class="temp-band"
           >
             <span class="temp-band__label">{{ band?.name }}</span>
-            <span class="temp-band__value">{{ band?.value != null ? band.value.toFixed(1) + "°" : "—" }}</span>
-            <span class="temp-band__pill" :style="bandPillStyle(band?.level || '未知')">{{
-              band?.level || "暂无"
+            <span class="temp-band__value">{{
+              band?.value != null ? band.value.toFixed(1) + "°" : "—"
             }}</span>
+            <span
+              class="temp-band__pill"
+              :style="bandPillStyle(band?.level || '未知')"
+              >{{ band?.level || "暂无" }}</span
+            >
           </div>
+        </div>
+        <!-- B3: 综合温度环下方结论副文案（后端 conclusion 归集，前端不写死） -->
+        <div v-if="temperatureConclusion" class="temp-conclusion">
+          {{ temperatureConclusion }}
         </div>
       </div>
     </div>
@@ -569,6 +581,9 @@ const temperatureBands = ref<{
   long?: TempBand;
 } | null>(null);
 
+// B3: 综合温度环下方结论副文案（后端 conclusion 归集，前端不写死）
+const temperatureConclusion = ref("");
+
 // level → 温度语义色令牌（B3 边界：色令牌留前端，禁后端下发颜色码）
 const levelColorVar: Record<string, string> = {
   偏低: "var(--temp-low)",
@@ -678,16 +693,29 @@ const fetchTemperature = async () => {
     if (bands) {
       temperatureBands.value = {
         short: bands.short
-          ? { name: bands.short.name, value: bands.short.value, level: bands.short.level || "" }
+          ? {
+              name: bands.short.name,
+              value: bands.short.value,
+              level: bands.short.level || ""
+            }
           : undefined,
         medium: bands.medium
-          ? { name: bands.medium.name, value: bands.medium.value, level: bands.medium.level || "" }
+          ? {
+              name: bands.medium.name,
+              value: bands.medium.value,
+              level: bands.medium.level || ""
+            }
           : undefined,
         long: bands.long
-          ? { name: bands.long.name, value: bands.long.value, level: bands.long.level || "" }
+          ? {
+              name: bands.long.name,
+              value: bands.long.value,
+              level: bands.long.level || ""
+            }
           : undefined
       };
     }
+    temperatureConclusion.value = data.conclusion || "";
   } catch (e) {
     console.error("获取市场温度失败:", e);
   }
@@ -1063,5 +1091,15 @@ onUnmounted(() => {
   font-size: 11px;
   font-weight: 500;
   white-space: nowrap;
+}
+/* B3: 综合温度环下方结论副文案 */
+.temp-conclusion {
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--bg-soft);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
 }
 </style>
