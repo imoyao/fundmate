@@ -9,7 +9,8 @@ import json
 from apiflask import APIBlueprint
 from flask import abort, jsonify, request
 
-from app.core.constants import ALLOCATION_LABELS, CURRENT_USER_ID, LEDGER_TYPE_LABELS
+from app.core.auth import get_family_id, get_owned_or_404
+from app.core.constants import ALLOCATION_LABELS, LEDGER_TYPE_LABELS
 from app.core.database import get_db
 from app.core.money import Money
 from app.domains.assets.models import Asset
@@ -50,7 +51,7 @@ def _ledger_to_dict(ledger: Ledger) -> dict:
 @ledgers_bp.get('/overview/')
 def get_ledgers_overview():
     with get_db() as db:
-        data = LedgerService.get_overview_stats(db)
+        data = LedgerService.get_overview_stats(db, get_family_id())
         return jsonify({'data': data, 'message': 'ok'})
 
 
@@ -76,7 +77,7 @@ def create_ledger():
             return jsonify({'data': None, 'message': '只有证券账户或基金平台可以关联现金账户'}), 400
         with get_db() as db:
             cash_ledger = db.query(Ledger).filter_by(id=linked_cash_id, ledger_type='bank').first()
-            if not cash_ledger:
+            if not cash_ledger or cash_ledger.family_id != get_family_id():
                 return jsonify({'data': None, 'message': '关联的现金账户不存在或类型不是现金账户'}), 400
 
     with get_db() as db:
@@ -87,6 +88,7 @@ def create_ledger():
             notes=data.get('notes', ''),
             portfolio_id=data.get('portfolio_id'),
             linked_cash_ledger_id=linked_cash_id,
+            family_id=get_family_id(),
         )
 
         # 处理 fee_config JSON 字段
@@ -110,7 +112,7 @@ def create_ledger():
 def list_ledgers():
     """获取所有账户（含摘要统计）"""
     with get_db() as db:
-        ledgers = db.query(Ledger).order_by(Ledger.created_at.asc()).all()
+        ledgers = db.query(Ledger).filter(Ledger.family_id == get_family_id()).order_by(Ledger.created_at.asc()).all()
         result = []
         for ledger in ledgers:
             item = _ledger_to_dict(ledger)
@@ -158,7 +160,7 @@ def list_ledgers():
 def get_ledger(ledger_id: int):
     """获取单个账户详情"""
     with get_db() as db:
-        ledger = db.query(Ledger).get(ledger_id)
+        ledger = get_owned_or_404(db, Ledger, ledger_id)
         if not ledger:
             abort(404, '账户不存在')
         return jsonify({'data': _ledger_to_dict(ledger), 'message': 'ok'})
@@ -169,7 +171,7 @@ def update_ledger(ledger_id: int):
     """更新账户信息"""
     data = request.get_json() or {}
     with get_db() as db:
-        ledger = db.query(Ledger).get(ledger_id)
+        ledger = get_owned_or_404(db, Ledger, ledger_id)
         if not ledger:
             abort(404, '账户不存在')
 
@@ -206,7 +208,7 @@ def update_ledger(ledger_id: int):
                 if current_type not in ('stock', 'fund'):
                     return jsonify({'data': None, 'message': '只有证券账户或基金平台可以关联现金账户'}), 400
                 cash_ledger = db.query(Ledger).filter_by(id=linked_cash_id, ledger_type='bank').first()
-                if not cash_ledger:
+                if not cash_ledger or cash_ledger.family_id != get_family_id():
                     return jsonify({'data': None, 'message': '关联的现金账户不存在或类型不是现金账户'}), 400
             # 无论值是否为 None，均更新
             ledger.linked_cash_ledger_id = linked_cash_id
@@ -234,14 +236,14 @@ def delete_ledger(ledger_id: int):
     delete_positions = request.args.get('delete_positions', 'false').lower() == 'true'
 
     with get_db() as db:
-        ledger = db.query(Ledger).get(ledger_id)
+        ledger = get_owned_or_404(db, Ledger, ledger_id)
         if not ledger:
             abort(404, '账户不存在')
 
         if delete_positions:
             # 级联删除关联持仓和资产（基于 ledger_id）
             db.query(Position).filter(Position.ledger_id == ledger_id).delete()
-            db.query(Asset).filter(Asset.ledger_id == ledger_id, Asset.user_id == CURRENT_USER_ID).delete()
+            db.query(Asset).filter(Asset.ledger_id == ledger_id, Asset.family_id == get_family_id()).delete()
         else:
             # 检查是否存在关联持仓
             position_count = db.query(Position).filter(Position.ledger_id == ledger_id).count()
@@ -266,7 +268,7 @@ def migrate_positions(ledger_id: int):
         return jsonify({'data': None, 'message': '缺少 target_ledger_id'}), 400
 
     with get_db() as db:
-        source = db.query(Ledger).get(ledger_id)
+        source = get_owned_or_404(db, Ledger, ledger_id)
         target = db.query(Ledger).get(target_id)
         if not source or not target:
             return jsonify({'data': None, 'message': '账户不存在'}), 404
@@ -289,7 +291,7 @@ def migrate_positions(ledger_id: int):
         # 迁移资产
         asset_count = (
             db.query(Asset)
-            .filter(Asset.ledger_id == source.id, Asset.user_id == CURRENT_USER_ID)
+            .filter(Asset.ledger_id == source.id, Asset.family_id == get_family_id())
             .update(
                 {
                     Asset.ledger_id: target.id,
@@ -319,7 +321,7 @@ def migrate_positions(ledger_id: int):
 def get_ledger_summary(ledger_id: int):
     """获取单账户概览卡片数据，根据账户类型返回不同指标"""
     with get_db() as db:
-        ledger = db.query(Ledger).get(ledger_id)
+        ledger = get_owned_or_404(db, Ledger, ledger_id)
         if not ledger:
             abort(404, '账户不存在')
 
@@ -353,7 +355,7 @@ def get_ledger_positions(ledger_id: int):
     per_page = request.args.get('per_page', 20, type=int)
 
     with get_db() as db:
-        ledger = db.query(Ledger).get(ledger_id)
+        ledger = get_owned_or_404(db, Ledger, ledger_id)
         if not ledger:
             return jsonify({'data': None, 'message': '账户不存在'}), 404
         items, total = LedgerService.get_positions_paginated(db, ledger.id, page, per_page)
@@ -377,7 +379,7 @@ def get_ledger_transactions(ledger_id: int):
     per_page = request.args.get('per_page', 20, type=int)
 
     with get_db() as db:
-        ledger = db.query(Ledger).get(ledger_id)
+        ledger = get_owned_or_404(db, Ledger, ledger_id)
         if not ledger:
             return jsonify({'data': None, 'message': '账户不存在'}), 404
         items, total = LedgerService.get_transactions_paginated(db, ledger.id, page, per_page)
@@ -399,7 +401,7 @@ def update_ledger_position(ledger_id: int, position_id: int):
     """编辑账户内持仓（仅允许修改配置目标、现价、备注等）"""
     data = request.get_json() or {}
     with get_db() as db:
-        ledger = db.query(Ledger).get(ledger_id)
+        ledger = get_owned_or_404(db, Ledger, ledger_id)
         if not ledger:
             abort(404, '账户不存在')
         pos = (
@@ -429,7 +431,7 @@ def delete_ledger_position(ledger_id: int, position_id: int):
     """删除账户内持仓"""
     delete_txns = request.args.get('delete_transactions', 'false').lower() == 'true'
     with get_db() as db:
-        ledger = db.query(Ledger).get(ledger_id)
+        ledger = get_owned_or_404(db, Ledger, ledger_id)
         if not ledger:
             abort(404, '账户不存在')
         pos = (
@@ -458,7 +460,7 @@ def update_ledger_transaction(ledger_id: int, transaction_id: int):
     """编辑账户内交易（仅允许修改手续费、备注）"""
     data = request.get_json() or {}
     with get_db() as db:
-        ledger = db.query(Ledger).get(ledger_id)
+        ledger = get_owned_or_404(db, Ledger, ledger_id)
         if not ledger:
             abort(404, '账户不存在')
         txn = (
@@ -491,7 +493,7 @@ def update_ledger_transaction(ledger_id: int, transaction_id: int):
 def delete_ledger_transaction(ledger_id: int, transaction_id: int):
     """删除账户内交易"""
     with get_db() as db:
-        ledger = db.query(Ledger).get(ledger_id)
+        ledger = get_owned_or_404(db, Ledger, ledger_id)
         if not ledger:
             abort(404, '账户不存在')
         txn = (

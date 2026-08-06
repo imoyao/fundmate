@@ -3,6 +3,7 @@ from datetime import datetime
 from apiflask import APIBlueprint
 from flask import jsonify, request
 
+from app.core.auth import get_family_id
 from app.core.database import get_db
 from app.domains.funds.schemas import FundNavRequest
 from app.services.fund_service import FundService
@@ -91,6 +92,7 @@ def estimate_redeem_fee():
                 position_id=position_id,
                 sell_date=sell_date,
                 sell_shares=sell_shares,
+                family_id=get_family_id(),
             )
             return jsonify({'data': result, 'message': 'ok'})
         except ValueError as e:

@@ -20,11 +20,11 @@ class LedgerService:
     """账户维度数据聚合与计算服务，所有方法均为纯函数，不持有状态"""
 
     @staticmethod
-    def get_overview_stats(db: Session) -> dict:
+    def get_overview_stats(db: Session, family_id: int) -> dict:
         """账户资金全景：按类型分组市值、负债、净资产（覆盖游离数据）"""
-        # 加载全部持仓和资产（去掉 isnot(None) 条件）
-        all_positions = db.query(Position).all()
-        all_assets = db.query(Asset).all()
+        # 加载当前家庭全部持仓和资产（去掉 isnot(None) 条件）
+        all_positions = db.query(Position).filter(Position.family_id == family_id).all()
+        all_assets = db.query(Asset).filter(Asset.family_id == family_id).all()
 
         # 按 ledger_id 聚合持仓市值（分），ledger_id 为 None 统一归入 key=0
         pos_map: dict[int, int] = {}
@@ -40,8 +40,8 @@ class LedgerService:
                 lid = a.ledger_id or 0
                 asset_map[lid] = asset_map.get(lid, 0) + a.amount
 
-        # 获取所有账户
-        ledgers = db.query(Ledger).order_by(Ledger.created_at.asc()).all()
+        # 获取当前家庭所有账户
+        ledgers = db.query(Ledger).filter(Ledger.family_id == family_id).order_by(Ledger.created_at.asc()).all()
         ledger_id_to_type = {led.id: led.ledger_type for led in ledgers}
 
         # 按类型分组
@@ -156,7 +156,7 @@ class LedgerService:
         if not ledger.linked_cash_ledger_id:
             return None
         cash_ledger = db.query(Ledger).get(ledger.linked_cash_ledger_id)
-        if not cash_ledger:
+        if not cash_ledger or cash_ledger.family_id != ledger.family_id:
             return None
         current = (
             db.query(func.coalesce(func.sum(Asset.amount), 0))

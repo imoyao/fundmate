@@ -9,6 +9,7 @@ import traceback
 from apiflask import APIBlueprint
 from flask import abort, jsonify, request
 
+from app.core.auth import get_family_id, get_owned_or_404
 from app.core.constants import ALLOCATION_LABELS, MARKET_LABELS, TYPE_LABELS
 from app.core.database import get_db
 from app.core.money import Money
@@ -44,7 +45,7 @@ def list_positions():
     per_page = request.args.get('per_page', 20, type=int)
 
     with get_db() as db:
-        query = db.query(Position).order_by(Position.updated_at.desc())
+        query = db.query(Position).filter(Position.family_id == get_family_id()).order_by(Position.updated_at.desc())
 
         if group_by == 'account':
             positions = query.all()
@@ -107,7 +108,7 @@ def list_positions():
 @bp.get('/<int:id>/transactions/')
 def get_position_transactions(id: int):
     with get_db() as db:
-        position = db.query(Position).get(id)
+        position = get_owned_or_404(db, Position, id)
         if not position:
             abort(404, '持仓不存在')
 
@@ -158,6 +159,7 @@ def create_position(json_data):
     - withdraw: 取出（减少持仓 + 取出流水）
     """
     data = json_data.model_dump()
+    data['family_id'] = get_family_id()
     op_type = data.get('op_type', 'buy')
     with get_db() as db:
         try:
@@ -196,7 +198,7 @@ def create_position(json_data):
 @bp.input(PositionUpdate)
 def update_position(id, json_data):
     with get_db() as db:
-        position = db.query(Position).filter_by(id=id).first()
+        position = get_owned_or_404(db, Position, id)
         if not position:
             abort(404, description='Position not found')
 
@@ -219,7 +221,7 @@ def delete_position(id):
     """删除某条持仓记录."""
     delete_txns = request.args.get('delete_transactions', 'false').lower() == 'true'
     with get_db() as db:
-        position = db.query(Position).filter_by(id=id).first()
+        position = get_owned_or_404(db, Position, id)
         if not position:
             abort(404, description='Position not found')
 

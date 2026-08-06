@@ -7,10 +7,10 @@
 from sqlalchemy import Boolean, Column, Date, DateTime, Float, ForeignKey, Index, Integer, String, UniqueConstraint
 from sqlalchemy.orm import relationship
 
-from app.core.database import Base, PrimaryKeyMixin, TimestampMixin
+from app.core.database import Base, FamilyScopedMixin, PrimaryKeyMixin, TimestampMixin
 
 
-class WatchlistItem(Base, PrimaryKeyMixin, TimestampMixin):
+class WatchlistItem(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     """自选资产关注表"""
 
     __tablename__ = 'watchlist'
@@ -35,7 +35,7 @@ class WatchlistItem(Base, PrimaryKeyMixin, TimestampMixin):
     __table_args__ = (UniqueConstraint('symbol', 'venue', name='uk_watchlist_symbol_venue'),)
 
 
-class WatchlistGroup(Base, PrimaryKeyMixin, TimestampMixin):
+class WatchlistGroup(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     """自选分组表"""
 
     __tablename__ = 'watchlist_groups'
@@ -64,13 +64,15 @@ class WatchlistItemGroup(Base, PrimaryKeyMixin):
     __table_args__ = (UniqueConstraint('item_id', 'group_id', name='uk_item_group'),)
 
 
-class WatchlistTagDef(Base, PrimaryKeyMixin, TimestampMixin):
+class WatchlistTagDef(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     """标签定义表"""
 
     __tablename__ = 'watchlist_tag_defs'
 
-    name = Column(String(50), nullable=False, unique=True)
+    name = Column(String(50), nullable=False)
     color = Column(String(7))
+
+    __table_args__ = (UniqueConstraint('family_id', 'name', name='uk_tag_family_name'),)
 
 
 class WatchlistItemTag(Base, PrimaryKeyMixin):
@@ -98,7 +100,7 @@ class WatchlistAlert(Base, PrimaryKeyMixin, TimestampMixin):
     last_triggered_at = Column(DateTime)
 
 
-class ClearedPosition(Base, PrimaryKeyMixin, TimestampMixin):
+class ClearedPosition(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     """清仓周期快照表"""
 
     __tablename__ = 'cleared_positions'

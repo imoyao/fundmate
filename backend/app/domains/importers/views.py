@@ -8,6 +8,7 @@ from apiflask import APIBlueprint, Schema, fields
 from flask import abort, jsonify, request, send_file
 from loguru import logger
 
+from app.core.auth import get_family_id
 from app.core.database import get_db
 from app.core.exceptions import SBException
 from app.domains.ledgers.models import Ledger
@@ -88,7 +89,7 @@ def parse_file():
     ledger_id = request.args.get('ledger_id', type=int)
     if ledger_id:
         with get_db() as db:
-            ledger = db.query(Ledger).filter_by(id=ledger_id).first()
+            ledger = db.query(Ledger).filter(Ledger.id == ledger_id, Ledger.family_id == get_family_id()).first()
             if ledger:
                 frontend_account = ledger.name
 
@@ -97,7 +98,7 @@ def parse_file():
 
     try:
         with get_db() as db:
-            orch = ImportOrchestrator(db)
+            orch = ImportOrchestrator(db, get_family_id())
             result = orch.parse_and_preview(raw_bytes, template_key, frontend_account)
             # 记录日志
             logger.info(
@@ -151,7 +152,7 @@ def confirm_import():
 
     try:
         with get_db() as db:
-            orch = ImportOrchestrator(db)
+            orch = ImportOrchestrator(db, get_family_id())
             result = orch.commit_from_preview(rows)
         return jsonify({'data': result, 'message': 'ok'})
     except Exception as e:

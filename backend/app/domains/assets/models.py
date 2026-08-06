@@ -25,6 +25,7 @@ class Asset(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, default=1, comment='用户 ID')
+    family_id = Column(Integer, nullable=False, default=1, index=True, comment='归属家庭 ID（家庭共享层隔离键）')
 
     # 与账户的外键关联
     ledger_id = Column(

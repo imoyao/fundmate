@@ -13,6 +13,7 @@ from flask import Response, abort, jsonify, request
 from loguru import logger
 from sqlalchemy import desc, func
 
+from app.core.auth import get_family_id, get_owned_or_404
 from app.core.database import get_db
 from app.core.utils import api_response, with_db
 from app.domains.funds.models import Fund
@@ -94,19 +95,26 @@ def _enrich_item(item: WatchlistItem, db) -> dict:
 # 新增两个辅助函数在文件顶部
 def _compute_position_market_value(symbol, db):
     return (
-        db.query(func.sum(Position.quantity * Position.current_price)).filter(Position.symbol == symbol).scalar() or 0.0
+        db.query(func.sum(Position.quantity * Position.current_price))
+        .filter(Position.symbol == symbol, Position.family_id == get_family_id())
+        .scalar()
+        or 0.0
     )
 
 
 def _compute_avg_current_price(symbol, db):
-    return db.query(func.avg(Position.current_price)).filter(Position.symbol == symbol).scalar()
+    return (
+        db.query(func.avg(Position.current_price))
+        .filter(Position.symbol == symbol, Position.family_id == get_family_id())
+        .scalar()
+    )
 
 
 @watchlist_bp.get('/home-summary/')
 def home_summary():
     """首页自选摘要"""
     with get_db() as db:
-        data = build_home_summary(db)
+        data = build_home_summary(db, get_family_id())
     return jsonify({'data': data, 'message': 'ok'})
 
 
@@ -130,7 +138,7 @@ def list_items():
 
     with get_db() as db:
         try:
-            query, total = get_filtered_items_query(db, **params)
+            query, total = get_filtered_items_query(db, get_family_id(), **params)
         except ValueError as e:
             abort(400, str(e))
 
@@ -150,7 +158,7 @@ def create_item(json_data):
 
     with get_db() as db:
         try:
-            item = create_watchlist_item(db, data)
+            item = create_watchlist_item(db, data, get_family_id())
             return jsonify({'data': _enrich_item(item, db), 'message': 'ok'})
         except ValueError as e:
             msg = str(e)
@@ -166,7 +174,7 @@ def create_item(json_data):
 def update_item(item_id, json_data):
     """更新自选资产（置顶、状态、笔记等）"""
     with get_db() as db:
-        item = db.query(WatchlistItem).get(item_id)
+        item = get_owned_or_404(db, WatchlistItem, item_id)
         if not item:
             abort(404, '自选记录不存在')
         update_data = json_data.model_dump(exclude_unset=True)
@@ -181,7 +189,7 @@ def update_item(item_id, json_data):
 def delete_item(item_id):
     """删除自选资产（同时清理关联）"""
     with get_db() as db:
-        item = db.query(WatchlistItem).get(item_id)
+        item = get_owned_or_404(db, WatchlistItem, item_id)
         if not item:
             abort(404, '自选记录不存在')
         db.delete(item)
@@ -193,7 +201,7 @@ def delete_item(item_id):
 @watchlist_bp.get('/groups/')
 def list_groups():
     with get_db() as db:
-        data = build_groups_data(db)
+        data = build_groups_data(db, get_family_id())
     return jsonify({'data': data, 'message': 'ok'})
 
 
@@ -201,7 +209,7 @@ def list_groups():
 @watchlist_bp.input(WatchlistGroupCreate)
 def create_group(json_data):
     with get_db() as db:
-        group = WatchlistGroup(**json_data.model_dump())
+        group = WatchlistGroup(**json_data.model_dump(), family_id=get_family_id())
         group.is_system = False
         db.add(group)
         db.commit()
@@ -214,7 +222,7 @@ def create_group(json_data):
 def update_group(group_id, json_data):
     """更新分组"""
     with get_db() as db:
-        group = db.query(WatchlistGroup).get(group_id)
+        group = get_owned_or_404(db, WatchlistGroup, group_id)
         if not group:
             abort(404, '分组不存在')
         update_data = json_data.model_dump(exclude_unset=True)
@@ -228,7 +236,7 @@ def update_group(group_id, json_data):
 def delete_group(group_id):
     """删除分组（级联删除关联）"""
     with get_db() as db:
-        group = db.query(WatchlistGroup).get(group_id)
+        group = get_owned_or_404(db, WatchlistGroup, group_id)
         if not group:
             abort(404, '分组不存在')
         db.delete(group)
@@ -241,10 +249,10 @@ def delete_group(group_id):
 def add_item_to_group(item_id, group_id):
     """将资产加入分组"""
     with get_db() as db:
-        item = db.query(WatchlistItem).get(item_id)
+        item = get_owned_or_404(db, WatchlistItem, item_id)
         if not item:
             abort(404, '自选记录不存在')
-        group = db.query(WatchlistGroup).get(group_id)
+        group = get_owned_or_404(db, WatchlistGroup, group_id)
         if not group:
             abort(404, '分组不存在')
 
@@ -262,6 +270,9 @@ def add_item_to_group(item_id, group_id):
 def remove_item_from_group(item_id, group_id):
     """从分组中移除资产"""
     with get_db() as db:
+        # 先校验 item / group 均属当前家庭，避免越权操作关联表
+        get_owned_or_404(db, WatchlistItem, item_id)
+        get_owned_or_404(db, WatchlistGroup, group_id)
         link = db.query(WatchlistItemGroup).filter_by(item_id=item_id, group_id=group_id).first()
         if not link:
             abort(404, '未找到关联')
@@ -278,7 +289,7 @@ def list_tags():
     sort_by = request.args.get('sort_by', 'created_at')  # 默认按创建时间倒序
 
     with get_db() as db:
-        query = db.query(WatchlistTagDef)
+        query = db.query(WatchlistTagDef).filter(WatchlistTagDef.family_id == get_family_id())
 
         if q:
             query = query.filter(WatchlistTagDef.name.ilike(f'%{q}%'))
@@ -308,14 +319,18 @@ def create_tag(json_data):
     """创建标签"""
     with get_db() as db:
         name = json_data.name.strip()
-        # 检查是否已存在同名标签
-        existing = db.query(WatchlistTagDef).filter(WatchlistTagDef.name == name).first()
+        # 检查是否已存在同名标签（家庭维度）
+        existing = (
+            db.query(WatchlistTagDef)
+            .filter(WatchlistTagDef.name == name, WatchlistTagDef.family_id == get_family_id())
+            .first()
+        )
         if existing:
             abort(409, f'标签「{name}」已存在')
 
         logger.info(f'============{json_data.color}===')
 
-        tag = WatchlistTagDef(name=name, color=json_data.color)
+        tag = WatchlistTagDef(name=name, color=json_data.color, family_id=get_family_id())
         db.add(tag)
         db.commit()
         db.refresh(tag)
@@ -325,7 +340,7 @@ def create_tag(json_data):
 @watchlist_bp.delete('/tags/<int:tag_id>/')
 def delete_tag(tag_id):
     with get_db() as db:
-        tag = db.query(WatchlistTagDef).get(tag_id)
+        tag = get_owned_or_404(db, WatchlistTagDef, tag_id)
         if not tag:
             abort(404, '标签不存在')
 
@@ -343,10 +358,10 @@ def delete_tag(tag_id):
 @watchlist_bp.post('/items/<int:item_id>/tags/<int:tag_id>/')
 def add_tag_to_item(item_id, tag_id):
     with get_db() as db:
-        item = db.query(WatchlistItem).get(item_id)
+        item = get_owned_or_404(db, WatchlistItem, item_id)
         if not item:
             abort(404, '自选记录不存在')
-        tag = db.query(WatchlistTagDef).get(tag_id)
+        tag = get_owned_or_404(db, WatchlistTagDef, tag_id)
         if not tag:
             abort(404, '标签不存在')
 
@@ -363,6 +378,9 @@ def add_tag_to_item(item_id, tag_id):
 @watchlist_bp.delete('/items/<int:item_id>/tags/<int:tag_id>/')
 def remove_tag_from_item(item_id, tag_id):
     with get_db() as db:
+        # 先校验 item / tag 均属当前家庭，避免越权操作关联表
+        get_owned_or_404(db, WatchlistItem, item_id)
+        get_owned_or_404(db, WatchlistTagDef, tag_id)
         link = db.query(WatchlistItemTag).filter_by(item_id=item_id, tag_id=tag_id).first()
         if not link:
             abort(404, '未找到关联')
@@ -377,7 +395,12 @@ def remove_tag_from_item(item_id, tag_id):
 @watchlist_bp.get('/favorites/')
 @with_db
 def list_favorites(db):
-    items = db.query(WatchlistItem).filter(WatchlistItem.favorite).order_by(WatchlistItem.favorite_at.desc()).all()
+    items = (
+        db.query(WatchlistItem)
+        .filter(WatchlistItem.favorite, WatchlistItem.family_id == get_family_id())
+        .order_by(WatchlistItem.favorite_at.desc())
+        .all()
+    )
     data = []
     for item in items:
         d = _enrich_item(item, db)
@@ -393,7 +416,7 @@ def list_favorites(db):
 @watchlist_bp.post('/items/<int:item_id>/favorite/')
 @with_db
 def toggle_favorite(db, item_id):
-    item = db.query(WatchlistItem).get(item_id)
+    item = get_owned_or_404(db, WatchlistItem, item_id)
 
     if not item:
         abort(404, '自选记录不存在')
@@ -417,12 +440,16 @@ def get_smart_prompt_conditions(item_id):
     返回条件是否触发及详细指标。
     """
     with get_db() as db:
-        item = db.query(WatchlistItem).get(item_id)
+        item = get_owned_or_404(db, WatchlistItem, item_id)
         if not item:
             abort(404, '自选记录不存在')
 
-        # 关联交易记录
-        transactions = db.query(Transaction).filter(Transaction.position_name.ilike(f'%{item.symbol}%')).all()
+        # 关联交易记录（家庭维度）
+        transactions = (
+            db.query(Transaction)
+            .filter(Transaction.position_name.ilike(f'%{item.symbol}%'), Transaction.family_id == get_family_id())
+            .all()
+        )
 
         buy_txns = [t for t in transactions if t.txn_type == 'buy']
         sell_txns = [t for t in transactions if t.txn_type == 'sell']
@@ -449,7 +476,7 @@ def get_smart_prompt_conditions(item_id):
 @watchlist_bp.input(WatchlistTagDefUpdate)  # 需要新增 Schema
 def update_tag(tag_id, json_data):
     with get_db() as db:
-        tag = db.query(WatchlistTagDef).get(tag_id)
+        tag = get_owned_or_404(db, WatchlistTagDef, tag_id)
         if not tag:
             abort(404, '标签不存在')
         update_data = json_data.model_dump(exclude_unset=True)
@@ -477,7 +504,7 @@ def export_items():
 
     with get_db() as db:
         try:
-            query, _ = get_filtered_items_query(db, **params)
+            query, _ = get_filtered_items_query(db, get_family_id(), **params)
         except ValueError as e:
             abort(400, str(e))
 

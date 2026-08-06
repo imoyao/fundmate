@@ -10,11 +10,13 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 import app.domains.assets.models  # noqa: F401
+import app.domains.families.models  # noqa: F401
 import app.domains.funds.models  # noqa: F401
 import app.domains.positions.models  # noqa: F401
 import app.domains.price_history.models  # noqa: F401
 import app.domains.securities.models  # noqa: F401
 import app.domains.transactions.models  # noqa: F401
+import app.domains.users.models  # noqa: F401
 import app.domains.watchlist.models  # noqa: F401
 from app.core.database import Base
 from app.core.money import Money
@@ -92,10 +94,10 @@ def clean_db(app):
 
 
 # -------------------- 测试辅助 fixtures --------------------
-def _ensure_ledger(db, name, ledger_type='bank'):
-    ledger = db.query(Ledger).filter_by(name=name).first()
+def _ensure_ledger(db, name, ledger_type='bank', family_id=1):
+    ledger = db.query(Ledger).filter_by(name=name, family_id=family_id).first()
     if not ledger:
-        ledger = Ledger(name=name, ledger_type=ledger_type)
+        ledger = Ledger(name=name, ledger_type=ledger_type, family_id=family_id)
         db.add(ledger)
         db.flush()
     return ledger.id
@@ -104,8 +106,10 @@ def _ensure_ledger(db, name, ledger_type='bank'):
 @pytest.fixture
 def make_position(db):
     def _make(**kwargs):
+        if 'family_id' not in kwargs:
+            kwargs['family_id'] = 1
         if 'ledger_id' not in kwargs and 'account_name' in kwargs:
-            kwargs['ledger_id'] = _ensure_ledger(db, kwargs['account_name'])
+            kwargs['ledger_id'] = _ensure_ledger(db, kwargs['account_name'], family_id=kwargs['family_id'])
         if 'quantity' in kwargs:
             kwargs['quantity'] = Money.shares_to_min_unit(kwargs['quantity'])
         if 'avg_price' in kwargs:
@@ -123,8 +127,10 @@ def make_position(db):
 @pytest.fixture
 def make_asset(db):
     def _make(**kwargs):
+        if 'family_id' not in kwargs:
+            kwargs['family_id'] = 1
         if 'ledger_id' not in kwargs and 'account_name' in kwargs:
-            kwargs['ledger_id'] = _ensure_ledger(db, kwargs['account_name'])
+            kwargs['ledger_id'] = _ensure_ledger(db, kwargs['account_name'], family_id=kwargs['family_id'])
         if 'amount' in kwargs:
             kwargs['amount'] = Money.yuan_to_cents(kwargs['amount'])
         asset = Asset(**kwargs)

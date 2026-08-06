@@ -18,10 +18,12 @@ from flask_cors import CORS  # noqa: E402
 from loguru import logger  # noqa: E402
 from werkzeug.exceptions import HTTPException  # noqa: E402
 
+from app.core.auth import auth_before_request  # noqa: E402
 from app.core.database import init_db  # noqa: E402
 from app.core.exceptions import ErrorCode, SBException  # noqa: E402
 from app.domains.assets.views import bp as assets_bp  # noqa: E402
 from app.domains.auth.views import auth_bp  # noqa: E402
+from app.domains.families.views import families_bp  # noqa: E402
 from app.domains.funds.views import bp as funds_bp  # noqa: E402
 from app.domains.health import bp as health_bp  # noqa: E402
 from app.domains.importers.views import importers_bp  # noqa: E402
@@ -34,6 +36,7 @@ from app.domains.strategy.views import strategy_bp  # noqa: E402
 from app.domains.summary.views import bp as summary_bp  # noqa: E402
 from app.domains.temperature.views import thermometer_bp  # noqa: E402
 from app.domains.transactions.views import bp as transactions_bp  # noqa: E402
+from app.domains.users.views import users_bp  # noqa: E402
 from app.domains.utils.views import utils_bp  # noqa: E402
 from app.domains.watchlist.views import watchlist_bp  # noqa: E402
 
@@ -79,6 +82,11 @@ def create_app() -> APIFlask:
     app.register_blueprint(portfolios_bp)
     app.register_blueprint(strategy_bp)
     app.register_blueprint(thermometer_bp)
+    app.register_blueprint(users_bp)
+    app.register_blueprint(families_bp)
+
+    # 鉴权中间件（D2/D4）：白名单外的所有请求需登录，身份注入 g 上下文
+    app.before_request(auth_before_request)
 
     # 初始化数据库
     with app.app_context():

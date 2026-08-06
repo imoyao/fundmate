@@ -15,10 +15,10 @@ confirmed（已确认）
 
 from sqlalchemy import Column, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 
-from app.core.database import Base, PrimaryKeyMixin, TimestampMixin
+from app.core.database import Base, FamilyScopedMixin, PrimaryKeyMixin, TimestampMixin
 
 
-class Transaction(Base, PrimaryKeyMixin, TimestampMixin):
+class Transaction(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     __tablename__ = 'transactions'
 
     position_id = Column(Integer)

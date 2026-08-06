@@ -8,6 +8,7 @@ from apiflask import APIBlueprint
 from flask import abort, jsonify
 from loguru import logger
 
+from app.core.auth import get_family_id
 from app.core.database import get_db
 from app.domains.performance.schemas import XirrRequest
 from app.services.performance import calculate_portfolio_xirr, calculate_position_xirr
@@ -29,12 +30,12 @@ def get_xirr(query_data: XirrRequest):
             if scope == 'position':
                 if not position_id:
                     abort(400, '缺少 position_id 参数')
-                result = calculate_position_xirr(db, position_id)
+                result = calculate_position_xirr(db, position_id, family_id=get_family_id())
             elif scope == 'portfolio' and portfolio_id:
-                result = calculate_portfolio_xirr_by_id(db, portfolio_id)
+                result = calculate_portfolio_xirr_by_id(db, portfolio_id, family_id=get_family_id())
                 logger.info(f'组合 XIRR 计算完成(portfolio_id={portfolio_id}): {result}')
             else:
-                result = calculate_portfolio_xirr(db)
+                result = calculate_portfolio_xirr(db, family_id=get_family_id())
                 logger.info(f'组合 XIRR 计算完成: {result}')
         except ValueError as e:
             abort(404, str(e))

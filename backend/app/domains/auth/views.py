@@ -8,10 +8,43 @@ import os
 
 import requests
 from apiflask import APIBlueprint
-from flask import request
+from flask import g, request
 from loguru import logger
 
+from app.domains.families.models import Family
+from app.domains.users.models import ROLE_LABELS, User
+
 auth_bp = APIBlueprint('auth', __name__, url_prefix='/api/auth')
+
+
+@auth_bp.get('/me')
+def me():
+    """返回当前登录用户信息（含角色与所属家庭）。
+
+    依赖鉴权中间件已注入 `g.current_user`；未登录访问本接口由中间件返回 401。
+    """
+    from app.core.database import get_db
+
+    user: User = g.current_user
+    family_name = None
+    with get_db() as db:
+        fam = db.query(Family).filter_by(id=user.family_id).first()
+        family_name = fam.name if fam else None
+
+    return {
+        'data': {
+            'id': user.id,
+            'supabase_id': user.supabase_id,
+            'username': user.username,
+            'nickname': user.nickname,
+            'avatar': user.avatar,
+            'email': user.email,
+            'role': user.role,
+            'role_label': ROLE_LABELS.get(user.role, user.role),
+            'family': {'id': user.family_id, 'name': family_name},
+        },
+        'message': 'ok',
+    }
 
 
 @auth_bp.post('/logout')
@@ -38,7 +71,7 @@ def logout():
         try:
             # 服务端作废指定会话，使用 service_role key（仅后端持有，不暴露给前端）
             resp = requests.post(
-                f"{supabase_url.rstrip('/')}/auth/v1/logout",
+                f'{supabase_url.rstrip("/")}/auth/v1/logout',
                 headers={
                     'apikey': service_role_key,
                     'Authorization': f'Bearer {service_role_key}',

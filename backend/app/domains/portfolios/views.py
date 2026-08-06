@@ -11,6 +11,7 @@ from apiflask import APIBlueprint
 from flask import abort, jsonify, request
 from sqlalchemy import update
 
+from app.core.auth import get_family_id, get_owned_or_404
 from app.core.constants import TYPE_LABELS
 from app.core.database import get_db
 from app.core.money import Money
@@ -57,6 +58,7 @@ def create_portfolio():
                 target_amount=schema.target_amount,
                 target_date=schema.target_date,
                 benchmark=schema.benchmark,
+                family_id=get_family_id(),
             )
             db.add(portfolio)
             db.commit()
@@ -75,7 +77,10 @@ def list_portfolios():
     """获取所有投资组合（不含已删除）"""
     with get_db() as db:
         portfolios = (
-            db.query(Portfolio).filter(Portfolio.is_deleted.is_(False)).order_by(Portfolio.created_at.asc()).all()
+            db.query(Portfolio)
+            .filter(Portfolio.is_deleted.is_(False), Portfolio.family_id == get_family_id())
+            .order_by(Portfolio.created_at.asc())
+            .all()
         )
         # MVP 列表返回: id, name, purpose, created_at
         result = [
@@ -94,7 +99,7 @@ def list_portfolios():
 def get_portfolio(portfolio_id: int):
     """获取单个投资组合详情"""
     with get_db() as db:
-        portfolio = db.query(Portfolio).get(portfolio_id)
+        portfolio = get_owned_or_404(db, Portfolio, portfolio_id)
         if not portfolio:
             abort(404, '投资组合不存在')
         return jsonify({'data': _portfolio_to_dict(portfolio), 'message': 'ok'})
@@ -107,7 +112,7 @@ def update_portfolio(portfolio_id: int):
     schema = PortfolioUpdate(**data)
 
     with get_db() as db:
-        portfolio = db.query(Portfolio).get(portfolio_id)
+        portfolio = get_owned_or_404(db, Portfolio, portfolio_id)
         if not portfolio:
             abort(404, '投资组合不存在')
 
@@ -136,12 +141,16 @@ def update_portfolio(portfolio_id: int):
 def delete_portfolio(portfolio_id: int):
     """软删除投资组合，并自动解绑所有关联账户"""
     with get_db() as db:
-        portfolio = db.query(Portfolio).get(portfolio_id)
+        portfolio = get_owned_or_404(db, Portfolio, portfolio_id)
         if not portfolio:
             abort(404, '投资组合不存在')
 
-        # 批量解绑关联账户（使用 update 语句，避免逐条加载）
-        db.execute(update(Ledger).where(Ledger.portfolio_id == portfolio_id).values(portfolio_id=None))
+        # 批量解绑关联账户（使用 update 语句，避免逐条加载），限本家庭
+        db.execute(
+            update(Ledger)
+            .where(Ledger.portfolio_id == portfolio_id, Ledger.family_id == get_family_id())
+            .values(portfolio_id=None)
+        )
 
         # 软删除组合
         portfolio.is_deleted = True
@@ -155,12 +164,13 @@ def delete_portfolio(portfolio_id: int):
 def get_portfolio_holdings(portfolio_id: int):
     """获取组合下所有关联账户的持仓明细"""
     with get_db() as db:
-        # 1. 验证组合存在且未删除
+        # 1. 验证组合存在且未删除（家庭维度）
         portfolio = (
             db.query(Portfolio)
             .filter(
                 Portfolio.id == portfolio_id,
                 Portfolio.is_deleted.is_(False),
+                Portfolio.family_id == get_family_id(),
             )
             .first()
         )
@@ -168,7 +178,12 @@ def get_portfolio_holdings(portfolio_id: int):
             abort(404, '投资组合不存在')
 
         # 2. 获取关联账户名称列表
-        ledger_names = [row[0] for row in db.query(Ledger.name).filter(Ledger.portfolio_id == portfolio_id).all()]
+        ledger_names = [
+            row[0]
+            for row in db.query(Ledger.name)
+            .filter(Ledger.portfolio_id == portfolio_id, Ledger.family_id == get_family_id())
+            .all()
+        ]
         if not ledger_names:
             return jsonify({'data': [], 'message': 'ok'})
 

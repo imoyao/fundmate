@@ -29,9 +29,12 @@ GROUP_COLORS = {
 }
 
 
-def build_groups_data(db: Session) -> list[dict]:
+def build_groups_data(db: Session, family_id: int) -> list[dict]:
     """构建分组列表数据（系统分组 + 自定义分组），包含资产数量"""
     groups_data = list()
+
+    def _item_base():
+        return db.query(WatchlistItem).filter(WatchlistItem.family_id == family_id)
 
     # 1. 全部
     groups_data.append(
@@ -39,7 +42,7 @@ def build_groups_data(db: Session) -> list[dict]:
             'key': 'all',
             'label': '全部',
             'color': GROUP_COLORS['all'],
-            'count': db.query(WatchlistItem).count(),
+            'count': _item_base().count(),
             'is_system': True,
         }
     )
@@ -50,7 +53,7 @@ def build_groups_data(db: Session) -> list[dict]:
             'key': 'holding',
             'label': '持仓',
             'color': GROUP_COLORS['holding'],
-            'count': db.query(WatchlistItem).filter(WatchlistItem.status == 'HOLDING').count(),
+            'count': _item_base().filter(WatchlistItem.status == 'HOLDING').count(),
             'is_system': True,
         }
     )
@@ -61,14 +64,17 @@ def build_groups_data(db: Session) -> list[dict]:
             'key': 'watching',
             'label': '观察中',
             'color': GROUP_COLORS['watching'],
-            'count': db.query(WatchlistItem).filter(WatchlistItem.status == 'WATCHING').count(),
+            'count': _item_base().filter(WatchlistItem.status == 'WATCHING').count(),
             'is_system': True,
         }
     )
 
     # 4. 已清仓（构建子查询，并显式 select 消除警告）
     position_sum = (
-        db.query(Position.symbol, func.sum(Position.quantity).label('total_qty')).group_by(Position.symbol).subquery()
+        db.query(Position.symbol, func.sum(Position.quantity).label('total_qty'))
+        .filter(Position.family_id == family_id)
+        .group_by(Position.symbol)
+        .subquery()
     )
     cleared_symbols = db.query(position_sum.c.symbol).filter(position_sum.c.total_qty == 0).subquery()
     groups_data.append(
@@ -76,7 +82,7 @@ def build_groups_data(db: Session) -> list[dict]:
             'key': 'cleared',
             'label': '已清仓',
             'color': GROUP_COLORS['cleared'],
-            'count': db.query(WatchlistItem).filter(WatchlistItem.symbol.in_(select(cleared_symbols))).count(),
+            'count': _item_base().filter(WatchlistItem.symbol.in_(select(cleared_symbols))).count(),
             'is_system': True,
         }
     )
@@ -87,7 +93,7 @@ def build_groups_data(db: Session) -> list[dict]:
             'key': 'exchange',
             'label': '场内资产',
             'color': GROUP_COLORS['exchange'],
-            'count': db.query(WatchlistItem).filter(WatchlistItem.venue == 'EXCHANGE').count(),
+            'count': _item_base().filter(WatchlistItem.venue == 'EXCHANGE').count(),
             'is_system': True,
         }
     )
@@ -98,7 +104,7 @@ def build_groups_data(db: Session) -> list[dict]:
             'key': 'otc',
             'label': '场外基金',
             'color': GROUP_COLORS['otc'],
-            'count': db.query(WatchlistItem).filter(WatchlistItem.venue == 'OTC').count(),
+            'count': _item_base().filter(WatchlistItem.venue == 'OTC').count(),
             'is_system': True,
         }
     )
@@ -109,14 +115,17 @@ def build_groups_data(db: Session) -> list[dict]:
             'key': 'favorite',
             'label': '特别关注',
             'color': GROUP_COLORS['favorite'],
-            'count': db.query(WatchlistItem).filter(WatchlistItem.favorite).count(),
+            'count': _item_base().filter(WatchlistItem.favorite).count(),
             'is_system': True,
         }
     )
 
     # 8. 自定义分组
     custom_groups = (
-        db.query(WatchlistGroup).filter(WatchlistGroup.is_system.is_(False)).order_by(WatchlistGroup.sort_order).all()
+        db.query(WatchlistGroup)
+        .filter(WatchlistGroup.is_system.is_(False), WatchlistGroup.family_id == family_id)
+        .order_by(WatchlistGroup.sort_order)
+        .all()
     )
     for g in custom_groups:
         groups_data.append(
@@ -173,7 +182,7 @@ def normalize_and_infer_venue(
     raise ValueError(f'无效的 venue 值: {venue}')
 
 
-def create_watchlist_item(db: Session, data: Dict[str, Any]) -> WatchlistItem:
+def create_watchlist_item(db: Session, data: Dict[str, Any], family_id: int) -> WatchlistItem:
     """创建自选资产并触发异步回填"""
     normalized = normalize_and_infer_venue(
         data['symbol'],
@@ -182,15 +191,17 @@ def create_watchlist_item(db: Session, data: Dict[str, Any]) -> WatchlistItem:
     )
     symbol = normalized['symbol']
 
-    # 查重
+    # 查重（家庭维度）
     existing = (
-        db.query(WatchlistItem).filter_by(symbol=symbol, market=normalized['market'], venue=normalized['venue']).first()
+        db.query(WatchlistItem)
+        .filter_by(symbol=symbol, market=normalized['market'], venue=normalized['venue'], family_id=family_id)
+        .first()
     )
     if existing:
         raise ValueError('该资产已在自选列表中')
 
-    # 持仓状态判断
-    has_position = db.query(Position).filter(Position.symbol == symbol).first()
+    # 持仓状态判断（家庭维度）
+    has_position = db.query(Position).filter(Position.symbol == symbol, Position.family_id == family_id).first()
     status = 'HOLDING' if has_position else 'WATCHING'
 
     item = WatchlistItem(
@@ -202,6 +213,7 @@ def create_watchlist_item(db: Session, data: Dict[str, Any]) -> WatchlistItem:
         add_reason=data.get('add_reason'),
         is_pinned=data.get('is_pinned', False),
         pinned_at=date.today() if data.get('is_pinned') else None,
+        family_id=family_id,
     )
     db.add(item)
     db.commit()
@@ -217,10 +229,14 @@ def create_watchlist_item(db: Session, data: Dict[str, Any]) -> WatchlistItem:
     return item
 
 
-def build_home_summary(db: Session) -> List[Dict[str, Any]]:
+def build_home_summary(db: Session, family_id: int) -> List[Dict[str, Any]]:
     """构建首页自选摘要数据"""
     pinned = (
-        db.query(WatchlistItem).filter(WatchlistItem.is_pinned).order_by(WatchlistItem.pinned_at.desc()).limit(6).all()
+        db.query(WatchlistItem)
+        .filter(WatchlistItem.is_pinned, WatchlistItem.family_id == family_id)
+        .order_by(WatchlistItem.pinned_at.desc())
+        .limit(6)
+        .all()
     )
     result_items = list(pinned)
     pinned_ids = {item.id for item in pinned}
@@ -229,6 +245,7 @@ def build_home_summary(db: Session) -> List[Dict[str, Any]]:
         needed = 5 - len(result_items)
         market_value_subq = (
             db.query(Position.symbol, func.sum(Position.quantity * Position.current_price).label('market_value'))
+            .filter(Position.family_id == family_id)
             .group_by(Position.symbol)
             .subquery()
         )
@@ -236,6 +253,7 @@ def build_home_summary(db: Session) -> List[Dict[str, Any]]:
             db.query(WatchlistItem, market_value_subq.c.market_value)
             .filter(
                 WatchlistItem.status == 'HOLDING',
+                WatchlistItem.family_id == family_id,
                 ~WatchlistItem.id.in_(pinned_ids) if pinned_ids else True,
             )
             .outerjoin(market_value_subq, WatchlistItem.symbol == market_value_subq.c.symbol)
@@ -253,11 +271,15 @@ def build_home_summary(db: Session) -> List[Dict[str, Any]]:
         display_name = _get_display_name(item.symbol, db)
         position_value = (
             db.query(func.sum(Position.quantity * Position.current_price))
-            .filter(Position.symbol == item.symbol)
+            .filter(Position.symbol == item.symbol, Position.family_id == family_id)
             .scalar()
             or 0.0
         )
-        current_price = db.query(func.avg(Position.current_price)).filter(Position.symbol == item.symbol).scalar()
+        current_price = (
+            db.query(func.avg(Position.current_price))
+            .filter(Position.symbol == item.symbol, Position.family_id == family_id)
+            .scalar()
+        )
         data.append(
             {
                 'id': item.id,
@@ -277,6 +299,7 @@ def build_home_summary(db: Session) -> List[Dict[str, Any]]:
 
 def get_filtered_items_query(
     db: Session,
+    family_id: int,
     status: Optional[str] = None,
     venue: Optional[str] = None,
     market: Optional[str] = None,
@@ -291,7 +314,7 @@ def get_filtered_items_query(
     根据筛选条件构建查询对象并返回总条数。
     返回 (query, total)
     """
-    query = db.query(WatchlistItem)
+    query = db.query(WatchlistItem).filter(WatchlistItem.family_id == family_id)
 
     if symbol:
         query = query.filter(WatchlistItem.symbol == symbol)
@@ -302,7 +325,10 @@ def get_filtered_items_query(
     cleared_symbols = None
     if status and status == 'cleared':
         position_sum = (
-            select(Position.symbol, func.sum(Position.quantity).label('total_qty')).group_by(Position.symbol).subquery()
+            select(Position.symbol, func.sum(Position.quantity).label('total_qty'))
+            .where(Position.family_id == family_id)
+            .group_by(Position.symbol)
+            .subquery()
         )
         cleared_symbols = select(position_sum.c.symbol).where(position_sum.c.total_qty == 0).subquery()
 
@@ -337,7 +363,11 @@ def get_filtered_items_query(
 
     # 计算总数（清仓状态特殊处理）
     if status == 'cleared' and cleared_symbols is not None:
-        total = db.query(WatchlistItem).filter(WatchlistItem.symbol.in_(cleared_symbols)).count()
+        total = (
+            db.query(WatchlistItem)
+            .filter(WatchlistItem.symbol.in_(cleared_symbols), WatchlistItem.family_id == family_id)
+            .count()
+        )
     else:
         total = query.count()
 

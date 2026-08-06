@@ -7,10 +7,10 @@
 # -*- coding: utf-8 -*-
 from sqlalchemy import Column, ForeignKey, Integer, String, Text
 
-from app.core.database import Base, PrimaryKeyMixin, TimestampMixin
+from app.core.database import Base, FamilyScopedMixin, PrimaryKeyMixin, TimestampMixin
 
 
-class Ledger(Base, PrimaryKeyMixin, TimestampMixin):
+class Ledger(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     """
     fee_config JSON 结构示例
     股票账户 (ledger_type='stock')

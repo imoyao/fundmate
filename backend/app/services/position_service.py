@@ -82,6 +82,7 @@ def _create_cash_transfer_transaction(db: Session, data: dict, txn_type: str) ->
         notes=data.get('notes') or ('现金管理产品申赎' if txn_type == 'buy' else '现金管理产品赎回'),
         import_hash=data.get('import_hash'),
         entry_status='orphan',
+        family_id=data.get('family_id', 1),
     )
     db.flush()
 
@@ -123,6 +124,7 @@ def _create_orphan_transaction(
         notes=notes,
         import_hash=data.get('import_hash'),
         entry_status='orphan',
+        family_id=data.get('family_id', 1),
     )
     db.flush()
 
@@ -159,11 +161,12 @@ class PositionService:
             except Exception:
                 logger.warning(f'无法标准化符号: {symbol}，保留原值')
 
-        # 查找现有持仓
+        # 查找现有持仓（家庭维度）
         ledger_id = data.get('ledger_id')
-        same = db.query(Position).filter_by(symbol=search_symbol, ledger_id=ledger_id).first()
+        family_id = data.get('family_id', 1)
+        same = db.query(Position).filter_by(symbol=search_symbol, ledger_id=ledger_id, family_id=family_id).first()
         if not same and search_symbol != symbol:
-            same = db.query(Position).filter_by(symbol=symbol, account_name=account).first()
+            same = db.query(Position).filter_by(symbol=symbol, account_name=account, family_id=family_id).first()
         final_symbol = search_symbol
 
         # 校验数量/价格
@@ -174,7 +177,9 @@ class PositionService:
         if price <= 0:
             raise ValueError('价格必须大于 0')
 
-        existing_position = db.query(Position).filter_by(symbol=symbol, account_name=account).first()
+        existing_position = (
+            db.query(Position).filter_by(symbol=symbol, account_name=account, family_id=family_id).first()
+        )
         current_hold_shares = Money.min_unit_to_shares(existing_position.quantity) if existing_position else 0.0
         if not skip_lot_check:
             valid, err_msg = validate_buy(symbol, data.get('market', ''), asset_type, current_hold_shares, qty)
@@ -220,6 +225,7 @@ class PositionService:
                 position_data['current_price'] = price_cents
                 position_data['symbol'] = final_symbol
                 position_data['ledger_id'] = ledger_id
+                position_data['family_id'] = family_id
                 position = Position(**position_data)
                 db.add(position)
                 db.flush()
@@ -260,6 +266,7 @@ class PositionService:
                 notes=notes,
                 ledger_id=ledger_id,
                 import_hash=data.get('import_hash'),
+                family_id=family_id,
             )
 
             db.flush()
@@ -288,7 +295,7 @@ class PositionService:
         qty_units = Money.shares_to_min_unit(qty_shares)
         price_cents = Money.yuan_to_cents(price_yuan)
 
-        existing = db.query(Position).filter_by(id=position_id).first()
+        existing = db.query(Position).filter_by(id=position_id, family_id=data.get('family_id', 1)).first()
         if not existing:
             raise ValueError('指定的持仓不存在')
         if qty_units <= 0:
@@ -341,6 +348,7 @@ class PositionService:
                 account_name=account_name,
                 notes=data.get('notes') or ('卖出' if op_type == 'sell' else '取出'),
                 import_hash=data.get('import_hash'),
+                family_id=data.get('family_id', 1),
             )
 
             db.flush()
@@ -359,7 +367,7 @@ class PositionService:
         position_id = data['position_id']
         dividend_amount = data.get('dividend_amount', data.get('avg_price', 0))
 
-        existing = db.query(Position).filter_by(id=position_id).first()
+        existing = db.query(Position).filter_by(id=position_id, family_id=data.get('family_id', 1)).first()
         if not existing:
             logger.error(f'持仓不存在: position_id={position_id}')
             raise ValueError('指定的持仓不存在')
@@ -384,6 +392,7 @@ class PositionService:
                 ledger_id=existing.ledger_id,
                 notes=data.get('notes') or '现金分红',
                 import_hash=data.get('import_hash'),
+                family_id=data.get('family_id', 1),
             )
 
             db.flush()
@@ -408,8 +417,12 @@ class PositionService:
         qty = data.get('quantity', 0)
         price = data.get('avg_price', 0)
 
-        # 尝试查找现有持仓
-        existing = db.query(Position).filter_by(symbol=symbol, account_name=account).first()
+        # 尝试查找现有持仓（家庭维度）
+        existing = (
+            db.query(Position)
+            .filter_by(symbol=symbol, account_name=account, family_id=data.get('family_id', 1))
+            .first()
+        )
 
         if existing:
             try:
@@ -425,6 +438,7 @@ class PositionService:
                         'fee': data.get('fee', 0.0),
                         'notes': data.get('notes', ''),
                         'import_hash': data.get('import_hash'),
+                        'family_id': data.get('family_id', 1),
                     },
                     skip_lot_check=True,
                 )
@@ -454,7 +468,11 @@ class PositionService:
         account = data.get('account_name', '')
         dividend_amount = data.get('dividend_amount', data.get('avg_price', 0))
 
-        existing = db.query(Position).filter_by(symbol=symbol, account_name=account).first()
+        existing = (
+            db.query(Position)
+            .filter_by(symbol=symbol, account_name=account, family_id=data.get('family_id', 1))
+            .first()
+        )
 
         if existing:
             return PositionService.process_dividend(
@@ -466,6 +484,7 @@ class PositionService:
                     'trade_date': data.get('trade_date'),
                     'notes': data.get('notes', ''),
                     'import_hash': data.get('import_hash'),
+                    'family_id': data.get('family_id', 1),
                 },
             )
         else:

@@ -54,15 +54,17 @@ class ProductProvider:
     def get_user_products(
         db_session,
         include_holdings: bool = True,
-        include_watchlist: bool = True,
+        include_watchlist: bool = False,
+        family_id: int = 1,
     ) -> List[Tuple[str, str, str]]:
         """
-        获取用户相关的品种列表（持仓 + 自选）
+        获取用户相关的品种列表（持仓 + 自选），按 family_id 隔离（D1）。
 
         Args:
             db_session: SQLAlchemy Session
             include_holdings: 是否包含持仓
             include_watchlist: 是否包含自选
+            family_id: 家庭 ID
 
         Returns:
             [(symbol, item_type, name), ...]
@@ -72,11 +74,28 @@ class ProductProvider:
         if include_holdings:
             from app.domains.positions.models import Position
 
-            positions = db_session.query(Position.symbol, Position.name, Position.type).all()
+            positions = (
+                db_session.query(Position.symbol, Position.name, Position.asset_type)
+                .filter(Position.family_id == family_id)
+                .all()
+            )
             for symbol, name, asset_type in positions:
                 item_type = _infer_item_type(asset_type)
                 if symbol:
                     result.append((symbol, item_type, name or symbol))
+
+        if include_watchlist:
+            from app.domains.watchlist.models import WatchlistItem
+
+            watchlist = (
+                db_session.query(WatchlistItem.symbol, WatchlistItem.asset_type)
+                .filter(WatchlistItem.family_id == family_id)
+                .all()
+            )
+            for symbol, asset_type in watchlist:
+                item_type = _infer_item_type(asset_type)
+                if symbol:
+                    result.append((symbol, item_type, symbol))
 
         if include_watchlist:
             from app.domains.watchlist.models import WatchlistItem

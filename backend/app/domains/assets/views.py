@@ -9,7 +9,8 @@ from apiflask import APIBlueprint
 from flask import abort, jsonify, request
 from sqlalchemy import func
 
-from app.core.constants import ALLOCATION_LABELS, ASSET_CATEGORY_LABELS, CURRENT_USER_ID
+from app.core.auth import get_family_id, get_owned_or_404
+from app.core.constants import ALLOCATION_LABELS, ASSET_CATEGORY_LABELS
 from app.core.database import get_db
 from app.core.money import Money
 from app.core.utils import paginate
@@ -41,7 +42,7 @@ def list_assets():
 
     with get_db() as db:
         query = db.query(Asset).order_by(Asset.updated_at.desc())
-        query = query.filter(Asset.user_id == CURRENT_USER_ID)
+        query = query.filter(Asset.family_id == get_family_id())
 
         if major:
             query = query.filter(Asset.major_category == major)
@@ -63,10 +64,10 @@ def create_asset():
     data = json_data.model_dump()
     data['amount'] = Money.yuan_to_cents(data.get('amount', 0))
 
-    # 如果传了 ledger_id，确保 account_name 快照正确
+    # 如果传了 ledger_id，确保 account_name 快照正确（家庭维度）
     if data.get('ledger_id'):
         with get_db() as db:
-            ledger = db.query(Ledger).filter_by(id=data['ledger_id']).first()
+            ledger = db.query(Ledger).filter_by(id=data['ledger_id'], family_id=get_family_id()).first()
             if ledger:
                 # 🔥 修复：新增防御性校验，禁止将固定资产挂载到银行账户
                 if ledger.ledger_type == 'bank' and data.get('major_category') in ('fixed', 'real_estate', 'vehicle'):
@@ -81,7 +82,8 @@ def create_asset():
 
     with get_db() as db:
         asset = Asset(**data)
-        asset.user_id = CURRENT_USER_ID
+        asset.user_id = 1
+        asset.family_id = get_family_id()
         db.add(asset)
         db.commit()
         db.refresh(asset)
@@ -92,7 +94,7 @@ def create_asset():
 def update_asset(id):
     json_data = parse_body(AssetUpdate)
     with get_db() as db:
-        asset = db.query(Asset).filter_by(id=id).first()
+        asset = get_owned_or_404(db, Asset, id)
         if not asset:
             abort(404, description='资产不存在')
 
@@ -100,7 +102,7 @@ def update_asset(id):
 
         # 🔥 修复：新增防御性校验，禁止把已有的资产迁移到错误的账户
         if 'ledger_id' in update_data and update_data['ledger_id'] is not None:
-            new_ledger = db.query(Ledger).filter_by(id=update_data['ledger_id']).first()
+            new_ledger = db.query(Ledger).filter_by(id=update_data['ledger_id'], family_id=get_family_id()).first()
             if not new_ledger:
                 abort(404, description='关联账户不存在')
 
@@ -125,7 +127,7 @@ def update_asset(id):
 def delete_asset(id):
     """删除一条通用资产."""
     with get_db() as db:
-        asset = db.query(Asset).filter_by(id=id).first()
+        asset = get_owned_or_404(db, Asset, id)
         if not asset:
             abort(404, description='资产不存在')
         db.delete(asset)
@@ -141,7 +143,7 @@ def get_assets_summary():
     with get_db() as db:
         results = (
             db.query(Asset.major_category, func.coalesce(func.sum(Asset.amount), 0).label('total_cents'))
-            .filter(Asset.user_id == CURRENT_USER_ID)
+            .filter(Asset.family_id == get_family_id())
             .group_by(Asset.major_category)
             .all()
         )

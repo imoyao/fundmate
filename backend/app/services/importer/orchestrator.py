@@ -47,8 +47,9 @@ class ImportOrchestrator:
         orch.trigger_metadata_update(valid)
     """
 
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, family_id: int = 1):
         self.db = db
+        self.family_id = family_id
         self.batch_id = ''
 
     def validate_file_type(self, records: List[StandardTransactionRecord], expected_source: str) -> None:
@@ -138,7 +139,10 @@ class ImportOrchestrator:
         existing_hashes = set()
         if hashes:
             existing_hashes = set(
-                h[0] for h in self.db.query(Transaction.import_hash).filter(Transaction.import_hash.in_(hashes)).all()
+                h[0]
+                for h in self.db.query(Transaction.import_hash)
+                .filter(Transaction.import_hash.in_(hashes), Transaction.family_id == self.family_id)
+                .all()
             )
         for row in rows:
             if row.get('import_hash') and row['import_hash'] in existing_hashes:
@@ -450,6 +454,7 @@ class ImportOrchestrator:
             'link_group_id': record.link_group_id,
             'dividend_amount': float(record.amount) if is_dividend else 0.0,  # 原始元
             'net_amount': net_amount_val,  # 原始元
+            'family_id': self.family_id,
         }
 
     def commit(self, records: List[StandardTransactionRecord]) -> Dict[str, Any]:
@@ -461,7 +466,11 @@ class ImportOrchestrator:
         for record in records:
             try:
                 if record.import_hash:
-                    existing = self.db.query(Transaction).filter_by(import_hash=record.import_hash).first()
+                    existing = (
+                        self.db.query(Transaction)
+                        .filter_by(import_hash=record.import_hash, family_id=self.family_id)
+                        .first()
+                    )
                     if existing:
                         skipped += 1
                         continue
@@ -473,7 +482,7 @@ class ImportOrchestrator:
                     if not data.get('ledger_id'):
                         logger.warning('现金管理产品缺少 ledger_id，跳过')
                         continue
-                    bank_ledger = self.db.query(Ledger).filter_by(ledger_type='bank').first()
+                    bank_ledger = self.db.query(Ledger).filter_by(ledger_type='bank', family_id=self.family_id).first()
                     if bank_ledger:
                         data['account_name'] = bank_ledger.name
                         data['ledger_id'] = bank_ledger.id
@@ -498,6 +507,7 @@ class ImportOrchestrator:
                         notes=data.get('notes', ''),
                         import_hash=data.get('import_hash'),
                         entry_status=entry_status,
+                        family_id=self.family_id,
                     )
                     imported += 1
                     orphan_count += 1
@@ -543,6 +553,7 @@ class ImportOrchestrator:
                         import_hash=data.get('import_hash'),
                         entry_status='orphan',
                         link_group_id=data.get('link_group_id'),
+                        family_id=self.family_id,
                     )
                     orphan_count += 1
                     imported += 1
@@ -572,6 +583,7 @@ class ImportOrchestrator:
                         import_hash=data.get('import_hash'),
                         entry_status='orphan',
                         link_group_id=data.get('link_group_id'),
+                        family_id=self.family_id,
                     )
                     orphan_count += 1
                     imported += 1
@@ -604,6 +616,7 @@ class ImportOrchestrator:
                         notes='转股入账（需手动关联持仓）',
                         import_hash=data.get('import_hash'),
                         entry_status='orphan',
+                        family_id=self.family_id,
                     )
                     orphan_count += 1
                     imported += 1

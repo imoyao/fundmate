@@ -26,16 +26,16 @@ _LIABILITY_NODE = '总负债'
 _UNCONFIGURED_NODE = '未配置资产'
 
 
-def _load_user_assets(db: Session, user_id: int) -> tuple[list[Type[Position]], Any]:
-    """统一加载用户资产数据（持仓 + 通用资产）"""
-    positions = db.query(Position).all()
-    assets = db.query(Asset).filter(Asset.user_id == user_id).all()
+def _load_user_assets(db: Session, family_id: int) -> tuple[list[Type[Position]], Any]:
+    """统一加载当前家庭的资产数据（持仓 + 通用资产），按 family_id 隔离（D1）。"""
+    positions = db.query(Position).filter(Position.family_id == family_id).all()
+    assets = db.query(Asset).filter(Asset.family_id == family_id).all()
     return positions, assets
 
 
-def get_summary_data(db: Session, user_id: int = 1) -> dict[str, Any]:
+def get_summary_data(db: Session, family_id: int = 1) -> dict[str, Any]:
     """返回仪表盘聚合数据（总资产、总负债、净资产、总盈亏、市场分布）"""
-    positions, assets = _load_user_assets(db, user_id)
+    positions, assets = _load_user_assets(db, family_id)
 
     total_assets = 0.0
     total_pnl = 0.0
@@ -79,9 +79,9 @@ def get_summary_data(db: Session, user_id: int = 1) -> dict[str, Any]:
     }
 
 
-def get_sankey_data(db: Session, user_id: int = 1) -> dict[str, list[dict[str, Any]]]:
+def get_sankey_data(db: Session, family_id: int = 1) -> dict[str, list[dict[str, Any]]]:
     """返回桑基图数据（双流并行模型：资产流在上，负债流在下，无交叉）"""
-    positions, assets = _load_user_assets(db, user_id)
+    positions, assets = _load_user_assets(db, family_id)
 
     nodes: list[dict[str, Any]] = []
     links: list[dict[str, Any]] = []
@@ -207,9 +207,9 @@ def get_sankey_data(db: Session, user_id: int = 1) -> dict[str, list[dict[str, A
     return {'nodes': nodes, 'links': links}
 
 
-def get_account_groups(db: Session, user_id: int = 1) -> list[dict]:
+def get_account_groups(db: Session, family_id: int = 1) -> list[dict]:
     """返回按账户分组的汇总数据，负债金额为负数"""
-    positions, assets = _load_user_assets(db, user_id)
+    positions, assets = _load_user_assets(db, family_id)
     groups: dict[str, dict[str, float | int]] = defaultdict(lambda: {'total': 0.0, 'count': 0})
 
     # 1. 处理持仓 (均为资产)

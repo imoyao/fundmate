@@ -1,9 +1,9 @@
 from sqlalchemy import Column, Date, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 
-from app.core.database import Base, PrimaryKeyMixin, TimestampMixin
+from app.core.database import Base, FamilyScopedMixin, PrimaryKeyMixin, TimestampMixin
 
 
-class Position(Base, PrimaryKeyMixin, TimestampMixin):
+class Position(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     __tablename__ = 'positions'
 
     symbol = Column(String(30), nullable=False)

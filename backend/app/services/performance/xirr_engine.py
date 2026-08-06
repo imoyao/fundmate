@@ -255,9 +255,7 @@ def _exclude_internal_transfers(
             if a['account_name'] not in portfolio_ledger_names or b['account_name'] not in portfolio_ledger_names:
                 continue
             excluded.update([i, j])
-            logger.debug(
-                f'内部划转已排除: {a["date"]} ' f'{a["account_name"]}↔{b["account_name"]} ' f'金额={a["amount"]:.2f}'
-            )
+            logger.debug(f'内部划转已排除: {a["date"]} {a["account_name"]}↔{b["account_name"]} 金额={a["amount"]:.2f}')
             break
     return excluded
 
@@ -267,6 +265,7 @@ def generate_portfolio_cashflows(
     portfolio_id: int,
     current_value: float = 0.0,
     end_date: Optional[dt.date] = None,
+    family_id: int = 1,
 ) -> List[Tuple[dt.date, float]]:
     """为指定投资组合生成 XIRR 现金流列表，过滤内部划转与非投资资产。"""
     if end_date is None:
@@ -274,21 +273,36 @@ def generate_portfolio_cashflows(
     elif isinstance(end_date, dt.datetime):
         end_date = end_date.date()
 
-    # 1. 校验组合存在且未删除，获取关联账户名
+    # 1. 校验组合存在且未删除，获取关联账户名（家庭维度）
     portfolio = (
-        db_session.query(Portfolio).filter(Portfolio.id == portfolio_id, Portfolio.is_deleted.is_(False)).first()
+        db_session.query(Portfolio)
+        .filter(
+            Portfolio.id == portfolio_id,
+            Portfolio.is_deleted.is_(False),
+            Portfolio.family_id == family_id,
+        )
+        .first()
     )
     if not portfolio:
         raise ValueError(f'投资组合不存在: {portfolio_id}')
 
-    ledger_names = [row[0] for row in db_session.query(Ledger.name).filter(Ledger.portfolio_id == portfolio_id).all()]
+    ledger_names = [
+        row[0]
+        for row in db_session.query(Ledger.name)
+        .filter(Ledger.portfolio_id == portfolio_id, Ledger.family_id == family_id)
+        .all()
+    ]
     if not ledger_names:
         return []
 
     ledger_set = set(ledger_names)
 
     # 2. 查询所有相关交易
-    transactions = db_session.query(Transaction).filter(Transaction.account_name.in_(ledger_names)).all()
+    transactions = (
+        db_session.query(Transaction)
+        .filter(Transaction.account_name.in_(ledger_names), Transaction.family_id == family_id)
+        .all()
+    )
 
     # 3. 分类交易
     outflow_types = {BusinessType.BUY.code, BusinessType.DIVIDEND_REINVEST.code}

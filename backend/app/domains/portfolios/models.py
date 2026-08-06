@@ -9,10 +9,10 @@
 
 from sqlalchemy import Boolean, Column, Date, Numeric, String
 
-from app.core.database import Base, PrimaryKeyMixin, TimestampMixin
+from app.core.database import Base, FamilyScopedMixin, PrimaryKeyMixin, TimestampMixin
 
 
-class Portfolio(Base, PrimaryKeyMixin, TimestampMixin):
+class Portfolio(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     __tablename__ = 'portfolios'
 
     name = Column(String(100), nullable=False, comment='组合名称')

@@ -10,6 +10,7 @@ from datetime import date, timedelta
 from apiflask import APIBlueprint
 from flask import jsonify, request
 
+from app.core.auth import get_family_id
 from app.core.database import get_db
 from app.core.money import Money
 from app.core.utils import paginate
@@ -26,7 +27,7 @@ def list_transactions():
     per_page = request.args.get('per_page', 20, type=int)
 
     with get_db() as db:
-        query = db.query(Transaction)
+        query = db.query(Transaction).filter(Transaction.family_id == get_family_id())
 
         # 筛选：操作类型
         op_type = request.args.get('type')
@@ -59,7 +60,11 @@ def list_transactions():
         # 筛选：资产类型（通过 positions 表关联）
         asset_type = request.args.get('asset_type')
         if asset_type:
-            position_ids = db.query(Position.id).filter(Position.asset_type == asset_type).all()
+            position_ids = (
+                db.query(Position.id)
+                .filter(Position.asset_type == asset_type, Position.family_id == get_family_id())
+                .all()
+            )
             pids = [p.id for p in position_ids]
             query = query.filter(Transaction.position_id.in_(pids))
 

@@ -182,12 +182,13 @@ class FundService:
         position_id: int,
         sell_date: date,
         sell_shares: Optional[float] = None,
+        family_id: int = 1,
     ) -> Dict[str, Any]:
         """
         预估赎回费用及费率分布（FIFO）。
         当 sell_shares 为 None 或 <=0 时，仅返回持有分布，不返回卖出分布。
         """
-        position = db.query(Position).get(position_id)
+        position = db.query(Position).filter_by(id=position_id, family_id=family_id).first()
         if not position or position.asset_type != 'fund':
             raise ValueError('无效持仓或非基金')
 
@@ -205,12 +206,13 @@ class FundService:
         if not redeem_rules:
             raise ValueError('该基金暂无赎回费率规则')
 
-        # 获取买入记录（FIFO）
+        # 获取买入记录（FIFO），限本家庭
         buy_txns = (
             db.query(Transaction)
             .filter(
                 Transaction.position_id == position_id,
                 Transaction.txn_type == 'buy',
+                Transaction.family_id == family_id,
             )
             .order_by(Transaction.confirm_date.asc())
             .all()

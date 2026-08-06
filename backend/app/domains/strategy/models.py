@@ -9,16 +9,16 @@
 
 from sqlalchemy import Column, ForeignKey, Integer, String, UniqueConstraint
 
-from app.core.database import Base, PrimaryKeyMixin, TimestampMixin
+from app.core.database import Base, FamilyScopedMixin, PrimaryKeyMixin, TimestampMixin
 
 
-class StrategyTag(Base, PrimaryKeyMixin, TimestampMixin):
+class StrategyTag(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     __tablename__ = 'strategy_tags'
 
     name = Column(String(50), nullable=False, unique=True, comment='标签名称（如"成长"）')
 
 
-class PositionStrategyTag(Base, PrimaryKeyMixin):
+class PositionStrategyTag(Base, PrimaryKeyMixin, FamilyScopedMixin):
     __tablename__ = 'position_strategy_tags'
     __table_args__ = (UniqueConstraint('position_id', 'strategy_tag_id', name='uq_position_strategy_tag'),)
 

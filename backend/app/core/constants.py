@@ -1,7 +1,10 @@
 # backend/app/core/constants.py
-"""项目级常量定义（汇率、标签映射、桑基图节点名称等）"""
+"""项目级常量定义（汇率、标签映射、桑基图节点名称等）
 
-CURRENT_USER_ID = 1
+注意：`CURRENT_USER_ID` 已随 v4.7 多用户化退役（见 docs/spec/decisions.md D1），
+当前用户一律从 Flask `g` 上下文取（app/core/auth.py），禁止再引入硬编码常量。
+"""
+
 # ── 汇率（MVP 阶段硬编码，后续可迁移到数据库）──
 EXCHANGE_RATES = {
     'CNY': 1.0,
