@@ -162,7 +162,16 @@ html = html.replace(ifRe, (_m, p, body) => {
   return v ? body : '';
 });
 
-// 2) 标量替换
+// 1.7) 三花括号 {{{ }}} 原样输出（不转义），用于内容中需保留 HTML 的字段
+//      （如 footer.tagline 的 <br/>、footer.bottom2 的 <a> 链接）。
+//      必须在标量替换之前处理，避免被 {{ }} 正则从内部部分匹配。
+const rawRe = /\{\{\{\s*([\w.]+)\s*\}\}\}/g;
+html = html.replace(rawRe, (_m, p) => {
+  const v = get(data, p);
+  return v == null ? '' : String(v);
+});
+
+// 2) 标量替换（转义）
 html = html.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_m, p) => {
   const v = get(data, p);
   return v == null ? '' : esc(v);
