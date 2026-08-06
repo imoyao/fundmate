@@ -4,44 +4,20 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>多倍贝 · 看见你的复利增长</title>
-  <meta name="description" content="一个帮你算清真实收益、让复利增长清晰可见的投资账本。手动归集、穿透持仓、算准 XIRR，数据始终在你手里。" />
+  <meta name="description" content="一个帮你算清真实收益、让复利增长清晰可见的投资账本。不荐股 · 不跟单 · 不自动抓取，数据主权始终在你手里。" />
   <meta property="og:title" content="多倍贝 · 看见你的复利增长" />
   <meta property="og:description" content="算清真实收益、穿透持仓、算准 XIRR，数据始终在你手里。不荐股 · 不跟单 · 不自动抓取。" />
   <meta property="og:type" content="website" />
+  <link rel="stylesheet" href="/site/style.css" />
   <style>
-    :root {
-      /* v1.6 §3.1 品牌色板 */
-      --brand-coral: #E34F38;
-      --brand-coral-deep: #CC3D27;
-      --brand-coral-soft: #F2A38E;
-      --bg-page: #FDFBF7;
-      --bg-soft: #F5F0EB;
-  --line-dark: #4A3F36;
-      --bg-card: #FFFFFF;
-      --text-primary: #2D2A24;
-      --text-secondary: #6B655C;
-      --border-default: #E5DDD4;
-      --border-light: #F0EAE3;
-      --color-fall: #7BC49A;
-      --color-danger: #D4364A;
-      --shadow-sm: 0 1px 2px rgba(45,42,36,0.05);
-      --shadow-md: 0 6px 18px rgba(45,42,36,0.08);
-      --shadow-coral: 0 10px 30px -10px rgba(227,79,56,0.45);
-      --radius: 16px;
-      --radius-sm: 12px;
-      /* v1.6 §6.2 统一耐心缓动 */
-      --ease-patient: cubic-bezier(0.19, 1, 0.22, 1);
-      /* v1.6 §4 字体家族 */
-      --font: 'Inter', -apple-system, 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
-      --font-num: 'SF Mono', 'Inter', ui-monospace, 'PingFang SC', monospace;
-    }
+
 
     * { box-sizing: border-box; }
     html { scroll-behavior: smooth; }
 
     body {
       margin: 0;
-      font-family: var(--font);
+      font-family: var(--font-sans);
       background: var(--bg-page);
       color: var(--text-primary);
       line-height: 1.7;
@@ -65,12 +41,15 @@
       border: none; cursor: pointer; white-space: nowrap;
     }
     .mobile-br { display: none; }
-    .btn-primary { background: var(--brand-coral); color: #fff; box-shadow: var(--shadow-coral); }
-    .btn-primary:hover { background: var(--brand-coral-deep); transform: translateY(-2px); }
+    .btn-primary { background: var(--brand-700); color: #fff; box-shadow: var(--shadow-coral); }
+    .btn-primary:hover { background: var(--brand-800); transform: translateY(-2px); }
     .btn-outline { background: transparent; color: var(--text-primary); border: 1.5px solid var(--border-default); }
-    .btn-outline:hover { border-color: var(--brand-coral); color: var(--brand-coral); }
+    .btn-outline:hover { border-color: var(--brand-700); color: var(--brand-700); }
     .btn-ghost-light { background: rgba(253,251,247,0.14); color: var(--bg-page); border: 1.5px solid rgba(253,251,247,0.5); }
     .btn-ghost-light:hover { background: rgba(253,251,247,0.24); }
+    /* 反色按钮：深色背景上使用（白底 + 品牌红字） */
+    .btn-inverted { background: #fff; color: var(--brand-700); border: none; font-weight: 600; }
+    .btn-inverted:hover { background: rgba(255,255,255,0.9); transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.12); }
 
     /* ---------- 导航 ---------- */
     .nav {
@@ -82,15 +61,16 @@
     .brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 600; font-size: 1.15rem; }
     .brand img { width: 34px; height: 34px; display: block; object-fit: contain; filter: drop-shadow(0 1px 2px rgba(140,100,80,0.14)); }
     .brand-name { position: relative; }
+    .brand-sub { font-size: 0.78em; font-weight: 400; color: var(--text-secondary); margin-left: 2px; }
     .brand-beta {
       position: absolute; top: -10px; left: 100%; margin-left: 10px;
       font-size: 0.62rem; font-weight: 700; letter-spacing: .04em;
-      color: var(--brand-coral); background: rgba(242,163,142,0.14);
-      border: 1px solid var(--brand-coral-soft);
+      color: var(--brand-700); background: rgba(242,163,142,0.14);
+      border: 1px solid var(--brand-400);
       padding: 2px 7px; border-radius: 6px; white-space: nowrap;
     }
     .nav-links { display: flex; align-items: center; gap: 30px; font-size: 0.95rem; color: var(--text-secondary); }
-    .nav-links a:hover { color: var(--brand-coral); }
+    .nav-links a:hover { color: var(--brand-700); }
     .nav-cta { display: flex; align-items: center; gap: 14px; }
 
     /* ---------- Hero（潮间带波纹背景） ---------- */
@@ -118,8 +98,17 @@
 
     @keyframes nau-breathe { from { transform: scale(0.96); } to { transform: scale(1.06); } }
     @keyframes nau-sway { from { transform: rotate(-8deg); } to { transform: rotate(8deg); } }
+    /* 气室水位闪烁：从内向外缓慢明灭，隐喻涨潮排空/潮退蓄水 */
+    @keyframes nau-chamber { from { opacity: 0.25; } to { opacity: 0.7; } }
+    /* 深海气泡：缓慢上浮 + 透明度渐隐 */
+    /* 气泡从弧线位置缓慢飘散（各气泡方向略有不同） */
+    @keyframes nau-bubble {
+      0% { transform: translate(0, 0) scale(0.7); opacity: 0; }
+      14% { opacity: 0.6; }
+      100% { transform: translate(var(--dx, 22px), var(--dy, -48px)) scale(1.3); opacity: 0; }
+    }
 
-    /* ---------- 支持导入来源（3 行滚动条） ---------- */
+    /* ---------- 支持导入来源（3 行滚动条：真实 Logo 混排文字药丸） ---------- */
     .ecosystem { padding: clamp(36px, 6vh, 56px) 0; border-bottom: 1px solid var(--border-light); }
     .eco-head { text-align: center; margin-bottom: 22px; }
     .eco-head h3 { font-size: 1.12rem; font-weight: 600; margin: 0 0 6px; color: var(--text-primary); }
@@ -128,34 +117,42 @@
     /* 单行滚动轨道（两条相同 track 拼接实现无缝循环） */
     .eco-marquee {
       display: flex; overflow: hidden; user-select: none;
+      width: 100vw;
+      margin-left: calc(50% - 50vw);
       -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
       mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
     }
     .eco-marquee + .eco-marquee { margin-top: 12px; }
     .eco-track {
-      display: flex; flex: none; gap: 12px; padding-right: 12px;
-      animation: marquee 26s linear infinite;
+      display: flex; flex: none; gap: 20px; padding-right: 20px;
+      animation: marquee 50s linear infinite;
     }
-    .eco-marquee--rev .eco-track { animation-direction: reverse; animation-duration: 32s; }
+    .eco-marquee--rev .eco-track { animation-direction: reverse; animation-duration: 62s; }
     .eco-marquee:hover .eco-track { animation-play-state: paused; }
     .eco-item {
       display: inline-flex; align-items: center;
-      font-size: 0.9rem; font-weight: 600; color: var(--text-secondary);
-      padding: 8px 18px; border-radius: 999px;
+      font-size: 1rem; font-weight: 600; color: var(--text-secondary);
+      padding: 11px 24px; border-radius: 999px;
       background: var(--bg-card); border: 1px solid var(--border-light);
       white-space: nowrap;
       transition: color .22s var(--ease-patient), border-color .22s var(--ease-patient);
     }
-    .eco-item:hover { color: var(--brand-coral); border-color: var(--brand-coral-soft); }
-    @keyframes marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
-    @media (prefers-reduced-motion: reduce) {
-      .eco-track { animation: none; }
-      .eco-marquee { flex-wrap: wrap; justify-content: center; }
+    .eco-item:hover { color: var(--brand-700); border-color: var(--brand-400); }
+    /* 真实品牌 Logo（混排进滚动条：灰度默认，悬停恢复彩色 + 红色阴影） */
+    .eco-logo { padding: 12px 20px; }
+    .eco-logo img {
+      height: 26px; width: auto; display: block;
+      filter: grayscale(100%) opacity(0.6);
+      transition: filter .25s var(--ease-patient);
     }
+    .eco-logo:hover { border-color: var(--brand-400); box-shadow: 0 8px 22px rgba(204,61,39,0.30); }
+    .eco-logo:hover img { filter: grayscale(0%) opacity(1) drop-shadow(0 4px 12px rgba(204,61,39,0.42)); }
+    @keyframes marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+    @keyframes marquee-full { from { transform: translateX(0); } to { transform: translateX(-100%); } }
 
     /* ---------- 适用场景专家卡片区（横向滚动） ---------- */
     .scenarios { background: var(--bg-soft); }
-    .scenarios .section-eyebrow { color: var(--brand-coral); }
+    .scenarios .section-eyebrow { color: var(--brand-700); }
     .scenarios .section-title { color: var(--text-primary); }
     .scenarios .section-lead { color: var(--text-secondary); }
     .scenario-marquee {
@@ -165,49 +162,50 @@
     }
     .scenario-track {
       display: flex; gap: 20px; width: max-content; align-items: stretch;
-      animation: marquee 42s linear infinite;
+      /* 两条 .scenario-track 相邻即两份内容，各平移 -100% 恰移一份 → 无缝 */
+      animation: marquee-full 56s linear infinite;
     }
     .scenario-marquee:hover .scenario-track { animation-play-state: paused; }
     .scenario-card {
       width: 320px; flex: none;
       background: var(--bg-card); border: 1px solid var(--border-light);
-      border-radius: var(--radius); padding: 28px 24px;
+      border-radius: var(--radius-lg); padding: 28px 24px;
       transition: transform .25s var(--ease-patient), box-shadow .25s ease, border-color .25s ease;
     }
-    .scenario-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-md); border-color: var(--brand-coral-soft); }
+    .scenario-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-md); border-color: var(--brand-400); }
     .scenario-icon {
       width: 44px; height: 44px; border-radius: 12px;
       display: grid; place-items: center; margin-bottom: 16px;
     }
     .scenario-icon svg { width: 24px; height: 24px; }
-    .scenario-icon.coral { background: rgba(227,79,56,0.15); color: var(--brand-coral); }
-    .scenario-icon.blue { background: rgba(91,141,239,0.15); color: #5B8DEF; }
+    .scenario-icon.coral { background: rgba(227,79,56,0.15); color: var(--brand-700); }
+    .scenario-icon.blue { background: rgba(204,61,39,0.13); color: #CC3D27; }
     .scenario-icon.green { background: rgba(123,196,154,0.15); color: #3C9C73; }
-    .scenario-icon.purple { background: rgba(155,126,217,0.15); color: #9B7ED9; }
-    .scenario-icon.amber { background: rgba(230,168,80,0.15); color: #E0A23E; }
-    .scenario-icon.teal { background: rgba(64,180,166,0.15); color: #40B4A6; }
+    .scenario-icon.purple { background: rgba(224,122,82,0.16); color: #E07A52; }
+    .scenario-icon.amber { background: rgba(126,94,66,0.12); color: #765E45; }
+    .scenario-icon.teal { background: rgba(47,126,92,0.14); color: #2F7E5C; }
     .scenario-tag {
       font-size: 0.78rem; font-weight: 600; letter-spacing: .04em;
-      margin-bottom: 10px; color: var(--brand-coral);
+      margin-bottom: 10px; color: var(--brand-700);
     }
     .scenario-card h3 { font-size: 1.08rem; font-weight: 700; margin: 0 0 10px; color: var(--text-primary); }
     .scenario-card p { font-size: 0.91rem; line-height: 1.7; margin: 0 0 16px; color: var(--text-secondary); }
     .scenario-kit {
       display: inline-block; font-size: 0.8rem; font-weight: 600;
       padding: 5px 12px; border-radius: 999px; background: rgba(227,79,56,0.12);
-      color: var(--brand-coral); border: 1px solid var(--brand-coral-soft);
+      color: var(--brand-700); border: 1px solid var(--brand-400);
     }
 
     /* ---------- 用户证言（多角色卡片） ---------- */
     .testimonials { background: var(--bg-soft); }
-    .t-card:nth-child(4n+1) .t-avatar { background: #5B8DEF; }
-    .t-card:nth-child(4n+2) .t-avatar { background: var(--brand-coral); }
-    .t-card:nth-child(4n+3) .t-avatar { background: var(--color-fall); }
-    .t-card:nth-child(4n+4) .t-avatar { background: #9B7ED9; }
+    .t-card:nth-child(4n+1) .t-avatar { background: var(--brand-700); }
+    .t-card:nth-child(4n+2) .t-avatar { background: var(--brand-800); }
+    .t-card:nth-child(4n+3) .t-avatar { background: #3C9C73; }
+    .t-card:nth-child(4n+4) .t-avatar { background: #E07A52; }
     .testimonial-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
     .t-card {
       background: var(--bg-card); border: 1px solid var(--border-light);
-      border-radius: var(--radius); padding: 28px 24px;
+      border-radius: var(--radius-lg); padding: 28px 24px;
       transition: transform .22s var(--ease-patient), box-shadow .22s var(--ease-patient);
     }
     .t-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-md); }
@@ -217,7 +215,7 @@
       font-size: 1.05rem; font-weight: 700; color: #fff;
     }
     .t-card h4 { margin: 0 0 4px; font-size: 0.98rem; font-weight: 600; }
-    .t-card .role { font-size: 0.82rem; color: var(--brand-coral); margin-bottom: 12px; font-weight: 500; }
+    .t-card .role { font-size: 0.82rem; color: var(--brand-700); margin-bottom: 12px; font-weight: 500; }
     .t-card p { margin: 0; font-size: 0.91rem; color: var(--text-secondary); line-height: 1.75; }
 
     .hero-inner {
@@ -238,12 +236,12 @@
     .hero-tag {
       display: inline-flex; align-items: center; gap: 8px;
       font-size: 12px; letter-spacing: .14em; text-transform: uppercase; font-weight: 600;
-      color: var(--brand-coral); border: 1px solid var(--brand-coral-soft);
+      color: var(--brand-700); border: 1px solid var(--brand-400);
       background: rgba(242,163,142,0.14); padding: 7px 14px; border-radius: 999px;
       margin-bottom: 22px;
     }
     .hero-tag .beta-dot {
-      width: 8px; height: 8px; border-radius: 50%; background: var(--brand-coral);
+      width: 8px; height: 8px; border-radius: 50%; background: var(--brand-700);
       animation: pulse-dot 2s ease-in-out infinite;
     }
     @keyframes pulse-dot { 0%,100% { opacity:1; } 50% { opacity:.35; } }
@@ -251,10 +249,17 @@
       font-size: clamp(2.4rem, 6vw, 4.2rem); font-weight: 700;
       line-height: 1.12; letter-spacing: -0.02em; margin: 0 0 20px; max-width: 14ch;
     }
-    .hero h1 .coral { color: var(--brand-coral); }
+    .hero h1 .coral { color: var(--brand-700); }
     .hero-sub {
       font-size: clamp(1.05rem, 2.2vw, 1.3rem); color: var(--text-primary);
-      max-width: 600px; margin: 0 0 32px; line-height: 1.6;
+      max-width: 600px; margin: 0 0 18px; line-height: 1.6;
+    }
+    /* 副标题下方的能力标签行（中暖灰 14px） */
+    .hero-caps { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 28px; }
+    .hero-cap {
+      font-size: 0.875rem; color: #6B655C; padding: 5px 14px;
+      border: 1px solid var(--border-light); border-radius: 999px;
+      background: rgba(245,240,235,0.55); letter-spacing: 0.02em;
     }
     .hero-actions { display: flex; gap: 16px; flex-wrap: wrap; }
     .hero-note { margin-top: 18px; font-size: 0.88rem; color: var(--text-secondary); }
@@ -273,7 +278,7 @@
       position: absolute; right: 0; top: 20%; height: 60%; width: 1px;
       background: var(--border); opacity: 0.5;
     }
-    .trust-item .k { font-size: 1.15rem; font-weight: 700; color: var(--brand-coral); }
+    .trust-item .k { font-size: 1.15rem; font-weight: 700; color: var(--brand-700); }
     .trust-item .v { font-size: 0.86rem; color: var(--text-secondary); margin-top: 4px; }
 
     /* ---------- 通用区块 ---------- */
@@ -281,7 +286,7 @@
     .section-head { max-width: 680px; margin: 0 auto 52px; text-align: center; }
     .section-eyebrow {
       display: inline-block; font-size: 12px; letter-spacing: .14em; text-transform: uppercase;
-      font-weight: 600; color: var(--brand-coral); margin-bottom: 12px;
+      font-weight: 600; color: var(--brand-700); margin-bottom: 12px;
     }
     .section-title { font-size: clamp(1.7rem, 3.4vw, 2.3rem); font-weight: 700; line-height: 1.25; margin: 0 0 14px; }
     .section-lead { color: var(--text-secondary); font-size: 1.05rem; margin: 0; }
@@ -289,13 +294,13 @@
     /* ---------- 六大核心能力（仿 qwenwork 编号卡片网格） ---------- */
     .core-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
     .core-card {
-      position: relative; border-radius: var(--radius); padding: 32px 28px;
+      position: relative; border-radius: var(--radius-lg); padding: 32px 28px;
       overflow: hidden; transition: transform .25s var(--ease-patient), box-shadow .25s var(--ease-patient);
     }
     .core-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-md); }
-    .core-card.coral { background: var(--brand-coral); color: #fff; }
+    .core-card.coral { background: var(--brand-700); color: #fff; }
     .core-card.coral-light { background: #FABDB0; color: var(--text-primary); }
-    .core-card.fall { background: #C4845C; color: #fff; }
+    .core-card.fall { background: #2F7E5C; color: #fff; }
     .core-num {
       font-size: 2.4rem; font-weight: 800; line-height: 1; opacity: .18;
       margin-bottom: 12px; font-family: var(--font-num);
@@ -313,14 +318,14 @@
     .pain-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 22px; }
     .pain-card {
       background: var(--bg-card); border: 1px solid var(--border-light);
-      border-radius: var(--radius); padding: 30px; box-shadow: var(--shadow-sm);
+      border-radius: var(--radius-lg); padding: 30px; box-shadow: var(--shadow-sm);
       transition: transform .22s var(--ease-patient), box-shadow .22s var(--ease-patient);
     }
     .pain-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-md); }
     .pain-icon {
       width: 48px; height: 48px; border-radius: 12px;
       display: grid; place-items: center; margin-bottom: 18px;
-      background: rgba(227,79,56,0.08); color: var(--brand-coral);
+      background: rgba(227,79,56,0.08); color: var(--brand-700);
     }
     .pain-icon svg { width: 26px; height: 26px; }
     .pain-card h3 { font-size: 1.12rem; font-weight: 600; margin: 0 0 10px; }
@@ -332,9 +337,9 @@
     .compare th, .compare td { padding: 22px 20px; text-align: left; border-bottom: 1px solid var(--border-light); font-size: 1.1rem; line-height: 1.6; }
     .compare thead th { font-size: 1.05rem; }
     .compare .col-us { background: rgba(227,79,56,0.05); }
-    .compare .col-us.head { color: var(--brand-coral); font-weight: 700; }
+    .compare .col-us.head { color: var(--brand-700); font-weight: 700; }
     .compare td.us { color: var(--text-primary); font-weight: 600; }
-    .compare .yes { color: var(--brand-coral); font-weight: 700; }
+    .compare .yes { color: var(--brand-700); font-weight: 700; }
     .compare .no { color: var(--text-secondary); }
     .compare .muted { color: var(--text-secondary); }
 
@@ -343,19 +348,20 @@
     .story-grid { display: grid; grid-template-columns: 1fr 0.85fr; gap: 64px; align-items: start; }
     .story-body blockquote {
       margin: 0 0 24px; font-size: 1.08rem; line-height: 1.85;
-      color: var(--text-primary); border-left: 3px solid var(--brand-coral-soft);
+      color: var(--text-primary); border-left: 3px solid var(--brand-400);
       padding-left: 20px;
     }
     .story-body blockquote p { margin: 0 0 16px; }
     .story-body blockquote p:last-child { margin-bottom: 0; }
+    .story-lead { font-size: 1.08rem; line-height: 1.95; color: var(--text-primary); margin: 0 0 32px; }
     .story-meta {
       font-size: 0.92rem; color: var(--text-secondary); line-height: 1.7;
     }
     .story-sidebar {
       background: var(--bg-card); border: 1px solid var(--border-light);
-      border-radius: var(--radius); padding: 32px;
+      border-radius: var(--radius-lg); padding: 32px;
     }
-    .story-sidebar h4 { margin: 0 0 16px; font-size: 1rem; color: var(--brand-coral); }
+    .story-sidebar h4 { margin: 0 0 16px; font-size: 1rem; color: var(--brand-700); }
     .story-sidebar p { margin: 0 0 16px; font-size: 0.96rem; color: var(--text-secondary); line-height: 1.75; }
     .story-sidebar p:last-child { margin-bottom: 0; }
     .story-sidebar .quote-mark {
@@ -368,7 +374,7 @@
     .honesty-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
     .honesty-card {
       background: var(--bg-card); border: 1px solid var(--border-light);
-      border-radius: var(--radius); padding: 32px 28px;
+      border-radius: var(--radius-lg); padding: 32px 28px;
       transition: transform .22s var(--ease-patient), box-shadow .22s var(--ease-patient);
     }
     .honesty-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-md); }
@@ -381,29 +387,30 @@
     .honesty-card h4 { margin: 0 0 10px; font-size: 1.06rem; font-weight: 600; }
     .honesty-card p { margin: 0; font-size: 0.94rem; color: var(--text-secondary); line-height: 1.7; }
     /* 第 6 条「局限性」用不同色调区分 */
-    .honesty-card.limitation .icon-wrap { background: rgba(227,79,56,0.07); color: var(--brand-coral-soft); }
+    .honesty-card.limitation .icon-wrap { background: rgba(227,79,56,0.07); color: var(--brand-400); }
 
     /* 数据主权承诺 */
     .promise-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
-    .promise-item { padding: 24px; border: 1px solid var(--border-light); border-radius: var(--radius); background: var(--bg-card); }
+    .promise-item { padding: 24px; border: 1px solid var(--border-light); border-radius: var(--radius-lg); background: var(--bg-card); }
     .promise-item .pico { width: 40px; height: 40px; color: var(--color-fall); margin-bottom: 14px; }
     .promise-item h4 { margin: 0 0 8px; font-size: 1rem; font-weight: 600; }
     .promise-item p { margin: 0; font-size: 0.92rem; color: var(--text-secondary); }
 
     /* CTA 实色带 */
-    .cta-band { background: var(--brand-coral); color: var(--bg-page); text-align: center; }
+    .cta-band { background: var(--brand-700); color: var(--bg-page); text-align: center; }
     .cta-band h2 { font-size: clamp(1.7rem, 3.4vw, 2.4rem); font-weight: 700; margin: 0 0 14px; color: #fff; }
     .cta-band p { font-size: 1.05rem; margin: 0 0 30px; color: rgba(253,251,247,0.92); max-width: 540px; margin-inline: auto; }
 
     /* 页脚 */
     .footer { background: #3D352C; color: rgba(253,251,247,0.85); padding: 64px 0 32px; }
-    .footer-grid { display: grid; grid-template-columns: 1.6fr 1fr 1fr; gap: 48px; margin-bottom: 44px; }
+    .footer-grid { display: grid; grid-template-columns: 1.6fr 1fr; gap: 48px; margin-bottom: 44px; }
+    .footer-grid > div:last-child { justify-self: end; text-align: right; }
     .footer-brand { display: flex; align-items: center; gap: 10px; font-weight: 600; color: var(--bg-page); margin-bottom: 12px; }
     .footer-brand img { width: 30px; height: 30px; display: block; object-fit: contain; }
     .footer p { margin: 0; font-size: 0.92rem; line-height: 1.7; }
     .footer h5 { color: var(--bg-page); font-size: 0.95rem; margin: 0 0 14px; }
     .footer-links { display: flex; flex-direction: column; gap: 10px; font-size: 0.92rem; }
-    .footer-links a:hover { color: var(--brand-coral); }
+    .footer-links a:hover { color: var(--brand-700); }
     .footer-bottom { border-top: 1px solid rgba(253,251,247,0.12); padding-top: 22px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; font-size: 0.85rem; color: rgba(253,251,247,0.6); }
 
     /* ---------- 滚动揭示 ---------- */
@@ -441,7 +448,10 @@
     /* ---------- 无障碍：reduced-motion 强制降级 ---------- */
     @media (prefers-reduced-motion: reduce) {
       .nautilus, .nautilus .breath, .nautilus-hero, .nautilus-svg { animation: none !important; }
-      .eco-track, .scenario-track { animation: none !important; }
+      .nh-septum, .nh-bubble { animation: none !important; }
+      .eco-track { animation: none !important; }
+      .eco-marquee { flex-wrap: wrap; justify-content: center; }
+      .scenario-track { animation: none !important; }
       html { scroll-behavior: auto; }
       [data-reveal] { opacity: 1; transform: none; transition: none; }
       .tidal-track { animation: none !important; }
@@ -453,19 +463,6 @@
      数学驱动 · 参数化 SVG · 品牌珊瑚红
      ======================================== */
 
-  :root {
-    --shell-coral: #E85A4F;
-    --shell-coral-light: #F08070;
-    --shell-coral-dark: #C43D32;
-    --shell-orange: #E8964F;
-    --shell-cream: #FFF8F0;
-    --shell-teal: #2A9D8F;
-    --shell-blue: #264653;
-    --ocean-deep: #0D3B4C;
-    --wave-line: rgba(42, 157, 143, 0.35);
-    --grid-line: rgba(200, 80, 70, 0.08);
-    --construction-line: rgba(232, 90, 79, 0.15);
-  }
 
   /* ===== ARAUJO NAUTILUS (Hero 大图) ===== */
   .nautilus-hero {
@@ -487,21 +484,37 @@
     will-change: transform;
   }
   .nautilus-hero svg { width: 100%; height: 100%; overflow: visible; }
-  .nh-fill { fill: url(#nhGrad); opacity: 0.55; }
-  .nh-septum { stroke: rgba(255,248,240,0.35); stroke-width: 1.3; fill: none; }
-  .nh-spiral { stroke: rgba(255,248,240,0.45); stroke-width: 1.8; fill: none; stroke-linecap: round; }
+  .nh-halo { display: none; }
+  .nh-fill { fill: url(#nhGrad); opacity: 0.6; }
+  .nh-septum { stroke: rgba(196,61,50,0.4); stroke-width: 1.3; fill: none; animation: nau-chamber 3.4s ease-in-out infinite alternate; }
+  .nh-spiral { stroke: #E34F38; stroke-width: 2.4; fill: none; stroke-linecap: round; opacity: 0.92; }
   .nh-grid { stroke: var(--grid-line); stroke-width: 0.8; fill: rgba(232,90,79,0.03); }
   .nh-radial { stroke: var(--construction-line); stroke-width: 0.4; fill: none; }
   .nh-texture { stroke: rgba(255,248,240,0.18); stroke-width: 0.5; fill: none; }
-  .nh-outline { stroke: var(--shell-cream); stroke-width: 2; fill: none; opacity: 0.5; }
+  .nh-outline { stroke: var(--shell-coral-light); stroke-width: 2; fill: none; opacity: 0.6; }
   .nh-core { fill: var(--shell-orange); filter: drop-shadow(0 0 12px rgba(232,150,79,0.6)); }
+  /* 深海呼吸气泡：从壳口弧线缓慢飘散 */
+  .nh-bubble { fill: rgba(227,79,56,0.45); transform-box: fill-box; transform-origin: center;
+    animation: nau-bubble 7s cubic-bezier(0.19,1,0.22,1) infinite; }
+  .nh-bubble.b2 { animation-duration: 8.5s; animation-delay: 1.8s; }
+  .nh-bubble.b3 { animation-duration: 6.4s; animation-delay: 3.2s; }
+  /* 贝壳可点击：点击触发壳口喷泡彩蛋 */
+  .nautilus-hero { cursor: pointer; }
+  .nh-bubbles { pointer-events: none; }
+  /* 点击喷发气泡：从壳口向右上/左上散开 */
+  @keyframes nau-bubble-pop {
+    0% { transform: translate(0, 0) scale(0.5); opacity: 0; }
+    18% { opacity: 0.8; }
+    100% { transform: translate(var(--dx, 20px), var(--dy, -60px)) scale(1.5); opacity: 0; }
+  }
+  .nh-bubble--pop { animation: nau-bubble-pop 1.7s cubic-bezier(0.19,1,0.22,1) forwards; }
 
   /* TIDAL WAVES */
   .tidal-waves { position: absolute; bottom: -10px; left: -10%; right: -10%; height: 100px; pointer-events: none; overflow: hidden; }
   .tidal-path { fill: none; stroke-linecap: round; }
-  .tp-1 { stroke: var(--wave-line); stroke-width: 1.2; }
-  .tp-2 { stroke: var(--wave-line); stroke-width: 0.9; opacity: 0.7; }
-  .tp-3 { stroke: var(--wave-line); stroke-width: 0.6; opacity: 0.4; }
+  .tp-1 { stroke: rgba(123,196,154,0.5); stroke-width: 1.2; }
+  .tp-2 { stroke: rgba(123,196,154,0.35); stroke-width: 0.9; opacity: 0.7; }
+  .tp-3 { stroke: rgba(123,196,154,0.22); stroke-width: 0.6; opacity: 0.4; }
   .tidal-fill { fill: url(#tidalGrad); opacity: 0.12; }
   @keyframes tidalFlow { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
   .tidal-track { animation: tidalFlow 18s linear infinite; }
@@ -514,7 +527,7 @@
 
   /* CONCH SHELL */
   .conch-svg { width: 100%; height: 100%; overflow: visible; }
-  .conch-body { fill: url(#conchGrad); filter: drop-shadow(0 6px 20px rgba(38,70,83,0.3)); }
+  .conch-body { fill: url(#conchGrad); filter: drop-shadow(0 6px 20px rgba(176,58,42,0.28)); }
   .conch-ring { stroke: rgba(255,248,240,0.25); stroke-width: 1; fill: none; }
   .conch-spire { stroke: var(--shell-cream); stroke-width: 1.5; fill: none; }
 
@@ -822,9 +835,9 @@
   <!-- 导航 -->
   <nav class="nav">
     <div class="container nav-inner">
-      <a href="#" class="brand" aria-label="多倍贝首页">
-        <img src="branding/logo.svg" alt="" aria-hidden="true">
-        <span class="brand-name">{{brand}}<span class="brand-beta">{{brandBeta}}</span></span>
+      <a href="landing.html" class="brand" aria-label="多倍贝首页">
+        <img src="site/logo.svg" alt="" aria-hidden="true">
+        <span class="brand-name">{{brand}}<span class="brand-sub">{{brandSub}}</span><span class="brand-beta">{{brandBeta}}</span></span>
       </a>
         <div class="nav-links">
           {{#each nav.links}}<a href="{{href}}">{{label}}</a>{{/each}}
@@ -843,6 +856,9 @@
         <span class="hero-tag">{{hero.tag}}</span>
         <h1>{{hero.titleBefore}}<span class="coral">{{hero.titleCoral}}</span></h1>
         <p class="hero-sub">{{hero.sub}}</p>
+        <div class="hero-caps" data-reveal>
+          {{#each hero.caps}}<span class="hero-cap">{{.}}</span>{{/each}}
+        </div>
         <div class="hero-actions">
           <a href="/app" class="btn btn-primary">{{hero.ctaPrimary}}</a>
           <a href="#features" class="btn btn-outline">{{hero.ctaSecondary}}</a>
@@ -856,22 +872,25 @@
 
       <!-- Araujo 风格鹦鹉螺大图 -->
       <div class="hero-visual" data-reveal>
-        <div class="nautilus-hero">
+        <div class="nautilus-hero" role="button" tabindex="0">
           <svg class="nautilus-svg" viewBox="0 0 520 520" xmlns="http://www.w3.org/2000/svg">
             <defs>
               <!-- 鹦鹉螺壳体渐变：淡珊瑚暖色 -->
-              <radialGradient id="nhGrad" cx="30%" cy="35%" r="70%">
-                <stop offset="0%" stop-color="#F4B582" stop-opacity="0.7"/>
-                <stop offset="40%" stop-color="#E07A52" stop-opacity="0.6"/>
-                <stop offset="75%" stop-color="#C8503A" stop-opacity="0.5"/>
-                <stop offset="100%" stop-color="#9E3B2C" stop-opacity="0.35"/>
+              <radialGradient id="nhGrad" cx="35%" cy="38%" r="75%">
+                <stop offset="0%" stop-color="#F2A088" stop-opacity="0.55"/>
+                <stop offset="42%" stop-color="#E34F38" stop-opacity="0.5"/>
+                <stop offset="78%" stop-color="#C0352A" stop-opacity="0.42"/>
+                <stop offset="100%" stop-color="#8E2A1E" stop-opacity="0.32"/>
               </radialGradient>
               <!-- 潮汐渐变 -->
               <linearGradient id="tidalGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stop-color="#2A9D8F" stop-opacity="0"/>
-                <stop offset="100%" stop-color="#264653" stop-opacity="0.6"/>
+                <stop offset="0%" stop-color="#E34F38" stop-opacity="0"/>
+                <stop offset="100%" stop-color="#CC3D27" stop-opacity="0.45"/>
               </linearGradient>
             </defs>
+
+            <!-- 深海环境晕染：极浅暖底超椭圆，暗示幽暗海水 -->
+            <rect class="nh-halo" x="14" y="14" width="492" height="492" rx="118" ry="118"/>
 
             <!-- 壳体填充（由 JS 注入精确路径） -->
             <path id="nhShellPath" class="nh-fill"/>
@@ -890,6 +909,13 @@
 
             <!-- 核心发光点 -->
             <circle class="nh-core" cx="262" cy="262" r="5"/>
+
+            <!-- 深海呼吸气泡：位置由 JS 锚定到螺线壳口弧线 -->
+            <g id="nhBubbles" class="nh-bubbles" aria-hidden="true">
+              <circle class="nh-bubble b1" cx="262" cy="22" r="11" style="--dx:18px;--dy:-42px"/>
+              <circle class="nh-bubble b2" cx="262" cy="22" r="8" style="--dx:32px;--dy:-56px"/>
+              <circle class="nh-bubble b3" cx="262" cy="22" r="6" style="--dx:-12px;--dy:-38px"/>
+            </g>
           </svg>
         </div>
 
@@ -947,17 +973,20 @@
         </div>
       <div class="eco-marquee" data-reveal aria-hidden="true">
         <div class="eco-track">
-          {{#each eco.row1}}<span class="eco-item">{{.}}</span>{{/each}}
+          {{#each eco.logos}}<div class="eco-item eco-logo" title="{{name}}"><img src="{{icon}}" alt="{{name}}" loading="lazy" /></div>{{/each}}
+          {{#each eco.texts}}<span class="eco-item">{{.}}</span>{{/each}}
         </div>
       </div>
       <div class="eco-marquee eco-marquee--rev" data-reveal aria-hidden="true">
         <div class="eco-track">
-          {{#each eco.row2}}<span class="eco-item">{{.}}</span>{{/each}}
+          {{#each eco.logos}}<div class="eco-item eco-logo" title="{{name}}"><img src="{{icon}}" alt="{{name}}" loading="lazy" /></div>{{/each}}
+          {{#each eco.texts}}<span class="eco-item">{{.}}</span>{{/each}}
         </div>
       </div>
       <div class="eco-marquee" data-reveal aria-hidden="true">
         <div class="eco-track">
-          {{#each eco.row3}}<span class="eco-item">{{.}}</span>{{/each}}
+          {{#each eco.logos}}<div class="eco-item eco-logo" title="{{name}}"><img src="{{icon}}" alt="{{name}}" loading="lazy" /></div>{{/each}}
+          {{#each eco.texts}}<span class="eco-item">{{.}}</span>{{/each}}
         </div>
       </div>
     </div>
@@ -1218,18 +1247,13 @@
       <div class="container story-grid">
         <div class="story-body" data-reveal>
           <h2 class="section-title" style="text-align:left;">{{story.title}}</h2>
-          <blockquote>
-            {{#each story.paragraphs}}<p>{{.}}</p>{{/each}}
-          </blockquote>
-          <p class="story-meta">{{story.meta1}}</p>
-          <p class="story-meta" style="margin-top:8px;">{{story.meta2}}</p>
+          <p class="story-lead">{{story.lead}}</p>
+          <a href="{{story.ctaHref}}" class="btn btn-primary">{{story.ctaLabel}}</a>
         </div>
         <aside class="story-sidebar" data-reveal>
           <div class="quote-mark">&ldquo;</div>
           <h4>{{story.sidebarTitle}}</h4>
           <p>{{story.sidebarText}}</p>
-          <hr style="border:none;border-top:1px solid var(--border-light);margin:20px 0;" />
-          <p>{{story.meta2}}</p>
         </aside>
       </div>
     </section>
@@ -1301,7 +1325,7 @@
       <div class="container" data-reveal>
         <h2>{{cta.title}}</h2>
         <p>{{cta.text}}</p>
-        <a href="/app" class="btn btn-ghost-light">{{cta.btn}}</a>
+        <a href="/app" class="btn btn-inverted">{{cta.btn}}</a>
       </div>
     </section>
 
@@ -1311,16 +1335,10 @@
         <div class="footer-grid">
           <div>
             <div class="footer-brand">
-              <img src="branding/logo.svg" alt="" aria-hidden="true">
+              <img src="site/logo.svg" alt="" aria-hidden="true">
               {{brand}}
             </div>
             <p>{{footer.tagline}}</p>
-          </div>
-          <div>
-            <h5>产品</h5>
-            <div class="footer-links">
-              {{#each footer.productLinks}}<a href="{{href}}">{{label}}</a>{{/each}}
-            </div>
           </div>
           <div>
             <h5>关于</h5>
@@ -1483,6 +1501,57 @@
 
       // 5. 外轮廓线
       if (outlineEl) outlineEl.setAttribute('d', spiralPath(400));
+
+      // 6. 气泡锚定到壳口弧线 + 点击喷发彩蛋
+      // 壳口弧线 = 螺线最外圈约 30% 的弧段（形成开口切面），不是单一点
+      const bubblesG = document.getElementById('nhBubbles');
+      const heroEl = document.querySelector('.nautilus-hero');
+      if (bubblesG) {
+        // 采样壳口弧线上多个点（t 从 0.72*maxT 到 maxT，覆盖整条开口弧）
+        const ARC_START = 0.72;
+        function sampleMouthArc() {
+          const t = (ARC_START + Math.random() * (1 - ARC_START)) * maxT;
+          const r = a * Math.exp(b * t);
+          return { x: cx + r * Math.cos(t + phase), y: cy + r * Math.sin(t + phase) };
+        }
+        // 3 个静态呼吸气泡散布在弧线上
+        const staticPts = [sampleMouthArc(), sampleMouthArc(), sampleMouthArc()];
+        bubblesG.querySelectorAll('.nh-bubble').forEach((b, i) => {
+          b.setAttribute('cx', staticPts[i].x.toFixed(1));
+          b.setAttribute('cy', staticPts[i].y.toFixed(1));
+        });
+        // 点击彩蛋：从弧线随机位置喷出气泡，上限避免杂乱
+        const POP_MAX = 16;
+        let activePop = 0;
+        if (heroEl) {
+          const emit = () => {
+            if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+            if (activePop >= POP_MAX) return;
+            const n = 2 + Math.floor(Math.random() * 4); // 每次 2-5 个，更丰富
+            for (let i = 0; i < n && activePop < POP_MAX; i++) {
+              activePop++;
+              const c = document.createElementNS(SVGNS, 'circle');
+              const pt = sampleMouthArc();
+              c.setAttribute('cx', pt.x.toFixed(1));
+              c.setAttribute('cy', pt.y.toFixed(1));
+              c.setAttribute('r', (4 + Math.random() * 9).toFixed(1));
+              c.setAttribute('class', 'nh-bubble nh-bubble--pop');
+              // 向右上/右/上方向大幅散开（dx 范围更大）
+              const angle = -(Math.PI * 0.15 + Math.random() * Math.PI * 0.7); // 向上偏右 ~27°~135°
+              const dist = 50 + Math.random() * 90;
+              c.style.setProperty('--dx', (Math.cos(angle) * dist).toFixed(1) + 'px');
+              c.style.setProperty('--dy', (Math.sin(angle) * dist).toFixed(1) + 'px');
+              c.style.animationDelay = (Math.random() * 0.3).toFixed(2) + 's';
+              bubblesG.appendChild(c);
+              c.addEventListener('animationend', () => { c.remove(); activePop--; });
+            }
+          };
+          heroEl.addEventListener('click', emit);
+          heroEl.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); emit(); }
+          });
+        }
+      }
     })();
 
   </script>

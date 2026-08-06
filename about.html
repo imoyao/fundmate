@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>关于多倍贝 · 多倍贝</title>
+  <meta name="description" content="多倍贝是什么、缘起、关于开源，以及如何持续下去。" />
+  <style>
+/* ==== auto-inlined from site/style.css ==== */
+/* ============================================================
+   多倍贝 主站共享样式令牌（site/style.css）
+   ------------------------------------------------------------
+   唯一来源：frontend/src/style/colors.css（前端色彩规范 v2.1，对接设计语言 v2.3.2）
+   本文件是 frontend 令牌的【镜像】，命名与取值以 colors.css 为准，不得擅自漂移。
+   主站（landing.html / 未来的 about.html）通过 <link href="/style.css"> 引用，
+   不再在模板内联 <style>:root。
+
+   作用域约定：
+   - 第一部分「全局语义令牌」：brand / bg / text / border / radius / font / shadow /
+     color-rise(-fall) / danger-system，全站唯一真相，禁止在主站另起别名。
+   - 第二部分「shell-* 鹦鹉螺专用局部装饰变量」：仅服务贝的插画体系（Araujo 风格
+     鹦鹉螺 / 扇贝 / 海螺 / 散落贝壳装饰），属艺术块局部命名，不参与全局语义。
+     后续鹦鹉螺专项重构时再决定是否并入 --brand-* 色阶，本阶段保留原名。
+
+   注意：本文件只承载令牌与极少量基础变量，不含 @keyframes 动画实现
+   （气室闪烁 / 气泡上浮等动效在「关于页/鹦鹉螺动效专项」中新增，见 tech-debt）。
+   ============================================================ */
+
+:root {
+  /* ===== 第一部分：全局语义令牌（镜像 frontend/colors.css） ===== */
+
+  /* 品牌色阶（暖红珊瑚） */
+  --brand-400: #FABDB0;   /* 浅珊瑚（修正原 --brand-coral-soft 漂移 #F2A38E → #FABDB0） */
+  --brand-700: #E34F38;   /* 品牌主色 / 涨色（原 --brand-coral） */
+  --brand-800: #CC3D27;   /* 品牌深红（原 --brand-coral-deep） */
+
+  /* 背景层级 */
+  --bg-page:  #FDFBF7;    /* 暖奶油白（页面底） */
+  --bg-soft:  #F5F0EB;    /* 柔和表面 / 区块分隔底 */
+  --bg-card:  #FFFFFF;    /* 卡片 / 容器底 */
+
+  /* 文字色 */
+  --text-primary:   #2D2A24;  /* 暖黑 */
+  --text-secondary: #6B655C;  /* 暖灰 */
+  --text-muted:     #8C8478;  /* 暖灰加深（原模板未定义，补全） */
+
+  /* 边框 */
+  --border-default: #E5DDD4;  /* 默认边框（原模板已定义） */
+  --border-light:   #F0EBE4;  /* 极浅边框（修正原 --border-light 漂移 #F0EAE3 → #F0EBE4） */
+  --border:         var(--border-default); /* 兼容 line 279 等裸 --border 引用（原未定义，补全） */
+
+  /* 金融语义色（涨红跌绿，A 股习惯） */
+  --color-rise: var(--brand-700);  /* 涨 / 盈利 / 正收益 = 品牌珊瑚红（用户裁决：保留 red=涨） */
+  --color-fall: #7BC49A;           /* 跌 / 亏损 / 负收益（柔和灰绿） */
+
+  /* 系统语义色（独立于品牌色，用于删除/错误/破坏性操作） */
+  --color-danger-system: #D4364A;  /* 原 --color-danger */
+
+  /* 暖调阴影 */
+  --shadow-sm:   0 1px 2px rgba(45, 42, 36, 0.05);
+  --shadow-md:   0 6px 18px rgba(45, 42, 36, 0.08);
+  --shadow-coral: 0 10px 30px -10px rgba(227, 79, 56, 0.45);
+
+  /* 圆角 */
+  --radius-lg: 16px;  /* 卡片（原 --radius） */
+  --radius-sm: 6px;   /* 小元素（修正原 --radius-sm 漂移 12px → 6px；原模板规则体未引用，无视觉回退风险） */
+
+  /* 缓动（v1.6 §6.2 统一耐心缓动） */
+  --ease-patient: cubic-bezier(0.19, 1, 0.22, 1);
+
+  /* 字体族 */
+  --font-sans: Inter, -apple-system, "PingFang SC", sans-serif;  /* 原 --font（对齐 frontend --font-sans） */
+  --font-num: 'SF Mono', 'Inter', ui-monospace, 'PingFang SC', monospace;  /* 数字等宽（保留原名） */
+
+  /* 插画深色描边（line 570 等几何线稿用） */
+  --line-dark: #4A3F36;
+
+  /* ===== 第二部分：shell-* 鹦鹉螺专用局部装饰变量（不参与全局语义） ===== */
+  --shell-coral:          #E34F38;
+  --shell-coral-light:    #F08070;
+  --shell-coral-dark:     #B03A2A;
+  --shell-orange:         #E07A52;
+  --shell-cream:          #FDFBF7;
+  --shell-teal:           #7BC49A;
+  --shell-blue:           #3C9C73;
+  --ocean-deep:           #A63A2C;
+  --wave-line:            rgba(123, 196, 154, 0.35);
+  --grid-line:            rgba(200, 80, 70, 0.08);
+  --construction-line:    rgba(232, 90, 79, 0.15);
+}
+
+/* ==== end inline ==== */
+</style>
+  <style>
+    /* ===== 共享基础样式（与 landing 同源同一套值，确保头尾完全一致） ===== */
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; font-family: var(--font-sans); color: var(--text-primary); background: var(--bg-page); line-height: 1.6; -webkit-font-smoothing: antialiased; }
+    img, svg { display: block; max-width: 100%; }
+    a { color: inherit; text-decoration: none; }
+    .container { width: 100%; max-width: 1160px; margin: 0 auto; padding: 0 24px; }
+    .num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.98rem; font-weight: 600; padding: 13px 26px; border-radius: 999px; border: 1px solid transparent; cursor: pointer; transition: transform .2s var(--ease-patient), box-shadow .2s var(--ease-patient), background .2s; }
+    .btn-primary { background: var(--brand-700); color: #fff; box-shadow: 0 6px 18px rgba(227,79,56,0.28); }
+    .btn-primary:hover { background: var(--brand-800); transform: translateY(-2px); box-shadow: 0 10px 26px rgba(227,79,56,0.34); }
+    .btn-outline { background: transparent; color: var(--brand-700); border-color: var(--brand-400); }
+    .btn-outline:hover { background: rgba(242,163,142,0.12); }
+
+    .nav { position: sticky; top: 0; z-index: 100; background: rgba(253,251,247,0.92); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border-light); }
+    .nav-inner { display: flex; align-items: center; justify-content: space-between; height: 72px; }
+    .brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 600; font-size: 1.15rem; }
+    .brand img { width: 34px; height: 34px; display: block; object-fit: contain; filter: drop-shadow(0 1px 2px rgba(140,100,80,0.14)); }
+    .brand-name { position: relative; }
+    .brand-sub { font-size: 0.78em; font-weight: 400; color: var(--text-secondary); margin-left: 2px; }
+    .brand-beta { position: absolute; top: -10px; left: 100%; margin-left: 10px; font-size: 0.62rem; line-height: 1; color: var(--brand-700); background: rgba(242,163,142,0.14); border: 1px solid var(--brand-400); padding: 2px 7px; border-radius: 6px; white-space: nowrap; }
+    .nav-links { display: flex; align-items: center; gap: 30px; font-size: 0.95rem; color: var(--text-secondary); }
+    .nav-links a:hover { color: var(--brand-700); }
+    .nav-cta { display: flex; align-items: center; gap: 14px; }
+
+    section { padding: clamp(64px, 10vh, 104px) 0; }
+    .section-head { max-width: 680px; margin: 0 auto 52px; text-align: center; }
+    .section-eyebrow { display: inline-block; font-size: 12px; letter-spacing: .14em; text-transform: uppercase; font-weight: 600; color: var(--brand-700); margin-bottom: 12px; }
+    .section-title { font-size: clamp(1.7rem, 3.4vw, 2.3rem); font-weight: 700; line-height: 1.25; margin: 0 0 14px; }
+    .section-lead { color: var(--text-secondary); font-size: 1.05rem; margin: 0; }
+
+    .footer { background: #3D352C; color: rgba(253,251,247,0.85); padding: 64px 0 32px; }
+    .footer-grid { display: grid; grid-template-columns: 1.6fr 1fr; gap: 48px; margin-bottom: 44px; }
+    .footer-grid > div:last-child { justify-self: end; text-align: right; }
+    .footer-brand { display: flex; align-items: center; gap: 10px; font-weight: 600; color: var(--bg-page); margin-bottom: 12px; }
+    .footer-brand img { width: 30px; height: 30px; display: block; object-fit: contain; }
+    .footer p { margin: 0; font-size: 0.92rem; line-height: 1.7; }
+    .footer h5 { color: var(--bg-page); font-size: 0.95rem; margin: 0 0 14px; }
+    .footer-links { display: flex; flex-direction: column; gap: 10px; font-size: 0.92rem; }
+    .footer-links a:hover { color: var(--brand-700); }
+    .footer-bottom { border-top: 1px solid rgba(253,251,247,0.12); padding-top: 22px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; font-size: 0.85rem; color: rgba(253,251,247,0.6); }
+
+    [data-reveal] { opacity: 0; transform: translateY(20px); transition: opacity .7s var(--ease-patient), transform .7s var(--ease-patient); }
+    [data-reveal].in-view { opacity: 1; transform: none; }
+
+    .nautilus-hero { position: relative; width: 420px; height: 420px; max-width: 100%; }
+    .nautilus-svg { width: 100%; height: 100%; }
+    .nautilus-hero svg { width: 100%; height: 100%; overflow: visible; }
+    .nh-fill { fill: url(#nhGrad); opacity: 0.55; }
+    .nh-septum { stroke: rgba(255,248,240,0.35); stroke-width: 1.3; fill: none; }
+    .nh-spiral { stroke: rgba(255,248,240,0.45); stroke-width: 1.8; fill: none; stroke-linecap: round; }
+    .nh-texture { stroke: rgba(255,248,240,0.18); stroke-width: 0.5; fill: none; }
+    .nh-outline { stroke: var(--shell-cream); stroke-width: 2; fill: none; opacity: 0.5; }
+    .nh-core { fill: var(--shell-orange); filter: drop-shadow(0 0 12px rgba(232,150,79,0.6)); }
+
+    @media (max-width: 880px) { .footer-grid { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 720px) { .nav-links { display: none; } .footer-grid { grid-template-columns: 1fr; gap: 32px; } .footer-grid > div:last-child { text-align: left; } }
+    @media (prefers-reduced-motion: reduce) {
+      .nautilus-hero, .nautilus-svg { animation: none !important; }
+      html { scroll-behavior: auto; }
+      [data-reveal] { opacity: 1; transform: none; transition: none; }
+    }
+
+    /* ===== about 专属 ===== */
+    .about-hero { padding: clamp(80px, 13vh, 140px) 0 clamp(36px, 6vh, 60px); text-align: center; }
+    .about-hero .eyebrow { display: inline-block; font-size: 12px; letter-spacing: .14em; text-transform: uppercase; font-weight: 600; color: var(--brand-700); margin-bottom: 16px; }
+    .about-hero h1 { font-size: clamp(2.2rem, 5.2vw, 3.4rem); font-weight: 700; line-height: 1.18; letter-spacing: -0.02em; margin: 0 0 20px; }
+    .about-hero .sub { max-width: 620px; margin: 0 auto; font-size: 1.1rem; color: var(--text-secondary); line-height: 1.7; }
+
+    .about-block { max-width: 760px; margin: 0 auto; padding: clamp(40px, 7vh, 78px) 0; }
+    .about-block .section-title { text-align: left; }
+    .about-block p { font-size: 1.08rem; line-height: 1.95; color: var(--text-primary); margin: 0 0 22px; }
+    .about-block p:last-child { margin-bottom: 0; }
+    .about-belief { font-weight: 600; color: var(--brand-700); }
+    .about-list { margin: 10px 0 0; padding-left: 22px; }
+    .about-list li { font-size: 1.05rem; line-height: 1.9; color: var(--text-primary); margin-bottom: 12px; }
+
+    .about-soft { background: #F5F0EB; padding: 0; }
+    .about-soft .about-inner { max-width: 760px; margin: 0 auto; padding: clamp(48px, 8vh, 88px) 24px; display: flex; flex-direction: column; align-items: center; text-align: center; }
+    .about-soft .section-title { text-align: center; }
+    .about-soft p { font-size: 1.08rem; line-height: 1.95; color: var(--text-primary); margin: 0 0 20px; max-width: 640px; }
+    .about-story-link { display: inline-block; margin-top: 8px; font-size: 1.02rem; font-weight: 600; color: var(--brand-700); border-bottom: 1px solid var(--brand-400); padding-bottom: 2px; }
+    .about-story-link:hover { color: var(--brand-800); border-bottom-color: var(--brand-700); }
+
+    .about-nautilus { width: 300px; height: 300px; max-width: 76vw; margin: 4px auto 40px; border-radius: 54% 46% 48% 52% / 56% 44% 56% 44%; background: linear-gradient(135deg, #FBF1E9, #F2E0D3); display: grid; place-items: center; box-shadow: 0 20px 46px rgba(157,59,44,0.14); }
+    .about-nautilus .nautilus-hero { width: 78%; height: 78%; }
+    .about-nautilus .nh-fill { fill: url(#nhGrad); opacity: 0.5; }
+    .about-nautilus .nh-septum { stroke: rgba(227,79,56,0.30); stroke-width: 1.2; }
+    .about-nautilus .nh-spiral { stroke: var(--brand-700); stroke-width: 2; }
+    .about-nautilus .nh-outline { stroke: var(--brand-700); opacity: 0.5; }
+    .about-nautilus .nh-core { fill: var(--brand-700); filter: drop-shadow(0 0 10px rgba(227,79,56,0.5)); }
+
+    .about-quote { background: var(--brand-700); color: #fff; padding: 0; }
+    .about-quote .about-quote-inner { max-width: 760px; margin: 0 auto; padding: clamp(56px, 9vh, 100px) 24px; }
+    .about-quote .eyebrow { display: inline-block; font-size: 12px; letter-spacing: .14em; text-transform: uppercase; font-weight: 600; color: rgba(255,255,255,0.72); margin-bottom: 18px; }
+    .about-quote p { font-size: 1.12rem; line-height: 1.95; color: #fff; margin: 0 0 18px; }
+    .about-quote .about-links { display: flex; flex-direction: column; gap: 10px; margin: 4px 0 22px; }
+    .about-quote .about-links a { color: #fff; text-decoration: underline; text-underline-offset: 3px; font-size: 0.95rem; }
+    .about-quote .about-tip { background: rgba(255,255,255,0.1); border-left: 3px solid #fff; padding: 16px 18px; border-radius: 8px; font-size: 1.05rem; line-height: 1.8; margin: 0 0 22px; }
+    .about-quote blockquote { margin: 0; padding-left: 18px; border-left: 3px solid rgba(255,255,255,0.5); font-style: italic; font-size: 1.05rem; line-height: 1.8; color: rgba(255,255,255,0.92); }
+
+    .about-cta { background: var(--bg-soft); padding: 0; }
+    .about-cta .container { padding-top: clamp(64px, 10vh, 104px); padding-bottom: clamp(64px, 10vh, 104px); }
+    .about-cta .btn { margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <nav class="nav" data-reveal>
+    <div class="container nav-inner">
+      <a class="brand" href="landing.html" aria-label="多倍贝首页">
+        <img src="site/logo.svg" alt="" aria-hidden="true" />
+        <span class="brand-name">多倍贝<span class="brand-sub">投资账本</span><span class="brand-beta">Beta 预览版</span></span>
+      </a>
+      <div class="nav-links">
+        <a href="landing.html#features">核心能力</a>
+        <a href="landing.html#ecosystem">支持导入</a>
+        <a href="landing.html#scenarios">适用场景</a>
+        <a href="landing.html#compare">为什么不同</a>
+        <a href="landing.html#honesty">诚实承诺</a>
+        <a href="story.html">品牌故事</a>
+        <a href="about.html" class="active">关于我们</a>
+      </div>
+      <a class="btn btn-primary nav-cta" href="/app">免费开始</a>
+    </div>
+  </nav>
+
+  <main>
+    <!-- 开场 -->
+    <section class="about-hero" data-reveal>
+      <div class="container">
+        <span class="eyebrow">我们的故事</span>
+        <h1>关于多倍贝</h1>
+        <p class="sub">一款帮你算清真实收益、让复利增长清晰可见的投资账本。</p>
+      </div>
+    </section>
+
+    <!-- 多倍贝是什么 -->
+    <section class="about-block" data-reveal>
+      <div class="container">
+        <h2 class="section-title">多倍贝是什么</h2>
+        <p>多倍贝是一款帮你（尤其是使用多账户、多平台购买基金理财产品的朋友）算清真实收益、让复利增长清晰可见的投资账本。</p>
+        <p class="about-belief">我们相信，认真地记账与复盘，是普通人做好投资的第一步。</p>
+        <ul class="about-list">
+          <li>我的资产中有多少用于投资基金？它们分别是什么？</li><li>这些投资在过程中带来了多少浮盈？又分别来自哪些产品（大浪淘沙，去伪存真）？</li><li>我买的基金真的帮我实现了资产增值吗？我该选哪些、又该离场哪些？</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- 缘起（浅暖块 + 鹦鹉螺超椭圆） -->
+    <section class="about-soft" data-reveal>
+      <div class="about-inner container">
+        <div class="about-nautilus">
+          <div class="nautilus-hero">
+            <svg class="nautilus-svg" viewBox="0 0 520 520" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <radialGradient id="nhGrad" cx="30%" cy="35%" r="70%">
+                  <stop offset="0%" stop-color="#F4B582" stop-opacity="0.7"/>
+                  <stop offset="40%" stop-color="#E07A52" stop-opacity="0.6"/>
+                  <stop offset="75%" stop-color="#C8503A" stop-opacity="0.5"/>
+                  <stop offset="100%" stop-color="#9E3B2C" stop-opacity="0.35"/>
+                </radialGradient>
+              </defs>
+              <path id="nhShellPath" class="nh-fill"/>
+              <path id="nhSpiralPath" class="nh-spiral"/>
+              <g id="nhSepta"/>
+              <g id="nhTextures"/>
+              <path id="nhOutline" class="nh-outline"/>
+              <circle class="nh-core" cx="262" cy="262" r="5"/>
+            </svg>
+          </div>
+        </div>
+        <h2 class="section-title">缘起</h2>
+        <p>作为一个低风险（小富即安）投资者，一直有"钱都去哪儿了"的困扰——于是想做一个真正好用的基金记账工具，把每笔账都算明白。</p>
+        <p><a class="about-story-link" href="story.html">完整品牌故事 →</a></p>
+      </div>
+    </section>
+
+    <!-- 关于开源 -->
+    <section class="about-block" data-reveal>
+      <div class="container">
+        <h2 class="section-title">关于开源</h2>
+        <p>本人是开源精神的受益者，也是拥护者。多倍贝在创作过程中，离不开无数开源项目的分享。</p><p>同时，我们也理解当前开源社区普遍面临的现实：投入与回报常常不成正比，"开源 = 白嫖"的心态并不少见。因此，目前暂不开放整个软件的源码；如果你需要部分功能的实现思路，可以通过赞赏作者或参与文档与建议贡献的方式获取支持。</p>
+        <blockquote class="about-quote-text" style="margin:18px 0 0;padding-left:18px;border-left:3px solid var(--brand-400);font-style:italic;color:var(--text-secondary);">好的开源生态，需要享用便利的人也愿意回馈。单向的索取，只会让愿意分享的人越来越少。</blockquote>
+      </div>
+    </section>
+
+    <!-- 如何持续下去（珊瑚红实心块） -->
+    <section class="about-quote" data-reveal>
+      <div class="about-quote-inner">
+        <span class="eyebrow">如何持续下去</span>
+        <p>谈开源，也绕不开怎么让一件事持久。多倍贝会坚持基础记账功能（含账单导出）长期免费。但一款软件要持续维护，只靠热爱是不够的——</p>
+        <div class="about-links">
+          <a href="https://www.zhihu.com/question/29603361" target="_blank" rel="noopener">财帮子的所有者还打算继续办下去么？</a><a href="https://1.163.com/html/qian/web/5fdaffaed605e84a6d118cd4.html" target="_blank" rel="noopener">网易有钱 App 下线公告</a><a href="https://xueqiu.com/6123409880/150393232" target="_blank" rel="noopener">雪球"模拟盈亏"功能下线公告</a>
+        </div>
+        <p class="about-tip">如果多倍贝对你有帮助，我们鼓励你在能力范围内付费支持；如果觉得它一文不值，来去随宜，也完全没关系。付费与否，都不影响你使用免费的基础功能。</p>
+        <blockquote>如果用户没有付钱，那么用户往往就是商品。这也是我们坚持"基础免费、增值可选"的原因——不靠贩卖你的数据，而靠认可我们的人。</blockquote>
+      </div>
+    </section>
+
+    <!-- 收尾 CTA -->
+    <section class="about-cta" data-reveal>
+      <div class="container">
+        <div class="section-head">
+          <h2 class="section-title">把账算明白，从今天开始</h2>
+          <p class="section-lead">不荐股、不跟单、不预测市场——只帮你算清真实收益。</p>
+        </div>
+        <div style="text-align:center;">
+          <a class="btn btn-primary" href="/app">免费开始</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div>
+          <div class="footer-brand">
+            <img src="site/logo.svg" alt="" aria-hidden="true" />
+            多倍贝
+          </div>
+          <p>记账即复利。&lt;br/&gt;多倍贝，备贝多——有备无患，自然倍多。</p>
+        </div>
+        <div>
+          <h5>关于</h5>
+          <div class="footer-links">
+            <a href="story.html">品牌故事</a><a href="about.html">关于我们</a><a href="https://github.com/imoyao">GitHub · imoyao</a><a href="/docs/feedback/">意见反馈</a><a href="/docs/privacy/">隐私政策</a><a href="/donate/">赞赏作者</a>
+          </div>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span>© 2026 多倍贝 Duobeibei · 不荐股 · 不跟单 · 数据主权</span>
+        <span>&lt;a href="https://github.com/imoyao" style="color:inherit;text-decoration:underline;text-underline-offset:3px;"&gt;GitHub&lt;/a&gt;</span>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    // 滚动揭示
+    const observer = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (e.isIntersecting) {
+          e.target.classList.add('in-view');
+          observer.unobserve(e.target);
+        }
+      }
+    }, { threshold: 0.15, rootMargin: '0px 0px -10% 0px' });
+    document.querySelectorAll('[data-reveal]').forEach(el => observer.observe(el));
+
+    // Araujo 风格鹦鹉螺：黄金螺旋 + 壳室 + 纹理 + 外轮廓
+    (function buildAraujoNautilus() {
+      const SVGNS = 'http://www.w3.org/2000/svg';
+      const shellEl = document.getElementById('nhShellPath');
+      const spiralEl = document.getElementById('nhSpiralPath');
+      const septaG = document.getElementById('nhSepta');
+      const texG = document.getElementById('nhTextures');
+      const outlineEl = document.getElementById('nhOutline');
+      if (!shellEl) return;
+
+      const cx = 262, cy = 262;
+      const a = 2.5;
+      const b = 0.175;
+      const turns = 4.2;
+      const maxT = turns * 2 * Math.PI;
+      // 壳口朝左（9 点钟方向），与落地页（朝上）旋向区分
+      const phase = Math.PI - (maxT % (2 * Math.PI));
+
+      function spiralPath(steps) {
+        let d = '';
+        for (let i = 0; i <= steps; i++) {
+          const t = maxT * i / steps;
+          const r = a * Math.exp(b * t);
+          const x = cx + r * Math.cos(t + phase);
+          const y = cy + r * Math.sin(t + phase);
+          d += (i ? 'L' : 'M') + x.toFixed(1) + ',' + y.toFixed(1) + ' ';
+        }
+        return d;
+      }
+      if (spiralEl) spiralEl.setAttribute('d', spiralPath(500));
+
+      const k = Math.exp(-2 * Math.PI * b);
+      function bandPath(steps) {
+        let d = '';
+        for (let i = 0; i <= steps; i++) {
+          const t = maxT * i / steps;
+          const r = a * Math.exp(b * t);
+          d += (i ? 'L' : 'M') + (cx + r * Math.cos(t + phase)).toFixed(1) + ',' + (cy + r * Math.sin(t + phase)).toFixed(1) + ' ';
+        }
+        for (let i = steps; i >= 0; i--) {
+          const t = maxT * i / steps;
+          const r = a * Math.exp(b * t) * k;
+          d += 'L' + (cx + r * Math.cos(t + phase)).toFixed(1) + ',' + (cy + r * Math.sin(t + phase)).toFixed(1) + ' ';
+        }
+        return d + 'Z';
+      }
+      if (shellEl) shellEl.setAttribute('d', bandPath(600));
+
+      const septCount = 30;
+      for (let s = 2; s <= septCount; s++) {
+        const t0 = maxT * s / septCount;
+        const rOut = a * Math.exp(b * t0);
+        const rIn = rOut * k;
+        const x1 = cx + rOut * Math.cos(t0 + phase), y1 = cy + rOut * Math.sin(t0 + phase);
+        const x2 = cx + rIn * Math.cos(t0 + phase), y2 = cy + rIn * Math.sin(t0 + phase);
+        const sep = document.createElementNS(SVGNS, 'path');
+        sep.setAttribute('class', 'nh-septum');
+        sep.setAttribute('d', 'M' + x1.toFixed(1) + ',' + y1.toFixed(1) + ' L' + x2.toFixed(1) + ',' + y2.toFixed(1));
+        septaG.appendChild(sep);
+      }
+
+      const texCount = 8;
+      for (let ti = 0; ti < texCount; ti++) {
+        const baseAngle = (ti / texCount) * Math.PI * 0.6;
+        let td = '';
+        const tsteps = 60;
+        for (let j = 0; j <= tsteps; j++) {
+          const t = maxT * j / tsteps;
+          const r = a * Math.exp(b * t) * (0.18 + ti * 0.06);
+          const x = cx + r * Math.cos(t + baseAngle + phase);
+          const y = cy + r * Math.sin(t + baseAngle + phase);
+          td += (j ? 'L' : 'M') + x.toFixed(1) + ',' + y.toFixed(1) + ' ';
+        }
+        const tp = document.createElementNS(SVGNS, 'path');
+        tp.setAttribute('class', 'nh-texture');
+        tp.setAttribute('d', td);
+        texG.appendChild(tp);
+      }
+
+      if (outlineEl) outlineEl.setAttribute('d', spiralPath(400));
+    })();
+  </script>
+</body>
+</html>

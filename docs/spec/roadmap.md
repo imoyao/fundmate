@@ -33,7 +33,7 @@
 | P1-08 | 特别关注页面功能增强 | 基础完成 | ⭐⭐⭐ | 🟢 | Ⅳ | 暂缓优化 |
 | P1-06 | 全局UI细节微调 | **✅ 已完成** | ⭐⭐ | 🟢 | Ⅳ | 永久停止投入 |
 | P1-13 | 移动端响应式 / PWA | 未开始 | ⭐⭐ | 🟢 | Ⅳ | 长期规划 |
-| **P1-21** | **乖离率（BIAS）模块** | **⏸️ 暂挂（待修复）** | ⭐⭐⭐⭐ | 🟡 | Ⅱ | 计算逻辑已实现（31行业+6宽基，存 `market_multi_items`，API 返回），但**运行时会出错，2026-08-02 起在 `TemperatureJob` 中临时跳过（SKIP_BIAS=True）**。原逻辑保留为 `jobs.py` 注释块，待后期修复后放开。详见 §未来支持计划。 |
+| **P1-21** | **乖离率（BIAS）模块** | **✅ 已放开（SKIP_BIAS=False，待实网验证）** | ⭐⭐⭐⭐ | 🟡 | Ⅱ | 计算/存储/API 已实现（31 行业+6 宽基，存 `market_multi_items`）。2026-08-02 起曾临时跳过（`SKIP_BIAS=True`）；**2026-08-05 起数据源改为直连（腾讯行情/东财 push2his，见 `bias/direct_feeds.py`），已放开 `SKIP_BIAS=False`**。直连+兜底失败时单品种标 `stale` 或整批为空，不阻断主流程。待实网同步验证 `market_multi_items` 正常落库。详见 §2.1 与 `docs/working-notes/eastmoney-antiscrape-2026-08-05.md`。 |
 
 ### 1.3 新增 P2 功能规划（基于 Quicken Classic 对标分析）
 
@@ -69,7 +69,7 @@
 | **全面盘点** | **98%** | **资产分类按需加载与轻量汇总接口已上线；操作入口前置优化；各章节间距与呼吸感统一完成。** |
 | **设计语言体系** | **100%** | ✅ 亮色模式 v2.3.2 与暗色模式 v1.4 已完成封箱 |
 | **通用业务组件** | **100%** | ✅ `MoneyDisplay`、`RiseFallText`、`ProductDisplay`、`usePageRefresh` 封装完成 |
-| **乖离率模块** | **⏸️ 暂挂** | 计算/存储/API 已实现，但运行时出错，2026-08-02 起同步任务中临时跳过，待修复后放开 |
+| **乖离率模块** | **✅ 已放开** | 计算/存储/API 已实现；2026-08-05 数据源改直连（`bias/direct_feeds.py`）并放开 `SKIP_BIAS=False`，待实网落库验证 |
 
 ---
 
@@ -77,11 +77,11 @@
 
 > **当前聚焦原则**：先完成 `temperature-architecture-plan.md` 的 P1（B4/B2/B1 已完成）+ P3（概览页三连已落地）+ 后续 **B3（文案后端归集）** 与 **B5（资金流向接入）**。乖离率修复等列入下方支持计划，**暂不分散精力**，待主线收尾后再逐项处理。
 
-### 2.1 乖离率修复（P1-21 暂挂项）
-- **问题**：`BiasJob.run_with_context` 在 `TemperatureJob` 调度下运行时会出错，根因待查（疑似数据源/计算依赖缺失）。
-- **当前规避**：`thermometer/jobs.py` 顶部 `SKIP_BIAS = True`，跳过乖离率并记 `logger.warning`；原逻辑保留为 `TODO(乖离率)` 注释块备查。
-- **放开步骤**：定位并修复根因 → 将 `SKIP_BIAS` 置 `False` → 取消注释原逻辑块 → 验证 `market_multi_items` 正常落库且 `/overview` 返回乖离率。
-- **注意**：放开不影响 `sync_cli.py` 用法；前端若有依赖乖离率的展示需同步回归。
+### 2.1 乖离率（P1-21）当前状态
+- **已放开（2026-08-05）**：`thermometer/jobs.py` 顶部 `SKIP_BIAS = False`；数据源由 akshare/东财改为**直连**（腾讯行情 `web.ifzq.gtimg.cn` / 东财 `push2his`，见 `bias/direct_feeds.py`），绕开 akshare 上游东财限流/IP 封。
+- **降级策略**：直连 + 兜底均失败时，单品种标 `stale` 或整批为空，**不阻断主流程**（`jobs.py` 内已按此实现）。
+- **待办**：实网跑一次温度同步，验证 `market_multi_items`（`source='bias'`）正常落库且 `/overview` 返回乖离率；前端如有依赖乖离率的展示需同步回归。
+- **注意**：放开不影响 `sync_cli.py` 用法。
 
 ### 2.2 温度模块剩余项（来自 temperature-architecture-plan.md）
 - **B3 文案后端归集**：`/overview` 增加 `insights`（name/desc/tone），消除前端 `store.buildOpportunities`；综合温度环下方「结论副文案」也归此项。

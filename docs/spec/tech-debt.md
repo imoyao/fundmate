@@ -61,7 +61,7 @@
 | **温度计·公募基金整体持仓集中度/抱团度未接入（无免费现成接口）** | 中 | 用户要求的"公募基金整体持仓集中度/抱团度"需聚合全市场主动基金前十大重仓（扫约 1 万只、限流、季度批处理），无免费现成聚合接口（韭圈儿 Pro「机构抱团/行业恐贪」、Choice、Wind 均付费；东财仅研报新闻非结构化 API）。按用户"能白嫖就不算"原则不自算。已具备可选自算原型 `fund_concentration.py`（扫天天基金前十大重仓、聚合前 50 热门股），但数据拿取重、且依赖 akshare 主动基金池与天天基金档案接口。 | **暂缓（2026-08-03 记录·待确认）**：暂不入 v2 主链路。路径有二：①订阅韭圈儿 Pro 直接白嫖现成机构抱团/行业恐贪数据；②或后续有轻量聚合源再接入。自算原型保留为可选离线批处理，不阻塞主链路。 |
 | **温度计·用户持仓拥挤度/抱团度计算（需持仓穿透）** | 中 | 用户持仓维度的行业拥挤度/集中度需先做"持仓穿透"——拿到底层股票（用户持有的基金→其前十大重仓股，或股票账户直接持仓），再按行业聚合计算。当前 v2 后端无持仓录入/穿透模块（持仓录入 `holdings.csv` 规划于 README 9.3，尚未建）。 | **技术债务（2026-08-03 记录）**：列入基础债务，待持仓录入与穿透能力具备后再实现；本期只接入不依赖持仓的维度（行业拥挤度行情自算；公募基金整体集中度暂缓）。 |
 | ~~行业拥挤度分母（全A中位PB）在受限网络下不可达，整组标灰~~ | ~~🟠 高~~ **✅ 已修复 (2026-08-05)** | ~~行业拥挤度 `crowding_pct` 的分母 = 全A中位PB，默认走 `ak.stock_a_all_pb()`（legulegu）；无本地缓存时若 legulegu 不可达，代码退化为东财实时PB兜底（`push2.eastmoney.com`），再不可达则返回 stale 占位（`crowding_pct=None`）~~ | **根因修正（重要）**：原以为是"纯网络不可达"，实测是 `app/core/requests_patch.py` 的全局补丁**在 session 级挂载了东财专属 Referer/Accept/nid Cookie**，并把 `requests.get/post` mock 到另一个 `_EMSession` 实例（丢失调用方在 session 上设置的 headers/cookies）。legulegu 收到东财非法头/缺 UA 的握手请求 → 403/空 body → `get_cookie_csrf` 取不到 CSRF token → `stock_a_all_pb()` JSONDecodeError → 分母取不到、整组标灰。**修复**：重构 `requests_patch.py`——(1) 改为**包装** `Session.request`（非跨实例转发），保留调用方 headers/cookies；(2) 东财浏览器头 + nid Cookie **仅对 `eastmoney.com` 域名注入**，legulegu 等第三方源保持原样；(3) 重试适配器按 session 挂载。修复后 `market_pb_series()` 正常返回 legulegu 全A中位PB（最新 2.59），密集跑 8 行业 `fetch_industry_crowding` 全部 `stale:False`、`hist_ok:True`。预取脚本 `scripts/prefetch_all_pb.py` 仍保留（落盘 `cache/all_pb.csv` 作容灾缓存）。 |
-| **东方财富出口 IP 封（数据源层，横切 bias / 行业拥挤度）** | 🟠 高 | 2026-08-05 实测：即使屏蔽系统代理残留（`requests_patch.py` 已加 `trust_env=False + proxies=None`，`ProxyError` 消除），`80.push2` / `push2` 直连仍 `RemoteDisconnected` → 家庭宽带出口 IP 被东财按 IP 限流/临时封。代理开关都不行，根因在 IP 层而非代理。东财实时 PB 兜底（`push2.eastmoney.com`）因此失效。 | **已定位根因，替换源 baostock 已装并验证可达（LOGIN success / 行业查询 OK），业务切换待做**。下一步：① `industry_crowding.py` 的 `BENCHMARK_SOURCES` 把 `baostock` 从预留提升为可用默认源（用成分股行情自算全 A 中位 PB，替代失效的东财兜底）；② bias 主源评估改用 baostock `query_history_k_data_plus`；③ 不引入 westock-data / AlphaFeed 等未知 CLI 源。详见 `docs/working-notes/eastmoney-antiscrape-2026-08-05.md`。 |
+| **东方财富出口 IP 封（数据源层，横切 bias / 行业拥挤度）** | 🟠 高 | 2026-08-05 实测：即使屏蔽系统代理残留（`requests_patch.py` 已加 `trust_env=False + proxies=None`，`ProxyError` 消除），`80.push2` / `push2` 直连仍 `RemoteDisconnected` → 家庭宽带出口 IP 被东财按 IP 限流/临时封。代理开关都不行，根因在 IP 层而非代理。东财实时 PB 兜底（`push2.eastmoney.com`）因此失效。 | **进度（2026-08-05）**：根因已定位，baostock 已装并验证可达（LOGIN success / 行业查询 OK）。**bias 侧已闭环**：乖离率数据源改为直连（腾讯行情 `web.ifzq.gtimg.cn` / 东财 `push2his`，`bias/direct_feeds.py`），`jobs.py` 已 `SKIP_BIAS=False` 放开，直连失败降级 stale 不阻断（见 `docs/spec/roadmap.md` §2.1）。**行业拥挤度侧未闭环**：`industry_crowding.py` 的 `BENCHMARK_SOURCES` 仍需把 `baostock` 从预留提升为可用默认源（用成分股行情自算全 A 中位 PB，替代失效的东财兜底）。不引入 westock-data / AlphaFeed 等未知 CLI 源。详见 `docs/working-notes/eastmoney-antiscrape-2026-08-05.md`。 |
 | **落地页首屏·鹦鹉螺深海氛围动效打磨（视觉抛光 · 非阻塞）** | 低 | 2026-08-05 用户评审首屏提出"粉图静态、需改珊瑚红+加动效"。经核对磁盘实际：`landing.template.html` 的 Hero 鹦鹉螺**已有**珊瑚红主体（`nhGrad` 渐变 `#F4B582→#9E3B2C` + `--shell-coral:#E34F38` 描边）且**已有** `nau-spin`(90s)/`nau-breathe`(9s)/`nau-sway`(14s) + 潮汐波纹 `tidalFlow`(18s) 动效——**并非静态粉图**，用户描述的"粉色/扁平/静态"与现状不符（属文档/实现漂移，第二轮）。真正缺失的是"深海环境感"与"气室调节"叙事载体。 | **暂缓（2026-08-05 记录）**：列入视觉抛光队列，待 `site/style.css` 统一 + `/about` 骨架落地后再做。具体待办（均为真实新增、纯 CSS + SVG `<circle>`，无需 JS）：(a) Hero 鹦鹉螺背后加 `#F5F0EB` 超椭圆/圆形环境晕染容器；(b) 新增"气室水位"逐室 `opacity` 缓闪关键帧（从内向外交替，模拟涨退潮蓄水）；(c) 可选 2-3 个极缓上浮气泡，`cubic-bezier(0.19,1,0.22,1)`、6-8s 周期，珊瑚红/暖灰；(d) 副标题按 YML 标准短版，把"手动归集/穿透持仓/算准 XIRR"拆为 CTA 上方一行 `#6B655C` 14px 能力标签；(e) 底部潮汐波纹已动效，确认 `--wave-line` 是否偏浅绿、必要时收敛为深海洋流色。CSS `@keyframes` 示例待执行时再写。 |
 | **主站 `landing.template.html` 三套 `:root` 命名空间 / 与 frontend 令牌值漂移（已闭环）** | ✅ 已解决 | 落地页内联 2 个 `:root`（语义令牌 + shell 艺术块），主色 `--brand-coral` 等与 frontend `--brand-700` 同名不同值；`--brand-coral-soft`/`--border-light`/`--radius-sm` 三处值漂移；字体族写法不一；与「主站引用工具侧令牌」设计原则冲突，是主站实现层面最大技术债。 | **✅ 已落地 (2026-08-05)**：新建根目录 `site/style.css` 作为 landing/about 唯一共享令牌源，镜像 frontend `colors.css` 规范值；模板两处内联 `:root` 已删除、改 `<link href="/style.css">`、规则体变量引用全量重命名（`--brand-coral*→--brand-700/800/400`、`--color-danger→--color-danger-system`、`--radius→--radius-lg`、`--font→--font-sans`），并修正 3 处漂移值、补全原未定义的 `--text-muted`/`--border`。`shell-*` 艺术块命名按约定本阶段保留于 `site/style.css` 并注明为鹦鹉螺局部装饰变量，待鹦鹉螺专项重构再处理。 | |
 
@@ -97,7 +97,29 @@
     94:
     95:---
     96:
-    97:## 2026-08-04 OOM 修复记录
+    97:## 16. 首页「支持导入」Logo 混排素材缺口（技术债务 · 中）
+
+**背景**：落地页（`#ecosystem`，首页而非应用站）保留原有的「3 行横向滚动条」交互，仅把轨道内的纯文字药丸升级为「真实 Logo + 文字药丸兜底」混排（`landing.content.yml` 的 `eco.logos` / `eco.texts`）——Logo 灰度默认、悬停恢复彩色 + 红色阴影，与文字药丸同轨无缝滚动。
+
+**当前状态**：
+- 已实现：支付宝真实 SVG（`logos/alipay.svg`，取自 Simple Icons，已本地化）。
+- 缺口：同花顺 / 天天基金 / 东方财富无官方独立 Logo 可取，暂以文字药丸兜底；基金标准模板 / 股票标准模板非公司，永远走文字药丸。
+
+**素材取源评估（本机实测）**：
+- `logo.dev`：海外 Cloudflare CDN，可达但 **401 需免费 token**；中文垂直金融品牌召回差，天天基金无独立域名 → 放弃。
+- `DuckDuckGo favicon` / `api.iowen.cn`：本机连接超时/被墙 → 放弃。
+- `iconfont.cn`（阿里矢量图标库）：**本机可达**，但搜索 API 返回 `LOGIN REQUIRED`，需登录态取 SVG；中文金融品牌收录全，是该场景首选源。
+- `Simple Icons` CDN（Cloudflare）：可达、免 token，但**仅收录支付宝**（同花顺 / 东方财富 / 天天基金均 404）。
+
+**待办（用户手动）**：
+1. 登录 iconfont.cn，搜索「同花顺 / 天天基金 / 东方财富」下载 SVG，放入 `logos/`（建议 `tonghuashun.svg` / `tiantian.svg` / `eastmoney.svg`）。
+2. 在 `landing.content.yml` 的 `eco.logos` 追加对应项（形如 `- { name: 同花顺, icon: "logos/tonghuashun.svg" }`），对应名称从 `eco.texts` 移除。
+3. 重新生成：`npm run build:landing`。
+4. 版权：品牌 logo 作「支持导入平台」事实性展示一般不构成侵权，但建议统一灰度处理（已实现），避免彩色图标杂乱。
+
+**备注**：首页与 `/frontend` 应用站是两个独立站点，本条目仅针对首页落地页。
+
+## 2026-08-04 OOM 修复记录
     98:
     99:### 问题
    100:前端 `pnpm run build` 因 JavaScript heap OOM 失败，`--max-old-space-size=8192`（8GB）仍不足，阻塞生产部署。

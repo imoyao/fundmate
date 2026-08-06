@@ -58,7 +58,7 @@ frontend/src/views/temperature/     (Vue 温度视图) + explore 温度区
 | 数据源覆盖 | `bias/calculator.py` | ✅ 代码完整 | index/etf/fund/fund_cum/stock 五类；`bias_to_position` 映射 0–100 波段位置 |
 | 品种配置 | `bias/provider.py` + `bias_products.json` | ✅ 代码完整 | 默认行业+宽基；用户可增删持有的基金 |
 | 落库链路 | `bias/job.py` → `service.save_multi_items` | ✅ 已打通 | 2026-08-02 修复了 `save_multi_items` 入参结构不匹配导致整表为空的 bug（见 `overview-bias-stale` 文档） |
-| **自动跑（同步任务）** | `jobs.py` `SKIP_BIAS` | ⚠️ **默认禁用** | `SKIP_BIAS = True`，乖离率被整体跳过；原因：运行时出错，待修复后放开（改 `False` 并取消注释原逻辑块） |
+| **自动跑（同步任务）** | `jobs.py` `SKIP_BIAS` | ✅ **已放开** | `SKIP_BIAS = False`（2026-08-05）；数据源由 akshare/东财改为直连（`bias/direct_feeds.py`，腾讯行情/东财 push2his），直连失败降级 `stale` 不阻断主流程 |
 
 > 结论：乖离率**引擎已完整实现并验证可算**，但**未进入每日自动同步**。当前 `market_multi_items` 表仅在手动/测试触发时可能有数据。
 
@@ -140,9 +140,9 @@ frontend/src/views/temperature/     (Vue 温度视图) + explore 温度区
 | Web 仪表盘 `index.html` ✅ | 已被 Vue 前端取代（`views/temperature` + `explore`） |
 | 落库 `store.py`（SQLite 长表）✅ | 已被 SQLAlchemy 三表取代 |
 
-### B. 乖离率"已实现但未启用"
+### B. 乖离率"已实现并启用"
 
-引擎、job、落库、前端展示**全链路代码都在**，唯独 `jobs.py::SKIP_BIAS = True` 阻断了每日同步。这是当前最该先解开的一个开关 —— 但前提是先修复运行时报错（否则放开会每天报错）。
+引擎、job、落库、前端展示**全链路代码都在**。2026-08-05 起数据源由 akshare/东财改为直连（`bias/direct_feeds.py`，腾讯行情/东财 push2his），`jobs.py::SKIP_BIAS` 已置 `False` 放开每日同步；直连+兜底失败时单品种标 `stale` 或整批为空，不阻断主流程。待实网跑一次温度同步确认 `market_multi_items` 落库（见 `docs/spec/roadmap.md` §2.1）。
 
 ### C. 持仓集中度（抱团度）的方法论结论（v1 实测，仍有效）
 

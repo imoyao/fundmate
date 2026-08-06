@@ -146,8 +146,8 @@ pdm run python -m app.tools.sync_metadata --job temperature
 
 > `verify-jisilu` 期望输出 `level 字段: ['median_pb_level', 'median_pe_level']`；若为空说明 B2 尚未在真实数据生效，需先跑 `temperature` 抓取。
 
-## 8. 乖离率计算暂停（2026-08-02）
+## 8. 乖离率计算状态（2026-08-02 暂停 → 2026-08-05 已放开）
 
-- **现状**：`TemperatureJob._fetch_data` 内的乖离率块在运行时会出错。已在 `jobs.py` 顶部加 `SKIP_BIAS = True` 开关，跳过时记 `logger.warning` 提醒，**不落库乖离率数据**。原逻辑保留为注释块（`TODO(乖离率)`）备查。
-- **放开条件**：后期找到可行方案后，将 `SKIP_BIAS` 置 `False` 并取消原逻辑块注释即可。放开不影响 `sync_cli.py` 用法。
-- **影响**：本次温度同步不含乖离率（前端若依赖乖离率展示需另行处理，当前概览页三连不依赖）。
+- **2026-08-02 起**：`TemperatureJob._fetch_data` 内的乖离率块曾运行时报错，临时以 `SKIP_BIAS = True` 跳过。
+- **2026-08-05 已放开**：`jobs.py` 顶部 `SKIP_BIAS = False`；数据源由 akshare/东财改为**直连**（腾讯行情 / 东财 push2his，`bias/direct_feeds.py`），绕开 akshare 上游东财限流/IP 封。直连+兜底失败时单品种标 `stale` 或整批为空，不阻断主流程。
+- **影响**：同步任务现会尝试落库乖离率数据（`market_multi_items`，`source='bias'`）；前端若依赖乖离率展示需在实网验证后同步回归。

@@ -125,8 +125,11 @@ ENV/
 # Rope project settings
 .ropeproject
 
-# mkdocs documentation
-/site
+# mkdocs documentation（本仓已不用 mkdocs，/site 目录现为主站共享资产：
+# site/style.css + site/logo.svg 需入库；仅忽略其中的 logo 探索草稿）
+/site/*
+!/site/style.css
+!/site/logo.svg
 
 # mypy
 .mypy_cache/
