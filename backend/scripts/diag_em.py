@@ -33,6 +33,7 @@ TIMEOUT = 20
 
 
 def _get(url):
+    """走项目 patch 后的 requests（import app 后 Session 已强制直连、屏蔽系统代理）。"""
     import requests
 
     try:
@@ -64,8 +65,12 @@ def test_akshare_with_patch():
 
 
 def main():
+    # 先 import app 安装全局补丁（含 trust_env=False + proxies=None 强制直连、host 重写），
+    # 让 A/B 也走 patched session，测到的是「屏蔽系统代理后的真实直连能力」。
+    import app  # noqa: F401  (触发 install_requests_patch)
+
     print('=' * 60)
-    print('东方财富 clist 接口连通性诊断（host 差异）')
+    print('东方财富 clist 接口连通性诊断（已强制直连，屏蔽系统代理）')
     print('=' * 60)
 
     print('\n[A] 80.push2.eastmoney.com（出问题的子域）:')
@@ -74,17 +79,14 @@ def main():
     print('\n[B] push2.eastmoney.com（无前缀，候选修复）:')
     print(f'    -> {test_clist_push2()}')
 
-    # 此后 import app 会安装全局补丁（含 host 重写）
-    import app  # noqa: F401  (触发 install_requests_patch)
-
     print('\n[C] 真实 akshare（全局 host 重写生效后）:')
     print(f'    -> {test_akshare_with_patch()}')
 
     print('\n' + '=' * 60)
     print('判读:')
+    print('  - A/B 仍 ProxyError -> 系统代理未被屏蔽（patch 未生效），检查 trust_env/proxies')
     print('  - A 失败 / B 成功  -> 确认是 80.push2 子域问题；全局补丁已重写，C 应转 OK')
-    print('  - A 与 B 都失败    -> 不是子域问题，是出口 IP 被东财按 IP 封（含代理也不行），')
-    print('                        需代理轮转或更换数据源（akshare 官方建议采购东财 Choice 等）')
+    print('  - A 与 B 都失败(非Proxy) -> 直连也不稳，是出口 IP 被东财限流/IP 封，需换源或官方API')
     print('=' * 60)
 
 

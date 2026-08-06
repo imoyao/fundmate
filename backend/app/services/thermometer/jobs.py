@@ -25,9 +25,9 @@ from app.services.thermometer.service import TemperatureService
 
 logger = logging.getLogger(__name__)
 
-# 乖离率计算在运行时会出错，暂时整体跳过，待后期修复后放开（见 _fetch_data 中 TODO 注释块）。
-# 放开时改 False 并取消注释原逻辑块即可。
-SKIP_BIAS: bool = True
+# 乖离率数据源已改为直连（腾讯/东财，见 bias/direct_feeds.py），不再依赖 akshare/东财限流；
+# 现已放开（SKIP_BIAS=False）。直连+兜底均失败时，单个品种会标 stale 或整批为空，不阻断主流程。
+SKIP_BIAS: bool = False
 
 
 class TemperatureJob(SyncJob):
@@ -262,7 +262,7 @@ class TemperatureJob(SyncJob):
                 if r.get('kind') == 'multi':
                     kept.append(r)  # 乖离率滞后数据仍可用，保留落库供前端提示
                 else:
-                    logger.debug(f"丢弃失效源记录: {r.get('source')}")
+                    logger.debug(f'丢弃失效源记录: {r.get("source")}')
             else:
                 kept.append(r)
         return kept

@@ -2,15 +2,17 @@
 # File : requests_patch.py
 # 全局请求补丁：让所有 akshare / requests 调用自动带浏览器头 + 连接复用 + 重试。
 #
-# 背景与根因（2026-08-01 本机 diag_em.py + akshare 源码实证）：
-#   乖离度同步曾大量报 RemoteDisconnected / schannel server closed abruptly。分两层处理：
-#   (1) host 重写（尝试性兜底，非已证实主因）：akshare 部分函数用 `80.push2.eastmoney.com`，
-#       另有函数用无前缀 `push2.eastmoney.com`。本机 curl 实测两 host 均 schannel 失败，
-#       故 host 子域差异并非根因；此处重写保留作保险，不改数据正确性。
-#   (2) 重试 + 限速（主要缓解手段）：东财按 IP 动态限流/临时封，裸请求瞬时 RST；
-#       → 3 次指数退避重试 + 限速兜底；配合 PriceFetcher 进程内重试与 calculate_batch 限速。
+# 背景与根因（2026-08-05 本机 diag_em.py 实证，已结案）：
+#   乖离度/行业同步曾大量报 RemoteDisconnected / ProxyError / schannel server closed abruptly。
+#   分三层处理：
+#   (1) host 重写（保险，非主因）：akshare 部分函数用 `80.push2.eastmoney.com`，另用无前缀
+#       `push2.eastmoney.com`。实测两 host 直连均返回 200，host 子域差异非根因；重写保留作保险。
+#   (2) 重试 + 限速（缓解手段）：3 次指数退避重试 + ak.set_option('request_interval', 3) 限速。
+#   (3) 关闭系统代理信任 trust_env（**真正根因修复**）：本机残留边车代理（127.0.0.1:31181，
+#       代理软件关了但系统代理开关/Winsock 仍解析为 https 代理），requests 默认 trust_env=True
+#       继承系统代理，把东财请求甩到已死本地端口 → ProxyError。diag 实测直连均 200、仅 akshare
+#       （继承代理）ProxyError，确认根因是代理残留而非东财反爬/IP 封。关 trust_env 后强制直连。
 #   曾试 curl_cffi(impersonate=chrome) 模拟 TLS 指纹，但 akshare 多请求链路里偶发 curl:(56) 断连，弃用。
-#   真实根因（本机）倾向 DevSidecar 边车代理 TLS 干扰或出口 IP 被封，待退出代理后 diag 验收确认。
 #
 # 做法（零配置、零手动维护）：
 #   进程启动时给 requests.Session 的 request 方法包一层装饰器（不替换实例，避免丢失
@@ -128,6 +130,13 @@ def install_requests_patch():
     @functools.wraps(_orig_session_init)
     def _session_init(self, *args, **kwargs):
         _orig_session_init(self, *args, **kwargs)
+        # 强制直连：双保险屏蔽系统代理残留（如 127.0.0.1:31181 边车代理，代理软件关了但
+        # 系统代理开关/Winsock 仍把它解析为 https 代理），否则东财/legulegu 请求会被甩到已死
+        # 本地端口 → ProxyError / RemoteDisconnected。
+        # 2026-08-05 diag_em.py 实证：裸 requests 仍继承系统代理报 ProxyError；
+        #   trust_env=False + proxies=None 双保险后强制直连，根因是代理残留而非东财反爬/IP 封。
+        self.trust_env = False
+        self.proxies = {'http': None, 'https': None}
         _install_retry_adapter(self)
 
     requests.Session.__init__ = _session_init
