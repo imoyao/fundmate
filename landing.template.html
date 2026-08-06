@@ -139,12 +139,15 @@
     }
     .eco-item:hover { color: var(--brand-700); border-color: var(--brand-400); }
     /* 真实品牌 Logo（混排进滚动条：灰度默认，悬停恢复彩色 + 红色阴影） */
-    .eco-logo { padding: 12px 20px; }
+    .eco-logo { padding: 12px 20px; gap: 8px; }
     .eco-logo img {
       height: 26px; width: auto; display: block;
       filter: grayscale(100%) opacity(0.6);
       transition: filter .25s var(--ease-patient);
     }
+    .eco-logo-text { font-size: 0.98rem; font-weight: 600; color: var(--text-secondary);
+      transition: color .22s var(--ease-patient); }
+    .eco-logo:hover .eco-logo-text { color: var(--brand-700); }
     .eco-logo:hover { border-color: var(--brand-400); box-shadow: 0 8px 22px rgba(204,61,39,0.30); }
     .eco-logo:hover img { filter: grayscale(0%) opacity(1) drop-shadow(0 4px 12px rgba(204,61,39,0.42)); }
     @keyframes marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
@@ -973,19 +976,19 @@
         </div>
       <div class="eco-marquee" data-reveal aria-hidden="true">
         <div class="eco-track">
-          {{#each eco.logos}}<div class="eco-item eco-logo" title="{{name}}"><img src="{{icon}}" alt="{{name}}" loading="lazy" /></div>{{/each}}
+          {{#each eco.logos}}<div class="eco-item eco-logo" title="{{name}}"><img src="{{icon}}" alt="{{name}}" loading="lazy" /><span class="eco-logo-text">{{name}}</span></div>{{/each}}
           {{#each eco.texts}}<span class="eco-item">{{.}}</span>{{/each}}
         </div>
       </div>
       <div class="eco-marquee eco-marquee--rev" data-reveal aria-hidden="true">
         <div class="eco-track">
-          {{#each eco.logos}}<div class="eco-item eco-logo" title="{{name}}"><img src="{{icon}}" alt="{{name}}" loading="lazy" /></div>{{/each}}
+          {{#each eco.logos}}<div class="eco-item eco-logo" title="{{name}}"><img src="{{icon}}" alt="{{name}}" loading="lazy" /><span class="eco-logo-text">{{name}}</span></div>{{/each}}
           {{#each eco.texts}}<span class="eco-item">{{.}}</span>{{/each}}
         </div>
       </div>
       <div class="eco-marquee" data-reveal aria-hidden="true">
         <div class="eco-track">
-          {{#each eco.logos}}<div class="eco-item eco-logo" title="{{name}}"><img src="{{icon}}" alt="{{name}}" loading="lazy" /></div>{{/each}}
+          {{#each eco.logos}}<div class="eco-item eco-logo" title="{{name}}"><img src="{{icon}}" alt="{{name}}" loading="lazy" /><span class="eco-logo-text">{{name}}</span></div>{{/each}}
           {{#each eco.texts}}<span class="eco-item">{{.}}</span>{{/each}}
         </div>
       </div>
