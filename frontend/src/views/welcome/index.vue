@@ -979,7 +979,18 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* 与之前一致，保持不变 */
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .welcome-container {
   font-family: var(
     --font-sans,
@@ -990,32 +1001,27 @@ onUnmounted(() => {
   );
 }
 
-@keyframes fadeUp {
-  from {
-    opacity: 0;
-    transform: translateY(24px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
 .card-enter {
-  animation: fadeUp 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
   opacity: 0;
+  animation: fadeUp 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
+
 .card-enter:nth-child(1) {
   animation-delay: 0.05s;
 }
+
 .card-enter:nth-child(2) {
   animation-delay: 0.1s;
 }
+
 .card-enter:nth-child(3) {
   animation-delay: 0.15s;
 }
+
 .card-enter:nth-child(4) {
   animation-delay: 0.2s;
 }
+
 .card-enter:nth-child(5) {
   animation-delay: 0.25s;
 }
@@ -1023,9 +1029,10 @@ onUnmounted(() => {
 .card-hover {
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
+
 .card-hover:hover {
-  transform: translateY(-3px);
   box-shadow: var(--shadow-float) !important;
+  transform: translateY(-3px);
 }
 
 .mental-account-item {
@@ -1033,6 +1040,7 @@ onUnmounted(() => {
     background-color 0.2s ease,
     border-color 0.2s ease;
 }
+
 .mental-account-item:hover {
   background-color: var(--bg-hover);
   border-color: var(--border-default) !important;
@@ -1044,9 +1052,10 @@ onUnmounted(() => {
     color 0.2s ease,
     transform 0.2s ease;
 }
+
 .hover-card-btn:hover {
-  background-color: var(--brand-700) !important;
   color: var(--bg-card) !important;
+  background-color: var(--brand-700) !important;
   transform: scale(1.05);
 }
 
@@ -1061,45 +1070,52 @@ onUnmounted(() => {
 .temp-bands {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
   gap: 10px 14px;
-  margin-top: 4px;
+  align-items: center;
   padding: 10px 12px;
-  border-radius: 12px;
+  margin-top: 4px;
   background: var(--bg-soft);
+  border-radius: 12px;
 }
+
 .temp-band {
   display: inline-flex;
-  align-items: center;
   gap: 5px;
+  align-items: center;
   font-size: 12px;
   line-height: 1.4;
 }
+
 .temp-band__label {
   color: var(--text-secondary);
   white-space: nowrap;
 }
+
 .temp-band__value {
   font-family: var(--font-mono, monospace);
-  font-variant-numeric: tabular-nums;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
   color: var(--text-primary);
 }
+
 .temp-band__pill {
   padding: 1px 7px;
-  border-radius: 999px;
   font-size: 11px;
   font-weight: 500;
   white-space: nowrap;
+  border-radius: 999px;
 }
+
 /* B3: 综合温度环下方结论副文案 */
 .temp-conclusion {
-  margin-top: 8px;
   padding: 8px 12px;
-  border-radius: 10px;
-  background: var(--bg-soft);
+  margin-top: 8px;
   font-size: 13px;
   line-height: 1.5;
   color: var(--text-secondary);
+  background: var(--bg-soft);
+  border-radius: 10px;
 }
+
+/* 与之前一致，保持不变 */
 </style>

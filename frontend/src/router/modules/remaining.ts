@@ -37,7 +37,7 @@ export default [
     component: () => import("@/views/explore/index.vue"),
     meta: {
       title: "探市",
-      showLink: false,        // 不在菜单中显示
+      showLink: false // 不在菜单中显示
     }
   },
   // 在 remaining 路由数组中新增温度计页面
@@ -48,8 +48,8 @@ export default [
     meta: {
       title: "市场温度计",
       showLink: false,
-      requiresAuth: true, // 专属数据，需要登录才能访问
-    },
+      requiresAuth: false // 探市免登录（D4），与后端 /api/temperature/* 白名单一致
+    }
   },
   {
     path: "/redirect",

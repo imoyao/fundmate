@@ -257,13 +257,14 @@ const visible = computed({
 .settings-card {
   transition: all 0.15s ease;
 }
+
 .settings-card:hover {
   box-shadow: var(--shadow-float) !important;
 }
 
 /* 主按钮动效 */
 :deep(.el-button--primary:active) {
-  transform: translateY(1px) scale(0.96);
   box-shadow: none !important;
+  transform: translateY(1px) scale(0.96);
 }
 </style>

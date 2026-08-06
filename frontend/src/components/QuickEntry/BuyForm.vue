@@ -104,7 +104,7 @@
         :loading="searchLoading"
         clearable
         class="w-full"
-        style="width: 100%; display: block"
+        style="display: block; width: 100%"
         @change="onSecuritySelected"
       >
         <el-option
@@ -311,7 +311,7 @@
       <el-select
         v-model="form.allocation"
         class="w-full"
-        style="width: 100%; display: block"
+        style="display: block; width: 100%"
         placeholder="选择配置目标"
       >
         <el-option
@@ -914,11 +914,11 @@ defineExpose({ handleSubmit, resetForm });
 .quick-ratio-btn {
   height: 40px;
   padding: 0 16px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-default);
-  background-color: transparent;
-  color: var(--text-secondary);
   font-weight: 500;
+  color: var(--text-secondary);
+  background-color: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
   transition:
     background-color 0.2s,
     border-color 0.2s,
@@ -927,16 +927,16 @@ defineExpose({ handleSubmit, resetForm });
 }
 
 .quick-ratio-btn:hover {
+  color: var(--brand-700);
   background-color: var(--brand-100);
   border-color: var(--brand-700);
-  color: var(--brand-700);
 }
 
 .quick-ratio-btn:active {
-  transform: scale(0.92);
+  color: var(--brand-700);
   background-color: var(--brand-200);
   border-color: var(--brand-700);
-  color: var(--brand-700);
+  transform: scale(0.92);
 }
 
 :deep(.el-button--primary) {
@@ -945,32 +945,35 @@ defineExpose({ handleSubmit, resetForm });
     transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1),
     box-shadow 0.15s;
 }
+
 :deep(.el-button--primary:active) {
-  transform: translateY(1px);
   box-shadow: none !important;
+  transform: translateY(1px);
 }
 
 /* 输入框统一样式（高度、圆角、边框颜色、聚焦阴影） */
 :deep(.el-input__wrapper) {
-  height: 40px;
-  border-radius: var(--radius-sm);
   --el-input-border-color: var(--border-default);
   --el-input-hover-border-color: var(--brand-500);
   --el-input-focus-border-color: var(--brand-700);
   --el-input-focus-shadow:
     inset 0 0 0 1px var(--brand-700), 0 0 0 2px var(--bg-card),
     0 0 0 4px var(--brand-700);
+
+  height: 40px;
+  border-radius: var(--radius-sm);
 }
 
 /* 下拉框复用同样变量 */
 :deep(.el-select .el-input__wrapper) {
-  height: 40px;
-  border-radius: var(--radius-sm);
   --el-input-border-color: var(--border-default);
   --el-input-hover-border-color: var(--brand-500);
   --el-input-focus-border-color: var(--brand-700);
   --el-input-focus-shadow:
     inset 0 0 0 1px var(--brand-700), 0 0 0 2px var(--bg-card),
     0 0 0 4px var(--brand-700);
+
+  height: 40px;
+  border-radius: var(--radius-sm);
 }
 </style>

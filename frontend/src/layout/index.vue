@@ -1,7 +1,15 @@
 <!-- frontend/src/layout/index.vue -->
 <template>
   <!-- 绑定背景色 -->
-  <div ref="appWrapperRef" :class="['app-wrapper', set.classes]" :style="{ backgroundColor: 'var(--bg-page)' }">
+  <div
+    ref="appWrapperRef"
+    :class="[
+      'app-wrapper',
+      set.classes,
+      { 'hide-global-fab': isGlobalFabHidden }
+    ]"
+    :style="{ backgroundColor: 'var(--bg-page)' }"
+  >
     <div
       v-show="
         set.device === 'mobile' &&
@@ -36,7 +44,10 @@
           ]"
         >
           <LayNavbar
-            v-if="!pureSetting.hiddenSideBar && (layout.includes('vertical') || layout.includes('mix'))"
+            v-if="
+              !pureSetting.hiddenSideBar &&
+              (layout.includes('vertical') || layout.includes('mix'))
+            "
           />
           <NavHorizontal
             v-if="!pureSetting.hiddenSideBar && layout.includes('horizontal')"
@@ -50,6 +61,9 @@
         <el-backtop
           title="回到顶部"
           target=".main-container .el-scrollbar__wrap"
+          :right="32"
+          :bottom="32"
+          class="back-to-top quick-entry-glass"
         >
           <BackTopIcon />
         </el-backtop>
@@ -65,7 +79,10 @@
           ]"
         >
           <LayNavbar
-            v-if="!pureSetting.hiddenSideBar && (layout.includes('vertical') || layout.includes('mix'))"
+            v-if="
+              !pureSetting.hiddenSideBar &&
+              (layout.includes('vertical') || layout.includes('mix'))
+            "
           />
           <NavHorizontal
             v-if="!pureSetting.hiddenSideBar && layout.includes('horizontal')"
@@ -78,9 +95,12 @@
     </div>
     <!-- 系统设置 -->
     <LaySetting />
-     <!-- 全局快速记账入口 -->
+    <!-- 全局快速记账入口 -->
     <QuickFab @open="showTransactionDrawer = true" />
-    <TransactionDrawer v-model="showTransactionDrawer" @submitted="onTransactionSubmitted" />
+    <TransactionDrawer
+      v-model="showTransactionDrawer"
+      @submitted="onTransactionSubmitted"
+    />
   </div>
 </template>
 
@@ -118,7 +138,7 @@ import NavVertical from "./components/lay-sidebar/NavVertical.vue";
 import NavHorizontal from "./components/lay-sidebar/NavHorizontal.vue";
 import BackTopIcon from "@/assets/svg/back_top.svg?component";
 
-import { QuickFab, TransactionDrawer  } from "@/components/QuickEntry";
+import { QuickFab, TransactionDrawer } from "@/components/QuickEntry";
 
 const appWrapperRef = ref();
 const { isDark } = useDark();
@@ -129,6 +149,8 @@ const route = useRoute();
 
 // 全局记账抽屉
 const showTransactionDrawer = ref(false);
+// 记账/录入类页面隐藏右下角全局悬浮控件（路由 meta.hideQuickEntry 标记）
+const isGlobalFabHidden = computed(() => route.meta?.hideQuickEntry === true);
 const onTransactionSubmitted = () => {
   // 记账成功后，可以在这里触发全局的资产刷新
   // 例如调用 store 中的 action 来更新仪表盘数据

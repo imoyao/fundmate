@@ -7,7 +7,7 @@ export function getLedgerColor(type: string): string {
     bank: "var(--tag-mint-green)",
     stock: "var(--color-danger)",
     fund: "var(--color-warning)",
-    property: "var(--color-accent)",
+    property: "var(--color-accent)"
   };
   return map[type] || "var(--color-neutral)";
 }

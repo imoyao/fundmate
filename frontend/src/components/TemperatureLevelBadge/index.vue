@@ -75,39 +75,41 @@ const sizeClass = computed(() => `size-${props.size}`);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  white-space: nowrap;
   font-weight: 500;
-  border-radius: var(--radius-pill, 9999px);
   line-height: 1.4;
-  transition: background-color 150ms ease, color 150ms ease;
+  white-space: nowrap;
+  border-radius: var(--radius-pill, 9999px);
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
 }
 
 /* ===== 尺寸 ===== */
 .temperature-level-badge.size-md {
-  font-size: 13px;
   padding: 2px 10px;
+  font-size: 13px;
 }
 
 .temperature-level-badge.size-sm {
-  font-size: 12px;
   padding: 1px 8px;
+  font-size: 12px;
 }
 
 /* ===== 低温·机会区（绿） ===== */
 .temperature-level-badge.tone-low {
-  background: var(--temp-low-bg);
   color: var(--temp-low);
+  background: var(--temp-low-bg);
 }
 
 /* ===== 适中·平稳（暖沙金） ===== */
 .temperature-level-badge.tone-mid {
-  background: var(--temp-mid-bg);
   color: var(--temp-mid);
+  background: var(--temp-mid-bg);
 }
 
 /* ===== 高温·谨慎区（红，独立于品牌涨色） ===== */
 .temperature-level-badge.tone-high {
-  background: var(--temp-high-bg);
   color: var(--temp-high);
+  background: var(--temp-high-bg);
 }
 </style>

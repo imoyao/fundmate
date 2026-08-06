@@ -99,7 +99,7 @@ async function fetchTencentData(
   code: string,
   type: "stock" | "fund"
 ): Promise<Quote | null> {
-  return new Promise((resolve) => {
+  return new Promise(resolve => {
     const fullCode = toExternalCode(code, type);
     const varName = `v_${fullCode}`;
     const script = document.createElement("script");
@@ -141,7 +141,8 @@ async function fetchTencentData(
               type: "fund",
               currentPrice: price,
               changePct: !isNaN(changePct) ? changePct : 0,
-              updateTime: parts[8] || new Date().toISOString().slice(0, 10) + " 00:00",
+              updateTime:
+                parts[8] || new Date().toISOString().slice(0, 10) + " 00:00",
               source: "tencent"
             });
             return;
@@ -154,9 +155,14 @@ async function fetchTencentData(
           const changePct = parseFloat(parts[32]);
           if (!isNaN(price)) {
             const timeStr = parts[30] || "";
-            const timeFormatted = timeStr.length >= 14
-              ? timeStr.slice(8, 10) + ":" + timeStr.slice(10, 12) + ":" + timeStr.slice(12, 14)
-              : "";
+            const timeFormatted =
+              timeStr.length >= 14
+                ? timeStr.slice(8, 10) +
+                  ":" +
+                  timeStr.slice(10, 12) +
+                  ":" +
+                  timeStr.slice(12, 14)
+                : "";
             resolve({
               symbol: code,
               type: "stock",

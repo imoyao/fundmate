@@ -1,4 +1,4 @@
-import { ref, computed, onMounted } from "vue";
+import { ref, computed } from "vue";
 import { useRouter } from "vue-router";
 import { supabase } from "@/utils/supabase";
 import type { User, Session } from "@supabase/supabase-js";
@@ -65,12 +65,6 @@ export function useSupabaseAuth() {
     return data.session;
   };
 
-  // 获取当前会话的 access_token（用于退出时传给后端做服务端作废）
-  const getAccessToken = async (): Promise<string | null> => {
-    const { data } = await supabase.auth.getSession();
-    return data.session?.access_token ?? null;
-  };
-
   // 初始化认证监听
   const initAuthListener = () => {
     supabase.auth.onAuthStateChange((event, newSession) => {
@@ -123,7 +117,7 @@ export function useSupabaseAuth() {
     if (!userId) throw new Error("用户未登录");
 
     // 1. 获取或创建「观察仓」分组
-    let groupId = await getOrCreateObservationGroup(userId);
+    const groupId = await getOrCreateObservationGroup(userId);
 
     // 2. 遍历迁移资产
     for (const h of holdings) {

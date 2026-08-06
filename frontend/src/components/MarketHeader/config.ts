@@ -11,8 +11,20 @@ export function useMarketHeaderNavs() {
   const router = useRouter();
 
   return [
-    { label: "探市", type: "link" as const, onClick: () => router.push("/explore") },
-    { label: "温度计", type: "link" as const, onClick: () => router.push("/temperature") },
-    { label: "自选", type: "primary" as const, onClick: () => router.push("/watchlist") }
+    {
+      label: "探市",
+      type: "link" as const,
+      onClick: () => router.push("/explore")
+    },
+    {
+      label: "温度计",
+      type: "link" as const,
+      onClick: () => router.push("/temperature")
+    },
+    {
+      label: "自选",
+      type: "primary" as const,
+      onClick: () => router.push("/watchlist")
+    }
   ];
 }

@@ -42,6 +42,27 @@
   display: none !important;
 }
 
+/* 全局浮窗玻璃样式（记账托盘 QuickFab / 回到顶部 el-backtop）
+   规范见 design.md「Elevation & Depth · 毛玻璃」/ design.dark.md；
+   token 定义于 colors.css / dark.scss，改动须双端同步并回归对比度 */
+.quick-entry-glass {
+  background-color: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-float);
+  backdrop-filter: blur(12px) saturate(160%);
+}
+
+.quick-entry-glass:hover {
+  background-color: var(--glass-bg-hover);
+}
+
+.el-backtop.quick-entry-glass {
+  --el-backtop-bg-color: var(--glass-bg);
+  --el-backtop-hover-bg-color: var(--glass-bg-hover);
+
+  transition: background-color 0.25s cubic-bezier(0.7, 0.3, 0.1, 1);
+}
+
 /* ============================================
    🆕 多倍贝 设计令牌
    ============================================ */
@@ -53,11 +74,11 @@
    ============================================ */
 .main-content {
   max-width: 1400px;
-  margin: 0 auto;
   padding: var(--space-12);
+  margin: 0 auto;
 }
 
-@media (max-width: 960px) {
+@media (width <= 960px) {
   .main-content {
     padding: var(--space-5);
   }

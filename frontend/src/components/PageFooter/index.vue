@@ -28,12 +28,12 @@
               rel="noopener"
               >{{ s.label }}</a
             >
-            <span v-else class="page-footer__source page-footer__source--static">{{
-              s.label
-            }}</span>
             <span
-              v-if="i < sources.length - 1"
-              class="page-footer__source-sep"
+              v-else
+              class="page-footer__source page-footer__source--static"
+              >{{ s.label }}</span
+            >
+            <span v-if="i < sources.length - 1" class="page-footer__source-sep"
               >·</span
             >
           </template>
@@ -55,15 +55,36 @@
             <g fill="var(--text-secondary)">
               <!-- 左上定位点 -->
               <rect x="8" y="8" width="26" height="26" rx="3" />
-              <rect x="13" y="13" width="16" height="16" rx="2" fill="var(--bg-card)" />
+              <rect
+                x="13"
+                y="13"
+                width="16"
+                height="16"
+                rx="2"
+                fill="var(--bg-card)"
+              />
               <rect x="16" y="16" width="10" height="10" rx="1" />
               <!-- 右上定位点 -->
               <rect x="66" y="8" width="26" height="26" rx="3" />
-              <rect x="71" y="13" width="16" height="16" rx="2" fill="var(--bg-card)" />
+              <rect
+                x="71"
+                y="13"
+                width="16"
+                height="16"
+                rx="2"
+                fill="var(--bg-card)"
+              />
               <rect x="74" y="16" width="10" height="10" rx="1" />
               <!-- 左下定位点 -->
               <rect x="8" y="66" width="26" height="26" rx="3" />
-              <rect x="13" y="71" width="16" height="16" rx="2" fill="var(--bg-card)" />
+              <rect
+                x="13"
+                y="71"
+                width="16"
+                height="16"
+                rx="2"
+                fill="var(--bg-card)"
+              />
               <rect x="16" y="74" width="10" height="10" rx="1" />
               <!-- 数据模块（装饰） -->
               <rect x="44" y="10" width="6" height="6" />
@@ -112,22 +133,27 @@ withDefaults(
 </script>
 
 <style lang="scss" scoped>
-/* 单一来源：frontend/design.md · 页脚规范 */
+@media (width <= 640px) {
+  .page-footer .footer-card {
+    flex-basis: 100%;
+  }
+}
+
 .page-footer {
-  margin-top: var(--space-section);
   padding-top: var(--space-standard);
+  margin-top: var(--space-section);
   background: var(--bg-page);
   border-top: 1px solid var(--border-light);
 
   &__inner {
-    max-width: 1280px;
-    margin: 0 auto;
-    padding: 0 24px;
     display: flex;
     flex-wrap: wrap;
     gap: 16px;
-    justify-content: space-between;
     align-items: center;
+    justify-content: space-between;
+    max-width: 1280px;
+    padding: 0 24px;
+    margin: 0 auto;
   }
 
   &__revisit {
@@ -135,25 +161,25 @@ withDefaults(
   }
 
   .revisit-text {
-    font-size: 14px;
-    color: var(--text-primary);
     margin: 0 0 12px;
+    font-size: 14px;
     line-height: 1.6;
+    color: var(--text-primary);
   }
 
   .revisit-list {
-    margin: 0 0 14px;
     padding-left: 18px;
-    color: var(--text-secondary);
+    margin: 0 0 14px;
     font-size: 13px;
     line-height: 1.9;
+    color: var(--text-secondary);
   }
 
   &__sources {
     display: flex;
     flex-wrap: wrap;
-    align-items: center;
     gap: 4px;
+    align-items: center;
     font-size: 12px;
     color: var(--text-tertiary);
   }
@@ -174,21 +200,21 @@ withDefaults(
   }
 
   &__source-sep {
-    color: var(--border-default);
     margin: 0 2px;
+    color: var(--border-default);
   }
 
   /* 公众号引导卡片：白底 + 浅边 + 柔和阴影，左文案右二维码，呈真实 CTA 形态 */
   .footer-card {
-    flex: 0 0 280px;
     display: flex;
-    align-items: center;
+    flex: 0 0 280px;
     gap: 14px;
+    align-items: center;
+    padding: 14px 18px;
     background: var(--bg-card);
     border: 1px solid var(--border-light);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-raised);
-    padding: 14px 18px;
 
     &__text {
       flex: 1 1 auto;
@@ -196,28 +222,28 @@ withDefaults(
     }
 
     &__title {
+      margin: 0 0 4px;
       font-size: 14px;
       font-weight: 600;
       color: var(--text-primary);
-      margin: 0 0 4px;
     }
 
     &__desc {
-      font-size: 12px;
-      color: var(--text-tertiary);
       margin: 0;
+      font-size: 12px;
       line-height: 1.5;
+      color: var(--text-tertiary);
     }
 
     &__qr {
+      box-sizing: border-box;
       flex: 0 0 auto;
       width: 76px;
       height: 76px;
+      padding: 6px;
+      background: var(--bg-card);
       border: 1px solid var(--border-light);
       border-radius: var(--radius-md);
-      background: var(--bg-card);
-      padding: 6px;
-      box-sizing: border-box;
     }
 
     &__qr-img {
@@ -229,17 +255,13 @@ withDefaults(
 
   &__copyright {
     max-width: 1280px;
-    margin: 16px auto 0;
     padding: 0 24px;
+    margin: 16px auto 0;
     font-size: 12px;
     color: var(--text-tertiary);
     text-align: center;
   }
 }
 
-@media (max-width: 640px) {
-  .page-footer .footer-card {
-    flex-basis: 100%;
-  }
-}
+/* 单一来源：frontend/design.md · 页脚规范 */
 </style>

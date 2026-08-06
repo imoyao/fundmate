@@ -185,9 +185,19 @@
 
             <div class="flex items-center gap-1">
               <span
-                v-if="!(editingGroupId !== null && group.key === `custom_${editingGroupId}`)"
+                v-if="
+                  !(
+                    editingGroupId !== null &&
+                    group.key === `custom_${editingGroupId}`
+                  )
+                "
                 class="text-xs font-mono"
-                :style="{ color: activeGroup === group.key ? 'var(--brand-700)' : 'var(--text-tertiary)' }"
+                :style="{
+                  color:
+                    activeGroup === group.key
+                      ? 'var(--brand-700)'
+                      : 'var(--text-tertiary)'
+                }"
               >
                 {{ group.count }}
               </span>
@@ -261,7 +271,10 @@
             <div class="flex items-center gap-6 text-sm">
               <span>
                 总市值：<strong :style="{ color: 'var(--text-primary)' }">
-                  {{ (realtime.summary as any).totalMarketValue?.toFixed(2) ?? "--" }}
+                  {{
+                    (realtime.summary as any).totalMarketValue?.toFixed(2) ??
+                    "--"
+                  }}
                 </strong>
               </span>
               <span>
@@ -289,9 +302,13 @@
                         : 'var(--color-fall)'
                   }"
                 >
-                  {{ ((realtime.summary as any).totalPnlPercent ?? 0) >= 0 ? "+" : ""
+                  {{
+                    ((realtime.summary as any).totalPnlPercent ?? 0) >= 0
+                      ? "+"
+                      : ""
                   }}{{
-                    (realtime.summary as any).totalPnlPercent?.toFixed(2) ?? "--"
+                    (realtime.summary as any).totalPnlPercent?.toFixed(2) ??
+                    "--"
                   }}% </span
                 >)
               </span>
@@ -300,7 +317,9 @@
         </template>
 
         <!-- 表格上方的分类切换与筛选行 (去除冗余文字，保留核心胶囊与下拉框) -->
-        <div class="flex flex-wrap items-center justify-between gap-2 mb-4 pb-3 border-b border-[var(--border-light)]">
+        <div
+          class="flex flex-wrap items-center justify-between gap-2 mb-4 pb-3 border-b border-[var(--border-light)]"
+        >
           <!-- 左侧：资产分类快速切换（28px 标准胶囊高度） -->
           <div class="flex items-center gap-2">
             <button
@@ -317,10 +336,14 @@
               <span>{{ item.label }}</span>
               <!-- 数量以轻微的透明度展示，层次分明 -->
               <template v-if="item.value === 'all'">
-                <span class="opacity-70 font-normal">{{ venueStats.total }}</span>
+                <span class="opacity-70 font-normal">{{
+                  venueStats.total
+                }}</span>
               </template>
               <template v-if="item.value === 'EXCHANGE'">
-                <span class="opacity-70 font-normal">{{ venueStats.exchange }}</span>
+                <span class="opacity-70 font-normal">{{
+                  venueStats.exchange
+                }}</span>
               </template>
               <template v-if="item.value === 'OTC'">
                 <span class="opacity-70 font-normal">{{ venueStats.otc }}</span>
@@ -1474,7 +1497,7 @@ function resetFilters() {
   selectedFilterTagIds.value = [];
 }
 
-async function handleTogglePin(row: WatchlistItem  | any) {
+async function handleTogglePin(row: WatchlistItem | any) {
   const r = row as WatchlistItem;
   try {
     await updateWatchlistItem(r.id, { is_pinned: !r.is_pinned });
@@ -1486,7 +1509,7 @@ async function handleTogglePin(row: WatchlistItem  | any) {
   }
 }
 
-async function handleToggleFavorite(row: WatchlistItem  | any) {
+async function handleToggleFavorite(row: WatchlistItem | any) {
   const r = row as WatchlistItem;
   try {
     await updateWatchlistItem(r.id, { favorite: !r.favorite });
@@ -1500,7 +1523,7 @@ async function handleToggleFavorite(row: WatchlistItem  | any) {
 
 function handleRowClick(row: WatchlistItem) {}
 
-function confirmRemove(row: WatchlistItem  | any) {
+function confirmRemove(row: WatchlistItem | any) {
   removingItem.value = row as WatchlistItem;
   removeScope.value = "all";
   removeDialogVisible.value = true;
@@ -1573,7 +1596,7 @@ async function createGroup() {
 // ─────────────────────────────────────────────
 // 标签管理相关
 // ─────────────────────────────────────────────
-const openTagEditor = (row: WatchlistItem  | any) => {
+const openTagEditor = (row: WatchlistItem | any) => {
   editingItem.value = row as WatchlistItem;
   editingItemNewTagIds.value = [];
   showNewTagFormInEditor.value = false;
@@ -1783,47 +1806,52 @@ const realtimeEnabled = computed(() => realtime.enabled.value);
 .text-xs {
   font-size: 0.75rem;
 }
+
 .add-tag-btn {
-  opacity: 0;
-  transition: opacity 0.2s;
   width: 20px;
   height: 20px;
   min-height: 20px;
+  opacity: 0;
+  transition: opacity 0.2s;
 }
+
 .el-table__row:hover .add-tag-btn {
   opacity: 1;
 }
+
 .add-tag-btn:only-child {
   opacity: 1;
 }
 
 /* 基金标识标签 */
 .fund-tag {
-  font-size: 10px;
   padding: 1px 4px;
-  border-radius: 4px;
-  background-color: var(--brand-100);
-  color: var(--brand-700);
+  font-size: 10px;
   line-height: 1.4;
+  color: var(--brand-700);
   white-space: nowrap;
+  background-color: var(--brand-100);
+  border-radius: 4px;
 }
 
 /* 颜色选择按钮 */
 .color-swatch-btn {
   width: 20px;
   height: 20px;
-  border-radius: 50%;
-  border: 2px solid transparent;
   cursor: pointer;
+  border: 2px solid transparent;
+  border-radius: 50%;
   transition: all 0.2s ease;
 }
+
 .color-swatch-btn.is-selected {
   border-color: var(--brand-700);
-  transform: scale(1.15);
   box-shadow:
     0 0 0 2px var(--bg-card),
     0 0 0 4px var(--brand-700);
+  transform: scale(1.15);
 }
+
 .color-swatch-btn:focus-visible {
   outline: none;
   box-shadow:
@@ -1837,22 +1865,26 @@ const realtimeEnabled = computed(() => realtime.enabled.value);
 .batch-move-select {
   min-width: 180px;
 }
+
 .batch-move-select :deep(.el-input__wrapper) {
-  border-radius: var(--radius-sm);
-  background-color: var(--bg-card);
-  box-shadow: none;
-  border: 1px solid var(--border-default);
-  transition: all 0.2s ease;
   padding-top: 0;
   padding-bottom: 0;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  box-shadow: none;
+  transition: all 0.2s ease;
 }
+
 .batch-move-select :deep(.el-input__suffix) {
   display: flex;
   align-items: center;
 }
+
 .batch-move-select :deep(.el-input__wrapper:hover) {
   border-color: var(--brand-500);
 }
+
 .batch-move-select :deep(.el-input__wrapper.is-focus) {
   border-color: var(--brand-700);
   box-shadow: var(--focus-ring);
@@ -1860,51 +1892,58 @@ const realtimeEnabled = computed(() => realtime.enabled.value);
 
 /* 删除选中按钮：幽灵危险按钮 */
 .batch-delete-btn {
-  border: 1px solid var(--color-danger);
   color: var(--color-danger);
   background-color: transparent;
+  border: 1px solid var(--color-danger);
   border-radius: var(--radius-sm);
   transition: all 0.2s ease;
 }
+
 .batch-delete-btn:hover {
-  background-color: var(--color-danger);
   color: #fff;
+  background-color: var(--color-danger);
   border-color: var(--color-danger);
 }
+
 .batch-delete-btn:active {
   transform: translateY(1px);
 }
+
 .batch-delete-btn:disabled {
-  opacity: 0.5;
+  color: var(--text-disabled);
   cursor: not-allowed;
   border-color: var(--text-disabled);
-  color: var(--text-disabled);
+  opacity: 0.5;
 }
+
 .batch-delete-btn:disabled:hover {
-  background-color: transparent;
   color: var(--text-disabled);
+  background-color: transparent;
 }
 
 /* ======================================
    基础输入框/下拉框样式
    ====================================== */
 :deep(.el-input__wrapper) {
-  border-radius: var(--radius-sm);
   --el-input-border-color: var(--border-default);
   --el-input-hover-border-color: var(--brand-500);
   --el-input-focus-border-color: var(--brand-700);
   --el-input-focus-shadow:
     inset 0 0 0 1px var(--brand-700), 0 0 0 2px var(--bg-card),
     0 0 0 4px var(--brand-700);
+
+  border-radius: var(--radius-sm);
 }
+
 :deep(.el-select .el-input__wrapper) {
-  border-radius: var(--radius-sm);
   --el-input-border-color: var(--border-default);
   --el-input-hover-border-color: var(--brand-500);
   --el-input-focus-border-color: var(--brand-700);
   --el-input-focus-shadow:
     inset 0 0 0 1px var(--brand-700), 0 0 0 2px var(--bg-card),
     0 0 0 4px var(--brand-700);
+
+  border-radius: var(--radius-sm);
 }
 
 /* ======================================
@@ -1913,22 +1952,25 @@ const realtimeEnabled = computed(() => realtime.enabled.value);
 
 /* 顶部筛选下拉框（现代极简风） */
 .top-bar :deep(.modern-filter-select .el-input__wrapper) {
+  padding: 0 12px;
   background-color: var(--bg-warm);
   border: none !important;
-  box-shadow: none !important;
   border-radius: var(--radius-pill);
-  padding: 0 12px;
+  box-shadow: none !important;
   transition: all 0.2s ease;
 }
+
 .top-bar :deep(.modern-filter-select .el-input__wrapper:hover) {
   background-color: var(--bg-hover);
 }
+
 .top-bar :deep(.modern-filter-select .el-input__wrapper.is-focus) {
+  background-color: #fff;
   box-shadow:
     0 0 0 2px var(--bg-card),
     0 0 0 4px var(--brand-700) !important;
-  background-color: #ffffff;
 }
+
 .top-bar :deep(.modern-filter-select .el-input__suffix-inner) {
   color: var(--text-tertiary);
 }
@@ -1937,9 +1979,10 @@ const realtimeEnabled = computed(() => realtime.enabled.value);
    按钮物理反馈（去除缩放，仅保留符合规范的 translateY）
    ====================================== */
 :deep(.el-button--primary:active) {
-  transform: translateY(1px);
   box-shadow: none !important;
+  transform: translateY(1px);
 }
+
 /* 规范要求：软按钮/其他按钮点击不进行缩放位移，仅背景加深 */
 :deep(.el-button.is-text:active) {
   transform: none;
@@ -1949,6 +1992,7 @@ const realtimeEnabled = computed(() => realtime.enabled.value);
 .tag-fade-leave-active {
   transition: all 0.2s ease;
 }
+
 .tag-fade-enter-from,
 .tag-fade-leave-to {
   opacity: 0;
@@ -1960,25 +2004,29 @@ const realtimeEnabled = computed(() => realtime.enabled.value);
    ====================================== */
 .tag-manager-dialog {
   :deep(.el-dialog) {
+    overflow: hidden;
+    background-color: var(--bg-card);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-modal);
-    background-color: var(--bg-card);
-    overflow: hidden;
   }
+
   :deep(.el-dialog__header) {
     padding: var(--space-standard);
     padding-bottom: var(--space-3);
-    border-bottom: 1px solid var(--border-light);
     margin-right: 0;
+    border-bottom: 1px solid var(--border-light);
   }
+
   :deep(.el-dialog__title) {
     font-size: var(--text-heading);
-    color: var(--text-primary);
     font-weight: 600;
+    color: var(--text-primary);
   }
+
   :deep(.el-dialog__body) {
     padding: var(--space-standard);
   }
+
   :deep(.el-dialog__footer) {
     padding: var(--space-standard);
     padding-top: var(--space-3);
@@ -1986,9 +2034,10 @@ const realtimeEnabled = computed(() => realtime.enabled.value);
   }
 
   :deep(.el-select .el-input__wrapper) {
+    --el-input-border-color: var(--border-default);
+
     height: 40px;
     border-radius: var(--radius-sm);
-    --el-input-border-color: var(--border-default);
   }
 }
 
@@ -1997,6 +2046,7 @@ const realtimeEnabled = computed(() => realtime.enabled.value);
   opacity: 0;
   transition: opacity 0.2s ease;
 }
+
 :deep(.el-table__row:hover .el-button) {
   opacity: 1;
 }

@@ -83,12 +83,19 @@
             <Motion v-if="isRegisterMode" :delay="300">
               <el-form-item prop="agreePolicy">
                 <div class="privacy-policy-wrapper">
-                  <el-checkbox v-model="ruleForm.agreePolicy" class="privacy-checkbox" />
+                  <el-checkbox
+                    v-model="ruleForm.agreePolicy"
+                    class="privacy-checkbox"
+                  />
                   <span class="privacy-text">
                     我已阅读并同意
-                    <el-link type="primary" @click="openPrivacyPolicy">《隐私政策》</el-link>
+                    <el-link type="primary" @click="openPrivacyPolicy"
+                      >《隐私政策》</el-link
+                    >
                     <span class="privacy-separator">·</span>
-                    <el-link type="primary" @click="openTerms">《服务条款》</el-link>
+                    <el-link type="primary" @click="openTerms"
+                      >《服务条款》</el-link
+                    >
                   </span>
                 </div>
               </el-form-item>
@@ -127,7 +134,10 @@
           </div>
 
           <!-- 注册成功提示 -->
-          <div v-if="!isRegisterMode && showRegisterSuccess" class="register-success mt-3">
+          <div
+            v-if="!isRegisterMode && showRegisterSuccess"
+            class="register-success mt-3"
+          >
             <el-alert
               title="注册成功！请查收验证邮件激活账户"
               type="success"
@@ -363,6 +373,21 @@ useEventListener(document, "keydown", ({ code }) => {
 </style>
 
 <style lang="scss" scoped>
+/* 响应式 */
+@media (width <= 480px) {
+  .privacy-policy-wrapper {
+    align-items: flex-start;
+
+    .privacy-checkbox {
+      margin-top: 2px;
+    }
+
+    .privacy-text {
+      font-size: 13px;
+    }
+  }
+}
+
 :deep(.el-input-group__append, .el-input-group__prepend) {
   padding: 0;
 }
@@ -370,8 +395,8 @@ useEventListener(document, "keydown", ({ code }) => {
 /* 隐私政策 */
 .privacy-policy-wrapper {
   display: flex;
-  align-items: center;
   gap: 8px;
+  align-items: center;
   padding: 4px 0;
   user-select: none;
 
@@ -382,12 +407,12 @@ useEventListener(document, "keydown", ({ code }) => {
 
   .privacy-text {
     font-size: 14px;
-    color: var(--text-secondary);
     line-height: 1.5;
+    color: var(--text-secondary);
 
     .el-link {
-      font-size: 14px;
       padding: 0 2px;
+      font-size: 14px;
       vertical-align: baseline;
     }
 
@@ -404,20 +429,5 @@ useEventListener(document, "keydown", ({ code }) => {
 
 .register-success {
   margin-top: 12px;
-}
-
-/* 响应式 */
-@media (max-width: 480px) {
-  .privacy-policy-wrapper {
-    align-items: flex-start;
-
-    .privacy-checkbox {
-      margin-top: 2px;
-    }
-
-    .privacy-text {
-      font-size: 13px;
-    }
-  }
 }
 </style>

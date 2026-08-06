@@ -129,18 +129,18 @@ const sizeClass = computed(() => {
 
 /* ===== 正负号 ===== */
 .rise-fall-text .sign {
-  font-family: var(--font-sans, Inter, -apple-system, sans-serif);
-  font-weight: 500;
-  font-size: 0.9em;
   margin-right: 1px;
+  font-family: var(--font-sans, Inter, -apple-system, sans-serif);
+  font-size: 0.9em;
+  font-weight: 500;
 }
 
 /* ===== 后缀 ===== */
 .rise-fall-text .suffix {
-  font-family: var(--font-sans, Inter, -apple-system, sans-serif);
-  font-weight: 400;
-  font-size: 0.8em;
   margin-left: 1px;
+  font-family: var(--font-sans, Inter, -apple-system, sans-serif);
+  font-size: 0.8em;
+  font-weight: 400;
   opacity: 0.7;
 }
 

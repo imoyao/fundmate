@@ -1299,27 +1299,31 @@ watch(holdingsList, () => {
   gap: 2px;
   line-height: 1.3;
 }
+
 .product-name {
   font-size: 14px;
   font-weight: 500;
   color: var(--text-primary);
 }
+
 .product-code-row {
   display: flex;
-  align-items: center;
   gap: 6px;
+  align-items: center;
 }
+
 .product-code {
   font-size: 12px;
   color: var(--text-tertiary);
 }
+
 .type-tag-inline {
-  font-size: 11px;
-  padding: 0 6px;
   height: 20px;
+  padding: 0 6px;
+  font-size: 11px;
   line-height: 20px;
-  border: none;
   color: #fff;
   background-color: var(--bg-page);
+  border: none;
 }
 </style>

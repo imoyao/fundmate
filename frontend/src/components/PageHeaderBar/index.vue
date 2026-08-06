@@ -32,48 +32,48 @@ withDefaults(
 <style lang="scss" scoped>
 /* 单一来源：frontend/design.md · 页头规范 */
 .page-header {
-  max-width: 1280px;
-  margin: 0 auto var(--space-section);
-  padding: 0 24px;
   display: flex;
+  gap: 16px;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
+  max-width: 1280px;
+  padding: 0 24px;
+  margin: 0 auto var(--space-section);
 
   &__title {
+    margin: 0;
     font-size: 24px;
     font-weight: 700;
-    color: var(--text-primary);
-    margin: 0;
     line-height: 1.3;
+    color: var(--text-primary);
   }
 
   &__subtitle {
-    font-size: 14px;
-    color: var(--text-secondary);
-    margin: 6px 0 0;
-    line-height: 1.5;
     max-width: 640px;
+    margin: 6px 0 0;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--text-secondary);
   }
 
   &__updated {
     display: inline-flex;
-    align-items: center;
     gap: 6px;
+    align-items: center;
+    padding: 4px 10px;
     font-size: 12px;
     color: var(--text-tertiary);
+    white-space: nowrap;
     background: var(--bg-soft);
     border: 1px solid var(--border-light);
-    padding: 4px 10px;
     border-radius: 999px;
-    white-space: nowrap;
   }
 
   &__dot {
     width: 6px;
     height: 6px;
-    border-radius: 50%;
     background: var(--c-success);
+    border-radius: 50%;
   }
 }
 </style>

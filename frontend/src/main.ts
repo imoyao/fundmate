@@ -16,17 +16,17 @@ import "./style/reset.scss";
 // 导入公共样式
 import "./style/index.scss";
 // 导入配色方案
-import './style/colors.css';
+import "./style/colors.css";
 // 一定要在main.ts中导入tailwind.css，防止vite每次hmr都会请求src/style/index.scss整体css文件导致热更新慢的问题
 import "./style/tailwind.css";
 // Element Plus 样式已通过 unplugin-element-plus 按需引入，不再全量加载
 // import "element-plus/dist/index.css";
-import '@/style/theme.scss';  // 确保在 Element Plus 之后加载
+import "@/style/theme.scss"; // 确保在 Element Plus 之后加载
 // 导入字体图标
 import "./assets/iconfont/iconfont.js";
 import "./assets/iconfont/iconfont.css";
-import { addCollection } from '@iconify/vue';
-import { icons as epIcons } from '@iconify-json/ep';
+import { addCollection } from "@iconify/vue";
+import { icons as epIcons } from "@iconify-json/ep";
 addCollection(epIcons);
 
 const app = createApp(App);

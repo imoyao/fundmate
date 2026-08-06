@@ -61,7 +61,8 @@ const HomeRouteConfig = {
       meta: {
         title: "全面盘点",
         icon: "ep:document-checked",
-        rank: 3
+        rank: 3,
+        hideQuickEntry: true
       }
     },
     {

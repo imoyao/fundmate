@@ -1,5 +1,5 @@
 // src/api/positions.ts
-import {http} from "@/utils/http";
+import { http } from "@/utils/http";
 import type {
   ApiResponse,
   Position,
@@ -11,7 +11,7 @@ const BASE_URL = "/api/positions/";
 
 /** 获取所有持仓记录 */
 export function getPositions(params?: Record<string, any>) {
-  return http.request<any>("get", BASE_URL, {params});
+  return http.request<any>("get", BASE_URL, { params });
 }
 
 /** 新增一条持仓记录 */
@@ -23,7 +23,7 @@ export function createPosition(data: PositionCreate) {
   };
   return http.request<ApiResponse<Position>>("post", BASE_URL, {
     data: body,
-    headers: {'Content-Type': 'application/json'},
+    headers: { "Content-Type": "application/json" }
   });
 }
 
@@ -36,9 +36,12 @@ export function updatePosition(id: number, data: PositionUpdate) {
 
 /** 删除一条持仓记录 */
 /** 删除持仓，可选择同时删除关联交易 */
-export function deletePosition(id: number, deleteTransactions: boolean = false) {
+export function deletePosition(
+  id: number,
+  deleteTransactions: boolean = false
+) {
   return http.request<any>("delete", `${BASE_URL}/${id}/`, {
-    params: { delete_transactions: deleteTransactions },
+    params: { delete_transactions: deleteTransactions }
   });
 }
 
@@ -55,7 +58,7 @@ export function validateTradeOrder(data: {
   type: string;
   current_hold: number;
   order_qty: number;
-  op_type: 'buy' | 'sell';
+  op_type: "buy" | "sell";
 }) {
   return http.request<any>("post", `${BASE_URL}/validate/`, { data });
 }

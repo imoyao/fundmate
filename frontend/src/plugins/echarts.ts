@@ -21,7 +21,7 @@ use([
   CanvasRenderer,
   GridComponent,
   LegendComponent,
-  GraphicComponent,   // 用于 echarts.graphic.LinearGradient 面积渐变
+  GraphicComponent, // 用于 echarts.graphic.LinearGradient 面积渐变
   TooltipComponent
 ]);
 

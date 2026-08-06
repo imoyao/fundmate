@@ -850,38 +850,43 @@ onMounted(() => {
   display: flex;
   gap: 4px;
 }
+
 .balance-btn {
+  position: relative;
+  padding: 4px 14px;
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--text-tertiary);
+  cursor: pointer;
   background: transparent;
   border: none;
-  color: var(--text-tertiary);
-  font-size: 14px;
-  padding: 4px 14px;
-  cursor: pointer;
   border-radius: 4px;
   transition: color 0.2s;
-  position: relative;
-  font-weight: 400;
 }
+
 .balance-btn.active {
   font-weight: 600;
   color: var(--text-primary);
 }
+
 .balance-btn.active::after {
-  content: "";
   position: absolute;
+  right: 8px;
   bottom: 0;
   left: 8px;
-  right: 8px;
   height: 2px;
+  content: "";
   background: var(--brand-700);
   border-radius: 1px;
 }
+
 .summary-card {
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
+
 .summary-card:hover {
-  transform: translateY(-3px);
   box-shadow: var(--shadow-float);
+  transform: translateY(-3px);
 }
 
 /* 胶囊形状：el-tag */
@@ -893,6 +898,7 @@ onMounted(() => {
 :deep(.el-segmented) {
   border-radius: 9999px;
 }
+
 :deep(.el-segmented .el-segmented__item) {
   border-radius: 9999px;
 }

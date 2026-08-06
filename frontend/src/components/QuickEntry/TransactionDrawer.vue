@@ -116,11 +116,12 @@ function goToInventory() {
 :deep(.el-drawer__footer) {
   position: sticky;
   bottom: 0;
-  background: var(--bg-card);
-  padding-top: 12px;
-  border-top: 1px solid var(--border-default);
   z-index: 10;
+  padding-top: 12px;
+  background: var(--bg-card);
+  border-top: 1px solid var(--border-default);
 }
+
 :deep(.el-drawer__body) {
   padding: 20px;
 }

@@ -23,12 +23,18 @@ export function deleteStrategyTag(id: number) {
 
 /** 为持仓绑定策略标签 */
 export function bindPositionTag(tagId: number, positionId: number) {
-  return http.request<any>("post", `/api/strategy/${tagId}/positions/${positionId}/`);
+  return http.request<any>(
+    "post",
+    `/api/strategy/${tagId}/positions/${positionId}/`
+  );
 }
 
 /** 为持仓解绑策略标签 */
 export function unbindPositionTag(tagId: number, positionId: number) {
-  return http.request<any>("delete", `/api/strategy/${tagId}/positions/${positionId}/`);
+  return http.request<any>(
+    "delete",
+    `/api/strategy/${tagId}/positions/${positionId}/`
+  );
 }
 
 /** 获取所有持仓的策略标签关联 */

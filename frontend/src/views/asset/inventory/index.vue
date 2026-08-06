@@ -846,7 +846,7 @@ const loadCategoryAssets = async (category: string) => {
   }
 };
 
-watch(activeCategory, (newVal) => {
+watch(activeCategory, newVal => {
   loadCategoryAssets(newVal);
 });
 
@@ -984,52 +984,59 @@ onMounted(() => {
 .category-tab {
   display: flex;
   flex-direction: column;
-  align-items: center;
   gap: 2px;
-  padding: 14px 16px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-default);
-  background: var(--bg-card);
-  cursor: pointer;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: var(--shadow-raised);
-  color: var(--text-secondary);
-  font-weight: 500;
+  align-items: center;
   min-height: 80px;
+  padding: 14px 16px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-raised);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
+
 .category-tab:hover {
-  transform: translateY(-2px);
   box-shadow: var(--shadow-float);
+  transform: translateY(-2px);
 }
+
 .category-tab.active {
   border-width: 2px;
 }
+
 .category-tab-label {
   font-size: 14px;
   color: inherit;
 }
+
 .category-tab-amount {
   font-size: 18px;
   font-weight: 700;
   color: var(--text-primary);
 }
+
 .category-tab-arrow {
   display: flex;
   align-items: center;
   justify-content: center;
+  margin-top: 2px;
   font-size: 16px;
   color: var(--text-tertiary);
-  margin-top: 2px;
 }
 
 /* 统一卡片样式（投资分布 & 快捷操作共用） */
 .summary-card-item {
   transition: all 0.2s ease;
 }
+
 .summary-card-item:hover {
-  transform: translateY(-2px);
   box-shadow: var(--shadow-float);
+  transform: translateY(-2px);
 }
+
 .summary-card-item:active {
   transform: scale(0.98);
 }
@@ -1039,13 +1046,16 @@ onMounted(() => {
   padding-top: 14px;
   padding-bottom: 14px;
 }
+
 :deep(.el-table__header th) {
   padding-top: 12px;
   padding-bottom: 12px;
 }
+
 :deep(.el-table td) {
   border-bottom-color: var(--border-light);
 }
+
 :deep(.el-table__body tr:hover > td) {
   background-color: var(--bg-hover) !important;
 }

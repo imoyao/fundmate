@@ -14,7 +14,6 @@
 </template>
 
 <script setup lang="ts">
-
 defineProps({
   /** 持仓名称，如 "金地集团" */
   name: { type: String, default: "" },
@@ -42,8 +41,8 @@ defineProps({
 
 .product-code-row {
   display: flex;
-  align-items: center;
   gap: 6px;
+  align-items: center;
 }
 
 .product-code {
@@ -53,13 +52,13 @@ defineProps({
 
 /* 类型标签样式优化 */
 .type-tag-inline {
-  font-size: 11px;
-  padding: 0 8px;
   height: 20px;
+  padding: 0 8px;
+  font-size: 11px;
   line-height: 20px;
-  border-radius: 8px;
-  border: 1px solid var(--border-default); /* 加个极细的边框，更有质感 */
   color: var(--text-secondary);
   background-color: var(--bg-page);
+  border: 1px solid var(--border-default); /* 加个极细的边框，更有质感 */
+  border-radius: 8px;
 }
 </style>

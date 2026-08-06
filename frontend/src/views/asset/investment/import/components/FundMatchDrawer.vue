@@ -2,22 +2,18 @@
 <template>
   <el-drawer
     :model-value="visible"
-    @update:model-value="$emit('update:modelValue', $event)"
     title="匹配基金代码"
     size="540px"
     direction="rtl"
     destroy-on-close
+    @update:model-value="$emit('update:modelValue', $event)"
   >
     <div class="fund-match-body">
       <p class="match-desc">
         以下基金缺少代码，请根据名称搜索匹配。选中后将自动应用到所有同名记录。
       </p>
 
-      <div
-        v-for="item in missingFundNames"
-        :key="item.name"
-        class="match-card"
-      >
+      <div v-for="item in missingFundNames" :key="item.name" class="match-card">
         <div class="match-card-header">
           <span class="match-fund-name">{{ item.name }}</span>
           <el-tag size="small" type="info">{{ item.count }} 条记录</el-tag>
@@ -49,11 +45,19 @@
         <!-- 已匹配状态：显示结果和清除按钮 -->
         <div v-else class="match-row matched">
           <div class="matched-info">
-            <IconifyIconOffline icon="ep:circle-check-filled" class="matched-icon" />
+            <IconifyIconOffline
+              icon="ep:circle-check-filled"
+              class="matched-icon"
+            />
             <span>{{ matchedMap[item.name].code }}</span>
             <span class="matched-name">{{ matchedMap[item.name].name }}</span>
           </div>
-          <el-button type="danger" text size="small" @click="clearMatch(item.name)">
+          <el-button
+            type="danger"
+            text
+            size="small"
+            @click="clearMatch(item.name)"
+          >
             <IconifyIconOffline icon="ep:delete" class="mr-1" />
             清除选择
           </el-button>
@@ -61,7 +65,12 @@
       </div>
 
       <div v-if="allMatched" class="all-matched-tip">
-        <el-alert title="所有基金已匹配完成" type="success" :closable="false" show-icon />
+        <el-alert
+          title="所有基金已匹配完成"
+          type="success"
+          :closable="false"
+          show-icon
+        />
       </div>
     </div>
   </el-drawer>
@@ -71,7 +80,7 @@
 import { ref, reactive, computed, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { IconifyIconOffline } from "@/components/ReIcon";
-import { searchFunds, calcFundNav} from "@/api/funds";
+import { searchFunds, calcFundNav } from "@/api/funds";
 
 interface MissingItem {
   name: string;
@@ -95,7 +104,9 @@ const searchLoading = reactive<Record<string, boolean>>({});
 const searchInputs = reactive<Record<string, string>>({});
 
 // 已匹配状态: { 基金名称 → 匹配到的基金对象 }
-const matchedMap = reactive<Record<string, { code: string; name: string } | null>>({});
+const matchedMap = reactive<
+  Record<string, { code: string; name: string } | null>
+>({});
 
 const allMatched = computed(() => {
   if (!props.missingFundNames.length) return false;
@@ -105,11 +116,8 @@ const allMatched = computed(() => {
 // 使用 computed 双向绑定
 const drawerVisible = computed({
   get: () => props.visible,
-  set: (val) => emit("update:modelValue", val),
+  set: val => emit("update:modelValue", val)
 });
-
-
-
 
 // 搜索基金
 async function searchFund(keyword: string, fundName: string) {
@@ -131,7 +139,9 @@ async function searchFund(keyword: string, fundName: string) {
 
 // 应用匹配
 async function applyMatch(fundName: string, code: string) {
-  const selected = (searchResults[fundName] || []).find((f: any) => f.code === code);
+  const selected = (searchResults[fundName] || []).find(
+    (f: any) => f.code === code
+  );
   if (!selected) return;
 
   // 1. 批量更新 previewData 中同名的记录，并收集需要填充净值的行
@@ -186,7 +196,9 @@ async function applyMatch(fundName: string, code: string) {
   }
 
   matchedMap[fundName] = { code: selected.code, name: selected.name };
-  ElMessage.success(`已为「${fundName}」匹配 ${selected.code}，应用 ${matchedRows.length} 条`);
+  ElMessage.success(
+    `已为「${fundName}」匹配 ${selected.code}，应用 ${matchedRows.length} 条`
+  );
 
   // 检查是否所有缺失基金都已匹配，如果是则自动关闭抽屉
   if (props.missingFundNames.every(item => matchedMap[item.name])) {
@@ -212,21 +224,24 @@ function clearMatch(fundName: string) {
 }
 
 // 打开抽屉时初始化：预填搜索框、清空旧状态
-watch(() => props.visible, (val) => {
-  if (val) {
-    // 重置搜索状态
-    Object.keys(searchResults).forEach(k => delete searchResults[k]);
-    Object.keys(searchLoading).forEach(k => delete searchLoading[k]);
-    Object.keys(matchedMap).forEach(k => delete matchedMap[k]);
+watch(
+  () => props.visible,
+  val => {
+    if (val) {
+      // 重置搜索状态
+      Object.keys(searchResults).forEach(k => delete searchResults[k]);
+      Object.keys(searchLoading).forEach(k => delete searchLoading[k]);
+      Object.keys(matchedMap).forEach(k => delete matchedMap[k]);
 
-    // 预填搜索框
-    props.missingFundNames.forEach(item => {
-      searchInputs[item.name] = item.name;
-    });
+      // 预填搜索框
+      props.missingFundNames.forEach(item => {
+        searchInputs[item.name] = item.name;
+      });
+    }
   }
-});
+);
 
-watch(allMatched, (val) => {
+watch(allMatched, val => {
   if (val) {
     ElMessage.success("所有基金已匹配完成");
     // 稍微延迟后关闭，让用户看到所有卡片都已完成
@@ -243,37 +258,37 @@ watch(allMatched, (val) => {
 }
 
 .match-desc {
-  font-size: 13px;
-  color: var(--text-secondary);
   margin-bottom: 20px;
+  font-size: 13px;
   line-height: 1.6;
+  color: var(--text-secondary);
 }
 
 .match-card {
+  padding: 16px;
+  margin-bottom: 14px;
   background: var(--bg-card);
   border: 1px solid var(--border-default);
   border-radius: 10px;
-  padding: 16px;
-  margin-bottom: 14px;
 }
 
 .match-card-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: space-between;
   margin-bottom: 12px;
 }
 
 .match-fund-name {
-  font-weight: 600;
   font-size: 14px;
+  font-weight: 600;
   color: var(--text-primary);
 }
 
 .match-row {
   display: flex;
-  align-items: center;
   gap: 10px;
+  align-items: center;
 }
 
 .match-select {
@@ -282,22 +297,22 @@ watch(allMatched, (val) => {
 
 .matched {
   justify-content: space-between;
+  padding: 8px 12px;
   background: var(--bg-muted);
   border-radius: 6px;
-  padding: 8px 12px;
 }
 
 .matched-info {
   display: flex;
-  align-items: center;
   gap: 8px;
+  align-items: center;
   font-size: 13px;
   color: var(--text-primary);
 }
 
 .matched-icon {
-  color: var(--color-success);
   font-size: 16px;
+  color: var(--color-success);
 }
 
 .matched-name {

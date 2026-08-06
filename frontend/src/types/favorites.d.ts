@@ -2,8 +2,8 @@ export interface FavoriteItem {
   id: number;
   symbol: string;
   display_name: string;
-  type: 'stock' | 'fund' | 'manager' | 'portfolio';
-  venue?: 'EXCHANGE' | 'OTC';
+  type: "stock" | "fund" | "manager" | "portfolio";
+  venue?: "EXCHANGE" | "OTC";
   notes_summary?: string;
   cleared_return_pct?: number;
   holding_days?: number;

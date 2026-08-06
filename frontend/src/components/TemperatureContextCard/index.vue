@@ -25,17 +25,18 @@
         <div class="context-item__value-row">
           <span class="context-item__value">{{ fgValue }}</span>
           <span class="context-item__unit">分</span>
-          <span class="context-item__hint">{{ fearGreedLabel || fearGreedText }}</span>
+          <span class="context-item__hint">{{
+            fearGreedLabel || fearGreedText
+          }}</span>
         </div>
       </div>
 
       <div v-if="periodList.length" class="context-periods">
-        <div
-          v-for="p in periodList"
-          :key="p.label"
-          class="context-period"
-        >
-          <span class="context-period__dot" :style="{ background: tempColor(p.value) }" />
+        <div v-for="p in periodList" :key="p.label" class="context-period">
+          <span
+            class="context-period__dot"
+            :style="{ background: tempColor(p.value) }"
+          />
           <span class="context-period__label">{{ p.label }}</span>
           <span class="context-period__value">{{ formatTemp(p.value) }}</span>
         </div>
@@ -99,7 +100,9 @@ const fearGreedText = computed(() => {
   return "极度贪婪";
 });
 
-const periodList = computed(() => (props.periods || []).filter(p => p.value !== null && p.value !== undefined));
+const periodList = computed(() =>
+  (props.periods || []).filter(p => p.value !== null && p.value !== undefined)
+);
 
 function formatTemp(v: number | null) {
   if (v === null || v === undefined || Number.isNaN(v)) return "--";
@@ -118,24 +121,26 @@ function tempColor(v: number | null) {
 .context-card {
   display: flex;
   flex-direction: column;
+  padding: 18px;
   background: var(--bg-card);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-raised);
-  padding: 18px;
-  transition: transform 150ms ease, box-shadow 150ms ease;
+  transition:
+    transform 150ms ease,
+    box-shadow 150ms ease;
 }
 
 .context-card:hover {
-  transform: translateY(-3px);
   box-shadow: var(--shadow-float);
+  transform: translateY(-3px);
 }
 
 .context-card__title-row {
   display: flex;
+  gap: 12px;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
   margin-bottom: 16px;
 }
 
@@ -146,32 +151,32 @@ function tempColor(v: number | null) {
 }
 
 .context-card__body {
-  flex: 1;
   display: flex;
+  flex: 1;
   flex-direction: column;
-  justify-content: center;
   gap: 18px;
+  justify-content: center;
 }
 
 .context-item__label {
   display: block;
+  margin-bottom: 6px;
   font-size: 12px;
   color: var(--text-tertiary);
-  margin-bottom: 6px;
 }
 
 .context-item__value-row {
   display: flex;
-  align-items: baseline;
   gap: 6px;
+  align-items: baseline;
 }
 
 .context-item__value {
   font-family: var(--font-mono, "SF Mono", "JetBrains Mono", monospace);
   font-size: 28px;
   font-weight: 700;
-  color: var(--text-primary);
   font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
 }
 
 .context-item__unit {
@@ -194,8 +199,8 @@ function tempColor(v: number | null) {
 
 .context-period {
   display: inline-flex;
-  align-items: center;
   gap: 6px;
+  align-items: center;
   padding: 6px 10px;
   background: var(--bg-soft);
   border-radius: var(--radius-pill);
@@ -216,8 +221,8 @@ function tempColor(v: number | null) {
   font-family: var(--font-mono, "SF Mono", "JetBrains Mono", monospace);
   font-size: 14px;
   font-weight: 600;
-  color: var(--text-primary);
   font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
 }
 
 .context-card__caption {

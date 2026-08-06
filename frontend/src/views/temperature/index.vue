@@ -2,14 +2,10 @@
 <template>
   <div class="temperature-page">
     <!-- 顶部导航（公共组件，与探市完全一致） -->
-    <MarketHeader
-      :logo="MARKET_LOGO"
-      badge="温度计"
-      :navs="headerNavs"
-    />
+    <MarketHeader :logo="MARKET_LOGO" badge="温度计" :navs="headerNavs" />
 
     <!-- 页面内容 -->
-    <div class="page-content" v-loading="loading">
+    <div v-loading="loading" class="page-content">
       <!-- 综合仪表盘 -->
       <section class="dashboard-section">
         <MetricGrid>
@@ -25,14 +21,14 @@
           />
 
           <!-- 核心指标卡片 -->
-        <MetricCard
-          v-for="metric in coreMetrics"
-          :key="metric.key"
-          :title="metric.title"
-          :value="metric.value"
-          :unit="metric.unit"
-          :level="metric.level"
-        />
+          <MetricCard
+            v-for="metric in coreMetrics"
+            :key="metric.key"
+            :title="metric.title"
+            :value="metric.value"
+            :unit="metric.unit"
+            :level="metric.level"
+          />
         </MetricGrid>
       </section>
 
@@ -60,7 +56,13 @@
               >
                 <div class="opportunity-head">
                   <span class="opportunity-name">{{ op.name }}</span>
-                  <span class="opportunity-tag">{{ op.tone === 'safe' ? '机会' : op.tone === 'danger' ? '风险' : '中性' }}</span>
+                  <span class="opportunity-tag">{{
+                    op.tone === "safe"
+                      ? "机会"
+                      : op.tone === "danger"
+                        ? "风险"
+                        : "中性"
+                  }}</span>
                 </div>
                 <p class="opportunity-desc">{{ op.desc }}</p>
               </div>
@@ -73,7 +75,11 @@
       <section class="chart-section">
         <SectionHeader title="综合温度趋势">
           <template #action>
-            <el-radio-group v-model="historyDays" size="small" @change="fetchHistory">
+            <el-radio-group
+              v-model="historyDays"
+              size="small"
+              @change="fetchHistory"
+            >
               <el-radio-button :value="30">30天</el-radio-button>
               <el-radio-button :value="90">90天</el-radio-button>
               <el-radio-button :value="180">半年</el-radio-button>
@@ -81,7 +87,12 @@
           </template>
         </SectionHeader>
         <div class="chart-wrapper">
-          <v-chart ref="chartRef" :option="chartOption" :autoresize="true" style="width:100%;height:300px;" />
+          <v-chart
+            ref="chartRef"
+            :option="chartOption"
+            :autoresize="true"
+            style="width: 100%; height: 300px"
+          />
         </div>
       </section>
 
@@ -89,7 +100,7 @@
       <section class="bias-section">
         <SectionHeader title="行业乖离度排行">
           <template #action>
-            <span class="bias-updated">更新：{{ biasDate || '暂无' }}</span>
+            <span class="bias-updated">更新：{{ biasDate || "暂无" }}</span>
             <el-tooltip
               v-if="biasStale"
               content="东财行情接口暂不可用，当前乖离率基于最近一次成功抓取的价格计算，非实时数据，仅供参考。"
@@ -100,20 +111,38 @@
           </template>
         </SectionHeader>
         <el-table
+          v-loading="biasLoading"
           :data="biasItems"
           border
-          style="width:100%"
-          v-loading="biasLoading"
+          style="width: 100%"
           max-height="520"
           :default-sort="{ prop: 'data.bias', order: 'ascending' }"
         >
-          <el-table-column prop="item_name" label="行业" min-width="140" sortable>
+          <el-table-column
+            prop="item_name"
+            label="行业"
+            min-width="140"
+            sortable
+          >
             <template #default="{ row }">
               <span>{{ row.item_name || row.name }}</span>
-              <el-tag v-if="row.stale" size="small" type="warning" effect="plain" class="bias-stale-tag">滞后</el-tag>
+              <el-tag
+                v-if="row.stale"
+                size="small"
+                type="warning"
+                effect="plain"
+                class="bias-stale-tag"
+                >滞后</el-tag
+              >
             </template>
           </el-table-column>
-          <el-table-column prop="data.bias" label="乖离率" width="130" align="right" sortable>
+          <el-table-column
+            prop="data.bias"
+            label="乖离率"
+            width="130"
+            align="right"
+            sortable
+          >
             <template #default="{ row }">
               <span :class="biasColorClass(row.data?.bias ?? row.logbias)">
                 {{ formatValue(row.data?.bias ?? row.logbias) }}%
@@ -138,36 +167,65 @@
               </div>
             </template>
           </el-table-column>
-          <el-table-column prop="data.position" label="波段位置" width="120" align="right" sortable>
+          <el-table-column
+            prop="data.position"
+            label="波段位置"
+            width="120"
+            align="right"
+            sortable
+          >
             <template #default="{ row }">
-              <span>{{ row.data?.position !== undefined ? row.data.position.toFixed(1) : '--' }}</span>
+              <span>{{
+                row.data?.position !== undefined
+                  ? row.data.position.toFixed(1)
+                  : "--"
+              }}</span>
             </template>
           </el-table-column>
-          <el-table-column prop="data.label" label="信号" width="130" align="center">
+          <el-table-column
+            prop="data.label"
+            label="信号"
+            width="130"
+            align="center"
+          >
             <template #default="{ row }">
               <el-tag
-                :type="(row.data?.label || row.label) === '高位区(绿卖)' ? 'danger' : (row.data?.label || row.label) === '低位区(红买)' ? 'success' : 'info'"
+                :type="
+                  (row.data?.label || row.label) === '高位区(绿卖)'
+                    ? 'danger'
+                    : (row.data?.label || row.label) === '低位区(红买)'
+                      ? 'success'
+                      : 'info'
+                "
                 size="small"
                 effect="dark"
               >
-                {{ row.data?.label || row.label || '中性' }}
+                {{ row.data?.label || row.label || "中性" }}
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="data.close" label="收盘价" width="120" align="right" sortable>
+          <el-table-column
+            prop="data.close"
+            label="收盘价"
+            width="120"
+            align="right"
+            sortable
+          >
             <template #default="{ row }">
               <span>{{ formatValue(row.data?.close ?? row.close) }}</span>
             </template>
           </el-table-column>
         </el-table>
-        <div v-if="!biasItems.length && !biasLoading" class="empty-state">暂无乖离率数据</div>
+        <div v-if="!biasItems.length && !biasLoading" class="empty-state">
+          暂无乖离率数据
+        </div>
       </section>
 
       <!-- 行业拥挤度排行：表格形式，与乖离度并列（不同维度） -->
       <section class="crowding-section">
         <SectionHeader title="行业拥挤度排行">
           <template #action>
-            <span class="bias-updated">更新：{{ crowdingDate || '暂无' }}</span>
+            <span class="bias-updated">更新：{{ crowdingDate || "暂无" }}</span>
             <el-tooltip
               v-if="crowdingStale"
               content="legulegu 数据源暂不可用，当前为最近一次成功计算的结果或占位提示，非实时数据，仅供参考。"
@@ -178,24 +236,49 @@
           </template>
         </SectionHeader>
         <el-table
+          v-loading="crowdingLoading"
           :data="crowdingValidItems"
           border
-          style="width:100%"
-          v-loading="crowdingLoading"
+          style="width: 100%"
           max-height="520"
           :default-sort="{ prop: 'data.crowding_pct', order: 'ascending' }"
         >
-          <el-table-column prop="item_name" label="行业" min-width="140" sortable>
+          <el-table-column
+            prop="item_name"
+            label="行业"
+            min-width="140"
+            sortable
+          >
             <template #default="{ row }">
               <span>{{ row.item_name }}</span>
-              <el-tag v-if="row.stale" size="small" type="warning" effect="plain" class="bias-stale-tag">滞后</el-tag>
+              <el-tag
+                v-if="row.stale"
+                size="small"
+                type="warning"
+                effect="plain"
+                class="bias-stale-tag"
+                >滞后</el-tag
+              >
             </template>
           </el-table-column>
-          <el-table-column prop="data.crowding_pct" label="拥挤度" width="220" align="right" sortable>
+          <el-table-column
+            prop="data.crowding_pct"
+            label="拥挤度"
+            width="220"
+            align="right"
+            sortable
+          >
             <template #default="{ row }">
               <div class="crowding-cell">
-                <span class="crowding-value" :class="crowdingColorClass(row.data?.crowding_pct)">
-                  {{ row.data?.crowding_pct != null ? row.data.crowding_pct.toFixed(1) + '%' : '--' }}
+                <span
+                  class="crowding-value"
+                  :class="crowdingColorClass(row.data?.crowding_pct)"
+                >
+                  {{
+                    row.data?.crowding_pct != null
+                      ? row.data.crowding_pct.toFixed(1) + "%"
+                      : "--"
+                  }}
                 </span>
                 <div class="crowding-cell-bar">
                   <div class="crowding-cell-track">
@@ -209,30 +292,62 @@
               </div>
             </template>
           </el-table-column>
-          <el-table-column prop="data.multiple" label="PB倍数" width="110" align="right" sortable>
+          <el-table-column
+            prop="data.multiple"
+            label="PB倍数"
+            width="110"
+            align="right"
+            sortable
+          >
             <template #default="{ row }">
-              <span>{{ row.data?.multiple != null ? row.data.multiple.toFixed(2) : '--' }}</span>
+              <span>{{
+                row.data?.multiple != null ? row.data.multiple.toFixed(2) : "--"
+              }}</span>
             </template>
           </el-table-column>
-          <el-table-column prop="data.ind_pb" label="行业PB" width="110" align="right" sortable>
+          <el-table-column
+            prop="data.ind_pb"
+            label="行业PB"
+            width="110"
+            align="right"
+            sortable
+          >
             <template #default="{ row }">
-              <span>{{ row.data?.ind_pb != null ? row.data.ind_pb.toFixed(2) : '--' }}</span>
+              <span>{{
+                row.data?.ind_pb != null ? row.data.ind_pb.toFixed(2) : "--"
+              }}</span>
             </template>
           </el-table-column>
-          <el-table-column prop="data.mkt_pb" label="全A中位PB" width="120" align="right" sortable>
+          <el-table-column
+            prop="data.mkt_pb"
+            label="全A中位PB"
+            width="120"
+            align="right"
+            sortable
+          >
             <template #default="{ row }">
-              <span>{{ row.data?.mkt_pb != null ? row.data.mkt_pb.toFixed(2) : '--' }}</span>
+              <span>{{
+                row.data?.mkt_pb != null ? row.data.mkt_pb.toFixed(2) : "--"
+              }}</span>
             </template>
           </el-table-column>
           <el-table-column label="说明" min-width="140">
             <template #default="{ row }">
-              <span v-if="!row.data?.hist_ok" class="crowding-note-tag">分位待历史积累</span>
-              <span v-else class="crowding-note">{{ row.data?.note || '' }}</span>
+              <span v-if="!row.data?.hist_ok" class="crowding-note-tag"
+                >分位待历史积累</span
+              >
+              <span v-else class="crowding-note">{{
+                row.data?.note || ""
+              }}</span>
             </template>
           </el-table-column>
         </el-table>
-        <div v-if="!crowdingValidItems.length && !crowdingLoading" class="empty-state">
-          行业拥挤度数据暂不可用（legulegu 数据源受限，本机运行一次建立历史缓存后自动恢复）。
+        <div
+          v-if="!crowdingValidItems.length && !crowdingLoading"
+          class="empty-state"
+        >
+          行业拥挤度数据暂不可用（legulegu
+          数据源受限，本机运行一次建立历史缓存后自动恢复）。
         </div>
       </section>
 
@@ -261,14 +376,19 @@
             <div class="col-source">
               <span class="source-tag">{{ displaySource(item.source) }}</span>
             </div>
-            <div class="col-value" :class="valueColorClass(item.value, item.label)">
-              {{ formatValue(item.value) }}{{ item.unit || '' }}
+            <div
+              class="col-value"
+              :class="valueColorClass(item.value, item.label)"
+            >
+              {{ formatValue(item.value) }}{{ item.unit || "" }}
             </div>
             <div class="col-label">
               <TemperatureLevelBadge :level="item.label" size="sm" />
             </div>
           </div>
-          <div v-if="!detailMetrics.length" class="empty-state">暂无更多指标</div>
+          <div v-if="!detailMetrics.length" class="empty-state">
+            暂无更多指标
+          </div>
         </div>
       </section>
     </div>
@@ -292,7 +412,11 @@ import { ref, computed, onMounted, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { InfoFilled } from "@element-plus/icons-vue";
 import VChart from "vue-echarts";
-import { getTemperatureOverview, getTemperatureHistory, getMultiItems } from "@/api/temperature";
+import {
+  getTemperatureOverview,
+  getTemperatureHistory,
+  getMultiItems
+} from "@/api/temperature";
 import MarketHeader from "@/components/MarketHeader/index.vue";
 import PageFooter from "@/components/PageFooter/index.vue";
 import TemperatureGaugeCard from "@/components/TemperatureGaugeCard/index.vue";
@@ -300,7 +424,10 @@ import SectionHeader from "@/components/SectionHeader/index.vue";
 import TemperatureContextCard from "@/components/TemperatureContextCard/index.vue";
 import TemperatureLevelBadge from "@/components/TemperatureLevelBadge/index.vue";
 import { useTemperatureStore } from "@/store/modules/temperature";
-import { MARKET_LOGO, useMarketHeaderNavs } from "@/components/MarketHeader/config";
+import {
+  MARKET_LOGO,
+  useMarketHeaderNavs
+} from "@/components/MarketHeader/config";
 import { buildMarketFooterSources } from "@/components/MarketFooter/config";
 
 // 温度三色：动态读取全局 token（src/style/colors.css 的 --temp-*），
@@ -328,7 +455,11 @@ defineOptions({
 // ================================================================
 const loading = ref(false);
 const overview = ref<any>(null);
-const historyData = ref<{ dates: string[]; values: (number | null)[]; levels?: string[] }>({ dates: [], values: [] });
+const historyData = ref<{
+  dates: string[];
+  values: (number | null)[];
+  levels?: string[];
+}>({ dates: [], values: [] });
 const historyDays = ref(90);
 const biasItems = ref<any[]>([]);
 const biasDate = ref<string>("");
@@ -385,7 +516,9 @@ const tempPeriods = computed(() => {
 const coreMetrics = computed(() => {
   const singles = overview.value?.singles || [];
   const map: Record<string, any> = {};
-  singles.forEach((s: any) => { map[s.source] = s; });
+  singles.forEach((s: any) => {
+    map[s.source] = s;
+  });
 
   const result = [];
 
@@ -396,7 +529,7 @@ const coreMetrics = computed(() => {
       key: "fear",
       title: "恐惧贪婪",
       value: fear.value,
-      level: fear.label,
+      level: fear.label
     });
   }
 
@@ -408,7 +541,7 @@ const coreMetrics = computed(() => {
       title: "股债性价比",
       value: selfCalc.percent,
       unit: "%",
-      level: selfCalc.level,
+      level: selfCalc.level
     });
   }
 
@@ -420,7 +553,7 @@ const coreMetrics = computed(() => {
       title: "可转债",
       value: cb.value,
       unit: "°",
-      level: cb.label,
+      level: cb.label
     });
   }
 
@@ -432,7 +565,7 @@ const coreMetrics = computed(() => {
       title: "成交额",
       value: vol.value,
       unit: "亿",
-      level: vol.label,
+      level: vol.label
     });
   }
 
@@ -440,7 +573,11 @@ const coreMetrics = computed(() => {
 });
 
 // 已在顶部核心指标展示过的 singles source，底部「全部市场温度指标」区域过滤掉，避免同页信息重复
-const CORE_SINGLE_SOURCES = ["jiucaishuo_fear", "jisilu_cb", "eastmoney_volume"];
+const CORE_SINGLE_SOURCES = [
+  "jiucaishuo_fear",
+  "jisilu_cb",
+  "eastmoney_volume"
+];
 
 // 全部单值指标（过滤核心指标，按数据分层展示）
 const detailMetrics = computed(() => {
@@ -483,15 +620,27 @@ function biasBarStyle(bias: number) {
   const isPositive = clamped >= 0;
   return {
     width: `${percent}%`,
-    left: isPositive ? "50%" : `${50 - percent}%`,
+    left: isPositive ? "50%" : `${50 - percent}%`
   };
 }
 
 function valueColorClass(value: number | null, label?: string): string {
   if (value === null || value === undefined) return "";
   const text = String(label || "");
-  if (text.includes("低") || text.includes("冷") || text.includes("恐惧") || text.includes("低估")) return "val-low";
-  if (text.includes("高") || text.includes("热") || text.includes("贪婪") || text.includes("高估")) return "val-high";
+  if (
+    text.includes("低") ||
+    text.includes("冷") ||
+    text.includes("恐惧") ||
+    text.includes("低估")
+  )
+    return "val-low";
+  if (
+    text.includes("高") ||
+    text.includes("热") ||
+    text.includes("贪婪") ||
+    text.includes("高估")
+  )
+    return "val-high";
   return "val-mid";
 }
 
@@ -521,7 +670,7 @@ const SOURCE_DISPLAY_NAMES: Record<string, string> = {
   eastmoney: "东财",
   self_calc: "自算",
   fulai: "富来智投",
-  default: "",
+  default: ""
 };
 
 function displaySource(source?: string): string {
@@ -536,7 +685,7 @@ const chartOption = computed(() => {
   const levels = historyData.value.levels || [];
 
   // 计算颜色：根据 level 决定（复用 TEMP_COLORS，与全局 token 一致）
-  const colors = levels.map((level) => {
+  const colors = levels.map(level => {
     if (level === "偏低" || level === "低估") return TEMP_COLORS.low;
     if (level === "偏高" || level === "高估") return TEMP_COLORS.high;
     return TEMP_COLORS.mid;
@@ -550,33 +699,33 @@ const chartOption = computed(() => {
         const idx = p.dataIndex;
         const level = levels[idx] || "";
         return `${p.axisValue}<br/>综合温度: ${p.value}°<br/>等级: ${level}`;
-      },
+      }
     },
     grid: {
       left: 50,
       right: 20,
       top: 20,
-      bottom: 30,
+      bottom: 30
     },
     xAxis: {
       type: "category",
       data: dates,
       axisLabel: {
         rotate: 30,
-        fontSize: 11,
-      },
+        fontSize: 11
+      }
     },
     yAxis: {
       type: "value",
       min: 0,
       max: 100,
       splitLine: {
-        lineStyle: { color: "var(--border-light)", type: "dashed" },
+        lineStyle: { color: "var(--border-light)", type: "dashed" }
       },
       axisLabel: {
         formatter: "{value}°",
-        fontSize: 11,
-      },
+        fontSize: 11
+      }
     },
     series: [
       {
@@ -588,7 +737,7 @@ const chartOption = computed(() => {
         symbolSize: 6,
         lineStyle: {
           color: "var(--brand-700)",
-          width: 2,
+          width: 2
         },
         areaStyle: {
           color: {
@@ -599,31 +748,52 @@ const chartOption = computed(() => {
             y2: 1,
             colorStops: [
               { offset: 0, color: "rgba(227, 79, 56, 0.3)" },
-              { offset: 1, color: "rgba(227, 79, 56, 0.05)" },
-            ],
-          },
+              { offset: 1, color: "rgba(227, 79, 56, 0.05)" }
+            ]
+          }
         },
         itemStyle: {
           color: (params: any) => {
             const idx = params.dataIndex;
             return colors[idx] || "var(--brand-700)";
-          },
+          }
         },
         markLine: {
           silent: true,
           data: [
-            { yAxis: 70, label: { formatter: "偏高", color: "var(--text-tertiary)", fontSize: 11 } },
-            { yAxis: 40, label: { formatter: "适中", color: "var(--text-tertiary)", fontSize: 11 } },
-            { yAxis: 25, label: { formatter: "偏低", color: "var(--text-tertiary)", fontSize: 11 } },
+            {
+              yAxis: 70,
+              label: {
+                formatter: "偏高",
+                color: "var(--text-tertiary)",
+                fontSize: 11
+              }
+            },
+            {
+              yAxis: 40,
+              label: {
+                formatter: "适中",
+                color: "var(--text-tertiary)",
+                fontSize: 11
+              }
+            },
+            {
+              yAxis: 25,
+              label: {
+                formatter: "偏低",
+                color: "var(--text-tertiary)",
+                fontSize: 11
+              }
+            }
           ],
           lineStyle: {
             color: "var(--border-default)",
             type: "dashed",
-            width: 1,
-          },
-        },
-      },
-    ],
+            width: 1
+          }
+        }
+      }
+    ]
   };
 });
 
@@ -725,9 +895,31 @@ watch(historyDays, () => {
 </script>
 
 <style lang="scss" scoped>
-/* ============================================================
-   温度计页面样式
-   ============================================================ */
+/* ===== 响应式 ===== */
+@media (width <= 960px) {
+  .context-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (width <= 768px) {
+  .page-content {
+    padding: 16px;
+  }
+
+  .metric-table-head,
+  .metric-table-row {
+    grid-template-columns: 2fr 80px 80px;
+    gap: 8px;
+    padding: 10px 12px;
+  }
+
+  .metric-table-head .col-source,
+  .metric-table-row .col-source {
+    display: none;
+  }
+}
+
 .temperature-page {
   min-height: 100vh;
   background: var(--bg-page);
@@ -736,8 +928,8 @@ watch(historyDays, () => {
 /* 页面内容 */
 .page-content {
   max-width: 1280px;
-  margin: 0 auto;
   padding: var(--space-standard) 24px 16px;
+  margin: 0 auto;
 }
 
 /* 仪表盘区域 */
@@ -751,12 +943,12 @@ watch(historyDays, () => {
 
 /* 图表区域 */
 .chart-section {
-  background: var(--bg-card);
-  border-radius: 12px;
   padding: 20px 24px;
-  border: 1px solid var(--border-light);
-  box-shadow: var(--shadow-raised);
   margin-bottom: 24px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  box-shadow: var(--shadow-raised);
 }
 
 .chart-wrapper {
@@ -771,12 +963,12 @@ watch(historyDays, () => {
 
 /* 乖离度排行 */
 .bias-section {
-  background: var(--bg-card);
-  border-radius: 12px;
   padding: 20px 24px;
-  border: 1px solid var(--border-light);
-  box-shadow: var(--shadow-raised);
   margin-bottom: 24px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  box-shadow: var(--shadow-raised);
 }
 
 /* 市场机会（temperature store） */
@@ -791,12 +983,12 @@ watch(historyDays, () => {
 }
 
 .opportunity-item {
-  background: var(--bg-card);
-  border-radius: 12px;
   padding: 16px 18px;
+  background: var(--bg-card);
   border: 1px solid var(--border-light);
-  box-shadow: var(--shadow-raised);
   border-left: 3px solid var(--text-tertiary);
+  border-radius: 12px;
+  box-shadow: var(--shadow-raised);
 }
 
 .opportunity-item--safe {
@@ -824,21 +1016,21 @@ watch(historyDays, () => {
 }
 
 .opportunity-tag {
-  font-size: 12px;
   padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--bg-subtle);
+  font-size: 12px;
   color: var(--text-secondary);
+  background: var(--bg-subtle);
+  border-radius: 999px;
 }
 
 .opportunity-item--safe .opportunity-tag {
-  background: color-mix(in srgb, var(--temp-low) 18%, transparent);
   color: var(--temp-low);
+  background: color-mix(in srgb, var(--temp-low) 18%, transparent);
 }
 
 .opportunity-item--danger .opportunity-tag {
-  background: color-mix(in srgb, var(--temp-high) 18%, transparent);
   color: var(--temp-high);
+  background: color-mix(in srgb, var(--temp-high) 18%, transparent);
 }
 
 .opportunity-desc {
@@ -854,17 +1046,22 @@ watch(historyDays, () => {
 }
 
 .bias-stale-pill {
-  margin-left: 8px;
   padding: 2px 8px;
-  border-radius: 6px 6px 6px 0;
+  margin-left: 8px;
   font-size: 11px;
   font-weight: 500;
   line-height: 1.4;
   color: var(--color-warning, #d97706);
-  background: color-mix(in srgb, var(--color-warning, #d97706) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--color-warning, #d97706) 35%, transparent);
-  cursor: help;
   white-space: nowrap;
+  cursor: help;
+  background: color-mix(
+    in srgb,
+    var(--color-warning, #d97706) 12%,
+    transparent
+  );
+  border: 1px solid
+    color-mix(in srgb, var(--color-warning, #d97706) 35%, transparent);
+  border-radius: 6px 6px 6px 0;
 }
 
 .bias-stale-tag {
@@ -874,9 +1071,9 @@ watch(historyDays, () => {
 
 .empty-state {
   padding: 40px 0;
-  text-align: center;
-  color: var(--text-tertiary);
   font-size: 14px;
+  color: var(--text-tertiary);
+  text-align: center;
 }
 
 :deep(.el-table) {
@@ -899,11 +1096,11 @@ watch(historyDays, () => {
 
 .context-card,
 .opportunity-card {
+  overflow: hidden;
   background: var(--bg-card);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-raised);
-  overflow: hidden;
 }
 
 .opportunity-card {
@@ -925,64 +1122,64 @@ watch(historyDays, () => {
 
 .opportunity-item {
   padding: 12px 14px;
-  border-radius: 10px;
-  border-left: 4px solid var(--border-light);
   background: var(--bg-subtle);
+  border-left: 4px solid var(--border-light);
+  border-radius: 10px;
 }
 
 .opportunity-item--safe {
-  border-left-color: var(--temp-low);
   background: color-mix(in srgb, var(--temp-low) 8%, var(--bg-subtle));
+  border-left-color: var(--temp-low);
 }
 
 .opportunity-item--danger {
-  border-left-color: var(--temp-high);
   background: color-mix(in srgb, var(--temp-high) 8%, var(--bg-subtle));
+  border-left-color: var(--temp-high);
 }
 
 .opportunity-item--neutral {
-  border-left-color: var(--temp-mid);
   background: color-mix(in srgb, var(--temp-mid) 8%, var(--bg-subtle));
+  border-left-color: var(--temp-mid);
 }
 
 .opportunity-head {
   display: flex;
+  gap: 8px;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
   margin-bottom: 6px;
 }
 
 .opportunity-name {
-  font-weight: 600;
   font-size: 14px;
+  font-weight: 600;
   color: var(--text-primary);
 }
 
 .opportunity-tag {
-  font-size: 11px;
   padding: 2px 8px;
-  border-radius: 10px;
-  background: var(--border-light);
+  font-size: 11px;
   color: var(--text-secondary);
   white-space: nowrap;
+  background: var(--border-light);
+  border-radius: 10px;
 }
 
 .opportunity-item--safe .opportunity-tag {
-  background: color-mix(in srgb, var(--temp-low) 18%, transparent);
   color: var(--temp-low);
+  background: color-mix(in srgb, var(--temp-low) 18%, transparent);
 }
 
 .opportunity-item--danger .opportunity-tag {
-  background: color-mix(in srgb, var(--temp-high) 18%, transparent);
   color: var(--temp-high);
+  background: color-mix(in srgb, var(--temp-high) 18%, transparent);
 }
 
 .opportunity-desc {
-  font-size: 13px;
-  color: var(--text-secondary);
-  line-height: 1.5;
   margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
 }
 
 /* ============================================================
@@ -997,20 +1194,20 @@ watch(historyDays, () => {
 .bias-cell-track {
   position: relative;
   height: 8px;
-  border-radius: 4px;
-  background: var(--border-default);
   overflow: hidden;
+  background: var(--border-default);
+  border-radius: 4px;
 }
 
 .bias-cell-zero {
   position: absolute;
-  left: 50%;
   top: 0;
   bottom: 0;
+  left: 50%;
+  z-index: 1;
   width: 2px;
   background: var(--text-tertiary);
   transform: translateX(-50%);
-  z-index: 1;
 }
 
 .bias-cell-fill {
@@ -1018,7 +1215,9 @@ watch(historyDays, () => {
   top: 0;
   height: 100%;
   border-radius: 4px;
-  transition: width 0.4s ease, left 0.4s ease;
+  transition:
+    width 0.4s ease,
+    left 0.4s ease;
 }
 
 .bias-cell-fill.bias-low,
@@ -1046,25 +1245,25 @@ watch(historyDays, () => {
    行业拥挤度排行表格
    ============================================================ */
 .crowding-section {
-  background: var(--bg-card);
-  border-radius: 12px;
   padding: 20px 24px;
-  border: 1px solid var(--border-light);
-  box-shadow: var(--shadow-raised);
   margin-bottom: 24px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  box-shadow: var(--shadow-raised);
 }
 
 .crowding-cell {
   display: flex;
+  gap: 10px;
   align-items: center;
   justify-content: flex-end;
-  gap: 10px;
 }
 
 .crowding-value {
+  min-width: 52px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-  min-width: 52px;
   text-align: right;
 }
 
@@ -1076,15 +1275,15 @@ watch(historyDays, () => {
 .crowding-cell-track {
   position: relative;
   height: 8px;
-  border-radius: 4px;
-  background: var(--border-default);
   overflow: hidden;
+  background: var(--border-default);
+  border-radius: 4px;
 }
 
 .crowding-cell-fill {
   position: absolute;
-  left: 0;
   top: 0;
+  left: 0;
   height: 100%;
   border-radius: 4px;
   transition: width 0.4s ease;
@@ -1103,11 +1302,11 @@ watch(historyDays, () => {
 }
 
 .crowding-note-tag {
-  font-size: 11px;
   padding: 2px 8px;
-  border-radius: 6px;
-  background: var(--bg-soft);
+  font-size: 11px;
   color: var(--text-tertiary);
+  background: var(--bg-soft);
+  border-radius: 6px;
 }
 
 .crowding-note {
@@ -1143,29 +1342,29 @@ watch(historyDays, () => {
    全部指标紧凑表格
    ============================================================ */
 .metric-table {
-  background: var(--bg-card);
-  border-radius: 12px;
-  border: 1px solid var(--border-light);
-  box-shadow: var(--shadow-raised);
   overflow: hidden;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  box-shadow: var(--shadow-raised);
 }
 
 .metric-table-head,
 .metric-table-row {
   display: grid;
   grid-template-columns: 2fr 1fr 100px 100px;
-  align-items: center;
   gap: 12px;
+  align-items: center;
   padding: 12px 16px;
 }
 
 .metric-table-head {
-  background: var(--bg-subtle);
   font-size: 12px;
   font-weight: 600;
   color: var(--text-tertiary);
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  background: var(--bg-subtle);
 }
 
 .metric-table-row {
@@ -1188,75 +1387,54 @@ watch(historyDays, () => {
 
 .col-name {
   display: flex;
-  align-items: center;
   gap: 6px;
+  align-items: center;
   min-width: 0;
 }
 
 .metric-name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-weight: 500;
   color: var(--text-primary);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .info-icon {
+  flex-shrink: 0;
   color: var(--text-tertiary);
   cursor: help;
-  flex-shrink: 0;
 }
 
 .col-source {
-  color: var(--text-secondary);
-  font-size: 12px;
-  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
 }
 
 .source-tag {
   display: inline-block;
   padding: 2px 8px;
-  border-radius: 6px;
-  background: var(--bg-soft);
-  color: var(--text-secondary);
   font-size: 11px;
   line-height: 1.4;
+  color: var(--text-secondary);
+  background: var(--bg-soft);
+  border-radius: 6px;
 }
 
 .col-value {
-  text-align: right;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
 .col-label {
   text-align: right;
 }
 
-/* ===== 响应式 ===== */
-@media (max-width: 960px) {
-  .context-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 768px) {
-  .page-content {
-    padding: 16px;
-  }
-
-  .metric-table-head,
-  .metric-table-row {
-    grid-template-columns: 2fr 80px 80px;
-    gap: 8px;
-    padding: 10px 12px;
-  }
-
-  .metric-table-head .col-source,
-  .metric-table-row .col-source {
-    display: none;
-  }
-}
+/* ============================================================
+   温度计页面样式
+   ============================================================ */
 </style>

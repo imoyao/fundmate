@@ -353,16 +353,29 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onActivated, nextTick ,onUnmounted,watch} from "vue";
+import {
+  ref,
+  computed,
+  onMounted,
+  onActivated,
+  nextTick,
+  onUnmounted,
+  watch
+} from "vue";
 import { Search } from "@element-plus/icons-vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import SankeyChart from "@/components/Charts/SankeyChart.vue";
 import { getPositions } from "@/api/positions";
 import { getSummary } from "@/api/summary";
-import { getAssets } from '@/api/assets'
+import { getAssets } from "@/api/assets";
 import { ElMessage } from "element-plus";
 import echarts from "@/plugins/echarts";
-import { ALLOCATION_COLORS, ALLOCATION_OPTIONS, ALLOCATION_LABELS, getAllocationLabel } from '@/constants';
+import {
+  ALLOCATION_COLORS,
+  ALLOCATION_OPTIONS,
+  ALLOCATION_LABELS,
+  getAllocationLabel
+} from "@/constants";
 
 const assetChangeChartRef = ref<HTMLDivElement | null>(null);
 const sankeyChartRef = ref<HTMLDivElement | null>(null);
@@ -416,7 +429,6 @@ watch([displayMode, selectedMember], () => {
   initSankeyChart();
 });
 
-
 defineOptions({ name: "AssetPanorama" });
 
 const EXCHANGE_RATES: Record<string, number> = { CNY: 1, USD: 7.25, HKD: 0.92 };
@@ -426,10 +438,10 @@ const allPositions = ref<any[]>([]);
 const loading = ref(false);
 const totalAssets = ref(0);
 const totalPnl = ref(0);
-const totalLiabilities = ref(0)
+const totalLiabilities = ref(0);
 const searchKeyword = ref("");
 const viewDimension = ref("allocation");
-const allAssets = ref<any[]>([])   // 用来存 assets 表的数据
+const allAssets = ref<any[]>([]); // 用来存 assets 表的数据
 
 const pieChartRef = ref<HTMLDivElement>();
 const barChartRef = ref<HTMLDivElement>();
@@ -466,21 +478,21 @@ const sankeyData = computed(() => {
 
   // 莫兰迪色系配色
   const colors: Record<string, string> = {
-    '负债': '#C4A0A8',
-    '净资产': '#28A87E',
-    '总资产': '#7A7FA8',
-    '活钱': '#B5C4B1',
-    '稳健底仓': '#9CAF88',
-    '长期增值': '#E8D5C4',
-    '高风险博弈': '#C85A6A',
-    '保险保障': '#9D81A9',
+    负债: "#C4A0A8",
+    净资产: "#28A87E",
+    总资产: "#7A7FA8",
+    活钱: "#B5C4B1",
+    稳健底仓: "#9CAF88",
+    长期增值: "#E8D5C4",
+    高风险博弈: "#C85A6A",
+    保险保障: "#9D81A9"
   };
 
   // ========== 左一：各项资产 → 总资产 ==========
   const assetItems: any[] = [];
   // 来自 assets 表（非负债）
   allAssets.value
-    .filter(a => a.major_category !== 'liability' && a.marketValue > 0)
+    .filter(a => a.major_category !== "liability" && a.marketValue > 0)
     .forEach(a => {
       addNode(a.name);
       assetItems.push({ name: a.name, value: a.marketValue });
@@ -492,70 +504,83 @@ const sankeyData = computed(() => {
     assetItems.push({ name, value: p.marketValue });
   });
 
-  addNode('总资产', { itemStyle: { color: colors['总资产'] } });
+  addNode("总资产", { itemStyle: { color: colors["总资产"] } });
   assetItems.forEach(it => {
-    links.push({ source: it.name, target: '总资产', value: it.value });
+    links.push({ source: it.name, target: "总资产", value: it.value });
   });
 
   // ========== 总资产 → 负债 + 净资产 ==========
   const totalLiabilities = allAssets.value
-    .filter(a => a.major_category === 'liability')
+    .filter(a => a.major_category === "liability")
     .reduce((s, a) => s + (a.marketValue || 0), 0);
 
   const totalEquity = totalAssets.value - totalLiabilities;
 
-  addNode('负债', { itemStyle: { color: colors['负债'] } });
-  addNode('净资产', { itemStyle: { color: colors['净资产'] } });
+  addNode("负债", { itemStyle: { color: colors["负债"] } });
+  addNode("净资产", { itemStyle: { color: colors["净资产"] } });
 
   if (totalLiabilities > 0) {
-    links.push({ source: '总资产', target: '负债', value: Math.round(totalLiabilities) });
+    links.push({
+      source: "总资产",
+      target: "负债",
+      value: Math.round(totalLiabilities)
+    });
   }
   if (totalEquity > 0) {
-    links.push({ source: '总资产', target: '净资产', value: Math.round(totalEquity) });
+    links.push({
+      source: "总资产",
+      target: "净资产",
+      value: Math.round(totalEquity)
+    });
   }
 
   // ========== 负债 → 具体负债项 ==========
   allAssets.value
-    .filter(a => a.major_category === 'liability' && a.marketValue > 0)
+    .filter(a => a.major_category === "liability" && a.marketValue > 0)
     .forEach(a => {
-      addNode(a.name, { itemStyle: { color: colors['负债'] } });
-      links.push({ source: '负债', target: a.name, value: a.marketValue });
+      addNode(a.name, { itemStyle: { color: colors["负债"] } });
+      links.push({ source: "负债", target: a.name, value: a.marketValue });
     });
 
   // ========== 净资产 → 五笔钱 → 产品类型 ==========
   const allocMap: Record<string, number> = {};
   allPositions.value.forEach(p => {
-    const alloc = p.allocation || 'longterm';
+    const alloc = p.allocation || "longterm";
     allocMap[alloc] = (allocMap[alloc] || 0) + (p.marketValue || 0);
   });
 
   const allocLabels: Record<string, string> = {
-    liquid: '活钱',
-    stable: '稳健底仓',
-    longterm: '长期增值',
-    speculative: '高风险博弈',
-    security: '保险保障'
+    liquid: "活钱",
+    stable: "稳健底仓",
+    longterm: "长期增值",
+    speculative: "高风险博弈",
+    security: "保险保障"
   };
 
   Object.entries(allocMap).forEach(([key, value]) => {
     const label = allocLabels[key] || key;
-    addNode(label, { itemStyle: { color: colors[label] || '#C5C9B8' } });
-    links.push({ source: '净资产', target: label, value: Math.round(value) });
+    addNode(label, { itemStyle: { color: colors[label] || "#C5C9B8" } });
+    links.push({ source: "净资产", target: label, value: Math.round(value) });
   });
 
   // 五笔钱 → 产品类型
   const allocTypeMap: Record<string, Record<string, number>> = {};
   allPositions.value.forEach(p => {
-    const alloc = allocLabels[p.allocation] || '长期增值';
+    const alloc = allocLabels[p.allocation] || "长期增值";
     const type = p.type_label || p.type;
     if (!allocTypeMap[alloc]) allocTypeMap[alloc] = {};
-    allocTypeMap[alloc][type] = (allocTypeMap[alloc][type] || 0) + (p.marketValue || 0);
+    allocTypeMap[alloc][type] =
+      (allocTypeMap[alloc][type] || 0) + (p.marketValue || 0);
   });
 
   Object.entries(allocTypeMap).forEach(([allocLabel, typeMap]) => {
     Object.entries(typeMap).forEach(([typeName, value]) => {
       addNode(typeName);
-      links.push({ source: allocLabel, target: typeName, value: Math.round(value) });
+      links.push({
+        source: allocLabel,
+        target: typeName,
+        value: Math.round(value)
+      });
     });
   });
 
@@ -563,19 +588,19 @@ const sankeyData = computed(() => {
 });
 
 const allocationGroups = computed(() => {
-  const groups: Record<string, any[]> = {}
-  ALLOCATION_OPTIONS.forEach(opt => (groups[opt.value] = []))
+  const groups: Record<string, any[]> = {};
+  ALLOCATION_OPTIONS.forEach(opt => (groups[opt.value] = []));
 
   allPositions.value.forEach(p => {
-    const a = p.allocation || 'longterm'
-    groups[a] ? groups[a].push(p) : groups['longterm'].push(p)
-  })
+    const a = p.allocation || "longterm";
+    groups[a] ? groups[a].push(p) : groups["longterm"].push(p);
+  });
 
-  const grandTotal = allPositions.value.reduce((s, p) => s + p.marketValue, 0)
+  const grandTotal = allPositions.value.reduce((s, p) => s + p.marketValue, 0);
 
   return ALLOCATION_OPTIONS.map(opt => {
-    const items = groups[opt.value]
-    const total = items.reduce((s, p) => s + p.marketValue, 0)
+    const items = groups[opt.value];
+    const total = items.reduce((s, p) => s + p.marketValue, 0);
     return {
       key: opt.value,
       label: opt.label,
@@ -584,12 +609,12 @@ const allocationGroups = computed(() => {
       count: items.length,
       topItems: items.slice(0, 3),
       items
-    }
-  })
-})
+    };
+  });
+});
 
 function getColorForAlloc(key: string): string {
-  return ALLOCATION_COLORS[key] || 'var(--text-tertiary)';
+  return ALLOCATION_COLORS[key] || "var(--text-tertiary)";
 }
 
 const dimensionGroups = computed(() => {
@@ -629,7 +654,6 @@ const dimensionGroups = computed(() => {
   }));
 });
 
-
 const filteredTableData = computed(() => {
   let list = allPositions.value;
   if (searchKeyword.value) {
@@ -642,8 +666,13 @@ const filteredTableData = computed(() => {
 });
 
 // —— 辅助函数 ——
-function typeTag(type: string): "primary" | "success" | "warning" | "info" | "danger" {
-  const m: Record<string, "primary" | "success" | "warning" | "info" | "danger"> = {
+function typeTag(
+  type: string
+): "primary" | "success" | "warning" | "info" | "danger" {
+  const m: Record<
+    string,
+    "primary" | "success" | "warning" | "info" | "danger"
+  > = {
     stock: "primary",
     fund: "warning",
     bond: "info",
@@ -841,74 +870,83 @@ function initCharts() {
 
 // —— 数据获取 ——
 async function fetchData() {
-  loading.value = true
+  loading.value = true;
   try {
     const [posRes, sumRes, assetsRes] = await Promise.all([
       getPositions({ per_page: 500 }),
       getSummary(),
       getAssets({ per_page: 500 })
-    ])
+    ]);
 
     // 处理 positions
-    let positionsRaw: any[] = []
-    if (Array.isArray(posRes)) positionsRaw = posRes
+    let positionsRaw: any[] = [];
+    if (Array.isArray(posRes)) positionsRaw = posRes;
     else if (posRes && Array.isArray((posRes as any).data))
-      positionsRaw = (posRes as any).data
+      positionsRaw = (posRes as any).data;
     else if (
       posRes &&
       (posRes as any).data &&
       Array.isArray((posRes as any).data.data)
     )
-      positionsRaw = (posRes as any).data.data
+      positionsRaw = (posRes as any).data.data;
     else {
-      const maybe = (posRes as any)?.data ?? posRes ?? []
-      positionsRaw = Array.isArray(maybe) ? maybe : []
+      const maybe = (posRes as any)?.data ?? posRes ?? [];
+      positionsRaw = Array.isArray(maybe) ? maybe : [];
     }
 
     // 处理 assets
-    let assetsRaw: any[] = []
-    if (Array.isArray(assetsRes)) assetsRaw = assetsRes
+    let assetsRaw: any[] = [];
+    if (Array.isArray(assetsRes)) assetsRaw = assetsRes;
     else if (assetsRes && Array.isArray((assetsRes as any).data))
-      assetsRaw = (assetsRes as any).data
-    else if (assetsRes && (assetsRes as any).data && Array.isArray((assetsRes as any).data.data))
-      assetsRaw = (assetsRes as any).data.data
+      assetsRaw = (assetsRes as any).data;
+    else if (
+      assetsRes &&
+      (assetsRes as any).data &&
+      Array.isArray((assetsRes as any).data.data)
+    )
+      assetsRaw = (assetsRes as any).data.data;
     else {
-      const maybe = (assetsRes as any)?.data ?? assetsRes ?? []
-      assetsRaw = Array.isArray(maybe) ? maybe : []
+      const maybe = (assetsRes as any)?.data ?? assetsRes ?? [];
+      assetsRaw = Array.isArray(maybe) ? maybe : [];
     }
 
     // 汇总数据
     totalAssets.value =
       (sumRes as any)?.data?.total_assets_cny ??
       (sumRes as any)?.total_assets_cny ??
-      0
+      0;
     totalPnl.value =
       (sumRes as any)?.data?.total_pnl_cny ??
       (sumRes as any)?.total_pnl_cny ??
-      0
-    totalLiabilities.value =
-      (sumRes as any)?.data?.total_liabilities_cny ?? 0
+      0;
+    totalLiabilities.value = (sumRes as any)?.data?.total_liabilities_cny ?? 0;
 
     allPositions.value = positionsRaw.map((p: any) => {
-      const rate = EXCHANGE_RATES[p.currency || 'CNY'] || 1
-      const marketValue = (p.quantity || 0) * (p.current_price || 0) * rate
-      const pnl = ((p.current_price || 0) - (p.avg_price || 0)) * (p.quantity || 0) * rate
-      const pnlRate = (p.avg_price || 1) !== 0 ? ((p.current_price || 0) / (p.avg_price || 1) - 1) * 100 : 0
-      return { ...p, marketValue, pnl, pnlRate }
-    })
+      const rate = EXCHANGE_RATES[p.currency || "CNY"] || 1;
+      const marketValue = (p.quantity || 0) * (p.current_price || 0) * rate;
+      const pnl =
+        ((p.current_price || 0) - (p.avg_price || 0)) *
+        (p.quantity || 0) *
+        rate;
+      const pnlRate =
+        (p.avg_price || 1) !== 0
+          ? ((p.current_price || 0) / (p.avg_price || 1) - 1) * 100
+          : 0;
+      return { ...p, marketValue, pnl, pnlRate };
+    });
 
     allAssets.value = assetsRaw.map((a: any) => ({
       ...a,
       marketValue: a.amount || 0
-    }))
+    }));
   } catch (e: any) {
-    ElMessage.error(e?.message || '加载失败')
+    ElMessage.error(e?.message || "加载失败");
   } finally {
-    loading.value = false
-    await nextTick()
-    initCharts()
-    updatePieChart()
-    initWaterfallChart()
+    loading.value = false;
+    await nextTick();
+    initCharts();
+    updatePieChart();
+    initWaterfallChart();
   }
 }
 // const handleResize = () => {
@@ -930,7 +968,6 @@ onActivated(() => {
     });
   }
 });
-
 
 const initAssetChangeChart = () => {
   if (!assetChangeChartRef.value) return;
@@ -1244,6 +1281,7 @@ onUnmounted(() => {
     "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue",
     Helvetica, Arial, sans-serif;
 }
+
 .summary-large-card {
   height: 100%;
   border-radius: 12px;

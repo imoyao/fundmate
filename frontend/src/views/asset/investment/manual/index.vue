@@ -58,7 +58,7 @@
             >
               <div class="flex items-center justify-between w-full">
                 <span>{{ ledger.name }}</span>
-                <AssetTypeBadge :type="ledger.ledger_type" variant="tag"/>
+                <AssetTypeBadge :type="ledger.ledger_type" variant="tag" />
               </div>
             </el-option>
           </el-select>
@@ -250,7 +250,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch } from "vue";
+import { ref, computed, watch } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { IconifyIconOffline } from "@/components/ReIcon";
@@ -365,13 +365,6 @@ function onSubmitSuccess() {
 }
 
 // ── 生命周期 ──
-onMounted(() => {
-  document.body.classList.add("hide-global-fab");
-});
-onBeforeUnmount(() => {
-  document.body.classList.remove("hide-global-fab");
-});
-
 watch([stockOpType, fundOpType], () => {
   if (!isSellLike.value && fundOpType.value !== "convert") {
     sellableLedgerIds.value = [];
@@ -380,6 +373,29 @@ watch([stockOpType, fundOpType], () => {
 </script>
 
 <style scoped>
+/* 🔥 果冻回弹关键帧 */
+@keyframes button-pop {
+  0% {
+    transform: scale(1);
+  }
+
+  30% {
+    transform: scale(0.9);
+  }
+
+  60% {
+    transform: scale(1.06);
+  }
+
+  80% {
+    transform: scale(0.96);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
 .manual-entry-page {
   font-family: var(
     --font-sans,
@@ -390,29 +406,24 @@ watch([stockOpType, fundOpType], () => {
   );
 }
 
-/* 🔥 隐藏右下角全局 FAB */
-.hide-global-fab .global-fab,
-.hide-global-fab .back-to-top {
-  display: none !important;
-}
-
 /* 🔥 单选按钮组：克制、优雅的 Segmented Control + 果冻回弹动画 */
 :deep(.el-radio-button__inner) {
-  border: none !important;
+  font-weight: 500;
+  color: var(--text-tertiary);
   background: transparent !important;
+  border: none !important;
   border-radius: 6px;
+  box-shadow: none !important;
+
   /* 核心动画配置 */
   transform: translateZ(0);
+  transform-origin: center;
   transition:
     transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1),
     background-color 0.2s,
     color 0.2s,
     box-shadow 0.2s;
   will-change: transform;
-  transform-origin: center;
-  color: var(--text-tertiary);
-  font-weight: 500;
-  box-shadow: none !important;
 }
 
 /* 按下时的收缩反馈 */
@@ -422,9 +433,9 @@ watch([stockOpType, fundOpType], () => {
 
 /* 选中状态时的果冻回弹动画 */
 :deep(.el-radio-button.is-active .el-radio-button__inner) {
-  background: #fff !important;
   color: var(--color-danger) !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06) !important;
+  background: #fff !important;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 6%) !important;
   animation: button-pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
@@ -432,27 +443,9 @@ watch([stockOpType, fundOpType], () => {
 :deep(.el-radio-button__inner:hover) {
   color: var(--text-primary);
 }
+
 :deep(.el-radio-button.is-active .el-radio-button__inner:hover) {
   color: var(--color-danger) !important;
-}
-
-/* 🔥 果冻回弹关键帧 */
-@keyframes button-pop {
-  0% {
-    transform: scale(1);
-  }
-  30% {
-    transform: scale(0.9);
-  }
-  60% {
-    transform: scale(1.06);
-  }
-  80% {
-    transform: scale(0.96);
-  }
-  100% {
-    transform: scale(1);
-  }
 }
 
 /* 🔥 底部按钮物理反馈 */
@@ -461,17 +454,19 @@ watch([stockOpType, fundOpType], () => {
     transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1),
     box-shadow 0.15s;
 }
+
 .action-btn:active {
-  transform: translateY(1px) scale(0.96);
   box-shadow: none !important;
+  transform: translateY(1px) scale(0.96);
 }
 
 /* 🔥 修复：删除影响全局下拉框的样式，只对最顶层的交易账户生效 */
 :deep(.account-select .el-select__wrapper) {
+  padding: 0 12px 0 0 !important;
   background: transparent !important;
   box-shadow: none !important;
-  padding: 0 12px 0 0 !important;
 }
+
 :deep(.account-select .el-select__selected-item) {
   font-weight: 500;
 }

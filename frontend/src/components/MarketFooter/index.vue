@@ -10,16 +10,10 @@
   <footer class="market-footer">
     <div class="market-footer__inner">
       <div v-if="legend && legend.length" class="market-footer__legend">
-        <span
-          v-for="item in legend"
-          :key="item.label"
-          class="legend-item"
-        >
-          <span
-            class="legend-dot"
-            :class="`legend-dot--${item.tone}`"
-          ></span
-          >{{ item.label }}
+        <span v-for="item in legend" :key="item.label" class="legend-item">
+          <span class="legend-dot" :class="`legend-dot--${item.tone}`" />{{
+            item.label
+          }}
         </span>
       </div>
 
@@ -81,17 +75,17 @@ withDefaults(
 
 <style lang="scss" scoped>
 .market-footer {
+  color: var(--text-tertiary);
   background: var(--bg-page);
   border-top: 1px solid var(--border-light);
-  color: var(--text-tertiary);
 
   &__inner {
-    max-width: 1400px;
-    margin: 0 auto;
-    padding: 24px var(--space-12);
     display: flex;
     flex-direction: column;
     gap: 10px;
+    max-width: 1400px;
+    padding: 24px var(--space-12);
+    margin: 0 auto;
   }
 
   &__legend {
@@ -103,8 +97,8 @@ withDefaults(
 
     .legend-item {
       display: inline-flex;
-      align-items: center;
       gap: 6px;
+      align-items: center;
     }
 
     .legend-dot {
@@ -115,9 +109,11 @@ withDefaults(
       &--low {
         background: var(--temp-low);
       }
+
       &--mid {
         background: var(--temp-mid);
       }
+
       &--high {
         background: var(--temp-high);
       }
@@ -127,8 +123,8 @@ withDefaults(
   &__sources {
     display: flex;
     flex-wrap: wrap;
-    align-items: center;
     gap: 8px;
+    align-items: center;
     font-size: 12px;
   }
 
@@ -143,6 +139,7 @@ withDefaults(
     &--static {
       color: var(--text-tertiary);
     }
+
     &--dev {
       color: var(--text-disabled);
     }

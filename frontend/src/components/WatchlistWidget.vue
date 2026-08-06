@@ -258,6 +258,7 @@ defineExpose({ hasPinned });
   background-color: var(--bg-card);
   transition: background-color 0.15s ease;
 }
+
 .table-row-hover:hover {
   background-color: var(--bg-hover) !important;
 }
@@ -265,6 +266,7 @@ defineExpose({ hasPinned });
 .view-all-link {
   color: var(--text-tertiary);
 }
+
 .view-all-link:hover {
   color: var(--brand-700);
 }

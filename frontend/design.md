@@ -209,6 +209,20 @@
 
 > 品牌色的饱和度降低和涨跌色的提亮，建议通过 CSS 自定义属性（HSL 色值）动态计算，而非硬编码独立色值。具体实现方案将在 `/frontend/design.dark.md` 中详细定义。
 
+### 毛玻璃（Glass）
+
+用于**悬浮浮窗类**元素（记账托盘 QuickFab、回到顶部 el-backtop），营造"半透明底层 + 微高光边框"的轻量悬浮感。**禁止大面积铺底**，仅限全局浮窗。
+
+| Token | 亮色值 | 说明 |
+|-------|--------|------|
+| `--glass-bg` | `rgba(255, 255, 255, 0.72)` | 玻璃基底 |
+| `--glass-bg-hover` | `rgba(255, 255, 255, 0.88)` | 悬停提亮 |
+| `--glass-border` | `rgba(255, 255, 255, 0.65)` | 边缘高光 |
+
+> 实现要点（`src/style/index.scss` 的 `.quick-entry-glass`）：
+> `background-color: var(--glass-bg)` + `border: 1px solid var(--glass-border)` + `box-shadow: var(--shadow-float)` + `backdrop-filter: blur(12px) saturate(160%)`。
+> Token 定义在 `src/style/colors.css`（亮色）与 `src/style/dark.scss`（暗色），**改动 token 值必须双端同步并回归对比度**。
+> 使用处：`src/components/QuickEntry/QuickFab.vue`、`src/layout/index.vue`、`src/layout/components/lay-content/index.vue`。
 
 ## Focus & Accessibility
 

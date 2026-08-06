@@ -106,7 +106,8 @@ const AssetRouteConfig = {
             title: "对账单导入",
             icon: "ep:document",
             rank: 6,
-            showLink: false
+            showLink: false,
+            hideQuickEntry: true
           }
         },
         // 投资理财 → 手动录入
@@ -118,7 +119,8 @@ const AssetRouteConfig = {
             title: "手动记账",
             icon: "ep:edit",
             rank: 7,
-            showLink: false
+            showLink: false,
+            hideQuickEntry: true
           }
         },
         {
@@ -129,7 +131,8 @@ const AssetRouteConfig = {
             title: "批量导入",
             icon: "ep:upload",
             rank: 8,
-            showLink: false
+            showLink: false,
+            hideQuickEntry: true
           }
         },
         // 通用资产录入
@@ -141,7 +144,8 @@ const AssetRouteConfig = {
             title: "录入通用资产",
             icon: "ep:plus",
             rank: 9,
-            showLink: false
+            showLink: false,
+            hideQuickEntry: true
           }
         }
       ]

@@ -1,4 +1,4 @@
-import { batchFetchQuotes, type Quote } from "./realtimeDataSources";
+import { batchFetchQuotes } from "./realtimeDataSources";
 
 export interface Holding {
   symbol: string;

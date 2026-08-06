@@ -48,8 +48,8 @@ const handleClose = () => {
   align-items: center;
   justify-content: space-between;
   padding: 8px 16px;
-  border-radius: 8px;
   margin-bottom: 16px;
   font-size: 13px;
+  border-radius: 8px;
 }
 </style>

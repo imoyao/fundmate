@@ -1,6 +1,6 @@
 <template>
-  <div class="realtime-status" v-if="status !== 'idle'">
-    <span class="status-dot" :class="statusClass"></span>
+  <div v-if="status !== 'idle'" class="realtime-status">
+    <span class="status-dot" :class="statusClass" />
     <span class="status-text" :style="{ color: 'var(--text-secondary)' }">
       {{ statusText }}
     </span>
@@ -56,42 +56,49 @@ const statusText = computed(() => {
 </script>
 
 <style scoped>
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.3;
+  }
+}
+
 .realtime-status {
   display: inline-flex;
-  align-items: center;
   gap: 6px;
+  align-items: center;
   font-size: 12px;
 }
+
 .status-dot {
   width: 8px;
   height: 8px;
-  border-radius: 50%;
   background-color: var(--text-disabled);
+  border-radius: 50%;
 }
+
 /* 拉取中 (红) */
 .status-dot.trading {
   background-color: var(--color-rise);
   animation: pulse 2s infinite;
 }
+
 /* ✅ 成功 (绿) */
 .status-dot.success {
   background-color: var(
     --color-success
   ); /* 需要你在全局CSS定义 --color-success，或者直接用 #7BC49A */
 }
+
 .status-dot.closed {
   background-color: var(--text-disabled);
 }
+
 .status-dot.error {
   background-color: var(--color-warning);
-}
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.3;
-  }
 }
 </style>

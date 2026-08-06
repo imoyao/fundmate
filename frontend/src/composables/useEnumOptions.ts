@@ -1,5 +1,5 @@
 // src/composables/useEnumOptions.ts
-import { computed, type Ref, unref } from 'vue'
+import { computed, type Ref, unref } from "vue";
 
 /**
  * 从数据数组中提取唯一的选项列表，适用于下拉框。
@@ -14,22 +14,20 @@ export function useEnumOptions<T extends Record<string, any>>(
   labelField?: keyof T
 ) {
   return computed(() => {
-    const dataSource = unref(data) ?? []
-    const seen = new Set<string>()
-    const options: { value: string; label: string }[] = []
+    const dataSource = unref(data) ?? [];
+    const seen = new Set<string>();
+    const options: { value: string; label: string }[] = [];
 
     for (const item of dataSource) {
-      const value = String(item[field] ?? '')
-      if (!value || seen.has(value)) continue
-      seen.add(value)
+      const value = String(item[field] ?? "");
+      if (!value || seen.has(value)) continue;
+      seen.add(value);
 
-      const label = labelField
-        ? String(item[labelField] ?? value)
-        : value
+      const label = labelField ? String(item[labelField] ?? value) : value;
 
-      options.push({ value, label })
+      options.push({ value, label });
     }
 
-    return options
-  })
+    return options;
+  });
 }

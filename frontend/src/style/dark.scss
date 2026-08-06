@@ -181,7 +181,6 @@ html.dark {
   }
 }
 
-
 /* ============================================================
    dark.scss
    多倍贝 暗色模式适配 · 设计语言 v1.4
@@ -189,74 +188,82 @@ html.dark {
    ============================================================ */
 
 /* 框架原有 dark.scss 内容保持不变 */
+
 /* ↓↓↓ 以下为 多倍贝 暗色模式覆盖 ↓↓↓ */
 
 /* ===== 🆕 多倍贝 暗色模式变量 ===== */
 .dark {
   /* ===== 基底色（深灰系统） ===== */
-  --bg-page: #1A1816;
+  --bg-page: #1a1816;
   --bg-card: #242120;
-  --bg-warm: #1F1D1A;
-  --bg-soft: #2C2926;
-  --bg-hover: #33302C;
-  --bg-muted: #2C2926;
+  --bg-warm: #1f1d1a;
+  --bg-soft: #2c2926;
+  --bg-hover: #33302c;
+  --bg-muted: #2c2926;
+
+  /* ===== 毛玻璃（记账托盘 / 回到顶部） ===== */
+  --glass-bg: rgb(36 33 32 / 72%);
+  --glass-bg-hover: rgb(44 41 38 / 88%);
+  --glass-border: rgb(255 255 255 / 8%);
 
   /* ===== 品牌色（暗色适配 · 饱和度降低 20%） ===== */
-  --brand-100: #2D1612;
-  --brand-200: #3D1C17;
-  --brand-300: #55261F;
-  --brand-400: #7A352B;
+  --brand-100: #2d1612;
+  --brand-200: #3d1c17;
+  --brand-300: #55261f;
+  --brand-400: #7a352b;
   --brand-500: #994438;
-  --brand-600: #B85547;
-  --brand-700: #D45A44;
-  --brand-800: #BF4F3B;
-  --brand-900: #E87A66;
-  --brand-1000: #FAD9D0;
+  --brand-600: #b85547;
+  --brand-700: #d45a44;
+  --brand-800: #bf4f3b;
+  --brand-900: #e87a66;
+  --brand-1000: #fad9d0;
 
   /* ===== 金融语义色（暗色适配） ===== */
-  --color-rise: #D45A44;
-  --color-fall: #5DAF85;
+  --color-rise: #d45a44;
+  --color-fall: #5daf85;
 
   /* ===== 系统语义色 ===== */
-  --color-danger-system: #D4364A;
+  --color-danger-system: #d4364a;
 
   /* ===== 文字色（暗色适配） ===== */
-  --text-primary: rgba(237, 234, 229, 0.92);
-  --text-secondary: rgba(237, 234, 229, 0.65);
-  --text-tertiary: rgba(237, 234, 229, 0.40);
-  --text-disabled: rgba(237, 234, 229, 0.20);
+  --text-primary: rgb(237 234 229 / 92%);
+  --text-secondary: rgb(237 234 229 / 65%);
+  --text-tertiary: rgb(237 234 229 / 40%);
+  --text-disabled: rgb(237 234 229 / 20%);
 
   /* ===== 边框（暗色适配） ===== */
-  --border-default: rgba(255, 255, 255, 0.08);
-  --border-light: rgba(255, 255, 255, 0.04);
-  --border-subtle: rgba(255, 255, 255, 0.03);
+  --border-default: rgb(255 255 255 / 8%);
+  --border-light: rgb(255 255 255 / 4%);
+  --border-subtle: rgb(255 255 255 / 3%);
 
   /* ===== 阴影（暗色模式下用发光替代） ===== */
-  --shadow-raised: inset 0 1px 0 rgba(255, 255, 255, 0.04);
-  --shadow-float: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 8px 32px rgba(0, 0, 0, 0.40);
-  --shadow-modal: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 16px 48px rgba(0, 0, 0, 0.60);
+  --shadow-raised: inset 0 1px 0 rgb(255 255 255 / 4%);
+  --shadow-float:
+    inset 0 1px 0 rgb(255 255 255 / 6%), 0 8px 32px rgb(0 0 0 / 40%);
+  --shadow-modal:
+    inset 0 1px 0 rgb(255 255 255 / 6%), 0 16px 48px rgb(0 0 0 / 60%);
 
   /* ===== Focus 环（暗色适配） ===== */
-  --focus-ring-gap: #000000;
+  --focus-ring-gap: #000;
   --focus-ring: 0 0 0 2px var(--focus-ring-gap), 0 0 0 4px var(--brand-700);
 
   /* ===== 品牌发光 ===== */
-  --glow-brand: 0 0 20px rgba(212, 90, 68, 0.20);
-  --glow-rise: 0 0 20px rgba(212, 90, 68, 0.15);
-  --glow-fall: 0 0 20px rgba(93, 175, 133, 0.12);
+  --glow-brand: 0 0 20px rgb(212 90 68 / 20%);
+  --glow-rise: 0 0 20px rgb(212 90 68 / 15%);
+  --glow-fall: 0 0 20px rgb(93 175 133 / 12%);
 
   /* ===== 图表色（暗色适配） ===== */
-  --chart-01: #D45A44;
-  --chart-02: #E87A66;
-  --chart-03: #D4A06A;
-  --chart-04: #C4B08A;
-  --chart-05: #B8A88C;
-  --chart-06: #5DAF85;
-  --chart-07: #6A8FA8;
-  --chart-08: #C4A8A8;
+  --chart-01: #d45a44;
+  --chart-02: #e87a66;
+  --chart-03: #d4a06a;
+  --chart-04: #c4b08a;
+  --chart-05: #b8a88c;
+  --chart-06: #5daf85;
+  --chart-07: #6a8fa8;
+  --chart-08: #c4a8a8;
 
   /* ===== 卡片边框（暗色提亮） ===== */
-  --card-border: 1px solid rgba(255, 255, 255, 0.06);
+  --card-border: 1px solid rgb(255 255 255 / 6%);
 
   /* ===== Element Plus 暗色适配 ===== */
   --el-bg-color: var(--bg-card);

@@ -16,7 +16,6 @@ import {
 import {
   ascending,
   getTopMenu,
-  initRouter,
   isOneOfArray,
   getHistoryMode,
   findRouteByPath,
@@ -28,8 +27,7 @@ import {
   type Router,
   type RouteRecordRaw,
   type RouteComponent,
-  createRouter,
-  createWebHashHistory
+  createRouter
 } from "vue-router";
 import {
   type DataInfo,
@@ -193,8 +191,12 @@ router.beforeEach(async (to: ToRouteType, _from, next) => {
   // ============================================
   // 🔥 登录状态判断（使用 Supabase session）
   // ============================================
-  if (isAuthenticated && Cookies.get(multipleTabsKey)) {
-
+  // 登录状态以 Supabase 会话为准（cookie 只是多标签共享标记，非信任依据）
+  if (isAuthenticated) {
+    // 确保多标签标记 cookie 存在，避免刷新/重开后整树渲染依赖缺失
+    if (!Cookies.get(multipleTabsKey)) {
+      Cookies.set(multipleTabsKey, "true", { expires: 7 });
+    }
     // 🔥 探市页面独立布局，直接放行
     if (to.path === "/explore") {
       next();
@@ -217,11 +219,17 @@ router.beforeEach(async (to: ToRouteType, _from, next) => {
       }
     } else {
       // 首次访问时用静态菜单直接填充，跳过异步拉取
-      if (usePermissionStoreHook().wholeMenus.length === 0 && to.path !== "/login") {
+      if (
+        usePermissionStoreHook().wholeMenus.length === 0 &&
+        to.path !== "/login"
+      ) {
         // 统一走标准菜单组装（与登录路径一致），避免「总览」等 showLink:false 目录项丢失
         usePermissionStoreHook().handleWholeMenus([]);
         if (!useMultiTagsStoreHook().getMultiTagsCache) {
-          const route = findRouteByPath(to.path, router.options.routes[0]?.children);
+          const route = findRouteByPath(
+            to.path,
+            router.options.routes[0]?.children
+          );
           getTopMenu(true);
           if (route && route.meta?.title) {
             if (isAllEmpty(route.parentId) && route.meta?.backstage) {
@@ -239,12 +247,18 @@ router.beforeEach(async (to: ToRouteType, _from, next) => {
   } else {
     // ❌ 未登录用户
     if (to.path !== "/login") {
-      if (whiteList.indexOf(to.path) !== -1 || to.meta?.requiresAuth === false) {
+      if (
+        whiteList.indexOf(to.path) !== -1 ||
+        to.meta?.requiresAuth === false
+      ) {
         // 兜底：已通过 Supabase 认证（isAuthenticated 为真），但因 multipleTabsKey
         // cookie 缺失未进入上方「首次访问」分支，导致 wholeMenus 始终为空、
         // 侧边栏 v-loading（依赖 wholeMenus.length === 0）一直转。
         // 此处用静态菜单填充，确保放行进入的页面侧边栏能正常渲染。
-        if (isAuthenticated && usePermissionStoreHook().wholeMenus.length === 0) {
+        if (
+          isAuthenticated &&
+          usePermissionStoreHook().wholeMenus.length === 0
+        ) {
           usePermissionStoreHook().handleWholeMenus([]);
         }
         next();

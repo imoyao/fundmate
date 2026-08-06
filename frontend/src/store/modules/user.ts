@@ -7,15 +7,9 @@ import {
   routerArrays,
   storageLocal
 } from "../utils";
-import {
-  type UserResult,
-  type RefreshTokenResult,
-  getLogin,
-  refreshTokenApi,
-  logoutApi
-} from "@/api/user";
+import { logoutApi } from "@/api/auth";
 import { useMultiTagsStoreHook } from "./multiTags";
-import { type DataInfo, setToken, removeToken, userKey } from "@/utils/auth";
+import { type DataInfo, removeToken, userKey } from "@/utils/auth";
 import { supabase } from "@/utils/supabase";
 
 export const useUserStore = defineStore("pure-user", {
@@ -65,19 +59,6 @@ export const useUserStore = defineStore("pure-user", {
     SET_LOGINDAY(value: number) {
       this.loginDay = Number(value);
     },
-    /** 登入 */
-    async loginByUsername(data) {
-      return new Promise<UserResult>((resolve, reject) => {
-        getLogin(data)
-          .then(data => {
-            if (data?.success) setToken(data.data);
-            resolve(data);
-          })
-          .catch(error => {
-            reject(error);
-          });
-      });
-    },
     /** 登出：统一走后端 /api/auth/logout，由后端负责服务端作废会话 */
     async logOut() {
       try {
@@ -88,31 +69,20 @@ export const useUserStore = defineStore("pure-user", {
         // 后端登出失败也不阻塞前端退出
         console.warn("后端退出接口调用失败，仍继续前端清理：", e);
       } finally {
-        this.username = "";
-        this.roles = [];
-        this.permissions = [];
-        removeToken();
-        // 清本地 Supabase session（local 仅清本地存储，不发网络请求）
-        supabase.auth.signOut({ scope: "local" }).catch(() => {});
-        useMultiTagsStoreHook().handleTags("equal", [...routerArrays]);
-        resetRouter();
-        router.push("/login");
+        await this.forceLogout();
       }
     },
-    /** 刷新`token` */
-    async handRefreshToken(data) {
-      return new Promise<RefreshTokenResult>((resolve, reject) => {
-        refreshTokenApi(data)
-          .then(data => {
-            if (data) {
-              setToken(data.data);
-              resolve(data);
-            }
-          })
-          .catch(error => {
-            reject(error);
-          });
-      });
+    /** 强制退出（401 会话失效时调用）：仅清理本地状态并回登录页，不再请求后端，避免死循环 */
+    async forceLogout() {
+      this.username = "";
+      this.roles = [];
+      this.permissions = [];
+      removeToken();
+      // 清本地 Supabase session（local 仅清本地存储，不发网络请求）
+      supabase.auth.signOut({ scope: "local" }).catch(() => {});
+      useMultiTagsStoreHook().handleTags("equal", [...routerArrays]);
+      resetRouter();
+      router.push("/login");
     }
   }
 });

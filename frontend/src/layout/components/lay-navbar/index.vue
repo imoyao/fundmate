@@ -8,7 +8,7 @@ import LaySidebarBreadCrumb from "../lay-sidebar/components/SidebarBreadCrumb.vu
 import LaySidebarTopCollapse from "../lay-sidebar/components/SidebarTopCollapse.vue";
 
 // 🆕 新增
-import { useTheme } from '@/utils/theme';
+import { useTheme } from "@/utils/theme";
 
 import LogoutCircleRLine from "~icons/ri/logout-circle-r-line";
 import Setting from "~icons/ri/settings-3-line";

@@ -7,7 +7,8 @@
     @update:model-value="emit('update:visible', $event)"
   >
     <p class="mb-4" :style="{ color: 'var(--text-primary)' }">
-      确定删除账户「<strong>{{ ledgerName }}</strong>」吗？
+      确定删除账户「<strong>{{ ledgerName }}</strong
+      >」吗？
     </p>
     <el-checkbox v-model="deletePositions" class="mb-2">
       同时删除该账户下的全部持仓（共 {{ positionCount }} 项）
@@ -37,28 +38,31 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  'update:visible': [value: boolean];
-  'deleted': [];
+  "update:visible": [value: boolean];
+  deleted: [];
 }>();
 
 const deletePositions = ref(false);
 const loading = ref(false);
 
 // 每次弹窗打开时重置状态
-watch(() => props.visible, (val) => {
-  if (val) {
-    deletePositions.value = false;
-    loading.value = false;
+watch(
+  () => props.visible,
+  val => {
+    if (val) {
+      deletePositions.value = false;
+      loading.value = false;
+    }
   }
-});
+);
 
 async function handleConfirm() {
   loading.value = true;
   try {
     await deleteLedgerWithOptions(props.ledgerId, deletePositions.value);
     ElMessage.success("账户已删除");
-    emit('update:visible', false);
-    emit('deleted');
+    emit("update:visible", false);
+    emit("deleted");
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || "删除失败");
   } finally {

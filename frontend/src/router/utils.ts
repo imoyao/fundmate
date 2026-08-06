@@ -16,7 +16,6 @@ import {
   storageLocal,
   isIncludeAllChildren
 } from "@pureadmin/utils";
-import { getConfig } from "@/config";
 import { buildHierarchyTree } from "@/utils/tree";
 import { userKey, type DataInfo } from "@/utils/auth";
 import { type menuType, routerArrays } from "@/layout/types";
@@ -25,9 +24,6 @@ import { usePermissionStoreHook } from "@/store/modules/permission";
 const IFrame = () => import("@/layout/frame.vue");
 // https://cn.vitejs.dev/guide/features.html#glob-import
 const modulesRoutes = import.meta.glob("/src/views/**/*.{vue,tsx}");
-
-// 动态路由
-import { getAsyncRoutes } from "@/api/routes";
 
 function handRank(routeInfo: any) {
   const { name, path, parentId, meta } = routeInfo;
@@ -71,8 +67,7 @@ function filterTree(data: RouteComponent[]) {
   // 自身不可见（showLink:false）且无可见子项的节点才被移除
   return newTree.filter(
     (v: any) =>
-      v.meta?.showLink !== false ||
-      (v.children && v.children.length !== 0)
+      v.meta?.showLink !== false || (v.children && v.children.length !== 0)
   );
 }
 
@@ -209,34 +204,12 @@ function handleAsyncRoutes(routeList) {
   addPathMatch();
 }
 
-/** 初始化路由（`new Promise` 写法防止在异步请求中造成无限循环）*/
+/** 初始化路由：全部业务路由均为静态声明（router/modules），无需后端下发动态路由 */
 function initRouter() {
-  if (getConfig()?.CachingAsyncRoutes) {
-    // 开启动态路由缓存本地localStorage
-    const key = "async-routes";
-    const asyncRouteList = storageLocal().getItem(key) as any;
-    if (asyncRouteList && asyncRouteList?.length > 0) {
-      return new Promise(resolve => {
-        handleAsyncRoutes(asyncRouteList);
-        resolve(router);
-      });
-    } else {
-      return new Promise(resolve => {
-        getAsyncRoutes().then(({ data }) => {
-          handleAsyncRoutes(cloneDeep(data));
-          storageLocal().setItem(key, data);
-          resolve(router);
-        });
-      });
-    }
-  } else {
-    return new Promise(resolve => {
-      getAsyncRoutes().then(({ data }) => {
-        handleAsyncRoutes(cloneDeep(data));
-        resolve(router);
-      });
-    });
-  }
+  return new Promise(resolve => {
+    handleAsyncRoutes([]);
+    resolve(router);
+  });
 }
 
 /**

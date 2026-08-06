@@ -12,7 +12,12 @@
     <div class="section-header__title-group">
       <h2 class="section-header__title">{{ title }}</h2>
       <el-tooltip v-if="info" :content="info" placement="top">
-        <span class="section-header__info" tabindex="0" role="img" :aria-label="info">
+        <span
+          class="section-header__info"
+          tabindex="0"
+          role="img"
+          :aria-label="info"
+        >
           <IconifyIconOffline :icon="icon" />
         </span>
       </el-tooltip>
@@ -44,38 +49,38 @@ withDefaults(
 /* 单一来源：frontend/design.md · 区块标题统一规范 */
 .section-header {
   display: flex;
+  gap: 12px;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
   min-height: 32px; /* 与历史实现 h-8 对齐，保证右侧操作槽垂直居中 */
   margin-bottom: var(--space-3);
 
   &__title-group {
     display: flex;
-    align-items: center;
     gap: 6px;
+    align-items: center;
     min-width: 0;
   }
 
   &__title {
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--text-primary);
     margin: 0;
-    line-height: 1.4;
     overflow: hidden;
     text-overflow: ellipsis;
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1.4;
+    color: var(--text-primary);
     white-space: nowrap;
   }
 
   &__info {
     display: inline-flex;
+    flex-shrink: 0;
     align-items: center;
     justify-content: center;
     font-size: 15px;
     color: var(--text-tertiary);
     cursor: help;
-    flex-shrink: 0;
     transition: color 0.15s ease;
 
     &:hover,
@@ -87,9 +92,9 @@ withDefaults(
 
   &__action {
     display: inline-flex;
-    align-items: center;
-    gap: 8px;
     flex-shrink: 0;
+    gap: 8px;
+    align-items: center;
   }
 }
 </style>

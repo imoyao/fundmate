@@ -24,21 +24,27 @@ withDefaults(
 </script>
 
 <style lang="scss" scoped>
-/* 背景同色收尾：与页面底色一致，避免色块割裂（design.md） */
+@media (width <= 720px) {
+  .app-footer__inner {
+    align-items: flex-start;
+    text-align: left;
+  }
+}
+
 .app-footer {
   margin-top: var(--space-standard);
+  color: var(--text-tertiary);
   background: var(--bg-page);
   border-top: 1px solid var(--border-light);
-  color: var(--text-tertiary);
 
   &__inner {
-    max-width: 1400px;
-    margin: 0 auto;
-    padding: 24px var(--space-12);
     display: flex;
     flex-direction: column;
-    align-items: center;
     gap: 8px;
+    align-items: center;
+    max-width: 1400px;
+    padding: 24px var(--space-12);
+    margin: 0 auto;
     text-align: center;
   }
 
@@ -55,10 +61,5 @@ withDefaults(
   }
 }
 
-@media (max-width: 720px) {
-  .app-footer__inner {
-    align-items: flex-start;
-    text-align: left;
-  }
-}
+/* 背景同色收尾：与页面底色一致，避免色块割裂（design.md） */
 </style>

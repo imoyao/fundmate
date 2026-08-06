@@ -134,26 +134,26 @@ const currencySymbol = computed(() => {
 
 /* ===== 货币符号 ===== */
 .money-display .currency {
+  margin-right: 1px;
   font-family: var(--font-sans, Inter, -apple-system, sans-serif);
   font-weight: 400;
   color: inherit;
   opacity: 0.7;
-  margin-right: 1px;
 }
 
 /* ===== 正负号 ===== */
 .money-display .sign {
-  font-family: var(--font-sans, Inter, -apple-system, sans-serif);
-  font-weight: 500;
-  font-size: 0.9em;
   margin-right: 1px;
+  font-family: var(--font-sans, Inter, -apple-system, sans-serif);
+  font-size: 0.9em;
+  font-weight: 500;
 }
 
 /* ===== 后缀 ===== */
 .money-display .suffix {
+  margin-left: 2px;
   font-family: var(--font-sans, Inter, -apple-system, sans-serif);
   font-size: 0.75em;
-  margin-left: 2px;
   opacity: 0.7;
 }
 
@@ -170,10 +170,12 @@ const currencySymbol = computed(() => {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
 .money-display.size-hero .currency,
 .money-display.size-hero .sign {
   font-size: 0.7em; /* ✅ 微调，从 0.65em → 0.7em */
 }
+
 .money-display.size-hero .suffix {
   font-size: 0.5em;
 }
@@ -187,6 +189,7 @@ const currencySymbol = computed(() => {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
 .money-display.size-xl .currency,
 .money-display.size-xl .sign {
   font-size: 0.75em;
@@ -197,6 +200,7 @@ const currencySymbol = computed(() => {
   font-size: var(--text-title, 24px);
   font-weight: 500;
 }
+
 .money-display.size-lg .currency,
 .money-display.size-lg .sign {
   font-size: 0.8em;
@@ -206,6 +210,7 @@ const currencySymbol = computed(() => {
 .money-display.size-md .number {
   font-size: var(--text-body, 16px);
 }
+
 .money-display.size-md .currency,
 .money-display.size-md .sign {
   font-size: 0.85em;
@@ -215,6 +220,7 @@ const currencySymbol = computed(() => {
 .money-display.size-sm .number {
   font-size: var(--text-small, 14px);
 }
+
 .money-display.size-sm .currency,
 .money-display.size-sm .sign {
   font-size: 0.85em;
@@ -224,6 +230,7 @@ const currencySymbol = computed(() => {
 .money-display.size-xs .number {
   font-size: var(--text-label, 13px);
 }
+
 .money-display.size-xs .currency,
 .money-display.size-xs .sign {
   font-size: 0.85em;

@@ -46,8 +46,8 @@
 <script setup lang="ts">
 withDefaults(
   defineProps<{
-    logo: string;
-    badge: string;
+    logo?: string;
+    badge?: string;
     navs: Array<{
       label: string;
       type?: "link" | "primary" | "primary-lg";
@@ -65,19 +65,19 @@ withDefaults(
   border-bottom: 1px solid var(--border-light);
 
   &__inner {
-    max-width: 1400px;
-    margin: 0 auto;
-    padding: 16px var(--space-12);
     display: flex;
+    gap: 24px;
     align-items: center;
     justify-content: space-between;
-    gap: 24px;
+    max-width: 1400px;
+    padding: 16px var(--space-12);
+    margin: 0 auto;
   }
 
   &__logo-area {
     display: flex;
-    align-items: baseline;
     gap: 10px;
+    align-items: baseline;
   }
 
   &__logo {
@@ -87,18 +87,18 @@ withDefaults(
   }
 
   &__badge {
+    padding: 2px 10px;
     font-size: 12px;
     color: var(--text-tertiary);
-    padding: 2px 10px;
+    background: var(--bg-soft);
     border: 1px solid var(--border-light);
     border-radius: var(--radius-pill);
-    background: var(--bg-soft);
   }
 
   &__nav {
     display: flex;
-    align-items: center;
     gap: 12px;
+    align-items: center;
   }
 
   &__btn--link {

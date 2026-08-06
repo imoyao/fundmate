@@ -13,8 +13,8 @@ export interface TransactionRecord {
   amount: number;
   notes: string | null;
   created_at: string | null;
-  status?: string;          // 交易状态（后端动态字段）
-  account_name?: string;    // 账户名称（后端动态字段）
+  status?: string; // 交易状态（后端动态字段）
+  account_name?: string; // 账户名称（后端动态字段）
 }
 
 const BASE_URL = "/api/transactions";

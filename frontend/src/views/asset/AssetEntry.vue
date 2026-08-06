@@ -1,7 +1,12 @@
 <template>
-  <div class="asset-entry p-4 md:p-6 min-h-full" :style="{ backgroundColor: 'var(--bg-page)' }">
+  <div
+    class="asset-entry p-4 md:p-6 min-h-full"
+    :style="{ backgroundColor: 'var(--bg-page)' }"
+  >
     <div class="mb-6">
-      <h2 class="text-2xl font-bold" :style="{ color: 'var(--text-primary)' }">录入通用资产</h2>
+      <h2 class="text-2xl font-bold" :style="{ color: 'var(--text-primary)' }">
+        录入通用资产
+      </h2>
       <p class="text-sm mt-1" :style="{ color: 'var(--text-tertiary)' }">
         记录房产、现金、信用卡、贷款等非交易类资产，完善你的资产负债表
       </p>
@@ -17,7 +22,10 @@
         class="entry-form"
       >
         <el-form-item label="资产名称" prop="name">
-          <el-input v-model="form.name" placeholder="如：招商银行活期、阳光花园房产" />
+          <el-input
+            v-model="form.name"
+            placeholder="如：招商银行活期、阳光花园房产"
+          />
         </el-form-item>
 
         <el-form-item label="资产大类" prop="major_category">
@@ -33,18 +41,26 @@
 
         <el-form-item label="金额" prop="amount">
           <el-input-number
-           v-model="form.amount"
-          :precision="2"
-          class="amount-input"
-          placeholder="0.00"
-          :step="1"
-          controls-position="right"
+            v-model="form.amount"
+            :precision="2"
+            class="amount-input"
+            placeholder="0.00"
+            :step="1"
+            controls-position="right"
           />
           <p class="form-tip">负债请填写正数，系统会自动处理为负债</p>
         </el-form-item>
 
-        <el-form-item label="配置目标" v-if="form.major_category !== 'liability'">
-          <el-select v-model="form.allocation" class="w-full" clearable placeholder="请选择配置目标">
+        <el-form-item
+          v-if="form.major_category !== 'liability'"
+          label="配置目标"
+        >
+          <el-select
+            v-model="form.allocation"
+            class="w-full"
+            clearable
+            placeholder="请选择配置目标"
+          >
             <el-option
               v-for="opt in ALLOCATION_OPTIONS"
               :key="opt.value"
@@ -58,11 +74,11 @@
           <div class="account-select-row">
             <el-select
               v-model="form.ledger_id"
-              @change="onLedgerSelected"
               class="flex-1"
               clearable
               filterable
               placeholder="选择已有账户"
+              @change="onLedgerSelected"
             >
               <el-option
                 v-for="ledger in ledgers"
@@ -71,7 +87,11 @@
                 :value="ledger.id"
               />
             </el-select>
-            <el-button class="add-ledger-btn" size="large" @click="showCreateLedgerDialog = true">
+            <el-button
+              class="add-ledger-btn"
+              size="large"
+              @click="showCreateLedgerDialog = true"
+            >
               <IconifyIconOffline icon="ep:plus" class="mr-1" /> 新增账户
             </el-button>
           </div>
@@ -89,23 +109,40 @@
 
         <el-form-item>
           <div class="form-actions">
-            <el-button type="primary" :loading="submitting" @click="handleSubmit" class="submit-btn">
+            <el-button
+              type="primary"
+              :loading="submitting"
+              class="submit-btn"
+              @click="handleSubmit"
+            >
               确认录入
             </el-button>
-            <el-button @click="handleReset" class="reset-btn">重置</el-button>
+            <el-button class="reset-btn" @click="handleReset">重置</el-button>
           </div>
         </el-form-item>
       </el-form>
     </el-card>
 
     <!-- 新增账户弹窗 -->
-    <el-dialog v-model="showCreateLedgerDialog" title="新增账户" width="420px" destroy-on-close>
+    <el-dialog
+      v-model="showCreateLedgerDialog"
+      title="新增账户"
+      width="420px"
+      destroy-on-close
+    >
       <el-form :model="newLedgerForm" label-width="80px" size="large">
         <el-form-item label="账户名称" required>
-          <el-input v-model="newLedgerForm.name" placeholder="如：招商银行、华泰证券" />
+          <el-input
+            v-model="newLedgerForm.name"
+            placeholder="如：招商银行、华泰证券"
+          />
         </el-form-item>
         <el-form-item label="账户类型" required>
-          <el-select v-model="newLedgerForm.ledger_type" class="w-full" placeholder="选择账户类型">
+          <el-select
+            v-model="newLedgerForm.ledger_type"
+            class="w-full"
+            placeholder="选择账户类型"
+          >
             <el-option
               v-for="opt in LEDGER_TYPE_OPTIONS"
               :key="opt.value"
@@ -116,8 +153,15 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="showCreateLedgerDialog = false" size="large">取消</el-button>
-        <el-button type="primary" :loading="creatingLedger" @click="handleCreateLedger" size="large">
+        <el-button size="large" @click="showCreateLedgerDialog = false"
+          >取消</el-button
+        >
+        <el-button
+          type="primary"
+          :loading="creatingLedger"
+          size="large"
+          @click="handleCreateLedger"
+        >
           确认创建
         </el-button>
       </template>
@@ -133,7 +177,7 @@ import { createAsset } from "@/api/assets";
 import { getLedgers, createLedger } from "@/api/ledger";
 import type { FormInstance, FormRules } from "element-plus";
 import { useRoute } from "vue-router";
-import { ALLOCATION_OPTIONS, LEDGER_TYPE_OPTIONS  } from '@/constants'
+import { ALLOCATION_OPTIONS, LEDGER_TYPE_OPTIONS } from "@/constants";
 
 const route = useRoute();
 
@@ -154,8 +198,8 @@ const form = reactive({
   major_category: "cash",
   amount: 0,
   allocation: null,
-  ledger_id: null as number | null,   // 新增
-  account_name: "",                    // 保留为后端回填的快照
+  ledger_id: null as number | null, // 新增
+  account_name: "", // 保留为后端回填的快照
   notes: ""
 });
 
@@ -169,7 +213,9 @@ function onLedgerSelected(ledgerId: number | undefined) {
 // 校验规则修改
 const rules: FormRules = {
   name: [{ required: true, message: "请输入资产名称", trigger: "blur" }],
-  major_category: [{ required: true, message: "请选择资产大类", trigger: "change" }],
+  major_category: [
+    { required: true, message: "请选择资产大类", trigger: "change" }
+  ],
   amount: [
     { required: true, message: "请输入金额", trigger: "blur" },
     {
@@ -183,7 +229,7 @@ const rules: FormRules = {
       trigger: "blur"
     }
   ],
-  ledger_id: [{ required: true, message: "请选择所属账户", trigger: "change" }]  // 改为 ledger_id
+  ledger_id: [{ required: true, message: "请选择所属账户", trigger: "change" }] // 改为 ledger_id
 };
 
 // 提交逻辑
@@ -197,11 +243,11 @@ async function handleSubmit() {
       major_category: form.major_category,
       name: form.name,
       amount: form.amount,
-      ledger_id: form.ledger_id,           // 关键：传递 ledger_id
+      ledger_id: form.ledger_id, // 关键：传递 ledger_id
       account_name: form.account_name || undefined,
       notes: form.notes || undefined
     };
-    if (form.major_category !== 'liability' && form.allocation) {
+    if (form.major_category !== "liability" && form.allocation) {
       payload.allocation = form.allocation;
     }
     await createAsset(payload);
@@ -242,7 +288,11 @@ async function handleCreateLedger() {
   }
   creatingLedger.value = true;
   try {
-    const res = await createLedger({ name: newLedgerForm.name, ledger_type: newLedgerForm.ledger_type, currency: "CNY" });
+    const res = await createLedger({
+      name: newLedgerForm.name,
+      ledger_type: newLedgerForm.ledger_type,
+      currency: "CNY"
+    });
     const newLedger = (res as any).data || res;
     ElMessage.success("账户已创建");
     showCreateLedgerDialog.value = false;
@@ -269,10 +319,10 @@ onMounted(() => {
 <style scoped>
 .entry-card {
   max-width: 700px;
-  margin: 0 auto;
-  border-radius: 16px;
   padding: 32px 40px;
+  margin: 0 auto;
   background-color: var(--bg-card);
+  border-radius: 16px;
 }
 
 /* 表单项垂直间距增大，提升呼吸感 */
@@ -282,8 +332,8 @@ onMounted(() => {
 
 /* 标签与输入框完美居中对齐（匹配Element Plus large尺寸44px高度） */
 .entry-form :deep(.el-form-item__label) {
-  line-height: 44px;
   font-size: 15px;
+  line-height: 44px;
   color: var(--text-primary);
 }
 
@@ -296,23 +346,23 @@ onMounted(() => {
 
 /* 统一输入框圆角和内边距 */
 .entry-form :deep(.el-input__inner) {
-  padding-left: 14px;
   padding-right: 14px;
-  border-radius: 8px;
+  padding-left: 14px;
   font-size: 15px;
-  border-color: var(--border-default);
-  background-color: var(--bg-card);
   color: var(--text-primary);
+  background-color: var(--bg-card);
+  border-color: var(--border-default);
+  border-radius: 8px;
 }
 
 .entry-form :deep(.el-textarea__inner) {
   padding: 12px 14px;
-  border-radius: 8px;
   font-size: 15px;
-  border-color: var(--border-default);
-  background-color: var(--bg-card);
   color: var(--text-primary);
   resize: vertical;
+  background-color: var(--bg-card);
+  border-color: var(--border-default);
+  border-radius: 8px;
 }
 
 .entry-form :deep(.el-select .el-input__inner) {
@@ -329,34 +379,37 @@ onMounted(() => {
 .amount-input {
   width: 100%;
 }
+
 .amount-input :deep(.el-input-number__decrease),
 .amount-input :deep(.el-input-number__increase) {
   width: 44px;
-  border-radius: 8px;
-  background-color: var(--bg-muted);
-  border: none;
   font-size: 18px;
   color: var(--text-secondary);
+  background-color: var(--bg-muted);
+  border: none;
+  border-radius: 8px;
   transition: all 0.2s;
 }
+
 .amount-input :deep(.el-input-number__decrease:hover),
 .amount-input :deep(.el-input-number__increase:hover) {
-  background-color: var(--bg-hover);
   color: var(--color-primary);
+  background-color: var(--bg-hover);
 }
+
 .amount-input :deep(.el-input__inner) {
-  text-align: right;
   padding-right: 16px;
+  text-align: right;
   border-radius: 8px;
 }
 
 /* 提示文字样式优化：提升可读性 */
 .form-tip {
-  font-size: 13px;
-  color: var(--text-secondary);
-  margin-top: 6px;
-  line-height: 1.5;
   padding-left: 2px;
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
 }
 
 /* 账户选择行：确保按钮与下拉框高度一致 */
@@ -368,24 +421,25 @@ onMounted(() => {
 
 /* 新增账户按钮：边框式次要按钮，明确区分输入项与操作项 */
 .add-ledger-btn {
-  white-space: nowrap;
   padding: 0 20px;
-  border-radius: 8px;
-  border: 1px solid var(--border-default);
-  background-color: var(--bg-card);
   color: var(--text-primary);
+  white-space: nowrap;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
   transition: all 0.2s;
 }
+
 .add-ledger-btn:hover {
-  border-color: var(--color-primary);
   color: var(--color-primary);
   background-color: var(--color-primary-20);
+  border-color: var(--color-primary);
 }
 
 /* 可选项目：标签弱化+明确标注，降低认知负担 */
 .optional-item :deep(.el-form-item__label) {
-  color: var(--text-secondary);
   font-weight: 400;
+  color: var(--text-secondary);
 }
 
 /* 操作按钮区域：统一尺寸，平衡视觉 */
@@ -397,12 +451,13 @@ onMounted(() => {
 
 .submit-btn {
   padding: 12px 40px;
-  border-radius: 8px;
   font-size: 15px;
   font-weight: 500;
   background-color: var(--color-primary);
   border-color: var(--color-primary);
+  border-radius: 8px;
 }
+
 .submit-btn:hover {
   background-color: var(--color-primary);
   opacity: 0.9;
@@ -410,29 +465,32 @@ onMounted(() => {
 
 .reset-btn {
   padding: 12px 40px;
-  border-radius: 8px;
   font-size: 15px;
-  border: 1px solid var(--border-default);
-  background-color: var(--bg-card);
   color: var(--text-primary);
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
   transition: all 0.2s;
 }
+
 .reset-btn:hover {
-  border-color: var(--color-primary);
   color: var(--color-primary);
   background-color: var(--color-primary-20);
+  border-color: var(--color-primary);
 }
 
 /* 弹窗样式优化 */
 :deep(.el-dialog) {
-  border-radius: 16px;
   background-color: var(--bg-card);
+  border-radius: 16px;
 }
+
 :deep(.el-dialog__title) {
-  color: var(--text-primary);
   font-size: 18px;
   font-weight: 600;
+  color: var(--text-primary);
 }
+
 :deep(.el-dialog__body) {
   padding: 24px 32px;
 }

@@ -2,11 +2,7 @@
 <template>
   <div class="explore-page">
     <!-- ===== 顶部导航（公共组件，与温度计完全一致） ===== -->
-    <MarketHeader
-      :logo="MARKET_LOGO"
-      badge="探市"
-      :navs="headerNavs"
-    />
+    <MarketHeader :logo="MARKET_LOGO" badge="探市" :navs="headerNavs" />
 
     <!-- ============================================================ -->
     <!-- 温度数据仪表盘                                                -->
@@ -121,11 +117,18 @@
             <div class="liquidity-metric">
               <span class="liquidity-metric__label">今日成交额</span>
               <div class="liquidity-metric__body">
-                <span class="liquidity-metric__value">{{ volumeData ? volumeData.value : '--' }}</span>
+                <span class="liquidity-metric__value">{{
+                  volumeData ? volumeData.value : "--"
+                }}</span>
                 <span class="liquidity-metric__unit">亿</span>
-                <TemperatureLevelBadge :level="volumeData?.label || '暂无'" size="sm" />
+                <TemperatureLevelBadge
+                  :level="volumeData?.label || '暂无'"
+                  size="sm"
+                />
               </div>
-              <span class="liquidity-metric__hint">成交量热度反映市场活跃度</span>
+              <span class="liquidity-metric__hint"
+                >成交量热度反映市场活跃度</span
+              >
             </div>
             <div class="liquidity-divider" />
             <div class="liquidity-actions">
@@ -133,12 +136,14 @@
                 type="text"
                 class="liquidity-btn"
                 @click="handleShowIndustryCrowding"
-              >行业拥挤度 →</el-button>
+                >行业拥挤度 →</el-button
+              >
               <el-button
                 type="text"
                 class="liquidity-btn"
                 @click="handleShowSectorFlow"
-              >板块资金流 →</el-button>
+                >板块资金流 →</el-button
+              >
             </div>
           </div>
         </div>
@@ -173,10 +178,10 @@
               size="large"
               clearable
               :trigger-on-focus="false"
+              class="symbol-input"
               @select="handleSelect"
               @input="() => {}"
               @keyup.enter="handleAdd"
-              class="symbol-input"
             >
               <template #prefix>
                 <span class="input-prefix">搜索</span>
@@ -284,10 +289,10 @@
       </div>
 
       <el-table
+        v-loading="loading"
         :data="tableData"
         border
         style="width: 100%"
-        v-loading="loading"
         empty-text="暂无观察资产，添加你关注的标的开始研究"
       >
         <el-table-column label="产品" min-width="180">
@@ -401,7 +406,10 @@ import TemperatureGaugeCard from "@/components/TemperatureGaugeCard/index.vue";
 import MetricCard from "@/components/MetricCard/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
-import { MARKET_LOGO, useMarketHeaderNavs } from "@/components/MarketHeader/config";
+import {
+  MARKET_LOGO,
+  useMarketHeaderNavs
+} from "@/components/MarketHeader/config";
 import { buildMarketFooterSources } from "@/components/MarketFooter/config";
 import { batchFetchQuotes } from "@/utils/realtimeDataSources";
 import { getTemperatureOverview } from "@/api/temperature";
@@ -549,15 +557,21 @@ const progressColor = computed(() => {
 });
 
 // 根据估值温度推断等级（PB/PE 温度越低代表估值越便宜）
-const inferValuationLevel = (temperature: number | null | undefined): string => {
+const inferValuationLevel = (
+  temperature: number | null | undefined
+): string => {
   if (temperature == null || Number.isNaN(temperature)) return "暂无";
   if (temperature < 30) return "偏低";
   if (temperature > 70) return "偏高";
   return "适中";
 };
 
-const pbLevel = computed(() => inferValuationLevel(jisiluIndicator.value?.median_pb_temperature));
-const peLevel = computed(() => inferValuationLevel(jisiluIndicator.value?.median_pe_temperature));
+const pbLevel = computed(() =>
+  inferValuationLevel(jisiluIndicator.value?.median_pb_temperature)
+);
+const peLevel = computed(() =>
+  inferValuationLevel(jisiluIndicator.value?.median_pe_temperature)
+);
 
 const pbCaption = computed(() => {
   const temp = jisiluIndicator.value?.median_pb_temperature;
@@ -1009,10 +1023,77 @@ onMounted(() => {
 </script>
 
 <style lang="scss" scoped>
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.3;
+  }
+}
+
 /* ============================================================
-   1. 设计 Token
-   温度三色(--temp-*) 已在全局 colors.css 中定义，此处直接复用，不重复声明
+   8. 响应式
    ============================================================ */
+@media (width <= 1024px) {
+  .metrics-row {
+    grid-template-columns: 1fr;
+  }
+
+  .liquidity-card {
+    flex-direction: row;
+    gap: 20px;
+    align-items: center;
+  }
+
+  .liquidity-divider {
+    width: 1px;
+    height: 64px;
+  }
+}
+
+@media (width <= 768px) {
+  .temperature-dashboard {
+    padding: 0 16px 12px;
+  }
+
+  .snapshot-items {
+    gap: 12px;
+  }
+
+  .liquidity-card {
+    flex-direction: column;
+    gap: 16px;
+    align-items: stretch;
+  }
+
+  .liquidity-metric {
+    align-items: center;
+    text-align: center;
+  }
+
+  .liquidity-divider {
+    width: auto;
+    height: 1px;
+  }
+
+  .liquidity-actions {
+    flex-direction: row;
+    justify-content: center;
+  }
+}
+
+@media (width <= 480px) {
+  .core-value {
+    font-size: 26px;
+  }
+
+  .liquidity-metric__value {
+    font-size: 28px;
+  }
+}
 
 /* ============================================================
    2. 布局重置
@@ -1025,30 +1106,33 @@ onMounted(() => {
 /* ============================================================
    3. 顶部导航
    ============================================================ */
+
 /* ============================================================
    4. 温度仪表盘
    ============================================================ */
 .temperature-dashboard {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: var(--space-standard) 24px 16px;
   display: flex;
   flex-direction: column;
   gap: 16px;
+  max-width: 1280px;
+  padding: var(--space-standard) 24px 16px;
+  margin: 0 auto;
 }
 
 /* 探市「综合温度」卡内的进度条与跳转提示（来自 TemperatureGaugeCard 的 footer 插槽，属父组件作用域） */
 .primary-bar {
   height: 3px;
-  border-radius: 2px;
-  background: var(--bg-soft);
   overflow: hidden;
+  background: var(--bg-soft);
+  border-radius: 2px;
 }
 
 .primary-fill {
   height: 100%;
   border-radius: 2px;
-  transition: width 0.8s ease, background 0.6s ease;
+  transition:
+    width 0.8s ease,
+    background 0.6s ease;
 }
 
 .primary-link {
@@ -1056,8 +1140,8 @@ onMounted(() => {
   margin-top: 6px;
   font-size: 12px;
   color: var(--el-color-primary);
-  cursor: pointer;
   white-space: nowrap;
+  cursor: pointer;
 }
 
 /* ---- 4.2 分组指标区：情绪/估值两列等宽，流动性独占一行 ---- */
@@ -1073,39 +1157,39 @@ onMounted(() => {
 }
 
 .metrics-group {
-  background: var(--bg-card);
-  border-radius: 12px;
   padding: 16px 18px;
+  background: var(--bg-card);
   border: 1px solid var(--border-light);
+  border-radius: 12px;
   box-shadow: var(--shadow-raised);
 }
 
 .liquidity-block {
-  background: var(--bg-card);
-  border-radius: 12px;
-  padding: 16px 18px;
-  border: 1px solid var(--border-light);
-  box-shadow: var(--shadow-raised);
   display: flex;
   flex-direction: column;
+  padding: 16px 18px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  box-shadow: var(--shadow-raised);
 }
 
 .liquidity-card {
   display: flex;
   flex-direction: row;
+  gap: 24px;
   align-items: center;
   justify-content: space-between;
-  gap: 24px;
-  margin-top: 4px;
   padding: 8px 4px;
+  margin-top: 4px;
 }
 
 .liquidity-metric {
-  flex: 1;
   display: flex;
+  flex: 1;
   flex-direction: column;
-  align-items: flex-start;
   gap: 10px;
+  align-items: flex-start;
   text-align: left;
 
   &__label {
@@ -1116,18 +1200,18 @@ onMounted(() => {
 
   &__body {
     display: flex;
-    align-items: baseline;
     flex-wrap: wrap;
     gap: 8px;
+    align-items: baseline;
   }
 
   &__value {
+    font-family: var(--font-mono);
     font-size: 42px;
     font-weight: 700;
-    color: var(--text-primary);
-    font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
     line-height: 1;
+    color: var(--text-primary);
   }
 
   &__unit {
@@ -1143,10 +1227,10 @@ onMounted(() => {
 }
 
 .liquidity-divider {
+  flex-shrink: 0;
   width: 1px;
   height: 64px;
   background: var(--border-light);
-  flex-shrink: 0;
 }
 
 .liquidity-actions {
@@ -1158,9 +1242,9 @@ onMounted(() => {
 
 .liquidity-btn {
   justify-content: flex-start;
+  padding: 0;
   font-size: 13px;
   color: var(--text-secondary);
-  padding: 0;
 
   &:hover {
     color: var(--brand-700);
@@ -1169,30 +1253,30 @@ onMounted(() => {
 
 /* ---- 4.3 指数快照 ---- */
 .index-snapshot {
-  background: var(--bg-card);
-  border-radius: 12px;
   padding: 16px 20px;
+  background: var(--bg-card);
   border: 1px solid var(--border-light);
+  border-radius: 12px;
   box-shadow: var(--shadow-raised);
 }
 
 .snapshot-title {
+  margin-bottom: 10px;
   font-size: 13px;
   font-weight: 600;
   color: var(--text-secondary);
-  margin-bottom: 10px;
 }
 
 .snapshot-items {
   display: flex;
-  gap: 24px;
   flex-wrap: wrap;
+  gap: 24px;
 }
 
 .snapshot-item {
   display: flex;
-  align-items: center;
   gap: 8px;
+  align-items: center;
 }
 
 .snapshot-name {
@@ -1201,11 +1285,11 @@ onMounted(() => {
 }
 
 .snapshot-price {
+  font-family: var(--font-mono);
   font-size: 16px;
   font-weight: 600;
-  color: var(--text-primary);
-  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
 }
 
 .snapshot-change {
@@ -1217,16 +1301,16 @@ onMounted(() => {
    ============================================================ */
 .add-section {
   max-width: 1280px;
-  margin: 0 auto;
   padding: 16px 24px 8px;
+  margin: 0 auto;
 }
 
 .add-card {
-  background: var(--bg-card);
-  border-radius: 12px;
   padding: 20px 24px;
-  box-shadow: var(--shadow-raised);
+  background: var(--bg-card);
   border: 1px solid var(--border-light);
+  border-radius: 12px;
+  box-shadow: var(--shadow-raised);
 }
 
 .add-form-row {
@@ -1245,18 +1329,18 @@ onMounted(() => {
   }
 
   .type-select {
-    width: 120px;
     flex-shrink: 0;
+    width: 120px;
   }
 
   .price-input {
-    width: 140px;
     flex-shrink: 0;
+    width: 140px;
   }
 
   .qty-input {
-    width: 120px;
     flex-shrink: 0;
+    width: 120px;
   }
 }
 
@@ -1267,13 +1351,13 @@ onMounted(() => {
 
 .suggestion-item {
   display: flex;
-  align-items: center;
   gap: 12px;
+  align-items: center;
   padding: 4px 0;
 
   .suggestion-code {
-    font-weight: 600;
     font-size: 14px;
+    font-weight: 600;
     color: var(--text-primary);
   }
 
@@ -1290,10 +1374,10 @@ onMounted(() => {
 
 .hot-section {
   display: flex;
-  align-items: center;
   gap: 12px;
-  margin-top: 14px;
+  align-items: center;
   padding-top: 14px;
+  margin-top: 14px;
   border-top: 1px solid var(--border-light);
 
   .hot-label {
@@ -1309,16 +1393,16 @@ onMounted(() => {
   }
 
   .hot-card {
+    display: flex;
+    gap: 6px;
+    align-items: center;
     padding: 4px 14px;
-    border-radius: 20px;
+    font-size: 13px;
+    cursor: pointer;
     background: var(--bg-soft);
     border: 1px solid var(--border-light);
-    cursor: pointer;
-    font-size: 13px;
+    border-radius: 20px;
     transition: all 0.2s;
-    display: flex;
-    align-items: center;
-    gap: 6px;
 
     &:hover {
       background: var(--brand-100);
@@ -1331,8 +1415,8 @@ onMounted(() => {
     }
 
     .hot-code {
-      color: var(--text-tertiary);
       font-size: 11px;
+      color: var(--text-tertiary);
     }
   }
 }
@@ -1342,23 +1426,23 @@ onMounted(() => {
    ============================================================ */
 .watchlist-section {
   max-width: 1280px;
-  margin: 0 auto;
   padding: 0 24px 24px;
+  margin: 0 auto;
 }
 
 .summary-bar {
   display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   align-items: center;
   justify-content: space-between;
   padding: 12px 0 16px;
-  flex-wrap: wrap;
-  gap: 8px;
 
   .summary-left {
     display: flex;
-    align-items: center;
-    gap: 8px;
     flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
   }
 
   .summary-count {
@@ -1387,35 +1471,38 @@ onMounted(() => {
 
   .summary-right {
     display: flex;
-    align-items: center;
     gap: 12px;
+    align-items: center;
     font-size: 13px;
     color: var(--text-tertiary);
   }
 
   .status-indicator {
     display: flex;
-    align-items: center;
     gap: 6px;
+    align-items: center;
   }
 
   .status-dot {
+    display: inline-block;
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    display: inline-block;
 
     &.status-trading {
       background: var(--color-rise);
       animation: pulse 1.5s infinite;
     }
+
     &.status-closed {
       background: var(--text-tertiary);
     }
+
     &.status-error {
       background: var(--color-danger-system);
       animation: pulse 1s infinite;
     }
+
     &.status-idle {
       background: var(--text-disabled);
     }
@@ -1427,74 +1514,8 @@ onMounted(() => {
   }
 }
 
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.3;
-  }
-}
-
 /* ============================================================
-   8. 响应式
+   1. 设计 Token
+   温度三色(--temp-*) 已在全局 colors.css 中定义，此处直接复用，不重复声明
    ============================================================ */
-@media (max-width: 1024px) {
-  .metrics-row {
-    grid-template-columns: 1fr;
-  }
-
-  .liquidity-card {
-    flex-direction: row;
-    align-items: center;
-    gap: 20px;
-  }
-
-  .liquidity-divider {
-    width: 1px;
-    height: 64px;
-  }
-}
-
-@media (max-width: 768px) {
-  .temperature-dashboard {
-    padding: 0 16px 12px;
-  }
-
-  .snapshot-items {
-    gap: 12px;
-  }
-
-  .liquidity-card {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 16px;
-  }
-
-  .liquidity-metric {
-    align-items: center;
-    text-align: center;
-  }
-
-  .liquidity-divider {
-    width: auto;
-    height: 1px;
-  }
-
-  .liquidity-actions {
-    flex-direction: row;
-    justify-content: center;
-  }
-}
-
-@media (max-width: 480px) {
-  .core-value {
-    font-size: 26px;
-  }
-
-  .liquidity-metric__value {
-    font-size: 28px;
-  }
-}
 </style>

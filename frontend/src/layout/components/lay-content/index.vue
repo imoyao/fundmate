@@ -133,6 +133,9 @@ const transitionMain = defineComponent({
               <el-backtop
                 title="回到顶部"
                 target=".app-main .el-scrollbar__wrap"
+                :right="32"
+                :bottom="32"
+                class="back-to-top quick-entry-glass"
               >
                 <BackTopIcon />
               </el-backtop>
@@ -206,5 +209,4 @@ const transitionMain = defineComponent({
   flex-direction: column;
   width: 100%;
 }
-
 </style>

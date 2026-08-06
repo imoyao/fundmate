@@ -549,9 +549,11 @@ onMounted(() => {
 .ledger-list {
   font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
 }
+
 .ledger-card {
   transition: all 0.2s ease;
 }
+
 .ledger-card:hover {
   box-shadow: var(--el-box-shadow-light);
 }

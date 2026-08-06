@@ -49,7 +49,7 @@ export const SELL_QUICK_RATIOS = [
   { label: "1/4", value: 1 / 4 },
   { label: "1/3", value: 1 / 3 },
   { label: "1/2", value: 1 / 2 },
-  { label: "3/4", value: 3 / 4 },
+  { label: "3/4", value: 3 / 4 }
 ];
 
 /** 基金默认申购费率 */

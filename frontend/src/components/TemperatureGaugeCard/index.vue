@@ -126,7 +126,9 @@ const inferredTone = computed<TemperatureTone>(() => {
   return "mid";
 });
 
-const ringColor = computed(() => `var(--temp-${props.tone || inferredTone.value})`);
+const ringColor = computed(
+  () => `var(--temp-${props.tone || inferredTone.value})`
+);
 
 const onClick = () => {
   if (props.clickable) emit("click");
@@ -134,23 +136,41 @@ const onClick = () => {
 </script>
 
 <style lang="scss" scoped>
+/* ===== 响应式 ===== */
+@media (width <= 768px) {
+  .gauge-card {
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+    text-align: center;
+  }
+
+  .gauge-card--sm {
+    flex-direction: row;
+    text-align: left;
+  }
+}
+
 .gauge-card {
+  display: flex;
+  gap: 24px;
+  align-items: center;
+  padding: 24px 28px;
   background: var(--bg-card);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-raised);
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  padding: 24px 28px;
-  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    border-color 0.18s ease;
 }
 
 .gauge-ring {
   position: relative;
+  flex-shrink: 0;
   width: 120px;
   height: 120px;
-  flex-shrink: 0;
 }
 
 .gauge-svg {
@@ -167,7 +187,9 @@ const onClick = () => {
 .gauge-fill {
   stroke-width: 8;
   stroke-linecap: round;
-  transition: stroke-dashoffset 0.8s ease, stroke 0.6s ease;
+  transition:
+    stroke-dashoffset 0.8s ease,
+    stroke 0.6s ease;
 }
 
 .gauge-value {
@@ -179,12 +201,12 @@ const onClick = () => {
 }
 
 .gauge-number {
+  font-family: var(--font-mono);
   font-size: 34px;
   font-weight: 700;
-  color: var(--text-primary);
-  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   line-height: 1;
+  color: var(--text-primary);
 }
 
 .gauge-degree {
@@ -193,8 +215,8 @@ const onClick = () => {
   right: 22%;
   font-size: 16px;
   font-weight: 500;
-  color: var(--text-secondary);
   line-height: 1;
+  color: var(--text-secondary);
 }
 
 .gauge-info {
@@ -204,9 +226,9 @@ const onClick = () => {
 
 .gauge-title-row {
   display: flex;
-  align-items: center;
-  gap: 8px;
   flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
 }
 
 .gauge-title {
@@ -216,15 +238,15 @@ const onClick = () => {
 }
 
 .gauge-caption {
+  margin-top: 6px;
   font-size: 13px;
   color: var(--text-tertiary);
-  margin-top: 6px;
 }
 
 .gauge-updated {
+  margin-top: 2px;
   font-size: 12px;
   color: var(--text-tertiary);
-  margin-top: 2px;
 }
 
 .gauge-footer {
@@ -250,17 +272,17 @@ const onClick = () => {
   }
 
   .gauge-degree {
-    font-size: 13px;
     top: 16%;
     right: 16%;
+    font-size: 13px;
   }
 }
 
 /* ===== 英雄卡（温度计页） ===== */
 .gauge-card--featured {
+  max-width: 520px;
   background: linear-gradient(135deg, var(--bg-card), var(--brand-100));
   border-color: var(--brand-400);
-  max-width: 520px;
 }
 
 /* ===== 可点击（探市入口卡） ===== */
@@ -268,23 +290,9 @@ const onClick = () => {
   cursor: pointer;
 
   &:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-float);
     border-color: var(--brand-400);
-  }
-}
-
-/* ===== 响应式 ===== */
-@media (max-width: 768px) {
-  .gauge-card {
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    padding: 20px;
-  }
-  .gauge-card--sm {
-    flex-direction: row;
-    text-align: left;
+    box-shadow: var(--shadow-float);
+    transform: translateY(-2px);
   }
 }
 </style>

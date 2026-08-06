@@ -21,12 +21,35 @@ withDefaults(
 </script>
 
 <style lang="scss" scoped>
+/* 响应式：窄屏提高最小宽度占比 */
+@media (width <= 960px) {
+  .metric-grid {
+    --metric-basis: 240px;
+  }
+}
+
+@media (width <= 560px) {
+  .metric-grid {
+    --metric-basis: 100%;
+  }
+
+  :deep(.metric-card),
+  :deep(.gauge-card),
+  :deep(.explore-actions-card),
+  :deep(.metric-card--featured),
+  :deep(.gauge-card--featured) {
+    flex: 1 1 100%;
+    min-width: 100%;
+  }
+}
+
 .metric-grid {
+  --metric-basis: 200px;
+
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-compact);
   align-items: stretch;
-  --metric-basis: 200px;
 }
 
 /* 普通卡：等比拉伸填满，最小宽度 200px */
@@ -42,26 +65,5 @@ withDefaults(
 :deep(.gauge-card--featured) {
   flex: 2 1 calc(var(--metric-basis) * 2);
   min-width: calc(var(--metric-basis) * 1.6);
-}
-
-/* 响应式：窄屏提高最小宽度占比 */
-@media (max-width: 960px) {
-  .metric-grid {
-    --metric-basis: 240px;
-  }
-}
-
-@media (max-width: 560px) {
-  .metric-grid {
-    --metric-basis: 100%;
-  }
-  :deep(.metric-card),
-  :deep(.gauge-card),
-  :deep(.explore-actions-card),
-  :deep(.metric-card--featured),
-  :deep(.gauge-card--featured) {
-    flex: 1 1 100%;
-    min-width: 100%;
-  }
 }
 </style>

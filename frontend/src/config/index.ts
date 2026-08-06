@@ -45,10 +45,7 @@ export const getPlatformConfig = async (app: App): Promise<undefined> => {
       return $config;
     })
     .catch((err: unknown) => {
-      console.warn(
-        "未加载到 platform-config.json，将使用默认配置：",
-        err
-      );
+      console.warn("未加载到 platform-config.json，将使用默认配置：", err);
       return app.config.globalProperties.$config;
     });
 };

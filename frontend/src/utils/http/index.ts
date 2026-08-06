@@ -10,8 +10,9 @@ import type {
   PureHttpRequestConfig
 } from "./types.d";
 import { stringify } from "qs";
-import { getToken, formatToken } from "@/utils/auth";
-import { useUserStoreHook } from "@/store/modules/user";
+import { formatToken } from "@/utils/auth";
+import { supabase } from "@/utils/supabase";
+import { message } from "@/utils/message";
 
 // 相关配置请参考：www.axios-js.com/zh-cn/docs/#axios-request-config-1
 const defaultConfig: AxiosRequestConfig = {
@@ -34,27 +35,11 @@ class PureHttp {
     this.httpInterceptorsResponse();
   }
 
-  /** `token`过期后，暂存待执行的请求 */
-  private static requests = [];
-
-  /** 防止重复刷新`token` */
-  private static isRefreshing = false;
-
   /** 初始化配置对象 */
   private static initConfig: PureHttpRequestConfig = {};
 
   /** 保存当前`Axios`实例对象 */
   private static axiosInstance: AxiosInstance = Axios.create(defaultConfig);
-
-  /** 重连原始请求 */
-  private static retryOriginalRequest(config: PureHttpRequestConfig) {
-    return new Promise(resolve => {
-      PureHttp.requests.push((token: string) => {
-        config.headers["Authorization"] = formatToken(token);
-        resolve(config);
-      });
-    });
-  }
 
   /** 请求拦截 */
   private httpInterceptorsRequest(): void {
@@ -69,42 +54,14 @@ class PureHttp {
           PureHttp.initConfig.beforeRequestCallback(config);
           return config;
         }
-        /** 请求白名单，放置一些不需要`token`的接口（通过设置请求白名单，防止`token`过期后再请求造成的死循环问题） */
-        const whiteList = ["/refresh-token", "/login"];
-        return whiteList.some(url => config.url.endsWith(url))
-          ? config
-          : new Promise(resolve => {
-              const data = getToken();
-              if (data) {
-                const now = new Date().getTime();
-                const expired = parseInt(data.expires) - now <= 0;
-                if (expired) {
-                  if (!PureHttp.isRefreshing) {
-                    PureHttp.isRefreshing = true;
-                    // token过期刷新
-                    useUserStoreHook()
-                      .handRefreshToken({ refreshToken: data.refreshToken })
-                      .then(res => {
-                        const token = res.data.accessToken;
-                        config.headers["Authorization"] = formatToken(token);
-                        PureHttp.requests.forEach(cb => cb(token));
-                        PureHttp.requests = [];
-                      })
-                      .finally(() => {
-                        PureHttp.isRefreshing = false;
-                      });
-                  }
-                  resolve(PureHttp.retryOriginalRequest(config));
-                } else {
-                  config.headers["Authorization"] = formatToken(
-                    data.accessToken
-                  );
-                  resolve(config);
-                }
-              } else {
-                resolve(config);
-              }
-            });
+        // token 来源：Supabase 会话（后端以 Bearer 头验签，见 D2）。
+        // 探市/健康等免登录接口不强求带 token，未登录请求也直接放行。
+        const { data } = await supabase.auth.getSession();
+        const accessToken = data.session?.access_token;
+        if (accessToken) {
+          config.headers["Authorization"] = formatToken(accessToken);
+        }
+        return config;
       },
       error => {
         return Promise.reject(error);
@@ -132,6 +89,19 @@ class PureHttp {
       (error: PureHttpError) => {
         const $error = error;
         $error.isCancelRequest = Axios.isCancel($error);
+        // 未授权/登录过期 → 清理本地会话并跳转登录
+        if ($error.response?.status === 401) {
+          message("登录已过期，请重新登录", { type: "warning" });
+          // 延迟导入，避免与 store 产生循环依赖
+          void import("@/store/modules/user").then(({ useUserStoreHook }) => {
+            useUserStoreHook().forceLogout();
+          });
+        }
+        // 无权限（viewer 只读 / 角色不足）→ 统一提示
+        if ($error.response?.status === 403) {
+          const backendMessage = ($error.response.data as any)?.message;
+          message(backendMessage || "没有权限执行此操作", { type: "warning" });
+        }
         // 所有的响应异常 区分来源为取消请求/非取消请求
         return Promise.reject($error);
       }

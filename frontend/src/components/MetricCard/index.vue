@@ -62,59 +62,65 @@ const displayValue = computed(() => {
 </script>
 
 <style lang="scss" scoped>
-/* ============================================================
-   MetricCard 样式 · 单一来源：frontend/design.md
-   卡片：--bg-card / --radius-lg / --shadow-raised / --border-light
-   结构：标题行(标题 + 等级标签) → 大数字 + 小单位 → 副文案
-   数字：30px(默认) / 40px(featured)，单位 15px
-   ============================================================ */
+@media (width <= 480px) {
+  .metric-card__value {
+    font-size: 26px;
+  }
+
+  .metric-card--featured .metric-card__value {
+    font-size: 34px;
+  }
+}
+
 .metric-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-raised);
-  padding: 18px 20px;
   display: flex;
   flex-direction: column;
   gap: 10px;
   min-height: 104px;
-  transition: transform 0.18s ease, box-shadow 0.18s ease;
+  padding: 18px 20px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-raised);
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease;
 
   &:hover {
-    transform: translateY(-3px);
     box-shadow: var(--shadow-float);
+    transform: translateY(-3px);
   }
 
   /* 标题行：标题 + 等级标签 横排 */
   &__title-row {
     display: flex;
+    gap: 8px;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
   }
 
   &__title {
     font-size: 13px;
     font-weight: 500;
-    color: var(--text-secondary);
     line-height: 1.4;
+    color: var(--text-secondary);
   }
 
   &__body {
     display: flex;
-    align-items: baseline;
     flex-wrap: wrap;
     gap: 8px;
+    align-items: baseline;
     margin-top: auto;
   }
 
   &__value {
+    font-family: var(--font-mono);
     font-size: 30px;
     font-weight: 700;
-    color: var(--text-primary);
-    font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
     line-height: 1.05;
+    color: var(--text-primary);
     letter-spacing: -0.5px;
   }
 
@@ -130,30 +136,29 @@ const displayValue = computed(() => {
 
   &__caption {
     font-size: 12px;
-    color: var(--text-tertiary);
     line-height: 1.4;
+    color: var(--text-tertiary);
   }
 
   /* featured：核心指标放大 */
   &--featured {
-    padding: 22px 24px;
     min-height: 128px;
+    padding: 22px 24px;
 
     .metric-card__value {
       font-size: 40px;
     }
+
     .metric-card__unit {
       font-size: 17px;
     }
   }
 }
 
-@media (max-width: 480px) {
-  .metric-card__value {
-    font-size: 26px;
-  }
-  .metric-card--featured .metric-card__value {
-    font-size: 34px;
-  }
-}
+/* ============================================================
+   MetricCard 样式 · 单一来源：frontend/design.md
+   卡片：--bg-card / --radius-lg / --shadow-raised / --border-light
+   结构：标题行(标题 + 等级标签) → 大数字 + 小单位 → 副文案
+   数字：30px(默认) / 40px(featured)，单位 15px
+   ============================================================ */
 </style>

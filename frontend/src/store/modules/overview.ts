@@ -29,7 +29,11 @@ export interface OverviewData {
 
 export interface PsychAccount {
   info: string;
-  accounts: Array<{ label: string; value: string; tone: "neutral" | "safe" | "warning" | "danger" }>;
+  accounts: Array<{
+    label: string;
+    value: string;
+    tone: "neutral" | "safe" | "warning" | "danger";
+  }>;
 }
 
 interface OverviewState {
@@ -93,16 +97,34 @@ export const useOverviewStore = defineStore("overview", {
             ...emptyOverview(),
             netAsset: total,
             netAssetCaption: "截至最新估值",
-            availableCash: pnl != null && total != null ? Math.max(total - pnl, 0) : null,
+            availableCash:
+              pnl != null && total != null ? Math.max(total - pnl, 0) : null,
             totalAsset: total,
             todayProfit: pnl,
             todayProfitUnit: "元",
-            todayProfitLevel: pnl != null && pnl > 0 ? "rise" : pnl != null && pnl < 0 ? "fall" : "",
-            todayProfitCaption: pnl != null ? (pnl >= 0 ? "较昨日" : "较昨日") : "",
+            todayProfitLevel:
+              pnl != null && pnl > 0
+                ? "rise"
+                : pnl != null && pnl < 0
+                  ? "fall"
+                  : "",
+            todayProfitCaption:
+              pnl != null ? (pnl >= 0 ? "较昨日" : "较昨日") : "",
             todayProfitAmount: pnl,
-            holdingReturn: total != null && pnl != null ? safeDiv(pnl, total - pnl) * 100 : null,
-            holdingReturnLevel: pnl != null && pnl > 0 ? "rise" : pnl != null && pnl < 0 ? "fall" : "",
-            cashRatio: total != null && pnl != null ? safeDiv(Math.max(total - pnl, 0), total) * 100 : null
+            holdingReturn:
+              total != null && pnl != null
+                ? safeDiv(pnl, total - pnl) * 100
+                : null,
+            holdingReturnLevel:
+              pnl != null && pnl > 0
+                ? "rise"
+                : pnl != null && pnl < 0
+                  ? "fall"
+                  : "",
+            cashRatio:
+              total != null && pnl != null
+                ? safeDiv(Math.max(total - pnl, 0), total) * 100
+                : null
           };
         }
       } catch {

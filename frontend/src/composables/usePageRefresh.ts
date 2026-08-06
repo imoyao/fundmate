@@ -1,12 +1,15 @@
 // src/composables/usePageRefresh.ts
-import { onUnmounted, ref } from 'vue';
-import { emitter } from '@/utils/mitt';
+import { onUnmounted } from "vue";
+import { emitter } from "@/utils/mitt";
 
-const REFRESH_EVENT = 'refresh-ledger-data' as const;
+const REFRESH_EVENT = "refresh-ledger-data" as const;
 // 防抖计时器
 let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
-export function usePageRefresh(callback: () => void, debounceDelay: number = 300) {
+export function usePageRefresh(
+  callback: () => void,
+  debounceDelay: number = 300
+) {
   // 封装带防抖的回调
   const handler = () => {
     if (timeoutId) clearTimeout(timeoutId);

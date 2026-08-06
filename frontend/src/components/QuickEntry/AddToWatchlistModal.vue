@@ -524,55 +524,58 @@ onMounted(async () => {
 
 /* 表单元素通用 */
 .asset-form {
-  margin: 10px 0;
   padding: 0 5px;
+  margin: 10px 0;
 }
 
 .reason-input {
   margin-top: 10px;
 }
+
 .reason-input :deep(.el-textarea__inner) {
-  border-radius: 4px;
+  box-sizing: border-box;
+  width: 100%;
   padding: 8px 12px;
   font-size: 14px;
-  width: 100%;
-  box-sizing: border-box;
+  border-radius: 4px;
 }
+
 .reason-input :deep(.el-input__count) {
   right: 8px;
   bottom: 4px;
-  color: var(--text-tertiary);
   font-size: 12px;
+  color: var(--text-tertiary);
 }
 
 :deep(.el-select) {
-  width: 100%;
   box-sizing: border-box;
+  width: 100%;
 }
 
 .add-watchlist-dialog :deep(.el-dialog__body) {
-  font-size: 15px;
   padding: 20px;
+  font-size: 15px;
 }
 
 /* 标签选中样式：使用品牌色系统 */
 .tag-select :deep(.el-select__tags .el-tag) {
+  padding: 0 8px;
+  margin: 2px 4px 2px 0;
+  color: var(--brand-700);
   background-color: var(--brand-100);
   border-color: var(--brand-400);
-  color: var(--brand-700);
-  margin: 2px 4px 2px 0;
-  padding: 0 8px;
 }
 
 /* venue 类型标签 */
 .venue-tag.tag-otc {
-  background-color: var(--brand-100);
   color: var(--brand-700);
+  background-color: var(--brand-100);
   border: none;
 }
+
 .venue-tag.tag-exchange {
-  background-color: var(--bg-soft);
   color: var(--text-secondary);
+  background-color: var(--bg-soft);
   border: none;
 }
 
@@ -580,17 +583,18 @@ onMounted(async () => {
 .color-swatch-btn {
   width: 20px;
   height: 20px;
-  border-radius: 50%;
-  border: 2px solid transparent;
   cursor: pointer;
+  border: 2px solid transparent;
+  border-radius: 50%;
   transition: all 0.2s ease;
 }
+
 .color-swatch-btn.is-selected {
   border-color: var(--brand-700);
-  transform: scale(1.15);
   box-shadow:
     0 0 0 2px var(--bg-card),
     0 0 0 4px var(--brand-700);
+  transform: scale(1.15);
 }
 
 /* 全局焦点环（确保所有可交互元素有键盘反馈） */

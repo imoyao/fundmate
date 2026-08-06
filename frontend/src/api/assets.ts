@@ -1,43 +1,43 @@
 // src/api/assets.ts
-import { http } from '@/utils/http'
+import { http } from "@/utils/http";
 
 export interface AssetRecord {
-  id: number
-  major_category: string
-  minor_category: string | null
-  name: string
-  amount: number
-  currency: string
-  account_name: string | null
-  allocation: string | null
-  status: string
-  notes: string | null
-  start_date: string | null
-  end_date: string | null
-  extra: Record<string, any> | null
-  created_at: string | null
-  updated_at: string | null
+  id: number;
+  major_category: string;
+  minor_category: string | null;
+  name: string;
+  amount: number;
+  currency: string;
+  account_name: string | null;
+  allocation: string | null;
+  status: string;
+  notes: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  extra: Record<string, any> | null;
+  created_at: string | null;
+  updated_at: string | null;
 }
 
-const BASE_URL = '/api/assets/'
+const BASE_URL = "/api/assets/";
 
 export function getAssets(params?: Record<string, any>) {
-  return http.request<any>('get', BASE_URL, { params })
+  return http.request<any>("get", BASE_URL, { params });
 }
 
 export function createAsset(data: any) {
-  return http.request<any>('post', BASE_URL, { data })
+  return http.request<any>("post", BASE_URL, { data });
 }
 
 export function updateAsset(id: number, data: any) {
-  return http.request<any>('patch', `${BASE_URL}/${id}/`, { data })
+  return http.request<any>("patch", `${BASE_URL}/${id}/`, { data });
 }
 
 export function deleteAsset(id: number) {
-  return http.request<any>('delete', `${BASE_URL}/${id}/`)
+  return http.request<any>("delete", `${BASE_URL}/${id}/`);
 }
 
 // 🔥 补充：新增获取各大类金额汇总的接口
 export function getAssetsSummary() {
-  return http.request<any>('get', `${BASE_URL}/summary/`)
+  return http.request<any>("get", `${BASE_URL}/summary/`);
 }

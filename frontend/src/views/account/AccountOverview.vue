@@ -412,8 +412,13 @@ function onSizeChange(size: number) {
 }
 
 // 类型标签样式
-function typeTagType(type: string): "primary" | "success" | "warning" | "info" | "danger" {
-  const map: Record<string, "primary" | "success" | "warning" | "info" | "danger"> = {
+function typeTagType(
+  type: string
+): "primary" | "success" | "warning" | "info" | "danger" {
+  const map: Record<
+    string,
+    "primary" | "success" | "warning" | "info" | "danger"
+  > = {
     stock: "primary",
     fund: "warning",
     bond: "info",
@@ -448,7 +453,7 @@ function marketLabel(market: string) {
   return map[market] || market;
 }
 
-function priceChangeClass(row: Position  | any) {
+function priceChangeClass(row: Position | any) {
   const r = row as Position;
   if (r.current_price > r.avg_price) return "text-red-500";
   if (r.current_price < r.avg_price) return "text-green-500";
@@ -496,13 +501,13 @@ async function handleDelete(id: number) {
 const editingPriceId = ref<number | null>(null);
 const editingPriceValue = ref(0);
 
-function startEditPrice(row: Position  | any) {
+function startEditPrice(row: Position | any) {
   const r = row as Position;
   editingPriceId.value = r.id;
   editingPriceValue.value = r.current_price;
 }
 
-async function confirmEditPrice(row: Position  | any) {
+async function confirmEditPrice(row: Position | any) {
   const r = row as Position;
   try {
     await updatePosition(r.id, { current_price: editingPriceValue.value });
