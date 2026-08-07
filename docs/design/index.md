@@ -32,6 +32,6 @@ title: 设计哲学与决策记录 (ADR)
 | `brand-v1.7.md` | 主站 + 落地页品牌视觉语言（v1.7 终稿：深海叙事 + 珊瑚红镜头转场 + /about 独立页 + 四生物插画映射） | 终稿 |
 | `ocean-invest-ecology-illustration-v0.1.md` | 海洋投资生态图鉴插画规范（8 生物 archetype、超椭圆容器、双色、颜色双账） | 规范 v0.1，绘制/互动后置 |
 | `about-page-proposal.md` | `/about` 品牌故事页方案评估（推荐轻量排版骨架 + 标准工程件补齐，四拍板已落地） | 提案已采纳 |
-| 主站实现（`landing.html` / `about.html` / `story.html`） | 按 brand-v1.7 落地的静态营销三页：落地页含 eco 无缝横幅；about 章节结构与 `docs/site/about.md` 对齐（文案可润色）；story 为深海叙事页。共享令牌源 `site/style.css`（镜像 frontend `colors.css`）。构建：`scripts/build-landing.mjs` + `landing.content.yml` | ✅ 已落地（2026-08-05，about-us 页已删除，footer 含意见反馈/隐私政策链接） |
+| 主站实现（`landing.html` / `about.html` / `story.html`） | 按 brand-v1.7 落地的静态营销三页：落地页含 eco 无缝横幅；about 章节结构与 `docs/about.md` 对齐（文案可润色）；story 为深海叙事页。共享令牌源 `site/style.css`（镜像 frontend `colors.css`）。构建：`scripts/build-landing.mjs` + `landing.content.yml` | ✅ 已落地（2026-08-05，about-us 页已删除，footer 含意见反馈/隐私政策链接） |
 
 > 关联：about 页的生态装饰条、未来空状态/新手引导插画均以 `ocean-invest-ecology-illustration-v0.1.md` 为生物隐喻唯一来源；视觉约束（超椭圆、双色、禁 3D）与 `brand-v1.7.md` §5/§9 一致。插画实际绘制与互动开发按该规范 §八 排期后置。盈亏语义走独立色板，品牌珊瑚红不得承担涨跌（见插画规范 §六 颜色双账、brand-v1.7 §3.1）。

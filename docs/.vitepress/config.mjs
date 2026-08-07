@@ -75,7 +75,6 @@ export default withDuxTheme(
           { path: 'features', title: '功能' },
           { path: 'spec', title: '规范' },
           { path: 'design', title: '设计' },
-          { path: 'site', title: '站点' },
           { path: 'ops', title: '运维' },
         ],
         collapsible: true,

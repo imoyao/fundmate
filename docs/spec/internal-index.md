@@ -21,7 +21,7 @@
 
 ## 访问管控约定
 
-- **对外公开**（顶栏导航 + 侧边栏）：`guide/`、`features/`、`site/`、`api/`
+- **对外公开**（顶栏导航 + 侧边栏）：`guide/`、`features/`、`api/`，及根目录站点页 (`about.md` `faq.md` 等)
 - **内部可见**（仅侧边栏，不在顶栏）：`dev/`、`pytest/`、`ops/`、`spec/`、`design/`
 - **彻底屏蔽**（不进产物）：见上表，由 `config.mjs` 的 `srcExclude` 排除出构建
 

@@ -14,7 +14,7 @@ hero:
       link: /guide/
     - theme: alt
       text: 关于产品
-      link: /site/about
+      link: /about
 
 features:
   - icon: 📒

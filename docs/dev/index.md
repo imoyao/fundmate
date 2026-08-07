@@ -58,7 +58,7 @@ pnpm docs:lint-md
 
 | 层级 | 目录 | 对外表现 |
 |---|---|---|
-| 公开 | `guide/` `features/` `site/` `api/` | 顶栏导航 + 侧边栏均收录，普通用户可见 |
+| 公开 | `guide/` `features/` `api/` 及根目录站点页 (`about` `faq` 等) | 顶栏导航 + 侧边栏均收录，普通用户可见 |
 | 内部可见 | `dev/` `pytest/` `ops/` `spec/` `design/` | 仅侧边栏收录（不在顶栏），协作者可见；无敏感信息 |
 | 彻底屏蔽 | `working-notes/` + 根目录备忘 `.md` | 由 `config.mjs` 的 `srcExclude` 排除出构建，不进产物，远端访问即 404，仅仓库源码可见 |
 
