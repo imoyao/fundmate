@@ -69,7 +69,7 @@ File -> Settings -> Tools -> Python Integrated Tools -> Docstrings -> Docstring 
 
 我们使用 flake8 进行 pep8 规范检查。
 
-```buildoutcfg
+```ini
 [flake8]
 ignore = D401,D202,E226,E302,E41
 max-line-length = 120
@@ -81,7 +81,7 @@ max-complexity = 10
 
 使用 isort 自动整理 import 顺序。
 
-```buildoutcfg
+```ini
 [isort]
 multi_line_output = 3
 include_trailing_comma = True
@@ -99,7 +99,7 @@ sections = FUTURE,STDLIB,FLASK,TEST,FIRSTPARTY,THIRDPARTY,LOCALFOLDER
 
 一种自动修复 pep8 错误的工具。
 
-```buildoutcfg
+```ini
 [yapf]
 based_on_style = pep8
 spaces_before_comment = 2
