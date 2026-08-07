@@ -1,8 +1,8 @@
 # 多倍贝 设计语言 · 暗色模式
 
-**版本**: v1.4 (Final)
+**版本**: v1.5 (Final)
 **状态**: 正式版 · 封箱
-**主题**: 暗色（亮色模式文档位于 `/design.md`）
+**主题**: 暗色（亮色模式文档位于 `/design.md`，与之对齐 v2.3.3）
 **设计原则**: 温暖 · 精致 · 可信赖 · 涨势 · 专业 · 健壮
 
 
@@ -251,14 +251,16 @@
 
 | 变体 | 背景 | 文字 | 圆角 | 高度 | 用途 |
 |------|------|------|------|------|------|
-| 主按钮 | `--brand-700` | `--bg-card` | `--radius-sm` | 40px | 主要操作 |
+| 主按钮 | `--brand-700` | `#FFFFFF` | `--radius-sm` | 40px | 主要操作 |
 | 次按钮 | 透明 / `--bg-card` | `--text-primary` | `--radius-sm` | 40px | 次要操作 |
 | 文本按钮 | 透明 | `--text-secondary` | `--radius-sm` | 40px | 轻量操作 |
-| **涨按钮** | `--color-rise` | `--bg-card` | `--radius-sm` | 40px | 买入 / 盈利操作 |
-| **跌按钮** | `--color-fall` | `--bg-card` | `--radius-sm` | 40px | 卖出 / 亏损操作 |
+| **涨按钮** | `--color-rise` | `#FFFFFF` | `--radius-sm` | 40px | 买入 / 盈利操作 |
+| **跌按钮** | `--color-fall` | `#FFFFFF` | `--radius-sm` | 40px | 卖出 / 亏损操作 |
 | **危险按钮** | 透明 | `--color-danger` | `--radius-sm` | 40px | 删除/错误/破坏性操作 |
 | **软涨按钮** | `--brand-200` | `--brand-700` | `--brand-400` | 40px | 已选中/候补操作 |
 | **软跌按钮** | `#1A3325` | `#5DAF85` | `#2D4A38` | 40px | 已选中/候补操作 |
+
+> **文字色与亮色对齐（v1.5 修订）**：实底按钮（主 / 涨 / 跌）文字统一为 **`#FFFFFF`**，与 `design.md` 亮色主按钮「白色文字」原则一致（亮色 `--brand-700` 白字 / 暗色 `--brand-700` 白字）。**禁止**使用 `--bg-card` 作按钮文字——暗色下 `--bg-card` 为深色 `#242120`，在实底珊瑚按钮上不可读，且违反了 design.md「文字不引用背景色」的编码红线。
 
 #### 危险按钮交互（暗色）
 
@@ -267,8 +269,8 @@
 | 状态 | 背景 | 边框 | 文字 |
 |------|------|------|------|
 | Default | 透明 | `--color-danger` 1px | `--color-danger` |
-| Hover | `--color-danger` | 无 | `--bg-card` |
-| Active | `--color-danger`（+ 半透明叠加层） | 无 | `--bg-card` |
+| Hover | `--color-danger` | 无 | `#FFFFFF` |
+| Active | `--color-danger`（+ 半透明叠加层） | 无 | `#FFFFFF` |
 
 #### 软按钮 Active 态
 

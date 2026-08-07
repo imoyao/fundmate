@@ -167,8 +167,11 @@ html[data-theme="showbuy"] .sidebar-logo-container .sidebar-title {
 .el-button--primary {
   --el-button-bg-color: var(--brand-700);
   --el-button-border-color: var(--brand-700);
+  --el-button-text-color: #fff;
   --el-button-hover-bg-color: var(--brand-800);
   --el-button-hover-border-color: var(--brand-800);
+  --el-button-hover-text-color: #fff;
   --el-button-active-bg-color: var(--brand-900);
   --el-button-active-border-color: var(--brand-900);
+  --el-button-active-text-color: #fff;
 }
