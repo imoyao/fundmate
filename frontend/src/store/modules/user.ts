@@ -88,8 +88,10 @@ export const useUserStore = defineStore("pure-user", {
       this.roles = [];
       this.permissions = [];
       removeToken();
-      // 清本地 Supabase session（local 仅清本地存储，不发网络请求）
-      supabase.auth.signOut({ scope: "local" }).catch(() => {});
+      // 先等待本地 Supabase session 清除完成再跳转。若不 await，路由守卫 beforeEach
+      // 里 await getSession() 会因竞态读到旧 session，判定仍"已登录"，
+      // 把 /login redirect 回原页面（router/index.ts toCorrectRoute），导致必须手动刷新才能退出。
+      await supabase.auth.signOut({ scope: "local" }).catch(() => {});
       useMultiTagsStoreHook().handleTags("equal", [...routerArrays]);
       resetRouter();
       router.push("/login");
