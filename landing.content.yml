@@ -24,16 +24,16 @@ hero:
   sub: 一个帮你算清真实收益、让复利增长清晰可见的投资账本。
   caps:
     - 手动归集
-    - 穿透持仓
+    - 多账户合并
     - 算准 XIRR
   ctaPrimary: 免费开始
   ctaSecondary: 了解功能
-  note: "不连接券商账户 · 不自动抓取 · 数据可一键导出"
+  note: "不连接券商账户 · 不自动抓取 · 交易记录可一键导出"
   trust:
     - { k: XIRR, v: "精确到日，真实年化收益" }
     - { k: "0", v: "广告 · 不开屏 · 不荐股" }
     - { k: "100%", v: "数据由你手动录入 / 导入" }
-    - { k: 一键, v: "导出全部数据（CSV）" }
+    - { k: 一键, v: "导出交易记录（CSV）" }
 
 features:
   eyebrow: 核心能力
@@ -61,24 +61,24 @@ core:
     tone: coral
     icon: upload
     title: 免密码交割单导入
-    desc: 上传 CSV / PDF 交割单即可导入，无需输入券商账号密码。支持支付宝、天天基金、同花顺、东方财富等主流平台——数据怎么来，你说了算。
+    desc: 上传 CSV / PDF 交割单即可导入，无需输入券商账号密码。支持支付宝、天天基金、同花顺等主流平台，更多平台持续接入——数据怎么来，你说了算。
   - num: "05"
     tone: fall
     icon: info
     title: 算法透明可追溯
-    desc: 同口径展示 XIRR（资金加权）、时间加权、Modified Dietz 三种收益率，每笔现金流与每日资产变动都可追溯。基于公开标准（Excel XIRR 同源），不偷偷调算法美化收益。
+    desc: 同口径展示 XIRR（资金加权，精确到日），每笔现金流与每日资产变动都可追溯。基于公开标准（Excel XIRR 同源），不偷偷调算法美化收益。
   - num: "06"
     tone: coral-light
     icon: shield
     title: 数据主权保障
-    desc: 数据存在云端，主权归你：一键导出 CSV、随时可带走；无广告、不开屏、不荐股、不导流理财。你的交易记录，由你掌控。
+    desc: 数据存在云端，主权归你：交易记录一键导出 CSV、随时可带走；无广告、不开屏、不荐股、不导流理财。你的交易记录，由你掌控。
 
 eco:
   headTitle: 一份交割单，直接读懂你的账
   headSub: 支持 CSV / Excel 导入，无需输入券商账号密码
   logos:
     - { name: 支付宝, icon: "logos/alipay.svg" }
-  texts: [天天基金, 同花顺, 东方财富, 基金标准模板, 股票标准模板, 更多平台，敬请期待]
+  texts: [天天基金, 同花顺, 支付宝, 基金标准模板, 股票标准模板, 东方财富等更多平台，敬请期待]
 
 scenarios:
   eyebrow: 适用场景
@@ -114,7 +114,7 @@ scenarios:
       icon: file
       tag: "财务爱好者 · 记账达人"
       title: 算法透明不玩黑盒
-      desc: 同花顺显示 12.69% 却不解释怎么算出来的。多倍贝三种收益率同屏展示，每笔现金流可追溯，账算得清清楚楚。
+      desc: 同花顺显示 12.69% 却不解释怎么算出来的。多倍贝 XIRR 口径透明、精确到日，每笔现金流可追溯，账算得清清楚楚。
       kit: 专业复盘工具
     - tone: teal
       icon: lock
@@ -132,14 +132,12 @@ scenarios:
       icon: refresh
       tag: 可转债爱好者
       title: 打新与转股记录
-      desc: 可转债的申购、转股、赎回各有成本。全类型记录不丢一笔，转股时的真实收益也能算清。
-      kit: 可转债专用
+      desc: 可转债的申购、转股、赎回各有成本。全类型流水可记，成本一笔笔并入 XIRR，转股时的真实收益也能算清。
     - tone: green
       icon: layers
       tag: "指数基金党 · ETF 定投"
       title: 定投成本摊薄
       desc: 周定投、月定投的成本怎么摊？XIRR 自动加权，看清定投的真实年化回报，而不是被「微笑曲线」带节奏。
-      kit: 定投回测
     - tone: teal
       icon: shield-check
       tag: "长期持有 · 养老年金"
@@ -158,7 +156,7 @@ compare:
     - capability: XIRR 真实年化（精确到日）
       us: "✓ 内置计算"
       other: "✗ 多只看累计收益"
-    - capability: 穿透持仓，合并多账户真实收益率
+    - capability: 多账户合并真实收益率
       us: "✓ 支持"
       other: "✗ 多为单账户视图"
     - capability: 不连接券商、不自动抓取
@@ -167,15 +165,12 @@ compare:
     - capability: 广告 / 开屏 / 荐股
       us: "✓ 全无"
       other: "⊘ 部分含广告或理财引导"
-    - capability: 数据可一键导出
+    - capability: 交易记录一键导出
       us: "✓ CSV 自由导出"
       other: "⊘ 导出受限或付费"
-    - capability: 收益率算法透明（XIRR / 时间加权 / Modified Dietz 同屏可查）
-      us: "✓ 多口径 + 每笔现金流可追溯"
+    - capability: 收益率算法透明（XIRR 资金加权，精确到日）
+      us: "✓ 口径透明 + 每笔现金流可追溯"
       other: "✗ 单一黑盒数值，不解释算法"
-    - capability: 回撤分布曲线（连续回撤轮廓，而非仅标最大值）
-      us: "✓ 绘制连续回撤曲线"
-      other: "✗ 仅标记最大回撤极值"
 
 honesty:
   eyebrow: 诚实承诺
@@ -189,7 +184,7 @@ honesty:
     - icon: shield
       cls: ""
       title: 数据主权
-      desc: 数据存于云端，主权归你：一键导出 CSV、随时可带走，也不用于任何营销或广告。你的交易记录，由你掌控。
+      desc: 数据存于云端，主权归你：交易记录一键导出 CSV、随时可带走，也不用于任何营销或广告。你的交易记录，由你掌控。
     - icon: rect
       cls: ""
       title: 不靠广告变现
@@ -201,7 +196,7 @@ honesty:
     - icon: file-text
       cls: ""
       title: 算法透明
-      desc: 同口径同步展示 XIRR（资金加权）、时间加权、Modified Dietz 三种收益率，每笔现金流与每日资产变动都可追溯。基于公开标准（Excel XIRR 同源），不会偷偷调整算法来美化你的收益曲线。算就是算，不玩花活。
+      desc: 同口径同步展示 XIRR（资金加权，精确到日），每笔现金流与每日资产变动都可追溯。基于公开标准（Excel XIRR 同源），不会偷偷调整算法来美化你的收益曲线。算就是算，不玩花活。
     - icon: info
       cls: limitation
       title: 我们也做不到的事
@@ -222,10 +217,7 @@ pro:
   items:
     - icon: info
       title: 算法公开，每一步可追溯
-      desc: 同口径同步展示 XIRR（资金加权）、时间加权、Modified Dietz 三种收益率，并追溯每笔现金流与每日资产变动。不再有"这个 12.69% 到底怎么算的"这种疑问。
-    - icon: chart
-      title: 回撤分布曲线，不只是极值
-      desc: 不只标一个"最大回撤"。绘制连续回撤曲线，让你看到一波波行情中每次颠簸的轮廓——真正有用的不是最惨的那一次，是分布。
+      desc: 同口径同步展示 XIRR（资金加权，精确到日），并追溯每笔现金流与每日资产变动。不再有"这个 12.69% 到底怎么算的"这种疑问。
 
 testimonials:
   eyebrow: 用户怎么说
@@ -264,7 +256,7 @@ privacy:
       desc: 你的数据不会被出售或提供给任何第三方服务。
     - icon: download
       title: 支持一键导出
-      desc: 随时导出全部数据（CSV），数据始终在你手里。
+      desc: 随时导出交易记录（CSV），数据始终在你手里。
 
 cta:
   title: 把账算明白，从今天开始

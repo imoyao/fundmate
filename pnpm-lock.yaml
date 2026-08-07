@@ -8,21 +8,12 @@ importers:
 
   .:
     dependencies:
-      babel-runtime:
-        specifier: ^6.26.0
-        version: 6.26.0
-      core-js:
-        specifier: ^2.6.11
-        version: 2.6.12
       lint-md:
         specifier: ^0.2.0
         version: 0.2.0
       lint-md-cli:
         specifier: ^0.1.2
         version: 0.1.2
-      yarn:
-        specifier: 1.22.19
-        version: 1.22.19
     devDependencies:
       '@duxweb/vitepress-theme':
         specifier: ^1.1.9
@@ -1707,11 +1698,6 @@ packages:
   xtend@4.0.2:
     resolution: {integrity: sha512-LKYU1iAXJXUgAXn9URjiu+MWhyUXHsvfp7mcuYm9dSUKK0/CjtrUwFAxD82/mCWbtLsGjFIad0wIsod4zrTAEQ==}
     engines: {node: '>=0.4'}
-
-  yarn@1.22.19:
-    resolution: {integrity: sha512-/0V5q0WbslqnwP91tirOvldvYISzaqhClxzyUKXYxs07yUILIs5jx/k6CFe8bvKSkds5w+eiOqta39Wk3WxdcQ==}
-    engines: {node: '>=4.0.0'}
-    hasBin: true
 
   zwitch@2.0.4:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
@@ -3513,7 +3499,5 @@ snapshots:
   x-is-string@0.1.0: {}
 
   xtend@4.0.2: {}
-
-  yarn@1.22.19: {}
 
   zwitch@2.0.4: {}
