@@ -436,7 +436,8 @@ from app.domains.temperature.models import MarketSingleValue, MarketComposite, M
 | `SUPABASE_URL` | Supabase 项目地址（`https://xxx.supabase.co`） | EdgeOne 环境变量 / `backend/.env` | ✅ 已填（`.env`） |
 | `SUPABASE_DB_PASSWORD` | Supabase Postgres 数据库密码（拼出 `postgresql://` 串） | EdgeOne Secrets / `backend/.env` | ⚠️ **缺失，需补**（见下方说明） |
 | `SUPABASE_DATABASE_URL` | 可选：直接给完整 Postgres 连接串（优先于上面两项拼装） | EdgeOne 环境变量 | 可选 |
-| `SUPABASE_SERVICE_ROLE_KEY` / `SUPABASE_ANON_KEY` / `SUPABASE_JWT_SECRET` | Supabase Auth/RLS（直连 Postgres 时通常不需要，保留备用） | `backend/.env` | ✅ 已填 |
+| `SUPABASE_SERVICE_ROLE_KEY` / `SUPABASE_ANON_KEY` | Supabase Auth/RLS（`SUPABASE_ANON_KEY` 亦作 JWKS 端点 `apikey` 头） | `backend/.env` | ✅ 已填 |
+| `SUPABASE_JWT_SECRET` | **已废弃**（原 HS256 共享密钥已随 Supabase 迁移 ECC 轮换，`SUPABASE_JWT_SECRET` 实际是 Key ID 而非密钥） | — | ❌ 移除，勿再用（验签改 JWKS+ES256，见 decisions D2 修订） |
 | `TURSO_URL` | Turso libSQL 地址（`libsql://xxx.turso.io`） | EdgeOne 环境变量 / `backend/.env` | ✅ 已填 |
 | `TURSO_TOKEN` | Turso 访问令牌（拼进 libSQL URL 的 `authToken`） | EdgeOne Secrets / `backend/.env` | ✅ 已填 |
 | `ERNIAO_SYNC_TOKEN` | 二鸟回写端点共享密钥 | EdgeOne Secrets / WeChatRSS Secrets | 需设 |

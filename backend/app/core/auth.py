@@ -2,7 +2,7 @@
 """身份鉴权核心（D2：后端为唯一信任边界）。
 
 - 每个受保护请求带 `Authorization: Bearer <supabase access_token>`，
-  后端用 `SUPABASE_JWT_SECRET` + PyJWT 本地验签（不发网络请求），
+  后端从 Supabase JWKS 端点获取公钥，用 ES256 验签（非对称，支持密钥轮换），
   从 `claims.sub` 映射本地 `users` 表，注入 `g.current_user / family_id / role`。
 - 白名单：health、temperature（探市免登录，D4）、auth/logout、OPTIONS 预检。
 - 开发/测试模式（`AUTH_ENABLED` 未启用）：允许无 token 回退默认用户，
@@ -11,6 +11,8 @@
 """
 
 import os
+import threading
+import time
 from functools import wraps
 
 from flask import abort, g, request
@@ -29,6 +31,11 @@ PUBLIC_EXACT = (
 
 _WRITE_METHODS = ('POST', 'PUT', 'PATCH', 'DELETE')
 
+# JWKS 缓存：{kid: {'key': public_key, 'exp': timestamp}}
+_JWKS_CACHE = {}
+_JWKS_CACHE_LOCK = threading.Lock()
+_JWKS_TTL = 3600  # 1 小时
+
 
 def _is_public(path: str, method: str) -> bool:
     """判断请求是否属于免登录白名单（D4：探市免登录）。"""
@@ -45,21 +52,86 @@ def auth_enabled() -> bool:
     return os.getenv('AUTH_ENABLED', '').strip().lower() in ('1', 'true', 'yes')
 
 
+def _fetch_jwks(supabase_url: str) -> dict:
+    """从 Supabase 获取 JWKS 公钥集合。
+
+    端点是 `/auth/v1/.well-known/jwks.json`（OpenID Discovery 里的 `jwks_uri`，
+    而非 `/auth/v1/jwks`，后者会 404）；GoTrue 网关要求 `apikey` 头（用 anon key 即可）。
+    实测（2026-08-08）返回两条 ES256 P-256 公钥，kid 与 Dashboard「JWT Signing Keys」
+    的 Current / Standby 一一对应，做 ES256 非对称验签，天然支持密钥轮换。
+    """
+    import requests
+
+    anon_key = os.getenv('SUPABASE_ANON_KEY', '')
+    jwks_url = f'{supabase_url.rstrip("/")}/auth/v1/.well-known/jwks.json'
+    headers = {'apikey': anon_key, 'Authorization': f'Bearer {anon_key}'}
+    resp = requests.get(jwks_url, headers=headers, timeout=10)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _get_public_key(supabase_url: str, kid: str):
+    """从 JWKS 获取指定 kid 的公钥（带缓存）。"""
+    now = time.time()
+    with _JWKS_CACHE_LOCK:
+        # 清理过期缓存
+        expired = [k for k, v in _JWKS_CACHE.items() if v['exp'] < now]
+        for k in expired:
+            _JWKS_CACHE.pop(k, None)
+
+        cached = _JWKS_CACHE.get(kid)
+        if cached and cached['exp'] > now:
+            return cached['key']
+
+        # 缓存未命中或过期，重新拉取
+        jwks = _fetch_jwks(supabase_url)
+        for jwk in jwks.get('keys', []):
+            if jwk.get('kid') == kid:
+                import jwt
+
+                # PyJWT 2.0+ 支持直接用 jwk dict
+                public_key = jwt.algorithms.ECAlgorithm.from_jwk(jwk)
+                _JWKS_CACHE[kid] = {'key': public_key, 'exp': now + _JWKS_TTL}
+                return public_key
+
+    return None
+
+
 def decode_supabase_token(token: str) -> dict | None:
-    """本地验签 Supabase access_token，返回 claims；无效返回 None。"""
-    jwt_secret = os.getenv('SUPABASE_JWT_SECRET')
-    if not jwt_secret:
-        logger.debug('未配置 SUPABASE_JWT_SECRET，跳过 JWT 验签')
+    """验签 Supabase access_token（ES256 + JWKS），返回 claims；无效返回 None。"""
+    supabase_url = os.getenv('SUPABASE_URL')
+    if not supabase_url:
+        logger.debug('未配置 SUPABASE_URL，跳过 JWT 验签')
         return None
+
     try:
-        import jwt  # PyJWT，延迟导入以保持依赖轻量
+        import jwt
     except ImportError:  # pragma: no cover
         logger.error('缺少 PyJWT 依赖，无法验签 Supabase token')
         return None
+
+    # 解析 header 获取 kid（不验签）
     try:
-        return jwt.decode(token, jwt_secret, algorithms=['HS256'])
-    except Exception:
-        logger.debug('Supabase token 验签失败')
+        header = jwt.get_unverified_header(token)
+    except Exception as e:
+        logger.debug('JWT header 解析失败: {}', e)
+        return None
+
+    kid = header.get('kid')
+    if not kid:
+        logger.debug('JWT header 缺少 kid')
+        return None
+
+    public_key = _get_public_key(supabase_url, kid)
+    if public_key is None:
+        logger.debug('JWKS 中未找到 kid={} 对应的公钥', kid)
+        return None
+
+    try:
+        # Supabase 现在用 ES256 (ECDSA P-256)
+        return jwt.decode(token, public_key, algorithms=['ES256'], audience='authenticated')
+    except Exception as e:
+        logger.debug('Supabase token 验签失败: {}', e)
         return None
 
 

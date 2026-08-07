@@ -20,6 +20,58 @@ def auth_enabled(monkeypatch):
     monkeypatch.setenv('AUTH_ENABLED', 'true')
 
 
+@pytest.fixture
+def supabase_jwks(monkeypatch):
+    """提供 P-256 密钥对 + 本地 JWKS mock，模拟 Supabase ES256 验签（2026-08-08 起）。
+
+    真实 Supabase（Dashboards「JWT Signing Keys」确认）已迁移 ECC P-256 签名，
+    不再有 HS256 共享密钥；后端从 JWKS 端点按 kid 取公钥做 ES256 验签。
+    本 fixture 生成内存 P-256 密钥对，mock 掉 `_fetch_jwks` 网络拉取，
+    签发 token 走 ES256，与生产路径一致。
+    """
+    import base64
+
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    from app.core import auth as auth_mod
+
+    private_key = ec.generate_private_key(ec.SECP256R1())
+    public_key = private_key.public_key()
+    nums = public_key.public_numbers()
+
+    def _b64(n: int) -> str:
+        return base64.urlsafe_b64encode(n.to_bytes(32, 'big')).rstrip(b'=').decode()
+
+    jwk = {
+        'alg': 'ES256',
+        'crv': 'P-256',
+        'kid': 'test-kid-001',
+        'kty': 'EC',
+        'use': 'sig',
+        'x': _b64(nums.x),
+        'y': _b64(nums.y),
+    }
+
+    monkeypatch.setenv('AUTH_ENABLED', 'true')
+    monkeypatch.setenv('SUPABASE_URL', 'https://fake-ref.supabase.co')
+    monkeypatch.setattr(auth_mod, '_fetch_jwks', lambda url: {'keys': [jwk]})
+
+    # 清掉模块级 JWKS 缓存，避免跨测试串 key
+    auth_mod._JWKS_CACHE.clear()
+
+    def _make_token(claims: dict) -> str:
+        import jwt as pyjwt
+
+        return pyjwt.encode(
+            {'aud': 'authenticated', **claims},
+            private_key,
+            algorithm='ES256',
+            headers={'kid': 'test-kid-001'},
+        )
+
+    return _make_token
+
+
 def _create_user(db, supabase_id=None, family_id=1, role='member', username=None, email=None):
     from app.domains.users.models import User
 
@@ -77,38 +129,27 @@ def test_auth_me_default_user(client):
     assert body['role'] in ('admin', 'member')
 
 
-def test_jwt_auth_flow(client, db, monkeypatch):
-    """JWT 验签链路：有效 token 关联到本地用户。"""
-    import jwt as pyjwt
-
-    secret = 'test-jwt-secret-0123456789abcdef'
-    monkeypatch.setenv('AUTH_ENABLED', 'true')
-    monkeypatch.setenv('SUPABASE_JWT_SECRET', secret)
-
+def test_jwt_auth_flow(client, db, supabase_jwks):
+    """JWT 验签链路（ES256 + JWKS）：有效 token 关联到本地用户。"""
+    make_token = supabase_jwks
     # 预置一个 supabase 用户
     _create_user(db, supabase_id='sub-123', family_id=1, role='admin')
 
-    token = pyjwt.encode({'sub': 'sub-123', 'exp': 9999999999}, secret, algorithm='HS256')
+    token = make_token({'sub': 'sub-123', 'exp': 9999999999})
     resp = client.get('/api/auth/me', headers={'Authorization': f'Bearer {token}'})
     assert resp.status_code == 200
     assert resp.get_json()['data']['supabase_id'] == 'sub-123'
 
 
-def test_jit_provision_new_user(client, db, monkeypatch):
+def test_jit_provision_new_user(client, db, supabase_jwks):
     """首次登录：有效 token 的 sub 无本地记录时自动创建用户（默认家庭1/member）。"""
-    import jwt as pyjwt
+    make_token = supabase_jwks
 
     from app.core.database import SessionLocal
     from app.domains.users.models import User
 
-    secret = 'test-jwt-secret-0123456789abcdef'
-    monkeypatch.setenv('AUTH_ENABLED', 'true')
-    monkeypatch.setenv('SUPABASE_JWT_SECRET', secret)
-
-    token = pyjwt.encode(
+    token = make_token(
         {'sub': 'sub-new-user', 'email': 'new@example.com', 'user_metadata': {'username': '新用户'}, 'exp': 9999999999},
-        secret,
-        algorithm='HS256',
     )
     resp = client.get('/api/auth/me', headers={'Authorization': f'Bearer {token}'})
     assert resp.status_code == 200
@@ -127,18 +168,14 @@ def test_jit_provision_new_user(client, db, monkeypatch):
         assert user.family_id == 1
 
 
-def test_jit_provision_idempotent(client, db, monkeypatch):
+def test_jit_provision_idempotent(client, db, supabase_jwks):
     """重复登录不重复建号（唯一约束 + 回查）。"""
-    import jwt as pyjwt
+    make_token = supabase_jwks
 
     from app.core.database import SessionLocal
     from app.domains.users.models import User
 
-    secret = 'test-jwt-secret-0123456789abcdef'
-    monkeypatch.setenv('AUTH_ENABLED', 'true')
-    monkeypatch.setenv('SUPABASE_JWT_SECRET', secret)
-
-    token = pyjwt.encode({'sub': 'sub-idempotent', 'email': 'a@b.com', 'exp': 9999999999}, secret, algorithm='HS256')
+    token = make_token({'sub': 'sub-idempotent', 'email': 'a@b.com', 'exp': 9999999999})
     headers = {'Authorization': f'Bearer {token}'}
     assert client.get('/api/auth/me', headers=headers).status_code == 200
     assert client.get('/api/auth/me', headers=headers).status_code == 200
@@ -150,9 +187,8 @@ def test_jit_provision_idempotent(client, db, monkeypatch):
         assert s.query(User).filter_by(supabase_id='sub-idempotent').first().username == 'a'
 
 
-def test_invalid_token_rejected(client, db, auth_enabled, monkeypatch):
+def test_invalid_token_rejected(client, db, supabase_jwks):
     """伪造 token（验签失败）→ 401。"""
-    monkeypatch.setenv('SUPABASE_JWT_SECRET', 'real-secret')
     resp = client.get('/api/auth/me', headers={'Authorization': 'Bearer bogus.token.here'})
     assert resp.status_code == 401
 
@@ -419,19 +455,16 @@ def test_update_me_partial(client, db):
     assert data['nickname'] == '仅改昵称'
 
 
-def test_email_synced_from_claims(client, db, monkeypatch):
+def test_email_synced_from_claims(client, db, supabase_jwks):
     """邮箱改绑后，claims.email 同步回本地 users.email（消除陈旧数据）。"""
-    import jwt as pyjwt
+    make_token = supabase_jwks
 
     from app.core.database import SessionLocal
     from app.domains.users.models import User
 
-    secret = 'test-jwt-secret-0123456789abcdef'
-    monkeypatch.setenv('AUTH_ENABLED', 'true')
-    monkeypatch.setenv('SUPABASE_JWT_SECRET', secret)
     _create_user(db, supabase_id='sub-email', email='old@example.com')
 
-    token = pyjwt.encode({'sub': 'sub-email', 'email': 'new@example.com', 'exp': 9999999999}, secret, algorithm='HS256')
+    token = make_token({'sub': 'sub-email', 'email': 'new@example.com', 'exp': 9999999999})
     resp = client.get('/api/auth/me', headers={'Authorization': f'Bearer {token}'})
     assert resp.status_code == 200
     assert resp.get_json()['data']['email'] == 'new@example.com'
