@@ -1,16 +1,18 @@
 # -*- coding: utf-8 -*-
-"""用户 API — 当前家庭成员列表（个人中心 / 家庭成员管理前置）。
+"""用户 API — 当前家庭成员列表、个人资料更新（D1 家庭共享 / D10 资料编辑）。
 
-鉴权说明：非白名单接口需登录；成员列表按当前用户所属家庭过滤（D1 家庭共享）。
+鉴权说明：非白名单接口需登录；成员列表按当前用户所属家庭过滤。
+个人资料更新仅作用于当前登录用户（`g.current_user`），不跨家庭。
 """
 
 from apiflask import APIBlueprint
-from flask import jsonify
+from flask import abort, g, jsonify
 
 from app.core.auth import get_family_id
 from app.core.database import get_db
+from app.core.validation import parse_body
 from app.domains.users.models import ROLE_LABELS, User
-from app.domains.users.schemas import UserOut
+from app.domains.users.schemas import ProfileUpdate, UserOut
 
 users_bp = APIBlueprint('users', __name__, url_prefix='/api/users')
 
@@ -27,3 +29,40 @@ def list_family_members():
     with get_db() as db:
         members = db.query(User).filter(User.family_id == get_family_id()).order_by(User.created_at.asc()).all()
         return jsonify({'data': [_user_to_dict(m) for m in members], 'message': 'ok'})
+
+
+@users_bp.patch('/me')
+def update_me():
+    """更新当前登录用户资料（昵称 / 用户名 / 头像）。
+
+    用户名作为登录标识必须全局唯一：与其他用户冲突返回 409；
+    用户名只允许修改且不可置空（置空则保持原值）。
+    头像仅存生成式 URL（D9：不落盘、不上传，由 DiceBear 之类生成）。
+    """
+    data = parse_body(ProfileUpdate)
+    with get_db() as db:
+        user = db.query(User).filter_by(id=g.current_user.id).first()
+        if user is None:
+            abort(401, description='未登录')
+
+        if data.username is not None:
+            new_username = data.username
+            conflict = (
+                db.query(User)
+                .filter(
+                    User.username == new_username,
+                    User.id != user.id,
+                )
+                .first()
+            )
+            if conflict is not None:
+                abort(409, description='该用户名已被占用，请换一个')
+            user.username = new_username
+        if data.nickname is not None:
+            user.nickname = data.nickname
+        if data.avatar is not None:
+            user.avatar = data.avatar
+
+        db.commit()
+        db.refresh(user)
+        return jsonify({'data': _user_to_dict(user), 'message': 'ok'})

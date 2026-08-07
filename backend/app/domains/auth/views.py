@@ -8,13 +8,55 @@ import os
 
 import requests
 from apiflask import APIBlueprint
-from flask import g, request
+from flask import abort, g, request
 from loguru import logger
+from pydantic import BaseModel
+from sqlalchemy import func
 
 from app.domains.families.models import Family
 from app.domains.users.models import ROLE_LABELS, User
 
 auth_bp = APIBlueprint('auth', __name__, url_prefix='/api/auth')
+
+
+class ResolveRequest(BaseModel):
+    identifier: str
+
+
+@auth_bp.post('/resolve')
+def resolve_identifier():
+    """登录标识解析（D10）：把"邮箱 或 用户名"收敛为规范邮箱，供前端二次登录。
+
+    Supabase Auth 原生仅支持 "邮箱/手机号 + 密码" 登录，不支持用户名登录。
+    这里作为解析层：前端拿到用户输入（可能是邮箱或用户名）后，先调用本接口，
+    由本地 `users` 表把标识解析为规范 email，再交给 `signInWithPassword`。
+
+    解析优先级：
+    1. 若输入形如邮箱（含 `@`），先按 `email` 精确匹配；
+    2. 否则按 `username`（不区分大小写）匹配；
+    3. 仍无匹配 → 404，表示该标识不存在（不泄露任何邮箱信息）。
+
+    本接口免登录（PUBLIC_EXACT），因为登录前必须能调用它。
+    """
+    from app.core.database import get_db  # 延迟导入，与测试 monkeypatch 对齐
+    from app.core.validation import parse_body
+
+    data = parse_body(ResolveRequest)
+    identifier = data.identifier.strip()
+    if not identifier:
+        abort(400, description='登录标识不能为空')
+
+    is_email = '@' in identifier
+    with get_db() as db:
+        if is_email:
+            user = db.query(User).filter(User.email == identifier).order_by(User.id.asc()).first()
+        else:
+            user = (
+                db.query(User).filter(func.lower(User.username) == identifier.lower()).order_by(User.id.asc()).first()
+            )
+        if user is None:
+            abort(404, description='未找到该邮箱或用户名，请检查后重试')
+        return {'data': {'email': user.email}, 'message': 'ok'}
 
 
 @auth_bp.get('/me')

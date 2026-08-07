@@ -19,8 +19,13 @@ from sqlalchemy.exc import IntegrityError
 
 # 免登录前缀：探市相关接口（含无尾斜杠的 /api/temperature/{overview,history,multi}）
 PUBLIC_PREFIXES = ('/api/health', '/api/temperature')
-# 免登录精确路径：登出接口允许无有效 token 也返回成功（由前端清理本地会话）
-PUBLIC_EXACT = ('/api/auth/logout',)
+# 免登录精确路径
+# - logout：允许无有效 token 也返回成功（由前端清理本地会话）
+# - auth/resolve：登录前的"标识→邮箱"解析，帮助 Supabase 完成用户名登录（D10）
+PUBLIC_EXACT = (
+    '/api/auth/logout',
+    '/api/auth/resolve',
+)
 
 _WRITE_METHODS = ('POST', 'PUT', 'PATCH', 'DELETE')
 
@@ -98,6 +103,20 @@ def _provision_user(db, claims: dict):
     return user
 
 
+def _sync_claims_email(db, user, claims: dict):
+    """把 Supabase 侧最新的邮箱回写本地 `users.email`。
+
+    用户改绑邮箱（D10，前端经 `supabase.auth.updateUser({email})` 触发二次验证）
+    后，Supabase 是新邮箱的权威，而本地 `users` 只是映射。若这里的
+    `claims.email` 与本地不一致，则同步，避免"个人中心仍显示旧邮箱"的陈旧数据。
+    """
+    claims_email = (claims.get('email') or '').strip()
+    if claims_email and user.email != claims_email:
+        user.email = claims_email
+        db.commit()
+        logger.info('同步 Supabase 最新邮箱到本地 sub={}', claims.get('sub'))
+
+
 def _resolve_user(db):
     """从请求上下文解析本地用户（优先测试旁路头，其次 JWT 验签）。"""
     # 测试/开发旁路：X-User-Id 头直接指定本地用户 id
@@ -126,6 +145,8 @@ def _resolve_user(db):
     user = db.query(User).filter_by(supabase_id=sub).first()
     if user is None:
         user = _provision_user(db, claims)
+    else:
+        _sync_claims_email(db, user, claims)
     return user
 
 

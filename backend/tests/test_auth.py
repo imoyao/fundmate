@@ -20,7 +20,7 @@ def auth_enabled(monkeypatch):
     monkeypatch.setenv('AUTH_ENABLED', 'true')
 
 
-def _create_user(db, supabase_id=None, family_id=1, role='member', username=None):
+def _create_user(db, supabase_id=None, family_id=1, role='member', username=None, email=None):
     from app.domains.users.models import User
 
     user = User(
@@ -28,6 +28,7 @@ def _create_user(db, supabase_id=None, family_id=1, role='member', username=None
         family_id=family_id,
         role=role,
         username=username or f'user_{supabase_id or id(db)}',
+        email=email,
         is_active=1,
     )
     db.add(user)
@@ -325,3 +326,116 @@ def test_cross_family_watchlist_isolated(client, db):
         json={'name': '被篡改'},
     )
     assert resp.status_code == 404
+
+
+# ────────────────────────────── 登录标识解析（D10） ──────────────────────────────
+
+
+def test_resolve_by_email(client, db):
+    """邮箱精确匹配 → 返回规范邮箱。"""
+    _create_user(db, username='alice', email='alice@example.com')
+    resp = client.post('/api/auth/resolve', json={'identifier': 'alice@example.com'})
+    assert resp.status_code == 200
+    assert resp.get_json()['data']['email'] == 'alice@example.com'
+
+
+def test_resolve_by_username_case_insensitive(client, db):
+    """用户名不区分大小写匹配。"""
+    _create_user(db, username='InvestorWang', email='wang@example.com')
+    resp = client.post('/api/auth/resolve', json={'identifier': 'investorwang'})
+    assert resp.status_code == 200
+    assert resp.get_json()['data']['email'] == 'wang@example.com'
+
+
+def test_resolve_email_takes_priority(client, db):
+    """输入含 `@` 视为邮箱，即使与某用户名相同也走邮箱匹配。"""
+    _create_user(db, username='a@b.com', email='real@example.com')
+    _create_user(db, username='other', email='a@b.com')
+    resp = client.post('/api/auth/resolve', json={'identifier': 'a@b.com'})
+    assert resp.status_code == 200
+    assert resp.get_json()['data']['email'] == 'a@b.com'
+
+
+def test_resolve_not_found(client, db):
+    """未知标识 → 404。"""
+    resp = client.post('/api/auth/resolve', json={'identifier': 'nobody'})
+    assert resp.status_code == 404
+
+
+def test_resolve_public_in_forced_mode(client, auth_enabled):
+    """强制登录模式下 resolve 仍免登录（登录前必须可调用）。"""
+    resp = client.post('/api/auth/resolve', json={'identifier': 'anything'})
+    assert resp.status_code == 404  # 无匹配，但不被 401 拦截
+
+
+def test_resolve_empty_identifier(client):
+    """空标识 → 400。"""
+    resp = client.post('/api/auth/resolve', json={'identifier': '   '})
+    assert resp.status_code == 400
+
+
+# ────────────────────────────── 个人资料更新（D10） ──────────────────────────────
+
+
+def test_update_me_profile(client, db):
+    """更新昵称/用户名/头像成功并回读。"""
+    _create_user(db, username='old_name', email='me@example.com')
+    resp = client.patch(
+        '/api/users/me',
+        json={
+            'username': 'new_name',
+            'nickname': '小贝',
+            'avatar': 'https://api.dicebear.com/9.x/adventurer/svg?seed=abc',
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.get_json()['data']
+    assert data['username'] == 'new_name'
+    assert data['nickname'] == '小贝'
+    assert data['avatar'].startswith('https://api.dicebear.com')
+
+
+def test_update_me_username_conflict(client, db):
+    """用户名与他人冲突 → 409。"""
+    _create_user(db, username='taken', email='taken@example.com')
+    _create_user(db, username='me', email='me@example.com')
+    resp = client.patch('/api/users/me', json={'username': 'taken'})
+    assert resp.status_code == 409
+
+
+def test_update_me_keeps_own_username(client, db):
+    """保留自己的用户名不视为冲突。"""
+    # 默认种子用户 username='local'（id=1），改回自己的名字不应触发 409
+    resp = client.patch('/api/users/me', json={'username': 'local'})
+    assert resp.status_code == 200
+
+
+def test_update_me_partial(client, db):
+    """只更新昵称，不影响用户名/头像。"""
+    _create_user(db, username='partial', email='me@example.com')
+    resp = client.patch('/api/users/me', json={'nickname': '仅改昵称'})
+    assert resp.status_code == 200
+    data = resp.get_json()['data']
+    assert data['nickname'] == '仅改昵称'
+
+
+def test_email_synced_from_claims(client, db, monkeypatch):
+    """邮箱改绑后，claims.email 同步回本地 users.email（消除陈旧数据）。"""
+    import jwt as pyjwt
+
+    from app.core.database import SessionLocal
+    from app.domains.users.models import User
+
+    secret = 'test-jwt-secret-0123456789abcdef'
+    monkeypatch.setenv('AUTH_ENABLED', 'true')
+    monkeypatch.setenv('SUPABASE_JWT_SECRET', secret)
+    _create_user(db, supabase_id='sub-email', email='old@example.com')
+
+    token = pyjwt.encode({'sub': 'sub-email', 'email': 'new@example.com', 'exp': 9999999999}, secret, algorithm='HS256')
+    resp = client.get('/api/auth/me', headers={'Authorization': f'Bearer {token}'})
+    assert resp.status_code == 200
+    assert resp.get_json()['data']['email'] == 'new@example.com'
+
+    with SessionLocal() as s:
+        user = s.query(User).filter_by(supabase_id='sub-email').first()
+        assert user.email == 'new@example.com'
