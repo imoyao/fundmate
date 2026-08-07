@@ -198,6 +198,7 @@
       padding: 5px 12px; border-radius: 999px; background: rgba(227,79,56,0.12);
       color: var(--brand-700); border: 1px solid var(--brand-400);
     }
+    .scenario-kit:empty { display: none; }
 
     /* ---------- 用户证言（多角色卡片） ---------- */
     .testimonials { background: var(--bg-soft); }
@@ -1219,6 +1220,31 @@
             {{/each}}
           </tbody>
         </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ⑤-新 探市（免费 · 免登录的市场温度计） -->
+  <section class="explore-band" id="explore" style="background:var(--bg-soft);">
+    <div class="container">
+      <div class="section-head" data-reveal>
+        <span class="section-eyebrow">{{explore.eyebrow}}</span>
+        <h2 class="section-title">{{explore.title}}</h2>
+        <p class="section-lead">{{explore.lead}}</p>
+      </div>
+      <div class="explore-grid">
+        {{#each explore.items}}
+        <div class="explore-item" data-reveal>
+          <svg class="pico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><!--ICON:{{icon}}--></svg>
+          <h4>{{title}}</h4>
+          <p>{{desc}}</p>
+        </div>
+        {{/each}}
+      </div>
+      <div class="explore-cta" data-reveal>
+        <a href="/temperature" class="btn btn-primary">{{explore.ctaTemperature}}</a>
+        <a href="/explore" class="btn btn-ghost">{{explore.ctaExplore}}</a>
+        <p class="explore-note">{{explore.note}}</p>
       </div>
     </div>
   </section>
