@@ -11,6 +11,7 @@ nav:
     - { label: 核心能力, href: "#features" }
     - { label: 支持导入, href: "#ecosystem" }
     - { label: 适用场景, href: "#scenarios" }
+    - { label: 免费探市, href: "#explore" }
     - { label: 为什么不同, href: "#compare" }
     - { label: 诚实承诺, href: "#honesty" }
     - { label: 品牌故事, href: "story.html" }
@@ -144,6 +145,27 @@ scenarios:
       title: 穿越牛熊的回报
       desc: 长期持有的年金，用 XIRR 看穿越周期的真实年化——不是某一年暴涨的数字，是十年里每一笔的加权。
       kit: 长期视角
+
+explore:
+  eyebrow: 免费探市
+  title: 一面免费的市场温度计
+  lead: 不登录也能看。我们聚合公开市场数据，把复杂情绪凝成一眼可读的温度——恐慌与贪婪，都写在刻度上。
+  items:
+    - icon: trending-up
+      title: 市场温度计
+      desc: 恐惧 / 贪婪、股债利差、整体估值，一目了然的水温表。
+    - icon: activity
+      title: 多维情绪
+      desc: 恐慌贪婪、市场情绪、风险偏好，聚合多源公开数据。
+    - icon: shield-check
+      title: 基础指标免费
+      desc: 净值、PE / PB 估值、股债利差等公开数据，免登录随时看。
+    - icon: lock
+      title: 高级洞察登录后可见
+      desc: 行业拥挤度、乖离率等自建指标，登录后解锁，不看也能免费逛。
+  ctaTemperature: 看市场温度
+  ctaExplore: 进入探市
+  note: 基础数据免费免登录；自建分析指标（行业拥挤度 / 乖离率）需登录后查看。
 
 compare:
   eyebrow: 为什么不同
