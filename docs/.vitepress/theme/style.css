@@ -10,7 +10,7 @@
  * 否则会被主题默认值覆盖。
  */
 
-:root {
+::root {
   /* 品牌珊瑚红主色阶（Tailwind 风格 50–950，500 = 品牌主色 #E34F38 = --brand-700） */
   --color-primary-50:  #FEF1EE;
   --color-primary-100: #FDE0DB;
@@ -32,6 +32,15 @@
 }
 
 /* 首页 hero 主色呼应品牌 */
-:root {
+::root {
   --vp-home-hero-name-color: #E34F38;
+}
+
+/* 覆盖 dux 主题 Features / QuickStart 图标背景为品牌珊瑚红渐变
+ * dux 主题硬编码了 blue/green/purple... 等颜色且默认 blue，
+ * 与品牌色 #E34F38 不符。这里统一把首页图标方框改为品牌渐变。
+ */
+.home .w-14.h-14.rounded-xl.bg-gradient-to-br,
+.home .w-16.h-16.rounded-2xl.bg-gradient-to-br {
+  background-image: linear-gradient(to bottom right, var(--color-primary-500), var(--color-primary-700)) !important;
 }
