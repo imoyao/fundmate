@@ -6,6 +6,7 @@
 |---|---|
 | `code-audit-and-remediation-2026-08-01.md` | 合并的 6 份代码审计与架构整改记录：① 代码问题审查（初版 2026-07-31）② 代码问题审查（深化版 2026-08-01）③ V1（`backend/fundmate/`）退役清除分析 ④ `data/` 接口可用性评估 ⑤ `libs/cal` 与测试目录瘦身 ⑥ FastAPI 解耦规划（`@bp.input` 自动范式冲突） |
 | `erniao-fetcher-redesign-2026-08-01.md` | 二鸟说手抄报 fetcher 重构设计（独立功能文档，与代码审计无直接关联） |
+| `supabase-jwks-es256-verification-2026-08-08.md` | Supabase JWT 验签改造为 JWKS+ES256（HS256 已失效）；含 3 条踩坑教训（Key ID≠密钥 / jwks_uri 以 OpenID 为准 / 端点要 apikey 头） |
 
 ## 关联 SPEC 条目
 - §1.3 技术栈规范（不依赖自动范式、预留 FastAPI 迁移空间）
