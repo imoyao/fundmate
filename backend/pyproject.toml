@@ -32,6 +32,7 @@ dependencies = [
     "mcp>=2.0.0",
     "akshare>=1.18.81",
     "scipy==1.13.1",
+    "baostock>=0.9.3",
 ]
 requires-python = ">=3.12"
 
