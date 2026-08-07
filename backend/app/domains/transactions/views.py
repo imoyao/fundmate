@@ -5,10 +5,12 @@
 
 """交易流水相关 API."""
 
+import csv
+import io
 from datetime import date, timedelta
 
 from apiflask import APIBlueprint
-from flask import jsonify, request
+from flask import Response, jsonify, request
 
 from app.core.auth import get_family_id
 from app.core.database import get_db
@@ -94,3 +96,71 @@ def list_transactions():
             )
 
         return jsonify({'data': results, 'total': total, 'page': page, 'per_page': per_page, 'message': 'ok'})
+
+
+@bp.get('/export/')
+def export_transactions():
+    """导出当前家庭全部交易流水为 CSV（数据主权承诺：随时可带走）。
+
+    列与导入模板列对齐，便于用户导出后迁往其他工具或再导入。
+    金额一律基于 money 换算（分 → 元），不直接对 float 做乘除。
+    """
+    filename = f'transactions_{date.today().isoformat()}.csv'
+
+    with get_db() as db:
+        items = (
+            db.query(Transaction)
+            .filter(Transaction.family_id == get_family_id())
+            .order_by(Transaction.trade_date.asc(), Transaction.id.asc())
+            .all()
+        )
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(
+            [
+                '交易日期',
+                '确认日期',
+                '资产类型',
+                '代码',
+                '名称',
+                '业务类型',
+                '账户',
+                '数量',
+                '价格',
+                '手续费',
+                '金额',
+                '状态',
+                '备注',
+            ]
+        )
+        for t in items:
+            writer.writerow(
+                [
+                    t.trade_date.strftime('%Y-%m-%d') if t.trade_date else '',
+                    t.confirm_date.strftime('%Y-%m-%d') if t.confirm_date else '',
+                    t.asset_type or '',
+                    t.symbol or '',
+                    t.position_name or '',
+                    t.txn_type or '',
+                    t.account_name or '',
+                    Money.min_unit_to_shares(t.quantity),
+                    _fmt(t.price),
+                    _fmt(t.fee),
+                    _fmt(t.amount),
+                    t.status or '',
+                    t.notes or '',
+                ]
+            )
+
+        output.seek(0)
+        return Response(
+            output,
+            mimetype='text/csv; charset=utf-8',
+            headers={'Content-Disposition': f'attachment; filename={filename}'},
+        )
+
+
+def _fmt(cents: int) -> str:
+    """分 → 元 的 CSV 友好格式化（沿用 Money 换算，金额≤0 输出 0）。"""
+    return f'{Money.cents_to_yuan(cents or 0):.2f}'

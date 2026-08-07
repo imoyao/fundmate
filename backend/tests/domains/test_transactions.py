@@ -305,3 +305,38 @@ def test_transaction_type_field(client):
     t_list = resp.get_json()['data']
     assert len(t_list) == 1
     assert t_list[0]['type'] == 'buy'
+
+
+def test_transactions_export_csv(client):
+    """交易流水导出 CSV：列与金额换算正确，且包含家庭内全部交易。"""
+    _post(
+        client,
+        '/api/positions/',
+        {
+            'symbol': '00700.HK',
+            'name': '腾讯',
+            'type': 'stock',
+            'market': 'CN_HK',
+            'account_name': '富途',
+            'quantity': 100,
+            'avg_price': 350,
+            'currency': 'HKD',
+            'trade_date': '2026-05-01',
+        },
+    )
+
+    resp = client.get('/api/transactions/export/')
+    assert resp.status_code == 200
+    assert resp.mimetype.startswith('text/csv')
+    assert 'filename=transactions_' in resp.headers.get('Content-Disposition', '')
+
+    text = resp.get_data(as_text=True)
+    lines = text.strip().splitlines()
+    # 表头 + 1 条流水
+    assert len(lines) == 2
+    header = lines[0]
+    assert '业务类型' in header
+    row = lines[1]
+    # 金额 350元（35000 分）与数量 100 正常落入 CSV
+    assert '350.00' in row
+    assert row.split(',')[0] == '2026-05-01'

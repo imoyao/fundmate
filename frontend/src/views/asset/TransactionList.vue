@@ -10,7 +10,18 @@
     <el-card shadow="never" class="mb-4">
       <div class="flex items-center justify-between mb-4">
         <el-segmented v-model="viewMode" :options="viewOptions" size="small" />
-        <span class="text-gray-400 text-sm">共 {{ totalCount }} 条记录</span>
+        <div class="flex items-center gap-3">
+          <span class="text-gray-400 text-sm">共 {{ totalCount }} 条记录</span>
+          <el-button
+            :icon="Download"
+            plain
+            size="small"
+            :loading="exporting"
+            @click="handleExport"
+          >
+            导出
+          </el-button>
+        </div>
       </div>
       <el-row :gutter="8">
         <el-col :xs="24" :sm="4" class="mb-2 sm:mb-0">
@@ -313,9 +324,9 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, nextTick, onUnmounted } from "vue";
-import { Refresh } from "@element-plus/icons-vue";
+import { Refresh, Download } from "@element-plus/icons-vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
-import { getTransactions } from "@/api/transactions";
+import { getTransactions, exportTransactions } from "@/api/transactions";
 import type { TransactionRecord } from "@/api/transactions";
 import { ElMessage } from "element-plus";
 
@@ -433,6 +444,20 @@ const resetAndFetch = () => {
   currentPage.value = 1;
   hasMore.value = true;
   fetchData();
+};
+
+// 导出全部交易流水
+const exporting = ref(false);
+const handleExport = async () => {
+  if (exporting.value) return;
+  exporting.value = true;
+  try {
+    await exportTransactions();
+  } catch (e: any) {
+    ElMessage.error(e?.message || "导出失败");
+  } finally {
+    exporting.value = false;
+  }
 };
 
 // 分页

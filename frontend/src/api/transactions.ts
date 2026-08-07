@@ -23,3 +23,18 @@ const BASE_URL = "/api/transactions";
 export function getTransactions(params?: Record<string, any>) {
   return http.request<any>("get", BASE_URL, { params });
 }
+
+/** 导出全部交易流水为 CSV（携带鉴权头，blob 下载） */
+export async function exportTransactions() {
+  const res = await http.request<Blob>("get", `${BASE_URL}/export/`, {
+    responseType: "blob"
+  });
+  const url = URL.createObjectURL(res);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `transactions_${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
