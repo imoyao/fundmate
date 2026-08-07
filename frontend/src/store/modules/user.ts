@@ -43,6 +43,16 @@ export const useUserStore = defineStore("pure-user", {
     SET_NICKNAME(nickname: string) {
       this.nickname = nickname;
     },
+    /** 持久化当前资料到 localStorage（user-info），与登录后写入保持一致 */
+    persist() {
+      const current = storageLocal().getItem<DataInfo<number>>(userKey) ?? {};
+      storageLocal().setItem(userKey, {
+        ...current,
+        avatar: this.avatar,
+        username: this.username,
+        nickname: this.nickname
+      });
+    },
     /** 存储角色 */
     SET_ROLES(roles: Array<string>) {
       this.roles = roles;

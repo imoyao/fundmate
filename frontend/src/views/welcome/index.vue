@@ -322,14 +322,11 @@
               </el-button>
               <el-button
                 size="small"
-                type="text"
+                link
                 @click="$router.push('/the-road-not-taken')"
                 >特别关注</el-button
               >
-              <el-button
-                size="small"
-                type="text"
-                @click="$router.push('/watchlist')"
+              <el-button size="small" link @click="$router.push('/watchlist')"
                 >查看全部</el-button
               >
             </div>

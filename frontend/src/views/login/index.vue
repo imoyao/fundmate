@@ -29,13 +29,13 @@
             :rules="isRegisterMode ? registerRules : loginRules"
             size="large"
           >
-            <!-- 邮箱 -->
+            <!-- 邮箱 / 用户名（登录模式二选一） -->
             <Motion :delay="100">
               <el-form-item prop="email">
                 <el-input
                   v-model="ruleForm.email"
                   clearable
-                  placeholder="邮箱地址"
+                  :placeholder="isRegisterMode ? '邮箱地址' : '邮箱或用户名'"
                   :prefix-icon="useRenderIcon(User)"
                 />
               </el-form-item>
@@ -129,7 +129,7 @@
           <!-- 登录提示 -->
           <div v-if="!isRegisterMode" class="login-hint mt-3">
             <span class="text-xs" style="color: var(--text-tertiary)">
-              💡 使用注册时填写的邮箱登录
+              💡 使用邮箱或昵称登录
             </span>
           </div>
 
@@ -172,6 +172,7 @@ import Lock from "~icons/ri/lock-fill";
 import User from "~icons/ri/user-3-fill";
 
 import { supabase } from "@/utils/supabase";
+import { resolveIdentifier } from "@/api/auth";
 
 defineOptions({
   name: "Login"
@@ -206,10 +207,8 @@ const ruleForm = reactive({
 // 登录验证规则
 // ============================================
 const loginRules = computed<FormRules>(() => ({
-  email: [
-    { required: true, message: "请输入邮箱", trigger: "blur" },
-    { type: "email", message: "请输入有效的邮箱地址", trigger: "blur" }
-  ],
+  // 登录模式：该字段接受"邮箱 或 用户名"，故不做邮箱格式强校验，仅要求非空
+  email: [{ required: true, message: "请输入邮箱或用户名", trigger: "blur" }],
   password: [
     { required: true, message: "请输入密码", trigger: "blur" },
     { min: 8, message: "密码至少 8 位", trigger: "blur" }
@@ -327,9 +326,18 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
           ruleForm.agreePolicy = false;
         }, 2000);
       } else {
-        // 🔥 登录
+        // 🔥 登录：标识可能是邮箱或用户名，先解析为规范邮箱再做密码登录（D10）
+        const raw = ruleForm.email.trim();
+        let email = raw;
+        if (!raw.includes("@")) {
+          const { data: resolveData } = await resolveIdentifier(raw);
+          email = resolveData?.email ?? "";
+          if (!email) {
+            throw new Error("未找到该用户名对应的账户");
+          }
+        }
         const { data, error } = await supabase.auth.signInWithPassword({
-          email: ruleForm.email.trim(),
+          email,
           password: ruleForm.password
         });
 

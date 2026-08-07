@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useNav } from "@/layout/hooks/useNav";
+import { useRouter } from "vue-router";
 import LaySearch from "../lay-search/index.vue";
 import LayNotice from "../lay-notice/index.vue";
 import LayNavMix from "../lay-sidebar/NavMix.vue";
@@ -12,6 +13,7 @@ import { useTheme } from "@/utils/theme";
 
 import LogoutCircleRLine from "~icons/ri/logout-circle-r-line";
 import Setting from "~icons/ri/settings-3-line";
+import UserLine from "~icons/ri/user-3-line";
 
 const {
   layout,
@@ -27,6 +29,8 @@ const {
 
 // 🆕 主题切换
 const { isDarkMode, toggleThemeMode } = useTheme();
+
+const router = useRouter();
 </script>
 
 <template>
@@ -70,7 +74,11 @@ const { isDarkMode, toggleThemeMode } = useTheme();
         </span>
         <template #dropdown>
           <el-dropdown-menu class="logout">
-            <el-dropdown-item @click="logout">
+            <el-dropdown-item @click="router.push('/profile')">
+              <IconifyIconOffline :icon="UserLine" style="margin: 5px" />
+              个人中心
+            </el-dropdown-item>
+            <el-dropdown-item divided @click="logout">
               <IconifyIconOffline
                 :icon="LogoutCircleRLine"
                 style="margin: 5px"

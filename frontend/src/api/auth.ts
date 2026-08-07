@@ -34,3 +34,26 @@ export const logoutApi = (supabaseToken?: string | null) => {
       : {}
   );
 };
+
+/** 登录标识解析（D10）：把"邮箱 或 用户名"解析为规范邮箱，供二次登录 */
+export type ResolveResult = {
+  data: { email: string };
+  message: string;
+};
+
+export const resolveIdentifier = (identifier: string) => {
+  return http.request<ResolveResult>("post", "/api/auth/resolve", {
+    data: { identifier }
+  });
+};
+
+/** 个人中心资料更新（PATCH /api/users/me） */
+export type ProfileUpdate = {
+  username?: string;
+  nickname?: string;
+  avatar?: string;
+};
+
+export const updateMe = (payload: ProfileUpdate) => {
+  return http.request<MeResult>("patch", "/api/users/me", { data: payload });
+};

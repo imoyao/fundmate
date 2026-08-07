@@ -51,6 +51,28 @@ export default [
       requiresAuth: false // 探市免登录（D4），与后端 /api/temperature/* 白名单一致
     }
   },
+  // 个人中心 —— 应用内页面，挂在 Layout 下（不走全屏）
+  {
+    path: "/profile",
+    name: "ProfileParent",
+    component: Layout,
+    redirect: "/profile",
+    meta: {
+      title: "个人中心",
+      showLink: false // 不在菜单展示，从导航栏头像下拉进入
+    },
+    children: [
+      {
+        path: "/profile",
+        name: "Profile",
+        component: () => import("@/views/profile/index.vue"),
+        meta: {
+          title: "个人中心",
+          showLink: false
+        }
+      }
+    ]
+  },
   {
     path: "/redirect",
     component: Layout,
