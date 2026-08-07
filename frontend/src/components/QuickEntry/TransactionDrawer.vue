@@ -12,7 +12,7 @@
         <span>记录交易</span>
         <el-tooltip content="导入交割单或手动录入持仓" placement="bottom">
           <el-button
-            type="text"
+            link
             size="small"
             class="text-gray-400 hover:text-primary"
             @click="goToInventory"

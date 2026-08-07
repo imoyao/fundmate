@@ -665,7 +665,7 @@
                     </el-button>
                   </span>
                 </el-tooltip>
-                <el-button type="text" @click="toggleFullTable">
+                <el-button link @click="toggleFullTable">
                   <IconifyIconOffline
                     :icon="showFullTable ? 'ep:arrow-up' : 'ep:arrow-down'"
                   />

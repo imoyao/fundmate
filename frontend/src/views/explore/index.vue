@@ -133,13 +133,13 @@
             <div class="liquidity-divider" />
             <div class="liquidity-actions">
               <el-button
-                type="text"
+                link
                 class="liquidity-btn"
                 @click="handleShowIndustryCrowding"
                 >行业拥挤度 →</el-button
               >
               <el-button
-                type="text"
+                link
                 class="liquidity-btn"
                 @click="handleShowSectorFlow"
                 >板块资金流 →</el-button
@@ -361,7 +361,7 @@
         <el-table-column label="操作" width="80" align="center">
           <template #default="{ row }">
             <el-button
-              type="text"
+              link
               size="small"
               style="color: var(--text-tertiary)"
               @click="handleRemove(row.id)"
