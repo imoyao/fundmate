@@ -33,8 +33,8 @@ features:
     title: 申万一级行业 · 板块分布
     details: 持仓按申万一级行业归类，看清行业集中度，做到心中有数、手中有策。
   - icon: 🪙
-    title: 开源免费 · 基础功能不收费
-    details: 基础记账与账单导出长期免费。代码开源，原理透明，欢迎自行部署与审计。
+    title: 数据私有 · 不上传云端
+    details: 所有数据存储在本地 SQLite，不上传、不托管、不分析。你可以随时导出 CSV 备份，数据权完全在你手里。
 
 featuresConfig:
   badge: 为什么选择
@@ -43,36 +43,32 @@ featuresConfig:
   description: 不托管资金、不看账户密码，把数据权还给你自己
 
 quickStart:
-  badge: 三步上手
-  title: "零配置 快速开始"
-  subtitle: "零配置"
-  description: 无需注册账号，本地即可运行
+  badge: 更多能力
+  title: "不止于记账"
+  subtitle: "不止于记账"
+  description: 从手动归集到智能分析，一套工具看清你的钱
 
   steps:
     - step: "01"
-      title: 克隆项目
-      description: 从 GitHub 拉取源码到本地
-      code: "git clone https://github.com/imoyao/fundmate.git && cd fundmate"
-      icon: download
+      title: 多账户归集 · 一个账本管全部
+      description: 跨平台、跨账户买入的基金/股票，手动归集到一个账本。不接券商、不托管资金，数据始终属于你自己。
+      code: "资产覆盖基金/股票/ETF/可转债/现金/房产，支持 CSV 导入与 PDF 账单解析"
+      icon: archive-box-arrow-down
       color: blue
     - step: "02"
-      title: 安装依赖
-      description: 使用 pnpm 安装前后端依赖（后端用 PDM）
-      code: |
-        pnpm install
-        cd backend && pdm install && cd ..
-      icon: cog-6-tooth
+      title: 穿透持仓 · 看清底层标的
+      description: 基金 → 持仓标的 → 标的历史估值，自动穿透三层。组合到底押注了什么、风险集中在哪，一眼看清。
+      code: "申万一级行业分布、个股权重、PE/PB 分位，穿透到底层不再被基金名称迷惑"
+      icon: magnifying-glass-circle
       color: green
     - step: "03"
-      title: 启动服务
-      description: 分别启动文档站和后端 API 服务
-      code: |
-        pnpm run docs:dev       # 文档预览
-        cd backend && pdm run uvicorn app.main:app --reload   # API 服务
-      icon: rocket-launch
+      title: 算准收益 · XIRR 资金加权
+      description: 用 XIRR（资金加权收益率）还原真实收益，剔除赎回本金干扰，看清时间价值。别再被 APP 的简单收益率骗了。
+      code: "支持组合/单标的多维度收益计算，精确到日的现金流时间加权"
+      icon: chart-bar
       color: purple
 
-  helpText: 详细使用指南请参考
-  helpLink: /guide/
-  helpLinkText: 快速开始文档
+  helpText: 查看完整功能列表
+  helpLink: /features/
+  helpLinkText: 功能详情
 ---

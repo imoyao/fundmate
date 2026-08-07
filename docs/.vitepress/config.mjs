@@ -92,7 +92,8 @@ export default withDuxTheme(
         text: '在 GitHub 上编辑此页',
       },
       footer: {
-        message: 'MIT Licensed | Copyright © 2020-present 别院牧志',
+        message: 'Copyright © 2020-present <a href="https://github.com/imoyao" target="_blank">imoyao</a>',
+        copyright: '<a href="https://github.com/imoyao/fundmate" target="_blank">GitHub</a>',
       },
     },
     // 中文多语言文本适配（搜索 / 编辑链接 / 阅读时长）
