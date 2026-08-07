@@ -12,6 +12,7 @@
 |PATCH/DELETE|/api/positions/{id}/|更新、删除单条持仓（支持 `delete_transactions` 参数）|
 |**GET**|**/api/positions/{id}/transactions/**|**获取持仓的关联交易明细**|
 |GET|/api/transactions/|交易流水分页筛选查询|
+|**GET**|**/api/transactions/export/**|**交易记录一键导出 CSV**（P2-15）：全家庭交易流水，列与导入模板对齐（交易日期/确认日期/资产类型/代码/名称/业务类型/账户/数量/价格/手续费/金额/状态/备注）；金额用 `Money` 精度换算分→元；响应 `Content-Type: text/csv` + `Content-Disposition: attachment; filename="transactions_{YYYY-MM-DD}.csv"`；需鉴权（JWT），非探市公开端点。|
 |GET/POST|/api/assets/|通用资产负债查询（支持 `exclude` 参数排除负债）、新增|
 |PATCH/DELETE|/api/assets/{id}/|更新、删除通用资产|
 |**GET**|**/api/assets/summary/**|**新增轻量汇总接口**：返回 `cash/fixed/liability/receivable/insurance` 各资产大类汇总金额（`value`）及中文标签（`label`），用于"全面盘点"顶部卡片按需快速展示。|

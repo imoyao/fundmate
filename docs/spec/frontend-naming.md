@@ -36,7 +36,7 @@ Vue 官方风格指南（Priority B: Strongly Recommended）对**单文件组件
 | 组合式函数文件 | `use` + PascalCase | `useRealtimeQuotes.ts` | `realtimeQuotes.ts`、`use_realtime_quotes.ts` |
 | 类型声明文件 | `*.d.ts` 或 `types.ts`；全局类型入 `types/` | `favorites.d.ts`、`types/router.d.ts` | 在业务 `.vue` 里随意 `interface` |
 | 目录（组件/页面） | PascalCase 或 kebab-case，**全项目统一选一**；组件目录入口用 `index.vue` | `components/MoneyDisplay/`、`views/asset/Overview/` | 混用 `MarketFooter/` 与 `page-footer/` |
-| 内置封装组件前缀 | 沿用 Pure Admin `Re` 前缀（ReCol/ReDialog/ReIcon…），业务组件**禁止**用 `Re` 前缀 | `ReDialog`、`MoneyDisplay` | `ReMoneyDisplay`（业务误用前缀） |
+| 内置封装组件前缀 | 沿用 Pure Admin `Re` 前缀（ReCol/ReDialog/ReIcon……），业务组件**禁止**用 `Re` 前缀 | `ReDialog`、`MoneyDisplay` | `ReMoneyDisplay`（业务误用前缀） |
 | 常量/配置目录 | `constants/`（纯常量）、`config/`（运行时配置）、`utils/`（函数）；三者职责不混 | `constants/index.ts`、`config/index.ts` | 把常量塞进 `utils/ledger.ts` |
 
 **禁止**：

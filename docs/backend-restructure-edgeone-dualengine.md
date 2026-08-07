@@ -55,7 +55,7 @@
 
 ## 2. 目标架构
 
-```
+```plain
    两个 EdgeOne 项目：前端项目(已部署, 静态) + 后端项目(独立, 选 HK/境外区免备案)
    ┌────────────────────────────────────────────────────────────────┐
    │  后端：EdgeOne 独立项目（APIFlask 原样跑 WSGI 零重写）              │
@@ -363,7 +363,7 @@ EdgeOne Pages **Python 运行时原生支持 WSGI（Flask/Django）与 ASGI（Fa
 
 ### 7.2 项目结构（两种可选，推荐 A）
 - **方案 A（最小改动，✅ 已选）**：把 fundmate 后端作为**一个独立后端项目**部署到 EdgeOne Pages，用 WSGI 模式暴露 `app`。目录：
-  ```
+  ```plain
   fundmate-backend/                # 部署到 EdgeOne Pages 的项目根
   ├── app.py                       # WSGI 入口：from app.main import create_app; app = create_app()
   ├── requirements.txt             # 依赖（见 §7.4）
@@ -386,7 +386,7 @@ EdgeOne Pages **Python 运行时原生支持 WSGI（Flask/Django）与 ASGI（Fa
 
 ### 7.4 依赖（部署用 requirements.txt）
 在部署项目的 `requirements.txt` / `pyproject.toml` 中确保包含：
-```
+```plain
 apiflask
 sqlalchemy
 psycopg2-binary         # SQLAlchemy 连 Supabase Postgres 的驱动（postgresql:// 默认用 psycopg2）；若用 psycopg3 则改为 psycopg
@@ -404,7 +404,7 @@ sqlalchemy-libsql       # 纯 Python 方言适配器（py3-none-any），注册 
 > 2. **关键：该驱动有 Linux manylinux 轮子（cp310~cp313），但【无 Windows 轮子】。** 结论与之前相反：
 >    - **prod（EdgeOne Pages = Linux x86_64）能正常安装运行** → ORM 经 `libsql://` 方言直连 Turso 成立 → **"APIFlask 用 SQLAlchemy ORM 不改写、直接连 Turso" 在部署目标上可行**。
 >    - **本机 Windows 开发装不上**（无 Windows 轮子，源码编译 Rust 失败）——但 **dev 已定为本地 SQLite 文件**，本机开发根本不需要 libsql 轮子，完全规避。
-> 3. **因此市场域保持现有 SQLAlchemy ORM 不变**（模型/`db_utils`/`SafeNumeric`/`bulk_insert_if_not_exists` 的 sqlite 分支在 libSQL 上自动生效）；仅在 prod 把 `market_engine` 指向 `libsql://` 方言连 Turso。**无需改用裸 libsql 客户端、无需重写 SQL**（此前提出的"方案2 裸客户端重写"已否决）。
+> 3. **因此市场域保持现有 SQLAlchemy ORM 不变**（模型/`db_utils`/`SafeNumeric`/`bulk_insert_if_not_exists` 的 sqlite 分支在 libSQL 上自动生效）；仅在 prod 把 `market_engine` 指向 `libsql://` 方言连 Turso。**无需改用裸 libsql 客户端、无需重写 SQL**（此前提出的"方案 2 裸客户端重写"已否决）。
 > 4. Turso 官方 `libsql` 客户端（0.1.11）也已实测可连（`SELECT 1 → (1,)`），保留作 migrate/运维备选通路，但日常 ORM 读写不走它。
 > 5. **本沙箱无法真验 ORM-on-Turso**（Windows 无轮子 + 无 WSL）；prod 验证待部署 EdgeOne 后用 `init_db()` / `SELECT 1` 复测。dev/test 用本地 SQLite/内存不受影响，可先行验证双引擎与模型拆分逻辑。
 

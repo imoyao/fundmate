@@ -17,7 +17,7 @@
 
 ### 1.3 技术栈规范
 
-- **后端**：Python 3.12+、APIFlask、SQLAlchemy 2.0 原生ORM、SQLite（本地开发）。统一手动返回 `{data, message}` 结构，不依赖自动范式，为未来平滑迁移 FastAPI 预留架构空间
+- **后端**：Python 3.12+、APIFlask、SQLAlchemy 2.0 原生 ORM、SQLite（本地开发）。统一手动返回 `{data, message}` 结构，不依赖自动范式，为未来平滑迁移 FastAPI 预留架构空间
 - **前端**：Vue3 + Vite + TypeScript、pure-admin-thin 骨架、Element Plus 组件库、ECharts 可视化
 - **代码质量规范**：后端 ruff 静态校验，前端严格遵循 pure-admin 官方编码与目录规范
 - **数据源体系**：xalpha（主力基金净值/分析引擎）+ AKShare（证券行情备用），通过统一 DataSourceAdapter 防腐层封装，隔离第三方接口变更
@@ -48,7 +48,7 @@
 同步目标按优先级分为三层：
 
 1. **核心池**（每日更新）：用户持仓 + 自选标的
-2. **CSV导入池**：通过 `--target-file` 参数指定
+2. **CSV 导入池**：通过 `--target-file` 参数指定
 3. **全量池**：`--full-sync` 时触发全市场同步
 
 #### 3.3.2 基类重构（v2.0）
@@ -78,7 +78,7 @@
 
 | 文件 | 职责 |
 |------|------|
-| `constants.py` | 申万一级行业代码映射（31个）、计算参数（EMA周期20天）、阈值（±5/±15） |
+| `constants.py` | 申万一级行业代码映射（31 个）、计算参数（EMA 周期 20 天）、阈值（±5/±15） |
 | `schemas.py` | Pydantic 模型（`BiasResult`, `BiasBatchResult`） |
 | `calculator.py` | 核心计算逻辑（`logbias` 纯函数、`PriceFetcher`、`BiasCalculator`），含重试+指数退避 |
 | `provider.py` | 品种列表提供者（行业列表、宽基指数、用户持仓/自选） |
@@ -86,7 +86,7 @@
 
 **数据流**：
 
-```
+```plain
 BiasJob._fetch_data()
   → ProductProvider.get_default_list()  (行业 + 宽基)
   → BiasCalculator.calculate_batch()
@@ -97,7 +97,7 @@ BiasJob._fetch_data()
 
 **计算频率**：午间（12:00）一次 + 盘后（15:30）一次
 
-**数据保留**：30天
+**数据保留**：30 天
 
 ## 4. 暗色模式规划（原 SPEC 第 11 章）
 

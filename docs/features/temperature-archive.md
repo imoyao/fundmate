@@ -9,16 +9,16 @@
 
 ## 〇、最重要的一句话提醒（先读）
 
-你此前贴给我的两份长文档，描述的是** v1 独立工具形态**：
+你此前贴给我的两份长文档，描述的是**v1 独立工具形态**：
 
-```
+```plain
 market_thermometer.py + bias.py + valuation_jiucai.py + industry_crowding.py
 + fund_concentration.py + store.py + notify_wechat.py + index.html（静态仪表盘）
 ```
 
 这套代码**已不在本仓库**（搜不到 `market_thermometer.py` / `fund_concentration.py` / `store.py` / `index.html`）。当前仓库里，工具已被**重构为 v2 后端服务 + 前端视图**：
 
-```
+```plain
 backend/app/services/thermometer/   (fetchers + service + jobs)
 backend/app/services/bias/          (calculator + job + provider)
 backend/app/domains/temperature/    (SQLAlchemy 三表模型)
@@ -41,7 +41,7 @@ frontend/src/views/temperature/     (Vue 温度视图) + explore 温度区
 | 集思录·全市场估值（中位 PB/PE 温度） | `COMPOSITE_FETCHERS['jisilu_indicator']` | ✅ 已接入 | 需 cookie |
 | 且慢·指数温度 | `SINGLE_FETCHERS['qieman']` | ✅ 已接入 | 官方 MCP `GetLatestQuotations` |
 | 有知有行·全市场/债市温度 | `SINGLE_FETCHERS['youzhiyouxing']` | ✅ 已接入 | SSR `/data` 解析 |
-| 自算·股债利差分位 | `COMPOSITE_FETCHERS['self_calc']` | ✅ 已接入 | 沪深300/中证500；对外已去 PE，只出利差分位 |
+| 自算·股债利差分位 | `COMPOSITE_FETCHERS['self_calc']` | ✅ 已接入 | 沪深 300/中证 500；对外已去 PE，只出利差分位 |
 
 ### 1.2 合成指标
 
@@ -162,10 +162,10 @@ frontend/src/views/temperature/     (Vue 温度视图) + explore 温度区
 
 1. **不自造温度**：优先官方接口；单源失败只标灰（`stale`），不阻塞整体。
 2. **韭圈儿**：POST 明文接口优先，Playwright 仅降级。
-3. **股债利差**：`利差 = 1/PE − 10Y国债 + 0.3×CPI同比`，历史百分位为估值分位；沪深300 作整体代理。
+3. **股债利差**：`利差 = 1/PE − 10Y国债 + 0.3×CPI同比`，历史百分位为估值分位；沪深 300 作整体代理。
 4. **乖离率**：`LOGBIAS = (ln(close) − EMA20(ln(close)))×100`，自然对数 + EMA；阈值 ±15/+5/0/−5；等价覆盖爱基金「净值波动/低位区/波段掘金」（不自接同花顺专有接口）。
 5. **行业拥挤度**：`(行业PB / 全A中位PB) 历史百分位`；分母三路径健壮兜底。
-6. **持仓集中度**：前50热门股市值 ÷ 主动基金股票总市值；免费口径偏低，方向可信。
+6. **持仓集中度**：前 50 热门股市值 ÷ 主动基金股票总市值；免费口径偏低，方向可信。
 
 ---
 

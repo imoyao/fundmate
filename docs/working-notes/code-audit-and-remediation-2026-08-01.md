@@ -339,7 +339,7 @@
 **第一象限｜重要且紧急（建议 48h 内闭环）**
 1. 修 `fundmate/errors.py:201` NameError（S2）—— 让 V1 测试至少能跑、消除线上隐患。
 2. 决策双代码库走向（S1）：明确 V2 是否接管 runtime；若接管，切换 `autoapp.py` 并跑绿 V2 测试。
-3. 把 `register_error_handlers` 移入 `create_app()`（H1 根因1）—— 低成本修复错误契约。
+3. 把 `register_error_handlers` 移入 `create_app()`（H1 根因 1）—— 低成本修复错误契约。
 
 **第二象限｜重要不紧急（固定排期）**
 4. 让测试套件整体跑绿：补 `pyjson5/faker/plummet` 依赖、补 env 样例、隔离/移除损坏的 V1 测试。
@@ -563,7 +563,7 @@
 
 `.gitignore` 第 345 行 `fundmate/` 使**整个 V1 目录被版本库忽略**：
 
-```
+```plain
 $ git check-ignore backend/fundmate/data/danjuan
 backend/fundmate/data/danjuan          # => 被忽略
 
@@ -621,7 +621,7 @@ V2 的数据来源有两条独立通道：
 
 对 V1 独有源在 `backend/app` 中做引用扫描，结果**全部为 0 文件**：
 
-```
+```plain
 chinawealth:0  dkhs:0  amac:0  tencentwm:0  ten_jqka:0  efunds:0
 fundb:0  sipf:0  qiangungun(zo):0  joinquant(jq):0  10jqka:0
 ```
@@ -641,7 +641,7 @@ SPEC §2.1（第 73–74 行）明文：
 
 | 类别 | 代表源 | SPEC 判定 | 退役处置 |
 |------|--------|----------|---------|
-| **券商/平台持仓自动导入** | danjuan 组合、qieman 组合、howbuy 组合、zo(且慢FOF)、jq(聚宽) | ❌ 违反「禁止自动同步券商/平台数据」 | **删除，不移植** |
+| **券商/平台持仓自动导入** | danjuan 组合、qieman 组合、howbuy 组合、zo(且慢 FOF)、jq(聚宽) | ❌ 违反「禁止自动同步券商/平台数据」 | **删除，不移植** |
 | **银行理财/费率等边缘聚合** | chinawealth、dkhs、amac、tencentwm、ten_jqka、efunds、fundb、sipf | 无 V2 消费者，且多为非核心聚合 | **删除（冗余孤儿）** |
 | **公开基金净值/元数据** | eastmoney、baostock、akshare、xalpha | ✅ 属「元数据同步/净值回填」（SPEC 第 745 行已认可） | **已由 V2 sync 覆盖，不依赖 V1** |
 | **市场情绪指数（探市）** | jsl、yzyx、fundb(恐惧贪婪)、sipf(信心) | ✅ 展示型、用户主动触发，非账本数据 | **V2 thermometer 已自建 fetcher 覆盖** |
@@ -758,7 +758,7 @@ curl -m 12 -sL -A "Mozilla/5.0 ... Chrome/120" -w "%{http_code}|%{content_type}|
 | `MIRR` | 修正内部收益率 |
 | `XIRRDeprecated` | 已被 `@deprecated` 标记的旧实现 |
 
-文件头明确标注 “Copyright (c) 2012 Sutoiku… ported from Apache OpenOffice”，且 `XIRRDeprecated` 已打 `@deprecated` —— **本身就是该下线的老代码**。
+文件头明确标注 “Copyright (c) 2012 Sutoiku…… ported from Apache OpenOffice”，且 `XIRRDeprecated` 已打 `@deprecated` —— **本身就是该下线的老代码**。
 
 同级的 `fundmate/libs/` 还有 `convert.py`(被 `rate_of_return` 引用)、`dataklasses/`、`dk_enums.py`、`drf/`、`fund_morning_star_crawler/`、`ivix/`、`pysnowflake/`、`redeem_fee/` —— **全部仅被 V1 引用**，V2 零依赖。
 
@@ -814,7 +814,7 @@ curl -m 12 -sL -A "Mozilla/5.0 ... Chrome/120" -w "%{http_code}|%{content_type}|
 
 **Tier 1 — 纯 V1 死测试，直接删（21 文件）**
 
-```
+```plain
 tests/collection/collection_teardown.py
 tests/collection/test_collection_models.py
 tests/collection/test_collection_views.py
@@ -846,14 +846,14 @@ tests/data/zo/test_qgg_base.py
 
 **Tier 2 — 先迁移、后删除（2 文件）**
 
-```
+```plain
 tests/libs/cal/test_rate_of_return.py   → 迁移可移植 XIRR 金值到 V2 test_xirr_engine.py
 tests/libs/cal/__init__.py
 ```
 
 **Tier 3 — V1 辅助/夹具，随 Tier1/2 一起删（4 文件）**
 
-```
+```plain
 tests/conftest_fm.py          # V1 conftest，不被自动加载
 tests/factories.py            # V1 工厂，仅被 collection/fund/user 引用（已核实无 V2 测试 import）
 tests/test_commands.py        # V1 CLI 命令（V2 用 flask --app app.main）

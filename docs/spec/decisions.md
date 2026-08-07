@@ -6,13 +6,20 @@
 
 | 决策日期       | 决策主题                                      | 完整决策细节 |
 |------------|-------------------------------------------|-------------|
+| **2026-08-07** | **落地页宣称收敛（D6 不虚构能力，双向对齐）** | 落地页文案与代码实现在「对齐 / 收敛」，消除虚假宣传。落地页宣称但尚未实现的功能做两类处理：**① 收敛措辞**——「三种收益率同屏（XIRR/时间加权/Modified Dietz）」收敛为「XIRR 资金加权、精确到日」；「穿透持仓」收敛为「多账户合并真实收益率」（多账户合并已实现，基金下探到底层未完不承诺）；「一键导出全部数据」收回为「交易记录一键导出（CSV）」；「东方财富导入」移出已支持清单进入「更多平台，敬请期待」；场景卡片的「定投回测 / 可转债专用」kit 标签删除（不做回测，可转债仅部分流水支持）。**②新增真实亮点**——新增「免费探市」区块宣传已实现且免登录的市场温度计（`/explore`、`/temperature`）。回撤曲线、持仓穿透、东财导入、探市付费分层均列为后续路线图，不在落地页宣称「已可用」。 |
+| **2026-08-07** | **交易流水导出（D7 数据主权，永久免费）** | 交易流水一键导出 CSV 是数据主权承诺的锚点，**永久免费**，不纳入付费策略（拿导出收费会伤害「数据带得走才敢存」的基础信任）。实现：后端 `GET /api/transactions/export/`（复用 `Money` 精度换算、列与导入模板对齐），前端交易流水页新增「导出」按钮（经 `http` 携带鉴权头 + blob 下载）。 |
+| **2026-08-07** | **探市数据分层（D8 基础免费 / 自建洞察增值）** | 探市「基础数据 vs 自建分析」多样化程度不同、收费逻辑不同：**基础公开数据**（指数 PE/PB、净值、涨跌幅、恐惧贪婪、股债利差）免费免登录；**自建分析指标**（行业拥挤度、乖离率、行业估值分位等算法+算力型洞察）作为增值项，后续登录才可完整查看，并逐步演进为付费订阅；免费版给预览样本（如 3 个行业 + 近 5 日乖离）作注册诱饵。**关键原则：上线即明确分层，不做「前期免费后期收费」**（避免损失厌恶与品牌失信）。本轮只记录策略 + 落地页用诚实口径，登录墙 / 配额 / 支付属二期。 |
+| **2026-08-08** | **头像生成式（D9 不落盘、不上传）** | 个人中心头像采用 **DiceBear 生成式头像**：`https://api.dicebear.com/9.x/{style}/svg?seed={seed}`，**不实现上传、不占用存储/带宽**（规避 CDN/对象存储与隐私合规成本）。seed 默认取用户 `supabase_id` 的确定性哈希（djb2），**不含 email/手机号等 PII**，不改则头像稳定；用户可在个人中心切换风格（adventurer / lorelei / fun-emoji / micah）或「随机换一个」（重新生成 seed）。前端 `utils/avatar.ts` 统一封装 hash/build/parse/random，后端 `users.avatar` 只存最终 URL 字符串。 |
+| **2026-08-08** | **邮箱 / 用户名双向登录（D10 解析后再验密）** | 登录页标识支持 **邮箱 或 用户名**。Supabase 原生仅邮箱登录，故后端新增 `POST /api/auth/resolve`（公开、免登录）：含 `@` 视为邮箱原样返回，否则按用户名大小写不敏感匹配 `users.username` 反查邮箱，未命中 404。前端据此先解析为规范邮箱，再调 `supabase.auth.signInWithPassword`。另新增 `PATCH /api/users/me` 支持改用户名/昵称/头像，用户名唯一（409）；`auth.py` 增加 `_sync_claims_email`：token 有效时将 Supabase claims.email 同步回 `users.email`，避免用户改名后主键邮箱过期。 |
+| **2026-08-08** | **真实姓名 / 家人称呼（D11 进入 P2-22 家庭管理）** | 个人中心本轮**不做**「真实姓名」与「家人称呼」字段（评估：需求合理、契合温暖/家庭调性，但依赖家庭/成员模型，属 P2-22 家庭管理范畴）。将其登记为 P2-22 的**每家庭显示名**能力（同一家人可自定义对某家庭的称呼），**非数据库限制**，避免单人资料表与家庭模型产生竞合字段。 |
+| **2026-08-08** | **user_preferences 与 AI Key 加密存储（D12 远期）** | `user_preferences` 表（按 user_id 私有）与 AI 对话 API Key 的**加密存储**均不在本轮实现：前者待家庭/个人偏好产品明确，后者（KMS/信封加密）属远期 P2-30。本轮仅在代码注释与文档登记，避免过早引入加密依赖与密钥管理复杂度。 |
 | **2026-08-07** | **登录 · 个人中心 · 多用户家庭规划（D1 数据归属与分权）** | 采用**混合数据模型**防未来强耦合：核心账本（资产/账户/持仓/交易/组合/自选/策略标签）按 `family_id` 家庭共享层；`user_preferences` 等个人数据按 `user_id` 私有层。**三档分权**：`admin` 主理人（全量读写 + 成员/家庭管理 + 权限分配 + 数据导出删除）、`member` 成员（业务读写记账，不能管成员）、`viewer` 只读（父母等仅查看，写操作 403）。现有单用户数据归入默认家庭（family 1），`CURRENT_USER_ID` 退役由 `g` 上下文取代。 |
 | **2026-08-07** | **认证方案（D2 后端 JWT 验签为信任边界）** | 前端保留 `@supabase/supabase-js` 承担登录/注册/会话刷新交互层；**后端为唯一信任边界**——`before_request` 中间件用 `SUPABASE_JWT_SECRET` + PyJWT 本地验签（不发网络请求），从 `claims.sub` 映射本地 `users` 表，注入 `g.current_user/family_id/role`。纯前端校验不安全（改前端即绕过授权）。白名单：`health`、`temperature/*`（探市免登录）、`auth/logout`；本地开发/测试用 `X-User-Id` 头旁路或 `AUTH_ENABLED=false`。 |
 | **2026-08-07** | **核心账本数据上云（D3 修订数据主权，推翻 v4.5.3「永不上云」）** | 数据分级再修订：**身份与家庭核心账本经 Supabase 云端权威存储 + 本地 SQLite 缓存**，Supabase RLS 兜底，须用户显式授权、可一键关闭。取代原 §2.1「核心账本永不上云」，**保留「严禁用户券商/平台持仓自动登录/爬取/同步」红线不变**。权威模型=云端权威 + 本地缓存（Phase 4 实现），Phase 1 起以 `IdentityService` 等接缝预留，避免数据层强耦合。 |
 | **2026-08-07** | **登录门禁（D4 探市免登录）** | 探市（`/explore`、`/temperature/*`）与 `health` 免登录可访问；其余功能（资产/账户/持仓/交易/组合/自选/个人中心）需登录。前端路由 `requiresAuth` 与后端中间件白名单双轨一致，未登录访问受保护端点返回 401 统一信封（`UNAUTHORIZED=1005`）。 |
 | **2026-08-07** | **注释与设计文档同步规则（D5 入行为规范）** | 新增 conventions §16.5「注释与文档同步规则」：代码在必要处加注释讲「为什么」而非复述「做了什么」；样式/设计类改动必须同步 `frontend/design.md` / `design.dark.md`；注释过期须自主更新，禁止注释与实现漂移；注释用中文。首落：毛玻璃样式文档化至 design 双文档 + `index.scss`/`QuickFab.vue` 必要注释。 |
 | **2026-08-03** | **前端命名规范制定（参照 Pure Admin + Vue 官方）** | 早期前端代码粗糙，命名/类型组织不统一。决策：**先固化规范 + 出不规范点清单，后续逐条确认再改，不一次性大改**。规范落地于 `docs/spec/frontend-naming.md`（conventions 第 2.7 节前端补充），清单见 `frontend-naming-audit.md`。核心约定：① 文件命名 Vue 组件 PascalCase、工具/API camelCase、组合式 `useXxx`、目录全项目统一风格；② 内置封装沿用 Pure Admin `Re` 前缀，业务组件禁用于此前缀；③ 变量/函数 camelCase 语义自解释、常量 UPPER_SNAKE、类型 PascalCase 禁 I 前缀；④ **类型安全红线：禁止 `any`/`Record<string, any>`/`object` 作 API 入参响应，须对齐后端 `api/types.d.ts` 契约**（与既有 B 类 typecheck 债务同源，改造须先核对后端）；⑤ 类型集中管理，跨模块实体抽至 `api/types.d.ts` 或 `types/`。**关于 views 目录组织（index.vue 包裹 vs PascalCase 平铺）**：调研 Vue 官方风格指南与社区结论——官方只要求「项目内大小写风格一致」，不强制目录形态；「目录组件」为 Nuxt/Pure Admin 等可选约定非官方红线。故决策**保持现状不强制统一**，仅保证各自大小写一致。执行顺序 P0（清 any，先对齐契约）→ P1（API 命名统一、类型集中、components 改目录组件）→ P2（utils/constants/config 边界）。 |
-| **2026-08-01** | **乖离率（BIAS）模块设计与落地** | 决定采用刘晨明减法版乖离率算法（`(ln(close) - EMA20(ln(close))) × 100`），覆盖31个申万一级行业 + 6个宽基指数。行业代码写死在 `constants.py`（无需外部维护），用户持仓/自选品种动态获取。数据保留30天，午间（12:00）和盘后（15:30）双次计算。乖离率模块独立于温度模块（`services/bias/`），计算结果存入 `market_multi_items` 表，通过 `/api/temperature/overview` 的 `multi.bias` 字段返回前端。 |
+| **2026-08-01** | **乖离率（BIAS）模块设计与落地** | 决定采用刘晨明减法版乖离率算法（`(ln(close) - EMA20(ln(close))) × 100`），覆盖 31 个申万一级行业 + 6 个宽基指数。行业代码写死在 `constants.py`（无需外部维护），用户持仓/自选品种动态获取。数据保留 30 天，午间（12:00）和盘后（15:30）双次计算。乖离率模块独立于温度模块（`services/bias/`），计算结果存入 `market_multi_items` 表，通过 `/api/temperature/overview` 的 `multi.bias` 字段返回前端。 |
 | **2026-08-01** | **二鸟说手抄报自动化 P1 完成与 P2 规划** | 确认火山引擎 `ARK_MODEL=doubao-seed-2-1-pro-260628` 可用，P1「链接归档 + Ark 结构化抽取」跑通并推送到 `main-v2`；仓库仅保留 `docs/er-niao/index.json`（约 1KB/期），正文不入库、前端直接跳雪球原文。将「AI 根据结构化数据 + 搜索生成每周行情综述/研判」作为 P2-17 写入 SPEC，待数据稳定后实施。 |
 | **2026-08-01** | **二鸟说拆分为独立项目 WeChatRSS（可插拔扩展）** | 决定把二鸟说数据抽取从 fundmate 拆出，迁入已有的 **WeChatRSS**（微信公众号→RSS 摄取底座，自带 mp 原文链接）。采用「双轨」：WeChatRSS 内置 `src/analyzers/erniao.py` 可插拔分析器（CI 主链路）+ WorkBuddy 自动化作为手动重放/兜底。fundmate 侧**删除**后端死代码（`ErNiaoFetcher`/`ER_NIAO_SOURCES`/`jobs.py` 二鸟说分支/`/parse-er-niao` 端点/`scripts/erniao_*.py`/`docs/er-niao/`，干净分离）。二鸟说结构化数据现位于 `WeChatRSS/data/er-niao/index.json`；P2-17 数据源相应更新。 |
 | **2026-08-01** | **V1（`backend/fundmate/`）退役清除（实测闭环）** | 经核实 `autoapp.py` 指向 V1 为**陈旧残留入口**（README 实际以 `flask --app app.main:app` 运行 V2）；前端 API 契约、测试 conftest、DB 模型均指向 V2；V1 整体被 `.gitignore` 忽略、不在版本控制。决策：**V2 为唯一代码库，V1 受控退役**。执行：删除 `fundmate/`、`migrations/`、`autoapp.py` 及 29 个 V1 移植测试；`libs/cal` 因 V2 已有等价 `xirr_engine` 直删不移植（XIRR 金值已迁入 V2 测试）；删前物理备份 `.backup-v1-2026-08-01/`（15.9MB，可回滚）。结果：V2 测试 459→460 全绿（唯一失败为 eastmoney 实时联网测试、属网络环境依赖）；新增 `tests/test_exceptions.py`、`scripts/forbid_v1_refs.sh` 守卫。详见 `docs/working-notes/code-audit-and-remediation-2026-08-01.md`。 |
@@ -28,7 +35,7 @@
 | **2026-06-27** | **通用业务组件封装决策（新增）** | 决定封装 `MoneyDisplay` 和 `RiseFallText` 两个通用业务组件，统一全站金额和涨跌文本的展示规范。组件路径：`@/components/MoneyDisplay/` 和 `@/components/RiseFallText/`。编码红线：所有金额/涨跌展示必须使用这两个组件，禁止手写格式化逻辑。 |
 | **2026-06-27** | **UI 设计规范 v2.3.2 及暗色模式 v1.4 同步** | 完成设计语言体系封箱：亮色模式 `/frontend/design.md`（v2.3.2），暗色模式 `/frontend/design.dark.md`（v1.4）。强制决策同步至 SPEC：涨红跌绿与品牌色统一（品牌色即涨色）、前端色彩变量编码红线（禁止直接调用 `--brand-*`）、数字显示规范、组件交互反馈规范（主按钮位移、软按钮遮罩）、暗色模式预埋约束（HSL 动态计算）、可访问性自动化测试约束。 |
 | 2026-06-21 | 跨日划转过滤不适用于当前架构 | 审查 `generate_portfolio_cashflows` 确认：deposit/withdraw 被归入 `transfer_candidates`，从始至终未加入 XIRR 现金流列表。组合收益率只计算买入/卖出/分红等投资类交易。无论同日还是跨日，资金划转都不会污染收益率计算。"跨日划转过滤"技术债标记为不适用，待 P2 转账配对功能上线后再评估。 |
-| 2026-06-21 | 卖出表单补上基金确认日计算 | `SellForm.vue` 新增 `fetchConfirmDate` 逻辑，卖出基金时调用 `calcFundConfirmDate` API 获取确认日，与 `BuyForm.vue` 完全对称。卖出非基金时 `confirm_date` 直接用 `trade_date`（股票/ETF T日成交即确定）。 |
+| 2026-06-21 | 卖出表单补上基金确认日计算 | `SellForm.vue` 新增 `fetchConfirmDate` 逻辑，卖出基金时调用 `calcFundConfirmDate` API 获取确认日，与 `BuyForm.vue` 完全对称。卖出非基金时 `confirm_date` 直接用 `trade_date`（股票/ETF T 日成交即确定）。 |
 | 2026-06-21 | 资产录入不拆分为多页面 | 通用资产录入保持单一 `AssetEntry.vue`，投资理财类资产等专门功能上线后再决定是否分离。extra 扩展字段的录入模板延后至 P2，与资产详情页展示同步实现。 |
 | 2026-06-21 | ECharts 图表颜色动态读取 CSS 变量 | 放弃在组件中硬编码十六进制颜色，改为通过 JS `getComputedStyle` 在运行时动态读取 `colors.css` 中定义的变量（如 `--invest-stock`、`--sankey-liquid`），确保图表颜色与全局主题保持严格一致，且能响应未来可能的暗黑模式或主题切换。 |
 | 2026-06-21 | 抽取独立抽屉组件 `PositionTransactionsDrawer.vue` | 原详情页中点击持仓行在表格下方展开交易明细，导致父组件逻辑膨胀且交互受限。决定将其重构为右侧 `el-drawer` 独立组件，接收 `position-data` prop 并内部调用 `GET /api/positions/{id}/transactions/` 获取数据，实现关注点分离和更灵活的布局。 |
@@ -42,7 +49,7 @@
 | 2026-06-17 | `cash` 账户类型重命名为 `bank` | 将原先的现金/活钱账户类型从 `cash` 改为 `bank`，语义更清晰，表示一张具体的银行卡，承载活期、理财、基金等全部行内资产。同时 `linked_cash_ledger_id` 的校验也改为检查 `ledger_type='bank'`。 |
 | 2026-06-18 | 引入 `ledger_id` 外键替代字符串关联 | `positions`、`transactions`、`assets` 增加 `ledger_id` 字段，通过外键与 `ledgers` 关联。`account_name` 保留为快照字段。所有核心查询和写入均基于 `ledger_id`，提升性能和数据完整性。 |
 | 2026-06-15 | 金融数据存储精度方案（最终决策） | 所有直接关联用户资金的字段（金额、份额）采用整数存储分（×100）或最小份额单位（×10000）。基金净值改为 DECIMAL(18,6)。所有读写通过 `Money` 工具类统一转换，禁止业务代码直接乘除。详细变更见 5.1-5.10 节。 |
-| 2026-06-15 | 前端数据异常根因 | `LedgerDetail.vue` 中 `fetchData` 自行计算市值（`marketValue = quantity * current_price`），而后端 `enrich_position_dict ` 已将单位转为元/份额。数据库新旧数据混合导致前端计算结果异常。最终通过彻底统一数据库数据（执行二次迁移）解决。 |
+| 2026-06-15 | 前端数据异常根因 | `LedgerDetail.vue` 中 `fetchData` 自行计算市值（`marketValue = quantity * current_price`），而后端 `enrich_position_dict` 已将单位转为元/份额。数据库新旧数据混合导致前端计算结果异常。最终通过彻底统一数据库数据（执行二次迁移）解决。 |
 | 2026-06-15 | XIRR 计算适配精度改造 | `generate_cashflows` 和 `generate_portfolio_cashflows` 中读取 `Transaction.amount` 时用 `Money.cents_to_yuan` 转换，`calculators.py` 中所有持仓市值计算统一使用 Money 工具类。 |
 | 2026-06-14 | 新增 `transactions.symbol` 快照字段 | 在 Transaction 表中新增 `symbol` 列作为资产代码的不可更改快照，用于关联查询和盈亏曲线生成。与 `position_name`、`account_name` 同为快照设计模式。 |
 | 2026-06-14 | 持仓/资产列表通用展示规范 | 所有展示持仓或资产的表格，必须将"名称、代码、资产类型"合并为单一复合列。名称大字体，代码小字灰色前缀 `#`，类型标签内联。参照导入页 `Inventory.vue` 的产品单元格样式。 |
@@ -68,9 +75,9 @@
 | 2026-06-11 | xalpha 概念辨析：封闭系统 vs 开放系统 | 多倍贝 用户场景是典型的开放系统（随时买卖、定投、赎回），对应 xalpha 的 `mul` 系统。净值曲线仅在无资金进出的时间段有意义，多数场景应使用 XIRR 衡量投资效果。TWR（时间加权收益率）更适合作封闭系统的业绩归因，属于 P2 功能 |
 | 2026-06-11 | 货币基金/逆回购不参与收益率计算 | 货币基金、逆回购属于"活钱管理"，收益率极低且无净值波动，不纳入 XIRR 计算。其收益率在仪表盘单独展示（P2） |
 | 2026-06-11 | 红利再投资的现金流处理 | 红利再投资（dividend_reinvest）视为一笔负现金流。本质是用分红金额买入更多份额，简化为一笔等额现金流出 |
-| 2026-06-11 | 支付宝 PDF 解析器上线 | 支付宝基金交易确认单 PDF 通过 pdfplumber 解析，支持36列表头页与12列数据页混合提取，跨页断裂通过"有效日期前缀"精确合并；字段级拼接避免数据错乱；输出标准化为 StandardTransactionRecord 进入导入流水线 |
+| 2026-06-11 | 支付宝 PDF 解析器上线 | 支付宝基金交易确认单 PDF 通过 pdfplumber 解析，支持 36 列表头页与 12 列数据页混合提取，跨页断裂通过"有效日期前缀"精确合并；字段级拼接避免数据错乱；输出标准化为 StandardTransactionRecord 进入导入流水线 |
 | 2026-06-11 | 净值接口响应结构重构 | POST /api/funds/nav/ 返回格式改为数组，每个元素包含 fund_code、unit_nav、date，增强自解释性和前端可靠性 |
-| 2026-06-11 | 异步回填数据库锁解决 | 采用 WAL 模式、连接超时30s、分批写入且直接 commit 释放锁，解决多线程导入时 database is locked 问题 |
+| 2026-06-11 | 异步回填数据库锁解决 | 采用 WAL 模式、连接超时 30s、分批写入且直接 commit 释放锁，解决多线程导入时 database is locked 问题 |
 | 2026-06-11 | 持仓不足处理策略 | 导入卖出/赎回时若持仓数量不足，由 process_orphan_sell_or_withdraw 内部捕获异常并转为孤儿交易（entry_status='orphan'），保证数据不丢失，待 P1-20 定时任务自动回填 |
 | 2026-06-10 | 净值获取服务独立抽取 | `get_fund_nav_map` 从视图层抽取到 `app/services/fund_data_service.py`，同时供导入 orchestrator 和 API 接口复用。数据库无净值时通过 xalpha 实时拉取并存入 `daily_worth`，后续查询直接命中 |
 | 2026-06-10 | 余额宝交易统一视为活钱 | 支付宝账单中所有余额宝相关交易（转入、转出、收益发放）标记为 `asset_type='cash'`、`is_cash_transfer=True`，不产生基金持仓。收益发放、转入映射为 `deposit`，转出映射为 `withdraw`，归入活钱管理 |
@@ -81,7 +88,7 @@
 | 2026-06-10 | 导入事务安全加固 | `commit` 方法在每处理一条记录前创建保存点（`begin_nested`），单条失败只回滚当前保存点，不影响其他已成功记录 |
 | 2026-05-31 | P1-09 优先于 P1-10 | 基金交割单导入是用户数据输入的瓶颈，必须优先实现。没有准确的交易数据，年化收益率计算无法开展 |
 | 2026-05-31 | 货币基金独立建表 | 货币基金的万份收益与普通基金的单位净值含义完全不同，混存会导致计算复杂、查询困难。独立建表语义清晰 |
-| 2026-05-31 | 元数据同步系统采用分层更新策略 | 核心池（持仓+自选）每日更新；CSV导入按需更新；全量同步仅手动触发。避免每日全量同步 1.2 万只基金带来的资源浪费 |
+| 2026-05-31 | 元数据同步系统采用分层更新策略 | 核心池（持仓+自选）每日更新；CSV 导入按需更新；全量同步仅手动触发。避免每日全量同步 1.2 万只基金带来的资源浪费 |
 | 2026-05-31 | 费率规则采用规则映射模式 | 申购/赎回费率区间（PurchaseRule / RedeemRule）与基金多对多关联（FeeRatio），规则复用减少冗余，修改时通过引用计数保护 |
 | 2026-05-31 | 静默回填历史数据 | 用户新增持仓/自选时，后台异步回填该标的的历史净值/行情，使用 threading.Thread 实现，不阻塞前端 |
 | 2026-05-31 | 目标代码解析统一到 Orchestrator | Job 不再自行查询持仓/自选/CSV，由 Orchestrator.resolve_targets() 统一提供，消除 Job 内部分支逻辑 |

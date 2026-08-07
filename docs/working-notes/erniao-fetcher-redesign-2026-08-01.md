@@ -37,7 +37,7 @@ v1.0 曾假设"只用公开源、后端 Playwright 渲染即可拿到雪球内�
 ### 1.2 关键实测：后端网络出口下，雪球对"裸请求"和"Playwright 渲染"**双重封死**
 在后端 `.venv`（已装 Playwright + Chromium）实测：
 
-| 通道 | 雪球专栏页 | 雪球单篇(186期) | 结果 |
+| 通道 | 雪球专栏页 | 雪球单篇(186 期) | 结果 |
 |---|---|---|---|
 | 纯 HTTP（requests/curl） | 110KB 空壳，手抄报命中 0 | 110KB 空壳，命中 0 | **封死** |
 | Playwright 渲染（后端 venv） | 77 字符空壳，命中 0 | 117 字符空壳，命中 0 | **封死** |
@@ -45,7 +45,7 @@ v1.0 曾假设"只用公开源、后端 Playwright 渲染即可拿到雪球内�
 ### 1.3 唯一能通的路径：WorkBuddy 云端 WebFetch
 WorkBuddy 的 WebFetch 工具（云端渲染通道 + 不同出口 IP）可稳定拿到雪球单篇**全文**：
 
-- 标题：手抄报｜186期：高切低后，双创半月回调15%
+- 标题：手抄报｜186 期：高切低后，双创半月回调 15%
 - 发布：2026-07-17 12:52
 - **本周系数：6**
 - 组合/观点/操作原文均可提取
@@ -64,7 +64,7 @@ WorkBuddy 的 WebFetch 工具（云端渲染通道 + 不同出口 IP）可稳定
 
 ### 2.1 两条链路，都复用现有轮子
 
-```
+```plain
 链路 B（主 · 现在就能跑 · 不受后端网络限制）
   WorkBuddy 自动化 (automation-1785551801256, 周一/六/日 0点)
     └─ 本 Agent 执行：
@@ -106,7 +106,7 @@ WorkBuddy 的 WebFetch 工具（云端渲染通道 + 不同出口 IP）可稳定
 **结构化抽取 Prompt**：保留现行字段并增强：
 - 必填：`issue_no`(int)、`title`、`coefficient`(0-12 int)、`publish_date`(YYYY-MM-DD)
 - 选填：`sentiment`（枚举，与 `SENTIMENT_MAP` 对齐）、`portfolio`(数组，枚举)、`annualized_return`(float|null)、`market_view`(str)
-- **`empirical_actions`（独立结构化块，数组）**：每条 `{name, action, note}`——逐条解析各实证条目/组合的当周操作（如 实证2/价值五剑 → 无操作/持有/加仓/定投），**不要**合并成单个 `empirical_action` 字符串。
+- **`empirical_actions`（独立结构化块，数组）**：每条 `{name, action, note}`——逐条解析各实证条目/组合的当周操作（如 实证 2/价值五剑 → 无操作/持有/加仓/定投），**不要**合并成单个 `empirical_action` 字符串。
 - 新增：`source_url`（雪球全文链接；标注 `is_weixin_original: false`）
 - 输出：仅 JSON，正则 `\{[\s\S]*\}` 提取后 `json.loads`
 
@@ -232,7 +232,7 @@ jobs:
 - **新增/修改文件**：
   - `scripts/erniao_sync.py` — 链接归档同步脚本（读结构化 JSON → 幂等写 `docs/er-niao/index.json` → 可选写 gitignored `data/er-niao/<n>.json` 本地缓存 → git 提交推送；pre-commit 环境异常时自动 `--no-verify` 回退）。**不写每期 markdown**。
   - `docs/er-niao/index.json` — 期号索引 + 每期 signals（首期 latest_issue=186；实证操作已独立为 `empirical_actions` 数组）。
-- **实测采集**：WebFetch 云通道抓到 186 期（系数=6、情绪=正常偏热、实证2无操作），证明采集链路可用。
+- **实测采集**：WebFetch 云通道抓到 186 期（系数=6、情绪=正常偏热、实证 2 无操作），证明采集链路可用。
 - **存储评审修正（2026-08-01）**：初版曾把 186 期全文写成 `docs/er-niao/186.md` 提交，经评审改为**仅链接归档**、删除全部 markdown——仓库长期只增长一个 index.json（约 1KB/期）。正文全文交给后端 `ErNiaoFetcher` 抓取到 `market_composites`。
 - **自动化改造**：任务 `automation-1785551801256`（「二鸟说手抄报自动同步（链接归档版）」）prompt 已改为"WebFetch 采集链接+信号 → 写 `.erniao_input.json` → 跑 `erniao_sync.py` → 推送"，并明确要求**不写 markdown**；调度保持周一/六/日 0 点，`cwds=D:/codes/fundmate`。
 - **踩坑记录**：

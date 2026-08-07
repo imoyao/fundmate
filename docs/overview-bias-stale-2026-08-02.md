@@ -22,5 +22,5 @@
 
 ## 待办（非代码 / 待用户）
 1. 退出 DevSidecar 后本机跑 `pdm run python scripts/diag_em.py`，坐实东财连接根因（此前 curl 实测两 host 均 schannel 失败）。
-2. 任务5 fallback（腾讯/新浪备用源）待退出代理后实网验证 symbol 格式与连通性再实现。
+2. 任务 5 fallback（腾讯/新浪备用源）待退出代理后实网验证 symbol 格式与连通性再实现。
 3. `git status` 确认改动后提交（注意 pre-commit 的 `ACC_PRODUCT_CONFIG_V3` 超限坑：`unset` 后再 `git commit`）。
