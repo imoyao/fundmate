@@ -4,7 +4,7 @@ layout: home
 hero:
   name: 多倍贝
   text: 看见你的复利增长
-  tagline: 记账即复利。多倍贝，备贝多——有备无患，自然倍多。
+  tagline: 记账即复利。多备贝，贝倍多——有备无患，自然倍多。
   image:
     src: /logo.svg
     alt: 多倍贝

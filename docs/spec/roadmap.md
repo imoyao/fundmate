@@ -32,7 +32,7 @@
 | **P1-10** | **组合年化收益率计算（XIRR）** | **✅ 已完成** | ⭐⭐⭐⭐⭐ | 🟡 | Ⅱ | XIRR 计算引擎上线，组合维度支持；`asset_type` 过滤；前端仪表盘卡片展示 |
 | **P1-12** | **投资组合 (Portfolio) CRUD** | **✅ 已完成** | ⭐⭐⭐⭐ | 🟢 | Ⅱ | 后端与策略视图完成；账户管理重构完成；金融精度改造完成；剩余接口性能优化已完成 |
 | P1-20 | 定时任务体系 (APScheduler) | ⏸️ 未开始 | ⭐⭐⭐ | 🟢 | Ⅱ | 统一管理净值、行情、异动，以及孤儿交易自动回填 |
-| P1-08 | 特别关注页面功能增强 | 基础完成 | ⭐⭐⭐ | 🟢 | Ⅳ | 暂缓优化。关联 issue：[#807](https://github.com/imoyao/fundmate/issues/807)（自选页实时估值设计文档 v2.0，成功标准未达成：`RealtimeWarningBanner` / `StatusIndicator` / `WatchlistPage` 三组件缺失，实现偏离文档）、[#273](https://github.com/imoyao/fundmate/issues/273)（自选拖拽排序，未实现） |
+| P1-08 | 特别关注页面功能增强 | 基础完成 | ⭐⭐⭐ | 🟢 | Ⅳ | 暂缓优化。关联 issue：[#807](https://github.com/imoyao/fundmate/issues/807)（自选页实时估值设计文档 v2.0，**实时估值核心(成功标准 1–7)已交付并关闭**，成功标准 8–11 转 [#821](https://github.com/imoyao/fundmate/issues/821)）、[#821](https://github.com/imoyao/fundmate/issues/821)（探市页即免登录沙盒，**已上线但有 2 个 P0 缺陷**）、[#273](https://github.com/imoyao/fundmate/issues/273)（自选拖拽排序，未实现） |
 | P1-06 | 全局 UI 细节微调 | **✅ 已完成** | ⭐⭐ | 🟢 | Ⅳ | 永久停止投入 |
 | P1-13 | 移动端响应式 / PWA | 未开始 | ⭐⭐ | 🟢 | Ⅳ | 长期规划 |
 | **P1-21** | **乖离率（BIAS）模块** | **✅ 已放开（SKIP_BIAS=False，待实网验证）** | ⭐⭐⭐⭐ | 🟡 | Ⅱ | 计算/存储/API 已实现（31 行业+6 宽基，存 `market_multi_items`）。2026-08-02 起曾临时跳过（`SKIP_BIAS=True`）；**2026-08-05 起数据源改为直连（腾讯行情/东财 push2his，见 `bias/direct_feeds.py`），已放开 `SKIP_BIAS=False`**。直连+兜底失败时单品种标 `stale` 或整批为空，不阻断主流程。待实网同步验证 `market_multi_items` 正常落库。详见 §2.1 与 `docs/working-notes/eastmoney-antiscrape-2026-08-05.md`。 |
@@ -142,7 +142,8 @@
 | issue | 标题 | 象限 | 状态判定 | 对应文档 / 代码 |
 |:---|:---|:---|:---|:---|
 | [#783](https://github.com/imoyao/fundmate/issues/783) | 记账功能需求检查单 | **Ⅰ 重要且紧急** | 部分实现 / 验收清单未达成 | 本文件 §1.2 P1-03；`docs/dev/import-trade-records.md`；清单正文在 issue 内 |
-| [#807](https://github.com/imoyao/fundmate/issues/807) | 自选页面实时估值功能设计文档 | **Ⅰ 重要且紧急** | 部分实现 / 与文档偏离 | 本文件 §1.2 P1-08；`docs/features/watchlist.md`；`docs/design/my-favrivate.md` |
+| [#807](https://github.com/imoyao/fundmate/issues/807) | 自选页面实时估值功能设计文档 | **Ⅰ 重要且紧急（已收窄关闭）** | 核心已交付（成功标准 1–7 落地，与文档架构一致）；沙盒子系统 8–11 拆至 #821 | 本文件 §1.2 P1-08；`docs/features/watchlist.md`；`docs/design/my-favrivate.md`；沙盒见 [#821](https://github.com/imoyao/fundmate/issues/821) |
+| [#821](https://github.com/imoyao/fundmate/issues/821) | 探市页（免登录沙盒）缺陷与缺口跟踪 | **Ⅰ 重要且紧急** | **已上线但有缺陷**：沙盒即探市页 `/explore`；P0 免登录搜索 401（白名单缺 securities/funds）、P0 热门卡片硬编码假成本价；P1 无迁移预览、底部转化区缺失 | `frontend/src/views/explore/index.vue`；`frontend/src/composables/useLocalHoldings.ts`；`backend/app/core/auth.py`；设计基线 [#808](https://github.com/imoyao/fundmate/issues/808)；实证 `docs/working-notes/explore-watchlist-replan-2026-08-08.md` |
 | [#229](https://github.com/imoyao/fundmate/issues/229) | 基本数据抓取及组织 | Ⅱ 重要不紧急 | 部分实现 / 基础数据缺口（净值已落盘、基金经理未落盘） | `docs/spec/tech-debt.md`；`backend/app/services/sync/jobs/fund_manager_job.py`（里程碑 base-data） |
 | [#275](https://github.com/imoyao/fundmate/issues/275) | 对比基准增加普通股票型基金指数（885000.WI） | Ⅱ 重要不紧急 | 未实现 / 数据 | 里程碑 base-data |
 | [#253](https://github.com/imoyao/fundmate/issues/253) | 基金评分，可能需要创建新表 | Ⅱ 重要不紧急 | 未实现 / 功能 | 待设计（暂无专门文档） |
@@ -160,3 +161,8 @@
 
 - [#460](https://github.com/imoyao/fundmate/issues/460) 费率信息处理：V2（xalpha）已实现并落盘，原 `docs/dev/fund-fee-ratio.md` 描述的是**已退役的 V1 方案**，已于 2026-08-08 重写拉平；遗留币种缺口转 #820 跟踪。
 - [#230](https://github.com/imoyao/fundmate/issues/230) 数据信息来源整合：双适配器（akshare + xalpha）整合框架已跑通并落盘，个别数据源缺口在 `docs/spec/tech-debt.md` 登记。
+- [#807](https://github.com/imoyao/fundmate/issues/807) 实时估值：2026-08-08 v3 实证更正 v2 误判（核心 7/11 已落地，含 `RealtimeWarningBanner`/`RealtimeStatusIndicator`）；**v4 再次更正 v3** —— 「沙盒」并非未实现，它就是已上线的探市页 `/explore`（`useLocalHoldings.ts` 承担 localStorage 持久化），成功标准 8–11 为「部分达成 + 有缺陷」，转 #821 跟踪。#807 已收窄关闭。
+- [#796](https://github.com/imoyao/fundmate/issues/796) 年化收益：功能已交付；§8.3 的 11 个单测用例原仅约 6/11 覆盖，**2026-08-08 已补齐**（单笔买入/单笔卖出/定投后全赎/部分卖出续持/资金转入转出与内部划转/极端收益率与区间截断/货基与逆回购排除），`tests/services/performance/test_xirr_engine.py` 共 23 条全通过。
+- [#661](https://github.com/imoyao/fundmate/issues/661) 自选功能：核心完成，正文 checklist 2 项 `[ ]`（分享备注、品种维度描述）未做，登记于 `docs/spec/tech-debt.md` §14。
+- [#429](https://github.com/imoyao/fundmate/issues/429) 交割单导入：导入主体完成；导出→#819；天天基金无数据/卖出份额推算/查重为已知限制。
+- [#507](https://github.com/imoyao/fundmate/issues/507) 定时任务清单：笔记关闭，但其待办（基金经理信息更新等）与 #229 重叠且未做，已双向交叉引用。
