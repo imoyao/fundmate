@@ -138,9 +138,9 @@ const router = useRouter();
 
       /* 头像外框：品牌 n=3 超椭圆（Superellipse 组件承载，勿改回 border-radius 圆形） */
       .navbar-avatar {
+        flex-shrink: 0;
         width: 22px;
         height: 22px;
-        flex-shrink: 0;
 
         img {
           display: block;

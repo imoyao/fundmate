@@ -3,9 +3,11 @@
 > 本文件是**主站 + 落地页**的品牌层设计语言（"品牌标准"）。
 > 工具侧实现层以 `frontend/design.md` 为唯一标准，本文件引用其令牌与字体，不与之冲突。
 > 当前 `landing.html` 仅为草稿阶段产物，**不具标准地位**；其任何与本文不一致处，以本文为准回填。
+>
+> **⚠️ v1.7 Logo 章节修订注记（2026-08-08）**：本文 §5 / 顶部 #817 注记 / §10 / §14 的 Logo 状态，已按**实际交付真相**回填——正式 Logo 母本 `logo.svg` 与 favicon 双轨（Form 4 / Form 1R）已于 2026-08-08 交付（见 `logo-delivery/` 与根目录 `LOGO_DECISIONS.md`）。早期稿中"占位 SVG / 待验证 / 珊瑚红描边"等描述与最终交付反相，以实际交付为准。
 
 > 🔗 **跟踪 issue**：[#817 鹦鹉螺 nautilus 作为 logo](https://github.com/imoyao/fundmate/issues/817)（Ⅳ 不重要不紧急）。
-> **现状（2026-08-08 triage 复核）**：Logo 尚未完成——本文件 **§5 Logo 规范**自述"当前占位 SVG 为过渡版本…待正式 Logo 稿验证后回填"，实现对齐清单亦标注「Logo：占位密集路径 / 待验证」。即：正式稿未产出、16–24px 小尺寸清晰度未验证、跨站（主站 / 文档站 / 工具站 favicon）未统一。请勿据本文件认定 Logo 已定稿；进展与决策同步回 #817。
+> **现状（2026-08-08 更新）**：Logo **已交付**——正式母本 `logo.svg`（超椭圆 n=3，trace 描摹 IoU=0.9884，红容器 + 米白螺旋**填充**）已随 `logo-delivery/` 提交并上传微云；favicon 双轨（**Form 4 生产版** / **Form 1R 备选**）多尺寸 `favicon.ico` 已产出。清晰度：主 Logo **≥24px 合格**、**16px 由 favicon Form 4 承担**（已实证）；跨站（主站 / 文档站 / 工具站）通过统一母本 + 适配形态 + favicon 达成一致性。仍待补：移动端真机 16px 视觉复查。进展与决策同步回 #817。
 
 ---
 
@@ -17,6 +19,7 @@
 | v1.5 | 内部评审第一轮：动效规范、字体补 Inter、对比度、无新背景令牌 |
 | v1.6 | 内部评审第二轮终稿：强制动效工程规范、优化浅色优先策略、新增实现对齐清单 |
 | **v1.7（最新）** | **品牌核心叙事重构（最终定稿）：** 修正"潮间带"为"深海"统一意象；引入"浅海珊瑚红"与"深海鹦鹉螺"的镜头转场叙事；重构品牌钩子与品牌韵脚；新增海洋生物投资生态插画映射（鹦鹉螺、角贝、扇贝、石鳖）；拍板 `/about` 独立页复用 YML 构建管线。 |
+| **v1.7 修订（2026-08-08）** | **Logo 章节按实际交付回填**：§5 母题着色由"描边"更正为"填充"、标记已交付、回填 16–24px 清晰度实证与双轨策略；顶部 #817 注记、§10 / §14 同步为"已交付，真机复核待补"。 |
 
 ---
 
@@ -49,9 +52,9 @@
 | 层级 | 文案 | 用途 |
 |:---|:---|:---|
 | 主 Slogan | 看见你的复利增长 | 首屏主标题、品牌记忆点 |
-| 价值副句 | 一个帮你算清真实收益、让复利增长清晰可见的投资账本。 | Hero 副标题 |
+| 价值副句 | 一个让复利增长清晰可见的投资账本 | Hero 副标题 |
 | 边界声明 | 不荐股 · 不跟单 · 不预测市场——只帮你算清真实收益。 | 诚实区、页脚 |
-| **品牌韵脚（v1.7 定稿）** | **多倍贝，备贝多——有备无患，自然倍多。** | 页脚收束、故事末尾 |
+| **品牌韵脚（v1.7 定稿）** | **多备贝，贝倍多——有备无患，自然倍多。** | 页脚收束、故事末尾 |
 | **收尾定调（v1.7 定稿）** | **潮有涨落，壳有深浅。算得清，才无患。** | 故事底部、品牌签名区 |
 
 ---
@@ -123,19 +126,42 @@
 
 **中英文混排参数**：标题 `letter-spacing: 0.01em`（中文视觉更透气），正文 `letter-spacing: 0`；中英文混排时拉丁文/数字相对中文略收紧，行高统一 1.7（正文最小 1.5×字号）；数字与中文并排须 `tabular-nums` 保证列对齐。
 
+> **字体注记（2026-08-08）**：横版组合资产 `logo_horizontal_combo.svg` 内嵌文字当前使用 **Noto Sans CJK SC**（与 §4 站点 Inter 体系不同源），属 logo 资产独立选择；若需与站点完全统一，可改为 CSS 文本层渲染。本文件以 §4 为站点标准，logo 资产字体不影响站点规范。
+
 ---
 
 ## 5. Logo 规范
 
-- **母题**：超椭圆（Superellipse, n=3）容器中藏对数螺线（鹦鹉螺），单笔连续路径，珊瑚红描边。
+> **交付状态（2026-08-08 更新）**：正式 Logo **已交付**，母本 `logo-delivery/01-master-superellipse/logo.svg`（= `logo_superellipse.svg` 同源），以 `logo-delivery/` 为统一交付目录。favicon 双轨：`05-favicon/favicon.ico`（Form 4 生产版）+ `favicon_form1r.ico`（Form 1R 备选）。详见 `logo-delivery/06-brand-guidelines/LOGO_DELIVERY.md` 与根目录 `LOGO_DECISIONS.md`。
+
+- **母题**：超椭圆（Superellipse, n=3）容器中藏对数螺线（鹦鹉螺），单笔连续路径，**珊瑚红填充（红容器 + 米白螺旋），不使用描边**（v1.7 原稿"珊瑚红描边"与最终交付反相，以实际交付为准）。
+- **着色工艺**：正式稿为**填充**结构——珊瑚红 `#E34F38` 容器 + 暖奶油 `#FDFBF7` 螺线填充，非描边；若需描边效果由 CSS 层实现，不写进 Logo SVG（与 §3.1 配色铁律一致）。
 - **外轮廓（Alive 理念）**：Logo 背景容器由直角方形/圆形改为 **n=3 超椭圆**——归一化公式 `|x/a|^3 + |y/a|^3 = 1`（a 为容器半宽），曲线无直线段，体现"生命流动感"与科技—生命融合（详见 §1.1）。圆角语义自此以超椭圆为统一容器语言。
 - **安全留白**：Logo 外扩 1/4 容器半宽留白（沿用圆轮廓留白比例，按超椭圆外接圆估算）。
-- **最小尺寸**：建议 ≥ 24px；低于 16px 不保证可识别。
-- **清晰度状态（v1.7 修订）**：
-  > 目标：在 16–24px 尺寸下保持可识别。当前占位 SVG 为过渡版本（密集路径，24px 下可能糊成一片），**待正式 Logo 稿验证后回填**，不承诺既成清晰。
-- **清晰度验证方法**（待正式稿时执行）：① 用 SVGOMG 压缩路径，控制锚点数量 ≤ 20；② 在 16px / 24px 下放大至 200% 检查无重叠、断裂；③ 导出 PNG 在移动端真机抽查可读性。验证结论回填本节。
+- **最小尺寸与双轨策略**：
+  - **≥ 24px**：使用主 Logo `logo.svg`（超椭圆 n=3，trace 描摹 IoU=0.9884，24px 可辨、32px+ 清晰）。
+  - **≤ 16px（favicon / 浏览器 tab）**：主 Logo 在 16px 退化为"带白点的红块"（9 碎片不可辨），**须改用 favicon 版**——Form 4（`favicon.ico`，红白红三层，单一连通块，16px 辨识合格）或 Form 1R（`favicon_form1r.ico`，透明底红螺带）。
+- **清晰度验证（已执行，2026-08-08）**：
+  > 目标：16–24px 尺寸下保持可识别。**已实测回填**：trace 描摹 IoU=0.9884、米白螺线连通域=1、居中偏移 <2.6px；主 Logo 在 24px 隐约可辨、32px+ 清晰，16px 由 favicon Form 4 承担（白螺带单一连通块、占比 ~37%、辨识合格）。
 
-- 主站与工具侧共用同一 Logo 母题，保证跨站识别一致。
+  - 验证手段：① trace 矢量路径（非位图拼凑），锚点不强行压缩（保留高保真）；② 16/24/32/48/64px 深浅双底渲染实证（见 `logo-delivery` 内 `logo_smallsize_preview.png` / `logo_favicon_preview.png`）；③ 真机移动端抽查（**待补**，列为开放问题）。
+- **交付文件索引（实际）**：
+
+  | 形态 | 文件 | 说明 |
+  |------|------|------|
+  | 主形态（母本） | `01-master-superellipse/logo.svg` | 超椭圆 n=3，红容器+米白螺线填充，A 版自包含 |
+  | 参考变体 | `02-platform-adaptations/square/logo_square.svg` | 直角（保留为参考，非母本） |
+  | 圆角 | `02-platform-adaptations/rounded-rect/logo_rounded.svg` | iOS App 图标风格 |
+  | 圆形 | `02-platform-adaptations/circular/logo_circle.svg` | 微信/抖音/社交头像 |
+  | B 版（透明底纯白线） | `03-variants/logo_white.svg` | 前端配红 div 用 `clip-path` 复用 |
+  | 横版组合 | `03-variants/logo_horizontal_combo.svg` | 图标 +「多倍贝 · 投资账本」（副标 0.6×，内嵌 Noto Sans CJK SC） |
+  | 单螺旋辅助图形 | `04-auxiliary-graphics/spiral_single_*.svg` | 加载态/装饰（彩色/白/单色） |
+  | Favicon 生产版 | `05-favicon/favicon.ico`（16/32/48/64 多尺寸） | Form 4 红白红三层，基准 |
+  | Favicon 备选 | `05-favicon/favicon_form1r.ico` | Form 1R 透明底红螺带 |
+
+  > 注意：本文早期引用的"favicon.svg / apple-touch-icon.png"等命名，**以 `logo-delivery/` 实际交付文件为准**（实际为 `favicon.ico` 多尺寸 + Form 4 / Form 1R，未单独产出 `favicon.svg` / `apple-touch-icon.png`；如需 PNG 尺寸可由 SVG 经 ImageMagick 导出）。
+
+- 主站与工具侧共用同一 Logo 母题，保证跨站识别一致（母本 + 适配形态 + favicon 已在 `logo-delivery/` 就位）。
 
 ---
 
@@ -205,6 +231,8 @@ document.querySelectorAll('[data-reveal]').forEach(el => observer.observe(el));
 可借用 monopo saigon 的"乳液流动"液体感，但**必须品牌重着色**：以珊瑚红→暖珊瑚浅调→浅水绿（`#E34F38 → #F2A38E → #7BC49A`）替代其薄荷/橙/牛血红虹彩，保留四锚点。
 
 技术：SVG `feGaussianBlur` + `feColorMatrix`（拉高 alpha 对比）的 goo 融球滤镜，让多个色块像乳液般融合；多 blob 错相位慢漂（14–22s）。参考实现见仓库根目录 `demo-liquid.html`（已用品牌色验证，随本版交付）。
+
+> **交付注记（2026-08-08）**：`demo-liquid.html` 在当前工作区未检出；本文件以"品牌色重着色原则"为准，若该参考实现需随版交付，请确认其落盘位置（不影响 §6.6 规范本身）。
 
 ### 6.7 无障碍适配（硬约束）
 
@@ -281,7 +309,7 @@ document.querySelectorAll('[data-reveal]').forEach(el => observer.observe(el));
 我们不荐股、不跟单。所有数据由你手动录入或交割单导入，主权归你，随时可一键导出带走。我们不做带你追浪的弄潮儿，只用数据的事实说话，做一把诚实的度尺。潮水涨落千年，只要你在潮水涌来的时候调控好自己气室的压力，就能一圈圈长出属于自己的生长刻度。
 
 **潮有涨落，壳有深浅。算得清，才无患。**
-**多倍贝，备贝多——有备无患，自然倍多。**
+**多备贝，贝倍多——有备无患，自然倍多。**
 
 > **数据主权边界**（不变）：不荐股、不跟单、不预测市场；不自动抓取；数据可导出、不用于营销。
 
@@ -319,7 +347,7 @@ document.querySelectorAll('[data-reveal]').forEach(el => observer.observe(el));
 | 字体 | `Noto Sans CJK SC` 栈 | Inter 体系（§4） | 待回填 |
 | 图标 | emoji（📊📈🔒🧾） | SVG 图标库（§9） | 待回填 |
 | 动效 | 涟漪 `opacity 0.05`、无效 IO | 可见度下限 + 滚动揭示标准实现 + reduced-motion（§6） | 待回填 |
-| Logo | 占位密集路径 | 待正式稿验证 16–24px 清晰度（§5） | 待验证 |
+| Logo | 占位密集路径 | **已交付（logo.svg 超椭圆 n=3 + 鹦鹉螺描摹；favicon Form 4 / Form 1R）；16px 由 favicon 承担、主 logo ≥24px（§5）** | **已交付，真机复核待补** |
 | `/about.html` | 未建 | 复用 landing 构建管线（YML + build-landing.mjs）输出 | 待开工 |
 | 四生物 SVG | 未建 | 珊瑚红单线 + 超椭圆容器（§9.1） | 待开工 |
 
@@ -336,13 +364,14 @@ document.querySelectorAll('[data-reveal]').forEach(el => observer.observe(el));
 5. 交付前用 `@media (prefers-reduced-motion: reduce)` 实测降级为静态。
 6. **关于页面开发**：复用 `landing` 的 YML 构建管线（`build-landing.mjs`），输出 `/about.html`。避免维护两份独立的 HTML 代码，杜绝文档与实现漂移。
 7. 盈亏语义走独立色板，品牌珊瑚红不得承担涨跌（§3.1 盈亏独立原则）。
+8. **Logo 接入**：直接使用 `logo-delivery/` 实际交付文件（§5 交付文件索引），**不要**按早期"favicon.svg / apple-touch-icon.png"等命名臆造；favicon 用 `favicon.ico`（Form 4）或 `favicon_form1r.ico`（Form 1R）。详见 `LOGO_DELIVERY.md` 第九章「前端对接注意事项」（viewBox / 禁用 symbol+use / 多实例 id 隔离）。
 
 ---
 
 ## 12. 远期规划
 
 - 主站与工具侧统一设计令牌管线（design.md 为主，本文引用，消除双来源歧义）。
-- Logo 正式稿产出后回填 §5 清晰度结论。
+- Logo 正式稿产出后回填 §5 清晰度结论。（**2026-08-08 已回填**：见 §5）
 - 液体动效沉淀为可复用 Web Component / Vue 组件，供主站与未来页面调用。
 - 主站维持浅色优先（§3.4）；工具站暗色模式按 `frontend/design.dark.md` 持续完善。主站若需被动适配系统暗色，另行评估。
 
@@ -365,7 +394,7 @@ document.querySelectorAll('[data-reveal]').forEach(el => observer.observe(el));
 
 | 问题 | 状态 | 负责 | 解决时点 |
 |:---|:---|:---|:---|
-| Logo 16–24px 清晰度验证 | 待验证 | 设计 | 正式 Logo 稿产出后 |
+| Logo 16–24px 清晰度 | **主 logo ≥24px 合格、16px 由 favicon Form 4 承担（已实证）；真机视觉复查待补** | 设计 | 真机抽查（本阶段补） |
 | 落地页 `landing.html` 与标准对齐 | 进行中（本版已重写落地） | 前端 | 本版落地 |
 | 危险色组件级约束细化（含示例） | 已定原则，待组件示例 | 前端 | 组件库阶段 |
 | 用户调研 / 竞品量化分析 | 未启动 | — | 单列增长文档（超出本标准范围） |
