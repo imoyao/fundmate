@@ -21,6 +21,14 @@ import "./style/colors.css";
 import "./style/tailwind.css";
 // Element Plus 样式已通过 unplugin-element-plus 按需引入，不再全量加载
 // import "element-plus/dist/index.css";
+// unplugin-element-plus 对 ElMessage/ElMessageBox/ElNotification 三个命令式组件
+// 的样式映射有遗漏（曾误判为"无对应样式文件"），这里显式补全，否则 toast/弹窗
+// 退化为 static 定位进入文档流，撑开页面出现多余滚动条。
+// 样式文件从 element-plus/theme-chalk 复制到 src/style（裸路径 import 会被
+// code-inspector 包裹导致不生效，相对路径才可靠）
+import "./style/el-message.css";
+import "./style/el-message-box.css";
+import "./style/el-notification.css";
 import "@/style/theme.scss"; // 确保在 Element Plus 之后加载
 // 导入字体图标
 import "./assets/iconfont/iconfont.js";

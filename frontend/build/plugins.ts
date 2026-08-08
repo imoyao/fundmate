@@ -50,9 +50,11 @@ export function getPluginsList(
         "PopoverDirective", // 指令类型，无对应组件样式文件
         "Loading", // 插件服务，无对应组件样式文件
         "InfiniteScroll", // 指令类型，无对应组件样式文件
-        "Message", // 服务类型，无对应组件样式文件
-        "MessageBox", // 服务类型，无对应组件样式文件
-        "Notification" // 服务类型，无对应组件样式文件
+        // 三个命令式组件 unplugin 不注入样式，已在 main.ts 显式补全
+        //（element-plus/theme-chalk/el-{message,message-box,notification}.css）
+        "Message",
+        "MessageBox",
+        "Notification"
       ]
     }),
     // 🔥 完全注释掉 CDN 插件
