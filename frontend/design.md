@@ -345,6 +345,49 @@
 | 品牌 | `--brand-200` | `--brand-700` | `--radius-pill` |
 | 危险 | `#FEF0F0` | `--color-danger` | `--radius-pill` |
 
+### Avatar（生成式头像）
+
+> 头像基于 DiceBear（10.x）以 `{style}/{seed}.svg` 生成式产出，**不落盘、不上传**（D9），
+> 用户可换风格 / 换 seed / 开关 CSS 动画。实现收口在 `src/utils/avatar.ts`。
+
+**风格全集**（卡通系 + 抽象系，全年龄友好）：
+
+| 风格 key | 中文名 | 动画 |
+|----------|--------|------|
+| `adventurer` | 冒险家 | — |
+| `adventurer-neutral` | 冒险家·中性 | — |
+| `lorelei` | 柔线 | — |
+| `micah` | 简约 | — |
+| `big-smile` | 大笑脸 | — |
+| `fun-emoji` | 表情 | — |
+| `big-ears-neutral` | 大耳朵 | — |
+| `bottts` | 机器人 | — |
+| `clay` | 软陶 | ✅ |
+| `blobs` | 气泡 | ✅ |
+| `shapes` | 几何 | ✅ |
+| `squircles` | 圆角方格 | ✅ |
+| `waves` | 波浪 | ✅ |
+| `glyphs` | 字形 | — |
+
+**风格选择器（个人中心）**：
+
+| 属性 | 值 |
+|------|-----|
+| 形态 | 缩略图卡片网格（64px 卡片 + 风格预览小图 + 中文名） |
+| 默认态 | `--bg-card` 底 + `--border-default` 1px 描边 + `--radius-md` |
+| Hover | `--border-brand-400` + `--shadow-raised` + 上浮 scale 1.04 |
+| 选中 | `--brand-700` 文字 + `--brand-400` 描边 + `style-pop` 果冻回弹 |
+| 动效 | 每卡按风格名哈希确定性轻微错位（`rotate ±2°` + `translateY ±3px`），刷新不跳 |
+| 动画标记 | 支持动画的风格名称旁带「呼吸圆点」（`card-dot-breathe`）暗示可动 |
+
+**头像动画规范**：
+
+- 动画为 DiceBear 10.x 内嵌 CSS（几 KB、`<img>` 直接播放、确定性、尊重 `prefers-reduced-motion`）。
+- 个人中心提供「头像动态」开关（默认开启），关掉后 URL 不带 `animationVariant`。
+- 动画仅对官方支持风格生效，其他风格传参会被忽略（不报错）。
+- 缩略图卡片预览一律使用 `animated: false`（静态），避免网格内多图同时动画造成视觉噪点。
+- OSS 兼容：老 9.x URL 解析不报错，重建时自动升级到 10.x。
+
 
 ## Data Visualization
 
@@ -410,6 +453,8 @@
 | 卡片出现 | 300ms | ease-out |
 | 数字变化 | 400ms | 平滑过渡 |
 | 模态开关 | 250ms | ease-in-out |
+| 头像风格选择 | 200ms | `cubic-bezier(0.34, 1.56, 0.64, 1)` |
+| 头像卡片呼吸点 | 2.4s | ease-in-out（循环） |
 
 > 尊重 `prefers-reduced-motion`。
 

@@ -23,34 +23,67 @@
           </Superellipse>
 
           <div class="avatar-control">
-            <div class="style-group" role="radiogroup" aria-label="头像画风">
+            <div
+              class="style-card-group"
+              role="radiogroup"
+              aria-label="头像画风"
+            >
               <button
                 v-for="style in AVATAR_STYLES"
                 :key="style"
                 type="button"
                 role="radio"
                 :aria-checked="avatarStyle === style"
-                class="style-capsule"
-                :class="{ 'style-capsule--active': avatarStyle === style }"
+                class="style-card"
+                :class="{
+                  'style-card--active': avatarStyle === style,
+                  'style-card--animated': ANIMATED_AVATAR_STYLES.has(style)
+                }"
+                :style="styleCardStyle(style)"
                 @click="onSelectStyle(style)"
               >
-                {{ AVATAR_STYLE_LABEL[style] }}
-                <IconifyIconOffline
-                  v-if="avatarStyle === style"
-                  icon="lucide:check"
-                  class="style-capsule__check"
-                  aria-hidden="true"
-                />
+                <span class="style-card__thumb">
+                  <img
+                    :src="
+                      buildAvatarUrl(style, avatarThumbSeed, {
+                        animated: false
+                      })
+                    "
+                    :alt="AVATAR_STYLE_LABEL[style]"
+                    class="style-card__img"
+                    loading="lazy"
+                  />
+                  <IconifyIconOffline
+                    v-if="avatarStyle === style"
+                    icon="lucide:check"
+                    class="style-card__check"
+                    aria-hidden="true"
+                  />
+                </span>
+                <span class="style-card__name">
+                  {{ AVATAR_STYLE_LABEL[style] }}
+                </span>
               </button>
             </div>
-            <button type="button" class="link-btn" @click="onRandomizeAvatar">
-              <IconifyIconOffline
-                icon="lucide:shuffle"
-                class="link-btn__icon"
-                aria-hidden="true"
-              />
-              随机换一个
-            </button>
+
+            <div class="avatar-tools">
+              <label class="avatar-anim-toggle">
+                <el-switch
+                  v-model="avatarAnimated"
+                  size="small"
+                  @change="persistAvatar"
+                />
+                <span class="avatar-anim-toggle__label">头像动态</span>
+              </label>
+              <button type="button" class="link-btn" @click="onRandomizeAvatar">
+                <IconifyIconOffline
+                  icon="lucide:shuffle"
+                  class="link-btn__icon"
+                  aria-hidden="true"
+                />
+                随机换一个
+              </button>
+            </div>
           </div>
         </div>
 
@@ -267,11 +300,13 @@ import { useMultiTagsStoreHook } from "@/store/modules/multiTags";
 import {
   AVATAR_STYLES,
   AVATAR_STYLE_LABEL,
+  ANIMATED_AVATAR_STYLES,
   type AvatarStyle,
   DEFAULT_AVATAR_STYLE,
   buildAvatarUrl,
   hashSeed,
   randomSeed,
+  randomAvatarStyle,
   defaultAvatarUrl,
   parseAvatarUrl,
   isAvatarUrl
@@ -345,6 +380,22 @@ const supabaseId = computed(() => me.value?.supabase_id || userStore.username);
 // ============================================
 const avatarStyle = ref<AvatarStyle>(DEFAULT_AVATAR_STYLE);
 const avatarSeed = ref<string>("");
+/** 头像动画开关（默认开，仅对官方动画风格生效；用户可关） */
+const avatarAnimated = ref(true);
+
+/** 风格卡片缩略图固定用统一 seed，避免每张卡片随用户头像变化而抖动 */
+const avatarThumbSeed = hashSeed("fundmate-style-thumb");
+
+/** 确定性伪随机错位（按键名哈希，刷新不跳动）：每格轻微旋转/上浮，增加呼吸感。
+ * 通过 CSS 自定义属性注入，让选中动画/悬停在错位的 transform 之上叠加，避免互相覆盖。 */
+function styleCardStyle(style: AvatarStyle): Record<string, string> {
+  const h = hashSeed(`card-${style}`);
+  const rot = (Number(h.slice(0, 2)) % 5) - 2; // -2° ~ 2°
+  const lift = (Number(h.slice(2, 4)) % 7) - 3; // -3px ~ 3px
+  return {
+    "--tilt": `rotate(${rot}deg) translateY(${lift}px)`
+  };
+}
 
 const savedAvatarUrl = computed(() =>
   userStore.avatar && isAvatarUrl(userStore.avatar) ? userStore.avatar : ""
@@ -352,7 +403,9 @@ const savedAvatarUrl = computed(() =>
 
 const avatarPreview = computed(() => {
   if (avatarSeed.value) {
-    return buildAvatarUrl(avatarStyle.value, avatarSeed.value);
+    return buildAvatarUrl(avatarStyle.value, avatarSeed.value, {
+      animated: avatarAnimated.value
+    });
   }
   return savedAvatarUrl.value || defaultAvatarUrl(supabaseId.value);
 });
@@ -362,12 +415,14 @@ function initAvatar() {
   if (parsed) {
     avatarStyle.value = parsed.style;
     avatarSeed.value = parsed.seed;
+    avatarAnimated.value = parsed.animated;
     return;
   }
   avatarSeed.value = hashSeed(supabaseId.value || "fundmate-anon");
 }
 
 async function onRandomizeAvatar() {
+  avatarStyle.value = randomAvatarStyle();
   avatarSeed.value = randomSeed();
   await persistAvatar();
 }
@@ -382,7 +437,9 @@ async function onSelectStyle(style: AvatarStyle) {
 }
 
 async function persistAvatar() {
-  const newUrl = buildAvatarUrl(avatarStyle.value, avatarSeed.value);
+  const newUrl = buildAvatarUrl(avatarStyle.value, avatarSeed.value, {
+    animated: avatarAnimated.value
+  });
   try {
     await updateMe({ avatar: newUrl });
     userStore.SET_AVATAR(newUrl);
@@ -569,7 +626,6 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-
 @keyframes fadeUp {
   from {
     opacity: 0;
@@ -582,26 +638,38 @@ onMounted(async () => {
   }
 }
 
-/* ===== 果冻回弹关键帧 ===== */
+/* ===== 果冻回弹关键帧（叠加卡片错位 tilt，避免覆盖内联 transform） ===== */
 @keyframes style-pop {
   0% {
-    transform: scale(1);
+    transform: var(--tilt, none) scale(1);
   }
 
   30% {
-    transform: scale(0.92);
+    transform: var(--tilt, none) scale(0.92);
   }
 
   60% {
-    transform: scale(1.05);
+    transform: var(--tilt, none) scale(1.05);
   }
 
   80% {
-    transform: scale(0.97);
+    transform: var(--tilt, none) scale(0.97);
   }
 
   100% {
-    transform: scale(1);
+    transform: var(--tilt, none) scale(1);
+  }
+}
+
+/* 动画风格标记点：轻微呼吸 */
+@keyframes card-dot-breathe {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+
+  50% {
+    opacity: 1;
   }
 }
 
@@ -627,7 +695,7 @@ onMounted(async () => {
     width: 100%;
   }
 
-  .style-group {
+  .style-card-group {
     justify-content: flex-start;
   }
 
@@ -746,65 +814,128 @@ onMounted(async () => {
   min-width: 0;
 }
 
-/* ===== 果冻胶囊按钮组 ===== */
-.style-group {
+/* ===== 风格卡片网格（D-头像-2：预览缩略图 + 随机错位呼吸） ===== */
+.style-card-group {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
+  width: 100%;
 }
 
-.style-capsule {
+.style-card {
   display: inline-flex;
+  flex-direction: column;
   gap: 6px;
   align-items: center;
-  padding: 7px 16px;
-  font-size: var(--text-small);
-  font-weight: 500;
-  line-height: 1;
+  width: 64px;
+  padding: 8px 8px 7px;
   color: var(--text-tertiary);
   cursor: pointer;
-  background: transparent;
+  background: var(--bg-card);
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-pill);
-  transform: translateZ(0);
-  transform-origin: center;
+  border-radius: var(--radius-md);
+  transform: var(--tilt, none); /* 内联错位作为基底 */
   transition:
-    transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1),
-    background-color 0.2s,
-    color 0.2s,
+    transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1),
     border-color 0.2s,
+    color 0.2s,
     box-shadow 0.2s;
   will-change: transform;
 }
 
-.style-capsule:hover {
+.style-card:hover {
   color: var(--text-primary);
   border-color: var(--brand-400);
+  box-shadow: var(--shadow-raised);
+  transform: var(--tilt, none) translateY(-2px) scale(1.04);
 }
 
-.style-capsule:active {
-  transform: scale(0.92);
+.style-card:active {
+  transform: var(--tilt, none) scale(0.94);
 }
 
-.style-capsule--active {
+.style-card:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.style-card--active {
   color: var(--brand-700);
-  background-color: var(--brand-200);
   border-color: var(--brand-400);
   box-shadow: 0 1px 3px rgb(0 0 0 / 6%);
   animation: style-pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-.style-capsule--active:hover {
+.style-card--active:hover {
   color: var(--brand-700);
 }
 
-.style-capsule:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+/* 支持动画的风格卡片：名称右侧"呼吸点"暗示可动 */
+.style-card--animated .style-card__name::after {
+  content: "●";
+  display: inline-block;
+  margin-left: 3px;
+  font-size: 8px;
+  color: var(--brand-600);
+  vertical-align: super;
+  animation: card-dot-breathe 2.4s ease-in-out infinite;
 }
 
-.style-capsule__check {
-  font-size: 16px;
+.style-card__thumb {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  overflow: hidden;
+  background-color: var(--bg-soft);
+  border-radius: var(--radius-sm);
+}
+
+.style-card__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.style-card__check {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  font-size: 10px;
+  color: #fff;
+  background: var(--brand-500);
+  border-radius: 50%;
+}
+
+.style-card__name {
+  font-size: var(--text-small);
+  line-height: 1.2;
+}
+
+/* 头像操作工具行：动态开关 + 随机 */
+.avatar-tools {
+  display: flex;
+  gap: var(--space-4);
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.avatar-anim-toggle {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.avatar-anim-toggle__label {
+  font-size: var(--text-small);
 }
 
 /* ===== 随机换一个 ===== */
