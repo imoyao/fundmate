@@ -635,6 +635,7 @@ onMounted(async () => {
     opacity: 0;
     transform: translateY(24px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -646,15 +647,19 @@ onMounted(async () => {
   0% {
     transform: var(--tilt, none) scale(1);
   }
+
   30% {
     transform: var(--tilt, none) scale(0.92);
   }
+
   60% {
     transform: var(--tilt, none) scale(1.05);
   }
+
   80% {
     transform: var(--tilt, none) scale(0.97);
   }
+
   100% {
     transform: var(--tilt, none) scale(1);
   }
@@ -665,6 +670,7 @@ onMounted(async () => {
   100% {
     opacity: 0.35;
   }
+
   50% {
     opacity: 1;
   }
@@ -675,41 +681,51 @@ onMounted(async () => {
   .avatar-zone {
     align-items: flex-start;
   }
+
   .avatar-top-row {
     width: 100%;
   }
+
   .avatar-frame {
     width: 80px !important;
     height: 80px !important;
   }
+
   .setting-row {
     flex-direction: column;
     gap: var(--space-2);
     align-items: flex-start;
   }
+
   .setting-row__label {
     flex-basis: auto;
     min-width: 0;
   }
+
   .setting-row__main {
     justify-content: flex-start;
     width: 100%;
   }
+
   .style-card-group {
     justify-content: flex-start;
   }
+
   .danger-zone {
     align-items: flex-start;
   }
+
   .field-block__input-row {
     flex-direction: column;
     gap: var(--space-2);
     align-items: stretch;
   }
+
   .field-input {
     width: 100%;
     max-width: 100%;
   }
+
   .field-block__save {
     align-self: flex-end;
     margin-left: 0;
@@ -725,17 +741,21 @@ onMounted(async () => {
   box-shadow: var(--shadow-raised);
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
+
 .profile-card:hover {
   box-shadow: var(--shadow-float) !important;
   transform: translateY(-3px);
 }
+
 .profile-card-enter {
   opacity: 0;
   animation: fadeUp 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
+
 .profile-card-enter:nth-child(1) {
   animation-delay: 0.05s;
 }
+
 .profile-card-enter:nth-child(2) {
   animation-delay: 0.1s;
 }
@@ -744,18 +764,22 @@ onMounted(async () => {
 .profile-page {
   padding: var(--space-5);
 }
+
 .profile-head {
   :deep(.page-header) {
     max-width: 680px;
   }
+
   :deep(.page-header__title) {
     font-size: var(--text-title);
     font-weight: 600;
   }
+
   :deep(.page-header__subtitle) {
     color: var(--text-tertiary);
   }
 }
+
 .profile-shell {
   display: flex;
   flex-direction: column;
@@ -765,7 +789,9 @@ onMounted(async () => {
 }
 
 /* ========================================== */
+
 /* ===== 头像区彻底重构：突出当前头像 ===== */
+
 /* ========================================== */
 
 .avatar-zone {
@@ -775,6 +801,7 @@ onMounted(async () => {
   padding: var(--space-3) 0 var(--space-standard);
   border-top: 1px solid var(--border-subtle);
 }
+
 .avatar-zone:first-of-type {
   padding-top: 0;
   border-top: none;
@@ -808,10 +835,10 @@ onMounted(async () => {
 /* 控制区：预览居左、控制靠右，保持画面平衡 */
 .avatar-control {
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: var(--space-2);
   align-items: flex-end;
-  flex: 1;
 }
 
 /* 操作按钮行：随机 + 撤销并排，撤销出现/消失不改变行高 */
@@ -821,6 +848,7 @@ onMounted(async () => {
   align-items: center;
   min-height: 28px;
 }
+
 .avatar-anim-toggle {
   display: inline-flex;
   gap: 6px;
@@ -828,6 +856,7 @@ onMounted(async () => {
   color: var(--text-secondary);
   cursor: pointer;
 }
+
 .avatar-anim-toggle__label {
   font-size: var(--text-small);
 }
@@ -845,26 +874,32 @@ onMounted(async () => {
   border: none;
   transition: color 0.15s ease;
 }
+
 /* 撤销：次级语义，用中性灰与主操作（随机）区分 */
 .link-btn--muted {
   color: var(--text-secondary);
 }
+
 .link-btn:hover {
   color: var(--brand-800);
 }
+
 .link-btn--muted:hover {
   color: var(--text-primary);
 }
+
 .link-btn:focus-visible {
   outline: none;
   border-radius: var(--radius-sm);
   box-shadow: var(--focus-ring);
 }
+
 .link-btn__icon {
   font-size: 14px;
 }
 
 /* ===== 第二排：头像卡片网格 ===== */
+
 /* 🔥 修复 2：固定 7 列，增大间距，消除缺口 */
 .style-card-group {
   display: grid;
@@ -899,31 +934,37 @@ onMounted(async () => {
   box-shadow: var(--shadow-raised);
   transform: var(--tilt, none) translateY(-2px) scale(1.04);
 }
+
 .style-card:active {
   transform: var(--tilt, none) scale(0.94);
 }
+
 .style-card:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
 }
+
 .style-card--active {
   color: var(--brand-700);
   border-color: var(--brand-400);
   box-shadow: 0 1px 3px rgb(0 0 0 / 6%);
   animation: style-pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
+
 .style-card--active:hover {
   color: var(--brand-700);
 }
+
 .style-card--animated .style-card__name::after {
-  content: "●";
   display: inline-block;
   margin-left: 3px;
   font-size: 8px;
-  color: var(--brand-600);
   vertical-align: super;
+  color: var(--brand-600);
+  content: "●";
   animation: card-dot-breathe 2.4s ease-in-out infinite;
 }
+
 .style-card__thumb {
   position: relative;
   display: block;
@@ -933,12 +974,14 @@ onMounted(async () => {
   background-color: var(--bg-soft);
   border-radius: var(--radius-sm);
 }
+
 .style-card__img {
   display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
+
 .style-card__check {
   position: absolute;
   right: 2px;
@@ -952,6 +995,7 @@ onMounted(async () => {
   background: var(--brand-500);
   border-radius: 50%;
 }
+
 .style-card__name {
   font-size: var(--text-small);
   line-height: 1.2;
@@ -962,46 +1006,55 @@ onMounted(async () => {
   padding: var(--space-5) 0;
   border-top: 1px solid var(--border-subtle);
 }
+
 .field-block:first-of-type {
   padding-top: 0;
   border-top: none;
 }
+
 .field-block__row-top {
   display: flex;
   align-items: flex-start;
   width: 100%;
   margin-bottom: var(--space-2);
 }
+
 .field-block__label-group {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
+
 .field-block__label {
   font-size: 14px;
   font-weight: 500;
   line-height: 1.4;
   color: var(--text-primary);
 }
+
 .field-block__desc {
   font-size: 13px;
   line-height: 1.4;
   color: var(--text-tertiary);
 }
+
 .field-block__input-row {
   display: flex;
   gap: var(--space-3);
   align-items: center;
   width: 100%;
 }
+
 .field-input {
   flex: 1;
   min-width: 120px;
   max-width: 100%;
 }
+
 .field-input :deep(.el-input__wrapper) {
   border-radius: var(--radius-sm);
 }
+
 .field-block__save {
   flex-shrink: 0;
   width: 72px;
@@ -1009,12 +1062,13 @@ onMounted(async () => {
   margin-left: auto;
   transition: all 0.15s ease;
 }
+
 /* 🔥 禁用态优化：去除灰底，变为幽灵按钮，视觉轻量不抢戏 */
 .field-block__save.is-disabled {
-  background: transparent !important;
   color: var(--text-disabled) !important;
-  border: 1px solid var(--border-light) !important;
   cursor: not-allowed !important;
+  background: transparent !important;
+  border: 1px solid var(--border-light) !important;
   opacity: 1 !important;
 }
 
@@ -1035,13 +1089,16 @@ onMounted(async () => {
   padding: var(--space-5) 0;
   border-top: 1px solid var(--border-subtle);
 }
+
 .setting-row:first-of-type {
   padding-top: var(--space-3);
   border-top: none;
 }
+
 .setting-row:last-child {
   padding-bottom: var(--space-3);
 }
+
 .setting-row__label {
   display: flex;
   flex-shrink: 0;
@@ -1049,17 +1106,20 @@ onMounted(async () => {
   gap: 4px;
   min-width: 100px;
 }
+
 .setting-row__name {
   font-size: var(--text-small);
   font-weight: 500;
   line-height: 1.4;
   color: var(--text-primary);
 }
+
 .setting-row__desc {
   font-size: 12px;
   line-height: 1.4;
   color: var(--text-tertiary);
 }
+
 .setting-row__main {
   display: flex;
   flex: 1;
@@ -1068,6 +1128,7 @@ onMounted(async () => {
   justify-content: flex-end;
   min-width: 0;
 }
+
 .field-value {
   max-width: 320px;
   overflow: hidden;
@@ -1076,6 +1137,7 @@ onMounted(async () => {
   color: var(--text-primary);
   white-space: nowrap;
 }
+
 .field-value--mono {
   font-family: var(--font-mono, "SF Mono", "JetBrains Mono", monospace);
   font-variant-numeric: tabular-nums;
@@ -1092,9 +1154,11 @@ onMounted(async () => {
   border: none;
   transition: color 0.15s ease;
 }
+
 .modify-link:hover {
   color: var(--brand-800);
 }
+
 .modify-link:focus-visible {
   outline: none;
   border-radius: var(--radius-sm);
@@ -1111,18 +1175,21 @@ onMounted(async () => {
   margin-top: var(--space-standard);
   border-top: 1px solid var(--border-subtle);
 }
+
 .danger-zone__text {
   display: flex;
   flex-direction: column;
   gap: 4px;
   min-width: 0;
 }
+
 .danger-zone__label {
   font-size: var(--text-small);
   font-weight: 500;
   line-height: 1.4;
   color: var(--text-primary);
 }
+
 .danger-zone__desc {
   font-size: 12px;
   line-height: 1.4;
@@ -1145,16 +1212,19 @@ onMounted(async () => {
   border-radius: var(--radius-sm);
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
+
 .danger-btn:hover {
   color: #fff;
   background-color: var(--color-danger);
   border-color: transparent;
 }
+
 .danger-btn:focus-visible {
   outline: none;
   border-radius: var(--radius-sm);
   box-shadow: var(--focus-ring);
 }
+
 .danger-btn:active {
   color: #fff;
   background-color: var(--color-danger);
