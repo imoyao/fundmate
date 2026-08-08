@@ -4,7 +4,7 @@
 - 每个受保护请求带 `Authorization: Bearer <supabase access_token>`，
   后端从 Supabase JWKS 端点获取公钥，用 ES256 验签（非对称，支持密钥轮换），
   从 `claims.sub` 映射本地 `users` 表，注入 `g.current_user / family_id / role`。
-- 白名单：health、temperature（探市免登录，D4）、auth/logout、OPTIONS 预检。
+- 白名单：health、temperature（探市市场温度，D4）、securities/search 与 funds/search（探市页免登录搜索候选标的，D4 延伸，均为 GET 只读公开查询）、auth/logout、auth/resolve、OPTIONS 预检。
 - 开发/测试模式（`AUTH_ENABLED` 未启用）：允许无 token 回退默认用户，
   支持 `X-User-Id` 头旁路指定身份（仅测试用）。
 - viewer（只读）角色对写方法统一 403（单一拦截点，避免逐端点装饰遗漏）。
@@ -19,8 +19,20 @@ from flask import abort, g, request
 from loguru import logger
 from sqlalchemy.exc import IntegrityError
 
-# 免登录前缀：探市相关接口（含无尾斜杠的 /api/temperature/{overview,history,multi}）
-PUBLIC_PREFIXES = ('/api/health', '/api/temperature')
+# 免登录前缀（_is_public 用 startswith 匹配，故前缀须精确到「子路由」层级，
+# 不能只到 /api/funds 这种蓝图级，否则会误放行同蓝图下的写接口，如 /api/funds/nav）。
+# - /api/health、/api/temperature：探市市场温度（D4 免登录）
+# - /api/securities/search、/api/funds/search：探市页「添加资产」的免登录搜索框依赖，
+#   前端 useAssetSearch 据此拉取候选标的。二者均为 GET 只读公开数据（基金/证券名录），
+#   无写操作，加白名单不影响数据安全。修复 #821 P0-1：原白名单缺失该两项，导致生产
+#   AUTH_ENABLED=true 时匿名访客搜索必 401，且被前端 Promise.allSettled+catch 静默吞掉，
+#   核心交互（添加资产）实际不可用。
+PUBLIC_PREFIXES = (
+    '/api/health',
+    '/api/temperature',
+    '/api/securities/search',
+    '/api/funds/search',
+)
 # 免登录精确路径
 # - logout：允许无有效 token 也返回成功（由前端清理本地会话）
 # - auth/resolve：登录前的"标识→邮箱"解析，帮助 Supabase 完成用户名登录（D10）
