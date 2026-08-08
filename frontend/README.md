@@ -85,7 +85,6 @@ showbuy
 │  └─ 📄refreshToken.ts
 ├─ 📁public
 │  ├─ 📄favicon.ico
-│  ├─ 📄logo.svg
 │  └─ 📄platform-config.json
 ├─ 📁src
 │  ├─ 📁api

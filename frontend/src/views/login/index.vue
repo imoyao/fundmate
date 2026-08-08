@@ -16,7 +16,9 @@
       </div>
       <div class="login-box">
         <div class="login-form">
-          <avatar class="avatar" />
+          <div class="login-logo">
+            <BrandLogo :size="80" />
+          </div>
           <Motion>
             <h2 class="outline-hidden">
               {{ isRegisterMode ? "创建账户" : title }}
@@ -163,7 +165,8 @@ import { useEventListener } from "@vueuse/core";
 import type { FormInstance, FormRules } from "element-plus";
 import { useLayout } from "@/layout/hooks/useLayout";
 import { initRouter } from "@/router/utils";
-import { bg, avatar, illustration } from "./utils/static";
+import BrandLogo from "@/components/BrandLogo/index.vue";
+import { bg, illustration } from "./utils/static";
 import { useRenderIcon } from "@/components/ReIcon/src/hooks";
 import { useDataThemeChange } from "@/layout/hooks/useDataThemeChange";
 

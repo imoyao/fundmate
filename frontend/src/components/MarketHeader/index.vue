@@ -2,14 +2,15 @@
   MarketHeader · 探市 / 温度计 顶部导航（复用）
   品牌 logo + 页面 badge + 右侧导航按钮
   props:
-    - logo:    品牌名（探市「多倍贝」/ 温度计「ShowBuy」）
-    - badge:   页面标签文案（探市·研究 / 温度计）
+    - logo:    品牌名（统一「多倍贝」，见 config.ts 的 MARKET_LOGO）
+    - badge:   页面标签文案（探市 / 温度计）
     - navs:    导航项 [{ label, type?: 'link'|'primary', onClick }]
 -->
 <template>
   <header class="market-header">
     <div class="market-header__inner">
       <div class="market-header__logo-area">
+        <BrandLogo :size="24" />
         <span class="market-header__logo">{{ logo }}</span>
         <span class="market-header__badge">{{ badge }}</span>
       </div>
@@ -44,6 +45,8 @@
 </template>
 
 <script setup lang="ts">
+import BrandLogo from "@/components/BrandLogo/index.vue";
+
 withDefaults(
   defineProps<{
     logo?: string;
@@ -77,7 +80,7 @@ withDefaults(
   &__logo-area {
     display: flex;
     gap: 10px;
-    align-items: baseline;
+    align-items: center;
   }
 
   &__logo {

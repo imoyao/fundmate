@@ -38,9 +38,10 @@
   width: 360px;
 }
 
-.avatar {
-  width: 350px;
-  height: 80px;
+.login-logo {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 16px;
 }
 
 .login-form h2 {
@@ -69,11 +70,6 @@
 
   .img img {
     width: 360px;
-  }
-
-  .avatar {
-    width: 280px;
-    height: 80px;
   }
 }
 

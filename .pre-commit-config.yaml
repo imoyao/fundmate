@@ -5,12 +5,17 @@ repos:
     hooks:
       - id: check-added-large-files
         args: ['--maxkb=1000']
+        # logo-delivery/preview.html 为内嵌预览的大体积交付物，豁免大文件检查
+        exclude: ^logo-delivery/preview\.html$
       - id: check-case-conflict
       - id: check-json
       - id: check-merge-conflict
       - id: check-symlinks
       - id: check-toml
       - id: end-of-file-fixer
+        # 品牌 SVG 资产以权威母本为准（logo-delivery/），副本须保持字节一致，
+        # 避免 fixer 追加换行导致副本与母本 md5 不一致
+        exclude: ^(logo-delivery/|frontend/src/assets/brand/|docs/\.vitepress/public/)
       - id: trailing-whitespace
 
   # Ruff: 统一的 lint + 格式化（替代 isort + flake8 + yapf）
