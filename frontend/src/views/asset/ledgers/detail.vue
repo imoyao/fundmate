@@ -1234,10 +1234,10 @@ async function confirmDeleteTxn(row: any) {
     try {
       await ElMessageBox.confirm(
         `确定要删除这笔交易记录吗？<br/><br/>
-        <span style="color: var(--color-warning); font-weight: bold;">⚠️ 重要提示</span><br/>
+        <span style="color: var(--color-warning); font-weight: bold;">重要提示</span><br/>
         当前持仓「${targetPos.name || targetPos.symbol}」共持有 ${targetPos.quantity} 份/股。<br/>
         如果删除这笔历史交易，<b style="color: var(--color-danger);">该持仓将丢失成本来源，变成“幽灵持仓”</b>。<br/><br/>
-        <b>✅ 推荐操作：前往「持仓明细」Tab，找到该持仓并点击“删除”，选择“删除持仓及交易”。</b>`,
+        <b>推荐操作：前往「持仓明细」Tab，找到该持仓并点击“删除”，选择“删除持仓及交易”。</b>`,
         "删除交易风险确认",
         {
           confirmButtonText: "我理解风险，只删除交易",

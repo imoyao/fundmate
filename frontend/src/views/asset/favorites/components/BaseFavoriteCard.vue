@@ -12,7 +12,7 @@
       </div>
       <!-- 笔记摘要 -->
       <div v-if="item.notes_summary" class="notes-summary">
-        💬 {{ item.notes_summary }}
+        {{ item.notes_summary }}
       </div>
       <div class="meta-row">
         <span v-if="item.holding_days">持有 {{ item.holding_days }} 天</span>

@@ -215,7 +215,7 @@
           <el-collapse-item
             v-for="(group, date) in groupedTransactions"
             :key="date"
-            :title="`📅 ${date}`"
+            :title="`${date}`"
             class="border-b border-gray-100"
           >
             <!-- 当日汇总 -->
@@ -334,8 +334,8 @@ defineOptions({ name: "TransactionList" });
 
 const viewMode = ref("table");
 const viewOptions = [
-  { label: "📋 表格", value: "table" },
-  { label: "⏳ 时间线", value: "timeline" }
+  { label: "表格", value: "table" },
+  { label: "时间线", value: "timeline" }
 ];
 
 // 时间线配置

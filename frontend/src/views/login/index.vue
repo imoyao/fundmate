@@ -129,7 +129,7 @@
           <!-- 登录提示 -->
           <div v-if="!isRegisterMode" class="login-hint mt-3">
             <span class="text-xs" style="color: var(--text-tertiary)">
-              💡 使用邮箱或用户名登录
+              使用邮箱或用户名登录
             </span>
           </div>
 
