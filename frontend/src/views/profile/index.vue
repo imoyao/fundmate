@@ -149,12 +149,13 @@
           </div>
           <div class="setting-row__main">
             <span class="field-value field-value--mono">••••••••</span>
-            <el-button
-              text
+            <button
+              type="button"
               class="modify-link"
               @click="passwordDialogVisible = true"
-              >修改</el-button
             >
+              修改
+            </button>
           </div>
         </div>
 
@@ -166,9 +167,7 @@
               >退出当前账户后需重新登录才能访问</span
             >
           </div>
-          <el-button plain type="danger" class="danger-btn" @click="onLogout"
-            >退出</el-button
-          >
+          <el-button class="danger-btn" @click="onLogout">退出</el-button>
         </div>
       </section>
     </div>
@@ -784,6 +783,7 @@ onMounted(async () => {
 
   &__label-group {
     display: flex;
+    flex: 1;
     flex-direction: column;
     gap: 2px;
     min-width: 0;
@@ -807,7 +807,6 @@ onMounted(async () => {
     flex-shrink: 0;
     width: 72px;
     height: 40px;
-    margin-left: auto;
   }
 }
 
