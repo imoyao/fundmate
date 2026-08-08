@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>多倍贝 · 大胆用色 + 液体流动（v1.6 §3.4 参考实现）</title>
+<style>
+:root{
+  --bg-cream:#FDFBF7;
+  --bg-soft:#F5F0EB;
+  --brand-coral:#E34F38;
+  --brand-coral-soft:#F2A38E;
+  --brand-coral-deep:#CC3D27;
+  --tide-teal:#7BC49A;
+  --ink:#2A2722;
+  /* monopo 同款耐心缓动，保留其"慢"的呼吸感 */
+  --ease-patient:cubic-bezier(0.19,1,0.22,1);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  font-family:Inter,'PingFang SC','Microsoft YaHei',sans-serif;
+  background:var(--bg-cream);color:var(--ink);
+  min-height:100vh;display:grid;place-items:center;padding:24px;
+}
+.stage{
+  position:relative;width:min(960px,95vw);aspect-ratio:16/9;
+  border-radius:24px;overflow:hidden;
+  background:linear-gradient(160deg,var(--bg-cream) 40%, var(--bg-soft) 100%);
+  box-shadow:0 36px 90px -45px rgba(42,39,34,.45);
+}
+.liquid{position:absolute;inset:0;width:100%;height:100%;z-index:1}
+
+/* 大胆用色：珊瑚红实色 chip / 标签，不回避大色块 */
+.tag{
+  position:absolute;top:26px;right:26px;z-index:3;
+  font-size:11px;letter-spacing:.2em;text-transform:uppercase;
+  color:var(--tide-teal);border:1px solid var(--tide-teal);
+  padding:6px 12px;border-radius:9999px;
+}
+.caption{position:absolute;left:40px;top:44px;z-index:3;max-width:60%}
+.caption h1{
+  font-size:clamp(40px,7vw,84px);font-weight:300;letter-spacing:-.03em;line-height:1.02;
+}
+.caption h1 .coral{color:var(--brand-coral);font-weight:500}
+.caption .eyebrow{
+  display:inline-block;font-size:13px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--brand-coral);margin-bottom:14px;font-weight:600;
+}
+/* 全幅珊瑚实色带：用色有体量，拒绝性冷淡风 */
+.band{
+  position:absolute;left:0;right:0;bottom:0;z-index:2;
+  background:var(--brand-coral);color:var(--bg-cream);
+  padding:26px 40px;
+  font-size:clamp(15px,1.6vw,19px);line-height:1.5;font-weight:400;
+  letter-spacing:.01em;
+}
+.band b{font-weight:600}
+
+/* 乳液流动：大尺寸饱和色块缓慢漂移 + SVG goo 滤镜融合（正常混合，保持鲜艳） */
+.blob{transform-box:fill-box;transform-origin:center}
+.b1{animation:drift1 15s var(--ease-patient) infinite alternate}
+.b2{animation:drift2 19s var(--ease-patient) infinite alternate}
+.b3{animation:drift3 23s var(--ease-patient) infinite alternate}
+@keyframes drift1{0%{transform:translate(0,0) scale(1)}100%{transform:translate(54px,-34px) scale(1.14)}}
+@keyframes drift2{0%{transform:translate(0,0) scale(1.06)}100%{transform:translate(-58px,30px) scale(.9)}}
+@keyframes drift3{0%{transform:translate(0,0) scale(.94)}100%{transform:translate(30px,48px) scale(1.12)}}
+
+/* 动效二分：品牌区装饰允许自动呼吸，但强制尊重 reduced-motion */
+@media (prefers-reduced-motion: reduce){
+  .b1,.b2,.b3{animation:none}
+}
+</style>
+</head>
+<body>
+  <div class="stage">
+    <span class="tag">fundmate · liquid</span>
+    <svg class="liquid" viewBox="0 0 960 540" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+      <defs>
+        <!-- 饱和虹彩：珊瑚红 → 暖珊瑚浅调 → 浅水绿（暖—冷对比，不用淡 tint） -->
+        <linearGradient id="emulsion" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%"  stop-color="#E34F38"/>
+          <stop offset="50%" stop-color="#F2A38E"/>
+          <stop offset="100%" stop-color="#7BC49A"/>
+        </linearGradient>
+        <!-- goo 融球：模糊后提高 alpha 对比，让相邻色块像乳液一样融合 -->
+        <filter id="goo">
+          <feGaussianBlur in="SourceGraphic" stdDeviation="20" result="blur"/>
+          <feColorMatrix in="blur" mode="matrix"
+            values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 22 -10" result="goo"/>
+          <feBlend in="SourceGraphic" in2="goo"/>
+        </filter>
+      </defs>
+      <g filter="url(#goo)">
+        <circle class="blob b1" cx="620" cy="250" r="190" fill="url(#emulsion)"/>
+        <circle class="blob b2" cx="760" cy="360" r="150" fill="url(#emulsion)"/>
+        <circle class="blob b3" cx="560" cy="150" r="120" fill="url(#emulsion)"/>
+      </g>
+    </svg>
+    <div class="caption">
+      <span class="eyebrow">多倍贝 · 投资账本</span>
+      <h1>看见你的<br><span class="coral">复利</span>增长</h1>
+    </div>
+    <div class="band">
+      <b>一个让复利增长清晰可见的投资账本</b>不荐股 · 不跟单 · 数据始终在你手里。
+    </div>
+  </div>
+</body>
+</html>

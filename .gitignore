@@ -372,3 +372,14 @@ docs/draft-dashboard-temperature.html
 docs/.vitepress/.temp/
 docs/.vitepress/cache/
 # docs/.vitepress/dist 已由上方全局 dist/ 规则忽略
+
+# 根目录误输出的 VitePress 构建产物（正式构建目录为 docs/.vitepress）
+/.vitepress/
+
+# VitePress dev 模式 config 热更新临时文件
+docs/.vitepress/config.mjs.timestamp-*.mjs
+
+# 设计草稿归档：仅入库 landing-drafts（历史设计参考），素材类草稿仅本地保留
+# （品牌最终交付在 logo-delivery/，无需重复入库微信原图与探索过程稿）
+docs/design/archive/branding-raw/
+docs/design/archive/site-exploration/
