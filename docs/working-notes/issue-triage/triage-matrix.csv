@@ -1,0 +1,78 @@
+﻿number,final_state,milestone,labels_current,action,category,labels_target,note,related_docs,eisenhower,title
+121,CLOSED,,javascript,(未改动),历史已关闭,,triage前已关闭,,,CORS跨域
+122,CLOSED,,"documentation,note,四笔钱",(未改动),历史已关闭,,triage前已关闭,,,“四笔钱”和风险等级问题
+208,CLOSED,,"功能,low-priority",CLOSE(低价值/笔记),低价值/个人笔记,triage-done,评论系统引擎调研，非核心,,,评论系统比较及选择
+211,CLOSED,,"dev-DVT,beauty",CLOSE(低价值/笔记),低价值/个人笔记,triage-done,数据可视化笔记,,,【数据可视化】pandas，matplotlib，numpy使用教程（美化）
+223,CLOSED,,"bug,dependencies",(未改动),历史已关闭,,triage前已关闭,,,`@deprecated` do not works with typing
+229,OPEN,,data,REOPEN(复核更正),部分实现/基础数据缺口,triage-done,基金经理个人情况未落盘：fund_manager_job未进execution_plan、仅写mgr_code+name、tech-debt.md:33自认未同步；净值已落盘,docs/spec/tech-debt.md:33; backend/app/services/sync/jobs/fund_manager_job.py,重要不紧急,基本数据抓取及组织
+230,CLOSED,,"data,组合",KEEP(已实现-验证通过),已实现/已落地,triage-done,代码+文档实证完全实现（双适配器整合框架跑通并落盘）,,,数据信息来源（整合到项目中）
+231,CLOSED,,"bug,invalid,dev-stack,migrate",(未改动),历史已关闭,,triage前已关闭,,,`No changes in schema detected.`数据model修改之后执行`flask db migrate`没有反应，探测不到代码修改
+233,CLOSED,,"documentation,unit-test",CLOSE(低价值/笔记),低价值/个人笔记,triage-done,单测资料笔记,,,单元测试，需要对搜集的资料整理然后写出示例
+237,CLOSED,,产品,CLOSE(低价值/笔记),低价值/个人笔记,triage-done,竞品搜集笔记,,,同类产品搜集
+249,CLOSED,,"data,TODO",(未改动),历史已关闭,,triage前已关闭,,,data目录下面的数据爬取应该保存到绝对目录并使用gitignore忽略不上传到仓库
+253,OPEN,,data,KEEP(open),未实现/功能,triage-done,基金评分，需新建表,(待设计：基金评分新表),重要不紧急,基金评分，可能需要创建新表
+258,CLOSED,,"bug,documentation,migrate",(未改动),历史已关闭,,triage前已关闭,,,`declarative_base`是什么？
+259,CLOSED,,"bug,documentation,migrate",(未改动),历史已关闭,,triage前已关闭,,,自定义类型`ChoiceType`无法使用，在使用`flask_migrate`生成迁移脚本时会报错，此外choices关键字参数无法被传递
+262,CLOSED,,,(未改动),历史已关闭,,triage前已关闭,,,Typing: 在低版本Python中类型注解返回本身会报错class未定义
+270,CLOSED,,low-priority,(未改动),历史已关闭,,triage前已关闭,,,对数据model中的`__repr__`进行统一定义
+271,CLOSED,,"note,data",CLOSE(低价值/笔记),低价值/个人笔记,triage-done,已自我否定,,,json数据可以使用jsonpath 库进行解析，类似于xpath之于XML
+273,OPEN,,"javascript,功能,TODO",KEEP(open),未实现/功能,triage-done,自选基金拖拽排序,frontend/src/views/asset/watchlist/index.vue,不重要不紧急,自选基金实现拖拽排序，类似github首页的仓库展示功能
+275,OPEN,base-data:基础数据,"enhancement,data,TODO",KEEP(open),未实现/数据,triage-done,对比基准增加股票型基金指数,docs/spec（base-data里程碑）,重要不紧急,对比基准增加普通股票型基金指数（885000.WI
+297,CLOSED,,"documentation,note,TODO",CLOSE(低价值/笔记),低价值/个人笔记,triage-done,已被VitePress取代,,,为项目编写开发教程文档
+355,CLOSED,,"note,功能",(未改动),历史已关闭,,triage前已关闭,,,note：为基金根据购买日期分组以节省赎回手续费
+376,CLOSED,,yarn,(未改动),历史已关闭,,triage前已关闭,,,前端安装依赖报错
+388,CLOSED,,python,(未改动),历史已关闭,,triage前已关闭,,,去除对flask-login扩展的依赖
+394,CLOSED,,install,(未改动),历史已关闭,,triage前已关闭,,,报错`selenium.common.exceptions.WebDriverException: Message: 'chromedriver' executable needs to be in PATH.`兼selenium安装chromedriver驱动流程
+399,CLOSED,,"unit-test,工具",(未改动),历史已关闭,,triage前已关闭,,,一个API测试工具Apifox `Apifox = Postman + Swagger + Mock + JMeter`
+402,CLOSED,,"documentation,dev-stack",(未改动),历史已关闭,,triage前已关闭,,,对于没有外键关联的信息，`Schema`应该如何处理？
+407,CLOSED,,bug,(未改动),历史已关闭,,triage前已关闭,,,年化回报和总收益的衡量标准应该统一
+409,CLOSED,,"note,beauty,前端",CLOSE(低价值/笔记),低价值/个人笔记,triage-done,前端模板选型笔记,,,前端参考模板
+413,CLOSED,,"documentation,note,dev-stack",(未改动),历史已关闭,,triage前已关闭,,,增加数据字典映射错误信息
+427,OPEN,,"documentation,enhancement,note,dev-stack,migrate,low-priority",KEEP(open),技术债/重构,triage-done,基于dataklasses实现choices类型，错误预防,(dataklasses重构),重要不紧急(技术债),基于dataklasses实现数据类型choices，实现错误预防和逻辑分离
+429,CLOSED,,"documentation,功能",CLOSE(低价值/笔记),低价值/个人笔记,triage-done,交割单导入主体已实现，导出侧另立#819跟踪,,,交割单导出与导入功能
+459,CLOSED,,"low-priority,debug",(未改动),历史已关闭,,triage前已关闭,,,去除Loguru 第三方依赖打印的日志信息
+460,CLOSED,,"bug,documentation,data,OOP",KEEP(已实现-验证通过),已实现/已落地,triage-done,实现但偏离文档（V1文档fund-fee-ratio.md已于2026-08-08重写为V2 xalpha方案；币种未落库见#820）,,,费率信息处理需要注意的问题点
+477,CLOSED,,"bug,documentation,dependencies,data,low-priority,优化",(未改动),历史已关闭,,triage前已关闭,,,使用retry模块进行失败重试操作
+494,CLOSED,,优化,(未改动),历史已关闭,,triage前已关闭,,,对于组合类`Strategy`可以定义元类并强制要求其实现`detail()`方法以返回组合的详情信息
+506,CLOSED,,low-priority,CLOSE(低价值/笔记),低价值/个人笔记,triage-done,探索性问句非路线图,,,如何构建一个推荐系统？
+507,CLOSED,,note,CLOSE(低价值/笔记),低价值/个人笔记,triage-done,定时任务清单笔记,,,需要定时执行的任务列表
+508,OPEN,,low-priority,KEEP(open),backlog功能设想,triage-done,消息推送：自选回撤监控/股票增幅提醒/涨幅推送,(九泉二调研),重要不紧急(远期),消息推送机制
+537,CLOSED,,"low-priority,debug",(未改动),历史已关闭,,triage前已关闭,,,使用Sentry 记录线上错误
+579,CLOSED,,"documentation,dependencies,note,install",(未改动),历史已关闭,,triage前已关闭,,,修复 Dependabot 更新太频繁问题，使用`pip-compile-multi `管理包依赖
+588,CLOSED,,"data,功能,TODO",(未改动),历史已关闭,,triage前已关闭,,,市场温度来源数据处理
+602,CLOSED,,"documentation,note,结构",(未改动),历史已关闭,,triage前已关闭,,,禁用 `sys.path.insert`或者`sys.path.append`
+604,CLOSED,,"question,note,TODO",(未改动),历史已关闭,,triage前已关闭,,,如何存储用户的个性化配置？
+608,CLOSED,,"wontfix,前端",(未改动),历史已关闭,,triage前已关闭,,,Vue2->Vue3 一些变更的记录
+620,CLOSED,,note,(未改动),历史已关闭,,triage前已关闭,,,基金操作都有哪些？
+622,CLOSED,,debug,(未改动),历史已关闭,,triage前已关闭,,,PermissionError: [WinError 32] 另一个程序正在使用此文件，进程无法访问。
+623,CLOSED,,"bug,unit-test,debug",(未改动),历史已关闭,,triage前已关闭,,,sqlalchemy 之mysql改为sqlite3引擎之后的问题
+624,CLOSED,,"question,wontfix,install,tools",(未改动),历史已关闭,,triage前已关闭,,,pyproject.toml +PDM
+625,CLOSED,,"python,note,beauty,tools",(未改动),历史已关闭,,triage前已关闭,,,pre-commit 之 isort 与 yapf冲突
+636,CLOSED,learn-pytest：学会使用pytest进行单元测试,"python,unit-test",(未改动),历史已关闭,,triage前已关闭,,,使用faker+`factory_boy`生成假数据进行单元测试
+637,CLOSED,,bug,(未改动),历史已关闭,,triage前已关闭,,,tab 表格点击刷新页面导致跳动
+644,CLOSED,,bug,(未改动),历史已关闭,,triage前已关闭,,,韭圈儿数据获取报错
+648,CLOSED,,"wontfix,beauty,data,TODO,前端",(未改动),历史已关闭,,triage前已关闭,,,前后端对接中对于蛇形命名和驼峰命名的处理的思考
+650,CLOSED,,"enhancement,low-priority",(未改动),历史已关闭,,triage前已关闭,,,将接口返回的数据结果包装到data中，方便前端统一获取数据
+651,CLOSED,,low-priority,(未改动),历史已关闭,,triage前已关闭,,,'FLASK_ENV' is deprecated and will not be used in Flask 2.3. Use 'FLASK_DEBUG' instead.
+661,CLOSED,base-data:基础数据,"enhancement,note,data,功能,产品",KEEP(已实现-验证通过),已实现/已落地,triage-done,完全实现（模型+服务+视图+前端页+文档一致，被同步链路消费）,,,自选功能的实现
+662,CLOSED,,,(未改动),历史已关闭,,triage前已关闭,,,auth 授权完善，接口支持携带认证参数
+663,CLOSED,learn-pytest：学会使用pytest进行单元测试,"bug,unit-test,low-priority",(未改动),历史已关闭,,triage前已关闭,,,[pytest]为什么使用了`addfinalizer`删除用户之后，还能查询到用户信息？
+666,CLOSED,learn-pytest：学会使用pytest进行单元测试,,(未改动),历史已关闭,,triage前已关闭,,,pytest-cov统计测试覆盖率
+674,CLOSED,,bug,(未改动),历史已关闭,,triage前已关闭,,,登录接口中，应该使用用户名+密码的格式，其中用户名支持邮箱或者username（后期可能还有手机号）
+677,CLOSED,,enhancement,(未改动),历史已关闭,,triage前已关闭,,,分组category应该分为系统分组和自定义分组，系统分组不允许删除
+678,CLOSED,,,(未改动),历史已关闭,,triage前已关闭,,,decimal 计算问题
+687,CLOSED,,"documentation,note",(未改动),历史已关闭,,triage前已关闭,,,lotus本地部署
+719,CLOSED,,"python,note,TODO,工具,tools",(未改动),历史已关闭,,triage前已关闭,,,用UV替代PDM
+769,CLOSED,,,(未改动),历史已关闭,,triage前已关闭,,,MVP渐进开发路线图
+782,OPEN,,,KEEP(open),设计文档基线,triage-done,资产简记与投资记录页面设计,docs/（页面设计基线）,重要不紧急,资产简记和投资记录页面设计
+783,OPEN,,,REOPEN(复核更正),部分实现/验收清单未达成,triage-done,导入工作台第3步验收清单P0核心交互(批量修正/行内键盘编辑/草稿恢复/配置分组/底部双按钮/边界处理)整节未勾选,(#782; 导入工作台第3步验收清单),重要且紧急(验收补齐),记账功能需求检查单
+785,CLOSED,,"note,data",(未改动),历史已关闭,,triage前已关闭,,,ShowBuy 元数据同步系统
+786,CLOSED,,,(未改动),历史已关闭,,triage前已关闭,,,ShowBuy 基金/股票导入系统 — 开发决策文档
+796,CLOSED,,"功能,产品",KEEP(已实现-验证通过),已实现/已落地,triage-done,完全实现（后端+前端+API全通，文档如实标注延后项）,,,组合年化收益率计算（P1-10）的技术选型、架构设计、实现路线
+803,CLOSED,,,(未改动),历史已关闭,,triage前已关闭,,,统一设计语言
+807,OPEN,,,REOPEN(复核更正),部分实现/与文档偏离,triage-done,实时估值设计文档v2.0成功标准未达成：RealtimeWarningBanner/StatusIndicator/WatchlistPage三组件缺失，实现偏离文档,docs/design（实时估值设计文档v2.0）,重要且紧急(文档拉平),ShowBuy 自选页面实时估值功能——开发计划设计文档
+808,OPEN,,产品,KEEP(open),设计文档基线,triage-done,自选「探市」体验版设计文档与任务计划,docs/（探市设计文档）,重要不紧急,【自选】ShowBuy「探市」体验版 —— 设计文档与任务计划
+809,OPEN,,"data,TODO",REOPEN(复核更正),决策已定/待落地,triage-done,SQLite+Supabase双库决策已定，但Supabase云端集成未落地，后端仅用本地SQLite,docs/spec（DB决策：SQLite+Supabase双库）,重要不紧急,【白嫖】数据库存储选择
+817,OPEN,,,REOPEN(复核更正),部分实现/与文档偏离,triage-done,Logo品牌文档brand-v1.7.md自述占位/待验证，正式稿未产出、清晰度待验证、跨站未统一,docs/design/brand-v1.7.md（自述占位/待验证）,不重要不紧急,【LOGO】鹦鹉螺nautilus作为logo
+819,OPEN,,"功能,triage-done",KEEP(open),导出侧跟踪,triage-done;功能,由#429拆分：导入已落地，导出(账单/Excel/标准格式对账)未实现,(#429导入侧; backend/app/services/importer/parsers),重要不紧急,交割单导出功能跟踪（对应 #429 导入侧）
+820,OPEN,,"data,triage-done;enhancement",KEEP(open),数据完整性补全,triage-done;data;enhancement,FeeRatio无currency列，币种未落库（#460复盘暴露），重要不紧急,backend/app/domains/funds/models.py:127; docs/dev/fund-fee-ratio.md; #460,重要不紧急,FeeRatio 增加币种(currency)字段并落库

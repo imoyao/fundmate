@@ -2,6 +2,18 @@
 title: 自选股功能设计
 permalink: /watchlists
 ---
+
+::: tip 关联 issue（2026-08-08 triage 反链）
+本文是自选模块的**需求/设计基线**，其中部分能力尚未落地，按下列 issue 跟踪：
+
+- [#661 自选功能的实现](https://github.com/imoyao/fundmate/issues/661)：**已完成**（`backend/app/domains/watchlist` + `frontend/src/views/asset/watchlist`），基础自选管理已落地。
+- [#807 自选页面实时估值功能设计文档](https://github.com/imoyao/fundmate/issues/807)（**Ⅰ 重要且紧急**）：设计文档 v2.0 的成功标准**未达成**——`RealtimeWarningBanner`、`StatusIndicator`、`WatchlistPage` 三组件缺失，现有实现偏离该文档。本文 §1.2 中「行情与数据展示 → 自动行情刷新(P1)」「异动提醒」两项即对应此缺口。
+- [#808 「探市」体验版设计文档与任务计划](https://github.com/imoyao/fundmate/issues/808)（Ⅱ）：探市侧设计基线，另见 `docs/spec/temperature-architecture-plan.md`。
+- [#273 自选基金拖拽排序](https://github.com/imoyao/fundmate/issues/273)（Ⅳ）：本文 §1.2「分组体系 → 排序」中的拖拽交互未实现。
+
+反链索引总表见 `docs/spec/roadmap.md` §3。
+:::
+
 #### 1.1 文档概述
 
 ##### 1.1.1 背景与痛点

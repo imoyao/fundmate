@@ -2,6 +2,16 @@
 title: 数据库的选择及使用（待整理）
 ---
 
+::: danger 历史文档（V1 选型），与当前实现不符
+本文记录的是 **V1 时期（MySQL + Navicat 建模）的选型过程**，仅作历史留档。**当前 V2 实现为：本地 SQLite（WAL）作为运行库 + Supabase Postgres 作为云端权威**（核心账本上云由 decisions **D3** 拍板，认证与 JWT 验签见 **D2**）。
+
+- 权威决策：`docs/spec/decisions.md`（D3 核心账本数据上云 / D2 认证方案）
+- 架构现状：`docs/spec/architecture.md`
+- 跟踪 issue：[#809 数据库存储选择](https://github.com/imoyao/fundmate/issues/809)（Ⅱ 重要不紧急）——**双库决策已定，但 Supabase 云端集成尚未落地**，后端目前仅使用本地 SQLite；增量双向同步与 RLS 兜底见 roadmap **P2-23 云端同步引擎**。
+
+请勿按本文的 MySQL 方案新建表或写迁移。
+:::
+
 ## 选择✨
 
 1. 使用 MySQL 作为存储数据库；
