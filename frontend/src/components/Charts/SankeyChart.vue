@@ -17,7 +17,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onBeforeUnmount, watch, nextTick } from "vue";
+import { ref, computed, onBeforeUnmount, watch, nextTick } from "vue";
 import echarts from "@/plugins/echarts";
 import { IconifyIconOffline } from "@/components/ReIcon";
 
@@ -31,6 +31,8 @@ let chart: echarts.ECharts | null = null;
 const isEmpty = ref(true);
 const totalValue = ref(0);
 const containerHeight = ref(400);
+// v-bind 在 <style> 中不能直接拼接字符串表达式，需在此先拼好带 px 的单位字符串
+const containerHeightPx = computed(() => `${containerHeight.value}px`);
 
 // 工具函数：读取 CSS 变量
 const getCSSColor = (varName: string): string => {
@@ -393,7 +395,7 @@ onBeforeUnmount(() => {
 .sankey-chart-container {
   position: relative;
   width: 100%;
-  height: v-bind(containerHeight + "px");
+  height: v-bind(containerHeightPx);
   contain: layout style;
 }
 
