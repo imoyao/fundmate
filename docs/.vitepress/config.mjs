@@ -27,6 +27,10 @@ export default withDuxTheme(
   defineConfig({
     title: '多倍贝 · 看见你的复利增长',
     description: '一个帮你算清真实收益、让复利增长清晰可见的投资账本。手动归集、穿透持仓、算准 XIRR，数据始终在你手里。',
+    // 站点语言：让 @duxweb/vitepress-theme 的 useLocale 直接加载 zh-CN 中文 locale，
+    // 否则默认 en-US 会使侧边栏标题(docNavTitle)与阅读时长(time)等 UI 文本显示英文。
+    // 见 node_modules/@duxweb/vitepress-theme/dist/cjs/composables/useLocale.cjs
+    lang: 'zh-CN',
       // 访问管控：srcExclude 使这些源文件/目录根本不参与构建，不进入产物（dist），
       // 远端用户访问即 404。源文件仍保留在仓库源码中。glob 相对于 srcDir（即 docs/）。
       // 屏蔽清单与说明见 docs/spec/internal-index.md。
@@ -119,17 +123,8 @@ export default withDuxTheme(
         prevPageText: '上一页',
         nextPageText: '下一页',
       },
-      readingTime: {
-        time: '分钟阅读',
-        words: '字',
-        minute: '分钟',
-        minutes: '分钟',
-      },
-      sidebar: {
-        toggleButtonText: '切换侧边栏',
-        mobileTitle: '菜单',
-        docNavTitle: '文档导航',
-      },
+      // 注：readingTime 与 sidebar.docNavTitle 不再在此覆盖 —— 设 lang:'zh-CN' 后
+      // 主题会直接加载 zh-CN locale 默认值（"阅读时间" / "文档导航"），避免与 locale 冲突。
     },
   })
 )

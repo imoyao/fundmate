@@ -348,8 +348,8 @@ showbuy
 │  │  │  │  └─ 📄perms.vue
 │  │  │  └─ 📁page
 │  │  │     └─ 📄index.vue
-│  │  ├─ 📁system
-│  │  │  └─ 📄SystemSettings.vue
+│  │  ├─ 📁profile
+│  │  │  └─ 📄index.vue
 │  │  └─ 📁welcome
 │  │     └─ 📄index.vue
 │  ├─ 📄App.vue
