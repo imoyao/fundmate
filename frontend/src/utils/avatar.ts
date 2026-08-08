@@ -137,7 +137,7 @@ export function isAvatarUrl(value: string | null | undefined): boolean {
 /**
  * 从 DiceBear 头像 URL 解析出 style、seed 与动画状态（编辑个人中心时回填用）。
  * 兼容 9.x / 10.x；解析失败返回 null（非本应用生成的 URL 无法还原）。
- * 注意：4=0.x 版本的动画参数为 `animationVariant`，老 URL 一律视为静态，重建后自动升级。
+ * 注意：10.x 版本的动画参数为 `animationVariant`，老 URL 一律视为静态，重建后自动升级。
  */
 export function parseAvatarUrl(
   value: string | null | undefined
@@ -149,11 +149,17 @@ export function parseAvatarUrl(
       ? DICEBEAR_BASE
       : null;
   if (!prefix) return null;
+  // 形如 `clay/svg?seed=xxx&animationVariant=medium`，先取 style 段
   const rest = value.slice(prefix.length + 1);
   const slashIdx = rest.indexOf("/");
   if (slashIdx === -1) return null;
   const style = rest.slice(0, slashIdx) as AvatarStyle;
-  const query = new URLSearchParams(rest.slice(slashIdx + 1));
+  // query 段需剥掉 `/svg` 路径再交给 URLSearchParams，否则 `svg?` 会被当成 key 的一部分
+  const queryText = rest
+    .slice(slashIdx + 1)
+    .replace(/^svg\?/, "")
+    .replace(/^svg$/, "");
+  const query = new URLSearchParams(queryText);
   const seed = query.get("seed") ?? "";
   if (!seed || !(AVATAR_STYLES as readonly string[]).includes(style)) {
     return null;

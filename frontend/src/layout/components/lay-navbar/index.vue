@@ -7,6 +7,7 @@ import LayNavMix from "../lay-sidebar/NavMix.vue";
 import LaySidebarFullScreen from "../lay-sidebar/components/SidebarFullScreen.vue";
 import LaySidebarBreadCrumb from "../lay-sidebar/components/SidebarBreadCrumb.vue";
 import LaySidebarTopCollapse from "../lay-sidebar/components/SidebarTopCollapse.vue";
+import Superellipse from "@/components/Superellipse/index.vue";
 
 // 🆕 新增
 import { useTheme } from "@/utils/theme";
@@ -69,7 +70,9 @@ const router = useRouter();
       <!-- 退出登录 -->
       <el-dropdown trigger="click">
         <span class="el-dropdown-link navbar-bg-hover select-none">
-          <img :src="userAvatar" :style="avatarsStyle" />
+          <Superellipse class="navbar-avatar" :style="avatarsStyle" :power="3">
+            <img :src="userAvatar" />
+          </Superellipse>
           <p v-if="username" class="dark:text-white">{{ username }}</p>
         </span>
         <template #dropdown>
@@ -133,10 +136,17 @@ const router = useRouter();
         font-size: 14px;
       }
 
-      img {
+      /* 头像外框：品牌 n=3 超椭圆（Superellipse 组件承载，勿改回 border-radius 圆形） */
+      .navbar-avatar {
         width: 22px;
         height: 22px;
-        border-radius: 50%;
+        flex-shrink: 0;
+
+        img {
+          display: block;
+          width: 100%;
+          height: 100%;
+        }
       }
     }
   }

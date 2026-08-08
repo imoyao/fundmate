@@ -9,6 +9,7 @@ import { storageLocal, isAllEmpty } from "@pureadmin/utils";
 import { usePermissionStoreHook } from "@/store/modules/permission";
 import LaySidebarItem from "../lay-sidebar/components/SidebarItem.vue";
 import LaySidebarFullScreen from "../lay-sidebar/components/SidebarFullScreen.vue";
+import Superellipse from "@/components/Superellipse/index.vue";
 
 import LogoutCircleRLine from "~icons/ri/logout-circle-r-line";
 import Palette from "~icons/ri/palette-line";
@@ -81,7 +82,9 @@ onMounted(() => {
       <!-- 退出登录 -->
       <el-dropdown trigger="click">
         <span class="el-dropdown-link navbar-bg-hover">
-          <img :src="userAvatar" :style="avatarsStyle" />
+          <Superellipse class="navbar-avatar" :style="avatarsStyle" :power="3">
+            <img :src="userAvatar" />
+          </Superellipse>
           <p v-if="username" class="dark:text-white">{{ username }}</p>
         </span>
         <template #dropdown>
