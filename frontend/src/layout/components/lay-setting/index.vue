@@ -187,7 +187,7 @@ const getThemeColor = computed(() => {
 });
 
 const pClass = computed(() => {
-  return ["mb-[12px]!", "font-medium", "text-sm", "dark:text-white"];
+  return ["mb-[12px]!", "font-medium", "text-sm", "text-[var(--text-primary)]"];
 });
 
 const themeOptions = computed<Array<OptionsType>>(() => {
@@ -445,10 +445,12 @@ onUnmounted(() => removeMatchMedia);
         @change="onChange"
       />
 
-      <p class="mt-5! font-medium text-sm dark:text-white">界面显示</p>
+      <p class="mt-5! font-medium text-sm text-[var(--text-primary)]">
+        界面显示
+      </p>
       <ul class="setting">
         <li>
-          <span class="dark:text-white">灰色模式</span>
+          <span class="text-[var(--text-primary)]">灰色模式</span>
           <el-switch
             v-model="settings.greyVal"
             inline-prompt
@@ -458,7 +460,7 @@ onUnmounted(() => removeMatchMedia);
           />
         </li>
         <li>
-          <span class="dark:text-white">色弱模式</span>
+          <span class="text-[var(--text-primary)]">色弱模式</span>
           <el-switch
             v-model="settings.weakVal"
             inline-prompt
@@ -468,7 +470,7 @@ onUnmounted(() => removeMatchMedia);
           />
         </li>
         <li>
-          <span class="dark:text-white">隐藏标签页</span>
+          <span class="text-[var(--text-primary)]">隐藏标签页</span>
           <el-switch
             v-model="settings.tabsVal"
             inline-prompt
@@ -478,7 +480,7 @@ onUnmounted(() => removeMatchMedia);
           />
         </li>
         <li>
-          <span class="dark:text-white">隐藏页脚</span>
+          <span class="text-[var(--text-primary)]">隐藏页脚</span>
           <el-switch
             v-model="settings.hideFooter"
             inline-prompt
@@ -488,7 +490,7 @@ onUnmounted(() => removeMatchMedia);
           />
         </li>
         <li>
-          <span class="dark:text-white">Logo</span>
+          <span class="text-[var(--text-primary)]">Logo</span>
           <el-switch
             v-model="logoVal"
             inline-prompt
@@ -500,7 +502,7 @@ onUnmounted(() => removeMatchMedia);
           />
         </li>
         <li>
-          <span class="dark:text-white">页签持久化</span>
+          <span class="text-[var(--text-primary)]">页签持久化</span>
           <el-switch
             v-model="settings.multiTagsCache"
             inline-prompt

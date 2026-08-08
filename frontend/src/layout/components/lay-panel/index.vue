@@ -47,11 +47,11 @@ onBeforeUnmount(() => {
 <template>
   <div :class="{ show }">
     <div class="right-panel-background" />
-    <div ref="target" class="right-panel bg-bg_color">
+    <div ref="target" class="right-panel bg-[var(--bg-card)]">
       <div
         class="project-configuration border-0 border-b-[1px] border-solid border-[var(--pure-border-color)]"
       >
-        <h4 class="dark:text-white">外观</h4>
+        <h4 class="text-[var(--text-primary)]">外观</h4>
         <span
           v-tippy="{
             content: '关闭外观',
@@ -61,7 +61,7 @@ onBeforeUnmount(() => {
           :class="iconClass"
         >
           <IconifyIconOffline
-            class="dark:text-white"
+            class="text-[var(--text-primary)]"
             width="18px"
             height="18px"
             :icon="CloseIcon"

@@ -1,12 +1,7 @@
 import "./index.css";
 import type { OptionsType } from "./type";
 import { useRenderIcon } from "@/components/ReIcon/src/hooks";
-import {
-  useDark,
-  isNumber,
-  isFunction,
-  useResizeObserver
-} from "@pureadmin/utils";
+import { isNumber, isFunction, useResizeObserver } from "@pureadmin/utils";
 import {
   type PropType,
   h,
@@ -57,7 +52,6 @@ export default defineComponent({
   setup(props, { emit }) {
     const width = ref(0);
     const translateX = ref(0);
-    const { isDark } = useDark();
     const initStatus = ref(false);
     const curMouseActive = ref(-1);
     const segmentedItembg = ref("");
@@ -83,9 +77,7 @@ export default defineComponent({
       if (option.disabled || curIndex.value === index) {
         segmentedItembg.value = "";
       } else {
-        segmentedItembg.value = isDark.value
-          ? "#1f1f1f"
-          : "rgba(0, 0, 0, 0.06)";
+        segmentedItembg.value = "var(--bg-hover)";
       }
     }
 
@@ -148,9 +140,7 @@ export default defineComponent({
                 ? null
                 : !option.disabled &&
                     (curIndex.value === index || curMouseActive.value === index)
-                  ? isDark.value
-                    ? "rgba(255, 255, 255, 0.85)"
-                    : "rgba(0,0,0,.88)"
+                  ? "var(--text-primary)"
                   : ""
             }}
             onMouseenter={event => handleMouseenter({ option, index }, event)}

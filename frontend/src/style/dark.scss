@@ -155,15 +155,15 @@ html.dark {
 
   /* ReSegmented 组件 */
   .pure-segmented {
-    color: rgb(255 255 255 / 65%);
-    background-color: #000;
+    color: var(--text-secondary);
+    background-color: var(--bg-hover);
 
     .pure-segmented-item-selected {
-      background-color: #1f1f1f;
+      background-color: var(--bg-card);
     }
 
     .pure-segmented-item-disabled {
-      color: rgb(255 255 255 / 25%);
+      color: var(--text-disabled);
     }
   }
 
