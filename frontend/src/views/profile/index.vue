@@ -56,10 +56,19 @@
 
         <!-- 昵称字段 -->
         <div class="field-block">
-          <div class="field-block__label-group">
+          <div class="field-block__row-top">
             <span class="field-block__label">昵称</span>
-            <span class="field-block__desc">在页面和消息中展示</span>
+            <el-button
+              class="field-block__save"
+              :type="nicknameDirty ? 'primary' : 'default'"
+              :disabled="!nicknameDirty"
+              :loading="nicknameSaving"
+              @click="onSaveNickname"
+            >
+              保存
+            </el-button>
           </div>
+          <span class="field-block__desc">在页面和消息中展示</span>
           <div class="field-block__input-row">
             <el-input
               v-model="profileForm.nickname"
@@ -73,24 +82,24 @@
                 >
               </template>
             </el-input>
-            <el-button
-              class="field-block__save"
-              :type="nicknameDirty ? 'primary' : 'default'"
-              :disabled="!nicknameDirty"
-              :loading="nicknameSaving"
-              @click="onSaveNickname"
-            >
-              保存
-            </el-button>
           </div>
         </div>
 
         <!-- 用户名字段 -->
         <div class="field-block">
-          <div class="field-block__label-group">
+          <div class="field-block__row-top">
             <span class="field-block__label">用户名</span>
-            <span class="field-block__desc">用于登录</span>
+            <el-button
+              class="field-block__save"
+              :type="usernameDirty ? 'primary' : 'default'"
+              :disabled="!usernameDirty"
+              :loading="usernameSaving"
+              @click="onSaveUsername"
+            >
+              保存
+            </el-button>
           </div>
+          <span class="field-block__desc">用于登录</span>
           <div class="field-block__input-row">
             <el-input
               v-model="profileForm.username"
@@ -104,15 +113,6 @@
                 >
               </template>
             </el-input>
-            <el-button
-              class="field-block__save"
-              :type="usernameDirty ? 'primary' : 'default'"
-              :disabled="!usernameDirty"
-              :loading="usernameSaving"
-              @click="onSaveUsername"
-            >
-              保存
-            </el-button>
           </div>
         </div>
       </section>
@@ -582,11 +582,13 @@ onMounted(async () => {
   }
 
   .setting-row {
-    grid-template-columns: 1fr;
+    flex-direction: column;
     gap: var(--space-2);
+    align-items: flex-start;
 
     &__label {
       flex-basis: auto;
+      min-width: 0;
     }
 
     &__main {
@@ -595,14 +597,9 @@ onMounted(async () => {
     }
   }
 
-  .field-block__input-row {
-    flex-direction: column;
+  .field-block__row-top {
+    flex-wrap: wrap;
     gap: var(--space-2);
-    align-items: stretch;
-  }
-
-  .field-block__save {
-    align-self: flex-end;
   }
 
   .style-group {
@@ -610,7 +607,7 @@ onMounted(async () => {
   }
 
   .field-input {
-    max-width: none;
+    max-width: 100%;
   }
 
   .danger-zone {
@@ -723,7 +720,7 @@ onMounted(async () => {
 
   &--active {
     color: var(--brand-700);
-    background-color: var(--brand-100);
+    background-color: var(--brand-200);
     border-color: var(--brand-400);
     box-shadow: 0 1px 3px rgb(0 0 0 / 6%);
     animation: style-pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -771,7 +768,7 @@ onMounted(async () => {
   }
 }
 
-/* ===== 字段块（标签+说明上行、输入框+保存下行） ===== */
+/* ===== 字段块（标签+按钮上行、说明+输入框下行） ===== */
 .field-block {
   padding: var(--space-5) 0;
   border-top: 1px solid var(--border-subtle);
@@ -781,10 +778,10 @@ onMounted(async () => {
     border-top: none;
   }
 
-  &__label-group {
+  &__row-top {
     display: flex;
-    flex-direction: column;
-    gap: 2px;
+    align-items: center;
+    justify-content: space-between;
     margin-bottom: var(--space-2);
   }
 
@@ -796,6 +793,8 @@ onMounted(async () => {
   }
 
   &__desc {
+    display: block;
+    margin-bottom: var(--space-2);
     font-size: 13px;
     line-height: 1.4;
     color: var(--text-secondary);
@@ -803,7 +802,6 @@ onMounted(async () => {
 
   &__input-row {
     display: flex;
-    gap: var(--space-3);
     align-items: center;
   }
 
@@ -817,32 +815,30 @@ onMounted(async () => {
 
 /* 输入框（suffix 字数统计字体轻量化） */
 .field-input {
+  /* 宽屏下限制最大宽度，防止无限横向拉伸 */
   flex: 1;
   min-width: 0;
+  max-width: 320px;
 
   :deep(.el-input__wrapper) {
     border-radius: var(--radius-sm);
   }
 }
 
-.char-count {
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-tertiary);
-}
-
+/* 输入框字数统计（轻量化，选择器合并） */
+.char-count,
 .field-count {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   color: var(--text-tertiary);
 }
 
-/* ===== 账号安全设置行（grid 对齐上方保存按钮） ===== */
+/* ===== 账号安全设置行（Flex 布局，标签灵活宽度 + 值右对齐） ===== */
 .setting-row {
-  display: grid;
-  grid-template-columns: 160px 1fr auto;
-  gap: var(--space-5);
+  display: flex;
+  gap: var(--space-standard);
   align-items: center;
+  justify-content: space-between;
   padding: var(--space-5) 0;
   border-top: 1px solid var(--border-subtle);
 
@@ -857,9 +853,10 @@ onMounted(async () => {
 
   &__label {
     display: flex;
+    flex-shrink: 0;
     flex-direction: column;
     gap: 4px;
-    min-width: 0;
+    min-width: 100px;
   }
 
   &__name {
@@ -877,8 +874,12 @@ onMounted(async () => {
 
   &__main {
     display: flex;
-    gap: var(--space-3);
+    flex: 1;
+
+    /* 强制 24px 间距，避免邮箱值与「修改」粘连 */
+    gap: var(--space-standard);
     align-items: center;
+    justify-content: flex-end;
     min-width: 0;
   }
 }
