@@ -7,7 +7,7 @@ permalink: /watchlists
 本文是自选模块的**需求/设计基线**，其中部分能力尚未落地，按下列 issue 跟踪：
 
 - [#661 自选功能的实现](https://github.com/imoyao/fundmate/issues/661)：**已完成**（`backend/app/domains/watchlist` + `frontend/src/views/asset/watchlist`），基础自选管理已落地。
-- [#807 自选页面实时估值功能设计文档](https://github.com/imoyao/fundmate/issues/807)（**Ⅰ 重要且紧急**）：设计文档 v2.0 的成功标准**未达成**——`RealtimeWarningBanner`、`StatusIndicator`、`WatchlistPage` 三组件缺失，现有实现偏离该文档。本文 §1.2 中「行情与数据展示 → 自动行情刷新(P1)」「异动提醒」两项即对应此缺口。
+- [#807 自选页面实时估值功能设计文档](https://github.com/imoyao/fundmate/issues/807)（**Ⅰ 重要且紧急**）：实时估值**核心已交付并关闭**（成功标准 1–7 落地，含 `RealtimeWarningBanner`/`RealtimeStatusIndicator`，与文档架构一致）。设计文档中的「免登录沙盒」（成功标准 8–11）**并非未实现——它就是已上线的探市页 `/explore`**（`views/explore/index.vue` + `composables/useLocalHoldings.ts`），但存在 P0 缺陷（免登录搜索 401、热门卡片假成本价）与未兑现项（迁移预览、底部转化区），转 [#821](https://github.com/imoyao/fundmate/issues/821) 跟踪。本文 §1.2「行情与数据展示 → 自动行情刷新」已实现。
 - [#808 「探市」体验版设计文档与任务计划](https://github.com/imoyao/fundmate/issues/808)（Ⅱ）：探市侧设计基线，另见 `docs/spec/temperature-architecture-plan.md`。
 - [#273 自选基金拖拽排序](https://github.com/imoyao/fundmate/issues/273)（Ⅳ）：本文 §1.2「分组体系 → 排序」中的拖拽交互未实现。
 
