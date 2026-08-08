@@ -70,6 +70,33 @@
 
 ---
 
+## 13-B. 探市页（免登录沙盒）P0 缺陷（2026-08-08 v4 实证 · 跟踪 #821）
+
+> 「沙盒」不是待建功能，它就是已上线的探市页 `/explore`。以下两项为**用户可见的正确性问题**，优先级高于任何新功能。
+
+| 缺陷 | 现象 | 根因 | 位置 |
+|---|---|---|---|
+| **P0-1 免登录搜不到任何资产** | 生产环境匿名访客在探市页搜索框输入代码/名称，下拉**静默空白**，用户以为「系统里没有这只票」 | 搜索走 `/api/securities/search/` + `/api/funds/search/`，但免登录白名单 `PUBLIC_PREFIXES` 只有 `/api/health` 与 `/api/temperature`；`AUTH_ENABLED=true` 时必 401，且 `Promise.allSettled` + `catch` 吞掉错误不提示 | `frontend/src/composables/useAssetSearch.ts:23-26,58-60`；`backend/app/core/auth.py:23` | **已修复（2026-08-08）**：① 后端 `PUBLIC_PREFIXES` 增加 `/api/securities/search` 与 `/api/funds/search`（精确到子路由、避免误放行同蓝图写接口），回归测试 `tests/core/test_auth_whitelist.py` 锁定该不变量；② 前端 `useAssetSearch.ts` 不再静默吞错——两数据源均失败时弹轻提示（带 5s 节流去重），部分失败仍静默保留可用结果 |
+| **P0-2 热门卡片展示编造的盈亏** | 点击「沪深 300ETF/纳指 ETF/招商银行/科创 50ETF」任一热门卡片，立刻显示一个与真实成本无关的持仓收益 | `hotAssets` 硬编码 `costPrice: 4.567/1.234/34.56/0.987` 与 `quantity: 100`，未取当前价 | `frontend/src/views/explore/index.vue:809-816` | **已修复（2026-08-08）**：`hotAssets` 不再预填成本/份额，`addHotAsset` 改传 `costPrice: null, quantity: null`，走纯观察模式（成本取当前价、份额 1，盈亏恒为 0），与手工添加留空等价 |
+
+**为什么必须优先修**：探市是免登录入口页，是新用户第一印象。P0-1 让核心交互（添加资产）在生产不可用，P0-2 直接展示虚假财务数据。两者都是「看起来做了、实际没成立」的典型，与 `docs/spec/decisions.md` D4（探市免登录）的意图冲突。
+
+---
+
+## 14. issue 残留缺口登记（triage-done 关闭但待办未勾选 · 2026-08-08 v3，v4 更新）
+
+> 背景：本轮按 issue 正文「成功标准/验收清单」逐条实证，发现多个已关闭 issue 正文仍有未勾选项。按「保持关闭 + 显式登记缺口」原则，不重开，仅在此登记残留项，避免「以为关了就全做了」。
+
+| issue | 关闭判定 | 正文未勾选 / 残留项 | 登记位置 |
+|---|---|---|---|
+| #796 组合年化收益率 | 功能已交付 | ~~§8.3 的 11 个单测用例仅约 6/11 覆盖~~ **已于 2026-08-08 补齐**：新增单笔买入/单笔卖出/定投后全赎/部分卖出续持/资金转入转出与内部划转配对/极端收益率与 [-1,10] 区间截断/货基与逆回购排除 | `tests/services/performance/test_xirr_engine.py`（23 条全通过，NPV 相对残差断言等价「与 Excel 一致」） |
+| #661 自选功能 | 核心完成 | checklist 2 项 `[ ]`：自定义备注（支持分享）、品种不同描述维度不同 | 待产品明确后排期 |
+| #230 数据来源整合 | 整合框架完成 | 基金经理信息未同步、指数行情同步不可用 | 见 tech-debt 既有条目（基金经理信息未同步）+ `services/sync` |
+| #429 交割单导入 | 导入主体完成 | 导出→#819；天天基金无数据、卖出份额推算、模板导入查重 | 导出见 #819 |
+| #507 定时任务清单 | 笔记归档 | 待办（基金经理信息更新等）与 #229 重叠且未做 | 双向交叉引用 #229 |
+
+---
+
 ## 15. 文档系统整合与未来用户手册规划（技术债务 · 不紧急）
 
 > **决策背景**：用户要求"把文档系统整合，明确哪些文档作为未来用户手册"，并登记为技术债务（非紧急）。文档站**不拆离仓库**，仍留在 `fundmate` 仓内 `docs/`（`/docs` 子路径部署）；拆独立仓库会增加更新摩擦，已与用户确认。
@@ -92,12 +119,12 @@
 | 问题描述 | 优先级 | 处理策略 |
 |:---|:---|:---|
 | **用户手册内容缺口大**：`guide/` 仅 3 篇，缺"新增持仓/更新价格/导出备份/CSV 导入"等核心流程图文 | 低（不紧急） | 按 `guide/index.md` 的"纯实操截图+步骤"标准，从 `features/` 用户向章节拆分补全 |
-| **品牌名未统一**：文档站仍用"叽咕 / fundmate"，主站已定"多倍贝 / Duobeibei" | 中 | ~~全站文档替换品牌名~~ ✅ 已完成（2026-08）：`docs/README.md` hero 对齐主站落地页 slogan（看见你的复利增长 / 记账即复利·备贝多），`about` `faq` `feedback` `privacy` 品牌名已统一为多倍贝，开发者历史笔记（dev/）保留"叽咕"作历史项目名 |
+| **品牌名未统一**：文档站仍用"叽咕 / fundmate"，主站已定"多倍贝 / Duobeibei" | 中 | ~~全站文档替换品牌名~~ ✅ 已完成（2026-08）：`docs/README.md` hero 对齐主站落地页 slogan（看见你的复利增长 / 记账即复利·贝倍多），`about` `faq` `feedback` `privacy` 品牌名已统一为多倍贝，开发者历史笔记（dev/）保留"叽咕"作历史项目名 |
 | **站点页未对齐 v1.6 品牌语言**：`faq` `about` `privacy` 文案/措辞与 brand-v1.6 不一致 | 低 | 以 `docs/design/brand-v1.6.md` 为基准重写站点页文案（数据主权、不荐股不跟单等主张） |
 | **文档站构建技术未定**：当前 `docs/README.md` 为 docsify 风格（`home:true`/`heroText`），钱迹参考站为 GitBook | 低 | 评估 docsify→VitePress/GitBook 迁移；用户手册结构按钱迹"产品模块 + 疑问式标题"组织 |
 | **落地页视频/动效场景待补充**（参考 WorkBuddy） | 低 | WorkBuddy 在 Hero 区嵌入了产品截图/视频展示应用场景，多倍贝当前为纯静态 HTML。后期可补充：(a) 工具实际使用录屏（Lottie/MP4 嵌入 Hero 或功能区）；(b) 产品界面截图轮播；(c) 数据可视化动态演示（XIRR 曲线绘制过程）。需先录制素材再编码嵌入，属于视觉打磨阶段 |
 | **用户手册与开发文档物理隔离**：当前混在 `docs/` 同名目录，未来需明确发布范围（`/docs` 仅发布用户向，内部放 `/docs-internal` 或私有） | 低 | 待用户手册成形后再规划发布边界 |
-    94:plainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplain
+    94:plainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplain
     95:---
     96:
     97:## 16. 首页「支持导入」Logo 混排素材缺口（技术债务 · 中）
@@ -123,7 +150,7 @@
 **备注**：首页与 `/frontend` 应用站是两个独立站点，本条目仅针对首页落地页。
 
 ## 2026-08-04 OOM 修复记录
-    98:plainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplain
+    98:plainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplain
     99:### 问题
    100:前端 `pnpm run build` 因 JavaScript heap OOM 失败，`--max-old-space-size=8192`（8GB）仍不足，阻塞生产部署。
    101:
