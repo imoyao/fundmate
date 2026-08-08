@@ -27,6 +27,9 @@ class WatchlistItem(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     pinned_at = Column(DateTime, comment='置顶时间')
     add_reason = Column(String(500), comment='添加自选时的关注理由')
     notes = Column(String(2000), comment='投资笔记/交易手札')
+    # 探市迁移透传的观察参考价/份额（仅展示，不参与记账计算）
+    cost_price = Column(Float, comment='观察参考成本价（元）')
+    quantity = Column(Float, comment='观察参考份额')
 
     # 关系：关联分组与标签
     group_links = relationship('WatchlistItemGroup', back_populates='watchlist_item', cascade='all, delete-orphan')

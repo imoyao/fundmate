@@ -193,6 +193,23 @@ class TestWatchlistItemCRUD:
         assert resp.status_code == 200
         assert resp.get_json()['data']['status'] == 'HOLDING'
 
+    def test_add_item_with_observe_reference(self, client, db):
+        """探市迁移透传：cost_price/quantity 落库并随列表返回"""
+        resp = _post(
+            client,
+            '/api/watchlist/items/',
+            {'symbol': '00700.HK', 'venue': 'EXCHANGE', 'cost_price': 400.5, 'quantity': 100},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['cost_price'] == 400.5
+        assert data['quantity'] == 100
+
+        list_resp = _get(client, '/api/watchlist/items/')
+        item = next(i for i in list_resp.get_json()['data'] if i['symbol'] == 'HK00700')
+        assert item['cost_price'] == 400.5
+        assert item['quantity'] == 100
+
     def test_list_items_filter_by_status(self, client, db):
         _post(client, '/api/watchlist/items/', {'symbol': '00700.HK', 'venue': 'EXCHANGE'})
         _post(client, '/api/watchlist/items/', {'symbol': 'AAPL', 'venue': 'EXCHANGE'})

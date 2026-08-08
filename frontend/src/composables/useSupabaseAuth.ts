@@ -1,7 +1,14 @@
 import { ref, computed } from "vue";
 import { useRouter } from "vue-router";
+import { ElMessageBox, ElMessage } from "element-plus";
 import { supabase } from "@/utils/supabase";
+import { createWatchlistItem } from "@/api/watchlist";
+import type { LocalHolding } from "@/composables/useLocalHoldings";
 import type { User, Session } from "@supabase/supabase-js";
+
+// 探市观察数据本地键（useLocalHoldings.ts 同源）
+const EXPLORE_STORAGE_KEY = "showbuy_explore_v1";
+const EXPLORE_MIGRATED_KEY = "showbuy_explore_migrated";
 
 export function useSupabaseAuth() {
   const router = useRouter();
@@ -13,7 +20,7 @@ export function useSupabaseAuth() {
   // 检查是否有待迁移的探市数据
   const hasPendingExploreData = computed(() => {
     if (!user.value) return false;
-    const raw = localStorage.getItem("showbuy_explore_v1");
+    const raw = localStorage.getItem(EXPLORE_STORAGE_KEY);
     if (!raw) return false;
     try {
       const data = JSON.parse(raw);
@@ -72,127 +79,25 @@ export function useSupabaseAuth() {
       user.value = newSession?.user ?? null;
       loading.value = false;
 
-      // 登录成功后自动检测并迁移探市数据
+      // 登录成功后检测待迁移探市数据：弹窗确认（强阻断）后才迁移
       if (event === "SIGNED_IN" && newSession?.user) {
-        // 延迟执行，确保页面完全加载
         setTimeout(() => {
-          checkAndMigrateExploreData();
+          void promptAndMigrateExploreData();
         }, 500);
       }
 
-      // 登出
+      // 登出：清理用户会话与迁移标记，换账号登录可重新迁移
       if (event === "SIGNED_OUT") {
         user.value = null;
         session.value = null;
+        localStorage.removeItem(EXPLORE_MIGRATED_KEY);
       }
     });
   };
 
-  // 检查并迁移探市数据（略）
-  const checkAndMigrateExploreData = async () => {
-    const raw = localStorage.getItem("showbuy_explore_v1");
-    if (!raw) return;
-
-    let holdings: any[];
-    try {
-      holdings = JSON.parse(raw);
-      if (!Array.isArray(holdings) || holdings.length === 0) return;
-    } catch {
-      return;
-    }
-
-    try {
-      await migrateExploreData(holdings);
-      localStorage.removeItem("showbuy_explore_v1");
-      localStorage.setItem("showbuy_explore_migrated", "true");
-      console.log(`✅ 成功迁移 ${holdings.length} 个资产到观察仓`);
-    } catch (e) {
-      console.error("探市数据迁移失败:", e);
-    }
-  };
-
-  // 迁移探市数据到 Supabase
-  const migrateExploreData = async (holdings: any[]) => {
-    const userId = user.value?.id;
-    if (!userId) throw new Error("用户未登录");
-
-    // 1. 获取或创建「观察仓」分组
-    const groupId = await getOrCreateObservationGroup(userId);
-
-    // 2. 遍历迁移资产
-    for (const h of holdings) {
-      // 检查是否已存在
-      const { data: existing } = await supabase
-        .from("watchlist_items")
-        .select("id")
-        .eq("user_id", userId)
-        .eq("symbol", h.symbol)
-        .maybeSingle();
-
-      if (existing) continue;
-
-      // 创建自选资产
-      const { data: item, error } = await supabase
-        .from("watchlist_items")
-        .insert({
-          user_id: userId,
-          symbol: h.symbol,
-          name: h.name,
-          asset_type: h.type === "fund" ? "fund" : "stock",
-          venue: h.type === "fund" ? "OTC" : "EXCHANGE"
-        })
-        .select()
-        .single();
-
-      if (error) {
-        console.error("创建资产失败:", h.symbol, error);
-        continue;
-      }
-
-      if (item) {
-        // 关联到「观察仓」分组
-        await supabase.from("watchlist_group_items").insert({
-          group_id: groupId,
-          item_id: item.id
-        });
-      }
-    }
-  };
-
-  // 获取或创建「观察仓」分组
-  const getOrCreateObservationGroup = async (
-    userId: string
-  ): Promise<number> => {
-    // 查找已有「观察仓」
-    const { data: existing } = await supabase
-      .from("watchlist_groups")
-      .select("id")
-      .eq("user_id", userId)
-      .eq("group_type", "observation")
-      .maybeSingle();
-
-    if (existing) return existing.id;
-
-    // 创建新分组
-    const { data: newGroup, error } = await supabase
-      .from("watchlist_groups")
-      .insert({
-        user_id: userId,
-        name: "观察仓",
-        group_type: "observation",
-        is_system: true,
-        color: "#81b29a"
-      })
-      .select()
-      .single();
-
-    if (error) throw error;
-    return newGroup.id;
-  };
-
-  // 获取探市数据（用于迁移弹窗展示）
-  const getExploreHoldings = () => {
-    const raw = localStorage.getItem("showbuy_explore_v1");
+  // 读取本地探市观察数据
+  const getExploreHoldings = (): LocalHolding[] => {
+    const raw = localStorage.getItem(EXPLORE_STORAGE_KEY);
     if (!raw) return [];
     try {
       const data = JSON.parse(raw);
@@ -202,8 +107,94 @@ export function useSupabaseAuth() {
     }
   };
 
-  // 手动触发迁移
-  const manualMigrate = async () => {
+  // 弹窗确认（预览资产名称），确认后迁移；取消则保留本地数据
+  const promptAndMigrateExploreData = async (): Promise<boolean> => {
+    if (!user.value) return false;
+    const holdings = getExploreHoldings();
+    if (holdings.length === 0) return false;
+
+    const preview = holdings
+      .slice(0, 5)
+      .map(h => h.name || h.symbol)
+      .join("、");
+    const more = holdings.length > 5 ? `等 ${holdings.length} 个` : "";
+
+    try {
+      await ElMessageBox.confirm(
+        `将「${preview}」${more} 资产同步到自选列表「观察中」？迁移后可在主站自选中管理。`,
+        "发现探市观察数据",
+        {
+          confirmButtonText: "迁移",
+          cancelButtonText: "暂不",
+          type: "info"
+        }
+      );
+    } catch {
+      return false;
+    }
+
+    try {
+      const result = await migrateExploreData(holdings);
+      ElMessage.success(
+        `已迁移 ${result.imported} 个资产${
+          result.skipped > 0 ? `，跳过已存在 ${result.skipped} 个` : ""
+        }`
+      );
+      return true;
+    } catch (e) {
+      ElMessage.error(`迁移失败：${(e as Error).message || "请稍后重试"}`);
+      return false;
+    }
+  };
+
+  // 迁移探市数据到主站自选（后端 API，观察中状态），成功后才清本地
+  const migrateExploreData = async (
+    holdings: LocalHolding[]
+  ): Promise<{ imported: number; skipped: number }> => {
+    if (!user.value) throw new Error("用户未登录");
+
+    let imported = 0;
+    let skipped = 0;
+    const failed: string[] = [];
+
+    for (const h of holdings) {
+      try {
+        await createWatchlistItem({
+          symbol: h.symbol,
+          asset_type: h.type,
+          venue: h.type === "fund" ? "OTC" : "EXCHANGE",
+          add_reason: "探市观察迁移",
+          cost_price: h.costPrice ?? undefined,
+          quantity: h.quantity ?? undefined
+        });
+        imported++;
+      } catch (e: any) {
+        // 已在自选中 → 跳过不算失败；其余记入失败
+        if (e?.response?.status === 409) {
+          skipped++;
+        } else {
+          failed.push(h.symbol);
+        }
+      }
+    }
+
+    // 有失败则保留本地数据（成功项已在服务端，幂等重试只补失败项）
+    if (failed.length > 0) {
+      throw new Error(
+        `有 ${failed.length} 个资产迁移失败（${failed.join("、")}）`
+      );
+    }
+
+    localStorage.removeItem(EXPLORE_STORAGE_KEY);
+    localStorage.setItem(EXPLORE_MIGRATED_KEY, "true");
+    return { imported, skipped };
+  };
+
+  // 手动触发迁移（设置抽屉入口）
+  const manualMigrate = async (): Promise<{
+    imported: number;
+    skipped: number;
+  }> => {
     if (!user.value) {
       throw new Error("请先登录");
     }
@@ -211,10 +202,7 @@ export function useSupabaseAuth() {
     if (holdings.length === 0) {
       throw new Error("没有可迁移的数据");
     }
-    await migrateExploreData(holdings);
-    localStorage.removeItem("showbuy_explore_v1");
-    localStorage.setItem("showbuy_explore_migrated", "true");
-    return holdings.length;
+    return migrateExploreData(holdings);
   };
 
   return {

@@ -17,6 +17,8 @@ class WatchlistItemCreate(BaseModel):
     venue: Optional[str] = Field(None, max_length=10, description='交易场所')
     add_reason: Optional[str] = Field(None, max_length=500, description='关注理由')
     is_pinned: Optional[bool] = Field(False, description='置顶自选')
+    cost_price: Optional[float] = Field(None, description='观察参考成本价（探市迁移透传）')
+    quantity: Optional[float] = Field(None, description='观察参考份额（探市迁移透传）')
 
 
 class WatchlistItemUpdate(BaseModel):
@@ -43,6 +45,8 @@ class WatchlistItemOut(BaseModel):
     pinned_at: Optional[datetime] = None
     add_reason: Optional[str] = None
     notes: Optional[str] = None
+    cost_price: Optional[float] = None  # 观察参考成本价（探市迁移透传）
+    quantity: Optional[float] = None  # 观察参考份额（探市迁移透传）
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     # 前端展示用字段（非数据库列）

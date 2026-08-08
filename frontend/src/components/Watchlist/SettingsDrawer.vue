@@ -225,8 +225,12 @@ const { hasPendingExploreData, manualMigrate } = useSupabaseAuth();
 
 const handleImportExploreData = async () => {
   try {
-    const count = await manualMigrate();
-    ElMessage.success(`成功导入 ${count} 个资产到「观察仓」`);
+    const result = await manualMigrate();
+    ElMessage.success(
+      `成功导入 ${result.imported} 个资产到「观察中」${
+        result.skipped > 0 ? `，跳过已存在 ${result.skipped} 个` : ""
+      }`
+    );
   } catch (e: any) {
     ElMessage.error(e.message || "导入失败");
   }

@@ -57,6 +57,8 @@ export function createWatchlistItem(data: {
   venue?: string;
   add_reason?: string;
   is_pinned?: boolean;
+  cost_price?: number;
+  quantity?: number;
 }) {
   return http.request<any>("post", "/api/watchlist/items/", { data });
 }

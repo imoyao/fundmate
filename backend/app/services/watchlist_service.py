@@ -213,6 +213,8 @@ def create_watchlist_item(db: Session, data: Dict[str, Any], family_id: int) -> 
         add_reason=data.get('add_reason'),
         is_pinned=data.get('is_pinned', False),
         pinned_at=date.today() if data.get('is_pinned') else None,
+        cost_price=data.get('cost_price'),
+        quantity=data.get('quantity'),
         family_id=family_id,
     )
     db.add(item)
