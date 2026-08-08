@@ -56,18 +56,22 @@ function ascending(arr: any[]) {
   );
 }
 
-/** 过滤meta中showLink为false的菜单
+/** 过滤meta中showLink为false或hidden为true的菜单
  * 注意：showLink 为 false 的父级通常是“目录型标题”（如「总览」），自身不可点击，
- * 但只要其下仍有可见子项，就应保留该父级以渲染子菜单，而非整棵删除。 */
+ * 但只要其下仍有可见子项，就应保留该父级以渲染子菜单，而非整棵删除；
+ * hidden 为 true 的节点（如「个人中心」）语义是「不进侧边栏但保留标签页/面包屑」，
+ * 与 showLink 对称处理——自身不可见，但若有可见子项仍保留父级渲染子菜单
+ * （面包屑读原始路由表、multiTags 只拦 showLink，均不受 filterTree 影响）。 */
 function filterTree(data: RouteComponent[]) {
   const newTree = cloneDeep(data);
   newTree.forEach((v: any) => {
     if (v.children) v.children = filterTree(v.children);
   });
-  // 自身不可见（showLink:false）且无可见子项的节点才被移除
+  // 自身不可见（showLink:false 或 hidden:true）且无可见子项的节点才被移除
   return newTree.filter(
     (v: any) =>
-      v.meta?.showLink !== false || (v.children && v.children.length !== 0)
+      (v.meta?.showLink !== false && !v.meta?.hidden) ||
+      (v.children && v.children.length !== 0)
   );
 }
 
