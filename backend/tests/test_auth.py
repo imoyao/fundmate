@@ -420,14 +420,14 @@ def test_update_me_profile(client, db):
         '/api/users/me',
         json={
             'username': 'new_name',
-            'nickname': '小贝',
+            'nickname': '小贝贝贝贝',
             'avatar': 'https://api.dicebear.com/9.x/adventurer/svg?seed=abc',
         },
     )
     assert resp.status_code == 200
     data = resp.get_json()['data']
     assert data['username'] == 'new_name'
-    assert data['nickname'] == '小贝'
+    assert data['nickname'] == '小贝贝贝贝'
     assert data['avatar'].startswith('https://api.dicebear.com')
 
 
@@ -449,10 +449,27 @@ def test_update_me_keeps_own_username(client, db):
 def test_update_me_partial(client, db):
     """只更新昵称，不影响用户名/头像。"""
     _create_user(db, username='partial', email='me@example.com')
-    resp = client.patch('/api/users/me', json={'nickname': '仅改昵称'})
+    resp = client.patch('/api/users/me', json={'nickname': '仅修改昵称'})
     assert resp.status_code == 200
     data = resp.get_json()['data']
-    assert data['nickname'] == '仅改昵称'
+    assert data['nickname'] == '仅修改昵称'
+
+
+def test_update_me_min_length(client, db):
+    """用户名/昵称最短 5 字符；带空格的短值 strip 后不足也拦截（防绕过）。"""
+    _create_user(db, username='partial', email='me@example.com')
+    # 纯短昵称
+    resp = client.patch('/api/users/me', json={'nickname': '短'})
+    assert resp.status_code == 422
+    # 含空格凑够 5 字符，strip 后不足 5 —— 必须仍 422（min_length 在 strip 后生效）
+    resp = client.patch('/api/users/me', json={'username': '  a  '})
+    assert resp.status_code == 422
+    resp = client.patch('/api/users/me', json={'nickname': '  ab  '})
+    assert resp.status_code == 422
+    # 合规值正常通过
+    resp = client.patch('/api/users/me', json={'username': 'abcde'})
+    assert resp.status_code == 200
+    assert resp.get_json()['data']['username'] == 'abcde'
 
 
 def test_email_synced_from_claims(client, db, supabase_jwks):

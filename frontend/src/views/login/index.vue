@@ -229,7 +229,7 @@ const registerRules = computed<FormRules>(() => ({
   ],
   username: [
     { required: true, message: "请输入昵称", trigger: "blur" },
-    { min: 2, max: 16, message: "昵称长度 2-16 个字符", trigger: "blur" },
+    { min: 5, max: 16, message: "昵称长度 5-16 个字符", trigger: "blur" },
     {
       pattern: /^[\u4e00-\u9fa5a-zA-Z0-9_]+$/,
       message: "昵称只能包含中文、字母、数字和下划线",

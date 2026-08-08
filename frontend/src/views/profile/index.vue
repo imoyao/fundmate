@@ -457,10 +457,15 @@ async function persistAvatar() {
 // 资料保存
 // ============================================
 async function onSaveNickname() {
+  const value = profileForm.nickname.trim();
+  if (value.length < 5) {
+    ElMessage.warning("昵称至少 5 个字符");
+    return;
+  }
   nicknameSaving.value = true;
   try {
-    const { data } = await updateMe({ nickname: profileForm.nickname.trim() });
-    const nickname = data.nickname ?? profileForm.nickname.trim();
+    const { data } = await updateMe({ nickname: value });
+    const nickname = data.nickname ?? value;
     userStore.SET_NICKNAME(nickname);
     userStore.persist();
     savedNickname.value = profileForm.nickname;
@@ -476,10 +481,15 @@ async function onSaveNickname() {
 }
 
 async function onSaveUsername() {
+  const value = profileForm.username.trim();
+  if (value.length < 5) {
+    ElMessage.warning("用户名至少 5 个字符");
+    return;
+  }
   usernameSaving.value = true;
   try {
-    const { data } = await updateMe({ username: profileForm.username.trim() });
-    const username = data.username ?? profileForm.username.trim();
+    const { data } = await updateMe({ username: value });
+    const username = data.username ?? value;
     userStore.SET_USERNAME(username);
     userStore.persist();
     savedUsername.value = profileForm.username;
