@@ -1,0 +1,52 @@
+# AI 代码审查降噪配置（配合 .github/workflows/ai-review.yml）
+#
+# 分工：
+#   - LLM / VCS 连接信息在 workflow 的环境变量中配置（LLM__* / VCS__*，
+#     密钥走 GitHub secret ZHIPU_API_KEY，不在此硬编码），此处只管「审查范围与降噪」。
+#   - 键名以 xai-review 源码 docs/configs/.ai-review.yaml 为准；
+#     ignore_changes 采用 Python fnmatch 语法（* 可跨目录匹配）。
+#
+# 作用：排除锁文件、构建产物、二进制、数据缓存、文档等非逻辑文件，
+#       既减少误报也节省 token。
+
+review:
+  # 仅审查改动行的 diff（默认值，显式写出便于阅读）
+  mode: FULL_FILE_DIFF
+
+  # 排除易产生噪音 / 非手写逻辑的文件
+  ignore_changes:
+    # 依赖与构建产物
+    - "**/node_modules/**"
+    - "**/.venv/**"
+    - "**/dist/**"
+    - "**/build/**"
+    - "pnpm-lock.yaml"        # 根锁文件
+    - "**/pnpm-lock.yaml"     # 子目录锁文件
+    - "**/*.lock"
+    # Python 缓存
+    - "**/__pycache__/**"
+    - "**/*.pyc"
+    # 压缩 / 生成前端资源
+    - "**/*.min.js"
+    - "**/*.min.css"
+    # 二进制与媒体资源（品牌 / 图片，非代码逻辑）
+    - "**/*.svg"
+    - "**/*.png"
+    - "**/*.jpg"
+    - "**/*.jpeg"
+    - "**/*.ico"
+    # 数据缓存产物（抓取 / 计算中间结果，非手写逻辑）
+    - "**/*.csv"
+    # 生成式迁移文件
+    - "**/migrations/**"
+    # 文档（VitePress 文档站 + 仓库内中文备忘，AI 审查价值低且易啰嗦）
+    - "docs/**"
+    - "**/*.md"
+
+  # 限制单 MR 的 context 评论数，避免刷屏
+  max_context_comments: 20
+
+# 进阶降误报（可选，未启用）：
+#   在 prompt.summary_prompt_files 指向自定义 prompt，要求模型
+#   「只报高置信度 bug、过滤风格 nitpick 与已存在的问题」，详见 ai-review 仓库 docs/prompts。
+#   仅当 summary 评论仍偏吵时再加，避免引入额外 prompt 文件维护成本。
