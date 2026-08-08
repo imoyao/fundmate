@@ -51,10 +51,10 @@ onBeforeUnmount(() => {
       <div
         class="project-configuration border-0 border-b-[1px] border-solid border-[var(--pure-border-color)]"
       >
-        <h4 class="dark:text-white">系统配置</h4>
+        <h4 class="dark:text-white">外观</h4>
         <span
           v-tippy="{
-            content: '关闭配置',
+            content: '关闭外观',
             placement: 'bottom-start',
             zIndex: 41000
           }"

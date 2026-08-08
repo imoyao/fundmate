@@ -12,7 +12,7 @@ import LaySidebarTopCollapse from "../lay-sidebar/components/SidebarTopCollapse.
 import { useTheme } from "@/utils/theme";
 
 import LogoutCircleRLine from "~icons/ri/logout-circle-r-line";
-import Setting from "~icons/ri/settings-3-line";
+import Palette from "~icons/ri/palette-line";
 import UserLine from "~icons/ri/user-3-line";
 
 const {
@@ -90,10 +90,10 @@ const router = useRouter();
       </el-dropdown>
       <span
         class="set-icon navbar-bg-hover"
-        title="打开系统配置"
+        title="打开外观设置"
         @click="onPanel"
       >
-        <IconifyIconOffline :icon="Setting" />
+        <IconifyIconOffline :icon="Palette" />
       </span>
     </div>
   </div>

@@ -93,7 +93,7 @@
         <LayContent :fixed-header="set.fixedHeader" />
       </el-scrollbar>
     </div>
-    <!-- 系统设置 -->
+    <!-- 外观设置抽屉 -->
     <LaySetting />
     <!-- 全局快速记账入口 -->
     <QuickFab @open="showTransactionDrawer = true" />

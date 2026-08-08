@@ -11,7 +11,7 @@ import LaySidebarItem from "../lay-sidebar/components/SidebarItem.vue";
 import LaySidebarFullScreen from "../lay-sidebar/components/SidebarFullScreen.vue";
 
 import LogoutCircleRLine from "~icons/ri/logout-circle-r-line";
-import Setting from "~icons/ri/settings-3-line";
+import Palette from "~icons/ri/palette-line";
 
 const menuRef = ref();
 const showLogo = ref(
@@ -98,10 +98,10 @@ onMounted(() => {
       </el-dropdown>
       <span
         class="set-icon navbar-bg-hover"
-        title="打开系统配置"
+        title="打开外观设置"
         @click="onPanel"
       >
-        <IconifyIconOffline :icon="Setting" />
+        <IconifyIconOffline :icon="Palette" />
       </span>
     </div>
   </div>
