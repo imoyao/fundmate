@@ -4,7 +4,7 @@
     :style="{ backgroundColor: 'var(--bg-page)' }"
   >
     <div class="profile-head">
-      <PageHeaderBar title="个人中心" subtitle="管理你的账户信息与安全设置" />
+      <PageHeaderBar title="个人中心" subtitle="管理账户与安全" />
     </div>
 
     <div class="profile-shell">
@@ -54,13 +54,25 @@
           </div>
         </div>
 
-        <!-- 昵称字段（垂直堆叠） -->
+        <!-- 昵称字段 -->
         <div class="field-block">
-          <div class="field-block__label-row">
-            <div class="field-block__label-group">
-              <span class="field-block__label">昵称</span>
-              <span class="field-block__desc">页面与消息中展示的名字</span>
-            </div>
+          <div class="field-block__label-group">
+            <span class="field-block__label">昵称</span>
+            <span class="field-block__desc">在页面和消息中展示</span>
+          </div>
+          <div class="field-block__input-row">
+            <el-input
+              v-model="profileForm.nickname"
+              placeholder="请输入昵称"
+              maxlength="20"
+              class="field-input"
+            >
+              <template #suffix>
+                <span class="char-count"
+                  >{{ profileForm.nickname.length }}/20</span
+                >
+              </template>
+            </el-input>
             <el-button
               class="field-block__save"
               :type="nicknameDirty ? 'primary' : 'default'"
@@ -71,27 +83,27 @@
               保存
             </el-button>
           </div>
-          <el-input
-            v-model="profileForm.nickname"
-            placeholder="请输入昵称"
-            maxlength="20"
-            class="field-input"
-          >
-            <template #suffix>
-              <span class="char-count"
-                >{{ profileForm.nickname.length }}/20</span
-              >
-            </template>
-          </el-input>
         </div>
 
-        <!-- 用户名字段（垂直堆叠） -->
+        <!-- 用户名字段 -->
         <div class="field-block">
-          <div class="field-block__label-row">
-            <div class="field-block__label-group">
-              <span class="field-block__label">用户名</span>
-              <span class="field-block__desc">用于登录的唯一标识</span>
-            </div>
+          <div class="field-block__label-group">
+            <span class="field-block__label">用户名</span>
+            <span class="field-block__desc">用于登录</span>
+          </div>
+          <div class="field-block__input-row">
+            <el-input
+              v-model="profileForm.username"
+              placeholder="请输入用户名"
+              maxlength="60"
+              class="field-input"
+            >
+              <template #suffix>
+                <span class="field-count"
+                  >{{ profileForm.username.length }}/60</span
+                >
+              </template>
+            </el-input>
             <el-button
               class="field-block__save"
               :type="usernameDirty ? 'primary' : 'default'"
@@ -102,18 +114,6 @@
               保存
             </el-button>
           </div>
-          <el-input
-            v-model="profileForm.username"
-            placeholder="请输入用户名"
-            maxlength="60"
-            class="field-input"
-          >
-            <template #suffix>
-              <span class="field-count"
-                >{{ profileForm.username.length }}/60</span
-              >
-            </template>
-          </el-input>
         </div>
       </section>
 
@@ -145,7 +145,7 @@
         <div class="setting-row">
           <div class="setting-row__label">
             <span class="setting-row__name">登录密码</span>
-            <span class="setting-row__desc">建议定期更换以保障账户安全</span>
+            <span class="setting-row__desc">建议定期更换</span>
           </div>
           <div class="setting-row__main">
             <span class="field-value field-value--mono">••••••••</span>
@@ -163,11 +163,11 @@
         <div class="danger-zone">
           <div class="danger-zone__text">
             <span class="danger-zone__label">退出登录</span>
-            <span class="danger-zone__desc"
-              >退出当前账户后需重新登录才能访问</span
-            >
+            <span class="danger-zone__desc">退出后需重新登录</span>
           </div>
-          <el-button class="danger-btn" @click="onLogout">退出</el-button>
+          <button type="button" class="danger-btn" @click="onLogout">
+            退出
+          </button>
         </div>
       </section>
     </div>
@@ -582,7 +582,7 @@ onMounted(async () => {
   }
 
   .setting-row {
-    flex-direction: column;
+    grid-template-columns: 1fr;
     gap: var(--space-2);
 
     &__label {
@@ -593,6 +593,16 @@ onMounted(async () => {
       justify-content: flex-start;
       width: 100%;
     }
+  }
+
+  .field-block__input-row {
+    flex-direction: column;
+    gap: var(--space-2);
+    align-items: stretch;
+  }
+
+  .field-block__save {
+    align-self: flex-end;
   }
 
   .style-group {
@@ -761,7 +771,7 @@ onMounted(async () => {
   }
 }
 
-/* ===== 字段块（标签+说明上行、输入框下行） ===== */
+/* ===== 字段块（标签+说明上行、输入框+保存下行） ===== */
 .field-block {
   padding: var(--space-5) 0;
   border-top: 1px solid var(--border-subtle);
@@ -771,22 +781,11 @@ onMounted(async () => {
     border-top: none;
   }
 
-  &__label-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-2);
-    align-items: flex-start;
-    justify-content: space-between;
-    min-height: 40px;
-    margin-bottom: var(--space-2);
-  }
-
   &__label-group {
     display: flex;
-    flex: 1;
     flex-direction: column;
     gap: 2px;
-    min-width: 0;
+    margin-bottom: var(--space-2);
   }
 
   &__label {
@@ -802,6 +801,12 @@ onMounted(async () => {
     color: var(--text-secondary);
   }
 
+  &__input-row {
+    display: flex;
+    gap: var(--space-3);
+    align-items: center;
+  }
+
   &__save {
     /* 按钮物理占位，防止出现/消失导致 CLS 跳动 */
     flex-shrink: 0;
@@ -812,8 +817,8 @@ onMounted(async () => {
 
 /* 输入框（suffix 字数统计字体轻量化） */
 .field-input {
-  width: 100%;
-  max-width: 360px;
+  flex: 1;
+  min-width: 0;
 
   :deep(.el-input__wrapper) {
     border-radius: var(--radius-sm);
@@ -832,11 +837,12 @@ onMounted(async () => {
   color: var(--text-tertiary);
 }
 
-/* ===== 账号安全设置行 ===== */
+/* ===== 账号安全设置行（grid 对齐上方保存按钮） ===== */
 .setting-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: 160px 1fr auto;
   gap: var(--space-5);
-  align-items: flex-start;
+  align-items: center;
   padding: var(--space-5) 0;
   border-top: 1px solid var(--border-subtle);
 
@@ -851,7 +857,6 @@ onMounted(async () => {
 
   &__label {
     display: flex;
-    flex: 0 0 160px;
     flex-direction: column;
     gap: 4px;
     min-width: 0;
@@ -872,10 +877,8 @@ onMounted(async () => {
 
   &__main {
     display: flex;
-    flex: 1;
-    gap: var(--space-standard);
+    gap: var(--space-3);
     align-items: center;
-    justify-content: flex-end;
     min-width: 0;
   }
 }
@@ -951,8 +954,13 @@ onMounted(async () => {
 .danger-btn {
   flex-shrink: 0;
   height: 40px;
+  padding: 0 24px;
+  font-family: inherit;
+  font-size: var(--text-small);
   font-weight: 500;
+  line-height: 1;
   color: var(--color-danger);
+  cursor: pointer;
   background: transparent;
   border: 1px solid var(--color-danger);
   border-radius: var(--radius-sm);
@@ -961,15 +969,23 @@ onMounted(async () => {
     color 0.15s ease,
     border-color 0.15s ease;
 
-  &:hover,
-  &:focus-visible {
-    color: var(--bg-card);
+  &:hover {
+    color: #fff;
     background-color: var(--color-danger);
-    border-color: var(--color-danger);
+    border-color: transparent;
+  }
+
+  &:focus-visible {
+    outline: none;
+    border-radius: var(--radius-sm);
+    box-shadow: var(--focus-ring);
   }
 
   &:active {
-    transform: translateY(1px);
+    color: #fff;
+    background-color: var(--color-danger);
+    border-color: transparent;
+    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 15%);
   }
 }
 
