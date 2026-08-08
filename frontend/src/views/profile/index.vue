@@ -43,6 +43,19 @@
                 />
                 随机换一个
               </button>
+              <button
+                v-if="avatarDirty"
+                type="button"
+                class="link-btn"
+                @click="onRevertAvatar"
+              >
+                <IconifyIconOffline
+                  icon="lucide:undo-2"
+                  class="link-btn__icon"
+                  aria-hidden="true"
+                />
+                撤销更改
+              </button>
             </div>
           </div>
 
@@ -356,6 +369,13 @@ const savedAvatarUrl = computed(() =>
   userStore.avatar && isAvatarUrl(userStore.avatar) ? userStore.avatar : ""
 );
 
+/** 进入个人中心时已保存的头像 URL（会话级快照，供"撤销"回滚，误触不怕丢原头像） */
+const avatarSnapshot = ref("");
+/** 头像是否被改动过（与进入时的快照不一致即视为脏，显示撤销按钮） */
+const avatarDirty = computed(
+  () => avatarSnapshot.value && avatarSnapshot.value !== avatarPreview.value
+);
+
 const avatarPreview = computed(() => {
   if (avatarSeed.value) {
     return buildAvatarUrl(avatarStyle.value, avatarSeed.value, {
@@ -364,6 +384,27 @@ const avatarPreview = computed(() => {
   }
   return savedAvatarUrl.value || defaultAvatarUrl(supabaseId.value);
 });
+
+/** 进入页面时记录当前已保存头像，作为回滚基线 */
+function captureAvatarSnapshot() {
+  avatarSnapshot.value =
+    savedAvatarUrl.value || defaultAvatarUrl(supabaseId.value);
+}
+
+/** 撤销到头像快照（恢复进入时的风格/seed/动画并写库） */
+async function onRevertAvatar() {
+  const parsed = parseAvatarUrl(avatarSnapshot.value);
+  if (!parsed) {
+    avatarStyle.value = DEFAULT_AVATAR_STYLE;
+    avatarSeed.value = hashSeed(supabaseId.value || "fundmate-anon");
+    avatarAnimated.value = true;
+  } else {
+    avatarStyle.value = parsed.style;
+    avatarSeed.value = parsed.seed;
+    avatarAnimated.value = parsed.animated;
+  }
+  await persistAvatar();
+}
 
 function initAvatar() {
   const parsed = parseAvatarUrl(savedAvatarUrl.value);
@@ -561,6 +602,7 @@ onMounted(async () => {
     userStore.SET_NICKNAME(data.nickname || "");
     userStore.SET_USERNAME(data.username || "");
     if (data.avatar) userStore.SET_AVATAR(data.avatar);
+    captureAvatarSnapshot();
     initAvatar();
   } catch (e: any) {
     if (e?.response?.status !== 401) {
