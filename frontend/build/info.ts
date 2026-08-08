@@ -7,7 +7,7 @@ import boxen, { type Options as BoxenOptions } from "boxen";
 dayjs.extend(duration);
 
 const welcomeMessage = gradient(["cyan", "magenta"]).multiline(
-  `您好! 欢迎使用 pure-admin 开源项目\n我们为您精心准备了下面两个贴心的保姆级文档\nhttps://pure-admin.cn\nhttps://pure-admin-utils.netlify.app`
+  `多倍贝 · 个人投资记账 / 家庭资产管理平台\n帮你（尤其是使用多账户、多平台购买基金理财产品的朋友）算清真实收益，让复利增长清晰可见\n核心能力：真实收益率（XIRR）、持仓透视、市场温度计（探市）\n\n📚 文档站（在仓库根目录执行）：\n  本地开发  pnpm run docs:dev\n  本地构建  pnpm run docs:build\n\n🌐 远端访问地址：待部署上线后补充`
 );
 
 const boxenOptions: BoxenOptions = {
