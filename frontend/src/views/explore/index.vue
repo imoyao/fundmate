@@ -806,35 +806,14 @@ const handleAdd = async () => {
 // ================================================================
 // 热门预置
 // ================================================================
+// 热门预置只提供「标的 + 类型」，不预填成本价/份额。
+// 传 null 即进入纯观察模式（useLocalHoldings 约定：costPrice/quantity 为 null = 未填），
+// 由系统按当前价取成本、份额 1，盈亏恒为 0，避免展示编造的持仓收益（原 P0-2 硬编码假数据）。
 const hotAssets = [
-  {
-    symbol: "510300",
-    name: "沪深300ETF",
-    type: "etf" as const,
-    costPrice: 4.567,
-    quantity: 100
-  },
-  {
-    symbol: "513100",
-    name: "纳指ETF",
-    type: "etf" as const,
-    costPrice: 1.234,
-    quantity: 100
-  },
-  {
-    symbol: "600036",
-    name: "招商银行",
-    type: "stock" as const,
-    costPrice: 34.56,
-    quantity: 100
-  },
-  {
-    symbol: "588000",
-    name: "科创50ETF",
-    type: "etf" as const,
-    costPrice: 0.987,
-    quantity: 100
-  }
+  { symbol: "510300", name: "沪深300ETF", type: "etf" as const },
+  { symbol: "513100", name: "纳指ETF", type: "etf" as const },
+  { symbol: "600036", name: "招商银行", type: "stock" as const },
+  { symbol: "588000", name: "科创50ETF", type: "etf" as const }
 ];
 
 const addHotAsset = (item: (typeof hotAssets)[0]) => {
@@ -843,13 +822,13 @@ const addHotAsset = (item: (typeof hotAssets)[0]) => {
       symbol: item.symbol,
       name: item.name,
       type: item.type,
-      costPrice: item.costPrice,
-      quantity: item.quantity
+      costPrice: null,
+      quantity: null
     });
     if (!result.success) {
       ElMessage.warning(result.message);
     } else {
-      ElMessage.success(`已添加「${item.name}」到观察列表`);
+      ElMessage.success(`已添加「${item.name}」到观察列表（纯观察，未填成本）`);
     }
   } catch (e) {
     console.error(e);
