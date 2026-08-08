@@ -1,6 +1,8 @@
 # 项目路线图与进度表（roadmap）
 
-> ⚠️ **易腐烂内容**：本文件随项目进展频繁变化。最后核实日期：**2026-08-07**。每次更新进度或新增 / 完成 P 级任务时，必须同步更新本文件顶部"最后核实日期"。
+> ⚠️ **易腐烂内容**：本文件随项目进展频繁变化。最后核实日期：**2026-08-08**。每次更新进度或新增 / 完成 P 级任务时，必须同步更新本文件顶部"最后核实日期"。
+>
+> 📌 **issue 反链**：GitHub open issue 与本文件 / 各设计文档的对应关系见本文末尾 **§3 GitHub issue ↔ 文档反链索引**。
 
 ## 1. 项目四象限路线图 & 完整进度表（原 SPEC 第 9 章）
 
@@ -15,7 +17,7 @@
 
 | 编号 | 任务名称 | 状态 | 重要度 | 紧急度 | 象限 | 说明 |
 |------|---------|------|--------|--------|------|------|
-| P1-03 | 全面盘点导入页面 | **✅ 已完成** | ⭐⭐⭐⭐⭐ | 🔴 | Ⅰ | UI 重构、批量修正、配置目标分组全部完成，**已落地按需加载与轻量汇总 API，全局数据同步使用组合式函数实现** |
+| P1-03 | 全面盘点导入页面 | **⚠️ 已完成（与 #783 验收清单存在冲突，待核）** | ⭐⭐⭐⭐⭐ | 🔴 | Ⅰ | UI 重构、批量修正、配置目标分组全部完成，**已落地按需加载与轻量汇总 API，全局数据同步使用组合式函数实现**。**2026-08-08 triage 发现文档↔issue 冲突**：issue [#783](https://github.com/imoyao/fundmate/issues/783)（导入工作台第 3 步验收清单 v1.0）中 P0 核心交互（分类批量修正面板、行内键盘编辑 Enter/Esc/Tab、草稿保存与恢复、配置目标分组面板、底部双按钮、边界场景处理、§十二 现有代码差异改造）整节未勾选。本行「已完成」与该清单不一致，**以 #783 逐条验收为准**，核对后回填本行状态 |
 | P1-04 | 股票/基金元数据填充 | **✅ 已完成** | ⭐⭐⭐⭐⭐ | 🔴 | Ⅰ | 搜索接口可用 |
 | P1-02 | 简记弹窗强化 | **✅ 已完成** | ⭐⭐⭐⭐⭐ | 🔴 | Ⅰ | 架构拆分完成：BuyForm/SellForm + 壳层，逻辑解耦 |
 | — | 债券利息+扣税关联 | **✅ 已完成** | ⭐⭐⭐⭐⭐ | 🔴 | Ⅰ | link_group_id + 树形展示 |
@@ -30,7 +32,7 @@
 | **P1-10** | **组合年化收益率计算（XIRR）** | **✅ 已完成** | ⭐⭐⭐⭐⭐ | 🟡 | Ⅱ | XIRR 计算引擎上线，组合维度支持；`asset_type` 过滤；前端仪表盘卡片展示 |
 | **P1-12** | **投资组合 (Portfolio) CRUD** | **✅ 已完成** | ⭐⭐⭐⭐ | 🟢 | Ⅱ | 后端与策略视图完成；账户管理重构完成；金融精度改造完成；剩余接口性能优化已完成 |
 | P1-20 | 定时任务体系 (APScheduler) | ⏸️ 未开始 | ⭐⭐⭐ | 🟢 | Ⅱ | 统一管理净值、行情、异动，以及孤儿交易自动回填 |
-| P1-08 | 特别关注页面功能增强 | 基础完成 | ⭐⭐⭐ | 🟢 | Ⅳ | 暂缓优化 |
+| P1-08 | 特别关注页面功能增强 | 基础完成 | ⭐⭐⭐ | 🟢 | Ⅳ | 暂缓优化。关联 issue：[#807](https://github.com/imoyao/fundmate/issues/807)（自选页实时估值设计文档 v2.0，成功标准未达成：`RealtimeWarningBanner` / `StatusIndicator` / `WatchlistPage` 三组件缺失，实现偏离文档）、[#273](https://github.com/imoyao/fundmate/issues/273)（自选拖拽排序，未实现） |
 | P1-06 | 全局 UI 细节微调 | **✅ 已完成** | ⭐⭐ | 🟢 | Ⅳ | 永久停止投入 |
 | P1-13 | 移动端响应式 / PWA | 未开始 | ⭐⭐ | 🟢 | Ⅳ | 长期规划 |
 | **P1-21** | **乖离率（BIAS）模块** | **✅ 已放开（SKIP_BIAS=False，待实网验证）** | ⭐⭐⭐⭐ | 🟡 | Ⅱ | 计算/存储/API 已实现（31 行业+6 宽基，存 `market_multi_items`）。2026-08-02 起曾临时跳过（`SKIP_BIAS=True`）；**2026-08-05 起数据源改为直连（腾讯行情/东财 push2his，见 `bias/direct_feeds.py`），已放开 `SKIP_BIAS=False`**。直连+兜底失败时单品种标 `stale` 或整批为空，不阻断主流程。待实网同步验证 `market_multi_items` 正常落库。详见 §2.1 与 `docs/working-notes/eastmoney-antiscrape-2026-08-05.md`。 |
@@ -53,8 +55,8 @@
 | P2-15 | 交易记录全量导出备份 | 交易记录页面增加"导出 CSV"按钮，复用 StandardTransactionRecord 逻辑 | 数据备份 |
 | P2-16 | 隐私保护（隐藏金额） | 一键隐藏所有金额，适合公共场合使用 | 隐私保护 |
 | **P2-17** | **二鸟说每周行情 AI 研判** | 数据已迁至独立项目 **WeChatRSS**（`data/er-niao/index.json`，由可插拔分析器 `src/analyzers/erniao.py` 产出）。基于该结构化数据 + 联网搜索（Ark/搜索引擎），生成每周投资市场风格、情绪、板块与操作建议的专业综述；输出需带引用来源与置信标注，降低幻觉；可自动化推送或前端展示 | — |
-| P2-21 | 个人中心 | 资料编辑（昵称/头像）、偏好设置（对接 `user_preferences`、修复主题双 key）、数据导出入口 | — |
-| P2-22 | 家庭成员管理 | admin 邀请/改角色（member/viewer）/移除成员，成员列表展示 | — |
+| P2-21 | 个人中心 | **✅ 已落地（2026-08-08）**：资料编辑（昵称/用户名/头像，D9 生成式头像 + 果冻胶囊画风选择）、改邮箱/改密码、退出登录；单栏居中设置页风格（D13，容器宽度 680→960 由 D15 覆写），入口收敛到头像下拉；成功反馈语义隔离 + 头像 n=3 超椭圆（D15）。偏好设置（对接 `user_preferences`、修复主题双 key）与真实姓名/家人称呼（D11→P2-22）待后续 | — |
+| P2-22 | 家庭成员管理 | admin 邀请/改角色（member/viewer）/移除成员，成员列表展示；含每家庭显示名/家人称呼（D11） | — |
 | P2-23 | 云端同步引擎 | 本地 SQLite 缓存 ↔ Supabase Postgres 权威的增量双向同步 + 冲突处理（LWW）+ Supabase RLS 兜底；多设备验证 | — |
 
 ### 1.4 当前进度总览
@@ -119,9 +121,42 @@
 | P2-25 | 持仓穿透（基金下探到底层） | 基金→重仓股揭露需新建公开数据源（季报十大重仓股），属独立数据建设；现状仅「多账户合并」已实现 | Ⅱ（需数据源可行性调研） |
 | P2-26 | 持仓 / 行业分布分析 | 复用现有行业映射 + 市值计算，做持仓占比/集中度/行业分布/重叠度，投资分析主线，无需新数据源 | Ⅱ |
 | P2-27 | 探市付费分层（D8） | 基础公开数据免登录；自建洞察（行业拥挤度/乖离率/估值分位）登录可见 + 免费预览样本，后续演进付费订阅 | Ⅱ |
+| P2-30 | 用户偏好与 AI Key 加密存储（D12） | `user_preferences` 按 user_id 私有个性化（待家庭/个人偏好产品明确）；AI 对话 API Key 采用 KMS / 信封加密存储（远期，本轮仅登记不实现） | Ⅲ |
 
 ### 2.6 交易流水导出（P2-15 · 2026-08-07 ✅ 已完成）
 
 - 后端：`GET /api/transactions/export/`（`Money` 精度换算，列与导入模板对齐）。
 - 前端：交易流水页新增「导出」按钮（`http` 携带鉴权头 + blob 下载）。
 - 定位：数据主权承诺锚点，**永久免费**（D7）。
+
+---
+
+## 3. GitHub issue ↔ 文档反链索引（2026-08-08 triage）
+
+> **背景**：2026-08-08 对全量 GitHub issue 做了一轮治理复盘（open 26 → 14），复盘明细见 `docs/working-notes/issue-triage/`（内部备忘，不进文档站）。
+>
+> **两条铁律**：① **文档↔issue 双向交叉引用**——issue 评论区标注关联文档，文档侧回链 issue（即本表）；② **文档↔历史差异必须拉平**——文档描述与代码现状不符时，要么改文档、要么开 issue 跟踪，不留悬空描述。
+>
+> 每条 issue 已在 GitHub 评论区标注对应文档/代码路径；本表为反方向索引。新增或关闭 issue 时须同步维护本表。
+
+| issue | 标题 | 象限 | 状态判定 | 对应文档 / 代码 |
+|:---|:---|:---|:---|:---|
+| [#783](https://github.com/imoyao/fundmate/issues/783) | 记账功能需求检查单 | **Ⅰ 重要且紧急** | 部分实现 / 验收清单未达成 | 本文件 §1.2 P1-03；`docs/dev/import-trade-records.md`；清单正文在 issue 内 |
+| [#807](https://github.com/imoyao/fundmate/issues/807) | 自选页面实时估值功能设计文档 | **Ⅰ 重要且紧急** | 部分实现 / 与文档偏离 | 本文件 §1.2 P1-08；`docs/features/watchlist.md`；`docs/design/my-favrivate.md` |
+| [#229](https://github.com/imoyao/fundmate/issues/229) | 基本数据抓取及组织 | Ⅱ 重要不紧急 | 部分实现 / 基础数据缺口（净值已落盘、基金经理未落盘） | `docs/spec/tech-debt.md`；`backend/app/services/sync/jobs/fund_manager_job.py`（里程碑 base-data） |
+| [#275](https://github.com/imoyao/fundmate/issues/275) | 对比基准增加普通股票型基金指数（885000.WI） | Ⅱ 重要不紧急 | 未实现 / 数据 | 里程碑 base-data |
+| [#253](https://github.com/imoyao/fundmate/issues/253) | 基金评分，可能需要创建新表 | Ⅱ 重要不紧急 | 未实现 / 功能 | 待设计（暂无专门文档） |
+| [#427](https://github.com/imoyao/fundmate/issues/427) | 基于 dataklasses 实现 choices 类型 | Ⅱ 重要不紧急（技术债） | 技术债 / 重构 | `docs/dev/choices-for-sqlalchemy.md` |
+| [#508](https://github.com/imoyao/fundmate/issues/508) | 消息推送机制 | Ⅱ 重要不紧急（远期） | backlog 功能设想 | 暂无专门文档（远期，保留待产品明确） |
+| [#782](https://github.com/imoyao/fundmate/issues/782) | 资产简记和投资记录页面设计 | Ⅱ 重要不紧急 | 设计文档基线 | `docs/features/holding-record.md`；设计正文在 issue 内 |
+| [#808](https://github.com/imoyao/fundmate/issues/808) | 自选「探市」体验版设计文档与任务计划 | Ⅱ 重要不紧急 | 设计文档基线 | `docs/spec/temperature-architecture-plan.md`；`docs/features/watchlist.md` |
+| [#809](https://github.com/imoyao/fundmate/issues/809) | 数据库存储选择 | Ⅱ 重要不紧急 | 决策已定 / 待落地（Supabase 云端未集成） | `docs/spec/decisions.md` D3/D2；`docs/dev/db-choice.md`；本文件 P2-23 |
+| [#819](https://github.com/imoyao/fundmate/issues/819) | 交割单导出功能跟踪 | Ⅱ 重要不紧急 | 导出侧跟踪（由 #429 拆分） | §2.6 交易流水导出；`backend/app/services/importer/` |
+| [#820](https://github.com/imoyao/fundmate/issues/820) | FeeRatio 增加币种（currency）字段并落库 | Ⅱ 重要不紧急 | 数据完整性补全 | `docs/dev/fund-fee-ratio.md`；`backend/app/domains/funds/models.py` |
+| [#273](https://github.com/imoyao/fundmate/issues/273) | 自选基金拖拽排序 | Ⅳ 不重要不紧急 | 未实现 / 功能 | `frontend/src/views/asset/watchlist/index.vue` |
+| [#817](https://github.com/imoyao/fundmate/issues/817) | 鹦鹉螺 nautilus 作为 logo | Ⅳ 不重要不紧急 | 部分实现 / 与文档偏离（正式稿未产出） | `docs/design/brand-v1.7.md`；`docs/design/index.md` |
+
+**已关闭但需留意的文档差异**：
+
+- [#460](https://github.com/imoyao/fundmate/issues/460) 费率信息处理：V2（xalpha）已实现并落盘，原 `docs/dev/fund-fee-ratio.md` 描述的是**已退役的 V1 方案**，已于 2026-08-08 重写拉平；遗留币种缺口转 #820 跟踪。
+- [#230](https://github.com/imoyao/fundmate/issues/230) 数据信息来源整合：双适配器（akshare + xalpha）整合框架已跑通并落盘，个别数据源缺口在 `docs/spec/tech-debt.md` 登记。
