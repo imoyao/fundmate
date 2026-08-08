@@ -42,10 +42,13 @@ withDefaults(
 
   &__title {
     margin: 0;
-    font-size: 24px;
-    font-weight: 700;
+
+    /* D17：页面主标题统一走 --text-display（32px/300 细体），design.md 字阶系统 */
+    font-size: var(--text-display);
+    font-weight: 300;
     line-height: 1.3;
     color: var(--text-primary);
+    letter-spacing: -0.3px;
   }
 
   &__subtitle {

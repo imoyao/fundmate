@@ -47,7 +47,7 @@ title: 组件使用规范（设计语言实现层）
 
 面向「个人中心 / 设置」类**账户管理页**，采用 Vercel / Trae 风格的单栏居中设置页，**禁止双栏多卡散乱平铺**：
 
-- 页外层 `max-width: 960px`（D13 原定 680px，已由 **D15 受控覆写为 960px**，以 D15 为准）+ `margin: 0 auto`，顶部用 `PageHeaderBar` 统一页头。
+- 页外层 `max-width: 680px`（D13 原定 680 → D15 覆写 960 → **D17 回覆写 680px 定稿**，以 D17 为准）+ `margin: 0 auto`，顶部用 `PageHeaderBar` 统一页头。
 - 纵向区块（如 个人资料 / 账号安全 / 退出登录）用「卡片（`settings-card`）+ `SectionHeader` + 设置行」组织；卡片间 `gap: var(--space-5)`。
 - **设置行（`setting-row`）**：一行为一个独立设置项，结构 = 左侧 `label + desc`（`flex-basis:160px`，desc 用 `--text-tertiary`）+ 右侧主操作区（`justify-content:flex-end`）。行内分割线用 `--border-subtle`，行高 ≥ 48px 保证热区。
 - 响应式：≤640px 时行内改为上下堆叠（label 在上、控制在下方）。
@@ -160,7 +160,7 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 
 | 元素 | 字号 | 字重 | 颜色 |
 |------|------|------|------|
-| 标题 | 24px | 700 | `--text-primary` |
+| 标题 | `var(--text-display)`（32px） | 300 | `--text-primary` |
 | 副标题 | 14px | —— | `--text-secondary` | 专业、客观，避免过度口语化 |
 | 更新时间胶囊 | 12px | —— | `--text-tertiary`，`--bg-soft` 底 + `--border-light` |
 

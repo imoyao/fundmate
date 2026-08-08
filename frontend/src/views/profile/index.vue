@@ -615,7 +615,8 @@ onMounted(async () => {
 
 .profile-head {
   :deep(.page-header) {
-    max-width: 960px;
+    /* D17：验收口径定稿 680，覆写 D15 的 960 */
+    max-width: 680px;
   }
 }
 
@@ -623,7 +624,7 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
-  max-width: 960px;
+  max-width: 680px;
   margin: 0 auto;
 }
 
