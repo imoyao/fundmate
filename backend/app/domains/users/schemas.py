@@ -30,8 +30,9 @@ class ProfileUpdate(BaseModel):
     校验（作为登录标识，必须全局唯一，D10）；昵称与头像可随意修改。
     """
 
-    username: Optional[str] = Field(default=None, max_length=50)
-    nickname: Optional[str] = Field(default=None, max_length=50)
+    # 长度限制与前端一致：用户名（登录标识）20、昵称（展示）16（中文环境标准）
+    username: Optional[str] = Field(default=None, max_length=20)
+    nickname: Optional[str] = Field(default=None, max_length=16)
     avatar: Optional[str] = Field(default=None, max_length=500)
 
     @field_validator('username', 'nickname')

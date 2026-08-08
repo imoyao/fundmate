@@ -20,6 +20,8 @@ declare global {
     extraIcon?: string | FunctionalComponent;
     /** 是否在菜单中显示（默认`true`）`可选` */
     showLink?: boolean;
+    /** 父级目录整体隐藏（纯布局用，如个人中心：不进侧边栏但保留标签页）`可选` */
+    hidden?: boolean;
     /** 是否显示父级菜单 `可选` */
     showParent?: boolean;
     /** 页面级别权限设置 `可选` */

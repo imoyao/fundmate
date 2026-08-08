@@ -59,7 +59,7 @@ export default [
     redirect: "/profile",
     meta: {
       title: "个人中心",
-      showLink: false // 不在菜单展示，从导航栏头像下拉进入
+      hidden: true // 不进侧边栏菜单，但从导航栏头像进入；hidden 不拦截标签页
     },
     children: [
       {
@@ -68,7 +68,7 @@ export default [
         component: () => import("@/views/profile/index.vue"),
         meta: {
           title: "个人中心",
-          showLink: false
+          hidden: true
         }
       }
     ]

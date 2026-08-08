@@ -9,10 +9,10 @@
 
     <div class="profile-shell">
       <!-- ===== 区块一：个人资料 ===== -->
-      <section class="settings-card">
+      <section class="profile-card profile-card-enter">
         <SectionHeader title="个人资料" />
 
-        <!-- 头像区（n=3 超椭圆容器） -->
+        <!-- 头像区 -->
         <div class="avatar-zone">
           <Superellipse class="avatar-frame" :power="3">
             <img
@@ -57,7 +57,24 @@
         <!-- 昵称字段 -->
         <div class="field-block">
           <div class="field-block__row-top">
-            <span class="field-block__label">昵称</span>
+            <div class="field-block__label-group">
+              <span class="field-block__label">昵称</span>
+              <span class="field-block__desc">在页面和消息中展示</span>
+            </div>
+          </div>
+          <div class="field-block__input-row">
+            <el-input
+              v-model="profileForm.nickname"
+              placeholder="请输入昵称"
+              maxlength="16"
+              class="field-input"
+            >
+              <template #suffix>
+                <span class="char-count"
+                  >{{ profileForm.nickname.length }}/16</span
+                >
+              </template>
+            </el-input>
             <el-button
               class="field-block__save"
               :type="nicknameDirty ? 'primary' : 'default'"
@@ -68,27 +85,29 @@
               保存
             </el-button>
           </div>
-          <span class="field-block__desc">在页面和消息中展示</span>
-          <div class="field-block__input-row">
-            <el-input
-              v-model="profileForm.nickname"
-              placeholder="请输入昵称"
-              maxlength="20"
-              class="field-input"
-            >
-              <template #suffix>
-                <span class="char-count"
-                  >{{ profileForm.nickname.length }}/20</span
-                >
-              </template>
-            </el-input>
-          </div>
         </div>
 
         <!-- 用户名字段 -->
         <div class="field-block">
           <div class="field-block__row-top">
-            <span class="field-block__label">用户名</span>
+            <div class="field-block__label-group">
+              <span class="field-block__label">用户名</span>
+              <span class="field-block__desc">用于登录</span>
+            </div>
+          </div>
+          <div class="field-block__input-row">
+            <el-input
+              v-model="profileForm.username"
+              placeholder="请输入用户名"
+              maxlength="20"
+              class="field-input"
+            >
+              <template #suffix>
+                <span class="char-count"
+                  >{{ profileForm.username.length }}/20</span
+                >
+              </template>
+            </el-input>
             <el-button
               class="field-block__save"
               :type="usernameDirty ? 'primary' : 'default'"
@@ -99,26 +118,11 @@
               保存
             </el-button>
           </div>
-          <span class="field-block__desc">用于登录</span>
-          <div class="field-block__input-row">
-            <el-input
-              v-model="profileForm.username"
-              placeholder="请输入用户名"
-              maxlength="60"
-              class="field-input"
-            >
-              <template #suffix>
-                <span class="field-count"
-                  >{{ profileForm.username.length }}/60</span
-                >
-              </template>
-            </el-input>
-          </div>
         </div>
       </section>
 
-      <!-- ===== 区块二：账号安全（含退出登录危险区） ===== -->
-      <section class="settings-card">
+      <!-- ===== 区块二：账号安全 ===== -->
+      <section class="profile-card profile-card-enter">
         <SectionHeader title="账号安全" />
 
         <!-- 邮箱行 -->
@@ -159,7 +163,7 @@
           </div>
         </div>
 
-        <!-- 危险操作区：退出登录（分隔线下） -->
+        <!-- 危险操作区 -->
         <div class="danger-zone">
           <div class="danger-zone__text">
             <span class="danger-zone__label">退出登录</span>
@@ -253,11 +257,13 @@
 
 <script setup lang="ts">
 import { reactive, ref, computed, onMounted, h } from "vue";
+import { useRoute } from "vue-router";
 import type { FormInstance, FormRules } from "element-plus";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { supabase } from "@/utils/supabase";
 import { getMe, updateMe } from "@/api/auth";
 import { useUserStoreHook } from "@/store/modules/user";
+import { useMultiTagsStoreHook } from "@/store/modules/multiTags";
 import {
   AVATAR_STYLES,
   AVATAR_STYLE_LABEL,
@@ -277,7 +283,19 @@ import Superellipse from "@/components/Superellipse/index.vue";
 
 const userStore = useUserStoreHook();
 
-// 成功反馈的珊瑚红对勾（D15：成功 Toast 用中性容器 + 品牌红勾，禁绿）
+// 个人中心由导航栏头像进入，非侧边菜单点选，需主动登记标签（/profile 路由 hidden:true 不进侧边栏，
+// 但标签栏仍应按 pure-admin 惯例展示可切换页签）
+const route = useRoute();
+useMultiTagsStoreHook().handleTags("push", {
+  path: route.path,
+  name: route.name as string,
+  meta: {
+    title: route.meta.title || "个人中心",
+    ...(route.meta as Record<string, unknown>)
+  }
+});
+
+// 成功反馈的珊瑚红对勾
 const CheckMark = () =>
   h(IconifyIconOffline, {
     icon: "lucide:check",
@@ -303,7 +321,6 @@ const profileForm = reactive({
 const savedNickname = ref("");
 const savedUsername = ref("");
 
-// 处理中标志（昵称 / 用户名各自独立，互斥仅限同一动作组）
 const nicknameSaving = ref(false);
 const usernameSaving = ref(false);
 
@@ -324,7 +341,7 @@ const email = computed(() => me.value?.email || "");
 const supabaseId = computed(() => me.value?.supabase_id || userStore.username);
 
 // ============================================
-// 头像：style + seed 联合决定"画风 + 脸型"，保存到 users.avatar
+// 头像：style + seed 联合决定"画风 + 脸型"
 // ============================================
 const avatarStyle = ref<AvatarStyle>(DEFAULT_AVATAR_STYLE);
 const avatarSeed = ref<string>("");
@@ -377,7 +394,7 @@ async function persistAvatar() {
 }
 
 // ============================================
-// 资料保存（昵称 / 用户名独立动作组，互不干涉）
+// 资料保存
 // ============================================
 async function onSaveNickname() {
   nicknameSaving.value = true;
@@ -544,7 +561,6 @@ onMounted(async () => {
     if (data.avatar) userStore.SET_AVATAR(data.avatar);
     initAvatar();
   } catch (e: any) {
-    // 401 已由拦截器处理跳转，这里仅兜底提示
     if (e?.response?.status !== 401) {
       ElMessage.error("加载个人信息失败");
     }
@@ -553,6 +569,20 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ===== 果冻回弹关键帧 ===== */
 @keyframes style-pop {
   0% {
     transform: scale(1);
@@ -575,7 +605,7 @@ onMounted(async () => {
   }
 }
 
-/* ===== 响应式：窄屏下设置行堆叠、字号不缩水 ===== */
+/* ===== 响应式 ===== */
 @media (width <= 640px) {
   .avatar-zone {
     align-items: flex-start;
@@ -585,75 +615,112 @@ onMounted(async () => {
     flex-direction: column;
     gap: var(--space-2);
     align-items: flex-start;
-
-    &__label {
-      flex-basis: auto;
-      min-width: 0;
-    }
-
-    &__main {
-      justify-content: flex-start;
-      width: 100%;
-    }
   }
 
-  .field-block__row-top {
-    flex-wrap: wrap;
-    gap: var(--space-2);
+  .setting-row__label {
+    flex-basis: auto;
+    min-width: 0;
+  }
+
+  .setting-row__main {
+    justify-content: flex-start;
+    width: 100%;
   }
 
   .style-group {
     justify-content: flex-start;
   }
 
-  .field-input {
-    max-width: 100%;
-  }
-
   .danger-zone {
     align-items: flex-start;
   }
+
+  .field-block__input-row {
+    flex-direction: column;
+    gap: var(--space-2);
+    align-items: stretch;
+  }
+
+  .field-input {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .field-block__save {
+    align-self: flex-end; /* 移动端继续保持右对齐 */
+    margin-left: 0;
+  }
 }
 
+/* ===== 概览页统一卡片与悬停交互 ===== */
+.profile-card {
+  padding: var(--space-standard);
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: 16px;
+  box-shadow: var(--shadow-raised);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.profile-card:hover {
+  box-shadow: var(--shadow-float) !important;
+  transform: translateY(-3px);
+}
+
+.profile-card-enter {
+  opacity: 0;
+  animation: fadeUp 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.profile-card-enter:nth-child(1) {
+  animation-delay: 0.05s;
+}
+
+.profile-card-enter:nth-child(2) {
+  animation-delay: 0.1s;
+}
+
+/* ===== 页面全局与外壳 ===== */
 .profile-page {
   padding: var(--space-5);
 }
 
 .profile-head {
   :deep(.page-header) {
-    /* D17：验收口径定稿 680，覆写 D15 的 960 */
     max-width: 680px;
+  }
+
+  /* 🔥 修正：页面主标题从 32px 版式缩到通用 24px（与其他业务页一致），副标题同步降灰 */
+  :deep(.page-header__title) {
+    font-size: var(--text-title);
+    font-weight: 600;
+  }
+
+  :deep(.page-header__subtitle) {
+    color: var(--text-tertiary);
   }
 }
 
 .profile-shell {
   display: flex;
   flex-direction: column;
-  gap: var(--space-5);
+  gap: 32px;
   max-width: 680px;
   margin: 0 auto;
 }
 
-.settings-card {
-  padding: var(--space-standard);
-  background-color: var(--bg-card);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-raised);
-}
-
-/* ===== 头像区（超椭圆 + 画风胶囊 + 随机） ===== */
+/* ===== 头像区 ===== */
 .avatar-zone {
   display: flex;
   gap: var(--space-5);
   align-items: center;
   padding: var(--space-3) 0 var(--space-standard);
   border-top: 1px solid var(--border-subtle);
+}
 
-  &:first-of-type {
-    padding-top: 0;
-    border-top: none;
-  }
+.avatar-zone:first-of-type {
+  padding-top: 0;
+  border-top: none;
 }
 
 .avatar-frame {
@@ -679,7 +746,7 @@ onMounted(async () => {
   min-width: 0;
 }
 
-/* ===== 果冻胶囊按钮组（头像风格选择） ===== */
+/* ===== 果冻胶囊按钮组 ===== */
 .style-group {
   display: flex;
   flex-wrap: wrap;
@@ -708,39 +775,39 @@ onMounted(async () => {
     border-color 0.2s,
     box-shadow 0.2s;
   will-change: transform;
-
-  &:hover {
-    color: var(--text-primary);
-    border-color: var(--brand-400);
-  }
-
-  &:active {
-    transform: scale(0.92);
-  }
-
-  &--active {
-    color: var(--brand-700);
-    background-color: var(--brand-200);
-    border-color: var(--brand-400);
-    box-shadow: 0 1px 3px rgb(0 0 0 / 6%);
-    animation: style-pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
-
-    &:hover {
-      color: var(--brand-700);
-    }
-  }
-
-  &:focus-visible {
-    outline: none;
-    box-shadow: var(--focus-ring);
-  }
-
-  &__check {
-    font-size: 16px;
-  }
 }
 
-/* ===== 随机换一个（纯文本按钮 + 珊瑚红 SVG） ===== */
+.style-capsule:hover {
+  color: var(--text-primary);
+  border-color: var(--brand-400);
+}
+
+.style-capsule:active {
+  transform: scale(0.92);
+}
+
+.style-capsule--active {
+  color: var(--brand-700);
+  background-color: var(--brand-200);
+  border-color: var(--brand-400);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 6%);
+  animation: style-pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.style-capsule--active:hover {
+  color: var(--brand-700);
+}
+
+.style-capsule:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.style-capsule__check {
+  font-size: 16px;
+}
+
+/* ===== 随机换一个 ===== */
 .link-btn {
   display: inline-flex;
   gap: 4px;
@@ -752,80 +819,96 @@ onMounted(async () => {
   background: none;
   border: none;
   transition: color 0.15s ease;
-
-  &:hover {
-    color: var(--brand-800);
-  }
-
-  &:focus-visible {
-    outline: none;
-    border-radius: var(--radius-sm);
-    box-shadow: var(--focus-ring);
-  }
-
-  &__icon {
-    font-size: 14px;
-  }
 }
 
-/* ===== 字段块（标签+按钮上行、说明+输入框下行） ===== */
+.link-btn:hover {
+  color: var(--brand-800);
+}
+
+.link-btn:focus-visible {
+  outline: none;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--focus-ring);
+}
+
+.link-btn__icon {
+  font-size: 14px;
+}
+
+/* ===== 字段块 ===== */
 .field-block {
   padding: var(--space-5) 0;
   border-top: 1px solid var(--border-subtle);
-
-  &:first-of-type {
-    padding-top: 0;
-    border-top: none;
-  }
-
-  &__row-top {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: var(--space-2);
-  }
-
-  &__label {
-    font-size: 14px;
-    font-weight: 500;
-    line-height: 1.4;
-    color: var(--text-primary);
-  }
-
-  &__desc {
-    display: block;
-    margin-bottom: var(--space-2);
-    font-size: 13px;
-    line-height: 1.4;
-    color: var(--text-secondary);
-  }
-
-  &__input-row {
-    display: flex;
-    align-items: center;
-  }
-
-  &__save {
-    /* 按钮物理占位，防止出现/消失导致 CLS 跳动 */
-    flex-shrink: 0;
-    width: 72px;
-    height: 40px;
-  }
 }
 
-/* 输入框（suffix 字数统计字体轻量化） */
+.field-block:first-of-type {
+  padding-top: 0;
+  border-top: none;
+}
+
+.field-block__row-top {
+  display: flex;
+  align-items: flex-start;
+  width: 100%;
+  margin-bottom: var(--space-2);
+}
+
+.field-block__label-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.field-block__label {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--text-primary);
+}
+
+/* 🔥 修正点1：说明文字颜色降阶 */
+.field-block__desc {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-tertiary);
+}
+
+/* 🔥 修正点2：输入框自动填充空隙，与右侧按钮严丝合缝 */
+.field-block__input-row {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  width: 100%;
+}
+
 .field-input {
-  /* 宽屏下限制最大宽度，防止无限横向拉伸 */
-  flex: 1;
-  min-width: 0;
-  max-width: 320px;
-
-  :deep(.el-input__wrapper) {
-    border-radius: var(--radius-sm);
-  }
+  flex: 1; /* 自动占据除按钮外的剩余所有空间 */
+  min-width: 120px; /* 保证小屏不坍塌 */
+  max-width: 100%; /* 宽度自适应，完全填满至按钮 */
 }
 
-/* 输入框字数统计（轻量化，选择器合并） */
+.field-input :deep(.el-input__wrapper) {
+  border-radius: var(--radius-sm);
+}
+
+.field-block__save {
+  flex-shrink: 0;
+  width: 72px;
+  height: 40px;
+  margin-left: auto; /* 推送到最右侧，与下方“修改”文本对齐 */
+  transition: all 0.15s ease;
+}
+
+/* 禁用态占位按钮强制可见 */
+.field-block__save.is-disabled {
+  color: var(--text-disabled) !important;
+  cursor: not-allowed !important;
+  background-color: var(--bg-soft) !important;
+  border-color: var(--border-light) !important;
+  opacity: 1 !important;
+}
+
+/* ===== 输入框字数统计 ===== */
 .char-count,
 .field-count {
   font-size: 12px;
@@ -833,7 +916,7 @@ onMounted(async () => {
   color: var(--text-tertiary);
 }
 
-/* ===== 账号安全设置行（Flex 布局，标签灵活宽度 + 值右对齐） ===== */
+/* ===== 账号安全行 ===== */
 .setting-row {
   display: flex;
   gap: var(--space-standard);
@@ -841,47 +924,45 @@ onMounted(async () => {
   justify-content: space-between;
   padding: var(--space-5) 0;
   border-top: 1px solid var(--border-subtle);
+}
 
-  &:first-of-type {
-    padding-top: var(--space-3);
-    border-top: none;
-  }
+.setting-row:first-of-type {
+  padding-top: var(--space-3);
+  border-top: none;
+}
 
-  &:last-child {
-    padding-bottom: var(--space-3);
-  }
+.setting-row:last-child {
+  padding-bottom: var(--space-3);
+}
 
-  &__label {
-    display: flex;
-    flex-shrink: 0;
-    flex-direction: column;
-    gap: 4px;
-    min-width: 100px;
-  }
+.setting-row__label {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 100px;
+}
 
-  &__name {
-    font-size: var(--text-small);
-    font-weight: 500;
-    line-height: 1.4;
-    color: var(--text-primary);
-  }
+.setting-row__name {
+  font-size: var(--text-small);
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--text-primary);
+}
 
-  &__desc {
-    font-size: 12px;
-    line-height: 1.4;
-    color: var(--text-tertiary);
-  }
+.setting-row__desc {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-tertiary);
+}
 
-  &__main {
-    display: flex;
-    flex: 1;
-
-    /* 强制 24px 间距，避免邮箱值与「修改」粘连 */
-    gap: var(--space-standard);
-    align-items: center;
-    justify-content: flex-end;
-    min-width: 0;
-  }
+.setting-row__main {
+  display: flex;
+  flex: 1;
+  gap: var(--space-standard);
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
 }
 
 .field-value {
@@ -891,14 +972,14 @@ onMounted(async () => {
   font-size: var(--text-small);
   color: var(--text-primary);
   white-space: nowrap;
-
-  &--mono {
-    font-family: var(--font-mono, "SF Mono", "JetBrains Mono", monospace);
-    font-variant-numeric: tabular-nums;
-  }
 }
 
-/* ===== 修改链接（品牌色纯文本按钮） ===== */
+.field-value--mono {
+  font-family: var(--font-mono, "SF Mono", "JetBrains Mono", monospace);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ===== 修改链接 ===== */
 .modify-link {
   padding: 0;
   font-size: var(--text-small);
@@ -908,19 +989,19 @@ onMounted(async () => {
   background: none;
   border: none;
   transition: color 0.15s ease;
-
-  &:hover {
-    color: var(--brand-800);
-  }
-
-  &:focus-visible {
-    outline: none;
-    border-radius: var(--radius-sm);
-    box-shadow: var(--focus-ring);
-  }
 }
 
-/* ===== 危险操作区分隔区（退出登录） ===== */
+.modify-link:hover {
+  color: var(--brand-800);
+}
+
+.modify-link:focus-visible {
+  outline: none;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--focus-ring);
+}
+
+/* ===== 危险操作区 ===== */
 .danger-zone {
   display: flex;
   gap: var(--space-5);
@@ -929,29 +1010,29 @@ onMounted(async () => {
   padding-top: var(--space-standard);
   margin-top: var(--space-standard);
   border-top: 1px solid var(--border-subtle);
-
-  &__text {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    min-width: 0;
-  }
-
-  &__label {
-    font-size: var(--text-small);
-    font-weight: 500;
-    line-height: 1.4;
-    color: var(--text-primary);
-  }
-
-  &__desc {
-    font-size: 12px;
-    line-height: 1.4;
-    color: var(--text-tertiary);
-  }
 }
 
-/* 危险幽灵按钮：透明底 + 红色描边，Hover 红色实心白字 */
+.danger-zone__text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.danger-zone__label {
+  font-size: var(--text-small);
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--text-primary);
+}
+
+.danger-zone__desc {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-tertiary);
+}
+
+/* ===== 危险幽灵按钮 ===== */
 .danger-btn {
   flex-shrink: 0;
   height: 40px;
@@ -965,29 +1046,26 @@ onMounted(async () => {
   background: transparent;
   border: 1px solid var(--color-danger);
   border-radius: var(--radius-sm);
-  transition:
-    background-color 0.15s ease,
-    color 0.15s ease,
-    border-color 0.15s ease;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
 
-  &:hover {
-    color: #fff;
-    background-color: var(--color-danger);
-    border-color: transparent;
-  }
+.danger-btn:hover {
+  color: #fff;
+  background-color: var(--color-danger);
+  border-color: transparent;
+}
 
-  &:focus-visible {
-    outline: none;
-    border-radius: var(--radius-sm);
-    box-shadow: var(--focus-ring);
-  }
+.danger-btn:focus-visible {
+  outline: none;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--focus-ring);
+}
 
-  &:active {
-    color: #fff;
-    background-color: var(--color-danger);
-    border-color: transparent;
-    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 15%);
-  }
+.danger-btn:active {
+  color: #fff;
+  background-color: var(--color-danger);
+  border-color: transparent;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 15%);
 }
 
 .dialog-hint {
@@ -996,5 +1074,5 @@ onMounted(async () => {
   color: var(--text-tertiary);
 }
 
-/* 🔥 果冻回弹关键帧（与 manual 录入页一致，单一来源见 design 交互规范） */
+/* ===== 概览页统一进场动画 ===== */
 </style>
