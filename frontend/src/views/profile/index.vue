@@ -1,216 +1,176 @@
 <template>
   <div
-    class="profile-container p-4 md:p-8 min-h-full"
+    class="profile-page min-h-full"
     :style="{ backgroundColor: 'var(--bg-page)' }"
   >
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-      <!-- ===== 左列：头像与档案 ===== -->
-      <div class="flex flex-col gap-4">
-        <div
-          class="rounded-2xl p-6"
-          :style="{
-            backgroundColor: 'var(--bg-card)',
-            boxShadow: 'var(--shadow-raised)',
-            border: '1px solid var(--border-light)'
-          }"
-        >
-          <div class="flex flex-col items-center text-center">
+    <div class="profile-head">
+      <PageHeaderBar title="个人中心" subtitle="管理你的账户信息与安全设置" />
+    </div>
+
+    <div class="profile-shell">
+      <!-- ===== 区块一：个人资料 ===== -->
+      <section class="settings-card">
+        <SectionHeader title="个人资料" />
+
+        <!-- 头像区（n=3 超椭圆容器） -->
+        <div class="avatar-zone">
+          <Superellipse class="avatar-frame" :power="3">
             <img
               :src="avatarPreview"
-              class="profile-avatar"
+              class="avatar-preview"
               :alt="currentNickname"
             />
-            <h2
-              class="mt-4 text-lg font-semibold"
-              :style="{ color: 'var(--text-primary)' }"
-            >
-              {{ currentNickname }}
-            </h2>
-            <p
-              v-if="currentUsername"
-              class="text-sm mt-1"
-              :style="{ color: 'var(--text-tertiary)' }"
-            >
-              @{{ currentUsername }}
-            </p>
-          </div>
-        </div>
+          </Superellipse>
 
-        <div
-          class="rounded-2xl p-6"
-          :style="{
-            backgroundColor: 'var(--bg-card)',
-            boxShadow: 'var(--shadow-raised)',
-            border: '1px solid var(--border-light)'
-          }"
-        >
-          <div class="flex flex-col gap-3">
-            <div class="flex flex-col">
-              <span class="text-xs label" style="color: var(--text-tertiary)">
-                登录邮箱
-              </span>
-              <span
-                class="text-sm mt-1 break-all"
-                style="color: var(--text-primary)"
+          <div class="avatar-control">
+            <div class="style-group" role="radiogroup" aria-label="头像画风">
+              <button
+                v-for="style in AVATAR_STYLES"
+                :key="style"
+                type="button"
+                role="radio"
+                :aria-checked="avatarStyle === style"
+                class="style-capsule"
+                :class="{ 'style-capsule--active': avatarStyle === style }"
+                @click="onSelectStyle(style)"
               >
-                {{ email }}
-              </span>
-            </div>
-            <div
-              class="flex flex-col"
-              style="
-                padding-top: 12px;
-                border-top: 1px solid var(--border-light);
-              "
-            >
-              <span class="text-xs" style="color: var(--text-tertiary)">
-                所属家庭
-              </span>
-              <span class="text-sm mt-1" style="color: var(--text-primary)">
-                {{ familyName }}
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 右列：编辑项 -->
-      <div class="flex flex-col gap-4">
-        <!-- 头像设置 -->
-        <div
-          class="rounded-2xl p-6"
-          :style="{
-            backgroundColor: 'var(--bg-card)',
-            boxShadow: 'var(--shadow-raised)',
-            border: '1px solid var(--border-light)'
-          }"
-        >
-          <SectionHeader title="头像">
-            <template #action>
-              <el-tooltip content="随机换一个头像" placement="top">
-                <el-button
-                  size="small"
-                  text
-                  :icon="Dice"
-                  @click="onRandomizeAvatar"
+                {{ AVATAR_STYLE_LABEL[style] }}
+                <IconifyIconOffline
+                  v-if="avatarStyle === style"
+                  icon="lucide:check"
+                  class="style-capsule__check"
+                  aria-hidden="true"
                 />
-              </el-tooltip>
-            </template>
-          </SectionHeader>
-
-          <div class="flex flex-wrap gap-2">
-            <button
-              v-for="style in AVATAR_STYLES"
-              :key="style"
-              class="style-pill"
-              :class="{ 'style-pill--active': avatarStyle === style }"
-              :style="{
-                borderColor:
-                  avatarStyle === style
-                    ? 'var(--brand-700)'
-                    : 'var(--border-light)',
-                color:
-                  avatarStyle === style
-                    ? 'var(--brand-700)'
-                    : 'var(--text-secondary)'
-              }"
-              @click="onSelectStyle(style)"
-            >
-              {{ style }}
+              </button>
+            </div>
+            <button type="button" class="link-btn" @click="onRandomizeAvatar">
+              <IconifyIconOffline
+                icon="lucide:shuffle"
+                class="link-btn__icon"
+                aria-hidden="true"
+              />
+              随机换一个
             </button>
           </div>
-          <p class="text-xs mt-3" style="color: var(--text-tertiary)">
-            头像由系统自动生成，保存后立即生效；随机换一个可刷新形象。
-          </p>
         </div>
 
-        <!-- 昵称 / 用户名 -->
-        <div
-          class="rounded-2xl p-6"
-          :style="{
-            backgroundColor: 'var(--bg-card)',
-            boxShadow: 'var(--shadow-raised)',
-            border: '1px solid var(--border-light)'
-          }"
-        >
-          <SectionHeader title="基本资料" />
-
-          <el-form
-            ref="profileFormRef"
-            :model="profileForm"
-            :rules="profileRules"
-            label-position="top"
-            class="mt-2"
-          >
-            <el-form-item label="昵称" prop="nickname">
-              <el-input
-                v-model="profileForm.nickname"
-                placeholder="昵称用于展示"
-                maxlength="20"
-                show-word-limit
-              />
-            </el-form-item>
-
-            <el-form-item label="用户名" prop="username">
-              <el-input
-                v-model="profileForm.username"
-                placeholder="用户名可用于登录"
-                maxlength="60"
-              />
-              <p class="text-xs mt-1" style="color: var(--text-tertiary)">
-                用户名也可作为登录标识（需唯一，改名请勿与他人冲突）。
-              </p>
-            </el-form-item>
-
-            <div class="flex justify-end">
-              <el-button
-                type="primary"
-                :loading="profileSaving"
-                @click="onSaveProfile"
-              >
-                保存资料
-              </el-button>
+        <!-- 昵称字段（垂直堆叠） -->
+        <div class="field-block">
+          <div class="field-block__label-row">
+            <div class="field-block__label-group">
+              <span class="field-block__label">昵称</span>
+              <span class="field-block__desc">页面与消息中展示的名字</span>
             </div>
-          </el-form>
-        </div>
-
-        <!-- 账号安全 -->
-        <div
-          class="rounded-2xl p-6"
-          :style="{
-            backgroundColor: 'var(--bg-card)',
-            boxShadow: 'var(--shadow-raised)',
-            border: '1px solid var(--border-light)'
-          }"
-        >
-          <SectionHeader title="账号安全" />
-
-          <div class="flex flex-col gap-2">
             <el-button
-              text
-              class="justify-start"
-              style="height: auto; padding: 4px 0"
-              @click="emailDialogVisible = true"
+              class="field-block__save"
+              :type="nicknameDirty ? 'primary' : 'default'"
+              :disabled="!nicknameDirty"
+              :loading="nicknameSaving"
+              @click="onSaveNickname"
             >
-              <IconifyIconOffline icon="ep:message" class="mr-2 text-base" />
-              <span class="text-sm" style="color: var(--text-primary)">
-                修改登录邮箱
-              </span>
-            </el-button>
-            <el-button
-              text
-              class="justify-start"
-              style="height: auto; padding: 4px 0"
-              @click="passwordDialogVisible = true"
-            >
-              <IconifyIconOffline icon="ep:key" class="mr-2 text-base" />
-              <span class="text-sm" style="color: var(--text-primary)">
-                修改登录密码
-              </span>
+              保存
             </el-button>
           </div>
+          <el-input
+            v-model="profileForm.nickname"
+            placeholder="请输入昵称"
+            maxlength="20"
+            class="field-input"
+          >
+            <template #suffix>
+              <span class="char-count"
+                >{{ profileForm.nickname.length }}/20</span
+              >
+            </template>
+          </el-input>
         </div>
-      </div>
+
+        <!-- 用户名字段（垂直堆叠） -->
+        <div class="field-block">
+          <div class="field-block__label-row">
+            <div class="field-block__label-group">
+              <span class="field-block__label">用户名</span>
+              <span class="field-block__desc">用于登录的唯一标识</span>
+            </div>
+            <el-button
+              class="field-block__save"
+              :type="usernameDirty ? 'primary' : 'default'"
+              :disabled="!usernameDirty"
+              :loading="usernameSaving"
+              @click="onSaveUsername"
+            >
+              保存
+            </el-button>
+          </div>
+          <el-input
+            v-model="profileForm.username"
+            placeholder="请输入用户名"
+            maxlength="60"
+            class="field-input"
+          >
+            <template #suffix>
+              <span class="field-count"
+                >{{ profileForm.username.length }}/60</span
+              >
+            </template>
+          </el-input>
+        </div>
+      </section>
+
+      <!-- ===== 区块二：账号安全（含退出登录危险区） ===== -->
+      <section class="settings-card">
+        <SectionHeader title="账号安全" />
+
+        <!-- 邮箱行 -->
+        <div class="setting-row">
+          <div class="setting-row__label">
+            <span class="setting-row__name">登录邮箱</span>
+            <span class="setting-row__desc">用于登录与接收通知</span>
+          </div>
+          <div class="setting-row__main">
+            <span class="field-value field-value--mono">{{
+              email || "未设置"
+            }}</span>
+            <button
+              type="button"
+              class="modify-link"
+              @click="emailDialogVisible = true"
+            >
+              修改
+            </button>
+          </div>
+        </div>
+
+        <!-- 密码行 -->
+        <div class="setting-row">
+          <div class="setting-row__label">
+            <span class="setting-row__name">登录密码</span>
+            <span class="setting-row__desc">建议定期更换以保障账户安全</span>
+          </div>
+          <div class="setting-row__main">
+            <span class="field-value field-value--mono">••••••••</span>
+            <el-button
+              text
+              class="modify-link"
+              @click="passwordDialogVisible = true"
+              >修改</el-button
+            >
+          </div>
+        </div>
+
+        <!-- 危险操作区：退出登录（分隔线下） -->
+        <div class="danger-zone">
+          <div class="danger-zone__text">
+            <span class="danger-zone__label">退出登录</span>
+            <span class="danger-zone__desc"
+              >退出当前账户后需重新登录才能访问</span
+            >
+          </div>
+          <el-button plain type="danger" class="danger-btn" @click="onLogout"
+            >退出</el-button
+          >
+        </div>
+      </section>
     </div>
 
     <!-- 改邮箱弹窗 -->
@@ -233,7 +193,7 @@
           />
         </el-form-item>
       </el-form>
-      <p class="text-xs" style="color: var(--text-tertiary)">
+      <p class="dialog-hint">
         修改邮箱需要到新邮箱中完成验证，验证成功后登录邮箱将变更。
       </p>
       <template #footer>
@@ -293,14 +253,15 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, computed, onMounted } from "vue";
+import { reactive, ref, computed, onMounted, h } from "vue";
 import type { FormInstance, FormRules } from "element-plus";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import { supabase } from "@/utils/supabase";
 import { getMe, updateMe } from "@/api/auth";
 import { useUserStoreHook } from "@/store/modules/user";
 import {
   AVATAR_STYLES,
+  AVATAR_STYLE_LABEL,
   type AvatarStyle,
   DEFAULT_AVATAR_STYLE,
   buildAvatarUrl,
@@ -311,13 +272,18 @@ import {
   isAvatarUrl
 } from "@/utils/avatar";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
-import Dice from "~icons/ri/dice-line";
+import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
+import Superellipse from "@/components/Superellipse/index.vue";
 
-// ============================================
-// 状态
-// ============================================
 const userStore = useUserStoreHook();
+
+// 成功反馈的珊瑚红对勾（D15：成功 Toast 用中性容器 + 品牌红勾，禁绿）
+const CheckMark = () =>
+  h(IconifyIconOffline, {
+    icon: "lucide:check",
+    style: { color: "var(--brand-700)", fontSize: "18px", strokeWidth: 3 }
+  });
 
 const me = ref<{
   id: number;
@@ -334,49 +300,40 @@ const profileForm = reactive({
   username: ""
 });
 
-const profileFormRef = ref<FormInstance>();
-const profileSaving = ref(false);
+// 上次成功保存的值（用于 Dirty 判定）
+const savedNickname = ref("");
+const savedUsername = ref("");
 
-const profileRules = reactive<FormRules>({
-  nickname: [
-    { min: 2, max: 20, message: "昵称长度 2-20 个字符", trigger: "blur" },
-    {
-      pattern: /^[\u4e00-\u9fa5a-zA-Z0-9_]+$/,
-      message: "昵称只能包含中文、字母、数字和下划线",
-      trigger: "blur"
-    }
-  ],
-  username: [
-    { required: true, message: "请输入用户名", trigger: "blur" },
-    { max: 60, message: "用户名最长 60 个字符", trigger: "blur" }
-  ]
-});
+// 处理中标志（昵称 / 用户名各自独立，互斥仅限同一动作组）
+const nicknameSaving = ref(false);
+const usernameSaving = ref(false);
 
-// 当前展示的值（未保存前先展示旧值）
+const nicknameDirty = computed(
+  () => profileForm.nickname !== savedNickname.value
+);
+const usernameDirty = computed(
+  () => profileForm.username !== savedUsername.value
+);
+
 const currentNickname = computed(
-  () =>
-    userStore.nickname || profileForm.nickname || userStore.username || "未设置"
-);
-const currentUsername = computed(
-  () => userStore.username || profileForm.username || ""
+  () => userStore.nickname || userStore.username || "未设置"
 );
 
-const email = computed(() => me.value?.email || userStore.username || "");
-const familyName = computed(() => me.value?.family?.name || "默认家庭");
+const email = computed(() => me.value?.email || "");
 
 // 用户 supabase 唯一标识（用于默认头像 seed）
 const supabaseId = computed(() => me.value?.supabase_id || userStore.username);
 
+// ============================================
 // 头像：style + seed 联合决定"画风 + 脸型"，保存到 users.avatar
+// ============================================
 const avatarStyle = ref<AvatarStyle>(DEFAULT_AVATAR_STYLE);
 const avatarSeed = ref<string>("");
 
-// 已保存的头像 URL（后端 users.avatar / store）
 const savedAvatarUrl = computed(() =>
   userStore.avatar && isAvatarUrl(userStore.avatar) ? userStore.avatar : ""
 );
 
-// 编辑态预览：以 style + seed 为准；未动过则回退到已保存 URL
 const avatarPreview = computed(() => {
   if (avatarSeed.value) {
     return buildAvatarUrl(avatarStyle.value, avatarSeed.value);
@@ -384,7 +341,6 @@ const avatarPreview = computed(() => {
   return savedAvatarUrl.value || defaultAvatarUrl(supabaseId.value);
 });
 
-// 初始化：回填已保存头像的 style/seed；无则用默认 seed（与后端默认一致）
 function initAvatar() {
   const parsed = parseAvatarUrl(savedAvatarUrl.value);
   if (parsed) {
@@ -401,24 +357,74 @@ async function onRandomizeAvatar() {
 }
 
 async function onSelectStyle(style: AvatarStyle) {
+  if (style === avatarStyle.value) return;
   avatarStyle.value = style;
-  if (!avatarSeed.value)
+  if (!avatarSeed.value) {
     avatarSeed.value = hashSeed(supabaseId.value || "default");
+  }
   await persistAvatar();
 }
 
-/** 保存当前头像到后端 users.avatar，并同步前端 store 与 localStorage */
 async function persistAvatar() {
   const newUrl = buildAvatarUrl(avatarStyle.value, avatarSeed.value);
   try {
     await updateMe({ avatar: newUrl });
     userStore.SET_AVATAR(newUrl);
     userStore.persist();
-    ElMessage.success("头像已更新");
+    ElMessage({ message: "头像已更新", icon: CheckMark });
   } catch {
     ElMessage.error("头像保存失败");
   }
 }
+
+// ============================================
+// 资料保存（昵称 / 用户名独立动作组，互不干涉）
+// ============================================
+async function onSaveNickname() {
+  nicknameSaving.value = true;
+  try {
+    const { data } = await updateMe({ nickname: profileForm.nickname.trim() });
+    const nickname = data.nickname ?? profileForm.nickname.trim();
+    userStore.SET_NICKNAME(nickname);
+    userStore.persist();
+    savedNickname.value = profileForm.nickname;
+    ElMessage({
+      message: "昵称已保存",
+      icon: CheckMark
+    });
+  } catch {
+    ElMessage.error("昵称保存失败，请重试");
+  } finally {
+    nicknameSaving.value = false;
+  }
+}
+
+async function onSaveUsername() {
+  usernameSaving.value = true;
+  try {
+    const { data } = await updateMe({ username: profileForm.username.trim() });
+    const username = data.username ?? profileForm.username.trim();
+    userStore.SET_USERNAME(username);
+    userStore.persist();
+    savedUsername.value = profileForm.username;
+    ElMessage({
+      message: "用户名已保存",
+      icon: CheckMark
+    });
+  } catch (e: any) {
+    if (e?.response?.status === 409) {
+      ElMessage.error("该用户名已被使用，请更换");
+    } else {
+      ElMessage.error(e?.response?.data?.message || "保存失败，请重试");
+    }
+  } finally {
+    usernameSaving.value = false;
+  }
+}
+
+// ============================================
+// 改邮箱
+// ============================================
 const emailDialogVisible = ref(false);
 const emailForm = reactive({ email: "" });
 const emailFormRef = ref<FormInstance>();
@@ -431,7 +437,32 @@ const emailRules = reactive<FormRules>({
   ]
 });
 
+async function onSaveEmail() {
+  if (!emailFormRef.value) return;
+  const valid = await emailFormRef.value.validate().catch(() => false);
+  if (!valid) return;
+  emailSubmitting.value = true;
+  try {
+    const { error } = await supabase.auth.updateUser({
+      email: emailForm.email.trim()
+    });
+    if (error) throw error;
+    ElMessage({
+      message: "验证邮件已发送，请到新邮箱完成验证",
+      icon: CheckMark
+    });
+    emailDialogVisible.value = false;
+    emailForm.email = "";
+  } catch (e: any) {
+    ElMessage.error(e.message || "发送失败，请重试");
+  } finally {
+    emailSubmitting.value = false;
+  }
+}
+
+// ============================================
 // 改密码
+// ============================================
 const passwordDialogVisible = ref(false);
 const passwordForm = reactive({ password: "", confirm: "" });
 const passwordFormRef = ref<FormInstance>();
@@ -461,6 +492,43 @@ function validateConfirm(
   }
 }
 
+async function onSavePassword() {
+  if (!passwordFormRef.value) return;
+  const valid = await passwordFormRef.value.validate().catch(() => false);
+  if (!valid) return;
+  passwordSubmitting.value = true;
+  try {
+    const { error } = await supabase.auth.updateUser({
+      password: passwordForm.password
+    });
+    if (error) throw error;
+    ElMessage({ message: "密码已修改", icon: CheckMark });
+    passwordDialogVisible.value = false;
+    passwordForm.password = "";
+    passwordForm.confirm = "";
+  } catch (e: any) {
+    ElMessage.error(e.message || "修改失败，请重试");
+  } finally {
+    passwordSubmitting.value = false;
+  }
+}
+
+// ============================================
+// 退出登录
+// ============================================
+async function onLogout() {
+  try {
+    await ElMessageBox.confirm("确定要退出当前账户吗？", "退出登录", {
+      confirmButtonText: "退出",
+      cancelButtonText: "取消",
+      type: "warning"
+    });
+  } catch {
+    return;
+  }
+  await userStore.logOut();
+}
+
 // ============================================
 // 数据加载
 // ============================================
@@ -470,6 +538,8 @@ onMounted(async () => {
     me.value = data;
     profileForm.nickname = data.nickname || "";
     profileForm.username = data.username || "";
+    savedNickname.value = data.nickname || "";
+    savedUsername.value = data.username || "";
     userStore.SET_NICKNAME(data.nickname || "");
     userStore.SET_USERNAME(data.username || "");
     if (data.avatar) userStore.SET_AVATAR(data.avatar);
@@ -481,101 +551,433 @@ onMounted(async () => {
     }
   }
 });
-
-// ============================================
-// 动作
-// ============================================
-async function onSaveProfile() {
-  if (!profileFormRef.value) return;
-  const valid = await profileFormRef.value.validate().catch(() => false);
-  if (!valid) return;
-  profileSaving.value = true;
-  try {
-    const payload = { nickname: "", username: "" };
-    if (profileForm.nickname) payload.nickname = profileForm.nickname.trim();
-    if (profileForm.username) payload.username = profileForm.username.trim();
-    const { data } = await updateMe(payload);
-    userStore.SET_NICKNAME(data.nickname || profileForm.nickname);
-    userStore.SET_USERNAME(data.username || profileForm.username);
-    userStore.persist();
-    ElMessage.success("资料已保存");
-  } catch (e: any) {
-    if (e?.response?.status === 409) {
-      ElMessage.error("该用户名已被使用，请更换");
-    } else {
-      ElMessage.error(e?.response?.data?.message || "保存失败，请重试");
-    }
-  } finally {
-    profileSaving.value = false;
-  }
-}
-
-async function onSaveEmail() {
-  if (!emailFormRef.value) return;
-  const valid = await emailFormRef.value.validate().catch(() => false);
-  if (!valid) return;
-  emailSubmitting.value = true;
-  try {
-    const { error } = await supabase.auth.updateUser({
-      email: emailForm.email.trim()
-    });
-    if (error) throw error;
-    ElMessage.success("验证邮件已发送，请到新邮箱完成验证");
-    emailDialogVisible.value = false;
-    emailForm.email = "";
-  } catch (e: any) {
-    ElMessage.error(e.message || "发送失败，请重试");
-  } finally {
-    emailSubmitting.value = false;
-  }
-}
-
-async function onSavePassword() {
-  if (!passwordFormRef.value) return;
-  const valid = await passwordFormRef.value.validate().catch(() => false);
-  if (!valid) return;
-  passwordSubmitting.value = true;
-  try {
-    const { error } = await supabase.auth.updateUser({
-      password: passwordForm.password
-    });
-    if (error) throw error;
-    ElMessage.success("密码已修改");
-    passwordDialogVisible.value = false;
-    passwordForm.password = "";
-    passwordForm.confirm = "";
-  } catch (e: any) {
-    ElMessage.error(e.message || "修改失败，请重试");
-  } finally {
-    passwordSubmitting.value = false;
-  }
-}
 </script>
 
 <style scoped>
-.profile-avatar {
-  width: 88px;
-  height: 88px;
-  object-fit: cover;
-  border: 2px solid var(--border-light);
-  border-radius: 50%;
-}
+@keyframes style-pop {
+  0% {
+    transform: scale(1);
+  }
 
-.style-pill {
-  padding: 6px 14px;
-  font-size: 13px;
-  cursor: pointer;
-  background-color: transparent;
-  border: 1px solid var(--border-light);
-  border-radius: 999px;
-  transition: all 0.15s ease;
+  30% {
+    transform: scale(0.92);
+  }
 
-  &:hover {
-    border-color: var(--brand-700);
+  60% {
+    transform: scale(1.05);
+  }
+
+  80% {
+    transform: scale(0.97);
+  }
+
+  100% {
+    transform: scale(1);
   }
 }
 
-.label {
-  font-weight: 500;
+/* ===== 响应式：窄屏下设置行堆叠、字号不缩水 ===== */
+@media (width <= 640px) {
+  .avatar-zone {
+    align-items: flex-start;
+  }
+
+  .setting-row {
+    flex-direction: column;
+    gap: var(--space-2);
+
+    &__label {
+      flex-basis: auto;
+    }
+
+    &__main {
+      justify-content: flex-start;
+      width: 100%;
+    }
+  }
+
+  .style-group {
+    justify-content: flex-start;
+  }
+
+  .field-input {
+    max-width: none;
+  }
+
+  .danger-zone {
+    align-items: flex-start;
+  }
 }
+
+.profile-page {
+  padding: var(--space-5);
+}
+
+.profile-head {
+  :deep(.page-header) {
+    max-width: 960px;
+  }
+}
+
+.profile-shell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.settings-card {
+  padding: var(--space-standard);
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-raised);
+}
+
+/* ===== 头像区（超椭圆 + 画风胶囊 + 随机） ===== */
+.avatar-zone {
+  display: flex;
+  gap: var(--space-5);
+  align-items: center;
+  padding: var(--space-3) 0 var(--space-standard);
+  border-top: 1px solid var(--border-subtle);
+
+  &:first-of-type {
+    padding-top: 0;
+    border-top: none;
+  }
+}
+
+.avatar-frame {
+  flex-shrink: 0;
+  width: 88px;
+  height: 88px;
+  background-color: var(--bg-soft);
+}
+
+.avatar-preview {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatar-control {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-3);
+  align-items: flex-start;
+  min-width: 0;
+}
+
+/* ===== 果冻胶囊按钮组（头像风格选择） ===== */
+.style-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.style-capsule {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  padding: 7px 16px;
+  font-size: var(--text-small);
+  font-weight: 500;
+  line-height: 1;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  transform: translateZ(0);
+  transform-origin: center;
+  transition:
+    transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1),
+    background-color 0.2s,
+    color 0.2s,
+    border-color 0.2s,
+    box-shadow 0.2s;
+  will-change: transform;
+
+  &:hover {
+    color: var(--text-primary);
+    border-color: var(--brand-400);
+  }
+
+  &:active {
+    transform: scale(0.92);
+  }
+
+  &--active {
+    color: var(--brand-700);
+    background-color: var(--brand-100);
+    border-color: var(--brand-400);
+    box-shadow: 0 1px 3px rgb(0 0 0 / 6%);
+    animation: style-pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+
+    &:hover {
+      color: var(--brand-700);
+    }
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+  }
+
+  &__check {
+    font-size: 16px;
+  }
+}
+
+/* ===== 随机换一个（纯文本按钮 + 珊瑚红 SVG） ===== */
+.link-btn {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  padding: 4px 0;
+  font-size: var(--text-small);
+  color: var(--brand-700);
+  cursor: pointer;
+  background: none;
+  border: none;
+  transition: color 0.15s ease;
+
+  &:hover {
+    color: var(--brand-800);
+  }
+
+  &:focus-visible {
+    outline: none;
+    border-radius: var(--radius-sm);
+    box-shadow: var(--focus-ring);
+  }
+
+  &__icon {
+    font-size: 14px;
+  }
+}
+
+/* ===== 字段块（标签+说明上行、输入框下行） ===== */
+.field-block {
+  padding: var(--space-5) 0;
+  border-top: 1px solid var(--border-subtle);
+
+  &:first-of-type {
+    padding-top: 0;
+    border-top: none;
+  }
+
+  &__label-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    align-items: flex-start;
+    justify-content: space-between;
+    min-height: 40px;
+    margin-bottom: var(--space-2);
+  }
+
+  &__label-group {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  &__label {
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.4;
+    color: var(--text-primary);
+  }
+
+  &__desc {
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--text-secondary);
+  }
+
+  &__save {
+    /* 按钮物理占位，防止出现/消失导致 CLS 跳动 */
+    flex-shrink: 0;
+    width: 72px;
+    height: 40px;
+    margin-left: auto;
+  }
+}
+
+/* 输入框（suffix 字数统计字体轻量化） */
+.field-input {
+  width: 100%;
+  max-width: 360px;
+
+  :deep(.el-input__wrapper) {
+    border-radius: var(--radius-sm);
+  }
+}
+
+.char-count {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-tertiary);
+}
+
+.field-count {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-tertiary);
+}
+
+/* ===== 账号安全设置行 ===== */
+.setting-row {
+  display: flex;
+  gap: var(--space-5);
+  align-items: flex-start;
+  padding: var(--space-5) 0;
+  border-top: 1px solid var(--border-subtle);
+
+  &:first-of-type {
+    padding-top: var(--space-3);
+    border-top: none;
+  }
+
+  &:last-child {
+    padding-bottom: var(--space-3);
+  }
+
+  &__label {
+    display: flex;
+    flex: 0 0 160px;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  &__name {
+    font-size: var(--text-small);
+    font-weight: 500;
+    line-height: 1.4;
+    color: var(--text-primary);
+  }
+
+  &__desc {
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--text-tertiary);
+  }
+
+  &__main {
+    display: flex;
+    flex: 1;
+    gap: var(--space-standard);
+    align-items: center;
+    justify-content: flex-end;
+    min-width: 0;
+  }
+}
+
+.field-value {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--text-small);
+  color: var(--text-primary);
+  white-space: nowrap;
+
+  &--mono {
+    font-family: var(--font-mono, "SF Mono", "JetBrains Mono", monospace);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* ===== 修改链接（品牌色纯文本按钮） ===== */
+.modify-link {
+  padding: 0;
+  font-size: var(--text-small);
+  font-weight: 500;
+  color: var(--brand-700);
+  cursor: pointer;
+  background: none;
+  border: none;
+  transition: color 0.15s ease;
+
+  &:hover {
+    color: var(--brand-800);
+  }
+
+  &:focus-visible {
+    outline: none;
+    border-radius: var(--radius-sm);
+    box-shadow: var(--focus-ring);
+  }
+}
+
+/* ===== 危险操作区分隔区（退出登录） ===== */
+.danger-zone {
+  display: flex;
+  gap: var(--space-5);
+  align-items: center;
+  justify-content: space-between;
+  padding-top: var(--space-standard);
+  margin-top: var(--space-standard);
+  border-top: 1px solid var(--border-subtle);
+
+  &__text {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  &__label {
+    font-size: var(--text-small);
+    font-weight: 500;
+    line-height: 1.4;
+    color: var(--text-primary);
+  }
+
+  &__desc {
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--text-tertiary);
+  }
+}
+
+/* 危险幽灵按钮：透明底 + 红色描边，Hover 红色实心白字 */
+.danger-btn {
+  flex-shrink: 0;
+  height: 40px;
+  font-weight: 500;
+  color: var(--color-danger);
+  background: transparent;
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-sm);
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
+
+  &:hover,
+  &:focus-visible {
+    color: var(--bg-card);
+    background-color: var(--color-danger);
+    border-color: var(--color-danger);
+  }
+
+  &:active {
+    transform: translateY(1px);
+  }
+}
+
+.dialog-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+/* 🔥 果冻回弹关键帧（与 manual 录入页一致，单一来源见 design 交互规范） */
 </style>

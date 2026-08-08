@@ -22,6 +22,7 @@ title: 组件使用规范（设计语言实现层）
 - `TemperatureContextCard` — 温度上下文解读卡
 - `PageHeaderBar` — 页面统一页头
 - `PageFooter` / `MarketFooter` — 探市 / 温度计页脚
+- `Superellipse` — 品牌 n=3 超椭圆容器（logo / 头像 / 卡片普适轮廓，禁各处手写圆角或 polygon 轮廓）
 - 全站页脚：`frontend/src/layout/components/lay-footer/index.vue`
 
 组件路径位于 `frontend/src/components/{组件名}/index.vue`。
@@ -41,6 +42,38 @@ title: 组件使用规范（设计语言实现层）
 - 结构：左侧「标题 + 可选信息图标（hover / 焦点 tooltip）」+ 右侧「操作槽（具名插槽 `#action`）」。
 - props：`title`（区块标题）、`info`（信息图标 tooltip 文案，缺省则不显示图标）、`icon`（信息图标名，默认 `ep:info-filled`）。
 - 与 `MetricCard` / `TemperatureGaugeCard` 标题行视觉一致（16px / 600 / `--text-primary`，右侧操作槽垂直居中）。
+
+## 设置页 · 单栏居中布局（D13）
+
+面向「个人中心 / 设置」类**账户管理页**，采用 Vercel / Trae 风格的单栏居中设置页，**禁止双栏多卡散乱平铺**：
+
+- 页外层 `max-width: 960px`（D13 原定 680px，已由 **D15 受控覆写为 960px**，以 D15 为准）+ `margin: 0 auto`，顶部用 `PageHeaderBar` 统一页头。
+- 纵向区块（如 个人资料 / 账号安全 / 退出登录）用「卡片（`settings-card`）+ `SectionHeader` + 设置行」组织；卡片间 `gap: var(--space-5)`。
+- **设置行（`setting-row`）**：一行为一个独立设置项，结构 = 左侧 `label + desc`（`flex-basis:160px`，desc 用 `--text-tertiary`）+ 右侧主操作区（`justify-content:flex-end`）。行内分割线用 `--border-subtle`，行高 ≥ 48px 保证热区。
+- 响应式：≤640px 时行内改为上下堆叠（label 在上、控制在下方）。
+- 参考实现：`frontend/src/views/profile/index.vue`。
+
+## 果冻胶囊按钮组（D13）
+
+用于**多选一、且选项数量少（2–6）**的紧凑选择（如头像画风选择、手动录入的买/卖类型）。具弹性回弹的胶囊按钮，是"温暖极简主义"的交互签名。
+
+- 形状：胶囊（`border-radius: var(--radius-pill)`），透明底 + 1px `--border-default` 边框。
+- 未选中：`color: var(--text-tertiary)`，hover 提到 `--text-primary`、边框 `--brand-400`。
+- 选中：`color: var(--brand-700)` + `background: var(--brand-100)` + 边框 `--brand-400` + `box-shadow: 0 1px 3px rgb(0 0 0 / 6%)`。
+- **弹性动画**：选中态触发 `style-pop` 关键帧（`scale 1→0.92→1.05→0.97→1`），`:active` 收缩 `scale(0.92)`；缓动统一 `cubic-bezier(0.34, 1.56, 0.64, 1)`；`transform-origin:center` + `will-change:transform`，加 `transform: translateZ(0)` 避免模糊。
+- `:focus-visible` 必须有 `--focus-ring`。
+- 参考实现：`frontend/src/views/profile/index.vue` 的 `.style-capsule`、`frontend/src/views/asset/investment/manual/index.vue` 的 `:deep(.el-radio-button__inner)`。
+
+## Superellipse · 品牌超椭圆容器（D15，强制复用）
+
+logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superellipse` 组件，禁止各处手写 `border-radius` 圆角或 SVG polygon 轮廓（品牌 n=3 超椭圆在「直线→曲线」过渡点是连续曲率，视觉比圆形圆弧更柔和，是设计语言「温暖极简」的形状签名）。
+
+- 名称：`Superellipse`（`frontend/src/components/Superellipse/index.vue`）。
+- props：`power`（超椭圆指数 n，默认 3；越大越接近直角方形，`2` 即标准圆）、`points`（采样点数，默认 128，越多越平滑、SVG 字符串越长）。
+- slot：被裁剪成超椭圆的内容（不限定单元素）。
+- 实现方式：**SVG `<polygon>` 黑底超椭圆 → `mask-image`（data-URI SVG）**，全浏览器（含旧 Webkit，带 `-webkit-` 前缀）、像素级、可响应尺寸、无 DOM 剪裁 id 冲突。原理调研见组件头注释（弃用 CSS Houdini Paint worklet / 非 Web 的 smooth-corner-rect）。
+- 尺寸由使用方通过 class 控制（如 profile 头像 `.avatar-frame` 88px），组件本身不预设尺寸。
+- 参考实现：`frontend/src/views/profile/index.vue` 头像容器（`<Superellipse :power="3">` 包裹 `avatar-frame`）。
 
 ## 12 列栅格与容器层级（布局强制统一）
 

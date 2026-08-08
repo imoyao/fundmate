@@ -22,6 +22,14 @@ export type AvatarStyle = (typeof AVATAR_STYLES)[number];
 
 export const DEFAULT_AVATAR_STYLE: AvatarStyle = "adventurer";
 
+/** 风格中文名（果冻胶囊按钮 / 下拉展示用，避免直接暴露英文 key） */
+export const AVATAR_STYLE_LABEL: Record<AvatarStyle, string> = {
+  adventurer: "冒险家",
+  lorelei: "优雅",
+  "fun-emoji": "趣味",
+  micah: "简约"
+};
+
 const DICEBEAR_BASE = "https://api.dicebear.com/9.x";
 
 /** 简单确定性字符串哈希（djb2），保证非可逆、非 PII 的稳定 seed */
