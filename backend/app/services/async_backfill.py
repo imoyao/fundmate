@@ -12,7 +12,6 @@
 
 import threading
 
-import pandas as pd
 from loguru import logger
 
 from app.core.database import SessionLocal
@@ -22,68 +21,55 @@ from app.domains.price_history.models import PriceHistory
 from app.domains.securities.models import Security
 from app.services.sync.adapters.akshare_adapter import AkshareAdapter
 from app.services.sync.adapters.xalpha_adapter import XalphaAdapter
-from app.services.sync.money_fund_utils import compute_money_fund_yields
 
 
 def _backfill_fund_nav(fund_code: str):
     db = SessionLocal()
     try:
         adapter = XalphaAdapter()
-        fund, is_money_fund = adapter.get_fund_with_type(fund_code)
-        if fund is None:
+        records = adapter.fetch_fund_nav(fund_code)
+        if not records:
             return
 
-        nav_df = fund.price
-        if nav_df is None or nav_df.empty:
-            return
-
-        if is_money_fund:
-            records = compute_money_fund_yields(nav_df)
-            for r in records:
-                r['fund_code'] = fund_code
-            target_model = MoneyFundDailyWorth
-        else:
-            records = list()
-            for idx, row in nav_df.iterrows():
-                # 优先使用列中的日期
-                if 'date' in row and row['date'] is not None:
-                    raw_date = row['date']
-                    if hasattr(raw_date, 'date'):
-                        date_val = raw_date.date()
-                    else:
-                        date_val = pd.Timestamp(raw_date).date()
-                else:
-                    # 尝试从 index 转换
-                    if hasattr(idx, 'date'):
-                        date_val = idx.date()
-                    elif isinstance(idx, (int, float, str)):
-                        try:
-                            date_val = pd.Timestamp(idx).date()
-                        except Exception:
-                            logger.warning(f'无法解析日期: {idx}, 跳过')
-                            continue
-                    else:
-                        continue
-
-                records.append(
+        money_records = []
+        normal_records = []
+        for r in records:
+            if r.get('is_money_fund'):
+                money_records.append(
                     {
                         'fund_code': fund_code,
-                        'date': date_val,
-                        'unit_nav': float(row.get('netvalue', 0)),
-                        'acc_nav': float(row.get('totvalue', 0)),
+                        'date': r['date'],
+                        'nav_per_10k': r['unit_nav'],
                     }
                 )
-            target_model = DailyWorth
+            else:
+                normal_records.append(
+                    {
+                        'fund_code': fund_code,
+                        'date': r['date'],
+                        'unit_nav': r['unit_nav'],
+                        'acc_nav': r.get('acc_nav', 0),
+                    }
+                )
 
-        if records:
+        if normal_records:
             total = bulk_insert_if_not_exists(
                 db,
-                target_model,
-                records,
+                DailyWorth,
+                normal_records,
                 unique_key='fund_code',  # 兼容旧参数
                 unique_columns=['fund_code', 'date'],  # 实际使用的联合键
             )
             logger.info(f'异步回填基金 {fund_code} 净值 {total} 条')
+        if money_records:
+            total = bulk_insert_if_not_exists(
+                db,
+                MoneyFundDailyWorth,
+                money_records,
+                unique_key='fund_code',
+                unique_columns=['fund_code', 'date'],
+            )
+            logger.info(f'异步回填货币基金 {fund_code} 收益 {total} 条')
     except Exception as e:
         db.rollback()
         logger.warning(f'异步回填基金 {fund_code} 净值失败: {e}')

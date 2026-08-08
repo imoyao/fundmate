@@ -23,27 +23,55 @@ class TestXalphaAdapter:
         with pytest.raises(NotImplementedError):
             adapter.fetch_fund_list()
 
-    @patch('app.services.sync.adapters.xalpha_adapter.xa')
-    def test_fetch_fund_nav_returns_records(self, mock_xa, adapter):
-        mock_fund = MagicMock()
-        mock_fund.price = pd.DataFrame(
-            {'netvalue': [1.5, 1.6], 'totvalue': [2.0, 2.1]}, index=pd.to_datetime(['2025-01-01', '2025-01-02'])
+    @patch('app.services.sync.adapters.xalpha_adapter.requests.get')
+    def test_fetch_fund_nav_returns_records(self, mock_get, adapter):
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            json=MagicMock(
+                return_value={
+                    'Data': {
+                        'TotalCount': 2,
+                        'LSJZList': [
+                            {'FSRQ': '2025-01-02', 'DWJZ': '1.6000', 'LJJZ': '2.1000'},
+                            {'FSRQ': '2025-01-01', 'DWJZ': '1.5000', 'LJJZ': '2.0000'},
+                        ],
+                    }
+                }
+            ),
         )
-        mock_xa.fundinfo.return_value = mock_fund
 
-        records = adapter.fetch_fund_nav('000001')
+        records = adapter.fetch_fund_nav('000001', start_date=date(2025, 1, 1))
         assert len(records) == 2
-        assert records[0]['unit_nav'] == 1.5
-        assert records[0]['acc_nav'] == 2.0
+        assert records[0]['unit_nav'] == 1.6
+        assert records[0]['acc_nav'] == 2.1
         assert records[0]['fund_code'] == '000001'
+        assert records[0]['is_money_fund'] is False
 
-    @patch('app.services.sync.adapters.xalpha_adapter.xa')
-    def test_fetch_fund_nav_empty(self, mock_xa, adapter):
-        mock_fund = MagicMock()
-        mock_fund.price = pd.DataFrame()
-        mock_xa.fundinfo.return_value = mock_fund
-        records = adapter.fetch_fund_nav('000001')
+    @patch('app.services.sync.adapters.xalpha_adapter.requests.get')
+    def test_fetch_fund_nav_empty(self, mock_get, adapter):
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            json=MagicMock(return_value={'Data': {'TotalCount': 0, 'LSJZList': []}}),
+        )
+        records = adapter.fetch_fund_nav('000001', start_date=date(2025, 1, 1))
         assert records == []
+
+    def test_fetch_fund_nav_by_date(self, adapter):
+        with patch('app.services.sync.adapters.xalpha_adapter.requests.get') as mock_get:
+            mock_get.return_value = MagicMock(
+                status_code=200,
+                json=MagicMock(return_value={'Data': {'LSJZList': [{'FSRQ': '2025-01-01', 'DWJZ': '1.5000'}]}}),
+            )
+            nav = adapter.fetch_fund_nav_by_date('000001', date(2025, 1, 1))
+            assert nav == 1.5
+
+    def test_fetch_fund_nav_by_date_no_data(self, adapter):
+        with patch('app.services.sync.adapters.xalpha_adapter.requests.get') as mock_get:
+            mock_get.return_value = MagicMock(
+                status_code=200,
+                json=MagicMock(return_value={'Data': {'LSJZList': []}}),
+            )
+            assert adapter.fetch_fund_nav_by_date('000001', date(2025, 1, 1)) is None
 
     def test_parse_redemption_schedule_normal(self, adapter):
         feeinfo = ['小于7天', '1.50%', '大于等于7天，小于30天', '0.75%', '大于等于30天', '0.00%']
