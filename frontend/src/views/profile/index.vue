@@ -35,27 +35,34 @@
                 />
                 <span class="avatar-anim-toggle__label">使用动态头像</span>
               </label>
-              <button type="button" class="link-btn" @click="onRandomizeAvatar">
-                <IconifyIconOffline
-                  icon="lucide:shuffle"
-                  class="link-btn__icon"
-                  aria-hidden="true"
-                />
-                随机换一个
-              </button>
-              <button
-                v-if="avatarDirty"
-                type="button"
-                class="link-btn"
-                @click="onRevertAvatar"
-              >
-                <IconifyIconOffline
-                  icon="lucide:undo-2"
-                  class="link-btn__icon"
-                  aria-hidden="true"
-                />
-                撤销更改
-              </button>
+              <!-- 两个操作按钮并排一行：撤销的出现/消失不改变行高，避免页面高度变化引发滚动条抖动 -->
+              <div class="avatar-actions">
+                <button
+                  type="button"
+                  class="link-btn"
+                  @click="onRandomizeAvatar"
+                >
+                  <IconifyIconOffline
+                    icon="lucide:shuffle"
+                    class="link-btn__icon"
+                    aria-hidden="true"
+                  />
+                  随机换一个
+                </button>
+                <button
+                  v-if="avatarDirty"
+                  type="button"
+                  class="link-btn link-btn--muted"
+                  @click="onRevertAvatar"
+                >
+                  <IconifyIconOffline
+                    icon="lucide:undo-2"
+                    class="link-btn__icon"
+                    aria-hidden="true"
+                  />
+                  撤销更改
+                </button>
+              </div>
             </div>
           </div>
 
@@ -797,13 +804,12 @@ onMounted(async () => {
   flex: 1;
 }
 
-/* 开关与按钮 */
-.avatar-tools {
+/* 操作按钮行：随机 + 撤销并排，撤销出现/消失不改变行高 */
+.avatar-actions {
   display: flex;
-  gap: var(--space-4);
+  gap: var(--space-3);
   align-items: center;
-  justify-content: space-between;
-  width: 100%;
+  min-height: 28px;
 }
 .avatar-anim-toggle {
   display: inline-flex;
@@ -816,7 +822,7 @@ onMounted(async () => {
   font-size: var(--text-small);
 }
 
-/* ===== 随机换一个 ===== */
+/* ===== 随机换一个 / 撤销更改 ===== */
 .link-btn {
   display: inline-flex;
   gap: 4px;
@@ -829,8 +835,15 @@ onMounted(async () => {
   border: none;
   transition: color 0.15s ease;
 }
+/* 撤销：次级语义，用中性灰与主操作（随机）区分 */
+.link-btn--muted {
+  color: var(--text-secondary);
+}
 .link-btn:hover {
   color: var(--brand-800);
+}
+.link-btn--muted:hover {
+  color: var(--text-primary);
 }
 .link-btn:focus-visible {
   outline: none;
