@@ -393,7 +393,7 @@ onBeforeUnmount(() => {
 .sankey-chart-container {
   position: relative;
   width: 100%;
-  height: v-bind(containerheight + "px");
+  height: v-bind(containerHeight + "px");
   contain: layout style;
 }
 
