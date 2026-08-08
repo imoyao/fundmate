@@ -3,7 +3,9 @@ export default {
   redirect: "/error/403",
   meta: {
     icon: "ri:information-line",
-    showLink: false,
+    // hidden：不进侧边栏（父级 + 全部子级均 hidden，整棵移除），
+    // 但路由仍注册，直接访问 /error/403、/error/404、/error/500 可正常打开
+    hidden: true,
     title: "异常页面",
     rank: 9
   },
@@ -13,7 +15,8 @@ export default {
       name: "403",
       component: () => import("@/views/error/403.vue"),
       meta: {
-        title: "403"
+        title: "403",
+        hidden: true
       }
     },
     {
@@ -21,7 +24,8 @@ export default {
       name: "404",
       component: () => import("@/views/error/404.vue"),
       meta: {
-        title: "404"
+        title: "404",
+        hidden: true
       }
     },
     {
@@ -29,7 +33,8 @@ export default {
       name: "500",
       component: () => import("@/views/error/500.vue"),
       meta: {
-        title: "500"
+        title: "500",
+        hidden: true
       }
     }
   ]
