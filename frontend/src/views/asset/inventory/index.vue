@@ -227,8 +227,9 @@
         >
           <el-table
             height="400"
-            :data="paginatedInvestments"
+            :data="investmentPositions"
             style="width: 100%"
+            v-loading="investmentLoading"
             :header-cell-style="{
               color: 'var(--text-tertiary)',
               fontWeight: '500',
@@ -253,7 +254,7 @@
             <el-table-column label="市值" width="130" align="right">
               <template #default="{ row }">
                 <MoneyDisplay
-                  :value="row.marketValue"
+                  :value="row.market_value"
                   :show-sign="false"
                   size="sm"
                 />
@@ -270,7 +271,7 @@
             <el-pagination
               v-model:current-page="investmentPage"
               :page-size="10"
-              :total="allPositions.length"
+              :total="investmentTotal"
               layout="prev, pager, next"
               small
             />
@@ -482,6 +483,7 @@ import {
   deleteAsset
 } from "@/api/assets";
 import { getPositions } from "@/api/positions";
+import { getDistributions, getPositionGroups } from "@/api/summary";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import { ALLOCATION_OPTIONS } from "@/constants";
@@ -490,12 +492,6 @@ defineOptions({ name: "InventoryHome" });
 
 const router = useRouter();
 const route = useRoute();
-
-const EXCHANGE_RATES: Record<string, number> = {
-  CNY: 1,
-  USD: 7.25,
-  HKD: 0.92
-};
 
 const categories = [
   {
@@ -677,10 +673,15 @@ const assetTypeMap: Record<
 
 const activeCategory = ref("investment");
 const allAssets = ref<any[]>([]);
-const allPositions = ref<any[]>([]);
+// 投资明细分页数据（后端分页，market_value/pnl 由后端换算）
+const investmentPositions = ref<any[]>([]);
+const investmentTotal = ref(0);
+const distributions = ref<any>(null);
+const investmentGroupsRaw = ref<any[]>([]);
 const loading = ref(false);
 const investmentPage = ref(1);
 const pageSize = 10;
+const investmentLoading = ref(false);
 
 // 🔥 新增：汇总缓存与按需加载数据源
 const assetsSummary = ref<Record<string, number>>({});
@@ -745,12 +746,8 @@ const activeAssetTypes = computed(
   () => assetTypeMap[activeCategory.value] || []
 );
 
-const paginatedInvestments = computed(() => {
-  const start = (investmentPage.value - 1) * pageSize;
-  const end = start + pageSize;
-  return allPositions.value.slice(start, end);
-});
-
+// 投资分布：消费后端 GET /api/summary/groups/?dimension=type（含 count/总市值），
+// 按原页面语义合并「股票+可转债→证券」「基金→场外基金」
 const investmentGroups = computed(() => {
   if (activeCategory.value !== "investment") return [];
 
@@ -765,16 +762,21 @@ const investmentGroups = computed(() => {
     },
     fund: { label: "场外基金", icon: "ep:money", color: "var(--invest-fund)" }
   };
+  // 后端 type_label → 页面分组 key（股票/可转债合并为证券，基金归基金，其余忽略）
+  const groupKeyMap: Record<string, string> = {
+    股票: "securities",
+    可转债: "securities",
+    基金: "fund"
+  };
 
   const groups: Record<string, { total: number; count: number }> = {};
-  allPositions.value.forEach(p => {
-    let t = p.type || "other";
-    if (["stock", "bond"].includes(t)) t = "securities";
-    if (t !== "securities" && t !== "fund") return;
-    if (!groups[t]) groups[t] = { total: 0, count: 0 };
-    groups[t].total += p.marketValue || 0;
-    groups[t].count += 1;
-  });
+  for (const g of investmentGroupsRaw.value) {
+    const key = groupKeyMap[g.name];
+    if (!key) continue;
+    if (!groups[key]) groups[key] = { total: 0, count: 0 };
+    groups[key].total += g.total || 0;
+    groups[key].count += g.count || 0;
+  }
 
   return Object.entries(groups).map(([type, data]) => {
     const meta = typeMetaMap[type];
@@ -817,15 +819,29 @@ const getColorWithAlpha = (colorVar: string, alpha: number): string => {
 // 🔥 优化：不再遍历全量列表，只读汇总接口的数据
 const getCategoryTotal = (key: string): number => {
   if (key === "investment") {
-    const fromAssets = 0; // 投资理财不依赖汇总接口
-    const fromPositions = allPositions.value.reduce(
-      (s, p) => s + (p.marketValue || 0),
-      0
-    );
-    return fromAssets + fromPositions;
+    // 持仓市值总额走后端 distributions（含汇率换算），不再遍历全量明细
+    return distributions.value?.positions_total_mv || 0;
   }
   return assetsSummary.value[key] || 0;
 };
+
+// 投资明细：后端真实分页拉取（market_value/pnl 后端换算，前端不再计算）
+async function loadInvestmentPage(page: number) {
+  investmentLoading.value = true;
+  try {
+    const res = await getPositions({ page, per_page: pageSize });
+    const payload = (res as any)?.data ?? {};
+    investmentPositions.value = Array.isArray(payload)
+      ? payload
+      : payload?.data || [];
+    investmentTotal.value = (res as any)?.total ?? investmentPositions.value.length;
+  } catch (e) {
+    console.error("加载投资明细分页失败", e);
+    investmentPositions.value = [];
+  } finally {
+    investmentLoading.value = false;
+  }
+}
 
 // 🔥 优化：按需加载该大类的具体资产数据
 const loadCategoryAssets = async (category: string) => {
@@ -909,41 +925,15 @@ async function confirmDeleteAsset(row: any) {
   }
 }
 
-// 🔥 全新 fetchData：只请求基础的持仓和汇总接口
+// 🔥 全新 fetchData：只请求基础汇总、分布与投资分组接口
 async function fetchData() {
   loading.value = true;
   try {
-    const [posRes, summaryRes] = await Promise.all([
-      getPositions({ per_page: 500 }),
-      getAssetsSummary()
+    const [summaryRes, distRes, groupsRes] = await Promise.all([
+      getAssetsSummary(),
+      getDistributions(),
+      getPositionGroups("type")
     ]);
-
-    // 🔥 修复 1：必须正确解析 positions 的各种可能返回结构
-    let positionsRaw: any[] = [];
-    if (Array.isArray(posRes)) {
-      positionsRaw = posRes;
-    } else if (posRes && Array.isArray((posRes as any).data)) {
-      positionsRaw = (posRes as any).data;
-    } else if (
-      posRes &&
-      (posRes as any).data &&
-      Array.isArray((posRes as any).data.data)
-    ) {
-      positionsRaw = (posRes as any).data.data;
-    } else {
-      const maybe = (posRes as any)?.data ?? posRes ?? [];
-      positionsRaw = Array.isArray(maybe) ? maybe : [];
-    }
-
-    // 🔥 修复 2：必须补回 marketValue 和 pnl 的映射计算！
-    allPositions.value = positionsRaw.map((p: any) => {
-      const rate = EXCHANGE_RATES[p.currency || "CNY"] || 1;
-      return {
-        ...p,
-        marketValue: (p.quantity || 0) * (p.current_price || 0) * rate,
-        pnl: (p.pnl || 0) * rate
-      };
-    });
 
     // 汇总数据直接赋值
     // 🔥 核心修复：同时兼容后端返回的【数组格式】和【旧对象格式】
@@ -961,6 +951,17 @@ async function fetchData() {
     }
     assetsSummary.value = summaryDict;
 
+    const distData = (distRes as any)?.data;
+    distributions.value =
+      distData && typeof distData === "object" ? distData : null;
+
+    const groupsData = (groupsRes as any)?.data;
+    investmentGroupsRaw.value = Array.isArray(groupsData)
+      ? groupsData
+      : groupsData?.data || [];
+
+    await loadInvestmentPage(investmentPage.value);
+
     if (activeCategory.value !== "investment") {
       await loadCategoryAssets(activeCategory.value);
     }
@@ -970,6 +971,11 @@ async function fetchData() {
     loading.value = false;
   }
 }
+
+// 投资明细分页切换时重新拉取
+watch(investmentPage, page => {
+  loadInvestmentPage(page);
+});
 
 // 账户/持仓数据变更后全局自动刷新
 usePageRefresh(() => {
