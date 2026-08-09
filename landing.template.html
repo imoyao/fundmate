@@ -5,9 +5,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>多倍贝 · 看见你的复利增长</title>
   <meta name="description" content="一个让复利增长清晰可见的投资账本不荐股 · 不跟单 · 不自动抓取，数据主权始终在你手里。" />
+  <!-- SEO 基础：关键词（中文核心词，帮助搜索引擎理解主题） -->
+  <meta name="keywords" content="多倍贝,投资记账,复利,XIRR,持仓穿透,基金记账,理财账本,个人投资,家庭投资,不荐股" />
+  <!-- Open Graph（微信/QQ/Telegram 等分享卡片） -->
   <meta property="og:title" content="多倍贝 · 看见你的复利增长" />
   <meta property="og:description" content="算清真实收益、穿透持仓、算准 XIRR，数据始终在你手里。不荐股 · 不跟单 · 不自动抓取。" />
   <meta property="og:type" content="website" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:site_name" content="多倍贝" />
+  <!-- TODO(seo): 部署域名确认后填入真实地址；og:url 与下方 canonical 需保持一致 -->
+  <meta property="og:url" content="https://duobeibei.com/" />
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="多倍贝 · 看见你的复利增长" />
+  <meta name="twitter:description" content="算清真实收益、穿透持仓、算准 XIRR，数据始终在你手里。不荐股 · 不跟单 · 不自动抓取。" />
+  <!-- canonical：规范链接，避免重复内容权重分散 -->
+  <link rel="canonical" href="https://duobeibei.com/" />
   <link rel="stylesheet" href="/site/style.css" />
   <link rel="icon" href="/favicon.ico" />
   <style>
@@ -618,6 +631,34 @@
     .shell-deco { display: none; } /* 移动端隐藏散落贝壳 */
   }
   </style>
+  <!-- ===== 结构化数据（JSON-LD）：帮助搜索引擎理解站点与品牌 ===== -->
+  <!-- TODO(seo): 部署域名确认后，将 duobeibei.com 替换为真实地址 -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebSite",
+        "@id": "https://duobeibei.com/#website",
+        "url": "https://duobeibei.com/",
+        "name": "多倍贝",
+        "description": "一个让复利增长清晰可见的投资账本。手动归集、穿透持仓、算准 XIRR，数据始终在你手里。",
+        "inLanguage": "zh-CN"
+      },
+      {
+        "@type": "Organization",
+        "@id": "https://duobeibei.com/#organization",
+        "name": "多倍贝",
+        "url": "https://duobeibei.com/",
+        "logo": "https://duobeibei.com/logo.svg",
+        "description": "面向个人与家庭的投资账本，手动归集、穿透持仓、算准 XIRR，坚持数据主权、不荐股、不自动抓取。",
+        "sameAs": [
+          "https://github.com/imoyao/fundmate"
+        ]
+      }
+    ]
+  }
+  </script>
 </head>
 <body>
 

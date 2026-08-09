@@ -71,7 +71,7 @@ const PAGES = {
 //   - YML about.blocks[*].title 必须全部存在于 docs/site/about.md 的 `## ` 标题中（双向）。
 // 用途：about.html 是品牌页，文案可自由润色美化（用户裁决：不要求逐句镜像 docs）；
 //       但章节结构应与 docs/site/about.md 保持对齐，防止某个 section 被悄悄删除而两处脱节。
-const ABOUT_DOCS_PATH = path.join(root, 'docs', 'site', 'about.md');
+const ABOUT_DOCS_PATH = path.join(root, 'docs', 'about.md');
 
 function verifyAboutDrift() {
   if (!data.about) return;

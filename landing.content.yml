@@ -79,7 +79,10 @@ eco:
   headSub: 支持 CSV / Excel 导入，无需输入券商账号密码
   logos:
     - { name: 支付宝, icon: "logos/alipay.svg" }
-  texts: [天天基金, 同花顺, 支付宝, 基金标准模板, 股票标准模板, 东方财富等更多平台，敬请期待]
+    - { name: 天天基金, icon: "logos/tiantianjijin.svg" }
+    - { name: 同花顺, icon: "logos/tonghuashun.svg" }
+    - { name: 腾讯理财通, icon: "logos/tencentwm.svg" }
+  texts: [标准导入模板, 更多平台，敬请期待]
 
 scenarios:
   eyebrow: 适用场景

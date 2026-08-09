@@ -1,0 +1,6 @@
+# 多倍贝主站爬虫规则
+# TODO(seo): 部署域名确认后，将下方 Sitemap 地址替换为真实域名
+User-agent: *
+Allow: /
+
+Sitemap: https://duobeibei.com/sitemap.xml
