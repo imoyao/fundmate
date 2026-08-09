@@ -472,6 +472,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { usePageRefresh } from "@/composables/usePageRefresh";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import {
@@ -969,6 +970,11 @@ async function fetchData() {
     loading.value = false;
   }
 }
+
+// 账户/持仓数据变更后全局自动刷新
+usePageRefresh(() => {
+  fetchData();
+});
 
 onMounted(() => {
   const tab = route.query.tab as string;

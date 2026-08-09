@@ -10,6 +10,7 @@ from loguru import logger
 
 from app.core.auth import get_family_id
 from app.core.database import get_db
+from app.core.validation import parse_query
 from app.domains.performance.schemas import XirrRequest
 from app.services.performance import calculate_portfolio_xirr, calculate_position_xirr
 from app.services.performance.calculators import calculate_portfolio_xirr_by_id
@@ -18,9 +19,9 @@ bp = APIBlueprint('performance', __name__, url_prefix='/api/performance')
 
 
 @bp.get('/xirr/')
-@bp.input(XirrRequest, location='query')
-def get_xirr(query_data: XirrRequest):
+def get_xirr():
     """查询年化收益率"""
+    query_data: XirrRequest = parse_query(XirrRequest)
     scope = query_data.scope
     position_id = query_data.position_id
     portfolio_id = query_data.portfolio_id

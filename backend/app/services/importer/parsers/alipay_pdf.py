@@ -178,7 +178,8 @@ class AlipayPDFParser(BaseImportParser):
         confirm_date = self._parse_date(confirm_date_raw[:10])
 
         if not confirm_date:
-            return None
+            # 确认日期无效须报告错误，而非静默丢弃整行（tech-debt L23）
+            raise ValueError(f'确认日期无效: {confirm_date_raw}')
 
         # 业务类型映射
         business_type = ALIPAY_PDF_OP_MAP.get(business_type_raw, 'buy')

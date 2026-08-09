@@ -5,6 +5,7 @@ from flask import jsonify, request
 
 from app.core.auth import get_family_id
 from app.core.database import get_db
+from app.core.validation import parse_body
 from app.domains.funds.schemas import FundNavRequest
 from app.services.fund_service import FundService
 
@@ -35,8 +36,8 @@ def search_managers():
 
 
 @bp.post('/nav/')
-@bp.input(FundNavRequest, location='json')
-def get_fund_nav_by_date(json_data: FundNavRequest):
+def get_fund_nav_by_date():
+    json_data: FundNavRequest = parse_body(FundNavRequest)
     target_date = json_data.target_date
     symbols = json_data.symbols
     with get_db() as db:

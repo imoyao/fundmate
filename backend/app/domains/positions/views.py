@@ -14,6 +14,7 @@ from app.core.constants import ALLOCATION_LABELS, MARKET_LABELS, TYPE_LABELS
 from app.core.database import get_db
 from app.core.money import Money
 from app.core.utils import paginate
+from app.core.validation import parse_body
 from app.domains.positions.models import Position
 from app.domains.positions.schemas import PositionCreate, PositionOut, PositionUpdate
 from app.domains.transactions.models import Transaction
@@ -147,8 +148,7 @@ def get_position_transactions(id: int):
 
 
 @bp.post('/')
-@bp.input(PositionCreate)
-def create_position(json_data):
+def create_position():
     """新增/修改持仓，并写入交易流水.
 
     支持的操作类型:
@@ -158,6 +158,7 @@ def create_position(json_data):
     - deposit: 存入（增加持仓 + 存入流水）
     - withdraw: 取出（减少持仓 + 取出流水）
     """
+    json_data = parse_body(PositionCreate)
     data = json_data.model_dump()
     data['family_id'] = get_family_id()
     op_type = data.get('op_type', 'buy')
@@ -195,8 +196,8 @@ def create_position(json_data):
 
 
 @bp.patch('/<int:id>/')
-@bp.input(PositionUpdate)
-def update_position(id, json_data):
+def update_position(id):
+    json_data = parse_body(PositionUpdate)
     with get_db() as db:
         position = get_owned_or_404(db, Position, id)
         if not position:

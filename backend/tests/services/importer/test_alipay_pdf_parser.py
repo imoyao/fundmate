@@ -385,8 +385,10 @@ class TestEdgeCases:
         row[33] = '2026-13-08'  # 无效月份
         page = make_mock_page([header, row])
         with patch('pdfplumber.open', return_value=mock_pdf_open([page])):
-            records, _ = parser.parse(b'dummy')
+            records, errors = parser.parse(b'dummy')
         assert len(records) == 0
+        assert len(errors) == 1
+        assert '确认日期无效' in errors[0].message
 
 
 # ── 内部方法单元测试 ──

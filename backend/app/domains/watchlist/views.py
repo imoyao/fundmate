@@ -16,6 +16,7 @@ from sqlalchemy import desc, func
 from app.core.auth import get_family_id, get_owned_or_404
 from app.core.database import get_db
 from app.core.utils import api_response, with_db
+from app.core.validation import parse_body
 from app.domains.funds.models import Fund
 from app.domains.positions.models import Position
 from app.domains.securities.models import Security
@@ -149,9 +150,9 @@ def list_items():
 
 
 @watchlist_bp.post('/items/')
-@watchlist_bp.input(WatchlistItemCreate)
-def create_item(json_data):
+def create_item():
     """添加自选资产"""
+    json_data = parse_body(WatchlistItemCreate)
     data = json_data.model_dump()
     if not data['symbol'].strip():
         abort(400, '代码不能为空')
@@ -170,9 +171,9 @@ def create_item(json_data):
 
 
 @watchlist_bp.patch('/items/<int:item_id>/')
-@watchlist_bp.input(WatchlistItemUpdate)
-def update_item(item_id, json_data):
+def update_item(item_id):
     """更新自选资产（置顶、状态、笔记等）"""
+    json_data = parse_body(WatchlistItemUpdate)
     with get_db() as db:
         item = get_owned_or_404(db, WatchlistItem, item_id)
         if not item:
@@ -206,8 +207,8 @@ def list_groups():
 
 
 @watchlist_bp.post('/groups/')
-@watchlist_bp.input(WatchlistGroupCreate)
-def create_group(json_data):
+def create_group():
+    json_data = parse_body(WatchlistGroupCreate)
     with get_db() as db:
         group = WatchlistGroup(**json_data.model_dump(), family_id=get_family_id())
         group.is_system = False
@@ -218,9 +219,9 @@ def create_group(json_data):
 
 
 @watchlist_bp.patch('/groups/<int:group_id>/')
-@watchlist_bp.input(WatchlistGroupUpdate)
-def update_group(group_id, json_data):
+def update_group(group_id):
     """更新分组"""
+    json_data = parse_body(WatchlistGroupUpdate)
     with get_db() as db:
         group = get_owned_or_404(db, WatchlistGroup, group_id)
         if not group:
@@ -314,9 +315,9 @@ def list_tags():
 
 
 @watchlist_bp.post('/tags/')
-@watchlist_bp.input(WatchlistTagDefCreate)
-def create_tag(json_data):
+def create_tag():
     """创建标签"""
+    json_data = parse_body(WatchlistTagDefCreate)
     with get_db() as db:
         name = json_data.name.strip()
         # 检查是否已存在同名标签（家庭维度）
@@ -473,8 +474,8 @@ def get_smart_prompt_conditions(item_id):
 
 
 @watchlist_bp.patch('/tags/<int:tag_id>/')
-@watchlist_bp.input(WatchlistTagDefUpdate)  # 需要新增 Schema
-def update_tag(tag_id, json_data):
+def update_tag(tag_id):
+    json_data = parse_body(WatchlistTagDefUpdate)
     with get_db() as db:
         tag = get_owned_or_404(db, WatchlistTagDef, tag_id)
         if not tag:

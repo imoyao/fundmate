@@ -14,6 +14,7 @@ from app.core.auth import get_family_id, get_owned_or_404
 from app.core.constants import TYPE_LABELS
 from app.core.database import get_db
 from app.core.money import Money
+from app.core.validation import parse_body
 from app.domains.assets.models import Asset
 from app.domains.positions.models import Position
 from app.domains.strategy.models import PositionStrategyTag, StrategyTag
@@ -145,8 +146,8 @@ def list_tags():
 
 
 @strategy_bp.post('/')
-@strategy_bp.input(StrategyTagCreate)  # 自动校验，失败返回 422
-def create_tag(json_data: StrategyTagCreate):  # 类型注解为模型实例
+def create_tag():
+    json_data: StrategyTagCreate = parse_body(StrategyTagCreate)  # 手动校验，失败 abort(422)
     with get_db() as db:
         existing = (
             db.query(StrategyTag)
