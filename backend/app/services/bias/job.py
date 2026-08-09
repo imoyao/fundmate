@@ -9,10 +9,10 @@
 集成到 DataSyncOrchestrator，午间/盘后双次计算。
 """
 
-import logging
 from datetime import date
 from typing import List
 
+from loguru import logger
 from sqlalchemy.orm import Session
 
 from app.core.time_utils import now_shanghai
@@ -21,8 +21,6 @@ from app.services.bias.constants import SOURCE_BIAS
 from app.services.bias.provider import ProductProvider
 from app.services.bias.schemas import BiasResult
 from app.services.sync.jobs.base import SyncJob
-
-logger = logging.getLogger(__name__)
 
 
 class BiasJob(SyncJob):

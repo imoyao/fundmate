@@ -17,14 +17,12 @@ symbol 约定（与 bias/constants.py 一致）：
   - 场外基金    : 腾讯/东财 K 线不支持净值，走 akshare 兜底（见 calculator._fetch_akshare）
 """
 
-import logging
 import time
 from datetime import date, timedelta
 from typing import List, Optional, Tuple
 
 import requests
-
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 _TENCENT = 'https://web.ifzq.gtimg.cn/appstock/app/fqkline/get'
 _EASTMONEY = 'https://push2his.eastmoney.com/api/qt/stock/kline/get'

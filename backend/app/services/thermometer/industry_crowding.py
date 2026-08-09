@@ -22,13 +22,12 @@
 
 import datetime
 import json
-import logging
 import os
 import re
 import time
 from typing import List, Optional
 
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 try:
     import akshare as ak
@@ -444,7 +443,7 @@ def _placeholder(note: str = '行业拥挤度数据暂不可用') -> dict:
 
 def _record(name: str, code: str, c: dict) -> dict:
     """单行业有效记录 -> 扁平 multi 格式。"""
-    note = f"倍数{c.get('multiple')} 行业PB{c.get('ind_pb')} " f"全A中位PB{c.get('mkt_pb')}" + (
+    note = f'倍数{c.get("multiple")} 行业PB{c.get("ind_pb")} 全A中位PB{c.get("mkt_pb")}' + (
         '' if c.get('hist_ok') else '；分位待历史积累'
     )
     return {

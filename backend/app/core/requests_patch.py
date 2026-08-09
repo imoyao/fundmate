@@ -25,15 +25,13 @@
 #
 # 覆盖范围：只要在 app 进程内（所有 akshare 调用点共用），一处安装，全进程生效。
 import functools
-import logging
 import random
 import re
 import time
 from urllib.parse import urlparse, urlunparse
 
 import requests
-
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 # 浏览器化请求头：让东财 WAF 把请求当成正常浏览器，而非爬虫/脚本
 _EM_HEADERS = {

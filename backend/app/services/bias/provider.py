@@ -10,12 +10,11 @@
 支持：申万一级行业、宽基指数、用户持仓/自选（动态）
 """
 
-import logging
 from typing import List, Tuple
 
-from app.services.bias.constants import BENCHMARK_INDICES, ITEM_TYPE_INDEX, ITEM_TYPE_INDUSTRY, SW_LEVEL1_INDUSTRIES
+from loguru import logger
 
-logger = logging.getLogger(__name__)
+from app.services.bias.constants import BENCHMARK_INDICES, ITEM_TYPE_INDEX, ITEM_TYPE_INDUSTRY, SW_LEVEL1_INDUSTRIES
 
 
 class ProductProvider:

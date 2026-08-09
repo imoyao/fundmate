@@ -35,3 +35,9 @@ class InterceptHandler(logging.Handler):
             level = record.levelno
         # 将异常信息、调用栈等附加信息一并传递
         logger.opt(depth=6, exception=record.exc_info).log(level, record.getMessage())
+
+
+# 挂载拦截器：把第三方库（werkzeug/urllib3/akshare 等）经 stdlib logging 产生的日志
+# 统一接入 loguru，避免与业务日志分家。此前 InterceptHandler 仅定义未挂载，属历史遗漏。
+# force=True 覆盖可能存在的默认 root handler；进程启动时执行一次，重复 import 幂等。
+logging.basicConfig(handlers=[InterceptHandler()], level=0, force=True)

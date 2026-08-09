@@ -17,7 +17,7 @@
 - `core/`：`database.py`（SQLite + WAL）、`money.py`（单位换算唯一入口）、`constants.py`（`CURRENT_USER_ID` 已随 v4.7 多用户化退役，当前用户从 `g.current_user` 取，勿再引用常量）、`auth.py`（Supabase JWT 验签 + 白名单鉴权中间件，见 D2）、`exceptions.py`（`SBException` + 统一错误信封）、`requests_patch.py`（东财 TLS 补丁实现）。
 - `services/`：`sync/`（jobs + adapters，xalpha/akshare 双适配器）、`thermometer/`、`bias/`、`importer/`（CSV/PDF 解析）、`performance/`（XIRR）。
 - 同步入口两套、同一 `DataSyncOrchestrator`：`pdm run invoke grab.*` 走 `app/tools/sync_cli.py`；`pdm run sync --job <name>` 走 `app/tools/sync_metadata.py`。
-- **日志（2026-08-09 统一）**：入口一律 `from loguru import logger`，**禁止新增** `import logging` + `logging.getLogger(__name__)`。历史遗留 8 处原生 logging（`core/requests_patch.py`、`services/bias/{provider,job,direct_feeds,calculator}.py`、`services/thermometer/{fetchers,industry_crowding,jobs}.py`）待迁移，新增代码勿沿用。第三方库（werkzeug/urllib3/akshare 等）的 stdlib 日志由 `app/__init__.py` 的 `InterceptHandler` 兜底接入 loguru——注意该类目前仅定义未挂载，补齐挂载（`logging.basicConfig(handlers=[...], force=True)`）属待办。loguru 0.7.3 经 2026-08 评估**未过时**：仍是 GitHub 最流行的第三方日志库（21k+ stars）；structlog 结构化/性能更强但学习曲线陡、logbook 已停滞（最后发布 2023-09，不支持 3.13+），本项目维持 loguru 不换。
+- **日志（2026-08-09 统一）**：入口一律 `from loguru import logger`，**禁止新增** `import logging` + `logging.getLogger(__name__)`（唯一例外：`app/__init__.py` 的 `InterceptHandler` 基类需要）。8 处历史原生 logging（`core/requests_patch.py`、`services/bias/*`、`services/thermometer/{fetchers,industry_crowding,jobs}.py`）已于当日迁移完成。第三方库（werkzeug/urllib3/akshare 等）的 stdlib 日志由 `app/__init__.py` 的 `InterceptHandler` + `logging.basicConfig(force=True)` 兜底接入 loguru。loguru 0.7.3 经 2026-08 评估**未过时**：仍是 GitHub 最流行的第三方日志库（21k+ stars）；structlog 结构化/性能更强但学习曲线陡、logbook 已停滞（最后发布 2023-09，不支持 3.13+），本项目维持 loguru 不换。
 
 ## 后端命令（`cd backend`）
 

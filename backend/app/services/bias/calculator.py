@@ -41,7 +41,6 @@ ref:[微信公众平台](https://mp.weixin.qq.com/s/yoDNm2TSrWCvvedu_Xozgw)
 """
 
 import json
-import logging
 import random
 import time
 from datetime import date, datetime, timedelta
@@ -51,6 +50,7 @@ from typing import List, Optional, Tuple
 import akshare as ak
 import numpy as np
 import pandas as pd
+from loguru import logger
 
 # 全局请求补丁：确保即使本模块被单独 import（如单测）也自动启用东财友好会话；
 # 正常由 app/__init__ 安装，此处为幂等兜底，避免遗漏调用点。
@@ -76,8 +76,6 @@ from app.services.bias.schemas import BiasResult
 
 # 幂等安装请求补丁（置于 import 之后，避免 E402）
 install_requests_patch()
-
-logger = logging.getLogger(__name__)
 
 
 def logbias(close: List[float]) -> float:
@@ -171,7 +169,7 @@ class PriceFetcher:
 
     # ---------- 持久化缓存 ----------
     def _file_path(self, symbol: str, item_type: str) -> Path:
-        safe = f"{item_type}__{symbol.replace('.', '_')}.json"
+        safe = f'{item_type}__{symbol.replace(".", "_")}.json'
         return self.cache_dir / safe
 
     def _load_cache(self, symbol: str, item_type: str) -> Optional[dict]:
@@ -330,8 +328,7 @@ class PriceFetcher:
                 if attempt < self.max_retries:
                     wait = self.retry_backoff * (2 ** (attempt - 1))
                     logger.warning(
-                        f'获取 {symbol} ({item_type}) 第{attempt}次失败: {type(e).__name__}: {e}，'
-                        f'{wait:.1f}s 后重试'
+                        f'获取 {symbol} ({item_type}) 第{attempt}次失败: {type(e).__name__}: {e}，{wait:.1f}s 后重试'
                     )
                     time.sleep(wait)
                 else:

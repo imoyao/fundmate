@@ -41,7 +41,6 @@ stale=True 表示数据不可用（已标灰），不会阻塞其它源。
 """
 
 import json
-import logging
 import os
 import pickle
 import re
@@ -81,8 +80,6 @@ from app.services.thermometer.constants import (
     label_temp,
     label_volume,
 )
-
-logger = logging.getLogger(__name__)
 
 # 轻量文件缓存（用于缓存 akshare 等慢速抓取结果，按 TTL 复用）
 _CACHE_DIR = Path(tempfile.gettempdir()) / 'fundmate_cache'

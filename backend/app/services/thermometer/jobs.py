@@ -9,9 +9,10 @@
 调度建议：每日 21:30
 """
 
-import logging
 from datetime import datetime
 from typing import List
+
+from loguru import logger
 
 from app.core.time_utils import now_shanghai
 from app.services.bias.job import BiasJob
@@ -22,8 +23,6 @@ from app.services.thermometer.fetchers import (
     JiucaishuoFetcher,
 )
 from app.services.thermometer.service import TemperatureService
-
-logger = logging.getLogger(__name__)
 
 # 乖离率数据源已改为直连（腾讯/东财，见 bias/direct_feeds.py），不再依赖 akshare/东财限流；
 # 现已放开（SKIP_BIAS=False）。直连+兜底均失败时，单个品种会标 stale 或整批为空，不阻断主流程。
