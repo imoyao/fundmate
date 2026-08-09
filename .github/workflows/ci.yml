@@ -1,0 +1,116 @@
+# 质量门禁 CI（PR 自动触发）
+#
+# 覆盖本机常漏跑的命令（前端 husky 因 ignore-scripts 未装、后端 pre-commit 偶崩）：
+#   - 后端：ruff 检查 + 格式化检查 + pytest（排除需联网的 slow 测试）
+#   - 前端：typecheck + lint(检查模式) + build
+#
+# 路径过滤：仅当对应目录改动时才跑对应 job，节省私有库 Actions 分钟数。
+# 建议：在仓库 branch protection 中将本工作流的两个 job 设为 required status check，
+#       这样 merge 前强制卡人（光有 workflow 不卡 merge）。
+#
+# 注意：后端依赖走阿里云镜像且含 gitee 上的 xalpha，海外 runner 安装可能偏慢；
+#       若 install 超时，可将 PDM 源改为官方 PyPI 提速（不影响本项目配置）。
+
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # 计算哪些目录有改动，决定下方 job 是否运行
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+              - '.github/workflows/ci.yml'
+            frontend:
+              - 'frontend/**'
+              - '.github/workflows/ci.yml'
+
+  backend:
+    name: 后端测试 + Lint
+    needs: changes
+    if: ${{ needs.changes.outputs.backend == 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 设置 Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装 PDM
+        run: pip install pdm
+
+      # dev 组含 ruff / pytest / invoke 等
+      - name: 安装依赖
+        run: pdm install -G dev
+
+      - name: Ruff 检查
+        run: pdm run ruff check .
+
+      - name: Ruff 格式化检查
+        run: pdm run ruff format --check .
+
+      # 单进程（避 OOM），排除需联网的 slow 测试
+      - name: 运行测试
+        run: pdm run python -m pytest -p no:xdist -m "not slow"
+
+  frontend:
+    name: 前端类型检查 + Lint + 构建
+    needs: changes
+    if: ${{ needs.changes.outputs.frontend == 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 设置 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: 设置 Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 类型检查
+        run: pnpm typecheck
+
+      # 检查模式（不带 --fix），有问题即失败，确保门禁有效
+      - name: Lint 检查
+        run: |
+          pnpm exec eslint "{src,mock,build}/**/*.{vue,js,ts,tsx}" --max-warnings 0
+          pnpm exec prettier --check "src/**/*.{js,ts,json,tsx,css,scss,vue,html}"
+          pnpm exec stylelint "**/*.{html,vue,css,scss}" --cache-location node_modules/.cache/stylelint/
+
+      - name: 构建
+        run: pnpm build
