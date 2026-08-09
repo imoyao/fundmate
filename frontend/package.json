@@ -92,7 +92,7 @@
     "@tailwindcss/vite": "^4.3.3",
     "@types/js-cookie": "^3.0.6",
     "@types/marked": "^6.0.0",
-    "@types/node": "^20.19.43",
+    "@types/node": "^26.1.2",
     "@types/nprogress": "^0.2.3",
     "@types/path-browserify": "^1.0.3",
     "@types/qs": "^6.15.1",
