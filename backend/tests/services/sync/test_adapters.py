@@ -56,6 +56,24 @@ class TestXalphaAdapter:
         records = adapter.fetch_fund_nav('000001', start_date=date(2025, 1, 1))
         assert records == []
 
+    @patch('app.services.sync.adapters.xalpha_adapter.requests.get')
+    def test_fetch_fund_nav_money_fund_uses_pingzhong(self, mock_get, adapter):
+        """货币基金：lsjz 增量返回每万份收益（SYType），应回退 pingzhongdata 解析"""
+        pz_text = 'var Data_millionCopiesIncome = ' '[[1735689600000, 0.5], [1735776000000, 0.4]];'
+        mock_get.side_effect = [
+            MagicMock(
+                status_code=200,
+                json=MagicMock(return_value={'Data': {'SYType': '每万份收益', 'TotalCount': 2, 'LSJZList': []}}),
+            ),
+            MagicMock(status_code=200, text=pz_text),
+        ]
+
+        records = adapter.fetch_fund_nav('000198', start_date=date(2025, 1, 1))
+        assert len(records) == 2
+        assert records[0]['is_money_fund'] is True
+        assert records[0]['unit_nav'] == 0.5
+        assert records[0]['fund_code'] == '000198'
+
     def test_fetch_fund_nav_by_date(self, adapter):
         with patch('app.services.sync.adapters.xalpha_adapter.requests.get') as mock_get:
             mock_get.return_value = MagicMock(
@@ -64,6 +82,20 @@ class TestXalphaAdapter:
             )
             nav = adapter.fetch_fund_nav_by_date('000001', date(2025, 1, 1))
             assert nav == 1.5
+
+    def test_fetch_fund_nav_by_date_money_fund(self, adapter):
+        """货币基金净值恒为 1.0，lsjz 返回的 DWJZ 是万份收益而非单位净值"""
+        with patch('app.services.sync.adapters.xalpha_adapter.requests.get') as mock_get:
+            mock_get.return_value = MagicMock(
+                status_code=200,
+                json=MagicMock(
+                    return_value={
+                        'Data': {'SYType': '每万份收益', 'LSJZList': [{'FSRQ': '2025-01-01', 'DWJZ': '0.2251'}]}
+                    }
+                ),
+            )
+            nav = adapter.fetch_fund_nav_by_date('000198', date(2025, 1, 1))
+            assert nav == 1.0
 
     def test_fetch_fund_nav_by_date_no_data(self, adapter):
         with patch('app.services.sync.adapters.xalpha_adapter.requests.get') as mock_get:

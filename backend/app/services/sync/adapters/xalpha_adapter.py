@@ -90,7 +90,11 @@ class XalphaAdapter(DataSourceAdapter):
     # ── 基金净值（单日） ──
 
     def fetch_fund_nav_by_date(self, fund_code: str, target_date: date) -> Optional[float]:
-        """获取指定日期的单位净值，失败返回 None。"""
+        """获取指定日期的单位净值，失败返回 None。
+
+        货币基金（Data.SYType == '每万份收益'）：lsjz 接口返回的是每万份收益而非
+        单位净值，货币基金单位净值恒为 1.0，直接返回 1.0。
+        """
         try:
             resp = requests.get(
                 _LSJZ_API_URL,
@@ -106,7 +110,12 @@ class XalphaAdapter(DataSourceAdapter):
             )
             resp.raise_for_status()
             data = resp.json()
-            records = (data.get('Data') or {}).get('LSJZList') or []
+            data_payload = data.get('Data')
+            if not isinstance(data_payload, dict):
+                return None
+            if data_payload.get('SYType') == '每万份收益':
+                return 1.0
+            records = data_payload.get('LSJZList') or []
             if not records:
                 return None
             nav = records[0].get('DWJZ')
@@ -142,7 +151,12 @@ class XalphaAdapter(DataSourceAdapter):
             return []
 
     def _fetch_lsjz_incremental(self, fund_code, start_date, end_date) -> List[dict]:
-        """lsjz 日期范围增量拉取（含分页），无数据返回 []"""
+        """lsjz 日期范围增量拉取（含分页），无数据返回 []。
+
+        货币基金在 lsjz 接口返回的是每万份收益（Data.SYType == '每万份收益'），
+        与普通基金的单位净值语义不同，这里直接返回空列表，让调用方回退到
+        pingzhongdata 的货币基金解析路径（见 fetch_fund_nav）。
+        """
         start = start_date.strftime('%Y-%m-%d') if start_date else ''
         end = end_date.strftime('%Y-%m-%d') if end_date else ''
         records: List[dict] = []
@@ -165,6 +179,9 @@ class XalphaAdapter(DataSourceAdapter):
             data_payload = data.get('Data')
             if not isinstance(data_payload, dict):
                 break
+            if data_payload.get('SYType') == '每万份收益':
+                # 货币基金：该接口返回万份收益而非单位净值，交由 pingzhongdata 路径处理
+                return []
             rows = data_payload.get('LSJZList') or []
             for row in rows:
                 records.append(
