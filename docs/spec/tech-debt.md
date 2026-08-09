@@ -16,7 +16,7 @@
 | ~~（保留原前端 API 路径问题）~~ | ~~🔴 严重~~ **✅ 已修复** | ~~后端返回 `{data: [...], total, page}`，前端解析为 `res.data.data`~~ | ~~后端统一包裹为 `{data: {items, total, page, per_page}}`~~ |
 | 腾讯理财通格式复杂 | 中 | 理财通导出格式非标准 CSV，需专门解析器 | P2 实现 |
 | 孤儿交易无自动回填机制 | 中 | 需定时任务扫描并关联后续新增的持仓 | P1-20 实现 |
-| 持仓分布可视化缺失 | 中 | 仪表盘仅有总资产展示，无配置结构图 | P1-15 实现 |
+| ~~持仓分布可视化缺失~~ | ~~中~~ **✅ 已实现 (2026-08-09)** | 原描述：仪表盘仅有总资产展示，无配置结构图 | **实证回填**：仪表盘资产分布饼图基于 `summary.market_distribution` 渲染（`welcome/index.vue:741-767`）；账户详情页资产配置环形图基于持仓前端聚合（`ledgers/detail.vue:862-889`），与 roadmap §1.4「资产配置环形图已实现」吻合。 |
 | 货币基金识别依赖关键词硬编码 | 中 | 元数据同步未完全覆盖所有货币基金名称，临时使用关键词匹配兜底 | 待元数据同步覆盖率足够后移除关键词逻辑 |
 | 持仓详情页单持仓 XIRR 前端展示 | 低 | 页面路径未确定 | 后端接口已可用，前端延后至 P2 |
 | 导入时出现 SAWarning: Identity map already had an identity for... | 低 | 同一 Session 内多次加载同一持仓后尝试 flush，导致 ORM 身份映射冲突 | 后续优化 PositionService 会话管理，当前不影响数据正确性 |
@@ -24,12 +24,12 @@
 | **`Ledger.ledger_type` 缺少 `property`（实物资产）类型** | **低** | **早期设计优先覆盖金融资产，实物资产通过 `Asset` 表快速兼容，未在账户类型体系中显式支持。用户录入房产等固定资产时无法选择匹配的账户类型，只能变通使用 `family` 类型。** | **P2 阶段新增 `property` 类型，统一 `LEDGER_TYPE_LABELS` 映射，前端账户创建页同步添加选项。届时需同步校验 `linked_cash_ledger_id` 仅对 `stock/fund` 有效。当前变通方案：引导用户使用 `family` 类型。** |
 | 前端 `Inventory.vue` 虽经轻量重构，仍有 800+ 行，未完全拆分 | 中 | 功能迭代优先级高于重构，拆分延后 | P2 拆分 |
 | 按平台分组盈亏缺失 | 低 | 用户无法与平台账单对账 | P2-14 实现 |
-| 交易记录导出功能缺失 | 低 | 用户无法备份数据 | P2-15 实现 |
+| ~~交易记录导出功能缺失~~ | ~~低~~ **✅ 已实现 (2026-08-09)** | 原描述：用户无法备份数据 | **实证回填**：P2-15 已于 2026-08-07 上线（roadmap §2.6）——后端 `export_transactions`（`transactions/views.py:102`，`GET /api/transactions/export/`）；前端交易流水页导出按钮 + blob 下载（`TransactionList.vue:22,449`，`api/transactions.ts:27`）；`test_transactions_export_csv` 通过。 |
 | 支付宝解析器对特殊格式（引号内逗号）的容错性 | 低 | 实际用户导出格式已稳定，当前方案够用 | 若未来出现新格式再适配 |
 | 余额宝背后货币基金无法准确识别具体代码 | 低 | 支付宝不公开具体基金代码，且可能变化 | 统一归入活钱，放弃追踪具体货基 |
 | 导入成功后净值自动同步（静默回填）已实现但依赖元数据同步 | 低 | 若用户从未同步过基金数据，`daily_worth` 表为空 | 导入前引导用户执行元数据同步，或导入后手动触发 |
 | 桑基图资产负债交叉显示问题（ECharts 底层限制） | 低 | 图表原生不支持正负双流向分层 | 记录技术债务，暂不处理 |
-| 交易流水当前全量加载，大数据量无分页筛选优化 | 低 | 初期数据量小，优先可用 | 数据量大后迭代优化 |
+| ~~交易流水全量加载无分页~~ | ~~低~~ **✅ 已实现 (2026-08-09)** | 原描述：交易流水全量加载，大数据量无分页筛选优化 | **实证回填**：后端 `list_transactions` 已 `paginate` + `page/per_page`（`transactions/views.py:28-29,75,98`）；前端交易流水页 `el-pagination` + 分页参数（`TransactionList.vue:169-177,415`）。 |
 | 基金经理信息未同步 | 低 | `ak.fund_manager_em` 接口不稳定 | 调研替代方案，暂不实现 |
 | 指数行情同步不可用 | 低 | 新浪接口不支持指数代码 | 改用 `xa.indexinfo`，待实现 |
 | 全量同步时 `stock_list` / `fund_list` 需传入占位 `["__full__"]` | 低 | 重构遗留问题 | 后续优化为在 Job 中声明不需要 targets |
@@ -66,6 +66,7 @@
 | **落地页首屏·鹦鹉螺深海氛围动效打磨（视觉抛光 · 非阻塞）** | 低 | 2026-08-05 用户评审首屏提出"粉图静态、需改珊瑚红+加动效"。经核对磁盘实际：`landing.template.html` 的 Hero 鹦鹉螺**已有**珊瑚红主体（`nhGrad` 渐变 `#F4B582→#9E3B2C` + `--shell-coral:#E34F38` 描边）且**已有** `nau-spin`(90s)/`nau-breathe`(9s)/`nau-sway`(14s) + 潮汐波纹 `tidalFlow`(18s) 动效——**并非静态粉图**，用户描述的"粉色/扁平/静态"与现状不符（属文档/实现漂移，第二轮）。真正缺失的是"深海环境感"与"气室调节"叙事载体。 | **暂缓（2026-08-05 记录）**：列入视觉抛光队列，待 `site/style.css` 统一 + `/about` 骨架落地后再做。具体待办（均为真实新增、纯 CSS + SVG `<circle>`，无需 JS）：(a) Hero 鹦鹉螺背后加 `#F5F0EB` 超椭圆/圆形环境晕染容器；(b) 新增"气室水位"逐室 `opacity` 缓闪关键帧（从内向外交替，模拟涨退潮蓄水）；(c) 可选 2-3 个极缓上浮气泡，`cubic-bezier(0.19,1,0.22,1)`、6-8s 周期，珊瑚红/暖灰；(d) 副标题按 YML 标准短版，把"手动归集/穿透持仓/算准 XIRR"拆为 CTA 上方一行 `#6B655C` 14px 能力标签；(e) 底部潮汐波纹已动效，确认 `--wave-line` 是否偏浅绿、必要时收敛为深海洋流色。CSS `@keyframes` 示例待执行时再写。 |
 | **主站 `landing.template.html` 三套 `:root` 命名空间 / 与 frontend 令牌值漂移（已闭环）** | ✅ 已解决 | 落地页内联 2 个 `:root`（语义令牌 + shell 艺术块），主色 `--brand-coral` 等与 frontend `--brand-700` 同名不同值；`--brand-coral-soft`/`--border-light`/`--radius-sm` 三处值漂移；字体族写法不一；与「主站引用工具侧令牌」设计原则冲突，是主站实现层面最大技术债。 | **✅ 已落地 (2026-08-05)**：新建根目录 `site/style.css` 作为 landing/about 唯一共享令牌源，镜像 frontend `colors.css` 规范值；模板两处内联 `:root` 已删除、改 `<link href="/style.css">`、规则体变量引用全量重命名（`--brand-coral*→--brand-700/800/400`、`--color-danger→--color-danger-system`、`--radius→--radius-lg`、`--font→--font-sans`），并修正 3 处漂移值、补全原未定义的 `--text-muted`/`--border`。`shell-*` 艺术块命名按约定本阶段保留于 `site/style.css` 并注明为鹦鹉螺局部装饰变量，待鹦鹉螺专项重构再处理。 |
 | **退出登录后页面不跳转（需手动刷新才回登录页）** | ~~🔴 严重~~ **✅ 已修复 (2026-08-08)** | `store/modules/user.ts` 的 `forceLogout()` 中 `supabase.auth.signOut({ scope: "local" })` **未 await**，紧接着同步执行 `resetRouter(); router.push("/login")`；而路由守卫 `beforeEach`（`router/index.ts`）内 `await supabase.auth.getSession()` 与之**竞态**——本地 session 尚未清除时守卫读到旧 session，判定仍"已登录"，走已登录分支 `toCorrectRoute()` 把 `/login` redirect 回 `_from.fullPath` 原页面。表现为：点击退出登录页面原地不跳转、仅侧边栏消失（`resetRouter()` 清空权限菜单所致），刷新后 session 才销毁、守卫判定未登录 → 跳登录页。 | **✅ 已修复 (2026-08-08)**：在 `forceLogout()` 中 **await `signOut({scope:"local"})`** 完成后再 `resetRouter(); router.push("/login")`，消除竞态。所有登出入口（`useNav.logout` / NavMix / NavHorizontal / profile `onLogout`）统一走 `useUserStoreHook().logOut()`，一处修复全覆盖。验证：`pnpm typecheck` 零错误、`eslint` 通过。 |
+| **货币基金每日收益计算链路验证（验收标准）** | 🔴 上线前必查 | 2026-08-09 修复货币基金净值污染时实证：万份收益已正确落库 `money_fund_daily_worth.nav_per_10k`（落库链路正常），但**尚无任何代码读取该字段**——`performance/calculators.py` 只查 `DailyWorth`，货币基金按 `money_fund` 记账只记流水不建持仓（`position_service.py:148-150`），每日收益计算链路未打通 | **已列入上线验收标准（2026-08-09）**：须验证「每日收益计算链路通 + 计算结果正确」后方可上线，具体验证项见 launch-plan M0 冒烟验证 #7。验证方式参考：每日收益 = 持有金额 × 当日万份收益 ÷ 10000，需确认前端展示入口（持仓收益/账户收益）已接入 |
 | **暗黑模式（深色主题）未适配（前端全局）** | 🔴 上线前必查 | 系统当前仅实现亮色主题（`design.dark.md` 为规范文档但前端未实际接入 dark 主题切换）。用户在暗色环境下使用出现：深色系统下页面局部亮白/灰白背景与深色文字混排、组件明暗不一，观感怪异；虽不影响功能，但影响整体产品质感与「家庭记账」场景的夜间使用体验。风险点：全部视图页 + Element Plus 组件 + ECharts 图表 + 落地页配色，均未按 `design.dark.md` 的语义变量（HSL 动态计算）体系适配。 | **上线前必须严查并修复（2026-08-08 记录）**：接入暗色模式需：(1) 全局 `dark` class 切换（Element Plus 官方 dark CSS + `index.scss` 语义变量双轨）；(2) 全站色值排查（禁止硬编码 hex，统一走 `--color-*` 语义变量）；(3) ECharts 图表按主题动态读 CSS 变量（`SankeyChart`/`Overview` 等 8 文件已按需引入，需补主题响应）；(4) 落地页 `site/style.css` 暗色令牌。属跨页面大改动，另立专项排期，**不得带病上线**。详见 `docs/spec/decisions.md` 对应条目（待登记）与 `frontend/design.dark.md`。 |
 
 ---
