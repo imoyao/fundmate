@@ -108,16 +108,21 @@ class LedgerService:
                 'position_pnl': 0.0,
                 'position_count': 0,
                 'allocation_distribution': {},
+                'type_distribution': {},
             }
 
         total_mv = sum(Money.multiply_price_quantity(p.current_price, p.quantity) for p in positions)
         total_cost = sum(Money.multiply_price_quantity(p.avg_price, p.quantity) for p in positions)
 
         alloc_map: dict[str, int] = {}
+        type_map: dict[str, int] = {}
         for p in positions:
-            alloc = p.allocation or 'longterm'
             val = Money.multiply_price_quantity(p.current_price, p.quantity)
+            alloc = p.allocation or 'longterm'
             alloc_map[alloc] = alloc_map.get(alloc, 0) + val
+            # 按资产大类聚合市值（type_distribution），后端唯一出口，前端不再自行聚合
+            type_label = TYPE_LABELS.get(p.asset_type, p.asset_type or '其他')
+            type_map[type_label] = type_map.get(type_label, 0) + val
 
         return {
             'total_market_value': Money.cents_to_yuan(total_mv),
@@ -125,6 +130,7 @@ class LedgerService:
             'position_pnl': Money.cents_to_yuan(total_mv - total_cost),
             'position_count': len(positions),
             'allocation_distribution': {k: Money.cents_to_yuan(v) for k, v in alloc_map.items()},
+            'type_distribution': {k: Money.cents_to_yuan(v) for k, v in type_map.items()},
         }
 
     @staticmethod

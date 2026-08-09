@@ -228,7 +228,7 @@
               class="flex-1 min-h-[200px] w-full overflow-hidden"
             />
             <div
-              v-if="holdingsList.length === 0"
+              v-if="!summaryData?.type_distribution || Object.keys(summaryData.type_distribution).length === 0"
               class="text-xs text-center"
               :style="{ color: 'var(--text-tertiary)' }"
             >
@@ -882,16 +882,9 @@ function renderPieChart() {
     chartInstance = echarts.init(chartRef.value);
   }
 
-  const dataMap = new Map<string, number>();
-  holdingsList.value.forEach((item: any) => {
-    const type = item.type_label || "其他";
-    const val = item.market_value || 0;
-    dataMap.set(type, (dataMap.get(type) || 0) + val);
-  });
-  const pieData = Array.from(dataMap.entries()).map(([name, value]) => ({
-    name,
-    value
-  }));
+  // 消费后端 type_distribution（后端唯一出口，不再对分页持仓做前端聚合）
+  const distro = (summaryData.value?.type_distribution as Record<string, number>) ?? {};
+  const pieData = Object.entries(distro).map(([name, value]) => ({ name, value }));
   const isDataEmpty = pieData.length === 0;
 
   // 动态读取 CSS 变量，统一颜色来源
@@ -903,8 +896,8 @@ function renderPieChart() {
     股票: getColor("--invest-stock", "#9D81A9"),
     基金: getColor("--invest-fund", "#A3B5C7"),
     ETF: getColor("--invest-etf", "#B5C4B1"),
-    可转债: getColor("--invest-bond", "#8E8B82"),
-    虚拟货币: getColor("--invest-crypto", "#C4A0A8"),
+    债券: getColor("--invest-bond", "#8E8B82"),
+    加密货币: getColor("--invest-crypto", "#C4A0A8"),
     其他: getColor("--color-neutral", "#8E8B82")
   };
 
@@ -1284,8 +1277,8 @@ watch(chartRef, newVal => {
   }
 });
 
-// 同时，当数据变化时，也要重新渲染
-watch(holdingsList, () => {
+// 同时，当概览数据（type_distribution）变化时，也要重新渲染
+watch(summaryData, () => {
   if (chartRef.value) {
     nextTick(() => renderPieChart());
   }

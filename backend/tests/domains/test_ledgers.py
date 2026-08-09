@@ -820,6 +820,8 @@ class TestLedgerSummary:
         assert data['daily_pnl'] is None
         assert 'cumulative_return' in data
         assert 'allocation_distribution' in data
+        # type_distribution：后端按资产大类聚合（asset_type 默认 None → '其他'）
+        assert data['type_distribution'] == {'其他': 12000.0}
 
     def test_summary_fund_account(self, client, db, make_position):
         """基金平台应包含货基占比、货基金额"""
@@ -855,6 +857,8 @@ class TestLedgerSummary:
         assert data['money_fund_amount'] == 5000.0
         assert data['money_fund_ratio'] == round(5000.0 / 6800.0 * 100, 2)
         assert data['cumulative_return'] is not None
+        # type_distribution 按 asset_type 聚合（未知类型保留原样 code）
+        assert data['type_distribution'] == {'stock_fund': 1800.0, 'money_fund': 5000.0}
 
     def test_summary_bank_account(self, client, db, make_position, make_asset):
         """银行账户返回总余额、活期余额、理财市值"""
