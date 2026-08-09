@@ -5,9 +5,9 @@
 背景：行业拥挤度的分母（全A中位PB）默认走 legulegu(ak.stock_a_all_pb())，
 沙箱/受限网络下该源不可达且无本地缓存 → 拥挤度整组标灰。
 本脚本在本机（网络正常）执行一次，把历史PB序列落盘到
-  backend/app/services/thermometer/cache/all_pb.csv
+  backend/app/services/thermometer/data/all_pb.csv
 之后即便在沙箱环境跑 fetch_industry_crowding，也能命中本地缓存恢复分母。
-落盘路径为 backend/app/services/thermometer/data/all_pb.csv（基线数据目录，非 cache/）。
+注意：落盘路径已从 cache/ 迁入 data/（基线数据目录，非运行时缓存）。
 
 用法：
     pdm run python scripts/prefetch_all_pb.py
