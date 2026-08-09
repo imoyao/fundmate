@@ -1,6 +1,6 @@
 version: 2
 updates:
-  # 主仓库根目录（主站/文档构建依赖：vitepress、dux 主题等）
+  # 仓库根目录：主站落地页 + 文档站（VitePress）的构建依赖，均由根的 pnpm-lock.yaml 管理
   - package-ecosystem: "npm"
     directory: "/"
     target-branch: "main-v2"
@@ -17,7 +17,7 @@ updates:
     pull-request-branch-name:
       separator: "-"
 
-  # 前端（frontend/ 子项目）
+  # 后端项目内的管理前端（frontend/，即 duobeibao 后台，Vite 项目，独立 pnpm-lock.yaml）
   - package-ecosystem: "npm"
     directory: "/frontend/"
     target-branch: "main-v2"

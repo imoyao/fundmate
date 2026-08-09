@@ -1,0 +1,58 @@
+name: Backend PDM Update
+
+# backend 使用 PDM 管理依赖，精确传递版本锁定在 pdm.lock 中。
+# Dependabot 只读取 pyproject.toml 的直接依赖，无法自动 bump pdm.lock 里的传递依赖，
+# 而这些传递依赖（akshare/pandas 等重型库）正是 Dependabot 漏洞告警的主要来源。
+# 本 workflow 每周自动执行 `pdm update` 刷新 pdm.lock，消除传递依赖漏洞，并开 PR 自动合入。
+
+on:
+  schedule:
+    - cron: "0 9 * * 1" # 每周一 09:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  pdm-update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main-v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PDM
+        run: pip install pdm
+
+      - name: Configure PDM
+        working-directory: backend
+        run: pdm config python.use_venv false
+
+      - name: PDM update (refresh lock + transitive deps)
+        working-directory: backend
+        timeout-minutes: 30
+        run: pdm update
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(deps): pdm update 刷新后端传递依赖"
+          title: "chore(deps): pdm update 刷新后端传递依赖"
+          body: |
+            自动执行 `pdm update` 刷新 backend/pdm.lock，消除传递依赖中的已知漏洞。
+
+            > 由 `.github/workflows/backend-pdm-update.yml` 自动生成。合并后 GitHub Dependency Graph 上对应的 Dependabot 漏洞告警会自动 resolved。
+          branch: chore/pdm-update
+          base: main-v2
+          labels: |
+            dependencies
+          add-paths: |
+            backend/pdm.lock
+            backend/pyproject.toml
