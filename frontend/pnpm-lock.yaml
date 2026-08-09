@@ -166,8 +166,8 @@ importers:
         specifier: ^8.0.1
         version: 8.0.1
       code-inspector-plugin:
-        specifier: ^1.6.6
-        version: 1.6.6(supports-color@7.2.0)
+        specifier: ^2.0.7
+        version: 2.0.7(supports-color@7.2.0)
       cross-env:
         specifier: ^10.1.0
         version: 10.1.0
@@ -411,23 +411,34 @@ packages:
   '@cacheable/utils@2.5.0':
     resolution: {integrity: sha512-buipgOVDkkPXNR5+xBpDw7Zk2n1EvU7qBJCNUcL7rhQ//kfpOXPAvQ511Os0vpLYJ1pZnvudNytkQt2hst3wqA==}
 
-  '@code-inspector/core@1.6.6':
-    resolution: {integrity: sha512-r7EzrS5391Nhd3zvuJF9EprmBTxL6jZzBztY5WRJs7V17I6vmt2YmJVq4zWIEBWaGF/BAm5bh3Xz0HyxdV6xIA==}
+  '@code-inspector/core@2.0.7':
+    resolution: {integrity: sha512-9frLzGdS1TvPNSiDt5f/FFJ+aiaU8driaOWmyISOa7Cxy9LC1UOiNcJ3fmhqdIb3mHVqgdWT2NMWdr/6zWPtmA==}
+    peerDependencies:
+      '@anthropic-ai/claude-agent-sdk': ^0.2.29
+      '@openai/codex-sdk': ^0.106.0
+      '@opencode-ai/sdk': ^1.2.24
+    peerDependenciesMeta:
+      '@anthropic-ai/claude-agent-sdk':
+        optional: true
+      '@openai/codex-sdk':
+        optional: true
+      '@opencode-ai/sdk':
+        optional: true
 
-  '@code-inspector/esbuild@1.6.6':
-    resolution: {integrity: sha512-qsLn39PlMKESjG32/xw9BNpSGkApf0uDTWlFbdYtnb9nP2o6NJMP5r0KzTkzGd+FIaTtpC4t0wS1g0ER9m3PTw==}
+  '@code-inspector/esbuild@2.0.7':
+    resolution: {integrity: sha512-xFe6OSxWapEcLyf/KQimhdnRA34IYvYfSDrlKh8gbk8IvCEiRHUnSr2KRxRCXLCrpAlaRvSneiYIiuRJgq+NBQ==}
 
-  '@code-inspector/mako@1.6.6':
-    resolution: {integrity: sha512-F77O+myCJr0leOsHAbNecZ1yTTir97bmX9pJhUrSRAsOMmlGshSSYnn9SIybfMJ00aAJtY/VkecMRxrFFedbVA==}
+  '@code-inspector/mako@2.0.7':
+    resolution: {integrity: sha512-gABCx0mM7rtxXnPy0bYpu0j/2nn21DHFRmlUSMdNdSqxNQHxzP4sbEetZR/63DfsCHOzsikDGk6O2QDAsB27iA==}
 
-  '@code-inspector/turbopack@1.6.6':
-    resolution: {integrity: sha512-I6PwChRNoZWj9VooVmkgl8bGB0PflDfMPn5q4QCLezaOejZwORKujyO5lVd+JK1HEmWX7WXUwy2DJzQsjNr+xg==}
+  '@code-inspector/turbopack@2.0.7':
+    resolution: {integrity: sha512-FD/Kp+S5a/0nSgnfxCWcnP5qUCxkKOPBWszQxwgxv7oe6x+Ca8z9imAurq4UtQAwse2XPXFmbZf2NKfIY4TDBA==}
 
-  '@code-inspector/vite@1.6.6':
-    resolution: {integrity: sha512-5Y1lUTkdATQmAe59rLMiczVUwIgGTTU+3DnCJOIp2aD4HyAg8mcEDtm3vqH8y2eu9tOGht8bz+06B0sFq3pZ3g==}
+  '@code-inspector/vite@2.0.7':
+    resolution: {integrity: sha512-EVJuoPvQJEjXSlub2aMkZ3k55tCOZYe6Hm/U9orVfRjd3i6vMe7HKpHqLD67fWuW8+FB0Bdu9EHPGJaJHmeOcw==}
 
-  '@code-inspector/webpack@1.6.6':
-    resolution: {integrity: sha512-CnbPJhYf37c37woPwVDFN2KfG3mkzQe138KbRBib9nvabdzoMaT+7NuT6HbCnx+2Pr4WbqM0V+nf+pQhsoi/wA==}
+  '@code-inspector/webpack@2.0.7':
+    resolution: {integrity: sha512-sA1B9RA7pNcPoZxGmegBxv+0Ac2yoUYJMcQ6aYREnINwfAVvgxKkfksjPubMuglKIEMtY1qinAp+JiQFSuImag==}
 
   '@colordx/core@5.5.0':
     resolution: {integrity: sha512-3PxTH8itZzltK0U9jTwVVnjLXvnDYuq3m+QXsHkENxWiPRh4WaoLcs1SQjqgZ55kS+QyirpH5BVwzP2gMVG6EQ==}
@@ -1983,8 +1994,8 @@ packages:
     resolution: {integrity: sha512-BSeNnyus75C4//NQ9gQt1/csTXyo/8Sb+afLAkzAptFuMsod9HFokGNudZpi/oQV73hnVK+sR+5PVRMd+Dr7YQ==}
     engines: {node: '>=12'}
 
-  code-inspector-plugin@1.6.6:
-    resolution: {integrity: sha512-NQ8CWmMbFiZ+ck34Zxw4/awjIYcyutNPiVCdPe2hVXMD/NG2D+aWAz8NI2krOIagGnbny8j/YCyoiDsNRbnAbQ==}
+  code-inspector-plugin@2.0.7:
+    resolution: {integrity: sha512-Gaj5syVdtQt3UfFmypbHa76IPp5zSJwJCQfvjBb1SpEhJjvCk6I8uNFsNnLKvHcMPCkl/pABnCHXiiHbVXO3Vg==}
 
   color-convert@2.0.1:
     resolution: {integrity: sha512-RRECPsj7iu/xb5oKYcsFHSppFNnsj/52OVTRKb4zP5onXwVF3zVmmToNcOfGC+CRDpfK/U584fMg38ZHCaElKQ==}
@@ -2778,8 +2789,8 @@ packages:
   known-css-properties@0.37.0:
     resolution: {integrity: sha512-JCDrsP4Z1Sb9JwG0aJ8Eo2r7k4Ou5MwmThS/6lcIe1ICyb7UBJKGRIUUdqc2ASdE/42lgz6zFUnzAIhtXnBVrQ==}
 
-  launch-ide@1.4.5:
-    resolution: {integrity: sha512-W7e4UPmJRwW/YgMn9n3dG5RyzHWGOf31Zb0SmG4pYyH5PiL2KlNZHRo9eUOvozYVY2oqglTfidNKWUiOK6PAJA==}
+  launch-ide@1.4.8:
+    resolution: {integrity: sha512-SeY4/242PZ6M2cUtZvwEatbmIAjSK2zBm5PFUHFgJsR+1Kw51SBcqUHYzd5yofVAiyt0L047Kya7DqxoP+0Ouw==}
 
   levn@0.4.1:
     resolution: {integrity: sha512-+bT2uH4E5LGE7h/n3evcS/sQlJXCpIp6ym8OWJ5eV6+67Dsql/LaaT7qJBAt2rzfoa/5QBGBhxDix1dMt2kQKQ==}
@@ -3018,6 +3029,9 @@ packages:
 
   node-addon-api@7.1.1:
     resolution: {integrity: sha512-5m3bsyrjFWE1xf7nz7YXdN4udnVtXK6/Yfgn5qnahL6bCkf2yKt4k3nuTKAtT4r3IG8JNR2ncsIMdZuAzJjHQQ==}
+
+  node-pty@1.1.0:
+    resolution: {integrity: sha512-20JqtutY6JPXTUnL0ij1uad7Qe1baT46lyolh2sSENDd4sTzKZ4nmAFkeAARDKwmlLjPx6XKRlwRUxwjOy+lUg==}
 
   node-releases@2.0.51:
     resolution: {integrity: sha512-wRNIrw4DmVLKQlbgOMdkMx27Wrpzes2hh5Jtbi2bjPd+4wJstWIqP5A+lscnqbm0xxmT5Bpg8Lec5ItEBwx6BQ==}
@@ -4067,6 +4081,18 @@ packages:
     resolution: {integrity: sha512-+QU2zd6OTD8XWIJCbffaiQeH9U73qIqafo1x6V1snCWYGJf6cVE0cDR4D8xRzcEnfI21IFrUPzPGtcPf8AC+Rw==}
     engines: {node: ^14.17.0 || ^16.13.0 || >=18.0.0}
 
+  ws@8.21.3:
+    resolution: {integrity: sha512-201TZ/kPWxoPr/OKWjquZR1SWKXcvxdH+e1xrx89b3YbmzLMFCLfnaG1HFIgWzJOEWZ7MvpK++odZufgYR50Rw==}
+    engines: {node: '>=10.0.0'}
+    peerDependencies:
+      bufferutil: ^4.0.1
+      utf-8-validate: '>=5.0.2'
+    peerDependenciesMeta:
+      bufferutil:
+        optional: true
+      utf-8-validate:
+        optional: true
+
   xml-name-validator@5.0.0:
     resolution: {integrity: sha512-EvGK8EJ3DhaHfbRlETOWAS5pO9MZITeauHKJyb8wyajUfQUenkIg2MvLDTZ4T/TgIcm3HU0TFBgWWboAZ30UHg==}
     engines: {node: '>=18'}
@@ -4284,47 +4310,76 @@ snapshots:
       hashery: 1.5.1
       keyv: 5.6.0
 
-  '@code-inspector/core@1.6.6(supports-color@7.2.0)':
+  '@code-inspector/core@2.0.7(supports-color@7.2.0)':
     dependencies:
-      '@vue/compiler-dom': 3.5.40
-      chalk: 4.1.1
-      dotenv: 16.6.1
-      launch-ide: 1.4.5
+      '@vue/compiler-dom': 3.5.41
+      chalk: 4.1.2
+      launch-ide: 1.4.8
       portfinder: 1.0.38(supports-color@7.2.0)
+      ws: 8.21.3
+    optionalDependencies:
+      node-pty: 1.1.0
     transitivePeerDependencies:
+      - bufferutil
       - supports-color
+      - utf-8-validate
 
-  '@code-inspector/esbuild@1.6.6(supports-color@7.2.0)':
+  '@code-inspector/esbuild@2.0.7(supports-color@7.2.0)':
     dependencies:
-      '@code-inspector/core': 1.6.6(supports-color@7.2.0)
+      '@code-inspector/core': 2.0.7(supports-color@7.2.0)
     transitivePeerDependencies:
+      - '@anthropic-ai/claude-agent-sdk'
+      - '@openai/codex-sdk'
+      - '@opencode-ai/sdk'
+      - bufferutil
       - supports-color
+      - utf-8-validate
 
-  '@code-inspector/mako@1.6.6(supports-color@7.2.0)':
+  '@code-inspector/mako@2.0.7(supports-color@7.2.0)':
     dependencies:
-      '@code-inspector/core': 1.6.6(supports-color@7.2.0)
+      '@code-inspector/core': 2.0.7(supports-color@7.2.0)
     transitivePeerDependencies:
+      - '@anthropic-ai/claude-agent-sdk'
+      - '@openai/codex-sdk'
+      - '@opencode-ai/sdk'
+      - bufferutil
       - supports-color
+      - utf-8-validate
 
-  '@code-inspector/turbopack@1.6.6(supports-color@7.2.0)':
+  '@code-inspector/turbopack@2.0.7(supports-color@7.2.0)':
     dependencies:
-      '@code-inspector/core': 1.6.6(supports-color@7.2.0)
-      '@code-inspector/webpack': 1.6.6(supports-color@7.2.0)
+      '@code-inspector/core': 2.0.7(supports-color@7.2.0)
+      '@code-inspector/webpack': 2.0.7(supports-color@7.2.0)
     transitivePeerDependencies:
+      - '@anthropic-ai/claude-agent-sdk'
+      - '@openai/codex-sdk'
+      - '@opencode-ai/sdk'
+      - bufferutil
       - supports-color
+      - utf-8-validate
 
-  '@code-inspector/vite@1.6.6(supports-color@7.2.0)':
+  '@code-inspector/vite@2.0.7(supports-color@7.2.0)':
     dependencies:
-      '@code-inspector/core': 1.6.6(supports-color@7.2.0)
+      '@code-inspector/core': 2.0.7(supports-color@7.2.0)
       chalk: 4.1.1
     transitivePeerDependencies:
+      - '@anthropic-ai/claude-agent-sdk'
+      - '@openai/codex-sdk'
+      - '@opencode-ai/sdk'
+      - bufferutil
       - supports-color
+      - utf-8-validate
 
-  '@code-inspector/webpack@1.6.6(supports-color@7.2.0)':
+  '@code-inspector/webpack@2.0.7(supports-color@7.2.0)':
     dependencies:
-      '@code-inspector/core': 1.6.6(supports-color@7.2.0)
+      '@code-inspector/core': 2.0.7(supports-color@7.2.0)
     transitivePeerDependencies:
+      - '@anthropic-ai/claude-agent-sdk'
+      - '@openai/codex-sdk'
+      - '@opencode-ai/sdk'
+      - bufferutil
       - supports-color
+      - utf-8-validate
 
   '@colordx/core@5.5.0': {}
 
@@ -5723,17 +5778,22 @@ snapshots:
       strip-ansi: 6.0.1
       wrap-ansi: 7.0.0
 
-  code-inspector-plugin@1.6.6(supports-color@7.2.0):
+  code-inspector-plugin@2.0.7(supports-color@7.2.0):
     dependencies:
-      '@code-inspector/core': 1.6.6(supports-color@7.2.0)
-      '@code-inspector/esbuild': 1.6.6(supports-color@7.2.0)
-      '@code-inspector/mako': 1.6.6(supports-color@7.2.0)
-      '@code-inspector/turbopack': 1.6.6(supports-color@7.2.0)
-      '@code-inspector/vite': 1.6.6(supports-color@7.2.0)
-      '@code-inspector/webpack': 1.6.6(supports-color@7.2.0)
+      '@code-inspector/core': 2.0.7(supports-color@7.2.0)
+      '@code-inspector/esbuild': 2.0.7(supports-color@7.2.0)
+      '@code-inspector/mako': 2.0.7(supports-color@7.2.0)
+      '@code-inspector/turbopack': 2.0.7(supports-color@7.2.0)
+      '@code-inspector/vite': 2.0.7(supports-color@7.2.0)
+      '@code-inspector/webpack': 2.0.7(supports-color@7.2.0)
       chalk: 4.1.1
     transitivePeerDependencies:
+      - '@anthropic-ai/claude-agent-sdk'
+      - '@openai/codex-sdk'
+      - '@opencode-ai/sdk'
+      - bufferutil
       - supports-color
+      - utf-8-validate
 
   color-convert@2.0.1:
     dependencies:
@@ -6571,9 +6631,9 @@ snapshots:
 
   known-css-properties@0.37.0: {}
 
-  launch-ide@1.4.5:
+  launch-ide@1.4.8:
     dependencies:
-      chalk: 4.1.1
+      chalk: 4.1.2
       dotenv: 16.6.1
 
   levn@0.4.1:
@@ -6773,6 +6833,11 @@ snapshots:
   natural-compare@1.4.0: {}
 
   node-addon-api@7.1.1:
+    optional: true
+
+  node-pty@1.1.0:
+    dependencies:
+      node-addon-api: 7.1.1
     optional: true
 
   node-releases@2.0.51: {}
@@ -7766,6 +7831,8 @@ snapshots:
     dependencies:
       imurmurhash: 0.1.4
       signal-exit: 4.1.0
+
+  ws@8.21.3: {}
 
   xml-name-validator@5.0.0: {}
 
