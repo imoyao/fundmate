@@ -1,0 +1,31 @@
+name: Dependabot Auto Merge
+
+# 自动合并 Dependabot 的依赖更新 PR（仅 @dependabot 作者、仅补丁/次要版本、仅 dependencies 标签）
+# 作用：让安全更新随依赖升级自动合入默认分支，Dependency Graph 上的对应漏洞告警随之自动关闭，
+#       无需人工逐个处理（GitHub 默认行为：锁文件升级合并后，相关 Dependabot alert 会自动 resolved）。
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    if: github.actor == 'dependabot[bot]'
+    steps:
+      - name: Fetch Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: "${{ secrets.GITHUB_TOKEN }}"
+
+      - name: Enable auto-merge for patch/minor updates
+        if: steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.meta.outputs.update-type == 'version-update:semver-minor'
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

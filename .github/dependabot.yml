@@ -1,25 +1,88 @@
 version: 2
 updates:
+  # 主仓库根目录（主站/文档构建依赖：vitepress、dux 主题等）
+  - package-ecosystem: "npm"
+    directory: "/"
+    target-branch: "main-v2"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "08:00"
+    open-pull-requests-limit: 99
+    commit-message:
+      prefix: "chore"
+      prefix-development: "fix"
+    labels:
+      - "dependencies"
+    pull-request-branch-name:
+      separator: "-"
+
+  # 前端（frontend/ 子项目）
   - package-ecosystem: "npm"
     directory: "/frontend/"
+    target-branch: "main-v2"
     schedule:
-      interval: "monthly"
+      interval: "weekly"
+      day: "monday"
       time: "08:00"
+    open-pull-requests-limit: 99
+    commit-message:
+      prefix: "chore"
+      prefix-development: "fix"
+    labels:
+      - "dependencies"
+    pull-request-branch-name:
+      separator: "-"
 
-  - package-ecosystem: "docker"
-    directory: "/backend/"
-    schedule:
-      interval: "monthly"
-      time: "08:00"
-
-  - package-ecosystem: "github-actions"
-    directory: "/backend"
-    schedule:
-      interval: "monthly"
-      time: "08:00"
-
+  # 后端 Python（PDM 管理，依赖声明在 pyproject.toml）
   - package-ecosystem: "pip"
-    directory: "/backend/requirements"
+    directory: "/backend"
+    target-branch: "main-v2"
     schedule:
-      interval: "monthly"
+      interval: "weekly"
+      day: "monday"
       time: "08:00"
+    open-pull-requests-limit: 99
+    commit-message:
+      prefix: "chore"
+      prefix-development: "fix"
+    labels:
+      - "dependencies"
+    pull-request-branch-name:
+      separator: "-"
+
+  # 前端 Docker 镜像
+  - package-ecosystem: "docker"
+    directory: "/frontend"
+    target-branch: "main-v2"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "08:00"
+    open-pull-requests-limit: 99
+    labels:
+      - "dependencies"
+
+  # 后端 Docker 镜像
+  - package-ecosystem: "docker"
+    directory: "/backend"
+    target-branch: "main-v2"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "08:00"
+    open-pull-requests-limit: 99
+    labels:
+      - "dependencies"
+
+  # GitHub Actions 工作流本身
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    target-branch: "main-v2"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "08:00"
+    open-pull-requests-limit: 99
+    labels:
+      - "dependencies"
