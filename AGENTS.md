@@ -68,3 +68,20 @@ Windows：`dev.cmd`（内部走 `scripts/dev.ps1`）；Git Bash / WSL / macOS：
 - pypinyin 是重型依赖（3.2MB 词典），必须保持延迟导入（见 `fund_detail_enrich_job.py`）。
 - 温度计模块历史基线数据 `backend/app/services/thermometer/data/all_pb.csv`（全A中位PB历史，行业拥挤度分母兜底）**禁止删除、禁止 `.gitignore`、必须入库**：它不是运行时缓存（已从 `cache/` 迁出至 `data/`），而是可被 `scripts/prefetch_all_pb.py` 重建但需稳定可追踪的基线；误删会导致温度计整组标灰。pre-commit 守卫 `scripts/guard_all_pb.py` 会在行数骤降（< 1000）时拒绝提交——不要绕过该守卫（如 `--no-verify`）。
 - 提交前：后端 `pytest` 全量单进程通过；前端 `vue-tsc` 零错误。
+
+## GitHub Issue / Discussion / PR 创建规范（OpenCode 等自动化通道）
+
+- 任何以 `imoyao` 账号通过 `gh` / REST API / 脚本创建 issue、discussion、PR 的自动化通道（含 OpenCode、远程 agent），**必须在 UTF-8 环境下运行**：shell 先 `export LANG=C.UTF-8; export LC_ALL=C.UTF-8`；Python 设 `PYTHONUTF8=1`，禁止用 `latin-1`/`ascii` 编解码中文。
+- 中文标题/正文**用文件传**：`gh issue create --title-file <f> --body-file <f>`（文件 UTF-8 无 BOM），避免内联中文变量在非 UTF-8 终端里被吞成 `?`。
+- 创建后必须回读校验：`gh issue view <n> --json title` 确认中文无 `?`、无 `Ã`/`Â` 类 mojibake；出现则视为创建失败，立即删掉重建，**严禁保留乱码 issue**。
+- 复盘：2026-08-09 的 #859–#862 因创建环境非 UTF-8，中文标题全变 `?`（如 `?????(?? Discussion #152 ????)），已改写成干净中文 issue。完整规则见 `docs/working-notes/opencode-github-issue-utf8-rule-2026-08-09.md`。
+
+## 禁止武断执行（对所有 AI / agent 生效，含 OpenCode、远程 agent）
+
+**核心铁律：不要望文生义、不做判断就直接执行。** 任何涉及「删除 / 移除 / 覆盖 / 丢弃」类破坏性操作（删文件、删 issue、删看板条目、删讨论、撤销改动等），**必须先核实内容价值，再决定处置方式**：
+
+- **删除前必须读内容、做判断**：绝不允许仅凭表面现象（如"issue 已关闭"＝"看板过期"、"草稿"＝"无用"、"旧文档"＝"该删"）就武断删除。已关闭 ≠ 无用，过期 ≠ 无价值。
+- **高价值内容一律归档，不删除**：竞品调研、数据源清单、路线图、设计基线、架构讨论、历史笔记等即使 issue/讨论已关闭，也属长期参考资料，应**打 `归档` 标签 + Status=Done 保留在看板**，而非移出或删除。
+- **"拉平 / 重构看板 / 整理"≠"清空"**：整理任务的目标是让活跃项与归档项各归其位（双维度分组），不是把"不顺眼的"删掉。判断不清时，宁可保留、标注待确认，也不可擅自删除。
+- **破坏性操作三问**：① 这东西的内容我读过了吗？② 它是否还有参考价值 / 是否已被代码实现？③ 删了能否恢复？三个问题有一答不上，就先不动，向用户确认。
+- **复盘案例**：2026-08-09 整理 GitHub 看板时，曾因"看板过期"望文生义，误删 5 个高价值已关闭 issue（#237 竞品库、#429 导入导出设计、#588 温度数据源、#661 自选实现、#769 路线图）及 2 个项目草稿，事后已恢复 5 个并打 `归档` 标签。此为反面教材，禁止重犯。

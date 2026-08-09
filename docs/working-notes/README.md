@@ -54,3 +54,6 @@
 | `db-download-import-2026-08-09.md` | DB 下载与导入规划 |
 | `free-cloud-services-2026-08-09.md` | 免费产品清单 |
 | `launch-plan-2026-08-09.md` | 上线计划（含动态 静态 / Turso 双数据源 / 日志追踪选型） |
+| `feedlog-setup-cn-2026-08-09.md` | FeedLog (dbb-feedback) 中文环境初始化指南：Cloudflare Workers + R2 + Hyperdrive 部署全流程，含环境变量/品牌定制/AI配置 |
+| `opencode-github-issue-utf8-rule-2026-08-09.md` | OpenCode/GitHub Issue 创建 UTF-8 环境规则（复盘 #859-#862 乱码事故） |
+| `money-fund-income-plan-2026-08-09.md` | 货基收益入账方案设计 |

@@ -1,0 +1,161 @@
+# FeedLog ↔ GitHub Issues 双向桥接工作流
+#
+# 三条通道：
+#   1. FeedLog → GitHub（定时）：每 15 分钟检查 FeedLog PostgreSQL 新帖子 → 创建 GitHub Issue
+#   2. GitHub → FeedLog（事件）：Issue 打标/关闭 → 更新 FeedLog 帖子状态
+#   3. GitHub Release → FeedLog Changelog：发布新版本 → 创建 FeedLog 更新日志
+#
+# 前置条件（需在仓库 Settings → Secrets 中配置）：
+#   - FEEDLOG_DATABASE_URL: FeedLog PostgreSQL 直连串（不是 Cloudflare Hyperdrive ID）
+#   - GH_PAT (可选): 用于 commit bridge_state.json 的 PAT（默认用 GITHUB_TOKEN）
+
+name: FeedLog ↔ GitHub Bridge
+
+on:
+  # 通道 1：定时同步 FeedLog → GitHub Issues
+  schedule:
+    - cron: '*/15 * * * *'  # 每 15 分钟
+  workflow_dispatch:
+    inputs:
+      command:
+        description: '手动运行模式'
+        required: true
+        type: choice
+        default: 'feedlog-to-github'
+        options:
+          - feedlog-to-github
+          - release-to-changelog
+
+  # 通道 2：GitHub Issue 事件 → FeedLog 状态
+  issues:
+    types: [labeled, unlabeled, closed, reopened]
+
+  # 通道 3：GitHub Release 发布 → FeedLog Changelog
+  release:
+    types: [published]
+
+jobs:
+  # ============================================
+  # 通道 1 & 手动：FeedLog 帖子 → GitHub Issues
+  # ============================================
+  feedlog-to-github:
+    # 仅在定时触发或手动选择 feedlog-to-github 时运行
+    if: |
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && inputs.command == 'feedlog-to-github')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+
+    steps:
+      - name: Checkout 仓库
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 安装依赖
+        run: pip install psycopg2-binary PyGithub
+
+      - name: 运行桥接脚本
+        env:
+          FEEDLOG_DATABASE_URL: ${{ secrets.FEEDLOG_DATABASE_URL }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: imoyao/fundmate
+        run: |
+          python scripts/bridge/feedlog_bridge.py feedlog-to-github
+
+      - name: 提交状态文件
+        # 仅当 bridge_state.json 有变更时提交
+        run: |
+          if git diff --quiet scripts/bridge/bridge_state.json; then
+            echo "📭 状态文件无变化，跳过提交"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add scripts/bridge/bridge_state.json
+            git commit -m "chore: 更新 FeedLog 桥接状态 [skip ci]"
+            git push
+            echo "✅ 已提交状态文件"
+          fi
+
+  # ============================================
+  # 通道 2：GitHub Issue 标签/关闭 → FeedLog 状态
+  # ============================================
+  github-to-feedlog:
+    if: github.event_name == 'issues'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout 仓库
+        uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 安装依赖
+        run: pip install psycopg2-binary PyGithub
+
+      - name: 解析 Issue 标签
+        id: parse
+        run: |
+          # 提取当前 issue 的所有标签名
+          LABELS=$(echo '${{ toJSON(github.event.issue.labels.*.name) }}' | jq -r '.[]' | tr '\n' ' ')
+          echo "labels=${LABELS}" >> $GITHUB_OUTPUT
+          echo "issue_number=${{ github.event.issue.number }}" >> $GITHUB_OUTPUT
+          echo "action=${{ github.event.action }}" >> $GITHUB_OUTPUT
+
+      - name: 回写 FeedLog 状态
+        env:
+          FEEDLOG_DATABASE_URL: ${{ secrets.FEEDLOG_DATABASE_URL }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: imoyao/fundmate
+        run: |
+          LABELS="${{ steps.parse.outputs.labels }}"
+          # 如果 issue 被关闭，追加 done 标签
+          if [ "${{ steps.parse.outputs.action }}" = "closed" ]; then
+            LABELS="$LABELS done"
+          fi
+          python scripts/bridge/feedlog_bridge.py issue-to-feedlog \
+            --issue-number ${{ steps.parse.outputs.issue_number }} \
+            --labels $LABELS
+
+  # ============================================
+  # 通道 3：GitHub Release → FeedLog Changelog
+  # ============================================
+  release-to-changelog:
+    if: |
+      github.event_name == 'release' ||
+      (github.event_name == 'workflow_dispatch' && inputs.command == 'release-to-changelog')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout 仓库
+        uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 安装依赖
+        run: pip install psycopg2-binary PyGithub
+
+      - name: 同步 Release 到 FeedLog Changelog
+        env:
+          FEEDLOG_DATABASE_URL: ${{ secrets.FEEDLOG_DATABASE_URL }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: imoyao/fundmate
+        run: |
+          python scripts/bridge/feedlog_bridge.py release-to-changelog \
+            --tag "${{ github.event.release.tag_name }}" \
+            --name "${{ github.event.release.name }}" \
+            --body "${{ github.event.release.body }}" \
+            --published-at "${{ github.event.release.published_at }}"
