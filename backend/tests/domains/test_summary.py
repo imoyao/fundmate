@@ -476,3 +476,111 @@ class TestDistributionsEndpoint:
         data = resp.get_json()['data']
         account_values = [d['value'] for d in data['account_distribution']]
         assert account_values == sorted(account_values, reverse=True)
+
+
+class TestPositionGroupsEndpoint:
+    """维度分组接口 /api/summary/groups/ 测试套件（批次 2b）"""
+
+    def _make_pos(self, db, **kwargs):
+        defaults = dict(
+            symbol='SH600519',
+            name='茅台',
+            market='CN_A',
+            asset_type='stock',
+            quantity=Money.shares_to_min_unit(100),
+            avg_price=Money.yuan_to_cents(900),
+            current_price=Money.yuan_to_cents(1000),
+            currency='CNY',
+            allocation='longterm',
+            account_name='华泰',
+        )
+        defaults.update(kwargs)
+        pos = Position(**defaults)
+        db.add(pos)
+        return pos
+
+    def test_empty_data(self, client):
+        resp = client.get('/api/summary/groups/?dimension=type')
+        assert resp.status_code == 200
+        assert resp.get_json()['data'] == []
+
+    def test_unsupported_dimension(self, client):
+        resp = client.get('/api/summary/groups/?dimension=foo')
+        assert resp.status_code == 400
+
+    def test_type_groups_with_pnl_and_currency(self, client, db):
+        """产品类型分组：汇率换算 + 盈亏 + 明细字段"""
+        self._make_pos(db, symbol='HK00700', name='腾讯', asset_type='stock', market='CN_HK',
+                       quantity=Money.shares_to_min_unit(100), current_price=Money.yuan_to_cents(350),
+                       avg_price=Money.yuan_to_cents(300), currency='HKD', account_name='富途')
+        self._make_pos(db, symbol='000001', name='某基金', asset_type='fund',
+                       quantity=Money.shares_to_min_unit(1000), current_price=Money.yuan_to_cents(1.8),
+                       avg_price=Money.yuan_to_cents(1.5))
+        db.commit()
+
+        resp = client.get('/api/summary/groups/?dimension=type')
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert [g['name'] for g in data] == ['股票', '基金']
+        stock = next(g for g in data if g['name'] == '股票')
+        # 腾讯市值 100*350*0.92 = 32200，盈亏 (350-300)*100*0.92 = 4600
+        assert stock['total'] == 32200.0
+        assert stock['total_pnl'] == 4600.0
+        assert stock['count'] == 1
+        assert len(stock['items']) == 1
+        item = stock['items'][0]
+        assert item['name'] == '腾讯'
+        assert item['type_label'] == '股票'
+        assert item['market_label'] == '港股'
+        assert item['market_value'] == 32200.0
+        assert item['pnl'] == 4600.0
+
+    def test_account_groups_mix_positions_and_assets(self, client, db):
+        """账户分组混合持仓与非负债通用资产；负债不计入"""
+        self._make_pos(db, name='茅台', account_name='华泰')
+        cash = Asset(
+            user_id=1, major_category='cash', name='活期存款', amount=Money.yuan_to_cents(100000), currency='CNY',
+            account_name='华泰',
+        )
+        credit = Asset(
+            user_id=1, major_category='liability', name='信用卡', amount=Money.yuan_to_cents(5000), currency='CNY',
+            account_name='华泰',
+        )
+        db.add_all([cash, credit])
+        db.commit()
+
+        resp = client.get('/api/summary/groups/?dimension=account')
+        data = resp.get_json()['data']
+        assert len(data) == 1
+        acc = data[0]
+        assert acc['name'] == '华泰'
+        # 茅台 100*1000 + 现金 100000 = 200000，负债不计入
+        assert acc['total'] == 200000.0
+        assert acc['count'] == 2
+        assert acc['total_pnl'] == (1000 - 900) * 100
+
+    def test_allocation_groups(self, client, db):
+        """配置目标分组；缺省 allocation 被模型 default 兜底为 longterm"""
+        self._make_pos(db, allocation='longterm')
+        self._make_pos(db, symbol='B', name='货基', asset_type='fund', allocation=None)
+        self._make_pos(db, symbol='C', name='博弈', allocation='speculative')
+        db.commit()
+
+        resp = client.get('/api/summary/groups/?dimension=allocation')
+        data = resp.get_json()['data']
+        names = {g['name'] for g in data}
+        assert names == {'长期增值', '高风险博弈'}
+        longterm = next(g for g in data if g['name'] == '长期增值')
+        # allocation=None 被列 default 兜底为 longterm，与持仓 A 同组
+        assert longterm['count'] == 2
+
+    def test_groups_sorted_desc(self, client, db):
+        """分组按 total 降序"""
+        self._make_pos(db, name='小', quantity=Money.shares_to_min_unit(10))
+        self._make_pos(db, symbol='B', name='大', quantity=Money.shares_to_min_unit(200))
+        db.commit()
+
+        resp = client.get('/api/summary/groups/?dimension=account')
+        data = resp.get_json()['data']
+        totals = [g['total'] for g in data]
+        assert totals == sorted(totals, reverse=True)

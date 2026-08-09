@@ -315,3 +315,92 @@ def get_distributions(db: Session, family_id: int = 1) -> dict[str, Any]:
         'net_worth': round(total_assets - total_liabilities, 2),
         'positions_total_mv': round(positions_total_mv, 2),
     }
+
+
+# ---------------------------------------------------------------------------
+# 维度分组（批次 2b）：持仓/资产按产品类型/账户/配置目标分组，含 items 明细
+# ---------------------------------------------------------------------------
+_POS_GROUP_DIMENSIONS = ('type', 'account', 'allocation')
+
+
+def _pos_group_payload(p: Position) -> dict[str, Any]:
+    """持仓分组明细：展示单位 + 标签，市值/盈亏按汇率后端换算（唯一出口）。"""
+    rate = EXCHANGE_RATES.get(p.currency, 1.0)
+    shares = Money.min_unit_to_shares(p.quantity)
+    price = Money.cents_to_yuan(p.current_price)
+    cost = Money.cents_to_yuan(p.avg_price)
+    return {
+        'id': p.id,
+        'name': p.name,
+        'symbol': p.symbol,
+        'asset_type': p.asset_type,
+        'type_label': TYPE_LABELS.get(p.asset_type, p.asset_type or _UNKNOWN_TYPE),
+        'market': p.market,
+        'market_label': MARKET_LABELS.get(p.market, p.market),
+        'allocation': p.allocation,
+        'allocation_label': ALLOCATION_LABELS.get(p.allocation, p.allocation or '未分类'),
+        'account_name': p.account_name,
+        'quantity': shares,
+        'current_price': price,
+        'market_value': round(shares * price * rate, 2),
+        'pnl': round((price - cost) * shares * rate, 2),
+    }
+
+
+def _asset_group_payload(a: Asset) -> dict[str, Any]:
+    """通用资产分组明细（非负债），金额为人民币元。"""
+    return {
+        'id': a.id,
+        'name': a.name,
+        'asset_type': a.major_category,
+        'type_label': CATEGORY_META.get(a.major_category, (_UNKNOWN_TYPE, None))[0],
+        'account_name': a.account_name,
+        'market_value': round(Money.cents_to_yuan(a.amount), 2),
+        'pnl': 0.0,
+    }
+
+
+def get_position_groups(db: Session, family_id: int = 1, dimension: str = 'type') -> list[dict[str, Any]]:
+    """按维度分组汇总持仓/资产（含 items 明细），供资产总览分组卡片消费。
+
+    聚合、汇率换算、市值/盈亏全部在后端；前端纯渲染，不再保留 EXCHANGE_RATES。
+    dimension: type（产品类型）/ account（账户，含非负债通用资产）/ allocation（配置目标）。
+    返回列表按 total 降序，与 distributions 接口口径一致。
+    """
+    if dimension not in _POS_GROUP_DIMENSIONS:
+        dimension = 'type'
+    positions, assets = _load_user_assets(db, family_id)
+
+    groups: dict[str, dict[str, Any]] = {}
+
+    def _add(key: str, payload: dict[str, Any]) -> None:
+        g = groups.get(key)
+        if g is None:
+            g = groups[key] = {'name': key, 'total': 0.0, 'total_pnl': 0.0, 'count': 0, 'items': []}
+        g['total'] += payload['market_value']
+        g['total_pnl'] += payload['pnl']
+        g['count'] += 1
+        g['items'].append(payload)
+
+    if dimension == 'account':
+        for p in positions:
+            _add(p.account_name or '未指定账户', _pos_group_payload(p))
+        for a in assets:
+            amount = Money.cents_to_yuan(a.amount)
+            if amount <= 0 or a.major_category == _LIABILITY_KEY:
+                continue
+            _add(a.account_name or '未指定账户', _asset_group_payload(a))
+    elif dimension == 'allocation':
+        for p in positions:
+            key = ALLOCATION_LABELS.get(p.allocation, p.allocation or '未分类')
+            _add(key, _pos_group_payload(p))
+    else:
+        for p in positions:
+            key = TYPE_LABELS.get(p.asset_type, p.asset_type or _UNKNOWN_TYPE)
+            _add(key, _pos_group_payload(p))
+
+    result = sorted(groups.values(), key=lambda g: -g['total'])
+    for g in result:
+        g['total'] = round(g['total'], 2)
+        g['total_pnl'] = round(g['total_pnl'], 2)
+    return result

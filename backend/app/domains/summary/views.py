@@ -7,13 +7,14 @@
 """首页仪表盘聚合数据 API."""
 
 from apiflask import APIBlueprint
-from flask import jsonify
+from flask import jsonify, request
 
 from app.core.auth import get_family_id
 from app.core.database import get_db
 from app.services.summary_service import (
     get_account_groups,
     get_distributions,
+    get_position_groups,
     get_sankey_data,
     get_summary_data,
 )
@@ -55,3 +56,17 @@ def distributions():
         return jsonify({'data': data, 'message': 'ok'})
     except Exception as e:
         return jsonify({'data': {}, 'message': f'服务器内部错误: {str(e)}'}), 500
+
+
+@bp.get('/summary/groups/')
+def position_groups():
+    """返回持仓/资产按维度分组汇总（type/account/allocation，含 items 明细）"""
+    dimension = request.args.get('dimension', 'type')
+    if dimension not in ('type', 'account', 'allocation'):
+        return jsonify({'data': [], 'message': f'不支持的维度: {dimension}'}), 400
+    try:
+        with get_db() as db:
+            data = get_position_groups(db, get_family_id(), dimension)
+        return jsonify({'data': data, 'message': 'ok'})
+    except Exception as e:
+        return jsonify({'data': [], 'message': f'服务器内部错误: {str(e)}'}), 500

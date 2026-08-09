@@ -446,26 +446,25 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick } from "vue";
+import { ref, computed, onMounted, nextTick, watch } from "vue";
 import { useRouter } from "vue-router";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import SankeyChart from "@/components/Charts/SankeyChart.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
-import { getPositions } from "@/api/positions";
-import { getSummary, getSankeyData, getDistributions } from "@/api/summary";
-import { getAssets } from "@/api/assets";
+import {
+  getSummary,
+  getSankeyData,
+  getDistributions,
+  getPositionGroups,
+  type GroupDimension
+} from "@/api/summary";
 import { getLedgers } from "@/api/ledger";
 import { ElMessage } from "element-plus";
 import echarts from "@/plugins/echarts";
-import { getAllocationLabel } from "@/constants";
 
 defineOptions({ name: "AssetPanorama" });
 
-const EXCHANGE_RATES: Record<string, number> = { CNY: 1, USD: 7.25, HKD: 0.92 };
-
-const allPositions = ref<any[]>([]);
-const allAssets = ref<any[]>([]);
 const distributions = ref<any>(null);
 const ledgers = ref<any[]>([]);
 const totalAssets = ref(0);
@@ -480,6 +479,8 @@ const loading = ref(false);
 const sankeyDisplayMode = ref<"amount" | "percent" | "hidden">("amount");
 const balanceTab = ref<"assets" | "liabilities">("assets");
 const detailView = ref("category");
+const detailGroups = ref<any[]>([]);
+const detailGroupsLoading = ref(false);
 const waterfallChartRef = ref<HTMLDivElement>();
 let waterfallChart: echarts.ECharts | null = null;
 
@@ -526,18 +527,33 @@ function handleGroupClick(group: any) {
   }
 }
 
-const currentDetailGroups = computed(() => {
-  switch (detailView.value) {
-    case "type":
-      return typeDetailGroups.value;
-    case "account":
-      return accountDetailGroups.value;
-    case "allocation":
-      return allocationDetailGroups.value;
-    default:
-      return [];
+// 后端分组数据（detailView 切换时按需拉取，字段后端为 snake_case）
+const currentDetailGroups = computed(() =>
+  detailGroups.value.map(g => ({
+    name: g.name,
+    total: g.total,
+    totalPnl: g.total_pnl,
+    items: g.items
+  }))
+);
+
+async function loadDetailGroups() {
+  const dim = detailView.value;
+  if (dim === "category") return;
+  detailGroupsLoading.value = true;
+  try {
+    const res = await getPositionGroups(dim as GroupDimension);
+    const raw = (res as any)?.data;
+    detailGroups.value = Array.isArray(raw) ? raw : raw?.data || [];
+  } catch (e: any) {
+    detailGroups.value = [];
+    ElMessage.error(e?.message || "分组加载失败");
+  } finally {
+    detailGroupsLoading.value = false;
   }
-});
+}
+
+watch(detailView, loadDetailGroups);
 
 const assetBalanceRows = computed(() => {
   const total = totalAssets.value;
@@ -578,79 +594,6 @@ const liabilityBalanceRows = computed(() => {
     value: item.value,
     color: "var(--color-neutral)",
     percent: +((item.value / totalLiab) * 100).toFixed(1)
-  }));
-});
-
-const typeDetailGroups = computed(() => {
-  const map: Record<string, { items: any[]; total: number; totalPnl: number }> =
-    {};
-  allPositions.value.forEach((p: any) => {
-    const type = p.type_label || p.asset_type || p.type || "其他";
-    if (!map[type]) map[type] = { items: [], total: 0, totalPnl: 0 };
-    map[type].items.push(p);
-    map[type].total += p.marketValue || 0;
-    map[type].totalPnl += p.pnl || 0;
-  });
-  return Object.entries(map).map(([name, data]) => ({
-    name,
-    items: data.items,
-    total: data.total,
-    totalPnl: data.totalPnl
-  }));
-});
-
-const accountDetailGroups = computed(() => {
-  const map: Record<string, { items: any[]; total: number; totalPnl: number }> =
-    {};
-  allPositions.value.forEach((p: any) => {
-    const acc = p.account_name || "未指定账户";
-    if (!map[acc]) map[acc] = { items: [], total: 0, totalPnl: 0 };
-    map[acc].items.push({
-      ...p,
-      type_label: p.type_label || p.asset_type || p.type
-    });
-    map[acc].total += p.marketValue || 0;
-    map[acc].totalPnl += p.pnl || 0;
-  });
-  allAssets.value.forEach((a: any) => {
-    const acc = a.account_name || "未指定账户";
-    if (!map[acc]) map[acc] = { items: [], total: 0, totalPnl: 0 };
-    const value = a.marketValue || a.amount || 0;
-    map[acc].items.push({
-      ...a,
-      marketValue: value,
-      type_label: a.minor_category || a.major_category,
-      asset_type: a.major_category
-    });
-    map[acc].total += value;
-  });
-  return Object.entries(map).map(([name, data]) => ({
-    name,
-    items: data.items,
-    total: data.total,
-    totalPnl: data.totalPnl
-  }));
-});
-
-const allocationDetailGroups = computed(() => {
-  const map: Record<string, { items: any[]; total: number; totalPnl: number }> =
-    {};
-  allPositions.value.forEach((p: any) => {
-    const alloc =
-      p.allocation_label || getAllocationLabel(p.allocation) || "未配置";
-    if (!map[alloc]) map[alloc] = { items: [], total: 0, totalPnl: 0 };
-    map[alloc].items.push({
-      ...p,
-      type_label: p.type_label || p.asset_type || p.type
-    });
-    map[alloc].total += p.marketValue || 0;
-    map[alloc].totalPnl += p.pnl || 0;
-  });
-  return Object.entries(map).map(([name, data]) => ({
-    name,
-    items: data.items,
-    total: data.total,
-    totalPnl: data.totalPnl
   }));
 });
 
@@ -756,23 +699,12 @@ function initWaterfallChart() {
 async function fetchData() {
   loading.value = true;
   try {
-    const [posRes, sumRes, assetsRes, sankeyRes, ledgerRes, distRes] =
-      await Promise.all([
-        getPositions({ per_page: 500 }),
-        getSummary(),
-        getAssets({ per_page: 500 }),
-        getSankeyData(),
-        getLedgers(),
-        getDistributions()
-      ]);
-
-    let positionsRaw: any[] = [];
-    const posData = (posRes as any)?.data || posRes;
-    positionsRaw = Array.isArray(posData) ? posData : posData?.data || [];
-
-    let assetsRaw: any[] = [];
-    const assetData = (assetsRes as any)?.data || assetsRes;
-    assetsRaw = Array.isArray(assetData) ? assetData : assetData?.data || [];
+    const [sumRes, sankeyRes, ledgerRes, distRes] = await Promise.all([
+      getSummary(),
+      getSankeyData(),
+      getLedgers(),
+      getDistributions()
+    ]);
 
     let sankeyRaw: any = {};
     const sankData = (sankeyRes as any)?.data;
@@ -782,21 +714,6 @@ async function fetchData() {
     ledgers.value = Array.isArray(ledgerData)
       ? ledgerData
       : ledgerData?.data || [];
-
-    allPositions.value = positionsRaw.map((p: any) => {
-      const rate = EXCHANGE_RATES[p.currency || "CNY"] || 1;
-      const marketValue = (p.quantity || 0) * (p.current_price || 0) * rate;
-      const pnl =
-        ((p.current_price || 0) - (p.avg_price || 0)) *
-        (p.quantity || 0) *
-        rate;
-      return { ...p, marketValue, pnl };
-    });
-
-    allAssets.value = assetsRaw.map((a: any) => ({
-      ...a,
-      marketValue: a.signed_amount ?? (a.amount || 0)
-    }));
 
     totalAssets.value = (sumRes as any)?.data?.total_assets_cny || 0;
     totalLiabilities.value = (sumRes as any)?.data?.total_liabilities_cny || 0;

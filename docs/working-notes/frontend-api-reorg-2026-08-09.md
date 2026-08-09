@@ -82,11 +82,13 @@
 | 批次 | 内容 | 状态 |
 |---|---|---|
 | 1 | detail.vue 环形图 → 后端 `type_distribution` | ✅ 已完成（commit `7fda719`） |
-| 2 | 后端 `GET /api/summary/distributions/`；AssetPanorama 大类构成/负债明细/瀑布图 → 消费该接口（去假数据）；api/summary.ts 增 `getDistributions` | ✅ 已完成（后端 578 passed + typecheck 通过，待提交） |
-| 2b | AssetPanorama type/account/allocation 分组卡片 → 后端 `GET /api/summary/groups/`；删前端 `EXCHANGE_RATES` 与 positions/assets 全量拉取 | 差异展示中，待确认 |
+| 2 | 后端 `GET /api/summary/distributions/`；AssetPanorama 大类构成/负债明细/瀑布图 → 消费该接口（去假数据）；api/summary.ts 增 `getDistributions` | ✅ 已完成（commit `4014daf`） |
+| 2b | 后端 `GET /api/summary/groups/?dimension=type\|account\|allocation`（含 items 明细）；AssetPanorama 维度分组卡片消费该接口；删前端 `EXCHANGE_RATES` 与 positions/assets 全量拉取 | ✅ 已完成（后端 578 passed + typecheck 通过，待提交） |
 | 3 | inventory 前端 slice 分页 → 后端真实分页；分组走后端 | 待核准 |
 | 4 | Overview.vue 死文件处置（删除需备份 + 确认） | 待讨论 |
 | 5 | 移除其余前端 `EXCHANGE_RATES` 散落（inventory，汇率收敛后端） | 待 2b 落地后 |
+
+**新增发现（2026-08-09，批次 2b 实证）**：AssetPanorama 总览大卡片「总资产（本月）」下「较上月 / 较去年同期」为硬编码假数据 `12.3%` / `8.7%`（AssetPanorama.vue L50/L54），与瀑布图假数据同性质（用户可见）；真实同比需历史快照（P1-20），当前无数据源，**列入后续处理**（方案未定：无历史数据时改为隐藏或显示"—"）。
 
 每批次独立提交、独立验证（后端 pytest + 前端 typecheck + build）。
 

@@ -44,3 +44,39 @@ export function getDistributions() {
     BASE_URL + "distributions/"
   );
 }
+
+/** 分组明细项（持仓或通用资产） */
+export type GroupItem = {
+  id: number;
+  name: string;
+  symbol?: string;
+  asset_type?: string;
+  type_label?: string;
+  market?: string;
+  market_label?: string;
+  allocation?: string;
+  allocation_label?: string;
+  account_name?: string;
+  quantity?: number;
+  current_price?: number;
+  market_value: number;
+  pnl: number;
+};
+
+/** 维度分组（type/account/allocation），含 items 明细，后端聚合 */
+export type PositionGroup = {
+  name: string;
+  total: number;
+  total_pnl: number;
+  count: number;
+  items: GroupItem[];
+};
+
+export type GroupDimension = "type" | "account" | "allocation";
+
+/** 获取持仓/资产按维度分组汇总（含 items 明细，后端唯一聚合出口） */
+export function getPositionGroups(dimension: GroupDimension) {
+  return http.request<ApiResponse<PositionGroup[]>>("get", BASE_URL + "groups/", {
+    params: { dimension }
+  });
+}
