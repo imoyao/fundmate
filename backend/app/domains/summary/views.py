@@ -11,7 +11,12 @@ from flask import jsonify
 
 from app.core.auth import get_family_id
 from app.core.database import get_db
-from app.services.summary_service import get_account_groups, get_sankey_data, get_summary_data
+from app.services.summary_service import (
+    get_account_groups,
+    get_distributions,
+    get_sankey_data,
+    get_summary_data,
+)
 
 bp = APIBlueprint('summary', __name__, url_prefix='/api')
 
@@ -39,3 +44,14 @@ def sankey():
         return jsonify({'data': data, 'message': 'ok'})
     except Exception as e:
         return jsonify({'data': {'nodes': [], 'links': []}, 'message': f'服务器内部错误: {str(e)}'}), 500
+
+
+@bp.get('/summary/distributions/')
+def distributions():
+    """返回家庭级多维市值分布（Overview/AssetPanorama 分布图表消费）"""
+    try:
+        with get_db() as db:
+            data = get_distributions(db, get_family_id())
+        return jsonify({'data': data, 'message': 'ok'})
+    except Exception as e:
+        return jsonify({'data': {}, 'message': f'服务器内部错误: {str(e)}'}), 500

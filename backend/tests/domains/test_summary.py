@@ -379,3 +379,100 @@ class TestSankeyEndpoint:
         data = resp.get_json()['data']
         node_names = [n['name'] for n in data['nodes']]
         assert '空账户' not in node_names
+
+
+class TestDistributionsEndpoint:
+    """分布聚合接口 /api/summary/distributions/ 测试套件（批次 2）"""
+
+    def test_empty_data(self, client):
+        """无持仓与资产时所有分布为空、汇总为 0"""
+        resp = client.get('/api/summary/distributions/')
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['type_distribution'] == []
+        assert data['allocation_distribution'] == []
+        assert data['market_distribution'] == []
+        assert data['account_distribution'] == []
+        assert data['category_distribution'] == []
+        assert data['total_assets'] == 0
+        assert data['total_liabilities'] == 0
+        assert data['net_worth'] == 0
+        assert data['positions_total_mv'] == 0
+
+    def test_mixed_data(self, client, db):
+        """持仓（含外币汇率换算）+ 现金资产 + 负债的分布聚合"""
+        pos = Position(
+            symbol='HK00700',
+            name='腾讯控股',
+            market='CN_HK',
+            asset_type='stock',
+            quantity=Money.shares_to_min_unit(100),
+            avg_price=Money.yuan_to_cents(300),
+            current_price=Money.yuan_to_cents(350),
+            currency='HKD',
+            allocation='longterm',
+            account_name='富途',
+        )
+        db.add(pos)
+        cash = Asset(
+            user_id=1, major_category='cash', name='活期存款', amount=Money.yuan_to_cents(100000), currency='CNY'
+        )
+        credit = Asset(
+            user_id=1, major_category='liability', name='信用卡', amount=Money.yuan_to_cents(5000), currency='CNY'
+        )
+        db.add_all([cash, credit])
+        db.commit()
+
+        resp = client.get('/api/summary/distributions/')
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+
+        # 持仓市值：100 * 350 * 0.92 = 32200
+        assert data['positions_total_mv'] == 32200.0
+        # 总资产 = 32200 + 100000；负债 5000；净资产 = 总资产 - 负债
+        assert data['total_assets'] == 132200.0
+        assert data['total_liabilities'] == 5000.0
+        assert data['net_worth'] == 127200.0
+
+        def _find(dist, name):
+            return next((d['value'] for d in dist if d['name'] == name), None)
+
+        # 持仓四维分布
+        assert _find(data['type_distribution'], '股票') == 32200.0
+        assert _find(data['allocation_distribution'], '长期增值') == 32200.0
+        assert _find(data['market_distribution'], '港股') == 32200.0
+        assert _find(data['account_distribution'], '富途') == 32200.0
+        # 大类分布：现金入流动资金，持仓归投资理财；负债不入大类分布
+        assert _find(data['category_distribution'], '流动资金') == 100000.0
+        assert _find(data['category_distribution'], '投资理财') == 32200.0
+        assert _find(data['category_distribution'], '负债') is None
+        # 负债明细单独列出（正数）
+        assert _find(data['liability_distribution'], '信用卡') == 5000.0
+
+    def test_distribution_sorted_desc(self, client, db):
+        """分布按市值降序返回，便于前端直接取最大项"""
+        p1 = Position(
+            symbol='SH600519',
+            name='茅台',
+            market='CN_A',
+            asset_type='stock',
+            quantity=Money.shares_to_min_unit(100),
+            current_price=Money.yuan_to_cents(1000),
+            currency='CNY',
+        )
+        p2 = Position(
+            symbol='SH601318',
+            name='平安',
+            market='CN_A',
+            asset_type='stock',
+            quantity=Money.shares_to_min_unit(100),
+            current_price=Money.yuan_to_cents(500),
+            currency='CNY',
+        )
+        db.add_all([p1, p2])
+        db.commit()
+
+        resp = client.get('/api/summary/distributions/')
+        data = resp.get_json()['data']
+        account_values = [d['value'] for d in data['account_distribution']]
+        assert account_values == sorted(account_values, reverse=True)

@@ -136,7 +136,7 @@
         >
           <div class="flex justify-between items-center mb-4">
             <h3 class="font-semibold" :style="{ color: 'var(--text-primary)' }">
-              总资产变化
+              总资产构成
             </h3>
             <el-tooltip content="资产月历（后续版本推出）" placement="top">
               <el-button text size="small">
@@ -453,7 +453,7 @@ import SankeyChart from "@/components/Charts/SankeyChart.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import { getPositions } from "@/api/positions";
-import { getSummary, getSankeyData } from "@/api/summary";
+import { getSummary, getSankeyData, getDistributions } from "@/api/summary";
 import { getAssets } from "@/api/assets";
 import { getLedgers } from "@/api/ledger";
 import { ElMessage } from "element-plus";
@@ -466,6 +466,7 @@ const EXCHANGE_RATES: Record<string, number> = { CNY: 1, USD: 7.25, HKD: 0.92 };
 
 const allPositions = ref<any[]>([]);
 const allAssets = ref<any[]>([]);
+const distributions = ref<any>(null);
 const ledgers = ref<any[]>([]);
 const totalAssets = ref(0);
 const totalLiabilities = ref(0);
@@ -541,49 +542,25 @@ const currentDetailGroups = computed(() => {
 const assetBalanceRows = computed(() => {
   const total = totalAssets.value;
   if (total === 0) return [];
-  const categoryMap: Record<string, any> = {
-    cash: {
-      name: "流动资金",
-      value: 0,
-      color: "var(--tag-mint-green)",
-      categoryKey: "cash"
-    },
-    fixed: {
-      name: "固定资产",
-      value: 0,
-      color: "var(--tag-warm-taupe)",
-      categoryKey: "fixed"
-    },
-    investment: {
-      name: "投资理财",
-      value: 0,
-      color: "var(--tag-periwinkle)",
-      categoryKey: "investment"
-    },
-    receivable: {
-      name: "应收款",
-      value: 0,
-      color: "var(--tag-stone-gray)",
-      categoryKey: "receivable"
-    },
-    insurance: {
-      name: "保险项目",
-      value: 0,
-      color: "var(--color-accent)",
-      categoryKey: "insurance"
-    }
+  const labelMap: Record<string, { color: string; categoryKey: string }> = {
+    流动资金: { color: "var(--tag-mint-green)", categoryKey: "cash" },
+    固定资产: { color: "var(--tag-warm-taupe)", categoryKey: "fixed" },
+    投资理财: { color: "var(--tag-periwinkle)", categoryKey: "investment" },
+    应收款: { color: "var(--tag-stone-gray)", categoryKey: "receivable" },
+    保险项目: { color: "var(--color-accent)", categoryKey: "insurance" }
   };
-  allAssets.value
-    .filter(a => a.major_category !== "liability" && a.marketValue > 0)
-    .forEach(a => {
-      if (categoryMap[a.major_category])
-        categoryMap[a.major_category].value += a.marketValue;
-    });
-  const positionsTotal = allPositions.value.reduce(
-    (s, p) => s + (p.marketValue || 0),
-    0
-  );
-  categoryMap.investment.value += positionsTotal;
+  // 消费后端 category_distribution（后端唯一聚合出口，含汇率换算）
+  const categoryMap: Record<string, any> = {};
+  for (const item of distributions.value?.category_distribution ?? []) {
+    categoryMap[item.name] = {
+      name: item.name,
+      value: item.value,
+      ...(labelMap[item.name] || {
+        color: "var(--text-tertiary)",
+        categoryKey: item.name
+      })
+    };
+  }
   return Object.values(categoryMap)
     .filter(item => item.value > 0)
     .map(item => ({
@@ -595,19 +572,12 @@ const assetBalanceRows = computed(() => {
 const liabilityBalanceRows = computed(() => {
   const totalLiab = totalLiabilities.value;
   if (totalLiab === 0) return [];
-  const map: Record<string, any> = {};
-  allAssets.value
-    .filter(a => a.major_category === "liability" && a.marketValue < 0)
-    .forEach(a => {
-      const key = a.name || "其他负债";
-      if (!map[key]) map[key] = { name: key, value: 0 };
-      map[key].value += a.marketValue;
-    });
-  return Object.values(map).map(item => ({
-    ...item,
+  // 消费后端 liability_distribution（正数金额，负债明细按名称聚合）
+  return (distributions.value?.liability_distribution ?? []).map(item => ({
+    name: item.name,
+    value: item.value,
     color: "var(--color-neutral)",
-    percent: +((Math.abs(item.value) / totalLiab) * 100).toFixed(1),
-    value: Math.abs(item.value)
+    percent: +((item.value / totalLiab) * 100).toFixed(1)
   }));
 });
 
@@ -689,9 +659,15 @@ function goToInventory(categoryKey: string) {
 }
 
 function initWaterfallChart() {
-  if (!waterfallChartRef.value || allPositions.value.length === 0) return;
+  if (!waterfallChartRef.value) return;
   if (waterfallChart) waterfallChart.dispose();
   waterfallChart = echarts.init(waterfallChartRef.value);
+
+  // 消费后端 distributions：总资产构成瀑布（真实数据，非模拟）
+  const categories = distributions.value?.category_distribution ?? [];
+  const totalLiab = distributions.value?.total_liabilities ?? 0;
+  const netWorth = distributions.value?.net_worth ?? 0;
+  if (categories.length === 0 && totalLiab <= 0) return;
 
   const primaryColor = getCSSColor("--brand-700");
   const infoColor = getCSSColor("--color-info");
@@ -699,27 +675,25 @@ function initWaterfallChart() {
   const fallColor = getCSSColor("--color-fall");
   const neutralColor = getCSSColor("--color-neutral");
 
-  const start = 2800000;
+  const start = 0;
   const changes = [
-    { name: "流动资金", value: -233251 },
-    { name: "固定资产", value: 0 },
-    { name: "投资理财", value: 262225 },
-    { name: "负债", value: -20406 }
+    ...categories.map(c => ({ name: c.name, value: c.value })),
+    ...(totalLiab > 0 ? [{ name: "负债", value: -totalLiab }] : [])
   ];
-  const end = start + changes.reduce((s, c) => s + c.value, 0);
+  const end = netWorth;
   const cumulativeValues: number[] = [start];
   changes.forEach((item, index) => {
     cumulativeValues.push(cumulativeValues[index] + item.value);
   });
   const allData = [
-    { name: "上期末", height: start, change: start, isEndpoint: true },
+    { name: "起点", height: start, change: start, isEndpoint: true },
     ...changes.map((item, index) => ({
       name: item.name,
       height: cumulativeValues[index + 1],
       change: item.value,
       isEndpoint: false
     })),
-    { name: "本期末", height: end, change: end, isEndpoint: true }
+    { name: "净资产", height: end, change: end, isEndpoint: true }
   ];
 
   waterfallChart.setOption({
@@ -755,8 +729,8 @@ function initWaterfallChart() {
           borderRadius: 4,
           color: (params: any) => {
             const d = allData[params.dataIndex];
-            if (d.isEndpoint && d.name === "上期末") return primaryColor;
-            if (d.isEndpoint && d.name === "本期末") return infoColor;
+            if (d.isEndpoint && d.name === "起点") return primaryColor;
+            if (d.isEndpoint && d.name === "净资产") return infoColor;
             if (d.change > 0) return riseColor;
             if (d.change < 0) return fallColor;
             return neutralColor;
@@ -782,15 +756,15 @@ function initWaterfallChart() {
 async function fetchData() {
   loading.value = true;
   try {
-    const [posRes, sumRes, assetsRes, sankeyRes, ledgerRes] = await Promise.all(
-      [
+    const [posRes, sumRes, assetsRes, sankeyRes, ledgerRes, distRes] =
+      await Promise.all([
         getPositions({ per_page: 500 }),
         getSummary(),
         getAssets({ per_page: 500 }),
         getSankeyData(),
-        getLedgers()
-      ]
-    );
+        getLedgers(),
+        getDistributions()
+      ]);
 
     let positionsRaw: any[] = [];
     const posData = (posRes as any)?.data || posRes;
@@ -827,6 +801,7 @@ async function fetchData() {
     totalAssets.value = (sumRes as any)?.data?.total_assets_cny || 0;
     totalLiabilities.value = (sumRes as any)?.data?.total_liabilities_cny || 0;
     totalPnl.value = (sumRes as any)?.data?.total_pnl_cny || 0;
+    distributions.value = (distRes as any)?.data || null;
     sankeyData.value = {
       nodes: sankeyRaw.nodes || [],
       links: sankeyRaw.links || []

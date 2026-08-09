@@ -7,7 +7,13 @@
 from collections import defaultdict
 from typing import Any, Type
 
-from app.core.constants import ALLOCATION_LABELS, CATEGORY_META, EXCHANGE_RATES, TYPE_LABELS
+from app.core.constants import (
+    ALLOCATION_LABELS,
+    CATEGORY_META,
+    EXCHANGE_RATES,
+    MARKET_LABELS,
+    TYPE_LABELS,
+)
 from app.core.database import Session
 from app.core.money import Money
 from app.domains.assets.models import Asset
@@ -20,6 +26,7 @@ _LIABILITY_KEY = 'liability'
 _INVESTMENT_KEY = 'investment'
 _DEFAULT_ALLOC = 'longterm'
 _UNKNOWN_TYPE = '其他'
+_INVESTMENT_LABEL = CATEGORY_META['investment'][0]
 _CENTER_NODE = '总资产'
 _NET_NODE = '净资产'
 _LIABILITY_NODE = '总负债'
@@ -241,3 +248,70 @@ def get_account_groups(db: Session, family_id: int = 1) -> list[dict]:
     ]
     result.sort(key=lambda x: abs(x['total']), reverse=True)
     return result
+
+
+def get_distributions(db: Session, family_id: int = 1) -> dict[str, Any]:
+    """家庭级多维市值分布聚合（后端唯一出口）。
+
+    供 Overview / AssetPanorama 等分布图表消费：持仓按产品类型 / 五笔钱 /
+    市场 / 账户四维聚合，通用资产按大类聚合（负债单独统计），并返回
+    总资产 / 总负债 / 净资产汇总。聚合与汇率换算全部收敛后端，前端不再
+    遍历全量明细自行计算（D5：后端是唯一数据出口）。
+    """
+    positions, assets = _load_user_assets(db, family_id)
+
+    def _pos_mv(p) -> float:
+        rate = EXCHANGE_RATES.get(p.currency, 1.0)
+        return Money.min_unit_to_shares(p.quantity) * Money.cents_to_yuan(p.current_price) * rate
+
+    type_map: dict[str, float] = defaultdict(float)
+    alloc_map: dict[str, float] = defaultdict(float)
+    market_map: dict[str, float] = defaultdict(float)
+    account_map: dict[str, float] = defaultdict(float)
+    positions_total_mv = 0.0
+    for p in positions:
+        mv = _pos_mv(p)
+        positions_total_mv += mv
+        type_map[TYPE_LABELS.get(p.asset_type, p.asset_type or _UNKNOWN_TYPE)] += mv
+        alloc_map[ALLOCATION_LABELS.get(p.allocation, p.allocation or _DEFAULT_ALLOC)] += mv
+        market_map[MARKET_LABELS.get(p.market, p.market or _UNKNOWN_TYPE)] += mv
+        account_map[p.account_name or '未指定账户'] += mv
+
+    # 通用资产按大类聚合；负债单独统计，不进大类分布与总资产
+    total_assets = positions_total_mv
+    total_liabilities = 0.0
+    category_map: dict[str, float] = defaultdict(float)
+    liability_map: dict[str, float] = defaultdict(float)
+    for a in assets:
+        amount = Money.cents_to_yuan(a.amount)
+        if amount <= 0:
+            continue
+        if a.major_category == _LIABILITY_KEY:
+            total_liabilities += amount
+            liability_map[a.name or '其他负债'] += amount
+        else:
+            total_assets += amount
+            label = CATEGORY_META.get(a.major_category, (_UNKNOWN_TYPE, None))[0]
+            category_map[label] += amount
+    # 持仓市值统一归入投资理财大类
+    category_map[_INVESTMENT_LABEL] += positions_total_mv
+
+    def _to_list(d: dict[str, float]) -> list[dict[str, float]]:
+        return [
+            {'name': k, 'value': round(v, 2)}
+            for k, v in sorted(d.items(), key=lambda kv: -kv[1])
+            if v > 0
+        ]
+
+    return {
+        'type_distribution': _to_list(type_map),
+        'allocation_distribution': _to_list(alloc_map),
+        'market_distribution': _to_list(market_map),
+        'account_distribution': _to_list(account_map),
+        'category_distribution': _to_list(category_map),
+        'liability_distribution': _to_list(liability_map),
+        'total_assets': round(total_assets, 2),
+        'total_liabilities': round(total_liabilities, 2),
+        'net_worth': round(total_assets - total_liabilities, 2),
+        'positions_total_mv': round(positions_total_mv, 2),
+    }
