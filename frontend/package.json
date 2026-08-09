@@ -78,7 +78,7 @@
     "vue-echarts": "^8.0.1",
     "vue-router": "^4.6.4",
     "vue-tippy": "^6.7.1",
-    "vue-types": "^6.0.0"
+    "vue-types": "^7.0.0"
   },
   "devDependencies": {
     "@commitlint/cli": "^20.5.3",

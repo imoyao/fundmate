@@ -99,8 +99,8 @@ importers:
         specifier: ^6.7.1
         version: 6.7.1(vue@3.5.41(typescript@5.9.3))
       vue-types:
-        specifier: ^6.0.0
-        version: 6.0.0(vue@3.5.41(typescript@5.9.3))
+        specifier: ^7.0.0
+        version: 7.0.0(vue@3.5.41(typescript@5.9.3))
     devDependencies:
       '@commitlint/cli':
         specifier: ^20.5.3
@@ -4018,8 +4018,8 @@ packages:
     peerDependencies:
       typescript: '>=5.0.0'
 
-  vue-types@6.0.0:
-    resolution: {integrity: sha512-fBgCA4nrBrB8SCU/AN40tFq8HUxLGBvU2ds7a5+SEDse6dYc+TJyvy8mWiwwL8oWIC/aGS/8nTqmhwxApgU5eA==}
+  vue-types@7.0.0:
+    resolution: {integrity: sha512-4IeYqlOH6Vhw6+gbJxXV4ysxE70nUO0gwbl0xLJFzzTqyR00qLVhHY+w7f44gmT/enRXm9IlB0nEMq8xTjm7rw==}
     engines: {node: '>=14.0.0'}
     peerDependencies:
       vue: ^3.0.0
@@ -7720,7 +7720,7 @@ snapshots:
       '@vue/language-core': 3.3.9
       typescript: 5.9.3
 
-  vue-types@6.0.0(vue@3.5.41(typescript@5.9.3)):
+  vue-types@7.0.0(vue@3.5.41(typescript@5.9.3)):
     optionalDependencies:
       vue: 3.5.41(typescript@5.9.3)
 
