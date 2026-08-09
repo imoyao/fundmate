@@ -38,6 +38,7 @@
 | `fundfof-borrowing-analysis-2026-08-03.md` | fundfof 功能借鉴分析（v3 源码复核版）：源码已实现能力清单、真实问题（mock 分析页 / 无回撤计算 / 多用户隔离）、值得借鉴功能 |
 | `brand-landing-plan-2026-08-04.md` | 品牌与落地页规划：命名、slogan、品牌色（珊瑚红 #E34F38）、logo 执行、落地页结构、公开路线图 |
 | `landing-login-sso-2026-08-04.md` | 落地页登录与 SSO 设计决策（MVP）：只做跳板、不做 SSO、落地页与工具站不共享登录态 |
+| `frontend-api-reorg-2026-08-09.md` | 前端 API 层重组方案（接口按域集中 `src/api`、类型收敛 `types.d.ts`） |
 
 ## 其它记录
 
@@ -57,3 +58,11 @@
 | `feedlog-setup-cn-2026-08-09.md` | FeedLog (dbb-feedback) 中文环境初始化指南：Cloudflare Workers + R2 + Hyperdrive 部署全流程，含环境变量/品牌定制/AI配置 |
 | `opencode-github-issue-utf8-rule-2026-08-09.md` | OpenCode/GitHub Issue 创建 UTF-8 环境规则（复盘 #859-#862 乱码事故） |
 | `money-fund-income-plan-2026-08-09.md` | 货基收益入账方案设计 |
+| `worktile-migration-map-2026-08-09.md` | Worktile 看板迁移 GitHub 对照表：16 张 2021 年卡片的逐条处置（新建 4 / 合并 8 / 归档 3 / 丢弃 1），含代码核查证据 |
+
+## 子目录归档
+
+| 目录 | 内容 |
+|---|---|
+| `legacy/` | 前端大规模重构完整工作记录（2026-08-09）：`batches/`（逐批次文件清单 00-止血 ~ 09-portfolio-detail）、`reference/`（现状诊断与计划）、`guides/`（落地与排障）、`codebooks/`（代码手册）。入口 `legacy/frontend-refactor-readme-2026-08-09.md`（注意：该文件若显示为乱码系 GBK/UTF-8 编码问题，内容本身正常）。**高价值归档，勿武断删除**；已在 Project 建归档 issue #865 关联。另含 `legacy/worktile-archive-2021-2026-08-09.md`：Worktile 2021 年看板归档（晨星爬虫方案、开源金融数据对比、监控组合竞品，及雪球 IRR/XIRR/Modified Dietz 论证全文存档） |
+| `issue-triage/` | Issue 看板分拣依据：`triage-report.md`（24 个活跃 issue 分拣报告）、`triage-matrix.csv`（优先级矩阵）。`_tmp_bodies/`、`auto/` 为分拣中间产物，不入库 |
