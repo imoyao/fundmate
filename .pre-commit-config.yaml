@@ -18,6 +18,15 @@ repos:
         exclude: ^(logo-delivery/|frontend/src/assets/brand/|docs/\.vitepress/public/)
       - id: trailing-whitespace
 
+  # Markdown 文档 lint：本地 commit 即校验文档质量，替代原先坏掉的 lint-docs Action
+  # 规则与忽略见仓库根 .markdownlint.json（复用 frontend 的宽容配置）
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.13.0
+    hooks:
+      - id: markdownlint
+        args: ['-c', '.markdownlint.json']
+        exclude: ^(logo-delivery/|node_modules/|frontend/node_modules/|\.vitepress/dist/|docs/\.vitepress/)
+
   # Ruff: 统一的 lint + 格式化（替代 isort + flake8 + yapf）
   # 品牌交付目录 logo-delivery/ 的生成脚本为一次性工具，豁免项目 lint
   - repo: https://github.com/astral-sh/ruff-pre-commit
