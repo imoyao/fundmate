@@ -9,10 +9,12 @@ title: SqlAlchemy 使用案例记录
 
 则此时，一个 rate_id 可能对应买入或者卖出两张表的 id。
 完整的对应关系变为：
+
 ```plain
 Fund > FundRate O2M
 FundRate > **Rule  O2M
 ```
+
 这种对应关系我们可以使用`sqlalchemy.ext.hybrid`包中的`@hybrid_property`装饰器来定义这种关系。参见[此处](https://stackoverflow.com/a/60053408/14295718)
 
 ## ChoiceType

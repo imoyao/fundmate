@@ -25,6 +25,7 @@ title: Python 项目的目录结构问题
 ```bash
 django-admin.py startproject samplesite
 ```
+
 ```bash
 my_blog
 │  db.sqlite3
@@ -36,6 +37,7 @@ my_blog
     │  wsgi.py
     └─ __init__.py
 ```
+
 ### [OpenStack](https://blog.csdn.net/llg8212/article/details/19990613)
 
 ::: warning
@@ -73,6 +75,7 @@ my_blog
 
 |--tests:
 ```
+
 ### [flasky](https://github.com/miguelgrinberg/flasky)
 
 ```bash
@@ -122,15 +125,20 @@ my_blog
 ### 使用 cookiecutter 生成项目目录
 
 1. 进入虚拟环境
+
 ```bash
 source venv/bin/activate
 ```
+
 2. 安装 cookiecutter
+
 ```bash
 pip install cookiecutter
 cookiecutter https://github.com/sloria/cookiecutter-flask.git
 ```
+
 3. 输入相关信息生成项目结构
+
 ```bash
 (fmp) [root@localhost fundmate]# tree -L 3
 .
@@ -204,7 +212,9 @@ cookiecutter https://github.com/sloria/cookiecutter-flask.git
 如果项目中前端页面使用模板语言编写，那么我们只需要在此基础上继续编写代码即可；而因为我们的项目是前后端分离的，所以需要将目录中的 html 文件都删掉。
 
 ### 删除无用（可选）
+
 将目录下的 html、static 文件全部删除，最终目录结构如下：
+
 ```bash
 
 ├── autoapp.py
@@ -259,15 +269,19 @@ cookiecutter https://github.com/sloria/cookiecutter-flask.git
  * Debugger PIN: 323-729-374
 
 ```
+
 :::warning
 
 1. 以这种方式启动的程序（使用默认 host`127.0.0.1`），只能通过本机访问。因为我们的服务是跑在虚拟机上的，所以直接访问或报“无法访问此页面”，我们需要通过设置环境变量或者使用显式指定参数`--host`的方式配置访问的 host 为`0.0.0.0`，意为指定监听在本机的所有 IP 地址，这样内网就可以直接访问了。当然你也可以使用`--port`指定访问的端口。
+
 ```bash
 flask run --port=8000
 ```
+
 更多参阅：[Command Line Interface — Flask Documentation (1.1.x)](https://flask.palletsprojects.com/en/1.1.x/cli/)
 
 2. 内置的开发服务器只能用于开发时使用，部署上线的时候要换用性能更好的`web`服务器如 nginx。
+
 :::
 
 ```bash
@@ -280,6 +294,7 @@ flask run --port=8000
  * Debugger is active!
  * Debugger PIN: 323-729-374
 ```
+
 最终，我们看到界面显示出我们的首页内容。
 
 ![](https://cdn.jsdelivr.net/gh/masantu/statics/images/20210117120554.png)
@@ -292,20 +307,24 @@ flask run --port=8000
 
 自动探测存在下面这些规则：
 
-*   从当前目录寻找`app.py`和`wsgi.py`模块，并从中寻找名为`app`或`application`的程序实例。
-*   从环境变量`FLASK_APP`对应的模块名/导入路径寻找名为`app`或`application`的程序实例。如果 你的程序主模块是其他名称，比如 `hello.py`，那么需要设置环境变量`FLASK_APP`，将包含程序 实例的模块名赋值给这个变量。
+* 从当前目录寻找`app.py`和`wsgi.py`模块，并从中寻找名为`app`或`application`的程序实例。
+* 从环境变量`FLASK_APP`对应的模块名/导入路径寻找名为`app`或`application`的程序实例。如果 你的程序主模块是其他名称，比如 `hello.py`，那么需要设置环境变量`FLASK_APP`，将包含程序 实例的模块名赋值给这个变量。
 
 Linux 或 macOS 系统使用 export 命令：
+
 ```plain
-  $ export FLASK_APP= hello
+  export FLASK_APP= hello
 ```
+
 在 Windows 系统 中 使用 set 命令：
+
 ```plain
  > set FLASK_APP= hello
 ```
 
 :::tip
 注意：由于我们删除了所有的模板文件，所以需要将代码中的`render_template`都暂时修改为`return {{ sth }}`，即返回字符串。
+
 ```python
 
 @blueprint.route("/", methods=["GET", "POST"])
@@ -324,6 +343,7 @@ def home():
             flash_errors(form)
     return 'Hello,Flask!'
 ```
+
 :::
 
 ### 按业务组织
@@ -331,14 +351,15 @@ def home():
 一个大型项目中，会包含很多子业务，比如本项目中我们会有用户管理、基金管理、流水记录等，每一部分都可以是独立的项目，在 Flask 中，按照业务的方式将文件划分开，就是按业务方式来组织项目结构，这样的组织方式有助于并行开发和分而治之。
 
 ## 相关链接
-- [Packaging Python Projects — Python Packaging User Guide](https://packaging.python.org/en/latest/tutorials/packaging-projects/)
-- [python - Separation of business logic and data access in django - Stack Overflow](https://stackoverflow.com/questions/12578908/separation-of-business-logic-and-data-access-in-django)
-- [项目布局 — Flask 中文文档（ 1.1.1 ）](https://dormousehole.readthedocs.io/en/latest/tutorial/layout.html)
-- [结构化您的工程 — The Hitchhiker's Guide to Python](https://pythonguidecn.readthedocs.io/zh/latest/writing/structure.html)
-- [使用 cookiecutter-flask 快速生成 python 后端项目 - 知乎](https://zhuanlan.zhihu.com/p/25874886)
-- [第 125 天：Flask 项目结构 | Python 技术](http://www.justdopython.com/2020/01/18/python-web-flask-project-125/)
-- [cookiecutter-flask 使用笔记_代码就是生产力！-CSDN 博客](https://blog.csdn.net/yannanxiu/article/details/68059532)
-- [Flask 项目结构分享 | Python 技术论坛](https://learnku.com/python/t/38740)
-- [一个比较好的 flask 项目目录结构_bocai_xiaodaidai 的博客-CSDN 博客_flask 项目目录结构](https://blog.csdn.net/bocai_xiaodaidai/article/details/101527678)
-- [Flask RESTful API 开发 更好的项目结构 - 简书](https://www.jianshu.com/p/beb4763f385c)
-- [我们的 Tornado 项目结构 | the5fire](https://www.the5fire.com/966.html)
+
+* [Packaging Python Projects — Python Packaging User Guide](https://packaging.python.org/en/latest/tutorials/packaging-projects/)
+* [python - Separation of business logic and data access in django - Stack Overflow](https://stackoverflow.com/questions/12578908/separation-of-business-logic-and-data-access-in-django)
+* [项目布局 — Flask 中文文档（ 1.1.1 ）](https://dormousehole.readthedocs.io/en/latest/tutorial/layout.html)
+* [结构化您的工程 — The Hitchhiker's Guide to Python](https://pythonguidecn.readthedocs.io/zh/latest/writing/structure.html)
+* [使用 cookiecutter-flask 快速生成 python 后端项目 - 知乎](https://zhuanlan.zhihu.com/p/25874886)
+* [第 125 天：Flask 项目结构 | Python 技术](http://www.justdopython.com/2020/01/18/python-web-flask-project-125/)
+* [cookiecutter-flask 使用笔记_代码就是生产力！-CSDN 博客](https://blog.csdn.net/yannanxiu/article/details/68059532)
+* [Flask 项目结构分享 | Python 技术论坛](https://learnku.com/python/t/38740)
+* [一个比较好的 flask 项目目录结构_bocai_xiaodaidai 的博客-CSDN 博客_flask 项目目录结构](https://blog.csdn.net/bocai_xiaodaidai/article/details/101527678)
+* [Flask RESTful API 开发 更好的项目结构 - 简书](https://www.jianshu.com/p/beb4763f385c)
+* [我们的 Tornado 项目结构 | the5fire](https://www.the5fire.com/966.html)

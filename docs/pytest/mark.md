@@ -2,13 +2,17 @@
 title:标记(mark)
 ---
 ## 标记(mark)
+>
 > 默认情况下，pytest 会在当前目录下寻找以 test\_为开头（以\_test 结尾）的测试文件，并且执行文件内所有以 test\_为开头（以\_test 为结尾）的所有函数和方法；
 
 1. 指定运行测试用例，可以通过::显示标记（文件名::类名::方法名）（文件名::函数名）
+
     ```plain
     pytest test_example3.py::test_odd
     ```
+
 2. 指定一些测试用例测试运行，可以使用-k 模糊匹配
+
     ```plain
     pytest -k example
     ```
@@ -23,8 +27,9 @@ title:标记(mark)
 
 使用 @pytest.mark.xxx 标记测试用例：
 
-1.  可以标记测试方法、测试类，标记名可以自定义，最好起有意义的名字；
-2.  同一测试类/方法可同时拥有多个标记；
+1. 可以标记测试方法、测试类，标记名可以自定义，最好起有意义的名字；
+2. 同一测试类/方法可同时拥有多个标记；
+
 ```python
    # test_login_logout.py
 
@@ -72,8 +77,10 @@ title:标记(mark)
 ```
 
 ## 运行标记的用例
-1.  使用 -m 参数运行标记的测试用例；
-2.  -m 参数支持 and、or 、not 等表达式；
+
+1. 使用 -m 参数运行标记的测试用例；
+2. -m 参数支持 and、or 、not 等表达式；
+
 ```python
 import pytest
 # 运行登陆功能的用例
@@ -91,15 +98,17 @@ pytest.main(['-m logout and not success'])
 # 运行登陆和登出的用例
 pytest.main(['-m login or logout'])
 ```
+
 ## 注册、管理 mark 标记
 
 当使用 -m 参数执行 mark 标记的用例时，pytest 会发出告警信息 “**PytestUnknownMarkWarning: Unknown pytest.mark.login - is this a typo? ”，**告诉你这是一个 pytest 未知的一个标记！为了消除告警，我们需要在 pytest 的配置文件中注册 mark 标记！
 
 ### 注册 mark 标记
 
-1.  首先在项目根目录创建一个文件 pytest.ini ，这个是 pytest 的配置文件；
-2.  然后在 pytest.ini 文件的 markers 中写入你的 mark 标记， 冒号 “:” 前面是标记名称，后面是 mark 标记的说明，可以是空字符串；
-3.  **注意：pytest.ini 文件中只能使用纯英文字符，绝对不能使用中文的字符（尤其是冒号和空格）！**
+1. 首先在项目根目录创建一个文件 pytest.ini ，这个是 pytest 的配置文件；
+2. 然后在 pytest.ini 文件的 markers 中写入你的 mark 标记， 冒号 “:” 前面是标记名称，后面是 mark 标记的说明，可以是空字符串；
+3. **注意：pytest.ini 文件中只能使用纯英文字符，绝对不能使用中文的字符（尤其是冒号和空格）！**
+
 ```python
 # pytest.ini
 
@@ -119,6 +128,7 @@ markers =
 2. 注意要另起一行，不要在 markers 中添加；
 3. 添加该参数后，当使用未注册的 mark 标记时，pytest 会直接报错：“ 'xxx' not found in \`markers\` configuration option ”，不执行测试任务；
 4. **注意：pytest.ini 配置文件不支持注释，不支持注释，不支持注释...**
+
 ```ini
 # pytest.ini
 
@@ -133,6 +143,7 @@ addopts = --strict
 ```
 
 ## 总结
+
 pytest 提供了一些拿来即用的标识：
 
 - skip ：无条件跳过测试

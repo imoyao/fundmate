@@ -55,7 +55,9 @@ if __name__ == '__main__':
     pytest.main(['test_demo.py', '-s'])
 
 ```
+
 我们来查看一下执行结果：
+
 ```plain
 ============================= test session starts =============================
 platform win32 -- Python 3.8.8, pytest-6.2.5, py-1.11.0, pluggy-1.0.0
@@ -83,12 +85,13 @@ test_demo.py 这里返回了一个token
 
 **注意**：
 
-*   如果 yield 前面的代码，即 setup 部分已经抛出异常，则不会执行 yield 后面的 teardown 内容。
-*   如果测试用例抛出异常，yield 后面的 teardown 内容还是会正常执行。
+* 如果 yield 前面的代码，即 setup 部分已经抛出异常，则不会执行 yield 后面的 teardown 内容。
+* 如果测试用例抛出异常，yield 后面的 teardown 内容还是会正常执行。
 
 ## yield+with 的结合
 
 yield 也可以配合 with 语句使用。
+
 ```python
 import pytest
 import smtplib
@@ -100,11 +103,13 @@ def smtp_connection():
         yield smtp_connection
 
 ```
+
 ## addfinalizer 终结函数
 
 除了 `yield` 可以实现 `teardown` ，在 `request-context` 对象中注册 `addfinalizer` 方法也可以实现终结函数。
 
 在用法上，`addfinalizer` 跟 `yield` 是不同的，需要你去注册作为终结器使用的函数。例如：增加一个函数 `fin` ，并且注册成终结函数。
+
 ```python
 import pytest
 
@@ -130,6 +135,7 @@ def test_case(test_addfinalizer):
 ```
 
 返回结果：
+
 ```plain
 ============================= test session starts =============================
 platform win32 -- Python 3.8.8, pytest-6.2.5, py-1.11.0, pluggy-1.0.0
@@ -189,6 +195,7 @@ if __name__ == '__main__':
 ```
 
 返回结果：
+
 ```plain
 ============================= test session starts =============================
 platform win32 -- Python 3.8.8, pytest-6.2.5, py-1.11.0, pluggy-1.0.0

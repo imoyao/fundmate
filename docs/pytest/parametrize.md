@@ -2,6 +2,7 @@
 title:参数化(parametrize)
 ---
 ## 参数化
+>
 > 前面简单的提到过了@pytest.mark.parametrize 通过参数化测试，而关于固件传入参数时则需要通过 pytest 框架中内置的固件 request，并且通过 request.param 获取参数
 
 ```python
@@ -29,7 +30,9 @@ title:参数化(parametrize)
         assert 1 == 1
 
 ```
+
 执行结果：
+
 ```plain
     ============================= test session starts =============================
     platform win32 -- Python 3.6.8, pytest-6.2.5, py-1.10.0, pluggy-1.0.0 -- D:\Coding\Python3.6\python.exe
@@ -51,6 +54,5 @@ title:参数化(parametrize)
 
     ============================== 2 passed in 0.07s ==============================
 ```
-
 
 > 这里模拟连接 redis 和 elasticsearch，加载固件自动执行连接然后执行测试函数再断开连接。

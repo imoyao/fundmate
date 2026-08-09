@@ -77,8 +77,8 @@
 
 | 缺陷 | 现象 | 根因 | 位置 |
 |---|---|---|---|
-| **P0-1 免登录搜不到任何资产** | 生产环境匿名访客在探市页搜索框输入代码/名称，下拉**静默空白**，用户以为「系统里没有这只票」 | 搜索走 `/api/securities/search/` + `/api/funds/search/`，但免登录白名单 `PUBLIC_PREFIXES` 只有 `/api/health` 与 `/api/temperature`；`AUTH_ENABLED=true` 时必 401，且 `Promise.allSettled` + `catch` 吞掉错误不提示 | `frontend/src/composables/useAssetSearch.ts:23-26,58-60`；`backend/app/core/auth.py:23` | **已修复（2026-08-08）**：① 后端 `PUBLIC_PREFIXES` 增加 `/api/securities/search` 与 `/api/funds/search`（精确到子路由、避免误放行同蓝图写接口），回归测试 `tests/core/test_auth_whitelist.py` 锁定该不变量；② 前端 `useAssetSearch.ts` 不再静默吞错——两数据源均失败时弹轻提示（带 5s 节流去重），部分失败仍静默保留可用结果 |
-| **P0-2 热门卡片展示编造的盈亏** | 点击「沪深 300ETF/纳指 ETF/招商银行/科创 50ETF」任一热门卡片，立刻显示一个与真实成本无关的持仓收益 | `hotAssets` 硬编码 `costPrice: 4.567/1.234/34.56/0.987` 与 `quantity: 100`，未取当前价 | `frontend/src/views/explore/index.vue:809-816` | **已修复（2026-08-08）**：`hotAssets` 不再预填成本/份额，`addHotAsset` 改传 `costPrice: null, quantity: null`，走纯观察模式（成本取当前价、份额 1，盈亏恒为 0），与手工添加留空等价 |
+| **P0-1 免登录搜不到任何资产** | 生产环境匿名访客在探市页搜索框输入代码/名称，下拉**静默空白**，用户以为「系统里没有这只票」 | 搜索走 `/api/securities/search/` + `/api/funds/search/`，但免登录白名单 `PUBLIC_PREFIXES` 只有 `/api/health` 与 `/api/temperature`；`AUTH_ENABLED=true` 时必 401，且 `Promise.allSettled` + `catch` 吞掉错误不提示 | `frontend/src/composables/useAssetSearch.ts:23-26,58-60`；`backend/app/core/auth.py:23`；**已修复（2026-08-08）**：① 后端 `PUBLIC_PREFIXES` 增加 `/api/securities/search` 与 `/api/funds/search`（精确到子路由、避免误放行同蓝图写接口），回归测试 `tests/core/test_auth_whitelist.py` 锁定该不变量；② 前端 `useAssetSearch.ts` 不再静默吞错——两数据源均失败时弹轻提示（带 5s 节流去重），部分失败仍静默保留可用结果 |
+| **P0-2 热门卡片展示编造的盈亏** | 点击「沪深 300ETF/纳指 ETF/招商银行/科创 50ETF」任一热门卡片，立刻显示一个与真实成本无关的持仓收益 | `hotAssets` 硬编码 `costPrice: 4.567/1.234/34.56/0.987` 与 `quantity: 100`，未取当前价 | `frontend/src/views/explore/index.vue:809-816`；**已修复（2026-08-08）**：`hotAssets` 不再预填成本/份额，`addHotAsset` 改传 `costPrice: null, quantity: null`，走纯观察模式（成本取当前价、份额 1，盈亏恒为 0），与手工添加留空等价 |
 
 **为什么必须优先修**：探市是免登录入口页，是新用户第一印象。P0-1 让核心交互（添加资产）在生产不可用，P0-2 直接展示虚假财务数据。两者都是「看起来做了、实际没成立」的典型，与 `docs/spec/decisions.md` D4（探市免登录）的意图冲突。
 
@@ -133,16 +133,19 @@
 **背景**：落地页（`#ecosystem`，首页而非应用站）保留原有的「3 行横向滚动条」交互，仅把轨道内的纯文字药丸升级为「真实 Logo + 文字药丸兜底」混排（`landing.content.yml` 的 `eco.logos` / `eco.texts`）——Logo 灰度默认、悬停恢复彩色 + 红色阴影，与文字药丸同轨无缝滚动。
 
 **当前状态**：
+
 - 已实现：支付宝真实 SVG（`logos/alipay.svg`，取自 Simple Icons，已本地化）。
 - 缺口：同花顺 / 天天基金 / 东方财富无官方独立 Logo 可取，暂以文字药丸兜底；基金标准模板 / 股票标准模板非公司，永远走文字药丸。
 
 **素材取源评估（本机实测）**：
+
 - `logo.dev`：海外 Cloudflare CDN，可达但 **401 需免费 token**；中文垂直金融品牌召回差，天天基金无独立域名 → 放弃。
 - `DuckDuckGo favicon` / `api.iowen.cn`：本机连接超时/被墙 → 放弃。
 - `iconfont.cn`（阿里矢量图标库）：**本机可达**，但搜索 API 返回 `LOGIN REQUIRED`，需登录态取 SVG；中文金融品牌收录全，是该场景首选源。
 - `Simple Icons` CDN（Cloudflare）：可达、免 token，但**仅收录支付宝**（同花顺 / 东方财富 / 天天基金均 404）。
 
 **待办（用户手动）**：
+
 1. 登录 iconfont.cn，搜索「同花顺 / 天天基金 / 东方财富」下载 SVG，放入 `logos/`（建议 `tonghuashun.svg` / `tiantian.svg` / `eastmoney.svg`）。
 2. 在 `landing.content.yml` 的 `eco.logos` 追加对应项（形如 `- { name: 同花顺, icon: "logos/tonghuashun.svg" }`），对应名称从 `eco.texts` 移除。
 3. 重新生成：`npm run build:landing`。
@@ -151,6 +154,7 @@
 **备注**：首页与 `/frontend` 应用站是两个独立站点，本条目仅针对首页落地页。
 
 ## 2026-08-04 OOM 修复记录
+
     98:plainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplainplain
     99:### 问题
    100:前端 `pnpm run build` 因 JavaScript heap OOM 失败，`--max-old-space-size=8192`（8GB）仍不足，阻塞生产部署。

@@ -69,6 +69,7 @@ Ledger (交易账户) ← 资金存放渠道
 | Position-Objective | `position_objectives` | 通过 Position 或 Objective 接口操作 | `position_id`, `transaction_id`, `objective_id` | 多对多关联 |
 
 **API 设计原则**：
+
 - `Ledger` 独立管理，不与 Objective 直接关联。
 - `Objective` 独立管理，创建时可选关联某个 `Allocation`。
 - `Position` 通过 `position_objectives` 关联到 `Objective`，同一 Position 的不同批次可关联不同 Objective。
@@ -84,6 +85,7 @@ Ledger (交易账户) ← 资金存放渠道
 | **自选管理页面** | “分组” | 选择或创建自选分组（如“消费股”） | 仅影响自选列表的展示，不影响实际持仓 |
 
 **防混淆提示**：
+
 - **账户** = 钱放在哪里（券商/银行）
 - **五笔钱** = 钱的风险等级
 - **投资目标** = 钱为了什么（养老金/教育/买房）
@@ -99,6 +101,7 @@ Ledger (交易账户) ← 资金存放渠道
 ```
 
 最终数据关系：
+
 ```plain
 Ledger: 华泰证券
   └── Position: 腾讯控股

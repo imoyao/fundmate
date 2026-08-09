@@ -2,6 +2,7 @@
 title: 导出支付宝理财记录
 ---
 ## 手机端
+
 1. 支付宝 APP - 我的-账单右上角三个点-开具交易流水证明-用于个人对账。
 
    或者
@@ -13,7 +14,9 @@ title: 导出支付宝理财记录
 :::tip
 如图所示，最好选择整月或者整年导出，以免漏记。
 :::
+
 ## PC 端
+
 1. 查询支付宝账号注销时间：[帮助文档](https://help.alipay.com/lab/help_detail.htm?help_id=247394)
 2. 点击[此链接](https://consumeprod.alipay.com/record/standard.htm) 登录支付宝；
    ```https://consumeprod.alipay.com/record/standard.htm```

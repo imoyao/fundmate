@@ -13,6 +13,7 @@ owner: 阿垚
 早期采用**单域名 `duobeibei.com`**（www 为规范名），按路径拆分三套界面，而非多子域名。
 
 理由：
+
 - **SEO 集中度**：单一域名积累权重，避免主站与工具站分散权威。
 - **早期运维**：一条 DNS、一份证书、一个域名权威，最省心。
 - **工具站本就不参与收录**：Vue SPA 属登录后应用，应 `noindex`，因此"SEO 分散"无实质损失；需集中权威的只有主站营销内容。
@@ -49,6 +50,7 @@ owner: 阿垚
 ```
 
 要点：
+
 - 主站项目：根目录 = `marketing/`，静态输出。
 - 工具站项目：root = `frontend/`，build `vite build`，output `dist`，`base: '/app'`。
 - 文档站项目：root = `docs/`，build `vitepress build`，output `docs/.vitepress/dist`。

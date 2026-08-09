@@ -36,21 +36,26 @@ title: 数据库的选择及使用（待整理）
 1. 我们首先根据设计绘制出 E-R 图
 2. 然后根据 E-R 图导出 SQL 文件
 3. 然后生成数据表
+
 ```plain
 mysql> create database {DB_NAME};      # 创建数据库
 mysql> use {DB_NAME};                  # 使用已创建的数据库
 mysql> set names utf8;           # 设置编码
 mysql> source {SQL_PATH} # 导入备份数据库
 ```
+
 其他用到的命令：
+
 ```sql
 SELECT concat('DROP TABLE IF EXISTS ', table_name, ';')
 FROM information_schema.tables
 WHERE table_schema = '{DB_NAME}';
 ```
+
 4. 数据库设计
 
 最后编写 ORM 代码；当然，我们也可以使用[sqlacodegen](https://github.com/agronholm/sqlacodegen) [为已存在的数据库生成 SQLAlchemy / Flask-SQLAlchemy 模型类](https://greyli.com/generate-flask-sqlalchemy-model-class-for-exist-database/)。
+
 ```plain
 # default
 engine = create_engine('mysql://scott:tiger@localhost/foo')
@@ -61,11 +66,14 @@ engine = create_engine('mysql+mysqldb://scott:tiger@localhost/foo')
 # PyMySQL
 engine = create_engine('mysql+pymysql://scott:tiger@localhost/foo')
 ```
+
 默认情况下，Flask-SQLAlchemy 会根据模型类的名称生成一个表名称，生成规则如下：
+
 ```plain
 FooBar --> foo_bar  # 驼峰命名改为小写下划线
 Baz --> baz         # 单个单词的改为小写
 ```
+
 > Some parts that are required in SQLAlchemy are optional in Flask-SQLAlchemy. For instance the table name is automatically set for you unless overridden. It’s derived from the class name converted to lowercase and with “CamelCase” converted to “camel_case”. To override the table name, set the `__tablename__` class attribute.
 
 来源见此：[Declaring Models — Flask-SQLAlchemy Documentation (2.x)](https://flask-sqlalchemy.palletsprojects.com/en/2.x/models/#declaring-models)
@@ -73,7 +81,9 @@ Baz --> baz         # 单个单词的改为小写
 ## 声明关系对应模型
 
 ### 一对多(one-to-many)
+
 一对多关系将一个外键`sqlalchemy.schema.ForeignKey`定义在引用父表的子表上。然后在父节点上指定`relationship()`，以引用由子节点表示的一组项：
+
 ```python
 class Parent(Base):
     __tablename__ = 'parent'
@@ -85,6 +95,7 @@ class Child(Base):
     id = Column(Integer, primary_key=True)
     parent_id = Column(Integer, ForeignKey('parent.id'))
 ```
+
 要建立一对多和反过来多对一的双向关系，就指定一个附加的 relationship()，并使用`relationship.back_populates`将两者连接起来：
 
 ```python
@@ -100,6 +111,7 @@ class Child(Base):
     parent = relationship("Parent", back_populates="children")
 
 ```
+
 这样，子就获得一个具有“多对一”的父级属性。
 
 ::: 注意
@@ -131,12 +143,12 @@ TODO：[Basic Relationship Patterns — SQLAlchemy 1.4 Documentation](https://do
 
 ---
 
-
 ## 事务
 
 代码：`backend.fundmate.database.save()`
 
 关于`SQLALCHEMY_COMMIT_ON_TEARDOWN`的讨论：
+
 - [关于 Flask-SQLAlchemy 事务提交有趣的探讨 - SegmentFault 思否](https://segmentfault.com/a/1190000007818952)
 - [SQLAlchemy 两种不同方式 commit() 时间开支的问题 - 知乎](https://zhuanlan.zhihu.com/p/27974385)
 - [关于 flask-sqlalchemy 中数据库操作的问题整理 - 简书](https://www.jianshu.com/p/ead613514f18)
@@ -148,12 +160,13 @@ TODO：[Basic Relationship Patterns — SQLAlchemy 1.4 Documentation](https://do
 
 需要牢记的事情:
 
-*   您的所有模型的基类叫做 db.Model。它存储在您必须创建的 SQLAlchemy 实例上。 细节请参阅 [_快速入门_](http://www.pythondoc.com/flask-sqlalchemy/quickstart.html#quickstart)。
-*   有一些部分在 SQLAlchemy 上是必选的，但是在 Flask-SQLAlchemy 上是可选的。 比如表名是自动地为您设置好的，除非您想要覆盖它。它是从转成小写的类名派生出来的，即 “CamelCase” 转换为 “camel_case”。
+- 您的所有模型的基类叫做 db.Model。它存储在您必须创建的 SQLAlchemy 实例上。 细节请参阅 [_快速入门_](http://www.pythondoc.com/flask-sqlalchemy/quickstart.html#quickstart)。
+- 有一些部分在 SQLAlchemy 上是必选的，但是在 Flask-SQLAlchemy 上是可选的。 比如表名是自动地为您设置好的，除非您想要覆盖它。它是从转成小写的类名派生出来的，即 “CamelCase” 转换为 “camel_case”。
 
 #### 简单示例
 
 一个非常简单的例子:
+
 ```python
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -167,7 +180,9 @@ class User(db.Model):
     def __repr__(self):
         return '<User %r>' % self.username
 ```
+
 用 `Column` 来定义一列。列名就是您赋值给那个变量的名称。如果您想要在表中使用不同的名称，您可以提供一个想要的列名的字符串作为可选第一个参数。主键用 `primary_key=True` 标记。可以把多个键标记为主键，此时它们作为复合主键。
+
 ### 一对一
 
 DailyWorth 与 Fund
@@ -177,6 +192,7 @@ DailyWorth 与 Fund
 最为常见的关系就是一对多的关系。因为关系在它们建立之前就已经声明，您可以使用 字符串来指代还没有创建的类(例如如果 Person 定义了一个到 Article 的关系，而 Article 在文件的后面才会声明)。
 
 关系使用 [`relationship()`](http://www.sqlalchemy.org/docs/orm/relationship_api.html) 函数表示。然而外键必须用类 [`sqlalchemy.schema.ForeignKey`](http://www.sqlalchemy.org/docs/core/constraints.html) 来单独声明:
+
 ```python
 class Person(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -189,16 +205,18 @@ class Address(db.Model):
     email = db.Column(db.String(50))
     person_id = db.Column(db.Integer, db.ForeignKey('person.id'))
 ```
+
 `db.relationship()` 做了什么？这个函数返回一个可以做许多事情的新属性。在本案例中，我们让它指向 Address 类并加载多个地址。它如何知道会返回不止一个地址？因为 SQLALchemy 从您的声明中猜测了一个有用的默认值。 如果您想要一对一关系，您可以把 `uselist=False` 传给 [`relationship()`](http://www.sqlalchemy.org/docs/orm/relationship_api.html) 。
 
 那么 backref 和 lazy 意味着什么了？backref 是一个在 Address 类上声明新属性的简单方法。您也可以使用 `my_address.person` 来获取使用该地址(address)的人(person)。lazy 决定了 SQLAlchemy 什么时候从数据库中加载数据:
 
-*   `'select'` (默认值) 就是说 SQLAlchemy 会使用一个标准的 select 语句必要时一次加载数据。
-*   `'joined'` 告诉 SQLAlchemy 使用 JOIN 语句作为父级在同一查询中来加载关系。
-*   `'subquery'` 类似 `'joined'` ，但是 SQLAlchemy 会使用子查询。
-*   `'dynamic'` 在有多条数据的时候是特别有用的。不是直接加载这些数据，SQLAlchemy 会返回一个查询对象，在加载数据前您可以过滤（提取）它们。
+- `'select'` (默认值) 就是说 SQLAlchemy 会使用一个标准的 select 语句必要时一次加载数据。
+- `'joined'` 告诉 SQLAlchemy 使用 JOIN 语句作为父级在同一查询中来加载关系。
+- `'subquery'` 类似 `'joined'` ，但是 SQLAlchemy 会使用子查询。
+- `'dynamic'` 在有多条数据的时候是特别有用的。不是直接加载这些数据，SQLAlchemy 会返回一个查询对象，在加载数据前您可以过滤（提取）它们。
 
 您如何为反向引用（backrefs）定义惰性（lazy）状态？使用 [`backref()`](http://www.sqlalchemy.org/docs/orm/relationship_api.html) 函数:
+
 ```python
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -206,9 +224,11 @@ class User(db.Model):
     addresses = db.relationship('Address',
         backref=db.backref('person', lazy='joined'), lazy='dynamic')
 ```
+
 ## 多对多(many-to-many)关系
 
 User 和 Role 表之间互为多对多关系，我们需要定义一个用于关系的辅助表。对于这个辅助表，强烈建议 _不_ 使用模型，而是采用一个实际的表:
+
 ```python
 tags = db.Table('tags',
     db.Column('tag_id', db.Integer, db.ForeignKey('tag.id')),
@@ -223,15 +243,19 @@ class Page(db.Model):
 class Tag(db.Model):
     id = db.Column(db.Integer, primary_key=True)
 ```
+
 这里我们配置 Page.tags 加载后作为标签的列表，因为我们并不期望每页出现太多的标签。而每个 tag 的页面列表（ Tag.pages）是一个动态的反向引用。 正如上面提到的，这意味着您会得到一个可以发起 select 的查询对象。
 关联对象模式是多对多模式的一种变体: 当关联表包含左右表的外键之外的其他列时使用它。
+
 ```python
 class FundManager(PkModel):
     pass
 ```
+
 ```python
 funds = relationship('Fund', secondary='fund_mgr', back_populates='mgrs')
 ```
+
 注意两个表之间`secondary=''`，后面应该跟表名。
 
 在 [idealyard](https://github.com/imoyao/idealyard) 项目中，我们的文章和作者就是一对多的关系。本例中，我们的用户（User）和账户（Account）也是这种关系。
@@ -248,6 +272,7 @@ funds = relationship('Fund', secondary='fund_mgr', back_populates='mgrs')
 #### 定义关系属性
 
 关系属性在关系的出发侧定义，即一对多关系的“一”这一侧。一个作者拥有多篇文章，在 [User 模型](https://github.com/imoyao/idealyard/blob/master/back/models.py) 中，我们定义了一个 articles 属性来表示对应的多篇文章：
+
 ```plain
 articles = db.relationship('Article')
 ```
@@ -255,6 +280,7 @@ articles = db.relationship('Article')
 在本项目中，我们以基金净值（`DailyWorth`）为例说明用法：
 
 每个基金每天都会有一个净值，所以在净值表中，每个基金会有多个对应值。则我们很容易写出这样的代码：
+
 ```python
 # 在Fund侧
 worths = db.relationship('DailyWorth')
@@ -263,11 +289,13 @@ worths = db.relationship('DailyWorth')
 通过`backend/fundmate/database.relationship`定义。用法参见`backend.fundmate.database.reference_col`。
 
 此处我们参考 [demo-cookiecutter-flask/models.Role](https://github.com/jamescurtin/demo-cookiecutter-flask/blob/master/my_flask_app/user/models.py) 写为：
+
 ```python
 # 在DailyWorth侧
 fund_id = reference_col('funds', column_kwargs={'comment': '基金编号'})
 fund = relationship('Fund', backref='daily_worth')
 ```
+
 ::: tip INFO
 > The [relationship.back_populates](http://docs.sqlalchemy.org/en/rel_1_0/orm/relationship_api.html) parameter is a newer version of a very common SQLAlchemy feature called [relationship.backref](http://docs.sqlalchemy.org/en/rel_1_0/orm/relationship_api.html). The [relationship.backref](http://docs.sqlalchemy.org/en/rel_1_0/orm/relationship_api.html) parameter hasn’t gone anywhere and will always remain available! The [relationship.back_populates](http://docs.sqlalchemy.org/en/rel_1_0/orm/relationship_api.html) is the same thing, except a little more verbose and easier to manipulate. For an overview of the entire topic, see the section [Linking Relationships with Backref](http://docs.sqlalchemy.org/en/rel_1_0/orm/backref.html).
 
@@ -293,6 +321,7 @@ fund = relationship('Fund', backref='daily_worth')
 
 如果关联对象之间只需要用 id 关联起来，我们可以将新类直接映射到关联表，无需使用辅助参数；
 如我们有如下表：
+
 ```python
 class Left(Base):
     __tablename__ = 'left'
@@ -305,14 +334,18 @@ class Right(Base):
     ...
 
 ```
+
 则我们可以直接定义关联表如下：
+
 ```python
 association_table = Table('association', Base.metadata,
     Column('left_id', Integer, ForeignKey('left.id')),
     Column('right_id', Integer, ForeignKey('right.id'))
 )
 ```
+
 而关联对象（association object）模式是多对多的一种变体：**当关联表包含左右表外键之外的其他数据列时**，就需要使用该模式：
+
 ```python
 class Association(Base):
     left_id = Column(Integer, ForeignKey('left.id'), primary_key=True)
@@ -323,9 +356,11 @@ class Association(Base):
     left = relationship('Left', backref=backref('right_association'))
     right = relationship('Right', backref=backref('left_association'))
 ```
+
 综上所述：如果我们需要在关联中存储任何东西，则常规做法是创建一个关联对象来引用这些额外的信息，否则没有必要使用 ORM 层，创建一个关联表即可。
 
 具体参阅下方链接：
+
 1. [Basic Relationship Patterns — SQLAlchemy 1.4 Documentation](https://docs.sqlalchemy.org/en/14/orm/basic_relationships.html#association-object)
 2. [Flask/SQLAlchemy - Difference between association model and association table for many-to-many relationship? - Stack Overflow](https://stackoverflow.com/questions/30406808/flask-sqlalchemy-difference-between-association-model-and-association-table-fo)
 
@@ -370,12 +405,14 @@ SQLAlchemy 只能很轻松处理 Many to Many，但是如果是常见的 Many to
 5. 数据库创建
 
 初始化时，我们需要定义初始化函数，参见：`fundmate.commands.init_db`，之后将数据库配置写入环境变量；我们可以直接以`DATABASE_URL`的方式给出数据库的链接，也可以使用更细粒度的控制方式，以实现每一种环境使用不同的配置方式。一种可参考的配置方式如下：
+
 ```plain
 DATABASE_URL=sqlite:////tmp/dev.db
 MYSQL_USER=
 MYSQL_PASSWORD=
 MYSQL_DB=
 ```
+
 需要注意的是：
 > 当继承 db.Model 基类的子类被声明创建时，根据 db.Model 基类继承的元类中设置的行为，类声明后会将表信息注册到 db.Model.metadata.tables 属性中。
 >
@@ -385,6 +422,7 @@ MYSQL_DB=
 
 参见：[数据 model 修改之后执行`flask db migrate`没有反应，探测不到代码修改 · Issue #231 · imoyao/fundmate](https://github.com/imoyao/fundmate/issues/231)
 查阅资料：
+
 1. [sqlalchemy 中用 db.create_all()无法建表？ - 知乎](https://www.zhihu.com/question/21489726)
 2. [使用 Flask-SQLAlchemy 调用 create_all()前是否需要导入模型类？为什么？ - 知乎](https://www.zhihu.com/question/284904297)
 
@@ -393,15 +431,16 @@ Note that if you use a linter, it may flag the models as being unused imports. T
 
 参见[此处](https://github.com/miguelgrinberg/Flask-Migrate/issues/220)
 
-
 `fundmate.app.register_shell_context`函数中需要注册之后调用`flask init-db`才能生成需要的数据表。
 
 ### 默认隔离事务导致的更新数据后查询失败
 
 在将基金经理信息存入数据表（fund-mgr）时，遇到报错：
+
 ```bash
 FlushError: Can't flush None value found in collection Manager.funds
 ```
+
 查阅资料：
 
 [flask-sqlalchemy 中 db.session.query 和 model.query 方式要怎么选择 - Flask - HelloFlask 论坛](https://discuss.helloflask.com/t/topic/779)
@@ -457,13 +496,16 @@ Output:
 3 [<Foo('A')>, <Foo('B')>]
 4 [<Foo('A')>]
 ```
+
 解决方案，每一次 append 之后直接 commit。
+
 ```python
 mgr_ins = Manager.filter_by_code(mgr_code)
 mgr_ins.funds.append(fund_inst)
 db.session.add(mgr_ins)
 db.session.commit()
 ```
+
 关于几种操作的区别参阅：[SQLAlchemy commit(), flush(), expire(), refresh(), merge() - what's the difference?](https://michaelcho.me/article/sqlalchemy-commit-flush-expire-refresh-merge-whats-the-difference)
 
 数据库在初始化构建完成之后，我们就可以进行开发了。但是在实际的开发过程中，我们的设计会跟着开发不断迭代进化。这个时候我们就需要进行数据库的迁移。
@@ -474,7 +516,6 @@ db.session.commit()
 
 此处我们使用 [Flask-Migrate](https://flask-migrate.readthedocs.io/en/latest/) 扩展实现。具体使用英文不好的同学可以参考此处：[Flask-migrate 基本使用方法 - sablier - 博客园](https://www.cnblogs.com/sablier/p/11084080.html)。
 
-
 ### E-R 图
 
 使用[freedgo](https://www.freedgo.com)生成 ER 图之后 [格式化](https://tool.oschina.net/codeformat/sql) ，当然我们也可以选择导入 [dbdiagram.io](https://dbdiagram.io/) 生成图片。
@@ -483,12 +524,13 @@ db.session.commit()
 [用 Navicat 制作 ER 图及与 SQL 互相转化 | 王柏元的博客 | 博学广问，自律静思](https://wangbaiyuan.cn/sql-and-use-navicat-to-make-er-diagram-and-interactive.html)
 
 ::: warning
+
 ```sql
 # 修改允许远程连接
 GRANT ALL PRIVILEGES ON *.* TO 'root'@'%'IDENTIFIED BY '{PASS_WORD}' WITH GRANT OPTION;
 ```
-:::
 
+:::
 
 ![](https://cdn.jsdelivr.net/gh/masantu/statics/images/fundmate-ER.png)
 
@@ -548,6 +590,7 @@ SQL 文件详见 [此处](https://github.com/imoyao/fundmate/blob/master/db/fmt.
 
 `db.users.filter(or_(db.users.name=='Ryan', db.users.country=='England'))`
 源码参考：
+
 ```python
 def filter_by(**kwargs):
     clauses = [
@@ -556,6 +599,7 @@ def filter_by(**kwargs):
             ]
     return self.filter(*clauses)
 ```
+
  [python - Difference between filter and filter_by in SQLAlchemy - Stack Overflow](https://stackoverflow.com/questions/2128505/difference-between-filter-and-filter-by-in-sqlalchemy)
 
 ### 规范

@@ -3,6 +3,7 @@ title: 为`SQLAlchemy`创建`choices`数据类型
 permalink: /dev/choices-for-sqlalchemy
 ---
 ## 引言
+
 用过 Django 的都知道，它的模型字段中有一个非常好用的字段类型`choices`：[模型字段`choices`参考 | Django 文档 | Django](https://docs.djangoproject.com/zh-hans/4.0/ref/models/fields/#choices) ，在 3.0 版本中，更进一步定义了[Enumerations for model field choices - Django 3.0 release notes | Django documentation | Django](https://docs.djangoproject.com/en/4.0/releases/3.0/#enumerations-for-model-field-choices) ，源码参考：[django/enums.py at main · django/django](https://github.com/django/django/blob/main/django/db/models/enums.py) 。
 ::: warning
 那么我们为什么使用 choices 呢？
@@ -11,8 +12,11 @@ permalink: /dev/choices-for-sqlalchemy
 
 我们只需要修改 model 层定义的“常量”，而不需要在 view 层修改硬编码内容。即使常量被我们修改，通过 IDE 的自动探测功能，我们也能即使发现错误。
 :::
+
 ## 一种拙劣的实现方式
+
 基础数据定义
+
 ````python
 # 风险等级
 RISK_TYPE = {
@@ -33,7 +37,9 @@ RISK_TYPE_DISPLAY = {
     'high': '积极进取'
 }
 ````
+
 SQLAlchemy 数据类型定义：
+
 ```python
 from typing import Optional, Union
 import sqlalchemy.types as types
@@ -122,8 +128,10 @@ class ChoiceType(BaseChoice):
 def key2val(unique_dict: dict) -> dict:
     return {v: k for k, v in unique_dict.items()}
 ```
+
 [代码参考](https://github.com/imoyao/fundmate/blob/164ba18f8ff292b66a6767a1d29e7125f8ace38a/backend/fundmate/database.py#L233)
 此时要使用数据类型：
+
 ```python
 class Fund(PkModel, UpsertMixin):
     """基金表"""
@@ -168,7 +176,9 @@ class Fund(PkModel, UpsertMixin):
                         comment='风险等级')
     ...
 ```
+
 为了显示解释性的文字信息，我们需要：
+
 ```python
 # 其中display_map即为上文基础数据定义中的RISK_TYPE_DISPLAY
 def display(display_map: dict, pk_key: str) -> str:
@@ -180,12 +190,15 @@ def display(display_map: dict, pk_key: str) -> str:
     """
     return display_map.get(pk_key)
 ```
+
 这样的定义可以实现我们的功能，但是不利于数据扩展。假设我们需要修改基础数据中的定义，那么，每一次都需要修改`XX_TYPE`(a)和`XX_TYPE_DISPLAY`(a)两个的定义，而且只能在字段定义的代码中检查 key 的唯一性，如果两个基础数据 a 和 b 拥有不同的 key，那我们是没法感知到的。
 
 ## 一种更好的实现方式
+
 仔细观察我们的数据定义，可以发现基础数据由`value`,`name`,`label`等属性构成，为了更加简明地定义这种数据，我们引入[dataklasses](https://github.com/dabeaz/dataklasses) ，关于它的基础用法请参考作者的说明文档。以下是我的定义：
 
 ### 定义基础数据
+
 ```python
 from dataklasses import dataklass
 
@@ -197,7 +210,9 @@ class ChoiceTypeIntegerDk:
 
 foo = ChoiceTypeIntegerDk(1,'bar','the foo explain of the bar.')
 ```
+
 `choices`的`get_xx_display`方法我们可以直接使用`@property`装饰器返回，即此时代码为：
+
 ```python
 
 @dataklass
@@ -210,10 +225,12 @@ class ChoiceTypeIntegerDk:
     def display(self):
         return self.label
 ```
+
 :::tip
 需要注意的是，当我们把所有的参数作为位置参数时，我们定义类的属性的顺序就是我们传参的顺序；当然，如果我们把参数当作关键字参数时，则顺序是可以随便调换的。
 :::
 然后定义我们的数组
+
 ```python
 @enum.unique
 class RiskTypeEnum(enum.Enum):
@@ -224,9 +241,11 @@ class RiskTypeEnum(enum.Enum):
     advance = ADVANCE
     high = HIGH
 ```
+
 其中，`@enum.unique`装饰器用于保证枚举元素无重复。
 
 获取枚举类元素为
+
 ```python
 baz = RiskTypeEnum
 In [3]: baz.undefined.name
@@ -236,7 +255,9 @@ In [4]: baz.undefined.value
 Out[4]: ChoiceTypeIntegerDk(0, 'undefined', '未定义')
 
 ```
+
 获取元素属性为
+
 ```python
 In [5]: baz.undefined.value.value
 Out[5]: 0
@@ -251,7 +272,9 @@ In [9]: baz.undefined.value.display
 Out[9]: '未定义'
 
 ```
+
 这样有一个缺点是，太长了，获取`value`属性路径太长，于是借助`DynamicClassAttribute`我们定义更多的属性方法。
+
 ```python
 @enum.unique
 class BaseTypeEnum(enum.Enum):
@@ -354,8 +377,10 @@ class BaseTypeEnum(enum.Enum):
             enum_explains[key] = member.dk_display
         return str(enum_explains)
 ```
+
 不复写的原因是我们可能需要获取`value`。
 在定义具体的`XXTypeEnum`时，我们继承`BaseTypeEnum`可以避免代码冗余。
+
 ```python
 UNDEFINED = ChoiceTypeIntegerDk(0, 'undefined', '未定义')
 PLAIN = ChoiceTypeIntegerDk(1, 'plain', '灵活取用')
@@ -393,7 +418,9 @@ class RiskTypeEnum(BaseTypeEnum):
         return [item.dk_name for item in cls]
 
 ```
+
 此时：
+
 ````python
 baz = RiskTypeEnum
 In [4]: baz.undefined.dk_display
@@ -412,7 +439,9 @@ In [8]: baz.undefined.value
 Out[8]: ChoiceTypeIntegerDk(0, 'undefined', '未定义')
 
 ````
+
 ### 定义数据库需要用到的数据类型
+
 ```python
 class IntChoiceDkEnumType(ScalarCoercible, types.TypeDecorator):
     """
@@ -486,11 +515,14 @@ class DkEnumTypeImpl(object):
         return self._coerce(value)
 
 ```
+
 :::warning
 由于使用 alembic 来实现数据库的改动迁移，我们自定义的数据库字段是没法自动识别的，所以需要修改`migrations`中的`env.py`参阅 [此处](https://stackoverflow.com/a/61320562/14295718) ；此外，通过定义`choices.py`我们实现最小改动下可以导入自定义数据，具体实现逻辑参阅`render_choice_type()`方法。
 参阅 [此处](https://alembic.sqlalchemy.org/en/latest/autogenerate.html#affecting-the-rendering-of-types-themselves)
 :::
+
 ### 字段使用
+
 ```python
 class UserType(Enum):
     admin = 1
@@ -514,7 +546,9 @@ class Test(PkModel):
                      comment=f'测试：{settings.FundOpTypeEnum.comment()}')
 
 ```
+
 ## 总结
+
 基于 dataklasses 模块，我们实现了一种可以自定义复杂 value 的 Enum 类型，之后再定义`IntChoiceDkEnumType`供数据库定义时使用，这样保存的数据就可以按照我们预期的保存并有限地限制输入非法值的状况，从而实现错误预防和逻辑分离。
 
 ## 推荐阅读

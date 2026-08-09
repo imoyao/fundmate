@@ -19,11 +19,12 @@ conftest.py 的出现，就是为了解决上述问题，单独管理一些全�
 conftest.py 配置 fixture 注意事项
 ------------------------
 
-*   pytest 会默认读取 conftest.py 里面的所有 fixture
-*   conftest.py 文件名称是固定的，不能改动
-*   conftest.py 只对同一个 package 下的所有测试用例生效
-*   不同目录可以有自己的 conftest.py，一个项目中可以有多个 conftest.py
-*   测试用例文件中不需要手动 import conftest.py，pytest 会自动查找
+* pytest 会默认读取 conftest.py 里面的所有 fixture
+* conftest.py 文件名称是固定的，不能改动
+* conftest.py 只对同一个 package 下的所有测试用例生效
+* 不同目录可以有自己的 conftest.py，一个项目中可以有多个 conftest.py
+* 测试用例文件中不需要手动 import conftest.py，pytest 会自动查找
 
 ## 参考文档
+
 1. [Pytest 系列(2-3)-conftest 详解 - 我是小菜鸡丫丫 - 博客园](https://www.cnblogs.com/kxtomato/p/16600613.html)

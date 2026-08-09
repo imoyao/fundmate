@@ -61,6 +61,7 @@ postman 用于前端开发人员对接口进行测试，借助于 mock 服务器
 ### fixture
 
 本章节主要参考出处：
+
 1. [Pytest 高级进阶之 Fixture - 简书](https://www.jianshu.com/p/54b0f4016300)
 2. [pytest 框架之 fixture 详细使用 - 辉辉辉辉 a - 博客园](https://www.cnblogs.com/huizaia/p/10331469.html)
 
@@ -90,6 +91,7 @@ def test_bar(before_func):
 
 2. 用 fixture 装饰器`@pytest.mark.usefixtures()`调用 fixture
     1. 每个函数前声明
+
     ```python
     import pytest
 
@@ -105,8 +107,10 @@ def test_bar(before_func):
     def test_2():
         print('in test_2()')
     ```
+
     2. 封装在类中
         1. 类中的每个成员方法前用函数进行声明
+
        ```python
        import pytest
 
@@ -119,7 +123,9 @@ def test_bar(before_func):
             def test_4(self):
                 print('test_2()')
         ```
+
         2. 在类前声明
+
        ```python
        import pytest
 
@@ -132,6 +138,7 @@ def test_bar(before_func):
            def test_6(self):
                print('test_2()')
        ```
+
 3. 用 autouse 调用 fixture
 
  fixture 装饰器有一个配置参数 autouse，默认值为 False.
@@ -146,6 +153,7 @@ def test_bar(before_func):
    其控制范围由大到小是：`session > package > module > class > function`
 
    示例代码：
+
    ```python
    import pytest
    import time
@@ -198,6 +206,7 @@ def test_not_2(pass_data):
     print(f'test_data: {pass_data}')
     assert pass_data != 2
 ```
+
 2. 带返回值
 在`before_func`中我们已经实现。
 
@@ -206,8 +215,10 @@ def test_not_2(pass_data):
 ### 多个参数一次测试
 
 有的时候我们的代码里面会逻辑比较复杂，需要多个测试用例去验证，这个时候使用`pytest.mark.parametrize`可以实现批量传参；
+
 1. argnames
 单值使用`'single_args'`传递，多值可以使用逗号隔开的字符串，形如：`args,with,quota`，或者是内字符串列表或元祖；
+
 ```python
 import pytest
 @pytest.mark.parametrize(['suffix_str', 'replace_flag', 'expected'], [('100万', 'w', 1000000), ('7.0天', 'd', 7),('2.0年', 'n', 730)])
@@ -222,6 +233,7 @@ def test_foo1():
 def test_foo2():
     pass
 ```
+
 2. argvalues
 多个值时使用元祖来传递每一组值。
 TODO: 似乎目前无法不传默认值，参阅：[Error using parametrize with default arguments · Issue #3221 · pytest-dev/pytest](https://github.com/pytest-dev/pytest/issues/3221)
@@ -256,21 +268,28 @@ TODO: 似乎目前无法不传默认值，参阅：[Error using parametrize with
 ::: tip TODO 基础数据是否可以不遵循此条，否则，可能跑数据需要很久。
 
 可以参考：
+
 1. [关于数据库单元测试 // foolbear 的冥想盆](https://jxy.me/2016/05/06/db-unit-test/)
 2. [优雅的进行数据库相关的单元测试 - 小破屋 | SJH Blog](https://songjunhao.github.io/2020/05/04/%E4%BC%98%E9%9B%85%E7%9A%84%E8%BF%9B%E8%A1%8C%E6%95%B0%E6%8D%AE%E5%BA%93%E7%9B%B8%E5%85%B3%E7%9A%84%E5%8D%95%E5%85%83%E6%B5%8B%E8%AF%95/)
 :::
 
 ### 创建目录结构
+
 1. 切换工作目录
+
  ```shell
  cd fundmate/backend
  ```
+
 2.复制目录结构到指定目录，不包含文件
+
 ```shell
 find fundmate -type d|grep -v 'venv'|grep -v '__pypackages__'|grep -v '__pycache__'|grep -v 'tests'| sed 's/fundmate/mkdir -p tests/' | sh
 # 查找目录                排除目录                                                                      # 替换字符                        # 执行命令
 ```
+
 注意如果需要，可以替换目录
+
 ## 参考阅读
 
 ### 框架选择

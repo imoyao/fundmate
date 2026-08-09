@@ -6,6 +6,7 @@ title: 项目中的环境变量问题
 首先我们知道在平常的开发中经常需要配置一些系统**环境变量**。
 
 再而我们在进行 web 开发的时候也会遇到各种变量的控制，比如导入开发(default)和生产环境(prod)不同的环境变量：
+
 ```bash
 DEBUG=True
 SECRET_KEY='abcddddd'
@@ -13,6 +14,7 @@ ALLOWED_HOSTS='*'
 MAIL_USERNAME=xxxx@xx.com
 MAIL_PASSWORD=abcdefg
 ```
+
 本文将由浅入深地探讨这个话题，同时尝试给出一种可行的解决方案。
 
 ## 实践
@@ -20,12 +22,14 @@ MAIL_PASSWORD=abcdefg
 ### 直接 export/set
 
 即在我们运行我们项目之前，直接利用`export`的方式导入我们需要的环境变量，比如:
+
 ```plain
 # Windows
 set test=123
 # Linux
 export test=123
 ```
+
 然后在项目中使用`os`导入：
 
 ```python
@@ -38,6 +42,7 @@ os.environ.get('test')
 # 或者
 os.getenv('FLASK_CONFIG', 'default')
 ```
+
 如果你的应用很小或者你不会频繁切换运行环境，那么这样做没有任何问题，并且可能是一个很好的选择。但是如果尝试处理一个相对大型的工程，那么你可能每次打开新的终端会话为了设置环境变量需要执行上百条`export`语句，或者你把它写成脚本放到你的项目中去执行。如果这样，又会有数据泄露的风险。
 
 如果你有以上的烦恼，那么不妨尝试下面的方案：
@@ -45,6 +50,7 @@ os.getenv('FLASK_CONFIG', 'default')
 ### [python-dotenv](https://github.com/theskumar/python-dotenv)
 
 从`.env`文件中读取键值对，并将它们添加到环境变量中
+
 ```bash
 # 安装包
 pip install python-dotenv
@@ -57,12 +63,15 @@ load_dotenv()  # take environment variables from .env.
 # `os.getenv`) as if they came from the actual environment.
 
 ```
+
 官方示例参见：[theskumar/python-dotenv: Get and set values in your .env file in local and production servers.](https://github.com/theskumar/python-dotenv#getting-started)
 
 > 当安装了`python-dotenv`时，Flask 在加载环境变量的优先级是：手动(`set/export`)设置的环境变量>`.env`中设置 的环境变量>`.flaskenv`设置的环境变量。
 
 #### 注意事项
+
 ::: warning
+
 1. 需要注意`.env`文件应该与程序脚本（通常为`app.py`，本项目中为`autoapp.py`）保持在同一目录等级。参阅：[不要在 Flask 程序上层目录创建 .env 和 .flaskenv 文件 - 知乎](https://zhuanlan.zhihu.com/p/128977263)
 2. `python-dotenv`加载的环境变量值都是字符串类型。
 :::
@@ -102,17 +111,22 @@ flask run  # 正常预期
 # 停止flask，修改 .env 环境变量，保存
 flask run  # 没达到修改变量后的预期效果
 ```
+
 究其原因，是`pipenv shell`加载了环境变量并进行了缓存，然后 flask 加载环境变量时没有进行覆盖。
 尤其是部署 Flask 到服务器后，以下步骤肯定有问题的！
+
 ```bash
 $ pipenv shell
 $ vim .env
 ...
 $ flask run
 ```
+
 - 解决方案
+
 1. 重进`pipenv shell`
 一种解决方案就是退出`pipenv shell`环境再进入：
+
 ```plain
 pipenv shell
 # 编辑 .env
@@ -152,6 +166,7 @@ if __name__ == "__main__":
 还有一个方案是设置`PIPENV_DONT_LOAD_ENV=1`，不让`pipenv`加载`.env`。
 
 PowerShell 示例（注意没有了`Loading .env environment variables…`信息）：
+
 ```bash
 $env:PIPENV_DONT_LOAD_ENV=1
 pipenv shell
@@ -182,6 +197,7 @@ Windows PowerShell
 官方示例参见：[sloria/environs: simplified environment variable parsing](https://github.com/sloria/environs#basic-usage)：
 
 需要配置的环境变量：
+
 ```bash
 export GITHUB_USER=sloria
 export MAX_CONNECTIONS=100
@@ -194,6 +210,7 @@ export COORDINATES=23.3,50.0
 export LOG_LEVEL=DEBUG
 Parse them with environs...
 ```
+
 使用`environs`解析：
 
 ```python
@@ -238,26 +255,28 @@ gh_repos_priorities = env.dict(
 
 不能公开的敏感数据，除非是私有项目，否则绝对不能提交到 Git 仓库中。比如：
 
-*   密钥
-*   数据库 URL
-*   邮件服务器或其他第三方服务的密码 / 密钥 / 令牌值
+- 密钥
+- 数据库 URL
+- 邮件服务器或其他第三方服务的密码 / 密钥 / 令牌值
 
 ### .flaskenv
 
 和 Flask 开发服务器相关的几个环境变量，比如：
 
-*   FLASK_ENV
-*   FLASK_APP
-*   FLASK_DEBUG
-*   FLASK_RUN_PORT 等
+- FLASK_ENV
+- FLASK_APP
+- FLASK_DEBUG
+- FLASK_RUN_PORT 等
 
 目前内置配置变量的列表见：[配置管理 — Flask 中文文档（ 1.1.1 ）](https://dormousehole.readthedocs.io/en/latest/config.html#id4)
 此外，你可以这样获取默认的环境变量配置：
+
 ```bash
 >>> from flask import Flask
 >>> app = Flask(__name__.split(".")[0])
 >>> app.config
 ```
+
 在项目中加入这块代码，则可以获取项目中使用的环境变量。
 
 而其他一些与你代码中有关的变量配置，则直接写到配置脚本（比如 `config.py` 和 `settings.py`）来实现控制。其中`settings.py`中存放我们程序员编写代码时可能需要修改的变量，而`config.py`用于控制不同的应用环境时使用不同的环境变量。
@@ -267,6 +286,7 @@ gh_repos_priorities = env.dict(
 ![tag v0.1 ](https://cdn.jsdelivr.net/gh/masantu/statics/images/20210117202012.png)
 
 ## 相关链接
+
 - [配置管理 — Flask 中文文档（ 1.1.1 ）](https://dormousehole.readthedocs.io/en/latest/config.html)
 - [关于 Flask 通过.env 加载环境变量的两个坑 - Flask - HelloFlask 论坛](https://discuss.helloflask.com/t/topic/128)
 - [Start using '.env' for your Flask project and stop using environment variables for development! How and why. | ITNEXT](https://itnext.io/start-using-env-for-your-flask-project-and-stop-using-environment-variables-for-development-247dc12468be)

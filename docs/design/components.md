@@ -161,8 +161,10 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 | 元素 | 字号 | 字重 | 颜色 |
 |------|------|------|------|
 | 标题 | `var(--text-display)`（32px） | 300 | `--text-primary` |
-| 副标题 | 14px | —— | `--text-secondary` | 专业、客观，避免过度口语化 |
+| 副标题 | 14px | —— | `--text-secondary` |
 | 更新时间胶囊 | 12px | —— | `--text-tertiary`，`--bg-soft` 底 + `--border-light` |
+
+> 副标题风格：专业、客观，避免过度口语化。
 
 ## PageFooter / MarketFooter · 探市 / 温度计页脚（复用）
 

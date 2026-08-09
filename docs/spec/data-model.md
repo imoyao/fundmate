@@ -62,6 +62,7 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 关联基金与费率规则，存储具体费率值。关键字段：fund_code、fee_type（purchase/redeem/management）、rate（费率百分比）、fee_amount（固定金额，与 rate 互斥）、purchase_rule_id、redeem_rule_id。**精度规范**（v4.4）：`rate` 改为 `DECIMAL(10,6)`，`fee_amount` 改为 Integer 存储分。
 
 **设计要点**：
+
 - 相同区间的规则被多只基金复用，减少冗余。
 - 创建规则前先查询是否已存在完全相同的规则，存在则复用，不存在则新增。
 - 修改规则时检查引用计数：引用数 > 1 时创建新规则，引用数 = 1 时可原地修改。
@@ -88,6 +89,7 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 **万份收益计算**：从 `xalpha.mfundinfo().price` 的累计净值反向计算 `(今日累计净值 - 昨日累计净值) × 10000`，四舍五入保留 4 位小数。
 
 **设计原因**：
+
 - 货币基金无单位净值概念，与普通场外基金的数据结构完全不同。
 - 混合存储会导致字段语义混乱，影响后续收益率计算和统计。
 - 独立建表可复用普通基金的去重、分批写入等基础设施。
@@ -99,6 +101,7 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 **设计定位**：回答"我的钱按什么策略投资"。与 Ledger（账户：钱放哪里）和 Allocation（五笔钱：风险等级）互补，为可选的高级分析工具。
 
 **核心约束**：
+
 - 一个 Ledger 最多关联一个 Portfolio（多对一），不拆分持仓。
 - 组合收益率 = 合并关联 Ledger 的现金流后计算 XIRR，自动过滤内部划转。
 - 渐进暴露，默认隐藏入口，不侵入记账主流程。
@@ -134,11 +137,13 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 **设计定位**：纯展示层分析工具，用于按投资风格（如"成长""价值""大盘"）分类查看持仓。不参与 XIRR 计算，不影响 Portfolio 资金流隔离逻辑。
 
 **数据模型**：
+
 - `strategy_tags` 表：`id / name（UNIQUE）/ created_at`
 - `position_strategy_tags` 关联表：`position_id (FK → positions.id, ON DELETE CASCADE) / strategy_tag_id (FK → strategy_tags.id, ON DELETE CASCADE)`，联合唯一约束
 - 与自选标签物理隔离，互不干扰
 
 **API 端点**：
+
 - `GET/POST /api/strategy/` — 标签列表、创建
 - `DELETE /api/strategy/{id}/` — 删除标签（级联解绑）
 - `POST/DELETE /api/strategy/{tag_id}/positions/{position_id}/` — 绑定/解绑
@@ -200,6 +205,7 @@ price_history 历史行情、benchmark_indices 基准数据、user_preferences �
 | `collected_at` | Date | 数据日期 |
 
 **品种列表**：
+
 - 31 个申万一级行业（代码格式 `801XXX.SI`）
 - 6 个宽基指数（沪深 300、中证 500、创业板指、科创 50、上证 50、中证 1000）
 - 用户持仓/自选品种（动态获取，不写入静态配置）

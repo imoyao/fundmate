@@ -20,10 +20,12 @@ tags:
 ## 安装最简版本
 
 1. 启动项目
+
 ```bash
 yarn install
 yarn serve
 ```
+
 ![](https://cdn.jsdelivr.net/gh/masantu/statics/images/20201230001135.png)
 
 3. 安装调试工具

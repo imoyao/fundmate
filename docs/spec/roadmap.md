@@ -85,17 +85,20 @@
 > **当前聚焦原则**：先完成 `temperature-architecture-plan.md` 的 P1（B4/B2/B1 已完成）+ P3（概览页三连已落地）+ 后续 **B3（文案后端归集）** 与 **B5（资金流向接入）**。乖离率修复等列入下方支持计划，**暂不分散精力**，待主线收尾后再逐项处理。
 
 ### 2.1 乖离率（P1-21）当前状态
+
 - **已放开（2026-08-05）**：`thermometer/jobs.py` 顶部 `SKIP_BIAS = False`；数据源由 akshare/东财改为**直连**（腾讯行情 `web.ifzq.gtimg.cn` / 东财 `push2his`，见 `bias/direct_feeds.py`），绕开 akshare 上游东财限流/IP 封。
 - **降级策略**：直连 + 兜底均失败时，单品种标 `stale` 或整批为空，**不阻断主流程**（`jobs.py` 内已按此实现）。
 - **待办**：实网跑一次温度同步，验证 `market_multi_items`（`source='bias'`）正常落库且 `/overview` 返回乖离率；前端如有依赖乖离率的展示需同步回归。
 - **注意**：放开不影响 `sync_cli.py` 用法。
 
 ### 2.2 温度模块剩余项（来自 temperature-architecture-plan.md）
+
 - **B3 文案后端归集**：✅ **已落地（2026-08-07）**。`/overview` 新增 `insights`（`name`/`desc`/`tone`，后端语义派生，前端仅保留 `tone→颜色令牌/类名` 映射）与 `conclusion`（综合温度环下方结论副文案，由 `temperature_bands` 档位拼接）；前端删除 `store.buildOpportunities` 改消费后端 `insights`。B3 边界（颜色令牌留前端、禁下发颜色码）未破坏。
 - **B5 资金流向接入**：**已列入技术债务（2026-08-07）**。`sector_flow` 无任何 job/fetcher 在抓数据，`get_multi_items('sector_flow')` 恒空；需先建设数据源（akshare `fund_flow_industry` 等公开市场资金流）再接入 `/multi` 可视化，属独立数据源建设，另行排期（见 `tech-debt.md`）。
 - **B1「长期」映射复核**：当前取股债利差估值分位原值（高=贵=热），待产品确认是否改第三方长周期源或反向表达。
 
 ### 2.3 其它待定项
+
 - 前端 `service.py` 早绑定 `SessionLocal` 导致测试隔离隐患（详见 `test_thermometer_overview.py` 的 `_patch_thermo_session` 备注），后续可统一改为动态引用。
 - **开发任务集合（invoke + rich）已落地**（`backend/tasks.py`）：已封装抓取（grab.*）、测试（test）、启动（serve）、文档（docs.*）。**后续后端接口级任务**（单接口冒烟、mock 数据生成、按接口批量回归）列为远期项，待主线（B3/B5）收尾后逐步补进 `tasks.py`，避免分散精力。优先级：第四象限（不重要不紧急，纯工具打磨）。
 

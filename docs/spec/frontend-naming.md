@@ -12,6 +12,7 @@
 本次整理目标：**先固化规范 + 出具不规范点清单**，后续改造逐条对照清单执行（非一次性大改）。
 
 为什么参照 Pure Admin：
+
 - 本项目前端即基于 `pure-admin-thin` 脚手架（`frontend/package.json` 中 `homepage`/`repository` 指向 pure-admin），技术栈一致（Vue3 + Vite + Element-Plus + TS + Pinia）。
 - 其目录约定（api 按模块拆分、components 用 `Re` 前缀标识内置封装、composables 用 `useXxx`、types 集中）是社区成熟范式。
 
@@ -40,6 +41,7 @@ Vue 官方风格指南（Priority B: Strongly Recommended）对**单文件组件
 | 常量/配置目录 | `constants/`（纯常量）、`config/`（运行时配置）、`utils/`（函数）；三者职责不混 | `constants/index.ts`、`config/index.ts` | 把常量塞进 `utils/ledger.ts` |
 
 **禁止**：
+
 - 文件名用单字母、拼音缩写、无语义英文（如 `tmp.vue`、`a.vue`、`test2.vue`）。
 - 同一目录内 PascalCase 与 kebab-case 混用。
 
@@ -58,6 +60,7 @@ Vue 官方风格指南（Priority B: Strongly Recommended）对**单文件组件
 | 枚举 | PascalCase 单数或复数集合 | `LedgerType`、`AssetCategory` | `ledger_type_enum` |
 
 **类型安全红线**（对齐 conventions 2.7 + 2.11）：
+
 - **禁止 `any` / `Record<string, any>` 作为 API 入参或响应类型**。后端已输出强类型契约（见 `api/types.d.ts`、`types/`），前端须对齐。确需宽松处用 `unknown` + 收窄，或显式定义接口。
 - 禁止 `data?: object` 空泛类型；应定义具体入参接口或 `Record<string, unknown>`。
 - 接口字段名与后端 JSON 字段严格一致（camelCase 已约定），禁止自行臆造字段。

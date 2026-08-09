@@ -55,7 +55,6 @@ admin.add_view(MyView(name='Hello'))
 app.run()
 ```
 
-
 在 templates 下写模板文件 index.html
 
 ```plain
@@ -67,7 +66,6 @@ app.run()
 
 {% endblock %}
 ```
-
 
 这里采用的模板语言为 Jinjia2，查看[Jinjia2 文档](https://link.jianshu.com?t=http://docs.jinkan.org/docs/jinja2/)
 
@@ -101,7 +99,6 @@ babel = Babel(app)
 
 app.config['BABEL_DEFAULT_LOCALE'] = 'zh_CN'
 ```
-
 
 然后运行，很方便就可以以中文显示，如果改成其他语言也非常方便
 
@@ -140,7 +137,6 @@ column_exclude_list = (
 
 admin.add_view(UserView(User, db.session, name=u'信息', category=u'用户'))
 ```
-
 
 更多可定制选项见[flask\_admin.model 文档](https://link.jianshu.com?t=http://flask-admin.readthedocs.io/en/latest/api/mod_model/?module-flask_admin.model)
 
@@ -230,7 +226,6 @@ admin.add_view(UserView(User, db.session, name=u'信息', category=u'用户'))
         return db.session.query(AdminUser).filter_by(login=self.login.data).first()
 ```
 
-
 安装 flask-login
 
 ```plain
@@ -256,8 +251,8 @@ pip install flask-login
         return db.session.query(AdminUser).get(user_id)
 ```
 
-
 然后在需要管理员权限的才能看到的视图中添加代码
+
 ```python
 
     # 决定身份验证可见
@@ -283,7 +278,6 @@ admin.add_view(FileAdmin(file_path, '/static/', name='文件'))
 
 ```
 
-
 假设 pics 为需要上传图片的字段
 
 ```plain
@@ -296,10 +290,10 @@ base_path=file_path),
 }
 ```
 
-
 ![](https://cdn.jsdelivr.net/gh/masantu/statics/images/3645027-cb1843f09c795103.png)
 
 ### 参考
+
 1. [Flask-Admin 后台管理介绍 - 简书](https://www.jianshu.com/p/aef7bbdf74fa)
 2. [Flask-Admin 文档 Quick Start](https://link.jianshu.com?t=http://flask-admin.readthedocs.io/en/v1.0.9/quickstart/)
 3. [flask-admin](http://examples.flask-admin.org/)

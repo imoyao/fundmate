@@ -7,6 +7,7 @@ title: 自定义 RESTAPI 的处理
 ## 自定义 RESTAPI 的处理
 
 现存的框架比较知名的有 django-rest-framework 和 flask-restapi，但是这些框架我都不太满意，而对于我这个项目用它们还太重了。好吧，手动写一个实现。首先是借用 DispatcherMiddleware 实现对`/j` 这样的路径特殊处理（ [commentbox/app.py at master · dongweiming/commentbox · GitHub](https://github.com/dongweiming/commentbox/blob/master/app.py) ）：
+
 ```python
 from werkzeug.wsgi import DispatcherMiddleware
 
@@ -17,6 +18,7 @@ app.wsgi_app = DispatcherMiddleware(app.wsgi_app, OrderedDict((
 ```
 
 我希望/j 开头的返回的响应都是 json 格式的内容：
+
 ```python
 from flask import Flask
 
@@ -38,12 +40,15 @@ json_api = ApiFlask(__name__)
 其中返回了一个额外的字段 r, 如果是 0 表示响应的结果是正确的，为 1 表示响应的内容有问题。
 
 接着我们自定义错误处理的方式，比如 404 返回这样：
+
 ```python
 {
     "message": "Not Found"
 }
 ```
+
 怎么实现呢：
+
 ```python
 from flask import json
 from werkzeug.wrappers import Response
@@ -87,6 +92,7 @@ def error_handler(error):
 ```
 
 而且响应也被封装了：
+
 ```python
 def success(res=None, status_code=200):
     res = res or {}
@@ -123,6 +129,7 @@ def bad_request(message, res=None):
 ### API 规范
 
 由于 Flask 本身的灵活性，社区中涌现出了一些便捷开发 Flask Restful API 的框架，其中包括 `flask-restful`，`flask-restplus` 等。就 Flask 本身而言，我们觉得它对于 API 的粒度控制不够好，因此我们提供了一个 `红图` 的机制来帮助我们细粒度的控制 API。相较于 `flask-restful`，`flask-restplus` 这些框架而言，红图更注重**小**与**轻**。红图的源代码如下：
+
 ```python
 class Redprint:
  def __init__(self, name, with_prefix=True):
@@ -151,6 +158,7 @@ class Redprint:
 红图本身只有 24 行代码，极易学习和掌握，它的作用并非去控制 API，而是做一个纽带将细粒度的 API 传递到相应的蓝图（Flask 自带的机制）中。因此红图的书写方式几乎与蓝图保持一致，相较于其它 API 开发方式，你几乎不需要任何学习成本。
 
 一般的，我们推荐你在一类 API 中新建一个红图（如 Book 这一类，它负责与图书相关的 API）。如下：
+
 ```python
  # book.py
  book_api = Redprint('book') # 创建book红图
@@ -166,12 +174,12 @@ class Redprint:
 
 在 Flask 的开发中，几乎都会墨守成规的使用_装饰器_来优雅的书写视图函数，我们承袭了这一特点，也希望你能够喜欢。
 
-
 ### 异常处理规范
 
 提起异常，大多时候我们都并不想碰见，因为它经常会与程序 crash 一起出现。但它确实又是程序中不可或缺的一部分，在 Lin 中我们默认集成了全局异常处理机制。因此不论你程序出现何种异常，都将会返回固定格式的提示信息给前端。对于前端来说，这是非常友好的一种交互。
 
 在 Lin 的源码中关于异常处理的代码如下：
+
 ```python
 def handle_error(self, app):
     @app.errorhandler(Exception)
@@ -194,8 +202,8 @@ def handle_error(self, app):
 
 当然，当你每自定义一个异常后，别忘记在根目录下的`code.md`中记录相关异常的 error\_code 和 msg，方便前端查阅和团队协作。
 
-
 ## 参考链接
+
 - [使用 Flask 设计 RESTful APIs — Designing a RESTful API with Python and Flask 1.0 documentation](http://www.pythondoc.com/flask-restful/index.html) TODO
 - [flask - 项目结构及开发规范 - 《Lin CMS 文档手册》 - 书栈网 · BookStack](https://www.bookstack.cn/read/Lin-CMS/2227eb2232b6e6d3.md#API%20%E8%A7%84%E8%8C%83)
 - [Flask 最佳实践 - 知乎](https://zhuanlan.zhihu.com/p/22774028)
