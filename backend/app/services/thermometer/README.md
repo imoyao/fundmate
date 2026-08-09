@@ -150,7 +150,7 @@
 | `notify_wechat.py` | PushPlus 微信推送（渲染 Markdown 日报） | `push_daily(aggregate())`；requests |
 | `index.html` | 仪表盘（mock 数据，结构对齐 JSON；可改 `fetch('cache_latest.json')` 接真实数据） | `render(DATA)`；纯前端 |
 | `cache_latest.json` | 最近一次聚合结果（兜底 + Web 读取） | 自动写 |
-| `cache/all_pb.csv` | 全A 中位 PB 历史缓存（行业拥挤度分母） | 自动写/读 |
+| `data/all_pb.csv` | 全A 中位 PB 历史基线（行业拥挤度分母，禁止删除，见 `data/README.md`） | 自动写/读 |
 
 ---
 

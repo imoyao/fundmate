@@ -1,11 +1,11 @@
-# 温度计缓存目录
+# 温度计运行时缓存目录
 
-## ⚠️ `all_pb.csv` 不可删除
+本目录仅存放**运行时缓存**（可安全删除，系统会自动重建）：
 
-`all_pb.csv` 是**行业拥挤度（温度计）模块的分母兜底数据**：全 A 个股历史 PB（市净率）序列，用于计算「中位 PB 分位」。
+- `baostock_pb/`：baostock 路径的本地 PB 缓存（parquet），仅供离线兜底。
 
-- 它由 `scripts/prefetch_all_pb.py` 落盘到仓库，供沙箱/离线环境使用；运行时若缺失，行业拥挤度计算会退化或失败。
-- 这是**长期需要追踪的基础数据**，不是普通运行时缓存。
-- **禁止删除本文件**（包括 `.gitignore` 忽略、手动删除、清理脚本误删）。
+## ⚠️ 历史基线数据已迁出
 
-如需刷新数据，重新运行 `pdm run python scripts/prefetch_all_pb.py`，它会自动写回本文件，之后正常提交即可。
+全A中位 PB 历史 `all_pb.csv`（行业拥挤度分母兜底）**已迁移至 `../data/all_pb.csv`**。
+它是**基线数据而非运行时缓存，禁止删除**（详见 `../data/README.md` 与 `scripts/guard_all_pb.py` 守卫）。
+请勿把 `all_pb.csv` 放回本目录，也不要对 `data/all_pb.csv` 做 `.gitignore` 或清理。

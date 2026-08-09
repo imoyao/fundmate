@@ -50,7 +50,9 @@ except Exception:  # noqa
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CACHE_DIR = os.path.join(HERE, 'cache', 'baostock_pb')  # baostock 路径的本地 PB 缓存
-ALLPB_CACHE = os.path.join(HERE, 'cache', 'all_pb.csv')  # 全A中位PB历史缓存(跨源复用分母)
+ALLPB_CACHE = os.path.join(
+    HERE, 'data', 'all_pb.csv'
+)  # 全A中位PB历史基线(跨源复用分母)；是基线数据非运行时缓存，禁止删除(见 data/README.md)
 
 UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
 

@@ -39,6 +39,7 @@
 ## 文档站 / 落地页（仓库根）
 
 - `pnpm run docs:dev` / `pnpm run docs:build`。`docs/.vitepress/config.mjs` 的 `srcExclude` 把 working-notes、根级备忘 `.md` 等屏蔽出构建（源码仍保留，勿删）。**新增内部备忘一律放 `working-notes/`（全局屏蔽）；若在 docs 根生成备忘，必须同步登记进 `srcExclude`，否则会公开泄露。** 屏蔽清单与登记规则见 `docs/spec/internal-index.md`。
+- **内部备忘命名（强制，2026-08-09 起）**：`working-notes/` 下文件名一律英文 kebab-case + 日期后缀 `{topic}-{YYYY-MM-DD}.md`（如 `deployment-implementation-guide-2026-08-04.md`），**禁止中文文件名/路径**；正文标题用中文，交叉引用用相对链接 `./{english-name}.md`。新增备忘须同步登记进 `docs/working-notes/README.md` 索引表，防止历史中文命名债（`多倍贝_*.md`）复发。
 - 落地页：`pnpm run build:landing` / `build:about` / `build:story` / `build:pages`。`vercel.json` 构建时执行 `pnpm run build:landing`。
 - Markdown lint：`pnpm run docs:lint-md`（CI 用 `npx lint-md docs`，不带 `-f`）。
 
@@ -64,4 +65,5 @@ Windows：`dev.cmd`（内部走 `scripts/dev.ps1`）；Git Bash / WSL / macOS：
 - 注释与文档同步（D5 / conventions §16.5）：代码在必要处加注释讲「为什么」；样式/设计类改动必须同步 `frontend/design.md`/`design.dark.md`；注释过期须自主更新；注释用中文。
 - 东方财富 WAF 按 TLS 指纹拦截裸 requests——已由 `backend/app/__init__.py` 的 `install_requests_patch()`（实现在 `core/requests_patch.py`）全局修复（有 curl_cffi 时 impersonate chrome）。**不要**靠加 UA / Referer 头"修"东财抓取，诊断用 `pdm run python scripts/diag_em.py`。akshare 已设 request_interval=3、use_thread=False。
 - pypinyin 是重型依赖（3.2MB 词典），必须保持延迟导入（见 `fund_detail_enrich_job.py`）。
+- 温度计模块历史基线数据 `backend/app/services/thermometer/data/all_pb.csv`（全A中位PB历史，行业拥挤度分母兜底）**禁止删除、禁止 `.gitignore`、必须入库**：它不是运行时缓存（已从 `cache/` 迁出至 `data/`），而是可被 `scripts/prefetch_all_pb.py` 重建但需稳定可追踪的基线；误删会导致温度计整组标灰。pre-commit 守卫 `scripts/guard_all_pb.py` 会在行数骤降（< 1000）时拒绝提交——不要绕过该守卫（如 `--no-verify`）。
 - 提交前：后端 `pytest` 全量单进程通过；前端 `vue-tsc` 零错误。

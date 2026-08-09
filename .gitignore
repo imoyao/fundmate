@@ -347,6 +347,8 @@ backend/invest.db-wal
 backend/invest.sqbpro
 fundmate/
 data/
+# 温度计历史基线数据必须入库（非运行时缓存，禁止删除，见 AGENTS.md 关键约束）
+!backend/app/services/thermometer/data/
 db/
 
 # 其他文件

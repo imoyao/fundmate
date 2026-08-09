@@ -28,3 +28,14 @@ repos:
         exclude: ^logo-delivery/
       - id: ruff-format
         exclude: ^logo-delivery/
+
+  # 本地守卫：禁止提交被清空/误删的 all_pb.csv 历史基线数据
+  # （曾误判为 cache 被清空到 2 行，导致温度计分母缺失。见 #821）
+  - repo: local
+    hooks:
+      - id: guard-all-pb
+        name: guard all_pb.csv baseline
+        entry: python scripts/guard_all_pb.py
+        language: python
+        files: ^backend/app/services/thermometer/data/all_pb\.csv$
+        pass_filenames: false
