@@ -89,7 +89,7 @@ def record_stats():
             return jsonify({'data': {'first_entry_date': None, 'record_days': 0}, 'message': 'ok'})
 
         first_entry_date = first_txn.trade_date.date()
-        record_days = (date.today() - first_entry_date).days
+        record_days = max((date.today() - first_entry_date).days, 0)
         return jsonify(
             {
                 'data': {

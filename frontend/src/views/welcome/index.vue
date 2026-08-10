@@ -590,7 +590,6 @@
 
 <script setup lang="ts">
 import { ref, onMounted, nextTick, onUnmounted, computed } from "vue";
-import { useRouter } from "vue-router";
 import echarts from "@/plugins/echarts";
 import { getSummary } from "@/api/summary";
 import { getPortfolioXirr } from "@/api/performance";
@@ -616,7 +615,6 @@ const portfolioXirr = ref<any>(null);
 const trendMode = ref<"month" | "quarter">("month");
 
 // ===== 首页欢迎语（见 docs/design/welcome-greeting-spec.md v1.2） =====
-const router = useRouter();
 const recordDays = ref(0);
 const recordLoading = ref(true);
 // 未读站内信（状态三，可选迭代；当前 lay-notice 为前端示例数据，此处预留钩子）
