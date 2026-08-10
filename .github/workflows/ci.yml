@@ -62,12 +62,12 @@ jobs:
       - name: 安装 PDM
         run: pip install pdm
 
-      - name: 关闭 use_uv（CI 不需要 uv 且 uv 不支持 PEP 582）
-        working-directory: backend
-        run: pdm config use_uv false
-
       # dev 组含 ruff / pytest / invoke 等
       - name: 安装依赖
+        env:
+          # backend/pdm.toml 强制 use_uv=true，但 CI runner 上 uv 不支持 PEP 582；
+          # 用环境变量覆盖项目配置回退 pip 安装
+          PDM_USE_UV: "false"
         run: pdm install -G dev
 
       - name: Ruff 检查

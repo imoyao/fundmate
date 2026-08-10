@@ -39,6 +39,10 @@ jobs:
 
       - name: PDM update (refresh lock + transitive deps)
         working-directory: backend
+        env:
+          # backend/pdm.toml 强制 use_uv=true，但 CI runner 上 uv 不支持 PEP 582；
+          # 用环境变量覆盖项目配置回退 pip 安装（env 优先级高于项目 pdm.toml）
+          PDM_USE_UV: "false"
         timeout-minutes: 30
         run: pdm update
 
