@@ -797,3 +797,99 @@ class TestDeletePosition:
         """删除不存在的持仓返回404"""
         resp = client.delete('/api/positions/99999/')
         assert resp.status_code == 404
+
+
+class TestTransactionAssetType:
+    """历史债回归：手动路径流水 asset_type 必须正确落库。
+
+    背景：PositionCreate.asset_type 使用 validation_alias='type'，
+    model_dump() 输出 key 为 `asset_type`（而非别名 `type`），
+    历史实现 `data.get('type')` 恒为 None → 流水 asset_type 写 NULL。
+    修复后统一经 _get_asset_type 兼容两个 key。
+    """
+
+    def test_buy_creates_txn_with_asset_type(self, client):
+        """手动买入（请求体用 asset_type）→ 流水 asset_type 正确落库"""
+        resp = _post(
+            client,
+            '/api/positions/',
+            {
+                'symbol': '000001',
+                'name': '某基金',
+                'asset_type': 'fund',
+                'market': 'CN_A',
+                'account_name': '测试账户',
+                'quantity': 1000,
+                'avg_price': 1.5,
+                'trade_date': '2026-05-01',
+                'op_type': 'buy',
+            },
+        )
+        assert resp.status_code == 200
+        pos_id = resp.get_json()['data']['id']
+
+        # 验证流水 asset_type 已正确落库（修复前为 NULL）
+        with client.application.app_context():
+            from app.core.database import get_db
+
+            with get_db() as db:
+                txn = db.query(Transaction).filter(Transaction.position_id == pos_id).first()
+                assert txn is not None
+                assert txn.asset_type == 'fund'
+
+    def test_sell_creates_txn_with_asset_type(self, client, db, make_position):
+        """手动卖出 → 流水 asset_type 正确落库"""
+        pos = make_position(
+            symbol='000001',
+            name='某股票',
+            asset_type='stock',
+            account_name='测试账户',
+            market='CN_A',
+            quantity=100,
+            avg_price=10.0,
+            current_price=10.0,
+        )
+        resp = _post(
+            client,
+            '/api/positions/',
+            {
+                'position_id': pos.id,
+                'asset_type': 'stock',
+                'quantity': 100,
+                'avg_price': 11.0,
+                'trade_date': '2026-05-02',
+                'op_type': 'sell',
+            },
+        )
+        assert resp.status_code == 200
+
+        txn = db.query(Transaction).filter(Transaction.position_id == pos.id).first()
+        assert txn is not None
+        assert txn.asset_type == 'stock'
+
+    def test_orphan_cash_txn_keeps_asset_type(self, client, db):
+        """现金管理产品（货基）孤儿流水 → asset_type 正确落库"""
+        resp = _post(
+            client,
+            '/api/positions/',
+            {
+                'symbol': '511880',
+                'name': '银华日利',
+                'asset_type': 'money_fund',
+                'market': 'CN_A',
+                'account_name': '证券账户',
+                'quantity': 10000,
+                'avg_price': 100.0,
+                'trade_date': '2026-05-03',
+                'op_type': 'buy',
+            },
+        )
+        assert resp.status_code == 200
+
+        txn = (
+            db.query(Transaction)
+            .filter(Transaction.asset_type == 'money_fund')
+            .filter(Transaction.entry_status == 'orphan')
+            .first()
+        )
+        assert txn is not None

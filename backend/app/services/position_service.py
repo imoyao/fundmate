@@ -47,6 +47,17 @@ _ALLOWED_POSITION_FIELDS = {
 }
 
 
+def _get_asset_type(data: dict, default: str = 'stock') -> str:
+    """
+    统一从请求数据中提取资产类型，兼容 `asset_type` 与 `type` 两个 key。
+
+    历史债背景：PositionCreate.asset_type 使用 validation_alias='type'，
+    model_dump() 输出的是字段名 `asset_type`，而 importer 路径直接构造 `type` key，
+    导致不同调用方传入的 key 不一致。此处收敛读取端，保证流水 asset_type 落库正确。
+    """
+    return data.get('asset_type') or data.get('type', default)
+
+
 def _get_default_notes(op_type: str, is_new: bool) -> str:
     """生成默认的交易备注."""
     mapping = {
@@ -70,7 +81,7 @@ def _create_cash_transfer_transaction(db: Session, data: dict, txn_type: str) ->
         txn_type=txn_type,
         trade_date=data.get('trade_date'),
         confirm_date=data.get('confirm_date'),
-        asset_type=data.get('type'),
+        asset_type=_get_asset_type(data),
         ledger_id=data.get('ledger_id'),
         quantity=0,
         price=0,
@@ -112,7 +123,7 @@ def _create_orphan_transaction(
         txn_type=txn_type,
         trade_date=data.get('trade_date'),
         confirm_date=data.get('confirm_date'),
-        asset_type=data.get('type'),
+        asset_type=_get_asset_type(data),
         quantity=qty_units,
         price=price_cents,
         fee=fee_cents,
@@ -142,7 +153,7 @@ class PositionService:
         qty = data.get('quantity', 0)
         price = data.get('avg_price', 0)
         op_type = data.get('op_type', 'buy')
-        asset_type = data.get('asset_type') or data.get('type', 'stock')
+        asset_type = _get_asset_type(data)
 
         # 现金管理类产品：只记录流水，不创建持仓
         if asset_type in ('money_fund', 'reverse_repo'):
@@ -218,8 +229,7 @@ class PositionService:
             else:
                 # 新建持仓
                 position_data = {k: v for k, v in data.items() if k in _ALLOWED_POSITION_FIELDS}
-                if 'type' in data:
-                    position_data['asset_type'] = data['type']
+                position_data['asset_type'] = asset_type
                 position_data['avg_price'] = price_cents
                 position_data['quantity'] = qty_units
                 position_data['current_price'] = price_cents
@@ -254,7 +264,7 @@ class PositionService:
                 symbol=symbol,
                 trade_date=data.get('trade_date'),
                 confirm_date=confirm_date,
-                asset_type=data.get('type'),
+                asset_type=_get_asset_type(data),
                 link_group_id=data.get('link_group_id'),
                 quantity=qty_units,
                 price=price_cents,
@@ -336,7 +346,7 @@ class PositionService:
                 txn_type=op_type,
                 trade_date=data.get('trade_date'),
                 confirm_date=data.get('confirm_date'),
-                asset_type=data.get('type'),
+                asset_type=_get_asset_type(data),
                 link_group_id=data.get('link_group_id'),
                 quantity=qty_units,
                 price=price_cents,
@@ -380,7 +390,7 @@ class PositionService:
                 symbol=data.get('symbol'),
                 trade_date=data.get('trade_date'),
                 confirm_date=data.get('confirm_date'),
-                asset_type=data.get('type'),
+                asset_type=_get_asset_type(data),
                 link_group_id=data.get('link_group_id'),
                 quantity=0,
                 price=0,
@@ -407,7 +417,7 @@ class PositionService:
         """
         处理卖出/取出记录，优先尝试关联持仓；找不到持仓则创建孤立流水。
         """
-        asset_type = data.get('type', 'stock')
+        asset_type = _get_asset_type(data)
         if asset_type in ('money_fund', 'reverse_repo'):
             _create_cash_transfer_transaction(db, data, 'sell')
             return None
