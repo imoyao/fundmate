@@ -55,7 +55,7 @@ jobs:
           token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
 
       - name: 安装 Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
@@ -96,7 +96,7 @@ jobs:
         uses: actions/checkout@v5
 
       - name: 安装 Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
@@ -141,7 +141,7 @@ jobs:
         uses: actions/checkout@v5
 
       - name: 安装 Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
