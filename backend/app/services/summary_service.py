@@ -5,6 +5,7 @@
 """仪表盘聚合与桑基图数据服务."""
 
 from collections import defaultdict
+from datetime import date, datetime
 from typing import Any, Type
 
 from app.core.constants import (
@@ -18,6 +19,7 @@ from app.core.database import Session
 from app.core.money import Money
 from app.domains.assets.models import Asset
 from app.domains.positions.models import Position
+from app.domains.summary.models import AssetSnapshot
 
 # ---------------------------------------------------------------------------
 # 业务常量集中定义（消除魔法字符串）
@@ -297,11 +299,7 @@ def get_distributions(db: Session, family_id: int = 1) -> dict[str, Any]:
     category_map[_INVESTMENT_LABEL] += positions_total_mv
 
     def _to_list(d: dict[str, float]) -> list[dict[str, float]]:
-        return [
-            {'name': k, 'value': round(v, 2)}
-            for k, v in sorted(d.items(), key=lambda kv: -kv[1])
-            if v > 0
-        ]
+        return [{'name': k, 'value': round(v, 2)} for k, v in sorted(d.items(), key=lambda kv: -kv[1]) if v > 0]
 
     return {
         'type_distribution': _to_list(type_map),
@@ -404,3 +402,112 @@ def get_position_groups(db: Session, family_id: int = 1, dimension: str = 'type'
         g['total'] = round(g['total'], 2)
         g['total_pnl'] = round(g['total_pnl'], 2)
     return result
+
+
+# ---------------------------------------------------------------------------
+# 资产快照（同比计算底座）：asset_snapshots 表实现每日总资产历史，供
+# 「较上月/较去年同期」真实展示；历史积累期无数据时前端降级展示（见方案文档）。
+# ---------------------------------------------------------------------------
+def _shift_months(d: date, months: int) -> date:
+    """将日期向前/向后平移 N 个月，月末日期自动 clamp 到目标月最后一天。
+
+    例：2026-03-31 -1 月 → 2026-02-28，避免日期溢出。
+    """
+    import calendar
+
+    month_index = d.year * 12 + (d.month - 1) + months
+    year, month0 = divmod(month_index, 12)
+    month = month0 + 1
+    return date(year, month, min(d.day, calendar.monthrange(year, month)[1]))
+
+
+def write_asset_snapshot(db: Session, family_id: int = 1, snapshot_date: str | None = None) -> dict[str, Any]:
+    """记录当日资产快照（幂等 upsert）。
+
+    金额从 get_distributions 聚合而来（元），落库转为整数分（Money 精度）。
+    snapshot_date 可选，默认上海时区当日；用于历史回填，须为 YYYY-MM-DD。
+    """
+    from app.core.time_utils import now_shanghai
+
+    if snapshot_date is None:
+        target = now_shanghai().date()
+    else:
+        target = datetime.strptime(snapshot_date, '%Y-%m-%d').date()
+
+    dist = get_distributions(db, family_id)
+
+    row = (
+        db.query(AssetSnapshot)
+        .filter(AssetSnapshot.family_id == family_id, AssetSnapshot.snapshot_date == target)
+        .first()
+    )
+    if row is None:
+        row = AssetSnapshot(family_id=family_id, snapshot_date=target)
+        db.add(row)
+    row.total_assets = Money.yuan_to_cents(dist['total_assets'])
+    row.total_liabilities = Money.yuan_to_cents(dist['total_liabilities'])
+    row.net_worth = Money.yuan_to_cents(dist['net_worth'])
+    db.commit()
+    return _snapshot_payload(row)
+
+
+def _snapshot_payload(s: AssetSnapshot) -> dict[str, Any]:
+    """快照单条输出：金额转元，同比百分比由读取侧计算填充。"""
+    return {
+        'id': s.id,
+        'snapshot_date': s.snapshot_date.isoformat(),
+        'total_assets': round(Money.cents_to_yuan(s.total_assets), 2),
+        'total_liabilities': round(Money.cents_to_yuan(s.total_liabilities), 2),
+        'net_worth': round(Money.cents_to_yuan(s.net_worth), 2),
+    }
+
+
+def _pct_change(current: float, base: float | None) -> float | None:
+    """同比百分比；无基准或基准为 0 时返回 None（前端降级展示）。"""
+    if base is None or base == 0:
+        return None
+    return round((current - base) / abs(base) * 100, 2)
+
+
+def get_snapshots(
+    db: Session,
+    family_id: int = 1,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> list[dict[str, Any]]:
+    """查询资产快照列表（按日期升序），并计算每条相对上月同期 / 去年同期的同比。
+
+    基准取「对应基准日当天或之前最近一条」快照，找不到则为 None：
+    - monthly_change_pct：以上月同日为基准
+    - yearly_change_pct：以去年同期为基准
+    """
+    q = db.query(AssetSnapshot).filter(AssetSnapshot.family_id == family_id)
+    if start_date:
+        q = q.filter(AssetSnapshot.snapshot_date >= datetime.strptime(start_date, '%Y-%m-%d').date())
+    if end_date:
+        q = q.filter(AssetSnapshot.snapshot_date <= datetime.strptime(end_date, '%Y-%m-%d').date())
+    rows = q.order_by(AssetSnapshot.snapshot_date.asc()).all()
+
+    results: list[dict[str, Any]] = []
+    for row in rows:
+        monthly_base = _nearest_before(db, family_id, _shift_months(row.snapshot_date, -1))
+        yearly_base = _nearest_before(db, family_id, _shift_months(row.snapshot_date, -12))
+        payload = _snapshot_payload(row)
+        payload['monthly_change_pct'] = _pct_change(payload['net_worth'], _net_of(monthly_base))
+        payload['yearly_change_pct'] = _pct_change(payload['net_worth'], _net_of(yearly_base))
+        results.append(payload)
+    return results
+
+
+def _nearest_before(db: Session, family_id: int, boundary: date) -> Any | None:
+    """取指定日期当天或之前最近的一条快照，作为同比基准。"""
+    return (
+        db.query(AssetSnapshot)
+        .filter(AssetSnapshot.family_id == family_id, AssetSnapshot.snapshot_date <= boundary)
+        .order_by(AssetSnapshot.snapshot_date.desc())
+        .first()
+    )
+
+
+def _net_of(row: Any | None) -> float | None:
+    return None if row is None else round(Money.cents_to_yuan(row.net_worth), 2)

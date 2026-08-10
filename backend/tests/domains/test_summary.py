@@ -6,6 +6,7 @@
 from app.core.money import Money
 from app.domains.assets.models import Asset
 from app.domains.positions.models import Position
+from app.domains.summary.models import AssetSnapshot
 from tests.domains.test_positions import _post
 
 
@@ -510,12 +511,27 @@ class TestPositionGroupsEndpoint:
 
     def test_type_groups_with_pnl_and_currency(self, client, db):
         """产品类型分组：汇率换算 + 盈亏 + 明细字段"""
-        self._make_pos(db, symbol='HK00700', name='腾讯', asset_type='stock', market='CN_HK',
-                       quantity=Money.shares_to_min_unit(100), current_price=Money.yuan_to_cents(350),
-                       avg_price=Money.yuan_to_cents(300), currency='HKD', account_name='富途')
-        self._make_pos(db, symbol='000001', name='某基金', asset_type='fund',
-                       quantity=Money.shares_to_min_unit(1000), current_price=Money.yuan_to_cents(1.8),
-                       avg_price=Money.yuan_to_cents(1.5))
+        self._make_pos(
+            db,
+            symbol='HK00700',
+            name='腾讯',
+            asset_type='stock',
+            market='CN_HK',
+            quantity=Money.shares_to_min_unit(100),
+            current_price=Money.yuan_to_cents(350),
+            avg_price=Money.yuan_to_cents(300),
+            currency='HKD',
+            account_name='富途',
+        )
+        self._make_pos(
+            db,
+            symbol='000001',
+            name='某基金',
+            asset_type='fund',
+            quantity=Money.shares_to_min_unit(1000),
+            current_price=Money.yuan_to_cents(1.8),
+            avg_price=Money.yuan_to_cents(1.5),
+        )
         db.commit()
 
         resp = client.get('/api/summary/groups/?dimension=type')
@@ -539,11 +555,19 @@ class TestPositionGroupsEndpoint:
         """账户分组混合持仓与非负债通用资产；负债不计入"""
         self._make_pos(db, name='茅台', account_name='华泰')
         cash = Asset(
-            user_id=1, major_category='cash', name='活期存款', amount=Money.yuan_to_cents(100000), currency='CNY',
+            user_id=1,
+            major_category='cash',
+            name='活期存款',
+            amount=Money.yuan_to_cents(100000),
+            currency='CNY',
             account_name='华泰',
         )
         credit = Asset(
-            user_id=1, major_category='liability', name='信用卡', amount=Money.yuan_to_cents(5000), currency='CNY',
+            user_id=1,
+            major_category='liability',
+            name='信用卡',
+            amount=Money.yuan_to_cents(5000),
+            currency='CNY',
             account_name='华泰',
         )
         db.add_all([cash, credit])
@@ -584,3 +608,179 @@ class TestPositionGroupsEndpoint:
         data = resp.get_json()['data']
         totals = [g['total'] for g in data]
         assert totals == sorted(totals, reverse=True)
+
+
+class TestSnapshotsEndpoint:
+    """资产快照接口 /api/summary/snapshots/ 测试套件（资产总览同比真实化）"""
+
+    def test_empty_list(self, client):
+        """无快照返回空列表"""
+        resp = client.get('/api/summary/snapshots/')
+        assert resp.status_code == 200
+        assert resp.get_json()['data'] == []
+
+    def test_create_takes_snapshot_of_current_assets(self, client, db):
+        """POST 后自动聚合当前家庭资产/负债/净资产，金额精确到分"""
+        cash = Asset(
+            family_id=1, major_category='cash', name='活期存款', amount=Money.yuan_to_cents(100000), currency='CNY'
+        )
+        credit = Asset(
+            family_id=1,
+            major_category='liability',
+            name='信用卡',
+            amount=Money.yuan_to_cents(5000),
+            currency='CNY',
+        )
+        db.add_all([cash, credit])
+        db.commit()
+
+        resp = client.post('/api/summary/snapshots/', json={})
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['total_assets'] == 100000.0
+        assert data['total_liabilities'] == 5000.0
+        assert data['net_worth'] == 95000.0
+        assert 'snapshot_date' in data
+        assert 'monthly_change_pct' not in data  # 写入侧不返回同比
+
+    def test_create_upsert_idempotent_same_date(self, client, db):
+        """同 natural 日重复 POST 只保留一条记录，且以最新聚合覆盖"""
+        cash = Asset(
+            family_id=1, major_category='cash', name='活期存款', amount=Money.yuan_to_cents(1000), currency='CNY'
+        )
+        db.add(cash)
+        db.commit()
+
+        client.post('/api/summary/snapshots/', json={})
+        # 修改金额后再次快照，仍但同日的行被覆盖更新
+        cash.amount = Money.yuan_to_cents(2000)
+        db.commit()
+        client.post('/api/summary/snapshots/', json={})
+
+        rows = db.query(AssetSnapshot).all()
+        assert len(rows) == 1
+        assert rows[0].total_assets == Money.yuan_to_cents(2000)
+
+    def test_list_sorted_asc_with_yoy(self, client, db):
+        """GET 返回升序列表，且 monthly/yearly 同比正确计算（基准取当天或之前最近一条）"""
+        from datetime import date
+
+        db.add_all(
+            [
+                AssetSnapshot(
+                    family_id=1,
+                    snapshot_date=date(2025, 8, 10),
+                    total_assets=100000,
+                    total_liabilities=0,
+                    net_worth=100000,
+                ),
+                AssetSnapshot(
+                    family_id=1,
+                    snapshot_date=date(2026, 6, 10),
+                    total_assets=100000,
+                    total_liabilities=0,
+                    net_worth=100000,
+                ),
+                AssetSnapshot(
+                    family_id=1,
+                    snapshot_date=date(2026, 7, 10),
+                    total_assets=110000,
+                    total_liabilities=0,
+                    net_worth=110000,
+                ),
+                AssetSnapshot(
+                    family_id=1,
+                    snapshot_date=date(2026, 8, 10),
+                    total_assets=121000,
+                    total_liabilities=0,
+                    net_worth=121000,
+                ),
+                AssetSnapshot(
+                    family_id=1,
+                    snapshot_date=date(2026, 8, 15),
+                    total_assets=133100,
+                    total_liabilities=0,
+                    net_worth=133100,
+                ),
+            ]
+        )
+        db.commit()
+
+        resp = client.get('/api/summary/snapshots/')
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        dates = [d['snapshot_date'] for d in data]
+        assert dates == sorted(dates)
+
+        # 8/10 较上月（7/10，+10%）与去年（2025/8/10，+21%）
+        aug10 = next(d for d in data if d['snapshot_date'] == '2026-08-10')
+        assert aug10['monthly_change_pct'] == 10.0
+        assert aug10['yearly_change_pct'] == 21.0
+        # 8/15 较上月取 7/10（2026-07-15 当天或之前最近一条）
+        aug15 = next(d for d in data if d['snapshot_date'] == '2026-08-15')
+        assert aug15['monthly_change_pct'] == 21.0
+        # 7/10 较上月（6/10 → +10%）；去年 7/10 之前无快照 → yearly None
+        jul10 = next(d for d in data if d['snapshot_date'] == '2026-07-10')
+        assert jul10['monthly_change_pct'] == 10.0
+        assert jul10['yearly_change_pct'] is None
+
+    def test_yoy_null_when_no_history(self, client, db):
+        """积累期无任何历史快照时，同比返回 None（前端降级展示）"""
+        from datetime import date
+
+        db.add(
+            AssetSnapshot(
+                family_id=1, snapshot_date=date(2026, 8, 10), total_assets=1000, total_liabilities=0, net_worth=1000
+            )
+        )
+        db.commit()
+
+        resp = client.get('/api/summary/snapshots/')
+        data = resp.get_json()['data']
+        only = data[0]
+        assert only['monthly_change_pct'] is None
+        assert only['yearly_change_pct'] is None
+
+    def test_family_isolation(self, client, db):
+        """不同 family_id 的快照互不可见"""
+        from datetime import date
+
+        db.add(
+            AssetSnapshot(
+                family_id=2, snapshot_date=date(2026, 8, 10), total_assets=999999, total_liabilities=0, net_worth=999999
+            )
+        )
+        db.commit()
+
+        # 默认家庭 1 查不到家庭 2 的快照
+        resp = client.get('/api/summary/snapshots/')
+        assert resp.get_json()['data'] == []
+
+    def test_snapshot_date_range_filters(self, client, db):
+        """start_date/end_date 筛选闭区间"""
+        from datetime import date
+
+        db.add_all(
+            [
+                AssetSnapshot(
+                    family_id=1, snapshot_date=date(2026, 8, 1), total_assets=100, total_liabilities=0, net_worth=100
+                ),
+                AssetSnapshot(
+                    family_id=1, snapshot_date=date(2026, 8, 10), total_assets=200, total_liabilities=0, net_worth=200
+                ),
+                AssetSnapshot(
+                    family_id=1, snapshot_date=date(2026, 8, 20), total_assets=300, total_liabilities=0, net_worth=300
+                ),
+            ]
+        )
+        db.commit()
+
+        resp = client.get('/api/summary/snapshots/?start_date=2026-08-02&end_date=2026-08-20')
+        data = resp.get_json()['data']
+        dates = [d['snapshot_date'] for d in data]
+        assert dates == ['2026-08-10', '2026-08-20']
+
+    def test_invalid_date_returns_400(self, client):
+        """非法日期格式的 snapshot_date 拒绝写入"""
+        resp = client.post('/api/summary/snapshots/', json={'snapshot_date': '2026/08/10'})
+        assert resp.status_code == 400

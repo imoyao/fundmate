@@ -76,7 +76,47 @@ export type GroupDimension = "type" | "account" | "allocation";
 
 /** 获取持仓/资产按维度分组汇总（含 items 明细，后端唯一聚合出口） */
 export function getPositionGroups(dimension: GroupDimension) {
-  return http.request<ApiResponse<PositionGroup[]>>("get", BASE_URL + "groups/", {
-    params: { dimension }
-  });
+  return http.request<ApiResponse<PositionGroup[]>>(
+    "get",
+    BASE_URL + "groups/",
+    {
+      params: { dimension }
+    }
+  );
+}
+
+/** 资产快照单条（金额元；同比百分比后端计算，无历史为 null） */
+export type AssetSnapshotItem = {
+  id: number;
+  snapshot_date: string;
+  total_assets: number;
+  total_liabilities: number;
+  net_worth: number;
+  monthly_change_pct: number | null;
+  yearly_change_pct: number | null;
+};
+
+/** 记录当日资产快照（幂等 upsert；可选 snapshot_date 回填，默认今天） */
+export function postSnapshot(snapshot_date?: string) {
+  return http.request<ApiResponse<AssetSnapshotItem>>(
+    "post",
+    BASE_URL + "snapshots/",
+    {
+      data: snapshot_date ? { snapshot_date } : {}
+    }
+  );
+}
+
+/** 查询资产快照列表（升序，含同比；可选 start_date/end_date 闭区间） */
+export function getSnapshots(params?: {
+  start_date?: string;
+  end_date?: string;
+}) {
+  return http.request<ApiResponse<AssetSnapshotItem[]>>(
+    "get",
+    BASE_URL + "snapshots/",
+    {
+      params
+    }
+  );
 }

@@ -15,6 +15,7 @@ import app.domains.funds.models  # noqa: F401
 import app.domains.positions.models  # noqa: F401
 import app.domains.price_history.models  # noqa: F401
 import app.domains.securities.models  # noqa: F401
+import app.domains.summary.models  # noqa: F401
 import app.domains.transactions.models  # noqa: F401
 import app.domains.users.models  # noqa: F401
 import app.domains.watchlist.models  # noqa: F401

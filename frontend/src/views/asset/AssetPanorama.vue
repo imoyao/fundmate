@@ -47,31 +47,48 @@
                 :show-currency="true"
               />
               <div class="flex items-center gap-4 mt-3">
-                <RiseFallText :value="12.3" suffix="%" size="sm" />
+                <template v-if="latestSnapshot?.monthly_change_pct != null">
+                  <RiseFallText
+                    :value="latestSnapshot.monthly_change_pct"
+                    suffix="%"
+                    size="sm"
+                  />
+                </template>
+                <el-tooltip
+                  v-else
+                  content="暂无上月同期数据，持续使用后自动积累"
+                  placement="top"
+                >
+                  <span
+                    class="text-sm"
+                    :style="{ color: 'var(--text-tertiary)' }"
+                    >——</span
+                  >
+                </el-tooltip>
                 <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }"
                   >较上月</span
                 >
-                <RiseFallText :value="8.7" suffix="%" size="sm" />
+                <template v-if="latestSnapshot?.yearly_change_pct != null">
+                  <RiseFallText
+                    :value="latestSnapshot.yearly_change_pct"
+                    suffix="%"
+                    size="sm"
+                  />
+                </template>
+                <el-tooltip
+                  v-else
+                  content="暂无去年同期数据，持续使用后自动积累"
+                  placement="top"
+                >
+                  <span
+                    class="text-sm"
+                    :style="{ color: 'var(--text-tertiary)' }"
+                    >——</span
+                  >
+                </el-tooltip>
                 <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }"
                   >较去年同期</span
                 >
-              </div>
-              <div class="mt-4 flex items-center gap-2">
-                <span
-                  class="px-2 py-0.5 rounded-full text-xs font-medium"
-                  :style="{
-                    backgroundColor: 'var(--color-warning)',
-                    color: 'var(--bg-card)'
-                  }"
-                >
-                  中等风险
-                </span>
-                <span
-                  class="text-xs"
-                  :style="{ color: 'var(--text-tertiary)' }"
-                >
-                  风险评分：65/100
-                </span>
               </div>
             </div>
             <div
@@ -457,7 +474,10 @@ import {
   getSankeyData,
   getDistributions,
   getPositionGroups,
-  type GroupDimension
+  getSnapshots,
+  postSnapshot,
+  type GroupDimension,
+  type AssetSnapshotItem
 } from "@/api/summary";
 import { getLedgers } from "@/api/ledger";
 import { ElMessage } from "element-plus";
@@ -475,6 +495,8 @@ const sankeyData = ref<{ nodes: any[]; links: any[] }>({
   links: []
 });
 const loading = ref(false);
+// 最新资产快照（惰性记录 + 同比展示）；积累期无历史时相关字段为 null
+const latestSnapshot = ref<AssetSnapshotItem | null>(null);
 
 const sankeyDisplayMode = ref<"amount" | "percent" | "hidden">("amount");
 const balanceTab = ref<"assets" | "liabilities">("assets");
@@ -699,11 +721,12 @@ function initWaterfallChart() {
 async function fetchData() {
   loading.value = true;
   try {
-    const [sumRes, sankeyRes, ledgerRes, distRes] = await Promise.all([
+    const [sumRes, sankeyRes, ledgerRes, distRes, snapRes] = await Promise.all([
       getSummary(),
       getSankeyData(),
       getLedgers(),
-      getDistributions()
+      getDistributions(),
+      getSnapshots()
     ]);
 
     let sankeyRaw: any = {};
@@ -723,6 +746,13 @@ async function fetchData() {
       nodes: sankeyRaw.nodes || [],
       links: sankeyRaw.links || []
     };
+
+    // 快照列表升序，取最后一条作为最新同比基准
+    const snapRaw = (snapRes as any)?.data;
+    const snapList: AssetSnapshotItem[] = Array.isArray(snapRaw)
+      ? snapRaw
+      : snapRaw?.data || [];
+    latestSnapshot.value = snapList[snapList.length - 1] || null;
   } catch (e: any) {
     ElMessage.error(e?.message || "加载失败");
   } finally {
@@ -734,6 +764,8 @@ async function fetchData() {
 
 onMounted(() => {
   fetchData();
+  // 惰性记录当日资产快照：失败静默，不阻塞首屏；同 natural 日后端幂等 upsert
+  postSnapshot().catch(() => {});
 });
 </script>
 

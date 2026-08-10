@@ -58,6 +58,7 @@
 | `feedlog-setup-cn-2026-08-09.md` | FeedLog (dbb-feedback) 中文环境初始化指南：Cloudflare Workers + R2 + Hyperdrive 部署全流程，含环境变量/品牌定制/AI配置 |
 | `opencode-github-issue-utf8-rule-2026-08-09.md` | OpenCode/GitHub Issue 创建 UTF-8 环境规则（复盘 #859-#862 乱码事故） |
 | `money-fund-income-plan-2026-08-09.md` | 货基收益入账方案设计 |
+| `asset-snapshot-yoy-plan-2026-08-09.md` | 资产总览同比真实化：历史快照方案（asset_snapshots 表 + 惰性 upsert + 同比计算，2026-08-10 已落地） |
 | `worktile-migration-map-2026-08-09.md` | Worktile 看板迁移 GitHub 对照表：16 张 2021 年卡片的逐条处置（新建 4 / 合并 8 / 归档 3 / 丢弃 1），含代码核查证据 |
 
 ## 子目录归档
