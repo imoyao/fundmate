@@ -307,7 +307,10 @@
 
         <el-table-column label="最新价" width="120" align="right">
           <template #default="{ row }"
-            ><MoneyDisplay :value="row.price" :show-sign="false"
+            ><MoneyDisplay
+              :value="row.price"
+              :show-sign="false"
+              :precision="pricePrecision(row.type)"
           /></template>
         </el-table-column>
 
@@ -899,6 +902,10 @@ const handleRemove = (id: string) => {
 // ================================================================
 // 深度分析跳转
 // ================================================================
+// 基金/ETF 最新价为净值，展示 4 位小数；其余证券 2 位
+const pricePrecision = (type: string): number =>
+  type === "fund" || type === "etf" ? 4 : 2;
+
 const getAvailableTools = (type: string) => {
   const tools = [
     { key: "xueqiu", label: "雪球社区" },

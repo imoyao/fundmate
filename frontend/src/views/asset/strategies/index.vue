@@ -69,26 +69,19 @@
               class="text-xl font-bold"
               :style="{ color: 'var(--color-primary)' }"
             >
-              ¥{{ totalMarketValue.toLocaleString() }}
+              <MoneyDisplay
+                :value="totalMarketValue"
+                :show-sign="false"
+                :auto-color="false"
+              />
             </p>
           </el-card>
           <el-card shadow="never" class="summary-card">
             <p class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
               总盈亏
             </p>
-            <p
-              class="text-xl font-bold"
-              :class="
-                totalPnl > 0
-                  ? 'text-[var(--color-danger)]'
-                  : totalPnl < 0
-                    ? 'text-[var(--color-success)]'
-                    : ''
-              "
-            >
-              {{ totalPnl > 0 ? "+" : totalPnl < 0 ? "-" : "" }}¥{{
-                Math.abs(totalPnl).toLocaleString()
-              }}
+            <p class="text-xl font-bold">
+              <MoneyDisplay :value="totalPnl" />
             </p>
           </el-card>
         </div>
@@ -109,23 +102,18 @@
               class="text-sm font-normal ml-2"
               :style="{ color: 'var(--text-tertiary)' }"
             >
-              {{ group.holdings.length }} 只持仓 · 市值 ¥{{
-                group.totalMarketValue.toLocaleString()
-              }}
-              <span
-                :class="
-                  group.totalPnl > 0
-                    ? 'text-red-500'
-                    : group.totalPnl < 0
-                      ? 'text-green-500'
-                      : ''
-                "
+              {{ group.holdings.length }} 只持仓 · 市值
+              <MoneyDisplay
+                :value="group.totalMarketValue"
+                :show-sign="false"
+                :auto-color="false"
+                size="xs"
+              />
+              <MoneyDisplay
+                :value="group.totalPnl"
+                size="xs"
                 class="ml-1 font-medium"
-              >
-                {{
-                  group.totalPnl > 0 ? "+" : group.totalPnl < 0 ? "-" : ""
-                }}¥{{ Math.abs(group.totalPnl).toLocaleString() }}
-              </span>
+              />
             </span>
           </h3>
         </div>
@@ -161,48 +149,30 @@
           </el-table-column>
 
           <el-table-column label="市值" width="130" align="right">
-            <template #default="{ row }"
-              >¥{{ (row.marketValue || 0).toLocaleString() }}</template
-            >
+            <template #default="{ row }">
+              <MoneyDisplay
+                :value="row.marketValue || 0"
+                :show-sign="false"
+                :auto-color="false"
+                size="sm"
+              />
+            </template>
           </el-table-column>
 
           <el-table-column label="盈亏" width="120" align="right">
             <template #default="{ row }">
-              <span
-                :class="
-                  (row.pnl || 0) > 0
-                    ? 'text-[var(--color-danger)]'
-                    : (row.pnl || 0) < 0
-                      ? 'text-[var(--color-success)]'
-                      : ''
-                "
-              >
-                {{
-                  (row.pnl || 0) > 0 ? "+" : (row.pnl || 0) < 0 ? "-" : ""
-                }}¥{{ Math.abs(row.pnl || 0).toLocaleString() }}
-              </span>
+              <MoneyDisplay :value="row.pnl || 0" size="sm" />
             </template>
           </el-table-column>
 
           <el-table-column label="盈亏率" width="90" align="right">
             <template #default="{ row }">
-              <span
-                :class="
-                  (row.pnlRate || 0) > 0
-                    ? 'text-[var(--color-danger)]'
-                    : (row.pnlRate || 0) < 0
-                      ? 'text-[var(--color-success)]'
-                      : ''
-                "
-              >
-                {{
-                  (row.pnlRate || 0) > 0
-                    ? "+"
-                    : (row.pnlRate || 0) < 0
-                      ? "-"
-                      : ""
-                }}{{ Math.abs(row.pnlRate || 0).toFixed(2) }}%
-              </span>
+              <MoneyDisplay
+                :value="row.pnlRate || 0"
+                :precision="2"
+                suffix="%"
+                size="sm"
+              />
             </template>
           </el-table-column>
 
@@ -355,6 +325,7 @@
 import { ref, computed, onMounted } from "vue";
 import { ElMessage } from "element-plus";
 import { IconifyIconOffline } from "@/components/ReIcon";
+import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import {
   getStrategyTags,
   createStrategyTag,

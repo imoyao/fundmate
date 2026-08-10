@@ -37,7 +37,12 @@
           class="text-lg font-bold mt-1"
           :style="{ color: 'var(--text-primary)' }"
         >
-          ¥{{ (positionData?.market_value || 0).toLocaleString() }}
+          <MoneyDisplay
+            :value="positionData?.market_value || 0"
+            :show-sign="false"
+            :auto-color="false"
+            size="lg"
+          />
         </div>
       </div>
 
@@ -48,18 +53,8 @@
         <div class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
           持仓盈亏
         </div>
-        <div
-          class="text-lg font-bold mt-1"
-          :style="{
-            color:
-              (positionData?.pnl || 0) >= 0
-                ? 'var(--color-danger)'
-                : 'var(--color-success)'
-          }"
-        >
-          {{ (positionData?.pnl || 0) >= 0 ? "+" : "" }}¥{{
-            Math.abs(positionData?.pnl || 0).toLocaleString()
-          }}
+        <div class="text-lg font-bold mt-1">
+          <MoneyDisplay :value="positionData?.pnl || 0" size="lg" />
         </div>
       </div>
 
@@ -166,22 +161,37 @@
             </template>
           </el-table-column>
           <el-table-column label="单价" min-width="90" align="right">
-            <template #default="{ row }"
-              >¥{{ (row.price || 0).toLocaleString() }}</template
-            >
+            <template #default="{ row }">
+              <MoneyDisplay
+                :value="row.price || 0"
+                :show-sign="false"
+                :auto-color="false"
+                size="sm"
+              />
+            </template>
           </el-table-column>
           <el-table-column label="数量" min-width="80" align="right">
             <template #default="{ row }">{{ row.quantity }}</template>
           </el-table-column>
           <el-table-column label="金额" min-width="90" align="right">
-            <template #default="{ row }"
-              >¥{{ (row.amount || 0).toLocaleString() }}</template
-            >
+            <template #default="{ row }">
+              <MoneyDisplay
+                :value="row.amount || 0"
+                :show-sign="false"
+                :auto-color="false"
+                size="sm"
+              />
+            </template>
           </el-table-column>
           <el-table-column label="手续费" min-width="70" align="right">
-            <template #default="{ row }"
-              >¥{{ (row.fee || 0).toLocaleString() }}</template
-            >
+            <template #default="{ row }">
+              <MoneyDisplay
+                :value="row.fee || 0"
+                :show-sign="false"
+                :auto-color="false"
+                size="sm"
+              />
+            </template>
           </el-table-column>
         </el-table>
 
@@ -211,6 +221,7 @@ import { ref, computed, watch, nextTick } from "vue";
 import { Loading } from "@element-plus/icons-vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import { getPositionTransactions } from "@/api/positions";
+import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 
 const props = defineProps<{
   visible: boolean;

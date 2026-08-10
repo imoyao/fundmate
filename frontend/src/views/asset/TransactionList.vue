@@ -142,12 +142,12 @@
         </el-table-column>
         <el-table-column prop="amount" label="金额" width="120" align="right">
           <template #default="{ row }">
-            ¥{{ Number(row.amount).toLocaleString() }}
+            <MoneyDisplay :value="row.amount" :show-sign="false" size="sm" />
           </template>
         </el-table-column>
         <el-table-column prop="fee" label="手续费" width="90" align="right">
           <template #default="{ row }">
-            ¥{{ Number(row.fee).toFixed(2) }}
+            <MoneyDisplay :value="row.fee" :show-sign="false" size="sm" />
           </template>
         </el-table-column>
         <el-table-column prop="status" label="状态" width="90">
@@ -221,18 +221,8 @@
             <!-- 当日汇总 -->
             <div class="day-summary text-xs text-gray-500 mb-3 flex gap-3">
               <span>笔数：{{ group.length }} 笔</span>
-              <span
-                >收支：
-                <span
-                  :class="
-                    groupDayBalance[date] >= 0
-                      ? 'text-green-500 font-medium'
-                      : 'text-red-500 font-medium'
-                  "
-                >
-                  ¥{{ Math.abs(groupDayBalance[date] || 0).toFixed(2) }}
-                </span>
-              </span>
+              <span>收支：</span>
+              <MoneyDisplay :value="groupDayBalance[date] || 0" size="sm" />
             </div>
 
             <!-- 时间线 -->
@@ -279,15 +269,8 @@
                         {{ statusLabel(txn.status) }}
                       </el-tag>
                     </div>
-                    <div class="right" :class="amountClass(txn)">
-                      {{
-                        txn.type === "sell" ||
-                        txn.type === "dividend" ||
-                        txn.type === "deposit"
-                          ? "+"
-                          : "-"
-                      }}
-                      ¥{{ Number(txn.amount).toLocaleString() }}
+                    <div class="right">
+                      <MoneyDisplay :value="signedAmount(txn)" size="sm" />
                     </div>
                   </div>
 
@@ -295,7 +278,14 @@
                     class="card-body text-xs text-gray-500 mt-2 flex flex-wrap gap-x-4 gap-y-1"
                   >
                     <span>账户：{{ txn.account_name }}</span>
-                    <span>手续费：¥{{ Number(txn.fee).toFixed(2) }}</span>
+                    <span
+                      >手续费：
+                      <MoneyDisplay
+                        :value="txn.fee"
+                        :show-sign="false"
+                        size="xs"
+                      />
+                    </span>
                   </div>
 
                   <div
@@ -329,6 +319,7 @@ import { IconifyIconOffline } from "@/components/ReIcon";
 import { getTransactions, exportTransactions } from "@/api/transactions";
 import type { TransactionRecord } from "@/api/transactions";
 import { ElMessage } from "element-plus";
+import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 
 defineOptions({ name: "TransactionList" });
 
@@ -529,12 +520,12 @@ const timelineDotClass = (type: string) => {
   };
   return map[type] || "dot-default";
 };
-const amountClass = (txn: TransactionRecord) => {
+const signedAmount = (txn: TransactionRecord) => {
   return txn.type === "sell" ||
     txn.type === "dividend" ||
     txn.type === "deposit"
-    ? "text-green-500 font-medium text-sm"
-    : "text-red-500 font-medium text-sm";
+    ? Number(txn.amount) || 0
+    : -(Number(txn.amount) || 0);
 };
 
 // 原有工具函数

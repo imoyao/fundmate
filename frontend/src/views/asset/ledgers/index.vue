@@ -57,23 +57,27 @@
             <p class="text-sm" :style="{ color: 'var(--text-tertiary)' }">
               净资产
             </p>
-            <p
-              class="text-4xl font-bold tracking-tight mt-1"
-              :class="
-                overviewData.net_worth >= 0
-                  ? 'text-[var(--color-danger)]'
-                  : 'text-[var(--color-success)]'
-              "
-            >
-              {{ overviewData.net_worth >= 0 ? "+" : ""
-              }}{{ Math.abs(overviewData.net_worth).toLocaleString() }}
+            <p class="text-4xl font-bold tracking-tight mt-1">
+              <MoneyDisplay :value="overviewData.net_worth" size="xl" />
             </p>
             <div class="flex gap-6 mt-2 text-sm">
               <span :style="{ color: 'var(--text-secondary)' }">
-                总资产 ¥{{ totalAssets.toLocaleString() }}
+                总资产
+                <MoneyDisplay
+                  :value="totalAssets"
+                  :show-sign="false"
+                  :auto-color="false"
+                  size="sm"
+                />
               </span>
               <span :style="{ color: 'var(--color-success)' }">
-                负债 ¥{{ (overviewData.liability_total || 0).toLocaleString() }}
+                负债
+                <MoneyDisplay
+                  :value="overviewData.liability_total || 0"
+                  :show-sign="false"
+                  :auto-color="false"
+                  size="sm"
+                />
               </span>
               <span
                 v-if="overviewData.liability_total > totalAssets * 0.5"
@@ -116,7 +120,11 @@
             class="text-xl font-bold"
             :style="{ color: 'var(--color-primary)' }"
           >
-            ¥{{ group.total.toLocaleString() }}
+            <MoneyDisplay
+              :value="group.total"
+              :show-sign="false"
+              :auto-color="false"
+            />
           </p>
           <p class="text-xs mt-1" :style="{ color: 'var(--text-tertiary)' }">
             {{ group.count }} 个账户
@@ -135,9 +143,13 @@
           class="text-orange-400 shrink-0"
         />
         <span>
-          存在 {{ orphanGroup.count }} 个已删除账户的持仓，合计 ¥{{
-            orphanGroup.total?.toLocaleString() ?? "0"
-          }}。 建议将这些持仓归入现有账户或手动清理。
+          存在 {{ orphanGroup.count }} 个已删除账户的持仓，合计
+          <MoneyDisplay
+            :value="orphanGroup.total || 0"
+            :show-sign="false"
+            :auto-color="false"
+            size="sm"
+          />。 建议将这些持仓归入现有账户或手动清理。
         </span>
       </div>
 
@@ -153,7 +165,14 @@
               class="text-sm font-normal ml-2"
               :style="{ color: 'var(--text-tertiary)' }"
             >
-              ({{ group.count }} 个账户 · ¥{{ group.total.toLocaleString() }})
+              (
+              {{ group.count }} 个账户 ·
+              <MoneyDisplay
+                :value="group.total"
+                :show-sign="false"
+                :auto-color="false"
+                size="xs"
+              />)
             </span>
           </h3>
         </div>
@@ -199,7 +218,11 @@
                   class="text-lg font-bold"
                   :style="{ color: 'var(--color-primary)' }"
                 >
-                  ¥{{ (ledger.total_market_value || 0).toLocaleString() }}
+                  <MoneyDisplay
+                    :value="ledger.total_market_value || 0"
+                    :show-sign="false"
+                    :auto-color="false"
+                  />
                 </span>
               </div>
               <!-- 2. 当日盈亏 -->
@@ -234,7 +257,12 @@
                   class="text-sm font-medium"
                   :style="{ color: 'var(--text-secondary)' }"
                 >
-                  ¥{{ ledger.cash_balance.toLocaleString() }}
+                  <MoneyDisplay
+                    :value="ledger.cash_balance"
+                    :show-sign="false"
+                    :auto-color="false"
+                    size="sm"
+                  />
                 </span>
                 <span
                   v-else-if="ledger.ledger_type === 'property'"
@@ -243,18 +271,8 @@
                 >
                   {{ ledger.position_count || 0 }} 项
                 </span>
-                <span
-                  v-else
-                  class="text-sm font-semibold"
-                  :class="
-                    (ledger.pnl || 0) >= 0
-                      ? 'text-[var(--color-danger)]'
-                      : 'text-[var(--color-success)]'
-                  "
-                >
-                  {{ (ledger.pnl || 0) >= 0 ? "+" : "" }}¥{{
-                    Math.abs(ledger.pnl || 0).toLocaleString()
-                  }}
+                <span v-else class="text-sm font-semibold">
+                  <MoneyDisplay :value="ledger.pnl || 0" size="sm" />
                 </span>
               </div>
 
@@ -272,7 +290,11 @@
                   class="text-xs font-semibold"
                   :style="{ color: 'var(--color-danger)' }"
                 >
-                  -¥{{ ledger.linked_liability.toLocaleString() }}
+                  <MoneyDisplay
+                    :value="-ledger.linked_liability"
+                    :auto-color="false"
+                    size="xs"
+                  />
                 </span>
               </div>
             </div>
@@ -352,6 +374,7 @@ import { IconifyIconOffline } from "@/components/ReIcon";
 import { getLedgers, getLedgersOverview, createLedger } from "@/api/ledger";
 import { getPortfolios } from "@/api/portfolio";
 import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
+import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import { getLedgerTypeLabel } from "@/constants";
 import AccountFormFields from "./components/AccountFormFields.vue";
 import DeleteLedgerDialog from "./components/DeleteLedgerDialog.vue";
