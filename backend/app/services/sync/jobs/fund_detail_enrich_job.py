@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.core.time_utils import now_shanghai
 from app.domains.funds.models import FeeRatio, Fund, FundCompany, FundType, FundVariety, PurchaseRule, RedeemRule
+from app.services.fund_service import FundService
 from app.services.sync.jobs.base import BATCH_SIZE_DETAIL_ENRICH, JobStatus, SyncJob
 
 
@@ -207,10 +208,16 @@ class FundDetailEnrichJob(SyncJob):
         if not fee_info:
             return
 
+        # 费率币种：按基金份额名称特征推导（无结构化币种字段可依赖）
+        fund = self.db.query(Fund).filter_by(fund_code=fund_code).first()
+        currency = FundService.infer_fund_currency(full_name=fund.full_name, name=fund.name) if fund else 'CNY'
+
         # 申购费率
         purchase_rate = fee_info.get('purchase_rate')
         if purchase_rate is not None:
-            self._save_single_fee(fund_code, 'purchase', rate=purchase_rate, start_quota=0, end_quota=None)
+            self._save_single_fee(
+                fund_code, 'purchase', rate=purchase_rate, start_quota=0, end_quota=None, currency=currency
+            )
 
         # 🔥 关键修复：赎回费率阶梯可能是多个对象的列表，必须循环保存
         redemption_schedule = fee_info.get('redemption_schedule', [])
@@ -223,6 +230,7 @@ class FundDetailEnrichJob(SyncJob):
                         rate=item.get('rate'),
                         start_day=item.get('start_day'),
                         end_day=item.get('end_day'),
+                        currency=currency,
                     )
 
     def _save_single_fee(self, fund_code: str, fee_type: str, **kwargs) -> None:
@@ -278,6 +286,7 @@ class FundDetailEnrichJob(SyncJob):
                 fee_type=fee_type,
                 rate=safe_rate,  # Decimal 小数
                 fee_amount=safe_fee_amount,
+                currency=kwargs.get('currency', 'CNY'),
                 purchase_rule_id=purchase_rule_id,
                 redeem_rule_id=redeem_rule_id,
             )

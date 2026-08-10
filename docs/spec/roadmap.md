@@ -156,12 +156,13 @@
 | [#808](https://github.com/imoyao/fundmate/issues/808) | 自选「探市」体验版设计文档与任务计划 | Ⅱ 重要不紧急 | 设计文档基线 | `docs/spec/temperature-architecture-plan.md`；`docs/features/watchlist.md` |
 | [#809](https://github.com/imoyao/fundmate/issues/809) | 数据库存储选择 | Ⅱ 重要不紧急 | 决策已定 / 待落地（Supabase 云端未集成） | `docs/spec/decisions.md` D3/D2；`docs/dev/db-choice.md`；本文件 P2-23 |
 | [#819](https://github.com/imoyao/fundmate/issues/819) | 交割单导出功能跟踪 | Ⅱ 重要不紧急 | 导出侧跟踪（由 #429 拆分） | §2.6 交易流水导出；`backend/app/services/importer/` |
-| [#820](https://github.com/imoyao/fundmate/issues/820) | FeeRatio 增加币种（currency）字段并落库 | Ⅱ 重要不紧急 | 数据完整性补全 | `docs/dev/fund-fee-ratio.md`；`backend/app/domains/funds/models.py` |
+| [#820](https://github.com/imoyao/fundmate/issues/820) | FeeRatio 增加币种（currency）字段并落库 | Ⅱ 重要不紧急 | **已实现**（2026-08-10，见下方说明） | `docs/dev/fund-fee-ratio.md`；`backend/app/domains/funds/models.py` |
 | [#273](https://github.com/imoyao/fundmate/issues/273) | 自选基金拖拽排序 | Ⅳ 不重要不紧急 | 未实现 / 功能 | `frontend/src/views/asset/watchlist/index.vue` |
 | [#817](https://github.com/imoyao/fundmate/issues/817) | 鹦鹉螺 nautilus 作为 logo | Ⅳ 不重要不紧急 | 部分实现 / 与文档偏离（正式稿未产出） | `docs/design/brand-v1.7.md`；`docs/design/index.md` |
 
 **已关闭但需留意的文档差异**：
 
+- [#820](https://github.com/imoyao/fundmate/issues/820) 费率币种：`FeeRatio.currency` 已于 2026-08-10 落库（模型 + 推导规则 + 一次性迁移脚本 `backend/scripts/migrate_fee_ratio_currency.py` 回填既有库 12551 行）；因东财/同花顺无结构化币种字段，采用基金份额名称特征推导（含外汇字样 → 对应 ISO 码，否则 CNY）。自动汇率换算仍未做（见 roadmap 多币种小节）。
 - [#460](https://github.com/imoyao/fundmate/issues/460) 费率信息处理：V2（xalpha）已实现并落盘，原 `docs/dev/fund-fee-ratio.md` 描述的是**已退役的 V1 方案**，已于 2026-08-08 重写拉平；遗留币种缺口转 #820 跟踪。
 - [#230](https://github.com/imoyao/fundmate/issues/230) 数据信息来源整合：双适配器（akshare + xalpha）整合框架已跑通并落盘，个别数据源缺口在 `docs/spec/tech-debt.md` 登记。
 - [#807](https://github.com/imoyao/fundmate/issues/807) 实时估值：2026-08-08 v3 实证更正 v2 误判（核心 7/11 已落地，含 `RealtimeWarningBanner`/`RealtimeStatusIndicator`）；**v4 再次更正 v3** —— 「沙盒」并非未实现，它就是已上线的探市页 `/explore`（`useLocalHoldings.ts` 承担 localStorage 持久化），成功标准 8–11 为「部分达成 + 有缺陷」，转 #821 跟踪。#807 已收窄关闭。

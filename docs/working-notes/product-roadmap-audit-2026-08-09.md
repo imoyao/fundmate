@@ -51,7 +51,7 @@
 | 主流平台 CSV/Excel 智能解析（同花顺/东财/支付宝） | ✅ | #786（closed）；`services/importer/parsers/{ths_stock,alipay_fund,alipay_pdf,standard}.py` |
 | 券商/银行 API 自动同步 | ❌ | 仅基金净值/股价同步（`services/sync`），无券商持仓授权拉取 |
 | 截图/图片 OCR 识别 | ❌ | #823（open）规划中，未落地 |
-| 多币种与汇率自动换算 | 🟡 | #820（open）FeeRatio 增加 currency 字段；自动汇率换算未做 |
+| 多币种与汇率自动换算 | 🟡 | #820（✅ closed，2026-08-10）FeeRatio 增加 currency 字段并落库；自动汇率换算未做 |
 | 多账本/多账户体系 | 🟡 | `domains/families` 提供家庭账本基础；多投资子账户未细化 |
 
 ### 补充：核心分析与报告

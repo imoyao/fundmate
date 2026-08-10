@@ -23,6 +23,39 @@ from app.services.sync.adapters.xalpha_adapter import XalphaAdapter
 class FundService:
     """基金领域服务：净值获取、搜索、费率查询、赎回费估算"""
 
+    # ─── 币种推导 ─────────────────────────────────
+
+    # 基金名称/全称中的外币份额特征 → ISO 4217 币种。
+    # 东财/同花顺接口均无干净的币种字段（2026-08-10 实证：pingzhongdata / jjfl / f10
+    # 基本资料页 / fund_info_ths 均不含），故按基金份额名称特征推导：
+    # 境内基金恒为人民币，仅 QDII 等外币份额（如"美元现汇/现钞"）为外币。
+    # "人民币"必须排最前：部分 QDII 名称同时含"美元"与"人民币"
+    # （如"中银美元债债券(QDII)人民币A"，实为人民币份额），优先匹配人民币。
+    _CURRENCY_MARKERS = (
+        ('人民币', 'CNY'),
+        ('美元', 'USD'),
+        ('港币', 'HKD'),
+        ('港元', 'HKD'),
+        ('日元', 'JPY'),
+        ('欧元', 'EUR'),
+        ('英镑', 'GBP'),
+    )
+
+    @staticmethod
+    def infer_fund_currency(full_name: str = '', name: str = '') -> str:
+        """根据基金全称/简称推导计费币种，无外币特征时默认 CNY。
+
+        数据源无结构化币种字段，只能按名称特征推导：QDII 外币份额通常以
+        "美元现汇/美元现钞/港币"等字样标注；含"人民币"或全无外币字样 → CNY。
+        """
+        text = f'{full_name} {name}'
+        if not text.strip():
+            return 'CNY'
+        for marker, currency in FundService._CURRENCY_MARKERS:
+            if marker in text:
+                return currency
+        return 'CNY'
+
     # ─── 净值获取 ─────────────────────────────────
 
     @staticmethod
@@ -170,6 +203,8 @@ class FundService:
             )
 
         return {
+            'fund_code': fund_code,
+            'currency': FundService.infer_fund_currency(full_name=fund.full_name, name=fund.name),
             'purchase': purchase_rates,
             'redeem': redeem_rates,
         }
@@ -311,6 +346,13 @@ class FundService:
             if not fee_info:
                 return False
 
+            # 费率币种：按基金份额名称特征推导（无结构化币种字段可依赖）
+            fund = db.query(Fund).filter(Fund.fund_code == fund_code).first()
+            currency = FundService.infer_fund_currency(
+                full_name=fund.full_name if fund else '',
+                name=fund.name if fund else '',
+            )
+
             # 申购费率
             purchase_rate = fee_info.get('purchase_rate')
             if purchase_rate is not None:
@@ -341,6 +383,7 @@ class FundService:
                             fee_type='purchase',
                             rate=safe_rate,
                             purchase_rule_id=rule.id,
+                            currency=currency,
                         )
                     )
 
@@ -378,6 +421,7 @@ class FundService:
                                 fee_type='redeem',
                                 rate=safe_rate,
                                 redeem_rule_id=rule.id,
+                                currency=currency,
                             )
                         )
             db.commit()

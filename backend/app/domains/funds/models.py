@@ -151,6 +151,7 @@ class FeeRatio(Base, PrimaryKeyMixin, TimestampMixin):
     fee_type = Column(String(20), nullable=False, comment='费率类型: subscribe/purchase/redeem/management')
     rate = Column(SafeNumeric(10, 6), comment='费率(如0.015000=1.5%)')
     fee_amount = Column(Integer, comment='固定金额(分)，与rate互斥')
+    currency = Column(String(10), nullable=False, default='CNY', comment='计费币种(ISO 4217)，默认CNY')
     purchase_rule_id = Column(Integer, ForeignKey('purchase_rules.id'), nullable=True)
     redeem_rule_id = Column(Integer, ForeignKey('redeem_rules.id'), nullable=True)
 

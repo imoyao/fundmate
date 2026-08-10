@@ -23,9 +23,9 @@ title: 基金费率信息获取
 
 不再使用 V1 的 `portion` 模块，改为**整数列**：申购费率区间用 `start_quota`/`end_quota`（元），赎回费率区间用 `start_day`/`end_day`（天）。计算赎回费时由 `estimate_redeem_fee()` 按持有天数匹配对应区间。
 
-### 已知缺口
+### 币种（已实现）
 
-- **币种未落库**：`FeeRatio` 无 `currency` 列，币种信息尚未持久化 → 跟踪 **[#820](https://github.com/imoyao/fundmate/issues/820)**（重要不紧急）。
+- **币种已落库**：`FeeRatio` 已含 `currency` 列（ISO 4217，默认 CNY，见 [#820](https://github.com/imoyao/fundmate/issues/820)）。东财/同花顺接口均无结构化币种字段（pingzhongdata / jjfl / f10 / `fund_info_ths` 实测均不含），故按基金份额名称特征推导：含「人民币」或全无外币字样 → CNY；含「美元/港币/港元/日元/欧元/英镑」→ 对应 ISO 码。推导逻辑见 `FundService.infer_fund_currency`（`backend/app/services/fund_service.py`），写入点为 `sync_fund_fees` 与 `FundDetailEnrichJob._update_fund_fees`。既有库回填用一次性脚本 `backend/scripts/migrate_fee_ratio_currency.py`。
 
 ---
 

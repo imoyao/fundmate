@@ -8,7 +8,7 @@ permalink: /dev/import-trade-records
 
 - [#783 记账功能需求检查单](https://github.com/imoyao/fundmate/issues/783)（**Ⅰ 重要且紧急**）：导入工作台**第 3 步验收清单 v1.0** 中 P0 核心交互（分类批量修正面板、行内键盘编辑 Enter/Esc/Tab、草稿保存与恢复、配置目标分组面板、底部双按钮、边界场景处理）整节未勾选，与 `docs/spec/roadmap.md` P1-03「已完成」存在冲突，以 #783 逐条验收为准。
 - [#429 交割单导入](https://github.com/imoyao/fundmate/issues/429)：导入侧主体已实现（已关闭）；**导出侧**另立 [#819](https://github.com/imoyao/fundmate/issues/819) 跟踪。
-- 费率相关：见 `docs/dev/fund-fee-ratio.md`（V2 xalpha 方案）与 [#820](https://github.com/imoyao/fundmate/issues/820)（币种落库）。
+- 费率相关：见 `docs/dev/fund-fee-ratio.md`（V2 xalpha 方案）与 [#820](https://github.com/imoyao/fundmate/issues/820)（币种落库，**2026-08-10 已实现**）。
 
 反链索引总表见 `docs/spec/roadmap.md` §3。
 :::

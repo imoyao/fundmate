@@ -6,6 +6,28 @@ from datetime import date, timedelta
 
 from app.core.money import Money
 from app.domains.funds.models import DailyWorth, FeeRatio, Fund, Manager, PurchaseRule, RedeemRule
+from app.services.fund_service import FundService
+
+
+def test_infer_fund_currency_default_cny():
+    """境内基金与无特征名称默认人民币"""
+    assert FundService.infer_fund_currency('华夏成长混合', '华夏成长') == 'CNY'
+    assert FundService.infer_fund_currency() == 'CNY'
+    assert FundService.infer_fund_currency('   ') == 'CNY'
+
+
+def test_infer_fund_currency_foreign_share():
+    """QDII 外币份额按名称特征推导对应币种"""
+    assert FundService.infer_fund_currency('广发纳斯达克100ETF联接(QDII)美元现汇C', '纳指ETF联接') == 'USD'
+    assert FundService.infer_fund_currency('易方达恒生H股ETF联接(QDII)港币A', '恒生H股') == 'HKD'
+    assert FundService.infer_fund_currency('某基金(QDII)日元份额', '') == 'JPY'
+
+
+def test_infer_fund_currency_rmb_share_counted_as_cny():
+    """QDII 人民币份额仍为人民币"""
+    assert FundService.infer_fund_currency('广发纳斯达克100ETF联接(QDII)人民币C', '纳指ETF联接') == 'CNY'
+    # 名称同时含"美元"与"人民币"时必须判定为人民币（edge case，见实现注释）
+    assert FundService.infer_fund_currency('中银美元债债券(QDII)人民币A', '中银美元债') == 'CNY'
 
 
 def test_search_funds(client, db):
@@ -192,6 +214,8 @@ class TestFundFeeRates:
         data = resp.get_json()['data']
 
         # 6. 断言
+        assert data['currency'] == 'CNY'
+        assert data['fund_code'] == '000001'
         assert len(data['purchase']) == 1
         assert data['purchase'][0]['start_quota'] == 0.0
         assert data['purchase'][0]['end_quota'] == 10000.0
