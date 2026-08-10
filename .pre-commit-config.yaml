@@ -40,6 +40,8 @@ repos:
 
   # 本地守卫：禁止提交被清空/误删的 all_pb.csv 历史基线数据
   # （曾误判为 cache 被清空到 2 行，导致温度计分母缺失。见 #821）
+  # 本地守卫：禁止提交含 GBK→UTF-8 双重编码乱码（mojibake）的源文件
+  # （26 个 legacy/ 前端重构笔记因编码错误全部不可读。2026-08-10）
   - repo: local
     hooks:
       - id: guard-all-pb
@@ -48,3 +50,9 @@ repos:
         language: python
         files: ^backend/app/services/thermometer/data/all_pb\.csv$
         pass_filenames: false
+      - id: guard-mojibake
+        name: guard Chinese mojibake in source files
+        entry: python scripts/guard_mojibake.py
+        language: python
+        files: \.(md|py|vue)$
+        pass_filenames: true
