@@ -50,7 +50,7 @@ jobs:
 
     steps:
       - name: Checkout 仓库
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
 
@@ -93,7 +93,7 @@ jobs:
 
     steps:
       - name: Checkout 仓库
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: 安装 Python
         uses: actions/setup-python@v6
@@ -138,7 +138,7 @@ jobs:
 
     steps:
       - name: Checkout 仓库
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: 安装 Python
         uses: actions/setup-python@v6
