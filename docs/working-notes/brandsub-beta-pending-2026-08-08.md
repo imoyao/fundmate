@@ -2,7 +2,7 @@
 
 ## 状态
 
-**悬挂（PENDING）**。等待另一会话处理；若其后续未自行处理，须由本记录持有者重建恢复。
+**已解除（RESOLVED，2026-08-10）**。按「恢复方案」重建两文件并提交（commit `e56e838`，对应 issue #864）。同期删除 `useNav.ts` 的 `getLogo()` 与 `frontend/public/logo.svg`，与期望形态一致。
 
 ## 问题描述
 
