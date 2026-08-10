@@ -10,6 +10,7 @@ import { usePermissionStoreHook } from "@/store/modules/permission";
 import LaySidebarItem from "../lay-sidebar/components/SidebarItem.vue";
 import LaySidebarFullScreen from "../lay-sidebar/components/SidebarFullScreen.vue";
 import Superellipse from "@/components/Superellipse/index.vue";
+import BrandLogo from "@/components/BrandLogo/index.vue";
 
 import LogoutCircleRLine from "~icons/ri/logout-circle-r-line";
 import Palette from "~icons/ri/palette-line";
@@ -26,7 +27,6 @@ const {
   title,
   logout,
   onPanel,
-  getLogo,
   username,
   userAvatar,
   backTopMenu,
@@ -55,8 +55,12 @@ onMounted(() => {
     :style="{ backgroundColor: 'var(--bg-card)' }"
   >
     <div v-if="showLogo" class="horizontal-header-left" @click="backTopMenu">
-      <img :src="getLogo()" alt="logo" />
-      <span>{{ title }}</span>
+      <BrandLogo :size="34" />
+      <span class="navbar-brand-name">
+        {{ title }}
+        <span class="brand-sub">投资账本</span>
+        <span class="brand-beta">Beta</span>
+      </span>
     </div>
     <el-menu
       ref="menuRef"
@@ -122,6 +126,52 @@ onMounted(() => {
     display: inline-flex;
     flex-wrap: wrap;
     min-width: 100%;
+  }
+}
+
+/* 品牌文字组：多倍贝 + 投资账本副标 + Beta 挂件（与品牌 v1.7、SidebarLogo 一致） */
+.horizontal-header-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+
+  .navbar-brand-name {
+    display: inline-flex;
+    align-items: baseline;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--el-text-color-primary);
+
+    .brand-sub {
+      font-size: 0.6em;
+      font-weight: 400;
+      color: var(--el-text-color-secondary);
+      margin-left: 0.25em;
+
+      &::before {
+        content: "·";
+        margin-right: 0.25em;
+        color: inherit;
+      }
+    }
+
+    .brand-beta {
+      display: inline-flex;
+      align-items: center;
+      margin-left: 6px;
+      font-size: 0.55rem;
+      font-weight: 600;
+      line-height: 1;
+      color: var(--el-color-primary);
+      background: rgba(242, 163, 142, 0.14);
+      border: 1px solid var(--el-color-primary-light-5);
+      padding: 1px 6px;
+      border-radius: 6px;
+      white-space: nowrap;
+      position: relative;
+      top: -0.35em;
+    }
   }
 }
 </style>
