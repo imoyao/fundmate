@@ -120,3 +120,8 @@ permalink: /todo
 - [ ] 基准对比
 **指数有风格稳定、规则透明、方便查询的特点，因此非常适合作为基准。**
 成长风格，就对比 300 成长指数；价值风格，那就对比 300 价值指数；港股基金可以对比恒生指数，主题基金可以对比对应的行业指数。
+
+### 内部技术待办
+
+- [ ] 邮箱服务落地（Resend + Cloudflare Email Routing 零成本方案）
+  方案文档：`docs/ops/email-service.md`；跟踪 issue：[#908](https://github.com/imoyao/fundmate/issues/908)
