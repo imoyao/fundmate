@@ -731,7 +731,7 @@ const fetchRecordStats = async () => {
   recordLoading.value = true;
   try {
     const res = await getRecordStats();
-    recordDays.value = res.data?.data?.record_days ?? 0;
+    recordDays.value = res.data?.record_days ?? 0;
   } catch (e) {
     // 欢迎语非关键路径：失败静默降级，保持品牌定调语
     console.debug("Failed to fetch record stats:", e);
