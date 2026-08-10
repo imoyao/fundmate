@@ -5,12 +5,15 @@
 个人资料更新仅作用于当前登录用户（`g.current_user`），不跨家庭。
 """
 
+from datetime import date
+
 from apiflask import APIBlueprint
 from flask import abort, g, jsonify
 
 from app.core.auth import get_family_id
 from app.core.database import get_db
 from app.core.validation import parse_body
+from app.domains.transactions.models import Transaction
 from app.domains.users.models import ROLE_LABELS, User
 from app.domains.users.schemas import ProfileUpdate, UserOut
 
@@ -66,3 +69,33 @@ def update_me():
         db.commit()
         db.refresh(user)
         return jsonify({'data': _user_to_dict(user), 'message': 'ok'})
+
+
+@users_bp.get('/record-stats/')
+def record_stats():
+    """首页欢迎语用：返回用户首笔交易日期与累计记账天数。
+
+    取家庭内最早一笔交易的 trade_date（交易发起日，T日）作为记账起点；
+    record_days 为该起点至今天的自然日差值。无交易记录时返回空。
+    """
+    with get_db() as db:
+        first_txn = (
+            db.query(Transaction)
+            .filter(Transaction.family_id == get_family_id())
+            .order_by(Transaction.trade_date.asc())
+            .first()
+        )
+        if first_txn is None or first_txn.trade_date is None:
+            return jsonify({'data': {'first_entry_date': None, 'record_days': 0}, 'message': 'ok'})
+
+        first_entry_date = first_txn.trade_date.date()
+        record_days = (date.today() - first_entry_date).days
+        return jsonify(
+            {
+                'data': {
+                    'first_entry_date': first_entry_date.isoformat(),
+                    'record_days': record_days,
+                },
+                'message': 'ok',
+            }
+        )

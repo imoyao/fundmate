@@ -3,16 +3,62 @@
     class="welcome-container p-4 md:p-8 min-h-full"
     :style="{ backgroundColor: 'var(--bg-page)' }"
   >
-    <!-- 顶部欢迎语 -->
-    <div class="flex justify-between items-center mb-6">
-      <div class="flex items-center gap-2">
-        <span
-          class="text-sm font-medium"
-          :style="{ color: 'var(--text-tertiary)' }"
+    <!-- 顶部欢迎语（规范：docs/design/welcome-greeting-spec.md v1.2） -->
+    <div
+      class="flex justify-between items-center mb-6"
+      aria-live="polite"
+    >
+      <div class="flex flex-col gap-2">
+        <!-- 状态三：未读站内信提示条（叠加在顶部，可选迭代功能） -->
+        <div
+          v-if="hasUnread"
+          class="flex items-center gap-2 text-sm"
+          :style="{ color: 'var(--color-warning)' }"
         >
-          别人恐惧我贪婪，别人贪婪我更贪婪
-        </span>
+          <span>📬 你有 {{ unreadCount }} 条未读消息</span>
+          <button
+            type="button"
+            class="underline underline-offset-2 hover:opacity-80"
+            @click="openNotice"
+          >
+            查看
+          </button>
+        </div>
+
+        <!-- 主数据行：加载中仅展示品牌定调语；数据态展示问候+天数 -->
+        <div class="flex items-center gap-2">
+          <template v-if="welcomeState === 'data'">
+            <span
+              class="font-medium"
+              :style="{ color: 'var(--text-primary)', fontSize: '24px', fontWeight: 500 }"
+            >
+              {{ greetingText }} 👋 你已记账
+              <span
+                class="font-bold"
+                :style="{ color: 'var(--color-rise)', fontVariantNumeric: 'tabular-nums' }"
+              >{{ recordDays }}</span>
+              天
+            </span>
+          </template>
+          <span
+            v-else
+            class="font-medium"
+            :style="{ color: 'var(--text-secondary)', fontSize: '14px' }"
+          >
+            把涨跌交给市场，用复利丈量自己 🌊
+          </span>
+        </div>
       </div>
+
+      <!-- 右侧按钮：仅空状态（含未读）显示「开始记账」 -->
+      <router-link
+        v-if="welcomeState === 'empty'"
+        to="/asset/entry"
+        class="btn-welcome-cta"
+        aria-label="开始记账，进入持仓录入"
+      >
+        开始记账
+      </router-link>
     </div>
 
     <!-- ===== 第一排：核心资产看板 + 收益趋势 ===== -->
@@ -544,10 +590,12 @@
 
 <script setup lang="ts">
 import { ref, onMounted, nextTick, onUnmounted, computed } from "vue";
+import { useRouter } from "vue-router";
 import echarts from "@/plugins/echarts";
 import { getSummary } from "@/api/summary";
 import { getPortfolioXirr } from "@/api/performance";
 import { getTemperatureOverview } from "@/api/temperature";
+import { getRecordStats } from "@/api/users";
 import type { SummaryData } from "@/api/types";
 import WatchlistWidget from "@/components/WatchlistWidget.vue";
 import AddToWatchlistModal from "@/components/QuickEntry/AddToWatchlistModal.vue";
@@ -566,6 +614,32 @@ defineOptions({
 const summary = ref<SummaryData | null>(null);
 const portfolioXirr = ref<any>(null);
 const trendMode = ref<"month" | "quarter">("month");
+
+// ===== 首页欢迎语（见 docs/design/welcome-greeting-spec.md v1.2） =====
+const router = useRouter();
+const recordDays = ref(0);
+const recordLoading = ref(true);
+// 未读站内信（状态三，可选迭代；当前 lay-notice 为前端示例数据，此处预留钩子）
+const hasUnread = ref(false);
+const unreadCount = ref(0);
+
+type WelcomeState = "loading" | "empty" | "data";
+const welcomeState = computed<WelcomeState>(() =>
+  recordLoading.value ? "loading" : recordDays.value > 0 ? "data" : "empty"
+);
+
+const greetingText = computed(() => {
+  const h = new Date().getHours();
+  if (h >= 5 && h < 12) return "早上好";
+  if (h >= 12 && h < 18) return "下午好";
+  if (h >= 18 && h < 22) return "晚上好";
+  return "夜深了";
+});
+
+const openNotice = () => {
+  // TODO: 待 lay-notice 真实站内信路由接入后替换；当前无真实跳转目标
+  console.debug("[welcome] 打开站内信：待 lay-notice 路由接入");
+};
 
 // 综合市场温度（第二排右卡）
 const compositeTemperature = ref<{ value: number; level: string } | null>(null);
@@ -655,6 +729,20 @@ const watchlistTitle = computed(() => {
 });
 
 // ===== API 请求 =====
+const fetchRecordStats = async () => {
+  recordLoading.value = true;
+  try {
+    const res = await getRecordStats();
+    recordDays.value = res.data?.data?.record_days ?? 0;
+  } catch (e) {
+    // 欢迎语非关键路径：失败静默降级，保持品牌定调语
+    console.debug("Failed to fetch record stats:", e);
+    recordDays.value = 0;
+  } finally {
+    recordLoading.value = false;
+  }
+};
+
 const fetchSummary = async () => {
   try {
     const res = await getSummary();
@@ -965,6 +1053,7 @@ onMounted(() => {
   });
   fetchXirr();
   fetchTemperature();
+  fetchRecordStats();
   window.addEventListener("resize", handleResize);
 });
 
@@ -1061,6 +1150,39 @@ onUnmounted(() => {
   font-weight: 600;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* 首页欢迎语 CTA（胶囊，CTA 例外；交互态遵循 design.md 主按钮规范） */
+.btn-welcome-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  padding: 8px 20px;
+  border-radius: var(--radius-pill);
+  background-color: var(--brand-700);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  transition:
+    background-color 0.2s ease,
+    transform 0.1s ease;
+}
+
+.btn-welcome-cta:hover {
+  background-color: var(--brand-800);
+}
+
+.btn-welcome-cta:active {
+  background-color: var(--brand-900);
+  transform: translateY(1px);
+}
+
+.btn-welcome-cta:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 /* ===== 短/中/长期温度行内三连（P3） ===== */
