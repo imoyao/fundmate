@@ -91,8 +91,9 @@ Windows：`dev.cmd`（内部走 `scripts/dev.ps1`）；Git Bash / WSL / macOS：
 - 所有由 AI 助手（CodeBuddy / OpenCode / 远程 agent 等）**主动提交**，或**经用户指示由 AI 提交**的代码改动，必须在提交信息中明确标注其为 AI 自动提交，便于后续追溯哪些提交由 AI 完成、区分人工提交。
 - 标注方式：在 conventional commit 标题与正文之后，追加 footer：
   - 标记行：`[AI 自动提交]`
-  - trailer 行：`AI-Committed-By: CodeBuddy AI`
-- 示例：
+  - trailer 行：`AI-Committed-By: <实际提交者>`
+- **trailer 必须如实填写本次提交的实际 AI 工具身份，禁止一律写成 `CodeBuddy AI`**：由 CodeBuddy 提交的填 `CodeBuddy AI`；由 OpenCode 提交的填 `OpenCode`；由其它远程 agent / 通道提交的，填该 agent 的真实标识（如 `Remote Agent`、`ClawBot` 等）。谁提交就署谁的名，不要把别的工具的提交也记到 CodeBuddy 账上。
+- 示例（CodeBuddy 提交）：
 
   ```text
   docs: 新增经16Traders授权转载博客（4篇结构重组版）
@@ -101,6 +102,15 @@ Windows：`dev.cmd`（内部走 `scripts/dev.ps1`）；Git Bash / WSL / macOS：
 
   [AI 自动提交]
   AI-Committed-By: CodeBuddy AI
+  ```
+
+- 示例（OpenCode 提交）：
+
+  ```text
+  fix: 修复温度计基线守卫误判
+
+  [AI 自动提交]
+  AI-Committed-By: OpenCode
   ```
 
 - 适用范围：所有分支；**人工提交的改动无需标注**。AI 提交仍须遵守本文件其他约束（conventional commits、pre-commit、勿绕过守卫等）。
