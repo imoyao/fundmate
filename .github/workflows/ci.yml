@@ -59,12 +59,12 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: 安装 uv
-        # backend/pdm.toml 已启用 use_uv=true，必须预装 uv 否则 pdm 报错
-        uses: astral-sh/setup-uv@v5
-
       - name: 安装 PDM
         run: pip install pdm
+
+      - name: 关闭 use_uv（CI 不需要 uv 且 uv 不支持 PEP 582）
+        working-directory: backend
+        run: pdm config use_uv false
 
       # dev 组含 ruff / pytest / invoke 等
       - name: 安装依赖

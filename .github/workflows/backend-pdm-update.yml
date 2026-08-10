@@ -27,16 +27,15 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install uv
-        # backend/pdm.toml 已启用 use_uv=true，必须预装 uv 否则 pdm 报错
-        uses: astral-sh/setup-uv@v5
-
       - name: Install PDM
         run: pip install pdm
 
       - name: Configure PDM
         working-directory: backend
-        run: pdm config python.use_venv false
+        run: |
+          pdm config python.use_venv false
+          # CI runner 上 uv 不支持 PEP 582 本地包模式，关闭 use_uv 回退 pip 安装
+          pdm config use_uv false
 
       - name: PDM update (refresh lock + transitive deps)
         working-directory: backend
