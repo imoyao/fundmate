@@ -18,14 +18,18 @@ jobs:
   pdm-update:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: main-v2
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+
+      - name: Install uv
+        # backend/pdm.toml 已启用 use_uv=true，必须预装 uv 否则 pdm 报错
+        uses: astral-sh/setup-uv@v5
 
       - name: Install PDM
         run: pip install pdm
