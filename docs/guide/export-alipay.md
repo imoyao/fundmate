@@ -19,7 +19,7 @@ title: 导出支付宝理财记录
 
 1. 查询支付宝账号注销时间：[帮助文档](https://help.alipay.com/lab/help_detail.htm?help_id=247394)
 2. 点击[此链接](https://consumeprod.alipay.com/record/standard.htm) 登录支付宝；
-   ```https://consumeprod.alipay.com/record/standard.htm```
+   `https://consumeprod.alipay.com/record/standard.htm`
 3. 查询账单信息
 
    ![](https://pic.imgdb.cn/item/61f3a1a22ab3f51d91e12a27.png)

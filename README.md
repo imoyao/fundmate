@@ -66,6 +66,7 @@ pdm run flask --app app.main:app run --debug --host 0.0.0.0 --port 8000
 ```
 
 数据同步：
+
 ```bash
 pdm run python app/tools/sync_metadata.py --job temperature
 # 或者

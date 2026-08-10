@@ -27,6 +27,7 @@
 | 成本 | EdgeOne 免费层 + Supabase 免费层(500MB) + Turso 免费层(9GB) ≈ **全免费** |
 
 **被否决的候选**（记录理由，免得下次返工）：
+
 - Cloudflare Workers：走 Pyodide/WASM，仅支持纯 Python/PyEmscripten 包，APIFlask 未在其官方支持列表，需重写 → 排除。
 - 腾讯云轻量香港 VPS：可行但要自己管服务器，且多了单独一台机器 → 不如同生态 EdgeOne 省心。
 - 国内轻量云 + 备案：最便宜但用户域名未备案（需 ~10–20 天）→ 暂不选。
@@ -39,6 +40,7 @@
 ## 1. 目标与约束
 
 **目标**
+
 1. 让 fundmate 的 API 在公网可用（当前只在本地开发态）。
 2. 把"完全自动化采集二鸟说"（WeChatRSS 的 GitHub Action）的数据，回写到 fundmate 并出 API。
 3. 不重写任何业务逻辑（保住 APIFlask + SQLAlchemy 现有代码）。
@@ -46,6 +48,7 @@
 5. 能绑域名、国内访问快、尽量免费。
 
 **硬约束（来自用户）**
+
 - 不重写逻辑（APIFlask 必须原样跑）。
 - 域名当前未备案 → 不能走"大陆加速区 + 自定义域名"路径。
 - 不想买云数据库（成本敏感）→ 用免费层（Supabase/Turso）。
@@ -105,6 +108,7 @@
 **关于"并发必须用 Postgres"的澄清**：SQLite（含 Turso/libSQL）在 WAL 模式下单服务器可扛 ~10 万读/秒、数千写/秒，唯一硬限是"同时一个写者"。fundmate 是读多写少（98%+ 读）的个人应用，二鸟每周仅 1 次写。因此**并发不是上 Postgres 的理由**；Postgres 只在"serverless 无盘宿主"或"高并发写/多节点分布式"时才必需——本项目两者都不沾。双库是为了**按归属与体量分别用最合适的免费层**，而非为并发。
 
 **关于"数据量 vs 免费额度"的实测（2026-08-01，决定性）**：当前本地 `backend/invest.db` **实测 1.8 GB**（另有 1.6 GB WAL 临时文件），是用户数据 + 市场数据混装的单一库。据此：
+
 - **Supabase 免费额度 500MB 装不下 1.8GB** → 市场数据**不能**放进 Supabase，必须另寻 9GB 免费的 Turso。用户"Supabase 装不下"的判断正确。
 - **Turso 免费 9GB 装 1.8GB 绰绰有余** → 市场域（基金净值/基金基本信息/股票基本信息/行情/温度等）归 Turso。
 - 拆分后用户域（个人账本/持仓/交易/自选）体量仅 MB 级，落 Supabase 500MB 内毫无压力。
@@ -211,10 +215,12 @@ def init_db():
 > 操作：把每个文件里的 `from app.core.database import Base, PrimaryKeyMixin, TimestampMixin` 改为 `from app.core.database import UserBase, PrimaryKeyMixin, TimestampMixin`（市场域改 `MarketBase`）；类定义 `class X(Base, ...)` 改为 `class X(UserBase, ...)`（`MarketBase`）。`PrimaryKeyMixin` / `TimestampMixin` 不动（不依赖具体 Base）。**每个模型模块都必须在应用启动时 import 一次**，确保 `UserBase`/`MarketBase` 的 `metadata` 收集齐全部表（见 §4.4）。
 
 ### 4.3 调用点改造 + 跨库 join 处理
+
 - 现有视图里 `from app.core.database import get_db` 的地方，按它访问的表所属域，换成 `get_user_db()` 或 `get_market_db()`。
 - `init_db()` 调用处（应是 `create_app` 启动时）无需改逻辑，已同时建两张元数据。
 
 **跨库 SQL join 唯一风险点（已全代码扫描确认）**：
+
 - `app/services/importer/orchestrator.py` 的 `_match_fund_by_name`（约 374、384 行）用**单一 `self.db`** 做 `Fund`（市场域）JOIN `Position` / `WatchlistItem`（用户域）。双库后单一会话无法跨引擎 join，**必须拆成两个会话分别查询再用 symbol 在 Python 层合并**：
   - 市场查询：`market_db.query(Fund.fund_code).filter(Fund.name.ilike(...))`
   - 用户查询：`user_db.query(Position.symbol)` / `user_db.query(WatchlistItem.symbol)`
@@ -246,6 +252,7 @@ def app(monkeypatch):
 ```
 
 **双引擎后 conftest 必须同步改造**（否则测试只覆盖单库、且 `UserBase`/`MarketBase` 元数据未建）：
+
 1. 建两个内存引擎 + 两个 TestSession：`user_test_engine` / `market_test_engine`，分别 `UserBase.metadata.create_all` / `MarketBase.metadata.create_all`。
 2. monkeypatch 覆盖 **4 个符号**（不是 2 个）：
    - `app.core.database.user_engine` → `user_test_engine`
@@ -265,7 +272,9 @@ def app(monkeypatch):
 `backend/app/core/db_utils.py` 已有方言分支基础，但仍有两个点需为 Turso/libSQL 补齐：
 
 ### 5.1 `bulk_insert_if_not_exists`
+
 当前：
+
 ```python
 dialect_name = db.bind.dialect.name
 if dialect_name == 'postgresql':
@@ -273,17 +282,21 @@ if dialect_name == 'postgresql':
 else:
     stmt = model.__table__.insert().prefix_with('OR IGNORE').values(batch)  # 走 SQLite 分支
 ```
+
 - libSQL 是 SQLite 兼容分支，**若其 dialect.name 是 `'sqlite'` 则已覆盖**；
 - 若 `sqlalchemy-turso` 注册的 dialect.name 是 `'libsql'` / `'turso'`，需把该分支条件改为 `if dialect_name in ('postgresql',): ... else: ...`（即非 Postgres 全走 `INSERT OR IGNORE`，libSQL 支持）。
 - **验证点**：装好 `sqlalchemy-turso` 后打印 `engine.dialect.name` 确认。
 
 ### 5.2 `SafeNumeric.process_bind_param`
+
 当前：
+
 ```python
 if dialect.name == 'sqlite':
     return float(value)
 return value  # Postgres 等用 Decimal
 ```
+
 - libSQL/Turso 接收数值型；为稳妥，将条件改为 `if dialect.name in ('sqlite', 'libsql', 'turso'): return float(value)`，避免严格模式下类型不匹配。
 - **验证点**：同上，确认 dialect.name 后对齐。
 
@@ -348,7 +361,9 @@ def erniao_sync():
 ```
 
 ### 6.3 注册蓝图
+
 在 `backend/app/main.py` 的 `create_app()` 里（现有 `register_blueprint(thermometer_bp)` 附近）增加：
+
 ```python
 from app.domains.internal.views import internal_bp
 app.register_blueprint(internal_bp)
@@ -359,10 +374,13 @@ app.register_blueprint(internal_bp)
 ## 7. EdgeOne Pages 部署
 
 ### 7.1 为什么能原样跑 APIFlask
+
 EdgeOne Pages **Python 运行时原生支持 WSGI（Flask/Django）与 ASGI（FastAPI/Sanic）**，框架自动检测、无需额外配置（官方文档 `edgeone.ai/document/205713904659333120`）。因此 `create_app()` 产出的 APIFlask `app` 对象可直接作为 WSGI 入口部署，**业务逻辑零改动**。
 
 ### 7.2 项目结构（两种可选，推荐 A）
+
 - **方案 A（最小改动，✅ 已选）**：把 fundmate 后端作为**一个独立后端项目**部署到 EdgeOne Pages，用 WSGI 模式暴露 `app`。目录：
+
   ```plain
   fundmate-backend/                # 部署到 EdgeOne Pages 的项目根
   ├── app.py                       # WSGI 入口：from app.main import create_app; app = create_app()
@@ -374,18 +392,22 @@ EdgeOne Pages **Python 运行时原生支持 WSGI（Flask/Django）与 ASGI（Fa
         ├── domains/...
         └── ...
   ```
+
   EdgeOne 检测到 WSGI `app` 后自动挂载，路由沿用 APIFlask 的 `/api/...`。
 - **方案 B（全栈同仓，❌ 已否）**：把后端 `cloud-functions/api/` 并入现有前端 EdgeOne 项目——**用户已明确"后端独立部署，不与前端同项目"**，故 B 排除。
 
 > **已确认（2026-08-01）**：后端代码独立部署，**不与前端同项目**（选方案 A，独立 EdgeOne 后端项目）。代码落盘 = 新建独立 EdgeOne 项目根，搬入 `backend/` + `app.py` WSGI 入口；前端仍留在现有 EdgeOne 前端项目。
 
 ### 7.3 本地调试与部署
+
 - 本地：`edgeone makers dev`（EdgeOne CLI）启动本地服务调试函数。
 - 部署：推送到 Git 仓库 → EdgeOne Makers 自动构建 + 发布（Git 集成）。
 - 环境变量 / Secrets：在 EdgeOne 项目设置里配置 `SUPABASE_URL` / `SUPABASE_DB_PASSWORD` / `TURSO_URL` / `TURSO_TOKEN` / `ERNIAO_SYNC_TOKEN`（见 §9）。
 
 ### 7.4 依赖（部署用 requirements.txt）
+
 在部署项目的 `requirements.txt` / `pyproject.toml` 中确保包含：
+
 ```plain
 apiflask
 sqlalchemy
@@ -400,6 +422,7 @@ sqlalchemy-libsql       # 纯 Python 方言适配器（py3-none-any），注册 
 ```
 
 > **✅ 实测定论（2026-08-01，更正此前误判）——市场域走 Turso 且【不改写任何 SQL】：**
+>
 > 1. `sqlalchemy-turso` 在 PyPI 不存在（已证实）；真实方言包是 **`sqlalchemy-libsql`**（纯 Python 适配器，注册 `libsql://` 方言），其依赖 `libsql-experimental`（libSQL 官方驱动）。
 > 2. **关键：该驱动有 Linux manylinux 轮子（cp310~cp313），但【无 Windows 轮子】。** 结论与之前相反：
 >    - **prod（EdgeOne Pages = Linux x86_64）能正常安装运行** → ORM 经 `libsql://` 方言直连 Turso 成立 → **"APIFlask 用 SQLAlchemy ORM 不改写、直接连 Turso" 在部署目标上可行**。
@@ -423,6 +446,7 @@ from app.domains.temperature.models import MarketSingleValue, MarketComposite, M
 ```
 
 要点：
+
 - fundmate 当前用 `init_db()`（`create_all`）建表，**没有 Alembic 历史** → 首次对 Supabase/Turso 跑 `init_db()` 即可自动建表，无需迁移工具。
 - 迁移脚本用旧 SQLite 引擎读取、用新云引擎 `bulk_insert_if_not_exists` 写入（复用 §5 的方言兼容逻辑）。
 - 二鸟数据在 WeChatRSS 侧（`data/er-niao/index.json`），可在迁移后由首次 sync 端点灌入，不必从 fundmate 旧库迁。
@@ -465,14 +489,17 @@ from app.domains.temperature.models import MarketSingleValue, MarketComposite, M
 > 旧的单文件 `backend/.env` 在改造后**退役**：其生产真值并入 `.env.production`，开发值并入 `.env.development`。
 
 **环境选择机制（恰好 3 文件）**
+
 - 引入 `APP_ENV` 变量，**默认 `development`**。
 - `main.py` 把 `load_dotenv()` 改为：
+
   ```python
   import os
   from dotenv import load_dotenv
   ENV = os.getenv('APP_ENV', 'development')
   load_dotenv(f'.env.{ENV}', override=True)   # CI / EdgeOne 用真实环境变量 APP_ENV=production 盖过文件默认
   ```
+
 - `database.py` 顶部读 `APP_ENV` 决定引擎（见 §4.1 草图扩展）：
   - `test` → 两个引擎均 `sqlite:///:memory:` + `StaticPool`（无需 `.env.test` 写 DB URL）
   - `development` → `user_engine` = `postgresql://postgres:postgres@localhost:5432/fundmate_dev`（Docker PG）；`market_engine` = `sqlite:///./dev_market.db`（WAL）
@@ -480,6 +507,7 @@ from app.domains.temperature.models import MarketSingleValue, MarketComposite, M
 - 各环境变量仍可被真实进程环境变量覆盖（EdgeOne / CI 设 `APP_ENV=production` + 直接注入 Secrets，不必依赖文件）。
 
 **配套修正**
+
 1. `main.py` 第 48 行硬编码 `app.config['DEBUG'] = True` → 改为 `app.config['DEBUG'] = (ENV != 'production')`。
 2. `conftest.py` 顶部加 `os.environ.setdefault('APP_ENV', 'test')`（在 import `app` 之前），内存引擎由 `database.py` 的 test 分支自建；`create_all` 跑在内存引擎上，`db()`/`clean_db()` fixture 改用 `user_session`/`market_session`。双引擎后 monkeypatch 覆盖 4 个符号（见 §4.4）。
 3. `.gitignore` 增加 `backend/.env.*`（注意保留 `.env.example` 不被忽略）；root `.gitignore` 已有 `frontend/.env.development` 等先例可参照。
@@ -492,16 +520,21 @@ from app.domains.temperature.models import MarketSingleValue, MarketComposite, M
 ## 10. 二鸟采集策略（降级机制 + 下一步优化）
 
 ### 10.1 现状：雪球镜像已全自动跑通（默认路径）
+
 WeChatRSS 的 `analyze.py` + `erniao.py` 插件**当前已实测跑通**：云端 WebFetch 抓雪球全文 → 火山 Ark 结构化 → 写 `data/er-niao/index.json`（source_url 用雪球镜像链接）。GitHub Action 定时（07:00/19:00 北京）运行，**无需任何微信登录态**，零凭证维护成本。这条就是生产默认链路。
 
 ### 10.2 微信自动抓取（MP_COOKIE/MP_TOKEN）：判为不可行，弃用
+
 `gen_rss.py` 走 `mp.weixin.qq.com` 的 `getmsg` 搜索接口需要登录态（`data_ticket`/`slave_sid`），而**登录票据几小时~数日即过期**，塞进 GitHub Secrets 后必然周期性失效、Action 跑空。这与"完全自动化"目标冲突 → **不作为正式链路**，仅保留为可选实验。
 
 ### 10.3 降级机制（实现要点）
+
 `gen_rss.py` / `analyze.py` 必须支持：**未配置或配置不合法的微信凭证时，直接走雪球镜像方案**，不报错、不中断。当前 `gen_rss.py` 在缺 `MP_COOKIE` 时已优雅跳过（生成空订阅源），需保持此行为并把雪球链路作为唯一稳定产出源。
 
 ### 10.4 下一步优化（绕开 token）：前端提交微信 URL + Edge function
+
 既然每过一段时间就要登录的 token 路不现实，**改用"人肉提交 + 服务端解析"**：
+
 - 前端做一个表单：用户把某期二鸟说的**微信原文分享链接**（`mp.weixin.qq.com/s?__biz=...`）贴进来提交。
 - EdgeOne Pages Function（如 `/api/erniao/submit`）接收 URL → 服务端 `fetch` 该**单篇**文章页（单篇微信文章 URL 公开可读，**不需要登录态**；只有"搜索/列表"接口才要 cookie）→ 抽取标题/正文 → 调 Ark 结构化 → 经 `X-Sync-Token` 写入 `/api/internal/erniao/sync`（复用 §6 端点）。
 - 这样完全绕开 token 维护，且拿到的是真·微信原文链接（取代雪球镜像链接）。
@@ -509,6 +542,7 @@ WeChatRSS 的 `analyze.py` + `erniao.py` 插件**当前已实测跑通**：云�
 > 风险：mp.weixin.qq.com 单篇抓取偶发反爬/验证页；若解析失败，仍可只存提交的微信 URL、内容回退雪球镜像。列为 P6 优化项，不阻塞 P0–P5。
 
 ### 10.5 WeChatRSS Action 接回写（默认链路落地）
+
 在 `rss.yml` 于 `analyze.py` 产出 `data/er-niao/index.json` 之后，增加一步 POST 到 fundmate：
 
 ```yaml

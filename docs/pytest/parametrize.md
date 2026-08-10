@@ -1,6 +1,7 @@
 ---
 title:参数化(parametrize)
 ---
+
 ## 参数化
 >
 > 前面简单的提到过了@pytest.mark.parametrize 通过参数化测试，而关于固件传入参数时则需要通过 pytest 框架中内置的固件 request，并且通过 request.param 获取参数

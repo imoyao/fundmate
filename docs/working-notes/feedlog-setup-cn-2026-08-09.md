@@ -56,6 +56,7 @@ wrangler secret put OPENAI_TEXT_MODEL  # glm-4-flash（免费）
 ### GitHub OAuth 登录
 
 在 GitHub `Settings → Developer settings → OAuth Apps` 创建应用：
+
 - Homepage URL: `https://你的域名`
 - Callback URL: `https://你的域名/api/auth/callback/github`
 
@@ -88,6 +89,7 @@ wrangler secret put BETTER_AUTH_URL
 ## 第五步：品牌定制
 
 修改 `app.config.ts` 或通过管理后台：
+
 - 站点名称：多倍贝反馈中心
 - Logo：上传 `branding/` 目录下的 logo
 - 主题色：`#10B981`（多倍贝品牌绿）
@@ -97,12 +99,14 @@ wrangler secret put BETTER_AUTH_URL
 详见 fundmate 仓库的 `.github/workflows/bridge-feedback.yml`。
 
 需要在 dbb-feedback 仓库设置 secret：
+
 ```bash
 gh secret set DATABASE_URL --repo imoyao/dbb-feedback
 # 填入 PostgreSQL 直连串（不是 Hyperdrive ID）
 ```
 
 需要在 fundmate 仓库设置 secrets：
+
 ```bash
 gh secret set FEEDLOG_DATABASE_URL --repo imoyao/fundmate
 # 同上，桥接脚本用同一个数据库连接串
@@ -111,21 +115,27 @@ gh secret set FEEDLOG_DATABASE_URL --repo imoyao/fundmate
 ## 常见问题
 
 ### Q: Hyperdrive 连接不上？
+
 确认 PostgreSQL 端已开启 `vector` 扩展：
+
 ```sql
 CREATE EXTENSION IF NOT EXISTS vector;
 ```
 
 ### Q: 首次访问 500 错误？
+
 检查 Cloudflare Workers Logs（`wrangler tail`），常见原因：
+
 - `DATABASE_URL` 格式错误或网络不通
 - `pgvector` 扩展未安装
 - Secret 未设置（`BETTER_AUTH_SECRET` 为空）
 
 ### Q: 用户无法提交反馈？
+
 检查看板设置中「公开发布」是否开启。FeedLog 默认需要登录才能提交，需手动改为公开模式。
 
 ### Q: 如何从 SaaS 版迁移数据？
+
 自部署版没有 SaaS 数据导入功能。如果之前用了 feedlog.ai 的免费版，需要手动导出后通过 SQL 导入 PostgreSQL。官方目前未提供导出工具。
 
 ## 维护

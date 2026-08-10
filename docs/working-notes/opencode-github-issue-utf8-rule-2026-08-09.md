@@ -1,7 +1,7 @@
 # OpenCode 通过 GitHub API 创建 issue 的编码规范（必读）
 
 > 适用对象：任何以 `imoyao` 账号调用 GitHub API / `gh`` 创建 issue、discussion、PR 的自动化通道（含 OpenCode、远程 agent）。
-> 背景：2026-08-09 发现 #859–#862 四个 issue 标题为中文乱码（`?????(?? Discussion #152 ????)`，中文全部变成 `?`），系创建时未正确处理 UTF-8 编码所致。已改写成干净中文 issue 并补交叉引用。
+> 背景：2026-08-09 发现 #859–#862 四个 issue 标题为中文乱码（`?????(?? Discussion #152 ????)`，中文全部变成`?`），系创建时未正确处理 UTF-8 编码所致。已改写成干净中文 issue 并补交叉引用。
 
 ## 问题根因
 

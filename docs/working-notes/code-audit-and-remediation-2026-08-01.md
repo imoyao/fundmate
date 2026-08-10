@@ -16,8 +16,8 @@
 ---
 
 <a id="sec1"></a>
-## 1. 代码问题审查（初版 2026-07-31）
 
+## 1. 代码问题审查（初版 2026-07-31）
 
 - **日期**：2026-07-31
 - **审查范围**：`backend/app/`（后端 124 个 `.py`）与 `frontend/src/`（前端 205 个 `.vue`/`.ts`）
@@ -42,9 +42,11 @@
 ## 一、🔴 严重问题（必须立即决策/处理）
 
 ### 1.1 云端后端（Supabase）与「本地优先、不上云」硬性规范冲突  【合规风险】
+
 **违反**：SPEC §1.1、§2.1（核心原则：数据绝对私有、全量本地 SQLite、不上云、不采集）。
 
 **证据**：
+
 - `frontend/src/utils/supabase.ts:1-7` —— 用 `createClient(VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY)` 建立**云端**数据库连接。
 - `frontend/src/composables/useSupabaseAuth.ts` 全文件 —— 基于 Supabase 实现 `signUp/signIn/signOut/getSession`，并包含 `migrateExploreData()` 将本地「探市」持仓**写入 Supabase 云端表**（`watchlist_items`/`watchlist_groups`）。
 - `frontend/src/App.vue:13,22,25` —— `useSupabaseAuth().initAuthListener()` 在应用启动即激活云端认证监听。
@@ -53,6 +55,7 @@
 - `frontend/src/components/Watchlist/SettingsDrawer.vue:222-224` —— 使用 Supabase 做「探市数据迁移」。
 
 **影响**：
+
 1. 与项目对外承诺的「绝对数据主权、不上云」构成**直接矛盾**，存在合规与用户信任风险。
 2. 引入外部云依赖后，本地离线可用性、隐私边界、第三方数据泄露面都发生变化，而 SPEC 未授权该架构。
 3. 登录/登出链路被云端账号耦合，若未配置 Supabase 环境变量，核心体验可能异常。
@@ -60,6 +63,7 @@
 **建议**：作为**最高优先级决策项**——要么（A）在 SPEC 中明确授权「探市」等社交功能使用云端、并界定本地记账数据永不触云；要么（B）将 Supabase 限制为可选/可关闭的扩展功能（环境变量开关 + 未配置时完全不初始化），核心记账保持纯本地。无论哪种，都需补一条 SPEC 决策记录。
 
 ### 1.2 项目源码零自动化测试，违反 SPEC §2.5 强制测试规范  【正确性风险】
+
 **违反**：SPEC §2.5（新增/重构接口必须覆盖增删改查、边界、空值、异常、权限分支；提交前 pytest 全量通过方可合并）。
 
 **证据**：全盘扫描 `backend/`，所有 `test_*.py`/`conftest.py` 均位于 `backend/.venv/Lib/site-packages/`（第三方包），**项目自身 `backend/app/` 下无任何测试目录或用例**。SPEC 正文（如 §10）反复引用 `test_ths_otc_cash_format`、`watchlist_service` 测试等，但当前仓库均无对应实现。
@@ -73,11 +77,13 @@
 ## 二、🟠 高优先级问题
 
 ### 2.1 视图层过重，违反「薄视图、厚服务」架构边界  【架构】
+
 **违反**：SPEC §2.2（薄视图、厚服务）、§4.4（重构彻底性）、§15.3（精准修改）。
 
 **证据**（views 中直接 `db.query` 次数）：`watchlist/views.py:26`、`ledgers/views.py:25`、`strategy/views.py:11`、`positions/views.py:10`、`portfolios/views.py:8`、`assets/views.py:6`、`transactions/views.py:2`。
 
 典型病症 —— `backend/app/domains/positions/views.py`：
+
 - `list_positions()`（:47-104）内联 ORM 查询、原生 SQL 聚合（首次买入确认日）、并**手动拼装响应 dict**，与 `enrich_position_dict()`（:25-36）逻辑大量重复（DRY 违反）。
 - `get_position_transactions()`（:107-145）同样在视图里写 SQL + 手工 dict。
 - `:110` 混用 `Position.query.get(id)`（Flask-SQLAlchemy 查询接口）与 `with get_db() as db:` 会话，存在会话边界隐患（见 4.4）。
@@ -87,9 +93,11 @@
 **影响**：业务逻辑与路由耦合，重构/单测困难，易 reintroduce Bug；与 SPEC 宣称的架构不一致。
 
 ### 2.2 统一响应契约 `{data, message}` 被 `abort()` 绕过  【契约/UX】
+
 **违反**：SPEC §1.3（统一手动返回 `{data, message}`）、决策记录 2026-06-14「将所有 abort 替换为 jsonify」。
 
 **证据**：
+
 - 全代码约 **70 处 `abort(...)`**（如 `positions/views.py:112,176,201,224`；`watchlist/views.py` 大量；`ledgers/views.py` 大量）。
 - `backend/app/main.py:87-134` 注册的错误处理器仅覆盖 `SBException`/`ValueError`/404/500，**未覆盖 `abort()` 抛出的 `HTTPException`**。因此 `abort(400, msg)` 走 APIFlask 默认错误体（含 `message` 但**无 `data` 字段**），而前端 `api/*` 与组件普遍假设 `{data, message}` 结构（见 `frontend/src/api/watchlist.ts`、`http/index.ts` 直接返回 `response.data`）。
 
@@ -98,7 +106,9 @@
 **建议**：统一封装 `error_response(message, code)` 替代所有 `abort()`；或在 `main.py` 增加 `@app.errorhandler(HTTPException)` 全局兜底，将其重写成 `{data:null, message:...}`。
 
 ### 2.3 同一端点返回异构响应结构  【契约】
+
 **证据**：`backend/app/domains/positions/views.py`：
+
 - `group_by=account` 分支返回 `{'data': {账户: [...]}}`（:99，dict）；
 - 分页分支返回 `{'data': [...], 'total','page','per_page'}`（:104，list）。
 
@@ -109,9 +119,11 @@
 ## 三、🟡 中优先级问题
 
 ### 3.1 前端硬编码十六进制色值 + 涨绿跌红语义反向  【规范/正确性】
+
 **违反**：SPEC §3.1（禁止 `#xxxxxx` 硬编码，全部用语义变量）、§3.12（禁止直接调 `--brand-*`）、金融语义「涨红跌绿」。
 
 **证据与重点**：
+
 - **语义反向（正确性 Bug）**：`frontend/src/views/account/InvestmentAnalysis.vue:113`
   `color: (params) => (params.value >= 0 ? "#22c55e" : "#ef4444")` —— 盈利用**绿色(#22c55e)**、亏损用**红色(#ef4444)**，与 SPEC「红=涨/盈利、绿=跌/亏损」**正好相反**。同文件 :138-142 图表配色亦为硬编码 hex。
 - 大量硬编码 hex：`AccountOverview.vue:2,224`、`SystemSettings.vue:226`、`AssetManagement.vue:322,465`、`layout/index.vue:33,62,245`、`lay-setting/index.vue` 多行、`explore/index.vue` 多行、`RealtimeStatusIndicator/index.vue:80`（注释里直接写 `#7BC49A`）。
@@ -119,9 +131,11 @@
 - 正面：`MoneyDisplay/index.vue`、`RiseFallText/index.vue` 已正确使用 `var(--color-rise, #e34f38)` / `var(--color-fall, #7bc49a)`，组件本身是对的——问题在**没被全站采用**（见 3.2）。
 
 ### 3.2 金额/涨跌幅未统一使用 `MoneyDisplay` / `RiseFallText`  【规范红线】
+
 **违反**：SPEC §3.11.1/§3.11.2 红线「所有金额/收益率展示必须使用组件，禁止手写格式化」。
 
 **证据**（手写 `toLocaleString()`/`toFixed()`/`±`）：
+
 - `TransactionList.vue:134,139,208,239,245`
 - `strategies/index.vue:38,44,59,62,94,100,108`
 - `ledgers/index.vue:69,73,76,119,139,156,202,237,256,275`
@@ -132,11 +146,13 @@
 **影响**：手写格式化无法保证与 `MoneyDisplay` 完全一致的千分位/符号/涨跌色，且 `strategies`/`portfolio/detail` 自行判断正负并上色，存在与「涨红跌绿」再次不一致的风险；违反 SPEC 编码红线。
 
 ### 3.3 `ProductDisplay` 复合列未全站覆盖  【规范】
+
 **违反**：SPEC §3.8 / §3.11.4（资产/持仓表格「名称+代码+类型」复合列必须用 `ProductDisplay`）。
 
 **证据**：`ProductDisplay` 仅被 `inventory`、`ledgers/detail`、`watchlist`、`AssetPanorama` 使用；而 `strategies/index.vue`、`portfolio/detail.vue`、`TransactionList.vue` 的持仓/资产表格**疑似手写**产品单元格（无 `ProductDisplay` 导入）。需进一步确认，但按现有证据属于覆盖缺口。
 
 ### 3.4 `usePageRefresh` 未覆盖全部数据页  【规范】
+
 **违反**：SPEC §3.11.5 / §10（新增页面必须接入，目前仅账户详情页与全面盘点页）。
 
 **证据**：仅 `ledgers/index.vue:539`、`ledgers/detail.vue:1198` 使用；自选、交易流水、仪表盘等数据页未接入。记账后这些页面可能出现「数据不刷新」的老问题复现。
@@ -146,20 +162,25 @@
 ## 四、🟢 低优先级 / 技术债
 
 ### 4.1 `portfolio/detail.vue` 组件内直连 http  【规范】
+
 **违反**：SPEC §4.5（所有请求封装在 `src/api`）。
 **证据**：`frontend/src/views/asset/portfolio/detail.vue:351` `const res = await http.request("get", "/api/performance/xirr/", {...})`。应下沉到 `api/performance.ts`（该文件已存在对应封装，却未复用）。
 
 ### 4.2 残留 SQL 市值聚合  【技术债】
+
 **证据**：`backend/app/services/ledger_service.py:237` `order_by(desc(Position.current_price * Position.quantity / 10000.0))`。
 **说明**：当前单位下 `/10000` → 分，与 `Money.multiply_price_quantity`（同除 10000）**数值一致**，**并非**历史「100 倍放大」Bug（该 Bug 已在服务层修复）。但 SPEC §10/决策 2026-06-18 明确要求「移除所有 SQL 市值聚合、统一 Python 聚合」，此处属于**未清理干净**的残留，存在单位口径漂移时的隐性风险。
 
 ### 4.3 `DEBUG=True` 与 `CORS='*'`  【运维/安全】
+
 **证据**：`backend/app/main.py:47` `app.config['DEBUG'] = True`；`:57-61` 默认 `CORS origins='*'`。本地个人工具风险可控，但属不应提交到非本地环境的状态，建议用环境变量约束。
 
 ### 4.4 会话混用 `Position.query.get()` 与 `get_db()`  【健壮性】
+
 **证据**：`positions/views.py:110` 在 `with get_db() as db:` 内调用 `Position.query.get(id)`。两套查询接口可能绑定不同 Session，存在「对象附加到另一会话」的潜在异常。建议统一用 `db.get(Position, id)`。
 
 ### 4.5 新功能（探市/涨跌温度）SPEC 漂移  【治理】
+
 `explore/`、`temperature/` 域及「探市」社交能力在 SPEC 中无对应章节，且探市依赖云端 Supabase（与 1.1 关联）。建议要么补入 SPEC 决策记录，要么收缩范围，避免规范与实现持续脱节。
 
 ---
@@ -177,10 +198,12 @@
 ## 六、下一步工作优先级与计划（按 SPEC §9.1 四象限）
 
 ### 🔴 第一象限｜重要且紧急（建议 48h 内闭环）
+
 1. **决策 Supabase 云端定位（1.1）**：与用户确认「探市」云端功能是否授权；输出 SPEC 决策记录；未配置环境变量时禁止初始化云端客户端，确保核心记账零云依赖。
 2. **建立测试地基（1.2）**：补齐 `Money` 换算、持仓买卖合并、费率估算、XIRR 的最小测试集 + `conftest` 内存 SQLite fixture；CI 强制 pytest。
 
 ### 🟠 第二象限｜重要不紧急（固定排期）
+
 3. **统一错误响应（2.2）**：封装 `error_response()` 替换全部 `abort()`，或在 `main.py` 增加 `HTTPException` 兜底，保证 `{data, message}` 契约一致。
 4. **视图层瘦身（2.1）**：将 `positions/views.py`、`watchlist/views.py`、`ledgers/views.py` 中的内联 ORM/SQL/手工 dict 抽取到对应 Service；消除 `enrich_position_dict` 与内联逻辑的重复。
 5. **规范端点响应结构（2.3）**：`list_positions` 的 `group_by` 与分页统一为同一信封结构（或拆为独立端点）。
@@ -191,11 +214,13 @@
    - 新数据页接入 `usePageRefresh`（3.4）。
 
 ### 🟡 第三象限｜不重要但紧急（极简快速修）
+
 7. `portfolio/detail.vue:351` 改用 `api/performance.ts` 封装（4.1）。
 8. `positions/views.py:110` 改用 `db.get(Position, id)`（4.4）。
 9. `DEBUG`/`CORS` 改用环境变量约束（4.3）。
 
 ### 🟢 第四象限｜不重要不紧急（延后归档）
+
 10. 清理 `ledger_service.py:237` 残留 SQL 聚合（4.2）。
 11. 将 `explore`/`temperature` 纳入 SPEC 或收缩范围（4.5）。
 12. 端到端验证 UI 暗色模式与「涨红跌绿」一致性（SPEC §11）。
@@ -223,8 +248,8 @@
 ---
 
 <a id="sec2"></a>
-## 2. 代码问题审查（深化版 2026-08-01）
 
+## 2. 代码问题审查（深化版 2026-08-01）
 
 > 本文是对 `2026-07-31` 初稿的**修订与深化**。初稿有两处事实性误判，已在此更正（见 §0）。
 > 审查对象：后端 `backend/app/`（V2 目标架构）、前端 `frontend/src/`、以及与代码现状的偏差。
@@ -266,6 +291,7 @@
 ### 🔴 严重（必须立即决策/处理）
 
 **S1. 双代码库：部署(V1) 与 测试目标(V2) 错位 —— 头号架构风险**
+
 - 证据：`autoapp.py:4`（V1）、`app/main.py:39`（V2）、`app/` 与 `fundmate/` 并存；两套 conftest（`conftest.py`→V2，`conftest_fm.py`→V1）。
 - 影响：SPEC 描述的是 V2 架构，但线上仍是 V1；V1 含真实 `NameError`，且无人用测试护航。规范与现状严重脱节。
 - **优化建议**：
@@ -274,12 +300,14 @@
   3. 设定清除 `fundmate/` 的时间盒（SPEC §4.7），迁移完成即删除，杜绝双代码库长期共存。
 
 **S2. 遗留 V1 `fundmate/errors.py:201` NameError（真实缺陷）**
+
 - 证据：`:201/:206/:211/:216` 四个类均继承未定义的 `HTTPUserInputError`。
 - **优化建议**：定义 `class HTTPUserInputError(ThirdPartError)` 或在 `fundmate/errors.py` 顶部补齐基类；加一个 `import` 冒烟测试防止回归。
 
 ### 🟠 高（影响契约一致性 / 正确性保障）
 
 **H1. 错误响应契约不统一（~65 处 `abort()` 绕过 `{data,message}` 信封）**
+
 - 证据：`app/` 内 `abort()` 计数：watchlist 21、ledgers 14、importers 7、positions 5、portfolios 5、strategy 4、assets 3、utils 3、performance 3（共 65）。
 - 根因 1：`app/main.py:87` 的 `register_error_handlers` **只在模块级 `app` 上调用（`:138`），并未放进 `create_app()` 内部**。因此测试客户端 `create_app()` 得到的实例**完全没有自定义错误处理器**，错误退回 APIFlask 默认体（缺 `data`/`error_code`）。
 - 根因 2：`abort()` 抛出 `HTTPException`，而 `main.py` 未注册 `HTTPException` 处理器，返回体无 `data` 字段，前端按 `{data,message}` 解析会丢提示。
@@ -290,6 +318,7 @@
   3. 逐步将 `abort()` 替换为抛 `SBException`（已有 `ErrorCode` 枚举），彻底统一。
 
 **H2. 视图层偏重 + 持仓表示双路径**
+
 - 证据：`positions/views.py:25` `enrich_position_dict` 定义在视图层；`list_positions` 的 `group_by=account` 分支（`:49-99`）**手写另一套 dict 拼装**，与 `enrich_position_dict` 逻辑重复、字段可能漂移。
 - 影响：同一资源两种序列化路径，极易出现“分组视图与分页视图字段不一致”。
 - **优化建议**：`group_by=account` 复用 `enrich_position_dict`；展示型转换统一下沉到 schema（`PositionOut`）或 service，视图只做编排。与 SPEC §2.2“薄视图厚服务”对齐。
@@ -297,19 +326,23 @@
 ### 🟡 中
 
 **M1. 前端涨绿跌红反向（演示页违规范）**
+
 - 证据：`views/account/InvestmentAnalysis.vue:58-69` 用 `text-green-600` 表示正收益、`text-red-600` 表示回撤；`:113` `params.value>=0 ? "#22c55e" : "#ef4444"`——**绿色=涨、红色=跌，与 SPEC §3.1“涨红跌绿”正好相反**；且硬编码 hex 违反 §3.1/§2.12（禁用 `#hex`、须用 `--color-rise/--color-fall`）。
 - 注：该页为硬编码数据的演示/占位页（日期写死 2023、数值写死），但作为仓库内样例会误导后续开发，且违反硬红线。
 - **优化建议**：改用 `MoneyDisplay`/`RiseFallText`（自带涨红跌绿）或 `--color-rise/--color-fall`；删除硬编码 hex 与 `#f5f5f5` 背景（`:224`）。
 
 **M2. 金额/涨跌组件未全量覆盖**
+
 - 证据：`TransactionList`、`strategies`、`ledgers`、`portfolio/detail` 等多页仍手写 `toLocaleString()`/`toFixed()`。
 - **优化建议**：按 SPEC §3.11 红线，全站替换 `MoneyDisplay`/`RiseFallText`；可由 ESLint 规则（`no-restricted-syntax` 禁 `toLocaleString` 出现在模板）兜底。
 
 **M3. 持仓身份解析脆弱（dual lookup）**
+
 - 证据：`position_service.py:164-177` 先按 `(symbol, ledger_id)` 找 `same`，再按 `(symbol, account_name)` 找 `existing_position`，两条路径可能指向不同记录，存在“同一标的建出重复持仓”的隐患。
 - **优化建议**：统一身份键（推荐 `ledger_id + normalized_symbol`），去掉冗余二次查询；缺失时显式报错而非静默新建。
 
 **M4. `get_positions_paginated` 全量加载两次（性能）**
+
 - 证据：`ledger_service.py:236-245` 先 `offset/limit` 取本页，又 `db.query(...).all()` 全量加载算 `total_mv`，O(n) 额外开销。
 - **优化建议**：用 `func.sum(Money.multiply_price_quantity(...))` 单条聚合 SQL 求总市值；`get_overview_stats`（`:26-41`）同样可在 SQL 层聚合，避免 Python 全表遍历。
 
@@ -337,6 +370,7 @@
 ## §4 下一步优先级与计划（对齐 SPEC §9.1 四象限）
 
 **第一象限｜重要且紧急（建议 48h 内闭环）**
+
 1. 修 `fundmate/errors.py:201` NameError（S2）—— 让 V1 测试至少能跑、消除线上隐患。
 2. 决策双代码库走向（S1）：明确 V2 是否接管 runtime；若接管，切换 `autoapp.py` 并跑绿 V2 测试。
 3. 把 `register_error_handlers` 移入 `create_app()`（H1 根因 1）—— 低成本修复错误契约。
@@ -371,8 +405,8 @@
 ---
 
 <a id="sec3"></a>
-## 3. V1（`backend/fundmate/`）退役清除分析
 
+## 3. V1（`backend/fundmate/`）退役清除分析
 
 > 评估对象:`backend/fundmate/`(V1 旧架构) 是否仍有存在必要
 > 对比基准:`backend/app/`(V2 重构版,见 SPEC)
@@ -399,11 +433,13 @@
 **V1 (`backend/fundmate/`) 没有必要继续存在,应按"受控退役"流程清除,而非盲目 `rm -rf`。**
 
 理由(证据见第 2 节):
+
 1. 整个开发生态——**前端 API 契约、README 启动命令、测试 conftest、数据库模型**——全部指向 V2。`autoapp.py` 指向 V1 只是过时入口。
 2. 前端 `src/api/` 的模块(positions/ledgers/portfolios/securities/temperature/strategy/summary/performance/importer/watchlist/assets)与 **V2 的 domains 一一对应**,而 V1 的蓝图是 `/accounts` `/collections` `/funds` `/users`——**前端根本不消费 V1 的接口**。
 3. V2 拥有**完全独立、不 import `fundmate` 的数据库模型与表结构**(assets/ledgers/positions/portfolios/transactions/securities/...),与 V1 的表(Account/Collection/Fund/InvestProduct/...)是两套管。
 
 **唯一需要前置处理再删的部分**(第 3 节):
+
 - V1 `data/` 子系统有 **11 个数据源 V2 尚未移植**(danjuan / chinawealth / dkhs / fundb / sipf / yzyx / jq / jsl / amac / tencentwm / ten_jqka),需做数据源覆盖审计后决定移植或正式废弃。
 - V2 的测试 `tests/libs/cal/test_rate_of_return.py` **import 了 `backend.fundmate.libs.cal`**,删除 V1 前必须把 `libs/cal` 迁入 V2 core。
 
@@ -412,6 +448,7 @@
 ## 2. 证据链
 
 ### 2.1 真实入口是 V2,`autoapp.py` 是陈旧残留
+
 | 证据 | 位置 |
 |---|---|
 | README 启动命令指向 V2 | `README.md:37` → `flask --app app.main:app` |
@@ -420,20 +457,24 @@
 | 无其它入口 | `backend/` 下无 `wsgi.py`/`manage.py`/`gunicorn.conf.py` |
 
 ### 2.2 前端契约 = V2,不消费 V1 接口
+
 - V1 蓝图前缀(`backend/fundmate/*/views.py`):`/accounts`、`/collections`、`/funds`、`/users`
 - 前端 `frontend/src/api/` 模块:`assets.ts`、`funds.ts`、`importer.ts`、`ledger.ts`、`performance.ts`、`portfolio.ts`、`positions.ts`、`securities.ts`、`strategy.ts`、`summary.ts`、`temperature.ts`、`transactions.ts`、`user.ts`、`watchlist.ts`
 - 结论:前端全部按 V2 的 domain 命名组织,**V1 的四个蓝图无人调用**。
 
 ### 2.3 V2 数据库模型完全独立
+
 - V2 表名(节选,`backend/app/**/models.py`):`assets` / `ledgers` / `positions` / `portfolios` / `transactions` / `securities` / `price_history` / `watchlist*` / `strategy_tags` / `market_composites` / `fund_companies` / `fund_managers` ...
 - V1 表名(节选):`Account` / `AccountTransactionRecord` / `Collection` / `CategoriesOfCollection` / `Fund` / `Manager` / `InvestProduct` / `FeeRatio` ...
 - V2 的 `app/models/` **没有任何文件 import `fundmate`**(已 grep 确认)→ 两套独立 schema。
 
 ### 2.4 测试指向 V2,但存在一处耦合
+
 - 激活的 `backend/tests/conftest.py` → `backend.app.main.create_app`(V2)。`conftest_fm.py`(V1)不被 pytest 自动发现。
 - **耦合点**:`backend/tests/libs/cal/test_rate_of_return.py:14` → `from backend.fundmate.libs.cal import rate_of_return`。V2 测试依赖 V1 的 `libs/cal`,删除前需迁移。
 
 ### 2.5 V1 体量(量化)
+
 - `backend/fundmate/` 共 **157** 个 `.py` 文件。
 - `data/` 子系统 **66** 个 `.py`,覆盖 **20+** 外部数据源(见第 3.1 节列表)。
 - `migrations/` 仅 **1** 个版本文件,且 `env.py:98` 引用 `backend.fundmate.custom_sql_types` 与 `backend.migrations.choices`(V1 schema 绑定)。V1 实际用 `commands.py:39,47` 的 `db.drop_all()+create_all()` 管 schema(破坏性,见第 4 节)。
@@ -443,6 +484,7 @@
 ## 3. 删除前必须处理的部分(Load-bearing)
 
 ### 3.1 V1 `data/` 数据源覆盖缺口
+
 对 V1 的 20+ 数据源逐一在 `backend/app/` 检索引用(grep 计数):
 
 | 数据源 | V1 提供 | V2 是否覆盖 | 备注 |
@@ -470,10 +512,12 @@
 > 注:上表"V2 覆盖"为代码引用计数代理,非功能等价证明。由于**前端契约已是 V2 且 V2 自有 `market_composites`/`strategy` 表**,蛋卷/且慢等"组合"能力大概率为 V2 已内置;但 dkhs 费率、chinawealth 理财净值等**可能仍有独立用途**,需做一次性数据源用途审计后再决定移植或废弃。
 
 ### 3.2 `libs/cal`(收益率计算)被 V2 测试引用
+
 - `backend/tests/libs/cal/test_rate_of_return.py` 直接 import `backend.fundmate.libs.cal`。
 - 处置:把 `fundmate/libs/cal/` 整体迁入 `backend/app/core/cal/`(或 `backend/app/libs/cal/`),更新该测试 import,再删 V1。
 
 ### 3.3 `migrations/` 与 V1 schema 绑定(可随 V1 一同删除)
+
 - V1 `migrations/` 仅 1 个版本文件,且 `env.py` 硬编码引用 `backend.fundmate.custom_sql_types`。
 - V2 当前**无任何 migrations 目录**(已确认 `app/` 下无 `alembic.ini`/`env.py`)。V1 迁移对 V2 无意义,可删;但 V2 亟需建立自己的 alembic 迁移(见第 5 节 Phase 4)。
 
@@ -498,36 +542,44 @@
 ## 5. 去残留分阶段计划(受控退役)
 
 ### Phase 0 — 冻结与标记(0.5 天)
+
 - 在 `backend/fundmate/` 根加 `DEPRECTED.md`,声明 V1 进入退役期、不再接受功能改动。
 - 锁定 `autoapp.py` 仅作历史参考,README 明确唯一入口为 `app.main:app`。
 
 ### Phase 1 — 数据源覆盖审计(1~2 天)
+
 - 对第 3.1 节标 ❌ 的 11 个源,逐个确认:(a) 是否被当前前端/功能实际使用;(b) V2 的 akshare/xalpha 是否已等价覆盖。
 - 输出"移植清单"或"废弃清单"。对确需保留的(如 dkhs 费率),在 V2 `services/sync/adapters/` 下补适配器。
 
 ### Phase 2 — 迁移 `libs/cal`(0.5 天)
+
 - 将 `fundmate/libs/cal/` 迁入 `backend/app/core/cal/`,更新 `tests/libs/cal/test_rate_of_return.py` 的 import,确保 V2 测试仍绿。
 
 ### Phase 3 — 删除 V1 残留(0.5 天)
+
 - 删除:`backend/fundmate/`、`backend/autoapp.py`、`backend/migrations/`(V1 绑定)、`backend/tests/` 下所有 V1 测试与 `conftest_fm.py`、`tests/factories.py` 中 V1 模型引用。
 - 清理 `pyproject.toml` 中仅 V1 使用的依赖(如 `flask-praetorian`、`sentry-sdk`、`flask-loguru` 视情况)。
 
 ### Phase 4 — V2 建立迁移机制(1 天)
+
 - V2 当前无 alembic 迁移。新增 `backend/app/migrations/`(alembic),以 V2 现有模型 `create_all()` 产出的 schema 为基线,生成首个迁移版本,后续变更走版本化迁移(避免再出现"双轨 schema 无迁移"的坑)。
 
 ### Phase 5 — 文档与 SPEC 对齐(0.5 天)
+
 - SPEC 增加"单一代码库"声明:V2(`backend/app`)为唯一真相源,V1 已退役(见 SPEC 本轮更新)。
 - README 删除任何 V1 残留描述;确认部署/本地运行命令统一为 `app.main:app`。
 
 ---
 
 ## 6. 立即可做的零风险项(不等分阶段)
+
 - 把 `autoapp.py` 顶部加注释或删除,消除"V1 在生产"的误导(不动逻辑)。
 - 修正 `app/main.py:47` 硬编码 `DEBUG = True`(生产应读环境变量),与 CORS `*`(SPEC §2.1 已要求收紧)一并处理——属 V2 自身债务,与 V1 清除无关但建议同步修。
 
 ---
 
 ## 7. 风险与回滚
+
 - **最大风险**:Phase 1 审计遗漏,删 V1 后某功能因依赖未移植的 V1 数据源而失效。缓解:Phase 1 必须产出可追溯的"移植/废弃"决策表,并在删除前用 V2 全量测试 + 前端冒烟覆盖。
 - **回滚**:Phase 3 删除前用 git 提交快照;若出问题,`git revert` 该提交即可恢复 V1(无需保留长期分支)。
 - **不删 V1 的长期代价**:双轨维护、依赖膨胀、`autoapp.py` 误导、新人理解成本——高于一次性退役成本。
@@ -535,6 +587,7 @@
 ---
 
 ## 8. 决策建议(需你拍板)
+
 1. 是否认可"**V1 是残留、按 Phase 0→5 退役**"这一结论?(我基于证据强烈建议"是")
 2. Phase 1 的 11 个数据源审计,由我做还是你先确认功能清单?
 3. 是否现在就执行 Phase 0(加 `DEPRECTED.md` + 注释 `autoapp.py`),还是先等审计完成?
@@ -542,8 +595,8 @@
 ---
 
 <a id="sec4"></a>
-## 4. `data/` 接口可用性评估
 
+## 4. `data/` 接口可用性评估
 
 > 日期：2026-08-01
 > 关联文档：`docs/v1-decommission-analysis-2026-08-01.md`、`SPEC.md`(v4.5.4)
@@ -720,8 +773,8 @@ curl -m 12 -sL -A "Mozilla/5.0 ... Chrome/120" -w "%{http_code}|%{content_type}|
 ---
 
 <a id="sec5"></a>
-## 5. `libs/cal` 与测试目录瘦身
 
+## 5. `libs/cal` 与测试目录瘦身
 
 > 日期：2026-08-01
 > 背景：项目已进入 V2（`backend/app/`）单一代码库阶段，V1（`backend/fundmate/`）为遗留残留（已标记 `DEPRECATED.md`）。
@@ -790,6 +843,7 @@ curl -m 12 -sL -A "Mozilla/5.0 ... Chrome/120" -w "%{http_code}|%{content_type}|
 - 边界用例：`{}→None`、单笔 → `±inf`、`1e-5 → 0.0`、极大值 `1.22e16`
 
 ⚠️ **但语义不一致**：V2 引擎对病态用例**故意返回 `0.0`**（`_safe_return` 夹逼 + `clean_xirr` 逻辑），与 V1 返回 `inf`/`None` 冲突。因此：
+
 - **可迁移**：正常数值金值（`0.1280…`、`-0.6454` 等）——作为 V2 `test_xirr_engine.py` 的 Excel 对照回归，强化 `pyxirr` 正确性保证。
 - **不可迁移**：`inf`/`-inf`/`None` 类病态断言 —— 与 V2 设计语义相悖，迁移会失败。
 
@@ -879,21 +933,25 @@ V2 的 `app/core/exceptions.py`（`SBException`）**目前没有任何测试**�
 ## 3. 大瘦身执行计划（分 4 阶段，均带回滚）
 
 ### Phase A — 抢救 XIRR 金值（低风险，先补后删）
+
 1. 在 `tests/services/performance/test_xirr_engine.py` 追加 `TestXirrGoldValues`：
    - 移植可移植数值用例：`[-18990,-23320,49490]→≈0.1280`、`{-80005.8,65209.6}→≈-0.6454` 等（断言用 `approx(..., rel=1e-3)`，因 V2 走 pyxirr）。
    - **跳过** `inf`/`-inf`/`None` 类病态断言（与 V2 语义冲突）。
 2. 跑 `pytest tests/services/performance/` 确认新用例绿。
 
 ### Phase B — 删除 V1 测试残留（中风险）
+
 1. 删除 Tier 1（21 文件）+ Tier 3（6 文件）+ `tests/libs/cal/`（2 文件）。
 2. 删除前：`git stash -u` 或本地打 tag 备份本机未跟踪的 `fundmate/` 与这些测试。
 3. 跑 `pytest` 全量（仅 V2 conftest）→ 必须 100% 绿；确认 19 个历史收集错误消失。
 
 ### Phase C — 删除 `fundmate/libs/` 冗余（低风险，因 gitignore）
+
 - `fundmate/libs/` 整目录（含 `cal`、`convert`、`dataklasses`、`dk_enums`、`drf`、`fund_morning_star_crawler`、`ivix`、`pysnowflake`、`redeem_fee`）V2 零引用 → 删除。
 - 若担心误伤，可先 `git stash -u` 再删。
 
 ### Phase D — 收尾与规范对齐
+
 1. 补 `tests/test_exceptions.py`（V2 错误契约回归）。
 2. 更新 SPEC：标记测试目录已单轨化（仅 V2），删除“双代码库/测试须覆盖部署版本”相关旧表述，新增“测试只允许引用 `app`”的硬约束（CI 加 `grep backend.fundmate tests/ && exit 1` 守卫）。
 3. 运行 `pytest --cov` 确认覆盖率不因删除下降（V1 测试对 V2 代码覆盖本就为 0）。
@@ -924,8 +982,8 @@ V2 的 `app/core/exceptions.py`（`SBException`）**目前没有任何测试**�
 ---
 
 <a id="sec6"></a>
-## 6. FastAPI 解耦规划（`@bp.input` 自动范式冲突）
 
+## 6. FastAPI 解耦规划（`@bp.input` 自动范式冲突）
 
 **日期**：2026-08-01
 **依据**：SPEC §1.3「统一手动返回 `{data, message}` 结构，**不依赖自动范式**，为未来平滑迁移 FastAPI 预留架构空间」
@@ -973,6 +1031,7 @@ def parse_query(model: type[BaseModel]) -> BaseModel:
 ```
 
 要点：
+
 - 失败 `abort(422)` → 走 `app/main.py` 的 `HTTPException` 处理器 → 统一 `{data, message, error_code}` 信封。
 - 返回状态码 **422 与 `@bp.input` 完全一致**，既有断言 `status_code == 422` 的测试**不受影响**（已用 `test_assets` 验证）。
 - 迁移 FastAPI 时：`parse_body(X)` → `X = Body()`，`parse_query(X)` → `X = Query()`，模型不变。
@@ -982,6 +1041,7 @@ def parse_query(model: type[BaseModel]) -> BaseModel:
 ## 3. 改造示例（已实证：`assets/views.py`）
 
 **Before**
+
 ```python
 @bp.post('/')
 @bp.input(AssetCreate)
@@ -989,6 +1049,7 @@ def create_asset(json_data):
     data = json_data.model_dump()
     ...
 ```
+
 ```python
 @bp.patch('/<int:id>/')
 @bp.input(AssetUpdate)
@@ -999,6 +1060,7 @@ def update_asset(id, json_data):
 ```
 
 **After**
+
 ```python
 @bp.post('/')
 def create_asset():
@@ -1006,6 +1068,7 @@ def create_asset():
     data = json_data.model_dump()
     ...
 ```
+
 ```python
 @bp.patch('/<int:id>/')
 def update_asset(id):
@@ -1014,6 +1077,7 @@ def update_asset(id):
         ...
         update_data = json_data.model_dump(exclude_unset=True)
 ```
+
 仅移除 `@bp.input` 装饰器、把注入参数改为函数内 `parse_body(Model)` 调用；业务校验（ledger_id 防御、金额分转换）**原样保留**。`parse_body` 从 `app.core.validation` 导入。
 
 ---

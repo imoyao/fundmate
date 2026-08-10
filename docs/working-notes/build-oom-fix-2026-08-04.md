@@ -30,6 +30,7 @@ Rollup 在 build 阶段将 111 个 `.vue` 文件 + 全部依赖合并到极少 c
 ### 2.2 严重级：ECharts 全量引入（8 处）
 
 8 个文件直接 `import * as echarts from "echarts"`：
+
 - `src/views/welcome/index.vue`
 - `src/views/asset/Overview.vue`
 - `src/views/asset/ledgers/detail.vue`
@@ -104,10 +105,13 @@ manualChunks: {
 #### 3.2.3 8 处全量引入 → 按需引入
 
 所有 8 个文件从：
+
 ```ts
 import * as echarts from "echarts";
 ```
+
 改为：
+
 ```ts
 import echarts from "@/plugins/echarts";
 ```
@@ -120,12 +124,15 @@ import echarts from "@/plugins/echarts";
 ### 3.3 移除 @iconify/json
 
 **文件**：`frontend/package.json`
+
 - 删除 `"@iconify/json": "^2.2.508"`
 
 **文件**：`frontend/build/optimize.ts`
+
 - `exclude` 从 `["@iconify/json"]` 改为 `[]`
 
 **文件**：`frontend/pnpm-lock.yaml`
+
 - 执行 `pnpm install` 重新生成
 
 ### 3.4 暂缓项
@@ -142,7 +149,7 @@ import echarts from "@/plugins/echarts";
 ### 4.1 TypeScript 类型检查
 
 ```bash
-$ npx vue-tsc --noEmit
+npx vue-tsc --noEmit
 ```
 
 - **无新增错误**：所有报错均为项目原有 TS 问题（AccountOverview.vue、TransactionList.vue 等），与本次改动无关

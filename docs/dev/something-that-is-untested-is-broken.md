@@ -144,11 +144,11 @@ def test_bar(before_func):
  fixture 装饰器有一个配置参数 autouse，默认值为 False.
  在默认状态下，可以使用上面的方式调用 fixture，当设置为 True 时，在一个 scope 内的所有测试用例都会自动调用这个 fixture. 注意上面的 scope 的参数用于控制 fixture 的作用范围，其传参可以为：
 
-   - function：函数级，结果会在每个测试函数结束后销毁，为默认值
-   - class：类级，结果会在执行完类里的所有测试方法后销毁
-   - module：模块级，结果会在执行完整个模块的所有测试后销毁
-   - package（包）：结果会在执行完整个包的所有测试后销毁。
-   - session：session 级，结果会在测试会话（也就是一次完整的 pytest 执行过程）结束后销毁。
+  - function：函数级，结果会在每个测试函数结束后销毁，为默认值
+  - class：类级，结果会在执行完类里的所有测试方法后销毁
+  - module：模块级，结果会在执行完整个模块的所有测试后销毁
+  - package（包）：结果会在执行完整个包的所有测试后销毁。
+  - session：session 级，结果会在测试会话（也就是一次完整的 pytest 执行过程）结束后销毁。
 
    其控制范围由大到小是：`session > package > module > class > function`
 
@@ -194,6 +194,7 @@ def test_bar(before_func):
 - 带参数与返回值
 上面的示例中我们都只是简单调用，同时我们可以选择让 fixture 返回我们需要的东西。如果你的 fixture 需要配置一些数据，读个文件，或者连接一个数据库，那么你可以让 fixture 返回这些数据或资源。
 1. 带参数
+
 ```python
 import pytest
 

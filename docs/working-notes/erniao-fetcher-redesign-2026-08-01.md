@@ -14,6 +14,7 @@
 v1.0 曾假设"只用公开源、后端 Playwright 渲染即可拿到雪球内容"。**v2.0 基于实测推翻了这一假设**（见 §1），改为"WorkBuddy 云端采集为主"的架构。
 
 核心约束（用户决策）：
+
 1. ❌ 不跑 wewe-rss（太重）。
 2. ✅ 看现有代码、不重复造轮子——复用 `BaseFetcher` / `ErNiaoFetcher` / `TemperatureJob` / `MarketComposite` 落库。
 3. ✅ 用火山引擎（Ark）替换 OpenAI 做 LLM 结构化解析。
@@ -28,6 +29,7 @@ v1.0 曾假设"只用公开源、后端 Playwright 渲染即可拿到雪球内�
 > 本节为 2026-08-01 实测，决定架构选型。
 
 ### 1.1 `ErNiaoFetcher` 当前实现的源全部失效
+
 | 源 | 代码地址/选择器 | 实测结果 | 结论 |
 |---|---|---|---|
 | 雪球列表 | `xueqiu.com/u/3502863673`，`div.timeline__item` | 列表页 SPA，纯 HTML 返回空；`v4/statuses/user_timeline.json` 被 WAF 拦截 | 裸 requests 抓不到 |
@@ -35,6 +37,7 @@ v1.0 曾假设"只用公开源、后端 Playwright 渲染即可拿到雪球内�
 | 东财财富号 | `caifuhao.eastmoney.com/author/3502863673` | HTTP **302** 跳转 + JS 渲染 | 抓不到 |
 
 ### 1.2 关键实测：后端网络出口下，雪球对"裸请求"和"Playwright 渲染"**双重封死**
+
 在后端 `.venv`（已装 Playwright + Chromium）实测：
 
 | 通道 | 雪球专栏页 | 雪球单篇(186 期) | 结果 |
@@ -43,6 +46,7 @@ v1.0 曾假设"只用公开源、后端 Playwright 渲染即可拿到雪球内�
 | Playwright 渲染（后端 venv） | 77 字符空壳，命中 0 | 117 字符空壳，命中 0 | **封死** |
 
 ### 1.3 唯一能通的路径：WorkBuddy 云端 WebFetch
+
 WorkBuddy 的 WebFetch 工具（云端渲染通道 + 不同出口 IP）可稳定拿到雪球单篇**全文**：
 
 - 标题：手抄报｜186 期：高切低后，双创半月回调 15%
@@ -54,7 +58,9 @@ WorkBuddy 的 WebFetch 工具（云端渲染通道 + 不同出口 IP）可稳定
 > 在该后端/dev 网络出口下，"只用公开源（雪球等）"**实测无法拿到任何手抄报内容**——无论 HTTP 还是 Playwright。唯一稳定可用的公开源采集通道是 **WorkBuddy 自身的云端 WebFetch**。因此采集动作必须由 WorkBuddy 自动化编排，而非后端 cron 里的 requests/Playwright。
 
 ### 1.4 关于「微信原文链接」
+
 `mp.weixin.qq.com/s/xxx` 永久链接一旦拿到，普通 HTTP 即可抓全文；难点只在"稳定发现"——公众号历史页/搜索需登录，公开搜索引擎基本索引不到原文。雪球镜像虽带全文，但**不含** `mp.weixin` 原文链接。因此：
+
 - 若要"微信原文链接"，仍需用户本人在微信内复制（平台限制，任何自动化都绕不开）；
 - 自动链路退而求其次：以**雪球全文镜像链接**作为稳定可读源（内容与原文一致），并在数据中标注 `is_weixin_original: false`。
 
@@ -84,6 +90,7 @@ WorkBuddy 的 WebFetch 工具（云端渲染通道 + 不同出口 IP）可稳定
 ```
 
 ### 2.2 为什么不重复造轮子
+
 - **采集**：复用 WorkBuddy 已有的 WebFetch 能力（云端渲染通道），不自己写爬虫。
 - **解析**：复用现有 `ErNiaoFetcher.parse_with_llm` 的 prompt 与 JSON 提取逻辑，仅把底座从 OpenAI 换成火山 Ark（3 行改动）。
 - **落库（DB）**：复用 `MarketComposite` 模型 + `TemperatureService.save_composites` + `TemperatureJob` 调度，无需新表。
@@ -104,6 +111,7 @@ WorkBuddy 的 WebFetch 工具（云端渲染通道 + 不同出口 IP）可稳定
 `openai.Client(api_key=..., base_url=...)` 调用方式一行不改。
 
 **结构化抽取 Prompt**：保留现行字段并增强：
+
 - 必填：`issue_no`(int)、`title`、`coefficient`(0-12 int)、`publish_date`(YYYY-MM-DD)
 - 选填：`sentiment`（枚举，与 `SENTIMENT_MAP` 对齐）、`portfolio`(数组，枚举)、`annualized_return`(float|null)、`market_view`(str)
 - **`empirical_actions`（独立结构化块，数组）**：每条 `{name, action, note}`——逐条解析各实证条目/组合的当周操作（如 实证 2/价值五剑 → 无操作/持有/加仓/定投），**不要**合并成单个 `empirical_action` 字符串。
@@ -117,7 +125,9 @@ WorkBuddy 的 WebFetch 工具（云端渲染通道 + 不同出口 IP）可稳定
 ## 4. 数据落盘
 
 ### 4.1 写 GitHub 仓库（主 · 链路 B）— 仅链接归档，不存全文
+
 目录 `docs/er-niao/`，**只有一个 `index.json` 文件**：
+
 ```json
 {
   "source": "er_niao",
@@ -138,13 +148,16 @@ WorkBuddy 的 WebFetch 工具（云端渲染通道 + 不同出口 IP）可稳定
   ]
 }
 ```
+
 - 提交方式：`git`（脚本 `scripts/erniao_sync.py`，走 git + GCM 凭据直推；pre-commit 环境异常时 `--no-verify` 回退）。
 - **幂等**：`issue_no` 已存在则只更新不新增，避免重复 commit 刷历史。
 - 正文全文：若采集时附带 `content`，脚本额外写 `data/er-niao/<n>.json`（gitignored 本地缓存，不进 git），供后端/CI 离线读取。
 
 ### 4.2 写 DB（正文全文 · 链路 A）
+
 正文全文**不在仓库**，由后端 `ErNiaoFetcher` 抓取写入 `market_composites` 表（DB 为内容真相源）。
 `data` 字段（与现行对齐，并把实证操作独立成块）：
+
 ```json
 {
   "issue_no": 186,
@@ -161,6 +174,7 @@ WorkBuddy 的 WebFetch 工具（云端渲染通道 + 不同出口 IP）可稳定
   "raw_content": "...(前 N 字符)"
 }
 ```
+
 落盘前走现行 `validate()`（issue_no>0、0<=coefficient<=12）。
 
 ---
@@ -168,12 +182,15 @@ WorkBuddy 的 WebFetch 工具（云端渲染通道 + 不同出口 IP）可稳定
 ## 5. 自动化调度
 
 ### 5.1 主触发：WorkBuddy 自动化（推荐，现在就能跑）
+
 - 任务：`automation-1785551801256`，频率 **周一/六/日 0 点**（已配置）。
 - 本 Agent 在触发时执行：WebFetch 云采集 → 结构化（系数/情绪/观点/`empirical_actions` 数组）→ 写 `docs/er-niao/index.json` 链接归档。
 - 无需 GitHub Action、无需后端可达雪球。
 
 ### 5.2 备选：GitHub Action（仅作保底/手动校验，不负责抓取）
+
 因后端网络抓不到雪球，Action **不再承担采集**；仅用于：校验 `docs/er-niao/` 数据完整性、或手动触发一次重放。如需保留：
+
 ```yaml
 # .github/workflows/erniao-verify.yml（仅校验，不抓取）
 name: 二鸟说手抄报校验
@@ -258,11 +275,13 @@ jobs:
 - **自动化改造**：任务 `automation-1785551801256` prompt 已升级为「WebFetch 取全文 → `erniao_parse.py`(Ark) → `erniao_sync.py` → 推送」，并保留 Ark 失败退化为 WebFetch 字段提取的兜底。
 
 ### ✅ 模型配置已确认可用
+
 - 你已将模型 key 改为 `ARK_MODEL`，当前值 `doubao-seed-2-1-pro-260628` 已实测可用（API 返回正常），满足 P1 结构化抽取。
 - 该模型是 Seed 2.1 Pro，对中文抽取、JSON 遵循和后续周报研判都足够；每周只跑 3 次，成本可忽略，**建议保持不动**。
 - 若后续想省钱/加速，可切换为 `doubao-seed-1-6-flash` 等轻量模型；纯字段抽取够用，但当前模型对 P2 研判更保险。
 
 ### 关于「正文入库 / 周报研判」
+
 - 用户明确：**正文不入库**，前端展示直接给雪球原文链接，不做内容备份 → 链路 A（写 `market_composites` 存全文）**取消**，仓库只保留链接归档 `index.json`。
 - 「AI 根据结构化数据 + 搜索，形成每周行情综述/研判」已作为 **P2-17** 写入 `SPEC.md`，待 P1 数据稳定后实施。
 
@@ -288,11 +307,13 @@ jobs:
 - **干净分离**：fundmate 侧删除 `ErNiaoFetcher`/`ER_NIAO_SOURCES`/`SENTIMENT_MAP`/`PORTFOLIO_ENUMS`、`jobs.py` 二鸟说分支、`views.py` 的 `/parse-er-niao` 端点、`scripts/erniao_*.py`、`docs/er-niao/`，并移除 `.gitignore` 的 `.erniao_*` 条目。fundmate 恢复纯记账，不含内容管道。
 
 **迁移产物（WeChatRSS 侧）**：
+
 - `src/analyzers/base.py`（基类+共用工具）、`src/analyzers/erniao.py`（二鸟说插件）、`src/analyzers/__init__.py`（注册表）、`src/analyze.py`（运行入口，支持 `--feed` / `--article` / `--from-json`）。
 - `requirements.txt` 增加 `openai`；`.env.example` 增加 `ARK_*`；`.github/workflows/rss.yml` 增加 analyze 步骤并 `git add data`；`.gitignore` 忽略临时输入。
 - `data/er-niao/index.json`：迁入 186 期（source_url 暂用雪球镜像，待配置 `__biz` 后由插件覆盖为 mp 原文链接）。
 
 **后续待办（用户）**：
+
 - 在 `accounts.txt` 的 `二鸟说` 行补上 `__biz`（从任意二鸟说文章 URL 的 `__biz=` 取得），CI 插件方能真正抓到全文并覆盖 source_url。
 - 给 WeChatRSS 仓库 Secrets 加 `ARK_API_KEY`（CI 分析用）；本地 `.env` 也放一份供兜底/手动使用。
 - 改名：用户拟在迁移稳定后给 WeChatRSS 起更好的名字（本方案暂沿用）。

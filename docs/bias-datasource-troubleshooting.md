@@ -46,17 +46,20 @@
 ## 3. 当前断点（数据源层 — 真正卡住的地方）
 
 ### 3.1 乖离率实时依赖 akshare 东财接口
+
 - `index_zh_a_hist`（行业指数）→ 第一步 `index_code_id_map_em()` 打 `https://80.push2.eastmoney.com/api/qt/clist/get` 解析 secid。
 - `fund_etf_hist_em` / `stock_zh_a_hist` / `fund_open_fund_info_em` 等同样走东财。
 - akshare 本质**是爬虫库**，底层抓东财网页接口，没有 SLA、随时被限流。
 
 ### 3.2 东财 2026 年普遍问题的社区实证
+
 - **akshare issue #7027（2026-01-31）**：`index_zh_a_hist` 依赖的 `80.push2.eastmoney.com/api/qt/clist/get` 无法访问；换 IP 后能访问，但调用函数后该 IP 在 `80.push2` 上被封。
   👉 这正是本项目 `requests_patch._PUSH2_HOST_RE` 重写逻辑的来历（把它改成无前缀的 `push2.eastmoney.com`）。
 - **akshare issue #7099（2026-02~03）**：`RemoteDisconnected: Remote end closed connection without response` 频发，东财侧主动断开；多名用户同期复现，维护者关闭为 completed（视为东财侧临时策略）。
 - 技术文章（gitcode 等）结论一致：东财 2025 起大幅加强反爬（IP 封禁 / 验证码 / 频率检测），`RemoteDisconnected` 是典型表现。
 
 ### 3.3 本机叠加因素（2026-08-05 实测推翻旧结论）
+
 - ❌ 旧结论「退出 DevSidecar 代理前 curl schannel 失败 = 代理 TLS 干扰」**不准确**。
 - ✅ 真实情况：**系统代理残留**（已死的 `127.0.0.1:31181` 边车代理）。`requests` 默认 `trust_env=True`
   继承系统代理，把东财请求甩到已死端口 → `ProxyError`。代理软件关了残留仍在。
@@ -95,6 +98,7 @@ pdm run sync --job temperature
 ```
 
 `diag_em.py` 判读：
+
 - **A 失败 / B 成功** → 仅 `80.push2` 子域问题，全局补丁已重写，C 应转 OK（代码已覆盖）。
 - **A 与 B 都失败** → 出口 IP 被东财封（含走代理也不行）→ 需换网络 / 代理轮转 / 换数据源。
 
@@ -103,17 +107,20 @@ pdm run sync --job temperature
 ## 6. 待排查 / 请协助搜索的方向（分门别类，方便认领）
 
 ### 方向 A：确认是否东财 IP 封禁（本机，最关键一步）
+
 - [ ] 退出 DevSidecar 后跑 `diag_em.py`，记录 A/B/C 三段输出。
 - [ ] 若 A+B 仍失败 → 坐实「出口 IP 被封」，下一步是换网络或代理轮转。
 - [ ] 若 A 失败 B 成功 → 仅子域问题，host 重写应已修复（用 C 验证真实 akshare）。
 
 ### 方向 B：akshare 版本是否有修复
+
 - [ ] 当前**锁定 1.18.64**（`pdm run python -c "import akshare; print(akshare.__version__)"` 已确认）。
 - [ ] 查 PyPI 最新版：维护者在 issue 中惯于建议 `pip install akshare --upgrade`。
 - [ ] 升级后在隔离环境验证 `index_zh_a_hist` 是否仍打 `80.push2`、请求策略是否变化。
 - [ ] 风险：升级可能引入 breaking change，需评估依赖兼容性。
 
 ### 方向 C：替代数据源（避开东财反爬）
+
 - [ ] **akshare 内置备用源（已源码核实，未实网验证）**：
   - `stock_zh_a_hist_tx`（腾讯源）、`fund_etf_hist_sina`（新浪源），symbol 用 `sh`/`sz` 前缀。
   - 需退出代理后实网验证连通性、字段结构、与现有 `PriceFetcher` 的对接成本。
@@ -121,6 +128,7 @@ pdm run sync --job temperature
 - [ ] 正规数据 API（**注意甄别，网上多为推广软文**）：AlphaFeed / TickFlow 等。涉及成本与合规，**非本次默认推荐**，仅列作可选方向，待用户拍板。
 
 ### 方向 D：网络 / 代理策略
+
 - [ ] DevSidecar 是否必须？能否对东财域名做**规则分流直连**（绕过边车 TLS 干扰）。
 - [ ] 是否有其他出口 IP 可做对照实验（手机热点等）。
 

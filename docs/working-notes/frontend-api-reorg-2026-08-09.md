@@ -58,6 +58,7 @@
 
 - 现状：AssetPanorama `detailView` 的 type/account/allocation 分组卡片，items 明细由前端对 `per_page:500` 全量数据做 `groupBy` + 市值/盈亏换算（`EXCHANGE_RATES`）。
 - 设计（纯新增、向后兼容）：`GET /api/summary/groups/?dimension=type|account|allocation`
+
   ```json
   [
     {"name": "股票", "total": 12345.0, "total_pnl": 234.0,
@@ -66,6 +67,7 @@
     ...
   ]
   ```
+
   - `type` / `allocation`：仅持仓，按 `TYPE_LABELS` / `ALLOCATION_LABELS` 分组；`account`：持仓 + 非负债通用资产混合分组（同现状 accountDetailGroups）。
   - 汇率换算、市值/盈亏全在后端（`Money` + `EXCHANGE_RATES`），前端不再保留 `EXCHANGE_RATES`（批次 5 随之完成）。
   - 前端：`detailView` 切换时拉对应 dimension，展示 items 明细；点击跳转逻辑（type→investment 页、account→ledgers）不变。
