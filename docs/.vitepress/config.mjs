@@ -70,6 +70,7 @@ export default withDuxTheme(
         { text: '使用', link: '/guide/' },
         { text: '功能', link: '/features/' },
         { text: '接口', link: '/api/' },
+        { text: '博客', link: '/blog/' },
         { text: '关于', link: '/about/' },
       ],
       // auto-sidebar：自动按目录结构生成侧边栏（替代 vuepress 的 auto-sidebar 插件）
@@ -85,6 +86,7 @@ export default withDuxTheme(
           { path: 'spec', title: '规范' },
           { path: 'design', title: '设计' },
           { path: 'ops', title: '运维' },
+          { path: 'blog', title: '博客' },
         ],
         collapsible: true,
         collapsed: false,
