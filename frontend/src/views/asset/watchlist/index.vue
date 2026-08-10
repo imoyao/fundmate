@@ -271,46 +271,51 @@
             <div class="flex items-center gap-6 text-sm">
               <span>
                 总市值：<strong :style="{ color: 'var(--text-primary)' }">
-                  {{
-                    (realtime.summary as any).totalMarketValue?.toFixed(2) ??
-                    "--"
-                  }}
+                  <template
+                    v-if="(realtime.summary as any)?.totalMarketValue != null"
+                  >
+                    <MoneyDisplay
+                      :value="(realtime.summary as any).totalMarketValue"
+                      :show-sign="false"
+                      :auto-color="false"
+                      size="sm"
+                    />
+                  </template>
+                  <template v-else>--</template>
                 </strong>
               </span>
               <span>
                 总成本：<strong :style="{ color: 'var(--text-primary)' }">
-                  {{ (realtime.summary as any).totalCost?.toFixed(2) ?? "--" }}
+                  <template v-if="(realtime.summary as any)?.totalCost != null">
+                    <MoneyDisplay
+                      :value="(realtime.summary as any).totalCost"
+                      :show-sign="false"
+                      :auto-color="false"
+                      size="sm"
+                    />
+                  </template>
+                  <template v-else>--</template>
                 </strong>
               </span>
               <span>
-                总盈亏：<strong
-                  :style="{
-                    color:
-                      ((realtime.summary as any).totalPnl ?? 0) >= 0
-                        ? 'var(--color-rise)'
-                        : 'var(--color-fall)'
-                  }"
-                >
-                  {{ ((realtime.summary as any).totalPnl ?? 0) >= 0 ? "+" : ""
-                  }}{{ (realtime.summary as any).totalPnl?.toFixed(2) ?? "--" }}
+                总盈亏：<strong>
+                  <template v-if="(realtime.summary as any)?.totalPnl != null">
+                    <MoneyDisplay
+                      :value="(realtime.summary as any).totalPnl"
+                      size="sm"
+                    />
+                    <span
+                      v-if="(realtime.summary as any)?.totalPnlPercent != null"
+                      >(<MoneyDisplay
+                        :value="(realtime.summary as any).totalPnlPercent"
+                        :precision="2"
+                        suffix="%"
+                        size="sm"
+                      />)</span
+                    >
+                  </template>
+                  <template v-else>--</template>
                 </strong>
-                (<span
-                  :style="{
-                    color:
-                      ((realtime.summary as any).totalPnlPercent ?? 0) >= 0
-                        ? 'var(--color-rise)'
-                        : 'var(--color-fall)'
-                  }"
-                >
-                  {{
-                    ((realtime.summary as any).totalPnlPercent ?? 0) >= 0
-                      ? "+"
-                      : ""
-                  }}{{
-                    (realtime.summary as any).totalPnlPercent?.toFixed(2) ??
-                    "--"
-                  }}% </span
-                >)
               </span>
             </div>
           </div>
@@ -485,6 +490,7 @@
                   :value="getValuationItem(row.symbol)!.currentPrice"
                   :show-sign="false"
                   :show-currency="false"
+                  :precision="pricePrecision(row.asset_type)"
                 />
               </template>
               <template v-else>
@@ -493,6 +499,7 @@
                   :value="row.current_price"
                   :show-sign="false"
                   :show-currency="false"
+                  :precision="pricePrecision(row.asset_type)"
                 />
                 <span v-else :style="{ color: 'var(--text-tertiary)' }"
                   >--</span
@@ -1088,6 +1095,10 @@ const getStaticPrice = (symbol: string) => {
     ? { currentPrice: item.current_price, changePct: item.change_pct }
     : undefined;
 };
+
+// 基金/ETF 最新价为净值，展示 4 位小数；其余证券 2 位
+const pricePrecision = (assetType: string): number =>
+  assetType === "fund" || assetType === "etf" ? 4 : 2;
 
 // ... 你的其他代码 ...
 

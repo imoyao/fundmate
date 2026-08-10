@@ -114,7 +114,12 @@
                   class="text-xs mt-1"
                   :style="{ color: 'var(--text-tertiary)' }"
                 >
-                  {{ group.count }} 项 · ¥{{ group.total.toLocaleString() }}
+                  {{ group.count }} 项 ·<MoneyDisplay
+                    :value="group.total"
+                    :show-sign="false"
+                    :auto-color="false"
+                    size="xs"
+                  />
                 </p>
               </div>
             </div>
@@ -226,10 +231,10 @@
           }"
         >
           <el-table
+            v-loading="investmentLoading"
             height="400"
             :data="investmentPositions"
             style="width: 100%"
-            v-loading="investmentLoading"
             :header-cell-style="{
               color: 'var(--text-tertiary)',
               fontWeight: '500',
@@ -834,7 +839,8 @@ async function loadInvestmentPage(page: number) {
     investmentPositions.value = Array.isArray(payload)
       ? payload
       : payload?.data || [];
-    investmentTotal.value = (res as any)?.total ?? investmentPositions.value.length;
+    investmentTotal.value =
+      (res as any)?.total ?? investmentPositions.value.length;
   } catch (e) {
     console.error("加载投资明细分页失败", e);
     investmentPositions.value = [];

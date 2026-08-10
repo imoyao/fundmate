@@ -87,7 +87,12 @@
               class="text-2xl font-bold mt-2"
               :style="{ color: 'var(--color-primary)' }"
             >
-              ¥{{ (summaryData?.total_market_value || 0).toLocaleString() }}
+              <MoneyDisplay
+                :value="summaryData?.total_market_value || 0"
+                :show-sign="false"
+                :auto-color="false"
+                size="lg"
+              />
             </div>
           </div>
 
@@ -103,19 +108,11 @@
               持仓盈亏
             </div>
             <div class="mt-2 flex items-baseline gap-2">
-              <span
-                class="text-xl font-bold"
-                :style="{
-                  color:
-                    (summaryData?.position_pnl || 0) >= 0
-                      ? 'var(--color-danger)'
-                      : 'var(--color-success)'
-                }"
-              >
-                {{ (summaryData?.position_pnl || 0) >= 0 ? "+" : ""
-                }}{{
-                  Math.abs(summaryData?.position_pnl || 0).toLocaleString()
-                }}
+              <span class="text-xl font-bold">
+                <MoneyDisplay
+                  :value="summaryData?.position_pnl || 0"
+                  size="lg"
+                />
               </span>
             </div>
           </div>
@@ -145,11 +142,13 @@
                   资金余额
                 </div>
                 <div class="text-lg font-bold mt-1">
-                  {{
-                    summaryData?.cash_balance != null
-                      ? "¥" + summaryData.cash_balance.toLocaleString()
-                      : "--"
-                  }}
+                  <MoneyDisplay
+                    v-if="summaryData?.cash_balance != null"
+                    :value="summaryData.cash_balance"
+                    :show-sign="false"
+                    :auto-color="false"
+                  />
+                  <template v-else>--</template>
                 </div>
               </div>
             </div>
@@ -169,7 +168,11 @@
                 class="text-xs font-semibold"
                 :style="{ color: 'var(--color-danger)' }"
               >
-                -¥{{ summaryData.linked_liability.toLocaleString() }}
+                <MoneyDisplay
+                  :value="-summaryData.linked_liability"
+                  :auto-color="false"
+                  size="xs"
+                />
               </span>
             </div>
           </div>
@@ -228,7 +231,10 @@
               class="flex-1 min-h-[200px] w-full overflow-hidden"
             />
             <div
-              v-if="!summaryData?.type_distribution || Object.keys(summaryData.type_distribution).length === 0"
+              v-if="
+                !summaryData?.type_distribution ||
+                Object.keys(summaryData.type_distribution).length === 0
+              "
               class="text-xs text-center"
               :style="{ color: 'var(--text-tertiary)' }"
             >
@@ -269,9 +275,14 @@
                   prop="market_value"
                   show-overflow-tooltip
                 >
-                  <template #default="{ row }"
-                    >¥{{ (row.market_value || 0).toLocaleString() }}</template
-                  >
+                  <template #default="{ row }">
+                    <MoneyDisplay
+                      :value="row.market_value || 0"
+                      :show-sign="false"
+                      :auto-color="false"
+                      size="sm"
+                    />
+                  </template>
                 </el-table-column>
                 <el-table-column
                   label="盈亏"
@@ -282,18 +293,7 @@
                   show-overflow-tooltip
                 >
                   <template #default="{ row }">
-                    <span
-                      :style="{
-                        color:
-                          (row.pnl || 0) >= 0
-                            ? 'var(--color-danger)'
-                            : 'var(--color-success)'
-                      }"
-                    >
-                      {{ (row.pnl || 0) >= 0 ? "+" : "" }}¥{{
-                        Math.abs(row.pnl || 0).toLocaleString()
-                      }}
-                    </span>
+                    <MoneyDisplay :value="row.pnl || 0" size="sm" />
                   </template>
                 </el-table-column>
                 <el-table-column
@@ -305,17 +305,13 @@
                   show-overflow-tooltip
                 >
                   <template #default="{ row }">
-                    <span
-                      :style="{
-                        color:
-                          (row.pnl_rate || 0) >= 0
-                            ? 'var(--color-danger)'
-                            : 'var(--color-success)'
-                      }"
-                    >
-                      {{ (row.pnl_rate || 0) >= 0 ? "+" : ""
-                      }}{{ (row.pnl_rate || 0).toFixed(2) }}%
-                    </span>
+                    <MoneyDisplay
+                      :value="row.pnl_rate || 0"
+                      :precision="2"
+                      :show-currency="false"
+                      suffix="%"
+                      size="sm"
+                    />
                   </template>
                 </el-table-column>
                 <el-table-column
@@ -426,9 +422,14 @@
                   </template>
                 </el-table-column>
                 <el-table-column label="价格" width="100" align="right">
-                  <template #default="{ row }"
-                    >¥{{ (row.price || 0).toLocaleString() }}</template
-                  >
+                  <template #default="{ row }">
+                    <MoneyDisplay
+                      :value="row.price || 0"
+                      :show-sign="false"
+                      :show-currency="false"
+                      size="sm"
+                    />
+                  </template>
                 </el-table-column>
                 <el-table-column label="数量" width="80" align="right">
                   <template #default="{ row }">{{ row.quantity }}</template>
@@ -440,9 +441,14 @@
                   sortable
                   prop="amount"
                 >
-                  <template #default="{ row }"
-                    >¥{{ (row.amount || 0).toLocaleString() }}</template
-                  >
+                  <template #default="{ row }">
+                    <MoneyDisplay
+                      :value="row.amount || 0"
+                      :show-sign="false"
+                      :auto-color="false"
+                      size="sm"
+                    />
+                  </template>
                 </el-table-column>
                 <el-table-column
                   label="手续费"
@@ -450,9 +456,14 @@
                   align="right"
                   prop="fee"
                 >
-                  <template #default="{ row }"
-                    >¥{{ (row.fee || 0).toLocaleString() }}</template
-                  >
+                  <template #default="{ row }">
+                    <MoneyDisplay
+                      :value="row.fee || 0"
+                      :show-sign="false"
+                      :auto-color="false"
+                      size="sm"
+                    />
+                  </template>
                 </el-table-column>
                 <el-table-column
                   v-if="!isUnclassified"
@@ -679,6 +690,7 @@ import { Loading } from "@element-plus/icons-vue";
 import echarts from "@/plugins/echarts";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
+import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import {
   getLedgers,
   updateLedger,
@@ -883,8 +895,12 @@ function renderPieChart() {
   }
 
   // 消费后端 type_distribution（后端唯一出口，不再对分页持仓做前端聚合）
-  const distro = (summaryData.value?.type_distribution as Record<string, number>) ?? {};
-  const pieData = Object.entries(distro).map(([name, value]) => ({ name, value }));
+  const distro =
+    (summaryData.value?.type_distribution as Record<string, number>) ?? {};
+  const pieData = Object.entries(distro).map(([name, value]) => ({
+    name,
+    value
+  }));
   const isDataEmpty = pieData.length === 0;
 
   // 动态读取 CSS 变量，统一颜色来源
