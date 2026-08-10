@@ -179,6 +179,29 @@ const AssetRouteConfig = {
         rank: 4,
         showLink: true
       }
+    },
+    // 投资组合
+    {
+      path: "/asset/portfolios",
+      name: "PortfolioList",
+      component: () => import("@/views/asset/portfolio/index.vue"),
+      meta: {
+        title: "投资组合",
+        icon: "ep:collection",
+        rank: 5
+      }
+    },
+    {
+      path: "/asset/portfolios/:id",
+      name: "PortfolioDetail",
+      component: () => import("@/views/asset/portfolio/detail.vue"),
+      meta: {
+        title: "组合详情",
+        icon: "ep:collection",
+        rank: 51,
+        showLink: false,
+        hidden: true
+      }
     }
   ]
 };
