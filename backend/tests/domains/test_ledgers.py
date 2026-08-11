@@ -657,8 +657,13 @@ class TestLedgerOverview:
             symbol='000002', name='万科', account_name='已删证券', quantity=500, avg_price=8.0, current_price=10.0
         )
 
-        # 绕过 API 保护删除账户
-        ledger = db.query(Ledger).get(lid)
+        # 绕过 API 保护删除账户：positions.ledger_id 为 FK RESTRICT（有持仓时账户
+        # 不可直接删行）。先置空持仓 ledger_id 模拟账户删除后的孤儿持仓，再删账户行，
+        # overview 将孤儿持仓归入 deleted 分组
+        pos = db.query(Position).filter(Position.symbol == '000002').first()
+        pos.ledger_id = None
+        db.commit()
+        ledger = db.get(Ledger, lid)
         db.delete(ledger)
         db.commit()
 
