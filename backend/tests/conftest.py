@@ -79,6 +79,11 @@ def _patch_thermo_session(app, monkeypatch):
 
     monkeypatch.setattr(thermo_service, 'SessionLocal', PatchedSessionLocal)
 
+    # ocr_service 同样在 import 时早绑定了 SessionLocal，对齐到内存引擎
+    import app.services.ocr_service as ocr_service
+
+    monkeypatch.setattr(ocr_service, 'SessionLocal', PatchedSessionLocal)
+
 
 @pytest.fixture(autouse=True)
 def clean_db(app):

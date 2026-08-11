@@ -28,6 +28,7 @@ from app.domains.funds.views import bp as funds_bp  # noqa: E402
 from app.domains.health import bp as health_bp  # noqa: E402
 from app.domains.importers.views import importers_bp  # noqa: E402
 from app.domains.ledgers.views import ledgers_bp  # noqa: E402
+from app.domains.ocr.views import ocr_bp  # noqa: E402
 from app.domains.performance.views import bp as performance_bp  # noqa: E402
 from app.domains.portfolios.views import portfolios_bp  # noqa: E402
 from app.domains.positions.views import bp as positions_bp  # noqa: E402
@@ -45,7 +46,7 @@ def create_app() -> APIFlask:
     """创建并配置 APIFlask 应用."""
     app = APIFlask(
         __name__,
-        title='多倍贝',
+        title='多多贝',
         version='0.1.0',
         docs_ui='swagger-ui',  # 启用 Swagger UI 文档
     )
@@ -76,6 +77,7 @@ def create_app() -> APIFlask:
     app.register_blueprint(securities_bp)
     app.register_blueprint(funds_bp)
     app.register_blueprint(watchlist_bp)
+    app.register_blueprint(ocr_bp)
     app.register_blueprint(importers_bp)
     app.register_blueprint(ledgers_bp)
     app.register_blueprint(utils_bp)

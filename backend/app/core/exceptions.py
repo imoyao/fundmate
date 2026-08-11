@@ -54,12 +54,14 @@ class ErrorCode(Enum):
     FILE_PARSE_ERROR = (3001, '文件解析失败', 400)
     DUPLICATE_TRANSACTION = (3002, '重复的交易记录', 409)
     UNSUPPORTED_FILE_FORMAT = (3003, '不支持的文件格式', 400)
+    USAGE_LIMIT_EXCEEDED = (3004, '当日使用次数已用完', 429)
 
     # 数据源/同步相关错误 5xxx
     DATA_SOURCE_ERROR = (5001, '外部数据源异常', 503)
     DATA_SOURCE_TIMEOUT = (5002, '数据源请求超时', 504)
     SYNC_JOB_FAILED = (5003, '数据同步任务失败', 500)
     INTERNAL_ERROR = (5004, '服务器内部错误', 500)
+    OCR_SERVICE_UNAVAILABLE = (5005, 'OCR 识别服务暂不可用', 503)
 
     @property
     def code(self) -> int:
