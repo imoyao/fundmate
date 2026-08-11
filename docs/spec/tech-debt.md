@@ -1,6 +1,6 @@
 # 技术债务与开口项明细（tech-debt）
 
-> ⚠️ **易腐烂内容**：本文件随修复进展频繁变化。最后核实日期：**2026-08-09**。每条债务修复后，须将状态更新为"✅ 已修复"并注明版本号；请勿删除历史条目（保留可追溯）。
+> ⚠️ **易腐烂内容**：本文件随修复进展频繁变化。最后核实日期：**2026-08-10**。每条债务修复后，须将状态更新为"✅ 已修复"并注明版本号；请勿删除历史条目（保留可追溯）。
 
 ## 1. 技术债务 & 开口项明细（原 SPEC 第 10 章）
 
@@ -68,6 +68,9 @@
 | **退出登录后页面不跳转（需手动刷新才回登录页）** | ~~🔴 严重~~ **✅ 已修复 (2026-08-08)** | `store/modules/user.ts` 的 `forceLogout()` 中 `supabase.auth.signOut({ scope: "local" })` **未 await**，紧接着同步执行 `resetRouter(); router.push("/login")`；而路由守卫 `beforeEach`（`router/index.ts`）内 `await supabase.auth.getSession()` 与之**竞态**——本地 session 尚未清除时守卫读到旧 session，判定仍"已登录"，走已登录分支 `toCorrectRoute()` 把 `/login` redirect 回 `_from.fullPath` 原页面。表现为：点击退出登录页面原地不跳转、仅侧边栏消失（`resetRouter()` 清空权限菜单所致），刷新后 session 才销毁、守卫判定未登录 → 跳登录页。 | **✅ 已修复 (2026-08-08)**：在 `forceLogout()` 中 **await `signOut({scope:"local"})`** 完成后再 `resetRouter(); router.push("/login")`，消除竞态。所有登出入口（`useNav.logout` / NavMix / NavHorizontal / profile `onLogout`）统一走 `useUserStoreHook().logOut()`，一处修复全覆盖。验证：`pnpm typecheck` 零错误、`eslint` 通过。 |
 | **货币基金每日收益计算链路验证（验收标准）** | 🔴 上线前必查 | 2026-08-09 修复货币基金净值污染时实证：万份收益已正确落库 `money_fund_daily_worth.nav_per_10k`（落库链路正常），但**尚无任何代码读取该字段**——`performance/calculators.py` 只查 `DailyWorth`，货币基金按 `money_fund` 记账只记流水不建持仓（`position_service.py:148-150`），每日收益计算链路未打通 | **已列入上线验收标准（2026-08-09）**：须验证「每日收益计算链路通 + 计算结果正确」后方可上线，具体验证项见 launch-plan M0 冒烟验证 #7。验证方式参考：每日收益 = 持有金额 × 当日万份收益 ÷ 10000，需确认前端展示入口（持仓收益/账户收益）已接入 |
 | **暗黑模式（深色主题）未适配（前端全局）** | 🔴 上线前必查 | 系统当前仅实现亮色主题（`design.dark.md` 为规范文档但前端未实际接入 dark 主题切换）。用户在暗色环境下使用出现：深色系统下页面局部亮白/灰白背景与深色文字混排、组件明暗不一，观感怪异；虽不影响功能，但影响整体产品质感与「家庭记账」场景的夜间使用体验。风险点：全部视图页 + Element Plus 组件 + ECharts 图表 + 落地页配色，均未按 `design.dark.md` 的语义变量（HSL 动态计算）体系适配。 | **上线前必须严查并修复（2026-08-08 记录）**：接入暗色模式需：(1) 全局 `dark` class 切换（Element Plus 官方 dark CSS + `index.scss` 语义变量双轨）；(2) 全站色值排查（禁止硬编码 hex，统一走 `--color-*` 语义变量）；(3) ECharts 图表按主题动态读 CSS 变量（`SankeyChart`/`Overview` 等 8 文件已按需引入，需补主题响应）；(4) 落地页 `site/style.css` 暗色令牌。属跨页面大改动，另立专项排期，**不得带病上线**。详见 `docs/spec/decisions.md` 对应条目（待登记）与 `frontend/design.dark.md`。 |
+| **H2 残留：`group_by=account` 分支仍手写 dict 拼装** | 中 | #899 审计项 H2 部分解决：分页分支已复用 `enrich_position_dict`（`positions/views.py:105`），但 `group_by=account` 分支仍手写独立 dict（`positions/views.py:82-99`），字段可能漂移 | 待修复：`group_by=account` 复用 `enrich_position_dict`，展示转换下沉 schema/service（跟踪 #911） |
+| **L2 残留：`ledger_service.py:164` 旧式 `.get()`** | 低 | #899 审计项 L2 部分解决：positions/fund_service 已改 `get_owned_or_404`，但 `ledger_service.py:164` 仍 `db.query(Ledger).get(ledger.linked_cash_ledger_id)` | 待修复：改 SQLAlchemy 2.0 写法（跟踪 #912） |
+| **M2 残留：金额/涨跌组件未全量覆盖** | 中 | #899 审计项 M2 部分解决：TransactionList/strategies/ledgers 已用 MoneyDisplay，但 portfolio/detail、AccountOverview、AssetManagement、Overview、AssetPanorama、temperature、explore、welcome、PositionTransactionsDrawer 等仍手写 `toLocaleString`/`toFixed` | 待修复：全站替换 MoneyDisplay/RiseFallText（跟踪 #913） |
 
 ---
 

@@ -4,10 +4,9 @@
 # File : views.py
 """持仓相关 API."""
 
-import traceback
-
 from apiflask import APIBlueprint
 from flask import abort, jsonify, request
+from loguru import logger
 
 from app.core.auth import get_family_id, get_owned_or_404
 from app.core.constants import ALLOCATION_LABELS, MARKET_LABELS, TYPE_LABELS
@@ -173,17 +172,17 @@ def create_position():
                 try:
                     position = PositionService.process_buy_or_deposit(db, data)
                 except Exception as e:
-                    traceback.print_exc()
+                    logger.exception('买入/加仓处理失败: %s', e)
                     return jsonify({'message': str(e), 'data': None}), 400
             else:
                 abort(400, description=f'不支持的操作类型: {op_type}')
         except ValueError as e:
-            traceback.print_exc()
+            logger.exception('持仓操作业务校验失败: %s', e)
             # 业务逻辑错误，返回明确提示
             return jsonify({'message': str(e), 'data': None}), 400
         except Exception:
             # ⭐ 捕获所有未预期的异常，打印完整堆栈
-            traceback.print_exc()
+            logger.exception('持仓操作未预期异常')
             db.rollback()
             abort(500, description='服务器内部错误，请稍后重试')
 

@@ -49,7 +49,8 @@ def create_app() -> APIFlask:
         version='0.1.0',
         docs_ui='swagger-ui',  # 启用 Swagger UI 文档
     )
-    app.config['DEBUG'] = True
+    # DEBUG 读环境变量，默认关闭；开发用 `flask run --debug` 或 .env 设 FLASK_DEBUG=1
+    app.config['DEBUG'] = os.getenv('FLASK_DEBUG', 'false').lower() in ('1', 'true', 'yes', 'on')
     app.config['PROPAGATE_EXCEPTIONS'] = True
 
     # ✅ 确保 xalpha 缓存目录存在
@@ -58,8 +59,8 @@ def create_app() -> APIFlask:
     xa.set_backend(backend='csv', path=str(cache_dir))
 
     # ✅ 启用 CORS，允许前端跨域访问
-    # 开发环境允许所有源，生产环境指定前端地址
-    allowed_origins = os.getenv('CORS_ORIGINS', '*')
+    # 默认收紧为本地前端 dev 地址；生产环境通过 CORS_ORIGINS 环境变量指定（逗号分隔）
+    allowed_origins = os.getenv('CORS_ORIGINS', 'http://localhost:8848')
     if allowed_origins == '*':
         CORS(app, resources={r'/*': {'origins': '*'}})
     else:

@@ -9,6 +9,7 @@
 
 from apiflask import APIBlueprint
 from flask import abort, jsonify, request
+from loguru import logger
 from sqlalchemy import update
 
 from app.core.auth import get_family_id, get_owned_or_404
@@ -66,9 +67,7 @@ def create_portfolio():
             return jsonify({'data': _portfolio_to_dict(portfolio), 'message': 'ok'})
         except Exception as e:
             db.rollback()
-            import traceback
-
-            traceback.print_exc()
+            logger.exception('创建投资组合失败')
             abort(500, description=str(e))
 
 
