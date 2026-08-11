@@ -167,7 +167,7 @@ class LedgerService:
         """获取关联现金账户的活期余额"""
         if not ledger.linked_cash_ledger_id:
             return None
-        cash_ledger = db.query(Ledger).get(ledger.linked_cash_ledger_id)
+        cash_ledger = db.get(Ledger, ledger.linked_cash_ledger_id)
         if not cash_ledger or cash_ledger.family_id != ledger.family_id:
             return None
         current = (

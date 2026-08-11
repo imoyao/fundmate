@@ -52,7 +52,7 @@ def create_family():
 def list_family_members(family_id: int):
     """查看指定家庭成员（仅主理人）。"""
     with get_db() as db:
-        family = db.query(Family).get(family_id)
+        family = db.get(Family, family_id)
         if not family:
             abort(404, description='家庭不存在')
         members = db.query(User).filter(User.family_id == family_id).order_by(User.created_at.asc()).all()
