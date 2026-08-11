@@ -328,11 +328,12 @@
 import { ref, reactive, computed, onMounted, watch, nextTick } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import type { FormInstance, FormRules } from "element-plus";
-import { createPosition, getPositions } from "@/api/positions";
+import { createPosition, getPositionsGroupedByAccount } from "@/api/positions";
+import { validateTradeOrder } from "@/api/positions";
+import type { Position } from "@/api/types";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import { LEDGER_TYPE_SHORT } from "@/constants";
 import { getLedgerColor, bgFromColor } from "@/utils/ledger";
-import { validateTradeOrder } from "@/api/positions";
 import { getStep, SELL_QUICK_RATIOS } from "@/utils/trading";
 import { estimateRedeemFee, syncFundFees } from "@/api/funds";
 import { calcFundConfirmDate } from "@/api/utils";
@@ -373,7 +374,7 @@ const positionSelectKey = ref(0);
 const showPositionSelect = ref(true);
 const form = reactive(defaultForm());
 const formRef = ref<FormInstance>();
-const positionsByAccount = ref<Record<string, any[]>>({});
+const positionsByAccount = ref<Record<string, Position[]>>({});
 const selectedPosition = ref<any>(null);
 const feeRateDialogVisible = ref(false);
 const feeRateTableData = ref<any[]>([]); // 保留用于兼容，但主要使用 holdFeeDetails
@@ -487,12 +488,12 @@ const rules: FormRules = {
 // ---------- 数据获取 ----------
 async function fetchPositionsByAccount() {
   try {
-    const res = await getPositions({ group_by: "account" });
-    positionsByAccount.value = (res as any)?.data ?? {};
+    const res = await getPositionsGroupedByAccount();
+    positionsByAccount.value = res?.data ?? {};
     const ids = new Set<number>();
     for (const accountName in positionsByAccount.value) {
       const positions = positionsByAccount.value[accountName];
-      positions.forEach((p: any) => {
+      positions.forEach(p => {
         if (p.ledger_id) ids.add(p.ledger_id);
       });
     }
@@ -551,7 +552,7 @@ function onAccountChange(_ledgerId: number) {
 }
 
 function onPositionSelect(positionId: number) {
-  const pos = accountPositions.value.find((p: any) => p.id === positionId);
+  const pos = accountPositions.value.find(p => p.id === positionId);
   if (!pos) return;
   selectedPosition.value = pos;
   form.symbol = pos.symbol;

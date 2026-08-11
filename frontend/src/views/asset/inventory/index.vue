@@ -488,6 +488,7 @@ import {
   deleteAsset
 } from "@/api/assets";
 import { getPositions } from "@/api/positions";
+import type { Position } from "@/api/types";
 import { getDistributions, getPositionGroups } from "@/api/summary";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
@@ -678,8 +679,8 @@ const assetTypeMap: Record<
 
 const activeCategory = ref("investment");
 const allAssets = ref<any[]>([]);
-// 投资明细分页数据（后端分页，market_value/pnl 由后端换算）
-const investmentPositions = ref<any[]>([]);
+// 投资明细分页数据（后端分页；market_value/pnl 后端暂不产出，见 Position 类型注释的已知 bug）
+const investmentPositions = ref<Position[]>([]);
 const investmentTotal = ref(0);
 const distributions = ref<any>(null);
 const investmentGroupsRaw = ref<any[]>([]);
@@ -830,17 +831,13 @@ const getCategoryTotal = (key: string): number => {
   return assetsSummary.value[key] || 0;
 };
 
-// 投资明细：后端真实分页拉取（market_value/pnl 后端换算，前端不再计算）
+// 投资明细：后端真实分页拉取（对齐分页信封 { data: Position[], total, page, per_page, message }）
 async function loadInvestmentPage(page: number) {
   investmentLoading.value = true;
   try {
     const res = await getPositions({ page, per_page: pageSize });
-    const payload = (res as any)?.data ?? {};
-    investmentPositions.value = Array.isArray(payload)
-      ? payload
-      : payload?.data || [];
-    investmentTotal.value =
-      (res as any)?.total ?? investmentPositions.value.length;
+    investmentPositions.value = res?.data ?? [];
+    investmentTotal.value = res?.total ?? investmentPositions.value.length;
   } catch (e) {
     console.error("加载投资明细分页失败", e);
     investmentPositions.value = [];

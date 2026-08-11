@@ -107,38 +107,33 @@
         <div v-if="xirrData" class="flex items-center gap-8">
           <div class="flex flex-col">
             <span class="text-gray-400 text-xs mb-1">年化收益率</span>
-            <div
-              :class="[
-                'text-3xl font-bold',
-                xirrData.xirr >= 0 ? 'text-red-500' : 'text-green-500'
-              ]"
-            >
-              {{ (xirrData.xirr * 100).toFixed(2) }}%
+            <div class="text-3xl font-bold">
+              <RiseFallText :value="(xirrData?.xirr ?? 0) * 100" />
             </div>
           </div>
           <div class="flex gap-6 ml-auto">
             <div class="flex flex-col">
               <span class="text-gray-400 text-xs mb-1">当前市值</span>
-              <span class="text-lg font-bold">{{
-                xirrData.current_value?.toLocaleString()
-              }}</span>
+              <span class="text-lg font-bold">
+                <MoneyDisplay
+                  :value="xirrData?.current_value ?? 0"
+                  :show-sign="false"
+                />
+              </span>
             </div>
             <div class="flex flex-col">
               <span class="text-gray-400 text-xs mb-1">总投入</span>
-              <span class="text-lg font-bold">{{
-                xirrData.total_invested?.toLocaleString()
-              }}</span>
+              <span class="text-lg font-bold">
+                <MoneyDisplay
+                  :value="xirrData?.total_invested ?? 0"
+                  :show-sign="false"
+                />
+              </span>
             </div>
             <div class="flex flex-col">
               <span class="text-gray-400 text-xs mb-1">总收益</span>
-              <span
-                :class="[
-                  'text-lg font-bold',
-                  xirrData.total_return >= 0 ? 'text-red-500' : 'text-green-500'
-                ]"
-              >
-                {{ xirrData.total_return >= 0 ? "+" : ""
-                }}{{ xirrData.total_return?.toLocaleString() }}
+              <span class="text-lg font-bold">
+                <MoneyDisplay :value="xirrData?.total_return ?? 0" />
               </span>
             </div>
           </div>
@@ -193,9 +188,13 @@
             sortable
             prop="market_value"
           >
-            <template #default="{ row }"
-              >¥{{ (row.market_value || 0).toLocaleString() }}</template
-            >
+            <template #default="{ row }">
+              <MoneyDisplay
+                :value="row.market_value || 0"
+                :show-sign="false"
+                :auto-color="false"
+              />
+            </template>
           </el-table-column>
           <el-table-column
             label="盈亏"
@@ -205,17 +204,7 @@
             prop="pnl"
           >
             <template #default="{ row }">
-              <span
-                :class="
-                  (row.pnl || 0) >= 0
-                    ? 'text-[var(--color-danger)]'
-                    : 'text-[var(--color-success)]'
-                "
-              >
-                {{ (row.pnl || 0) >= 0 ? "+" : "" }}¥{{
-                  Math.abs(row.pnl || 0).toLocaleString()
-                }}
-              </span>
+              <MoneyDisplay :value="row.pnl || 0" />
             </template>
           </el-table-column>
           <el-table-column
@@ -226,16 +215,7 @@
             prop="pnl_rate"
           >
             <template #default="{ row }">
-              <span
-                :class="
-                  (row.pnl_rate || 0) >= 0
-                    ? 'text-[var(--color-danger)]'
-                    : 'text-[var(--color-success)]'
-                "
-              >
-                {{ (row.pnl_rate || 0) >= 0 ? "+" : ""
-                }}{{ (row.pnl_rate || 0).toFixed(2) }}%
-              </span>
+              <RiseFallText :value="row.pnl_rate || 0" />
             </template>
           </el-table-column>
           <el-table-column label="所属账户" width="120">
@@ -404,7 +384,10 @@ import {
   getPortfolioHoldings
 } from "@/api/portfolio";
 import { getLedgers, updateLedger } from "@/api/ledger";
-import { http } from "@/utils/http";
+import { getPortfolioXirr } from "@/api/performance";
+import type { XirrData } from "@/api/performance";
+import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
+import RiseFallText from "@/components/RiseFallText/index.vue";
 
 defineOptions({ name: "PortfolioDetail" });
 
@@ -416,7 +399,7 @@ const portfolioId = computed(() => Number(route.params.id));
 const loading = ref(true);
 const portfolio = ref<any>(null);
 const linkedLedgers = ref<any[]>([]);
-const xirrData = ref<any>(null);
+const xirrData = ref<XirrData | null>(null);
 const xirrLoading = ref(false);
 const sortProp = ref<string | null>(null);
 const sortOrder = ref<"ascending" | "descending" | null>(null);
@@ -507,10 +490,8 @@ async function fetchHoldings() {
 async function fetchXirr() {
   xirrLoading.value = true;
   try {
-    const res = await http.request("get", "/api/performance/xirr/", {
-      params: { scope: "portfolio", portfolio_id: portfolioId.value }
-    });
-    xirrData.value = (res as any)?.data ?? (res as any);
+    const res = await getPortfolioXirr("portfolio", portfolioId.value);
+    xirrData.value = res.data;
   } catch (e) {
     ElMessage.error("获取收益率失败");
   } finally {

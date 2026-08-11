@@ -17,9 +17,9 @@
     class="money-display"
     :class="[
       `size-${size}`,
-      isRise ? 'is-rise' : '',
-      isFall ? 'is-fall' : '',
-      isZero ? 'is-zero' : '',
+      isRise && !hideColor && autoColor ? 'is-rise' : '',
+      isFall && !hideColor && autoColor ? 'is-fall' : '',
+      isZero && !hideColor && autoColor ? 'is-zero' : '',
       hideColor ? 'no-color' : ''
     ]"
     :style="{ color: customColor }"

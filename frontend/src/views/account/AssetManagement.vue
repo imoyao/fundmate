@@ -14,15 +14,21 @@
     <div class="asset-summary-cards">
       <div class="summary-card net-asset">
         <div class="card-title">净资产</div>
-        <div class="card-value">¥{{ netAsset.toFixed(2) }}</div>
+        <div class="card-value">
+          <MoneyDisplay :value="netAsset" :show-sign="false" />
+        </div>
       </div>
       <div class="summary-card total-asset">
         <div class="card-title">资产总额</div>
-        <div class="card-value">¥{{ totalAsset.toFixed(2) }}</div>
+        <div class="card-value">
+          <MoneyDisplay :value="totalAsset" :show-sign="false" />
+        </div>
       </div>
       <div class="summary-card total-liability">
         <div class="card-title">负债总额</div>
-        <div class="card-value">¥{{ totalLiability.toFixed(2) }}</div>
+        <div class="card-value">
+          <MoneyDisplay :value="totalLiability" :show-sign="false" />
+        </div>
       </div>
     </div>
 
@@ -60,10 +66,14 @@
           <tr v-for="asset in filteredAssets" :key="asset.id">
             <td>{{ asset.name }}</td>
             <td>{{ asset.type }}</td>
-            <td>¥{{ asset.value.toFixed(2) }}</td>
-            <td>¥{{ asset.cost.toFixed(2) }}</td>
+            <td>
+              <MoneyDisplay :value="asset.value" :show-sign="false" />
+            </td>
+            <td>
+              <MoneyDisplay :value="asset.cost" :show-sign="false" />
+            </td>
             <td :class="{ profit: asset.profit > 0, loss: asset.profit < 0 }">
-              ¥{{ asset.profit.toFixed(2) }}
+              <MoneyDisplay :value="asset.profit" />
             </td>
             <td
               :class="{
@@ -71,7 +81,7 @@
                 loss: asset.profitRate < 0
               }"
             >
-              {{ asset.profitRate.toFixed(2) }}%
+              <RiseFallText :value="asset.profitRate" />
             </td>
             <td>
               <button class="action-link">编辑</button>
@@ -142,6 +152,8 @@
 
 <script setup lang="ts">
 import { ref, computed } from "vue";
+import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
+import RiseFallText from "@/components/RiseFallText/index.vue";
 
 const showAddAssetModal = ref(false);
 

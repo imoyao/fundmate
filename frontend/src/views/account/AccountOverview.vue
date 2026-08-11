@@ -22,7 +22,7 @@
             <div>
               <p class="text-gray-400 text-xs">总资产 (人民币)</p>
               <p class="text-xl font-bold text-gray-800">
-                ¥{{ totalAssets.toLocaleString() }}
+                <MoneyDisplay :value="totalAssets" :show-sign="false" />
               </p>
             </div>
           </div>
@@ -61,13 +61,8 @@
             </div>
             <div>
               <p class="text-gray-400 text-xs">总盈亏 (人民币)</p>
-              <p
-                :class="[
-                  'text-xl font-bold',
-                  totalPnl >= 0 ? 'text-red-500' : 'text-green-500'
-                ]"
-              >
-                {{ totalPnl >= 0 ? "+" : "" }}¥{{ totalPnl.toLocaleString() }}
+              <p class="text-xl font-bold">
+                <MoneyDisplay :value="totalPnl" />
               </p>
             </div>
           </div>
@@ -188,7 +183,11 @@
           align="right"
         >
           <template #default="{ row }">
-            ¥{{ row.avg_price.toFixed(2) }}
+            <MoneyDisplay
+              :value="row.avg_price"
+              :show-sign="false"
+              :auto-color="false"
+            />
           </template>
         </el-table-column>
         <el-table-column label="当前价" width="120" align="right">
@@ -197,11 +196,15 @@
               <span
                 :class="[
                   'cursor-pointer hover:underline',
-                  priceChangeClass(row)
+                  priceChangeClass(row as Position)
                 ]"
                 @click="startEditPrice(row as Position)"
               >
-                ¥{{ (row as Position).current_price.toFixed(2) }}
+                <MoneyDisplay
+                  :value="(row as Position).current_price"
+                  :show-sign="false"
+                  :auto-color="false"
+                />
               </span>
               <IconifyIconOffline
                 icon="ep:edit"
@@ -248,39 +251,30 @@
 
         <el-table-column label="市值" width="120" align="right">
           <template #default="{ row }">
-            ¥{{ (row.quantity * row.current_price).toLocaleString() }}
+            <MoneyDisplay
+              :value="(row.quantity ?? 0) * (row.current_price ?? 0)"
+              :show-sign="false"
+              :auto-color="false"
+            />
           </template>
         </el-table-column>
         <el-table-column label="盈亏" width="130" align="right">
           <template #default="{ row }">
             <div>
-              <p
-                :class="[
-                  'font-medium',
-                  row.current_price >= row.avg_price
-                    ? 'text-red-500'
-                    : 'text-green-500'
-                ]"
-              >
-                {{ row.current_price >= row.avg_price ? "+" : "" }}¥{{
-                  (
-                    (row.current_price - row.avg_price) *
-                    row.quantity
-                  ).toLocaleString()
-                }}
+              <p class="font-medium">
+                <MoneyDisplay
+                  :value="
+                    ((row.current_price ?? 0) - (row.avg_price ?? 0)) *
+                    (row.quantity ?? 0)
+                  "
+                />
               </p>
-              <p
-                :class="[
-                  'text-xs',
-                  row.current_price >= row.avg_price
-                    ? 'text-red-400'
-                    : 'text-green-400'
-                ]"
-              >
-                {{ row.current_price >= row.avg_price ? "+" : ""
-                }}{{
-                  ((row.current_price / row.avg_price - 1) * 100).toFixed(2)
-                }}%
+              <p class="text-xs">
+                <RiseFallText
+                  :value="
+                    ((row.current_price ?? 0) / (row.avg_price || 1) - 1) * 100
+                  "
+                />
               </p>
             </div>
           </template>
@@ -334,6 +328,8 @@ import { getPositions, deletePosition, updatePosition } from "@/api/positions";
 import { getSummary } from "@/api/summary";
 import type { Position, SummaryData } from "@/api/types";
 import { ElMessage } from "element-plus";
+import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
+import RiseFallText from "@/components/RiseFallText/index.vue";
 
 defineOptions({
   name: "AccountOverview"
@@ -453,11 +449,15 @@ function marketLabel(market: string) {
   return map[market] || market;
 }
 
-function priceChangeClass(row: Position | any) {
-  const r = row as Position;
-  if (r.current_price > r.avg_price) return "text-red-500";
-  if (r.current_price < r.avg_price) return "text-green-500";
-  return "text-gray-500";
+function priceChangeClass(row: Position) {
+  // 现价 vs 成本：盈利=涨=红、亏损=跌=绿、持平=灰（语义变量）
+  if (row.current_price > row.avg_price) {
+    return "text-[color:var(--color-rise)]";
+  }
+  if (row.current_price < row.avg_price) {
+    return "text-[color:var(--color-fall)]";
+  }
+  return "text-[color:var(--text-secondary)]";
 }
 
 // 获取数据
@@ -473,9 +473,9 @@ async function fetchPositions() {
     positions.value = posRes?.data ?? [];
     total.value = posRes?.total ?? 0;
 
-    summaryData.value = (sumRes as any)?.data ?? sumRes ?? null;
-  } catch (e: any) {
-    ElMessage.error(e?.message || "加载数据失败");
+    summaryData.value = sumRes?.data ?? null;
+  } catch (e) {
+    ElMessage.error((e as Error)?.message || "加载数据失败");
   } finally {
     loading.value = false;
   }
@@ -492,8 +492,8 @@ async function handleDelete(id: number) {
     await deletePosition(id);
     ElMessage.success("删除成功");
     positions.value = positions.value.filter(p => p.id !== id);
-  } catch (e: any) {
-    ElMessage.error(e?.message || "删除失败");
+  } catch (e) {
+    ElMessage.error((e as Error)?.message || "删除失败");
   }
 }
 
@@ -501,24 +501,22 @@ async function handleDelete(id: number) {
 const editingPriceId = ref<number | null>(null);
 const editingPriceValue = ref(0);
 
-function startEditPrice(row: Position | any) {
-  const r = row as Position;
-  editingPriceId.value = r.id;
-  editingPriceValue.value = r.current_price;
+function startEditPrice(row: Position) {
+  editingPriceId.value = row.id;
+  editingPriceValue.value = row.current_price;
 }
 
-async function confirmEditPrice(row: Position | any) {
-  const r = row as Position;
+async function confirmEditPrice(row: Position) {
   try {
-    await updatePosition(r.id, { current_price: editingPriceValue.value });
-    r.current_price = editingPriceValue.value;
+    await updatePosition(row.id, { current_price: editingPriceValue.value });
+    row.current_price = editingPriceValue.value;
     editingPriceId.value = null;
     ElMessage.success("价格已更新");
     // 重新拉取汇总数据
     const sumRes = await getSummary();
-    summaryData.value = (sumRes as any)?.data ?? sumRes ?? null;
-  } catch (e: any) {
-    ElMessage.error(e?.message || "更新失败");
+    summaryData.value = sumRes?.data ?? null;
+  } catch (e) {
+    ElMessage.error((e as Error)?.message || "更新失败");
   }
 }
 

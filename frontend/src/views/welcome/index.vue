@@ -4,10 +4,7 @@
     :style="{ backgroundColor: 'var(--bg-page)' }"
   >
     <!-- 顶部欢迎语（规范：docs/design/welcome-greeting-spec.md v1.2） -->
-    <div
-      class="flex justify-between items-center mb-6"
-      aria-live="polite"
-    >
+    <div class="flex justify-between items-center mb-6" aria-live="polite">
       <div class="flex flex-col gap-2">
         <!-- 状态三：未读站内信提示条（叠加在顶部，可选迭代功能） -->
         <div
@@ -30,13 +27,21 @@
           <template v-if="welcomeState === 'data'">
             <span
               class="font-medium"
-              :style="{ color: 'var(--text-primary)', fontSize: '24px', fontWeight: 500 }"
+              :style="{
+                color: 'var(--text-primary)',
+                fontSize: '24px',
+                fontWeight: 500
+              }"
             >
               {{ greetingText }} 👋 你已记账
               <span
                 class="font-bold"
-                :style="{ color: 'var(--color-rise)', fontVariantNumeric: 'tabular-nums' }"
-              >{{ recordDays }}</span>
+                :style="{
+                  color: 'var(--color-rise)',
+                  fontVariantNumeric: 'tabular-nums'
+                }"
+                >{{ recordDays }}</span
+              >
               天
             </span>
           </template>
@@ -706,10 +711,7 @@ const mentalAccounts = computed(() => {
   };
   return parsed.map(a => ({
     name: a.name,
-    amount: `¥${a.amount.toLocaleString("zh-CN", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    })}`,
+    amount: a.amount, // 金额格式化交给模板中的 MoneyDisplay 组件
     percent: Math.round((a.amount / total) * 100),
     color: toneColor[a.tone] || "var(--brand-700)"
   }));
@@ -752,7 +754,7 @@ const fetchSummary = async () => {
 
 const fetchXirr = async () => {
   try {
-    const res = await getPortfolioXirr();
+    const res = await getPortfolioXirr("portfolio");
     portfolioXirr.value = res.data;
   } catch (e) {
     console.error("获取年化收益率失败", e);

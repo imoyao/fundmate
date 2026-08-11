@@ -4,14 +4,33 @@ import type {
   ApiResponse,
   Position,
   PositionCreate,
-  PositionUpdate
+  PositionGroupedResponse,
+  PositionListParams,
+  PositionListResponse,
+  PositionTransaction,
+  PositionUpdate,
+  TradeValidationResult
 } from "./types";
 
 const BASE_URL = "/api/positions/";
 
-/** 获取所有持仓记录 */
-export function getPositions(params?: Record<string, any>) {
-  return http.request<any>("get", BASE_URL, { params });
+/**
+ * 获取持仓分页列表。
+ * 对齐后端 list_positions 分页信封：{ data: Position[], total, page, per_page, message }。
+ */
+export function getPositions(params?: PositionListParams) {
+  return http.request<PositionListResponse>("get", BASE_URL, { params });
+}
+
+/**
+ * 按账户分组获取全部持仓。
+ * 对齐后端 group_by=account 返回：{ data: {账户名: [position_dict]}, message }。
+ * 独立函数而非给 getPositions 传 { group_by }，保证两条路径的信封类型互不混淆。
+ */
+export function getPositionsGroupedByAccount() {
+  return http.request<PositionGroupedResponse>("get", BASE_URL, {
+    params: { group_by: "account" }
+  });
 }
 
 /** 新增一条持仓记录 */
@@ -34,24 +53,25 @@ export function updatePosition(id: number, data: PositionUpdate) {
   });
 }
 
-/** 删除一条持仓记录 */
 /** 删除持仓，可选择同时删除关联交易 */
 export function deletePosition(
   id: number,
   deleteTransactions: boolean = false
 ) {
-  return http.request<any>("delete", `${BASE_URL}/${id}/`, {
+  return http.request<ApiResponse<null>>("delete", `${BASE_URL}/${id}/`, {
     params: { delete_transactions: deleteTransactions }
   });
 }
 
 /** 获取持仓的关联交易明细 */
 export function getPositionTransactions(id: number) {
-  return http.request<any>("get", `${BASE_URL}/${id}/transactions/`);
+  return http.request<ApiResponse<PositionTransaction[]>>(
+    "get",
+    `${BASE_URL}/${id}/transactions/`
+  );
 }
 
-// frontend/src/api/positions.ts 追加
-
+/** 交易规则校验（卖出数量/步长等），后端返回 { valid, message } */
 export function validateTradeOrder(data: {
   symbol: string;
   market?: string;
@@ -60,5 +80,7 @@ export function validateTradeOrder(data: {
   order_qty: number;
   op_type: "buy" | "sell";
 }) {
-  return http.request<any>("post", `${BASE_URL}/validate/`, { data });
+  return http.request<TradeValidationResult>("post", `${BASE_URL}/validate/`, {
+    data
+  });
 }

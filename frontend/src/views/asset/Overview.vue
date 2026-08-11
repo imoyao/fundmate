@@ -310,9 +310,13 @@
           align="right"
           sortable
         >
-          <template #default="{ row }"
-            >¥{{ row.marketValue.toLocaleString() }}</template
-          >
+          <template #default="{ row }">
+            <MoneyDisplay
+              :value="row.marketValue"
+              :show-sign="false"
+              :auto-color="false"
+            />
+          </template>
         </el-table-column>
         <el-table-column
           prop="pnl"
@@ -322,9 +326,7 @@
           sortable
         >
           <template #default="{ row }">
-            <span :class="row.pnl >= 0 ? 'text-red-500' : 'text-green-500'">
-              {{ row.pnl >= 0 ? "+" : "" }}¥{{ row.pnl.toLocaleString() }}
-            </span>
+            <MoneyDisplay :value="row.pnl" />
           </template>
         </el-table-column>
         <el-table-column
@@ -335,9 +337,7 @@
           sortable
         >
           <template #default="{ row }">
-            <span :class="row.pnlRate >= 0 ? 'text-red-500' : 'text-green-500'">
-              {{ row.pnlRate >= 0 ? "+" : "" }}{{ row.pnlRate.toFixed(2) }}%
-            </span>
+            <RiseFallText :value="row.pnlRate" />
           </template>
         </el-table-column>
       </el-table>
@@ -364,6 +364,8 @@ import {
 } from "vue";
 import { Search } from "@element-plus/icons-vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
+import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
+import RiseFallText from "@/components/RiseFallText/index.vue";
 import SankeyChart from "@/components/Charts/SankeyChart.vue";
 import { getPositions } from "@/api/positions";
 import { getSummary } from "@/api/summary";
