@@ -22,23 +22,29 @@ class LedgerService:
     @staticmethod
     def get_overview_stats(db: Session, family_id: int) -> dict:
         """账户资金全景：按类型分组市值、负债、净资产（覆盖游离数据）"""
-        # 加载当前家庭全部持仓和资产（去掉 isnot(None) 条件）
-        all_positions = db.query(Position).filter(Position.family_id == family_id).all()
-        all_assets = db.query(Asset).filter(Asset.family_id == family_id).all()
+        # 轻量列加载（避免全量 ORM 实体）；持仓市值聚合必须保留逐行 ROUND_HALF_UP 语义（tech-debt §13，#911 M4）
+        all_positions = (
+            db.query(Position.ledger_id, Position.current_price, Position.quantity)
+            .filter(Position.family_id == family_id)
+            .all()
+        )
+        all_assets = (
+            db.query(Asset.ledger_id, Asset.amount, Asset.major_category).filter(Asset.family_id == family_id).all()
+        )
 
         # 按 ledger_id 聚合持仓市值（分），ledger_id 为 None 统一归入 key=0
         pos_map: dict[int, int] = {}
-        for p in all_positions:
-            lid = p.ledger_id or 0  # None → 0 表示游离
-            mv_cents = Money.multiply_price_quantity(p.current_price, p.quantity)
+        for lid, cp, qty in all_positions:
+            lid = lid or 0  # None → 0 表示游离
+            mv_cents = Money.multiply_price_quantity(cp, qty)
             pos_map[lid] = pos_map.get(lid, 0) + mv_cents
 
         # 按 ledger_id 聚合非负资产金额
         asset_map: dict[int, int] = {}
-        for a in all_assets:
-            if a.major_category != 'liability':
-                lid = a.ledger_id or 0
-                asset_map[lid] = asset_map.get(lid, 0) + a.amount
+        for lid, amount, major_category in all_assets:
+            if major_category != 'liability':
+                lid = lid or 0
+                asset_map[lid] = asset_map.get(lid, 0) + amount
 
         # 获取当前家庭所有账户
         ledgers = db.query(Ledger).filter(Ledger.family_id == family_id).order_by(Ledger.created_at.asc()).all()
@@ -81,7 +87,7 @@ class LedgerService:
             }
 
         # 负债总额（分 → 元）
-        liability_cents = sum(a.amount for a in all_assets if a.major_category == 'liability')
+        liability_cents = sum(amount for _, amount, major_category in all_assets if major_category == 'liability')
         liability_yuan = Money.cents_to_yuan(liability_cents)
 
         total_assets = sum(g['total'] for g in type_groups.values())
@@ -246,9 +252,14 @@ class LedgerService:
             .all()
         )
 
-        # 总市值：Python 聚合（分）
-        all_positions = db.query(Position).filter(Position.ledger_id == ledger_id).all()
-        total_mv_cents = sum(Money.multiply_price_quantity(p.current_price, p.quantity) for p in all_positions)
+        # 总市值：Python 聚合（分）。逐行 ROUND_HALF_UP 语义必须保留（tech-debt §13，
+        # SQL 聚合 sum(price×qty)/10000 与逐行四舍五入有分位差异），仅轻量加载两列避免全量 ORM 实体（#911 M4）
+        total_mv_cents = sum(
+            Money.multiply_price_quantity(cp, qty)
+            for cp, qty in (
+                db.query(Position.current_price, Position.quantity).filter(Position.ledger_id == ledger_id).all()
+            )
+        )
 
         items = []
         for p in positions:

@@ -149,7 +149,6 @@ class PositionService:
         执行买入或存入操作，返回更新或新建的持仓实例。
         """
         symbol = data.get('symbol', '')
-        account = data.get('account_name', '')
         qty = data.get('quantity', 0)
         price = data.get('avg_price', 0)
         op_type = data.get('op_type', 'buy')
@@ -172,12 +171,12 @@ class PositionService:
             except Exception:
                 logger.warning(f'无法标准化符号: {symbol}，保留原值')
 
-        # 查找现有持仓（家庭维度）
+        # 查找现有持仓（家庭维度）——统一身份键 (symbol, ledger_id, family_id)（#911 M3）。
+        # 历史实现还按 (symbol, account_name) 二次匹配，与 ledger 键可能指向不同记录，
+        # 存在「同一标的建出重复持仓」隐患；且标准化后 search_symbol 恒等于 symbol，该分支为死代码。
         ledger_id = data.get('ledger_id')
         family_id = data.get('family_id', 1)
         same = db.query(Position).filter_by(symbol=search_symbol, ledger_id=ledger_id, family_id=family_id).first()
-        if not same and search_symbol != symbol:
-            same = db.query(Position).filter_by(symbol=symbol, account_name=account, family_id=family_id).first()
         final_symbol = search_symbol
 
         # 校验数量/价格
@@ -188,10 +187,8 @@ class PositionService:
         if price <= 0:
             raise ValueError('价格必须大于 0')
 
-        existing_position = (
-            db.query(Position).filter_by(symbol=symbol, account_name=account, family_id=family_id).first()
-        )
-        current_hold_shares = Money.min_unit_to_shares(existing_position.quantity) if existing_position else 0.0
+        # lot check 的当前持有量基于目标账户（与合并身份键一致），不再按 account_name 二次查询（#911 M3）
+        current_hold_shares = Money.min_unit_to_shares(same.quantity) if same else 0.0
         if not skip_lot_check:
             valid, err_msg = validate_buy(symbol, data.get('market', ''), asset_type, current_hold_shares, qty)
             if not valid:
