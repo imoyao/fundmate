@@ -34,6 +34,14 @@ def enrich_position_dict(p: Position) -> dict:
     d['quantity'] = Money.min_unit_to_shares(p.quantity)
     d['avg_price'] = Money.cents_to_yuan(p.avg_price)
     d['current_price'] = Money.cents_to_yuan(p.current_price)
+    # 市值/盈亏：复用 Money.multiply_price_quantity（与 portfolios/ledger_service 同口径，本币直算）。
+    # 汇率折算仅存在于 summary 聚合口径（total_*_cny）；单条明细与 current_price 保持本币一致。
+    d['market_value'] = Money.cents_to_yuan(Money.multiply_price_quantity(p.current_price, p.quantity))
+    d['pnl'] = (
+        Money.cents_to_yuan(Money.multiply_price_quantity(p.current_price - p.avg_price, p.quantity))
+        if p.avg_price
+        else 0.0
+    )
     return d
 
 

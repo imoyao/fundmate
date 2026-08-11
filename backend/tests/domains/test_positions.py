@@ -606,6 +606,98 @@ class TestPositionLabels:
         assert resp.status_code == 200
 
 
+class TestPositionMarketValuePnl:
+    """分页列表应产出 market_value/pnl（修复 Inventory「市值/盈亏」恒 ¥0.00）"""
+
+    def test_list_contains_market_value_and_pnl(self, client):
+        """创建持仓并更新现价后，分页列表应返回正确的市值与浮动盈亏"""
+        _post(
+            client,
+            '/api/positions/',
+            {
+                'symbol': '600519',
+                'name': '贵州茅台',
+                'type': 'stock',
+                'market': 'CN_A',
+                'account_name': '华泰证券',
+                'quantity': 100,
+                'avg_price': 10.5,
+                'currency': 'CNY',
+                'trade_date': '2026-05-01',
+            },
+        )
+        list_resp = _get(client, '/api/positions/')
+        pos_id = list_resp.get_json()['data'][0]['id']
+
+        # 更新现价为 12.5 元（默认 0 分 → 1250 分）
+        resp = client.patch(f'/api/positions/{pos_id}/', json={'current_price': 12.5})
+        assert resp.status_code == 200
+
+        data = _get(client, '/api/positions/').get_json()['data']
+        assert len(data) == 1
+        item = data[0]
+        assert 'market_value' in item
+        assert 'pnl' in item
+        # 市值 = 100 份 × 12.5 元 = 1250.0；盈亏 = (12.5 - 10.5) × 100 = 200.0
+        assert item['market_value'] == 1250.0
+        assert item['pnl'] == 200.0
+
+    def test_pnl_zero_when_no_cost_price(self, client):
+        """未设置成本价（avg_price=0）时 pnl 应为 0.0 而非报错"""
+        _post(
+            client,
+            '/api/positions/',
+            {
+                'symbol': '000001.SZ',
+                'name': '平安银行',
+                'type': 'stock',
+                'market': 'CN_A',
+                'account_name': '券商',
+                'quantity': 100,
+                'avg_price': 10.0,
+                'currency': 'CNY',
+                'trade_date': '2026-05-01',
+            },
+        )
+        list_resp = _get(client, '/api/positions/')
+        pos_id = list_resp.get_json()['data'][0]['id']
+
+        # avg_price 置 0（模拟无成本价的持仓）
+        resp = client.patch(f'/api/positions/{pos_id}/', json={'avg_price': 0})
+        assert resp.status_code == 200
+
+        data = _get(client, '/api/positions/').get_json()['data']
+        item = data[0]
+        assert item['pnl'] == 0.0
+        # 市值仍应按现价计算
+        assert item['market_value'] == 100 * 10.0
+
+    def test_market_value_in_create_response(self, client):
+        """创建持仓的响应也应含 market_value/pnl（复用 enrich_position_dict）"""
+        resp = _post(
+            client,
+            '/api/positions/',
+            {
+                'symbol': 'AAPL',
+                'name': '苹果',
+                'type': 'stock',
+                'market': 'US',
+                'account_name': '富途',
+                'quantity': 10,
+                'avg_price': 180,
+                'currency': 'USD',
+                'trade_date': '2026-05-01',
+            },
+        )
+        data = resp.get_json()['data']
+        assert 'market_value' in data
+        assert 'pnl' in data
+        # 新建时 current_price 初始化为成本价（position_service:232）
+        # → 市值 10 股 × 180 元 = 1800.0，盈亏 0.0
+        assert data['market_value'] == 1800.0
+        assert data['pnl'] == 0.0
+
+
 class TestPositionTransactions:
     """测试持仓交易明细端点"""
 
