@@ -28,7 +28,7 @@
       <el-tab-pane name="image" label="上传图片">
         <ImageUploader
           v-model="imageFile"
-          tip="支持券商 / 天天基金等 App 持仓截图，文件不超过 5MB"
+          tip="支持券商 / 基金 App 等持仓截图，文件不超过 5MB"
         />
       </el-tab-pane>
 
@@ -240,7 +240,10 @@ const handleRecognize = async () => {
     if (status === 503) {
       ElMessage.error("AI 识别服务暂时繁忙，请稍后重试（失败不消耗次数）");
     } else if (status === 429) {
-      ElMessage.warning("今日 AI 识别次数已用完，请明日再试");
+      // 可能是配额用完（3004）或限流（3005），用后端 message 区分
+      const msg =
+        e?.response?.data?.message || "今日 AI 识别次数已用完，请明日再试";
+      ElMessage.warning(msg);
     } else if (e?.code === "ECONNABORTED" || e?.message?.includes("timeout")) {
       ElMessage.error(
         "识别超时，图片内容可能较多，请稍后重试（失败不消耗次数）"

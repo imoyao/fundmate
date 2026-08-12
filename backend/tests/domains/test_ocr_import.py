@@ -16,6 +16,23 @@ from app.domains.usage.models import UserUsage
 from app.services import ocr_service
 
 
+@pytest.fixture(autouse=True)
+def _reset_ocr_guards(monkeypatch):
+    """重置限流/熔断/token 预算等内存防护状态，避免用例间相互干扰。
+
+    限流与熔断是模块级单例状态，若不重置，前一个用例的调用计数会污染后一个用例。
+    """
+    monkeypatch.setattr(ocr_service, 'OCR_RATE_LIMIT_MAX', 1000)
+    monkeypatch.setattr(ocr_service, 'OCR_MELTDOWN_THRESHOLD', 1000)
+    ocr_service._RATE_LIMIT_BUCKETS.clear()
+    ocr_service._MELTDOWN_STATE.clear()
+    ocr_service._token_used_today = 0
+    yield
+    ocr_service._RATE_LIMIT_BUCKETS.clear()
+    ocr_service._MELTDOWN_STATE.clear()
+    ocr_service._token_used_today = 0
+
+
 def _post(client, url, data):
     # 注意：/api/ocr/* 无尾斜杠（SPEC 例外清单之外的端点按路由定义），不要自动补 /
     resp = client.post(url, json=data)
@@ -229,3 +246,95 @@ class TestEnrichItems:
         """表内未命中时保留 OCR 识别出的名称。"""
         items = ocr_service._enrich_items([{'code': '888888', 'name': '某基金'}])
         assert items[0]['name'] == '某基金'
+
+
+class TestRateLimit:
+    """接口限流：防前台刷接口产生 token/服务器开销（防护在真实调用前）。"""
+
+    def test_rate_limit_blocks_excess_calls(self, client, db, monkeypatch):
+        """每分钟超过 OCR_RATE_LIMIT_MAX 次 → 429，且不调用 LLM。"""
+
+        monkeypatch.setattr(ocr_service, 'OCR_RATE_LIMIT_MAX', 2)
+        called = {'n': 0}
+
+        def _fake_parse(text):
+            called['n'] += 1
+            return [{'code': '110011', 'name': '易方达中小盘'}]
+
+        monkeypatch.setattr(ocr_service, 'parse_text', _fake_parse)
+        for _ in range(2):
+            resp = client.post('/api/ocr/parse', json={'text': '110011'})
+            assert resp.status_code == 200
+        # 第三次被限流拦截：真实 LLM 未被调用
+        resp = client.post('/api/ocr/parse', json={'text': '110011'})
+        assert resp.status_code == 429
+        assert resp.get_json()['message'] == '操作太频繁，请稍后再试'
+        assert called['n'] == 2
+
+
+class TestMeltdown:
+    """连续失败熔断：防「失败返还 → 无限重试 → token 空耗」."""
+
+    def test_meltdown_blocks_calls_in_cooldown(self, client, db, monkeypatch):
+        """连续失败达阈值 → 冷却期内直接 503，不再调用 LLM。"""
+        from app.core.exceptions import ErrorCode, SBException
+
+        monkeypatch.setattr(ocr_service, 'OCR_MELTDOWN_THRESHOLD', 3)
+
+        def _fail(text):
+            raise SBException(
+                code=ErrorCode.OCR_SERVICE_UNAVAILABLE.code,
+                message='服务不可用',
+                status_code=ErrorCode.OCR_SERVICE_UNAVAILABLE.http_status,
+            )
+
+        monkeypatch.setattr(ocr_service, 'parse_text', _fail)
+        for _ in range(3):
+            resp = client.post('/api/ocr/parse', json={'text': '110011'})
+            assert resp.status_code == 503
+        # 熔断已触发：即使 LLM 恢复，冷却期内也直接拒绝，不产生 token
+        called = {'n': 0}
+
+        def _parse(text):
+            called['n'] += 1
+            return []
+
+        monkeypatch.setattr(ocr_service, 'parse_text', _parse)
+        resp = client.post('/api/ocr/parse', json={'text': '110011'})
+        assert resp.status_code == 503
+        assert called['n'] == 0
+
+    def test_success_resets_failure_count(self, client, db, monkeypatch):
+        """一次成功清零失败计数，不会触发熔断。"""
+        from app.core.exceptions import ErrorCode, SBException
+
+        monkeypatch.setattr(ocr_service, 'OCR_MELTDOWN_THRESHOLD', 3)
+        fail_once = {'done': False}
+
+        def _flaky(text):
+            if not fail_once['done']:
+                fail_once['done'] = True
+                raise SBException(
+                    code=ErrorCode.OCR_SERVICE_UNAVAILABLE.code,
+                    message='服务不可用',
+                    status_code=ErrorCode.OCR_SERVICE_UNAVAILABLE.http_status,
+                )
+            return [{'code': '110011', 'name': '易方达中小盘'}]
+
+        monkeypatch.setattr(ocr_service, 'parse_text', _flaky)
+        assert client.post('/api/ocr/parse', json={'text': '110011'}).status_code == 503
+        # 第二次成功 → 失败计数清零，后续失败从 0 重新累计
+        assert client.post('/api/ocr/parse', json={'text': '110011'}).status_code == 200
+        assert client.post('/api/ocr/parse', json={'text': '110011'}).status_code == 200
+
+
+class TestTokenBudget:
+    """全站 token 预算熔断（费用护栏，issue #823）。"""
+
+    def test_budget_exceeded_rejects_calls(self, client, db, monkeypatch):
+        """当日累计 token 超预算 → 503，不发起真实调用。"""
+        monkeypatch.setattr(ocr_service, 'ARK_DAILY_TOKEN_BUDGET', 1000)
+        ocr_service._token_used_today = 1000
+        resp = client.post('/api/ocr/parse', json={'text': '110011'})
+        assert resp.status_code == 503
+        assert '费用额度' in resp.get_json()['message']

@@ -49,6 +49,10 @@ def ocr_recognize():
         logger.warning('OCR base64 解码失败: {}', e)
         raise SBException(code=1001, message='图片 base64 无效', status_code=400)
 
+    # 防护闸：限流 / 连续失败熔断 / 全站 token 预算——全部在真实调用之前，
+    # 恶意刷接口在此被拦截，不产生 token 费用与服务器开销（见 ocr_service 防滥用设计）
+    ocr_service.assert_available(user_id)
+
     # 先消费配额再识别：识别失败会返还（refund_usage），防恶意刷取免费额度
     usage = ocr_service.consume_usage(user_id)
     try:
@@ -56,7 +60,9 @@ def ocr_recognize():
     except SBException:
         # 识别失败（服务不可用/超时等）返还本次配额，避免测试期一次失败即白耗额度
         ocr_service.refund_usage(user_id)
+        ocr_service.record_failure(user_id)
         raise
+    ocr_service.record_success(user_id)
     logger.info('OCR 识别完成 user={} items={}', user_id, len(items))
     return jsonify({'data': {'items': items[:OCR_MAX_ITEMS], 'usage': usage}, 'message': 'ok'})
 
@@ -66,11 +72,15 @@ def ocr_parse_text():
     """纯文本 → LLM 批量提取基金代码（AI 批量导入）；消耗 1 次当日配额。"""
     user_id = _current_user_id()
     payload = parse_body(OCRParseTextRequest)
+    # 防护闸同上（限流 / 熔断 / token 预算），在真实调用之前拦截
+    ocr_service.assert_available(user_id)
     usage = ocr_service.consume_usage(user_id)
     try:
         items = ocr_service.parse_text(payload.text)
     except SBException:
         ocr_service.refund_usage(user_id)
+        ocr_service.record_failure(user_id)
         raise
+    ocr_service.record_success(user_id)
     logger.info('文本批量导入解析完成 user={} items={}', user_id, len(items))
     return jsonify({'data': {'items': items[:OCR_MAX_ITEMS], 'usage': usage}, 'message': 'ok'})

@@ -55,6 +55,7 @@ class ErrorCode(Enum):
     DUPLICATE_TRANSACTION = (3002, '重复的交易记录', 409)
     UNSUPPORTED_FILE_FORMAT = (3003, '不支持的文件格式', 400)
     USAGE_LIMIT_EXCEEDED = (3004, '当日使用次数已用完', 429)
+    RATE_LIMIT_EXCEEDED = (3005, '操作太频繁，请稍后再试', 429)
 
     # 数据源/同步相关错误 5xxx
     DATA_SOURCE_ERROR = (5001, '外部数据源异常', 503)
