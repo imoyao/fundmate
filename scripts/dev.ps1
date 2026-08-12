@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    DuoBeiBei local dev launcher (Windows / native PowerShell)
+    Duoduobei local dev launcher (Windows / native PowerShell)
 
 .DESCRIPTION
     Starts backend Flask and frontend Vite, each in its own window (ASCII titles to avoid codepage issues):
@@ -47,24 +47,24 @@ $procs = @()
 
 try {
     if ($Install) {
-        Write-Host '[DuoBeiBei] Installing backend deps (pdm install)...' -ForegroundColor Cyan
+        Write-Host '[Duoduobei] Installing backend deps (pdm install)...' -ForegroundColor Cyan
         $i1 = Start-Process -FilePath 'cmd.exe' -WorkingDirectory $Backend -ArgumentList '/c','pdm install' -PassThru -Wait
         if ($i1.ExitCode -ne 0) { throw 'pdm install failed' }
 
-        Write-Host '[DuoBeiBei] Installing frontend deps (pnpm install)...' -ForegroundColor Cyan
+        Write-Host '[Duoduobei] Installing frontend deps (pnpm install)...' -ForegroundColor Cyan
         $i2 = Start-Process -FilePath 'cmd.exe' -WorkingDirectory $Frontend -ArgumentList '/c','pnpm install' -PassThru -Wait
         if ($i2.ExitCode -ne 0) { throw 'pnpm install failed' }
     }
 
-    Write-Host '[DuoBeiBei] Starting backend Flask (http://localhost:8000) ...' -ForegroundColor Green
+    Write-Host '[Duoduobei] Starting backend Flask (http://localhost:8000) ...' -ForegroundColor Green
     $be = Start-Process -FilePath 'cmd.exe' -WorkingDirectory $Backend `
-        -ArgumentList '/c','title DuoBeiBei-Backend-8000 && (pdm run flask --app app.main:app run --debug --host 0.0.0.0 --port 8000 || pause)' `
+        -ArgumentList '/c','title Duoduobei-Backend-8000 && (pdm run flask --app app.main:app run --debug --host 0.0.0.0 --port 8000 || pause)' `
         -PassThru
     $procs += $be
 
-    Write-Host '[DuoBeiBei] Starting frontend Vite (http://localhost:8848) ...' -ForegroundColor Green
+    Write-Host '[Duoduobei] Starting frontend Vite (http://localhost:8848) ...' -ForegroundColor Green
     $fe = Start-Process -FilePath 'cmd.exe' -WorkingDirectory $Frontend `
-        -ArgumentList '/c','title DuoBeiBei-Frontend-8848 && (pnpm dev || pause)' `
+        -ArgumentList '/c','title Duoduobei-Frontend-8848 && (pnpm dev || pause)' `
         -PassThru
     $procs += $fe
 
@@ -78,11 +78,11 @@ try {
 }
 finally {
     Write-Host ''
-    Write-Host '[DuoBeiBei] Stopping services and cleaning process tree...' -ForegroundColor Red
+    Write-Host '[Duoduobei] Stopping services and cleaning process tree...' -ForegroundColor Red
     foreach ($p in $procs) {
         if ($p -and -not $p.HasExited) {
             try { Stop-Process -Id $p.Id -Force -Recurse } catch { }
         }
     }
-    Write-Host '[DuoBeiBei] Stopped.' -ForegroundColor Red
+    Write-Host '[Duoduobei] Stopped.' -ForegroundColor Red
 }
