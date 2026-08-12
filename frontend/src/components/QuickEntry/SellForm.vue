@@ -224,14 +224,8 @@
 
         <!-- 6. 预估金额 -->
         <el-form-item label="预估金额">
-          <el-input
-            :model-value="sellEstimate"
-            class="w-full"
-            readonly
-            disabled
-          >
-            <template #append>元</template>
-          </el-input>
+          <span v-if="sellEstimate === null" class="text-gray-400">-</span>
+          <MoneyDisplay v-else :value="sellEstimate" suffix="元" />
         </el-form-item>
       </template>
     </template>
@@ -338,6 +332,7 @@ import { getStep, SELL_QUICK_RATIOS } from "@/utils/trading";
 import { estimateRedeemFee, syncFundFees } from "@/api/funds";
 import { calcFundConfirmDate } from "@/api/utils";
 import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
+import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 
 const props = defineProps<{
   ledgers: any[];
@@ -420,7 +415,7 @@ const sellEstimate = computed(() => {
   const p = form.price || 0;
   const f = form.fee || 0;
   const amount = q * p - f;
-  return amount > 0 ? amount.toFixed(2) : "-";
+  return amount > 0 ? amount : null;
 });
 const disabledDate = (time: Date) =>
   time.getTime() > new Date().setHours(0, 0, 0, 0);
