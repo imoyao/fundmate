@@ -1159,13 +1159,13 @@ onUnmounted(() => {
   justify-content: center;
   height: 40px;
   padding: 8px 20px;
-  border-radius: var(--radius-pill);
-  background-color: var(--brand-700);
-  color: #fff;
   font-size: 14px;
   font-weight: 500;
   line-height: 1;
+  color: #fff;
   white-space: nowrap;
+  background-color: var(--brand-700);
+  border-radius: var(--radius-pill);
   transition:
     background-color 0.2s ease,
     transform 0.1s ease;

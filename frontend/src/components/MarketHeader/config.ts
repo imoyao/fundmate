@@ -5,7 +5,7 @@
 
 import { useRouter } from "vue-router";
 
-export const MARKET_LOGO = "多倍贝";
+export const MARKET_LOGO = "多多贝";
 
 export function useMarketHeaderNavs() {
   const router = useRouter();

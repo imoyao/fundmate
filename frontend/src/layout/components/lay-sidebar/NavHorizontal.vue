@@ -129,11 +129,11 @@ onMounted(() => {
   }
 }
 
-/* 品牌文字组：多倍贝 + 投资账本副标 + Beta 挂件（与品牌 v1.7、SidebarLogo 一致） */
+/* 品牌文字组：多多贝 + 投资账本副标 + Beta 挂件（与品牌 v1.7、SidebarLogo 一致） */
 .horizontal-header-left {
   display: inline-flex;
-  align-items: center;
   gap: 10px;
+  align-items: center;
   cursor: pointer;
 
   .navbar-brand-name {
@@ -144,33 +144,33 @@ onMounted(() => {
     color: var(--el-text-color-primary);
 
     .brand-sub {
+      margin-left: 0.25em;
       font-size: 0.6em;
       font-weight: 400;
       color: var(--el-text-color-secondary);
-      margin-left: 0.25em;
 
       &::before {
-        content: "·";
         margin-right: 0.25em;
         color: inherit;
+        content: "·";
       }
     }
 
     .brand-beta {
+      position: relative;
+      top: -0.35em;
       display: inline-flex;
       align-items: center;
+      padding: 1px 6px;
       margin-left: 6px;
       font-size: 0.55rem;
       font-weight: 600;
       line-height: 1;
       color: var(--el-color-primary);
-      background: rgba(242, 163, 142, 0.14);
-      border: 1px solid var(--el-color-primary-light-5);
-      padding: 1px 6px;
-      border-radius: 6px;
       white-space: nowrap;
-      position: relative;
-      top: -0.35em;
+      background: rgb(242 163 142 / 14%);
+      border: 1px solid var(--el-color-primary-light-5);
+      border-radius: 6px;
     }
   }
 }

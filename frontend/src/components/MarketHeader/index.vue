@@ -2,7 +2,7 @@
   MarketHeader · 探市 / 温度计 顶部导航（复用）
   品牌 logo + 页面 badge + 右侧导航按钮
   props:
-    - logo:    品牌名（统一「多倍贝」，见 config.ts 的 MARKET_LOGO）
+    - logo:    品牌名（统一「多多贝」，见 config.ts 的 MARKET_LOGO）
     - badge:   页面标签文案（探市 / 温度计）
     - navs:    导航项 [{ label, type?: 'link'|'primary', onClick }]
 -->
@@ -57,7 +57,7 @@ withDefaults(
       onClick?: () => void;
     }>;
   }>(),
-  { logo: "多倍贝", badge: "" }
+  { logo: "多多贝", badge: "" }
 );
 </script>
 

@@ -1,7 +1,7 @@
 /**
  * ============================================================
  * theme.ts
- * 主题切换工具 · 多倍贝 设计语言 v2.3.2
+ * 主题切换工具 · 多多贝 设计语言 v2.3.2
  * 功能：亮色/暗色切换、主题色切换、系统偏好检测、持久化
  * 最后更新: 2026-06-27
  * ============================================================
@@ -13,7 +13,7 @@ import { storageLocal } from "@pureadmin/utils";
 /** 主题类型 */
 export type ThemeMode = "light" | "dark" | "system";
 
-/** 主题色类型（框架预设 + 多倍贝） */
+/** 主题色类型（框架预设 + 多多贝） */
 export type ThemeColor =
   | "light"
   | "default"
@@ -57,7 +57,7 @@ export function setThemeMode(mode: ThemeMode): void {
 }
 
 /**
- * 切换主题色（包括 多倍贝 主题）
+ * 切换主题色（包括 多多贝 主题）
  * @param color ThemeColor
  */
 export function setThemeColor(color: ThemeColor): void {

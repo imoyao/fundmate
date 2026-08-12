@@ -9,7 +9,7 @@
       <p class="app-footer__disclaimer">
         市场有风险，投资需谨慎。本平台内容仅供参考，不构成任何投资建议。
       </p>
-      <p class="app-footer__copyright">© 2026 多倍贝 · 让投资更从容</p>
+      <p class="app-footer__copyright">© 2026 多多贝 · 让投资更从容</p>
     </div>
   </footer>
 </template>

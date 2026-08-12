@@ -29,7 +29,7 @@ export function useDataThemeChange() {
     { color: "#13c2c2", themeColor: "mingQing" },
     /* 酸橙绿 */
     { color: "#52c41a", themeColor: "auroraGreen" },
-    // 🆕 多倍贝 专属主题（放在最后）
+    // 🆕 多多贝 专属主题（放在最后）
     { color: "#E34F38", themeColor: "showbuy" }
   ]);
 

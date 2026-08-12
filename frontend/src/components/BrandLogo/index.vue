@@ -1,13 +1,13 @@
 <!--
-  BrandLogo · 多倍贝品牌 Logo（超椭圆主形态）
+  BrandLogo · 多多贝品牌 Logo（超椭圆主形态）
 
   全站统一品牌图形组件：应用站头部/侧边栏、探市/温度计 Header、登录注册页共用，
   避免各场景各自引用不同素材导致的风格漂移。
 
-  图形来源 logo-delivery/01-master-superellipse/logo.svg（权威母本），
-  以 `?raw` 内联渲染，前端不再依赖 public 下的 logo 图片文件。
+  图形来源 frontend/src/assets/brand/logo.svg（应用站本地副本，以 `?raw` 内联渲染），
+  前端不再依赖 public 下的 logo 图片文件。品牌权威母本由独立主站仓库 duoduobei-web 的 logo-delivery/ 维护。
 
-  防坑（logo-delivery/LOGO_DELIVERY.md 第九章）：
+  防坑（主站仓库 logo-delivery/LOGO_DELIVERY.md 第九章）：
     - 外层 SVG 自带 viewBox=0 0 512 512，此处仅覆盖显示尺寸，不裁剪；
     - 内联 SVG 含 clipPath 的 id，多实例时必须 id 隔离（本组件按实例加前缀）；
     - 不使用 <symbol>+<use> 复用（chromium/rsvg 下空白）。

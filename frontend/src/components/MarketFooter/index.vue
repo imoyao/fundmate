@@ -63,7 +63,7 @@ withDefaults(
     legend?: Array<{ label: string; tone: "low" | "mid" | "high" }>;
   }>(),
   {
-    copyright: "© 2026 多倍贝 · 让投资更从容",
+    copyright: "© 2026 多多贝 · 让投资更从容",
     legend: () => [
       { label: "偏低（机会）", tone: "low" },
       { label: "适中", tone: "mid" },

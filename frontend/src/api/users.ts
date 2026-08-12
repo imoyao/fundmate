@@ -11,5 +11,8 @@ export type RecordStats = {
 
 /** 首页欢迎语：首笔交易日期 + 累计记账天数 */
 export function getRecordStats() {
-  return http.request<ApiResponse<RecordStats>>("get", BASE_URL + "record-stats/");
+  return http.request<ApiResponse<RecordStats>>(
+    "get",
+    BASE_URL + "record-stats/"
+  );
 }

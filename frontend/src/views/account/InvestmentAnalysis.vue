@@ -4,10 +4,7 @@
     :style="{ backgroundColor: 'var(--bg-page)' }"
   >
     <div class="mb-6">
-      <h2
-        class="text-2xl font-bold"
-        :style="{ color: 'var(--text-primary)' }"
-      >
+      <h2 class="text-2xl font-bold" :style="{ color: 'var(--text-primary)' }">
         投资分析
       </h2>
       <p class="text-sm mt-1" :style="{ color: 'var(--text-tertiary)' }">
@@ -267,11 +264,31 @@ const initAssetAllocationChart = () => {
         center: ["50%", "45%"],
         // 演示数据，待接入真实接口；配色取图表色板（--chart-*）与中性色
         data: [
-          { value: 600000, name: "股票", itemStyle: { color: chartColors.chart01 } },
-          { value: 300000, name: "基金", itemStyle: { color: chartColors.chart03 } },
-          { value: 200000, name: "理财", itemStyle: { color: chartColors.chart05 } },
-          { value: 100000, name: "REITs", itemStyle: { color: chartColors.chart07 } },
-          { value: 34567.89, name: "现金", itemStyle: { color: chartColors.neutral } }
+          {
+            value: 600000,
+            name: "股票",
+            itemStyle: { color: chartColors.chart01 }
+          },
+          {
+            value: 300000,
+            name: "基金",
+            itemStyle: { color: chartColors.chart03 }
+          },
+          {
+            value: 200000,
+            name: "理财",
+            itemStyle: { color: chartColors.chart05 }
+          },
+          {
+            value: 100000,
+            name: "REITs",
+            itemStyle: { color: chartColors.chart07 }
+          },
+          {
+            value: 34567.89,
+            name: "现金",
+            itemStyle: { color: chartColors.neutral }
+          }
         ]
       }
     ]

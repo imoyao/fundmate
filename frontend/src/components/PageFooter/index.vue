@@ -42,7 +42,7 @@
 
       <div class="footer-card">
         <div class="footer-card__text">
-          <p class="footer-card__title">关注公众号「多倍贝」</p>
+          <p class="footer-card__title">关注公众号「多多贝」</p>
           <p class="footer-card__desc">扫码获取更多市场温度解读</p>
         </div>
         <div class="footer-card__qr" role="img" aria-label="公众号二维码占位">
