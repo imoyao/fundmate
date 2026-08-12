@@ -26,12 +26,45 @@ v1（2026-08）基于两项已推翻的假设，本版据实修订：
 | 主站（营销/落地页） | `duoduobei-web` | `duoduobei.com` | 静态 HTML/CSS + 原生 JS | 是（强） | EdgeOne(主) → Cloudflare(备) |
 | 应用站（APP） | `fundmate` (`frontend/`) | `app.duoduobei.com` | Vue3 SPA（`vite build` → `dist`） | 否（noindex） | **EdgeOne(主) → Cloudflare(备) → Vercel(兜底)** |
 | 文档站 | `fundmate` (`docs/`) | `docs.duoduobei.com` | Markdown → VitePress | 是（中） | EdgeOne(主) → Cloudflare(备) |
-
-> 文档站优先级与全站统一（EdgeOne 优先）。注：早期曾规划「文档站 Cloudflare(主)」，
+| 叽咕（投教/小游戏） | `fundmate`（`jigu/`，待确认具体路径） | `jigu.duoduobei.com` | 复用应用站技术栈 | 否（noindex） | EdgeOne(主) → Cloudflare(备) → Vercel(兜底) |
+| 后端 API | `fundmate` (`backend/`) | `api.duoduobei.com`（或后端独立项目域名） | APIFlask（WSGI，零重写） | 否 | **仅 EdgeOne Pages Python 函数**（不三平台） |
+| 定时抓取 | `fundmate` (`backend/scripts/`) | 无公开域名 | 离线 job（不入站） | 否 | 见 §1.3（混合：本机 + GitHub Action） |
 > 2026-08 统一为三平台 EdgeOne→Cloudflare→Vercel 语义后，文档站亦改为 EdgeOne 优先、Cloudflare 备。
 > 若仍希望文档站 Cloudflare 为主，改本表 + §3 文档站段落即可（待确认）。
 
 > 应用站未登录访问跳**探市页（`/explore`）免登录体验**，注册后进入 welcome；落地页职能完全移交主站（见 decisions.md 2026-08-12）。
+
+### 1.1 后端部署（仅 EdgeOne，不三平台）
+
+- **宿主**：EdgeOne Pages **Python 函数**（独立后端项目，选中国香港/境外加速区 → **无需 ICP 备案**），APIFlask 原样跑 WSGI 模式，零重写。
+- **为什么只部署 EdgeOne**：Cloudflare Pages Functions 是 Workers（JS/Wasm，不原生跑 Python），Vercel 函数对 Python 有限制且不必要；后端仅在能原生跑 Python 的 EdgeOne 部署，前端三平台的流量降级不涉及后端（后端单点）。
+- **数据库双库**（容量所迫，非并发所迫）：
+  - **用户域 → Supabase（Postgres，免费 500MB）**：账本/组合/持仓/交易/自选/标签等，体量 MB 级。
+  - **市场/金融大数据 + 二鸟说 → Turso（libSQL，免费 9GB）**：本地库实测 ~1.8GB，Supabase 装不下，必须拆出。
+  - 见 `docs/backend-restructure-edgeone-dualengine.md`（P0–P6 待落地，当前仍单 SQLite）。
+- **成本**：EdgeOne 免费 + Supabase 免费 + Turso 免费 ≈ 全免费。
+- **域名**：后端独立项目域名（如 `api.duoduobei.com` 或 EO 分配域），不进 Cloudflare LB（后端不降级）。
+
+### 1.2 定时抓取（国内 IP 矛盾 + 不备案约束）
+
+**矛盾**：A 股数据源（东财/天天基金等）需**国内 IP**才能稳定抓取；但用户**不做域名备案**，国内云服务器/函数（绑公网 IP + Web 服务）普遍强制备案，不可行。
+
+**决策（2026-08-12）：不备案**，采用**混合抓取**，抓取与后端解耦（后端 EdgeOne 香港仅承载读取）：
+
+| 数据源类型 | 执行点 | 理由 |
+|:---|:---|:---|
+| 海外可访问源（二鸟说、部分公开行情） | **GitHub Actions**（海外 runner，定时 07:00/19:00 北京，复用 WeChatRSS 通道） | 免费、可靠、自动化 |
+| 强国内源（东财/天天基金等 A 股） | **本机 Windows 任务计划**跑 `backend/scripts/*` 抓取脚本（国内家庭宽带 IP） | 零成本、国内 IP、不备案；关机容忍（数据 T+1 延迟，stale 透传兜底） |
+
+- 抓取值接写 Supabase/Turso，不经过 EdgeOne 后端。
+- 不可行项（已排除）：国内云函数（需备案）、纯海外 Action 抓 A 股（限流空数据）、代理/中转（合规风险）。
+- **待决策**：本机抓取依赖开机，若需生产级可靠性，后续可评估「不绑域名的纯计算国内资源」或专用抓取服务（仍须规避备案）。当前以成本+合规优先。
+
+### 1.3 叽咕（投教/小游戏）部署与旧站迁移
+
+- **新叽咕** `jigu.duoduobei.com`（统一正式名「叽咕」，非"极谷/基股"）：复用应用站技术栈，**三平台部署**（EdgeOne 主 → Cloudflare 备 → Vercel 兜底），与全站优先级一致。
+- **旧叽咕** `jigu.masantu.com`：待数据迁移完成后**下线，或 301 重定向到新叽咕**（`jigu.duoduobei.com`）。迁移前新旧共存，用户数据从旧站导入新站（见 decisions.md 2026-08-12「jigu↔app 共享数据库」）。
+- 叽咕与 app 同数据库（用户域 Supabase），登录互通（jigu 登录即 app 用户）。
 
 ## 2. 部署优先级与自动降级（核心机制）
 
