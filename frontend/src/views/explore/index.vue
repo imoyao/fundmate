@@ -165,9 +165,9 @@
     </section>
 
     <!-- ============================================================ -->
-    <!-- 添加/观察栏                                                   -->
+    <!-- 添加/观察栏（仅未登录；登录后隐藏，引导去自选页管理）       -->
     <!-- ============================================================ -->
-    <section id="add-section" class="add-section">
+    <section v-if="!isAuthenticated" id="add-section" class="add-section">
       <div class="add-card">
         <div class="add-form-row">
           <div class="input-wrapper">
@@ -250,6 +250,23 @@
             </div>
           </div>
         </div>
+      </div>
+    </section>
+
+    <!-- 已登录：引导去自选页（探市只做展示与观察，管理能力收敛到登录后的自选） -->
+    <section v-if="isAuthenticated" class="auth-guide">
+      <div class="auth-guide__inner">
+        <div class="auth-guide__text">
+          <div class="auth-guide__title">已登录，可前往自选页管理资产</div>
+          <div class="auth-guide__desc">
+            探市页仅用于浏览市场数据；分组、标签、AI
+            批量导入等功能已迁移至自选页统一管理。
+          </div>
+        </div>
+        <el-button type="primary" @click="goToWatchlist">
+          前往自选页
+          <IconifyIconOffline icon="ep:arrow-right" class="ml-1" />
+        </el-button>
       </div>
     </section>
 
@@ -386,7 +403,7 @@
         '关注公众号获取更多市场监测解读'
       ]"
       :sources="footerSources"
-      copyright="© 2026 多倍贝 · 让投资更从容"
+      copyright="© 2026 多多贝 · 让投资更从容"
     />
   </div>
 </template>
@@ -416,10 +433,14 @@ import {
 import { buildMarketFooterSources } from "@/components/MarketFooter/config";
 import { batchFetchQuotes } from "@/utils/realtimeDataSources";
 import { getTemperatureOverview } from "@/api/temperature";
+import { useAuthState } from "@/composables/useAuthState";
 
 defineOptions({
   name: "ExplorePage"
 });
+
+// 登录态感知（探市免登录页）：登录后隐藏「添加观察」，引导去自选页管理（D4 + 方案 §3.3）
+const { isAuthenticated } = useAuthState();
 
 const router = useRouter();
 
@@ -989,6 +1010,10 @@ const goToTemperature = () => {
   router.push("/temperature");
 };
 
+const goToWatchlist = () => {
+  router.push("/watchlist");
+};
+
 // ================================================================
 // Header / Footer 公共组件数据
 // ================================================================
@@ -1289,6 +1314,37 @@ onMounted(() => {
   max-width: 1280px;
   padding: 16px 24px 8px;
   margin: 0 auto;
+}
+
+/* 5.1 登录态引导卡（登录后替代添加栏） */
+.auth-guide {
+  max-width: 1280px;
+  padding: 16px 24px 8px;
+  margin: 0 auto;
+
+  &__inner {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 24px;
+    background: var(--bg-card);
+    border: 1px solid var(--brand-400);
+    border-radius: 12px;
+    box-shadow: var(--shadow-raised);
+  }
+
+  &__title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  &__desc {
+    margin-top: 4px;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
 }
 
 .add-card {

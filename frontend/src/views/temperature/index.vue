@@ -4,6 +4,18 @@
     <!-- 顶部导航（公共组件，与探市完全一致） -->
     <MarketHeader :logo="MARKET_LOGO" badge="温度计" :navs="headerNavs" />
 
+    <!-- 未登录引导条：温度计页为公开数据页（D4），登录态仅用于转化引导 -->
+    <section v-if="!isAuthenticated" class="auth-banner">
+      <div class="auth-banner__inner">
+        <div class="auth-banner__text">
+          登录后可使用极致自选管理（分组 / 标签 / AI 批量导入）
+        </div>
+        <el-button size="small" type="primary" @click="goAuth">
+          登录 / 注册
+        </el-button>
+      </div>
+    </section>
+
     <!-- 页面内容 -->
     <div v-loading="loading" class="page-content">
       <!-- 综合仪表盘 -->
@@ -402,13 +414,14 @@
         '关注公众号获取更多市场温度解读'
       ]"
       :sources="footerSources"
-      copyright="© 2026 多倍贝 · 让投资更从容"
+      copyright="© 2026 多多贝 · 让投资更从容"
     />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from "vue";
+import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { InfoFilled } from "@element-plus/icons-vue";
 import VChart from "vue-echarts";
@@ -429,6 +442,15 @@ import {
   useMarketHeaderNavs
 } from "@/components/MarketHeader/config";
 import { buildMarketFooterSources } from "@/components/MarketFooter/config";
+import { useAuthState } from "@/composables/useAuthState";
+
+// 登录态感知（温度计为公开数据页 D4，仅用于登录转化引导）
+const { isAuthenticated } = useAuthState();
+const router = useRouter();
+
+const goAuth = () => {
+  router.push("/login");
+};
 
 // 温度三色：动态读取全局 token（src/style/colors.css 的 --temp-*），
 // 保持与页面其它元素单一来源、视觉一致（design.md 红线：图表颜色用 getComputedStyle 读取）
@@ -930,6 +952,27 @@ watch(historyDays, () => {
   max-width: 1280px;
   padding: var(--space-standard) 24px 16px;
   margin: 0 auto;
+}
+
+/* 未登录引导条（登录转化） */
+.auth-banner {
+  max-width: 1280px;
+  padding: 10px 24px 0;
+  margin: 0 auto;
+
+  &__inner {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 18px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    background: var(--bg-card);
+    border: 1px solid var(--brand-400);
+    border-radius: 10px;
+    box-shadow: var(--shadow-raised);
+  }
 }
 
 /* 仪表盘区域 */

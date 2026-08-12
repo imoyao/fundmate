@@ -97,6 +97,11 @@
             导出
           </el-button>
 
+          <el-button plain @click="showOcrModal = true">
+            <IconifyIconOffline icon="ep:magic-stick" class="mr-1" />
+            AI 导入
+          </el-button>
+
           <el-button plain @click="realtime.toggle()">
             {{ toggleBtnText }}
           </el-button>
@@ -631,6 +636,8 @@
       @submitted="onItemAdded"
     />
 
+    <OcrImportModal v-model="showOcrModal" @imported="onOcrImported" />
+
     <el-dialog v-model="showGroupDialog" title="新建分组" width="320px">
       <el-input v-model="newGroupName" placeholder="分组名称" size="large" />
       <template #footer>
@@ -982,6 +989,7 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import type { ElInput } from "element-plus";
 import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
 import AddToWatchlistModal from "@/components/QuickEntry/AddToWatchlistModal.vue";
+import OcrImportModal from "@/components/QuickEntry/OcrImportModal.vue";
 import SettingsDrawer from "@/components/Watchlist/SettingsDrawer.vue";
 import {
   getWatchlistItems,
@@ -1158,6 +1166,7 @@ const selectedTagIdsForManager = ref<number[]>([]);
 const editInputRef = ref<InstanceType<typeof ElInput> | null>(null);
 
 const showAddModal = ref(false);
+const showOcrModal = ref(false);
 const showGroupDialog = ref(false);
 const newGroupName = ref("");
 const removeDialogVisible = ref(false);
@@ -1578,6 +1587,12 @@ async function exportData() {
 
 function onItemAdded() {
   showAddModal.value = false;
+  fetchData();
+  fetchTags();
+}
+
+function onOcrImported() {
+  showOcrModal.value = false;
   fetchData();
   fetchTags();
 }
