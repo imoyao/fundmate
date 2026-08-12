@@ -29,6 +29,7 @@ v1（2026-08）基于两项已推翻的假设，本版据实修订：
 | 叽咕（投教/小游戏） | `fundmate`（`jigu/`，待确认具体路径） | `jigu.duoduobei.com` | 复用应用站技术栈 | 否（noindex） | EdgeOne(主) → Cloudflare(备) → Vercel(兜底) |
 | 后端 API | `fundmate` (`backend/`) | `api.duoduobei.com`（或后端独立项目域名） | APIFlask（WSGI，零重写） | 否 | **仅 EdgeOne Pages Python 函数**（不三平台） |
 | 定时抓取 | `fundmate` (`backend/scripts/`) | 无公开域名 | 离线 job（不入站） | 否 | 见 §1.3（混合：本机 + GitHub Action） |
+| 反馈中心 | `dbb-feedback`（FeedLog fork，独立仓库） | `feedback.duoduobei.com` | FeedLog（Cloudflare Workers + R2 + Hyperdrive + 外部 Postgres） | 是（中） | **仅 Cloudflare**（Workers 平台，非静态三平台） |
 > 2026-08 统一为三平台 EdgeOne→Cloudflare→Vercel 语义后，文档站亦改为 EdgeOne 优先、Cloudflare 备。
 > 若仍希望文档站 Cloudflare 为主，改本表 + §3 文档站段落即可（待确认）。
 
@@ -116,6 +117,15 @@ v1（2026-08）基于两项已推翻的假设，本版据实修订：
 - **EdgeOne（主）** 静态托管；**Cloudflare（备）** Pages/Workers 托管。
 - 主站不参与三平台 LB 的 Vercel 兜底（Vercel 额度留给应用站），备线仅 Cloudflare。
 
+### 反馈中心（`feedback.duoduobei.com`，FeedLog 自部署）
+
+- **仓库**：`imoyao/dbb-feedback`（FeedLog fork，独立仓库，**不放在 fundmate**）。上游 `linkcraftstudio/feedlog`。
+- **部署平台**：**仅 Cloudflare**（Workers 运行时，非静态托管，故不进 EdgeOne/Vercel 三平台冗余）。详见 `docs/working-notes/feedlog-setup-cn-2026-08-09.md`。
+- **技术栈**：Cloudflare Workers + **R2**（用户上传附件/图片的对象存储）+ **Hyperdrive**（Postgres 连接池代理）。
+- **数据库（关键澄清）**：**用你自己的外部 Postgres，不强制用 Cloudflare 家的库**。填 `DATABASE_URL` secret 即可，推荐 **Neon 免费层**（已确认采用）。Cloudflare 的 **R2 不是数据库**（只是对象存储），Hyperdrive 只是连接加速，底层仍是你的 PG。无需 D1。
+- **桥接工作流不变**：`fundmate` 仓的 `.github/workflows/bridge-feedback.yml` + `scripts/bridge/feedlog_bridge.py` 读同一个 `DATABASE_URL` / `FEEDLOG_DATABASE_URL` secret，只要 dbb-feedback 部署填的是同一 Neon 连接串、并把它同步到 fundmate 仓 secret，**桥接零改动**。
+- **域名**：`feedback.duoduobei.com` 在 Cloudflare 侧绑定（不走三平台 LB，单点 Cloudflare）。
+
 ## 4. 待办（替代 v1 §7）
 
 - [ ] 三站点各自配置 EdgeOne / Cloudflare / Vercel 部署（应用站三平台全配，其余按上表）
@@ -123,6 +133,7 @@ v1（2026-08）基于两项已推翻的假设，本版据实修订：
 - [ ] 应用站 `vercel.json` 的 `build:landing` 重定：应用站不再构建落地页，build 改为 `vite build`（落地页已移交主站）
 - [ ] 各平台 SPA / VitePress 路由回退配置核对
 - [ ] 应用站上线 `noindex`
+- [ ] 反馈中心 `feedback.duoduobei.com`：dbb-feedback 仓库部署到 Cloudflare Workers，Neon Postgres 连接串填入 `DATABASE_URL`，并同步到 fundmate 仓 `FEEDLOG_DATABASE_URL` secret（桥接 workflow 复用，见 §3.1）
 
 ## 5. SEO 要点（延续 v1）
 
