@@ -14,29 +14,37 @@ import pytest
 
 from app.domains.usage.models import UserUsage
 from app.services import ocr_service
+from app.services.ai_recognizer import guards as ai_guards
+from app.services.ai_recognizer import llm as llm_module
 
 
 @pytest.fixture(autouse=True)
 def _reset_ocr_guards(monkeypatch):
     """重置限流/熔断/token 预算等内存防护状态，避免用例间相互干扰。
 
-    限流与熔断是模块级单例状态，若不重置，前一个用例的调用计数会污染后一个用例。
+    限流与熔断是模块级单例状态（ai_recognizer.guards，P1 重构后为权威模块），
+    若不重置，前一个用例的调用计数会污染后一个用例。
     """
-    monkeypatch.setattr(ocr_service, 'OCR_RATE_LIMIT_MAX', 1000)
-    monkeypatch.setattr(ocr_service, 'OCR_MELTDOWN_THRESHOLD', 1000)
-    ocr_service._RATE_LIMIT_BUCKETS.clear()
-    ocr_service._MELTDOWN_STATE.clear()
-    ocr_service._token_used_today = 0
+    monkeypatch.setattr(ai_guards, 'OCR_RATE_LIMIT_MAX', 1000)
+    monkeypatch.setattr(ai_guards, 'OCR_MELTDOWN_THRESHOLD', 1000)
+    ai_guards._RATE_LIMIT_BUCKETS.clear()
+    ai_guards._MELTDOWN_STATE.clear()
+    ai_guards._token_used_today = 0
     yield
-    ocr_service._RATE_LIMIT_BUCKETS.clear()
-    ocr_service._MELTDOWN_STATE.clear()
-    ocr_service._token_used_today = 0
+    ai_guards._RATE_LIMIT_BUCKETS.clear()
+    ai_guards._MELTDOWN_STATE.clear()
+    ai_guards._token_used_today = 0
 
 
 def _post(client, url, data):
     # 注意：/api/ocr/* 无尾斜杠（SPEC 例外清单之外的端点按路由定义），不要自动补 /
     resp = client.post(url, json=data)
     return resp
+
+
+def _fake_llm_json(payload_json: str):
+    """构造 mock LLM 的 patcher：固定返回给定 JSON 数组。"""
+    return lambda content, system_prompt, **kw: payload_json
 
 
 class TestUsage:
@@ -79,25 +87,28 @@ class TestUsage:
 
         called = {'n': 0}
 
-        def _fake_parse(text):
+        def _fake_llm(content, system_prompt, **kw):
             called['n'] += 1
-            return []
+            return '[]'
 
-        monkeypatch.setattr(ocr_service, 'parse_text', _fake_parse)
+        monkeypatch.setattr(llm_module, 'call_llm', _fake_llm)
         resp = client.post('/api/ocr/parse', json={'text': '110011'})
         assert resp.status_code == 429
-        assert called['n'] == 0  # 超限直接拦截，未触发识别
+        assert called['n'] == 0  # 超限直接拦截，未触发识别（不调 LLM）
 
 
 class TestParseText:
     def test_parse_text_success(self, client, db, monkeypatch):
-        """文本批量导入：返回识别条目 + 消耗用量。"""
+        """文本批量导入：返回识别条目 + 消耗用量（mock LLM 层，避免真实外呼）。"""
         monkeypatch.setattr(
-            ocr_service,
-            'parse_text',
-            lambda text: [{'code': '110011', 'name': '易方达中小盘混合'}, {'code': '005827', 'name': '易方达蓝筹精选'}],
+            llm_module,
+            'call_llm',
+            lambda content, system_prompt, **kw: (
+                '[{"code":"110011","name":"易方达中小盘混合"},{"code":"005827","name":"易方达蓝筹精选"}]'
+            ),
         )
-        resp = _post(client, '/api/ocr/parse', {'text': '我的持仓：110011 易方达中小盘；005827 易方达蓝筹精选'})
+        # 名称在代码前（不满足「代码 名称」正则）→ 走 LLM 层，验证全链路
+        resp = _post(client, '/api/ocr/parse', {'text': '我的持仓：易方达中小盘 110011；易方达蓝筹精选 005827'})
         assert resp.status_code == 200
         data = resp.get_json()['data']
         assert len(data['items']) == 2
@@ -115,20 +126,19 @@ class TestParseText:
 
 
 class TestRecognize:
-    def test_recognize_empty_image_rejected(self, client, db, monkeypatch):
-        """空图片 base64 解码失败 → 400。"""
-        monkeypatch.setattr(ocr_service, 'recognize', lambda b: [])
+    def test_recognize_empty_image_rejected(self, client, db):
+        """空图片 base64 解码失败 → 400（解码在 views 层拦截，不调 LLM）。"""
         resp = _post(client, '/api/ocr/recognize', {'image_base64': 'not-valid-base64!!'})
         assert resp.status_code == 400
 
     def test_recognize_success(self, client, db, monkeypatch):
-        """图片识别成功：返回条目 + 消耗用量。"""
+        """图片识别成功：返回条目 + 消耗用量（mock LLM 层）。"""
         import base64
 
         monkeypatch.setattr(
-            ocr_service,
-            'recognize',
-            lambda b: [{'code': '510300', 'name': '沪深300ETF'}],
+            llm_module,
+            'call_llm',
+            lambda content, system_prompt, **kw: '[{"code":"510300","name":"沪深300ETF"}]',
         )
         img_b64 = base64.b64encode(b'fake-image-bytes').decode('ascii')
         resp = _post(client, '/api/ocr/recognize', {'image_base64': img_b64})
@@ -143,14 +153,14 @@ class TestRecognize:
 
         from app.core.exceptions import ErrorCode, SBException
 
-        def _fail(image_bytes):
+        def _fail(content, system_prompt, **kw):
             raise SBException(
                 code=ErrorCode.OCR_SERVICE_UNAVAILABLE.code,
                 message='OCR 识别服务暂时不可用，请稍后重试',
                 status_code=ErrorCode.OCR_SERVICE_UNAVAILABLE.http_status,
             )
 
-        monkeypatch.setattr(ocr_service, 'recognize', _fail)
+        monkeypatch.setattr(llm_module, 'call_llm', _fail)
         img_b64 = base64.b64encode(b'fake-image-bytes').decode('ascii')
         resp = _post(client, '/api/ocr/recognize', {'image_base64': img_b64})
         assert resp.status_code == 503
@@ -254,19 +264,19 @@ class TestRateLimit:
     def test_rate_limit_blocks_excess_calls(self, client, db, monkeypatch):
         """每分钟超过 OCR_RATE_LIMIT_MAX 次 → 429，且不调用 LLM。"""
 
-        monkeypatch.setattr(ocr_service, 'OCR_RATE_LIMIT_MAX', 2)
+        monkeypatch.setattr(ai_guards, 'OCR_RATE_LIMIT_MAX', 2)
         called = {'n': 0}
 
-        def _fake_parse(text):
+        def _fake_llm(content, system_prompt, **kw):
             called['n'] += 1
-            return [{'code': '110011', 'name': '易方达中小盘'}]
+            return '[{"code":"110011","name":"易方达中小盘"}]'
 
-        monkeypatch.setattr(ocr_service, 'parse_text', _fake_parse)
+        monkeypatch.setattr(llm_module, 'call_llm', _fake_llm)
         for _ in range(2):
-            resp = client.post('/api/ocr/parse', json={'text': '110011'})
+            resp = client.post('/api/ocr/parse', json={'text': '买入 110011 元'})
             assert resp.status_code == 200
         # 第三次被限流拦截：真实 LLM 未被调用
-        resp = client.post('/api/ocr/parse', json={'text': '110011'})
+        resp = client.post('/api/ocr/parse', json={'text': '买入 110011 元'})
         assert resp.status_code == 429
         assert resp.get_json()['message'] == '操作太频繁，请稍后再试'
         assert called['n'] == 2
@@ -279,28 +289,28 @@ class TestMeltdown:
         """连续失败达阈值 → 冷却期内直接 503，不再调用 LLM。"""
         from app.core.exceptions import ErrorCode, SBException
 
-        monkeypatch.setattr(ocr_service, 'OCR_MELTDOWN_THRESHOLD', 3)
+        monkeypatch.setattr(ai_guards, 'OCR_MELTDOWN_THRESHOLD', 3)
 
-        def _fail(text):
+        def _fail(content, system_prompt, **kw):
             raise SBException(
                 code=ErrorCode.OCR_SERVICE_UNAVAILABLE.code,
                 message='服务不可用',
                 status_code=ErrorCode.OCR_SERVICE_UNAVAILABLE.http_status,
             )
 
-        monkeypatch.setattr(ocr_service, 'parse_text', _fail)
+        monkeypatch.setattr(llm_module, 'call_llm', _fail)
         for _ in range(3):
-            resp = client.post('/api/ocr/parse', json={'text': '110011'})
+            resp = client.post('/api/ocr/parse', json={'text': '买入 110011 元'})
             assert resp.status_code == 503
         # 熔断已触发：即使 LLM 恢复，冷却期内也直接拒绝，不产生 token
         called = {'n': 0}
 
-        def _parse(text):
+        def _ok(content, system_prompt, **kw):
             called['n'] += 1
-            return []
+            return '[]'
 
-        monkeypatch.setattr(ocr_service, 'parse_text', _parse)
-        resp = client.post('/api/ocr/parse', json={'text': '110011'})
+        monkeypatch.setattr(llm_module, 'call_llm', _ok)
+        resp = client.post('/api/ocr/parse', json={'text': '买入 110011 元'})
         assert resp.status_code == 503
         assert called['n'] == 0
 
@@ -308,10 +318,10 @@ class TestMeltdown:
         """一次成功清零失败计数，不会触发熔断。"""
         from app.core.exceptions import ErrorCode, SBException
 
-        monkeypatch.setattr(ocr_service, 'OCR_MELTDOWN_THRESHOLD', 3)
+        monkeypatch.setattr(ai_guards, 'OCR_MELTDOWN_THRESHOLD', 3)
         fail_once = {'done': False}
 
-        def _flaky(text):
+        def _flaky(content, system_prompt, **kw):
             if not fail_once['done']:
                 fail_once['done'] = True
                 raise SBException(
@@ -319,13 +329,13 @@ class TestMeltdown:
                     message='服务不可用',
                     status_code=ErrorCode.OCR_SERVICE_UNAVAILABLE.http_status,
                 )
-            return [{'code': '110011', 'name': '易方达中小盘'}]
+            return '[{"code":"110011","name":"易方达中小盘"}]'
 
-        monkeypatch.setattr(ocr_service, 'parse_text', _flaky)
-        assert client.post('/api/ocr/parse', json={'text': '110011'}).status_code == 503
+        monkeypatch.setattr(llm_module, 'call_llm', _flaky)
+        assert client.post('/api/ocr/parse', json={'text': '买入 110011 元'}).status_code == 503
         # 第二次成功 → 失败计数清零，后续失败从 0 重新累计
-        assert client.post('/api/ocr/parse', json={'text': '110011'}).status_code == 200
-        assert client.post('/api/ocr/parse', json={'text': '110011'}).status_code == 200
+        assert client.post('/api/ocr/parse', json={'text': '买入 110011 元'}).status_code == 200
+        assert client.post('/api/ocr/parse', json={'text': '买入 110011 元'}).status_code == 200
 
 
 class TestTokenBudget:
@@ -333,8 +343,105 @@ class TestTokenBudget:
 
     def test_budget_exceeded_rejects_calls(self, client, db, monkeypatch):
         """当日累计 token 超预算 → 503，不发起真实调用。"""
-        monkeypatch.setattr(ocr_service, 'ARK_DAILY_TOKEN_BUDGET', 1000)
-        ocr_service._token_used_today = 1000
+        monkeypatch.setattr(ai_guards, 'ARK_DAILY_TOKEN_BUDGET', 1000)
+        ai_guards._token_used_today = 1000
         resp = client.post('/api/ocr/parse', json={'text': '110011'})
         assert resp.status_code == 503
         assert '费用额度' in resp.get_json()['message']
+
+
+class TestNameDisambiguation:
+    """证券与基金共用代码段（002910 股票庄园牧场 vs 基金易方达供给侧改革混合）的名称消歧。"""
+
+    def _seed_conflict(self, db):
+        from app.domains.funds.models import Fund
+        from app.domains.securities.models import Security
+
+        db.add(Security(symbol='SZ002910', name='庄园牧场', market='SZ', type='stock'))
+        db.add(Fund(fund_code='002910', name='易方达供给侧改革混合'))
+        db.commit()
+
+    def test_fund_wins_when_name_matches_fund(self, db):
+        """OCR 名称「易方达供给侧改革混合」命中 Funds → 判为基金（修复用户反馈误判）。"""
+        self._seed_conflict(db)
+        items = ocr_service._enrich_items([{'code': '002910', 'name': '易方达供给侧改革混合'}])
+        assert items[0]['type'] == 'fund'
+        assert items[0]['venue'] == 'OTC'
+        assert items[0]['symbol'] == '002910'
+
+    def test_fund_wins_when_ocr_name_has_typo(self, db):
+        """OCR 名称漏字（易方达供给改革混合，缺「侧」）仍能消歧到基金。"""
+        self._seed_conflict(db)
+        items = ocr_service._enrich_items([{'code': '002910', 'name': '易方达供给改革混合'}])
+        assert items[0]['type'] == 'fund'
+
+    def test_stock_wins_when_name_matches_security(self, db):
+        """OCR 名称「庄园牧场」命中 Securities → 判为股票。"""
+        self._seed_conflict(db)
+        items = ocr_service._enrich_items([{'code': '002910', 'name': '庄园牧场'}])
+        assert items[0]['type'] == 'stock'
+        assert items[0]['venue'] == 'EXCHANGE'
+        assert items[0]['symbol'] == 'SZ002910'
+
+    def test_default_fund_when_name_unresolved(self, db):
+        """名称都不命中 → 默认基金（用户导入以基金为主）。"""
+        self._seed_conflict(db)
+        items = ocr_service._enrich_items([{'code': '002910', 'name': ''}])
+        assert items[0]['type'] == 'fund'
+
+
+class TestRegexExtract:
+    """正则优先分层：简单排版零成本提取，复杂排版 LLM 兜底。"""
+
+    def test_regex_extracts_simple_format(self, db, monkeypatch):
+        """「代码 名称」简单排版直接正则出结果，不调 LLM。"""
+        called = {'n': 0}
+
+        def _fake_call_llm(content, system_prompt, **kw):
+            called['n'] += 1
+            return '[]'
+
+        monkeypatch.setattr(llm_module, 'call_llm', _fake_call_llm)
+        items = ocr_service.parse_text('我的持仓：110011 易方达中小盘；005827 易方达蓝筹精选')
+        assert [it['code'] for it in items] == ['110011', '005827']
+        assert called['n'] == 0  # 正则层已覆盖，未调 LLM
+
+    def test_regex_falls_back_to_llm_for_complex(self, db, monkeypatch):
+        """复杂排版（名称在代码前）正则不匹配 → LLM 兜底。"""
+        monkeypatch.setattr(
+            llm_module,
+            'call_llm',
+            lambda content, system_prompt, **kw: '[{"code":"161725","name":"招商中证白酒"}]',
+        )
+        items = ocr_service.parse_text('今天买入招商中证白酒 161725 金额 1000 元')
+        assert items[0]['code'] == '161725'
+
+    def test_name_hits_typo_tolerance(self):
+        """_name_hits：漏字也能命中（前 4 字 + 去后缀）。"""
+        assert ocr_service._name_hits('易方达供给改革混合', '易方达供给侧改革混合')
+        assert not ocr_service._name_hits('易方达供给改革混合', '庄园牧场')
+        assert ocr_service._name_hits('庄园牧场', '庄园牧场')
+
+
+class TestListedFundPrefersExchange:
+    """场内基金代码模式优先于 Funds 表：基金主表会收录 ETF（510300），仅凭 Funds 命中会误判 OTC。"""
+
+    def test_etf_in_funds_table_still_exchange(self, db):
+        from app.domains.funds.models import Fund
+
+        # 真实库场景：510300 在 Funds 表有记录（沪深300ETF华泰柏瑞），但它是场内 ETF
+        db.add(Fund(fund_code='510300', name='沪深300ETF华泰柏瑞'))
+        db.commit()
+        items = ocr_service._enrich_items([{'code': '510300', 'name': '沪深300ETF'}])
+        assert items[0]['type'] == 'etf'
+        assert items[0]['venue'] == 'EXCHANGE'
+        assert items[0]['symbol'] == 'SH510300'
+
+    def test_lof_in_funds_table_still_exchange(self, db):
+        from app.domains.funds.models import Fund
+
+        db.add(Fund(fund_code='161725', name='招商中证白酒指数(LOF)A'))
+        db.commit()
+        items = ocr_service._enrich_items([{'code': '161725', 'name': '招商中证白酒'}])
+        assert items[0]['venue'] == 'EXCHANGE'
+        assert items[0]['symbol'] == 'SZ161725'

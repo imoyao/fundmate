@@ -58,7 +58,9 @@
 | `feedlog-setup-cn-2026-08-09.md` | FeedLog (dbb-feedback) 中文环境初始化指南：Cloudflare Workers + R2 + Hyperdrive 部署全流程，含环境变量/品牌定制/AI配置 |
 | `opencode-github-issue-utf8-rule-2026-08-09.md` | OpenCode/GitHub Issue 创建 UTF-8 环境规则（复盘 #859-#862 乱码事故） |
 | `money-fund-income-plan-2026-08-09.md` | 货基收益入账方案设计 |
+| `ai-recognizer-architecture-2026-08-13.md` | **AI 识别导入分层架构**：识别域对称模板导入（BaseRecognizer 抽象 + registry + guards/llm/catalog），自选/持仓两场景统一；P1-P4 已实施，P5 管线级共享落地 |
 | `asset-snapshot-yoy-plan-2026-08-09.md` | 资产总览同比真实化：历史快照方案（asset_snapshots 表 + 惰性 upsert + 同比计算，2026-08-10 已落地） |
+| `watchlist-table-redesign-2026-08-13.md` | 自选页表格信息密度提升设计提案：对齐 watchlist.md §1.5.4 基线与基估宝(#893) 能力，按身份/价格/持仓/收益分组补齐列，区分前端可算与后端 enrich 字段，分 P0/P1/P2 落地 |
 | `worktile-migration-map-2026-08-09.md` | Worktile 看板迁移 GitHub 对照表：16 张 2021 年卡片的逐条处置（新建 4 / 合并 8 / 归档 3 / 丢弃 1），含代码核查证据 |
 
 ## 子目录归档

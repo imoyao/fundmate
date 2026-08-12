@@ -204,7 +204,8 @@ const handleRecognize = async () => {
       }
       const base64 = await fileToBase64(imageFile.value);
       const res = await recognizeImage(base64);
-      items = res.data?.items ?? [];
+      items =
+        (res.data as { items: OcrImportItem[]; usage: unknown }).items ?? [];
     } else {
       const text = textContent.value.trim();
       if (!text) {
@@ -212,7 +213,8 @@ const handleRecognize = async () => {
         return;
       }
       const res = await parseImportText(text);
-      items = res.data?.items ?? [];
+      items =
+        (res.data as { items: OcrImportItem[]; usage: unknown }).items ?? [];
     }
 
     if (items.length === 0) {

@@ -61,6 +61,13 @@
             <h4 class="mode-title">手动批量录入</h4>
             <p class="mode-desc">没有文件？在网页表格中逐行快速录入交易记录</p>
           </div>
+          <div class="mode-card" @click="openAiImport">
+            <IconifyIconOffline icon="ep:magic-stick" class="mode-icon" />
+            <h4 class="mode-title">AI 截图/文本识别</h4>
+            <p class="mode-desc">
+              上传持仓/交易截图或粘贴文本，AI 识别后逐行核对入账
+            </p>
+          </div>
           <div class="mode-card" @click="goToLiabilityForm">
             <IconifyIconOffline icon="ep:document-add" class="mode-icon" />
             <h4 class="mode-title">录入负债 / 应收款</h4>
@@ -1199,6 +1206,11 @@
       :preview-data="previewData"
       @match-complete="onMatchComplete"
     />
+    <AiImportModal
+      v-model="showAiModal"
+      :ledger-id="selectedLedgerId"
+      @rows-found="onAiRowsFound"
+    />
   </div>
 </template>
 
@@ -1212,6 +1224,8 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import { getLedgers, createLedger as createLedgerApi } from "@/api/ledger";
 import type { LedgerItem } from "@/api/ledger";
 import FundMatchDrawer from "./components/FundMatchDrawer.vue";
+import AiImportModal from "./components/AiImportModal.vue";
+import type { OcrTxnRow } from "@/api/ocr";
 import { ALLOCATION_OPTIONS } from "@/constants";
 import Superellipse from "@/components/Superellipse/index.vue";
 
@@ -1220,6 +1234,52 @@ defineOptions({ name: "Inventory" });
 const router = useRouter();
 
 const showMatchDrawer = ref(false);
+
+const showAiModal = ref(false);
+
+function openAiImport() {
+  if (!selectedLedgerId.value) {
+    ElMessage.warning("请先选择要导入的账户");
+    return;
+  }
+  showAiModal.value = true;
+}
+
+// AI 识别成功后：把 txn 预览行并入既有预览表格与确认流程（与 handleUpload 同构）
+function onAiRowsFound(rows: OcrTxnRow[]) {
+  if (rows.length === 0) return;
+  const ledger = ledgers.value.find(l => l.id === selectedLedgerId.value);
+  const defaultAlloc = ledger?.default_allocation || "longterm";
+  const normalized = addRowKeys(
+    rows.map(row => ({
+      ...row,
+      account_name: ledger?.name || "",
+      allocation: row.allocation ?? defaultAlloc,
+      op_type: row.op_type || "buy",
+      quantity: row.quantity || 0,
+      price: row.price || 0
+    }))
+  );
+  // 智能补价：有份额无价格但有金额 → 金额/份额（与文件解析预览同口径）
+  normalized.forEach(row => {
+    const qty = parseFloat(row.quantity),
+      prc = parseFloat(row.price),
+      amt = parseFloat(row.amount);
+    if (!isNaN(qty) && qty > 0 && (isNaN(prc) || prc <= 0) && !isNaN(amt)) {
+      row.price = parseFloat((amt / qty).toFixed(4));
+      row.smartFilled = true;
+    }
+  });
+
+  previewData.value = normalized;
+  totalRows.value = normalized.length;
+  duplicateCount.value = normalized.filter(r => r.is_duplicate).length;
+  errorCount.value = normalized.filter(r => !!r.error).length;
+  showFullTable.value = true;
+  currentStep.value = 2;
+  recalcValidRowsCount();
+  selectAllValid();
+}
 
 const fundTypeColorMap: Record<string, string> = {
   股票型: "var(--invest-stock)",
@@ -1408,10 +1468,18 @@ const onLogoError = (value: string) => {
 
 const availableModes = computed(() => {
   const allModes = [
-    { label: "股票标准模板", value: "standard_stock", logo: "/logos/stock.svg" },
+    {
+      label: "股票标准模板",
+      value: "standard_stock",
+      logo: "/logos/stock.svg"
+    },
     { label: "同花顺交割单", value: "ths", logo: "/logos/tonghuashun.svg" },
     { label: "基金标准模板", value: "standard_fund", logo: "/logos/stock.svg" },
-    { label: "天天基金", value: "tiantian_fund", logo: "/logos/tiantianjijin.svg" },
+    {
+      label: "天天基金",
+      value: "tiantian_fund",
+      logo: "/logos/tiantianjijin.svg"
+    },
     { label: "支付宝（PDF）", value: "alipay_pdf", logo: "/logos/alipay.svg" },
     { label: "支付宝", value: "alipay_fund", logo: "/logos/alipay.svg" }
   ];
@@ -2884,79 +2952,82 @@ onMounted(async () => {
 /* 支持来源平台 logo 胶囊条 —— 对齐 design.md 设计令牌 */
 .source-logos {
   display: flex;
-  align-items: center;
-  gap: 12px;
   flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
   margin: 0 0 20px;
 }
 
 .source-logos-label {
   font-size: 13px;
-  color: var(--text-secondary);
   font-weight: 500;
+  color: var(--text-secondary);
 }
 
 .source-logo-pills {
   display: flex;
-  align-items: center;
-  gap: 10px;
   flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
 }
 
 .source-logo-pill {
   display: inline-flex;
-  align-items: center;
   gap: 8px;
+  align-items: center;
   padding: 8px 14px;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-pill);
-  background: var(--bg-card);
-  color: var(--text-secondary);
   font-size: 13px;
   line-height: 1;
+  color: var(--text-secondary);
   cursor: pointer;
-  transition: background-color 0.3s ease, border-color 0.3s ease,
-    box-shadow 0.3s ease, transform 0.3s ease;
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  transition:
+    background-color 0.3s ease,
+    border-color 0.3s ease,
+    box-shadow 0.3s ease,
+    transform 0.3s ease;
 }
 
 .source-logo-pill:hover {
+  color: var(--brand-700);
   background: var(--brand-100);
   border-color: var(--brand-200);
-  color: var(--brand-700);
   box-shadow: 0 4px 14px rgb(227 79 56 / 8%);
   transform: translateY(-2px);
 }
 
 .source-logo-pill.is-active {
+  color: var(--brand-700);
   background: var(--brand-100);
   border-color: var(--brand-400);
-  color: var(--brand-700);
   box-shadow: 0 0 0 2px rgb(227 79 56 / 12%);
 }
 
 .source-logo-frame {
+  flex-shrink: 0;
   width: 22px;
   height: 22px;
-  flex-shrink: 0;
   overflow: hidden;
 }
 
 .source-logo-img {
+  display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  display: block;
 }
 
 .source-logo-fallback {
-  width: 22px;
-  height: 22px;
   display: inline-flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  color: var(--text-tertiary);
+  width: 22px;
+  height: 22px;
   font-size: 16px;
-  flex-shrink: 0;
+  color: var(--text-tertiary);
 }
 
 .source-logo-name {

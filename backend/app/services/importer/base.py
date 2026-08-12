@@ -13,7 +13,11 @@ from typing import List, Optional, Tuple
 
 import pandas as pd
 
-from app.services.importer.records import SBImportError, StandardTransactionRecord
+from app.services.importer.records import (
+    SBImportError,
+    StandardTransactionRecord,
+    compute_record_hash,
+)
 
 
 class BaseImportParser(ABC):
@@ -126,25 +130,8 @@ class BaseImportParser(ABC):
     # ── 通用哈希工具 ──
 
     def compute_import_hash(self, record: StandardTransactionRecord) -> str:
-        """
-        为单条交易记录生成去重哈希。
-
-        规则：
-            - 有平台交易流水号时：f"{source}|{transaction_id}"
-            - 无流水号时：f"{source}|{confirm_date}|{symbol}|{business_type}|{quantity}|{price}"
-
-        注意：不包含 amount，因为不同平台对金额的四舍五入处理不同。
-        """
-        if record.transaction_id:
-            raw = f'{self.source}|{record.transaction_id}'
-        else:
-            shares_str = f'{float(record.shares):.4f}' if record.shares else '0'
-            nav_str = f'{float(record.nav):.4f}' if record.nav else '0'
-            raw = (
-                f'{self.source}|{record.confirm_date.isoformat()}|{record.symbol}|'
-                f'{record.business_type}|{shares_str}|{nav_str}'
-            )
-        return hashlib.md5(raw.encode()).hexdigest()
+        """为单条交易记录生成去重哈希（委托 records.compute_record_hash，口径统一）。"""
+        return compute_record_hash(self.source, record)
 
     def compute_batch_hash(self, records: List[StandardTransactionRecord]) -> str:
         """

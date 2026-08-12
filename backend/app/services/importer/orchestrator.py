@@ -28,7 +28,11 @@ from app.domains.watchlist.models import WatchlistItem
 from app.services.async_backfill import trigger_backfill
 from app.services.fund_service import FundService
 from app.services.importer.mappings import OP_TYPE_LABEL, BusinessType
-from app.services.importer.records import SBImportError, StandardTransactionRecord
+from app.services.importer.records import (
+    SBImportError,
+    StandardTransactionRecord,
+    compute_record_hash,
+)
 from app.services.importer.registry import get_parser
 from app.services.position_service import PositionService
 from app.services.transaction_service import TransactionService
@@ -94,13 +98,43 @@ class ImportOrchestrator:
 
         # 文件类型校验
         self.validate_file_type(records, template_key)
+        return self._rows_from_records(records, parser, frontend_account, ledger_id)
+
+    def preview_records(
+        self,
+        records: List[StandardTransactionRecord],
+        frontend_account: str = '',
+        ledger_id: Optional[int] = None,
+        source: str = 'ai_txn',
+    ) -> dict:
+        """外部候选记录（如 AI 识别）→ 与 parse_and_preview 相同的预览行。
+
+        供 AI 持仓识别导入共用既有管线：enrich（账户/名称/净值份额补全）→
+        import_hash（去重哈希，source 默认 ai_txn）→ 行转换 + 数据库去重标记。
+        提交仍走 commit_from_preview（/api/importers/confirm），完全复用既有入库链路。
+        """
+        return self._rows_from_records(records, None, frontend_account, ledger_id, source=source)
+
+    def _rows_from_records(
+        self,
+        records: List[StandardTransactionRecord],
+        parser,
+        frontend_account: str,
+        ledger_id: Optional[int],
+        source: str = 'ai_txn',
+    ) -> dict:
+        """记录 → 前端预览行（enrich + 哈希补全 + 行转换 + 去重标记）。
+
+        parse_and_preview（parser 非空，用平台解析器哈希）与 preview_records
+        （parser 为空，用 source 哈希；AI 识别默认 ai_txn）共用，保证两条链路去重口径一致。
+        """
         # 补全
         self.enrich(records, frontend_account, ledger_id)
 
         # 生成 import_hash（如果缺失）
         for rec in records:
             if not rec.import_hash:
-                rec.import_hash = parser.compute_import_hash(rec)
+                rec.import_hash = parser.compute_import_hash(rec) if parser else compute_record_hash(source, rec)
 
         # 转换为前端格式
         rows = []

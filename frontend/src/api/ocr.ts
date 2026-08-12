@@ -1,9 +1,12 @@
 import { http } from "@/utils/http";
 
-// OCR 调用后端会再调火山方舟（单次最长 60s + 重试），全局 axios timeout(10s) 不够，单独放宽到 120s
+// AI 识别调用后端会再调火山方舟（单次最长 60s + 重试），全局 axios timeout(10s) 不够，单独放宽到 120s
 const OCR_REQUEST_TIMEOUT = 120000;
 
-/** OCR 当日剩余次数（进入弹窗前展示余量） */
+/** AI 识别场景：自选导入（默认）/ 持仓交易导入 */
+export type OcrScenario = "watchlist_import" | "txn_import";
+
+/** OCR 当日剩余次数（进入弹窗前展示余量；feature=ocr_import|txn_import） */
 export type OcrUsageResult = {
   data: {
     feature: string;
@@ -15,7 +18,7 @@ export type OcrUsageResult = {
   message: string;
 };
 
-/** OCR/文本批量识别返回的单条候选 */
+/** 自选场景候选（OCR/文本批量识别返回的单条候选） */
 export interface OcrImportItem {
   code: string;
   name: string;
@@ -27,27 +30,69 @@ export interface OcrImportItem {
   venue?: string;
 }
 
-/** 查询当日 OCR 剩余次数 */
-export const getOcrUsage = () => {
-  return http.request<OcrUsageResult>("get", "/api/ocr/usage");
+/** 持仓场景预览行（与 importer parse 预览行同构，可直接复用导入确认表格） */
+export interface OcrTxnRow {
+  symbol: string;
+  name: string;
+  type: string;
+  display_type: string;
+  op_type: string;
+  op_type_label: string;
+  quantity: number;
+  price: number;
+  amount: number;
+  fee: number;
+  trade_date: string;
+  import_hash: string;
+  source: string;
+  is_duplicate: boolean;
+  error: string | null;
+  warnings: string[];
+  /** 资产配置（liquid/longterm，预览表格回填） */
+  allocation?: string | null;
+}
+
+type RecognizeResponse = {
+  data:
+    | { items: OcrImportItem[]; usage: unknown }
+    | {
+        scenario: OcrScenario;
+        rows: OcrTxnRow[];
+        usage: unknown;
+      };
+  message: string;
 };
 
-/** 图片（base64）→ 火山方舟识别 → 基金候选列表；消耗 1 次当日配额 */
-export const recognizeImage = (imageBase64: string) => {
-  return http.request<{ data: { items: OcrImportItem[]; usage: unknown } }>(
+/** 查询某功能当日 AI 识别剩余次数 */
+export const getOcrUsage = (feature: string = "ocr_import") => {
+  return http.request<OcrUsageResult>(
+    "get",
+    `/api/ocr/usage?feature=${feature}`
+  );
+};
+
+/** 图片（base64）→ 方案方舟识别 → 候选列表/预览行；消耗 1 次对应场景配额 */
+export const recognizeImage = (
+  imageBase64: string,
+  scenario: OcrScenario = "watchlist_import"
+) => {
+  return http.request<RecognizeResponse>(
     "post",
     "/api/ocr/recognize",
-    { data: { image_base64: imageBase64 } },
+    { data: { image_base64: imageBase64, scenario } },
     { timeout: OCR_REQUEST_TIMEOUT }
   );
 };
 
-/** 纯文本 → LLM 批量提取基金代码（AI 批量导入）；消耗 1 次当日配额 */
-export const parseImportText = (text: string) => {
-  return http.request<{ data: { items: OcrImportItem[]; usage: unknown } }>(
+/** 纯文本 → LLM 批量提取（AI 批量导入）；消耗 1 次对应场景配额 */
+export const parseImportText = (
+  text: string,
+  scenario: OcrScenario = "watchlist_import"
+) => {
+  return http.request<RecognizeResponse>(
     "post",
     "/api/ocr/parse",
-    { data: { text } },
+    { data: { text, scenario } },
     { timeout: OCR_REQUEST_TIMEOUT }
   );
 };

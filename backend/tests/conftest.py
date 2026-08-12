@@ -79,10 +79,11 @@ def _patch_thermo_session(app, monkeypatch):
 
     monkeypatch.setattr(thermo_service, 'SessionLocal', PatchedSessionLocal)
 
-    # ocr_service 同样在 import 时早绑定了 SessionLocal，对齐到内存引擎
-    import app.services.ocr_service as ocr_service
+    # ocr_service 重构后（P1，ai_recognizer 分层）业务逻辑迁往 ai_recognizer.guards；
+    # guards 同样早绑定了 SessionLocal，对齐到内存引擎，避免连真实库
+    import app.services.ai_recognizer.guards as ai_guards
 
-    monkeypatch.setattr(ocr_service, 'SessionLocal', PatchedSessionLocal)
+    monkeypatch.setattr(ai_guards, 'SessionLocal', PatchedSessionLocal)
 
 
 @pytest.fixture(autouse=True)

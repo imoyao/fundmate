@@ -10,10 +10,32 @@ StandardTransactionRecord 是所有解析器的输出格式，
 ImportError 是标准化错误记录。
 """
 
+import hashlib
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from typing import Optional
+
+
+def compute_record_hash(source: str, record: 'StandardTransactionRecord') -> str:
+    """为单条交易记录生成去重哈希（平台无关，供所有导入/识别路径共用）。
+
+    规则（与原 BaseImportParser.compute_import_hash 一致）：
+        - 有平台交易流水号时：f"{source}|{transaction_id}"
+        - 无流水号时：f"{source}|{confirm_date}|{symbol}|{business_type}|{shares}|{nav}"
+
+    注意：不包含 amount，因为不同平台对金额的四舍五入处理不同。
+    AI 识别导入（source='ai_txn'）同样复用本函数，保证去重口径统一。
+    """
+    if record.transaction_id:
+        raw = f'{source}|{record.transaction_id}'
+    else:
+        shares_str = f'{float(record.shares):.4f}' if record.shares else '0'
+        nav_str = f'{float(record.nav):.4f}' if record.nav else '0'
+        raw = (
+            f'{source}|{record.confirm_date.isoformat()}|{record.symbol}|{record.business_type}|{shares_str}|{nav_str}'
+        )
+    return hashlib.md5(raw.encode()).hexdigest()
 
 
 @dataclass
