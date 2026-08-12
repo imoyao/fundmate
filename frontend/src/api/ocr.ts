@@ -1,5 +1,8 @@
 import { http } from "@/utils/http";
 
+// OCR 调用后端会再调火山方舟（单次最长 60s + 重试），全局 axios timeout(10s) 不够，单独放宽到 120s
+const OCR_REQUEST_TIMEOUT = 120000;
+
 /** OCR 当日剩余次数（进入弹窗前展示余量） */
 export type OcrUsageResult = {
   data: {
@@ -34,7 +37,8 @@ export const recognizeImage = (imageBase64: string) => {
   return http.request<{ data: { items: OcrImportItem[]; usage: unknown } }>(
     "post",
     "/api/ocr/recognize",
-    { data: { image_base64: imageBase64 } }
+    { data: { image_base64: imageBase64 } },
+    { timeout: OCR_REQUEST_TIMEOUT }
   );
 };
 
@@ -43,6 +47,7 @@ export const parseImportText = (text: string) => {
   return http.request<{ data: { items: OcrImportItem[]; usage: unknown } }>(
     "post",
     "/api/ocr/parse",
-    { data: { text } }
+    { data: { text } },
+    { timeout: OCR_REQUEST_TIMEOUT }
   );
 };

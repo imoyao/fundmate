@@ -26,24 +26,10 @@
     <el-tabs v-model="activeTab" class="ocr-tabs" @tab-change="handleTabChange">
       <!-- ── 图片识别 ── -->
       <el-tab-pane name="image" label="上传图片">
-        <el-upload
-          drag
-          accept="image/*"
-          :auto-upload="false"
-          :limit="1"
-          :show-file-list="true"
-          :on-change="onFileChange"
-          :on-remove="onFileRemove"
-          class="ocr-upload"
-        >
-          <IconifyIconOffline icon="ep:upload-filled" class="upload-icon" />
-          <div class="upload-text">拖拽图片到此处，或<em>点击选择</em></div>
-          <template #tip>
-            <div class="upload-tip">
-              支持券商 / 天天基金等 App 持仓截图，文件不超过 5MB
-            </div>
-          </template>
-        </el-upload>
+        <ImageUploader
+          v-model="imageFile"
+          tip="支持券商 / 天天基金等 App 持仓截图，文件不超过 5MB"
+        />
       </el-tab-pane>
 
       <!-- ── 文本解析 ── -->
@@ -119,8 +105,8 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from "vue";
 import { ElMessage } from "element-plus";
-import type { UploadFile } from "element-plus";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
+import ImageUploader from "@/components/ImageUploader/index.vue";
 import { parseImportText, recognizeImage, getOcrUsage } from "@/api/ocr";
 import { createWatchlistItem, getWatchlistItems } from "@/api/watchlist";
 import type { OcrImportItem } from "@/api/ocr";
@@ -180,15 +166,6 @@ const selectedCount = computed(
   () => candidates.value.filter(c => c.selected).length
 );
 
-const onFileChange = (file: UploadFile) => {
-  imageFile.value = file.raw ?? null;
-  candidates.value = [];
-};
-const onFileRemove = () => {
-  imageFile.value = null;
-  candidates.value = [];
-};
-
 const handleTabChange = () => {
   candidates.value = [];
 };
@@ -240,6 +217,8 @@ const handleRecognize = async () => {
 
     if (items.length === 0) {
       ElMessage.info("未能识别出基金，请检查图片清晰度或文本格式");
+      // 识别成功但无有效内容：本次配额已消耗，刷新余量展示
+      void fetchUsage();
       return;
     }
 
@@ -255,8 +234,22 @@ const handleRecognize = async () => {
     // 识别成功已消耗 1 次配额，同步刷新余量展示
     void fetchUsage();
   } catch (e: any) {
-    const msg = e?.response?.data?.message || e?.message || "识别失败，请重试";
-    ElMessage.error(msg);
+    // 兜底：识别失败（超时/服务不可用）后端会返还配额，刷新余量避免显示虚低
+    void fetchUsage();
+    const status = e?.response?.status;
+    if (status === 503) {
+      ElMessage.error("AI 识别服务暂时繁忙，请稍后重试（失败不消耗次数）");
+    } else if (status === 429) {
+      ElMessage.warning("今日 AI 识别次数已用完，请明日再试");
+    } else if (e?.code === "ECONNABORTED" || e?.message?.includes("timeout")) {
+      ElMessage.error(
+        "识别超时，图片内容可能较多，请稍后重试（失败不消耗次数）"
+      );
+    } else {
+      const msg =
+        e?.response?.data?.message || e?.message || "识别失败，请重试";
+      ElMessage.error(msg);
+    }
   } finally {
     recognizing.value = false;
   }
@@ -511,54 +504,6 @@ onMounted(() => {
   :deep(.el-tabs__active-bar) {
     background-color: var(--brand-700);
   }
-}
-
-/* ============================================
-   上传区：软表面 + 虚线边框 + 品牌色 hover
-   ============================================ */
-.ocr-upload {
-  :deep(.el-upload-dragger) {
-    padding: var(--space-loose) var(--space-standard);
-    background: var(--bg-soft);
-    border: 1px dashed var(--border-default);
-    border-radius: var(--radius-md);
-    transition:
-      background-color 0.2s ease,
-      border-color 0.2s ease;
-  }
-
-  :deep(.el-upload-dragger:hover) {
-    background: var(--brand-100);
-    border-color: var(--brand-500);
-  }
-
-  :deep(.el-upload-dragger.is-dragover) {
-    background: var(--brand-100);
-    border-color: var(--brand-700);
-  }
-}
-
-.upload-icon {
-  margin-bottom: var(--space-3);
-  font-size: 48px;
-  color: var(--brand-700);
-}
-
-.upload-text {
-  margin-top: 0;
-  font-size: var(--text-body);
-  color: var(--text-primary);
-
-  em {
-    font-style: normal;
-    color: var(--brand-700);
-  }
-}
-
-.upload-tip {
-  margin-top: var(--space-2);
-  font-size: var(--text-label);
-  color: var(--text-tertiary);
 }
 
 /* ============================================

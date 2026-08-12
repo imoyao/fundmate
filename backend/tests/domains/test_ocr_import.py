@@ -24,35 +24,38 @@ def _post(client, url, data):
 
 class TestUsage:
     def test_usage_initial_remaining(self, client, db):
-        """首次查询用量：used=0, remaining=quota(5)。"""
+        """首次查询用量：used=0, remaining=quota（读环境配置，默认 5）。"""
+        quota = ocr_service.OCR_DAILY_QUOTA
         resp = client.get('/api/ocr/usage')
         assert resp.status_code == 200
         data = resp.get_json()['data']
         assert data['used'] == 0
-        assert data['quota'] == 5
-        assert data['remaining'] == 5
+        assert data['quota'] == quota
+        assert data['remaining'] == quota
 
     def test_usage_consume_increments(self, client, db):
         """消费一次后 remaining 减 1。"""
+        quota = ocr_service.OCR_DAILY_QUOTA
         resp = client.post('/api/ocr/parse', json={'text': '110011 易方达中小盘'})
         assert resp.status_code == 200
         data = resp.get_json()['data']
         assert data['usage']['used'] == 1
-        assert data['usage']['remaining'] == 4
+        assert data['usage']['remaining'] == quota - 1
 
     def test_usage_quota_exceeded(self, client, db, monkeypatch):
         """用量超限返回 429，且不再调用 LLM。"""
         # 直接写入超限记录
         from app.core.database import SessionLocal
 
+        quota = ocr_service.OCR_DAILY_QUOTA
         with SessionLocal() as s:
             s.add(
                 UserUsage(
                     user_id=1,
                     feature='ocr_import',
                     period_date=date.today(),
-                    count=5,
-                    quota=5,
+                    count=quota,
+                    quota=quota,
                 )
             )
             s.commit()
@@ -115,7 +118,29 @@ class TestRecognize:
         assert resp.status_code == 200
         data = resp.get_json()['data']
         assert data['items'][0]['code'] == '510300'
-        assert data['usage']['remaining'] == 4
+        assert data['usage']['remaining'] == ocr_service.OCR_DAILY_QUOTA - 1
+
+    def test_recognize_failure_refunds_usage(self, client, db, monkeypatch):
+        """识别失败（服务 503）返还本次配额：失败不白耗次数（用户反馈测试期痛点）。"""
+        import base64
+
+        from app.core.exceptions import ErrorCode, SBException
+
+        def _fail(image_bytes):
+            raise SBException(
+                code=ErrorCode.OCR_SERVICE_UNAVAILABLE.code,
+                message='OCR 识别服务暂时不可用，请稍后重试',
+                status_code=ErrorCode.OCR_SERVICE_UNAVAILABLE.http_status,
+            )
+
+        monkeypatch.setattr(ocr_service, 'recognize', _fail)
+        img_b64 = base64.b64encode(b'fake-image-bytes').decode('ascii')
+        resp = _post(client, '/api/ocr/recognize', {'image_base64': img_b64})
+        assert resp.status_code == 503
+        # 失败后用量回到初始（0 次），下一次仍可正常识别
+        data = client.get('/api/ocr/usage').get_json()['data']
+        assert data['used'] == 0
+        assert data['remaining'] == ocr_service.OCR_DAILY_QUOTA
 
 
 class TestEnrichItems:

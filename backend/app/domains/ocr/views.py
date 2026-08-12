@@ -49,9 +49,14 @@ def ocr_recognize():
         logger.warning('OCR base64 解码失败: {}', e)
         raise SBException(code=1001, message='图片 base64 无效', status_code=400)
 
-    # 先消费配额再识别：识别失败也不返还（防恶意刷取免费额度）
+    # 先消费配额再识别：识别失败会返还（refund_usage），防恶意刷取免费额度
     usage = ocr_service.consume_usage(user_id)
-    items = ocr_service.recognize(image_bytes)
+    try:
+        items = ocr_service.recognize(image_bytes)
+    except SBException:
+        # 识别失败（服务不可用/超时等）返还本次配额，避免测试期一次失败即白耗额度
+        ocr_service.refund_usage(user_id)
+        raise
     logger.info('OCR 识别完成 user={} items={}', user_id, len(items))
     return jsonify({'data': {'items': items[:OCR_MAX_ITEMS], 'usage': usage}, 'message': 'ok'})
 
@@ -62,6 +67,10 @@ def ocr_parse_text():
     user_id = _current_user_id()
     payload = parse_body(OCRParseTextRequest)
     usage = ocr_service.consume_usage(user_id)
-    items = ocr_service.parse_text(payload.text)
+    try:
+        items = ocr_service.parse_text(payload.text)
+    except SBException:
+        ocr_service.refund_usage(user_id)
+        raise
     logger.info('文本批量导入解析完成 user={} items={}', user_id, len(items))
     return jsonify({'data': {'items': items[:OCR_MAX_ITEMS], 'usage': usage}, 'message': 'ok'})

@@ -18,6 +18,7 @@ import base64
 import json
 import os
 import re
+import time
 from datetime import date
 from typing import List, Optional
 
@@ -37,6 +38,10 @@ ARK_API_KEY = os.getenv('ARK_API_KEY', '')
 ARK_MODEL = os.getenv('ARK_MODEL', 'doubao-seed-2-1-pro-260628')
 OCR_DAILY_QUOTA = int(os.getenv('OCR_DAILY_QUOTA', '5'))
 OCR_MAX_IMAGE_BYTES = 5 * 1024 * 1024  # 图片上限 5MB
+# LLM 单次请求超时（秒）：图片/长文本识别较慢，30s 在数据量大时易 ReadTimeout → 503
+ARK_TIMEOUT = int(os.getenv('ARK_TIMEOUT', '60'))
+# 网络异常/超时/5xx 时的重试次数（0 = 不重试）；重试间隔 1.5s
+ARK_RETRIES = int(os.getenv('ARK_RETRIES', '1'))
 
 _SYSTEM_PROMPT = (
     '你是一个基金/股票代码提取助手。请从用户提供的持仓截图或文本中，'
@@ -98,15 +103,36 @@ def consume_usage(user_id: int, feature: str = 'ocr_import', period: Optional[da
         }
 
 
+def refund_usage(user_id: int, feature: str = 'ocr_import', period: Optional[date] = None) -> None:
+    """识别失败后返还本次已消耗的配额（count 减 1，下限 0）。
+
+    策略：先消费再识别（防刷免费额度），但识别因服务不可用/超时失败时不应惩罚用户，
+    否则测试期一次超时即白耗 1 次额度，5 次很快耗尽（见用户反馈）。
+    """
+    period = period or date.today()
+    with SessionLocal() as db:
+        row = _get_usage(db, user_id, feature, period)
+        if row.count > 0:
+            row.count -= 1
+            db.commit()
+
+
 # ── LLM 调用 ──
-def _call_ark(content: List[dict], temperature: float = 0.1, timeout: int = 30) -> str:
-    """调用火山方舟 OpenAI 兼容端点，返回 choices[0].message.content。"""
+def _call_ark(content: List[dict], temperature: float = 0.1, timeout: int = None) -> str:
+    """调用火山方舟 OpenAI 兼容端点，返回 choices[0].message.content。
+
+    兜底设计（用户反馈 503 直报问题）：
+    - 超时放宽到 ARK_TIMEOUT（默认 60s，图片/长文本识别慢，30s 易 ReadTimeout）；
+    - 网络异常/超时/5xx 自动重试 ARK_RETRIES 次（默认 1 次，间隔 1.5s）；
+    - 重试耗尽才抛 503（OCR_SERVICE_UNAVAILABLE），由 views 层返还配额。
+    """
     if not ARK_API_KEY:
         raise SBException(
             code=ErrorCode.OCR_SERVICE_UNAVAILABLE.code,
             message='服务端未配置 ARK_API_KEY，OCR 功能暂不可用',
             status_code=ErrorCode.OCR_SERVICE_UNAVAILABLE.http_status,
         )
+    timeout = timeout or ARK_TIMEOUT
     payload = {
         'model': ARK_MODEL,
         'messages': [
@@ -115,23 +141,30 @@ def _call_ark(content: List[dict], temperature: float = 0.1, timeout: int = 30) 
         ],
         'temperature': temperature,
     }
-    try:
-        resp = requests.post(
-            ARK_ENDPOINT,
-            headers={'Authorization': f'Bearer {ARK_API_KEY}', 'Content-Type': 'application/json'},
-            json=payload,
-            timeout=timeout,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return data['choices'][0]['message']['content']
-    except requests.RequestException as e:
-        logger.error('火山方舟调用失败: {}', e)
-        raise SBException(
-            code=ErrorCode.OCR_SERVICE_UNAVAILABLE.code,
-            message=f'OCR 识别服务暂时不可用：{e}',
-            status_code=ErrorCode.OCR_SERVICE_UNAVAILABLE.http_status,
-        )
+
+    last_err: Optional[Exception] = None
+    for attempt in range(ARK_RETRIES + 1):
+        try:
+            resp = requests.post(
+                ARK_ENDPOINT,
+                headers={'Authorization': f'Bearer {ARK_API_KEY}', 'Content-Type': 'application/json'},
+                json=payload,
+                timeout=timeout,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data['choices'][0]['message']['content']
+        except (requests.RequestException, KeyError, ValueError) as e:
+            last_err = e
+            logger.warning('火山方舟调用失败（第 {} 次）: {}', attempt + 1, e)
+            if attempt < ARK_RETRIES:
+                time.sleep(1.5)
+    logger.error('火山方舟调用重试 {} 次后仍失败: {}', ARK_RETRIES, last_err)
+    raise SBException(
+        code=ErrorCode.OCR_SERVICE_UNAVAILABLE.code,
+        message='OCR 识别服务暂时不可用，请稍后重试',
+        status_code=ErrorCode.OCR_SERVICE_UNAVAILABLE.http_status,
+    )
 
 
 def _extract_json(text: str) -> List[dict]:
