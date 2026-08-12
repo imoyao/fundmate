@@ -1,6 +1,6 @@
 # 项目路线图与进度表（roadmap）
 
-> ⚠️ **易腐烂内容**：本文件随项目进展频繁变化。最后核实日期：**2026-08-10**。每次更新进度或新增 / 完成 P 级任务时，必须同步更新本文件顶部"最后核实日期"。
+> ⚠️ **易腐烂内容**：本文件随项目进展频繁变化。最后核实日期：**2026-08-12**。每次更新进度或新增 / 完成 P 级任务时，必须同步更新本文件顶部"最后核实日期"。
 >
 > 📌 **issue 反链**：GitHub open issue 与本文件 / 各设计文档的对应关系见本文末尾 **§3 GitHub issue ↔ 文档反链索引**。
 
@@ -159,10 +159,10 @@
 | [#820](https://github.com/imoyao/fundmate/issues/820) | FeeRatio 增加币种（currency）字段并落库 | Ⅱ 重要不紧急 | **已实现**（2026-08-10，见下方说明） | `docs/dev/fund-fee-ratio.md`；`backend/app/domains/funds/models.py` |
 | [#273](https://github.com/imoyao/fundmate/issues/273) | 自选基金拖拽排序 | Ⅳ 不重要不紧急 | 未实现 / 功能 | `frontend/src/views/asset/watchlist/index.vue` |
 | [#817](https://github.com/imoyao/fundmate/issues/817) | 鹦鹉螺 nautilus 作为 logo | Ⅳ 不重要不紧急 | 部分实现 / 与文档偏离（正式稿未产出） | `docs/design/brand-v1.7.md`；`docs/design/index.md` |
-| [#899](https://github.com/imoyao/fundmate/issues/899) | 代码审计与架构整改记录（2026-07-31 ~ 2026-08-01） | — | **已归档（2026-08-10 盘点分流）**：已闭环项（H1 错误契约/V1 退役/data 源/libs-cal/FastAPI 解耦/L5 .gitignore/§2 SPEC 偏差）见 `docs/spec/tech-debt.md`；未闭环项拆 #911/#912/#913 | `docs/spec/tech-debt.md`；`docs/working-notes/code-audit-and-remediation-2026-08-01.md` |
+| [#899](https://github.com/imoyao/fundmate/issues/899) | 代码审计与架构整改记录（2026-07-31 ~ 2026-08-01） | — | **已归档（2026-08-10 盘点分流）**：已闭环项（H1 错误契约/V1 退役/data 源/libs-cal/FastAPI 解耦/L5 .gitignore/§2 SPEC 偏差）见 `docs/spec/tech-debt.md`；未闭环项 #912/#913 已于 2026-08-11 收口关闭，仅剩 #911 待办 | `docs/spec/tech-debt.md`；`docs/working-notes/code-audit-and-remediation-2026-08-01.md` |
 | [#911](https://github.com/imoyao/fundmate/issues/911) | 后端持仓身份统一键与列表性能整改（#899 未闭环 M3/M4） | Ⅱ 重要不紧急 | 未实现 / 功能 | `backend/app/services/position_service.py`（M3 dual lookup）；`backend/app/services/ledger_service.py`（M4 全量加载） |
-| [#912](https://github.com/imoyao/fundmate/issues/912) | 后端生产配置与日志收口（#899 未闭环 L1/L3） | Ⅲ 不重要但紧急 | 未实现 / 功能 | `backend/app/main.py`（DEBUG/CORS）；`backend/app/domains/positions/views.py`、`portfolios/views.py`（traceback） |
-| [#913](https://github.com/imoyao/fundmate/issues/913) | 前端规范收口（#899 未闭环 M1/L4/M2 残留） | Ⅳ 不重要不紧急 | 未实现 / 功能 | `frontend/src/views/account/InvestmentAnalysis.vue`（M1）；`frontend/src/views/asset/portfolio/detail.vue`（L4）；M2 残留页面清单见 issue 正文 |
+| [#912](https://github.com/imoyao/fundmate/issues/912) | 后端生产配置与日志收口（#899 未闭环 L1/L3） | Ⅲ 不重要但紧急 | **已实现（2026-08-11 OpenCode 收口，已关闭）**：L1 改用 `logger.exception`、L3 DEBUG/CORS 改读环境变量 | `backend/app/main.py`（DEBUG/CORS）；`backend/app/domains/positions/views.py`、`portfolios/views.py`（traceback） |
+| [#913](https://github.com/imoyao/fundmate/issues/913) | 前端规范收口（#899 未闭环 M1/L4/M2 残留） | Ⅳ 不重要不紧急 | **已实现（2026-08-11 OpenCode 收口，已关闭）**：M1 裸涨跌色改统一组件、L4 detil.vue 去直连后端；M2 于 2026-08-12 扩展收口——资产/负债列表金额列与指数快照价格统一改走 `MoneyDisplay`（commit `d79cfa4`），图表 tooltip/表单 input/份额/百分比/净值等非金额数值不在适用范围内 | `frontend/src/views/account/InvestmentAnalysis.vue`（M1）；`frontend/src/views/asset/portfolio/detail.vue`（L4）；`frontend/src/views/asset/Overview.vue`、`explore/index.vue`（M2 金额统一） |
 
 **已关闭但需留意的文档差异**：
 
