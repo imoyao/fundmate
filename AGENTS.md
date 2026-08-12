@@ -98,7 +98,7 @@ Windows：`dev.cmd`（内部走 `scripts/dev.ps1`）；Git Bash / WSL / macOS：
 
 ## Issue 优先级与 Project 看板（所有 AI / agent 必须遵守）
 
-**优先级标识已存在，禁止新建字段**：本仓库 GitHub Project「多倍贝·投资账本」（编号 3，id `PVT_kwHOAV6ff84AAot3`，owner `imoyao`）已内置 **`象限`** 字段承载紧急程度/优先级，选项为：
+**优先级标识已存在，禁止新建字段**：本仓库 GitHub Project「多多贝·投资账本」（编号 3，id `PVT_kwHOAV6ff84AAot3`，owner `imoyao`）已内置 **`象限`** 字段承载紧急程度/优先级，选项为：
 
 - **Q1:RED** — 重要且紧急
 - **Q2:YELLOW** — 重要不紧急
