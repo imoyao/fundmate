@@ -1,6 +1,6 @@
 # AGENTS.md
 
-个人投资记账/家庭资产管理平台「多倍贝」（fundmate）。前后端分离：后端 Flask/APIFlask（Python 3.12+），前端 Vue 3 + Vite（pure-admin），另有 VitePress 文档站与静态落地页。仓库文档均为中文，提交信息用中文 + conventional commits。权威规范在 `docs/spec/`（入口 `docs/spec/index.md`；`conventions.md` 为冻结区，变更须先在 `decisions.md` 记决策）。当前开发分支 `main-v2`（`origin/HEAD` 指向 `dev`，其余本地分支为历史遗留）。
+个人投资记账/家庭资产管理平台「多多贝」（fundmate）。前后端分离：后端 Flask/APIFlask（Python 3.12+），前端 Vue 3 + Vite（pure-admin），另有 VitePress 文档站与静态落地页。仓库文档均为中文，提交信息用中文 + conventional commits。权威规范在 `docs/spec/`（入口 `docs/spec/index.md`；`conventions.md` 为冻结区，变更须先在 `decisions.md` 记决策）。当前开发分支 `main-v2`（`origin/HEAD` 指向 `dev`，其余本地分支为历史遗留）。
 
 ## 目录边界
 
@@ -40,7 +40,7 @@
 ## 文档站 / 落地页（仓库根）
 
 - `pnpm run docs:dev` / `pnpm run docs:build`。`docs/.vitepress/config.mjs` 的 `srcExclude` 把 working-notes、根级备忘 `.md` 等屏蔽出构建（源码仍保留，勿删）。**新增内部备忘一律放 `working-notes/`（全局屏蔽）；若在 docs 根生成备忘，必须同步登记进 `srcExclude`，否则会公开泄露。** 屏蔽清单与登记规则见 `docs/spec/internal-index.md`。
-- **内部备忘命名（强制，2026-08-09 起）**：`working-notes/` 下文件名一律英文 kebab-case + 日期后缀 `{topic}-{YYYY-MM-DD}.md`（如 `deployment-implementation-guide-2026-08-04.md`），**禁止中文文件名/路径**；正文标题用中文，交叉引用用相对链接 `./{english-name}.md`。新增备忘须同步登记进 `docs/working-notes/README.md` 索引表，防止历史中文命名债（`多倍贝_*.md`）复发。
+- **内部备忘命名（强制，2026-08-09 起）**：`working-notes/` 下文件名一律英文 kebab-case + 日期后缀 `{topic}-{YYYY-MM-DD}.md`（如 `deployment-implementation-guide-2026-08-04.md`），**禁止中文文件名/路径**；正文标题用中文，交叉引用用相对链接 `./{english-name}.md`。新增备忘须同步登记进 `docs/working-notes/README.md` 索引表，防止历史中文命名债（`多多贝_*.md`）复发。
 - 落地页：`pnpm run build:landing` / `build:about` / `build:story` / `build:pages`。`vercel.json` 构建时执行 `pnpm run build:landing`。
 - Markdown lint：`pnpm run docs:lint-md`（CI 用 `npx lint-md docs`，不带 `-f`）。
 
@@ -75,6 +75,16 @@ Windows：`dev.cmd`（内部走 `scripts/dev.ps1`）；Git Bash / WSL / macOS：
 - 中文标题/正文**用文件传**：`gh issue create --title-file <f> --body-file <f>`（文件 UTF-8 无 BOM），避免内联中文变量在非 UTF-8 终端里被吞成 `?`。
 - 创建后必须回读校验：`gh issue view <n> --json title` 确认中文无 `?`、无 `Ã`/`Â` 类 mojibake；出现则视为创建失败，立即删掉重建，**严禁保留乱码 issue**。
 - 复盘：2026-08-09 的 #859–#862 因创建环境非 UTF-8，中文标题全变 `?`（如 `?????(?? Discussion #152 ????)），已改写成干净中文 issue。完整规则见 `docs/working-notes/opencode-github-issue-utf8-rule-2026-08-09.md`。
+
+## Issue 原子化约束（对所有 AI / agent 生效，含 OpenCode、远程 agent）
+
+**核心目标：一个 issue 只承载一件事，相关 issue 用引用串联，避免把不相关的内容耦合进同一个超长 issue，导致后期难以关闭、难以定位。** 这是 2026-08-12 由用户提出、经复盘"issue 越长越耦合、关不掉"的痛点后确立的硬规则。
+
+- **一个 issue 一件事**：创建前先问"这个 issue 想解决/记录的具体是哪一件事？"如果是多件事（如"改 logo + 改品牌名 + 改 jigu 链接"），**拆成多个独立 issue**，不要塞进一个。标题应精确描述该单一事项（例：`docs: jigu header 新增多多贝首页链接` 而非 `jigu 品牌改造一堆事`）。
+- **关联靠引用，不靠合并**：若几个 issue 之间有依赖或上下文关系，在正文里用 GitHub 引用语法（`#915`、`#859`）互相 `@`/引用，而不是把内容复制粘贴到一起。读者顺着引用即可拼出全貌，无需读一个巨型 issue。
+- **追加请续帖，不要重写**：在已有 issue 上补充新结论/新约束时，**追加评论（comment）**，绝不用 `gh issue edit` 覆盖原正文（原 #915 即因多次追加评论而保留完整演进脉络）。若补充内容属于"另一件事"，另开 issue 并引用原 issue。
+- **超长即拆分信号**：当一个 issue 的评论或正文已明显混入第二、第三件不相关的事，应立即新建独立 issue 承接新事项并引用回原 issue，保持原 issue 聚焦于最初那一件事。
+- **关闭即终点**：仅当该 issue 对应的那一件事真正完成才可关闭；不要因为"顺手把别的事也做了"就连带关闭关联 issue——各自独立关闭。
 
 ## 禁止武断执行（对所有 AI / agent 生效，含 OpenCode、远程 agent）
 
