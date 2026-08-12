@@ -167,6 +167,100 @@ def _validate_items(items: List[dict]) -> List[dict]:
     return cleaned
 
 
+def _is_listed_fund_code(code: str) -> bool:
+    """6 位数字代码是否符合「场内基金」模式（无需查表即可判定）。
+
+    - 5 开头：沪市 ETF/LOF/Reits/货币（510xxx-589xxx）
+    - 159 开头：深市 ETF
+    - 16x 开头：深市 LOF（160xxx-169xxx）
+
+    场外开放式基金（110011、005827、270xxx 等）不落入上述区段。
+    """
+    return code.startswith('5') or code.startswith('159') or code.startswith('16')
+
+
+def _enrich_items(items: List[dict]) -> List[dict]:
+    """为识别结果补充资产类型/市场/场所（Securities 表 → 场内代码规则 → Funds 表 → 兜底）。
+
+    OCR 只输出 6 位数字代码，前端无法据此区分股票/ETF/场外基金。若按代码前缀
+    猜测（如 startsWith('5') → etf），股票（600519）被误判为场外基金、深市 ETF
+    （159915）被漏判——type/venue/symbol 全错，与持仓表断裂、自选页类型错误，
+    即「AI 批量导入后资产不对」的根因。此处按优先级反查：
+
+    1. Securities 表命中（normalizer 标准化后精确匹配）→ 场内品种（股票/ETF/可转债）：
+       type/market 取表值、symbol 标准化，venue=EXCHANGE。
+    2. 未命中但符合场内基金代码模式（5/159/16x）→ 场内 ETF/LOF：venue=EXCHANGE，
+       symbol 标准化（本地 Securities 表可能未收录 ETF/LOF，仅 Funds 表有）。
+    3. Funds 表命中（fund_code 精确匹配）→ 场外基金：venue=OTC，symbol=裸代码。
+    4. 兜底 → 默认场外基金。
+    """
+    from app.core.database import SessionLocal
+    from app.core.symbol_utils import get_normalizer
+    from app.domains.funds.models import Fund
+    from app.domains.securities.models import Security
+
+    normalizer = get_normalizer()
+    enriched: List[dict] = []
+    with SessionLocal() as db:
+        for it in items:
+            code = it['code']
+            info = {'code': code, 'name': it.get('name', '')}
+            # 1) 场内品种：normalizer 标准化后精确匹配 Securities
+            normalized = None
+            market = None
+            try:
+                normalized, market, _ = normalizer.normalize(code)
+            except Exception:
+                pass
+            if normalized:
+                sec = db.query(Security).filter_by(symbol=normalized).first()
+                if sec:
+                    info.update(
+                        {
+                            'symbol': sec.symbol,
+                            'name': sec.name or info['name'],
+                            'type': sec.type,
+                            'market': sec.market,
+                            'venue': 'EXCHANGE',
+                        }
+                    )
+                    enriched.append(info)
+                    continue
+            # 2) 场内基金（ETF/LOF）：Securities 未收录但代码符合场内模式
+            if _is_listed_fund_code(code):
+                fund = db.query(Fund).filter_by(fund_code=code).first()
+                fund_type = 'etf' if (code.startswith('5') or code.startswith('159')) else 'fund'
+                info.update(
+                    {
+                        'symbol': normalized or code,
+                        'name': fund.name if fund else info['name'],
+                        'type': fund_type,
+                        'market': market or 'CN_A',
+                        'venue': 'EXCHANGE',
+                    }
+                )
+                enriched.append(info)
+                continue
+            # 3) 场外基金：fund_code 精确匹配
+            fund = db.query(Fund).filter_by(fund_code=code).first()
+            if fund:
+                info.update(
+                    {
+                        'symbol': code,
+                        'name': fund.name or info['name'],
+                        'type': 'fund',
+                        'market': 'CN_A',
+                        'venue': 'OTC',
+                    }
+                )
+                enriched.append(info)
+                continue
+            # 4) 兜底：默认场外基金
+            info.update({'symbol': code, 'type': 'fund', 'market': 'CN_A', 'venue': 'OTC'})
+            enriched.append(info)
+    return enriched
+
+
 # ── 对外接口 ──
 def recognize(image_bytes: bytes) -> List[dict]:
     """图片 → 火山方舟 vision → 基金/股票代码列表。"""
@@ -182,7 +276,7 @@ def recognize(image_bytes: bytes) -> List[dict]:
         {'type': 'image_url', 'image_url': {'url': f'data:image/jpeg;base64,{b64}'}},
     ]
     raw = _call_ark(content)
-    return _validate_items(_extract_json(raw))
+    return _enrich_items(_validate_items(_extract_json(raw)))
 
 
 def parse_text(text: str) -> List[dict]:
@@ -191,4 +285,4 @@ def parse_text(text: str) -> List[dict]:
         raise SBException(code=ErrorCode.INVALID_PARAMS.code, message='文本内容为空', status_code=400)
     content = [{'type': 'text', 'text': f'请从以下文本中提取基金/股票代码与名称：\n\n{text[:8000]}'}]
     raw = _call_ark(content)
-    return _validate_items(_extract_json(raw))
+    return _enrich_items(_validate_items(_extract_json(raw)))

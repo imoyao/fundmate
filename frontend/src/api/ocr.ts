@@ -16,8 +16,12 @@ export type OcrUsageResult = {
 export interface OcrImportItem {
   code: string;
   name: string;
+  /** 标准化代码（场内如 SH600519；场外基金为裸代码）。缺失时用 code */
+  symbol?: string;
+  /** 资产类型：stock / etf / bond / fund（后端反查 Securities/Funds 表） */
   type?: string;
   market?: string;
+  venue?: string;
 }
 
 /** 查询当日 OCR 剩余次数 */

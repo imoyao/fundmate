@@ -116,3 +116,91 @@ class TestRecognize:
         data = resp.get_json()['data']
         assert data['items'][0]['code'] == '510300'
         assert data['usage']['remaining'] == 4
+
+
+class TestEnrichItems:
+    """识别结果类型反查：Securities(场内) → Funds(场外) → 兜底。
+
+    回归自选导入失败：股票/深市 ETF 被前端按 code 前缀误判为场外基金导入，
+    导致 type/venue/symbol 全错、与持仓断裂。
+    """
+
+    def test_enrich_stock_uses_securities(self, db):
+        """股票 600519：命中 Securities → type=stock / venue=EXCHANGE / symbol=SH600519。"""
+        from app.domains.securities.models import Security
+
+        db.add(Security(symbol='SH600519', name='贵州茅台', market='SH', type='stock'))
+        db.commit()
+
+        items = ocr_service._enrich_items([{'code': '600519', 'name': '贵州茅台'}])
+        assert items[0] == {
+            'code': '600519',
+            'name': '贵州茅台',
+            'symbol': 'SH600519',
+            'type': 'stock',
+            'market': 'SH',
+            'venue': 'EXCHANGE',
+        }
+
+    def test_enrich_etf_uses_securities(self, db):
+        """ETF 510300：命中 Securities → type=etf / venue=EXCHANGE。"""
+        from app.domains.securities.models import Security
+
+        db.add(Security(symbol='SH510300', name='300ETF', market='SH', type='etf'))
+        db.commit()
+
+        items = ocr_service._enrich_items([{'code': '510300', 'name': '300ETF'}])
+        assert items[0]['type'] == 'etf'
+        assert items[0]['venue'] == 'EXCHANGE'
+        assert items[0]['symbol'] == 'SH510300'
+
+    def test_enrich_otc_fund_uses_funds(self, db):
+        """场外基金 110011：命中 Funds → type=fund / venue=OTC / symbol=裸代码。"""
+        from app.domains.funds.models import Fund
+
+        db.add(Fund(fund_code='110011', name='易方达中小盘混合'))
+        db.commit()
+
+        items = ocr_service._enrich_items([{'code': '110011', 'name': '易方达中小盘'}])
+        assert items[0] == {
+            'code': '110011',
+            'name': '易方达中小盘混合',
+            'symbol': '110011',
+            'type': 'fund',
+            'market': 'CN_A',
+            'venue': 'OTC',
+        }
+
+    def test_enrich_sh_etf_by_code_rule(self, db):
+        """沪市 ETF 510300：Securities 未收录但 5 开头 → etf / EXCHANGE / 标准化 symbol。"""
+        items = ocr_service._enrich_items([{'code': '510300', 'name': '300ETF'}])
+        assert items[0]['type'] == 'etf'
+        assert items[0]['venue'] == 'EXCHANGE'
+        assert items[0]['symbol'] == 'SH510300'
+        assert items[0]['market'] == 'SH'
+
+    def test_enrich_sz_etf_by_code_rule(self, db):
+        """深市 ETF 159915：159 开头 → etf / EXCHANGE / SZ159915。"""
+        items = ocr_service._enrich_items([{'code': '159915', 'name': '创业板ETF'}])
+        assert items[0]['type'] == 'etf'
+        assert items[0]['venue'] == 'EXCHANGE'
+        assert items[0]['symbol'] == 'SZ159915'
+
+    def test_enrich_lof_by_code_rule(self, db):
+        """深市 LOF 161725：16x 开头 → fund / EXCHANGE（可场内交易）。"""
+        items = ocr_service._enrich_items([{'code': '161725', 'name': '招商中证白酒'}])
+        assert items[0]['type'] == 'fund'
+        assert items[0]['venue'] == 'EXCHANGE'
+        assert items[0]['symbol'] == 'SZ161725'
+
+    def test_enrich_fallback_default_otc(self, db):
+        """两表都未命中且非场内模式 → 兜底 type=fund / venue=OTC（6 位代码大概率场外基金）。"""
+        items = ocr_service._enrich_items([{'code': '999999', 'name': '未知'}])
+        assert items[0]['type'] == 'fund'
+        assert items[0]['venue'] == 'OTC'
+        assert items[0]['symbol'] == '999999'
+
+    def test_enrich_keeps_ocr_name_when_table_missing(self, db):
+        """表内未命中时保留 OCR 识别出的名称。"""
+        items = ocr_service._enrich_items([{'code': '888888', 'name': '某基金'}])
+        assert items[0]['name'] == '某基金'

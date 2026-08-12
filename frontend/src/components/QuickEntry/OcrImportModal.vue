@@ -7,17 +7,23 @@
     destroy-on-close
     :close-on-click-modal="false"
   >
-    <!-- 顶部：剩余次数提示 -->
+    <!-- 顶部：剩余次数提示（三态：正常 / 紧张 / 用尽） -->
     <div class="usage-banner" :class="usageStateClass">
-      <IconifyIconOffline icon="ep:picture" class="usage-banner__icon" />
-      <span>
-        今日还可使用
-        <strong>{{ remaining }} </strong>
-        次{{ remainingText }}
+      <span class="usage-banner__icon">
+        <IconifyIconOffline :icon="usageIcon" />
       </span>
+      <div class="usage-banner__main">
+        <span class="usage-banner__label">今日 AI 导入额度</span>
+        <span class="usage-banner__count">
+          剩余 <strong>{{ remaining }}</strong> / {{ quota }} 次
+        </span>
+      </div>
+      <span v-if="remainingText" class="usage-banner__hint">{{
+        remainingText
+      }}</span>
     </div>
 
-    <el-tabs v-model="activeTab" @tab-change="handleTabChange">
+    <el-tabs v-model="activeTab" class="ocr-tabs" @tab-change="handleTabChange">
       <!-- ── 图片识别 ── -->
       <el-tab-pane name="image" label="上传图片">
         <el-upload
@@ -30,10 +36,10 @@
           :on-remove="onFileRemove"
           class="ocr-upload"
         >
-          <IconifyIconOffline icon="ep:upload" class="el-icon--upload" />
-          <div class="el-upload__text">拖拽图片到此处，或<em>点击选择</em></div>
+          <IconifyIconOffline icon="ep:upload-filled" class="upload-icon" />
+          <div class="upload-text">拖拽图片到此处，或<em>点击选择</em></div>
           <template #tip>
-            <div class="el-upload__tip">
+            <div class="upload-tip">
               支持券商 / 天天基金等 App 持仓截图，文件不超过 5MB
             </div>
           </template>
@@ -47,6 +53,7 @@
           type="textarea"
           :rows="8"
           resize="vertical"
+          class="ocr-textarea"
           placeholder="粘贴基金列表文本，例如：&#10;110011 易方达中小盘&#10;005827 易方达蓝筹精选"
         />
       </el-tab-pane>
@@ -55,7 +62,7 @@
     <!-- 识别结果确认 -->
     <div v-if="candidates.length > 0" class="result-section">
       <div class="result-head">
-        <span>识别到 {{ candidates.length }} 条，可勾选导入</span>
+        识别到 {{ candidates.length }} 条，可勾选导入
       </div>
       <div class="candidate-list">
         <div
@@ -72,25 +79,33 @@
           />
           <span class="candidate-code">{{ item.code }}</span>
           <span class="candidate-name">{{ item.name }}</span>
-          <el-tag v-if="item.exists" size="small" type="info">已在自选</el-tag>
+          <el-tag
+            v-if="item.exists"
+            size="small"
+            type="info"
+            class="candidate-tag"
+            >已在自选</el-tag
+          >
         </div>
       </div>
     </div>
 
     <template #footer>
-      <el-button @click="visible = false">取消</el-button>
+      <el-button size="large" @click="visible = false">取消</el-button>
       <el-button
         v-if="candidates.length === 0"
         type="primary"
+        size="large"
         :loading="recognizing"
         :disabled="!canRecognize"
         @click="handleRecognize"
       >
-        识别
+        开始识别
       </el-button>
       <el-button
         v-else
         type="primary"
+        size="large"
         :loading="importing"
         :disabled="selectedCount === 0"
         @click="handleImport"
@@ -102,7 +117,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, watch, onMounted } from "vue";
 import { ElMessage } from "element-plus";
 import type { UploadFile } from "element-plus";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
@@ -134,14 +149,19 @@ const quota = ref(5);
 const occupied = ref(false);
 
 const remainingText = computed(() => {
-  if (occupied.value) return "（额度已用尽，请明日再试）";
-  if (remaining.value <= 2) return "（额度紧张，谨慎使用）";
+  if (occupied.value) return "额度已用尽，请明日再试";
+  if (remaining.value <= 2) return "额度紧张，谨慎使用";
   return "";
 });
 const usageStateClass = computed(() => {
   if (occupied.value) return "is-used-up";
   if (remaining.value <= 2) return "is-low";
   return "";
+});
+const usageIcon = computed(() => {
+  if (occupied.value) return "ep:warning";
+  if (remaining.value <= 2) return "ep:bell";
+  return "ep:magic-stick";
 });
 
 interface Candidate extends OcrImportItem {
@@ -224,11 +244,14 @@ const handleRecognize = async () => {
     }
 
     const existingSet = await probeExisting(items);
-    candidates.value = items.map(it => ({
-      ...it,
-      exists: existingSet.has(it.code),
-      selected: !existingSet.has(it.code)
-    }));
+    candidates.value = items.map(it => {
+      const key = it.symbol || it.code;
+      return {
+        ...it,
+        exists: existingSet.has(key),
+        selected: !existingSet.has(key)
+      };
+    });
     // 识别成功已消耗 1 次配额，同步刷新余量展示
     void fetchUsage();
   } catch (e: any) {
@@ -244,9 +267,13 @@ async function probeExisting(items: OcrImportItem[]): Promise<Set<string>> {
   const set = new Set<string>();
   for (const it of items) {
     try {
-      const res = await getWatchlistItems({ symbol: it.code, per_page: 1 });
+      // 用标准化 symbol 探测（场内如 SH600519），与后端查重口径一致
+      const res = await getWatchlistItems({
+        symbol: it.symbol || it.code,
+        per_page: 1
+      });
       const data = (res as any).data ?? [];
-      if (data.length > 0) set.add(it.code);
+      if (data.length > 0) set.add(it.symbol || it.code);
     } catch {
       // 网络异常不阻断已存在判断，保守当作新项
     }
@@ -266,10 +293,13 @@ const handleImport = async () => {
   const failed: string[] = [];
   for (const item of toImport) {
     try {
+      // 透传后端反查的 type/market/venue/symbol，不再按 code 前缀猜类型
+      // （否则股票 600519 / 深市 ETF 159915 会被误判为场外基金导入）
       await createWatchlistItem({
-        symbol: item.code,
-        asset_type: item.type || (item.code.startsWith("5") ? "etf" : "fund"),
-        venue: "OTC",
+        symbol: item.symbol || item.code,
+        asset_type: item.type || "fund",
+        market: item.market,
+        venue: item.venue || "OTC",
         add_reason: "AI 批量导入"
       });
       success++;
@@ -321,6 +351,16 @@ const reset = () => {
   imageFile.value = null;
 };
 
+// 🔥 修复：组件挂载时弹窗处于关闭态（visible=false），onMounted 不会触发
+// fetchUsage，导致 remaining 永远停留在初始值 0。改为监听 modelValue，
+// 每次打开弹窗时拉取最新额度。
+watch(
+  () => props.modelValue,
+  val => {
+    if (val) fetchUsage();
+  }
+);
+
 onMounted(() => {
   if (visible.value) {
     fetchUsage();
@@ -329,62 +369,226 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.ocr-import-dialog :deep(.el-dialog__body) {
-  padding: 20px;
-  font-size: 15px;
-}
-
-.usage-banner {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  padding: 10px 14px;
-  margin-bottom: 16px;
-  font-size: 13px;
-  color: var(--text-secondary);
-  background: var(--bg-soft);
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-
-  &__icon {
-    color: var(--text-tertiary);
+/* ============================================
+   弹窗容器：对齐 design.md（大圆角 + 暖调模态阴影 + 头尾分隔线）
+   ============================================ */
+.ocr-import-dialog {
+  :deep(.el-dialog) {
+    overflow: hidden;
+    background-color: var(--bg-card);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-modal);
   }
 
-  strong {
+  :deep(.el-dialog__header) {
+    padding: var(--space-standard) var(--space-standard) var(--space-compact);
+    margin-right: 0;
+    border-bottom: 1px solid var(--border-light);
+  }
+
+  :deep(.el-dialog__title) {
+    font-size: var(--text-heading);
+    font-weight: 600;
     color: var(--text-primary);
   }
 
-  &.is-low {
-    color: var(--color-warning, #d97706);
-    background: color-mix(
-      in srgb,
-      var(--color-warning, #d97706) 10%,
-      var(--bg-soft)
-    );
-    border-color: color-mix(
-      in srgb,
-      var(--color-warning, #d97706) 35%,
-      var(--border-light)
-    );
+  :deep(.el-dialog__body) {
+    padding: var(--space-standard);
   }
 
-  &.is-used-up {
-    color: var(--text-tertiary);
+  :deep(.el-dialog__footer) {
+    padding: var(--space-compact) var(--space-standard);
+    border-top: 1px solid var(--border-light);
   }
 }
 
-.ocr-upload :deep(.el-upload-dragger) {
+/* ============================================
+   剩余次数提示条（三态：正常 / 紧张 / 用尽）
+   ============================================ */
+.usage-banner {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-compact) var(--space-5);
+  margin-bottom: var(--space-5);
   background: var(--bg-soft);
-  border-color: var(--border-default);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease;
+
+  &__icon {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    font-size: 18px;
+    color: var(--brand-700);
+    background: var(--brand-100);
+    border-radius: var(--radius-pill);
+  }
+
+  &__main {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  &__label {
+    font-size: var(--text-label);
+    font-weight: 500;
+    color: var(--text-secondary);
+  }
+
+  &__count {
+    font-size: var(--text-small);
+    color: var(--text-primary);
+
+    strong {
+      font-family: var(--font-mono);
+      font-size: 18px;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      color: var(--brand-700);
+    }
+  }
+
+  &__hint {
+    flex-shrink: 0;
+    font-size: var(--text-label);
+    color: var(--text-secondary);
+  }
+
+  /* 额度紧张：暖沙金警示 */
+  &.is-low {
+    background: var(--color-warning-20);
+    border-color: var(--color-warning);
+
+    .usage-banner__icon,
+    .usage-banner__count strong {
+      color: var(--text-primary);
+    }
+  }
+
+  /* 额度用尽：危险警示 */
+  &.is-used-up {
+    background: var(--color-danger-20);
+    border-color: var(--color-danger);
+
+    .usage-banner__icon,
+    .usage-banner__count strong {
+      color: var(--color-danger);
+    }
+
+    .usage-banner__hint {
+      color: var(--color-danger);
+    }
+  }
 }
 
+/* ============================================
+   Tabs：品牌色激活态
+   ============================================ */
+.ocr-tabs {
+  :deep(.el-tabs__nav-wrap::after) {
+    height: 1px;
+    background-color: var(--border-light);
+  }
+
+  :deep(.el-tabs__item) {
+    font-size: var(--text-small);
+    color: var(--text-secondary);
+
+    &.is-active {
+      color: var(--brand-700);
+    }
+  }
+
+  :deep(.el-tabs__active-bar) {
+    background-color: var(--brand-700);
+  }
+}
+
+/* ============================================
+   上传区：软表面 + 虚线边框 + 品牌色 hover
+   ============================================ */
+.ocr-upload {
+  :deep(.el-upload-dragger) {
+    padding: var(--space-loose) var(--space-standard);
+    background: var(--bg-soft);
+    border: 1px dashed var(--border-default);
+    border-radius: var(--radius-md);
+    transition:
+      background-color 0.2s ease,
+      border-color 0.2s ease;
+  }
+
+  :deep(.el-upload-dragger:hover) {
+    background: var(--brand-100);
+    border-color: var(--brand-500);
+  }
+
+  :deep(.el-upload-dragger.is-dragover) {
+    background: var(--brand-100);
+    border-color: var(--brand-700);
+  }
+}
+
+.upload-icon {
+  margin-bottom: var(--space-3);
+  font-size: 48px;
+  color: var(--brand-700);
+}
+
+.upload-text {
+  margin-top: 0;
+  font-size: var(--text-body);
+  color: var(--text-primary);
+
+  em {
+    font-style: normal;
+    color: var(--brand-700);
+  }
+}
+
+.upload-tip {
+  margin-top: var(--space-2);
+  font-size: var(--text-label);
+  color: var(--text-tertiary);
+}
+
+/* ============================================
+   文本解析：textarea 圆角 + focus 环
+   ============================================ */
+.ocr-textarea {
+  :deep(.el-textarea__inner) {
+    font-family: var(--font-sans);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 0 0 1px var(--border-default) inset;
+    transition: box-shadow 0.2s ease;
+
+    &:focus {
+      box-shadow:
+        0 0 0 1px var(--brand-700) inset,
+        var(--focus-ring);
+    }
+  }
+}
+
+/* ============================================
+   识别结果候选列表
+   ============================================ */
 .result-section {
-  margin-top: 16px;
+  margin-top: var(--space-5);
 }
 
 .result-head {
-  margin-bottom: 10px;
-  font-size: 13px;
+  margin-bottom: var(--space-3);
+  font-size: var(--text-small);
   font-weight: 500;
   color: var(--text-primary);
 }
@@ -392,39 +596,50 @@ onMounted(() => {
 .candidate-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-2);
   max-height: 240px;
+  padding: var(--space-2);
   overflow-y: auto;
+  background: var(--bg-soft);
   border: 1px solid var(--border-light);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
 }
 
 .candidate-row {
   display: flex;
-  gap: 10px;
+  gap: var(--space-3);
   align-items: center;
-  padding: 8px 12px;
-  font-size: 14px;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-small);
   cursor: pointer;
-  border-bottom: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  transition: background-color 0.15s ease;
 
   &:hover {
-    background: var(--bg-soft);
+    background: var(--bg-hover);
   }
 
   &.is-exists {
-    opacity: 0.6;
+    opacity: 0.55;
   }
 
   .candidate-code {
     font-family: var(--font-mono);
     font-weight: 600;
+    font-variant-numeric: tabular-nums;
     color: var(--text-primary);
   }
 
   .candidate-name {
     flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
     color: var(--text-secondary);
+    white-space: nowrap;
+  }
+
+  .candidate-tag {
+    border-radius: var(--radius-pill);
   }
 }
 </style>

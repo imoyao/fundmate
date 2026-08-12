@@ -4,6 +4,8 @@
 # File : schemas.py
 """OCR API 请求/响应 Schema."""
 
+from typing import Optional
+
 from pydantic import BaseModel, Field
 
 
@@ -20,10 +22,18 @@ class OCRParseTextRequest(BaseModel):
 
 
 class OCRItemOut(BaseModel):
-    """识别出的单个基金候选."""
+    """识别出的单个基金候选.
+
+    symbol/type/market/venue 由后端反查 Securities/Funds 表补充（_enrich_items），
+    前端导入时直接透传，避免按代码前缀猜测导致股票/深市 ETF 误判为场外基金。
+    """
 
     code: str
     name: str = ''
+    symbol: Optional[str] = None
+    type: Optional[str] = None
+    market: Optional[str] = None
+    venue: Optional[str] = None
 
 
 class OCRResultOut(BaseModel):
