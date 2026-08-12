@@ -11,12 +11,12 @@ permalink: /overview
 |:---------------------------|:----------------------------------|:----------------|:--------------------------------------------|
 | `settings.py` / `enums.py` | 所有业务枚举体系                          | ✅ **已继承**       | `backend/app/core/enums.py`                 |
 | `database.py` (旧)          | `CRUDMixin` 混入类                   | ✅ **思想继承**      | `backend/app/database.py` 中待实现，当前简化         |
-| `fund/models.py`           | `Fund ↔ Manager` M2M 关系           | ✅ **设计完全继承**    | `backend/app/models/fund.py` (待搭建)          |
+| `fund/models.py`           | `Fund ↔ Manager` M2M 关系           | ✅ **设计完全继承**    | `backend/app/domains/funds/models.py`（已重构落地） |
 | `fund/models.py`           | `FeeRatio` 费率体系                   | 🕒 **P2 暂缓**    | SPEC 已完整记录其字段，MVP 后移植                       |
 | `fund/models.py`           | `FundPortfolio` 组合体系              | 🕒 **P2 暂缓**    | P2 功能，模型结构保留在 SPEC                          |
 | `fund/models.py`           | `Fund.search_key()` 搜索逻辑          | ✅ **设计继承**      | `backend/app/services/fund_search.py` (待实现) |
-| `account/models.py`        | “四笔钱”风险维度                         | ✅ **理念继承**      | `backend/app/models/account.py` (待搭建)       |
-| `account/models.py`        | `AccountTransactionRecord`        | ✅ **字段设计继承**    | `backend/app/models/transaction.py` (待搭建)   |
+| `account/models.py`        | “四笔钱”风险维度                         | ✅ **理念继承**      | `backend/app/domains/accounts/models.py`（已重构落地） |
+| `account/models.py`        | `AccountTransactionRecord`        | ✅ **字段设计继承**    | `backend/app/domains/transactions/models.py`（已重构落地） |
 | `collection/models.py`     | `Collection/Categories/Labels` 体系 | 🕒 **P1 完整继承**  | P1 功能，MVP 后实现                               |
 | `user/models.py`           | `User` 密码处理、`lookup()`            | 🕒 **P1 继承+重写** | MVP 实现鉴权时处理                                 |
 
