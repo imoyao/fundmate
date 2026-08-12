@@ -132,6 +132,27 @@
               <span class="import-mode-hint">选择与您的文件来源匹配的格式</span>
             </div>
 
+            <div class="source-logos">
+              <span class="source-logos-label">支持来源</span>
+              <div class="source-logo-pills">
+                <button
+                  v-for="mode in availableModes"
+                  :key="mode.value"
+                  type="button"
+                  class="source-logo-pill"
+                  :class="{ 'is-active': selectedMode === mode.value }"
+                  @click="selectedMode = mode.value"
+                >
+                  <img
+                    :src="mode.logo"
+                    :alt="mode.label"
+                    class="source-logo-img"
+                  />
+                  <span class="source-logo-name">{{ mode.label }}</span>
+                </button>
+              </div>
+            </div>
+
             <div class="upload-area-wrapper">
               <el-upload
                 ref="uploadRef"
@@ -1265,7 +1286,7 @@ const formatGuides = reactive({
       "在天天基金网页版 → 我的 → 交易查询 → 对账单查询",
       "拖动选中历史交易明细表格 → Ctrl+C 复制",
       "打开基金标准模板 CSV 文件，粘贴数据覆盖示例行",
-      "保存 CSV，在 多倍贝 选择“天天基金”格式上传"
+      "保存 CSV，在 多多贝 选择“天天基金”格式上传"
     ]
   },
   alipay_fund: {
@@ -1273,7 +1294,7 @@ const formatGuides = reactive({
     tips: [
       "在支付宝 → 我的 → 账单 → 更多 → 开具交易流水证明",
       "申请“用于个人对账”的流水，下载后解压得到 .csv 文件",
-      "在 多倍贝 选择“支付宝”格式上传该文件即可",
+      "在 多多贝 选择“支付宝”格式上传该文件即可",
       "余额宝交易将自动归入活钱，不产生持仓"
     ]
   },
@@ -1371,12 +1392,12 @@ const ledgerGroups = computed(() => {
 
 const availableModes = computed(() => {
   const allModes = [
-    { label: "股票标准模板", value: "standard_stock" },
-    { label: "同花顺交割单", value: "ths" },
-    { label: "基金标准模板", value: "standard_fund" },
-    { label: "天天基金", value: "tiantian_fund" },
-    { label: "支付宝（PDF）", value: "alipay_pdf" },
-    { label: "支付宝", value: "alipay_fund" }
+    { label: "股票标准模板", value: "standard_stock", logo: "/logos/stock.svg" },
+    { label: "同花顺交割单", value: "ths", logo: "/logos/tonghuashun.svg" },
+    { label: "基金标准模板", value: "standard_fund", logo: "/logos/stock.svg" },
+    { label: "天天基金", value: "tiantian_fund", logo: "/logos/tiantianjijin.svg" },
+    { label: "支付宝（PDF）", value: "alipay_pdf", logo: "/logos/alipay.svg" },
+    { label: "支付宝", value: "alipay_fund", logo: "/logos/alipay.svg" }
   ];
   if (ledgerType.value === "stock")
     return allModes.filter(
@@ -2842,6 +2863,71 @@ onMounted(async () => {
 .import-mode-hint {
   font-size: 12px;
   color: var(--text-tertiary);
+}
+
+/* 支持来源平台 logo 胶囊条 —— 对齐 design.md 设计令牌 */
+.source-logos {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 0 0 20px;
+}
+
+.source-logos-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.source-logo-pills {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.source-logo-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 0.3s ease, border-color 0.3s ease,
+    box-shadow 0.3s ease, transform 0.3s ease;
+}
+
+.source-logo-pill:hover {
+  background: var(--brand-100);
+  border-color: var(--brand-200);
+  color: var(--brand-700);
+  box-shadow: 0 4px 14px rgb(227 79 56 / 8%);
+  transform: translateY(-2px);
+}
+
+.source-logo-pill.is-active {
+  background: var(--brand-100);
+  border-color: var(--brand-400);
+  color: var(--brand-700);
+  box-shadow: 0 0 0 2px rgb(227 79 56 / 12%);
+}
+
+.source-logo-img {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.source-logo-name {
+  white-space: nowrap;
 }
 
 .upload-area-wrapper {
