@@ -96,6 +96,23 @@ Windows：`dev.cmd`（内部走 `scripts/dev.ps1`）；Git Bash / WSL / macOS：
 - **破坏性操作三问**：① 这东西的内容我读过了吗？② 它是否还有参考价值 / 是否已被代码实现？③ 删了能否恢复？三个问题有一答不上，就先不动，向用户确认。
 - **复盘案例**：2026-08-09 整理 GitHub 看板时，曾因"看板过期"望文生义，误删 5 个高价值已关闭 issue（#237 竞品库、#429 导入导出设计、#588 温度数据源、#661 自选实现、#769 路线图）及 2 个项目草稿，事后已恢复 5 个并打 `归档` 标签。此为反面教材，禁止重犯。
 
+## Issue 优先级与 Project 看板（所有 AI / agent 必须遵守）
+
+**优先级标识已存在，禁止新建字段**：本仓库 GitHub Project「多倍贝·投资账本」（编号 3，id `PVT_kwHOAV6ff84AAot3`，owner `imoyao`）已内置 **`象限`** 字段承载紧急程度/优先级，选项为：
+
+- **Q1:RED** — 重要且紧急
+- **Q2:YELLOW** — 重要不紧急
+- **Q3:GREEN** — 紧急不重要
+- **Q4:GRAY** — 不重要不紧急
+
+另有 `Status`（Todo / In Progress / Done / Pending）、`Milestone`、`Labels` 等标准字段。**创建/处理 issue 时务必用 `象限` 字段标优先级，不要另建 priority / 紧急程度 类字段**（避免字段膨胀、与现看板脱节）。给 issue 打象限：先 `gh project item-add 3 --owner imoyao --url <issue-url>` 加入看板，再用 `gh api graphql` 的 `updateProjectV2ItemFieldValue`（变量类型用 `ID!`）写 `singleSelectOptionId`（Q1=`84f4167a` / Q2=`2aead21d` / Q3=`3ea6e338` / Q4=`d3517118`，field id=`PVTSSF_lAHOAV6ff84AAot3zhaGpdo`）。
+
+**issue 治理纪律（2026-08-12 确立，已落地）**：
+- 产品路线图 / 未来设想 / 历史参考类 issue **不要以 OPEN 占用注意力**：打 `归档` 标签并关闭（**不删除**，内容保留可查），并引用路线图索引 **#920**（索引型 issue，只列清单与引用，不承载实现）。
+- 高价值 active 类（已落地备忘 / 强相关待办）保留 OPEN，不收纳。
+- 治理结果：OPEN 由 70 收敛至 44；FeedLog Roadmap 看板须待反馈站部署（#919）后打通（见 #919 阻塞项说明）。
+- 以上与「Issue 原子化约束」「禁止武断执行」两节同源，互为补充。
+
 ## AI 自动提交标注
 
 - 所有由 AI 助手（CodeBuddy / OpenCode / 远程 agent 等）**主动提交**，或**经用户指示由 AI 提交**的代码改动，必须在提交信息中明确标注其为 AI 自动提交，便于后续追溯哪些提交由 AI 完成、区分人工提交。
