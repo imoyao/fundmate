@@ -187,7 +187,8 @@
                 {{ item.percent }} %
               </td>
               <td class="py-4 text-right font-bold text-gray-800">
-                {{ displayMode === "hidden" ? "****" : `¥ ${item.value}` }}
+                <template v-if="displayMode === 'hidden'">****</template>
+                <MoneyDisplay v-else :value="item.value" />
               </td>
               <td
                 class="py-4 text-right pr-4 font-medium"
@@ -199,8 +200,13 @@
                       : 'text-gray-400'
                 "
               >
-                {{ item.change > 0 ? "+" : ""
-                }}{{ item.change ? `¥${item.change}` : "-" }}
+                <template v-if="displayMode === 'hidden'">****</template>
+                <MoneyDisplay
+                  v-else
+                  :value="item.change"
+                  show-sign
+                  auto-color
+                />
               </td>
             </tr>
           </tbody>
@@ -238,7 +244,8 @@
                 {{ item.percent }} %
               </td>
               <td class="py-4 text-right font-bold text-gray-800">
-                {{ displayMode === "hidden" ? "****" : `¥ ${item.value}` }}
+                <template v-if="displayMode === 'hidden'">****</template>
+                <MoneyDisplay v-else :value="item.value" />
               </td>
               <td
                 class="py-4 text-right pr-4 font-medium"
@@ -250,8 +257,13 @@
                       : 'text-gray-400'
                 "
               >
-                {{ item.change > 0 ? "+" : ""
-                }}{{ item.change ? `¥${item.change}` : "-" }}
+                <template v-if="displayMode === 'hidden'">****</template>
+                <MoneyDisplay
+                  v-else
+                  :value="item.change"
+                  show-sign
+                  auto-color
+                />
               </td>
             </tr>
           </tbody>

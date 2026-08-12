@@ -155,7 +155,8 @@
         <div class="snapshot-items">
           <div v-for="idx in indexData" :key="idx.code" class="snapshot-item">
             <span class="snapshot-name">{{ idx.name }}</span>
-            <span class="snapshot-price">{{ idx.price }}</span>
+            <span class="snapshot-price" v-if="idx.price === null">--</span>
+            <MoneyDisplay v-else :value="idx.price" :precision="2" />
             <span class="snapshot-change"
               ><RiseFallText :value="idx.changePercent"
             /></span>
@@ -521,7 +522,7 @@ watch(
 interface IndexInfo {
   code: string;
   name: string;
-  price: string;
+  price: number | null;
   changePercent: number;
 }
 
@@ -532,9 +533,9 @@ const indexCodes = [
 ];
 
 const indexData = ref<IndexInfo[]>([
-  { code: "000300", name: "沪深300", price: "--", changePercent: 0 },
-  { code: "000905", name: "中证500", price: "--", changePercent: 0 },
-  { code: "399006", name: "创业板指", price: "--", changePercent: 0 }
+  { code: "000300", name: "沪深300", price: null, changePercent: 0 },
+  { code: "000905", name: "中证500", price: null, changePercent: 0 },
+  { code: "399006", name: "创业板指", price: null, changePercent: 0 }
 ]);
 
 const indexLoading = ref(false);
@@ -550,7 +551,7 @@ const fetchIndexData = async () => {
         const change = quote.changePct || 0;
         return {
           ...idx,
-          price: price > 0 ? price.toFixed(2) : "--",
+          price: price > 0 ? price : null,
           changePercent: change
         };
       }
