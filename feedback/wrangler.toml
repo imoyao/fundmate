@@ -1,0 +1,12 @@
+# 多多贝反馈中心 · Cloudflare Pages 部署配置
+# 复用文档站部署模式，产物为 feedback/.vitepress/dist
+# 使用：npx wrangler pages deploy feedback/.vitepress/dist --project-name=duoduobei-feedback
+
+name = "duoduobei-feedback"
+compatibility_date = "2026-08-01"
+
+# Pages 项目：构建输出目录由 CLI 指定，此处仅声明项目名与兼容日期
+pages_build_output_dir = "feedback/.vitepress/dist"
+
+# SPA 风格：VitePress 为静态多页，无需 _routes.json 特殊配置。
+# 自定义域 feedback.duoduobei.com 在 Cloudflare Pages 控制台绑定（作为 LB Priority 2 源）。
