@@ -15,8 +15,6 @@
   "scripts": {
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
-    "feedback:dev": "vitepress dev feedback",
-    "feedback:build": "vitepress build feedback",
     "docs:lint-md": "lint-md docs -f",
     "build:landing": "node scripts/build-landing.mjs landing",
     "build:about": "node scripts/build-landing.mjs about",

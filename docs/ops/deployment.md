@@ -28,7 +28,6 @@ v1（2026-08）基于两项已推翻的假设，本版据实修订：
 | 文档站 | `fundmate` (`docs/`) | `docs.duoduobei.com` | Markdown → VitePress | 是（中） | EdgeOne(主) → Cloudflare(备) |
 | 叽咕（投教/小游戏） | `fundmate`（`jigu/`，待确认具体路径） | `jigu.duoduobei.com` | 复用应用站技术栈 | 否（noindex） | EdgeOne(主) → Cloudflare(备) → Vercel(兜底) |
 | 后端 API | `fundmate` (`backend/`) | `api.duoduobei.com`（或后端独立项目域名） | APIFlask（WSGI，零重写） | 否 | **仅 EdgeOne Pages Python 函数**（不三平台） |
-| 反馈中心 | `fundmate` (`feedback/`) | `feedback.duoduobei.com` | VitePress（复用文档站技术栈） | 是（中） | EdgeOne(主) → Cloudflare(备) → Vercel(兜底) |
 | 定时抓取 | `fundmate` (`backend/scripts/`) | 无公开域名 | 离线 job（不入站） | 否 | 见 §1.3（混合：本机 + GitHub Action） |
 > 2026-08 统一为三平台 EdgeOne→Cloudflare→Vercel 语义后，文档站亦改为 EdgeOne 优先、Cloudflare 备。
 > 若仍希望文档站 Cloudflare 为主，改本表 + §3 文档站段落即可（待确认）。
@@ -124,18 +123,9 @@ v1（2026-08）基于两项已推翻的假设，本版据实修订：
 - [ ] 应用站 `vercel.json` 的 `build:landing` 重定：应用站不再构建落地页，build 改为 `vite build`（落地页已移交主站）
 - [ ] 各平台 SPA / VitePress 路由回退配置核对
 - [ ] 应用站上线 `noindex`
-- [ ] 反馈中心 `feedback.duoduobei.com` 三平台部署（配置见 `feedback/`：`edgeone.json` / `wrangler.toml` / `vercel.json` / `deploy.mjs`）
 
 ## 5. SEO 要点（延续 v1）
 
 - 主站/文档站：语义化 HTML、`<meta name="description">`、Open Graph、JSON-LD；装饰动效不挡正文抓取。
 - 应用站：`noindex, nofollow`，不参与收录。
 - 外链统一指向权威域名（主站 `duoduobei.com`）。
-
-## 6. 反馈中心（feedback.duoduobei.com）
-
-- **定位**：主站 / 应用站 / 叽咕三端统一反馈入口，承接 FeedLog 反馈中心（已有 `scripts/bridge/feedlog_bridge.py` 桥接 GitHub Issues）。
-- **技术栈**：复用文档站 VitePress + `@duxweb/vitepress-theme`，源在 `feedback/`，构建 `pnpm run feedback:build` → `feedback/.vitepress/dist`。
-- **命名决策**（2026-08-12）：采用 `feedback` 子域，与 `app` / `docs` / `jigu` / `api` 全英文短词体系一致；排除 `fankui`（拼音子域偏离体系、不利 SEO/海外收录）。
-- **部署**：三平台同文档站（`feedback/edgeone.json` 主、`feedback/wrangler.toml` 备、`feedback/vercel.json` 兜底），复用脚本 `node feedback/deploy.mjs [eo|cf|vercel|all]`。
-- 纳入 §2 的 Cloudflare LB 优先级降级（EdgeOne → Cloudflare → Vercel）。
