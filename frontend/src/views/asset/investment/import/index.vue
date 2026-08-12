@@ -143,11 +143,21 @@
                   :class="{ 'is-active': selectedMode === mode.value }"
                   @click="selectedMode = mode.value"
                 >
-                  <img
-                    :src="mode.logo"
-                    :alt="mode.label"
-                    class="source-logo-img"
-                  />
+                  <Superellipse
+                    v-if="mode.logo && !logoBrokenMap[mode.value]"
+                    :power="3"
+                    class="source-logo-frame"
+                  >
+                    <img
+                      :src="mode.logo"
+                      :alt="mode.label"
+                      class="source-logo-img"
+                      @error="onLogoError(mode.value)"
+                    />
+                  </Superellipse>
+                  <span v-else class="source-logo-fallback">
+                    <IconifyIconOffline icon="ep:document" />
+                  </span>
                   <span class="source-logo-name">{{ mode.label }}</span>
                 </button>
               </div>
@@ -1203,6 +1213,7 @@ import { getLedgers, createLedger as createLedgerApi } from "@/api/ledger";
 import type { LedgerItem } from "@/api/ledger";
 import FundMatchDrawer from "./components/FundMatchDrawer.vue";
 import { ALLOCATION_OPTIONS } from "@/constants";
+import Superellipse from "@/components/Superellipse/index.vue";
 
 defineOptions({ name: "Inventory" });
 
@@ -1389,6 +1400,11 @@ const ledgerGroups = computed(() => {
   }
   return order.filter(o => groups[o]).map(o => groups[o]);
 });
+
+const logoBrokenMap = reactive<Record<string, boolean>>({});
+const onLogoError = (value: string) => {
+  logoBrokenMap[value] = true;
+};
 
 const availableModes = computed(() => {
   const allModes = [
@@ -2918,11 +2934,28 @@ onMounted(async () => {
   box-shadow: 0 0 0 2px rgb(227 79 56 / 12%);
 }
 
-.source-logo-img {
+.source-logo-frame {
   width: 22px;
   height: 22px;
-  object-fit: contain;
-  border-radius: 6px;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.source-logo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.source-logo-fallback {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  font-size: 16px;
   flex-shrink: 0;
 }
 
