@@ -44,7 +44,7 @@
 
 - 数据库：**每项目 500 MB**（dedicated Postgres），**API 请求无限**，出站带宽 5 GB/月，2 个活跃项目。
 - Auth：MAU 5 万，用户数无限；Storage 1 GB。
-- **自动暂停**：免费项目 **1 周无活动会自动暂停**（pausing after 1 week of inactivity）。→ 对多倍贝无影响，因为每日 cron job 会持续访问，不会触发暂停。
+- **自动暂停**：免费项目 **1 周无活动会自动暂停**（pausing after 1 week of inactivity）。→ 对多多贝无影响，因为每日 cron job 会持续访问，不会触发暂停。
 - Region：官方明确列表**无中国大陆**。APAC 可选：**Southeast Asia (Singapore) ap-southeast-1**、**Northeast Asia (Tokyo) ap-northeast-1**；另有 Mumbai、Sydney、Seoul 等。
 
 推断：对大陆单人用户，最近可选新加坡或东京，延迟约 80–150ms 量级，通常可达，但属"跨境"，存在偶发 GFW/抖动风险（概率性，非确定性阻断）。

@@ -15,7 +15,7 @@
 | 5 | 依赖管理 | `docs/dev/index.md` 用 `requirements/dev.txt` + pip-compile-multi | 仓库实际为 `pyproject.toml` + pdm（`pdm.lock`） | 待更新 |
 | 6 | 多币种建模 | SPEC(overview) 称 `positions` 含 `currency` | `transactions/models.py` 未见 currency 列（positions 模型未读，待核对） | 待核对 |
 | 7 | 启动依赖风险 | 文档未列为 blocker | `main.py` 顶部 `import xalpha`（gitee 源），依赖 akshare/playwright；本地无网或安装失败会直接起不来 | 待记录 |
-| 8 | 命名 | 内部名「叽咕」、产品名「多倍贝」、前端包名 `duobeibei`、README 称 "FMP/showbuy" | 对外命名不统一 | 待统一 |
+| 8 | 命名 | 内部名「叽咕」、产品名「多多贝」、前端包名 `duoduobei`、README 称 "FMP/showbuy" | 对外命名不统一 | 待统一 |
 | 9 | 前端模板基线 | docs 未说明 | 实际基于 **pure-admin-thin**（非完整 pure-admin） | 已澄清 |
 
 ## 二、决策记录（本会话）
@@ -31,4 +31,4 @@
 - [ ] 统一依赖/启动方式（pdm vs requirements，create_all vs migrate）— owner: 你
 - [ ] 确认多币种建模位置（positions.currency?）— owner: 你
 - [ ] 将 xalpha/akshare 启动依赖记录为「可运行性风险」— owner: 你
-- [ ] 对外命名统一（叽咕/多倍贝/duobeibao/FMP）— owner: 你
+- [ ] 对外命名统一（叽咕/多多贝/duobeibao/FMP）— owner: 你

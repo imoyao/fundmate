@@ -2,7 +2,7 @@
 
 > 性质：内部备忘（`docs/working-notes/` 屏蔽出构建，不对外）。
 > 编制日期：2026-08-03
-> 范围：多倍贝项目当前代码里所有外部数据源（行情 / 基金 / 市场温度 / 估值 / 认证）
+> 范围：多多贝项目当前代码里所有外部数据源（行情 / 基金 / 市场温度 / 估值 / 认证）
 > 依据：实际读取 `backend/app/services/thermometer/{constants,fetchers}.py`、`backend/app/services/sync/adapters/{akshare,xalpha}_adapter.py`、`backend/app/services/bias/calculator.py`、`pyproject.toml`，以及本会话对腾讯 / 东财 push2his 的实跑验证。
 > 借鉴视角：参考 `daily_stock_analysis` 的 `data_provider`（15+ 抓取器 + 故障切换 + 熔断，LLM 仅写报告、不进数据链路）。
 > **文档关系（本系列三件套，避免重复维护）**：本文＝**端点清单 SSOT**（host/端点/参数/Token/实时状态/适用性，只在此处维护）；[bias-datasource-replacement-2026-08-03](./bias-datasource-replacement-2026-08-03.md)＝具体改造记录（借本文端点绕过 akshare 腐烂，含专属代码）；[datasource-priority-plan-2026-08-03](./datasource-priority-plan-2026-08-03.md)＝通用排查树 + 优先级/熔断机制（端点与实跑证据引用本文）。
@@ -80,7 +80,7 @@
 
 - 用途：基金净值（`xa.fundinfo(code).price` / `xa.mfundinfo` 货基）、费率（`fund.rate` / `fund.feeinfo`）。
 - 覆盖：场外开放式基金 + 货币基金；**不支持股票/列表/经理**。
-- 定位：多倍贝基金净值主源（`DailyWorth` 同步即走它）。乖离度对场外基金应复用此净值，而非 AKShare。
+- 定位：多多贝基金净值主源（`DailyWorth` 同步即走它）。乖离度对场外基金应复用此净值，而非 AKShare。
 
 **⑥ akshare 基金元数据**
 
@@ -131,7 +131,7 @@
 
 ---
 
-## 三、适用性结论（给多倍贝）
+## 三、适用性结论（给多多贝）
 
 1. **行情三件套已闭环**：股票/ETF/宽基用腾讯直连（稳），申万用东财 push2his+Referer（本会话验证），基金净值用 xalpha——乖离度阻塞点已解（详见 [bias-datasource-replacement-2026-08-03](./bias-datasource-replacement-2026-08-03.md)）。
 2. **市场温度矩阵完整且分层**：稳定层（东财成交额/韭圈儿/集思录）＋ 脆弱层（且慢/有知有行）＋ 自算层（股债利差），单源失败不影响整体。
@@ -144,7 +144,7 @@
 
 - 它 15+ 抓取器（akshare/yfinance/tushare/longbridge/tencent/efinance/pytdx/baostock/finnhub/alphavantage/tickflow…）本质是**对同一批上游（东财/腾讯/新浪/雅虎…）的多实现**，用**策略模式 + 优先级有序链 + 异常降级 + 熔断**兜底。
 - **数据链路零 AI**：LLM(LiteLLM/Gemini) 只在 `analyzer.py` 生成报告/评分/决策，且代码可 `stabilize_decision_with_structure` 覆盖模型——所以它的数据不"依赖 AI"。
-- 对多倍贝的启示：把"取数"与"分析/生成"解耦；关键取数做多源 + 重试 + 熔断，正是乖离度修复已落地的方向。
+- 对多多贝的启示：把"取数"与"分析/生成"解耦；关键取数做多源 + 重试 + 熔断，正是乖离度修复已落地的方向。
 
 ---
 

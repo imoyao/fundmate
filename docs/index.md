@@ -2,12 +2,12 @@
 layout: home
 
 hero:
-  name: 多倍贝
+  name: 多多贝
   text: 看见你的复利增长
-  tagline: 记账即复利。多备贝，贝倍多——有备无患，自然倍多。
+  tagline: 记账即复利。多多贝，贝倍多——复利生长，越理越多。
   image:
     src: /logo.svg
-    alt: 多倍贝
+    alt: 多多贝
   actions:
     - theme: brand
       text: 快速开始
@@ -39,7 +39,7 @@ features:
 featuresConfig:
   badge: 为什么选择
   title: "为什么选择 "
-  subtitle: "多倍贝？"
+  subtitle: "多多贝？"
   description: 不托管资金、不看账户密码，把数据权还给你自己
 
 quickStart:

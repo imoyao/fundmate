@@ -101,7 +101,7 @@ BiasJob._fetch_data()
 
 ## 4. 暗色模式规划（原 SPEC 第 11 章）
 
-> 多倍贝 暗色模式采用独立的设计规范（详见 [`../../frontend/design.dark.md`](../../frontend/design.dark.md)），核心方向：
+> 多多贝 暗色模式采用独立的设计规范（详见 [`../../frontend/design.dark.md`](../../frontend/design.dark.md)），核心方向：
 >
 > - 背景使用深灰层级（非纯黑）
 > - 品牌色饱和度降低 20%，避免在暗色背景下“震动”

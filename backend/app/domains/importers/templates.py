@@ -29,7 +29,7 @@ class ImportTemplate:
 # 标准模板（中文表头）
 STANDARD_TEMPLATE = ImportTemplate(
     name='标准模板',
-    description='多倍贝 通用交易导入模板',
+    description='多多贝 通用交易导入模板',
     column_map={
         '代码': 'symbol',
         '名称': 'name',
@@ -77,7 +77,7 @@ THS_TEMPLATE = ImportTemplate(
 # 基金标准模板（前端 standard_fund）
 FUND_STANDARD_TEMPLATE = ImportTemplate(
     name='基金标准模板',
-    description='多倍贝 基金交易导入模板',
+    description='多多贝 基金交易导入模板',
     column_map={
         '确认日期': 'trade_date',
         '交易日期': 'trade_date',
@@ -98,7 +98,7 @@ FUND_STANDARD_TEMPLATE = ImportTemplate(
 # 股票标准模板（前端 standard_stock）
 STOCK_STANDARD_TEMPLATE = ImportTemplate(
     name='股票标准模板',
-    description='多倍贝 股票交易导入模板',
+    description='多多贝 股票交易导入模板',
     column_map={
         '确认日期': 'trade_date',
         '交易日期': 'trade_date',

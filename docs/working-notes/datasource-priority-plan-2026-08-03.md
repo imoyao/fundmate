@@ -2,7 +2,7 @@
 
 > 性质：内部备忘（`docs/working-notes/` 屏蔽出构建，不对外）。
 > 编制日期：2026-08-03
-> 配套代码：`/workspace/多倍贝_通用数据源优先级路由.py`（沙箱已实跑验证 failover / 熔断 / 缓存，未入库）
+> 配套代码：`/workspace/多多贝_通用数据源优先级路由.py`（沙箱已实跑验证 failover / 熔断 / 缓存，未入库）
 > 由来：乖离度因 akshare 一个函数腐烂而全功能阻塞 → 直连上游（腾讯 / 东财）复活。
 > 目标：**下次任何数据源异常 / 端点不可用，按本方案机械执行即可，无需每次从零调研。**
 > 文档关系：端点清单与实跑证据见 [external-datasource-reference-2026-08-03](./external-datasource-reference-2026-08-03.md)；乖离度改造实例见 [bias-datasource-replacement-2026-08-03](./bias-datasource-replacement-2026-08-03.md)。本文只定义「排查树 + 优先级分层 + 熔断 / 缓存机制」，端点不在本文维护。
@@ -44,7 +44,7 @@ A 股数据的**真实上游只有几家**：东财 / 腾讯 / 新浪 / 天天�
 
 ---
 
-## 三、优先级分层（对多倍贝的落地约定）
+## 三、优先级分层（对多多贝的落地约定）
 
 | 层 | 内容 | 角色 |
 |---|---|---|
@@ -58,7 +58,7 @@ A 股数据的**真实上游只有几家**：东财 / 腾讯 / 新浪 / 天天�
 
 ---
 
-## 四、能力 → Provider 矩阵（多倍贝实际能力）
+## 四、能力 → Provider 矩阵（多多贝实际能力）
 
 > 各源端点 / Token / 实时状态见 [external-datasource-reference-2026-08-03](./external-datasource-reference-2026-08-03.md)；本表为「能力 → provider」的**设计映射**。
 
@@ -116,7 +116,7 @@ A 股数据的**真实上游只有几家**：东财 / 腾讯 / 新浪 / 天天�
 
 ## 七、落地步骤（把散装重试收口为统一路由）
 
-1. 将 `多倍贝_通用数据源优先级路由.py`（沙箱 `/workspace/`）拷到 `backend/app/services/common/data_source_router.py`。
+1. 将 `多多贝_通用数据源优先级路由.py`（沙箱 `/workspace/`）拷到 `backend/app/services/common/data_source_router.py`。
 2. `bias/calculator.py` 的 `PriceFetcher.fetch()`：按品种构造 capability，注册 腾讯（主）/ 东财（申万）/ akshare（兜底）provider，改调 `router.resolve()`（打通即解原阻塞）。
 3. `thermometer/fetchers.py`：保留各 `Fetcher.fetch()` 实现，外层统一走 router 做 failover（替换现有散装 `_get` + 重试）。
 4. 申万行业**当前只有东财一个真实上游**（腾讯不覆盖），建议补兜底：缓存上次成功值 +（可选）天天基金 / 雪球行业指数源，消除单点。

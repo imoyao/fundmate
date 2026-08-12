@@ -1,8 +1,8 @@
-# 多倍贝 · 邮箱配置方案文档
+# 多多贝 · 邮箱配置方案文档
 
-本文档规范「多倍贝」项目邮箱系统的架构、配置步骤与日常运维。
+本文档规范「多多贝」项目邮箱系统的架构、配置步骤与日常运维。
 采用 Resend（发信）+ Cloudflare Email Routing（收信转发） 的零成本方案。
-目标：用 0 元额外费用、0 个额外邮箱账户，实现 @duobeibei.com 域名的专业收发信。
+目标：用 0 元额外费用、0 个额外邮箱账户，实现 @duoduobei.com 域名的专业收发信。
 
 ## 前置说明：方案选择与实施前提
 
@@ -10,7 +10,7 @@
 
 | 前提条件 | 说明 |
 |---|---|
-| ✅ 已购买域名 | 本文以 duobeibei.com 为例 |
+| ✅ 已购买域名 | 本文以 duoduobei.com 为例 |
 | ✅ 域名已托管至 Cloudflare | 用于 DNS 管理 + Email Routing |
 | ✅ 拥有一个个人邮箱 | 本文选用 QQ 邮箱（me@qq.com）作为收信终端 |
 | ✅ 可访问 Resend 服务 | 用于发信，注册账号即可 |
@@ -20,16 +20,16 @@
 | 考量 | 说明 |
 |---|---|
 | 国内访问稳定 | Gmail 在国内无法稳定访问，163 邮箱的"代发"功能会显示"由 xxx 代发"，影响品牌纯净度 |
-| QQ 邮箱"其他邮箱"功能 | 支持通过第三方 SMTP 服务器发送，配合 Resend 可以实现纯净发信——对方只看到 support@duobeibei.com，不显示"由 xxx 代发" |
+| QQ 邮箱"其他邮箱"功能 | 支持通过第三方 SMTP 服务器发送，配合 Resend 可以实现纯净发信——对方只看到 support@duoduobei.com，不显示"由 xxx 代发" |
 | 配置成本低 | 一次配置，长期使用，无需额外维护 |
 
 ### 整体架构
 
 | 方向 | 服务 | 职责 |
 |---|---|---|
-| 发信（系统→用户） | Resend | 发送验证码、密码重置、系统通知等，显示发件人为 noreply@duobeibei.com |
-| 收信（用户→你） | Cloudflare Email Routing | 将所有 @duobeibei.com 的来信转发至你的 QQ 邮箱（me@qq.com） |
-| 回信（你→用户） | QQ 邮箱 + Resend SMTP | 通过 QQ 邮箱的"其他邮箱"功能，用 Resend 的 SMTP 服务器发送，对方看到 support@duobeibei.com |
+| 发信（系统→用户） | Resend | 发送验证码、密码重置、系统通知等，显示发件人为 noreply@duoduobei.com |
+| 收信（用户→你） | Cloudflare Email Routing | 将所有 @duoduobei.com 的来信转发至你的 QQ 邮箱（me@qq.com） |
+| 回信（你→用户） | QQ 邮箱 + Resend SMTP | 通过 QQ 邮箱的"其他邮箱"功能，用 Resend 的 SMTP 服务器发送，对方看到 support@duoduobei.com |
 
 ## 一、邮箱地址规划
 
@@ -37,10 +37,10 @@
 
 | 邮箱地址 | 用途 | 发信方式 | 收信方式 | 是否需要独立邮箱账户 |
 |---|---|---|---|---|
-| noreply@duobeibei.com | 系统自动发信（验证码、密码重置、通知） | Resend SMTP / API | 不接收来信 | ❌ 否 |
-| support@duobeibei.com | 用户反馈、客服联系 | 个人邮箱以该地址回复 | Cloudflare 转发至 me@qq.com | ❌ 否 |
-| hello@duobeibei.com | 外部合作、商务咨询 | 个人邮箱以该地址回复 | Cloudflare 转发至 me@qq.com | ❌ 否 |
-| admin@duobeibei.com | 服务器警报、内部管理 | 个人邮箱以该地址回复 | Cloudflare 转发至 me@qq.com | ❌ 否 |
+| noreply@duoduobei.com | 系统自动发信（验证码、密码重置、通知） | Resend SMTP / API | 不接收来信 | ❌ 否 |
+| support@duoduobei.com | 用户反馈、客服联系 | 个人邮箱以该地址回复 | Cloudflare 转发至 me@qq.com | ❌ 否 |
+| hello@duoduobei.com | 外部合作、商务咨询 | 个人邮箱以该地址回复 | Cloudflare 转发至 me@qq.com | ❌ 否 |
+| admin@duoduobei.com | 服务器警报、内部管理 | 个人邮箱以该地址回复 | Cloudflare 转发至 me@qq.com | ❌ 否 |
 | me@qq.com | 你的个人收信终端 | — | 接收所有转发邮件 | ✅ 1 个（已有） |
 
 > 个人邮箱以 me@qq.com 为例，实际使用你常用的 QQ 邮箱即可。
@@ -58,7 +58,7 @@
 #### Step 2：添加并验证域名
 
 1. 进入控制台 → Domains → Add Domain
-2. 输入 duobeibei.com（不加 mail. 前缀）
+2. 输入 duoduobei.com（不加 mail. 前缀）
 3. Resend 会生成一组 DNS 记录（DKIM、SPF、MX）
 
 需要在 Cloudflare DNS 中添加的记录：
@@ -94,9 +94,9 @@
 
 #### Step 1：开启 Email Routing
 
-1. 登录 Cloudflare 控制台，进入 duobeibei.com 域名
+1. 登录 Cloudflare 控制台，进入 duoduobei.com 域名
 2. 左侧菜单：Compute → Email Service → Email Routing
-3. 点击 Onboard Domain，选择 duobeibei.com
+3. 点击 Onboard Domain，选择 duoduobei.com
 4. Cloudflare 会自动添加 MX 和 TXT 记录
 
 ⚠️ 注意：如果域名已在其他邮件服务中使用，开启 Email Routing 会替换 MX 记录，旧邮件服务将停止工作。
@@ -116,34 +116,34 @@
 3. 操作选择 Send to an email，目标选 me@qq.com
 4. 保存
 
-Catch-all 效果：所有发送到 *@duobeibei.com 的邮件都会转发到 me@qq.com，无需为每个地址单独配置。
+Catch-all 效果：所有发送到 *@duoduobei.com 的邮件都会转发到 me@qq.com，无需为每个地址单独配置。
 
 ### 阶段三：配置 QQ 邮箱回复来信（让对方看到域名邮箱）
 
 #### 适用场景
 
-当你收到用户发送到 support@duobeibei.com 的邮件后，在 QQ 邮箱中回复时，希望对方看到的发件人是 support@duobeibei.com，而不是 me@qq.com。
+当你收到用户发送到 support@duoduobei.com 的邮件后，在 QQ 邮箱中回复时，希望对方看到的发件人是 support@duoduobei.com，而不是 me@qq.com。
 
 #### 配置步骤
 
 1. 登录 QQ 邮箱（mail.qq.com）
 2. 进入 设置 → 账户 → 其他邮箱（或"发件人管理"）
 3. 点击 添加其他邮箱地址
-4. 输入你要使用的域名邮箱地址，如 support@duobeibei.com
+4. 输入你要使用的域名邮箱地址，如 support@duoduobei.com
 5. 发信设置选择 "通过其他邮箱的 SMTP 服务器发送"
 6. 填写 Resend SMTP 信息：
    - SMTP 服务器：smtp.resend.com
    - 端口：587 或 465
    - 用户名：resend
    - 密码：你的 Resend API Key
-7. QQ 邮箱会发送验证邮件到 support@duobeibei.com（通过 Cloudflare 转发到 me@qq.com）
+7. QQ 邮箱会发送验证邮件到 support@duoduobei.com（通过 Cloudflare 转发到 me@qq.com）
 8. 登录 me@qq.com，点击验证链接完成确认
 
 #### 使用方式
 
-配置完成后，在 QQ 邮箱写信时，点击发件人下拉框，选择 support@duobeibei.com 即可。
+配置完成后，在 QQ 邮箱写信时，点击发件人下拉框，选择 support@duoduobei.com 即可。
 
-✅ 效果：对方收到的邮件发件人只显示 support@duobeibei.com，不会出现"由 QQ 邮箱代发"的提示。
+✅ 效果：对方收到的邮件发件人只显示 support@duoduobei.com，不会出现"由 QQ 邮箱代发"的提示。
 
 ### 阶段四：在网站中集成发信
 
@@ -158,8 +158,8 @@ Catch-all 效果：所有发送到 *@duobeibei.com 的邮件都会转发到 me@q
 | 加密 | STARTTLS（587）或 SSL（465） |
 | 用户名 | resend |
 | 密码 | 你的 Resend API Key |
-| 发件地址 | noreply@duobeibei.com |
-| 发件名称 | 多倍贝 |
+| 发件地址 | noreply@duoduobei.com |
+| 发件名称 | 多多贝 |
 
 #### 方式二：API 直调（推荐，更灵活）
 
@@ -173,7 +173,7 @@ import resend
 resend.api_key = "re_your_api_key"
 
 params = {
-    "from": "多倍贝 <noreply@duobeibei.com>",
+    "from": "多多贝 <noreply@duoduobei.com>",
     "to": ["user@example.com"],
     "subject": "你的验证码",
     "html": "<h1>验证码：123456</h1>"
@@ -199,14 +199,14 @@ print(email)
 | 检查项 | 状态 | 备注 |
 |---|---|---|
 | [ ] Resend 账号已注册 | ☐ | https://resend.com |
-| [ ] duobeibei.com 域名已添加并验证 | ☐ | Domains → Verified |
+| [ ] duoduobei.com 域名已添加并验证 | ☐ | Domains → Verified |
 | [ ] DNS 记录（DKIM/SPF/MX）已添加 | ☐ | 在 Cloudflare DNS 中确认 |
 | [ ] API Key 已创建并保存 | ☐ | 权限：Sending access |
 | [ ] Cloudflare Email Routing 已开启 | ☐ | 并添加 me@qq.com 为目标 |
-| [ ] Catch-all 路由规则已配置 | ☐ | 所有 @duobeibei.com → me@qq.com |
+| [ ] Catch-all 路由规则已配置 | ☐ | 所有 @duoduobei.com → me@qq.com |
 | [ ] QQ 邮箱已添加域名邮箱作为发件人 | ☐ | 设置→账户→其他邮箱 |
 | [ ] 测试收发信正常 | ☐ | 用外部邮箱测试收发 |
-| [ ] 网站 SMTP/API 配置已完成 | ☐ | 发件地址 noreply@duobeibei.com |
+| [ ] 网站 SMTP/API 配置已完成 | ☐ | 发件地址 noreply@duoduobei.com |
 
 ---
 

@@ -2,7 +2,7 @@
 
 > 生成时间：2026-08-09
 > 数据源：`Worktile.Project.fundmate20260809074539.xlsx`（16 张卡片，创建于 2021-06 ~ 2021-07，创建人「西风」）
-> 目标：`imoyao/fundmate` Issues + Projects `#3 多倍贝·投资账本`
+> 目标：`imoyao/fundmate` Issues + Projects `#3 多多贝·投资账本`
 > 状态：**待用户确认，尚未写入 GitHub**
 
 ## 0. 源数据概览

@@ -84,7 +84,7 @@ gunicorn app:app -w 1 -b 0.0.0.0:${PORT:-9000} --timeout 120
 
 ```yaml
 component: scf
-name: duobeibei-backend
+name: duoduobei-backend
 inputs:
   src: ./
   type: web                 # Web 函数
@@ -150,7 +150,7 @@ def main_handler(event, context):
 
 ```yaml
 component: scf
-name: duobeibei-jobs
+name: duoduobei-jobs
 inputs:
   src: ./
   name: jobs-runner

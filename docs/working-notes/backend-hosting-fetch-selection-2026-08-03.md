@@ -58,7 +58,7 @@
 
 ### 5.1 SCF 到底要改多少代码？（APIFlask 同样无需重构）
 
-**结论：不是推倒重来，是「适配入口 ＋ 去 APScheduler ＋ 打包依赖」。** 多倍贝后端是 **APIFlask**——它是 Flask 的直接子类，仍是标准 WSGI 应用；腾讯云 SCF **Web 函数**的官方 Flask 模板本质是用 gunicorn 包住一个 WSGI `app`，所以「**无需改动业务代码，一键部署**」（已搜证）对 APIFlask 同样成立。
+**结论：不是推倒重来，是「适配入口 ＋ 去 APScheduler ＋ 打包依赖」。** 多多贝后端是 **APIFlask**——它是 Flask 的直接子类，仍是标准 WSGI 应用；腾讯云 SCF **Web 函数**的官方 Flask 模板本质是用 gunicorn 包住一个 WSGI `app`，所以「**无需改动业务代码，一键部署**」（已搜证）对 APIFlask 同样成立。
 
 **为什么 APIFlask 不用重构**：
 

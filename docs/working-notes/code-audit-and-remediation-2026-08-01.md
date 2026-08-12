@@ -280,7 +280,7 @@
   - 缺失测试依赖：`pyjson5` / `faker` / `plummet`（未装进 `.venv`）。
   - 缺失环境变量：`dkhs / zo / utils` 等测试触发 `environs.exceptions.EnvError`。
 - **🔴 最关键风险：测试没有覆盖真正部署的代码**。
-  - 生产入口 `backend/autoapp.py:4` → `from backend.fundmate.app import create_app`（**V1 遗留应用**，标题“多倍贝 API v1.0.0”，含 flask-praetorian / sentry / mail）。
+  - 生产入口 `backend/autoapp.py:4` → `from backend.fundmate.app import create_app`（**V1 遗留应用**，标题“多多贝 API v1.0.0”，含 flask-praetorian / sentry / mail）。
   - 测试 `backend/tests/conftest.py:25` → `from app.main import create_app`（**V2 应用**）。
   - 结论：**线上跑的是 V1，测试跑的是 V2**。V2 的测试全绿，也不代表线上 V1 正确——而 V1 此刻还带着 `errors.py` 的 `NameError` 真实缺陷。
 

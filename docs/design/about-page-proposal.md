@@ -1,5 +1,5 @@
 ---
-title: 多倍贝 · /about 品牌故事页 方案评估与建议
+title: 多多贝 · /about 品牌故事页 方案评估与建议
 status: 提案 (proposal · 待评审)
 created: 2026-08
 owner: 阿垚

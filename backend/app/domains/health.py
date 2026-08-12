@@ -9,4 +9,4 @@ bp = APIBlueprint('health', __name__, url_prefix='/api')
 @bp.get('/health')
 def health_check():
     """返回 ok 表示服务正常运行."""
-    return {'status': 'ok', 'message': '多倍贝 is running'}
+    return {'status': 'ok', 'message': '多多贝 is running'}

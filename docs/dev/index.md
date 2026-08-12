@@ -30,7 +30,7 @@ title: 开发指南
 
 ## 文档
 
-多倍贝文档站使用 [VitePress](https://vitepress.dev/) + `@duxweb/vitepress-theme` 生成（由早期 VuePress v1 迁移而来，见提交 `291000a`）。包管理统一为 **pnpm**，请勿混用 npm / yarn。
+多多贝文档站使用 [VitePress](https://vitepress.dev/) + `@duxweb/vitepress-theme` 生成（由早期 VuePress v1 迁移而来，见提交 `291000a`）。包管理统一为 **pnpm**，请勿混用 npm / yarn。
 
 * 本地预览
 

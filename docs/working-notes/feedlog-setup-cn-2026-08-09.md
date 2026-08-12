@@ -69,7 +69,7 @@ wrangler secret put GITHUB_CLIENT_SECRET
 
 ```bash
 wrangler secret put BETTER_AUTH_URL
-# https://feedback.duobeibei.com（替换为实际域名）
+# https://feedback.duoduobei.com（替换为实际域名）
 ```
 
 ## 第四步：首次访问初始化
@@ -77,7 +77,7 @@ wrangler secret put BETTER_AUTH_URL
 1. 浏览器打开 Worker 域名（或绑定的自定义域名）
 2. 首次访问会触发自动数据库迁移（`/setup` 路由，由 `runtime-migrate` 处理）
 3. 用管理员邮箱注册/登录（支持邮箱密码或 GitHub OAuth）
-4. 进入管理后台 → 创建组织（建议名：**多倍贝**）
+4. 进入管理后台 → 创建组织（建议名：**多多贝**）
 5. 创建看板（Board）：
    - **功能建议**（Feature Requests）：用户提交新功能想法
    - **问题反馈**（Bug Reports）：报 bug 用
@@ -90,9 +90,9 @@ wrangler secret put BETTER_AUTH_URL
 
 修改 `app.config.ts` 或通过管理后台：
 
-- 站点名称：多倍贝反馈中心
+- 站点名称：多多贝反馈中心
 - Logo：上传 `branding/` 目录下的 logo
-- 主题色：`#10B981`（多倍贝品牌绿）
+- 主题色：`#10B981`（多多贝品牌绿）
 
 ## 第六步：桥接配置（FeedLog ↔ GitHub Issues）
 

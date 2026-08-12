@@ -18,7 +18,7 @@
 
 ## 期望最终形态
 
-两文件应为「`<BrandLogo>` 组件 + 品牌文字组「多倍贝」+ `.brand-sub`（投资账本，副标 0.6em φ⁻¹ 黄金分割比、`·` 分隔）+ `.brand-beta`（Beta 预览版挂件，`top:-0.35em` 上浮）」；同时 `useNav.ts` 删除 `getLogo()`、删除 `frontend/public/logo.svg`。
+两文件应为「`<BrandLogo>` 组件 + 品牌文字组「多多贝」+ `.brand-sub`（投资账本，副标 0.6em φ⁻¹ 黄金分割比、`·` 分隔）+ `.brand-beta`（Beta 预览版挂件，`top:-0.35em` 上浮）」；同时 `useNav.ts` 删除 `getLogo()`、删除 `frontend/public/logo.svg`。
 
 ## 恢复方案
 
