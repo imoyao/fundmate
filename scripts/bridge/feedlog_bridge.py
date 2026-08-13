@@ -28,7 +28,6 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from uuid import UUID
 
 import psycopg2
 from github import Github
@@ -52,11 +51,13 @@ LABEL_MAP = {
 # Issue 标签反向映射
 LABEL_REVERSE_MAP = {v: k for k, v in LABEL_MAP.items()}
 
-# FeedLog Board → Issue label（从 board slug 映射）
+# FeedLog Board → Issue label（按 board 名称映射；board 表无 slug 列，标识只有 name）
+# 名称大小写/空格敏感，故查找时统一小写归一化。
 BOARD_TO_LABEL = {
-    "feature-requests": "enhancement",
-    "bug-reports": "bug",
-    "general": "feedback",
+    "feature requests": "enhancement",
+    "bug report": "bug",
+    "improvements": "enhancement",
+    "other": "feedback",
 }
 
 
@@ -74,7 +75,9 @@ def load_state() -> dict[str, Any]:
 
 def save_state(state: dict[str, Any]) -> None:
     """保存同步状态"""
-    STATE_FILE.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
+    STATE_FILE.write_text(
+        json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
 
 
 def now_iso() -> str:
@@ -106,7 +109,7 @@ def fetch_new_posts(conn, since: str | None) -> list[dict]:
                 p.id, p.title, p.content, p.status,
                 p.created_at, p.updated_at,
                 p.vote_count, p.comment_count,
-                b.slug AS board_slug, b.name AS board_name,
+                b.name AS board_name,
                 u.name AS author_name, u.email AS author_email
             FROM "post" p
             JOIN "board" b ON p.board_id = b.id
@@ -123,7 +126,7 @@ def fetch_new_posts(conn, since: str | None) -> list[dict]:
                 p.id, p.title, p.content, p.status,
                 p.created_at, p.updated_at,
                 p.vote_count, p.comment_count,
-                b.slug AS board_slug, b.name AS board_name,
+                b.name AS board_name,
                 u.name AS author_name, u.email AS author_email
             FROM "post" p
             JOIN "board" b ON p.board_id = b.id
@@ -137,18 +140,18 @@ def fetch_new_posts(conn, since: str | None) -> list[dict]:
 def build_issue_body(post: dict) -> str:
     """用 FeedLog 帖子内容拼 GitHub Issue body（Markdown）"""
     parts = [
-        f"**来自 FeedLog 反馈中心**",
-        f"",
-        f"---",
-        f"",
+        "**来自 FeedLog 反馈中心**",
+        "",
+        "---",
+        "",
         f"### {post['title']}",
-        f"",
+        "",
         post.get("content") or "_（无正文）_",
-        f"",
-        f"---",
-        f"",
-        f"| 属性 | 值 |",
-        f"|------|-----|",
+        "",
+        "---",
+        "",
+        "| 属性 | 值 |",
+        "|------|-----|",
         f"| 看板 | {post.get('board_name', '?')} |",
         f"| 作者 | {post.get('author_name') or post.get('author_email', '匿名')} |",
         f"| 赞同 | {post.get('vote_count', 0)} |",
@@ -180,8 +183,10 @@ def sync_posts_to_github(
         if post_id in synced:
             continue  # 已同步过
 
-        # 决定标签
-        board_label = BOARD_TO_LABEL.get(post.get("board_slug", ""), "feedback")
+        # 决定标签（按 board 名称归一化匹配）
+        board_label = BOARD_TO_LABEL.get(
+            post.get("board_name", "").strip().lower(), "feedback"
+        )
         labels = ["feedlog", board_label]
 
         title = post["title"] or "（无标题反馈）"
@@ -189,7 +194,11 @@ def sync_posts_to_github(
 
         if dry_run:
             print(f"  [DRY-RUN] 拟创建 Issue: {title} [label={board_label}]")
-            synced[post_id] = {"issue_number": 0, "synced_at": now_iso(), "dry_run": True}
+            synced[post_id] = {
+                "issue_number": 0,
+                "synced_at": now_iso(),
+                "dry_run": True,
+            }
         else:
             issue = repo.create_issue(title=title, body=body, labels=labels)
             synced[post_id] = {
@@ -201,7 +210,9 @@ def sync_posts_to_github(
     # 更新最后同步时间
     if posts:
         latest_ts = max(p["created_at"] for p in posts)
-        state["last_sync_at"] = latest_ts.isoformat() if hasattr(latest_ts, "isoformat") else str(latest_ts)
+        state["last_sync_at"] = (
+            latest_ts.isoformat() if hasattr(latest_ts, "isoformat") else str(latest_ts)
+        )
 
     save_state(state)
     return state
@@ -294,7 +305,12 @@ def sync_issue_to_feedlog(
 
 
 def sync_release_to_changelog(
-    conn, repo, release_tag: str, release_name: str, release_body: str, published_at: str
+    conn,
+    repo,
+    release_tag: str,
+    release_name: str,
+    release_body: str,
+    published_at: str,
 ) -> None:
     """将 GitHub Release 创建为 FeedLog Changelog 条目"""
     org_id = get_org_id(conn)
@@ -319,12 +335,16 @@ def main():
     sync_cmd.add_argument("--dry-run", action="store_true", help="仅预览，不创建 Issue")
 
     # github → feedlog（Issue label 变更）
-    issue_cmd = sub.add_parser("issue-to-feedlog", help="GitHub Issue 标签 → FeedLog 状态")
+    issue_cmd = sub.add_parser(
+        "issue-to-feedlog", help="GitHub Issue 标签 → FeedLog 状态"
+    )
     issue_cmd.add_argument("--issue-number", type=int, required=True)
     issue_cmd.add_argument("--labels", nargs="*", default=[], help="Issue 当前所有标签")
 
     # github release → feedlog changelog
-    rel_cmd = sub.add_parser("release-to-changelog", help="GitHub Release → FeedLog Changelog")
+    rel_cmd = sub.add_parser(
+        "release-to-changelog", help="GitHub Release → FeedLog Changelog"
+    )
     rel_cmd.add_argument("--tag", required=True)
     rel_cmd.add_argument("--name", default="")
     rel_cmd.add_argument("--body", default="")
