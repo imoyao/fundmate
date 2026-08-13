@@ -193,6 +193,72 @@ class TestWatchlistItemCRUD:
         assert resp.status_code == 200
         assert resp.get_json()['data']['status'] == 'HOLDING'
 
+    def test_enrich_holding_stats(self, client, db, make_position):
+        """真实持仓统计补全（watchlist-table-redesign P0/P1）：数量/成本/盈亏/添加日行情。
+
+        quantity 最小单位(0.0001 份)、avg_price/current_price 分 → 对外份/元；
+        price_at_added 取 price_history ≤ created_at 的最近交易日收盘价。
+        """
+        from datetime import timedelta
+
+        from app.domains.price_history.models import PriceHistory
+        from app.domains.securities.models import Security
+
+        make_position(
+            symbol='SH600519',
+            name='贵州茅台',
+            asset_type='stock',
+            account_name='华泰',
+            quantity=200,  # → 200 份
+            avg_price=18,  # → 18 元
+            current_price=20,  # → 20 元
+        )
+        # price_history.security_id NOT NULL：先建证券主档再写行情
+        sec = Security(symbol='SH600519', name='贵州茅台', market='SH', type='stock')
+        db.add(sec)
+        db.flush()
+        db.add(
+            PriceHistory(
+                security_id=sec.id,
+                symbol='SH600519',
+                trade_date=date.today() - timedelta(days=1),  # 最近交易日（早于今天创建的自选）
+                open=18.8,
+                high=19.2,
+                low=18.6,
+                close=1900.0,
+                adj_close=1900.0,
+            )
+        )
+        db.commit()
+
+        resp = _post(client, '/api/watchlist/items/', {'symbol': '600519', 'venue': 'EXCHANGE'})
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        # 真实持仓统计（区别于迁移透传的 quantity/cost_price 观察参考值）
+        assert data['holding_quantity'] == 200.0  # 份
+        assert data['holding_cost_price'] == 18.0  # 元
+        assert data['holding_pnl'] == 400.0  # (20-18)×200 元
+        assert abs(data['holding_pnl_percent'] - 11.11) < 0.01  # 11.11%
+        assert data['price_at_added'] == 1900.0  # 元
+
+        # 列表接口同样携带（逐行盈亏/收益比列的数据源）
+        list_resp = _get(client, '/api/watchlist/items/')
+        item = next(i for i in list_resp.get_json()['data'] if i['symbol'] == 'SH600519')
+        assert item['holding_quantity'] == 200.0
+        assert item['price_at_added'] == 1900.0
+
+    def test_enrich_holding_stats_empty_falls_back_null(self, client, db):
+        """无真实持仓时新字段为 null（前端对应列降级显示 --，不误用迁移透传值）。"""
+        resp = _post(client, '/api/watchlist/items/', {'symbol': '00700.HK', 'venue': 'EXCHANGE'})
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['holding_quantity'] is None
+        assert data['holding_cost_price'] is None
+        assert data['holding_pnl'] is None
+        assert data['holding_pnl_percent'] is None
+        # price_history 无数据（未回填）→ 降级
+        assert data['price_at_added'] is None
+
     def test_add_item_with_observe_reference(self, client, db):
         """探市迁移透传：cost_price/quantity 落库并随列表返回"""
         resp = _post(

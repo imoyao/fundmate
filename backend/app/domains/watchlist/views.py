@@ -15,10 +15,12 @@ from sqlalchemy import desc, func
 
 from app.core.auth import get_family_id, get_owned_or_404
 from app.core.database import get_db
+from app.core.money import Money
 from app.core.utils import api_response, with_db
 from app.core.validation import parse_body
 from app.domains.funds.models import Fund
 from app.domains.positions.models import Position
+from app.domains.price_history.models import PriceHistory
 from app.domains.securities.models import Security
 from app.domains.transactions.models import Transaction
 from app.domains.watchlist.models import (
@@ -90,7 +92,70 @@ def _enrich_item(item: WatchlistItem, db) -> dict:
     out['change_pct'] = None  # 暂不提供，后续可通过元数据同步填充
     out['position_market_value'] = round(position_value, 2)
 
+    # 真实持仓统计（自选页信息密度扩充，watchlist-table-redesign-2026-08-13.md P0/P1）
+    # positions 表 quantity 存最小单位(0.0001 份)、avg_price/current_price 存分，
+    # 对外一律换算为「份 / 元」（禁止裸乘除 float，换算走 Money）。
+    # 注意：WatchlistItemOut.quantity/cost_price 是探市迁移透传的观察参考值，
+    # 与本处真实持仓严格区分，前端不得混用。
+    stats = _compute_holding_stats(item.symbol, db)
+    if stats:
+        out['holding_quantity'] = stats['quantity']
+        out['holding_cost_price'] = round(stats['cost_price'], 4)
+        out['holding_pnl'] = round(stats['pnl'], 2)
+        out['holding_pnl_percent'] = round(stats['pnl_percent'], 2)
+    else:
+        out['holding_quantity'] = None
+        out['holding_cost_price'] = None
+        out['holding_pnl'] = None
+        out['holding_pnl_percent'] = None
+    # 添加自选日行情（price_history 最近交易日收盘价，缺数据 → None，前端降级显示 --）
+    out['price_at_added'] = _compute_price_at_added(item, db)
+
     return out
+
+
+def _compute_holding_stats(symbol, db) -> dict | None:
+    """按 symbol 汇总真实持仓（positions，当前 family）：数量/加权成本/浮动盈亏。
+
+    positions.quantity 以最小单位存储（0.0001 份），avg_price/current_price 以分存储，
+    换算统一走 Money（min_unit_to_shares / cents_to_yuan）。
+    """
+    row = (
+        db.query(
+            func.sum(Position.quantity).label('qty_units'),
+            func.sum(Position.quantity * Position.avg_price).label('cost_cents'),
+            func.sum(Position.quantity * Position.current_price).label('value_cents'),
+        )
+        .filter(Position.symbol == symbol, Position.family_id == get_family_id())
+        .first()
+    )
+    if not row or not row.qty_units:
+        return None
+    quantity = Money.min_unit_to_shares(row.qty_units)  # 最小单位 → 份
+    cost_yuan = Money.cents_to_yuan(row.cost_cents / 10000)  # (最小单位×分)/10000 = 分 → 元
+    value_yuan = Money.cents_to_yuan(row.value_cents / 10000)
+    cost_price = cost_yuan / quantity if quantity else 0.0  # 加权成本均价（元/份）
+    pnl = value_yuan - cost_yuan
+    pnl_percent = (pnl / cost_yuan * 100) if cost_yuan else 0.0
+    return {'quantity': quantity, 'cost_price': cost_price, 'pnl': pnl, 'pnl_percent': pnl_percent}
+
+
+def _compute_price_at_added(item: WatchlistItem, db) -> float | None:
+    """添加自选日行情：price_history 中 ≤ created_at 的最近一个交易日收盘价（元）。
+
+    数据依赖 price_history 回填覆盖率；早于历史数据起始点或基金未覆盖时返回 None，
+    前端对应「添加后涨幅/收益」列降级显示 --（见设计文档「局限」）。
+    """
+    created = item.created_at.date() if item.created_at else None
+    if not created:
+        return None
+    row = (
+        db.query(PriceHistory.close)
+        .filter(PriceHistory.symbol == item.symbol, PriceHistory.trade_date <= created)
+        .order_by(PriceHistory.trade_date.desc())
+        .first()
+    )
+    return round(row[0], 4) if row and row[0] is not None else None
 
 
 # 新增两个辅助函数在文件顶部

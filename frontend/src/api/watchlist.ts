@@ -20,6 +20,12 @@ export interface WatchlistItem {
   current_price?: number;
   change_pct?: number;
   position_market_value?: number;
+  /** 真实持仓统计（后端 enrich，positions 表汇总；区别于迁移透传的 cost_price/quantity） */
+  holding_quantity?: number | null; // 真实持仓数量（份/股）
+  holding_cost_price?: number | null; // 加权成本均价（元）
+  holding_pnl?: number | null; // 持仓收益（元）
+  holding_pnl_percent?: number | null; // 持仓收益率（%）
+  price_at_added?: number | null; // 添加自选日最近交易日收盘价（元）
   type_label?: string; // 资产类型中文标签（后端动态字段）
 }
 
