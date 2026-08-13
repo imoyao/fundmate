@@ -326,6 +326,13 @@
 | 品牌 | `--brand-300` | `--brand-700` | `--radius-pill` |
 | 危险 | `#2D1618` | `--color-danger` | `--radius-pill` |
 
+### Table（el-table）
+
+> 暗色适配说明：全站 `el-table` 视觉基线统一维护在 `src/style/el-table.css`，
+> 值全部引用 design token（`--border-light` / `--bg-muted` / `--bg-soft` / 文字色），
+> 暗色下由本文件对应 token 自动切换，**无需也不应在暗色文件或页面内单独覆盖表格**。
+> 新增页面表格直接用 `<el-table>` 即可自动继承基线。
+
 
 ## Data Visualization
 

@@ -56,6 +56,8 @@
         v-if="!loading && displayItems.length > 0"
         class="flex-1 flex flex-col overflow-x-auto"
       >
+        <!-- 首页紧凑摘要表：独立于全站 el-table 统一基线（src/style/el-table.css），
+             刻意保持原生 table 的轻量紧凑形态，样式留在此组件本地维护，勿改造成 el-table -->
         <table class="w-full text-sm">
           <thead>
             <tr

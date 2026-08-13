@@ -347,6 +347,23 @@
 | 品牌 | `--brand-200` | `--brand-700` | `--radius-pill` |
 | 危险 | `#FEF0F0` | `--color-danger` | `--radius-pill` |
 
+### Table（el-table）
+
+> **全站 `el-table` 视觉基线统一维护在 `src/style/el-table.css`**（2026-08 起强制）。
+> 此前各页面各自 `:deep(.el-table)` 覆盖主题导致风格分化，现收敛为单一维护点，
+> 文件头注释即规则。新增页面表格直接用 `<el-table>` 即可自动继承基线，
+> **禁止在页面内 `:deep(.el-table)` 覆盖视觉基线**。
+
+| 属性 | 值 | 说明 |
+|------|-----|------|
+| 边框 | `--border-light` | 由 `--el-table-border-color` 注入 |
+| 表头底色 | `--bg-muted` | 淡灰蓝（本就用于表格条纹） |
+| 行 hover | `--bg-soft` | 柔和表面 |
+| 表头文字 | `--text-tertiary` | 弱化表头 |
+| 正文文字 | `--text-primary` | — |
+
+**页面内可保留**：行内行为样式（如操作列按钮悬停浮现），不涉及视觉基线。
+
 ### Avatar（生成式头像）
 
 > 头像基于 DiceBear（10.x）以 `{style}/{seed}.svg` 生成式产出，**不落盘、不上传**（D9），

@@ -1119,13 +1119,7 @@ watch(historyDays, () => {
   text-align: center;
 }
 
-:deep(.el-table) {
-  --el-table-border-color: var(--border-light);
-  --el-table-header-bg-color: var(--bg-subtle);
-  --el-table-row-hover-bg-color: var(--bg-soft);
-  --el-table-text-color: var(--text-primary);
-  --el-table-header-text-color: var(--text-tertiary);
-}
+/* 表格视觉基线由全站统一主题维护（src/style/el-table.css），勿在本页 :deep 覆盖 */
 
 /* ============================================================
    温度解读 + 市场机会（并排）

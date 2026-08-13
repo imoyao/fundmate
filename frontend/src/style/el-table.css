@@ -1,0 +1,24 @@
+/* ============================================================
+   全站 el-table 视觉基线 —— 统一维护点
+   ------------------------------------------------------------
+   适用范围：自选列表、探市观察列表、温度计行业拥挤度等所有 el-table。
+
+   规则（2026-08 起强制，规范见 frontend/design.md「Table」）：
+   1. 表格的边框 / 表头底色 / 行 hover / 文字色等视觉基线一律在此定义，
+      禁止在各页面 ::deep(.el-table) 里自行覆盖，否则会重新分化出多套表格风格。
+   2. 值一律引用 design token（colors.css / dark.scss），亮暗模式自动适配；
+      禁止硬编码色值。
+   3. 页面内可保留的只有「行内行为」样式（如操作列按钮悬停浮现），
+      不涉及视觉基线，不在本文件管理。
+   4. 新增页面表格直接用 <el-table> 即可自动继承基线，无需任何样式代码。
+   5. 若确有页面级例外，先在页面注释中引用本文件并说明例外原因。
+   ============================================================ */
+
+:root {
+  --el-table-border-color: var(--border-light);
+  --el-table-header-bg-color: var(--bg-muted);
+  --el-table-tr-bg-color: var(--bg-muted); /* stripe 斑马纹底色 */
+  --el-table-row-hover-bg-color: var(--bg-soft);
+  --el-table-text-color: var(--text-primary);
+  --el-table-header-text-color: var(--text-tertiary);
+}
