@@ -9,6 +9,7 @@ from datetime import date
 
 from apiflask import APIBlueprint
 from flask import abort, g, jsonify
+from sqlalchemy import func
 
 from app.core.auth import get_family_id
 from app.core.database import get_db
@@ -75,20 +76,25 @@ def update_me():
 def record_stats():
     """首页欢迎语用：返回用户首笔交易日期与累计记账天数。
 
-    取家庭内最早一笔交易的 trade_date（交易发起日，T日）作为记账起点；
-    record_days 为该起点至今天的自然日差值。无交易记录时返回空。
+    取家庭内最早一笔有效交易的日期作为记账起点（契约：trade_date 缺失时回退
+    confirm_date，两者都有时取更早的 trade_date，即 COALESCE 语义；两者皆空的行不参与）。
+    record_days 为该起点至今天的自然日差值。无有效交易记录时返回空。
     """
     with get_db() as db:
-        first_txn = (
-            db.query(Transaction)
-            .filter(Transaction.family_id == get_family_id())
-            .order_by(Transaction.trade_date.asc())
+        first_date = (
+            db.query(func.coalesce(Transaction.trade_date, Transaction.confirm_date))
+            .filter(
+                Transaction.family_id == get_family_id(),
+                (Transaction.trade_date.isnot(None)) | (Transaction.confirm_date.isnot(None)),
+            )
+            .order_by(func.coalesce(Transaction.trade_date, Transaction.confirm_date).asc())
             .first()
         )
-        if first_txn is None or first_txn.trade_date is None:
+        first_txn_date = first_date[0] if first_date else None
+        if first_txn_date is None:
             return jsonify({'data': {'first_entry_date': None, 'record_days': 0}, 'message': 'ok'})
 
-        first_entry_date = first_txn.trade_date.date()
+        first_entry_date = first_txn_date.date()
         record_days = max((date.today() - first_entry_date).days, 0)
         return jsonify(
             {

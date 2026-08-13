@@ -167,16 +167,17 @@ def make_transaction(db):
         account_name: str = None,
         position_name: str = '测试持仓',
         symbol: str = '000001',
+        allow_null_trade_date: bool = False,  # 允许 trade_date 存 NULL（契约测试：缺失回退 confirm_date）
         **kwargs,
     ):
         # 兜底日期
         from datetime import datetime
 
-        if trade_date is None:
+        if trade_date is None and not allow_null_trade_date:
             # ✅ 保证存入数据库的是带时间的 datetime 对象
             trade_date = datetime.now()
         if confirm_date is None:
-            confirm_date = trade_date.date()  # 从 datetime 中提取 date
+            confirm_date = (trade_date or datetime.now()).date()  # 从 datetime 中提取 date
 
         if amount is None:
             amount = quantity * price
