@@ -3,8 +3,8 @@ layout: home
 
 hero:
   name: 多多贝
-  text: 看见你的复利增长
-  tagline: 记账即复利。多多贝，贝倍多——复利生长，越理越多。
+  text: 看见你的复利曲线
+  tagline: 记账即复利。多多贝——有备无患，「贝」自多多。
   image:
     src: /logo.svg
     alt: 多多贝

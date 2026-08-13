@@ -5,7 +5,7 @@ import { resolve } from 'node:path'
 
 // 多倍贝文档站 · 正式迁移配置（vuepress v1 → VitePress + @duxweb/vitepress-theme）
 // 品牌色来自 branding/logo.svg：主色 #E34F38、浅色 #FDFBF7
-// 品牌名 / slogan 与主站（落地页、前端 App）保持一致：多倍贝 · 看见你的复利增长
+// 品牌名 / slogan 与主站（落地页、前端 App）保持一致：多倍贝 · 看见你的复利曲线
 // 修复 vitepress-plugin-auto-sidebar 在 Windows 下生成的链接问题：
 // 1) 插件用 path.resolve + String.replace 生成 link，Windows 下会得到反斜杠（\guide\foo.md）；
 // 2) 只去掉 contentRoot 前缀，.md 后缀残留。
@@ -25,7 +25,7 @@ function normalizeSidebar(sidebar) {
 
 export default withDuxTheme(
   defineConfig({
-    title: '多倍贝 · 看见你的复利增长',
+    title: '多倍贝 · 看见你的复利曲线',
     description: '一个让复利增长清晰可见的投资账本手动归集、穿透持仓、算准 XIRR，数据始终在你手里。',
     // 站点语言：让 @duxweb/vitepress-theme 的 useLocale 直接加载 zh-CN 中文 locale，
     // 否则默认 en-US 会使侧边栏标题(docNavTitle)与阅读时长(time)等 UI 文本显示英文。

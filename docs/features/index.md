@@ -7,7 +7,8 @@ title: 功能设计
 本目录收录多多贝各功能模块的产品设计与技术决策记录，供开发者、产品设计者与贡献者参考。
 
 - [全景式资产清单](./overview.md)：旧项目模型向新项目继承时的字段对照与数据模型清单。
-- [账户体系概念扫描](./account.md)：Ledger / Allocation / Watchlist / Tag / Objective 的概念边界与层级关系。
+- [概念体系总览（SSOT）](./concepts.md)：Position / Ledger / Portfolio(purpose=投资目标) / Allocation(五笔钱) / Strategy / Watchlist / Tag 的权威定义、两页面视角与防混淆速查。**概念以本文为准。**
+- [账户体系概念扫描](./account.md)：Ledger / Allocation / Watchlist / Tag 的概念边界（Objective 章节已废弃，见 concepts.md）。
 - [资产简记与盘点](./holding-record.md)：简记弹窗与全面盘点页面的需求、字段与去重对账设计。
 - [资产复盘页面](./asset-review.md)：周 / 月 / 年报绩效分析视图的组件与交互设计。
 - [自选股功能设计](./watchlist.md)：自选、分组、标签与基金经理追踪的数据模型与交互设计。
