@@ -73,6 +73,8 @@ def test_market_pb_series_baostock_fallback(fake_baostock, monkeypatch):
     monkeypatch.setattr(ic, 'ak', None)
     monkeypatch.setattr(ic, '_load_allpb_cache', lambda: None)
     monkeypatch.setattr(ic, '_eastmoney_current_median_pb', lambda: None)
+    # 防止兜底分支把单点序列写回受保护的 data/all_pb.csv 基线
+    monkeypatch.setattr(ic, '_save_allpb_cache', lambda s: None)
 
     s, meta = ic.market_pb_series()
 
@@ -94,6 +96,8 @@ def test_market_pb_series_falls_back_to_eastmoney(fake_baostock, monkeypatch):
         '_eastmoney_current_median_pb',
         lambda: 2.5,
     )
+    # 防止兜底分支把单点序列写回受保护的 data/all_pb.csv 基线
+    monkeypatch.setattr(ic, '_save_allpb_cache', lambda s: None)
 
     s, meta = ic.market_pb_series()
 

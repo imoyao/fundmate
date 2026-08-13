@@ -107,8 +107,27 @@ LEGULEGU_INDUSTRY = {
 
 # ───────────────── 市场整体 PB（分母，三路径共用）─────────────────
 def _save_allpb_cache(s: pd.Series):
-    """把全A中位PB序列(按日期索引)落盘缓存，供后续复用 / 限流时回退。"""
+    """把全A中位PB序列(按日期索引)落盘缓存，供后续复用 / 限流时回退。
+
+    防护：data/all_pb.csv 是受保护的历史基线（见 data/README.md，禁止删除/清理）。
+    若磁盘已存在明显更长的历史文件（>1000 行且新序列不足其一半），视为降级/污染，
+    拒绝用短序列覆盖，避免误删基线（例如兜底分支只产出一个当日点、或测试误写）。
+    仅在基线文件缺失/为空时才允许新建。
+    """
     try:
+        if os.path.exists(ALLPB_CACHE):
+            existing_rows = 0
+            try:
+                with open(ALLPB_CACHE, encoding='utf-8') as _f:
+                    existing_rows = max(existing_rows, sum(1 for _ in _f) - 1)
+            except Exception:  # noqa
+                existing_rows = 0
+            if existing_rows > 1000 and len(s) < existing_rows / 2:
+                logger.warning(
+                    f'[分母] 拒绝覆盖 all_pb.csv：新序列 {len(s)} 行 < 现有 {existing_rows} 行，'
+                    f'疑似降级或污染，跳过写入以保留基线'
+                )
+                return
         os.makedirs(os.path.dirname(ALLPB_CACHE), exist_ok=True)
         s.index.name = 'date'
         s.rename('middlePB').to_frame().to_csv(ALLPB_CACHE)
