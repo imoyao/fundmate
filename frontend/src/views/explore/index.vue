@@ -155,7 +155,7 @@
         <div class="snapshot-items">
           <div v-for="idx in indexData" :key="idx.code" class="snapshot-item">
             <span class="snapshot-name">{{ idx.name }}</span>
-            <span class="snapshot-price" v-if="idx.price === null">--</span>
+            <span v-if="idx.price === null" class="snapshot-price">--</span>
             <MoneyDisplay v-else :value="idx.price" :precision="2" />
             <span class="snapshot-change"
               ><RiseFallText :value="idx.changePercent"
@@ -299,6 +299,19 @@
           <span class="status-indicator">
             <span class="status-dot" :class="statusClass" />{{ statusText }}
           </span>
+          <el-select
+            :model-value="refreshInterval"
+            size="small"
+            class="refresh-interval-select"
+            @change="setRefreshInterval"
+          >
+            <el-option
+              v-for="s in REFRESH_INTERVAL_OPTIONS"
+              :key="s"
+              :label="`${s}s 刷新`"
+              :value="s"
+            />
+          </el-select>
           <span v-if="lastUpdateTime" class="update-time"
             >更新: {{ lastUpdateTime }}</span
           >
@@ -306,6 +319,7 @@
         </div>
       </div>
 
+      <!-- 表格视觉基线统一在 src/style/el-table.css 维护，勿在本页 :deep 覆盖 -->
       <el-table
         v-loading="loading"
         :data="tableData"
@@ -415,7 +429,10 @@ import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import { useLocalHoldings } from "@/composables/useLocalHoldings";
-import { useRealtimeQuotes } from "@/composables/useRealtimeQuotes";
+import {
+  useRealtimeQuotes,
+  REFRESH_INTERVAL_OPTIONS
+} from "@/composables/useRealtimeQuotes";
 import { useAssetSearch } from "@/composables/useAssetSearch";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
@@ -483,6 +500,8 @@ const {
   toggle,
   status,
   lastUpdateTime,
+  refreshInterval,
+  setRefreshInterval,
   manualRefresh
 } = useRealtimeQuotes(
   () => {
@@ -1518,6 +1537,10 @@ onMounted(() => {
     align-items: center;
     font-size: 13px;
     color: var(--text-tertiary);
+  }
+
+  .refresh-interval-select {
+    width: 96px;
   }
 
   .status-indicator {

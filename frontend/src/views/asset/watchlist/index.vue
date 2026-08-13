@@ -253,13 +253,23 @@
               :status="realtime.status.value"
               :lastUpdateTime="realtime.lastUpdateTime.value || ''"
             />
+            <el-segmented
+              :model-value="realtime.refreshInterval.value"
+              size="small"
+              :options="intervalOptions"
+              @change="onRefreshIntervalChange"
+            />
             <el-button
               v-if="realtimeEnabled"
               text
               :style="{ color: 'var(--text-secondary)' }"
-              @click="realtime.manualRefresh()"
+              @click="handleManualRefresh"
             >
-              <IconifyIconOffline icon="ep:refresh" class="mr-1 text-xs" />
+              <IconifyIconOffline
+                icon="ep:refresh"
+                class="mr-1 text-xs"
+                :class="{ 'is-spinning': refreshing }"
+              />
               刷新估值
             </el-button>
           </div>
@@ -402,7 +412,11 @@
           </div>
         </div>
 
-        <!-- 表格 (改为 size="large" 实现 40px 行高) -->
+        <!--
+          表格视觉基线（边框/表头/hover/文字色）统一在 src/style/el-table.css 维护，
+          勿在本页 :deep(.el-table) 覆盖；本页保留的 :deep 仅限行内行为样式。
+          表格 (改为 size="large" 实现 40px 行高)
+        -->
         <el-table
           v-loading="loading"
           :data="items"
@@ -487,6 +501,17 @@
             </template>
           </el-table-column>
 
+          <!-- 添加自选日 -->
+          <el-table-column label="添加自选日" width="115" align="center">
+            <template #default="{ row }">
+              <span
+                :style="{ color: 'var(--text-secondary)', fontSize: '13px' }"
+              >
+                {{ formatDate(row.created_at) }}
+              </span>
+            </template>
+          </el-table-column>
+
           <!-- 最新价 -->
           <el-table-column label="最新价" width="110" align="right">
             <template #default="{ row }">
@@ -533,6 +558,28 @@
             </template>
           </el-table-column>
 
+          <!-- 持有数量 / 份额 -->
+          <el-table-column label="持有数量" width="110" align="right">
+            <template #default="{ row }">
+              <template v-if="(row.holding_quantity ?? 0) > 0">
+                <span
+                  :style="{ color: 'var(--text-primary)', fontWeight: 500 }"
+                >
+                  {{ formatQty(row.holding_quantity) }}
+                </span>
+                <span
+                  :style="{
+                    color: 'var(--text-tertiary)',
+                    fontSize: '11px',
+                    marginLeft: '2px'
+                  }"
+                  >{{ row.venue === "OTC" ? "份" : "股" }}</span
+                >
+              </template>
+              <span v-else :style="{ color: 'var(--text-tertiary)' }">--</span>
+            </template>
+          </el-table-column>
+
           <!-- 持仓市值 -->
           <el-table-column
             prop="position_market_value"
@@ -545,6 +592,53 @@
                 v-if="row.position_market_value != null"
                 :value="row.position_market_value"
                 :show-sign="false"
+              />
+              <span v-else :style="{ color: 'var(--text-tertiary)' }">--</span>
+            </template>
+          </el-table-column>
+
+          <!-- 添加后涨幅：对比添加自选日价格 -->
+          <el-table-column label="添加后涨幅" width="120" align="right">
+            <template #default="{ row }">
+              <div
+                v-if="addedReturnPct(row) !== null"
+                class="flex flex-col items-end leading-tight"
+              >
+                <RiseFallText :value="addedReturnPct(row)!" :show-sign="true" />
+                <MoneyDisplay
+                  v-if="addedReturnAmount(row) !== null"
+                  :value="addedReturnAmount(row)!"
+                  :show-currency="false"
+                  :show-sign="true"
+                  size="sm"
+                  class="mt-0.5"
+                />
+              </div>
+              <span v-else :style="{ color: 'var(--text-tertiary)' }">--</span>
+            </template>
+          </el-table-column>
+
+          <!-- 持仓收益（金额） -->
+          <el-table-column label="持仓收益" width="120" align="right">
+            <template #default="{ row }">
+              <MoneyDisplay
+                v-if="(row.holding_quantity ?? 0) > 0"
+                :value="row.holding_pnl ?? 0"
+                :show-currency="false"
+                :show-sign="true"
+                :auto-color="true"
+              />
+              <span v-else :style="{ color: 'var(--text-tertiary)' }">--</span>
+            </template>
+          </el-table-column>
+
+          <!-- 收益比（%） -->
+          <el-table-column label="收益比" width="100" align="right">
+            <template #default="{ row }">
+              <RiseFallText
+                v-if="(row.holding_quantity ?? 0) > 0"
+                :value="row.holding_pnl_percent ?? 0"
+                :show-sign="true"
               />
               <span v-else :style="{ color: 'var(--text-tertiary)' }">--</span>
             </template>
@@ -958,6 +1052,9 @@
 
     <SettingsDrawer
       v-model="showSettingsDrawer"
+      :realtime-enabled="realtimeEnabled"
+      :refresh-interval="realtime.refreshInterval.value"
+      @refresh-interval-change="realtime.setRefreshInterval"
       @manage-groups="
         showGroupDialog = true;
         showSettingsDrawer = false;
@@ -1014,7 +1111,11 @@ import {
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue"; // 加入此组件引入
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
-import { useRealtimeQuotes } from "@/composables/useRealtimeQuotes";
+import {
+  useRealtimeQuotes,
+  REFRESH_INTERVAL_OPTIONS,
+  type RefreshInterval
+} from "@/composables/useRealtimeQuotes";
 import RealtimeWarningBanner from "@/components/RealtimeWarningBanner/index.vue";
 import RealtimeStatusIndicator from "@/components/RealtimeStatusIndicator/index.vue";
 import type { Holding } from "@/utils/valuationEngine";
@@ -1085,6 +1186,71 @@ const getValuationItem = (symbol: string) => {
   return realtime.items.value?.find(item => item.symbol === symbol);
 };
 
+/** 刷新档位选项（label 与 SettingsDrawer 一致：`${s}s`） */
+const intervalOptions = REFRESH_INTERVAL_OPTIONS.map(s => ({
+  label: `${s}s`,
+  value: s
+}));
+
+/** 切换刷新档位：转发给 realtime（负责持久化 + 盘中重启定时器） */
+const onRefreshIntervalChange = (value: string | number | boolean) => {
+  realtime.setRefreshInterval(value as RefreshInterval);
+};
+
+/** 手动刷新时的旋转动效状态 */
+const refreshing = ref(false);
+
+/** 手动刷新估值：旋转图标至请求完成 */
+const handleManualRefresh = async () => {
+  if (refreshing.value) return;
+  refreshing.value = true;
+  try {
+    await realtime.manualRefresh();
+  } finally {
+    refreshing.value = false;
+  }
+};
+
+/** 添加自选日格式化（YYYY-MM-DD） */
+function formatDate(iso?: string): string {
+  if (!iso) return "--";
+  return iso.slice(0, 10);
+}
+
+/** 持有数量 / 份额格式化 */
+function formatQty(qty: number): string {
+  return qty.toLocaleString("zh-CN", { maximumFractionDigits: 2 });
+}
+
+/** 添加后涨幅（%）=（当前价 - 添加日价格）/ 添加日价格 */
+function addedReturnPct(row: {
+  symbol?: string;
+  current_price?: number | null;
+  holding_quantity?: number | null;
+  price_at_added?: number | null;
+}): number | null {
+  const added = row.price_at_added;
+  if (!added) return null;
+  const cur = (getValuationItem(row.symbol ?? "")?.currentPrice ??
+    row.current_price) as number;
+  if (!cur) return null;
+  return ((cur - added) / added) * 100;
+}
+
+/** 添加后收益（元）=（当前价 - 添加日价格）× 持有数量，仅持有时有意义 */
+function addedReturnAmount(row: {
+  symbol?: string;
+  current_price?: number | null;
+  holding_quantity?: number | null;
+  price_at_added?: number | null;
+}): number | null {
+  if (!row.holding_quantity || row.holding_quantity <= 0) return null;
+  if (addedReturnPct(row) === null) return null;
+  const cur = (getValuationItem(row.symbol ?? "")?.currentPrice ??
+    row.current_price) as number;
+  return (cur - (row.price_at_added as number)) * row.holding_quantity;
+}
+
 const getHoldings = (): Holding[] => {
   return items.value
     .filter(item => item.symbol)
@@ -1092,8 +1258,15 @@ const getHoldings = (): Holding[] => {
       symbol: item.symbol,
       type:
         item.asset_type === "fund" || item.venue === "OTC" ? "fund" : "stock",
-      quantity: item.status === "HOLDING" ? 1 : 0,
-      costPrice: item.status === "HOLDING" ? 1 : 0
+      // 使用真实持仓数量与成本价，使汇总卡与逐行盈亏正确
+      quantity:
+        item.status === "HOLDING" && (item.holding_quantity ?? 0) > 0
+          ? (item.holding_quantity as number)
+          : 0,
+      costPrice:
+        item.status === "HOLDING" && (item.holding_quantity ?? 0) > 0
+          ? (item.holding_cost_price as number)
+          : 0
     }));
 };
 
@@ -1829,6 +2002,24 @@ const realtimeEnabled = computed(() => realtime.enabled.value);
 </script>
 
 <style scoped>
+@keyframes refresh-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.refresh-interval-select {
+  width: 96px;
+}
+
+.is-spinning {
+  animation: refresh-spin 0.8s linear infinite;
+}
+
 .text-xs {
   font-size: 0.75rem;
 }

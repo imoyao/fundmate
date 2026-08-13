@@ -226,12 +226,16 @@ export async function fetchQuote(
   return null; // 完全失败，由调用方降级到静态数据
 }
 
-// ─── 判断是否今日 ───
+// ─── 判断是否今日（本地时区；用 toISOString 取 UTC 日期在凌晨会跨日误判） ───
 function isToday(timeStr: string): boolean {
   if (!timeStr) return false;
   const dateStr = timeStr.split(" ")[0];
-  const today = new Date().toISOString().slice(0, 10);
-  return dateStr === today;
+  const now = new Date();
+  const localDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(
+    2,
+    "0"
+  )}-${String(now.getDate()).padStart(2, "0")}`;
+  return dateStr === localDate;
 }
 
 // ─── 批量请求（并发控制） ───

@@ -211,6 +211,47 @@
           </span>
         </div>
       </div>
+
+      <!-- 刷新频率 -->
+      <div
+        v-if="realtimeEnabled"
+        class="settings-card rounded-xl p-4"
+        :style="{
+          backgroundColor: 'var(--bg-card)',
+          border: '1px solid var(--border-light)',
+          boxShadow: 'var(--shadow-raised)'
+        }"
+      >
+        <div class="flex items-center gap-3">
+          <div
+            class="w-10 h-10 rounded-lg flex items-center justify-center"
+            :style="{ backgroundColor: 'var(--color-success-20)' }"
+          >
+            <IconifyIconOffline
+              icon="ep:timer"
+              class="text-lg"
+              :style="{ color: 'var(--color-success)' }"
+            />
+          </div>
+          <div class="flex-1">
+            <h4
+              class="text-sm font-medium mb-1"
+              :style="{ color: 'var(--text-primary)' }"
+            >
+              实时估值刷新频率
+            </h4>
+            <p class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
+              盘中自动轮询估值的间隔，收盘/休市自动暂停
+            </p>
+          </div>
+          <el-segmented
+            :model-value="refreshInterval"
+            size="small"
+            :options="intervalOptions"
+            @change="onRefreshIntervalChange"
+          />
+        </div>
+      </div>
     </div>
   </el-drawer>
 </template>
@@ -220,6 +261,10 @@ import { computed } from "vue";
 import { ElMessage } from "element-plus";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import { useSupabaseAuth } from "@/composables/useSupabaseAuth";
+import {
+  REFRESH_INTERVAL_OPTIONS,
+  type RefreshInterval
+} from "@/composables/useRealtimeQuotes";
 
 const { hasPendingExploreData, manualMigrate } = useSupabaseAuth();
 
@@ -238,6 +283,8 @@ const handleImportExploreData = async () => {
 
 const props = defineProps<{
   modelValue: boolean;
+  realtimeEnabled?: boolean;
+  refreshInterval?: RefreshInterval;
 }>();
 
 const emit = defineEmits<{
@@ -245,12 +292,24 @@ const emit = defineEmits<{
   "manage-groups": [];
   "manage-tags": [];
   "manage-batch": [];
+  "refresh-interval-change": [value: RefreshInterval];
 }>();
 
 const visible = computed({
   get: () => props.modelValue,
   set: val => emit("update:modelValue", val)
 });
+
+/** 刷新档位选项（label 与 explore 页一致：`${s}s`） */
+const intervalOptions = REFRESH_INTERVAL_OPTIONS.map(s => ({
+  label: `${s}s`,
+  value: s
+}));
+
+/** 切换刷新档位：向上抛给页面（页面负责持久化与重启定时器） */
+const onRefreshIntervalChange = (value: string | number | boolean) => {
+  emit("refresh-interval-change", value as RefreshInterval);
+};
 </script>
 
 <style scoped>
