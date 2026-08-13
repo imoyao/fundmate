@@ -62,6 +62,10 @@
 | `asset-snapshot-yoy-plan-2026-08-09.md` | 资产总览同比真实化：历史快照方案（asset_snapshots 表 + 惰性 upsert + 同比计算，2026-08-10 已落地） |
 | `watchlist-table-redesign-2026-08-13.md` | 自选页表格信息密度提升设计提案：对齐 watchlist.md §1.5.4 基线与基估宝(#893) 能力，按身份/价格/持仓/收益分组补齐列，区分前端可算与后端 enrich 字段，分 P0/P1/P2 落地 |
 | `worktile-migration-map-2026-08-09.md` | Worktile 看板迁移 GitHub 对照表：16 张 2021 年卡片的逐条处置（新建 4 / 合并 8 / 归档 3 / 丢弃 1），含代码核查证据 |
+| `watchlist-feature-gap-audit-2026-08-13.md` | 自选功能 Issue 实现缺口核验：对照 #661/#807/#826/#860 与代码，列出真正未做项（备注编辑 UI+分享、品种维度、平台级估值开关、探市沙箱缺陷），并纠正 #860 文档漂移 |
+| `page-split-welcome-vs-panorama-2026-08-13.md` | **页面分工决策**：投资概览(welcome)=理想/目标(心理账户/Portfolio+表现)，资产总览(panorama)=生活/方法(五笔钱/产品类型/账户/资产负债)；五笔钱归 panorama 的论证；分页原则修正为"拆解 vs 表现+目标" |
+| `concept-explainer-five-buckets-and-goals-2026-08-13.md` | **用户科普文草稿**：用"理想 vs 生活/方法"比喻讲清五笔钱/心理账户/账户/自选分组；待晋升为公开文档页 |
+| `welcome-message-layer-2026-08-13.md` | **Welcome 首页消息层改造**：顶部 ticker 播报 + 近期动态真实 feed + 财务晴雨表/收益趋势空态；死数据清理清单；投资人格雷达落点修订（复盘页）；遗留待办 |
 
 ## 子目录归档
 

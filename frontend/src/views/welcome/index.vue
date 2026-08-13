@@ -53,6 +53,22 @@
             把涨跌交给市场，用复利丈量自己 🌊
           </span>
         </div>
+
+        <!-- 首页消息播报：真实数据派生，轮动展示 -->
+        <Transition name="ticker-fade" mode="out-in">
+          <p
+            :key="tickerIndex"
+            class="flex items-center gap-2 text-sm"
+            :style="{ color: 'var(--text-tertiary)' }"
+          >
+            <span
+              class="shrink-0 font-medium"
+              :style="{ color: 'var(--brand-700)' }"
+              >播报</span
+            >
+            <span>{{ currentHomeMessage }}</span>
+          </p>
+        </Transition>
       </div>
 
       <!-- 右侧按钮：仅空状态（含未读）显示「开始记账」 -->
@@ -138,12 +154,17 @@
                     :style="{ color: 'var(--text-tertiary)' }"
                     >本月资产增加</span
                   >
-                  <!-- TODO: 接入真实 API 数据 -->
-                  <MoneyDisplay
-                    :value="28973.83"
-                    size="lg"
-                    :show-currency="true"
-                  />
+                  <!-- 后端暂无此口径数据，不展示编造数值 -->
+                  <span
+                    class="text-lg font-semibold"
+                    :style="{ color: 'var(--text-tertiary)' }"
+                    >—</span
+                  >
+                  <span
+                    class="text-[10px] mt-1"
+                    :style="{ color: 'var(--text-tertiary)' }"
+                    >即将上线</span
+                  >
                 </div>
                 <div class="flex flex-col">
                   <span
@@ -151,12 +172,17 @@
                     :style="{ color: 'var(--text-tertiary)' }"
                     >本月负债减少</span
                   >
-                  <!-- TODO: 接入真实 API 数据 -->
-                  <MoneyDisplay
-                    :value="-20406.12"
-                    size="lg"
-                    :show-currency="true"
-                  />
+                  <!-- 后端暂无此口径数据，不展示编造数值 -->
+                  <span
+                    class="text-lg font-semibold"
+                    :style="{ color: 'var(--text-tertiary)' }"
+                    >—</span
+                  >
+                  <span
+                    class="text-[10px] mt-1"
+                    :style="{ color: 'var(--text-tertiary)' }"
+                    >即将上线</span
+                  >
                 </div>
               </div>
             </div>
@@ -170,14 +196,6 @@
                   :style="{ color: 'var(--text-secondary)' }"
                   >资产构成分布</span
                 >
-                <span
-                  class="px-2 py-0.5 rounded text-[10px] font-bold"
-                  :style="{
-                    backgroundColor: 'var(--brand-100)',
-                    color: 'var(--brand-700)'
-                  }"
-                  >中等风险</span
-                >
               </div>
               <div ref="distributionChartRef" class="h-[220px] w-full" />
             </div>
@@ -187,56 +205,27 @@
 
       <!-- 右侧：收益趋势 -->
       <div class="xl:col-span-4 flex flex-col gap-3 card-hover card-enter">
-        <div class="flex justify-between items-center h-8">
-          <h3
-            class="font-bold text-lg"
-            :style="{ color: 'var(--text-primary)' }"
-          >
-            收益趋势
-          </h3>
-          <el-button-group size="small">
-            <el-button
-              :type="trendMode === 'month' ? 'primary' : 'default'"
-              @click="trendMode = 'month'"
-              >月度</el-button
-            >
-            <el-button
-              :type="trendMode === 'quarter' ? 'primary' : 'default'"
-              @click="trendMode = 'quarter'"
-              >季度</el-button
-            >
-          </el-button-group>
-        </div>
+        <SectionHeader title="收益趋势" info="累计收益 / 净资产随时间走势" />
         <div
-          class="rounded-2xl p-6 h-full flex flex-col"
+          class="rounded-2xl p-6 h-full flex flex-col items-center justify-center text-center gap-2"
           :style="{
             backgroundColor: 'var(--bg-card)',
             boxShadow: 'var(--shadow-raised)',
             border: '1px solid var(--border-light)'
           }"
         >
-          <div ref="trendChartRef" class="flex-1 min-h-[180px] w-full" />
-          <div
-            class="mt-4 pt-4 flex flex-col gap-0.5"
-            :style="{ borderTop: '1px solid var(--border-light)' }"
+          <span
+            class="text-sm font-medium"
+            :style="{ color: 'var(--text-secondary)' }"
+            >收益趋势 · 即将上线</span
           >
-            <p
-              class="text-[10px] mb-1"
-              :style="{ color: 'var(--text-tertiary)' }"
-            >
-              风险评分建议
-            </p>
-            <div class="flex items-center justify-between">
-              <span
-                class="text-xl font-bold"
-                :style="{ color: 'var(--text-primary)' }"
-                >65/100</span
-              >
-            </div>
-            <span class="text-[10px]" :style="{ color: 'var(--brand-700)' }"
-              >建议增加稳健型配置</span
-            >
-          </div>
+          <span
+            class="text-[11px] max-w-xs"
+            :style="{ color: 'var(--text-tertiary)' }"
+          >
+            接入收益历史后，在此展示累计收益与净资产随时间的走势，并支持月度 /
+            季度切换。
+          </span>
         </div>
       </div>
     </div>
@@ -353,11 +342,11 @@
       </div>
     </div>
 
-    <!-- ===== 第三排：持仓市值最大资产 + 风险热力图 ===== -->
+    <!-- ===== 第三排：持仓市值最大资产 ===== -->
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 mb-8">
-      <!-- 左侧：持仓市值最大资产 -->
+      <!-- 持仓市值最大资产（风险预警改由顶部消息播报承载，本页不再保留静态风险热力图） -->
       <div
-        class="lg:col-span-8 flex flex-col gap-3 card-hover card-enter h-full"
+        class="lg:col-span-12 flex flex-col gap-3 card-hover card-enter h-full"
       >
         <SectionHeader :title="watchlistTitle">
           <template #action>
@@ -391,101 +380,39 @@
           @add="showAddWatchlistModal = true"
         />
       </div>
+    </div>
 
-      <!-- 右侧：风险热力图 -->
-      <div class="lg:col-span-4 flex flex-col gap-3 card-hover card-enter">
-        <SectionHeader title="风险热力图" />
+    <!-- ===== 第四排：财务晴雨表 + 心理账户（统一 12 列栅格 + 等宽右栏） ===== -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 mb-8">
+      <!-- 财务晴雨表：尚未接入测算，空态占位（不展示编造百分比） -->
+      <div class="lg:col-span-8 flex flex-col gap-3">
+        <SectionHeader
+          title="财务晴雨表"
+          info="基于你的资产负债表与现金流测算的四项关键财务健康度指标"
+        />
         <div
-          class="rounded-2xl p-6 h-full flex flex-col"
+          class="rounded-2xl p-8 flex flex-col items-center justify-center text-center gap-2 min-h-[120px]"
           :style="{
             backgroundColor: 'var(--bg-card)',
             boxShadow: 'var(--shadow-raised)',
             border: '1px solid var(--border-light)'
           }"
         >
-          <div class="flex-1 flex items-center justify-center w-full pb-4">
-            <div ref="riskHeatmapRef" class="w-full h-full max-h-[240px]" />
-          </div>
-          <!-- 🆕 图例颜色改为 CSS 变量 -->
-          <div class="flex justify-center gap-4 mt-3 text-[8px]">
-            <div
-              class="flex items-center gap-1"
-              :style="{ color: 'var(--text-tertiary)' }"
-            >
-              <span
-                class="w-2 h-2 rounded-sm"
-                :style="{ backgroundColor: 'var(--color-fall)' }"
-              />低风险
-            </div>
-            <div
-              class="flex items-center gap-1"
-              :style="{ color: 'var(--text-tertiary)' }"
-            >
-              <span
-                class="w-2 h-2 rounded-sm"
-                :style="{ backgroundColor: 'var(--color-warning)' }"
-              />中风险
-            </div>
-            <div
-              class="flex items-center gap-1"
-              :style="{ color: 'var(--text-tertiary)' }"
-            >
-              <span
-                class="w-2 h-2 rounded-sm"
-                :style="{ backgroundColor: 'var(--color-danger)' }"
-              />高风险
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ===== 第四排：财务晴雨表 + 心理账户（统一 12 列栅格 + 等宽右栏） ===== -->
-    <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 mb-8">
-      <!-- 财务晴雨表 -->
-      <div class="lg:col-span-8 flex flex-col gap-3">
-        <SectionHeader
-          title="财务晴雨表"
-          info="基于你的资产负债表与现金流测算的四项关键财务健康度指标"
-        />
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div
-            v-for="metric in financialMetrics"
-            :key="metric.label"
-            class="rounded-2xl p-6 card-hover"
-            :style="{
-              backgroundColor: 'var(--bg-card)',
-              boxShadow: 'var(--shadow-raised)',
-              border: '1px solid var(--border-light)'
-            }"
+          <span
+            class="text-sm font-medium"
+            :style="{ color: 'var(--text-secondary)' }"
+            >财务晴雨表 · 即将上线</span
           >
-            <p
-              class="text-[10px] mb-2"
-              :style="{ color: 'var(--text-tertiary)' }"
-            >
-              {{ metric.label }}
-            </p>
-            <p
-              class="text-xl font-bold"
-              :style="{ color: 'var(--text-primary)' }"
-            >
-              {{ metric.value
-              }}<span
-                class="text-[10px] font-normal ml-0.5"
-                :style="{ color: 'var(--text-tertiary)' }"
-                >%</span
-              >
-            </p>
-            <p
-              class="text-[8px] mt-2 font-medium"
-              :style="{ color: 'var(--text-tertiary)' }"
-            >
-              {{ metric.subLabel }}
-            </p>
-          </div>
+          <span
+            class="text-[11px] max-w-xs"
+            :style="{ color: 'var(--text-tertiary)' }"
+          >
+            接入资产负债表与现金流测算后，在此展示资产负债率、预估储蓄率、财务自由度等指标。
+          </span>
         </div>
+        <!-- 近期动态：真实数据派生的事件 feed（后端事件日志就绪后可替换为事件流） -->
         <div
-          class="rounded-2xl p-6 card-hover"
+          class="rounded-2xl p-6 flex-1 card-hover"
           :style="{
             backgroundColor: 'var(--bg-card)',
             boxShadow: 'var(--shadow-raised)',
@@ -496,36 +423,32 @@
             <span
               class="font-bold text-sm"
               :style="{ color: 'var(--text-secondary)' }"
-              >资产变动趋势</span
+              >近期动态</span
             >
-            <div ref="miniAssetChartRef" class="w-48 h-12" />
+          </div>
+          <div v-if="homeFeed.length" class="space-y-3">
+            <div
+              v-for="item in homeFeed"
+              :key="item.key"
+              class="flex items-center gap-2.5"
+            >
+              <span
+                class="shrink-0 w-1.5 h-1.5 rounded-full"
+                :style="{ backgroundColor: item.color }"
+              />
+              <span
+                class="text-xs leading-5"
+                :style="{ color: 'var(--text-secondary)' }"
+                >{{ item.text }}</span
+              >
+            </div>
           </div>
           <div
-            class="mt-6 pt-4"
-            :style="{ borderTop: '1px solid var(--border-light)' }"
+            v-else
+            class="flex items-center justify-center py-6 text-xs"
+            :style="{ color: 'var(--text-tertiary)' }"
           >
-            <div class="flex items-center justify-between mb-3">
-              <span
-                class="text-sm font-medium"
-                :style="{ color: 'var(--text-secondary)' }"
-                >近期动态</span
-              >
-              <span
-                class="text-[10px]"
-                :style="{ color: 'var(--text-tertiary)' }"
-                >暂无记录</span
-              >
-            </div>
-            <div class="space-y-2 opacity-60">
-              <div
-                class="h-2 rounded-full w-3/4"
-                :style="{ backgroundColor: 'var(--bg-soft)' }"
-              />
-              <div
-                class="h-2 rounded-full w-1/2"
-                :style="{ backgroundColor: 'var(--bg-soft)' }"
-              />
-            </div>
+            数据加载中…
           </div>
         </div>
       </div>
@@ -617,7 +540,6 @@ defineOptions({
 // ===== 数据 =====
 const summary = ref<SummaryData | null>(null);
 const portfolioXirr = ref<any>(null);
-const trendMode = ref<"month" | "quarter">("month");
 
 // ===== 首页欢迎语（见 docs/design/welcome-greeting-spec.md v1.2） =====
 const recordDays = ref(0);
@@ -638,6 +560,60 @@ const greetingText = computed(() => {
   if (h >= 18 && h < 22) return "晚上好";
   return "夜深了";
 });
+
+// ===== 首页消息播报（ticker）：真实数据派生，轮动展示 =====
+// 原则：能算的算真实，算不了的标「即将上线」，不展示编造数字。
+const homeMessages = ref<string[]>([]);
+const tickerIndex = ref(0);
+let tickerTimer: ReturnType<typeof setInterval> | null = null;
+
+const currentHomeMessage = computed(() => {
+  const list = homeMessages.value;
+  if (list.length === 0) return "数据加载中，稍后为你播报…";
+  return list[tickerIndex.value % list.length];
+});
+
+/** 汇总各异步接口已返回的真实数据，组装播报消息（各 fetch 完成后调用） */
+const buildHomeMessages = () => {
+  const msgs: string[] = [];
+  if (summary.value) {
+    const assets = summary.value.total_assets_cny;
+    msgs.push(
+      `家庭总资产 ${assets.toLocaleString("zh-CN", { maximumFractionDigits: 0 })} 元`
+    );
+    const pnl = summary.value.total_pnl_cny;
+    if (pnl !== 0) {
+      msgs.push(
+        `累计盈亏 ${pnl > 0 ? "+" : ""}${pnl.toLocaleString("zh-CN", { maximumFractionDigits: 0 })} 元`
+      );
+    }
+  }
+  if (portfolioXirr.value?.xirr != null) {
+    const x = Number(portfolioXirr.value.xirr);
+    msgs.push(`年化收益率（XIRR）${(x * 100).toFixed(2)}%`);
+  }
+  if (compositeTemperature.value) {
+    const value = compositeTemperature.value.value;
+    const level = compositeTemperature.value.level || "未知";
+    msgs.push(`市场温度 ${value != null ? value.toFixed(1) : "--"}°，${level}`);
+  }
+  if (temperatureConclusion.value) {
+    msgs.push(temperatureConclusion.value);
+  }
+  if (recordDays.value > 0) {
+    msgs.push(`你已连续记账 ${recordDays.value} 天，坚持就是复利`);
+  }
+  homeMessages.value = msgs;
+  tickerIndex.value = 0;
+};
+
+const startTicker = () => {
+  tickerTimer = setInterval(() => {
+    if (homeMessages.value.length > 1) {
+      tickerIndex.value = (tickerIndex.value + 1) % homeMessages.value.length;
+    }
+  }, 5000);
+};
 
 const openNotice = () => {
   // TODO: 待 lay-notice 真实站内信路由接入后替换；当前无真实跳转目标
@@ -677,21 +653,10 @@ const bandPillStyle = (level: string) => ({
 });
 
 const distributionChartRef = ref<HTMLDivElement | null>(null);
-const trendChartRef = ref<HTMLDivElement | null>(null);
-const riskHeatmapRef = ref<HTMLDivElement | null>(null);
-const miniAssetChartRef = ref<HTMLDivElement | null>(null);
 const showAddWatchlistModal = ref(false);
 const watchlistWidgetKey = ref(0);
 
 let charts: echarts.ECharts[] = [];
-
-// ===== 静态数据（待接入 API） =====
-const financialMetrics = [
-  { label: "资产负债率", value: "49.03", subLabel: "偿债能力" }, // TODO: 接入 API
-  { label: "预估储蓄率", value: "46.06", subLabel: "储蓄能力" },
-  { label: "财务自由度", value: "22.83", subLabel: "自由指标" },
-  { label: "躺平度", value: "12.31", subLabel: "2026年" }
-];
 
 // 心理账户：接入 overview store（store 内为示例数据，待后端提供真实接口）
 const overviewStore = useOverviewStore();
@@ -717,6 +682,52 @@ const mentalAccounts = computed(() => {
   }));
 });
 
+// ===== 近期动态 feed：真实数据派生，避免空壳（后端事件日志就绪后可替换为事件流） =====
+type HomeFeedItem = { key: string; text: string; color: string };
+const homeFeed = computed<HomeFeedItem[]>(() => {
+  const items: HomeFeedItem[] = [];
+  if (summary.value) {
+    const pnl = summary.value.total_pnl_cny;
+    items.push({
+      key: "pnl",
+      text: `累计盈亏 ${pnl >= 0 ? "+" : ""}${pnl.toLocaleString("zh-CN", { maximumFractionDigits: 0 })} 元`,
+      color: pnl >= 0 ? "var(--color-rise)" : "var(--color-fall)"
+    });
+  }
+  if (portfolioXirr.value?.xirr != null) {
+    const x = Number(portfolioXirr.value.xirr);
+    items.push({
+      key: "xirr",
+      text: `年化收益率（XIRR）${(x * 100).toFixed(2)}%`,
+      color: x >= 0 ? "var(--color-rise)" : "var(--color-fall)"
+    });
+  }
+  if (compositeTemperature.value) {
+    const value = compositeTemperature.value.value;
+    const level = compositeTemperature.value.level || "未知";
+    items.push({
+      key: "temperature",
+      text: `市场温度 ${value != null ? value.toFixed(1) : "--"}°，${level}`,
+      color: levelColorVar[level] || "var(--text-tertiary)"
+    });
+  }
+  if (recordDays.value > 0) {
+    items.push({
+      key: "record-days",
+      text: `已连续记账 ${recordDays.value} 天`,
+      color: "var(--brand-700)"
+    });
+  }
+  if (temperatureConclusion.value) {
+    items.push({
+      key: "conclusion",
+      text: temperatureConclusion.value,
+      color: "var(--text-tertiary)"
+    });
+  }
+  return items;
+});
+
 // 新增：WatchlistWidget 的 ref，用于读取 hasPinned
 const watchlistWidgetRef = ref<InstanceType<typeof WatchlistWidget> | null>(
   null
@@ -740,6 +751,7 @@ const fetchRecordStats = async () => {
     recordDays.value = 0;
   } finally {
     recordLoading.value = false;
+    buildHomeMessages();
   }
 };
 
@@ -749,6 +761,8 @@ const fetchSummary = async () => {
     summary.value = res.data;
   } catch (e) {
     console.error("Failed to fetch summary:", e);
+  } finally {
+    buildHomeMessages();
   }
 };
 
@@ -758,6 +772,8 @@ const fetchXirr = async () => {
     portfolioXirr.value = res.data;
   } catch (e) {
     console.error("获取年化收益率失败", e);
+  } finally {
+    buildHomeMessages();
   }
 };
 
@@ -803,6 +819,8 @@ const fetchTemperature = async () => {
     temperatureConclusion.value = data.conclusion || "";
   } catch (e) {
     console.error("获取市场温度失败:", e);
+  } finally {
+    buildHomeMessages();
   }
 };
 
@@ -843,6 +861,18 @@ const initCharts = () => {
 
     chart.setOption({
       tooltip: { trigger: "item" },
+      title: hasData
+        ? undefined
+        : {
+            text: "暂无资产数据",
+            left: "center",
+            top: "middle",
+            textStyle: {
+              color: getCSSColor("--text-tertiary"),
+              fontSize: 12,
+              fontWeight: "normal"
+            }
+          },
       legend: {
         bottom: "0%",
         left: "center",
@@ -875,166 +905,7 @@ const initCharts = () => {
                   }
                 })
               )
-            : [
-                {
-                  value: 856240,
-                  name: "股票",
-                  itemStyle: { color: chartColors[0] }
-                },
-                {
-                  value: 678950,
-                  name: "基金",
-                  itemStyle: { color: chartColors[1] }
-                },
-                {
-                  value: 810488,
-                  name: "房产",
-                  itemStyle: { color: chartColors[2] }
-                },
-                {
-                  value: 212400,
-                  name: "贵金属",
-                  itemStyle: { color: chartColors[3] }
-                }
-              ]
-        }
-      ]
-    });
-    charts.push(chart);
-  }
-
-  // 2. 收益趋势折线图
-  if (trendChartRef.value) {
-    const chart = echarts.init(trendChartRef.value);
-    const riseColor = getCSSColor("--color-rise");
-
-    chart.setOption({
-      grid: {
-        left: "3%",
-        right: "4%",
-        top: "10%",
-        bottom: "3%",
-        containLabel: true
-      },
-      xAxis: {
-        type: "category",
-        boundaryGap: false,
-        data: ["1月", "2月", "3月", "4月", "5月", "6月", "7月"],
-        axisLine: {
-          lineStyle: { color: getCSSColor("--border-light") }
-        },
-        axisLabel: {
-          color: getCSSColor("--text-tertiary"),
-          fontSize: 10
-        }
-      },
-      yAxis: {
-        type: "value",
-        splitLine: {
-          lineStyle: { color: getCSSColor("--border-light") }
-        },
-        axisLabel: {
-          color: getCSSColor("--text-tertiary"),
-          fontSize: 10
-        }
-      },
-      series: [
-        {
-          // TODO: 接入收益趋势 API 替换静态数据
-          data: [120, 190, 170, 220, 280, 250, 310],
-          type: "line",
-          smooth: true,
-          symbol: "circle",
-          symbolSize: 6,
-          itemStyle: { color: riseColor },
-          lineStyle: { width: 3, color: riseColor },
-          areaStyle: {
-            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-              { offset: 0, color: riseColor + "33" },
-              { offset: 1, color: riseColor + "00" }
-            ])
-          },
-          animationDuration: 1200
-        }
-      ]
-    });
-    charts.push(chart);
-  }
-
-  // 3. 风险热力图
-  if (riskHeatmapRef.value) {
-    const chart = echarts.init(riskHeatmapRef.value);
-    const textColor = getCSSColor("--text-tertiary");
-    const lowRiskColor = getCSSColor("--color-fall");
-    const midRiskColor = getCSSColor("--color-warning");
-    const highRiskColor = getCSSColor("--color-danger");
-
-    chart.setOption({
-      grid: {
-        left: "3%",
-        right: "4%",
-        top: "10%",
-        bottom: "3%",
-        containLabel: true
-      },
-      xAxis: {
-        type: "category",
-        data: ["股票", "基金", "房产", "贵金属"],
-        axisLine: { show: false },
-        axisTick: { show: false },
-        axisLabel: { color: textColor, fontSize: 10 }
-      },
-      yAxis: {
-        type: "value",
-        max: 100,
-        splitLine: {
-          lineStyle: { color: getCSSColor("--border-light") }
-        },
-        axisLabel: { color: textColor, fontSize: 10 }
-      },
-      series: [
-        {
-          data: [
-            { value: 85, itemStyle: { color: highRiskColor } },
-            { value: 60, itemStyle: { color: midRiskColor } },
-            { value: 30, itemStyle: { color: lowRiskColor } },
-            { value: 55, itemStyle: { color: midRiskColor } }
-          ],
-          type: "bar",
-          barWidth: 20,
-          itemStyle: { borderRadius: [4, 4, 0, 0] },
-          animationDuration: 800
-        }
-      ]
-    });
-    charts.push(chart);
-  }
-
-  // 4. 迷你资产变动图
-  if (miniAssetChartRef.value) {
-    const chart = echarts.init(miniAssetChartRef.value);
-    const brandColor = getCSSColor("--brand-700");
-    const softColor = getCSSColor("--bg-soft");
-
-    chart.setOption({
-      grid: { left: 0, right: 0, top: 10, bottom: 0 },
-      xAxis: {
-        type: "category",
-        data: ["1月", "2月", "3月", "4月"],
-        show: false
-      },
-      yAxis: { show: false },
-      series: [
-        {
-          type: "bar",
-          data: [
-            { value: 15, itemStyle: { color: softColor } },
-            { value: 25, itemStyle: { color: softColor } },
-            { value: 45, itemStyle: { color: brandColor } },
-            { value: 65, itemStyle: { color: brandColor } }
-          ],
-          barWidth: 10,
-          itemStyle: { borderRadius: [2, 2, 0, 0] }
+            : []
         }
       ]
     });
@@ -1054,10 +925,15 @@ onMounted(() => {
   fetchXirr();
   fetchTemperature();
   fetchRecordStats();
+  startTicker();
   window.addEventListener("resize", handleResize);
 });
 
 onUnmounted(() => {
+  if (tickerTimer) {
+    clearInterval(tickerTimer);
+    tickerTimer = null;
+  }
   window.removeEventListener("resize", handleResize);
   charts.forEach(chart => chart.dispose());
   charts = [];
@@ -1075,6 +951,24 @@ onUnmounted(() => {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* 顶部消息播报轮动过渡 */
+.ticker-fade-enter-active,
+.ticker-fade-leave-active {
+  transition:
+    opacity 0.3s ease,
+    transform 0.3s ease;
+}
+
+.ticker-fade-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.ticker-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
 }
 
 .welcome-container {
