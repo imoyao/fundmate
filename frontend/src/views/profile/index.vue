@@ -148,7 +148,9 @@
           <div class="field-block__row-top">
             <div class="field-block__label-group">
               <span class="field-block__label">用户名</span>
-              <span class="field-block__desc">它会陪你见证你的每一次复利成长</span>
+              <span class="field-block__desc"
+                >它会陪你见证你的每一次复利成长</span
+              >
             </div>
           </div>
           <div class="field-block__input-row">
@@ -188,7 +190,9 @@
         <div class="setting-row">
           <div class="setting-row__label">
             <span class="setting-row__name">登录邮箱</span>
-            <span class="setting-row__desc">用来接收你的专属通知，也守护着你的账户登录</span>
+            <span class="setting-row__desc"
+              >用来接收你的专属通知，也守护着你的账户登录</span
+            >
           </div>
           <div class="setting-row__main">
             <span class="field-value field-value--mono">{{
@@ -208,7 +212,9 @@
         <div class="setting-row">
           <div class="setting-row__label">
             <span class="setting-row__name">登录密码</span>
-            <span class="setting-row__desc">安全护盾，隔段时间加固一次，更安心</span>
+            <span class="setting-row__desc"
+              >安全护盾，隔段时间加固一次，更安心</span
+            >
           </div>
           <div class="setting-row__main">
             <span class="field-value field-value--mono">••••••••</span>
@@ -223,7 +229,6 @@
         </div>
 
         <!-- 危险操作区 -->
-        <!-- 危险操作区 -->
         <div class="danger-zone">
           <div class="danger-zone__text">
             <span class="danger-zone__label">退出登录</span>
@@ -234,7 +239,7 @@
           </button>
         </div>
 
-        <!-- ===== 🔥 修复 3：用自定义 el-dialog 替代 ElMessageBox ===== -->
+        <!-- 退出确认弹窗（自定义 el-dialog，替代 ElMessageBox） -->
         <el-dialog
           v-model="logoutDialogVisible"
           title="退出登录"
@@ -252,22 +257,81 @@
       </section>
     </div>
 
-    <!-- 改邮箱/密码弹窗保持不变，省略防止代码过长 -->
+    <!-- 改邮箱弹窗 -->
     <el-dialog
       v-model="emailDialogVisible"
       title="修改登录邮箱"
       width="420px"
       :close-on-click-modal="false"
     >
-      <!-- ... 弹窗内容保持不变 ... -->
+      <el-form
+        ref="emailFormRef"
+        :model="emailForm"
+        :rules="emailRules"
+        label-position="top"
+      >
+        <el-form-item label="新邮箱" prop="email">
+          <el-input
+            v-model="emailForm.email"
+            placeholder="请输入新的邮箱地址"
+          />
+        </el-form-item>
+      </el-form>
+      <p class="dialog-hint">
+        修改邮箱需要到新邮箱中完成验证，验证成功后登录邮箱将变更。
+      </p>
+      <template #footer>
+        <el-button @click="emailDialogVisible = false">取消</el-button>
+        <el-button
+          type="primary"
+          :loading="emailSubmitting"
+          @click="onSaveEmail"
+        >
+          发送验证邮件
+        </el-button>
+      </template>
     </el-dialog>
+
+    <!-- 改密码弹窗 -->
     <el-dialog
       v-model="passwordDialogVisible"
       title="修改登录密码"
       width="420px"
       :close-on-click-modal="false"
     >
-      <!-- ... 弹窗内容保持不变 ... -->
+      <el-form
+        ref="passwordFormRef"
+        :model="passwordForm"
+        :rules="passwordRules"
+        label-position="top"
+      >
+        <el-form-item label="新密码" prop="password">
+          <el-input
+            v-model="passwordForm.password"
+            type="password"
+            show-password
+            placeholder="至少 8 位"
+          />
+        </el-form-item>
+        <el-form-item label="确认新密码" prop="confirm">
+          <el-input
+            v-model="passwordForm.confirm"
+            type="password"
+            show-password
+            placeholder="再次输入新密码"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="passwordDialogVisible = false">取消</el-button>
+        <el-button
+          type="primary"
+          :loading="passwordSubmitting"
+          @click="onSavePassword"
+        >
+          确认修改
+        </el-button>
+      </template>
     </el-dialog>
   </div>
 </template>
@@ -276,7 +340,7 @@
 import { reactive, ref, computed, onMounted, h } from "vue";
 import { useRoute } from "vue-router";
 import type { FormInstance, FormRules } from "element-plus";
-import { ElMessage, ElMessageBox } from "element-plus";
+import { ElMessage } from "element-plus";
 import { supabase } from "@/utils/supabase";
 import { getMe, updateMe } from "@/api/auth";
 import { useUserStoreHook } from "@/store/modules/user";
@@ -654,7 +718,6 @@ async function onSavePassword() {
 }
 
 // 退出登录
-// ===== 退出登录（替换原来的 ElMessageBox） =====
 const logoutDialogVisible = ref(false);
 
 // 触发退出确认框
@@ -858,7 +921,8 @@ onMounted(async () => {
 .avatar-zone {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  /* 原用 --space-4 但该令牌未定义，gap 退化为 0 导致主头像与下方网格贴在一起 */
+  gap: var(--space-standard);
   padding: var(--space-3) 0 var(--space-standard);
   border-top: 1px solid var(--border-subtle);
 }
@@ -871,7 +935,7 @@ onMounted(async () => {
 /* 第一排：预览 + 控制区 */
 .avatar-top-row {
   display: flex;
-  gap: var(--space-4);
+  gap: var(--space-5);
   align-items: center;
   width: 100%;
 }
@@ -1269,6 +1333,9 @@ onMounted(async () => {
 }
 
 /* ===== 危险幽灵按钮 ===== */
+
+/* 危险色走语义别名 --danger（= --color-danger-system #d4364a，design.md 危险按钮规范），
+   勿用旧 token --color-danger（#c83e66 历史遗留值） */
 .danger-btn {
   flex-shrink: 0;
   height: 40px;
@@ -1277,17 +1344,17 @@ onMounted(async () => {
   font-size: var(--text-small);
   font-weight: 500;
   line-height: 1;
-  color: var(--color-danger);
+  color: var(--danger);
   cursor: pointer;
   background: transparent;
-  border: 1px solid var(--color-danger);
+  border: 1px solid var(--danger);
   border-radius: var(--radius-sm);
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .danger-btn:hover {
   color: #fff;
-  background-color: var(--color-danger);
+  background-color: var(--danger);
   border-color: transparent;
 }
 
@@ -1299,7 +1366,7 @@ onMounted(async () => {
 
 .danger-btn:active {
   color: #fff;
-  background-color: var(--color-danger);
+  background-color: var(--danger);
   border-color: transparent;
   box-shadow: inset 0 0 0 1px rgb(255 255 255 / 15%);
 }
@@ -1308,5 +1375,19 @@ onMounted(async () => {
   margin: 0;
   font-size: 12px;
   color: var(--text-tertiary);
+}
+
+/* ===== 退出确认弹窗内容 ===== */
+.dialog-content {
+  padding: var(--space-2) 0 var(--space-3);
+  font-size: var(--text-small);
+  line-height: 1.6;
+  color: var(--text-primary);
+}
+
+.dialog-footer {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
 }
 </style>
