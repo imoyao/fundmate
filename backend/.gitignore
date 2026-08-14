@@ -60,6 +60,8 @@ env/
 # Development database
 *.db
 data/bias_price_cache/
+# 温度计运行时缓存（可安全删除，系统自动重建；cache/README.md 仍入库）
+app/services/thermometer/cache/*/
 .pdm.toml
 # 该文件加入后，对于不同分支合并总是提示冲突，取消跟踪
 openapi.json

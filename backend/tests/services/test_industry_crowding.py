@@ -4,12 +4,51 @@ industry_crowding 模块离线测试：覆盖分母兜底链降级顺序与 baos
 不依赖真实外部数据源（mock 掉 legulegu / baostock / 东财请求）。
 """
 
+import datetime as dt
 from datetime import datetime
 
 import pandas as pd
 import pytest
 
 from app.services.thermometer import industry_crowding as ic
+
+
+class _FakeSession:
+    """伪造 requests.Session：记录调用参数，返回可编程响应或抛异常。"""
+
+    def __init__(self, resp=None, exc=None):
+        self._resp = resp
+        self._exc = exc
+        self.calls = []
+
+    def mount(self, *a, **kw):
+        pass
+
+    def get(self, url, **kwargs):
+        self.calls.append({'url': url, **kwargs})
+        if self._exc is not None:
+            raise self._exc
+        return self._resp
+
+
+@pytest.fixture
+def em_cache_dir(tmp_path, monkeypatch):
+    """把东财历史缓存目录重定向到临时目录，避免污染仓库 cache/。"""
+    monkeypatch.setattr(ic, 'EM_HIST_CACHE_DIR', str(tmp_path))
+    return str(tmp_path)
+
+
+@pytest.fixture(autouse=True)
+def _no_sleep(monkeypatch):
+    """测试中禁用 time.sleep，避免限速/退避拖慢用例。"""
+    monkeypatch.setattr(ic.time, 'sleep', lambda *a, **kw: None)
+
+
+def _make_hist(n=210, end=None, amount=100.0, turnover=1.0):
+    """构造东财历史 DataFrame（date 索引，amount/turnover 两列）。"""
+    end = end or pd.Timestamp(dt.date.today())
+    dates = pd.date_range(end=end, periods=n, freq='B')
+    return pd.DataFrame({'amount': [amount] * n, 'turnover': [turnover] * n}, index=dates)
 
 
 class _FakeRows:
@@ -168,8 +207,8 @@ def test_em_secid_mapping():
     assert ic._em_secid('000985.SH') == '1.000985'
 
 
-def test_em_industry_hist_parses_klines(monkeypatch):
-    """东财 K线 CSV 解析：正确提取成交额(f57)与换手率(f61)，date 为索引。"""
+def test_em_industry_hist_parses_klines(em_cache_dir, monkeypatch):
+    """东财 K线 CSV 解析：正确提取成交额(f57)与换手率(f61)，date 为索引，且请求头伪装完整。"""
 
     class _FakeResp:
         def json(self):
@@ -182,7 +221,8 @@ def test_em_industry_hist_parses_klines(monkeypatch):
                 }
             }
 
-    monkeypatch.setattr(ic.requests, 'get', lambda *a, **kw: _FakeResp())
+    fake = _FakeSession(resp=_FakeResp())
+    monkeypatch.setattr(ic, '_em_session', lambda: fake)
 
     df = ic._em_industry_hist('000990.SH')
 
@@ -191,16 +231,115 @@ def test_em_industry_hist_parses_klines(monkeypatch):
     assert df['amount'].iloc[0] == pytest.approx(123456789)
     assert df['turnover'].iloc[-1] == pytest.approx(2.5)
     assert df.index[0] == pd.Timestamp('2024-01-02')
+    # 完整浏览器请求头伪装
+    h = fake.calls[0]['headers']
+    assert h['User-Agent'].startswith('Mozilla/5.0')
+    assert h['Referer'] == 'https://quote.eastmoney.com/'
+    assert 'Accept' in h and 'Accept-Language' in h
 
 
-def test_em_industry_hist_failure_returns_none(monkeypatch):
+def test_em_industry_hist_failure_returns_none(em_cache_dir, monkeypatch):
     """东财请求异常/空数据应返回 None，绝不抛异常。"""
 
     class _BoomResp:
         def json(self):
             raise RuntimeError('simulated network failure')
 
-    monkeypatch.setattr(ic.requests, 'get', lambda *a, **kw: _BoomResp())
+    fake = _FakeSession(resp=_BoomResp())
+    monkeypatch.setattr(ic, '_em_session', lambda: fake)
+
+    assert ic._em_industry_hist('000990.SH') is None
+
+
+def test_em_fetch_retries_once_then_none(em_cache_dir, monkeypatch):
+    """东财请求失败时最多重试 1 次（共 2 次尝试），仍失败返回 None。"""
+
+    class _BoomResp:
+        def json(self):
+            raise RuntimeError('simulated network failure')
+
+    fake = _FakeSession(resp=_BoomResp())
+    monkeypatch.setattr(ic, '_em_session', lambda: fake)
+
+    assert ic._em_fetch('000990.SH', 0) is None
+    assert len(fake.calls) == 2
+
+
+def test_em_industry_hist_cache_hit_no_request(em_cache_dir, monkeypatch):
+    """缓存新鲜（最新日期 >= 最近交易日）时直接返回缓存，0 网络请求。"""
+    cached = _make_hist()  # 最新日期 = 今天（或最近交易日）
+    ic._em_cache_save('000990.SH', cached)
+
+    def _boom(code, beg):
+        raise AssertionError('缓存命中不应发起网络请求')
+
+    monkeypatch.setattr(ic, '_em_fetch', _boom)
+
+    df = ic._em_industry_hist('000990.SH')
+
+    assert df is not None
+    assert len(df) == 210
+    assert df.index[-1].date() == cached.index[-1].date()
+
+
+def test_em_industry_hist_stale_fetches_incremental(em_cache_dir, monkeypatch):
+    """缓存过期时只拉增量：beg=缓存最新日期，且新旧数据合并去重。"""
+    old_end = pd.Timestamp(dt.date.today()) - pd.Timedelta(days=10)
+    cached = _make_hist(end=old_end)
+    ic._em_cache_save('000990.SH', cached)
+
+    captured = {}
+
+    def _fake_fetch(code, beg):
+        captured['beg'] = beg
+        new_dates = pd.date_range(start=old_end + pd.Timedelta(days=1), periods=2, freq='B')
+        return pd.DataFrame({'amount': [200.0, 200.0], 'turnover': [2.0, 2.0]}, index=new_dates)
+
+    monkeypatch.setattr(ic, '_em_fetch', _fake_fetch)
+
+    df = ic._em_industry_hist('000990.SH')
+
+    assert captured['beg'] == old_end.strftime('%Y%m%d')
+    assert len(df) == 212
+    assert df['amount'].iloc[-1] == pytest.approx(200.0)
+
+
+def test_em_industry_hist_no_cache_full_fetch(em_cache_dir, monkeypatch):
+    """无缓存时全量拉取：beg=0，结果落盘缓存。"""
+    captured = {}
+
+    def _fake_fetch(code, beg):
+        captured['beg'] = beg
+        return _make_hist()
+
+    monkeypatch.setattr(ic, '_em_fetch', _fake_fetch)
+
+    df = ic._em_industry_hist('000990.SH')
+
+    assert captured['beg'] == 0
+    assert len(df) == 210
+    # 结果已落盘缓存
+    assert ic._em_cache_load('000990.SH') is not None
+
+
+def test_em_industry_hist_fetch_failure_uses_cache(em_cache_dir, monkeypatch):
+    """增量拉取失败时降级返回缓存旧数据，不抛异常。"""
+    old_end = pd.Timestamp(dt.date.today()) - pd.Timedelta(days=10)
+    cached = _make_hist(end=old_end)
+    ic._em_cache_save('000990.SH', cached)
+
+    monkeypatch.setattr(ic, '_em_fetch', lambda code, beg: None)
+
+    df = ic._em_industry_hist('000990.SH')
+
+    assert df is not None
+    assert len(df) == 210
+    assert df['amount'].iloc[-1] == pytest.approx(100.0)
+
+
+def test_em_industry_hist_fetch_failure_no_cache_returns_none(em_cache_dir, monkeypatch):
+    """无缓存且拉取失败时返回 None，不抛异常。"""
+    monkeypatch.setattr(ic, '_em_fetch', lambda code, beg: None)
 
     assert ic._em_industry_hist('000990.SH') is None
 
