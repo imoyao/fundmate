@@ -112,7 +112,7 @@
           <div class="field-block__row-top">
             <div class="field-block__label-group">
               <span class="field-block__label">昵称</span>
-              <span class="field-block__desc">在页面和消息中展示</span>
+              <span class="field-block__desc">你希望我们这样称呼你</span>
             </div>
           </div>
           <div class="field-block__input-row">
@@ -148,7 +148,7 @@
           <div class="field-block__row-top">
             <div class="field-block__label-group">
               <span class="field-block__label">用户名</span>
-              <span class="field-block__desc">用于登录</span>
+              <span class="field-block__desc">它会陪你见证你的每一次复利成长</span>
             </div>
           </div>
           <div class="field-block__input-row">
@@ -188,7 +188,7 @@
         <div class="setting-row">
           <div class="setting-row__label">
             <span class="setting-row__name">登录邮箱</span>
-            <span class="setting-row__desc">用于登录与接收通知</span>
+            <span class="setting-row__desc">用来接收你的专属通知，也守护着你的账户登录</span>
           </div>
           <div class="setting-row__main">
             <span class="field-value field-value--mono">{{
@@ -208,7 +208,7 @@
         <div class="setting-row">
           <div class="setting-row__label">
             <span class="setting-row__name">登录密码</span>
-            <span class="setting-row__desc">建议定期更换</span>
+            <span class="setting-row__desc">安全护盾，隔段时间加固一次，更安心</span>
           </div>
           <div class="setting-row__main">
             <span class="field-value field-value--mono">••••••••</span>
@@ -227,7 +227,7 @@
         <div class="danger-zone">
           <div class="danger-zone__text">
             <span class="danger-zone__label">退出登录</span>
-            <span class="danger-zone__desc">退出后需重新登录</span>
+            <span class="danger-zone__desc">我们不说再见，只说后会有期</span>
           </div>
           <button type="button" class="danger-btn" @click="onLogout">
             退出
