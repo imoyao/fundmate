@@ -328,11 +328,12 @@ class TestPositionUpdateDelete:
                 'symbol': 'TEST.DEL',
                 'name': '测试删除',
                 'type': 'stock',
-                'market': 'CN_A',
+                # 用港股市场（无整手限制），避免买入碎股被 A股整手规则拦截
+                'market': 'CN_HK',
                 'account_name': '测试账户',
                 'quantity': 10,
                 'avg_price': 10,
-                'currency': 'CNY',
+                'currency': 'HKD',
                 'trade_date': '2026-05-01',
             },
         )
@@ -417,24 +418,29 @@ class TestPositionLabels:
             assert 'type_label' in pos
             assert 'allocation_label' in pos
 
-    def test_sell_below_lot_size(self, client):
-        """卖出不足一手时，应只能全部卖出"""
-        # 先买入 50 股（不足一手）
-        _post(
-            client,
-            '/api/positions/',
-            {
-                'symbol': '600519',  # 改为 A 股
-                'name': '贵州茅台',
-                'type': 'stock',
-                'market': 'CN_A',  # 改为 A 股市场
-                'account_name': '华泰证券',
-                'quantity': 50,
-                'avg_price': 350,
-                'currency': 'CNY',
-                'trade_date': '2026-05-01',
-            },
+    def test_sell_below_lot_size(self, client, db):
+        """卖出不足一手时，应只能全部卖出
+
+        碎股来源：A股碎股只能由分红/配股/拆细等产生（买入不允许碎股），
+        此处用 db 直接构造一条 50 股碎股持仓来模拟该真实状态。
+        """
+        ledger = Ledger(name='碎股测试账本', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.flush()
+        db.add(
+            Position(
+                symbol='SH600519',
+                name='贵州茅台',
+                asset_type='stock',
+                market='CN_A',
+                ledger_id=ledger.id,
+                family_id=1,
+                quantity=Money.shares_to_min_unit(50),
+                avg_price=35000,  # 分
+                source='dividend',
+            )
         )
+        db.commit()
         list_resp = _get(client, '/api/positions/')
         pos_id = list_resp.get_json()['data'][0]['id']
 
@@ -454,23 +460,28 @@ class TestPositionLabels:
         )
         assert resp.status_code == 200
 
-    def test_lot_rule_a_stock_main(self, client):
-        """A股主板：不足一手只能全卖，一手以上必须整数倍"""
-        _post(
-            client,
-            '/api/positions/',
-            {
-                'symbol': '000001',
-                'name': '平安银行',
-                'type': 'stock',
-                'market': 'CN_A',
-                'account_name': '券商',
-                'quantity': 80,
-                'avg_price': 12.0,
-                'currency': 'CNY',
-                'trade_date': '2026-05-01',
-            },
+    def test_lot_rule_a_stock_main(self, client, db):
+        """A股主板：不足一手只能全卖，一手以上必须整数倍
+
+        碎股持仓由分红产生（买入不允许碎股），用 db 直接构造 80 股碎股。
+        """
+        ledger = Ledger(name='主板碎股账本', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.flush()
+        db.add(
+            Position(
+                symbol='SZ000001',
+                name='平安银行',
+                asset_type='stock',
+                market='CN_A',
+                ledger_id=ledger.id,
+                family_id=1,
+                quantity=Money.shares_to_min_unit(80),
+                avg_price=1200,  # 分
+                source='dividend',
+            )
         )
+        db.commit()
         list_resp = _get(client, '/api/positions/')
         pos_id = list_resp.get_json()['data'][0]['id']
 
@@ -490,23 +501,29 @@ class TestPositionLabels:
         )
         assert resp.status_code == 200
 
-    def test_lot_rule_star_market(self, client):
-        """科创板：一手200股，不足一手只能全卖，足一手需整数倍"""
-        _post(
-            client,
-            '/api/positions/',
-            {
-                'symbol': '688001',
-                'name': '华兴源创',
-                'type': 'stock',
-                'market': 'CN_A',
-                'account_name': '券商',
-                'quantity': 150,
-                'avg_price': 30.0,
-                'currency': 'CNY',
-                'trade_date': '2026-05-01',
-            },
+    def test_lot_rule_star_market(self, client, db):
+        """科创板：一手200股，不足一手只能全卖，足一手需整数倍
+
+        碎股来源：科创板碎股由分红/配股产生（买入不允许碎股），用 db 直接
+        构造 688001 的 150 股碎股持仓模拟该真实状态。
+        """
+        ledger = Ledger(name='科创板碎股账本', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.flush()
+        db.add(
+            Position(
+                symbol='SH688001',
+                name='华兴源创',
+                asset_type='stock',
+                market='CN_A',
+                ledger_id=ledger.id,
+                family_id=1,
+                quantity=Money.shares_to_min_unit(150),
+                avg_price=3000,  # 分
+                source='dividend',
+            )
         )
+        db.commit()
         list_resp = _get(client, '/api/positions/')
         pos_id = list_resp.get_json()['data'][0]['id']
 

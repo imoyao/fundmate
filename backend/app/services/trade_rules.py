@@ -47,15 +47,26 @@ def _get_rule(symbol: str, market: str, asset_type: str) -> dict:
 
 
 def validate_buy(symbol: str, market: str, asset_type: str, order_qty: float) -> tuple[bool, str]:
-    """买入数量校验。
+    """买入数量校验（A股规则）。
 
-    买入侧**只校验数量为正数**，不限制手数、也不与持仓量挂钩：
-      - 建仓允许不足一手（碎股/凑整），加仓同样不受「持有量上限」约束；
-      - 「至少一手 / 整手步长 / 不能超过持仓」都是卖出(validate_sell)的职责，
-        误把持仓量或起买单位卷进买入，会导致真实买入被错误拦截。
+    A股买入必须按「一手」的整数倍申报，碎股只能卖、不能买：
+      - 主板/创业板/北交所：100股一手；科创板：200股一手；
+      - 买入数量必须 ≥ 一手 且为整手步长的整数倍。
+    买入校验**与当前持仓量无关**：无论是否已持有该标的，只要本次
+    买入数量本身合法即可。严禁把持仓量卷入买入校验——「不能超过持仓」
+    是卖出(validate_sell)的职责，误卷会导致已持有时再次买入被错误拦截。
+    基金/货币基金步长为1，不受整手限制。
     """
     if order_qty <= 0:
         return False, '买入数量必须大于0'
+    rule = _get_rule(symbol, market, asset_type)
+    min_unit = rule['min_unit']
+    step = rule['step']
+    if order_qty < min_unit:
+        return False, f'买入数量不能低于{min_unit}股/张（一手起买）'
+    # 基金/货币基金步长恒为1，直接跳过取模，避免浮点精度陷阱
+    if asset_type not in ('fund', 'money_fund') and (order_qty - min_unit) % step != 0:
+        return False, f'买入数量须为{min_unit}股/张的整数倍（步长{step}）'
     return True, ''
 
 
