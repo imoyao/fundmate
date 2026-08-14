@@ -10,6 +10,45 @@ import { http } from "@/utils/http";
 const STORAGE_KEY = "showbuy_realtime_quotes_enabled";
 const REFRESH_INTERVAL_KEY = "showbuy_realtime_quotes_interval";
 
+/**
+ * 平台级总闸（issue #826：双层估值开关的平台级部分）。
+ * 后端经 env `REALTIME_QUOTES_ENABLED` 配置并经 GET /api/utils/config/ 下发：
+ * 数据源压力过大或合规收紧时，运维改 env 即可一键关闭全站实时估值，无需发版。
+ * 平台级为总闸：关闭时强制停轮询、toggle() 无效；打开时按用户级 localStorage 偏好运行。
+ *
+ * 模块级缓存 + 请求去重：探市与自选两个页面各自实例化 useRealtimeQuotes，
+ * 共享同一份平台开关，避免重复请求；后创建的实例可立即拿到已缓存结果。
+ */
+interface PlatformConfigResponse {
+  data: { realtime_quotes_enabled: boolean };
+  message: string;
+}
+
+let platformEnabled: boolean | null = null;
+let platformConfigPromise: Promise<boolean> | null = null;
+
+async function fetchPlatformEnabled(): Promise<boolean> {
+  if (platformEnabled !== null) return platformEnabled;
+  if (!platformConfigPromise) {
+    platformConfigPromise = http
+      .get<PlatformConfigResponse, unknown>("/api/utils/config/")
+      .then(res => {
+        platformEnabled = res.data.realtime_quotes_enabled;
+        return platformEnabled;
+      })
+      .catch(() => {
+        // 配置接口不可达时保守放行：保持用户级开关现状（默认开启），
+        // 避免后端抖动导致前端误停所有实时估值。
+        platformEnabled = true;
+        return true;
+      })
+      .finally(() => {
+        platformConfigPromise = null;
+      });
+  }
+  return platformConfigPromise;
+}
+
 /** 可选刷新档位（秒）。默认 30s；盘中可切 15s 快速档，收盘后切 60/90s 省请求。 */
 export const REFRESH_INTERVAL_OPTIONS = [15, 30, 60, 90] as const;
 export const DEFAULT_REFRESH_INTERVAL = 30;
@@ -54,6 +93,10 @@ export function useRealtimeQuotes(
   // 🎯 终极绝杀：直接管理状态，抛弃原本可能报错的逻辑
   // 这个 toggle 没有任何 try-catch 异步陷阱，保证点击后状态1毫秒内立刻改变
   const toggle = (value?: boolean) => {
+    // 平台级总闸已确认关闭时：用户级开关整体失效，点击也不开启（issue #826）。
+    // 总闸尚未确认（platformEnabled 仍为 null）时放行，配置返回后由
+    // 下方 fetchPlatformEnabled().then 兜底强制关闭。
+    if (platformEnabled === false) return;
     const nextEnabled = value ?? !enabled.value;
     enabled.value = nextEnabled;
     localStorage.setItem(STORAGE_KEY, String(nextEnabled));
@@ -173,6 +216,16 @@ export function useRealtimeQuotes(
   if (enabled.value) {
     start();
   }
+
+  // 平台级总闸异步拉取：返回后若平台关闭，强制停轮询并置 enabled=false，
+  // 使前端（含匿名探市页）尊重后端一键关闭（改 env 即可、无需发版）。
+  // enabled 初始值仍取 localStorage 用户级偏好，待总闸确认后再覆盖。
+  void fetchPlatformEnabled().then(platformOn => {
+    if (!platformOn && enabled.value) {
+      stop();
+      enabled.value = false;
+    }
+  });
 
   onBeforeUnmount(() => stopPolling());
 

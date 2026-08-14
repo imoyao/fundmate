@@ -28,6 +28,15 @@ class TestPublicWhitelist:
         # temperature 无尾斜杠的子路由同样免登录
         assert _is_public('/api/temperature/overview', 'GET') is True
 
+    def test_platform_config_endpoint_is_public(self):
+        # 平台级实时估值总闸（issue #826）：探市页免登录也依赖，匿名访客须可读
+        assert _is_public('/api/utils/config/', 'GET') is True
+
+    def test_platform_config_prefix_does_not_open_sibling_routes(self):
+        # 前缀精确到 /api/utils/config 子路由，不能误放行同蓝图（/api/utils）下其他接口
+        assert _is_public('/api/utils/trading-days/2026-08-14/', 'GET') is False
+        assert _is_public('/api/utils/fund-confirm-dates/', 'GET') is False
+
     def test_options_preflight_always_public(self):
         # CORS 预检必须无条件放行，与本白名单无关
         assert _is_public('/api/securities/search/', 'OPTIONS') is True

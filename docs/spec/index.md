@@ -29,6 +29,7 @@
 | [roadmap.md](./roadmap.md) | 四象限路线图与进度表 | 易腐烂（标核实日期） | 进度追踪 |
 | [tech-debt.md](./tech-debt.md) | 技术债务与开口项明细 | 易腐烂（标核实日期） | 进度追踪 |
 | [decisions.md](./decisions.md) | 重要决策完整记录表 | append-only | 永久回溯 |
+| [pricing-tier.md](./pricing-tier.md) | 付费/免费分层规范（判定准则、功能归属、双层估值开关、前端直连约束） | 低频 | 事实标准 |
 | [changelog.md](./changelog.md) | 版本更新记录与文档结束语 | 版本驱动 | 追溯 |
 
 ## 视觉设计语言（权威入口）

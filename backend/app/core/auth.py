@@ -27,11 +27,16 @@ from sqlalchemy.exc import IntegrityError
 #   无写操作，加白名单不影响数据安全。修复 #821 P0-1：原白名单缺失该两项，导致生产
 #   AUTH_ENABLED=true 时匿名访客搜索必 401，且被前端 Promise.allSettled+catch 静默吞掉，
 #   核心交互（添加资产）实际不可用。
+# - /api/utils/config：平台级实时估值总闸（issue #826）。探市页 /explore 免登录也使用
+#   实时估值（useRealtimeQuotes），匿名访客必须能读到平台级开关，否则生产
+#   AUTH_ENABLED=true 时匿名用户拿不到总闸。前缀精确到 /api/utils/config（子路由层级），
+#   不能只到 /api/utils，避免误放行同蓝图下其他接口（如 /api/utils/trading-days/）。
 PUBLIC_PREFIXES = (
     '/api/health',
     '/api/temperature',
     '/api/securities/search',
     '/api/funds/search',
+    '/api/utils/config',
 )
 # 免登录精确路径
 # - logout：允许无有效 token 也返回成功（由前端清理本地会话）

@@ -55,3 +55,10 @@
 - 源 issue：#661 #807 #826 #860 #821
 - 设计基线：`docs/features/watchlist.md`
 - 技术债登记：`docs/spec/tech-debt.md` 第 97 行（#661 缺口）
+
+## 2026-08-14 落地更新（issue #826 关闭）
+
+- **双层估值开关·平台级**：✅ 已落地。后端新增 `GET /api/utils/config/`（读 env `REALTIME_QUOTES_ENABLED`，默认 true），加入 `PUBLIC_PREFIXES` 白名单（探市免登录访客可读总闸）；前端 `useRealtimeQuotes.ts` 初始化拉取平台级开关，关闭时强制停轮询、`toggle` 无效。实现见 `backend/app/domains/utils/views.py`、`backend/app/core/auth.py`、`frontend/src/composables/useRealtimeQuotes.ts`。
+- **每日收益日历免费确认 / 付费候选清单**：✅ 已登记。分层规范入 `docs/spec/pricing-tier.md`（判定准则 + 功能归属表 + 双层开关 + 前端直连硬约束）；OCR→#823、行业拥挤度→#892/#891、一键自动源→#930 各有 issue 跟踪。
+- **估值前端直连约束**：✅ 已作为硬约束写入 `docs/spec/pricing-tier.md` §4。
+- 本表第 19-20 行「❌/⚠️」状态即日起全部闭环；#826 验收通过后关闭。

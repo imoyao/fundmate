@@ -2,6 +2,7 @@
 # Author : imoyao
 # Date : 2026/5/29 23:11
 # File : views.py
+import os
 from datetime import datetime
 
 from apiflask import APIBlueprint
@@ -33,6 +34,23 @@ def get_trading_day(date: str):
         is_trading = False
 
     return jsonify({'data': {'date': date, 'is_trading_day': is_trading}, 'message': 'ok'})
+
+
+@utils_bp.get('/config/')
+def get_platform_config():
+    """下发平台级配置（双层估值开关的平台级总闸，issue #826）。
+
+    为什么单独开这个只读 GET 端点：
+    - 实时估值是「用户级开关（前端 localStorage）+ 平台级总闸（后端 env）」双层结构，
+      平台级为总闸：数据源压力过大或合规收紧时，运维改 env `REALTIME_QUOTES_ENABLED`
+      即可一键关闭全站实时估值，无需发版、无需前端配合；
+    - 探市页 `/explore` 免登录也使用实时估值（useRealtimeQuotes），匿名访客必须能读到
+      总闸，故本端点须免登录（见 core/auth.py 白名单），且无副作用、不落库。
+    - 默认 true（未配置时保持现状），避免默认关闭导致线上估值突然消失。
+    """
+    raw = os.getenv('REALTIME_QUOTES_ENABLED', 'true')
+    enabled = raw.strip().lower() in ('1', 'true', 'yes', 'on')
+    return jsonify({'data': {'realtime_quotes_enabled': enabled}, 'message': 'ok'})
 
 
 @utils_bp.get('/fund-confirm-dates/')
