@@ -22,3 +22,13 @@
   --el-table-text-color: var(--text-primary);
   --el-table-header-text-color: var(--text-tertiary);
 }
+
+/* 行高压紧（2026-08-14）：全站统一 44px。
+   Element Plus 2.14.x 无 --el-table-row-height 变量（行高 = cell padding + line-height 决定），
+   故直接给 .el-table__row 设 height。tr 的 height 是「最小高度」语义：
+   单行内容（default size：8px×2 padding + 23px line-height ≈ 39px）行高收敛到 44px；
+   多行内容（如自选页两行式名称列）自动撑高，不会被裁切。
+   页面禁止再用 :row-style / size 单独覆盖行高（2026-08 基线规则，见 design.md「Table」）。 */
+.el-table .el-table__row {
+  height: 44px;
+}

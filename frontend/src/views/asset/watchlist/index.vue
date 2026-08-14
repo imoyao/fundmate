@@ -6,11 +6,6 @@
     <!-- 顶部操作栏 (已移除 size="small" 和 CSS 强制 32px 高度) -->
     <div class="flex flex-wrap items-center justify-between gap-4 mb-6 top-bar">
       <div class="flex items-center gap-3">
-        <el-segmented
-          v-model="currentView"
-          :options="viewOptions"
-          @change="handleViewChange"
-        />
         <div class="flex items-center relative">
           <el-input
             v-model="searchKeyword"
@@ -58,9 +53,12 @@
                 :value="group.id"
               >
                 <div class="flex items-center gap-2">
+                  <!-- 数据色例外：分组色为用户数据（非设计令牌），缺失时回退中性 token -->
                   <span
                     class="w-2.5 h-2.5 rounded-full"
-                    :style="{ backgroundColor: group.color || '#C5C9B8' }"
+                    :style="{
+                      backgroundColor: group.color || 'var(--text-tertiary)'
+                    }"
                   />
                   <span>{{ group.name }}</span>
                 </div>
@@ -114,612 +112,546 @@
       </div>
     </div>
 
-    <!-- 主区域 -->
-    <div class="flex gap-6 flex-wrap">
-      <!-- 左侧分组 (改为 p-6, 使用 group-hover 纯CSS控制) -->
+    <!-- 主区域：单个工作区卡片（分组 tab 行 + 筛选行 + 表格，--border-subtle 分割线分区） -->
+    <div
+      class="watchlist-card rounded-2xl p-6"
+      :style="{
+        backgroundColor: 'var(--bg-card)',
+        border: '1px solid var(--border-light)',
+        boxShadow: 'var(--shadow-raised)'
+      }"
+    >
+      <!-- 分组 tab 行 + 场内/场外 segmented（justify-between：tab 左对齐、segmented 右对齐） -->
       <div
-        class="w-56 shrink-0 rounded-2xl p-6 h-fit"
-        :style="{
-          backgroundColor: 'var(--bg-card)',
-          border: '1px solid var(--border-light)',
-          boxShadow: 'var(--shadow-raised)'
-        }"
+        class="flex items-center justify-between gap-4 pb-3 mb-4 border-b"
+        :style="{ borderColor: 'var(--border-subtle)' }"
       >
-        <div class="flex items-center justify-between mb-4">
-          <h3 class="font-bold" :style="{ color: 'var(--text-primary)' }">
-            分组
-          </h3>
-          <el-button text size="small" @click="handleAddGroup">
-            <IconifyIconOffline icon="ep:plus" />
-          </el-button>
-        </div>
-        <div class="space-y-1">
-          <div
-            v-for="group in allGroups"
-            :key="group.key"
-            class="group-item relative flex items-center justify-between px-3 py-1.5 rounded-lg text-sm cursor-pointer transition-colors group"
-            :style="
-              activeGroup === group.key
-                ? {
-                    backgroundColor: 'var(--brand-100)',
-                    color: 'var(--brand-700)',
-                    fontWeight: 500
-                  }
-                : {
-                    color: 'var(--text-secondary)',
-                    backgroundColor: 'transparent'
-                  }
-            "
-            @click="activeGroup = group.key"
+        <div class="flex items-center gap-3 min-w-0">
+          <span
+            class="text-[13px] shrink-0"
+            :style="{ color: 'var(--text-secondary)' }"
+            >分组</span
           >
-            <!-- 编辑态 -->
-            <template
-              v-if="
-                editingGroupId !== null &&
-                group.key === `custom_${editingGroupId}`
-              "
+          <div
+            class="group-tabs-scroll flex items-center gap-1.5 overflow-x-auto py-0.5"
+          >
+            <div
+              v-for="group in allGroups"
+              :key="group.key"
+              class="group-tab shrink-0"
+              :class="{ 'is-active': activeGroup === group.key }"
+              @click="activeGroup = group.key"
             >
-              <el-input
-                v-model="editGroupName"
-                size="small"
-                class="flex-1 mr-1"
-                @blur="saveEditGroup"
-                @keyup.enter="saveEditGroup"
-                @keyup.esc="cancelEditGroup"
-                @click.stop
-              />
-              <el-button
-                link
-                size="small"
-                class="shrink-0"
-                @click.stop="cancelEditGroup"
+              <!-- 编辑态 -->
+              <template
+                v-if="
+                  editingGroupId !== null &&
+                  group.key === `custom_${editingGroupId}`
+                "
               >
-                <IconifyIconOffline icon="ep:close" class="text-xs" />
-              </el-button>
-            </template>
-            <!-- 正常态 -->
-            <template v-else>
-              <div class="flex items-center gap-2">
+                <el-input
+                  v-model="editGroupName"
+                  size="small"
+                  class="group-tab-edit-input"
+                  @blur="saveEditGroup"
+                  @keyup.enter="saveEditGroup"
+                  @keyup.esc="cancelEditGroup"
+                  @click.stop
+                />
+                <el-button
+                  link
+                  size="small"
+                  class="shrink-0"
+                  @click.stop="cancelEditGroup"
+                >
+                  <IconifyIconOffline icon="ep:close" class="text-xs" />
+                </el-button>
+              </template>
+              <!-- 正常态 -->
+              <template v-else>
                 <span
-                  class="w-2 h-2 rounded-full"
+                  class="w-2 h-2 rounded-full shrink-0"
                   :style="{ backgroundColor: group.color }"
                 />
-                <span>{{ group.label }}</span>
-              </div>
-            </template>
-
-            <div class="flex items-center gap-1">
-              <span
-                v-if="
-                  !(
-                    editingGroupId !== null &&
-                    group.key === `custom_${editingGroupId}`
-                  )
-                "
-                class="text-xs font-mono"
-                :style="{
-                  color:
-                    activeGroup === group.key
-                      ? 'var(--brand-700)'
-                      : 'var(--text-tertiary)'
-                }"
-              >
-                {{ group.count }}
-              </span>
-
-              <!-- ✅ 核心修复：用 w-0 加 w-auto 动态撑开宽度，解决隐形占位导致的挤位问题 -->
-              <div
-                v-if="group.key.startsWith('custom_') && !editingGroupId"
-                class="flex items-center gap-0.5 transition-all duration-200 opacity-0 group-hover:opacity-100 w-0 overflow-hidden group-hover:w-auto group-hover:ml-1"
-                @click.stop
-                @mouseenter.stop
-              >
-                <el-button link size="small" @click="startEditGroup(group)">
-                  <IconifyIconOffline icon="ep:edit" class="text-xs" />
-                </el-button>
-                <el-popconfirm
-                  title="确定删除该分组？分组内的资产不会被删除。"
-                  :teleported="false"
-                  @confirm="deleteGroupConfirm(group)"
+                <span class="group-tab-label" :title="group.label">{{
+                  group.label
+                }}</span>
+                <span class="group-tab-count font-mono">{{ group.count }}</span>
+                <!-- 分组编辑/删除：hover 浮现（opacity 机制，与操作列统一） -->
+                <div
+                  v-if="group.key.startsWith('custom_') && !editingGroupId"
+                  class="group-tab-actions"
+                  @click.stop
+                  @mouseenter.stop
                 >
-                  <template #reference>
-                    <el-button link size="small" type="danger">
-                      <IconifyIconOffline icon="ep:delete" class="text-xs" />
-                    </el-button>
-                  </template>
-                </el-popconfirm>
-              </div>
+                  <el-button link size="small" @click="startEditGroup(group)">
+                    <IconifyIconOffline icon="ep:edit" class="text-xs" />
+                  </el-button>
+                  <el-popconfirm
+                    title="确定删除该分组？分组内的资产不会被删除。"
+                    @confirm="deleteGroupConfirm(group)"
+                  >
+                    <template #reference>
+                      <el-button link size="small" type="danger">
+                        <IconifyIconOffline icon="ep:delete" class="text-xs" />
+                      </el-button>
+                    </template>
+                  </el-popconfirm>
+                </div>
+              </template>
             </div>
           </div>
+        </div>
+
+        <div class="flex items-center gap-2 shrink-0">
+          <el-tooltip content="新建分组" placement="top">
+            <el-button
+              class="group-tab-add"
+              circle
+              size="small"
+              @click="handleAddGroup"
+            >
+              <IconifyIconOffline icon="ep:plus" />
+            </el-button>
+          </el-tooltip>
+          <el-segmented
+            v-model="currentView"
+            :options="viewOptions"
+            @change="handleViewChange"
+          />
+        </div>
+      </div>
+      <!-- 估值横幅与状态 -->
+      <!-- ✅ 核心修复：用 template 包裹，加上 v-if 物理移除整个模块 -->
+      <template v-if="realtimeEnabled">
+        <RealtimeWarningBanner :on-toggle="realtime.toggle" />
+
+        <div class="flex items-center gap-2 mb-2">
+          <RealtimeStatusIndicator
+            :status="realtime.status.value"
+            :lastUpdateTime="realtime.lastUpdateTime.value || ''"
+          />
+          <el-segmented
+            :model-value="realtime.refreshInterval.value"
+            size="small"
+            :options="intervalOptions"
+            @change="onRefreshIntervalChange"
+          />
+          <el-button
+            v-if="realtimeEnabled"
+            text
+            :style="{ color: 'var(--text-secondary)' }"
+            @click="handleManualRefresh"
+          >
+            <IconifyIconOffline
+              icon="ep:refresh"
+              class="mr-1 text-xs"
+              :class="{ 'is-spinning': refreshing }"
+            />
+            刷新估值
+          </el-button>
+        </div>
+
+        <!-- 估值汇总卡片 -->
+        <div
+          v-if="realtime.summary"
+          class="mb-3 p-3 rounded-lg"
+          :style="{
+            backgroundColor: 'var(--bg-soft)',
+            border: '1px solid var(--border-light)'
+          }"
+        >
+          <div class="flex items-center gap-6 text-sm">
+            <span>
+              总市值：<strong :style="{ color: 'var(--text-primary)' }">
+                <template
+                  v-if="(realtime.summary as any)?.totalMarketValue != null"
+                >
+                  <MoneyDisplay
+                    :value="(realtime.summary as any).totalMarketValue"
+                    :show-sign="false"
+                    :auto-color="false"
+                    size="sm"
+                  />
+                </template>
+                <template v-else>--</template>
+              </strong>
+            </span>
+            <span>
+              总成本：<strong :style="{ color: 'var(--text-primary)' }">
+                <template v-if="(realtime.summary as any)?.totalCost != null">
+                  <MoneyDisplay
+                    :value="(realtime.summary as any).totalCost"
+                    :show-sign="false"
+                    :auto-color="false"
+                    size="sm"
+                  />
+                </template>
+                <template v-else>--</template>
+              </strong>
+            </span>
+            <span>
+              总盈亏：<strong>
+                <template v-if="(realtime.summary as any)?.totalPnl != null">
+                  <MoneyDisplay
+                    :value="(realtime.summary as any).totalPnl"
+                    size="sm"
+                  />
+                  <span
+                    v-if="(realtime.summary as any)?.totalPnlPercent != null"
+                    >(<MoneyDisplay
+                      :value="(realtime.summary as any).totalPnlPercent"
+                      :precision="2"
+                      suffix="%"
+                      size="sm"
+                    />)</span
+                  >
+                </template>
+                <template v-else>--</template>
+              </strong>
+            </span>
+          </div>
+        </div>
+      </template>
+
+      <!-- 筛选行：标签筛选 + 批量操作（venue 筛选由顶部 el-segmented 统一承担） -->
+      <div
+        class="flex flex-wrap items-center justify-end gap-2 mt-4 pb-3 mb-4 border-b"
+        :style="{ borderColor: 'var(--border-subtle)' }"
+      >
+        <div class="flex items-center gap-2">
+          <el-button
+            v-if="batchMode && selectedItems.length > 0"
+            type="danger"
+            plain
+            size="small"
+            class="!h-7 !px-3 !text-xs"
+            @click="handleBatchDelete"
+          >
+            删除选中 ({{ selectedItems.length }})
+          </el-button>
+
+          <el-select
+            v-model="selectedFilterTagIds"
+            multiple
+            filterable
+            clearable
+            placeholder="按标签筛选..."
+            class="w-56 min-w-[180px] modern-filter-select"
+            size="small"
+            @change="handleTagFilterChange"
+          >
+            <el-option
+              v-for="tag in allTags"
+              :key="tag.id"
+              :label="tag.name"
+              :value="tag.id"
+            >
+              <div class="flex items-center gap-2">
+                <!-- 数据色例外：标签色为用户数据（非设计令牌），缺失时回退中性 token -->
+                <span
+                  class="w-3 h-3 rounded-full"
+                  :style="{
+                    backgroundColor: tag.color || 'var(--text-tertiary)'
+                  }"
+                />
+                <span>{{ tag.name }}</span>
+              </div>
+            </el-option>
+          </el-select>
         </div>
       </div>
 
-      <!-- 右侧表格 -->
-      <div
-        class="flex-1 min-w-[600px] rounded-2xl p-6"
-        :style="{
-          backgroundColor: 'var(--bg-card)',
-          border: '1px solid var(--border-light)',
-          boxShadow: 'var(--shadow-raised)'
-        }"
+      <!--
+          表格视觉基线（边框/表头/hover/文字色/行高 44px）统一在 src/style/el-table.css 维护，
+          勿在本页 :deep(.el-table) 覆盖；本页保留的 :deep 仅限行内行为样式。
+          行高已由基线统一（2026-08-14），不再用 size / :row-style 页面级覆盖。
+        -->
+      <el-table
+        v-loading="loading"
+        :data="items"
+        stripe
+        @row-click="handleRowClick"
+        @selection-change="handleSelectionChange"
       >
-        <!-- 估值横幅与状态 -->
-        <!-- ✅ 核心修复：用 template 包裹，加上 v-if 物理移除整个模块 -->
-        <template v-if="realtimeEnabled">
-          <RealtimeWarningBanner :on-toggle="realtime.toggle" />
-
-          <div class="flex items-center gap-2 mb-2">
-            <RealtimeStatusIndicator
-              :status="realtime.status.value"
-              :lastUpdateTime="realtime.lastUpdateTime.value || ''"
-            />
-            <el-segmented
-              :model-value="realtime.refreshInterval.value"
-              size="small"
-              :options="intervalOptions"
-              @change="onRefreshIntervalChange"
-            />
-            <el-button
-              v-if="realtimeEnabled"
-              text
-              :style="{ color: 'var(--text-secondary)' }"
-              @click="handleManualRefresh"
-            >
-              <IconifyIconOffline
-                icon="ep:refresh"
-                class="mr-1 text-xs"
-                :class="{ 'is-spinning': refreshing }"
-              />
-              刷新估值
-            </el-button>
-          </div>
-
-          <!-- 估值汇总卡片 -->
-          <div
-            v-if="realtime.summary"
-            class="mb-3 p-3 rounded-lg"
-            :style="{
-              backgroundColor: 'var(--bg-soft)',
-              border: '1px solid var(--border-light)'
-            }"
-          >
-            <div class="flex items-center gap-6 text-sm">
-              <span>
-                总市值：<strong :style="{ color: 'var(--text-primary)' }">
-                  <template
-                    v-if="(realtime.summary as any)?.totalMarketValue != null"
-                  >
-                    <MoneyDisplay
-                      :value="(realtime.summary as any).totalMarketValue"
-                      :show-sign="false"
-                      :auto-color="false"
-                      size="sm"
-                    />
-                  </template>
-                  <template v-else>--</template>
-                </strong>
+        <el-table-column
+          v-if="batchMode"
+          type="selection"
+          width="50"
+          align="center"
+        />
+        <el-table-column width="44" align="center" class-name="marker-column">
+          <template #default="{ row }">
+            <div class="flex items-center justify-center gap-0.5">
+              <!-- 置顶/关注图标：--text-tertiary，行 hover 提亮 --text-secondary，语义靠 icon 形状区分 -->
+              <span v-if="row.is_pinned" class="marker-icon" title="已置顶">
+                <IconifyIconOffline icon="mdi:pin-outline" class="text-sm" />
               </span>
-              <span>
-                总成本：<strong :style="{ color: 'var(--text-primary)' }">
-                  <template v-if="(realtime.summary as any)?.totalCost != null">
-                    <MoneyDisplay
-                      :value="(realtime.summary as any).totalCost"
-                      :show-sign="false"
-                      :auto-color="false"
-                      size="sm"
-                    />
-                  </template>
-                  <template v-else>--</template>
-                </strong>
-              </span>
-              <span>
-                总盈亏：<strong>
-                  <template v-if="(realtime.summary as any)?.totalPnl != null">
-                    <MoneyDisplay
-                      :value="(realtime.summary as any).totalPnl"
-                      size="sm"
-                    />
-                    <span
-                      v-if="(realtime.summary as any)?.totalPnlPercent != null"
-                      >(<MoneyDisplay
-                        :value="(realtime.summary as any).totalPnlPercent"
-                        :precision="2"
-                        suffix="%"
-                        size="sm"
-                      />)</span
-                    >
-                  </template>
-                  <template v-else>--</template>
-                </strong>
+              <span v-if="row.favorite" class="marker-icon" title="特别关注">
+                <IconifyIconOffline icon="ep:star" class="text-sm" />
               </span>
             </div>
-          </div>
-        </template>
+          </template>
+        </el-table-column>
 
-        <!-- 表格上方的分类切换与筛选行 (去除冗余文字，保留核心胶囊与下拉框) -->
-        <div
-          class="flex flex-wrap items-center justify-between gap-2 mb-4 pb-3 border-b border-[var(--border-light)]"
+        <!-- 产品信息列：名称（第一行）+ 标签 chips（第二行，最多 2 个 + +N）；fixed 左固定（横向滚动时保持可见） -->
+        <el-table-column
+          label="代码/名称"
+          min-width="240"
+          fixed="left"
+          show-overflow-tooltip
         >
-          <!-- 左侧：资产分类快速切换（28px 标准胶囊高度） -->
-          <div class="flex items-center gap-2">
-            <button
-              v-for="item in VENUE_FILTER_OPTIONS"
-              :key="item.value"
-              class="flex items-center gap-1.5 px-3 py-1 rounded-full border transition-colors duration-200 cursor-pointer text-xs whitespace-nowrap"
-              :class="
-                currentVenueFilter === item.value
-                  ? 'bg-[var(--brand-100)] text-[var(--brand-700)] border-[var(--brand-400)] shadow-sm'
-                  : 'bg-transparent text-[var(--text-tertiary)] border-[var(--border-default)] hover:bg-[var(--bg-hover)]'
-              "
-              @click="setVenueFilter(item.value)"
-            >
-              <span>{{ item.label }}</span>
-              <!-- 数量以轻微的透明度展示，层次分明 -->
-              <template v-if="item.value === 'all'">
-                <span class="opacity-70 font-normal">{{
-                  venueStats.total
-                }}</span>
-              </template>
-              <template v-if="item.value === 'EXCHANGE'">
-                <span class="opacity-70 font-normal">{{
-                  venueStats.exchange
-                }}</span>
-              </template>
-              <template v-if="item.value === 'OTC'">
-                <span class="opacity-70 font-normal">{{ venueStats.otc }}</span>
-              </template>
-            </button>
-          </div>
-
-          <!-- 右侧：标签筛选下拉与批量删除 -->
-          <div class="flex items-center gap-2">
-            <el-button
-              v-if="batchMode && selectedItems.length > 0"
-              type="danger"
-              plain
-              size="small"
-              class="!h-7 !px-3 !text-xs"
-              @click="handleBatchDelete"
-            >
-              删除选中 ({{ selectedItems.length }})
-            </el-button>
-
-            <el-select
-              v-model="selectedFilterTagIds"
-              multiple
-              filterable
-              clearable
-              placeholder="按标签筛选..."
-              class="w-56 min-w-[180px] modern-filter-select"
-              size="small"
-              @change="handleTagFilterChange"
-            >
-              <el-option
-                v-for="tag in allTags"
-                :key="tag.id"
-                :label="tag.name"
-                :value="tag.id"
-              >
-                <div class="flex items-center gap-2">
+          <template #default="{ row }">
+            <div class="flex flex-col gap-1 py-2">
+              <ProductDisplay
+                :name="row.display_name || row.symbol"
+                :symbol="row.symbol"
+                :type-label="row.type_label || ''"
+              />
+              <div class="flex items-center gap-1">
+                <template v-if="row.tag_ids && row.tag_ids.length > 0">
+                  <el-tag
+                    v-for="tagId in row.tag_ids.slice(0, 2)"
+                    :key="tagId"
+                    size="small"
+                    class="tag-chip text-[10px] px-1.5 py-0.5 rounded-full"
+                    :style="{
+                      backgroundColor: getTagColor(tagId) + '20',
+                      color: 'var(--text-primary)',
+                      border: '1px solid ' + getTagColor(tagId)
+                    }"
+                  >
+                    {{ getTagName(tagId) }}
+                  </el-tag>
                   <span
-                    class="w-3 h-3 rounded-full"
-                    :style="{ backgroundColor: tag.color || '#C5C9B8' }"
-                  />
-                  <span>{{ tag.name }}</span>
-                </div>
-              </el-option>
-            </el-select>
-          </div>
-        </div>
-
-        <!--
-          表格视觉基线（边框/表头/hover/文字色）统一在 src/style/el-table.css 维护，
-          勿在本页 :deep(.el-table) 覆盖；本页保留的 :deep 仅限行内行为样式。
-          表格 (改为 size="large" 实现 40px 行高)
-        -->
-        <el-table
-          v-loading="loading"
-          :data="items"
-          stripe
-          size="large"
-          :row-style="{ height: '40px' }"
-          @row-click="handleRowClick"
-          @selection-change="handleSelectionChange"
-        >
-          <el-table-column
-            v-if="batchMode"
-            type="selection"
-            width="50"
-            align="center"
-          />
-          <el-table-column width="50" align="center" class-name="marker-column">
-            <template #default="{ row }">
-              <div class="flex items-center justify-center gap-0.5">
-                <span
-                  v-if="row.is_pinned"
-                  class="text-yellow-500"
-                  title="已置顶"
-                >
-                  <IconifyIconOffline icon="mdi:pin-outline" class="text-sm" />
-                </span>
-                <span
-                  v-if="row.favorite"
-                  class="text-purple-400"
-                  title="特别关注"
-                >
-                  <IconifyIconOffline icon="ep:star" class="text-sm" />
-                </span>
+                    v-if="row.tag_ids.length > 2"
+                    class="text-xs"
+                    :style="{ color: 'var(--text-tertiary)' }"
+                  >
+                    +{{ row.tag_ids.length - 2 }}
+                  </span>
+                </template>
+                <el-tooltip content="添加/编辑标签" placement="top">
+                  <el-button
+                    circle
+                    size="small"
+                    class="add-tag-btn"
+                    @click.stop="openTagEditor(row)"
+                  >
+                    <IconifyIconOffline icon="ep:plus" class="text-[10px]" />
+                  </el-button>
+                </el-tooltip>
               </div>
-            </template>
-          </el-table-column>
+            </div>
+          </template>
+        </el-table-column>
 
-          <!-- 产品信息列 -->
-          <el-table-column label="代码/名称" min-width="200">
-            <template #default="{ row }">
-              <div class="flex items-center gap-2 h-full py-2">
-                <ProductDisplay
-                  :name="row.display_name || row.symbol"
-                  :symbol="row.symbol"
-                  :type-label="row.type_label || ''"
-                />
-                <AssetTypeBadge v-if="row.venue === 'OTC'" type="fund" />
-                <div class="flex items-center gap-1 flex-shrink-0">
-                  <template v-if="row.tag_ids && row.tag_ids.length > 0">
-                    <el-tag
-                      v-for="tagId in row.tag_ids.slice(0, 2)"
-                      :key="tagId"
-                      size="small"
-                      class="text-[10px] px-1.5 py-0.5 rounded border-none"
-                      :style="{
-                        backgroundColor: getTagColor(tagId) + '20',
-                        color: 'var(--text-primary)',
-                        border: '1px solid ' + getTagColor(tagId)
-                      }"
-                    >
-                      {{ getTagName(tagId) }}
-                    </el-tag>
-                    <span
-                      v-if="row.tag_ids.length > 2"
-                      class="text-xs"
-                      :style="{ color: 'var(--text-tertiary)' }"
-                    >
-                      +{{ row.tag_ids.length - 2 }}
-                    </span>
-                  </template>
-                  <el-tooltip content="添加/编辑标签" placement="top">
-                    <el-button
-                      circle
-                      size="small"
-                      class="add-tag-btn !w-[16px] !h-[16px] !min-h-[16px] !ml-1"
-                      @click.stop="openTagEditor(row)"
-                    >
-                      <IconifyIconOffline icon="ep:plus" class="text-[10px]" />
-                    </el-button>
-                  </el-tooltip>
-                </div>
-              </div>
-            </template>
-          </el-table-column>
+        <!-- 添加自选日（日期非数字，左对齐更易扫读） -->
+        <el-table-column label="添加自选日" width="100" align="left">
+          <template #default="{ row }">
+            <span :style="{ color: 'var(--text-secondary)', fontSize: '13px' }">
+              {{ formatDate(row.created_at) }}
+            </span>
+          </template>
+        </el-table-column>
 
-          <!-- 添加自选日 -->
-          <el-table-column label="添加自选日" width="115" align="center">
-            <template #default="{ row }">
-              <span
-                :style="{ color: 'var(--text-secondary)', fontSize: '13px' }"
-              >
-                {{ formatDate(row.created_at) }}
-              </span>
-            </template>
-          </el-table-column>
-
-          <!-- 最新价 -->
-          <el-table-column label="最新价" width="110" align="right">
-            <template #default="{ row }">
-              <template v-if="realtimeEnabled && getValuationItem(row.symbol)">
-                <MoneyDisplay
-                  :value="getValuationItem(row.symbol)!.currentPrice"
-                  :show-sign="false"
-                  :show-currency="false"
-                  :precision="pricePrecision(row.asset_type)"
-                />
-              </template>
-              <template v-else>
-                <MoneyDisplay
-                  v-if="row.current_price != null"
-                  :value="row.current_price"
-                  :show-sign="false"
-                  :show-currency="false"
-                  :precision="pricePrecision(row.asset_type)"
-                />
-                <span v-else :style="{ color: 'var(--text-tertiary)' }"
-                  >--</span
-                >
-              </template>
-            </template>
-          </el-table-column>
-
-          <!-- 涨跌幅 (替换为全局 RiseFallText 组件) -->
-          <el-table-column label="涨跌幅" width="100" align="right">
-            <template #default="{ row }">
-              <template v-if="realtimeEnabled && getValuationItem(row.symbol)">
-                <RiseFallText
-                  :value="getValuationItem(row.symbol)!.changePct"
-                />
-              </template>
-              <template v-else>
-                <RiseFallText
-                  v-if="row.change_pct != null"
-                  :value="row.change_pct"
-                />
-                <span v-else :style="{ color: 'var(--text-tertiary)' }"
-                  >--</span
-                >
-              </template>
-            </template>
-          </el-table-column>
-
-          <!-- 持有数量 / 份额 -->
-          <el-table-column label="持有数量" width="110" align="right">
-            <template #default="{ row }">
-              <template v-if="(row.holding_quantity ?? 0) > 0">
-                <span
-                  :style="{ color: 'var(--text-primary)', fontWeight: 500 }"
-                >
-                  {{ formatQty(row.holding_quantity) }}
-                </span>
-                <span
-                  :style="{
-                    color: 'var(--text-tertiary)',
-                    fontSize: '11px',
-                    marginLeft: '2px'
-                  }"
-                  >{{ row.venue === "OTC" ? "份" : "股" }}</span
-                >
-              </template>
-              <span v-else :style="{ color: 'var(--text-tertiary)' }">--</span>
-            </template>
-          </el-table-column>
-
-          <!-- 持仓市值 -->
-          <el-table-column
-            prop="position_market_value"
-            label="持仓市值"
-            width="120"
-            align="right"
-          >
-            <template #default="{ row }">
+        <!-- 最新价 -->
+        <el-table-column label="最新价" width="110" align="right">
+          <template #default="{ row }">
+            <template v-if="realtimeEnabled && getValuationItem(row.symbol)">
               <MoneyDisplay
-                v-if="row.position_market_value != null"
-                :value="row.position_market_value"
+                :value="getValuationItem(row.symbol)!.currentPrice"
                 :show-sign="false"
+                :show-currency="false"
+                :precision="pricePrecision(row.asset_type)"
+              />
+            </template>
+            <template v-else>
+              <MoneyDisplay
+                v-if="row.current_price != null"
+                :value="row.current_price"
+                :show-sign="false"
+                :show-currency="false"
+                :precision="pricePrecision(row.asset_type)"
               />
               <span v-else :style="{ color: 'var(--text-tertiary)' }">--</span>
             </template>
-          </el-table-column>
+          </template>
+        </el-table-column>
 
-          <!-- 添加后涨幅：对比添加自选日价格 -->
-          <el-table-column label="添加后涨幅" width="120" align="right">
-            <template #default="{ row }">
-              <div
-                v-if="addedReturnPct(row) !== null"
-                class="flex flex-col items-end leading-tight"
-              >
-                <RiseFallText :value="addedReturnPct(row)!" :show-sign="true" />
-                <MoneyDisplay
-                  v-if="addedReturnAmount(row) !== null"
-                  :value="addedReturnAmount(row)!"
-                  :show-currency="false"
-                  :show-sign="true"
-                  size="sm"
-                  class="mt-0.5"
-                />
-              </div>
+        <!-- 涨跌幅 (替换为全局 RiseFallText 组件) -->
+        <el-table-column label="涨跌幅" width="100" align="right">
+          <template #default="{ row }">
+            <template v-if="realtimeEnabled && getValuationItem(row.symbol)">
+              <RiseFallText :value="getValuationItem(row.symbol)!.changePct" />
+            </template>
+            <template v-else>
+              <RiseFallText
+                v-if="row.change_pct != null"
+                :value="row.change_pct"
+              />
               <span v-else :style="{ color: 'var(--text-tertiary)' }">--</span>
             </template>
-          </el-table-column>
+          </template>
+        </el-table-column>
 
-          <!-- 持仓收益（金额） -->
-          <el-table-column label="持仓收益" width="120" align="right">
-            <template #default="{ row }">
+        <!-- 持有数量 / 份额 -->
+        <el-table-column label="持有数量" width="110" align="right">
+          <template #default="{ row }">
+            <template v-if="(row.holding_quantity ?? 0) > 0">
+              <span
+                class="tabular-nums"
+                :style="{ color: 'var(--text-primary)', fontWeight: 500 }"
+              >
+                {{ formatQty(row.holding_quantity) }}
+              </span>
+              <span
+                :style="{
+                  color: 'var(--text-tertiary)',
+                  fontSize: '11px',
+                  marginLeft: '2px'
+                }"
+                >{{ row.venue === "OTC" ? "份" : "股" }}</span
+              >
+            </template>
+            <span v-else :style="{ color: 'var(--text-tertiary)' }">--</span>
+          </template>
+        </el-table-column>
+
+        <!-- 持仓市值 -->
+        <el-table-column
+          prop="position_market_value"
+          label="持仓市值"
+          width="120"
+          align="right"
+        >
+          <template #default="{ row }">
+            <MoneyDisplay
+              v-if="row.position_market_value != null"
+              :value="row.position_market_value"
+              :show-sign="false"
+            />
+            <span v-else :style="{ color: 'var(--text-tertiary)' }">--</span>
+          </template>
+        </el-table-column>
+
+        <!-- 添加后涨幅：对比添加自选日价格 -->
+        <el-table-column label="添加后涨幅" width="110" align="right">
+          <template #default="{ row }">
+            <div
+              v-if="addedReturnPct(row) !== null"
+              class="flex flex-col items-end leading-tight"
+            >
+              <RiseFallText :value="addedReturnPct(row)!" :show-sign="true" />
               <MoneyDisplay
-                v-if="(row.holding_quantity ?? 0) > 0"
-                :value="row.holding_pnl ?? 0"
+                v-if="addedReturnAmount(row) !== null"
+                :value="addedReturnAmount(row)!"
                 :show-currency="false"
                 :show-sign="true"
-                :auto-color="true"
+                size="sm"
+                class="mt-0.5"
               />
-              <span v-else :style="{ color: 'var(--text-tertiary)' }">--</span>
-            </template>
-          </el-table-column>
+            </div>
+            <span v-else :style="{ color: 'var(--text-tertiary)' }">--</span>
+          </template>
+        </el-table-column>
 
-          <!-- 收益比（%） -->
-          <el-table-column label="收益比" width="100" align="right">
-            <template #default="{ row }">
-              <RiseFallText
-                v-if="(row.holding_quantity ?? 0) > 0"
-                :value="row.holding_pnl_percent ?? 0"
-                :show-sign="true"
-              />
-              <span v-else :style="{ color: 'var(--text-tertiary)' }">--</span>
-            </template>
-          </el-table-column>
+        <!-- 持仓收益（金额） -->
+        <el-table-column label="持仓收益" width="110" align="right">
+          <template #default="{ row }">
+            <MoneyDisplay
+              v-if="(row.holding_quantity ?? 0) > 0"
+              :value="row.holding_pnl ?? 0"
+              :show-currency="false"
+              :show-sign="true"
+              :auto-color="true"
+            />
+            <span v-else :style="{ color: 'var(--text-tertiary)' }">--</span>
+          </template>
+        </el-table-column>
 
-          <!-- 操作列 -->
-          <el-table-column
-            label="操作"
-            width="120"
-            align="center"
-            fixed="right"
-          >
-            <template #default="{ row }">
-              <template v-if="!batchMode">
-                <el-tooltip
-                  :content="row.is_pinned ? '取消置顶' : '置顶'"
-                  placement="top"
-                >
-                  <el-button
-                    circle
-                    size="small"
-                    @click.stop="handleTogglePin(row)"
-                  >
-                    <IconifyIconOffline
-                      :icon="row.is_pinned ? 'mdi:pin' : 'mdi:pin-outline'"
-                    />
-                  </el-button>
-                </el-tooltip>
-                <el-tooltip
-                  :content="row.favorite ? '取消特别关注' : '特别关注'"
-                  placement="top"
-                >
-                  <el-button
-                    circle
-                    size="small"
-                    @click.stop="handleToggleFavorite(row)"
-                  >
-                    <IconifyIconOffline
-                      :icon="row.favorite ? 'ep:star-filled' : 'ep:star'"
-                    />
-                  </el-button>
-                </el-tooltip>
-                <el-tooltip
-                  :content="
-                    row.status === 'HOLDING'
-                      ? '持仓资产无法直接从自选移除'
-                      : '移除'
-                  "
-                  placement="top"
-                >
-                  <el-button
-                    circle
-                    size="small"
-                    class="btn-delete-ghost"
-                    :disabled="row.status === 'HOLDING'"
-                    @click.stop="confirmRemove(row)"
-                  >
-                    <IconifyIconOffline icon="ep:delete" />
-                  </el-button>
-                </el-tooltip>
-              </template>
-              <template v-else>
-                <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }"
-                  >-</span
-                >
-              </template>
-            </template>
-          </el-table-column>
-        </el-table>
+        <!-- 收益比（%） -->
+        <el-table-column label="收益比" width="96" align="right">
+          <template #default="{ row }">
+            <RiseFallText
+              v-if="(row.holding_quantity ?? 0) > 0"
+              :value="row.holding_pnl_percent ?? 0"
+              :show-sign="true"
+            />
+            <span v-else :style="{ color: 'var(--text-tertiary)' }">--</span>
+          </template>
+        </el-table-column>
 
-        <div class="flex justify-end mt-4">
-          <el-pagination
-            v-model:current-page="currentPage"
-            :page-size="pageSize"
-            :total="totalItems"
-            layout="prev, pager, next"
-            small
-            background
-            @current-change="fetchData"
-          />
-        </div>
+        <!-- 操作列 -->
+        <el-table-column label="操作" width="108" align="center" fixed="right">
+          <template #default="{ row }">
+            <template v-if="!batchMode">
+              <el-tooltip
+                :content="row.is_pinned ? '取消置顶' : '置顶'"
+                placement="top"
+              >
+                <el-button
+                  circle
+                  size="small"
+                  @click.stop="handleTogglePin(row)"
+                >
+                  <IconifyIconOffline
+                    :icon="row.is_pinned ? 'mdi:pin' : 'mdi:pin-outline'"
+                  />
+                </el-button>
+              </el-tooltip>
+              <el-tooltip
+                :content="row.favorite ? '取消特别关注' : '特别关注'"
+                placement="top"
+              >
+                <el-button
+                  circle
+                  size="small"
+                  @click.stop="handleToggleFavorite(row)"
+                >
+                  <IconifyIconOffline
+                    :icon="row.favorite ? 'ep:star-filled' : 'ep:star'"
+                  />
+                </el-button>
+              </el-tooltip>
+              <el-tooltip
+                :content="
+                  row.status === 'HOLDING'
+                    ? '持仓资产无法直接从自选移除'
+                    : '移除'
+                "
+                placement="top"
+              >
+                <el-button
+                  circle
+                  size="small"
+                  class="btn-delete-ghost"
+                  :disabled="row.status === 'HOLDING'"
+                  @click.stop="confirmRemove(row)"
+                >
+                  <IconifyIconOffline icon="ep:delete" />
+                </el-button>
+              </el-tooltip>
+            </template>
+            <template v-else>
+              <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }"
+                >-</span
+              >
+            </template>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <div class="flex justify-end mt-4">
+        <el-pagination
+          v-model:current-page="currentPage"
+          :page-size="pageSize"
+          :total="totalItems"
+          layout="prev, pager, next"
+          small
+          background
+          @current-change="fetchData"
+        />
       </div>
     </div>
 
@@ -811,9 +743,12 @@
               :value="tag.id"
             >
               <div class="flex items-center gap-2">
+                <!-- 数据色例外：标签色为用户数据（非设计令牌），缺失时回退中性 token -->
                 <span
                   class="w-3 h-3 rounded-full"
-                  :style="{ backgroundColor: tag.color || '#B6B09C' }"
+                  :style="{
+                    backgroundColor: tag.color || 'var(--text-tertiary)'
+                  }"
                 />
                 <span>{{ tag.name }}</span>
               </div>
@@ -960,7 +895,7 @@
             closable
             :style="{
               backgroundColor: getTagColor(tagId) + '20',
-              color: '#333333',
+              color: 'var(--text-primary)',
               border: '1px solid ' + getTagColor(tagId)
             }"
             @close="removeTagFromEditingItem(tagId)"
@@ -992,9 +927,12 @@
               :value="tag.id"
             >
               <div class="flex items-center gap-2">
+                <!-- 数据色例外：标签色为用户数据（非设计令牌），缺失时回退中性 token -->
                 <span
                   class="w-3 h-3 rounded-full"
-                  :style="{ backgroundColor: tag.color || '#C5C9B8' }"
+                  :style="{
+                    backgroundColor: tag.color || 'var(--text-tertiary)'
+                  }"
                 />
                 <span>{{ tag.name }}</span>
               </div>
@@ -1084,7 +1022,6 @@ import { Search, Close, Delete } from "@element-plus/icons-vue";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import type { ElInput } from "element-plus";
-import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
 import AddToWatchlistModal from "@/components/QuickEntry/AddToWatchlistModal.vue";
 import OcrImportModal from "@/components/QuickEntry/OcrImportModal.vue";
 import SettingsDrawer from "@/components/Watchlist/SettingsDrawer.vue";
@@ -1150,13 +1087,7 @@ const systemGroups = [
     color: "#f2cc8f",
     filter: { cleared: true }
   },
-  {
-    key: "exchange",
-    label: "场内资产",
-    color: "#819cd1",
-    filter: { venue: "EXCHANGE" }
-  },
-  { key: "otc", label: "场外基金", color: "#9d81a9", filter: { venue: "OTC" } },
+  // 方案 B（2026-08-14）：场内/场外由顶部 el-segmented 统一承担，系统分组不再保留「场内资产/场外基金」两项
   {
     key: "favorite",
     label: "特别关注",
@@ -1211,10 +1142,21 @@ const handleManualRefresh = async () => {
   }
 };
 
-/** 添加自选日格式化（YYYY-MM-DD） */
+/**
+ * 添加自选日格式化（强制 YYYY-MM-DD，绝不出现英文月名）。
+ * 后端 created_at 为 ISO（如 2026-08-14T10:30:00 或带时区），优先截取前 10 位日期段，
+ * 避免走 Date 本地时区导致跨时区 off-by-one；非标准格式再兜底用 Date 解析。
+ */
 function formatDate(iso?: string): string {
   if (!iso) return "--";
-  return iso.slice(0, 10);
+  const datePart = iso.slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return datePart;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "--";
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 /** 持有数量 / 份额格式化 */
@@ -1362,21 +1304,6 @@ const editGroupName = ref("");
 
 const showSettingsDrawer = ref(false);
 
-const venueStats = computed(() => {
-  const total = items.value.length;
-  const exchange = items.value.filter(i => i.venue === "EXCHANGE").length;
-  const otc = items.value.filter(i => i.venue === "OTC").length;
-  return { total, exchange, otc };
-});
-
-// 资产类型筛选选项
-const VENUE_FILTER_OPTIONS = [
-  { label: "全部", value: "all" },
-  { label: "股票", value: "EXCHANGE" },
-  { label: "基金", value: "OTC" }
-] as const;
-
-const currentVenueFilter = ref<"all" | "EXCHANGE" | "OTC">("all");
 const batchMode = ref(false);
 const selectedItems = ref<WatchlistItem[]>([]);
 
@@ -1436,9 +1363,7 @@ const fetchParams = computed(() => {
       });
     }
   }
-  if (currentVenueFilter.value !== "all") {
-    params.venue = currentVenueFilter.value;
-  }
+  // venue 过滤由顶部 el-segmented（currentView）唯一承担（方案 B 收敛三套入口）
   if (currentView.value === "exchange") params.venue = "EXCHANGE";
   else if (currentView.value === "otc") params.venue = "OTC";
   if (searchKeyword.value) params.q = searchKeyword.value;
@@ -1455,11 +1380,6 @@ const availableTagsForEditor = computed(() => {
 function toggleBatchMode() {
   batchMode.value = !batchMode.value;
   if (!batchMode.value) selectedItems.value = [];
-}
-
-function setVenueFilter(venue: "all" | "EXCHANGE" | "OTC") {
-  currentVenueFilter.value = venue;
-  fetchData();
 }
 
 function handleSelectionChange(selection: WatchlistItem[]) {
@@ -1523,7 +1443,7 @@ function startEditGroup(group: any) {
         document.removeEventListener("click", outsideClickHandler);
       outsideClickHandler = (e: MouseEvent) => {
         const target = e.target as HTMLElement;
-        if (target.closest(".group-item") || target.closest(".el-popconfirm"))
+        if (target.closest(".group-tab") || target.closest(".el-popconfirm"))
           return;
         cancelEditGroup();
       };
@@ -1636,6 +1556,8 @@ async function fetchGroups() {
     const system: any[] = [];
     const custom: WatchlistGroup[] = [];
     data.forEach(g => {
+      // 方案 B：后端仍返回 exchange/otc 系统分组，但「场内/场外」已由顶部 el-segmented 承担，此处过滤不展示
+      if (g.is_system && (g.key === "exchange" || g.key === "otc")) return;
       if (g.is_system) {
         system.push({
           key: g.key!,
@@ -1674,8 +1596,13 @@ async function fetchTags() {
 // ─────────────────────────────────────────────
 // 事件处理
 // ─────────────────────────────────────────────
-function handleViewChange(val: string) {
-  activeGroup.value = val === "exchange" || val === "otc" ? val : "all";
+/**
+ * segmented（全部/场内/场外）切换：venue 过滤由 fetchParams 依据 currentView 生效，
+ * 与分组 tab 解耦（方案 B：分组选择保持独立，不再联动到系统分组「场内资产/场外基金」，二者已删除）。
+ */
+function handleViewChange() {
+  currentPage.value = 1;
+  fetchData();
 }
 
 function handleTagFilterChange() {
@@ -2025,11 +1952,14 @@ const realtimeEnabled = computed(() => realtime.enabled.value);
 }
 
 .add-tag-btn {
+  --el-button-text-color: var(--text-tertiary);
+
   width: 20px;
   height: 20px;
   min-height: 20px;
+  color: var(--text-tertiary);
   opacity: 0;
-  transition: opacity 0.2s;
+  transition: opacity 150ms ease;
 }
 
 .el-table__row:hover .add-tag-btn {
@@ -2258,13 +2188,139 @@ const realtimeEnabled = computed(() => realtime.enabled.value);
   }
 }
 
-/* 操作列按钮默认隐藏，行悬停时浮现 */
+/* 操作列按钮默认隐藏，行悬停时浮现（统一 150ms ease，与分组 tab 编辑/删除同一机制） */
 :deep(.el-table__row .el-button) {
   opacity: 0;
-  transition: opacity 0.2s ease;
+  transition: opacity 150ms ease;
 }
 
 :deep(.el-table__row:hover .el-button) {
   opacity: 1;
+}
+
+/* ======================================
+   分组胶囊 Tab（方案 B，2026-08-14）
+   ====================================== */
+
+/* 横向滚动条细化为 --border-light 色 */
+.group-tabs-scroll {
+  scrollbar-color: var(--border-light) transparent;
+  scrollbar-width: thin;
+}
+
+.group-tabs-scroll::-webkit-scrollbar {
+  height: 4px;
+}
+
+.group-tabs-scroll::-webkit-scrollbar-thumb {
+  background-color: var(--border-light);
+  border-radius: var(--radius-pill);
+}
+
+.group-tabs-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* tab 项：32px 胶囊；选中态软按钮（--brand-100/--brand-700/--brand-400），未选中 --text-secondary + hover --bg-hover */
+.group-tab {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  height: 32px;
+  padding: 0 12px;
+  font-size: var(--text-label);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  cursor: pointer;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  transition:
+    background-color 150ms ease,
+    color 150ms ease,
+    border-color 150ms ease;
+}
+
+.group-tab:hover {
+  background-color: var(--bg-hover);
+}
+
+.group-tab.is-active {
+  color: var(--brand-700);
+  background-color: var(--brand-100);
+  border-color: var(--brand-400);
+}
+
+.group-tab.is-active:hover {
+  background-color: var(--brand-200);
+}
+
+/* 分组名：展示截断 8 汉字（8em），全名由 title 提示（后端管存储、前端管展示） */
+.group-tab-label {
+  max-width: 8em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-tab-count {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-tertiary);
+}
+
+.group-tab.is-active .group-tab-count {
+  color: var(--brand-700);
+}
+
+/* 分组编辑/删除：hover 浮现（opacity 机制，与操作列统一） */
+.group-tab-actions {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+.group-tab:hover .group-tab-actions {
+  opacity: 1;
+}
+
+.group-tab-edit-input {
+  width: 96px;
+}
+
+/* 新建分组按钮：与 tab 同高 32px 的幽灵胶囊 */
+.group-tab-add {
+  width: 32px;
+  height: 32px;
+  color: var(--text-tertiary);
+  background-color: transparent;
+  border: 1px solid var(--border-default);
+  transition:
+    color 150ms ease,
+    background-color 150ms ease,
+    border-color 150ms ease;
+}
+
+.group-tab-add:hover {
+  color: var(--text-secondary);
+  background-color: var(--bg-hover);
+}
+
+/* 置顶/关注标记图标：--text-tertiary，行 hover 提亮 --text-secondary，语义靠 icon 形状区分 */
+.marker-icon {
+  display: inline-flex;
+  color: var(--text-tertiary);
+  transition: color 150ms ease;
+}
+
+:deep(.el-table__row:hover .marker-icon) {
+  color: var(--text-secondary);
+}
+
+/* 标签 chips（名称列第二行）：胶囊 + 数据色底与边框 */
+.tag-chip {
+  line-height: 1.4;
+  border-radius: var(--radius-pill);
 }
 </style>
