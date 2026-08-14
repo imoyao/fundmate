@@ -11,6 +11,8 @@ from app.core.money import Money
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
+from app.services.importer.records import compute_position_hash
+from app.services.position_service import PositionService
 
 
 # 辅助函数
@@ -985,3 +987,81 @@ class TestTransactionAssetType:
             .first()
         )
         assert txn is not None
+
+
+class TestPositionImportHash:
+    """Issue #928：持仓去重哈希 + 溯源字段 + 撞 key upsert 语义。
+
+    持仓是汇总结果，import_hash = source|ledger_id|symbol|snapshot_date，
+    不含数量/成本，故同一天同一产品只保留一条汇总记录（撞 key 转 upsert）。
+    """
+
+    def _make_ledger(self, db, name='证券账户A'):
+        ledger = db.query(Ledger).filter_by(name=name).first()
+        if ledger is None:
+            ledger = Ledger(name=name, ledger_type='stock', family_id=1)
+            db.add(ledger)
+            db.flush()
+        return ledger.id
+
+    def _buy(self, db, ledger_id, source, symbol='600519', qty=100, price=1800.0, skip_lot_check=False):
+        data = {
+            'symbol': symbol,
+            'name': '贵州茅台',
+            'asset_type': 'stock',
+            'market': 'CN_A',
+            'ledger_id': ledger_id,
+            'family_id': 1,
+            'quantity': qty,
+            'avg_price': price,
+            'op_type': 'buy',
+            'source': source,
+        }
+        return PositionService.process_buy_or_deposit(db, data, skip_lot_check=skip_lot_check)
+
+    def test_import_hash_generated_and_source_persisted(self, db):
+        """新建持仓应生成 import_hash 并落库 source 字段（白名单透传）。"""
+        ledger_id = self._make_ledger(db)
+        pos = self._buy(db, ledger_id, source='manual')
+        db.commit()
+        assert pos.import_hash is not None
+        assert len(pos.import_hash) == 32  # md5 hex
+        assert pos.source == 'manual'
+        # 与 compute_position_hash 口径一致（无 confirm_date 降级为落库当日）
+        expected = compute_position_hash(
+            source='manual', ledger_id=ledger_id, symbol='SH600519', snapshot_date=date.today()
+        )
+        assert pos.import_hash == expected
+
+    def test_duplicate_import_hash_upserts_not_duplicate(self, db):
+        """同内容两次导入（不同 source，同 ledger/symbol/同日）撞 hash → upsert 合并，不产生两条。"""
+        ledger_id = self._make_ledger(db)
+        # 第一次：手动录入
+        p1 = self._buy(db, ledger_id, source='manual', qty=100, price=1800.0)
+        # 第二次：交割单导入，同 ledger/symbol/同日 → 相同 import_hash → 应 upsert
+        p2 = self._buy(db, ledger_id, source='broker_ht', qty=50, price=1800.0, skip_lot_check=True)
+        db.commit()
+        positions = db.query(Position).filter_by(ledger_id=ledger_id, symbol='SH600519').all()
+        assert len(positions) == 1  # 未产生两条
+        assert positions[0].id == p1.id == p2.id  # upsert 同一记录
+        # 数量累加 100+50=150
+        assert positions[0].quantity == Money.shares_to_min_unit(150)
+        # 溯源字段保留（以末次写入的 source 为准）
+        assert positions[0].source == 'broker_ht'
+
+    def test_different_day_distinct_hash(self, db):
+        """不同快照日 → 不同 import_hash（即便 source/ledger/symbol 相同）。"""
+        ledger_id = self._make_ledger(db)
+        h_today = compute_position_hash('manual', ledger_id, 'SH600519', date.today())
+        h_yesterday = compute_position_hash('manual', ledger_id, 'SH600519', date.today() - timedelta(days=1))
+        assert h_today != h_yesterday
+
+    def test_missing_confirm_date_falls_back_to_today(self, db):
+        """未提供 confirm_date 时快照日降级为落库当日（不产生 'unknown' 占位）。"""
+        ledger_id = self._make_ledger(db)
+        pos = self._buy(db, ledger_id, source='manual')
+        db.commit()
+        expected = compute_position_hash(
+            source='manual', ledger_id=ledger_id, symbol='SH600519', snapshot_date=date.today()
+        )
+        assert pos.import_hash == expected

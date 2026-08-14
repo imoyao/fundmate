@@ -38,6 +38,31 @@ def compute_record_hash(source: str, record: 'StandardTransactionRecord') -> str
     return hashlib.md5(raw.encode()).hexdigest()
 
 
+def compute_position_hash(
+    source: str,
+    ledger_id: int,
+    symbol: str,
+    snapshot_date: Optional[date] = None,
+) -> str:
+    """为单条持仓记录生成去重哈希（issue #928，与交易去重口径对齐）。
+
+    规则（规范 §3.3）：
+        f"{source}|{ledger_id}|{symbol}|{snapshot_date}"
+
+    - snapshot_date 优先取持仓快照日（confirm_date）；缺失时由调用方降级为
+      created_at 的日期部分（或落库当日），保证「同一天、同一产品、同一来源」
+      的持仓不会重复，即便手动录入未提供 snapshot_date。
+    - 不含 quantity / avg_price：持仓是汇总结果，同一天同一产品只保留一条汇总
+      记录（撞 key 时由 service 层转 upsert 更新数量/成本，而非拒绝）。
+
+    与交易侧区别：交易依赖 transaction_id 区分真实多笔；持仓无流水号概念，
+    故以 source|ledger|symbol|日期 作为内容指纹即可满足去重需求。
+    """
+    snap = snapshot_date.isoformat() if snapshot_date else 'unknown'
+    raw = f'{source}|{ledger_id}|{symbol}|{snap}'
+    return hashlib.md5(raw.encode()).hexdigest()
+
+
 @dataclass
 class StandardTransactionRecord:
     """所有导入解析器的统一输出格式"""

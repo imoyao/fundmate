@@ -14,10 +14,11 @@
 - 业务异常通过 ValueError 抛出，由视图层捕获并转为 HTTP 异常
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 
 from loguru import logger
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ErrorCode, SBException
@@ -26,6 +27,7 @@ from app.core.symbol_utils import get_normalizer
 from app.core.utils import get_confirm_date
 from app.domains.positions.models import Position
 from app.services.async_backfill import trigger_backfill
+from app.services.importer.records import compute_position_hash
 from app.services.trade_rules import validate_buy, validate_sell
 from app.services.transaction_service import TransactionService
 
@@ -44,6 +46,11 @@ _ALLOWED_POSITION_FIELDS = {
     'confirm_date',
     'notes',
     'allocation',
+    # issue #928: 去重与溯源字段，允许透传落库
+    'import_hash',
+    'source',
+    'source_import_id',
+    'source_broker',
 }
 
 
@@ -220,6 +227,16 @@ class PositionService:
                 new_avg_price = Money.yuan_to_cents(round(total_cost / total_qty, 4))
                 same.avg_price = new_avg_price
                 same.quantity = total_qty_units
+                # issue #928: 合并时同步溯源字段（交割单覆盖手动录），并刷新 import_hash
+                if 'source' in data:
+                    same.source = data['source']
+                if 'source_broker' in data:
+                    same.source_broker = data['source_broker']
+                raw_snap = data.get('confirm_date') or date.today()
+                snap = raw_snap if isinstance(raw_snap, date) else datetime.fromisoformat(raw_snap).date()
+                same.import_hash = compute_position_hash(
+                    source=same.source, ledger_id=ledger_id, symbol=final_symbol, snapshot_date=snap
+                )
                 db.flush()
                 position = same
                 is_new = False
@@ -233,9 +250,49 @@ class PositionService:
                 position_data['symbol'] = final_symbol
                 position_data['ledger_id'] = ledger_id
                 position_data['family_id'] = family_id
-                position = Position(**position_data)
-                db.add(position)
-                db.flush()
+                # issue #928: 生成持仓去重哈希（source|ledger_id|symbol|snapshot_date）
+                src = data.get('source', 'manual')
+                # 快照日：优先 confirm_date；缺失降级为落库当日（规范 §3.3，保证同日同产品汇总一条）
+                raw_snap = data.get('confirm_date') or date.today()
+                snapshot_date = raw_snap
+                if isinstance(raw_snap, str):
+                    snapshot_date = datetime.fromisoformat(raw_snap).date()
+                position_data['source'] = src
+                position_data['import_hash'] = compute_position_hash(
+                    source=src, ledger_id=ledger_id, symbol=final_symbol, snapshot_date=snapshot_date
+                )
+                try:
+                    position = Position(**position_data)
+                    db.add(position)
+                    db.flush()
+                except IntegrityError:
+                    # 撞 uq_positions_import_hash：同内容持仓已存在（如手动录后又交割单导入），
+                    # 转 upsert 语义——合并数量/成本，溯源跟随末次写入（交割单优先级高于手动录）。
+                    db.rollback()
+                    logger.info('持仓 import_hash 撞 key，转 upsert 更新既有记录')
+                    existing = db.query(Position).filter(Position.import_hash == position_data['import_hash']).first()
+                    if existing is None:
+                        raise
+                    total_qty_units = existing.quantity + qty_units
+                    old_cost = Money.multiply_price_quantity(existing.avg_price, existing.quantity)
+                    new_cost = old_cost + Money.multiply_price_quantity(price_cents, qty_units)
+                    total_qty = Money.min_unit_to_shares(total_qty_units)
+                    existing.avg_price = Money.yuan_to_cents(
+                        round(
+                            (
+                                Money.cents_to_yuan(old_cost)
+                                + Money.cents_to_yuan(Money.multiply_price_quantity(price_cents, qty_units))
+                            )
+                            / total_qty,
+                            4,
+                        )
+                    )
+                    existing.quantity = total_qty_units
+                    # 溯源字段跟随末次导入来源（交割单覆盖手动录）
+                    existing.source = src
+                    existing.source_broker = data.get('source_broker')
+                    db.flush()
+                    position = existing
                 is_new = True
 
             # 创建交易流水
