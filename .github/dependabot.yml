@@ -16,6 +16,10 @@ updates:
       - "dependencies"
     pull-request-branch-name:
       separator: "-"
+    # 只允许 minor/patch 自动升级；major 破坏性跳跃需人工评估，避免堆积错误 PR
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   # 后端项目内的管理前端（frontend/，即 duobeibao 后台，Vite 项目，独立 pnpm-lock.yaml）
   - package-ecosystem: "npm"
@@ -33,6 +37,9 @@ updates:
       - "dependencies"
     pull-request-branch-name:
       separator: "-"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   # 后端 Python（PDM 管理，依赖声明在 pyproject.toml）
   - package-ecosystem: "pip"
@@ -50,6 +57,9 @@ updates:
       - "dependencies"
     pull-request-branch-name:
       separator: "-"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   # 前端 Docker 镜像
   - package-ecosystem: "docker"
@@ -62,6 +72,9 @@ updates:
     open-pull-requests-limit: 99
     labels:
       - "dependencies"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   # 后端 Docker 镜像
   - package-ecosystem: "docker"
@@ -74,6 +87,9 @@ updates:
     open-pull-requests-limit: 99
     labels:
       - "dependencies"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   # GitHub Actions 工作流本身
   - package-ecosystem: "github-actions"
@@ -86,3 +102,6 @@ updates:
     open-pull-requests-limit: 99
     labels:
       - "dependencies"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
