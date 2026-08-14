@@ -209,9 +209,9 @@ const handlePaste = (e: ClipboardEvent) => {
 
   &-name {
     overflow: hidden;
+    text-overflow: ellipsis;
     font-size: var(--text-small);
     color: var(--text-primary);
-    text-overflow: ellipsis;
     white-space: nowrap;
   }
 

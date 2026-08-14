@@ -351,20 +351,49 @@ const usernameDirty = computed(
 // ── 用户名/昵称敏感词提示（前端仅提示，硬拦截在后端的 contains_sensitive）──
 // 与后端词库不同源，这里只放少量常见词做实时预警，避免每次输入都打到后端。
 const SENSITIVE_HINT_WORDS = [
-  "傻瓜", "笨蛋", "白痴", "蠢货", "废物", "垃圾", "贱人", "混蛋",
-  "滚蛋", "弱智", "智障", "脑残", "傻逼",
-  "色情", "裸聊", "约炮", "卖淫", "嫖娼", "性爱",
-  "赌博", "博彩", "毒品", "诈骗", "传销",
-  "fuck", "shit", "bitch", "asshole", "bastard", "sb"
+  "傻瓜",
+  "笨蛋",
+  "白痴",
+  "蠢货",
+  "废物",
+  "垃圾",
+  "贱人",
+  "混蛋",
+  "滚蛋",
+  "弱智",
+  "智障",
+  "脑残",
+  "傻逼",
+  "色情",
+  "裸聊",
+  "约炮",
+  "卖淫",
+  "嫖娼",
+  "性爱",
+  "赌博",
+  "博彩",
+  "毒品",
+  "诈骗",
+  "传销",
+  "fuck",
+  "shit",
+  "bitch",
+  "asshole",
+  "bastard",
+  "sb"
 ];
 
 function containsSensitiveHint(text: string): boolean {
   const t = (text || "").toLowerCase();
-  return SENSITIVE_HINT_WORDS.some((w) => t.includes(w.toLowerCase()));
+  return SENSITIVE_HINT_WORDS.some(w => t.includes(w.toLowerCase()));
 }
 
-const usernameSensitive = computed(() => containsSensitiveHint(profileForm.username));
-const nicknameSensitive = computed(() => containsSensitiveHint(profileForm.nickname));
+const usernameSensitive = computed(() =>
+  containsSensitiveHint(profileForm.username)
+);
+const nicknameSensitive = computed(() =>
+  containsSensitiveHint(profileForm.nickname)
+);
 
 const currentNickname = computed(
   () => userStore.nickname || userStore.username || "未设置"
