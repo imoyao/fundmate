@@ -16,12 +16,15 @@
   迁移完成后仅剩孤儿流水，但本服务兼容迁移前数据。
 
 计算式（全程整数分，禁止裸 float）：
-    每日收益（分）= 持有金额（分）× nav_per_10k（分）÷ 1_000_000，round half-up 到分。
-    推导：万份收益 w 分 = 每 10000 元当日收益 w/100 元；持有 H 分 = H/100 元；
-          收益 = (H/100) × (w/100) / 10000 元 = H×w/1e6 元 = H×w/1e6 分。
-    示例：H=50000 分、w=35 分 → 50000×35/1e6 = 1.75 分 → round half-up 到 2 分。
+    每日收益（分）= 持有金额（分）× nav_per_10k（元）÷ 10000，round half-up 到分。
+    推导：万份收益 w 元 = 每 10000 元当日收益 w 元；持有 H 元 → 收益 = H×w/10000 元。
+          分单位代入：H分 = H×100 → 收益分 = H分 × w / 10000。
+    示例：H=50000 分（500 元）、w=0.35 元 → 50000×0.35/10000 = 1.75 分 → round 到 2 分。
     为什么 round 到整数分：金额最小单位是分，1.75 分无法在展示层表达；
     逐基金 round half-up 到整数分再求和，符合「金额展示到分」的人类阅读习惯。
+    单位说明（2026-08-14 实测修正）：nav_per_10k 存储单位是「元」（万份收益，
+    如 000198 余额宝 2026-08-14 为 0.2233 元/万元/日），不是分；早期实现按分
+    处理导致真实数据收益恒为 0（0.2233 分 → 量化 0 分），已修正换算因子。
 """
 
 import datetime as dt
@@ -36,8 +39,9 @@ from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
 from app.services.importer.mappings import BusinessType
 
-# 万份收益换算因子：持有金额(分) × 万份收益(分) ÷ 1_000_000 → 当日收益(分)
-_INCOME_DIVISOR = Decimal('1000000')
+# 万份收益换算因子：持有金额(分) × 万份收益(元) ÷ 10000 → 当日收益(分)
+# （nav_per_10k 存储单位是元，见模块 docstring 单位说明）
+_INCOME_DIVISOR = Decimal('10000')
 
 # 孤儿流水方向：buy/deposit 增加持有（正），sell/withdraw 减少持有（负）
 _INFLOW_TYPES = {BusinessType.BUY.code, BusinessType.DEPOSIT.code}
@@ -149,7 +153,7 @@ def _daily_holdings(
 
 
 def _daily_income(day: dt.date, holdings: Dict[str, int], nav_map: Dict[str, Dict[dt.date, int]]) -> int:
-    """单日收益（分）：Σ 各货基 持有金额 × 万份收益 ÷ 1e6，round half-up 到分。
+    """单日收益（分）：Σ 各货基 持有金额 × 万份收益(元) ÷ 10000，round half-up 到分。
 
     nav_per_10k 缺失日：当日收益记 0（序列仍含该日）。
     """

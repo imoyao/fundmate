@@ -33,7 +33,7 @@ def _make_fund(db, fund_code, name='测试货基'):
 
 
 def _make_worth(db, fund_code, day, nav_per_10k):
-    """构造 MoneyFundDailyWorth 行（nav_per_10k 单位：分）。"""
+    """构造 MoneyFundDailyWorth 行（nav_per_10k 单位：元）。"""
     db.add(MoneyFundDailyWorth(fund_code=fund_code, date=day, nav_per_10k=nav_per_10k))
     db.flush()
 
@@ -78,11 +78,11 @@ def _make_money_fund_position(db, ledger, fund_code, quantity, current_price_yua
 
 class TestDailyIncome:
     def test_example_50000_x_35(self, db):
-        """规格示例：H=50000 分、w=35 分 → 50000×35/1e6=1.75 分 → round 到 2 分。"""
+        """规格示例：H=50000 分、w=0.35 元 → 50000×0.35/10000=1.75 分 → round 到 2 分。"""
         ledger = _make_ledger(db)
         _make_fund(db, '511880')
         day = dt.date(2026, 8, 1)
-        _make_worth(db, '511880', day, 35)
+        _make_worth(db, '511880', day, 0.35)
         _make_orphan_flow(db, ledger, '511880', day, 'buy', 500.0)  # 500元 = 50000分
 
         result = calculate_money_fund_income(db, start_date=day, end_date=day, scope='family', family_id=1)
@@ -97,15 +97,15 @@ class TestDailyIncome:
         ledger = _make_ledger(db)
         _make_fund(db, '511880')
         d1, d2, d3 = dt.date(2026, 8, 1), dt.date(2026, 8, 2), dt.date(2026, 8, 3)
-        _make_worth(db, '511880', d1, 35)
-        _make_worth(db, '511880', d2, 40)
-        _make_worth(db, '511880', d3, 20)
+        _make_worth(db, '511880', d1, 0.35)
+        _make_worth(db, '511880', d2, 0.40)
+        _make_worth(db, '511880', d3, 0.20)
         _make_orphan_flow(db, ledger, '511880', d1, 'buy', 500.0)  # 50000分
         _make_orphan_flow(db, ledger, '511880', d2, 'buy', 300.0)  # 追加 30000分
 
         result = calculate_money_fund_income(db, start_date=d1, end_date=d3, scope='family', family_id=1)
 
-        # D1: 50000×35/1e6=1.75→2分；D2: 80000×40/1e6=3.2→3分；D3: 80000×20/1e6=1.6→2分
+        # D1: 50000×0.35/10000=1.75→2分；D2: 80000×0.40/10000=3.2→3分；D3: 80000×0.20/10000=1.6→2分
         assert result['daily_series'] == [
             {'date': '2026-08-01', 'income': 0.02},
             {'date': '2026-08-02', 'income': 0.03},
@@ -119,14 +119,14 @@ class TestDailyIncome:
         ledger = _make_ledger(db)
         _make_fund(db, '511880')
         d1, d2 = dt.date(2026, 8, 1), dt.date(2026, 8, 2)
-        _make_worth(db, '511880', d1, 35)
-        _make_worth(db, '511880', d2, 40)
+        _make_worth(db, '511880', d1, 0.35)
+        _make_worth(db, '511880', d2, 0.40)
         _make_orphan_flow(db, ledger, '511880', d1, 'buy', 500.0)
         _make_orphan_flow(db, ledger, '511880', d2, 'sell', 200.0)
 
         result = calculate_money_fund_income(db, start_date=d1, end_date=d2, scope='family', family_id=1)
 
-        # D1: 50000×35/1e6=1.75→2分；D2: 30000×40/1e6=1.2→1分
+        # D1: 50000×0.35/10000=1.75→2分；D2: 30000×0.40/10000=1.2→1分
         assert result['daily_series'] == [
             {'date': '2026-08-01', 'income': 0.02},
             {'date': '2026-08-02', 'income': 0.01},
@@ -137,9 +137,9 @@ class TestDailyIncome:
         """零持有：无流水无持仓，序列仍含全部日期，收益全 0。"""
         _make_fund(db, '511880')
         d1, d2, d3 = dt.date(2026, 8, 1), dt.date(2026, 8, 2), dt.date(2026, 8, 3)
-        _make_worth(db, '511880', d1, 35)
-        _make_worth(db, '511880', d2, 40)
-        _make_worth(db, '511880', d3, 20)
+        _make_worth(db, '511880', d1, 0.35)
+        _make_worth(db, '511880', d2, 0.40)
+        _make_worth(db, '511880', d3, 0.20)
 
         result = calculate_money_fund_income(db, start_date=d1, end_date=d3, scope='family', family_id=1)
 
@@ -153,7 +153,7 @@ class TestDailyIncome:
         ledger = _make_ledger(db)
         _make_fund(db, '511880')
         d1, d2, d3 = dt.date(2026, 8, 1), dt.date(2026, 8, 2), dt.date(2026, 8, 3)
-        _make_worth(db, '511880', d1, 35)  # 仅 D1 有万份收益
+        _make_worth(db, '511880', d1, 0.35)  # 仅 D1 有万份收益
         _make_orphan_flow(db, ledger, '511880', d1, 'buy', 500.0)
 
         result = calculate_money_fund_income(db, start_date=d1, end_date=d3, scope='family', family_id=1)
@@ -171,14 +171,14 @@ class TestDailyIncome:
         _make_fund(db, '511880')
         _make_fund(db, '511990')
         day = dt.date(2026, 8, 1)
-        _make_worth(db, '511880', day, 35)
-        _make_worth(db, '511990', day, 40)
+        _make_worth(db, '511880', day, 0.35)
+        _make_worth(db, '511990', day, 0.40)
         _make_orphan_flow(db, ledger, '511880', day, 'buy', 500.0)  # 50000分
         _make_money_fund_position(db, ledger, '511990', quantity=1000, current_price_yuan=1.0)  # 100000分
 
         result = calculate_money_fund_income(db, start_date=day, end_date=day, scope='family', family_id=1)
 
-        # 孤儿: 50000×35/1e6=1.75→2分；持仓: 100000×40/1e6=4分；合计 6 分 = 0.06 元
+        # 孤儿: 50000×0.35/10000=1.75→2分；持仓: 100000×0.40/10000=4分；合计 6 分 = 0.06 元
         assert result['daily_series'] == [{'date': '2026-08-01', 'income': 0.06}]
         assert result['total_income'] == 0.06
 
@@ -187,13 +187,13 @@ class TestDailyIncome:
         ledger = _make_ledger(db)
         _make_fund(db, '511990')
         d1, d2 = dt.date(2026, 8, 1), dt.date(2026, 8, 2)
-        _make_worth(db, '511990', d1, 40)
-        _make_worth(db, '511990', d2, 40)
+        _make_worth(db, '511990', d1, 0.40)
+        _make_worth(db, '511990', d2, 0.40)
         _make_money_fund_position(db, ledger, '511990', quantity=1000, current_price_yuan=1.0)  # 100000分
 
         result = calculate_money_fund_income(db, start_date=d1, end_date=d2, scope='family', family_id=1)
 
-        # 两天均为 100000×40/1e6=4分
+        # 两天均为 100000×0.40/10000=4分
         assert result['daily_series'] == [
             {'date': '2026-08-01', 'income': 0.04},
             {'date': '2026-08-02', 'income': 0.04},
@@ -211,7 +211,7 @@ class TestScopeAndParams:
         ledger_b = _make_ledger(db, name='账户B')
         _make_fund(db, '511880')
         day = dt.date(2026, 8, 1)
-        _make_worth(db, '511880', day, 35)
+        _make_worth(db, '511880', day, 0.35)
         _make_orphan_flow(db, ledger_a, '511880', day, 'buy', 500.0)
         _make_orphan_flow(db, ledger_b, '511880', day, 'buy', 1000.0)
 
@@ -220,7 +220,7 @@ class TestScopeAndParams:
         )
         family_result = calculate_money_fund_income(db, start_date=day, end_date=day, scope='family', family_id=1)
 
-        # 账户A: 50000×35/1e6=1.75→2分；家庭: (50000+100000)×35/1e6=5.25→5分
+        # 账户A: 50000×0.35/10000=1.75→2分；家庭: (50000+100000)×0.35/10000=5.25→5分
         assert ledger_result['total_income'] == 0.02
         assert family_result['total_income'] == 0.05
 
@@ -229,7 +229,7 @@ class TestScopeAndParams:
         ledger = _make_ledger(db)
         _make_fund(db, '511880')
         today = dt.date.today()
-        _make_worth(db, '511880', today, 35)
+        _make_worth(db, '511880', today, 0.35)
         _make_orphan_flow(db, ledger, '511880', today, 'buy', 500.0)
 
         result = calculate_money_fund_income(db, scope='family', family_id=1)
@@ -266,7 +266,7 @@ class TestMoneyFundIncomeEndpoint:
         ledger = _make_ledger(db)
         _make_fund(db, '511880')
         day = dt.date(2026, 8, 1)
-        _make_worth(db, '511880', day, 35)
+        _make_worth(db, '511880', day, 0.35)
         _make_orphan_flow(db, ledger, '511880', day, 'buy', 500.0)
         db.commit()
 
@@ -283,7 +283,7 @@ class TestMoneyFundIncomeEndpoint:
         ledger = _make_ledger(db)
         _make_fund(db, '511880')
         day = dt.date(2026, 8, 1)
-        _make_worth(db, '511880', day, 35)
+        _make_worth(db, '511880', day, 0.35)
         _make_orphan_flow(db, ledger, '511880', day, 'buy', 500.0)
         db.commit()
 
@@ -331,9 +331,9 @@ class TestMoneyFundIncomeEndpoint:
         ledger = _make_ledger(db)
         _make_fund(db, '511880')
         d1, d2, d3 = dt.date(2026, 8, 1), dt.date(2026, 8, 2), dt.date(2026, 8, 3)
-        _make_worth(db, '511880', d1, 35)
-        _make_worth(db, '511880', d2, 40)
-        _make_worth(db, '511880', d3, 20)
+        _make_worth(db, '511880', d1, 0.35)
+        _make_worth(db, '511880', d2, 0.40)
+        _make_worth(db, '511880', d3, 0.20)
         _make_orphan_flow(db, ledger, '511880', d1, 'buy', 500.0)
         db.commit()
 
