@@ -54,6 +54,26 @@ Windows：`dev.cmd`（内部走 `scripts/dev.ps1`）；Git Bash / WSL / macOS：
 - 若 pre-commit 崩溃报 `ACC_PRODUCT_CONFIG_V3` 超 32767 字符上限：commit 命令前先 `unset ACC_PRODUCT_CONFIG_V3` 再提交，勿用 `env -i`。
 - 给用户看的命令行须兼容 Windows cmd（无 `head`/`cat`/`grep`/`sed`）：优先用项目自带脚本（如 `backend/scripts/diag_em.py`）或说明用 PowerShell 执行。
 
+## 临时文件清理工具（所有 AI / agent 删除临时文件必须走此脚本）
+
+**为什么（WHY）**：曾发现直接用 IDE / 编码助手的「删除文件」工具在部分环境下会被系统拦截或静默失败（报 workspace boundary / 调用异常），导致临时文件越积越多且删除动作不可靠。为绕开该限制并把「删除」这一破坏性操作统一收口，约定：**以后所有临时文件清理一律走 `backend/scripts/cleanup_temp.py`，不再依赖 IDE 删除工具**。它与「禁止武断执行」一节同源——删除必须先列清单给人判断、确认后才执行。
+
+**工具位置与约束**：`backend/scripts/cleanup_temp.py`（自研，无第三方依赖）。
+- 默认 **DRY-RUN**：只收集并打印「将要删除的文件」清单，**绝不真正删除**；
+- 必须显式传 `--apply` 才真正删除；
+- 默认只在白名单目录清理（仓库根 + `docs/working-notes`），不递归扫源码；可用 `--dir` 扩展（可多次）；
+- 默认只匹配明确的临时文件名模式（`.tmp_*` / `_commit_*` / `_commit_msg_*` / `_cleanup_*`），可用 `--pattern` 追加（可多次）。
+
+**操作 SOP（AI / 人通用）**：
+1. 先 dry-run 看清单（默认即 dry-run，不传 `--apply` 不删）：
+   `cd backend && pdm run python backend/scripts/cleanup_temp.py`
+   自定义：`pdm run python backend/scripts/cleanup_temp.py --dir path/to/dir --pattern "*.bak"`
+2. 把打印出的「将要删除的文件清单」呈现给用户，说明要删哪些、为什么（临时调试 / commit / issue 产物，无业务价值），**等用户确认**。
+3. 用户确认后才真正删除：`pdm run python backend/scripts/cleanup_temp.py --apply`（或带自定义模式 `--pattern`）。
+- 任何不在默认模式里的文件（如 `_decode_tmp.py`、`*.json` dump 等），需显式 `--pattern` 指定，且仍要先 dry-run 给用户看清单；
+- **绝不用本脚本删除源码 / 配置 / 文档 / 入库资产**（如 `all_pb.csv`）。
+- 脚本顶部 docstring 含完整 WHY / HOW / SAFETY 说明，调用前可读。
+
 ## 关键约束（权威规范在 `docs/spec/`、`frontend/design.md`）
 
 - 接口错误统一 `{data, message, error_code}` 信封；API-First 契约冻结，字段 / 状态码 / 分页结构禁止私改；端点一律尾斜杠（**例外：`/api/temperature/{overview,history,multi}` 无尾斜杠，前端按此调用，勿"修复"**）。

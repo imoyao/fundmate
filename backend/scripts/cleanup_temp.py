@@ -1,23 +1,53 @@
 # -*- coding: utf-8 -*-
 """通用临时文件清理脚本（安全删除入口）。
 
-用途：之前用 IDE 删除工具在部分环境下会被拦截/失败，故统一改用本 Python
-脚本执行删除，绕开环境限制。设计为「默认只读、显式确认才删」，避免误删。
+=====================================================================
+为什么需要这个工具（WHY）
+=====================================================================
+在本仓库的协作中，曾发现直接用 IDE / 编码助手的「删除文件」工具在部分
+环境下会被系统拦截或静默失败（报 workspace boundary / 调用异常），导致
+临时文件越积越多、且删除动作不可靠。为绕开这一限制、并把「删除」这一
+破坏性操作统一收口，约定：**以后所有临时文件清理都走本 Python 脚本**，
+不再依赖 IDE 删除工具。
 
-安全约束：
+它与 AGENTS.md「禁止武断执行」一节同源：删除属于破坏性操作，必须
+「先列清单 → 给人判断 → 确认后才删」，绝不允许擅自静默删除可能有价值的文件。
+
+=====================================================================
+怎么执行（HOW — 给 AI / 人 的操作 SOP）
+=====================================================================
+前置：后端用 PDM 管理，必须从 backend/ 目录运行（路径相对仓库根）。
+
+步骤 1 — 先 dry-run 看清单（默认就是 dry-run，不传 --apply 绝不删）：
+    cd backend
+    pdm run python backend/scripts/cleanup_temp.py
+    # 自定义目录 / 匹配模式（可多次追加）：
+    pdm run python backend/scripts/cleanup_temp.py --dir path/to/dir --pattern "*.bak"
+
+步骤 2 — 把打印出的「将要删除的文件清单」呈现给用户，说明要删哪些、
+        为什么（临时调试/commit/issue 产物，无业务价值），等用户确认。
+
+步骤 3 — 用户确认后，才真正删除：
+    pdm run python backend/scripts/cleanup_temp.py --apply
+    # 或带自定义模式：
+    pdm run python backend/scripts/cleanup_temp.py --pattern "_close*" --apply
+
+=====================================================================
+安全约束（SAFETY）
+=====================================================================
 - 默认 DRY_RUN：仅收集并打印「将要删除的文件」，绝不真正删除；
 - 必须显式传 --apply 才真正删除；
 - 默认只在白名单目录内清理（仓库根 + docs/working-notes），不递归扫源码；
-  可用 --dir 扩展（可多次），但仍建议限定在临时产物目录；
-- 默认只匹配明确的临时文件名模式，可用 --pattern 追加。
+  可用 --dir 扩展（可多次），但仍建议限定在临时产物目录，避免误伤业务代码；
+- 默认只匹配明确的临时文件名模式（.tmp_* / _commit_* / _commit_msg_* /
+  _cleanup_*），可用 --pattern 追加；
+- 任何不在默认模式里的文件（如 _decode_tmp.py、*.json dump 等），需显式
+  用 --pattern 指定，且仍要先 dry-run 给用户看清单；
+- 绝不用本脚本删除源码 / 配置 / 文档 / 入库资产（如 all_pb.csv）。
 
-用法：
-    # 仅打印清单（默认）：
-    pdm run python backend/scripts/cleanup_temp.py
-    # 自定义目录/模式：
-    pdm run python backend/scripts/cleanup_temp.py --dir path/to/dir --pattern "*.bak"
-    # 确认清单无误后真正删除：
-    pdm run python backend/scripts/cleanup_temp.py --apply
+用法速查：
+    pdm run python backend/scripts/cleanup_temp.py            # 仅打印清单
+    pdm run python backend/scripts/cleanup_temp.py --apply    # 确认后真正删除
 """
 
 import argparse
