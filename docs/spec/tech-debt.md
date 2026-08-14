@@ -1,6 +1,6 @@
 # 技术债务与开口项明细（tech-debt）
 
-> ⚠️ **易腐烂内容**：本文件随修复进展频繁变化。最后核实日期：**2026-08-10**。每条债务修复后，须将状态更新为"✅ 已修复"并注明版本号；请勿删除历史条目（保留可追溯）。
+> ⚠️ **易腐烂内容**：本文件随修复进展频繁变化。最后核实日期：**2026-08-14**。每条债务修复后，须将状态更新为"✅ 已修复"并注明版本号；请勿删除历史条目（保留可追溯）。
 
 ## 1. 技术债务 & 开口项明细（原 SPEC 第 10 章）
 
@@ -98,6 +98,23 @@
 | #230 数据来源整合 | 整合框架完成 | 基金经理信息未同步、指数行情同步不可用 | 见 tech-debt 既有条目（基金经理信息未同步）+ `services/sync` |
 | #429 交割单导入 | 导入主体完成 | 导出→#819；天天基金无数据、卖出份额推算、模板导入查重 | 导出见 #819 |
 | #507 定时任务清单 | 笔记归档 | 待办（基金经理信息更新等）与 #229 重叠且未做 | 双向交叉引用 #229 |
+
+---
+
+## 14-B. 2026-08-14 验收清单代码实证复核发现项（高红旗登记）
+
+> 来源：`docs/working-notes/issue-triage/auto/2026-08-14.md`（首次全量基线复核，按交付标准逐 issue 实证）。本批为"以为做了实际没做 / 文档与代码不符 / 代码存在但生产不可用"的高严重度缺口，按"保持现状 + 显式登记"原则登记，不擅自改代码、不乱关 issue。其中文档登记类（#898 / #869）本表即其落地动作。
+
+| issue | 类型 | 实证结论（文件:行号） | 严重度 | 处理建议 |
+|---|---|---|---|---|
+| [#898](https://github.com/imoyao/fundmate/issues/898) | 文档机制 | 会议纪要驱动的"文档↔代码误差追踪" issue，其待办完全未回流到本文件（全库搜 `898`/`误差追踪`/`会议纪要` 0 命中） | 🔴 最高 | 本表即登记动作；后续会议纪要类误差追踪统一回流至此 |
+| [#937](https://github.com/imoyao/fundmate/issues/937) | 代码缺口 | 导入持仓快照解析器与 `/inventory` 快照卡片完全未落地；仅底层 `process_buy_or_deposit` + import_hash 去重就绪（`position_service.py:235-237,259-261`），无入口触发 | 🔴 高 | 登记缺口，实现 `position_snapshot` 解析器 + 卡片（#936/#933/#928 共用依赖） |
+| [#933](https://github.com/imoyao/fundmate/issues/933) | 代码缺口 | 前端统一提交层未收敛，仍双轨直写 `createPosition`（`composables/useQuickEntry.ts:40` → `BuyForm.vue:812`）；`api/importer.ts` 仅有 `confirmImport`，无 preview/submit 编排 | 🔴 高 | 打通前端 `ImportOrchestrator` 编排，消除双轨直写 |
+| [#934](https://github.com/imoyao/fundmate/issues/934) | 代码缺口 | 资产简记托盘未接截图导入；`OcrImportModal.vue` 仅服务于自选（`createWatchlistItem`），未挂到 `BuyForm.vue`；OCR 能力与配额已存在（`domains/ocr/views.py:127-202`、`ai_recognizer/recognizers/txn_recognizer.py:98-99`） | 🔴 高 | 在资产简记挂 `OcrImportModal` 接 `txn_import` scenario |
+| [#825](https://github.com/imoyao/fundmate/issues/825) | 代码缺口 | DB 快照导出/导入核心能力缺失（`domains/summary/views.py` 无 export/import 端点，前端仅 CSV）；full-sync 限范围已落地（`sync/orchestrator.py:88`） | 🔴 高 | 评估是否真需 DB 级快照，或降级为 CSV 导入 |
+| [#894](https://github.com/imoyao/fundmate/issues/894) | 文档偏差 | 上线计划（Turso 双备份 / EdgeOne 部署）代码零落地（`auth.py:150-187` 仍单库 SQLite；后端搜 `turso/libsql/edgeone` 0 命中），相关文档仅为架构设想 | 🔴 高 | 标注 #894 为"规划/未实施"，避免给人已上线印象 |
+| [#869](https://github.com/imoyao/fundmate/issues/869) | 文档缺口 | 韭圈儿 fetcher 修复已落地生效（`thermometer/jobs.py:23,109` 注册 `JiucaishuoFetcher`），但全库文档 0 反链 | 🟠 高 | 本表登记 + 反链；读者无法从文档追溯该修复 |
+| 货币基金每日收益链路 | 代码缺口 | 已有 §69 登记（`nav_per_10k` 落库但无读取方，`position_service.py:148-150` 只记流水不建持仓）；本批复核确认仍属"声称可算实际不可算" | 🟠 高 | 见 §69 上线验收标准，闭环收益链路 |
 
 ---
 
