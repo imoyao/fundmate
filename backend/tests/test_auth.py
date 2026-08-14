@@ -512,7 +512,7 @@ def test_update_me_nickname_sensitive_blocked(client, db):
 def test_update_me_sensitive_pinyin_variant_blocked(client, db):
     """敏感词的全拼变体（带/不带空格）与符号干扰变体应被命中拦截。
 
-    注：拼音首字母缩写变体（如「傻瓜」→sg）已在 vendored 库本地 patch 中禁用，
+    注：拼音首字母缩写变体（如「傻瓜」→sg）在自研 DFA 中本就不生成，
     因其对英文用户名误杀率过高，故此处不再覆盖首字母变体。
     """
     _create_user(db, username='partial', email='me@example.com')
@@ -522,7 +522,7 @@ def test_update_me_sensitive_pinyin_variant_blocked(client, db):
 
 
 def test_update_me_sensitive_initials_not_overblock(client, db):
-    """首字母缩写变体已被禁用：含 bc/bd/sg 等两字母组合的普通英文用户名不应误杀。"""
+    """首字母缩写变体本就不生成：含 bc/bd/sg 等两字母组合的普通英文用户名不应误杀。"""
     _create_user(db, username='partial', email='me@example.com')
     for ok in ['abcde', 'basicx', 'candyy', 'David1', 'Cindy2026']:
         resp = client.patch('/api/users/me', json={'username': ok})

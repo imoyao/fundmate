@@ -33,7 +33,6 @@ dependencies = [
     "akshare>=1.18.81",
     "scipy==1.13.1",
     "baostock>=0.9.3",
-    "opencc-python-reimplemented>=0.1.7",
 ]
 requires-python = ">=3.12"
 
