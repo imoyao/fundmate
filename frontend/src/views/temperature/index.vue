@@ -304,6 +304,70 @@
               </div>
             </template>
           </el-table-column>
+          <!-- 成交额占比（历史百分位）：复用拥挤度配色与进度条语义，数据源降级为 null 时显示 -- -->
+          <el-table-column
+            prop="data.amount_pct_rank"
+            label="成交额占比"
+            width="220"
+            align="right"
+            sortable
+          >
+            <template #default="{ row }">
+              <div class="crowding-cell">
+                <span
+                  class="crowding-value"
+                  :class="crowdingColorClass(row.data?.amount_pct_rank)"
+                >
+                  {{
+                    row.data?.amount_pct_rank != null
+                      ? row.data.amount_pct_rank.toFixed(1) + "%"
+                      : "--"
+                  }}
+                </span>
+                <div class="crowding-cell-bar">
+                  <div class="crowding-cell-track">
+                    <div
+                      class="crowding-cell-fill"
+                      :class="crowdingColorClass(row.data?.amount_pct_rank)"
+                      :style="crowdingBarStyle(row.data?.amount_pct_rank)"
+                    />
+                  </div>
+                </div>
+              </div>
+            </template>
+          </el-table-column>
+          <!-- 换手率（历史百分位）：语义与拥挤度一致，越高越热（红），越低越冷（绿） -->
+          <el-table-column
+            prop="data.turnover_rank"
+            label="换手率"
+            width="220"
+            align="right"
+            sortable
+          >
+            <template #default="{ row }">
+              <div class="crowding-cell">
+                <span
+                  class="crowding-value"
+                  :class="crowdingColorClass(row.data?.turnover_rank)"
+                >
+                  {{
+                    row.data?.turnover_rank != null
+                      ? row.data.turnover_rank.toFixed(1) + "%"
+                      : "--"
+                  }}
+                </span>
+                <div class="crowding-cell-bar">
+                  <div class="crowding-cell-track">
+                    <div
+                      class="crowding-cell-fill"
+                      :class="crowdingColorClass(row.data?.turnover_rank)"
+                      :style="crowdingBarStyle(row.data?.turnover_rank)"
+                    />
+                  </div>
+                </div>
+              </div>
+            </template>
+          </el-table-column>
           <el-table-column
             prop="data.multiple"
             label="PB倍数"

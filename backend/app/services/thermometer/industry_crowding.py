@@ -1,19 +1,29 @@
 # -*- coding: utf-8 -*-
 """
-行业拥挤度（"韭菜投资学"方法）· v2 接入版
-============================================
+行业拥挤度（"韭菜投资学"方法）· v2 接入版 · 三维并列
+====================================================
 原理： 拥挤度 = 各行业 PB 相对 A 股整体 PB 的倍数，在历史(2010-06起)中的百分位。
-      倍数 = 行业PB / 全A中位PB；分位越低=相对A股越便宜(适合埋伏)，越高=越热门。
+       倍数 = 行业PB / 全A中位PB；分位越低=相对A股越便宜(适合埋伏)，越高=越热门。
 
- 数据源（默认 legulegu 免费，无需 token）：覆盖部分申万行业（消费/医药/金融/信息…）。
-  · 分母(全A中位PB)：优先 ak.stock_a_all_pb()（legulegu，2005+全历史，免费无 token）。
-  · 分子(行业PB)：legulegu index-basic-pb（免费，需 token，由 akshare 内置 JS 生成）。
-  · 分母兜底链：legulegu 不可用 → 本地缓存 → baostock 批量当日全A中位PB → 东财实时 → 全失败整组标灰。
-  · 分子全覆盖路径（可选，预留）：baostock(申万一级全行业)/tushare(申万一级31行业)，
-    需本机直连 baostock 或 TUSHARE_TOKEN，沙箱网络不可达故默认不走。
+三维口径（均以历史百分位呈现，见 issue #892）：
+  1. PB 倍数百分位（估值视角，现有）：行业PB / 全A中位PB 的历史百分位。
+  2. 成交额占比百分位（资金热度）：行业成交额 / 全A成交额占比的历史百分位。
+  3. 换手率百分位（资金热度）：行业换手率的历史百分位。
 
-健壮性：所有网络调用均 try/except + timeout，失败整组返回 stale 占位，
-        绝不抛异常阻塞 TemperatureJob 主链路（与 README 降级设计一致）。
+ 数据源：
+  · PB 维度（默认 legulegu 免费，无需 token）：覆盖部分申万行业（消费/医药/金融/信息…）。
+     · 分母(全A中位PB)：优先 ak.stock_a_all_pb()（legulegu，2005+全历史，免费无 token）。
+     · 分子(行业PB)：legulegu index-basic-pb（免费，需 token，由 akshare 内置 JS 生成）。
+     · 分母兜底链：legulegu 不可用 → 本地缓存 → baostock 批量当日全A中位PB → 东财实时 → 全失败整组标灰。
+     · 分子全覆盖路径（可选，预留）：baostock(申万一级全行业)/tushare(申万一级31行业)，
+       需本机直连 baostock 或 TUSHARE_TOKEN，沙箱网络不可达故默认不走。
+  · 成交额/换手率维度（东财 push2his K线接口）：legulegu 的 sw-congestion / sw-amount-ratio
+    为 VIP 接口（免费 token 返回 {"vip": false}，拿不到数据），故改用东财行业指数历史
+    （2011-08 起，15 年，满足分位窗口）；成交额分母用中证全指 000985（覆盖沪深全A）。
+
+健壮性：所有网络调用均 try/except + timeout，失败整组返回 stale 占位；
+        东财两维失败仅对应字段为 None 并在 note 标注，绝不抛异常阻塞
+        TemperatureJob 主链路（与 README 降级设计一致）。
 
 接入方式（供 TemperatureJob 调用）：
     from app.services.thermometer.industry_crowding import fetch_industry_crowding
@@ -312,6 +322,111 @@ def industry_pb_legulegu(code):
         return None
 
 
+# ───────────────── 东财两维：成交额占比分位 + 换手率分位 ─────────────────
+# legulegu 的 sw-congestion / sw-amount-ratio 为 VIP 接口（免费 token 拿不到数据），
+# 改用东财 push2his K线接口拉行业指数历史（2011-08 起，15 年，满足分位窗口）。
+def _em_secid(code: str) -> str:
+    """中证指数代码 -> 东财 secid（沪市前缀 1，深市前缀 0）。"""
+    base = code.split('.')[0]
+    return ('1.' if code.endswith('.SH') else '0.') + base
+
+
+def _em_industry_hist(code: str) -> Optional[pd.DataFrame]:
+    """东财 push2his K线接口拉行业指数全历史（beg=0）。
+
+    返回 DataFrame（date 索引），含 amount(成交额) 与 turnover(换手率) 两列；
+    任何异常/空数据返回 None（与文件现有健壮性风格一致，绝不抛异常）。
+    """
+    try:
+        r = requests.get(
+            'https://push2his.eastmoney.com/api/qt/stock/kline/get',
+            params={
+                'secid': _em_secid(code),
+                'fields1': 'f1,f2,f3,f4,f5,f6',
+                'fields2': 'f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61',
+                'klt': 101,
+                'fqt': 0,
+                'beg': 0,
+                'end': 20500101,
+            },
+            headers={'User-Agent': UA, 'Referer': 'https://quote.eastmoney.com/'},
+            timeout=10,
+        )
+        klines = (r.json().get('data') or {}).get('klines') or []
+        if not klines:
+            return None
+        rows = []
+        for line in klines:
+            parts = line.split(',')
+            # f51=日期, f57=成交额, f61=换手率（CSV 顺序：日期,开,收,高,低,成交量,成交额,振幅,涨跌幅,涨跌额,换手率）
+            rows.append({'date': parts[0], 'amount': parts[6], 'turnover': parts[10]})
+        df = pd.DataFrame(rows)
+        df['date'] = pd.to_datetime(df['date'])
+        df['amount'] = pd.to_numeric(df['amount'], errors='coerce')
+        df['turnover'] = pd.to_numeric(df['turnover'], errors='coerce')
+        df = df.dropna(subset=['amount', 'turnover']).set_index('date')
+        return df if not df.empty else None
+    except Exception as e:  # noqa
+        _log(f'  [warn] 东财行业指数历史抓取失败({code}):', str(e)[:60])
+        return None
+
+
+def _amount_ratio_rank(ind_hist: Optional[pd.DataFrame], mkt_hist: Optional[pd.DataFrame]) -> Optional[dict]:
+    """成交额占比分位：行业成交额 / 中证全指成交额 的历史占比序列 -> 当前占比的历史百分位。
+
+    返回 {'amount_pct': 当前占比%, 'amount_pct_rank': 历史百分位}；历史不足 200 天返回 None。
+    """
+    if ind_hist is None or mkt_hist is None:
+        return None
+    df = pd.concat([ind_hist['amount'].rename('ind'), mkt_hist['amount'].rename('mkt')], axis=1).dropna()
+    if len(df) < 200:
+        return None
+    ratio = df['ind'] / df['mkt']
+    cur = ratio.iloc[-1]
+    return {
+        'amount_pct': round(cur * 100, 2),
+        'amount_pct_rank': round((ratio < cur).mean() * 100, 1),
+    }
+
+
+def _turnover_rank(ind_hist: Optional[pd.DataFrame]) -> Optional[dict]:
+    """换手率分位：行业换手率序列 -> 当前值的历史百分位。
+
+    返回 {'turnover': 当前值, 'turnover_rank': 历史百分位}；历史不足 200 天返回 None。
+    """
+    if ind_hist is None:
+        return None
+    s = ind_hist['turnover'].dropna()
+    if len(s) < 200:
+        return None
+    cur = s.iloc[-1]
+    return {
+        'turnover': round(cur, 2),
+        'turnover_rank': round((s < cur).mean() * 100, 1),
+    }
+
+
+def _em_extra_dims(code: str, mkt_hist: Optional[pd.DataFrame]) -> dict:
+    """东财两维（成交额占比分位 + 换手率分位）合并结果；任一失败对应字段为 None。
+
+    内部已 try/except 兜底，绝不抛异常阻塞主链路。
+    """
+    out = {'amount_pct': None, 'amount_pct_rank': None, 'turnover': None, 'turnover_rank': None}
+    try:
+        ind_hist = _em_industry_hist(code)
+        if ind_hist is None:
+            return out
+        ar = _amount_ratio_rank(ind_hist, mkt_hist)
+        if ar:
+            out.update(ar)
+        tr = _turnover_rank(ind_hist)
+        if tr:
+            out.update(tr)
+    except Exception as e:  # noqa
+        _log(f'  [warn] 东财两维计算失败({code}):', str(e)[:60])
+    return out
+
+
 # ───────────────── 路径B：baostock（免费，全申万一级行业，预留）─────────────────
 try:
     import baostock as bs
@@ -465,6 +580,8 @@ def _record(name: str, code: str, c: dict) -> dict:
     note = f'倍数{c.get("multiple")} 行业PB{c.get("ind_pb")} 全A中位PB{c.get("mkt_pb")}' + (
         '' if c.get('hist_ok') else '；分位待历史积累'
     )
+    if c.get('amount_pct_rank') is None or c.get('turnover_rank') is None:
+        note += '；成交额/换手率分位暂不可用'
     return {
         'kind': 'multi',
         'source': 'industry_crowding',
@@ -478,6 +595,10 @@ def _record(name: str, code: str, c: dict) -> dict:
             'mkt_pb': c.get('mkt_pb'),
             'history_days': c.get('history_days'),
             'hist_ok': c.get('hist_ok'),
+            'amount_pct': c.get('amount_pct'),
+            'amount_pct_rank': c.get('amount_pct_rank'),
+            'turnover': c.get('turnover'),
+            'turnover_rank': c.get('turnover_rank'),
             'note': note,
         },
         'collected_at': now_shanghai(),
@@ -521,6 +642,8 @@ def fetch_industry_crowding() -> List[dict]:
             _log('路径: legulegu(免费·部分行业)')
 
         records = []
+        # 东财两维分母：中证全指 000985 成交额历史（仅 legulegu 路径需要，循环外拉一次复用）
+        mkt_hist = _em_industry_hist('000985.SH') if mode == 'legulegu' else None
         for name, code in src.items():
             try:
                 s = fetcher(code)
@@ -530,6 +653,9 @@ def fetch_industry_crowding() -> List[dict]:
                 c = crowding(s, mkt, meta.get('hist_ok', False))
                 if c is None:
                     continue
+                if mode == 'legulegu':
+                    # 东财两维：成交额占比分位 + 换手率分位（失败降级 None，不阻塞主链路）
+                    c.update(_em_extra_dims(code, mkt_hist))
                 records.append(_record(name, code, c))
             except Exception as e:  # noqa
                 _log(f'  {name} 异常: {str(e)[:40]}')
