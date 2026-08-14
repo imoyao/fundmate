@@ -6,13 +6,16 @@ import {
   GridComponent,
   LegendComponent,
   GraphicComponent,
-  TooltipComponent
+  TooltipComponent,
+  TitleComponent
 } from "echarts/components";
 
 const { use } = echarts;
 
 // 仅注册项目实际使用的图表类型和组件（经 2026-08-04 全量审计）
-// 移除：SVGRenderer, PolarComponent, TitleComponent, ToolboxComponent, DataZoomComponent, VisualMapComponent
+// 移除：SVGRenderer, PolarComponent, ToolboxComponent, DataZoomComponent, VisualMapComponent
+// 保留 TitleComponent：welcome/index.vue 资产分布饼图空状态用 title 显示「暂无资产数据」，
+// 误删会导致 [ECharts] Component title is used but not imported，空状态标题不渲染。
 use([
   PieChart,
   BarChart,
@@ -22,7 +25,8 @@ use([
   GridComponent,
   LegendComponent,
   GraphicComponent, // 用于 echarts.graphic.LinearGradient 面积渐变
-  TooltipComponent
+  TooltipComponent,
+  TitleComponent
 ]);
 
 /**

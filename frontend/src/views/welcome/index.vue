@@ -33,7 +33,8 @@
                 fontWeight: 500
               }"
             >
-              {{ userTitle }} 👋 {{ greetingText }},你已记账
+              <span class="welcome-nickname">{{ userTitle }}</span>
+              👋 {{ greetingText }},你已记账
               <span
                 class="font-bold"
                 :style="{
@@ -945,6 +946,15 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* 欢迎语昵称：品牌色高亮 chip，表达「这位用户对我们很特别、被关心」 */
+.welcome-nickname {
+  color: var(--brand-600);
+  background: var(--brand-100);
+  padding: 0 8px;
+  border-radius: 8px;
+  font-weight: 600;
+}
+
 @keyframes fadeUp {
   from {
     opacity: 0;
