@@ -63,7 +63,7 @@
     "element-plus": "^2.14.4",
     "js-cookie": "^3.0.8",
     "localforage": "^1.10.0",
-    "marked": "^18.0.7",
+    "marked": "^18.0.9",
     "mitt": "^3.0.1",
     "nprogress": "^0.2.0",
     "path-browserify": "^1.0.1",
