@@ -35,6 +35,7 @@ import {
   removeToken,
   multipleTabsKey
 } from "@/utils/auth";
+import { getMe, type MeResult } from "@/api/auth";
 
 // ============================================
 // 🔥 Supabase 集成
@@ -149,21 +150,41 @@ router.beforeEach(async (to: ToRouteType, _from, next) => {
   // 获取本地存储的用户信息（用于角色/权限判断）
   const userInfo = storageLocal().getItem<DataInfo<number>>(userKey);
 
-  // 同步状态：如果 Supabase 有 session 但本地没有 userInfo，则从 session 构造
+  // 同步状态：如果 Supabase 有 session 但本地没有 userInfo，则从后端拉取权威资料
   if (isAuthenticated && !userInfo && data.session?.user) {
     // 从 Supabase 用户信息构造 DataInfo
     const supabaseUser = data.session.user;
+    // 邮箱/手机号仅作最后兜底（隐私信息，不应常驻顶栏）；优先用后端返回的登录名与昵称
+    const fallbackUsername = supabaseUser.email || supabaseUser.phone || "";
+    let meData: MeResult["data"] | undefined;
+    try {
+      const meResp = await getMe();
+      meData = meResp.data;
+    } catch (e) {
+      // 后端取数失败不阻塞登录，回退到 session 兜底信息
+      console.warn("获取用户资料失败，回退到 session 信息：", e);
+    }
     const userData: DataInfo<number> = {
       // @ts-ignore - 兼容现有类型
       id: supabaseUser.id,
-      username: supabaseUser.email || supabaseUser.phone || "",
+      // 元数据仅兜底 roles（权限判断用），其余字段以后端权威值为准
       roles: supabaseUser.user_metadata?.roles || ["user"],
-      // 其他字段从 user_metadata 获取
-      ...supabaseUser.user_metadata
+      ...supabaseUser.user_metadata,
+      // 展示名优先昵称，回退登录名；邮箱仅作最后兜底，避免顶栏直接暴露邮箱
+      username: meData?.username || fallbackUsername,
+      nickname: meData?.nickname || "",
+      avatar: meData?.avatar || supabaseUser.user_metadata?.avatar || ""
     };
     storageLocal().setItem(userKey, userData);
     // 也设置 cookie（兼容现有逻辑）
     Cookies.set(multipleTabsKey, "true", { expires: 7 });
+    // 同步到 Pinia store：localStorage 写入不会触发顶栏响应式更新，
+    // 必须显式 SET_* 才能让右上角（用户名/昵称）即时刷新
+    const { useUserStoreHook } = await import("@/store/modules/user");
+    const userStore = useUserStoreHook();
+    userStore.SET_USERNAME(userData.username || "");
+    userStore.SET_NICKNAME(userData.nickname || "");
+    if (userData.avatar) userStore.SET_AVATAR(userData.avatar);
   }
 
   // 如果 Supabase 没有 session，但本地有 cookie，清理掉
