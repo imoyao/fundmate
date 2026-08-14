@@ -1,9 +1,13 @@
 {
-  "last_sync_at": "2026-08-12T12:14:26.614047+00:00",
+  "last_sync_at": "2026-08-13T18:02:46.723408+00:00",
   "posts": {
     "00000000-0000-4000-a0e1-000000000001": {
       "issue_number": 924,
       "synced_at": "2026-08-13T17:12:17Z"
+    },
+    "019ffc4a-77d6-709c-982d-3a54fdf22dd1": {
+      "issue_number": 925,
+      "synced_at": "2026-08-13T18:09:06Z"
     }
   },
   "_comment": "FeedLog ↔ GitHub 桥接状态文件。由 feedlog_bridge.py 自动维护，请勿手动编辑。"
