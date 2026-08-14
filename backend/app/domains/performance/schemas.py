@@ -3,6 +3,7 @@
 # Date : 2026/6/12 19:29
 # File : schemas.py
 # app/domains/performance/schemas.py
+from datetime import date
 from typing import Optional
 
 from pydantic import BaseModel, Field
@@ -14,6 +15,15 @@ class XirrRequest(BaseModel):
     scope: str = Field(..., description='查询范围: position / portfolio')
     position_id: Optional[int] = Field(None, description='持仓ID（scope=position时必填）')
     portfolio_id: Optional[int] = Field(None, description='投资组合ID（scope=portfolio时用于指定组合）')
+
+
+class MoneyFundIncomeRequest(BaseModel):
+    """货币基金每日收益查询参数"""
+
+    scope: Optional[str] = Field(None, description='查询范围: ledger / family')
+    ledger_id: Optional[int] = Field(None, description='账户ID（scope=ledger时必填）')
+    start_date: Optional[date] = Field(None, description='起始日期(YYYY-MM-DD)，默认近30天')
+    end_date: Optional[date] = Field(None, description='结束日期(YYYY-MM-DD)，默认今天')
 
 
 class XirrResponse(BaseModel):

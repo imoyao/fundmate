@@ -175,6 +175,45 @@
                 />
               </span>
             </div>
+
+            <!-- 货币基金收益（仅基金账户展示，后端 summary 对该类型输出 money_fund_stats） -->
+            <div
+              v-if="summaryData?.ledger_type === 'fund'"
+              class="mt-3 pt-2 border-t border-gray-50"
+            >
+              <div class="flex justify-between items-center">
+                <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }"
+                  >货基今日收益</span
+                >
+                <MoneyDisplay
+                  v-if="moneyFundData"
+                  :value="moneyFundData.today_income"
+                  size="sm"
+                />
+                <span
+                  v-else
+                  class="text-xs"
+                  :style="{ color: 'var(--text-tertiary)' }"
+                  >--</span
+                >
+              </div>
+              <div class="flex justify-between items-center mt-1">
+                <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }"
+                  >货基累计收益</span
+                >
+                <MoneyDisplay
+                  v-if="moneyFundData"
+                  :value="moneyFundData.total_income"
+                  size="sm"
+                />
+                <span
+                  v-else
+                  class="text-xs"
+                  :style="{ color: 'var(--text-tertiary)' }"
+                  >--</span
+                >
+              </div>
+            </div>
           </div>
         </div>
 
@@ -705,6 +744,10 @@ import {
 } from "@/api/ledger";
 import { getPortfolios } from "@/api/portfolio";
 import { updateAsset } from "@/api/assets";
+import {
+  getMoneyFundIncome,
+  type MoneyFundIncomeData
+} from "@/api/performance";
 import AccountFormFields from "./components/AccountFormFields.vue";
 import DeleteLedgerDialog from "./components/DeleteLedgerDialog.vue";
 import { getLedgerTypeLabel, ALLOCATION_OPTIONS } from "@/constants";
@@ -756,6 +799,24 @@ const migrateTargetLedgerId = ref<number | null>(null);
 
 // 概览数据
 const summaryData = ref<any>(null);
+
+// 货币基金收益（仅基金账户拉取）
+const moneyFundData = ref<MoneyFundIncomeData | null>(null);
+
+async function loadMoneyFundIncome() {
+  if (isUnclassified.value) return;
+  moneyFundData.value = null;
+  try {
+    const res = await getMoneyFundIncome({
+      scope: "ledger",
+      ledger_id: Number(ledgerId.value)
+    });
+    moneyFundData.value = res.data;
+  } catch (e) {
+    // 禁止静默吞错：失败保留占位 "--"，仅记日志不打断页面
+    console.error("货基收益加载失败", e);
+  }
+}
 
 // 持仓 Tab 数据
 const holdingsPage = ref(1);
@@ -1205,7 +1266,10 @@ const handleWindowResize = () => {
 
 // 只需一行，页面全自动刷新
 usePageRefresh(async () => {
-  if (!isUnclassified.value) await loadSummary();
+  if (!isUnclassified.value) {
+    await loadSummary();
+    if (summaryData.value?.ledger_type === "fund") await loadMoneyFundIncome();
+  }
   await loadHoldings();
   if (activeTab.value === "transactions") await loadTransactions();
 });
@@ -1217,6 +1281,8 @@ onMounted(async () => {
   try {
     if (!isUnclassified.value) {
       await loadSummary();
+      if (summaryData.value?.ledger_type === "fund")
+        await loadMoneyFundIncome();
     }
     await loadHoldings();
   } catch (e: any) {

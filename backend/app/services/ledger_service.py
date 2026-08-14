@@ -14,6 +14,7 @@ from app.domains.assets.models import Asset
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
+from app.services.summary_service import orphan_money_fund_net_by_ledger
 
 
 class LedgerService:
@@ -31,6 +32,11 @@ class LedgerService:
         all_assets = (
             db.query(Asset.ledger_id, Asset.amount, Asset.major_category).filter(Asset.family_id == family_id).all()
         )
+
+        # 孤儿货基/逆回购流水净额（分）按 ledger_id 归组；None → 0（游离）。
+        # 与 positions/assets 的游离聚合统一按同一 key 合并（并入 deleted 分组），
+        # 避免重复计数、口径一致（悬空数据语义等同「已删除账户」）。
+        orphan_map = orphan_money_fund_net_by_ledger(db, family_id)
 
         # 按 ledger_id 聚合持仓市值（分），ledger_id 为 None 统一归入 key=0
         pos_map: dict[int, int] = {}
@@ -61,22 +67,22 @@ class LedgerService:
                     'count': 0,
                     'total': 0.0,
                 }
-            total_cents = pos_map.get(ledger.id, 0) + asset_map.get(ledger.id, 0)
+            total_cents = pos_map.get(ledger.id, 0) + asset_map.get(ledger.id, 0) + orphan_map.get(ledger.id, 0)
             type_groups[t]['count'] += 1
             type_groups[t]['total'] += Money.cents_to_yuan(total_cents)
 
         # 处理已删除账户和游离数据（ledger_id 无效或为 None）
         orphan_cents = 0
         orphan_ledger_ids = set()
-        for lid in set(list(pos_map.keys()) + list(asset_map.keys())):
+        for lid in set(list(pos_map.keys()) + list(asset_map.keys()) + list(orphan_map.keys())):
             if lid == 0:
                 # 游离数据：ledger_id IS NULL
                 orphan_ledger_ids.add(0)
-                orphan_cents += pos_map.get(0, 0) + asset_map.get(0, 0)
+                orphan_cents += pos_map.get(0, 0) + asset_map.get(0, 0) + orphan_map.get(0, 0)
             elif lid not in ledger_id_to_type:
                 # 已删除账户
                 orphan_ledger_ids.add(lid)
-                orphan_cents += pos_map.get(lid, 0) + asset_map.get(lid, 0)
+                orphan_cents += pos_map.get(lid, 0) + asset_map.get(lid, 0) + orphan_map.get(lid, 0)
 
         if orphan_ledger_ids:
             type_groups['deleted'] = {

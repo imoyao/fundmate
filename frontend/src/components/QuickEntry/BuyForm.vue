@@ -344,6 +344,7 @@ import { createPosition } from "@/api/positions";
 import { createLedger as createLedgerApi } from "@/api/ledger";
 import { searchSecurities } from "@/api/securities";
 import { searchFunds, calcFundNav, getFundFeeRates } from "@/api/funds";
+import type { FundSearchItem } from "@/api/funds";
 import { checkTradingDay, calcFundConfirmDate } from "@/api/utils";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import {
@@ -583,6 +584,25 @@ function onFundFeeDiscountChange() {
 
 // ── 搜索 ──
 
+/**
+ * 识别货币基金：字段优先、代码段兜底。
+ * 1. 后端 /api/funds/search/ 输出 is_money_fund（fund_type_id === 6）时直接判定，
+ *    可覆盖场外货基（如 000198 余额宝）；
+ * 2. 字段缺失（后端尚未部署）时回退代码段规则，与后端 core/symbol_utils.py
+ *    _get_asset_type 一致：SH 97 开头（沪市现金管理产品）、SZ 10/11 开头（深市货币基金）。
+ * 命中后前端提交 type='money_fund'，后端 position_service 对现金管理类产品
+ * 只记孤儿流水、不建持仓。
+ */
+function resolveFundAssetType(
+  code: string,
+  isMoneyFund?: boolean
+): "money_fund" | "fund" {
+  if (isMoneyFund === true) return "money_fund";
+  return /^97\d{4}$/.test(code) || /^1[01]\d{4}$/.test(code)
+    ? "money_fund"
+    : "fund";
+}
+
 async function remoteSearch(query: string) {
   if (!query) {
     securityOptions.value = [];
@@ -594,15 +614,18 @@ async function remoteSearch(query: string) {
     let opts: any[] = [];
     if (type === "fund" || type === "bank") {
       const res = await searchFunds(query);
-      const arr = Array.isArray(res) ? res : ((res as any)?.data ?? []);
-      opts = arr.map((f: any) => ({
-        symbol: f.code,
-        name: f.name,
-        market: "CN_A",
-        type: "fund",
-        type_label: "基金",
-        subscription_rate: f.subscription_rate || DEFAULT_SUB_RATE
-      }));
+      const arr = Array.isArray(res) ? res : (res.data ?? []);
+      opts = arr.map((f: FundSearchItem) => {
+        const assetType = resolveFundAssetType(f.code, f.is_money_fund);
+        return {
+          symbol: f.code,
+          name: f.name,
+          market: "CN_A",
+          type: assetType,
+          type_label: assetType === "money_fund" ? "货币基金" : "基金",
+          subscription_rate: f.subscription_rate || DEFAULT_SUB_RATE
+        };
+      });
     } else {
       const res = await searchSecurities(query);
       const arr = Array.isArray(res) ? res : ((res as any)?.data ?? []);
@@ -620,14 +643,17 @@ async function remoteSearch(query: string) {
       }));
     }
     if (opts.length === 0 && query.trim()) {
-      const manualType = type === "fund" || type === "bank" ? "fund" : "stock";
+      const isFundLedger = type === "fund" || type === "bank";
+      const manualType = isFundLedger
+        ? resolveFundAssetType(query.trim())
+        : "stock";
       opts = [
         {
           symbol: query.trim().toUpperCase(),
           name: query.trim(),
           market: "CN_A",
           type: manualType,
-          type_label: "手动输入",
+          type_label: manualType === "money_fund" ? "货币基金" : "手动输入",
           is_manual: true
         }
       ];
@@ -636,14 +662,17 @@ async function remoteSearch(query: string) {
   } catch {
     if (query.trim()) {
       const manualType =
-        currentLedger.value?.ledger_type === "fund" ? "fund" : "stock";
+        currentLedger.value?.ledger_type === "fund" ||
+        currentLedger.value?.ledger_type === "bank"
+          ? resolveFundAssetType(query.trim())
+          : "stock";
       securityOptions.value = [
         {
           symbol: query.trim().toUpperCase(),
           name: query.trim(),
           market: "CN_A",
           type: manualType,
-          type_label: "手动输入",
+          type_label: manualType === "money_fund" ? "货币基金" : "手动输入",
           is_manual: true
         }
       ];

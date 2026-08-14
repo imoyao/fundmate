@@ -147,6 +147,11 @@ class FundService:
                     'name': f.name,
                     'type': 'fund',
                     'subscription_rate': rate,
+                    # 货基识别字段（2026-08-14 补）：前端无法从代码段识别场外货基
+                    # （000198 余额宝等 000 开头会被当普通基金建仓，违背统一流水式口径），
+                    # 由后端按 fund_type_id=6（货币型）权威判定，前端字段优先、代码段兜底。
+                    'fund_type_id': f.fund_type_id,
+                    'is_money_fund': f.fund_type_id == 6,
                 }
             )
         return results

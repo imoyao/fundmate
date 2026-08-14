@@ -18,8 +18,10 @@ from app.core.constants import (
 from app.core.database import Session
 from app.core.money import Money
 from app.domains.assets.models import Asset
+from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
 from app.domains.summary.models import AssetSnapshot
+from app.domains.transactions.models import Transaction
 
 # ---------------------------------------------------------------------------
 # 业务常量集中定义（消除魔法字符串）
@@ -40,6 +42,51 @@ def _load_user_assets(db: Session, family_id: int) -> tuple[list[Type[Position]]
     positions = db.query(Position).filter(Position.family_id == family_id).all()
     assets = db.query(Asset).filter(Asset.family_id == family_id).all()
     return positions, assets
+
+
+# ---------------------------------------------------------------------------
+# 孤儿货基/逆回购流水净额口径（position_service 对 money_fund/reverse_repo
+# 只建孤立流水：position_id=None、entry_status='orphan'、amount=净额分，不建持仓）。
+# 四处聚合（get_summary_data / get_sankey_data / get_account_groups /
+# get_overview_stats）统一经 orphan_money_fund_net_by_ledger 并入，保证只计一次。
+# 判定用 position_id IS NULL 而非 entry_status='orphan'：新建路径两者等价，
+# 但历史导入器早期数据的 entry_status 可能不统一，position_id IS NULL 更可靠、更宽松。
+# ---------------------------------------------------------------------------
+_ORPHAN_FLOW_ASSET_TYPES = ('money_fund', 'reverse_repo')
+_ORPHAN_FLOW_POSITIVE_TYPES = ('buy', 'deposit')
+_ORPHAN_FLOW_NEGATIVE_TYPES = ('sell', 'withdraw')
+
+
+def orphan_money_fund_net_by_ledger(db: Session, family_id: int) -> dict[int, int]:
+    """孤儿货基/逆回购流水净额（分），按 ledger_id 归组，None → 0（游离）。
+
+    口径：asset_type IN ('money_fund','reverse_repo') 且 position_id IS NULL；
+    净额 = buy/deposit 金额 − sell/withdraw 金额（amount 为分，全程整数运算，
+    禁止裸 float 乘除）。净额为 0 的组直接丢弃，避免产生空分组。
+    返回 {ledger_id: 净额分}：ledger 有效的净额并入对应账户，悬空（None/已删）
+    归 0 键由各调用方按「游离」处理。
+    """
+    rows = (
+        db.query(Transaction.ledger_id, Transaction.txn_type, Transaction.amount)
+        .filter(
+            Transaction.family_id == family_id,
+            Transaction.asset_type.in_(_ORPHAN_FLOW_ASSET_TYPES),
+            Transaction.position_id.is_(None),
+        )
+        .all()
+    )
+    net_map: dict[int, int] = {}
+    for lid, txn_type, amount in rows:
+        amount = amount or 0
+        if txn_type in _ORPHAN_FLOW_POSITIVE_TYPES:
+            delta = amount
+        elif txn_type in _ORPHAN_FLOW_NEGATIVE_TYPES:
+            delta = -amount
+        else:
+            continue  # dividend/tax 等不计入净额
+        key = lid or 0
+        net_map[key] = net_map.get(key, 0) + delta
+    return {k: v for k, v in net_map.items() if v != 0}
 
 
 def get_summary_data(db: Session, family_id: int = 1) -> dict[str, Any]:
@@ -78,6 +125,10 @@ def get_summary_data(db: Session, family_id: int = 1) -> dict[str, Any]:
             total_liabilities += amount
         else:
             total_assets += amount
+
+    # 孤儿货基/逆回购流水净额并入总资产（流动资金；净额可为负，按负数处理）
+    orphan_net = sum(orphan_money_fund_net_by_ledger(db, family_id).values())
+    total_assets += Money.cents_to_yuan(orphan_net)
 
     return {
         'total_assets_cny': round(total_assets, 2),
@@ -157,6 +208,12 @@ def get_sankey_data(db: Session, family_id: int = 1) -> dict[str, list[dict[str,
     # 将投资理财总额归入大类
     category_totals[_INVESTMENT_KEY] += investment_total
     total_assets += investment_total
+
+    # 孤儿货基/逆回购流水净额归入「流动资金/cash」大类（分 → 元；净额可为负）
+    orphan_net = sum(orphan_money_fund_net_by_ledger(db, family_id).values())
+    orphan_yuan = Money.cents_to_yuan(orphan_net)
+    category_totals['cash'] += orphan_yuan
+    total_assets += orphan_yuan
 
     # 若无任何资产，返回空数据
     if total_assets == 0:
@@ -242,7 +299,14 @@ def get_account_groups(db: Session, family_id: int = 1) -> list[dict]:
         groups[acc]['total'] += amount
         groups[acc]['count'] += 1
 
-    # 3. 转换为列表并排序 (金额大的在上)
+    # 3. 孤儿货基/逆回购流水净额按 ledger_id 归组（无 ledger 归「游离」）
+    ledger_names = {led.id: led.name for led in db.query(Ledger).filter(Ledger.family_id == family_id).all()}
+    for lid, net_cents in orphan_money_fund_net_by_ledger(db, family_id).items():
+        acc = ledger_names.get(lid, '游离') if lid else '游离'
+        groups[acc]['total'] += Money.cents_to_yuan(net_cents)
+        groups[acc]['count'] += 1
+
+    # 4. 转换为列表并排序 (金额大的在上)
     result = [
         {'name': name, 'total': round(data['total'], 2), 'count': data['count']}
         for name, data in groups.items()

@@ -73,6 +73,34 @@
       </div>
     </div>
 
+    <!-- 货币基金收益卡片（家庭维度，真实数据） -->
+    <div class="bg-white rounded-xl shadow-sm p-6 mb-6">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="text-gray-800 font-bold text-lg">货币基金收益</h3>
+        <span class="text-gray-400 text-xs">按家庭维度统计</span>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="flex items-baseline justify-between">
+          <span class="text-gray-400 text-sm">今日收益</span>
+          <MoneyDisplay
+            v-if="moneyFundData"
+            :value="moneyFundData.today_income"
+            size="lg"
+          />
+          <span v-else class="text-gray-400 text-sm">--</span>
+        </div>
+        <div class="flex items-baseline justify-between">
+          <span class="text-gray-400 text-sm">累计收益</span>
+          <MoneyDisplay
+            v-if="moneyFundData"
+            :value="moneyFundData.total_income"
+            size="lg"
+          />
+          <span v-else class="text-gray-400 text-sm">--</span>
+        </div>
+      </div>
+    </div>
+
     <!-- 资产构成卡片 -->
     <div class="bg-white rounded-xl shadow-sm p-6 mb-6">
       <div class="flex items-center justify-between mb-6">
@@ -382,6 +410,10 @@ import SankeyChart from "@/components/Charts/SankeyChart.vue";
 import { getPositions } from "@/api/positions";
 import { getSummary } from "@/api/summary";
 import { getAssets } from "@/api/assets";
+import {
+  getMoneyFundIncome,
+  type MoneyFundIncomeData
+} from "@/api/performance";
 import { ElMessage } from "element-plus";
 import echarts from "@/plugins/echarts";
 import {
@@ -456,6 +488,20 @@ const totalLiabilities = ref(0);
 const searchKeyword = ref("");
 const viewDimension = ref("allocation");
 const allAssets = ref<any[]>([]); // 用来存 assets 表的数据
+
+// 货币基金收益（家庭维度）
+const moneyFundData = ref<MoneyFundIncomeData | null>(null);
+
+async function loadMoneyFundIncome() {
+  moneyFundData.value = null;
+  try {
+    const res = await getMoneyFundIncome({ scope: "family" });
+    moneyFundData.value = res.data;
+  } catch (e) {
+    // 禁止静默吞错：失败保留占位 "--"，仅记日志不打断页面
+    console.error("货基收益加载失败", e);
+  }
+}
 
 const pieChartRef = ref<HTMLDivElement>();
 const barChartRef = ref<HTMLDivElement>();
@@ -971,6 +1017,7 @@ async function fetchData() {
 
 onMounted(async () => {
   await fetchData();
+  await loadMoneyFundIncome();
   window.addEventListener("resize", handleResize);
 });
 
