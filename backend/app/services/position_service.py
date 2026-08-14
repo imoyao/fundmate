@@ -151,7 +151,7 @@ class PositionService:
     # ── 公开方法 ──────────────────────────────────────────
 
     @staticmethod
-    def process_buy_or_deposit(db: Session, data: dict, skip_lot_check: bool = False) -> Optional[Position]:
+    def process_buy_or_deposit(db: Session, data: dict) -> Optional[Position]:
         """
         执行买入或存入操作，返回更新或新建的持仓实例。
         """
@@ -194,12 +194,10 @@ class PositionService:
         if price <= 0:
             raise ValueError('价格必须大于 0')
 
-        # lot check 的当前持有量基于目标账户（与合并身份键一致），不再按 account_name 二次查询（#911 M3）
-        current_hold_shares = Money.min_unit_to_shares(same.quantity) if same else 0.0
-        if not skip_lot_check:
-            valid, err_msg = validate_buy(symbol, data.get('market', ''), asset_type, current_hold_shares, qty)
-            if not valid:
-                raise ValueError(err_msg)
+        # lot check：买入仅校验本次数量合法（起买单位/步长），与当前持有量无关
+        valid, err_msg = validate_buy(symbol, data.get('market', ''), asset_type, qty)
+        if not valid:
+            raise ValueError(err_msg)
 
         if price <= 0:
             raise SBException(

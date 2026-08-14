@@ -625,7 +625,7 @@ class ImportOrchestrator:
 
                 # 常规操作 (BUY/DEPOSIT, SELL/WITHDRAW, DIVIDEND)
                 if bt in (BusinessType.BUY.code, BusinessType.DEPOSIT.code):
-                    result = PositionService.process_buy_or_deposit(self.db, data, skip_lot_check=True)
+                    result = PositionService.process_buy_or_deposit(self.db, data)
                 elif bt in (BusinessType.SELL.code, BusinessType.WITHDRAW.code):
                     result = PositionService.process_orphan_sell_or_withdraw(self.db, data)
                 elif bt in (BusinessType.DIVIDEND_CASH.code, BusinessType.DIVIDEND_REINVEST.code):

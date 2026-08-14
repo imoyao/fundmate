@@ -46,19 +46,16 @@ def _get_rule(symbol: str, market: str, asset_type: str) -> dict:
 # ---------- 校验函数 ----------
 
 
-def validate_buy(symbol: str, market: str, asset_type: str, current_hold: float, order_qty: float) -> tuple[bool, str]:
+def validate_buy(symbol: str, market: str, asset_type: str, order_qty: float) -> tuple[bool, str]:
+    """买入数量校验。
+
+    买入侧**只校验数量为正数**，不限制手数、也不与持仓量挂钩：
+      - 建仓允许不足一手（碎股/凑整），加仓同样不受「持有量上限」约束；
+      - 「至少一手 / 整手步长 / 不能超过持仓」都是卖出(validate_sell)的职责，
+        误把持仓量或起买单位卷进买入，会导致真实买入被错误拦截。
+    """
     if order_qty <= 0:
         return False, '买入数量必须大于0'
-    rule = _get_rule(symbol, market, asset_type)
-    min_unit = rule['min_unit']
-    step = rule['step']
-    if current_hold < min_unit:
-        return True, ''
-    if order_qty < min_unit:
-        return False, f'买入数量不能低于{min_unit}股/张'
-    # 🔥 核心修复：如果是基金/货币基金，步长永远是1，直接跳过取模运算，彻底杜绝浮点数精度陷阱！
-    if asset_type not in ('fund', 'money_fund') and (order_qty - min_unit) % step != 0:
-        return False, f'买入数量必须符合{min_unit}股/张起，步长{step}'
     return True, ''
 
 
@@ -99,7 +96,7 @@ class TradeService:
         symbol: str, market: str, asset_type: str, current_hold: float, order_qty: float, op_type: str
     ) -> dict:
         if op_type == 'buy':
-            valid, msg = validate_buy(symbol, market, asset_type, current_hold, order_qty)
+            valid, msg = validate_buy(symbol, market, asset_type, order_qty)
         elif op_type == 'sell':
             valid, msg = validate_sell(symbol, market, asset_type, current_hold, order_qty)
         else:

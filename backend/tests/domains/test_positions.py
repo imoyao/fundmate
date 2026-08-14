@@ -1004,7 +1004,7 @@ class TestPositionImportHash:
             db.flush()
         return ledger.id
 
-    def _buy(self, db, ledger_id, source, symbol='600519', qty=100, price=1800.0, skip_lot_check=False):
+    def _buy(self, db, ledger_id, source, symbol='600519', qty=100, price=1800.0):
         data = {
             'symbol': symbol,
             'name': '贵州茅台',
@@ -1017,7 +1017,7 @@ class TestPositionImportHash:
             'op_type': 'buy',
             'source': source,
         }
-        return PositionService.process_buy_or_deposit(db, data, skip_lot_check=skip_lot_check)
+        return PositionService.process_buy_or_deposit(db, data)
 
     def test_import_hash_generated_and_source_persisted(self, db):
         """新建持仓应生成 import_hash 并落库 source 字段（白名单透传）。"""
@@ -1039,13 +1039,14 @@ class TestPositionImportHash:
         # 第一次：手动录入
         p1 = self._buy(db, ledger_id, source='manual', qty=100, price=1800.0)
         # 第二次：交割单导入，同 ledger/symbol/同日 → 相同 import_hash → 应 upsert
-        p2 = self._buy(db, ledger_id, source='broker_ht', qty=50, price=1800.0, skip_lot_check=True)
+        # 注意：二次买入 100 股（A股一手起买），验证买入不受持有量限制、且撞 hash 合并
+        p2 = self._buy(db, ledger_id, source='broker_ht', qty=100, price=1800.0)
         db.commit()
         positions = db.query(Position).filter_by(ledger_id=ledger_id, symbol='SH600519').all()
         assert len(positions) == 1  # 未产生两条
         assert positions[0].id == p1.id == p2.id  # upsert 同一记录
-        # 数量累加 100+50=150
-        assert positions[0].quantity == Money.shares_to_min_unit(150)
+        # 数量累加 100+100=200
+        assert positions[0].quantity == Money.shares_to_min_unit(200)
         # 溯源字段保留（以末次写入的 source 为准）
         assert positions[0].source == 'broker_ht'
 
@@ -1065,3 +1066,21 @@ class TestPositionImportHash:
             source='manual', ledger_id=ledger_id, symbol='SH600519', snapshot_date=date.today()
         )
         assert pos.import_hash == expected
+
+    def test_buy_qty_not_limited_by_holdings(self, db):
+        """回归：买入数量只校验自身合法（>0、起买单位/步长），不受当前持有量限制。
+
+        历史上 validate_buy 误把 current_hold 卷入买入校验，导致「已持有 100 股时
+        再次买入被错误拦截」。本测试确认：即便已持有，再次买入一手仍成功，且
+        「买入不能超过持仓」这种错误约束不存在（那是卖出的职责）。
+        """
+        ledger_id = self._make_ledger(db)
+        p1 = self._buy(db, ledger_id, source='manual', qty=100, price=1800.0)
+        db.commit()
+        assert p1 is not None
+        # 已持有 100 股，再次买入一手（100 股）应成功，而非被「超过持有」误拦
+        p2 = self._buy(db, ledger_id, source='manual', qty=100, price=1800.0)
+        db.commit()
+        # 撞 import_hash upsert 合并为 200 股，证明买入未被持有量上限拦截
+        assert p2.id == p1.id
+        assert p2.quantity == Money.shares_to_min_unit(200)
