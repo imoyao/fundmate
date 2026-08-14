@@ -159,7 +159,7 @@ class THSStockParser(BaseImportParser):
         required = ['证券代码', '操作', '成交数量', '成交均价', '交收日期']
         missing = [c for c in required if c not in df.columns]
         if missing:
-            return [SBImportError(0, None, f"缺少必要列: {', '.join(missing)}。请确认上传的是同花顺历史交割单导出文件")]
+            return [SBImportError(0, None, f'缺少必要列: {", ".join(missing)}。请确认上传的是同花顺历史交割单导出文件')]
         return []
 
     def _preprocess_dataframe(self, df: pd.DataFrame) -> None:

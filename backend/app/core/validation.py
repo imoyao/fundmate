@@ -24,7 +24,7 @@ def _format_errors(exc: ValidationError) -> str:
     parts = []
     for err in exc.errors():
         loc = '.'.join(str(p) for p in err.get('loc', ()))
-        parts.append(f"{loc}: {err.get('msg', '')}" if loc else err.get('msg', ''))
+        parts.append(f'{loc}: {err.get("msg", "")}' if loc else err.get('msg', ''))
     return '; '.join(parts)
 
 

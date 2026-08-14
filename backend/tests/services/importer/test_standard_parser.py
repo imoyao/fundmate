@@ -40,7 +40,7 @@ class TestStandardFundParser:
 
     def test_parse_minimal_required_fields(self, parser):
         """只填必填字段，名称和账户为空"""
-        csv_content = '确认日期,基金代码,业务类型,金额\n' '2023-06-01,014330,申购,10.00\n'
+        csv_content = '确认日期,基金代码,业务类型,金额\n2023-06-01,014330,申购,10.00\n'
         records, errors = parser.parse(csv_content.encode('utf-8'))
         assert len(records) == 1
         assert len(errors) == 0
@@ -53,7 +53,7 @@ class TestStandardFundParser:
 
     def test_parse_missing_required_column(self, parser):
         """缺少必填列"""
-        csv_content = '确认日期,基金代码,业务类型\n' '2023-06-01,014330,申购\n'
+        csv_content = '确认日期,基金代码,业务类型\n2023-06-01,014330,申购\n'
         records, errors = parser.parse(csv_content.encode('utf-8'))
         assert len(records) == 0
         assert len(errors) == 1
@@ -61,13 +61,13 @@ class TestStandardFundParser:
 
     def test_parse_code_normalization(self, parser):
         """基金代码标准化：去空格、补零"""
-        csv_content = '确认日期,基金代码,业务类型,金额\n' '2023-06-01, 14330 ,申购,10.00\n'
+        csv_content = '确认日期,基金代码,业务类型,金额\n2023-06-01, 14330 ,申购,10.00\n'
         records, _ = parser.parse(csv_content.encode('utf-8'))
         assert records[0].symbol == '014330'
 
     def test_parse_invalid_code(self, parser):
         """无效基金代码应返回一条错误记录"""
-        csv_content = '确认日期,基金代码,业务类型,金额\n' '2023-06-01,abc,申购,10.00\n'
+        csv_content = '确认日期,基金代码,业务类型,金额\n2023-06-01,abc,申购,10.00\n'
         records, errors = parser.parse(csv_content.encode('utf-8'))
         # 应有一条记录，但带有错误信息
         assert len(records) == 1
@@ -78,7 +78,7 @@ class TestStandardFundParser:
 
     def test_validate_normal(self, parser):
         """校验通过"""
-        csv_content = '确认日期,基金代码,业务类型,金额\n' '2023-06-01,014330,申购,10.00\n'
+        csv_content = '确认日期,基金代码,业务类型,金额\n2023-06-01,014330,申购,10.00\n'
         records, _ = parser.parse(csv_content.encode('utf-8'))
         valid, errors = parser.validate(records)
         assert len(valid) == 1
@@ -86,7 +86,7 @@ class TestStandardFundParser:
 
     def test_validate_invalid_business_type(self, parser):
         """不支持的业务类型"""
-        csv_content = '确认日期,基金代码,业务类型,金额\n' '2023-06-01,014330,未知类型,10.00\n'
+        csv_content = '确认日期,基金代码,业务类型,金额\n2023-06-01,014330,未知类型,10.00\n'
         records, _ = parser.parse(csv_content.encode('utf-8'))
         valid, errors = parser.validate(records)
         assert len(valid) == 0
@@ -94,7 +94,7 @@ class TestStandardFundParser:
 
     def test_validate_future_date(self, parser):
         """日期不能晚于今天"""
-        csv_content = '确认日期,基金代码,业务类型,金额\n' '2099-01-01,014330,申购,10.00\n'
+        csv_content = '确认日期,基金代码,业务类型,金额\n2099-01-01,014330,申购,10.00\n'
         records, _ = parser.parse(csv_content.encode('utf-8'))
         valid, errors = parser.validate(records)
         assert len(valid) == 0

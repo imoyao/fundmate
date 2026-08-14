@@ -378,9 +378,9 @@ class TransactionParser:
                 continue
             contract = row.get('contract_id', '')
             if contract:
-                raw = f"{row['symbol']}|{contract}|{row['op_type']}"
+                raw = f'{row["symbol"]}|{contract}|{row["op_type"]}'
             else:
-                raw = f"{row['symbol']}|{row['trade_date']}|{row['op_type']}|{row['quantity']}|{row['price']}"
+                raw = f'{row["symbol"]}|{row["trade_date"]}|{row["op_type"]}|{row["quantity"]}|{row["price"]}'
             row['import_hash'] = hashlib.md5(raw.encode()).hexdigest()
         rows = self._link_bond_interest_and_tax(rows)
         return rows

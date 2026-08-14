@@ -109,8 +109,8 @@ class FundDetailEnrichJob(SyncJob):
         self._post_run()
         self.status = JobStatus.SUCCESS
         self.logger.info(
-            f"基金详情补充完成: 新增 {self.stats['enriched']}, "
-            f"跳过 {self.stats['skipped']}, 错误 {len(self.stats['errors'])}"
+            f'基金详情补充完成: 新增 {self.stats["enriched"]}, '
+            f'跳过 {self.stats["skipped"]}, 错误 {len(self.stats["errors"])}'
         )
         return self._build_result()
 

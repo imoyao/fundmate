@@ -53,7 +53,7 @@ def cmd_temperature(args):
     with get_db() as db:
         orch = _build_orchestrator(db)
         result = orch.run_job('temperature', full_sync=args.full_sync)
-        logger.info(f"temperature 执行完成: {result.get('status')}")
+        logger.info(f'temperature 执行完成: {result.get("status")}')
         return 0 if result.get('status') == 'success' else 1
 
 
@@ -65,7 +65,7 @@ def cmd_all(args):
         results = orch.run_all_jobs(full_sync=args.full_sync)
         failed = [k for k, v in results.items() if v.get('status') != 'success']
         for name, res in results.items():
-            logger.info(f"  {name}: {res.get('status')}")
+            logger.info(f'  {name}: {res.get("status")}')
         if failed:
             logger.warning(f'有 {len(failed)} 个任务未成功: {failed}')
             return 1
@@ -79,7 +79,7 @@ def cmd_job(args):
     with get_db() as db:
         orch = _build_orchestrator(db)
         result = orch.run_job(args.job, full_sync=args.full_sync)
-        logger.info(f"{args.job} 执行完成: {result.get('status')}")
+        logger.info(f'{args.job} 执行完成: {result.get("status")}')
         return 0 if result.get('status') == 'success' else 1
 
 
@@ -91,8 +91,8 @@ def cmd_verify_jisilu(args):
     ji = (data.get('composites') or {}).get('jisilu_indicator') or {}
     level_keys = [k for k in ji if 'level' in k]
     bands = (data.get('composites') or {}).get('temperature_bands')
-    logger.info(f"jisilu level 字段: {level_keys or '无（B2 尚未生效，需先跑 temperature 抓取）'}")
-    logger.info(f"median_pb_level={ji.get('median_pb_level')}  median_pe_level={ji.get('median_pe_level')}")
+    logger.info(f'jisilu level 字段: {level_keys or "无（B2 尚未生效，需先跑 temperature 抓取）"}')
+    logger.info(f'median_pb_level={ji.get("median_pb_level")}  median_pe_level={ji.get("median_pe_level")}')
     logger.info(f'temperature_bands: {bands}')
     return 0 if level_keys else 1
 

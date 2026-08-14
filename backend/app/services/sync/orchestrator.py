@@ -214,7 +214,7 @@ class DataSyncOrchestrator:
         elif db_url.startswith('mysql'):
             self._backup_mysql(db_url, backup_dir, timestamp)
         else:
-            logger.warning(f"不支持的数据库类型，跳过备份: {db_url.split(':')[0]}")
+            logger.warning(f'不支持的数据库类型，跳过备份: {db_url.split(":")[0]}')
 
     def _backup_sqlite(self, db_url: str, backup_dir: Path, timestamp: str) -> None:
         """SQLite 文件级备份"""
@@ -288,7 +288,7 @@ class DataSyncOrchestrator:
             raise ValueError(f'未知任务: {job_name}')
 
         job = self.jobs[job_name]
-        logger.info(f"开始执行 {job_name} (全量={full_sync}, 目标数={len(targets) if targets else '全部'})")
+        logger.info(f'开始执行 {job_name} (全量={full_sync}, 目标数={len(targets) if targets else "全部"})')
 
         # 注入目标代码列表
         if targets:
@@ -310,7 +310,7 @@ class DataSyncOrchestrator:
         try:
             result = self.run_job(job_name, full_sync, targets=targets)
             if result['status'] != 'success':
-                logger.error(f"任务 {job_name} 失败（状态：{result['status']}），继续执行下一个任务")
+                logger.error(f'任务 {job_name} 失败（状态：{result["status"]}），继续执行下一个任务')
             else:
                 logger.info(f'任务 {job_name} 完成')
             return result

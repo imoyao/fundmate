@@ -153,7 +153,7 @@ class TestFundNavBatch:
 
     @pytest.fixture
     def funds(self, db):
-        fund_list = [Fund(fund_code=f'00000{i+1}', name=f'基金{i+1}') for i in range(4)]
+        fund_list = [Fund(fund_code=f'00000{i + 1}', name=f'基金{i + 1}') for i in range(4)]
         db.add_all(fund_list)
         db.commit()
         return fund_list

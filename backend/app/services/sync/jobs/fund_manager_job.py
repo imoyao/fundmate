@@ -52,7 +52,7 @@ class FundManagerSyncJob(SyncJob):
             if not item.get('mgr_code'):
                 import hashlib
 
-                raw = f"{item.get('name', '')}_{item.get('company', '')}"
+                raw = f'{item.get("name", "")}_{item.get("company", "")}'
                 item['mgr_code'] = hashlib.sha256(raw.encode()).hexdigest()[:12]
             validated.append(item)
         return validated

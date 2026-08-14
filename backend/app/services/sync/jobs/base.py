@@ -161,7 +161,7 @@ class SyncJob(ABC):
         while self.status in (JobStatus.PENDING, JobStatus.FAILED, JobStatus.RETRYING):
             try:
                 self.status = JobStatus.RUNNING
-                self.logger.info(f"开始执行 (全量={full_sync}, 目标数={len(targets) if targets else '全部'})")
+                self.logger.info(f'开始执行 (全量={full_sync}, 目标数={len(targets) if targets else "全部"})')
 
                 if targets is None:
                     # 无外部目标列表：子类自己获取全部数据（适用于全量列表 Job）

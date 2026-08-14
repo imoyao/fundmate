@@ -61,7 +61,7 @@ class StandardTemplateParser(BaseImportParser):
                 SBImportError(
                     line_number=0,
                     field_name=None,
-                    message=f"缺少必填列: {', '.join(missing)}",
+                    message=f'缺少必填列: {", ".join(missing)}',
                 )
             )
             return records, errors
@@ -126,7 +126,7 @@ class StandardTemplateParser(BaseImportParser):
 
         confirm_date = parse_date(row.get('confirm_date', ''))
         if not confirm_date:
-            raise ValueError(f"确认日期格式错误: {row.get('confirm_date', '')}")
+            raise ValueError(f'确认日期格式错误: {row.get("confirm_date", "")}')
 
         trade_date = parse_date(row.get('trade_date', '')) if row.get('trade_date') else None
 
@@ -139,7 +139,7 @@ class StandardTemplateParser(BaseImportParser):
         amount = clean_amount(amount_raw) if amount_raw else Decimal('0')
         # 金额：只有现金分红和普通交易必填，红利再投资选填
         if amount is None and op_type not in ('dividend_cash', 'dividend_reinvest', 'deposit', 'withdraw'):
-            raise ValueError(f"金额格式错误: {row.get('amount', '')}")
+            raise ValueError(f'金额格式错误: {row.get("amount", "")}')
 
         shares = clean_shares(row.get('shares', ''), '0.00' if self._asset_type == 'fund' else '0')
 

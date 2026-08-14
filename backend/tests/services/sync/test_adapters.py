@@ -59,7 +59,7 @@ class TestXalphaAdapter:
     @patch('app.services.sync.adapters.xalpha_adapter.requests.get')
     def test_fetch_fund_nav_money_fund_uses_pingzhong(self, mock_get, adapter):
         """货币基金：lsjz 增量返回每万份收益（SYType），应回退 pingzhongdata 解析"""
-        pz_text = 'var Data_millionCopiesIncome = ' '[[1735689600000, 0.5], [1735776000000, 0.4]];'
+        pz_text = 'var Data_millionCopiesIncome = [[1735689600000, 0.5], [1735776000000, 0.4]];'
         mock_get.side_effect = [
             MagicMock(
                 status_code=200,
@@ -155,8 +155,8 @@ class TestAkshareAdapter:
         df = pd.DataFrame({'code': ['600519', '000001'], 'name': ['茅台', '平安']})
         mock_ak.stock_info_a_code_name.return_value = df
         normalizer_mock = MagicMock()
-        normalizer_mock.normalize.side_effect = (
-            lambda c: (f'SH{c}', 'SH', None) if c == '600519' else (f'SZ{c}', 'SZ', None)
+        normalizer_mock.normalize.side_effect = lambda c: (
+            (f'SH{c}', 'SH', None) if c == '600519' else (f'SZ{c}', 'SZ', None)
         )
         mock_norm.return_value = normalizer_mock
 

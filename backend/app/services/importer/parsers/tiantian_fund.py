@@ -81,7 +81,7 @@ class TiantianFundParser(FundStandardParser):
                 SBImportError(
                     line_number=0,
                     field_name=None,
-                    message=f"缺少必填列: {', '.join(missing)}。请确认复制了完整的表格数据。",
+                    message=f'缺少必填列: {", ".join(missing)}。请确认复制了完整的表格数据。',
                 )
             )
             return records, errors

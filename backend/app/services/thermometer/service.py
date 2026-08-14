@@ -569,7 +569,7 @@ class TemperatureService:
             insights.append(
                 {
                     'name': '股债性价比',
-                    'desc': f"利差 {spread:.2f}%，{self_calc.get('level') or '中性'}",
+                    'desc': f'利差 {spread:.2f}%，{self_calc.get("level") or "中性"}',
                     'tone': tone,
                 }
             )
@@ -580,7 +580,7 @@ class TemperatureService:
             insights.append(
                 {
                     'name': '综合温度',
-                    'desc': f"当前 {temp_val:.1f}，{composite_temp.get('level') or '中性'}",
+                    'desc': f'当前 {temp_val:.1f}，{composite_temp.get("level") or "中性"}',
                     'tone': tone,
                 }
             )
@@ -601,7 +601,7 @@ class TemperatureService:
             band = bands.get(key) or {}
             level = band.get('level')
             if level and level != '未知':
-                parts.append(f"{band.get('name', '')}{level}")
+                parts.append(f'{band.get("name", "")}{level}')
         return '，'.join(parts)
 
     # ---- 清理 ----
