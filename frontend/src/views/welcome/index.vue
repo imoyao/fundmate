@@ -946,9 +946,10 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* 欢迎语昵称：品牌色高亮 chip，表达「这位用户对我们很特别、被关心」 */
+/* 欢迎语昵称：暖色背景 chip 表达「这位用户对我们很特别、被关心」。
+   文字保持主色、不用红色——避讳人名用红色（关联墓碑/断交等不吉意味）。 */
 .welcome-nickname {
-  color: var(--brand-600);
+  color: var(--text-primary);
   background: var(--brand-100);
   padding: 0 8px;
   border-radius: 8px;
