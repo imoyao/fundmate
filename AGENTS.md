@@ -61,17 +61,27 @@ Windows：`dev.cmd`（内部走 `scripts/dev.ps1`）；Git Bash / WSL / macOS：
 **工具位置与约束**：`backend/scripts/cleanup_temp.py`（自研，无第三方依赖）。
 - 默认 **DRY-RUN**：只收集并打印「将要删除的文件」清单，**绝不真正删除**；
 - 必须显式传 `--apply` 才真正删除；
+- **删除前强制二次核验 git 跟踪状态**：对每个待删文件执行 `git ls-files --error-unmatch`，
+  只有「未跟踪（含被 `.gitignore` 忽略）」的文件才会被删；已跟踪（源码 / 配置 / 文档 /
+  入库资产）一律标 `[TRACKED-跳过]` 并**绝不删除**。这是防误删的最后一道闸，不可绕过。
+- **精准优先**：AI / agent 应优先用 `--file <路径>` 逐项传入要删的精确文件清单，而不是依赖
+  宽模式（如 `*.json` 曾误匹配到 `package.json` / `vercel.json` 等配置，已被二次核验拦截）；
 - 默认只在白名单目录清理（仓库根 + `docs/working-notes`），不递归扫源码；可用 `--dir` 扩展（可多次）；
 - 默认只匹配明确的临时文件名模式（`.tmp_*` / `_commit_*` / `_commit_msg_*` / `_cleanup_*`），可用 `--pattern` 追加（可多次）。
 
 **操作 SOP（AI / 人通用）**：
-1. 先 dry-run 看清单（默认即 dry-run，不传 `--apply` 不删）：
-   `cd backend && pdm run python backend/scripts/cleanup_temp.py`
-   自定义：`pdm run python backend/scripts/cleanup_temp.py --dir path/to/dir --pattern "*.bak"`
-2. 把打印出的「将要删除的文件清单」呈现给用户，说明要删哪些、为什么（临时调试 / commit / issue 产物，无业务价值），**等用户确认**。
-3. 用户确认后才真正删除：`pdm run python backend/scripts/cleanup_temp.py --apply`（或带自定义模式 `--pattern`）。
-- 任何不在默认模式里的文件（如 `_decode_tmp.py`、`*.json` dump 等），需显式 `--pattern` 指定，且仍要先 dry-run 给用户看清单；
-- **绝不用本脚本删除源码 / 配置 / 文档 / 入库资产**（如 `all_pb.csv`）。
+1. 先 dry-run 看清单（默认即 dry-run，不传 `--apply` 不删）。清单中每个文件会标注
+   `[untracked]`（可删）或 `[TRACKED-跳过]`（已跟踪，不会删）：
+   - 推荐（精准）：`cd backend && pdm run python backend/scripts/cleanup_temp.py --file ../x.ps1 --file ../y.txt`
+   - 或按模式：`pdm run python backend/scripts/cleanup_temp.py --pattern "_close*"`
+2. 把打印出的「将要删除的文件清单」呈现给用户，说明要删哪些、为什么（临时调试 / commit /
+   issue 产物，无业务价值），**等用户确认**；若清单里出现 `[TRACKED-跳过]` 项属正常（已自动排除）。
+3. 用户确认后才真正删除：`pdm run python backend/scripts/cleanup_temp.py --file ../x.ps1 --apply`
+   （或带自定义模式 `--pattern`）。
+- 任何不在默认模式里的文件（如 `_decode_tmp.py`、`*.json` dump 等），用 `--file` 精确列出或
+  `--pattern` 显式指定，且仍要先 dry-run 给用户看清单；
+- **绝不用本脚本删除源码 / 配置 / 文档 / 入库资产**（如 `all_pb.csv`）；若二次核验失误，
+  已跟踪文件也会被跳过，双重保险。
 - 脚本顶部 docstring 含完整 WHY / HOW / SAFETY 说明，调用前可读。
 
 ## 关键约束（权威规范在 `docs/spec/`、`frontend/design.md`）
