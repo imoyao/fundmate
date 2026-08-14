@@ -66,6 +66,7 @@
 | `page-split-welcome-vs-panorama-2026-08-13.md` | **页面分工决策**：投资概览(welcome)=理想/目标(心理账户/Portfolio+表现)，资产总览(panorama)=生活/方法(五笔钱/产品类型/账户/资产负债)；五笔钱归 panorama 的论证；分页原则修正为"拆解 vs 表现+目标" |
 | `concept-explainer-five-buckets-and-goals-2026-08-13.md` | **用户科普文草稿**：用"理想 vs 生活/方法"比喻讲清五笔钱/心理账户/账户/自选分组；待晋升为公开文档页 |
 | `welcome-message-layer-2026-08-13.md` | **Welcome 首页消息层改造**：顶部 ticker 播报 + 近期动态真实 feed + 财务晴雨表/收益趋势空态；死数据清理清单；投资人格雷达落点修订（复盘页）；遗留待办 |
+| `watchlist-paid-features-discussion-2026-08-14.md` | **自选付费化方向讨论（远期规划）**：数据清理与提醒（扫描/提醒/回撤配额）、持仓穿透分层、持仓建议推荐的合规与品牌边界分析（不荐股承诺冲突，倾向客观数据洞察替代观点推荐） |
 
 ## 子目录归档
 
