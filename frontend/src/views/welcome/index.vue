@@ -33,7 +33,7 @@
                 fontWeight: 500
               }"
             >
-              {{ greetingText }} 👋 你已记账
+              {{ userTitle }} 👋 {{ greetingText }},你已记账
               <span
                 class="font-bold"
                 :style="{
@@ -532,6 +532,7 @@ import RiseFallText from "@/components/RiseFallText/index.vue";
 import TemperatureGaugeCard from "@/components/TemperatureGaugeCard/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import { useOverviewStore } from "@/store/modules/overview";
+import { useUserStoreHook } from "@/store/modules/user";
 
 defineOptions({
   name: "Welcome"
@@ -560,6 +561,9 @@ const greetingText = computed(() => {
   if (h >= 18 && h < 22) return "晚上好";
   return "夜深了";
 });
+
+// 用户昵称：未设置时回退为「你」，保持原有句式，零打扰
+const userTitle = computed(() => useUserStoreHook().nickname || "你");
 
 // ===== 首页消息播报（ticker）：真实数据派生，轮动展示 =====
 // 原则：能算的算真实，算不了的标「即将上线」，不展示编造数字。
