@@ -489,3 +489,50 @@ def test_email_synced_from_claims(client, db, supabase_jwks):
     with SessionLocal() as s:
         user = s.query(User).filter_by(supabase_id='sub-email').first()
         assert user.email == 'new@example.com'
+
+
+# ────────────────────────────── 用户名/昵称敏感词校验（#938） ──────────────────────────────
+
+
+def test_update_me_username_sensitive_blocked(client, db):
+    """用户名含敏感词 → 400 硬拦截。"""
+    _create_user(db, username='partial', email='me@example.com')
+    resp = client.patch('/api/users/me', json={'username': '大傻瓜宝宝'})
+    assert resp.status_code == 400
+    assert '不当词汇' in resp.get_json()['message']
+
+
+def test_update_me_nickname_sensitive_blocked(client, db):
+    """昵称含敏感词 → 400 硬拦截（注意需满足 min_length，排除长度误判）。"""
+    _create_user(db, username='partial', email='me@example.com')
+    resp = client.patch('/api/users/me', json={'nickname': '笨蛋一个大魔王'})
+    assert resp.status_code == 400
+
+
+def test_update_me_sensitive_pinyin_variant_blocked(client, db):
+    """敏感词的全拼变体（带/不带空格）与符号干扰变体应被命中拦截。
+
+    注：拼音首字母缩写变体（如「傻瓜」→sg）已在 vendored 库本地 patch 中禁用，
+    因其对英文用户名误杀率过高，故此处不再覆盖首字母变体。
+    """
+    _create_user(db, username='partial', email='me@example.com')
+    for bad in ['大sha gua', '大shagua', '大傻*瓜']:
+        resp = client.patch('/api/users/me', json={'username': bad + 'abc'})
+        assert resp.status_code == 400, f'变体未拦截: {bad}'
+
+
+def test_update_me_sensitive_initials_not_overblock(client, db):
+    """首字母缩写变体已被禁用：含 bc/bd/sg 等两字母组合的普通英文用户名不应误杀。"""
+    _create_user(db, username='partial', email='me@example.com')
+    for ok in ['abcde', 'basicx', 'candyy', 'David1', 'Cindy2026']:
+        resp = client.patch('/api/users/me', json={'username': ok})
+        assert resp.status_code == 200, f'正常用户名被误杀: {ok}'
+        assert resp.get_json()['data']['username'] == ok
+
+
+def test_update_me_clean_username_allowed(client, db):
+    """正常用户名（含无敏感词的常见词）通畅通过。"""
+    _create_user(db, username='partial', email='me@example.com')
+    resp = client.patch('/api/users/me', json={'username': 'trade_master2026'})
+    assert resp.status_code == 200
+    assert resp.get_json()['data']['username'] == 'trade_master2026'

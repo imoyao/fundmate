@@ -13,6 +13,7 @@ from sqlalchemy import func
 
 from app.core.auth import get_family_id
 from app.core.database import get_db
+from app.core.sensitive_word_guard import contains_sensitive
 from app.core.validation import parse_body
 from app.domains.transactions.models import Transaction
 from app.domains.users.models import ROLE_LABELS, User
@@ -51,6 +52,8 @@ def update_me():
 
         if data.username is not None:
             new_username = data.username
+            if contains_sensitive(new_username):
+                abort(400, description='用户名包含不当词汇，请更换')
             conflict = (
                 db.query(User)
                 .filter(
@@ -63,6 +66,8 @@ def update_me():
                 abort(409, description='该用户名已被占用，请换一个')
             user.username = new_username
         if data.nickname is not None:
+            if contains_sensitive(data.nickname):
+                abort(400, description='昵称包含不当词汇，请更换')
             user.nickname = data.nickname
         if data.avatar is not None:
             user.avatar = data.avatar

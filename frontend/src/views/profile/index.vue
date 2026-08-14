@@ -131,13 +131,16 @@
             <el-button
               class="field-block__save"
               :type="nicknameDirty ? 'primary' : 'default'"
-              :disabled="!nicknameDirty"
+              :disabled="!nicknameDirty || nicknameSensitive"
               :loading="nicknameSaving"
               @click="onSaveNickname"
             >
               保存
             </el-button>
           </div>
+          <p v-if="nicknameSensitive" class="field-hint field-hint--warn">
+            昵称可能包含不当词汇，请修改后再保存
+          </p>
         </div>
 
         <!-- 用户名字段 -->
@@ -164,13 +167,16 @@
             <el-button
               class="field-block__save"
               :type="usernameDirty ? 'primary' : 'default'"
-              :disabled="!usernameDirty"
+              :disabled="!usernameDirty || usernameSensitive"
               :loading="usernameSaving"
               @click="onSaveUsername"
             >
               保存
             </el-button>
           </div>
+          <p v-if="usernameSensitive" class="field-hint field-hint--warn">
+            用户名可能包含不当词汇，请修改后再保存
+          </p>
         </div>
       </section>
 
@@ -342,6 +348,24 @@ const usernameDirty = computed(
   () => profileForm.username !== savedUsername.value
 );
 
+// ── 用户名/昵称敏感词提示（前端仅提示，硬拦截在后端的 contains_sensitive）──
+// 与后端词库不同源，这里只放少量常见词做实时预警，避免每次输入都打到后端。
+const SENSITIVE_HINT_WORDS = [
+  "傻瓜", "笨蛋", "白痴", "蠢货", "废物", "垃圾", "贱人", "混蛋",
+  "滚蛋", "弱智", "智障", "脑残", "傻逼",
+  "色情", "裸聊", "约炮", "卖淫", "嫖娼", "性爱",
+  "赌博", "博彩", "毒品", "诈骗", "传销",
+  "fuck", "shit", "bitch", "asshole", "bastard", "sb"
+];
+
+function containsSensitiveHint(text: string): boolean {
+  const t = (text || "").toLowerCase();
+  return SENSITIVE_HINT_WORDS.some((w) => t.includes(w.toLowerCase()));
+}
+
+const usernameSensitive = computed(() => containsSensitiveHint(profileForm.username));
+const nicknameSensitive = computed(() => containsSensitiveHint(profileForm.nickname));
+
 const currentNickname = computed(
   () => userStore.nickname || userStore.username || "未设置"
 );
@@ -462,6 +486,10 @@ async function onSaveNickname() {
     ElMessage.warning("昵称至少 5 个字符");
     return;
   }
+  if (containsSensitiveHint(value)) {
+    ElMessage.warning("昵称包含不当词汇，请更换");
+    return;
+  }
   nicknameSaving.value = true;
   try {
     const { data } = await updateMe({ nickname: value });
@@ -484,6 +512,10 @@ async function onSaveUsername() {
   const value = profileForm.username.trim();
   if (value.length < 5) {
     ElMessage.warning("用户名至少 5 个字符");
+    return;
+  }
+  if (containsSensitiveHint(value)) {
+    ElMessage.warning("用户名包含不当词汇，请更换");
     return;
   }
   usernameSaving.value = true;
@@ -1078,6 +1110,17 @@ onMounted(async () => {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   color: var(--text-tertiary);
+}
+
+/* ===== 敏感词提示 ===== */
+.field-hint {
+  margin: var(--space-2) 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.field-hint--warn {
+  color: var(--color-danger, #e5484d);
 }
 
 /* ===== 账号安全行 ===== */

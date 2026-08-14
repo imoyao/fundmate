@@ -5,7 +5,7 @@
 groups = ["default", "dev", "test"]
 strategy = []
 lock_version = "4.5.0"
-content_hash = "sha256:987a0926f2be1e330af346177bf342392a7dcd625e686bfb3bba61fa60c41106"
+content_hash = "sha256:7773c381e2703256f5d3b0db099ecc4f69f881a929d6473cb1891feebc7110e3"
 
 [[metadata.targets]]
 requires_python = ">=3.12"
@@ -1439,6 +1439,15 @@ files = [
     {file = "numpy-1.26.4-cp312-cp312-win32.whl", hash = "sha256:50193e430acfc1346175fcbdaa28ffec49947a06918b7b92130744e81e640110"},
     {file = "numpy-1.26.4-cp312-cp312-win_amd64.whl", hash = "sha256:08beddf13648eb95f8d867350f6a018a4be2e5ad54c8d8caed89ebca558b2818"},
     {file = "numpy-1.26.4.tar.gz", hash = "sha256:2a02aba9ed12e4ac4eb3ea9421c420301a0c6460d9830d74a9df87efa4912010"},
+]
+
+[[package]]
+name = "opencc-python-reimplemented"
+version = "0.1.7"
+summary = ""
+files = [
+    {file = "opencc-python-reimplemented-0.1.7.tar.gz", hash = "sha256:4f777ea3461a25257a7b876112cfa90bb6acabc6dfb843bf4d11266e43579dee"},
+    {file = "opencc_python_reimplemented-0.1.7-py2.py3-none-any.whl", hash = "sha256:41b3b92943c7bed291f448e9c7fad4b577c8c2eae30fcfe5a74edf8818493aa6"},
 ]
 
 [[package]]

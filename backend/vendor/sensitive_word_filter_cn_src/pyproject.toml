@@ -1,0 +1,43 @@
+[tool.poetry]
+name = "sensitive-word-filter-cn"
+version = "0.1.0"
+description = "高性能中文敏感词过滤工具,支持拼音、符号干扰、繁简体变体检测"
+authors = ["Chance Dean <novelnexusai@outlook.com>"]
+license = "Apache-2.0"
+readme = "README.md"
+packages = [{include = "sensitive_word_filter_cn", from = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.8"
+pypinyin = "^0.51.0"
+opencc-python-reimplemented = "^0.1.7"
+click = "^8.1.7"
+rich = "^13.7.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0.0"
+pytest-benchmark = "^4.0.0"
+pytest-cov = "^4.1.0"
+black = "^24.0.0"
+ruff = "^0.2.0"
+
+[tool.poetry.scripts]
+sensitive-word-filter-cn = "sensitive_word_filter_cn.cli:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 100
+target-version = ['py38']
+
+[tool.ruff]
+line-length = 100
+target-version = "py38"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
