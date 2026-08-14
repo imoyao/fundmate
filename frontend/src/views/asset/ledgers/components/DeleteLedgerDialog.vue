@@ -14,7 +14,7 @@
       同时删除该账户下的全部持仓（共 {{ positionCount }} 项）
     </el-checkbox>
     <p class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
-      不勾选时，持仓将保留为"未归置"状态，可稍后迁移到其他账户。
+      不勾选时无法删除：账户仍持有持仓或资产时会被拒绝。请先迁移持仓/资产，或勾选上方「同时删除」（勾选后持仓与交易记录将一并删除，此操作不可恢复）。
     </p>
     <template #footer>
       <el-button @click="emit('update:visible', false)">取消</el-button>

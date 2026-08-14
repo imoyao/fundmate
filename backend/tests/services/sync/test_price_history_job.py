@@ -68,6 +68,13 @@ class TestPriceHistorySyncJob:
 
     def test_deduplicate_existing(self, job, db):
         """基于复合键 (security_id, trade_date) 去重"""
+        # 外键约束：price_history.security_id 引用 securities.id，须先建 id=1 的父记录
+        sec = db.query(Security).filter_by(id=1).first()
+        if not sec:
+            sec = Security(id=1, symbol='TEST1', name='测试证券', market='CN_A', type='stock', currency='CNY')
+            db.add(sec)
+            db.flush()
+
         db.add(
             PriceHistory(
                 security_id=1,

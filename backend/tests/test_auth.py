@@ -73,7 +73,15 @@ def supabase_jwks(monkeypatch):
 
 
 def _create_user(db, supabase_id=None, family_id=1, role='member', username=None, email=None):
+    from app.domains.families.models import Family
     from app.domains.users.models import User
+
+    # 启用外键约束后（PRAGMA foreign_keys=ON），users.family_id 外键生效，
+    # 必须先确保目标 Family 存在，否则 INSERT 触发 FOREIGN KEY constraint failed
+    family = db.query(Family).filter(Family.id == family_id).first()
+    if not family:
+        db.add(Family(id=family_id, name=f'测试家庭{family_id}'))
+        db.flush()
 
     user = User(
         supabase_id=supabase_id,

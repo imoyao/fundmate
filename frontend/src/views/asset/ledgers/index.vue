@@ -135,22 +135,38 @@
       <!-- 已删除账户持仓提示 -->
       <div
         v-if="orphanGroup?.count > 0"
-        class="bg-orange-50 border border-orange-200 rounded-xl p-4 mb-4 text-sm flex items-center gap-2"
+        class="bg-orange-50 border border-orange-200 rounded-xl p-4 mb-4 text-sm flex items-center justify-between gap-3"
         :style="{ color: 'var(--text-secondary)' }"
       >
-        <IconifyIconOffline
-          icon="ep:warning-filled"
-          class="text-orange-400 shrink-0"
-        />
-        <span>
-          存在 {{ orphanGroup.count }} 个已删除账户的持仓，合计
-          <MoneyDisplay
-            :value="orphanGroup.total || 0"
-            :show-sign="false"
-            :auto-color="false"
-            size="sm"
-          />。 建议将这些持仓归入现有账户或手动清理。
-        </span>
+        <div class="flex items-center gap-2 min-w-0">
+          <IconifyIconOffline
+            icon="ep:warning-filled"
+            class="text-orange-400 shrink-0"
+          />
+          <span>
+            存在 {{ orphanGroup.count }} 个已删除账户的持仓，合计
+            <MoneyDisplay
+              :value="orphanGroup.total || 0"
+              :show-sign="false"
+              :auto-color="false"
+              size="sm"
+            />。 建议将这些持仓归入现有账户或手动清理。
+          </span>
+        </div>
+        <div class="flex gap-2 shrink-0">
+          <el-button size="small" type="primary" @click="openMigrateDialog">
+            归入现有账户
+          </el-button>
+          <el-button
+            size="small"
+            type="danger"
+            plain
+            :loading="cleaning"
+            @click="handleOrphanCleanup"
+          >
+            清理
+          </el-button>
+        </div>
       </div>
 
       <!-- 按类型分组的账户卡片列表 -->
@@ -204,6 +220,16 @@
                 @click.stop="openDeleteDialog(ledger)"
               >
                 <IconifyIconOffline icon="ep:delete" />
+              </el-button>
+              <!-- 未归置持仓：归入按钮 -->
+              <el-button
+                v-if="ledger.id === 'orphan'"
+                type="primary"
+                size="small"
+                plain
+                @click.stop="openMigrateDialog"
+              >
+                归入
               </el-button>
             </div>
 
@@ -362,20 +388,74 @@
       :position-count="deletingAccount?.position_count ?? 0"
       @deleted="fetchData"
     />
+
+    <!-- 归入未归置持仓对话框 -->
+    <el-dialog
+      v-model="showMigrateDialog"
+      title="归入未归置持仓"
+      width="420px"
+      destroy-on-close
+    >
+      <p class="mb-4 text-sm" :style="{ color: 'var(--text-secondary)' }">
+        当前有 {{ orphanGroup?.count || 0 }} 个已删除账户的持仓，合计
+        <MoneyDisplay
+          :value="orphanGroup?.total || 0"
+          :show-sign="false"
+          :auto-color="false"
+          size="sm"
+        />。请选择要归入的目标账户：
+      </p>
+      <el-select
+        v-model="migrateTargetId"
+        placeholder="请选择目标账户"
+        filterable
+        class="w-full"
+      >
+        <el-option
+          v-for="ledger in allLedgers"
+          :key="ledger.id"
+          :label="ledger.name"
+          :value="ledger.id"
+          :disabled="ledger.id === 'orphan'"
+        >
+          <span>{{ ledger.name }}</span>
+          <span class="ml-1 text-xs" :style="{ color: 'var(--text-tertiary)' }">
+            {{ LEDGER_TYPE_SHORT[ledger.ledger_type] || ledger.ledger_type }}
+          </span>
+        </el-option>
+      </el-select>
+      <template #footer>
+        <el-button @click="showMigrateDialog = false">取消</el-button>
+        <el-button
+          type="primary"
+          :loading="migrating"
+          :disabled="!migrateTargetId"
+          @click="handleMigrate"
+        >
+          确认归入
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import { usePageRefresh } from "@/composables/usePageRefresh";
 import { IconifyIconOffline } from "@/components/ReIcon";
-import { getLedgers, getLedgersOverview, createLedger } from "@/api/ledger";
+import {
+  getLedgers,
+  getLedgersOverview,
+  createLedger,
+  migrateOrphanPositions,
+  deleteOrphanPositions
+} from "@/api/ledger";
 import { getPortfolios } from "@/api/portfolio";
 import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
-import { getLedgerTypeLabel } from "@/constants";
+import { getLedgerTypeLabel, LEDGER_TYPE_SHORT } from "@/constants";
 import AccountFormFields from "./components/AccountFormFields.vue";
 import DeleteLedgerDialog from "./components/DeleteLedgerDialog.vue";
 
@@ -413,6 +493,12 @@ const cashLedgers = computed(() =>
 const portfolioList = ref<any[]>([]);
 const deleteDialogVisible = ref(false);
 const deletingAccount = ref<any>(null);
+
+// 未归置持仓：归入 / 清理
+const showMigrateDialog = ref(false);
+const migrateTargetId = ref<number | null>(null);
+const migrating = ref(false);
+const cleaning = ref(false);
 
 // 总资产（从 overview groups 汇总）
 const totalAssets = computed(
@@ -523,9 +609,63 @@ function openDeleteDialog(account: any) {
 
 function goToDetail(ledger: any) {
   if (ledger.id === "orphan") {
-    router.push("/asset/ledgers/unclassified");
-  } else {
-    router.push({ name: "LedgerDetail", params: { id: ledger.id } });
+    // 未归置持仓是假卡片，无详情页，直接打开归入对话框
+    openMigrateDialog();
+    return;
+  }
+  router.push({ name: "LedgerDetail", params: { id: ledger.id } });
+}
+
+function openMigrateDialog() {
+  migrateTargetId.value = null;
+  showMigrateDialog.value = true;
+}
+
+async function handleMigrate() {
+  if (!migrateTargetId.value) {
+    ElMessage.warning("请选择目标账户");
+    return;
+  }
+  migrating.value = true;
+  try {
+    const res = await migrateOrphanPositions(migrateTargetId.value);
+    const total = (res as any)?.data?.total ?? 0;
+    ElMessage.success(`已将 ${total} 项未归置数据归入目标账户`);
+    showMigrateDialog.value = false;
+    await fetchData();
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || "归入失败");
+  } finally {
+    migrating.value = false;
+  }
+}
+
+async function handleOrphanCleanup() {
+  try {
+    await ElMessageBox.confirm(
+      "确定清理全部未归置持仓吗？将同时删除关联的交易记录，此操作不可恢复。",
+      "清理未归置持仓",
+      {
+        type: "warning",
+        confirmButtonText: "确认清理",
+        cancelButtonText: "取消"
+      }
+    );
+  } catch {
+    return; // 用户取消
+  }
+  cleaning.value = true;
+  try {
+    const res = await deleteOrphanPositions();
+    const data = (res as any)?.data ?? {};
+    ElMessage.success(
+      `已清理 ${data.position_count ?? 0} 笔持仓、${data.asset_count ?? 0} 项资产、${data.transaction_count ?? 0} 笔交易`
+    );
+    await fetchData();
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || "清理失败");
+  } finally {
+    cleaning.value = false;
   }
 }
 

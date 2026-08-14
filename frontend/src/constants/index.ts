@@ -38,7 +38,8 @@ export const LEDGER_TYPE_SHORT: Record<string, string> = {
   bank: "银",
   stock: "股",
   fund: "基",
-  property: "物"
+  property: "物",
+  deleted: "已删"
 };
 
 // 建议放在 src/constants/index.ts 末尾

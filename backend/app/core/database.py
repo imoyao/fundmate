@@ -22,9 +22,15 @@ engine = create_engine(
 
 @event.listens_for(Engine, 'connect')
 def set_sqlite_pragma(dbapi_connection, connection_record):
-    """启用 WAL 模式，提升并发读写性能"""
+    """启用 WAL 模式提升并发读写性能，并开启外键约束。
+
+    外键约束是数据库层最后防线：SQLite 默认关闭外键，模型上的
+    ondelete='RESTRICT' 依赖 PRAGMA foreign_keys=ON 才生效；
+    业务层删除逻辑（如 delete_ledger）仍需自行级联清理，此处兜底防悬空引用。
+    """
     cursor = dbapi_connection.cursor()
     cursor.execute('PRAGMA journal_mode=WAL;')
+    cursor.execute('PRAGMA foreign_keys=ON;')
     cursor.close()
 
 

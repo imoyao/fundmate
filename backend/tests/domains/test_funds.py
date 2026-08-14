@@ -152,6 +152,13 @@ def test_safe_numeric_write_read(db):
 
     from app.domains.funds.models import DailyWorth
 
+    # 外键约束：DailyWorth.fund_code 引用 funds.fund_code，须先建父记录
+    fund = db.query(Fund).filter_by(fund_code='000001').first()
+    if not fund:
+        fund = Fund(fund_code='000001', name='测试基金')
+        db.add(fund)
+        db.flush()
+
     dw = DailyWorth(
         fund_code='000001',
         date=date(2025, 1, 1),

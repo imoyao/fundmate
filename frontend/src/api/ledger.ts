@@ -70,6 +70,40 @@ export function migrateLedgerPositions(
   );
 }
 
+/** 未归置持仓归入结果 */
+export interface OrphanMigrationResult {
+  position_count: number;
+  asset_count: number;
+  transaction_count: number;
+  total: number;
+}
+
+/** 未归置持仓清理结果 */
+export interface OrphanCleanupResult {
+  position_count: number;
+  asset_count: number;
+  transaction_count: number;
+}
+
+/** 将全部未归置持仓归入指定账户 */
+export function migrateOrphanPositions(targetLedgerId: number) {
+  return http.request<{ data: OrphanMigrationResult }>(
+    "post",
+    "/api/ledgers/orphan/migrations/",
+    {
+      data: { target_ledger_id: targetLedgerId }
+    }
+  );
+}
+
+/** 清理全部未归置持仓（级联删除关联交易） */
+export function deleteOrphanPositions() {
+  return http.request<{ data: OrphanCleanupResult }>(
+    "delete",
+    "/api/ledgers/orphan/"
+  );
+}
+
 // ── 账户详情页专用 ──
 
 /** 获取账户概览卡片数据 */

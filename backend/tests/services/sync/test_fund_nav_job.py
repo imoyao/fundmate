@@ -49,6 +49,13 @@ class TestFundNavSyncJob:
 
     def test_deduplicate_existing_composite_key(self, job, db):
         """基于复合键 (fund_code, date) 去重"""
+        # 外键约束：DailyWorth.fund_code 引用 funds.fund_code，须先建父记录
+        fund = db.query(Fund).filter_by(fund_code='000001').first()
+        if not fund:
+            fund = Fund(fund_code='000001', name='测试基金')
+            db.add(fund)
+            db.flush()
+
         db.add(DailyWorth(fund_code='000001', date=date(2025, 1, 1), unit_nav=1.0))
         db.commit()
 

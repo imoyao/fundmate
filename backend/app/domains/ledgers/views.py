@@ -8,6 +8,8 @@ import json
 
 from apiflask import APIBlueprint
 from flask import abort, jsonify, request
+from sqlalchemy import or_
+from sqlalchemy.exc import IntegrityError
 
 from app.core.auth import get_family_id, get_owned_or_404
 from app.core.constants import ALLOCATION_LABELS, LEDGER_TYPE_LABELS
@@ -241,17 +243,28 @@ def delete_ledger(ledger_id: int):
             abort(404, '账户不存在')
 
         if delete_positions:
-            # 级联删除关联持仓和资产（基于 ledger_id）
+            # 级联删除关联数据（基于 ledger_id）：先删交易，再删持仓/资产，最后删账户
+            db.query(Transaction).filter(
+                Transaction.ledger_id == ledger_id, Transaction.family_id == get_family_id()
+            ).delete()
             db.query(Position).filter(Position.ledger_id == ledger_id).delete()
             db.query(Asset).filter(Asset.ledger_id == ledger_id, Asset.family_id == get_family_id()).delete()
         else:
-            # 检查是否存在关联持仓
+            # 检查是否存在关联持仓/资产/交易（任一存在即拒绝，防止产生孤儿数据）
             position_count = db.query(Position).filter(Position.ledger_id == ledger_id).count()
-            if position_count > 0:
+            asset_count = (
+                db.query(Asset).filter(Asset.ledger_id == ledger_id, Asset.family_id == get_family_id()).count()
+            )
+            transaction_count = (
+                db.query(Transaction)
+                .filter(Transaction.ledger_id == ledger_id, Transaction.family_id == get_family_id())
+                .count()
+            )
+            if position_count > 0 or asset_count > 0 or transaction_count > 0:
                 return jsonify(
                     {
                         'data': None,
-                        'message': f'无法删除：账户「{ledger.name}」下还有 {position_count} 笔持仓，请先清空或勾选"同时删除持仓"',
+                        'message': f'无法删除：账户「{ledger.name}」下还有 {position_count} 笔持仓、{asset_count} 项资产、{transaction_count} 笔交易，请先迁移或勾选"同时删除"',
                     }
                 ), 400
 
@@ -509,3 +522,131 @@ def delete_ledger_transaction(ledger_id: int, transaction_id: int):
         db.delete(txn)
         db.commit()
         return jsonify({'message': 'ok', 'data': None})
+
+
+# ────────────────────────────── 未归置数据（orphan）归入/清理 ──────────────────────────────
+
+
+def _orphan_ledger_condition(ledger_id_col, valid_ledger_ids):
+    """孤儿判定条件：ledger_id 为空或指向已删除账户（与 ledger_service 语义一致）"""
+    return or_(ledger_id_col.is_(None), ~ledger_id_col.in_(valid_ledger_ids))
+
+
+@ledgers_bp.post('/orphan/migrations/')
+def migrate_orphan_data():
+    """将未归置数据（孤儿持仓/资产/交易）归入指定账户"""
+    data = request.get_json() or {}
+    target_id = data.get('target_ledger_id')
+    if not target_id:
+        return jsonify({'data': None, 'message': '缺少 target_ledger_id'}), 400
+
+    with get_db() as db:
+        target = get_owned_or_404(db, Ledger, target_id)
+        family_id = get_family_id()
+        # 当前家庭全部账户 id 集合（孤儿判定基准）
+        valid_ledger_ids = [lid for (lid,) in db.query(Ledger.id).filter(Ledger.family_id == family_id).all()]
+        orphan_cond = _orphan_ledger_condition(Position.ledger_id, valid_ledger_ids)
+
+        # 孤儿持仓 id 集合（供对应悬空交易归入使用）
+        orphan_position_ids = [
+            pid for (pid,) in db.query(Position.id).filter(Position.family_id == family_id, orphan_cond).all()
+        ]
+
+        try:
+            # 归入孤儿持仓：更新 ledger_id 与 account_name 快照
+            position_count = (
+                db.query(Position)
+                .filter(Position.family_id == family_id, orphan_cond)
+                .update(
+                    {Position.ledger_id: target.id, Position.account_name: target.name},
+                    synchronize_session=False,
+                )
+            )
+            # 归入孤儿持仓对应的悬空交易（position_id 命中孤儿持仓，且 ledger_id 悬空）
+            transaction_count = (
+                db.query(Transaction)
+                .filter(
+                    Transaction.family_id == family_id,
+                    Transaction.position_id.in_(orphan_position_ids),
+                    _orphan_ledger_condition(Transaction.ledger_id, valid_ledger_ids),
+                )
+                .update(
+                    {Transaction.ledger_id: target.id, Transaction.account_name: target.name},
+                    synchronize_session=False,
+                )
+            )
+            # 归入孤儿资产
+            asset_count = (
+                db.query(Asset)
+                .filter(Asset.family_id == family_id, _orphan_ledger_condition(Asset.ledger_id, valid_ledger_ids))
+                .update(
+                    {Asset.ledger_id: target.id, Asset.account_name: target.name},
+                    synchronize_session=False,
+                )
+            )
+            db.commit()
+        except IntegrityError:
+            # uq_positions_ledger_symbol 唯一约束冲突：归入导致目标账户出现同名持仓
+            db.rollback()
+            return jsonify({'data': None, 'message': '归入失败：目标账户已存在同名持仓，请选择其他账户'}), 400
+
+        total = position_count + asset_count + transaction_count
+        return jsonify(
+            {
+                'data': {
+                    'position_count': position_count,
+                    'asset_count': asset_count,
+                    'transaction_count': transaction_count,
+                    'total': total,
+                },
+                'message': f'已将 {total} 项未归置数据归入「{target.name}」',
+            }
+        )
+
+
+@ledgers_bp.delete('/orphan/')
+def delete_orphan_data():
+    """清理所有未归置数据（孤儿持仓/资产/交易）"""
+    with get_db() as db:
+        family_id = get_family_id()
+        valid_ledger_ids = [lid for (lid,) in db.query(Ledger.id).filter(Ledger.family_id == family_id).all()]
+        orphan_cond = _orphan_ledger_condition(Position.ledger_id, valid_ledger_ids)
+
+        orphan_position_ids = [
+            pid for (pid,) in db.query(Position.id).filter(Position.family_id == family_id, orphan_cond).all()
+        ]
+
+        # 先删交易：position 命中孤儿持仓 或 ledger_id 悬空
+        transaction_count = (
+            db.query(Transaction)
+            .filter(
+                Transaction.family_id == family_id,
+                or_(
+                    Transaction.position_id.in_(orphan_position_ids),
+                    _orphan_ledger_condition(Transaction.ledger_id, valid_ledger_ids),
+                ),
+            )
+            .delete(synchronize_session=False)
+        )
+        # 再删孤儿持仓
+        position_count = (
+            db.query(Position).filter(Position.family_id == family_id, orphan_cond).delete(synchronize_session=False)
+        )
+        # 最后删孤儿资产
+        asset_count = (
+            db.query(Asset)
+            .filter(Asset.family_id == family_id, _orphan_ledger_condition(Asset.ledger_id, valid_ledger_ids))
+            .delete(synchronize_session=False)
+        )
+        db.commit()
+
+        return jsonify(
+            {
+                'data': {
+                    'position_count': position_count,
+                    'asset_count': asset_count,
+                    'transaction_count': transaction_count,
+                },
+                'message': f'已清理 {position_count + asset_count + transaction_count} 项未归置数据',
+            }
+        )
