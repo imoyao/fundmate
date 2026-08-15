@@ -1,6 +1,6 @@
 # 多多贝 设计语言
 
-**版本**: v2.3.3
+**版本**: v2.3.4
 **状态**: 正式版
 **主题**: 亮色（暗色模式规划中）
 **设计原则**: 温暖 · 精致 · 可信赖 · 涨势 · 专业 · 健壮
@@ -415,6 +415,19 @@
 
 > **编码红线**：tab 选中态属「软按钮」语义（已选中/候补操作），允许引用 `--brand-*`；涨跌数字仍必须走 `--color-rise` / `--color-fall`。分组/标签色为用户数据（非设计令牌），缺失回退中性 token（`--text-tertiary`）并注释「数据色例外」。
 
+### Segmented（分段控制器，小尺寸）
+
+刷新频率（15s/30s/60s/90s）等工具型选项使用 `size="small"` 的 el-segmented，统一 `refresh-segmented` 胶囊样式（2026-08-15 落地，watchlist 页与设置抽屉 SettingsDrawer 双处一致）：
+
+| 属性 | 值 |
+|------|-----|
+| 形态 | 胶囊（`--radius-pill`），高度 24px，`padding: 2px`，轨道底 `--bg-muted` |
+| 选项项 | 高 20px，`padding: 0 10px`，字号 12px，未选中 `--text-secondary`（hover `--text-primary`） |
+| 选中态 | `--brand-100` 底 + `--brand-700` 字（软按钮规范），hover 底 `--brand-200`；EP 独立子元素 `.el-segmented__item-selected` 一并覆盖，`box-shadow: none` |
+| 过渡 | `background-color` / `color` 150ms ease |
+
+> **编码红线**：与一级筛选（design.md「Filter & Selection」）同属分段控制器语言，选中态为软按钮（允许 `--brand-*`）；仅此二处（watchlist 页内联 + SettingsDrawer）使用 `refresh-segmented` class，其余页面如需复用须先在此登记，禁止各页面自行手写分段控制器样式。
+
 ### Avatar（生成式头像）
 
 > 头像基于 DiceBear（10.x）以 `{style}/{seed}.svg` 生成式产出，**不落盘、不上传**（D9），
@@ -609,3 +622,21 @@
 设计令牌 / 原则的**变更历史**与**单次改动的决策理由**，不保留在本文件（避免污染「设计语言唯一标准」），统一归档至 `docs/spec/changelog.md`。组件级的 props、阈值、栅格列宽等**实现细节**收口于 `docs/design/components.md`。本文件只回答「视觉令牌 + 设计原则 + 全局规范」。
 
 *本文档为 多多贝 项目视觉设计语言（令牌与原则）的唯一标准，所有 UI 开发必须遵循。组件实现细节见 `docs/design/components.md`，变更记录见 `docs/spec/changelog.md`。现有代码逐步向本规范靠拢，新功能开发严格按此执行。*
+
+---
+
+## 数字等宽对齐落地规范（2026-08-15）
+
+> 账户管理页（`views/asset/ledgers/index.vue`）已落地，全站新页面遵循。
+
+- **页面根容器**：业务页根元素统一声明 `font-family: var(--font-ui)` + `font-variant-numeric: tabular-nums`，**禁止硬编码字体栈**（如 `"PingFang SC", "Microsoft YaHei"`），字体继承自动覆盖全页数字。
+- **金额/统计数字**：`.metric-value`、指标区、关联负债行等数字容器显式补 `font-variant-numeric: tabular-nums`（与根容器双保险），消除数字宽度抖动与锯齿感。
+- **MoneyDisplay 组件**：内部已自带 `tabular-nums` 与等宽数字字体，外层容器无需重复处理，仅需保证不覆盖其字体/字距。
+
+## 提示性 Banner 品牌色规范（2026-08-15）
+
+> 账户管理页「未归置持仓提示」banner 已由危险色改为品牌色，全站提示性 banner 遵循。
+
+- **语义分工**：提示性信息（存在未归置数据、待处理建议）用**品牌色**——`--brand-100` 底 + `--brand-700` 图标/文字；**危险色只留给破坏性操作**（删除、清理、错误）。
+- **Token**：背景 `var(--brand-100)`、图标与文字 `var(--brand-700)`，禁止硬编码 hex。
+- **例外**：真正的风险警示（如负债率偏高）仍用系统危险色（`--color-danger` + `--color-danger-20`），与提示性 banner 区分开，避免「提示」与「危险」语义混淆。
