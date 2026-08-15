@@ -5,9 +5,9 @@
 # 降噪策略：
 #   1) TEMPERATURE=0.2 低温度，降低模型随机发挥带来的误报
 #   2) run-summary 模式只在 PR 留一条总结评论，不逐行 inline 刷屏
-#   3) 进一步增强可在仓库根加 .ai-review.yaml 配置 review policy
-#      （exclude 生成文件 / 锁文件 / migrations 等）与自定义 prompt
-#      （要求只报高置信度 bug、过滤风格 nitpick），详见仓库 docs/configs
+#   3) 仓库根已加 .ai-review.yaml + docs/configs/ai-review-summary-prompt.md，
+#      覆盖默认 prompt，强制「中文优先、中英双语」输出（维护者以中文为主，保留英文术语）。
+#      当前 run-summary 模式只发一条总结评论，语言规则已对 summary/context/inline 全覆盖。
 #
 # 前置：仓库 Settings → Secrets → Actions 新增 ZHIPU_API_KEY（智谱开放平台个人中心获取）
 
@@ -35,6 +35,8 @@ jobs:
         with:
           review-command: run-summary
         env:
+          # —— 自定义 prompt 配置：中文优先、中英双语（见仓库根 .ai-review.yaml）——
+          AI_REVIEW_CONFIG_FILE_YAML: ".ai-review.yaml"
           # —— LLM 配置：智谱开放平台（OpenAI 兼容，Flash 系列免费）——
           LLM__PROVIDER: "OPENAI"
           LLM__META__MODEL: "glm-4.7-flash"
