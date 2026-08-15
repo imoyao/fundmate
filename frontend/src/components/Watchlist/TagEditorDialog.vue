@@ -19,11 +19,11 @@
       </span>
     </div>
 
-    <div v-if="item && item.tag_ids.length > 0" class="mb-4">
+    <div v-if="item && localTagIds.length > 0" class="mb-4">
       <span class="tag-hint block mb-2">已有标签</span>
       <div class="flex flex-wrap gap-2">
         <el-tag
-          v-for="tagId in item.tag_ids"
+          v-for="tagId in localTagIds"
           :key="tagId"
           size="small"
           closable
@@ -146,11 +146,14 @@ const savingTags = ref(false);
 const showNewTagFormInEditor = ref(false);
 const newTagNameInEditor = ref("");
 const newTagColorInEditor = ref(DEFAULT_TAG_COLOR);
+// 本地可写副本：避免直接 mutate prop（vue/no-mutating-props），
+// 展示与移除操作都基于本地副本，保存成功后由父组件刷新 item。
+const localTagIds = ref<number[]>([]);
 
 /** 未添加到当前资产的可选标签 */
 const availableTags = computed(() => {
   if (!props.item) return props.allTags;
-  const existingIds = new Set(props.item.tag_ids);
+  const existingIds = new Set(localTagIds.value);
   return props.allTags.filter(t => !existingIds.has(t.id));
 });
 
@@ -159,6 +162,7 @@ watch(
   () => props.modelValue,
   visible => {
     if (visible) {
+      localTagIds.value = [...(props.item?.tag_ids ?? [])];
       editingItemNewTagIds.value = [];
       showNewTagFormInEditor.value = false;
       newTagNameInEditor.value = "";
@@ -179,7 +183,7 @@ const removeTagFromEditingItem = async (tagId: number) => {
   if (!props.item) return;
   try {
     await removeTagFromItem(props.item.id, tagId);
-    props.item.tag_ids = props.item.tag_ids.filter(id => id !== tagId);
+    localTagIds.value = localTagIds.value.filter(id => id !== tagId);
     ElMessage.success("标签已移除");
   } catch (e: unknown) {
     ElMessage.error("移除标签失败");
