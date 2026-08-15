@@ -20,14 +20,18 @@ const {
   onMatchComplete,
   showAiModal,
   selectedLedgerId,
-  onAiRowsFound,
+  onAiRowsFound
 } = wizard;
 </script>
 
 <template>
   <div class="inventory-page">
     <el-steps :active="currentStep" finish-status="success" align-center>
-      <el-step v-for="(step, index) in steps" :key="index" :title="step.title" />
+      <el-step
+        v-for="(step, index) in steps"
+        :key="index"
+        :title="step.title"
+      />
     </el-steps>
 
     <div class="step-content">

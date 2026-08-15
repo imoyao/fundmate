@@ -1,0 +1,127 @@
+<script setup lang="ts">
+import { ALLOCATION_OPTIONS } from "@/constants";
+import { useImportWizardContext } from "../composables/useImportWizardContext";
+
+const {
+  showAllocationGroupPanel,
+  selectedCount,
+  batchSetAllocation,
+  currentAllocationGroups,
+  applyAllocationGroupSetting
+} = useImportWizardContext();
+</script>
+
+<template>
+  <div v-if="showAllocationGroupPanel" class="allocation-group-panel">
+    <div class="allocation-group-header">
+      <span class="font-weight-500">按产品类型设置配置目标</span>
+      <div class="flex items-center gap-3">
+        <el-button size="small" text @click="showAllocationGroupPanel = false"
+          >取消</el-button
+        >
+      </div>
+    </div>
+    <div v-if="selectedCount > 0" class="allocation-group-item">
+      <div class="allocation-group-info">
+        <span class="allocation-group-label">已选行批量设置</span>
+        <el-tag size="small" type="primary">{{ selectedCount }} 条已选</el-tag>
+      </div>
+      <el-select
+        model-value=""
+        placeholder="选择配置目标"
+        size="small"
+        style="width: 140px"
+        @change="(val: string) => batchSetAllocation(val)"
+      >
+        <el-option
+          v-for="opt in ALLOCATION_OPTIONS"
+          :key="opt.value"
+          :label="opt.label"
+          :value="opt.value"
+        />
+      </el-select>
+    </div>
+    <div class="allocation-group-list">
+      <div
+        v-for="(group, key) in currentAllocationGroups"
+        :key="key"
+        class="allocation-group-item"
+      >
+        <div class="allocation-group-info">
+          <span class="allocation-group-label">{{ group.label }}</span>
+          <el-tag size="small" type="info">{{ group.count }} 条</el-tag>
+        </div>
+        <el-select
+          :model-value="group.currentAllocation"
+          size="small"
+          style="width: 140px"
+          @change="(val: string) => applyAllocationGroupSetting(group, val)"
+        >
+          <el-option
+            v-for="opt in ALLOCATION_OPTIONS"
+            :key="opt.value"
+            :label="opt.label"
+            :value="opt.value"
+          />
+        </el-select>
+      </div>
+      <div
+        v-if="Object.keys(currentAllocationGroups).length === 0"
+        class="text-center text-gray-400 py-4"
+      >
+        所有数据已手动设置配置目标，无需分组调整
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.allocation-group-panel {
+  padding: 12px;
+  margin-top: 12px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+}
+
+.allocation-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.allocation-group-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.allocation-group-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  transition: border-color 0.2s;
+}
+
+.allocation-group-item:hover {
+  border-color: var(--color-primary);
+}
+
+.allocation-group-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.allocation-group-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+</style>

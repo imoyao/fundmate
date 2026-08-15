@@ -1,15 +1,9 @@
 <script setup lang="ts">
 import { useImportWizardContext } from "../composables/useImportWizardContext";
+import ImportModeCards from "./ImportModeCards.vue";
 
-const {
-  selectedLedgerId,
-  onAccountSelected,
-  ledgerGroups,
-  ledgerTypeMap,
-  goToManualEntry,
-  openAiImport,
-  goToLiabilityForm,
-} = useImportWizardContext();
+const { selectedLedgerId, onAccountSelected, ledgerGroups, ledgerTypeMap } =
+  useImportWizardContext();
 </script>
 
 <template>
@@ -53,25 +47,7 @@ const {
     </div>
   </div>
 
-  <div class="import-mode-cards">
-    <div class="mode-card" @click="goToManualEntry">
-      <IconifyIconOffline icon="ep:edit" class="mode-icon" />
-      <h4 class="mode-title">手动批量录入</h4>
-      <p class="mode-desc">没有文件？在网页表格中逐行快速录入交易记录</p>
-    </div>
-    <div class="mode-card" @click="openAiImport">
-      <IconifyIconOffline icon="ep:magic-stick" class="mode-icon" />
-      <h4 class="mode-title">AI 截图/文本识别</h4>
-      <p class="mode-desc">
-        上传持仓/交易截图或粘贴文本，AI 识别后逐行核对入账
-      </p>
-    </div>
-    <div class="mode-card" @click="goToLiabilityForm">
-      <IconifyIconOffline icon="ep:document-add" class="mode-icon" />
-      <h4 class="mode-title">录入负债 / 应收款</h4>
-      <p class="mode-desc">记录信用卡、房贷等非交易类资产</p>
-    </div>
-  </div>
+  <ImportModeCards />
 </template>
 
 <style scoped>
@@ -110,48 +86,5 @@ const {
   font-weight: 600;
   color: var(--text-secondary);
   border-left: 3px solid var(--color-primary);
-}
-
-.mode-card {
-  width: 240px;
-  padding: 32px 24px;
-  text-align: center;
-  cursor: pointer;
-  background: var(--bg-card);
-  border: 2px solid var(--border-default);
-  border-radius: 16px;
-  transition: all 0.3s ease;
-}
-
-.mode-card:hover {
-  border-color: var(--color-primary);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 6%);
-  transform: translateY(-2px);
-}
-
-.mode-icon {
-  margin-bottom: 12px;
-  font-size: 36px;
-  color: var(--color-primary);
-}
-
-.mode-title {
-  margin: 0 0 8px;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.mode-desc {
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--text-tertiary);
-}
-
-.import-mode-cards {
-  display: flex;
-  gap: 20px;
-  justify-content: center;
-  margin-top: 32px;
 }
 </style>

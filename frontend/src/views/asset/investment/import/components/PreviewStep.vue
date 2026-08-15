@@ -17,7 +17,7 @@ const {
   totalRows,
   importNormalOnly,
   importing,
-  confirmImport,
+  confirmImport
 } = useImportWizardContext();
 </script>
 
@@ -60,7 +60,8 @@ const {
             {{ duplicateCount + blockedCount + errorCount }} 条待处理（{{
               duplicateCount
             }}条重复 / {{ blockedCount }}条待补全
-            <template v-if="errorCount > 0">/ {{ errorCount }}条错误</template>）
+            <template v-if="errorCount > 0">/ {{ errorCount }}条错误</template
+            >）
           </span>
         </span>
         <div class="flex gap-3">

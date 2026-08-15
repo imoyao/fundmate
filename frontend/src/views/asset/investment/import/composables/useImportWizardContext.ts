@@ -14,7 +14,7 @@ export function useImportWizardContext(): ImportWizardContext {
   const ctx = inject(IMPORT_WIZARD_KEY);
   if (!ctx) {
     throw new Error(
-      "未找到导入向导上下文，请确认 ImportIndex 已通过 provideWizard 提供",
+      "未找到导入向导上下文，请确认 ImportIndex 已通过 provideWizard 提供"
     );
   }
   return ctx;
