@@ -46,5 +46,5 @@ export function getChartPalette(): string[] {
     "--chart-06",
     "--chart-07",
     "--chart-08"
-  ].map((token) => getCssVar(token));
+  ].map(token => getCssVar(token));
 }

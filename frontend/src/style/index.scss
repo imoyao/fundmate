@@ -4,6 +4,12 @@
 @use "sidebar";
 @use "dark";
 
+/* 多多贝设计令牌：plain CSS @import 必须位于除 @charset/@layer/@use 之外的
+   所有规则之前，否则会触发 no-invalid-position-at-import-rule。
+   故这两个 .css 导入置于 @use 之后、:root 等规则之前，不要下移。 */
+@import "./design-tokens.css";
+@import "./el-table.css";
+
 /* 自定义全局 CssVar */
 :root {
   /* 左侧菜单展开、收起动画时长 */
@@ -62,12 +68,6 @@
 
   transition: background-color 0.25s cubic-bezier(0.7, 0.3, 0.1, 1);
 }
-
-/* ============================================
-   🆕 多多贝 设计令牌
-   ============================================ */
-@import "./design-tokens.css";
-@import "./el-table.css";
 
 /* ============================================
    内容区与页脚统一最大宽度（design.md Viewport）

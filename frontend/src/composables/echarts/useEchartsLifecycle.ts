@@ -1,6 +1,6 @@
 // src/composables/echarts/useEchartsLifecycle.ts
 import { onMounted, onBeforeUnmount, onActivated, type Ref } from "vue";
-import echarts from "@/plugins/echarts";
+import type echarts from "@/plugins/echarts";
 
 /** ECharts 实例类型（取 echarts.init 的返回类型，避免版本差异导致的类型名不匹配） */
 export type EChartsInstance = ReturnType<typeof echarts.init>;
@@ -57,7 +57,7 @@ export function useEchartsLifecycle(
 
   const render = () => {
     // 先释放旧实例，避免同一 DOM 上重复 init 触发 ECharts 警告
-    charts.forEach((c) => c?.dispose());
+    charts.forEach(c => c?.dispose());
     charts.length = 0;
     specs.forEach((spec, i) => {
       const el = spec.ref.value;
@@ -67,7 +67,7 @@ export function useEchartsLifecycle(
   };
 
   const resize = () => {
-    charts.forEach((c) => c?.resize());
+    charts.forEach(c => c?.resize());
   };
 
   const handleResize = () => resize();
@@ -83,7 +83,7 @@ export function useEchartsLifecycle(
 
   onBeforeUnmount(() => {
     window.removeEventListener("resize", handleResize);
-    charts.forEach((c) => c?.dispose());
+    charts.forEach(c => c?.dispose());
     charts.length = 0;
   });
 

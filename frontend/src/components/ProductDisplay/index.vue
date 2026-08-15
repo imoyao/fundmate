@@ -33,10 +33,15 @@ defineProps({
   cursor: pointer; /* 增加鼠标手型提示，暗示可点击 */
 }
 
+/* 名称单行截断：配合 el-table-column 的 show-overflow-tooltip，
+   名称超宽时显示省略号、hover 出完整名称（tooltip 只对单行文本生效） */
 .product-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 14px;
   font-weight: 500;
   color: var(--text-primary);
+  white-space: nowrap;
 }
 
 .product-code-row {

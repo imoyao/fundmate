@@ -1,6 +1,12 @@
 // frontend/src/api/temperature.ts
 import { http } from "@/utils/http";
 
+export interface TemperatureBand {
+  name: string;
+  value: number | null;
+  level: string;
+}
+
 export interface TemperatureOverviewResponse {
   data: {
     updated_at: string;
@@ -40,6 +46,11 @@ export interface TemperatureOverviewResponse {
         price_dt: string;
         median_pb_level?: string;
         median_pe_level?: string;
+      };
+      temperature_bands?: {
+        short?: TemperatureBand;
+        medium?: TemperatureBand;
+        long?: TemperatureBand;
       };
     };
     /** B3: 市场机会解读文案（name/desc/tone），后端归集、前端仅映射样式 */
