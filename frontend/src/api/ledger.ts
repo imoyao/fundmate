@@ -8,6 +8,10 @@ export interface LedgerItem {
   notes: string;
   default_allocation?: string;
   linked_cash_ledger_id?: number | null; // 新增
+  /** 关联投资组合 id（账户详情页编辑弹窗使用） */
+  portfolio_id?: number | null;
+  /** 费率配置（证券/基金账户编辑弹窗使用） */
+  fee_config?: Record<string, unknown> | null;
 }
 
 /** 获取用户的所有账户列表 */

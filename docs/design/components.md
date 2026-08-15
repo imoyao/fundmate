@@ -187,6 +187,37 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 - 用途：表格「产品信息」列的统一样式（名称 + `# 代码` + 类型标签），与导入预览页保持一致，禁止各页面手写 `.product-cell` / `.type-tag-inline` 结构。
 - props：`name`(产品名称)、`symbol`(资产代码)、`typeLabel`(类型中文标签)；`name || symbol || "--"` 兜底展示。
 - 注意：`typeLabel` 为**后端类型文案**（如 `row.type_label`），非账本类型 key；按账本类型配色请用 `AssetTypeBadge`。
+- **列宽规范（统一三档，禁止各页再手写 min-width 200+）**：
+  - `min-width: 160` — 标准持仓 / 流水表（inventory、ledgers 交易、portfolio 持仓）
+  - `min-width: 200` — 含类型标签且列多需要呼吸感的表（watchlist 自选）
+  - `min-width: 120` — 纯名称紧凑场景（TransactionList 交易流水，无代码标签）
+- **截断与 hover 提示**：组件内 `product-name` 已单行截断（`overflow: hidden; text-overflow: ellipsis`），
+  使用方在表格列上加 `show-overflow-tooltip` 即可在名称溢出时 hover 出完整名称（ElTooltip 原生，仅在溢出时出现，无视觉干扰）。
+
+## PageSkeleton · 页面骨架屏（强制复用）
+
+- 用途：页面加载骨架屏，模拟真实页面结构（概览指标卡 / 图表卡 / 表格行），作为内容占位容器防布局偏移（CLS）。
+- props：`cards`(概览卡数，默认 3)、`chartCols`(图表卡列数，默认 2)、`tableRows`(表格行数，默认 6)。
+- 实现铁律（业界最佳实践）：
+  1. **结构一致**：形状 / 数量 / 宽度与真实内容布局高度一致（真实 DOM + 灰底圆角，非装饰条条）；
+  2. **轻量化**：纯 CSS `linear-gradient` 流光（background-size 动画，GPU 合成，不占 JS 主线程），1.8s 慢速；
+  3. **A11y**：根节点 `aria-hidden="true"`；
+  4. **阈值控制（使用方负责）**：请求 ≤200ms 返回时跳过骨架屏避免闪屏——`loading` 开始后 `setTimeout(200ms)` 才置 `showSkeleton = true`，加载结束清除计时器并复位。
+
+示例（`ledgers/detail.vue`）：
+
+```html
+<PageSkeleton v-if="loading && showSkeleton" :cards="3" :chart-cols="2" :table-rows="6" />
+```
+
+## AssetAllocationDonut · 资产配置环形图（强制复用）
+
+- 用途：资产配置分布图的统一组件（环形 + 底部图例：分类名 + 占比），替代各页手写 pie option。
+  **此前 `ledgers/index.vue` 与 `ledgers/detail.vue` 各写一套、图例风格不一致，统一收敛到本组件。**
+- 基于 `useEchartsLifecycle`：自动 render / window resize / 卸载 dispose / keepAlive 重绘（传新 data 引用自动重绘）。
+- props：`data`(`{ name, value }[]`)、`colorMap`(name → CSS 变量名，如 `{ 股票: "--invest-stock" }`)、`emptyText`(空态文案)、`showLegend`(默认 true)。
+- 颜色红线：必须经 CSS 语义变量（`colorMap` 传变量名，组件内 `getCssVar` 读取）；不传或缺失回退 `--chart-01~08` 循环。
+- 参考实现：`frontend/src/views/asset/ledgers/detail.vue`（`typeColorMap` + `allocationData`）。
 
 ## TemperatureGaugeCard · 温度环形卡（三页复用）
 
