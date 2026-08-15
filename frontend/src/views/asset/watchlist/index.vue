@@ -186,7 +186,7 @@
               >
                 <IconifyIconOffline icon="ep:collection-tag" />
                 <span class="tag-filter-trigger__text">
-                  {{ selectedFilterTagIds.length > 0 ? `标签：${selectedFilterTagIds.length}` : '按标签筛选' }}
+                  {{ selectedFilterTagLabel }}
                 </span>
                 <IconifyIconOffline
                   v-if="selectedFilterTagIds.length > 0"
@@ -795,6 +795,17 @@ const {
   applyTagFilter,
   clearTagFilter
 } = tags;
+
+// 触发按钮展示已选标签名。重构前用 el-select 多选会直接显示标签名 chips；
+// 换成自定义 popover 面板后触发文案只显示数量，丢失了名称展示（回归 bug）。
+// 此处补回：单选用名称、多选用「名称 +N」截断，保持触发按钮紧凑不拉长。
+const selectedFilterTagLabel = computed(() => {
+  const ids = selectedFilterTagIds.value;
+  if (ids.length === 0) return "按标签筛选";
+  const names = ids.map(id => findTagName(allTags.value, id));
+  if (names.length <= 2) return names.join("、");
+  return `${names[0]}、${names[1]} +${names.length - 2}`;
+});
 
 // ── 基础配置 ──
 const currentView = ref("all");
