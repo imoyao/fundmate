@@ -128,8 +128,8 @@
       >
         <div class="flex items-center gap-3 min-w-0">
           <span
-            class="text-[13px] shrink-0"
-            :style="{ color: 'var(--text-secondary)' }"
+            class="text-sm font-semibold shrink-0"
+            :style="{ color: 'var(--text-primary)' }"
             >分组</span
           >
           <div
@@ -176,7 +176,9 @@
                 <span class="group-tab-label" :title="group.label">{{
                   group.label
                 }}</span>
-                <span class="group-tab-count font-mono">{{ group.count }}</span>
+                <span class="group-tab-count font-mono"
+                  >({{ group.count }})</span
+                >
                 <!-- 分组编辑/删除：hover 浮现（opacity 机制，与操作列统一） -->
                 <div
                   v-if="group.key.startsWith('custom_') && !editingGroupId"
@@ -204,6 +206,34 @@
         </div>
 
         <div class="flex items-center gap-2 shrink-0">
+          <!-- 标签筛选（合并至分组行：segmented 左侧，过滤操作集中一处） -->
+          <el-select
+            v-model="selectedFilterTagIds"
+            multiple
+            filterable
+            clearable
+            placeholder="按标签筛选..."
+            class="w-48 min-w-[150px] modern-filter-select"
+            @change="handleTagFilterChange"
+          >
+            <el-option
+              v-for="tag in allTags"
+              :key="tag.id"
+              :label="tag.name"
+              :value="tag.id"
+            >
+              <div class="flex items-center gap-2">
+                <!-- 数据色例外：标签色为用户数据（非设计令牌），缺失时回退中性 token -->
+                <span
+                  class="w-3 h-3 rounded-full"
+                  :style="{
+                    backgroundColor: tag.color || 'var(--text-tertiary)'
+                  }"
+                />
+                <span>{{ tag.name }}</span>
+              </div>
+            </el-option>
+          </el-select>
           <el-tooltip content="新建分组" placement="top">
             <el-button
               class="group-tab-add"
@@ -217,6 +247,7 @@
           <el-segmented
             v-model="currentView"
             :options="viewOptions"
+            class="view-segmented"
             @change="handleViewChange"
           />
         </div>
@@ -314,58 +345,28 @@
         </div>
       </template>
 
-      <!-- 筛选行：标签筛选 + 批量操作（venue 筛选由顶部 el-segmented 统一承担） -->
+      <!-- 批量删除（batchMode 时显示；原筛选行已并入分组行，批量删除按钮移至表格上方） -->
       <div
-        class="flex flex-wrap items-center justify-end gap-2 mt-4 pb-3 mb-4 border-b"
-        :style="{ borderColor: 'var(--border-subtle)' }"
+        v-if="batchMode && selectedItems.length > 0"
+        class="flex justify-end mb-2"
       >
-        <div class="flex items-center gap-2">
-          <el-button
-            v-if="batchMode && selectedItems.length > 0"
-            type="danger"
-            plain
-            size="small"
-            class="!h-7 !px-3 !text-xs"
-            @click="handleBatchDelete"
-          >
-            删除选中 ({{ selectedItems.length }})
-          </el-button>
-
-          <el-select
-            v-model="selectedFilterTagIds"
-            multiple
-            filterable
-            clearable
-            placeholder="按标签筛选..."
-            class="w-56 min-w-[180px] modern-filter-select"
-            size="small"
-            @change="handleTagFilterChange"
-          >
-            <el-option
-              v-for="tag in allTags"
-              :key="tag.id"
-              :label="tag.name"
-              :value="tag.id"
-            >
-              <div class="flex items-center gap-2">
-                <!-- 数据色例外：标签色为用户数据（非设计令牌），缺失时回退中性 token -->
-                <span
-                  class="w-3 h-3 rounded-full"
-                  :style="{
-                    backgroundColor: tag.color || 'var(--text-tertiary)'
-                  }"
-                />
-                <span>{{ tag.name }}</span>
-              </div>
-            </el-option>
-          </el-select>
-        </div>
+        <el-button
+          type="danger"
+          plain
+          size="small"
+          class="!h-7 !px-3 !text-xs"
+          @click="handleBatchDelete"
+        >
+          删除选中 ({{ selectedItems.length }})
+        </el-button>
       </div>
 
       <!--
-          表格视觉基线（边框/表头/hover/文字色/行高 44px）统一在 src/style/el-table.css 维护，
-          勿在本页 :deep(.el-table) 覆盖；本页保留的 :deep 仅限行内行为样式。
-          行高已由基线统一（2026-08-14），不再用 size / :row-style 页面级覆盖。
+          表格视觉基线（边框/表头/hover/文字色）统一在 src/style/el-table.css 维护，
+          勿在本页 :deep(.el-table) 覆盖视觉基线；本页保留的 :deep 仅限行内行为样式。
+          行高例外（2026-08-15）：全局基线 44px 偏松，自选页信息密度优先，本页覆盖为 40px
+          （EP 默认行高，tr height 为最小高度语义，两行式名称列自动撑高不裁切）；
+          覆盖规则见本页 style 区「本页行高覆盖」注释。
         -->
       <el-table
         v-loading="loading"
@@ -582,56 +583,58 @@
           </template>
         </el-table-column>
 
-        <!-- 操作列 -->
-        <el-table-column label="操作" width="108" align="center" fixed="right">
+        <!-- 操作列：3 个 circle 按钮一行排布（flex + gap，避免 2 上 1 下换行） -->
+        <el-table-column label="操作" width="120" align="center" fixed="right">
           <template #default="{ row }">
             <template v-if="!batchMode">
-              <el-tooltip
-                :content="row.is_pinned ? '取消置顶' : '置顶'"
-                placement="top"
-              >
-                <el-button
-                  circle
-                  size="small"
-                  @click.stop="handleTogglePin(row)"
+              <div class="flex items-center justify-center gap-1">
+                <el-tooltip
+                  :content="row.is_pinned ? '取消置顶' : '置顶'"
+                  placement="top"
                 >
-                  <IconifyIconOffline
-                    :icon="row.is_pinned ? 'mdi:pin' : 'mdi:pin-outline'"
-                  />
-                </el-button>
-              </el-tooltip>
-              <el-tooltip
-                :content="row.favorite ? '取消特别关注' : '特别关注'"
-                placement="top"
-              >
-                <el-button
-                  circle
-                  size="small"
-                  @click.stop="handleToggleFavorite(row)"
+                  <el-button
+                    circle
+                    size="small"
+                    @click.stop="handleTogglePin(row)"
+                  >
+                    <IconifyIconOffline
+                      :icon="row.is_pinned ? 'mdi:pin' : 'mdi:pin-outline'"
+                    />
+                  </el-button>
+                </el-tooltip>
+                <el-tooltip
+                  :content="row.favorite ? '取消特别关注' : '特别关注'"
+                  placement="top"
                 >
-                  <IconifyIconOffline
-                    :icon="row.favorite ? 'ep:star-filled' : 'ep:star'"
-                  />
-                </el-button>
-              </el-tooltip>
-              <el-tooltip
-                :content="
-                  row.status === 'HOLDING'
-                    ? '持仓资产无法直接从自选移除'
-                    : '移除'
-                "
-                placement="top"
-              >
-                <el-button
-                  circle
-                  size="small"
-                  class="btn-delete-ghost"
-                  :disabled="row.status === 'HOLDING'"
-                  @click.stop="confirmRemove(row)"
+                  <el-button
+                    circle
+                    size="small"
+                    @click.stop="handleToggleFavorite(row)"
+                  >
+                    <IconifyIconOffline
+                      :icon="row.favorite ? 'ep:star-filled' : 'ep:star'"
+                    />
+                  </el-button>
+                </el-tooltip>
+                <el-tooltip
+                  :content="
+                    row.status === 'HOLDING'
+                      ? '持仓资产无法直接从自选移除'
+                      : '移除'
+                  "
+                  placement="top"
                 >
-                  <IconifyIconOffline icon="ep:delete" />
-                </el-button>
-              </el-tooltip>
+                  <el-button
+                    circle
+                    size="small"
+                    class="btn-delete-ghost"
+                    :disabled="row.status === 'HOLDING'"
+                    @click.stop="confirmRemove(row)"
+                  >
+                    <IconifyIconOffline icon="ep:delete" />
+                  </el-button>
+                </el-tooltip>
+              </div>
             </template>
             <template v-else>
               <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }"
@@ -647,7 +650,7 @@
           v-model:current-page="currentPage"
           :page-size="pageSize"
           :total="totalItems"
-          layout="prev, pager, next"
+          layout="total, prev, pager, next"
           small
           background
           @current-change="fetchData"
@@ -1056,6 +1059,7 @@ import {
 import RealtimeWarningBanner from "@/components/RealtimeWarningBanner/index.vue";
 import RealtimeStatusIndicator from "@/components/RealtimeStatusIndicator/index.vue";
 import type { Holding } from "@/utils/valuationEngine";
+import { formatDate, formatDateTime } from "@/utils/date";
 
 defineOptions({ name: "Watchlist" });
 
@@ -1143,23 +1147,7 @@ const handleManualRefresh = async () => {
 };
 
 /**
- * 添加自选日格式化（强制 YYYY-MM-DD，绝不出现英文月名）。
- * 后端 created_at 为 ISO（如 2026-08-14T10:30:00 或带时区），优先截取前 10 位日期段，
- * 避免走 Date 本地时区导致跨时区 off-by-one；非标准格式再兜底用 Date 解析。
- */
-function formatDate(iso?: string): string {
-  if (!iso) return "--";
-  const datePart = iso.slice(0, 10);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return datePart;
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return "--";
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-/** 持有数量 / 份额格式化 */
+ * 持有数量 / 份额格式化 */
 function formatQty(qty: number): string {
   return qty.toLocaleString("zh-CN", { maximumFractionDigits: 2 });
 }
@@ -1255,10 +1243,8 @@ watch(
       const hasValidPrice = newItems.some(item => item.currentPrice > 0);
       if (hasValidPrice) {
         realtime.status.value = "trading";
-        const now = new Date();
-        const pad = (n: number) => n.toString().padStart(2, "0");
-        const timeStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
-        realtime.lastUpdateTime.value = timeStr;
+        // 统一走公共格式化：YYYY-MM-DD HH:mm（不带秒），与全站日期时间规范一致
+        realtime.lastUpdateTime.value = formatDateTime(new Date());
       }
     }
   },
@@ -1559,6 +1545,8 @@ async function fetchGroups() {
       // 方案 B：后端仍返回 exchange/otc 系统分组，但「场内/场外」已由顶部 el-segmented 承担，此处过滤不展示
       if (g.is_system && (g.key === "exchange" || g.key === "otc")) return;
       if (g.is_system) {
+        // 系统默认组无数据不展示（「全部」始终展示）；自定义组 count=0 保持现状
+        if (g.key !== "all" && (g.count || 0) === 0) return;
         system.push({
           key: g.key!,
           label: g.label || g.name || g.key,
@@ -1579,6 +1567,10 @@ async function fetchGroups() {
     });
     allGroups.value = system;
     customGroups.value = custom;
+    // 若当前 activeGroup 指向被隐藏的系统分组（count=0 已过滤），回退到「全部」
+    if (!system.some(g => g.key === activeGroup.value)) {
+      activeGroup.value = "all";
+    }
   } catch (e) {
     console.error("获取分组失败：", e);
   }
@@ -2097,8 +2089,8 @@ const realtimeEnabled = computed(() => realtime.enabled.value);
    ✅ 已移除强制 32px 高度逻辑，按钮和输入框默认跟随 Element Plus 尺寸
    ====================================== */
 
-/* 顶部筛选下拉框（现代极简风） */
-.top-bar :deep(.modern-filter-select .el-input__wrapper) {
+/* 标签筛选下拉框（现代极简风，2026-08-15 起随 select 移入分组行，选择器提升到页面级） */
+.watchlist-page :deep(.modern-filter-select .el-input__wrapper) {
   padding: 0 12px;
   background-color: var(--bg-warm);
   border: none !important;
@@ -2107,19 +2099,73 @@ const realtimeEnabled = computed(() => realtime.enabled.value);
   transition: all 0.2s ease;
 }
 
-.top-bar :deep(.modern-filter-select .el-input__wrapper:hover) {
+.watchlist-page :deep(.modern-filter-select .el-input__wrapper:hover) {
   background-color: var(--bg-hover);
 }
 
-.top-bar :deep(.modern-filter-select .el-input__wrapper.is-focus) {
-  background-color: #fff;
+.watchlist-page :deep(.modern-filter-select .el-input__wrapper.is-focus) {
+  background-color: var(--bg-card);
   box-shadow:
     0 0 0 2px var(--bg-card),
     0 0 0 4px var(--brand-700) !important;
 }
 
-.top-bar :deep(.modern-filter-select .el-input__suffix-inner) {
+.watchlist-page :deep(.modern-filter-select .el-input__suffix-inner) {
   color: var(--text-tertiary);
+}
+
+.watchlist-page :deep(.modern-filter-select .el-input__inner::placeholder) {
+  color: var(--text-tertiary);
+}
+
+/* ======================================
+   视图 segmented（全部/场内/场外）：与分组 tab 胶囊语言统一
+   （2026-08-15：用户反馈与「新建组」圆形按钮并排时缺胶囊感）
+   ====================================== */
+.view-segmented :deep(.el-segmented) {
+  height: 32px;
+  padding: 2px;
+  background-color: var(--bg-muted);
+  border-radius: var(--radius-pill);
+  box-shadow: none;
+}
+
+.view-segmented :deep(.el-segmented__item) {
+  height: 28px;
+  padding: 0 14px;
+  font-size: var(--text-label);
+  line-height: 28px;
+  color: var(--text-secondary);
+  border-radius: var(--radius-pill);
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.view-segmented :deep(.el-segmented__item:hover) {
+  color: var(--text-primary);
+}
+
+.view-segmented :deep(.el-segmented__item.is-selected) {
+  color: var(--brand-700);
+  background-color: var(--brand-100);
+  box-shadow: none;
+}
+
+.view-segmented :deep(.el-segmented__item.is-selected:hover) {
+  background-color: var(--brand-200);
+}
+
+/* EP 选中态背景是独立子元素（默认白底+阴影），一并覆盖为品牌软按钮色 */
+.view-segmented :deep(.el-segmented__item-selected) {
+  background-color: var(--brand-100);
+  border-radius: var(--radius-pill);
+  box-shadow: none;
+}
+
+.view-segmented
+  :deep(.el-segmented__item.is-selected:hover .el-segmented__item-selected) {
+  background-color: var(--brand-200);
 }
 
 /* ======================================
@@ -2196,6 +2242,18 @@ const realtimeEnabled = computed(() => realtime.enabled.value);
 
 :deep(.el-table__row:hover .el-button) {
   opacity: 1;
+}
+
+/* 操作列 3 个 circle 按钮：flex 容器内归零 EP 相邻 margin，间距统一由 gap 控制，保证一行排布 */
+:deep(.el-table__row .el-button + .el-button) {
+  margin-left: 0;
+}
+
+/* 本页行高覆盖：全局基线 44px（el-table.css）偏松，自选页信息密度优先，降为 40px（EP 默认行高）。
+   覆盖理由：全局 44px 为 2026-08-14 基线，影响探市/温度计等页面，不宜全局下调；
+   本页名称列为两行式（名称+标签），tr height 为最小高度语义，40px 下多行内容仍自动撑高不裁切。 */
+:deep(.el-table .el-table__row) {
+  height: 40px;
 }
 
 /* ======================================
