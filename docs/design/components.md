@@ -24,6 +24,7 @@ title: 组件使用规范（设计语言实现层）
 - `PageFooter` / `MarketFooter` — 探市 / 温度计页脚
 - `Superellipse` — 品牌 n=3 超椭圆容器（logo / 头像 / 卡片普适轮廓，禁各处手写圆角或 polygon 轮廓）
 - 全站页脚：`frontend/src/layout/components/lay-footer/index.vue`
+- 共享基建（composables / utils 非 UI 层）：`useEchartsLifecycle` / `getCssVar` / 币种工具，见文末「共享基建」章节
 
 组件路径位于 `frontend/src/components/{组件名}/index.vue`。
 
@@ -206,6 +207,73 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 - 三栏：品牌 / 导航 / 公众号 + 底部风险免责声明 + 版权。
 - 接入 `layout/index.vue`，登录 / 注册页通过 `route.meta.hiddenFooter` 隐藏。
 - 免责声明固定文案：「市场有风险，投资需谨慎。本平台内容仅供参考，不构成任何投资建议。」
+
+## 共享基建（composables / utils 层，强制复用）
+
+> 本层为**非 UI 的共享逻辑**（图表生命周期 / 图表取色 / 币种换算），与页面级 UI 组件同属「强制复用」范围。
+> 各页面**禁止**重新手写 `echarts.init` + `getComputedStyle` 读色 + `window.addEventListener("resize")` + `onBeforeUnmount dispose` 这类逻辑，统一收口到以下入口。
+
+| 基建 | 路径 | 职责 |
+|------|------|------|
+| `useEchartsLifecycle` | `src/composables/echarts/useEchartsLifecycle.ts` | 统一 ECharts 生命周期：render / resize / 卸载 dispose / keepAlive 重绘 |
+| `getCssVar` / `CHART_TOKENS` / `getChartPalette` | `src/composables/echarts/theme.ts` | 图表读色唯一入口（读 CSS 语义变量，禁止硬编码 hex） |
+| 汇率 / 币种常量 | `src/constants/exchangeRates.ts` | 币种 / 汇率 / 符号单一来源（实时汇率以后端 CNY 下发为准，本文件仅前端兜底） |
+| 货币工具 | `src/utils/currency.ts` | `toBaseCurrency` / `fromBaseCurrency` / `getCurrencySymbol` / `formatAmount` |
+| `usePageRefresh` | `src/composables/usePageRefresh.ts` | 全局刷新事件订阅（防抖计时器每实例私有） |
+
+### useEchartsLifecycle · 图表生命周期
+
+- 用途：取代各页手写 `echarts.init` / `window resize` 监听 / `onBeforeUnmount dispose`，统一收口，杜绝内存泄漏与 keepAlive 缓存页图表空白。
+- 入参：
+  - `specs: ChartSpec[]`，每个 `{ ref: 容器模板 ref, build: (el) => EChartsInstance }`；`build` 内部 `echarts.init(el)` + `setOption` 后返回实例。
+  - `options: { keepAlive?: boolean; autoRenderOnMount?: boolean }`。
+- 返回：`{ render, resize, charts }`。
+- 用法：
+  - 异步数据页设 `autoRenderOnMount: false`，数据就绪后调 `render()`；同步数据（渲染时即有数据）可省略，挂载后自动渲染。
+  - keepAlive 页务必传 `keepAlive: true`（`onActivated` 自动 resize，修复缓存回来图表空白 / 尺寸错乱）。
+  - `render()` 每次先 dispose 旧实例再重建，重复调用安全（无重复 init 警告）。
+
+  ```ts
+  import { ref } from "vue";
+  import echarts from "@/plugins/echarts";
+  import { useEchartsLifecycle } from "@/composables/echarts/useEchartsLifecycle";
+
+  const pieRef = ref<HTMLElement | null>(null);
+  const { render } = useEchartsLifecycle(
+    [
+      {
+        ref: pieRef,
+        build: (el) => {
+          const c = echarts.init(el);
+          c.setOption({ series: [{ type: "pie", data: [] }] });
+          return c;
+        }
+      }
+    ],
+    { keepAlive: true, autoRenderOnMount: false }
+  );
+  // 异步数据就绪后：render();
+  ```
+
+### theme.ts · 图表取色
+
+- 图表颜色一律 `getCssVar(CHART_TOKENS.rise)` / `getChartPalette()`，**禁止硬编码 hex**（design.md「Data Visualization」红线）。
+- `getCssVar(name, fallback?)`：读取 CSS 语义变量（含前导 `--`），带 fallback（SSR 安全，`window` 不存在时返回 fallback）。
+- `CHART_TOKENS`：集中维护图表常用语义色 token（`rise` / `fall` / `brand700` / `info` / `neutral` / `warning` / `success` / `accent` / 各级文字 / 边框 / 卡片底）。
+- `getChartPalette()`：实时读取 `--chart-01`~`--chart-08` 8 色分类配色板（函数式调用，避免模块加载时主题未就绪读到空值）。
+- 暗色模式由 CSS 变量自动切换，图表代码不判断主题。
+
+### exchangeRates / currency · 币种换算
+
+- 生产环境实时汇率由后端 enrich 计算并以 CNY 下发（`distributions.total_assets_cny` / `positions_total_mv`），前端一般无需自行换算；本组文件作为「前端按币种展示 / 换算时的唯一来源」，避免各页内联魔法数字。
+- `constants/exchangeRates.ts`：`CurrencyCode`（CNY / USD / HKD / JPY）、`BASE_CURRENCY`、`EXCHANGE_RATES`（1 外币 = ? CNY，静态参考值）、`CURRENCY_SYMBOLS`。接入实时汇率时只改此文件，调用方不变。
+- `utils/currency.ts`：`toBaseCurrency(amount, currency)` / `fromBaseCurrency` / `getCurrencySymbol` / `formatAmount(value, precision)`。
+  - `formatAmount` 仅用于图表 tooltip / label 等**非 DOM** 字符串场景；DOM 着色展示仍用 `MoneyDisplay` / `MoneyWithRatio`。
+
+### usePageRefresh · 刷新事件订阅
+
+- 订阅全局 `refresh-ledger-data` 事件（`src/utils/mitt.ts` emitter），带防抖，卸载自动清理。
+- 2026-08-15 修复：防抖 `timeoutId` 由模块级改为**每实例私有**。此前多个页面同时订阅时会互相 `clearTimeout` 对方定时器，导致先触发的回调永不执行。
 
 ## 文案基调（页面级落地示例）
 
