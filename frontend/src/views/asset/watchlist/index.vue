@@ -456,7 +456,7 @@
         <!-- 添加自选日（日期非数字，左对齐更易扫读） -->
         <el-table-column
           label="添加自选日"
-          width="100"
+          width="130"
           align="left"
           sortable
           :sort-method="sortStr('created_at')"
@@ -571,7 +571,7 @@
         <!-- 添加后涨幅：金额(上) + 涨幅%(下)，与持仓收益列统一主次 -->
         <el-table-column
           label="添加后涨幅"
-          width="110"
+          width="130"
           align="right"
           sortable
           :sort-method="sortAddedReturn"
@@ -1876,6 +1876,13 @@ const realtimeEnabled = computed(() => realtime.enabled.value);
    本页名称列为两行式（名称+标签），tr height 为最小高度语义，40px 下多行内容仍自动撑高不裁切。 */
 :deep(.el-table .el-table__row) {
   height: 40px;
+}
+
+/* 表头不换行：保证排序图标(.caret-wrapper)与表头文字始终同一行，
+   修复 5 字表头（添加自选日 / 添加后涨幅）加排序按钮后换行错位的问题。
+   各列 width 已预留足够空间容纳文字+图标，此处仅作双保险防止意外折行。 */
+:deep(.el-table__header th.el-table__cell .cell) {
+  white-space: nowrap;
 }
 
 /* ======================================
