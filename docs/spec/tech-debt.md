@@ -75,6 +75,7 @@
 | **H2 残留：`group_by=account` 分支仍手写 dict 拼装** | 中 | #899 审计项 H2 部分解决：分页分支已复用 `enrich_position_dict`（`positions/views.py:105`），但 `group_by=account` 分支仍手写独立 dict（`positions/views.py:82-99`），字段可能漂移 | 待排期：`group_by=account` 复用 `enrich_position_dict` 前须先核对前端字段依赖——两者 `confirm_date` 语义不同（手写分支=首次买入日，enrich=持仓确认日）、字段名 `type` vs `asset_type`，直接复用有 API 契约风险，无独立 issue |
 | **L2 残留：`ledger_service.py:164` 旧式 `.get()`** | 低 | #899 审计项 L2 部分解决：positions/fund_service 已改 `get_owned_or_404`，但服务层/视图层仍有旧式 `db.query(X).get(id)` | **✅ 已修复 (2026-08-10)**：`ledger_service.py:170` 与 `families/views.py:55` 已改 `db.get(Model, id)`（SQLAlchemy 2.0）。`ledgers/views.py:288` 因该文件有其他会话未提交改动，留待一并处理 |
 | **M2 残留：金额/涨跌组件未全量覆盖** | 中 | #899 审计项 M2 部分解决：TransactionList/strategies/ledgers 已用 MoneyDisplay，但 portfolio/detail、AccountOverview、AssetManagement、Overview、AssetPanorama、temperature、explore、welcome、PositionTransactionsDrawer 等仍手写 `toLocaleString`/`toFixed` | 待修复：全站替换 MoneyDisplay/RiseFallText（跟踪 #913） |
+| **账户卡片「当日盈亏」未实现（前后端均无能力）** | 🟡 中 | 账户管理页卡片「当日盈亏」恒显示 `--` 占位符：前端硬编码（`frontend/src/views/asset/ledgers/index.vue:270-281`，注释「暂无当日行情数据，保留占位符」）；后端 `get_ledger_summary` 硬编码 `daily_pnl: None`（`backend/app/domains/ledgers/views.py:341`），`list_ledgers`（views.py:113-158）根本不返回该字段。全仓 grep `daily_pnl|day_pnl|today_pnl` 仅此 2 处 + explore 页无关命中。**非数据拉取 bug，是功能从未实现**。 | **技术债务（2026-08-15 记录）**：需新增后端当日涨跌计算（持仓现价 vs 昨收，复用实时行情源）+ 前端消费展示；依赖实时行情数据源（`useRealtimeQuotes` 链路），另行排期，不随本轮视觉修复实现。 |
 
 ---
 

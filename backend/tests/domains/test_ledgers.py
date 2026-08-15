@@ -4,6 +4,8 @@
 # File : test_ledgers.py
 """测试资金容器 CRUD"""
 
+from datetime import date
+
 from app.domains.assets.models import Asset
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
@@ -1067,3 +1069,148 @@ class TestLedgerListSummaryFields:
         assert target.get('pnl', 0.0) == 0.0
         # cash_balance 应为 0.0
         assert target['cash_balance'] == 0.0
+
+
+class TestOrphanDetail:
+    """测试未归置数据（孤儿）明细查询接口 GET /api/ledgers/orphan/detail/"""
+
+    def test_detail_with_orphans(self, client, db, make_position, make_asset, make_transaction):
+        """有孤儿持仓+资产+交易时，返回明细与 summary 正确"""
+        # 孤儿持仓：不传 account_name/ledger_id → ledger_id 为空 → 孤儿
+        make_position(
+            symbol='510300',
+            name='沪深300ETF',
+            quantity=1234.56,
+            avg_price=3.9,
+            current_price=4.0,
+        )
+        # 孤儿资产：ledger_id 为空
+        make_asset(major_category='current', name='某银行卡', amount=5000.0)
+        # 孤儿交易：position_id/ledger_id 均为空
+        make_transaction(
+            position_id=None,
+            ledger_id=None,
+            txn_type='buy',
+            quantity=100.0,
+            price=1.0,
+            amount=100.0,
+            confirm_date=date(2026, 8, 1),
+            position_name='沪深300ETF',
+        )
+        # make_transaction 内部只 flush 不 commit，需显式提交，接口会话（另一连接）才能读到
+        db.commit()
+
+        resp = client.get('/api/ledgers/orphan/detail/')
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+
+        # 持仓明细：市值 = 4.0 × 1234.56 = 4938.24；盈亏 = (4.0-3.9) × 1234.56 = 123.46（ROUND_HALF_UP）
+        assert len(data['positions']) == 1
+        pos = data['positions'][0]
+        assert pos['symbol'] == '510300'
+        assert pos['name'] == '沪深300ETF'
+        assert pos['quantity'] == 1234.56
+        assert pos['avg_price'] == 3.9
+        assert pos['market_value'] == 4938.24
+        assert pos['pnl'] == 123.46
+
+        # 资产明细
+        assert len(data['assets']) == 1
+        asset = data['assets'][0]
+        assert asset['name'] == '某银行卡'
+        assert asset['amount'] == 5000.0
+        assert asset['major_category'] == 'current'
+
+        # 交易明细：txn_type 保持后端原始枚举值，confirm_date 为纯日期
+        assert len(data['transactions']) == 1
+        txn = data['transactions'][0]
+        assert txn['position_name'] == '沪深300ETF'
+        assert txn['txn_type'] == 'buy'
+        assert txn['amount'] == 100.0
+        assert txn['confirm_date'] == '2026-08-01'
+
+        # 汇总：total_market_value = 持仓市值 + 资产金额（交易为流水不计入，避免重复计算）
+        assert data['summary'] == {
+            'position_count': 1,
+            'asset_count': 1,
+            'transaction_count': 1,
+            'total_market_value': 9938.24,
+        }
+
+    def test_detail_empty(self, client, db, make_position, make_asset, make_transaction):
+        """无孤儿数据时返回空数组，不 404"""
+        # 正常账户 + 正常数据（ledger_id 有效，不属于孤儿）
+        ledger = Ledger(name='正常账户', ledger_type='stock')
+        db.add(ledger)
+        db.commit()
+        pos = make_position(
+            symbol='000001',
+            name='平安',
+            ledger_id=ledger.id,
+            account_name='正常账户',
+            quantity=100,
+            avg_price=10,
+            current_price=12,
+        )
+        make_asset(major_category='current', name='活期', amount=1000, ledger_id=ledger.id, account_name='正常账户')
+        make_transaction(position_id=pos.id, ledger_id=ledger.id, txn_type='buy', quantity=100, price=10, amount=1000)
+        # make_transaction 内部只 flush 不 commit，显式提交保证数据落库
+        db.commit()
+
+        resp = client.get('/api/ledgers/orphan/detail/')
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['positions'] == []
+        assert data['assets'] == []
+        assert data['transactions'] == []
+        assert data['summary'] == {
+            'position_count': 0,
+            'asset_count': 0,
+            'transaction_count': 0,
+            'total_market_value': 0.0,
+        }
+
+    def test_detail_empty_after_migrate(self, client, db, make_position, make_asset, make_transaction):
+        """归入后再查：migrate 后 detail 应为空"""
+        # 孤儿持仓（ledger_id 为空）
+        pos = make_position(
+            symbol='510300',
+            name='沪深300ETF',
+            quantity=100,
+            avg_price=10,
+            current_price=12,
+        )
+        # 孤儿资产
+        make_asset(major_category='current', name='某银行卡', amount=5000.0)
+        # 孤儿交易：position_id 指向孤儿持仓且 ledger_id 悬空（migrate 会一并归入）
+        make_transaction(
+            position_id=pos.id,
+            ledger_id=None,
+            txn_type='buy',
+            quantity=100,
+            price=10,
+            amount=1000,
+            position_name='沪深300ETF',
+        )
+        # make_transaction 内部只 flush 不 commit，显式提交保证接口会话可读
+        db.commit()
+
+        # 归入前 detail 应有 3 项
+        before = client.get('/api/ledgers/orphan/detail/').get_json()['data']
+        assert before['summary']['position_count'] == 1
+        assert before['summary']['asset_count'] == 1
+        assert before['summary']['transaction_count'] == 1
+
+        # 归入目标账户
+        target = client.post('/api/ledgers/', json={'name': '目标账户', 'ledger_type': 'stock'})
+        target_id = target.get_json()['data']['id']
+        resp = client.post('/api/ledgers/orphan/migrations/', json={'target_ledger_id': target_id})
+        assert resp.status_code == 200
+        assert resp.get_json()['data']['total'] == 3
+
+        # 归入后 detail 应为空
+        after = client.get('/api/ledgers/orphan/detail/').get_json()['data']
+        assert after['positions'] == []
+        assert after['assets'] == []
+        assert after['transactions'] == []
+        assert after['summary']['total_market_value'] == 0.0

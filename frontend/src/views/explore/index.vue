@@ -313,7 +313,7 @@
             />
           </el-select>
           <span v-if="lastUpdateTime" class="update-time"
-            >更新: {{ lastUpdateTime }}</span
+            >更新: {{ formatDateTime(lastUpdateTime) }}</span
           >
           <el-button size="small" @click="manualRefresh">刷新</el-button>
         </div>
@@ -452,6 +452,7 @@ import { buildMarketFooterSources } from "@/components/MarketFooter/config";
 import { batchFetchQuotes } from "@/utils/realtimeDataSources";
 import { getTemperatureOverview } from "@/api/temperature";
 import { useAuthState } from "@/composables/useAuthState";
+import { formatDateTime } from "@/utils/date";
 
 defineOptions({
   name: "ExplorePage"

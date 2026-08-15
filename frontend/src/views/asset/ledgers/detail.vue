@@ -445,7 +445,7 @@
                   sortable
                 >
                   <template #default="{ row }">{{
-                    row.confirm_date?.slice(0, 10)
+                    formatDate(row.confirm_date)
                   }}</template>
                 </el-table-column>
                 <el-table-column
@@ -753,6 +753,7 @@ import DeleteLedgerDialog from "./components/DeleteLedgerDialog.vue";
 import { getLedgerTypeLabel, ALLOCATION_OPTIONS } from "@/constants";
 import PositionTransactionsDrawer from "./components/PositionTransactionsDrawer.vue";
 import { usePageRefresh } from "@/composables/usePageRefresh";
+import { formatDate } from "@/utils/date";
 
 defineOptions({ name: "LedgerDetail" });
 

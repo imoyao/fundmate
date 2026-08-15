@@ -532,6 +532,107 @@ def _orphan_ledger_condition(ledger_id_col, valid_ledger_ids):
     return or_(ledger_id_col.is_(None), ~ledger_id_col.in_(valid_ledger_ids))
 
 
+@ledgers_bp.get('/orphan/detail/')
+def get_orphan_detail():
+    """查询未归置数据（孤儿）明细：孤儿持仓/资产/交易清单 + 汇总。
+
+    前端此前只能看到汇总数字（N 个持仓、合计 ¥X），无法定位具体是哪些数据；
+    本接口补齐明细，孤儿判定与 migrate/delete 完全一致（ledger_id 为空或不在
+    当前家庭有效账户 id 集合内），保证「明细展示 → 归入/清理」所见即所得。
+    """
+    with get_db() as db:
+        family_id = get_family_id()
+        # 当前家庭全部账户 id 集合（孤儿判定基准，与 migrate/delete 相同）
+        valid_ledger_ids = [lid for (lid,) in db.query(Ledger.id).filter(Ledger.family_id == family_id).all()]
+
+        # ── 孤儿持仓：逐行算市值/盈亏，复用 Money.multiply_price_quantity 的
+        #    ROUND_HALF_UP 语义（与 ledger_service.get_positions_paginated 一致，
+        #    避免 SQL 聚合与逐行四舍五入的分位差异）
+        orphan_positions = (
+            db.query(Position)
+            .filter(Position.family_id == family_id, _orphan_ledger_condition(Position.ledger_id, valid_ledger_ids))
+            .all()
+        )
+        positions = []
+        position_mv_cents = 0
+        for p in orphan_positions:
+            mv_cents = Money.multiply_price_quantity(p.current_price, p.quantity)
+            # 盈亏 = (现价 - 成本) × 数量；无成本价时盈亏记 0（与持仓列表语义一致）
+            pnl_cents = Money.multiply_price_quantity(p.current_price - p.avg_price, p.quantity) if p.avg_price else 0
+            position_mv_cents += mv_cents
+            positions.append(
+                {
+                    'id': p.id,
+                    'symbol': p.symbol,
+                    'name': p.name,
+                    'quantity': Money.min_unit_to_shares(p.quantity),
+                    'avg_price': Money.cents_to_yuan(p.avg_price),
+                    'market_value': Money.cents_to_yuan(mv_cents),
+                    'pnl': Money.cents_to_yuan(pnl_cents),
+                }
+            )
+
+        # ── 孤儿资产：金额为存量价值，直接计入汇总
+        orphan_assets = (
+            db.query(Asset)
+            .filter(Asset.family_id == family_id, _orphan_ledger_condition(Asset.ledger_id, valid_ledger_ids))
+            .all()
+        )
+        assets = []
+        asset_amount_cents = 0
+        for a in orphan_assets:
+            asset_amount_cents += a.amount or 0
+            assets.append(
+                {
+                    'id': a.id,
+                    'name': a.name,
+                    'amount': Money.cents_to_yuan(a.amount),
+                    'major_category': a.major_category,
+                }
+            )
+
+        # ── 孤儿交易：ledger_id 悬空（与 migrate 归入交易的判定一致）。
+        #    交易是流水而非存量，金额不计入 total_market_value，避免与持仓/资产重复计算
+        orphan_txns = (
+            db.query(Transaction)
+            .filter(
+                Transaction.family_id == family_id,
+                _orphan_ledger_condition(Transaction.ledger_id, valid_ledger_ids),
+            )
+            .all()
+        )
+        transactions = []
+        for t in orphan_txns:
+            transactions.append(
+                {
+                    'id': t.id,
+                    'position_name': t.position_name or '未知资产',
+                    # txn_type 保持后端原始枚举值（buy/sell/dividend…），翻译交给前端
+                    'txn_type': t.txn_type,
+                    'amount': Money.cents_to_yuan(t.amount),
+                    # 纯日期（YYYY-MM-DD），不带时间
+                    'confirm_date': t.confirm_date.isoformat()[:10] if t.confirm_date else None,
+                }
+            )
+
+        return jsonify(
+            {
+                'data': {
+                    'positions': positions,
+                    'assets': assets,
+                    'transactions': transactions,
+                    'summary': {
+                        'position_count': len(positions),
+                        'asset_count': len(assets),
+                        'transaction_count': len(transactions),
+                        'total_market_value': Money.cents_to_yuan(position_mv_cents + asset_amount_cents),
+                    },
+                },
+                'message': 'ok',
+            }
+        )
+
+
 @ledgers_bp.post('/orphan/migrations/')
 def migrate_orphan_data():
     """将未归置数据（孤儿持仓/资产/交易）归入指定账户"""

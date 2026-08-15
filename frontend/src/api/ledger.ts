@@ -104,6 +104,58 @@ export function deleteOrphanPositions() {
   );
 }
 
+/** 未归置持仓明细项 */
+export interface OrphanPositionItem {
+  id: number;
+  symbol: string;
+  name: string | null;
+  quantity: number;
+  avg_price: number;
+  market_value: number;
+  pnl: number;
+}
+
+/** 未归置资产明细项 */
+export interface OrphanAssetItem {
+  id: number;
+  name: string;
+  amount: number;
+  major_category: string;
+}
+
+/** 未归置交易明细项 */
+export interface OrphanTransactionItem {
+  id: number;
+  position_name: string;
+  txn_type: string;
+  amount: number;
+  confirm_date: string | null;
+}
+
+/** 未归置明细汇总 */
+export interface OrphanDetailSummary {
+  position_count: number;
+  asset_count: number;
+  transaction_count: number;
+  total_market_value: number;
+}
+
+/** 未归置明细响应（GET /api/ledgers/orphan/detail/） */
+export interface OrphanDetailResponse {
+  positions: OrphanPositionItem[];
+  assets: OrphanAssetItem[];
+  transactions: OrphanTransactionItem[];
+  summary: OrphanDetailSummary;
+}
+
+/** 未归置数据明细（孤儿持仓/资产/交易清单 + 汇总） */
+export function getOrphanDetail() {
+  return http.request<{ data: OrphanDetailResponse }>(
+    "get",
+    "/api/ledgers/orphan/detail/"
+  );
+}
+
 // ── 账户详情页专用 ──
 
 /** 获取账户概览卡片数据 */

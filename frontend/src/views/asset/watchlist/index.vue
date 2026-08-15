@@ -286,7 +286,9 @@
 
         <!-- 估值汇总卡片：仅当有实际持仓市值时显示 -->
         <div
-          v-if="realtime.summary && (realtime.summary as any).totalMarketValue > 0"
+          v-if="
+            realtime.summary && (realtime.summary as any).totalMarketValue > 0
+          "
           class="mb-3 p-3 rounded-lg"
           :style="{
             backgroundColor: 'var(--bg-soft)',
@@ -528,59 +530,37 @@
           align="right"
         >
           <template #default="{ row }">
-            <MoneyDisplay
-              v-if="row.position_market_value != null"
+            <MoneyWithRatio
               :value="row.position_market_value"
+              :ratio="marketValueRatio(row)"
               :show-sign="false"
+              :ratio-auto-color="false"
             />
-            <span v-else :style="{ color: 'var(--text-tertiary)' }">--</span>
           </template>
         </el-table-column>
 
-        <!-- 添加后涨幅：对比添加自选日价格 -->
+        <!-- 添加后涨幅：金额(上) + 涨幅%(下)，与持仓收益列统一主次 -->
         <el-table-column label="添加后涨幅" width="110" align="right">
           <template #default="{ row }">
-            <div
-              v-if="addedReturnPct(row) !== null"
-              class="flex flex-col items-end leading-tight"
-            >
-              <RiseFallText :value="addedReturnPct(row)!" :show-sign="true" />
-              <MoneyDisplay
-                v-if="addedReturnAmount(row) !== null"
-                :value="addedReturnAmount(row)!"
-                :show-currency="false"
-                :show-sign="true"
-                size="sm"
-                class="mt-0.5"
-              />
-            </div>
-            <span v-else :style="{ color: 'var(--text-tertiary)' }">--</span>
+            <MoneyWithRatio
+              :value="addedReturnAmount(row)"
+              :ratio="addedReturnPct(row)"
+              :show-currency="false"
+              :show-sign="true"
+            />
           </template>
         </el-table-column>
 
-        <!-- 持仓收益（金额） -->
+        <!-- 持仓收益：金额(上) + 收益率%(下)，合并原独立的「收益比」列 -->
         <el-table-column label="持仓收益" width="110" align="right">
           <template #default="{ row }">
-            <MoneyDisplay
-              v-if="(row.holding_quantity ?? 0) > 0"
-              :value="row.holding_pnl ?? 0"
+            <MoneyWithRatio
+              :value="(row.holding_quantity ?? 0) > 0 ? (row.holding_pnl ?? 0) : null"
+              :ratio="(row.holding_quantity ?? 0) > 0 ? (row.holding_pnl_percent ?? 0) : null"
               :show-currency="false"
               :show-sign="true"
               :auto-color="true"
             />
-            <span v-else :style="{ color: 'var(--text-tertiary)' }">--</span>
-          </template>
-        </el-table-column>
-
-        <!-- 收益比（%） -->
-        <el-table-column label="收益比" width="96" align="right">
-          <template #default="{ row }">
-            <RiseFallText
-              v-if="(row.holding_quantity ?? 0) > 0"
-              :value="row.holding_pnl_percent ?? 0"
-              :show-sign="true"
-            />
-            <span v-else :style="{ color: 'var(--text-tertiary)' }">--</span>
           </template>
         </el-table-column>
 
@@ -1051,6 +1031,7 @@ import {
 } from "@/api/watchlist";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue"; // 加入此组件引入
+import MoneyWithRatio from "@/components/MoneyWithRatio/index.vue";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import {
   useRealtimeQuotes,
@@ -1180,6 +1161,15 @@ function addedReturnAmount(row: {
   const cur = (getValuationItem(row.symbol ?? "")?.currentPrice ??
     row.current_price) as number;
   return (cur - (row.price_at_added as number)) * row.holding_quantity;
+}
+
+/** 持仓市值占总市值的比例（%）；无总市值或无市值时返回 null（组件仅显示金额） */
+function marketValueRatio(row: {
+  position_market_value?: number | null;
+}): number | null {
+  const total = (realtime.summary as any)?.totalMarketValue;
+  if (!total || total <= 0 || row.position_market_value == null) return null;
+  return (row.position_market_value / total) * 100;
 }
 
 const getHoldings = (): Holding[] => {

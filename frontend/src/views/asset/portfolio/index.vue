@@ -83,7 +83,7 @@
             </span>
           </div>
           <p class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
-            创建于 {{ item.created_at?.slice(0, 10) }}
+            创建于 {{ formatDate(item.created_at ?? "") }}
           </p>
         </div>
       </div>
@@ -175,6 +175,7 @@ import {
   deletePortfolio,
   type PortfolioItem
 } from "@/api/portfolio";
+import { formatDate } from "@/utils/date";
 
 defineOptions({ name: "PortfolioList" });
 
@@ -255,7 +256,10 @@ onMounted(() => {
 
 <style scoped>
 .portfolio-page {
-  font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+  /* 继承全局字体 token，避免与站内其它页面字体不一致（design-tokens.css --font-ui） */
+  font-family: var(--font-ui);
+  /* 数字等宽对齐：消除金额/计数宽度抖动（design.md「数字等宽对齐」） */
+  font-variant-numeric: tabular-nums;
 }
 
 .portfolio-card {

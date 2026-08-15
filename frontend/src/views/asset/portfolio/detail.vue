@@ -625,7 +625,10 @@ onMounted(async () => {
 
 <style scoped>
 .portfolio-detail {
-  font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+  /* 继承全局字体 token，避免与站内其它页面字体不一致（design-tokens.css --font-ui） */
+  font-family: var(--font-ui);
+  /* 数字等宽对齐：消除金额/收益率宽度抖动（design.md「数字等宽对齐」） */
+  font-variant-numeric: tabular-nums;
 }
 
 /* 产品单元格样式（与导入预览页保持一致） */
