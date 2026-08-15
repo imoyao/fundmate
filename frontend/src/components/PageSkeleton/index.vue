@@ -11,21 +11,14 @@
   <div class="page-skeleton" aria-hidden="true">
     <!-- 概览指标卡 -->
     <div v-if="cards > 0" class="page-skeleton__cards">
-      <div
-        v-for="i in cards"
-        :key="`card-${i}`"
-        class="page-skeleton__card"
-      >
+      <div v-for="i in cards" :key="`card-${i}`" class="page-skeleton__card">
         <div class="page-skeleton__bar page-skeleton__bar--label" />
         <div class="page-skeleton__bar page-skeleton__bar--value" />
       </div>
     </div>
 
     <!-- 图表卡 -->
-    <div
-      v-if="chartCols > 0"
-      class="page-skeleton__chart-row"
-    >
+    <div v-if="chartCols > 0" class="page-skeleton__chart-row">
       <div
         v-for="i in chartCols"
         :key="`chart-${i}`"
@@ -71,12 +64,12 @@ withDefaults(
 
   /* 卡 / 图表 / 表 用同一 token 卡片语言（与 CardBlock / MetricCard 一致） */
   &__card {
+    min-height: 104px;
     padding: var(--space-standard);
     background: var(--bg-card);
     border: 1px solid var(--border-light);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-raised);
-    min-height: 104px;
   }
 
   &__cards {
@@ -112,7 +105,6 @@ withDefaults(
   /* 占位条：纯 CSS 流光（background-size 动画，GPU 合成，不占主线程），1.8s 慢速 */
   &__bar {
     height: 14px;
-    border-radius: var(--radius-sm);
     background-color: var(--bg-soft);
     background-image: linear-gradient(
       90deg,
@@ -121,6 +113,7 @@ withDefaults(
       var(--bg-soft) 63%
     );
     background-size: 400% 100%;
+    border-radius: var(--radius-sm);
     animation: page-skeleton-wave 1.8s ease-in-out infinite;
   }
 
@@ -151,6 +144,7 @@ withDefaults(
   0% {
     background-position: 100% 50%;
   }
+
   100% {
     background-position: 0 50%;
   }

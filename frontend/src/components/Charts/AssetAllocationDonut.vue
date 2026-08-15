@@ -50,7 +50,7 @@ const CHART_PALETTE_VARS = [
 function colorFor(name: string): string {
   const varName = props.colorMap[name];
   if (varName) return getCssVar(varName, "#8E8B82");
-  const idx = props.data.findIndex((d) => d.name === name);
+  const idx = props.data.findIndex(d => d.name === name);
   return getCssVar(
     CHART_PALETTE_VARS[idx % CHART_PALETTE_VARS.length] ?? "--chart-01",
     "#8E8B82"
@@ -94,11 +94,9 @@ function buildOption() {
           textStyle: { color: legendTextColor, fontSize: 12 },
           // 分类名 + 占比（%），占比按 total 实时计算
           formatter: (name: string) => {
-            const d = props.data.find((x) => x.name === name);
+            const d = props.data.find(x => x.name === name);
             const pct =
-              total > 0
-                ? (((d?.value || 0) / total) * 100).toFixed(1)
-                : "0";
+              total > 0 ? (((d?.value || 0) / total) * 100).toFixed(1) : "0";
             return `${name} ${pct}%`;
           }
         }
@@ -133,7 +131,7 @@ const { render } = useEchartsLifecycle(
   [
     {
       ref: chartRef,
-      build: (el) => {
+      build: el => {
         const chart = echarts.init(el);
         chart.setOption(buildOption());
         return chart;
@@ -153,8 +151,9 @@ watch(
 <style scoped>
 .allocation-donut {
   width: 100%;
-  min-height: 200px;
+
   /* 容器高度由调用方通过 class（如 flex-1）控制 */
   height: 100%;
+  min-height: 200px;
 }
 </style>

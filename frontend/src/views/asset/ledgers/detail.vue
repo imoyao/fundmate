@@ -93,10 +93,7 @@
               持仓盈亏
             </div>
             <div class="summary-card__value">
-              <MoneyDisplay
-                :value="summaryData?.position_pnl || 0"
-                size="lg"
-              />
+              <MoneyDisplay :value="summaryData?.position_pnl || 0" size="lg" />
             </div>
           </div>
 
@@ -177,59 +174,59 @@
         <!-- 资产配置与盈亏走势双列布局 -->
         <CardBlock class="mb-6">
           <div class="grid grid-cols-2 gap-4">
-          <!-- 左列：盈亏走势（flex 自动居中，避免大留白） -->
-          <div
-            class="flex flex-col justify-center border-r pr-4"
-            :style="{ borderColor: 'var(--border-subtle)' }"
-          >
-            <div class="flex justify-between items-center mb-3">
+            <!-- 左列：盈亏走势（flex 自动居中，避免大留白） -->
+            <div
+              class="flex flex-col justify-center border-r pr-4"
+              :style="{ borderColor: 'var(--border-subtle)' }"
+            >
+              <div class="flex justify-between items-center mb-3">
+                <div
+                  class="flex items-center gap-2 text-sm font-medium"
+                  :style="{ color: 'var(--text-secondary)' }"
+                >
+                  <IconifyIconOffline icon="ep:trend-charts" class="text-lg" />
+                  盈亏走势
+                </div>
+                <el-radio-group
+                  v-model="trendPeriod"
+                  size="small"
+                  @change="initLineChart"
+                >
+                  <el-radio-button label="day">当日</el-radio-button>
+                  <el-radio-button label="month">本月</el-radio-button>
+                  <el-radio-button label="year">今年</el-radio-button>
+                </el-radio-group>
+              </div>
+              <!-- 折线图容器：设置 min-height 让占位文字自然居中 -->
               <div
-                class="flex items-center gap-2 text-sm font-medium"
+                class="flex-1 min-h-[200px] w-full flex items-center justify-center"
+              >
+                <div
+                  class="text-xs text-center leading-relaxed"
+                  :style="{ color: 'var(--text-tertiary)' }"
+                >
+                  暂无历史盈亏曲线<br />
+                  <span class="text-[10px]">(数据依赖 P1-20 定时任务同步)</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 右列：资产配置分布环形图（共有组件：环形 + 底部图例 + 空态） -->
+            <div class="flex flex-col justify-center pl-2">
+              <div
+                class="flex items-center gap-2 mb-3 text-sm font-medium"
                 :style="{ color: 'var(--text-secondary)' }"
               >
-                <IconifyIconOffline icon="ep:trend-charts" class="text-lg" />
-                盈亏走势
+                <IconifyIconOffline icon="ep:pie-chart" class="text-lg" />
+                资产配置分布
               </div>
-              <el-radio-group
-                v-model="trendPeriod"
-                size="small"
-                @change="initLineChart"
-              >
-                <el-radio-button label="day">当日</el-radio-button>
-                <el-radio-button label="month">本月</el-radio-button>
-                <el-radio-button label="year">今年</el-radio-button>
-              </el-radio-group>
+              <AssetAllocationDonut
+                :data="allocationData"
+                :color-map="typeColorMap"
+                class="flex-1"
+                empty-text="暂无持仓数据"
+              />
             </div>
-            <!-- 折线图容器：设置 min-height 让占位文字自然居中 -->
-            <div
-              class="flex-1 min-h-[200px] w-full flex items-center justify-center"
-            >
-              <div
-                class="text-xs text-center leading-relaxed"
-                :style="{ color: 'var(--text-tertiary)' }"
-              >
-                暂无历史盈亏曲线<br />
-                <span class="text-[10px]">(数据依赖 P1-20 定时任务同步)</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- 右列：资产配置分布环形图（共有组件：环形 + 底部图例 + 空态） -->
-          <div class="flex flex-col justify-center pl-2">
-            <div
-              class="flex items-center gap-2 mb-3 text-sm font-medium"
-              :style="{ color: 'var(--text-secondary)' }"
-            >
-              <IconifyIconOffline icon="ep:pie-chart" class="text-lg" />
-              资产配置分布
-            </div>
-            <AssetAllocationDonut
-              :data="allocationData"
-              :color-map="typeColorMap"
-              class="flex-1"
-              empty-text="暂无持仓数据"
-            />
-          </div>
           </div>
         </CardBlock>
         <!-- Tab 切换 -->
@@ -340,7 +337,9 @@
                         text
                         size="small"
                         type="danger"
-                        @click.stop="confirmDeletePosition(row as LedgerHoldingRow)"
+                        @click.stop="
+                          confirmDeletePosition(row as LedgerHoldingRow)
+                        "
                         >删除</el-button
                       >
                     </div>
@@ -400,13 +399,16 @@
                   }}</template>
                 </el-table-column>
                 <!-- 资产列宽统一 160（产品信息列宽度规范，见 docs/design/components.md） -->
-                <el-table-column label="资产名称" min-width="160" show-overflow-tooltip>
+                <el-table-column
+                  label="资产名称"
+                  min-width="160"
+                  show-overflow-tooltip
+                >
                   <template #default="{ row }">
                     <span class="txn-asset-name">{{ row.position_name }}</span>
-                    <span
-                      v-if="row.symbol"
-                      class="txn-asset-code"
-                    >{{ row.symbol }}</span>
+                    <span v-if="row.symbol" class="txn-asset-code">{{
+                      row.symbol
+                    }}</span>
                   </template>
                 </el-table-column>
                 <el-table-column label="类型" width="80">
@@ -860,8 +862,7 @@ const allocationData = computed(() =>
 
 // 账户信息
 const accountInfo = computed(
-  () =>
-    ledgers.value.find((l) => String(l.id) === ledgerId.value) || null
+  () => ledgers.value.find(l => String(l.id) === ledgerId.value) || null
 );
 const accountName = computed(() => {
   if (targetAccountName.value) return targetAccountName.value;
@@ -891,12 +892,12 @@ function getAllocColor(alloc: string | null): string {
 
 // 关联现金账户列表
 const cashLedgers = computed(() =>
-  ledgers.value.filter((l) => l.ledger_type === "bank")
+  ledgers.value.filter(l => l.ledger_type === "bank")
 );
 const sameTypeLedgers = computed(() =>
   accountInfo.value
     ? ledgers.value.filter(
-        (l) =>
+        l =>
           l.ledger_type === accountInfo.value!.ledger_type &&
           l.id !== Number(ledgerId.value)
       )
@@ -938,7 +939,9 @@ async function loadHoldings(page = 1) {
       page,
       per_page: holdingsPageSize
     });
-    const result = (res as { data?: { items?: LedgerHoldingRow[]; total?: number } })?.data;
+    const result = (
+      res as { data?: { items?: LedgerHoldingRow[]; total?: number } }
+    )?.data;
     holdingsList.value = result?.items ?? [];
     holdingsTotal.value = result?.total ?? 0;
   } catch (e) {
@@ -959,7 +962,9 @@ async function loadTransactions(page = 1) {
       page,
       per_page: transactionsPageSize
     });
-    const result = (res as { data?: { items?: LedgerTxnRow[]; total?: number } })?.data;
+    const result = (
+      res as { data?: { items?: LedgerTxnRow[]; total?: number } }
+    )?.data;
     transactionsList.value = result?.items ?? [];
     transactionsTotal.value = result?.total ?? 0;
   } catch (e) {
@@ -997,9 +1002,7 @@ function getTxnTypeClass(type: string) {
 
 async function handleMigrate() {
   if (!migrateTargetLedgerId.value || !migratingItem.value) return;
-  const ledger = ledgers.value.find(
-    (l) => l.id === migrateTargetLedgerId.value
-  );
+  const ledger = ledgers.value.find(l => l.id === migrateTargetLedgerId.value);
   if (!ledger) return;
   try {
     if (migratingItem.value.id > 100000) {
@@ -1055,7 +1058,7 @@ async function handleBatchMigrate() {
 async function handleAssign(itemId: number) {
   const targetLedgerId = assignMap.value[itemId];
   if (!targetLedgerId) return;
-  const ledger = ledgers.value.find((l) => l.id === targetLedgerId);
+  const ledger = ledgers.value.find(l => l.id === targetLedgerId);
   if (!ledger) return;
   try {
     if (itemId > 100000) {
@@ -1084,8 +1087,7 @@ async function openEditDialog() {
       getLedgers(),
       getPortfolios()
     ]);
-    ledgers.value =
-      (ledgerRes as { data?: LedgerItem[] })?.data ?? [];
+    ledgers.value = (ledgerRes as { data?: LedgerItem[] })?.data ?? [];
     portfolioList.value =
       (portfolioRes as { data?: PortfolioItem[] })?.data ?? [];
   } catch (e) {
@@ -1216,7 +1218,8 @@ onMounted(async () => {
     if (!isUnclassified.value) {
       await Promise.all([loadSummary(), loadHoldings()]);
       // 货基收益依赖 summary 判定账户类型，故在 summary 就绪后再拉
-      if (summaryData.value?.ledger_type === "fund") await loadMoneyFundIncome();
+      if (summaryData.value?.ledger_type === "fund")
+        await loadMoneyFundIncome();
     } else {
       await loadHoldings();
     }
@@ -1296,8 +1299,8 @@ function openDeleteDialog(account: LedgerItem) {
 
 .summary-card__label {
   display: flex;
-  align-items: center;
   gap: 6px;
+  align-items: center;
   font-size: 13px;
   font-weight: 500;
   color: var(--text-secondary);
@@ -1323,8 +1326,8 @@ function openDeleteDialog(account: LedgerItem) {
 }
 
 .summary-card__divider {
-  margin-top: var(--space-3);
   padding-top: var(--space-2);
+  margin-top: var(--space-3);
   border-top: 1px solid var(--border-subtle);
 }
 

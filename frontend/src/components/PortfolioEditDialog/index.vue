@@ -97,7 +97,9 @@
     </el-form>
     <template #footer>
       <el-button @click="handleClose">取消</el-button>
-      <el-button type="primary" :loading="saving" @click="handleUpdate">保存</el-button>
+      <el-button type="primary" :loading="saving" @click="handleUpdate"
+        >保存</el-button
+      >
     </template>
   </el-dialog>
 </template>
@@ -154,7 +156,7 @@ const editForm = ref<EditForm>({
 
 watch(
   () => props.modelValue,
-  (visible) => {
+  visible => {
     if (visible && props.portfolio) {
       initForm();
       void loadLedgers();
@@ -197,7 +199,7 @@ async function loadLedgers() {
     // 组合 ID -> 名称映射（排除当前正在编辑的组合本身）
     const portfolioNameMap: Record<number, string> = {};
     const currentId = props.portfolio?.id;
-    allPortfolios.forEach((p) => {
+    allPortfolios.forEach(p => {
       if (p.id !== currentId) {
         portfolioNameMap[p.id] = p.name;
       }
@@ -205,7 +207,7 @@ async function loadLedgers() {
 
     // 给每个账户附加 portfolioName，未关联的排在最前
     allLedgers.value = rawLedgers
-      .map((l) => ({
+      .map(l => ({
         ...l,
         portfolioName: l.portfolio_id
           ? portfolioNameMap[l.portfolio_id] || "未知组合"
@@ -236,10 +238,10 @@ async function handleUpdate() {
     // 详见技术债务 issue（「计算前移：组合编辑的账户关联差异应由后端统一处理」）
     const previousIds = props.linkedLedgerIds;
     const toUnlink = previousIds.filter(
-      (id) => !selectedLedgerIds.value.includes(id)
+      id => !selectedLedgerIds.value.includes(id)
     );
     const toLink = selectedLedgerIds.value.filter(
-      (id) => !previousIds.includes(id)
+      id => !previousIds.includes(id)
     );
     for (const id of toUnlink) {
       await updateLedger(id, { portfolio_id: null });

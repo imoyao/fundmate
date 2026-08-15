@@ -1033,6 +1033,7 @@ onMounted(() => {
   /* 字体继承全局 token（--font-ui → Inter 优先），不再硬编码 PingFang 栈，
      避免与站内其它页面字体不一致（design-tokens.css --font-ui） */
   font-family: var(--font-ui);
+
   /* 全页数字等宽对齐：消除金额/统计数字宽度抖动（design.md「数字等宽对齐」） */
   font-variant-numeric: tabular-nums;
 }
@@ -1067,20 +1068,23 @@ onMounted(() => {
 .overview-metrics {
   display: flex;
   flex-direction: column;
+
   /* 间距 12px -> 16px：--space-4 未定义（见 profile/index.vue 前车之鉴），用 --space-compact */
   gap: var(--space-compact);
   min-width: 160px;
-  text-align: right;
+
   /* 数字等宽对齐：消除金额宽度抖动 */
   font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
 .metric-item {
   display: flex;
   flex-direction: column;
+  gap: 2px;
+
   /* 子元素统一右对齐：label/数值/胶囊与整体 text-align 一致，消除「对齐奇怪」 */
   align-items: flex-end;
-  gap: 2px;
   padding-top: var(--space-3);
   border-top: 1px solid var(--border-subtle);
 }
@@ -1244,23 +1248,23 @@ onMounted(() => {
 /* 左侧锚点：总资产大数字（lg）。flex 权重略大于右侧（1.25:1），
    常见金额（十万级）单行放下；极端长金额由 overflow-wrap 兜底断行，绝不溢出卡片 */
 .metric--main {
-  flex: 1.25;
-  min-width: 0;
   display: flex;
+  flex: 1.25;
   flex-direction: column;
-  justify-content: center;
   gap: 2px;
+  justify-content: center;
+  min-width: 0;
   overflow-wrap: anywhere;
 }
 
 /* 右侧两指标：独立竖排容器，垂直居中于卡片高度，互不挤压 */
 .metric-side {
-  flex: 1;
-  min-width: 0;
   display: flex;
+  flex: 1;
   flex-direction: column;
-  justify-content: center;
   gap: var(--space-2);
+  justify-content: center;
+  min-width: 0;
 }
 
 .metric-label {
@@ -1272,9 +1276,10 @@ onMounted(() => {
 .metric-value {
   display: block;
   font-size: var(--text-small, 14px);
-  line-height: 22px;
+
   /* 数字等宽对齐：消除金额宽度抖动（design.md「数字等宽对齐」） */
   font-variant-numeric: tabular-nums;
+  line-height: 22px;
 }
 
 /* 关联负债行（第三行跟进，用 --border-subtle 弱分割） */
@@ -1284,9 +1289,10 @@ onMounted(() => {
   justify-content: space-between;
   padding-top: var(--space-2);
   margin-top: var(--space-3);
-  border-top: 1px solid var(--border-subtle);
+
   /* 数字等宽对齐：消除金额宽度抖动 */
   font-variant-numeric: tabular-nums;
+  border-top: 1px solid var(--border-subtle);
 }
 
 /* ===== 行内操作（删除）：hover 卡片时浮现，200ms ease（design.md 行内操作规范） ===== */

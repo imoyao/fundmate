@@ -91,7 +91,9 @@
             </div>
           </div>
         </div>
-        <div v-else-if="!xirrLoading" class="xirr-empty">点击刷新获取收益数据</div>
+        <div v-else-if="!xirrLoading" class="xirr-empty">
+          点击刷新获取收益数据
+        </div>
         <div v-else class="xirr-empty">计算中...</div>
       </CardBlock>
 
@@ -174,7 +176,12 @@
       <!-- 关联账户 -->
       <CardBlock>
         <SectionHeader title="关联账户" />
-        <el-table v-if="linkedLedgers.length" :data="linkedLedgers" stripe size="default">
+        <el-table
+          v-if="linkedLedgers.length"
+          :data="linkedLedgers"
+          stripe
+          size="default"
+        >
           <el-table-column prop="name" label="账户名称" min-width="150" />
           <el-table-column label="账户类型" width="120">
             <template #default="{ row }">
@@ -183,7 +190,9 @@
           </el-table-column>
           <el-table-column label="操作" width="100">
             <template #default="{ row }">
-              <el-button text size="small" @click="goToLedger(row.id)">查看</el-button>
+              <el-button text size="small" @click="goToLedger(row.id)"
+                >查看</el-button
+              >
             </template>
           </el-table-column>
         </el-table>
@@ -197,7 +206,7 @@
     <PortfolioEditDialog
       v-model="editVisible"
       :portfolio="portfolio"
-      :linked-ledger-ids="linkedLedgers.map((l) => l.id)"
+      :linked-ledger-ids="linkedLedgers.map(l => l.id)"
       @saved="fetchDetail"
     />
   </div>
@@ -314,7 +323,7 @@ async function fetchLinkedLedgers() {
   try {
     const res = await getLedgers();
     linkedLedgers.value = unwrapList<LinkedLedger>(res).filter(
-      (l) => l.portfolio_id === portfolioId.value
+      l => l.portfolio_id === portfolioId.value
     );
   } catch {
     linkedLedgers.value = [];
@@ -388,6 +397,7 @@ onMounted(async () => {
 .portfolio-detail {
   /* 继承全局字体 token，避免与站内其它页面字体不一致（design-tokens.css --font-ui） */
   font-family: var(--font-ui);
+
   /* 数字等宽对齐：消除金额/收益率宽度抖动（design.md「数字等宽对齐」） */
   font-variant-numeric: tabular-nums;
 }
@@ -395,8 +405,8 @@ onMounted(async () => {
 /* XIRR 指标区 */
 .xirr-grid {
   display: flex;
-  align-items: center;
   gap: var(--space-5);
+  align-items: center;
 }
 
 .xirr-item {
@@ -428,14 +438,14 @@ onMounted(async () => {
 
 .xirr-empty {
   padding: var(--space-4);
-  text-align: center;
   color: var(--text-tertiary);
+  text-align: center;
 }
 
 /* 空状态 */
 .table-empty {
   padding: var(--space-6);
-  text-align: center;
   color: var(--text-tertiary);
+  text-align: center;
 }
 </style>
