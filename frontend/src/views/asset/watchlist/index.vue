@@ -201,18 +201,19 @@
             <div class="tag-filter-panel">
               <div class="tag-filter-panel__list">
                 <el-checkbox-group v-model="draftFilterTagIds">
-                  <label
+                  <div
                     v-for="tag in allTags"
                     :key="tag.id"
                     class="tag-filter-item"
+                    @click="toggleDraftTag(tag.id)"
                   >
-                    <el-checkbox :value="tag.id" />
+                    <el-checkbox :value="tag.id" @click.stop />
                     <span
                       class="tag-filter-item__dot"
                       :style="{ backgroundColor: tag.color || 'var(--text-tertiary)' }"
                     />
                     <span class="tag-filter-item__name">{{ tag.name }}</span>
-                  </label>
+                  </div>
                 </el-checkbox-group>
                 <div v-if="allTags.length === 0" class="tag-filter-panel__empty">
                   暂无可选标签
@@ -1145,6 +1146,16 @@ function handleViewChange() {
 // 标签筛选面板交互（onTagFilterShow / applyTagFilter / clearTagFilter）已随 useWatchlistTags 抽离。
 // 其中 applyTagFilter / clearTagFilter 通过 refresh 回调（顶部定义）重置分页并触发 fetchData。
 
+/** 点击标签行时切换草稿选中态（配合 div 行点击替代非法嵌套 label） */
+function toggleDraftTag(tagId: number) {
+  const idx = draftFilterTagIds.value.indexOf(tagId);
+  if (idx >= 0) {
+    draftFilterTagIds.value.splice(idx, 1);
+  } else {
+    draftFilterTagIds.value.push(tagId);
+  }
+}
+
 function resetFilters() {
   searchKeyword.value = "";
   groups.resetActiveGroup();
@@ -1514,6 +1525,8 @@ const realtimeEnabled = computed(() => realtime.enabled.value);
 }
 
 .tag-filter-item__name {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: 13px;
