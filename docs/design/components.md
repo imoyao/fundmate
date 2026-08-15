@@ -17,7 +17,10 @@ title: 组件使用规范（设计语言实现层）
 - 数值与状态展示（设计令牌强制统一，见下节）：
   - `MoneyDisplay` — 金额展示（千分位 + 涨红跌绿 + 等宽数字）
   - `RiseFallText` — 涨跌幅文本（正负号 + 涨红跌绿 + 等宽数字）
+  - `ProductDisplay` — 产品信息单元格（名称 + 代码 + 类型标签，表格产品列统一）
   - `AssetTypeBadge` — 资产 / 账本类型胶囊（统一账本配色）
+- `CardBlock` — 区块卡片容器（统一 token 卡片，禁各页手写 `bg-white rounded-2xl` 等重复样式）
+- `PortfolioEditDialog` — 组合编辑对话框（编辑组合 + 关联账户，自 portfolio 详情页拆出）
 - `TemperatureGaugeCard` — 温度环形卡（探市 / 温度计 / 达报三页复用）
 - `TemperatureContextCard` — 温度上下文解读卡
 - `PageHeaderBar` — 页面统一页头
@@ -114,6 +117,20 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 - 行内剩余空间由 flex 自动均分，避免出现右侧大片空白。
 - 响应式：≤960px → 最小宽度 160px；≤520px → 1 列。
 
+## CardBlock · 区块卡片容器（强制复用）
+
+- 用途：区块卡（`SectionHeader` + 内容区）的统一容器，**禁止各页面手写 `bg-white rounded-2xl p-6 shadow-sm border` 等重复样式**。
+- 结构：纯容器 `<section class="card-block">` + 默认插槽；与 `SectionHeader`、`MetricCard` 卡片视觉一致（`--bg-card` + `--radius-lg` + `--border-light` + `--shadow-raised` + `--space-standard` 内边距）。
+- 间距由使用方通过 class 控制（如 `class="mb-6"`），组件不预设外边距。
+
+## PortfolioEditDialog · 组合编辑对话框（强制复用）
+
+- 用途：编辑组合基本信息（名称 / 目的 / 描述 / 目标收益率 / 目标金额 / 目标日期 / 基准指数）+ 关联账户（未关联排前、组合名映射、保存时 diff 出 unlink/link）。
+- props：`modelValue`(v-model 显隐)、`portfolio`(`PortfolioDetail | null`，须为完整详情)、`linkedLedgerIds`(`number[]`，当前已关联账户 id)。
+- emits：`update:modelValue`、`saved`（保存成功后触发，**由父页面负责重新拉取详情**）。
+- 说明：账户关联 diff（unlink/link 逐个调接口）当前仍在前端实现，已记技术债务（后端应提供原子化更新接口），见对应 issue。
+- 参考实现：`frontend/src/views/asset/portfolio/detail.vue`。
+
 ## 数值与状态展示组件（设计令牌强制统一）
 
 金额、涨跌幅、资产类型等「带色彩的敏感数值」是设计语言最易串味的区域。**必须复用以下组件，禁止各页面手写 `+ / -` 拼接、`style="color:red"` 或裸 `<span>` 拼数字**。
@@ -164,6 +181,12 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 
 - 用途：资产 / 账本类型标签（股票、基金、可转债等），统一账本配色 `getLedgerColor`，禁止页面自定类型色。
 - props：`type`(账本类型 key)、`label`(可选覆盖文案)、`variant`(`light` 浅底胶囊 / `tag` el-tag)。
+
+### ProductDisplay · 产品信息单元格
+
+- 用途：表格「产品信息」列的统一样式（名称 + `# 代码` + 类型标签），与导入预览页保持一致，禁止各页面手写 `.product-cell` / `.type-tag-inline` 结构。
+- props：`name`(产品名称)、`symbol`(资产代码)、`typeLabel`(类型中文标签)；`name || symbol || "--"` 兜底展示。
+- 注意：`typeLabel` 为**后端类型文案**（如 `row.type_label`），非账本类型 key；按账本类型配色请用 `AssetTypeBadge`。
 
 ## TemperatureGaugeCard · 温度环形卡（三页复用）
 
