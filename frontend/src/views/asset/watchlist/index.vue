@@ -706,7 +706,7 @@
     <TagManagerDialog
       v-model="showTagManager"
       :all-tags="allTags"
-      :used-tag-ids="usedTagIds"
+      :tag-usage="tagUsage"
       @tags-changed="fetchTags"
     />
 
@@ -1014,18 +1014,20 @@ const activeCustomGroupId = computed(() => {
 
 let outsideClickHandler: ((e: MouseEvent) => void) | null = null;
 
-const usedTagIds = computed(() => {
-  const ids = new Set<number>();
-  if (!Array.isArray(items.value)) return ids;
+const tagUsage = computed(() => {
+  const usage = new Map<number, number>();
+  if (!Array.isArray(items.value)) return usage;
   items.value.forEach(item => {
     const tagIds = item?.tag_ids;
     if (Array.isArray(tagIds)) {
       tagIds.forEach(id => {
-        if (typeof id === "number" && !isNaN(id)) ids.add(id);
+        if (typeof id === "number" && !isNaN(id)) {
+          usage.set(id, (usage.get(id) || 0) + 1);
+        }
       });
     }
   });
-  return ids;
+  return usage;
 });
 
 const fetchParams = computed(() => {

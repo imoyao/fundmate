@@ -21,7 +21,7 @@ title: 组件使用规范（设计语言实现层）
   - `AssetTypeBadge` — 资产 / 账本类型胶囊（统一账本配色）
 - `CardBlock` — 区块卡片容器（统一 token 卡片，禁各页手写 `bg-white rounded-2xl` 等重复样式）
 - `PortfolioEditDialog` — 组合编辑对话框（编辑组合 + 关联账户，自 portfolio 详情页拆出）
-- `TagManagerDialog` / `TagEditorDialog` — 自选标签管理 / 行内标签编辑弹窗（自 watchlist 页拆出，见「自选标签弹窗」章节）
+- `TagManagerDialog` / `TagFormDialog` / `TagEditorDialog` — 自选标签管理（GitHub Labels 风格列表）/ 标签新建编辑轻量弹窗 / 行内标签编辑弹窗（自 watchlist 页拆出，见「自选标签弹窗」章节）
 - `TemperatureGaugeCard` — 温度环形卡（探市 / 温度计 / 达报三页复用）
 - `TemperatureContextCard` — 温度上下文解读卡
 - `PageHeaderBar` — 页面统一页头
@@ -134,17 +134,33 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 
 ## 自选标签弹窗（业务共有组件）
 
-### TagManagerDialog · 标签管理弹窗
+### TagManagerDialog · 标签管理弹窗（GitHub Labels 风格）
 
-- 用途：自选标签的「选择 / 编辑 / 新建 / 删除」，自 `watchlist/index.vue` 拆出的共有组件（该页曾内嵌 ~160 行）。
+- 用途：自选标签的「列表管理」（展示 + 删除 + 调起新建/编辑），自 `watchlist/index.vue` 拆出的共有组件。
+  交互参考 GitHub Labels，但套用多多贝设计语言：**白底卡片列表 + 顶部搜索/新建，与「表单填写」彻底解耦**。
 - 路径：`src/components/Watchlist/TagManagerDialog.vue`。
-- props：`modelValue`(v-model 显隐)、`allTags`(全部标签)、`usedTagIds`(正被资产使用的标签 id，禁止删除，父组件基于当前列表计算)。
+- 视觉框架（强制统一，禁止偏离 design.md）：
+  - 容器：白底（`--bg-card`）卡片，圆角 `--radius-lg`(16px)，列表行间用 `--border-light` 浅色分割线。
+  - 顶部：左侧 `el-input`（胶囊 `--radius-pill`）+ 右侧 `--brand-700` 实心「新建标签」主按钮（替代原底部操作区）。
+  - 列表行高：`min-height: 46px`（约 44–48px），hover 行底色变深（`--bg-soft`）。
+  - 名称列：用 `--radius-pill` 胶囊底色展示标签色 + 名称（`tag-pill`，底色为标签色 + 低透明度、文字用原色）。
+  - 统计列：展示「N 个资产」（父组件传入每个标签被多少资产引用）。
+- props：`modelValue`(v-model 显隐)、`allTags`(全部标签)、`tagUsage`(标签 id → 使用计数 `Map<number, number>`，`>0` 表示被资产使用、禁止删除，父组件基于当前列表计算)。
 - emits：`update:modelValue`、`tags-changed`(增删改标签后触发，父组件刷新标签列表)。
-- 标签查找工具见 `utils/tagHelpers.ts`（`findTagName` / `findTagColor`）；预设色见 `constants/watchlist.ts`（`PRESET_TAG_COLORS` / `DEFAULT_TAG_COLOR`）。
+- 新建/编辑**不在列表内嵌表单**，统一调起 `TagFormDialog` 轻量弹窗（行内操作默认隐藏、hover 显现：编辑=次级色、删除=`--color-danger` 幽灵态）。
 
-### TagEditorDialog · 行内标签编辑弹窗
+### TagFormDialog · 标签新建/编辑轻量弹窗
 
-- 用途：为单个自选资产添加 / 移除标签，自 `watchlist/index.vue` 拆出的共有组件（该页曾内嵌 ~120 行）。
+- 用途：单个标签的「名称 + 颜色」编辑，与列表管理彻底解耦（GitHub Labels 思路）。由 `TagManagerDialog` 在点击「新建标签」或某行「编辑」时调起，回填原 name/color。
+- 路径：`src/components/Watchlist/TagFormDialog.vue`。
+- 内容：一个 `el-input`（名称，带字数上限/计数）+ 预设色圆点（复用 `PRESET_TAG_COLORS`）+ 底部「取消 / 保存」。
+- props：`modelValue`(v-model 显隐)、`tag`(待编辑标签，`null` 表示新建)。
+- emits：`update:modelValue`、`saved`(保存成功后触发，父组件刷新标签列表)。
+- 内部按 status `409` 提示「该标签已存在」。
+
+### TagEditorDialog · 行内标签编辑弹窗（资产维度）
+
+- 用途：为单个自选资产**添加 / 移除**标签（资产维度的标签归属），自 `watchlist/index.vue` 拆出的共有组件。注意与 `TagFormDialog`（标签维度的新建/编辑）职责不同，二者不可混淆。
 - 路径：`src/components/Watchlist/TagEditorDialog.vue`。
 - props：`modelValue`(v-model 显隐)、`item`(当前自选资产 `WatchlistItem`)、`allTags`(全部标签)。
 - emits：`update:modelValue`、`saved`(保存成功后触发，父组件负责刷新列表与标签)。
@@ -153,7 +169,7 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 > 自选 × 探市边界结论：探市页（/explore）是引流沙盒（未登录 localStorage 草稿，仅「看 + 轻收藏」），
 > 自选页是权威管理（后端 API + 标签/分组/批量/OCR）。两者表格**刻意不共用**（产品边界不同）；
 > 共享的是底层 composable（`useAssetSearch` / `useRealtimeQuotes` / `useAuthState`）。
-> 标签相关能力集中在本组件，未来若探市页或其它页面需要标签管理，直接复用本组件。
+> 标签相关能力集中在本组组件，未来若探市页或其它页面需要标签管理，直接复用本组组件。
 
 ## 数值与状态展示组件（设计令牌强制统一）
 
