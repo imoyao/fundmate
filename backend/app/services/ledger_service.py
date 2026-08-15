@@ -326,6 +326,7 @@ class LedgerService:
                     'confirm_date': t.confirm_date.isoformat() if t.confirm_date else None,
                     'txn_type': t.txn_type,
                     'position_name': t.position_name or '未知资产',
+                    'symbol': t.symbol or '',
                     'price': Money.cents_to_yuan(t.price),
                     'quantity': Money.min_unit_to_shares(t.quantity),
                     'amount': Money.cents_to_yuan(t.amount),
