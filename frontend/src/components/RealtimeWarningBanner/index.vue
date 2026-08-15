@@ -18,7 +18,7 @@
       <span>实时估值基于历史季报计算，不代表最终净值，仅供参考。</span>
     </div>
 
-    <!-- 关闭按钮：仅隐藏本横幅，不影响实时估值功能（2026-08-15 修复） -->
+    <!-- 关闭按钮：仅隐藏本横幅，不影响实时估值功能（关闭态仅当前会话有效） -->
     <el-button
       class="realtime-warning-banner__close"
       size="small"
@@ -34,22 +34,15 @@
 import { ref } from "vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 
-// 横幅自身的显示状态：关闭只隐藏横幅，不再触发外层实时估值开关。
-// 关闭状态持久化到 localStorage，避免刷新后横幅重复弹出（2026-08-15 修复）。
-const DISMISS_KEY = "realtime-warning-banner-dismissed";
-
-const visible = ref(
-  typeof localStorage !== "undefined" &&
-    localStorage.getItem(DISMISS_KEY) !== "1"
-);
+// 横幅自身的显示状态：关闭只隐藏横幅，不影响实时估值功能。
+// 不做 localStorage 持久化——横幅的显隐由外层实时估值开关决定：
+// 用户关闭实时估值时外层 v-if 会整体卸载本组件；再次开启时本组件重新挂载，
+// visible 重置为 true，横幅随之重新出现（即「关掉后又开估值就再提醒」的循环）。
+// 关闭动作仅隐藏当前这一次，刷新页面（功能仍开启）横幅按预期重新出现。
+const visible = ref(true);
 
 function dismiss() {
   visible.value = false;
-  try {
-    localStorage.setItem(DISMISS_KEY, "1");
-  } catch {
-    // 隐私模式 / localStorage 不可用时静默降级：仅本次会话隐藏
-  }
 }
 </script>
 
