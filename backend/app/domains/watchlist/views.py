@@ -158,22 +158,33 @@ def _compute_price_at_added(item: WatchlistItem, db) -> float | None:
     return round(row[0], 4) if row and row[0] is not None else None
 
 
-# 新增两个辅助函数在文件顶部
 def _compute_position_market_value(symbol, db):
-    return (
+    """计算持仓市值（元）。
+
+    positions.quantity 存最小单位（0.0001 份）、current_price 存分，
+    裸乘结果是最小单位·分，须经 Money 换算回元（/10000 转份、/100 转元）。
+    """
+    value = (
         db.query(func.sum(Position.quantity * Position.current_price))
         .filter(Position.symbol == symbol, Position.family_id == get_family_id())
         .scalar()
-        or 0.0
     )
+    if not value:
+        return 0.0
+    return Money.cents_to_yuan(Money.multiply_price_quantity(value, 1))
 
 
 def _compute_avg_current_price(symbol, db):
-    return (
+    """计算持仓平均市价（元），用于自选行展示。
+
+    current_price 以分存储，对外换算回元（禁止裸除 float）。
+    """
+    avg_price_cents = (
         db.query(func.avg(Position.current_price))
         .filter(Position.symbol == symbol, Position.family_id == get_family_id())
         .scalar()
     )
+    return Money.cents_to_yuan(avg_price_cents) if avg_price_cents else 0.0
 
 
 @watchlist_bp.get('/home-summary/')

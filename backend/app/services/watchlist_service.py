@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy import distinct, func, select
 from sqlalchemy.orm import Query, Session
 
+from app.core.money import Money
 from app.core.symbol_utils import get_normalizer
 from app.domains.funds.models import Fund
 from app.domains.positions.models import Position
@@ -271,17 +272,20 @@ def build_home_summary(db: Session, family_id: int) -> List[Dict[str, Any]]:
     data = []
     for item in result_items:
         display_name = _get_display_name(item.symbol, db)
-        position_value = (
+        position_value_units = (
             db.query(func.sum(Position.quantity * Position.current_price))
             .filter(Position.symbol == item.symbol, Position.family_id == family_id)
             .scalar()
             or 0.0
         )
-        current_price = (
+        # quantity 最小单位(0.0001份) × current_price(分) = 最小单位·分 → 换算回元
+        position_value = Money.cents_to_yuan(Money.multiply_price_quantity(position_value_units, 1))
+        avg_price_cents = (
             db.query(func.avg(Position.current_price))
             .filter(Position.symbol == item.symbol, Position.family_id == family_id)
             .scalar()
         )
+        current_price = Money.cents_to_yuan(avg_price_cents) if avg_price_cents else None
         data.append(
             {
                 'id': item.id,

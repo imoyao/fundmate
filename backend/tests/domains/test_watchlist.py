@@ -74,25 +74,25 @@ class TestHomeSummary:
     def test_home_summary_fallback_to_market_value(self, client, app):
         """无置顶时，按持仓市值降序排列，最多5条"""
         with get_db() as db:
-            # 持仓1：市值 100*1800=180000
+            # 持仓1：100份(1000000最小单位) × 1800元(180000分) = 180000元
             pos1 = Position(
                 symbol='SH600519',
                 name='茅台',
                 asset_type='stock',
                 account_name='华泰',
-                quantity=100,
-                avg_price=1800,
-                current_price=1800,
+                quantity=1000000,
+                avg_price=180000,
+                current_price=180000,
             )
-            # 持仓2：市值 200*310=62000
+            # 持仓2：200份(2000000最小单位) × 310元(31000分) = 62000元
             pos2 = Position(
                 symbol='HK00700',
                 name='腾讯',
                 asset_type='stock',
                 account_name='富途',
-                quantity=200,
-                avg_price=300,
-                current_price=310,
+                quantity=2000000,
+                avg_price=30000,
+                current_price=31000,
             )
             db.add_all([pos1, pos2])
             db.commit()
