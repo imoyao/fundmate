@@ -255,7 +255,7 @@
       <!-- 估值横幅与状态 -->
       <!-- ✅ 核心修复：用 template 包裹，加上 v-if 物理移除整个模块 -->
       <template v-if="realtimeEnabled">
-        <RealtimeWarningBanner :on-toggle="realtime.toggle" />
+        <RealtimeWarningBanner />
 
         <div class="flex items-center gap-2 mb-2">
           <RealtimeStatusIndicator
@@ -266,6 +266,7 @@
             :model-value="realtime.refreshInterval.value"
             size="small"
             :options="intervalOptions"
+            class="refresh-segmented"
             @change="onRefreshIntervalChange"
           />
           <el-button
@@ -283,9 +284,9 @@
           </el-button>
         </div>
 
-        <!-- 估值汇总卡片 -->
+        <!-- 估值汇总卡片：仅当有实际持仓市值时显示 -->
         <div
-          v-if="realtime.summary"
+          v-if="realtime.summary && (realtime.summary as any).totalMarketValue > 0"
           class="mb-3 p-3 rounded-lg"
           :style="{
             backgroundColor: 'var(--bg-soft)',
@@ -2169,6 +2170,55 @@ const realtimeEnabled = computed(() => realtime.enabled.value);
 }
 
 /* ======================================
+   刷新频率 segmented（15s/30s/60s/90s）：与 view-segmented 胶囊语言统一
+   （2026-08-15：与设置抽屉 SettingsDrawer 的 refresh-segmented 保持一致）
+   ====================================== */
+.refresh-segmented :deep(.el-segmented) {
+  height: 24px;
+  padding: 2px;
+  background-color: var(--bg-muted);
+  border-radius: var(--radius-pill);
+  box-shadow: none;
+}
+
+.refresh-segmented :deep(.el-segmented__item) {
+  height: 20px;
+  padding: 0 10px;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--text-secondary);
+  border-radius: var(--radius-pill);
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.refresh-segmented :deep(.el-segmented__item:hover) {
+  color: var(--text-primary);
+}
+
+.refresh-segmented :deep(.el-segmented__item.is-selected) {
+  color: var(--brand-700);
+  background-color: var(--brand-100);
+  box-shadow: none;
+}
+
+.refresh-segmented :deep(.el-segmented__item.is-selected:hover) {
+  background-color: var(--brand-200);
+}
+
+.refresh-segmented :deep(.el-segmented__item-selected) {
+  background-color: var(--brand-100);
+  border-radius: var(--radius-pill);
+  box-shadow: none;
+}
+
+.refresh-segmented
+  :deep(.el-segmented__item.is-selected:hover .el-segmented__item-selected) {
+  background-color: var(--brand-200);
+}
+
+/* ======================================
    按钮物理反馈（去除缩放，仅保留符合规范的 translateY）
    ====================================== */
 :deep(.el-button--primary:active) {
@@ -2349,14 +2399,14 @@ const realtimeEnabled = computed(() => realtime.enabled.value);
 
 /* 新建分组按钮：与 tab 同高 32px 的圆形 */
 .group-tab-add {
+  flex-shrink: 0;
   width: 32px;
   height: 32px;
   padding: 0;
-  flex-shrink: 0;
-  border-radius: 50%;
   color: var(--text-tertiary);
   background-color: transparent;
   border: 1px solid var(--border-default);
+  border-radius: 50%;
   transition:
     color 150ms ease,
     background-color 150ms ease,

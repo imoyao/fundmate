@@ -50,6 +50,11 @@ from app.services.watchlist_service import (
 
 watchlist_bp = APIBlueprint('watchlist', __name__, url_prefix='/api/watchlist')
 
+# CSV 导出字段值 → 中文 label 映射
+_VENUE_LABELS = {'EXCHANGE': '场内', 'OTC': '场外'}
+_STATUS_LABELS = {'HOLDING': '持仓中', 'WATCHING': '观察中'}
+_ASSET_TYPE_LABELS = {'fund': '基金', 'stock': '股票', 'etf': 'ETF', 'bond': '可转债'}
+
 # 常量定义（放在文件顶部，导入之后）
 HOME_PINNED_LIMIT = 6
 HOME_DISPLAY_LIMIT = 5
@@ -588,6 +593,8 @@ def export_items():
         items = query.all()  # 导出不分页
 
         output = io.StringIO()
+        # UTF-8 BOM：Excel 打开 CSV 时按 BOM 识别 UTF-8，否则中文乱码
+        output.write('\ufeff')
         writer = csv.writer(output)
         writer.writerow(['代码', '名称', '市场', '类型', '场内/场外', '状态', '置顶', '特别关注', '标签'])
         for item in items:
@@ -596,15 +603,17 @@ def export_items():
                     item.symbol,
                     _get_display_info(item.symbol, db),
                     item.market,
-                    item.asset_type,
-                    item.venue,
-                    item.status,
-                    item.is_pinned,
-                    item.favorite,
+                    _ASSET_TYPE_LABELS.get(item.asset_type, item.asset_type or ''),
+                    _VENUE_LABELS.get(item.venue, item.venue or ''),
+                    _STATUS_LABELS.get(item.status, item.status or ''),
+                    '是' if item.is_pinned else '否',
+                    '是' if item.favorite else '否',
                     ','.join([str(link.tag_id) for link in item.tag_links]),
                 ]
             )
         output.seek(0)
         return Response(
-            output, mimetype='text/csv', headers={'Content-Disposition': 'attachment; filename=watchlist.csv'}
+            output,
+            mimetype='text/csv; charset=utf-8',
+            headers={'Content-Disposition': 'attachment; filename=watchlist.csv'},
         )
