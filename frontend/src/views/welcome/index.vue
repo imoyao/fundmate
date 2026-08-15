@@ -102,15 +102,10 @@
             </router-link>
           </template>
         </SectionHeader>
-        <div
-          class="rounded-2xl p-8 relative h-full"
-          :style="{
-            backgroundColor: 'var(--bg-card)',
-            boxShadow: 'var(--shadow-raised)',
-            border: '1px solid var(--border-light)'
-          }"
-        >
-          <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+        <CardBlock class="flex-1">
+          <div
+            class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center h-full"
+          >
             <div class="lg:col-span-7 flex flex-col gap-6">
               <div>
                 <p
@@ -201,19 +196,14 @@
               <div ref="distributionChartRef" class="h-[220px] w-full" />
             </div>
           </div>
-        </div>
+        </CardBlock>
       </div>
 
       <!-- 右侧：收益趋势 -->
       <div class="xl:col-span-4 flex flex-col gap-3 card-hover card-enter">
         <SectionHeader title="收益趋势" info="累计收益 / 净资产随时间走势" />
-        <div
-          class="rounded-2xl p-6 h-full flex flex-col items-center justify-center text-center gap-2"
-          :style="{
-            backgroundColor: 'var(--bg-card)',
-            boxShadow: 'var(--shadow-raised)',
-            border: '1px solid var(--border-light)'
-          }"
+        <CardBlock
+          class="flex-1 flex flex-col items-center justify-center text-center gap-2"
         >
           <span
             class="text-sm font-medium"
@@ -227,7 +217,7 @@
             接入收益历史后，在此展示累计收益与净资产随时间的走势，并支持月度 /
             季度切换。
           </span>
-        </div>
+        </CardBlock>
       </div>
     </div>
 
@@ -236,14 +226,7 @@
       <!-- 左：年化收益追踪 -->
       <div class="flex flex-col gap-3 card-hover card-enter h-full">
         <SectionHeader title="年化收益追踪" />
-        <div
-          class="rounded-2xl p-6 h-full flex flex-col justify-center gap-4"
-          :style="{
-            backgroundColor: 'var(--bg-card)',
-            boxShadow: 'var(--shadow-raised)',
-            border: '1px solid var(--border-light)'
-          }"
-        >
+        <CardBlock class="flex-1 flex flex-col justify-center gap-4">
           <div class="flex flex-col">
             <span
               class="text-xs mb-1"
@@ -290,7 +273,7 @@
               />
             </div>
           </div>
-        </div>
+        </CardBlock>
       </div>
 
       <!-- 右：市场温度 -->
@@ -391,13 +374,8 @@
           title="财务晴雨表"
           info="基于你的资产负债表与现金流测算的四项关键财务健康度指标"
         />
-        <div
-          class="rounded-2xl p-8 flex flex-col items-center justify-center text-center gap-2 min-h-[120px]"
-          :style="{
-            backgroundColor: 'var(--bg-card)',
-            boxShadow: 'var(--shadow-raised)',
-            border: '1px solid var(--border-light)'
-          }"
+        <CardBlock
+          class="flex-1 flex flex-col items-center justify-center text-center gap-2 min-h-[120px]"
         >
           <span
             class="text-sm font-medium"
@@ -410,16 +388,9 @@
           >
             接入资产负债表与现金流测算后，在此展示资产负债率、预估储蓄率、财务自由度等指标。
           </span>
-        </div>
+        </CardBlock>
         <!-- 近期动态：真实数据派生的事件 feed（后端事件日志就绪后可替换为事件流） -->
-        <div
-          class="rounded-2xl p-6 flex-1 card-hover"
-          :style="{
-            backgroundColor: 'var(--bg-card)',
-            boxShadow: 'var(--shadow-raised)',
-            border: '1px solid var(--border-light)'
-          }"
-        >
+        <CardBlock class="flex-1 card-hover">
           <div class="flex justify-between items-center mb-4">
             <span
               class="font-bold text-sm"
@@ -451,20 +422,13 @@
           >
             数据加载中…
           </div>
-        </div>
+        </CardBlock>
       </div>
 
       <!-- 心理账户（与财务晴雨表同宽右栏 4 列，外层已统一白底卡片容器） -->
       <div class="lg:col-span-4 flex flex-col gap-3 h-full">
         <SectionHeader title="心理账户" />
-        <div
-          class="rounded-2xl p-6 h-full flex flex-col flex-1 card-hover card-enter"
-          :style="{
-            backgroundColor: 'var(--bg-card)',
-            boxShadow: 'var(--shadow-raised)',
-            border: '1px solid var(--border-light)'
-          }"
-        >
+        <CardBlock class="flex-1 h-full flex flex-col card-hover card-enter">
           <div class="flex flex-col gap-4 flex-1 justify-between">
             <!-- TODO: 心理账户数据应接入 API，当前为静态示例 -->
             <div
@@ -505,7 +469,7 @@
               />
             </div>
           </div>
-        </div>
+        </CardBlock>
       </div>
     </div>
 
@@ -521,9 +485,10 @@
 import { ref, onMounted, nextTick, onUnmounted, computed } from "vue";
 import echarts from "@/plugins/echarts";
 import { getSummary } from "@/api/summary";
-import { getPortfolioXirr } from "@/api/performance";
+import { getPortfolioXirr, type XirrData } from "@/api/performance";
 import { getTemperatureOverview } from "@/api/temperature";
 import { getRecordStats } from "@/api/users";
+import { type HomeSummaryItem } from "@/api/watchlist";
 import type { SummaryData } from "@/api/types";
 import WatchlistWidget from "@/components/WatchlistWidget.vue";
 import AddToWatchlistModal from "@/components/QuickEntry/AddToWatchlistModal.vue";
@@ -532,6 +497,9 @@ import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import TemperatureGaugeCard from "@/components/TemperatureGaugeCard/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
+import CardBlock from "@/components/CardBlock/index.vue";
+import { getCssVar } from "@/composables/echarts/theme";
+import { useEchartsLifecycle } from "@/composables/echarts/useEchartsLifecycle";
 import { useOverviewStore } from "@/store/modules/overview";
 import { useUserStoreHook } from "@/store/modules/user";
 
@@ -541,7 +509,7 @@ defineOptions({
 
 // ===== 数据 =====
 const summary = ref<SummaryData | null>(null);
-const portfolioXirr = ref<any>(null);
+const portfolioXirr = ref<XirrData | null>(null);
 
 // ===== 首页欢迎语（见 docs/design/welcome-greeting-spec.md v1.2） =====
 const recordDays = ref(0);
@@ -661,7 +629,78 @@ const distributionChartRef = ref<HTMLDivElement | null>(null);
 const showAddWatchlistModal = ref(false);
 const watchlistWidgetKey = ref(0);
 
-let charts: echarts.ECharts[] = [];
+// 资产分布饼图：统一走 useEchartsLifecycle（异步数据页，autoRenderOnMount: false，数据就绪后手动 render）
+const { render: renderDistributionChart } = useEchartsLifecycle(
+  [
+    {
+      ref: distributionChartRef,
+      build: el => {
+        const chart = echarts.init(el);
+        const chartColors = [
+          getCssVar("--chart-01"),
+          getCssVar("--chart-02"),
+          getCssVar("--chart-03"),
+          getCssVar("--chart-04")
+        ];
+        const hasData =
+          !!summary.value?.market_distribution &&
+          Object.keys(summary.value.market_distribution).length > 0;
+        chart.setOption({
+          tooltip: { trigger: "item" },
+          title: hasData
+            ? undefined
+            : {
+                text: "暂无资产数据",
+                left: "center",
+                top: "middle",
+                textStyle: {
+                  color: getCssVar("--text-tertiary"),
+                  fontSize: 12,
+                  fontWeight: "normal"
+                }
+              },
+          legend: {
+            bottom: "0%",
+            left: "center",
+            icon: "circle",
+            itemWidth: 8,
+            textStyle: {
+              fontSize: 10,
+              color: getCssVar("--text-tertiary")
+            }
+          },
+          series: [
+            {
+              type: "pie",
+              radius: ["45%", "70%"],
+              avoidLabelOverlap: false,
+              itemStyle: {
+                borderRadius: 6,
+                borderColor: getCssVar("--bg-card"),
+                borderWidth: 2
+              },
+              label: { show: false },
+              animationDuration: 1000,
+              data: hasData
+                ? Object.entries(summary.value!.market_distribution!).map(
+                    ([name, value], index) => ({
+                      name,
+                      value,
+                      itemStyle: {
+                        color: chartColors[index % chartColors.length]
+                      }
+                    })
+                  )
+                : []
+            }
+          ]
+        });
+        return chart;
+      }
+    }
+  ],
+  { autoRenderOnMount: false }
+);
 
 // 心理账户：接入 overview store（store 内为示例数据，待后端提供真实接口）
 const overviewStore = useOverviewStore();
@@ -674,7 +713,7 @@ const mentalAccounts = computed(() => {
   }));
   const total = parsed.reduce((s, a) => s + a.amount, 0) || 1;
   const toneColor: Record<string, string> = {
-    safe: "var(--c-success)",
+    safe: "var(--color-success)",
     neutral: "var(--brand-700)",
     warning: "var(--color-warning)",
     danger: "var(--color-danger)"
@@ -786,7 +825,7 @@ const fetchXirr = async () => {
 const fetchTemperature = async () => {
   try {
     const res = await getTemperatureOverview();
-    const data = (res as any)?.data;
+    const data = res.data;
     if (!data) return;
     const composite = data.composites?.composite_temperature;
     if (composite) {
@@ -830,7 +869,7 @@ const fetchTemperature = async () => {
 };
 
 // ===== 事件处理 =====
-const onWatchlistSelect = (item: any) => {
+const onWatchlistSelect = (item: HomeSummaryItem) => {
   // TODO: 跳转到资产详情
 };
 
@@ -838,100 +877,15 @@ const onWatchlistChanged = () => {
   watchlistWidgetKey.value++;
 };
 
-// ===== 工具函数：读取 CSS 变量 =====
-// 工具函数：读取 CSS 变量
-const getCSSColor = (varName: string): string => {
-  if (typeof window === "undefined") return "";
-  return getComputedStyle(document.documentElement)
-    .getPropertyValue(varName)
-    .trim();
-};
-
-// ===== 图表初始化 =====
-const initCharts = () => {
-  // 1. 资产分布饼图
-  if (distributionChartRef.value) {
-    const chart = echarts.init(distributionChartRef.value);
-
-    const chartColors = [
-      getCSSColor("--chart-01"),
-      getCSSColor("--chart-02"),
-      getCSSColor("--chart-03"),
-      getCSSColor("--chart-04")
-    ];
-
-    const hasData =
-      summary.value?.market_distribution &&
-      Object.keys(summary.value.market_distribution).length > 0;
-
-    chart.setOption({
-      tooltip: { trigger: "item" },
-      title: hasData
-        ? undefined
-        : {
-            text: "暂无资产数据",
-            left: "center",
-            top: "middle",
-            textStyle: {
-              color: getCSSColor("--text-tertiary"),
-              fontSize: 12,
-              fontWeight: "normal"
-            }
-          },
-      legend: {
-        bottom: "0%",
-        left: "center",
-        icon: "circle",
-        itemWidth: 8,
-        textStyle: {
-          fontSize: 10,
-          color: getCSSColor("--text-tertiary")
-        }
-      },
-      series: [
-        {
-          type: "pie",
-          radius: ["45%", "70%"],
-          avoidLabelOverlap: false,
-          itemStyle: {
-            borderRadius: 6,
-            borderColor: getCSSColor("--bg-card"),
-            borderWidth: 2
-          },
-          label: { show: false },
-          animationDuration: 1000,
-          data: hasData
-            ? Object.entries(summary.value!.market_distribution!).map(
-                ([name, value], index) => ({
-                  name,
-                  value,
-                  itemStyle: {
-                    color: chartColors[index % chartColors.length]
-                  }
-                })
-              )
-            : []
-        }
-      ]
-    });
-    charts.push(chart);
-  }
-};
-
-const handleResize = () => {
-  charts.forEach(chart => chart.resize());
-};
+// 资产分布饼图的生命周期与渲染由 useEchartsLifecycle 统一管理（见 renderDistributionChart）
 
 // ===== 生命周期 =====
 onMounted(() => {
-  fetchSummary().then(() => {
-    nextTick(initCharts);
-  });
+  fetchSummary().then(() => nextTick(renderDistributionChart));
   fetchXirr();
   fetchTemperature();
   fetchRecordStats();
   startTicker();
-  window.addEventListener("resize", handleResize);
 });
 
 onUnmounted(() => {
@@ -939,15 +893,10 @@ onUnmounted(() => {
     clearInterval(tickerTimer);
     tickerTimer = null;
   }
-  window.removeEventListener("resize", handleResize);
-  charts.forEach(chart => chart.dispose());
-  charts = [];
 });
 </script>
 
 <style scoped>
-
-
 @keyframes fadeUp {
   from {
     opacity: 0;
