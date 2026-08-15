@@ -1,3 +1,19 @@
+<!--
+  Watchlist · 自选页（完整管理）
+
+  与探市页（/explore）的区别与关联：
+  - 探市 = 引流沙盒（未登录用 localStorage 本地草稿，仅"看 + 轻收藏"，登录后隐藏添加并引导去自选页）；
+    自选 = 权威管理（后端 watchlist API，分组/标签/批量/OCR/实时估值齐全）。
+  - 两者表格刻意不共用：产品边界不同（观察 vs 管理）。共享的是底层 composable：
+    useAssetSearch / useRealtimeQuotes / useAuthState（见 explore-watchlist-replan-2026-08-08 决策）。
+  - 迁移桥：POST /api/watchlist/import/explore 将探市本地草稿导入自选。
+
+  未来优化方向（见重构 issue #980 / 技术债 #981 / #982）：
+  - 本页 8 大功能模块（分组/标签/批量/实时估值/搜索分页/导出/OCR/移除）可进一步按
+    composable 抽取（如 useWatchlistGroups / useWatchlistTags），当前仅拆出标签弹窗组件。
+  - 标签管理 / 行内标签编辑已拆为共有组件 TagManagerDialog / TagEditorDialog
+    （components/Watchlist/），未来其它页面需要标签能力可复用。
+-->
 <template>
   <div
     class="watchlist-page p-4 md:p-6 min-h-full"
@@ -113,14 +129,7 @@
     </div>
 
     <!-- 主区域：单个工作区卡片（分组 tab 行 + 筛选行 + 表格，--border-subtle 分割线分区） -->
-    <div
-      class="watchlist-card rounded-2xl p-6"
-      :style="{
-        backgroundColor: 'var(--bg-card)',
-        border: '1px solid var(--border-light)',
-        boxShadow: 'var(--shadow-raised)'
-      }"
-    >
+    <CardBlock class="watchlist-card">
       <!-- 分组 tab 行 + 场内/场外 segmented（justify-between：tab 左对齐、segmented 右对齐） -->
       <div
         class="flex items-center justify-between gap-4 pb-3 mb-4 border-b"
@@ -287,7 +296,7 @@
         <!-- 估值汇总卡片：仅当有实际持仓市值时显示 -->
         <div
           v-if="
-            realtime.summary && (realtime.summary as any).totalMarketValue > 0
+            summary && (summary).totalMarketValue > 0
           "
           class="mb-3 p-3 rounded-lg"
           :style="{
@@ -299,10 +308,10 @@
             <span>
               总市值：<strong :style="{ color: 'var(--text-primary)' }">
                 <template
-                  v-if="(realtime.summary as any)?.totalMarketValue != null"
+                  v-if="(summary)?.totalMarketValue != null"
                 >
                   <MoneyDisplay
-                    :value="(realtime.summary as any).totalMarketValue"
+                    :value="(summary).totalMarketValue"
                     :show-sign="false"
                     :auto-color="false"
                     size="sm"
@@ -313,9 +322,9 @@
             </span>
             <span>
               总成本：<strong :style="{ color: 'var(--text-primary)' }">
-                <template v-if="(realtime.summary as any)?.totalCost != null">
+                <template v-if="(summary)?.totalCost != null">
                   <MoneyDisplay
-                    :value="(realtime.summary as any).totalCost"
+                    :value="(summary).totalCost"
                     :show-sign="false"
                     :auto-color="false"
                     size="sm"
@@ -326,15 +335,15 @@
             </span>
             <span>
               总盈亏：<strong>
-                <template v-if="(realtime.summary as any)?.totalPnl != null">
+                <template v-if="(summary)?.totalPnl != null">
                   <MoneyDisplay
-                    :value="(realtime.summary as any).totalPnl"
+                    :value="(summary).totalPnl"
                     size="sm"
                   />
                   <span
-                    v-if="(realtime.summary as any)?.totalPnlPercent != null"
+                    v-if="(summary)?.totalPnlPercent != null"
                     >(<MoneyDisplay
-                      :value="(realtime.summary as any).totalPnlPercent"
+                      :value="(summary).totalPnlPercent"
                       :precision="2"
                       suffix="%"
                       size="sm"
@@ -420,12 +429,12 @@
                     size="small"
                     class="tag-chip text-[10px] px-1.5 py-0.5 rounded-full"
                     :style="{
-                      backgroundColor: getTagColor(tagId) + '20',
+                      backgroundColor: findTagColor(allTags, tagId) + '20',
                       color: 'var(--text-primary)',
-                      border: '1px solid ' + getTagColor(tagId)
+                      border: '1px solid ' + findTagColor(allTags, tagId)
                     }"
                   >
-                    {{ getTagName(tagId) }}
+                    {{ findTagName(allTags, tagId) }}
                   </el-tag>
                   <span
                     v-if="row.tag_ids.length > 2"
@@ -440,7 +449,7 @@
                     circle
                     size="small"
                     class="add-tag-btn"
-                    @click.stop="openTagEditor(row)"
+                    @click.stop="openTagEditor(row as WatchlistItem)"
                   >
                     <IconifyIconOffline icon="ep:plus" class="text-[10px]" />
                   </el-button>
@@ -576,7 +585,7 @@
                   <el-button
                     circle
                     size="small"
-                    @click.stop="handleTogglePin(row)"
+                    @click.stop="handleTogglePin(row as WatchlistItem)"
                   >
                     <IconifyIconOffline
                       :icon="row.is_pinned ? 'mdi:pin' : 'mdi:pin-outline'"
@@ -590,7 +599,7 @@
                   <el-button
                     circle
                     size="small"
-                    @click.stop="handleToggleFavorite(row)"
+                    @click.stop="handleToggleFavorite(row as WatchlistItem)"
                   >
                     <IconifyIconOffline
                       :icon="row.favorite ? 'ep:star-filled' : 'ep:star'"
@@ -610,7 +619,7 @@
                     size="small"
                     class="btn-delete-ghost"
                     :disabled="row.status === 'HOLDING'"
-                    @click.stop="confirmRemove(row)"
+                    @click.stop="confirmRemove(row as WatchlistItem)"
                   >
                     <IconifyIconOffline icon="ep:delete" />
                   </el-button>
@@ -637,7 +646,7 @@
           @current-change="fetchData"
         />
       </div>
-    </div>
+    </CardBlock>
 
     <!-- 弹窗部分 -->
     <AddToWatchlistModal
@@ -693,284 +702,21 @@
       </template>
     </el-dialog>
 
-    <!-- 标签管理对话框 -->
-    <el-dialog
+    <!-- 标签管理弹窗（共有组件 TagManagerDialog，自本页拆出，见 docs/design/components.md） -->
+    <TagManagerDialog
       v-model="showTagManager"
-      title="管理标签"
-      width="560px"
-      class="tag-manager-dialog"
-      :close-on-click-modal="false"
-    >
-      <div class="tag-manager-body">
-        <!-- 1. 标签选择器 -->
-        <div class="mb-4">
-          <div
-            class="text-sm font-medium mb-2"
-            :style="{ color: 'var(--text-secondary)' }"
-          >
-            选择要管理的标签
-          </div>
-          <el-select
-            v-model="selectedTagIdsForManager"
-            multiple
-            filterable
-            placeholder="搜索并选择标签..."
-            class="w-full"
-            size="large"
-            popper-class="tag-manager-select-dropdown"
-            @change="handleSelectChange"
-          >
-            <el-option
-              v-for="tag in allTags"
-              :key="tag.id"
-              :label="tag.name"
-              :value="tag.id"
-            >
-              <div class="flex items-center gap-2">
-                <!-- 数据色例外：标签色为用户数据（非设计令牌），缺失时回退中性 token -->
-                <span
-                  class="w-3 h-3 rounded-full"
-                  :style="{
-                    backgroundColor: tag.color || 'var(--text-tertiary)'
-                  }"
-                />
-                <span>{{ tag.name }}</span>
-              </div>
-            </el-option>
-          </el-select>
-        </div>
+      :all-tags="allTags"
+      :used-tag-ids="usedTagIds"
+      @tags-changed="fetchTags"
+    />
 
-        <!-- 2. 已选标签操作列表 -->
-        <div v-if="selectedTagIdsForManager.length > 0" class="mb-4">
-          <div class="text-xs mb-2" :style="{ color: 'var(--text-tertiary)' }">
-            已选标签（点击可编辑）
-          </div>
-          <div class="flex flex-wrap gap-2">
-            <div
-              v-for="tagId in selectedTagIdsForManager"
-              :key="tagId"
-              class="flex items-center gap-2 px-3 py-1.5 rounded-lg cursor-pointer transition-colors select-none"
-              :class="{ 'ring-2 ring-offset-2': editingTagId === tagId }"
-              :style="{
-                backgroundColor: getTagColor(tagId) + '20',
-                border:
-                  '1px solid ' +
-                  (editingTagId === tagId
-                    ? 'var(--brand-700)'
-                    : getTagColor(tagId)),
-                boxShadow: editingTagId === tagId ? 'var(--focus-ring)' : 'none'
-              }"
-              @click="selectTagForEdit(tagId)"
-            >
-              <span :style="{ color: 'var(--text-primary)' }">{{
-                getTagName(tagId)
-              }}</span>
-              <el-icon
-                class="cursor-pointer hover:text-danger transition-colors"
-                @click.stop="removeTagFromSelection(tagId)"
-              >
-                <Close />
-              </el-icon>
-            </div>
-          </div>
-        </div>
-
-        <!-- 3. 新建/编辑表单区域 -->
-        <div
-          class="p-4 rounded-xl"
-          :style="{ backgroundColor: 'var(--bg-warm)' }"
-        >
-          <div class="flex flex-wrap items-end gap-3">
-            <div class="flex-1 min-w-[150px]">
-              <el-input
-                v-if="editingTagId"
-                ref="editInputRef"
-                v-model="editTagName"
-                placeholder="修改标签名称..."
-                size="large"
-                class="w-full"
-                @keyup.enter="saveEditTag(editingTagId)"
-              />
-              <el-input
-                v-else
-                v-model="newTagNameInManager"
-                placeholder="输入新标签名..."
-                size="large"
-                class="w-full"
-                @keyup.enter="addNewTagInManager"
-              />
-            </div>
-            <div class="flex gap-1.5 items-center shrink-0">
-              <button
-                v-for="c in presetColors"
-                :key="c"
-                class="color-swatch-btn"
-                :class="{
-                  'is-selected': editingTagId
-                    ? editTagColor === c
-                    : newTagColorInManager === c
-                }"
-                :style="{ backgroundColor: c }"
-                @click="
-                  editingTagId ? (editTagColor = c) : (newTagColorInManager = c)
-                "
-              />
-            </div>
-            <el-button
-              v-if="editingTagId"
-              type="primary"
-              size="large"
-              @click="saveEditTag(editingTagId)"
-            >
-              保存修改
-            </el-button>
-            <el-button
-              v-else
-              type="primary"
-              size="large"
-              @click="addNewTagInManager"
-            >
-              添加标签
-            </el-button>
-          </div>
-
-          <div v-if="editingTagId" class="flex justify-end mt-3">
-            <el-popconfirm
-              title="确定要删除该标签吗？"
-              @confirm="deleteTag(editingTagId)"
-            >
-              <template #reference>
-                <el-button type="danger" link size="small">
-                  <el-icon class="mr-1"><Delete /></el-icon> 删除此标签
-                </el-button>
-              </template>
-            </el-popconfirm>
-          </div>
-        </div>
-      </div>
-      <template #footer>
-        <el-button size="large" @click="showTagManager = false">关闭</el-button>
-      </template>
-    </el-dialog>
-
-    <!-- 行内标签编辑弹窗 -->
-    <el-dialog v-model="showTagEditor" title="编辑标签" width="420px">
-      <div class="mb-4">
-        <span class="text-sm" :style="{ color: 'var(--text-secondary)' }">
-          为
-          <strong>{{
-            editingItem?.display_name || editingItem?.symbol
-          }}</strong>
-          添加或移除标签
-        </span>
-      </div>
-
-      <div v-if="editingItem && editingItem.tag_ids.length > 0" class="mb-4">
-        <span
-          class="text-xs block mb-2"
-          :style="{ color: 'var(--text-tertiary)' }"
-          >已有标签</span
-        >
-        <div class="flex flex-wrap gap-2">
-          <el-tag
-            v-for="tagId in editingItem.tag_ids"
-            :key="tagId"
-            size="small"
-            closable
-            :style="{
-              backgroundColor: getTagColor(tagId) + '20',
-              color: 'var(--text-primary)',
-              border: '1px solid ' + getTagColor(tagId)
-            }"
-            @close="removeTagFromEditingItem(tagId)"
-          >
-            {{ getTagName(tagId) }}
-          </el-tag>
-        </div>
-      </div>
-
-      <div class="mb-4">
-        <span
-          class="text-xs block mb-2"
-          :style="{ color: 'var(--text-tertiary)' }"
-          >添加标签</span
-        >
-        <div class="flex gap-2">
-          <el-select
-            v-model="editingItemNewTagIds"
-            multiple
-            filterable
-            placeholder="选择标签"
-            class="flex-1"
-            size="large"
-          >
-            <el-option
-              v-for="tag in availableTagsForEditor"
-              :key="tag.id"
-              :label="tag.name"
-              :value="tag.id"
-            >
-              <div class="flex items-center gap-2">
-                <!-- 数据色例外：标签色为用户数据（非设计令牌），缺失时回退中性 token -->
-                <span
-                  class="w-3 h-3 rounded-full"
-                  :style="{
-                    backgroundColor: tag.color || 'var(--text-tertiary)'
-                  }"
-                />
-                <span>{{ tag.name }}</span>
-              </div>
-            </el-option>
-          </el-select>
-          <el-button size="large" @click="showNewTagFormInEditor = true">
-            <IconifyIconOffline icon="ep:plus" />
-          </el-button>
-        </div>
-
-        <div
-          v-if="showNewTagFormInEditor"
-          class="mt-2 p-3 bg-gray-50 rounded-lg flex items-end gap-2"
-        >
-          <el-input
-            v-model="newTagNameInEditor"
-            placeholder="标签名"
-            size="large"
-            class="w-24"
-          />
-          <div class="flex gap-1">
-            <button
-              v-for="c in presetColors"
-              :key="c"
-              class="w-5 h-5 rounded-full border-2 transition-colors cursor-pointer"
-              :class="
-                newTagColorInEditor === c
-                  ? 'border-gray-800 scale-110'
-                  : 'border-transparent'
-              "
-              :style="{ backgroundColor: c }"
-              @click="newTagColorInEditor = c"
-            />
-          </div>
-          <el-button type="primary" size="large" @click="createTagInEditor"
-            >确定</el-button
-          >
-          <el-button size="large" @click="showNewTagFormInEditor = false"
-            >取消</el-button
-          >
-        </div>
-      </div>
-
-      <template #footer>
-        <el-button size="large" @click="showTagEditor = false">取消</el-button>
-        <el-button
-          type="primary"
-          size="large"
-          :loading="savingTags"
-          @click="saveTagChanges"
-          >保存</el-button
-        >
-      </template>
-    </el-dialog>
+    <!-- 行内标签编辑弹窗（共有组件 TagEditorDialog） -->
+    <TagEditorDialog
+      v-model="showTagEditor"
+      :item="editingItem"
+      :all-tags="allTags"
+      @saved="onTagEditorSaved"
+    />
 
     <SettingsDrawer
       v-model="showSettingsDrawer"
@@ -1002,13 +748,14 @@ import {
   watch,
   nextTick
 } from "vue";
-import { Search, Close, Delete } from "@element-plus/icons-vue";
+import { Search } from "@element-plus/icons-vue";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import { ElMessage, ElMessageBox } from "element-plus";
-import type { ElInput } from "element-plus";
 import AddToWatchlistModal from "@/components/QuickEntry/AddToWatchlistModal.vue";
 import OcrImportModal from "@/components/QuickEntry/OcrImportModal.vue";
 import SettingsDrawer from "@/components/Watchlist/SettingsDrawer.vue";
+import TagManagerDialog from "@/components/Watchlist/TagManagerDialog.vue";
+import TagEditorDialog from "@/components/Watchlist/TagEditorDialog.vue";
 import {
   getWatchlistItems,
   getWatchlistGroups,
@@ -1019,16 +766,14 @@ import {
   deleteWatchlistItem,
   removeItemFromGroup,
   getWatchlistTags,
-  updateWatchlistTag,
-  deleteWatchlistTag,
-  addTagToItem,
-  removeTagFromItem,
   addItemToGroup,
-  createWatchlistTag,
   type WatchlistItem,
   type WatchlistGroup,
   type WatchlistTag
 } from "@/api/watchlist";
+import { SYSTEM_GROUPS } from "@/constants/watchlist";
+import { findTagName, findTagColor } from "@/utils/tagHelpers";
+import CardBlock from "@/components/CardBlock/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue"; // 加入此组件引入
 import MoneyWithRatio from "@/components/MoneyWithRatio/index.vue";
@@ -1045,6 +790,15 @@ import { formatDate, formatDateTime } from "@/utils/date";
 
 defineOptions({ name: "Watchlist" });
 
+/** 分组 Tab 展示项（系统 + 自定义归一化） */
+interface GroupTab {
+  key: string;
+  label: string;
+  color: string | null;
+  count: number;
+  filter: Record<string, string | number | boolean>;
+}
+
 // ── 基础配置 ──
 const currentView = ref("all");
 const viewOptions = [
@@ -1053,50 +807,17 @@ const viewOptions = [
   { label: "场外", value: "otc" }
 ];
 
-const systemGroups = [
-  { key: "all", label: "全部", color: "#949599", filter: {} },
-  {
-    key: "holding",
-    label: "持仓",
-    color: "#e07a5f",
-    filter: { status: "HOLDING" }
-  },
-  {
-    key: "watching",
-    label: "观察中",
-    color: "#81b29a",
-    filter: { status: "WATCHING" }
-  },
-  {
-    key: "cleared",
-    label: "已清仓",
-    color: "#f2cc8f",
-    filter: { cleared: true }
-  },
-  // 方案 B（2026-08-14）：场内/场外由顶部 el-segmented 统一承担，系统分组不再保留「场内资产/场外基金」两项
-  {
-    key: "favorite",
-    label: "特别关注",
-    color: "#a89f94",
-    filter: { favorite: true }
-  }
-];
-
-const presetColors = [
-  "#B8A99A",
-  "#9CAF88",
-  "#8DA3B8",
-  "#C4A0A8",
-  "#9B9EB0",
-  "#B6B09C"
-];
+// 系统分组 / 标签预设色已收敛到 constants/watchlist.ts（SYSTEM_GROUPS / PRESET_TAG_COLORS）集中管理。
 
 // ── 响应式数据 ──
 const activeGroup = ref("holding");
-const allGroups = ref<any[]>([]);
+const allGroups = ref<GroupTab[]>([]);
 const customGroups = ref<WatchlistGroup[]>([]);
 
 const items = ref<WatchlistItem[]>([]);
+
+// summary 是嵌套 Ref（非顶层解包），统一经 computed 解包供模板使用
+const summary = computed(() => summary.value);
 
 // 估值相关
 const getValuationItem = (symbol: string) => {
@@ -1167,7 +888,7 @@ function addedReturnAmount(row: {
 function marketValueRatio(row: {
   position_market_value?: number | null;
 }): number | null {
-  const total = (realtime.summary as any)?.totalMarketValue;
+  const total = summary.value?.totalMarketValue;
   if (!total || total <= 0 || row.position_market_value == null) return null;
   return (row.position_market_value / total) * 100;
 }
@@ -1251,11 +972,6 @@ const totalItems = ref(0);
 const allTags = ref<WatchlistTag[]>([]);
 const selectedFilterTagIds = ref<number[]>([]);
 const showTagManager = ref(false);
-const editingTagId = ref<number | null>(null);
-const editTagName = ref("");
-const editTagColor = ref("#B6B09C");
-const selectedTagIdsForManager = ref<number[]>([]);
-const editInputRef = ref<InstanceType<typeof ElInput> | null>(null);
 
 const showAddModal = ref(false);
 const showOcrModal = ref(false);
@@ -1267,13 +983,6 @@ const removeScope = ref("all");
 
 const showTagEditor = ref(false);
 const editingItem = ref<WatchlistItem | null>(null);
-const editingItemNewTagIds = ref<number[]>([]);
-const savingTags = ref(false);
-const showNewTagFormInEditor = ref(false);
-const newTagNameInEditor = ref("");
-const newTagColorInEditor = ref("#B6B09C");
-const newTagNameInManager = ref("");
-const newTagColorInManager = ref("#B6B09C");
 
 // 已移除 hoveringGroupKey，改用 CSS group-hover 实现
 const editingGroupId = ref<number | null>(null);
@@ -1320,7 +1029,7 @@ const usedTagIds = computed(() => {
 });
 
 const fetchParams = computed(() => {
-  const params: Record<string, any> = {
+  const params: Record<string, string | number | boolean> = {
     page: currentPage.value,
     per_page: pageSize.value
   };
@@ -1332,7 +1041,7 @@ const fetchParams = computed(() => {
     const groupId = activeCustomGroupId.value;
     if (groupId) params.group_id = groupId;
   } else {
-    const group = systemGroups.find(g => g.key === groupKey);
+    const group = SYSTEM_GROUPS.find(g => g.key === groupKey);
     if (group && group.filter) {
       Object.entries(group.filter).forEach(([k, v]) => {
         params[k === "cleared" ? "status" : k] =
@@ -1347,11 +1056,7 @@ const fetchParams = computed(() => {
   return params;
 });
 
-const availableTagsForEditor = computed(() => {
-  if (!editingItem.value) return allTags.value;
-  const existingIds = new Set(editingItem.value.tag_ids);
-  return allTags.value.filter(t => !existingIds.has(t.id));
-});
+// availableTagsForEditor 已内聚到 TagEditorDialog 组件（按 item.tag_ids 排除已选）
 
 // 方法
 function toggleBatchMode() {
@@ -1405,7 +1110,7 @@ const handleBatchMoveToGroup = async (groupId: number | null) => {
   }
 };
 
-function startEditGroup(group: any) {
+function startEditGroup(group: GroupTab) {
   if (group.key.startsWith("custom_")) {
     const id = parseInt(group.key.replace("custom_", ""));
     if (editingGroupId.value === id) {
@@ -1464,7 +1169,7 @@ async function saveEditGroup() {
   }
 }
 
-async function deleteGroupConfirm(group: any) {
+async function deleteGroupConfirm(group: GroupTab) {
   if (!group.key.startsWith("custom_")) return;
   const groupId = parseInt(group.key.replace("custom_", ""));
   try {
@@ -1479,16 +1184,12 @@ async function deleteGroupConfirm(group: any) {
 // ─────────────────────────────────────────────
 // 工具函数
 // ─────────────────────────────────────────────
-function getTagName(tagId: number): string {
-  return allTags.value.find(t => t.id === tagId)?.name || "?";
-}
+// getTagName / getTagColor 已提取到 utils/tagHelpers.ts（TagManagerDialog / TagEditorDialog 内部使用）
 
-function getTagColor(tagId: number): string {
-  return allTags.value.find(t => t.id === tagId)?.color || "#d9d9d9";
-}
-
-function getSystemFilter(key: string): Record<string, any> {
-  const map: Record<string, Record<string, any>> = {
+function getSystemFilter(
+  key: string
+): Record<string, string | boolean> {
+  const map: Record<string, Record<string, string | boolean>> = {
     all: {},
     holding: { status: "HOLDING" },
     watching: { status: "WATCHING" },
@@ -1516,8 +1217,8 @@ async function fetchData() {
   loading.value = true;
   try {
     const res = await getWatchlistItems(fetchParams.value);
-    items.value = (res as any).data ?? [];
-    totalItems.value = (res as any).total ?? items.value.length;
+    items.value = res.data ?? [];
+    totalItems.value = res.total ?? items.value.length;
   } catch (e) {
     ElMessage.error("获取自选列表失败");
     console.error("获取自选列表错误：", e);
@@ -1529,8 +1230,8 @@ async function fetchData() {
 async function fetchGroups() {
   try {
     const res = await getWatchlistGroups();
-    const data: WatchlistGroup[] = (res as any).data ?? [];
-    const system: any[] = [];
+    const data: WatchlistGroup[] = res.data ?? [];
+    const system: GroupTab[] = [];
     const custom: WatchlistGroup[] = [];
     data.forEach(g => {
       // 方案 B：后端仍返回 exchange/otc 系统分组，但「场内/场外」已由顶部 el-segmented 承担，此处过滤不展示
@@ -1550,7 +1251,7 @@ async function fetchGroups() {
         system.push({
           key: `custom_${g.id}`,
           label: g.name,
-          color: g.color || systemGroups[0].color,
+          color: g.color || SYSTEM_GROUPS[0].color,
           count: g.count || 0,
           filter: { group_id: g.id }
         });
@@ -1570,7 +1271,7 @@ async function fetchGroups() {
 async function fetchTags() {
   try {
     const res = await getWatchlistTags();
-    allTags.value = (res as any).data ?? [];
+    allTags.value = res.data ?? [];
   } catch (e) {
     console.error("获取标签失败：", e);
   }
@@ -1600,7 +1301,7 @@ function resetFilters() {
   selectedFilterTagIds.value = [];
 }
 
-async function handleTogglePin(row: WatchlistItem | any) {
+async function handleTogglePin(row: WatchlistItem) {
   const r = row as WatchlistItem;
   try {
     await updateWatchlistItem(r.id, { is_pinned: !r.is_pinned });
@@ -1612,7 +1313,7 @@ async function handleTogglePin(row: WatchlistItem | any) {
   }
 }
 
-async function handleToggleFavorite(row: WatchlistItem | any) {
+async function handleToggleFavorite(row: WatchlistItem) {
   const r = row as WatchlistItem;
   try {
     await updateWatchlistItem(r.id, { favorite: !r.favorite });
@@ -1660,7 +1361,9 @@ onBeforeUnmount(() => {
 
 async function exportData() {
   try {
-    const params = new URLSearchParams(fetchParams.value as any).toString();
+    const params = new URLSearchParams(
+      Object.entries(fetchParams.value).map(([k, v]) => [k, String(v)])
+    ).toString();
     window.open(`/api/watchlist/items/export/?${params}`, "_blank");
   } catch (e) {
     ElMessage.error("导出失败");
@@ -1703,189 +1406,17 @@ async function createGroup() {
 }
 
 // ─────────────────────────────────────────────
-// 标签管理相关
+// 标签管理相关（交互已收敛到 TagManagerDialog / TagEditorDialog 共有组件）
 // ─────────────────────────────────────────────
-const openTagEditor = (row: WatchlistItem | any) => {
+const openTagEditor = (row: WatchlistItem) => {
   editingItem.value = row as WatchlistItem;
-  editingItemNewTagIds.value = [];
-  showNewTagFormInEditor.value = false;
   showTagEditor.value = true;
 };
 
-const handleSelectChange = () => {
-  if (selectedTagIdsForManager.value.length === 0) {
-    editingTagId.value = null;
-    editTagName.value = "";
-  }
-};
-
-const selectTagForEdit = (tagId: number) => {
-  const tag = allTags.value.find(t => t.id === tagId);
-  if (!tag) return;
-
-  if (editingTagId.value === tagId) {
-    editingTagId.value = null;
-    editTagName.value = "";
-    return;
-  }
-
-  editingTagId.value = tagId;
-  editTagName.value = tag.name;
-  editTagColor.value = tag.color || "#B6B09C";
-
-  nextTick(() => {
-    editInputRef.value?.focus();
-  });
-};
-
-const removeTagFromSelection = (tagId: number) => {
-  selectedTagIdsForManager.value = selectedTagIdsForManager.value.filter(
-    id => id !== tagId
-  );
-  if (editingTagId.value === tagId) {
-    editingTagId.value = null;
-    editTagName.value = "";
-  }
-};
-
-const addNewTagInManager = async () => {
-  if (!newTagNameInManager.value.trim()) return;
-  try {
-    const res = await createWatchlistTag({
-      name: newTagNameInManager.value.trim(),
-      color: newTagColorInManager.value
-    });
-    const newTag = (res as any).data;
-    allTags.value.push({
-      id: newTag.id,
-      name: newTag.name,
-      color: newTag.color || newTagColorInManager.value
-    });
-    selectedTagIdsForManager.value.push(newTag.id);
-
-    newTagNameInManager.value = "";
-    newTagColorInManager.value = "#B6B09C";
-    ElMessage.success(`标签「${newTag.name}」已创建`);
-  } catch (e: any) {
-    if (e?.response?.status === 409) {
-      ElMessage.warning("该标签已存在");
-    } else {
-      ElMessage.error("创建标签失败");
-    }
-  }
-};
-
-const removeTagFromEditingItem = async (tagId: number) => {
-  if (!editingItem.value) return;
-  try {
-    await removeTagFromItem(editingItem.value.id, tagId);
-    editingItem.value.tag_ids = editingItem.value.tag_ids.filter(
-      id => id !== tagId
-    );
-    ElMessage.success("标签已移除");
-  } catch (e) {
-    ElMessage.error("移除标签失败");
-  }
-};
-
-const createTagInEditor = async () => {
-  if (!newTagNameInEditor.value.trim()) return;
-  try {
-    const res = await createWatchlistTag({
-      name: newTagNameInEditor.value.trim(),
-      color: newTagColorInEditor.value
-    });
-    const newTag = (res as any).data;
-    allTags.value.push({
-      id: newTag.id,
-      name: newTag.name,
-      color: newTag.color || newTagColorInEditor.value
-    });
-    editingItemNewTagIds.value.push(newTag.id);
-    showNewTagFormInEditor.value = false;
-    newTagNameInEditor.value = "";
-  } catch (e: any) {
-    if (e?.response?.status === 409) {
-      ElMessage.warning("该标签已存在");
-    } else {
-      ElMessage.error("创建标签失败");
-    }
-  }
-};
-
-const saveTagChanges = async () => {
-  if (!editingItem.value) return;
-  savingTags.value = true;
-  try {
-    const itemId = editingItem.value.id;
-    for (const tagId of editingItemNewTagIds.value) {
-      await addTagToItem(itemId, tagId);
-    }
-    ElMessage.success("标签已更新");
-    showTagEditor.value = false;
-    await fetchData();
-    await fetchTags();
-  } catch (e) {
-    ElMessage.error("保存标签失败");
-  } finally {
-    savingTags.value = false;
-  }
-};
-
-const saveEditTag = async (tagId: number) => {
-  const originalTag = allTags.value.find(t => t.id === tagId);
-  if (!originalTag) return;
-  const newName = editTagName.value.trim();
-  if (!newName) {
-    ElMessage.warning("请输入标签名称");
-    editTagName.value = originalTag.name;
-    return;
-  }
-  if (
-    newName === originalTag.name &&
-    editTagColor.value === (originalTag.color || "#B6B09C")
-  ) {
-    editingTagId.value = null;
-    return;
-  }
-  try {
-    await updateWatchlistTag(tagId, {
-      name: newName,
-      color: editTagColor.value
-    });
-    ElMessage.success("标签已更新");
-    editingTagId.value = null;
-    await fetchTags();
-    editingTagId.value = null;
-    editTagName.value = "";
-  } catch (e: any) {
-    if (e?.response?.status === 409) {
-      ElMessage.warning("标签名称已存在");
-      editTagName.value = originalTag.name;
-    } else {
-      ElMessage.error("更新标签失败");
-    }
-  }
-};
-
-const deleteTag = async (tagId: number) => {
-  if (usedTagIds.value.has(tagId)) {
-    ElMessage.warning("该标签正被使用，无法删除");
-    return;
-  }
-  try {
-    await deleteWatchlistTag(tagId);
-    ElMessage.success("标签已删除");
-    await fetchTags();
-
-    removeTagFromSelection(tagId);
-    selectedTagIdsForManager.value = selectedTagIdsForManager.value.filter(
-      id => id !== tagId
-    );
-  } catch (e) {
-    ElMessage.error("删除标签失败");
-    console.error("删除标签错误：", e);
-  }
+/** 标签保存成功（含弹窗内新建标签）后：刷新列表与标签 */
+const onTagEditorSaved = () => {
+  fetchData();
+  fetchTags();
 };
 
 // ─────────────────────────────────────────────

@@ -1,6 +1,15 @@
 import { http } from "@/utils/http";
 import type { ApiResponse } from "./types";
 
+/** 自选资产分页响应（对齐后端信封：{ data, total, ... }，不同于标准 ApiResponse） */
+export interface WatchlistPageResponse<T> {
+  data: T[];
+  total: number;
+  page?: number;
+  per_page?: number;
+  message?: string;
+}
+
 export interface WatchlistItem {
   id: number;
   symbol: string;
@@ -70,7 +79,10 @@ export function createWatchlistItem(data: {
 }
 
 export function getWatchlistGroups() {
-  return http.request<any>("get", "/api/watchlist/groups/");
+  return http.request<ApiResponse<WatchlistGroup[]>>(
+    "get",
+    "/api/watchlist/groups/"
+  );
 }
 
 export function createWatchlistGroup(data: { name: string; color?: string }) {
@@ -130,8 +142,10 @@ export function removeTagFromItem(itemId: number, tagId: number) {
 
 /** 获取自选资产列表（支持筛选、分页等） */
 
-export function getWatchlistItems(params?: Record<string, any>) {
-  return http.request<ApiResponse<WatchlistItem[]>>(
+export function getWatchlistItems(
+  params?: Record<string, string | number | boolean>
+) {
+  return http.request<WatchlistPageResponse<WatchlistItem>>(
     "get",
     "/api/watchlist/items/",
     { params }
@@ -154,8 +168,12 @@ export interface WatchlistTag {
 }
 
 /** 获取标签 */
-export function getWatchlistTags(params?: Record<string, any>) {
-  return http.request<any>("get", "/api/watchlist/tags/", { params });
+export function getWatchlistTags(
+  params?: Record<string, string | number | boolean>
+) {
+  return http.request<ApiResponse<WatchlistTag[]>>("get", "/api/watchlist/tags/", {
+    params
+  });
 }
 
 /** 创建标签 */
