@@ -134,6 +134,31 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 - 用途：百分比 / 比率类涨跌（涨跌幅、偏离度等）。默认后缀 `%`，自动正负号与涨红跌绿。
 - props：`value`、`suffix`(默认 %)、`showSign`(默认 true)、`precision`(默认 2)、`autoColor`(默认 true)、`customColor`、`size`(sm | md | lg)。
 
+### MoneyWithRatio · 金额(主) + 比例(辅) 组合展示
+
+- 用途：金额与对应比例的「主次双行」展示，避免页面手写「数字 + 比例」堆叠导致主次颠倒。典型场景：自选页「持仓市值 / 持仓收益 / 添加后涨幅」等列（金额为主、比例为例，金额在上、比例在下）。
+- 设计约束（强制）：主数字明显大于辅比例，且辅比例弱化透明度（`opacity: 0.72`），形成清晰主次；涨跌配色沿用 `--color-rise` / `--color-fall` 语义变量，禁止页面硬编码颜色。
+- props：
+  - `value`：主金额（元）；`ratio` 为 null / undefined 时仅显示金额（如无总市值、市值为 0）。
+  - `ratio`：辅比例（百分比数值，如 `3.21` 表示 `+3.21%`）；缺省时不渲染比例行。
+  - `showSign`(默认 true)、`showCurrency`(默认 true)、`moneySize`(默认 `md`，即 16px 主数字)。
+  - `ratioPrecision`(默认 2)、`ratioSuffix`(默认 `%`)、`showRatioSign`(默认 true)。
+  - `ratioAutoColor`(默认 true，按正负涨跌着色；占比等非涨跌语义请传 `false`，比例走中性 `--color-info`)。
+  - `alignRight`(默认 true，表格列右对齐)、`emptyText`(默认 `--`)。
+- 调用示例（自选页持仓收益列，金额上 + 收益率下）：
+
+  ```vue
+  <MoneyWithRatio
+    :value="holdingPnl"
+    :ratio="holdingPnlPercent"
+    :show-currency="false"
+    :show-sign="true"
+    :auto-color="true"
+  />
+  ```
+
+- 注意：比例行尺寸固定 `sm`(13px)，**不要**用 `size` 把它调得比主数字大；非涨跌语义（如持仓市值占比）务必 `:ratio-auto-color="false"`，避免把占比误染成涨红。
+
 ### AssetTypeBadge · 资产 / 账本类型胶囊
 
 - 用途：资产 / 账本类型标签（股票、基金、可转债等），统一账本配色 `getLedgerColor`，禁止页面自定类型色。
