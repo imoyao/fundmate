@@ -157,6 +157,16 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 - props：`modelValue`(v-model 显隐)、`tag`(待编辑标签，`null` 表示新建)。
 - emits：`update:modelValue`、`saved`(保存成功后触发，父组件刷新标签列表)。
 - 内部按 status `409` 提示「该标签已存在」。
+- 颜色域（强制统一）：预设色来自 `constants/watchlist.ts` 的 `PRESET_TAG_COLORS`（莫兰迪色系：低饱和、灰调柔和、区分度高，共 12 色），默认色 `DEFAULT_TAG_COLOR` 取色板第一项（珊瑚红 `#e07a6b`）。
+  - 表单内除「点选色板」外，提供一个「随机」圆点按钮：调用 `randomMorandiColor(usedColors)`，**不是纯随机**，而是先从色板中排除已用色、再从剩余候选里随机挑一个，保证范围可控 + 用户可读性 + 界面区分度。
+  - 后端 `color` 字段仍接受任意合法 hex（不强制色板），色板仅作「可选 / 默认 / 受控随机」来源。
+
+### GroupManagerDialog / GroupFormDialog · 分组管理（与标签同构）
+
+- 分组与标签功能基本同构（都只是「名称 + 颜色」的命名实体），因此分组管理**完全沿用标签的 GitHub Labels 风格组件**，保持设计语言统一，禁止在 `watchlist/index.vue` 内联分组管理 UI。
+- `GroupManagerDialog.vue`：路径同 `TagManagerDialog`。白底卡片列表 + 顶部搜索/新建，`allGroups` 含系统分组（`is_system=true`），系统分组行**隐藏编辑/删除**（用「系统分组」标识替代统计列），自定义分组 hover 显现编辑/删除。
+- `GroupFormDialog.vue`：路径同 `TagFormDialog`。名称输入 + 预设莫兰迪色板点选 + 受控随机取色（复用 `PRESET_TAG_COLORS` / `randomMorandiColor`），无 description 字段（后端分组模型无该字段，与标签保持一致取舍）。
+- 父组件（`watchlist/index.vue`）通过 `@groups-changed` 刷新 `allGroups`；分组 tab 行仅做展示与切换，增删改一律收口到这两个组件。
 
 ### TagEditorDialog · 行内标签编辑弹窗（资产维度）
 

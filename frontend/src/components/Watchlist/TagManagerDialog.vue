@@ -28,7 +28,12 @@
           <el-icon><Search /></el-icon>
         </template>
       </el-input>
-      <el-button type="primary" size="large" class="tag-create-btn" @click="openCreate">
+      <el-button
+        type="primary"
+        size="large"
+        class="tag-create-btn"
+        @click="openCreate"
+      >
         <el-icon class="mr-1"><Plus /></el-icon> 新建标签
       </el-button>
     </div>
@@ -51,9 +56,7 @@
           </span>
 
           <!-- 使用统计 -->
-          <span class="tag-stat">
-            {{ usageOf(tag.id) }} 个资产
-          </span>
+          <span class="tag-stat"> {{ usageOf(tag.id) }} 个资产 </span>
 
           <!-- 行内操作：默认隐藏，hover 行时显现 -->
           <div class="tag-row__actions">
@@ -170,8 +173,8 @@ const deleteTag = async (tagId: number) => {
 /* 顶部：搜索（胶囊）+ 新建 */
 .tag-manager-header {
   display: flex;
-  align-items: center;
   gap: var(--space-3);
+  align-items: center;
   margin-bottom: var(--space-3);
 }
 
@@ -190,28 +193,28 @@ const deleteTag = async (tagId: number) => {
 
 /* 列表卡片：白底 + 浅色边框 + 大圆角 */
 .tag-list-card {
+  overflow: hidden;
   border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
-  overflow: hidden;
 }
 
 .tag-list {
-  list-style: none;
-  margin: 0;
   padding: 0;
+  margin: 0;
+  list-style: none;
 }
 
 .tag-empty {
   padding: var(--space-standard);
-  text-align: center;
   font-size: 13px;
   color: var(--text-tertiary);
+  text-align: center;
 }
 
 .tag-row {
   display: flex;
-  align-items: center;
   gap: var(--space-3);
+  align-items: center;
   min-height: 46px;
   padding: 0 var(--space-3);
   border-bottom: 1px solid var(--border-light);
@@ -229,18 +232,18 @@ const deleteTag = async (tagId: number) => {
 /* 名称胶囊：--radius-pill，标签色为底 */
 .tag-pill {
   display: inline-flex;
-  align-items: center;
   flex-shrink: 0;
+  align-items: center;
   max-width: 240px;
   padding: 4px 12px;
-  border: 1px solid;
-  border-radius: var(--radius-pill);
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 13px;
   font-weight: 500;
   line-height: 1.2;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  border: 1px solid;
+  border-radius: var(--radius-pill);
 }
 
 /* 使用统计 */
@@ -254,10 +257,10 @@ const deleteTag = async (tagId: number) => {
 /* 行内操作：默认隐藏，hover 显现 */
 .tag-row__actions {
   display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin-left: auto;
   flex-shrink: 0;
+  gap: var(--space-2);
+  align-items: center;
+  margin-left: auto;
   opacity: 0;
   transition: opacity 0.2s;
 }

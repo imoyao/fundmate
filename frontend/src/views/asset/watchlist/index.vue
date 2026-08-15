@@ -151,65 +151,14 @@
               :class="{ 'is-active': activeGroup === group.key }"
               @click="activeGroup = group.key"
             >
-              <!-- 编辑态 -->
-              <template
-                v-if="
-                  editingGroupId !== null &&
-                  group.key === `custom_${editingGroupId}`
-                "
-              >
-                <el-input
-                  v-model="editGroupName"
-                  size="small"
-                  class="group-tab-edit-input"
-                  @blur="saveEditGroup"
-                  @keyup.enter="saveEditGroup"
-                  @keyup.esc="cancelEditGroup"
-                  @click.stop
-                />
-                <el-button
-                  link
-                  size="small"
-                  class="shrink-0"
-                  @click.stop="cancelEditGroup"
-                >
-                  <IconifyIconOffline icon="ep:close" class="text-xs" />
-                </el-button>
-              </template>
-              <!-- 正常态 -->
-              <template v-else>
-                <span
-                  class="w-2 h-2 rounded-full shrink-0"
-                  :style="{ backgroundColor: group.color }"
-                />
-                <span class="group-tab-label" :title="group.label">{{
-                  group.label
-                }}</span>
-                <span class="group-tab-count font-mono"
-                  >({{ group.count }})</span
-                >
-                <!-- 分组编辑/删除：hover 浮现（opacity 机制，与操作列统一） -->
-                <div
-                  v-if="group.key.startsWith('custom_') && !editingGroupId"
-                  class="group-tab-actions"
-                  @click.stop
-                  @mouseenter.stop
-                >
-                  <el-button link size="small" @click="startEditGroup(group)">
-                    <IconifyIconOffline icon="ep:edit" class="text-xs" />
-                  </el-button>
-                  <el-popconfirm
-                    title="确定删除该分组？分组内的资产不会被删除。"
-                    @confirm="deleteGroupConfirm(group)"
-                  >
-                    <template #reference>
-                      <el-button link size="small" type="danger">
-                        <IconifyIconOffline icon="ep:delete" class="text-xs" />
-                      </el-button>
-                    </template>
-                  </el-popconfirm>
-                </div>
-              </template>
+              <span
+                class="w-2 h-2 rounded-full shrink-0"
+                :style="{ backgroundColor: group.color }"
+              />
+              <span class="group-tab-label" :title="group.label">{{
+                group.label
+              }}</span>
+              <span class="group-tab-count font-mono">({{ group.count }})</span>
             </div>
           </div>
         </div>
@@ -243,12 +192,12 @@
               </div>
             </el-option>
           </el-select>
-          <el-tooltip content="新建分组" placement="top">
+          <el-tooltip content="管理分组" placement="top">
             <el-button
               class="group-tab-add"
               circle
               size="small"
-              @click="handleAddGroup"
+              @click="showGroupManager = true"
             >
               <IconifyIconOffline icon="ep:plus" />
             </el-button>
@@ -295,9 +244,7 @@
 
         <!-- 估值汇总卡片：仅当有实际持仓市值时显示 -->
         <div
-          v-if="
-            summary && (summary).totalMarketValue > 0
-          "
+          v-if="summary && summary.totalMarketValue > 0"
           class="mb-3 p-3 rounded-lg"
           :style="{
             backgroundColor: 'var(--bg-soft)',
@@ -307,11 +254,9 @@
           <div class="flex items-center gap-6 text-sm">
             <span>
               总市值：<strong :style="{ color: 'var(--text-primary)' }">
-                <template
-                  v-if="(summary)?.totalMarketValue != null"
-                >
+                <template v-if="summary?.totalMarketValue != null">
                   <MoneyDisplay
-                    :value="(summary).totalMarketValue"
+                    :value="summary.totalMarketValue"
                     :show-sign="false"
                     :auto-color="false"
                     size="sm"
@@ -322,9 +267,9 @@
             </span>
             <span>
               总成本：<strong :style="{ color: 'var(--text-primary)' }">
-                <template v-if="(summary)?.totalCost != null">
+                <template v-if="summary?.totalCost != null">
                   <MoneyDisplay
-                    :value="(summary).totalCost"
+                    :value="summary.totalCost"
                     :show-sign="false"
                     :auto-color="false"
                     size="sm"
@@ -335,15 +280,11 @@
             </span>
             <span>
               总盈亏：<strong>
-                <template v-if="(summary)?.totalPnl != null">
-                  <MoneyDisplay
-                    :value="(summary).totalPnl"
-                    size="sm"
-                  />
-                  <span
-                    v-if="(summary)?.totalPnlPercent != null"
+                <template v-if="summary?.totalPnl != null">
+                  <MoneyDisplay :value="summary.totalPnl" size="sm" />
+                  <span v-if="summary?.totalPnlPercent != null"
                     >(<MoneyDisplay
-                      :value="(summary).totalPnlPercent"
+                      :value="summary.totalPnlPercent"
                       :precision="2"
                       suffix="%"
                       size="sm"
@@ -564,8 +505,14 @@
         <el-table-column label="持仓收益" width="110" align="right">
           <template #default="{ row }">
             <MoneyWithRatio
-              :value="(row.holding_quantity ?? 0) > 0 ? (row.holding_pnl ?? 0) : null"
-              :ratio="(row.holding_quantity ?? 0) > 0 ? (row.holding_pnl_percent ?? 0) : null"
+              :value="
+                (row.holding_quantity ?? 0) > 0 ? (row.holding_pnl ?? 0) : null
+              "
+              :ratio="
+                (row.holding_quantity ?? 0) > 0
+                  ? (row.holding_pnl_percent ?? 0)
+                  : null
+              "
               :show-currency="false"
               :show-sign="true"
               :auto-color="true"
@@ -657,18 +604,6 @@
 
     <OcrImportModal v-model="showOcrModal" @imported="onOcrImported" />
 
-    <el-dialog v-model="showGroupDialog" title="新建分组" width="320px">
-      <el-input v-model="newGroupName" placeholder="分组名称" size="large" />
-      <template #footer>
-        <el-button size="large" @click="showGroupDialog = false"
-          >取消</el-button
-        >
-        <el-button size="large" type="primary" @click="createGroup"
-          >确定</el-button
-        >
-      </template>
-    </el-dialog>
-
     <el-dialog v-model="removeDialogVisible" title="移除自选" width="400px">
       <p>
         确定要移除
@@ -710,6 +645,13 @@
       @tags-changed="fetchTags"
     />
 
+    <!-- 分组管理弹窗（GitHub Labels 风格，与标签同构，见 docs/design/components.md） -->
+    <GroupManagerDialog
+      v-model="showGroupManager"
+      :all-groups="customGroups"
+      @groups-changed="fetchGroups"
+    />
+
     <!-- 行内标签编辑弹窗（共有组件 TagEditorDialog） -->
     <TagEditorDialog
       v-model="showTagEditor"
@@ -724,7 +666,7 @@
       :refresh-interval="realtime.refreshInterval.value"
       @refresh-interval-change="realtime.setRefreshInterval"
       @manage-groups="
-        showGroupDialog = true;
+        showGroupManager = true;
         showSettingsDrawer = false;
       "
       @manage-tags="
@@ -740,14 +682,7 @@
 </template>
 
 <script setup lang="ts">
-import {
-  ref,
-  computed,
-  onMounted,
-  onBeforeUnmount,
-  watch,
-  nextTick
-} from "vue";
+import { ref, computed, onMounted, watch } from "vue";
 import { Search } from "@element-plus/icons-vue";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import { ElMessage, ElMessageBox } from "element-plus";
@@ -755,13 +690,11 @@ import AddToWatchlistModal from "@/components/QuickEntry/AddToWatchlistModal.vue
 import OcrImportModal from "@/components/QuickEntry/OcrImportModal.vue";
 import SettingsDrawer from "@/components/Watchlist/SettingsDrawer.vue";
 import TagManagerDialog from "@/components/Watchlist/TagManagerDialog.vue";
+import GroupManagerDialog from "@/components/Watchlist/GroupManagerDialog.vue";
 import TagEditorDialog from "@/components/Watchlist/TagEditorDialog.vue";
 import {
   getWatchlistItems,
   getWatchlistGroups,
-  createWatchlistGroup,
-  updateWatchlistGroup,
-  deleteWatchlistGroup,
   updateWatchlistItem,
   deleteWatchlistItem,
   removeItemFromGroup,
@@ -971,22 +904,17 @@ const totalItems = ref(0);
 
 const allTags = ref<WatchlistTag[]>([]);
 const selectedFilterTagIds = ref<number[]>([]);
-const showTagManager = ref(false);
 
 const showAddModal = ref(false);
 const showOcrModal = ref(false);
-const showGroupDialog = ref(false);
-const newGroupName = ref("");
+const showGroupManager = ref(false);
+const showTagManager = ref(false);
 const removeDialogVisible = ref(false);
 const removingItem = ref<WatchlistItem | null>(null);
 const removeScope = ref("all");
 
 const showTagEditor = ref(false);
 const editingItem = ref<WatchlistItem | null>(null);
-
-// 已移除 hoveringGroupKey，改用 CSS group-hover 实现
-const editingGroupId = ref<number | null>(null);
-const editGroupName = ref("");
 
 const showSettingsDrawer = ref(false);
 
@@ -1011,8 +939,6 @@ const activeCustomGroupId = computed(() => {
   }
   return undefined;
 });
-
-let outsideClickHandler: ((e: MouseEvent) => void) | null = null;
 
 const tagUsage = computed(() => {
   const usage = new Map<number, number>();
@@ -1112,85 +1038,12 @@ const handleBatchMoveToGroup = async (groupId: number | null) => {
   }
 };
 
-function startEditGroup(group: GroupTab) {
-  if (group.key.startsWith("custom_")) {
-    const id = parseInt(group.key.replace("custom_", ""));
-    if (editingGroupId.value === id) {
-      cancelEditGroup();
-      return;
-    }
-    editingGroupId.value = id;
-    editGroupName.value = group.label;
-    // 添加全局点击监听，点击外部取消编辑
-    nextTick(() => {
-      if (outsideClickHandler)
-        document.removeEventListener("click", outsideClickHandler);
-      outsideClickHandler = (e: MouseEvent) => {
-        const target = e.target as HTMLElement;
-        if (target.closest(".group-tab") || target.closest(".el-popconfirm"))
-          return;
-        cancelEditGroup();
-      };
-      setTimeout(
-        () => document.addEventListener("click", outsideClickHandler!),
-        0
-      );
-    });
-  } else {
-    ElMessage.info("系统分组暂不支持编辑");
-  }
-}
-
-function cancelEditGroup() {
-  editingGroupId.value = null;
-  editGroupName.value = "";
-  if (outsideClickHandler) {
-    document.removeEventListener("click", outsideClickHandler);
-    outsideClickHandler = null;
-  }
-}
-
-async function saveEditGroup() {
-  if (!editingGroupId.value || !editGroupName.value.trim()) return;
-  const originalGroup = allGroups.value.find(
-    g => g.key === `custom_${editingGroupId.value}`
-  );
-  if (originalGroup && editGroupName.value.trim() === originalGroup.label) {
-    cancelEditGroup();
-    return;
-  }
-  try {
-    await updateWatchlistGroup(editingGroupId.value, {
-      name: editGroupName.value.trim()
-    });
-    ElMessage.success("分组已更新");
-    cancelEditGroup();
-    fetchGroups();
-  } catch (e) {
-    ElMessage.error("更新分组失败");
-  }
-}
-
-async function deleteGroupConfirm(group: GroupTab) {
-  if (!group.key.startsWith("custom_")) return;
-  const groupId = parseInt(group.key.replace("custom_", ""));
-  try {
-    await deleteWatchlistGroup(groupId);
-    ElMessage.success("分组已删除");
-    fetchGroups();
-  } catch (e) {
-    ElMessage.error("删除分组失败");
-  }
-}
-
 // ─────────────────────────────────────────────
 // 工具函数
 // ─────────────────────────────────────────────
 // getTagName / getTagColor 已提取到 utils/tagHelpers.ts（TagManagerDialog / TagEditorDialog 内部使用）
 
-function getSystemFilter(
-  key: string
-): Record<string, string | boolean> {
+function getSystemFilter(key: string): Record<string, string | boolean> {
   const map: Record<string, Record<string, string | boolean>> = {
     all: {},
     holding: { status: "HOLDING" },
@@ -1354,13 +1207,6 @@ async function executeRemove() {
   }
 }
 
-onBeforeUnmount(() => {
-  if (outsideClickHandler) {
-    document.removeEventListener("click", outsideClickHandler);
-    outsideClickHandler = null;
-  }
-});
-
 async function exportData() {
   try {
     const params = new URLSearchParams(
@@ -1383,28 +1229,6 @@ function onOcrImported() {
   showOcrModal.value = false;
   fetchData();
   fetchTags();
-}
-
-function handleAddGroup() {
-  showGroupDialog.value = true;
-  newGroupName.value = "";
-}
-
-async function createGroup() {
-  const groupName = newGroupName.value.trim();
-  if (!groupName) {
-    ElMessage.warning("请输入分组名称");
-    return;
-  }
-  try {
-    await createWatchlistGroup({ name: groupName });
-    ElMessage.success("分组已创建");
-    showGroupDialog.value = false;
-    fetchGroups();
-  } catch (e) {
-    ElMessage.error("创建分组失败");
-    console.error("创建分组错误：", e);
-  }
 }
 
 // ─────────────────────────────────────────────
@@ -1432,13 +1256,6 @@ onMounted(() => {
     currentPage.value = 1;
     fetchData();
   });
-});
-
-onBeforeUnmount(() => {
-  if (outsideClickHandler) {
-    document.removeEventListener("click", outsideClickHandler);
-    outsideClickHandler = null;
-  }
 });
 
 const realtimeEnabled = computed(() => realtime.enabled.value);
