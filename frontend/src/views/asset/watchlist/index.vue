@@ -209,10 +209,13 @@
                   >
                     <el-checkbox :value="tag.id" @click.stop />
                     <span
-                      class="tag-filter-item__dot"
-                      :style="{ backgroundColor: tag.color || 'var(--text-tertiary)' }"
-                    />
-                    <span class="tag-filter-item__name">{{ tag.name }}</span>
+                      class="tag-filter-item__name"
+                      :style="{
+                        backgroundColor: (tag.color || DEFAULT_TAG_COLOR) + '20',
+                        border: '1px solid ' + (tag.color || DEFAULT_TAG_COLOR),
+                        color: 'var(--text-primary)'
+                      }"
+                    >{{ tag.name }}</span>
                   </div>
                 </el-checkbox-group>
                 <div v-if="allTags.length === 0" class="tag-filter-panel__empty">
@@ -220,7 +223,13 @@
                 </div>
               </div>
               <div class="tag-filter-panel__footer">
-                <el-button size="small" text bg @click="clearTagFilter">清空筛选</el-button>
+                <el-button
+                  size="small"
+                  text
+                  bg
+                  :disabled="draftFilterTagIds.length === 0"
+                  @click="clearTagFilter"
+                >清空筛选</el-button>
                 <el-button size="small" type="primary" @click="applyTagFilter">确定</el-button>
               </div>
             </div>
@@ -742,6 +751,7 @@ import SettingsDrawer from "@/components/Watchlist/SettingsDrawer.vue";
 import TagManagerDialog from "@/components/Watchlist/TagManagerDialog.vue";
 import GroupManagerDialog from "@/components/Watchlist/GroupManagerDialog.vue";
 import TagEditorDialog from "@/components/Watchlist/TagEditorDialog.vue";
+import { DEFAULT_TAG_COLOR } from "@/constants/watchlist";
 import {
   getWatchlistItems,
   updateWatchlistItem,
@@ -1500,14 +1510,13 @@ const realtimeEnabled = computed(() => realtime.enabled.value);
 }
 
 .tag-filter-panel .el-checkbox-group {
-  display: flex;
-  flex-direction: column;
+  display: block;
 }
 
 .tag-filter-item {
   display: flex;
-  gap: 8px;
   align-items: center;
+  gap: 8px;
   padding: 6px 8px;
   cursor: pointer;
   border-radius: var(--radius-sm);
@@ -1517,21 +1526,18 @@ const realtimeEnabled = computed(() => realtime.enabled.value);
   background-color: var(--bg-soft);
 }
 
-.tag-filter-item__dot {
-  flex-shrink: 0;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-
 .tag-filter-item__name {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* 胶囊 Tag：与表格 el-tag / 管理标签 .tag-pill 视觉统一（浅底 + 同色边框）。
+     不设 flex/min-width，flex-shrink:0 防止被父级 flex 容器压缩到 0 宽。 */
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 2px 10px;
   font-size: 13px;
-  color: var(--text-primary);
+  font-weight: 500;
+  line-height: 1.4;
   white-space: nowrap;
+  border-radius: var(--radius-pill);
 }
 
 .tag-filter-panel__empty {
