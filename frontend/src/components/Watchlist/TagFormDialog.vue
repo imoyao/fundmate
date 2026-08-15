@@ -92,6 +92,8 @@ const props = withDefaults(
 const emit = defineEmits<{
   (e: "update:modelValue", value: boolean): void;
   (e: "saved"): void;
+  /** 仅新建成功时抛出，携带新标签，便于调用方自动选中（区别于编辑场景） */
+  (e: "created", tag: WatchlistTag): void;
 }>();
 
 const loading = ref(false);
@@ -138,7 +140,9 @@ const save = async () => {
       await updateWatchlistTag(props.tag.id, { name, color: form.color });
       ElMessage.success("标签已更新");
     } else {
-      await createWatchlistTag({ name, color: form.color });
+      const res = await createWatchlistTag({ name, color: form.color });
+      const newTag = (res as { data?: WatchlistTag })?.data;
+      if (newTag) emit("created", newTag);
       ElMessage.success("标签已创建");
     }
     emit("saved");

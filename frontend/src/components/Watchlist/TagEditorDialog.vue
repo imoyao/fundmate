@@ -68,39 +68,19 @@
             </div>
           </el-option>
         </el-select>
-        <el-button size="large" @click="showNewTagFormInEditor = true">
+        <el-button size="large" @click="tagFormVisible = true">
           <IconifyIconOffline icon="ep:plus" />
         </el-button>
       </div>
 
-      <div
-        v-if="showNewTagFormInEditor"
-        class="mt-2 p-3 rounded-lg flex items-end gap-2"
-        :style="{ backgroundColor: 'var(--bg-warm)' }"
-      >
-        <el-input
-          v-model="newTagNameInEditor"
-          placeholder="标签名"
-          size="large"
-          class="w-24"
-        />
-        <div class="flex gap-1">
-          <button
-            v-for="c in PRESET_TAG_COLORS"
-            :key="c"
-            class="color-swatch-btn"
-            :class="{ 'is-selected': newTagColorInEditor === c }"
-            :style="{ backgroundColor: c }"
-            @click="newTagColorInEditor = c"
-          />
-        </div>
-        <el-button type="primary" size="large" @click="createTagInEditor"
-          >确定</el-button
-        >
-        <el-button size="large" @click="showNewTagFormInEditor = false"
-          >取消</el-button
-        >
-      </div>
+      <!-- 新建标签：复用独立子弹窗（TagFormDialog），自带遮罩隔离父弹窗与背景，
+           彻底规避此前「行内表单横向挤压 + 按钮悬浮」的布局崩坏。 -->
+      <TagFormDialog
+        v-model="tagFormVisible"
+        :used-colors="tagFormUsedColors"
+        @created="onTagFormCreated"
+        @saved="onTagFormSaved"
+      />
     </div>
 
     <template #footer>
@@ -121,14 +101,13 @@ import { ref, computed, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import {
-  createWatchlistTag,
   addTagToItem,
   removeTagFromItem,
   type WatchlistItem,
   type WatchlistTag
 } from "@/api/watchlist";
-import { PRESET_TAG_COLORS, DEFAULT_TAG_COLOR } from "@/constants/watchlist";
 import { findTagName, findTagColor } from "@/utils/tagHelpers";
+import TagFormDialog from "./TagFormDialog.vue";
 
 const props = defineProps<{
   modelValue: boolean;
@@ -143,12 +122,11 @@ const emit = defineEmits<{
 
 const editingItemNewTagIds = ref<number[]>([]);
 const savingTags = ref(false);
-const showNewTagFormInEditor = ref(false);
-const newTagNameInEditor = ref("");
-const newTagColorInEditor = ref(DEFAULT_TAG_COLOR);
 // 本地可写副本：避免直接 mutate prop（vue/no-mutating-props），
 // 展示与移除操作都基于本地副本，保存成功后由父组件刷新 item。
 const localTagIds = ref<number[]>([]);
+// 新建标签子弹窗（TagFormDialog）显隐：复用独立模态，自带遮罩隔离。
+const tagFormVisible = ref(false);
 
 /** 未添加到当前资产的可选标签 */
 const availableTags = computed(() => {
@@ -164,9 +142,7 @@ watch(
     if (visible) {
       localTagIds.value = [...(props.item?.tag_ids ?? [])];
       editingItemNewTagIds.value = [];
-      showNewTagFormInEditor.value = false;
-      newTagNameInEditor.value = "";
-      newTagColorInEditor.value = DEFAULT_TAG_COLOR;
+      tagFormVisible.value = false;
     }
   }
 );
@@ -190,29 +166,20 @@ const removeTagFromEditingItem = async (tagId: number) => {
   }
 };
 
-const createTagInEditor = async () => {
-  if (!newTagNameInEditor.value.trim()) return;
-  try {
-    const res = await createWatchlistTag({
-      name: newTagNameInEditor.value.trim(),
-      color: newTagColorInEditor.value
-    });
-    const newTag = (res as { data?: WatchlistTag })?.data;
-    if (!newTag) return;
-    editingItemNewTagIds.value.push(newTag.id);
-    showNewTagFormInEditor.value = false;
-    newTagNameInEditor.value = "";
-    // 通知父组件刷新标签列表（保持内存与后端一致）
-    emit("saved");
-  } catch (e: unknown) {
-    const err = e as { response?: { status?: number } };
-    if (err?.response?.status === 409) {
-      ElMessage.warning("该标签已存在");
-    } else {
-      ElMessage.error("创建标签失败");
-    }
-  }
-};
+/** 子弹窗已用色：供新建标签随机取色时尽量避开，保持视觉区分度 */
+const tagFormUsedColors = computed(() =>
+  props.allTags.map(t => t.color).filter((c): c is string => !!c)
+);
+
+/** 子弹窗新建标签成功后：自动把新标签加入当前资产的待保存列表 */
+function onTagFormCreated(tag: WatchlistTag) {
+  if (tag.id) editingItemNewTagIds.value.push(tag.id);
+}
+
+/** 子弹窗保存（含新建/编辑）后：通知父组件刷新全部标签，使下拉可选列表同步 */
+function onTagFormSaved() {
+  emit("saved");
+}
 
 const saveTagChanges = async () => {
   if (!props.item) return;
@@ -237,24 +204,5 @@ const saveTagChanges = async () => {
 .tag-hint {
   font-size: 12px;
   color: var(--text-tertiary);
-}
-
-/* 行内标签编辑弹窗内的小色板按钮 */
-.color-swatch-btn {
-  width: 20px;
-  height: 20px;
-  cursor: pointer;
-  border: 2px solid var(--bg-card);
-  border-radius: 50%;
-  box-shadow: 0 0 0 1px var(--border-light);
-  transition: all 0.2s ease;
-}
-
-.color-swatch-btn.is-selected {
-  border-color: var(--brand-700);
-  box-shadow:
-    0 0 0 2px var(--bg-card),
-    0 0 0 4px var(--brand-700);
-  transform: scale(1.15);
 }
 </style>
