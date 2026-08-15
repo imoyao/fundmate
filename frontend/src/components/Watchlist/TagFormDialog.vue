@@ -15,11 +15,12 @@
   >
     <div class="tag-form">
       <label class="tag-form__label">名称</label>
+      <!-- 后端 WatchlistTagDefCreate.name 的 max_length=50，前端对齐该契约并提前告知用户上限。 -->
       <el-input
         v-model="form.name"
-        placeholder="请输入标签名称"
+        placeholder="请输入标签名称（最多 50 个字符）"
         size="large"
-        maxlength="20"
+        maxlength="50"
         show-word-limit
         :disabled="loading"
       />

@@ -171,9 +171,13 @@ export interface WatchlistTag {
 export function getWatchlistTags(
   params?: Record<string, string | number | boolean>
 ) {
-  return http.request<ApiResponse<WatchlistTag[]>>("get", "/api/watchlist/tags/", {
-    params
-  });
+  return http.request<ApiResponse<WatchlistTag[]>>(
+    "get",
+    "/api/watchlist/tags/",
+    {
+      params
+    }
+  );
 }
 
 /** 创建标签 */

@@ -164,34 +164,66 @@
         </div>
 
         <div class="flex items-center gap-2 shrink-0">
-          <!-- 标签筛选（合并至分组行：segmented 左侧，过滤操作集中一处） -->
-          <el-select
-            v-model="selectedFilterTagIds"
-            multiple
-            filterable
-            clearable
-            placeholder="按标签筛选..."
-            class="w-48 min-w-[150px] modern-filter-select"
-            @change="handleTagFilterChange"
+          <!-- 标签筛选：触发按钮 + 弹出面板（GitHub Labels 式）。
+               弃用 el-select 多选：原实现输入框随选中项无限拉长、勾选态仅靠下拉内小勾不够明显。
+               改为固定宽度触发按钮（绝不拉长）+ 独立控制 max-height 的面板 + 前置 el-checkbox。
+               append-to-body=false 让面板渲染在本组件内，scoped 样式可直接命中。 -->
+          <el-popover
+            v-model:visible="tagFilterVisible"
+            placement="bottom-end"
+            :width="264"
+            trigger="click"
+            popper-class="tag-filter-popover"
+            :z-index="3000"
+            :append-to-body="false"
+            @show="onTagFilterShow"
           >
-            <el-option
-              v-for="tag in allTags"
-              :key="tag.id"
-              :label="tag.name"
-              :value="tag.id"
-            >
-              <div class="flex items-center gap-2">
-                <!-- 数据色例外：标签色为用户数据（非设计令牌），缺失时回退中性 token -->
-                <span
-                  class="w-3 h-3 rounded-full"
-                  :style="{
-                    backgroundColor: tag.color || 'var(--text-tertiary)'
-                  }"
+            <template #reference>
+              <button
+                type="button"
+                class="tag-filter-trigger"
+                :class="{ 'is-active': selectedFilterTagIds.length > 0 }"
+              >
+                <IconifyIconOffline icon="ep:collection-tag" />
+                <span class="tag-filter-trigger__text">
+                  {{ selectedFilterTagIds.length > 0 ? `标签：${selectedFilterTagIds.length}` : '按标签筛选' }}
+                </span>
+                <IconifyIconOffline
+                  v-if="selectedFilterTagIds.length > 0"
+                  icon="ep:close"
+                  class="tag-filter-trigger__clear"
+                  @click.stop="clearTagFilter"
                 />
-                <span>{{ tag.name }}</span>
+              </button>
+            </template>
+
+            <!-- 面板：列表区固定 max-height + 滚动；底部 确定 / 清空筛选 -->
+            <div class="tag-filter-panel">
+              <div class="tag-filter-panel__list">
+                <el-checkbox-group v-model="draftFilterTagIds">
+                  <label
+                    v-for="tag in allTags"
+                    :key="tag.id"
+                    class="tag-filter-item"
+                  >
+                    <el-checkbox :value="tag.id" />
+                    <span
+                      class="tag-filter-item__dot"
+                      :style="{ backgroundColor: tag.color || 'var(--text-tertiary)' }"
+                    />
+                    <span class="tag-filter-item__name">{{ tag.name }}</span>
+                  </label>
+                </el-checkbox-group>
+                <div v-if="allTags.length === 0" class="tag-filter-panel__empty">
+                  暂无可选标签
+                </div>
               </div>
-            </el-option>
-          </el-select>
+              <div class="tag-filter-panel__footer">
+                <el-button size="small" text bg @click="clearTagFilter">清空筛选</el-button>
+                <el-button size="small" type="primary" @click="applyTagFilter">确定</el-button>
+              </div>
+            </div>
+          </el-popover>
           <el-tooltip content="管理分组" placement="top">
             <el-button
               class="group-tab-add"
@@ -580,6 +612,23 @@
             </template>
           </template>
         </el-table-column>
+
+        <!-- 空状态：区分「标签筛选导致为空」与「本就无任何自选」，避免干巴巴的默认占位。
+             注：design.md 规划了鹦鹉螺简笔画空状态，现仓库无对应资产，先用文案版，待插画资产到位后替换。 -->
+        <template #empty>
+          <div class="watchlist-empty">
+            <p class="watchlist-empty__title">
+              {{
+                selectedFilterTagIds.length > 0
+                  ? '暂无匹配所选标签的持仓'
+                  : '暂无自选资产'
+              }}
+            </p>
+            <p v-if="selectedFilterTagIds.length > 0" class="watchlist-empty__hint">
+              试试调整或清空标签筛选条件
+            </p>
+          </div>
+        </template>
       </el-table>
 
       <div class="flex justify-end mt-4">
@@ -694,17 +743,12 @@ import GroupManagerDialog from "@/components/Watchlist/GroupManagerDialog.vue";
 import TagEditorDialog from "@/components/Watchlist/TagEditorDialog.vue";
 import {
   getWatchlistItems,
-  getWatchlistGroups,
   updateWatchlistItem,
   deleteWatchlistItem,
   removeItemFromGroup,
-  getWatchlistTags,
   addItemToGroup,
-  type WatchlistItem,
-  type WatchlistGroup,
-  type WatchlistTag
+  type WatchlistItem
 } from "@/api/watchlist";
-import { SYSTEM_GROUPS } from "@/constants/watchlist";
 import { findTagName, findTagColor } from "@/utils/tagHelpers";
 import CardBlock from "@/components/CardBlock/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
@@ -716,6 +760,8 @@ import {
   REFRESH_INTERVAL_OPTIONS,
   type RefreshInterval
 } from "@/composables/useRealtimeQuotes";
+import { useWatchlistGroups } from "@/composables/useWatchlistGroups";
+import { useWatchlistTags } from "@/composables/useWatchlistTags";
 import RealtimeWarningBanner from "@/components/RealtimeWarningBanner/index.vue";
 import RealtimeStatusIndicator from "@/components/RealtimeStatusIndicator/index.vue";
 import type { Holding } from "@/utils/valuationEngine";
@@ -723,14 +769,32 @@ import { formatDate, formatDateTime } from "@/utils/date";
 
 defineOptions({ name: "Watchlist" });
 
-/** 分组 Tab 展示项（系统 + 自定义归一化） */
-interface GroupTab {
-  key: string;
-  label: string;
-  color: string | null;
-  count: number;
-  filter: Record<string, string | number | boolean>;
-}
+// 分组状态/逻辑已收敛到 composable（useWatchlistGroups）；标签状态/筛选面板收敛到 useWatchlistTags。
+// 分组切换由组件内 watch(activeGroup) 触发刷新；标签筛选提交后通过 refresh 回调刷新。
+const groups = useWatchlistGroups();
+const tags = useWatchlistTags(() => {
+  currentPage.value = 1;
+  fetchData();
+});
+const {
+  activeGroup,
+  allGroups,
+  customGroups,
+  activeGroupLabel,
+  currentIsCustom,
+  activeCustomGroupId,
+  fetchGroups
+} = groups;
+const {
+  allTags,
+  selectedFilterTagIds,
+  tagFilterVisible,
+  draftFilterTagIds,
+  fetchTags,
+  onTagFilterShow,
+  applyTagFilter,
+  clearTagFilter
+} = tags;
 
 // ── 基础配置 ──
 const currentView = ref("all");
@@ -743,10 +807,6 @@ const viewOptions = [
 // 系统分组 / 标签预设色已收敛到 constants/watchlist.ts（SYSTEM_GROUPS / PRESET_TAG_COLORS）集中管理。
 
 // ── 响应式数据 ──
-const activeGroup = ref("holding");
-const allGroups = ref<GroupTab[]>([]);
-const customGroups = ref<WatchlistGroup[]>([]);
-
 const items = ref<WatchlistItem[]>([]);
 
 // summary 是嵌套 Ref（非顶层解包），统一经 computed 解包供模板使用
@@ -902,8 +962,7 @@ const currentPage = ref(1);
 const pageSize = ref(20);
 const totalItems = ref(0);
 
-const allTags = ref<WatchlistTag[]>([]);
-const selectedFilterTagIds = ref<number[]>([]);
+// 标签状态（allTags / selectedFilterTagIds / tagFilterVisible / draftFilterTagIds）已随 useWatchlistTags 抽离，见文件顶部解构
 
 const showAddModal = ref(false);
 const showOcrModal = ref(false);
@@ -925,20 +984,7 @@ const selectedItems = ref<WatchlistItem[]>([]);
 const batchMoveGroupId = ref<number | null>(null);
 
 // 计算属性
-const activeGroupLabel = computed(() => {
-  const group = allGroups.value.find(g => g.key === activeGroup.value);
-  return group?.label || "全部";
-});
-
-const currentIsCustom = computed(() => activeGroup.value.startsWith("custom_"));
-
-const activeCustomGroupId = computed(() => {
-  if (currentIsCustom.value) {
-    const idStr = activeGroup.value.replace("custom_", "");
-    return /^\d+$/.test(idStr) ? parseInt(idStr) : undefined;
-  }
-  return undefined;
-});
+// activeGroupLabel / currentIsCustom / activeCustomGroupId 已随 useWatchlistGroups 抽离，见文件顶部解构
 
 const tagUsage = computed(() => {
   const usage = new Map<number, number>();
@@ -969,7 +1015,8 @@ const fetchParams = computed(() => {
     const groupId = activeCustomGroupId.value;
     if (groupId) params.group_id = groupId;
   } else {
-    const group = SYSTEM_GROUPS.find(g => g.key === groupKey);
+    // 系统分组过滤已随 useWatchlistGroups 收敛到 allGroups（其 filter 由 getSystemFilter 填充），直接复用，避免两套数据源
+    const group = allGroups.value.find(g => g.key === groupKey);
     if (group && group.filter) {
       Object.entries(group.filter).forEach(([k, v]) => {
         params[k === "cleared" ? "status" : k] =
@@ -1042,19 +1089,7 @@ const handleBatchMoveToGroup = async (groupId: number | null) => {
 // 工具函数
 // ─────────────────────────────────────────────
 // getTagName / getTagColor 已提取到 utils/tagHelpers.ts（TagManagerDialog / TagEditorDialog 内部使用）
-
-function getSystemFilter(key: string): Record<string, string | boolean> {
-  const map: Record<string, Record<string, string | boolean>> = {
-    all: {},
-    holding: { status: "HOLDING" },
-    watching: { status: "WATCHING" },
-    cleared: { status: "cleared" },
-    exchange: { venue: "EXCHANGE" },
-    otc: { venue: "OTC" },
-    favorite: { favorite: true }
-  };
-  return map[key] || {};
-}
+// 分组 Tab 的系统过滤映射 getSystemFilter 已随 useWatchlistGroups 抽离
 
 let searchTimer: number | undefined;
 function debounceSearch() {
@@ -1082,55 +1117,7 @@ async function fetchData() {
   }
 }
 
-async function fetchGroups() {
-  try {
-    const res = await getWatchlistGroups();
-    const data: WatchlistGroup[] = res.data ?? [];
-    const system: GroupTab[] = [];
-    const custom: WatchlistGroup[] = [];
-    data.forEach(g => {
-      // 方案 B：后端仍返回 exchange/otc 系统分组，但「场内/场外」已由顶部 el-segmented 承担，此处过滤不展示
-      if (g.is_system && (g.key === "exchange" || g.key === "otc")) return;
-      if (g.is_system) {
-        // 系统默认组无数据不展示（「全部」始终展示）；自定义组 count=0 保持现状
-        if (g.key !== "all" && (g.count || 0) === 0) return;
-        system.push({
-          key: g.key!,
-          label: g.label || g.name || g.key,
-          color: g.color,
-          count: g.count || 0,
-          filter: getSystemFilter(g.key!)
-        });
-      } else {
-        custom.push(g);
-        system.push({
-          key: `custom_${g.id}`,
-          label: g.name,
-          color: g.color || SYSTEM_GROUPS[0].color,
-          count: g.count || 0,
-          filter: { group_id: g.id }
-        });
-      }
-    });
-    allGroups.value = system;
-    customGroups.value = custom;
-    // 若当前 activeGroup 指向被隐藏的系统分组（count=0 已过滤），回退到「全部」
-    if (!system.some(g => g.key === activeGroup.value)) {
-      activeGroup.value = "all";
-    }
-  } catch (e) {
-    console.error("获取分组失败：", e);
-  }
-}
-
-async function fetchTags() {
-  try {
-    const res = await getWatchlistTags();
-    allTags.value = res.data ?? [];
-  } catch (e) {
-    console.error("获取标签失败：", e);
-  }
-}
+// fetchGroups / fetchTags 已随 useWatchlistGroups / useWatchlistTags 抽离（见文件顶部 composable 调用）
 
 // ─────────────────────────────────────────────
 // 事件处理
@@ -1144,16 +1131,14 @@ function handleViewChange() {
   fetchData();
 }
 
-function handleTagFilterChange() {
-  currentPage.value = 1;
-  fetchData();
-}
+// 标签筛选面板交互（onTagFilterShow / applyTagFilter / clearTagFilter）已随 useWatchlistTags 抽离。
+// 其中 applyTagFilter / clearTagFilter 通过 refresh 回调（顶部定义）重置分页并触发 fetchData。
 
 function resetFilters() {
   searchKeyword.value = "";
-  activeGroup.value = "holding";
+  groups.resetActiveGroup();
   currentView.value = "all";
-  selectedFilterTagIds.value = [];
+  tags.resetTagFilter();
 }
 
 async function handleTogglePin(row: WatchlistItem) {
@@ -1430,32 +1415,134 @@ const realtimeEnabled = computed(() => realtime.enabled.value);
    ✅ 已移除强制 32px 高度逻辑，按钮和输入框默认跟随 Element Plus 尺寸
    ====================================== */
 
-/* 标签筛选下拉框（现代极简风，2026-08-15 起随 select 移入分组行，选择器提升到页面级） */
-.watchlist-page :deep(.modern-filter-select .el-input__wrapper) {
+/* 标签筛选：触发按钮 + 弹出面板（GitHub Labels 式）。
+   2026-08-15 弃用 el-select 多选——原实现输入框随选中项无限拉长、勾选态仅靠下拉内小勾不够明显。
+   现改为固定宽度触发按钮（绝不拉长）+ 独立控制 max-height 的面板 + 前置 el-checkbox。
+   面板通过 el-popover :append-to-body="false" 渲染在本组件内，故下列类名为普通 scoped 选择器。 */
+.tag-filter-trigger {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  max-width: 160px;
+  height: 32px;
   padding: 0 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
   background-color: var(--bg-warm);
-  border: none !important;
+  border: none;
   border-radius: var(--radius-pill);
-  box-shadow: none !important;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.watchlist-page :deep(.modern-filter-select .el-input__wrapper:hover) {
+.tag-filter-trigger:hover {
   background-color: var(--bg-hover);
 }
 
-.watchlist-page :deep(.modern-filter-select .el-input__wrapper.is-focus) {
+.tag-filter-trigger.is-active {
+  color: var(--brand-700);
   background-color: var(--bg-card);
   box-shadow:
     0 0 0 2px var(--bg-card),
-    0 0 0 4px var(--brand-700) !important;
+    0 0 0 4px var(--brand-700);
 }
 
-.watchlist-page :deep(.modern-filter-select .el-input__suffix-inner) {
+.tag-filter-trigger__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag-filter-trigger__clear {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
   color: var(--text-tertiary);
 }
 
-.watchlist-page :deep(.modern-filter-select .el-input__inner::placeholder) {
+.tag-filter-trigger__clear:hover {
+  color: var(--text-primary);
+}
+
+/* 弹出面板：列表区限高滚动，底部操作栏 */
+.tag-filter-panel {
+  display: flex;
+  flex-direction: column;
+  max-width: 264px;
+}
+
+.tag-filter-panel__list {
+  max-height: 240px;
+  padding: 4px 0;
+  overflow-y: auto;
+}
+
+.tag-filter-panel .el-checkbox-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.tag-filter-item {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 8px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+.tag-filter-item:hover {
+  background-color: var(--bg-soft);
+}
+
+.tag-filter-item__dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.tag-filter-item__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.tag-filter-panel__empty {
+  padding: 12px 8px;
+  font-size: 13px;
+  color: var(--text-tertiary);
+  text-align: center;
+}
+
+.tag-filter-panel__footer {
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  padding: 8px;
+  border-top: 1px solid var(--border-light);
+}
+
+/* 表格空状态：区分标签筛选为空与无自选（鹦鹉螺插画资产到位后可在文案前补简笔画） */
+.watchlist-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+  padding: 32px 0;
+}
+
+.watchlist-empty__title {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.watchlist-empty__hint {
+  margin: 0;
+  font-size: 12px;
   color: var(--text-tertiary);
 }
 

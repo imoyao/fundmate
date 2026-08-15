@@ -53,7 +53,9 @@
           </span>
 
           <span v-if="group.is_system" class="group-badge">系统分组</span>
-          <span v-else class="group-stat">自定义</span>
+          <!-- 自定义分组显示资产数量；后端 build_groups_data() 已返回 count 字段，
+               勿改回硬编码字符串（原 "自定义" 无信息量，已替换为动态计数）。 -->
+          <span v-else class="group-stat">{{ group.count ?? 0 }} 项</span>
 
           <div class="group-row__actions">
             <el-button

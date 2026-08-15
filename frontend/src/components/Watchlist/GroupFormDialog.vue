@@ -15,11 +15,13 @@
   >
     <div class="group-form">
       <label class="group-form__label">名称</label>
+      <!-- 后端 WatchlistGroupCreate.name 的 max_length=50，前端对齐该契约并提前告知用户上限，
+           避免「输到一半被静默截断」的困惑。show-word-limit 提供实时计数。 -->
       <el-input
         v-model="form.name"
-        placeholder="请输入分组名称"
+        placeholder="请输入分组名称（最多 50 个字符）"
         size="large"
-        maxlength="20"
+        maxlength="50"
         show-word-limit
         :disabled="loading"
       />
