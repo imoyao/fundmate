@@ -897,7 +897,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-@keyframes fadeUp {
+@keyframes fade-up {
   from {
     opacity: 0;
     transform: translateY(24px);
@@ -947,7 +947,7 @@ onUnmounted(() => {
 
 .card-enter {
   opacity: 0;
-  animation: fadeUp 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  animation: fade-up 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 
 .card-enter:nth-child(1) {

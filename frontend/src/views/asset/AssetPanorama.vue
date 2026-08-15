@@ -775,6 +775,9 @@ onMounted(() => {
   gap: 4px;
 }
 
+/* 资产端/负债端切换按钮：胶囊形（与下方 el-tag/el-segmented 的胶囊风格统一）。
+   原 4px 圆角已提升为 9999px；下方独立的 .balance-btn 重复块已合并到此处，
+   见 design.md 胶囊规范。 */
 .balance-btn {
   position: relative;
   padding: 4px 14px;
@@ -784,7 +787,7 @@ onMounted(() => {
   cursor: pointer;
   background: transparent;
   border: none;
-  border-radius: 4px;
+  border-radius: 9999px;
   transition: color 0.2s;
 }
 
@@ -823,11 +826,6 @@ onMounted(() => {
 }
 
 :deep(.el-segmented .el-segmented__item) {
-  border-radius: 9999px;
-}
-
-/* 胶囊形状：资产端/负债端切换按钮 */
-.balance-btn {
   border-radius: 9999px;
 }
 </style>

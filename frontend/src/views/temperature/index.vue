@@ -1214,6 +1214,12 @@ watch(historyDays, () => {
   margin-bottom: 12px;
 }
 
+/* stylelint-disable no-duplicate-selectors */
+
+/* 以下 .opportunity-* 选择器与上方「市场机会区块」(1086 行起, grid 平铺布局) 同名,
+   但此处用于「市场机会卡片」(flex 纵向布局, 独立配色与间距), 二者是有意差异化的
+   两套视觉而非重复定义。通过局部禁用 no-duplicate-selectors 保留此差异,
+   切勿合并或重命名, 否则会破坏卡片内的纵向排列与卡片专属样式。 */
 .opportunity-list {
   display: flex;
   flex-direction: column;
@@ -1282,6 +1288,8 @@ watch(historyDays, () => {
   line-height: 1.5;
   color: var(--text-secondary);
 }
+
+/* stylelint-disable-enable no-duplicate-selectors */
 
 /* ============================================================
    乖离率表格单元格内颜色条

@@ -64,6 +64,14 @@ export default {
       }
     ],
     "unit-no-unknown": [true, { ignoreUnits: ["rpx"] }],
+    "function-no-unknown": [
+      true,
+      {
+        // Vue SFC 的 v-bind() 是编译期函数（绑定 <script> 变量到样式），
+        // 并非标准 CSS 函数，stylelint 会误报 unknown function，故在此豁免。
+        ignoreFunctions: ["v-bind"]
+      }
+    ],
     "order/order": [
       [
         "dollar-variables",

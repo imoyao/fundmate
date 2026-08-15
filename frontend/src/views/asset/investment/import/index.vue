@@ -2755,7 +2755,7 @@ onMounted(async () => {
   }
 }
 
-@keyframes ledgerFlash {
+@keyframes ledger-flash {
   0%,
   100% {
     box-shadow: 0 0 0 0 rgb(122 127 168 / 40%);
@@ -2767,11 +2767,6 @@ onMounted(async () => {
 }
 
 .el-button--large {
-  height: 40px;
-}
-
-.download-template-btn,
-.upload-btn {
   height: 40px;
 }
 
@@ -2912,6 +2907,10 @@ onMounted(async () => {
   text-align: left;
 }
 
+/* 下载模板 / 上传两个按钮统一为「凸起胶囊」样式（高度、内边距、圆角一致）。
+   原本上方另有一处仅设 height:40px 的 .download-template-btn,.upload-btn
+   重复块，因其属性已被本块完全覆盖，已删除合并至此，避免 no-duplicate-selectors
+   误报。 */
 .download-template-btn,
 .upload-btn {
   display: inline-flex;
@@ -3729,6 +3728,6 @@ onMounted(async () => {
 
 .ledger-select-flash :deep(.el-input__wrapper) {
   border-color: var(--color-primary) !important;
-  animation: ledgerFlash 0.6s ease-in-out 2;
+  animation: ledger-flash 0.6s ease-in-out 2;
 }
 </style>
