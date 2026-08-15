@@ -23,6 +23,7 @@ export interface WatchlistItem {
   pinned_at: string | null;
   add_reason: string | null;
   notes: string | null;
+  created_at?: string;
   display_name: string;
   group_ids: number[];
   tag_ids: number[];

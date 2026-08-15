@@ -211,14 +211,19 @@
                     <span
                       class="tag-filter-item__name"
                       :style="{
-                        backgroundColor: (tag.color || DEFAULT_TAG_COLOR) + '20',
+                        backgroundColor:
+                          (tag.color || DEFAULT_TAG_COLOR) + '20',
                         border: '1px solid ' + (tag.color || DEFAULT_TAG_COLOR),
                         color: 'var(--text-primary)'
                       }"
-                    >{{ tag.name }}</span>
+                      >{{ tag.name }}</span
+                    >
                   </div>
                 </el-checkbox-group>
-                <div v-if="allTags.length === 0" class="tag-filter-panel__empty">
+                <div
+                  v-if="allTags.length === 0"
+                  class="tag-filter-panel__empty"
+                >
                   暂无可选标签
                 </div>
               </div>
@@ -229,8 +234,11 @@
                   bg
                   :disabled="draftFilterTagIds.length === 0"
                   @click="clearTagFilter"
-                >清空筛选</el-button>
-                <el-button size="small" type="primary" @click="applyTagFilter">确定</el-button>
+                  >清空筛选</el-button
+                >
+                <el-button size="small" type="primary" @click="applyTagFilter"
+                  >确定</el-button
+                >
               </div>
             </div>
           </el-popover>
@@ -369,6 +377,7 @@
         stripe
         @row-click="handleRowClick"
         @selection-change="handleSelectionChange"
+        @sort-change="handleSortChange"
       >
         <el-table-column
           v-if="batchMode"
@@ -396,6 +405,8 @@
           min-width="240"
           fixed="left"
           show-overflow-tooltip
+          sortable
+          :sort-method="sortName"
         >
           <template #default="{ row }">
             <div class="flex flex-col gap-1 py-2">
@@ -443,7 +454,13 @@
         </el-table-column>
 
         <!-- 添加自选日（日期非数字，左对齐更易扫读） -->
-        <el-table-column label="添加自选日" width="100" align="left">
+        <el-table-column
+          label="添加自选日"
+          width="100"
+          align="left"
+          sortable
+          :sort-method="sortStr('created_at')"
+        >
           <template #default="{ row }">
             <span :style="{ color: 'var(--text-secondary)', fontSize: '13px' }">
               {{ formatDate(row.created_at) }}
@@ -452,7 +469,13 @@
         </el-table-column>
 
         <!-- 最新价 -->
-        <el-table-column label="最新价" width="110" align="right">
+        <el-table-column
+          label="最新价"
+          width="110"
+          align="right"
+          sortable
+          :sort-method="sortNum('current_price')"
+        >
           <template #default="{ row }">
             <template v-if="realtimeEnabled && getValuationItem(row.symbol)">
               <MoneyDisplay
@@ -476,7 +499,13 @@
         </el-table-column>
 
         <!-- 涨跌幅 (替换为全局 RiseFallText 组件) -->
-        <el-table-column label="涨跌幅" width="100" align="right">
+        <el-table-column
+          label="涨跌幅"
+          width="100"
+          align="right"
+          sortable
+          :sort-method="sortNum('change_pct')"
+        >
           <template #default="{ row }">
             <template v-if="realtimeEnabled && getValuationItem(row.symbol)">
               <RiseFallText :value="getValuationItem(row.symbol)!.changePct" />
@@ -492,7 +521,13 @@
         </el-table-column>
 
         <!-- 持有数量 / 份额 -->
-        <el-table-column label="持有数量" width="110" align="right">
+        <el-table-column
+          label="持有数量"
+          width="110"
+          align="right"
+          sortable
+          :sort-method="sortNum('holding_quantity')"
+        >
           <template #default="{ row }">
             <template v-if="(row.holding_quantity ?? 0) > 0">
               <span
@@ -520,6 +555,8 @@
           label="持仓市值"
           width="120"
           align="right"
+          sortable
+          :sort-method="sortNum('position_market_value')"
         >
           <template #default="{ row }">
             <MoneyWithRatio
@@ -532,7 +569,13 @@
         </el-table-column>
 
         <!-- 添加后涨幅：金额(上) + 涨幅%(下)，与持仓收益列统一主次 -->
-        <el-table-column label="添加后涨幅" width="110" align="right">
+        <el-table-column
+          label="添加后涨幅"
+          width="110"
+          align="right"
+          sortable
+          :sort-method="sortAddedReturn"
+        >
           <template #default="{ row }">
             <MoneyWithRatio
               :value="addedReturnAmount(row)"
@@ -544,7 +587,13 @@
         </el-table-column>
 
         <!-- 持仓收益：金额(上) + 收益率%(下)，合并原独立的「收益比」列 -->
-        <el-table-column label="持仓收益" width="110" align="right">
+        <el-table-column
+          label="持仓收益"
+          width="110"
+          align="right"
+          sortable
+          :sort-method="sortNum('holding_pnl')"
+        >
           <template #default="{ row }">
             <MoneyWithRatio
               :value="
@@ -630,11 +679,14 @@
             <p class="watchlist-empty__title">
               {{
                 selectedFilterTagIds.length > 0
-                  ? '暂无匹配所选标签的持仓'
-                  : '暂无自选资产'
+                  ? "暂无匹配所选标签的持仓"
+                  : "暂无自选资产"
               }}
             </p>
-            <p v-if="selectedFilterTagIds.length > 0" class="watchlist-empty__hint">
+            <p
+              v-if="selectedFilterTagIds.length > 0"
+              class="watchlist-empty__hint"
+            >
               试试调整或清空标签筛选条件
             </p>
           </div>
@@ -1040,6 +1092,50 @@ const tagUsage = computed(() => {
   });
   return usage;
 });
+
+// ── 表头排序辅助（issue #991）──
+// 数值列空值沉底，避免 null/undefined 参与运算导致排序异常或报错
+const sortNum =
+  (key: keyof WatchlistItem) =>
+  (a: WatchlistItem, b: WatchlistItem): number => {
+    const av = a[key];
+    const bv = b[key];
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    return (av as number) - (bv as number);
+  };
+
+// 字符串/日期列按本地化比较排序（空值沉底）
+const sortStr =
+  (key: keyof WatchlistItem) =>
+  (a: WatchlistItem, b: WatchlistItem): number => {
+    const av = (a[key] as string) ?? "";
+    const bv = (b[key] as string) ?? "";
+    return av.localeCompare(bv, "zh-Hans-CN");
+  };
+
+// 名称列按展示名排序（中文按拼音）
+const sortName = (a: WatchlistItem, b: WatchlistItem): number => {
+  const av = a.display_name || a.symbol || "";
+  const bv = b.display_name || b.symbol || "";
+  return av.localeCompare(bv, "zh-Hans-CN");
+};
+
+// 添加后涨幅按「实际涨幅%」排序，与列内显示口径一致（基于 current_price 与 price_at_added 计算）
+const sortAddedReturn = (a: WatchlistItem, b: WatchlistItem): number => {
+  const av = addedReturnPct(a);
+  const bv = addedReturnPct(b);
+  if (av == null && bv == null) return 0;
+  if (av == null) return 1;
+  if (bv == null) return -1;
+  return av - bv;
+};
+
+// 排序时回到第一页，避免停留在非首页看错顺序
+function handleSortChange() {
+  currentPage.value = 1;
+}
 
 const fetchParams = computed(() => {
   const params: Record<string, string | number | boolean> = {
@@ -1481,7 +1577,9 @@ const realtimeEnabled = computed(() => realtime.enabled.value);
   background-color: var(--bg-warm);
   border: none;
   border-radius: var(--radius-pill);
-  transition: background-color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .tag-filter-trigger:hover {
@@ -1532,8 +1630,8 @@ const realtimeEnabled = computed(() => realtime.enabled.value);
 
 .tag-filter-item {
   display: flex;
-  align-items: center;
   gap: 8px;
+  align-items: center;
   padding: 6px 8px;
   cursor: pointer;
   border-radius: var(--radius-sm);
@@ -1547,8 +1645,8 @@ const realtimeEnabled = computed(() => realtime.enabled.value);
   /* 胶囊 Tag：与表格 el-tag / 管理标签 .tag-pill 视觉统一（浅底 + 同色边框）。
      不设 flex/min-width，flex-shrink:0 防止被父级 flex 容器压缩到 0 宽。 */
   display: inline-flex;
-  align-items: center;
   flex-shrink: 0;
+  align-items: center;
   padding: 2px 10px;
   font-size: 13px;
   font-weight: 500;
