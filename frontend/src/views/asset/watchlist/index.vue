@@ -1505,9 +1505,9 @@ const realtimeEnabled = computed(() => realtime.enabled.value);
 }
 
 .tag-filter-item {
-  display: flex;
-  gap: 8px;
-  align-items: center;
+  /* 不用 flex：flex 下 .tag-filter-item__name（flex:1 1 auto; min-width:0; overflow:hidden）
+     会在宽度计算中被压缩到 0 宽，导致文字被 overflow 裁掉而不可见。
+     改用 inline 对齐保住「checkbox · dot · name」横向布局。 */
   padding: 6px 8px;
   cursor: pointer;
   border-radius: var(--radius-sm);
@@ -1518,15 +1518,18 @@ const realtimeEnabled = computed(() => realtime.enabled.value);
 }
 
 .tag-filter-item__dot {
-  flex-shrink: 0;
+  display: inline-block;
   width: 8px;
   height: 8px;
   border-radius: 50%;
+  vertical-align: middle;
+  margin-right: 6px;
 }
 
 .tag-filter-item__name {
-  flex: 1 1 auto;
-  min-width: 0;
+  display: inline-block;
+  vertical-align: middle;
+  max-width: 200px;
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: 13px;
