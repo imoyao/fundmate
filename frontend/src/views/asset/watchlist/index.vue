@@ -2347,10 +2347,13 @@ const realtimeEnabled = computed(() => realtime.enabled.value);
   width: 96px;
 }
 
-/* 新建分组按钮：与 tab 同高 32px 的幽灵胶囊 */
+/* 新建分组按钮：与 tab 同高 32px 的圆形 */
 .group-tab-add {
   width: 32px;
   height: 32px;
+  padding: 0;
+  flex-shrink: 0;
+  border-radius: 50%;
   color: var(--text-tertiary);
   background-color: transparent;
   border: 1px solid var(--border-default);
