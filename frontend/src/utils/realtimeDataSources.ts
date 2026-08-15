@@ -1,4 +1,6 @@
 // 数据源函数：JSONP 封装、超时、并发、降级
+import { formatDate, formatDateTime } from "./date";
+
 const JSONP_TIMEOUT = 5000;
 const BATCH_SIZE = 5;
 const BATCH_DELAY = 500; // ms
@@ -142,7 +144,8 @@ async function fetchTencentData(
               currentPrice: price,
               changePct: !isNaN(changePct) ? changePct : 0,
               updateTime:
-                parts[8] || new Date().toISOString().slice(0, 10) + " 00:00",
+                // 腾讯基金无时间字段时兜底本地日期（toISOString 取 UTC 日期凌晨会跨日，改用 formatDate）
+                parts[8] || formatDate(new Date()) + " 00:00",
               source: "tencent"
             });
             return;
@@ -155,13 +158,10 @@ async function fetchTencentData(
           const changePct = parseFloat(parts[32]);
           if (!isNaN(price)) {
             const timeStr = parts[30] || "";
+            // 腾讯时间戳 YYYYMMDDHHMMSS：统一取 HH:mm（不带秒），与全站日期时间规范一致
             const timeFormatted =
               timeStr.length >= 14
-                ? timeStr.slice(8, 10) +
-                  ":" +
-                  timeStr.slice(10, 12) +
-                  ":" +
-                  timeStr.slice(12, 14)
+                ? timeStr.slice(8, 10) + ":" + timeStr.slice(10, 12)
                 : "";
             resolve({
               symbol: code,
@@ -169,8 +169,9 @@ async function fetchTencentData(
               currentPrice: price,
               changePct: !isNaN(changePct) ? changePct : 0,
               updateTime: timeFormatted
-                ? new Date().toISOString().slice(0, 10) + " " + timeFormatted
-                : new Date().toISOString(),
+                ? // 日期用本地时区（toISOString 取 UTC 日期凌晨会跨日），时间不带秒
+                  formatDate(new Date()) + " " + timeFormatted
+                : formatDateTime(new Date()),
               source: "tencent"
             });
             return;

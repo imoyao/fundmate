@@ -6,6 +6,7 @@ import {
   type ValuationSummary
 } from "@/utils/valuationEngine";
 import { http } from "@/utils/http";
+import { formatDate } from "@/utils/date";
 
 const STORAGE_KEY = "showbuy_realtime_quotes_enabled";
 const REFRESH_INTERVAL_KEY = "showbuy_realtime_quotes_interval";
@@ -117,11 +118,8 @@ export function useRealtimeQuotes(
   };
 
   // 本地时区日期（YYYY-MM-DD）。用 toISOString 取 UTC 日期在凌晨会跨日误判，
-  // 与 realtimeDataSources.isToday 的修复保持一致。
-  const localDateStr = (d: Date): string =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
-      d.getDate()
-    ).padStart(2, "0")}`;
+  // 与 realtimeDataSources.isToday 的修复保持一致；统一走公共 formatDate。
+  const localDateStr = (d: Date): string => formatDate(d);
 
   const isTradingDay = async (): Promise<boolean> => {
     try {

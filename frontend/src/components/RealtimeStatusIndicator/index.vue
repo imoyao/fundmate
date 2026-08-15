@@ -9,6 +9,7 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
+import { formatDateTime } from "@/utils/date";
 
 const props = withDefaults(
   defineProps<{
@@ -19,13 +20,6 @@ const props = withDefaults(
     lastUpdateTime: ""
   }
 );
-
-// 格式化完整时间：2026-07-18 14:30:05
-const formatTime = (timeStr: string | undefined) => {
-  if (!timeStr) return "";
-  // 如果时间带 T，替换为标准格式
-  return timeStr.replace("T", " ").slice(0, 19);
-};
 
 const statusClass = computed(
   () =>
@@ -39,7 +33,8 @@ const statusClass = computed(
 );
 
 const statusText = computed(() => {
-  const time = formatTime(props.lastUpdateTime);
+  // 统一格式：2026-07-18 14:30（不带秒），ISO 字符串由公共函数幂等收敛
+  const time = formatDateTime(props.lastUpdateTime);
   switch (props.status) {
     case "trading":
       return `实时更新中 · ${time}`;
