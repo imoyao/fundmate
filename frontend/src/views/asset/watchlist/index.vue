@@ -773,7 +773,9 @@ import {
 } from "@/composables/useRealtimeQuotes";
 import { useWatchlistGroups } from "@/composables/useWatchlistGroups";
 import { useWatchlistTags } from "@/composables/useWatchlistTags";
-import RealtimeWarningBanner from "@/components/RealtimeWarningBanner/index.vue";
+import RealtimeWarningBanner, {
+  REALTIME_BANNER_DISMISS_KEY
+} from "@/components/RealtimeWarningBanner/index.vue";
 import RealtimeStatusIndicator from "@/components/RealtimeStatusIndicator/index.vue";
 import type { Holding } from "@/utils/valuationEngine";
 import { formatDate, formatDateTime } from "@/utils/date";
@@ -976,6 +978,21 @@ watch(
     }
   },
   { deep: true }
+);
+
+// 实时估值功能被「关闭→重新开启」时，清除横幅关闭标记，让提示横幅重新出现；
+// 仅刷新页面（功能始终开启）不会触发，从而满足「关掉功能再开才重新提醒」。
+watch(
+  () => realtime.enabled.value,
+  (now, prev) => {
+    if (prev === false && now === true) {
+      try {
+        localStorage.removeItem(REALTIME_BANNER_DISMISS_KEY);
+      } catch {
+        // 隐私模式下忽略存储异常
+      }
+    }
+  }
 );
 
 const loading = ref(false);
