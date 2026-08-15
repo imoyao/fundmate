@@ -22,7 +22,7 @@
     <el-button
       class="realtime-warning-banner__close"
       size="small"
-      @click="visible = false"
+      @click="dismiss"
     >
       <IconifyIconOffline icon="ep:close" class="mr-1" />
       关闭
@@ -34,8 +34,23 @@
 import { ref } from "vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 
-// 横幅自身的显示状态：关闭只隐藏横幅，不再触发外层实时估值开关
-const visible = ref(true);
+// 横幅自身的显示状态：关闭只隐藏横幅，不再触发外层实时估值开关。
+// 关闭状态持久化到 localStorage，避免刷新后横幅重复弹出（2026-08-15 修复）。
+const DISMISS_KEY = "realtime-warning-banner-dismissed";
+
+const visible = ref(
+  typeof localStorage !== "undefined" &&
+    localStorage.getItem(DISMISS_KEY) !== "1"
+);
+
+function dismiss() {
+  visible.value = false;
+  try {
+    localStorage.setItem(DISMISS_KEY, "1");
+  } catch {
+    // 隐私模式 / localStorage 不可用时静默降级：仅本次会话隐藏
+  }
+}
 </script>
 
 <style scoped>
