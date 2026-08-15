@@ -248,6 +248,7 @@
             :model-value="refreshInterval"
             size="small"
             :options="intervalOptions"
+            class="refresh-segmented"
             @change="onRefreshIntervalChange"
           />
         </div>
@@ -329,5 +330,55 @@ const onRefreshIntervalChange = (value: string | number | boolean) => {
 :deep(.el-button--primary:active) {
   box-shadow: none !important;
   transform: translateY(1px) scale(0.96);
+}
+
+/* ======================================
+   刷新频率 segmented：与 watchlist 页 refresh-segmented 统一胶囊语言
+   （design.md：分段控制器胶囊化，选中态软按钮 --brand-100/--brand-700）
+   ====================================== */
+.refresh-segmented :deep(.el-segmented) {
+  height: 24px;
+  padding: 2px;
+  background-color: var(--bg-muted);
+  border-radius: var(--radius-pill);
+  box-shadow: none;
+}
+
+.refresh-segmented :deep(.el-segmented__item) {
+  height: 20px;
+  padding: 0 10px;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--text-secondary);
+  border-radius: var(--radius-pill);
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.refresh-segmented :deep(.el-segmented__item:hover) {
+  color: var(--text-primary);
+}
+
+.refresh-segmented :deep(.el-segmented__item.is-selected) {
+  color: var(--brand-700);
+  background-color: var(--brand-100);
+  box-shadow: none;
+}
+
+.refresh-segmented :deep(.el-segmented__item.is-selected:hover) {
+  background-color: var(--brand-200);
+}
+
+/* EP 选中态背景是独立子元素（默认白底+阴影），一并覆盖为品牌软按钮色 */
+.refresh-segmented :deep(.el-segmented__item-selected) {
+  background-color: var(--brand-100);
+  border-radius: var(--radius-pill);
+  box-shadow: none;
+}
+
+.refresh-segmented
+  :deep(.el-segmented__item.is-selected:hover .el-segmented__item-selected) {
+  background-color: var(--brand-200);
 }
 </style>

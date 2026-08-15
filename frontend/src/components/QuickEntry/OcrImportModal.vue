@@ -34,6 +34,17 @@
 
       <!-- ── 文本解析 ── -->
       <el-tab-pane name="text" label="粘贴文本">
+        <!-- 格式说明：每行一条，6 位代码必填，名称可选（后端按代码反查名称） -->
+        <div class="ocr-format-hint">
+          <div class="ocr-format-hint__title">
+            <IconifyIconOffline icon="ep:info-filled" class="mr-1" />
+            格式说明
+          </div>
+          <p class="ocr-format-hint__line">
+            每行一条，输入 6 位代码即可导入；名称可选，仅填代码也可识别。
+          </p>
+          <p class="ocr-format-hint__example">110011 易方达中小盘</p>
+        </div>
         <el-input
           v-model="textContent"
           type="textarea"
@@ -512,8 +523,39 @@ onMounted(() => {
 }
 
 /* ============================================
-   文本解析：textarea 圆角 + focus 环
+   文本解析：格式说明 + textarea 圆角/focus 环
    ============================================ */
+.ocr-format-hint {
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-3);
+  background: var(--bg-soft);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+
+  &__title {
+    display: flex;
+    align-items: center;
+    margin-bottom: var(--space-2);
+    font-size: var(--text-label);
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+
+  &__line {
+    margin: 0;
+    font-size: var(--text-label);
+    line-height: 1.6;
+    color: var(--text-secondary);
+  }
+
+  &__example {
+    margin: var(--space-2) 0 0;
+    font-family: var(--font-mono);
+    font-size: var(--text-label);
+    color: var(--text-tertiary);
+  }
+}
+
 .ocr-textarea {
   :deep(.el-textarea__inner) {
     font-family: var(--font-sans);
