@@ -946,15 +946,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* 欢迎语昵称：暖色背景 chip 表达「这位用户对我们很特别、被关心」。
-   文字保持主色、不用红色——避讳人名用红色（关联墓碑/断交等不吉意味）。 */
-.welcome-nickname {
-  color: var(--text-primary);
-  background: var(--brand-100);
-  padding: 0 8px;
-  border-radius: 8px;
-  font-weight: 600;
-}
+
 
 @keyframes fadeUp {
   from {
@@ -966,6 +958,14 @@ onUnmounted(() => {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+.welcome-nickname {
+  padding: 0 8px;
+  font-weight: 600;
+  color: var(--text-primary);
+  background: var(--brand-100);
+  border-radius: 8px;
 }
 
 /* 顶部消息播报轮动过渡 */
@@ -1027,7 +1027,6 @@ onUnmounted(() => {
 
 .card-hover:hover {
   box-shadow: var(--shadow-float) !important;
-  transform: translateY(-3px);
 }
 
 .mental-account-item {
@@ -1144,6 +1143,9 @@ onUnmounted(() => {
   background: var(--bg-soft);
   border-radius: 10px;
 }
+
+/* 欢迎语昵称：暖色背景 chip 表达「这位用户对我们很特别、被关心」。
+   文字保持主色、不用红色——避讳人名用红色（关联墓碑/断交等不吉意味）。 */
 
 /* 与之前一致，保持不变 */
 </style>

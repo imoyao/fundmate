@@ -75,7 +75,7 @@
 |------|-------|------|------|
 | **涨（红）** | `--color-rise` | `#E34F38` | 盈利、上涨、正收益（与品牌色一致） |
 | **跌（绿）** | `--color-fall` | `#7BC49A` | 亏损、下跌、负收益（柔和灰绿） |
-| **危险（系统）** | `--color-danger` | `#D4364A` | 删除、错误、破坏性操作（独立于品牌红） |
+| **危险（系统）** | `--color-danger-system` | `#D4364A` | 删除、错误、破坏性操作（独立于品牌红） |
 
 > **设计决策**：品牌红（`#E34F38`）代表"涨 = 好事"，独立危险色（`#D4364A`）代表"删除 = 需谨慎"。两者在视觉上有明显区分，避免用户将"删除"与"好事"关联。
 >
@@ -290,17 +290,17 @@
 | 文本按钮 | 透明 | `--text-secondary` | `--radius-sm` | 40px | 轻量操作 |
 | **涨按钮** | `--color-rise` | 白色 | `--radius-sm` | 40px | 买入 / 盈利操作 |
 | **跌按钮** | `--color-fall` | 白色 | `--radius-sm` | 40px | 卖出 / 亏损操作 |
-| **危险按钮** | 透明 | `--color-danger` | `--radius-sm` | 40px | 删除/错误/破坏性操作 |
+| **危险按钮** | 透明 | `--color-danger-system` | `--radius-sm` | 40px | 删除/错误/破坏性操作 |
 | **软涨按钮** | `--brand-100` | `--brand-700` | `--brand-400` | 40px | 已选中/候补操作 |
 | **软跌按钮** | `#F0F9F2` | `#38A354` | `#D4E8DB` | 40px | 已选中/候补操作 |
 
-> **危险按钮交互补偿**：为弥补 `--color-danger: #D4364A` 视觉警示力不足的问题，采用"幽灵按钮 + 悬停填充"模式。
+> **危险按钮交互补偿**：为弥补 `--color-danger-system: #D4364A` 视觉警示力不足的问题，采用"幽灵按钮 + 悬停填充"模式。
 
 | 状态 | 背景 | 边框 | 文字 |
 |------|------|------|------|
-| Default | 透明 | `--color-danger` 1px | `--color-danger` |
-| Hover | `--color-danger` | 无 | 白色 |
-| Active | `--color-danger`（+ 半透明叠加层） | 无 | 白色 |
+| Default | 透明 | `--color-danger-system` 1px | `--color-danger-system` |
+| Hover | `--color-danger-system` | 无 | 白色 |
+| Active | `--color-danger-system`（+ 半透明叠加层） | 无 | 白色 |
 
 > **软按钮使用原则**：当一个页面需要同时展示多个操作时，主操作使用实心按钮，辅助操作使用软按钮，避免"红绿灯"式的视觉噪音。
 
@@ -345,7 +345,7 @@
 | 涨 | `--brand-100` | `--brand-700` | `--radius-pill` |
 | 跌 | `#F0F9F2` | `#38A354` | `--radius-pill` |
 | 品牌 | `--brand-200` | `--brand-700` | `--radius-pill` |
-| 危险 | `#FEF0F0` | `--color-danger` | `--radius-pill` |
+| 危险 | `#FEF0F0` | `--color-danger-system` | `--radius-pill` |
 
 ### Table（el-table）
 

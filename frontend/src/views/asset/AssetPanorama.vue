@@ -810,7 +810,6 @@ onMounted(() => {
 
 .summary-card:hover {
   box-shadow: var(--shadow-float);
-  transform: translateY(-3px);
 }
 
 /* 胶囊形状：el-tag */

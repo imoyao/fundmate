@@ -116,7 +116,7 @@
 |------|-------|------|------|
 | **涨（红）** | `--color-rise` | `#D45A44` | 盈利、上涨、正收益（品牌色同步） |
 | **跌（绿）** | `--color-fall` | `#5DAF85` | 亏损、下跌、负收益（提亮） |
-| **危险（系统）** | `--color-danger` | `#D4364A` | 删除、错误、破坏性操作（保持警示性） |
+| **危险（系统）** | `--color-danger-system` | `#D4364A` | 删除、错误、破坏性操作（保持警示性） |
 
 > **设计决策**：
 >
@@ -261,7 +261,7 @@
 | 文本按钮 | 透明 | `--text-secondary` | `--radius-sm` | 40px | 轻量操作 |
 | **涨按钮** | `--color-rise` | `#FFFFFF` | `--radius-sm` | 40px | 买入 / 盈利操作 |
 | **跌按钮** | `--color-fall` | `#FFFFFF` | `--radius-sm` | 40px | 卖出 / 亏损操作 |
-| **危险按钮** | 透明 | `--color-danger` | `--radius-sm` | 40px | 删除/错误/破坏性操作 |
+| **危险按钮** | 透明 | `--color-danger-system` | `--radius-sm` | 40px | 删除/错误/破坏性操作 |
 | **软涨按钮** | `--brand-200` | `--brand-700` | `--brand-400` | 40px | 已选中/候补操作 |
 | **软跌按钮** | `#1A3325` | `#5DAF85` | `#2D4A38` | 40px | 已选中/候补操作 |
 
@@ -273,9 +273,9 @@
 
 | 状态 | 背景 | 边框 | 文字 |
 |------|------|------|------|
-| Default | 透明 | `--color-danger` 1px | `--color-danger` |
-| Hover | `--color-danger` | 无 | `#FFFFFF` |
-| Active | `--color-danger`（+ 半透明叠加层） | 无 | `#FFFFFF` |
+| Default | 透明 | `--color-danger-system` 1px | `--color-danger-system` |
+| Hover | `--color-danger-system` | 无 | `#FFFFFF` |
+| Active | `--color-danger-system`（+ 半透明叠加层） | 无 | `#FFFFFF` |
 
 #### 软按钮 Active 态
 
@@ -324,7 +324,7 @@
 | 涨 | `--brand-200` | `--brand-700` | `--radius-pill` |
 | 跌 | `#1A3325` | `#5DAF85` | `--radius-pill` |
 | 品牌 | `--brand-300` | `--brand-700` | `--radius-pill` |
-| 危险 | `#2D1618` | `--color-danger` | `--radius-pill` |
+| 危险 | `#2D1618` | `--color-danger-system` | `--radius-pill` |
 
 ### Table（el-table）
 

@@ -810,11 +810,6 @@ onMounted(async () => {
     width: 100%;
   }
 
-  .avatar-frame {
-    width: 80px !important;
-    height: 80px !important;
-  }
-
   .setting-row {
     flex-direction: column;
     gap: var(--space-2);
@@ -868,7 +863,6 @@ onMounted(async () => {
 
 .profile-card:hover {
   box-shadow: var(--shadow-float) !important;
-  transform: translateY(-3px);
 }
 
 .profile-card-enter {
@@ -914,13 +908,14 @@ onMounted(async () => {
 
 /* ========================================== */
 
-/* ===== 头像区彻底重构：突出当前头像 ===== */
+/* ===== 头像区：预览 + 控制 + 网格（视觉降级，整体平衡） ===== */
 
 /* ========================================== */
 
 .avatar-zone {
   display: flex;
   flex-direction: column;
+
   /* 原用 --space-4 但该令牌未定义，gap 退化为 0 导致主头像与下方网格贴在一起 */
   gap: var(--space-standard);
   padding: var(--space-3) 0 var(--space-standard);
@@ -935,7 +930,7 @@ onMounted(async () => {
 /* 第一排：预览 + 控制区 */
 .avatar-top-row {
   display: flex;
-  gap: var(--space-5);
+  gap: var(--space-3);
   align-items: center;
   width: 100%;
 }
@@ -966,11 +961,12 @@ onMounted(async () => {
   align-items: flex-end;
 }
 
-/* 操作按钮行：随机 + 撤销并排，撤销出现/消失不改变行高 */
+/* 操作按钮行：随机在上、撤销在下，条件显示的次要操作不影响主要按钮位置 */
 .avatar-actions {
   display: flex;
-  gap: var(--space-3);
-  align-items: center;
+  flex-direction: column;
+  gap: var(--space-1);
+  align-items: flex-end;
   min-height: 28px;
 }
 
@@ -987,6 +983,7 @@ onMounted(async () => {
 }
 
 /* ===== 随机换一个 / 撤销更改 ===== */
+/* 轻量文字链接，不与头像选择竞争视觉层级 */
 .link-btn {
   display: inline-flex;
   gap: 4px;
@@ -1021,15 +1018,16 @@ onMounted(async () => {
 
 .link-btn__icon {
   font-size: 14px;
+  line-height: 1;
 }
 
 /* ===== 第二排：头像卡片网格 ===== */
 
-/* 🔥 修复 2：固定 7 列，增大间距，消除缺口 */
+/* 头像卡片网格：7 列，缩略图约 68px，与 100px 预览呈黄金比例 ~0.68 */
 .style-card-group {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 16px;
+  gap: var(--space-3);
   width: 100%;
 }
 
@@ -1038,7 +1036,7 @@ onMounted(async () => {
   flex-direction: column;
   gap: 6px;
   align-items: center;
-  padding: 8px 8px 7px;
+  padding: 6px 6px 4px;
   color: var(--text-tertiary);
   cursor: pointer;
   background: var(--bg-card);
