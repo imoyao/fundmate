@@ -12,9 +12,6 @@ export function findTagName(tags: WatchlistTag[], tagId: number): string {
 }
 
 /** 按 id 取标签色，缺失回退 DEFAULT_TAG_COLOR */
-export function findTagColor(
-  tags: WatchlistTag[],
-  tagId: number
-): string {
+export function findTagColor(tags: WatchlistTag[], tagId: number): string {
   return tags.find(t => t.id === tagId)?.color || DEFAULT_TAG_COLOR;
 }
