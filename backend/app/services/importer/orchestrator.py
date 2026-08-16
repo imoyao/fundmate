@@ -30,10 +30,11 @@ from app.services.fund_service import FundService
 from app.services.importer.mappings import OP_TYPE_LABEL, BusinessType
 from app.services.importer.records import (
     SBImportError,
+    StandardHoldingRecord,
     StandardTransactionRecord,
     compute_record_hash,
 )
-from app.services.importer.registry import get_parser
+from app.services.importer.registry import get_holding_parser, get_parser
 from app.services.position_service import PositionService
 from app.services.transaction_service import TransactionService
 
@@ -709,3 +710,198 @@ class ImportOrchestrator:
 
         if fund_codes or stock_symbols:
             logger.info(f'已触发元数据更新: 基金={len(fund_codes)}只, 股票={len(stock_symbols)}只')
+
+    # ── 持仓分支（#1012，与交易分支完全并行，落 positions 不建流水）──
+
+    E_ACCOUNT_LEDGER_NAME = '基金E账户'
+
+    def get_or_create_e_account_ledger(self) -> Ledger:
+        """获取或创建「基金E账户」聚合账户（ledger_type='e_account'）。
+
+        语义：E账户是「全平台公募基金持仓的汇总视图」，不是资金实体，
+        因此不映射到用户某个真实基金账户，而是独立聚合账户承载快照。
+        """
+        ledger = (
+            self.db.query(Ledger)
+            .filter_by(ledger_type='e_account', family_id=self.family_id)
+            .order_by(Ledger.id.asc())
+            .first()
+        )
+        if ledger:
+            return ledger
+        ledger = Ledger(
+            name=self.E_ACCOUNT_LEDGER_NAME,
+            ledger_type='e_account',
+            default_allocation='longterm',
+            family_id=self.family_id,
+        )
+        self.db.add(ledger)
+        self.db.flush()
+        logger.info(f'已自动创建基金E账户聚合账户: id={ledger.id}')
+        return ledger
+
+    def parse_and_preview_holdings(
+        self, file_bytes: bytes, source: str, frontend_account: str = '', ledger_id: Optional[int] = None
+    ) -> dict:
+        """解析持仓文件并返回预览数据（含去重信息）。
+
+        ledger_id 未指定时自动创建/复用「基金E账户」聚合账户并回填。
+        与 parse_and_preview（交易）完全并行，互不干扰。
+        """
+        parser = get_holding_parser(source)
+        if parser is None:
+            raise SBException(ErrorCode.UNSUPPORTED_FILE_FORMAT.code, f'不支持的持仓导入来源: {source}')
+
+        records, errors = parser.parse(file_bytes)
+        if errors and not records:
+            raise SBException(ErrorCode.FILE_PARSE_ERROR.code, errors[0].message)
+
+        valid, validation_errors = parser.validate(records)
+        all_errors = errors + validation_errors
+
+        # 未指定目标账户 → 自动创建/复用聚合账户（E账户是汇总视图，不映射真实账户）
+        if not ledger_id:
+            ledger = self.get_or_create_e_account_ledger()
+            ledger_id = ledger.id
+            if not frontend_account:
+                frontend_account = ledger.name
+
+        return self._holding_rows_from_records(valid, parser, frontend_account, ledger_id, all_errors)
+
+    def _holding_rows_from_records(
+        self,
+        records: List[StandardHoldingRecord],
+        parser,
+        frontend_account: str,
+        ledger_id: Optional[int],
+        errors: List[SBImportError],
+    ) -> dict:
+        """持仓记录 → 前端预览行（回填账户 + 生成 import_hash + 去重标记）。"""
+        for rec in records:
+            rec.ledger_id = ledger_id
+            if not rec.account_name and frontend_account:
+                rec.account_name = frontend_account
+            if not rec.import_hash:
+                rec.import_hash = parser.compute_holding_hash(rec)
+
+        rows = []
+        for rec in records:
+            rows.append(
+                {
+                    'symbol': rec.symbol,
+                    'name': rec.name,
+                    'type': rec.asset_type,
+                    'quantity': float(rec.shares) if rec.shares else 0,
+                    'price': float(rec.nav) if rec.nav else 0,
+                    'amount': float(rec.market_value) if rec.market_value else 0,
+                    'snapshot_date': rec.snapshot_date.isoformat() if rec.snapshot_date else '',
+                    'currency': rec.currency,
+                    'account_name': rec.account_name,
+                    'ledger_id': rec.ledger_id,
+                    'source_broker': rec.source_broker,
+                    'fund_manager': rec.fund_manager,
+                    'share_class': rec.share_class,
+                    'fund_account': rec.fund_account,
+                    'trade_account': rec.trade_account,
+                    'dividend_preference': rec.dividend_preference,
+                    'error': rec.error or None,
+                    'import_hash': rec.import_hash,
+                    'is_duplicate': False,
+                    'source': rec.source,
+                }
+            )
+
+        # 去重检查：与已有 positions.import_hash 比对（幂等拦截，撞 key 标重不写）
+        hashes = [r['import_hash'] for r in rows if r.get('import_hash')]
+        existing_hashes = set()
+        if hashes:
+            existing_hashes = set(
+                h[0]
+                for h in self.db.query(Position.import_hash)
+                .filter(Position.import_hash.in_(hashes), Position.family_id == self.family_id)
+                .all()
+            )
+        for row in rows:
+            if row.get('import_hash') and row['import_hash'] in existing_hashes:
+                row['is_duplicate'] = True
+
+        error_count = sum(1 for r in rows if r.get('error')) + len(errors)
+        duplicate_count = sum(1 for r in rows if r.get('is_duplicate'))
+
+        return {
+            'rows': rows,
+            'total': len(rows),
+            'error_count': error_count,
+            'duplicate_count': duplicate_count,
+            'ledger_id': ledger_id,
+            'ledger_name': frontend_account,
+        }
+
+    def commit_holdings(self, raw_rows: list) -> dict:
+        """接收前端提交的持仓行，过滤后经 upsert_from_holding 落库（不建流水）。
+
+        与 commit_from_preview（交易）完全并行。返回统计字典。
+        """
+        valid_rows = [r for r in raw_rows if not r.get('is_duplicate') and not r.get('error')]
+        filter_skipped = len(raw_rows) - len(valid_rows)
+
+        if not valid_rows:
+            return {'imported': 0, 'skipped': len(raw_rows), 'errors': []}
+
+        imported = 0
+        commit_errors = []
+        for row in valid_rows:
+            try:
+                data = self._build_holding_data(row)
+                PositionService.upsert_from_holding(self.db, data)
+                imported += 1
+            except Exception as e:
+                logger.exception(f'持仓落库单条失败: symbol={row.get("symbol")}')
+                commit_errors.append({'symbol': row.get('symbol'), 'name': row.get('name'), 'error': str(e)})
+
+        try:
+            self.db.commit()
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f'持仓入库提交失败: {e}')
+            raise
+
+        logger.info(f'持仓入库完成: 导入={imported}, 跳过={filter_skipped}, 错误={len(commit_errors)}')
+        return {'imported': imported, 'skipped': filter_skipped, 'errors': commit_errors}
+
+    def _build_holding_data(self, row: dict) -> dict:
+        """前端预览行 → upsert_from_holding 数据字典（含溯源 meta）。"""
+        snapshot_date = None
+        snap_str = row.get('snapshot_date', '')
+        if snap_str:
+            try:
+                snapshot_date = datetime.strptime(snap_str, '%Y-%m-%d').date()
+            except (ValueError, TypeError):
+                snapshot_date = date.today()
+
+        price = float(row.get('price', 0) or 0)
+        return {
+            'symbol': row['symbol'],
+            'name': row.get('name', ''),
+            'asset_type': row.get('type', 'fund'),
+            'ledger_id': row.get('ledger_id'),
+            'account_name': row.get('account_name', ''),
+            'quantity': float(row.get('quantity', 0) or 0),
+            # 成本均价：E账户样本无成本字段，用快照日净值近似（用户已确认）
+            'avg_price': price,
+            'current_price': price,
+            'snapshot_date': snapshot_date,
+            'currency': row.get('currency', 'CNY'),
+            'source': row.get('source', 'e_account_holding'),
+            'source_broker': row.get('source_broker'),
+            'source_import_id': row.get('source_import_id'),
+            'family_id': self.family_id,
+            'meta': {
+                'fund_manager': row.get('fund_manager'),
+                'share_class': row.get('share_class'),
+                'fund_account': row.get('fund_account'),
+                'trade_account': row.get('trade_account'),
+                'dividend_preference': row.get('dividend_preference'),
+                'market_value': row.get('amount'),
+            },
+        }
