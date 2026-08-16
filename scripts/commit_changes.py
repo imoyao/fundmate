@@ -43,13 +43,20 @@ def _utf8_env() -> dict[str, str]:
 
 
 def _run(args: list[str], check: bool = True) -> subprocess.CompletedProcess:
-    """在仓库根执行 git 子命令，捕获输出、不经过 shell（规避引号/编码问题）。"""
+    """在仓库根执行 git 子命令，捕获输出、不经过 shell（规避引号/编码问题）。
+
+    Windows 上 subprocess 默认按 GBK 解码子进程输出，git/pre-commit 的中文
+    UTF-8 输出会被解码失败（此前导致提交成功后打印输出时崩溃），故显式
+    指定 encoding="utf-8" 并 errors="replace" 兜底，任何情况都不抛异常。
+    """
     return subprocess.run(
         args,
         cwd=REPO_ROOT,
         env=_utf8_env(),
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=check,
     )
 
