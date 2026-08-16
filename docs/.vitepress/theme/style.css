@@ -1,21 +1,30 @@
-/* 多倍贝文档站 · 品牌配色覆盖
+/* 多多贝文档站 · 品牌配色覆盖（一次性根除 emerald 残留）
  * ------------------------------------------------------------
  * @duxweb/vitepress-theme 默认把主色板 primary 别名映射到 emerald（翡翠绿），
- * 与品牌（暖红珊瑚 #E34F38）不符。这里在运行时重定义整套 --color-primary-* 色阶，
+ * 与品牌（暖红珊瑚 #E34F38）不符。本文件在运行时重定义整套 --color-primary-* 色阶，
  * 所有引用 var(--color-primary-*) 的工具类（按钮、链接、导航 active、区块底色等）
  * 随之变为品牌珊瑚红。
  *
- * 注意：只覆盖 primary 别名，不动 emerald 语义色（success 等仍保留绿色）。
- * 本文件必须在 dux 主题 CSS 之后加载（见 theme/index.ts 的 import 顺序），
- * 否则会被主题默认值覆盖。
+ * 根因：dux 主题 CSS 中 primary 全部定义为 var(--color-emerald-*)（Tailwind v4 @theme），
+ * 工具类 .text-primary-600{color:var(--color-primary-600)} 走这条链。
+ * 修复策略：:root !important 覆盖 + 暗色模式显式覆盖 + 硬编码装饰色兜底。
+ *
+ * 注意：
+ * - 只覆盖 primary 别名，不动 emerald 语义色（success 等仍保留绿色）。
+ * - RGB 三元组格式（空格分隔、无逗号、无 #），因为 Tailwind 以 rgb(var(--x) / <alpha>) 消费。
+ *   写成 #E34F38 会导致 rgb(#E34F38) 非法 → 回退到 emerald（绿）。
+ * - 本文件必须在 dux 主题 CSS 之后加载（theme/index.ts import 顺序保证）。
  */
 
-::root {
-  /* 品牌珊瑚红主色阶（Tailwind 风格 50–950，500 = 品牌主色 #E34F38）。
-   * 注意：必须写成「RGB 通道三元组」（空格分隔、无逗号、无 #），
-   * 因为 dux 主题 / Tailwind 以 rgb(var(--color-primary-500) / <alpha>) 消费这些变量。
-   * 若写成十六进制 #E34F38，rgb(#E34F38) 非法 → 覆盖失效 → 回退到 emerald（绿）。
-   * 用 !important 确保在任何层叠 / @layer 顺序下都压过 dux 默认的 emerald 映射。 */
+/* ════════════════════════════════════════════════════════════
+   1) 主色阶覆盖 — 亮色 + 暗色双重保障
+   ════════════════════════════════════════════════════════════ */
+
+:root,
+.dark,
+[data-theme="dark"],
+@media (prefers-color-scheme: dark) {
+  /* 品牌珊瑚红主色阶（50–950，500 = 品牌主色 #E34F38） */
   --color-primary-50:  254 241 238  !important; /* #FEF1EE */
   --color-primary-100: 253 224 219  !important; /* #FDE0DB */
   --color-primary-200: 251 196 186  !important; /* #FBC4BA */
@@ -28,25 +37,25 @@
   --color-primary-900: 139 42 28    !important; /* #8B2A1C */
   --color-primary-950: 74 20 14     !important; /* #4A140E */
 
-  /* VitePress 标准品牌色梯度：保障搜索框、链接、代码高亮等默认组件一致
-   * （VitePress 直接以 var(--vp-c-brand-*) 作颜色值消费，故这里用十六进制合法） */
+  /* VitePress 标准品牌色梯度（搜索框、链接、代码高亮等默认组件） */
   --vp-c-brand-1: #E34F38;
   --vp-c-brand-2: #D8452F;
   --vp-c-brand-3: #CC3D27;
   --vp-c-brand-soft: rgba(227, 79, 56, 0.14);
-}
 
-/* 首页 hero 主色呼应品牌 */
-::root {
+  /* 首页 hero 名称色 */
   --vp-home-hero-name-color: #E34F38;
 }
 
-/* 覆盖 dux 主题 Features / QuickStart 图标背景为品牌珊瑚红渐变
- * dux 主题硬编码了 blue/green/purple... 等颜色且默认 blue，
- * 与品牌色 #E34F38 不符。这里统一把首页图标方框改为品牌渐变。
+/* ════════════════════════════════════════════════════════════
+   2) dux 主题硬编码装饰色兜底
+   ════════════════════════════════════════════════════════════ */
+
+/*
+ * Features / QuickStart 图标背景渐变：
+ * dux 主题硬编码了 blue/green/purple 等颜色且默认 blue，
+ * 与品牌色不符。用属性选择器匹配所有尺寸/圆角的图标容器。
  */
-.home .w-14.h-14.rounded-xl.bg-gradient-to-br,
-.home .w-16.h-16.rounded-2xl.bg-gradient-to-br {
-  /* 渐变 stop 需显式颜色（不接收 RGB 三元组变量），直接用品牌 hex */
+.home [class*="bg-gradient-to-br"] {
   background-image: linear-gradient(to bottom right, #E34F38, #CC3D27) !important;
 }
