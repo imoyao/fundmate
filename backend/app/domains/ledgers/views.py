@@ -136,7 +136,7 @@ def list_ledgers():
             item['position_count'] = 0
             item['cash_balance'] = 0.0  # 统一初始化 cash_balance
 
-            if ledger.ledger_type in ('stock', 'fund'):
+            if ledger.ledger_type in ('stock', 'fund', 'e_account'):
                 stats = LedgerService.get_portfolio_stats(db, ledger.id)
                 item['total_market_value'] = stats['total_market_value']
                 item['pnl'] = stats['position_pnl']
@@ -352,14 +352,14 @@ def get_ledger_summary(ledger_id: int):
 
         data = {'ledger_type': ledger.ledger_type, 'ledger_name': ledger.name, 'daily_pnl': None}
 
-        if ledger.ledger_type in ('stock', 'fund'):
+        if ledger.ledger_type in ('stock', 'fund', 'e_account'):
             stats = LedgerService.get_portfolio_stats(db, ledger.id)
             data.update(stats)
             data['cumulative_return'] = LedgerService.get_cumulative_return(db, ledger.id)
 
             if ledger.ledger_type == 'stock':
                 data['cash_balance'] = LedgerService.get_cash_balance(db, ledger)
-            elif ledger.ledger_type == 'fund':
+            elif ledger.ledger_type in ('fund', 'e_account'):
                 # FIX-3: 传入 ledger.id 而非 ledger.name
                 money_fund = LedgerService.get_money_fund_stats(db, ledger.id)
                 data.update(money_fund)

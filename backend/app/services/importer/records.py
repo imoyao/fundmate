@@ -100,6 +100,52 @@ class StandardTransactionRecord:
 
 
 @dataclass
+class StandardHoldingRecord:
+    """持仓快照的统一输出格式（#1012，与交易流水解耦）。
+
+    与 StandardTransactionRecord 的本质区别（持仓 vs 交易流水）：
+    - 无 trade_date / transaction_id / fee / business_type —— 快照是"某日点位"，
+      没有这些交易概念，硬塞会污染交易语义；
+    - 有 shares / market_value / snapshot_date —— 快照的核心字段；
+    - avg_cost 为成本均价（元）：E账户样本无成本字段，由服务层降级为 nav 近似
+      （用户已确认：用当前净值近似成本）。
+
+    溯源字段（fund_manager / share_class / fund_account / trade_account /
+    dividend_preference / source_broker）落库时写入 position_import_meta 表，
+    与 positions 主表 1:1 关联，保证样本信息不丢失。
+    """
+
+    # ── 必填字段 ──
+    symbol: str  # 标准化代码（基金 6 位数字）
+    name: str  # 标的名称
+    shares: Decimal  # 持有份额（份）
+    snapshot_date: date  # 持仓快照日期（份额日期）
+    ledger_id: Optional[int] = None  # 目标账户ID（聚合账户，enrich 阶段回填）
+
+    # ── 可选字段 ──
+    asset_type: str = 'fund'  # 资产类型（E账户仅覆盖公募基金）
+    nav: Optional[Decimal] = None  # 基金净值（快照日）
+    avg_cost: Optional[Decimal] = None  # 成本均价（元）；缺失时服务层降级为 nav 近似
+    market_value: Optional[Decimal] = None  # 资产市值（元）
+    currency: str = 'CNY'  # 结算币种
+    account_name: str = ''  # 账户名称（冗余展示）
+
+    # ── 溯源字段（落 position_import_meta）──
+    source: str = ''  # 数据来源标识（e_account_holding / ai_holding）
+    source_broker: Optional[str] = None  # 销售机构
+    fund_manager: Optional[str] = None  # 基金管理人
+    share_class: Optional[str] = None  # 份额类别（前收费/后收费）
+    fund_account: Optional[str] = None  # 基金账户（平台侧账号）
+    trade_account: Optional[str] = None  # 交易账户（资金账号）
+    dividend_preference: Optional[str] = None  # 分红方式（现金分红/红利转投）
+
+    # ── 系统字段 ──
+    import_hash: Optional[str] = None  # 持仓去重哈希（source|ledger|symbol|snapshot_date）
+    batch_id: Optional[str] = None  # 导入批次ID
+    error: str = ''  # 解析失败时存放错误信息
+
+
+@dataclass
 class SBImportError:
     """解析过程中的错误记录"""
 

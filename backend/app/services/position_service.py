@@ -25,7 +25,7 @@ from app.core.exceptions import ErrorCode, SBException
 from app.core.money import Money
 from app.core.symbol_utils import get_normalizer
 from app.core.utils import get_confirm_date
-from app.domains.positions.models import Position
+from app.domains.positions.models import Position, PositionImportMeta
 from app.services.async_backfill import trigger_backfill
 from app.services.importer.records import compute_position_hash
 from app.services.trade_rules import validate_buy, validate_sell
@@ -149,6 +149,117 @@ def _create_orphan_transaction(
 
 class PositionService:
     # ── 公开方法 ──────────────────────────────────────────
+
+    @staticmethod
+    def upsert_from_holding(db: Session, data: dict) -> Position:
+        """持仓快照 upsert（#1012 核心新方法）：以 (ledger_id, symbol) 为业务键，SET 语义整条替换。
+
+        与 process_buy_or_deposit 的本质区别（持仓 vs 交易流水）：
+        - 快照是某日点位的绝对值：quantity / avg_price / current_price 按快照**整条替换**，
+          不累加（用户已确认 SET 语义，快照比手动录更权威）；
+        - **绝不调用 TransactionService.create** —— 导入持仓不产生交易流水；
+        - 溯源元数据（基金管理人/平台账号/分红方式/市值等）写入 position_import_meta（1:1 upsert），
+          保证 E账户样本信息不丢失。
+
+        data 关键字段：
+            symbol / name / asset_type / ledger_id / account_name / quantity(份) /
+            avg_price(元,缺失降级为 current_price 近似) / current_price(元) /
+            snapshot_date(date,缺失降级为落库当日) / currency / source / source_broker /
+            source_import_id / family_id / meta(dict: fund_manager/share_class/fund_account/
+            trade_account/dividend_preference/market_value)
+        """
+        symbol = data.get('symbol', '')
+        ledger_id = data.get('ledger_id')
+        family_id = data.get('family_id', 1)
+        if not symbol or not ledger_id:
+            raise ValueError('持仓快照导入必须提供 symbol 与 ledger_id')
+
+        qty = data.get('quantity', 0) or 0
+        if qty <= 0:
+            raise ValueError('数量必须大于 0')
+
+        # 成本均价：优先显式 avg_price，缺失降级为当前净值近似（用户已确认）
+        price_yuan = data.get('avg_price') or data.get('current_price') or 0
+        if price_yuan <= 0:
+            raise ValueError('成本均价与当前净值均缺失，无法确定价格')
+
+        qty_units = Money.shares_to_min_unit(qty)
+        price_cents = Money.yuan_to_cents(price_yuan)
+
+        # 快照日：优先 snapshot_date，缺失降级为落库当日（规范 §3.3）
+        raw_snap = data.get('snapshot_date') or date.today()
+        snapshot_date = raw_snap if isinstance(raw_snap, date) else datetime.fromisoformat(str(raw_snap)).date()
+
+        src = data.get('source', 'e_account_holding')
+        import_hash = data.get('import_hash') or compute_position_hash(src, ledger_id, symbol, snapshot_date)
+
+        # 查找现有持仓（业务键 ledger_id + symbol，SET 语义定位）
+        existing = db.query(Position).filter_by(symbol=symbol, ledger_id=ledger_id, family_id=family_id).first()
+
+        if existing:
+            # SET 语义：整条替换快照字段（数量/成本/市价/快照日/溯源）
+            existing.quantity = qty_units
+            existing.avg_price = price_cents
+            existing.current_price = price_cents
+            existing.confirm_date = snapshot_date
+            existing.name = data.get('name') or existing.name
+            existing.account_name = data.get('account_name') or existing.account_name
+            existing.currency = data.get('currency') or existing.currency
+            existing.import_hash = import_hash
+            existing.source = src
+            existing.source_broker = data.get('source_broker')
+            position = existing
+        else:
+            position = Position(
+                symbol=symbol,
+                name=data.get('name') or symbol,
+                market=data.get('market', 'CN_A'),
+                asset_type=data.get('asset_type', 'fund'),
+                ledger_id=ledger_id,
+                account_name=data.get('account_name', ''),
+                quantity=qty_units,
+                avg_price=price_cents,
+                current_price=price_cents,
+                currency=data.get('currency', 'CNY'),
+                confirm_date=snapshot_date,
+                allocation=data.get('allocation', 'longterm'),
+                import_hash=import_hash,
+                source=src,
+                source_broker=data.get('source_broker'),
+                family_id=family_id,
+            )
+            db.add(position)
+
+        db.flush()
+
+        # 溯源元数据 1:1 upsert（position_import_meta，保留末次快照的溯源信息）
+        meta = data.get('meta') or {}
+        meta_row = db.query(PositionImportMeta).filter_by(position_id=position.id).first()
+        if meta_row is None:
+            meta_row = PositionImportMeta(position_id=position.id, family_id=family_id)
+            db.add(meta_row)
+        meta_row.symbol = symbol
+        meta_row.ledger_id = ledger_id
+        meta_row.snapshot_date = snapshot_date
+        meta_row.source = src
+        meta_row.source_import_id = data.get('source_import_id')
+        meta_row.source_broker = data.get('source_broker')
+        meta_row.fund_manager = meta.get('fund_manager')
+        meta_row.share_class = meta.get('share_class')
+        meta_row.fund_account = meta.get('fund_account')
+        meta_row.trade_account = meta.get('trade_account')
+        meta_row.dividend_preference = meta.get('dividend_preference')
+        meta_row.market_value = (
+            Money.yuan_to_cents(meta['market_value']) if meta.get('market_value') is not None else None
+        )
+        db.flush()
+
+        try:
+            trigger_backfill('fund', symbol)
+        except Exception:
+            pass
+
+        return position
 
     @staticmethod
     def process_buy_or_deposit(db: Session, data: dict) -> Optional[Position]:
