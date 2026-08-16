@@ -218,7 +218,10 @@
                     >{{ tag.name }}</span>
                   </div>
                 </el-checkbox-group>
-                <div v-if="allTags.length === 0" class="tag-filter-panel__empty">
+                <div
+                  v-if="allTags.length === 0"
+                  class="tag-filter-panel__empty"
+                >
                   暂无可选标签
                 </div>
               </div>
@@ -630,11 +633,14 @@
             <p class="watchlist-empty__title">
               {{
                 selectedFilterTagIds.length > 0
-                  ? '暂无匹配所选标签的持仓'
-                  : '暂无自选资产'
+                  ? "暂无匹配所选标签的持仓"
+                  : "暂无自选资产"
               }}
             </p>
-            <p v-if="selectedFilterTagIds.length > 0" class="watchlist-empty__hint">
+            <p
+              v-if="selectedFilterTagIds.length > 0"
+              class="watchlist-empty__hint"
+            >
               试试调整或清空标签筛选条件
             </p>
           </div>
@@ -1481,7 +1487,9 @@ const realtimeEnabled = computed(() => realtime.enabled.value);
   background-color: var(--bg-warm);
   border: none;
   border-radius: var(--radius-pill);
-  transition: background-color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .tag-filter-trigger:hover {

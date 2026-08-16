@@ -12,6 +12,10 @@ export interface LedgerItem {
   portfolio_id?: number | null;
   /** 费率配置（证券/基金账户编辑弹窗使用） */
   fee_config?: Record<string, unknown> | null;
+  /** 创建时间（ISO 字符串），用于下拉内部稳定排序 */
+  created_at?: string | null;
+  /** 最近使用时间：账户最后一笔交易的确认日期（ISO 字符串），用于"最近使用优先"排序 */
+  last_used_at?: string | null;
 }
 
 /** 获取用户的所有账户列表 */
@@ -25,6 +29,9 @@ export function createLedger(data: {
   ledger_type?: string;
   default_allocation?: string;
   currency?: string;
+  linked_cash_ledger_id?: number | null;
+  portfolio_id?: number | null;
+  fee_config?: Record<string, unknown> | null;
 }) {
   return http.request<any>("post", "/api/ledgers/", { data });
 }
@@ -36,7 +43,9 @@ export function updateLedger(
     ledger_type?: string;
     default_allocation?: string | null;
     notes?: string;
+    linked_cash_ledger_id?: number | null;
     portfolio_id?: number | null;
+    fee_config?: Record<string, unknown> | null;
   }
 ) {
   return http.request("patch", `/api/ledgers/${id}/`, { data });

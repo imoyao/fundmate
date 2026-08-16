@@ -8,7 +8,7 @@ import json
 
 from apiflask import APIBlueprint
 from flask import abort, jsonify, request
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 
 from app.core.auth import get_family_id, get_owned_or_404
@@ -25,7 +25,7 @@ from app.services.ledger_service import LedgerService
 ledgers_bp = APIBlueprint('ledgers', __name__, url_prefix='/api/ledgers')
 
 
-def _ledger_to_dict(ledger: Ledger) -> dict:
+def _ledger_to_dict(ledger: Ledger, last_used_at=None) -> dict:
     """将 Ledger 模型实例转为字典"""
     # 处理 fee_config：数据库中是字符串，需要反序列化
     fee_config = None
@@ -47,6 +47,9 @@ def _ledger_to_dict(ledger: Ledger) -> dict:
         'linked_cash_ledger_id': ledger.linked_cash_ledger_id,
         'created_at': ledger.created_at.isoformat() if ledger.created_at else None,
         'updated_at': ledger.updated_at.isoformat() if ledger.updated_at else None,
+        # 最近使用时间：取该账户最后一笔交易的确认日期（无交易则为 null），
+        # 用于导入向导步骤一下拉的"最近使用优先"排序。
+        'last_used_at': last_used_at.isoformat() if last_used_at else None,
     }
 
 
@@ -115,9 +118,18 @@ def list_ledgers():
     """获取所有账户（含摘要统计）"""
     with get_db() as db:
         ledgers = db.query(Ledger).filter(Ledger.family_id == get_family_id()).order_by(Ledger.created_at.asc()).all()
+        # 派生"最近使用时间"：每个账户最近一笔交易的确认日期。
+        # 单条聚合查询，避免 N+1；供前端下拉按最近使用排序。
+        last_used_rows = (
+            db.query(Transaction.ledger_id, func.max(Transaction.confirm_date).label('last_date'))
+            .filter(Transaction.family_id == get_family_id())
+            .group_by(Transaction.ledger_id)
+            .all()
+        )
+        last_used_map = {row.ledger_id: row.last_date for row in last_used_rows}
         result = []
         for ledger in ledgers:
-            item = _ledger_to_dict(ledger)
+            item = _ledger_to_dict(ledger, last_used_map.get(ledger.id))
             # 附加摘要数据
             item['total_market_value'] = 0.0
             item['pnl'] = 0.0

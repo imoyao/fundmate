@@ -32,3 +32,50 @@
 .el-table .el-table__row {
   height: 44px;
 }
+
+/* 空值 / 待补全：灰色小胶囊，替代空着的单元格，让缺失一目了然 */
+.cell-pending {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--text-disabled);
+  background: var(--bg-secondary);
+  border: 1px dashed var(--border-default);
+  cursor: pointer;
+}
+
+.cell-pending:hover {
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+/* 导入预览：问题行在表格正文里直接体现（不依赖左侧栏提示）。
+   row-blocked：待补全 / 错误行 —— 极浅危险底 + 左侧危险色条；
+   row-duplicate：重复行 —— 极浅琥珀底。
+   cell-blocked / cell-missing：具体缺失单元格的左色条提示。 */
+.el-table .el-table__row.row-blocked {
+  background-color: var(--color-danger-20);
+}
+
+.el-table .el-table__row.row-blocked td:first-child {
+  border-left: 3px solid var(--color-danger);
+}
+
+.el-table .el-table__row.row-duplicate {
+  background-color: rgb(250 236 216 / 0.5);
+}
+
+.el-table .el-table__row.row-duplicate td:first-child {
+  border-left: 3px solid var(--color-warning);
+}
+
+.el-table .el-table__row td.cell-blocked {
+  box-shadow: inset 3px 0 0 var(--color-danger);
+}
+
+.el-table .el-table__row td.cell-missing {
+  box-shadow: inset 3px 0 0 var(--color-warning);
+}

@@ -40,7 +40,9 @@ export function useWatchlistGroups() {
     return group?.label || "全部";
   });
 
-  const currentIsCustom = computed(() => activeGroup.value.startsWith("custom_"));
+  const currentIsCustom = computed(() =>
+    activeGroup.value.startsWith("custom_")
+  );
 
   const activeCustomGroupId = computed(() => {
     if (currentIsCustom.value) {

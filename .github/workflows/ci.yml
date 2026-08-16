@@ -76,6 +76,10 @@ jobs:
       - name: Ruff 格式化检查
         run: pdm run ruff format --check .
 
+      # 守卫：禁止 @bp.input() 自动范式回潮（#973 / tech-debt.md §57）
+      - name: 守卫:禁止 @bp.input 自动范式
+        run: python ../scripts/forbid_bp_input.py
+
       # 单进程（避 OOM），排除需联网的 slow 测试
       - name: 运行测试
         run: pdm run python -m pytest -p no:xdist -m "not slow"
