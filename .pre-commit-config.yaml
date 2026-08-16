@@ -56,3 +56,9 @@ repos:
         language: python
         files: \.(md|py|vue)$
         pass_filenames: true
+      - id: forbid-bp-input
+        name: forbid APIFlask @bp.input() auto-paradigm
+        entry: python scripts/forbid_bp_input.py
+        language: python
+        files: ^backend/app/.*\.py$
+        pass_filenames: false
