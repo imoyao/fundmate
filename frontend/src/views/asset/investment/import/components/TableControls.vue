@@ -2,7 +2,6 @@
 import { useImportWizardContext } from "../composables/useImportWizardContext";
 
 const {
-  tableStatusFilter,
   showProblemOnly,
   tableFilterKeyword,
   tableTypeFilter,
@@ -19,19 +18,6 @@ const {
 <template>
   <div class="table-controls">
     <div class="flex items-center gap-4 flex-wrap">
-      <el-select
-        v-model="tableStatusFilter"
-        placeholder="按状态筛选"
-        size="small"
-        style="width: 130px"
-        clearable
-      >
-        <el-option label="全部" value="" />
-        <el-option label="待补全" value="blocked" />
-        <el-option label="重复" value="duplicate" />
-        <el-option label="错误" value="error" />
-        <el-option label="正常" value="normal" />
-      </el-select>
       <el-switch
         v-model="showProblemOnly"
         active-text="只看问题数据"

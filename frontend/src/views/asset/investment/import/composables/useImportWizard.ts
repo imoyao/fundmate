@@ -514,13 +514,26 @@ export function useImportWizard() {
       list = list.filter(row => row.is_duplicate);
     else if (tableStatusFilter.value === "error")
       list = list.filter(row => row.error);
+    else if (tableStatusFilter.value === "problem")
+      // 待确认：所有需要人工处理（待补全 / 错误 / 未处理重复）的行
+      list = list.filter(row => {
+        if (row.is_duplicate && row._duplicateHandled) return false;
+        return (
+          isRowBlocked(row) ||
+          row.error ||
+          row.is_duplicate ||
+          row.isEditingQty ||
+          row.isEditingPrice
+        );
+      });
     else if (tableStatusFilter.value === "normal")
       list = list.filter(
         row =>
           !row.is_duplicate &&
           !row.error &&
           !isRowBlocked(row) &&
-          !row.is_cash_transfer
+          !row.is_cash_transfer &&
+          !row._ignored
       );
 
     if (activeCategoryFilter.value === "missingCode")
@@ -704,13 +717,25 @@ export function useImportWizard() {
       list = list.filter(row => row.is_duplicate);
     else if (tableStatusFilter.value === "error")
       list = list.filter(row => row.error);
+    else if (tableStatusFilter.value === "problem")
+      list = list.filter(row => {
+        if (row.is_duplicate && row._duplicateHandled) return false;
+        return (
+          isRowBlocked(row) ||
+          row.error ||
+          row.is_duplicate ||
+          row.isEditingQty ||
+          row.isEditingPrice
+        );
+      });
     else if (tableStatusFilter.value === "normal")
       list = list.filter(
         row =>
           !row.is_duplicate &&
           !row.error &&
           !isRowBlocked(row) &&
-          !row.is_cash_transfer
+          !row.is_cash_transfer &&
+          !row._ignored
       );
 
     if (activeCategoryFilter.value === "missingCode")
@@ -1063,6 +1088,7 @@ export function useImportWizard() {
         !row.is_duplicate &&
         !row.error &&
         !row.is_cash_transfer &&
+        !row._ignored &&
         !isRowBlocked(row)
     );
     if (rowsToImport.length === 0)
@@ -1124,7 +1150,8 @@ export function useImportWizard() {
         !row.is_duplicate &&
         !row.error &&
         !isRowBlocked(row) &&
-        !row.is_cash_transfer
+        !row.is_cash_transfer &&
+        !row._ignored
       )
         newKeys.add(row._rowKey);
     });
@@ -1143,6 +1170,15 @@ export function useImportWizard() {
     if (checked) selectedKeys.value.add(row._rowKey);
     else selectedKeys.value.delete(row._rowKey);
     selectedKeys.value = new Set(selectedKeys.value);
+    updateSelectAllState();
+  }
+
+  /** 逐行忽略：标记该行不参与导入（与整类跳过 skipCategory 互补，针对单行）；再点一次恢复 */
+  function toggleIgnoreRow(row: any) {
+    row._ignored = !row._ignored;
+    if (row._ignored) selectedKeys.value.delete(row._rowKey);
+    selectedKeys.value = new Set(selectedKeys.value);
+    previewData.value = [...previewData.value];
     updateSelectAllState();
   }
 
@@ -1778,6 +1814,7 @@ export function useImportWizard() {
     selectAllValid,
     clearAllSelection,
     handleRowCheckboxChange,
+    toggleIgnoreRow,
     fillNavForRecords,
     batchFillCode,
     batchFixAmount,

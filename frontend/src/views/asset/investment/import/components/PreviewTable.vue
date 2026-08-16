@@ -24,7 +24,8 @@ const {
   totalRows,
   filteredTotal,
   handleSizeChange,
-  handlePageChange
+  handlePageChange,
+  toggleIgnoreRow
 } = useImportWizardContext();
 </script>
 
@@ -83,6 +84,28 @@ const {
             <AllocationSelect :row="row" />
           </template>
         </el-table-column>
+        <el-table-column label="操作" width="100" fixed="right">
+          <template #default="{ row }">
+            <div class="row-actions">
+              <el-button
+                v-if="!row._ignored"
+                link
+                type="danger"
+                size="small"
+                @click="toggleIgnoreRow(row)"
+                >忽略</el-button
+              >
+              <el-button
+                v-else
+                link
+                type="primary"
+                size="small"
+                @click="toggleIgnoreRow(row)"
+                >恢复</el-button
+              >
+            </div>
+          </template>
+        </el-table-column>
       </el-table>
 
       <div class="pagination-bar flex items-center justify-between mt-3">
@@ -117,5 +140,19 @@ const {
 :deep(.el-table .cell) {
   padding-left: 10px;
   padding-right: 10px;
+}
+
+/* 操作列：默认低存在感，hover 整行时浮现（design.md「表格禁止每行常驻操作按钮」例外操作列） */
+.row-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.el-table__row:hover .row-actions,
+.el-table__row.row-blocked .row-actions {
+  opacity: 1;
 }
 </style>
