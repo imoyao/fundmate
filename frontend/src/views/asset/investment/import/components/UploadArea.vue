@@ -54,6 +54,7 @@ const {
           }}
         </p>
         <p class="upload-format-info">支持 Excel、CSV 格式 ｜ 最大 5MB</p>
+        <p class="upload-flow-hint">完成上传后进入预览与修正步骤</p>
       </template>
     </el-upload>
 
@@ -94,21 +95,26 @@ const {
   align-items: center;
   justify-content: center;
   width: 100%;
-  min-height: 280px;
-  padding: 32px;
-  background: var(--bg-soft);
-  border: 1px dashed var(--border-default);
-  border-radius: var(--radius-lg);
-  transition: all 0.3s;
+  min-height: 360px;
+  padding: 40px;
+  background: var(--bg-card);
+  border: 1px solid transparent;
+  border-radius: 16px;
+  box-shadow: var(--shadow-raised);
+  transition:
+    border-color 0.25s ease,
+    background-color 0.25s ease,
+    box-shadow 0.25s ease;
 }
 
 .golden-upload:hover {
-  border-color: var(--brand-700);
+  border-color: var(--border-default);
 }
 
 .golden-upload.is-dragover {
   background: var(--brand-100);
-  border-color: var(--brand-700);
+  border: 1px dashed var(--brand-400);
+  box-shadow: var(--shadow-raised);
 }
 
 .golden-upload.is-dragover .upload-icon {
@@ -163,6 +169,12 @@ const {
 
 .upload-format-info {
   margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.upload-flow-hint {
+  margin-top: 10px;
   font-size: 12px;
   color: var(--text-tertiary);
 }

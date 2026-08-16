@@ -20,6 +20,9 @@ const { formatGuides, selectedMode } = useImportWizardContext();
 
 <style scoped>
 .format-guide {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
   padding: 16px;
   margin-top: 0;
   background: var(--bg-card);
@@ -32,7 +35,7 @@ const { formatGuides, selectedMode } = useImportWizardContext();
   display: flex;
   gap: 6px;
   align-items: center;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
   font-size: 15px;
   font-weight: 600;
   color: var(--text-primary);
@@ -53,7 +56,7 @@ const { formatGuides, selectedMode } = useImportWizardContext();
 .format-guide-list li {
   display: flex;
   align-items: baseline;
-  margin-bottom: 8px;
+  margin-bottom: 16px;
   font-size: 13px;
   line-height: 1.6;
   color: var(--text-secondary);

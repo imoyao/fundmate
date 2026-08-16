@@ -47,17 +47,6 @@ const {
         <FormatGuide />
       </div>
     </div>
-
-    <p
-      style="
-        margin-top: 24px;
-        font-size: 13px;
-        color: var(--text-tertiary);
-        text-align: center;
-      "
-    >
-      上传后将进入预览页面，您可以修正错误后确认导入。如有问题，请参考帮助文档。
-    </p>
   </div>
 </template>
 
@@ -80,14 +69,29 @@ const {
   flex: 1;
   flex-direction: column;
   min-width: 0;
+  gap: 20px;
 }
 
 .upload-right {
-  flex-shrink: 0;
-  width: 340px;
+  display: flex;
+  flex: 1 1 340px;
+  max-width: 360px;
+  min-width: 300px;
+}
+
+.upload-right :deep(.format-guide) {
+  flex: 1;
+  width: 100%;
+  min-height: 360px;
+  padding: 20px 24px;
+  margin-top: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: 16px;
+  box-shadow: var(--shadow-raised);
 }
 
 .ledger-select-area {
-  margin-bottom: 16px;
+  margin-bottom: 0;
 }
 </style>
