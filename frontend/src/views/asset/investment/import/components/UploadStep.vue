@@ -25,7 +25,9 @@ const {
       <div class="upload-left">
         <div class="ledger-select-area">
           <div class="flex items-center gap-4">
-            <span class="text-base font-medium text-gray-700">交易账户：</span>
+            <span class="text-base font-medium text-[var(--text-primary)]"
+              >交易账户：</span
+            >
             <el-tag size="large" type="primary"
               >{{ selectedLedgerName }}（{{ ledgerTypeLabel }}）</el-tag
             >

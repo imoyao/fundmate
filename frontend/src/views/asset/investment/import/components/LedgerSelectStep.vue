@@ -8,7 +8,6 @@ const { selectedLedgerId, onAccountSelected, ledgerGroups, ledgerTypeMap } =
 
 <template>
   <div class="import-mode-group">
-    <h3 class="import-group-title">选择导入账户</h3>
     <div class="account-select-area">
       <el-select
         v-model="selectedLedgerId"
@@ -45,9 +44,9 @@ const { selectedLedgerId, onAccountSelected, ledgerGroups, ledgerTypeMap } =
         选择账户后，系统将根据账户类型自动匹配导入模板。家庭账户不可用于导入交易数据。
       </p>
     </div>
-  </div>
 
-  <ImportModeCards />
+    <ImportModeCards />
+  </div>
 </template>
 
 <style scoped>
@@ -76,15 +75,6 @@ const { selectedLedgerId, onAccountSelected, ledgerGroups, ledgerTypeMap } =
 }
 
 .import-mode-group {
-  margin-bottom: 32px;
-}
-
-.import-group-title {
-  padding-left: 4px;
-  margin-bottom: 16px;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  border-left: 3px solid var(--color-primary);
+  margin-bottom: 24px;
 }
 </style>

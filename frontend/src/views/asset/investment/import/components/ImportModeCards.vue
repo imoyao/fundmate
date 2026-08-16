@@ -125,13 +125,13 @@ function onLiability() {
   cursor: pointer;
   background: var(--bg-card);
   border: 2px solid var(--border-default);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   transition: all 0.3s ease;
 }
 
 .mode-card:not(.is-disabled):hover {
-  border-color: var(--color-primary);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 6%);
+  border-color: var(--brand-700);
+  box-shadow: var(--shadow-float);
   transform: translateY(-2px);
 }
 
@@ -144,12 +144,12 @@ function onLiability() {
 .mode-icon {
   margin-bottom: 12px;
   font-size: 36px;
-  color: var(--color-primary);
+  color: var(--brand-700);
 }
 
 .mode-title {
   margin: 0 0 8px;
-  font-size: 16px;
+  font-size: var(--text-body);
   font-weight: 600;
   color: var(--text-primary);
 }

@@ -26,7 +26,19 @@ const {
 
 <template>
   <div class="inventory-page">
-    <el-steps :active="currentStep" finish-status="success" align-center>
+    <header class="import-header">
+      <h1 class="import-title">导入交易</h1>
+      <p class="import-subtitle">
+        从券商或表格文件批量导入交易记录，支持自动识别与人工核对。
+      </p>
+    </header>
+
+    <el-steps
+      :active="currentStep"
+      finish-status="success"
+      align-center
+      class="import-steps"
+    >
       <el-step
         v-for="(step, index) in steps"
         :key="index"
@@ -56,6 +68,27 @@ const {
 </template>
 
 <style scoped>
+.import-header {
+  margin-bottom: 24px;
+}
+
+.import-title {
+  margin: 0 0 8px;
+  font-size: var(--text-display);
+  font-weight: 300;
+  color: var(--text-primary);
+}
+
+.import-subtitle {
+  margin: 0;
+  font-size: var(--text-small);
+  color: var(--text-tertiary);
+}
+
+.import-steps {
+  margin-bottom: 32px;
+}
+
 :deep(.el-step__head.is-finish) {
   cursor: pointer;
 }
@@ -75,16 +108,16 @@ const {
 }
 @keyframes ledger-flash {
   0% {
-    background-color: var(--color-primary-10);
+    background-color: var(--brand-100);
   }
   100% {
     background-color: transparent;
   }
 }
 .el-message--error {
-  --el-message-text-color: var(--color-danger);
+  --el-message-text-color: var(--color-danger-system);
 }
 .text-error {
-  color: var(--color-danger);
+  color: var(--color-danger-system);
 }
 </style>
