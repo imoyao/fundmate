@@ -147,6 +147,34 @@ const AssetRouteConfig = {
             showLink: false,
             hideQuickEntry: true
           }
+        },
+        // E账户对账中心（从导入流程/菜单进入，不在侧边栏展示）
+        {
+          path: "investment/reconcile",
+          name: "InvestmentReconcile",
+          component: () =>
+            import("@/views/asset/investment/reconcile/index.vue"),
+          meta: {
+            title: "E账户对账",
+            icon: "ep:document-checked",
+            rank: 10,
+            showLink: false,
+            hideQuickEntry: true
+          }
+        },
+        // E账户导入（持仓快照，落 positions 不建流水）
+        {
+          path: "investment/eaccount-import",
+          name: "InvestmentEaccountImport",
+          component: () =>
+            import("@/views/asset/investment/eaccount-import/index.vue"),
+          meta: {
+            title: "E账户导入",
+            icon: "ep:upload",
+            rank: 11,
+            showLink: false,
+            hideQuickEntry: true
+          }
         }
       ]
     },
