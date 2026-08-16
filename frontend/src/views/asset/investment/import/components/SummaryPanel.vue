@@ -4,11 +4,11 @@ import SummaryStats from "./SummaryStats.vue";
 import BatchFixPanel from "./BatchFixPanel.vue";
 import AllocationGroupPanel from "./AllocationGroupPanel.vue";
 
-const { showLeftPanel } = useImportWizardContext();
+useImportWizardContext();
 </script>
 
 <template>
-  <div class="step3-left" :class="{ collapsed: !showLeftPanel }">
+  <div class="step3-topbar">
     <SummaryStats />
     <BatchFixPanel />
     <AllocationGroupPanel />
@@ -16,16 +16,15 @@ const { showLeftPanel } = useImportWizardContext();
 </template>
 
 <style scoped>
-.step3-left {
-  flex-shrink: 0;
-  width: 320px;
-  padding: 16px;
-  overflow-y: auto;
-  background: var(--bg-card);
-  border-right: 1px solid var(--border-default);
+.step3-topbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: stretch;
 }
 
-.step3-left.collapsed {
-  display: none;
+.step3-topbar > :deep(*) {
+  flex: 1 1 240px;
+  min-width: 240px;
 }
 </style>

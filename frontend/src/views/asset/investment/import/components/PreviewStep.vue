@@ -8,8 +8,6 @@ const {
   selectedLedgerName,
   toggleAllocationPanel,
   showAllocationGroupPanel,
-  showLeftPanel,
-  toggleLeftPanel,
   duplicateCount,
   blockedCount,
   errorCount,
@@ -72,18 +70,7 @@ const {
     </div>
 
     <div class="step3-body">
-      <SummaryPanel v-show="showLeftPanel" />
-      <div
-        class="step3-divider"
-        :title="showLeftPanel ? '收起侧边栏' : '展开数据摘要'"
-        @click="toggleLeftPanel"
-      >
-        <IconifyIconOffline
-          :icon="showLeftPanel ? 'ep:d-arrow-left' : 'ep:d-arrow-right'"
-          class="divider-icon"
-        />
-        <span v-if="!showLeftPanel" class="divider-text">摘要</span>
-      </div>
+      <SummaryPanel />
       <PreviewTable />
     </div>
 
@@ -176,47 +163,12 @@ const {
 
 .step3-body {
   display: flex;
+  flex-direction: column;
   flex: 1;
   min-height: calc(100vh - 240px);
   overflow: hidden;
-}
-
-.step3-divider {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  cursor: pointer;
-  background: var(--bg-card);
-  border-left: 1px solid var(--border-default);
-  border-right: 1px solid var(--border-default);
-  transition: background-color 0.2s;
-}
-
-.step3-divider:hover {
-  background: var(--color-primary-10);
-}
-
-.step3-divider:hover .divider-icon {
-  color: var(--color-primary);
-}
-
-.step3-divider:hover .divider-text {
-  color: var(--color-primary);
-}
-
-.divider-icon {
-  font-size: 16px;
-  color: var(--text-tertiary);
-  transition: color 0.2s;
-}
-
-.divider-text {
-  writing-mode: vertical-lr;
-  margin-top: 4px;
-  font-size: 12px;
-  color: var(--text-tertiary);
+  padding: 16px;
+  gap: 16px;
 }
 
 .fixed-action-bar {

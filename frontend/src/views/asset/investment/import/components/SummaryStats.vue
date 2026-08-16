@@ -58,12 +58,14 @@ const { validRowsCount, duplicateCount, blockedCount, errorCount } =
 
 <style scoped>
 .summary-panel {
-  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
 }
 
 .summary-cards {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  flex-wrap: wrap;
   gap: 12px;
 }
 

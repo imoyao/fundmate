@@ -215,7 +215,6 @@ export function useImportWizard() {
   const showFullTable = ref(true);
   const showBatchFix = ref(false);
   const batchCodeInput = ref("");
-  const showLeftPanel = ref(false);
   const importErrors = ref<any[]>([]);
   const duplicatesHandled = ref(false);
   const uploadError = ref("");
@@ -1221,8 +1220,13 @@ export function useImportWizard() {
     ElMessage.success(`已为 ${rows.length} 条记录设置代码「${code}」`);
   }
 
-  async function batchFixAmount(rows: any[]) {
-    rows.forEach(r => {
+  async function batchFixAmount(rows?: any[]) {
+    const target =
+      rows ||
+      previewData.value.filter(
+        (r: any) => r.problems && r.problems.includes("mismatch")
+      );
+    target.forEach(r => {
       const qty = Number(r.quantity),
         prc = Number(r.price);
       if (!isNaN(qty) && !isNaN(prc))
@@ -1347,18 +1351,26 @@ export function useImportWizard() {
   function toggleAllocationPanel() {
     showAllocationGroupPanel.value = !showAllocationGroupPanel.value;
     showBatchFix.value = false;
-    showLeftPanel.value = true;
   }
 
   function toggleBatchFix() {
     showBatchFix.value = !showBatchFix.value;
     showAllocationGroupPanel.value = false;
-    showLeftPanel.value = true;
   }
 
-  function toggleLeftPanel() {
-    showLeftPanel.value = !showLeftPanel.value;
-    showBatchFix.value = false;
+  /**
+   * 诚实一键：只自动处理程序确实能做的三类可处理项，绝不静默跳过必须人工补全的缺失。
+   * - mismatch：以 quantity×price 重算 amount（batchFixAmount）
+   * - 基金记录：按交易日自动抓取净值并推算份额（fetchAndFillFundNav）
+   * - 已推算数据：批量确认（confirmAllCalculated）
+   * missingCode / missingQtyPrice 结构性无法自动补全，如实留在表中等待用户手动处理。
+   */
+  async function autoFix(): Promise<void> {
+    batchFixAmount();
+    if (hasFundRecordsForNav.value) {
+      await fetchAndFillFundNav();
+    }
+    confirmAllCalculated();
   }
 
   // ── 行编辑 ──
@@ -1702,7 +1714,6 @@ export function useImportWizard() {
     showFullTable,
     showBatchFix,
     batchCodeInput,
-    showLeftPanel,
     importErrors,
     duplicatesHandled,
     uploadError,
@@ -1779,7 +1790,7 @@ export function useImportWizard() {
     onRowAllocationChange,
     toggleAllocationPanel,
     toggleBatchFix,
-    toggleLeftPanel,
+    autoFix,
     startEdit,
     finishEdit,
     cancelEdit,

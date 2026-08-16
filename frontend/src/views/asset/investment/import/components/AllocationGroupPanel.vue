@@ -3,7 +3,6 @@ import { ALLOCATION_OPTIONS } from "@/constants";
 import { useImportWizardContext } from "../composables/useImportWizardContext";
 
 const {
-  showAllocationGroupPanel,
   selectedCount,
   batchSetAllocation,
   currentAllocationGroups,
@@ -12,14 +11,9 @@ const {
 </script>
 
 <template>
-  <div v-if="showAllocationGroupPanel" class="allocation-group-panel">
+  <div class="allocation-group-panel">
     <div class="allocation-group-header">
-      <span class="font-weight-500">按产品类型设置配置目标</span>
-      <div class="flex items-center gap-3">
-        <el-button size="small" text @click="showAllocationGroupPanel = false"
-          >取消</el-button
-        >
-      </div>
+      <span class="font-weight-500">配置目标</span>
     </div>
     <div v-if="selectedCount > 0" class="allocation-group-item">
       <div class="allocation-group-info">
@@ -77,10 +71,18 @@ const {
 
 <style scoped>
 .allocation-group-panel {
-  padding: 12px;
-  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  padding: 14px 16px;
+  background: var(--bg-card);
   border: 1px solid var(--border-default);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
+  min-width: 0;
+}
+
+.allocation-group-panel :deep(.allocation-group-list),
+.allocation-group-panel :deep(.allocation-group-item) {
+  width: 100%;
 }
 
 .allocation-group-header {
@@ -88,7 +90,8 @@ const {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 10px;
-  font-size: 13px;
+  font-size: 14px;
+  font-weight: 600;
   color: var(--text-primary);
 }
 

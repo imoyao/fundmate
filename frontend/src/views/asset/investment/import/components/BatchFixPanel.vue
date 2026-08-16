@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import { useImportWizardContext } from "../composables/useImportWizardContext";
 
 const {
@@ -11,7 +12,6 @@ const {
   fetchAndFillFundNav,
   fundRecordsCount,
   calculatedCount,
-  confirmAllCalculated,
   problemCategories,
   isCategoryActive,
   filterByCategory,
@@ -24,190 +24,259 @@ const {
   batchFixAmount,
   showFullTable,
   showProblemOnly,
-  skipCategory
+  skipCategory,
+  autoFix
 } = useImportWizardContext();
+
+/** 必须人工补全的条目：代码未匹配 + 数量或价格缺失，这两类程序结构性无法自动修正 */
+const manualCount = computed(() => {
+  const missingCode = problemCategories.value.find(
+    c => c.key === "missingCode"
+  );
+  const missingQtyPrice = problemCategories.value.find(
+    c => c.key === "missingQtyPrice"
+  );
+  return (missingCode?.count || 0) + (missingQtyPrice?.count || 0);
+});
+
+/** 可程序化自动处理的条目：mismatch 金额重算 + 基金净值抓取 + 已推算确认 */
+const autoFixableCount = computed(() => {
+  const mismatch = problemCategories.value.find(c => c.key === "mismatch");
+  return (
+    (mismatch?.count || 0) +
+    calculatedCount.value +
+    (hasFundRecordsForNav.value ? fundRecordsCount.value : 0)
+  );
+});
 </script>
 
 <template>
-  <div v-if="blockedCount + errorCount > 0" class="batch-fix-bar">
-    <el-button
-      :type="showBatchFix ? '' : 'primary'"
-      size="default"
-      @click="toggleBatchFix"
-    >
-      <IconifyIconOffline icon="ep:setting" class="mr-1" />
-      {{ showBatchFix ? "收起批量修正" : "批量修正问题数据" }}
-    </el-button>
-    <span v-if="!showBatchFix" class="batch-fix-hint"
-      >{{ blockedCount + errorCount }} 条待处理</span
-    >
-    <el-button
-      v-if="hasFundRecordsForNav"
-      type="primary"
-      size="default"
-      :loading="enrichingNav"
-      @click="fetchAndFillFundNav"
-    >
-      获取净值和份额（{{ fundRecordsCount }}只）
-    </el-button>
-    <el-button
-      v-if="calculatedCount > 0"
-      type="warning"
-      size="default"
-      @click="confirmAllCalculated"
-    >
-      确认所有推算数据（{{ calculatedCount }} 条）
-    </el-button>
-  </div>
+  <div class="batch-fix-card">
+    <div class="bf-header">批量修正</div>
 
-  <div
-    v-if="showBatchFix && problemCategories.length > 0"
-    class="batch-fix-panel"
-  >
-    <div
-      v-for="cat in problemCategories"
-      :key="cat.key"
-      class="batch-fix-group"
-      :class="{
-        'batch-fix-group--active': isCategoryActive(cat.key)
-      }"
-      @click="filterByCategory(cat.key)"
-    >
-      <div class="batch-fix-card">
-        <div class="batch-fix-card-header">
-          <div class="batch-fix-info">
-            <span class="batch-fix-label">{{ cat.label }}</span>
-            <span class="batch-fix-desc">{{ getCategoryDesc(cat.key) }}</span>
-          </div>
-          <el-tag
-            size="small"
-            effect="dark"
-            :type="getCategoryTagType(cat.key, cat.count)"
-            >{{ cat.count }} 条
-          </el-tag>
-        </div>
-        <div class="batch-fix-actions" @click.stop>
-          <template v-if="cat.key === 'missingCode'">
-            <template v-for="assetType in ['fund', 'stock']" :key="assetType">
-              <template
-                v-if="getMissingRowsByType(cat.rows, assetType).length > 0"
-              >
-                <template v-if="assetType === 'fund'">
+    <div v-if="blockedCount + errorCount > 0" class="bf-body">
+      <div class="bf-actions">
+        <el-button
+          type="primary"
+          size="default"
+          :loading="enrichingNav"
+          :disabled="autoFixableCount === 0"
+          @click="autoFix"
+        >
+          <IconifyIconOffline icon="ep:magic-stick" class="mr-1" />
+          自动修复可处理项
+        </el-button>
+        <el-button size="default" @click="toggleBatchFix">
+          {{ showBatchFix ? "收起手动修正" : "展开手动修正" }}
+        </el-button>
+      </div>
+
+      <p
+        class="bf-hint"
+        :class="manualCount > 0 ? 'bf-hint--warn' : 'bf-hint--ok'"
+      >
+        <template v-if="manualCount > 0">
+          还有 {{ manualCount }} 条需手动补全代码或价量，无法自动修正
+        </template>
+        <template v-else> 无可自动修复项，或剩余均可自动处理 </template>
+      </p>
+
+      <div
+        v-if="showBatchFix && problemCategories.length > 0"
+        class="batch-fix-detail"
+      >
+        <div
+          v-for="cat in problemCategories"
+          :key="cat.key"
+          class="batch-fix-group"
+          :class="{ 'batch-fix-group--active': isCategoryActive(cat.key) }"
+          @click="filterByCategory(cat.key)"
+        >
+          <div class="batch-fix-card-inner">
+            <div class="batch-fix-card-header">
+              <div class="batch-fix-info">
+                <span class="batch-fix-label">{{ cat.label }}</span>
+                <span class="batch-fix-desc">{{
+                  getCategoryDesc(cat.key)
+                }}</span>
+              </div>
+              <el-tag
+                size="small"
+                effect="dark"
+                :type="getCategoryTagType(cat.key, cat.count)"
+                >{{ cat.count }} 条
+              </el-tag>
+            </div>
+            <div class="batch-fix-actions" @click.stop>
+              <template v-if="cat.key === 'missingCode'">
+                <template
+                  v-for="assetType in ['fund', 'stock']"
+                  :key="assetType"
+                >
                   <template
-                    v-if="getMissingRowsByType(cat.rows, 'fund').length === 1"
+                    v-if="getMissingRowsByType(cat.rows, assetType).length > 0"
                   >
-                    <el-input
-                      v-model="batchCodeInput"
-                      placeholder="输入基金代码"
-                      size="small"
-                      class="batch-fix-input"
-                    />
-                    <el-button
-                      type="primary"
-                      size="small"
-                      class="batch-fix-btn batch-fix-btn--primary"
-                      @click="
-                        batchFillCode(
-                          getMissingRowsByType(cat.rows, 'fund'),
-                          batchCodeInput
-                        )
-                      "
-                    >
-                      应用到当前 1 条
-                    </el-button>
-                  </template>
-                  <template v-else>
-                    <el-button
-                      type="primary"
-                      size="small"
-                      @click="showMatchDrawer = true"
-                    >
-                      匹配基金代码（{{
-                        getMissingRowsByType(cat.rows, "fund").length
-                      }}只）
-                    </el-button>
+                    <template v-if="assetType === 'fund'">
+                      <template
+                        v-if="
+                          getMissingRowsByType(cat.rows, 'fund').length === 1
+                        "
+                      >
+                        <el-input
+                          v-model="batchCodeInput"
+                          placeholder="输入基金代码"
+                          size="small"
+                          class="batch-fix-input"
+                        />
+                        <el-button
+                          type="primary"
+                          size="small"
+                          class="batch-fix-btn batch-fix-btn--primary"
+                          @click="
+                            batchFillCode(
+                              getMissingRowsByType(cat.rows, 'fund'),
+                              batchCodeInput
+                            )
+                          "
+                        >
+                          应用到当前 1 条
+                        </el-button>
+                      </template>
+                      <template v-else>
+                        <el-button
+                          type="primary"
+                          size="small"
+                          @click="showMatchDrawer = true"
+                        >
+                          匹配基金代码（{{
+                            getMissingRowsByType(cat.rows, "fund").length
+                          }}只）
+                        </el-button>
+                      </template>
+                    </template>
+
+                    <template v-if="assetType === 'stock'">
+                      <el-input
+                        v-model="batchCodeInput"
+                        placeholder="输入股票代码"
+                        size="small"
+                        class="batch-fix-input"
+                      />
+                      <el-button
+                        type="primary"
+                        size="small"
+                        class="batch-fix-btn batch-fix-btn--primary"
+                        @click="
+                          batchFillCode(
+                            getMissingRowsByType(cat.rows, 'stock'),
+                            batchCodeInput
+                          )
+                        "
+                      >
+                        应用到当前
+                        {{ getMissingRowsByType(cat.rows, "stock").length }}
+                        条
+                      </el-button>
+                    </template>
                   </template>
                 </template>
-
-                <template v-if="assetType === 'stock'">
-                  <el-input
-                    v-model="batchCodeInput"
-                    placeholder="输入股票代码"
-                    size="small"
-                    class="batch-fix-input"
-                  />
+              </template>
+              <template v-if="cat.key === 'mismatch'">
+                <el-tooltip content="以数量×价格为准修正金额" placement="top">
                   <el-button
                     type="primary"
                     size="small"
                     class="batch-fix-btn batch-fix-btn--primary"
-                    @click="
-                      batchFillCode(
-                        getMissingRowsByType(cat.rows, 'stock'),
-                        batchCodeInput
-                      )
-                    "
-                  >
-                    应用到当前
-                    {{ getMissingRowsByType(cat.rows, "stock").length }}
-                    条
+                    @click="batchFixAmount(cat.rows)"
+                    >修正金额
                   </el-button>
-                </template>
+                </el-tooltip>
               </template>
-            </template>
-          </template>
-          <template v-if="cat.key === 'mismatch'">
-            <el-tooltip content="以数量×价格为准修正金额" placement="top">
+              <template v-if="cat.key === 'missingQtyPrice'">
+                <el-button
+                  type="primary"
+                  size="small"
+                  class="batch-fix-btn batch-fix-btn--primary"
+                  @click="
+                    showFullTable = true;
+                    showProblemOnly = true;
+                  "
+                  >展开查看并手动编辑
+                </el-button>
+              </template>
               <el-button
-                type="primary"
                 size="small"
-                class="batch-fix-btn batch-fix-btn--primary"
-                @click="batchFixAmount(cat.rows)"
-                >修正金额
+                class="batch-fix-btn batch-fix-btn--secondary"
+                @click="skipCategory(cat.rows)"
+                >跳过当前
               </el-button>
-            </el-tooltip>
-          </template>
-          <template v-if="cat.key === 'missingQtyPrice'">
-            <el-button
-              type="primary"
-              size="small"
-              class="batch-fix-btn batch-fix-btn--primary"
-              @click="
-                showFullTable = true;
-                showProblemOnly = true;
-              "
-              >展开查看并手动编辑
-            </el-button>
-          </template>
-          <el-button
-            size="small"
-            class="batch-fix-btn batch-fix-btn--secondary"
-            @click="skipCategory(cat.rows)"
-            >跳过当前
-          </el-button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
+
+    <p v-else class="bf-empty">本批数据校验通过，无需修正</p>
   </div>
 </template>
 
 <style scoped>
-.batch-fix-bar {
+.batch-fix-card {
+  display: flex;
+  flex-direction: column;
+  padding: 14px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  min-width: 0;
+}
+
+.bf-header {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+}
+
+.bf-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.bf-actions {
   display: flex;
   gap: 8px;
   align-items: center;
   flex-wrap: wrap;
-  margin-bottom: 12px;
 }
 
-.batch-fix-hint {
+.bf-hint {
   font-size: 12px;
+  margin: 0;
+}
+
+.bf-hint--warn {
   color: var(--color-warning);
 }
 
-.batch-fix-panel {
+.bf-hint--ok {
+  color: var(--text-tertiary);
+}
+
+.bf-empty {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin: 0;
+}
+
+.batch-fix-detail {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border-default);
 }
 
 .batch-fix-group {
@@ -220,7 +289,7 @@ const {
   border-color: var(--color-primary);
 }
 
-.batch-fix-card {
+.batch-fix-card-inner {
   padding: 12px;
 }
 
