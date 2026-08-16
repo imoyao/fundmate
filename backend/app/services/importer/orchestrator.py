@@ -226,15 +226,19 @@ class ImportOrchestrator:
                     symbol=row['symbol'],
                     name=row.get('name', ''),
                     business_type=row.get('op_type', 'buy'),
-                    amount=Decimal(str(row.get('amount', 0))),
+                    # B5 修复：row 值可能为 None（前端缺字段），str(None) 会让 Decimal 抛异常，
+                    # 统一 or 0 兜底后再转 Decimal
+                    amount=Decimal(str(row.get('amount') or 0)),
                     account_name=row.get('account_name', ''),
-                    shares=Decimal(str(row.get('quantity', 0))) if row.get('quantity') else None,
-                    nav=Decimal(str(row.get('price', 0))) if row.get('price') else None,
-                    fee=Decimal(str(row.get('fee', 0))),
+                    shares=Decimal(str(row.get('quantity') or 0)) if row.get('quantity') else None,
+                    nav=Decimal(str(row.get('price') or 0)) if row.get('price') else None,
+                    fee=Decimal(str(row.get('fee') or 0)),
                     transaction_id=row.get('contract_id', ''),
                     import_hash=row.get('import_hash'),
                     source=row.get('source', ''),
                     ledger_id=row.get('ledger_id'),
+                    # B2 修复：透传净发生金额（同花顺专用），现金/扣税/兑付分支按净额入账
+                    net_amount=row.get('net_amount') or 0,
                 )
             )
 
@@ -519,6 +523,7 @@ class ImportOrchestrator:
                     entry_status = None
                     if not data.get('ledger_id'):
                         logger.warning('现金管理产品缺少 ledger_id，跳过')
+                        skipped += 1  # B4 修复：缺 ledger_id 跳过时计入 skipped（原漏计数）
                         continue
                     bank_ledger = self.db.query(Ledger).filter_by(ledger_type='bank', family_id=self.family_id).first()
                     if bank_ledger:
@@ -645,7 +650,9 @@ class ImportOrchestrator:
                         confirm_date=data.get('confirm_date'),
                         asset_type=data.get('type'),
                         quantity=qty_units,
-                        price=data.get('avg_price', 0),  # avg_price 可能为 0，转股无价格，保留原值
+                        price=Money.yuan_to_cents(
+                            data.get('avg_price', 0)
+                        ),  # B1 修复：分单位，与 BOND_REDEEM 一致（转股无价格时为 0）
                         fee=0,
                         amount=0,
                         status='success',
@@ -672,6 +679,8 @@ class ImportOrchestrator:
                 logger.exception(f'数据库操作失败: symbol={record.symbol}, error={e}')
                 raise
             except Exception as e:
+                # B3 标记（暂缓修复）：非 SQLAlchemyError 分支不回滚，同批后续记录可能带脏状态；
+                # 待统一为 begin_nested() 保存点后回滚单条（与 E6 对账侧口径一致，2026-08-17）。
                 logger.exception(f'入库单条记录失败: symbol={record.symbol}, business_type={record.business_type}')
                 commit_errors.append({'symbol': record.symbol, 'name': record.name, 'error': str(e)})
 
