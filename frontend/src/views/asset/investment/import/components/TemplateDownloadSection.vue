@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { useImportWizardContext } from "../composables/useImportWizardContext";
 
-const { isStandardMode, accountType, templateFields } = useImportWizardContext();
+const { isStandardMode, accountType, templateFields } =
+  useImportWizardContext();
 </script>
 
 <template>

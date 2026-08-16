@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import SummaryPanel from "./SummaryPanel.vue";
 import PreviewTable from "./PreviewTable.vue";
+import BatchFixPanel from "./BatchFixPanel.vue";
 import { useImportWizardContext } from "../composables/useImportWizardContext";
 
 const {
@@ -11,6 +12,7 @@ const {
   duplicateCount,
   blockedCount,
   errorCount,
+  showFixPanel,
   selectedCount,
   totalRows,
   importNormalOnly,
@@ -76,18 +78,22 @@ const {
 
     <div class="fixed-action-bar">
       <div class="action-content">
-        <span class="selected-count">
-          本次导入识别 {{ totalRows }} 条，已选中
-          <strong>{{ selectedCount }}</strong> 条有效数据
-          <span v-if="duplicateCount + blockedCount + errorCount > 0">
-            ，另有
+        <div class="action-summary">
+          <span class="summary-primary">
+            已选中 <strong>{{ selectedCount }}</strong> 条有效数据
+          </span>
+          <span
+            v-if="duplicateCount + blockedCount + errorCount > 0"
+            class="summary-secondary"
+          >
+            本次共识别 {{ totalRows }} 条，另有
             {{ duplicateCount + blockedCount + errorCount }} 条待处理（{{
               duplicateCount
             }}条重复 / {{ blockedCount }}条待补全
             <template v-if="errorCount > 0">/ {{ errorCount }}条错误</template
             >）
           </span>
-        </span>
+        </div>
         <div class="flex gap-3">
           <el-button
             v-if="duplicateCount + blockedCount + errorCount > 0"
@@ -106,6 +112,15 @@ const {
         </div>
       </div>
     </div>
+
+    <el-drawer
+      v-model="showFixPanel"
+      title="智能修正"
+      :size="400"
+      direction="rtl"
+    >
+      <BatchFixPanel />
+    </el-drawer>
   </div>
 </template>
 
@@ -188,8 +203,20 @@ const {
   margin: 0 auto;
 }
 
-.selected-count {
+.action-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.summary-primary {
   font-size: 14px;
-  color: var(--text-secondary);
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.summary-secondary {
+  font-size: 12px;
+  color: var(--text-tertiary);
 }
 </style>

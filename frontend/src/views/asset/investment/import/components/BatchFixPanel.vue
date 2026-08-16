@@ -51,9 +51,7 @@ const autoFixableCount = computed(() => {
 </script>
 
 <template>
-  <div class="batch-fix-card">
-    <div class="bf-header">批量修正</div>
-
+  <div class="batch-fix-panel">
     <div v-if="blockedCount + errorCount > 0" class="bf-body">
       <div class="bf-actions">
         <el-button
@@ -221,21 +219,16 @@ const autoFixableCount = computed(() => {
 </template>
 
 <style scoped>
-.batch-fix-card {
+/* 展开区形态：不再是顶部独立卡片，而是筛选栏下方可折叠的浅底面板 */
+.batch-fix-panel {
   display: flex;
   flex-direction: column;
-  padding: 14px 16px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
+  gap: 12px;
   min-width: 0;
-}
-
-.bf-header {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 10px;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  border: none;
 }
 
 .bf-body {
@@ -246,14 +239,14 @@ const autoFixableCount = computed(() => {
 
 .bf-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
-  flex-wrap: wrap;
 }
 
 .bf-hint {
-  font-size: 12px;
   margin: 0;
+  font-size: 12px;
 }
 
 .bf-hint--warn {
@@ -265,17 +258,17 @@ const autoFixableCount = computed(() => {
 }
 
 .bf-empty {
+  margin: 0;
   font-size: 12px;
   color: var(--text-tertiary);
-  margin: 0;
 }
 
 .batch-fix-detail {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  margin-top: 4px;
   padding-top: 10px;
+  margin-top: 4px;
   border-top: 1px dashed var(--border-default);
 }
 
@@ -295,9 +288,9 @@ const autoFixableCount = computed(() => {
 
 .batch-fix-card-header {
   display: flex;
+  gap: 8px;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 8px;
 }
 
 .batch-fix-info {
@@ -318,9 +311,9 @@ const autoFixableCount = computed(() => {
 
 .batch-fix-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   align-items: center;
-  flex-wrap: wrap;
   margin-top: 10px;
 }
 
@@ -341,9 +334,9 @@ const autoFixableCount = computed(() => {
 }
 
 .batch-fix-btn--primary {
+  color: var(--bg-card);
   background-color: var(--color-primary);
   border-color: var(--color-primary);
-  color: var(--bg-card);
 }
 
 .batch-fix-btn--secondary {

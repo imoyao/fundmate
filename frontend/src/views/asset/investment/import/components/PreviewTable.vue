@@ -25,8 +25,23 @@ const {
   filteredTotal,
   handleSizeChange,
   handlePageChange,
-  toggleIgnoreRow
+  toggleIgnoreRow,
+  startEdit,
+  isFundMode
 } = useImportWizardContext();
+
+/** 缺数量或价格时返回对应字段名，供操作列「补全」一键定位编辑（基金模式无行内编辑弹层，不提供） */
+function missingField(row: any): "quantity" | "price" | null {
+  if (isFundMode.value) return null;
+  const qtyEmpty =
+    row.quantity === null || row.quantity === undefined || row.quantity === "";
+  const priceEmpty =
+    row.price === null || row.price === undefined || row.price === "";
+  if (qtyEmpty && priceEmpty) return "quantity";
+  if (qtyEmpty) return "quantity";
+  if (priceEmpty) return "price";
+  return null;
+}
 </script>
 
 <template>
@@ -84,9 +99,17 @@ const {
             <AllocationSelect :row="row" />
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="100" fixed="right">
+        <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
             <div class="row-actions">
+              <el-button
+                v-if="missingField(row)"
+                link
+                type="primary"
+                size="small"
+                @click="startEdit(row, missingField(row)!)"
+                >补全</el-button
+              >
               <el-button
                 v-if="!row._ignored"
                 link
@@ -138,8 +161,9 @@ const {
 }
 
 :deep(.el-table .cell) {
-  padding-left: 10px;
   padding-right: 10px;
+  padding-left: 10px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* 操作列：默认低存在感，hover 整行时浮现（design.md「表格禁止每行常驻操作按钮」例外操作列） */

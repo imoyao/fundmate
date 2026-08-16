@@ -67,24 +67,23 @@ function setFilter(key: string) {
 <style scoped>
 .summary-tabs {
   display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
+  flex-flow: row wrap;
   gap: 8px;
   align-items: center;
 }
 
 .summary-tab {
   display: inline-flex;
-  align-items: center;
   gap: 6px;
+  align-items: center;
   height: 30px;
   padding: 0 14px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  background: var(--bg-card);
   border: 1px solid var(--border-default);
   border-radius: 999px;
-  background: var(--bg-card);
-  color: var(--text-secondary);
-  font-size: 13px;
-  cursor: pointer;
   transition:
     background-color 0.2s,
     color 0.2s,
@@ -92,15 +91,15 @@ function setFilter(key: string) {
 }
 
 .summary-tab:hover {
-  border-color: var(--color-primary);
   color: var(--color-primary);
+  border-color: var(--color-primary);
 }
 
 .summary-tab.active {
+  font-weight: 600;
+  color: var(--color-primary);
   background: var(--color-primary-10);
   border-color: var(--color-primary);
-  color: var(--color-primary);
-  font-weight: 600;
 }
 
 .tab-icon {
@@ -109,17 +108,17 @@ function setFilter(key: string) {
 
 .tab-count {
   min-width: 18px;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-  font-size: 12px;
   padding: 0 6px;
-  border-radius: 999px;
-  background: var(--bg-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
   color: var(--text-tertiary);
+  text-align: center;
+  background: var(--bg-secondary);
+  border-radius: 999px;
 }
 
 .summary-tab.active .tab-count {
-  background: var(--color-primary);
   color: #fff;
+  background: var(--color-primary);
 }
 </style>

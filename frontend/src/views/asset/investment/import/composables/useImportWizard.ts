@@ -214,6 +214,8 @@ export function useImportWizard() {
   const tableStatusFilter = ref("");
   const showFullTable = ref(true);
   const showBatchFix = ref(false);
+  /** 智能修正面板（原独立卡片 → 筛选栏右侧胶囊按钮控制展开） */
+  const showFixPanel = ref(false);
   const batchCodeInput = ref("");
   const importErrors = ref<any[]>([]);
   const duplicatesHandled = ref(false);
@@ -896,6 +898,7 @@ export function useImportWizard() {
     validRowsCount.value = 0;
     showFullTable.value = true;
     showBatchFix.value = false;
+    showFixPanel.value = false;
     tableFilterKeyword.value = "";
     tableTypeFilter.value = [];
     tableStatusFilter.value = "";
@@ -1334,6 +1337,7 @@ export function useImportWizard() {
     selectAllValid();
     updateSelectAllState();
     showBatchFix.value = false;
+    showFixPanel.value = false;
     tableStatusFilter.value = "";
     activeCategoryFilter.value = "";
   }
@@ -1391,6 +1395,12 @@ export function useImportWizard() {
 
   function toggleBatchFix() {
     showBatchFix.value = !showBatchFix.value;
+    showAllocationGroupPanel.value = false;
+  }
+
+  /** 展开/收起智能修正面板（顶部筛选栏胶囊按钮） */
+  function toggleFixPanel() {
+    showFixPanel.value = !showFixPanel.value;
     showAllocationGroupPanel.value = false;
   }
 
@@ -1749,6 +1759,7 @@ export function useImportWizard() {
     tableStatusFilter,
     showFullTable,
     showBatchFix,
+    showFixPanel,
     batchCodeInput,
     importErrors,
     duplicatesHandled,
@@ -1827,6 +1838,7 @@ export function useImportWizard() {
     onRowAllocationChange,
     toggleAllocationPanel,
     toggleBatchFix,
+    toggleFixPanel,
     autoFix,
     startEdit,
     finishEdit,

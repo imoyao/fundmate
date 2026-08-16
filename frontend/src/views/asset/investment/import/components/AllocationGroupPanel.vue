@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import { ALLOCATION_OPTIONS } from "@/constants";
 import { useImportWizardContext } from "../composables/useImportWizardContext";
 
@@ -8,10 +9,16 @@ const {
   currentAllocationGroups,
   applyAllocationGroupSetting
 } = useImportWizardContext();
+
+const hasContent = computed(
+  () =>
+    selectedCount.value > 0 ||
+    Object.keys(currentAllocationGroups.value).length > 0
+);
 </script>
 
 <template>
-  <div class="allocation-group-panel">
+  <div v-if="hasContent" class="allocation-group-panel">
     <div class="allocation-group-header">
       <span class="font-weight-500">配置目标</span>
     </div>
@@ -59,13 +66,10 @@ const {
           />
         </el-select>
       </div>
-      <div
-        v-if="Object.keys(currentAllocationGroups).length === 0"
-        class="text-center text-gray-400 py-4"
-      >
-        所有数据已手动设置配置目标，无需分组调整
-      </div>
     </div>
+  </div>
+  <div v-else class="allocation-group-empty">
+    所有数据已手动设置配置目标，无需分组调整
   </div>
 </template>
 
@@ -126,5 +130,12 @@ const {
   font-size: 12px;
   font-weight: 500;
   color: var(--text-primary);
+}
+
+.allocation-group-empty {
+  padding: 6px 0;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  text-align: center;
 }
 </style>

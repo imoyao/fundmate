@@ -41,7 +41,9 @@ const {
         @click="handleDownloadTemplate"
       >
         <IconifyIconOffline icon="lucide:download" class="download-icon" />
-        <span>{{ downloadLoading ? "下载中..." : `下载${templateNameForAccount}模板` }}</span>
+        <span>{{
+          downloadLoading ? "下载中..." : `下载${templateNameForAccount}模板`
+        }}</span>
       </button>
     </div>
     <span class="mode-hint">选择与您的文件来源匹配的格式</span>
@@ -52,8 +54,8 @@ const {
 .mode-select {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
   gap: 8px;
+  align-items: flex-start;
 }
 
 .mode-main {
@@ -83,9 +85,9 @@ const {
   padding: 0;
   font-size: 13px;
   color: var(--text-secondary);
+  cursor: pointer;
   background: transparent;
   border: none;
-  cursor: pointer;
   transition: color 150ms ease;
 }
 
@@ -104,8 +106,8 @@ const {
 
 .mode-option {
   display: inline-flex;
-  align-items: center;
   gap: 8px;
+  align-items: center;
 }
 
 .mode-option-logo {

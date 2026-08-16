@@ -1,17 +1,15 @@
 <script setup lang="ts">
 import { useImportWizardContext } from "../composables/useImportWizardContext";
 import SummaryStats from "./SummaryStats.vue";
-import BatchFixPanel from "./BatchFixPanel.vue";
 import AllocationGroupPanel from "./AllocationGroupPanel.vue";
 
-useImportWizardContext();
+const { showAllocationGroupPanel } = useImportWizardContext();
 </script>
 
 <template>
   <div class="step3-topbar">
     <SummaryStats />
-    <BatchFixPanel />
-    <AllocationGroupPanel />
+    <AllocationGroupPanel v-if="showAllocationGroupPanel" />
   </div>
 </template>
 
