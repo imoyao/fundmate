@@ -73,7 +73,7 @@ def _target_files(files: list[str] | None) -> list[str]:
     """确定本次提交的目标文件：优先 --files 精准列表，否则回退到已暂存(staged)改动。"""
     if files:
         # 转成仓库根下的绝对路径，保证后续 git add / status 在任意 cwd 下都可靠
-        return [str((REPO_ROOT / f).resolve()) for f in files]
+        return [(REPO_ROOT / f).resolve().as_posix() for f in files]
     out = _run(["git", "diff", "--cached", "--name-only"]).stdout.split()
     if not out:
         sys.exit(
