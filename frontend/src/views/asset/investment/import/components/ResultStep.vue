@@ -24,25 +24,31 @@ const {
       <el-result icon="success" title="导入完成">
         <template #sub-title>
           <div class="result-summary">
-            <div class="result-numbers">
-              <div class="number-item">
-                <span class="number-value number-success">{{
-                  importedCount
-                }}</span>
-                <span class="number-label">笔导入成功</span>
-              </div>
-              <div class="number-divider" />
-              <div class="number-item">
-                <span class="number-value number-skipped">{{
-                  skippedCount
-                }}</span>
-                <span class="number-label">笔跳过</span>（重复
-                {{ duplicateCount }} 条 / 错误 {{ errorCount }} 条）
-              </div>
+            <div class="result-headline">
+              <span class="result-count">{{ importedCount }}</span>
+              <span class="result-count-label">笔导入成功</span>
             </div>
+            <p
+              v-if="
+                skippedCount === 0 && duplicateCount === 0 && errorCount === 0
+              "
+              class="result-subtitle"
+            >
+              全部数据已校验通过，无重复或异常记录。
+            </p>
+            <p v-else class="result-subtitle">
+              {{ skippedCount }} 笔跳过（重复 {{ duplicateCount }} 条 / 错误
+              {{ errorCount }} 条）
+            </p>
 
-            <div v-if="orphanCount > 0" class="mt-4">
+            <div
+              v-if="
+                orphanCount > 0 || importErrors.length > 0 || showPriceUpdateTip
+              "
+              class="result-detail"
+            >
               <el-alert
+                v-if="orphanCount > 0"
                 title="部分交易数据不完整"
                 type="warning"
                 :closable="false"
@@ -58,15 +64,18 @@ const {
                   </p>
                 </template>
               </el-alert>
-            </div>
 
-            <ImportErrorSummary
-              v-if="importErrors.length > 0"
-              title="导入过程中部分记录因以下原因被跳过"
-            />
+              <ImportErrorSummary
+                v-if="importErrors.length > 0"
+                title="导入过程中部分记录因以下原因被跳过"
+              />
 
-            <div v-if="showPriceUpdateTip" class="mt-4">
-              <el-alert title="建议" type="info" :closable="false" show-icon>
+              <el-alert
+                v-if="showPriceUpdateTip"
+                type="info"
+                :closable="false"
+                :show-icon="false"
+              >
                 <template #default>
                   <p>你刚导入了交易记录，持仓数据已更新。</p>
                   <p class="text-xs mt-1">
@@ -82,7 +91,7 @@ const {
               </el-alert>
             </div>
           </div>
-          <div class="flex gap-2 justify-center mt-6">
+          <div class="result-actions">
             <el-button
               v-if="importedCount > 0 || orphanCount > 0"
               type="primary"
@@ -111,11 +120,52 @@ const {
 </template>
 
 <style scoped>
-.number-success {
-  color: var(--color-success);
+.result-summary {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
 }
 
-.number-skipped {
-  color: var(--text-tertiary);
+.result-headline {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.result-count {
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--color-success);
+  font-variant-numeric: tabular-nums;
+}
+
+.result-count-label {
+  font-size: var(--text-body);
+  color: var(--text-secondary);
+}
+
+.result-subtitle {
+  margin-top: 20px;
+  font-size: var(--text-small);
+  color: var(--text-secondary);
+}
+
+.result-detail {
+  margin-top: var(--space-loose);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-loose);
+  width: 100%;
+  max-width: 440px;
+  text-align: left;
+}
+
+.result-actions {
+  margin-top: var(--space-loose);
+  display: flex;
+  justify-content: center;
+  gap: 8px;
 }
 </style>
