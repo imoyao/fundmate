@@ -27,7 +27,7 @@ const {
       :show-file-list="false"
       drag
       :disabled="!selectedLedgerId || parsing"
-      class="golden-upload"
+      :class="['golden-upload', { 'is-dragover': isDragover }]"
     >
       <template #default>
         <IconifyIconOffline
@@ -107,8 +107,8 @@ const {
 }
 
 .golden-upload.is-dragover {
-  background: var(--brand-100) !important;
-  border: 2px solid var(--brand-700) !important;
+  background: var(--brand-100);
+  border-color: var(--brand-700);
 }
 
 .golden-upload.is-dragover .upload-icon {

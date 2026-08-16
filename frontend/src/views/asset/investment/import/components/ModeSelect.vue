@@ -13,7 +13,17 @@ const { selectedMode, availableModes } = useImportWizardContext();
         :key="mode.value"
         :label="mode.label"
         :value="mode.value"
-      />
+      >
+        <span class="mode-option">
+          <img
+            v-if="mode.logo"
+            :src="mode.logo"
+            class="mode-option-logo"
+            alt=""
+          />
+          <span>{{ mode.label }}</span>
+        </span>
+      </el-option>
     </el-select>
     <span class="mode-hint">选择与您的文件来源匹配的格式</span>
   </div>
@@ -32,11 +42,23 @@ const { selectedMode, availableModes } = useImportWizardContext();
 }
 
 .mode-select-field {
-  width: 220px;
+  width: 240px;
 }
 
 .mode-hint {
   font-size: 12px;
   color: var(--text-tertiary);
+}
+
+.mode-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mode-option-logo {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
 }
 </style>
