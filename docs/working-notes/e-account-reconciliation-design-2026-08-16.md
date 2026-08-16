@@ -35,7 +35,7 @@ E账户（中国结算）数据特征（真实样本 2026-08-12 核实，解析�
 | **E账户 vs 流水互踩** | **融合方案**：渠道 Ledger 无该 symbol 持仓 → 自动归因；有且份额一致 → 已核对静默跳过；有且份额不一致 → 冲突落暂存区，覆盖权交用户 |
 | **归因持久性** | `is_attributed=True` 防复活：已归因记录后续 E账户导入自动跳过（不覆盖、不重建冲突） |
 | **渠道视图** | **不需要**——渠道 = Ledger，天然 `WHERE ledger_id = X` |
-| **E账户视图** | 跨 Ledger 聚合（按 fund_manager 分组），不依赖 Transaction |
+| **E账户视图** | 对账中心查询 `e_account` Ledger 下的影子记录（`ownership_status='shadow'`）；跨渠道聚合展示由前端按 `fund_manager` 分组 |
 | **存量迁移** | **零迁移**——现有「天天基金」等 Ledger 语义正确，保留不动 |
 | **Transaction** | 保持 `position_id=None`（孤立流水，不改架构），仅用于 XIRR 与历史明细追溯；持仓聚合以 Position 为准 |
 | **API 模式** | **无状态**：parse 返回 rows（前端持有）→ reconcile 传 rows 落库，与现有 parse/confirm 模式一致，不引入 job 缓存 |
@@ -335,6 +335,22 @@ def execute_attribution_cover(record_id, target_ledger_id, avg_price=None, famil
 | E账户解析器 `e_account_holding.py` | **不改**——`COLUMN_MAP` 已含销售机构/基金管理人/基金账户/交易账户/分红方式 |
 | `get_or_create_e_account_ledger` | 保留（暂存区 Ledger 仍需要） |
 
-## 10. 变更记录
+## 10. PR #1021 返工范围
+
+PR #1021 已合入的 E账户导入代码需要返工，范围如下：
+
+| 原代码 | 原行为 | 新行为 |
+| :--- | :--- | :--- |
+| `commit_holdings`（`POST /api/importers/holdings/confirm`） | E账户快照全量 SET 到 `e_account` 聚合账户 | **接口契约冻结**（请求/响应格式不变），内部仅增加 `is_attributed`/`is_ignored` 过滤（防旧调用方复活已归因记录）；**不承担**自动归因/冲突检测——新流程落库入口是 `reconcile`（§5.2） |
+| `get_or_create_e_account_ledger` | 创建/复用 `e_account` 聚合账户（`ledger_type='e_account'`，orchestrator.py:734） | **保留**，作为影子记录的暂存区 Ledger |
+| `upsert_from_holding` | `(ledger_id, symbol)` 业务键，SET 语义 | **新增** `ownership_status` 支持；调用方显式传 `'active'` 或 `'shadow'` |
+
+**关键差异**：
+
+- 旧行为：E账户导入 = 全量覆盖 `e_account` 聚合账户；
+- 新行为：E账户导入 = `reconcile` 逐条处理（先建影子记录 → 匹配渠道 → 自动归因/冲突/已核对），影子记录永久保留，渠道 Position 按分支落库。
+
+## 11. 变更记录
 
 - 2026-08-16：创建（讨论定稿 v1.0，待编码）。
+- 2026-08-16：v1.1 补充 PR #1021 返工范围（§10）；修正「E账户视图」措辞（对账中心查影子记录，跨渠道聚合由前端按 fund_manager 分组）。
