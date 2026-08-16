@@ -151,7 +151,7 @@ class PositionService:
     # ── 公开方法 ──────────────────────────────────────────
 
     @staticmethod
-    def upsert_from_holding(db: Session, data: dict) -> Position:
+    def upsert_from_holding(db: Session, data: dict, ownership_status: str = 'active') -> Position:
         """持仓快照 upsert（#1012 核心新方法）：以 (ledger_id, symbol) 为业务键，SET 语义整条替换。
 
         与 process_buy_or_deposit 的本质区别（持仓 vs 交易流水）：
@@ -160,6 +160,11 @@ class PositionService:
         - **绝不调用 TransactionService.create** —— 导入持仓不产生交易流水；
         - 溯源元数据（基金管理人/平台账号/分红方式/市值等）写入 position_import_meta（1:1 upsert），
           保证 E账户样本信息不丢失。
+
+        ownership_status 参数（E账户对账扩展，#1021）：
+        - 'active'（默认）：参与总资产，渠道正常持仓；
+        - 'shadow'：仅对账不参与总资产（影子记录走专用 upsert，不调用本方法）。
+        现有调用方不传则默认 'active'，行为不变。
 
         data 关键字段：
             symbol / name / asset_type / ledger_id / account_name / quantity(份) /
@@ -208,6 +213,9 @@ class PositionService:
             existing.import_hash = import_hash
             existing.source = src
             existing.source_broker = data.get('source_broker')
+            # 对账扩展：调用方显式传 shadow 时同步更新（防渠道记录被误标为影子）
+            if existing.ownership_status != ownership_status:
+                existing.ownership_status = ownership_status
             position = existing
         else:
             position = Position(
@@ -226,6 +234,7 @@ class PositionService:
                 import_hash=import_hash,
                 source=src,
                 source_broker=data.get('source_broker'),
+                ownership_status=ownership_status,
                 family_id=family_id,
             )
             db.add(position)

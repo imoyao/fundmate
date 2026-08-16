@@ -354,3 +354,72 @@ PR #1021 已合入的 E账户导入代码需要返工，范围如下：
 
 - 2026-08-16：创建（讨论定稿 v1.0，待编码）。
 - 2026-08-16：v1.1 补充 PR #1021 返工范围（§10）；修正「E账户视图」措辞（对账中心查影子记录，跨渠道聚合由前端按 fund_manager 分组）。
+- 2026-08-16：v1.1.1 实施前代码核验，发现 §3.4/§4.1 影子记录方案与现有 DB 约束冲突，经用户确认修正（见 §12）。
+- 2026-08-17：v1.1.2 实施后审查修正（见 §13）：对账中心 diff 语义、ignore 事务性、无价格行 import_error、交割单导入 4 处 bug。
+
+## 13. v1.1.2 实施后审查修正（2026-08-17，用户已确认）
+
+**本节修正优先于前文冲突处。** 编码完成后的代码审查发现以下实现偏差/bug，已修复并补测试。
+
+### 13.1 E账户对账修正
+
+| 项 | 问题 | 修正 |
+| :--- | :--- | :--- |
+| E1 | `attribute_holdings` 的 ignore 分支只 flush 不 commit；后续 cover 失败 rollback 会把 ignore 标记一起回滚 | ignore 分支改为单条事务（立即 commit，失败 rollback + 计 failed） |
+| E2 | `get_reconciliation` 的 diff 用单条影子记录份额对比 symbol 级系统汇总——多渠道场景（E账户 1000+500 份 vs 系统 1500 份）每条 diff 恒为偏差，误导用户 | diff 改为 **symbol 级汇总对比**：`diff = eaccount_total - system_total`；每条记录保留自身 `eaccount_quantity`，新增 `eaccount_total` 字段 |
+| E3 | `_parse_snapshot_date` 只接受字符串，date/datetime 对象输入抛 TypeError 降级为今天（数据错误） | 先判 `datetime`/`date` 对象直接取 date，字符串才 strptime |
+| E4 | 无净值/无成本行直接抛错进 failed_rows，不落影子记录（「E账户侧数据永不缺失」不成立）；`import_error` 列从未置位 | 无价格行**照常落影子记录**（`avg_price=0` 占位——列不可空）+ `meta.import_error=True`，计入 failed_rows 提示但不中断渠道匹配 |
+| E5 | `_upsert_shadow_holding` 返回 Position，reconcile 里重复查 meta | 返回 `(position, meta)` 二元组，删重复查询 |
+| E6 | `reconcile_holdings` 单条异常不 rollback，部分写入随最终 commit 提交 | 单行处理包进 `begin_nested()` savepoint，失败回滚该行中间写入 |
+
+### 13.2 交割单导入修正（既有代码，用户授权一并修）
+
+| 项 | 问题 | 修正 |
+| :--- | :--- | :--- |
+| B1 | `commit` SPLIT（转股）分支 `price` 传元未转分（`Transaction.price` 列是分，BOND_REDEEM 分支已转） | `price=Money.yuan_to_cents(...)` |
+| B2 | `commit_from_preview` 构造记录时丢 `net_amount`（THS 场景关键字段，丢失后降级用 amount） | 补传 `net_amount=row.get('net_amount') or 0` |
+| B3 | `commit` 单条非 SQLAlchemyError 异常不 rollback，部分写入随最终 commit 提交 | **本轮不修**（影响现有导入行为，风险大），代码加 TODO 标记，后期统一 savepoint |
+| B4 | cash 分支缺 ledger_id 时 continue 不计数，统计失真 | `skipped += 1` |
+| B5 | `Decimal(str(row.get('amount', 0)))` 遇 None 崩溃 | `Decimal(str(row.get(x) or 0))`（amount/quantity/price/fee） |
+
+### 13.3 标记后期（未修）
+
+- `_fill_missing_nav_and_shares` 份额计算 `quantize('0.00')` 只保留 2 位小数，与 min_unit（份×10000）精度不一致——设计权衡；
+- `_match_fund_by_name` 相似度算法粗糙（长度差）——既有行为；
+- `commit_holdings` 与 `reconcile_holdings` 职责重叠（旧路径保留）——设计决策已固化。
+
+## 12. v1.1.1 实施前核验修正（2026-08-16，用户已确认）
+
+**本节修正优先于前文冲突处。**
+
+### 12.1 发现的问题（根因证据）
+
+E账户记录粒度是「基金 + 销售机构」——同一基金经不同销售机构购买（多渠道）是常见场景。而现有模型有三处约束与 §3.4「影子记录挂 e_account Ledger」方案冲突：
+
+1. `positions` 表唯一约束 `uq_positions_ledger_symbol`（`ledger_id + symbol` 唯一，positions/models.py）→ 同 symbol 多渠道的两条影子记录在同一 Ledger 下必冲突；
+2. `position_import_meta.import_hash` 唯一 + `compute_position_hash`（importer/records.py）维度为 `source|ledger_id|symbol|snapshot_date`，不含 source_broker → 多渠道同 symbol 同日期 hash 相同；
+3. 通用 `upsert_from_holding`（position_service.py）按 `(symbol, ledger_id, family_id)` 匹配 → 多渠道第二条记录命中 existing 被覆盖合并，渠道维度丢失。
+
+**推论**：现有已上线的 e_account_holding 导入本身即存在多渠道数据丢失（同基金多渠道被合并为一条、后者覆盖前者）。本次修正一并修复。
+
+### 12.2 修正方案（最小偏差）
+
+| 项 | §3.4/§4.1 原方案 | v1.1.1 修正 |
+| :--- | :--- | :--- |
+| 影子记录宿主 | e_account Ledger 下 | **`ledger_id = NULL`**（不挂任何 Ledger；纯对账数据不参与总资产；SQLite UNIQUE 对 NULL 宽松，多渠道可共存） |
+| 影子记录匹配键 | 复用通用 upsert | **专用 upsert：按 `(symbol, source_broker, fund_manager)` 匹配**，不复用 `upsert_from_holding` 的 `(ledger_id, symbol)` 匹配 |
+| 影子记录 import_hash | 现有函数 | **扩展 `compute_position_hash` 加可选 `source_broker` 参数**（仅影子记录传，其余调用不变，哈希格式向后兼容） |
+| 对账/查询 | 查 e_account Ledger 下 shadow | **按 `ownership_status='shadow'` 查询**（对账中心/防复活检查均如此），不再依赖 e_account Ledger |
+| e_account Ledger | 需创建（`get_or_create_e_account_ledger`） | **不再为影子记录创建**；`get_or_create_e_account_ledger` 仅保留给 2.0 旧导入路径的暂存用途（§10 返工后同步弃用） |
+
+### 12.3 修正后的实现约束
+
+- 影子记录：`positions.ledger_id = NULL`、`ownership_status = 'shadow'`、meta 填 `source_broker/fund_manager/symbol`（自然主键三元组）；渠道 Position meta 的两列仍必须为 NULL（§3.2 不变）；
+- 影子记录 upsert 语义：命中 `(symbol, source_broker, fund_manager)` 更新份额/市值/快照日，未命中新建；同一渠道同一 symbol 同日期的记录仍走去重（hash 含渠道维度后自然幂等）；
+- 归因覆盖（cover）：删除目标 Ledger 旧 Position（含 meta）→ 新建 active Position → 影子记录 `is_attributed=True` + `attributed_at` + `attributed_to_ledger_id`，渠道 meta 记 `attributed_from_eaccount`（§4.3 不变）；
+- 总资产计算：`ownership_status='active'` 过滤后，`ledger_id` 关联不变（NULL 影子记录天然不参与）。
+
+### 12.4 附带收益
+
+- 修复现有 e_account_holding 导入多渠道数据丢失的预存 bug（同一基金多渠道各自成记录）；
+- 影子记录与渠道 Position 彻底解耦（渠道删改不影响 E账户侧数据），「E账户侧数据永不缺失」约束天然成立。

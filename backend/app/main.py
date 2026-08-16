@@ -26,6 +26,7 @@ from app.domains.auth.views import auth_bp  # noqa: E402
 from app.domains.families.views import families_bp  # noqa: E402
 from app.domains.funds.views import bp as funds_bp  # noqa: E402
 from app.domains.health import bp as health_bp  # noqa: E402
+from app.domains.importers.e_account_views import e_account_bp  # noqa: E402
 from app.domains.importers.views import importers_bp  # noqa: E402
 from app.domains.ledgers.views import ledgers_bp  # noqa: E402
 from app.domains.ocr.views import ocr_bp  # noqa: E402
@@ -79,6 +80,7 @@ def create_app() -> APIFlask:
     app.register_blueprint(watchlist_bp)
     app.register_blueprint(ocr_bp)
     app.register_blueprint(importers_bp)
+    app.register_blueprint(e_account_bp)
     app.register_blueprint(ledgers_bp)
     app.register_blueprint(utils_bp)
     app.register_blueprint(performance_bp)
@@ -94,6 +96,12 @@ def create_app() -> APIFlask:
     # 初始化数据库
     with app.app_context():
         init_db()
+        # E账户销售机构内置映射（幂等 seed，§3.3）：按 source_name 查无则插
+        from app.core.database import SessionLocal
+        from app.domains.positions.models import seed_sales_broker_mappings
+
+        with SessionLocal() as db:
+            seed_sales_broker_mappings(db)
 
     # 注册全局异常处理器（统一 {data, message, error_code} 信封）。
     # 必须在 create_app() 内部注册，否则测试 fixture 直接调用 create_app()

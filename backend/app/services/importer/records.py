@@ -43,23 +43,30 @@ def compute_position_hash(
     ledger_id: int,
     symbol: str,
     snapshot_date: Optional[date] = None,
+    source_broker: Optional[str] = None,
 ) -> str:
     """为单条持仓记录生成去重哈希（issue #928，与交易去重口径对齐）。
 
     规则（规范 §3.3）：
         f"{source}|{ledger_id}|{symbol}|{snapshot_date}"
+    当传入 source_broker（影子记录专用，§12.3）时，追加渠道维度：
+        f"{source}|{ledger_id}|{source_broker}|{symbol}|{snapshot_date}"
 
     - snapshot_date 优先取持仓快照日（confirm_date）；缺失时由调用方降级为
       created_at 的日期部分（或落库当日），保证「同一天、同一产品、同一来源」
       的持仓不会重复，即便手动录入未提供 snapshot_date。
     - 不含 quantity / avg_price：持仓是汇总结果，同一天同一产品只保留一条汇总
       记录（撞 key 时由 service 层转 upsert 更新数量/成本，而非拒绝）。
+    - source_broker 是 E账户影子记录专用维度：同一基金经不同销售机构（多渠道）
+      各自成记录，哈希不含渠道维度会互相撞 key（§12.1 预存 bug）。其余调用方
+      不传该参数，哈希格式与旧版完全一致（向后兼容）。
 
     与交易侧区别：交易依赖 transaction_id 区分真实多笔；持仓无流水号概念，
     故以 source|ledger|symbol|日期 作为内容指纹即可满足去重需求。
     """
     snap = snapshot_date.isoformat() if snapshot_date else 'unknown'
-    raw = f'{source}|{ledger_id}|{symbol}|{snap}'
+    broker_part = f'|{source_broker}' if source_broker else ''
+    raw = f'{source}|{ledger_id}{broker_part}|{symbol}|{snap}'
     return hashlib.md5(raw.encode()).hexdigest()
 
 
