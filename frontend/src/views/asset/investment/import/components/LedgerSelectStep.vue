@@ -2,7 +2,7 @@
 import { useImportWizardContext } from "../composables/useImportWizardContext";
 import ImportModeCards from "./ImportModeCards.vue";
 
-const { selectedLedgerId, onAccountSelected, ledgerGroups, ledgerTypeMap } =
+const { selectedLedgerId, onAccountSelected, ledgerGroups } =
   useImportWizardContext();
 </script>
 
@@ -28,15 +28,7 @@ const { selectedLedgerId, onAccountSelected, ledgerGroups, ledgerTypeMap } =
             :value="ledger.id"
             :disabled="ledger.ledger_type === 'family'"
           >
-            <span class="ledger-option">
-              <span>{{ ledger.name }}</span>
-              <el-tag
-                size="small"
-                :type="ledger.ledger_type === 'family' ? 'info' : 'primary'"
-              >
-                {{ ledgerTypeMap[ledger.ledger_type] || ledger.ledger_type }}
-              </el-tag>
-            </span>
+            {{ ledger.name }}
           </el-option>
         </el-option-group>
       </el-select>
@@ -61,11 +53,11 @@ const { selectedLedgerId, onAccountSelected, ledgerGroups, ledgerTypeMap } =
   width: 100%;
 }
 
-.ledger-option {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
+/* 下拉分组标题：强分类，对齐设计语言（暖灰次要文字 + 500 字重） */
+.account-select :deep(.el-select-group__title) {
+  font-weight: 500;
+  font-size: var(--text-label);
+  color: var(--text-secondary);
 }
 
 .account-hint {

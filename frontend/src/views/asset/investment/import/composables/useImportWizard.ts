@@ -237,6 +237,20 @@ export function useImportWizard() {
         groups[type] = { label: ledgerTypeMap[type] || type, ledgers: [] };
       groups[type].ledgers.push(ledger);
     }
+    // 组内按"最近使用"排序：最近有交易的账户排前面，无交易的沉底；
+    // 同档再按创建时间倒序、名称升序，保证顺序稳定可预期、不随刷新乱跳。
+    const byRecentUse = (a: LedgerItem, b: LedgerItem) => {
+      const at = a.last_used_at ? Date.parse(a.last_used_at) : 0;
+      const bt = b.last_used_at ? Date.parse(b.last_used_at) : 0;
+      if (at !== bt) return bt - at; // 更近的在前
+      const ac = a.created_at ? Date.parse(a.created_at) : 0;
+      const bc = b.created_at ? Date.parse(b.created_at) : 0;
+      if (ac !== bc) return bc - ac;
+      return (a.name || "").localeCompare(b.name || "", "zh");
+    };
+    for (const key of order) {
+      if (groups[key]) groups[key].ledgers.sort(byRecentUse);
+    }
     return order.filter(o => groups[o]).map(o => groups[o]);
   });
 
