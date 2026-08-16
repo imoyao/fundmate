@@ -6,6 +6,7 @@ import UploadStep from "./components/UploadStep.vue";
 import PreviewStep from "./components/PreviewStep.vue";
 import ResultStep from "./components/ResultStep.vue";
 import CreateLedgerDialog from "./components/CreateLedgerDialog.vue";
+import { ref } from "vue";
 import { useImportWizard } from "./composables/useImportWizard";
 import { provideWizard } from "./composables/useImportWizardContext";
 
@@ -21,8 +22,13 @@ const {
   onMatchComplete,
   showAiModal,
   selectedLedgerId,
-  onAiRowsFound
+  onAiRowsFound,
+  devMode,
+  devJump
 } = wizard;
+
+// 调试快进面板：仅开发环境可见；勾选后跳到预览/结果时注入模拟数据
+const withMock = ref(false);
 </script>
 
 <template>
@@ -44,6 +50,8 @@ const {
         v-for="(step, index) in steps"
         :key="index"
         :title="step.title"
+        :class="{ 'dev-step-clickable': devMode }"
+        @click="devMode && devJump(index, withMock)"
       />
     </el-steps>
 
@@ -52,6 +60,26 @@ const {
       <UploadStep v-else-if="currentStep === 1" />
       <PreviewStep v-else-if="currentStep === 2" />
       <ResultStep v-else />
+    </div>
+
+    <!-- 调试快进面板：仅开发环境可见，跳过前序步骤直达目标步骤 -->
+    <div v-if="devMode" class="dev-jump-panel">
+      <div class="dev-jump-title">调试快进（DEV）</div>
+      <div class="dev-jump-row">
+        <el-button size="small" @click="devJump(0)">步骤1 选账户</el-button>
+        <el-button size="small" @click="devJump(1)">步骤2 上传</el-button>
+        <el-button size="small" @click="devJump(2, withMock)"
+          >步骤3 预览</el-button
+        >
+        <el-button size="small" @click="devJump(3, withMock)"
+          >步骤4 结果</el-button
+        >
+      </div>
+      <label class="dev-jump-check">
+        <input v-model="withMock" type="checkbox" />
+        跳到预览/结果时注入模拟数据
+      </label>
+      <div class="dev-jump-hint">模拟数据仅用于查看布局，确认导入会写库</div>
     </div>
 
     <FundMatchDrawer
@@ -97,6 +125,45 @@ const {
 }
 :deep(.el-step__title.is-finish) {
   cursor: pointer;
+}
+.dev-step-clickable :deep(.el-step__head),
+.dev-step-clickable :deep(.el-step__title) {
+  cursor: pointer;
+}
+
+.dev-jump-panel {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 1000;
+  max-width: 280px;
+  padding: 12px 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  font-size: var(--text-small);
+}
+.dev-jump-title {
+  margin-bottom: 8px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.dev-jump-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.dev-jump-check {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  color: var(--text-secondary);
+}
+.dev-jump-hint {
+  margin-top: 6px;
+  color: var(--text-tertiary);
 }
 </style>
 

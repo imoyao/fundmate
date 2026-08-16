@@ -276,7 +276,7 @@ export function useImportWizard() {
       {
         label: "基金标准模板",
         value: "standard_fund",
-        logo: "/logos/fundaccount.svg"
+        logo: "/logos/standard.svg"
       },
       {
         label: "天天基金",
@@ -1704,6 +1704,105 @@ export function useImportWizard() {
 
   function handleSelectionChange() {}
 
+  // ── 调试快进（仅开发环境 import.meta.env.DEV 生效，生产构建不包含）──
+  // 用途：调试向导 UI 时，跳过真实解析/上传直接跳到目标步骤，省去每次等待。
+  const devMode = import.meta.env.DEV;
+
+  // 模拟预览行：字段对齐真实解析结果，仅用于查看布局与交互，切勿当作真实数据。
+  const devMockRows = [
+    {
+      symbol: "600519",
+      name: "贵州茅台",
+      op_type: "BUY",
+      trade_date: "2026-03-12",
+      quantity: 100,
+      price: 1680.5,
+      amount: 168050,
+      fee: 42.01,
+      allocation: "longterm",
+      type: "stock",
+      status: "normal"
+    },
+    {
+      symbol: "000858",
+      name: "五粮液",
+      op_type: "BUY",
+      trade_date: "2026-03-18",
+      quantity: 200,
+      price: 152.3,
+      amount: 30460,
+      fee: 7.62,
+      allocation: "longterm",
+      type: "stock",
+      status: "normal"
+    },
+    {
+      symbol: "510300",
+      name: "沪深300ETF",
+      op_type: "BUY",
+      trade_date: "2026-04-01",
+      quantity: 5000,
+      price: 3.92,
+      amount: 19600,
+      fee: 4.9,
+      allocation: "longterm",
+      type: "etf",
+      status: "normal"
+    },
+    {
+      symbol: "014330",
+      name: "易方达品质动能",
+      op_type: "BUY",
+      trade_date: "2026-04-10",
+      quantity: 3000,
+      price: 0.85,
+      amount: 2550,
+      fee: 0,
+      allocation: "longterm",
+      type: "fund",
+      status: "normal"
+    }
+  ];
+
+  function devInjectMockPreview() {
+    if (previewData.value.length > 0) return;
+    // 没有选中真实账户时补一个占位账户，避免预览页头部/现金账户联动显示异常
+    if (!selectedLedgerId.value) {
+      selectedLedgerId.value = -1;
+      ledgers.value.push({
+        id: -1,
+        name: "调试账户（模拟）",
+        ledger_type: "stock",
+        default_allocation: "longterm"
+      } as unknown as LedgerItem);
+    }
+    previewData.value = addRowKeys(devMockRows.map(r => ({ ...r })));
+    totalRows.value = previewData.value.length;
+    duplicateCount.value = 0;
+    errorCount.value = 0;
+    recalcValidRowsCount();
+    selectAllValid();
+    showFullTable.value = true;
+  }
+
+  /**
+   * 调试快进：直接设置 currentStep，不做前序步骤的解析/上传/写库。
+   * @param targetStep 目标步骤 0=选账户 1=上传 2=预览 3=结果
+   * @param withMock   true 时若跳到预览/结果且暂无数据，自动注入模拟预览行
+   */
+  function devJump(targetStep: number, withMock = false) {
+    if (!devMode) return;
+    if (withMock && (targetStep === 2 || targetStep === 3)) {
+      devInjectMockPreview();
+    }
+    if (targetStep === 3) {
+      importedCount.value = previewData.value.length;
+      skippedCount.value = 0;
+      orphanCount.value = 0;
+    }
+    currentStep.value = targetStep;
+  }
+
   onMounted(async () => {
     await fetchLedgers();
   });
@@ -1862,6 +1961,8 @@ export function useImportWizard() {
     handlePageChange,
     handleSelectionChange,
     typeLabels,
-    ledgerTypeMap
+    ledgerTypeMap,
+    devMode,
+    devJump
   };
 }
