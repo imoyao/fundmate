@@ -84,6 +84,26 @@ Windows：`dev.cmd`（内部走 `scripts/dev.ps1`）；Git Bash / WSL / macOS：
   已跟踪文件也会被跳过，双重保险。
 - 脚本顶部 docstring 含完整 WHY / HOW / SAFETY 说明，调用前可读。
 
+## 代码提交工具（所有 AI / agent 提交代码建议走此脚本）
+
+**为什么（WHY）**：通过 IDE / 远程通道提交时，`git commit` 常被系统弹「允许 / 拒绝」审批卡点拦截；人不在跟前时审批会超时或漏点，导致提交通过率极低。为把「提交」变成可判断、可无人值守的收口操作，约定：**AI / agent 提交代码优先走 `scripts/commit_changes.py`，与 `cleanup_temp.py` 同构（默认 DRY-RUN 展示、`--apply` 才执行）**。它不取代「AI 自动提交标注」等既有提交规范，只是把「跑什么命令」统一收口。
+
+**工具位置与约束**：`scripts/commit_changes.py`（自研，纯标准库，跨平台，Windows 兼容）。
+- 默认 **DRY-RUN**：只打印「本次提交干什么 + 提交哪些文件（含 git 状态 M/A/??）」+ 提交信息全文，**绝不真正提交**；
+- 必须显式传 `--apply` 才执行 `git commit`；可选 `--push` 提交后推送；
+- **精准优先**：优先用 `--files <路径>` 逐项列出要提交的文件（提交前会校验文件存在），
+  不传则回退到「已暂存(staged)」改动；提交信息文件缺失时 dry-run 不报错、仅提示，apply 前必须准备；
+- **提交信息走文件**：提交信息写在 UTF-8 文件（默认 `git/.git/COMMIT_MSG`，或 `--message-file`），
+  由脚本经 `git commit --file` 传入，**禁止**在命令行内联中文（防 mojibake，与 Issue 创建同规则）；
+- **永不 `--no-verify`**：pre-commit 守卫（`forbid_bp_input` / `guard_all_pb` / `guard_mojibake`）始终生效；
+- 提交信息全文由调用方准备，须遵守本文件「AI 自动提交标注」与 conventional commits 约定（标注 `[AI 自动提交]` + `AI-Committed-By: <实际提交者>`）。
+
+**操作 SOP（AI / 人通用）**：
+1. 先 dry-run 看清单（默认即 dry-run）：`python scripts/commit_changes.py --files a.py b.py --message-file .git/COMMIT_MSG`。
+2. 把打印出的「标题 + 提交文件清单 + 提交信息」呈现给用户，说明本次提交干了什么、涉及哪些文件，**等用户确认**（或按用户约定「小改动静默提交」规则处理）。
+3. 用户确认后执行：`python scripts/commit_changes.py --files a.py b.py --message-file .git/COMMIT_MSG --apply`（如需推送加 `--push`）。
+- 脚本顶部 docstring 含完整 WHY / HOW / SAFETY 说明，调用前可读。
+
 ## 关键约束（权威规范在 `docs/spec/`、`frontend/design.md`）
 
 - 接口错误统一 `{data, message, error_code}` 信封；API-First 契约冻结，字段 / 状态码 / 分页结构禁止私改；端点一律尾斜杠（**例外：`/api/temperature/{overview,history,multi}` 无尾斜杠，前端按此调用，勿"修复"**）。
