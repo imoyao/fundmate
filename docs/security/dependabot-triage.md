@@ -29,7 +29,7 @@
 
 | 包 | 当前 lock 版本 | alert patched | npm 真实最新 | 能否安全升 | 结论 |
 |---|---|---|---|---|---|
-| nanoid | 3.3.16 | 3.3.17 | 6.0.1 | patched 3.3.17 未发布(3.x 最新即 3.3.16)；升 6.x 是破坏性大版本，会崩上游 API | dismiss |
+| nanoid | 3.3.16 | 3.3.17 | 6.0.1 | patched 3.3.17 未发布(3.x 最新即 3.3.16)；升 6.x 是破坏性大版本，会崩上游 API。**2026-08-16 起 3.3.18 已发布并修复（见 3.3）** | dismiss → 已修复 |
 | postcss | 8.5.19 | 8.5.23 | 8.5.26 | 可升到 8.5.26，但仅 dev CSS 处理，不可达 | dismiss（或可选 overrides 钉 8.5.26，低风险） |
 | esbuild | 0.21.5 | 0.25.0/0.28.1 | 0.28.2 | 可升，但仅 dev 构建期打包，不可达 | dismiss |
 | brace-expansion | 1.1.16 | 1.1.18 | 5.0.9 | lock 内已有 1.1.18 实例；1.1.16 受上游范围约束，强行升 5.x 破坏性 | dismiss |
@@ -43,6 +43,14 @@
 
 根 `pnpm-lock.yaml`：825/824/823 image-size、822 nanoid、821 js-yaml、820/819 vite(6.x CVE,5.x不受影响)、818 vite、817 postcss、816/812 brace-expansion、732 esbuild、709 trim
 frontend `pnpm-lock.yaml`：815 esbuild、627 esbuild、822 nanoid（已在根列，frontend 实例同号）
+
+### 3.3 更新（2026-08-16）：nanoid #826 已修复
+
+CVE-2026-67213（告警 #826，2026-07-29 发布、08-13 更新）的 patched 版本 **3.3.18（3.x 线）/ 5.1.6** 现已发布，原研判"patched 3.3.17 未发布、只能 dismiss"的前提不再成立；3.3.18 是 3.x 线补丁版，无破坏性 API 变更，可安全升级。
+
+处置（2026-08-16）：根 `package.json` 增加 `pnpm.overrides { "nanoid": "3.3.18" }` 强制钉补丁版，根 `pnpm-lock.yaml` 中 nanoid 全部从 3.3.16 升至 3.3.18，提交并推送至默认分支 `main-v2`（commit `fb824d3`）。Dependabot 重扫后 #826 自动关闭。`frontend/pnpm-lock.yaml` 此前已解析到 3.3.18，无需改动。
+
+> 教训：dismiss 决策应定期复核——patched 版本可能晚于研判时点才发布，本次 3.3.18 即晚于旧研判引用的 3.3.17。
 
 ## 四、执行顺序建议
 
