@@ -406,7 +406,9 @@ class ImportOrchestrator:
                     if nav and nav > 0:
                         r.nav = nav.quantize(Decimal('0.0001'))
                         if r.amount and r.amount > 0:
-                            r.shares = (r.amount / r.nav).quantize(Decimal('0.00'))
+                            # 份额精度修复（2026-08-17）：0.00 → 0.0000，与项目份额最小单位
+                            # min_unit（份×10000）对齐；预估份额（is_calculated=True）精度提升低风险
+                            r.shares = (r.amount / r.nav).quantize(Decimal('0.0000'))
                         r.is_calculated = True
 
     @show_time
@@ -440,6 +442,9 @@ class ImportOrchestrator:
             return None
 
         # 相似度选择
+        # 相似度算法粗糙（仅长度差），改进需先评估对既有导入行为的影响：
+        # 本函数无测试覆盖，SequenceMatcher 比率会改变既有匹配结果（用户已习惯的
+        # 导入行为），2026-08-17 评估后暂缓，保持现状。
         scored = []
         for code, name in candidates:
             clean_name = self._clean_fund_name(name)
@@ -507,180 +512,190 @@ class ImportOrchestrator:
 
         for record in records:
             try:
-                if record.import_hash:
-                    existing = (
-                        self.db.query(Transaction)
-                        .filter_by(import_hash=record.import_hash, family_id=self.family_id)
-                        .first()
-                    )
-                    if existing:
+                # B3 修复（2026-08-17）：单条记录包在 SAVEPOINT 内——普通异常回滚该条
+                # 已 flush 的部分写入后继续（与 E6 对账侧口径一致）；SQLAlchemyError 仍保持
+                # 整体失败语义（数据库级错误，回滚全部并 raise，见下方 except 分支）。
+                with self.db.begin_nested():
+                    if record.import_hash:
+                        existing = (
+                            self.db.query(Transaction)
+                            .filter_by(import_hash=record.import_hash, family_id=self.family_id)
+                            .first()
+                        )
+                        if existing:
+                            skipped += 1
+                            continue
+
+                    # ---- 现金管理类产品 ----
+                    if record.asset_type in ('cash', 'money_fund'):
+                        data = self._build_import_data(record)
+                        entry_status = None
+                        if not data.get('ledger_id'):
+                            logger.warning('现金管理产品缺少 ledger_id，跳过')
+                            skipped += 1  # B4 修复：缺 ledger_id 跳过时计入 skipped（原漏计数）
+                            continue
+                        bank_ledger = (
+                            self.db.query(Ledger).filter_by(ledger_type='bank', family_id=self.family_id).first()
+                        )
+                        if bank_ledger:
+                            data['account_name'] = bank_ledger.name
+                            data['ledger_id'] = bank_ledger.id
+                        else:
+                            entry_status = 'pending_cash'
+                        # net_amount 转换为分
+                        amount_cents = Money.yuan_to_cents(abs(data['net_amount']))
+                        TransactionService.create(
+                            db=self.db,
+                            txn_type=data['op_type'],
+                            trade_date=data.get('trade_date'),
+                            confirm_date=data.get('confirm_date'),
+                            asset_type=data.get('type'),
+                            quantity=0,
+                            price=0,
+                            fee=0,
+                            amount=amount_cents,
+                            status='success',
+                            position_name=data.get('name', ''),
+                            ledger_id=data['ledger_id'],
+                            account_name=data.get('account_name', ''),
+                            notes=data.get('notes', ''),
+                            import_hash=data.get('import_hash'),
+                            entry_status=entry_status,
+                            family_id=self.family_id,
+                        )
+                        imported += 1
+                        orphan_count += 1
+                        continue
+
+                    # ---- 常规投资品种 ----
+                    data = self._build_import_data(record)
+                    bt = record.business_type
+
+                    # 基本校验
+                    if bt in (
+                        BusinessType.BUY.code,
+                        BusinessType.DEPOSIT.code,
+                        BusinessType.SELL.code,
+                        BusinessType.WITHDRAW.code,
+                    ):
+                        if data.get('quantity', 0) <= 0:
+                            commit_errors.append(
+                                {'symbol': record.symbol, 'name': record.name, 'error': '数量必须大于 0'}
+                            )
+                            continue
+                        if bt in (BusinessType.BUY.code, BusinessType.DEPOSIT.code) and data.get('avg_price', 0) <= 0:
+                            commit_errors.append(
+                                {'symbol': record.symbol, 'name': record.name, 'error': '价格必须大于 0'}
+                            )
+                            continue
+
+                    # 特殊操作：扣税
+                    if bt == BusinessType.TAX.code:
+                        # net_amount 是元，转为分，扣税为负值
+                        tax_cents = -Money.yuan_to_cents(abs(data['net_amount']))
+                        TransactionService.create(
+                            db=self.db,
+                            position_id=None,
+                            txn_type='dividend_tax',
+                            trade_date=data.get('trade_date'),
+                            confirm_date=data.get('confirm_date'),
+                            asset_type=data.get('type'),
+                            quantity=0,
+                            price=0,
+                            fee=0,
+                            amount=tax_cents,
+                            status='success',
+                            position_name=data.get('name', data['symbol']),
+                            account_name=data.get('account_name', ''),
+                            notes=data.get('notes') or '股息红利扣税',
+                            import_hash=data.get('import_hash'),
+                            entry_status='orphan',
+                            link_group_id=data.get('link_group_id'),
+                            family_id=self.family_id,
+                        )
+                        orphan_count += 1
+                        imported += 1
+                        continue
+
+                    # 特殊操作：债券兑付
+                    if bt == BusinessType.BOND_REDEEM.code:
+                        # 数量和金额都需要转换
+                        qty_units = Money.shares_to_min_unit(data['quantity'])
+                        price_cents = Money.yuan_to_cents(data.get('avg_price', 0))
+                        amount_cents = Money.yuan_to_cents(data['net_amount'])
+                        TransactionService.create(
+                            db=self.db,
+                            position_id=None,
+                            txn_type='bond_redeem',
+                            trade_date=data.get('trade_date'),
+                            confirm_date=data.get('confirm_date'),
+                            asset_type=data.get('type'),
+                            quantity=qty_units,
+                            price=price_cents,
+                            fee=0,
+                            amount=amount_cents,
+                            status='success',
+                            position_name=data.get('name', data['symbol']),
+                            account_name=data.get('account_name', ''),
+                            notes=data.get('notes') or '债券到期兑付',
+                            import_hash=data.get('import_hash'),
+                            entry_status='orphan',
+                            link_group_id=data.get('link_group_id'),
+                            family_id=self.family_id,
+                        )
+                        orphan_count += 1
+                        imported += 1
+                        continue
+
+                    # 常规操作 (BUY/DEPOSIT, SELL/WITHDRAW, DIVIDEND)
+                    if bt in (BusinessType.BUY.code, BusinessType.DEPOSIT.code):
+                        result = PositionService.process_buy_or_deposit(self.db, data)
+                    elif bt in (BusinessType.SELL.code, BusinessType.WITHDRAW.code):
+                        result = PositionService.process_orphan_sell_or_withdraw(self.db, data)
+                    elif bt in (BusinessType.DIVIDEND_CASH.code, BusinessType.DIVIDEND_REINVEST.code):
+                        result = PositionService.process_orphan_dividend(self.db, data)
+                    elif bt == BusinessType.SPLIT.code:
+                        # 转股：数量需转换，金额为 0
+                        qty_units = Money.shares_to_min_unit(data['quantity'])
+                        TransactionService.create(
+                            db=self.db,
+                            position_id=None,
+                            txn_type='split',
+                            trade_date=data.get('trade_date'),
+                            confirm_date=data.get('confirm_date'),
+                            asset_type=data.get('type'),
+                            quantity=qty_units,
+                            price=Money.yuan_to_cents(
+                                data.get('avg_price', 0)
+                            ),  # B1 修复：分单位，与 BOND_REDEEM 一致（转股无价格时为 0）
+                            fee=0,
+                            amount=0,
+                            status='success',
+                            position_name=data.get('name', data['symbol']),
+                            account_name=data.get('account_name', ''),
+                            notes='转股入账（需手动关联持仓）',
+                            import_hash=data.get('import_hash'),
+                            entry_status='orphan',
+                            family_id=self.family_id,
+                        )
+                        orphan_count += 1
+                        imported += 1
+                        continue
+                    else:
                         skipped += 1
                         continue
 
-                # ---- 现金管理类产品 ----
-                if record.asset_type in ('cash', 'money_fund'):
-                    data = self._build_import_data(record)
-                    entry_status = None
-                    if not data.get('ledger_id'):
-                        logger.warning('现金管理产品缺少 ledger_id，跳过')
-                        skipped += 1  # B4 修复：缺 ledger_id 跳过时计入 skipped（原漏计数）
-                        continue
-                    bank_ledger = self.db.query(Ledger).filter_by(ledger_type='bank', family_id=self.family_id).first()
-                    if bank_ledger:
-                        data['account_name'] = bank_ledger.name
-                        data['ledger_id'] = bank_ledger.id
-                    else:
-                        entry_status = 'pending_cash'
-                    # net_amount 转换为分
-                    amount_cents = Money.yuan_to_cents(abs(data['net_amount']))
-                    TransactionService.create(
-                        db=self.db,
-                        txn_type=data['op_type'],
-                        trade_date=data.get('trade_date'),
-                        confirm_date=data.get('confirm_date'),
-                        asset_type=data.get('type'),
-                        quantity=0,
-                        price=0,
-                        fee=0,
-                        amount=amount_cents,
-                        status='success',
-                        position_name=data.get('name', ''),
-                        ledger_id=data['ledger_id'],
-                        account_name=data.get('account_name', ''),
-                        notes=data.get('notes', ''),
-                        import_hash=data.get('import_hash'),
-                        entry_status=entry_status,
-                        family_id=self.family_id,
-                    )
+                    if result is None:
+                        orphan_count += 1
                     imported += 1
-                    orphan_count += 1
-                    continue
-
-                # ---- 常规投资品种 ----
-                data = self._build_import_data(record)
-                bt = record.business_type
-
-                # 基本校验
-                if bt in (
-                    BusinessType.BUY.code,
-                    BusinessType.DEPOSIT.code,
-                    BusinessType.SELL.code,
-                    BusinessType.WITHDRAW.code,
-                ):
-                    if data.get('quantity', 0) <= 0:
-                        commit_errors.append({'symbol': record.symbol, 'name': record.name, 'error': '数量必须大于 0'})
-                        continue
-                    if bt in (BusinessType.BUY.code, BusinessType.DEPOSIT.code) and data.get('avg_price', 0) <= 0:
-                        commit_errors.append({'symbol': record.symbol, 'name': record.name, 'error': '价格必须大于 0'})
-                        continue
-
-                # 特殊操作：扣税
-                if bt == BusinessType.TAX.code:
-                    # net_amount 是元，转为分，扣税为负值
-                    tax_cents = -Money.yuan_to_cents(abs(data['net_amount']))
-                    TransactionService.create(
-                        db=self.db,
-                        position_id=None,
-                        txn_type='dividend_tax',
-                        trade_date=data.get('trade_date'),
-                        confirm_date=data.get('confirm_date'),
-                        asset_type=data.get('type'),
-                        quantity=0,
-                        price=0,
-                        fee=0,
-                        amount=tax_cents,
-                        status='success',
-                        position_name=data.get('name', data['symbol']),
-                        account_name=data.get('account_name', ''),
-                        notes=data.get('notes') or '股息红利扣税',
-                        import_hash=data.get('import_hash'),
-                        entry_status='orphan',
-                        link_group_id=data.get('link_group_id'),
-                        family_id=self.family_id,
-                    )
-                    orphan_count += 1
-                    imported += 1
-                    continue
-
-                # 特殊操作：债券兑付
-                if bt == BusinessType.BOND_REDEEM.code:
-                    # 数量和金额都需要转换
-                    qty_units = Money.shares_to_min_unit(data['quantity'])
-                    price_cents = Money.yuan_to_cents(data.get('avg_price', 0))
-                    amount_cents = Money.yuan_to_cents(data['net_amount'])
-                    TransactionService.create(
-                        db=self.db,
-                        position_id=None,
-                        txn_type='bond_redeem',
-                        trade_date=data.get('trade_date'),
-                        confirm_date=data.get('confirm_date'),
-                        asset_type=data.get('type'),
-                        quantity=qty_units,
-                        price=price_cents,
-                        fee=0,
-                        amount=amount_cents,
-                        status='success',
-                        position_name=data.get('name', data['symbol']),
-                        account_name=data.get('account_name', ''),
-                        notes=data.get('notes') or '债券到期兑付',
-                        import_hash=data.get('import_hash'),
-                        entry_status='orphan',
-                        link_group_id=data.get('link_group_id'),
-                        family_id=self.family_id,
-                    )
-                    orphan_count += 1
-                    imported += 1
-                    continue
-
-                # 常规操作 (BUY/DEPOSIT, SELL/WITHDRAW, DIVIDEND)
-                if bt in (BusinessType.BUY.code, BusinessType.DEPOSIT.code):
-                    result = PositionService.process_buy_or_deposit(self.db, data)
-                elif bt in (BusinessType.SELL.code, BusinessType.WITHDRAW.code):
-                    result = PositionService.process_orphan_sell_or_withdraw(self.db, data)
-                elif bt in (BusinessType.DIVIDEND_CASH.code, BusinessType.DIVIDEND_REINVEST.code):
-                    result = PositionService.process_orphan_dividend(self.db, data)
-                elif bt == BusinessType.SPLIT.code:
-                    # 转股：数量需转换，金额为 0
-                    qty_units = Money.shares_to_min_unit(data['quantity'])
-                    TransactionService.create(
-                        db=self.db,
-                        position_id=None,
-                        txn_type='split',
-                        trade_date=data.get('trade_date'),
-                        confirm_date=data.get('confirm_date'),
-                        asset_type=data.get('type'),
-                        quantity=qty_units,
-                        price=Money.yuan_to_cents(
-                            data.get('avg_price', 0)
-                        ),  # B1 修复：分单位，与 BOND_REDEEM 一致（转股无价格时为 0）
-                        fee=0,
-                        amount=0,
-                        status='success',
-                        position_name=data.get('name', data['symbol']),
-                        account_name=data.get('account_name', ''),
-                        notes='转股入账（需手动关联持仓）',
-                        import_hash=data.get('import_hash'),
-                        entry_status='orphan',
-                        family_id=self.family_id,
-                    )
-                    orphan_count += 1
-                    imported += 1
-                    continue
-                else:
-                    skipped += 1
-                    continue
-
-                if result is None:
-                    orphan_count += 1
-                imported += 1
 
             except SQLAlchemyError as e:
+                # 数据库级错误：保持整体失败语义（savepoint 已随 with 退出回滚，此处再全量回滚兜底）
                 self.db.rollback()
                 logger.exception(f'数据库操作失败: symbol={record.symbol}, error={e}')
                 raise
             except Exception as e:
-                # B3 标记（暂缓修复）：非 SQLAlchemyError 分支不回滚，同批后续记录可能带脏状态；
-                # 待统一为 begin_nested() 保存点后回滚单条（与 E6 对账侧口径一致，2026-08-17）。
+                # 普通异常：savepoint 已回滚该条部分写入，仅记错误继续（B3 修复，2026-08-17）
                 logger.exception(f'入库单条记录失败: symbol={record.symbol}, business_type={record.business_type}')
                 commit_errors.append({'symbol': record.symbol, 'name': record.name, 'error': str(e)})
 

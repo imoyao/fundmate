@@ -11,9 +11,12 @@ import pytest
 from app.core.exceptions import SBException
 from app.core.money import Money
 from app.domains.ledgers.models import Ledger
+from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
+from app.services.fund_service import FundService
 from app.services.importer.orchestrator import ImportOrchestrator
 from app.services.importer.records import StandardTransactionRecord
+from app.services.position_service import PositionService
 
 
 def test_validate_file_type_rejects_fund_in_stock_account():
@@ -165,3 +168,126 @@ def test_commit_from_preview_none_amount_safe(db):
     # 不崩溃；因缺数量被业务校验拦下计入 errors
     assert result['imported'] == 0
     assert result['errors'] != []
+
+
+# ── B3 修复回归 + 份额精度（2026-08-17） ──
+
+
+def test_commit_savepoint_rolls_back_partial_write(db, monkeypatch):
+    """B3 修复：单条记录中途抛错 → savepoint 回滚部分写入，后续记录正常导入。"""
+    ledger = Ledger(name='证券账户A', ledger_type='stock', family_id=1)
+    db.add(ledger)
+    db.commit()
+
+    orig = PositionService.process_buy_or_deposit
+
+    def boom(db, data):
+        if data['symbol'] == 'SH600001':
+            # 模拟中途写入后抛错（已 add + flush 的持仓应随 savepoint 回滚）
+            pos = Position(
+                symbol=data['symbol'],
+                name=data.get('name', ''),
+                ledger_id=data.get('ledger_id'),
+                family_id=data.get('family_id', 1),
+                quantity=Money.shares_to_min_unit(100),
+                avg_price=Money.yuan_to_cents(10),
+                current_price=Money.yuan_to_cents(10),
+            )
+            db.add(pos)
+            db.flush()
+            raise ValueError('模拟中途异常')
+        return orig(db, data)
+
+    monkeypatch.setattr(PositionService, 'process_buy_or_deposit', boom)
+
+    orch = ImportOrchestrator(db, family_id=1)
+    bad = StandardTransactionRecord(
+        confirm_date=date(2026, 8, 1),
+        asset_type='stock',
+        symbol='SH600001',
+        name='失败标的',
+        business_type='buy',
+        amount=Decimal('1000'),
+        account_name='证券账户A',
+        ledger_id=ledger.id,
+        shares=Decimal('100'),
+        nav=Decimal('10'),
+    )
+    good = StandardTransactionRecord(
+        confirm_date=date(2026, 8, 1),
+        asset_type='stock',
+        symbol='SH600002',
+        name='正常标的',
+        business_type='buy',
+        amount=Decimal('2000'),
+        account_name='证券账户A',
+        ledger_id=ledger.id,
+        shares=Decimal('200'),
+        nav=Decimal('10'),
+    )
+    result = orch.commit([bad, good])
+    assert result['imported'] == 1
+    assert len(result['errors']) == 1
+    assert result['errors'][0]['symbol'] == 'SH600001'
+    # 失败条的部分写入已回滚，不残留
+    assert db.query(Position).filter_by(symbol='SH600001', family_id=1).first() is None
+    # 后续记录正常导入
+    assert db.query(Position).filter_by(symbol='SH600002', family_id=1).first() is not None
+
+
+def test_commit_failed_record_does_not_break_batch(db):
+    """B3 修复：业务校验失败（一手起买）记录计入 errors，同批后续记录正常导入。"""
+    ledger = Ledger(name='证券账户A', ledger_type='stock', family_id=1)
+    db.add(ledger)
+    db.commit()
+
+    orch = ImportOrchestrator(db, family_id=1)
+    bad = StandardTransactionRecord(
+        confirm_date=date(2026, 8, 1),
+        asset_type='stock',
+        symbol='SH600001',
+        name='碎股买入',
+        business_type='buy',
+        amount=Decimal('500'),
+        account_name='证券账户A',
+        ledger_id=ledger.id,
+        shares=Decimal('50'),  # 不足一手（100 股）
+        nav=Decimal('10'),
+    )
+    good = StandardTransactionRecord(
+        confirm_date=date(2026, 8, 1),
+        asset_type='stock',
+        symbol='SH600002',
+        name='正常买入',
+        business_type='buy',
+        amount=Decimal('2000'),
+        account_name='证券账户A',
+        ledger_id=ledger.id,
+        shares=Decimal('200'),
+        nav=Decimal('10'),
+    )
+    result = orch.commit([bad, good])
+    assert result['imported'] == 1
+    assert len(result['errors']) == 1
+    assert '一手' in result['errors'][0]['error']
+    assert db.query(Position).filter_by(symbol='SH600002', family_id=1).first() is not None
+
+
+def test_fill_missing_nav_and_shares_4_decimal_precision(db, monkeypatch):
+    """份额精度修复：预估份额保留 4 位小数（与 min_unit 对齐），不再截断到 2 位。"""
+    monkeypatch.setattr(FundService, 'get_fund_nav_map', lambda db, symbols, target_date: {'014330': Decimal('1.2345')})
+    orch = ImportOrchestrator(db, family_id=1)
+    rec = StandardTransactionRecord(
+        confirm_date=date(2026, 8, 1),
+        asset_type='fund',
+        symbol='014330',
+        name='测试基金',
+        business_type='buy',
+        amount=Decimal('1000.00'),
+        account_name='测试账户',
+    )
+    orch._fill_missing_nav_and_shares([rec])
+    assert rec.is_calculated is True
+    assert rec.nav == Decimal('1.2345')
+    # 1000.00 / 1.2345 = 810.044552... → 4 位小数 810.0446（2 位精度会截成 810.04）
+    assert rec.shares == Decimal('810.0446')
