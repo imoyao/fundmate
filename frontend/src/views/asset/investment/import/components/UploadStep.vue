@@ -4,7 +4,6 @@ import TemplateDownloadSection from "./TemplateDownloadSection.vue";
 import SourceLogos from "./SourceLogos.vue";
 import UploadArea from "./UploadArea.vue";
 import FormatGuide from "./FormatGuide.vue";
-import CreateLedgerDialog from "./CreateLedgerDialog.vue";
 import { useImportWizardContext } from "../composables/useImportWizardContext";
 
 const {
@@ -59,8 +58,6 @@ const {
     >
       上传后将进入预览页面，您可以修正错误后确认导入。如有问题，请参考帮助文档。
     </p>
-
-    <CreateLedgerDialog />
   </div>
 </template>
 

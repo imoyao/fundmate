@@ -4,7 +4,11 @@ import type { UploadRequestOptions } from "element-plus";
 import { ref, onMounted, computed, reactive, nextTick } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { getLedgers, createLedger as createLedgerApi } from "@/api/ledger";
+import {
+  getLedgers,
+  createLedger as createLedgerApi,
+  updateLedger as updateLedgerApi
+} from "@/api/ledger";
 import type { LedgerItem } from "@/api/ledger";
 import type { OcrTxnRow } from "@/api/ocr";
 import { ALLOCATION_OPTIONS } from "@/constants";
@@ -187,6 +191,12 @@ export function useImportWizard() {
   const selectedLedgerId = ref<number | null>(null);
   const showCreateLedgerDialog = ref(false);
   const newLedgerName = ref("");
+  const newLedgerType = ref("stock");
+  const newLedgerLinkedCashId = ref<number | null>(null);
+  const newLedgerPortfolioId = ref<number | null>(null);
+  const newLedgerFeeConfig = ref<any>(null);
+  /** 步骤3 软提示横幅：用户现场选中的现金账户 */
+  const bannerCashLedgerId = ref<number | null>(null);
   const ledgerTouched = ref(false);
   const activeCategoryFilter = ref("");
   const downloadLoading = ref(false);
@@ -1527,21 +1537,94 @@ export function useImportWizard() {
     return rows.filter((r: any) => r.type === type);
   }
 
+  function resetNewLedgerForm() {
+    newLedgerName.value = "";
+    newLedgerType.value = "stock";
+    newLedgerLinkedCashId.value = null;
+    newLedgerPortfolioId.value = null;
+    newLedgerFeeConfig.value = null;
+    newLedgerAllocation.value = "longterm";
+  }
+
+  /** 步骤3 软提示横幅：现场新建现金账户时预置类型并打开弹窗 */
+  function openCreateCashFromBanner() {
+    newLedgerName.value = "";
+    newLedgerType.value = "bank";
+    newLedgerLinkedCashId.value = null;
+    newLedgerPortfolioId.value = null;
+    newLedgerFeeConfig.value = null;
+    newLedgerAllocation.value = "liquid";
+    showCreateLedgerDialog.value = true;
+  }
+
+  /** 候选现金账户（仅银行账户） */
+  const cashLedgersForImport = computed(() =>
+    ledgers.value.filter(l => l.ledger_type === "bank")
+  );
+
+  /** 当前选中账户已关联的现金账户 id（未关联为 null） */
+  const selectedLedgerLinkedCash = computed(() => {
+    const l = ledgers.value.find(l => l.id === selectedLedgerId.value);
+    return l?.linked_cash_ledger_id ?? null;
+  });
+
+  /** 步骤3 预览含银证转账、且当前账户未关联现金账户 —— 显示软提示 */
+  const showCashBindingBanner = computed(() => {
+    if (currentStep.value !== 2) return false;
+    if (selectedLedgerLinkedCash.value) return false;
+    return previewData.value.some((r: any) => r.is_cash_transfer);
+  });
+
+  /** 在步骤3 横幅内直接关联现金账户并落库 */
+  async function linkCashAccount() {
+    if (!selectedLedgerId.value || !bannerCashLedgerId.value) return;
+    try {
+      await updateLedgerApi(selectedLedgerId.value, {
+        linked_cash_ledger_id: bannerCashLedgerId.value
+      });
+      await fetchLedgers();
+      ElMessage.success("已关联现金账户");
+    } catch (e: any) {
+      ElMessage.error(e?.response?.data?.message || "关联失败");
+    }
+  }
+
   async function createLedger() {
     const name = newLedgerName.value.trim();
     if (!name) return;
+    const payload: any = { name };
+    if (newLedgerType.value) payload.ledger_type = newLedgerType.value;
+    if (newLedgerLinkedCashId.value)
+      payload.linked_cash_ledger_id = newLedgerLinkedCashId.value;
+    if (newLedgerPortfolioId.value)
+      payload.portfolio_id = newLedgerPortfolioId.value;
+    if (newLedgerFeeConfig.value) payload.fee_config = newLedgerFeeConfig.value;
+    if (newLedgerAllocation.value)
+      payload.default_allocation = newLedgerAllocation.value;
     try {
-      const res = await createLedgerApi({
-        name,
-        default_allocation: newLedgerAllocation.value
-      });
+      const res = await createLedgerApi(payload);
+      const ledger = (res as any).data;
+      const newId = ledger?.id;
+      const newType = ledger?.ledger_type;
       await fetchLedgers();
-      const newId = (res as any).data?.id;
-      if (newId) selectedLedgerId.value = newId;
       showCreateLedgerDialog.value = false;
-      newLedgerName.value = "";
-      newLedgerAllocation.value = "longterm";
-      ElMessage.success(`已添加账户「${name}」`);
+      resetNewLedgerForm();
+      if (!newId) return;
+      if (currentStep.value === 0) {
+        // 步骤1（选账户）：选中新建账户并自动进入上传步骤
+        selectedLedgerId.value = newId;
+        onAccountSelected(newId);
+        ElMessage.success(`已创建账户「${name}」`);
+      } else if (currentStep.value === 2) {
+        // 步骤3（预览）：现场新建现金账户，自动回填进横幅并落库
+        if (newType === "bank") {
+          bannerCashLedgerId.value = newId;
+          await linkCashAccount();
+        }
+        ElMessage.success(`已创建现金账户「${name}」`);
+      } else {
+        ElMessage.success(`已创建账户「${name}」`);
+      }
     } catch (e: any) {
       ElMessage.error(e?.response?.data?.message || "添加失败");
     }
@@ -1597,6 +1680,17 @@ export function useImportWizard() {
     selectedLedgerId,
     showCreateLedgerDialog,
     newLedgerName,
+    newLedgerType,
+    newLedgerLinkedCashId,
+    newLedgerPortfolioId,
+    newLedgerFeeConfig,
+    bannerCashLedgerId,
+    resetNewLedgerForm,
+    openCreateCashFromBanner,
+    cashLedgersForImport,
+    selectedLedgerLinkedCash,
+    showCashBindingBanner,
+    linkCashAccount,
     ledgerTouched,
     activeCategoryFilter,
     downloadLoading,

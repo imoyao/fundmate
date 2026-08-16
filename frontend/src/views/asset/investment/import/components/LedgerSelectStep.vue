@@ -2,8 +2,27 @@
 import { useImportWizardContext } from "../composables/useImportWizardContext";
 import ImportModeCards from "./ImportModeCards.vue";
 
-const { selectedLedgerId, onAccountSelected, ledgerGroups } =
-  useImportWizardContext();
+const {
+  selectedLedgerId,
+  onAccountSelected,
+  ledgerGroups,
+  showCreateLedgerDialog,
+  resetNewLedgerForm
+} = useImportWizardContext();
+
+/** 下拉框底部"新建账户"选项的哨兵值（用负数避免与真实账户 id 冲突，且保持 number 类型） */
+const CREATE_LEDGER_OPTION = -1;
+
+function handleSelectChange(val: number) {
+  if (val === CREATE_LEDGER_OPTION) {
+    // 还原下拉值，避免把哨兵值写进 v-model，再打开新建弹窗
+    resetNewLedgerForm();
+    selectedLedgerId.value = null;
+    showCreateLedgerDialog.value = true;
+    return;
+  }
+  onAccountSelected(val);
+}
 </script>
 
 <template>
@@ -14,7 +33,7 @@ const { selectedLedgerId, onAccountSelected, ledgerGroups } =
         placeholder="请选择要导入的账户"
         size="large"
         class="account-select"
-        @change="onAccountSelected"
+        @change="handleSelectChange"
       >
         <el-option-group
           v-for="group in ledgerGroups"
@@ -31,6 +50,10 @@ const { selectedLedgerId, onAccountSelected, ledgerGroups } =
             {{ ledger.name }}
           </el-option>
         </el-option-group>
+
+        <el-option :value="CREATE_LEDGER_OPTION" class="create-ledger-option">
+          <span class="create-ledger-link">+ 新建账户</span>
+        </el-option>
       </el-select>
       <p class="account-hint">
         选择账户后，系统将根据账户类型自动匹配导入模板。家庭账户不可用于导入交易数据。
@@ -58,6 +81,18 @@ const { selectedLedgerId, onAccountSelected, ledgerGroups } =
   font-weight: 500;
   font-size: var(--text-label);
   color: var(--text-secondary);
+}
+
+/* 下拉底部"新建账户"入口：浅灰分割线 + 蓝色链接 */
+.account-select :deep(.create-ledger-option) {
+  margin-top: 4px;
+  border-top: 1px solid var(--border-default);
+  color: var(--color-primary);
+}
+
+.account-select :deep(.create-ledger-link) {
+  color: var(--color-primary);
+  font-weight: 500;
 }
 
 .account-hint {

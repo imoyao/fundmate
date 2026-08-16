@@ -5,6 +5,7 @@ import LedgerSelectStep from "./components/LedgerSelectStep.vue";
 import UploadStep from "./components/UploadStep.vue";
 import PreviewStep from "./components/PreviewStep.vue";
 import ResultStep from "./components/ResultStep.vue";
+import CreateLedgerDialog from "./components/CreateLedgerDialog.vue";
 import { useImportWizard } from "./composables/useImportWizard";
 import { provideWizard } from "./composables/useImportWizardContext";
 
@@ -64,6 +65,8 @@ const {
       :ledger-id="selectedLedgerId"
       @rows-found="onAiRowsFound"
     />
+
+    <CreateLedgerDialog />
   </div>
 </template>
 

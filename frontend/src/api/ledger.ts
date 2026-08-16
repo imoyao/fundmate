@@ -29,6 +29,9 @@ export function createLedger(data: {
   ledger_type?: string;
   default_allocation?: string;
   currency?: string;
+  linked_cash_ledger_id?: number | null;
+  portfolio_id?: number | null;
+  fee_config?: Record<string, unknown> | null;
 }) {
   return http.request<any>("post", "/api/ledgers/", { data });
 }
@@ -40,7 +43,9 @@ export function updateLedger(
     ledger_type?: string;
     default_allocation?: string | null;
     notes?: string;
+    linked_cash_ledger_id?: number | null;
     portfolio_id?: number | null;
+    fee_config?: Record<string, unknown> | null;
   }
 ) {
   return http.request("patch", `/api/ledgers/${id}/`, { data });

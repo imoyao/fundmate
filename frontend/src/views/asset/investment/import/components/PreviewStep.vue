@@ -17,7 +17,12 @@ const {
   totalRows,
   importNormalOnly,
   importing,
-  confirmImport
+  confirmImport,
+  showCashBindingBanner,
+  cashLedgersForImport,
+  bannerCashLedgerId,
+  linkCashAccount,
+  openCreateCashFromBanner
 } = useImportWizardContext();
 </script>
 
@@ -32,6 +37,38 @@ const {
           {{ showAllocationGroupPanel ? "收起配置" : "设置配置目标" }}
         </el-button>
       </div>
+    </div>
+
+    <div v-if="showCashBindingBanner" class="cash-binding-banner">
+      <IconifyIconOffline icon="ep:warning" class="banner-icon" />
+      <span class="banner-text">
+        检测到转账交易（银证转账）。当前账户「{{
+          selectedLedgerName
+        }}」未关联现金账户，建议关联以便记录资金流向：
+      </span>
+      <el-select
+        v-model="bannerCashLedgerId"
+        class="banner-select"
+        size="small"
+        clearable
+        placeholder="选择现金账户"
+        @change="linkCashAccount"
+      >
+        <el-option
+          v-for="c in cashLedgersForImport"
+          :key="c.id"
+          :label="c.name"
+          :value="c.id"
+        />
+      </el-select>
+      <el-button
+        class="banner-create-btn"
+        size="small"
+        link
+        type="primary"
+        @click="openCreateCashFromBanner"
+        >+ 新建现金账户</el-button
+      >
     </div>
 
     <div class="step3-body">
@@ -98,6 +135,37 @@ const {
   align-items: center;
   padding: 12px 16px;
   border-bottom: 1px solid var(--border-default);
+}
+
+/* 步骤3 智能体检：未关联现金账户的银证转账提示横幅 */
+.cash-binding-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 12px 16px 0;
+  padding: 10px 14px;
+  background: var(--bg-soft, #faf6ef);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+}
+
+.banner-icon {
+  color: var(--color-warning, #e6a23c);
+  font-size: 16px;
+}
+
+.banner-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.banner-select {
+  width: 180px;
+}
+
+.banner-create-btn {
+  font-weight: 500;
 }
 
 .header-ledger {
