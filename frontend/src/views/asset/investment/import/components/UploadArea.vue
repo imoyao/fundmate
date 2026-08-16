@@ -31,13 +31,13 @@ const {
     >
       <template #default>
         <IconifyIconOffline
-          icon="ep:upload-filled"
+          icon="lucide:cloud-upload"
           class="upload-icon"
           :class="{ 'icon-active': isDragover }"
         />
         <p class="upload-text">将文件拖到此处，或</p>
         <el-button
-          type="primary"
+          plain
           size="default"
           class="upload-btn"
           :disabled="!selectedLedgerId || uploading"
@@ -94,10 +94,10 @@ const {
   align-items: center;
   justify-content: center;
   width: 100%;
-  height: 300px;
+  min-height: 280px;
   padding: 32px;
   background: var(--bg-soft);
-  border: 2px dashed var(--border-default);
+  border: 1px dashed var(--border-default);
   border-radius: var(--radius-lg);
   transition: all 0.3s;
 }
@@ -127,7 +127,25 @@ const {
 
 .upload-btn {
   height: 40px;
+  padding: 0 24px;
+  font-size: 14px;
+  color: var(--brand-700);
+  background: transparent;
+  border: 1px solid var(--brand-400);
   border-radius: var(--radius-sm);
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease;
+}
+
+.upload-btn:hover:not(:disabled) {
+  color: var(--brand-700);
+  background: var(--brand-100);
+  border-color: var(--brand-600);
+}
+
+.upload-btn.is-loading {
+  color: var(--brand-700);
 }
 
 .upload-text {

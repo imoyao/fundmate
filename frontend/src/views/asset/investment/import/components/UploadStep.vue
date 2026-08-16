@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import ParsingStatus from "./ParsingStatus.vue";
 import TemplateDownloadSection from "./TemplateDownloadSection.vue";
-import SourceLogos from "./SourceLogos.vue";
+import ModeSelect from "./ModeSelect.vue";
 import UploadArea from "./UploadArea.vue";
 import FormatGuide from "./FormatGuide.vue";
 import { useImportWizardContext } from "../composables/useImportWizardContext";
@@ -36,9 +36,9 @@ const {
           </div>
         </div>
 
-        <TemplateDownloadSection />
+        <ModeSelect />
 
-        <SourceLogos />
+        <TemplateDownloadSection />
 
         <UploadArea />
       </div>
@@ -70,7 +70,7 @@ const {
 .upload-layout {
   display: flex;
   gap: 24px;
-  align-items: flex-start;
+  align-items: stretch;
   max-width: 1100px;
   margin: 0 auto;
 }
@@ -85,7 +85,6 @@ const {
 .upload-right {
   flex-shrink: 0;
   width: 340px;
-  margin-top: 120px;
 }
 
 .ledger-select-area {

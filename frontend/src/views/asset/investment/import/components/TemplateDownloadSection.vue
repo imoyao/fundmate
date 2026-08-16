@@ -14,7 +14,6 @@ const {
 <template>
   <div v-if="isStandardMode" class="template-download-section">
     <el-button
-      type="primary"
       size="large"
       class="download-template-btn"
       :loading="downloadLoading"
@@ -43,7 +42,19 @@ const {
   height: 40px;
   padding: 0 20px;
   font-size: 14px;
-  border-radius: 8px;
+  color: var(--brand-700);
+  background: var(--brand-100);
+  border: 1px solid var(--brand-400);
+  border-radius: var(--radius-sm);
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease;
+}
+
+.download-template-btn:hover:not(:disabled) {
+  color: var(--brand-700);
+  background: var(--brand-200);
+  border-color: var(--brand-600);
 }
 
 .download-hint {

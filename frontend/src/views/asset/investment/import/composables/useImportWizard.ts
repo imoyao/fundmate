@@ -264,35 +264,14 @@ export function useImportWizard() {
     return order.filter(o => groups[o]).map(o => groups[o]);
   });
 
-  const logoBrokenMap = reactive<Record<string, boolean>>({});
-  const onLogoError = (value: string) => {
-    logoBrokenMap[value] = true;
-  };
-
   const availableModes = computed(() => {
     const allModes = [
-      {
-        label: "股票标准模板",
-        value: "standard_stock",
-        logo: "/logos/stock.svg"
-      },
-      { label: "同花顺交割单", value: "ths", logo: "/logos/tonghuashun.svg" },
-      {
-        label: "基金标准模板",
-        value: "standard_fund",
-        logo: "/logos/stock.svg"
-      },
-      {
-        label: "天天基金",
-        value: "tiantian_fund",
-        logo: "/logos/tiantianjijin.svg"
-      },
-      {
-        label: "支付宝（PDF）",
-        value: "alipay_pdf",
-        logo: "/logos/alipay.svg"
-      },
-      { label: "支付宝", value: "alipay_fund", logo: "/logos/alipay.svg" }
+      { label: "股票标准模板", value: "standard_stock" },
+      { label: "同花顺交割单", value: "ths" },
+      { label: "基金标准模板", value: "standard_fund" },
+      { label: "天天基金", value: "tiantian_fund" },
+      { label: "支付宝（PDF）", value: "alipay_pdf" },
+      { label: "支付宝", value: "alipay_fund" }
     ];
     if (ledgerType.value === "stock")
       return allModes.filter(
@@ -1717,8 +1696,6 @@ export function useImportWizard() {
     ledgerType,
     ledgerTypeLabel,
     ledgerGroups,
-    logoBrokenMap,
-    onLogoError,
     availableModes,
     isStandardMode,
     templateNameForAccount,
