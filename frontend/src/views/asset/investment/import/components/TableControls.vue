@@ -150,7 +150,7 @@ const {
 }
 
 .legend-color--blocked {
-  background: #fff;
+  background: var(--bg-card);
   border-left: 3px solid var(--color-danger);
 }
 </style>

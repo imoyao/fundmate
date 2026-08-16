@@ -22,9 +22,9 @@ const { formatGuides, selectedMode } = useImportWizardContext();
 .format-guide {
   padding: 16px;
   margin-top: 0;
-  background: #fff;
+  background: var(--bg-card);
   border: 1px solid var(--border-default);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   box-shadow: 0 1px 4px rgb(0 0 0 / 4%);
 }
 

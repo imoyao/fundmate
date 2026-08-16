@@ -145,13 +145,13 @@ const {
   flex-wrap: wrap;
   margin: 12px 16px 0;
   padding: 10px 14px;
-  background: var(--bg-soft, #faf6ef);
+  background: var(--bg-soft);
   border: 1px solid var(--border-default);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 
 .banner-icon {
-  color: var(--color-warning, #e6a23c);
+  color: var(--color-warning);
   font-size: 16px;
 }
 

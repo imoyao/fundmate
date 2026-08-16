@@ -26,19 +26,12 @@ const {
           <div class="result-summary">
             <div class="result-numbers">
               <div class="number-item">
-                <span
-                  class="number-value"
-                  style="color: var(--color-success)"
-                  >{{ importedCount }}</span
-                >
+                <span class="number-value number-success">{{ importedCount }}</span>
                 <span class="number-label">笔导入成功</span>
               </div>
               <div class="number-divider" />
               <div class="number-item">
-                <span
-                  class="number-value"
-                  style="color: var(--text-tertiary)"
-                  >{{ skippedCount }}</span
+                <span class="number-value number-skipped">{{ skippedCount }}</span
                 >
                 <span class="number-label">笔跳过</span>（重复
                 {{ duplicateCount }} 条 / 错误 {{ errorCount }} 条）
@@ -113,3 +106,13 @@ const {
     </template>
   </div>
 </template>
+
+<style scoped>
+.number-success {
+  color: var(--color-success);
+}
+
+.number-skipped {
+  color: var(--text-tertiary);
+}
+</style>

@@ -37,7 +37,7 @@ const { getTypeColor, typeLabels } = useImportWizardContext();
   padding: 0 6px;
   font-size: 11px;
   line-height: 20px;
-  color: #fff;
+  color: var(--bg-card);
   border: none;
 }
 </style>

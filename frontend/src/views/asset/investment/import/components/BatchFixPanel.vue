@@ -274,7 +274,7 @@ const {
 .batch-fix-btn--primary {
   background-color: var(--color-primary);
   border-color: var(--color-primary);
-  color: #fff;
+  color: var(--bg-card);
 }
 
 .batch-fix-btn--secondary {
