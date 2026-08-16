@@ -37,3 +37,45 @@ class Position(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
         Index('idx_positions_account_name', 'account_name'),
         Index('idx_positions_ledger_asset_type', 'ledger_id', 'type'),
     )
+
+
+class PositionImportMeta(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
+    """持仓导入溯源元数据（#1012 E账户文件导入 / OCR 截图导入共用）。
+
+    与 positions 1:1 关联（position_id 唯一）：承载快照导入时样本/识别结果中的
+    溯源上下文字段（基金管理人、份额类别、平台账号、分红方式等），避免把
+    这些低频展示字段直接堆进 positions 主表。
+
+    语义说明：
+    - position_id 唯一 → 同一持仓（ledger_id+symbol）多次导入时覆盖更新，保留末次快照的溯源信息；
+    - source / source_import_id / source_broker 与 positions 对应字段保持一致（冗余便于按批次溯源查询）；
+    - market_value 为快照日资产市值（分），用于追溯导入时的账面口径。
+    """
+
+    __tablename__ = 'position_import_meta'
+
+    position_id = Column(
+        Integer,
+        ForeignKey('positions.id', ondelete='CASCADE'),
+        nullable=False,
+        unique=True,
+        comment='关联持仓ID',
+    )
+    symbol = Column(String(30), nullable=False, comment='基金代码(冗余,便于按代码溯源)')
+    ledger_id = Column(Integer, ForeignKey('ledgers.id', ondelete='RESTRICT'), nullable=True, comment='账户ID(冗余)')
+    snapshot_date = Column(Date, nullable=True, comment='持仓快照日期')
+    source = Column(String(30), nullable=False, default='', comment='数据来源: e_account_holding / ai_holding')
+    source_import_id = Column(String(36), nullable=True, comment='导入批次ID')
+    source_broker = Column(String(50), nullable=True, comment='销售机构(展示/溯源)')
+    fund_manager = Column(String(100), nullable=True, comment='基金管理人')
+    share_class = Column(String(20), nullable=True, comment='份额类别(前收费/后收费)')
+    fund_account = Column(String(50), nullable=True, comment='基金账户(平台侧账号)')
+    trade_account = Column(String(50), nullable=True, comment='交易账户(资金账号)')
+    dividend_preference = Column(String(20), nullable=True, comment='分红方式(现金分红/红利转投)')
+    market_value = Column(Integer, nullable=True, comment='资产市值(分)')
+    raw_extra = Column(Text, nullable=True, comment='原始扩展信息(JSON)，后续新字段先落此处')
+
+    __table_args__ = (
+        Index('idx_pim_ledger_symbol', 'ledger_id', 'symbol'),
+        Index('idx_pim_source_import_id', 'source_import_id'),
+    )

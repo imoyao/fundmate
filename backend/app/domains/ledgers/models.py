@@ -50,7 +50,10 @@ class Ledger(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     ledger_type = Column(
         String(20),
         default='bank',
-        comment='类型: stock(股票账户) / fund(基金账户) / property(实物资产) / bank(现金账户) / family(家庭账户)',
+        comment=(
+            '类型: stock(股票账户) / fund(基金账户) / e_account(基金E账户汇总,由E账户导入自动创建) '
+            '/ property(实物资产) / bank(现金账户) / family(家庭账户)'
+        ),
     )
     default_allocation = Column(
         String(20),

@@ -33,6 +33,7 @@ LEDGER_TYPE_LABELS = {
     'bank': '银行账户',
     'stock': '证券账户',
     'fund': '场外基金平台',
+    'e_account': '基金E账户',
     'property': '实物资产',
 }
 
