@@ -160,7 +160,15 @@ def main() -> None:
     try:
         res = _run(["git", "commit", "--file", str(msg_path)], check=False)
         if res.returncode != 0:
-            sys.exit(f"ERROR: git commit 失败:\n{res.stdout}\n{res.stderr}")
+            # 兜底：commit 失败（如 pre-commit 守卫拦截）时，把 --files 暂存的内容
+            # 回滚出暂存区，避免半提交状态残留、与后续改动混在一起。
+            # 注意：仅回滚本次 --files 显式 add 的文件，不碰工作区其它已暂存内容。
+            if args.files:
+                _run(["git", "restore", "--staged", "--", *targets])
+            sys.exit(
+                "ERROR: git commit 失败（已自动 restore 回滚本次 --files 的暂存）:\n"
+                f"{res.stdout}\n{res.stderr}"
+            )
         print(res.stdout.strip())
     finally:
         msg_path.unlink(missing_ok=True)
