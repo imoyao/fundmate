@@ -194,3 +194,12 @@
 - 2026-08-16：创建计划文档；#1012~#1017 落地（E账户解析器等原子 issue，挂 Project 3 看板、设象限）。
 - 2026-08-16：深化 §8 复用/解耦设计（E账户 + OCR 共用持仓汇点 `upsert_from_holding`、AI 截图「入口两处分立」决定）。
 - 2026-08-16：识别并登记「AI 持仓识别误建流水」隐患为 **#1018**（Q2），本文档 §8.4 / §8.8 与 #1018 互引；issue 正文亦回引本文档。
+- 2026-08-16：**E账户持仓解析器后端落地**（分支 `feat/e-account-holding-import`，5 个分步提交，rebase 至本地 main-v2 基线）：
+  - 解析器契约：`StandardHoldingRecord` + 抽 `FileParsingMixin` + `BaseHoldingParser`（target='holding'）+ `EAccountHoldingParser`（表头定位容错：扫描前 20 行定位含「基金代码」+「持有份额」的表头行，兼容带/不带个人信息两种上传形态；列名清洗去换行；坏行收集不中断）；
+  - 落库汇点：`PositionService.upsert_from_holding`（SET 语义整条替换、**绝不建交易流水**、avg_price 缺失降级为净值近似、溯源元数据 1:1 写 `position_import_meta`）；
+  - 编排器持仓分支：`parse_and_preview_holdings` / `commit_holdings`，与交易分支完全并行；
+  - 聚合账户：`ledger_type` 扩展 `e_account`，首次导入自动创建「基金E账户」聚合账户（用户确认方案 B）；
+  - 溯源表：新增 `position_import_meta`（基金管理人/份额类别/基金账户/交易账户/分红方式/销售机构/市值，用户确认专用表方案）；
+  - API：`POST /api/importers/holdings/parse` + `/holdings/confirm`；ledger 统计分支适配 e_account；
+  - 测试：脱敏样本 fixtures（两种变体）+ 17 个断言用例全过，全量 741 无回归。
+  - **待办**：前端导入向导「持仓导入」模式（#1013，后端完成后规划）；`holding_recognizer`（#1018，OCR 持仓识别改走持仓汇点）；真实样本回归验证（当前用脱敏样本）。

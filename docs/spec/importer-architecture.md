@@ -46,9 +46,10 @@
 ### 1.4 持仓表现状（核心缺口）
 
 - `positions` 表（`backend/app/domains/positions/models.py`）：字段为 `symbol, name, market, type(asset_type), ledger_id, account_name, quantity, avg_price, currency, current_price, confirm_date, notes, allocation`。
-- **没有** `import_hash`、没有 `source` / `source_broker` / `source_import_id` 字段。
+- **去重与溯源已落地（#928）**：`import_hash`（内容哈希，`uq_positions_import_hash` 唯一约束）+ `source` / `source_import_id` / `source_broker` 溯源字段，`PositionService.upsert_from_holding` 以 `(ledger_id, symbol)` 为业务键、SET 语义整条替换（快照是某日点位绝对值，不累加）。
 - 唯一约束：`uq_positions_ledger_symbol`（按 `ledger_id + symbol`），即同一账户下 symbol 唯一。
-- 结论：交易去重已治本，持仓去重尚属空白——这是本规范要补的第一洞。
+- **E账户持仓文件导入已落地（#1012 系列）**：`EAccountHoldingParser`（表头定位容错）+ 编排器持仓分支（`parse_and_preview_holdings` / `commit_holdings`）+ `POST /api/importers/holdings/{parse,confirm}` + `ledger_type='e_account'` 聚合账户 + `position_import_meta` 溯源表（基金管理人/份额类别/基金账户/交易账户/分红方式/销售机构/市值）。
+- 结论：交易去重已治本，持仓去重已随 #928 补上；E账户文件导入已闭环，截图/OCR 持仓识别（#1018）与前端导入向导「持仓导入」模式（#1013）为待办。
 
 ### 1.5 OCR 域现状
 
@@ -161,12 +162,13 @@ position_import_hash = md5("|".join(hash_fields))
 ### 4.2 录入路径
 
 1. **手动表单**：结构化录入 symbol / 数量 / 成本价 / 账户 / 来源。
-2. **截图导入（复用 OCR 通道）**：复用 `domains/ocr/` 的识别通道（OCR + LLM），上层新写「持仓快照解析」逻辑，将识别出的产品名 + 金额/份额映射为标准持仓结构，再走 §3 去重。
-3. **交割单导入自动推导**：现有 `positions` 由交易记录推导的逻辑不变，导入后同样补 `import_hash`，使「先交割单、后手动录」不重复。
+2. **平台文件导入（已落地，E账户）**：`EAccountHoldingParser` 解析券商导出的持仓 Excel（表头定位容错，兼容带/不带个人信息两种上传形态），预览确认后经 `PositionService.upsert_from_holding` 落库，**不产生交易流水**；首次导入自动创建 `ledger_type='e_account'` 聚合账户，溯源元数据写 `position_import_meta`。前端导入向导「持仓导入」模式为待办（#1013）。
+3. **截图导入（复用 OCR 通道，待办 #1018）**：复用 `domains/ocr/` 的识别通道（OCR + LLM），上层新写「持仓快照解析」逻辑，将识别出的产品名 + 金额/份额映射为标准持仓结构，再走 §3 去重。**必须走 `upsert_from_holding` 持仓汇点，严禁误建交易流水**（隐患登记 #1018）。
+4. **交割单导入自动推导**：现有 `positions` 由交易记录推导的逻辑不变，导入后同样补 `import_hash`，使「先交割单、后手动录」不重复。
 
 ### 4.3 去重协同
 
-- 三种路径最终都生成 `positions.import_hash`，统一由唯一约束拦截重复。
+- 各路径最终都生成 `positions.import_hash`，统一由唯一约束拦截重复。
 - 用户先手动录、后交割单导入，或反之，均不会写两份。
 
 ---
