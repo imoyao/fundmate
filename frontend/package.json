@@ -68,7 +68,7 @@
     "nprogress": "^0.2.0",
     "path-browserify": "^1.0.1",
     "pinia": "^3.0.4",
-    "pinyin-pro": "^3.28.2",
+    "pinyin-pro": "^3.29.1",
     "qs": "^6.15.3",
     "responsive-storage": "^2.2.0",
     "sortablejs": "^1.15.7",
