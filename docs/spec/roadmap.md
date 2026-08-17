@@ -4,7 +4,7 @@ title: 项目路线图与进度表（roadmap）
 
 # 项目路线图与进度表（roadmap）
 
-> ⚠️ **易腐烂内容**：本文件随项目进展频繁变化。最后核实日期：**2026-08-14**。每次更新进度或新增 / 完成 P 级任务时，必须同步更新本文件顶部"最后核实日期"。
+> ⚠️ **易腐烂内容**：本文件随项目进展频繁变化。最后核实日期：**2026-08-17**。每次更新进度或新增 / 完成 P 级任务时，必须同步更新本文件顶部"最后核实日期"。
 >
 > 📌 **issue 反链**：GitHub open issue 与本文件 / 各设计文档的对应关系见本文末尾 **§3 GitHub issue ↔ 文档反链索引**。
 
@@ -62,6 +62,7 @@ title: 项目路线图与进度表（roadmap）
 | P2-21 | 个人中心 | **✅ 已落地（2026-08-08）**：资料编辑（昵称/用户名/头像，D9 生成式头像 + 果冻胶囊画风选择）、改邮箱/改密码、退出登录；单栏居中设置页风格（D13 定 680 → D15 覆写 960 → **D17 回覆写 680px 定稿**），入口收敛到头像下拉；成功反馈语义隔离 + 头像 n=3 超椭圆（D15）。偏好设置（对接 `user_preferences`、修复主题双 key）与真实姓名/家人称呼（D11→P2-22）待后续 | — |
 | P2-22 | 家庭成员管理 | admin 邀请/改角色（member/viewer）/移除成员，成员列表展示；含每家庭显示名/家人称呼（D11） | — |
 | P2-23 | 云端同步引擎 | 本地 SQLite 缓存 ↔ Supabase Postgres 权威的增量双向同步 + 冲突处理（LWW）+ Supabase RLS 兜底；多设备验证 | — |
+| P2-24 | 销售机构/基金管理人主数据表 | E账户对账当前以字符串三元组 `(symbol, source_broker, fund_manager)` 为自然主键（`position_import_meta`，§3.2 设计决策）；远期建 `fund_companies`/`fund_sales_orgs` 主数据表 + 外键关联替换字符串字段，与 edgeone 双库重构（市场域 Turso，`backend-restructure-edgeone-dualengine.md`）重叠。**2026-08-17 部分落地**：销售机构侧已建 `sales_institutions`（AMAC 名录，`amac_institution` job 全量刷新）+ `Ledger.sales_institution_id` 可选外键（渠道匹配/账户关联），旧 `sales_broker_mappings` 已 DROP；基金管理人侧（`fund_management_companies` 名录已建，`position_import_meta.fund_manager` 字符串字段替换）仍待后续 | — |
 
 ### 1.4 当前进度总览
 
@@ -129,12 +130,46 @@ title: 项目路线图与进度表（roadmap）
 | P2-26 | 持仓 / 行业分布分析 | 复用现有行业映射 + 市值计算，做持仓占比/集中度/行业分布/重叠度，投资分析主线，无需新数据源 | Ⅱ |
 | P2-27 | 探市付费分层（D8） | 基础公开数据免登录；自建洞察（行业拥挤度/乖离率/估值分位）登录可见 + 免费预览样本，后续演进付费订阅 | Ⅱ |
 | P2-30 | 用户凭证加密存储 + 通用 MCP/Skill 调用 + 审计日志（家庭共享） | 原「AI Key 加密存储（D12）」扩展升级。规划见 `docs/spec/integrations-plan.md`，跟踪 issue [#922](https://github.com/imoyao/fundmate/issues/922)。必选：凭证 AES-256-GCM 信封加密（MASTER_KEY 取 env，遵守 D12 轻量起步）+ 家庭作用域 CRUD + 通用 `GenericMCPClient`（迁移 QiemanFetcher 验证）+ 系统/用户隔离（env key 与 family 凭证共用调用逻辑、数据面分离）+ 审计日志 L1（`@audit` 装饰器）+ 前端凭证管理页/skill 列表。可选：L2 哈希链（仅计费时）、按量计费、异步落库、KMS、多 auth 适配。⚠️ 待裁决：凭证归属 family_id（建议，与核心账本一致）vs D1 的 user_id 私有；MASTER_KEY 来源；是否计费 | Ⅱ |
+| P2-31 | 账本精灵对话 Agent | 在现有 `ai_recognizer` 上新增对话模式（查询/表现分析/行为解读/快速记账），耦合进后端不独立建站；L0 代码隔离 + L1 prompt 铁律 + 输入侧意图护栏 + L3 词法过滤四层硬护栏（设计见 `docs/working-notes/agent-guardrail-layer-design-2026-08-17.md`）；不引 LangGraph，轻量封装 + JSON Schema 重试兜底；图表仍独立建设不替代。优先级 Q2，排 #937/#933/#934 等 Q1 闭环之后 | 同花顺「账本精灵」对标差异化 |
 
 ### 2.6 交易流水导出（P2-15 · 2026-08-07 ✅ 已完成）
 
 - 后端：`GET /api/transactions/export/`（`Money` 精度换算，列与导入模板对齐）。
 - 前端：交易流水页新增「导出」按钮（`http` 携带鉴权头 + blob 下载）。
 - 定位：数据主权承诺锚点，**永久免费**（D7）。
+
+---
+
+## 2.7 账本精灵对话 Agent 立项（2026-08-17）
+
+> 来源：决策 D19（2026-08-17「账本精灵对话 Agent 定位与排期确定」）；护栏分层设计见 `docs/working-notes/agent-guardrail-layer-design-2026-08-17.md`；思维链与同花顺对标见 `docs/working-notes/investment-agent-brainstorm-2026-08-17.md`。
+> 优先级：**Q2（重要不紧急）**。排期前提：须待 #937（导入持仓快照）、#933（前端统一提交层）、#934（截图导入入口）等 Q1 核心闭环收口后再启动功能开发；**护栏层 G1~G7 与功能优先级正交，可立即独立开做**。
+
+### 2.7.1 四个功能与落地顺序（ROI 由便宜先落）
+
+| 功能 | 现状缺口 | 落点 | 排期 |
+|------|---------|------|------|
+| 快速记账（对话入口） | 后端识别已 ~80%，缺前端「精灵输入框」+ 逐行确认 | `ai_recognizer` 识别模式 + 前端对话入口，写仍走 importer + 前端核对（L0 硬约束） | Q2 早赢（低风险） |
+| 持仓/表现自然语言查询 | 数据 ~60% 齐（`summary_service`/`performance`），缺 NL 查询层 | NL→工具链（查持仓/算 XIRR/查净值），数值全走代码算 | Q2 早赢（低风险） |
+| 行为解读 / 持仓诊断 | 全新 ~20%，投入最大 | 拉数据→拼 prompt→llm 叙事；工具函数取数，仅传算好的指标 | Q2 排后（最高投入） |
+| （图表仍独立建设） | 路线图中 P2-18/19/26 等高维分析 | ECharts 图表，非精灵替代项 | 不受影响，照常推进 |
+
+### 2.7.2 护栏层 G1~G7 与原子 Issue 映射
+
+护栏设计与功能优先级正交，拆为 4 个原子 Issue（详见 §3 反链索引与 `docs/working-notes/agent-issues-2026-08-17.md`）：
+
+| Issue | 覆盖阶段 | 内容 |
+|------|---------|------|
+| （待建）账本精灵护栏子包骨架 + L3 输出词法过滤 | G1+G2 | 新建 `ai_recognizer/safety/`（intent_guard/output_filter/repeat_tracker 纯函数骨架）+ `output_filter.py` R1–R10 规则 + 白名单豁免 + 免责模板常量 |
+| （待建）输入侧意图护栏 + 会话内重复追问检测 | G3+G4 | `intent_guard.py` A/B/D + E 协同（意图分类 + 正则模式 + 情绪复合）+ `repeat_tracker.py` 归一化问答 N 次阈值 + 标准话术 |
+| （待建）per-user token 配额 + Serverless 限流 | G5 | `guards.py` 加 per-user 配额表 + 网关层拦截；**限流计数禁用 SCF 实例内存字典**（多实例击穿），须走 API 网关或 Redis |
+| （待建）registry 意图路由 + system prompt 注入 L1 铁律 | G6+G7 | `registry.py` 引入 A 前置分类驱动对话精灵路由；精灵 system prompt 注入 L1 数据真实性铁律 + can/cannot 清单（复用同花顺原文） |
+
+### 2.7.3 隐蔽坑登记（落地前必读）
+
+- **Serverless 限流**：per-user token 计数不能写在 SCF 实例变量（并发多实例计数器互相独立会击穿），必须在 SCF 前挂 API 网关或用云 Redis 存消耗；本地字典变量记录调用次数在高并发下必然超额。
+- **上下文不持久化全量历史**：行为解读需结合历史持仓，但每次对话重传几百上千条交易记录会打爆 token。原则「对话只做索引，工具函数取数」——用户问「半年表现」，Agent 调 Python 函数到 `summary_service` 算好年化/最大回撤/波动率等 4~5 个指标值再传给模型，既控成本又不破「数值靠代码算」铁律。
+- **无编排框架兜底**：不引 LangGraph，LLM 自吐 JSON 调用指令的可靠性靠封装层 `tenacity`/重试循环 + JSON Schema 校验；参数缺失/不符合 Schema 时把错误原因拼回 prompt 让模型重生成，不直通报错。
 
 ---
 
@@ -187,3 +222,15 @@ title: 项目路线图与进度表（roadmap）
 - [#661](https://github.com/imoyao/fundmate/issues/661) 自选功能：核心完成，正文 checklist 2 项 `[ ]`（分享备注、品种维度描述）未做，登记于 `docs/spec/tech-debt.md` §14。
 - [#429](https://github.com/imoyao/fundmate/issues/429) 交割单导入：导入主体完成；导出→#819；天天基金无数据/卖出份额推算/查重为已知限制。
 - [#507](https://github.com/imoyao/fundmate/issues/507) 定时任务清单：笔记关闭，但其待办（基金经理信息更新等）与 #229 重叠且未做，已双向交叉引用。
+
+**账本精灵对话 Agent 待建 issue（2026-08-17 立项，详见 §2.7 与 `docs/working-notes/agent-issues-2026-08-17.md`）**：
+
+| 拟标题 | 象限 | 对应文档 / 代码 | 状态 |
+|:---|:---|:---|:---|
+| 账本精灵护栏子包骨架 + L3 输出词法过滤（G1+G2） | Q2 | `agent-guardrail-layer-design-2026-08-17.md` §7/§8；`ai_recognizer/safety/` | 待建 |
+| 输入侧意图护栏 + 会话内重复追问检测（G3+G4） | Q2 | 同上 §6；`intent_guard.py`/`repeat_tracker.py` | 待建 |
+| per-user token 配额 + Serverless 限流（G5） | Q2 | 同上 §8；`guards.py` | 待建 |
+| registry 意图路由 + system prompt 注入 L1 铁律（G6+G7） | Q2 | 同上 §8；`registry.py` | 待建 |
+| 快速记账对话入口（NLP→importer + 前端逐行确认） | Q2 | `ai_recognizer`；前端精灵输入框 | 待建（Q2 早赢） |
+| 持仓/表现自然语言查询层（NL→工具链） | Q2 | `summary_service`/`performance` | 待建（Q2 早赢） |
+| 持仓行为解读 / 诊断叙事 | Q2 | 拉数据→拼 prompt→llm 叙事 | 待建（排后） |

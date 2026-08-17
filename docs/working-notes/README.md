@@ -76,6 +76,10 @@
 | `cross-ledger-import-dedup-scope-2026-08-16.md` | **跨账本重导与去重作用域降级设计**：当前 family 级去重 + 唯一约束双重卡死跨账户重导（迁移死结）；决策降级到 ledger 级；落地 5 步（账本软退役→约束降级→family 级幽灵扫描→现金兼容→NULL 哈希回填），含 UI 软提示/归档语义/同账本覆盖事务；纠正"加复合约束会因历史数据炸"误解（真正雷点是 NULL 行回填） |
 | `frontend-holding-import-plan-2026-08-16.md` | **前端持仓导入与对账设计（#1013，已确认）**：导入向导新增「导入持仓快照」模式（后端 PR #1021 + 对账/归因设计已定稿）；入口第四张卡片 + 持仓页「对账」入口、3 步流程（上传/核对与冲突处理/结果）、对账中心视图、独立 `useHoldingImport.ts` composable、design.md 逐条对照清单、6 个已确认决策点 |
 | `e-account-reconciliation-design-2026-08-16.md` | **E账户对账与归因设计（v1.0 终版，已确认）**：Ledger=销售平台语义、融合方案（空则自动归因/一致已核对/冲突留决策）、影子记录+ownership_status+is_attributed 防复活、position_import_meta 独立列（source_broker/fund_manager/is_attributed/is_ignored/attributed_at/attributed_to_ledger_id/import_error）、无状态 API（parse/reconcile/attribution/reconciliation）、销售机构映射表、P1-P6 语义细节锁定 |
+| `amac-encoding-incident-2026-08-17.md` | **AMAC 名录乱码事故复盘**：接口实为 UTF-8 却硬编码 gbk 解码致 394+165 条乱码入库；排查误区（全仓库只有一个 invest.db，勿臆测多库）；处置（删编码假设 + U+FFFD 入库守卫 + 清空重跑）；编码纪律（禁猜编码、入库前校验、写后抽查） |
+| `investment-agent-brainstorm-2026-08-17.md` | **投资/账本精灵 对话 Agent 头脑风暴（非最终方案）**：四功能可行性（基于代码核查）+ 用户补充的防幻觉/不手搓CoT/LangGraph/RAG/合规原则 + 关键洞察（现有 ai_recognizer 已 embody "模型聊逻辑、Python 算数字"）+ 6 条边界问题 + 三阶段路线图映射 + 待确认 Q1~Q4 |
+| `agent-guardrail-layer-design-2026-08-17.md` | **账本精灵对话 Agent 护栏层设计（正式）**：汇总头脑风暴第十~十七轮与同花顺对标结论；五层护栏（L0 代码隔离/L1 Prompt 铁律/L2 工具可用性/输入侧意图护栏 A~E/L3 输出侧词法过滤）；L3 细化为 10 条拦截规则表（R1~R10）；模块落点 `ai_recognizer/safety/` + G1~G7 实施计划 |
+| `agent-issues-2026-08-17.md` | **账本精灵原子 Issue 草稿**：7 个原子 issue 模板（护栏 G1~G7 拆 4 个 + 快速记账/持仓查询 NL 层/行为解读），含象限 Q2、反链、验收标准，可直接粘贴建 GitHub issue；对应决策 D19 与 roadmap §2.7 |
 
 ## 子目录归档
 
