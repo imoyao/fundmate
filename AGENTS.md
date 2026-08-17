@@ -120,6 +120,31 @@ Windows：`dev.cmd`（内部走 `scripts/dev.ps1`）；Git Bash / WSL / macOS：
 - 温度计模块历史基线数据 `backend/app/services/thermometer/data/all_pb.csv`（全A中位PB历史，行业拥挤度分母兜底）**禁止删除、禁止 `.gitignore`、必须入库**：它不是运行时缓存（已从 `cache/` 迁出至 `data/`），而是可被 `scripts/prefetch_all_pb.py` 重建但需稳定可追踪的基线；误删会导致温度计整组标灰。pre-commit 守卫 `scripts/guard_all_pb.py` 会在行数骤降（< 1000）时拒绝提交——不要绕过该守卫（如 `--no-verify`）。
 - 提交前：后端 `pytest` 全量单进程通过；前端 `vue-tsc` 零错误。
 
+## 架构与开发原则（所有 AI / agent 决策必须遵守）
+
+核心精神：**追求极简、务实、长期可维护性**。这不是口号，是推翻具体技术选型时的兜底判据。
+
+### 设计哲学
+- **不保留向后兼容性**：废弃路径直接移除，不要留 `if legacy` / `deprecated` 分支 / 兼容垫片。旧方案死了就是死了，维护两套只会增加长期负担。
+- **选择最简方案，避免过度抽象**：能用一个函数解决的，不抽三层工厂；能用现有依赖的，不复用轮子再造一个。抽象只在「同一逻辑真的出现 2–3 次以上」时才做（参照 #980 结论）。
+
+### 开发流程
+- **分层迭代，最小可用版本（MVP）起步**：先让最小闭环跑通，再逐步叠加功能。不为尚未完成的复杂功能牺牲当前产品的可用性与清晰度。
+- 需求原子化拆分（见「Issue 原子化约束」）：一个 issue 只解决一类子问题，避免超长 issue 耦合关不掉。共享前置（如 `columnDefs` 数据模型）单独拆 issue 先落地，其余在其上叠加。
+
+### 代码与依赖
+- **保持组件模块化**：页面主文件控制行数（目标 ≤ 300 行，编排而非堆逻辑）；常量/枚举/纯函数/ Hook / 无状态组件按职责下沉到 `constants/` `utils/` `composables/` `components/`。
+- **优先选用成熟第三方库，不重复造轮子**；**复用已有依赖，不盲目新增**（新增依赖需说明必要性，避免膨胀 `pdm.lock` / `package.json`）。
+
+### 决策视角
+- **以长期视角制定架构决策，拒绝临时的权宜之计**：能用一天 hack 解决但埋下技术债的，不取；宁可多花一步做对的事。外部数据源、跨域方案、存储选型等影响面大的决策，先评估长期维护成本再定。
+
+### 与自选股池实时数据相关的约束（重要，避免返工）
+- 实时股价 / 场外基金估值当前由前端 `frontend/src/utils/realtimeDataSources.ts` **JSONP 直连**天天基金（`fundgz.1234567.com.cn`）+ 腾讯财经（`qt.gtimg.cn`），封装链为 `realtimeDataSources.ts → valuationEngine.ts → useRealtimeQuotes.ts → 页面`。
+- **任何「新增自选字段 / 统一整合外部数据源」的需求，必须先决策数据来源收口方式**：要么维持前端 JSONP（已绕过 CORS，但脆弱、无法服务端缓存/降级/限流），要么收口到**后端代理**（前端只调自家 `/api`，统一解决跨域、稳定性、降级，但需新建后端端点）。方案未定前不要散落地加接口调用。
+- 新增行情/估值字段须复用既有 `realtimeDataSources.ts` 封装与 `useRealtimeQuotes` 的轮询/降级机制，禁止在页面里另起一套直连逻辑。
+- 注意 #980（上帝页面拆分）进行中：自选 `index.vue` 当前约 2016 行且列仍是硬编码 `<el-table-column>`，`columnDefs` 数据驱动（#995）尚未落地。**新字段/新列需求应建立在 #995 的 `columnDefs` 之上，不要往硬编码模板继续堆列**，否则与拆分方向冲突、后期返工。
+
 ## GitHub Issue / Discussion / PR 创建规范（OpenCode 等自动化通道）
 
 - 任何以 `imoyao` 账号通过 `gh` / REST API / 脚本创建 issue、discussion、PR 的自动化通道（含 OpenCode、远程 agent），**必须在 UTF-8 环境下运行**：shell 先 `export LANG=C.UTF-8; export LC_ALL=C.UTF-8`；Python 设 `PYTHONUTF8=1`，禁止用 `latin-1`/`ascii` 编解码中文。
