@@ -475,3 +475,172 @@ class TestWatchlistItemStandardization:
         # ETF 代码 510050 通常会被标准化为 SH510050
         assert data['symbol'] == 'SH510050'
         assert data['venue'] == 'EXCHANGE'
+
+
+# ─────────────── 持仓分组 = 全部真实持仓（方案 A）───────────────
+class TestHoldingGroupRealPositions:
+    """持仓分组展示 positions 表全部 active 持仓（按 symbol 聚合），不再依赖 watchlist.status 快照。
+
+    虚拟行约定：id=None（无自选记录），前端据此禁用置顶/关注/标签/移除等行操作。
+    """
+
+    def test_holding_group_lists_all_active_positions(self, client, db, make_position):
+        """持仓分组返回 positions 全部 active 持仓，而非 watchlist.status 快照"""
+        # 两个真实持仓，其中一个不在自选表（旧快照口径会漏掉）
+        make_position(
+            symbol='SH600519',
+            name='茅台',
+            asset_type='stock',
+            market='SH',
+            account_name='华泰',
+            quantity=100,
+            avg_price=18,
+            current_price=18,
+        )
+        make_position(
+            symbol='HK00700',
+            name='腾讯',
+            asset_type='stock',
+            market='HK',
+            account_name='富途',
+            quantity=200,
+            avg_price=3,
+            current_price=3.1,
+        )
+        # 自选表只有一条 HOLDING 快照
+        db.add(WatchlistItem(symbol='SH600519', market='SH', status='HOLDING'))
+        db.commit()
+
+        resp = _get(client, '/api/watchlist/items/', {'status': 'HOLDING'})
+        assert resp.status_code == 200
+        body = resp.get_json()
+        assert body['total'] == 2
+        symbols = {d['symbol'] for d in body['data']}
+        assert symbols == {'SH600519', 'HK00700'}
+        # 虚拟行约定：id=None，行操作字段为空
+        for d in body['data']:
+            assert d['id'] is None
+            assert d['status'] == 'HOLDING'
+            assert d['is_pinned'] is False
+            assert d['favorite'] is False
+            assert d['group_ids'] == []
+            assert d['tag_ids'] == []
+            assert d['display_name'] in ('茅台', '腾讯')
+
+    def test_holding_group_aggregates_multi_account_symbol(self, client, db, make_position):
+        """同一 symbol 多账户多行按 symbol 聚合为一行"""
+        make_position(
+            symbol='SH600519',
+            name='茅台',
+            asset_type='stock',
+            market='SH',
+            account_name='华泰',
+            quantity=100,
+            avg_price=18,
+            current_price=18,
+        )
+        make_position(
+            symbol='SH600519',
+            name='茅台',
+            asset_type='stock',
+            market='SH',
+            account_name='招商',
+            quantity=50,
+            avg_price=18,
+            current_price=18,
+        )
+
+        resp = _get(client, '/api/watchlist/items/', {'status': 'HOLDING'})
+        data = resp.get_json()['data']
+        assert len(data) == 1
+        assert data[0]['symbol'] == 'SH600519'
+        assert data[0]['holding_quantity'] == 150.0  # 两账户数量合并
+
+    def test_holding_group_venue_and_search_filter(self, client, db, make_position):
+        """持仓分组支持 venue / search 过滤"""
+        make_position(
+            symbol='SH600519',
+            name='茅台',
+            asset_type='stock',
+            market='SH',
+            account_name='华泰',
+            quantity=100,
+            avg_price=18,
+            current_price=18,
+        )
+        make_position(
+            symbol='001414',
+            name='某基金',
+            asset_type='fund',
+            market='CN_A',
+            account_name='天天',
+            quantity=100,
+            avg_price=1,
+            current_price=1,
+        )
+
+        # venue=EXCHANGE 只留股票（基金无自选记录时推断 OTC）
+        resp = _get(client, '/api/watchlist/items/', {'status': 'HOLDING', 'venue': 'EXCHANGE'})
+        assert {d['symbol'] for d in resp.get_json()['data']} == {'SH600519'}
+
+        # search 按 symbol 过滤
+        resp = _get(client, '/api/watchlist/items/', {'status': 'HOLDING', 'q': '0014'})
+        assert {d['symbol'] for d in resp.get_json()['data']} == {'001414'}
+
+    def test_holding_group_count_matches_positions(self, client, db, make_position):
+        """分组列表「持仓」count = positions active 去重 symbol 数"""
+        make_position(
+            symbol='SH600519',
+            name='茅台',
+            asset_type='stock',
+            market='SH',
+            account_name='华泰',
+            quantity=100,
+            avg_price=18,
+            current_price=18,
+        )
+        make_position(
+            symbol='SH600519',
+            name='茅台',
+            asset_type='stock',
+            market='SH',
+            account_name='招商',
+            quantity=50,
+            avg_price=18,
+            current_price=18,
+        )
+        make_position(
+            symbol='HK00700',
+            name='腾讯',
+            asset_type='stock',
+            market='HK',
+            account_name='富途',
+            quantity=200,
+            avg_price=3,
+            current_price=3.1,
+        )
+
+        resp = _get(client, '/api/watchlist/groups/')
+        holding = next(g for g in resp.get_json()['data'] if g['key'] == 'holding')
+        assert holding['count'] == 2  # 去重后 2 个 symbol
+
+    def test_holding_group_export(self, client, db, make_position):
+        """持仓分组导出 CSV 与列表一致（虚拟行字段从 dict 取）"""
+        make_position(
+            symbol='SH600519',
+            name='茅台',
+            asset_type='stock',
+            market='SH',
+            account_name='华泰',
+            quantity=100,
+            avg_price=18,
+            current_price=18,
+        )
+
+        resp = client.get('/api/watchlist/items/export/', query_string={'status': 'HOLDING'})
+        assert resp.status_code == 200
+        text = resp.get_data(as_text=True)
+        # BOM + 表头 + 一行数据
+        assert '\ufeff' in text
+        assert '代码,名称,市场,类型,场内/场外,状态,置顶,特别关注,标签' in text
+        assert 'SH600519,茅台,SH,股票,场内,持仓中,否,否,' in text

@@ -156,7 +156,8 @@ function handleClose() {
 }
 
 const removeTagFromEditingItem = async (tagId: number) => {
-  if (!props.item) return;
+  // 虚拟持仓行（id=null）无自选记录，标签操作无意义，直接跳过
+  if (!props.item || props.item.id == null) return;
   try {
     await removeTagFromItem(props.item.id, tagId);
     localTagIds.value = localTagIds.value.filter(id => id !== tagId);
@@ -182,7 +183,8 @@ function onTagFormSaved() {
 }
 
 const saveTagChanges = async () => {
-  if (!props.item) return;
+  // 虚拟持仓行（id=null）无自选记录，标签操作无意义，直接跳过
+  if (!props.item || props.item.id == null) return;
   savingTags.value = true;
   try {
     const itemId = props.item.id;

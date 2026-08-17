@@ -48,13 +48,20 @@ def build_groups_data(db: Session, family_id: int) -> list[dict]:
         }
     )
 
-    # 2. 持仓
+    # 2. 持仓（真实持仓口径：positions 表 active 持仓按 symbol 去重，
+    # 不再依赖 watchlist.status 快照——自选页「持仓」分组 = 全部真实持仓）
+    holding_count = (
+        db.query(Position.symbol)
+        .filter(Position.family_id == family_id, Position.ownership_status == 'active')
+        .distinct()
+        .count()
+    )
     groups_data.append(
         {
             'key': 'holding',
             'label': '持仓',
             'color': GROUP_COLORS['holding'],
-            'count': _item_base().filter(WatchlistItem.status == 'HOLDING').count(),
+            'count': holding_count,
             'is_system': True,
         }
     )

@@ -384,6 +384,7 @@
           type="selection"
           width="50"
           align="center"
+          :selectable="row => row.id != null"
         />
         <el-table-column width="44" align="center" class-name="marker-column">
           <template #default="{ row }">
@@ -443,6 +444,7 @@
                     circle
                     size="small"
                     class="add-tag-btn"
+                    :disabled="row.id == null"
                     @click.stop="openTagEditor(row as WatchlistItem)"
                   >
                     <IconifyIconOffline icon="ep:plus" class="text-[10px]" />
@@ -500,6 +502,7 @@
                   <el-button
                     circle
                     size="small"
+                    :disabled="row.id == null"
                     @click.stop="handleTogglePin(row as WatchlistItem)"
                   >
                     <IconifyIconOffline
@@ -514,6 +517,7 @@
                   <el-button
                     circle
                     size="small"
+                    :disabled="row.id == null"
                     @click.stop="handleToggleFavorite(row as WatchlistItem)"
                   >
                     <IconifyIconOffline
@@ -1073,6 +1077,8 @@ async function handleBatchDelete() {
     );
     for (const item of selectedItems.value) {
       try {
+        // 虚拟持仓行（id=null）无自选记录，不可删除，跳过
+        if (item.id == null) continue;
         await deleteWatchlistItem(item.id);
       } catch (e) {
         /* ignore */
@@ -1090,9 +1096,10 @@ async function handleBatchDelete() {
 const handleBatchMoveToGroup = async (groupId: number | null) => {
   if (!groupId || selectedItems.value.length === 0) return;
   try {
-    const promises = selectedItems.value.map(item =>
-      addItemToGroup(item.id, groupId)
-    );
+    // 虚拟持仓行（id=null）无自选记录，不可移动，过滤后仅对真实自选行发起请求
+    const promises = selectedItems.value
+      .filter((item): item is WatchlistItem & { id: number } => item.id != null)
+      .map(item => addItemToGroup(item.id, groupId));
     await Promise.all(promises);
     ElMessage.success(
       `已将 ${selectedItems.value.length} 个资产移动到所选分组`
@@ -1173,6 +1180,8 @@ function resetFilters() {
 
 async function handleTogglePin(row: WatchlistItem) {
   const r = row as WatchlistItem;
+  // 虚拟持仓行（id=null）无自选记录，置顶操作无意义，直接跳过
+  if (r.id == null) return;
   try {
     await updateWatchlistItem(r.id, { is_pinned: !r.is_pinned });
     ElMessage.success(r.is_pinned ? "已取消置顶" : "已置顶");
@@ -1185,6 +1194,8 @@ async function handleTogglePin(row: WatchlistItem) {
 
 async function handleToggleFavorite(row: WatchlistItem) {
   const r = row as WatchlistItem;
+  // 虚拟持仓行（id=null）无自选记录，特别关注操作无意义，直接跳过
+  if (r.id == null) return;
   try {
     await updateWatchlistItem(r.id, { favorite: !r.favorite });
     ElMessage.success(r.favorite ? "已取消特别关注" : "已设为特别关注");
@@ -1198,6 +1209,8 @@ async function handleToggleFavorite(row: WatchlistItem) {
 function handleRowClick(row: WatchlistItem) {}
 
 function confirmRemove(row: WatchlistItem | any) {
+  // 虚拟持仓行（id=null）无自选记录，不可移除，直接跳过
+  if (row.id == null) return;
   removingItem.value = row as WatchlistItem;
   removeScope.value = "all";
   removeDialogVisible.value = true;
@@ -1205,7 +1218,8 @@ function confirmRemove(row: WatchlistItem | any) {
 
 async function executeRemove() {
   const item = removingItem.value;
-  if (!item) return;
+  // 虚拟持仓行（id=null）无自选记录，不可移除，直接跳过
+  if (!item || item.id == null) return;
   try {
     if (removeScope.value === "current" && activeCustomGroupId.value) {
       await removeItemFromGroup(item.id, activeCustomGroupId.value);
@@ -1250,6 +1264,8 @@ function onOcrImported() {
 // 标签管理相关（交互已收敛到 TagManagerDialog / TagEditorDialog 共有组件）
 // ─────────────────────────────────────────────
 const openTagEditor = (row: WatchlistItem) => {
+  // 虚拟持仓行（id=null）无自选记录，标签编辑无意义，直接跳过
+  if (row.id == null) return;
   editingItem.value = row as WatchlistItem;
   showTagEditor.value = true;
 };
@@ -1278,8 +1294,7 @@ const realtimeEnabled = computed(() => realtime.enabled.value);
 // ── #995 columnDefs 数据驱动：数据列（不含 product/marker/selection/操作，这些保留原模板）──
 const dataColumns = computed(() =>
   watchlistColumnDefs.filter(
-    d =>
-      !["product", "_marker", "_selection", "_actions"].includes(d.key)
+    d => !["product", "_marker", "_selection", "_actions"].includes(d.key)
   )
 );
 
