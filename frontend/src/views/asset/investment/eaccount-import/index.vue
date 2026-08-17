@@ -35,39 +35,74 @@
 
     <!-- ── 步骤一：上传与预览 ── -->
     <template v-if="currentStep === 0">
-      <div class="upload-card">
-        <el-upload
-          accept=".csv,.xls,.xlsx"
-          :before-upload="beforeUpload"
-          :http-request="handleUpload"
-          :show-file-list="false"
-          drag
-          :disabled="parsing"
-          class="eaccount-upload"
-        >
-          <template #default>
-            <IconifyIconOffline
-              icon="lucide:cloud-upload"
-              class="upload-icon"
-            />
-            <p class="upload-text">将文件拖到此处，或</p>
-            <el-button plain class="upload-btn" :loading="parsing">
-              {{ parsing ? "正在解析..." : "点击上传" }}
-            </el-button>
-            <p class="upload-hint">E账户导出文件（基金持仓快照）</p>
-            <p class="upload-format-info">支持 Excel、CSV 格式 ｜ 最大 5MB</p>
-          </template>
-        </el-upload>
+      <!-- 大上传卡片：解析成功后折叠让位（el-upload 保留在 DOM，http-request 与 accept 校验不变） -->
+      <div
+        class="upload-collapse"
+        :class="{ 'is-folded': parsedOk }"
+        :inert="parsedOk"
+      >
+        <div class="upload-collapse__inner">
+          <div class="upload-card">
+            <el-upload
+              accept=".csv,.xls,.xlsx"
+              :before-upload="beforeUpload"
+              :http-request="handleUpload"
+              :show-file-list="false"
+              drag
+              :disabled="parsing"
+              class="eaccount-upload"
+            >
+              <template #default>
+                <IconifyIconOffline
+                  icon="lucide:cloud-upload"
+                  class="upload-icon"
+                />
+                <p class="upload-text">将文件拖到此处，或</p>
+                <el-button plain class="upload-btn" :loading="parsing">
+                  {{ parsing ? "正在解析..." : "点击上传" }}
+                </el-button>
+                <p class="upload-hint">E账户导出文件（基金持仓快照）</p>
+                <p class="upload-format-info">
+                  支持 Excel、CSV 格式 ｜ 最大 5MB
+                </p>
+              </template>
+            </el-upload>
 
-        <div v-if="uploadError" class="upload-error">
-          <IconifyIconOffline icon="ep:warning-filled" class="mr-1" />
-          {{ uploadError }}
-          <div class="upload-error-detail">
-            请检查：1. 是否为 E账户（中国结算）导出的原始文件；2. 文件是否完整，
-            没有被修改过；3. 文件编码是否为 UTF-8
+            <div v-if="uploadError" class="upload-error">
+              <IconifyIconOffline icon="ep:warning-filled" class="mr-1" />
+              {{ uploadError }}
+              <div class="upload-error-detail">
+                请检查：1. 是否为 E账户（中国结算）导出的原始文件；2.
+                文件是否完整， 没有被修改过；3. 文件编码是否为 UTF-8
+              </div>
+            </div>
           </div>
         </div>
       </div>
+
+      <!-- 解析完成状态条：折叠后的一行反馈 + 重新上传 -->
+      <transition name="done-bar">
+        <div v-if="parsedOk" class="parse-done-bar">
+          <IconifyIconOffline
+            icon="ep:success-filled"
+            class="parse-done-bar__icon"
+          />
+          <span class="parse-done-bar__file" :title="fileName">
+            {{ fileName }}
+          </span>
+          <span class="parse-done-bar__summary">
+            已解析
+            <b class="parse-done-bar__count">{{ parseMeta.total }}</b>
+            条记录<template v-if="errorCount > 0"
+              >，其中 {{ errorCount }} 条解析失败</template
+            >
+          </span>
+          <el-button text class="parse-done-bar__reset" @click="resetUpload">
+            <IconifyIconOffline icon="ep:refresh-left" class="mr-1" />
+            重新上传
+          </el-button>
+        </div>
+      </transition>
 
       <!-- 解析预览：只读展示，error 行标红禁提交 -->
       <div v-if="previewRows.length > 0" class="preview-card">
@@ -101,7 +136,7 @@
 
         <!-- 表格视觉基线走 src/style/el-table.css（row-blocked 为基线内置类） -->
         <el-table
-          :data="previewRows"
+          :data="pagedPreviewRows"
           stripe
           :row-class-name="getRowClassName"
           max-height="480"
@@ -155,6 +190,16 @@
             <div class="preview-empty">暂无预览数据</div>
           </template>
         </el-table>
+
+        <!-- 客户端分页：在全量解析行上切片，统计口径保持全量 -->
+        <el-pagination
+          v-model:current-page="previewPage"
+          v-model:page-size="previewPageSize"
+          :total="previewRows.length"
+          :page-sizes="[50, 100, 200]"
+          layout="total, prev, pager, next, sizes"
+          class="table-pagination"
+        />
 
         <div class="preview-footer">
           <span class="preview-footer__count">
@@ -295,7 +340,6 @@ import {
   parseHoldings,
   reconcileEaccount,
   type HoldingParseRow,
-  type HoldingParsePayload,
   type ReconcileResult,
   type ConflictItem
 } from "@/api/eaccount";
@@ -333,10 +377,25 @@ const uploadError = ref("");
 const previewRows = ref<HoldingParseRow[]>([]);
 const parseMeta = ref({ total: 0, error_count: 0 });
 const result = ref<ReconcileResult | null>(null);
+const fileName = ref("");
+/** 预览表格客户端分页：当前页码 + 每页条数（默认 50） */
+const previewPage = ref(1);
+const previewPageSize = ref(50);
 
 const errorCount = computed(
   () => previewRows.value.filter(row => !!row.error).length
 );
+
+/** 解析成功（有行数据且无错误）→ 上传卡片折叠为一行状态条 */
+const parsedOk = computed(
+  () => previewRows.value.length > 0 && !uploadError.value
+);
+
+/** 预览表格分页切片：在全量解析行上切片（errorCount / 状态条 / SectionHeader 统计均保持全量口径） */
+const pagedPreviewRows = computed(() => {
+  const start = (previewPage.value - 1) * previewPageSize.value;
+  return previewRows.value.slice(start, start + previewPageSize.value);
+});
 
 const conflictList = computed(() => result.value?.conflict_list ?? []);
 const failedList = computed(() => result.value?.failed_rows ?? []);
@@ -376,12 +435,14 @@ async function handleUpload(options: UploadRequestOptions) {
   uploadError.value = "";
   try {
     const res = await parseHoldings(file);
-    const payload = unwrap<HoldingParsePayload>(res);
-    previewRows.value = Array.isArray(payload.rows) ? payload.rows : [];
+    // 后端 /holdings/parse 返回信封：data 即行数组，total/error_count 在顶层
+    const rows = Array.isArray(res.data) ? res.data : [];
+    previewRows.value = rows;
     parseMeta.value = {
-      total: payload.total ?? previewRows.value.length,
-      error_count: payload.error_count ?? 0
+      total: res.total ?? rows.length,
+      error_count: res.error_count ?? 0
     };
+    fileName.value = file.name;
     options.onSuccess(res);
   } catch (e) {
     uploadError.value = errMsg(e, "文件解析失败");
@@ -430,6 +491,17 @@ function resetFlow() {
   parseMeta.value = { total: 0, error_count: 0 };
   result.value = null;
   uploadError.value = "";
+  fileName.value = "";
+  previewPage.value = 1;
+}
+
+/** 重新上传：清空解析结果，恢复大上传卡片 */
+function resetUpload() {
+  uploadError.value = "";
+  previewRows.value = [];
+  parseMeta.value = { total: 0, error_count: 0 };
+  fileName.value = "";
+  previewPage.value = 1;
 }
 </script>
 
@@ -565,6 +637,93 @@ function resetFlow() {
   text-align: left;
 }
 
+/* ===== 上传卡片折叠（解析成功后让位给预览表格） ===== */
+
+/* 外层 grid 行高 1fr→0fr 平滑收缩 + 淡出；el-upload 始终留在 DOM，仅视觉折叠 */
+.upload-collapse {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition:
+    grid-template-rows 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.3s ease;
+}
+
+.upload-collapse.is-folded {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+
+.upload-collapse__inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ===== 解析完成状态条 ===== */
+.parse-done-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  align-items: center;
+  padding: var(--space-3) var(--space-standard);
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-raised);
+}
+
+.parse-done-bar__icon {
+  flex-shrink: 0;
+  font-size: 18px;
+  color: var(--color-success);
+}
+
+.parse-done-bar__file {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--text-small);
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.parse-done-bar__summary {
+  font-size: var(--text-small);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.parse-done-bar__count {
+  font-weight: 600;
+  color: var(--color-success);
+}
+
+.parse-done-bar__reset {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--text-secondary);
+}
+
+/* 状态条出现：淡入 + 轻微下落（与折叠收缩同步） */
+.done-bar-enter-active {
+  transition:
+    opacity 0.3s ease,
+    transform 0.3s ease;
+}
+
+.done-bar-enter-from {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+.done-bar-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.done-bar-leave-to {
+  opacity: 0;
+}
+
 /* ===== 预览区 ===== */
 .preview-card {
   padding: var(--space-standard);
@@ -626,6 +785,13 @@ function resetFlow() {
   padding: 24px 0;
   color: var(--text-tertiary);
   text-align: center;
+}
+
+/* 分页条：表格底部右对齐，Element Plus 默认视觉 */
+.table-pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-compact);
 }
 
 .preview-footer {

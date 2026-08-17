@@ -98,19 +98,21 @@ export interface HoldingParseRow {
   error?: string | null;
 }
 
-/** E账户持仓快照解析载荷（对齐设计文档 §5.1：rows/total/error_count/duplicate_count） */
-export interface HoldingParsePayload {
-  rows: HoldingParseRow[];
+/** E账户持仓快照解析响应（对齐后端 /holdings/parse 实际信封：data 即行数组） */
+export interface HoldingParseResponse {
+  data: HoldingParseRow[];
   total: number;
   error_count: number;
   duplicate_count?: number;
+  ledger_id?: number | null;
+  ledger_name?: string;
 }
 
 /** 解析 E账户持仓快照文件（multipart，复用 holdings/parse 逻辑） */
 export function parseHoldings(file: File) {
   const formData = new FormData();
   formData.append("file", file);
-  return http.request<ApiResponse<HoldingParsePayload>>(
+  return http.request<HoldingParseResponse>(
     "post",
     "/api/importers/holdings/parse",
     {

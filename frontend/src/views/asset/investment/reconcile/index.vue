@@ -66,7 +66,7 @@
 
     <!-- 对账明细表：视觉基线走 src/style/el-table.css，页面不覆盖 -->
     <div v-loading="loading" class="table-card">
-      <el-table :data="filteredItems" stripe>
+      <el-table :data="pagedItems" stripe>
         <el-table-column label="基金" fixed="left" width="200">
           <template #default="{ row }">
             <div class="fund-cell">
@@ -199,12 +199,22 @@
           </div>
         </template>
       </el-table>
+
+      <!-- 客户端分页：在筛选结果上切片，只翻页不改过滤口径 -->
+      <el-pagination
+        v-model:current-page="page"
+        v-model:page-size="pageSize"
+        :total="filteredItems.length"
+        :page-sizes="[50, 100, 200]"
+        layout="total, prev, pager, next, sizes"
+        class="table-pagination"
+      />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, watch, onMounted } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import {
@@ -243,6 +253,9 @@ const dataDate = ref("");
 const items = ref<ReconciliationItem[]>([]);
 const summary = ref<ReconciliationData["summary"] | null>(null);
 const statusFilter = ref("all");
+/** 客户端分页：当前页码 + 每页条数（默认 50，大表格分页展示） */
+const page = ref(1);
+const pageSize = ref(50);
 /** 当前正在执行归因/忽略的记录（行内按钮 loading 定位） */
 const actingRecordId = ref<number | null>(null);
 const actingAction = ref<"cover" | "ignore" | null>(null);
@@ -272,6 +285,17 @@ const filteredItems = computed(() => {
   return items.value.filter(item => item.status === statusFilter.value);
 });
 
+/** 客户端分页：在筛选结果上按当前页码切片（顶部「共 N 条」保持全量口径） */
+const pagedItems = computed(() => {
+  const start = (page.value - 1) * pageSize.value;
+  return filteredItems.value.slice(start, start + pageSize.value);
+});
+
+/** 状态筛选切换时回到第一页，避免停留在旧筛选的高页码 */
+watch(statusFilter, () => {
+  page.value = 1;
+});
+
 /** 份额格式化：保留 2 位 + 千分位（design.md「份额/数量保留 2 位」） */
 function formatQuantity(qty: number): string {
   return (qty || 0).toLocaleString(undefined, {
@@ -295,6 +319,8 @@ async function fetchData() {
     dataDate.value = data.data_date ?? "";
     items.value = Array.isArray(data.items) ? data.items : [];
     summary.value = data.summary ?? null;
+    // 数据刷新后回到第一页（对账操作后列表重载，避免停留在过期页码）
+    page.value = 1;
   } catch (e) {
     ElMessage.error(errMsg(e, "加载对账数据失败"));
   } finally {
@@ -530,6 +556,13 @@ onMounted(fetchData);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-raised);
+}
+
+/* 分页条：卡片内表格底部右对齐，Element Plus 默认视觉 */
+.table-pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-compact);
 }
 
 /* 基金列：名称 + 代码上下两行（冻结列锚点，design.md 冻结列规范） */
