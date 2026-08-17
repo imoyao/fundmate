@@ -100,6 +100,14 @@ def _display(paths: list[str]) -> list[str]:
 
 
 def main() -> None:
+    # Windows 控制台默认 GBK，print 中文会抛 UnicodeEncodeError；重绑为 UTF-8 流，
+    # 既不让预览输出崩溃，也避免为绕过编码而落盘临时文件。
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+    except Exception:
+        pass
+
     ap = argparse.ArgumentParser(description="commit helper (dry-run by default)")
     ap.add_argument("--files", nargs="+", help="要提交的精确文件列表（精准优先）")
     ap.add_argument("--message-file", type=Path, help="UTF-8 提交信息文件")
