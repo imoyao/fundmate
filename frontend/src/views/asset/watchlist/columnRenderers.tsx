@@ -10,6 +10,14 @@
  *
  * 约束（AGENTS.md / realtime-data-sources.md）：不得在此新开 JSONP 通道；
  * 实时数据一律来自 ctx.getValuationItem（useRealtimeQuotes 链路）。
+ *
+ * ── 维护者须知 ──
+ * 本注册表的 product / actions renderer 当前在 index.vue 中【未启用】
+ * （index.vue 的 product/marker/selection/actions 四列仍保留原模板，
+ * 原因见 docs/spec/watchlist-column-defs.md §3 实施偏差）。这两个 renderer
+ * 是 #995 步骤 3 的预备实现：待 #980 重构合入、数据列驱动稳定后，
+ * index.vue 将切换到用本注册表渲染 product/actions，届时删除对应硬编码列。
+ * 在此之前若改 product/actions 交互，需同步更新本文件与 index.vue 两处。
  */
 
 import { h, type FunctionalComponent, type VNode } from "vue";
@@ -46,8 +54,7 @@ export interface RenderCtx {
   actions: {
     togglePin: (row: WatchlistRow) => void;
     toggleFavorite: (row: WatchlistRow) => void;
-    openEdit: (row: WatchlistRow) => void;
-    openDelete: (row: WatchlistRow) => void;
+    remove: (row: WatchlistRow) => void;
   };
 }
 
@@ -210,13 +217,34 @@ const renderActions: FunctionalComponent<{
       "置顶",
       () => a.togglePin(row)
     ),
-    mkBtn(
-      row.favorite ? "ep:medal" : "ep:medal",
-      "关注",
-      () => a.toggleFavorite(row)
+    mkBtn("ep:medal", "关注", () => a.toggleFavorite(row)),
+    h(
+      "el-tooltip",
+      {
+        content:
+          row.status === "HOLDING"
+            ? "持仓资产无法直接从自选移除"
+            : "移除",
+        placement: "top",
+      },
+      {
+        default: () =>
+          h(
+            "el-button",
+            {
+              circle: true,
+              size: "small",
+              class: "btn-delete-ghost",
+              disabled: row.status === "HOLDING",
+              onClick: (e: Event) => {
+                e.stopPropagation();
+                a.remove(row);
+              },
+            },
+            () => [h("i", { class: "icon ep:delete" })]
+          ),
+      }
     ),
-    mkBtn("ep:edit", "编辑", () => a.openEdit(row)),
-    mkBtn("ep:delete", "删除", () => a.openDelete(row)),
   ]);
 };
 

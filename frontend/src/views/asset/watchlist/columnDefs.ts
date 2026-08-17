@@ -11,6 +11,13 @@
  *
  * 约束（AGENTS.md）：不得在本文件/renderer 内新开 JSONP 通道；
  * 新实时字段一律经实时数据链路 renderer 消费。
+ *
+ * ── 实施状态（维护者须知）──
+ * MVP 步骤 1（本文件 + columnRenderers.tsx 落地）与步骤 2（index.vue 数据列
+ * 接入 v-for）已完成。步骤 3（删除硬编码列、product/actions 切 renderer）待
+ * #980 自选页面拆分重构合入后执行——因保留列与 #980 改动区域重叠，过早删除
+ * 会与之冲突。后续字段扩展（#990/#992/#993）均在此 columnDefs 上增量开发，
+ * 不应再向 index.vue 硬编码堆列。
  */
 
 import type { WatchlistItem } from "@/api/watchlist";

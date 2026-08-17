@@ -453,9 +453,20 @@
           </template>
         </el-table-column>
 
-        <!-- 数据列：由 columnDefs 驱动，renderer 注册表渲染（实时覆盖逻辑已内聚进 renderer）。
-             见 docs/spec/watchlist-column-defs.md（#995）。
-             product/marker/selection/操作 列因含特殊交互（openTagEditor、batchMode 占位等）暂保留原模板，后续切换。 -->
+        <!--
+          #995 columnDefs 数据驱动（MVP 步骤 2，已落地）。
+          7 个纯数据列由此 v-for 渲染，renderer 注册表见 columnRenderers.tsx；
+          实时覆盖双分支已内聚进 renderer，本模板不再散落 v-if realtimeEnabled。
+          详见 docs/spec/watchlist-column-defs.md。
+
+          ⚠️ 维护者须知（后续待办，勿误判为"半成品 bug"）：
+          - product / _marker / _selection / _actions 四列刻意保留原模板，
+            原因：含 openTagEditor、batchMode 占位、tooltip、持仓禁用等特殊交互，
+            且与 #980 自选页面拆分重构区域重叠。
+          - 下一步（#995 步骤 3）：待 #980 重构合入、本驱动验证稳定后，
+            把 product/actions 也切到 renderer，并删除全部硬编码列，仅保留 columnDefs 驱动。
+          - 在此之前若改这些保留列的交互，注意与 dataColumns 的 renderer 逻辑保持一致。
+        -->
         <el-table-column
           v-for="def in dataColumns"
           :key="def.key"
