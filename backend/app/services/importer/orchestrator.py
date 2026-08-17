@@ -23,7 +23,7 @@ from app.core.money import Money
 from app.core.utils import show_time
 from app.domains.funds.models import Fund, FundVariety
 from app.domains.ledgers.models import Ledger
-from app.domains.positions.models import Position, PositionImportMeta, SalesBrokerMapping
+from app.domains.positions.models import Position, PositionImportMeta, SalesInstitution
 from app.domains.securities.models import Security
 from app.domains.transactions.models import Transaction
 from app.domains.watchlist.models import WatchlistItem
@@ -1073,28 +1073,71 @@ class ImportOrchestrator:
     def _get_or_create_channel_ledger(self, source_broker: str) -> Ledger:
         """按销售机构匹配渠道 Ledger（ledger_type='fund'）；找不到则自动创建（§3.3）。
 
-        映射优先级：sales_broker_mappings.display_name → source_broker 原文。
-        自动创建时优先用映射名，无映射用原始 source_broker 名。
-        """
-        display_name = source_broker
-        mapping = self.db.query(SalesBrokerMapping).filter_by(source_name=source_broker).first()
-        if mapping:
-            display_name = mapping.display_name
+        匹配链路（2026-08-17 重构，AMAC 权威名录为唯一基准）：
+        1. source_broker → SalesInstitution 匹配（org_name 等值 → display_name 等值）；
+        2. 命中机构 → 查 Ledger.sales_institution_id == 机构.id：
+           - 找到 → 返回该 Ledger（name 为用户创建时的名字，权威名仅存后台不展示）；
+           - 未找到 → 自动创建 Ledger（name=可读展示名）+ 自动关联 sales_institution_id；
+        3. 名录未命中 → 回退：按 source_broker 原文查/建 Ledger（不关联机构，记 warning）。
 
+        注意：Ledger.name 永远是用户输入/可读展示名，权威 org_name 不进前台任何字段。
+        """
+        institution = (
+            self.db.query(SalesInstitution)
+            .filter(SalesInstitution.is_active.is_(True), SalesInstitution.org_name == source_broker)
+            .first()
+        )
+        if institution is None:
+            institution = (
+                self.db.query(SalesInstitution)
+                .filter(
+                    SalesInstitution.is_active.is_(True),
+                    SalesInstitution.display_name == source_broker,
+                )
+                .first()
+            )
+
+        # 名录命中：按机构关联找/建渠道 Ledger
+        if institution is not None:
+            ledger = (
+                self.db.query(Ledger)
+                .filter_by(
+                    sales_institution_id=institution.id,
+                    ledger_type='fund',
+                    family_id=self.family_id,
+                )
+                .first()
+            )
+            if ledger:
+                return ledger
+            display_name = institution.display_name or institution.org_name
+            ledger = Ledger(
+                name=display_name,
+                ledger_type='fund',
+                default_allocation='longterm',
+                family_id=self.family_id,
+                sales_institution_id=institution.id,
+            )
+            self.db.add(ledger)
+            self.db.flush()
+            logger.info(f'对账自动创建渠道账户: name={display_name} (机构={institution.org_name}, id={institution.id})')
+            return ledger
+
+        # 名录未命中：回退原文（历史行为，不关联机构）
         ledger = (
-            self.db.query(Ledger).filter_by(name=display_name, ledger_type='fund', family_id=self.family_id).first()
+            self.db.query(Ledger).filter_by(name=source_broker, ledger_type='fund', family_id=self.family_id).first()
         )
         if ledger:
             return ledger
         ledger = Ledger(
-            name=display_name,
+            name=source_broker,
             ledger_type='fund',
             default_allocation='longterm',
             family_id=self.family_id,
         )
         self.db.add(ledger)
         self.db.flush()
-        logger.info(f'对账自动创建渠道账户: name={display_name} (source={source_broker})')
+        logger.warning(f'对账自动创建渠道账户（未命中 AMAC 名录）: name={source_broker}')
         return ledger
 
     def _auto_attribute(
@@ -1165,7 +1208,9 @@ class ImportOrchestrator:
         流程：
         1. 防复活检查：按三元组查影子 meta，is_attributed/is_ignored → 跳过并计数；
         2. 影子记录专用 upsert（ledger_id=NULL, ownership_status='shadow'）；
-        3. 渠道匹配：source_broker → sales_broker_mappings → display_name → Ledger(fund)；
+        3. 渠道匹配：source_broker → SalesInstitution（is_active，org_name/display_name 等值）→
+           按 sales_institution_id 查/建 Ledger(fund)（name=display_name or org_name，自动关联机构）；
+           名录未命中回退按 name=source_broker 查/建（不关联机构，记 warning）；
         4. 三分支判定（§4.2 只看份额，min_unit 整数比较，0.001 份 = 10 min_unit）：
            - 渠道无该 symbol → 自动归因（渠道新建 active + 影子 is_attributed=True）；
            - 有且份额差 ≤10 min_unit → 已核对（渠道不动 + 影子 is_attributed=True）；
@@ -1246,7 +1291,9 @@ class ImportOrchestrator:
                             )
             except Exception as e:
                 logger.exception(f'E账户对账单条失败: symbol={symbol}')
-                summary['failed_rows'].append({'line': line, 'symbol': symbol, 'reason': str(e)})
+                # 行级意外异常不回传原始详情：str(e) 含 SQL/表结构，会泄露数据库细节给前端。
+                # 原始异常已由 logger.exception 记入服务端日志，前端只展示友好文案。
+                summary['failed_rows'].append({'line': line, 'symbol': symbol, 'reason': '该行处理失败，详见系统日志'})
 
         try:
             self.db.commit()

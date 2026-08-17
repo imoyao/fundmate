@@ -1,6 +1,3 @@
-from datetime import datetime
-from zoneinfo import ZoneInfo
-
 from sqlalchemy import (
     Boolean,
     Column,
@@ -13,7 +10,6 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     and_,
-    func,
 )
 
 from app.core.database import Base, FamilyScopedMixin, PrimaryKeyMixin, TimestampMixin
@@ -128,39 +124,35 @@ class PositionImportMeta(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixi
     )
 
 
-class SalesBrokerMapping(Base, PrimaryKeyMixin):
-    """销售机构名称映射（E账户 source_broker → 用户友好名称，§3.3）。
+class SalesInstitution(Base, PrimaryKeyMixin, TimestampMixin):
+    """基金销售机构权威名录（AMAC 公示，唯一基准）。
 
-    系统内置映射（蚂蚁→支付宝等）由 seed_sales_broker_mappings 幂等写入；
-    用户在账户设置页可覆盖（user_override=True），系统不覆盖用户自定义。
-    本表为平台级映射，不按 family 隔离（所有家庭共享同一套销售机构名称）。
+    身份证语义：org_name 为 AMAC 权威全称，永远不变，是记录/校验的唯一基准；
+    display_name 为常见机构别名（支付宝/天天基金等），仅用于展示。
+    is_active 标记机构是否仍在 AMAC 公示名单内（下架/倒闭时置 False，历史数据保留不删除）。
     """
 
-    __tablename__ = 'sales_broker_mappings'
+    __tablename__ = 'sales_institutions'
 
-    source_name = Column(String(200), nullable=False, unique=True, comment='E账户原始名称（销售机构字段）')
-    display_name = Column(String(100), nullable=False, comment='用户友好名称')
-    user_override = Column(Boolean, default=False, comment='用户是否自定义覆盖')
-    created_at = Column(
-        DateTime,
-        default=lambda: datetime.now(ZoneInfo('Asia/Shanghai')),
-        server_default=func.now(),
-        comment='创建时间',
-    )
+    org_name = Column(String(200), unique=True, nullable=False, comment='权威全称（AMAC 公示，唯一基准）')
+    reg_addr = Column(String(200), comment='注册地址')
+    org_type = Column(String(50), comment='机构类型')
+    check_time = Column(String(20), comment='检查时间(YYYY-MM)')
+    display_name = Column(String(100), comment='常用别名（展示用）')
+    is_active = Column(Boolean, default=True, comment='是否在 AMAC 公示名单内')
 
 
-def seed_sales_broker_mappings(db) -> None:
-    """幂等写入销售机构内置映射（§3.3）：按 source_name 查无则插。
+class FundManagementCompany(Base, PrimaryKeyMixin, TimestampMixin):
+    """公募基金管理人权威名录（AMAC 公示，唯一基准）。
 
-    只处理销售机构字段，基金管理人不参与映射（直销场景：基金公司官网即销售机构）。
+    is_active 标记管理人是否仍在公示名单内（注销/停业时置 False，历史数据保留不删除）。
     """
-    builtin_mappings = (
-        ('蚂蚁（杭州）基金销售有限公司', '支付宝'),
-        ('上海天天基金销售有限公司', '天天基金'),
-        ('招商银行股份有限公司', '招商银行'),
-        ('易方达基金管理有限公司', '易方达直销'),
-    )
-    for source_name, display_name in builtin_mappings:
-        if not db.query(SalesBrokerMapping).filter_by(source_name=source_name).first():
-            db.add(SalesBrokerMapping(source_name=source_name, display_name=display_name, user_override=False))
-    db.commit()
+
+    __tablename__ = 'fund_management_companies'
+
+    house_name = Column(String(200), unique=True, nullable=False, comment='管理人全称（AMAC 公示，唯一基准）')
+    register_addr = Column(String(200), comment='注册地址')
+    office_addr = Column(String(200), comment='办公地址')
+    website = Column(String(200), comment='官网')
+    phone = Column(String(100), comment='客服电话')
+    is_active = Column(Boolean, default=True, comment='是否在 AMAC 公示名单内')

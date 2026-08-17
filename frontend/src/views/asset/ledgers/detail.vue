@@ -545,8 +545,10 @@
             v-model:linked-cash-id="editForm.linked_cash_ledger_id"
             v-model:portfolio-id="editForm.portfolio_id"
             v-model:fee-config="editForm.fee_config"
+            v-model:sales-institution-id="editForm.sales_institution_id"
             :cash-ledgers="cashLedgers"
             :portfolio-list="portfolioList"
+            :sales-institutions="salesInstitutions"
           />
           <el-form-item label="备注">
             <el-input v-model="editForm.notes" type="textarea" :rows="2" />
@@ -698,7 +700,9 @@ import {
   deleteLedgerPosition,
   updateLedgerTransaction,
   deleteLedgerTransaction,
-  type LedgerItem
+  getSalesInstitutions,
+  type LedgerItem,
+  type SalesInstitution
 } from "@/api/ledger";
 import { getPortfolios, type PortfolioItem } from "@/api/portfolio";
 import { updateAsset } from "@/api/assets";
@@ -777,6 +781,8 @@ const showSkeleton = ref(false);
 let skeletonTimer: ReturnType<typeof setTimeout> | null = null;
 const ledgers = ref<LedgerItem[]>([]);
 const portfolioList = ref<PortfolioItem[]>([]);
+/** 基金销售机构候选（AMAC 名录，编辑账户可选关联） */
+const salesInstitutions = ref<SalesInstitution[]>([]);
 const assignMap = ref<Record<number, number>>({});
 const deleteDialogVisible = ref(false);
 const deletingAccount = ref<LedgerItem | null>(null);
@@ -793,7 +799,8 @@ const editForm = ref({
   notes: "",
   portfolio_id: null as number | null,
   linked_cash_ledger_id: null as number | null,
-  fee_config: null as Record<string, unknown> | null
+  fee_config: null as Record<string, unknown> | null,
+  sales_institution_id: null as number | null
 });
 
 const drawerVisible = ref(false);
@@ -932,6 +939,16 @@ async function loadSummary() {
     ElMessage.error("概览加载失败");
   }
   // 环形图由 AssetAllocationDonut 组件 watch allocationData 自动重绘，无需手动触发
+}
+
+/** 销售机构候选加载：失败仅记日志，编辑弹窗下拉留空（可选字段不阻塞页面） */
+async function loadSalesInstitutions() {
+  try {
+    const res = await getSalesInstitutions();
+    salesInstitutions.value = res?.data ?? [];
+  } catch (e) {
+    console.error("销售机构名录加载失败", e);
+  }
 }
 
 // 持仓加载
@@ -1106,7 +1123,8 @@ async function openEditDialog() {
     notes: accountInfo.value.notes || "",
     portfolio_id: accountInfo.value.portfolio_id || null,
     linked_cash_ledger_id: accountInfo.value.linked_cash_ledger_id || null,
-    fee_config: accountInfo.value.fee_config
+    fee_config: accountInfo.value.fee_config,
+    sales_institution_id: accountInfo.value.sales_institution_id ?? null
   };
   showEditDialog.value = true;
 }
@@ -1218,6 +1236,8 @@ onMounted(async () => {
     showSkeleton.value = true;
   }, 200);
   try {
+    // 销售机构候选：编辑弹窗下拉数据源（内部兜底，失败不打断主流程）
+    await loadSalesInstitutions();
     if (!isUnclassified.value) {
       await Promise.all([loadSummary(), loadHoldings()]);
       // 货基收益依赖 summary 判定账户类型，故在 summary 就绪后再拉

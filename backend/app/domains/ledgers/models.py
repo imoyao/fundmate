@@ -78,3 +78,9 @@ class Ledger(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
         nullable=True,
         comment='关联的现金账户（仅 stock/fund 类型可用）',
     )
+    sales_institution_id = Column(
+        Integer,
+        ForeignKey('sales_institutions.id', ondelete='SET NULL'),
+        nullable=True,
+        comment='关联的基金销售机构（AMAC 权威名录，可选自选字段；用户创建账户时自选，不选为 NULL）',
+    )

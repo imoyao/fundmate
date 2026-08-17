@@ -86,28 +86,31 @@ CREATE INDEX idx_import_meta_ignored ON position_import_meta (is_ignored);
 
 **迁移策略**：新增列可空 → 存量从 `raw_extra` 回填 → 回填完成后设 `NOT NULL`（`source_broker`/`fund_manager` 除外，渠道 meta 恒为 NULL）。
 
-### 3.3 `sales_broker_mappings` 表（销售机构映射）
+### 3.3 销售机构匹配（`sales_institutions` 表，2026-08-17 重构）
+
+> **演进说明**：原方案为 `sales_broker_mappings` 手工映射表（source_name → display_name），
+> 2026-08-17 重构为 AMAC 权威名录 `sales_institutions`（与 `fund_management_companies` 同源，
+> 由 `amac_institution` 同步 job 全量刷新），旧表已 DROP，映射数据并入名录的 `display_name` 列。
 
 ```sql
-CREATE TABLE sales_broker_mappings (
+CREATE TABLE sales_institutions (
     id SERIAL PRIMARY KEY,
-    source_name VARCHAR(200) UNIQUE NOT NULL, -- E账户原始名称（销售机构字段）
-    display_name VARCHAR(100) NOT NULL,        -- 用户友好名称
-    user_override BOOLEAN DEFAULT FALSE,       -- 用户是否自定义覆盖
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    org_name VARCHAR(200) UNIQUE NOT NULL, -- AMAC 权威全称（唯一基准，永远不变）
+    reg_addr VARCHAR(200),                 -- 注册地址
+    org_type VARCHAR(50),                  -- 机构类型
+    check_time VARCHAR(20),                -- 检查时间(YYYY-MM)
+    display_name VARCHAR(100),             -- 常用别名（支付宝/天天基金等，仅展示用）
+    is_active BOOLEAN DEFAULT TRUE,        -- 是否仍在 AMAC 公示名单内（下架置 False，历史保留）
+    created_at / updated_at TIMESTAMP
 );
-
--- 系统内置映射初始化（只处理销售机构字段，基金管理人不参与映射）
-INSERT INTO sales_broker_mappings (source_name, display_name, user_override) VALUES
-('蚂蚁（杭州）基金销售有限公司', '支付宝', FALSE),
-('上海天天基金销售有限公司', '天天基金', FALSE),
-('招商银行股份有限公司', '招商银行', FALSE),
-('易方达基金管理有限公司', '易方达直销', FALSE);  -- 直销场景：基金公司官网即销售机构
--- （注：根据 AMAC 清单补充其余机构）
 ```
 
-- 自动创建 Ledger 时优先用映射名，无映射用原始 `source_broker` 名；
-- 用户在账户设置页可修改任何 Ledger 名称（`user_override=True`），系统不覆盖用户自定义。
+- **匹配链路**：`source_broker` → `SalesInstitution`（仅 `is_active=True`，先 `org_name` 等值后 `display_name` 等值）→ 按 `Ledger.sales_institution_id` 查/建渠道 Ledger（`ledger_type='fund'`）；
+- 命中机构但无关联 Ledger → 自动创建（`name=display_name or org_name`）+ 自动关联 `sales_institution_id`；
+- 名录未命中 → 回退按 `name=source_broker` 原文查/建（不关联机构，记 warning）；
+- **`Ledger.name` 永远是用户输入/可读展示名，权威 `org_name` 不进前台任何字段**；
+- 账户创建/编辑时销售机构为可选字段（`sales_institution_id`，可置 NULL），前端下拉仅列 `is_active=True` 机构；
+- 已关联机构被下架（`is_active=False`）时历史数据保留，回显 label 为空可接受。
 
 ### 3.4 影子记录规则（硬伤 2 修正）
 

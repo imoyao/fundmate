@@ -52,6 +52,24 @@
       </el-select>
     </el-form-item>
 
+    <el-form-item label="关联销售机构">
+      <el-select
+        :model-value="salesInstitutionId"
+        class="w-full"
+        clearable
+        filterable
+        placeholder="不关联（可选）"
+        @update:model-value="onSalesInstitutionChange"
+      >
+        <el-option
+          v-for="inst in salesInstitutions"
+          :key="inst.id"
+          :label="institutionLabel(inst)"
+          :value="inst.id"
+        />
+      </el-select>
+    </el-form-item>
+
     <!-- 高级设置：关联投资组合 + 费率（导入场景下默认折叠收起） -->
     <el-collapse v-if="advancedCollapsed" class="mt-4">
       <el-collapse-item title="高级设置（关联与费率）" name="adv">
@@ -116,6 +134,7 @@
 
 <script setup lang="ts">
 import { LEDGER_TYPE_OPTIONS } from "@/constants";
+import type { SalesInstitution } from "@/api/ledger";
 import FeeConfigFields from "./FeeConfigFields.vue";
 
 interface Props {
@@ -125,6 +144,10 @@ interface Props {
   cashLedgers?: any[];
   portfolioList?: any[];
   feeConfig?: any; // 初始费率对象
+  /** 已关联的基金销售机构 id（null=不关联） */
+  salesInstitutionId?: number | null;
+  /** 销售机构候选列表（AMAC 名录，父组件加载传入） */
+  salesInstitutions?: SalesInstitution[];
   /** 导入场景用：把"关联投资组合 + 费率"整体折叠收起，默认展开 */
   advancedCollapsed?: boolean;
 }
@@ -133,6 +156,8 @@ const props = withDefaults(defineProps<Props>(), {
   cashLedgers: () => [],
   portfolioList: () => [],
   feeConfig: null,
+  salesInstitutionId: null,
+  salesInstitutions: () => [],
   advancedCollapsed: false
 });
 
@@ -141,7 +166,15 @@ const emit = defineEmits<{
   "update:linkedCashId": [value: number | null];
   "update:portfolioId": [value: number | null];
   "update:feeConfig": [value: any];
+  "update:salesInstitutionId": [value: number | null];
 }>();
+
+/** 下拉展示：优先「权威全称（常用别名）」，无别名则仅全称 */
+function institutionLabel(inst: SalesInstitution): string {
+  return inst.display_name
+    ? `${inst.org_name}（${inst.display_name}）`
+    : inst.org_name;
+}
 
 function onTypeChange(val: string) {
   emit("update:ledgerType", val);
@@ -158,5 +191,9 @@ function onCashChange(val: number | null) {
 
 function onPortfolioChange(val: number | null) {
   emit("update:portfolioId", val);
+}
+
+function onSalesInstitutionChange(val: number | null) {
+  emit("update:salesInstitutionId", val);
 }
 </script>

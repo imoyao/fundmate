@@ -19,11 +19,11 @@ import pytest
 
 from app.core.money import Money
 from app.domains.ledgers.models import Ledger
-from app.domains.positions.models import Position, PositionImportMeta
+from app.domains.positions.models import Position, PositionImportMeta, SalesInstitution
 from app.services.importer.orchestrator import ImportOrchestrator
 from app.services.summary_service import get_summary_data
 
-# 内置映射（seed_sales_broker_mappings，§3.3）：蚂蚁（杭州）→ 支付宝
+# 内置销售机构（AMAC 名录 seed，§3.3）：蚂蚁（杭州）→ 支付宝、天天基金
 SOURCE_ALIPAY = '蚂蚁（杭州）基金销售有限公司'
 SOURCE_TIANTIAN = '上海天天基金销售有限公司'
 FUND_MANAGER = '易方达基金管理有限公司'
@@ -94,6 +94,29 @@ def _make_channel_position(db, ledger, quantity=500.0, source='manual', symbol=S
     return pos
 
 
+@pytest.fixture(autouse=True)
+def _seed_sales_institutions(db):
+    """seed 内置销售机构（§3.3，替代旧 seed_sales_broker_mappings）：蚂蚁（杭州）→ 支付宝、天天基金。"""
+    if not db.query(SalesInstitution).filter_by(org_name=SOURCE_ALIPAY).first():
+        db.add(SalesInstitution(org_name=SOURCE_ALIPAY, display_name='支付宝', is_active=True))
+        db.add(SalesInstitution(org_name=SOURCE_TIANTIAN, display_name='天天基金', is_active=True))
+        db.commit()
+
+
+def _make_channel_ledger(db, name='支付宝', source_broker=SOURCE_ALIPAY):
+    """预置渠道 Ledger（关联内置销售机构，§3.3：匹配链路按 sales_institution_id 找账）。"""
+    inst = db.query(SalesInstitution).filter_by(org_name=source_broker, is_active=True).first()
+    ledger = Ledger(
+        name=name,
+        ledger_type='fund',
+        family_id=1,
+        sales_institution_id=inst.id if inst else None,
+    )
+    db.add(ledger)
+    db.flush()
+    return ledger
+
+
 # ── 三分支判定 ──
 
 
@@ -134,9 +157,7 @@ def test_reconcile_auto_attribution(db):
 
 def test_reconcile_verified(db):
     """已核对：渠道份额一致 → 渠道不动 + 影子 is_attributed=True（无目标 → verified）。"""
-    ledger = Ledger(name='支付宝', ledger_type='fund', family_id=1)
-    db.add(ledger)
-    db.flush()
+    ledger = _make_channel_ledger(db)
     _make_channel_position(db, ledger, quantity=1000.0)
 
     orch = ImportOrchestrator(db, family_id=1)
@@ -159,9 +180,7 @@ def test_reconcile_verified(db):
 
 def test_reconcile_conflict(db):
     """冲突：渠道份额不一致 → 渠道不动 + 影子 is_attributed=False（pending）。"""
-    ledger = Ledger(name='支付宝', ledger_type='fund', family_id=1)
-    db.add(ledger)
-    db.flush()
+    ledger = _make_channel_ledger(db)
     _make_channel_position(db, ledger, quantity=500.0)
 
     orch = ImportOrchestrator(db, family_id=1)
@@ -191,9 +210,7 @@ def test_reconcile_conflict(db):
 
 def test_reconcile_share_diff_within_tolerance_is_verified(db):
     """份额差 ≤ 0.001 份（10 min_unit）→ 已核对而非冲突（§4.2 容差）。"""
-    ledger = Ledger(name='支付宝', ledger_type='fund', family_id=1)
-    db.add(ledger)
-    db.flush()
+    ledger = _make_channel_ledger(db)
     _make_channel_position(db, ledger, quantity=1000.001)
 
     orch = ImportOrchestrator(db, family_id=1)
@@ -236,9 +253,7 @@ def test_commit_holdings_skips_attributed(db):
 def test_reconcile_skips_ignored(db):
     """ignore：标记 is_ignored 后 reconcile → ignored_skipped。"""
     # 先制造冲突
-    ledger = Ledger(name='支付宝', ledger_type='fund', family_id=1)
-    db.add(ledger)
-    db.flush()
+    ledger = _make_channel_ledger(db)
     _make_channel_position(db, ledger, quantity=500.0)
     orch = ImportOrchestrator(db, family_id=1)
     result = orch.reconcile_holdings([_row(quantity=1000.0)])
@@ -260,9 +275,7 @@ def test_reconcile_skips_ignored(db):
 
 def test_attribution_cover(db):
     """cover 事务：删旧建新 + 影子标记 + 渠道 meta 记 attributed_from_eaccount。"""
-    ledger = Ledger(name='支付宝', ledger_type='fund', family_id=1)
-    db.add(ledger)
-    db.flush()
+    ledger = _make_channel_ledger(db)
     old_pos = _make_channel_position(db, ledger, quantity=500.0)
     old_id = old_pos.id
 
@@ -300,9 +313,7 @@ def test_attribution_cover(db):
 
 def test_attribution_cover_idempotent(db):
     """幂等：重复 cover 不重复建、不报错（P4）。"""
-    ledger = Ledger(name='支付宝', ledger_type='fund', family_id=1)
-    db.add(ledger)
-    db.flush()
+    ledger = _make_channel_ledger(db)
     _make_channel_position(db, ledger, quantity=500.0)
 
     orch = ImportOrchestrator(db, family_id=1)
@@ -322,9 +333,7 @@ def test_attribution_cover_idempotent(db):
 
 def test_attribution_ignore(db):
     """ignore：影子记录 is_ignored=True。"""
-    ledger = Ledger(name='支付宝', ledger_type='fund', family_id=1)
-    db.add(ledger)
-    db.flush()
+    ledger = _make_channel_ledger(db)
     _make_channel_position(db, ledger, quantity=500.0)
 
     orch = ImportOrchestrator(db, family_id=1)
@@ -380,9 +389,7 @@ def test_get_reconciliation_statuses(db):
     # ① 自动归因 → attributed（渠道 1000 份）
     orch.reconcile_holdings([_row(symbol='012345', quantity=1000.0)])
     # ② 已核对 → verified（渠道 2000 份，一致）
-    ledger2 = Ledger(name='天天基金', ledger_type='fund', family_id=1)
-    db.add(ledger2)
-    db.flush()
+    ledger2 = _make_channel_ledger(db, name='天天基金', source_broker=SOURCE_TIANTIAN)
     _make_channel_position(db, ledger2, quantity=2000.0, source='manual', symbol='022222')
     orch.reconcile_holdings([_row(symbol='022222', quantity=2000.0, source_broker=SOURCE_TIANTIAN)])
     # ③ 冲突 → pending（渠道 500 份 vs E账户 1000 份）
@@ -433,9 +440,7 @@ def test_api_reconcile(client, db):
 
 def test_api_attribution(client, db):
     # 先制造冲突（渠道 500 份 vs E账户 1000 份）
-    ledger = Ledger(name='支付宝', ledger_type='fund', family_id=1)
-    db.add(ledger)
-    db.flush()
+    ledger = _make_channel_ledger(db)
     _make_channel_position(db, ledger, quantity=500.0)
     orch = ImportOrchestrator(db, family_id=1)
     orch.reconcile_holdings([_row(quantity=1000.0)])
@@ -477,9 +482,7 @@ def test_api_reconciliation(client, db):
 
 def test_attribution_ignore_committed_before_later_failure(db):
     """E1 修复：ignore 分支立即 commit，后续 cover 失败 rollback 不影响已忽略标记。"""
-    ledger = Ledger(name='支付宝', ledger_type='fund', family_id=1)
-    db.add(ledger)
-    db.flush()
+    ledger = _make_channel_ledger(db)
     _make_channel_position(db, ledger, quantity=500.0)
     orch = ImportOrchestrator(db, family_id=1)
     orch.reconcile_holdings([_row(quantity=1000.0)])  # 冲突 → 影子 meta
@@ -506,12 +509,8 @@ def test_attribution_ignore_committed_before_later_failure(db):
 
 def test_get_reconciliation_multi_channel_diff(db):
     """E2 修复：多渠道同 symbol 时按 symbol 汇总对比，diff=0 而非按单条记录计算。"""
-    ledger1 = Ledger(name='支付宝', ledger_type='fund', family_id=1)
-    db.add(ledger1)
-    db.flush()
-    ledger2 = Ledger(name='天天基金', ledger_type='fund', family_id=1)
-    db.add(ledger2)
-    db.flush()
+    ledger1 = _make_channel_ledger(db)
+    ledger2 = _make_channel_ledger(db, name='天天基金', source_broker=SOURCE_TIANTIAN)
     _make_channel_position(db, ledger1, quantity=600.0, symbol=SYMBOL)
     _make_channel_position(db, ledger2, quantity=400.0, symbol=SYMBOL)
 
@@ -541,9 +540,7 @@ def test_parse_snapshot_date_objects():
 
 def test_reconcile_no_price_marks_import_error(db):
     """E4 修复：无净值/成本行不再抛错拒绝，落影子记录（avg_price=0）+ import_error 标记。"""
-    ledger = Ledger(name='支付宝', ledger_type='fund', family_id=1)
-    db.add(ledger)
-    db.flush()
+    ledger = _make_channel_ledger(db)
     _make_channel_position(db, ledger, quantity=1000.0)
 
     orch = ImportOrchestrator(db, family_id=1)

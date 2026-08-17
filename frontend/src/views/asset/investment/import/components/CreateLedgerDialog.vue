@@ -11,6 +11,8 @@ const {
   newLedgerLinkedCashId,
   newLedgerPortfolioId,
   newLedgerFeeConfig,
+  newLedgerSalesInstitutionId,
+  salesInstitutionsForImport,
   newLedgerAllocation,
   cashLedgersForImport
 } = useImportWizardContext();
@@ -37,8 +39,10 @@ const {
         v-model:linked-cash-id="newLedgerLinkedCashId"
         v-model:portfolio-id="newLedgerPortfolioId"
         v-model:fee-config="newLedgerFeeConfig"
+        v-model:sales-institution-id="newLedgerSalesInstitutionId"
         :cash-ledgers="cashLedgersForImport"
         :portfolio-list="[]"
+        :sales-institutions="salesInstitutionsForImport"
         :advanced-collapsed="true"
       />
 

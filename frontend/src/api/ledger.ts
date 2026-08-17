@@ -16,6 +16,23 @@ export interface LedgerItem {
   created_at?: string | null;
   /** 最近使用时间：账户最后一笔交易的确认日期（ISO 字符串），用于"最近使用优先"排序 */
   last_used_at?: string | null;
+  /** 关联基金销售机构 id（AMAC 名录，可选关联；null/缺省=不关联） */
+  sales_institution_id?: number | null;
+}
+
+/** 基金销售机构（AMAC 权威名录，账户可选关联，is_active=1 按 org_name 排序） */
+export interface SalesInstitution {
+  id: number;
+  org_name: string;
+  display_name?: string | null;
+}
+
+/** 获取启用中的基金销售机构名录（GET /api/ledgers/sales-institutions/） */
+export function getSalesInstitutions() {
+  return http.request<{ data: SalesInstitution[] }>(
+    "get",
+    "/api/ledgers/sales-institutions/"
+  );
 }
 
 /** 获取用户的所有账户列表 */
@@ -32,6 +49,7 @@ export function createLedger(data: {
   linked_cash_ledger_id?: number | null;
   portfolio_id?: number | null;
   fee_config?: Record<string, unknown> | null;
+  sales_institution_id?: number | null;
 }) {
   return http.request<any>("post", "/api/ledgers/", { data });
 }
@@ -46,6 +64,7 @@ export function updateLedger(
     linked_cash_ledger_id?: number | null;
     portfolio_id?: number | null;
     fee_config?: Record<string, unknown> | null;
+    sales_institution_id?: number | null;
   }
 ) {
   return http.request("patch", `/api/ledgers/${id}/`, { data });

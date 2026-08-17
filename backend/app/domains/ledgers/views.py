@@ -17,7 +17,7 @@ from app.core.database import get_db
 from app.core.money import Money
 from app.domains.assets.models import Asset
 from app.domains.ledgers.models import Ledger
-from app.domains.positions.models import Position
+from app.domains.positions.models import Position, SalesInstitution
 from app.domains.positions.views import enrich_position_dict
 from app.domains.transactions.models import Transaction
 from app.services.ledger_service import LedgerService
@@ -45,6 +45,8 @@ def _ledger_to_dict(ledger: Ledger, last_used_at=None) -> dict:
         'notes': ledger.notes,
         'portfolio_id': ledger.portfolio_id,
         'linked_cash_ledger_id': ledger.linked_cash_ledger_id,
+        # 关联的销售机构（AMAC 名录），可选；前端回显与编辑依赖该字段
+        'sales_institution_id': ledger.sales_institution_id,
         'created_at': ledger.created_at.isoformat() if ledger.created_at else None,
         'updated_at': ledger.updated_at.isoformat() if ledger.updated_at else None,
         # 最近使用时间：取该账户最后一笔交易的确认日期（无交易则为 null），
@@ -65,6 +67,31 @@ def _ledger_type_label(ledger_type: str) -> str:
     return LEDGER_TYPE_LABELS.get(ledger_type, ledger_type)
 
 
+@ledgers_bp.get('/sales-institutions/')
+def list_sales_institutions():
+    """销售机构名录（AMAC 权威数据，全局共享，供账户表单下拉选择）
+
+    只返回 is_active=True 的机构：与导入匹配逻辑一致，下架机构不可再新关联；
+    已关联的历史账户不受影响（展示名仍由名录实时解析）。
+    """
+    with get_db() as db:
+        institutions = (
+            db.query(SalesInstitution)
+            .filter(SalesInstitution.is_active.is_(True))
+            .order_by(SalesInstitution.org_name.asc())
+            .all()
+        )
+        data = [
+            {
+                'id': institution.id,
+                'org_name': institution.org_name,
+                'display_name': institution.display_name,
+            }
+            for institution in institutions
+        ]
+        return jsonify({'data': data, 'message': 'ok'})
+
+
 @ledgers_bp.post('/')
 def create_ledger():
     """创建新账户"""
@@ -75,6 +102,14 @@ def create_ledger():
 
     ledger_type = data.get('ledger_type', 'bank')
     linked_cash_id = data.get('linked_cash_ledger_id')
+    sales_institution_id = data.get('sales_institution_id')
+
+    # 校验关联的销售机构（可选）：机构是全局 AMAC 名录，无 family 归属
+    if sales_institution_id is not None:
+        with get_db() as db:
+            institution = db.query(SalesInstitution).filter_by(id=sales_institution_id).first()
+            if not institution:
+                return jsonify({'data': None, 'message': '关联的销售机构不存在'}), 400
 
     # 校验关联的现金账户
     if linked_cash_id is not None:
@@ -93,6 +128,7 @@ def create_ledger():
             notes=data.get('notes', ''),
             portfolio_id=data.get('portfolio_id'),
             linked_cash_ledger_id=linked_cash_id,
+            sales_institution_id=sales_institution_id,
             family_id=get_family_id(),
         )
 
@@ -226,6 +262,16 @@ def update_ledger(ledger_id: int):
                     return jsonify({'data': None, 'message': '关联的现金账户不存在或类型不是现金账户'}), 400
             # 无论值是否为 None，均更新
             ledger.linked_cash_ledger_id = linked_cash_id
+
+        # 更新 sales_institution_id（允许设置为 None）
+        if 'sales_institution_id' in data:
+            sales_institution_id = data['sales_institution_id']
+            if sales_institution_id is not None:
+                institution = db.query(SalesInstitution).filter_by(id=sales_institution_id).first()
+                if not institution:
+                    return jsonify({'data': None, 'message': '关联的销售机构不存在'}), 400
+            # 无论值是否为 None，均更新
+            ledger.sales_institution_id = sales_institution_id
 
         # 更新 fee_config
         if 'fee_config' in data:

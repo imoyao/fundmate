@@ -96,12 +96,6 @@ def create_app() -> APIFlask:
     # 初始化数据库
     with app.app_context():
         init_db()
-        # E账户销售机构内置映射（幂等 seed，§3.3）：按 source_name 查无则插
-        from app.core.database import SessionLocal
-        from app.domains.positions.models import seed_sales_broker_mappings
-
-        with SessionLocal() as db:
-            seed_sales_broker_mappings(db)
 
     # 注册全局异常处理器（统一 {data, message, error_code} 信封）。
     # 必须在 create_app() 内部注册，否则测试 fixture 直接调用 create_app()

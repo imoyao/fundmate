@@ -390,8 +390,10 @@
           v-model:linked-cash-id="createForm.linked_cash_ledger_id"
           v-model:portfolio-id="createForm.portfolio_id"
           v-model:fee-config="createForm.fee_config"
+          v-model:sales-institution-id="createForm.sales_institution_id"
           :cash-ledgers="cashLedgers"
           :portfolio-list="portfolioList"
+          :sales-institutions="salesInstitutions"
         />
 
         <el-form-item label="备注">
@@ -608,7 +610,9 @@ import {
   migrateOrphanPositions,
   deleteOrphanPositions,
   getOrphanDetail,
-  type OrphanDetailResponse
+  getSalesInstitutions,
+  type OrphanDetailResponse,
+  type SalesInstitution
 } from "@/api/ledger";
 import { getPortfolios } from "@/api/portfolio";
 import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
@@ -643,8 +647,11 @@ const createForm = ref({
   notes: "",
   linked_cash_ledger_id: null as number | null,
   portfolio_id: null as number | null,
-  fee_config: null as any
+  fee_config: null as any,
+  sales_institution_id: null as number | null
 });
+/** 基金销售机构候选（AMAC 名录，创建账户可选关联） */
+const salesInstitutions = ref<SalesInstitution[]>([]);
 
 const cashLedgers = computed(() =>
   allLedgers.value.filter((l: any) => l.ledger_type === "bank")
@@ -866,7 +873,8 @@ function openCreateDialog() {
     notes: "",
     linked_cash_ledger_id: null,
     portfolio_id: null,
-    fee_config: null
+    fee_config: null,
+    sales_institution_id: null
   };
   showCreateDialog.value = true;
 }
@@ -974,10 +982,11 @@ async function handleOrphanCleanup() {
 async function fetchData() {
   loading.value = true;
   try {
-    const [ledgersRes, overviewRes, portfolioRes] = await Promise.all([
+    const [ledgersRes, overviewRes, portfolioRes, instRes] = await Promise.all([
       getLedgers(),
       getLedgersOverview(),
-      getPortfolios()
+      getPortfolios(),
+      getSalesInstitutions()
     ]);
     allLedgers.value = (ledgersRes as any)?.data ?? [];
     overviewData.value = (overviewRes as any)?.data ?? {
@@ -986,6 +995,8 @@ async function fetchData() {
       groups: []
     };
     portfolioList.value = (portfolioRes as any)?.data ?? [];
+    salesInstitutions.value =
+      (instRes as { data?: SalesInstitution[] })?.data ?? [];
     // 统一走公共格式化：YYYY-MM-DD HH:mm（不带秒），避免斜线/时分秒混用
     lastUpdate.value = formatDateTime(new Date());
   } catch (e: any) {
