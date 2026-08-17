@@ -1,3 +1,7 @@
+---
+title: 前端命名不规范点清单（frontend-naming-audit）
+---
+
 # 前端命名不规范点清单（frontend-naming-audit）
 
 > 本清单为 [`frontend-naming.md`](./frontend-naming.md) 的执行层待办。**仅定位问题，不立即修改**（用户决策：先出规范 + 清单，后续逐条确认再改）。

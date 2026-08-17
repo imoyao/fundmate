@@ -1,3 +1,7 @@
+---
+title: 核心 API 端点清单（api）
+---
+
 # 核心 API 端点清单（api）
 
 本文件收录核心 API 完整端点清单（原 SPEC 第 8 章），属于**随代码演进**的事实标准。路由以 `backend/app/domains/*/views.py` 为准。
