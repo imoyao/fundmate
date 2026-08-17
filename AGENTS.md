@@ -53,6 +53,7 @@ Windows：`dev.cmd`（内部走 `scripts/dev.ps1`）；Git Bash / WSL / macOS：
 - 提交走根 `.pre-commit-config.yaml`（ruff --fix + ruff-format，已 `pre-commit install` 生效）；前端 husky（lint-staged + vue-tsc）因 `ignore-scripts=true` 未安装，故 `vue-tsc` 须手动跑（见前端命令）。
 - 若 pre-commit 崩溃报 `ACC_PRODUCT_CONFIG_V3` 超 32767 字符上限：commit 命令前先 `unset ACC_PRODUCT_CONFIG_V3` 再提交，勿用 `env -i`。
 - 给用户看的命令行须兼容 Windows cmd（无 `head`/`cat`/`grep`/`sed`）：优先用项目自带脚本（如 `backend/scripts/diag_em.py`）或说明用 PowerShell 执行。
+- **中文 commit message 编码（重要）**：提交信息一律走 UTF-8 文件 + `git commit --file`（见上「代码提交工具」），**禁止**在 PowerShell/cmd 内联中文（`Set-Content -Encoding UTF8` 会带 BOM，且 shell 引号易把中文当命令解析）。git 把 message 存为 UTF-8，在 GitHub/IDE 等 UTF-8 环境查看正常；**本机 GBK 终端 `git log`/`git show` 或 read_file 工具显示成「淇�」等乱码，是显示层 GBK 解码假象，不是真乱码**——可用 `git cat-file -p HEAD | python -c "import sys,os;raw=os.sys.stdin.buffer.read();raw.decode('utf-8')"` 严格 UTF-8 解码校验（成功即存储正确）。如遇 message 确为 mojibake，可设 `git config i18n.commitEncoding utf-8` 与 `i18n.logOutputEncoding utf-8`，但本仓库默认值即 UTF-8，正常走 message 文件即无需额外配置。
 
 ## 临时文件清理工具（所有 AI / agent 删除临时文件必须走此脚本）
 
