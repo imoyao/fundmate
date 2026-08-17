@@ -9,6 +9,9 @@
         <IconifyIconOffline icon="ep:arrow-left" class="mr-1" /> 返回
       </el-button>
       <div v-if="!isUnclassified && accountInfo" class="flex gap-2">
+        <el-button @click="router.push({ name: 'InvestmentReconcile' })">
+          <IconifyIconOffline icon="ep:data-analysis" class="mr-1" /> 对账
+        </el-button>
         <el-button @click="openEditDialog">
           <IconifyIconOffline icon="ep:edit" class="mr-1" /> 编辑
         </el-button>

@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { useRouter } from "vue-router";
 import { useImportWizardContext } from "../composables/useImportWizardContext";
+
+const router = useRouter();
 
 const {
   selectedLedgerId,
@@ -62,6 +65,13 @@ function onLiability() {
   if (!accountSelected.value) return;
   goToLiabilityForm();
 }
+
+// 持仓快照导入：跳过选账户步骤，后端自动归因决定账户归属
+// 注意：路由经 formatTwoStageRoutes 拍平后注册为 /investment/eaccount-import，
+// 用 name 跳转最稳妥（不依赖 path 层级，与 eaccount-import 内 goToReconcileCenter 同惯例）
+function goToHoldingImport() {
+  router.push({ name: "InvestmentEaccountImport" });
+}
 </script>
 
 <template>
@@ -95,6 +105,13 @@ function onLiability() {
         <IconifyIconOffline icon="ep:document-add" class="mode-icon" />
         <h4 class="mode-title">录入负债 / 应收款</h4>
         <p class="mode-desc">记录信用卡、房贷等非交易类资产</p>
+      </div>
+
+      <!-- 持仓快照导入：跳过选账户步骤，后端自动归因决定账户归属，故不受 accountSelected 锁定 -->
+      <div class="mode-card" @click="goToHoldingImport">
+        <IconifyIconOffline icon="ep:document" class="mode-icon" />
+        <h4 class="mode-title">导入持仓快照</h4>
+        <p class="mode-desc">上传平台导出的持仓文件，自动归入对应账户</p>
       </div>
     </div>
 

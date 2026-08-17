@@ -1565,7 +1565,8 @@ export function useImportWizard() {
   }
 
   function goToManualEntry() {
-    router.push("/asset/inventory/investment/manual");
+    // 路由经 formatTwoStageRoutes 拍平后注册为 /investment/manual，用 name 跳转最稳妥
+    router.push({ name: "InvestmentManual" });
   }
 
   function goToLiabilityForm() {

@@ -530,20 +530,21 @@ const getCSSColor = (varName: string): string => {
 };
 
 function getTypeRoute(typeName: string): string {
+  // 返回路由 name（路由经 formatTwoStageRoutes 拍平后 path 层级失效，用 name 跳转最稳妥）
   const routes: Record<string, string> = {
-    股票: "stocks",
-    基金: "funds",
-    可转债: "stocks",
-    ETF: "stocks",
-    虚拟货币: "precious",
-    银行存款: "funds"
+    股票: "AssetStocks",
+    基金: "AssetFunds",
+    可转债: "AssetStocks",
+    ETF: "AssetStocks",
+    虚拟货币: "AssetPrecious",
+    银行存款: "AssetFunds"
   };
-  return routes[typeName] || "stocks";
+  return routes[typeName] || "AssetStocks";
 }
 
 function handleGroupClick(group: any) {
   if (detailView.value === "type") {
-    router.push(`/asset/investment/${getTypeRoute(group.name)}`);
+    router.push({ name: getTypeRoute(group.name) });
   } else if (detailView.value === "account") {
     router.push("/asset/ledgers");
   }

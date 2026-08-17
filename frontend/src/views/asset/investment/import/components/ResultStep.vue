@@ -81,7 +81,7 @@ const {
                   <p class="text-xs mt-1">
                     建议现在去
                     <router-link
-                      to="/asset/investment/stocks"
+                      :to="{ name: 'AssetStocks' }"
                       class="text-primary"
                       >检查持仓市价</router-link
                     >
