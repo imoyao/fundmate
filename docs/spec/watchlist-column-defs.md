@@ -81,6 +81,18 @@ export interface ColumnDef {
 
 > 现有"最新价""涨跌幅"的 `v-if realtimeEnabled` 双分支，统一收进 `money`/`riseFall` renderer 内部，由 `realtimeField` 驱动；**模板不再出现双分支**。
 
+### 实施偏差（MVP 阶段，已落地）
+
+为降低与 #980 重构的冲突面、避免丢失既有交互，下列列**暂保留原模板**（未纳入 v-for），仅 7 个纯数据列（created_at / current_price / change_pct / holding_quantity / position_market_value / added_return / holding_pnl）走 columnDefs 驱动：
+
+- `product`：含「添加/编辑标签」按钮（`openTagEditor`），逻辑较特殊，renderer 暂未承载该交互。
+- `_marker`：置顶/关注图标列，纯展示 + 行 hover 样式，保留原模板。
+- `_selection`：`v-if="batchMode"` 的多选列，el-table 内置 type，不入 renderer。
+- `_actions`：含 `v-if="!batchMode"` 显示 `-`、`tooltip`、`status==='HOLDING'` 禁用删除，保留原模板更稳妥。
+
+> 数据列的 `current_price`/`change_pct` 实时覆盖双分支已成功内聚进 renderer（核心诉求达成）。
+> 待 #980 合入、数据列驱动稳定后，再将 product/actions 切到 renderer，最终删除全部硬编码列。
+
 ## 4. 渲染分发（renderer 注册表）
 
 新建 `frontend/src/views/asset/watchlist/columnRenderers.tsx`（或 `.vue` 渲染函数），按 `ColumnRenderer` 枚举集中实现各单元格渲染，签名统一为：
@@ -124,11 +136,11 @@ export interface ColumnDef {
 
 ## 7. 实施步骤（MVP 分层）
 
-1. 新建 `columnDefs.ts`（§3 清单）+ `columnRenderers`（§4 分发），**不删**原硬编码列。
-2. 在 `index.vue` 内用 `v-for` 渲染 `visibleColumns` 覆盖现有 21 列，验证功能等价（排序、实时覆盖、标签、操作均正常）。
-3. 删除硬编码 21 列，仅保留 `columnDefs` 驱动。
-4. 补单元测试：列定义完整性（key 唯一、renderer 均注册）、排序方法正确。
-5. 之后 #990/#992/#993 各自在 columnDefs 上增量开发。
+1. ✅ 新建 `columnDefs.ts`（§3 清单）+ `columnRenderers`（§4 分发），**不删**原硬编码列。已提交。
+2. ✅ 在 `index.vue` 内用 `v-for` 渲染 `dataColumns`（7 个纯数据列）覆盖原硬编码数据列；`product`/`_marker`/`_selection`/`_actions` 保留原模板（见 §3 实施偏差）。实时覆盖双分支已内聚进 renderer，`pnpm run typecheck` 零错误。已提交。
+3. ⏳ 删除硬编码数据列，仅保留 `columnDefs` 驱动；并把 `product`/`actions` 也切到 renderer。**待 #980 重构合入、数据列驱动稳定后执行**（避免与 #980 改动区域冲突）。
+4. ⏳ 补单元测试：列定义完整性（key 唯一、renderer 均注册）、排序方法正确。
+5. ⏳ 之后 #990/#992/#993 各自在 columnDefs 上增量开发。
 
 > 过渡期策略：步骤 2 与步骤 3 之间可停留，确保 #980 重构合入时不冲突（本设计为新增文件，#980 改的是其它区块）。
 

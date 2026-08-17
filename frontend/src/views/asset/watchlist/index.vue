@@ -453,165 +453,31 @@
           </template>
         </el-table-column>
 
-        <!-- 添加自选日（日期非数字，左对齐更易扫读） -->
+        <!-- 数据列：由 columnDefs 驱动，renderer 注册表渲染（实时覆盖逻辑已内聚进 renderer）。
+             见 docs/spec/watchlist-column-defs.md（#995）。
+             product/marker/selection/操作 列因含特殊交互（openTagEditor、batchMode 占位等）暂保留原模板，后续切换。 -->
         <el-table-column
-          label="添加自选日"
-          width="130"
-          align="left"
-          sortable
-          :sort-method="sortStr('created_at')"
+          v-for="def in dataColumns"
+          :key="def.key"
+          :label="def.label"
+          :width="def.width"
+          :min-width="def.minWidth"
+          :align="def.align"
+          :fixed="def.fixed"
+          :sortable="def.sortable"
+          :sort-method="def.sortMethod"
         >
           <template #default="{ row }">
-            <span :style="{ color: 'var(--text-secondary)', fontSize: '13px' }">
-              {{ formatDate(row.created_at) }}
-            </span>
-          </template>
-        </el-table-column>
-
-        <!-- 最新价 -->
-        <el-table-column
-          label="最新价"
-          width="110"
-          align="right"
-          sortable
-          :sort-method="sortNum('current_price')"
-        >
-          <template #default="{ row }">
-            <template v-if="realtimeEnabled && getValuationItem(row.symbol)">
-              <MoneyDisplay
-                :value="getValuationItem(row.symbol)!.currentPrice"
-                :show-sign="false"
-                :show-currency="false"
-                :precision="pricePrecision(row.asset_type)"
-              />
-            </template>
-            <template v-else>
-              <MoneyDisplay
-                v-if="row.current_price != null"
-                :value="row.current_price"
-                :show-sign="false"
-                :show-currency="false"
-                :precision="pricePrecision(row.asset_type)"
-              />
-              <span v-else :style="{ color: 'var(--text-tertiary)' }">--</span>
-            </template>
-          </template>
-        </el-table-column>
-
-        <!-- 涨跌幅 (替换为全局 RiseFallText 组件) -->
-        <el-table-column
-          label="涨跌幅"
-          width="100"
-          align="right"
-          sortable
-          :sort-method="sortNum('change_pct')"
-        >
-          <template #default="{ row }">
-            <template v-if="realtimeEnabled && getValuationItem(row.symbol)">
-              <RiseFallText :value="getValuationItem(row.symbol)!.changePct" />
-            </template>
-            <template v-else>
-              <RiseFallText
-                v-if="row.change_pct != null"
-                :value="row.change_pct"
-              />
-              <span v-else :style="{ color: 'var(--text-tertiary)' }">--</span>
-            </template>
-          </template>
-        </el-table-column>
-
-        <!-- 持有数量 / 份额 -->
-        <el-table-column
-          label="持有数量"
-          width="110"
-          align="right"
-          sortable
-          :sort-method="sortNum('holding_quantity')"
-        >
-          <template #default="{ row }">
-            <template v-if="(row.holding_quantity ?? 0) > 0">
-              <span
-                class="tabular-nums"
-                :style="{ color: 'var(--text-primary)', fontWeight: 500 }"
-              >
-                {{ formatQty(row.holding_quantity) }}
-              </span>
-              <span
-                :style="{
-                  color: 'var(--text-tertiary)',
-                  fontSize: '11px',
-                  marginLeft: '2px'
-                }"
-                >{{ row.venue === "OTC" ? "份" : "股" }}</span
-              >
-            </template>
-            <span v-else :style="{ color: 'var(--text-tertiary)' }">--</span>
-          </template>
-        </el-table-column>
-
-        <!-- 持仓市值 -->
-        <el-table-column
-          prop="position_market_value"
-          label="持仓市值"
-          width="120"
-          align="right"
-          sortable
-          :sort-method="sortNum('position_market_value')"
-        >
-          <template #default="{ row }">
-            <MoneyWithRatio
-              :value="row.position_market_value"
-              :ratio="marketValueRatio(row)"
-              :show-sign="false"
-              :ratio-auto-color="false"
+            <component
+              :is="resolveRenderer(def.renderer)"
+              :row="row"
+              :def="def"
+              :ctx="renderCtx"
             />
           </template>
         </el-table-column>
 
-        <!-- 添加后涨幅：金额(上) + 涨幅%(下)，与持仓收益列统一主次 -->
-        <el-table-column
-          label="添加后涨幅"
-          width="130"
-          align="right"
-          sortable
-          :sort-method="sortAddedReturn"
-        >
-          <template #default="{ row }">
-            <MoneyWithRatio
-              :value="addedReturnAmount(row)"
-              :ratio="addedReturnPct(row)"
-              :show-currency="false"
-              :show-sign="true"
-            />
-          </template>
-        </el-table-column>
-
-        <!-- 持仓收益：金额(上) + 收益率%(下)，合并原独立的「收益比」列 -->
-        <el-table-column
-          label="持仓收益"
-          width="110"
-          align="right"
-          sortable
-          :sort-method="sortNum('holding_pnl')"
-        >
-          <template #default="{ row }">
-            <MoneyWithRatio
-              :value="
-                (row.holding_quantity ?? 0) > 0 ? (row.holding_pnl ?? 0) : null
-              "
-              :ratio="
-                (row.holding_quantity ?? 0) > 0
-                  ? (row.holding_pnl_percent ?? 0)
-                  : null
-              "
-              :show-currency="false"
-              :show-sign="true"
-              :auto-color="true"
-            />
-          </template>
-        </el-table-column>
-
-        <!-- 操作列：3 个 circle 按钮一行排布（flex + gap，避免 2 上 1 下换行） -->
+        <!-- 操作列：保留原模板（含 batchMode 下显示 -、tooltip、持仓禁用） -->
         <el-table-column label="操作" width="120" align="center" fixed="right">
           <template #default="{ row }">
             <template v-if="!batchMode">
@@ -831,6 +697,14 @@ import RealtimeWarningBanner, {
 import RealtimeStatusIndicator from "@/components/RealtimeStatusIndicator/index.vue";
 import type { Holding } from "@/utils/valuationEngine";
 import { formatDate, formatDateTime } from "@/utils/date";
+import {
+  watchlistColumnDefs,
+  type WatchlistRow
+} from "@/views/asset/watchlist/columnDefs";
+import {
+  resolveRenderer,
+  type RenderCtx
+} from "@/views/asset/watchlist/columnRenderers";
 
 defineOptions({ name: "Watchlist" });
 
@@ -1389,6 +1263,39 @@ onMounted(() => {
 });
 
 const realtimeEnabled = computed(() => realtime.enabled.value);
+
+// ── #995 columnDefs 数据驱动：数据列（不含 product/marker/selection/操作，这些保留原模板）──
+const dataColumns = computed(() =>
+  watchlistColumnDefs.filter(
+    d =>
+      !["product", "_marker", "_selection", "_actions"].includes(d.key)
+  )
+);
+
+// 渲染上下文：把页面级状态/方法注入 renderer 注册表，renderer 不耦合本组件
+const renderCtx = computed<RenderCtx>(() => ({
+  realtimeEnabled: realtimeEnabled.value,
+  getValuationItem,
+  allTags: allTags.value,
+  derived: (kind, row) => {
+    if (kind === "addedReturn") {
+      return {
+        value: addedReturnAmount(row as WatchlistItem) ?? 0,
+        ratio: addedReturnPct(row as WatchlistItem) ?? 0
+      };
+    }
+    // marketValue
+    return {
+      value: (row.position_market_value as number) ?? 0,
+      ratio: marketValueRatio(row as WatchlistItem) ?? 0
+    };
+  },
+  actions: {
+    togglePin: handleTogglePin,
+    toggleFavorite: handleToggleFavorite,
+    remove: confirmRemove
+  }
+}));
 </script>
 
 <style scoped>
