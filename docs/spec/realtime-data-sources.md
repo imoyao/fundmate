@@ -17,6 +17,15 @@ title: 自选实时数据接口源归集（realtime-data-sources）
 
 > 注：`qt.gtimg.cn` 返回 `v_xxxxxx="..."` 格式字符串，需解析；`fundgz` 返回 JSONP 回调包裹的估值对象。两个源前端侧统一经 `realtimeDataSources.ts` → `valuationEngine.ts` → `useRealtimeQuotes.ts` 链路消费。
 
+### 1.1 待接入 / 备选数据源（来自 jigu 复盘，详见 `realtime-data-source-switching.md`）
+
+| 数据源 | 用途 | 接入方式 | 状态 |
+|---|---|---|---|
+| 天天基金批量估值 `fundcomapi.tiantianfunds.com/mm/newCore/FundValuationLast`（`FCODES` 逗号拼 50 个一批） | 场外基金盘中估值**批量拉取** | JSONP / 批量 | 待评审（#990 主源候选） |
+| 新浪基金估值 `stock.finance.sina.com.cn/fundInfo/api/.../getEstimateNetworthPic` | 天天接口降级/备选 | JSONP | 待评审（降级源候选） |
+| 历史净值走势 `fundgz.1234567.com.cn/pingzhongdata/{code}.js`（`Data_netWorthTrend`） | Sparkline 统一历史源（替代本地累积缓存） | JSONP | 待评审（#990 Sparkline） |
+| 腾讯行情多 code 批量 `qt.gtimg.cn/q=sh600519,sz000001` | 股票/指数一次拉全部 | JSONP | 待评审（#990 省请求） |
+
 ## 2. 新增字段 / 新接口的硬约束（来自 AGENTS.md）
 
 1. **复用既有通道**：任何自选实时数据字段的新增，必须复用 `frontend/src/utils/realtimeDataSources.ts`，**不得**在前端各组件里另起 `<script>` 注入或硬编码接口地址。
@@ -39,3 +48,4 @@ title: 自选实时数据接口源归集（realtime-data-sources）
 
 - 当前接口源的**稳定性与限流**：外部 JSONP 源无 SLA，生产环境是否需要后端代理兜底（见 AGENTS.md 跨域约束第 4 条）。
 - 指数行情源（#962 债务项）与本文档数据源的整合，待 #995 落地后统一规划。
+- **数据源切换与优选机制（来自 jigu 复盘）** 已单独立档 `realtime-data-source-switching.md`：含单基金 `dataSource`(1-4) 切换、自动优选 RPC（`get_best_valuation_source`）、双源降级链、以及 §3 可复用接口清单。fundmate 落地分两阶段：① 双源（天天批量主 + 新浪降级）+ 腾讯多 code + pingzhongdata 历史；② 后期建源准确率表实现自动优选。
