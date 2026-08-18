@@ -44,7 +44,7 @@
       <ul v-else class="group-list">
         <li
           v-for="group in filteredGroups"
-          :key="group.id"
+          :key="group.id ?? group.key"
           class="group-row"
           :class="{ 'group-row--system': group.is_system }"
         >

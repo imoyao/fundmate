@@ -637,10 +637,11 @@
       @tags-changed="fetchTags"
     />
 
-    <!-- 分组管理弹窗（GitHub Labels 风格，与标签同构，见 docs/design/components.md） -->
+    <!-- 分组管理弹窗（GitHub Labels 风格，与标签同构，见 docs/design/components.md）。
+         系统分组可见但不可编辑/删除（managerGroups 含系统分组虚拟行），自定义分组可管理。 -->
     <GroupManagerDialog
       v-model="showGroupManager"
-      :all-groups="customGroups"
+      :all-groups="managerGroups"
       @groups-changed="fetchGroups"
     />
 
@@ -734,6 +735,7 @@ const {
   activeGroup,
   allGroups,
   customGroups,
+  managerGroups,
   activeGroupLabel,
   currentIsCustom,
   activeCustomGroupId,
