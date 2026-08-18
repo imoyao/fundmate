@@ -139,6 +139,33 @@ Windows：`dev.cmd`（内部走 `scripts/dev.ps1`）；Git Bash / WSL / macOS：
 ### 决策视角
 - **以长期视角制定架构决策，拒绝临时的权宜之计**：能用一天 hack 解决但埋下技术债的，不取；宁可多花一步做对的事。外部数据源、跨域方案、存储选型等影响面大的决策，先评估长期维护成本再定。
 
+### 多引擎数据域约束（DB Data Domain，双库架构硬规则，避免返工）
+
+**背景**：项目正从「单 SQLite」演进为「Turso（市场域）+ Supabase（用户域）+ Neon（灾备，延后）」混合库。开发期市场域用本地 SQLite 顶替 Turso、用户域用 dev Supabase（真 PG），生产期换 Turso + prod Supabase。详细设计见 `docs/dev/db-data-domain.md`，**本文是给所有 AI / 开发者 / 后续 agent 的硬约束摘要，设计新表 / 写查询前必须读完**。
+
+**两条运行库（engine）的语义**：
+- `market` 域 → Turso（开发期=本地 SQLite 替身）：公开、读多写少、会随时间无限膨胀的**市场数据**（净值 / 行情 / 温度 / 指数 / 基金基础资料 / 基金管理人 / 系统同步审计）。
+- `user` 域 → Supabase（Postgres，开发期=dev 项目）：含 `family_id`/`user_id` 的**用户私有数据**（账户 / 持仓 / 交易 / 组合 / 自选关系 / 家庭 / 用户 / 销售机构 / 用户操作审计）。Neon 仅替换 `SUPABASE_DATABASE_URL` 连接串作灾备，auth 单独处理（延后）。
+
+**强制规则（违反即视为 bug）**：
+1. **每个 ORM 模型必须声明 `__data_domain__ = 'market' | 'user'` 类属性**（在 `docs/dev/db-data-domain.md` 的归属清单内）。未声明的不允许合并，护栏会在启动期断言。
+2. **跨域零外键、零 SQL join**：两域是独立引擎（SQLite↔Postgres），SQL 层无法 JOIN。跨域关联只允许存**冗余业务键**（如 `fund_code` / `symbol` 字符串），取值以 `market` 域为权威来源，绝不建跨库 FK。
+3. **跨域读取只允许「应用层两步法」**：先在某域取键列表（如用户自选的 `fund_code`）→ 用 `in_` 批量去另一域取数据。**集中到统一 service 方法，禁止各 service 手写 N+1、禁止幻想 SQL join**。
+4. **归属由「被谁引用 + 是否无限膨胀 + 是否含隐私」决定，不靠数据性质一刀切**：
+   - 含 `family_id`/`user_id` 且用户产生 → `user` 域；
+   - 被 `user` 域表外键引用的**小体积公开名录**（销售机构）→ 随 `user` 域（避免反向跨域 FK）；
+   - 被 `market` 域表（`funds`）外键引用的公开名录（基金管理人，独立表）→ 随 `market` 域；
+   - 公开、读多写少、无限膨胀（净值/行情/温度）→ `market` 域。
+5. **`init_db` 按域分别 `create_all` 到对应 engine，并启动断言「声明域 == 实际建库」**，不一致直接 fail（防「表建错库导致静默读错/写错」）。
+6. **Session 入口只有 `market_session()` / `user_session()` 两个**，service 层只能从这两个取会话，**禁止混用、禁止拿错引擎**。
+7. **开发期迁移点**：本地 SQLite 文件当前已含全部 30 张表（含本该去 Supabase 的用户表）；迁双库后 SQLite 只建 `market` 域表，用户表不再建在本地 SQLite，避免「用户表既在 dev Supabase 又有本地残留」。
+8. **Neon 灾备切换仅替换连接串**，业务代码零改动；但 Supabase auth ≠ Neon 裸 PG，灾备阶段 auth 需单独方案（延后，不在本次范围）。
+
+**判定决策树（新增任何表先问自己这三问）**：
+- 它含 `user_id`/`family_id` 吗？（是 → `user` 域）
+- 它被谁外键引用？（被 `user` 域表引用 → 随 `user`；被 `market` 域表引用 → 随 `market`）
+- 它会随「全市场标的数量」无限膨胀吗？（是 → `market` 域；按「用户数」膨胀 → `user` 域，不受美股/港股扩展影响）
+
 ### 与自选股池实时数据相关的约束（重要，避免返工）
 - 实时股价 / 场外基金估值当前由前端 `frontend/src/utils/realtimeDataSources.ts` **JSONP 直连**天天基金（`fundgz.1234567.com.cn`）+ 腾讯财经（`qt.gtimg.cn`），封装链为 `realtimeDataSources.ts → valuationEngine.ts → useRealtimeQuotes.ts → 页面`。
 - **任何「新增自选字段 / 统一整合外部数据源」的需求，必须先决策数据来源收口方式**：要么维持前端 JSONP（已绕过 CORS，但脆弱、无法服务端缓存/降级/限流），要么收口到**后端代理**（前端只调自家 `/api`，统一解决跨域、稳定性、降级，但需新建后端端点）。方案未定前不要散落地加接口调用。
