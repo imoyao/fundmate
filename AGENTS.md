@@ -141,11 +141,11 @@ Windows：`dev.cmd`（内部走 `scripts/dev.ps1`）；Git Bash / WSL / macOS：
 
 ### 多引擎数据域约束（DB Data Domain，双库架构硬规则，避免返工）
 
-**背景**：项目正从「单 SQLite」演进为「Turso（市场域）+ Supabase（用户域）+ Neon（灾备，延后）」混合库。开发期市场域用本地 SQLite 顶替 Turso、用户域用 dev Supabase（真 PG），生产期换 Turso + prod Supabase。详细设计见 `docs/dev/db-data-domain.md`，**本文是给所有 AI / 开发者 / 后续 agent 的硬约束摘要，设计新表 / 写查询前必须读完**。
+**背景**：项目正从「单 SQLite」演进为「Turso（市场域）+ Supabase（用户域）+ Neon（灾备，延后）」混合库。**单库 / 双库统一可用**：未配 `SUPABASE_DATABASE_URL` 时 user 域自动回退本地 SQLite 文件（`invest.user.dev.db`），与 market 域的 `invest.dev.db` 物理分离，本地零配置即可「双库模拟」，测试飞快；配了 Supabase 才走真云库。详细设计见 `docs/dev/db-data-domain.md`（第 9 节「单库/双库统一可用」），**本文是给所有 AI / 开发者 / 后续 agent 的硬约束摘要，设计新表 / 写查询前必须读完**。
 
 **两条运行库（engine）的语义**：
-- `market` 域 → Turso（开发期=本地 SQLite 替身）：公开、读多写少、会随时间无限膨胀的**市场数据**（净值 / 行情 / 温度 / 指数 / 基金基础资料 / 基金管理人 / 系统同步审计）。
-- `user` 域 → Supabase（Postgres，开发期=dev 项目）：含 `family_id`/`user_id` 的**用户私有数据**（账户 / 持仓 / 交易 / 组合 / 自选关系 / 家庭 / 用户 / 销售机构 / 用户操作审计）。Neon 仅替换 `SUPABASE_DATABASE_URL` 连接串作灾备，auth 单独处理（延后）。
+- `market` 域 → Turso（开发期=本地 SQLite 替身 `invest.dev.db`）：公开、读多写少、会随时间无限膨胀的**市场数据**（净值 / 行情 / 温度 / 指数 / 基金基础资料 / 基金管理人 / 系统同步审计）。
+- `user` 域 → Supabase（Postgres，开发期=本地 SQLite 回退 `invest.user.dev.db`）：含 `family_id`/`user_id` 的**用户私有数据**（账户 / 持仓 / 交易 / 组合 / 自选关系 / 家庭 / 用户 / 销售机构 / 用户操作审计）。Neon 仅替换 `SUPABASE_DATABASE_URL` 连接串作灾备，auth 单独处理（延后）。
 
 **强制规则（违反即视为 bug）**：
 1. **每个 ORM 模型必须声明 `__data_domain__ = 'market' | 'user'` 类属性**（在 `docs/dev/db-data-domain.md` 的归属清单内）。未声明的不允许合并，护栏会在启动期断言。
@@ -158,7 +158,7 @@ Windows：`dev.cmd`（内部走 `scripts/dev.ps1`）；Git Bash / WSL / macOS：
    - 公开、读多写少、无限膨胀（净值/行情/温度）→ `market` 域。
 5. **`init_db` 按域分别 `create_all` 到对应 engine，并启动断言「声明域 == 实际建库」**，不一致直接 fail（防「表建错库导致静默读错/写错」）。
 6. **Session 入口只有 `market_session()` / `user_session()` 两个**，service 层只能从这两个取会话，**禁止混用、禁止拿错引擎**。
-7. **开发期迁移点**：本地 SQLite 文件当前已含全部 30 张表（含本该去 Supabase 的用户表）；迁双库后 SQLite 只建 `market` 域表，用户表不再建在本地 SQLite，避免「用户表既在 dev Supabase 又有本地残留」。
+7. **单库 / 双库统一可用（本地回退，非强制真云库）**：`init_db()` 把全部表建到一个引擎（单库兼容，老路径）；`init_db_split()` 按域分别建表。**未配 `SUPABASE_DATABASE_URL` 时 user 域自动回退本地 `invest.user.dev.db`**（与 market 的 `invest.dev.db` 物理分离），本地零配置即「双库模拟」。`user_session_factory()` / `user_session()` / `get_user_sessionmaker()` 不再因缺 Supabase 抛 RuntimeError。配了 `SUPABASE_DATABASE_URL` 才走真 Supabase，业务代码零改动。本地测试优先用双库模拟，最终验证 / 生产才接真云库。
 8. **Neon 灾备切换仅替换连接串**，业务代码零改动；但 Supabase auth ≠ Neon 裸 PG，灾备阶段 auth 需单独方案（延后，不在本次范围）。
 
 **判定决策树（新增任何表先问自己这三问）**：

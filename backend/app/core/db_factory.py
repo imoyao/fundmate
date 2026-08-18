@@ -37,6 +37,9 @@ DOMAIN_MARKET = 'market'
 
 _DEFAULT_APP_DB = 'sqlite:///./invest.db'
 _DEFAULT_DEV_DB = 'sqlite:///./invest.dev.db'
+# user 域本地回退文件：与 market 的 invest.dev.db 物理分离，模拟「双库」，
+# 但无需任何网络/云连接，纯本地最快。仅在未配置 SUPABASE_DATABASE_URL 时启用。
+_DEFAULT_DEV_USER_DB = 'sqlite:///./invest.user.dev.db'
 
 
 # --------------------------------------------------------------------------- #
@@ -150,17 +153,31 @@ class DatabaseConfig:
         return cls(name=DOMAIN_APP, url=url, connect_args=connect_args, pool_pre_ping=True)
 
     @classmethod
-    def for_user(cls, env: str) -> Optional['DatabaseConfig']:
+    def for_user(cls, env: str) -> 'DatabaseConfig':
         """用户核心账本库配置：Supabase Postgres（独立）。
 
-        仅在显式配置了 SUPABASE_DATABASE_URL 时返回配置；否则返回 None，
-        表示用户库暂未接入（仍走应用库兼容既有单库模式）。
+        优先级：
+        1. 显式配置 SUPABASE_DATABASE_URL → 真 Supabase（生产 / 最终验证）。
+        2. 未配置 → **自动回退本地 SQLite 文件** invest.user.dev.db，
+           与 market 域的 invest.dev.db 物理分离，模拟「双库」但零网络依赖。
+           这样本地 `pdm run python` 默认即可双 SQLite 模拟，测试飞快；
+           最终验证时只需配置 SUPABASE_DATABASE_URL 即切换真库，业务零改动。
+
+        设计要点：本方法永不返回 None（除非显式 force_none），因此 user 会话
+        入口不再因「未配 Supabase」而抛错——这是单库/双库统一可用的关键。
         """
         url = os.getenv('SUPABASE_DATABASE_URL')
-        if not url:
-            return None
-        # Postgres 不需要 SQLite 专用 connect_args
-        return cls(name=DOMAIN_USER, url=url, connect_args={}, pool_pre_ping=True)
+        if url:
+            # Postgres 不需要 SQLite 专用 connect_args
+            return cls(name=DOMAIN_USER, url=url, connect_args={}, pool_pre_ping=True)
+
+        # 本地回退：dev 用独立 SQLite 文件，prod/staging 回退到通用 DATABASE_URL 同库
+        if env == 'development':
+            fallback = os.getenv('DEV_USER_DATABASE_URL', _DEFAULT_DEV_USER_DB)
+        else:
+            fallback = os.getenv('USER_DATABASE_URL', _DEFAULT_APP_DB)
+        connect_args = {'check_same_thread': False, 'timeout': 30}
+        return cls(name=DOMAIN_USER, url=fallback, connect_args=connect_args, pool_pre_ping=False)
 
 
 def _apply_sqlite_pragmas(engine: Engine) -> None:
@@ -186,16 +203,19 @@ class DatabaseFactory:
     _engines: Dict[str, Optional[Engine]] = {}
 
     @classmethod
-    def build(cls, domain: str, env: Optional[str] = None) -> Optional[Engine]:
-        """构建指定数据域的 engine（不缓存，供测试 mock）。"""
+    def build(cls, domain: str, env: Optional[str] = None) -> Engine:
+        """构建指定数据域的 engine（不缓存，供测试 mock）。
+
+        user 域在未配置 SUPABASE_DATABASE_URL 时自动回退本地 SQLite 文件，
+        因此本方法对任一域都保证返回可用引擎（永不返回 None）。
+        """
         env = env or get_app_env()
         if domain == DOMAIN_USER:
             cfg = DatabaseConfig.for_user(env)
         else:
             cfg = DatabaseConfig.for_app(env)
 
-        if cfg is None:
-            return None
+        assert cfg is not None, f'数据域 {domain} 无法解析连接配置'
 
         engine = create_engine(
             cfg.url,
@@ -209,8 +229,12 @@ class DatabaseFactory:
         return engine
 
     @classmethod
-    def create(cls, domain: str, env: Optional[str] = None) -> Optional[Engine]:
-        """取（或构建并缓存）指定数据域的 engine。"""
+    def create(cls, domain: str, env: Optional[str] = None) -> Engine:
+        """取（或构建并缓存）指定数据域的 engine。
+
+        任一域都保证返回可用引擎：user 域未配 Supabase 时自动回退本地 SQLite，
+        因此本地开发 / 测试零配置即可双库模拟。
+        """
         if domain not in cls._engines:
             cls._engines[domain] = cls.build(domain, env)
         return cls._engines[domain]
@@ -286,16 +310,15 @@ def market_session_factory() -> sessionmaker:
 
 
 def user_session_factory() -> sessionmaker:
-    """user 域会话工厂（Supabase / 开发期 dev Supabase）。
+    """user 域会话工厂（Supabase / 本地 SQLite 回退）。
 
     业务层读写用户账本（账户/持仓/交易/自选/审计）必须且只能经此入口，
-    禁止与 market 域会话混用。未配置 SUPABASE_DATABASE_URL 时抛 RuntimeError，
-    提示开发者先在 .env 配置用户库（或显式声明仍走单库兼容模式）。
+    禁止与 market 域会话混用。
+
+    单库/双库统一可用：
+    - 配置了 SUPABASE_DATABASE_URL → 真 Supabase（最终验证 / 生产）。
+    - 未配置 → 自动回退本地 SQLite 文件（invest.user.dev.db），与 market 域
+      物理分离但零网络依赖，本地测试飞快。业务代码无需任何分支判断。
     """
     eng = DatabaseFactory.create(DOMAIN_USER)
-    if eng is None:
-        raise RuntimeError(
-            'user 域引擎未配置（缺少 SUPABASE_DATABASE_URL）。'
-            '双库模式下用户账本必须落 Supabase；若仍在单库兼容期，请勿调用本入口。'
-        )
     return sessionmaker(autocommit=False, autoflush=False, bind=eng)

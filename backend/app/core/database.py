@@ -104,15 +104,14 @@ def get_engine(domain: str = DOMAIN_APP) -> Optional[Engine]:
     return DatabaseFactory.create(domain)
 
 
-def get_user_sessionmaker() -> Optional[sessionmaker]:
-    """用户库 SessionLocal（未配置返回 None）。
+def get_user_sessionmaker() -> sessionmaker:
+    """用户库 SessionLocal（未配置 Supabase 时自动回退本地 SQLite 文件）。
 
-    TODO(数据域拆分 #894)：待 Supabase 云端集成落地后，用户域 service 层
-    统一经此注入，与运行库严格隔离（跨库事务无法保证 ACID，必须按域隔离）。
+    单库/双库统一可用：配置了 SUPABASE_DATABASE_URL 即真 Supabase；
+    未配置则落本地 invest.user.dev.db，与 market 域物理隔离但零网络依赖。
+    调用方无需判断 None。
     """
     user_engine = DatabaseFactory.create(DOMAIN_USER)
-    if user_engine is None:
-        return None
     return sessionmaker(autocommit=False, autoflush=False, bind=user_engine)
 
 
@@ -135,12 +134,17 @@ def init_db():
 
 
 def init_db_split():
-    """双库模式：按数据域分别 create_all 到对应 engine（Turso / Supabase）。
+    """双库模式：按数据域分别 create_all 到对应 engine。
 
-    仅当 user 引擎已配置（SUPABASE_DATABASE_URL）时可用；market 引擎必配。
+    - market 引擎必配（本地 dev 为 invest.dev.db，生产为 Turso）。
+    - user 引擎：配了 SUPABASE_DATABASE_URL 即 Supabase；未配则自动回退本地
+      invest.user.dev.db（物理独立文件，模拟双库）。两种情况下 user 表都落
+      到「与 market 不同的引擎」，域边界成立。
+
     启动校验保证"声明域 == 实际建到的 engine"，不一致直接 fail。
-    注：用户库（Supabase）的建表建议由 Supabase 迁移工具独立负责，此方法
-    主要用于开发期本地双 SQLite 验证 / CI 校验，不强制生产路径。
+    注：用户库（Supabase）生产建表建议由 Supabase 迁移工具独立负责，此方法
+    主要用于开发期本地双 SQLite 验证 / CI 校验，不强制生产路径。本地模式下
+    它就是"零配置双库模拟"的默认入口。
     """
     from app.core.db_factory import (
         DOMAIN_APP,

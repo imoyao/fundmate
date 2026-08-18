@@ -89,32 +89,50 @@ def test_market_session_factory_usable(monkeypatch):
     assert callable(sm)
 
 
-def test_user_session_factory_raises_when_unconfigured(monkeypatch):
-    """user 引擎未配置时，user_session_factory 抛 RuntimeError（防静默走错库）。"""
-    monkeypatch.setattr(db_factory.DatabaseFactory, '_engines', {DOMAIN_MARKET: None, DOMAIN_USER: None})
-    with pytest.raises(RuntimeError):
-        user_session_factory()
+def test_user_session_factory_falls_back_to_local_sqlite(monkeypatch):
+    """user 引擎未配 Supabase 时，user_session_factory 自动回退本地 SQLite 文件引擎。
+
+    这是「单库/双库统一可用」的关键：本地开发零配置即可双库模拟，
+    不会因缺 SUPABASE_DATABASE_URL 而抛错。
+    """
+    # 模拟未配置 SUPABASE_DATABASE_URL 的环境
+    monkeypatch.delenv('SUPABASE_DATABASE_URL', raising=False)
+    monkeypatch.setattr(db_factory.DatabaseFactory, '_engines', {})
+    sm = user_session_factory()
+    assert callable(sm)
+    # 回退引擎应为 SQLite（URL 以 sqlite 开头）
+    eng = sm.kw['bind']
+    assert str(eng.url).startswith('sqlite://')
 
 
-def test_init_db_split_safe_when_user_engine_missing(monkeypatch):
-    """单库模式（user 引擎为 None）下 init_db_split 不崩：只建 market 表。"""
-    # 用一个内存 SQLite 冒充 market 引擎；user 引擎 None
-    from sqlalchemy import create_engine
+def test_init_db_split_local_fallback_builds_both_domains(monkeypatch):
+    """本地双 SQLite 模式（user 回退本地文件）下，market/user 表分别建到两个物理引擎。
 
-    eng = create_engine('sqlite:///:memory:')
-    monkeypatch.setattr(db_factory.DatabaseFactory, '_engines', {DOMAIN_MARKET: eng, DOMAIN_USER: None})
-    # 不应抛异常（user 表跳过）
-    DatabaseFactory.tables_by_domain(Base.metadata)  # 先验证分组
-    # 实际建表到 market 引擎
+    验证「单库/双库统一可用」：无需 Supabase，两域表仍落不同引擎且互不相交。
+    """
+    from sqlalchemy import create_engine, inspect
+
+    # 两个独立的本地 SQLite 文件引擎，模拟 market / user 双库
+    market_eng = create_engine('sqlite:///:memory:')
+    user_eng = create_engine('sqlite:///:memory:')
+    monkeypatch.setattr(
+        db_factory.DatabaseFactory,
+        '_engines',
+        {DOMAIN_MARKET: market_eng, DOMAIN_USER: user_eng},
+    )
     grouped = DatabaseFactory.tables_by_domain(Base.metadata)
-    mmeta = MetaData()
-    for t in grouped[DOMAIN_MARKET]:
-        t.to_metadata(mmeta)
-    mmeta.create_all(bind=eng)
-    # 仅 market 表落地
-    from sqlalchemy import inspect
+    for domain, eng in ((DOMAIN_MARKET, market_eng), (DOMAIN_USER, user_eng)):
+        meta = MetaData()
+        for t in grouped[domain]:
+            t.to_metadata(meta)
+        meta.create_all(bind=eng)
 
-    assert set(inspect(eng).get_table_names()) == set(t.name for t in grouped[DOMAIN_MARKET])
+    market_tables = set(t.name for t in grouped[DOMAIN_MARKET])
+    user_tables = set(t.name for t in grouped[DOMAIN_USER])
+    assert set(inspect(market_eng).get_table_names()) == market_tables
+    assert set(inspect(user_eng).get_table_names()) == user_tables
+    # 两域表集合不相交（防同一张表被建到两个库）
+    assert market_tables.isdisjoint(user_tables)
 
 
 def test_init_db_split_builds_both_domains(monkeypatch):
@@ -143,3 +161,42 @@ def test_init_db_split_builds_both_domains(monkeypatch):
     assert set(inspect(user_eng).get_table_names()) == user_tables
     # 两域表集合不相交（防同一张表被建到两个库）
     assert market_tables.isdisjoint(user_tables)
+
+
+def test_local_fallback_uses_separate_user_database(monkeypatch, tmp_path):
+    """集成验证：未配 Supabase 时，market/user 自动落到两个独立本地 SQLite 文件。
+
+    对应「本地双库模拟」真实路径：清空引擎缓存 + 不设 SUPABASE_DATABASE_URL，
+    让 DatabaseFactory 走 for_user 回退逻辑，确认 user 表不会混入 market 库文件。
+    """
+    monkeypatch.delenv('SUPABASE_DATABASE_URL', raising=False)
+    monkeypatch.setenv('APP_ENV', 'development')
+    monkeypatch.setenv('DEV_DATABASE_URL', f'sqlite:///{tmp_path / "market.db"}')
+    monkeypatch.setenv('DEV_USER_DATABASE_URL', f'sqlite:///{tmp_path / "user.db"}')
+    monkeypatch.setattr(db_factory.DatabaseFactory, '_engines', {})
+
+    from sqlalchemy import inspect
+
+    grouped = DatabaseFactory.tables_by_domain(Base.metadata)
+    market_eng = DatabaseFactory.create(DOMAIN_MARKET)
+    user_eng = DatabaseFactory.create(DOMAIN_USER)
+    # 两引擎确实是不同文件
+    assert str(market_eng.url) != str(user_eng.url)
+
+    for domain, eng in ((DOMAIN_MARKET, market_eng), (DOMAIN_USER, user_eng)):
+        meta = MetaData()
+        for t in grouped[domain]:
+            t.to_metadata(meta)
+        meta.create_all(bind=eng)
+
+    market_tables = set(t.name for t in grouped[DOMAIN_MARKET])
+    user_tables = set(t.name for t in grouped[DOMAIN_USER])
+    assert set(inspect(market_eng).get_table_names()) == market_tables
+    assert set(inspect(user_eng).get_table_names()) == user_tables
+    # 两张库文件互不重叠
+    assert market_tables.isdisjoint(user_tables)
+    # user 表（如 ledgers）不在 market 库里，反之亦然
+    from sqlalchemy import inspect as _inspect
+
+    assert 'ledgers' not in _inspect(market_eng).get_table_names()
+    assert 'funds' not in _inspect(user_eng).get_table_names()
