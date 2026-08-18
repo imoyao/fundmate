@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from typing import Dict, Optional
 
 from sqlalchemy import Engine, create_engine, event
+from sqlalchemy.orm import sessionmaker
 
 # --------------------------------------------------------------------------- #
 # 数据域标识：应用运行库 vs 用户核心账本库
@@ -30,8 +31,79 @@ from sqlalchemy import Engine, create_engine, event
 DOMAIN_APP = 'app'  # 应用运行库（市场域/非敏感数据：净值、指数、温度计、自选种子等）
 DOMAIN_USER = 'user'  # 用户核心账本库（Supabase，隐私数据，独立权威）
 
+# 域的「引擎来源」语义别名：market 域对应 DOMAIN_APP 引擎，user 域对应 DOMAIN_USER 引擎。
+# 文档与代码统一用 'market' / 'user' 描述数据归属，用 DOMAIN_APP / DOMAIN_USER 描述引擎。
+DOMAIN_MARKET = 'market'
+
 _DEFAULT_APP_DB = 'sqlite:///./invest.db'
 _DEFAULT_DEV_DB = 'sqlite:///./invest.dev.db'
+
+
+# --------------------------------------------------------------------------- #
+# 表 → 数据域归属注册表（单一事实来源，与 docs/dev/db-data-domain.md 同步）
+# --------------------------------------------------------------------------- #
+# 规则：每个 ORM 模型对应的 __tablename__ 必须在此登记，且只能归 market / user 之一。
+# 未登记的表在 init_db 启动校验时直接 fail（防漏声明导致建错库 / 读错库）。
+# 归属判定见 AGENTS.md「多引擎数据域约束」决策树。
+#
+# 边界先例（已固化，勿凭"公开=Turso"一刀切）：
+#  - sales_institutions / fund_management_companies：公开名录，但被 user 域表
+#    (ledgers/positions) 外键引用 → 随 user 域，避反向跨域 FK。
+#  - managers / fund_managers：被 market 域表 (funds) 外键引用 → 随 market 域。
+DATA_DOMAIN_REGISTRY: Dict[str, str] = {
+    # ── market 域（Turso）：公开、读多写少、无限膨胀的市场数据 ──
+    'funds': DOMAIN_MARKET,
+    'fund_companies': DOMAIN_MARKET,
+    'fund_varieties': DOMAIN_MARKET,
+    'fund_types': DOMAIN_MARKET,
+    'fund_sales_orgs': DOMAIN_MARKET,  # 基金维度销售机构（funds 域内）
+    'managers': DOMAIN_MARKET,  # 基金管理人（被 funds 引用）
+    'fund_managers': DOMAIN_MARKET,  # 基金-经理关联（被 funds 引用）
+    'daily_worth': DOMAIN_MARKET,  # 基金净值（最大体积表）
+    'money_fund_daily_worth': DOMAIN_MARKET,  # 货基净值
+    'purchase_rules': DOMAIN_MARKET,
+    'redeem_rules': DOMAIN_MARKET,
+    'fee_ratios': DOMAIN_MARKET,
+    'price_history': DOMAIN_MARKET,  # 历史行情（最大体积表）
+    'securities': DOMAIN_MARKET,
+    'market_single_values': DOMAIN_MARKET,
+    'market_composites': DOMAIN_MARKET,
+    'market_multi_items': DOMAIN_MARKET,
+    'sync_logs': DOMAIN_MARKET,  # 系统同步审计（随市场同步任务）
+    # ── user 域（Supabase）：含 family_id/user_id 的用户私有数据 ──
+    'families': DOMAIN_USER,
+    'users': DOMAIN_USER,
+    'ledgers': DOMAIN_USER,
+    'portfolios': DOMAIN_USER,
+    'positions': DOMAIN_USER,
+    'transactions': DOMAIN_USER,
+    'position_import_meta': DOMAIN_USER,  # 导入溯源（含 family_id）
+    'assets': DOMAIN_USER,  # 静态资产（含 family_id）
+    'sales_institutions': DOMAIN_USER,  # 销售机构名录（被 ledgers 引用，随 user 域）
+    'fund_management_companies': DOMAIN_USER,  # 基金公司名录（被 positions 引用，随 user 域）
+    'watchlist': DOMAIN_USER,
+    'watchlist_groups': DOMAIN_USER,
+    'watchlist_item_group': DOMAIN_USER,
+    'watchlist_tag_defs': DOMAIN_USER,
+    'watchlist_item_tags': DOMAIN_USER,
+    'watchlist_alerts': DOMAIN_USER,
+    'cleared_positions': DOMAIN_USER,
+    'strategy_tags': DOMAIN_USER,
+    'position_strategy_tags': DOMAIN_USER,
+    'asset_snapshots': DOMAIN_USER,
+    'user_usage': DOMAIN_USER,
+}
+
+# 规划中但尚未建表的域归属（提前登记，防止模型落地时漏声明）。
+# 用户操作审计表：含 user_id，按用户数增长，归 user 域，享 RLS，与原操作同引擎。
+PENDING_DOMAIN_REGISTRY: Dict[str, str] = {
+    'user_audit_log': DOMAIN_USER,
+}
+
+
+def normalize_table_domain(table_name: str) -> Optional[str]:
+    """查表名对应的数据域；未登记返回 None（供启动校验拦截）。"""
+    return DATA_DOMAIN_REGISTRY.get(table_name)
 
 
 def get_app_env() -> str:
@@ -147,3 +219,83 @@ class DatabaseFactory:
     def reset(cls) -> None:
         """清空缓存（测试用）。"""
         cls._engines.clear()
+
+    @classmethod
+    def tables_by_domain(cls, metadata) -> Dict[str, list]:
+        """按数据域把 metadata 中的表分组。
+
+        返回 {'market': [Table...], 'user': [Table...]}。
+        校验：凡 metadata 中的表必须已在 DATA_DOMAIN_REGISTRY 登记，否则抛 ValueError
+        （防漏声明导致建错库 / 读错库）。同时校验注册表有无"模型已不存在"的孤儿项，
+        打印告警（不致命，但提示文档与代码漂移）。
+        """
+        from sqlalchemy import MetaData
+
+        if metadata is None:
+            metadata = MetaData()
+        result = {DOMAIN_MARKET: [], DOMAIN_USER: []}
+        registry_keys = set(DATA_DOMAIN_REGISTRY)
+        model_tables = set(metadata.tables.keys())
+
+        # 1) 模型表必须全部登记；未登记的立即 fail
+        unregistered = sorted(model_tables - registry_keys)
+        if unregistered:
+            raise ValueError(
+                '以下表未在 DATA_DOMAIN_REGISTRY 声明数据域，禁止建库（防建错库）：'
+                f' {unregistered}。请在 db_factory.DATA_DOMAIN_REGISTRY 补登记，'
+                '判定规则见 AGENTS.md「多引擎数据域约束」。'
+            )
+
+        for table in metadata.tables.values():
+            domain = DATA_DOMAIN_REGISTRY[table.name]
+            result[domain].append(table)
+        return result
+
+    @classmethod
+    def validate_domain_labels(cls, metadata) -> None:
+        """启动期断言：每个表都已声明合法数据域（供 init_db 调用）。
+
+        除致命校验（漏登记）外，额外检查注册表孤儿项（模型已不存在但仍在
+        注册表），打印告警提示文档/代码漂移。此告警仅在启动路径触发，
+        避免测试期 import 时序造成噪音。
+        """
+        grouped = cls.tables_by_domain(metadata)
+        registry_keys = set(DATA_DOMAIN_REGISTRY)
+        model_tables = set(metadata.tables.keys())
+        orphan = sorted(registry_keys - model_tables - set(PENDING_DOMAIN_REGISTRY))
+        if orphan:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                'DATA_DOMAIN_REGISTRY 存在孤儿表（模型未定义但已登记）：%s，' '请同步文档与代码。',
+                orphan,
+            )
+        return grouped
+
+
+def market_session_factory() -> sessionmaker:
+    """market 域会话工厂（Turso / 开发期本地 SQLite 替身）。
+
+    业务层读取市场数据（净值/行情/温度/基金资料）必须且只能经此入口，
+    禁止与 user 域会话混用。引擎未配置时抛 RuntimeError（开发期必须配置 APP 库）。
+    """
+    eng = DatabaseFactory.create(DOMAIN_APP)
+    if eng is None:
+        raise RuntimeError('market 域引擎未配置，无法创建会话（检查 APP_ENV / DATABASE_URL）。')
+    return sessionmaker(autocommit=False, autoflush=False, bind=eng)
+
+
+def user_session_factory() -> sessionmaker:
+    """user 域会话工厂（Supabase / 开发期 dev Supabase）。
+
+    业务层读写用户账本（账户/持仓/交易/自选/审计）必须且只能经此入口，
+    禁止与 market 域会话混用。未配置 SUPABASE_DATABASE_URL 时抛 RuntimeError，
+    提示开发者先在 .env 配置用户库（或显式声明仍走单库兼容模式）。
+    """
+    eng = DatabaseFactory.create(DOMAIN_USER)
+    if eng is None:
+        raise RuntimeError(
+            'user 域引擎未配置（缺少 SUPABASE_DATABASE_URL）。'
+            '双库模式下用户账本必须落 Supabase；若仍在单库兼容期，请勿调用本入口。'
+        )
+    return sessionmaker(autocommit=False, autoflush=False, bind=eng)
