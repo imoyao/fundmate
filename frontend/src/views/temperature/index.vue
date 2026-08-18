@@ -507,6 +507,7 @@ import {
 } from "@/components/MarketHeader/config";
 import { buildMarketFooterSources } from "@/components/MarketFooter/config";
 import { useAuthState } from "@/composables/useAuthState";
+import { getCssVar } from "@/composables/echarts/theme";
 
 // 登录态感知（温度计为公开数据页 D4，仅用于登录转化引导）
 const { isAuthenticated } = useAuthState();
@@ -519,11 +520,7 @@ const goAuth = () => {
 // 温度三色：动态读取全局 token（src/style/colors.css 的 --temp-*），
 // 保持与页面其它元素单一来源、视觉一致（design.md 红线：图表颜色用 getComputedStyle 读取）
 function readTempColorVar(name: string): string {
-  if (typeof window === "undefined") return "#888";
-  const value = getComputedStyle(document.documentElement)
-    .getPropertyValue(name)
-    .trim();
-  return value || "#888";
+  return getCssVar(name, "#888");
 }
 
 const TEMP_COLORS = {

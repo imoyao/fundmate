@@ -482,6 +482,7 @@ import {
 import { getLedgers } from "@/api/ledger";
 import { ElMessage } from "element-plus";
 import echarts from "@/plugins/echarts";
+import { getCssVar } from "@/composables/echarts/theme";
 
 defineOptions({ name: "AssetPanorama" });
 
@@ -523,10 +524,7 @@ const detailViewOptions = [
 
 // 工具函数：安全读取 CSS 变量（无 fallback 硬编码）
 const getCSSColor = (varName: string): string => {
-  if (typeof window === "undefined") return "";
-  return getComputedStyle(document.documentElement)
-    .getPropertyValue(varName)
-    .trim();
+  return getCssVar(varName);
 };
 
 function getTypeRoute(typeName: string): string {

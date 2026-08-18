@@ -423,13 +423,11 @@ import {
   getAllocationLabel
 } from "@/constants";
 import { EXCHANGE_RATES } from "@/constants/exchangeRates";
+import { getCssVar } from "@/composables/echarts/theme";
 
 // 工具函数：安全读取 CSS 变量（design.md 红线：涨跌色必须走语义变量，hex 仅作 SSR/未定义兜底）
 const getCSSColor = (varName: string): string => {
-  if (typeof window === "undefined") return "";
-  return getComputedStyle(document.documentElement)
-    .getPropertyValue(varName)
-    .trim();
+  return getCssVar(varName);
 };
 
 const assetChangeChartRef = ref<HTMLDivElement | null>(null);

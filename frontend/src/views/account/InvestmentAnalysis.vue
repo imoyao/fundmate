@@ -180,6 +180,7 @@
 import { ref, onMounted, nextTick } from "vue";
 import echarts from "@/plugins/echarts";
 import RiseFallText from "@/components/RiseFallText/index.vue";
+import { getCssVar } from "@/composables/echarts/theme";
 
 defineOptions({
   name: "InvestmentAnalysis"
@@ -196,10 +197,7 @@ let returnComparisonChart: echarts.ECharts | null = null;
 // 工具函数：动态读取设计令牌（design.md 红线：图表颜色禁止硬编码，
 // 须 getComputedStyle 读取 CSS 变量，亮/暗色模式自动适配）
 const getCSSColor = (varName: string): string => {
-  if (typeof window === "undefined") return "";
-  return getComputedStyle(document.documentElement)
-    .getPropertyValue(varName)
-    .trim();
+  return getCssVar(varName);
 };
 
 // 图表配色：涨跌用 --color-rise/--color-fall，其余用图表色板 --chart-*
