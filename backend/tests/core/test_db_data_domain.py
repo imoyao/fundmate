@@ -28,7 +28,7 @@ import app.domains.users.models  # noqa: F401
 import app.domains.watchlist.models  # noqa: F401
 import app.models.sync_log  # noqa: F401
 from app.core import db_factory
-from app.core.database import Base
+from app.core.database import Base, init_db_split, user_session
 from app.core.db_factory import (
     DATA_DOMAIN_REGISTRY,
     DOMAIN_MARKET,
@@ -200,3 +200,41 @@ def test_local_fallback_uses_separate_user_database(monkeypatch, tmp_path):
 
     assert 'ledgers' not in _inspect(market_eng).get_table_names()
     assert 'funds' not in _inspect(user_eng).get_table_names()
+
+
+def test_seed_default_identity_split_mode_writes_to_user_engine(monkeypatch, tmp_path):
+    """回归测试：修复跨域 bug——_seed_default_identity 曾用 market 引擎的 SessionLocal
+    写入 user 域的 families/users 表，真双库分离时会落到错误库。
+
+    验证：init_db_split 本地双 SQLite 模式下，种子家庭/用户只落在 user 引擎，
+    market 引擎里查不到 families/users 行（跨域 bug 修复前会落在这里）。
+    """
+    from sqlalchemy import inspect
+    from sqlalchemy.orm import sessionmaker
+
+    monkeypatch.delenv('SUPABASE_DATABASE_URL', raising=False)
+    monkeypatch.setenv('APP_ENV', 'development')
+    monkeypatch.setenv('DEV_DATABASE_URL', f'sqlite:///{tmp_path / "market.db"}')
+    monkeypatch.setenv('DEV_USER_DATABASE_URL', f'sqlite:///{tmp_path / "user.db"}')
+    monkeypatch.setattr(db_factory.DatabaseFactory, '_engines', {})
+
+    # 走真实双库建表 + 种子路径
+    init_db_split()
+
+    market_eng = DatabaseFactory.create(DOMAIN_MARKET)
+    user_eng = DatabaseFactory.create(DOMAIN_USER)
+
+    # user 引擎里应能查到默认家庭/用户
+    with user_session() as db:
+        from app.domains.families.models import Family
+        from app.domains.users.models import User
+
+        assert db.query(Family).filter_by(id=1).first() is not None
+        assert db.query(User).filter_by(id=1).first() is not None
+
+    # market 引擎里不应有 families/users 数据（跨域 bug 修复前会落在这里）
+    if 'families' in inspect(market_eng).get_table_names():
+        with sessionmaker(bind=market_eng)() as db:
+            assert (
+                db.query(Family).filter_by(id=1).first() is None
+            ), 'families 种子错误地写到了 market 引擎（跨域 bug 复发）'
