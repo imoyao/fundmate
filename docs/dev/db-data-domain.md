@@ -1,8 +1,9 @@
 # 多引擎数据域约束（DB Data Domain）
 
-> 状态：设计已定稿并落地代码护栏（2026-08-18），代码改动只在分支 `feature/db-multi-engine` 进行，不污染 `main-v2` 运行路径。
-> 配套硬约束摘要见仓库根 `AGENTS.md` 的「多引擎数据域约束」节，本文是完整设计依据。
+> **本文是 fundmate 数据库架构的【唯一权威事实标准】（v1，2026-08-18）。** 设计已定稿并落地代码护栏（分支 `feature/db-multi-engine`），不污染 `main-v2` 运行路径。任何新表设计 / 查询编写前以本文为准。
+> 配套硬约束摘要见仓库根 `AGENTS.md` 的「多引擎数据域约束」节。
 > **单库 / 双库统一可用**：未配置 Supabase 时 user 域自动回退本地 SQLite 文件，本地零配置即可双库模拟；配置 `SUPABASE_DATABASE_URL` 即切真库，业务代码零改动。详见第 9 节。
+> **历史文档关系**：`docs/backend-restructure-edgeone-dualengine.md` 是 2026-08-01 的**早期计划**（含"双 Base 拆分"设想），与本文实际落地方案有偏差，仅供参考决策背景，不反映当前代码；差异见第 10 节。`docs/dev/db-choice.md` 是 V1 MySQL 选型历史，已标失效。
 
 ## 1. 为什么是混合库，而不是单库或主从
 
@@ -160,3 +161,34 @@ pdm run python -c "from app.core.database import init_db_split; init_db_split()"
 - `tests/core/test_cross_domain.py`：两内存 SQLite 验证 `enrich_by_rows` 两步法拼装。
 
 > 注意：CI / 测试默认 `APP_ENV` 若非 `development`，market 域会走 production 回退（`DATABASE_URL` 同库）。验证「双库物理分离」的测试需显式设 `APP_ENV=development` + 两个独立 dev URL。
+
+## 10. 与历史计划文档的关系及差异（防误读）
+
+`docs/backend-restructure-edgeone-dualengine.md`（2026-08-01）是**早期计划文档**，提出过"双 Base（UserBase / MarketBase），模型分别继承"的拆分设想。该设想**未采用**，本文是实际落地方案。后续 agent / 开发者若读到旧文档，请注意以下差异，避免被误导：
+
+| 维度 | `backend-restructure-edgeone-dualengine.md`（旧计划，已偏离） | 本文实际落地（2026-08-18） |
+|------|------|------|
+| ORM 基类 | 设想拆 `UserBase` / `MarketBase` 两个 Base | **单一 `app.core.Base`**，通过 `__data_domain__` 属性 + `DATA_DOMAIN_REGISTRY` 注册表声明归属，不拆 Base |
+| 建表方式 | 未明确，倾向两 Base 各自 `create_all` | `init_db_split()` 在**单一 Base.metadata** 上按域分组 `to_metadata` 后分别 `create_all` 到 market / user 引擎 |
+| env 命名 | `SUPABASE_DB_PASSWORD` 拼装、`user.db` / `market.db` | `SUPABASE_DATABASE_URL`（完整连接串）、`invest.dev.db` / `invest.user.dev.db` |
+| 本地回退 | 未提 | user 域未配 Supabase 时**自动回退本地 SQLite**（`invest.user.dev.db`），单库/双库统一可用 |
+| 跨域查询 | 提及两层查询但未落地 | 已落地 `app/services/common/cross_domain.py`（`enrich_by_rows` 通用两步法 + `enrich_watchlist_with_market`） |
+| 状态 | 标 "未来计划 / 部分 P1" | 分支 `feature/db-multi-engine` 已落地护栏 + 跨域工具，待合入 main-v2 |
+
+> **结论**：旧 dualengine 文档保留作"当年为什么这么选"的决策背景（被否决候选、数据量论证、部署约束仍有价值），但它**不是当前事实标准**。一切以本文 + `AGENTS.md` 约束为准。V1 MySQL 选型文档 `docs/dev/db-choice.md` 已自标失效，仅作历史。
+
+## 11. 闭环状态与剩余尾巴（2026-08-18）
+
+**已进入闭环的部分**：
+- 数据域归属决策（39 张表 market/user 分类 + 决策树）已定稿并固化为代码护栏。
+- `DATA_DOMAIN_REGISTRY` 单一事实来源 + 启动致命校验 `validate_domain_labels` 已落地。
+- market / user 双 session 工厂已落地，user 未配 Supabase 自动回退本地 SQLite（单库/双库统一可用）。
+- 跨域联合查询可复用基础设施 `CrossDomainQuery` 已落地并测试。
+- 配套硬约束已写入 `AGENTS.md`。
+
+**尚未闭环（尾巴 / 下一步）**：
+1. `feature/db-multi-engine` 分支**尚未合入 main-v2**，亦未 push 后发起 PR / review（本次改动已 push 至远程分支）。
+2. **真双库仅"可配置"未"真接"**：本地验证靠双 SQLite 模拟；Turso / Supabase 真实连接串尚未在部署环境配置并跑通端到端（最终验证阶段）。
+3. **生产建表策略未定**：user 域（Supabase）生产建表计划走 Supabase 迁移工具，`init_db_split` 仅作开发/CI 校验，生产路径需补迁移脚本。
+4. **Neon 灾备**按原决策延后，未实现（仅预留 `SUPABASE_DATABASE_URL` 可替换为 Neon 连接串的位置）。
+5. 审计表 `user_audit_log` 已在 `PENDING_DOMAIN_REGISTRY` 标记待补模型，尚未落地。
