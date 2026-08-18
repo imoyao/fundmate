@@ -227,6 +227,7 @@ import {
 import MetricGrid from "@/components/MetricGrid/index.vue";
 import MetricCard from "@/components/MetricCard/index.vue";
 import { formatDate } from "@/utils/date";
+import { formatQuantity } from "@/utils/format";
 
 defineOptions({ name: "InvestmentReconcile" });
 
@@ -295,14 +296,6 @@ const pagedItems = computed(() => {
 watch(statusFilter, () => {
   page.value = 1;
 });
-
-/** 份额格式化：保留 2 位 + 千分位（design.md「份额/数量保留 2 位」） */
-function formatQuantity(qty: number): string {
-  return (qty || 0).toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  });
-}
 
 /** 差异涨跌语义：正=E账户多于系统（涨红）、负=少于系统（跌绿）、零=中性 */
 function diffClass(diff: number): string {

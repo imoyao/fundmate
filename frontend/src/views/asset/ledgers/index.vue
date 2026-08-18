@@ -617,8 +617,14 @@ import {
 import { getPortfolios } from "@/api/portfolio";
 import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
-import { getLedgerTypeLabel, LEDGER_TYPE_SHORT } from "@/constants";
+import {
+  getLedgerTypeLabel,
+  LEDGER_TYPE_SHORT,
+  majorCategoryLabel,
+  txnTypeLabel
+} from "@/constants";
 import { formatDate, formatDateTime } from "@/utils/date";
+import { formatQuantity } from "@/utils/format";
 import AccountFormFields from "./components/AccountFormFields.vue";
 import DeleteLedgerDialog from "./components/DeleteLedgerDialog.vue";
 
@@ -680,39 +686,6 @@ const orphanDetail = ref<OrphanDetailResponse>({
     total_market_value: 0
   }
 });
-
-// 资产大类翻译（与后端 ASSET_CATEGORY_LABELS 对齐，见 backend/app/core/constants.py）
-const MAJOR_CATEGORY_LABELS: Record<string, string> = {
-  cash: "流动资金",
-  fixed: "固定资产",
-  investment: "投资理财",
-  receivable: "应收款",
-  liability: "负债",
-  insurance: "保险项目"
-};
-
-function majorCategoryLabel(key: string): string {
-  return MAJOR_CATEGORY_LABELS[key] ?? key;
-}
-
-// 交易类型翻译（buy/sell/dividend，与 ledgers/detail.vue txnTypeLabel 一致）
-const TXN_TYPE_LABELS: Record<string, string> = {
-  buy: "买入",
-  sell: "卖出",
-  dividend: "分红"
-};
-
-function txnTypeLabel(type: string): string {
-  return TXN_TYPE_LABELS[type] ?? type;
-}
-
-// 份额格式化：保留 2 位 + 千分位（design.md「份额/数量保留 2 位」）
-function formatQuantity(qty: number): string {
-  return (qty || 0).toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  });
-}
 
 // 总资产（从 overview groups 汇总）
 const totalAssets = computed(

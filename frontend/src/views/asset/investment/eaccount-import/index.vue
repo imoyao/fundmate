@@ -347,6 +347,7 @@ import MetricGrid from "@/components/MetricGrid/index.vue";
 import MetricCard from "@/components/MetricCard/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import { formatDate } from "@/utils/date";
+import { formatQuantity } from "@/utils/format";
 
 defineOptions({ name: "InvestmentEaccountImport" });
 
@@ -399,14 +400,6 @@ const pagedPreviewRows = computed(() => {
 
 const conflictList = computed(() => result.value?.conflict_list ?? []);
 const failedList = computed(() => result.value?.failed_rows ?? []);
-
-/** 份额格式化：保留 2 位 + 千分位（design.md「份额/数量保留 2 位」） */
-function formatQuantity(qty: number): string {
-  return (qty || 0).toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  });
-}
 
 /** 解析行数值可能为字符串（CSV），统一转 number，无效返回 null */
 function toNumber(value: number | string | undefined): number | null {

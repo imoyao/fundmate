@@ -809,12 +809,6 @@ const handleManualRefresh = async () => {
   }
 };
 
-/**
- * 持有数量 / 份额格式化 */
-function formatQty(qty: number): string {
-  return qty.toLocaleString("zh-CN", { maximumFractionDigits: 2 });
-}
-
 /** 添加后涨幅（%）=（当前价 - 添加日价格）/ 添加日价格 */
 function addedReturnPct(row: {
   symbol?: string;
