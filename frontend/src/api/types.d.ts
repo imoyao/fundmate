@@ -116,5 +116,7 @@ export interface PositionUpdate {
 export interface SummaryData {
   total_assets_cny: number;
   total_pnl_cny: number;
+  total_liabilities_cny: number;
+  net_assets_cny: number;
   market_distribution: Record<string, number>;
 }

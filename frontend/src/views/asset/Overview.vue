@@ -13,12 +13,14 @@
             <div class="flex items-baseline gap-1 mb-2">
               <span class="text-2xl font-medium text-gray-800">¥</span>
               <h2 class="text-5xl font-bold text-[#28A87E] tracking-tight">
-                1,487,482.95
+                {{ summaryAmount(netAssets) }}
               </h2>
             </div>
             <div class="flex items-center gap-2 text-sm">
               <span class="text-gray-400">占比</span>
-              <span class="font-bold text-[#28A87E]">51.0%</span>
+              <span class="font-bold text-[#28A87E]">{{
+                summaryRatio(netAssets)
+              }}</span>
             </div>
           </div>
 
@@ -31,12 +33,14 @@
                 <div class="flex items-baseline gap-1 mb-1">
                   <span class="text-lg font-medium text-gray-800">¥</span>
                   <h3 class="text-2xl font-bold text-gray-800 tracking-tight">
-                    2,918,379.83
+                    {{ summaryAmount(totalAssets) }}
                   </h3>
                 </div>
                 <div class="flex items-center gap-2 text-xs">
                   <span class="text-gray-400">占比</span>
-                  <span class="font-bold text-gray-600">100%</span>
+                  <span class="font-bold text-gray-600">{{
+                    totalAssets > 0 ? "100%" : "--"
+                  }}</span>
                 </div>
               </div>
               <!-- 总负债 -->
@@ -45,12 +49,14 @@
                 <div class="flex items-baseline gap-1 mb-1">
                   <span class="text-lg font-medium text-gray-800">¥</span>
                   <h3 class="text-2xl font-bold text-gray-800 tracking-tight">
-                    1,430,896.88
+                    {{ summaryAmount(totalLiabilities) }}
                   </h3>
                 </div>
                 <div class="flex items-center gap-2 text-xs">
                   <span class="text-gray-400">占比</span>
-                  <span class="font-bold text-gray-600">49.0%</span>
+                  <span class="font-bold text-gray-600">{{
+                    summaryRatio(totalLiabilities)
+                  }}</span>
                 </div>
               </div>
             </div>
@@ -141,7 +147,7 @@
           </button>
         </div>
       </div>
-      <div ref="sankeyChartRef" class="h-[400px] w-full" />
+      <SankeyChart :data="sankeyData" :display-mode="displayMode" />
     </div>
 
     <!-- 资产/负债切换卡片 -->
@@ -399,15 +405,15 @@ import {
   onMounted,
   onActivated,
   nextTick,
-  onUnmounted,
-  watch
+  onUnmounted
 } from "vue";
 import { Search } from "@element-plus/icons-vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
+import SankeyChart from "@/components/Charts/SankeyChart.vue";
 import { getPositions } from "@/api/positions";
-import { getSummary } from "@/api/summary";
+import { getSummary, getSankeyData } from "@/api/summary";
 import { getAssets } from "@/api/assets";
 import {
   getMoneyFundIncome,
@@ -425,10 +431,8 @@ const getCSSColor = (varName: string): string => {
 };
 
 const assetChangeChartRef = ref<HTMLDivElement | null>(null);
-const sankeyChartRef = ref<HTMLDivElement | null>(null);
 
 let assetChangeChart: echarts.ECharts | null = null;
-let sankeyChart: echarts.ECharts | null = null;
 
 const displayMode = ref<"amount" | "percent" | "hidden">("amount");
 const activeTab = ref<"assets" | "liabilities">("assets");
@@ -472,10 +476,6 @@ const liabilityList = ref([
   }
 ]);
 
-watch([displayMode, selectedMember], () => {
-  initSankeyChart();
-});
-
 defineOptions({ name: "AssetPanorama" });
 
 // —— 数据 ——
@@ -484,8 +484,15 @@ const loading = ref(false);
 const totalAssets = ref(0);
 const totalPnl = ref(0);
 const totalLiabilities = ref(0);
+const netAssets = ref(0);
 const searchKeyword = ref("");
 const allAssets = ref<any[]>([]); // 用来存 assets 表的数据
+
+// 桑基图数据（后端聚合出口，共享 SankeyChart 组件消费）
+const sankeyData = ref<{ nodes: any[]; links: any[] }>({
+  nodes: [],
+  links: []
+});
 
 // 货币基金收益（家庭维度）
 const moneyFundData = ref<MoneyFundIncomeData | null>(null);
@@ -513,6 +520,19 @@ const filteredTableData = computed(() => {
 });
 
 // —— 辅助函数 ——
+// 汇总金额/占比展示：getSummary 无数据（totalAssets 为 0）时统一 "--"，避免显示 0/NaN
+function summaryAmount(v: number): string {
+  if (totalAssets.value <= 0) return "--";
+  return v.toLocaleString("zh-CN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+}
+function summaryRatio(numerator: number): string {
+  if (totalAssets.value <= 0) return "--";
+  return ((numerator / totalAssets.value) * 100).toFixed(1) + "%";
+}
+
 function typeTag(
   type: string
 ): "primary" | "success" | "warning" | "info" | "danger" {
@@ -535,10 +555,11 @@ function typeTag(
 async function fetchData() {
   loading.value = true;
   try {
-    const [posRes, sumRes, assetsRes] = await Promise.all([
+    const [posRes, sumRes, assetsRes, sankeyRes] = await Promise.all([
       getPositions({ per_page: 500 }),
       getSummary(),
-      getAssets({ per_page: 500 })
+      getAssets({ per_page: 500 }),
+      getSankeyData()
     ]);
 
     // 处理 positions
@@ -583,6 +604,16 @@ async function fetchData() {
       (sumRes as any)?.total_pnl_cny ??
       0;
     totalLiabilities.value = (sumRes as any)?.data?.total_liabilities_cny ?? 0;
+    netAssets.value =
+      (sumRes as any)?.data?.net_assets_cny ??
+      totalAssets.value - totalLiabilities.value;
+
+    // 桑基图：后端聚合出口（节点不带色，共享 SankeyChart 组件内部按节点名映射配色）
+    const sankeyRaw: any = (sankeyRes as any)?.data ?? {};
+    sankeyData.value = {
+      nodes: Array.isArray(sankeyRaw.nodes) ? sankeyRaw.nodes : [],
+      links: Array.isArray(sankeyRaw.links) ? sankeyRaw.links : []
+    };
 
     allPositions.value = positionsRaw.map((p: any) => {
       const rate = EXCHANGE_RATES[p.currency || "CNY"] || 1;
@@ -619,7 +650,6 @@ onActivated(() => {
   if (allPositions.value.length > 0) {
     nextTick(() => {
       initAssetChangeChart();
-      initSankeyChart();
     });
   }
 });
@@ -770,157 +800,13 @@ const initAssetChangeChart = () => {
 
   assetChangeChart.setOption(option);
 };
-const initSankeyChart = () => {
-  if (!sankeyChartRef.value) return;
-  if (sankeyChart) sankeyChart.dispose();
-  sankeyChart = echarts.init(sankeyChartRef.value);
-
-  const getLabel = (name: string, val: number, member?: string) => {
-    const memberSuffix =
-      member && selectedMember.value !== "all" ? `(${member})` : "";
-    if (displayMode.value === "hidden") {
-      return `${name}${memberSuffix}`;
-    }
-    const valStr = val + "万";
-    const pctStr = ((val / 291.8) * 100).toFixed(1) + "%";
-    return displayMode.value === "amount"
-      ? `${name}${memberSuffix} ${valStr}`
-      : `${name}${memberSuffix} ${pctStr}`;
-  };
-
-  const data = {
-    nodes: [
-      {
-        name: "房屋贷款",
-        value: 143.1,
-        itemStyle: { color: "#81808F" },
-        member: "我"
-      },
-      { name: "负债", value: 143.1, itemStyle: { color: "#81808F" } },
-      { name: "净资产", value: 148.7, itemStyle: { color: "#28A87E" } },
-      { name: "总资产", value: 291.8, itemStyle: { color: "#6262A3" } },
-      {
-        name: "流动资金",
-        value: 20.7,
-        itemStyle: { color: "#B85828" },
-        member: "我"
-      },
-      {
-        name: "固定资产",
-        value: 215.0,
-        itemStyle: { color: "#4D8599" },
-        member: "我"
-      },
-      {
-        name: "投资理财",
-        value: 56.1,
-        itemStyle: { color: "#695499" },
-        member: "我"
-      },
-      {
-        name: "微众银行",
-        value: 19.6,
-        itemStyle: { color: "#B85828" },
-        member: "我"
-      },
-      {
-        name: "房产(自住)",
-        value: 215.0,
-        itemStyle: { color: "#4D8599" },
-        member: "我"
-      },
-      {
-        name: "基金",
-        value: 21.8,
-        itemStyle: { color: "#695499" },
-        member: "我"
-      },
-      {
-        name: "股票",
-        value: 34.3,
-        itemStyle: { color: "#695499" },
-        member: "我"
-      }
-    ],
-    links: [
-      { source: "房屋贷款", target: "负债", value: 143.1 },
-      { source: "负债", target: "总资产", value: 143.1 },
-      { source: "净资产", target: "总资产", value: 148.7 },
-      { source: "总资产", target: "流动资金", value: 20.7 },
-      { source: "总资产", target: "固定资产", value: 215.0 },
-      { source: "总资产", target: "投资理财", value: 56.1 },
-      { source: "流动资金", target: "微众银行", value: 19.6 },
-      { source: "固定资产", target: "房产(自住)", value: 215.0 },
-      { source: "投资理财", target: "基金", value: 21.8 },
-      { source: "投资理财", target: "股票", value: 34.3 }
-    ]
-  };
-
-  const mappedNodes = data.nodes.map(n => ({
-    ...n,
-    name: getLabel(n.name, n.value, n.member)
-  }));
-  const mappedLinks = data.links.map(l => ({
-    source:
-      mappedNodes.find(n => n.name.startsWith(l.source))?.name || l.source,
-    target:
-      mappedNodes.find(n => n.name.startsWith(l.target))?.name || l.target,
-    value: l.value
-  }));
-
-  sankeyChart.setOption({
-    tooltip: {
-      trigger: "item",
-      triggerOn: "mousemove",
-      backgroundColor: "rgba(255, 255, 255, 0.95)",
-      borderWidth: 0,
-      shadowBlur: 10,
-      shadowColor: "rgba(0, 0, 0, 0.1)",
-      formatter: (params: any) => {
-        if (params.dataType === "node") {
-          const val = params.data.value;
-          const pct = ((val / 291.8) * 100).toFixed(2);
-          const member = params.data.member ? ` (${params.data.member})` : "";
-          return `<div class="p-2">
-            <div class="text-gray-400 text-xs mb-1">${params.name.split(" ")[0]}${member}</div>
-            <div class="font-bold text-gray-800">¥ ${val}万</div>
-            <div class="text-blue-500 text-xs mt-1">占比 ${pct}%</div>
-          </div>`;
-        }
-        return null;
-      }
-    },
-    series: [
-      {
-        type: "sankey",
-        data: mappedNodes,
-        links: mappedLinks,
-        emphasis: { focus: "adjacency" },
-        lineStyle: { color: "gradient", curveness: 0.5, opacity: 0.3 },
-        label: {
-          fontSize: 12,
-          color: "#333",
-          formatter: "{b}"
-        },
-        nodeAlign: "justify",
-        nodeGap: 18,
-        nodeWidth: 20,
-        layoutIterations: 0,
-        silent: false
-      }
-    ]
-  });
-};
-
 const handleResize = () => {
   assetChangeChart?.resize();
-  sankeyChart?.resize();
 };
 
 onMounted(() => {
   nextTick(() => {
     initAssetChangeChart();
-    initSankeyChart();
     window.addEventListener("resize", handleResize);
   });
 });
