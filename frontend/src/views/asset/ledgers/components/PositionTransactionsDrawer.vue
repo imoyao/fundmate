@@ -222,6 +222,7 @@ import { Loading } from "@element-plus/icons-vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import { getPositionTransactions } from "@/api/positions";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
+import { txnTypeLabel } from "@/constants";
 
 const props = defineProps<{
   visible: boolean;
@@ -242,18 +243,6 @@ const drawerVisible = computed({
 const loadingTransactions = ref(false);
 const transactionsList = ref<any[]>([]);
 const transactionsTotal = ref(0);
-
-// 交易类型显示转换
-function txnTypeLabel(type: string) {
-  const map: Record<string, string> = {
-    buy: "买入",
-    sell: "卖出",
-    dividend: "分红",
-    deposit: "存入",
-    withdraw: "取出"
-  };
-  return map[type] || type;
-}
 
 // 获取交易明细 API 调用
 async function fetchTransactions() {
