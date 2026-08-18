@@ -386,89 +386,8 @@
           align="center"
           :selectable="row => row.id != null"
         />
-        <el-table-column width="44" align="center" class-name="marker-column">
-          <template #default="{ row }">
-            <div class="flex items-center justify-center gap-0.5">
-              <!-- 置顶/关注图标：--text-tertiary，行 hover 提亮 --text-secondary，语义靠 icon 形状区分 -->
-              <span v-if="row.is_pinned" class="marker-icon" title="已置顶">
-                <IconifyIconOffline icon="mdi:pin-outline" class="text-sm" />
-              </span>
-              <span v-if="row.favorite" class="marker-icon" title="特别关注">
-                <IconifyIconOffline icon="ep:star" class="text-sm" />
-              </span>
-            </div>
-          </template>
-        </el-table-column>
-
-        <!-- 产品信息列：名称（第一行）+ 标签 chips（第二行，最多 2 个 + +N）；fixed 左固定（横向滚动时保持可见） -->
-        <el-table-column
-          label="代码/名称"
-          min-width="240"
-          fixed="left"
-          show-overflow-tooltip
-          sortable
-          :sort-method="sortName"
-        >
-          <template #default="{ row }">
-            <div class="flex flex-col gap-1 py-2">
-              <ProductDisplay
-                :name="row.display_name || row.symbol"
-                :symbol="row.symbol"
-                :type-label="row.type_label || ''"
-              />
-              <div class="flex items-center gap-1">
-                <template v-if="row.tag_ids && row.tag_ids.length > 0">
-                  <el-tag
-                    v-for="tagId in row.tag_ids.slice(0, 2)"
-                    :key="tagId"
-                    size="small"
-                    class="tag-chip text-[10px] px-1.5 py-0.5 rounded-full"
-                    :style="{
-                      backgroundColor: findTagColor(allTags, tagId) + '20',
-                      color: 'var(--text-primary)',
-                      border: '1px solid ' + findTagColor(allTags, tagId)
-                    }"
-                  >
-                    {{ findTagName(allTags, tagId) }}
-                  </el-tag>
-                  <span
-                    v-if="row.tag_ids.length > 2"
-                    class="text-xs"
-                    :style="{ color: 'var(--text-tertiary)' }"
-                  >
-                    +{{ row.tag_ids.length - 2 }}
-                  </span>
-                </template>
-                <el-tooltip content="添加/编辑标签" placement="top">
-                  <el-button
-                    circle
-                    size="small"
-                    class="add-tag-btn"
-                    :disabled="row.id == null"
-                    @click.stop="openTagEditor(row as WatchlistItem)"
-                  >
-                    <IconifyIconOffline icon="ep:plus" class="text-[10px]" />
-                  </el-button>
-                </el-tooltip>
-              </div>
-            </div>
-          </template>
-        </el-table-column>
-
-        <!--
-          #995 columnDefs 数据驱动（MVP 步骤 2，已落地）。
-          7 个纯数据列由此 v-for 渲染，renderer 注册表见 columnRenderers.tsx；
-          实时覆盖双分支已内聚进 renderer，本模板不再散落 v-if realtimeEnabled。
-          详见 docs/spec/watchlist-column-defs.md。
-
-          ⚠️ 维护者须知（后续待办，勿误判为"半成品 bug"）：
-          - product / _marker / _selection / _actions 四列刻意保留原模板，
-            原因：含 openTagEditor、batchMode 占位、tooltip、持仓禁用等特殊交互，
-            且与 #980 自选页面拆分重构区域重叠。
-          - 下一步（#995 步骤 3）：待 #980 重构合入、本驱动验证稳定后，
-            把 product/actions 也切到 renderer，并删除全部硬编码列，仅保留 columnDefs 驱动。
-          - 在此之前若改这些保留列的交互，注意与 dataColumns 的 renderer 逻辑保持一致。
-        -->
+        <!-- #995 columnDefs 数据驱动：全量列（仅 selection 因 type="selection" 无法 renderer 化，保留模板）。
+             product/marker/actions 均由 columnRenderers.tsx 渲染，详见 docs/spec/watchlist-column-defs.md。 -->
         <el-table-column
           v-for="def in dataColumns"
           :key="def.key"
@@ -479,6 +398,7 @@
           :fixed="def.fixed"
           :sortable="def.sortable"
           :sort-method="def.sortMethod"
+          :show-overflow-tooltip="def.showOverflowTooltip"
         >
           <template #default="{ row }">
             <component
@@ -487,69 +407,6 @@
               :def="def"
               :ctx="renderCtx"
             />
-          </template>
-        </el-table-column>
-
-        <!-- 操作列：保留原模板（含 batchMode 下显示 -、tooltip、持仓禁用） -->
-        <el-table-column label="操作" width="120" align="center" fixed="right">
-          <template #default="{ row }">
-            <template v-if="!batchMode">
-              <div class="flex items-center justify-center gap-1">
-                <el-tooltip
-                  :content="row.is_pinned ? '取消置顶' : '置顶'"
-                  placement="top"
-                >
-                  <el-button
-                    circle
-                    size="small"
-                    :disabled="row.id == null"
-                    @click.stop="handleTogglePin(row as WatchlistItem)"
-                  >
-                    <IconifyIconOffline
-                      :icon="row.is_pinned ? 'mdi:pin' : 'mdi:pin-outline'"
-                    />
-                  </el-button>
-                </el-tooltip>
-                <el-tooltip
-                  :content="row.favorite ? '取消特别关注' : '特别关注'"
-                  placement="top"
-                >
-                  <el-button
-                    circle
-                    size="small"
-                    :disabled="row.id == null"
-                    @click.stop="handleToggleFavorite(row as WatchlistItem)"
-                  >
-                    <IconifyIconOffline
-                      :icon="row.favorite ? 'ep:star-filled' : 'ep:star'"
-                    />
-                  </el-button>
-                </el-tooltip>
-                <el-tooltip
-                  :content="
-                    row.status === 'HOLDING'
-                      ? '持仓资产无法直接从自选移除'
-                      : '移除'
-                  "
-                  placement="top"
-                >
-                  <el-button
-                    circle
-                    size="small"
-                    class="btn-delete-ghost"
-                    :disabled="row.status === 'HOLDING'"
-                    @click.stop="confirmRemove(row as WatchlistItem)"
-                  >
-                    <IconifyIconOffline icon="ep:delete" />
-                  </el-button>
-                </el-tooltip>
-              </div>
-            </template>
-            <template v-else>
-              <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }"
-                >-</span
-              >
-            </template>
           </template>
         </el-table-column>
 
@@ -694,12 +551,11 @@ import {
   addItemToGroup,
   type WatchlistItem
 } from "@/api/watchlist";
-import { findTagName, findTagColor } from "@/utils/tagHelpers";
+import { findTagName } from "@/utils/tagHelpers";
 import CardBlock from "@/components/CardBlock/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue"; // 加入此组件引入
 import MoneyWithRatio from "@/components/MoneyWithRatio/index.vue";
-import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import {
   useRealtimeQuotes,
   REFRESH_INTERVAL_OPTIONS,
@@ -978,45 +834,6 @@ const tagUsage = computed(() => {
   return usage;
 });
 
-// ── 表头排序辅助（issue #991）──
-// 数值列空值沉底，避免 null/undefined 参与运算导致排序异常或报错
-const sortNum =
-  (key: keyof WatchlistItem) =>
-  (a: WatchlistItem, b: WatchlistItem): number => {
-    const av = a[key];
-    const bv = b[key];
-    if (av == null && bv == null) return 0;
-    if (av == null) return 1;
-    if (bv == null) return -1;
-    return (av as number) - (bv as number);
-  };
-
-// 字符串/日期列按本地化比较排序（空值沉底）
-const sortStr =
-  (key: keyof WatchlistItem) =>
-  (a: WatchlistItem, b: WatchlistItem): number => {
-    const av = (a[key] as string) ?? "";
-    const bv = (b[key] as string) ?? "";
-    return av.localeCompare(bv, "zh-Hans-CN");
-  };
-
-// 名称列按展示名排序（中文按拼音）
-const sortName = (a: WatchlistItem, b: WatchlistItem): number => {
-  const av = a.display_name || a.symbol || "";
-  const bv = b.display_name || b.symbol || "";
-  return av.localeCompare(bv, "zh-Hans-CN");
-};
-
-// 添加后涨幅按「实际涨幅%」排序，与列内显示口径一致（基于 current_price 与 price_at_added 计算）
-const sortAddedReturn = (a: WatchlistItem, b: WatchlistItem): number => {
-  const av = addedReturnPct(a);
-  const bv = addedReturnPct(b);
-  if (av == null && bv == null) return 0;
-  if (av == null) return 1;
-  if (bv == null) return -1;
-  return av - bv;
-};
-
 // 排序时回到第一页，避免停留在非首页看错顺序
 function handleSortChange() {
   currentPage.value = 1;
@@ -1287,11 +1104,9 @@ onMounted(() => {
 
 const realtimeEnabled = computed(() => realtime.enabled.value);
 
-// ── #995 columnDefs 数据驱动：数据列（不含 product/marker/selection/操作，这些保留原模板）──
+// ── #995 columnDefs 数据驱动：全量列（仅 selection 因 type="selection" 无法 renderer 化，保留模板）──
 const dataColumns = computed(() =>
-  watchlistColumnDefs.filter(
-    d => !["product", "_marker", "_selection", "_actions"].includes(d.key)
-  )
+  watchlistColumnDefs.filter(d => d.key !== "_selection")
 );
 
 // 渲染上下文：把页面级状态/方法注入 renderer 注册表，renderer 不耦合本组件
@@ -1312,6 +1127,8 @@ const renderCtx = computed<RenderCtx>(() => ({
       ratio: marketValueRatio(row as WatchlistItem) ?? 0
     };
   },
+  openTagEditor,
+  batchMode: batchMode.value,
   actions: {
     togglePin: handleTogglePin,
     toggleFavorite: handleToggleFavorite,

@@ -12,15 +12,14 @@
  * 实时数据一律来自 ctx.getValuationItem（useRealtimeQuotes 链路）。
  *
  * ── 维护者须知 ──
- * 本注册表的 product / actions renderer 当前在 index.vue 中【未启用】
- * （index.vue 的 product/marker/selection/actions 四列仍保留原模板，
- * 原因见 docs/spec/watchlist-column-defs.md §3 实施偏差）。这两个 renderer
- * 是 #995 步骤 3 的预备实现：待 #980 重构合入、数据列驱动稳定后，
- * index.vue 将切换到用本注册表渲染 product/actions，届时删除对应硬编码列。
- * 在此之前若改 product/actions 交互，需同步更新本文件与 index.vue 两处。
+ * #995 步骤 3 已完成：index.vue 已切换到全量 columnDefs 驱动，
+ * product/marker/actions 均由本注册表渲染（selection 因 type="selection"
+ * 无法 renderer 化，仍由 index.vue 模板按 batchMode 注入）。
+ * 后续改 product/actions 交互只需改本文件，不再有 index.vue 模板副本。
  */
 
 import { h, type FunctionalComponent, type VNode } from "vue";
+import { Icon as IconifyIconOffline } from "@iconify/vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import MoneyWithRatio from "@/components/MoneyWithRatio/index.vue";
@@ -49,7 +48,14 @@ export interface RenderCtx {
   /** 全部标签（用于 product 列渲染 tag chips） */
   allTags: { id: number; name: string; color?: string }[];
   /** 派生计算列的取值函数（注入 index.vue 的 addedReturnAmount 等） */
-  derived: (kind: "addedReturn" | "marketValue", row: WatchlistRow) => DerivedValue;
+  derived: (
+    kind: "addedReturn" | "marketValue",
+    row: WatchlistRow
+  ) => DerivedValue;
+  /** 打开标签编辑弹窗（product 列 add-tag 按钮） */
+  openTagEditor: (row: WatchlistRow) => void;
+  /** 是否批量管理模式（true 时 actions 列显示 "-" 占位） */
+  batchMode: boolean;
   /** 操作回调（actions 列） */
   actions: {
     togglePin: (row: WatchlistRow) => void;
@@ -73,7 +79,11 @@ function resolveValue(
   if (def.realtimeField && ctx.realtimeEnabled) {
     const item = ctx.getValuationItem(row.symbol);
     if (item && typeof item[def.realtimeField] === "number") {
-      return { staticVal, realtimeVal: item[def.realtimeField], useRealtime: true };
+      return {
+        staticVal,
+        realtimeVal: item[def.realtimeField],
+        useRealtime: true
+      };
     }
   }
   return { staticVal, useRealtime: false };
@@ -81,9 +91,10 @@ function resolveValue(
 
 // ---- 各 renderer 实现 ----
 
-const renderDate: FunctionalComponent<{ row: WatchlistRow; def: ColumnDef }> = (
-  props
-) => {
+const renderDate: FunctionalComponent<{
+  row: WatchlistRow;
+  def: ColumnDef;
+}> = props => {
   const v = field(props.row, props.def.key);
   return h("span", { class: "text-sm" }, v ? formatDate(String(v)) : "--");
 };
@@ -92,7 +103,7 @@ const renderMoney: FunctionalComponent<{
   row: WatchlistRow;
   def: ColumnDef;
   ctx: RenderCtx;
-}> = (props) => {
+}> = props => {
   const { staticVal, realtimeVal, useRealtime } = resolveValue(
     props.row,
     props.def,
@@ -100,7 +111,7 @@ const renderMoney: FunctionalComponent<{
   );
   return h(MoneyDisplay, {
     value: useRealtime ? realtimeVal! : staticVal,
-    size: "sm",
+    size: "sm"
   });
 };
 
@@ -108,7 +119,7 @@ const renderRiseFall: FunctionalComponent<{
   row: WatchlistRow;
   def: ColumnDef;
   ctx: RenderCtx;
-}> = (props) => {
+}> = props => {
   const { staticVal, realtimeVal, useRealtime } = resolveValue(
     props.row,
     props.def,
@@ -116,28 +127,37 @@ const renderRiseFall: FunctionalComponent<{
   );
   return h(RiseFallText, {
     value: useRealtime ? realtimeVal! : staticVal,
-    size: "sm",
+    size: "sm"
   });
 };
 
-const renderQty: FunctionalComponent<{ row: WatchlistRow; def: ColumnDef }> = (
-  props
-) => {
+const renderQty: FunctionalComponent<{
+  row: WatchlistRow;
+  def: ColumnDef;
+}> = props => {
   const v = Number(field(props.row, props.def.key)) || 0;
   const unit = field(props.row, "venue") === "OTC" ? "份" : "股";
-  return h("span", { class: "font-mono text-sm" }, v > 0 ? `${v} ${unit}` : "--");
+  return h(
+    "span",
+    { class: "font-mono text-sm" },
+    v > 0 ? `${v} ${unit}` : "--"
+  );
 };
 
 const renderMoneyRatio: FunctionalComponent<{
   row: WatchlistRow;
   def: ColumnDef;
   ctx: RenderCtx;
-}> = (props) => {
+}> = props => {
   const { row, def, ctx } = props;
   // 派生列（添加后涨幅 / 持仓市值比例）：直接取注入的计算结果
   if (def.derived) {
     const d = ctx.derived(def.derived, row);
-    return h(MoneyWithRatio, { value: d.value, ratio: d.ratio, moneySize: "sm" });
+    return h(MoneyWithRatio, {
+      value: d.value,
+      ratio: d.ratio,
+      moneySize: "sm"
+    });
   }
   // 直接字段列（持仓收益）：value=def.key, ratio=props.ratioKey
   const value = Number(field(row, def.key)) || 0;
@@ -149,7 +169,7 @@ const renderMoneyRatio: FunctionalComponent<{
     ratio: hasPosition ? ratio : null,
     moneySize: "sm",
     showSign: true,
-    showCurrency: false,
+    showCurrency: false
   });
 };
 
@@ -157,36 +177,98 @@ const renderProduct: FunctionalComponent<{
   row: WatchlistRow;
   def: ColumnDef;
   ctx: RenderCtx;
-}> = (props) => {
+}> = props => {
   const row = props.row;
-  const tagIds = Array.isArray(field(row, "tag_ids"))
-    ? (field(row, "tag_ids") as number[])
-    : [];
-  const tags = props.ctx.allTags.filter((t) => tagIds.includes(t.id));
-  return h("div", { class: "flex items-center gap-2 min-w-0" }, [
+  const ctx = props.ctx;
+
+  // 内置 marker 列：置顶/关注图标（对齐 index.vue 原 marker 模板）
+  if (props.def.props?.builtin === "marker") {
+    const markers: VNode[] = [];
+    if (row.is_pinned) {
+      markers.push(
+        h("span", { class: "marker-icon", title: "已置顶" }, [
+          h(IconifyIconOffline, { icon: "mdi:pin-outline", class: "text-sm" })
+        ])
+      );
+    }
+    if (row.favorite) {
+      markers.push(
+        h("span", { class: "marker-icon", title: "特别关注" }, [
+          h(IconifyIconOffline, { icon: "ep:star", class: "text-sm" })
+        ])
+      );
+    }
+    return h(
+      "div",
+      { class: "flex items-center justify-center gap-0.5" },
+      markers
+    );
+  }
+
+  // 正常 product 列：名称（第一行）+ 标签 chips / 添加标签按钮（第二行）
+  const tagIds = Array.isArray(row.tag_ids) ? row.tag_ids : [];
+  // 与模板 findTagColor/findTagName(allTags, tagId) 语义等价的内联查找；
+  // 找不到时 color 回退 --bg-hover、name 回退空串（不引入 tagHelpers 依赖）
+  const tagColor = (tagId: number) =>
+    ctx.allTags.find(t => t.id === tagId)?.color || "var(--bg-hover)";
+  const tagName = (tagId: number) =>
+    ctx.allTags.find(t => t.id === tagId)?.name || "";
+
+  return h("div", { class: "flex flex-col gap-1 py-2" }, [
     h(ProductDisplay, {
-      symbol: row.symbol,
       name: (field(row, "display_name") as string) || row.symbol,
-      assetType: row.asset_type,
+      symbol: row.symbol,
+      typeLabel: (field(row, "type_label") as string) || ""
     }),
-    ...(tags.length
-      ? [
-          h(
-            "div",
-            { class: "flex gap-1 shrink-0" },
-            tags.map((t) =>
-              h(
-                "span",
-                {
-                  class: "px-1.5 py-0.5 rounded text-xs",
-                  style: { backgroundColor: t.color || "var(--bg-hover)" },
-                },
-                t.name
-              )
+    h("div", { class: "flex items-center gap-1" }, [
+      ...tagIds.slice(0, 2).map(tagId =>
+        h(
+          "el-tag",
+          {
+            size: "small",
+            class: "tag-chip text-[10px] px-1.5 py-0.5 rounded-full",
+            style: {
+              backgroundColor: tagColor(tagId) + "20",
+              color: "var(--text-primary)",
+              border: "1px solid " + tagColor(tagId)
+            }
+          },
+          () => tagName(tagId)
+        )
+      ),
+      ...(tagIds.length > 2
+        ? [
+            h(
+              "span",
+              { class: "text-xs", style: { color: "var(--text-tertiary)" } },
+              `+${tagIds.length - 2}`
             )
-          ),
-        ]
-      : []),
+          ]
+        : []),
+      h(
+        "el-tooltip",
+        { content: "添加/编辑标签", placement: "top" },
+        {
+          default: () =>
+            h(
+              "el-button",
+              {
+                circle: true,
+                size: "small",
+                class: "add-tag-btn",
+                disabled: row.id == null,
+                onClick: (e: Event) => {
+                  e.stopPropagation();
+                  ctx.openTagEditor(row);
+                }
+              },
+              () => [
+                h(IconifyIconOffline, { icon: "ep:plus", class: "text-[10px]" })
+              ]
+            )
+        }
+      )
+    ])
   ]);
 };
 
@@ -194,38 +276,73 @@ const renderActions: FunctionalComponent<{
   row: WatchlistRow;
   def: ColumnDef;
   ctx: RenderCtx;
-}> = (props) => {
+}> = props => {
   const row = props.row;
-  const a = props.ctx.actions;
-  const mkBtn = (icon: string, title: string, onClick: () => void) =>
-    h(
-      "button",
-      {
-        class:
-          "w-7 h-7 rounded-full grid place-items-center hover:bg-[var(--bg-hover)]",
-        title,
-        onClick: (e: Event) => {
-          e.stopPropagation();
-          onClick();
-        },
-      },
-      [h("i", { class: `icon ${icon}` })]
+  const ctx = props.ctx;
+  // 批量管理模式：显示 "-" 占位（对齐 index.vue 原模板）
+  if (ctx.batchMode) {
+    return h(
+      "span",
+      { class: "text-xs", style: { color: "var(--text-tertiary)" } },
+      "-"
     );
+  }
+  const a = ctx.actions;
   return h("div", { class: "flex items-center justify-center gap-1" }, [
-    mkBtn(
-      row.is_pinned ? "ep:star-filled" : "ep:star",
-      "置顶",
-      () => a.togglePin(row)
+    h(
+      "el-tooltip",
+      { content: row.is_pinned ? "取消置顶" : "置顶", placement: "top" },
+      {
+        default: () =>
+          h(
+            "el-button",
+            {
+              circle: true,
+              size: "small",
+              disabled: row.id == null,
+              onClick: (e: Event) => {
+                e.stopPropagation();
+                a.togglePin(row);
+              }
+            },
+            () => [
+              h(IconifyIconOffline, {
+                icon: row.is_pinned ? "mdi:pin" : "mdi:pin-outline"
+              })
+            ]
+          )
+      }
     ),
-    mkBtn("ep:medal", "关注", () => a.toggleFavorite(row)),
+    h(
+      "el-tooltip",
+      { content: row.favorite ? "取消特别关注" : "特别关注", placement: "top" },
+      {
+        default: () =>
+          h(
+            "el-button",
+            {
+              circle: true,
+              size: "small",
+              disabled: row.id == null,
+              onClick: (e: Event) => {
+                e.stopPropagation();
+                a.toggleFavorite(row);
+              }
+            },
+            () => [
+              h(IconifyIconOffline, {
+                icon: row.favorite ? "ep:star-filled" : "ep:star"
+              })
+            ]
+          )
+      }
+    ),
     h(
       "el-tooltip",
       {
         content:
-          row.status === "HOLDING"
-            ? "持仓资产无法直接从自选移除"
-            : "移除",
-        placement: "top",
+          row.status === "HOLDING" ? "持仓资产无法直接从自选移除" : "移除",
+        placement: "top"
       },
       {
         default: () =>
@@ -239,12 +356,12 @@ const renderActions: FunctionalComponent<{
               onClick: (e: Event) => {
                 e.stopPropagation();
                 a.remove(row);
-              },
+              }
             },
-            () => [h("i", { class: "icon ep:delete" })]
-          ),
+            () => [h(IconifyIconOffline, { icon: "ep:delete" })]
+          )
       }
-    ),
+    )
   ]);
 };
 
@@ -263,7 +380,7 @@ const REGISTRY: Record<
   riseFall: renderRiseFall as never,
   qty: renderQty as never,
   moneyRatio: renderMoneyRatio as never,
-  actions: renderActions as never,
+  actions: renderActions as never
 };
 
 /** 按 renderer 类型取对应函数式组件（模板 <component :is> 用） */
