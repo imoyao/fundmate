@@ -322,9 +322,11 @@ const onGithubLogin = async () => {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "github",
       options: {
-        // 跳回应用站首页；session 落到 .duoduobei.com 父域 cookie，
-        // 由路由守卫 getSession() 自动识别登录态、直接进概览页。
-        redirectTo: `${window.location.origin}/welcome`
+        // 回调落回本站根路径即可：应用站是 hash 模式，若直接写 /welcome
+        // 会被 Supabase 编码成 ?redirect_to=/welcome 塞进 hash，变成
+        // welcome#/welcome 导致无法正确匹配路由。回到根后由路由守卫
+        // getSession() 识别已登录态，自动 redirect 到 /welcome 概览页。
+        redirectTo: `${window.location.origin}/`
       }
     });
     if (error) throw error;
@@ -354,7 +356,8 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
           email: ruleForm.email.trim(),
           password: ruleForm.password,
           options: {
-            emailRedirectTo: `${window.location.origin}/welcome`,
+            // 邮箱验证回调同样回根路径，由前端守卫接管跳转，避免 hash 模式编码异常
+            emailRedirectTo: `${window.location.origin}/`,
             data: {
               username: ruleForm.username.trim()
             }
