@@ -4,35 +4,25 @@
 import os
 from contextlib import contextmanager
 from datetime import datetime
+from typing import Optional
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import Column, DateTime, Engine, Integer, create_engine, event, func
+from sqlalchemy import Column, DateTime, Engine, Integer, func
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
-SQLALCHEMY_DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///./invest.db')
-
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL,
-    connect_args={
-        'check_same_thread': False,
-        'timeout': 30,  # 写锁等待 30 秒，避免立即报 locked
-    },
+from app.core.db_factory import (
+    DOMAIN_APP,
+    DOMAIN_USER,
+    DatabaseFactory,
 )
 
+# 保留历史符号：部分模块（如 sync/orchestrator 备份路径）仍引用，
+# 指向当前应用运行库的 URL，供文件库路径推断使用。
+SQLALCHEMY_DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///./invest.db')
 
-@event.listens_for(Engine, 'connect')
-def set_sqlite_pragma(dbapi_connection, connection_record):
-    """启用 WAL 模式提升并发读写性能，并开启外键约束。
-
-    外键约束是数据库层最后防线：SQLite 默认关闭外键，模型上的
-    ondelete='RESTRICT' 依赖 PRAGMA foreign_keys=ON 才生效；
-    业务层删除逻辑（如 delete_ledger）仍需自行级联清理，此处兜底防悬空引用。
-    """
-    cursor = dbapi_connection.cursor()
-    cursor.execute('PRAGMA journal_mode=WAL;')
-    cursor.execute('PRAGMA foreign_keys=ON;')
-    cursor.close()
-
+# 默认 engine = 应用运行库（市场域/非敏感数据），按 APP_ENV 自动切换
+# dev -> 本地 SQLite；prod -> Turso（回退 DATABASE_URL）。见 db_factory。
+engine: Engine = DatabaseFactory.create(DOMAIN_APP)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -96,7 +86,7 @@ class TimestampMixin:
 
 @contextmanager
 def get_db():
-    """上下文管理器形式的数据库会话，自动关闭连接."""
+    """上下文管理器形式的数据库会话（应用运行库），自动关闭连接."""
     db = SessionLocal()
     try:
         yield db
@@ -104,11 +94,35 @@ def get_db():
         db.close()
 
 
+def get_engine(domain: str = DOMAIN_APP) -> Optional[Engine]:
+    """按数据域取已缓存 engine（接缝：业务层后续按域路由）。
+
+    - DOMAIN_APP：应用运行库（默认，市场域/非敏感数据）。
+    - DOMAIN_USER：用户核心账本库（Supabase，未配置返回 None，
+      表示仍走应用库兼容既有单库模式）。
+    """
+    return DatabaseFactory.create(domain)
+
+
+def get_user_sessionmaker() -> Optional[sessionmaker]:
+    """用户库 SessionLocal（未配置返回 None）。
+
+    TODO(数据域拆分 #894)：待 Supabase 云端集成落地后，用户域 service 层
+    统一经此注入，与运行库严格隔离（跨库事务无法保证 ACID，必须按域隔离）。
+    """
+    user_engine = DatabaseFactory.create(DOMAIN_USER)
+    if user_engine is None:
+        return None
+    return sessionmaker(autocommit=False, autoflush=False, bind=user_engine)
+
+
 def init_db():
-    """创建所有数据库表，并确保默认家庭/用户存在（多用户地基）。
+    """创建应用运行库所有表，并确保默认家庭/用户存在（多用户地基）。
 
     默认家庭 1 + 默认用户 1 兼容既有单用户数据：模型结构变更后
     需要重建 DB 文件（见 scripts/migrate_family_id.py 的 ALTER 迁移说明）。
+
+    注：用户库（Supabase）的建表与种子由 D3 云端集成独立负责，此处不触。
     """
     Base.metadata.create_all(bind=engine)
     _seed_default_identity()
