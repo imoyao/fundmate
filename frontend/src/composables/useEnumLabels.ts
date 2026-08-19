@@ -8,16 +8,18 @@
 //   const { positionSourceLabel } = useEnumLabels();
 //   positionSourceLabel('explore'); // => '探市录入'
 import { ref } from 'vue';
-import request from '@/utils/request';
+import { http as request } from '@/utils/http';
 
 let cachePromise: Promise<Record<string, Record<string, string>>> | null = null;
 
 async function loadEnums(): Promise<Record<string, Record<string, string>>> {
   if (!cachePromise) {
-    cachePromise = request
-      .get<{ data: Record<string, Record<string, string>> }>('/api/utils/enums/')
-      .then((res) => res.data?.data ?? {})
-      .catch(() => ({}));
+cachePromise = request
+      .get<{ data: Record<string, Record<string, string>> }, unknown>(
+        '/api/utils/enums/'
+      )
+      .then((res) => res.data ?? ({} as Record<string, Record<string, string>>))
+      .catch(() => ({} as Record<string, Record<string, string>>));
   }
   return cachePromise;
 }
