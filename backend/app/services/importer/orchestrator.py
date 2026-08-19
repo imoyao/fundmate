@@ -18,6 +18,7 @@ from sqlalchemy import func
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.core.constants import PositionSource
 from app.core.exceptions import ErrorCode, SBException
 from app.core.money import Money
 from app.core.utils import show_time
@@ -125,7 +126,7 @@ class ImportOrchestrator:
         parser,
         frontend_account: str,
         ledger_id: Optional[int],
-        source: str = 'ai_txn',
+        source: str = PositionSource.AI_TXN.value,
     ) -> dict:
         """记录 → 前端预览行（enrich + 哈希补全 + 行转换 + 去重标记）。
 

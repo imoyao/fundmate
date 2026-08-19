@@ -11,7 +11,9 @@ from sqlalchemy import (
     UniqueConstraint,
     and_,
 )
+from sqlalchemy.orm import validates
 
+from app.core.constants import POSITION_SOURCE_LABELS, PositionSource
 from app.core.database import Base, FamilyScopedMixin, PrimaryKeyMixin, TimestampMixin
 
 
@@ -34,9 +36,25 @@ class Position(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
 
     # ── 去重与溯源字段（issue #928，参照 transactions.import_hash 治本方案）──
     import_hash = Column(String(64), nullable=True, comment='持仓去重哈希(内容哈希,唯一约束拦截重复)')
-    source = Column(String(30), nullable=False, default='manual', comment='数据来源: manual / broker_xxx / ai_holding')
+    source = Column(
+        String(30),
+        nullable=False,
+        default=PositionSource.MANUAL.value,
+        comment='数据来源: 见 app.core.constants.PositionSource',
+    )
     source_import_id = Column(String(36), nullable=True, comment='导入批次ID(溯源展示/归集)')
     source_broker = Column(String(50), nullable=True, comment='来源券商/平台(展示)')
+
+    @validates('source')
+    def _validate_source(self, key, value):
+        # 约束：source 必须是 PositionSource 枚举的合法值，禁止任意字符串。
+        # 兼容传入枚举实例或字符串；非法值立即报错，把散落字符串问题在写入时拦截。
+        if isinstance(value, PositionSource):
+            return value.value
+        if value not in POSITION_SOURCE_LABELS:
+            raise ValueError(f'非法持仓来源 source={value!r}，必须是 app.core.constants.PositionSource 的合法值')
+        return value
+
     ownership_status = Column(
         String(20),
         nullable=False,
