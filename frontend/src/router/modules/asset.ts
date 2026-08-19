@@ -178,18 +178,6 @@ const AssetRouteConfig = {
         }
       ]
     },
-    // 临时入口：历史遗留的 Overview.vue（疑似废弃，待用户查看现状后决定保留/删除）
-    {
-      path: "/asset/overview-legacy",
-      name: "LegacyAssetOverview",
-      component: () => import("@/views/asset/Overview.vue"),
-      meta: {
-        title: "资产总览(旧)",
-        icon: "ep:monitor",
-        rank: 98,
-        showLink: true
-      }
-    },
     {
       path: "/asset/ledgers",
       name: "AssetLedgers",
