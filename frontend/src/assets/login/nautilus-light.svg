@@ -1,0 +1,172 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 520" fill="none">
+  <!--
+    鹦鹉螺 · 登录页品牌区插画（浅色版）
+    灵感：鹦鹉螺水下摄影作品
+    背景：暖奶油 #FDFBF7（与登录页品牌区一致）
+    色值：#E34F38 珊瑚红单线
+    构图：居中特写，触手下垂，壳口朝右下
+  -->
+
+  <!-- 超椭圆底色容器 n=3 -->
+  <path d="M240,12
+    C322,12 390,34 426,78 C462,122 470,180 458,240
+    C446,300 418,352 374,392 C330,432 276,446 224,440
+    C172,434 126,410 90,372 C54,334 34,286 30,234
+    C26,182 42,130 74,88 C106,46 166,12 240,12Z"
+    fill="var(--bg-soft)"/>
+
+  <!-- ═══ 鹦鹉螺主体 ═══ -->
+  <g transform="translate(130, 40)">
+    <!-- 壳体外轮廓（侧方角度） -->
+    <path d="M140,180
+      C158,162 174,142 184,118
+      C194,94 196,70 190,48
+      C184,26 172,12 156,4
+      C140,-4 122,-4 106,4
+      C90,12 78,28 72,50
+      C66,72 68,98 76,122
+      C84,146 98,166 118,180
+      C138,194 152,198 158,196"
+      stroke="#E34F38" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+
+    <!-- 壳口 -->
+    <path d="M158,196 C162,204 162,214 158,222 C154,230 146,234 138,230"
+      stroke="#E34F38" stroke-width="2" fill="none" stroke-linecap="round"/>
+
+    <!-- 对数螺旋 -->
+    <path d="M148,182
+      C154,178 158,172 158,164 C158,156 154,150 148,146
+      C142,142 134,142 128,146 C122,150 120,156 122,164
+      C124,172 130,176 136,176 C144,176 150,170 152,162
+      C154,154 150,146 144,140 C138,134 130,132 122,134
+      C114,136 108,142 106,150 C104,158 108,166 114,172
+      C120,178 128,180 136,178 C146,176 154,168 156,158
+      C158,148 152,138 144,132 C136,126 126,124 116,126
+      C106,128 98,136 96,146 C94,156 98,166 106,174
+      C114,182 124,186 134,184"
+      stroke="#E34F38" stroke-width="1.8" fill="none" stroke-linecap="round" opacity="0.6"/>
+
+    <!-- 放射纹（壳面纹理） -->
+    <g stroke="#E34F38" stroke-width="0.7" opacity="0.25" stroke-linecap="round">
+      <line x1="148" y1="182" x2="140" y2="196"/>
+      <line x1="148" y1="182" x2="126" y2="202"/>
+      <line x1="148" y1="182" x2="110" y2="200"/>
+      <line x1="148" y1="182" x2="98" y2="190"/>
+      <line x1="148" y1="182" x2="90" y2="176"/>
+      <line x1="148" y1="182" x2="88" y2="158"/>
+      <line x1="148" y1="182" x2="92" y2="140"/>
+      <line x1="148" y1="182" x2="102" y2="124"/>
+      <line x1="148" y1="182" x2="116" y2="112"/>
+      <line x1="148" y1="182" x2="134" y2="106"/>
+      <line x1="148" y1="182" x2="152" y2="108"/>
+      <line x1="148" y1="182" x2="168" y2="116"/>
+      <line x1="148" y1="182" x2="180" y2="130"/>
+      <line x1="148" y1="182" x2="186" y2="148"/>
+      <line x1="148" y1="182" x2="188" y2="168"/>
+      <line x1="148" y1="182" x2="184" y2="184"/>
+      <line x1="148" y1="182" x2="176" y2="196"/>
+      <line x1="148" y1="182" x2="164" y2="202"/>
+    </g>
+
+    <!-- 气室分隔 -->
+    <g stroke="#E34F38" stroke-width="0.8" opacity="0.2" fill="none">
+      <path d="M140,182 C146,174 150,164 148,154"/>
+      <path d="M132,178 C140,168 144,156 140,144"/>
+      <path d="M122,172 C132,160 136,146 130,134"/>
+      <path d="M114,164 C122,152 126,138 120,126"/>
+    </g>
+
+    <!-- 壳面高光 -->
+    <path d="M164,28 C172,38 178,54 178,72 C178,90 172,106 164,118"
+      stroke="#E34F38" stroke-width="1" opacity="0.12" fill="none" stroke-linecap="round"/>
+
+    <!-- ═══ 软体躯体 ═══ -->
+    <path d="M138,230 C132,240 130,252 134,264 C138,276 146,284 152,288"
+      stroke="#E34F38" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+    <path d="M148,230 C152,240 154,252 150,264 C146,276 142,284 144,290"
+      stroke="#E34F38" stroke-width="1.4" fill="none" stroke-linecap="round" opacity="0.5"/>
+
+    <!-- 躯体斑点 -->
+    <g fill="#E34F38" opacity="0.15">
+      <circle cx="140" cy="248" r="1.8"/>
+      <circle cx="148" cy="256" r="1.4"/>
+      <circle cx="136" cy="262" r="1.6"/>
+      <circle cx="146" cy="270" r="1.2"/>
+      <circle cx="142" cy="278" r="1.5"/>
+      <circle cx="150" cy="284" r="1.1"/>
+    </g>
+
+    <!-- 眼点 -->
+    <circle cx="140" cy="238" r="2.5" stroke="#E34F38" stroke-width="0.8" fill="none" opacity="0.35"/>
+    <circle cx="140" cy="238" r="0.8" fill="#E34F38" opacity="0.25"/>
+
+    <!-- ═══ 触手（自然垂落） ═══ -->
+    <g stroke="#E34F38" stroke-linecap="round" fill="none">
+      <!-- 主触手 -->
+      <path d="M144,288 C142,304 136,322 128,338 C120,354 110,366 98,374"
+        stroke-width="1.6" opacity="0.45"/>
+      <path d="M148,290 C148,306 144,324 138,340 C132,356 124,370 114,380"
+        stroke-width="1.5" opacity="0.4"/>
+      <path d="M152,288 C154,304 152,322 148,338 C144,354 138,368 130,378"
+        stroke-width="1.4" opacity="0.35"/>
+
+      <!-- 中间触手 -->
+      <path d="M140,290 C134,308 124,326 112,340 C100,354 86,364 72,370"
+        stroke-width="1.2" opacity="0.3"/>
+      <path d="M156,286 C160,302 160,320 156,336 C152,352 144,366 134,376"
+        stroke-width="1.2" opacity="0.3"/>
+      <path d="M136,292 C128,310 116,328 102,342 C88,356 72,366 56,370"
+        stroke-width="1" opacity="0.25"/>
+
+      <!-- 外侧触手 -->
+      <path d="M160,284 C166,300 168,318 164,336 C160,354 152,368 142,378"
+        stroke-width="1" opacity="0.22"/>
+      <path d="M132,294 C122,314 108,332 92,346 C76,360 58,368 42,370"
+        stroke-width="0.9" opacity="0.2"/>
+      <path d="M164,282 C172,298 176,316 174,334 C172,352 164,368 154,380"
+        stroke-width="0.8" opacity="0.18"/>
+      <path d="M128,296 C116,318 100,336 82,350 C64,364 44,372 28,374"
+        stroke-width="0.8" opacity="0.18"/>
+
+      <!-- 最外侧细触手 -->
+      <path d="M168,280 C178,296 184,314 184,332 C184,350 178,368 168,380"
+        stroke-width="0.7" opacity="0.12"/>
+      <path d="M124,298 C110,320 94,340 76,354 C58,368 38,376 22,376"
+        stroke-width="0.7" opacity="0.12"/>
+
+      <!-- 触手末端卷曲 -->
+      <path d="M98,374 C94,378 92,384 96,388" stroke-width="0.9" opacity="0.22"/>
+      <path d="M72,370 C68,374 64,378 66,384" stroke-width="0.7" opacity="0.18"/>
+      <path d="M114,380 C112,384 110,390 114,394" stroke-width="0.7" opacity="0.18"/>
+      <path d="M56,370 C52,374 48,378 50,384" stroke-width="0.6" opacity="0.15"/>
+      <path d="M42,370 C38,374 34,378 36,384" stroke-width="0.6" opacity="0.15"/>
+    </g>
+  </g>
+
+  <!-- ═══ 深海气泡 ═══ -->
+  <g fill="#E34F38">
+    <circle cx="360" cy="120" r="4" opacity="0.08">
+      <animate attributeName="cy" values="120;70;120" dur="10s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0.08;0.16;0.08" dur="10s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="380" cy="200" r="3" opacity="0.06">
+      <animate attributeName="cy" values="200;150;200" dur="12s" begin="3s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="350" cy="280" r="3.5" opacity="0.05">
+      <animate attributeName="cy" values="280;230;280" dur="14s" begin="5s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="370" cy="80" r="2" opacity="0.1">
+      <animate attributeName="cy" values="80;30;80" dur="8s" begin="1s" repeatCount="indefinite"/>
+    </circle>
+  </g>
+
+  <!-- ═══ 底部涟漪 ═══ -->
+  <g stroke="#E34F38" fill="none">
+    <ellipse cx="240" cy="500" rx="140" ry="14" stroke-width="0.5" opacity="0.08">
+      <animate attributeName="rx" values="140;150;140" dur="10s" repeatCount="indefinite"/>
+    </ellipse>
+    <ellipse cx="240" cy="508" rx="190" ry="12" stroke-width="0.5" opacity="0.05">
+      <animate attributeName="rx" values="190;200;190" dur="12s" begin="2s" repeatCount="indefinite"/>
+    </ellipse>
+  </g>
+</svg>
