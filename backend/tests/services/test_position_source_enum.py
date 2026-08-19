@@ -112,3 +112,33 @@ def test_import_meta_accepts_empty_string(db):
 def test_import_meta_rejects_illegal_string(db):
     with pytest.raises(ValueError):
         PositionImportMeta(position_id=1, symbol='000001', source='some_random_hack')
+
+
+# ───────────────────── 6. 未归档查询 + 就地归档接口 ─────────────────────
+def test_list_positions_unarchived_filter(client, make_position):
+    # 构造一条未归档（ledger_id=None, source=explore）与一条已归档持仓
+    make_position(symbol='000001', name='探市A', asset_type='fund', source='explore')
+    make_position(symbol='000002', name='已归档B', asset_type='fund', source='manual', account_name='中信')
+
+    resp = client.get('/api/positions/?ledger_id=null')
+    assert resp.status_code == 200
+    rows = resp.get_json()['data']  # list_positions 直接返回持仓数组
+    assert len(rows) == 1
+    assert rows[0]['source'] == 'explore'
+    assert rows[0]['ledger_id'] is None
+
+
+def test_archive_unarchived_position(client, make_position):
+    pos = make_position(symbol='000001', name='探市A', asset_type='fund', source='explore')
+    # 归档前在未归档列表
+    before = client.get('/api/positions/?ledger_id=null').get_json()['data']
+    assert any(r['id'] == pos.id for r in before)
+
+    # PATCH 绑定 ledger_id 完成归档
+    patch = client.patch(f'/api/positions/{pos.id}/', json={'ledger_id': 1})
+    assert patch.status_code == 200
+    assert patch.get_json()['data']['ledger_id'] == 1
+
+    # 归档后不再出现在未归档列表
+    after = client.get('/api/positions/?ledger_id=null').get_json()['data']
+    assert not any(r['id'] == pos.id for r in after)

@@ -107,3 +107,25 @@ export function getAllocationLabel(alloc: string): string {
 
 export type AllocationType =
   "liquid" | "stable" | "longterm" | "speculative" | "security";
+
+/** 温度指标数据来源 -> 中文显示名（单一真相源，避免页面手抄拼音/英文）。
+ * 与后端温度计数据来源的 source 取值对齐（韭圈儿/且慢/东财等）。 */
+export const TEMP_SOURCE_LABELS: Record<string, string> = {
+  jiucaishuo_fear: "韭圈儿",
+  jiucaishuo_medium: "韭圈儿",
+  qieman: "且慢",
+  youzhiyouxing: "有知有行",
+  jisilu_cb: "集思录",
+  jisilu_indicator: "集思录",
+  eastmoney_volume: "东财",
+  eastmoney: "东财",
+  self_calc: "自算",
+  fulai: "富来智投",
+  default: ""
+};
+
+/** 温度来源中文标签：命中单一真相源则返回，否则原样返回（兼容未知来源） */
+export function tempSourceLabel(source?: string): string {
+  if (!source) return "";
+  return TEMP_SOURCE_LABELS[source] ?? source;
+}
