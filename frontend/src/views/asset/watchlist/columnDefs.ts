@@ -13,11 +13,11 @@
  * 新实时字段一律经实时数据链路 renderer 消费。
  *
  * ── 实施状态（维护者须知）──
- * MVP 步骤 1（本文件 + columnRenderers.tsx 落地）与步骤 2（index.vue 数据列
- * 接入 v-for）已完成。步骤 3（删除硬编码列、product/actions 切 renderer）待
- * #980 自选页面拆分重构合入后执行——因保留列与 #980 改动区域重叠，过早删除
- * 会与之冲突。后续字段扩展（#990/#992/#993）均在此 columnDefs 上增量开发，
- * 不应再向 index.vue 硬编码堆列。
+ * MVP 步骤 1（本文件 + columnRenderers.tsx 落地）、步骤 2（index.vue 数据列
+ * 接入 v-for）与步骤 3（删除硬编码列、product/marker/actions 切 renderer）
+ * 均已完成：index.vue 已切换到全量 columnDefs 驱动，仅 selection 列因
+ * type="selection" 无法 renderer 化而保留模板。后续字段扩展（#990/#992/#993）
+ * 均在此 columnDefs 上增量开发，不应再向 index.vue 硬编码堆列。
  */
 
 import type { WatchlistItem } from "@/api/watchlist";
@@ -57,6 +57,8 @@ export interface ColumnDef {
   hideable?: boolean;
   /** #992 预留：是否参与拖拽排序（列顺序） */
   draggable?: boolean;
+  /** 名称超长时省略并 hover 显示完整内容（对应 el-table-column show-overflow-tooltip） */
+  showOverflowTooltip?: boolean;
   /** 渲染器所需额外参数 */
   props?: Record<string, unknown>;
   /**
@@ -84,6 +86,13 @@ function sortStr(key: keyof WatchlistRow) {
   };
 }
 
+/** 排序辅助：按展示名排序（display_name 优先，回退 symbol；中文按拼音） */
+function sortName(a: WatchlistRow, b: WatchlistRow): number {
+  const av = a.display_name || a.symbol || "";
+  const bv = b.display_name || b.symbol || "";
+  return av.localeCompare(bv, "zh-Hans-CN");
+}
+
 /**
  * 自选表格列定义清单（首批，从 index.vue 现有 21 列映射）。
  * 顺序即默认展示顺序；#992 拖拽只改 visibleColumns 顺序数组，不动本源。
@@ -92,34 +101,35 @@ export const watchlistColumnDefs: ColumnDef[] = [
   {
     key: "_selection",
     label: "",
-    renderer: "product", // 实际由模板 v-if batchMode 注入 selection，见 index.vue
+    renderer: "product", // type=selection 无法 renderer 化，仍由 index.vue 模板按 batchMode 注入，本 def 仅作占位/排除项
     width: 48,
     align: "center",
     hideable: false,
     draggable: false,
-    props: { builtin: "selection" },
+    props: { builtin: "selection" }
   },
   {
     key: "_marker",
     label: "",
-    renderer: "product", // 置顶/关注图标列，由模板特殊渲染
+    renderer: "product", // renderer 为 product + props.builtin=marker，由 renderProduct 解析渲染置顶/关注图标
     width: 44,
     align: "center",
     fixed: "left",
     hideable: false,
     draggable: false,
-    props: { builtin: "marker" },
+    props: { builtin: "marker" }
   },
   {
     key: "product",
     label: "代码/名称",
     renderer: "product",
-    minWidth: 180,
+    minWidth: 240,
     fixed: "left",
+    showOverflowTooltip: true,
     sortable: true,
-    sortMethod: sortStr("symbol"),
+    sortMethod: sortName,
     hideable: false,
-    draggable: false,
+    draggable: false
   },
   {
     key: "created_at",
@@ -130,7 +140,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     sortable: true,
     sortMethod: sortStr("created_at"),
     hideable: true,
-    draggable: true,
+    draggable: true
   },
   {
     key: "current_price",
@@ -142,7 +152,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     sortMethod: sortNum("current_price"),
     realtimeField: "currentPrice",
     hideable: true,
-    draggable: true,
+    draggable: true
   },
   {
     key: "change_pct",
@@ -154,7 +164,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     sortMethod: sortNum("change_pct"),
     realtimeField: "changePct",
     hideable: true,
-    draggable: true,
+    draggable: true
   },
   {
     key: "holding_quantity",
@@ -165,7 +175,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     sortable: true,
     sortMethod: sortNum("holding_quantity"),
     hideable: true,
-    draggable: true,
+    draggable: true
   },
   {
     key: "position_market_value",
@@ -177,7 +187,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     sortMethod: sortNum("position_market_value"),
     hideable: true,
     draggable: true,
-    derived: "marketValue", // value=position_market_value, ratio=marketValueRatio(row)
+    derived: "marketValue" // value=position_market_value, ratio=marketValueRatio(row)
   },
   {
     key: "added_return",
@@ -193,7 +203,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     },
     hideable: true,
     draggable: true,
-    derived: "addedReturn", // value=addedReturnAmount(row), ratio=addedReturnPct(row)
+    derived: "addedReturn" // value=addedReturnAmount(row), ratio=addedReturnPct(row)
   },
   {
     key: "holding_pnl",
@@ -206,7 +216,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     hideable: true,
     draggable: true,
     // value=holding_pnl, ratio=holding_pnl_percent（renderer 内对持仓量为 0 时置 null）
-    props: { ratioKey: "holding_pnl_percent" },
+    props: { ratioKey: "holding_pnl_percent" }
   },
   {
     key: "_actions",
@@ -216,8 +226,8 @@ export const watchlistColumnDefs: ColumnDef[] = [
     align: "center",
     fixed: "right",
     hideable: false,
-    draggable: false,
-  },
+    draggable: false
+  }
 ];
 
 /**
@@ -227,6 +237,6 @@ export const watchlistColumnDefs: ColumnDef[] = [
  */
 export function getDefaultVisibleColumns(): ColumnDef[] {
   return watchlistColumnDefs.filter(
-    (d) => d.key !== "_selection" && d.key !== "_marker"
+    d => d.key !== "_selection" && d.key !== "_marker"
   );
 }

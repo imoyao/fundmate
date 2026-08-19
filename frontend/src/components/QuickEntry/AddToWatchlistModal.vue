@@ -248,6 +248,7 @@ import {
   createWatchlistItem // ✅ 新增 API 封装
 } from "@/api/watchlist";
 import type { WatchlistGroup, WatchlistTag } from "@/api/watchlist";
+import { getTypeLabel } from "@/constants/assetType";
 
 const props = defineProps<{
   modelValue: boolean;
@@ -484,17 +485,6 @@ const getMarketLabel = (market: string): string => {
     US: "美股"
   };
   return map[market] || market;
-};
-
-const getTypeLabel = (type: string): string => {
-  const map: Record<string, string> = {
-    stock: "股票",
-    etf: "ETF",
-    bond: "可转债",
-    fund: "场外基金",
-    index: "指数"
-  };
-  return map[type] || type;
 };
 
 const resetForm = () => {

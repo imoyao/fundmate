@@ -479,6 +479,7 @@
 import { ref, computed, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { usePageRefresh } from "@/composables/usePageRefresh";
+import { getCssVar } from "@/composables/echarts/theme";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import {
@@ -798,10 +799,7 @@ const investmentGroups = computed(() => {
 
 const resolveCSSVar = (varName: string): string => {
   const name = varName.replace(/var\(|\)/g, "").trim();
-  const val = getComputedStyle(document.documentElement)
-    .getPropertyValue(name)
-    .trim();
-  return val || "#8E8B82";
+  return getCssVar(name, "#8E8B82");
 };
 
 const getColorWithAlpha = (colorVar: string, alpha: number): string => {

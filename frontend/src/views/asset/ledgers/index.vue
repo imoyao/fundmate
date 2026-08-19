@@ -602,6 +602,7 @@ import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import VChart from "vue-echarts";
 import { usePageRefresh } from "@/composables/usePageRefresh";
+import { getCssVar } from "@/composables/echarts/theme";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import {
   getLedgers,
@@ -725,10 +726,7 @@ const CHART_COLOR_VARS = [
 ];
 
 function getChartColor(varName: string): string {
-  if (typeof window === "undefined") return "";
-  return getComputedStyle(document.documentElement)
-    .getPropertyValue(varName)
-    .trim();
+  return getCssVar(varName);
 }
 
 // 环形图数据源：overview groups（过滤已删除账户），value 用 group.total（元）
