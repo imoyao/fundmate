@@ -31,12 +31,15 @@ from sqlalchemy.exc import IntegrityError
 #   实时估值（useRealtimeQuotes），匿名访客必须能读到平台级开关，否则生产
 #   AUTH_ENABLED=true 时匿名用户拿不到总闸。前缀精确到 /api/utils/config（子路由层级），
 #   不能只到 /api/utils，避免误放行同蓝图下其他接口（如 /api/utils/trading-days/）。
+# - /api/utils/enums：下发枚举中文标签（如持仓来源）。前端展示「来源徽标」用，探市页
+#   免登录也展示来源，故免登录。标签真相源在 app.core.constants，前端不手抄第二份。
 PUBLIC_PREFIXES = (
     '/api/health',
     '/api/temperature',
     '/api/securities/search',
     '/api/funds/search',
     '/api/utils/config',
+    '/api/utils/enums',
 )
 # 免登录精确路径
 # - logout：允许无有效 token 也返回成功（由前端清理本地会话）

@@ -3,6 +3,8 @@ import { useRouter } from "vue-router";
 import { ElMessageBox, ElMessage } from "element-plus";
 import { supabase } from "@/utils/supabase";
 import { createWatchlistItem } from "@/api/watchlist";
+import { createPosition } from "@/api/positions";
+import { POSITION_SOURCE } from "@/constants";
 import type { LocalHolding } from "@/composables/useLocalHoldings";
 import type { User, Session } from "@supabase/supabase-js";
 
@@ -158,7 +160,9 @@ export function useSupabaseAuth() {
     const failed: string[] = [];
 
     for (const h of holdings) {
+      const hasPosition = h.costPrice != null && h.quantity != null;
       try {
+        // 1) 始终写入自选（观察状态），保持原迁移行为
         await createWatchlistItem({
           symbol: h.symbol,
           asset_type: h.type,
@@ -168,6 +172,26 @@ export function useSupabaseAuth() {
           quantity: h.quantity ?? undefined
         });
         imported++;
+
+        // 2) 若用户录入了持仓快照（成本+份额），额外写入 positions 表。
+        //    source=explore 标明来自探市录入；ledger_id 不传（NULL），
+        //    即归入「未归档持仓」，由后端 @validates 约束 source 合法。
+        if (hasPosition) {
+          await createPosition({
+            symbol: h.symbol,
+            name: h.name,
+            market: "CN_A",
+            type: h.type,
+            quantity: h.quantity as number,
+            avg_price: h.costPrice as number,
+            currency: "CNY",
+            trade_date: new Date().toISOString().slice(0, 10),
+            op_type: "buy",
+            source: POSITION_SOURCE.EXPLORE,
+            notes: "来自探市页面录入",
+            ledger_id: null
+          });
+        }
       } catch (e: any) {
         // 已在自选中 → 跳过不算失败；其余记入失败
         if (e?.response?.status === 409) {

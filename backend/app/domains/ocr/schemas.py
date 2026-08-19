@@ -8,6 +8,8 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
+from app.core.constants import PositionSource
+
 
 class OCRRecognizeRequest(BaseModel):
     """图片 AI 识别请求（multipart 上传场景用 files，此处兼容 JSON base64 方式）。
@@ -73,7 +75,7 @@ class OCRTxnRowOut(BaseModel):
     fee: float = 0
     trade_date: str = ''
     import_hash: str = ''
-    source: str = 'ai_txn'
+    source: str = PositionSource.AI_TXN.value
     is_duplicate: bool = False
     error: Optional[str] = None
     warnings: list = []
