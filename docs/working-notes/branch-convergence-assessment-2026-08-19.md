@@ -22,29 +22,20 @@
 | feature/ai-recognizer-agent | 1 个（83c7693 账本精灵 Agent 骨架） | 新功能骨架 | 半成品 | **保留**，独立功能线 |
 | feature/sso-cross-subdomain | 1 个（649b41a OAuth 修复，但误删 1630 行核心文件） | +173/-1630 | ⚠️ 危险 | **整体禁止合入**；仅可 cherry-pick 11 行 login 修复，误删的 11 个核心文件（双库测试/文档）必须先在目标分支恢复 |
 
-### ⚠️ feature/sso-cross-subdomain 事故详情
-- 实际修复（649b41a）：login/index.vue 11 行，`onGithubLogin` 的 redirectTo 由 `/welcome` 改根路径（hash 模式编码异常）。修复本身有价值。
-- 但分支 diff 显示误删了以下核心文件（这些在 main-v2 上均存在且为权威）：
-  - backend/tests/core/test_db_data_domain.py（双库架构核心回归测试）
-  - backend/tests/core/test_cross_domain.py
-  - backend/tests/domains/test_watchlist.py
-  - docs/dev/db-data-domain.md（双库权威文档）
-  - docs/spec/architecture.md / changelog.md / index.md
-  - docs/backend-restructure-edgeone-dualengine.md
-  - docs/privacy.md
-  - docs/working-notes/code-audit-and-remediation-2026-08-01.md
-- 原因判断：agent 把未跟踪/被忽略文件当成脏改动一并 `git clean` 或误删。若整体合入会摧毁双库架构测试与文档。
-- 处置：不合入该分支；如需那个 OAuth 修复，单独 `git checkout main-v2 -- <被删文件>` 恢复，再 cherry-pick 649b41a 的 login 改动。
+### 关于 feature/sso-cross-subdomain（初判为"事故"，经核实为误判，已更正）
+- 实际修复（649b41a）：login/index.vue 11 行，`onGithubLogin` 的 redirectTo 由 `/welcome` 改根路径（hash 模式编码异常）。修复本身有价值，**main-v2 当前 login 仍存在该 bug（第327/357行）**，故修复仍需合入。
+- 初判"误删 1630 行核心文件"是**误判**：`git diff main-v2..sso` 显示的大量"删除"是因为 **sso 分支基点很旧**（早于 main-v2 上那些文件的新增），并非 sso 主动删文件。sso 分支本身没有破坏代码。
+- 正确处置（2026-08-19 已执行）：**不 merge 整个 sso 分支**（会带入大量旧基点差异造成倒退）；改为 `git cherry-pick 649b41a` 单独把 OAuth 修复取到 main-v2（提交 `972b6d7`，干净无冲突）。sso 分支保持原状、不做任何"恢复"操作（恢复反而会把 main-v2 新代码灌入，才是真破坏）。
 
-## 三、收敛行动计划（建议）
-1. **main-v2 保持干净**：不接收 sso 分支、不接收 wip 草案。
-2. **可立即合入**：feature/jigu-migration（纯脚本，零冲突风险，可提 PR 合入 main-v2）。
-3. **保留待完工**：refactor/god-pages-split（Overview 完工后提 PR）、feature/ai-recognizer-agent（骨架，独立线）。
-4. **标记废弃**：wip/holding-import-frontend-draft（注明"已被 split-import-wizard 取代，待按新方案重做"）。
-5. **修复 sso 事故**：在 feature/sso-cross-subdomain 上先 `git checkout main-v2 -- <11 个被删文件>` 恢复，再评估 OAuth 修复是否还需（可能已在新 login 重构中覆盖）；清理后该分支才可提 PR。
+## 三、收敛行动计划（执行记录 2026-08-19）
+1. **main-v2 锚点提交**：`3d95317` 先提交本评估文档，确保后续操作可找回。
+2. **已合并 feature/jigu-migration**：`git merge --no-ff`（纯运维脚本，零冲突，+176 行）。
+3. **已 cherry-pick sso 的 OAuth 修复**：`972b6d7`（仅 login 11 行），未合整个 sso 分支（避免旧基点倒退）。
+4. **保留待完工**：refactor/god-pages-split（Overview 完工后提 PR）、feature/ai-recognizer-agent（骨架，独立线）。
+5. **标记废弃**：wip/holding-import-frontend-draft（已被 split-import-wizard 取代，待按新方案重做，不合入）。
 6. **#821 后续**：确定迁移落点（positions 还是 watchlist）后，从 main-v2 切 fix 分支实现，不碰 god-pages-split 碰过的文件，零冲突。
 
-## 四、待用户决策
+## 四、待用户决策（仍未决）
 - 探市页迁移落点：positions（持仓）还是 watchlist（观察项）？倾向 positions。
 - 是否允许探市页未来支持交易记录（重操作）？当前不支持，建议暂不做。
-- 是否现在合并 feature/jigu-migration？
+- 注意：god-pages-split 的 login 重构（含旧 /welcome bug）合入 main-v2 时需带上 972b6d7 的 OAuth 修复，可能需解决冲突。
