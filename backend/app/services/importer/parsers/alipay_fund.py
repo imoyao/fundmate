@@ -29,6 +29,7 @@ from typing import List, Optional, Tuple
 
 from loguru import logger
 
+from app.core.constants import PositionSource
 from app.services.importer.base import BaseImportParser
 from app.services.importer.mappings import ALIPAY_OP_MAP
 from app.services.importer.records import SBImportError, StandardTransactionRecord
@@ -42,7 +43,7 @@ YUEBAO_INCOME_PATTERN = re.compile(r'余额宝[-—](\d{4}\.\d{2}\.\d{2})?[-—]
 
 
 class AlipayFundParser(BaseImportParser):
-    source = 'alipay_fund'
+    source = PositionSource.BROKER_ALIPAY.value
 
     def parse(self, file_bytes: bytes) -> Tuple[List[StandardTransactionRecord], List[SBImportError]]:
         records = []

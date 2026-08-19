@@ -17,7 +17,7 @@ from typing import List, Optional, Tuple
 import pandas as pd
 from loguru import logger
 
-from app.core.constants import CASH_SYMBOL
+from app.core.constants import CASH_SYMBOL, PositionSource
 from app.core.symbol_utils import get_normalizer
 from app.services.importer.base import BaseImportParser
 from app.services.importer.mappings import THS_OP_MAP, VALID_OP_TYPES
@@ -27,7 +27,7 @@ from app.services.importer.records import SBImportError, StandardTransactionReco
 class THSStockParser(BaseImportParser):
     """同花顺股票交割单解析器"""
 
-    source = 'ths_stock'
+    source = PositionSource.BROKER_THS.value
 
     def __init__(self):
         self.normalizer = get_normalizer()

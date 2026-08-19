@@ -9,9 +9,9 @@ import {
   BIAS_EXTREME_THRESHOLD,
   BIAS_HIGH_THRESHOLD,
   CROWDING_HIGH_THRESHOLD,
-  CROWDING_LOW_THRESHOLD,
-  SOURCE_DISPLAY_NAMES
+  CROWDING_LOW_THRESHOLD
 } from "@/constants/temperature";
+import { tempSourceLabel } from "@/constants";
 
 /** 数值夹取到 [min, max] 区间 */
 export function clamp(n: number, min: number, max: number): number {
@@ -81,8 +81,7 @@ export function crowdingBarStyle(pct: number | null | undefined) {
   return { width: `${v}%` };
 }
 
-/** 来源标识 -> 中文显示名（未命中时原样返回） */
+/** 来源标识 -> 中文显示名（未命中时原样返回），统一走 src/constants 单一真相源 */
 export function displaySource(source?: string): string {
-  if (!source) return "";
-  return SOURCE_DISPLAY_NAMES[source] || source;
+  return tempSourceLabel(source);
 }

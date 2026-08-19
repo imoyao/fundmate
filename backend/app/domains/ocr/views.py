@@ -17,6 +17,7 @@ from flask import g, jsonify, request
 from loguru import logger
 
 from app.core.auth import get_family_id
+from app.core.constants import PositionSource
 from app.core.database import get_db
 from app.core.exceptions import SBException
 from app.core.validation import parse_body
@@ -103,7 +104,7 @@ def _txn_candidates_to_rows(items: list, ledger_id) -> list:
                 nav=Decimal(str(it['nav'])) if it.get('nav') else None,
                 fee=Decimal(str(it.get('fee') or 0)),
                 raw_op_type=it.get('business_type', ''),
-                source='ai_txn',
+                source=PositionSource.AI_TXN.value,
             )
         )
 
@@ -111,7 +112,7 @@ def _txn_candidates_to_rows(items: list, ledger_id) -> list:
 
     with SessionLocal() as db:
         orch = ImportOrchestrator(db, get_family_id())
-        result = orch.preview_records(records, _ledger_name(ledger_id), ledger_id, source='ai_txn')
+        result = orch.preview_records(records, _ledger_name(ledger_id), ledger_id, source=PositionSource.AI_TXN.value)
 
     # 回填前端表格所需展示字段（与 parse_and_preview 行结构一致）
     rows = []

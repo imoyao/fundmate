@@ -5,6 +5,8 @@
 当前用户一律从 Flask `g` 上下文取（app/core/auth.py），禁止再引入硬编码常量。
 """
 
+from enum import Enum
+
 # ── 汇率（MVP 阶段硬编码，后续可迁移到数据库）──
 EXCHANGE_RATES = {
     'CNY': 1.0,
@@ -150,3 +152,40 @@ DEFAULT_TYPE_STOCK = 'stock'
 # ── 网络请求通用 ──
 USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
 DEFAULT_REQUEST_TIMEOUT = 15
+
+# ── 持仓数据来源（Position.source / PositionImportMeta.source）──
+# 维护入口（唯一真相源）：所有写入 positions.source 的代码都必须引用本枚举，
+# 禁止在各处硬编码字符串字面量。取值语义见 POSITION_SOURCE_LABELS。
+# 前端通过 GET /api/utils/enums 获取 label，禁止前端手抄一份（避免双份漂移）。
+
+
+class PositionSource(str, Enum):
+    MANUAL = 'manual'  # 用户在持仓/账户页手动录入
+    E_ACCOUNT = 'e_account_holding'  # 基金E账户持仓导入
+    BROKER_TIANTIAN = 'tiantian_fund'  # 天天基金导出导入
+    BROKER_THS = 'ths_stock'  # 同花顺导出导入
+    BROKER_STD_FUND = 'standard_fund'  # 标准模板-基金导入
+    BROKER_STD_STOCK = 'standard_stock'  # 标准模板-股票导入
+    BROKER_ALIPAY = 'alipay_fund'  # 支付宝基金导出导入
+    BROKER_ALIPAY_PDF = 'alipay_pdf'  # 支付宝 PDF 导入
+    BROKER_STD_TEMPLATE = 'standard_template'  # 通用标准模板导入
+    AI_TXN = 'ai_txn'  # AI 交易流水识别（ocr，最终合并进持仓）
+    AI_HOLDING = 'ai_holding'  # AI 持仓识别
+    EXPLORE = 'explore'  # 探市页面用户录入
+
+
+# 单一真相源：PositionSource.value -> 中文 label，仅在此处维护
+POSITION_SOURCE_LABELS: dict[str, str] = {
+    PositionSource.MANUAL.value: '手动录入',
+    PositionSource.E_ACCOUNT.value: '基金E账户导入',
+    PositionSource.BROKER_TIANTIAN.value: '天天基金导入',
+    PositionSource.BROKER_THS.value: '同花顺导入',
+    PositionSource.BROKER_STD_FUND.value: '标准模板-基金',
+    PositionSource.BROKER_STD_STOCK.value: '标准模板-股票',
+    PositionSource.BROKER_ALIPAY.value: '支付宝基金导入',
+    PositionSource.BROKER_ALIPAY_PDF.value: '支付宝PDF导入',
+    PositionSource.BROKER_STD_TEMPLATE.value: '标准模板导入',
+    PositionSource.AI_TXN.value: 'AI交易识别',
+    PositionSource.AI_HOLDING.value: 'AI持仓识别',
+    PositionSource.EXPLORE.value: '探市录入',
+}

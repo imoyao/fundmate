@@ -90,7 +90,8 @@ export interface PositionCreate {
   name?: string;
   market: string;
   type: string;
-  account_name: string;
+  account_name?: string;
+  ledger_id?: number | null;
   quantity: number;
   avg_price: number;
   currency?: string;
@@ -98,6 +99,8 @@ export interface PositionCreate {
   fee?: number;
   confirm_date?: string;
   notes?: string;
+  op_type?: string;
+  source?: string;
 }
 
 /** 更新持仓请求体 (PATCH，所有字段可选) */

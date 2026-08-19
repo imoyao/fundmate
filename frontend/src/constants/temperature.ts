@@ -5,21 +5,6 @@
  * 避免同一阈值/映射在多个文件重复定义。
  */
 
-/** 来源标识 -> 中文显示名（避免页面出现拼音/英文） */
-export const SOURCE_DISPLAY_NAMES: Record<string, string> = {
-  jiucaishuo_fear: "韭圈儿",
-  jiucaishuo_medium: "韭圈儿",
-  qieman: "且慢",
-  youzhiyouxing: "有知有行",
-  jisilu_cb: "集思录",
-  jisilu_indicator: "集思录",
-  eastmoney_volume: "东财",
-  eastmoney: "东财",
-  self_calc: "自算",
-  fulai: "富来智投",
-  default: ""
-};
-
 /** 已在顶部核心指标展示过的 singles source，底部「全部市场温度指标」区域过滤掉，避免同页信息重复 */
 export const CORE_SINGLE_SOURCES = [
   "jiucaishuo_fear",

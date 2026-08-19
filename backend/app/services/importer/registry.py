@@ -14,6 +14,7 @@
 get_parser 返回任意解析器；get_holding_parser 只返回持仓解析器，编排器据此分叉。
 """
 
+from app.core.constants import PositionSource
 from app.services.importer.base import BaseHoldingParser, BaseImportParser
 from app.services.importer.parsers.alipay_fund import AlipayFundParser
 from app.services.importer.parsers.alipay_pdf import AlipayPDFParser
@@ -59,4 +60,4 @@ register_parser('tiantian_fund', TiantianFundParser())
 register_parser('alipay_fund', AlipayFundParser())
 register_parser('alipay_pdf', AlipayPDFParser())
 # 持仓解析器（#1012）
-register_parser('e_account_holding', EAccountHoldingParser())
+register_parser(PositionSource.E_ACCOUNT.value, EAccountHoldingParser())

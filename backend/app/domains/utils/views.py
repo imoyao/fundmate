@@ -92,3 +92,25 @@ def calc_fund_confirm_date():
         )
     except Exception as e:
         abort(400, f'确认日计算失败: {str(e)}')
+
+
+@utils_bp.get('/enums/')
+def get_enums():
+    """下发前端需要的枚举中文标签（单一真相源，避免前后端各维护一套）。
+
+    为什么单独开这个端点：
+    - 持仓来源（Position.source）的中文 label 在后端 app.core.constants.POSITION_SOURCE_LABELS
+      定义，是唯一真相源；前端展示「来源徽标」时必须从这里取，禁止手抄第二份（否则两处漂移）。
+    - 免登录：探市页 /explore 免登录也展示持仓来源徽标，匿名访客需能读取。
+    - 后续新增需要前后端一致的枚举标签，统一在此下发，不要在 /constants/index.ts 再写一份。
+    """
+    from app.core.constants import POSITION_SOURCE_LABELS
+
+    return jsonify(
+        {
+            'data': {
+                'position_source': POSITION_SOURCE_LABELS,
+            },
+            'message': 'ok',
+        }
+    )
