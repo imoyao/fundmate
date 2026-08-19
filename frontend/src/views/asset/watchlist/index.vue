@@ -729,10 +729,6 @@ const getStaticPrice = (symbol: string) => {
     : undefined;
 };
 
-// 基金/ETF 最新价为净值，展示 4 位小数；其余证券 2 位
-const pricePrecision = (assetType: string): number =>
-  assetType === "fund" || assetType === "etf" ? 4 : 2;
-
 // ... 你的其他代码 ...
 
 const realtime = useRealtimeQuotes(getHoldings, getStaticPrice);
