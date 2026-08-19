@@ -101,6 +101,19 @@ class PositionImportMeta(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixi
     ledger_id = Column(Integer, ForeignKey('ledgers.id', ondelete='RESTRICT'), nullable=True, comment='账户ID(冗余)')
     snapshot_date = Column(Date, nullable=True, comment='持仓快照日期')
     source = Column(String(30), nullable=False, default='', comment='数据来源: e_account_holding / ai_holding')
+
+    @validates('source')
+    def _validate_source(self, key, value):
+        # 与 positions.source 同源约束：必须是 PositionSource 合法值，禁止散落字符串。
+        # 区别：允许空串 ''（兼容「无来源快照」的历史数据），其余非法值立即拦截。
+        if isinstance(value, PositionSource):
+            return value.value
+        if value != '' and value not in POSITION_SOURCE_LABELS:
+            raise ValueError(
+                f'非法持仓来源 source={value!r}，必须是 app.core.constants.PositionSource 的合法值（空串表示无来源快照）'
+            )
+        return value
+
     source_import_id = Column(String(36), nullable=True, comment='导入批次ID')
     source_broker = Column(String(50), nullable=True, comment='销售机构(展示/溯源)')
     fund_manager = Column(String(100), nullable=True, comment='基金管理人')

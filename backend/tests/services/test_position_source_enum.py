@@ -13,7 +13,7 @@
 import pytest
 
 from app.core.constants import POSITION_SOURCE_LABELS, PositionSource
-from app.domains.positions.models import Position
+from app.domains.positions.models import Position, PositionImportMeta
 
 
 # ───────────────────────────── 1. 单一真相源 ─────────────────────────────
@@ -95,3 +95,20 @@ def test_explore_position_with_null_ledger(db):
     assert pos.source == 'explore'
     assert pos.ledger_id is None
     assert pos.notes == '来自探市页面录入'
+
+
+# ───────────────────── 5. position_import_meta 对称约束 ─────────────────────
+def test_import_meta_accepts_enum_instance(db):
+    meta = PositionImportMeta(position_id=1, symbol='000001', source=PositionSource.E_ACCOUNT)
+    assert meta.source == 'e_account_holding'
+
+
+def test_import_meta_accepts_empty_string(db):
+    # 空串表示「无来源快照」，兼容历史数据，必须放行
+    meta = PositionImportMeta(position_id=1, symbol='000001', source='')
+    assert meta.source == ''
+
+
+def test_import_meta_rejects_illegal_string(db):
+    with pytest.raises(ValueError):
+        PositionImportMeta(position_id=1, symbol='000001', source='some_random_hack')
