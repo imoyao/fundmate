@@ -30,12 +30,12 @@
 
         <el-form-item label="资产大类" prop="major_category">
           <el-select v-model="form.major_category" class="w-full">
-            <el-option label="流动资金" value="cash" />
-            <el-option label="固定资产" value="fixed" />
-            <el-option label="投资理财" value="investment" />
-            <el-option label="应收款" value="receivable" />
-            <el-option label="负债" value="liability" />
-            <el-option label="保险" value="insurance" />
+            <el-option
+              v-for="(label, key) in MAJOR_CATEGORY_LABELS"
+              :key="key"
+              :label="label"
+              :value="key"
+            />
           </el-select>
         </el-form-item>
 
@@ -198,7 +198,11 @@ import {
 } from "@/api/ledger";
 import type { FormInstance, FormRules } from "element-plus";
 import { useRoute } from "vue-router";
-import { ALLOCATION_OPTIONS, LEDGER_TYPE_OPTIONS } from "@/constants";
+import {
+  ALLOCATION_OPTIONS,
+  LEDGER_TYPE_OPTIONS,
+  MAJOR_CATEGORY_LABELS
+} from "@/constants";
 
 const route = useRoute();
 

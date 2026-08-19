@@ -42,6 +42,33 @@ export const LEDGER_TYPE_SHORT: Record<string, string> = {
   deleted: "已删"
 };
 
+/** 资产大类标签（与后端 app/core/constants.py ASSET_CATEGORY_LABELS 对齐） */
+export const MAJOR_CATEGORY_LABELS: Record<string, string> = {
+  cash: "流动资金",
+  fixed: "固定资产",
+  investment: "投资理财",
+  receivable: "应收款",
+  liability: "负债",
+  insurance: "保险项目"
+};
+
+export function majorCategoryLabel(key: string): string {
+  return MAJOR_CATEGORY_LABELS[key] ?? key;
+}
+
+/** 交易类型标签（buy/sell/dividend/deposit/withdraw） */
+export const TXN_TYPE_LABELS: Record<string, string> = {
+  buy: "买入",
+  sell: "卖出",
+  dividend: "分红",
+  deposit: "存入",
+  withdraw: "取出"
+};
+
+export function txnTypeLabel(type: string): string {
+  return TXN_TYPE_LABELS[type] ?? type;
+}
+
 // 建议放在 src/constants/index.ts 末尾
 export const ALLOCATION_COLORS: Record<string, string> = {
   liquid: "#7A9AA8",

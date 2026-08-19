@@ -104,15 +104,14 @@ def get_engine(domain: str = DOMAIN_APP) -> Optional[Engine]:
     return DatabaseFactory.create(domain)
 
 
-def get_user_sessionmaker() -> Optional[sessionmaker]:
-    """用户库 SessionLocal（未配置返回 None）。
+def get_user_sessionmaker() -> sessionmaker:
+    """用户库 SessionLocal（未配置 Supabase 时自动回退本地 SQLite 文件）。
 
-    TODO(数据域拆分 #894)：待 Supabase 云端集成落地后，用户域 service 层
-    统一经此注入，与运行库严格隔离（跨库事务无法保证 ACID，必须按域隔离）。
+    单库/双库统一可用：配置了 SUPABASE_DATABASE_URL 即真 Supabase；
+    未配置则落本地 invest.user.dev.db，与 market 域物理隔离但零网络依赖。
+    调用方无需判断 None。
     """
     user_engine = DatabaseFactory.create(DOMAIN_USER)
-    if user_engine is None:
-        return None
     return sessionmaker(autocommit=False, autoflush=False, bind=user_engine)
 
 
@@ -122,18 +121,114 @@ def init_db():
     默认家庭 1 + 默认用户 1 兼容既有单用户数据：模型结构变更后
     需要重建 DB 文件（见 scripts/migrate_family_id.py 的 ALTER 迁移说明）。
 
-    注：用户库（Supabase）的建表与种子由 D3 云端集成独立负责，此处不触。
+    数据域护栏：建表前先跑启动校验，确保每张表都已在
+    db_factory.DATA_DOMAIN_REGISTRY 声明归属域（防漏声明 / 建错库）。
+    当前单库兼容模式下仍把所有表建到默认 engine；双库模式请改用
+    init_db_split() 按域分别建到各自引擎。
     """
+    from app.core.db_factory import DatabaseFactory
+
+    DatabaseFactory.validate_domain_labels(Base.metadata)
     Base.metadata.create_all(bind=engine)
     _seed_default_identity()
 
 
-def _seed_default_identity():
-    """幂等写入默认家庭 1 与默认用户 1，保证无鉴权模式下查询可用。"""
+def init_db_split():
+    """双库模式：按数据域分别 create_all 到对应 engine。
+
+    - market 引擎必配（本地 dev 为 invest.dev.db，生产为 Turso）。
+    - user 引擎：配了 SUPABASE_DATABASE_URL 即 Supabase；未配则自动回退本地
+      invest.user.dev.db（物理独立文件，模拟双库）。两种情况下 user 表都落
+      到「与 market 不同的引擎」，域边界成立。
+
+    启动校验保证"声明域 == 实际建到的 engine"，不一致直接 fail。
+    注：用户库（Supabase）生产建表建议由 Supabase 迁移工具独立负责，此方法
+    主要用于开发期本地双 SQLite 验证 / CI 校验，不强制生产路径。本地模式下
+    它就是"零配置双库模拟"的默认入口。
+    """
+    from app.core.db_factory import (
+        DOMAIN_APP,
+        DOMAIN_MARKET,
+        DOMAIN_USER,
+        DatabaseFactory,
+    )
+
+    grouped = DatabaseFactory.tables_by_domain(Base.metadata)
+    app_eng = DatabaseFactory.create(DOMAIN_APP)
+    user_eng = DatabaseFactory.create(DOMAIN_USER)
+    if app_eng is None:
+        raise RuntimeError('market 域引擎未配置，init_db_split 终止。')
+    # market 域表 → 应用引擎
+    from sqlalchemy.schema import MetaData
+
+    market_meta = MetaData()
+    for t in grouped[DOMAIN_MARKET]:
+        t.to_metadata(market_meta)
+    market_meta.create_all(bind=app_eng)
+    # user 域表 → 用户引擎（若已配置）
+    if user_eng is not None:
+        user_meta = MetaData()
+        for t in grouped[DOMAIN_USER]:
+            t.to_metadata(user_meta)
+        user_meta.create_all(bind=user_eng)
+    # 双库模式：种子必须落到 user 引擎（修复跨域 bug），bind 传 user_eng；
+    # 未配 Supabase 时 user_eng 为本地回退文件，仍与 market 域隔离。
+    _seed_default_identity(bind=user_eng)
+
+
+@contextmanager
+def market_session():
+    """market 域会话上下文（读取净值/行情/温度/基金资料等）。"""
+    from app.core.db_factory import market_session_factory
+
+    db = market_session_factory()()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+@contextmanager
+def user_session():
+    """user 域会话上下文（读写账户/持仓/交易/自选/审计等）。"""
+    from app.core.db_factory import user_session_factory
+
+    db = user_session_factory()()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+def _seed_default_identity(bind=None):
+    """幂等写入默认家庭 1 与默认用户 1，保证无鉴权模式下查询可用。
+
+    Family / User 属于 user 域。写入目标引擎由调用方决定，避免跨域错写：
+    - 单库模式 init_db()：所有表建在 app 引擎，bind 默认取 app 引擎
+      （即 SessionLocal 的 bind），保证单库内数据自洽。
+    - 双库模式 init_db_split()：必须传 user 引擎作为 bind，使家庭/用户落到
+      user 域库（Supabase / 本地回退文件），与 market 域物理隔离；此前的 bug
+      是用 market 引擎的 SessionLocal 写入 user 域表，真双库分离时落错库。
+    """
+    from app.core.db_factory import DOMAIN_USER, DatabaseFactory
     from app.domains.families.models import Family
     from app.domains.users.models import ROLE_ADMIN, User
 
-    with SessionLocal() as db:
+    target_bind = bind if bind is not None else SessionLocal.kw['bind']
+
+    # 双库模式（bind 即 user 引擎）下，确保 user 域表已存在再写入；
+    # 单库模式表已由 init_db 的 create_all 建好，无需重复。
+    if bind is not None and bind is not SessionLocal.kw['bind']:
+        grouped = DatabaseFactory.tables_by_domain(Base.metadata)
+        from sqlalchemy.schema import MetaData
+
+        user_meta = MetaData()
+        for t in grouped[DOMAIN_USER]:
+            t.to_metadata(user_meta)
+        user_meta.create_all(bind=bind)
+
+    UserSession = sessionmaker(autocommit=False, autoflush=False, bind=target_bind)
+    with UserSession() as db:
         if not db.query(Family).filter_by(id=1).first():
             db.add(Family(id=1, name='默认家庭'))
         if not db.query(User).filter_by(id=1).first():
