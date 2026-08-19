@@ -299,7 +299,8 @@ def test_em_industry_hist_stale_fetches_incremental(em_cache_dir, monkeypatch):
 
     df = ic._em_industry_hist('000990.SH')
 
-    assert captured['beg'] == old_end.strftime('%Y%m%d')
+    # beg 取缓存真实最新日期（_make_hist 用 freq='B' 对齐，old_end 若为周末会被回滚）
+    assert captured['beg'] == cached.index[-1].strftime('%Y%m%d')
     assert len(df) == 212
     assert df['amount'].iloc[-1] == pytest.approx(200.0)
 

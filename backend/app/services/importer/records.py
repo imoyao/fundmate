@@ -43,23 +43,30 @@ def compute_position_hash(
     ledger_id: int,
     symbol: str,
     snapshot_date: Optional[date] = None,
+    source_broker: Optional[str] = None,
 ) -> str:
     """为单条持仓记录生成去重哈希（issue #928，与交易去重口径对齐）。
 
     规则（规范 §3.3）：
         f"{source}|{ledger_id}|{symbol}|{snapshot_date}"
+    当传入 source_broker（影子记录专用，§12.3）时，追加渠道维度：
+        f"{source}|{ledger_id}|{source_broker}|{symbol}|{snapshot_date}"
 
     - snapshot_date 优先取持仓快照日（confirm_date）；缺失时由调用方降级为
       created_at 的日期部分（或落库当日），保证「同一天、同一产品、同一来源」
       的持仓不会重复，即便手动录入未提供 snapshot_date。
     - 不含 quantity / avg_price：持仓是汇总结果，同一天同一产品只保留一条汇总
       记录（撞 key 时由 service 层转 upsert 更新数量/成本，而非拒绝）。
+    - source_broker 是 E账户影子记录专用维度：同一基金经不同销售机构（多渠道）
+      各自成记录，哈希不含渠道维度会互相撞 key（§12.1 预存 bug）。其余调用方
+      不传该参数，哈希格式与旧版完全一致（向后兼容）。
 
     与交易侧区别：交易依赖 transaction_id 区分真实多笔；持仓无流水号概念，
     故以 source|ledger|symbol|日期 作为内容指纹即可满足去重需求。
     """
     snap = snapshot_date.isoformat() if snapshot_date else 'unknown'
-    raw = f'{source}|{ledger_id}|{symbol}|{snap}'
+    broker_part = f'|{source_broker}' if source_broker else ''
+    raw = f'{source}|{ledger_id}{broker_part}|{symbol}|{snap}'
     return hashlib.md5(raw.encode()).hexdigest()
 
 
@@ -97,6 +104,52 @@ class StandardTransactionRecord:
     error: str = ''  # 解析失败时存放错误信息
     raw_op_type: str = ''  # 新增：原始中文操作类型，用于关联交易配对
     is_calculated: bool = False  # 份额和净值是否为系统自动推算
+
+
+@dataclass
+class StandardHoldingRecord:
+    """持仓快照的统一输出格式（#1012，与交易流水解耦）。
+
+    与 StandardTransactionRecord 的本质区别（持仓 vs 交易流水）：
+    - 无 trade_date / transaction_id / fee / business_type —— 快照是"某日点位"，
+      没有这些交易概念，硬塞会污染交易语义；
+    - 有 shares / market_value / snapshot_date —— 快照的核心字段；
+    - avg_cost 为成本均价（元）：E账户样本无成本字段，由服务层降级为 nav 近似
+      （用户已确认：用当前净值近似成本）。
+
+    溯源字段（fund_manager / share_class / fund_account / trade_account /
+    dividend_preference / source_broker）落库时写入 position_import_meta 表，
+    与 positions 主表 1:1 关联，保证样本信息不丢失。
+    """
+
+    # ── 必填字段 ──
+    symbol: str  # 标准化代码（基金 6 位数字）
+    name: str  # 标的名称
+    shares: Decimal  # 持有份额（份）
+    snapshot_date: date  # 持仓快照日期（份额日期）
+    ledger_id: Optional[int] = None  # 目标账户ID（聚合账户，enrich 阶段回填）
+
+    # ── 可选字段 ──
+    asset_type: str = 'fund'  # 资产类型（E账户仅覆盖公募基金）
+    nav: Optional[Decimal] = None  # 基金净值（快照日）
+    avg_cost: Optional[Decimal] = None  # 成本均价（元）；缺失时服务层降级为 nav 近似
+    market_value: Optional[Decimal] = None  # 资产市值（元）
+    currency: str = 'CNY'  # 结算币种
+    account_name: str = ''  # 账户名称（冗余展示）
+
+    # ── 溯源字段（落 position_import_meta）──
+    source: str = ''  # 数据来源标识（e_account_holding / ai_holding）
+    source_broker: Optional[str] = None  # 销售机构
+    fund_manager: Optional[str] = None  # 基金管理人
+    share_class: Optional[str] = None  # 份额类别（前收费/后收费）
+    fund_account: Optional[str] = None  # 基金账户（平台侧账号）
+    trade_account: Optional[str] = None  # 交易账户（资金账号）
+    dividend_preference: Optional[str] = None  # 分红方式（现金分红/红利转投）
+
+    # ── 系统字段 ──
+    import_hash: Optional[str] = None  # 持仓去重哈希（source|ledger|symbol|snapshot_date）
+    batch_id: Optional[str] = None  # 导入批次ID
+    error: str = ''  # 解析失败时存放错误信息
 
 
 @dataclass

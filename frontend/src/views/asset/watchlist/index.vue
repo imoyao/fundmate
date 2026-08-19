@@ -201,26 +201,44 @@
             <div class="tag-filter-panel">
               <div class="tag-filter-panel__list">
                 <el-checkbox-group v-model="draftFilterTagIds">
-                  <label
+                  <div
                     v-for="tag in allTags"
                     :key="tag.id"
                     class="tag-filter-item"
+                    @click="toggleDraftTag(tag.id)"
                   >
-                    <el-checkbox :value="tag.id" />
+                    <el-checkbox :value="tag.id" @click.stop />
                     <span
-                      class="tag-filter-item__dot"
-                      :style="{ backgroundColor: tag.color || 'var(--text-tertiary)' }"
-                    />
-                    <span class="tag-filter-item__name">{{ tag.name }}</span>
-                  </label>
+                      class="tag-filter-item__name"
+                      :style="{
+                        backgroundColor:
+                          (tag.color || DEFAULT_TAG_COLOR) + '20',
+                        border: '1px solid ' + (tag.color || DEFAULT_TAG_COLOR),
+                        color: 'var(--text-primary)'
+                      }"
+                      >{{ tag.name }}</span
+                    >
+                  </div>
                 </el-checkbox-group>
-                <div v-if="allTags.length === 0" class="tag-filter-panel__empty">
+                <div
+                  v-if="allTags.length === 0"
+                  class="tag-filter-panel__empty"
+                >
                   暂无可选标签
                 </div>
               </div>
               <div class="tag-filter-panel__footer">
-                <el-button size="small" text bg @click="clearTagFilter">清空筛选</el-button>
-                <el-button size="small" type="primary" @click="applyTagFilter">确定</el-button>
+                <el-button
+                  size="small"
+                  text
+                  bg
+                  :disabled="draftFilterTagIds.length === 0"
+                  @click="clearTagFilter"
+                  >清空筛选</el-button
+                >
+                <el-button size="small" type="primary" @click="applyTagFilter"
+                  >确定</el-button
+                >
               </div>
             </div>
           </el-popover>
@@ -359,12 +377,14 @@
         stripe
         @row-click="handleRowClick"
         @selection-change="handleSelectionChange"
+        @sort-change="handleSortChange"
       >
         <el-table-column
           v-if="batchMode"
           type="selection"
           width="50"
           align="center"
+          :selectable="row => row.id != null"
         />
         <el-table-column width="44" align="center" class-name="marker-column">
           <template #default="{ row }">
@@ -386,6 +406,8 @@
           min-width="240"
           fixed="left"
           show-overflow-tooltip
+          sortable
+          :sort-method="sortName"
         >
           <template #default="{ row }">
             <div class="flex flex-col gap-1 py-2">
@@ -422,6 +444,7 @@
                     circle
                     size="small"
                     class="add-tag-btn"
+                    :disabled="row.id == null"
                     @click.stop="openTagEditor(row as WatchlistItem)"
                   >
                     <IconifyIconOffline icon="ep:plus" class="text-[10px]" />
@@ -432,127 +455,42 @@
           </template>
         </el-table-column>
 
-        <!-- 添加自选日（日期非数字，左对齐更易扫读） -->
-        <el-table-column label="添加自选日" width="100" align="left">
-          <template #default="{ row }">
-            <span :style="{ color: 'var(--text-secondary)', fontSize: '13px' }">
-              {{ formatDate(row.created_at) }}
-            </span>
-          </template>
-        </el-table-column>
+        <!--
+          #995 columnDefs 数据驱动（MVP 步骤 2，已落地）。
+          7 个纯数据列由此 v-for 渲染，renderer 注册表见 columnRenderers.tsx；
+          实时覆盖双分支已内聚进 renderer，本模板不再散落 v-if realtimeEnabled。
+          详见 docs/spec/watchlist-column-defs.md。
 
-        <!-- 最新价 -->
-        <el-table-column label="最新价" width="110" align="right">
-          <template #default="{ row }">
-            <template v-if="realtimeEnabled && getValuationItem(row.symbol)">
-              <MoneyDisplay
-                :value="getValuationItem(row.symbol)!.currentPrice"
-                :show-sign="false"
-                :show-currency="false"
-                :precision="pricePrecision(row.asset_type)"
-              />
-            </template>
-            <template v-else>
-              <MoneyDisplay
-                v-if="row.current_price != null"
-                :value="row.current_price"
-                :show-sign="false"
-                :show-currency="false"
-                :precision="pricePrecision(row.asset_type)"
-              />
-              <span v-else :style="{ color: 'var(--text-tertiary)' }">--</span>
-            </template>
-          </template>
-        </el-table-column>
-
-        <!-- 涨跌幅 (替换为全局 RiseFallText 组件) -->
-        <el-table-column label="涨跌幅" width="100" align="right">
-          <template #default="{ row }">
-            <template v-if="realtimeEnabled && getValuationItem(row.symbol)">
-              <RiseFallText :value="getValuationItem(row.symbol)!.changePct" />
-            </template>
-            <template v-else>
-              <RiseFallText
-                v-if="row.change_pct != null"
-                :value="row.change_pct"
-              />
-              <span v-else :style="{ color: 'var(--text-tertiary)' }">--</span>
-            </template>
-          </template>
-        </el-table-column>
-
-        <!-- 持有数量 / 份额 -->
-        <el-table-column label="持有数量" width="110" align="right">
-          <template #default="{ row }">
-            <template v-if="(row.holding_quantity ?? 0) > 0">
-              <span
-                class="tabular-nums"
-                :style="{ color: 'var(--text-primary)', fontWeight: 500 }"
-              >
-                {{ formatQty(row.holding_quantity) }}
-              </span>
-              <span
-                :style="{
-                  color: 'var(--text-tertiary)',
-                  fontSize: '11px',
-                  marginLeft: '2px'
-                }"
-                >{{ row.venue === "OTC" ? "份" : "股" }}</span
-              >
-            </template>
-            <span v-else :style="{ color: 'var(--text-tertiary)' }">--</span>
-          </template>
-        </el-table-column>
-
-        <!-- 持仓市值 -->
+          ⚠️ 维护者须知（后续待办，勿误判为"半成品 bug"）：
+          - product / _marker / _selection / _actions 四列刻意保留原模板，
+            原因：含 openTagEditor、batchMode 占位、tooltip、持仓禁用等特殊交互，
+            且与 #980 自选页面拆分重构区域重叠。
+          - 下一步（#995 步骤 3）：待 #980 重构合入、本驱动验证稳定后，
+            把 product/actions 也切到 renderer，并删除全部硬编码列，仅保留 columnDefs 驱动。
+          - 在此之前若改这些保留列的交互，注意与 dataColumns 的 renderer 逻辑保持一致。
+        -->
         <el-table-column
-          prop="position_market_value"
-          label="持仓市值"
-          width="120"
-          align="right"
+          v-for="def in dataColumns"
+          :key="def.key"
+          :label="def.label"
+          :width="def.width"
+          :min-width="def.minWidth"
+          :align="def.align"
+          :fixed="def.fixed"
+          :sortable="def.sortable"
+          :sort-method="def.sortMethod"
         >
           <template #default="{ row }">
-            <MoneyWithRatio
-              :value="row.position_market_value"
-              :ratio="marketValueRatio(row)"
-              :show-sign="false"
-              :ratio-auto-color="false"
+            <component
+              :is="resolveRenderer(def.renderer)"
+              :row="row"
+              :def="def"
+              :ctx="renderCtx"
             />
           </template>
         </el-table-column>
 
-        <!-- 添加后涨幅：金额(上) + 涨幅%(下)，与持仓收益列统一主次 -->
-        <el-table-column label="添加后涨幅" width="110" align="right">
-          <template #default="{ row }">
-            <MoneyWithRatio
-              :value="addedReturnAmount(row)"
-              :ratio="addedReturnPct(row)"
-              :show-currency="false"
-              :show-sign="true"
-            />
-          </template>
-        </el-table-column>
-
-        <!-- 持仓收益：金额(上) + 收益率%(下)，合并原独立的「收益比」列 -->
-        <el-table-column label="持仓收益" width="110" align="right">
-          <template #default="{ row }">
-            <MoneyWithRatio
-              :value="
-                (row.holding_quantity ?? 0) > 0 ? (row.holding_pnl ?? 0) : null
-              "
-              :ratio="
-                (row.holding_quantity ?? 0) > 0
-                  ? (row.holding_pnl_percent ?? 0)
-                  : null
-              "
-              :show-currency="false"
-              :show-sign="true"
-              :auto-color="true"
-            />
-          </template>
-        </el-table-column>
-
-        <!-- 操作列：3 个 circle 按钮一行排布（flex + gap，避免 2 上 1 下换行） -->
+        <!-- 操作列：保留原模板（含 batchMode 下显示 -、tooltip、持仓禁用） -->
         <el-table-column label="操作" width="120" align="center" fixed="right">
           <template #default="{ row }">
             <template v-if="!batchMode">
@@ -564,6 +502,7 @@
                   <el-button
                     circle
                     size="small"
+                    :disabled="row.id == null"
                     @click.stop="handleTogglePin(row as WatchlistItem)"
                   >
                     <IconifyIconOffline
@@ -578,6 +517,7 @@
                   <el-button
                     circle
                     size="small"
+                    :disabled="row.id == null"
                     @click.stop="handleToggleFavorite(row as WatchlistItem)"
                   >
                     <IconifyIconOffline
@@ -620,11 +560,14 @@
             <p class="watchlist-empty__title">
               {{
                 selectedFilterTagIds.length > 0
-                  ? '暂无匹配所选标签的持仓'
-                  : '暂无自选资产'
+                  ? "暂无匹配所选标签的持仓"
+                  : "暂无自选资产"
               }}
             </p>
-            <p v-if="selectedFilterTagIds.length > 0" class="watchlist-empty__hint">
+            <p
+              v-if="selectedFilterTagIds.length > 0"
+              class="watchlist-empty__hint"
+            >
               试试调整或清空标签筛选条件
             </p>
           </div>
@@ -694,10 +637,11 @@
       @tags-changed="fetchTags"
     />
 
-    <!-- 分组管理弹窗（GitHub Labels 风格，与标签同构，见 docs/design/components.md） -->
+    <!-- 分组管理弹窗（GitHub Labels 风格，与标签同构，见 docs/design/components.md）。
+         系统分组可见但不可编辑/删除（managerGroups 含系统分组虚拟行），自定义分组可管理。 -->
     <GroupManagerDialog
       v-model="showGroupManager"
-      :all-groups="customGroups"
+      :all-groups="managerGroups"
       @groups-changed="fetchGroups"
     />
 
@@ -741,6 +685,7 @@ import SettingsDrawer from "@/components/Watchlist/SettingsDrawer.vue";
 import TagManagerDialog from "@/components/Watchlist/TagManagerDialog.vue";
 import GroupManagerDialog from "@/components/Watchlist/GroupManagerDialog.vue";
 import TagEditorDialog from "@/components/Watchlist/TagEditorDialog.vue";
+import { DEFAULT_TAG_COLOR } from "@/constants/watchlist";
 import {
   getWatchlistItems,
   updateWatchlistItem,
@@ -762,10 +707,20 @@ import {
 } from "@/composables/useRealtimeQuotes";
 import { useWatchlistGroups } from "@/composables/useWatchlistGroups";
 import { useWatchlistTags } from "@/composables/useWatchlistTags";
-import RealtimeWarningBanner from "@/components/RealtimeWarningBanner/index.vue";
+import RealtimeWarningBanner, {
+  REALTIME_BANNER_DISMISS_KEY
+} from "@/components/RealtimeWarningBanner/index.vue";
 import RealtimeStatusIndicator from "@/components/RealtimeStatusIndicator/index.vue";
 import type { Holding } from "@/utils/valuationEngine";
 import { formatDate, formatDateTime } from "@/utils/date";
+import {
+  watchlistColumnDefs,
+  type WatchlistRow
+} from "@/views/asset/watchlist/columnDefs";
+import {
+  resolveRenderer,
+  type RenderCtx
+} from "@/views/asset/watchlist/columnRenderers";
 
 defineOptions({ name: "Watchlist" });
 
@@ -780,6 +735,7 @@ const {
   activeGroup,
   allGroups,
   customGroups,
+  managerGroups,
   activeGroupLabel,
   currentIsCustom,
   activeCustomGroupId,
@@ -852,12 +808,6 @@ const handleManualRefresh = async () => {
     refreshing.value = false;
   }
 };
-
-/**
- * 持有数量 / 份额格式化 */
-function formatQty(qty: number): string {
-  return qty.toLocaleString("zh-CN", { maximumFractionDigits: 2 });
-}
 
 /** 添加后涨幅（%）=（当前价 - 添加日价格）/ 添加日价格 */
 function addedReturnPct(row: {
@@ -967,6 +917,21 @@ watch(
   { deep: true }
 );
 
+// 实时估值功能被「关闭→重新开启」时，清除横幅关闭标记，让提示横幅重新出现；
+// 仅刷新页面（功能始终开启）不会触发，从而满足「关掉功能再开才重新提醒」。
+watch(
+  () => realtime.enabled.value,
+  (now, prev) => {
+    if (prev === false && now === true) {
+      try {
+        localStorage.removeItem(REALTIME_BANNER_DISMISS_KEY);
+      } catch {
+        // 隐私模式下忽略存储异常
+      }
+    }
+  }
+);
+
 const loading = ref(false);
 const searchKeyword = ref("");
 const currentPage = ref(1);
@@ -1012,6 +977,50 @@ const tagUsage = computed(() => {
   });
   return usage;
 });
+
+// ── 表头排序辅助（issue #991）──
+// 数值列空值沉底，避免 null/undefined 参与运算导致排序异常或报错
+const sortNum =
+  (key: keyof WatchlistItem) =>
+  (a: WatchlistItem, b: WatchlistItem): number => {
+    const av = a[key];
+    const bv = b[key];
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    return (av as number) - (bv as number);
+  };
+
+// 字符串/日期列按本地化比较排序（空值沉底）
+const sortStr =
+  (key: keyof WatchlistItem) =>
+  (a: WatchlistItem, b: WatchlistItem): number => {
+    const av = (a[key] as string) ?? "";
+    const bv = (b[key] as string) ?? "";
+    return av.localeCompare(bv, "zh-Hans-CN");
+  };
+
+// 名称列按展示名排序（中文按拼音）
+const sortName = (a: WatchlistItem, b: WatchlistItem): number => {
+  const av = a.display_name || a.symbol || "";
+  const bv = b.display_name || b.symbol || "";
+  return av.localeCompare(bv, "zh-Hans-CN");
+};
+
+// 添加后涨幅按「实际涨幅%」排序，与列内显示口径一致（基于 current_price 与 price_at_added 计算）
+const sortAddedReturn = (a: WatchlistItem, b: WatchlistItem): number => {
+  const av = addedReturnPct(a);
+  const bv = addedReturnPct(b);
+  if (av == null && bv == null) return 0;
+  if (av == null) return 1;
+  if (bv == null) return -1;
+  return av - bv;
+};
+
+// 排序时回到第一页，避免停留在非首页看错顺序
+function handleSortChange() {
+  currentPage.value = 1;
+}
 
 const fetchParams = computed(() => {
   const params: Record<string, string | number | boolean> = {
@@ -1064,6 +1073,8 @@ async function handleBatchDelete() {
     );
     for (const item of selectedItems.value) {
       try {
+        // 虚拟持仓行（id=null）无自选记录，不可删除，跳过
+        if (item.id == null) continue;
         await deleteWatchlistItem(item.id);
       } catch (e) {
         /* ignore */
@@ -1081,9 +1092,10 @@ async function handleBatchDelete() {
 const handleBatchMoveToGroup = async (groupId: number | null) => {
   if (!groupId || selectedItems.value.length === 0) return;
   try {
-    const promises = selectedItems.value.map(item =>
-      addItemToGroup(item.id, groupId)
-    );
+    // 虚拟持仓行（id=null）无自选记录，不可移动，过滤后仅对真实自选行发起请求
+    const promises = selectedItems.value
+      .filter((item): item is WatchlistItem & { id: number } => item.id != null)
+      .map(item => addItemToGroup(item.id, groupId));
     await Promise.all(promises);
     ElMessage.success(
       `已将 ${selectedItems.value.length} 个资产移动到所选分组`
@@ -1145,6 +1157,16 @@ function handleViewChange() {
 // 标签筛选面板交互（onTagFilterShow / applyTagFilter / clearTagFilter）已随 useWatchlistTags 抽离。
 // 其中 applyTagFilter / clearTagFilter 通过 refresh 回调（顶部定义）重置分页并触发 fetchData。
 
+/** 点击标签行时切换草稿选中态（配合 div 行点击替代非法嵌套 label） */
+function toggleDraftTag(tagId: number) {
+  const idx = draftFilterTagIds.value.indexOf(tagId);
+  if (idx >= 0) {
+    draftFilterTagIds.value.splice(idx, 1);
+  } else {
+    draftFilterTagIds.value.push(tagId);
+  }
+}
+
 function resetFilters() {
   searchKeyword.value = "";
   groups.resetActiveGroup();
@@ -1154,6 +1176,8 @@ function resetFilters() {
 
 async function handleTogglePin(row: WatchlistItem) {
   const r = row as WatchlistItem;
+  // 虚拟持仓行（id=null）无自选记录，置顶操作无意义，直接跳过
+  if (r.id == null) return;
   try {
     await updateWatchlistItem(r.id, { is_pinned: !r.is_pinned });
     ElMessage.success(r.is_pinned ? "已取消置顶" : "已置顶");
@@ -1166,6 +1190,8 @@ async function handleTogglePin(row: WatchlistItem) {
 
 async function handleToggleFavorite(row: WatchlistItem) {
   const r = row as WatchlistItem;
+  // 虚拟持仓行（id=null）无自选记录，特别关注操作无意义，直接跳过
+  if (r.id == null) return;
   try {
     await updateWatchlistItem(r.id, { favorite: !r.favorite });
     ElMessage.success(r.favorite ? "已取消特别关注" : "已设为特别关注");
@@ -1179,6 +1205,8 @@ async function handleToggleFavorite(row: WatchlistItem) {
 function handleRowClick(row: WatchlistItem) {}
 
 function confirmRemove(row: WatchlistItem | any) {
+  // 虚拟持仓行（id=null）无自选记录，不可移除，直接跳过
+  if (row.id == null) return;
   removingItem.value = row as WatchlistItem;
   removeScope.value = "all";
   removeDialogVisible.value = true;
@@ -1186,7 +1214,8 @@ function confirmRemove(row: WatchlistItem | any) {
 
 async function executeRemove() {
   const item = removingItem.value;
-  if (!item) return;
+  // 虚拟持仓行（id=null）无自选记录，不可移除，直接跳过
+  if (!item || item.id == null) return;
   try {
     if (removeScope.value === "current" && activeCustomGroupId.value) {
       await removeItemFromGroup(item.id, activeCustomGroupId.value);
@@ -1231,6 +1260,8 @@ function onOcrImported() {
 // 标签管理相关（交互已收敛到 TagManagerDialog / TagEditorDialog 共有组件）
 // ─────────────────────────────────────────────
 const openTagEditor = (row: WatchlistItem) => {
+  // 虚拟持仓行（id=null）无自选记录，标签编辑无意义，直接跳过
+  if (row.id == null) return;
   editingItem.value = row as WatchlistItem;
   showTagEditor.value = true;
 };
@@ -1255,6 +1286,38 @@ onMounted(() => {
 });
 
 const realtimeEnabled = computed(() => realtime.enabled.value);
+
+// ── #995 columnDefs 数据驱动：数据列（不含 product/marker/selection/操作，这些保留原模板）──
+const dataColumns = computed(() =>
+  watchlistColumnDefs.filter(
+    d => !["product", "_marker", "_selection", "_actions"].includes(d.key)
+  )
+);
+
+// 渲染上下文：把页面级状态/方法注入 renderer 注册表，renderer 不耦合本组件
+const renderCtx = computed<RenderCtx>(() => ({
+  realtimeEnabled: realtimeEnabled.value,
+  getValuationItem,
+  allTags: allTags.value,
+  derived: (kind, row) => {
+    if (kind === "addedReturn") {
+      return {
+        value: addedReturnAmount(row as WatchlistItem) ?? 0,
+        ratio: addedReturnPct(row as WatchlistItem) ?? 0
+      };
+    }
+    // marketValue
+    return {
+      value: (row.position_market_value as number) ?? 0,
+      ratio: marketValueRatio(row as WatchlistItem) ?? 0
+    };
+  },
+  actions: {
+    togglePin: handleTogglePin,
+    toggleFavorite: handleToggleFavorite,
+    remove: confirmRemove
+  }
+}));
 </script>
 
 <style scoped>
@@ -1443,7 +1506,9 @@ const realtimeEnabled = computed(() => realtime.enabled.value);
   background-color: var(--bg-warm);
   border: none;
   border-radius: var(--radius-pill);
-  transition: background-color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .tag-filter-trigger:hover {
@@ -1489,8 +1554,7 @@ const realtimeEnabled = computed(() => realtime.enabled.value);
 }
 
 .tag-filter-panel .el-checkbox-group {
-  display: flex;
-  flex-direction: column;
+  display: block;
 }
 
 .tag-filter-item {
@@ -1506,19 +1570,18 @@ const realtimeEnabled = computed(() => realtime.enabled.value);
   background-color: var(--bg-soft);
 }
 
-.tag-filter-item__dot {
-  flex-shrink: 0;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-
 .tag-filter-item__name {
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* 胶囊 Tag：与表格 el-tag / 管理标签 .tag-pill 视觉统一（浅底 + 同色边框）。
+     不设 flex/min-width，flex-shrink:0 防止被父级 flex 容器压缩到 0 宽。 */
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  padding: 2px 10px;
   font-size: 13px;
-  color: var(--text-primary);
+  font-weight: 500;
+  line-height: 1.4;
   white-space: nowrap;
+  border-radius: var(--radius-pill);
 }
 
 .tag-filter-panel__empty {
@@ -1742,6 +1805,13 @@ const realtimeEnabled = computed(() => realtime.enabled.value);
    本页名称列为两行式（名称+标签），tr height 为最小高度语义，40px 下多行内容仍自动撑高不裁切。 */
 :deep(.el-table .el-table__row) {
   height: 40px;
+}
+
+/* 表头不换行：保证排序图标(.caret-wrapper)与表头文字始终同一行，
+   修复 5 字表头（添加自选日 / 添加后涨幅）加排序按钮后换行错位的问题。
+   各列 width 已预留足够空间容纳文字+图标，此处仅作双保险防止意外折行。 */
+:deep(.el-table__header th.el-table__cell .cell) {
+  white-space: nowrap;
 }
 
 /* ======================================

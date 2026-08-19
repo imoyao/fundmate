@@ -11,7 +11,8 @@ export interface WatchlistPageResponse<T> {
 }
 
 export interface WatchlistItem {
-  id: number;
+  /** 自选记录 id；持仓分组返回的虚拟行（真实持仓聚合）无自选记录，恒为 null，前端据此禁用行操作 */
+  id: number | null;
   symbol: string;
   market: string;
   asset_type: string;
@@ -23,6 +24,7 @@ export interface WatchlistItem {
   pinned_at: string | null;
   add_reason: string | null;
   notes: string | null;
+  created_at?: string;
   display_name: string;
   group_ids: number[];
   tag_ids: number[];

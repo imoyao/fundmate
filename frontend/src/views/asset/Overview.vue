@@ -422,6 +422,15 @@ import {
   ALLOCATION_LABELS,
   getAllocationLabel
 } from "@/constants";
+import { EXCHANGE_RATES } from "@/constants/exchangeRates";
+
+// 工具函数：安全读取 CSS 变量（design.md 红线：涨跌色必须走语义变量，hex 仅作 SSR/未定义兜底）
+const getCSSColor = (varName: string): string => {
+  if (typeof window === "undefined") return "";
+  return getComputedStyle(document.documentElement)
+    .getPropertyValue(varName)
+    .trim();
+};
 
 const assetChangeChartRef = ref<HTMLDivElement | null>(null);
 const sankeyChartRef = ref<HTMLDivElement | null>(null);
@@ -476,8 +485,6 @@ watch([displayMode, selectedMember], () => {
 });
 
 defineOptions({ name: "AssetPanorama" });
-
-const EXCHANGE_RATES: Record<string, number> = { CNY: 1, USD: 7.25, HKD: 0.92 };
 
 // —— 数据 ——
 const allPositions = ref<any[]>([]);
@@ -1147,9 +1154,9 @@ const initAssetChangeChart = () => {
             // 尾柱（本期末）：深紫色
             if (idx === 5) return "#6262A3";
             // 中间项：涨红/跌绿/不变灰（匹配参考图）
-            if (val > 0) return "#f5222d"; // 投资理财-红
-            if (val < 0) return "#52c41a"; // 流动资金/负债-绿
-            return "#d9d9d9"; // 固定资产-灰
+            if (val > 0) return getCSSColor("--color-rise") || "#f5222d"; // 投资理财-红
+            if (val < 0) return getCSSColor("--color-fall") || "#52c41a"; // 流动资金/负债-绿
+            return getCSSColor("--color-neutral") || "#d9d9d9"; // 固定资产-灰
           }
         },
         data: data,

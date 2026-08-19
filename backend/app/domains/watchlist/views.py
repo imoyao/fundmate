@@ -192,6 +192,127 @@ def _compute_avg_current_price(symbol, db):
     return Money.cents_to_yuan(avg_price_cents) if avg_price_cents else 0.0
 
 
+def _list_holding_items(db, family_id, venue=None, search=None):
+    """持仓分组列表：返回 positions 表全部 active 持仓的虚拟行（按 symbol 聚合）。
+
+    与 watchlist.status 快照解耦：一个 symbol 可能多账户多行，distinct 后按 symbol 聚合；
+    每行 id=None 表示「无自选记录」，前端据此禁用置顶/关注/标签/移除等行操作。
+    """
+    rows = (
+        db.query(Position.symbol, Position.asset_type, Position.market)
+        .filter(Position.family_id == family_id, Position.ownership_status == 'active')
+        .distinct()
+        .all()
+    )
+    # family 维度 symbol→venue 映射：优先取自选记录里的 venue，缺失时按资产类型推断
+    venue_map = dict(
+        db.query(WatchlistItem.symbol, WatchlistItem.venue).filter(WatchlistItem.family_id == family_id).all()
+    )
+    data = []
+    seen = set()
+    for symbol, asset_type, market in rows:
+        if symbol in seen:
+            continue  # 同一 symbol 多账户行已聚合，跳过重复
+        seen.add(symbol)
+        row_venue = venue_map.get(symbol) or ('OTC' if asset_type == 'fund' else 'EXCHANGE')
+        if venue and row_venue != venue:
+            continue
+        if search and search.lower() not in symbol.lower():
+            continue
+        data.append(_build_holding_row(symbol, db, market=market, asset_type=asset_type, venue=row_venue))
+    data.sort(key=lambda r: r['position_market_value'] or 0, reverse=True)
+    return data
+
+
+def _build_holding_row(symbol, db, market=None, asset_type=None, venue=None):
+    """构造持仓虚拟行 dict，字段对齐 WatchlistItemOut/_enrich_item 输出（前端直接复用）。
+
+    id=None 是虚拟行约定：该 symbol 可能不在自选表，行操作（置顶/关注/标签/移除）一律禁用。
+    """
+    pos = (
+        db.query(Position)
+        .filter(
+            Position.symbol == symbol,
+            Position.family_id == get_family_id(),
+            Position.ownership_status == 'active',
+        )
+        .first()
+    )
+    market = market or (pos.market if pos else None)
+    asset_type = asset_type or (pos.asset_type if pos else None)
+    venue = venue or ('OTC' if asset_type == 'fund' else 'EXCHANGE')
+    display_name = (pos.name if pos and pos.name else None) or _get_display_info(symbol, db)
+
+    current_price = _compute_avg_current_price(symbol, db)
+    stats = _compute_holding_stats(symbol, db)
+    return {
+        'id': None,
+        'symbol': symbol,
+        'market': market,
+        'asset_type': asset_type,
+        'venue': venue,
+        'status': 'HOLDING',
+        'favorite': False,
+        'favorite_at': None,
+        'is_pinned': False,
+        'pinned_at': None,
+        'add_reason': None,
+        'notes': None,
+        'cost_price': None,
+        'quantity': None,
+        'created_at': None,
+        'updated_at': None,
+        'display_name': display_name,
+        'group_ids': [],
+        'tag_ids': [],
+        'current_price': round(current_price, 2) if current_price else None,
+        'change_pct': None,
+        'position_market_value': round(_compute_position_market_value(symbol, db), 2),
+        'holding_quantity': stats['quantity'] if stats else None,
+        'holding_cost_price': round(stats['cost_price'], 4) if stats else None,
+        'holding_pnl': round(stats['pnl'], 2) if stats else None,
+        'holding_pnl_percent': round(stats['pnl_percent'], 2) if stats else None,
+        'price_at_added': None,
+    }
+
+
+def _build_all_items(db, family_id, venue=None, search=None, tag_ids_str=None, favorite=False, group_id=None):
+    """「全部」分组数据：自选清单 ∪ 真实持仓补集（同一 symbol 自选记录优先，去重）。
+
+    语义（与分组 count 口径一致，保证「全部 N 条」与分组数字吻合）：
+    - 自选条目走 get_filtered_items_query（不传 status），保留置顶排序字段；
+    - 补集虚拟行仅当无附加筛选（tag/关注/分组）时追加——附加筛选的语义是
+      「自选内的资产」子集，与持仓全集无交集，补行会引入「筛选不到却展示」的条目；
+    - 排序：置顶优先，其次持仓市值降序（自选行与虚拟行统一口径）。
+    """
+    params = {
+        'status': None,
+        'venue': venue,
+        'market': None,
+        'group_id': group_id,
+        'search': search,
+        'favorite': favorite,
+        'symbol': None,
+        'tag_ids_str': tag_ids_str,
+        'tag_id': None,
+    }
+    query, _ = get_filtered_items_query(db, family_id, **params)
+    items = query.order_by(WatchlistItem.is_pinned.desc(), WatchlistItem.updated_at.desc()).all()
+    data = [_enrich_item(item, db) for item in items]
+
+    if not (tag_ids_str or favorite or group_id):
+        holding_rows = _list_holding_items(db, family_id, venue=venue, search=search)
+        watch_symbols = {item['symbol'] for item in data}
+        for row in holding_rows:
+            if row['symbol'] in watch_symbols:
+                continue  # 同一 symbol 自选记录优先，虚拟行不重复展示
+            data.append(row)
+
+    # 混合排序：置顶优先（is_pinned 在前），再按持仓市值降序
+    data.sort(key=lambda r: (not r['is_pinned'], -(r['position_market_value'] or 0)))
+    return data
+
+
 @watchlist_bp.get('/home-summary/')
 def home_summary():
     """首页自选摘要"""
@@ -219,6 +340,31 @@ def list_items():
     }
 
     with get_db() as db:
+        if params['status'] == 'HOLDING':
+            # 持仓分组 = 全部真实持仓（positions 表 active，按 symbol 聚合），
+            # 不走 watchlist.status 快照查询；返回虚拟行（id=None，前端据此禁用行操作）
+            data = _list_holding_items(db, get_family_id(), venue=params['venue'], search=params['search'])
+            return jsonify({'data': data, 'total': len(data), 'message': 'ok'})
+
+        if not params['status'] and not (params['symbol'] or params['market'] or params['tag_id']):
+            # 「全部」分组 = 自选清单 ∪ 真实持仓补集（同一 symbol 自选优先），
+            # 前端「全部」分组不传 status 走此分支，解决「全部 < 持仓」口径矛盾。
+            # 仅无查找型参数（symbol/market/tag_id）时合并——AddToWatchlistModal/OcrImportModal
+            # 的「symbol 查重」等调用依赖原过滤语义，不得在此被稀释。
+            try:
+                data = _build_all_items(
+                    db,
+                    get_family_id(),
+                    venue=params['venue'],
+                    search=params['search'],
+                    tag_ids_str=params['tag_ids_str'],
+                    favorite=params['favorite'],
+                    group_id=params['group_id'],
+                )
+            except ValueError as e:
+                abort(400, str(e))
+            return jsonify({'data': data, 'total': len(data), 'message': 'ok'})
+
         try:
             query, total = get_filtered_items_query(db, get_family_id(), **params)
         except ValueError as e:
@@ -585,30 +731,48 @@ def export_items():
     }
 
     with get_db() as db:
-        try:
-            query, _ = get_filtered_items_query(db, get_family_id(), **params)
-        except ValueError as e:
-            abort(400, str(e))
-
-        items = query.all()  # 导出不分页
+        if params['status'] == 'HOLDING':
+            # 持仓分组导出：与列表一致，导出全部真实持仓（虚拟行，id=None）
+            rows = _list_holding_items(db, get_family_id(), venue=params['venue'], search=params['search'])
+        elif not params['status'] and not (params['symbol'] or params['market'] or params['tag_id']):
+            # 「全部」导出与列表口径一致：自选 ∪ 持仓补集（复用同一合并逻辑；
+            # 带 symbol/market/tag_id 查找参数时仍走原过滤语义，与列表分支对齐）
+            try:
+                rows = _build_all_items(
+                    db,
+                    get_family_id(),
+                    venue=params['venue'],
+                    search=params['search'],
+                    tag_ids_str=params['tag_ids_str'],
+                    favorite=params['favorite'],
+                    group_id=params['group_id'],
+                )
+            except ValueError as e:
+                abort(400, str(e))
+        else:
+            try:
+                query, _ = get_filtered_items_query(db, get_family_id(), **params)
+            except ValueError as e:
+                abort(400, str(e))
+            rows = [_enrich_item(item, db) for item in query.all()]  # 导出不分页
 
         output = io.StringIO()
         # UTF-8 BOM：Excel 打开 CSV 时按 BOM 识别 UTF-8，否则中文乱码
         output.write('\ufeff')
         writer = csv.writer(output)
         writer.writerow(['代码', '名称', '市场', '类型', '场内/场外', '状态', '置顶', '特别关注', '标签'])
-        for item in items:
+        for item in rows:
             writer.writerow(
                 [
-                    item.symbol,
-                    _get_display_info(item.symbol, db),
-                    item.market,
-                    _ASSET_TYPE_LABELS.get(item.asset_type, item.asset_type or ''),
-                    _VENUE_LABELS.get(item.venue, item.venue or ''),
-                    _STATUS_LABELS.get(item.status, item.status or ''),
-                    '是' if item.is_pinned else '否',
-                    '是' if item.favorite else '否',
-                    ','.join([str(link.tag_id) for link in item.tag_links]),
+                    item['symbol'],
+                    item['display_name'] or item['symbol'],
+                    item['market'] or '',
+                    _ASSET_TYPE_LABELS.get(item['asset_type'], item['asset_type'] or ''),
+                    _VENUE_LABELS.get(item['venue'], item['venue'] or ''),
+                    _STATUS_LABELS.get(item['status'], item['status'] or ''),
+                    '是' if item['is_pinned'] else '否',
+                    '是' if item['favorite'] else '否',
+                    ','.join(str(tid) for tid in (item['tag_ids'] or [])),
                 ]
             )
         output.seek(0)

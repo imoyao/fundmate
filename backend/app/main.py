@@ -26,6 +26,7 @@ from app.domains.auth.views import auth_bp  # noqa: E402
 from app.domains.families.views import families_bp  # noqa: E402
 from app.domains.funds.views import bp as funds_bp  # noqa: E402
 from app.domains.health import bp as health_bp  # noqa: E402
+from app.domains.importers.e_account_views import e_account_bp  # noqa: E402
 from app.domains.importers.views import importers_bp  # noqa: E402
 from app.domains.ledgers.views import ledgers_bp  # noqa: E402
 from app.domains.ocr.views import ocr_bp  # noqa: E402
@@ -79,6 +80,7 @@ def create_app() -> APIFlask:
     app.register_blueprint(watchlist_bp)
     app.register_blueprint(ocr_bp)
     app.register_blueprint(importers_bp)
+    app.register_blueprint(e_account_bp)
     app.register_blueprint(ledgers_bp)
     app.register_blueprint(utils_bp)
     app.register_blueprint(performance_bp)

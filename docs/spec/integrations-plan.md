@@ -1,3 +1,7 @@
+---
+title: 用户凭证与第三方集成规划（integrations-plan）
+---
+
 # 用户凭证与第三方集成规划（integrations-plan）
 
 > 最后核实日期：2026-08-13

@@ -68,6 +68,18 @@
 | `welcome-message-layer-2026-08-13.md` | **Welcome 首页消息层改造**：顶部 ticker 播报 + 近期动态真实 feed + 财务晴雨表/收益趋势空态；死数据清理清单；投资人格雷达落点修订（复盘页）；遗留待办 |
 | `watchlist-paid-features-discussion-2026-08-14.md` | **自选付费化方向讨论（远期规划）**：数据清理与提醒（扫描/提醒/回撤配额）、持仓穿透分层、持仓建议推荐的合规与品牌边界分析（不荐股承诺冲突，倾向客观数据洞察替代观点推荐） |
 | `watchlist-redesign-proposal-2026-08-14.md` | **自选页重新设计方案（待用户确认）**：布局诊断（左右分栏挤压表格、三套「场内/场外」筛选并存、名称列堆叠标签）、候选布局 A 窄栏 / B 顶部 tab+全宽表格（推荐）/ C 下拉、列宽对齐与名称截断、视觉精致化清单（全 token）、风险分级与实施顺序 |
+| `import-page-ux-and-monetization-review-2026-08-15.md` | **导入页 UX 与商业化评审**：核对已上线的 OCR 成本护栏（#823/guards.py）与 `pricing-tier.md` 规范，判定讨论中的"Pro 硬墙"应后置；内联拆出 5 个原子 issue 草案（卡片联动/动态文案/步骤条冗余/图片压缩/付费锚点决策），引用 #823/#826/#786/#935 |
+| `monetization-strategy-plan-2026-08-15.md` | **商业化策略计划（仅商业化）**：以"防背叛 + 覆盖成本"为双主轴，承接 `pricing-tier.md` 与导入页评审；定两档（免费+Pro）、早鸟锁定价（9.9/月·99/年→正式 19.9/月·199/年，网关侧锁价不写自研逻辑）、软配额非硬墙、冷启动早鸟码/反馈奖励、支付对接 0→1、家庭版/Ultra 暂缓决策、礼品卡兑换码无社交；§8 校正粘贴讨论与仓库偏差（5次/天 vs 5次/月、定价未定稿、支付未接入），§9 内联 M-1~M-5 原子 issue 草案，引用 #1000/#994/#823/#826/#939 |
+| `account-channel-and-fee-design-2026-08-16.md` | **账户渠道概念与费率分层设计**：渠道做轻量惰性可选（不枚举全市场机构，关联导入模板+佣金默认值）；费率拆「监管费常量(系统级) / 券商佣金(账户级2~3值) / 导入读实际费用」三层，差异落 `services/fees/calculator.py` 纯函数，复用 `symbol_utils.normalize()` 判定市场/品种；与导入关系=导入验证后再落地，最小切入点先做监管费常量+计算纯函数；记录判定缺口（北交所可转债/ETF未识别） |
+| `e-account-import-data-decentralization-plan-2026-08-16.md` | **基金E账户导入 + 数据去中心化评估**：三阶段计划（P0 基础数据中枢 / P1 Pro 组合体检 / P2 分享快照）对照仓库现状（#928/#929/#994/#1000/AssetAllocationDonut 现成）；三处修正（E账户=持仓快照非流水、仅覆盖公募、防爆降本已被架构吸收）；新增"前端开源拉取降本"评估——净值/用户数据留后端、分类/行业/风格/拼音/费率科普下沉前端静态源，呼应"自动化不靠谱+存储成本"痛点；含排期表与 I-新1~I-新8 原子 issue 草案 |
+| `unified-import-entry-evaluation-2026-08-16.md` | **数据导入「统一入口」必要性与难度评估**：确认四入口散落（侧栏均 showLink:false、托盘隐藏）+ 后端 ImportOrchestrator 已成熟；#936 引导矩阵(UX 统一入口)与 #933 前端统一提交层(数据收敛)已把"统一"拆清；结论=基础已备、方案已定，技术难度中低，主成本是 #933 收敛改造 + 与 refactor/split-import-wizard 协调；不建议另起孤立导入中心页 |
+| `cross-ledger-import-dedup-scope-2026-08-16.md` | **跨账本重导与去重作用域降级设计**：当前 family 级去重 + 唯一约束双重卡死跨账户重导（迁移死结）；决策降级到 ledger 级；落地 5 步（账本软退役→约束降级→family 级幽灵扫描→现金兼容→NULL 哈希回填），含 UI 软提示/归档语义/同账本覆盖事务；纠正"加复合约束会因历史数据炸"误解（真正雷点是 NULL 行回填） |
+| `frontend-holding-import-plan-2026-08-16.md` | **前端持仓导入与对账设计（#1013，已确认）**：导入向导新增「导入持仓快照」模式（后端 PR #1021 + 对账/归因设计已定稿）；入口第四张卡片 + 持仓页「对账」入口、3 步流程（上传/核对与冲突处理/结果）、对账中心视图、独立 `useHoldingImport.ts` composable、design.md 逐条对照清单、6 个已确认决策点 |
+| `e-account-reconciliation-design-2026-08-16.md` | **E账户对账与归因设计（v1.0 终版，已确认）**：Ledger=销售平台语义、融合方案（空则自动归因/一致已核对/冲突留决策）、影子记录+ownership_status+is_attributed 防复活、position_import_meta 独立列（source_broker/fund_manager/is_attributed/is_ignored/attributed_at/attributed_to_ledger_id/import_error）、无状态 API（parse/reconcile/attribution/reconciliation）、销售机构映射表、P1-P6 语义细节锁定 |
+| `amac-encoding-incident-2026-08-17.md` | **AMAC 名录乱码事故复盘**：接口实为 UTF-8 却硬编码 gbk 解码致 394+165 条乱码入库；排查误区（全仓库只有一个 invest.db，勿臆测多库）；处置（删编码假设 + U+FFFD 入库守卫 + 清空重跑）；编码纪律（禁猜编码、入库前校验、写后抽查） |
+| `investment-agent-brainstorm-2026-08-17.md` | **投资/账本精灵 对话 Agent 头脑风暴（非最终方案）**：四功能可行性（基于代码核查）+ 用户补充的防幻觉/不手搓CoT/LangGraph/RAG/合规原则 + 关键洞察（现有 ai_recognizer 已 embody "模型聊逻辑、Python 算数字"）+ 6 条边界问题 + 三阶段路线图映射 + 待确认 Q1~Q4 |
+| `agent-guardrail-layer-design-2026-08-17.md` | **账本精灵对话 Agent 护栏层设计（正式）**：汇总头脑风暴第十~十七轮与同花顺对标结论；五层护栏（L0 代码隔离/L1 Prompt 铁律/L2 工具可用性/输入侧意图护栏 A~E/L3 输出侧词法过滤）；L3 细化为 10 条拦截规则表（R1~R10）；模块落点 `ai_recognizer/safety/` + G1~G7 实施计划 |
+| `agent-issues-2026-08-17.md` | **账本精灵原子 Issue 草稿**：7 个原子 issue 模板（护栏 G1~G7 拆 4 个 + 快速记账/持仓查询 NL 层/行为解读），含象限 Q2、反链、验收标准，可直接粘贴建 GitHub issue；对应决策 D19 与 roadmap §2.7 |
 
 ## 子目录归档
 

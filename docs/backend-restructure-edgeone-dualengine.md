@@ -1,9 +1,14 @@
-# fundmate 后端重构：双 Engine（Supabase + Turso）+ EdgeOne Pages 部署
+# ~~fundmate 后端重构：双 Engine（Supabase + Turso）+ EdgeOne Pages 部署~~ 【已废弃 / DEPRECATED】
 
-> ⚠️ **文档状态：未来重构计划（尚未实施）**。本文档是 2026-08-01 多轮架构讨论的规划落地产物；
-> 截至 2026-08-02，fundmate 后端**仍为单 SQLite engine**，文档中 P0–P6 各阶段**均未落地**，
-> `database.py` 尚未改造为双 Base / 双会话。本文档仅作架构决策存档与后续实施路线图，不代表当前代码状态。
-> 实施登记见 `docs/spec/roadmap.md` §2 未来支持计划。
+> 🚫 **【废弃文档 · 请勿参考】**。本文档是 2026-08-01 的历史规划，**与当前代码已严重不符**，
+> 据此写代码会导致错误实现。请**立即移步权威文档**：
+> **👉 `docs/dev/db-data-domain.md`（2026-08-18，当前数据库架构唯一事实标准）**。
+>
+> 废弃原因（一句话）：本文设想的"双 Base（UserBase / MarketBase）拆分 + `SUPABASE_URL` 拼串"
+> **实际未采用**。当前落地方案是单一 `app.core.Base` + `DATA_DOMAIN_REGISTRY` 注册表 +
+> `init_db_split()` 按域建表，user 域直读 `SUPABASE_DATABASE_URL`（不拼串）。详见 `db-data-domain.md` 第 10 节差异对照。
+>
+> 保留本文档**仅**作"当年为什么这么选"的决策背景存档，不代表当前代码状态。
 
 > 设计文档 · 2026-08-01
 > 目的：让**其他 AI / 协作者**在独立项目下也能完整理解 fundmate 后端这次重构的来龙去脉与落地步骤。

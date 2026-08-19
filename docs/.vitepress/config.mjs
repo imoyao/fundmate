@@ -3,9 +3,9 @@ import { withDuxTheme } from '@duxweb/vitepress-theme/config'
 import { getSidebar } from 'vitepress-plugin-auto-sidebar'
 import { resolve } from 'node:path'
 
-// 多倍贝文档站 · 正式迁移配置（vuepress v1 → VitePress + @duxweb/vitepress-theme）
+// 多多贝文档站 · 正式迁移配置（vuepress v1 → VitePress + @duxweb/vitepress-theme）
 // 品牌色来自 branding/logo.svg：主色 #E34F38、浅色 #FDFBF7
-// 品牌名 / slogan 与主站（落地页、前端 App）保持一致：多倍贝 · 看见你的复利曲线
+// 品牌名 / slogan 与主站（落地页、前端 App）保持一致：多多贝 · 投资账本 · 看见你的复利曲线
 // 修复 vitepress-plugin-auto-sidebar 在 Windows 下生成的链接问题：
 // 1) 插件用 path.resolve + String.replace 生成 link，Windows 下会得到反斜杠（\guide\foo.md）；
 // 2) 只去掉 contentRoot 前缀，.md 后缀残留。
@@ -25,7 +25,7 @@ function normalizeSidebar(sidebar) {
 
 export default withDuxTheme(
   defineConfig({
-    title: '多倍贝 · 看见你的复利曲线',
+    title: '多多贝 · 投资账本 · 看见你的复利曲线',
     description: '一个让复利增长清晰可见的投资账本手动归集、穿透持仓、算准 XIRR，数据始终在你手里。',
     // 站点语言：让 @duxweb/vitepress-theme 的 useLocale 直接加载 zh-CN 中文 locale，
     // 否则默认 en-US 会使侧边栏标题(docNavTitle)与阅读时长(time)等 UI 文本显示英文。
@@ -62,6 +62,35 @@ export default withDuxTheme(
     // 站点图标：logo 与 favicon 来自 logo-delivery（正式稿），置于默认 publicDir(.vitepress/public)
     head: [
       ['link', { rel: 'icon', href: '/favicon.ico' }],
+      // —— SEO 关键词注入 ——
+      // 把「投资账本」作为显式关键词，解决「用户搜索时触发不到该词」的问题。
+      // 中文站（百度）仍会读取 keywords 元标签；与主站 duoduobei-web 各页面保持一致。
+      ['meta', { name: 'keywords', content: '多多贝,投资账本,个人投资记账,基金记账,股票记账,ETF记账,可转债记账,复利,XIRR,资产管理,数据主权,理财记账' }],
+      // Open Graph：搜索结果摘要 / 社交分享卡片中显式点明「这是一个投资账本产品」
+      ['meta', { property: 'og:type', content: 'website' }],
+      ['meta', { property: 'og:locale', content: 'zh_CN' }],
+      ['meta', { property: 'og:site_name', content: '多多贝' }],
+      ['meta', { property: 'og:title', content: '多多贝 · 投资账本 · 看见你的复利曲线' }],
+      ['meta', { property: 'og:description', content: '一个让复利增长清晰可见的投资账本：手动归集、穿透持仓、算准 XIRR，数据始终在你手里。' }],
+      // Twitter Card
+      ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
+      ['meta', { name: 'twitter:title', content: '多多贝 · 投资账本 · 看见你的复利曲线' }],
+      ['meta', { name: 'twitter:description', content: '一个让复利增长清晰可见的投资账本：手动归集、穿透持仓、算准 XIRR，数据始终在你手里。' }],
+      // 结构化数据（JSON-LD）：明确告知搜索引擎这是一个「投资账本」软件产品（SoftwareApplication），
+      // 强化产品身份识别，提升「投资账本」相关检索的语义关联。
+      ['script', {
+        type: 'application/ld+json',
+        innerHTML: JSON.stringify({
+          '@context': 'https://schema.org',
+          '@type': 'SoftwareApplication',
+          name: '多多贝',
+          applicationCategory: 'FinanceApplication',
+          operatingSystem: 'Web',
+          inLanguage: 'zh-CN',
+          url: 'https://docs.duoduobei.com',
+          description: '多多贝是一款个人投资账本工具，支持手动归集多账户基金/股票/ETF/可转债持仓、穿透底层标的、计算 XIRR 真实收益，数据本地存储、私有可控。',
+        }),
+      }],
     ],
     themeConfig: {
       logo: '/logo.svg',

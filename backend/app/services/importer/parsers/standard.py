@@ -6,6 +6,7 @@ from datetime import date
 from decimal import Decimal
 from typing import List, Optional, Tuple
 
+from app.core.constants import PositionSource
 from app.services.importer.base import BaseImportParser
 from app.services.importer.mappings import (
     FUND_OP_MAP,
@@ -26,7 +27,7 @@ from app.services.importer.utils import (
 class StandardTemplateParser(BaseImportParser):
     """标准模板解析器基类"""
 
-    source = 'standard_template'
+    source = PositionSource.BROKER_STD_TEMPLATE.value
 
     def parse(self, file_bytes: bytes) -> Tuple[List[StandardTransactionRecord], List[SBImportError]]:
         records = []
@@ -197,7 +198,7 @@ class StandardTemplateParser(BaseImportParser):
 
 
 class FundStandardParser(StandardTemplateParser):
-    source = 'standard_fund'
+    source = PositionSource.BROKER_STD_FUND.value
 
     @property
     def _column_map(self) -> dict:
@@ -231,7 +232,7 @@ class FundStandardParser(StandardTemplateParser):
 
 
 class StockStandardParser(StandardTemplateParser):
-    source = 'standard_stock'
+    source = PositionSource.BROKER_STD_STOCK.value
 
     @property
     def _column_map(self) -> dict:

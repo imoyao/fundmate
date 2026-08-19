@@ -390,8 +390,10 @@
           v-model:linked-cash-id="createForm.linked_cash_ledger_id"
           v-model:portfolio-id="createForm.portfolio_id"
           v-model:fee-config="createForm.fee_config"
+          v-model:sales-institution-id="createForm.sales_institution_id"
           :cash-ledgers="cashLedgers"
           :portfolio-list="portfolioList"
+          :sales-institutions="salesInstitutions"
         />
 
         <el-form-item label="备注">
@@ -608,13 +610,21 @@ import {
   migrateOrphanPositions,
   deleteOrphanPositions,
   getOrphanDetail,
-  type OrphanDetailResponse
+  getSalesInstitutions,
+  type OrphanDetailResponse,
+  type SalesInstitution
 } from "@/api/ledger";
 import { getPortfolios } from "@/api/portfolio";
 import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
-import { getLedgerTypeLabel, LEDGER_TYPE_SHORT } from "@/constants";
+import {
+  getLedgerTypeLabel,
+  LEDGER_TYPE_SHORT,
+  majorCategoryLabel,
+  txnTypeLabel
+} from "@/constants";
 import { formatDate, formatDateTime } from "@/utils/date";
+import { formatQuantity } from "@/utils/format";
 import AccountFormFields from "./components/AccountFormFields.vue";
 import DeleteLedgerDialog from "./components/DeleteLedgerDialog.vue";
 
@@ -643,8 +653,11 @@ const createForm = ref({
   notes: "",
   linked_cash_ledger_id: null as number | null,
   portfolio_id: null as number | null,
-  fee_config: null as any
+  fee_config: null as any,
+  sales_institution_id: null as number | null
 });
+/** 基金销售机构候选（AMAC 名录，创建账户可选关联） */
+const salesInstitutions = ref<SalesInstitution[]>([]);
 
 const cashLedgers = computed(() =>
   allLedgers.value.filter((l: any) => l.ledger_type === "bank")
@@ -673,39 +686,6 @@ const orphanDetail = ref<OrphanDetailResponse>({
     total_market_value: 0
   }
 });
-
-// 资产大类翻译（与后端 ASSET_CATEGORY_LABELS 对齐，见 backend/app/core/constants.py）
-const MAJOR_CATEGORY_LABELS: Record<string, string> = {
-  cash: "流动资金",
-  fixed: "固定资产",
-  investment: "投资理财",
-  receivable: "应收款",
-  liability: "负债",
-  insurance: "保险项目"
-};
-
-function majorCategoryLabel(key: string): string {
-  return MAJOR_CATEGORY_LABELS[key] ?? key;
-}
-
-// 交易类型翻译（buy/sell/dividend，与 ledgers/detail.vue txnTypeLabel 一致）
-const TXN_TYPE_LABELS: Record<string, string> = {
-  buy: "买入",
-  sell: "卖出",
-  dividend: "分红"
-};
-
-function txnTypeLabel(type: string): string {
-  return TXN_TYPE_LABELS[type] ?? type;
-}
-
-// 份额格式化：保留 2 位 + 千分位（design.md「份额/数量保留 2 位」）
-function formatQuantity(qty: number): string {
-  return (qty || 0).toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  });
-}
 
 // 总资产（从 overview groups 汇总）
 const totalAssets = computed(
@@ -866,7 +846,8 @@ function openCreateDialog() {
     notes: "",
     linked_cash_ledger_id: null,
     portfolio_id: null,
-    fee_config: null
+    fee_config: null,
+    sales_institution_id: null
   };
   showCreateDialog.value = true;
 }
@@ -974,10 +955,11 @@ async function handleOrphanCleanup() {
 async function fetchData() {
   loading.value = true;
   try {
-    const [ledgersRes, overviewRes, portfolioRes] = await Promise.all([
+    const [ledgersRes, overviewRes, portfolioRes, instRes] = await Promise.all([
       getLedgers(),
       getLedgersOverview(),
-      getPortfolios()
+      getPortfolios(),
+      getSalesInstitutions()
     ]);
     allLedgers.value = (ledgersRes as any)?.data ?? [];
     overviewData.value = (overviewRes as any)?.data ?? {
@@ -986,6 +968,8 @@ async function fetchData() {
       groups: []
     };
     portfolioList.value = (portfolioRes as any)?.data ?? [];
+    salesInstitutions.value =
+      (instRes as { data?: SalesInstitution[] })?.data ?? [];
     // 统一走公共格式化：YYYY-MM-DD HH:mm（不带秒），避免斜线/时分秒混用
     lastUpdate.value = formatDateTime(new Date());
   } catch (e: any) {

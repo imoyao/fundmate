@@ -34,13 +34,17 @@ export function useWatchlistGroups() {
   const activeGroup = ref("holding");
   const allGroups = ref<GroupTab[]>([]);
   const customGroups = ref<WatchlistGroup[]>([]);
+  /** 分组管理弹窗用：系统分组（无 id 只有 key，可见不可编辑/删除）+ 自定义分组（原样含 id） */
+  const managerGroups = ref<WatchlistGroup[]>([]);
 
   const activeGroupLabel = computed(() => {
     const group = allGroups.value.find(g => g.key === activeGroup.value);
     return group?.label || "全部";
   });
 
-  const currentIsCustom = computed(() => activeGroup.value.startsWith("custom_"));
+  const currentIsCustom = computed(() =>
+    activeGroup.value.startsWith("custom_")
+  );
 
   const activeCustomGroupId = computed(() => {
     if (currentIsCustom.value) {
@@ -56,6 +60,7 @@ export function useWatchlistGroups() {
       const data: WatchlistGroup[] = res.data ?? [];
       const system: GroupTab[] = [];
       const custom: WatchlistGroup[] = [];
+      const manager: WatchlistGroup[] = [];
       data.forEach(g => {
         // 方案 B：后端仍返回 exchange/otc 系统分组，但「场内/场外」已由顶部 el-segmented 承担，此处过滤不展示
         if (g.is_system && (g.key === "exchange" || g.key === "otc")) return;
@@ -69,8 +74,20 @@ export function useWatchlistGroups() {
             count: g.count || 0,
             filter: getSystemFilter(g.key!)
           });
+          // 管理弹窗系统分组行：无自选 id（undefined），编辑/删除被禁用
+          manager.push({
+            id: undefined,
+            key: g.key!,
+            name: g.label || g.name || g.key,
+            color: g.color,
+            count: g.count || 0,
+            is_system: true,
+            is_visible: true,
+            entity_type: "ASSET"
+          });
         } else {
           custom.push(g);
+          manager.push(g); // 自定义分组原样（含 id，可编辑/删除）
           system.push({
             key: `custom_${g.id}`,
             label: g.name,
@@ -82,6 +99,8 @@ export function useWatchlistGroups() {
       });
       allGroups.value = system;
       customGroups.value = custom;
+      // 系统分组在前、自定义在后（data 本身系统在前，push 顺序天然满足）
+      managerGroups.value = manager;
       // 若当前 activeGroup 指向被隐藏的系统分组（count=0 已过滤），回退到「全部」
       if (!system.some(g => g.key === activeGroup.value)) {
         activeGroup.value = "all";
@@ -104,6 +123,7 @@ export function useWatchlistGroups() {
     activeGroup,
     allGroups,
     customGroups,
+    managerGroups,
     activeGroupLabel,
     currentIsCustom,
     activeCustomGroupId,

@@ -50,7 +50,10 @@ class Ledger(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     ledger_type = Column(
         String(20),
         default='bank',
-        comment='类型: stock(股票账户) / fund(基金账户) / property(实物资产) / bank(现金账户) / family(家庭账户)',
+        comment=(
+            '类型: stock(股票账户) / fund(基金账户) / e_account(基金E账户汇总,由E账户导入自动创建) '
+            '/ property(实物资产) / bank(现金账户) / family(家庭账户)'
+        ),
     )
     default_allocation = Column(
         String(20),
@@ -74,4 +77,10 @@ class Ledger(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
         ForeignKey('ledgers.id', ondelete='SET NULL'),
         nullable=True,
         comment='关联的现金账户（仅 stock/fund 类型可用）',
+    )
+    sales_institution_id = Column(
+        Integer,
+        ForeignKey('sales_institutions.id', ondelete='SET NULL'),
+        nullable=True,
+        comment='关联的基金销售机构（AMAC 权威名录，可选自选字段；用户创建账户时自选，不选为 NULL）',
     )

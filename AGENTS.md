@@ -53,6 +53,7 @@ Windows：`dev.cmd`（内部走 `scripts/dev.ps1`）；Git Bash / WSL / macOS：
 - 提交走根 `.pre-commit-config.yaml`（ruff --fix + ruff-format，已 `pre-commit install` 生效）；前端 husky（lint-staged + vue-tsc）因 `ignore-scripts=true` 未安装，故 `vue-tsc` 须手动跑（见前端命令）。
 - 若 pre-commit 崩溃报 `ACC_PRODUCT_CONFIG_V3` 超 32767 字符上限：commit 命令前先 `unset ACC_PRODUCT_CONFIG_V3` 再提交，勿用 `env -i`。
 - 给用户看的命令行须兼容 Windows cmd（无 `head`/`cat`/`grep`/`sed`）：优先用项目自带脚本（如 `backend/scripts/diag_em.py`）或说明用 PowerShell 执行。
+- **中文 commit message 编码（重要）**：提交信息一律走 UTF-8 文件 + `git commit --file`（见上「代码提交工具」），**禁止**在 PowerShell/cmd 内联中文（`Set-Content -Encoding UTF8` 会带 BOM，且 shell 引号易把中文当命令解析）。git 把 message 存为 UTF-8，在 GitHub/IDE 等 UTF-8 环境查看正常；**本机 GBK 终端 `git log`/`git show` 或 read_file 工具显示成「淇�」等乱码，是显示层 GBK 解码假象，不是真乱码**——可用 `git cat-file -p HEAD | python -c "import sys,os;raw=os.sys.stdin.buffer.read();raw.decode('utf-8')"` 严格 UTF-8 解码校验（成功即存储正确）。如遇 message 确为 mojibake，可设 `git config i18n.commitEncoding utf-8` 与 `i18n.logOutputEncoding utf-8`，但本仓库默认值即 UTF-8，正常走 message 文件即无需额外配置。
 
 ## 临时文件清理工具（所有 AI / agent 删除临时文件必须走此脚本）
 
@@ -84,6 +85,26 @@ Windows：`dev.cmd`（内部走 `scripts/dev.ps1`）；Git Bash / WSL / macOS：
   已跟踪文件也会被跳过，双重保险。
 - 脚本顶部 docstring 含完整 WHY / HOW / SAFETY 说明，调用前可读。
 
+## 代码提交工具（所有 AI / agent 提交代码建议走此脚本）
+
+**为什么（WHY）**：通过 IDE / 远程通道提交时，`git commit` 常被系统弹「允许 / 拒绝」审批卡点拦截；人不在跟前时审批会超时或漏点，导致提交通过率极低。为把「提交」变成可判断、可无人值守的收口操作，约定：**AI / agent 提交代码优先走 `scripts/commit_changes.py`，与 `cleanup_temp.py` 同构（默认 DRY-RUN 展示、`--apply` 才执行）**。它不取代「AI 自动提交标注」等既有提交规范，只是把「跑什么命令」统一收口。
+
+**工具位置与约束**：`scripts/commit_changes.py`（自研，纯标准库，跨平台，Windows 兼容）。
+- 默认 **DRY-RUN**：只打印「本次提交干什么 + 提交哪些文件（含 git 状态 M/A/??）」+ 提交信息全文，**绝不真正提交**；
+- 必须显式传 `--apply` 才执行 `git commit`；可选 `--push` 提交后推送；
+- **精准优先**：优先用 `--files <路径>` 逐项列出要提交的文件（提交前会校验文件存在），
+  不传则回退到「已暂存(staged)」改动；提交信息文件缺失时 dry-run 不报错、仅提示，apply 前必须准备；
+- **提交信息走文件**：提交信息写在 UTF-8 文件（默认 `git/.git/COMMIT_MSG`，或 `--message-file`），
+  由脚本经 `git commit --file` 传入，**禁止**在命令行内联中文（防 mojibake，与 Issue 创建同规则）；
+- **永不 `--no-verify`**：pre-commit 守卫（`forbid_bp_input` / `guard_all_pb` / `guard_mojibake`）始终生效；
+- 提交信息全文由调用方准备，须遵守本文件「AI 自动提交标注」与 conventional commits 约定（标注 `[AI 自动提交]` + `AI-Committed-By: <实际提交者>`）。
+
+**操作 SOP（AI / 人通用）**：
+1. 先 dry-run 看清单（默认即 dry-run）：`python scripts/commit_changes.py --files a.py b.py --message-file .git/COMMIT_MSG`。
+2. 把打印出的「标题 + 提交文件清单 + 提交信息」呈现给用户，说明本次提交干了什么、涉及哪些文件，**等用户确认**（或按用户约定「小改动静默提交」规则处理）。
+3. 用户确认后执行：`python scripts/commit_changes.py --files a.py b.py --message-file .git/COMMIT_MSG --apply`（如需推送加 `--push`）。
+- 脚本顶部 docstring 含完整 WHY / HOW / SAFETY 说明，调用前可读。
+
 ## 关键约束（权威规范在 `docs/spec/`、`frontend/design.md`）
 
 - 接口错误统一 `{data, message, error_code}` 信封；API-First 契约冻结，字段 / 状态码 / 分页结构禁止私改；端点一律尾斜杠（**例外：`/api/temperature/{overview,history,multi}` 无尾斜杠，前端按此调用，勿"修复"**）。
@@ -98,6 +119,58 @@ Windows：`dev.cmd`（内部走 `scripts/dev.ps1`）；Git Bash / WSL / macOS：
 - pypinyin 是重型依赖（3.2MB 词典），必须保持延迟导入（见 `fund_detail_enrich_job.py`）。
 - 温度计模块历史基线数据 `backend/app/services/thermometer/data/all_pb.csv`（全A中位PB历史，行业拥挤度分母兜底）**禁止删除、禁止 `.gitignore`、必须入库**：它不是运行时缓存（已从 `cache/` 迁出至 `data/`），而是可被 `scripts/prefetch_all_pb.py` 重建但需稳定可追踪的基线；误删会导致温度计整组标灰。pre-commit 守卫 `scripts/guard_all_pb.py` 会在行数骤降（< 1000）时拒绝提交——不要绕过该守卫（如 `--no-verify`）。
 - 提交前：后端 `pytest` 全量单进程通过；前端 `vue-tsc` 零错误。
+
+## 架构与开发原则（所有 AI / agent 决策必须遵守）
+
+核心精神：**追求极简、务实、长期可维护性**。这不是口号，是推翻具体技术选型时的兜底判据。
+
+### 设计哲学
+- **不保留向后兼容性**：废弃路径直接移除，不要留 `if legacy` / `deprecated` 分支 / 兼容垫片。旧方案死了就是死了，维护两套只会增加长期负担。
+- **选择最简方案，避免过度抽象**：能用一个函数解决的，不抽三层工厂；能用现有依赖的，不复用轮子再造一个。抽象只在「同一逻辑真的出现 2–3 次以上」时才做（参照 #980 结论）。
+
+### 开发流程
+- **分层迭代，最小可用版本（MVP）起步**：先让最小闭环跑通，再逐步叠加功能。不为尚未完成的复杂功能牺牲当前产品的可用性与清晰度。
+- 需求原子化拆分（见「Issue 原子化约束」）：一个 issue 只解决一类子问题，避免超长 issue 耦合关不掉。共享前置（如 `columnDefs` 数据模型）单独拆 issue 先落地，其余在其上叠加。
+
+### 代码与依赖
+- **保持组件模块化**：页面主文件控制行数（目标 ≤ 300 行，编排而非堆逻辑）；常量/枚举/纯函数/ Hook / 无状态组件按职责下沉到 `constants/` `utils/` `composables/` `components/`。
+- **优先选用成熟第三方库，不重复造轮子**；**复用已有依赖，不盲目新增**（新增依赖需说明必要性，避免膨胀 `pdm.lock` / `package.json`）。
+
+### 决策视角
+- **以长期视角制定架构决策，拒绝临时的权宜之计**：能用一天 hack 解决但埋下技术债的，不取；宁可多花一步做对的事。外部数据源、跨域方案、存储选型等影响面大的决策，先评估长期维护成本再定。
+
+### 多引擎数据域约束（DB Data Domain，双库架构硬规则，避免返工）
+
+**背景**：项目正从「单 SQLite」演进为「Turso（市场域）+ Supabase（用户域）+ Neon（灾备，延后）」混合库。**单库 / 双库统一可用**：未配 `SUPABASE_DATABASE_URL` 时 user 域自动回退本地 SQLite 文件（`invest.user.dev.db`），与 market 域的 `invest.dev.db` 物理分离，本地零配置即可「双库模拟」，测试飞快；配了 Supabase 才走真云库。详细设计见 `docs/dev/db-data-domain.md`（第 9 节「单库/双库统一可用」），**本文是给所有 AI / 开发者 / 后续 agent 的硬约束摘要，设计新表 / 写查询前必须读完**。
+
+**两条运行库（engine）的语义**：
+- `market` 域 → Turso（开发期=本地 SQLite 替身 `invest.dev.db`）：公开、读多写少、会随时间无限膨胀的**市场数据**（净值 / 行情 / 温度 / 指数 / 基金基础资料 / 基金管理人 / 系统同步审计）。
+- `user` 域 → Supabase（Postgres，开发期=本地 SQLite 回退 `invest.user.dev.db`）：含 `family_id`/`user_id` 的**用户私有数据**（账户 / 持仓 / 交易 / 组合 / 自选关系 / 家庭 / 用户 / 销售机构 / 用户操作审计）。Neon 仅替换 `SUPABASE_DATABASE_URL` 连接串作灾备，auth 单独处理（延后）。
+
+**强制规则（违反即视为 bug）**：
+1. **每个 ORM 模型必须声明 `__data_domain__ = 'market' | 'user'` 类属性**（在 `docs/dev/db-data-domain.md` 的归属清单内）。未声明的不允许合并，护栏会在启动期断言。
+2. **跨域零外键、零 SQL join**：两域是独立引擎（SQLite↔Postgres），SQL 层无法 JOIN。跨域关联只允许存**冗余业务键**（如 `fund_code` / `symbol` 字符串），取值以 `market` 域为权威来源，绝不建跨库 FK。
+3. **跨域读取只允许「应用层两步法」**：先在某域取键列表（如用户自选的 `fund_code`）→ 用 `in_` 批量去另一域取数据。**集中到统一 service 方法，禁止各 service 手写 N+1、禁止幻想 SQL join**。
+4. **归属由「被谁引用 + 是否无限膨胀 + 是否含隐私」决定，不靠数据性质一刀切**：
+   - 含 `family_id`/`user_id` 且用户产生 → `user` 域；
+   - 被 `user` 域表外键引用的**小体积公开名录**（销售机构）→ 随 `user` 域（避免反向跨域 FK）；
+   - 被 `market` 域表（`funds`）外键引用的公开名录（基金管理人，独立表）→ 随 `market` 域；
+   - 公开、读多写少、无限膨胀（净值/行情/温度）→ `market` 域。
+5. **`init_db` 按域分别 `create_all` 到对应 engine，并启动断言「声明域 == 实际建库」**，不一致直接 fail（防「表建错库导致静默读错/写错」）。
+6. **Session 入口只有 `market_session()` / `user_session()` 两个**，service 层只能从这两个取会话，**禁止混用、禁止拿错引擎**。
+7. **单库 / 双库统一可用（本地回退，非强制真云库）**：`init_db()` 把全部表建到一个引擎（单库兼容，老路径）；`init_db_split()` 按域分别建表。**未配 `SUPABASE_DATABASE_URL` 时 user 域自动回退本地 `invest.user.dev.db`**（与 market 的 `invest.dev.db` 物理分离），本地零配置即「双库模拟」。`user_session_factory()` / `user_session()` / `get_user_sessionmaker()` 不再因缺 Supabase 抛 RuntimeError。配了 `SUPABASE_DATABASE_URL` 才走真 Supabase，业务代码零改动。本地测试优先用双库模拟，最终验证 / 生产才接真云库。
+8. **Neon 灾备切换仅替换连接串**，业务代码零改动；但 Supabase auth ≠ Neon 裸 PG，灾备阶段 auth 需单独方案（延后，不在本次范围）。
+
+**判定决策树（新增任何表先问自己这三问）**：
+- 它含 `user_id`/`family_id` 吗？（是 → `user` 域）
+- 它被谁外键引用？（被 `user` 域表引用 → 随 `user`；被 `market` 域表引用 → 随 `market`）
+- 它会随「全市场标的数量」无限膨胀吗？（是 → `market` 域；按「用户数」膨胀 → `user` 域，不受美股/港股扩展影响）
+
+### 与自选股池实时数据相关的约束（重要，避免返工）
+- 实时股价 / 场外基金估值当前由前端 `frontend/src/utils/realtimeDataSources.ts` **JSONP 直连**天天基金（`fundgz.1234567.com.cn`）+ 腾讯财经（`qt.gtimg.cn`），封装链为 `realtimeDataSources.ts → valuationEngine.ts → useRealtimeQuotes.ts → 页面`。
+- **任何「新增自选字段 / 统一整合外部数据源」的需求，必须先决策数据来源收口方式**：要么维持前端 JSONP（已绕过 CORS，但脆弱、无法服务端缓存/降级/限流），要么收口到**后端代理**（前端只调自家 `/api`，统一解决跨域、稳定性、降级，但需新建后端端点）。方案未定前不要散落地加接口调用。
+- 新增行情/估值字段须复用既有 `realtimeDataSources.ts` 封装与 `useRealtimeQuotes` 的轮询/降级机制，禁止在页面里另起一套直连逻辑。
+- 注意 #980（上帝页面拆分）进行中：自选 `index.vue` 当前约 2016 行且列仍是硬编码 `<el-table-column>`，`columnDefs` 数据驱动（#995）尚未落地。**新字段/新列需求应建立在 #995 的 `columnDefs` 之上，不要往硬编码模板继续堆列**，否则与拆分方向冲突、后期返工。
 
 ## GitHub Issue / Discussion / PR 创建规范（OpenCode 等自动化通道）
 

@@ -1,3 +1,7 @@
+---
+title: 前端命名规范（frontend-naming）
+---
+
 # 前端命名规范（frontend-naming）
 
 > 本文件为 `conventions.md` 第 2.7 节「全局命名规范」的**前端补充细则**，与后端命名规范并列。

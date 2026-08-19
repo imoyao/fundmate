@@ -30,12 +30,12 @@
 
         <el-form-item label="资产大类" prop="major_category">
           <el-select v-model="form.major_category" class="w-full">
-            <el-option label="流动资金" value="cash" />
-            <el-option label="固定资产" value="fixed" />
-            <el-option label="投资理财" value="investment" />
-            <el-option label="应收款" value="receivable" />
-            <el-option label="负债" value="liability" />
-            <el-option label="保险" value="insurance" />
+            <el-option
+              v-for="(label, key) in MAJOR_CATEGORY_LABELS"
+              :key="key"
+              :label="label"
+              :value="key"
+            />
           </el-select>
         </el-form-item>
 
@@ -151,6 +151,22 @@
             />
           </el-select>
         </el-form-item>
+        <el-form-item label="关联销售机构">
+          <el-select
+            v-model="newLedgerForm.sales_institution_id"
+            class="w-full"
+            clearable
+            filterable
+            placeholder="不关联（可选）"
+          >
+            <el-option
+              v-for="inst in salesInstitutions"
+              :key="inst.id"
+              :label="institutionLabel(inst)"
+              :value="inst.id"
+            />
+          </el-select>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button size="large" @click="showCreateLedgerDialog = false"
@@ -174,10 +190,19 @@ import { ref, reactive, onMounted } from "vue";
 import { ElMessage } from "element-plus";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import { createAsset } from "@/api/assets";
-import { getLedgers, createLedger } from "@/api/ledger";
+import {
+  getLedgers,
+  createLedger,
+  getSalesInstitutions,
+  type SalesInstitution
+} from "@/api/ledger";
 import type { FormInstance, FormRules } from "element-plus";
 import { useRoute } from "vue-router";
-import { ALLOCATION_OPTIONS, LEDGER_TYPE_OPTIONS } from "@/constants";
+import {
+  ALLOCATION_OPTIONS,
+  LEDGER_TYPE_OPTIONS,
+  MAJOR_CATEGORY_LABELS
+} from "@/constants";
 
 const route = useRoute();
 
@@ -190,7 +215,13 @@ const ledgers = ref<any[]>([]);
 // 新增账户相关
 const showCreateLedgerDialog = ref(false);
 const creatingLedger = ref(false);
-const newLedgerForm = reactive({ name: "", ledger_type: "bank" });
+const newLedgerForm = reactive({
+  name: "",
+  ledger_type: "bank",
+  sales_institution_id: null as number | null
+});
+/** 基金销售机构候选（AMAC 名录，新增账户可选关联） */
+const salesInstitutions = ref<SalesInstitution[]>([]);
 
 // 表单数据
 const form = reactive({
@@ -281,6 +312,23 @@ async function fetchLedgers() {
   }
 }
 
+/** 销售机构候选加载：失败仅记日志，下拉留空（可选字段不阻塞页面） */
+async function fetchSalesInstitutions() {
+  try {
+    const res = await getSalesInstitutions();
+    salesInstitutions.value = res?.data ?? [];
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+/** 下拉展示：优先「权威全称（常用别名）」，无别名则仅全称 */
+function institutionLabel(inst: SalesInstitution): string {
+  return inst.display_name
+    ? `${inst.org_name}（${inst.display_name}）`
+    : inst.org_name;
+}
+
 async function handleCreateLedger() {
   if (!newLedgerForm.name.trim()) {
     ElMessage.warning("请输入账户名称");
@@ -291,12 +339,14 @@ async function handleCreateLedger() {
     const res = await createLedger({
       name: newLedgerForm.name,
       ledger_type: newLedgerForm.ledger_type,
-      currency: "CNY"
+      currency: "CNY",
+      sales_institution_id: newLedgerForm.sales_institution_id ?? null
     });
     const newLedger = (res as any).data || res;
     ElMessage.success("账户已创建");
     showCreateLedgerDialog.value = false;
     newLedgerForm.name = "";
+    newLedgerForm.sales_institution_id = null;
     await fetchLedgers();
     form.ledger_id = newLedger.id || (res as any).id;
     form.account_name = newLedger.name || newLedgerForm.name;
@@ -309,6 +359,7 @@ async function handleCreateLedger() {
 
 onMounted(() => {
   fetchLedgers();
+  fetchSalesInstitutions();
   const category = route.query.category as string;
   if (category) {
     form.major_category = category;

@@ -1,3 +1,7 @@
+---
+title: 核心数据模型完整规范（data-model）
+---
+
 # 核心数据模型完整规范（data-model）
 
 本文件收录核心数据模型完整规范（原 SPEC 第 5 章），属于**随代码演进**的事实标准。模型字段以 `backend/app/domains/*/models.py` 为准；本节描述关键字段与设计意图。

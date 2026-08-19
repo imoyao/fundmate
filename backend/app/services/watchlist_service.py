@@ -37,24 +37,42 @@ def build_groups_data(db: Session, family_id: int) -> list[dict]:
     def _item_base():
         return db.query(WatchlistItem).filter(WatchlistItem.family_id == family_id)
 
-    # 1. 全部
+    # 1. 全部（自选清单 ∪ 真实持仓，同一 symbol 自选记录优先去重——
+    # 与「全部」分组列表返回条数保持一致，避免出现「全部 < 持仓」的口径矛盾）
+    watchlist_symbols = {
+        sym for (sym,) in db.query(WatchlistItem.symbol).filter(WatchlistItem.family_id == family_id).all()
+    }
+    pos_q = db.query(Position.symbol).filter(
+        Position.family_id == family_id,
+        Position.ownership_status == 'active',
+    )
+    if watchlist_symbols:
+        pos_q = pos_q.filter(Position.symbol.notin_(watchlist_symbols))
+    all_count = _item_base().count() + pos_q.distinct().count()
     groups_data.append(
         {
             'key': 'all',
             'label': '全部',
             'color': GROUP_COLORS['all'],
-            'count': _item_base().count(),
+            'count': all_count,
             'is_system': True,
         }
     )
 
-    # 2. 持仓
+    # 2. 持仓（真实持仓口径：positions 表 active 持仓按 symbol 去重，
+    # 不再依赖 watchlist.status 快照——自选页「持仓」分组 = 全部真实持仓）
+    holding_count = (
+        db.query(Position.symbol)
+        .filter(Position.family_id == family_id, Position.ownership_status == 'active')
+        .distinct()
+        .count()
+    )
     groups_data.append(
         {
             'key': 'holding',
             'label': '持仓',
             'color': GROUP_COLORS['holding'],
-            'count': _item_base().filter(WatchlistItem.status == 'HOLDING').count(),
+            'count': holding_count,
             'is_system': True,
         }
     )

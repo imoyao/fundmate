@@ -38,8 +38,12 @@ _UNCONFIGURED_NODE = '未配置资产'
 
 
 def _load_user_assets(db: Session, family_id: int) -> tuple[list[Type[Position]], Any]:
-    """统一加载当前家庭的资产数据（持仓 + 通用资产），按 family_id 隔离（D1）。"""
-    positions = db.query(Position).filter(Position.family_id == family_id).all()
+    """统一加载当前家庭的资产数据（持仓 + 通用资产），按 family_id 隔离（D1）。
+
+    持仓只取 ownership_status='active'（§12.3）：E账户影子记录（shadow，ledger_id=NULL）
+    仅对账不参与总资产，过滤后 ledger_id 关联不变，避免暂存区记录虚增总资产。
+    """
+    positions = db.query(Position).filter(Position.family_id == family_id, Position.ownership_status == 'active').all()
     assets = db.query(Asset).filter(Asset.family_id == family_id).all()
     return positions, assets
 

@@ -99,7 +99,7 @@ class LedgerService:
         total_assets = sum(g['total'] for g in type_groups.values())
         net_worth = round(total_assets - liability_yuan, 2)
 
-        order = ['bank', 'stock', 'fund', 'property', 'deleted']
+        order = ['bank', 'stock', 'fund', 'e_account', 'property', 'deleted']
         sorted_groups = [type_groups[t] for t in order if t in type_groups]
 
         return {

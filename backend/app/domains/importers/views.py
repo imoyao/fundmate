@@ -158,3 +158,90 @@ def confirm_import():
     except Exception as e:
         logger.exception(f'导入确认失败: {e}')
         abort(500, '导入失败，请稍后重试')
+
+
+# ── 持仓导入（#1012，E账户快照，落 positions 不建流水）──
+
+
+@importers_bp.post('/holdings/parse')
+def parse_holding_file():
+    """解析基金E账户持仓导出文件，返回预览行（含去重标记）。
+
+    与 /parse（交易）完全并行：输出持仓预览行，提交走 /holdings/confirm。
+    ledger_id 可选：不传则自动创建/复用「基金E账户」聚合账户。
+    """
+    if 'file' not in request.files:
+        abort(400, '请上传文件')
+
+    file = request.files['file']
+    if not file.filename or not file.filename.lower().endswith(('xls', 'xlsx')):
+        abort(400, '仅支持 Excel 文件（E账户导出为 XLSX）')
+
+    source = request.args.get('source', 'e_account_holding')
+    ledger_id = request.args.get('ledger_id', type=int)
+
+    raw_bytes = file.read()
+    file.seek(0)
+
+    try:
+        with get_db() as db:
+            orch = ImportOrchestrator(db, get_family_id())
+            result = orch.parse_and_preview_holdings(raw_bytes, source, ledger_id=ledger_id)
+            logger.info(
+                f'持仓文件解析完成: 文件={file.filename}, source={source}, '
+                f'总记录={result["total"]}, 错误={result["error_count"]}, 重复={result["duplicate_count"]}'
+            )
+            return jsonify(
+                {
+                    'data': result['rows'],
+                    'total': result['total'],
+                    'error_count': result['error_count'],
+                    'duplicate_count': result['duplicate_count'],
+                    'ledger_id': result['ledger_id'],
+                    'ledger_name': result['ledger_name'],
+                    'message': 'ok',
+                }
+            )
+    except (SBException, ValueError) as e:
+        msg = getattr(e, 'message', str(e))
+        return jsonify(
+            {
+                'data': [],
+                'total': 0,
+                'error_count': 1,
+                'duplicate_count': 0,
+                'ledger_id': None,
+                'ledger_name': '',
+                'message': msg,
+            }
+        ), 400
+    except Exception as e:
+        logger.exception(f'持仓文件解析未知异常: {e}')
+        return jsonify(
+            {
+                'data': [],
+                'total': 0,
+                'error_count': 1,
+                'duplicate_count': 0,
+                'ledger_id': None,
+                'ledger_name': '',
+                'message': f'服务器内部错误: {str(e)}',
+            }
+        ), 500
+
+
+@importers_bp.post('/holdings/confirm')
+def confirm_holding_import():
+    """确认导入持仓快照：过滤重复/错误行后 upsert 至 positions（不建交易流水）。"""
+    rows = request.get_json()
+    if not rows:
+        abort(400, '请选择至少一条持仓记录')
+
+    try:
+        with get_db() as db:
+            orch = ImportOrchestrator(db, get_family_id())
+            result = orch.commit_holdings(rows)
+        return jsonify({'data': result, 'message': 'ok'})
+    except Exception as e:
+        logger.exception(f'持仓导入确认失败: {e}')
+        abort(500, '持仓导入失败，请稍后重试')

@@ -507,6 +507,7 @@ import {
 } from "@/components/MarketHeader/config";
 import { buildMarketFooterSources } from "@/components/MarketFooter/config";
 import { useAuthState } from "@/composables/useAuthState";
+import { tempSourceLabel } from "@/constants";
 
 // 登录态感知（温度计为公开数据页 D4，仅用于登录转化引导）
 const { isAuthenticated } = useAuthState();
@@ -744,24 +745,9 @@ function crowdingBarStyle(pct: number | null | undefined) {
   return { width: `${v}%` };
 }
 
-// 来源标识 -> 中文显示名（避免页面出现拼音/英文）
-const SOURCE_DISPLAY_NAMES: Record<string, string> = {
-  jiucaishuo_fear: "韭圈儿",
-  jiucaishuo_medium: "韭圈儿",
-  qieman: "且慢",
-  youzhiyouxing: "有知有行",
-  jisilu_cb: "集思录",
-  jisilu_indicator: "集思录",
-  eastmoney_volume: "东财",
-  eastmoney: "东财",
-  self_calc: "自算",
-  fulai: "富来智投",
-  default: ""
-};
-
+// 来源中文显示名统一走单一真相源 src/constants/tempSourceLabel（避免页面手抄拼音/英文）
 function displaySource(source?: string): string {
-  if (!source) return "";
-  return SOURCE_DISPLAY_NAMES[source] || source;
+  return tempSourceLabel(source);
 }
 
 // ECharts 配置

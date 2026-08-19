@@ -1,0 +1,15 @@
+{
+  "name": "jigu-migration",
+  "version": "1.0.0",
+  "private": true,
+  "description": "极谷（jigu）跨 Supabase project 数据迁移脚本（一次性运维工具）",
+  "type": "commonjs",
+  "scripts": {
+    "dry-run": "node migrate_jigu_users.js",
+    "apply": "node migrate_jigu_users.js --apply"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "dotenv": "^16.4.0"
+  }
+}
