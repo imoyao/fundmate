@@ -476,7 +476,9 @@ const liabilityList = ref([
   }
 ]);
 
-defineOptions({ name: "AssetPanorama" });
+// 注：历史遗留 name 曾与 AssetPanorama.vue 同名（影子页面，路由被遮蔽无法访问），
+// 已改为唯一名，便于临时挂路由查看该页面现状（是否废弃待用户决策）。
+defineOptions({ name: "LegacyAssetOverview" });
 
 // —— 数据 ——
 const allPositions = ref<any[]>([]);
