@@ -155,8 +155,16 @@
               <RiseFallText :value="row.pnl_rate || 0" />
             </template>
           </el-table-column>
+          <el-table-column label="来源" width="110">
+            <template #default="{ row }">
+              <el-tag v-if="positionSourceLabel(row.source)" size="small" type="info">
+                {{ positionSourceLabel(row.source) }}
+              </el-tag>
+              <span v-else style="color: var(--text-tertiary)">—</span>
+            </template>
+          </el-table-column>
           <el-table-column label="所属账户" width="120">
-            <template #default="{ row }">{{ row.account_name }}</template>
+            <template #default="{ row }">{{ row.account_name || '未归档' }}</template>
           </el-table-column>
         </el-table>
         <div v-else class="table-empty">
@@ -233,6 +241,7 @@ import MetricGrid from "@/components/MetricGrid/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import PortfolioEditDialog from "@/components/PortfolioEditDialog/index.vue";
+import { useEnumLabels } from "@/composables/useEnumLabels";
 
 defineOptions({ name: "PortfolioDetail" });
 
@@ -245,6 +254,7 @@ interface PortfolioHolding {
   pnl?: number;
   pnl_rate?: number;
   account_name?: string;
+  source?: string | null;
 }
 
 /** 关联账户：账户 + 组合关联字段 */
@@ -264,6 +274,9 @@ const xirrData = ref<XirrData | null>(null);
 const xirrLoading = ref(false);
 const sortProp = ref<string | null>(null);
 const sortOrder = ref<"ascending" | "descending" | null>(null);
+
+// 枚举中文标签（来源等），从后端 /api/utils/enums 单一真相源获取
+const { ensure: ensureEnums, positionSourceLabel } = useEnumLabels();
 
 // 持仓相关
 const holdings = ref<PortfolioHolding[]>([]);
@@ -386,6 +399,7 @@ const pagedHoldings = computed(() => {
 
 // ---------- 生命周期 ----------
 onMounted(async () => {
+  void ensureEnums(); // 预热枚举标签缓存（来源徽标）
   await fetchDetail();
   if (portfolio.value) {
     void fetchXirr(); // 自动加载收益率

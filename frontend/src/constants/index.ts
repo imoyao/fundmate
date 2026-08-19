@@ -1,6 +1,24 @@
 // src/constants/index.ts
 // 全局业务常量，与后端 app/core/constants.py 保持一致
 
+/** 持仓数据来源枚举值（与后端 app.core.constants.PositionSource 对齐）。
+ * 注意：中文 label 不在此处手抄，统一从 GET /api/utils/enums 的 position_source 下发，
+ * 前端用 useEnumLabels 获取，避免前后端各维护一套导致漂移。 */
+export const POSITION_SOURCE = {
+  MANUAL: 'manual',
+  E_ACCOUNT: 'e_account_holding',
+  BROKER_TIANTIAN: 'tiantian_fund',
+  BROKER_THS: 'ths_stock',
+  BROKER_STD_FUND: 'standard_fund',
+  BROKER_STD_STOCK: 'standard_stock',
+  BROKER_ALIPAY: 'alipay_fund',
+  BROKER_ALIPAY_PDF: 'alipay_pdf',
+  BROKER_STD_TEMPLATE: 'standard_template',
+  AI_TXN: 'ai_txn',
+  AI_HOLDING: 'ai_holding',
+  EXPLORE: 'explore'
+} as const;
+
 /** 账户类型 */
 export const LEDGER_TYPE_OPTIONS = [
   { value: "bank", label: "银行账户" },
