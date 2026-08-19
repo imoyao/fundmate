@@ -145,13 +145,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from "vue";
 import { useRouter } from "vue-router";
-import { ElMessage } from "element-plus";
 import VChart from "vue-echarts";
-import {
-  getTemperatureOverview,
-  getTemperatureHistory,
-  getMultiItems
-} from "@/api/temperature";
+import { getTemperatureHistory, getMultiItems } from "@/api/temperature";
 import MarketHeader from "@/components/MarketHeader/index.vue";
 import PageFooter from "@/components/PageFooter/index.vue";
 import TemperatureGaugeCard from "@/components/TemperatureGaugeCard/index.vue";
@@ -165,6 +160,7 @@ import {
 import { buildMarketFooterSources } from "@/components/MarketFooter/config";
 import { useAuthState } from "@/composables/useAuthState";
 import { getCssVar } from "@/composables/echarts/theme";
+import { useTemperatureOverview } from "@/composables/temperature/useTemperatureOverview";
 import { CORE_SINGLE_SOURCES } from "@/constants/temperature";
 import BiasTable from "./components/BiasTable.vue";
 import CrowdingTable from "./components/CrowdingTable.vue";
@@ -206,10 +202,25 @@ defineOptions({
 });
 
 // ================================================================
-// 数据状态
+// 市场温度总览数据（两页共用 composable，见 #980）
+// 解析 getTemperatureOverview 的 singles/composites，产出页面所需 refs 与 fetchTemperature()
 // ================================================================
-const loading = ref(false);
-const overview = ref<any>(null);
+const {
+  loading,
+  overview,
+  compositeTemperature,
+  selfCalcPercent,
+  selfCalcLevel,
+  volumeData,
+  fearData,
+  cbTemperature,
+  cbLabel,
+  fetchTemperature
+} = useTemperatureOverview();
+
+// ================================================================
+// 数据状态（页面独立数据：历史趋势 / 多指标接口，composable 未覆盖）
+// ================================================================
 const historyData = ref<{
   dates: string[];
   values: (number | null)[];
@@ -233,28 +244,19 @@ const crowdingLoading = ref(false);
 // ================================================================
 const updatedAt = computed(() => overview.value?.updated_at || "");
 
-const compositeValue = computed(() => {
-  return overview.value?.composites?.composite_temperature?.value ?? null;
-});
+// 综合温度（composable 已解析 composites.composite_temperature）
+const compositeValue = computed(
+  () => compositeTemperature.value?.value ?? null
+);
 
-const compositeLevel = computed(() => {
-  return overview.value?.composites?.composite_temperature?.level || "";
-});
+const compositeLevel = computed(() => compositeTemperature.value?.level || "");
 
-// 温度解读卡（TemperatureContextCard）所需数据，从 overview 推导
+// 温度解读卡（TemperatureContextCard）所需数据，从 composable 的 fearData 推导
 const fearGreedValue = computed<number | null>(() => {
-  const fear = overview.value?.singles?.find(
-    (s: { source?: string }) => s.source === "jiucaishuo_fear"
-  );
-  const v = fear?.value;
+  const v = fearData.value?.value;
   return typeof v === "number" ? v : null;
 });
-const fearGreedLabel = computed(() => {
-  const fear = overview.value?.singles?.find(
-    (s: { source?: string }) => s.source === "jiucaishuo_fear"
-  );
-  return fear?.label || "";
-});
+const fearGreedLabel = computed(() => fearData.value?.label || "");
 const tempPeriods = computed(() => {
   const bands = overview.value?.composites?.temperature_bands;
   if (!bands) return [];
@@ -267,60 +269,50 @@ const tempPeriods = computed(() => {
     }));
 });
 
-// 核心指标（从 singles 中提取）
+// 核心指标（从 composable 已解析的 refs 聚合，不再重复解析 overview）
 const coreMetrics = computed(() => {
-  const singles = overview.value?.singles || [];
-  const map: Record<string, any> = {};
-  singles.forEach((s: any) => {
-    map[s.source] = s;
-  });
-
   const result = [];
 
   // 恐惧贪婪
-  const fear = map["jiucaishuo_fear"];
-  if (fear) {
+  if (fearData.value) {
     result.push({
       key: "fear",
       title: "恐惧贪婪",
-      value: fear.value,
-      level: fear.label
+      value: fearData.value.value,
+      level: fearData.value.label
     });
   }
 
   // 股债性价比
-  const selfCalc = overview.value?.composites?.self_calc;
-  if (selfCalc) {
+  if (selfCalcPercent.value != null) {
     result.push({
       key: "self_calc",
       title: "股债性价比",
-      value: selfCalc.percent,
+      value: selfCalcPercent.value,
       unit: "%",
-      level: selfCalc.level
+      level: selfCalcLevel.value
     });
   }
 
   // 可转债温度
-  const cb = map["jisilu_cb"];
-  if (cb) {
+  if (cbTemperature.value != null) {
     result.push({
       key: "cb",
       title: "可转债",
-      value: cb.value,
+      value: cbTemperature.value,
       unit: "°",
-      level: cb.label
+      level: cbLabel.value
     });
   }
 
   // 成交额
-  const vol = map["eastmoney_volume"];
-  if (vol) {
+  if (volumeData.value) {
     result.push({
       key: "volume",
       title: "成交额",
-      value: vol.value,
+      value: volumeData.value.value,
       unit: "亿",
-      level: vol.label
+      level: volumeData.value.label
     });
   }
 
@@ -468,19 +460,6 @@ const chartOption = computed(() => {
 // ================================================================
 // 方法
 // ================================================================
-const fetchOverview = async () => {
-  loading.value = true;
-  try {
-    const res = await getTemperatureOverview();
-    overview.value = res.data;
-  } catch (e) {
-    console.error("获取温度概览失败:", e);
-    ElMessage.error("获取数据失败");
-  } finally {
-    loading.value = false;
-  }
-};
-
 const fetchHistory = async () => {
   try {
     const res = await getTemperatureHistory(historyDays.value);
@@ -548,11 +527,11 @@ const tempStore = useTemperatureStore();
 // 生命周期
 // ================================================================
 onMounted(async () => {
-  await fetchOverview();
+  await fetchTemperature();
   await fetchHistory();
   await fetchBias();
   await fetchCrowding();
-  // NOTE: 与 fetchOverview 各自调用一次 getTemperatureOverview，后续可合并为单一数据源
+  // NOTE: 与 tempStore.fetchTemperature 各自调用一次 getTemperatureOverview，后续可合并为单一数据源
   await tempStore.fetchTemperature();
 });
 
