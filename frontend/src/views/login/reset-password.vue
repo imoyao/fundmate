@@ -540,7 +540,11 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
   }
 }
 
-/* 浏览器自动填充背景覆盖（与登录页同一处理） */
+/* 浏览器自动填充背景覆盖（与登录页同一处理）。
+   注：部分新浏览器对 box-shadow inset 覆盖 autofill 背景的旧技巧已不完全生效
+   （会漏出浅蓝底色），故追加 background-color: transparent 与
+   background-clip: content-box 兜底：前者直接置透明，后者把背景裁剪到内容盒
+   （避免 padding 区域残留色块），双保险覆盖 autofill 底色。 */
 :deep(input:-webkit-autofill),
 :deep(input:-webkit-autofill:hover),
 :deep(input:-webkit-autofill:focus),
@@ -548,6 +552,8 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
   caret-color: var(--text-primary);
   box-shadow: 0 0 0 1000px var(--bg-card) inset !important;
   -webkit-text-fill-color: var(--text-primary) !important;
+  background-color: transparent !important;
+  background-clip: content-box !important;
 }
 
 /* 状态提示区 */

@@ -90,16 +90,25 @@
           </Motion>
 
           <!--
-            输入框宽度对齐（根因修复）：
-            el-form-item 默认按内容收缩（shrink-to-fit）而非撑满父级，
-            注册模式字段更多、内容各异时各输入框宽度会不一致。
-            修法：Motion 包裹层与每个 el-form-item 都显式 w-full（width:100%），
-            其内部 flex 子项（el-input 等）随 stretch 拉伸到等宽。
+            输入框等宽说明：
+            el-form-item 是 block 级 flex（display:flex），el-input 默认 width:100%，
+            理论上各输入框已等宽；实际观感差异多来自 clearable / show-password 的
+            suffix 图标在 wrapper 内以 flex-shrink:0 流式占位，撑窄内部文本区。
+            页面级兜底见样式区「输入框等宽」：显式 100% 撑满内容区与输入框根元素，
+            保证登录/注册所有输入框与提交按钮左右边缘严格对齐。
+          -->
+          <!--
+            el-form 默认 validate-on-rule-change=true：:rules 切换（登录↔注册）时
+            自动触发全量校验。该校验是异步的（flush:"post" 与 nextTick 竞态），
+            切换瞬间 clearValidate 清完、500ms 后错误又全数回来 → 全部字段飘红。
+            关闭自动校验根治竞态；toggleMode 里的 clearValidate 保留，
+            负责清掉登录模式提交/失焦失败后的残留 error 状态。
           -->
           <el-form
             ref="ruleFormRef"
             :model="ruleForm"
             :rules="isRegisterMode ? registerRules : loginRules"
+            :validate-on-rule-change="false"
             size="large"
             class="w-full"
           >
@@ -302,7 +311,7 @@
 import Motion from "./utils/motion";
 import { useRouter } from "vue-router";
 import { message } from "@/utils/message";
-import { ref, reactive, computed } from "vue";
+import { nextTick, ref, reactive, computed } from "vue";
 import { debounce } from "@pureadmin/utils";
 import { useEventListener } from "@vueuse/core";
 import type { FormInstance, FormRules } from "element-plus";
@@ -421,6 +430,10 @@ const toggleMode = () => {
   ruleForm.password = "";
   ruleForm.confirmPassword = "";
   ruleForm.agreePolicy = false;
+  // 切换模式只清值不够：email/password 两个 prop 的 el-form-item DOM 在两种模式下复用，
+  // 若此前校验失败过，is-error 类与红字提示会残留并继续显示（:rules 切换不会自动清状态）。
+  // 必须在 DOM 更新后清一次校验状态，保证任意次来回切换都不飘红。
+  nextTick(() => ruleFormRef.value?.clearValidate());
 };
 
 // ============================================
@@ -544,6 +557,9 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
           ruleForm.password = "";
           ruleForm.confirmPassword = "";
           ruleForm.agreePolicy = false;
+          // 与 toggleMode 同理：切回登录后清一次校验状态，
+          // 防止注册阶段残留的 error/success 视觉带到登录表单
+          nextTick(() => ruleFormRef.value?.clearValidate());
         }, 2000);
       } else {
         // 🔥 登录：标识可能是邮箱或用户名，先解析为规范邮箱再做密码登录（D10）
@@ -885,19 +901,48 @@ useEventListener(document, "keydown", ({ code }) => {
   }
 }
 
-/* 输入框聚焦呼吸：柔和品牌色光晕替代默认硬描边 */
+/* 输入框等宽兜底（问题 2 回归修复）：
+   EP 的 .el-input 默认 width: var(--el-input-width)=100%、.el-form-item__content 是 flex:1，
+   理论已等宽；这里显式 100% 撑满，不依赖 EP 内部默认值，覆盖任何版本差异，
+   确保登录/注册所有输入框与提交按钮（w-full）左右边缘严格对齐。 */
+:deep(.el-form-item__content) {
+  width: 100%;
+}
+
+:deep(.el-input) {
+  width: 100%;
+}
+
+/* 输入框聚焦呼吸：保留 EP 的 1px inset 描边（默认 --el-input-focus-border-color，
+   即品牌色 --brand-700），再叠加柔和外发光。
+   注意不能整体替换 box-shadow：EP 用 box-shadow inset 画边框，整体替换会导致
+   聚焦瞬间输入框自身描边消失、只剩突兀外扩光晕（回归根因）。
+   error 态由 EP 的 .el-form-item.is-error 规则（特异性更高）覆盖，红边优先，不受本规则影响。 */
 :deep(.el-input__wrapper) {
   transition:
     box-shadow 0.4s ease,
     border-color 0.4s ease;
 
+  /* hover：1px 描边微亮 + 若有若无的光晕，为聚焦呼吸做铺垫 */
+  &:hover {
+    box-shadow:
+      0 0 0 1px var(--el-input-hover-border-color) inset,
+      0 0 0 3px color-mix(in srgb, var(--brand-700) 6%, transparent);
+  }
+
   &.is-focus {
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-700) 12%, transparent);
+    box-shadow:
+      0 0 0 1px var(--el-input-focus-border-color) inset,
+      0 0 0 3px color-mix(in srgb, var(--brand-700) 12%, transparent);
   }
 }
 
 /* 浏览器自动填充背景覆盖：清除 Chrome 默认浅蓝底色，
-   避免与左右图标容器形成「白-蓝-白」三明治（与 reset-password.vue 同一处理） */
+   避免与左右图标容器形成「白-蓝-白」三明治（与 reset-password.vue 同一处理）。
+   注：部分新浏览器对 box-shadow inset 覆盖 autofill 背景的旧技巧已不完全生效
+   （会漏出浅蓝底色），故追加 background-color: transparent 与
+   background-clip: content-box 兜底：前者直接置透明，后者把背景裁剪到内容盒
+   （避免 padding 区域残留色块），双保险覆盖 autofill 底色。 */
 ::deep(input:-webkit-autofill),
 ::deep(input:-webkit-autofill:hover),
 ::deep(input:-webkit-autofill:focus),
@@ -905,6 +950,8 @@ useEventListener(document, "keydown", ({ code }) => {
   caret-color: var(--text-primary);
   box-shadow: 0 0 0 1000px var(--bg-card) inset !important;
   -webkit-text-fill-color: var(--text-primary) !important;
+  background-color: transparent !important;
+  background-clip: content-box !important;
 }
 
 .login-title {
@@ -965,6 +1012,22 @@ useEventListener(document, "keydown", ({ code }) => {
      保留以维持卡片层次；边框用提亮边框而非亮色浅边框 */
   border-color: var(--border-default);
   box-shadow: var(--shadow-modal);
+}
+
+/* 暗色聚焦协调：全局 dark.scss 用 --focus-ring 双层硬环（!important）覆盖输入框聚焦，
+   登录页品牌面改用与亮色一致的内描边 + 低透明度光晕（同上方 921-931 行注释的
+   降饱和 color-mix 手法，暗色品牌色已降 20% 饱和度，故光晕透明度略高于亮色）。
+   两条规则都以 !important 对抗全局；error 规则特异性更高，红边优先。
+   注：Vue scoped 编译器不支持 :global(X) :deep(Y) 组合（deep 部分会丢失），
+   故整条选择器放入 :global，用 .login-page 锚定本页。 */
+:global(.dark .login-page .el-input__wrapper.is-focus) {
+  box-shadow:
+    0 0 0 1px var(--el-input-focus-border-color) inset,
+    0 0 0 3px color-mix(in srgb, var(--brand-700) 14%, transparent) !important;
+}
+
+:global(.dark .login-page .el-form-item.is-error .el-input__wrapper.is-focus) {
+  box-shadow: 0 0 0 1px var(--el-color-danger) inset !important;
 }
 
 /* ---------- 表单内辅助样式 ---------- */
