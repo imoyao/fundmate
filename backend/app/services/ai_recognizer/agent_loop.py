@@ -140,12 +140,19 @@ def run_agent(
             )
     else:
         # 两次都失败（for 循环未被 break）
+        logger.warning('工具执行最终失败（已重试 2 次），name={}', tool_name)
         return {'type': 'error', 'content': f'分析失败：{result.get("msg")}', 'session_state': state}
 
     # 叙事：再调一次纯逻辑模型，仅把指标喂入（防幻觉安全区：模型不接触账本、只转述）
+    # 防御：真实工具可能返回 Decimal/datetime/自定义类等非 JSON 可序列化对象，
+    # 序列化失败时回退为字符串表示，避免 AgentLoop 崩溃（与执行层「不崩」铁律一致）。
+    try:
+        data_json = json.dumps(result['data'], ensure_ascii=False)
+    except TypeError:
+        logger.warning('工具返回数据不可 JSON 序列化，叙事回退为字符串表示，name={}', tool_name)
+        data_json = str(result['data'])
     narrative_prompt = (
-        f'基于以下分析数据（来自工具 {tool_name}）：{json.dumps(result["data"], ensure_ascii=False)}\n'
-        '用简单易懂的中文总结给用户，不要编造数据。'
+        f'基于以下分析数据（来自工具 {tool_name}）：{data_json}\n' '用简单易懂的中文总结给用户，不要编造数据。'
     )
     narrative = llm.call_llm(
         content=[{'type': 'text', 'text': narrative_prompt}],
