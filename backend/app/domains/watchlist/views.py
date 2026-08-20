@@ -376,7 +376,19 @@ def list_items():
             return jsonify({'data': page_data, 'total': total, 'message': 'ok'})
 
         try:
-            query, total = get_filtered_items_query(db, get_family_id(), **params)
+            query, total = get_filtered_items_query(
+                db,
+                get_family_id(),
+                status=params['status'],
+                venue=params['venue'],
+                market=params['market'],
+                group_id=params['group_id'],
+                search=params['search'],
+                favorite=params['favorite'],
+                symbol=params['symbol'],
+                tag_ids_str=params['tag_ids_str'],
+                tag_id=params['tag_id'],
+            )
         except ValueError as e:
             abort(400, str(e))
 

@@ -282,6 +282,28 @@ class TestWatchlistItemCRUD:
         resp = _get(client, '/api/watchlist/items/', {'status': 'WATCHING'})
         assert len(resp.get_json()['data']) >= 2
 
+    def test_list_items_pagination(self, client, db):
+        """#1048 回归：后端按 page/per_page 切片，total 为真实总数（翻页非假按钮）。"""
+        for sym in ['AAA', 'BBB', 'CCC', 'DDD', 'EEE']:
+            _post(client, '/api/watchlist/items/', {'symbol': f'{sym}.HK', 'venue': 'EXCHANGE'})
+
+        # 第一页：每页 2 条，total 应为 5
+        resp1 = _get(client, '/api/watchlist/items/', {'status': 'WATCHING', 'page': 1, 'per_page': 2})
+        body1 = resp1.get_json()
+        assert body1['total'] == 5
+        assert len(body1['data']) == 2
+
+        # 第三页：剩余 1 条
+        resp3 = _get(client, '/api/watchlist/items/', {'status': 'WATCHING', 'page': 3, 'per_page': 2})
+        body3 = resp3.get_json()
+        assert body3['total'] == 5
+        assert len(body3['data']) == 1
+
+        # 不同页返回不同数据
+        page1_symbols = {i['symbol'] for i in body1['data']}
+        page3_symbols = {i['symbol'] for i in body3['data']}
+        assert page1_symbols.isdisjoint(page3_symbols)
+
     def test_update_item_notes(self, client, db):
         resp = _post(client, '/api/watchlist/items/', {'symbol': '00700.HK', 'venue': 'EXCHANGE'})
         item_id = resp.get_json()['data']['id']
