@@ -96,7 +96,7 @@
 
         <!-- 正常模式下的工具栏 -->
         <template v-else>
-          <el-button type="primary" @click="showAddModal = true">
+          <el-button type="primary" @click="openAddDialog">
             <IconifyIconOffline icon="ep:plus" class="mr-1" />
             添加自选
           </el-button>
@@ -111,7 +111,7 @@
             导出
           </el-button>
 
-          <el-button plain @click="showOcrModal = true">
+          <el-button plain @click="openOcrDialog">
             <IconifyIconOffline icon="ep:magic-stick" class="mr-1" />
             AI 导入
           </el-button>
@@ -120,7 +120,7 @@
             {{ toggleBtnText }}
           </el-button>
 
-          <el-button plain @click="showSettingsDrawer = true">
+          <el-button plain @click="openSettingsDrawer">
             <IconifyIconOffline icon="ep:setting" class="mr-1" />
             管理
           </el-button>
@@ -130,222 +130,27 @@
 
     <!-- 主区域：单个工作区卡片（分组 tab 行 + 筛选行 + 表格，--border-subtle 分割线分区） -->
     <CardBlock class="watchlist-card">
-      <!-- 分组 tab 行 + 场内/场外 segmented（justify-between：tab 左对齐、segmented 右对齐） -->
-      <div
-        class="flex items-center justify-between gap-4 pb-3 mb-4 border-b"
-        :style="{ borderColor: 'var(--border-subtle)' }"
-      >
-        <div class="flex items-center gap-3 min-w-0">
-          <span
-            class="text-sm font-semibold shrink-0"
-            :style="{ color: 'var(--text-primary)' }"
-            >分组</span
-          >
-          <div
-            class="group-tabs-scroll flex items-center gap-1.5 overflow-x-auto py-0.5"
-          >
-            <div
-              v-for="group in allGroups"
-              :key="group.key"
-              class="group-tab shrink-0"
-              :class="{ 'is-active': activeGroup === group.key }"
-              @click="activeGroup = group.key"
-            >
-              <span
-                class="w-2 h-2 rounded-full shrink-0"
-                :style="{ backgroundColor: group.color }"
-              />
-              <span class="group-tab-label" :title="group.label">{{
-                group.label
-              }}</span>
-              <span class="group-tab-count font-mono">({{ group.count }})</span>
-            </div>
-          </div>
-        </div>
+      <!-- 分组 tab + 标签筛选 + 视图 segmented（已抽离到 WatchlistFilterBar） -->
+      <WatchlistFilterBar
+        :groups="groups"
+        :tags="tags"
+        :toolbar="toolbar"
+        @view-change="handleViewChange()"
+        @tag-apply="tags.applyTagFilter()"
+        @tag-clear="tags.clearTagFilter()"
+      />
 
-        <div class="flex items-center gap-2 shrink-0">
-          <!-- 标签筛选：触发按钮 + 弹出面板（GitHub Labels 式）。
-               弃用 el-select 多选：原实现输入框随选中项无限拉长、勾选态仅靠下拉内小勾不够明显。
-               改为固定宽度触发按钮（绝不拉长）+ 独立控制 max-height 的面板 + 前置 el-checkbox。
-               append-to-body=false 让面板渲染在本组件内，scoped 样式可直接命中。 -->
-          <el-popover
-            v-model:visible="tagFilterVisible"
-            placement="bottom-end"
-            :width="264"
-            trigger="click"
-            popper-class="tag-filter-popover"
-            :z-index="3000"
-            :append-to-body="false"
-            @show="onTagFilterShow"
-          >
-            <template #reference>
-              <button
-                type="button"
-                class="tag-filter-trigger"
-                :class="{ 'is-active': selectedFilterTagIds.length > 0 }"
-              >
-                <IconifyIconOffline icon="ep:collection-tag" />
-                <span class="tag-filter-trigger__text">
-                  {{ selectedFilterTagLabel }}
-                </span>
-                <IconifyIconOffline
-                  v-if="selectedFilterTagIds.length > 0"
-                  icon="ep:close"
-                  class="tag-filter-trigger__clear"
-                  @click.stop="clearTagFilter"
-                />
-              </button>
-            </template>
-
-            <!-- 面板：列表区固定 max-height + 滚动；底部 确定 / 清空筛选 -->
-            <div class="tag-filter-panel">
-              <div class="tag-filter-panel__list">
-                <el-checkbox-group v-model="draftFilterTagIds">
-                  <div
-                    v-for="tag in allTags"
-                    :key="tag.id"
-                    class="tag-filter-item"
-                    @click="toggleDraftTag(tag.id)"
-                  >
-                    <el-checkbox :value="tag.id" @click.stop />
-                    <span
-                      class="tag-filter-item__name"
-                      :style="{
-                        backgroundColor:
-                          (tag.color || DEFAULT_TAG_COLOR) + '20',
-                        border: '1px solid ' + (tag.color || DEFAULT_TAG_COLOR),
-                        color: 'var(--text-primary)'
-                      }"
-                      >{{ tag.name }}</span
-                    >
-                  </div>
-                </el-checkbox-group>
-                <div
-                  v-if="allTags.length === 0"
-                  class="tag-filter-panel__empty"
-                >
-                  暂无可选标签
-                </div>
-              </div>
-              <div class="tag-filter-panel__footer">
-                <el-button
-                  size="small"
-                  text
-                  bg
-                  :disabled="draftFilterTagIds.length === 0"
-                  @click="clearTagFilter"
-                  >清空筛选</el-button
-                >
-                <el-button size="small" type="primary" @click="applyTagFilter"
-                  >确定</el-button
-                >
-              </div>
-            </div>
-          </el-popover>
-          <el-tooltip content="管理分组" placement="top">
-            <el-button
-              class="group-tab-add"
-              circle
-              size="small"
-              @click="showGroupManager = true"
-            >
-              <IconifyIconOffline icon="ep:plus" />
-            </el-button>
-          </el-tooltip>
-          <el-segmented
-            v-model="currentView"
-            :options="viewOptions"
-            class="view-segmented"
-            @change="handleViewChange"
-          />
-        </div>
-      </div>
       <!-- 估值横幅与状态 -->
       <!-- ✅ 核心修复：用 template 包裹，加上 v-if 物理移除整个模块 -->
       <template v-if="realtimeEnabled">
         <RealtimeWarningBanner />
-
-        <div class="flex items-center gap-2 mb-2">
-          <RealtimeStatusIndicator
-            :status="realtime.status.value"
-            :lastUpdateTime="realtime.lastUpdateTime.value || ''"
-          />
-          <el-segmented
-            :model-value="realtime.refreshInterval.value"
-            size="small"
-            :options="intervalOptions"
-            class="refresh-segmented"
-            @change="onRefreshIntervalChange"
-          />
-          <el-button
-            v-if="realtimeEnabled"
-            text
-            :style="{ color: 'var(--text-secondary)' }"
-            @click="handleManualRefresh"
-          >
-            <IconifyIconOffline
-              icon="ep:refresh"
-              class="mr-1 text-xs"
-              :class="{ 'is-spinning': refreshing }"
-            />
-            刷新估值
-          </el-button>
-        </div>
-
-        <!-- 估值汇总卡片：仅当有实际持仓市值时显示 -->
-        <div
-          v-if="summary && summary.totalMarketValue > 0"
-          class="mb-3 p-3 rounded-lg"
-          :style="{
-            backgroundColor: 'var(--bg-soft)',
-            border: '1px solid var(--border-light)'
-          }"
-        >
-          <div class="flex items-center gap-6 text-sm">
-            <span>
-              总市值：<strong :style="{ color: 'var(--text-primary)' }">
-                <template v-if="summary?.totalMarketValue != null">
-                  <MoneyDisplay
-                    :value="summary.totalMarketValue"
-                    :show-sign="false"
-                    :auto-color="false"
-                    size="sm"
-                  />
-                </template>
-                <template v-else>--</template>
-              </strong>
-            </span>
-            <span>
-              总成本：<strong :style="{ color: 'var(--text-primary)' }">
-                <template v-if="summary?.totalCost != null">
-                  <MoneyDisplay
-                    :value="summary.totalCost"
-                    :show-sign="false"
-                    :auto-color="false"
-                    size="sm"
-                  />
-                </template>
-                <template v-else>--</template>
-              </strong>
-            </span>
-            <span>
-              总盈亏：<strong>
-                <template v-if="summary?.totalPnl != null">
-                  <MoneyDisplay :value="summary.totalPnl" size="sm" />
-                  <span v-if="summary?.totalPnlPercent != null"
-                    >(<MoneyDisplay
-                      :value="summary.totalPnlPercent"
-                      :precision="2"
-                      suffix="%"
-                      size="sm"
-                    />)</span
-                  >
-                </template>
-                <template v-else>--</template>
-              </strong>
-            </span>
-          </div>
-        </div>
+        <!-- 实时状态指示 + 刷新档位 + 汇总卡（已抽离到 WatchlistSummaryBar） -->
+        <WatchlistSummaryBar
+          :realtime="realtime"
+          :refreshing="refreshing"
+          @interval-change="onRefreshIntervalChange"
+          @manual-refresh="handleManualRefresh"
+        />
       </template>
 
       <!-- 批量删除（batchMode 时显示；原筛选行已并入分组行，批量删除按钮移至表格上方） -->
@@ -375,7 +180,6 @@
         v-loading="loading"
         :data="items"
         stripe
-        @row-click="handleRowClick"
         @selection-change="handleSelectionChange"
         @sort-change="handleSortChange"
       >
@@ -446,12 +250,12 @@
 
     <!-- 弹窗部分 -->
     <AddToWatchlistModal
-      v-model="showAddModal"
+      v-model="addDialogVisible"
       :initial-group-id="activeCustomGroupId"
       @submitted="onItemAdded"
     />
 
-    <OcrImportModal v-model="showOcrModal" @imported="onOcrImported" />
+    <OcrImportModal v-model="ocrDialogVisible" @imported="onOcrImported" />
 
     <el-dialog v-model="removeDialogVisible" title="移除自选" width="400px">
       <p>
@@ -488,7 +292,7 @@
 
     <!-- 标签管理弹窗（共有组件 TagManagerDialog，自本页拆出，见 docs/design/components.md） -->
     <TagManagerDialog
-      v-model="showTagManager"
+      v-model="tagManagerVisible"
       :all-tags="allTags"
       :tag-usage="tagUsage"
       @tags-changed="fetchTags"
@@ -497,7 +301,7 @@
     <!-- 分组管理弹窗（GitHub Labels 风格，与标签同构，见 docs/design/components.md）。
          系统分组可见但不可编辑/删除（managerGroups 含系统分组虚拟行），自定义分组可管理。 -->
     <GroupManagerDialog
-      v-model="showGroupManager"
+      v-model="groupManagerVisible"
       :all-groups="managerGroups"
       @groups-changed="fetchGroups"
     />
@@ -511,21 +315,21 @@
     />
 
     <SettingsDrawer
-      v-model="showSettingsDrawer"
+      v-model="settingsDrawerVisible"
       :realtime-enabled="realtimeEnabled"
       :refresh-interval="realtime.refreshInterval.value"
       @refresh-interval-change="realtime.setRefreshInterval"
       @manage-groups="
-        showGroupManager = true;
-        showSettingsDrawer = false;
+        groupManagerVisible = true;
+        settingsDrawerVisible = false;
       "
       @manage-tags="
-        showTagManager = true;
-        showSettingsDrawer = false;
+        tagManagerVisible = true;
+        settingsDrawerVisible = false;
       "
       @manage-batch="
         toggleBatchMode();
-        showSettingsDrawer = false;
+        settingsDrawerVisible = false;
       "
     />
   </div>
@@ -542,31 +346,24 @@ import SettingsDrawer from "@/components/Watchlist/SettingsDrawer.vue";
 import TagManagerDialog from "@/components/Watchlist/TagManagerDialog.vue";
 import GroupManagerDialog from "@/components/Watchlist/GroupManagerDialog.vue";
 import TagEditorDialog from "@/components/Watchlist/TagEditorDialog.vue";
-import { DEFAULT_TAG_COLOR } from "@/constants/watchlist";
-import {
-  getWatchlistItems,
-  updateWatchlistItem,
-  deleteWatchlistItem,
-  removeItemFromGroup,
-  addItemToGroup,
-  type WatchlistItem
-} from "@/api/watchlist";
-import { findTagName } from "@/utils/tagHelpers";
+import type { WatchlistItem } from "@/api/watchlist";
 import CardBlock from "@/components/CardBlock/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue"; // 加入此组件引入
 import MoneyWithRatio from "@/components/MoneyWithRatio/index.vue";
 import {
   useRealtimeQuotes,
-  REFRESH_INTERVAL_OPTIONS,
   type RefreshInterval
 } from "@/composables/useRealtimeQuotes";
 import { useWatchlistGroups } from "@/composables/useWatchlistGroups";
 import { useWatchlistTags } from "@/composables/useWatchlistTags";
+import { useWatchlistData } from "@/composables/useWatchlistData";
+import { useWatchlistToolbar } from "@/composables/useWatchlistToolbar";
+import WatchlistFilterBar from "@/views/asset/watchlist/WatchlistFilterBar.vue";
+import WatchlistSummaryBar from "@/views/asset/watchlist/WatchlistSummaryBar.vue";
 import RealtimeWarningBanner, {
   REALTIME_BANNER_DISMISS_KEY
 } from "@/components/RealtimeWarningBanner/index.vue";
-import RealtimeStatusIndicator from "@/components/RealtimeStatusIndicator/index.vue";
 import type { Holding } from "@/utils/valuationEngine";
 import { formatDate, formatDateTime } from "@/utils/date";
 import {
@@ -580,13 +377,16 @@ import {
 
 defineOptions({ name: "Watchlist" });
 
-// 分组状态/逻辑已收敛到 composable（useWatchlistGroups）；标签状态/筛选面板收敛到 useWatchlistTags。
-// 分组切换由组件内 watch(activeGroup) 触发刷新；标签筛选提交后通过 refresh 回调刷新。
+// 分组 / 标签 / 数据编排 / 工具栏 四类状态全部收敛到 composable（见 #980 拆分总纲）：
+// - groups：分组 tab 派生 + fetchGroups
+// - tags：标签列表 + 标签筛选面板（applyTagFilter 提交后由 useWatchlistData 内部 watch 自动刷新）
+// - data：分页 / 筛选 / fetchData / 行操作 / 批量（依赖 groups + tags + toolbar）
+// - toolbar：顶部搜索 / 批量模式 / 视图 segmented / 弹窗开关
 const groups = useWatchlistGroups();
-const tags = useWatchlistTags(() => {
-  currentPage.value = 1;
-  fetchData();
-});
+const tags = useWatchlistTags();
+const toolbar = useWatchlistToolbar();
+const data = useWatchlistData(groups, tags, toolbar);
+
 const {
   activeGroup,
   allGroups,
@@ -597,72 +397,55 @@ const {
   activeCustomGroupId,
   fetchGroups
 } = groups;
+const { allTags, selectedFilterTagIds, fetchTags } = tags;
 const {
-  allTags,
-  selectedFilterTagIds,
-  tagFilterVisible,
-  draftFilterTagIds,
-  fetchTags,
-  onTagFilterShow,
-  applyTagFilter,
-  clearTagFilter
-} = tags;
+  items,
+  loading,
+  currentPage,
+  pageSize,
+  totalItems,
+  fetchData,
+  handleSortChange,
+  handleViewChange,
+  debounceSearch,
+  handleSelectionChange,
+  handleBatchDelete,
+  handleBatchMoveToGroup,
+  handleTogglePin,
+  handleToggleFavorite,
+  confirmRemove,
+  executeRemove,
+  removingItem,
+  removeScope,
+  removeDialogVisible,
+  editingItem,
+  showTagEditor,
+  openTagEditor,
+  exportData,
+  resetFilters
+} = data;
+const {
+  searchKeyword,
+  currentView,
+  batchMode,
+  selectedItems,
+  batchMoveGroupId,
+  addDialogVisible,
+  ocrDialogVisible,
+  groupManagerVisible,
+  tagManagerVisible,
+  settingsDrawerVisible,
+  toggleBatchMode,
+  openAddDialog,
+  openOcrDialog,
+  openGroupManager,
+  openTagManager,
+  openSettingsDrawer
+} = toolbar;
 
-// 触发按钮展示已选标签名。重构前用 el-select 多选会直接显示标签名 chips；
-// 换成自定义 popover 面板后触发文案只显示数量，丢失了名称展示（回归 bug）。
-// 此处补回：单选用名称、多选用「名称 +N」截断，保持触发按钮紧凑不拉长。
-const selectedFilterTagLabel = computed(() => {
-  const ids = selectedFilterTagIds.value;
-  if (ids.length === 0) return "按标签筛选";
-  const names = ids.map(id => findTagName(allTags.value, id));
-  if (names.length <= 2) return names.join("、");
-  return `${names[0]}、${names[1]} +${names.length - 2}`;
-});
-
-// ── 基础配置 ──
-const currentView = ref("all");
-const viewOptions = [
-  { label: "全部", value: "all" },
-  { label: "场内", value: "exchange" },
-  { label: "场外", value: "otc" }
-];
-
-// 系统分组 / 标签预设色已收敛到 constants/watchlist.ts（SYSTEM_GROUPS / PRESET_TAG_COLORS）集中管理。
-
-// ── 响应式数据 ──
-const items = ref<WatchlistItem[]>([]);
-
-// summary 是嵌套 Ref（非顶层解包），统一经 computed 解包供模板使用
-const summary = computed(() => summary.value);
-
-// 估值相关
+// ── 估值相关 ──
 const getValuationItem = (symbol: string) => {
   return realtime.items.value?.find(item => item.symbol === symbol);
-};
-
-/** 刷新档位选项（label 与 SettingsDrawer 一致：`${s}s`） */
-const intervalOptions = REFRESH_INTERVAL_OPTIONS.map(s => ({
-  label: `${s}s`,
-  value: s
-}));
-
-/** 切换刷新档位：转发给 realtime（负责持久化 + 盘中重启定时器） */
-const onRefreshIntervalChange = (value: string | number | boolean) => {
-  realtime.setRefreshInterval(value as RefreshInterval);
-};
-
-/** 手动刷新时的旋转动效状态 */
-const refreshing = ref(false);
-
-/** 手动刷新估值：旋转图标至请求完成 */
-const handleManualRefresh = async () => {
-  if (refreshing.value) return;
-  refreshing.value = true;
-  try {
-    await realtime.manualRefresh();
-  } finally {
-    refreshing.value = false;
-  }
 };
 
 /** 添加后涨幅（%）=（当前价 - 添加日价格）/ 添加日价格 */
@@ -698,7 +481,7 @@ function addedReturnAmount(row: {
 function marketValueRatio(row: {
   position_market_value?: number | null;
 }): number | null {
-  const total = summary.value?.totalMarketValue;
+  const total = realtime.summary.value?.totalMarketValue;
   if (!total || total <= 0 || row.position_market_value == null) return null;
   return (row.position_market_value / total) * 100;
 }
@@ -729,8 +512,6 @@ const getStaticPrice = (symbol: string) => {
     : undefined;
 };
 
-// ... 你的其他代码 ...
-
 const realtime = useRealtimeQuotes(getHoldings, getStaticPrice);
 
 // ✅ 1. 新增：一个专门控制按钮文字的 computed，解决文字不更新的脏数据问题
@@ -743,7 +524,6 @@ watch(
   () => items.value,
   () => {
     if (realtime.enabled.value) {
-      // 强制捕获异常，避免卡断响应式更新
       try {
         realtime.manualRefresh();
       } catch (e) {
@@ -761,7 +541,6 @@ watch(
       const hasValidPrice = newItems.some(item => item.currentPrice > 0);
       if (hasValidPrice) {
         realtime.status.value = "trading";
-        // 统一走公共格式化：YYYY-MM-DD HH:mm（不带秒），与全站日期时间规范一致
         realtime.lastUpdateTime.value = formatDateTime(new Date());
       }
     }
@@ -769,8 +548,7 @@ watch(
   { deep: true }
 );
 
-// 实时估值功能被「关闭→重新开启」时，清除横幅关闭标记，让提示横幅重新出现；
-// 仅刷新页面（功能始终开启）不会触发，从而满足「关掉功能再开才重新提醒」。
+// 实时估值功能被「关闭→重新开启」时，清除横幅关闭标记，让提示横幅重新出现
 watch(
   () => realtime.enabled.value,
   (now, prev) => {
@@ -778,42 +556,13 @@ watch(
       try {
         localStorage.removeItem(REALTIME_BANNER_DISMISS_KEY);
       } catch {
-        // 隐私模式下忽略存储异常
+        /* 隐私模式下忽略存储异常 */
       }
     }
   }
 );
 
-const loading = ref(false);
-const searchKeyword = ref("");
-const currentPage = ref(1);
-const pageSize = ref(20);
-const totalItems = ref(0);
-
-// 标签状态（allTags / selectedFilterTagIds / tagFilterVisible / draftFilterTagIds）已随 useWatchlistTags 抽离，见文件顶部解构
-
-const showAddModal = ref(false);
-const showOcrModal = ref(false);
-const showGroupManager = ref(false);
-const showTagManager = ref(false);
-const removeDialogVisible = ref(false);
-const removingItem = ref<WatchlistItem | null>(null);
-const removeScope = ref("all");
-
-const showTagEditor = ref(false);
-const editingItem = ref<WatchlistItem | null>(null);
-
-const showSettingsDrawer = ref(false);
-
-const batchMode = ref(false);
-const selectedItems = ref<WatchlistItem[]>([]);
-
-// 批量移动相关
-const batchMoveGroupId = ref<number | null>(null);
-
-// 计算属性
-// activeGroupLabel / currentIsCustom / activeCustomGroupId 已随 useWatchlistGroups 抽离，见文件顶部解构
-
+// 标签使用统计：供 TagManagerDialog 显示每个标签被多少自选使用
 const tagUsage = computed(() => {
   const usage = new Map<number, number>();
   if (!Array.isArray(items.value)) return usage;
@@ -830,254 +579,34 @@ const tagUsage = computed(() => {
   return usage;
 });
 
-// 排序时回到第一页，避免停留在非首页看错顺序
-function handleSortChange() {
-  currentPage.value = 1;
-}
-
-const fetchParams = computed(() => {
-  const params: Record<string, string | number | boolean> = {
-    page: currentPage.value,
-    per_page: pageSize.value
-  };
-  if (selectedFilterTagIds.value.length > 0) {
-    params.tag_ids = selectedFilterTagIds.value.join(",");
-  }
-  const groupKey = activeGroup.value;
-  if (groupKey.startsWith("custom_")) {
-    const groupId = activeCustomGroupId.value;
-    if (groupId) params.group_id = groupId;
-  } else {
-    // 系统分组过滤已随 useWatchlistGroups 收敛到 allGroups（其 filter 由 getSystemFilter 填充），直接复用，避免两套数据源
-    const group = allGroups.value.find(g => g.key === groupKey);
-    if (group && group.filter) {
-      Object.entries(group.filter).forEach(([k, v]) => {
-        params[k === "cleared" ? "status" : k] =
-          k === "cleared" ? "cleared" : v;
-      });
-    }
-  }
-  // venue 过滤由顶部 el-segmented（currentView）唯一承担（方案 B 收敛三套入口）
-  if (currentView.value === "exchange") params.venue = "EXCHANGE";
-  else if (currentView.value === "otc") params.venue = "OTC";
-  if (searchKeyword.value) params.q = searchKeyword.value;
-  return params;
-});
-
-// availableTagsForEditor 已内聚到 TagEditorDialog 组件（按 item.tag_ids 排除已选）
-
-// 方法
-function toggleBatchMode() {
-  batchMode.value = !batchMode.value;
-  if (!batchMode.value) selectedItems.value = [];
-}
-
-function handleSelectionChange(selection: WatchlistItem[]) {
-  selectedItems.value = selection;
-}
-
-async function handleBatchDelete() {
-  if (selectedItems.value.length === 0) return;
+/** 手动刷新估值：旋转图标至请求完成 */
+const refreshing = ref(false);
+async function handleManualRefresh() {
+  if (refreshing.value) return;
+  refreshing.value = true;
   try {
-    await ElMessageBox.confirm(
-      `确定要移除选中的 ${selectedItems.value.length} 个自选资产吗？`,
-      "批量移除",
-      { confirmButtonText: "确定", cancelButtonText: "取消", type: "warning" }
-    );
-    for (const item of selectedItems.value) {
-      try {
-        // 虚拟持仓行（id=null）无自选记录，不可删除，跳过
-        if (item.id == null) continue;
-        await deleteWatchlistItem(item.id);
-      } catch (e) {
-        /* ignore */
-      }
-    }
-    ElMessage.success("批量移除完成");
-    batchMode.value = false;
-    selectedItems.value = [];
-    fetchData();
-  } catch (e) {
-    /* 用户取消 */
+    await realtime.manualRefresh();
+  } finally {
+    refreshing.value = false;
   }
 }
 
-const handleBatchMoveToGroup = async (groupId: number | null) => {
-  if (!groupId || selectedItems.value.length === 0) return;
-  try {
-    // 虚拟持仓行（id=null）无自选记录，不可移动，过滤后仅对真实自选行发起请求
-    const promises = selectedItems.value
-      .filter((item): item is WatchlistItem & { id: number } => item.id != null)
-      .map(item => addItemToGroup(item.id, groupId));
-    await Promise.all(promises);
-    ElMessage.success(
-      `已将 ${selectedItems.value.length} 个资产移动到所选分组`
-    );
-    batchMoveGroupId.value = null;
-    toggleBatchMode();
-    fetchData();
-  } catch (e) {
-    ElMessage.error("批量移动失败");
-  }
+/** 切换刷新档位：转发给 realtime（负责持久化 + 盘中重启定时器） */
+const onRefreshIntervalChange = (value: string | number | boolean) => {
+  realtime.setRefreshInterval(value as RefreshInterval);
 };
 
-// ─────────────────────────────────────────────
-// 工具函数
-// ─────────────────────────────────────────────
-// getTagName / getTagColor 已提取到 utils/tagHelpers.ts（TagManagerDialog / TagEditorDialog 内部使用）
-// 分组 Tab 的系统过滤映射 getSystemFilter 已随 useWatchlistGroups 抽离
-
-let searchTimer: number | undefined;
-function debounceSearch() {
-  clearTimeout(searchTimer);
-  searchTimer = window.setTimeout(() => {
-    currentPage.value = 1;
-    fetchData();
-  }, 300);
-}
-
-// ─────────────────────────────────────────────
-// 数据请求
-// ─────────────────────────────────────────────
-async function fetchData() {
-  loading.value = true;
-  try {
-    const res = await getWatchlistItems(fetchParams.value);
-    items.value = res.data ?? [];
-    totalItems.value = res.total ?? items.value.length;
-  } catch (e) {
-    ElMessage.error("获取自选列表失败");
-    console.error("获取自选列表错误：", e);
-  } finally {
-    loading.value = false;
-  }
-}
-
-// fetchGroups / fetchTags 已随 useWatchlistGroups / useWatchlistTags 抽离（见文件顶部 composable 调用）
-
-// ─────────────────────────────────────────────
-// 事件处理
-// ─────────────────────────────────────────────
-/**
- * segmented（全部/场内/场外）切换：venue 过滤由 fetchParams 依据 currentView 生效，
- * 与分组 tab 解耦（方案 B：分组选择保持独立，不再联动到系统分组「场内资产/场外基金」，二者已删除）。
- */
-function handleViewChange() {
-  currentPage.value = 1;
-  fetchData();
-}
-
-// 标签筛选面板交互（onTagFilterShow / applyTagFilter / clearTagFilter）已随 useWatchlistTags 抽离。
-// 其中 applyTagFilter / clearTagFilter 通过 refresh 回调（顶部定义）重置分页并触发 fetchData。
-
-/** 点击标签行时切换草稿选中态（配合 div 行点击替代非法嵌套 label） */
-function toggleDraftTag(tagId: number) {
-  const idx = draftFilterTagIds.value.indexOf(tagId);
-  if (idx >= 0) {
-    draftFilterTagIds.value.splice(idx, 1);
-  } else {
-    draftFilterTagIds.value.push(tagId);
-  }
-}
-
-function resetFilters() {
-  searchKeyword.value = "";
-  groups.resetActiveGroup();
-  currentView.value = "all";
-  tags.resetTagFilter();
-}
-
-async function handleTogglePin(row: WatchlistItem) {
-  const r = row as WatchlistItem;
-  // 虚拟持仓行（id=null）无自选记录，置顶操作无意义，直接跳过
-  if (r.id == null) return;
-  try {
-    await updateWatchlistItem(r.id, { is_pinned: !r.is_pinned });
-    ElMessage.success(r.is_pinned ? "已取消置顶" : "已置顶");
-    fetchData();
-  } catch (e) {
-    ElMessage.error("置顶操作失败");
-    console.error("置顶错误：", e);
-  }
-}
-
-async function handleToggleFavorite(row: WatchlistItem) {
-  const r = row as WatchlistItem;
-  // 虚拟持仓行（id=null）无自选记录，特别关注操作无意义，直接跳过
-  if (r.id == null) return;
-  try {
-    await updateWatchlistItem(r.id, { favorite: !r.favorite });
-    ElMessage.success(r.favorite ? "已取消特别关注" : "已设为特别关注");
-    fetchData();
-  } catch (e) {
-    ElMessage.error("关注操作失败");
-    console.error("关注错误：", e);
-  }
-}
-
-function handleRowClick(row: WatchlistItem) {}
-
-function confirmRemove(row: WatchlistItem | any) {
-  // 虚拟持仓行（id=null）无自选记录，不可移除，直接跳过
-  if (row.id == null) return;
-  removingItem.value = row as WatchlistItem;
-  removeScope.value = "all";
-  removeDialogVisible.value = true;
-}
-
-async function executeRemove() {
-  const item = removingItem.value;
-  // 虚拟持仓行（id=null）无自选记录，不可移除，直接跳过
-  if (!item || item.id == null) return;
-  try {
-    if (removeScope.value === "current" && activeCustomGroupId.value) {
-      await removeItemFromGroup(item.id, activeCustomGroupId.value);
-      ElMessage.success("已从当前分组移除");
-    } else {
-      await deleteWatchlistItem(item.id);
-      ElMessage.success("已移除自选");
-    }
-    removeDialogVisible.value = false;
-    fetchData();
-  } catch (e) {
-    ElMessage.error("移除操作失败");
-    console.error("移除错误：", e);
-  }
-}
-
-async function exportData() {
-  try {
-    const params = new URLSearchParams(
-      Object.entries(fetchParams.value).map(([k, v]) => [k, String(v)])
-    ).toString();
-    window.open(`/api/watchlist/items/export/?${params}`, "_blank");
-  } catch (e) {
-    ElMessage.error("导出失败");
-    console.error("导出错误：", e);
-  }
-}
-
 function onItemAdded() {
-  showAddModal.value = false;
+  addDialogVisible.value = false;
   fetchData();
   fetchTags();
 }
 
 function onOcrImported() {
-  showOcrModal.value = false;
+  ocrDialogVisible.value = false;
   fetchData();
   fetchTags();
 }
-
-// ─────────────────────────────────────────────
-// 标签管理相关（交互已收敛到 TagManagerDialog / TagEditorDialog 共有组件）
-// ─────────────────────────────────────────────
-const openTagEditor = (row: WatchlistItem) => {
-  // 虚拟持仓行（id=null）无自选记录，标签编辑无意义，直接跳过
-  if (row.id == null) return;
-  editingItem.value = row as WatchlistItem;
-  showTagEditor.value = true;
-};
 
 /** 标签保存成功（含弹窗内新建标签）后：刷新列表与标签 */
 const onTagEditorSaved = () => {
