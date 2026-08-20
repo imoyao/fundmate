@@ -62,7 +62,6 @@ const selectedTagCount = computed(() => props.tags.selectedFilterTagIds.value.le
         :visible="tagFilterVisible"
         placement="bottom"
         :width="260"
-        trigger="manual"
         title="按标签筛选"
       >
         <template #reference>
