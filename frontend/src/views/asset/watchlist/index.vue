@@ -180,7 +180,6 @@
         v-loading="loading"
         :data="items"
         stripe
-        @row-click="handleRowClick"
         @selection-change="handleSelectionChange"
         @sort-change="handleSortChange"
       >
@@ -251,7 +250,7 @@
 
     <!-- 弹窗部分 -->
     <AddToWatchlistModal
-      v-model="showAddModal"
+      v-model="addDialogVisible"
       :initial-group-id="activeCustomGroupId"
       @submitted="onItemAdded"
     />
@@ -347,9 +346,7 @@ import SettingsDrawer from "@/components/Watchlist/SettingsDrawer.vue";
 import TagManagerDialog from "@/components/Watchlist/TagManagerDialog.vue";
 import GroupManagerDialog from "@/components/Watchlist/GroupManagerDialog.vue";
 import TagEditorDialog from "@/components/Watchlist/TagEditorDialog.vue";
-import { DEFAULT_TAG_COLOR } from "@/constants/watchlist";
 import type { WatchlistItem } from "@/api/watchlist";
-import { findTagName } from "@/utils/tagHelpers";
 import CardBlock from "@/components/CardBlock/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue"; // 加入此组件引入
@@ -367,7 +364,6 @@ import WatchlistSummaryBar from "@/views/asset/watchlist/WatchlistSummaryBar.vue
 import RealtimeWarningBanner, {
   REALTIME_BANNER_DISMISS_KEY
 } from "@/components/RealtimeWarningBanner/index.vue";
-import RealtimeStatusIndicator from "@/components/RealtimeStatusIndicator/index.vue";
 import type { Holding } from "@/utils/valuationEngine";
 import { formatDate, formatDateTime } from "@/utils/date";
 import {
@@ -410,6 +406,8 @@ const {
   totalItems,
   fetchData,
   handleSortChange,
+  handleViewChange,
+  debounceSearch,
   handleSelectionChange,
   handleBatchDelete,
   handleBatchMoveToGroup,

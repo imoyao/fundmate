@@ -19,16 +19,16 @@ const emit = defineEmits<{
 
 const summary = computed(() => props.realtime.summary.value);
 const hasValid = computed(
-  () => !!summary.value && (summary.value.totalValue ?? 0) > 0
+  () => !!summary.value && (summary.value.totalMarketValue ?? 0) > 0
 );
 const profitClass = computed(() => {
-  const v = summary.value?.totalProfit ?? 0;
+  const v = summary.value?.totalPnl ?? 0;
   if (v > 0) return "text-up";
   if (v < 0) return "text-down";
   return "text-flat";
 });
 const profitArrow = computed(() =>
-  (summary.value?.totalProfit ?? 0) >= 0 ? ArrowUp : ArrowDown
+  (summary.value?.totalPnl ?? 0) >= 0 ? ArrowUp : ArrowDown
 );
 const intervalOptions = [
   { label: "15s", value: 15 },
@@ -68,7 +68,7 @@ const intervalOptions = [
     <div v-if="hasValid" class="summary-cards flex gap-4">
       <div class="summary-card">
         <div class="label">总市值</div>
-        <div class="value">{{ summary?.totalValue?.toFixed(2) }}</div>
+        <div class="value">{{ summary?.totalMarketValue?.toFixed(2) }}</div>
       </div>
       <div class="summary-card">
         <div class="label">总成本</div>
@@ -78,8 +78,8 @@ const intervalOptions = [
         <div class="label">总盈亏</div>
         <div class="value" :class="profitClass">
           <el-icon><component :is="profitArrow" /></el-icon>
-          {{ summary?.totalProfit?.toFixed(2) }}
-          <span class="pct">({{ summary?.totalProfitPct?.toFixed(2) }}%)</span>
+          {{ summary?.totalPnl?.toFixed(2) }}
+          <span class="pct">({{ summary?.totalPnlPercent?.toFixed(2) }}%)</span>
         </div>
       </div>
     </div>
