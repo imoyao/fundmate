@@ -71,36 +71,33 @@
 
 以下分支正在进行中，**改动文件与 #808 修复高度重叠，直接改会冲突**：
 
-### A. `feat/watchlist-unified-realtime`（前端自选统一实时行情，领先 main-v2 43 提交，未并入）
-动到的重叠文件：
-- `frontend/src/constants/index.ts`（**我们 c39cb30 刚加 `TEMP_SOURCE_LABELS`；该分支删 67 行，会冲突**）
-- `frontend/src/views/temperature/index.vue`（**我们改了 `displaySource`；该分支改 20 行**）
-- `frontend/src/views/asset/portfolio/detail.vue`（**我们加未归档归档；该分支删 130 行**）
-- `frontend/src/views/asset/watchlist/index.vue`、`columnDefs.ts`、`columnRenderers.tsx`
-- `frontend/src/api/types.d.ts`、`frontend/src/api/watchlist.ts`
-- 后端：`positions/views.py`、`positions/schemas.py`、`positions/models.py`（**我们改了 source 校验+归档过滤**）、`watchlist/views.py`（大量删减）、`watchlist_service.py`
+### A. `feat/watchlist-unified-realtime`（前端自选统一实时行情）—— 已合入，无未并入 diff
+- HEAD `161380c`，**是 `main-v2` 的祖先**（已用 `git merge-base --is-ancestor` 双向验证），其全部工作已包含在 main-v2 历史中，**没有未合并的改动，无"剩余工作量"**。
+- 最新提交为「阶段 A 取数层批量数据源改造（#990）」，即它"在干嘛"= 实时行情取数层批量数据源改造，已落地。
+- ⚠️ 之前此处误写为"领先 main-v2 43 提交、未并入、删 67/130 行"——那是把 `git diff main-v2..该分支`（旧祖先视角，把 main-v2 后来新增的内容显示成"删除"）当成了分支的改动。**实际这些文件（`constants/index.ts` 的 `TEMP_SOURCE_LABELS`、`temperature/index.vue` 的 `displaySource`、`portfolio/detail.vue` 的归档 UI）都是我们在 `c39cb30` 之后才加的，分支时代根本不存在，不存在冲突风险。**
+- 结论：做 #808 修复时**无需**避让 unified-realtime，它不会覆盖我们的代码。
 
-### B. `refactor/god-pages-split`（本地，巨型页面拆分）
+### B. `refactor/god-pages-split`（本地，巨型页面拆分）—— 真正分叉、进行中（⚠️ 这才是要避让的）
 动到的重叠文件：
 - `frontend/src/views/asset/watchlist/index.vue`（大瘦身 205 行）、`columnDefs.ts`、`columnRenderers.tsx`
 - `frontend/src/views/temperature/index.vue`（7 行）
 - `frontend/src/constants/index.ts`（27 行新增，与 A 方向相反）
 
 ### C. 探市页本身（`frontend/src/views/explore/index.vue`）
-- **当前未被上述任何重构分支直接改动**（stat 无 explore 行）。
-- 但 `realtimeDataSources.ts` 取数层在 `feat/watchlist-unified-realtime` 重构范围内 → 探市取数逻辑若改动需与该分支对齐。
+- **当前未被 `refactor/god-pages-split` 直接改动**（stat 无 explore 行）。
+- `realtimeDataSources.ts` 取数层是 `feat/watchlist-unified-realtime`（#990）已合入的成果；若 `refactor/god-pages-split` 后续也触及取数层，探市取数逻辑改动需与该分叉分支对齐。
 
 ### 操作建议（避免覆盖）
 1. **探市页 `explore/index.vue` 本体**：可安全直接改（P0-1/P0-2/P0-3/P1-5/P1-6/P2-7 多落在此文件）。
-2. **`constants/index.ts`**：我们刚加的 `TEMP_SOURCE_LABELS` 与两个重构分支都碰它。改前先 `git fetch` + 看 `feat/watchlist-unified-realtime` 是否已并入 main-v2；若未并入，修复 P0 时如需加常量，单独提分支并在合并前 rebase。
-3. **`temperature/index.vue`**：仅 `displaySource` 一行是我们改的，其余被重构碰。改温度相关先确认重构状态。
-4. **`portfolio/detail.vue` / `positions/*` 后端**：归档功能刚合并，重构分支大改这些文件。归档相关微调需等 `feat/watchlist-unified-realtime` 收敛或协同。
-5. **P0-1 后端白名单**：改 `backend/app/core/auth.py` 或新增匿名端点——确认 `feat/watchlist-unified-realtime` 是否也动了 auth（其 diff 显示 `auth.py` 有 3 行删除），先对齐。
+2. **`constants/index.ts`**：我们刚加的 `TEMP_SOURCE_LABELS` 只与 `refactor/god-pages-split`（它新增 27 行）可能重叠，与 unified-realtime 无关。改前确认 god-pages-split 是否已并入。
+3. **`temperature/index.vue`**：仅 `displaySource` 一行是我们改的，`refactor/god-pages-split` 也碰它（7 行）。改温度相关先确认该分叉分支状态。
+4. **`portfolio/detail.vue` / `positions/*` 后端**：归档功能刚合并，`refactor/god-pages-split` 当前未大改这些文件（其 diff 无 portfolio/positions 条目）。但后续若 god-pages-split 扩展到后端需协同。
+5. **P0-1 后端白名单**：改 `backend/app/core/auth.py` 或新增匿名端点——确认 `refactor/god-pages-split` 是否动了 auth，先对齐。
 
 ## 六、下一步建议顺序
 
-1. 先确认 `feat/watchlist-unified-realtime` 是否会近期并入 main-v2（问持有者 / 看 PR）。
-2. 若暂不并入：在 `feature/sso-cross-subdomain` 基础上新开 `fix/explore-p0-*` 分支，只动 `explore/index.vue` 与必要的最小后端白名单，避开重构文件。
+1. 先确认 `refactor/god-pages-split`（真正分叉、进行中的自选页拆分）是否会近期并入 main-v2；`feat/watchlist-unified-realtime` 已合入，无需等待。
+2. 在 `feature/sso-cross-subdomain` 或新开 `fix/explore-p0-*` 分支，只动 `explore/index.vue` 与必要的最小后端白名单，避开 `refactor/god-pages-split` 已动的文件（watchlist 三件套、login、AssetOverview、constants 新增部分）。
 3. P0 优先级：P0-1（搜索白名单）→ P0-2（假成本价）→ P0-3/P0-4（登录回读/迁移保真）。
 
 ---
