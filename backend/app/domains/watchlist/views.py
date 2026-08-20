@@ -337,14 +337,22 @@ def list_items():
         'symbol': request.args.get('symbol'),
         'tag_ids_str': request.args.get('tag_ids'),
         'tag_id': request.args.get('tag_id', type=int),
+        'page': request.args.get('page', type=int, default=1),
+        'per_page': request.args.get('per_page', type=int, default=20),
     }
 
     with get_db() as db:
+        # 分页参数：page 从 1 开始；per_page 限幅 [1, 200] 避免一次性拉取全量
+        page = max(params['page'] or 1, 1)
+        per_page = max(min(params['per_page'] or 20, 200), 1)
+        offset = (page - 1) * per_page
         if params['status'] == 'HOLDING':
             # 持仓分组 = 全部真实持仓（positions 表 active，按 symbol 聚合），
             # 不走 watchlist.status 快照查询；返回虚拟行（id=None，前端据此禁用行操作）
             data = _list_holding_items(db, get_family_id(), venue=params['venue'], search=params['search'])
-            return jsonify({'data': data, 'total': len(data), 'message': 'ok'})
+            total = len(data)
+            page_data = data[offset : offset + per_page]
+            return jsonify({'data': page_data, 'total': total, 'message': 'ok'})
 
         if not params['status'] and not (params['symbol'] or params['market'] or params['tag_id']):
             # 「全部」分组 = 自选清单 ∪ 真实持仓补集（同一 symbol 自选优先），
@@ -363,7 +371,9 @@ def list_items():
                 )
             except ValueError as e:
                 abort(400, str(e))
-            return jsonify({'data': data, 'total': len(data), 'message': 'ok'})
+            total = len(data)
+            page_data = data[offset : offset + per_page]
+            return jsonify({'data': page_data, 'total': total, 'message': 'ok'})
 
         try:
             query, total = get_filtered_items_query(db, get_family_id(), **params)
@@ -373,7 +383,9 @@ def list_items():
         items = query.order_by(WatchlistItem.is_pinned.desc(), WatchlistItem.updated_at.desc()).all()
         data = [_enrich_item(item, db) for item in items]
 
-        return jsonify({'data': data, 'total': total, 'message': 'ok'})
+        total = len(data)
+        page_data = data[offset : offset + per_page]
+        return jsonify({'data': page_data, 'total': total, 'message': 'ok'})
 
 
 @watchlist_bp.post('/items/')
