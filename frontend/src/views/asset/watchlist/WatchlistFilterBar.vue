@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { ElTag } from "element-plus";
-import type { UseWatchlistGroups } from "@/composables/useWatchlistGroups";
-import type { UseWatchlistTags } from "@/composables/useWatchlistTags";
+import type { useWatchlistGroups } from "@/composables/useWatchlistGroups";
+import type { useWatchlistTags } from "@/composables/useWatchlistTags";
 import type { WatchlistToolbarState } from "@/composables/useWatchlistData";
 
 /**
@@ -10,8 +10,8 @@ import type { WatchlistToolbarState } from "@/composables/useWatchlistData";
  * 纯展示 + 事件转发：状态全部在 groups / tags / toolbar 三个 composable，本组件不持有业务状态。
  */
 const props = defineProps<{
-  groups: UseWatchlistGroups;
-  tags: UseWatchlistTags;
+  groups: ReturnType<typeof useWatchlistGroups>;
+  tags: ReturnType<typeof useWatchlistTags>;
   toolbar: WatchlistToolbarState;
 }>();
 

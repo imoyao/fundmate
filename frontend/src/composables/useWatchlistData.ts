@@ -8,8 +8,8 @@ import {
   addItemToGroup,
   type WatchlistItem
 } from "@/api/watchlist";
-import type { UseWatchlistGroups } from "@/composables/useWatchlistGroups";
-import type { UseWatchlistTags } from "@/composables/useWatchlistTags";
+import type { useWatchlistGroups } from "@/composables/useWatchlistGroups";
+import type { useWatchlistTags } from "@/composables/useWatchlistTags";
 
 /**
  * 自选列表「数据 + 分页 + 筛选 + 行操作 + 批量」编排逻辑（从 watchlist/index.vue 抽离，2026-08-20）。
@@ -33,8 +33,8 @@ export interface WatchlistToolbarState {
 }
 
 export function useWatchlistData(
-  groups: UseWatchlistGroups,
-  tags: UseWatchlistTags,
+  groups: ReturnType<typeof useWatchlistGroups>,
+  tags: ReturnType<typeof useWatchlistTags>,
   toolbar: WatchlistToolbarState
 ) {
   const { activeGroup, allGroups, currentIsCustom, activeCustomGroupId } = groups;
@@ -65,9 +65,10 @@ export function useWatchlistData(
       // 系统分组过滤已随 useWatchlistGroups 收敛到 allGroups（其 filter 由 getSystemFilter 填充），直接复用
       const group = allGroups.value.find(g => g.key === groupKey);
       if (group && group.filter) {
-        Object.entries(group.filter).forEach(([k, v]) => {
+        for (const [k, rawV] of Object.entries(group.filter)) {
+          const v = rawV as string | number | boolean;
           params[k === "cleared" ? "status" : k] = k === "cleared" ? "cleared" : v;
-        });
+        }
       }
     }
     // venue 过滤由顶部 el-segmented（currentView）唯一承担（方案 B 收敛三套入口）
