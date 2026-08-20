@@ -64,6 +64,9 @@ class ErrorCode(Enum):
     INTERNAL_ERROR = (5004, '服务器内部错误', 500)
     OCR_SERVICE_UNAVAILABLE = (5005, 'OCR 识别服务暂不可用', 503)
 
+    # AI 账本精灵（AgentLoop）相关错误 4xxx
+    AGENT_TURN_LIMIT_EXCEEDED = (4001, '已超出分析轮次', 429)
+
     @property
     def code(self) -> int:
         return self.value[0]
