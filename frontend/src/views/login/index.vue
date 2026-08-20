@@ -896,6 +896,17 @@ useEventListener(document, "keydown", ({ code }) => {
   }
 }
 
+/* 浏览器自动填充背景覆盖：清除 Chrome 默认浅蓝底色，
+   避免与左右图标容器形成「白-蓝-白」三明治（与 reset-password.vue 同一处理） */
+::deep(input:-webkit-autofill),
+::deep(input:-webkit-autofill:hover),
+::deep(input:-webkit-autofill:focus),
+::deep(input:-webkit-autofill:active) {
+  caret-color: var(--text-primary);
+  box-shadow: 0 0 0 1000px var(--bg-card) inset !important;
+  -webkit-text-fill-color: var(--text-primary) !important;
+}
+
 .login-title {
   font-size: var(--text-title);
   font-weight: 500;
