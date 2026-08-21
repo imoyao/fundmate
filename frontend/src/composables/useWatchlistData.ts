@@ -53,6 +53,10 @@ export function useWatchlistData(
   const pageSize = ref(20);
   const totalItems = ref(0);
 
+  // 用户列内排序状态（#991）：空串表示未排序（后端走默认置顶+更新时间）
+  const sortBy = ref("");
+  const sortOrder = ref<"asc" | "desc">("asc");
+
   /** 拼后端请求参数：分页 + 分组过滤 + 标签筛选 + 场内/场外 + 搜索。 */
   const fetchParams = computed(() => {
     const params: Record<string, string | number | boolean> = {
@@ -81,6 +85,11 @@ export function useWatchlistData(
     if (currentView.value === "exchange") params.venue = "EXCHANGE";
     else if (currentView.value === "otc") params.venue = "OTC";
     if (searchKeyword.value) params.q = searchKeyword.value;
+    // 用户列内排序（#991）：仅白名单字段由后端校验，跨页排序一致
+    if (sortBy.value) {
+      params.sort_by = sortBy.value;
+      params.sort_order = sortOrder.value;
+    }
     return params;
   });
 
@@ -103,11 +112,27 @@ export function useWatchlistData(
   // 排序 / 分页切换辅助
   // ─────────────────────────────────────────────
 
-  /** 排序时回到第一页，避免停留在非首页看错顺序 */
-  function handleSortChange() {
+  /**
+   * 表头排序（#991）：列已切 sortable="custom"，EP 不做页内排序，
+   * 由本函数捕获排向后端（sort_by/sort_order），保证跨页一致。
+   * EP 取消排序时 order 为 null → 清空排序回默认（置顶+更新时间）。
+   */
+  function handleSortChange({
+    prop,
+    order
+  }: {
+    prop?: string | number;
+    order: "ascending" | "descending" | null;
+  }) {
+    if (order && prop) {
+      sortBy.value = String(prop);
+      sortOrder.value = order === "descending" ? "desc" : "asc";
+    } else {
+      sortBy.value = "";
+    }
     currentPage.value = 1;
+    fetchData();
   }
-
   /** 顶部视图 segmented（全部/场内/场外）切换：重置分页并刷新 */
   function handleViewChange() {
     currentPage.value = 1;

@@ -820,3 +820,70 @@ class TestAllGroupUnionPositions:
         text = resp.get_data(as_text=True)
         assert 'SH600519,茅台,SH,股票,场内,持仓中,否,否,' in text
         assert 'HK00700,腾讯,HK,股票,场内,持仓中,否,否,' in text
+
+
+# ─────────────── 用户列内排序（#991）纯函数测试 ───────────────
+class TestApplyUserSort:
+    """_apply_user_sort：白名单校验 / 置顶前置 / None 恒排末尾 / 派生列现算"""
+
+    @staticmethod
+    def _row(symbol, **kw):
+        row = {'symbol': symbol, 'is_pinned': False}
+        row.update(kw)
+        return row
+
+    def test_unknown_or_missing_field_keeps_order(self):
+        from app.domains.watchlist.views import _apply_user_sort
+
+        data = [self._row('A', current_price=2.0), self._row('B')]
+        # 非白名单字段 / 未传 sort_by：原序返回（走默认置顶+更新时间）
+        assert _apply_user_sort(data, 'notes', 'desc') == data
+        assert _apply_user_sort(data, None, 'asc') == data
+
+    def test_sort_by_current_price_desc(self):
+        from app.domains.watchlist.views import _apply_user_sort
+
+        data = [
+            self._row('A', current_price=1.0),
+            self._row('B', current_price=3.0),
+            self._row('C', current_price=2.0),
+        ]
+        result = _apply_user_sort(data, 'current_price', 'desc')
+        assert [r['symbol'] for r in result] == ['B', 'C', 'A']
+
+    def test_pinned_stays_first_after_user_sort(self):
+        from app.domains.watchlist.views import _apply_user_sort
+
+        data = [
+            self._row('A', current_price=1.0),
+            self._row('P', current_price=0.5, is_pinned=True),
+            self._row('B', current_price=3.0),
+        ]
+        result = _apply_user_sort(data, 'current_price', 'desc')
+        # 用户排序生效（B > A），但置顶行仍恒在顶部
+        assert [r['symbol'] for r in result] == ['P', 'B', 'A']
+
+    def test_none_values_last_regardless_of_direction(self):
+        from app.domains.watchlist.views import _apply_user_sort
+
+        data = [
+            self._row('N', change_pct=None),
+            self._row('A', change_pct=1.0),
+            self._row('B', change_pct=-1.0),
+        ]
+        desc = _apply_user_sort(data, 'change_pct', 'desc')
+        asc = _apply_user_sort(data, 'change_pct', 'asc')
+        assert [r['symbol'] for r in desc] == ['A', 'B', 'N']
+        assert [r['symbol'] for r in asc] == ['B', 'A', 'N']
+
+    def test_added_return_derived_metric(self):
+        from app.domains.watchlist.views import _apply_user_sort
+
+        data = [
+            # 收益 = (现价 - 成本) × 数量：A=100，B=400，C 缺数量 → None
+            self._row('A', current_price=11.0, price_at_added=10.0, holding_quantity=100),
+            self._row('B', current_price=6.0, price_at_added=5.0, holding_quantity=400),
+            self._row('C', current_price=9.0, price_at_added=8.0, holding_quantity=None),
+        ]
+        result = _apply_user_sort(data, 'added_return', 'desc')
+        assert [r['symbol'] for r in result] == ['B', 'A', 'C']

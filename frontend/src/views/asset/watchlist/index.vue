@@ -108,19 +108,19 @@
         <el-table-column
           v-for="def in dataColumns"
           :key="def.key"
+          :prop="def.key"
           :label="def.label"
           :width="def.width"
           :min-width="def.minWidth"
           :align="def.align"
           :fixed="def.fixed"
           :sortable="def.sortable"
-          :sort-method="def.sortMethod"
           :show-overflow-tooltip="def.showOverflowTooltip"
         >
           <template #default="{ row }">
             <component
               :is="resolveRenderer(def.renderer)"
-              :row="row"
+              :row="(row as WatchlistItem)"
               :def="def"
               :ctx="renderCtx"
             />
