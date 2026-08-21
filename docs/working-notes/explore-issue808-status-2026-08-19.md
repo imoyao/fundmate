@@ -77,11 +77,9 @@
 - ⚠️ 之前此处误写为"领先 main-v2 43 提交、未并入、删 67/130 行"——那是把 `git diff main-v2..该分支`（旧祖先视角，把 main-v2 后来新增的内容显示成"删除"）当成了分支的改动。**实际这些文件（`constants/index.ts` 的 `TEMP_SOURCE_LABELS`、`temperature/index.vue` 的 `displaySource`、`portfolio/detail.vue` 的归档 UI）都是我们在 `c39cb30` 之后才加的，分支时代根本不存在，不存在冲突风险。**
 - 结论：做 #808 修复时**无需**避让 unified-realtime，它不会覆盖我们的代码。
 
-### B. `refactor/god-pages-split`（本地，巨型页面拆分）—— 真正分叉、进行中（⚠️ 这才是要避让的）
-动到的重叠文件：
-- `frontend/src/views/asset/watchlist/index.vue`（大瘦身 205 行）、`columnDefs.ts`、`columnRenderers.tsx`
-- `frontend/src/views/temperature/index.vue`（7 行）
-- `frontend/src/constants/index.ts`（27 行新增，与 A 方向相反）
+### B. `refactor/god-pages-split` —— 已合入 main-v2（2026-08-20），不再构成分叉冲突
+- 已合并（7 提交，+1774/-959）：watchlist/index.vue 拆分后现约 1287 行，columnDefs/columnRenderers 已落地，login 重构已含 OAuth 修复。
+- 做 #808 修复时直接以 main-v2 当前代码为基，无需避让。
 
 ### C. 探市页本身（`frontend/src/views/explore/index.vue`）
 - **当前未被 `refactor/god-pages-split` 直接改动**（stat 无 explore 行）。
@@ -89,15 +87,15 @@
 
 ### 操作建议（避免覆盖）
 1. **探市页 `explore/index.vue` 本体**：可安全直接改（P0-1/P0-2/P0-3/P1-5/P1-6/P2-7 多落在此文件）。
-2. **`constants/index.ts`**：我们刚加的 `TEMP_SOURCE_LABELS` 只与 `refactor/god-pages-split`（它新增 27 行）可能重叠，与 unified-realtime 无关。改前确认 god-pages-split 是否已并入。
-3. **`temperature/index.vue`**：仅 `displaySource` 一行是我们改的，`refactor/god-pages-split` 也碰它（7 行）。改温度相关先确认该分叉分支状态。
-4. **`portfolio/detail.vue` / `positions/*` 后端**：归档功能刚合并，`refactor/god-pages-split` 当前未大改这些文件（其 diff 无 portfolio/positions 条目）。但后续若 god-pages-split 扩展到后端需协同。
-5. **P0-1 后端白名单**：改 `backend/app/core/auth.py` 或新增匿名端点——确认 `refactor/god-pages-split` 是否动了 auth，先对齐。
+2. **`constants/index.ts`**：`TEMP_SOURCE_LABELS` 已随 god-pages-split 合入 main-v2，改动以 main-v2 当前内容为准。
+3. **`temperature/index.vue`**：god-pages-split 的 7 行改动已合入，以 main-v2 当前内容为准。
+4. **`portfolio/detail.vue` / `positions/*` 后端**：归档功能已在 main-v2，无分叉冲突。
+5. **P0-1 后端白名单**：改 `backend/app/core/auth.py` 或新增匿名端点——直接以 main-v2 为基。
 
 ## 六、下一步建议顺序
 
-1. 先确认 `refactor/god-pages-split`（真正分叉、进行中的自选页拆分）是否会近期并入 main-v2；`feat/watchlist-unified-realtime` 已合入，无需等待。
-2. 在 `feature/sso-cross-subdomain` 或新开 `fix/explore-p0-*` 分支，只动 `explore/index.vue` 与必要的最小后端白名单，避开 `refactor/god-pages-split` 已动的文件（watchlist 三件套、login、AssetOverview、constants 新增部分）。
+1. ✅ 两条重构线均已并入 main-v2：`feat/watchlist-unified-realtime`（此前已合入）、`refactor/god-pages-split`（2026-08-20 合入）——无等待项。
+2. 从 main-v2 切 `fix/explore-p0-*` 分支，只动 `explore/index.vue` 与必要的最小后端白名单。watchlist 新结构（index.vue 约 1287 行 + columnDefs + 子组件）已就位，探市页引用相关 API 时以新结构为准。
 3. P0 优先级：P0-1（搜索白名单）→ P0-2（假成本价）→ P0-3/P0-4（登录回读/迁移保真）。
 
 ---

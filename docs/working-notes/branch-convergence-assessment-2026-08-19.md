@@ -16,7 +16,7 @@
 
 | 分支 | 领先提交 | 改动量 | 状态 | 建议 |
 |---|---|---|---|---|
-| refactor/god-pages-split | 7 个（#980/#995 前端 Overview/watchlist/login 重构） | +1774/-959 | 半成品，有价值 | **保留**，待 Overview 完工后单独提 PR 合入 |
+| refactor/god-pages-split | 7 个（#980/#995 前端 Overview/watchlist/login 重构） | +1774/-959 | ✅ 已合入 main-v2（2026-08-20） | **已完成**——拆分主体（Overview/watchlist/columnDefs/login）全部落地 |
 | wip/holding-import-frontend-draft | 1 个（24413ab 导入向导草案） | 删 1042 行 orchestrator、删测试 | **已过时** | **保留但标记废弃**，与已合入的 split-import-wizard 方向相反，不合入，待按新方案重做 |
 | feature/jigu-migration | 1 个（c421f42 跨 Supabase 迁移脚本） | 运维脚本 | 独立、无害 | **可合并**（纯 scripts，不碰主代码） |
 | feature/ai-recognizer-agent | 1 个（83c7693 账本精灵 Agent 骨架） | 新功能骨架 | 半成品 | **保留**，独立功能线 |
@@ -34,8 +34,9 @@
 4. **保留待完工**：refactor/god-pages-split（Overview 完工后提 PR）、feature/ai-recognizer-agent（骨架，独立线）。
 5. **标记废弃**：wip/holding-import-frontend-draft（已被 split-import-wizard 取代，待按新方案重做，不合入）。
 6. **#821 后续**：确定迁移落点（positions 还是 watchlist）后，从 main-v2 切 fix 分支实现，不碰 god-pages-split 碰过的文件，零冲突。
+7. **已合入 refactor/god-pages-split（2026-08-20 补充）**：7 提交 +1774/-959 合并至 main-v2，`feat/watchlist-unified-realtime`（#990 取数层）此前已合入——两条重构线均已落地，watchlist 拆分转入 #980 收尾（剩余 C 类列增强 #990/#991/#992/#993，持久化已定 localforage）。
 
 ## 四、待用户决策（仍未决）
 - 探市页迁移落点：positions（持仓）还是 watchlist（观察项）？倾向 positions。
 - 是否允许探市页未来支持交易记录（重操作）？当前不支持，建议暂不做。
-- 注意：god-pages-split 的 login 重构（含旧 /welcome bug）合入 main-v2 时需带上 972b6d7 的 OAuth 修复，可能需解决冲突。
+- ~~login 重构合入需带 OAuth 修复~~：已解决（god-pages-split 2026-08-20 合入时已含 972b6d7 的修复）。

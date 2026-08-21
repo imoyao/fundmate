@@ -142,7 +142,7 @@
 ### 10.2 需要你提供的信息（实现搬家）
 
 **A. 旧 masantu project（只读源）**
-- 项目 URL（形如 `https://zhfiyyupbegeyvnigenk.supabase.co`）
+- 项目 URL（形如 `https://xxx.supabase.co`）
 - `service_role` key（**机密**，服务端读 `auth.users` 必需；anon key 列不出用户）—— 不进仓库，走本地环境变量/未跟踪文件。
 
 **B. 主站 Supabase project（写入目标）**
