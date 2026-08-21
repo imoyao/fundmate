@@ -11,16 +11,19 @@
       class="image-uploader__upload"
     >
       <IconifyIconOffline
-        icon="ep:upload-filled"
+        icon="mdi:cloud-upload-outline"
         class="image-uploader__icon"
       />
       <div class="image-uploader__text">
         拖拽图片到此处，或<em>点击选择</em>
       </div>
+      <!-- 底部说明：普通说明与快捷操作分两行、不同层级，避免视觉粘连 -->
       <template #tip>
         <div class="image-uploader__tip">
-          {{ tip }}
-          <em class="image-uploader__paste-hint">也可直接 Ctrl+V 粘贴截图</em>
+          <p class="image-uploader__tip-line">{{ tip }}</p>
+          <p class="image-uploader__tip-hint">
+            高效技巧：可直接 Ctrl+V 粘贴截图
+          </p>
         </div>
       </template>
     </el-upload>
@@ -126,57 +129,82 @@ const handlePaste = (e: ClipboardEvent) => {
 </script>
 
 <style scoped>
-/* ============================================
-   上传区：软表面 + 虚线边框 + 品牌色 hover（对齐 design.md）
-   ============================================ */
+
+
+/* 呼吸感：边框在 --border-default 与 --brand-400 之间缓慢呼吸 */
+@keyframes upload-breathe {
+  0%,
+  100% {
+    border-color: var(--border-default);
+  }
+
+  50% {
+    border-color: var(--brand-400);
+  }
+}
+
 .image-uploader__upload {
   :deep(.el-upload-dragger) {
-    padding: var(--space-loose) var(--space-standard);
+    /* 高度压缩：--space-standard 内边距，聚焦核心拖拽区 */
+    padding: var(--space-standard);
     background: var(--bg-soft);
     border: 1px dashed var(--border-default);
     border-radius: var(--radius-md);
     transition:
       background-color 0.2s ease,
       border-color 0.2s ease;
+    animation: upload-breathe 2.4s ease-in-out infinite; /* 呼吸虚线框：引导上传 */
   }
 
   :deep(.el-upload-dragger:hover) {
     background: var(--brand-100);
-    border-color: var(--brand-500);
+    border-color: var(--brand-700);
+    animation: none; /* 交互中暂停呼吸 */
   }
 
   :deep(.el-upload-dragger.is-dragover) {
     background: var(--brand-100);
     border-color: var(--brand-700);
+    animation: none;
   }
 }
 
 .image-uploader__icon {
   margin-bottom: var(--space-3);
-  font-size: 48px;
+  font-size: 40px;
   color: var(--brand-700);
 }
 
 .image-uploader__text {
   margin-top: 0;
   font-size: var(--text-body);
-  color: var(--text-primary);
+  color: var(--text-secondary); /* 弱化引导句 */
 
   em {
     font-style: normal;
-    color: var(--brand-700);
+    font-weight: 600;
+    color: var(--brand-700); /* 强化交互点 */
   }
 }
 
+/* 底部说明：两行独立层级，避免视觉粘连 */
 .image-uploader__tip {
-  margin-top: var(--space-2);
-  font-size: var(--text-label);
-  color: var(--text-tertiary);
-}
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-3);
 
-.image-uploader__paste-hint {
-  font-style: normal;
-  color: var(--brand-700);
+  &-line {
+    margin: 0;
+    font-size: var(--text-label);
+    color: var(--text-tertiary);
+  }
+
+  &-hint {
+    margin: 0;
+    font-size: var(--text-label);
+    color: var(--brand-700);
+  }
 }
 
 /* ============================================
@@ -220,4 +248,8 @@ const handlePaste = (e: ClipboardEvent) => {
     color: var(--text-tertiary);
   }
 }
+
+/* ============================================
+   上传区：软表面 + 虚线边框 + 品牌色 hover（对齐 design.md）
+   ============================================ */
 </style>
