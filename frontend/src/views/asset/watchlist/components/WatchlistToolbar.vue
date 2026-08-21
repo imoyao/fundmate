@@ -124,31 +124,42 @@ function handleSearchInput(value: string) {
         </div>
       </template>
 
-      <!-- 正常模式下的工具栏 -->
+      <!-- 正常模式下的工具栏：主按钮「添加自选」 + 轻量图标操作（刷新/导出/AI导入/实时估值）+ 管理入口 -->
       <template v-else>
         <el-button type="primary" @click="emit('add')">
           <IconifyIconOffline icon="ep:plus" class="mr-1" />
           添加自选
         </el-button>
 
-        <el-button plain @click="emit('refresh')">
-          <IconifyIconOffline icon="ep:refresh" class="mr-1" />
-          刷新
-        </el-button>
+        <el-tooltip content="刷新" placement="bottom">
+          <el-button circle class="icon-tool-btn" @click="emit('refresh')">
+            <IconifyIconOffline icon="ep:refresh" />
+          </el-button>
+        </el-tooltip>
 
-        <el-button plain @click="emit('export')">
-          <IconifyIconOffline icon="ep:download" class="mr-1" />
-          导出
-        </el-button>
+        <el-tooltip content="导出" placement="bottom">
+          <el-button circle class="icon-tool-btn" @click="emit('export')">
+            <IconifyIconOffline icon="ep:download" />
+          </el-button>
+        </el-tooltip>
 
-        <el-button plain @click="emit('ocr')">
-          <IconifyIconOffline icon="ep:magic-stick" class="mr-1" />
-          AI 导入
-        </el-button>
+        <el-tooltip content="AI 导入" placement="bottom">
+          <el-button circle class="icon-tool-btn" @click="emit('ocr')">
+            <IconifyIconOffline icon="ep:magic-stick" />
+          </el-button>
+        </el-tooltip>
 
-        <el-button plain @click="emit('toggle-realtime')">
-          {{ toggleBtnText }}
-        </el-button>
+        <!-- 实时估值开关：状态色区分（开启 = 品牌色高亮，关闭 = 中性弱化），tooltip 给全文案 -->
+        <el-tooltip :content="toggleBtnText" placement="bottom">
+          <el-button
+            circle
+            class="icon-tool-btn"
+            :class="{ 'is-active': toggleBtnText.includes('关闭') }"
+            @click="emit('toggle-realtime')"
+          >
+            <IconifyIconOffline icon="mdi:lightning-bolt" />
+          </el-button>
+        </el-tooltip>
 
         <el-button plain @click="emit('open-settings')">
           <IconifyIconOffline icon="ep:setting" class="mr-1" />
@@ -160,6 +171,38 @@ function handleSearchInput(value: string) {
 </template>
 
 <style scoped>
+/* ======================================
+   轻量图标操作按钮（刷新/导出/AI导入/实时估值）
+   默认中性弱化，hover 提亮；实时开关开启态品牌色高亮（视觉降噪，避免多个文字按钮挤一排）
+   ====================================== */
+.icon-tool-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  color: var(--text-tertiary);
+  background-color: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  transition:
+    color 150ms ease,
+    background-color 150ms ease,
+    border-color 150ms ease;
+}
+
+.icon-tool-btn:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-hover);
+}
+
+.icon-tool-btn.is-active {
+  color: var(--brand-700);
+  border-color: var(--brand-400);
+}
+
+.icon-tool-btn.is-active:hover {
+  background-color: var(--brand-100);
+}
+
 /* ======================================
    批量模式工具栏优化
    ====================================== */

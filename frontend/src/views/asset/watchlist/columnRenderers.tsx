@@ -19,6 +19,7 @@
  */
 
 import { h, type FunctionalComponent, type VNode } from "vue";
+import { ElButton, ElTooltip } from "element-plus";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
@@ -56,6 +57,12 @@ export interface RenderCtx {
   openTagEditor: (row: WatchlistRow) => void;
   /** 是否批量管理模式（true 时 actions 列显示 "-" 占位） */
   batchMode: boolean;
+  /** 当前 hover 行的 key（row.id ?? row.symbol，由 index.vue @cell-mouse-enter/leave 维护）。
+   *  操作列/产品列是 fixed 列，EP 固定列独立 DOM，CSS :hover 无法跨表同步，
+   *  因此行 hover 淡入必须由 JS 行 hover 状态驱动（见 design.md 行内操作交互规范）。 */
+  hoveredRowKey: string | number | null;
+  /** 手动设置 hover 行状态（fixed 列自身 hover 时自驱动，避免依赖主表 mouseenter） */
+  setHoveredRowKey: (key: string | number | null) => void;
   /** 操作回调（actions 列） */
   actions: {
     togglePin: (row: WatchlistRow) => void;
@@ -213,6 +220,11 @@ const renderProduct: FunctionalComponent<{
     ctx.allTags.find(t => t.id === tagId)?.color || "var(--bg-hover)";
   const tagName = (tagId: number) =>
     ctx.allTags.find(t => t.id === tagId)?.name || "";
+  // 行 hover 状态（add-tag 按钮在 fixed:left 产品列内，:hover 无法跨固定列 DOM 同步，需 JS 状态驱动）；
+  // 容器自身绑定 mouseenter/leave 自驱动，鼠标直接悬停产品列时也能亮起 add-tag 按钮
+  const isRowHovered =
+    ctx.hoveredRowKey != null && ctx.hoveredRowKey === (row.id ?? row.symbol);
+  const rowKey = row.id ?? row.symbol;
 
   return h("div", { class: "flex flex-col gap-1 py-2" }, [
     h(ProductDisplay, {
@@ -220,55 +232,73 @@ const renderProduct: FunctionalComponent<{
       symbol: row.symbol,
       typeLabel: (field(row, "type_label") as string) || ""
     }),
-    h("div", { class: "flex items-center gap-1" }, [
-      ...tagIds.slice(0, 2).map(tagId =>
+    h(
+      "div",
+      {
+        class: ["flex items-center gap-1", { "is-row-hovered": isRowHovered }],
+        onMouseenter: () => ctx.setHoveredRowKey(rowKey),
+        onMouseleave: () => ctx.setHoveredRowKey(null)
+      },
+      [
+        ...tagIds.slice(0, 2).map(tagId =>
+          h(
+            "span",
+            {
+              class: "tag-chip",
+              style: {
+                display: "inline-flex",
+                alignItems: "center",
+                padding: "1px 8px",
+                fontSize: "11px",
+                lineHeight: "18px",
+                fontWeight: 500,
+                whiteSpace: "nowrap",
+                borderRadius: "var(--radius-pill)",
+                backgroundColor: tagColor(tagId) + "18",
+                color: tagColor(tagId),
+                border: "1px solid " + tagColor(tagId) + "30"
+              }
+            },
+            tagName(tagId)
+          )
+        ),
+        ...(tagIds.length > 2
+          ? [
+              h(
+                "span",
+                { class: "text-xs", style: { color: "var(--text-tertiary)" } },
+                `+${tagIds.length - 2}`
+              )
+            ]
+          : []),
         h(
-          "el-tag",
+          ElTooltip,
+          { content: "添加/编辑标签", placement: "top" },
           {
-            size: "small",
-            class: "tag-chip text-[10px] px-1.5 py-0.5 rounded-full",
-            style: {
-              backgroundColor: tagColor(tagId) + "20",
-              color: "var(--text-primary)",
-              border: "1px solid " + tagColor(tagId)
-            }
-          },
-          () => tagName(tagId)
+            default: () =>
+              h(
+                ElButton,
+                {
+                  circle: true,
+                  size: "small",
+                  class: "add-tag-btn",
+                  disabled: row.id == null,
+                  onClick: (e: Event) => {
+                    e.stopPropagation();
+                    ctx.openTagEditor(row);
+                  }
+                },
+                () => [
+                  h(IconifyIconOffline, {
+                    icon: "ep:plus",
+                    class: "text-[10px]"
+                  })
+                ]
+              )
+          }
         )
-      ),
-      ...(tagIds.length > 2
-        ? [
-            h(
-              "span",
-              { class: "text-xs", style: { color: "var(--text-tertiary)" } },
-              `+${tagIds.length - 2}`
-            )
-          ]
-        : []),
-      h(
-        "el-tooltip",
-        { content: "添加/编辑标签", placement: "top" },
-        {
-          default: () =>
-            h(
-              "el-button",
-              {
-                circle: true,
-                size: "small",
-                class: "add-tag-btn",
-                disabled: row.id == null,
-                onClick: (e: Event) => {
-                  e.stopPropagation();
-                  ctx.openTagEditor(row);
-                }
-              },
-              () => [
-                h(IconifyIconOffline, { icon: "ep:plus", class: "text-[10px]" })
-              ]
-            )
-        }
-      )
-    ])
+      ]
+    )
   ]);
 };
 
@@ -288,81 +318,100 @@ const renderActions: FunctionalComponent<{
     );
   }
   const a = ctx.actions;
-  return h("div", { class: "flex items-center justify-center gap-1" }, [
-    h(
-      "el-tooltip",
-      { content: row.is_pinned ? "取消置顶" : "置顶", placement: "top" },
-      {
-        default: () =>
-          h(
-            "el-button",
-            {
-              circle: true,
-              size: "small",
-              disabled: row.id == null,
-              onClick: (e: Event) => {
-                e.stopPropagation();
-                a.togglePin(row);
-              }
-            },
-            () => [
-              h(IconifyIconOffline, {
-                icon: row.is_pinned ? "mdi:pin" : "mdi:pin-outline"
-              })
-            ]
-          )
-      }
-    ),
-    h(
-      "el-tooltip",
-      { content: row.favorite ? "取消特别关注" : "特别关注", placement: "top" },
-      {
-        default: () =>
-          h(
-            "el-button",
-            {
-              circle: true,
-              size: "small",
-              disabled: row.id == null,
-              onClick: (e: Event) => {
-                e.stopPropagation();
-                a.toggleFavorite(row);
-              }
-            },
-            () => [
-              h(IconifyIconOffline, {
-                icon: row.favorite ? "ep:star-filled" : "ep:star"
-              })
-            ]
-          )
-      }
-    ),
-    h(
-      "el-tooltip",
-      {
-        content:
-          row.status === "HOLDING" ? "持仓资产无法直接从自选移除" : "移除",
-        placement: "top"
-      },
-      {
-        default: () =>
-          h(
-            "el-button",
-            {
-              circle: true,
-              size: "small",
-              class: "btn-delete-ghost",
-              disabled: row.status === "HOLDING",
-              onClick: (e: Event) => {
-                e.stopPropagation();
-                a.remove(row);
-              }
-            },
-            () => [h(IconifyIconOffline, { icon: "ep:delete" })]
-          )
-      }
-    )
-  ]);
+  // 操作列是 fixed:right 列（EP 固定列独立 DOM），行 hover 淡入由 JS 状态（hoveredRowKey）驱动；
+  // 容器自身绑定 mouseenter/leave 自驱动，鼠标直接悬停固定列时也能亮起按钮
+  const isRowHovered =
+    ctx.hoveredRowKey != null && ctx.hoveredRowKey === (row.id ?? row.symbol);
+  const rowKey = row.id ?? row.symbol;
+  return h(
+    "div",
+    {
+      class: [
+        "flex items-center justify-center gap-1",
+        { "is-row-hovered": isRowHovered }
+      ],
+      onMouseenter: () => ctx.setHoveredRowKey(rowKey),
+      onMouseleave: () => ctx.setHoveredRowKey(null)
+    },
+    [
+      h(
+        ElTooltip,
+        { content: row.is_pinned ? "取消置顶" : "置顶", placement: "top" },
+        {
+          default: () =>
+            h(
+              ElButton,
+              {
+                circle: true,
+                size: "small",
+                disabled: row.id == null,
+                onClick: (e: Event) => {
+                  e.stopPropagation();
+                  a.togglePin(row);
+                }
+              },
+              () => [
+                h(IconifyIconOffline, {
+                  icon: row.is_pinned ? "mdi:pin" : "mdi:pin-outline"
+                })
+              ]
+            )
+        }
+      ),
+      h(
+        ElTooltip,
+        {
+          content: row.favorite ? "取消特别关注" : "特别关注",
+          placement: "top"
+        },
+        {
+          default: () =>
+            h(
+              ElButton,
+              {
+                circle: true,
+                size: "small",
+                disabled: row.id == null,
+                onClick: (e: Event) => {
+                  e.stopPropagation();
+                  a.toggleFavorite(row);
+                }
+              },
+              () => [
+                h(IconifyIconOffline, {
+                  icon: row.favorite ? "ep:star-filled" : "ep:star"
+                })
+              ]
+            )
+        }
+      ),
+      h(
+        ElTooltip,
+        {
+          content:
+            row.status === "HOLDING" ? "持仓资产无法直接从自选移除" : "移除",
+          placement: "top"
+        },
+        {
+          default: () =>
+            h(
+              ElButton,
+              {
+                circle: true,
+                size: "small",
+                class: "btn-delete-ghost",
+                disabled: row.status === "HOLDING",
+                onClick: (e: Event) => {
+                  e.stopPropagation();
+                  a.remove(row);
+                }
+              },
+              () => [h(IconifyIconOffline, { icon: "ep:delete" })]
+            )
+        }
+      )
+    ]
+  );
 };
 
 /** renderer 类型 -> 函数式组件 的注册表 */

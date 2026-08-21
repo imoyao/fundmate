@@ -37,23 +37,25 @@
       @open-settings="openSettingsDrawer"
     />
 
-    <!-- 主区域：单个工作区卡片（分组 tab 行 + 筛选行 + 表格，--border-subtle 分割线分区） -->
+    <!-- 主区域：单个工作区卡片（单行筛选条 + 单行估值数据条 + 表格，聚焦表格减少视线打断） -->
     <CardBlock class="watchlist-card">
-      <!-- 分组 tab + 标签筛选 + 视图 segmented（已抽离到 WatchlistFilterBar） -->
+      <!-- 单行筛选条：标签筛选 + 视图 segmented + 分组 tab 滚动（已抽离到 WatchlistFilterBar） -->
       <WatchlistFilterBar
         :groups="groups"
         :tags="tags"
         :toolbar="toolbar"
+        :on-refresh="fetchData"
         @view-change="handleViewChange()"
         @tag-apply="tags.applyTagFilter()"
         @tag-clear="tags.clearTagFilter()"
+        @manage-groups="groupManagerVisible = true"
       />
 
       <!-- 估值横幅与状态 -->
       <!-- ✅ 核心修复：用 template 包裹，加上 v-if 物理移除整个模块 -->
       <template v-if="realtimeEnabled">
         <RealtimeWarningBanner />
-        <!-- 实时状态指示 + 刷新档位 + 汇总卡（已抽离到 WatchlistSummaryBar） -->
+        <!-- 实时状态指示 + 刷新档位 + 汇总指标数据条（已抽离到 WatchlistSummaryBar） -->
         <WatchlistSummaryBar
           :realtime="realtime"
           :refreshing="refreshing"
@@ -91,6 +93,8 @@
         stripe
         @selection-change="handleSelectionChange"
         @sort-change="handleSortChange"
+        @cell-mouse-enter="handleCellMouseEnter"
+        @cell-mouse-leave="handleCellMouseLeave"
       >
         <el-table-column
           v-if="batchMode"
@@ -333,6 +337,29 @@ const getValuationItem = (symbol: string) => {
   return realtime.items.value?.find(item => item.symbol === symbol);
 };
 
+// ── 行 hover 状态（供 fixed 列操作按钮淡入）──
+// 操作列(_actions)/产品列(product) 均为 fixed 列，EP 固定列渲染为独立 DOM，
+// CSS :hover 无法跨表同步，故由 JS 状态驱动（见 columnRenderers.tsx hoveredRowKey 注释）。
+// leave 延迟 100ms 清除，避免鼠标在主体行 ↔ 固定列之间移动时按钮闪烁。
+const hoveredRowKey = ref<string | number | null>(null);
+let hoverClearTimer: ReturnType<typeof setTimeout> | undefined;
+
+function handleCellMouseEnter(row: WatchlistItem) {
+  if (hoverClearTimer) {
+    clearTimeout(hoverClearTimer);
+    hoverClearTimer = undefined;
+  }
+  hoveredRowKey.value = row.id ?? row.symbol;
+}
+
+function handleCellMouseLeave() {
+  if (hoverClearTimer) clearTimeout(hoverClearTimer);
+  hoverClearTimer = setTimeout(() => {
+    hoveredRowKey.value = null;
+    hoverClearTimer = undefined;
+  }, 100);
+}
+
 /** 添加后涨幅（%）=（当前价 - 添加日价格）/ 添加日价格 */
 function addedReturnPct(row: {
   symbol?: string;
@@ -539,6 +566,10 @@ const renderCtx = computed<RenderCtx>(() => ({
   },
   openTagEditor,
   batchMode: batchMode.value,
+  hoveredRowKey: hoveredRowKey.value,
+  setHoveredRowKey: (key: string | number | null) => {
+    hoveredRowKey.value = key;
+  },
   actions: {
     togglePin: handleTogglePin,
     toggleFavorite: handleToggleFavorite,
@@ -577,7 +608,7 @@ const renderCtx = computed<RenderCtx>(() => ({
   height: 20px;
   min-height: 20px;
   color: var(--text-tertiary);
-  opacity: 0;
+  opacity: 0.45; /* 默认弱化可见，行 hover 全亮（与操作列按钮一致，见本页操作列样式注释） */
   transition: opacity 150ms ease;
 }
 
@@ -654,115 +685,8 @@ const renderCtx = computed<RenderCtx>(() => ({
    ✅ 已移除强制 32px 高度逻辑，按钮和输入框默认跟随 Element Plus 尺寸
    ====================================== */
 
-/* 标签筛选：触发按钮 + 弹出面板（GitHub Labels 式）。
-   2026-08-15 弃用 el-select 多选——原实现输入框随选中项无限拉长、勾选态仅靠下拉内小勾不够明显。
-   现改为固定宽度触发按钮（绝不拉长）+ 独立控制 max-height 的面板 + 前置 el-checkbox。
-   面板通过 el-popover :append-to-body="false" 渲染在本组件内，故下列类名为普通 scoped 选择器。 */
-.tag-filter-trigger {
-  display: inline-flex;
-  gap: 6px;
-  align-items: center;
-  max-width: 160px;
-  height: 32px;
-  padding: 0 12px;
-  font-size: 13px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  background-color: var(--bg-warm);
-  border: none;
-  border-radius: var(--radius-pill);
-  transition:
-    background-color 0.2s ease,
-    box-shadow 0.2s ease;
-}
-
-.tag-filter-trigger:hover {
-  background-color: var(--bg-hover);
-}
-
-.tag-filter-trigger.is-active {
-  color: var(--brand-700);
-  background-color: var(--bg-card);
-  box-shadow:
-    0 0 0 2px var(--bg-card),
-    0 0 0 4px var(--brand-700);
-}
-
-.tag-filter-trigger__text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.tag-filter-trigger__clear {
-  display: inline-flex;
-  width: 14px;
-  height: 14px;
-  color: var(--text-tertiary);
-}
-
-.tag-filter-trigger__clear:hover {
-  color: var(--text-primary);
-}
-
-/* 弹出面板：列表区限高滚动，底部操作栏 */
-.tag-filter-panel {
-  display: flex;
-  flex-direction: column;
-  max-width: 264px;
-}
-
-.tag-filter-panel__list {
-  max-height: 240px;
-  padding: 4px 0;
-  overflow-y: auto;
-}
-
-.tag-filter-panel .el-checkbox-group {
-  display: block;
-}
-
-.tag-filter-item {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  padding: 6px 8px;
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-}
-
-.tag-filter-item:hover {
-  background-color: var(--bg-soft);
-}
-
-.tag-filter-item__name {
-  /* 胶囊 Tag：与表格 el-tag / 管理标签 .tag-pill 视觉统一（浅底 + 同色边框）。
-     不设 flex/min-width，flex-shrink:0 防止被父级 flex 容器压缩到 0 宽。 */
-  display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
-  padding: 2px 10px;
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 1.4;
-  white-space: nowrap;
-  border-radius: var(--radius-pill);
-}
-
-.tag-filter-panel__empty {
-  padding: 12px 8px;
-  font-size: 13px;
-  color: var(--text-tertiary);
-  text-align: center;
-}
-
-.tag-filter-panel__footer {
-  display: flex;
-  gap: 8px;
-  justify-content: space-between;
-  padding: 8px;
-  border-top: 1px solid var(--border-light);
-}
+/* 标签筛选面板已抽离到 WatchlistFilterBar（2026-08-21 胶囊化重构），
+   原 tag-filter-trigger / tag-filter-item / tag-filter-panel 等 checkbox 时代样式已随组件迁移移除。 */
 
 /* 表格空状态：区分标签筛选为空与无自选（鹦鹉螺插画资产到位后可在文案前补简笔画） */
 .watchlist-empty {
@@ -786,103 +710,11 @@ const renderCtx = computed<RenderCtx>(() => ({
 }
 
 /* ======================================
-   视图 segmented（全部/场内/场外）：与分组 tab 胶囊语言统一
-   （2026-08-15：用户反馈与「新建组」圆形按钮并排时缺胶囊感）
+   view-segmented / refresh-segmented 样式已收口到使用组件：
+   - 视图 segmented（全部/场内/场外）→ WatchlistFilterBar.vue
+   - 刷新频率 segmented（15s/30s/60s/90s）→ WatchlistSummaryBar.vue
+   （2026-08-21 组件抽取时样式遗留在本页 scoped 中无法作用到子组件内部元素，已迁移；SettingsDrawer 自带同款）
    ====================================== */
-.view-segmented :deep(.el-segmented) {
-  height: 32px;
-  padding: 2px;
-  background-color: var(--bg-muted);
-  border-radius: var(--radius-pill);
-  box-shadow: none;
-}
-
-.view-segmented :deep(.el-segmented__item) {
-  height: 28px;
-  padding: 0 14px;
-  font-size: var(--text-label);
-  line-height: 28px;
-  color: var(--text-secondary);
-  border-radius: var(--radius-pill);
-  transition:
-    background-color 150ms ease,
-    color 150ms ease;
-}
-
-.view-segmented :deep(.el-segmented__item:hover) {
-  color: var(--text-primary);
-}
-
-.view-segmented :deep(.el-segmented__item.is-selected) {
-  color: var(--brand-700);
-  background-color: var(--brand-100);
-  box-shadow: none;
-}
-
-.view-segmented :deep(.el-segmented__item.is-selected:hover) {
-  background-color: var(--brand-200);
-}
-
-/* EP 选中态背景是独立子元素（默认白底+阴影），一并覆盖为品牌软按钮色 */
-.view-segmented :deep(.el-segmented__item-selected) {
-  background-color: var(--brand-100);
-  border-radius: var(--radius-pill);
-  box-shadow: none;
-}
-
-.view-segmented
-  :deep(.el-segmented__item.is-selected:hover .el-segmented__item-selected) {
-  background-color: var(--brand-200);
-}
-
-/* ======================================
-   刷新频率 segmented（15s/30s/60s/90s）：与 view-segmented 胶囊语言统一
-   （2026-08-15：与设置抽屉 SettingsDrawer 的 refresh-segmented 保持一致）
-   ====================================== */
-.refresh-segmented :deep(.el-segmented) {
-  height: 24px;
-  padding: 2px;
-  background-color: var(--bg-muted);
-  border-radius: var(--radius-pill);
-  box-shadow: none;
-}
-
-.refresh-segmented :deep(.el-segmented__item) {
-  height: 20px;
-  padding: 0 10px;
-  font-size: 12px;
-  line-height: 20px;
-  color: var(--text-secondary);
-  border-radius: var(--radius-pill);
-  transition:
-    background-color 150ms ease,
-    color 150ms ease;
-}
-
-.refresh-segmented :deep(.el-segmented__item:hover) {
-  color: var(--text-primary);
-}
-
-.refresh-segmented :deep(.el-segmented__item.is-selected) {
-  color: var(--brand-700);
-  background-color: var(--brand-100);
-  box-shadow: none;
-}
-
-.refresh-segmented :deep(.el-segmented__item.is-selected:hover) {
-  background-color: var(--brand-200);
-}
-
-.refresh-segmented :deep(.el-segmented__item-selected) {
-  background-color: var(--brand-100);
-  border-radius: var(--radius-pill);
-  box-shadow: none;
-}
-
-.refresh-segmented
-  :deep(.el-segmented__item.is-selected:hover .el-segmented__item-selected) {
-  background-color: var(--brand-200);
-}
 
 /* ======================================
    按钮物理反馈（去除缩放，仅保留符合规范的 translateY）
@@ -950,13 +782,19 @@ const renderCtx = computed<RenderCtx>(() => ({
   }
 }
 
-/* 操作列按钮默认隐藏，行悬停时浮现（统一 150ms ease，与分组 tab 编辑/删除同一机制） */
+/* 操作列按钮默认弱化可见，行悬停时全亮（150ms ease）。
+   说明：不采用 opacity:0 完全隐藏——操作列/产品列是 fixed 列，EP 固定列独立 DOM，
+   JS 状态驱动（is-row-hovered）依赖单元格重渲染，在 EP 中不可靠会致按钮"完全不可见"，
+   故改为默认 45% 弱化可见 + hover 全亮，保证可发现性同时保留行内操作弱化原则。 */
 :deep(.el-table__row .el-button) {
-  opacity: 0;
+  opacity: 0.45;
   transition: opacity 150ms ease;
 }
 
-:deep(.el-table__row:hover .el-button) {
+:deep(.el-table__row:hover .el-button),
+:deep(.el-table__row .is-row-hovered .el-button),
+:deep(.el-table__fixed-right .el-table__row:hover .el-button),
+:deep(.el-table__fixed-left .el-table__row:hover .el-button) {
   opacity: 1;
 }
 
@@ -979,117 +817,7 @@ const renderCtx = computed<RenderCtx>(() => ({
   white-space: nowrap;
 }
 
-/* ======================================
-   分组胶囊 Tab（方案 B，2026-08-14）
-   ====================================== */
-
-/* 横向滚动条细化为 --border-light 色 */
-.group-tabs-scroll {
-  scrollbar-color: var(--border-light) transparent;
-  scrollbar-width: thin;
-}
-
-.group-tabs-scroll::-webkit-scrollbar {
-  height: 4px;
-}
-
-.group-tabs-scroll::-webkit-scrollbar-thumb {
-  background-color: var(--border-light);
-  border-radius: var(--radius-pill);
-}
-
-.group-tabs-scroll::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-/* tab 项：32px 胶囊；选中态软按钮（--brand-100/--brand-700/--brand-400），未选中 --text-secondary + hover --bg-hover */
-.group-tab {
-  display: inline-flex;
-  gap: 6px;
-  align-items: center;
-  height: 32px;
-  padding: 0 12px;
-  font-size: var(--text-label);
-  color: var(--text-secondary);
-  white-space: nowrap;
-  cursor: pointer;
-  border: 1px solid transparent;
-  border-radius: var(--radius-pill);
-  transition:
-    background-color 150ms ease,
-    color 150ms ease,
-    border-color 150ms ease;
-}
-
-.group-tab:hover {
-  background-color: var(--bg-hover);
-}
-
-.group-tab.is-active {
-  color: var(--brand-700);
-  background-color: var(--brand-100);
-  border-color: var(--brand-400);
-}
-
-.group-tab.is-active:hover {
-  background-color: var(--brand-200);
-}
-
-/* 分组名：展示截断 8 汉字（8em），全名由 title 提示（后端管存储、前端管展示） */
-.group-tab-label {
-  max-width: 8em;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.group-tab-count {
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-tertiary);
-}
-
-.group-tab.is-active .group-tab-count {
-  color: var(--brand-700);
-}
-
-/* 分组编辑/删除：hover 浮现（opacity 机制，与操作列统一） */
-.group-tab-actions {
-  display: flex;
-  gap: 2px;
-  align-items: center;
-  opacity: 0;
-  transition: opacity 150ms ease;
-}
-
-.group-tab:hover .group-tab-actions {
-  opacity: 1;
-}
-
-.group-tab-edit-input {
-  width: 96px;
-}
-
-/* 新建分组按钮：与 tab 同高 32px 的圆形 */
-.group-tab-add {
-  flex-shrink: 0;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  color: var(--text-tertiary);
-  background-color: transparent;
-  border: 1px solid var(--border-default);
-  border-radius: 50%;
-  transition:
-    color 150ms ease,
-    background-color 150ms ease,
-    border-color 150ms ease;
-}
-
-.group-tab-add:hover {
-  color: var(--text-secondary);
-  background-color: var(--bg-hover);
-}
+/* 分组胶囊 Tab / 新建分组按钮样式已迁移至 components/Watchlist/WatchlistFilterBar.vue（方案 B，2026-08-14） */
 
 /* 置顶/关注标记图标：--text-tertiary，行 hover 提亮 --text-secondary，语义靠 icon 形状区分 */
 .marker-icon {
