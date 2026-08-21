@@ -28,14 +28,6 @@
           <el-icon><Search /></el-icon>
         </template>
       </el-input>
-      <el-button
-        type="primary"
-        size="large"
-        class="tag-create-btn"
-        @click="openCreate"
-      >
-        <el-icon class="mr-1"><Plus /></el-icon> 新建标签
-      </el-button>
     </div>
 
     <!-- 列表（白底卡片，行间 --border-light 浅色分割线） -->
@@ -82,6 +74,11 @@
               </template>
             </el-popconfirm>
           </div>
+        </li>
+        <!-- 新建标签：置于列表末尾，紧挨标签名（GitHub Labels 风格），替代顶部按钮 -->
+        <li class="tag-row tag-row--create" @click="openCreate">
+          <el-icon class="mr-1"><Plus /></el-icon>
+          新建标签
         </li>
       </ul>
     </div>
@@ -187,8 +184,18 @@ const deleteTag = async (tagId: number) => {
   border-radius: var(--radius-pill);
 }
 
-.tag-create-btn {
-  flex-shrink: 0;
+/* 列表末尾「新建标签」行：与标签行同高、紧挨列表，hover 提亮为品牌色 */
+.tag-row--create {
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-bottom: none;
+  transition: color 150ms ease;
+}
+
+.tag-row--create:hover {
+  color: var(--brand-700);
+  background-color: var(--bg-soft);
 }
 
 /* 列表卡片：白底 + 浅色边框 + 大圆角 */

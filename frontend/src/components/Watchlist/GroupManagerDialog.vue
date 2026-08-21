@@ -27,14 +27,6 @@
           <el-icon><Search /></el-icon>
         </template>
       </el-input>
-      <el-button
-        type="primary"
-        size="large"
-        class="group-create-btn"
-        @click="openCreate"
-      >
-        <el-icon class="mr-1"><Plus /></el-icon> 新建分组
-      </el-button>
     </div>
 
     <div class="group-list-card">
@@ -86,6 +78,11 @@
               </template>
             </el-popconfirm>
           </div>
+        </li>
+        <!-- 新建分组：置于列表末尾，紧挨分组名（GitHub Labels 风格），替代顶部按钮 -->
+        <li class="group-row group-row--create" @click="openCreate">
+          <el-icon class="mr-1"><Plus /></el-icon>
+          新建分组
         </li>
       </ul>
     </div>
@@ -187,8 +184,18 @@ const deleteGroup = async (groupId: number) => {
   border-radius: var(--radius-pill);
 }
 
-.group-create-btn {
-  flex-shrink: 0;
+/* 列表末尾「新建分组」行：与分组行同高、紧挨列表，hover 提亮为品牌色 */
+.group-row--create {
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-bottom: none;
+  transition: color 150ms ease;
+}
+
+.group-row--create:hover {
+  color: var(--brand-700);
+  background-color: var(--bg-soft);
 }
 
 .group-list-card {
