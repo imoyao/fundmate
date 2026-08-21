@@ -207,6 +207,7 @@
       v-model="settingsDrawerVisible"
       :realtime-enabled="realtimeEnabled"
       :refresh-interval="realtime.refreshInterval.value"
+      :column-settings="columnSettings"
       @refresh-interval-change="realtime.setRefreshInterval"
       @manage-groups="
         groupManagerVisible = true;
@@ -247,6 +248,7 @@ import { useWatchlistGroups } from "@/composables/useWatchlistGroups";
 import { useWatchlistTags } from "@/composables/useWatchlistTags";
 import { useWatchlistData } from "@/composables/useWatchlistData";
 import { useWatchlistToolbar } from "@/composables/useWatchlistToolbar";
+import { useWatchlistColumnVisibility } from "@/composables/useWatchlistColumnVisibility";
 import WatchlistFilterBar from "@/views/asset/watchlist/WatchlistFilterBar.vue";
 import WatchlistSummaryBar from "@/views/asset/watchlist/WatchlistSummaryBar.vue";
 import RealtimeWarningBanner, {
@@ -254,10 +256,8 @@ import RealtimeWarningBanner, {
 } from "@/components/RealtimeWarningBanner/index.vue";
 import type { Holding } from "@/utils/valuationEngine";
 import { formatDateTime } from "@/utils/date";
-import {
-  watchlistColumnDefs,
-  type WatchlistRow
-} from "@/views/asset/watchlist/columnDefs";
+// 列定义不再直接消费：dataColumns 经 useWatchlistColumnVisibility 的
+// visibleColumns 过滤取得（#993），本页只保留 renderer 注册表依赖
 import {
   resolveRenderer,
   type RenderCtx
@@ -274,6 +274,8 @@ const groups = useWatchlistGroups();
 const tags = useWatchlistTags();
 const toolbar = useWatchlistToolbar();
 const data = useWatchlistData(groups, tags, toolbar);
+// 列显隐偏好（#993）：localforage 本机持久化，SettingsDrawer 经 prop 共享同一实例
+const columnSettings = useWatchlistColumnVisibility();
 
 const {
   activeGroup,
@@ -540,9 +542,12 @@ onMounted(() => {
 
 const realtimeEnabled = computed(() => realtime.enabled.value);
 
-// ── #995 columnDefs 数据驱动：全量列（仅 selection 因 type="selection" 无法 renderer 化，保留模板）──
+// ── #995 columnDefs 数据驱动 + #993 列显隐：visibleColumns 已按用户隐藏集过滤
+//（仅 selection 因 type="selection" 无法 renderer 化，保留模板）──
 const dataColumns = computed(() =>
-  watchlistColumnDefs.filter(d => d.key !== "_selection")
+  columnSettings.visibleColumns.value.filter(
+    d => d.key !== "_selection" && d.key !== "_marker"
+  )
 );
 
 // 渲染上下文：把页面级状态/方法注入 renderer 注册表，renderer 不耦合本组件

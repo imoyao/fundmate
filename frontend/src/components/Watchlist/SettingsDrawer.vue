@@ -185,6 +185,55 @@
         系统设置
       </p>
 
+      <!-- 列显示设置（#993）：勾选即时生效，localforage 本机持久化 -->
+      <div
+        class="settings-card rounded-xl p-4"
+        :style="{
+          backgroundColor: 'var(--bg-card)',
+          border: '1px solid var(--border-light)',
+          boxShadow: 'var(--shadow-raised)'
+        }"
+      >
+        <div class="flex items-center gap-3 mb-3">
+          <div
+            class="w-10 h-10 rounded-lg flex items-center justify-center"
+            :style="{ backgroundColor: 'var(--bg-soft)' }"
+          >
+            <IconifyIconOffline
+              icon="ep:grid"
+              class="text-lg"
+              :style="{ color: 'var(--brand-700)' }"
+            />
+          </div>
+          <div class="flex-1">
+            <h4
+              class="text-sm font-medium mb-1"
+              :style="{ color: 'var(--text-primary)' }"
+            >
+              表格列显示
+            </h4>
+            <p class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
+              勾选需要展示的列（本机自动保存）
+            </p>
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-x-4 gap-y-1">
+          <el-checkbox
+            v-for="col in hideableCols"
+            :key="col.key"
+            :model-value="!columnSettings.isHidden(col.key)"
+            @change="(v: boolean) => columnSettings.toggleColumn(col.key, v)"
+          >
+            {{ col.label }}
+          </el-checkbox>
+        </div>
+        <div v-if="hiddenCount > 0" class="flex justify-end mt-2">
+          <el-button text size="small" @click="columnSettings.resetColumns()">
+            恢复默认列
+          </el-button>
+        </div>
+      </div>
+
       <!-- 排序设置（预留） -->
       <div
         class="settings-card rounded-xl p-4 opacity-50 cursor-not-allowed"
@@ -284,6 +333,7 @@ import {
   REFRESH_INTERVAL_OPTIONS,
   type RefreshInterval
 } from "@/composables/useRealtimeQuotes";
+import type { WatchlistColumnVisibility } from "@/composables/useWatchlistColumnVisibility";
 
 const { hasPendingExploreData, manualMigrate } = useSupabaseAuth();
 
@@ -304,6 +354,8 @@ const props = defineProps<{
   modelValue: boolean;
   realtimeEnabled?: boolean;
   refreshInterval?: RefreshInterval;
+  /** 列显隐偏好实例（#993）：与自选页共享同一单例，勾选即时反映到表格 */
+  columnSettings?: WatchlistColumnVisibility;
 }>();
 
 const emit = defineEmits<{
@@ -317,6 +369,17 @@ const emit = defineEmits<{
 const visible = computed({
   get: () => props.modelValue,
   set: val => emit("update:modelValue", val)
+});
+
+// ── 列显示设置（#993）：prop 内的 ref 不自动解包，经 computed 桥接供模板使用 ──
+const hideableCols = computed(
+  () => props.columnSettings?.hideableColumns.value ?? []
+);
+const hiddenCount = computed(() => {
+  if (!props.columnSettings) return 0;
+  return [...hideableCols.value].filter(col =>
+    props.columnSettings!.isHidden(col.key)
+  ).length;
 });
 
 /** 刷新档位选项（label 与 explore 页一致：`${s}s`） */
@@ -359,11 +422,14 @@ const onRefreshIntervalChange = (value: string | number | boolean) => {
 /* ======================================
    刷新频率 segmented：与 watchlist 页 refresh-segmented 统一胶囊语言
    （design.md：分段控制器胶囊化，选中态软按钮 --brand-100/--brand-700）
+   注意：class 挂在 el-segmented 根元素上，根样式必须直接写 .refresh-segmented，
+   不能用后代选择器（曾因 .refresh-segmented :deep(.el-segmented) 匹配不到
+   根元素导致轨道样式静默失效，见 WatchlistSummaryBar 同款修复）
    ====================================== */
-.refresh-segmented :deep(.el-segmented) {
+.refresh-segmented {
   height: 24px;
   padding: 2px;
-  background-color: var(--bg-muted);
+  background-color: var(--bg-soft);
   border-radius: var(--radius-pill);
   box-shadow: none;
 }
