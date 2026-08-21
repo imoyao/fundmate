@@ -88,6 +88,7 @@
           覆盖规则见本页 style 区「本页行高覆盖」注释。
         -->
       <el-table
+        ref="tableRef"
         v-loading="loading"
         :data="items"
         stripe
@@ -115,12 +116,13 @@
           :align="def.align"
           :fixed="def.fixed"
           :sortable="def.sortable"
+          :class-name="def.draggable ? undefined : 'col-no-drag'"
           :show-overflow-tooltip="def.showOverflowTooltip"
         >
           <template #default="{ row }">
             <component
               :is="resolveRenderer(def.renderer)"
-              :row="(row as WatchlistItem)"
+              :row="row as WatchlistItem"
               :def="def"
               :ctx="renderCtx"
             />
@@ -228,6 +230,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
+import Sortable from "sortablejs";
 import AddToWatchlistModal from "@/components/QuickEntry/AddToWatchlistModal.vue";
 import OcrImportModal from "@/components/QuickEntry/OcrImportModal.vue";
 import SettingsDrawer from "@/components/Watchlist/SettingsDrawer.vue";
@@ -538,7 +541,43 @@ onMounted(() => {
     currentPage.value = 1;
     fetchData();
   });
+  initHeaderDrag();
 });
+
+// ── #992 表头列拖拽：sortablejs 复用（RePureTableBar 同款方案）──
+const tableRef = ref();
+
+/** 给可拖拽中段列提交新顺序（固定列/内置列不参与，见 columnDefs.draggable） */
+function initHeaderDrag() {
+  const el = (tableRef.value?.$el ?? null) as HTMLElement | null;
+  const headerRow = el?.querySelector<HTMLElement>(
+    ".el-table__header-wrapper tr"
+  );
+  if (!headerRow) return;
+  Sortable.create(headerRow, {
+    animation: 300,
+    filter: ".col-no-drag",
+    preventOnFilter: false,
+    onMove(evt) {
+      // 目标位置落在固定列上时拒绝放置（固定列左右包夹中段拖拽区）
+      const related = evt.related as HTMLElement | undefined;
+      return !related?.classList.contains("col-no-drag");
+    },
+    onEnd({ oldIndex, newIndex }) {
+      if (oldIndex == null || newIndex == null || oldIndex === newIndex) return;
+      // th 序列与渲染列一一对应：[selection(batchMode)] + dataColumns
+      const keys = [
+        ...(batchMode.value ? ["_selection"] : []),
+        ...dataColumns.value.map(d => d.key)
+      ];
+      if (oldIndex >= keys.length || newIndex >= keys.length) return;
+      const moved = keys.splice(oldIndex, 1)[0];
+      keys.splice(newIndex, 0, moved);
+      // 只持久化可拖拽中段列的相对顺序（内置 _ 前缀列不进偏好存储）
+      columnSettings.applyOrder(keys.filter(k => !k.startsWith("_")));
+    }
+  });
+}
 
 const realtimeEnabled = computed(() => realtime.enabled.value);
 
