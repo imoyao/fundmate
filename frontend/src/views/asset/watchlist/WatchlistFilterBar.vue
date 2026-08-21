@@ -1,4 +1,6 @@
 <script setup lang="ts">
+/* eslint-disable vue/no-mutating-props -- 状态注入模式：groups/tags/toolbar 为 composable 实例 prop，
+   经 computed get/set 桥接修改其内部 ref 属有意设计（与 WatchlistToolbar 同模式） */
 import { computed } from "vue";
 import { ElTag } from "element-plus";
 import type { useWatchlistGroups } from "@/composables/useWatchlistGroups";
@@ -21,20 +23,44 @@ const emit = defineEmits<{
   (e: "tag-clear"): void;
 }>();
 
-const activeGroup = computed(() => props.groups.activeGroup.value);
+// 状态注入模式：groups / tags / toolbar 为 composable 实例 prop，
+// 双向绑定经 computed get/set 桥接其内部 ref（避免 vue/no-mutating-props）
+const activeGroupModel = computed({
+  get: () => props.groups.activeGroup.value,
+  set: (value: string) => {
+    props.groups.activeGroup.value = value;
+  }
+});
 const allGroups = computed(() => props.groups.allGroups.value);
-const tagFilterVisible = computed(() => props.tags.tagFilterVisible.value);
-const draftFilterTagIds = computed(() => props.tags.draftFilterTagIds.value);
+const tagFilterVisibleModel = computed({
+  get: () => props.tags.tagFilterVisible.value,
+  set: (value: boolean) => {
+    props.tags.tagFilterVisible.value = value;
+  }
+});
+const draftFilterTagIdsModel = computed({
+  get: () => props.tags.draftFilterTagIds.value,
+  set: (value: number[]) => {
+    props.tags.draftFilterTagIds.value = value;
+  }
+});
 const allTags = computed(() => props.tags.allTags.value);
-const currentView = computed(() => props.toolbar.currentView.value);
-const selectedTagCount = computed(() => props.tags.selectedFilterTagIds.value.length);
+const currentViewModel = computed({
+  get: () => props.toolbar.currentView.value,
+  set: (value: "all" | "exchange" | "otc") => {
+    props.toolbar.currentView.value = value;
+  }
+});
+const selectedTagCount = computed(
+  () => props.tags.selectedFilterTagIds.value.length
+);
 </script>
 
 <template>
   <div class="filter-bar">
     <div class="flex items-center gap-2 flex-wrap">
       <!-- 分组 Tab -->
-      <el-tabs v-model="groups.activeGroup.value" class="watchlist-tabs">
+      <el-tabs v-model="activeGroupModel" class="watchlist-tabs">
         <el-tab-pane v-for="g in allGroups" :key="g.key" :name="g.key">
           <template #label>
             <span class="tab-label">
@@ -59,7 +85,7 @@ const selectedTagCount = computed(() => props.tags.selectedFilterTagIds.value.le
 
       <!-- 标签筛选 -->
       <el-popover
-        :visible="tagFilterVisible"
+        :visible="tagFilterVisibleModel"
         placement="bottom"
         :width="260"
         title="按标签筛选"
@@ -68,7 +94,10 @@ const selectedTagCount = computed(() => props.tags.selectedFilterTagIds.value.le
           <el-button
             plain
             size="small"
-            @click="tags.onTagFilterShow(); tags.tagFilterVisible.value = true"
+            @click="
+              tags.onTagFilterShow();
+              tagFilterVisibleModel = true;
+            "
           >
             标签筛选<template v-if="selectedTagCount">
               ({{ selectedTagCount }})
@@ -76,7 +105,7 @@ const selectedTagCount = computed(() => props.tags.selectedFilterTagIds.value.le
           </el-button>
         </template>
         <div class="tag-filter-panel">
-          <el-checkbox-group v-model="tags.draftFilterTagIds.value">
+          <el-checkbox-group v-model="draftFilterTagIdsModel">
             <el-checkbox
               v-for="t in allTags"
               :key="t.id"
@@ -87,7 +116,7 @@ const selectedTagCount = computed(() => props.tags.selectedFilterTagIds.value.le
             </el-checkbox>
           </el-checkbox-group>
           <div class="flex justify-end gap-2 mt-3">
-            <el-button size="small" @click="tags.tagFilterVisible.value = false">
+            <el-button size="small" @click="tagFilterVisibleModel = false">
               取消
             </el-button>
             <el-button size="small" type="primary" @click="emit('tag-apply')">
@@ -99,7 +128,7 @@ const selectedTagCount = computed(() => props.tags.selectedFilterTagIds.value.le
 
       <!-- 视图 segmented：全部 / 场内 / 场外（唯一 venue 入口） -->
       <el-segmented
-        v-model="toolbar.currentView.value"
+        v-model="currentViewModel"
         size="small"
         :options="[
           { label: '全部', value: 'all' },
@@ -116,10 +145,12 @@ const selectedTagCount = computed(() => props.tags.selectedFilterTagIds.value.le
 .filter-bar {
   margin-bottom: 12px;
 }
+
 .tab-label {
   display: inline-flex;
   align-items: center;
 }
+
 .tag-filter-panel {
   max-height: 240px;
   overflow-y: auto;

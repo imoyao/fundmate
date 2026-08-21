@@ -943,15 +943,15 @@ useEventListener(document, "keydown", ({ code }) => {
    （会漏出浅蓝底色），故追加 background-color: transparent 与
    background-clip: content-box 兜底：前者直接置透明，后者把背景裁剪到内容盒
    （避免 padding 区域残留色块），双保险覆盖 autofill 底色。 */
-::deep(input:-webkit-autofill),
-::deep(input:-webkit-autofill:hover),
-::deep(input:-webkit-autofill:focus),
-::deep(input:-webkit-autofill:active) {
+:deep(input:-webkit-autofill),
+:deep(input:-webkit-autofill:hover),
+:deep(input:-webkit-autofill:focus),
+:deep(input:-webkit-autofill:active) {
   caret-color: var(--text-primary);
-  box-shadow: 0 0 0 1000px var(--bg-card) inset !important;
-  -webkit-text-fill-color: var(--text-primary) !important;
   background-color: transparent !important;
   background-clip: content-box !important;
+  box-shadow: 0 0 0 1000px var(--bg-card) inset !important;
+  -webkit-text-fill-color: var(--text-primary) !important;
 }
 
 .login-title {

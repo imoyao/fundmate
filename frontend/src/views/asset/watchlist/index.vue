@@ -10,7 +10,8 @@
 
   未来优化方向（见重构 issue #980 / 技术债 #981 / #982）：
   - 本页 8 大功能模块（分组/标签/批量/实时估值/搜索分页/导出/OCR/移除）可进一步按
-    composable 抽取（如 useWatchlistGroups / useWatchlistTags），当前仅拆出标签弹窗组件。
+    composable 抽取（如 useWatchlistGroups / useWatchlistTags）。
+  - 顶部操作栏已抽取为 WatchlistToolbar，移除弹窗已抽取为 WatchlistRemoveDialog。
   - 标签管理 / 行内标签编辑已拆为共有组件 TagManagerDialog / TagEditorDialog
     （components/Watchlist/），未来其它页面需要标签能力可复用。
 -->
@@ -19,114 +20,22 @@
     class="watchlist-page p-4 md:p-6 min-h-full"
     :style="{ backgroundColor: 'var(--bg-page)' }"
   >
-    <!-- 顶部操作栏 (已移除 size="small" 和 CSS 强制 32px 高度) -->
-    <div class="flex flex-wrap items-center justify-between gap-4 mb-6 top-bar">
-      <div class="flex items-center gap-3">
-        <div class="flex items-center relative">
-          <el-input
-            v-model="searchKeyword"
-            placeholder="搜索当前自选列表..."
-            clearable
-            class="w-48"
-            :prefix-icon="Search"
-            @input="debounceSearch"
-          />
-          <el-tooltip
-            content="在当前自选列表中按代码或名称过滤"
-            placement="bottom-start"
-            :offset="8"
-          >
-            <IconifyIconOffline
-              icon="ep:info-filled"
-              class="absolute right-[-22px] top-1/2 -translate-y-1/2 text-sm cursor-help transition-colors"
-              :style="{ color: 'var(--text-tertiary)' }"
-            />
-          </el-tooltip>
-        </div>
-      </div>
-
-      <div class="flex items-center gap-2">
-        <!-- 批量模式下的特殊工具栏 -->
-        <template v-if="batchMode">
-          <div class="flex items-center gap-3">
-            <span
-              class="text-sm font-medium shrink-0"
-              :style="{ color: 'var(--text-primary)' }"
-            >
-              已选 {{ selectedItems.length }} 项
-            </span>
-            <el-select
-              v-model="batchMoveGroupId"
-              placeholder="移动到分组"
-              class="batch-move-select"
-              clearable
-              @change="handleBatchMoveToGroup"
-            >
-              <el-option
-                v-for="group in customGroups"
-                :key="group.id"
-                :label="group.name"
-                :value="group.id"
-              >
-                <div class="flex items-center gap-2">
-                  <!-- 数据色例外：分组色为用户数据（非设计令牌），缺失时回退中性 token -->
-                  <span
-                    class="w-2.5 h-2.5 rounded-full"
-                    :style="{
-                      backgroundColor: group.color || 'var(--text-tertiary)'
-                    }"
-                  />
-                  <span>{{ group.name }}</span>
-                </div>
-              </el-option>
-            </el-select>
-            <el-button
-              class="batch-delete-btn"
-              :disabled="selectedItems.length === 0"
-              @click="handleBatchDelete"
-            >
-              <IconifyIconOffline icon="ep:delete" class="mr-1" />
-              删除选中
-            </el-button>
-            <el-button type="primary" @click="toggleBatchMode">
-              退出批量模式
-            </el-button>
-          </div>
-        </template>
-
-        <!-- 正常模式下的工具栏 -->
-        <template v-else>
-          <el-button type="primary" @click="openAddDialog">
-            <IconifyIconOffline icon="ep:plus" class="mr-1" />
-            添加自选
-          </el-button>
-
-          <el-button plain @click="fetchData">
-            <IconifyIconOffline icon="ep:refresh" class="mr-1" />
-            刷新
-          </el-button>
-
-          <el-button plain @click="exportData">
-            <IconifyIconOffline icon="ep:download" class="mr-1" />
-            导出
-          </el-button>
-
-          <el-button plain @click="openOcrDialog">
-            <IconifyIconOffline icon="ep:magic-stick" class="mr-1" />
-            AI 导入
-          </el-button>
-
-          <el-button plain @click="realtime.toggle()">
-            {{ toggleBtnText }}
-          </el-button>
-
-          <el-button plain @click="openSettingsDrawer">
-            <IconifyIconOffline icon="ep:setting" class="mr-1" />
-            管理
-          </el-button>
-        </template>
-      </div>
-    </div>
+    <!-- 顶部操作栏（已抽取为 WatchlistToolbar 组件） -->
+    <WatchlistToolbar
+      :toolbar="toolbar"
+      :custom-groups="customGroups"
+      :toggle-btn-text="toggleBtnText"
+      @search-input="debounceSearch"
+      @batch-move="handleBatchMoveToGroup"
+      @batch-delete="handleBatchDelete"
+      @exit-batch="toggleBatchMode"
+      @add="openAddDialog"
+      @refresh="fetchData"
+      @export="exportData"
+      @ocr="openOcrDialog"
+      @toggle-realtime="realtime.toggle"
+      @open-settings="openSettingsDrawer"
+    />
 
     <!-- 主区域：单个工作区卡片（分组 tab 行 + 筛选行 + 表格，--border-subtle 分割线分区） -->
     <CardBlock class="watchlist-card">
@@ -257,38 +166,14 @@
 
     <OcrImportModal v-model="ocrDialogVisible" @imported="onOcrImported" />
 
-    <el-dialog v-model="removeDialogVisible" title="移除自选" width="400px">
-      <p>
-        确定要移除
-        <strong>{{
-          removingItem?.display_name || removingItem?.symbol
-        }}</strong>
-        吗？
-      </p>
-      <div
-        v-if="
-          removingItem &&
-          removingItem.group_ids &&
-          removingItem.group_ids.length > 0
-        "
-        class="mt-4"
-      >
-        <el-radio-group v-model="removeScope">
-          <el-radio value="all">从所有分组移除并删除</el-radio>
-          <el-radio value="current" :disabled="!currentIsCustom"
-            >仅从当前分组移除</el-radio
-          >
-        </el-radio-group>
-      </div>
-      <template #footer>
-        <el-button size="large" @click="removeDialogVisible = false"
-          >取消</el-button
-        >
-        <el-button size="large" type="danger" @click="executeRemove"
-          >确定</el-button
-        >
-      </template>
-    </el-dialog>
+    <!-- 移除自选弹窗（已抽取为 WatchlistRemoveDialog 组件） -->
+    <WatchlistRemoveDialog
+      v-model="removeDialogVisible"
+      v-model:remove-scope="removeScope"
+      :removing-item="removingItem"
+      :current-is-custom="currentIsCustom"
+      @confirm="executeRemove"
+    />
 
     <!-- 标签管理弹窗（共有组件 TagManagerDialog，自本页拆出，见 docs/design/components.md） -->
     <TagManagerDialog
@@ -337,8 +222,6 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from "vue";
-import { Search } from "@element-plus/icons-vue";
-import { Icon as IconifyIconOffline } from "@iconify/vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import AddToWatchlistModal from "@/components/QuickEntry/AddToWatchlistModal.vue";
 import OcrImportModal from "@/components/QuickEntry/OcrImportModal.vue";
@@ -351,6 +234,8 @@ import CardBlock from "@/components/CardBlock/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue"; // 加入此组件引入
 import MoneyWithRatio from "@/components/MoneyWithRatio/index.vue";
+import WatchlistToolbar from "@/views/asset/watchlist/components/WatchlistToolbar.vue";
+import WatchlistRemoveDialog from "@/views/asset/watchlist/components/WatchlistRemoveDialog.vue";
 import {
   useRealtimeQuotes,
   type RefreshInterval
@@ -738,68 +623,6 @@ const renderCtx = computed<RenderCtx>(() => ({
   box-shadow:
     0 0 0 2px var(--bg-card),
     0 0 0 4px var(--brand-700);
-}
-
-/* ======================================
-   批量模式工具栏优化
-   ====================================== */
-.batch-move-select {
-  min-width: 180px;
-}
-
-.batch-move-select :deep(.el-input__wrapper) {
-  padding-top: 0;
-  padding-bottom: 0;
-  background-color: var(--bg-card);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  box-shadow: none;
-  transition: all 0.2s ease;
-}
-
-.batch-move-select :deep(.el-input__suffix) {
-  display: flex;
-  align-items: center;
-}
-
-.batch-move-select :deep(.el-input__wrapper:hover) {
-  border-color: var(--brand-500);
-}
-
-.batch-move-select :deep(.el-input__wrapper.is-focus) {
-  border-color: var(--brand-700);
-  box-shadow: var(--focus-ring);
-}
-
-/* 删除选中按钮：幽灵危险按钮 */
-.batch-delete-btn {
-  color: var(--color-danger);
-  background-color: transparent;
-  border: 1px solid var(--color-danger);
-  border-radius: var(--radius-sm);
-  transition: all 0.2s ease;
-}
-
-.batch-delete-btn:hover {
-  color: #fff;
-  background-color: var(--color-danger);
-  border-color: var(--color-danger);
-}
-
-.batch-delete-btn:active {
-  transform: translateY(1px);
-}
-
-.batch-delete-btn:disabled {
-  color: var(--text-disabled);
-  cursor: not-allowed;
-  border-color: var(--text-disabled);
-  opacity: 0.5;
-}
-
-.batch-delete-btn:disabled:hover {
-  color: var(--text-disabled);
-  background-color: transparent;
 }
 
 /* ======================================

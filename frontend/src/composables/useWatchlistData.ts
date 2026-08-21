@@ -37,10 +37,15 @@ export function useWatchlistData(
   tags: ReturnType<typeof useWatchlistTags>,
   toolbar: WatchlistToolbarState
 ) {
-  const { activeGroup, allGroups, currentIsCustom, activeCustomGroupId } = groups;
+  const { activeGroup, allGroups, activeCustomGroupId } = groups;
   const { selectedFilterTagIds } = tags;
-  const { searchKeyword, currentView, batchMode, selectedItems, batchMoveGroupId } =
-    toolbar;
+  const {
+    searchKeyword,
+    currentView,
+    batchMode,
+    selectedItems,
+    batchMoveGroupId
+  } = toolbar;
 
   const loading = ref(false);
   const items = ref<WatchlistItem[]>([]);
@@ -67,7 +72,8 @@ export function useWatchlistData(
       if (group && group.filter) {
         for (const [k, rawV] of Object.entries(group.filter)) {
           const v = rawV as string | number | boolean;
-          params[k === "cleared" ? "status" : k] = k === "cleared" ? "cleared" : v;
+          params[k === "cleared" ? "status" : k] =
+            k === "cleared" ? "cleared" : v;
         }
       }
     }
@@ -224,7 +230,7 @@ export function useWatchlistData(
           // 虚拟持仓行（id=null）无自选记录，不可删除，跳过
           if (item.id == null) continue;
           await deleteWatchlistItem(item.id);
-        } catch (e) {
+        } catch {
           /* ignore */
         }
       }
@@ -232,7 +238,7 @@ export function useWatchlistData(
       batchMode.value = false;
       selectedItems.value = [];
       fetchData();
-    } catch (e) {
+    } catch {
       /* 用户取消 */
     }
   }
@@ -242,7 +248,9 @@ export function useWatchlistData(
     try {
       // 虚拟持仓行（id=null）无自选记录，不可移动，过滤后仅对真实自选行发起请求
       const promises = selectedItems.value
-        .filter((item): item is WatchlistItem & { id: number } => item.id != null)
+        .filter(
+          (item): item is WatchlistItem & { id: number } => item.id != null
+        )
         .map(item => addItemToGroup(item.id, groupId));
       await Promise.all(promises);
       ElMessage.success(
@@ -252,7 +260,7 @@ export function useWatchlistData(
       batchMode.value = false;
       selectedItems.value = [];
       fetchData();
-    } catch (e) {
+    } catch {
       ElMessage.error("批量移动失败");
     }
   };
