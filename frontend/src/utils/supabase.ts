@@ -27,8 +27,7 @@ if (import.meta.env.DEV && (!supabaseUrl || !supabaseAnonKey)) {
  */
 const isDev = import.meta.env.DEV;
 const cookieDomain = import.meta.env.VITE_SUPABASE_COOKIE_DOMAIN as
-  | string
-  | undefined;
+  string | undefined;
 
 const authCookieOptions = isDev
   ? undefined

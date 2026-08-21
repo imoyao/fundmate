@@ -123,9 +123,11 @@ const withMock = ref(false);
 :deep(.el-step__head.is-finish) {
   cursor: pointer;
 }
+
 :deep(.el-step__title.is-finish) {
   cursor: pointer;
 }
+
 .dev-step-clickable :deep(.el-step__head),
 .dev-step-clickable :deep(.el-step__title) {
   cursor: pointer;
@@ -138,29 +140,33 @@ const withMock = ref(false);
   z-index: 1000;
   max-width: 280px;
   padding: 12px 14px;
+  font-size: var(--text-small);
   background: var(--bg-card);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
-  font-size: var(--text-small);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 12%);
 }
+
 .dev-jump-title {
   margin-bottom: 8px;
   font-weight: 600;
   color: var(--text-primary);
 }
+
 .dev-jump-row {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
+
 .dev-jump-check {
   display: flex;
-  align-items: center;
   gap: 4px;
+  align-items: center;
   margin-top: 8px;
   color: var(--text-secondary);
 }
+
 .dev-jump-hint {
   margin-top: 6px;
   color: var(--text-tertiary);
@@ -172,21 +178,26 @@ const withMock = ref(false);
   from {
     transform: rotate(0deg);
   }
+
   to {
     transform: rotate(360deg);
   }
 }
+
 @keyframes ledger-flash {
   0% {
     background-color: var(--brand-100);
   }
+
   100% {
     background-color: transparent;
   }
 }
+
 .el-message--error {
   --el-message-text-color: var(--color-danger-system);
 }
+
 .text-error {
   color: var(--color-danger-system);
 }

@@ -550,10 +550,10 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
 :deep(input:-webkit-autofill:focus),
 :deep(input:-webkit-autofill:active) {
   caret-color: var(--text-primary);
-  box-shadow: 0 0 0 1000px var(--bg-card) inset !important;
-  -webkit-text-fill-color: var(--text-primary) !important;
   background-color: transparent !important;
   background-clip: content-box !important;
+  box-shadow: 0 0 0 1000px var(--bg-card) inset !important;
+  -webkit-text-fill-color: var(--text-primary) !important;
 }
 
 /* 状态提示区 */

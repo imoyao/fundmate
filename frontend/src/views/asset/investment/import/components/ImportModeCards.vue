@@ -154,8 +154,8 @@ function goToHoldingImport() {
 
 .mode-card.is-disabled {
   cursor: not-allowed;
-  opacity: 0.5;
   box-shadow: none;
+  opacity: 0.5;
 }
 
 .mode-icon {
@@ -181,7 +181,7 @@ function goToHoldingImport() {
 .mode-cards-lock-hint {
   margin-top: 16px;
   font-size: 13px;
-  text-align: center;
   color: var(--text-tertiary);
+  text-align: center;
 }
 </style>

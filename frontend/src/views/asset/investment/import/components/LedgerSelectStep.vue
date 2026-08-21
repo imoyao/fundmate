@@ -75,8 +75,8 @@ function handleCreateLedger() {
 
 .account-select-row {
   display: flex;
-  align-items: center;
   gap: 12px;
+  align-items: center;
 }
 
 .account-select {
@@ -85,17 +85,17 @@ function handleCreateLedger() {
 
 /* 下拉分组标题：强分类，对齐设计语言（暖灰次要文字 + 500 字重） */
 .account-select :deep(.el-select-group__title) {
-  font-weight: 500;
   font-size: var(--text-label);
+  font-weight: 500;
   color: var(--text-secondary);
 }
 
 /* 新建账户：次按钮语义（辅助操作，不抢主视觉），对齐 design.md 按钮规范 */
 .account-create-btn {
   flex-shrink: 0;
+  gap: 4px;
   height: 40px;
   padding: 0 16px;
-  gap: 4px;
   color: var(--text-primary);
   background-color: var(--bg-card);
   border: 1px solid var(--border-default);

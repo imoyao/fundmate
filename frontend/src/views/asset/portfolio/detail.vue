@@ -157,14 +157,20 @@
           </el-table-column>
           <el-table-column label="来源" width="110">
             <template #default="{ row }">
-              <el-tag v-if="positionSourceLabel(row.source)" size="small" type="info">
+              <el-tag
+                v-if="positionSourceLabel(row.source)"
+                size="small"
+                type="info"
+              >
                 {{ positionSourceLabel(row.source) }}
               </el-tag>
               <span v-else style="color: var(--text-tertiary)">—</span>
             </template>
           </el-table-column>
           <el-table-column label="所属账户" width="120">
-            <template #default="{ row }">{{ row.account_name || '未归档' }}</template>
+            <template #default="{ row }">{{
+              row.account_name || "未归档"
+            }}</template>
           </el-table-column>
         </el-table>
         <div v-else class="table-empty">
@@ -185,11 +191,7 @@
       <CardBlock class="mb-6">
         <SectionHeader title="未归档持仓">
           <template #action>
-            <el-button
-              size="small"
-              :loading="false"
-              @click="fetchUnarchived"
-            >
+            <el-button size="small" :loading="false" @click="fetchUnarchived">
               <IconifyIconOffline icon="ep:refresh" class="mr-1" /> 刷新
             </el-button>
           </template>
@@ -206,7 +208,11 @@
           </el-table-column>
           <el-table-column label="来源" width="110">
             <template #default="{ row }">
-              <el-tag v-if="positionSourceLabel(row.source)" size="small" type="info">
+              <el-tag
+                v-if="positionSourceLabel(row.source)"
+                size="small"
+                type="info"
+              >
                 {{ positionSourceLabel(row.source) }}
               </el-tag>
               <span v-else style="color: var(--text-tertiary)">—</span>
@@ -214,12 +220,20 @@
           </el-table-column>
           <el-table-column label="市值" width="130" align="right">
             <template #default="{ row }">
-              <MoneyDisplay :value="row.market_value || 0" :show-sign="false" :auto-color="false" />
+              <MoneyDisplay
+                :value="row.market_value || 0"
+                :show-sign="false"
+                :auto-color="false"
+              />
             </template>
           </el-table-column>
           <el-table-column label="操作" width="120" align="center">
             <template #default="{ row }">
-              <el-button size="small" type="primary" @click="openArchive(row.id)">
+              <el-button
+                size="small"
+                type="primary"
+                @click="openArchive(row.id)"
+              >
                 归档
               </el-button>
             </template>
@@ -271,7 +285,11 @@
     <el-dialog v-model="archiveVisible" title="归档到账户" width="420px">
       <el-form label-width="80px">
         <el-form-item label="目标账户">
-          <el-select v-model="archiveLedgerId" placeholder="选择账户" style="width: 100%">
+          <el-select
+            v-model="archiveLedgerId"
+            placeholder="选择账户"
+            style="width: 100%"
+          >
             <el-option
               v-for="l in linkedLedgers"
               :key="l.id"
@@ -384,7 +402,9 @@ async function confirmArchive() {
   }
   archiving.value = true;
   try {
-    await updatePosition(archiveTargetId.value, { ledger_id: archiveLedgerId.value });
+    await updatePosition(archiveTargetId.value, {
+      ledger_id: archiveLedgerId.value
+    });
     ElMessage.success("已归档");
     archiveVisible.value = false;
     await fetchUnarchived();

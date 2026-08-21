@@ -64,7 +64,23 @@ withDefaults(
 </script>
 
 <style lang="scss" scoped>
-/* ===== 全部指标紧凑表格区块（自 temperature/index.vue 迁移） ===== */
+
+
+/* ===== 响应式（自 temperature/index.vue 迁移） ===== */
+@media (width <= 768px) {
+  .metric-table-head,
+  .metric-table-row {
+    grid-template-columns: 2fr 80px 80px;
+    gap: 8px;
+    padding: 10px 12px;
+  }
+
+  .metric-table-head .col-source,
+  .metric-table-row .col-source {
+    display: none;
+  }
+}
+
 .cards-section {
   margin-bottom: 24px;
 }
@@ -182,18 +198,5 @@ withDefaults(
   color: var(--text-secondary);
 }
 
-/* ===== 响应式（自 temperature/index.vue 迁移） ===== */
-@media (width <= 768px) {
-  .metric-table-head,
-  .metric-table-row {
-    grid-template-columns: 2fr 80px 80px;
-    gap: 8px;
-    padding: 10px 12px;
-  }
-
-  .metric-table-head .col-source,
-  .metric-table-row .col-source {
-    display: none;
-  }
-}
+/* ===== 全部指标紧凑表格区块（自 temperature/index.vue 迁移） ===== */
 </style>

@@ -377,9 +377,9 @@ const onRefreshIntervalChange = (value: string | number | boolean) => {
 
 .refresh-segmented :deep(.el-segmented__item) {
   display: flex;
+  flex: 1;
   align-items: center;
   justify-content: center;
-  flex: 1;
   height: 20px;
   padding: 0 10px;
   font-size: 12px;

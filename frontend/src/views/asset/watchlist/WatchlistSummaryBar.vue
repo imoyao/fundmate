@@ -90,51 +90,64 @@ const intervalOptions = [
 .summary-bar {
   margin-bottom: 12px;
 }
+
 .status-dot {
+  display: inline-block;
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  display: inline-block;
 }
+
 .status-trading {
   background: #16a34a;
 }
+
 .status-closed,
 .status-idle {
   background: var(--text-secondary);
 }
+
 .status-error {
   background: #dc2626;
 }
+
 .status-text {
   font-weight: 600;
 }
+
 .update-time {
   font-size: 12px;
   color: var(--text-secondary);
 }
+
 .summary-card {
+  padding: 8px 12px;
   background: var(--bg-elevated, #f8fafc);
   border-radius: 8px;
-  padding: 8px 12px;
 }
+
 .summary-card .label {
   font-size: 12px;
   color: var(--text-secondary);
 }
+
 .summary-card .value {
   font-size: 16px;
   font-weight: 700;
 }
+
 .text-up {
   color: #dc2626;
 }
+
 .text-down {
   color: #16a34a;
 }
+
 .text-flat {
   color: var(--text-secondary);
 }
+
 .pct {
   font-size: 12px;
   opacity: 0.8;

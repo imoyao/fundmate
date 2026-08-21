@@ -77,11 +77,11 @@ const hasContent = computed(
 .allocation-group-panel {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   padding: 14px 16px;
   background: var(--bg-card);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
-  min-width: 0;
 }
 
 .allocation-group-panel :deep(.allocation-group-list),
@@ -107,9 +107,9 @@ const hasContent = computed(
 
 .allocation-group-item {
   display: flex;
+  gap: 8px;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
   padding: 8px;
   border: 1px solid var(--border-default);
   border-radius: 6px;

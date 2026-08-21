@@ -68,15 +68,15 @@ const {
   display: flex;
   flex: 1;
   flex-direction: column;
-  min-width: 0;
   gap: 20px;
+  min-width: 0;
 }
 
 .upload-right {
   display: flex;
   flex: 1 1 340px;
-  max-width: 360px;
   min-width: 300px;
+  max-width: 360px;
 }
 
 .upload-right :deep(.format-guide) {
