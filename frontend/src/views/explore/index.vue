@@ -450,7 +450,9 @@ import {
 } from "@/components/MarketHeader/config";
 import { buildMarketFooterSources } from "@/components/MarketFooter/config";
 import { batchFetchQuotes } from "@/utils/realtimeDataSources";
-import { getTemperatureOverview } from "@/api/temperature";
+import { useTemperatureOverview } from "@/composables/temperature/useTemperatureOverview";
+import { getTypeLabel } from "@/constants/assetType";
+import { pricePrecision } from "@/utils/pricePrecision";
 import { useAuthState } from "@/composables/useAuthState";
 import { formatDateTime } from "@/utils/date";
 
@@ -585,12 +587,23 @@ const fetchIndexData = async () => {
 };
 
 // ================================================================
-// 市场温度数据
+// 市场温度数据（两页共用 composable，temperature 页后续接入，见 #980）
 // ================================================================
-const tempLoading = ref(false);
-
-// 综合温度（后端两源合成，当前占位）
-const compositeTemperature = ref<{ value: number; level: string } | null>(null);
+const {
+  compositeTemperature,
+  selfCalcPercent,
+  selfCalcLevel,
+  links,
+  volumeData,
+  fearData,
+  jiucaishuoMediumData,
+  qiemanData,
+  youzhiData,
+  cbTemperature,
+  cbLabel,
+  jisiluIndicator,
+  fetchTemperature
+} = useTemperatureOverview();
 
 // 综合温度进度条颜色：按温度档位取色，偏低时为绿色
 const progressColor = computed(() => {
@@ -629,115 +642,6 @@ const peCaption = computed(() => {
   if (temp == null) return "估值温度 --";
   return `估值温度 ${temp}° · 越低越便宜`;
 });
-
-// 自算·股债利差（不涉 PE）
-const selfCalcPercent = ref<number | null>(null);
-const selfCalcLevel = ref<string>("数据暂缺");
-
-// 来源链接（底部来源条）
-const links = ref<Record<string, string>>({});
-
-// 成交量
-const volumeData = ref<{ value: number; label: string } | null>(null);
-
-// L2 温度数据
-const fearData = ref<{ value: number; label: string } | null>(null);
-const jiucaishuoMediumData = ref<{ value: number; label: string } | null>(null);
-const qiemanData = ref<{ value: number; label: string } | null>(null);
-const youzhiData = ref<{ value: number; label: string } | null>(null);
-const cbTemperature = ref<number | null>(null);
-const cbLabel = ref<string>("");
-const jisiluIndicator = ref<{
-  median_pb: number;
-  median_pb_temperature: number;
-  median_pb_level?: string;
-  median_pe: number;
-  median_pe_temperature: number;
-  median_pe_level?: string;
-} | null>(null);
-
-const fetchTemperature = async () => {
-  tempLoading.value = true;
-  try {
-    const res = await getTemperatureOverview();
-    const data = res.data;
-    if (!data) throw new Error("无效响应");
-
-    // 自算·股债利差（不涉 PE）
-    const selfCalc = data.composites?.self_calc;
-    if (selfCalc) {
-      selfCalcPercent.value = selfCalc.percent ?? null;
-      selfCalcLevel.value = selfCalc.level ?? "暂无";
-    } else {
-      selfCalcLevel.value = "数据暂缺";
-    }
-
-    // 综合温度（两源合成）
-    compositeTemperature.value = data.composites?.composite_temperature || null;
-
-    // 来源链接
-    links.value = data.links || {};
-
-    // 成交量
-    const vol = data.singles?.find((s: any) => s.source === "eastmoney_volume");
-    if (vol) {
-      volumeData.value = {
-        value: vol.value,
-        label: vol.label || "温和"
-      };
-    }
-
-    // L2：各类温度数据
-    const singles = data.singles || [];
-
-    const fear = singles.find((s: any) => s.source === "jiucaishuo_fear");
-    if (fear) {
-      fearData.value = { value: fear.value, label: fear.label };
-    }
-
-    const medium = singles.find((s: any) => s.source === "jiucaishuo_medium");
-    if (medium) {
-      jiucaishuoMediumData.value = { value: medium.value, label: medium.label };
-    }
-
-    const qieman = singles.find((s: any) => s.source === "qieman");
-    if (qieman) {
-      qiemanData.value = { value: qieman.value, label: qieman.label };
-    }
-
-    const youzhi = singles.find((s: any) => s.source === "youzhiyouxing");
-    if (youzhi) {
-      youzhiData.value = { value: youzhi.value, label: youzhi.label };
-    }
-
-    const cb = singles.find((s: any) => s.source === "jisilu_cb");
-    if (cb) {
-      cbTemperature.value = cb.value;
-      cbLabel.value = cb.label || "";
-    }
-
-    const indicator = data.composites?.jisilu_indicator;
-    if (indicator) {
-      jisiluIndicator.value = {
-        median_pb: indicator.median_pb,
-        median_pb_temperature: indicator.median_pb_temperature,
-        median_pb_level: indicator.median_pb_level,
-        median_pe: indicator.median_pe,
-        median_pe_temperature: indicator.median_pe_temperature,
-        median_pe_level: indicator.median_pe_level
-      };
-    }
-
-    if (selfCalcLevel.value === "数据暂缺") {
-      console.warn("自算股债利差数据暂缺，显示占位");
-    }
-  } catch (error) {
-    console.warn("获取市场温度失败:", error);
-    selfCalcLevel.value = "数据暂缺";
-  } finally {
-    tempLoading.value = false;
-  }
-};
 
 // ================================================================
 // 计算属性和方法
@@ -944,10 +848,6 @@ const handleRemove = (id: string) => {
 // ================================================================
 // 深度分析跳转
 // ================================================================
-// 基金/ETF 最新价为净值，展示 4 位小数；其余证券 2 位
-const pricePrecision = (type: string): number =>
-  type === "fund" || type === "etf" ? 4 : 2;
-
 const getAvailableTools = (type: string) => {
   const tools = [
     { key: "xueqiu", label: "雪球社区" },
@@ -1009,20 +909,6 @@ const statusText = computed(() => {
       return "等待中";
   }
 });
-
-// ================================================================
-// 工具方法
-// ================================================================
-const getTypeLabel = (type: string): string => {
-  const map: Record<string, string> = {
-    stock: "股票",
-    etf: "ETF",
-    fund: "场外基金",
-    bond: "可转债",
-    index: "指数"
-  };
-  return map[type] || type;
-};
 
 // ================================================================
 // 页面方法

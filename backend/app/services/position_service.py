@@ -21,6 +21,7 @@ from loguru import logger
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.constants import PositionSource
 from app.core.exceptions import ErrorCode, SBException
 from app.core.money import Money
 from app.core.symbol_utils import get_normalizer
@@ -195,7 +196,7 @@ class PositionService:
         raw_snap = data.get('snapshot_date') or date.today()
         snapshot_date = raw_snap if isinstance(raw_snap, date) else datetime.fromisoformat(str(raw_snap)).date()
 
-        src = data.get('source', 'e_account_holding')
+        src = data.get('source', PositionSource.E_ACCOUNT.value)
         import_hash = data.get('import_hash') or compute_position_hash(src, ledger_id, symbol, snapshot_date)
 
         # 查找现有持仓（业务键 ledger_id + symbol，SET 语义定位）
@@ -369,7 +370,7 @@ class PositionService:
                 position_data['ledger_id'] = ledger_id
                 position_data['family_id'] = family_id
                 # issue #928: 生成持仓去重哈希（source|ledger_id|symbol|snapshot_date）
-                src = data.get('source', 'manual')
+                src = data.get('source', PositionSource.MANUAL.value)
                 # 快照日：优先 confirm_date；缺失降级为落库当日（规范 §3.3，保证同日同产品汇总一条）
                 raw_snap = data.get('confirm_date') or date.today()
                 snapshot_date = raw_snap

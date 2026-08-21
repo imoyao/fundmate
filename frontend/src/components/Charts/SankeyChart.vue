@@ -20,6 +20,7 @@
 import { ref, computed, onBeforeUnmount, watch, nextTick } from "vue";
 import echarts from "@/plugins/echarts";
 import { IconifyIconOffline } from "@/components/ReIcon";
+import { getCssVar } from "@/composables/echarts/theme";
 
 const props = defineProps<{
   data: { nodes: any[]; links: any[] };
@@ -36,10 +37,7 @@ const containerHeightPx = computed(() => `${containerHeight.value}px`);
 
 // 工具函数：读取 CSS 变量
 const getCSSColor = (varName: string): string => {
-  if (typeof window === "undefined") return "";
-  return getComputedStyle(document.documentElement)
-    .getPropertyValue(varName)
-    .trim();
+  return getCssVar(varName);
 };
 
 function formatLabel(params: any) {
@@ -395,7 +393,7 @@ onBeforeUnmount(() => {
 .sankey-chart-container {
   position: relative;
   width: 100%;
-  height: v-bind(containerHeightPx);
+  height: v-bind(containerheightpx);
   contain: layout style;
 }
 

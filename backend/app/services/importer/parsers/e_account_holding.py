@@ -23,6 +23,7 @@ from typing import List, Optional, Tuple
 
 import pandas as pd
 
+from app.core.constants import PositionSource
 from app.services.importer.base import BaseHoldingParser
 from app.services.importer.records import SBImportError, StandardHoldingRecord
 from app.services.importer.utils import clean_amount, clean_nav, clean_shares, normalize_fund_code, parse_date
@@ -66,7 +67,7 @@ def _clean_col(name) -> str:
 class EAccountHoldingParser(BaseHoldingParser):
     """基金E账户导出持仓解析器：只实现文件列映射，落库走持仓汇点。"""
 
-    source = 'e_account_holding'
+    source = PositionSource.E_ACCOUNT.value
 
     # ── 表头定位 ──
 

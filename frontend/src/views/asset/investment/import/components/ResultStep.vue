@@ -129,16 +129,16 @@ const {
 
 .result-headline {
   display: flex;
-  align-items: baseline;
   gap: 8px;
+  align-items: baseline;
 }
 
 .result-count {
   font-size: 40px;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
   line-height: 1;
   color: var(--color-success);
-  font-variant-numeric: tabular-nums;
 }
 
 .result-count-label {
@@ -153,19 +153,19 @@ const {
 }
 
 .result-detail {
-  margin-top: var(--space-loose);
   display: flex;
   flex-direction: column;
   gap: var(--space-loose);
   width: 100%;
   max-width: 440px;
+  margin-top: var(--space-loose);
   text-align: left;
 }
 
 .result-actions {
-  margin-top: var(--space-loose);
   display: flex;
-  justify-content: center;
   gap: 8px;
+  justify-content: center;
+  margin-top: var(--space-loose);
 }
 </style>

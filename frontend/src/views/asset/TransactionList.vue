@@ -136,7 +136,7 @@
         <el-table-column prop="type" label="操作" width="90">
           <template #default="{ row }">
             <el-tag :type="typeTag(row.type)" size="small" effect="plain">
-              {{ opLabel(row.type) }}
+              {{ txnTypeLabel(row.type) }}
             </el-tag>
           </template>
         </el-table-column>
@@ -258,7 +258,7 @@
                         size="small"
                         class="ml-2"
                       >
-                        {{ opLabel(txn.type) }}
+                        {{ txnTypeLabel(txn.type) }}
                       </el-tag>
                       <el-tag
                         :type="statusTag(txn.status)"
@@ -320,6 +320,7 @@ import { getTransactions, exportTransactions } from "@/api/transactions";
 import type { TransactionRecord } from "@/api/transactions";
 import { ElMessage } from "element-plus";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
+import { txnTypeLabel } from "@/constants";
 
 defineOptions({ name: "TransactionList" });
 
@@ -543,16 +544,6 @@ function typeTag(
     withdraw: "info"
   };
   return map[type] || "primary";
-}
-function opLabel(type: string): string {
-  const map = {
-    buy: "买入",
-    sell: "卖出",
-    dividend: "分红",
-    deposit: "存入",
-    withdraw: "取出"
-  };
-  return map[type] || type;
 }
 function statusTag(
   status: string

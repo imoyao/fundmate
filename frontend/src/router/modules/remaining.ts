@@ -10,6 +10,17 @@ export default [
       showLink: false
     }
   },
+  // 全屏重置密码（忘记密码邮件回跳页）：不经过 Layout，未登录可直达
+  {
+    path: "/reset-password",
+    name: "ResetPassword",
+    component: () => import("@/views/login/reset-password.vue"),
+    meta: {
+      title: "重置密码",
+      showLink: false,
+      requiresAuth: false
+    }
+  },
   // 全屏403（无权访问）页面
   {
     path: "/access-denied",

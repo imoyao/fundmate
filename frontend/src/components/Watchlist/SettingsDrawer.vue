@@ -7,6 +7,14 @@
     destroy-on-close
   >
     <div class="settings-drawer-body space-y-4">
+      <!-- 分组小标题：资产管理（组一：管理分组 / 管理标签 / 批量管理 / 导入探市） -->
+      <p
+        class="settings-group-title text-xs pt-2"
+        :style="{ color: 'var(--text-tertiary)' }"
+      >
+        资产管理
+      </p>
+
       <!-- 管理分组 -->
       <div
         class="settings-card rounded-xl p-4 cursor-pointer transition-shadow"
@@ -20,7 +28,7 @@
         <div class="flex items-center gap-3">
           <div
             class="w-10 h-10 rounded-lg flex items-center justify-center"
-            :style="{ backgroundColor: 'var(--brand-100)' }"
+            :style="{ backgroundColor: 'var(--bg-soft)' }"
           >
             <IconifyIconOffline
               icon="ep:folder"
@@ -100,7 +108,7 @@
         <div class="flex items-center gap-3">
           <div
             class="w-10 h-10 rounded-lg flex items-center justify-center"
-            :style="{ backgroundColor: 'var(--color-warning-20)' }"
+            :style="{ backgroundColor: 'var(--bg-soft)' }"
           >
             <IconifyIconOffline
               icon="ep:operation"
@@ -141,7 +149,7 @@
         <div class="flex items-center gap-3">
           <div
             class="w-10 h-10 rounded-lg flex items-center justify-center"
-            :style="{ backgroundColor: 'var(--brand-100)' }"
+            :style="{ backgroundColor: 'var(--bg-soft)' }"
           >
             <IconifyIconOffline
               icon="ep:download"
@@ -168,6 +176,14 @@
           />
         </div>
       </div>
+
+      <!-- 分组小标题：系统设置（组二：排序设置 / 刷新频率） -->
+      <p
+        class="settings-group-title text-xs pt-2"
+        :style="{ color: 'var(--text-tertiary)' }"
+      >
+        系统设置
+      </p>
 
       <!-- 排序设置（预留） -->
       <div
@@ -222,15 +238,17 @@
           boxShadow: 'var(--shadow-raised)'
         }"
       >
-        <div class="flex items-center gap-3">
+        <!-- 方案 B：纵向布局——图标+标题+说明在上行，segmented 占整行在下行，
+             避免抽屉 360px 下分段控制器与标题挤占右侧热区 -->
+        <div class="flex items-center gap-3 mb-3">
           <div
             class="w-10 h-10 rounded-lg flex items-center justify-center"
-            :style="{ backgroundColor: 'var(--color-success-20)' }"
+            :style="{ backgroundColor: 'var(--bg-soft)' }"
           >
             <IconifyIconOffline
               icon="ep:timer"
               class="text-lg"
-              :style="{ color: 'var(--color-success)' }"
+              :style="{ color: 'var(--brand-700)' }"
             />
           </div>
           <div class="flex-1">
@@ -241,17 +259,17 @@
               实时估值刷新频率
             </h4>
             <p class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
-              盘中自动轮询估值的间隔，收盘/休市自动暂停
+              轮询间隔时长（休市自动暂停）
             </p>
           </div>
-          <el-segmented
-            :model-value="refreshInterval"
-            size="small"
-            :options="intervalOptions"
-            class="refresh-segmented"
-            @change="onRefreshIntervalChange"
-          />
         </div>
+        <el-segmented
+          :model-value="refreshInterval"
+          size="small"
+          :options="intervalOptions"
+          class="refresh-segmented w-full"
+          @change="onRefreshIntervalChange"
+        />
       </div>
     </div>
   </el-drawer>
@@ -318,6 +336,12 @@ const onRefreshIntervalChange = (value: string | number | boolean) => {
   padding: 0 4px;
 }
 
+/* 分组小标题：text-xs + --text-tertiary，贴近本组卡片、与上一组拉开间距
+   （space-y-4 提供 16px 组内间距，pt-2 额外 8px 组间距；不加分割线避免视觉噪音） */
+.settings-group-title {
+  font-weight: 500;
+}
+
 .settings-card {
   transition: all 0.15s ease;
 }
@@ -344,7 +368,18 @@ const onRefreshIntervalChange = (value: string | number | boolean) => {
   box-shadow: none;
 }
 
+/* item 均分铺满整行（方案 B）：EP 默认 group/item 不拉伸，需显式声明
+   group 100% 宽 + item flex:1，4 档均分、文字居中 */
+.refresh-segmented :deep(.el-segmented__group) {
+  display: flex;
+  width: 100%;
+}
+
 .refresh-segmented :deep(.el-segmented__item) {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
   height: 20px;
   padding: 0 10px;
   font-size: 12px;

@@ -50,6 +50,8 @@ export interface Position {
 export interface PositionListParams {
   page?: number;
   per_page?: number;
+  /** 按关联账户ID精确过滤；传字符串 'null' 表示仅查未归档持仓（对齐后端 views.py） */
+  ledger_id?: string | number;
 }
 
 /** 持仓分页响应（对齐后端分页信封：{ data, total, page, per_page, message }） */
@@ -90,7 +92,8 @@ export interface PositionCreate {
   name?: string;
   market: string;
   type: string;
-  account_name: string;
+  account_name?: string;
+  ledger_id?: number | null;
   quantity: number;
   avg_price: number;
   currency?: string;
@@ -98,12 +101,15 @@ export interface PositionCreate {
   fee?: number;
   confirm_date?: string;
   notes?: string;
+  op_type?: string;
+  source?: string;
 }
 
 /** 更新持仓请求体 (PATCH，所有字段可选) */
 export interface PositionUpdate {
   name?: string;
   account_name?: string;
+  ledger_id?: number | null;
   quantity?: number;
   avg_price?: number;
   current_price?: number;
@@ -116,5 +122,7 @@ export interface PositionUpdate {
 export interface SummaryData {
   total_assets_cny: number;
   total_pnl_cny: number;
+  total_liabilities_cny: number;
+  net_assets_cny: number;
   market_distribution: Record<string, number>;
 }

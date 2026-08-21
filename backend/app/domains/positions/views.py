@@ -47,13 +47,24 @@ def enrich_position_dict(p: Position) -> dict:
 
 @bp.get('/')
 def list_positions():
-    """获取所有持仓记录，支持分页和按账户分组."""
+    """获取所有持仓记录，支持分页和按账户分组.
+
+    过滤参数:
+      ledger_id: 按关联账户ID精确过滤；传字符串 'null' 表示仅查未归档持仓(ledger_id IS NULL)。
+    """
     group_by = request.args.get('group_by', '')
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 20, type=int)
+    ledger_id_raw = request.args.get('ledger_id', '')
 
     with get_db() as db:
-        query = db.query(Position).filter(Position.family_id == get_family_id()).order_by(Position.updated_at.desc())
+        query = db.query(Position).filter(Position.family_id == get_family_id())
+        # 未归档过滤：ledger_id 显式传 'null' 时仅返回未绑定账户的持仓
+        if ledger_id_raw == 'null':
+            query = query.filter(Position.ledger_id.is_(None))
+        elif ledger_id_raw:
+            query = query.filter(Position.ledger_id == int(ledger_id_raw))
+        query = query.order_by(Position.updated_at.desc())
 
         if group_by == 'account':
             positions = query.all()

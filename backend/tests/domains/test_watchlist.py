@@ -282,6 +282,28 @@ class TestWatchlistItemCRUD:
         resp = _get(client, '/api/watchlist/items/', {'status': 'WATCHING'})
         assert len(resp.get_json()['data']) >= 2
 
+    def test_list_items_pagination(self, client, db):
+        """#1048 回归：后端按 page/per_page 切片，total 为真实总数（翻页非假按钮）。"""
+        for sym in ['AAA', 'BBB', 'CCC', 'DDD', 'EEE']:
+            _post(client, '/api/watchlist/items/', {'symbol': f'{sym}.HK', 'venue': 'EXCHANGE'})
+
+        # 第一页：每页 2 条，total 应为 5
+        resp1 = _get(client, '/api/watchlist/items/', {'status': 'WATCHING', 'page': 1, 'per_page': 2})
+        body1 = resp1.get_json()
+        assert body1['total'] == 5
+        assert len(body1['data']) == 2
+
+        # 第三页：剩余 1 条
+        resp3 = _get(client, '/api/watchlist/items/', {'status': 'WATCHING', 'page': 3, 'per_page': 2})
+        body3 = resp3.get_json()
+        assert body3['total'] == 5
+        assert len(body3['data']) == 1
+
+        # 不同页返回不同数据
+        page1_symbols = {i['symbol'] for i in body1['data']}
+        page3_symbols = {i['symbol'] for i in body3['data']}
+        assert page1_symbols.isdisjoint(page3_symbols)
+
     def test_update_item_notes(self, client, db):
         resp = _post(client, '/api/watchlist/items/', {'symbol': '00700.HK', 'venue': 'EXCHANGE'})
         item_id = resp.get_json()['data']['id']
@@ -644,3 +666,157 @@ class TestHoldingGroupRealPositions:
         assert '\ufeff' in text
         assert '代码,名称,市场,类型,场内/场外,状态,置顶,特别关注,标签' in text
         assert 'SH600519,茅台,SH,股票,场内,持仓中,否,否,' in text
+
+
+# ─────────────── 「全部」分组 = 自选 ∪ 持仓（方案 A 延续）───────────────
+class TestAllGroupUnionPositions:
+    """「全部」分组 = 自选清单 ∪ 真实持仓（同一 symbol 自选记录优先，无附加筛选时补虚拟行）。"""
+
+    def test_all_group_union_with_watchlist_priority(self, client, db, make_position):
+        """自选 1 条 + 持仓 2 条（1 条在自选、1 条不在）→ 全部返回 2 条且自选记录优先（id 非 null）"""
+        make_position(
+            symbol='SH600519',
+            name='茅台',
+            asset_type='stock',
+            market='SH',
+            account_name='华泰',
+            quantity=100,
+            avg_price=18,
+            current_price=18,
+        )
+        make_position(
+            symbol='HK00700',
+            name='腾讯',
+            asset_type='stock',
+            market='HK',
+            account_name='富途',
+            quantity=200,
+            avg_price=3,
+            current_price=3.1,
+        )
+        # 只有茅台在自选（HOLDING 快照），腾讯仅存在于持仓表
+        db.add(WatchlistItem(symbol='SH600519', market='SH', status='HOLDING'))
+        db.commit()
+
+        resp = _get(client, '/api/watchlist/items/')
+        assert resp.status_code == 200
+        body = resp.get_json()
+        assert body['total'] == 2
+        assert {d['symbol'] for d in body['data']} == {'SH600519', 'HK00700'}
+        # 自选记录优先：茅台 id 非 null（有自选记录），腾讯是补集虚拟行 id=None
+        moutai = next(d for d in body['data'] if d['symbol'] == 'SH600519')
+        tencent = next(d for d in body['data'] if d['symbol'] == 'HK00700')
+        assert moutai['id'] is not None
+        assert tencent['id'] is None
+
+    def test_all_group_no_virtual_rows_when_additional_filter(self, client, db, make_position):
+        """带附加筛选（tag_ids / symbol 查重）时不补虚拟行——筛选口径是自选内子集"""
+        make_position(
+            symbol='HK00700',
+            name='腾讯',
+            asset_type='stock',
+            market='HK',
+            account_name='富途',
+            quantity=200,
+            avg_price=3,
+            current_price=3.1,
+        )
+        db.commit()
+
+        # tag_ids 筛选：自选表为空 + 标签筛选 → 不补持仓虚拟行，返回空
+        resp = _get(client, '/api/watchlist/items/', {'tag_ids': '1'})
+        assert resp.status_code == 200
+        assert resp.get_json()['data'] == []
+
+        # symbol 查重调用（AddToWatchlistModal/OcrImportModal 依赖）：只查自选，不因持仓补行误判「已存在」
+        resp = _get(client, '/api/watchlist/items/', {'symbol': 'HK00700'})
+        assert resp.status_code == 200
+        assert resp.get_json()['data'] == []
+
+    def test_all_group_sort_pinned_first(self, client, db, make_position):
+        """混合排序：置顶优先，其次持仓市值降序"""
+        make_position(
+            symbol='SH600519',
+            name='茅台',
+            asset_type='stock',
+            market='SH',
+            account_name='华泰',
+            quantity=100,
+            avg_price=18,
+            current_price=18,
+        )
+        make_position(
+            symbol='HK00700',
+            name='腾讯',
+            asset_type='stock',
+            market='HK',
+            account_name='富途',
+            quantity=200,
+            avg_price=3,
+            current_price=3.1,
+        )
+        db.add(WatchlistItem(symbol='HK00700', market='HK', status='HOLDING', is_pinned=True))
+        db.commit()
+
+        resp = _get(client, '/api/watchlist/items/')
+        data = resp.get_json()['data']
+        assert [d['symbol'] for d in data] == ['HK00700', 'SH600519']  # 置顶的腾讯在前
+
+    def test_all_group_count_matches_list(self, client, db, make_position):
+        """分组「全部」count = watchlist 行数 + 不在自选中的持仓 symbol 数"""
+        make_position(
+            symbol='SH600519',
+            name='茅台',
+            asset_type='stock',
+            market='SH',
+            account_name='华泰',
+            quantity=100,
+            avg_price=18,
+            current_price=18,
+        )
+        make_position(
+            symbol='HK00700',
+            name='腾讯',
+            asset_type='stock',
+            market='HK',
+            account_name='富途',
+            quantity=200,
+            avg_price=3,
+            current_price=3.1,
+        )
+        db.add(WatchlistItem(symbol='SH600519', market='SH', status='HOLDING'))
+        db.commit()
+
+        resp = _get(client, '/api/watchlist/groups/')
+        all_group = next(g for g in resp.get_json()['data'] if g['key'] == 'all')
+        assert all_group['count'] == 2
+
+    def test_all_group_export_includes_virtual_rows(self, client, db, make_position):
+        """「全部」导出与列表口径一致：含持仓补集虚拟行"""
+        make_position(
+            symbol='SH600519',
+            name='茅台',
+            asset_type='stock',
+            market='SH',
+            account_name='华泰',
+            quantity=100,
+            avg_price=18,
+            current_price=18,
+        )
+        make_position(
+            symbol='HK00700',
+            name='腾讯',
+            asset_type='stock',
+            market='HK',
+            account_name='富途',
+            quantity=200,
+            avg_price=3,
+            current_price=3.1,
+        )
+        db.commit()
+
+        resp = client.get('/api/watchlist/items/export/')
+        assert resp.status_code == 200
+        text = resp.get_data(as_text=True)
+        assert 'SH600519,茅台,SH,股票,场内,持仓中,否,否,' in text
+        assert 'HK00700,腾讯,HK,股票,场内,持仓中,否,否,' in text

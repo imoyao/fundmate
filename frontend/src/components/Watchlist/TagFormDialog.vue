@@ -15,12 +15,13 @@
   >
     <div class="tag-form">
       <label class="tag-form__label">名称</label>
-      <!-- 后端 WatchlistTagDefCreate.name 的 max_length=50，前端对齐该契约并提前告知用户上限。 -->
+      <!-- 名称上限 20：标签名在表格内/筛选胶囊中展示（胶囊宽度有限），50 字远超实际用途；
+           后端 max_length=50 兼容（前端先截断，避免「输到一半被静默截断」）。 -->
       <el-input
         v-model="form.name"
-        placeholder="请输入标签名称（最多 50 个字符）"
+        placeholder="请输入标签名称（最多 20 个字符）"
         size="large"
-        maxlength="50"
+        maxlength="20"
         show-word-limit
         :disabled="loading"
       />
@@ -42,7 +43,7 @@
         <button
           type="button"
           class="color-dot color-dot--random"
-          title="随机一个区分度高的颜色"
+          title="设置随机颜色"
           @click="pickRandomColor"
         >
           <el-icon><Refresh /></el-icon>
@@ -59,7 +60,11 @@
 
     <template #footer>
       <el-button @click="handleVisibleChange(false)">取消</el-button>
-      <el-button type="primary" :loading="loading" @click="save"
+      <el-button
+        type="primary"
+        :loading="loading"
+        :disabled="!form.name.trim()"
+        @click="save"
         >保存</el-button
       >
     </template>

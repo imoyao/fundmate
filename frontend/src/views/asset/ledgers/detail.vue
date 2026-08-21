@@ -712,7 +712,11 @@ import {
 } from "@/api/performance";
 import AccountFormFields from "./components/AccountFormFields.vue";
 import DeleteLedgerDialog from "./components/DeleteLedgerDialog.vue";
-import { getLedgerTypeLabel, ALLOCATION_OPTIONS } from "@/constants";
+import {
+  getLedgerTypeLabel,
+  ALLOCATION_OPTIONS,
+  txnTypeLabel
+} from "@/constants";
 import PositionTransactionsDrawer from "./components/PositionTransactionsDrawer.vue";
 import { usePageRefresh } from "@/composables/usePageRefresh";
 import { formatDate } from "@/utils/date";
@@ -1003,16 +1007,6 @@ function onTabChange(tabName: string) {
   }
 }
 
-function txnTypeLabel(type: string) {
-  const map: Record<string, string> = {
-    buy: "买入",
-    sell: "卖出",
-    dividend: "分红",
-    deposit: "存入",
-    withdraw: "取出"
-  };
-  return map[type] || type;
-}
 function getTxnTypeClass(type: string) {
   // 涨红跌绿：买入/存入=红（rise），卖出/取出=绿（fall），分红等中性=info
   if (type === "buy" || type === "deposit") return "text-[var(--color-rise)]";

@@ -15,6 +15,7 @@ import csv
 import io
 from typing import List, Optional, Tuple
 
+from app.core.constants import PositionSource
 from app.services.importer.mappings import TIANTIAN_OP_MAP
 from app.services.importer.parsers.standard import FundStandardParser
 from app.services.importer.records import SBImportError, StandardTransactionRecord
@@ -24,7 +25,7 @@ from app.services.importer.utils import normalize_fund_code
 class TiantianFundParser(FundStandardParser):
     """天天基金交易记录解析器"""
 
-    source = 'tiantian_fund'
+    source = PositionSource.BROKER_TIANTIAN.value
 
     @property
     def _column_map(self) -> dict:

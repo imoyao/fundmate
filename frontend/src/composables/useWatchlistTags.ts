@@ -3,7 +3,7 @@ import { getWatchlistTags, type WatchlistTag } from "@/api/watchlist";
 
 /**
  * 自选标签状态与筛选逻辑（从 watchlist/index.vue 抽离，2026-08-15）。
- * 负责标签列表、标签筛选面板（触发按钮 + Checkbox）的状态与 fetch。
+ * 负责标签列表、标签筛选面板（触发按钮 + 标签色胶囊多选）的状态与 fetch。
  * 筛选确定/清空后通过 refresh 回调触发列表刷新（解耦 fetchData，避免循环依赖）。
  *
  * @param refresh 筛选提交后执行的刷新动作（一般为 `() => { currentPage.value = 1; fetchData(); }`）

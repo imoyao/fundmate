@@ -241,7 +241,9 @@ watch(
 );
 </script>
 
-<style scoped>
+<!-- lang="scss" 必须保留：本文件使用 &__block 嵌套拼接语法，原生 CSS 嵌套不支持该写法，
+     缺失会导致全部嵌套规则静默失效 -->
+<style scoped lang="scss">
 .usage-banner {
   display: flex;
   gap: 10px;

@@ -47,7 +47,8 @@ import { IconifyIconOffline } from "@/components/ReIcon";
 const DISMISS_KEY = REALTIME_BANNER_DISMISS_KEY;
 
 const visible = ref(
-  typeof localStorage !== "undefined" && localStorage.getItem(DISMISS_KEY) !== "1"
+  typeof localStorage !== "undefined" &&
+    localStorage.getItem(DISMISS_KEY) !== "1"
 );
 
 function dismiss() {

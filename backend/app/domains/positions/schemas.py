@@ -49,6 +49,7 @@ class PositionOut(BaseModel):
     type: str = Field(validation_alias='asset_type', serialization_alias='type')
     account_name: Optional[str] = None
     ledger_id: Optional[int] = None  # 新增
+    source: str = Field('manual', description='持仓来源: 见 app.core.constants.PositionSource')  # 新增：来源徽标依赖
     quantity: float
     avg_price: float
     currency: str

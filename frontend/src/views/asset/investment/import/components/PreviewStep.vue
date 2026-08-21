@@ -142,19 +142,19 @@ const {
 /* 步骤3 智能体检：未关联现金账户的银证转账提示横幅 */
 .cash-binding-banner {
   display: flex;
-  align-items: center;
-  gap: 10px;
   flex-wrap: wrap;
-  margin: 12px 16px 0;
+  gap: 10px;
+  align-items: center;
   padding: 10px 14px;
+  margin: 12px 16px 0;
   background: var(--bg-soft);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
 }
 
 .banner-icon {
-  color: var(--color-warning);
   font-size: 16px;
+  color: var(--color-warning);
 }
 
 .banner-text {
@@ -178,12 +178,12 @@ const {
 
 .step3-body {
   display: flex;
-  flex-direction: column;
   flex: 1;
-  min-height: calc(100vh - 240px);
-  overflow: hidden;
-  padding: 16px;
+  flex-direction: column;
   gap: 16px;
+  min-height: calc(100vh - 240px);
+  padding: 16px;
+  overflow: hidden;
 }
 
 .fixed-action-bar {
@@ -211,8 +211,8 @@ const {
 
 .summary-primary {
   font-size: 14px;
-  color: var(--text-primary);
   font-weight: 500;
+  color: var(--text-primary);
 }
 
 .summary-secondary {

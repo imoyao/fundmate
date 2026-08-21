@@ -276,6 +276,43 @@ def _build_holding_row(symbol, db, market=None, asset_type=None, venue=None):
     }
 
 
+def _build_all_items(db, family_id, venue=None, search=None, tag_ids_str=None, favorite=False, group_id=None):
+    """「全部」分组数据：自选清单 ∪ 真实持仓补集（同一 symbol 自选记录优先，去重）。
+
+    语义（与分组 count 口径一致，保证「全部 N 条」与分组数字吻合）：
+    - 自选条目走 get_filtered_items_query（不传 status），保留置顶排序字段；
+    - 补集虚拟行仅当无附加筛选（tag/关注/分组）时追加——附加筛选的语义是
+      「自选内的资产」子集，与持仓全集无交集，补行会引入「筛选不到却展示」的条目；
+    - 排序：置顶优先，其次持仓市值降序（自选行与虚拟行统一口径）。
+    """
+    params = {
+        'status': None,
+        'venue': venue,
+        'market': None,
+        'group_id': group_id,
+        'search': search,
+        'favorite': favorite,
+        'symbol': None,
+        'tag_ids_str': tag_ids_str,
+        'tag_id': None,
+    }
+    query, _ = get_filtered_items_query(db, family_id, **params)
+    items = query.order_by(WatchlistItem.is_pinned.desc(), WatchlistItem.updated_at.desc()).all()
+    data = [_enrich_item(item, db) for item in items]
+
+    if not (tag_ids_str or favorite or group_id):
+        holding_rows = _list_holding_items(db, family_id, venue=venue, search=search)
+        watch_symbols = {item['symbol'] for item in data}
+        for row in holding_rows:
+            if row['symbol'] in watch_symbols:
+                continue  # 同一 symbol 自选记录优先，虚拟行不重复展示
+            data.append(row)
+
+    # 混合排序：置顶优先（is_pinned 在前），再按持仓市值降序
+    data.sort(key=lambda r: (not r['is_pinned'], -(r['position_market_value'] or 0)))
+    return data
+
+
 @watchlist_bp.get('/home-summary/')
 def home_summary():
     """首页自选摘要"""
@@ -300,24 +337,67 @@ def list_items():
         'symbol': request.args.get('symbol'),
         'tag_ids_str': request.args.get('tag_ids'),
         'tag_id': request.args.get('tag_id', type=int),
+        'page': request.args.get('page', type=int, default=1),
+        'per_page': request.args.get('per_page', type=int, default=20),
     }
 
     with get_db() as db:
+        # 分页参数：page 从 1 开始；per_page 限幅 [1, 200] 避免一次性拉取全量
+        page = max(params['page'] or 1, 1)
+        per_page = max(min(params['per_page'] or 20, 200), 1)
+        offset = (page - 1) * per_page
         if params['status'] == 'HOLDING':
             # 持仓分组 = 全部真实持仓（positions 表 active，按 symbol 聚合），
             # 不走 watchlist.status 快照查询；返回虚拟行（id=None，前端据此禁用行操作）
             data = _list_holding_items(db, get_family_id(), venue=params['venue'], search=params['search'])
-            return jsonify({'data': data, 'total': len(data), 'message': 'ok'})
+            total = len(data)
+            page_data = data[offset : offset + per_page]
+            return jsonify({'data': page_data, 'total': total, 'message': 'ok'})
+
+        if not params['status'] and not (params['symbol'] or params['market'] or params['tag_id']):
+            # 「全部」分组 = 自选清单 ∪ 真实持仓补集（同一 symbol 自选优先），
+            # 前端「全部」分组不传 status 走此分支，解决「全部 < 持仓」口径矛盾。
+            # 仅无查找型参数（symbol/market/tag_id）时合并——AddToWatchlistModal/OcrImportModal
+            # 的「symbol 查重」等调用依赖原过滤语义，不得在此被稀释。
+            try:
+                data = _build_all_items(
+                    db,
+                    get_family_id(),
+                    venue=params['venue'],
+                    search=params['search'],
+                    tag_ids_str=params['tag_ids_str'],
+                    favorite=params['favorite'],
+                    group_id=params['group_id'],
+                )
+            except ValueError as e:
+                abort(400, str(e))
+            total = len(data)
+            page_data = data[offset : offset + per_page]
+            return jsonify({'data': page_data, 'total': total, 'message': 'ok'})
 
         try:
-            query, total = get_filtered_items_query(db, get_family_id(), **params)
+            query, total = get_filtered_items_query(
+                db,
+                get_family_id(),
+                status=params['status'],
+                venue=params['venue'],
+                market=params['market'],
+                group_id=params['group_id'],
+                search=params['search'],
+                favorite=params['favorite'],
+                symbol=params['symbol'],
+                tag_ids_str=params['tag_ids_str'],
+                tag_id=params['tag_id'],
+            )
         except ValueError as e:
             abort(400, str(e))
 
         items = query.order_by(WatchlistItem.is_pinned.desc(), WatchlistItem.updated_at.desc()).all()
         data = [_enrich_item(item, db) for item in items]
 
-        return jsonify({'data': data, 'total': total, 'message': 'ok'})
+        total = len(data)
+        page_data = data[offset : offset + per_page]
+        return jsonify({'data': page_data, 'total': total, 'message': 'ok'})
 
 
 @watchlist_bp.post('/items/')
@@ -678,6 +758,21 @@ def export_items():
         if params['status'] == 'HOLDING':
             # 持仓分组导出：与列表一致，导出全部真实持仓（虚拟行，id=None）
             rows = _list_holding_items(db, get_family_id(), venue=params['venue'], search=params['search'])
+        elif not params['status'] and not (params['symbol'] or params['market'] or params['tag_id']):
+            # 「全部」导出与列表口径一致：自选 ∪ 持仓补集（复用同一合并逻辑；
+            # 带 symbol/market/tag_id 查找参数时仍走原过滤语义，与列表分支对齐）
+            try:
+                rows = _build_all_items(
+                    db,
+                    get_family_id(),
+                    venue=params['venue'],
+                    search=params['search'],
+                    tag_ids_str=params['tag_ids_str'],
+                    favorite=params['favorite'],
+                    group_id=params['group_id'],
+                )
+            except ValueError as e:
+                abort(400, str(e))
         else:
             try:
                 query, _ = get_filtered_items_query(db, get_family_id(), **params)

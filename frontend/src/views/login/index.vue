@@ -1,7 +1,20 @@
 <template>
-  <div class="select-none">
-    <img :src="bg" class="wave" />
-    <div class="flex-c absolute right-5 top-3">
+  <div
+    class="login-page relative min-h-screen w-full select-none overflow-x-hidden"
+  >
+    <!-- 深海氛围背景装饰（纯 CSS 实现，替代原 bg.png 波浪图；不引入图片资源） -->
+    <div
+      class="login-bg-decor pointer-events-none fixed inset-0 z-0"
+      aria-hidden="true"
+    >
+      <span class="login-ripple login-ripple--1" />
+      <span class="login-ripple login-ripple--2" />
+      <span class="login-ripple login-ripple--3" />
+      <span class="login-ripple login-ripple--4" />
+    </div>
+
+    <!-- 亮暗切换 -->
+    <div class="flex-c absolute right-5 top-3 z-30">
       <el-switch
         v-model="dataTheme"
         inline-prompt
@@ -10,30 +23,98 @@
         @change="dataThemeChange"
       />
     </div>
-    <div class="login-container">
-      <div class="img">
-        <component :is="toRaw(illustration)" />
-      </div>
-      <div class="login-box">
-        <div class="login-form">
-          <div class="login-logo">
-            <BrandLogo :size="80" />
+
+    <div
+      class="login-container relative z-10 grid min-h-screen w-full grid-cols-1 min-[969px]:grid-cols-[1.12fr_0.88fr]"
+    >
+      <!-- 左侧：品牌叙事区（桌面端展示；≤968px 隐藏，与旧插画区同策略） -->
+      <aside
+        class="login-brand relative hidden flex-col overflow-hidden px-10 py-14 min-[969px]:flex xl:px-16"
+      >
+        <!-- 背景装饰层：鹦鹉螺插画全幅半透明，文字浮于其上 -->
+        <div class="login-brand-bg" v-html="nautilusSvg" />
+
+        <div class="relative z-10 flex items-center gap-3">
+          <BrandLogo :size="44" />
+          <span class="login-wordmark text-xl font-semibold">
+            多多贝
+            <span class="login-wordmark-sub ml-2 text-sm font-normal"
+              >投资账本</span
+            >
+          </span>
+        </div>
+
+        <div
+          class="login-brand-body relative z-10 flex flex-1 flex-col justify-center gap-5"
+        >
+          <h1
+            class="login-slogan max-w-[14ch] text-[clamp(2.2rem,3.4vw,3.1rem)] font-bold leading-[1.15] tracking-[-0.02em]"
+          >
+            看见你的<span class="coral">复利曲线</span>
+          </h1>
+          <p class="login-sub max-w-[30ch] text-base leading-relaxed">
+            一个让复利曲线清晰可见的投资账本
+          </p>
+        </div>
+
+        <p class="login-tagline relative z-10 text-sm">
+          潮有涨落，壳有深浅。算得清，才无患。
+        </p>
+      </aside>
+
+      <!-- 右侧：表单区 -->
+      <div
+        class="login-box flex items-center justify-center px-4 py-12 max-[968px]:py-10"
+      >
+        <div class="login-form w-full max-w-[400px]">
+          <!-- 移动端品牌 Slogan（≤968px 显示在表单上方） -->
+          <div class="login-mobile-brand mb-6 hidden max-[968px]:block">
+            <h1
+              class="text-[1.55rem] font-bold leading-tight tracking-[-0.01em]"
+            >
+              看见你的<span class="coral">复利曲线</span>
+            </h1>
+            <p class="login-sub mt-2 text-sm">
+              一个让复利曲线清晰可见的投资账本
+            </p>
           </div>
-          <Motion>
-            <h2 class="outline-hidden">
-              {{ isRegisterMode ? "创建账户" : title }}
+
+          <div class="login-logo flex justify-center">
+            <BrandLogo :size="72" />
+          </div>
+
+          <Motion class="w-full">
+            <h2 class="outline-hidden login-title mb-6 text-center">
+              {{ isRegisterMode ? "创建账户" : "欢迎回来" }}
             </h2>
           </Motion>
 
+          <!--
+            输入框等宽说明：
+            el-form-item 是 block 级 flex（display:flex），el-input 默认 width:100%，
+            理论上各输入框已等宽；实际观感差异多来自 clearable / show-password 的
+            suffix 图标在 wrapper 内以 flex-shrink:0 流式占位，撑窄内部文本区。
+            页面级兜底见样式区「输入框等宽」：显式 100% 撑满内容区与输入框根元素，
+            保证登录/注册所有输入框与提交按钮左右边缘严格对齐。
+          -->
+          <!--
+            el-form 默认 validate-on-rule-change=true：:rules 切换（登录↔注册）时
+            自动触发全量校验。该校验是异步的（flush:"post" 与 nextTick 竞态），
+            切换瞬间 clearValidate 清完、500ms 后错误又全数回来 → 全部字段飘红。
+            关闭自动校验根治竞态；toggleMode 里的 clearValidate 保留，
+            负责清掉登录模式提交/失焦失败后的残留 error 状态。
+          -->
           <el-form
             ref="ruleFormRef"
             :model="ruleForm"
             :rules="isRegisterMode ? registerRules : loginRules"
+            :validate-on-rule-change="false"
             size="large"
+            class="w-full"
           >
             <!-- 邮箱 / 用户名（登录模式二选一） -->
-            <Motion :delay="100">
-              <el-form-item prop="email">
+            <Motion class="w-full" :delay="100">
+              <el-form-item prop="email" class="w-full">
                 <el-input
                   v-model="ruleForm.email"
                   clearable
@@ -44,8 +125,8 @@
             </Motion>
 
             <!-- 昵称（仅注册模式） -->
-            <Motion v-if="isRegisterMode" :delay="150">
-              <el-form-item prop="username">
+            <Motion v-if="isRegisterMode" class="w-full" :delay="150">
+              <el-form-item prop="username" class="w-full">
                 <el-input
                   v-model="ruleForm.username"
                   clearable
@@ -57,8 +138,8 @@
             </Motion>
 
             <!-- 密码 -->
-            <Motion :delay="200">
-              <el-form-item prop="password">
+            <Motion class="w-full" :delay="200">
+              <el-form-item prop="password" class="w-full">
                 <el-input
                   v-model="ruleForm.password"
                   clearable
@@ -67,11 +148,17 @@
                   :prefix-icon="useRenderIcon(Lock)"
                 />
               </el-form-item>
+              <!-- 忘记密码（仅登录模式）：右对齐小链接，与切换/隐私政策链接同风格 -->
+              <div v-if="!isRegisterMode" class="login-forgot flex justify-end">
+                <el-link type="primary" @click="openForgotDialog"
+                  >忘记密码？</el-link
+                >
+              </div>
             </Motion>
 
             <!-- 确认密码（仅注册模式） -->
-            <Motion v-if="isRegisterMode" :delay="250">
-              <el-form-item prop="confirmPassword">
+            <Motion v-if="isRegisterMode" class="w-full" :delay="250">
+              <el-form-item prop="confirmPassword" class="w-full">
                 <el-input
                   v-model="ruleForm.confirmPassword"
                   clearable
@@ -83,8 +170,8 @@
             </Motion>
 
             <!-- 隐私政策（仅注册模式） -->
-            <Motion v-if="isRegisterMode" :delay="300">
-              <el-form-item prop="agreePolicy">
+            <Motion v-if="isRegisterMode" class="w-full" :delay="300">
+              <el-form-item prop="agreePolicy" class="w-full">
                 <div class="privacy-policy-wrapper">
                   <el-checkbox
                     v-model="ruleForm.agreePolicy"
@@ -104,11 +191,11 @@
               </el-form-item>
             </Motion>
 
-            <!-- 提交按钮 -->
-            <Motion :delay="isRegisterMode ? 350 : 250">
+            <!-- 提交按钮（size=large 与 40px 输入框等高，避免 :deep 改组件内部样式） -->
+            <Motion class="w-full" :delay="isRegisterMode ? 350 : 250">
               <el-button
-                class="w-full mt-4!"
-                size="default"
+                class="login-submit mt-4! w-full"
+                size="large"
                 type="primary"
                 :loading="loading"
                 :disabled="disabled"
@@ -128,6 +215,35 @@
               </el-link>
             </span>
           </div>
+
+          <!-- GitHub 登录（跨子域 SSO 共用同一 Supabase 项目） -->
+          <el-divider v-if="!isRegisterMode" class="login-divider">
+            <span class="text-xs" style="color: var(--text-tertiary)"
+              >其他登录方式</span
+            >
+          </el-divider>
+          <el-button
+            v-if="!isRegisterMode"
+            class="login-github w-full"
+            size="large"
+            :loading="githubLoading"
+            @click="onGithubLogin"
+          >
+            <span class="flex items-center justify-center gap-2">
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path
+                  d="M12 .5C5.37.5 0 5.87 0 12.5c0 5.3 3.44 9.8 8.21 11.39.6.11.82-.26.82-.58v-2.03c-3.34.73-4.04-1.61-4.04-1.61-.55-1.39-1.34-1.76-1.34-1.76-1.09-.75.08-.73.08-.73 1.2.09 1.84 1.24 1.84 1.24 1.07 1.84 2.81 1.31 3.5 1 .11-.78.42-1.31.76-1.61-2.67-.3-5.47-1.34-5.47-5.95 0-1.31.47-2.39 1.24-3.23-.12-.3-.54-1.53.12-3.18 0 0 1.01-.32 3.3 1.23a11.5 11.5 0 0 1 6.01 0c2.29-1.55 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.77.84 1.23 1.92 1.23 3.23 0 4.62-2.81 5.64-5.49 5.94.43.37.81 1.1.81 2.22v3.29c0 .32.22.7.83.58A12.01 12.01 0 0 0 24 12.5C24 5.87 18.63.5 12 .5Z"
+                />
+              </svg>
+              <span>使用 GitHub 登录</span>
+            </span>
+          </el-button>
 
           <!-- 登录提示 -->
           <div v-if="!isRegisterMode" class="login-hint mt-3">
@@ -151,6 +267,43 @@
         </div>
       </div>
     </div>
+
+    <!-- 忘记密码弹窗：收集邮箱发起重置邮件（防用户枚举，统一提示已发送） -->
+    <el-dialog
+      v-model="forgotVisible"
+      title="重置密码"
+      width="min(400px, calc(100vw - 32px))"
+      :close-on-click-modal="false"
+      append-to-body
+      class="login-forgot-dialog"
+    >
+      <el-form
+        ref="forgotFormRef"
+        :model="forgotForm"
+        :rules="forgotRules"
+        size="large"
+      >
+        <el-form-item prop="email" class="w-full">
+          <el-input
+            v-model="forgotForm.email"
+            clearable
+            placeholder="请输入注册邮箱"
+            :prefix-icon="useRenderIcon(User)"
+            @keyup.enter="onForgotSubmit(forgotFormRef)"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="forgotVisible = false">取消</el-button>
+        <el-button
+          type="primary"
+          :loading="forgotLoading"
+          @click="onForgotSubmit(forgotFormRef)"
+        >
+          发送重置邮件
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -158,20 +311,19 @@
 import Motion from "./utils/motion";
 import { useRouter } from "vue-router";
 import { message } from "@/utils/message";
-import { ref, reactive, toRaw, computed } from "vue";
+import { nextTick, ref, reactive, computed } from "vue";
 import { debounce } from "@pureadmin/utils";
-import { useNav } from "@/layout/hooks/useNav";
 import { useEventListener } from "@vueuse/core";
 import type { FormInstance, FormRules } from "element-plus";
 import { useLayout } from "@/layout/hooks/useLayout";
 import { initRouter } from "@/router/utils";
 import BrandLogo from "@/components/BrandLogo/index.vue";
-import { bg, illustration } from "./utils/static";
 import { useRenderIcon } from "@/components/ReIcon/src/hooks";
 import { useDataThemeChange } from "@/layout/hooks/useDataThemeChange";
 
 import dayIcon from "@/assets/svg/day.svg?component";
 import darkIcon from "@/assets/svg/dark.svg?component";
+import nautilusSvg from "@/assets/login/nautilus-light.svg?raw";
 import Lock from "~icons/ri/lock-fill";
 import User from "~icons/ri/user-3-fill";
 
@@ -185,6 +337,7 @@ defineOptions({
 const router = useRouter();
 const loading = ref(false);
 const disabled = ref(false);
+const githubLoading = ref(false);
 const ruleFormRef = ref<FormInstance>();
 const isRegisterMode = ref(false);
 const showRegisterSuccess = ref(false);
@@ -194,7 +347,6 @@ initStorage();
 
 const { dataTheme, overallStyle, dataThemeChange } = useDataThemeChange();
 dataThemeChange(overallStyle.value);
-const { title } = useNav();
 
 // ============================================
 // 表单数据
@@ -278,6 +430,10 @@ const toggleMode = () => {
   ruleForm.password = "";
   ruleForm.confirmPassword = "";
   ruleForm.agreePolicy = false;
+  // 切换模式只清值不够：email/password 两个 prop 的 el-form-item DOM 在两种模式下复用，
+  // 若此前校验失败过，is-error 类与红字提示会残留并继续显示（:rules 切换不会自动清状态）。
+  // 必须在 DOM 更新后清一次校验状态，保证任意次来回切换都不飘红。
+  nextTick(() => ruleFormRef.value?.clearValidate());
 };
 
 // ============================================
@@ -289,6 +445,78 @@ const openPrivacyPolicy = () => {
 
 const openTerms = () => {
   window.open("/terms", "_blank");
+};
+
+// ============================================
+// GitHub OAuth 登录（跨子域 SSO）
+// ============================================
+const onGithubLogin = async () => {
+  githubLoading.value = true;
+  try {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "github",
+      options: {
+        // 回调落回本站根路径即可：应用站是 hash 模式，若直接写 /welcome
+        // 会被 Supabase 编码成 ?redirect_to=/welcome 塞进 hash，变成
+        // welcome#/welcome 导致无法正确匹配路由。回到根后由路由守卫
+        // getSession() 识别已登录态，自动 redirect 到 /welcome 概览页。
+        redirectTo: `${window.location.origin}/`
+      }
+    });
+    if (error) throw error;
+    // 成功时 Supabase 会重定向到 GitHub，无需手动处理
+  } catch (err: any) {
+    message(err.message || "GitHub 登录失败，请稍后再试", { type: "error" });
+    githubLoading.value = false;
+  }
+};
+
+// ============================================
+// 忘记密码（防用户枚举：邮箱不存在也返回成功，前端一律提示"已发送"）
+// ============================================
+const forgotVisible = ref(false);
+const forgotLoading = ref(false);
+const forgotFormRef = ref<FormInstance>();
+const forgotForm = reactive({ email: "" });
+
+const forgotRules = computed<FormRules>(() => ({
+  email: [
+    { required: true, message: "请输入邮箱", trigger: "blur" },
+    { type: "email", message: "请输入有效的邮箱地址", trigger: "blur" }
+  ]
+}));
+
+const openForgotDialog = () => {
+  forgotForm.email = "";
+  forgotVisible.value = true;
+  // 清空上次校验状态，避免弹窗复用时残留飘红
+  forgotFormRef.value?.clearValidate();
+};
+
+const onForgotSubmit = async (formEl: FormInstance | undefined) => {
+  if (!formEl) return;
+  formEl.validate(async valid => {
+    if (!valid) return;
+    forgotLoading.value = true;
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(
+        forgotForm.email.trim(),
+        {
+          // 同源回跳路径：规避 PKCE code_verifier 跨域丢失；
+          // 回跳后由 onAuthStateChange 的 PASSWORD_RECOVERY 事件接管（detectSessionInUrl 已开）
+          redirectTo: `${window.location.origin}/reset-password`
+        }
+      );
+      if (error) throw error;
+      // 防用户枚举：不区分邮箱是否存在，统一提示已发送
+      message("重置邮件已发送，请查收邮箱", { type: "success" });
+      forgotVisible.value = false;
+    } catch (err: any) {
+      message(err.message || "发送失败，请稍后再试", { type: "error" });
+    } finally {
+      forgotLoading.value = false;
+    }
+  });
 };
 
 // ============================================
@@ -310,7 +538,8 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
           email: ruleForm.email.trim(),
           password: ruleForm.password,
           options: {
-            emailRedirectTo: `${window.location.origin}/welcome`,
+            // 邮箱验证回调同样回根路径，由前端守卫接管跳转，避免 hash 模式编码异常
+            emailRedirectTo: `${window.location.origin}/`,
             data: {
               username: ruleForm.username.trim()
             }
@@ -328,6 +557,9 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
           ruleForm.password = "";
           ruleForm.confirmPassword = "";
           ruleForm.agreePolicy = false;
+          // 与 toggleMode 同理：切回登录后清一次校验状态，
+          // 防止注册阶段残留的 error/success 视觉带到登录表单
+          nextTick(() => ruleFormRef.value?.clearValidate());
         }, 2000);
       } else {
         // 🔥 登录：标识可能是邮箱或用户名，先解析为规范邮箱再做密码登录（D10）
@@ -380,12 +612,102 @@ useEventListener(document, "keydown", ({ code }) => {
 });
 </script>
 
-<style scoped>
-@import url("@/style/login.css");
-</style>
-
 <style lang="scss" scoped>
-/* 响应式 */
+/* 背景角度注册为可插值属性（Chrome/Safari 111+；不支持时渐变按 135deg 静态显示，安全降级） */
+@property --bg-angle {
+  syntax: "<angle>";
+  initial-value: 135deg;
+  inherits: false;
+}
+
+@keyframes login-bg-breathe {
+  0%,
+  100% {
+    --bg-angle: 135deg;
+  }
+
+  50% {
+    --bg-angle: 145deg;
+  }
+}
+
+@keyframes login-ripple {
+  /* 有机呼吸环：不等比缩放 + 微旋转，像水面涟漪自然扩散而非死板同心缩放 */
+  0% {
+    opacity: 0.28;
+    transform: scale(1) rotate(0deg);
+  }
+
+  33% {
+    opacity: 0.5;
+    transform: scale(1.03) rotate(0.5deg);
+  }
+
+  66% {
+    opacity: 0.65;
+    transform: scale(1.06) rotate(-0.3deg);
+  }
+
+  100% {
+    opacity: 0.28;
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+@keyframes login-curve-bob {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+
+  15% {
+    transform: translateY(-4px) rotate(-2deg);
+  }
+
+  32% {
+    transform: translateY(0) rotate(0deg);
+  }
+
+  46% {
+    transform: translateY(-2px) rotate(1deg);
+  }
+
+  60% {
+    transform: translateY(0) rotate(0deg);
+  }
+}
+
+@keyframes nautilus-breathe {
+  0%,
+  100% {
+    opacity: var(--nautilus-opacity-min, 0.08);
+    transform: translate(-50%, -50%) scale(1) rotate(0deg);
+  }
+
+  50% {
+    opacity: var(--nautilus-opacity-max, 0.12);
+    transform: translate(-50%, -50%) scale(1.03) rotate(2deg);
+  }
+}
+
+/* 移动端：品牌区仅剩 logo+名称，插画进一步压淡（防御性，<969px 时 aside 已隐藏） */
+@media (width <= 768px) {
+  .login-brand-bg {
+    opacity: 0.04;
+  }
+}
+
+/* ---------- 响应式 ---------- */
+@media (width <= 968px) {
+  /* 移动端表单卡片回归"页面本体"，去掉卡片化包装 */
+  .login-form {
+    padding: 0;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+  }
+}
+
 @media (width <= 480px) {
   .privacy-policy-wrapper {
     align-items: flex-start;
@@ -400,9 +722,315 @@ useEventListener(document, "keydown", ({ code }) => {
   }
 }
 
-:deep(.el-input-group__append, .el-input-group__prepend) {
-  padding: 0;
+/* 动效偏好：减弱动态 */
+@media (prefers-reduced-motion: reduce) {
+  .login-ripple,
+  .coral-curve,
+  .login-page,
+  .login-brand-bg {
+    animation: none;
+  }
 }
+
+.login-page {
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+
+  /* 统一连续背景：左侧暖奶油 → 右侧浅灰水平渐变，弱化左右分界 */
+  background: linear-gradient(
+    var(--bg-angle, 135deg),
+    var(--bg-warm) 0%,
+    var(--bg-page) 60%
+  );
+
+  /* 背景"呼吸"：角度缓慢摆动，让色彩流动起来 */
+  animation: login-bg-breathe 12s ease-in-out infinite;
+}
+
+/* ---------- 深海氛围背景（CSS 装饰，替代原 bg.png 波浪图） ---------- */
+.login-bg-decor {
+  /* 统一背景后改透明：页面渐变由 .login-page 提供，本层只承载涟漪装饰 */
+  background: transparent;
+}
+
+.login-ripple {
+  position: absolute;
+  border: 1px solid var(--brand-200);
+  border-radius: 50%;
+
+  /* 柔和扩散环：细边框 + 外扩光晕，替代单一硬线 */
+  box-shadow: 0 0 0 6px var(--brand-200);
+
+  /* 每环独立周期 + 负延迟错相，形成"深海呼吸"的错落感而非同步跳动 */
+  animation: login-ripple 11s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+
+.login-ripple--1 {
+  right: -90px;
+  bottom: -100px;
+  width: 300px;
+  height: 300px;
+}
+
+.login-ripple--2 {
+  right: -170px;
+  bottom: -200px;
+  width: 460px;
+  height: 460px;
+  animation-duration: 15s;
+  animation-delay: -3s;
+}
+
+.login-ripple--3 {
+  right: -250px;
+  bottom: -290px;
+  width: 640px;
+  height: 640px;
+  animation-duration: 19s;
+  animation-delay: -7s;
+}
+
+.login-ripple--4 {
+  right: -330px;
+  bottom: -390px;
+  width: 840px;
+  height: 840px;
+  animation-duration: 24s;
+  animation-delay: -12s;
+}
+
+/* ---------- 品牌叙事面板 ---------- */
+.login-brand {
+  position: relative;
+  overflow: hidden;
+
+  /* 去掉独立渐变：与 .login-page 共享连续背景，弱化左右分界 */
+  background: transparent;
+}
+
+.login-brand::after {
+  position: absolute;
+  inset: auto 0 0;
+  height: 35%;
+  pointer-events: none;
+
+  /* 底部过渡晕染（调淡）：作为左右交界处的自然过渡 */
+  content: "";
+  background: linear-gradient(to top, var(--brand-100), transparent);
+  opacity: 0.6;
+}
+
+.login-wordmark {
+  color: var(--text-primary);
+}
+
+.login-wordmark-sub {
+  color: var(--text-tertiary);
+}
+
+.login-slogan {
+  color: var(--text-primary);
+}
+
+.coral {
+  color: var(--brand-700);
+}
+
+.coral-curve {
+  display: inline-block;
+  transform-origin: 50% 85%;
+  animation: login-curve-bob 3.4s ease-in-out infinite;
+}
+
+.login-sub {
+  color: var(--text-secondary);
+}
+
+.login-tagline {
+  color: var(--text-tertiary);
+  letter-spacing: 0.04em;
+}
+
+/* ---------- 品牌视觉锚点（鹦鹉螺插画：全幅半透明背景装饰层） ---------- */
+.login-brand-bg {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 1;
+  width: 80%;
+  max-width: 480px;
+  height: auto;
+  pointer-events: none;
+
+  /* 呼吸脉动：scale + opacity 起伏 + 极慢微旋转（深海中的鹦鹉螺） */
+  opacity: var(--nautilus-opacity-min, 0.08);
+  transform: translate(-50%, -50%);
+  animation: nautilus-breathe 8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+
+  :deep(svg) {
+    width: 100%;
+    height: auto;
+  }
+}
+
+/* ---------- 表单卡片 ---------- */
+.login-form {
+  padding: var(--space-loose);
+  background: var(--bg-card);
+
+  /* 半透明细边框 + 品牌色柔影，替代硬边框，弱化"独立卡片"感 */
+  border: 1px solid color-mix(in srgb, var(--border-light) 60%, transparent);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 32px -8px
+    color-mix(in srgb, var(--brand-700) 8%, transparent);
+}
+
+/* 提交按钮果冻弹性：hover 微弹起，active 按下回弹（弹性曲线） */
+.login-submit {
+  transition:
+    transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+    background-color 0.2s ease,
+    border-color 0.2s ease;
+
+  &:hover:not(:disabled) {
+    transform: scale(1.02);
+  }
+
+  &:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+}
+
+/* 输入框等宽兜底（问题 2 回归修复）：
+   EP 的 .el-input 默认 width: var(--el-input-width)=100%、.el-form-item__content 是 flex:1，
+   理论已等宽；这里显式 100% 撑满，不依赖 EP 内部默认值，覆盖任何版本差异，
+   确保登录/注册所有输入框与提交按钮（w-full）左右边缘严格对齐。 */
+:deep(.el-form-item__content) {
+  width: 100%;
+}
+
+:deep(.el-input) {
+  width: 100%;
+}
+
+/* 输入框聚焦呼吸：保留 EP 的 1px inset 描边（默认 --el-input-focus-border-color，
+   即品牌色 --brand-700），再叠加柔和外发光。
+   注意不能整体替换 box-shadow：EP 用 box-shadow inset 画边框，整体替换会导致
+   聚焦瞬间输入框自身描边消失、只剩突兀外扩光晕（回归根因）。
+   error 态由 EP 的 .el-form-item.is-error 规则（特异性更高）覆盖，红边优先，不受本规则影响。 */
+:deep(.el-input__wrapper) {
+  transition:
+    box-shadow 0.4s ease,
+    border-color 0.4s ease;
+
+  /* hover：1px 描边微亮 + 若有若无的光晕，为聚焦呼吸做铺垫 */
+  &:hover {
+    box-shadow:
+      0 0 0 1px var(--el-input-hover-border-color) inset,
+      0 0 0 3px color-mix(in srgb, var(--brand-700) 6%, transparent);
+  }
+
+  &.is-focus {
+    box-shadow:
+      0 0 0 1px var(--el-input-focus-border-color) inset,
+      0 0 0 3px color-mix(in srgb, var(--brand-700) 12%, transparent);
+  }
+}
+
+/* 浏览器自动填充背景覆盖：清除 Chrome 默认浅蓝底色，
+   避免与左右图标容器形成「白-蓝-白」三明治（与 reset-password.vue 同一处理）。
+   注：部分新浏览器对 box-shadow inset 覆盖 autofill 背景的旧技巧已不完全生效
+   （会漏出浅蓝底色），故追加 background-color: transparent 与
+   background-clip: content-box 兜底：前者直接置透明，后者把背景裁剪到内容盒
+   （避免 padding 区域残留色块），双保险覆盖 autofill 底色。 */
+:deep(input:-webkit-autofill),
+:deep(input:-webkit-autofill:hover),
+:deep(input:-webkit-autofill:focus),
+:deep(input:-webkit-autofill:active) {
+  caret-color: var(--text-primary);
+  background-color: transparent !important;
+  background-clip: content-box !important;
+  box-shadow: 0 0 0 1000px var(--bg-card) inset !important;
+  -webkit-text-fill-color: var(--text-primary) !important;
+}
+
+.login-title {
+  font-size: var(--text-title);
+  font-weight: 500;
+  color: var(--text-primary);
+  letter-spacing: 0.01em;
+}
+
+.login-mobile-brand h1 {
+  color: var(--text-primary);
+}
+
+/* =====================================================================
+   暗色模式独立视觉适配（design.dark.md v1.5）
+   - 亮色渐变里的 --brand-100/--brand-200 在暗色下是深棕（#2d1612/#3d1c17），
+     直接沿用会糊成一团；暗色下改用"深灰底 + 品牌色低透明度光晕"，
+     品牌色饱和度已由 dark.scss 降 20%（--brand-700 → #d45a44）。
+   - 低透明度光晕用 color-mix(in srgb, var(--brand-700) x%, transparent)
+     实现（等价于 rgba(var(--brand-700-rgb), x) 手法，项目无 -rgb 变量；
+     需 Chrome 111+，与 design.dark.md 接受的 hsl(from) 现代语法同级）。
+   - 发光仅用于静止/呼吸装饰，遵守 design.dark.md「禁止动画循环中发光」
+     性能红线——涟漪/光环用低透明度边框与扩散环表达，不用 box-shadow 辉光。
+   ===================================================================== */
+
+.dark .login-bg-decor {
+  background: transparent;
+}
+
+.dark .login-ripple {
+  border-color: color-mix(in srgb, var(--brand-700) 30%, transparent);
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--brand-700) 10%, transparent);
+}
+
+.dark .login-brand {
+  /* 与亮色一致：去掉独立渐变，共享 .login-page 连续背景 */
+  background: transparent;
+}
+
+.dark .login-brand::after {
+  height: 35%;
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--brand-700) 7%, transparent),
+    transparent
+  );
+  opacity: 0.6;
+}
+
+/* 暗色下插画呼吸范围提亮：0.12 ~ 0.16（动画 opacity 用 CSS 变量控制） */
+:global(.dark) .login-brand-bg {
+  --nautilus-opacity-min: 0.12;
+  --nautilus-opacity-max: 0.16;
+}
+
+.dark .login-form {
+  /* 暗色下阴影 token 已是"内阴影提亮 + 深投影"（design.dark.md Elevation），
+     保留以维持卡片层次；边框用提亮边框而非亮色浅边框 */
+  border-color: var(--border-default);
+  box-shadow: var(--shadow-modal);
+}
+
+/* 暗色聚焦协调：全局 dark.scss 用 --focus-ring 双层硬环（!important）覆盖输入框聚焦，
+   登录页品牌面改用与亮色一致的内描边 + 低透明度光晕（同上方 921-931 行注释的
+   降饱和 color-mix 手法，暗色品牌色已降 20% 饱和度，故光晕透明度略高于亮色）。
+   两条规则都以 !important 对抗全局；error 规则特异性更高，红边优先。
+   注：Vue scoped 编译器不支持 :global(X) :deep(Y) 组合（deep 部分会丢失），
+   故整条选择器放入 :global，用 .login-page 锚定本页。 */
+:global(.dark .login-page .el-input__wrapper.is-focus) {
+  box-shadow:
+    0 0 0 1px var(--el-input-focus-border-color) inset,
+    0 0 0 3px color-mix(in srgb, var(--brand-700) 14%, transparent) !important;
+}
+
+:global(.dark .login-page .el-form-item.is-error .el-input__wrapper.is-focus) {
+  box-shadow: 0 0 0 1px var(--el-color-danger) inset !important;
+}
+
+/* ---------- 表单内辅助样式 ---------- */
 
 /* 隐私政策 */
 .privacy-policy-wrapper {
@@ -435,6 +1063,17 @@ useEventListener(document, "keydown", ({ code }) => {
   }
 }
 
+/* 分割线文字/边框颜色对齐品牌令牌 */
+.login-divider {
+  --el-divider-text-color: var(--text-tertiary);
+  --el-divider-border-color: var(--border-light);
+}
+
+/* GitHub 登录按钮：消除相邻按钮默认 margin */
+.login-github {
+  margin-left: 0;
+}
+
 .login-hint {
   text-align: center;
 }
@@ -442,4 +1081,35 @@ useEventListener(document, "keydown", ({ code }) => {
 .register-success {
   margin-top: 12px;
 }
+
+/* 忘记密码链接：右对齐小链接，与切换/隐私政策链接同风格 */
+.login-forgot {
+  margin-top: 2px;
+}
+
+.login-forgot .el-link {
+  font-size: 13px;
+}
+
+/* 忘记密码弹窗：对齐登录卡片视觉（半透明边框 + 品牌柔影） */
+:global(.login-forgot-dialog) {
+  --el-dialog-bg-color: var(--bg-card);
+  --el-dialog-border-radius: var(--radius-lg);
+
+  border: 1px solid color-mix(in srgb, var(--brand-700) 18%, transparent);
+  box-shadow: 0 8px 32px -8px
+    color-mix(in srgb, var(--brand-700) 8%, transparent);
+}
+
+:global(.login-forgot-dialog .el-dialog__title) {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* =====================================================================
+   登录 / 注册页 · 品牌深海鹦鹉螺主题
+   - 布局由 template 内 Tailwind 类控制（栅格、宽度、间距、对齐）
+   - 本块只负责视觉表现与微调；色值一律取自 design.md 既有令牌
+     （--brand-* / --bg-* / --text-* / --border-* / --radius-* / --shadow-* 等）
+   ===================================================================== */
 </style>

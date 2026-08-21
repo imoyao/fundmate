@@ -437,7 +437,7 @@ class TestPositionLabels:
                 family_id=1,
                 quantity=Money.shares_to_min_unit(50),
                 avg_price=35000,  # 分
-                source='dividend',
+                source='manual',
             )
         )
         db.commit()
@@ -478,7 +478,7 @@ class TestPositionLabels:
                 family_id=1,
                 quantity=Money.shares_to_min_unit(80),
                 avg_price=1200,  # 分
-                source='dividend',
+                source='manual',
             )
         )
         db.commit()
@@ -520,7 +520,7 @@ class TestPositionLabels:
                 family_id=1,
                 quantity=Money.shares_to_min_unit(150),
                 avg_price=3000,  # 分
-                source='dividend',
+                source='manual',
             )
         )
         db.commit()
@@ -1057,7 +1057,7 @@ class TestPositionImportHash:
         p1 = self._buy(db, ledger_id, source='manual', qty=100, price=1800.0)
         # 第二次：交割单导入，同 ledger/symbol/同日 → 相同 import_hash → 应 upsert
         # 注意：二次买入 100 股（A股一手起买），验证买入不受持有量限制、且撞 hash 合并
-        p2 = self._buy(db, ledger_id, source='broker_ht', qty=100, price=1800.0)
+        p2 = self._buy(db, ledger_id, source='manual', qty=100, price=1800.0)
         db.commit()
         positions = db.query(Position).filter_by(ledger_id=ledger_id, symbol='SH600519').all()
         assert len(positions) == 1  # 未产生两条
@@ -1065,7 +1065,7 @@ class TestPositionImportHash:
         # 数量累加 100+100=200
         assert positions[0].quantity == Money.shares_to_min_unit(200)
         # 溯源字段保留（以末次写入的 source 为准）
-        assert positions[0].source == 'broker_ht'
+        assert positions[0].source == 'manual'
 
     def test_different_day_distinct_hash(self, db):
         """不同快照日 → 不同 import_hash（即便 source/ledger/symbol 相同）。"""
