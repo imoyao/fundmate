@@ -27,6 +27,8 @@ import MoneyWithRatio from "@/components/MoneyWithRatio/index.vue";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import { formatDate } from "@/utils/date";
 import type { ColumnDef, ColumnRenderer, WatchlistRow } from "./columnDefs";
+// renderer DOM 不携带页面 scoped 属性，配套样式必须随渲染器走（见 css 文件头注释）
+import "./columnRenderers.css";
 
 /** 实时估值项（与 useRealtimeQuotes.getValuationItem 返回结构一致） */
 export interface ValuationItem {

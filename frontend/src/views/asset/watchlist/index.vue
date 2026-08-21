@@ -235,9 +235,8 @@ import GroupManagerDialog from "@/components/Watchlist/GroupManagerDialog.vue";
 import TagEditorDialog from "@/components/Watchlist/TagEditorDialog.vue";
 import type { WatchlistItem } from "@/api/watchlist";
 import CardBlock from "@/components/CardBlock/index.vue";
-import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
-import RiseFallText from "@/components/RiseFallText/index.vue"; // 加入此组件引入
-import MoneyWithRatio from "@/components/MoneyWithRatio/index.vue";
+// 金额/涨跌展示组件（MoneyDisplay/RiseFallText/MoneyWithRatio）已随 #995 列渲染器化
+// 迁移至 columnRenderers.tsx，本页模板不再直接使用
 import WatchlistToolbar from "@/views/asset/watchlist/components/WatchlistToolbar.vue";
 import WatchlistRemoveDialog from "@/views/asset/watchlist/components/WatchlistRemoveDialog.vue";
 import {
@@ -254,7 +253,7 @@ import RealtimeWarningBanner, {
   REALTIME_BANNER_DISMISS_KEY
 } from "@/components/RealtimeWarningBanner/index.vue";
 import type { Holding } from "@/utils/valuationEngine";
-import { formatDate, formatDateTime } from "@/utils/date";
+import { formatDateTime } from "@/utils/date";
 import {
   watchlistColumnDefs,
   type WatchlistRow
@@ -579,82 +578,7 @@ const renderCtx = computed<RenderCtx>(() => ({
 </script>
 
 <style scoped>
-@keyframes refresh-spin {
-  from {
-    transform: rotate(0deg);
-  }
-
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.refresh-interval-select {
-  width: 96px;
-}
-
-.is-spinning {
-  animation: refresh-spin 0.8s linear infinite;
-}
-
-.text-xs {
-  font-size: 0.75rem;
-}
-
-.add-tag-btn {
-  --el-button-text-color: var(--text-tertiary);
-
-  width: 20px;
-  height: 20px;
-  min-height: 20px;
-  color: var(--text-tertiary);
-  opacity: 0.45; /* 默认弱化可见，行 hover 全亮（与操作列按钮一致，见本页操作列样式注释） */
-  transition: opacity 150ms ease;
-}
-
-.el-table__row:hover .add-tag-btn {
-  opacity: 1;
-}
-
-.add-tag-btn:only-child {
-  opacity: 1;
-}
-
-/* 基金标识标签 */
-.fund-tag {
-  padding: 1px 4px;
-  font-size: 10px;
-  line-height: 1.4;
-  color: var(--brand-700);
-  white-space: nowrap;
-  background-color: var(--brand-100);
-  border-radius: 4px;
-}
-
-/* 颜色选择按钮 */
-.color-swatch-btn {
-  width: 20px;
-  height: 20px;
-  cursor: pointer;
-  border: 2px solid transparent;
-  border-radius: 50%;
-  transition: all 0.2s ease;
-}
-
-.color-swatch-btn.is-selected {
-  border-color: var(--brand-700);
-  box-shadow:
-    0 0 0 2px var(--bg-card),
-    0 0 0 4px var(--brand-700);
-  transform: scale(1.15);
-}
-
-.color-swatch-btn:focus-visible {
-  outline: none;
-  box-shadow:
-    0 0 0 2px var(--bg-card),
-    0 0 0 4px var(--brand-700);
-}
+/* 旧刷新频率下拉（.refresh-interval-select/.is-spinning）样式已随 el-segmented 化删除 */
 
 /* ======================================
    基础输入框/下拉框样式
@@ -740,47 +664,7 @@ const renderCtx = computed<RenderCtx>(() => ({
   transform: scale(0.8);
 }
 
-/* ======================================
-   标签管理弹窗专属样式
-   ====================================== */
-.tag-manager-dialog {
-  :deep(.el-dialog) {
-    overflow: hidden;
-    background-color: var(--bg-card);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-modal);
-  }
-
-  :deep(.el-dialog__header) {
-    padding: var(--space-standard);
-    padding-bottom: var(--space-3);
-    margin-right: 0;
-    border-bottom: 1px solid var(--border-light);
-  }
-
-  :deep(.el-dialog__title) {
-    font-size: var(--text-heading);
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-
-  :deep(.el-dialog__body) {
-    padding: var(--space-standard);
-  }
-
-  :deep(.el-dialog__footer) {
-    padding: var(--space-standard);
-    padding-top: var(--space-3);
-    border-top: 1px solid var(--border-light);
-  }
-
-  :deep(.el-select .el-input__wrapper) {
-    --el-input-border-color: var(--border-default);
-
-    height: 40px;
-    border-radius: var(--radius-sm);
-  }
-}
+/* 标签管理弹窗样式已随组件抽取迁入 TagManagerDialog.vue（本页 scoped 无法作用到弹层） */
 
 /* 操作列按钮默认弱化可见，行悬停时全亮（150ms ease）。
    说明：不采用 opacity:0 完全隐藏——操作列/产品列是 fixed 列，EP 固定列独立 DOM，
@@ -819,20 +703,7 @@ const renderCtx = computed<RenderCtx>(() => ({
 
 /* 分组胶囊 Tab / 新建分组按钮样式已迁移至 components/Watchlist/WatchlistFilterBar.vue（方案 B，2026-08-14） */
 
-/* 置顶/关注标记图标：--text-tertiary，行 hover 提亮 --text-secondary，语义靠 icon 形状区分 */
-.marker-icon {
-  display: inline-flex;
-  color: var(--text-tertiary);
-  transition: color 150ms ease;
-}
-
-:deep(.el-table__row:hover .marker-icon) {
-  color: var(--text-secondary);
-}
-
-/* 标签 chips（名称列第二行）：胶囊 + 数据色底与边框 */
-.tag-chip {
-  line-height: 1.4;
-  border-radius: var(--radius-pill);
-}
+/* 置顶/关注标记图标与标签 chips（.marker-icon/.tag-chip/.add-tag-btn）样式已迁移至
+   columnRenderers.css——列 renderer 化后这些 DOM 由 tsx 产生，不携带本页 scoped 属性，
+   留在本页的规则会静默失效（#995 迁移遗留，2026-08-22 清理） */
 </style>
