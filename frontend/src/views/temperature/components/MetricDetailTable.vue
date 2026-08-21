@@ -64,8 +64,6 @@ withDefaults(
 </script>
 
 <style lang="scss" scoped>
-
-
 /* ===== 响应式（自 temperature/index.vue 迁移） ===== */
 @media (width <= 768px) {
   .metric-table-head,
