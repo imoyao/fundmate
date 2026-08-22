@@ -100,33 +100,38 @@
             :style="{ color: 'var(--text-secondary)' }"
             >加入分组（可选）</span
           >
-          <el-select
-            ref="groupSelectRef"
-            v-model="selectedGroupIds"
-            multiple
-            filterable
-            placeholder="选择分组"
-            class="w-full"
-            size="small"
-            @change="handleGroupSelect"
-          >
-            <el-option
-              v-for="g in availableGroups"
-              :key="g.id"
-              :label="g.name"
-              :value="g.id"
+          <div class="flex gap-2">
+            <el-select
+              ref="groupSelectRef"
+              v-model="selectedGroupIds"
+              multiple
+              filterable
+              placeholder="选择分组"
+              class="w-full"
+              size="small"
+              @change="handleGroupSelect"
             >
-              <div class="flex items-center gap-2">
-                <span
-                  class="w-3 h-3 rounded-full"
-                  :style="{
-                    backgroundColor: g.color || 'var(--text-disabled)'
-                  }"
-                />
-                <span>{{ g.name }}</span>
-              </div>
-            </el-option>
-          </el-select>
+              <el-option
+                v-for="g in availableGroups"
+                :key="g.id"
+                :label="g.name"
+                :value="g.id"
+              >
+                <div class="flex items-center gap-2">
+                  <span
+                    class="w-3 h-3 rounded-full"
+                    :style="{
+                      backgroundColor: g.color || 'var(--text-disabled)'
+                    }"
+                  />
+                  <span>{{ g.name }}</span>
+                </div>
+              </el-option>
+            </el-select>
+            <el-button size="small" class="inline-add-btn" @click="groupFormVisible = true">
+              <IconifyIconOffline icon="ep:plus" />
+            </el-button>
+          </div>
         </div>
 
         <!-- 标签选择 -->
@@ -165,39 +170,9 @@
                 </div>
               </el-option>
             </el-select>
-            <el-button size="small" class="inline-add-btn" @click="showNewTagForm = true">
+            <el-button size="small" class="inline-add-btn" @click="tagFormVisible = true">
               <IconifyIconOffline icon="ep:plus" />
             </el-button>
-          </div>
-
-          <!-- 新建标签内联表单 -->
-          <div
-            v-if="showNewTagForm"
-            class="mt-2 p-3 rounded-lg flex items-end gap-2"
-            :style="{ backgroundColor: 'var(--bg-soft)' }"
-          >
-            <el-input
-              v-model="newTagName"
-              placeholder="标签名"
-              size="small"
-              class="w-24"
-            />
-            <div class="flex gap-1">
-              <button
-                v-for="c in presetColors"
-                :key="c"
-                class="color-swatch-btn"
-                :class="newTagColor === c ? 'is-selected' : ''"
-                :style="{ backgroundColor: c }"
-                @click="newTagColor = c"
-              />
-            </div>
-            <el-button type="primary" size="small" @click="addNewTag"
-              >确定</el-button
-            >
-            <el-button size="small" @click="showNewTagForm = false"
-              >取消</el-button
-            >
           </div>
         </div>
       </div>
@@ -229,6 +204,22 @@
       </el-button>
       <el-tag v-else type="warning" size="large">该资产已在自选列表中</el-tag>
     </template>
+
+    <!-- 复用全局「新建标签」弹窗，与「管理标签」体验一致 -->
+    <TagFormDialog
+      v-model="tagFormVisible"
+      :used-colors="tagFormUsedColors"
+      @created="onTagFormCreated"
+      @saved="onTagFormSaved"
+    />
+
+    <!-- 复用全局「新建分组」弹窗 -->
+    <GroupFormDialog
+      v-model="groupFormVisible"
+      :used-colors="groupFormUsedColors"
+      @created="onGroupFormCreated"
+      @saved="onGroupFormSaved"
+    />
   </el-dialog>
 </template>
 
@@ -241,7 +232,6 @@ import { searchFunds } from "@/api/funds";
 import {
   getWatchlistGroups,
   getWatchlistTags,
-  createWatchlistTag,
   addItemToGroup,
   addTagToItem,
   getWatchlistItems,
@@ -250,6 +240,8 @@ import {
 import type { WatchlistGroup, WatchlistTag } from "@/api/watchlist";
 import { getTypeLabel } from "@/constants/assetType";
 import { getMarketLabel, getVenueLabel } from "@/constants/market";
+import TagFormDialog from "@/components/Watchlist/TagFormDialog.vue";
+import GroupFormDialog from "@/components/Watchlist/GroupFormDialog.vue";
 
 const props = defineProps<{
   modelValue: boolean;
@@ -279,18 +271,40 @@ const groupSelectRef = ref<any>(null);
 
 const availableTags = ref<WatchlistTag[]>([]);
 const selectedTagIds = ref<number[]>([]);
-const showNewTagForm = ref(false);
-const newTagName = ref("");
-const newTagColor = ref("#B6B09C");
-const presetColors = [
-  "#B8A99A",
-  "#9CAF88",
-  "#8DA3B8",
-  "#C4A0A8",
-  "#9B9EB0",
-  "#B6B09C"
-];
 const tagSelectRef = ref<any>(null);
+
+// 复用全局「新建标签 / 新建分组」弹窗，统一入口体验
+const tagFormVisible = ref(false);
+const groupFormVisible = ref(false);
+const tagFormUsedColors = computed(() =>
+  availableTags.value.map(t => t.color).filter((c): c is string => !!c)
+);
+const groupFormUsedColors = computed(() =>
+  availableGroups.value.map(g => g.color).filter((c): c is string => !!c)
+);
+
+// 新建标签成功：直接并入可选项并自动选中，免去内联表单
+const onTagFormCreated = (tag: WatchlistTag) => {
+  if (!availableTags.value.find(t => t.id === tag.id)) {
+    availableTags.value.push(tag);
+  }
+  if (!selectedTagIds.value.includes(tag.id)) {
+    selectedTagIds.value.push(tag.id);
+  }
+};
+// 编辑 / 其他变更：兜底刷新标签列表，保持与全局一致
+const onTagFormSaved = () => fetchTags();
+
+// 新建分组成功：并入可选项并自动选中
+const onGroupFormCreated = (group: WatchlistGroup) => {
+  if (!availableGroups.value.find(g => g.id === group.id)) {
+    availableGroups.value.push(group);
+  }
+  if (!selectedGroupIds.value.includes(group.id)) {
+    selectedGroupIds.value.push(group.id);
+  }
+};
+const onGroupFormSaved = () => fetchGroups();
 
 const handleGroupSelect = () => {
   if (groupSelectRef.value) {
@@ -384,48 +398,6 @@ const onAssetSelected = async (option: any) => {
   assetAlreadyExists.value = await checkAssetExists(option.symbol);
 };
 
-const addNewTag = async () => {
-  if (!newTagName.value.trim()) {
-    ElMessage.warning("请输入标签名称！");
-    return;
-  }
-  try {
-    const res = await createWatchlistTag({
-      name: newTagName.value.trim(),
-      color: newTagColor.value
-    });
-    const newTag = (res as any).data;
-    newTag.color = newTag.color || newTagColor.value;
-    availableTags.value.push(newTag);
-    selectedTagIds.value.push(newTag.id);
-    showNewTagForm.value = false;
-    newTagName.value = "";
-    newTagColor.value = "#B6B09C";
-    ElMessage.success(`标签「${newTag.name}」已创建并选中`);
-  } catch (e: any) {
-    if (e?.response?.status === 409) {
-      const existingTag = availableTags.value.find(
-        t => t.name === newTagName.value.trim()
-      );
-      if (existingTag) {
-        if (!selectedTagIds.value.includes(existingTag.id)) {
-          selectedTagIds.value.push(existingTag.id);
-        }
-        ElMessage.info(`标签「${existingTag.name}」已存在，已自动选中`);
-      } else {
-        ElMessage.warning(
-          `标签「${newTagName.value.trim()}」已存在，但未找到对应数据`
-        );
-      }
-    } else {
-      ElMessage.error("创建标签失败：" + (e.message || "未知错误"));
-    }
-    showNewTagForm.value = false;
-    newTagName.value = "";
-    newTagColor.value = "#B6B09C";
-  }
-};
-
 const handleSubmit = async () => {
   if (!selectedAsset.value) {
     ElMessage.warning("请先选择要添加的资产！");
@@ -486,9 +458,6 @@ const resetForm = () => {
   selectedGroupIds.value = [];
   selectedTagIds.value = [];
   assetAlreadyExists.value = false;
-  showNewTagForm.value = false;
-  newTagName.value = "";
-  newTagColor.value = "#B6B09C";
 };
 
 onMounted(async () => {
@@ -578,24 +547,6 @@ onMounted(async () => {
 .inline-add-btn:hover {
   color: var(--text-primary);
   background-color: var(--bg-hover);
-}
-
-/* 颜色选择按钮 */
-.color-swatch-btn {
-  width: 20px;
-  height: 20px;
-  cursor: pointer;
-  border: 2px solid transparent;
-  border-radius: 50%;
-  transition: all 0.2s ease;
-}
-
-.color-swatch-btn.is-selected {
-  border-color: var(--brand-700);
-  box-shadow:
-    0 0 0 2px var(--bg-card),
-    0 0 0 4px var(--brand-700);
-  transform: scale(1.15);
 }
 
 /* 全局焦点环（确保所有可交互元素有键盘反馈） */

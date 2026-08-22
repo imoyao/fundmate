@@ -96,6 +96,8 @@ const props = withDefaults(
 const emit = defineEmits<{
   (e: "update:modelValue", value: boolean): void;
   (e: "saved"): void;
+  /** 仅新建成功时抛出，携带新分组，便于调用方自动选中（区别于编辑场景） */
+  (e: "created", group: WatchlistGroup): void;
 }>();
 
 const loading = ref(false);
@@ -142,7 +144,9 @@ const save = async () => {
       await updateWatchlistGroup(props.group.id, { name, color: form.color });
       ElMessage.success("分组已更新");
     } else {
-      await createWatchlistGroup({ name, color: form.color });
+      const res = await createWatchlistGroup({ name,  color: form.color });
+      const newGroup = (res as { data?: WatchlistGroup })?.data;
+      if (newGroup) emit("created", newGroup);
       ElMessage.success("分组已创建");
     }
     emit("saved");
