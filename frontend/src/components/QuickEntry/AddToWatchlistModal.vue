@@ -60,7 +60,7 @@
             class="venue-tag"
             :class="selectedAsset.venue === 'OTC' ? 'tag-otc' : 'tag-exchange'"
           >
-            {{ selectedAsset.venue === "OTC" ? "场外" : "场内" }}
+            {{ getVenueLabel(selectedAsset.venue) }}
           </el-tag>
           <el-tag v-else type="warning" size="small">已在自选</el-tag>
         </div>
@@ -165,7 +165,7 @@
                 </div>
               </el-option>
             </el-select>
-            <el-button size="small" @click="showNewTagForm = true">
+            <el-button size="small" class="inline-add-btn" @click="showNewTagForm = true">
               <IconifyIconOffline icon="ep:plus" />
             </el-button>
           </div>
@@ -249,6 +249,7 @@ import {
 } from "@/api/watchlist";
 import type { WatchlistGroup, WatchlistTag } from "@/api/watchlist";
 import { getTypeLabel } from "@/constants/assetType";
+import { getMarketLabel, getVenueLabel } from "@/constants/market";
 
 const props = defineProps<{
   modelValue: boolean;
@@ -477,16 +478,6 @@ const getMarketColor = (market: string): string => {
   return map[market] || "var(--text-tertiary)";
 };
 
-const getMarketLabel = (market: string): string => {
-  const map: Record<string, string> = {
-    HK: "港股",
-    SH: "沪市",
-    SZ: "深市",
-    US: "美股"
-  };
-  return map[market] || market;
-};
-
 const resetForm = () => {
   selectedAsset.value = null;
   searchResults.value = [];
@@ -567,6 +558,26 @@ onMounted(async () => {
   color: var(--text-secondary);
   background-color: var(--bg-soft);
   border: none;
+}
+
+/* 行内「新建」入口按钮，与工具栏 icon-tool-btn 视觉一致 */
+.inline-add-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  color: var(--text-tertiary);
+  background-color: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  transition:
+    color 150ms ease,
+    background-color 150ms ease,
+    border-color 150ms ease;
+}
+
+.inline-add-btn:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-hover);
 }
 
 /* 颜色选择按钮 */
