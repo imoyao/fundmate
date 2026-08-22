@@ -5,7 +5,7 @@
 # -*- coding: utf-8 -*-
 """账户业务逻辑服务层"""
 
-from sqlalchemy import desc, func
+from sqlalchemy import desc, func, or_
 from sqlalchemy.orm import Session
 
 from app.core.constants import ALLOCATION_LABELS, LEDGER_TYPE_LABELS, TYPE_LABELS
@@ -247,9 +247,19 @@ class LedgerService:
         }
 
     @staticmethod
-    def get_positions_paginated(db: Session, ledger_id: int, page: int, per_page: int) -> tuple[list[dict], int]:
-        """获取持仓分页列表（修复命名与 B5 精度）"""
+    def get_positions_paginated(
+        db: Session, ledger_id: int, page: int, per_page: int, search: str | None = None
+    ) -> tuple[list[dict], int]:
+        """获取持仓分页列表（修复命名与 B5 精度）。
+
+        search（#982）：按产品名称/代码模糊匹配；None 表示不过滤。
+        注意：total_mv_cents 汇总保持账本全量口径（账户级总市值基线），
+        不随搜索过滤——搜索只影响列表行，不动汇总分母。
+        """
         query = db.query(Position).filter(Position.ledger_id == ledger_id)
+        if search:
+            like = f'%{search}%'
+            query = query.filter(or_(Position.name.ilike(like), Position.symbol.ilike(like)))
         total = query.count()
         positions = (
             query.order_by(desc(Position.current_price * Position.quantity / 10000.0))
@@ -304,9 +314,17 @@ class LedgerService:
         return items, total
 
     @staticmethod
-    def get_transactions_paginated(db: Session, ledger_id: int, page: int, per_page: int) -> tuple[list[dict], int]:
-        """获取交易记录分页列表（修复命名）"""
+    def get_transactions_paginated(
+        db: Session, ledger_id: int, page: int, per_page: int, search: str | None = None
+    ) -> tuple[list[dict], int]:
+        """获取交易记录分页列表（修复命名）。
+
+        search（#982）：按产品名称/代码模糊匹配；None 表示不过滤。
+        """
         query = db.query(Transaction).filter(Transaction.ledger_id == ledger_id)
+        if search:
+            like = f'%{search}%'
+            query = query.filter(or_(Transaction.position_name.ilike(like), Transaction.symbol.ilike(like)))
         total = query.count()
         txn_list = (
             query.order_by(

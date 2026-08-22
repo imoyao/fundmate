@@ -421,15 +421,16 @@ def get_ledger_summary(ledger_id: int):
 
 @ledgers_bp.get('/<int:ledger_id>/positions/')
 def get_ledger_positions(ledger_id: int):
-    """获取账户持仓明细，支持分页"""
+    """获取账户持仓明细，支持分页与名称/代码搜索（#982）"""
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 20, type=int)
+    search = request.args.get('search') or None
 
     with get_db() as db:
         ledger = get_owned_or_404(db, Ledger, ledger_id)
         if not ledger:
             return jsonify({'data': None, 'message': '账户不存在'}), 404
-        items, total = LedgerService.get_positions_paginated(db, ledger.id, page, per_page)
+        items, total = LedgerService.get_positions_paginated(db, ledger.id, page, per_page, search=search)
         return jsonify(
             {
                 'data': {
@@ -445,15 +446,16 @@ def get_ledger_positions(ledger_id: int):
 
 @ledgers_bp.get('/<int:ledger_id>/transactions/')
 def get_ledger_transactions(ledger_id: int):
-    """获取账户交易记录，支持分页"""
+    """获取账户交易记录，支持分页与名称/代码搜索（#982）"""
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 20, type=int)
+    search = request.args.get('search') or None
 
     with get_db() as db:
         ledger = get_owned_or_404(db, Ledger, ledger_id)
         if not ledger:
             return jsonify({'data': None, 'message': '账户不存在'}), 404
-        items, total = LedgerService.get_transactions_paginated(db, ledger.id, page, per_page)
+        items, total = LedgerService.get_transactions_paginated(db, ledger.id, page, per_page, search=search)
         return jsonify(
             {
                 'data': {
