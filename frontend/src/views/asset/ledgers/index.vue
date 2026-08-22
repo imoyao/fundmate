@@ -370,43 +370,14 @@
       </div>
     </template>
 
-    <!-- 新增账户对话框 -->
-    <el-dialog
-      v-model="showCreateDialog"
-      title="创建账户"
-      width="420px"
-      destroy-on-close
-    >
-      <el-form :model="createForm" label-width="100px">
-        <el-form-item label="账户名称" required>
-          <el-input
-            v-model="createForm.name"
-            placeholder="如：华泰证券、招商银行"
-          />
-        </el-form-item>
-
-        <AccountFormFields
-          v-model:ledger-type="createForm.ledger_type"
-          v-model:linked-cash-id="createForm.linked_cash_ledger_id"
-          v-model:portfolio-id="createForm.portfolio_id"
-          v-model:fee-config="createForm.fee_config"
-          v-model:sales-institution-id="createForm.sales_institution_id"
-          :cash-ledgers="cashLedgers"
-          :portfolio-list="portfolioList"
-          :sales-institutions="salesInstitutions"
-        />
-
-        <el-form-item label="备注">
-          <el-input v-model="createForm.notes" placeholder="可选" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showCreateDialog = false">取消</el-button>
-        <el-button type="primary" :loading="creating" @click="handleCreate"
-          >确认创建</el-button
-        >
-      </template>
-    </el-dialog>
+    <!-- 新增账户对话框（#984 拆分至 components/CreateAccountDialog.vue） -->
+    <CreateAccountDialog
+      v-model:visible="showCreateDialog"
+      :cash-ledgers="cashLedgers"
+      :portfolio-list="portfolioList"
+      :sales-institutions="salesInstitutions"
+      @created="fetchData"
+    />
 
     <!-- 删除确认对话框 -->
     <DeleteLedgerDialog
@@ -607,7 +578,6 @@ import { IconifyIconOffline } from "@/components/ReIcon";
 import {
   getLedgers,
   getLedgersOverview,
-  createLedger,
   migrateOrphanPositions,
   deleteOrphanPositions,
   getOrphanDetail,
@@ -626,8 +596,8 @@ import {
 } from "@/constants";
 import { formatDate, formatDateTime } from "@/utils/date";
 import { formatQuantity } from "@/utils/format";
-import AccountFormFields from "./components/AccountFormFields.vue";
 import DeleteLedgerDialog from "./components/DeleteLedgerDialog.vue";
+import CreateAccountDialog from "./components/CreateAccountDialog.vue";
 
 defineOptions({ name: "AssetLedgers" });
 
@@ -647,16 +617,6 @@ const overviewData = ref<{
 const lastUpdate = ref("");
 
 const showCreateDialog = ref(false);
-const creating = ref(false);
-const createForm = ref({
-  name: "",
-  ledger_type: "stock",
-  notes: "",
-  linked_cash_ledger_id: null as number | null,
-  portfolio_id: null as number | null,
-  fee_config: null as any,
-  sales_institution_id: null as number | null
-});
 /** 基金销售机构候选（AMAC 名录，创建账户可选关联） */
 const salesInstitutions = ref<SalesInstitution[]>([]);
 
@@ -838,34 +798,7 @@ const groupedLedgers = computed(() => {
 });
 
 function openCreateDialog() {
-  createForm.value = {
-    name: "",
-    ledger_type: "stock",
-    notes: "",
-    linked_cash_ledger_id: null,
-    portfolio_id: null,
-    fee_config: null,
-    sales_institution_id: null
-  };
   showCreateDialog.value = true;
-}
-
-async function handleCreate() {
-  if (!createForm.value.name.trim()) {
-    ElMessage.warning("名称不能为空");
-    return;
-  }
-  creating.value = true;
-  try {
-    await createLedger(createForm.value);
-    ElMessage.success("账户创建成功");
-    showCreateDialog.value = false;
-    await fetchData();
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "创建失败");
-  } finally {
-    creating.value = false;
-  }
 }
 
 function openDeleteDialog(account: any) {
