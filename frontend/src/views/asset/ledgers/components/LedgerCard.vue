@@ -149,3 +149,104 @@ const emit = defineEmits<{
     </div>
   </div>
 </template>
+
+<style scoped>
+/* 触屏设备无 hover 态，直接常显，避免删除入口不可达 */
+@media (hover: none) {
+  .ledger-row-action {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ledger-card,
+  .ledger-row-action {
+    transition: none;
+  }
+
+  .ledger-card:hover {
+    transform: none;
+  }
+}
+
+.ledger-card {
+  padding: var(--space-compact);
+  cursor: pointer;
+  outline: none; /* 焦点指示由 :focus-visible 环提供，勿移除 outline */
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-raised);
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.ledger-card:hover {
+  box-shadow: var(--shadow-float);
+}
+
+.ledger-card:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+
+/* ===== 核心指标：左右两列 flex（总资产大数字锚点 + 右侧两指标独立竖排） ===== */
+.ledger-metrics {
+  display: flex;
+  gap: var(--space-3);
+  align-items: stretch;
+}
+
+.metric--main {
+  display: flex;
+  flex: 1.25;
+  flex-direction: column;
+  gap: 2px;
+  justify-content: center;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.metric-side {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-2);
+  justify-content: center;
+  min-width: 0;
+}
+
+.metric-label {
+  display: block;
+  font-size: var(--text-label, 13px);
+  line-height: 18px;
+}
+
+.metric-value {
+  display: block;
+  font-size: var(--text-small, 14px);
+  font-variant-numeric: tabular-nums;
+  line-height: 22px;
+}
+
+.ledger-liability {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: var(--space-2);
+  margin-top: var(--space-3);
+  font-variant-numeric: tabular-nums;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.ledger-row-action {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.ledger-card:hover .ledger-row-action,
+.ledger-card:focus-within .ledger-row-action,
+.ledger-row-action:focus-visible {
+  opacity: 1;
+}
+</style>
