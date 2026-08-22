@@ -6,7 +6,7 @@
 
 import csv
 import io
-from datetime import date
+from datetime import date, timedelta
 
 from apiflask import APIBlueprint
 from flask import Response, abort, jsonify, request
@@ -319,6 +319,42 @@ def home_summary():
     with get_db() as db:
         data = build_home_summary(db, get_family_id())
     return jsonify({'data': data, 'message': 'ok'})
+
+
+@watchlist_bp.get('/trends/')
+def list_trends():
+    """批量获取标的近 N 日收盘价序列（迷你走势图数据源，#990）。
+
+    ?symbols=SH600519,HK00700&days=60
+    - 数据源：price_history 表（price_history_job 回填），与「添加后涨幅」同源同口径，
+      纯历史日线无需实时性，不走前端 JSONP 行情通道（AGENTS.md 数据源收口约束）；
+    - 紧凑返回：仅收盘价数组，无日期轴（迷你图不画坐标轴）；
+    - 无数据的 symbol 不出现在返回字典中，前端降级显示 --；
+    - symbols 上限 50 个、days 限幅 [5, 250]，防止单次请求过量。
+    """
+    symbols = [s.strip() for s in request.args.get('symbols', '').split(',') if s.strip()][:50]
+    days = max(min(request.args.get('days', type=int, default=60) or 60, 250), 5)
+    if not symbols:
+        return jsonify({'data': {}, 'message': 'ok'})
+
+    start = date.today() - timedelta(days=days)
+    with get_db() as db:
+        rows = (
+            db.query(PriceHistory.symbol, PriceHistory.close)
+            .filter(
+                PriceHistory.symbol.in_(symbols),
+                PriceHistory.trade_date >= start,
+            )
+            .order_by(PriceHistory.symbol.asc(), PriceHistory.trade_date.asc())
+            .all()
+        )
+
+    trends: dict[str, list[float]] = {}
+    for symbol, close in rows:
+        if close is None:
+            continue
+        trends.setdefault(symbol, []).append(round(close, 4))
+    return jsonify({'data': trends, 'message': 'ok'})
 
 
 # ─────────────── 自选资产 CRUD ───────────────

@@ -32,6 +32,7 @@ export type ColumnRenderer =
   | "riseFall" // RiseFallText（涨跌幅，支持实时覆盖）
   | "qty" // 持有数量 + 单位（份/股）
   | "moneyRatio" // MoneyWithRatio（金额 + 比率）
+  | "sparkline" // 迷你走势图（纯 SVG 折线，#990）
   | "actions"; // 操作列（circle 按钮：置顶/关注/编辑/删除）
 
 /** 实时估值可覆盖的字段（来自 getValuationItem 产出） */
@@ -133,6 +134,16 @@ export const watchlistColumnDefs: ColumnDef[] = [
     align: "right",
     sortable: "custom",
     realtimeField: "changePct",
+    hideable: true,
+    draggable: true
+  },
+  {
+    // 近 60 日收盘迷你走势（#990）：数据源 price_history，无数据降级 --
+    key: "trend",
+    label: "走势",
+    renderer: "sparkline",
+    width: 120,
+    align: "center",
     hideable: true,
     draggable: true
   },

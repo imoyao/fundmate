@@ -237,7 +237,7 @@ import SettingsDrawer from "@/components/Watchlist/SettingsDrawer.vue";
 import TagManagerDialog from "@/components/Watchlist/TagManagerDialog.vue";
 import GroupManagerDialog from "@/components/Watchlist/GroupManagerDialog.vue";
 import TagEditorDialog from "@/components/Watchlist/TagEditorDialog.vue";
-import type { WatchlistItem } from "@/api/watchlist";
+import { getWatchlistTrends, type WatchlistItem } from "@/api/watchlist";
 import CardBlock from "@/components/CardBlock/index.vue";
 // 金额/涨跌展示组件（MoneyDisplay/RiseFallText/MoneyWithRatio）已随 #995 列渲染器化
 // 迁移至 columnRenderers.tsx，本页模板不再直接使用
@@ -507,6 +507,25 @@ async function handleManualRefresh() {
   }
 }
 
+// ── 迷你走势图数据（#990）：price_history 后端批量序列，随列表行变化拉取 ──
+const trendMap = ref<Record<string, number[]>>({});
+async function fetchTrends() {
+  const symbols = [...new Set(items.value.map(i => i.symbol).filter(Boolean))];
+  if (symbols.length === 0) {
+    trendMap.value = {};
+    return;
+  }
+  try {
+    const res = await getWatchlistTrends(symbols);
+    trendMap.value = res.data ?? {};
+  } catch {
+    // 走势获取失败静默降级为 --（列渲染器对缺失数据的处理），不打断列表
+  }
+}
+watch(items, () => {
+  void fetchTrends();
+});
+
 /** 切换刷新档位：转发给 realtime（负责持久化 + 盘中重启定时器） */
 const onRefreshIntervalChange = (value: string | number | boolean) => {
   realtime.setRefreshInterval(value as RefreshInterval);
@@ -617,7 +636,8 @@ const renderCtx = computed<RenderCtx>(() => ({
     togglePin: handleTogglePin,
     toggleFavorite: handleToggleFavorite,
     remove: confirmRemove
-  }
+  },
+  trends: trendMap.value
 }));
 </script>
 
