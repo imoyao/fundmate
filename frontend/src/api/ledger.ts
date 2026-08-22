@@ -195,18 +195,18 @@ export function getLedgerSummary(ledgerId: number) {
   return http.request("get", `/api/ledgers/${ledgerId}/summary/`);
 }
 
-/** 获取账户持仓明细（分页） */
+/** 获取账户持仓明细（分页；search 按名称/代码模糊匹配，#982） */
 export function getLedgerPositions(
   ledgerId: number,
-  params: { page: number; per_page: number }
+  params: { page: number; per_page: number; search?: string }
 ) {
   return http.request("get", `/api/ledgers/${ledgerId}/positions/`, { params });
 }
 
-/** 获取账户交易记录（分页） */
+/** 获取账户交易记录（分页；search 按名称/代码模糊匹配，#982） */
 export function getLedgerTransactions(
   ledgerId: number,
-  params: { page: number; per_page: number }
+  params: { page: number; per_page: number; search?: string }
 ) {
   return http.request("get", `/api/ledgers/${ledgerId}/transactions/`, {
     params

@@ -232,286 +232,305 @@
             </div>
           </div>
         </CardBlock>
-        <!-- Tab 切换 -->
+        <!-- Tab 切换 + 搜索同行（#982）：左 Tab 右搜索，共用一个输入框按当前 Tab 绑定 -->
         <el-card shadow="never">
-          <el-tabs v-model="activeTab" @tab-change="onTabChange">
-            <!-- 持仓明细 Tab -->
-            <el-tab-pane label="持仓明细" name="holdings">
-              <el-table
-                :data="holdingsList"
-                stripe
-                size="default"
-                :default-sort="{ prop: 'market_value', order: 'descending' }"
-                @row-click="openPositionDrawer"
-              >
-                <el-table-column
-                  label="产品信息"
-                  min-width="150"
-                  show-overflow-tooltip
+          <div class="tabs-toolbar">
+            <el-tabs
+              v-model="activeTab"
+              class="ledger-tabs"
+              @tab-change="onTabChange"
+            >
+              <!-- 持仓明细 Tab -->
+              <el-tab-pane label="持仓明细" name="holdings">
+                <el-table
+                  :data="holdingsList"
+                  stripe
+                  size="default"
+                  :default-sort="{ prop: 'market_value', order: 'descending' }"
+                  @row-click="openPositionDrawer"
                 >
-                  <template #default="{ row }">
-                    <ProductDisplay
-                      :name="row.name"
-                      :symbol="row.symbol"
-                      :type-label="row.type_label"
-                    />
-                  </template>
-                </el-table-column>
-                <el-table-column
-                  label="市值"
-                  width="110"
-                  align="right"
-                  sortable
-                  prop="market_value"
-                  show-overflow-tooltip
-                >
-                  <template #default="{ row }">
-                    <MoneyDisplay
-                      :value="row.market_value || 0"
-                      :show-sign="false"
-                      :auto-color="false"
-                      size="sm"
-                    />
-                  </template>
-                </el-table-column>
-                <el-table-column
-                  label="盈亏"
-                  width="110"
-                  align="right"
-                  sortable
-                  prop="pnl"
-                  show-overflow-tooltip
-                >
-                  <template #default="{ row }">
-                    <MoneyDisplay :value="row.pnl || 0" size="sm" />
-                  </template>
-                </el-table-column>
-                <el-table-column
-                  label="盈亏率"
-                  width="100"
-                  align="right"
-                  sortable
-                  prop="pnl_rate"
-                  show-overflow-tooltip
-                >
-                  <template #default="{ row }">
-                    <MoneyDisplay
-                      :value="row.pnl_rate || 0"
-                      :precision="2"
-                      :show-currency="false"
-                      suffix="%"
-                      size="sm"
-                    />
-                  </template>
-                </el-table-column>
-                <el-table-column
-                  label="配置目标"
-                  width="90"
-                  align="right"
-                  show-overflow-tooltip
-                >
-                  <template #default="{ row }">
-                    <span
-                      class="px-2 py-0.5 rounded-full text-xs"
-                      :style="{ color: getAllocColor(row.allocation) }"
-                    >
-                      {{ row.allocation_label }}
-                    </span>
-                  </template>
-                </el-table-column>
-                <el-table-column
-                  v-if="!isUnclassified"
-                  label="操作"
-                  width="130"
-                  fixed="right"
-                >
-                  <template #default="{ row }">
-                    <div
-                      class="flex items-center gap-1"
-                      style="white-space: nowrap"
-                    >
-                      <el-button
-                        text
-                        size="small"
-                        @click.stop="openMigrateDialog(row as LedgerHoldingRow)"
-                        >迁移</el-button
-                      >
-                      <el-button
-                        text
-                        size="small"
-                        type="danger"
-                        @click.stop="
-                          confirmDeletePosition(row as LedgerHoldingRow)
-                        "
-                        >删除</el-button
-                      >
-                    </div>
-                  </template>
-                </el-table-column>
-                <el-table-column
-                  v-if="isUnclassified"
-                  label="归入账户"
-                  width="160"
-                >
-                  <template #default="{ row }">
-                    <el-select
-                      v-model="assignMap[row.id]"
-                      placeholder="选择账户"
-                      size="small"
-                      @change="handleAssign(row.id)"
-                    >
-                      <el-option
-                        v-for="ledger in ledgers"
-                        :key="ledger.id"
-                        :label="ledger.name"
-                        :value="ledger.id"
+                  <el-table-column
+                    label="产品信息"
+                    min-width="150"
+                    show-overflow-tooltip
+                  >
+                    <template #default="{ row }">
+                      <ProductDisplay
+                        :name="row.name"
+                        :symbol="row.symbol"
+                        :type-label="row.type_label"
                       />
-                    </el-select>
-                  </template>
-                </el-table-column>
-              </el-table>
-
-              <div class="flex justify-end mt-4">
-                <el-pagination
-                  v-model:current-page="holdingsPage"
-                  :page-size="holdingsPageSize"
-                  layout="prev, pager, next"
-                  :total="holdingsTotal"
-                  small
-                  @current-change="loadHoldings"
-                />
-              </div>
-            </el-tab-pane>
-
-            <!-- 交易记录 Tab -->
-            <el-tab-pane label="交易记录" name="transactions">
-              <el-table
-                :data="transactionsList"
-                stripe
-                size="default"
-                :default-sort="{ prop: 'confirm_date', order: 'descending' }"
-              >
-                <el-table-column
-                  prop="confirm_date"
-                  label="日期"
-                  width="110"
-                  sortable
-                >
-                  <template #default="{ row }">{{
-                    formatDate(row.confirm_date)
-                  }}</template>
-                </el-table-column>
-                <!-- 资产列宽统一 160（产品信息列宽度规范，见 docs/design/components.md） -->
-                <el-table-column
-                  label="资产名称"
-                  min-width="160"
-                  show-overflow-tooltip
-                >
-                  <template #default="{ row }">
-                    <span class="txn-asset-name">{{ row.position_name }}</span>
-                    <span v-if="row.symbol" class="txn-asset-code">{{
-                      row.symbol
-                    }}</span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="类型" width="80">
-                  <template #default="{ row }">
-                    <span :class="getTxnTypeClass(row.txn_type)">{{
-                      txnTypeLabel(row.txn_type)
-                    }}</span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="价格" width="100" align="right">
-                  <template #default="{ row }">
-                    <MoneyDisplay
-                      :value="row.price || 0"
-                      :show-sign="false"
-                      :show-currency="false"
-                      size="sm"
-                    />
-                  </template>
-                </el-table-column>
-                <el-table-column label="数量" width="80" align="right">
-                  <template #default="{ row }">{{ row.quantity }}</template>
-                </el-table-column>
-                <el-table-column
-                  label="金额"
-                  width="120"
-                  align="right"
-                  sortable
-                  prop="amount"
-                >
-                  <template #default="{ row }">
-                    <MoneyDisplay
-                      :value="row.amount || 0"
-                      :show-sign="false"
-                      :auto-color="false"
-                      size="sm"
-                    />
-                  </template>
-                </el-table-column>
-                <el-table-column
-                  label="手续费"
-                  width="80"
-                  align="right"
-                  prop="fee"
-                >
-                  <template #default="{ row }">
-                    <MoneyDisplay
-                      :value="row.fee || 0"
-                      :show-sign="false"
-                      :auto-color="false"
-                      size="sm"
-                    />
-                  </template>
-                </el-table-column>
-                <el-table-column
-                  v-if="!isUnclassified"
-                  label="操作"
-                  width="140"
-                  fixed="right"
-                >
-                  <template #default="{ row }">
-                    <div
-                      class="flex items-center gap-1"
-                      style="white-space: nowrap"
-                    >
-                      <el-button
-                        text
-                        size="small"
-                        @click.stop="openEditTxnDialog(row as LedgerTxnRow)"
-                        >编辑</el-button
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    label="市值"
+                    width="110"
+                    align="right"
+                    sortable
+                    prop="market_value"
+                    show-overflow-tooltip
+                  >
+                    <template #default="{ row }">
+                      <MoneyDisplay
+                        :value="row.market_value || 0"
+                        :show-sign="false"
+                        :auto-color="false"
+                        size="sm"
+                      />
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    label="盈亏"
+                    width="110"
+                    align="right"
+                    sortable
+                    prop="pnl"
+                    show-overflow-tooltip
+                  >
+                    <template #default="{ row }">
+                      <MoneyDisplay :value="row.pnl || 0" size="sm" />
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    label="盈亏率"
+                    width="100"
+                    align="right"
+                    sortable
+                    prop="pnl_rate"
+                    show-overflow-tooltip
+                  >
+                    <template #default="{ row }">
+                      <MoneyDisplay
+                        :value="row.pnl_rate || 0"
+                        :precision="2"
+                        :show-currency="false"
+                        suffix="%"
+                        size="sm"
+                      />
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    label="配置目标"
+                    width="90"
+                    align="right"
+                    show-overflow-tooltip
+                  >
+                    <template #default="{ row }">
+                      <span
+                        class="px-2 py-0.5 rounded-full text-xs"
+                        :style="{ color: getAllocColor(row.allocation) }"
                       >
-                      <el-button
-                        text
-                        size="small"
-                        type="danger"
-                        @click.stop="confirmDeleteTxn(row as LedgerTxnRow)"
-                        >删除</el-button
+                        {{ row.allocation_label }}
+                      </span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    v-if="!isUnclassified"
+                    label="操作"
+                    width="130"
+                    fixed="right"
+                  >
+                    <template #default="{ row }">
+                      <div
+                        class="flex items-center gap-1"
+                        style="white-space: nowrap"
                       >
-                    </div>
-                  </template>
-                </el-table-column>
-              </el-table>
-              <div
-                v-if="transactionsTotal === 0"
-                class="text-center py-8"
-                :style="{ color: 'var(--text-tertiary)' }"
-              >
-                暂无交易记录
-              </div>
-              <div v-if="transactionsTotal > 0" class="flex justify-end mt-4">
-                <el-pagination
-                  v-model:current-page="transactionsPage"
-                  :page-size="transactionsPageSize"
-                  layout="prev, pager, next"
-                  :total="transactionsTotal"
-                  small
-                  @current-change="loadTransactions"
-                />
-              </div>
-            </el-tab-pane>
-          </el-tabs>
+                        <el-button
+                          text
+                          size="small"
+                          @click.stop="
+                            openMigrateDialog(row as LedgerHoldingRow)
+                          "
+                          >迁移</el-button
+                        >
+                        <el-button
+                          text
+                          size="small"
+                          type="danger"
+                          @click.stop="
+                            confirmDeletePosition(row as LedgerHoldingRow)
+                          "
+                          >删除</el-button
+                        >
+                      </div>
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    v-if="isUnclassified"
+                    label="归入账户"
+                    width="160"
+                  >
+                    <template #default="{ row }">
+                      <el-select
+                        v-model="assignMap[row.id]"
+                        placeholder="选择账户"
+                        size="small"
+                        @change="handleAssign(row.id)"
+                      >
+                        <el-option
+                          v-for="ledger in ledgers"
+                          :key="ledger.id"
+                          :label="ledger.name"
+                          :value="ledger.id"
+                        />
+                      </el-select>
+                    </template>
+                  </el-table-column>
+                </el-table>
+
+                <div class="flex justify-end mt-4">
+                  <el-pagination
+                    v-model:current-page="holdingsPage"
+                    :page-size="holdingsPageSize"
+                    layout="prev, pager, next"
+                    :total="holdingsTotal"
+                    small
+                    @current-change="loadHoldings"
+                  />
+                </div>
+              </el-tab-pane>
+
+              <!-- 交易记录 Tab -->
+              <el-tab-pane label="交易记录" name="transactions">
+                <el-table
+                  :data="transactionsList"
+                  stripe
+                  size="default"
+                  :default-sort="{ prop: 'confirm_date', order: 'descending' }"
+                >
+                  <el-table-column
+                    prop="confirm_date"
+                    label="日期"
+                    width="110"
+                    sortable
+                  >
+                    <template #default="{ row }">{{
+                      formatDate(row.confirm_date)
+                    }}</template>
+                  </el-table-column>
+                  <!-- 资产列宽统一 160（产品信息列宽度规范，见 docs/design/components.md） -->
+                  <el-table-column
+                    label="资产名称"
+                    min-width="160"
+                    show-overflow-tooltip
+                  >
+                    <template #default="{ row }">
+                      <span class="txn-asset-name">{{
+                        row.position_name
+                      }}</span>
+                      <span v-if="row.symbol" class="txn-asset-code">{{
+                        row.symbol
+                      }}</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="类型" width="80">
+                    <template #default="{ row }">
+                      <span :class="getTxnTypeClass(row.txn_type)">{{
+                        txnTypeLabel(row.txn_type)
+                      }}</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="价格" width="100" align="right">
+                    <template #default="{ row }">
+                      <MoneyDisplay
+                        :value="row.price || 0"
+                        :show-sign="false"
+                        :show-currency="false"
+                        size="sm"
+                      />
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="数量" width="80" align="right">
+                    <template #default="{ row }">{{ row.quantity }}</template>
+                  </el-table-column>
+                  <el-table-column
+                    label="金额"
+                    width="120"
+                    align="right"
+                    sortable
+                    prop="amount"
+                  >
+                    <template #default="{ row }">
+                      <MoneyDisplay
+                        :value="row.amount || 0"
+                        :show-sign="false"
+                        :auto-color="false"
+                        size="sm"
+                      />
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    label="手续费"
+                    width="80"
+                    align="right"
+                    prop="fee"
+                  >
+                    <template #default="{ row }">
+                      <MoneyDisplay
+                        :value="row.fee || 0"
+                        :show-sign="false"
+                        :auto-color="false"
+                        size="sm"
+                      />
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    v-if="!isUnclassified"
+                    label="操作"
+                    width="140"
+                    fixed="right"
+                  >
+                    <template #default="{ row }">
+                      <div
+                        class="flex items-center gap-1"
+                        style="white-space: nowrap"
+                      >
+                        <el-button
+                          text
+                          size="small"
+                          @click.stop="openEditTxnDialog(row as LedgerTxnRow)"
+                          >编辑</el-button
+                        >
+                        <el-button
+                          text
+                          size="small"
+                          type="danger"
+                          @click.stop="confirmDeleteTxn(row as LedgerTxnRow)"
+                          >删除</el-button
+                        >
+                      </div>
+                    </template>
+                  </el-table-column>
+                </el-table>
+                <div
+                  v-if="transactionsTotal === 0"
+                  class="text-center py-8"
+                  :style="{ color: 'var(--text-tertiary)' }"
+                >
+                  暂无交易记录
+                </div>
+                <div v-if="transactionsTotal > 0" class="flex justify-end mt-4">
+                  <el-pagination
+                    v-model:current-page="transactionsPage"
+                    :page-size="transactionsPageSize"
+                    layout="prev, pager, next"
+                    :total="transactionsTotal"
+                    small
+                    @current-change="loadTransactions"
+                  />
+                </div>
+              </el-tab-pane>
+            </el-tabs>
+            <!-- 搜索框与 Tab 同行：按当前 Tab 绑定各自搜索词（#982） -->
+            <el-input
+              v-model="activeSearch"
+              placeholder="搜索产品名称 / 代码"
+              clearable
+              class="tab-search-input"
+              :prefix-icon="Search"
+              @input="onSearchInput"
+            />
+          </div>
         </el-card>
       </template>
 
@@ -684,6 +703,7 @@
 import { ref, computed, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
+import { Search } from "@element-plus/icons-vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
@@ -840,12 +860,42 @@ const holdingsPage = ref(1);
 const holdingsPageSize = 20;
 const holdingsList = ref<LedgerHoldingRow[]>([]);
 const holdingsTotal = ref(0);
+// 名称/代码搜索（#982）：后端 LIKE 过滤，防抖后重置回第一页
+const holdingsSearch = ref("");
 
 // 交易 Tab 数据
 const transactionsPage = ref(1);
 const transactionsPageSize = 20;
 const transactionsList = ref<LedgerTxnRow[]>([]);
 const transactionsTotal = ref(0);
+const transactionsSearch = ref("");
+
+/** 搜索防抖（300ms）：变更即重置回第一页；输入框按当前 Tab 经 activeSearch 绑定 */
+const searchTimers: Record<"holdings" | "transactions", number | undefined> = {
+  holdings: undefined,
+  transactions: undefined
+};
+
+/** 当前激活 Tab 的搜索词代理：一个输入框服务两个列表 */
+const activeSearch = computed({
+  get: () =>
+    activeTab.value === "holdings"
+      ? holdingsSearch.value
+      : transactionsSearch.value,
+  set: (v: string) => {
+    if (activeTab.value === "holdings") holdingsSearch.value = v;
+    else transactionsSearch.value = v;
+  }
+});
+
+function onSearchInput() {
+  const tab = activeTab.value === "holdings" ? "holdings" : "transactions";
+  if (searchTimers[tab]) window.clearTimeout(searchTimers[tab]);
+  searchTimers[tab] = window.setTimeout(() => {
+    if (tab === "holdings") void loadHoldings(1);
+    else void loadTransactions(1);
+  }, 300);
+}
 
 const activeTab = ref("holdings");
 
@@ -961,7 +1011,8 @@ async function loadHoldings(page = 1) {
   try {
     const res = await getLedgerPositions(Number(ledgerId.value), {
       page,
-      per_page: holdingsPageSize
+      per_page: holdingsPageSize,
+      search: holdingsSearch.value.trim() || undefined
     });
     const result = (
       res as { data?: { items?: LedgerHoldingRow[]; total?: number } }
@@ -984,7 +1035,8 @@ async function loadTransactions(page = 1) {
   try {
     const res = await getLedgerTransactions(Number(ledgerId.value), {
       page,
-      per_page: transactionsPageSize
+      per_page: transactionsPageSize,
+      search: transactionsSearch.value.trim() || undefined
     });
     const result = (
       res as { data?: { items?: LedgerTxnRow[]; total?: number } }
@@ -1357,5 +1409,22 @@ function openDeleteDialog(account: LedgerItem) {
   margin-left: 6px;
   font-size: 12px;
   color: var(--text-tertiary);
+}
+
+/* Tab 工具栏（#982）：左 Tab 右搜索同行，消除表头与 Tab 之间的空隙 */
+.tabs-toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.ledger-tabs {
+  flex: 1;
+  min-width: 0;
+}
+
+.tab-search-input {
+  width: 220px;
+  flex-shrink: 0;
 }
 </style>

@@ -5,8 +5,10 @@ FeedLog ↔ GitHub Issues 双向桥接脚本
 功能：
   一、FeedLog → GitHub（定时同步）
     读取 FeedLog PostgreSQL 中的新帖子 → 在 fundmate 仓库创建 GitHub Issue
-  二、GitHub → FeedLog（事件驱动）
-    Issue 状态变更 / Release 发布 → 回写 FeedLog PostgreSQL
+  二、GitHub → FeedLog（事件驱动，真正双向）
+    - Issue 新建（opened）     → 在 FeedLog 新建帖子并登记映射
+    - Issue 标签/关闭/重开     → 回写 FeedLog 帖子状态
+    - GitHub Release 发布      → 写入 FeedLog Changelog（系统动态）
 
 依赖：
   pip install psycopg2-binary PyGithub
@@ -24,13 +26,14 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import psycopg2
-from github import Github
+from github import Github, UnknownObjectException
 from psycopg2.extras import RealDictCursor
 
 # ---------------------------------------------------------------------------
@@ -45,7 +48,7 @@ LABEL_MAP = {
     "open": "feedback",
     "planned": "planned",
     "in_progress": "in-progress",
-    "completed": "done",
+    "done": "done",
 }
 
 # Issue 标签反向映射
@@ -59,6 +62,22 @@ BOARD_TO_LABEL = {
     "improvements": "enhancement",
     "other": "feedback",
 }
+
+# 脚本会自动确保以下 label 存在于目标仓库，避免 create_issue 因未知 label 报 422。
+REQUIRED_LABELS = (
+    "feedlog",
+    "enhancement",
+    "bug",
+    "feedback",
+    "planned",
+    "in-progress",
+    "done",
+)
+
+# FeedLog 系统哨兵作者（用于由 GitHub 事件生成的帖子/动态，无法登录但 user 行存在）
+SYSTEM_AUTHOR_ID = "system"
+# 单租户默认组织 id（dbb-feedback 迁移 0004 种子值）
+DEFAULT_ORG_ID = "default-org"
 
 
 # ---------------------------------------------------------------------------
@@ -81,7 +100,29 @@ def save_state(state: dict[str, Any]) -> None:
 
 
 def now_iso() -> str:
+    # PostgreSQL timestamptz 接受 'Z' 后缀，故保持 UTC 'Z' 格式
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def slugify(text: str, max_len: int = 80) -> str:
+    """生成 FeedLog 所需的 slug（小写、连字符、截断）。"""
+    slug = re.sub(r"[^\w一-龥]+", "-", (text or "").strip().lower()).strip("-")
+    return slug[:max_len] or "item"
+
+
+def ensure_label(repo, name: str) -> None:
+    """幂等地确保仓库中存在某个 label（不存在则创建）。
+
+    仓库缺失 label 时 PyGithub 的 create_issue 会抛 422，因此每次同步前先保证存在。
+    """
+    try:
+        repo.get_label(name)
+    except UnknownObjectException:
+        try:
+            repo.create_label(name, "0a7ea4")
+            print(f"  🏷️ 已创建缺失 label: {name}")
+        except Exception as exc:  # noqa: BLE001
+            print(f"  ⚠️ 创建 label {name} 失败: {exc}")
 
 
 def get_db() -> psycopg2.extensions.connection:
@@ -176,6 +217,9 @@ def sync_posts_to_github(
 
     gh = get_gh()
     repo = gh.get_repo(os.environ["GITHUB_REPO"])
+    # 幂等确保所需 label 都存在（仓库缺失 label 时 create_issue 会报 422）
+    for lbl in REQUIRED_LABELS:
+        ensure_label(repo, lbl)
     synced = state.setdefault("posts", {})
 
     for post in posts:
@@ -187,13 +231,17 @@ def sync_posts_to_github(
         board_label = BOARD_TO_LABEL.get(
             post.get("board_name", "").strip().lower(), "feedback"
         )
+        # 同时反映 FeedLog 帖子当前状态（无状态标签时不追加）
+        status_label = LABEL_MAP.get(post.get("status"))
         labels = ["feedlog", board_label]
+        if status_label:
+            labels.append(status_label)
 
         title = post["title"] or "（无标题反馈）"
         body = build_issue_body(post)
 
         if dry_run:
-            print(f"  [DRY-RUN] 拟创建 Issue: {title} [label={board_label}]")
+            print(f"  [DRY-RUN] 拟创建 Issue: {title} [labels={labels}]")
             synced[post_id] = {
                 "issue_number": 0,
                 "synced_at": now_iso(),
@@ -219,7 +267,7 @@ def sync_posts_to_github(
 
 
 # ---------------------------------------------------------------------------
-# GitHub → FeedLog：Issue 状态 / Release → FeedLog 回写
+# GitHub → FeedLog：Issue 新建 / 状态 / Release → FeedLog 回写
 # ---------------------------------------------------------------------------
 
 
@@ -234,27 +282,6 @@ def update_post_status(conn, post_id: str, new_status: str) -> bool:
     return cur.rowcount > 0
 
 
-def create_changelog_entry(
-    conn, org_id: str, title: str, content: str, published_at: str | None = None
-) -> str:
-    """创建 FeedLog Changelog 条目"""
-    import uuid as _uuid
-
-    entry_id = str(_uuid.uuid4())
-    status = "published" if published_at else "draft"
-    cur = conn.cursor()
-    cur.execute(
-        """
-        INSERT INTO "changelog" (id, org_id, title, content, status, published_at, created_at, updated_at)
-        VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
-        RETURNING id
-        """,
-        (entry_id, org_id, title, content, status, published_at),
-    )
-    conn.commit()
-    return cur.fetchone()["id"]
-
-
 def get_org_id(conn) -> str:
     """获取 FeedLog 中第一个组织 ID（作为默认目标）"""
     cur = conn.cursor()
@@ -265,16 +292,175 @@ def get_org_id(conn) -> str:
     return row["id"]
 
 
+def get_board_id(conn, org_id: str, board_name: str) -> str | None:
+    """按名称（忽略大小写）查找 board id；找不到返回 None。"""
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT id FROM "board" WHERE org_id = %s AND LOWER(name) = LOWER(%s) LIMIT 1""",
+        (org_id, board_name),
+    )
+    row = cur.fetchone()
+    return row["id"] if row else None
+
+
+def create_post_from_issue(
+    conn, org_id: str, issue_number: int, title: str, body: str, labels: list[str]
+) -> str | None:
+    """将 GitHub Issue 新建为 FeedLog 帖子（双向补全：人工 issue → FeedLog）。
+
+    幂等：若 state 中该 issue_number 已映射，则跳过。返回新建 post id；已存在返回 None。
+
+    护栏：带 feedlog 标签的 issue 是由「FeedLog → GitHub」通道（渠道 1）创建的，
+    不应再反向建帖子，否则会形成 FeedLog ↔ GitHub 死循环。
+    """
+    import uuid as _uuid
+
+    if "feedlog" in labels:
+        print(f"  ⚠️ Issue #{issue_number} 带 feedlog 标签，疑似 FeedLog 源头，跳过建帖")
+        return None
+
+    state = load_state()
+    for pid, info in state.get("posts", {}).items():
+        if info.get("issue_number") == issue_number:
+            print(f"  ⚠️ Issue #{issue_number} 已映射 FeedLog 帖子 {pid}，跳过")
+            return None
+
+    # board 映射：bug → Bug Report，enhancement → Feature Requests，其余 → Other
+    board_name = "Other"
+    if "bug" in labels:
+        board_name = "Bug Report"
+    elif "enhancement" in labels:
+        board_name = "Feature Requests"
+    board_id = get_board_id(conn, org_id, board_name)
+
+    slug = f"gh-issue-{issue_number}"
+    post_id = str(_uuid.uuid4())
+    content = (body or "")[:10000]
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO "post"
+            (id, org_id, board_id, author_id, slug, status, title, content,
+             vote_count, comment_count, created_at, updated_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0, 0, NOW(), NOW())
+        RETURNING id
+        """,
+        (
+            post_id,
+            org_id,
+            board_id,
+            SYSTEM_AUTHOR_ID,
+            slug,
+            "open",
+            (title or "")[:200],
+            content,
+        ),
+    )
+    cur.fetchone()
+    conn.commit()
+
+    # 持久化映射，供后续 closed/labeled 回写使用
+    state.setdefault("posts", {})[post_id] = {
+        "issue_number": issue_number,
+        "synced_at": now_iso(),
+        "origin": "github",
+    }
+    save_state(state)
+    return post_id
+
+
+def create_changelog_entry(
+    conn, org_id: str, title: str, content: str, published_at: str | None = None
+) -> str:
+    """创建 FeedLog Changelog 条目。
+
+    对齐真实 schema：author_id / slug / org_id 均为 NOT NULL，且 slug 按 org 唯一；
+    title 列 varchar(70) 需截断；published 时同步 published_* 字段。
+
+    幂等：若同 slug 条目已存在（同一 Release 重复触发），则更新而非重复插入。
+    """
+    import uuid as _uuid
+
+    # title 列 varchar(70)，强制截断避免超长
+    title = (title or "未命名更新")[:70]
+    status = "published" if published_at else "draft"
+    slug = f"{slugify(title)}-{str(_uuid.uuid4())[:8]}"
+
+    cur = conn.cursor()
+    # 幂等：先查是否已存在（同一 Release 重复触发时不报错）
+    cur.execute(
+        """SELECT id FROM "changelog" WHERE org_id = %s AND slug = %s""",
+        (org_id, slug),
+    )
+    existing = cur.fetchone()
+    if existing:
+        entry_id = existing["id"]
+        cur.execute(
+            """
+            UPDATE "changelog"
+            SET title = %s, content = %s, status = %s,
+                published_title = %s, published_content = %s,
+                published_categories = %s, published_at = %s, updated_at = NOW()
+            WHERE id = %s
+            """,
+            (
+                title,
+                content,
+                status,
+                title if status == "published" else None,
+                content if status == "published" else None,
+                "[]",
+                published_at,
+                entry_id,
+            ),
+        )
+        conn.commit()
+        return entry_id
+
+    entry_id = str(_uuid.uuid4())
+    cur.execute(
+        """
+        INSERT INTO "changelog"
+            (id, org_id, author_id, slug, status, title, content,
+             categories, published_title, published_content, published_categories,
+             published_at, created_at, updated_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+        RETURNING id
+        """,
+        (
+            entry_id,
+            org_id,
+            SYSTEM_AUTHOR_ID,
+            slug,
+            status,
+            title,
+            content,
+            "[]",
+            title if status == "published" else None,
+            content if status == "published" else None,
+            "[]",
+            published_at,
+        ),
+    )
+    conn.commit()
+    return cur.fetchone()["id"]
+
+
 def sync_issue_to_feedlog(
-    conn, state: dict[str, Any], issue_number: int, new_labels: list[str]
+    conn,
+    state: dict[str, Any],
+    issue_number: int,
+    new_labels: list[str],
+    action: str = "",
 ) -> None:
-    """根据 Issue 标签变更回写 FeedLog 帖子状态
+    """根据 Issue 标签/状态变更回写 FeedLog 帖子状态。
 
     规则：
-      - 含 done → FeedLog 状态 = completed
+      - 含 done        → FeedLog 状态 = done（completed）
       - 含 in-progress → FeedLog 状态 = in_progress
-      - 含 planned → FeedLog 状态 = planned
-      - issue 关闭 → FeedLog 状态 = completed
+      - 含 planned     → FeedLog 状态 = planned
+      - issue 关闭      → FeedLog 状态 = done（completed）
+      - issue 重新打开且无状态标签 → FeedLog 状态 = open
     """
     posts = state.get("posts", {})
     # 反向查找：issue_number → post_id
@@ -296,7 +482,11 @@ def sync_issue_to_feedlog(
             break
 
     if not new_status:
-        return  # 没有匹配的标签，不更新
+        # issue 重新打开且无任何状态标签 → 回到 open
+        if action == "reopened":
+            new_status = "open"
+        else:
+            return  # 没有匹配的标签，不更新
 
     if update_post_status(conn, post_id, new_status):
         print(f"  ✅ FeedLog 帖子 {post_id} 状态 → {new_status}")
@@ -334,12 +524,24 @@ def main():
     sync_cmd = sub.add_parser("feedlog-to-github", help="FeedLog 帖子 → GitHub Issues")
     sync_cmd.add_argument("--dry-run", action="store_true", help="仅预览，不创建 Issue")
 
-    # github → feedlog（Issue label 变更）
+    # github → feedlog（Issue 新建）
+    opened_cmd = sub.add_parser(
+        "issue-opened-to-feedlog", help="GitHub Issue 新建 → FeedLog 帖子"
+    )
+    opened_cmd.add_argument("--issue-number", type=int, required=True)
+    opened_cmd.add_argument("--title", default="")
+    opened_cmd.add_argument("--body", default="")
+    opened_cmd.add_argument("--labels", nargs="*", default=[])
+
+    # github → feedlog（Issue 标签 / 关闭 / 重开 → 状态）
     issue_cmd = sub.add_parser(
-        "issue-to-feedlog", help="GitHub Issue 标签 → FeedLog 状态"
+        "issue-to-feedlog", help="GitHub Issue 标签/状态 → FeedLog 状态"
     )
     issue_cmd.add_argument("--issue-number", type=int, required=True)
     issue_cmd.add_argument("--labels", nargs="*", default=[], help="Issue 当前所有标签")
+    issue_cmd.add_argument(
+        "--action", default="", help="GitHub 事件 action（如 closed/reopened）"
+    )
 
     # github release → feedlog changelog
     rel_cmd = sub.add_parser(
@@ -372,10 +574,26 @@ def main():
         finally:
             conn.close()
 
+    elif args.command == "issue-opened-to-feedlog":
+        conn = get_db()
+        try:
+            org_id = get_org_id(conn)
+            post_id = create_post_from_issue(
+                conn, org_id, args.issue_number, args.title, args.body, args.labels
+            )
+            if post_id:
+                print(
+                    f"  ✅ FeedLog 帖子已创建: {post_id} (← Issue #{args.issue_number})"
+                )
+        finally:
+            conn.close()
+
     elif args.command == "issue-to-feedlog":
         conn = get_db()
         try:
-            sync_issue_to_feedlog(conn, state, args.issue_number, args.labels)
+            sync_issue_to_feedlog(
+                conn, state, args.issue_number, args.labels, args.action
+            )
         finally:
             conn.close()
 
