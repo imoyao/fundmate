@@ -328,7 +328,8 @@
 import { ref, reactive, computed, onMounted, watch, nextTick } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import type { FormInstance, FormRules } from "element-plus";
-import { createPosition, getPositionsGroupedByAccount } from "@/api/positions";
+import { getPositionsGroupedByAccount } from "@/api/positions";
+import { usePositionSubmit } from "@/composables/usePositionSubmit";
 import { validateTradeOrder } from "@/api/positions";
 import type { Position } from "@/api/types";
 import { IconifyIconOffline } from "@/components/ReIcon";
@@ -769,12 +770,11 @@ async function handleSubmit() {
     isAfter15: form.isAfter15
   };
 
-  try {
-    await createPosition(body);
-    ElMessage.success("记账成功");
+  // 统一提交层（#933）：修复原空 catch 吞错——失败提示由本层统一弹出
+  const { submitPosition } = usePositionSubmit();
+  const ok = await submitPosition(body);
+  if (ok) {
     emit("submit-success");
-  } catch (e: any) {
-    // 保持原有错误处理
   }
 }
 

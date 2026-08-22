@@ -340,7 +340,7 @@
 import { ref, reactive, computed, watch, nextTick } from "vue";
 import { ElMessage } from "element-plus";
 import type { FormInstance, FormRules } from "element-plus";
-import { createPosition } from "@/api/positions";
+import { usePositionSubmit } from "@/composables/usePositionSubmit";
 import { createLedger as createLedgerApi } from "@/api/ledger";
 import { searchSecurities } from "@/api/securities";
 import { searchFunds, calcFundNav, getFundFeeRates } from "@/api/funds";
@@ -837,26 +837,11 @@ async function handleSubmit() {
     isAfter15: form.isAfter15
   };
 
-  try {
-    await createPosition(body);
-    ElMessage.success("记账成功");
+  // 统一提交层（#933）：防抖/错误信封/成功广播单点维护，表单只组装 body
+  const { submitPosition } = usePositionSubmit();
+  const ok = await submitPosition(body);
+  if (ok) {
     emit("submit-success");
-  } catch (e: any) {
-    let msg = e?.message || "记账失败，请重试";
-    if (e?.response?.status === 422) {
-      const detail = e?.response?.data?.message;
-      if (detail) {
-        if (typeof detail === "object") {
-          const errors = Object.entries(detail)
-            .map(([field, errs]) => `${field}: ${(errs as any).join(", ")}`)
-            .join("; ");
-          msg = `数据错误 (422): ${errors}`;
-        } else if (typeof detail === "string") {
-          msg = `数据错误 (422): ${detail}`;
-        }
-      }
-    }
-    ElMessage.error(msg);
   }
 }
 
