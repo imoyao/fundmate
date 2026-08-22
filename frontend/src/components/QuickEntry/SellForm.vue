@@ -329,6 +329,10 @@ import { ref, reactive, computed, onMounted, watch, nextTick } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import type { FormInstance, FormRules } from "element-plus";
 import { getPositionsGroupedByAccount } from "@/api/positions";
+import {
+  getSecurityPriceRange,
+  type SecurityPriceRange
+} from "@/api/securities";
 import { usePositionSubmit } from "@/composables/usePositionSubmit";
 import { validateTradeOrder } from "@/api/positions";
 import type { Position } from "@/api/types";
@@ -377,6 +381,8 @@ const form = reactive(defaultForm());
 const formRef = ref<FormInstance>();
 const positionsByAccount = ref<Record<string, Position[]>>({});
 const selectedPosition = ref<any>(null);
+// 股票价格区间（#948）：卖出价校验用，随持仓选择与交易日刷新
+const stockPriceRange = ref<SecurityPriceRange | null>(null);
 const feeRateDialogVisible = ref(false);
 const feeRateTableData = ref<any[]>([]); // 保留用于兼容，但主要使用 holdFeeDetails
 const holdFeeDetails = ref<any[]>([]); // 全仓持有分布
@@ -568,6 +574,19 @@ function onPositionSelect(positionId: number) {
   confirmDate.value = "";
   actualNavDate.value = "";
   calculateFeeAndRate();
+
+  // 股票：拉取最近交易日价格区间用于卖出价校验（#948）
+  if (pos.type === "stock") {
+    getSecurityPriceRange(pos.symbol)
+      .then(res => {
+        stockPriceRange.value = res?.data ?? null;
+      })
+      .catch(() => {
+        stockPriceRange.value = null;
+      });
+  } else {
+    stockPriceRange.value = null;
+  }
 }
 
 async function fetchConfirmAndNavDate() {
@@ -749,6 +768,22 @@ async function handleSubmit() {
     return;
   }
 
+  // 股票价格区间校验（#948）：有行情数据时限制卖出价在当日 low~high 内
+  if (
+    form.type === "stock" &&
+    stockPriceRange.value &&
+    form.price != null &&
+    form.price > 0
+  ) {
+    const { low, high, date: rangeDate } = stockPriceRange.value;
+    if (form.price < low || form.price > high) {
+      ElMessage.error(
+        `价格超出 ${rangeDate} 交易日区间（${low} ~ ${high}），请核对后重新输入`
+      );
+      return;
+    }
+  }
+
   const body = {
     symbol: form.symbol,
     name: form.name,
@@ -803,6 +838,16 @@ watch(
     if (!selectedPosition.value) return;
     fetchConfirmAndNavDate();
     calculateFeeAndRate();
+    // 股票：交易日变化时刷新价格区间（#948）
+    if (selectedPosition.value.type === "stock" && form.trade_date) {
+      getSecurityPriceRange(selectedPosition.value.symbol, form.trade_date)
+        .then(res => {
+          stockPriceRange.value = res?.data ?? null;
+        })
+        .catch(() => {
+          stockPriceRange.value = null;
+        });
+    }
   }
 );
 
