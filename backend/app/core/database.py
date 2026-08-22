@@ -115,6 +115,44 @@ def get_user_sessionmaker() -> sessionmaker:
     return sessionmaker(autocommit=False, autoflush=False, bind=user_engine)
 
 
+def _validate_schema(bind, metadata, label: str = 'app') -> None:
+    """启动期数据库结构校验守卫（issue #1036）。
+
+    背景：create_all 只增表不改表——模型加了字段而存量 DB 未跟上时，
+    错误要等到第一条 SQL 触发才以晦涩的 OperationalError 暴露，排查成本高；
+    #1020 约束降级等迁移批次落地前，更需要一道「模型 vs 库结构」显式比对兜底。
+
+    规则（首版从轻，聚焦最高频漂移）：
+    - DB 中已存在的表：逐列比对 ORM 定义，缺列即收集；
+    - DB 中不存在的表：交给 create_all 补建，跳过不误报；
+    - 列类型/索引/约束差异：SQLite 反射信息有限且历史库存在合理漂移，
+      首版不做强校验（避免误报阻断启动），后续按需加严。
+
+    任一缺列 → RuntimeError 一次性列出全部漂移 + 修复路径
+    （dev 重建 DB 文件 / 生产补迁移脚本），不允许带病启动。
+    """
+    from sqlalchemy import inspect
+
+    inspector = inspect(bind)
+    existing_tables = set(inspector.get_table_names())
+    drifts: list[str] = []
+
+    for table in metadata.sorted_tables:
+        if table.name not in existing_tables:
+            continue  # 新表由 create_all 负责
+        db_cols = {c['name'] for c in inspector.get_columns(table.name)}
+        missing = [c.name for c in table.columns if c.name not in db_cols]
+        if missing:
+            drifts.append(f"  - 表 {table.name} 缺列: {', '.join(missing)}")
+
+    if drifts:
+        raise RuntimeError(
+            f'[{label}] 数据库结构与模型不一致（{len(drifts)} 处漂移），拒绝启动：\n'
+            + '\n'.join(drifts)
+            + '\n修复路径：开发环境重建 DB 文件；生产环境补迁移脚本后再启动。'
+        )
+
+
 def init_db():
     """创建应用运行库所有表，并确保默认家庭/用户存在（多用户地基）。
 
@@ -130,6 +168,7 @@ def init_db():
 
     DatabaseFactory.validate_domain_labels(Base.metadata)
     Base.metadata.create_all(bind=engine)
+    _validate_schema(engine, Base.metadata, label='app')
     _seed_default_identity()
 
 
@@ -165,12 +204,14 @@ def init_db_split():
     for t in grouped[DOMAIN_MARKET]:
         t.to_metadata(market_meta)
     market_meta.create_all(bind=app_eng)
+    _validate_schema(app_eng, market_meta, label='market')
     # user 域表 → 用户引擎（若已配置）
     if user_eng is not None:
         user_meta = MetaData()
         for t in grouped[DOMAIN_USER]:
             t.to_metadata(user_meta)
         user_meta.create_all(bind=user_eng)
+        _validate_schema(user_eng, user_meta, label='user')
     # 双库模式：种子必须落到 user 引擎（修复跨域 bug），bind 传 user_eng；
     # 未配 Supabase 时 user_eng 为本地回退文件，仍与 market 域隔离。
     _seed_default_identity(bind=user_eng)
