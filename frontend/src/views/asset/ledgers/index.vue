@@ -110,41 +110,11 @@
             </p>
           </div>
         </div>
-        <div class="overview-card allocation-card">
-          <p class="text-sm mb-2" :style="{ color: 'var(--text-tertiary)' }">
-            资产配置
-          </p>
-          <div v-if="hasAllocationData" class="allocation-chart-wrap">
-            <!-- 中心覆盖层：总资产金额（HTML 层，复用 MoneyDisplay 样式锚点） -->
-            <div class="allocation-center">
-              <span
-                class="allocation-center-label"
-                :style="{ color: 'var(--text-tertiary)' }"
-                >总资产</span
-              >
-              <MoneyDisplay
-                :value="totalAssets"
-                :show-sign="false"
-                :auto-color="false"
-                size="sm"
-              />
-            </div>
-            <v-chart
-              :option="allocationOption"
-              :autoresize="true"
-              class="allocation-chart"
-            />
-          </div>
-          <div v-else class="allocation-empty">
-            <IconifyIconOffline
-              icon="ep:pie-chart"
-              class="text-4xl mb-2 opacity-30"
-            />
-            <p class="text-sm" :style="{ color: 'var(--text-tertiary)' }">
-              暂无资产配置数据
-            </p>
-          </div>
-        </div>
+        <!-- 资产配置环形图卡（#984 拆分至 components/LedgerAllocationCard.vue） -->
+        <LedgerAllocationCard
+          :groups="overviewData?.groups ?? []"
+          :total-assets="totalAssets"
+        />
       </div>
 
       <!-- 未归置持仓清理套件（#984 拆分至 components/OrphanCleanupDialogs.vue）：
@@ -362,10 +332,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
-import { ElMessage, ElMessageBox } from "element-plus";
-import VChart from "vue-echarts";
+import { ElMessage } from "element-plus";
 import { usePageRefresh } from "@/composables/usePageRefresh";
-import { getCssVar } from "@/composables/echarts/theme";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import {
   getLedgers,
@@ -381,6 +349,7 @@ import { formatDateTime } from "@/utils/date";
 import DeleteLedgerDialog from "./components/DeleteLedgerDialog.vue";
 import CreateAccountDialog from "./components/CreateAccountDialog.vue";
 import OrphanCleanupDialogs from "./components/OrphanCleanupDialogs.vue";
+import LedgerAllocationCard from "./components/LedgerAllocationCard.vue";
 
 defineOptions({ name: "AssetLedgers" });
 
@@ -434,99 +403,7 @@ const liabilityRate = computed(() => {
   return `${((overviewData.value.liability_total / totalAssets.value) * 100).toFixed(1)}%`;
 });
 
-// ── 资产配置环形图 ──
-// 图表颜色必须经 getComputedStyle 动态读取 CSS 变量（design.md 红线：禁止硬编码 hex）
-const CHART_COLOR_VARS = [
-  "--chart-01",
-  "--chart-02",
-  "--chart-03",
-  "--chart-04",
-  "--chart-05",
-  "--chart-06",
-  "--chart-07",
-  "--chart-08"
-];
-
-function getChartColor(varName: string): string {
-  return getCssVar(varName);
-}
-
-// 环形图数据源：overview groups（过滤已删除账户），value 用 group.total（元）
-const allocationGroups = computed(() =>
-  (overviewData.value?.groups ?? []).filter(
-    (g: any) => g.type !== "deleted" && (g.total || 0) > 0
-  )
-);
-
-// 空态判定：无分组或全部 total=0 时不渲染图表
-const hasAllocationData = computed(() => allocationGroups.value.length > 0);
-
-// 环形图 option：环形 + 底部 legend（分类名 + 占比），中心由 HTML 覆盖层显示总资产
-const allocationOption = computed(() => {
-  const groups = allocationGroups.value;
-  const total = groups.reduce((sum: number, g: any) => sum + (g.total || 0), 0);
-  const legendTextColor = getChartColor("--text-secondary") || "#6b655c";
-  const borderColor = getChartColor("--bg-card") || "#ffffff";
-  // 尊重系统减弱动效偏好：关闭 echarts 入场动画
-  const reduceMotion =
-    typeof window !== "undefined" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-  return {
-    animation: !reduceMotion,
-    tooltip: {
-      trigger: "item",
-      backgroundColor: getChartColor("--bg-card") || "#ffffff",
-      borderColor: getChartColor("--border-light") || "#f0ebe4",
-      textStyle: {
-        color: getChartColor("--text-primary") || "#2d2a24",
-        fontSize: 12
-      },
-      formatter: (params: any) => {
-        const pct = total > 0 ? ((params.value / total) * 100).toFixed(1) : "0";
-        return `${params.name}<br/>¥${Number(params.value).toLocaleString()}（${pct}%）`;
-      }
-    },
-    legend: {
-      bottom: 0,
-      icon: "circle",
-      itemWidth: 8,
-      itemHeight: 8,
-      itemGap: 12,
-      textStyle: { color: legendTextColor, fontSize: 12 },
-      // 分类名 + 占比（%），占比按 total 实时计算
-      formatter: (name: string) => {
-        const g = groups.find((x: any) => x.label === name);
-        const pct =
-          total > 0 ? (((g?.total || 0) / total) * 100).toFixed(1) : "0";
-        return `${name} ${pct}%`;
-      }
-    },
-    series: [
-      {
-        type: "pie",
-        radius: ["52%", "72%"],
-        center: ["50%", "42%"],
-        avoidLabelOverlap: true,
-        itemStyle: {
-          borderRadius: 6,
-          borderColor,
-          borderWidth: 2
-        },
-        label: { show: false },
-        emphasis: { scaleSize: 4 },
-        // 颜色按 CHART_COLOR_VARS 循环取用，超出 8 类时循环回绕
-        data: groups.map((g: any, i: number) => ({
-          name: g.label,
-          value: g.total,
-          itemStyle: {
-            color: getChartColor(CHART_COLOR_VARS[i % CHART_COLOR_VARS.length])
-          }
-        }))
-      }
-    ]
-  };
-});
+// ── 资产配置环形图逻辑已拆分至 components/LedgerAllocationCard.vue（#984）──
 
 // 已删除账户的持仓信息（来自 overview）
 const orphanGroup = computed(() =>
