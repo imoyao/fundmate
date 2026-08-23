@@ -45,7 +45,7 @@ def main() -> int:
 
     if s is None or s.dropna().empty:
         logger.error(
-            '分母预取失败（meta=%s）。本机网络可能仍不可达 legulegu/东财，' '请检查代理或网络连接后重试。',
+            '分母预取失败（meta=%s）。本机网络可能仍不可达 legulegu/东财，请检查代理或网络连接后重试。',
             meta,
         )
         return 2

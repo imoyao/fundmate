@@ -65,8 +65,9 @@ class Position(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     __table_args__ = (
         # 核心业务约束：同一账户下 symbol 唯一
         UniqueConstraint('ledger_id', 'symbol', name='uq_positions_ledger_symbol'),
-        # 去重约束：持仓内容哈希唯一，撞 key 由 service 层转 upsert（更新数量/成本,保留溯源）
-        UniqueConstraint('import_hash', name='uq_positions_import_hash'),
+        # 去重约束：持仓内容哈希唯一，撞 key 由 service 层转 upsert（更新数量/成本,保留溯源）。
+        # 去重作用域降为 ledger 级（#1020 / #1065）：import_hash 已含 ledger_id，复合约束与代码语义对齐。
+        UniqueConstraint('ledger_id', 'import_hash', name='uq_positions_import_hash'),
         # 常用查询索引
         Index('idx_positions_ledger_id', 'ledger_id'),
         Index('idx_positions_symbol', 'symbol'),

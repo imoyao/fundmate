@@ -291,7 +291,7 @@ class DatabaseFactory:
             import logging
 
             logging.getLogger(__name__).warning(
-                'DATA_DOMAIN_REGISTRY 存在孤儿表（模型未定义但已登记）：%s，' '请同步文档与代码。',
+                'DATA_DOMAIN_REGISTRY 存在孤儿表（模型未定义但已登记）：%s，请同步文档与代码。',
                 orphan,
             )
         return grouped

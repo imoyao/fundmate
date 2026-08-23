@@ -143,7 +143,7 @@ def _validate_schema(bind, metadata, label: str = 'app') -> None:
         db_cols = {c['name'] for c in inspector.get_columns(table.name)}
         missing = [c.name for c in table.columns if c.name not in db_cols]
         if missing:
-            drifts.append(f"  - 表 {table.name} 缺列: {', '.join(missing)}")
+            drifts.append(f'  - 表 {table.name} 缺列: {", ".join(missing)}')
 
     if drifts:
         raise RuntimeError(

@@ -60,9 +60,14 @@
       <!-- AI 识别模式：文本 / 图片 → holding_import → 持仓预览行（独立持仓管线，不建流水） -->
       <div v-if="!parsedOk && importMode === 'ai'" class="ai-import-panel">
         <div class="ai-import-panel__usage">
-          <IconifyIconOffline icon="ep:magic-stick" class="ai-import-panel__usage-icon" />
+          <IconifyIconOffline
+            icon="ep:magic-stick"
+            class="ai-import-panel__usage-icon"
+          />
           <span>今日 AI 持仓识别额度剩余</span>
-          <strong class="ai-import-panel__usage-count">{{ aiRemaining }}</strong>
+          <strong class="ai-import-panel__usage-count">{{
+            aiRemaining
+          }}</strong>
           / {{ aiQuota }} 次
         </div>
 
@@ -105,7 +110,10 @@
           />
         </div>
         <div v-else class="ai-import-panel__image">
-          <ImageUploader v-model="aiImageFile" tip="支持券商 / 基金 App 持仓截图，文件不超过 5MB" />
+          <ImageUploader
+            v-model="aiImageFile"
+            tip="支持券商 / 基金 App 持仓截图，文件不超过 5MB"
+          />
         </div>
 
         <el-button
@@ -120,10 +128,7 @@
       </div>
 
       <!-- 大上传卡片：解析成功后由 previewRows/parsedOk 收起让位预览表格 -->
-      <div
-        v-if="!parsedOk && importMode === 'file'"
-        class="upload-collapse"
-      >
+      <div v-if="!parsedOk && importMode === 'file'" class="upload-collapse">
         <div class="upload-collapse__inner">
           <div class="upload-card">
             <el-upload
@@ -490,7 +495,9 @@ const aiImageFile = ref<File | null>(null);
 const aiRecognizing = ref(false);
 const aiUsage = ref({ used: 0, limit: 10 });
 const aiQuota = computed(() => aiUsage.value.limit || 10);
-const aiRemaining = computed(() => Math.max(0, aiQuota.value - aiUsage.value.used));
+const aiRemaining = computed(() =>
+  Math.max(0, aiQuota.value - aiUsage.value.used)
+);
 
 function switchMode(mode: "file" | "ai") {
   if (parsedOk.value) return;
@@ -559,7 +566,10 @@ async function handleAiRecognize() {
       total: rows.length,
       error_count: rows.filter(r => r.error).length
     };
-    fileName.value = aiTab.value === "text" ? "AI 识别文本(持仓)" : (aiImageFile.value?.name ?? "AI 识别图片(持仓)");
+    fileName.value =
+      aiTab.value === "text"
+        ? "AI 识别文本(持仓)"
+        : (aiImageFile.value?.name ?? "AI 识别图片(持仓)");
     importMode.value = "ai";
     ElMessage.success(`识别成功，共 ${rows.length} 条持仓`);
     await fetchAiUsage();

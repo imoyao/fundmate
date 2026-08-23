@@ -8,6 +8,8 @@ from collections import defaultdict
 from datetime import date, datetime
 from typing import Any, Type
 
+from sqlalchemy import func
+
 from app.core.constants import (
     ALLOCATION_LABELS,
     CATEGORY_META,
@@ -579,3 +581,70 @@ def _nearest_before(db: Session, family_id: int, boundary: date) -> Any | None:
 
 def _net_of(row: Any | None) -> float | None:
     return None if row is None else round(Money.cents_to_yuan(row.net_worth), 2)
+
+
+def scan_cross_ledger_duplicates(db: Session, family_id: int) -> list[dict]:
+    """#1066 / #1020：family 级「幽灵重复」扫描（非阻断预警）。
+
+    背景：#1065 将导入去重作用域降为 ledger 级后，用户可能无意中对同一份交割单
+    在多个账本各导一次，造成交易/收益翻倍。本扫描在 family 级识别「同一笔交易
+    疑似出现在多个账本」的组，供前端软提示横幅指名来源账本。
+
+    判定口径（务实近似）：
+    - transactions 表未持久化 source，无法反解精确 import_hash，故用内容指纹
+      (confirm_date, symbol, txn_type, amount) 作为近似判重键；
+    - 同一指纹落在 >=2 个不同 ledger_id 的「成功」交易，视为疑似跨账本重复；
+    - 排除 ledger_id 为 NULL 的影子记录与 status != 'success' 的行；
+    - 占位历史哈希（legacy|*）天然唯一不会触发，无需特判。
+    - 注意：持仓（positions）不做此扫描——同一标的跨账本持有两个持仓可能是
+      合法分散持有，误报率高；重复风险主要在交易流水层。
+
+    返回：每组 {symbol, confirm_date, txn_type, amount_yuan, ledger_ids, ledger_names, count}
+    """
+    ledger_name_map = {led.id: led.name for led in db.query(Ledger).filter(Ledger.family_id == family_id).all()}
+
+    # B4 修复：用 SQL 聚合直接出重复组，避免把 family 级全量交易拉进内存再分组
+    # （数据量大时全表 .all() 会 OOM/慢）。SQLite 支持 group_concat(distinct ...)，
+    # 一次性拿到每组的去重 ledger_id 列表。
+    dup_rows = (
+        db.query(
+            Transaction.confirm_date,
+            Transaction.symbol,
+            Transaction.txn_type,
+            Transaction.amount,
+            func.count(Transaction.id).label('cnt'),
+            func.group_concat(func.distinct(Transaction.ledger_id)).label('ledger_ids_csv'),
+        )
+        .filter(
+            Transaction.family_id == family_id,
+            Transaction.ledger_id.isnot(None),
+            Transaction.status == 'success',
+        )
+        .group_by(
+            Transaction.confirm_date,
+            Transaction.symbol,
+            Transaction.txn_type,
+            Transaction.amount,
+        )
+        .having(func.count(func.distinct(Transaction.ledger_id)) >= 2)
+        .all()
+    )
+
+    result: list[dict] = []
+    for row in dup_rows:
+        ledger_ids = sorted({int(x) for x in (row.ledger_ids_csv or '').split(',') if x})
+        result.append(
+            {
+                'symbol': row.symbol,
+                'confirm_date': row.confirm_date.isoformat() if row.confirm_date else None,
+                'txn_type': row.txn_type,
+                'amount_yuan': round(Money.cents_to_yuan(row.amount), 2),
+                'ledger_ids': ledger_ids,
+                'ledger_names': [ledger_name_map.get(lid, f'账本{lid}') for lid in ledger_ids],
+                'count': row.cnt,
+            }
+        )
+
+    # 按涉及账本数、笔数降序，最可疑的排前面
+    result.sort(key=lambda x: (len(x['ledger_ids']), x['count']), reverse=True)
+    return result
