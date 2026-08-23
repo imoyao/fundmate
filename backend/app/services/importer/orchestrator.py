@@ -173,18 +173,20 @@ class ImportOrchestrator:
                 }
             )
 
-        # 去重检查
+        # 去重检查（#1020 / #1065：去重作用域降为 ledger 级，查询补 ledger_id 维度）
+        # 与复合唯一约束 (ledger_id, import_hash) 对齐：DB 端先按 hash 子集缩小，
+        # Python 端再按 (ledger_id, import_hash) 精确判定，避免跨账本误判重复。
         hashes = [r['import_hash'] for r in rows if r.get('import_hash')]
-        existing_hashes = set()
+        existing_pairs = set()
         if hashes:
-            existing_hashes = set(
-                h[0]
-                for h in self.db.query(Transaction.import_hash)
-                .filter(Transaction.import_hash.in_(hashes), Transaction.family_id == self.family_id)
+            for t in (
+                self.db.query(Transaction.ledger_id, Transaction.import_hash)
+                .filter(Transaction.family_id == self.family_id, Transaction.import_hash.in_(hashes))
                 .all()
-            )
+            ):
+                existing_pairs.add((t.ledger_id, t.import_hash))
         for row in rows:
-            if row.get('import_hash') and row['import_hash'] in existing_hashes:
+            if row.get('import_hash') and (row.get('ledger_id'), row['import_hash']) in existing_pairs:
                 row['is_duplicate'] = True
 
         error_count = sum(1 for r in rows if r.get('error'))
@@ -520,7 +522,11 @@ class ImportOrchestrator:
                     if record.import_hash:
                         existing = (
                             self.db.query(Transaction)
-                            .filter_by(import_hash=record.import_hash, family_id=self.family_id)
+                            .filter_by(
+                                import_hash=record.import_hash,
+                                ledger_id=record.ledger_id,
+                                family_id=self.family_id,
+                            )
                             .first()
                         )
                         if existing:
