@@ -8,6 +8,8 @@ from collections import defaultdict
 from datetime import date, datetime
 from typing import Any, Type
 
+from sqlalchemy import func
+
 from app.core.constants import (
     ALLOCATION_LABELS,
     CATEGORY_META,
@@ -601,35 +603,45 @@ def scan_cross_ledger_duplicates(db: Session, family_id: int) -> list[dict]:
     """
     ledger_name_map = {led.id: led.name for led in db.query(Ledger).filter(Ledger.family_id == family_id).all()}
 
-    txns = (
-        db.query(Transaction)
+    # B4 修复：用 SQL 聚合直接出重复组，避免把 family 级全量交易拉进内存再分组
+    # （数据量大时全表 .all() 会 OOM/慢）。SQLite 支持 group_concat(distinct ...)，
+    # 一次性拿到每组的去重 ledger_id 列表。
+    dup_rows = (
+        db.query(
+            Transaction.confirm_date,
+            Transaction.symbol,
+            Transaction.txn_type,
+            Transaction.amount,
+            func.count(Transaction.id).label('cnt'),
+            func.group_concat(func.distinct(Transaction.ledger_id)).label('ledger_ids_csv'),
+        )
         .filter(
             Transaction.family_id == family_id,
             Transaction.ledger_id.isnot(None),
             Transaction.status == 'success',
         )
+        .group_by(
+            Transaction.confirm_date,
+            Transaction.symbol,
+            Transaction.txn_type,
+            Transaction.amount,
+        )
+        .having(func.count(func.distinct(Transaction.ledger_id)) >= 2)
         .all()
     )
 
-    groups: dict[tuple, list[Transaction]] = defaultdict(list)
-    for t in txns:
-        key = (t.confirm_date, t.symbol, t.txn_type, t.amount)
-        groups[key].append(t)
-
     result: list[dict] = []
-    for (confirm_date, symbol, txn_type, amount), ts in groups.items():
-        ledger_ids = sorted({t.ledger_id for t in ts})
-        if len(ledger_ids) < 2:
-            continue
+    for row in dup_rows:
+        ledger_ids = sorted({int(x) for x in (row.ledger_ids_csv or '').split(',') if x})
         result.append(
             {
-                'symbol': symbol,
-                'confirm_date': confirm_date.isoformat() if confirm_date else None,
-                'txn_type': txn_type,
-                'amount_yuan': round(Money.cents_to_yuan(amount), 2),
+                'symbol': row.symbol,
+                'confirm_date': row.confirm_date.isoformat() if row.confirm_date else None,
+                'txn_type': row.txn_type,
+                'amount_yuan': round(Money.cents_to_yuan(row.amount), 2),
                 'ledger_ids': ledger_ids,
                 'ledger_names': [ledger_name_map.get(lid, f'账本{lid}') for lid in ledger_ids],
-                'count': len(ts),
+                'count': row.cnt,
             }
         )
 
