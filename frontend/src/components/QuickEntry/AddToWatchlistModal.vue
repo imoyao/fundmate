@@ -128,7 +128,11 @@
                 </div>
               </el-option>
             </el-select>
-            <el-button size="small" class="inline-add-btn" @click="groupFormVisible = true">
+            <el-button
+              size="small"
+              class="inline-add-btn"
+              @click="groupFormVisible = true"
+            >
               <IconifyIconOffline icon="ep:plus" />
             </el-button>
           </div>
@@ -170,7 +174,11 @@
                 </div>
               </el-option>
             </el-select>
-            <el-button size="small" class="inline-add-btn" @click="tagFormVisible = true">
+            <el-button
+              size="small"
+              class="inline-add-btn"
+              @click="tagFormVisible = true"
+            >
               <IconifyIconOffline icon="ep:plus" />
             </el-button>
           </div>
@@ -224,11 +232,17 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick } from "vue";
+import {
+  ref,
+  computed,
+  onMounted,
+  nextTick,
+  type ComponentPublicInstance
+} from "vue";
 import { ElMessage } from "element-plus";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import { searchSecurities } from "@/api/securities";
-import { searchFunds } from "@/api/funds";
+import { searchFunds, type FundSearchItem } from "@/api/funds";
 import {
   getWatchlistGroups,
   getWatchlistTags,
@@ -237,11 +251,27 @@ import {
   getWatchlistItems,
   createWatchlistItem // ✅ 新增 API 封装
 } from "@/api/watchlist";
-import type { WatchlistGroup, WatchlistTag } from "@/api/watchlist";
+import type {
+  WatchlistGroup,
+  WatchlistTag,
+  WatchlistItem
+} from "@/api/watchlist";
 import { getTypeLabel } from "@/constants/assetType";
 import { getMarketLabel, getVenueLabel } from "@/constants/market";
 import TagFormDialog from "@/components/Watchlist/TagFormDialog.vue";
 import GroupFormDialog from "@/components/Watchlist/GroupFormDialog.vue";
+
+interface SearchAssetOption {
+  symbol: string;
+  name: string;
+  market: string;
+  type?: string;
+  venue: string;
+  searchType?: "sec" | "fund";
+  subscription_rate?: number;
+  is_money_fund?: boolean;
+  code?: string;
+}
 
 const props = defineProps<{
   modelValue: boolean;
@@ -260,8 +290,8 @@ const visible = computed({
 });
 
 const searchLoading = ref(false);
-const searchResults = ref<any[]>([]);
-const selectedAsset = ref<any>(null);
+const searchResults = ref<SearchAssetOption[]>([]);
+const selectedAsset = ref<SearchAssetOption | null>(null);
 const addReason = ref("");
 const pinToTop = ref(false);
 const submitting = ref(false);
@@ -269,11 +299,11 @@ const assetAlreadyExists = ref(false);
 
 const availableGroups = ref<WatchlistGroup[]>([]);
 const selectedGroupIds = ref<number[]>([]);
-const groupSelectRef = ref<any>(null);
+const groupSelectRef = ref<ComponentPublicInstance | null>(null);
 
 const availableTags = ref<WatchlistTag[]>([]);
 const selectedTagIds = ref<number[]>([]);
-const tagSelectRef = ref<any>(null);
+const tagSelectRef = ref<ComponentPublicInstance | null>(null);
 
 // 复用全局「新建标签 / 新建分组」弹窗，统一入口体验
 const tagFormVisible = ref(false);
@@ -317,23 +347,35 @@ const onGroupFormSaved = () => {
 };
 
 const handleGroupSelect = () => {
-  if (groupSelectRef.value) {
-    groupSelectRef.value.query = "";
-    groupSelectRef.value.visible = false;
+  const el = groupSelectRef.value as unknown as {
+    query: string;
+    visible: boolean;
+  } | null;
+  if (el) {
+    el.query = "";
+    el.visible = false;
   }
 };
 
 const tagChange = () => {
-  if (tagSelectRef.value) tagSelectRef.value.visible = false;
+  const el = tagSelectRef.value as unknown as {
+    query: string;
+    visible: boolean;
+  } | null;
+  if (el) el.visible = false;
   nextTick(() => {
-    if (tagSelectRef.value) tagSelectRef.value.query = "";
+    const el2 = tagSelectRef.value as unknown as {
+      query: string;
+      visible: boolean;
+    } | null;
+    if (el2) el2.query = "";
   });
 };
 
 const fetchGroups = async () => {
   try {
     const res = await getWatchlistGroups();
-    const allGroups: WatchlistGroup[] = (res as any).data ?? [];
+    const allGroups: WatchlistGroup[] = res.data ?? [];
     availableGroups.value = allGroups.filter(g => !g.is_system && g.id != null);
   } catch (e) {
     console.error("获取分组失败：", e);
@@ -344,7 +386,7 @@ const fetchTags = async () => {
   try {
     const res = await getWatchlistTags();
     availableTags.value =
-      (res as any).data?.map((tag: WatchlistTag) => ({
+      res.data.map((tag: WatchlistTag) => ({
         ...tag,
         color: tag.color || "var(--text-disabled)"
       })) ?? [];
@@ -356,7 +398,7 @@ const fetchTags = async () => {
 const checkAssetExists = async (symbol: string) => {
   try {
     const res = await getWatchlistItems({ symbol });
-    return ((res as any).data ?? []).length > 0;
+    return (res.data ?? []).length > 0;
   } catch {
     return false;
   }
@@ -373,21 +415,28 @@ const remoteSearch = async (query: string) => {
       searchSecurities(query),
       searchFunds(query)
     ]);
-    const results: any[] = [];
+    const results: SearchAssetOption[] = [];
     if (secRes.status === "fulfilled") {
-      const secData = (secRes.value as any)?.data ?? [];
-      results.push(...secData.map((s: any) => ({ ...s, searchType: "sec" })));
+      const secData: SearchAssetOption[] = secRes.value?.data ?? [];
+      results.push(
+        ...secData.map((s: SearchAssetOption) => ({
+          ...s,
+          market: s.market || "CN_A",
+          venue: s.venue || "EXCHANGE",
+          searchType: "sec" as const
+        }))
+      );
     }
     if (fundRes.status === "fulfilled") {
-      const fundData = (fundRes.value as any)?.data ?? [];
+      const fundData: FundSearchItem[] = fundRes.value?.data ?? [];
       results.push(
-        ...fundData.map((f: any) => ({
+        ...fundData.map((f: FundSearchItem) => ({
           symbol: f.code,
           name: f.name,
           market: "CN_A",
           type: "fund",
           venue: "OTC",
-          searchType: "fund"
+          searchType: "fund" as const
         }))
       );
     }
@@ -399,7 +448,7 @@ const remoteSearch = async (query: string) => {
   }
 };
 
-const onAssetSelected = async (option: any) => {
+const onAssetSelected = async (option: SearchAssetOption | null) => {
   if (!option) return;
   selectedAsset.value = option;
   pinToTop.value = false;
@@ -426,9 +475,9 @@ const handleSubmit = async () => {
       add_reason: addReason.value || undefined,
       is_pinned: pinToTop.value
     });
-    const newItem = (itemRes as any).data;
+    const newItem: WatchlistItem = itemRes.data;
 
-    const promises: Promise<any>[] = [];
+    const promises: Promise<void>[] = [];
     for (const gid of selectedGroupIds.value) {
       promises.push(addItemToGroup(newItem.id, gid));
     }
@@ -440,9 +489,13 @@ const handleSubmit = async () => {
     ElMessage.success("资产已成功添加到自选！");
     visible.value = false;
     emit("submitted");
-  } catch (e: any) {
+  } catch (e) {
+    const err = e as {
+      response?: { data?: { message?: string } };
+      message?: string;
+    };
     ElMessage.error(
-      "添加失败：" + (e.response?.data?.message || e.message || "未知错误")
+      "添加失败：" + (err.response?.data?.message || err.message || "未知错误")
     );
   } finally {
     submitting.value = false;
