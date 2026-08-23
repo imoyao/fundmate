@@ -319,6 +319,42 @@ def test_commit_cash_follows_target_ledger_cross_import(db):
     assert not any(t.ledger_id is None for t in txns)
 
 
+def test_commit_cash_falls_to_bound_bank_when_ledger_linked(db):
+    """B6 整改：目标账本已绑定现金账户（linked_cash_ledger_id 指向 bank）时，
+    现金/货基行应落到绑定的 bank 账本，而非跟随目标证券账本。"""
+    bank = Ledger(name='招行卡', ledger_type='bank', family_id=1)
+    stock = Ledger(name='证券账户', ledger_type='stock', family_id=1)
+    stock.linked_cash_ledger_id = bank.id  # 绑定现金账户
+    db.add_all([bank, stock])
+    db.commit()
+
+    orch = ImportOrchestrator(db, family_id=1)
+    row = {
+        'symbol': '000001',
+        'name': '货币基金',
+        'type': 'money_fund',
+        'op_type': 'deposit',
+        'amount': 100.0,
+        'quantity': None,
+        'price': None,
+        'fee': 0.0,
+        'trade_date': '2026-08-01',
+        'account_name': '',
+        'ledger_id': stock.id,  # 目标账本是证券账户（未直接选 bank）
+        'contract_id': 'TXN-Y',
+        'net_amount': 88.5,
+        'source': 'ths_stock',
+        'import_hash': 'h-bound-bank',
+    }
+    res = orch.commit_from_preview([row])
+    assert res['imported'] == 1
+    txn = db.query(Transaction).filter_by(import_hash='h-bound-bank').first()
+    assert txn is not None
+    # 现金落到绑定的 bank，而非跟随 stock 目标账本
+    assert txn.ledger_id == bank.id
+    assert txn.ledger_id != stock.id
+
+
 def test_fill_missing_nav_and_shares_4_decimal_precision(db, monkeypatch):
     """份额精度修复：预估份额保留 4 位小数（与 min_unit 对齐），不再截断到 2 位。"""
     monkeypatch.setattr(FundService, 'get_fund_nav_map', lambda db, symbols, target_date: {'014330': Decimal('1.2345')})
