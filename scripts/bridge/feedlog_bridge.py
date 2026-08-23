@@ -141,40 +141,33 @@ def get_gh() -> Github:
 
 
 def fetch_new_posts(conn, since: str | None) -> list[dict]:
-    """查询自 since 以来新创建的帖子（含板名、作者名）"""
+    """查询自 since 以来新创建的帖子（含板名、作者名）。
+
+    关键护栏：排除 system 作者（渠道 2「GitHub→FeedLog」建帖的哨兵作者）。
+    这些帖子是 GitHub Issue 的镜像，不应再被渠道 1「FeedLog→GitHub」
+    同步回 GitHub，否则会形成 FeedLog ↔ GitHub 死循环。
+    这是比 bridge_state.json 更可靠的防循环判据——state 靠 git 提交在
+    并发 job 间传递，时序竞争会丢映射，而作者字段在 DB 里不会丢。
+    """
     cur = conn.cursor()
+    sql = """
+        SELECT
+            p.id, p.title, p.content, p.status,
+            p.created_at, p.updated_at,
+            p.vote_count, p.comment_count,
+            b.name AS board_name,
+            u.name AS author_name, u.email AS author_email
+        FROM "post" p
+        JOIN "board" b ON p.board_id = b.id
+        JOIN "user" u ON p.author_id = u.id
+        WHERE p.author_id <> %s
+    """
+    params: list[Any] = [SYSTEM_AUTHOR_ID]
     if since:
-        cur.execute(
-            """
-            SELECT
-                p.id, p.title, p.content, p.status,
-                p.created_at, p.updated_at,
-                p.vote_count, p.comment_count,
-                b.name AS board_name,
-                u.name AS author_name, u.email AS author_email
-            FROM "post" p
-            JOIN "board" b ON p.board_id = b.id
-            JOIN "user" u ON p.author_id = u.id
-            WHERE p.created_at > %s
-            ORDER BY p.created_at ASC
-            """,
-            (since,),
-        )
-    else:
-        cur.execute(
-            """
-            SELECT
-                p.id, p.title, p.content, p.status,
-                p.created_at, p.updated_at,
-                p.vote_count, p.comment_count,
-                b.name AS board_name,
-                u.name AS author_name, u.email AS author_email
-            FROM "post" p
-            JOIN "board" b ON p.board_id = b.id
-            JOIN "user" u ON p.author_id = u.id
-            ORDER BY p.created_at ASC
-            """
-        )
+        sql += " AND p.created_at > %s"
+        params.append(since)
+    sql += " ORDER BY p.created_at ASC"
+    cur.execute(sql, params)
     return [dict(row) for row in cur.fetchall()]
 
 
@@ -282,6 +275,26 @@ def update_post_status(conn, post_id: str, new_status: str) -> bool:
     return cur.rowcount > 0
 
 
+def update_post_from_issue(conn, post_id: str, title: str, body: str) -> bool:
+    """用 GitHub Issue 最新标题/正文覆盖 FeedLog 帖子（内容修复）。
+
+    场景：GitHub 上手动修正了乱码标题/正文（edited 事件），或存量回灌
+    （sync-github-issue --update），把修正后的内容写回 FeedLog，避免
+    FeedLog 里长期残留乱码镜像。返回是否真正发生了更新。
+    """
+    cur = conn.cursor()
+    new_title = (title or "")[:200]
+    new_content = (body or "")[:10000]
+    cur.execute(
+        """UPDATE "post"
+           SET title = %s, content = %s, updated_at = NOW()
+           WHERE id = %s AND (title <> %s OR content <> %s)""",
+        (new_title, new_content, post_id, new_title, new_content),
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
 def get_org_id(conn) -> str:
     """获取 FeedLog 中第一个组织 ID（作为默认目标）"""
     cur = conn.cursor()
@@ -308,7 +321,12 @@ def create_post_from_issue(
 ) -> str | None:
     """将 GitHub Issue 新建为 FeedLog 帖子（双向补全：人工 issue → FeedLog）。
 
-    幂等：若 state 中该 issue_number 已映射，则跳过。返回新建 post id；已存在返回 None。
+    幂等（双保险）：
+      1. state 中该 issue_number 已映射 → 跳过；
+      2. DB 中已存在 gh-issue-{issue_number} slug 的帖子 → 跳过。
+    第 2 道是并发安全兜底：state 经 git 提交在并发 job 间传递会丢映射
+    （2026-08-23 曾因 5 个 issue 并发触发，4 个映射丢失导致帖子被渠道 1
+    重复同步回 GitHub 成 #1069–#1072），DB 层查重不受时序影响。
 
     护栏：带 feedlog 标签的 issue 是由「FeedLog → GitHub」通道（渠道 1）创建的，
     不应再反向建帖子，否则会形成 FeedLog ↔ GitHub 死循环。
@@ -334,9 +352,27 @@ def create_post_from_issue(
     board_id = get_board_id(conn, org_id, board_name)
 
     slug = f"gh-issue-{issue_number}"
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT id FROM "post" WHERE org_id = %s AND slug = %s""",
+        (org_id, slug),
+    )
+    existing = cur.fetchone()
+    if existing:
+        print(
+            f"  ⚠️ Issue #{issue_number} 已有帖子 {existing['id']}（slug={slug}），跳过"
+        )
+        # 并发丢映射兜底：把 DB 已存在的映射补回 state，供后续回写使用
+        state.setdefault("posts", {})[existing["id"]] = {
+            "issue_number": issue_number,
+            "synced_at": now_iso(),
+            "origin": "github",
+        }
+        save_state(state)
+        return None
+
     post_id = str(_uuid.uuid4())
     content = (body or "")[:10000]
-    cur = conn.cursor()
     cur.execute(
         """
         INSERT INTO "post"
@@ -471,6 +507,24 @@ def sync_issue_to_feedlog(
             break
 
     if not post_id:
+        # state 映射丢失兜底：按 slug gh-issue-{number} 查 DB
+        org_id = get_org_id(conn)
+        cur = conn.cursor()
+        cur.execute(
+            """SELECT id FROM "post" WHERE org_id = %s AND slug = %s""",
+            (org_id, f"gh-issue-{issue_number}"),
+        )
+        row = cur.fetchone()
+        if row:
+            post_id = row["id"]
+            posts[post_id] = {
+                "issue_number": issue_number,
+                "synced_at": now_iso(),
+                "origin": "github",
+            }
+            save_state(state)
+
+    if not post_id:
         print(f"  ⚠️ Issue #{issue_number} 无对应 FeedLog 帖子，跳过")
         return
 
@@ -543,6 +597,15 @@ def main():
         "--action", default="", help="GitHub 事件 action（如 closed/reopened）"
     )
 
+    # github → feedlog（Issue 编辑 → 覆盖 FeedLog 帖子内容）
+    edited_cmd = sub.add_parser(
+        "issue-edited-to-feedlog",
+        help="GitHub Issue 标题/正文编辑 → 覆盖 FeedLog 帖子内容（修复乱码镜像）",
+    )
+    edited_cmd.add_argument("--issue-number", type=int, required=True)
+    edited_cmd.add_argument("--title", default="")
+    edited_cmd.add_argument("--body", default="")
+
     # github release → feedlog changelog
     rel_cmd = sub.add_parser(
         "release-to-changelog", help="GitHub Release → FeedLog Changelog"
@@ -566,6 +629,11 @@ def main():
         "--include-releases",
         action="store_true",
         help="同时把 Release 同步为 FeedLog Changelog",
+    )
+    backfill_cmd.add_argument(
+        "--update",
+        action="store_true",
+        help="对已映射 FeedLog 帖子的 Issue，用 GitHub 最新标题/正文覆盖（修复乱码镜像）",
     )
 
     args = parser.parse_args()
@@ -613,6 +681,38 @@ def main():
         finally:
             conn.close()
 
+    elif args.command == "issue-edited-to-feedlog":
+        conn = get_db()
+        try:
+            # 从 state 反查该 issue 对应的 FeedLog 帖子
+            post_id = None
+            for pid, info in state.get("posts", {}).items():
+                if info.get("issue_number") == args.issue_number:
+                    post_id = pid
+                    break
+            if not post_id:
+                # state 映射丢失兜底：按 slug gh-issue-{number} 查 DB
+                org_id = get_org_id(conn)
+                cur = conn.cursor()
+                cur.execute(
+                    """SELECT id FROM "post" WHERE org_id = %s AND slug = %s""",
+                    (org_id, f"gh-issue-{args.issue_number}"),
+                )
+                row = cur.fetchone()
+                if row:
+                    post_id = row["id"]
+            if not post_id:
+                print(f"  ⚠️ Issue #{args.issue_number} 无对应 FeedLog 帖子映射，跳过")
+                sys.exit(0)
+            if update_post_from_issue(conn, post_id, args.title, args.body):
+                print(
+                    f"  ✅ FeedLog 帖子 {post_id} 内容已更新 (← Issue #{args.issue_number} 编辑)"
+                )
+            else:
+                print(f"  ℹ️ Issue #{args.issue_number} 内容无变化，跳过")
+        finally:
+            conn.close()
+
     elif args.command == "release-to-changelog":
         conn = get_db()
         try:
@@ -637,18 +737,50 @@ def main():
                 targets = list(repo.get_issues(state="all"))
 
             created = 0
+            updated = 0
             for issue in targets:
                 # PyGithub 会同时返回 PR（kind == 'pull_request'），跳过以免重复
                 if getattr(issue, "pull_request", None) is not None:
                     continue
                 labels = [label.name for label in issue.labels]
+
+                # 先查是否已映射（state 或 DB slug 双保险）
+                existing_pid = None
+                for pid, info in state.get("posts", {}).items():
+                    if info.get("issue_number") == issue.number:
+                        existing_pid = pid
+                        break
+                if not existing_pid:
+                    cur = conn.cursor()
+                    cur.execute(
+                        """SELECT id FROM "post"
+                           WHERE org_id = %s AND slug = %s""",
+                        (org_id, f"gh-issue-{issue.number}"),
+                    )
+                    row = cur.fetchone()
+                    if row:
+                        existing_pid = row["id"]
+
+                if existing_pid and args.update:
+                    # 回灌覆盖：用 GitHub 最新内容修复 FeedLog 镜像（如乱码）
+                    if update_post_from_issue(
+                        conn, existing_pid, issue.title, issue.body or ""
+                    ):
+                        updated += 1
+                        print(
+                            f"  ✅ 已回灌更新帖子 {existing_pid} ← Issue #{issue.number}"
+                        )
+                    else:
+                        print(f"  ℹ️ Issue #{issue.number} 内容与帖子一致，无更新")
+                    continue
+
                 post_id = create_post_from_issue(
                     conn, org_id, issue.number, issue.title, issue.body or "", labels
                 )
                 if post_id:
                     created += 1
                     print(f"  ✅ 已创建帖子 {post_id} ← Issue #{issue.number}")
-            print(f"🎉 同步完成，新建 {created} 条 FeedLog 帖子")
+            print(f"🎉 同步完成，新建 {created} 条，回灌更新 {updated} 条 FeedLog 帖子")
 
             if args.include_releases:
                 print("📦 同步 Release → Changelog…")

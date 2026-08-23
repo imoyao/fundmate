@@ -25,10 +25,21 @@ on:
         options:
           - feedlog-to-github
           - release-to-changelog
+          - sync-github-issue
+      update:
+        description: 'sync-github-issue 时是否回灌覆盖已映射帖子的内容（修复乱码）'
+        required: false
+        type: boolean
+        default: false
+      issue_number:
+        description: 'sync-github-issue 时指定 Issue 编号（留空同步全部）'
+        required: false
+        type: string
+        default: ''
 
-  # 通道 2：GitHub Issue 事件 → FeedLog（新建建帖子 + 状态回写）
+  # 通道 2：GitHub Issue 事件 → FeedLog（新建建帖子 + 状态回写 + 编辑内容同步）
   issues:
-    types: [opened, labeled, unlabeled, closed, reopened]
+    types: [opened, edited, labeled, unlabeled, closed, reopened]
 
   # 通道 3：GitHub Release 发布 → FeedLog Changelog
   release:
@@ -129,8 +140,24 @@ jobs:
             --body "$ISSUE_BODY" \
             --labels $ISSUE_LABELS
 
+      - name: Issue 编辑 → 覆盖 FeedLog 帖子内容（edited 修复乱码镜像）
+        # GitHub 上手动修正标题/正文（如乱码修复）后，把最新内容同步回 FeedLog
+        if: steps.parse.outputs.action == 'edited'
+        env:
+          FEEDLOG_DATABASE_URL: ${{ secrets.FEEDLOG_DATABASE_URL }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: imoyao/fundmate
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          python scripts/bridge/feedlog_bridge.py issue-edited-to-feedlog \
+            --issue-number "$ISSUE_NUMBER" \
+            --title "$ISSUE_TITLE" \
+            --body "$ISSUE_BODY"
+
       - name: 回写 FeedLog 状态（labeled/unlabeled/closed/reopened）
-        if: steps.parse.outputs.action != 'opened'
+        if: steps.parse.outputs.action != 'opened' && steps.parse.outputs.action != 'edited'
         env:
           FEEDLOG_DATABASE_URL: ${{ secrets.FEEDLOG_DATABASE_URL }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -148,6 +175,60 @@ jobs:
 
       - name: 提交状态文件（记录新建映射）
         if: steps.parse.outputs.action == 'opened'
+        run: |
+          if git diff --quiet scripts/bridge/bridge_state.json; then
+            echo "📭 状态文件无变化，跳过提交"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add scripts/bridge/bridge_state.json
+            git commit -m "chore: 更新 FeedLog 桥接状态 [skip ci]"
+            git push
+            echo "✅ 已提交状态文件"
+          fi
+
+  # ============================================
+  # 手动回灌：GitHub Issue → FeedLog（含 --update 覆盖修复乱码镜像）
+  # ============================================
+  sync-github-issue:
+    if: github.event_name == 'workflow_dispatch' && inputs.command == 'sync-github-issue'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+
+    steps:
+      - name: Checkout 仓库
+        uses: actions/checkout@v5
+        with:
+          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: 安装 Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: 安装依赖
+        run: pip install psycopg2-binary PyGithub
+
+      - name: 回灌同步 GitHub Issue → FeedLog
+        env:
+          FEEDLOG_DATABASE_URL: ${{ secrets.FEEDLOG_DATABASE_URL }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: imoyao/fundmate
+          UPDATE_FLAG: ${{ inputs.update }}
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+        run: |
+          ARGS=""
+          if [ "$UPDATE_FLAG" = "true" ]; then
+            ARGS="$ARGS --update"
+          fi
+          if [ -n "$ISSUE_NUMBER" ]; then
+            ARGS="$ARGS --issue-number $ISSUE_NUMBER"
+          fi
+          python scripts/bridge/feedlog_bridge.py sync-github-issue $ARGS
+
+      - name: 提交状态文件（记录新建映射）
         run: |
           if git diff --quiet scripts/bridge/bridge_state.json; then
             echo "📭 状态文件无变化，跳过提交"
