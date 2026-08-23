@@ -283,16 +283,15 @@ const emit = defineEmits<{
   color: var(--text-tertiary);
 }
 
-/* 归档/激活会改变账户状态，hover 用警告橙提示用户谨慎操作（非 danger，但需警示） */
-.ledger-row-action:not(.ledger-row-action--danger):hover,
-.ledger-row-action:not(.ledger-row-action--danger):focus-visible {
+/* 两个行内按钮 hover 效果统一：图标变色 + 浅背景（用父级前缀提权，确保盖过 EP 默认 is-text:hover） */
+.ledger-row-actions .ledger-row-action:not(.ledger-row-action--danger):hover,
+.ledger-row-actions .ledger-row-action:not(.ledger-row-action--danger):focus-visible {
   color: var(--el-color-warning);
   background-color: var(--el-color-warning-light-9);
 }
 
-/* 删除按钮：破坏性操作，hover 显 danger 红（基础灰色规则会覆盖 EP 默认，需显式声明） */
-.ledger-row-action--danger:hover,
-.ledger-row-action--danger:focus-visible {
+.ledger-row-actions .ledger-row-action--danger:hover,
+.ledger-row-actions .ledger-row-action--danger:focus-visible {
   color: var(--el-color-danger);
   background-color: var(--el-color-danger-light-9);
 }
