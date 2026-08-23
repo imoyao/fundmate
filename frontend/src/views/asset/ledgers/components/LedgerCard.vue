@@ -50,6 +50,7 @@ const emit = defineEmits<{
           v-if="typeof ledger.id === 'number'"
           :content="ledger.is_active === false ? '激活' : '归档'"
           placement="top"
+          effect="light"
         >
           <el-button
             text
@@ -69,6 +70,7 @@ const emit = defineEmits<{
           v-if="typeof ledger.id === 'number'"
           :content="'删除'"
           placement="top"
+          effect="light"
         >
           <el-button
             type="danger"
