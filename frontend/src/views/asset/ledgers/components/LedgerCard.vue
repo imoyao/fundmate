@@ -266,7 +266,25 @@ const emit = defineEmits<{
 
 .ledger-row-action {
   opacity: 0;
-  transition: opacity 0.2s ease;
+  transition:
+    opacity 0.2s ease,
+    color 0.15s ease,
+    border-color 0.15s ease,
+    background-color 0.15s ease;
+  /* 两个行内按钮（归档/删除）常显时统一为中性灰描边，视觉权重一致；
+     仅 hover 时才按意图分别显色（归档→主题色，删除→danger 红） */
+  --el-button-text-color: var(--text-tertiary);
+  --el-button-border-color: var(--border-light);
+  --el-button-hover-text-color: var(--el-color-primary);
+  --el-button-hover-border-color: var(--el-color-primary);
+  --el-button-hover-bg-color: var(--el-color-primary-light-9);
+}
+
+/* 删除按钮 hover 保持 danger 红（破坏性操作语义），与归档的蓝对称 */
+.ledger-row-action.el-button--danger {
+  --el-button-hover-text-color: var(--el-color-danger);
+  --el-button-hover-border-color: var(--el-color-danger);
+  --el-button-hover-bg-color: var(--el-color-danger-light-9);
 }
 
 .ledger-card:hover .ledger-row-action,
