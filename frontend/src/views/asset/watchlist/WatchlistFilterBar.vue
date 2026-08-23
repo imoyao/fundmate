@@ -85,6 +85,11 @@ function selectView(value: (typeof viewOptions)[number]["value"]) {
 
 const addDialogVisible = ref(false);
 
+// 已有自定义分组名称（用于新建分组时前端拦截重名）
+const existingGroupNames = computed(() =>
+  props.groups.customGroups.value.map(g => g.name)
+);
+
 // 标签筛选胶囊：点击切换草稿选中态（与「管理标签」的颜色胶囊同语言）
 function toggleDraftTag(id: number) {
   const idx = draftFilterTagIdsModel.value.indexOf(id);
@@ -145,34 +150,33 @@ function chipStyle(tag: WatchlistTag) {
           </span>
         </button>
 
-        <!-- 新建分组「+」+ 管理分组「📁」：紧跟所有分组名末尾，分组操作聚在一起（随分组一起滚动） -->
-        <el-button
-          v-if="!toolbar.batchMode.value"
-          class="group-tab-add"
-          circle
-          aria-label="新建分组"
-          @click="addDialogVisible = true"
-        >
-          <el-icon><Plus /></el-icon>
-        </el-button>
-        <el-tooltip
-          v-if="!toolbar.batchMode.value"
-          content="管理分组"
-          placement="bottom"
-        >
-          <el-button
-            class="manage-groups-btn"
-            circle
-            aria-label="管理分组"
-            @click="emit('manage-groups')"
-          >
-            <el-icon><Folder /></el-icon>
-          </el-button>
-        </el-tooltip>
       </div>
 
-      <!-- 右段（固定）：标签筛选 + 视图 segmented，不随分组 tab 滚动 -->
+      <!-- 右段（固定）：分组操作 + 标签筛选 + 视图 segmented，不随分组 tab 滚动 -->
       <div class="filter-bar__right">
+        <!-- 新建分组「+」+ 管理分组「📁」：固定展示，避免分组过多时被挤进滚动区 -->
+        <template v-if="!toolbar.batchMode.value">
+          <el-button
+            class="group-tab-add"
+            circle
+            aria-label="新建分组"
+            @click="addDialogVisible = true"
+          >
+            <el-icon><Plus /></el-icon>
+          </el-button>
+          <el-tooltip content="管理分组" placement="bottom">
+            <el-button
+              class="manage-groups-btn"
+              circle
+              aria-label="管理分组"
+              @click="emit('manage-groups')"
+            >
+              <el-icon><Folder /></el-icon>
+            </el-button>
+          </el-tooltip>
+          <div class="right-divider" />
+        </template>
+
         <!-- 标签筛选（bottom-start 左对齐触发按钮，减少浮层错位感）。
              trigger="click" + v-model:visible：EP 原生接管「点击外部 / Esc 自动收起」，
              替代旧手动 :visible（必须点取消才能关，反直觉）。
@@ -258,7 +262,11 @@ function chipStyle(tag: WatchlistTag) {
     </div>
 
     <!-- 新建分组弹窗 -->
-    <GroupFormDialog v-model="addDialogVisible" @saved="onRefresh" />
+    <GroupFormDialog
+      v-model="addDialogVisible"
+      :existing-names="existingGroupNames"
+      @saved="onRefresh"
+    />
   </div>
 </template>
 
@@ -286,6 +294,14 @@ function chipStyle(tag: WatchlistTag) {
 
 .filter-bar__right > * {
   flex-shrink: 0;
+}
+
+/* 右段分隔线：分组操作 与 标签/视图 之间的视觉分隔 */
+.right-divider {
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  background-color: var(--border-default);
 }
 
 .filter-bar__right :deep(.el-popover__reference),

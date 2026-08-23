@@ -91,6 +91,7 @@
       v-model="showForm"
       :group="editingGroup"
       :used-colors="usedColors"
+      :existing-names="existingNames"
       @saved="onFormSaved"
     />
   </el-dialog>
@@ -127,6 +128,7 @@ const filteredGroups = computed(() => {
 const usedColors = computed(
   () => props.allGroups.map(g => g.color).filter(Boolean) as string[]
 );
+const existingNames = computed(() => props.allGroups.map(g => g.name));
 
 function pillStyle(color: string | null) {
   const c = color || "#e07a6b";
