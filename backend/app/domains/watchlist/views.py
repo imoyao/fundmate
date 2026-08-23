@@ -561,7 +561,19 @@ def list_groups():
 def create_group():
     json_data = parse_body(WatchlistGroupCreate)
     with get_db() as db:
-        group = WatchlistGroup(**json_data.model_dump(), family_id=get_family_id())
+        name = json_data.name.strip()
+        # 检查是否已存在同名分组（家庭维度），避免重名
+        existing = (
+            db.query(WatchlistGroup)
+            .filter(WatchlistGroup.name == name, WatchlistGroup.family_id == get_family_id())
+            .first()
+        )
+        if existing:
+            abort(409, f'分组「{name}」已存在')
+
+        data = json_data.model_dump()
+        data['name'] = name
+        group = WatchlistGroup(**data, family_id=get_family_id())
         group.is_system = False
         db.add(group)
         db.commit()
@@ -577,6 +589,21 @@ def update_group(group_id):
         group = get_owned_or_404(db, WatchlistGroup, group_id)
         if not group:
             abort(404, '分组不存在')
+        # 重命名时校验是否与其他分组重名（排除自身）
+        if json_data.name is not None:
+            name = json_data.name.strip()
+            name_conflict = (
+                db.query(WatchlistGroup)
+                .filter(
+                    WatchlistGroup.name == name,
+                    WatchlistGroup.family_id == get_family_id(),
+                    WatchlistGroup.id != group_id,
+                )
+                .first()
+            )
+            if name_conflict:
+                abort(409, f'分组「{name}」已存在')
+            json_data.name = name
         update_data = json_data.model_dump(exclude_unset=True)
         for field, value in update_data.items():
             setattr(group, field, value)

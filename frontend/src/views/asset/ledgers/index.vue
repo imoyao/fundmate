@@ -149,151 +149,16 @@
           </h3>
         </div>
 
-        <!-- 账户卡片：auto-fit 网格自动折叠空轨道，孤点分类不会产生右侧大片空白 -->
+        <!-- 账户卡片：auto-fit 网格自动折叠空轨道，孤点分类不会产生右侧大片空白。
+             卡片展示细节已拆分至 components/LedgerCard.vue（#984） -->
         <div class="ledger-grid">
-          <div
+          <LedgerCard
             v-for="ledger in group.ledgers"
             :key="ledger.id"
-            class="ledger-card"
-            role="button"
-            tabindex="0"
-            :aria-label="`查看账户 ${ledger.name}`"
-            @click="goToDetail(ledger)"
-            @keydown.enter="goToDetail(ledger)"
-          >
-            <!-- 标题行：名称 + 类型标签 + 行内操作（hover 卡片时浮现） -->
-            <div class="flex items-center justify-between mb-3">
-              <div class="flex items-center gap-2 min-w-0">
-                <span
-                  class="font-semibold text-base truncate"
-                  :style="{ color: 'var(--text-primary)' }"
-                >
-                  {{ ledger.name }}
-                </span>
-                <AssetTypeBadge :type="ledger.ledger_type" />
-              </div>
-              <!-- 删除按钮：幽灵态 + hover 浮现（design.md「行内操作交互规范」） -->
-              <el-button
-                v-if="typeof ledger.id === 'number'"
-                type="danger"
-                plain
-                size="small"
-                circle
-                class="ledger-row-action"
-                :aria-label="`删除账户 ${ledger.name}`"
-                @click.stop="openDeleteDialog(ledger)"
-              >
-                <IconifyIconOffline icon="ep:delete" />
-              </el-button>
-            </div>
-
-            <!-- 核心指标：左右两列 flex（总资产为左侧大数字锚点，右侧两指标独立竖排，
-                 避免大数字撑高整行把右侧指标挤到下方） -->
-            <div class="ledger-metrics">
-              <div class="metric metric--main">
-                <span
-                  class="metric-label"
-                  :style="{ color: 'var(--text-tertiary)' }"
-                  >总资产</span
-                >
-                <span
-                  class="metric-value"
-                  :style="{ color: 'var(--text-primary)' }"
-                >
-                  <MoneyDisplay
-                    :value="ledger.total_market_value || 0"
-                    :show-sign="false"
-                    :auto-color="false"
-                    size="lg"
-                  />
-                </span>
-              </div>
-              <!-- 右侧两指标：独立竖排容器，垂直居中于卡片高度，互不挤压 -->
-              <div class="metric-side">
-                <!-- 当日盈亏：暂无当日行情数据，保留占位符 -->
-                <div class="metric">
-                  <span
-                    class="metric-label"
-                    :style="{ color: 'var(--text-tertiary)' }"
-                    >当日盈亏</span
-                  >
-                  <span
-                    class="metric-value"
-                    :style="{ color: 'var(--text-tertiary)' }"
-                    >--</span
-                  >
-                </div>
-                <!-- 持仓盈亏：银行显示活期余额、实物显示估值项数 -->
-                <div class="metric">
-                  <span
-                    class="metric-label"
-                    :style="{ color: 'var(--text-tertiary)' }"
-                  >
-                    {{
-                      ledger.ledger_type === "bank"
-                        ? "活期余额"
-                        : ledger.ledger_type === "property"
-                          ? "估值"
-                          : "持仓盈亏"
-                    }}
-                  </span>
-                  <template
-                    v-if="
-                      ledger.ledger_type === 'bank' &&
-                      ledger.cash_balance !== undefined &&
-                      ledger.cash_balance !== null
-                    "
-                  >
-                    <span
-                      class="metric-value"
-                      :style="{ color: 'var(--text-secondary)' }"
-                    >
-                      <MoneyDisplay
-                        :value="ledger.cash_balance"
-                        :show-sign="false"
-                        :auto-color="false"
-                        size="sm"
-                      />
-                    </span>
-                  </template>
-                  <template v-else-if="ledger.ledger_type === 'property'">
-                    <span
-                      class="metric-value"
-                      :style="{ color: 'var(--text-secondary)' }"
-                    >
-                      {{ ledger.position_count || 0 }} 项
-                    </span>
-                  </template>
-                  <span v-else class="metric-value">
-                    <!-- 盈亏数字走 MoneyDisplay 自动涨红跌绿 -->
-                    <MoneyDisplay :value="ledger.pnl || 0" size="sm" />
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <!-- 关联负债（仅银行账户且存在房贷时显示；负债属中性信息，用 text-secondary） -->
-            <div
-              v-if="
-                ledger.ledger_type === 'bank' && ledger.linked_liability > 0
-              "
-              class="ledger-liability"
-            >
-              <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }"
-                >关联负债</span
-              >
-              <span
-                class="text-xs font-medium"
-                :style="{ color: 'var(--text-secondary)' }"
-              >
-                <MoneyDisplay
-                  :value="-ledger.linked_liability"
-                  :auto-color="false"
-                  size="xs"
-                />
-              </span>
-            </div>
-          </div>
+            :ledger="ledger"
+            @open="goToDetail"
+            @delete="openDeleteDialog"
+          />
         </div>
 
         <!-- 幽灵态新增占位符：胶囊小按钮，高度恒定 44px，不撑满网格行 -->
@@ -350,6 +215,7 @@ import DeleteLedgerDialog from "./components/DeleteLedgerDialog.vue";
 import CreateAccountDialog from "./components/CreateAccountDialog.vue";
 import OrphanCleanupDialogs from "./components/OrphanCleanupDialogs.vue";
 import LedgerAllocationCard from "./components/LedgerAllocationCard.vue";
+import LedgerCard from "./components/LedgerCard.vue";
 
 defineOptions({ name: "AssetLedgers" });
 
@@ -487,21 +353,14 @@ onMounted(() => {
 </script>
 
 <style scoped>
-/* 触屏设备无 hover 态，直接常显，避免删除入口不可达 */
-@media (hover: none) {
-  .ledger-row-action {
-    opacity: 1;
-  }
-}
+/* 触屏设备无 hover 态的删除按钮样式已随 LedgerCard 迁移 */
 
-/* 尊重系统减弱动效偏好 */
+/* 尊重系统减弱动效偏好（.ledger-row-action/.orphan-banner 等子组件内部
+   元素的对应规则已随组件迁移，见各组件 scoped 块） */
 @media (prefers-reduced-motion: reduce) {
-  .ledger-card,
   .ghost-add,
-  .ledger-row-action,
   .overview-card,
-  .orphan-banner,
-  .allocation-card {
+  .ledger-card {
     transition: none;
   }
 
@@ -597,195 +456,11 @@ onMounted(() => {
   border-radius: var(--radius-pill);
 }
 
-/* ===== 资产配置环形图卡 ===== */
-.allocation-card {
-  display: flex;
-  flex-direction: column;
-}
-
-.allocation-chart-wrap {
-  position: relative;
-  flex: 1;
-  min-height: 220px;
-}
-
-/* 图表绝对定位填满容器：避免 echarts 在 flex 高度解析下拿到 0 高度 */
-.allocation-chart {
-  position: absolute;
-  inset: 0;
-}
-
-/* 环形图中心覆盖层：总资产金额（HTML 层，与 series center: 42% 对齐） */
-.allocation-center {
-  position: absolute;
-  top: 42%;
-  left: 50%;
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  align-items: center;
-  pointer-events: none;
-  transform: translate(-50%, -50%);
-}
-
-.allocation-center-label {
-  font-size: var(--text-label, 13px);
-  line-height: 18px;
-}
-
-.allocation-empty {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: 220px;
-  color: var(--text-tertiary);
-}
-
-/* ===== 未归置数据明细对话框：分区列表 ===== */
-.orphan-section {
-  margin-bottom: var(--space-compact);
-}
-
-.orphan-section-title {
-  margin-bottom: var(--space-2);
-  font-size: var(--text-label, 13px);
-  font-weight: 500;
-  line-height: 18px;
-  color: var(--text-secondary);
-}
-
-/* 表格名称列：超长省略（el-table 行高/边框等视觉基线由 src/style/el-table.css 统一维护） */
-.orphan-cell-name {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* 清理按钮：危险色走语义 token --color-danger-system（#d4364a，design.md 危险按钮规范），
-   覆盖 Element Plus 默认 danger（#f56c6c）；hover 红底白字，默认透明底（plain） */
-.orphan-clean-btn {
-  --el-button-text-color: var(--color-danger-system);
-  --el-button-border-color: var(--color-danger-system);
-  --el-button-hover-bg-color: var(--color-danger-system);
-  --el-button-hover-border-color: var(--color-danger-system);
-  --el-button-hover-text-color: #fff;
-  --el-button-active-bg-color: var(--color-danger-system);
-  --el-button-active-border-color: var(--color-danger-system);
-  --el-button-active-text-color: #fff;
-}
-
-/* ===== 未归置持仓提示 banner（品牌色态：brand-100 底 + brand-700 图标/文字；
-     提示性信息用品牌色而非危险色，危险色仅留给删除/清理类破坏性操作） ===== */
-.orphan-banner {
-  display: flex;
-  gap: var(--space-3);
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-3) var(--space-compact);
-  background: var(--brand-100);
-  border-radius: var(--radius-lg);
-}
-
 /* ===== 账户卡片网格：auto-fit 自动折叠空轨道，孤点分类不产生右侧大片空白 ===== */
 .ledger-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
   gap: var(--space-compact);
-}
-
-.ledger-card {
-  padding: var(--space-compact);
-  cursor: pointer;
-  outline: none; /* 焦点指示由 :focus-visible 环提供，勿移除 outline */
-  background: var(--bg-card);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-raised);
-  transition:
-    transform 0.2s ease,
-    box-shadow 0.2s ease;
-}
-
-.ledger-card:hover {
-  box-shadow: var(--shadow-float);
-}
-
-.ledger-card:focus-visible {
-  box-shadow: var(--focus-ring);
-}
-
-/* ===== 核心指标：左右两列 flex（总资产大数字锚点 + 右侧两指标独立竖排）。
-     不用 grid 跨行：大数字再长也只撑左列自身，右侧指标垂直居中不「下坠」 ===== */
-.ledger-metrics {
-  display: flex;
-  gap: var(--space-3);
-  align-items: stretch;
-}
-
-/* 左侧锚点：总资产大数字（lg）。flex 权重略大于右侧（1.25:1），
-   常见金额（十万级）单行放下；极端长金额由 overflow-wrap 兜底断行，绝不溢出卡片 */
-.metric--main {
-  display: flex;
-  flex: 1.25;
-  flex-direction: column;
-  gap: 2px;
-  justify-content: center;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-/* 右侧两指标：独立竖排容器，垂直居中于卡片高度，互不挤压 */
-.metric-side {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: var(--space-2);
-  justify-content: center;
-  min-width: 0;
-}
-
-.metric-label {
-  display: block;
-  font-size: var(--text-label, 13px);
-  line-height: 18px;
-}
-
-.metric-value {
-  display: block;
-  font-size: var(--text-small, 14px);
-
-  /* 数字等宽对齐：消除金额宽度抖动（design.md「数字等宽对齐」） */
-  font-variant-numeric: tabular-nums;
-  line-height: 22px;
-}
-
-/* 关联负债行（第三行跟进，用 --border-subtle 弱分割） */
-.ledger-liability {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-top: var(--space-2);
-  margin-top: var(--space-3);
-
-  /* 数字等宽对齐：消除金额宽度抖动 */
-  font-variant-numeric: tabular-nums;
-  border-top: 1px solid var(--border-subtle);
-}
-
-/* ===== 行内操作（删除）：hover 卡片时浮现，200ms ease（design.md 行内操作规范） ===== */
-.ledger-row-action {
-  opacity: 0;
-  transition: opacity 0.2s ease;
-}
-
-.ledger-card:hover .ledger-row-action,
-.ledger-card:focus-within .ledger-row-action,
-.ledger-row-action:focus-visible {
-  opacity: 1;
 }
 
 /* ===== 幽灵态新增占位符：--bg-soft 底、胶囊圆角、高度恒定 44px ===== */

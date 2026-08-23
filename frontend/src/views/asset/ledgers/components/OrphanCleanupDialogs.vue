@@ -338,3 +338,54 @@ async function handleOrphanCleanup() {
     </template>
   </el-dialog>
 </template>
+
+<style scoped>
+@media (prefers-reduced-motion: reduce) {
+  .orphan-banner {
+    transition: none;
+  }
+}
+
+/* ===== 未归置持仓提示 banner（品牌色态：brand-100 底 + brand-700 图标/文字） ===== */
+.orphan-banner {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-compact);
+  background: var(--brand-100);
+  border-radius: var(--radius-lg);
+}
+
+/* ===== 明细对话框分区列表 ===== */
+.orphan-section {
+  margin-bottom: var(--space-compact);
+}
+
+.orphan-section-title {
+  margin-bottom: var(--space-2);
+  font-size: var(--text-label, 13px);
+  font-weight: 500;
+  line-height: 18px;
+  color: var(--text-secondary);
+}
+
+.orphan-cell-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 清理按钮：危险色走语义 token --color-danger-system，覆盖 EP 默认 danger */
+.orphan-clean-btn {
+  --el-button-text-color: var(--color-danger-system);
+  --el-button-border-color: var(--color-danger-system);
+  --el-button-hover-bg-color: var(--color-danger-system);
+  --el-button-hover-border-color: var(--color-danger-system);
+  --el-button-hover-text-color: #fff;
+  --el-button-active-bg-color: var(--color-danger-system);
+  --el-button-active-border-color: var(--color-danger-system);
+  --el-button-active-text-color: #fff;
+}
+</style>

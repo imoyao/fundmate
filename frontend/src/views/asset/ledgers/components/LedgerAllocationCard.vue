@@ -148,3 +148,57 @@ const allocationOption = computed(() => {
     </div>
   </div>
 </template>
+
+<style scoped>
+@media (prefers-reduced-motion: reduce) {
+  .allocation-card {
+    transition: none;
+  }
+}
+
+.allocation-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.allocation-chart-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 220px;
+}
+
+/* 图表绝对定位填满容器：避免 echarts 在 flex 高度解析下拿到 0 高度 */
+.allocation-chart {
+  position: absolute;
+  inset: 0;
+}
+
+/* 环形图中心覆盖层：总资产金额（HTML 层，与 series center: 42% 对齐） */
+.allocation-center {
+  position: absolute;
+  top: 42%;
+  left: 50%;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: center;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+.allocation-center-label {
+  font-size: var(--text-label, 13px);
+  line-height: 18px;
+}
+
+.allocation-empty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 220px;
+  color: var(--text-tertiary);
+}
+</style>

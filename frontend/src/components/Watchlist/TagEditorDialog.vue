@@ -9,6 +9,7 @@
     :model-value="modelValue"
     title="编辑标签"
     width="420px"
+    :close-on-click-modal="false"
     @update:model-value="handleVisibleChange"
   >
     <div class="mb-4">

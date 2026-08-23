@@ -1411,20 +1411,17 @@ function openDeleteDialog(account: LedgerItem) {
   color: var(--text-tertiary);
 }
 
-/* Tab 工具栏（#982）：左 Tab 右搜索同行，消除表头与 Tab 之间的空隙 */
+/* Tab 工具栏（#982）：搜索框绝对定位到 Tab 头右侧，与标签同一行。
+   不能用 flex 横排——el-tabs 包含整个内容区，横排会把输入框挤到表格右侧 */
 .tabs-toolbar {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-}
-
-.ledger-tabs {
-  flex: 1;
-  min-width: 0;
+  position: relative;
 }
 
 .tab-search-input {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 1;
   width: 220px;
-  flex-shrink: 0;
 }
 </style>
