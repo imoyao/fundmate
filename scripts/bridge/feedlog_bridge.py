@@ -552,6 +552,22 @@ def main():
     rel_cmd.add_argument("--body", default="")
     rel_cmd.add_argument("--published-at", default=None)
 
+    # 历史补同步：GitHub Issue → FeedLog（事件驱动只认实时，这里支持回灌）
+    backfill_cmd = sub.add_parser(
+        "sync-github-issue", help="将 GitHub 历史 Issue 同步到 FeedLog（回灌）"
+    )
+    backfill_cmd.add_argument(
+        "--issue-number",
+        type=int,
+        default=None,
+        help="指定 Issue 编号；省略则同步仓库全部 Issue",
+    )
+    backfill_cmd.add_argument(
+        "--include-releases",
+        action="store_true",
+        help="同时把 Release 同步为 FeedLog Changelog",
+    )
+
     args = parser.parse_args()
 
     if not args.command:
@@ -603,6 +619,48 @@ def main():
             sync_release_to_changelog(
                 conn, None, args.tag, args.name, args.body, args.published_at
             )
+        finally:
+            conn.close()
+
+    elif args.command == "sync-github-issue":
+        conn = get_db()
+        try:
+            gh = get_gh()
+            repo = gh.get_repo(os.environ["GITHUB_REPO"])
+            org_id = get_org_id(conn)
+
+            if args.issue_number:
+                targets = [repo.get_issue(args.issue_number)]
+                print(f"📥 拉取 Issue #{args.issue_number} ...")
+            else:
+                print("📥 拉取仓库全部 Issue（含历史）…")
+                targets = list(repo.get_issues(state="all"))
+
+            created = 0
+            for issue in targets:
+                # PyGithub 会同时返回 PR（kind == 'pull_request'），跳过以免重复
+                if getattr(issue, "pull_request", None) is not None:
+                    continue
+                labels = [label.name for label in issue.labels]
+                post_id = create_post_from_issue(
+                    conn, org_id, issue.number, issue.title, issue.body or "", labels
+                )
+                if post_id:
+                    created += 1
+                    print(f"  ✅ 已创建帖子 {post_id} ← Issue #{issue.number}")
+            print(f"🎉 同步完成，新建 {created} 条 FeedLog 帖子")
+
+            if args.include_releases:
+                print("📦 同步 Release → Changelog…")
+                for rel in repo.get_releases():
+                    sync_release_to_changelog(
+                        conn,
+                        repo,
+                        rel.tag_name,
+                        rel.title or rel.tag_name,
+                        rel.body or "",
+                        rel.published_at.isoformat() if rel.published_at else None,
+                    )
         finally:
             conn.close()
 
