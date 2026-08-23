@@ -9,20 +9,42 @@
 #      覆盖默认 prompt，强制「中文优先、中英双语」输出（维护者以中文为主，保留英文术语）。
 #      当前 run-summary 模式只发一条总结评论，语言规则已对 summary/context/inline 全覆盖。
 #
-# 前置：仓库 Settings → Secrets → Actions 新增 ZHIPU_API_KEY（智谱开放平台个人中心获取）
+# 双线路设计：
+#   线路 A（免费·快速）：智谱 GLM-4.7-Flash，run-summary 只留一条总结，零成本。见 job: ai-review
+#   线路 B（深度·日常）：DeepSeek V4 Flash（直连模型 ID），run 完整评审（summary + inline 逐行）。
+#                       见 job: deep-review，PR 自动跑。成本远低于 Pro，是日常主力。
+#   线路 C（深度·按需）：DeepSeek V4 Pro（直连模型 ID），run 完整评审，仅手动 workflow_dispatch 触发。
+#                       见 job: deep-review-pro，默认不自动跑，避免 Pro 的 token 消耗过快。
+#
+# 成本策略（省钱优先）：日常 PR 默认只跑 A + B。只有当人工在 Actions 页点「Run workflow」时
+# 才额外触发 C（Pro）。评论会有多条（免费一条总结 + 深度一条含 inline），但彼此独立、互补。
+#
+# 前置：仓库 Settings → Secrets → Actions 需有：
+#   - ZHIPU_API_KEY  （智谱开放平台，免费档）
+#   - ARK_API_KEY    （火山方舟，DeepSeek V4 Flash / Pro 共用同一 key）
 
 name: AI Code Review
 
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+  # 手动触发：可选「仅跑 Pro 深度线路」——在 Actions 页 Run workflow 时勾选。
+  workflow_dispatch:
+    inputs:
+      deep_pro_only:
+        description: "只跑 DeepSeek V4 Pro 深度线路（跳过免费/Flash 线路）"
+        type: boolean
+        default: false
 
 permissions:
   pull-requests: write
   contents: read
 
 jobs:
+  # —— 线路 A：免费快速总结 ——
   ai-review:
+    # 手动模式选了「仅 Pro」时跳过
+    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.deep_pro_only }}
     runs-on: ubuntu-latest
     steps:
       - name: 拉取代码
@@ -45,6 +67,69 @@ jobs:
           LLM__HTTP_CLIENT__API_URL: "https://open.bigmodel.cn/api/paas/v4/"
           LLM__HTTP_CLIENT__API_TOKEN: ${{ secrets.ZHIPU_API_KEY }}
           # —— GitHub 集成 ——
+          VCS__PROVIDER: "GITHUB"
+          VCS__PIPELINE__OWNER: ${{ github.repository_owner }}
+          VCS__PIPELINE__REPO: ${{ github.event.repository.name }}
+          VCS__PIPELINE__PULL_NUMBER: ${{ github.event.pull_request.number }}
+          VCS__HTTP_CLIENT__API_URL: "https://api.github.com"
+          VCS__HTTP_CLIENT__API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # —— 线路 B：DeepSeek V4 Flash 深度评审（日常主力） ——
+  deep-review:
+    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.deep_pro_only }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: AI 深度审查（DeepSeek V4 Flash，完整 inline 评审）
+        uses: Nikita-Filonov/ai-review@v0.76.0
+        with:
+          review-command: run
+        env:
+          AI_REVIEW_CONFIG_FILE_YAML: ".ai-review.yaml"
+          # 深度线路复用同一份项目检查清单，但用 run 模式输出 inline 逐行评论
+          LLM__PROVIDER: "OPENAI"
+          # DeepSeek V4 Flash（直连模型 ID，已开通权限，成本远低于 Pro）
+          LLM__META__MODEL: "deepseek-v4-flash-ga-260731"
+          LLM__META__MAX_TOKENS: "8000"
+          LLM__META__TEMPERATURE: "0.2"
+          # 火山方舟 OpenAI 兼容端点
+          LLM__HTTP_CLIENT__API_URL: "https://ark.cn-beijing.volces.com/api/v3/"
+          LLM__HTTP_CLIENT__API_TOKEN: ${{ secrets.ARK_API_KEY }}
+          VCS__PROVIDER: "GITHUB"
+          VCS__PIPELINE__OWNER: ${{ github.repository_owner }}
+          VCS__PIPELINE__REPO: ${{ github.event.repository.name }}
+          VCS__PIPELINE__PULL_NUMBER: ${{ github.event.pull_request.number }}
+          VCS__HTTP_CLIENT__API_URL: "https://api.github.com"
+          VCS__HTTP_CLIENT__API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # —— 线路 C：DeepSeek V4 Pro 深度评审（手动按需，默认不自动跑） ——
+  deep-review-pro:
+    # 仅手动 workflow_dispatch 触发，且勾选了「仅 Pro」或明确要 Pro 时跑
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: AI 深度审查（DeepSeek V4 Pro，重剑线路）
+        uses: Nikita-Filonov/ai-review@v0.76.0
+        with:
+          review-command: run
+        env:
+          AI_REVIEW_CONFIG_FILE_YAML: ".ai-review.yaml"
+          LLM__PROVIDER: "OPENAI"
+          # DeepSeek V4 Pro（直连模型 ID，仅手动触发以控成本）
+          LLM__META__MODEL: "deepseek-v4-pro-ga-260813"
+          LLM__META__MAX_TOKENS: "8000"
+          LLM__META__TEMPERATURE: "0.2"
+          LLM__HTTP_CLIENT__API_URL: "https://ark.cn-beijing.volces.com/api/v3/"
+          LLM__HTTP_CLIENT__API_TOKEN: ${{ secrets.ARK_API_KEY }}
           VCS__PROVIDER: "GITHUB"
           VCS__PIPELINE__OWNER: ${{ github.repository_owner }}
           VCS__PIPELINE__REPO: ${{ github.event.repository.name }}
