@@ -45,33 +45,43 @@ const emit = defineEmits<{
       </div>
       <!-- 行内操作组：归档/激活 + 删除，作为整体靠右且彼此紧挨（text 图标按钮，统一轻盈风格） -->
       <div class="ledger-row-actions">
-        <!-- 归档 / 激活切换：text 图标按钮，hover 显主题色 -->
-        <el-button
+        <!-- 归档 / 激活切换：text 图标按钮，hover 显主题色；tooltip 说明用途 -->
+        <el-tooltip
           v-if="typeof ledger.id === 'number'"
-          text
-          size="small"
-          circle
-          class="ledger-row-action"
-          :aria-label="(ledger.is_active === false ? '激活账户 ' : '归档账户 ') + ledger.name"
-          @click.stop="emit('toggleArchive', ledger)"
+          :content="ledger.is_active === false ? `激活账户 ${ledger.name}` : `归档账户 ${ledger.name}`"
+          placement="top"
         >
-          <IconifyIconOffline
-            :icon="ledger.is_active === false ? 'ep:refresh-left' : 'ep:box'"
-          />
-        </el-button>
+          <el-button
+            text
+            size="small"
+            circle
+            class="ledger-row-action"
+            :aria-label="(ledger.is_active === false ? '激活账户 ' : '归档账户 ') + ledger.name"
+            @click.stop="emit('toggleArchive', ledger)"
+          >
+            <IconifyIconOffline
+              :icon="ledger.is_active === false ? 'ep:refresh-left' : 'ep:box'"
+            />
+          </el-button>
+        </el-tooltip>
         <!-- 删除按钮：text 图标按钮，hover 显 danger 红（破坏性操作） -->
-        <el-button
+        <el-tooltip
           v-if="typeof ledger.id === 'number'"
-          type="danger"
-          text
-          size="small"
-          circle
-          class="ledger-row-action ledger-row-action--danger"
-          :aria-label="`删除账户 ${ledger.name}`"
-          @click.stop="emit('delete', ledger)"
+          :content="`删除账户 ${ledger.name}`"
+          placement="top"
         >
-          <IconifyIconOffline icon="ep:delete" />
-        </el-button>
+          <el-button
+            type="danger"
+            text
+            size="small"
+            circle
+            class="ledger-row-action ledger-row-action--danger"
+            :aria-label="`删除账户 ${ledger.name}`"
+            @click.stop="emit('delete', ledger)"
+          >
+            <IconifyIconOffline icon="ep:delete" />
+          </el-button>
+        </el-tooltip>
       </div>
     </div>
 
