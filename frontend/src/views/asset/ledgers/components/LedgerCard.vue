@@ -54,7 +54,7 @@ const emit = defineEmits<{
         @click.stop="emit('toggleArchive', ledger)"
       >
         <IconifyIconOffline
-          :icon="ledger.is_active === false ? 'ep:refresh-left' : 'ep:archive'"
+          :icon="ledger.is_active === false ? 'ep:refresh-left' : 'ep:folder'"
         />
       </el-button>
       <!-- 删除按钮：幽灵态 + hover 浮现（design.md「行内操作交互规范」） -->
@@ -77,7 +77,7 @@ const emit = defineEmits<{
       v-if="ledger.is_active === false"
       class="ledger-card__archived"
     >
-      <IconifyIconOffline icon="ep:archive" class="mr-1" /> 已归档 · 数据仍计入收益
+      <IconifyIconOffline icon="ep:folder" class="mr-1" /> 已归档 · 数据仍计入收益
     </div>
 
     <!-- 核心指标：左右两列 flex（总资产为左侧大数字锚点，右侧两指标独立竖排，
