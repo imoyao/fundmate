@@ -535,13 +535,19 @@ class ImportOrchestrator:
                             logger.warning('现金管理产品缺少 ledger_id，跳过')
                             skipped += 1  # B4 修复：缺 ledger_id 跳过时计入 skipped（原漏计数）
                             continue
-                        bank_ledger = (
-                            self.db.query(Ledger).filter_by(ledger_type='bank', family_id=self.family_id).first()
-                        )
-                        if bank_ledger:
-                            data['account_name'] = bank_ledger.name
-                            data['ledger_id'] = bank_ledger.id
+                        ledger_id = data['ledger_id']
+                        target_ledger = self.db.query(Ledger).filter_by(id=ledger_id, family_id=self.family_id).first()
+                        if target_ledger and target_ledger.ledger_type == 'bank':
+                            # 已指向现金账户（含前端选的现金关联目标 / 已关联 bank）：保持原行为
+                            data['account_name'] = target_ledger.name
                         else:
+                            # #1067 跨账本重导兼容：现金行跟随目标账本，不再无条件塞进默认 bank 账本。
+                            # 旧逻辑会把所有现金行改为全局 bank 账本，导致同一交割单跨账本重导时
+                            # 在 (bank, import_hash) 上撞车静默失败。改为跟随 record 的目标账本，
+                            # 由 #1065 的 (ledger_id, import_hash) 复合唯一约束自然去重，不再堵死路径。
+                            data['account_name'] = target_ledger.name if target_ledger else data.get('account_name', '')
+                        # 仅当目标账本完全不存在时才置 pending_cash（record.ledger_id 已校验，几乎不发生）
+                        if not target_ledger:
                             entry_status = 'pending_cash'
                         # net_amount 转换为分
                         amount_cents = Money.yuan_to_cents(abs(data['net_amount']))
