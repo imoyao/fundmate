@@ -41,8 +41,10 @@ def get_scenarios() -> list[str]:
 
 
 # ── 场景注册（对称 importer.registry：新场景在此加一行）──
+from app.services.ai_recognizer.recognizers.holding_recognizer import HoldingRecognizer  # noqa: E402
 from app.services.ai_recognizer.recognizers.txn_recognizer import TxnRecognizer  # noqa: E402
 from app.services.ai_recognizer.recognizers.watchlist_recognizer import WatchlistRecognizer  # noqa: E402
 
 register_recognizer(WatchlistRecognizer.key, WatchlistRecognizer())
 register_recognizer(TxnRecognizer.key, TxnRecognizer())
+register_recognizer(HoldingRecognizer.key, HoldingRecognizer())

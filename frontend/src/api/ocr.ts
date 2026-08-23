@@ -3,8 +3,8 @@ import { http } from "@/utils/http";
 // AI 识别调用后端会再调火山方舟（单次最长 60s + 重试），全局 axios timeout(10s) 不够，单独放宽到 120s
 const OCR_REQUEST_TIMEOUT = 120000;
 
-/** AI 识别场景：自选导入（默认）/ 持仓交易导入 */
-export type OcrScenario = "watchlist_import" | "txn_import";
+/** AI 识别场景：自选导入（默认）/ 持仓交易导入 / 持仓导入（仅 upsert 持仓，不建流水，见 #1018） */
+export type OcrScenario = "watchlist_import" | "txn_import" | "holding_import";
 
 /** OCR 当日剩余次数（进入弹窗前展示余量；feature=ocr_import|txn_import） */
 export type OcrUsageResult = {
@@ -52,12 +52,30 @@ export interface OcrTxnRow {
   allocation?: string | null;
 }
 
+/** 持仓导入场景预览行（holding_import）：确认时走 /api/importers/holdings/confirm，不建流水 */
+export interface OcrHoldingRow {
+  symbol: string;
+  name: string;
+  type: string;
+  quantity: number | string;
+  price: number | string;
+  amount: number | string;
+  snapshot_date: string;
+  account_name: string;
+  ledger_id: number;
+  source: string;
+  import_hash: string;
+  is_duplicate?: boolean;
+  error?: string;
+  warnings?: string[];
+}
+
 type RecognizeResponse = {
   data:
     | { items: OcrImportItem[]; usage: unknown }
     | {
         scenario: OcrScenario;
-        rows: OcrTxnRow[];
+        rows: (OcrTxnRow | OcrHoldingRow)[];
         usage: unknown;
       };
   message: string;

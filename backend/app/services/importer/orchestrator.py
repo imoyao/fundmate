@@ -865,6 +865,37 @@ class ImportOrchestrator:
             'ledger_name': frontend_account,
         }
 
+    def preview_holding_records(
+        self,
+        records: List[StandardHoldingRecord],
+        frontend_account: str = '',
+        ledger_id: Optional[int] = None,
+        source: str = PositionSource.AI_HOLDING.value,
+    ) -> dict:
+        """AI 持仓识别结果（已 enrich 的 StandardHoldingRecord 列表）→ 预览行。
+
+        与 parse_and_preview_holdings（文件通道）完全并行，仅来源是 AI 而非文件解析器。
+        ledger_id 未指定时复用「基金E账户」聚合账户（与文件通道口径一致）。
+        直接复用 _holding_rows_from_records 的行构建 + 去重逻辑，避免重复实现。
+        """
+        if not ledger_id:
+            ledger = self.get_or_create_e_account_ledger()
+            ledger_id = ledger.id
+            if not frontend_account:
+                frontend_account = ledger.name
+
+        # 回填 ledger_id / account_name，并为缺省 import_hash 的记录补算（无需文件解析器）
+        for rec in records:
+            rec.ledger_id = ledger_id
+            if not rec.account_name and frontend_account:
+                rec.account_name = frontend_account
+            if not rec.import_hash:
+                rec.import_hash = compute_position_hash(source, ledger_id, rec.symbol, rec.snapshot_date)
+
+        return self._holding_rows_from_records(
+            records, parser=None, frontend_account=frontend_account, ledger_id=ledger_id, errors=[]
+        )
+
     def commit_holdings(self, raw_rows: list) -> dict:
         """接收前端提交的持仓行，过滤后经 upsert_from_holding 落库（不建流水）。
 
