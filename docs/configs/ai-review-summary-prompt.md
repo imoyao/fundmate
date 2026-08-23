@@ -33,6 +33,11 @@
 - 样式：**禁止**硬编码 hex 色值、**禁止** Emoji；涨红跌绿必须经 `--color-rise` / `--color-fall` 语义变量。
 - 提交前 `vue-tsc` 须零错误（类型安全）。
 
+**独立脚本豁免（重要）**
+- `scripts/`（及仓库根级独立运维/桥接脚本，如 `scripts/bridge/feedlog_bridge.py`）是**独立运行的脚本**，不属于 `backend/` 包，不共享后端工程约定。
+- 对这类文件：**不要**套用「loguru logger」「backend 常量提取」「后端目录边界」等**后端专属规范**类意见；它们历来统一使用 `print`、魔法值，改 logger 只会增加 CI 依赖与脚本负担。
+- 对独立脚本，审查重点应限于：逻辑错误、并发/资源泄漏、安全与权限、API 契约正确性；**不要**提风格/日志框架/常量抽取类 Major 意见。
+
 **通用**
 - 改模型字段须同步关联 Create/Update/Out Schema；改 API 契约须前后端同步。
 - 提交信息用中文 + conventional commits；若由 AI 提交须带 `[AI 自动提交]` 标注。
