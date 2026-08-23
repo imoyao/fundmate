@@ -25,7 +25,7 @@ function normalizeSidebar(sidebar) {
 
 export default withDuxTheme(
   defineConfig({
-    title: '多多贝 · 投资账本 · 看见你的复利曲线',
+    title: '多多贝 · 投资账本——看见你的复利曲线',
     description: '一个让复利增长清晰可见的投资账本手动归集、穿透持仓、算准 XIRR，数据始终在你手里。',
     // 站点语言：让 @duxweb/vitepress-theme 的 useLocale 直接加载 zh-CN 中文 locale，
     // 否则默认 en-US 会使侧边栏标题(docNavTitle)与阅读时长(time)等 UI 文本显示英文。
