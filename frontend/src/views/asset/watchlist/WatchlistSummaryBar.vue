@@ -117,16 +117,20 @@ const intervalOptions = [
 
 <style scoped>
 .summary-bar {
-  margin-bottom: 12px;
+  /* design.md 间距体系：筛选栏/数据条区块间距 --space-compact(16px)，
+     原写死 12px 在实时估值关闭（banner 隐藏）时与表格贴得过近，缺呼吸感 */
+  margin-bottom: var(--space-compact);
 }
 
-/* 单行：左段状态+刷新（固定） / 右段汇总指标（弹性靠右） */
+/* 单行：左段状态+刷新（固定） / 右段汇总指标（弹性靠右）。
+   上下 padding 给状态行自身留呼吸空间（休市态内容少时不显局促） */
 .summary-row {
   display: flex;
-  gap: 16px;
+  gap: var(--space-2);
   align-items: center;
   justify-content: space-between;
   min-width: 0;
+  padding: var(--space-2) 0;
 }
 
 .summary-row__status {

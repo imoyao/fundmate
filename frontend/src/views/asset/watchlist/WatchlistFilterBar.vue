@@ -144,7 +144,6 @@ function chipStyle(tag: WatchlistTag) {
             {{ g.count }}
           </span>
         </button>
-
       </div>
 
       <!-- 右段（固定）：分组操作 + 标签筛选 + 视图 segmented，不随分组 tab 滚动 -->
@@ -263,7 +262,8 @@ function chipStyle(tag: WatchlistTag) {
 
 <style scoped>
 .filter-bar {
-  margin-bottom: 12px;
+  /* design.md 间距体系：筛选栏区块间距 --space-compact(16px)，原写死 12px 偏挤 */
+  margin-bottom: var(--space-compact);
 }
 
 /* 单行布局：左段分组 tab 弹性滚动 + 右段次级操作固定（design.md 分组胶囊 Tab 布局，规范 414） */
