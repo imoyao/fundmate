@@ -119,3 +119,24 @@ def test_excludes_shadow_and_non_success(db):
     result = scan_cross_ledger_duplicates(db, 1)
     assert len(result) == 1
     assert set(result[0]['ledger_ids']) == {ledger_a.id, ledger_b.id}
+
+
+def test_ghost_duplicates_endpoint_envelope(client, db):
+    """#1075 review：GET /api/summary/ghost-duplicates/ 使用标准信封 {data, message}，不使用 {code: 200}。"""
+    ledger_a = Ledger(name='券商A', ledger_type='stock', family_id=1)
+    ledger_b = Ledger(name='券商B', ledger_type='stock', family_id=1)
+    db.add_all([ledger_a, ledger_b])
+    db.flush()
+    _mk_txn(db, ledger_a.id, 1)
+    _mk_txn(db, ledger_b.id, 1)
+    db.commit()
+
+    resp = client.get('/api/summary/ghost-duplicates/')
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert 'code' not in body  # 非标准 {code: 200} 信封不得出现
+    assert body['message'] == 'ok'
+    data = body['data']
+    assert len(data) == 1
+    assert data[0]['count'] == 2
+    assert set(data[0]['ledger_names']) == {'券商A', '券商B'}

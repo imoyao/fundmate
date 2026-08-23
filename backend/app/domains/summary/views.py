@@ -123,6 +123,13 @@ def ghost_duplicates():
     try:
         with get_db() as db:
             data = scan_cross_ledger_duplicates(db, get_family_id())
-        return jsonify({'code': 200, 'data': data, 'message': 'ok'})
+        return jsonify({'data': data, 'message': 'ok'})
     except Exception as e:
-        return jsonify({'code': 500, 'data': [], 'message': f'服务器内部错误: {str(e)}'}), 500
+        # 标准错误信封 {data, message, error_code}（AGENTS.md 接口契约）
+        return jsonify(
+            {
+                'data': [],
+                'message': f'服务器内部错误: {str(e)}',
+                'error_code': 'GHOST_DUPLICATES_SCAN_FAILED',
+            }
+        ), 500
