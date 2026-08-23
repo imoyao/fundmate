@@ -541,14 +541,31 @@ class ImportOrchestrator:
                             logger.warning('现金管理产品缺少 ledger_id，跳过')
                             skipped += 1  # B4 修复：缺 ledger_id 跳过时计入 skipped（原漏计数）
                             continue
-                        bank_ledger = (
-                            self.db.query(Ledger).filter_by(ledger_type='bank', family_id=self.family_id).first()
-                        )
-                        if bank_ledger:
-                            data['account_name'] = bank_ledger.name
-                            data['ledger_id'] = bank_ledger.id
-                        else:
+                        ledger_id = data['ledger_id']
+                        target_ledger = self.db.query(Ledger).filter_by(id=ledger_id, family_id=self.family_id).first()
+                        if not target_ledger:
+                            # 目标账本完全不存在时才置 pending_cash（record.ledger_id 已校验，几乎不发生）
                             entry_status = 'pending_cash'
+                            data['account_name'] = data.get('account_name', '')
+                        else:
+                            # #1067 现金归属口径（按用户决策）：
+                            # 1) 目标账本已绑定现金账户（linked_cash_ledger_id 指向 bank 类账本）→ 现金落该 bank；
+                            # 2) 未绑定 → 跟随目标账本本身（跨账本重导场景，现金挂目标证券/基金账本，
+                            #    由 #1065 的 (ledger_id, import_hash) 复合约束自然去重，避免旧逻辑强制塞 bank 撞车）。
+                            cash_ledger = None
+                            if target_ledger.linked_cash_ledger_id:
+                                cash_ledger = (
+                                    self.db.query(Ledger)
+                                    .filter_by(id=target_ledger.linked_cash_ledger_id, family_id=self.family_id)
+                                    .first()
+                                )
+                                if cash_ledger and cash_ledger.ledger_type != 'bank':
+                                    cash_ledger = None  # 绑定目标非 bank，视为未有效绑定
+                            if cash_ledger:
+                                data['ledger_id'] = cash_ledger.id
+                                data['account_name'] = cash_ledger.name
+                            else:
+                                data['account_name'] = target_ledger.name
                         # net_amount 转换为分
                         amount_cents = Money.yuan_to_cents(abs(data['net_amount']))
                         TransactionService.create(
