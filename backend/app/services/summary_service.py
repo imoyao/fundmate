@@ -599,7 +599,7 @@ def scan_cross_ledger_duplicates(db: Session, family_id: int) -> list[dict]:
 
     返回：每组 {symbol, confirm_date, txn_type, amount_yuan, ledger_ids, ledger_names, count}
     """
-    from collections import defaultdict as _defaultdict
+    ledger_name_map = {led.id: led.name for led in db.query(Ledger).filter(Ledger.family_id == family_id).all()}
 
     txns = (
         db.query(Transaction)
@@ -611,18 +611,10 @@ def scan_cross_ledger_duplicates(db: Session, family_id: int) -> list[dict]:
         .all()
     )
 
-    groups: dict[tuple, list[Transaction]] = _defaultdict(list)
+    groups: dict[tuple, list[Transaction]] = defaultdict(list)
     for t in txns:
         key = (t.confirm_date, t.symbol, t.txn_type, t.amount)
         groups[key].append(t)
-
-    ledger_cache: dict[int, str] = {}
-
-    def ledger_name(lid: int) -> str:
-        if lid not in ledger_cache:
-            led = db.query(Ledger).filter(Ledger.id == lid).first()
-            ledger_cache[lid] = led.name if led else f'账本{lid}'
-        return ledger_cache[lid]
 
     result: list[dict] = []
     for (confirm_date, symbol, txn_type, amount), ts in groups.items():
@@ -636,7 +628,7 @@ def scan_cross_ledger_duplicates(db: Session, family_id: int) -> list[dict]:
                 'txn_type': txn_type,
                 'amount_yuan': round(Money.cents_to_yuan(amount), 2),
                 'ledger_ids': ledger_ids,
-                'ledger_names': [ledger_name(lid) for lid in ledger_ids],
+                'ledger_names': [ledger_name_map.get(lid, f'账本{lid}') for lid in ledger_ids],
                 'count': len(ts),
             }
         )

@@ -2,6 +2,7 @@
 import { onMounted, ref } from "vue";
 import { getGhostDuplicates, type GhostDuplicateGroup } from "@/api/summary";
 import { formatDate } from "@/utils/date";
+import { txnTypeLabel } from "@/constants";
 
 const groups = ref<GhostDuplicateGroup[]>([]);
 const loading = ref(true);
@@ -24,18 +25,6 @@ function dismiss(): void {
   } catch {
     /* ignore */
   }
-}
-
-function describeType(t: string): string {
-  // txn_type 取值：buy/sell/dividend/deposit/withdraw 等
-  const map: Record<string, string> = {
-    buy: "买入",
-    sell: "卖出",
-    dividend: "分红",
-    deposit: "存入",
-    withdraw: "取出",
-  };
-  return map[t] ?? t;
 }
 
 onMounted(async () => {
@@ -77,7 +66,7 @@ onMounted(async () => {
         <li v-for="(g, i) in groups" :key="i" class="ghost-dup-banner__item">
           <span class="ghost-dup-banner__symbol">{{ g.symbol }}</span>
           <span class="ghost-dup-banner__meta">
-            {{ describeType(g.txn_type) }}
+            {{ txnTypeLabel(g.txn_type) }}
             · 金额 {{ g.amount_yuan.toLocaleString() }} 元
             <template v-if="g.confirm_date"> · {{ formatDate(g.confirm_date) }}</template>
           </span>
