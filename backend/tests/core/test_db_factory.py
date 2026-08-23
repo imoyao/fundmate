@@ -77,7 +77,9 @@ def test_config_for_app_prod_fallback_to_database_url(monkeypatch):
     assert 'prod.db' in str(cfg.url)
 
 
-def test_config_for_user_none_when_unconfigured(monkeypatch):
+def test_config_for_user_falls_back_to_local_when_unconfigured(monkeypatch):
+    """user 域未配 Supabase 时回退本地 SQLite（AGENTS.md 双库规则 7：
+    user_session_factory 不再因缺 Supabase 抛错，本地零配置双库模拟）。"""
     _reset_and_set(
         monkeypatch,
         {
@@ -85,7 +87,9 @@ def test_config_for_user_none_when_unconfigured(monkeypatch):
             'SUPABASE_DATABASE_URL': None,
         },
     )
-    assert DatabaseConfig.for_user('production') is None
+    cfg = DatabaseConfig.for_user('production')
+    assert cfg is not None
+    assert str(cfg.url).startswith('sqlite')
 
 
 def test_config_for_user_returns_postgres_url(monkeypatch):

@@ -161,13 +161,13 @@
         <el-table-column prop="type" label="类型" width="90">
           <template #default="{ row }">
             <el-tag :type="typeTagType(row.type)" size="small" effect="plain">
-              {{ row.type_label || typeLabel(row.type) }}
+              {{ row.type_label || getTypeLabel(row.type) }}
             </el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="market" label="市场" width="70">
           <template #default="{ row }">
-            {{ row.market_label || marketLabel(row.market) }}
+            {{ row.market_label || getMarketLabel(row.market) }}
           </template>
         </el-table-column>
         <el-table-column prop="account_name" label="账户" width="110" />
@@ -325,6 +325,8 @@ import { ref, computed, onMounted } from "vue";
 import { Search, Refresh } from "@element-plus/icons-vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import { getPositions, deletePosition, updatePosition } from "@/api/positions";
+import { getTypeLabel } from "@/constants/assetType";
+import { getMarketLabel } from "@/constants/market";
 import { getSummary } from "@/api/summary";
 import type { Position, SummaryData } from "@/api/types";
 import { ElMessage } from "element-plus";
@@ -424,29 +426,6 @@ function typeTagType(
     static: "info"
   };
   return map[type] || "primary";
-}
-
-function typeLabel(type: string) {
-  const map: Record<string, string> = {
-    stock: "股票",
-    fund: "基金",
-    bond: "可转债",
-    crypto: "虚拟币",
-    saving: "存款",
-    cash: "现金",
-    static: "其他"
-  };
-  return map[type] || type;
-}
-
-function marketLabel(market: string) {
-  const map: Record<string, string> = {
-    CN_A: "A股",
-    CN_HK: "港股",
-    US: "美股",
-    CRYPTO: "虚拟币"
-  };
-  return map[market] || market;
 }
 
 function priceChangeClass(row: Position) {

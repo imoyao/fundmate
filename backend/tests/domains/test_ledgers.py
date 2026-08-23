@@ -1214,3 +1214,84 @@ class TestOrphanDetail:
         assert after['assets'] == []
         assert after['transactions'] == []
         assert after['summary']['total_market_value'] == 0.0
+
+
+# ─────────────── 持仓/交易列表搜索（#982） ───────────────
+class TestLedgerDetailSearch:
+    def _make_ledger_with_positions(self, db, make_position):
+        ledger = Ledger(name='搜索测试', ledger_type='stock')
+        db.add(ledger)
+        db.commit()
+        make_position(
+            symbol='600519',
+            name='贵州茅台',
+            ledger_id=ledger.id,
+            account_name='搜索测试',
+            quantity=100,
+            avg_price=10,
+            current_price=12,
+        )
+        make_position(
+            symbol='000001',
+            name='平安银行',
+            ledger_id=ledger.id,
+            account_name='搜索测试',
+            quantity=200,
+            avg_price=10,
+            current_price=11,
+        )
+        return ledger
+
+    def test_positions_search_by_name_and_symbol(self, client, db, make_position):
+        """search 命中名称或代码；total 为过滤后计数"""
+        ledger = self._make_ledger_with_positions(db, make_position)
+
+        by_name = client.get(f'/api/ledgers/{ledger.id}/positions/', query_string={'search': '茅台'})
+        assert [i['symbol'] for i in by_name.get_json()['data']['items']] == ['600519']
+
+        by_symbol = client.get(f'/api/ledgers/{ledger.id}/positions/', query_string={'search': '000001'})
+        assert [i['symbol'] for i in by_symbol.get_json()['data']['items']] == ['000001']
+
+        none = client.get(f'/api/ledgers/{ledger.id}/positions/', query_string={'search': '不存在'})
+        assert none.get_json()['data']['total'] == 0
+
+    def test_transactions_search_by_name(self, client, db):
+        from app.domains.transactions.models import Transaction
+
+        ledger = Ledger(name='交易搜索', ledger_type='stock')
+        db.add(ledger)
+        db.commit()
+        db.add_all(
+            [
+                Transaction(
+                    txn_type='buy',
+                    symbol='600519',
+                    position_name='贵州茅台',
+                    account_name='交易搜索',
+                    ledger_id=ledger.id,
+                    quantity=1000000,
+                    price=1000,
+                    amount=1000000,
+                    fee=100,
+                ),
+                Transaction(
+                    txn_type='sell',
+                    symbol='000001',
+                    position_name='平安银行',
+                    account_name='交易搜索',
+                    ledger_id=ledger.id,
+                    quantity=2000000,
+                    price=1100,
+                    amount=2200000,
+                    fee=100,
+                ),
+            ]
+        )
+        db.commit()
+
+        resp = client.get(
+            f'/api/ledgers/{ledger.id}/transactions/',
+            query_string={'search': '平安'},
+        )
+        items = resp.get_json()['data']['items']
+        assert [i['symbol'] for i in items] == ['000001']

@@ -27,6 +27,8 @@ import MoneyWithRatio from "@/components/MoneyWithRatio/index.vue";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import { formatDate } from "@/utils/date";
 import type { ColumnDef, ColumnRenderer, WatchlistRow } from "./columnDefs";
+// renderer DOM 不携带页面 scoped 属性，配套样式必须随渲染器走（见 css 文件头注释）
+import "./columnRenderers.css";
 
 /** 实时估值项（与 useRealtimeQuotes.getValuationItem 返回结构一致） */
 export interface ValuationItem {
@@ -69,6 +71,8 @@ export interface RenderCtx {
     toggleFavorite: (row: WatchlistRow) => void;
     remove: (row: WatchlistRow) => void;
   };
+  /** 近 N 日收盘价序列（sparkline 列，#990）：symbol → close 数组；无数据的 symbol 键缺省 */
+  trends: Record<string, number[]>;
 }
 
 /** 安全地从 row 取任意字段（WatchlistItem 无索引签名，需经 unknown 中转） */
@@ -97,6 +101,53 @@ function resolveValue(
 }
 
 // ---- 各 renderer 实现 ----
+
+/**
+ * 迷你走势图（#990）：纯 SVG 折线，无坐标轴/网格/背景。
+ * - 颜色随涨跌：首尾比较，涨 --color-rise / 跌 --color-fall（禁止硬编码 hex）；
+ * - 数据缺失（未回填/场外基金/新标的）降级显示 --，不影响行高与布局；
+ * - 不逐格实例化 ECharts：40 行同屏 40 个图表实例必卡（issue #990 决策）。
+ */
+const renderSparkline: FunctionalComponent<{
+  row: WatchlistRow;
+  def: ColumnDef;
+  ctx: RenderCtx;
+}> = props => {
+  const series = props.ctx.trends[props.row.symbol];
+  if (!series || series.length < 2) {
+    return h(
+      "span",
+      { class: "text-xs", style: { color: "var(--text-tertiary)" } },
+      "--"
+    );
+  }
+  const width = 96;
+  const height = 24;
+  const pad = 2;
+  const min = Math.min(...series);
+  const max = Math.max(...series);
+  const range = max - min || 1; // 全平序列防除零
+  const stepX = (width - pad * 2) / (series.length - 1);
+  const points = series
+    .map((v, i) => {
+      const x = pad + i * stepX;
+      const y = pad + (height - pad * 2) * (1 - (v - min) / range);
+      return `${x.toFixed(2)},${y.toFixed(2)}`;
+    })
+    .join(" ");
+  const rising = series[series.length - 1] >= series[0];
+  const stroke = rising ? "var(--color-rise)" : "var(--color-fall)";
+  return h("svg", { width, height, viewBox: `0 0 ${width} ${height}` }, [
+    h("polyline", {
+      points,
+      fill: "none",
+      stroke,
+      "stroke-width": 1.5,
+      "stroke-linejoin": "round",
+      "stroke-linecap": "round"
+    })
+  ]);
+};
 
 const renderDate: FunctionalComponent<{
   row: WatchlistRow;
@@ -429,6 +480,7 @@ const REGISTRY: Record<
   riseFall: renderRiseFall as never,
   qty: renderQty as never,
   moneyRatio: renderMoneyRatio as never,
+  sparkline: renderSparkline as never,
   actions: renderActions as never
 };
 

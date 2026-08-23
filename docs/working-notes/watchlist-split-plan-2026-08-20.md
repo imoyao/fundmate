@@ -1,8 +1,24 @@
 # 自选页（watchlist）拆分进度清单
 
-> 更新日期：2026-08-20（重写，此前版本行号/进度严重过时，以代码实况为准）
-> 目标文件：`frontend/src/views/asset/watchlist/index.vue`（当前 **1287 行**，design.md 上限 200~300 行）
+> 更新日期：2026-08-22（增量更新：B 类收尾 + 死样式清理完成，行数以代码实况为准）
+> 目标文件：`frontend/src/views/asset/watchlist/index.vue`（当前 **约 690 行**，design.md 上限 200~300 行）
 > 关联：umbrella #980（上帝页面拆分）、#995（列定义数组化，已完成）、#990/#991/#992/#993（列内增强，OPEN）
+
+## 2026-08-22 批次进展
+
+- ✅ 验证闸门修复：SankeyChart CSS v-bind 变量名大小写笔误（TS2339 卡全仓 typecheck），已单独提交。
+- ✅ 死样式清理（chore/watchlist-dead-styles → 4954cc8）：index.vue style 区删除约 130 行失效规则；
+  **重要发现**——#995 列渲染器化后，renderer DOM 不携带页面 scoped 属性，
+  marker-icon / add-tag-btn 样式曾静默失效（线上置顶/关注图标与加标签按钮样式丢失），
+  已新建 `columnRenderers.css` 由 tsx 导入承接。**后续任何 renderer 新类名一律写在该 css 文件，不要回 index.vue scoped 块。**
+- ✅ **C 类列增强全部完成（2026-08-22 深夜批次）**：
+  - #993 列显隐 + localforage 持久化（dc13d79，useWatchlistColumnVisibility + SettingsDrawer 列设置卡片）；
+  - #991 排序升级后端透传（48121d6，sort_by/sort_order 白名单 + 派生列现算 + TestApplyUserSort 5 用例）；
+  - #992 表头拖拽（b468cd7，sortablejs 复用 + order 持久化）；
+  - #990 迷你走势列（247825a，/trends/ 批量序列端点 + 纯 SVG sparkline renderer）。
+  四个 issue 均已评论留档并关闭；umbrella #1022 同步归档关闭。
+- ⏳ 遗留：批量删除按钮并入 WatchlistToolbar（收益小，随手做）；index.vue 进一步抽
+  useWatchlistRealtime（可选，收益递减）。
 
 ## 完成情况（已落地，勿回退）
 

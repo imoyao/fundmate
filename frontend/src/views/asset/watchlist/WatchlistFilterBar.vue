@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /* eslint-disable vue/no-mutating-props -- 状态注入模式：groups/tags/toolbar 为 composable 实例 prop，
    经 computed get/set 桥接修改其内部 ref 属有意设计（与 WatchlistToolbar 同模式） */
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { Folder, Plus } from "@element-plus/icons-vue";
 import GroupFormDialog from "@/components/Watchlist/GroupFormDialog.vue";
 import type { useWatchlistGroups } from "@/composables/useWatchlistGroups";
@@ -62,6 +62,26 @@ const currentViewModel = computed({
 const selectedTagCount = computed(
   () => props.tags.selectedFilterTagIds.value.length
 );
+
+// 视图筛选选项（venue 维度）
+const viewOptions = [
+  { label: "全部", value: "all" },
+  { label: "场内", value: "exchange" },
+  { label: "场外", value: "otc" }
+] as const;
+
+// 打开面板时把已提交筛选同步到草稿（原触发按钮 @click 内的 onTagFilterShow 迁移至此，
+// 因 trigger="click" 后开合由 EP 接管，组件不再经手打开动作）
+watch(tagFilterVisibleModel, visible => {
+  if (visible) props.tags.onTagFilterShow();
+});
+
+// 切换视图：同值不重复触发（原 el-segmented v-model+change 行为等价）
+function selectView(value: (typeof viewOptions)[number]["value"]) {
+  if (currentViewModel.value === value) return;
+  currentViewModel.value = value;
+  emit("view-change");
+}
 
 const addDialogVisible = ref(false);
 
@@ -125,49 +145,46 @@ function chipStyle(tag: WatchlistTag) {
           </span>
         </button>
 
-        <!-- 新建分组「+」+ 管理分组「📁」：紧跟所有分组名末尾，分组操作聚在一起（随分组一起滚动） -->
-        <el-button
-          v-if="!toolbar.batchMode.value"
-          class="group-tab-add"
-          circle
-          aria-label="新建分组"
-          @click="addDialogVisible = true"
-        >
-          <el-icon><Plus /></el-icon>
-        </el-button>
-        <el-tooltip
-          v-if="!toolbar.batchMode.value"
-          content="管理分组"
-          placement="bottom"
-        >
-          <el-button
-            class="manage-groups-btn"
-            circle
-            aria-label="管理分组"
-            @click="emit('manage-groups')"
-          >
-            <el-icon><Folder /></el-icon>
-          </el-button>
-        </el-tooltip>
       </div>
 
-      <!-- 右段（固定）：标签筛选 + 视图 segmented，不随分组 tab 滚动 -->
+      <!-- 右段（固定）：分组操作 + 标签筛选 + 视图 segmented，不随分组 tab 滚动 -->
       <div class="filter-bar__right">
-        <!-- 标签筛选（bottom-start 左对齐触发按钮，减少浮层错位感） -->
+        <!-- 新建分组「+」+ 管理分组「📁」：固定展示，避免分组过多时被挤进滚动区 -->
+        <template v-if="!toolbar.batchMode.value">
+          <el-button
+            class="group-tab-add"
+            circle
+            aria-label="新建分组"
+            @click="addDialogVisible = true"
+          >
+            <el-icon><Plus /></el-icon>
+          </el-button>
+          <el-tooltip content="管理分组" placement="bottom">
+            <el-button
+              class="manage-groups-btn"
+              circle
+              aria-label="管理分组"
+              @click="emit('manage-groups')"
+            >
+              <el-icon><Folder /></el-icon>
+            </el-button>
+          </el-tooltip>
+          <div class="right-divider" />
+        </template>
+
+        <!-- 标签筛选（bottom-start 左对齐触发按钮，减少浮层错位感）。
+             trigger="click" + v-model:visible：EP 原生接管「点击外部 / Esc 自动收起」，
+             替代旧手动 :visible（必须点取消才能关，反直觉）。
+             点外部关闭不丢草稿：草稿仅在重新打开时由 watch 重置为已提交筛选 -->
         <el-popover
-          :visible="tagFilterVisibleModel"
+          v-model:visible="tagFilterVisibleModel"
+          trigger="click"
           placement="bottom-start"
           :width="260"
           title="按标签筛选"
         >
           <template #reference>
-            <el-button
-              class="tag-filter-btn"
-              @click="
-                tags.onTagFilterShow();
-                tagFilterVisibleModel = true;
-              "
-            >
+            <el-button class="tag-filter-btn">
               标签筛选<template v-if="selectedTagCount">
                 ({{ selectedTagCount }})
               </template>
@@ -219,17 +236,23 @@ function chipStyle(tag: WatchlistTag) {
           </div>
         </el-popover>
 
-        <!-- 视图 segmented：全部 / 场内 / 场外（venue 维度，一级筛选胶囊） -->
-        <el-segmented
-          v-model="currentViewModel"
-          class="view-segmented"
-          :options="[
-            { label: '全部', value: 'all' },
-            { label: '场内', value: 'exchange' },
-            { label: '场外', value: 'otc' }
-          ]"
-          @change="emit('view-change')"
-        />
+        <!-- 视图 segmented：全部 / 场内 / 场外（venue 维度，一级筛选胶囊）。
+             手写分段控制器（弃用 el-segmented：JS 绝对定位滑块与自定义尺寸错位，
+             见 OcrImportModal 同款决策）；选中态仅浅红底 + 深红字 -->
+        <div class="view-segmented" role="tablist" aria-label="视图筛选">
+          <button
+            v-for="opt in viewOptions"
+            :key="opt.value"
+            type="button"
+            role="tab"
+            class="view-segmented__item"
+            :class="{ 'is-active': currentViewModel === opt.value }"
+            :aria-selected="currentViewModel === opt.value"
+            @click="selectView(opt.value)"
+          >
+            {{ opt.label }}
+          </button>
+        </div>
       </div>
     </div>
 
@@ -262,6 +285,14 @@ function chipStyle(tag: WatchlistTag) {
 
 .filter-bar__right > * {
   flex-shrink: 0;
+}
+
+/* 右段分隔线：分组操作 与 标签/视图 之间的视觉分隔 */
+.right-divider {
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  background-color: var(--border-default);
 }
 
 .filter-bar__right :deep(.el-popover__reference),
@@ -418,61 +449,55 @@ function chipStyle(tag: WatchlistTag) {
   background-color: var(--bg-hover);
 }
 
-/* ===== 视图 segmented（全部/场内/场外）：一级筛选胶囊，与分组 tab 同高 32px（design.md「Filter & Selection」） ===== */
-.view-segmented :deep(.el-segmented) {
+/* ===== 视图分段控制器（全部/场内/场外）：手写，弃用 el-segmented =====
+   与分组 tab 同高（轨道 32px）；item 统一几何尺寸，hover/选中仅底色深浅递进，
+   文字 flex 居中；选中态仅浅红底 + 深红字，无边框 */
+.view-segmented {
+  display: flex;
+  gap: 2px;
   height: 32px;
-  padding: 2px;
-  background-color: var(--bg-muted);
+  padding: 3px;
+  background-color: var(--bg-soft);
   border-radius: var(--radius-pill);
-  box-shadow: none;
 }
 
-/* item 均分铺满 + 文字居中：EP 选中背景是 JS 绝对定位块，item 不 flex 会错位（胖/偏左） */
-.view-segmented :deep(.el-segmented__group) {
+.view-segmented__item {
   display: flex;
-  width: 100%;
-}
-
-.view-segmented :deep(.el-segmented__item) {
-  display: flex;
-  flex: 1;
   align-items: center;
   justify-content: center;
-  height: 28px;
+  height: 26px;
   padding: 0 14px;
   font-size: var(--text-label);
-  line-height: 28px;
+  line-height: 1;
   color: var(--text-secondary);
+  cursor: pointer;
+  background-color: transparent;
+  border: none;
   border-radius: var(--radius-pill);
   transition:
     background-color 150ms ease,
     color 150ms ease;
 }
 
-.view-segmented :deep(.el-segmented__item:hover) {
-  color: var(--text-primary);
+/* 原生 button 点击后收掉浏览器默认 focus 外框；键盘导航保留细描边兜底 */
+.view-segmented__item:focus {
+  outline: none;
 }
 
-.view-segmented :deep(.el-segmented__item.is-selected) {
+.view-segmented__item:focus-visible {
+  outline: 1px solid var(--brand-400);
+  outline-offset: 1px;
+}
+
+.view-segmented__item:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-hover);
+}
+
+.view-segmented__item.is-active {
+  font-weight: 600;
   color: var(--brand-700);
   background-color: var(--brand-100);
-  box-shadow: none;
-}
-
-.view-segmented :deep(.el-segmented__item.is-selected:hover) {
-  background-color: var(--brand-200);
-}
-
-/* EP 选中态背景是独立子元素（默认白底+阴影），一并覆盖为品牌软按钮色 */
-.view-segmented :deep(.el-segmented__item-selected) {
-  background-color: var(--brand-100);
-  border-radius: var(--radius-pill);
-  box-shadow: none;
-}
-
-.view-segmented
-  :deep(.el-segmented__item.is-selected:hover .el-segmented__item-selected) {
-  background-color: var(--brand-200);
 }
 
 .tag-filter-panel {

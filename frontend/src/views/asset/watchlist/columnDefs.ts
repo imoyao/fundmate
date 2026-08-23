@@ -32,6 +32,7 @@ export type ColumnRenderer =
   | "riseFall" // RiseFallText（涨跌幅，支持实时覆盖）
   | "qty" // 持有数量 + 单位（份/股）
   | "moneyRatio" // MoneyWithRatio（金额 + 比率）
+  | "sparkline" // 迷你走势图（纯 SVG 折线，#990）
   | "actions"; // 操作列（circle 按钮：置顶/关注/编辑/删除）
 
 /** 实时估值可覆盖的字段（来自 getValuationItem 产出） */
@@ -48,9 +49,8 @@ export interface ColumnDef {
   minWidth?: number;
   align?: "left" | "center" | "right";
   fixed?: "left" | "right";
-  sortable?: boolean;
-  /** 自定义排序方法（如名称、添加后涨幅、持有收益） */
-  sortMethod?: (a: WatchlistRow, b: WatchlistRow) => number;
+  /** 排序模式：固定 "custom"（#991 后端排序透传，EP 不做页内排序） */
+  sortable?: "custom";
   /** 开启实时且存在估值项时，用估值项的该字段覆盖静态值 */
   realtimeField?: RealtimeField;
   /** #993 预留：用户是否可隐藏 */
@@ -66,31 +66,6 @@ export interface ColumnDef {
    * 如「添加后涨幅」「持仓市值比例」是组合计算，renderer 经 ctx.derived 取。
    */
   derived?: "addedReturn" | "marketValue";
-}
-
-/** 排序辅助：按 WatchlistItem 的某数值键排序 */
-function sortNum(key: keyof WatchlistRow) {
-  return (a: WatchlistRow, b: WatchlistRow): number => {
-    const av = Number(a[key]) || 0;
-    const bv = Number(b[key]) || 0;
-    return av - bv;
-  };
-}
-
-/** 排序辅助：按字符串键排序 */
-function sortStr(key: keyof WatchlistRow) {
-  return (a: WatchlistRow, b: WatchlistRow): number => {
-    const av = String(a[key] ?? "");
-    const bv = String(b[key] ?? "");
-    return av.localeCompare(bv, "zh-Hans-CN");
-  };
-}
-
-/** 排序辅助：按展示名排序（display_name 优先，回退 symbol；中文按拼音） */
-function sortName(a: WatchlistRow, b: WatchlistRow): number {
-  const av = a.display_name || a.symbol || "";
-  const bv = b.display_name || b.symbol || "";
-  return av.localeCompare(bv, "zh-Hans-CN");
 }
 
 /**
@@ -126,8 +101,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     minWidth: 240,
     fixed: "left",
     showOverflowTooltip: true,
-    sortable: true,
-    sortMethod: sortName,
+    sortable: "custom",
     hideable: false,
     draggable: false
   },
@@ -137,8 +111,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     renderer: "date",
     width: 130,
     align: "center",
-    sortable: true,
-    sortMethod: sortStr("created_at"),
+    sortable: "custom",
     hideable: true,
     draggable: true
   },
@@ -148,8 +121,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     renderer: "money",
     width: 110,
     align: "right",
-    sortable: true,
-    sortMethod: sortNum("current_price"),
+    sortable: "custom",
     realtimeField: "currentPrice",
     hideable: true,
     draggable: true
@@ -160,9 +132,18 @@ export const watchlistColumnDefs: ColumnDef[] = [
     renderer: "riseFall",
     width: 110,
     align: "right",
-    sortable: true,
-    sortMethod: sortNum("change_pct"),
+    sortable: "custom",
     realtimeField: "changePct",
+    hideable: true,
+    draggable: true
+  },
+  {
+    // 近 60 日收盘迷你走势（#990）：数据源 price_history，无数据降级 --
+    key: "trend",
+    label: "走势",
+    renderer: "sparkline",
+    width: 120,
+    align: "center",
     hideable: true,
     draggable: true
   },
@@ -172,8 +153,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     renderer: "qty",
     width: 130,
     align: "right",
-    sortable: true,
-    sortMethod: sortNum("holding_quantity"),
+    sortable: "custom",
     hideable: true,
     draggable: true
   },
@@ -183,8 +163,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     renderer: "moneyRatio",
     width: 150,
     align: "right",
-    sortable: true,
-    sortMethod: sortNum("position_market_value"),
+    sortable: "custom",
     hideable: true,
     draggable: true,
     derived: "marketValue" // value=position_market_value, ratio=marketValueRatio(row)
@@ -195,12 +174,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     renderer: "moneyRatio",
     width: 150,
     align: "right",
-    sortable: true,
-    sortMethod: (a: WatchlistRow, b: WatchlistRow): number => {
-      const av = Number(a.price_at_added) || 0;
-      const bv = Number(b.price_at_added) || 0;
-      return av - bv;
-    },
+    sortable: "custom",
     hideable: true,
     draggable: true,
     derived: "addedReturn" // value=addedReturnAmount(row), ratio=addedReturnPct(row)
@@ -211,8 +185,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     renderer: "moneyRatio",
     width: 150,
     align: "right",
-    sortable: true,
-    sortMethod: sortNum("holding_pnl"),
+    sortable: "custom",
     hideable: true,
     draggable: true,
     // value=holding_pnl, ratio=holding_pnl_percent（renderer 内对持仓量为 0 时置 null）

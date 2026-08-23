@@ -4,11 +4,12 @@
 # File : test_watchlist.py
 """自选模块 API 测试 — v2.1"""
 
-from datetime import date
+from datetime import date, timedelta
 
 from app.core.database import get_db
 from app.core.symbol_utils import get_normalizer
 from app.domains.positions.models import Position
+from app.domains.price_history.models import PriceHistory
 from app.domains.watchlist.models import WatchlistItem
 
 normalizer = get_normalizer()
@@ -820,3 +821,127 @@ class TestAllGroupUnionPositions:
         text = resp.get_data(as_text=True)
         assert 'SH600519,茅台,SH,股票,场内,持仓中,否,否,' in text
         assert 'HK00700,腾讯,HK,股票,场内,持仓中,否,否,' in text
+
+
+# ─────────────── 用户列内排序（#991）纯函数测试 ───────────────
+class TestApplyUserSort:
+    """_apply_user_sort：白名单校验 / 置顶前置 / None 恒排末尾 / 派生列现算"""
+
+    @staticmethod
+    def _row(symbol, **kw):
+        row = {'symbol': symbol, 'is_pinned': False}
+        row.update(kw)
+        return row
+
+    def test_unknown_or_missing_field_keeps_order(self):
+        from app.domains.watchlist.views import _apply_user_sort
+
+        data = [self._row('A', current_price=2.0), self._row('B')]
+        # 非白名单字段 / 未传 sort_by：原序返回（走默认置顶+更新时间）
+        assert _apply_user_sort(data, 'notes', 'desc') == data
+        assert _apply_user_sort(data, None, 'asc') == data
+
+    def test_sort_by_current_price_desc(self):
+        from app.domains.watchlist.views import _apply_user_sort
+
+        data = [
+            self._row('A', current_price=1.0),
+            self._row('B', current_price=3.0),
+            self._row('C', current_price=2.0),
+        ]
+        result = _apply_user_sort(data, 'current_price', 'desc')
+        assert [r['symbol'] for r in result] == ['B', 'C', 'A']
+
+    def test_pinned_stays_first_after_user_sort(self):
+        from app.domains.watchlist.views import _apply_user_sort
+
+        data = [
+            self._row('A', current_price=1.0),
+            self._row('P', current_price=0.5, is_pinned=True),
+            self._row('B', current_price=3.0),
+        ]
+        result = _apply_user_sort(data, 'current_price', 'desc')
+        # 用户排序生效（B > A），但置顶行仍恒在顶部
+        assert [r['symbol'] for r in result] == ['P', 'B', 'A']
+
+    def test_none_values_last_regardless_of_direction(self):
+        from app.domains.watchlist.views import _apply_user_sort
+
+        data = [
+            self._row('N', change_pct=None),
+            self._row('A', change_pct=1.0),
+            self._row('B', change_pct=-1.0),
+        ]
+        desc = _apply_user_sort(data, 'change_pct', 'desc')
+        asc = _apply_user_sort(data, 'change_pct', 'asc')
+        assert [r['symbol'] for r in desc] == ['A', 'B', 'N']
+        assert [r['symbol'] for r in asc] == ['B', 'A', 'N']
+
+    def test_added_return_derived_metric(self):
+        from app.domains.watchlist.views import _apply_user_sort
+
+        data = [
+            # 收益 = (现价 - 成本) × 数量：A=100，B=400，C 缺数量 → None
+            self._row('A', current_price=11.0, price_at_added=10.0, holding_quantity=100),
+            self._row('B', current_price=6.0, price_at_added=5.0, holding_quantity=400),
+            self._row('C', current_price=9.0, price_at_added=8.0, holding_quantity=None),
+        ]
+        result = _apply_user_sort(data, 'added_return', 'desc')
+        assert [r['symbol'] for r in result] == ['B', 'A', 'C']
+
+
+# ─────────────── 迷你走势图批量序列（#990） ───────────────
+class TestTrends:
+    def test_trends_batch_series(self, client, db):
+        """/trends/：窗口过滤 + 时间升序 + 无数据 symbol 键缺省 + close None 跳过"""
+        from app.domains.securities.models import Security
+
+        # price_history.security_id 非空且无按 symbol 自动关联，须显式建档案并回填 id
+        sec_moutai = Security(symbol='SH600519', name='贵州茅台', market='CN_A', type='stock')
+        sec_tencent = Security(symbol='HK00700', name='腾讯', market='CN_HK', type='stock')
+        db.add_all([sec_moutai, sec_tencent])
+        db.flush()
+
+        today = date.today()
+        rows = []
+        for i in range(5):
+            rows.append(
+                PriceHistory(
+                    security_id=sec_moutai.id,
+                    symbol='SH600519',
+                    trade_date=today - timedelta(days=i),
+                    close=1800.0 + i,
+                )
+            )
+        # 超出 60 日窗口的记录应被排除
+        rows.append(
+            PriceHistory(
+                security_id=sec_moutai.id,
+                symbol='SH600519',
+                trade_date=today - timedelta(days=100),
+                close=999.0,
+            )
+        )
+        db.add_all(rows)
+        # HK00700 建了档案但无窗口内行情 → 无数据 symbol 键缺省
+        # （price_history.close 为 NOT NULL，端点的 close None 守卫仅为防御性代码）
+        db.commit()
+
+        resp = _get(
+            client,
+            '/api/watchlist/trends/',
+            {'symbols': 'SH600519,HK00700,NOTEXIST', 'days': 60},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        # 无数据的 symbol 键缺省（前端降级 --）
+        assert set(data.keys()) == {'SH600519'}
+        series = data['SH600519']
+        assert len(series) == 5
+        # 时间升序：i 越大日期越早、close 越大（1800+i），故首元素为最早日的 1804
+        assert series == [1804.0, 1803.0, 1802.0, 1801.0, 1800.0]
+
+    def test_trends_empty_symbols(self, client):
+        resp = _get(client, '/api/watchlist/trends/', {'symbols': ''})
+        assert resp.status_code == 200
+        assert resp.get_json()['data'] == {}

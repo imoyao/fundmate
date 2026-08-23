@@ -6,7 +6,7 @@
 
 import csv
 import io
-from datetime import date
+from datetime import date, timedelta
 
 from apiflask import APIBlueprint
 from flask import Response, abort, jsonify, request
@@ -321,12 +321,107 @@ def home_summary():
     return jsonify({'data': data, 'message': 'ok'})
 
 
+@watchlist_bp.get('/trends/')
+def list_trends():
+    """批量获取标的近 N 日收盘价序列（迷你走势图数据源，#990）。
+
+    ?symbols=SH600519,HK00700&days=60
+    - 数据源：price_history 表（price_history_job 回填），与「添加后涨幅」同源同口径，
+      纯历史日线无需实时性，不走前端 JSONP 行情通道（AGENTS.md 数据源收口约束）；
+    - 紧凑返回：仅收盘价数组，无日期轴（迷你图不画坐标轴）；
+    - 无数据的 symbol 不出现在返回字典中，前端降级显示 --；
+    - symbols 上限 50 个、days 限幅 [5, 250]，防止单次请求过量。
+    """
+    symbols = [s.strip() for s in request.args.get('symbols', '').split(',') if s.strip()][:50]
+    days = max(min(request.args.get('days', type=int, default=60) or 60, 250), 5)
+    if not symbols:
+        return jsonify({'data': {}, 'message': 'ok'})
+
+    start = date.today() - timedelta(days=days)
+    with get_db() as db:
+        rows = (
+            db.query(PriceHistory.symbol, PriceHistory.close)
+            .filter(
+                PriceHistory.symbol.in_(symbols),
+                PriceHistory.trade_date >= start,
+            )
+            .order_by(PriceHistory.symbol.asc(), PriceHistory.trade_date.asc())
+            .all()
+        )
+
+    trends: dict[str, list[float]] = {}
+    for symbol, close in rows:
+        if close is None:
+            continue
+        trends.setdefault(symbol, []).append(round(close, 4))
+    return jsonify({'data': trends, 'message': 'ok'})
+
+
 # ─────────────── 自选资产 CRUD ───────────────
+
+# 用户列内排序白名单（#991）：仅开放行字典中真实存在的数值/日期字段，
+# 防止任意字段名注入排序。added_return 为派生值（前端「添加后涨幅」列），
+# 由 _user_sort_metric 现算，不在本集合内。
+_USER_SORTABLE_FIELDS = frozenset(
+    {
+        'created_at',
+        'current_price',
+        'change_pct',
+        'holding_quantity',
+        'position_market_value',
+        'holding_pnl',
+        'holding_pnl_percent',
+        'price_at_added',
+    }
+)
+
+
+def _user_sort_metric(row: dict, sort_by: str):
+    """取排序键值；缺失/不可比较返回 None（恒排末尾）。"""
+    if sort_by == 'added_return':
+        # 派生列：添加后收益金额 =（现价 - 添加日收盘价）× 持有数量，
+        # 与前端 addedReturnAmount 同口径；三要素缺一则无意义
+        cur = row.get('current_price')
+        added = row.get('price_at_added')
+        qty = row.get('holding_quantity')
+        if cur is None or added is None or not qty:
+            return None
+        try:
+            return (float(cur) - float(added)) * float(qty)
+        except (TypeError, ValueError):
+            return None
+    v = row.get(sort_by)
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return str(v)
+
+
+def _apply_user_sort(data: list, sort_by, sort_order):
+    """用户列内排序（#991）。
+
+    - 白名单外/未指定：维持原顺序（置顶优先 + 更新时间倒序）；
+    - 排序稳定且置顶行仍前置：用户排序只改变同优先级内的次序，
+      不破坏「置顶恒在顶部」的既有心智；
+    - 值缺失（None）的行无论升降序都排在末尾，避免空值干扰阅读。
+    """
+    if not sort_by or sort_by not in _USER_SORTABLE_FIELDS and sort_by != 'added_return':
+        return data
+    reverse = sort_order == 'desc'
+
+    decorated = [(_user_sort_metric(r, sort_by), r) for r in data]
+    known = [(m, r) for m, r in decorated if m is not None]
+    unknown = [r for m, r in decorated if m is None]
+    known.sort(key=lambda t: t[0], reverse=reverse)  # 主排序：用户选的指标
+    known.sort(key=lambda t: 0 if t[1].get('is_pinned') else 1)  # 次排序：置顶前置（稳定）
+    return [r for _, r in known] + unknown
 
 
 @watchlist_bp.get('/items/')
 def list_items():
-    """获取自选列表，支持多种筛选和置顶优先排序"""
+    """获取自选列表，支持多种筛选、置顶优先排序与用户列内排序（sort_by/sort_order）"""
     params = {
         'status': request.args.get('status'),
         'venue': request.args.get('venue'),
@@ -339,6 +434,8 @@ def list_items():
         'tag_id': request.args.get('tag_id', type=int),
         'page': request.args.get('page', type=int, default=1),
         'per_page': request.args.get('per_page', type=int, default=20),
+        'sort_by': request.args.get('sort_by'),
+        'sort_order': request.args.get('sort_order', 'asc'),
     }
 
     with get_db() as db:
@@ -350,6 +447,7 @@ def list_items():
             # 持仓分组 = 全部真实持仓（positions 表 active，按 symbol 聚合），
             # 不走 watchlist.status 快照查询；返回虚拟行（id=None，前端据此禁用行操作）
             data = _list_holding_items(db, get_family_id(), venue=params['venue'], search=params['search'])
+            data = _apply_user_sort(data, params['sort_by'], params['sort_order'])
             total = len(data)
             page_data = data[offset : offset + per_page]
             return jsonify({'data': page_data, 'total': total, 'message': 'ok'})
@@ -371,6 +469,7 @@ def list_items():
                 )
             except ValueError as e:
                 abort(400, str(e))
+            data = _apply_user_sort(data, params['sort_by'], params['sort_order'])
             total = len(data)
             page_data = data[offset : offset + per_page]
             return jsonify({'data': page_data, 'total': total, 'message': 'ok'})
@@ -394,6 +493,7 @@ def list_items():
 
         items = query.order_by(WatchlistItem.is_pinned.desc(), WatchlistItem.updated_at.desc()).all()
         data = [_enrich_item(item, db) for item in items]
+        data = _apply_user_sort(data, params['sort_by'], params['sort_order'])
 
         total = len(data)
         page_data = data[offset : offset + per_page]
@@ -461,7 +561,19 @@ def list_groups():
 def create_group():
     json_data = parse_body(WatchlistGroupCreate)
     with get_db() as db:
-        group = WatchlistGroup(**json_data.model_dump(), family_id=get_family_id())
+        name = json_data.name.strip()
+        # 检查是否已存在同名分组（家庭维度），避免重名
+        existing = (
+            db.query(WatchlistGroup)
+            .filter(WatchlistGroup.name == name, WatchlistGroup.family_id == get_family_id())
+            .first()
+        )
+        if existing:
+            abort(409, f'分组「{name}」已存在')
+
+        data = json_data.model_dump()
+        data['name'] = name
+        group = WatchlistGroup(**data, family_id=get_family_id())
         group.is_system = False
         db.add(group)
         db.commit()
@@ -477,6 +589,21 @@ def update_group(group_id):
         group = get_owned_or_404(db, WatchlistGroup, group_id)
         if not group:
             abort(404, '分组不存在')
+        # 重命名时校验是否与其他分组重名（排除自身）
+        if json_data.name is not None:
+            name = json_data.name.strip()
+            name_conflict = (
+                db.query(WatchlistGroup)
+                .filter(
+                    WatchlistGroup.name == name,
+                    WatchlistGroup.family_id == get_family_id(),
+                    WatchlistGroup.id != group_id,
+                )
+                .first()
+            )
+            if name_conflict:
+                abort(409, f'分组「{name}」已存在')
+            json_data.name = name
         update_data = json_data.model_dump(exclude_unset=True)
         for field, value in update_data.items():
             setattr(group, field, value)

@@ -1,0 +1,40 @@
+/* ============================================
+   自选列渲染器配套样式（columnRenderers.tsx 专用）
+   为什么独立成文件：renderer 函数产生的 DOM 不携带 index.vue 的 scoped
+   属性，页面内 scoped 选择器匹配不到它们，#995 迁移时 marker-icon 与
+   add-tag-btn 样式曾因此静默失效。选择器统一以 .el-table 前缀限定作用域。
+   ============================================ */
+
+/* 置顶/关注标记图标：默认 --text-tertiary 弱化，行悬停提亮 --text-secondary */
+.el-table .marker-icon {
+  display: inline-flex;
+  color: var(--text-tertiary);
+  transition: color 150ms ease;
+}
+
+.el-table .el-table__row:hover .marker-icon,
+.el-table .is-row-hovered .marker-icon {
+  color: var(--text-secondary);
+}
+
+/* 产品列「添加标签」小按钮：20px 圆形，默认 45% 弱化可见，行悬停全亮；
+   孤按钮（行内无标签 chips 时）常亮，保证可发现性 */
+.el-table .add-tag-btn {
+  --el-button-text-color: var(--text-tertiary);
+
+  width: 20px;
+  height: 20px;
+  min-height: 20px;
+  color: var(--text-tertiary);
+  opacity: 0.45;
+  transition: opacity 150ms ease;
+}
+
+.el-table .el-table__row:hover .add-tag-btn,
+.el-table .is-row-hovered .add-tag-btn {
+  opacity: 1;
+}
+
+.el-table .add-tag-btn:only-child {
+  opacity: 1;
+}

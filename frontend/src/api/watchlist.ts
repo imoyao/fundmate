@@ -154,6 +154,15 @@ export function getWatchlistItems(
   );
 }
 
+/** 批量获取标的近 N 日收盘价序列（迷你走势图，#990）；无数据的 symbol 键缺省 */
+export function getWatchlistTrends(symbols: string[], days = 60) {
+  return http.request<{ data: Record<string, number[]>; message?: string }>(
+    "get",
+    "/api/watchlist/trends/",
+    { params: { symbols: symbols.join(","), days } }
+  );
+}
+
 /** 首页自选摘要：置顶优先，不足则按持仓市值降序补齐，最多5条 */
 export function getHomeSummary() {
   return http.request<ApiResponse<HomeSummaryItem[]>>(

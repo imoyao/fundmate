@@ -53,12 +53,25 @@ const intervalOptions = [
         <span v-if="realtime.lastUpdateTime.value" class="update-time">
           更新于 {{ realtime.lastUpdateTime.value }}
         </span>
-        <el-segmented
-          :model-value="realtime.refreshInterval.value"
-          class="refresh-segmented"
-          :options="intervalOptions"
-          @change="emit('interval-change', $event)"
-        />
+        <!-- 刷新档位：手写分段控制器（弃用 el-segmented：其 JS 绝对定位选中滑块与
+             自定义 item 尺寸错位，曾出现选中块偏高/hover 半截/文字偏上，见 OcrImportModal 同款决策）。
+             选中态仅浅红底 + 深红字；轨道用 --bg-soft 暖米色衬托 --brand-100（近白）选中底 -->
+        <div class="refresh-segmented" role="tablist" aria-label="刷新频率">
+          <button
+            v-for="opt in intervalOptions"
+            :key="opt.value"
+            type="button"
+            role="tab"
+            class="refresh-segmented__item"
+            :class="{
+              'is-active': realtime.refreshInterval.value === opt.value
+            }"
+            :aria-selected="realtime.refreshInterval.value === opt.value"
+            @click="emit('interval-change', opt.value)"
+          >
+            {{ opt.label }}
+          </button>
+        </div>
         <el-button
           text
           circle
@@ -194,63 +207,56 @@ const intervalOptions = [
   background-color: var(--border-subtle);
 }
 
-/* 刷新频率 segmented：24px 小胶囊（design.md「Segmented · 小尺寸」，与 SettingsDrawer 双处一致）。
-   注意：必须带 group 100% 宽 + item flex:1 + justify-content:center——
-   EP 的选中背景（.el-segmented__item-selected）是 JS 绝对定位块，item 若不均分/不居中会错位（胖/偏移）。 */
-.refresh-segmented :deep(.el-segmented) {
-  height: 24px;
+/* ===== 刷新档位分段控制器（手写，弃用 el-segmented） =====
+   轨道 --bg-soft 暖米色：--brand-100（#fff5f3 近白）选中底在灰轨道上不可见，
+   暖米色轨道才能衬托出选中胶囊；item 统一高度，hover/选中同一几何尺寸，
+   文字用 flex 居中（不用 line-height 撑高），杜绝「选中偏高/hover 半截/文字偏上」 */
+.refresh-segmented {
+  display: flex;
+  gap: 2px;
   padding: 2px;
-  background-color: var(--bg-muted);
+  background-color: var(--bg-soft);
   border-radius: var(--radius-pill);
-  box-shadow: none;
 }
 
-/* item 均分铺满整行：EP 默认 group/item 不拉伸，需显式声明 group 100% 宽 + item flex:1 */
-.refresh-segmented :deep(.el-segmented__group) {
+.refresh-segmented__item {
   display: flex;
-  width: 100%;
-}
-
-.refresh-segmented :deep(.el-segmented__item) {
-  display: flex;
-  flex: 1;
   align-items: center;
   justify-content: center;
   height: 20px;
   padding: 0 10px;
   font-size: 12px;
-  line-height: 20px;
+  line-height: 1;
   color: var(--text-secondary);
+  cursor: pointer;
+  background-color: transparent;
+  border: none;
   border-radius: var(--radius-pill);
   transition:
     background-color 150ms ease,
     color 150ms ease;
 }
 
-.refresh-segmented :deep(.el-segmented__item:hover) {
-  color: var(--text-primary);
+/* 原生 button 点击后收掉浏览器默认 focus 外框；键盘导航保留细描边兜底 */
+.refresh-segmented__item:focus {
+  outline: none;
 }
 
-.refresh-segmented :deep(.el-segmented__item.is-selected) {
+.refresh-segmented__item:focus-visible {
+  outline: 1px solid var(--brand-400);
+  outline-offset: 1px;
+}
+
+/* hover 与选中同尺寸、同层级：仅底色深浅递进（透明 → --bg-hover → --brand-100），不再互相打架 */
+.refresh-segmented__item:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-hover);
+}
+
+.refresh-segmented__item.is-active {
+  font-weight: 600;
   color: var(--brand-700);
   background-color: var(--brand-100);
-  box-shadow: none;
-}
-
-.refresh-segmented :deep(.el-segmented__item.is-selected:hover) {
-  background-color: var(--brand-200);
-}
-
-/* EP 选中态背景是独立子元素（默认白底+阴影），一并覆盖为品牌软按钮色 */
-.refresh-segmented :deep(.el-segmented__item-selected) {
-  background-color: var(--brand-100);
-  border-radius: var(--radius-pill);
-  box-shadow: none;
-}
-
-.refresh-segmented
-  :deep(.el-segmented__item.is-selected:hover .el-segmented__item-selected) {
-  background-color: var(--brand-200);
 }
 
 /* 刷新图标按钮：无文字，loading 时由 EP 自带 loading 图标替代 */
