@@ -16,6 +16,11 @@ name: 质量门禁 CI
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+  # 防直推卡点：直接 push 到受保护分支 M 时，下方 guard-direct-push job 会拦截。
+  # 通过 PR 合并的 push 属于 pull_request 事件，不会触发本 push 卡点。
+  push:
+    branches:
+      - M
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -125,3 +130,18 @@ jobs:
 
       - name: 构建
         run: pnpm build
+
+  # 防直推卡点（替代 GitHub Pro 才有的 branch protection）
+  # 私有仓库无 branch protection，用此 job 拦截「直接 push 到 M」的行为：
+  # 正常流程是 fork/分支 → PR → merge，merge 产生的 push 属 pull_request 事件不触发本 job；
+  # 只有「本地直接 git push origin M」才会触发并失败。
+  guard-direct-push:
+    name: 禁止直接 push 到 M（请走 PR）
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/M' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: 拦截直推
+        run: |
+          echo "::error::检测到直接向主分支 M 推送。请改用 PR 流程：从 M 切出分支 → 提交 → 开 PR → review 后合并。"
+          echo "::error::Direct push to main branch M is blocked. Use a PR instead."
+          exit 1
