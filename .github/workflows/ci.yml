@@ -11,7 +11,7 @@
 # 注意：后端依赖走阿里云镜像且含 gitee 上的 xalpha，海外 runner 安装可能偏慢；
 #       若 install 超时，可将 PDM 源改为官方 PyPI 提速（不影响本项目配置）。
 
-name: CI
+name: 质量门禁 CI
 
 on:
   pull_request:
@@ -23,6 +23,9 @@ concurrency:
 
 permissions:
   contents: read
+  # dorny/paths-filter 需要 pull-requests:read 才能通过 GITHUB_TOKEN 拉取 PR 改动文件列表，
+  # 否则报 "Resource not accessible by integration"
+  pull-requests: read
 
 jobs:
   # 计算哪些目录有改动，决定下方 job 是否运行
