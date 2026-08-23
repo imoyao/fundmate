@@ -57,7 +57,10 @@ const emit = defineEmits<{
             size="small"
             circle
             class="ledger-row-action"
-            :aria-label="(ledger.is_active === false ? '激活账户 ' : '归档账户 ') + ledger.name"
+            :aria-label="
+              (ledger.is_active === false ? '激活账户 ' : '归档账户 ') +
+              ledger.name
+            "
             @click.stop="emit('toggleArchive', ledger)"
           >
             <IconifyIconOffline
@@ -88,10 +91,7 @@ const emit = defineEmits<{
     </div>
 
     <!-- 已归档徽标：灰化提示，数据仍参与收益计算 -->
-    <div
-      v-if="ledger.is_active === false"
-      class="ledger-card__archived"
-    >
+    <div v-if="ledger.is_active === false" class="ledger-card__archived">
       <IconifyIconOffline icon="ep:box" class="mr-1" /> 已归档 · 数据仍计入收益
     </div>
 
@@ -297,7 +297,8 @@ const emit = defineEmits<{
 
 /* 两个行内按钮 hover 效果统一：图标变色 + 浅背景（用父级前缀提权，确保盖过 EP 默认 is-text:hover） */
 .ledger-row-actions .ledger-row-action:not(.ledger-row-action--danger):hover,
-.ledger-row-actions .ledger-row-action:not(.ledger-row-action--danger):focus-visible {
+.ledger-row-actions
+  .ledger-row-action:not(.ledger-row-action--danger):focus-visible {
   color: var(--el-color-warning);
   background-color: var(--el-color-warning-light-9);
 }

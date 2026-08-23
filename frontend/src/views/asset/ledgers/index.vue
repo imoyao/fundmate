@@ -36,14 +36,16 @@
           class="btn-ghost-text"
           :type="showArchived ? 'primary' : 'default'"
           :plain="!showArchived"
-          @click="showArchived = !showArchived; fetchData()"
+          @click="
+            showArchived = !showArchived;
+            fetchData();
+          "
         >
           <IconifyIconOffline icon="ep:box" class="mr-1" />
           {{ showArchived ? "隐藏已归档" : "显示已归档" }}
-          <span
-            v-if="archivedCount > 0"
-            class="ml-1 opacity-70"
-          >({{ archivedCount }})</span>
+          <span v-if="archivedCount > 0" class="ml-1 opacity-70"
+            >({{ archivedCount }})</span
+          >
         </el-button>
       </div>
     </div>

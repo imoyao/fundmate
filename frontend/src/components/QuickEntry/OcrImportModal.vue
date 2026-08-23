@@ -429,8 +429,6 @@ onMounted(() => {
 <!-- lang="scss" 必须保留：本文件使用 &__block 嵌套拼接语法，原生 CSS 嵌套不支持该写法，
      缺失会导致全部嵌套规则静默失效（分段控制器裸按钮问题的根因） -->
 <style scoped lang="scss">
-
-
 /* 额度数字跳动：扣除次数时轻微缩放反馈 */
 @keyframes usage-pop {
   0% {

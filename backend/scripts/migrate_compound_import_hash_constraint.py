@@ -66,7 +66,7 @@ def migrate_table(conn: sqlite3.Connection, table: str, index_name: str, cols: t
         return
 
     if existing == list(cols):
-        print(f"  [SKIP] {table}: {index_name} 已是复合 ({', '.join(existing)})，无需迁移")
+        print(f'  [SKIP] {table}: {index_name} 已是复合 ({", ".join(existing)})，无需迁移')
         return
 
     if len(existing) == 1:
@@ -83,7 +83,7 @@ def migrate_table(conn: sqlite3.Connection, table: str, index_name: str, cols: t
         print(f'  [OK] {table}: 单列 {index_name} 重建为复合 ({col_list})')
         return
 
-    print(f"  [WARN] {table}: {index_name} 列定义异常 ({', '.join(existing)})，跳过")
+    print(f'  [WARN] {table}: {index_name} 列定义异常 ({", ".join(existing)})，跳过')
 
 
 def main() -> None:

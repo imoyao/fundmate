@@ -15,12 +15,11 @@
         <el-button @click="openEditDialog">
           <IconifyIconOffline icon="ep:edit" class="mr-1" /> 编辑
         </el-button>
-        <el-button
-          v-if="accountInfo"
-          @click="toggleArchiveDetail(accountInfo)"
-        >
+        <el-button v-if="accountInfo" @click="toggleArchiveDetail(accountInfo)">
           <IconifyIconOffline
-            :icon="accountInfo.is_active === false ? 'ep:refresh-left' : 'ep:box'"
+            :icon="
+              accountInfo.is_active === false ? 'ep:refresh-left' : 'ep:box'
+            "
             class="mr-1"
           />
           {{ accountInfo.is_active === false ? "激活" : "归档" }}

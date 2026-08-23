@@ -339,7 +339,7 @@ class TestHoldingScenarioAPI:
         monkeypatch.setattr(
             llm_module,
             'call_llm',
-            lambda content, system_prompt, **kw: ('[{"code":"110011","name":"易方达中小盘","market_value":1000}]'),
+            lambda content, system_prompt, **kw: '[{"code":"110011","name":"易方达中小盘","market_value":1000}]',
         )
         client.post('/api/ocr/parse', json={'text': '持仓', 'scenario': 'holding_import'})
         ocr = client.get('/api/ocr/usage').get_json()['data']
@@ -355,7 +355,7 @@ class TestHoldingScenarioAPI:
         monkeypatch.setattr(
             llm_module,
             'call_llm',
-            lambda content, system_prompt, **kw: ('[{"code":"110011","name":"易方达中小盘","market_value":1000}]'),
+            lambda content, system_prompt, **kw: '[{"code":"110011","name":"易方达中小盘","market_value":1000}]',
         )
         client.post('/api/ocr/parse', json={'text': '持仓', 'scenario': 'holding_import'})
         with SessionLocal() as s:
