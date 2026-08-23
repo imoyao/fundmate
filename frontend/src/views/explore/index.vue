@@ -7,163 +7,11 @@
     <!-- ============================================================ -->
     <!-- 温度数据仪表盘                                                -->
     <!-- ============================================================ -->
-    <section class="temperature-dashboard">
-      <!-- 综合温度 + 恐惧贪婪 + 股债性价比（比例 2:1:1） -->
-      <MetricGrid>
-        <!-- 综合温度 -->
-        <TemperatureGaugeCard
-          class="gauge-card--featured"
-          :value="compositeTemperature?.value ?? null"
-          title="综合温度"
-          :level="compositeTemperature?.level || '暂无'"
-          caption="综合6个市场指标"
-          size="sm"
-          clickable
-          @click="goToTemperature"
-        >
-          <template #footer>
-            <div class="primary-bar">
-              <div
-                class="primary-fill"
-                :style="{
-                  width:
-                    (compositeTemperature?.value != null
-                      ? Math.max(0, Math.min(100, compositeTemperature.value))
-                      : 0) + '%',
-                  background: progressColor
-                }"
-              />
-            </div>
-            <span class="primary-link">查看温度计 ›</span>
-          </template>
-        </TemperatureGaugeCard>
-
-        <!-- 恐惧贪婪 -->
-        <MetricCard
-          title="恐惧贪婪"
-          :value="fearData ? fearData.value : null"
-          :level="fearData?.label || '暂无数据'"
-        />
-
-        <!-- 股债性价比 -->
-        <MetricCard
-          title="股债性价比"
-          :value="selfCalcPercent != null ? selfCalcPercent : null"
-          unit="%"
-          :level="selfCalcLevel"
-        />
-      </MetricGrid>
-
-      <!-- L2：市场情绪 + 估值指标（两列等宽，避免重心偏左） -->
-      <div class="metrics-row">
-        <!-- 市场情绪 -->
-        <div class="metrics-group metrics-group--half">
-          <SectionHeader title="市场情绪" />
-          <MetricGrid>
-            <MetricCard
-              title="且慢"
-              :value="qiemanData ? qiemanData.value : null"
-              unit="°"
-              :level="qiemanData?.label || '暂无'"
-            />
-            <MetricCard
-              title="有知有行"
-              :value="youzhiData ? youzhiData.value : null"
-              unit="°"
-              :level="youzhiData?.label || '暂无'"
-            />
-            <MetricCard
-              title="韭圈儿中长期"
-              :value="jiucaishuoMediumData ? jiucaishuoMediumData.value : null"
-              unit="°"
-              :level="jiucaishuoMediumData?.label || '暂无'"
-            />
-          </MetricGrid>
-        </div>
-
-        <!-- 估值指标 -->
-        <div class="metrics-group metrics-group--half">
-          <SectionHeader title="估值指标" />
-          <MetricGrid>
-            <MetricCard
-              title="中位PB"
-              :value="jisiluIndicator?.median_pb ?? null"
-              unit="倍"
-              :level="pbLevel"
-              :caption="pbCaption"
-            />
-            <MetricCard
-              title="中位PE"
-              :value="jisiluIndicator?.median_pe ?? null"
-              unit="倍"
-              :level="peLevel"
-              :caption="peCaption"
-            />
-            <MetricCard
-              title="可转债"
-              :value="cbTemperature != null ? cbTemperature : null"
-              unit="°"
-              :level="cbLabel || '暂无'"
-            />
-          </MetricGrid>
-        </div>
-      </div>
-
-      <!-- L3：流动性（独占一行，横向大卡片，信息更聚焦） -->
-      <div class="metrics-row metrics-row--single">
-        <div class="liquidity-block">
-          <SectionHeader title="流动性" />
-          <div class="liquidity-card">
-            <div class="liquidity-metric">
-              <span class="liquidity-metric__label">今日成交额</span>
-              <div class="liquidity-metric__body">
-                <span class="liquidity-metric__value">{{
-                  volumeData ? volumeData.value : "--"
-                }}</span>
-                <span class="liquidity-metric__unit">亿</span>
-                <TemperatureLevelBadge
-                  :level="volumeData?.label || '暂无'"
-                  size="sm"
-                />
-              </div>
-              <span class="liquidity-metric__hint"
-                >成交量热度反映市场活跃度</span
-              >
-            </div>
-            <div class="liquidity-divider" />
-            <div class="liquidity-actions">
-              <el-button
-                link
-                class="liquidity-btn"
-                @click="handleShowIndustryCrowding"
-                >行业拥挤度 →</el-button
-              >
-              <el-button
-                link
-                class="liquidity-btn"
-                @click="handleShowSectorFlow"
-                >板块资金流 →</el-button
-              >
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 指数快照（独立一行） -->
-      <div class="index-snapshot">
-        <div class="snapshot-title">指数快照</div>
-        <div class="snapshot-items">
-          <div v-for="idx in indexData" :key="idx.code" class="snapshot-item">
-            <span class="snapshot-name">{{ idx.name }}</span>
-            <span v-if="idx.price === null" class="snapshot-price">--</span>
-            <MoneyDisplay v-else :value="idx.price" :precision="2" />
-            <span class="snapshot-change"
-              ><RiseFallText :value="idx.changePercent"
-            /></span>
-          </div>
-        </div>
-      </div>
-    </section>
+    <!-- 温度数据仪表盘（#984 拆分至 components/ExploreTemperatureDashboard.vue） -->
+    <ExploreTemperatureDashboard
+      ref="dashboardRef"
+      @go-temperature="goToTemperature"
+    />
 
     <!-- ============================================================ -->
     <!-- 添加/观察栏（仅未登录；登录后隐藏，引导去自选页管理）       -->
@@ -451,6 +299,7 @@ import {
 import { buildMarketFooterSources } from "@/components/MarketFooter/config";
 import { batchFetchQuotes } from "@/utils/realtimeDataSources";
 import { useTemperatureOverview } from "@/composables/temperature/useTemperatureOverview";
+import ExploreTemperatureDashboard from "./components/ExploreTemperatureDashboard.vue";
 import { getTypeLabel } from "@/constants/assetType";
 import { pricePrecision } from "@/utils/pricePrecision";
 import { useAuthState } from "@/composables/useAuthState";
@@ -539,122 +388,14 @@ watch(
 );
 
 // ================================================================
-// 指数数据
-// ================================================================
-interface IndexInfo {
-  code: string;
-  name: string;
-  price: number | null;
-  changePercent: number;
-}
-
-const indexCodes = [
-  { symbol: "000300", type: "stock" as const },
-  { symbol: "000905", type: "stock" as const },
-  { symbol: "399006", type: "stock" as const }
-];
-
-const indexData = ref<IndexInfo[]>([
-  { code: "000300", name: "沪深300", price: null, changePercent: 0 },
-  { code: "000905", name: "中证500", price: null, changePercent: 0 },
-  { code: "399006", name: "创业板指", price: null, changePercent: 0 }
-]);
-
-const indexLoading = ref(false);
-
-const fetchIndexData = async () => {
-  indexLoading.value = true;
-  try {
-    const result = await batchFetchQuotes(indexCodes);
-    indexData.value = indexData.value.map(idx => {
-      const quote = result.get(idx.code);
-      if (quote) {
-        const price = quote.currentPrice || 0;
-        const change = quote.changePct || 0;
-        return {
-          ...idx,
-          price: price > 0 ? price : null,
-          changePercent: change
-        };
-      }
-      return idx;
-    });
-  } catch {
-    // 静默失败
-  } finally {
-    indexLoading.value = false;
-  }
-};
-
-// ================================================================
-// 市场温度数据（两页共用 composable，temperature 页后续接入，见 #980）
-// ================================================================
-const {
-  compositeTemperature,
-  selfCalcPercent,
-  selfCalcLevel,
-  links,
-  volumeData,
-  fearData,
-  jiucaishuoMediumData,
-  qiemanData,
-  youzhiData,
-  cbTemperature,
-  cbLabel,
-  jisiluIndicator,
-  fetchTemperature
-} = useTemperatureOverview();
-
-// 综合温度进度条颜色：按温度档位取色，偏低时为绿色
-const progressColor = computed(() => {
-  const v = compositeTemperature.value?.value;
-  if (v == null || Number.isNaN(v)) return "var(--temp-mid)";
-  if (v < 40) return "var(--temp-low)";
-  if (v > 60) return "var(--temp-high)";
-  return "var(--temp-mid)";
-});
-
-// 根据估值温度推断等级（PB/PE 温度越低代表估值越便宜）
-const inferValuationLevel = (
-  temperature: number | null | undefined
-): string => {
-  if (temperature == null || Number.isNaN(temperature)) return "暂无";
-  if (temperature < 30) return "偏低";
-  if (temperature > 70) return "偏高";
-  return "适中";
-};
-
-const pbLevel = computed(() =>
-  inferValuationLevel(jisiluIndicator.value?.median_pb_temperature)
-);
-const peLevel = computed(() =>
-  inferValuationLevel(jisiluIndicator.value?.median_pe_temperature)
-);
-
-const pbCaption = computed(() => {
-  const temp = jisiluIndicator.value?.median_pb_temperature;
-  if (temp == null) return "估值温度 --";
-  return `估值温度 ${temp}° · 越低越便宜`;
-});
-
-const peCaption = computed(() => {
-  const temp = jisiluIndicator.value?.median_pe_temperature;
-  if (temp == null) return "估值温度 --";
-  return `估值温度 ${temp}° · 越低越便宜`;
-});
-
-// ================================================================
-// 计算属性和方法
+// 指数数据：已随温度仪表盘拆分至子组件（#984）
 // ================================================================
 
-// L3 深度入口
-const handleShowIndustryCrowding = () => {
-  ElMessage.info("行业拥挤度功能开发中");
-};
-
-const handleShowSectorFlow = () => {
-  ElMessage.info("板块资金流功能开发中");
-};
+// ================================================================
+// 市场温度数据：已拆分至 components/ExploreTemperatureDashboard.vue（#984）。
+// links（数据来源）经子组件 defineExpose 暴露，供 footer 使用。
+// ================================================================
+const dashboardRef = ref<{ links: Record<string, string> } | null>(null);
 
 // ================================================================
 // 搜索（复用 useAssetSearch）
@@ -926,7 +667,9 @@ const goToWatchlist = () => {
 // ================================================================
 const headerNavs = useMarketHeaderNavs();
 
-const footerSources = computed(() => buildMarketFooterSources(links.value));
+const footerSources = computed(() =>
+  buildMarketFooterSources(dashboardRef.value?.links ?? {})
+);
 
 // ================================================================
 // 生命周期
@@ -935,8 +678,6 @@ onMounted(() => {
   if (!enabled.value) {
     toggle(true);
   }
-  fetchIndexData();
-  fetchTemperature();
 });
 </script>
 
