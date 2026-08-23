@@ -47,8 +47,9 @@ class Transaction(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     notes = Column(Text)
 
     __table_args__ = (
-        # 防重复导入
-        UniqueConstraint('import_hash', name='uq_txn_import_hash'),
+        # 防重复导入：去重作用域降为 ledger 级（#1020 / #1065）。
+        # import_hash 已含 ledger_id，复合约束与代码语义对齐，并放行跨账本重导。
+        UniqueConstraint('ledger_id', 'import_hash', name='uq_txn_import_hash'),
         # 核心查询加速：按账户 + 日期排序
         Index('idx_txn_ledger_date', 'ledger_id', 'confirm_date'),
         # 其他常用查询

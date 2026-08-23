@@ -291,3 +291,50 @@ def test_fill_missing_nav_and_shares_4_decimal_precision(db, monkeypatch):
     assert rec.nav == Decimal('1.2345')
     # 1000.00 / 1.2345 = 810.044552... → 4 位小数 810.0446（2 位精度会截成 810.04）
     assert rec.shares == Decimal('810.0446')
+
+
+# ── #1020 / #1065 去重作用域降级回归（2026-08-23） ──
+
+
+def test_dedup_scope_downgraded_to_ledger(db):
+    """#1065：去重作用域从 family 级降为 ledger 级。
+    - 同 ledger 重复导入仍幂等防重（skipped）；
+    - 跨 ledger 导入同一 import_hash 不再被误判重复（放行跨账本重导，#1020 修复点）。
+    """
+    ledger_a = Ledger(name='券商A', ledger_type='stock', family_id=1)
+    ledger_b = Ledger(name='券商B', ledger_type='stock', family_id=1)
+    db.add_all([ledger_a, ledger_b])
+    db.commit()
+
+    orch = ImportOrchestrator(db, family_id=1)
+    base_row = {
+        'symbol': '000001',
+        'name': '货币基金',
+        'type': 'money_fund',
+        'op_type': 'deposit',
+        'amount': 100.0,
+        'quantity': None,
+        'price': None,
+        'fee': 0.0,
+        'trade_date': '2026-08-01',
+        'account_name': '',
+        'contract_id': 'TXN-HX',
+        'net_amount': 88.5,
+        'source': 'ths_stock',
+        'import_hash': 'HX-same-hash',
+    }
+
+    # 1) ledger A 首次导入 -> imported
+    r1 = orch.commit_from_preview([{**base_row, 'ledger_id': ledger_a.id}])
+    assert r1['imported'] == 1
+
+    # 2) ledger A 重复导入同 hash -> 幂等防重，skipped
+    r2 = orch.commit_from_preview([{**base_row, 'ledger_id': ledger_a.id}])
+    assert r2['skipped'] == 1
+
+    # 3) ledger B 导入同 hash -> 跨账本放行，imported（#1020 修复点）
+    r3 = orch.commit_from_preview([{**base_row, 'ledger_id': ledger_b.id}])
+    assert r3['imported'] == 1
+
+    # 4) 两条交易分属不同 ledger，均在库
+    assert db.query(Transaction).filter_by(import_hash='HX-same-hash').count() == 2
