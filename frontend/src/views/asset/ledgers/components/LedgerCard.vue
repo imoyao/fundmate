@@ -290,6 +290,13 @@ const emit = defineEmits<{
   background-color: var(--el-color-warning-light-9);
 }
 
+/* 删除按钮：破坏性操作，hover 显 danger 红（基础灰色规则会覆盖 EP 默认，需显式声明） */
+.ledger-row-action--danger:hover,
+.ledger-row-action--danger:focus-visible {
+  color: var(--el-color-danger);
+  background-color: var(--el-color-danger-light-9);
+}
+
 .ledger-card:hover .ledger-row-action,
 .ledger-card:focus-within .ledger-row-action,
 .ledger-row-action:focus-visible {
