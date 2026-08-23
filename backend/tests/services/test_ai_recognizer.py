@@ -42,7 +42,7 @@ class TestRegistry:
     """场景注册表（registry.py）."""
 
     def test_scenarios_registered(self):
-        assert set(get_scenarios()) == {'watchlist_import', 'txn_import'}
+        assert set(get_scenarios()) == {'watchlist_import', 'txn_import', 'holding_import'}
 
     def test_default_scenario_fallback(self):
         assert get_recognizer(None) is get_recognizer('watchlist_import')
@@ -264,3 +264,107 @@ class TestTxnScenarioAPI:
         data = resp.get_json()['data']
         assert 'items' in data  # 自选场景返回 items（非 rows）
         assert data['items'][0]['code'] == '110011'
+
+
+class TestHoldingRecognizeValidate:
+    """HoldingRecognizer LLM 输出提取与清洗（mock）；产出持仓而非流水——见 #1018。"""
+
+    def _recognize(self, monkeypatch, raw):
+        monkeypatch.setattr(llm_module, 'call_llm', lambda content, system_prompt, **kw: raw)
+        return get_recognizer('holding_import').recognize_text('我的持仓如下')
+
+    def test_holding_parsing(self, db, monkeypatch):
+        items = self._recognize(
+            monkeypatch,
+            '[{"code":"110011","name":"易方达中小盘","shares":4526.51,'
+            '"avg_cost":1.1046,"market_value":5000,"snapshot_date":"2026-08-20"}]',
+        )
+        assert items[0]['code'] == '110011'
+        assert items[0]['shares'] == 4526.51
+        assert items[0]['avg_cost'] == 1.1046
+        assert items[0]['market_value'] == 5000
+        assert items[0]['snapshot_date'] == '2026-08-20'
+
+    def test_no_shares_or_value_dropped(self, db, monkeypatch):
+        """份额与市值均为 0/缺 → 不是有效持仓，整行丢弃。"""
+        items = self._recognize(
+            monkeypatch,
+            '[{"code":"110011","name":"易方达中小盘"}]',
+        )
+        assert items == []
+
+    def test_invalid_code_dropped(self, db, monkeypatch):
+        items = self._recognize(
+            monkeypatch,
+            '[{"code":"abc","name":"某基金","market_value":1000}]',
+        )
+        assert items == []
+
+    def test_slashed_date_normalized(self, db, monkeypatch):
+        items = self._recognize(
+            monkeypatch,
+            '[{"code":"110011","name":"易方达中小盘","market_value":1000,"snapshot_date":"2026/08/20"}]',
+        )
+        assert items[0]['snapshot_date'] == '2026-08-20'
+
+
+class TestHoldingScenarioAPI:
+    """scenario=holding_import 的 API 闭环（mock LLM）：返回持仓预览行 + 独立用量。"""
+
+    def test_parse_holding_scenario_returns_rows(self, client, db, monkeypatch):
+        monkeypatch.setattr(
+            llm_module,
+            'call_llm',
+            lambda content, system_prompt, **kw: (
+                '[{"code":"110011","name":"易方达中小盘","shares":4526.51,'
+                '"avg_cost":1.1046,"market_value":5000,"snapshot_date":"2026-08-20"}]'
+            ),
+        )
+        resp = client.post('/api/ocr/parse', json={'text': '持仓截图', 'scenario': 'holding_import'})
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['scenario'] == 'holding_import'
+        rows = data['rows']
+        assert len(rows) == 1
+        assert rows[0]['symbol'] == '110011'
+        assert rows[0]['quantity'] == 4526.51
+        assert rows[0]['price'] == 1.1046
+        assert rows[0]['amount'] == 5000
+        assert rows[0]['snapshot_date'] == '2026-08-20'
+        assert rows[0]['source'] == 'ai_holding'
+        assert data['usage']['used'] == 1
+
+    def test_holding_usage_independent(self, client, db, monkeypatch):
+        """holding_import 与 ocr_import/txn_import 用量独立分桶。"""
+        monkeypatch.setattr(
+            llm_module,
+            'call_llm',
+            lambda content, system_prompt, **kw: ('[{"code":"110011","name":"易方达中小盘","market_value":1000}]'),
+        )
+        client.post('/api/ocr/parse', json={'text': '持仓', 'scenario': 'holding_import'})
+        ocr = client.get('/api/ocr/usage').get_json()['data']
+        txn = client.get('/api/ocr/usage?feature=txn_import').get_json()['data']
+        holding = client.get('/api/ocr/usage?feature=holding_import').get_json()['data']
+        assert holding['used'] == 1
+        assert ocr['used'] == 0
+        assert txn['used'] == 0
+
+    def test_holding_feature_row_created(self, client, db, monkeypatch):
+        from app.core.database import SessionLocal
+
+        monkeypatch.setattr(
+            llm_module,
+            'call_llm',
+            lambda content, system_prompt, **kw: ('[{"code":"110011","name":"易方达中小盘","market_value":1000}]'),
+        )
+        client.post('/api/ocr/parse', json={'text': '持仓', 'scenario': 'holding_import'})
+        with SessionLocal() as s:
+            row = (
+                s.query(UserUsage)
+                .filter(
+                    UserUsage.user_id == 1, UserUsage.feature == 'holding_import', UserUsage.period_date == date.today()
+                )
+                .first()
+            )
+            assert row is not None
+            assert row.count == 1

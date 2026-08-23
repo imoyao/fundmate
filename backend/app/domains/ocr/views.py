@@ -8,9 +8,13 @@
 
 场景（scenario 参数，缺省 watchlist_import 兼容旧前端）：
     watchlist_import  自选：返回基金/股票候选列表（code/name/type/venue/symbol）
-    txn_import        持仓：返回 importer 预览行（含买卖/日期/金额/份额，前端逐行核对后
+    txn_import        交易：返回 importer 预览行（含买卖/日期/金额/份额，前端逐行核对后
                       复用 /api/importers/confirm 入库）
+    holding_import    持仓：返回 importer 持仓预览行（含份额/成本/市值/快照日，前端逐行核对后
+                      复用 /api/importers/holdings/confirm 入库，绝不建交易流水）——见 #1018
 """
+
+from datetime import date
 
 from apiflask import APIBlueprint
 from flask import g, jsonify, request
@@ -27,7 +31,7 @@ from app.services.ai_recognizer import guards
 from app.services.ai_recognizer.registry import get_recognizer
 from app.services.importer.mappings import OP_TYPE_LABEL
 from app.services.importer.orchestrator import ImportOrchestrator
-from app.services.importer.records import StandardTransactionRecord
+from app.services.importer.records import StandardHoldingRecord, StandardTransactionRecord
 
 ocr_bp = APIBlueprint('ocr', __name__, url_prefix='/api/ocr')
 
@@ -125,6 +129,56 @@ def _txn_candidates_to_rows(items: list, ledger_id) -> list:
     return rows
 
 
+def _holding_candidates_to_rows(items: list, ledger_id) -> list:
+    """持仓候选行 → importer 持仓预览行（走 ImportOrchestrator.preview_holding_records）。
+
+    与 _txn_candidates_to_rows 完全独立：本函数产出的是「持仓」，提交阶段由前端
+    POST /api/importers/holdings/confirm（commit_holdings）落库，绝不经过
+    process_buy_or_deposit 交易管线——修复 #1018（AI 持仓识别误建流水）。
+
+    候选行字段（HoldingRecognizer 输出，已 enrich）：
+        code / symbol / asset_type / name / shares / avg_cost / market_value / snapshot_date
+    """
+    if not items:
+        return []
+
+    records = []
+    for it in items:
+        snap_raw = it.get('snapshot_date') or ''
+        snap = None
+        if snap_raw:
+            try:
+                snap = date.fromisoformat(snap_raw)
+            except ValueError:
+                snap = None
+        records.append(
+            StandardHoldingRecord(
+                symbol=it.get('symbol') or it.get('code', ''),
+                name=it.get('name') or '',
+                asset_type=it.get('asset_type') or '',
+                shares=it.get('shares') or 0,
+                nav=it.get('avg_cost') or 0,
+                market_value=it.get('market_value') or 0,
+                snapshot_date=snap,
+                currency='CNY',
+                source=PositionSource.AI_HOLDING.value,
+                ledger_id=ledger_id,
+                account_name='',
+                import_hash='',
+            )
+        )
+
+    from app.core.database import SessionLocal
+
+    with SessionLocal() as db:
+        orch = ImportOrchestrator(db, get_family_id())
+        result = orch.preview_holding_records(
+            records, _ledger_name(ledger_id), ledger_id, source=PositionSource.AI_HOLDING.value
+        )
+
+    return result['rows']
+
+
 @ocr_bp.get('/usage')
 def get_ocr_usage():
     """查询某功能当日 AI 识别剩余次数（进入弹窗前展示余量）。
@@ -172,6 +226,14 @@ def ocr_recognize():
                 'message': 'ok',
             }
         )
+    if recognizer.key == 'holding_import':
+        rows = _holding_candidates_to_rows(items, request.args.get('ledger_id', type=int))
+        return jsonify(
+            {
+                'data': {'scenario': recognizer.key, 'rows': rows[:OCR_MAX_ITEMS], 'usage': usage},
+                'message': 'ok',
+            }
+        )
     return jsonify({'data': {'items': items[:OCR_MAX_ITEMS], 'usage': usage}, 'message': 'ok'})
 
 
@@ -194,6 +256,14 @@ def ocr_parse_text():
     logger.info('AI 文本识别完成 user={} scenario={} items={}', user_id, recognizer.key, len(items))
     if recognizer.key == 'txn_import':
         rows = _txn_candidates_to_rows(items, request.args.get('ledger_id', type=int))
+        return jsonify(
+            {
+                'data': {'scenario': recognizer.key, 'rows': rows[:OCR_MAX_ITEMS], 'usage': usage},
+                'message': 'ok',
+            }
+        )
+    if recognizer.key == 'holding_import':
+        rows = _holding_candidates_to_rows(items, request.args.get('ledger_id', type=int))
         return jsonify(
             {
                 'data': {'scenario': recognizer.key, 'rows': rows[:OCR_MAX_ITEMS], 'usage': usage},

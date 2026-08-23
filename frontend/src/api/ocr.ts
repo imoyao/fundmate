@@ -3,8 +3,8 @@ import { http } from "@/utils/http";
 // AI 识别调用后端会再调火山方舟（单次最长 60s + 重试），全局 axios timeout(10s) 不够，单独放宽到 120s
 const OCR_REQUEST_TIMEOUT = 120000;
 
-/** AI 识别场景：自选导入（默认）/ 持仓交易导入 */
-export type OcrScenario = "watchlist_import" | "txn_import";
+/** AI 识别场景：自选导入（默认）/ 持仓交易导入 / 持仓导入（仅 upsert 持仓，不建流水，见 #1018） */
+export type OcrScenario = "watchlist_import" | "txn_import" | "holding_import";
 
 /** OCR 当日剩余次数（进入弹窗前展示余量；feature=ocr_import|txn_import） */
 export type OcrUsageResult = {
