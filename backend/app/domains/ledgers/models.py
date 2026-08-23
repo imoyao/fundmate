@@ -5,7 +5,7 @@
 """资金容器/账户模型"""
 
 # -*- coding: utf-8 -*-
-from sqlalchemy import Column, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, Text
 
 from app.core.database import Base, FamilyScopedMixin, PrimaryKeyMixin, TimestampMixin
 
@@ -66,6 +66,13 @@ class Ledger(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
         comment='费率配置，JSON格式。stock账户记录佣金/印花税等；fund账户记录subscription_discount（申购费折扣）',
     )
     notes = Column(Text, comment='备注')
+
+    # 归档状态：True=活跃（参与日常视图/默认出现在账户列表），False=已归档
+    # （保留全部交易/持仓/流水数据，仅从日常视图默认隐藏；数据仍参与收益计算）。
+    # 默认活跃，与 is_archived 反向语义相比更贴合「绝大多数账户活跃」的现实。
+    # 有交易/持仓/资产的账户禁止删除，只能归档（见 views.delete_ledger 守卫）。
+    is_active = Column(Boolean, nullable=False, default=True, comment='是否活跃（False=已归档）')
+
     portfolio_id = Column(
         Integer,
         ForeignKey('portfolios.id', ondelete='SET NULL'),

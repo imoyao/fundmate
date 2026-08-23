@@ -47,6 +47,7 @@ def _ledger_to_dict(ledger: Ledger, last_used_at=None) -> dict:
         'linked_cash_ledger_id': ledger.linked_cash_ledger_id,
         # 关联的销售机构（AMAC 名录），可选；前端回显与编辑依赖该字段
         'sales_institution_id': ledger.sales_institution_id,
+        'is_active': ledger.is_active,
         'created_at': ledger.created_at.isoformat() if ledger.created_at else None,
         'updated_at': ledger.updated_at.isoformat() if ledger.updated_at else None,
         # 最近使用时间：取该账户最后一笔交易的确认日期（无交易则为 null），
@@ -151,9 +152,17 @@ def create_ledger():
 
 @ledgers_bp.get('/')
 def list_ledgers():
-    """获取所有账户（含摘要统计）"""
+    """获取所有账户（含摘要统计）。
+
+    include_archived=true 时一并返回已归档账户；默认仅返回活跃账户
+    （归档账户保留全部数据、仍参与收益计算，仅从日常视图默认隐藏）。
+    """
+    include_archived = request.args.get('include_archived', 'false').lower() == 'true'
     with get_db() as db:
-        ledgers = db.query(Ledger).filter(Ledger.family_id == get_family_id()).order_by(Ledger.created_at.asc()).all()
+        query = db.query(Ledger).filter(Ledger.family_id == get_family_id())
+        if not include_archived:
+            query = query.filter(Ledger.is_active.is_(True))
+        ledgers = query.order_by(Ledger.created_at.asc()).all()
         # 派生"最近使用时间"：每个账户最近一笔交易的确认日期。
         # 单条聚合查询，避免 N+1；供前端下拉按最近使用排序。
         last_used_rows = (
@@ -234,8 +243,27 @@ def update_ledger(ledger_id: int):
             ledger.name = name
 
         ledger_type = data.get('ledger_type')
-        if ledger_type is not None:
+        if ledger_type is not None and ledger_type != ledger.ledger_type:
+            # 类型决定计算口径（费率/税费/分红再投资/XIRR 处理不同），已有数据的账户
+            # 禁止改类型，否则历史交易的计算口径会瞬间错乱。空白账户（零交易/零持仓/
+            # 零资产）允许改类型。详见归档账户设计决策。
+            has_data = (
+                db.query(Transaction).filter(Transaction.ledger_id == ledger_id).count() > 0
+                or db.query(Position).filter(Position.ledger_id == ledger_id).count() > 0
+                or db.query(Asset).filter(Asset.ledger_id == ledger_id, Asset.family_id == get_family_id()).count() > 0
+            )
+            if has_data:
+                return jsonify(
+                    {'data': None, 'message': '账户已有交易/持仓/资产数据，类型不可更改；如需调整请先归档后新建'}
+                ), 409
             ledger.ledger_type = ledger_type
+
+        # 归档状态：活跃/归档切换。归档仅隐藏于日常视图，保留全部数据并仍参与收益计算。
+        if 'is_active' in data:
+            is_active = data['is_active']
+            if not isinstance(is_active, bool):
+                return jsonify({'data': None, 'message': 'is_active 必须为布尔值'}), 400
+            ledger.is_active = is_active
 
         default_allocation = data.get('default_allocation')
         if default_allocation is not None:
@@ -329,6 +357,36 @@ def delete_ledger(ledger_id: int):
         db.delete(ledger)
         db.commit()
         return jsonify({'data': {}, 'message': 'ok'})
+
+
+@ledgers_bp.post('/<int:ledger_id>/archive/')
+def archive_ledger(ledger_id: int):
+    """归档账户：保留全部交易/持仓/资产数据，仅置 is_active=False 从日常视图默认隐藏。
+
+    归档后数据仍参与收益计算（计算服务默认不过滤 is_active）。与删除不同——
+    有数据的账户不可删除，只能归档。无"当前账本"全局指针，归档不影响其他状态。
+    """
+    with get_db() as db:
+        ledger = get_owned_or_404(db, Ledger, ledger_id)
+        if not ledger:
+            abort(404, '账户不存在')
+        ledger.is_active = False
+        db.commit()
+        db.refresh(ledger)
+        return jsonify({'data': _ledger_to_dict(ledger), 'message': 'ok'})
+
+
+@ledgers_bp.post('/<int:ledger_id>/unarchive/')
+def unarchive_ledger(ledger_id: int):
+    """激活账户：is_active=True，重新出现在日常视图。"""
+    with get_db() as db:
+        ledger = get_owned_or_404(db, Ledger, ledger_id)
+        if not ledger:
+            abort(404, '账户不存在')
+        ledger.is_active = True
+        db.commit()
+        db.refresh(ledger)
+        return jsonify({'data': _ledger_to_dict(ledger), 'message': 'ok'})
 
 
 @ledgers_bp.post('/<int:ledger_id>/migrations/')

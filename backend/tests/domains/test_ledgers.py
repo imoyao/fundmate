@@ -1137,6 +1137,86 @@ class TestOrphanDetail:
             'total_market_value': 9938.24,
         }
 
+
+class TestLedgerArchiveAndUpdate:
+    """归档/激活 + 编辑保护（账户管理增强，见归档账户设计决策）。"""
+
+    def test_new_ledger_active_by_default(self, client, db):
+        resp = client.post('/api/ledgers/', json={'name': '默认活跃'})
+        assert resp.get_json()['data']['is_active'] is True
+
+    def test_archive_hides_from_default_list(self, client, db):
+        resp = client.post('/api/ledgers/', json={'name': '待归档'})
+        lid = resp.get_json()['data']['id']
+        client.post(f'/api/ledgers/{lid}/archive/')
+        # 默认列表不含已归档
+        listed = [item['id'] for item in client.get('/api/ledgers/').get_json()['data']]
+        assert lid not in listed
+        # include_archived 可找回
+        archived = [item['id'] for item in client.get('/api/ledgers/?include_archived=true').get_json()['data']]
+        assert lid in archived
+
+    def test_unarchive_restores(self, client, db):
+        resp = client.post('/api/ledgers/', json={'name': 'U'})
+        lid = resp.get_json()['data']['id']
+        client.post(f'/api/ledgers/{lid}/archive/')
+        client.post(f'/api/ledgers/{lid}/unarchive/')
+        listed = [item['id'] for item in client.get('/api/ledgers/').get_json()['data']]
+        assert lid in listed
+
+    def test_archive_keeps_data_in_overview(self, client, db, make_position):
+        """归档不丢数据、仍参与收益计算（overview 不过滤 is_active）。"""
+        ledger = Ledger(name='归档账户', ledger_type='stock')
+        db.add(ledger)
+        db.commit()
+        make_position(
+            symbol='S2',
+            name='股2',
+            ledger_id=ledger.id,
+            account_name='归档账户',
+            quantity=100,
+            avg_price=5.0,
+            current_price=6.0,
+        )
+        client.post(f'/api/ledgers/{ledger.id}/archive/')
+        overview = client.get('/api/ledgers/overview/').get_json()['data']
+        # 归档账户市值仍计入总资产分组
+        stock_group = next((g for g in overview['groups'] if g['type'] == 'stock'), None)
+        assert stock_group is not None
+        assert stock_group['total'] >= 600.0
+
+    def test_empty_ledger_type_can_change(self, client, db):
+        resp = client.post('/api/ledgers/', json={'name': '空白基金', 'ledger_type': 'fund'})
+        lid = resp.get_json()['data']['id']
+        patch = client.patch(f'/api/ledgers/{lid}/', json={'ledger_type': 'stock'})
+        assert patch.status_code == 200
+        assert patch.get_json()['data']['ledger_type'] == 'stock'
+
+    def test_type_change_blocked_when_has_data(self, client, db, make_transaction, make_position):
+        ledger = Ledger(name='有数据', ledger_type='fund')
+        db.add(ledger)
+        db.commit()
+        make_position(
+            symbol='S3',
+            name='股3',
+            ledger_id=ledger.id,
+            account_name='有数据',
+            quantity=100,
+            avg_price=1.0,
+            current_price=1.0,
+        )
+        # 需要一条 position 才有 position_id 供交易引用；这里仅用持仓即触发 has_data
+        patch = client.patch(f'/api/ledgers/{ledger.id}/', json={'ledger_type': 'stock'})
+        assert patch.status_code == 409
+        assert '类型不可更改' in patch.get_json()['message']
+
+    def test_patch_is_active(self, client, db):
+        resp = client.post('/api/ledgers/', json={'name': 'P'})
+        lid = resp.get_json()['data']['id']
+        patch = client.patch(f'/api/ledgers/{lid}/', json={'is_active': False})
+        assert patch.status_code == 200
+        assert patch.get_json()['data']['is_active'] is False
+
     def test_detail_empty(self, client, db, make_position, make_asset, make_transaction):
         """无孤儿数据时返回空数组，不 404"""
         # 正常账户 + 正常数据（ledger_id 有效，不属于孤儿）

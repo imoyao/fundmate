@@ -18,6 +18,8 @@ export interface LedgerItem {
   last_used_at?: string | null;
   /** 关联基金销售机构 id（AMAC 名录，可选关联；null/缺省=不关联） */
   sales_institution_id?: number | null;
+  /** 是否活跃：false=已归档（保留数据、仍参与收益计算，仅默认隐藏于列表） */
+  is_active?: boolean;
 }
 
 /** 基金销售机构（AMAC 权威名录，账户可选关联，is_active=1 按 org_name 排序） */
@@ -35,9 +37,21 @@ export function getSalesInstitutions() {
   );
 }
 
-/** 获取用户的所有账户列表 */
-export function getLedgers() {
-  return http.request<any>("get", "/api/ledgers/");
+/** 获取用户的所有账户列表。includeArchived=true 时一并取回已归档账户。 */
+export function getLedgers(includeArchived: boolean = false) {
+  return http.request<any>("get", "/api/ledgers/", {
+    params: { include_archived: includeArchived }
+  });
+}
+
+/** 归档账户：保留全部数据、仅从日常视图隐藏（POST /api/ledgers/<id>/archive/） */
+export function archiveLedger(id: number) {
+  return http.request("post", `/api/ledgers/${id}/archive/`);
+}
+
+/** 激活账户：重新出现在日常视图（POST /api/ledgers/<id>/unarchive/） */
+export function unarchiveLedger(id: number) {
+  return http.request("post", `/api/ledgers/${id}/unarchive/`);
 }
 
 /** 创建新的账户 */
