@@ -43,33 +43,36 @@ const emit = defineEmits<{
         </span>
         <AssetTypeBadge :type="ledger.ledger_type" />
       </div>
-      <!-- 归档 / 激活切换：与删除并列，常驻（design.md「行内操作交互规范」） -->
-      <el-button
-        v-if="typeof ledger.id === 'number'"
-        plain
-        size="small"
-        circle
-        class="ledger-row-action"
-        :aria-label="(ledger.is_active === false ? '激活账户 ' : '归档账户 ') + ledger.name"
-        @click.stop="emit('toggleArchive', ledger)"
-      >
-        <IconifyIconOffline
-          :icon="ledger.is_active === false ? 'ep:refresh-left' : 'ep:folder'"
-        />
-      </el-button>
-      <!-- 删除按钮：幽灵态 + hover 浮现（design.md「行内操作交互规范」） -->
-      <el-button
-        v-if="typeof ledger.id === 'number'"
-        type="danger"
-        plain
-        size="small"
-        circle
-        class="ledger-row-action"
-        :aria-label="`删除账户 ${ledger.name}`"
-        @click.stop="emit('delete', ledger)"
-      >
-        <IconifyIconOffline icon="ep:delete" />
-      </el-button>
+      <!-- 行内操作组：归档/激活 + 删除，作为整体靠右且彼此紧挨（统一间距与样式） -->
+      <div class="ledger-row-actions">
+        <!-- 归档 / 激活切换：与删除并列，常驻（design.md「行内操作交互规范」） -->
+        <el-button
+          v-if="typeof ledger.id === 'number'"
+          plain
+          size="small"
+          circle
+          class="ledger-row-action"
+          :aria-label="(ledger.is_active === false ? '激活账户 ' : '归档账户 ') + ledger.name"
+          @click.stop="emit('toggleArchive', ledger)"
+        >
+          <IconifyIconOffline
+            :icon="ledger.is_active === false ? 'ep:refresh-left' : 'ep:folder'"
+          />
+        </el-button>
+        <!-- 删除按钮：幽灵态 + hover 浮现（design.md「行内操作交互规范」） -->
+        <el-button
+          v-if="typeof ledger.id === 'number'"
+          type="danger"
+          plain
+          size="small"
+          circle
+          class="ledger-row-action"
+          :aria-label="`删除账户 ${ledger.name}`"
+          @click.stop="emit('delete', ledger)"
+        >
+          <IconifyIconOffline icon="ep:delete" />
+        </el-button>
+      </div>
     </div>
 
     <!-- 已归档徽标：灰化提示，数据仍参与收益计算 -->
@@ -262,6 +265,12 @@ const emit = defineEmits<{
   margin-top: var(--space-3);
   font-variant-numeric: tabular-nums;
   border-top: 1px solid var(--border-subtle);
+}
+
+.ledger-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px; /* 两个行内按钮固定紧挨，避免散开 */
 }
 
 .ledger-row-action {
