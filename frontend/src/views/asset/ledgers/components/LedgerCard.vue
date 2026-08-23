@@ -59,14 +59,14 @@ const emit = defineEmits<{
             :icon="ledger.is_active === false ? 'ep:refresh-left' : 'ep:box'"
           />
         </el-button>
-        <!-- 删除按钮：text 图标按钮，hover 显 danger 红 -->
+        <!-- 删除按钮：text 图标按钮，hover 显 danger 红（破坏性操作） -->
         <el-button
           v-if="typeof ledger.id === 'number'"
           type="danger"
           text
           size="small"
           circle
-          class="ledger-row-action"
+          class="ledger-row-action ledger-row-action--danger"
           :aria-label="`删除账户 ${ledger.name}`"
           @click.stop="emit('delete', ledger)"
         >
@@ -275,10 +275,19 @@ const emit = defineEmits<{
 
 .ledger-row-action {
   opacity: 0;
-  transition: opacity 0.2s ease;
-  /* text 图标按钮常显为中性灰图标，hover 时由 Element Plus 自动显色；
-     两个按钮（归档/删除）视觉权重天然统一 */
+  transition:
+    opacity 0.2s ease,
+    color 0.15s ease,
+    background-color 0.15s ease;
+  /* text 图标按钮常显为中性灰图标，视觉权重统一 */
   color: var(--text-tertiary);
+}
+
+/* 归档/激活会改变账户状态，hover 用警告橙提示用户谨慎操作（非 danger，但需警示） */
+.ledger-row-action:not(.ledger-row-action--danger):hover,
+.ledger-row-action:not(.ledger-row-action--danger):focus-visible {
+  color: var(--el-color-warning);
+  background-color: var(--el-color-warning-light-9);
 }
 
 .ledger-card:hover .ledger-row-action,
