@@ -18,6 +18,7 @@ from app.services.summary_service import (
     get_sankey_data,
     get_snapshots,
     get_summary_data,
+    scan_cross_ledger_duplicates,
     write_asset_snapshot,
 )
 
@@ -110,3 +111,18 @@ def list_snapshots():
         return jsonify({'data': [], 'message': str(e), 'error_code': 'INVALID_PARAMS'}), 400
     except Exception as e:
         return jsonify({'data': [], 'message': f'服务器内部错误: {str(e)}'}), 500
+
+
+@bp.get('/summary/ghost-duplicates/')
+def ghost_duplicates():
+    """#1066 / #1020：family 级「幽灵重复」扫描（跨账本疑似重复交易预警）。
+
+    识别同一笔交易疑似出现在多个账本（跨账本重复导入），供前端非阻断软提示
+    横幅指名来源账本。不阻断任何操作，仅预警。
+    """
+    try:
+        with get_db() as db:
+            data = scan_cross_ledger_duplicates(db, get_family_id())
+        return jsonify({'code': 200, 'data': data, 'message': 'ok'})
+    except Exception as e:
+        return jsonify({'code': 500, 'data': [], 'message': f'服务器内部错误: {str(e)}'}), 500

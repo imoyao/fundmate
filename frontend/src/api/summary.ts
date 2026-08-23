@@ -120,3 +120,22 @@ export function getSnapshots(params?: {
     }
   );
 }
+
+/** 跨账本疑似重复组（幽灵重复扫描结果）：同一笔交易疑似出现在多个账本 */
+export type GhostDuplicateGroup = {
+  symbol: string;
+  confirm_date: string | null;
+  txn_type: string;
+  amount_yuan: number;
+  ledger_ids: number[];
+  ledger_names: string[];
+  count: number;
+};
+
+/** family 级幽灵重复扫描（#1066 / #1020）：非阻断软提示，供总览页横幅指名来源账本 */
+export function getGhostDuplicates() {
+  return http.request<ApiResponse<GhostDuplicateGroup[]>>(
+    "get",
+    BASE_URL + "ghost-duplicates/"
+  );
+}
