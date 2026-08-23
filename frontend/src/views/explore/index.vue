@@ -44,138 +44,22 @@
     <!-- ============================================================ -->
     <!-- 观察列表                                                     -->
     <!-- ============================================================ -->
-    <section class="watchlist-section">
-      <div class="summary-bar">
-        <div class="summary-left">
-          <span class="summary-count">共 {{ totalCount }} 项</span>
-          <template v-if="!isPureObservationMode && summary">
-            <span class="summary-divider">|</span>
-            <span class="summary-value"
-              >总市值
-              <MoneyDisplay
-                :value="summary.totalMarketValue"
-                :show-sign="false"
-            /></span>
-            <span class="summary-divider">|</span>
-            <span class="summary-pnl"
-              >盈亏 <RiseFallText :value="summary.totalPnl" suffix=""
-            /></span>
-          </template>
-          <span v-if="isPureObservationMode" class="summary-hint"
-            >输入成本与份额后可查看持仓盈亏</span
-          >
-        </div>
-        <div class="summary-right">
-          <span class="status-indicator">
-            <span class="status-dot" :class="statusClass" />{{ statusText }}
-          </span>
-          <el-select
-            :model-value="refreshInterval"
-            size="small"
-            class="refresh-interval-select"
-            @change="setRefreshInterval"
-          >
-            <el-option
-              v-for="s in REFRESH_INTERVAL_OPTIONS"
-              :key="s"
-              :label="`${s}s 刷新`"
-              :value="s"
-            />
-          </el-select>
-          <span v-if="lastUpdateTime" class="update-time"
-            >更新: {{ formatDateTime(lastUpdateTime) }}</span
-          >
-          <el-button size="small" @click="manualRefresh">刷新</el-button>
-        </div>
-      </div>
-
-      <!-- 表格视觉基线统一在 src/style/el-table.css 维护，勿在本页 :deep 覆盖 -->
-      <el-table
-        v-loading="loading"
-        :data="tableData"
-        border
-        style="width: 100%"
-        empty-text="暂无观察资产，添加你关注的标的开始研究"
-      >
-        <el-table-column label="产品" min-width="180">
-          <template #default="{ row }">
-            <ProductDisplay
-              :name="row.name"
-              :symbol="row.symbol"
-              :type-label="getTypeLabel(row.type)"
-            />
-          </template>
-        </el-table-column>
-
-        <el-table-column label="最新价" width="120" align="right">
-          <template #default="{ row }"
-            ><MoneyDisplay
-              :value="row.price"
-              :show-sign="false"
-              :precision="pricePrecision(row.type)"
-          /></template>
-        </el-table-column>
-
-        <el-table-column label="涨跌幅" width="110" align="right">
-          <template #default="{ row }"
-            ><RiseFallText :value="row.changePct"
-          /></template>
-        </el-table-column>
-
-        <el-table-column
-          v-if="!isPureObservationMode"
-          label="当日盈亏"
-          width="130"
-          align="right"
-        >
-          <template #default="{ row }"
-            ><MoneyDisplay :value="row.pnl ?? 0" :show-sign="true"
-          /></template>
-        </el-table-column>
-
-        <el-table-column
-          v-if="!isPureObservationMode"
-          label="持仓收益"
-          width="130"
-          align="right"
-        >
-          <template #default="{ row }"
-            ><MoneyDisplay :value="row.positionPnl ?? 0" :show-sign="true"
-          /></template>
-        </el-table-column>
-
-        <el-table-column label="深度分析" width="120" align="center">
-          <template #default="{ row }">
-            <el-dropdown @command="handleJump(row, $event)">
-              <el-button size="small" type="primary" plain>分析 ▼</el-button>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item
-                    v-for="tool in getAvailableTools(row.type)"
-                    :key="tool.key"
-                    :command="tool.key"
-                  >
-                    {{ tool.label }}
-                  </el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="操作" width="80" align="center">
-          <template #default="{ row }">
-            <el-button
-              link
-              size="small"
-              style="color: var(--text-tertiary)"
-              @click="handleRemove(row.id)"
-              >删除</el-button
-            >
-          </template>
-        </el-table-column>
-      </el-table>
-    </section>
+    <!-- 观察列表（#984 拆分至 components/ExploreWatchlistTable.vue，纯展示+事件上抛） -->
+    <ExploreWatchlistTable
+      :rows="tableData"
+      :loading="loading"
+      :total-count="totalCount"
+      :is-pure-observation-mode="isPureObservationMode"
+      :summary="summary"
+      :status-class="statusClass"
+      :status-text="statusText"
+      :refresh-interval="refreshInterval"
+      :last-update-time="lastUpdateTime"
+      @remove="handleRemove"
+      @jump="handleJump"
+      @refresh="manualRefresh"
+      @interval-change="setRefreshInterval"
+    />
 
     <!-- ============================================================ -->
     <!-- 底部（公共组件）：数据来源 + 免责声明                         -->
@@ -196,7 +80,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, watch } from "vue";
 import { useRouter } from "vue-router";
-import { ElMessage, ElMessageBox } from "element-plus";
+import { ElMessage } from "element-plus";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import { useLocalHoldings } from "@/composables/useLocalHoldings";
 import {
@@ -363,35 +247,16 @@ const tableData = computed(() => {
 });
 
 // ================================================================
-// 删除
+// 删除（确认框在子组件内，这里只负责真正移除）
 // ================================================================
 const handleRemove = (id: string) => {
-  ElMessageBox.confirm("确定从观察列表中移除该资产吗？", "提示", {
-    confirmButtonText: "确定",
-    cancelButtonText: "取消",
-    type: "warning"
-  })
-    .then(() => {
-      removeHolding(id);
-      ElMessage.success("已移除");
-    })
-    .catch(() => {});
+  removeHolding(id);
+  ElMessage.success("已移除");
 };
 
 // ================================================================
-// 深度分析跳转
+// 深度分析跳转（外部工具，逻辑留在父页面）
 // ================================================================
-const getAvailableTools = (type: string) => {
-  const tools = [
-    { key: "xueqiu", label: "雪球社区" },
-    { key: "eastmoney", label: "东方财富" }
-  ];
-  if (type === "fund" || type === "etf") {
-    tools.push({ key: "tiantian", label: "天天基金" });
-  }
-  return tools;
-};
-
 const handleJump = (row: any, command: string) => {
   let url = "";
   const code = row.symbol;
@@ -753,103 +618,5 @@ onMounted(() => {
 
 /* ============================================================
    6. 观察列表
-   ============================================================ */
-.watchlist-section {
-  max-width: 1280px;
-  padding: 0 24px 24px;
-  margin: 0 auto;
-}
-
-.summary-bar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 0 16px;
-
-  .summary-left {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    align-items: center;
-  }
-
-  .summary-count {
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--text-primary);
-  }
-
-  .summary-divider {
-    color: var(--border-default);
-  }
-
-  .summary-value {
-    font-size: 14px;
-    color: var(--text-secondary);
-  }
-
-  .summary-pnl {
-    font-size: 14px;
-  }
-
-  .summary-hint {
-    font-size: 13px;
-    color: var(--text-tertiary);
-  }
-
-  .summary-right {
-    display: flex;
-    gap: 12px;
-    align-items: center;
-    font-size: 13px;
-    color: var(--text-tertiary);
-  }
-
-  .refresh-interval-select {
-    width: 96px;
-  }
-
-  .status-indicator {
-    display: flex;
-    gap: 6px;
-    align-items: center;
-  }
-
-  .status-dot {
-    display: inline-block;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-
-    &.status-trading {
-      background: var(--color-rise);
-      animation: pulse 1.5s infinite;
-    }
-
-    &.status-closed {
-      background: var(--text-tertiary);
-    }
-
-    &.status-error {
-      background: var(--color-danger-system);
-      animation: pulse 1s infinite;
-    }
-
-    &.status-idle {
-      background: var(--text-disabled);
-    }
-  }
-
-  .update-time {
-    font-size: 12px;
-    color: var(--text-tertiary);
-  }
-}
-
-/* ============================================================
-   1. 设计 Token
-   温度三色(--temp-*) 已在全局 colors.css 中定义，此处直接复用，不重复声明
    ============================================================ */
 </style>
