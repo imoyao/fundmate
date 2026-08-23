@@ -52,12 +52,30 @@ export interface OcrTxnRow {
   allocation?: string | null;
 }
 
+/** 持仓导入场景预览行（holding_import）：确认时走 /api/importers/holdings/confirm，不建流水 */
+export interface OcrHoldingRow {
+  symbol: string;
+  name: string;
+  type: string;
+  quantity: number | string;
+  price: number | string;
+  amount: number | string;
+  snapshot_date: string;
+  account_name: string;
+  ledger_id: number;
+  source: string;
+  import_hash: string;
+  is_duplicate?: boolean;
+  error?: string;
+  warnings?: string[];
+}
+
 type RecognizeResponse = {
   data:
     | { items: OcrImportItem[]; usage: unknown }
     | {
         scenario: OcrScenario;
-        rows: OcrTxnRow[];
+        rows: (OcrTxnRow | OcrHoldingRow)[];
         usage: unknown;
       };
   message: string;

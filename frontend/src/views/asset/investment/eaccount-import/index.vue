@@ -35,11 +35,94 @@
 
     <!-- ── 步骤一：上传与预览 ── -->
     <template v-if="currentStep === 0">
-      <!-- 大上传卡片：解析成功后折叠让位（el-upload 保留在 DOM，http-request 与 accept 校验不变） -->
+      <!-- 导入方式分段控制：文件上传 / AI 识别（仅解析成功前置入口，解析后让位预览） -->
+      <div v-if="!parsedOk" class="import-mode-switch" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          class="import-mode-switch__item"
+          :class="{ 'is-active': importMode === 'file' }"
+          @click="switchMode('file')"
+        >
+          上传文件
+        </button>
+        <button
+          type="button"
+          role="tab"
+          class="import-mode-switch__item"
+          :class="{ 'is-active': importMode === 'ai' }"
+          @click="switchMode('ai')"
+        >
+          AI 识别持仓
+        </button>
+      </div>
+
+      <!-- AI 识别模式：文本 / 图片 → holding_import → 持仓预览行（独立持仓管线，不建流水） -->
+      <div v-if="!parsedOk && importMode === 'ai'" class="ai-import-panel">
+        <div class="ai-import-panel__usage">
+          <IconifyIconOffline icon="ep:magic-stick" class="ai-import-panel__usage-icon" />
+          <span>今日 AI 持仓识别额度剩余</span>
+          <strong class="ai-import-panel__usage-count">{{ aiRemaining }}</strong>
+          / {{ aiQuota }} 次
+        </div>
+
+        <div class="ocr-segmented" role="tablist" aria-label="AI 识别方式">
+          <button
+            type="button"
+            role="tab"
+            class="ocr-segmented__item"
+            :class="{ 'is-active': aiTab === 'text' }"
+            @click="aiTab = 'text'"
+          >
+            粘贴文本
+          </button>
+          <button
+            type="button"
+            role="tab"
+            class="ocr-segmented__item"
+            :class="{ 'is-active': aiTab === 'image' }"
+            @click="aiTab = 'image'"
+          >
+            上传图片
+          </button>
+        </div>
+
+        <div v-if="aiTab === 'text'" class="ai-import-panel__text">
+          <div class="ai-format-hint">
+            <p class="ai-format-hint__line">
+              粘贴持仓截图里的文字，每行一只，含代码/名称/份额/市值等
+            </p>
+            <p class="ai-format-hint__example">
+              示例：110011 易方达中小盘 份额4526.51 市值5000
+            </p>
+          </div>
+          <el-input
+            v-model="aiText"
+            type="textarea"
+            :rows="6"
+            resize="vertical"
+            placeholder="在此粘贴持仓文本"
+          />
+        </div>
+        <div v-else class="ai-import-panel__image">
+          <ImageUploader v-model="aiImageFile" tip="支持券商 / 基金 App 持仓截图，文件不超过 5MB" />
+        </div>
+
+        <el-button
+          type="primary"
+          class="ai-import-panel__submit"
+          :loading="aiRecognizing"
+          :disabled="!canAiRecognize || aiRemaining <= 0"
+          @click="handleAiRecognize"
+        >
+          {{ aiRecognizing ? "识别中…" : "开始识别" }}
+        </el-button>
+      </div>
+
+      <!-- 大上传卡片：解析成功后由 previewRows/parsedOk 收起让位预览表格 -->
       <div
+        v-if="!parsedOk && importMode === 'file'"
         class="upload-collapse"
-        :class="{ 'is-folded': parsedOk }"
-        :inert="parsedOk"
       >
         <div class="upload-collapse__inner">
           <div class="upload-card">
@@ -343,6 +426,13 @@ import {
   type ReconcileResult,
   type ConflictItem
 } from "@/api/eaccount";
+import {
+  recognizeImage,
+  parseImportText,
+  getOcrUsage,
+  type OcrHoldingRow
+} from "@/api/ocr";
+import ImageUploader from "@/components/ImageUploader/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
 import MetricCard from "@/components/MetricCard/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
@@ -391,6 +481,94 @@ const errorCount = computed(
 const parsedOk = computed(
   () => previewRows.value.length > 0 && !uploadError.value
 );
+
+/* ===== AI 识别持仓（holding_import 独立持仓管线，不建交易流水，见 #1018） ===== */
+const importMode = ref<"file" | "ai">("file");
+const aiTab = ref<"text" | "image">("text");
+const aiText = ref("");
+const aiImageFile = ref<File | null>(null);
+const aiRecognizing = ref(false);
+const aiUsage = ref({ used: 0, limit: 10 });
+const aiQuota = computed(() => aiUsage.value.limit || 10);
+const aiRemaining = computed(() => Math.max(0, aiQuota.value - aiUsage.value.used));
+
+function switchMode(mode: "file" | "ai") {
+  if (parsedOk.value) return;
+  importMode.value = mode;
+  if (mode === "ai") fetchAiUsage();
+}
+
+async function fetchAiUsage() {
+  try {
+    const res = await getOcrUsage("holding_import");
+    const d = res.data;
+    aiUsage.value = { used: d.count, limit: d.quota };
+  } catch {
+    /* 额度查询失败不阻断识别 */
+  }
+}
+
+const canAiRecognize = computed(() =>
+  aiTab.value === "text" ? aiText.value.trim().length > 0 : !!aiImageFile.value
+);
+
+/** File → base64 字符串（去 data: 前缀），与 OcrImportModal 同一套转换 */
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      resolve(result.split(",")[1] ?? "");
+    };
+    reader.onerror = () => reject(new Error("图片读取失败"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function mapHoldingRow(r: OcrHoldingRow): HoldingParseRow {
+  return {
+    symbol: r.symbol,
+    name: r.name,
+    quantity: Number(r.quantity) || 0,
+    price: Number(r.price) || 0,
+    snapshot_date: r.snapshot_date || "",
+    error: r.error || ""
+  };
+}
+
+async function handleAiRecognize() {
+  if (!canAiRecognize.value || aiRemaining.value <= 0) return;
+  aiRecognizing.value = true;
+  try {
+    let resp;
+    if (aiTab.value === "text") {
+      resp = await parseImportText(aiText.value, "holding_import");
+    } else {
+      const file = aiImageFile.value;
+      if (!file) return;
+      const base64 = await fileToBase64(file);
+      resp = await recognizeImage(base64, "holding_import");
+    }
+    const rows = (resp.rows || []) as OcrHoldingRow[];
+    if (!rows.length) {
+      ElMessage.warning("未识别到有效持仓，请检查文本或图片内容");
+      return;
+    }
+    previewRows.value = rows.map(mapHoldingRow);
+    parseMeta.value = {
+      total: rows.length,
+      error_count: rows.filter(r => r.error).length
+    };
+    fileName.value = aiTab.value === "text" ? "AI 识别文本(持仓)" : (aiImageFile.value?.name ?? "AI 识别图片(持仓)");
+    importMode.value = "ai";
+    ElMessage.success(`识别成功，共 ${rows.length} 条持仓`);
+    await fetchAiUsage();
+  } catch (e: any) {
+    ElMessage.error(e?.message || "AI 识别失败，请稍后重试");
+  } finally {
+    aiRecognizing.value = false;
+  }
+}
 
 /** 预览表格分页切片：在全量解析行上切片（errorCount / 状态条 / SectionHeader 统计均保持全量口径） */
 const pagedPreviewRows = computed(() => {
@@ -937,5 +1115,110 @@ function resetUpload() {
   display: flex;
   gap: var(--space-2);
   justify-content: flex-end;
+}
+
+/* ===== 导入方式分段控制（上传文件 / AI 识别） ===== */
+.import-mode-switch {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: var(--space-standard);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+}
+
+.import-mode-switch__item {
+  padding: 6px 16px;
+  font-size: var(--text-small);
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.import-mode-switch__item:hover {
+  color: var(--text-primary);
+}
+
+.import-mode-switch__item.is-active {
+  color: var(--text-on-brand, #fff);
+  background: var(--brand-600);
+  box-shadow: var(--shadow-raised);
+}
+
+/* ===== AI 识别面板 ===== */
+.ai-import-panel {
+  padding: var(--space-standard);
+  margin-bottom: var(--space-standard);
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-raised);
+}
+
+.ai-import-panel__usage {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  margin-bottom: var(--space-standard);
+  font-size: var(--text-small);
+  color: var(--text-secondary);
+}
+
+.ai-import-panel__usage-icon {
+  color: var(--brand-600);
+}
+
+.ai-import-panel__usage-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+/* 识别方式分段（文本 / 图片），与上面 import-mode-switch 同构但更小 */
+.ocr-segmented {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: var(--space-compact);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+}
+
+.ocr-segmented__item {
+  padding: 4px 14px;
+  font-size: var(--text-small);
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.ocr-segmented__item.is-active {
+  color: var(--text-on-brand, #fff);
+  background: var(--brand-600);
+}
+
+.ai-format-hint {
+  margin-bottom: var(--space-2);
+  font-size: var(--text-small);
+  color: var(--text-tertiary);
+}
+
+.ai-format-hint__example {
+  margin-top: 2px;
+  color: var(--text-secondary);
+}
+
+.ai-import-panel__submit {
+  display: block;
+  width: 100%;
+  margin-top: var(--space-standard);
 }
 </style>
