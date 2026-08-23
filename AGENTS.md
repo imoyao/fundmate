@@ -1,6 +1,32 @@
 # AGENTS.md
 
-个人投资记账/家庭资产管理平台「多多贝」（fundmate）。前后端分离：后端 Flask/APIFlask（Python 3.12+），前端 Vue 3 + Vite（pure-admin），另有 VitePress 文档站与静态落地页。仓库文档均为中文，提交信息用中文 + conventional commits。权威规范在 `docs/spec/`（入口 `docs/spec/index.md`；`conventions.md` 为冻结区，变更须先在 `decisions.md` 记决策）。当前开发分支 `main-v2`（`origin/HEAD` 指向 `dev`，其余本地分支为历史遗留）。
+个人投资记账/家庭资产管理平台「多多贝」（fundmate）。前后端分离：后端 Flask/APIFlask（Python 3.12+），前端 Vue 3 + Vite（pure-admin），另有 VitePress 文档站与静态落地页。仓库文档均为中文，提交信息用中文 + conventional commits。权威规范在 `docs/spec/`（入口 `docs/spec/index.md`；`conventions.md` 为冻结区，变更须先在 `decisions.md` 记决策）。主分支 `main`（GitHub 默认分支，`origin/HEAD` 指向 `main`）；日常开发在 `dev` 分支；其余分支为历史遗留或临时功能分支。
+
+## Git 分支规范
+
+本项目当前由维护者单人主导，分支刻意从简——核心目标是**避免分支互相合入出错**，而非追求复杂的 git-flow。所有 AI / agent 必须严格遵守，禁止自创分支名或向错误分支提交。
+
+**长期分支（仅两条）**
+- `main`：稳定主分支，受保护。所有正式发布内容最终都在此。AI review 双线路在此生效。**禁止直接 push**——CI 已加 `guard-direct-push` 卡点拦截直推（私有仓库无 branch protection，以此替代）。所有进入 `main` 的改动必须通过 PR 合并。
+- `dev`：主开发分支。日常开发在此进行，验证无误后再合入 `main`。
+
+**功能分支**
+- 新功能 / 较大改动：从 `dev` 切出 `feat/<简短描述>`（或 `fix/<...>`），开发完开 PR 合回 `dev`；`dev` 稳定后再开 PR 把 `dev` 合入 `main`。
+- 小改动（错别字、单文件微调、文档更新等）：可直接在 `dev` 上提交，无需单独功能分支。
+- 功能分支合入目标一律是 `dev`，**不要**直接对 `main` 开 PR（除非是紧急 hotfix，且目标仍应为 `main`）。
+
+**文档更新**
+- 不单独设 `docs` 分支。文档（`docs/`、`README.md`、本文件）更新随代码改动一起在 `dev` 提交、走 PR，保持文档与代码同步。
+
+**禁止事项**
+- 禁止向 `main` 直接 push（CI 会失败）。
+- 禁止把功能分支互相合并、或从错误 base 开 PR。
+- 禁止新建长期分支（如 `staging`/`release` 等）——本仓库规模不需要。
+- 历史遗留分支（`main-v2`、`M`、各类 `feat/*`/`fix/*`/`refactor/*`/`wip/*`/`backup/*`）均已被清理，不要复活或新建同名分支。
+
+**PR 与 review**
+- 开 PR 时 `base` 填 `dev`（功能分支）或 `main`（dev→main 的发布 PR）。
+- AI review（免费 GLM 总结 + 智能路由深度）会自动在 PR 上评论；`scripts/` 下的独立脚本不适用后端 loguru/常量规范，review 不会因此提 Major 意见。
 
 ## 目录边界
 
