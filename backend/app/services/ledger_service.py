@@ -297,6 +297,8 @@ class LedgerService:
                     'id': p.id,
                     'symbol': p.symbol,
                     'name': p.name,
+                    # 持有数量（份/股，最小单位换算）——持仓明细抽屉「持有数量」卡数据源（#982 排查补充）
+                    'quantity': Money.min_unit_to_shares(p.quantity),
                     'type_label': TYPE_LABELS.get(p.asset_type, p.asset_type),
                     'market_value': Money.cents_to_yuan(mv_cents),
                     'pnl': Money.cents_to_yuan(pnl_cents),

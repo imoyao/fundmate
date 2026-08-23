@@ -131,19 +131,27 @@ def get_position_transactions(id: int):
         if not position:
             abort(404, '持仓不存在')
 
-        # 优先用 position_id，若为空则用 symbol + account_name
+        # 优先用 position_id，若为空则用 symbol + account_name。
+        # 排序：确认日倒序（NULL 沉底）+ 创建时间倒序——用户最关注最近交易（#982 排查修正，
+        # 原 asc() 让最早的 2023 年记录排在最前）
         if position.id and db.query(Transaction).filter(Transaction.position_id == position.id).first() is not None:
             transactions = (
                 db.query(Transaction)
                 .filter(Transaction.position_id == position.id)
-                .order_by(Transaction.confirm_date.asc())
+                .order_by(
+                    Transaction.confirm_date.desc().nullslast(),
+                    Transaction.created_at.desc(),
+                )
                 .all()
             )
         else:
             transactions = (
                 db.query(Transaction)
                 .filter(Transaction.symbol == position.symbol, Transaction.account_name == position.account_name)
-                .order_by(Transaction.confirm_date.asc())
+                .order_by(
+                    Transaction.confirm_date.desc().nullslast(),
+                    Transaction.created_at.desc(),
+                )
                 .all()
             )
 

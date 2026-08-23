@@ -1295,3 +1295,12 @@ class TestLedgerDetailSearch:
         )
         items = resp.get_json()['data']['items']
         assert [i['symbol'] for i in items] == ['000001']
+
+    def test_positions_paginated_includes_quantity(self, client, db, make_position):
+        """持仓明细行必须携带 quantity（份/股）——详情抽屉「持有数量」卡数据源（#982 排查）。"""
+        ledger = self._make_ledger_with_positions(db, make_position)
+        resp = client.get(f'/api/ledgers/{ledger.id}/positions/')
+        items = resp.get_json()['data']['items']
+        qty_map = {i['symbol']: i['quantity'] for i in items}
+        assert qty_map['600519'] == 100
+        assert qty_map['000001'] == 200
