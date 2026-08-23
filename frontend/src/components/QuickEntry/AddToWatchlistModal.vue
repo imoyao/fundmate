@@ -250,6 +250,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   "update:modelValue": [value: boolean];
   submitted: [];
+  /** 弹窗内新建/编辑了标签或分组，通知父页面刷新全局目录，避免新建后页面不更新 */
+  "catalog-changed": [];
 }>();
 
 const visible = computed({
@@ -291,9 +293,13 @@ const onTagFormCreated = (tag: WatchlistTag) => {
   if (!selectedTagIds.value.includes(tag.id)) {
     selectedTagIds.value.push(tag.id);
   }
+  emit("catalog-changed");
 };
 // 编辑 / 其他变更：兜底刷新标签列表，保持与全局一致
-const onTagFormSaved = () => fetchTags();
+const onTagFormSaved = () => {
+  fetchTags();
+  emit("catalog-changed");
+};
 
 // 新建分组成功：并入可选项并自动选中
 const onGroupFormCreated = (group: WatchlistGroup) => {
@@ -303,8 +309,12 @@ const onGroupFormCreated = (group: WatchlistGroup) => {
   if (!selectedGroupIds.value.includes(group.id)) {
     selectedGroupIds.value.push(group.id);
   }
+  emit("catalog-changed");
 };
-const onGroupFormSaved = () => fetchGroups();
+const onGroupFormSaved = () => {
+  fetchGroups();
+  emit("catalog-changed");
+};
 
 const handleGroupSelect = () => {
   if (groupSelectRef.value) {

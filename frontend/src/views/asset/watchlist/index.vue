@@ -168,6 +168,7 @@
       v-model="addDialogVisible"
       :initial-group-id="activeCustomGroupId"
       @submitted="onItemAdded"
+      @catalog-changed="onCatalogChanged"
     />
 
     <OcrImportModal v-model="ocrDialogVisible" @imported="onOcrImported" />
@@ -535,6 +536,12 @@ function onItemAdded() {
   addDialogVisible.value = false;
   fetchData();
   fetchTags();
+}
+
+// 弹窗内新建/编辑了标签或分组，立即刷新页面目录，避免页面不更新的问题
+function onCatalogChanged() {
+  groups.fetchGroups();
+  tags.fetchTags();
 }
 
 function onOcrImported() {
