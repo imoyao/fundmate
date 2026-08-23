@@ -7,252 +7,22 @@
     <!-- ============================================================ -->
     <!-- 温度数据仪表盘                                                -->
     <!-- ============================================================ -->
-    <section class="temperature-dashboard">
-      <!-- 综合温度 + 恐惧贪婪 + 股债性价比（比例 2:1:1） -->
-      <MetricGrid>
-        <!-- 综合温度 -->
-        <TemperatureGaugeCard
-          class="gauge-card--featured"
-          :value="compositeTemperature?.value ?? null"
-          title="综合温度"
-          :level="compositeTemperature?.level || '暂无'"
-          caption="综合6个市场指标"
-          size="sm"
-          clickable
-          @click="goToTemperature"
-        >
-          <template #footer>
-            <div class="primary-bar">
-              <div
-                class="primary-fill"
-                :style="{
-                  width:
-                    (compositeTemperature?.value != null
-                      ? Math.max(0, Math.min(100, compositeTemperature.value))
-                      : 0) + '%',
-                  background: progressColor
-                }"
-              />
-            </div>
-            <span class="primary-link">查看温度计 ›</span>
-          </template>
-        </TemperatureGaugeCard>
-
-        <!-- 恐惧贪婪 -->
-        <MetricCard
-          title="恐惧贪婪"
-          :value="fearData ? fearData.value : null"
-          :level="fearData?.label || '暂无数据'"
-        />
-
-        <!-- 股债性价比 -->
-        <MetricCard
-          title="股债性价比"
-          :value="selfCalcPercent != null ? selfCalcPercent : null"
-          unit="%"
-          :level="selfCalcLevel"
-        />
-      </MetricGrid>
-
-      <!-- L2：市场情绪 + 估值指标（两列等宽，避免重心偏左） -->
-      <div class="metrics-row">
-        <!-- 市场情绪 -->
-        <div class="metrics-group metrics-group--half">
-          <SectionHeader title="市场情绪" />
-          <MetricGrid>
-            <MetricCard
-              title="且慢"
-              :value="qiemanData ? qiemanData.value : null"
-              unit="°"
-              :level="qiemanData?.label || '暂无'"
-            />
-            <MetricCard
-              title="有知有行"
-              :value="youzhiData ? youzhiData.value : null"
-              unit="°"
-              :level="youzhiData?.label || '暂无'"
-            />
-            <MetricCard
-              title="韭圈儿中长期"
-              :value="jiucaishuoMediumData ? jiucaishuoMediumData.value : null"
-              unit="°"
-              :level="jiucaishuoMediumData?.label || '暂无'"
-            />
-          </MetricGrid>
-        </div>
-
-        <!-- 估值指标 -->
-        <div class="metrics-group metrics-group--half">
-          <SectionHeader title="估值指标" />
-          <MetricGrid>
-            <MetricCard
-              title="中位PB"
-              :value="jisiluIndicator?.median_pb ?? null"
-              unit="倍"
-              :level="pbLevel"
-              :caption="pbCaption"
-            />
-            <MetricCard
-              title="中位PE"
-              :value="jisiluIndicator?.median_pe ?? null"
-              unit="倍"
-              :level="peLevel"
-              :caption="peCaption"
-            />
-            <MetricCard
-              title="可转债"
-              :value="cbTemperature != null ? cbTemperature : null"
-              unit="°"
-              :level="cbLabel || '暂无'"
-            />
-          </MetricGrid>
-        </div>
-      </div>
-
-      <!-- L3：流动性（独占一行，横向大卡片，信息更聚焦） -->
-      <div class="metrics-row metrics-row--single">
-        <div class="liquidity-block">
-          <SectionHeader title="流动性" />
-          <div class="liquidity-card">
-            <div class="liquidity-metric">
-              <span class="liquidity-metric__label">今日成交额</span>
-              <div class="liquidity-metric__body">
-                <span class="liquidity-metric__value">{{
-                  volumeData ? volumeData.value : "--"
-                }}</span>
-                <span class="liquidity-metric__unit">亿</span>
-                <TemperatureLevelBadge
-                  :level="volumeData?.label || '暂无'"
-                  size="sm"
-                />
-              </div>
-              <span class="liquidity-metric__hint"
-                >成交量热度反映市场活跃度</span
-              >
-            </div>
-            <div class="liquidity-divider" />
-            <div class="liquidity-actions">
-              <el-button
-                link
-                class="liquidity-btn"
-                @click="handleShowIndustryCrowding"
-                >行业拥挤度 →</el-button
-              >
-              <el-button
-                link
-                class="liquidity-btn"
-                @click="handleShowSectorFlow"
-                >板块资金流 →</el-button
-              >
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 指数快照（独立一行） -->
-      <div class="index-snapshot">
-        <div class="snapshot-title">指数快照</div>
-        <div class="snapshot-items">
-          <div v-for="idx in indexData" :key="idx.code" class="snapshot-item">
-            <span class="snapshot-name">{{ idx.name }}</span>
-            <span v-if="idx.price === null" class="snapshot-price">--</span>
-            <MoneyDisplay v-else :value="idx.price" :precision="2" />
-            <span class="snapshot-change"
-              ><RiseFallText :value="idx.changePercent"
-            /></span>
-          </div>
-        </div>
-      </div>
-    </section>
+    <!-- 温度数据仪表盘（#984 拆分至 components/ExploreTemperatureDashboard.vue） -->
+    <ExploreTemperatureDashboard
+      ref="dashboardRef"
+      @go-temperature="goToTemperature"
+    />
 
     <!-- ============================================================ -->
     <!-- 添加/观察栏（仅未登录；登录后隐藏，引导去自选页管理）       -->
     <!-- ============================================================ -->
-    <section v-if="!isAuthenticated" id="add-section" class="add-section">
-      <div class="add-card">
-        <div class="add-form-row">
-          <div class="input-wrapper">
-            <el-autocomplete
-              v-model="newAsset.symbol"
-              :fetch-suggestions="querySearch"
-              placeholder="输入代码或名称搜索（如 510300）"
-              size="large"
-              clearable
-              :trigger-on-focus="false"
-              class="symbol-input"
-              @select="handleSelect"
-              @input="() => {}"
-              @keyup.enter="handleAdd"
-            >
-              <template #prefix>
-                <span class="input-prefix">搜索</span>
-              </template>
-              <template #default="{ item }">
-                <div class="suggestion-item">
-                  <span class="suggestion-code">{{ item.code }}</span>
-                  <span class="suggestion-name">{{ item.name }}</span>
-                  <el-tag size="small" class="suggestion-tag">{{
-                    getTypeLabel(item.type)
-                  }}</el-tag>
-                </div>
-              </template>
-            </el-autocomplete>
-          </div>
-
-          <el-select
-            v-model="newAsset.type"
-            placeholder="类型"
-            size="large"
-            class="type-select"
-          >
-            <el-option label="股票" value="stock" />
-            <el-option label="基金" value="fund" />
-            <el-option label="ETF" value="etf" />
-          </el-select>
-
-          <el-input
-            v-model="newAsset.costPriceInput"
-            placeholder="成本价（选填）"
-            size="large"
-            class="price-input"
-            clearable
-          >
-            <template #prepend>¥</template>
-          </el-input>
-
-          <el-input
-            v-model="newAsset.quantityInput"
-            placeholder="份额（选填）"
-            size="large"
-            class="qty-input"
-            clearable
-          />
-
-          <el-button
-            type="primary"
-            size="large"
-            :loading="adding"
-            @click="handleAdd"
-            >添加观察</el-button
-          >
-        </div>
-
-        <div class="hot-section">
-          <span class="hot-label">热门资产</span>
-          <div class="hot-cards">
-            <div
-              v-for="item in hotAssets"
-              :key="item.symbol"
-              class="hot-card"
-              @click="addHotAsset(item)"
-            >
-              <span class="hot-name">{{ item.name }}</span>
-              <span class="hot-code">{{ item.symbol }}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
+    <!-- 添加/观察栏（#984 拆分至 components/ExploreAddSection.vue；仅未登录渲染） -->
+    <ExploreAddSection
+      v-if="!isAuthenticated"
+      id="add-section"
+      :add-holding="addHolding"
+      :quotes-map="quotesMap"
+    />
 
     <!-- 已登录：引导去自选页（探市只做展示与观察，管理能力收敛到登录后的自选） -->
     <section v-if="isAuthenticated" class="auth-guide">
@@ -274,138 +44,22 @@
     <!-- ============================================================ -->
     <!-- 观察列表                                                     -->
     <!-- ============================================================ -->
-    <section class="watchlist-section">
-      <div class="summary-bar">
-        <div class="summary-left">
-          <span class="summary-count">共 {{ totalCount }} 项</span>
-          <template v-if="!isPureObservationMode && summary">
-            <span class="summary-divider">|</span>
-            <span class="summary-value"
-              >总市值
-              <MoneyDisplay
-                :value="summary.totalMarketValue"
-                :show-sign="false"
-            /></span>
-            <span class="summary-divider">|</span>
-            <span class="summary-pnl"
-              >盈亏 <RiseFallText :value="summary.totalPnl" suffix=""
-            /></span>
-          </template>
-          <span v-if="isPureObservationMode" class="summary-hint"
-            >输入成本与份额后可查看持仓盈亏</span
-          >
-        </div>
-        <div class="summary-right">
-          <span class="status-indicator">
-            <span class="status-dot" :class="statusClass" />{{ statusText }}
-          </span>
-          <el-select
-            :model-value="refreshInterval"
-            size="small"
-            class="refresh-interval-select"
-            @change="setRefreshInterval"
-          >
-            <el-option
-              v-for="s in REFRESH_INTERVAL_OPTIONS"
-              :key="s"
-              :label="`${s}s 刷新`"
-              :value="s"
-            />
-          </el-select>
-          <span v-if="lastUpdateTime" class="update-time"
-            >更新: {{ formatDateTime(lastUpdateTime) }}</span
-          >
-          <el-button size="small" @click="manualRefresh">刷新</el-button>
-        </div>
-      </div>
-
-      <!-- 表格视觉基线统一在 src/style/el-table.css 维护，勿在本页 :deep 覆盖 -->
-      <el-table
-        v-loading="loading"
-        :data="tableData"
-        border
-        style="width: 100%"
-        empty-text="暂无观察资产，添加你关注的标的开始研究"
-      >
-        <el-table-column label="产品" min-width="180">
-          <template #default="{ row }">
-            <ProductDisplay
-              :name="row.name"
-              :symbol="row.symbol"
-              :type-label="getTypeLabel(row.type)"
-            />
-          </template>
-        </el-table-column>
-
-        <el-table-column label="最新价" width="120" align="right">
-          <template #default="{ row }"
-            ><MoneyDisplay
-              :value="row.price"
-              :show-sign="false"
-              :precision="pricePrecision(row.type)"
-          /></template>
-        </el-table-column>
-
-        <el-table-column label="涨跌幅" width="110" align="right">
-          <template #default="{ row }"
-            ><RiseFallText :value="row.changePct"
-          /></template>
-        </el-table-column>
-
-        <el-table-column
-          v-if="!isPureObservationMode"
-          label="当日盈亏"
-          width="130"
-          align="right"
-        >
-          <template #default="{ row }"
-            ><MoneyDisplay :value="row.pnl ?? 0" :show-sign="true"
-          /></template>
-        </el-table-column>
-
-        <el-table-column
-          v-if="!isPureObservationMode"
-          label="持仓收益"
-          width="130"
-          align="right"
-        >
-          <template #default="{ row }"
-            ><MoneyDisplay :value="row.positionPnl ?? 0" :show-sign="true"
-          /></template>
-        </el-table-column>
-
-        <el-table-column label="深度分析" width="120" align="center">
-          <template #default="{ row }">
-            <el-dropdown @command="handleJump(row, $event)">
-              <el-button size="small" type="primary" plain>分析 ▼</el-button>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item
-                    v-for="tool in getAvailableTools(row.type)"
-                    :key="tool.key"
-                    :command="tool.key"
-                  >
-                    {{ tool.label }}
-                  </el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="操作" width="80" align="center">
-          <template #default="{ row }">
-            <el-button
-              link
-              size="small"
-              style="color: var(--text-tertiary)"
-              @click="handleRemove(row.id)"
-              >删除</el-button
-            >
-          </template>
-        </el-table-column>
-      </el-table>
-    </section>
+    <!-- 观察列表（#984 拆分至 components/ExploreWatchlistTable.vue，纯展示+事件上抛） -->
+    <ExploreWatchlistTable
+      :rows="tableData"
+      :loading="loading"
+      :total-count="totalCount"
+      :is-pure-observation-mode="isPureObservationMode"
+      :summary="summary"
+      :status-class="statusClass"
+      :status-text="statusText"
+      :refresh-interval="refreshInterval"
+      :last-update-time="lastUpdateTime"
+      @remove="handleRemove"
+      @jump="handleJump"
+      @refresh="manualRefresh"
+      @interval-change="setRefreshInterval"
+    />
 
     <!-- ============================================================ -->
     <!-- 底部（公共组件）：数据来源 + 免责声明                         -->
@@ -426,14 +80,13 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, watch } from "vue";
 import { useRouter } from "vue-router";
-import { ElMessage, ElMessageBox } from "element-plus";
+import { ElMessage } from "element-plus";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import { useLocalHoldings } from "@/composables/useLocalHoldings";
 import {
   useRealtimeQuotes,
   REFRESH_INTERVAL_OPTIONS
 } from "@/composables/useRealtimeQuotes";
-import { useAssetSearch } from "@/composables/useAssetSearch";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
@@ -451,6 +104,7 @@ import {
 import { buildMarketFooterSources } from "@/components/MarketFooter/config";
 import { batchFetchQuotes } from "@/utils/realtimeDataSources";
 import { useTemperatureOverview } from "@/composables/temperature/useTemperatureOverview";
+import ExploreTemperatureDashboard from "./components/ExploreTemperatureDashboard.vue";
 import { getTypeLabel } from "@/constants/assetType";
 import { pricePrecision } from "@/utils/pricePrecision";
 import { useAuthState } from "@/composables/useAuthState";
@@ -539,251 +193,14 @@ watch(
 );
 
 // ================================================================
-// 指数数据
-// ================================================================
-interface IndexInfo {
-  code: string;
-  name: string;
-  price: number | null;
-  changePercent: number;
-}
-
-const indexCodes = [
-  { symbol: "000300", type: "stock" as const },
-  { symbol: "000905", type: "stock" as const },
-  { symbol: "399006", type: "stock" as const }
-];
-
-const indexData = ref<IndexInfo[]>([
-  { code: "000300", name: "沪深300", price: null, changePercent: 0 },
-  { code: "000905", name: "中证500", price: null, changePercent: 0 },
-  { code: "399006", name: "创业板指", price: null, changePercent: 0 }
-]);
-
-const indexLoading = ref(false);
-
-const fetchIndexData = async () => {
-  indexLoading.value = true;
-  try {
-    const result = await batchFetchQuotes(indexCodes);
-    indexData.value = indexData.value.map(idx => {
-      const quote = result.get(idx.code);
-      if (quote) {
-        const price = quote.currentPrice || 0;
-        const change = quote.changePct || 0;
-        return {
-          ...idx,
-          price: price > 0 ? price : null,
-          changePercent: change
-        };
-      }
-      return idx;
-    });
-  } catch {
-    // 静默失败
-  } finally {
-    indexLoading.value = false;
-  }
-};
-
-// ================================================================
-// 市场温度数据（两页共用 composable，temperature 页后续接入，见 #980）
-// ================================================================
-const {
-  compositeTemperature,
-  selfCalcPercent,
-  selfCalcLevel,
-  links,
-  volumeData,
-  fearData,
-  jiucaishuoMediumData,
-  qiemanData,
-  youzhiData,
-  cbTemperature,
-  cbLabel,
-  jisiluIndicator,
-  fetchTemperature
-} = useTemperatureOverview();
-
-// 综合温度进度条颜色：按温度档位取色，偏低时为绿色
-const progressColor = computed(() => {
-  const v = compositeTemperature.value?.value;
-  if (v == null || Number.isNaN(v)) return "var(--temp-mid)";
-  if (v < 40) return "var(--temp-low)";
-  if (v > 60) return "var(--temp-high)";
-  return "var(--temp-mid)";
-});
-
-// 根据估值温度推断等级（PB/PE 温度越低代表估值越便宜）
-const inferValuationLevel = (
-  temperature: number | null | undefined
-): string => {
-  if (temperature == null || Number.isNaN(temperature)) return "暂无";
-  if (temperature < 30) return "偏低";
-  if (temperature > 70) return "偏高";
-  return "适中";
-};
-
-const pbLevel = computed(() =>
-  inferValuationLevel(jisiluIndicator.value?.median_pb_temperature)
-);
-const peLevel = computed(() =>
-  inferValuationLevel(jisiluIndicator.value?.median_pe_temperature)
-);
-
-const pbCaption = computed(() => {
-  const temp = jisiluIndicator.value?.median_pb_temperature;
-  if (temp == null) return "估值温度 --";
-  return `估值温度 ${temp}° · 越低越便宜`;
-});
-
-const peCaption = computed(() => {
-  const temp = jisiluIndicator.value?.median_pe_temperature;
-  if (temp == null) return "估值温度 --";
-  return `估值温度 ${temp}° · 越低越便宜`;
-});
-
-// ================================================================
-// 计算属性和方法
+// 指数数据：已随温度仪表盘拆分至子组件（#984）
 // ================================================================
 
-// L3 深度入口
-const handleShowIndustryCrowding = () => {
-  ElMessage.info("行业拥挤度功能开发中");
-};
-
-const handleShowSectorFlow = () => {
-  ElMessage.info("板块资金流功能开发中");
-};
-
 // ================================================================
-// 搜索（复用 useAssetSearch）
+// 市场温度数据：已拆分至 components/ExploreTemperatureDashboard.vue（#984）。
+// links（数据来源）经子组件 defineExpose 暴露，供 footer 使用。
 // ================================================================
-const {
-  loading: searchLoading,
-  results: searchResults,
-  search
-} = useAssetSearch();
-
-const querySearch = (queryString: string, cb: (results: any[]) => void) => {
-  search(queryString, cb);
-};
-
-// ================================================================
-// 新资产表单
-// ================================================================
-const adding = ref(false);
-const selectedAssetInfo = ref<any>(null);
-
-const newAsset = reactive({
-  symbol: "",
-  type: "stock" as "stock" | "fund" | "etf",
-  costPriceInput: "",
-  quantityInput: ""
-});
-
-const handleSelect = (item: any) => {
-  if (!item || !item.code) return;
-  newAsset.symbol = item.code;
-  newAsset.type = item.type || "stock";
-  selectedAssetInfo.value = item;
-  const quote = quotesMap.value?.[item.code];
-  if (quote?.currentPrice) {
-    newAsset.costPriceInput = String(quote.currentPrice);
-  }
-  if (!newAsset.quantityInput) {
-    newAsset.quantityInput = "1";
-  }
-};
-
-const handleAdd = async () => {
-  const symbol = newAsset.symbol.trim();
-  if (!symbol) {
-    ElMessage.warning("请输入资产代码");
-    return;
-  }
-
-  const costPrice = newAsset.costPriceInput
-    ? parseFloat(newAsset.costPriceInput)
-    : null;
-  const quantity = newAsset.quantityInput
-    ? parseFloat(newAsset.quantityInput)
-    : null;
-
-  if (costPrice !== null && isNaN(costPrice)) {
-    ElMessage.warning("请输入有效的成本价");
-    return;
-  }
-  if (quantity !== null && isNaN(quantity)) {
-    ElMessage.warning("请输入有效的份额");
-    return;
-  }
-
-  let name = selectedAssetInfo.value?.name;
-  if (!name) {
-    const found = searchResults.value.find(item => item.code === symbol);
-    name = found?.name || symbol;
-  }
-
-  adding.value = true;
-  try {
-    const result = addHolding({
-      symbol,
-      name,
-      type: newAsset.type,
-      costPrice: costPrice ?? null,
-      quantity: quantity ?? null
-    });
-    if (!result.success) {
-      ElMessage.warning(result.message);
-    } else {
-      ElMessage.success(`已添加「${name}」到观察列表`);
-      newAsset.symbol = "";
-      newAsset.type = "stock";
-      newAsset.costPriceInput = "";
-      newAsset.quantityInput = "";
-      selectedAssetInfo.value = null;
-    }
-  } catch (e) {
-    console.error("添加失败:", e);
-    ElMessage.error("添加失败，请重试");
-  } finally {
-    adding.value = false;
-  }
-};
-
-// ================================================================
-// 热门预置
-// ================================================================
-// 热门预置只提供「标的 + 类型」，不预填成本价/份额。
-// 传 null 即进入纯观察模式（useLocalHoldings 约定：costPrice/quantity 为 null = 未填），
-// 由系统按当前价取成本、份额 1，盈亏恒为 0，避免展示编造的持仓收益（原 P0-2 硬编码假数据）。
-const hotAssets = [
-  { symbol: "510300", name: "沪深300ETF", type: "etf" as const },
-  { symbol: "513100", name: "纳指ETF", type: "etf" as const },
-  { symbol: "600036", name: "招商银行", type: "stock" as const },
-  { symbol: "588000", name: "科创50ETF", type: "etf" as const }
-];
-
-const addHotAsset = (item: (typeof hotAssets)[0]) => {
-  try {
-    const result = addHolding({
-      symbol: item.symbol,
-      name: item.name,
-      type: item.type,
-      costPrice: null,
-      quantity: null
-    });
-    if (!result.success) {
-      ElMessage.warning(result.message);
-    } else {
-      ElMessage.success(`已添加「${item.name}」到观察列表（纯观察，未填成本）`);
-    }
-  } catch (e) {
-    console.error(e);
-    ElMessage.error("添加失败");
-  }
-};
+const dashboardRef = ref<{ links: Record<string, string> } | null>(null);
 
 // ================================================================
 // 表格数据
@@ -830,35 +247,16 @@ const tableData = computed(() => {
 });
 
 // ================================================================
-// 删除
+// 删除（确认框在子组件内，这里只负责真正移除）
 // ================================================================
 const handleRemove = (id: string) => {
-  ElMessageBox.confirm("确定从观察列表中移除该资产吗？", "提示", {
-    confirmButtonText: "确定",
-    cancelButtonText: "取消",
-    type: "warning"
-  })
-    .then(() => {
-      removeHolding(id);
-      ElMessage.success("已移除");
-    })
-    .catch(() => {});
+  removeHolding(id);
+  ElMessage.success("已移除");
 };
 
 // ================================================================
-// 深度分析跳转
+// 深度分析跳转（外部工具，逻辑留在父页面）
 // ================================================================
-const getAvailableTools = (type: string) => {
-  const tools = [
-    { key: "xueqiu", label: "雪球社区" },
-    { key: "eastmoney", label: "东方财富" }
-  ];
-  if (type === "fund" || type === "etf") {
-    tools.push({ key: "tiantian", label: "天天基金" });
-  }
-  return tools;
-};
-
 const handleJump = (row: any, command: string) => {
   let url = "";
   const code = row.symbol;
@@ -926,7 +324,9 @@ const goToWatchlist = () => {
 // ================================================================
 const headerNavs = useMarketHeaderNavs();
 
-const footerSources = computed(() => buildMarketFooterSources(links.value));
+const footerSources = computed(() =>
+  buildMarketFooterSources(dashboardRef.value?.links ?? {})
+);
 
 // ================================================================
 // 生命周期
@@ -935,8 +335,6 @@ onMounted(() => {
   if (!enabled.value) {
     toggle(true);
   }
-  fetchIndexData();
-  fetchTemperature();
 });
 </script>
 
@@ -1217,258 +615,8 @@ onMounted(() => {
 /* ============================================================
    5. 添加/观察栏
    ============================================================ */
-.add-section {
-  max-width: 1280px;
-  padding: 16px 24px 8px;
-  margin: 0 auto;
-}
-
-/* 5.1 登录态引导卡（登录后替代添加栏） */
-.auth-guide {
-  max-width: 1280px;
-  padding: 16px 24px 8px;
-  margin: 0 auto;
-
-  &__inner {
-    display: flex;
-    gap: 20px;
-    align-items: center;
-    justify-content: space-between;
-    padding: 20px 24px;
-    background: var(--bg-card);
-    border: 1px solid var(--brand-400);
-    border-radius: 12px;
-    box-shadow: var(--shadow-raised);
-  }
-
-  &__title {
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-
-  &__desc {
-    margin-top: 4px;
-    font-size: 13px;
-    color: var(--text-secondary);
-  }
-}
-
-.add-card {
-  padding: 20px 24px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-light);
-  border-radius: 12px;
-  box-shadow: var(--shadow-raised);
-}
-
-.add-form-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  align-items: flex-start;
-
-  .input-wrapper {
-    flex: 2;
-    min-width: 200px;
-  }
-
-  .symbol-input {
-    width: 100%;
-  }
-
-  .type-select {
-    flex-shrink: 0;
-    width: 120px;
-  }
-
-  .price-input {
-    flex-shrink: 0;
-    width: 140px;
-  }
-
-  .qty-input {
-    flex-shrink: 0;
-    width: 120px;
-  }
-}
-
-.input-prefix {
-  font-size: 13px;
-  color: var(--text-tertiary);
-}
-
-.suggestion-item {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  padding: 4px 0;
-
-  .suggestion-code {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-
-  .suggestion-name {
-    font-size: 14px;
-    color: var(--text-secondary);
-  }
-
-  .suggestion-tag {
-    margin-left: auto;
-    font-size: 11px;
-  }
-}
-
-.hot-section {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  padding-top: 14px;
-  margin-top: 14px;
-  border-top: 1px solid var(--border-light);
-
-  .hot-label {
-    font-size: 13px;
-    color: var(--text-tertiary);
-    white-space: nowrap;
-  }
-
-  .hot-cards {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-
-  .hot-card {
-    display: flex;
-    gap: 6px;
-    align-items: center;
-    padding: 4px 14px;
-    font-size: 13px;
-    cursor: pointer;
-    background: var(--bg-soft);
-    border: 1px solid var(--border-light);
-    border-radius: 20px;
-    transition: all 0.2s;
-
-    &:hover {
-      background: var(--brand-100);
-      border-color: var(--brand-400);
-      transform: translateY(-1px);
-    }
-
-    .hot-name {
-      color: var(--text-primary);
-    }
-
-    .hot-code {
-      font-size: 11px;
-      color: var(--text-tertiary);
-    }
-  }
-}
 
 /* ============================================================
    6. 观察列表
-   ============================================================ */
-.watchlist-section {
-  max-width: 1280px;
-  padding: 0 24px 24px;
-  margin: 0 auto;
-}
-
-.summary-bar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 0 16px;
-
-  .summary-left {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    align-items: center;
-  }
-
-  .summary-count {
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--text-primary);
-  }
-
-  .summary-divider {
-    color: var(--border-default);
-  }
-
-  .summary-value {
-    font-size: 14px;
-    color: var(--text-secondary);
-  }
-
-  .summary-pnl {
-    font-size: 14px;
-  }
-
-  .summary-hint {
-    font-size: 13px;
-    color: var(--text-tertiary);
-  }
-
-  .summary-right {
-    display: flex;
-    gap: 12px;
-    align-items: center;
-    font-size: 13px;
-    color: var(--text-tertiary);
-  }
-
-  .refresh-interval-select {
-    width: 96px;
-  }
-
-  .status-indicator {
-    display: flex;
-    gap: 6px;
-    align-items: center;
-  }
-
-  .status-dot {
-    display: inline-block;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-
-    &.status-trading {
-      background: var(--color-rise);
-      animation: pulse 1.5s infinite;
-    }
-
-    &.status-closed {
-      background: var(--text-tertiary);
-    }
-
-    &.status-error {
-      background: var(--color-danger-system);
-      animation: pulse 1s infinite;
-    }
-
-    &.status-idle {
-      background: var(--text-disabled);
-    }
-  }
-
-  .update-time {
-    font-size: 12px;
-    color: var(--text-tertiary);
-  }
-}
-
-/* ============================================================
-   1. 设计 Token
-   温度三色(--temp-*) 已在全局 colors.css 中定义，此处直接复用，不重复声明
    ============================================================ */
 </style>
