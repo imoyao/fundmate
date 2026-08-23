@@ -29,6 +29,7 @@ import "./style/tailwind.css";
 import "./style/el-message.css";
 import "./style/el-message-box.css";
 import "./style/el-notification.css";
+import "./style/el-tooltip.css";
 import "@/style/theme.scss"; // 确保在 Element Plus 之后加载
 // 导入字体图标
 import "./assets/iconfont/iconfont.js";

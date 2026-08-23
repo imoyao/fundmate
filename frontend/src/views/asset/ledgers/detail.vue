@@ -16,6 +16,16 @@
           <IconifyIconOffline icon="ep:edit" class="mr-1" /> 编辑
         </el-button>
         <el-button
+          v-if="accountInfo"
+          @click="toggleArchiveDetail(accountInfo)"
+        >
+          <IconifyIconOffline
+            :icon="accountInfo.is_active === false ? 'ep:refresh-left' : 'ep:box'"
+            class="mr-1"
+          />
+          {{ accountInfo.is_active === false ? "激活" : "归档" }}
+        </el-button>
+        <el-button
           v-if="!isUnclassified && holdingsTotal > 0"
           @click="openBatchMigrateDialog"
         >
@@ -720,6 +730,8 @@ import {
   deleteLedgerPosition,
   updateLedgerTransaction,
   deleteLedgerTransaction,
+  archiveLedger,
+  unarchiveLedger,
   getSalesInstitutions,
   type LedgerItem,
   type SalesInstitution
@@ -1173,6 +1185,36 @@ async function openEditDialog() {
     sales_institution_id: accountInfo.value.sales_institution_id ?? null
   };
   showEditDialog.value = true;
+}
+
+/** 详情页归档/激活：归档给一次确认（保留全部数据、仅隐藏） */
+async function toggleArchiveDetail(ledger: any) {
+  const archiving = ledger.is_active !== false;
+  try {
+    if (archiving) {
+      await ElMessageBox.confirm(
+        `归档后「${ledger.name}」将从日常列表隐藏，但全部交易/持仓数据仍保留并计入收益。确定归档？`,
+        "归档账户",
+        { confirmButtonText: "归档", cancelButtonText: "取消", type: "warning" }
+      );
+    }
+    if (archiving) {
+      await archiveLedger(ledger.id);
+      ElMessage.success(`已归档「${ledger.name}」`);
+    } else {
+      await unarchiveLedger(ledger.id);
+      ElMessage.success(`已激活「${ledger.name}」`);
+    }
+    // 刷新账户信息（accountInfo 由 ledgers 派生）+ 顶部统计
+    const res = await getLedgers(true);
+    ledgers.value = (res as { data?: LedgerItem[] })?.data ?? [];
+    await loadSummary();
+    await loadHoldings();
+  } catch (e: any) {
+    if (e !== "cancel" && e?.action !== "cancel") {
+      ElMessage.error(e?.message || "操作失败");
+    }
+  }
 }
 
 async function handleUpdate() {

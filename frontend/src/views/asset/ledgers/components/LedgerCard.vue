@@ -17,12 +17,15 @@ const emit = defineEmits<{
   open: [ledger: any];
   /** 删除按钮（已 stopPropagation，不触发卡片点击） */
   delete: [ledger: any];
+  /** 归档 / 激活切换（已 stopPropagation） */
+  toggleArchive: [ledger: any];
 }>();
 </script>
 
 <template>
   <div
     class="ledger-card"
+    :class="{ 'is-archived': ledger.is_active === false }"
     role="button"
     tabindex="0"
     :aria-label="`查看账户 ${ledger.name}`"
@@ -40,19 +43,56 @@ const emit = defineEmits<{
         </span>
         <AssetTypeBadge :type="ledger.ledger_type" />
       </div>
-      <!-- 删除按钮：幽灵态 + hover 浮现（design.md「行内操作交互规范」） -->
-      <el-button
-        v-if="typeof ledger.id === 'number'"
-        type="danger"
-        plain
-        size="small"
-        circle
-        class="ledger-row-action"
-        :aria-label="`删除账户 ${ledger.name}`"
-        @click.stop="emit('delete', ledger)"
-      >
-        <IconifyIconOffline icon="ep:delete" />
-      </el-button>
+      <!-- 行内操作组：归档/激活 + 删除，作为整体靠右且彼此紧挨（text 图标按钮，统一轻盈风格） -->
+      <div class="ledger-row-actions">
+        <!-- 归档 / 激活切换：text 图标按钮，hover 显主题色；tooltip 说明用途 -->
+        <el-tooltip
+          v-if="typeof ledger.id === 'number'"
+          :content="ledger.is_active === false ? '激活' : '归档'"
+          placement="top"
+          effect="light"
+        >
+          <el-button
+            text
+            size="small"
+            circle
+            class="ledger-row-action"
+            :aria-label="(ledger.is_active === false ? '激活账户 ' : '归档账户 ') + ledger.name"
+            @click.stop="emit('toggleArchive', ledger)"
+          >
+            <IconifyIconOffline
+              :icon="ledger.is_active === false ? 'ep:refresh-left' : 'ep:box'"
+            />
+          </el-button>
+        </el-tooltip>
+        <!-- 删除按钮：text 图标按钮，hover 显 danger 红（破坏性操作） -->
+        <el-tooltip
+          v-if="typeof ledger.id === 'number'"
+          :content="'删除'"
+          placement="top"
+          effect="light"
+        >
+          <el-button
+            type="danger"
+            text
+            size="small"
+            circle
+            class="ledger-row-action ledger-row-action--danger"
+            :aria-label="`删除账户 ${ledger.name}`"
+            @click.stop="emit('delete', ledger)"
+          >
+            <IconifyIconOffline icon="ep:delete" />
+          </el-button>
+        </el-tooltip>
+      </div>
+    </div>
+
+    <!-- 已归档徽标：灰化提示，数据仍参与收益计算 -->
+    <div
+      v-if="ledger.is_active === false"
+      class="ledger-card__archived"
+    >
+      <IconifyIconOffline icon="ep:box" class="mr-1" /> 已归档 · 数据仍计入收益
     </div>
 
     <!-- 核心指标：左右两列 flex（总资产为左侧大数字锚点，右侧两指标独立竖排，
@@ -239,14 +279,68 @@ const emit = defineEmits<{
   border-top: 1px solid var(--border-subtle);
 }
 
+.ledger-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px; /* 两个行内按钮固定紧挨，避免散开 */
+}
+
 .ledger-row-action {
   opacity: 0;
-  transition: opacity 0.2s ease;
+  transition:
+    opacity 0.2s ease,
+    color 0.15s ease,
+    background-color 0.15s ease;
+  /* text 图标按钮常显为中性灰图标，视觉权重统一 */
+  color: var(--text-tertiary);
+}
+
+/* 两个行内按钮 hover 效果统一：图标变色 + 浅背景（用父级前缀提权，确保盖过 EP 默认 is-text:hover） */
+.ledger-row-actions .ledger-row-action:not(.ledger-row-action--danger):hover,
+.ledger-row-actions .ledger-row-action:not(.ledger-row-action--danger):focus-visible {
+  color: var(--el-color-warning);
+  background-color: var(--el-color-warning-light-9);
+}
+
+.ledger-row-actions .ledger-row-action--danger:hover,
+.ledger-row-actions .ledger-row-action--danger:focus-visible {
+  color: var(--el-color-danger);
+  background-color: var(--el-color-danger-light-9);
 }
 
 .ledger-card:hover .ledger-row-action,
 .ledger-card:focus-within .ledger-row-action,
 .ledger-row-action:focus-visible {
   opacity: 1;
+}
+
+/* ===== 归档态：灰化但保留完整信息（数据仍参与收益计算） ===== */
+.ledger-card.is-archived {
+  opacity: 0.62;
+  background: var(--bg-soft);
+  border-style: dashed;
+}
+
+.ledger-card.is-archived:hover {
+  opacity: 0.85;
+}
+
+.ledger-card__archived {
+  display: inline-flex;
+  align-items: center;
+  margin-bottom: var(--space-2);
+  padding: 1px 8px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--text-tertiary);
+  background: var(--bg-page);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+}
+
+@media (hover: none) {
+  .ledger-card.is-archived {
+    opacity: 0.7;
+  }
 }
 </style>

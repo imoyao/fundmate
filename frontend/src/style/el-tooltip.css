@@ -1,0 +1,17 @@
+/* tooltip 浮层遵循 design.md 表面层级：用米灰软表面（--bg-soft）+ 描边（--border-default）
+   替代 Element Plus light 主题默认的纯白底，提升与卡片（--bg-card）的对比度。
+   仅覆写 Element Plus 变量，不硬编码 hex。 */
+.el-tooltip__popper.is-light {
+  --el-popper-bg-color: var(--bg-soft);
+  --el-popper-border-color: var(--border-default);
+  --el-popper-text-color: var(--text-primary);
+  background-color: var(--el-popper-bg-color);
+  border: 1px solid var(--el-popper-border-color);
+  color: var(--el-popper-text-color);
+}
+
+/* 箭头同步跟随浮层底色与描边 */
+.el-tooltip__popper.is-light .el-popper__arrow::before {
+  background-color: var(--el-popper-bg-color);
+  border-color: var(--el-popper-border-color);
+}

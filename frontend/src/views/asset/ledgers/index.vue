@@ -32,6 +32,19 @@
         <el-button type="primary" @click="openCreateDialog">
           <IconifyIconOffline icon="ep:plus" class="mr-1" /> 新增账户
         </el-button>
+        <el-button
+          class="btn-ghost-text"
+          :type="showArchived ? 'primary' : 'default'"
+          :plain="!showArchived"
+          @click="showArchived = !showArchived; fetchData()"
+        >
+          <IconifyIconOffline icon="ep:box" class="mr-1" />
+          {{ showArchived ? "隐藏已归档" : "显示已归档" }}
+          <span
+            v-if="archivedCount > 0"
+            class="ml-1 opacity-70"
+          >({{ archivedCount }})</span>
+        </el-button>
       </div>
     </div>
 
@@ -158,6 +171,7 @@
             :ledger="ledger"
             @open="goToDetail"
             @delete="openDeleteDialog"
+            @toggle-archive="onToggleArchive"
           />
         </div>
 
@@ -197,13 +211,15 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import { usePageRefresh } from "@/composables/usePageRefresh";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import {
   getLedgers,
   getLedgersOverview,
   getSalesInstitutions,
+  archiveLedger,
+  unarchiveLedger,
   type SalesInstitution
 } from "@/api/ledger";
 import { getPortfolios } from "@/api/portfolio";
@@ -241,9 +257,17 @@ const salesInstitutions = ref<SalesInstitution[]>([]);
 const cashLedgers = computed(() =>
   allLedgers.value.filter((l: any) => l.ledger_type === "bank")
 );
+/** 已归档账户数量（用于工具栏徽标），数据来自全量列表 */
+const archivedCount = computed(
+  () => allLedgersRaw.value.filter((l: any) => l.is_active === false).length
+);
 const portfolioList = ref<any[]>([]);
 const deleteDialogVisible = ref(false);
 const deletingAccount = ref<any>(null);
+/** 是否在列表显示已归档账户（默认隐藏，归档数据仍计入顶部净资产/配置图） */
+const showArchived = ref(false);
+/** 全量账户（含已归档），用于按开关过滤展示 + 统计归档数 */
+const allLedgersRaw = ref<any[]>([]);
 
 // 总资产（从 overview groups 汇总）
 const totalAssets = computed(
@@ -311,6 +335,32 @@ function openDeleteDialog(account: any) {
   deleteDialogVisible.value = true;
 }
 
+/** 归档/激活切换。归档有数据账户是安全的（保留全部数据、仅隐藏），但给一次确认。 */
+async function onToggleArchive(ledger: any) {
+  const archiving = ledger.is_active !== false;
+  try {
+    if (archiving) {
+      await ElMessageBox.confirm(
+        `归档后「${ledger.name}」将从日常列表隐藏，但全部交易/持仓数据仍保留并计入收益。确定归档？`,
+        "归档账户",
+        { confirmButtonText: "归档", cancelButtonText: "取消", type: "warning" }
+      );
+    }
+    if (archiving) {
+      await archiveLedger(ledger.id);
+      ElMessage.success(`已归档「${ledger.name}」`);
+    } else {
+      await unarchiveLedger(ledger.id);
+      ElMessage.success(`已激活「${ledger.name}」`);
+    }
+    fetchData();
+  } catch (e: any) {
+    if (e !== "cancel" && e?.action !== "cancel") {
+      ElMessage.error(e?.message || "操作失败");
+    }
+  }
+}
+
 function goToDetail(ledger: any) {
   router.push({ name: "LedgerDetail", params: { id: ledger.id } });
 }
@@ -319,12 +369,16 @@ async function fetchData() {
   loading.value = true;
   try {
     const [ledgersRes, overviewRes, portfolioRes, instRes] = await Promise.all([
-      getLedgers(),
+      getLedgers(true),
       getLedgersOverview(),
       getPortfolios(),
       getSalesInstitutions()
     ]);
-    allLedgers.value = (ledgersRes as any)?.data ?? [];
+    allLedgersRaw.value = (ledgersRes as any)?.data ?? [];
+    // 按「显示已归档」开关过滤展示列表（归档数据始终计入顶部净资产/配置图）
+    allLedgers.value = showArchived.value
+      ? allLedgersRaw.value
+      : allLedgersRaw.value.filter((l: any) => l.is_active !== false);
     overviewData.value = (overviewRes as any)?.data ?? {
       net_worth: 0,
       liability_total: 0,
