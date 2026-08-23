@@ -273,6 +273,88 @@ def test_commit_failed_record_does_not_break_batch(db):
     assert db.query(Position).filter_by(symbol='SH600002', family_id=1).first() is not None
 
 
+def test_commit_cash_follows_target_ledger_cross_import(db):
+    """#1067 修复：跨账本重导含现金/货基交割单时，现金行应跟随目标账本，
+    而非被强制塞进全局 bank 账本（否则会在 (bank, import_hash) 上撞车静默失败）。
+    同一份货基行用相同 import_hash 导入两个不同账本，应各自成功、互不冲突。"""
+    ledger_a = Ledger(name='证券账户A', ledger_type='stock', family_id=1)
+    ledger_b = Ledger(name='证券账户B', ledger_type='stock', family_id=1)
+    db.add_all([ledger_a, ledger_b])
+    db.commit()
+
+    orch = ImportOrchestrator(db, family_id=1)
+    # 第一遍导入到 ledger_a（含货基行，import_hash 相同）
+    row_a = {
+        'symbol': '000001',
+        'name': '货币基金',
+        'type': 'money_fund',
+        'op_type': 'deposit',
+        'amount': 100.0,
+        'quantity': None,
+        'price': None,
+        'fee': 0.0,
+        'trade_date': '2026-08-01',
+        'account_name': '',
+        'ledger_id': ledger_a.id,
+        'contract_id': 'TXN-X',
+        'net_amount': 88.5,
+        'source': 'ths_stock',
+        'import_hash': 'same-hash',
+    }
+    res_a = orch.commit_from_preview([row_a])
+    assert res_a['imported'] == 1
+
+    # 第二遍跨账本重导到 ledger_b（相同 import_hash 模拟同一份交割单）
+    row_b = dict(row_a)
+    row_b['ledger_id'] = ledger_b.id
+    res_b = orch.commit_from_preview([row_b])
+    assert res_b['imported'] == 1
+
+    # 两条货基交易分别归属各自账本，不撞
+    txns = db.query(Transaction).filter_by(import_hash='same-hash').all()
+    assert len(txns) == 2
+    ledger_ids = {t.ledger_id for t in txns}
+    assert ledger_ids == {ledger_a.id, ledger_b.id}
+    # 没有现金行落到 bank 账本
+    assert not any(t.ledger_id is None for t in txns)
+
+
+def test_commit_cash_falls_to_bound_bank_when_ledger_linked(db):
+    """B6 整改：目标账本已绑定现金账户（linked_cash_ledger_id 指向 bank）时，
+    现金/货基行应落到绑定的 bank 账本，而非跟随目标证券账本。"""
+    bank = Ledger(name='招行卡', ledger_type='bank', family_id=1)
+    stock = Ledger(name='证券账户', ledger_type='stock', family_id=1)
+    stock.linked_cash_ledger_id = bank.id  # 绑定现金账户
+    db.add_all([bank, stock])
+    db.commit()
+
+    orch = ImportOrchestrator(db, family_id=1)
+    row = {
+        'symbol': '000001',
+        'name': '货币基金',
+        'type': 'money_fund',
+        'op_type': 'deposit',
+        'amount': 100.0,
+        'quantity': None,
+        'price': None,
+        'fee': 0.0,
+        'trade_date': '2026-08-01',
+        'account_name': '',
+        'ledger_id': stock.id,  # 目标账本是证券账户（未直接选 bank）
+        'contract_id': 'TXN-Y',
+        'net_amount': 88.5,
+        'source': 'ths_stock',
+        'import_hash': 'h-bound-bank',
+    }
+    res = orch.commit_from_preview([row])
+    assert res['imported'] == 1
+    txn = db.query(Transaction).filter_by(import_hash='h-bound-bank').first()
+    assert txn is not None
+    # 现金落到绑定的 bank，而非跟随 stock 目标账本
+    assert txn.ledger_id == bank.id
+    assert txn.ledger_id != stock.id
+
+
 def test_fill_missing_nav_and_shares_4_decimal_precision(db, monkeypatch):
     """份额精度修复：预估份额保留 4 位小数（与 min_unit 对齐），不再截断到 2 位。"""
     monkeypatch.setattr(FundService, 'get_fund_nav_map', lambda db, symbols, target_date: {'014330': Decimal('1.2345')})
@@ -291,3 +373,50 @@ def test_fill_missing_nav_and_shares_4_decimal_precision(db, monkeypatch):
     assert rec.nav == Decimal('1.2345')
     # 1000.00 / 1.2345 = 810.044552... → 4 位小数 810.0446（2 位精度会截成 810.04）
     assert rec.shares == Decimal('810.0446')
+
+
+# ── #1020 / #1065 去重作用域降级回归（2026-08-23） ──
+
+
+def test_dedup_scope_downgraded_to_ledger(db):
+    """#1065：去重作用域从 family 级降为 ledger 级。
+    - 同 ledger 重复导入仍幂等防重（skipped）；
+    - 跨 ledger 导入同一 import_hash 不再被误判重复（放行跨账本重导，#1020 修复点）。
+    """
+    ledger_a = Ledger(name='券商A', ledger_type='stock', family_id=1)
+    ledger_b = Ledger(name='券商B', ledger_type='stock', family_id=1)
+    db.add_all([ledger_a, ledger_b])
+    db.commit()
+
+    orch = ImportOrchestrator(db, family_id=1)
+    base_row = {
+        'symbol': '000001',
+        'name': '货币基金',
+        'type': 'money_fund',
+        'op_type': 'deposit',
+        'amount': 100.0,
+        'quantity': None,
+        'price': None,
+        'fee': 0.0,
+        'trade_date': '2026-08-01',
+        'account_name': '',
+        'contract_id': 'TXN-HX',
+        'net_amount': 88.5,
+        'source': 'ths_stock',
+        'import_hash': 'HX-same-hash',
+    }
+
+    # 1) ledger A 首次导入 -> imported
+    r1 = orch.commit_from_preview([{**base_row, 'ledger_id': ledger_a.id}])
+    assert r1['imported'] == 1
+
+    # 2) ledger A 重复导入同 hash -> 幂等防重，skipped
+    r2 = orch.commit_from_preview([{**base_row, 'ledger_id': ledger_a.id}])
+    assert r2['skipped'] == 1
+
+    # 3) ledger B 导入同 hash -> 跨账本放行，imported（#1020 修复点）
+    r3 = orch.commit_from_preview([{**base_row, 'ledger_id': ledger_b.id}])
+    assert r3['imported'] == 1
+
+    # 4) 两条交易分属不同 ledger，均在库
+    assert db.query(Transaction).filter_by(import_hash='HX-same-hash').count() == 2

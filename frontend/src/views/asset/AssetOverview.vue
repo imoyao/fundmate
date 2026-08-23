@@ -1,5 +1,7 @@
 <template>
   <div class="asset-overview p-6">
+    <GhostDuplicateBanner />
+
     <div
       class="mb-8 flex flex-col md:flex-row md:justify-between md:items-center"
     >
@@ -359,6 +361,7 @@
 import { ref, onMounted, nextTick } from "vue";
 import echarts from "@/plugins/echarts";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
+import GhostDuplicateBanner from "@/components/GhostDuplicateBanner/index.vue";
 
 const distributionChartRef = ref<HTMLCanvasElement | null>(null);
 const profitTrendChartRef = ref<HTMLCanvasElement | null>(null);
