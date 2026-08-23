@@ -9,7 +9,11 @@
  *
  * 注意：
  * - 只覆盖 primary 别名，不动 emerald 语义色（success 等仍保留绿色）。
- * - RGB 三元组格式（空格分隔、无逗号、无 #），因为 Tailwind 以 rgb(var(--x) / <alpha>) 消费。
+ * - 必须用「完整颜色值」（hex/oklch/rgb()），不能用「空格分隔的 RGB 三元组」。
+ *   原因：主题里的 .text-primary-gradient（首页标题所在类）把 --color-primary-*
+ *   直接当作 linear-gradient 的颜色停靠点，配合 color:#0000 + background-clip:text；
+ *   三元组不是合法 CSS 颜色，会让渐变失效、文字透明看不见。本主题对透明度走
+ *   color-mix()，所以完整颜色对 bg-primary-500/30 等工具类同样有效。
  * - 本文件必须在 dux 主题 CSS 之后加载（theme/index.ts import 顺序保证）。
  */
 
@@ -19,17 +23,17 @@
 
 :root {
   /* 品牌珊瑚红主色阶（50–950，500 = 品牌主色 #E34F38） */
-  --color-primary-50:  254 241 238  !important; /* #FEF1EE */
-  --color-primary-100: 253 224 219  !important; /* #FDE0DB */
-  --color-primary-200: 251 196 186  !important; /* #FBC4BA */
-  --color-primary-300: 247 158 143  !important; /* #F79E8F */
-  --color-primary-400: 242 119 95   !important; /* #F2775F */
-  --color-primary-500: 227 79 56    !important; /* #E34F38 品牌主色 */
-  --color-primary-600: 216 69 47    !important; /* #D8452F */
-  --color-primary-700: 204 61 39    !important; /* #CC3D27 */
-  --color-primary-800: 168 47 31    !important; /* #A82F1F */
-  --color-primary-900: 139 42 28    !important; /* #8B2A1C */
-  --color-primary-950: 74 20 14     !important; /* #4A140E */
+  --color-primary-50: #FEF1EE !important; /* #FEF1EE */
+  --color-primary-100: #FDE0DB !important; /* #FDE0DB */
+  --color-primary-200: #FBC4BA !important; /* #FBC4BA */
+  --color-primary-300: #F79E8F !important; /* #F79E8F */
+  --color-primary-400: #F2775F !important; /* #F2775F */
+  --color-primary-500: #E34F38 !important; /* #E34F38 品牌主色 */
+  --color-primary-600: #D8452F !important; /* #D8452F */
+  --color-primary-700: #CC3D27 !important; /* #CC3D27 */
+  --color-primary-800: #A82F1F !important; /* #A82F1F */
+  --color-primary-900: #8B2A1C !important; /* #8B2A1C */
+  --color-primary-950: #4A140E !important; /* #4A140E */
 
   /* VitePress 标准品牌色梯度 */
   --vp-c-brand-1: #E34F38;
@@ -52,17 +56,17 @@
 
 .dark,
 [data-theme="dark"] {
-  --color-primary-50:  254 241 238  !important;
-  --color-primary-100: 253 224 219  !important;
-  --color-primary-200: 251 196 186  !important;
-  --color-primary-300: 247 158 143  !important;
-  --color-primary-400: 242 119 95   !important;
-  --color-primary-500: 227 79 56    !important;
-  --color-primary-600: 216 69 47    !important;
-  --color-primary-700: 204 61 39    !important;
-  --color-primary-800: 168 47 31    !important;
-  --color-primary-900: 139 42 28    !important;
-  --color-primary-950: 74 20 14     !important;
+  --color-primary-50: #FEF1EE !important;
+  --color-primary-100: #FDE0DB !important;
+  --color-primary-200: #FBC4BA !important;
+  --color-primary-300: #F79E8F !important;
+  --color-primary-400: #F2775F !important;
+  --color-primary-500: #E34F38 !important;
+  --color-primary-600: #D8452F !important;
+  --color-primary-700: #CC3D27 !important;
+  --color-primary-800: #A82F1F !important;
+  --color-primary-900: #8B2A1C !important;
+  --color-primary-950: #4A140E !important;
 
   --vp-c-brand-1: #E34F38;
   --vp-c-brand-2: #D8452F;
@@ -73,17 +77,17 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --color-primary-50:  254 241 238  !important;
-    --color-primary-100: 253 224 219  !important;
-    --color-primary-200: 251 196 186  !important;
-    --color-primary-300: 247 158 143  !important;
-    --color-primary-400: 242 119 95   !important;
-    --color-primary-500: 227 79 56    !important;
-    --color-primary-600: 216 69 47    !important;
-    --color-primary-700: 204 61 39    !important;
-    --color-primary-800: 168 47 31    !important;
-    --color-primary-900: 139 42 28    !important;
-    --color-primary-950: 74 20 14     !important;
+    --color-primary-50: #FEF1EE !important;
+    --color-primary-100: #FDE0DB !important;
+    --color-primary-200: #FBC4BA !important;
+    --color-primary-300: #F79E8F !important;
+    --color-primary-400: #F2775F !important;
+    --color-primary-500: #E34F38 !important;
+    --color-primary-600: #D8452F !important;
+    --color-primary-700: #CC3D27 !important;
+    --color-primary-800: #A82F1F !important;
+    --color-primary-900: #8B2A1C !important;
+    --color-primary-950: #4A140E !important;
 
     --vp-c-brand-1: #E34F38;
     --vp-c-brand-2: #D8452F;
