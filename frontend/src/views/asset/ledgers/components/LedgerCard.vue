@@ -48,7 +48,7 @@ const emit = defineEmits<{
         <!-- 归档 / 激活切换：text 图标按钮，hover 显主题色；tooltip 说明用途 -->
         <el-tooltip
           v-if="typeof ledger.id === 'number'"
-          :content="ledger.is_active === false ? `激活账户 ${ledger.name}` : `归档账户 ${ledger.name}`"
+          :content="ledger.is_active === false ? '激活' : '归档'"
           placement="top"
         >
           <el-button
@@ -67,7 +67,7 @@ const emit = defineEmits<{
         <!-- 删除按钮：text 图标按钮，hover 显 danger 红（破坏性操作） -->
         <el-tooltip
           v-if="typeof ledger.id === 'number'"
-          :content="`删除账户 ${ledger.name}`"
+          :content="'删除'"
           placement="top"
         >
           <el-button
