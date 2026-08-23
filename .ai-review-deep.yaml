@@ -1,0 +1,15 @@
+# AI 深度审查自定义配置（DeepSeek V4 Pro 通道）
+#
+# 与 .ai-review.yaml 的区别：本配置供「深度审查」job 使用，对应
+# docs/configs/ai-review-deep-prompt.md——审查强度更高（逐行 + 跨文件 + 严重度分级），
+# 并按 severity/位置给出完整问题清单（run 模式 = summary + context + inline 全量）。
+#
+# 路径相对仓库根目录（Action 在 checkout 后运行，根目录文件可访问）。
+
+prompt:
+  summary_prompt_files:
+    - docs/configs/ai-review-deep-prompt.md
+  context_prompt_files:
+    - docs/configs/ai-review-deep-prompt.md
+  inline_prompt_files:
+    - docs/configs/ai-review-deep-prompt.md
