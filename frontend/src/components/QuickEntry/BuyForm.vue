@@ -341,7 +341,7 @@ import { ref, reactive, computed, watch, nextTick } from "vue";
 import { ElMessage } from "element-plus";
 import type { FormInstance, FormRules } from "element-plus";
 import { usePositionSubmit } from "@/composables/usePositionSubmit";
-import { createLedger as createLedgerApi } from "@/api/ledger";
+import { createLedger as createLedgerApi, type LedgerItem } from "@/api/ledger";
 import { searchSecurities } from "@/api/securities";
 import {
   getSecurityPriceRange,
@@ -359,9 +359,31 @@ import {
 import { getLedgerColor, bgFromColor } from "@/utils/ledger";
 import { DEFAULT_SUB_RATE } from "@/utils/trading";
 
+interface SecurityOption {
+  symbol: string;
+  name: string;
+  market: string;
+  type: string;
+  type_label?: string;
+  subscription_rate?: number;
+  is_money_fund?: boolean;
+  code?: string;
+  is_manual?: boolean;
+}
+
+interface FeeConfig {
+  subscription_discount?: number;
+  commission?: { rate: number; min: number | null };
+}
+
+interface NavResponseItem {
+  fund_code: string;
+  unit_nav?: number;
+}
+
 // ── Props & Emits ──
 const props = defineProps<{
-  ledgers: any[];
+  ledgers: LedgerItem[];
   hideAccountSelect?: boolean;
   defaultLedgerId?: number | null;
 }>();
@@ -402,10 +424,10 @@ const quickAddTypeOptions = LEDGER_TYPE_OPTIONS.filter(
 
 // 搜索状态
 const searchLoading = ref(false);
-const securityOptions = ref<any[]>([]);
+const securityOptions = ref<SecurityOption[]>([]);
 // 股票价格区间（#948）：选中股票后按交易日拉取，用于回填默认价与提交校验
 const stockPriceRange = ref<SecurityPriceRange | null>(null);
-const selectedSecurityOption = ref<any>(null);
+const selectedSecurityOption = ref<SecurityOption | null>(null);
 
 // 🔥 修复2：移除 feeRateValue，直接用 form.fee 管理所有模式下的输入
 const feeMode = ref<"amount" | "rate">("amount");
@@ -544,10 +566,12 @@ function applyFeePreset() {
   }
 }
 
-function parseFeeConfig(raw: any): any {
+function parseFeeConfig(raw: unknown): FeeConfig | null {
   if (!raw) return null;
   try {
-    return typeof raw === "string" ? JSON.parse(raw) : raw;
+    return typeof raw === "string"
+      ? (JSON.parse(raw) as FeeConfig)
+      : (raw as FeeConfig);
   } catch {
     return null;
   }
@@ -617,7 +641,7 @@ async function remoteSearch(query: string) {
   searchLoading.value = true;
   try {
     const type = currentLedger.value?.ledger_type ?? "";
-    let opts: any[] = [];
+    let opts: SecurityOption[] = [];
     if (type === "fund" || type === "bank") {
       const res = await searchFunds(query);
       const arr = Array.isArray(res) ? res : (res.data ?? []);
@@ -634,13 +658,13 @@ async function remoteSearch(query: string) {
       });
     } else {
       const res = await searchSecurities(query);
-      const arr = Array.isArray(res) ? res : ((res as any)?.data ?? []);
+      const arr = Array.isArray(res) ? res : (res?.data ?? []);
       const typeLabels: Record<string, string> = {
         stock: "股票",
         bond: "可转债",
         etf: "ETF"
       };
-      opts = arr.map((s: any) => ({
+      opts = arr.map((s: SecurityOption) => ({
         symbol: s.symbol,
         name: s.name,
         market: s.market,
@@ -690,7 +714,7 @@ async function remoteSearch(query: string) {
 }
 
 // 替换 onSecuritySelected 为如下代码
-async function onSecuritySelected(option: any) {
+async function onSecuritySelected(option: SecurityOption | null) {
   if (!option) {
     form.symbol = "";
     form.name = "";
@@ -735,7 +759,7 @@ async function onSecuritySelected(option: any) {
         // 取第一条费率作为默认预设（通常是无门槛或最低门槛的费率）
         const defaultRate = data.purchase[0].rate;
         // 回填到 option 上，这样 applyFeePreset 在之后触发时能拿到正确的 0.0 或 0.15%
-        selectedSecurityOption.value.subscription_rate = defaultRate;
+        option.subscription_rate = defaultRate;
       }
     } catch (e) {
       console.warn("拉取详细费率失败", e);
@@ -753,18 +777,26 @@ async function quickCreateAccount() {
   if (!name || !type) return;
   creatingAccount.value = true;
   try {
-    let feeConfig: any = undefined;
+    let feeConfig: FeeConfig | undefined = undefined;
     if (type === "fund") feeConfig = { subscription_discount: 0.1 };
     else if (type === "stock")
       feeConfig = { commission: { rate: 0.00025, min: null } };
-    const payload: any = { name, ledger_type: type };
-    if (feeConfig) payload.fee_config = feeConfig;
+    const payload: {
+      name: string;
+      ledger_type: string;
+      fee_config?: Record<string, unknown> | null;
+    } = { name, ledger_type: type };
+    if (feeConfig) payload.fee_config = feeConfig as Record<string, unknown>;
     await createLedgerApi(payload);
     emit("accounts-changed");
     ElMessage.success(`已创建账户「${name}」`);
     resetQuickAdd();
-  } catch (e: any) {
-    ElMessage.error(e?.message || "创建账户失败");
+  } catch (e) {
+    const err = e as {
+      response?: { data?: { message?: string } };
+      message?: string;
+    };
+    ElMessage.error(err.message || "创建账户失败");
   } finally {
     creatingAccount.value = false;
   }
@@ -784,7 +816,7 @@ async function fetchTradingDay() {
   }
   try {
     const res = await checkTradingDay(form.trade_date);
-    isTradingDay.value = (res as any)?.data?.is_trading_day ?? false;
+    isTradingDay.value = res?.data?.is_trading_day ?? false;
   } catch {
     isTradingDay.value = null;
   }
@@ -803,10 +835,14 @@ async function fetchConfirmDate() {
       fund_type: "domestic",
       is_after_15: form.isAfter15
     });
-    const data = (res as any)?.data;
+    const data = (
+      res as unknown as {
+        data?: { actual_trade_date?: string; confirm_date?: string };
+      }
+    )?.data;
     if (data) {
-      actualNavDate.value = data.actual_trade_date; // 真实净值日
-      confirmDate.value = data.confirm_date; // 确认日
+      actualNavDate.value = data.actual_trade_date ?? ""; // 真实净值日
+      confirmDate.value = data.confirm_date ?? ""; // 确认日
     }
   } catch {
     actualNavDate.value = "";
@@ -930,15 +966,15 @@ watch(
     }
 
     if (selectedSecurityOption.value?.type === "fund" && form.trade_date) {
+      const opt = selectedSecurityOption.value;
+      if (!opt) return;
       await fetchConfirmDate();
 
       if (actualNavDate.value) {
         try {
-          const res = await calcFundNav(
-            [selectedSecurityOption.value.symbol],
-            actualNavDate.value
-          );
-          const navData = (res as any)?.data || [];
+          const res = await calcFundNav([opt.symbol], actualNavDate.value);
+          const navData =
+            (res as unknown as { data?: NavResponseItem[] }).data || [];
           if (navData.length > 0 && navData[0].unit_nav) {
             form.price = navData[0].unit_nav;
           }
