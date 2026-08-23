@@ -85,11 +85,6 @@ function selectView(value: (typeof viewOptions)[number]["value"]) {
 
 const addDialogVisible = ref(false);
 
-// 已有自定义分组名称（用于新建分组时前端拦截重名）
-const existingGroupNames = computed(() =>
-  props.groups.customGroups.value.map(g => g.name)
-);
-
 // 标签筛选胶囊：点击切换草稿选中态（与「管理标签」的颜色胶囊同语言）
 function toggleDraftTag(id: number) {
   const idx = draftFilterTagIdsModel.value.indexOf(id);
@@ -262,11 +257,7 @@ function chipStyle(tag: WatchlistTag) {
     </div>
 
     <!-- 新建分组弹窗 -->
-    <GroupFormDialog
-      v-model="addDialogVisible"
-      :existing-names="existingGroupNames"
-      @saved="onRefresh"
-    />
+    <GroupFormDialog v-model="addDialogVisible" @saved="onRefresh" />
   </div>
 </template>
 

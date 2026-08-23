@@ -89,10 +89,8 @@ const props = withDefaults(
     group?: WatchlistGroup | null;
     /** 已占用颜色（用于随机取色时尽量避开） */
     usedColors?: string[];
-    /** 已有分组名称列表，用于前端拦截重名（编辑时自动排除自身） */
-    existingNames?: string[];
   }>(),
-  { group: null, usedColors: () => [], existingNames: () => [] }
+  { group: null, usedColors: () => [] }
 );
 
 const emit = defineEmits<{
@@ -138,16 +136,6 @@ const save = async () => {
   const name = form.name.trim();
   if (!name) {
     ElMessage.warning("请输入分组名称");
-    return;
-  }
-  const originalName = props.group?.name?.trim().toLowerCase() ?? "";
-  const duplicate = props.existingNames.find(
-    n =>
-      n.trim().toLowerCase() === name.toLowerCase() &&
-      n.trim().toLowerCase() !== originalName
-  );
-  if (duplicate) {
-    ElMessage.warning("分组名称已存在，请换一个");
     return;
   }
   loading.value = true;

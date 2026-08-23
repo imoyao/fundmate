@@ -217,7 +217,6 @@
     <GroupFormDialog
       v-model="groupFormVisible"
       :used-colors="groupFormUsedColors"
-      :existing-names="existingGroupNames"
       @created="onGroupFormCreated"
       @saved="onGroupFormSaved"
     />
@@ -284,9 +283,6 @@ const tagFormUsedColors = computed(() =>
 );
 const groupFormUsedColors = computed(() =>
   availableGroups.value.map(g => g.color).filter((c): c is string => !!c)
-);
-const existingGroupNames = computed(() =>
-  availableGroups.value.map(g => g.name)
 );
 
 // 新建标签成功：直接并入可选项并自动选中，免去内联表单

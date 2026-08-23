@@ -44,7 +44,7 @@
         :groups="groups"
         :tags="tags"
         :toolbar="toolbar"
-        :on-refresh="fetchData"
+        :on-refresh="onCatalogChanged"
         @view-change="handleViewChange()"
         @tag-apply="tags.applyTagFilter()"
         @tag-clear="tags.clearTagFilter()"
