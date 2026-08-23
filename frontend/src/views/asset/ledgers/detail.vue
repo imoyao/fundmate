@@ -20,7 +20,7 @@
           @click="toggleArchiveDetail(accountInfo)"
         >
           <IconifyIconOffline
-            :icon="accountInfo.is_active === false ? 'ep:refresh-left' : 'ep:folder'"
+            :icon="accountInfo.is_active === false ? 'ep:refresh-left' : 'ep:box'"
             class="mr-1"
           />
           {{ accountInfo.is_active === false ? "激活" : "归档" }}

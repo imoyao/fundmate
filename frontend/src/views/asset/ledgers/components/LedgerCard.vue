@@ -43,12 +43,12 @@ const emit = defineEmits<{
         </span>
         <AssetTypeBadge :type="ledger.ledger_type" />
       </div>
-      <!-- 行内操作组：归档/激活 + 删除，作为整体靠右且彼此紧挨（统一间距与样式） -->
+      <!-- 行内操作组：归档/激活 + 删除，作为整体靠右且彼此紧挨（text 图标按钮，统一轻盈风格） -->
       <div class="ledger-row-actions">
-        <!-- 归档 / 激活切换：与删除并列，常驻（design.md「行内操作交互规范」） -->
+        <!-- 归档 / 激活切换：text 图标按钮，hover 显主题色 -->
         <el-button
           v-if="typeof ledger.id === 'number'"
-          plain
+          text
           size="small"
           circle
           class="ledger-row-action"
@@ -56,14 +56,14 @@ const emit = defineEmits<{
           @click.stop="emit('toggleArchive', ledger)"
         >
           <IconifyIconOffline
-            :icon="ledger.is_active === false ? 'ep:refresh-left' : 'ep:folder'"
+            :icon="ledger.is_active === false ? 'ep:refresh-left' : 'ep:box'"
           />
         </el-button>
-        <!-- 删除按钮：幽灵态 + hover 浮现（design.md「行内操作交互规范」） -->
+        <!-- 删除按钮：text 图标按钮，hover 显 danger 红 -->
         <el-button
           v-if="typeof ledger.id === 'number'"
           type="danger"
-          plain
+          text
           size="small"
           circle
           class="ledger-row-action"
@@ -80,7 +80,7 @@ const emit = defineEmits<{
       v-if="ledger.is_active === false"
       class="ledger-card__archived"
     >
-      <IconifyIconOffline icon="ep:folder" class="mr-1" /> 已归档 · 数据仍计入收益
+      <IconifyIconOffline icon="ep:box" class="mr-1" /> 已归档 · 数据仍计入收益
     </div>
 
     <!-- 核心指标：左右两列 flex（总资产为左侧大数字锚点，右侧两指标独立竖排，
@@ -275,25 +275,10 @@ const emit = defineEmits<{
 
 .ledger-row-action {
   opacity: 0;
-  transition:
-    opacity 0.2s ease,
-    color 0.15s ease,
-    border-color 0.15s ease,
-    background-color 0.15s ease;
-  /* 两个行内按钮（归档/删除）常显时统一为中性灰描边，视觉权重一致；
-     仅 hover 时才按意图分别显色（归档→主题色，删除→danger 红） */
-  --el-button-text-color: var(--text-tertiary);
-  --el-button-border-color: var(--border-light);
-  --el-button-hover-text-color: var(--el-color-primary);
-  --el-button-hover-border-color: var(--el-color-primary);
-  --el-button-hover-bg-color: var(--el-color-primary-light-9);
-}
-
-/* 删除按钮 hover 保持 danger 红（破坏性操作语义），与归档的蓝对称 */
-.ledger-row-action.el-button--danger {
-  --el-button-hover-text-color: var(--el-color-danger);
-  --el-button-hover-border-color: var(--el-color-danger);
-  --el-button-hover-bg-color: var(--el-color-danger-light-9);
+  transition: opacity 0.2s ease;
+  /* text 图标按钮常显为中性灰图标，hover 时由 Element Plus 自动显色；
+     两个按钮（归档/删除）视觉权重天然统一 */
+  color: var(--text-tertiary);
 }
 
 .ledger-card:hover .ledger-row-action,
