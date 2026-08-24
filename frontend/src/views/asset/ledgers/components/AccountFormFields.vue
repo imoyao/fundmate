@@ -35,23 +35,6 @@
       </el-select>
     </el-form-item>
 
-    <el-form-item label="投资组合">
-      <el-select
-        :model-value="portfolioId"
-        class="w-full"
-        clearable
-        placeholder="不选择组合"
-        @update:model-value="onPortfolioChange"
-      >
-        <el-option
-          v-for="p in portfolioList"
-          :key="p.id"
-          :label="p.name"
-          :value="p.id"
-        />
-      </el-select>
-    </el-form-item>
-
     <el-form-item label="销售机构">
       <el-select
         :model-value="salesInstitutionId"
