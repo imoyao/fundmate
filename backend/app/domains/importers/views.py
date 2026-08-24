@@ -32,6 +32,7 @@ class ConfirmImportRowSchema(Schema):
     amount = fields.Float()
     fee = fields.Float()
     notes = fields.String()
+    ledger_id = fields.Integer()
     import_hash = fields.String()
     allocation = fields.String()
     link_group_id = fields.String()
@@ -99,7 +100,9 @@ def parse_file():
     try:
         with get_db() as db:
             orch = ImportOrchestrator(db, get_family_id())
-            result = orch.parse_and_preview(raw_bytes, template_key, frontend_account)
+            # ledger_id 必须透传：预览行携带 ledger_id 回传后，confirm 才能定位账户
+            # （否则落库 ledger_id=None，且 (ledger_id, import_hash) 去重永久失效，见 #1010 排查）
+            result = orch.parse_and_preview(raw_bytes, template_key, frontend_account, ledger_id)
             # 记录日志
             logger.info(
                 f'文件解析完成: 文件={file.filename}, 模板={template_key}, '
