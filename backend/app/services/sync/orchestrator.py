@@ -117,7 +117,7 @@ class DataSyncOrchestrator:
         self.jobs['temperature'] = TemperatureJob(NullAdapter(), self.db)
         # AMAC 名录为 HTTP JSON 直抓（非 akshare/xalpha 数据源），NullAdapter 占位；
         # 此前仅 invoke grab.* 通道可达，注册后 pdm run sync --job 亦可直达（#1081 策展应用入口）
-        self.jobs['amac_institution'] = AmacInstitutionJob(NullAdapter(), self.db)
+self.jobs['amac_institution'] = AmacInstitutionJob(NullAdapter(), market_session())
 
     # ── 目标代码解析 ──
 
