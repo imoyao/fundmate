@@ -44,7 +44,7 @@ const {
       <span class="banner-text">
         检测到转账交易（银证转账）。当前账户「{{
           selectedLedgerName
-        }}」未关联现金账户，建议关联以便记录资金流向：
+        }}」未选择现金账户，建议选择以便记录资金流向：
       </span>
       <el-select
         v-model="bannerCashLedgerId"

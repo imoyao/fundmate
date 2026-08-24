@@ -257,7 +257,7 @@
           linkedCashAccountName
         }}</span></span
       >
-      <span v-else>未关联现金账户，资金将计入当前账户余额</span>
+      <span v-else>未选择现金账户，资金将计入当前账户余额</span>
     </div>
 
     <!-- 费率查询弹窗（根据是否有输入份额动态显示列） -->

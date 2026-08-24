@@ -1,0 +1,102 @@
+# -*- coding: utf-8 -*-
+"""AMAC 销售机构同步 job 的常用机构策展逻辑测试（#1081）。
+
+策展语义（设计文档 sales-institution-common-group-2026-08-24.md §4）：
+- 命中 CURATED_INSTITUTIONS 的行覆写 is_common/common_sort/display_name
+  （代码即 source of truth，保证本地/生产/灾备重建各环境收敛）；
+- 未命中行不触碰这三个字段（display_name 维持「仅首次写入」既有语义）。
+"""
+
+from loguru import logger
+
+from app.domains.positions.models import SalesInstitution
+from app.services.sync.jobs.amac_institution_job import CURATED_INSTITUTIONS, AmacInstitutionJob
+
+
+def _make_job(db):
+    """绕过 __init__（免 adapter/抓取依赖），仅注入 _upsert_sales 所需状态。"""
+    job = AmacInstitutionJob.__new__(AmacInstitutionJob)
+    job.db = db
+    job.logger = logger
+    job.stats = {'success': 0}
+    return job
+
+
+def _sales_item(org_name: str, org_type: str = '独立基金销售机构') -> dict:
+    return {'kind': 'sales', 'orgName': org_name, 'orgType': org_type}
+
+
+def test_upsert_new_curated_row(db):
+    """新机构命中策展表：is_common/common_sort/display_name 三件套落库。"""
+    job = _make_job(db)
+    job._save_data([_sales_item('蚂蚁（杭州）基金销售有限公司')])
+    row = db.query(SalesInstitution).filter_by(org_name='蚂蚁（杭州）基金销售有限公司').one()
+    assert row.is_common is True
+    assert row.common_sort == 1
+    assert row.display_name == '支付宝'
+
+
+def test_upsert_new_non_curated_row_defaults(db):
+    """未命中策展表的新机构：默认值，不误标常用。"""
+    job = _make_job(db)
+    job._save_data([_sales_item('某无名机构')])
+    row = db.query(SalesInstitution).filter_by(org_name='某无名机构').one()
+    assert row.is_common is False
+    assert row.common_sort is None
+    assert row.display_name is None
+
+
+def test_curated_overwrites_existing_row(db):
+    """已存在行命中策展表：覆写三件套（代码即 source of truth，保证多环境收敛）。"""
+    job = _make_job(db)
+    db.add(SalesInstitution(org_name='蚂蚁（杭州）基金销售有限公司', display_name='旧别名', is_common=False))
+    db.commit()
+    job._save_data([_sales_item('蚂蚁（杭州）基金销售有限公司')])
+    row = db.query(SalesInstitution).filter_by(org_name='蚂蚁（杭州）基金销售有限公司').one()
+    assert row.is_common is True
+    assert row.common_sort == 1
+    assert row.display_name == '支付宝'
+
+
+def test_non_curated_existing_row_display_name_preserved(db):
+    """未命中策展表的已存在行：display_name 维持「仅首次写入」语义不被清掉。"""
+    job = _make_job(db)
+    db.add(SalesInstitution(org_name='某无名机构', display_name='用户别名'))
+    db.commit()
+    job._save_data([_sales_item('某无名机构')])
+    row = db.query(SalesInstitution).filter_by(org_name='某无名机构').one()
+    assert row.display_name == '用户别名'
+    assert row.is_common is False
+
+
+def test_curation_idempotent(db):
+    """重复同步结果一致（幂等），不产生重复行。"""
+    job = _make_job(db)
+    item = _sales_item('北京雪球基金销售有限公司')
+    job._save_data([item])
+    job._save_data([item])
+    rows = db.query(SalesInstitution).filter_by(org_name='北京雪球基金销售有限公司').all()
+    assert len(rows) == 1
+    assert rows[0].is_common is True
+    assert rows[0].common_sort == 36
+    assert rows[0].display_name == '雪球基金'
+
+
+def test_curated_registry_has_15_entries():
+    """策展名单 15 家（中基协 Top10 + 5 互联网平台），防误删/误增。"""
+    assert len(CURATED_INSTITUTIONS) == 15
+
+
+def test_pinyin_short_computed(db):
+    """拼音简拼派生列：汉字取首字母大写、英文数字保留（供前端检索过滤，#1081）。"""
+    job = _make_job(db)
+    job._save_data(
+        [
+            _sales_item('华泰证券', org_type='证券公司'),
+            _sales_item('北京雪球基金销售有限公司'),
+        ]
+    )
+    ht = db.query(SalesInstitution).filter_by(org_name='华泰证券').one()
+    assert ht.pinyin_short == 'HTZQ'
+    xq = db.query(SalesInstitution).filter_by(org_name='北京雪球基金销售有限公司').one()
+    assert xq.pinyin_short == 'BJXQJJXSYXGS'

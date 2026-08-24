@@ -8,7 +8,7 @@ from datetime import date
 
 from app.domains.assets.models import Asset
 from app.domains.ledgers.models import Ledger
-from app.domains.positions.models import Position
+from app.domains.positions.models import Position, SalesInstitution
 
 
 class TestLedgerCRUD:
@@ -1384,3 +1384,91 @@ class TestLedgerDetailSearch:
         qty_map = {i['symbol']: i['quantity'] for i in items}
         assert qty_map['600519'] == 100
         assert qty_map['000001'] == 200
+
+
+class TestSalesInstitutionsAPI:
+    """销售机构名录 API：#1081 常用分组字段与置顶排序、#1082 类型过滤。"""
+
+    def _seed(self, db):
+        db.add_all(
+            [
+                SalesInstitution(
+                    org_name='浙江同花顺基金销售有限公司',
+                    org_type='独立基金销售机构',
+                    is_common=True,
+                    common_sort=33,
+                    display_name='同花顺',
+                ),
+                SalesInstitution(
+                    org_name='蚂蚁（杭州）基金销售有限公司',
+                    org_type='独立基金销售机构',
+                    is_common=True,
+                    common_sort=1,
+                    display_name='支付宝',
+                    pinyin_short='MYHZZJJJXSYXGS',
+                ),
+                SalesInstitution(org_name='中信证券', org_type='证券公司'),
+                SalesInstitution(org_name='招商银行', org_type='全国性商业银行', is_common=True, common_sort=2),
+                SalesInstitution(org_name='某期货公司', org_type='期货公司'),
+            ]
+        )
+        db.commit()
+
+    def test_new_fields_and_common_first_ordering(self, client, db):
+        """响应携带新字段；常用机构按 common_sort 升序置顶，其余字典序殿后。"""
+        self._seed(db)
+        resp = client.get('/api/ledgers/sales-institutions/')
+        assert resp.status_code == 200
+        assert resp.get_json()['message'] == 'ok'
+        data = resp.get_json()['data']
+        assert set(data[0].keys()) >= {
+            'id',
+            'org_name',
+            'display_name',
+            'org_type',
+            'is_common',
+            'common_sort',
+            'pinyin_short',
+        }
+        commons = [r for r in data if r['is_common']]
+        assert [r['common_sort'] for r in commons] == [1, 2, 33]
+        assert commons[0]['display_name'] == '支付宝'
+        assert commons[0]['pinyin_short'] == 'MYHZZJJJXSYXGS'
+        first_non_common = next(i for i, r in enumerate(data) if not r['is_common'])
+        assert all(r['is_common'] for r in data[:first_non_common])
+        # 非常用段字典序：中信证券 < 某期货公司
+        assert [r['org_name'] for r in data[first_non_common:]] == ['中信证券', '某期货公司']
+
+    def test_org_types_filter_single(self, client, db):
+        """org_types 过滤：证券账户场景只看券商（#1082）。"""
+        self._seed(db)
+        resp = client.get('/api/ledgers/sales-institutions/?org_types=证券公司')
+        assert resp.status_code == 200
+        assert resp.get_json()['message'] == 'ok'
+        data = resp.get_json()['data']
+        assert [r['org_name'] for r in data] == ['中信证券']
+
+    def test_org_types_filter_multi(self, client, db):
+        """org_types 多值逗号分隔。"""
+        self._seed(db)
+        resp = client.get('/api/ledgers/sales-institutions/?org_types=证券公司,期货公司')
+        assert resp.status_code == 200
+        assert resp.get_json()['message'] == 'ok'
+        data = resp.get_json()['data']
+        assert {r['org_name'] for r in data} == {'中信证券', '某期货公司'}
+
+    def test_org_types_filter_keeps_common_flag(self, client, db):
+        """过滤后常用标志与排序语义保持（fund 场景常用置顶不被类型过滤破坏）。"""
+        self._seed(db)
+        resp = client.get(
+            '/api/ledgers/sales-institutions/',
+            query_string={'org_types': '独立基金销售机构,全国性商业银行'},
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()['message'] == 'ok'
+        data = resp.get_json()['data']
+        assert [r['org_name'] for r in data] == [
+            '蚂蚁（杭州）基金销售有限公司',
+            '招商银行',
+            '浙江同花顺基金销售有限公司',
+        ]

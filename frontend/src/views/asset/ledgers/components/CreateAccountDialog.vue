@@ -2,7 +2,8 @@
 import { ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import AccountFormFields from "./AccountFormFields.vue";
-import { createLedger, type SalesInstitution } from "@/api/ledger";
+import { createLedger, type SalesInstitution, type LedgerItem } from "@/api/ledger";
+import type { PortfolioItem } from "@/api/portfolio";
 
 /**
  * 新建账户对话框（#984 ledgers/index.vue 拆分）。
@@ -11,9 +12,11 @@ import { createLedger, type SalesInstitution } from "@/api/ledger";
  */
 const props = defineProps<{
   visible: boolean;
-  cashLedgers: any[];
-  portfolioList: any[];
+  cashLedgers: LedgerItem[];
+  portfolioList: PortfolioItem[];
   salesInstitutions: SalesInstitution[];
+  /** 打开时预置的账户类型（#1082 入口预填）；缺省 stock，默认行为不回归 */
+  initialLedgerType?: string;
 }>();
 
 const emit = defineEmits<{
@@ -33,14 +36,15 @@ const createForm = ref({
   sales_institution_id: null as number | null
 });
 
-// 每次打开重置表单（原 openCreateDialog 的重置语义迁移至此）
+// 每次打开重置表单（原 openCreateDialog 的重置语义迁移至此）；
+// ledger_type 取外部预置类型（分组入口预填），未指定时维持默认 stock
 watch(
   () => props.visible,
   val => {
     if (val) {
       createForm.value = {
         name: "",
-        ledger_type: "stock",
+        ledger_type: props.initialLedgerType || "stock",
         notes: "",
         linked_cash_ledger_id: null,
         portfolio_id: null,
