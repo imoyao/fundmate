@@ -180,6 +180,8 @@ export function useImportWizard() {
   const errorCount = ref(0);
   const importedCount = ref(0);
   const skippedCount = ref(0);
+  // #1010：银证转账在关联现金账户侧生成的反向记录数（后端独立计数，不混入 imported/skipped）
+  const cashTransfersCreated = ref(0);
   const orphanCount = ref(0);
   const importing = ref(false);
   const parsing = ref(false);
@@ -1089,12 +1091,12 @@ export function useImportWizard() {
       row.account_name = ledger.name;
     });
 
+    // #1010：转账行不再前端剔除，交由后端统一裁决（已关联现金账户时生成现金侧记录）
     const rowsToImport = previewData.value.filter(
       row =>
         selectedKeys.value.has(row._rowKey) &&
         !row.is_duplicate &&
         !row.error &&
-        !row.is_cash_transfer &&
         !row._ignored &&
         !isRowBlocked(row)
     );
@@ -1107,6 +1109,7 @@ export function useImportWizard() {
       const result = (res as any).data ?? {};
       importedCount.value = result.imported ?? 0;
       skippedCount.value = result.skipped ?? 0;
+      cashTransfersCreated.value = result.cash_transfers_created ?? 0;
       orphanCount.value = result.orphan_count ?? 0;
       importErrors.value = result.errors ?? [];
       currentStep.value = 3;
@@ -1833,6 +1836,7 @@ export function useImportWizard() {
     errorCount,
     importedCount,
     skippedCount,
+    cashTransfersCreated,
     orphanCount,
     importing,
     parsing,

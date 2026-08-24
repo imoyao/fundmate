@@ -86,7 +86,11 @@ class TestStandardCSVParse:
         csv_content = self.STOCK_HEADER + (
             '2025-06-15,2025-06-15,600519,贵州茅台,买入,100,1650.00,165000.00,12.50,华泰证券,\n'
         )
-        resp = client.post('/api/importers/parse', data={'file': (io.BytesIO(csv_content.encode('utf-8')), 'test.csv')})
+        # #1065 起去重为 ledger 级：parse 必须带 ledger_id，预览行才能按 (ledger_id, hash) 判重
+        resp = client.post(
+            f'/api/importers/parse?ledger_id={ledger_id}',
+            data={'file': (io.BytesIO(csv_content.encode('utf-8')), 'test.csv')},
+        )
         assert resp.status_code == 200
         row = resp.get_json()['data'][0]
         assert row['import_hash'] == hash_val
@@ -616,18 +620,19 @@ class TestTHSCSVParser:
             '证券代码\t证券名称\t操作\t成交数量\t成交均价\t成交金额\t股票余额\t发生金额\t手续费\t印花税\t其他杂费\t资金余额\t合同编号\t交收日期\t证券中文全称\t佣金\t过户费\t清算费(B股)\t币种\n'
             '970164\t银河水星现金添利\t基金申购拨出\t0\t0\t0\t0\t-10000\t0\t0\t0\t0\t\t20221223\t银河水星现金添利\t0\t0\t0\t人民币'
         )
-        # 第一次导入
+        # 第一次导入（#1065 起去重为 ledger 级，parse 带 ledger_id 使预览行携带归属）
         resp1 = client.post(
-            '/api/importers/parse?template=ths', data={'file': (io.BytesIO(csv_content.encode('utf-8')), 'test.csv')}
+            f'/api/importers/parse?template=ths&ledger_id={ledger.id}',
+            data={'file': (io.BytesIO(csv_content.encode('utf-8')), 'test.csv')},
         )
         rows1 = resp1.get_json()['data']
-        rows1[0]['ledger_id'] = ledger.id
         confirm1 = client.post('/api/importers/confirm', json=rows1)
         assert confirm1.get_json()['data']['imported'] == 1
 
         # 第二次导入同一文件
         resp2 = client.post(
-            '/api/importers/parse?template=ths', data={'file': (io.BytesIO(csv_content.encode('utf-8')), 'test.csv')}
+            f'/api/importers/parse?template=ths&ledger_id={ledger.id}',
+            data={'file': (io.BytesIO(csv_content.encode('utf-8')), 'test.csv')},
         )
         rows2 = resp2.get_json()['data']
         assert rows2[0]['is_duplicate']  # 应被标记为重复
@@ -654,3 +659,62 @@ class TestTHSCSVParser:
         assert row['op_type'] == 'deposit'
         assert row['name'] == '银行转证券'
         assert row['amount'] == 100000.0
+
+
+class TestLedgerBinding:
+    """P0 回归（#1010 排查发现，2026-08-24）：/parse 的 ledger_id 必须贯通到落库。
+
+    曾因视图层只拿 ledger_id 取账户名、未传给 parse_and_preview，导致导入交易
+    ledger_id=None（不挂账户）且 (ledger_id, import_hash) 去重永久失效。
+    """
+
+    STOCK_HEADER = '确认日期,交易日期,股票代码,股票名称,业务类型,数量(股),成交均价,成交金额,手续费,账户名称,合同编号\n'
+
+    def test_parse_rows_carry_ledger_id(self, client, db):
+        """预览行应携带 ledger_id 回传，confirm 链路才有归属依据。"""
+        ledger = Ledger(name='华泰证券', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.commit()
+        csv_content = self.STOCK_HEADER + (
+            '2025-06-15,2025-06-15,600519,贵州茅台,买入,100,1650.00,165000.00,12.50,华泰证券,\n'
+        )
+        resp = client.post(
+            f'/api/importers/parse?ledger_id={ledger.id}',
+            data={'file': (io.BytesIO(csv_content.encode('utf-8')), 'test.csv')},
+        )
+        assert resp.status_code == 200
+        row = resp.get_json()['data'][0]
+        assert row['ledger_id'] == ledger.id
+
+    def test_confirm_binds_ledger_and_dedup_works(self, client, db):
+        """端到端：parse(带 ledger_id) → confirm 落库归属正确；同账本重导被去重跳过。"""
+        ledger = Ledger(name='华泰证券', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.commit()
+        csv_content = self.STOCK_HEADER + (
+            '2025-06-15,2025-06-15,600519,贵州茅台,买入,100,1650.00,165000.00,12.50,华泰证券,\n'
+        )
+
+        def _parse():
+            return client.post(
+                f'/api/importers/parse?ledger_id={ledger.id}',
+                data={'file': (io.BytesIO(csv_content.encode('utf-8')), 'test.csv')},
+            )
+
+        rows = _parse().get_json()['data']
+        confirm_resp = client.post('/api/importers/confirm', json=rows)
+        assert confirm_resp.status_code == 200
+        data = confirm_resp.get_json()['data']
+        assert data['imported'] == 1
+
+        txn = db.query(Transaction).filter_by(import_hash=rows[0]['import_hash']).first()
+        assert txn is not None
+        assert txn.ledger_id == ledger.id  # 核心断言：不再落 NULL
+
+        # 同账本重导：提交期按 (ledger_id, import_hash) 幂等防重
+        rows2 = _parse().get_json()['data']
+        assert rows2[0]['is_duplicate'] is True  # 预览期即标记
+        confirm2 = client.post('/api/importers/confirm', json=rows2)
+        data2 = confirm2.get_json()['data']
+        assert data2['imported'] == 0
+        assert data2['skipped'] >= 1

@@ -191,7 +191,7 @@ const emit = defineEmits<{
 </template>
 
 <style scoped>
-/* 触屏设备无 hover 态，直接常显，避免删除入口不可达 */
+
 @media (hover: none) {
   .ledger-row-action {
     opacity: 1;
@@ -206,6 +206,12 @@ const emit = defineEmits<{
 
   .ledger-card:hover {
     transform: none;
+  }
+}
+
+@media (hover: none) {
+  .ledger-card.is-archived {
+    opacity: 0.7;
   }
 }
 
@@ -281,18 +287,18 @@ const emit = defineEmits<{
 
 .ledger-row-actions {
   display: flex;
-  align-items: center;
   gap: 8px; /* 两个行内按钮固定紧挨，避免散开 */
+  align-items: center;
 }
 
 .ledger-row-action {
+  /* text 图标按钮常显为中性灰图标，视觉权重统一 */
+  color: var(--text-tertiary);
   opacity: 0;
   transition:
     opacity 0.2s ease,
     color 0.15s ease,
     background-color 0.15s ease;
-  /* text 图标按钮常显为中性灰图标，视觉权重统一 */
-  color: var(--text-tertiary);
 }
 
 /* 两个行内按钮 hover 效果统一：图标变色 + 浅背景（用父级前缀提权，确保盖过 EP 默认 is-text:hover） */
@@ -317,9 +323,9 @@ const emit = defineEmits<{
 
 /* ===== 归档态：灰化但保留完整信息（数据仍参与收益计算） ===== */
 .ledger-card.is-archived {
-  opacity: 0.62;
   background: var(--bg-soft);
   border-style: dashed;
+  opacity: 0.62;
 }
 
 .ledger-card.is-archived:hover {
@@ -329,8 +335,8 @@ const emit = defineEmits<{
 .ledger-card__archived {
   display: inline-flex;
   align-items: center;
-  margin-bottom: var(--space-2);
   padding: 1px 8px;
+  margin-bottom: var(--space-2);
   font-size: 12px;
   line-height: 18px;
   color: var(--text-tertiary);
@@ -339,9 +345,5 @@ const emit = defineEmits<{
   border-radius: var(--radius-pill);
 }
 
-@media (hover: none) {
-  .ledger-card.is-archived {
-    opacity: 0.7;
-  }
-}
+/* 触屏设备无 hover 态，直接常显，避免删除入口不可达 */
 </style>

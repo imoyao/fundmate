@@ -324,8 +324,9 @@ def test_commit_cash_falls_to_bound_bank_when_ledger_linked(db):
     现金/货基行应落到绑定的 bank 账本，而非跟随目标证券账本。"""
     bank = Ledger(name='招行卡', ledger_type='bank', family_id=1)
     stock = Ledger(name='证券账户', ledger_type='stock', family_id=1)
-    stock.linked_cash_ledger_id = bank.id  # 绑定现金账户
     db.add_all([bank, stock])
+    db.flush()  # 先落库拿 id：未 flush 时 bank.id 为 None，绑定会被写成 NULL（存量 bug，2026-08-24 修复）
+    stock.linked_cash_ledger_id = bank.id  # 绑定现金账户
     db.commit()
 
     orch = ImportOrchestrator(db, family_id=1)
@@ -420,3 +421,161 @@ def test_dedup_scope_downgraded_to_ledger(db):
 
     # 4) 两条交易分属不同 ledger，均在库
     assert db.query(Transaction).filter_by(import_hash='HX-same-hash').count() == 2
+
+
+# ── #1010 银证转账闭环（2026-08-24） ──
+
+
+def _make_transfer_row(**overrides):
+    """构造同花顺解析器形态的银证转账预览行（证券侧视角）。"""
+    row = {
+        'symbol': '__CASH__',
+        'name': '银行转证券',
+        'type': 'cash',
+        'op_type': 'deposit',
+        'amount': 10000.0,
+        'quantity': 0,
+        'price': 0,
+        'fee': 0.0,
+        'trade_date': '2026-08-20',
+        'account_name': '',
+        'net_amount': 10000.0,
+        'source': 'ths_stock',
+        'import_hash': 'transfer-hash-1',
+        'is_cash_transfer': True,
+    }
+    row.update(overrides)
+    return row
+
+
+def _make_linked_pair(db, stock_name='华泰证券', bank_name='招行卡'):
+    """创建「证券账本 + 绑定现金账本」对。
+
+    注意：必须先 flush 拿到 bank.id 再绑定——未落库前 bank.id 为 None，
+    直接赋值会把 linked_cash_ledger_id 写成 NULL（B6 测曾因此静默失效）。
+    """
+    bank = Ledger(name=bank_name, ledger_type='bank', family_id=1)
+    stock = Ledger(name=stock_name, ledger_type='stock', family_id=1)
+    db.add_all([bank, stock])
+    db.flush()
+    stock.linked_cash_ledger_id = bank.id
+    db.commit()
+    return bank, stock
+
+
+def test_cash_transfer_deposit_generates_inverted_bank_withdraw(db):
+    """#1010：已关联现金账户时，证券侧「银行转证券」(deposit) 应在 bank 生成反向 withdraw。"""
+    bank, stock = _make_linked_pair(db)
+
+    orch = ImportOrchestrator(db, family_id=1)
+    res = orch.commit_from_preview([_make_transfer_row(ledger_id=stock.id)])
+
+    assert res['imported'] == 0  # 转账不计入投资 imported 口径
+    assert res['skipped'] == 0
+    assert res['cash_transfers_created'] == 1
+    txn = db.query(Transaction).filter_by(import_hash='transfer-hash-1').first()
+    assert txn is not None
+    assert txn.txn_type == 'withdraw'  # 方向反转：银行侧取出
+    assert txn.ledger_id == bank.id
+    assert txn.asset_type == 'cash'
+    assert txn.amount == Money.yuan_to_cents(10000.0)  # 整数分
+    assert txn.account_name == '招行卡'
+
+
+def test_cash_transfer_withdraw_generates_bank_deposit(db):
+    """#1010：证券侧「证券转银行」(withdraw) 应在 bank 生成反向 deposit。"""
+    bank, stock = _make_linked_pair(db)
+
+    orch = ImportOrchestrator(db, family_id=1)
+    res = orch.commit_from_preview(
+        [
+            _make_transfer_row(
+                ledger_id=stock.id,
+                op_type='withdraw',
+                name='证券转银行',
+                net_amount=-5000.5,
+                amount=5000.5,
+                import_hash='transfer-hash-2',
+            )
+        ]
+    )
+
+    assert res['cash_transfers_created'] == 1
+    txn = db.query(Transaction).filter_by(import_hash='transfer-hash-2').first()
+    assert txn is not None
+    assert txn.txn_type == 'deposit'
+    assert txn.amount == Money.yuan_to_cents(5000.5)  # 净额绝对值，负号只表达方向
+
+
+def test_cash_transfer_without_linked_ledger_keeps_skipped(db):
+    """#1010：未关联现金账户时维持旧行为——转账行计入 skipped，不产生任何流水。"""
+    stock = Ledger(name='华泰证券', ledger_type='stock', family_id=1)
+    db.add(stock)
+    db.commit()
+
+    orch = ImportOrchestrator(db, family_id=1)
+    res = orch.commit_from_preview([_make_transfer_row(ledger_id=stock.id)])
+
+    assert res['imported'] == 0
+    assert res['skipped'] == 1
+    assert res['cash_transfers_created'] == 0
+    assert db.query(Transaction).filter_by(import_hash='transfer-hash-1').count() == 0
+
+
+def test_cash_transfer_non_bank_link_treated_as_unlinked(db):
+    """#1010：绑定目标非 bank 类型视为未有效绑定，转账行跳过（与 #1067 口径一致）。"""
+    fund_ledger = Ledger(name='蚂蚁基金', ledger_type='fund', family_id=1)
+    stock = Ledger(name='华泰证券', ledger_type='stock', family_id=1)
+    stock.linked_cash_ledger_id = fund_ledger.id  # 非法绑定：指向非 bank
+    db.add_all([fund_ledger, stock])
+    db.commit()
+
+    orch = ImportOrchestrator(db, family_id=1)
+    res = orch.commit_from_preview([_make_transfer_row(ledger_id=stock.id)])
+
+    assert res['skipped'] == 1
+    assert res['cash_transfers_created'] == 0
+    assert db.query(Transaction).filter_by(import_hash='transfer-hash-1').count() == 0
+
+
+def test_cash_transfer_reimport_deduped_by_ledger_and_hash(db):
+    """#1010：同一份交割单重导，现金侧记录按 (现金账本, import_hash) 幂等防重。"""
+    bank, stock = _make_linked_pair(db)
+
+    orch = ImportOrchestrator(db, family_id=1)
+    r1 = orch.commit_from_preview([_make_transfer_row(ledger_id=stock.id)])
+    r2 = orch.commit_from_preview([_make_transfer_row(ledger_id=stock.id)])
+
+    assert r1['cash_transfers_created'] == 1
+    assert r2['cash_transfers_created'] == 0
+    assert r2['skipped'] == 1  # 重导计入 skipped，不翻倍
+    assert db.query(Transaction).filter_by(import_hash='transfer-hash-1').count() == 1
+
+
+def test_mixed_rows_transfer_and_invest_counted_separately(db):
+    """#1010：转账与投资交易混排时各自独立计数，互不污染对方口径。"""
+    bank, stock = _make_linked_pair(db)
+
+    orch = ImportOrchestrator(db, family_id=1)
+    invest_row = {
+        'symbol': '000001',
+        'name': '货币基金',
+        'type': 'money_fund',
+        'op_type': 'deposit',
+        'amount': 100.0,
+        'quantity': None,
+        'price': None,
+        'fee': 0.0,
+        'trade_date': '2026-08-01',
+        'account_name': '',
+        'ledger_id': stock.id,
+        'contract_id': 'TXN-MIX',
+        'net_amount': 88.5,
+        'source': 'ths_stock',
+        'import_hash': 'mix-hash',
+    }
+    res = orch.commit_from_preview([invest_row, _make_transfer_row(ledger_id=stock.id)])
+
+    assert res['imported'] == 1  # 仅投资交易
+    assert res['cash_transfers_created'] == 1  # 仅转账
+    assert res['skipped'] == 0

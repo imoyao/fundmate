@@ -64,6 +64,16 @@ export default {
       }
     ],
     "unit-no-unknown": [true, { ignoreUnits: ["rpx"] }],
+    "value-keyword-case": [
+      "lower",
+      {
+        // Vue SFC 的 CSS v-bind() 参数是 <script> 变量名，区分大小写；
+        // postcss-html 把参数解析成独立 keyword 节点，standard 预设会将其
+        // 强制小写导致绑定失效（SankeyChart containerHeightPx 曾被打断）。
+        // 凡含大写字母的关键字一律视为标识符豁免，纯小写关键字不受影响。
+        ignoreKeywords: ["/[A-Z]/"]
+      }
+    ],
     "function-no-unknown": [
       true,
       {

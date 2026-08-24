@@ -1143,10 +1143,10 @@ function resetUpload() {
   font-size: var(--text-small);
   font-weight: 500;
   color: var(--text-secondary);
+  cursor: pointer;
   background: transparent;
   border: none;
   border-radius: var(--radius-md);
-  cursor: pointer;
   transition: all 0.15s ease;
 }
 
@@ -1203,10 +1203,10 @@ function resetUpload() {
   padding: 4px 14px;
   font-size: var(--text-small);
   color: var(--text-secondary);
+  cursor: pointer;
   background: transparent;
   border: none;
   border-radius: var(--radius-sm);
-  cursor: pointer;
   transition: all 0.15s ease;
 }
 
