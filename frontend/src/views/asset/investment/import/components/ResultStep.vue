@@ -6,6 +6,7 @@ const {
   nothingImported,
   importedCount,
   skippedCount,
+  cashTransfersCreated,
   duplicateCount,
   errorCount,
   orphanCount,
@@ -43,10 +44,27 @@ const {
 
             <div
               v-if="
-                orphanCount > 0 || importErrors.length > 0 || showPriceUpdateTip
+                cashTransfersCreated > 0 ||
+                orphanCount > 0 ||
+                importErrors.length > 0 ||
+                showPriceUpdateTip
               "
               class="result-detail"
             >
+              <el-alert
+                v-if="cashTransfersCreated > 0"
+                type="success"
+                :closable="false"
+                :show-icon="false"
+              >
+                <template #default>
+                  <p>已为 {{ cashTransfersCreated }} 笔转账生成现金侧记录。</p>
+                  <p class="text-xs mt-1">
+                    银证转账已同步记入关联的现金账户，可在交易流水中查看资金流向。
+                  </p>
+                </template>
+              </el-alert>
+
               <el-alert
                 v-if="orphanCount > 0"
                 title="部分交易数据不完整"
@@ -93,7 +111,9 @@ const {
           </div>
           <div class="result-actions">
             <el-button
-              v-if="importedCount > 0 || orphanCount > 0"
+              v-if="
+                importedCount > 0 || orphanCount > 0 || cashTransfersCreated > 0
+              "
               type="primary"
               @click="goToTransactions"
             >
