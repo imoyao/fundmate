@@ -151,13 +151,13 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="关联销售机构">
+        <el-form-item label="销售机构">
           <el-select
             v-model="newLedgerForm.sales_institution_id"
             class="w-full"
             clearable
             filterable
-            placeholder="不关联（可选）"
+            placeholder="可不选"
           >
             <el-option
               v-for="inst in salesInstitutions"
