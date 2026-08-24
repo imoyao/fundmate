@@ -31,6 +31,7 @@ from app.models.sync_log import SyncLog
 from app.services.sync.adapters.akshare_adapter import AkshareAdapter
 from app.services.sync.adapters.null_adapter import NullAdapter
 from app.services.sync.adapters.xalpha_adapter import XalphaAdapter
+from app.services.sync.jobs.amac_institution_job import AmacInstitutionJob
 from app.services.sync.jobs.fund_detail_enrich_job import FundDetailEnrichJob
 from app.services.sync.jobs.fund_list_job import FundListSyncJob
 from app.services.sync.jobs.fund_manager_job import FundManagerSyncJob
@@ -114,6 +115,9 @@ class DataSyncOrchestrator:
         self.jobs['fund_nav'] = FundNavSyncJob(self.data_sources['xalpha'], self.db)
         self.jobs['price_history'] = PriceHistorySyncJob(self.data_sources['akshare'], self.db)
         self.jobs['temperature'] = TemperatureJob(NullAdapter(), self.db)
+        # AMAC 名录为 HTTP JSON 直抓（非 akshare/xalpha 数据源），NullAdapter 占位；
+        # 此前仅 invoke grab.* 通道可达，注册后 pdm run sync --job 亦可直达（#1081 策展应用入口）
+        self.jobs['amac_institution'] = AmacInstitutionJob(NullAdapter(), self.db)
 
     # ── 目标代码解析 ──
 

@@ -80,6 +80,7 @@
 | `investment-agent-brainstorm-2026-08-17.md` | **投资/账本精灵 对话 Agent 头脑风暴（非最终方案）**：四功能可行性（基于代码核查）+ 用户补充的防幻觉/不手搓CoT/LangGraph/RAG/合规原则 + 关键洞察（现有 ai_recognizer 已 embody "模型聊逻辑、Python 算数字"）+ 6 条边界问题 + 三阶段路线图映射 + 待确认 Q1~Q4 |
 | `agent-guardrail-layer-design-2026-08-17.md` | **账本精灵对话 Agent 护栏层设计（正式）**：汇总头脑风暴第十~十七轮与同花顺对标结论；五层护栏（L0 代码隔离/L1 Prompt 铁律/L2 工具可用性/输入侧意图护栏 A~E/L3 输出侧词法过滤）；L3 细化为 10 条拦截规则表（R1~R10）；模块落点 `ai_recognizer/safety/` + G1~G7 实施计划 |
 | `agent-issues-2026-08-17.md` | **账本精灵原子 Issue 草稿**：7 个原子 issue 模板（护栏 G1~G7 拆 4 个 + 快速记账/持仓查询 NL 层/行为解读），含象限 Q2、反链、验收标准，可直接粘贴建 GitHub issue；对应决策 D19 与 roadmap §2.7 |
+| `sales-institution-common-group-2026-08-24.md` | **销售机构常用分组 + 账户类型感知设计（#1081/#1082，已对齐）**：15 家常用名单（中基协排名为 sort）、代码声明幂等应用（迁移零负担）、org_type 11→4 组标识、stock/fund 机构过滤、决策记录 D1~D8 |
 
 ## 子目录归档
 

@@ -22,18 +22,33 @@ export interface LedgerItem {
   is_active?: boolean;
 }
 
-/** 基金销售机构（AMAC 权威名录，账户可选关联，is_active=1 按 org_name 排序） */
+/**
+ * 基金销售机构（AMAC 权威名录，账户可选关联）。
+ * is_common/common_sort/display_name 由后端 AMAC job 幂等策展（#1081）；
+ * org_type 为 AMAC 原始 11 类，前端映射为展示标签组（独立/银行/券商/保险/其他）。
+ * 字段均可选以兼容后端未部署新字段时的旧响应。
+ */
 export interface SalesInstitution {
   id: number;
   org_name: string;
   display_name?: string | null;
+  /** AMAC 原始机构类型（11 类），如「证券公司」「独立基金销售机构」 */
+  org_type?: string | null;
+  /** 常用机构标志（中基协保有规模 Top10 + 5 大互联网平台 = 15 家） */
+  is_common?: boolean;
+  /** 常用组内排序（小者在前），非常用为 null/缺省 */
+  common_sort?: number | null;
 }
 
-/** 获取启用中的基金销售机构名录（GET /api/ledgers/sales-institutions/） */
-export function getSalesInstitutions() {
+/**
+ * 获取启用中的基金销售机构名录（GET /api/ledgers/sales-institutions/）。
+ * params.org_types：逗号分隔的原始 org_type 过滤（后端契约 #1082）；缺省返回全部。
+ */
+export function getSalesInstitutions(params?: { org_types?: string }) {
   return http.request<{ data: SalesInstitution[] }>(
     "get",
-    "/api/ledgers/sales-institutions/"
+    "/api/ledgers/sales-institutions/",
+    { params }
   );
 }
 

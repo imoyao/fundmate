@@ -9,7 +9,9 @@
 - 权威全称（org_name/house_name）是唯一基准（身份证），幂等 upsert，不删除；
 - is_active 标记是否仍在 AMAC 公示名单内——机构下架/倒闭时置 False，
   历史数据保留（保护对账溯源），不物理删除。
-- 别名 display_name 仅在首次写入时由 BUILTIN_ALIASES 填充，不覆盖已存在的用户别名。
+- 常用机构策展（#1081）：CURATED_INSTITUTIONS 命中行覆写 is_common/common_sort/
+  display_name（代码即 source of truth，保证多环境迁移收敛）；未命中行的
+  display_name 维持「仅首次写入」语义，不覆盖。
 """
 
 import time
@@ -23,12 +25,30 @@ from app.services.sync.jobs.base import SyncJob
 AMAC_AGENCY_URL = 'https://www.amac.org.cn//portal/front/infopublic/fsAgencyAnno/findFsAgencyAnnos'
 AMAC_HOUSE_URL = 'https://www.amac.org.cn/portal/front/mutualFund/findMutualFundHousePage'
 
-# 常见机构别名（外号）：权威全称 → 展示别名。仅首次写入，不覆盖用户自定义。
-# 注意：key 必须与 AMAC 名录实际权威全称完全一致（2026-08-17 校准）；
-# 仅销售机构表有 display_name 字段，基金管理人（house）无别名列，勿在此登记。
-BUILTIN_ALIASES = {
-    '蚂蚁（杭州）基金销售有限公司': '支付宝',
-    '上海天天基金销售有限公司': '天天基金',
+# 常用机构策展（#1081）：权威全称 → (常用别名|None, 常用组内排序)。
+# sort 取中基协「基金保有规模」排名（保真来源，允许跳号）；名单成员极稳定，
+# 排名会季度性变动——过期无害，更新即改本常量 + 一次提交（设计文档 D4/D5）。
+# 应用语义：upsert 时对命中行覆写 is_common/common_sort/display_name——
+# 代码即 source of truth，保证本地/生产/灾备重建各环境收敛（设计文档 D6）；
+# 未命中行不触碰这三个字段（display_name 维持「仅首次写入」既有语义）。
+# 注意：key 必须与 AMAC 名录实际权威全称完全一致（2026-08-24 与库内 394 条逐一核对，
+# 含全角括号与「北京雪球」等易错点）；仅销售机构表有策展列，基金管理人（house）勿登记。
+CURATED_INSTITUTIONS = {
+    '蚂蚁（杭州）基金销售有限公司': ('支付宝', 1),
+    '招商银行': (None, 2),
+    '上海天天基金销售有限公司': ('天天基金', 3),
+    '中国工商银行': (None, 4),
+    '中国建设银行': (None, 5),
+    '中国银行': (None, 6),
+    '交通银行': (None, 7),
+    '中信证券': (None, 8),
+    '中国人寿保险股份有限公司': ('中国人寿', 9),
+    '中国农业银行': (None, 10),
+    '腾安基金销售（深圳）有限公司': ('理财通', 13),
+    '珠海盈米基金销售有限公司': ('且慢', 26),
+    '京东肯特瑞基金销售有限公司': ('京东金融', 32),
+    '浙江同花顺基金销售有限公司': ('同花顺', 33),
+    '北京雪球基金销售有限公司': ('雪球基金', 36),
 }
 
 HEADERS = {
@@ -133,12 +153,17 @@ class AmacInstitutionJob(SyncJob):
     def _upsert_sales(self, item: dict) -> None:
         org_name = item['orgName'].strip()
         self._seen_org_names.add(org_name)
+        curated = CURATED_INSTITUTIONS.get(org_name)
         row = self.db.query(SalesInstitution).filter_by(org_name=org_name).first()
         if row:
             row.reg_addr = item.get('regAddr') or row.reg_addr
             row.org_type = item.get('orgType') or row.org_type
             row.check_time = item.get('checkTime') or row.check_time
             row.is_active = True  # 仍在公示名单 → 恢复/保持 active
+            if curated:
+                # 策展行覆写三件套：代码即 source of truth，保证多环境收敛（见常量注释）
+                row.display_name, row.common_sort = curated
+                row.is_common = True
         else:
             self.db.add(
                 SalesInstitution(
@@ -146,7 +171,9 @@ class AmacInstitutionJob(SyncJob):
                     reg_addr=item.get('regAddr'),
                     org_type=item.get('orgType'),
                     check_time=item.get('checkTime'),
-                    display_name=BUILTIN_ALIASES.get(org_name),
+                    display_name=curated[0] if curated else None,
+                    is_common=bool(curated),
+                    common_sort=curated[1] if curated else None,
                     is_active=True,
                 )
             )

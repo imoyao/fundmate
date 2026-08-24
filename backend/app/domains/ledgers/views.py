@@ -74,19 +74,34 @@ def list_sales_institutions():
 
     只返回 is_active=True 的机构：与导入匹配逻辑一致，下架机构不可再新关联；
     已关联的历史账户不受影响（展示名仍由名录实时解析）。
+
+    查询参数：
+        org_types: 可选，逗号分隔的机构类型（原始 org_type 值），提供时仅返回命中
+                   类型（#1082：按账户类型过滤可见机构，如证券账户只看券商）。
+
+    排序：常用机构（is_common）按 common_sort 升序置顶，其余按名称字典序——
+    前端据此拆「常用机构 / 全部机构」两个分组（#1081）。
     """
+    org_types_param = (request.args.get('org_types') or '').strip()
+    org_types = [t.strip() for t in org_types_param.split(',') if t.strip()]
+
     with get_db() as db:
-        institutions = (
-            db.query(SalesInstitution)
-            .filter(SalesInstitution.is_active.is_(True))
-            .order_by(SalesInstitution.org_name.asc())
-            .all()
-        )
+        query = db.query(SalesInstitution).filter(SalesInstitution.is_active.is_(True))
+        if org_types:
+            query = query.filter(SalesInstitution.org_type.in_(org_types))
+        institutions = query.order_by(
+            SalesInstitution.is_common.desc(),
+            SalesInstitution.common_sort.asc().nullslast(),
+            SalesInstitution.org_name.asc(),
+        ).all()
         data = [
             {
                 'id': institution.id,
                 'org_name': institution.org_name,
                 'display_name': institution.display_name,
+                'org_type': institution.org_type,
+                'is_common': institution.is_common,
+                'common_sort': institution.common_sort,
             }
             for institution in institutions
         ]

@@ -93,6 +93,23 @@ def main():
         return
 
     # 初始化数据库（创建表）
+    # 域模型必须先于 init_db 全量导入：部分表存在跨模块外键（如 position_import_meta
+    # → ledgers.id），缺导入会让 Base.metadata 解析 FK 时抛 NoReferencedTableError
+    # （E账户对账上线后 sync CLI 首跑即暴露，2026-08-24）。
+    import app.domains.assets.models  # noqa: F401
+    import app.domains.families.models  # noqa: F401
+    import app.domains.funds.models  # noqa: F401
+    import app.domains.ledgers.models  # noqa: F401
+    import app.domains.portfolios.models  # noqa: F401
+    import app.domains.positions.models  # noqa: F401
+    import app.domains.price_history.models  # noqa: F401
+    import app.domains.securities.models  # noqa: F401
+    import app.domains.strategy.models  # noqa: F401
+    import app.domains.summary.models  # noqa: F401
+    import app.domains.transactions.models  # noqa: F401
+    import app.domains.users.models  # noqa: F401
+    import app.domains.watchlist.models  # noqa: F401
+
     init_db()
 
     with get_db() as db:

@@ -162,6 +162,8 @@ class SalesInstitution(Base, PrimaryKeyMixin, TimestampMixin):
     身份证语义：org_name 为 AMAC 权威全称，永远不变，是记录/校验的唯一基准；
     display_name 为常见机构别名（支付宝/天天基金等），仅用于展示。
     is_active 标记机构是否仍在 AMAC 公示名单内（下架/倒闭时置 False，历史数据保留不删除）。
+    is_common/common_sort 为平台级「常用机构」策展位（#1081）：由 AMAC 同步 job 按
+    代码常量 CURATED_INSTITUTIONS 幂等覆写，禁止手工维护——保证多环境迁移收敛。
     """
 
     __tablename__ = 'sales_institutions'
@@ -172,6 +174,12 @@ class SalesInstitution(Base, PrimaryKeyMixin, TimestampMixin):
     check_time = Column(String(20), comment='检查时间(YYYY-MM)')
     display_name = Column(String(100), comment='常用别名（展示用）')
     is_active = Column(Boolean, default=True, comment='是否在 AMAC 公示名单内')
+    is_common = Column(
+        Boolean, nullable=False, default=False, server_default='0', comment='常用机构标志（代码策展，勿手工维护）'
+    )
+    common_sort = Column(
+        Integer, nullable=True, comment='常用组内排序（小者在前），取中基协保有规模排名；非常用为 NULL'
+    )
 
 
 class FundManagementCompany(Base, PrimaryKeyMixin, TimestampMixin):
