@@ -144,7 +144,7 @@ const save = async () => {
       await updateWatchlistGroup(props.group.id, { name, color: form.color });
       ElMessage.success("分组已更新");
     } else {
-      const res = await createWatchlistGroup({ name,  color: form.color });
+      const res = await createWatchlistGroup({ name, color: form.color });
       const newGroup = (res as { data?: WatchlistGroup })?.data;
       if (newGroup) emit("created", newGroup);
       ElMessage.success("分组已创建");
