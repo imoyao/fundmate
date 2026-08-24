@@ -85,3 +85,18 @@ def test_curation_idempotent(db):
 def test_curated_registry_has_15_entries():
     """策展名单 15 家（中基协 Top10 + 5 互联网平台），防误删/误增。"""
     assert len(CURATED_INSTITUTIONS) == 15
+
+
+def test_pinyin_short_computed(db):
+    """拼音简拼派生列：汉字取首字母大写、英文数字保留（供前端检索过滤，#1081）。"""
+    job = _make_job(db)
+    job._save_data(
+        [
+            _sales_item('华泰证券', org_type='证券公司'),
+            _sales_item('北京雪球基金销售有限公司'),
+        ]
+    )
+    ht = db.query(SalesInstitution).filter_by(org_name='华泰证券').one()
+    assert ht.pinyin_short == 'HTZQ'
+    xq = db.query(SalesInstitution).filter_by(org_name='北京雪球基金销售有限公司').one()
+    assert xq.pinyin_short == 'BJXQJJXSYXGS'

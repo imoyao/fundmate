@@ -182,24 +182,12 @@ class FundDetailEnrichJob(SyncJob):
         生成拼音首字母简拼（仿天天基金规则：英文/数字原样保留，特殊符号跳过）。
         示例: "华夏成长混合" -> "HXCZHH"
 
-        延迟导入 pypinyin：该库自带 3.2MB 词典属重型依赖，仅在真正需要生成
-        简拼时才加载，避免模块导入即拉起，降低无关路径的内存与启动开销。
+        实现已抽取到 sync/pinyin_utils.generate_pinyin_abbr（amac_institution_job
+        同样需要，#1081），此处保留方法作委托，兼容类内既有调用点。
         """
-        # 延迟导入：pypinyin 是重型依赖，仅此函数用到，刻意不放模块顶层
-        from pypinyin import lazy_pinyin
+        from app.services.sync.pinyin_utils import generate_pinyin_abbr
 
-        result = list()
-        for char in name:
-            if '\u4e00' <= char <= '\u9fff':
-                # 汉字：取拼音首字母大写
-                pinyin_list = lazy_pinyin(char)
-                if pinyin_list:
-                    result.append(pinyin_list[0][0].upper())
-            elif char.isalnum():
-                # 英文/数字：原样保留
-                result.append(char.upper())
-            # 特殊符号跳过
-        return ''.join(result)
+        return generate_pinyin_abbr(name)
 
     # ── 费率更新 ──
 

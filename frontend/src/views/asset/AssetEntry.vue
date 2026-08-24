@@ -157,10 +157,11 @@
             class="w-full"
             clearable
             filterable
-            placeholder="可不选"
+            placeholder="可不选，支持汉字/别名/拼音首字母"
+            :filter-method="filterInstitution"
           >
             <el-option
-              v-for="inst in salesInstitutions"
+              v-for="inst in filteredInstitutions"
               :key="inst.id"
               :label="institutionLabel(inst)"
               :value="inst.id"
@@ -186,7 +187,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from "vue";
+import { ref, reactive, onMounted, computed } from "vue";
 import { ElMessage } from "element-plus";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import { createAsset } from "@/api/assets";
@@ -222,6 +223,22 @@ const newLedgerForm = reactive({
 });
 /** 基金销售机构候选（AMAC 名录，新增账户可选关联） */
 const salesInstitutions = ref<SalesInstitution[]>([]);
+
+/** 销售机构下拉检索关键词（小写），支持汉字/别名/拼音首字母三路匹配（#1081） */
+const institutionFilter = ref("");
+const filteredInstitutions = computed(() => {
+  const kw = institutionFilter.value;
+  if (!kw) return salesInstitutions.value;
+  return salesInstitutions.value.filter(
+    inst =>
+      inst.org_name.toLowerCase().includes(kw) ||
+      (inst.display_name ?? "").toLowerCase().includes(kw) ||
+      (inst.pinyin_short ?? "").toLowerCase().includes(kw)
+  );
+});
+function filterInstitution(query: string) {
+  institutionFilter.value = query.trim().toLowerCase();
+}
 
 // 表单数据
 const form = reactive({
