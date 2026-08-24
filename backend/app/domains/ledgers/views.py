@@ -426,40 +426,105 @@ def migrate_positions(ledger_id: int):
         if source.ledger_type != target.ledger_type:
             return jsonify({'data': None, 'message': '只能迁移到同类型账户'}), 400
 
-        # 迁移持仓：更新 ledger_id 和 account_name 快照
-        position_count = (
-            db.query(Position)
-            .filter(Position.ledger_id == source.id)
-            .update(
+        # 迁移持仓：按 (ledger_id, symbol) 业务键做「去重合并」，而非盲改 ledger_id，
+        # 也非直接相加（同销售机构可能往两个账户各写一遍同一笔持仓，相加会重复计数）。
+        #   - 目标无同 symbol 持仓 → 直接迁移；
+        #   - 目标有同 symbol 且字段完全一致（份额/成本日/成本价相同）→ 视为重复写入，
+        #     丢弃源、保留目标（只留一份）；
+        #   - 目标有同 symbol 但字段不一致 → 视为冲突，不自动合并，留在源账户，
+        #     由用户在前端手动确认/剔除后再次迁移。
+        family_id = get_family_id()
+        position_count = 0
+        position_conflicts = []
+        for p in db.query(Position).filter(Position.ledger_id == source.id).all():
+            dup = (
+                db.query(Position)
+                .filter(
+                    Position.ledger_id == target.id,
+                    Position.symbol == p.symbol,
+                    Position.family_id == family_id,
+                )
+                .first()
+            )
+            if dup is None:
+                p.ledger_id = target.id
+                p.account_name = target.name
+                p.updated_at = func.now()
+                position_count += 1
+                continue
+            # 字段完全一致 → 重复写入，保留目标、丢弃源（只留一份，不相加）
+            if p.quantity == dup.quantity and p.confirm_date == dup.confirm_date and p.avg_price == dup.avg_price:
+                db.delete(p)  # 关联 meta 随 CASCADE 清除
+                position_count += 1
+                continue
+            # 字段不一致 → 冲突：不迁移、不丢弃，留给用户手动处理
+            position_conflicts.append(
                 {
-                    Position.ledger_id: target.id,
-                    Position.account_name: target.name,
+                    'symbol': p.symbol,
+                    'name': p.name,
+                    'source': {
+                        'quantity': p.quantity,
+                        'avg_price': p.avg_price,
+                        'confirm_date': str(p.confirm_date) if p.confirm_date else None,
+                    },
+                    'target': {
+                        'quantity': dup.quantity,
+                        'avg_price': dup.avg_price,
+                        'confirm_date': str(dup.confirm_date) if dup.confirm_date else None,
+                    },
                 }
             )
-        )
 
-        # 迁移资产
-        asset_count = (
-            db.query(Asset)
-            .filter(Asset.ledger_id == source.id, Asset.family_id == get_family_id())
-            .update(
+        # 迁移资产：同名同分类按金额完全一致判定为重复，否则视为冲突
+        asset_count = 0
+        asset_conflicts = []
+        for a in db.query(Asset).filter(Asset.ledger_id == source.id, Asset.family_id == family_id).all():
+            dup = (
+                db.query(Asset)
+                .filter(
+                    Asset.ledger_id == target.id,
+                    Asset.name == a.name,
+                    Asset.major_category == a.major_category,
+                    Asset.minor_category == a.minor_category,
+                    Asset.family_id == family_id,
+                )
+                .first()
+            )
+            if dup is None:
+                a.ledger_id = target.id
+                a.account_name = target.name
+                a.updated_at = func.now()
+                asset_count += 1
+                continue
+            if a.amount == dup.amount:
+                db.delete(a)  # 重复资产：保留目标、丢弃源
+                asset_count += 1
+                continue
+            asset_conflicts.append(
                 {
-                    Asset.ledger_id: target.id,
-                    Asset.account_name: target.name,
+                    'name': a.name,
+                    'major_category': a.major_category,
+                    'minor_category': a.minor_category,
+                    'source': {'amount': a.amount},
+                    'target': {'amount': dup.amount},
                 }
             )
-        )
 
         db.commit()
 
+        conflicts = position_conflicts + asset_conflicts
+        message = f'已将 {position_count} 项迁移至「{target.name}」'
+        if conflicts:
+            message += f'；{len(conflicts)} 项因数据冲突未迁移，' '请在前端手动核对后删除重复项再迁移'
         return jsonify(
             {
                 'data': {
                     'position_count': position_count,
                     'asset_count': asset_count,
                     'total': position_count + asset_count,
+                    'conflicts': conflicts,
                 },
-                'message': f'已将 {position_count + asset_count} 项迁移至「{target.name}」',
+                'message': message,
             }
         )
 

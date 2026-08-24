@@ -750,6 +750,163 @@ class TestLedgerBatchMigrate:
             assert a.ledger_id == tgt_id
             assert a.account_name == '中信证券'
 
+    def test_migrate_overlapping_symbol_dedup(self, client, db):
+        """同 symbol 且字段完全一致 → 视为重复写入，只保留目标一份（不相加）。
+
+        复现迁移崩溃：目标已存在同 symbol 持仓，盲改 ledger_id 会撞
+        UNIQUE(ledger_id, symbol)。正确行为是去重而非求和（否则同一笔持仓被算两次）。
+        """
+        src = client.post('/api/ledgers/', json={'name': '支付宝', 'ledger_type': 'fund'})
+        tgt = client.post('/api/ledgers/', json={'name': '蚂蚁杭州基金销售', 'ledger_type': 'fund'})
+        src_id = src.get_json()['data']['id']
+        tgt_id = tgt.get_json()['data']['id']
+
+        # 源账户持仓：510300，100份，成本 10.00 元
+        db.add(
+            Position(
+                symbol='510300',
+                name='沪深300ETF',
+                market='CN_A',
+                asset_type='fund',
+                account_name='支付宝',
+                ledger_id=src_id,
+                quantity=1000000,
+                avg_price=1000,
+                current_price=1200,
+            )
+        )
+        # 目标账户已有「完全一致」的同 symbol 持仓（同一笔被两个账户各写一遍）
+        db.add(
+            Position(
+                symbol='510300',
+                name='沪深300ETF',
+                market='CN_A',
+                asset_type='fund',
+                account_name='蚂蚁杭州基金销售',
+                ledger_id=tgt_id,
+                quantity=1000000,
+                avg_price=1000,
+                current_price=1200,
+            )
+        )
+        db.commit()
+
+        resp = client.post(f'/api/ledgers/{src_id}/migrations/', json={'target_ledger_id': tgt_id})
+        assert resp.status_code == 200, resp.get_json()
+        data = resp.get_json()['data']
+        assert data['conflicts'] == []  # 完全一致不算冲突
+
+        # 源账户清空（重复的一份被丢弃）
+        assert db.query(Position).filter(Position.ledger_id == src_id).count() == 0
+        # 目标仅剩 1 条，且份额未翻倍（没有被相加）
+        tgt_positions = db.query(Position).filter(Position.ledger_id == tgt_id).all()
+        assert len(tgt_positions) == 1
+        assert tgt_positions[0].symbol == '510300'
+        assert tgt_positions[0].quantity == 1000000
+
+    def test_migrate_overlapping_symbol_conflict(self, client, db):
+        """同 symbol 但字段不一致 → 冲突，不自动合并，留在源账户待手动处理"""
+        src = client.post('/api/ledgers/', json={'name': '支付宝', 'ledger_type': 'fund'})
+        tgt = client.post('/api/ledgers/', json={'name': '蚂蚁杭州基金销售', 'ledger_type': 'fund'})
+        src_id = src.get_json()['data']['id']
+        tgt_id = tgt.get_json()['data']['id']
+
+        db.add(
+            Position(
+                symbol='510300',
+                name='沪深300ETF',
+                market='CN_A',
+                asset_type='fund',
+                account_name='支付宝',
+                ledger_id=src_id,
+                quantity=1000000,
+                avg_price=1000,
+                current_price=1200,
+            )
+        )
+        # 目标同 symbol 但份额/成本不同 → 冲突
+        db.add(
+            Position(
+                symbol='510300',
+                name='沪深300ETF',
+                market='CN_A',
+                asset_type='fund',
+                account_name='蚂蚁杭州基金销售',
+                ledger_id=tgt_id,
+                quantity=500000,
+                avg_price=1200,
+                current_price=1200,
+            )
+        )
+        db.commit()
+
+        resp = client.post(f'/api/ledgers/{src_id}/migrations/', json={'target_ledger_id': tgt_id})
+        assert resp.status_code == 200, resp.get_json()
+        data = resp.get_json()['data']
+        # 冲突被上报，且源/目标都各自保留一份（未迁移、未丢弃）
+        assert len(data['conflicts']) == 1
+        assert data['conflicts'][0]['symbol'] == '510300'
+        assert db.query(Position).filter(Position.ledger_id == src_id).count() == 1
+        assert db.query(Position).filter(Position.ledger_id == tgt_id).count() == 1
+
+    def test_migrate_overlapping_asset_dedup(self, client, db):
+        """资产同名同分类且金额一致 → 视为重复，只保留目标一份"""
+        src = client.post('/api/ledgers/', json={'name': '支付宝', 'ledger_type': 'fund'})
+        tgt = client.post('/api/ledgers/', json={'name': '蚂蚁杭州基金销售', 'ledger_type': 'fund'})
+        src_id = src.get_json()['data']['id']
+        tgt_id = tgt.get_json()['data']['id']
+
+        db.add(
+            Asset(user_id=1, major_category='cash', name='余额', amount=500000, account_name='支付宝', ledger_id=src_id)
+        )
+        db.add(
+            Asset(
+                user_id=1,
+                major_category='cash',
+                name='余额',
+                amount=500000,
+                account_name='蚂蚁杭州基金销售',
+                ledger_id=tgt_id,
+            )
+        )
+        db.commit()
+
+        resp = client.post(f'/api/ledgers/{src_id}/migrations/', json={'target_ledger_id': tgt_id})
+        assert resp.status_code == 200, resp.get_json()
+        assert db.query(Asset).filter(Asset.ledger_id == src_id).count() == 0
+        tgt_assets = db.query(Asset).filter(Asset.ledger_id == tgt_id).all()
+        assert len(tgt_assets) == 1
+        assert tgt_assets[0].amount == 500000  # 未翻倍
+
+    def test_migrate_overlapping_asset_conflict(self, client, db):
+        """资产同名同分类但金额不一致 → 冲突，留待手动处理"""
+        src = client.post('/api/ledgers/', json={'name': '支付宝', 'ledger_type': 'fund'})
+        tgt = client.post('/api/ledgers/', json={'name': '蚂蚁杭州基金销售', 'ledger_type': 'fund'})
+        src_id = src.get_json()['data']['id']
+        tgt_id = tgt.get_json()['data']['id']
+
+        db.add(
+            Asset(user_id=1, major_category='cash', name='余额', amount=500000, account_name='支付宝', ledger_id=src_id)
+        )
+        db.add(
+            Asset(
+                user_id=1,
+                major_category='cash',
+                name='余额',
+                amount=300000,
+                account_name='蚂蚁杭州基金销售',
+                ledger_id=tgt_id,
+            )
+        )
+        db.commit()
+
+        resp = client.post(f'/api/ledgers/{src_id}/migrations/', json={'target_ledger_id': tgt_id})
+        assert resp.status_code == 200, resp.get_json()
+        data = resp.get_json()['data']
+        assert len(data['conflicts']) == 1
+        assert db.query(Asset).filter(Asset.ledger_id == src_id).count() == 1
+        assert db.query(Asset).filter(Asset.ledger_id == tgt_id).count() == 1
+
     def test_migrate_cross_type_rejected(self, client, db):
         """跨类型迁移应被拒绝"""
         src = client.post('/api/ledgers/', json={'name': '华泰证券', 'ledger_type': 'stock'})
