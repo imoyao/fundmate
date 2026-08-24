@@ -21,6 +21,7 @@ import requests
 
 from app.domains.positions.models import FundManagementCompany, SalesInstitution
 from app.services.sync.jobs.base import SyncJob
+from app.services.sync.pinyin_utils import generate_pinyin_abbr
 
 AMAC_AGENCY_URL = 'https://www.amac.org.cn//portal/front/infopublic/fsAgencyAnno/findFsAgencyAnnos'
 AMAC_HOUSE_URL = 'https://www.amac.org.cn/portal/front/mutualFund/findMutualFundHousePage'
@@ -143,23 +144,30 @@ class AmacInstitutionJob(SyncJob):
         self._seen_org_names: set = set()
         self._seen_house_names: set = set()
 
+        # 批量预载现有行，避免逐条 query 的 N+1 问题（#1084 review）
+        existing_sales = {r.org_name: r for r in self.db.query(SalesInstitution).all()}
+        existing_houses = {r.house_name: r for r in self.db.query(FundManagementCompany).all()}
+
         for item in new_data:
             if item.get('kind') == 'sales':
-                self._upsert_sales(item)
+                self._upsert_sales(item, existing_sales)
             else:
-                self._upsert_house(item)
+                self._upsert_house(item, existing_houses)
         self.db.commit()
 
-    def _upsert_sales(self, item: dict) -> None:
+    def _upsert_sales(self, item: dict, existing: dict) -> None:
         org_name = item['orgName'].strip()
         self._seen_org_names.add(org_name)
         curated = CURATED_INSTITUTIONS.get(org_name)
-        row = self.db.query(SalesInstitution).filter_by(org_name=org_name).first()
+        # 拼音简拼为派生数据（源自 org_name），每次同步覆写，供前端检索过滤（#1081）
+        pinyin_short = generate_pinyin_abbr(org_name)
+        row = existing.get(org_name)
         if row:
             row.reg_addr = item.get('regAddr') or row.reg_addr
             row.org_type = item.get('orgType') or row.org_type
             row.check_time = item.get('checkTime') or row.check_time
             row.is_active = True  # 仍在公示名单 → 恢复/保持 active
+            row.pinyin_short = pinyin_short
             if curated:
                 # 策展行覆写三件套：代码即 source of truth，保证多环境收敛（见常量注释）
                 row.display_name, row.common_sort = curated
@@ -174,15 +182,16 @@ class AmacInstitutionJob(SyncJob):
                     display_name=curated[0] if curated else None,
                     is_common=bool(curated),
                     common_sort=curated[1] if curated else None,
+                    pinyin_short=pinyin_short,
                     is_active=True,
                 )
             )
             self.stats['success'] += 1
 
-    def _upsert_house(self, item: dict) -> None:
+    def _upsert_house(self, item: dict, existing: dict) -> None:
         house_name = item['houseName'].strip()
         self._seen_house_names.add(house_name)
-        row = self.db.query(FundManagementCompany).filter_by(house_name=house_name).first()
+        row = existing.get(house_name)
         if row:
             row.register_addr = item.get('registerAddr') or row.register_addr
             row.office_addr = item.get('officeAddr') or row.office_addr

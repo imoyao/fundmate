@@ -58,12 +58,13 @@
         class="w-full"
         clearable
         filterable
-        placeholder="可不选"
+        placeholder="可不选，支持汉字/别名/拼音首字母（如 ht=华泰）"
+        :filter-method="filterInstitution"
         @update:model-value="onSalesInstitutionChange"
       >
         <!-- 常用机构置顶分组（is_common，按 common_sort 升序）+ 全部机构（#1081）。
-             filterable 默认按 el-option 的 label 过滤，label 同时含全称与常用名，
-             两组选项均参与过滤（Element Plus 分组下空组自动隐藏），无需自定义 filter-method -->
+             自定义 filter-method：汉字原文 / 常用别名 / 拼音首字母简拼（pinyin_short）
+             三路匹配，由 visibleInstitutions computed 统一过滤，空组不渲染 -->
         <el-option-group v-if="commonInstitutions.length" label="常用机构">
           <el-option
             v-for="inst in commonInstitutions"
@@ -87,7 +88,7 @@
             </div>
           </el-option>
         </el-option-group>
-        <el-option-group label="全部机构">
+        <el-option-group v-if="otherInstitutions.length" label="全部机构">
           <el-option
             v-for="inst in otherInstitutions"
             :key="inst.id"
@@ -180,9 +181,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { LEDGER_TYPE_OPTIONS } from "@/constants";
-import type { SalesInstitution } from "@/api/ledger";
+import type { SalesInstitution, LedgerItem } from "@/api/ledger";
+import type { PortfolioItem } from "@/api/portfolio";
 import FeeConfigFields from "./FeeConfigFields.vue";
 
 // ── 销售机构类型映射（#1081/#1082，AMAC 原始 11 类 org_type）──
@@ -240,9 +242,9 @@ interface Props {
   ledgerType: string;
   linkedCashId: number | null;
   portfolioId: number | null;
-  cashLedgers?: any[];
-  portfolioList?: any[];
-  feeConfig?: any; // 初始费率对象
+  cashLedgers?: LedgerItem[];
+  portfolioList?: PortfolioItem[];
+  feeConfig?: Record<string, unknown> | null; // 初始费率对象
   /** 已选择的基金销售机构 id（null=未选择） */
   salesInstitutionId?: number | null;
   /** 销售机构候选列表（AMAC 名录，父组件加载传入） */
@@ -268,21 +270,40 @@ const emit = defineEmits<{
   "update:salesInstitutionId": [value: number | null];
 }>();
 
+/** 销售机构下拉检索关键词（小写），由 filter-method 回写，驱动 visibleInstitutions 过滤 */
+const institutionFilter = ref("");
+
 /**
  * 按当前账户类型过滤后的机构列表。
  * 过滤在前端做而非调 API 传 org_types：ledger_type 在表单内可随时切换，
  * 四个调用方（ledgers 列表页 / 详情编辑 / 资产录入 / 导入向导）均已一次性
  * 加载全量名录经 props 传入，前端 computed 过滤零额外请求、类型切换即时生效。
  * 兼容回退：org_type 缺失（后端旧响应）的条目保持可见，避免下拉被过滤成空。
+ *
+ * 文本检索（#1081 用户反馈）：支持汉字原文 / 常用别名 / 拼音首字母简拼
+ * （pinyin_short 由后端 AMAC job 派生）三路匹配，大小写不敏感。
  */
 const visibleInstitutions = computed<SalesInstitution[]>(() => {
   const allowed = LEDGER_TYPE_ORG_TYPES[props.ledgerType];
-  if (!allowed) return props.salesInstitutions;
-  const allowSet = new Set(allowed);
-  return props.salesInstitutions.filter(
-    inst => !inst.org_type || allowSet.has(inst.org_type)
+  let list = props.salesInstitutions;
+  if (allowed) {
+    const allowSet = new Set(allowed);
+    list = list.filter(inst => !inst.org_type || allowSet.has(inst.org_type));
+  }
+  const kw = institutionFilter.value;
+  if (!kw) return list;
+  return list.filter(
+    inst =>
+      inst.org_name.toLowerCase().includes(kw) ||
+      (inst.display_name ?? "").toLowerCase().includes(kw) ||
+      (inst.pinyin_short ?? "").toLowerCase().includes(kw)
   );
 });
+
+/** 自定义过滤入口：Element Plus 每次输入回调，记录关键词交由 computed 过滤 */
+function filterInstitution(query: string) {
+  institutionFilter.value = query.trim().toLowerCase();
+}
 
 /** 常用机构组：is_common=true，按 common_sort 升序（缺省排最后） */
 const commonInstitutions = computed<SalesInstitution[]>(() =>

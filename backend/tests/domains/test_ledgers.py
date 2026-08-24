@@ -1405,6 +1405,7 @@ class TestSalesInstitutionsAPI:
                     is_common=True,
                     common_sort=1,
                     display_name='支付宝',
+                    pinyin_short='MYHZZJJJXSYXGS',
                 ),
                 SalesInstitution(org_name='中信证券', org_type='证券公司'),
                 SalesInstitution(org_name='招商银行', org_type='全国性商业银行', is_common=True, common_sort=2),
@@ -1418,11 +1419,21 @@ class TestSalesInstitutionsAPI:
         self._seed(db)
         resp = client.get('/api/ledgers/sales-institutions/')
         assert resp.status_code == 200
+        assert resp.get_json()['message'] == 'ok'
         data = resp.get_json()['data']
-        assert set(data[0].keys()) >= {'id', 'org_name', 'display_name', 'org_type', 'is_common', 'common_sort'}
+        assert set(data[0].keys()) >= {
+            'id',
+            'org_name',
+            'display_name',
+            'org_type',
+            'is_common',
+            'common_sort',
+            'pinyin_short',
+        }
         commons = [r for r in data if r['is_common']]
         assert [r['common_sort'] for r in commons] == [1, 2, 33]
         assert commons[0]['display_name'] == '支付宝'
+        assert commons[0]['pinyin_short'] == 'MYHZZJJJXSYXGS'
         first_non_common = next(i for i, r in enumerate(data) if not r['is_common'])
         assert all(r['is_common'] for r in data[:first_non_common])
         # 非常用段字典序：中信证券 < 某期货公司
@@ -1433,6 +1444,7 @@ class TestSalesInstitutionsAPI:
         self._seed(db)
         resp = client.get('/api/ledgers/sales-institutions/?org_types=证券公司')
         assert resp.status_code == 200
+        assert resp.get_json()['message'] == 'ok'
         data = resp.get_json()['data']
         assert [r['org_name'] for r in data] == ['中信证券']
 
@@ -1440,6 +1452,8 @@ class TestSalesInstitutionsAPI:
         """org_types 多值逗号分隔。"""
         self._seed(db)
         resp = client.get('/api/ledgers/sales-institutions/?org_types=证券公司,期货公司')
+        assert resp.status_code == 200
+        assert resp.get_json()['message'] == 'ok'
         data = resp.get_json()['data']
         assert {r['org_name'] for r in data} == {'中信证券', '某期货公司'}
 
@@ -1450,6 +1464,8 @@ class TestSalesInstitutionsAPI:
             '/api/ledgers/sales-institutions/',
             query_string={'org_types': '独立基金销售机构,全国性商业银行'},
         )
+        assert resp.status_code == 200
+        assert resp.get_json()['message'] == 'ok'
         data = resp.get_json()['data']
         assert [r['org_name'] for r in data] == [
             '蚂蚁（杭州）基金销售有限公司',

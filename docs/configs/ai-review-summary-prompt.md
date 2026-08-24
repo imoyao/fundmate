@@ -26,6 +26,7 @@
 - **禁止**新增 `backend.fundmate` 引用（V1 已退役）；`backend/pyproject.toml` 项目名 `showbuy` 是历史遗留，勿据此判断归属。
 - 测试：用 `tests/conftest.py` 夹具，**禁止**直接导入 `SessionLocal`；`pypinyin` 必须延迟导入。
 - `services/thermometer/data/all_pb.csv` **禁止**删除或 `.gitignore`（温度计基线）。
+- 双库约束（权威事实来源=`backend/app/core/db_factory.py` 的 `DATA_DOMAIN_REGISTRY`）：**不要**建议给 ORM 模型加 `__data_domain__` 属性（当前代码只用注册表，无模型属性）；user 域表读写须用 `user_session()`，market 域表用 `market_session()`；涉及 `sales_institutions` / `fund_management_companies`（均为 `DOMAIN_USER`）时**不要建议 `market_session()`**，会落错库。
 
 **前端（Vue 3 / TS / Element Plus）**
 - **禁止** `any` / `Record<string, any>` 作 API 入参/响应类型；组件 `defineOptions.name` 须与路由 `name` 一致。

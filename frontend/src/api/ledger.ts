@@ -38,11 +38,14 @@ export interface SalesInstitution {
   is_common?: boolean;
   /** 常用组内排序（小者在前），非常用为 null/缺省 */
   common_sort?: number | null;
+  /** 名称拼音首字母简拼（后端 AMAC job 派生），供下拉检索（如 ht=华泰证券） */
+  pinyin_short?: string | null;
 }
 
 /**
  * 获取启用中的基金销售机构名录（GET /api/ledgers/sales-institutions/）。
- * params.org_types：逗号分隔的原始 org_type 过滤（后端契约 #1082）；缺省返回全部。
+ *
+ * @param params 可选过滤参数；params.org_types 为逗号分隔（或重复传参）的原始 org_type 过滤（后端契约 #1082），缺省返回全部。
  */
 export function getSalesInstitutions(params?: { org_types?: string }) {
   return http.request<{ data: SalesInstitution[] }>(

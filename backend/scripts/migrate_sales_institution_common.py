@@ -18,45 +18,48 @@ import os
 import sqlite3
 import sys
 
+from loguru import logger
+
 # 列定义与模型保持一致（app/domains/positions/models.py SalesInstitution）
 COLUMNS = {
     'is_common': 'INTEGER NOT NULL DEFAULT 0',
     'common_sort': 'INTEGER',
+    'pinyin_short': 'VARCHAR(100)',
 }
 
 
 def main() -> None:
     db_url = os.getenv('DATABASE_URL', 'sqlite:///./invest.db')
     if not db_url.startswith('sqlite'):
-        print('仅支持 SQLite 数据库迁移，当前 DATABASE_URL=%s，请手动处理。' % db_url)
+        logger.warning('仅支持 SQLite 数据库迁移，当前 DATABASE_URL={}，请手动处理。', db_url)
         sys.exit(1)
 
     # 提取文件路径：sqlite:///./invest.db 或 sqlite:////abs/path.db
     path = db_url.replace('sqlite:///', '', 1)
     if not os.path.isabs(path):
         path = os.path.abspath(path)
-    print(f'目标数据库: {path}')
+    logger.info('目标数据库: {}', path)
     if not os.path.exists(path):
-        print('数据库文件不存在，无需迁移（首次启动将自动建表）。')
+        logger.info('数据库文件不存在，无需迁移（首次启动将自动建表）。')
         sys.exit(0)
 
     conn = sqlite3.connect(path)
     try:
         tables = {row[0] for row in conn.execute("select name from sqlite_master where type='table'")}
         if 'sales_institutions' not in tables:
-            print('sales_institutions 表不存在，无需迁移（首次启动将自动建表）。')
+            logger.info('sales_institutions 表不存在，无需迁移（首次启动将自动建表）。')
             sys.exit(0)
         cols = {row[1] for row in conn.execute('PRAGMA table_info(sales_institutions)')}
         for col, ddl in COLUMNS.items():
             if col in cols:
-                print(f'  [SKIP] {col} 已存在')
+                logger.info('  [SKIP] {} 已存在', col)
                 continue
             conn.execute(f'ALTER TABLE sales_institutions ADD COLUMN {col} {ddl}')
-            print(f'  [OK] 已添加 {col}')
+            logger.success('  [OK] 已添加 {}', col)
         conn.commit()
     finally:
         conn.close()
-    print('[OK] 迁移完成。策展数据请运行: pdm run sync --job amac_institution')
+    logger.info('[OK] 迁移完成。策展数据请运行: pdm run sync --job amac_institution')
 
 
 if __name__ == '__main__':

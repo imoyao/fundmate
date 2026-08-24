@@ -2,7 +2,8 @@
 import { ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import AccountFormFields from "./AccountFormFields.vue";
-import { createLedger, type SalesInstitution } from "@/api/ledger";
+import { createLedger, type SalesInstitution, type LedgerItem } from "@/api/ledger";
+import type { PortfolioItem } from "@/api/portfolio";
 
 /**
  * 新建账户对话框（#984 ledgers/index.vue 拆分）。
@@ -11,8 +12,8 @@ import { createLedger, type SalesInstitution } from "@/api/ledger";
  */
 const props = defineProps<{
   visible: boolean;
-  cashLedgers: any[];
-  portfolioList: any[];
+  cashLedgers: LedgerItem[];
+  portfolioList: PortfolioItem[];
   salesInstitutions: SalesInstitution[];
   /** 打开时预置的账户类型（#1082 入口预填）；缺省 stock，默认行为不回归 */
   initialLedgerType?: string;

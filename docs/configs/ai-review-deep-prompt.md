@@ -28,7 +28,12 @@
 - **禁止**新增 `backend.fundmate` 引用（V1 已退役）；`backend/pyproject.toml` 项目名 `showbuy` 是历史遗留，勿据此判断归属。
 - 测试：用 `tests/conftest.py` 夹具，**禁止**直接导入 `SessionLocal`；`pypinyin` 必须延迟导入。
 - `services/thermometer/data/all_pb.csv` **禁止**删除或 `.gitignore`（温度计基线）。
-- 双库约束（`docs/dev/db-data-domain.md`）：ORM 模型必须声明 `__data_domain__`（market/user）；跨域零外键、零 SQL join；Session 只能走 `market_session()` / `user_session()`，禁止混用。
+- 双库约束（`docs/dev/db-data-domain.md`，但**权威事实来源是 `backend/app/core/db_factory.py` 的 `DATA_DOMAIN_REGISTRY`**）：
+  - **不要在 ORM 模型上加 `__data_domain__` 类属性**——当前实现只用 `DATA_DOMAIN_REGISTRY` 注册表（`validate_domain_labels` 校验的是注册表完整性），没有任何模型声明该属性；建议「给模型加 `__data_domain__`」是过时约定，属于冗余/错误建议。
+  - 判定「该用哪个 session」时，**先查 `DATA_DOMAIN_REGISTRY`** 这张表属于 market 还是 user：**user 域表必须走 `user_session()`，market 域表走 `market_session()`**，禁止混用，也禁止用 `get_db()` / `SessionLocal`（market/app 引擎）去碰 user 域表。
+  - 具体到本仓库：`sales_institutions` 与 `fund_management_companies` 在注册表里都是 `DOMAIN_USER`，因此它们的读写只能用 `user_session()`——**绝不要建议改成 `market_session()`**，那会把 user 域数据落错库。
+  - 跨域零外键、零 SQL join；跨域读取走应用层两步法（`app/services/common/cross_domain.py`）。
+  - 注意：当前运行态默认 `init_db()` 把所有表建到 app 引擎，`get_db()` 在单库模式下可用；但若 PR 明确以双库/双 Session 为目标，user 域读写必须切到 `user_session()`，此时不要给 `get_db()` 兜底，而应明确改用 `user_session()`；若改 Session 路由，务必同步更新 `tests/conftest.py` 对 user 引擎的 patch，否则测试会因指向独立 SQLite 而失败。
 
 **前端（Vue 3 / TS / Element Plus）**
 - **禁止** `any` / `Record<string, any>` 作 API 入参/响应类型；组件 `defineOptions.name` 须与路由 `name` 一致。

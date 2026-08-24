@@ -82,8 +82,13 @@ def list_sales_institutions():
     排序：常用机构（is_common）按 common_sort 升序置顶，其余按名称字典序——
     前端据此拆「常用机构 / 全部机构」两个分组（#1081）。
     """
-    org_types_param = (request.args.get('org_types') or '').strip()
-    org_types = [t.strip() for t in org_types_param.split(',') if t.strip()]
+    # 兼容两种传参：逗号分隔（org_types=A,B）或重复参数（org_types=A&org_types=B）
+    org_types: list[str] = []
+    for raw in request.args.getlist('org_types'):
+        for t in raw.split(','):
+            t = t.strip()
+            if t:
+                org_types.append(t)
 
     with get_db() as db:
         query = db.query(SalesInstitution).filter(SalesInstitution.is_active.is_(True))
@@ -102,6 +107,7 @@ def list_sales_institutions():
                 'org_type': institution.org_type,
                 'is_common': institution.is_common,
                 'common_sort': institution.common_sort,
+                'pinyin_short': institution.pinyin_short,
             }
             for institution in institutions
         ]
