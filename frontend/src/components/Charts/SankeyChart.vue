@@ -393,6 +393,8 @@ onBeforeUnmount(() => {
 .sankey-chart-container {
   position: relative;
   width: 100%;
+
+  /* 注意：CSS v-bind 区分大小写，必须与 script 中的 containerHeightPx 完全一致 */
   height: v-bind(containerHeightPx);
   contain: layout style;
 }
