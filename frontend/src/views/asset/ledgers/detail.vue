@@ -1330,6 +1330,11 @@ onMounted(async () => {
       // 货基收益依赖 summary 判定账户类型，故在 summary 就绪后再拉
       if (summaryData.value?.ledger_type === "fund")
         await loadMoneyFundIncome();
+      // 修复：首屏填充 ledgers，使 accountInfo 可解析，从而显示右上角操作栏
+      // （编辑/归档/删除/对账/批量迁移）。此前仅在点击这些按钮时才拉取，
+      // 而按钮本身又在 v-if="accountInfo" 内，形成死锁导致操作栏永不显示。
+      const ledgerRes = await getLedgers(true);
+      ledgers.value = (ledgerRes as { data?: LedgerItem[] })?.data ?? [];
     } else {
       await loadHoldings();
     }
