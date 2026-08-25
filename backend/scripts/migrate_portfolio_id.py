@@ -53,6 +53,21 @@ def _migrate_on_engine(engine, label: str) -> None:
         orphan = conn.execute(text('SELECT COUNT(*) FROM positions WHERE ledger_id IS NULL')).scalar()
     if orphan:
         print(f'[WARN][{label}] 存在 {orphan} 条 ledger_id 为 NULL 的持仓，无法归属组合，请业务侧修复')
+
+    # 校验：ledger_id 非空但指向不存在账户（悬空外键）的持仓
+    # 这类持仓回填时子查询取不到 ledger.portfolio_id，会留下 portfolio_id 为 NULL 的空壳，
+    # 需在业务侧清理无效 ledger_id 后再迁移。
+    with engine.connect() as conn:
+        dangling = conn.execute(
+            text(
+                'SELECT COUNT(*) FROM positions p '
+                'WHERE p.ledger_id IS NOT NULL '
+                'AND NOT EXISTS (SELECT 1 FROM ledgers l WHERE l.id = p.ledger_id)'
+            )
+        ).scalar()
+    if dangling:
+        print(f'[WARN][{label}] 存在 {dangling} 条 ledger_id 指向不存在账户的持仓（悬空外键），请业务侧修复')
+
     print(f'[{label}] 回填完成（组合归属已继承账户默认组合）')
 
 

@@ -228,3 +228,29 @@ class TestMigrationBackfill:
         db.commit()
         db.refresh(pos)
         assert pos.portfolio_id == pb.id, '已显式改派的持仓不应被回填覆盖'
+
+    def test_backfill_leaves_dangling_ledger_unfilled(self, db):
+        """ledger_id 指向不存在账户（悬空外键）的持仓，回填后 portfolio_id 仍为空。"""
+        portfolio = Portfolio(name='默认组合')
+        db.add(portfolio)
+        db.commit()
+        db.refresh(portfolio)
+
+        ledger = _make_ledger(db, portfolio_id=portfolio.id)
+        pos = _make_position(db, ledger, symbol='DANGLING')
+
+        # 篡改 ledger_id 为不存在的账户，模拟悬空外键
+        db.execute(text('UPDATE positions SET ledger_id = -999 WHERE id = :pid'), {'pid': pos.id})
+        db.commit()
+        db.refresh(pos)
+
+        db.execute(
+            text(
+                'UPDATE positions SET portfolio_id = ('
+                'SELECT l.portfolio_id FROM ledgers l WHERE l.id = positions.ledger_id) '
+                'WHERE positions.portfolio_id IS NULL'
+            )
+        )
+        db.commit()
+        db.refresh(pos)
+        assert pos.portfolio_id is None, '悬空外键的持仓回填后应保持 NULL（迁移脚本会告警）'
