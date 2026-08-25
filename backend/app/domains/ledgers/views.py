@@ -410,6 +410,62 @@ def unarchive_ledger(ledger_id: int):
         return jsonify({'data': _ledger_to_dict(ledger), 'message': 'ok'})
 
 
+MIGRATE_CONFLICT_FIELD_LABELS = {
+    'quantity': '份额',
+    'avg_price': '成本价',
+    'confirm_date': '成本日',
+    'amount': '金额',
+}
+
+
+def _build_conflict_reason(source: dict, target: dict) -> str:
+    """根据 source/target 差异生成中文冲突原因（列出不一致的字段及双方取值）。"""
+    parts = []
+    for key, label in MIGRATE_CONFLICT_FIELD_LABELS.items():
+        if source.get(key) != target.get(key):
+            parts.append(f'{label}不一致（源 {source.get(key)} / 目标 {target.get(key)}）')
+    return '；'.join(parts)
+
+
+def _build_position_conflict(src_pos, target_pos) -> dict:
+    """构造持仓冲突项：源/目标以可读单位（份/元/日期）呈现，并标注差异字段与原因。"""
+    source = {
+        'quantity': Money.min_unit_to_shares(src_pos.quantity),
+        'avg_price': Money.cents_to_yuan(src_pos.avg_price) if src_pos.avg_price else None,
+        'confirm_date': src_pos.confirm_date.isoformat() if src_pos.confirm_date else None,
+    }
+    target = {
+        'quantity': Money.min_unit_to_shares(target_pos.quantity),
+        'avg_price': Money.cents_to_yuan(target_pos.avg_price) if target_pos.avg_price else None,
+        'confirm_date': target_pos.confirm_date.isoformat() if target_pos.confirm_date else None,
+    }
+    diff_fields = [k for k in ('quantity', 'avg_price', 'confirm_date') if source[k] != target[k]]
+    return {
+        'symbol': src_pos.symbol,
+        'name': src_pos.name,
+        'source': source,
+        'target': target,
+        'diff_fields': diff_fields,
+        'reason': _build_conflict_reason(source, target),
+    }
+
+
+def _build_asset_conflict(src_asset, target_asset) -> dict:
+    """构造资产冲突项：金额不一致时给出双方取值与原因。"""
+    source = {'amount': Money.cents_to_yuan(src_asset.amount) if src_asset.amount else None}
+    target = {'amount': Money.cents_to_yuan(target_asset.amount) if target_asset.amount else None}
+    diff_fields = ['amount'] if source['amount'] != target['amount'] else []
+    return {
+        'name': src_asset.name,
+        'major_category': src_asset.major_category,
+        'minor_category': src_asset.minor_category,
+        'source': source,
+        'target': target,
+        'diff_fields': diff_fields,
+        'reason': _build_conflict_reason(source, target),
+    }
+
+
 @ledgers_bp.post('/<int:ledger_id>/migrations/')
 def migrate_positions(ledger_id: int):
     data = request.get_json() or {}
@@ -462,22 +518,7 @@ def migrate_positions(ledger_id: int):
                 position_count += 1
                 continue
             # 字段不一致 → 冲突：不迁移、不丢弃，留给用户手动处理
-            position_conflicts.append(
-                {
-                    'symbol': p.symbol,
-                    'name': p.name,
-                    'source': {
-                        'quantity': p.quantity,
-                        'avg_price': p.avg_price,
-                        'confirm_date': str(p.confirm_date) if p.confirm_date else None,
-                    },
-                    'target': {
-                        'quantity': dup.quantity,
-                        'avg_price': dup.avg_price,
-                        'confirm_date': str(dup.confirm_date) if dup.confirm_date else None,
-                    },
-                }
-            )
+            position_conflicts.append(_build_position_conflict(p, dup))
 
         # 迁移资产：同名同分类按金额完全一致判定为重复，否则视为冲突
         asset_count = 0
@@ -504,15 +545,7 @@ def migrate_positions(ledger_id: int):
                 db.delete(a)  # 重复资产：保留目标、丢弃源
                 asset_count += 1
                 continue
-            asset_conflicts.append(
-                {
-                    'name': a.name,
-                    'major_category': a.major_category,
-                    'minor_category': a.minor_category,
-                    'source': {'amount': a.amount},
-                    'target': {'amount': dup.amount},
-                }
-            )
+            asset_conflicts.append(_build_asset_conflict(a, dup))
 
         db.commit()
 
