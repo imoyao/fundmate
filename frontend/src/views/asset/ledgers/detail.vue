@@ -1117,11 +1117,19 @@ async function handleBatchMigrate() {
   if (!batchTargetLedgerId.value) return;
   batchMigrating.value = true;
   try {
-    await migrateLedgerPositions(
+    const res = await migrateLedgerPositions(
       Number(ledgerId.value),
       batchTargetLedgerId.value
     );
-    ElMessage.success("迁移成功");
+    const conflicts = res.data?.conflicts ?? [];
+    if (conflicts.length) {
+      const keys = conflicts.map(c => c.symbol || c.name).join("、");
+      ElMessage.warning(
+        `已迁移无冲突项；${conflicts.length} 项因数据冲突未迁移（${keys}），请在前端手动核对后删除重复项再迁移`
+      );
+    } else {
+      ElMessage.success("迁移成功");
+    }
     batchMigrateVisible.value = false;
     loadHoldings();
   } catch (e) {
