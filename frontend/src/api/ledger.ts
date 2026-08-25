@@ -1,4 +1,5 @@
 import { http } from "@/utils/http";
+import type { ApiResponse } from "@/api/types";
 
 export interface LedgerItem {
   id: number;
@@ -57,7 +58,7 @@ export function getSalesInstitutions(params?: { org_types?: string }) {
 
 /** 获取用户的所有账户列表。includeArchived=true 时一并取回已归档账户。 */
 export function getLedgers(includeArchived: boolean = false) {
-  return http.request<any>("get", "/api/ledgers/", {
+  return http.request<ApiResponse<LedgerItem[]>>("get", "/api/ledgers/", {
     params: { include_archived: includeArchived }
   });
 }
@@ -121,11 +122,27 @@ export function deleteLedgerWithOptions(
 }
 
 /** 将指定账户的持仓批量迁移到同类型目标账户 */
+export interface MigrateConflict {
+  symbol?: string;
+  name?: string;
+  major_category?: string;
+  minor_category?: string;
+  source?: Record<string, unknown>;
+  target?: Record<string, unknown>;
+}
+
+export interface MigrateResult {
+  position_count: number;
+  asset_count: number;
+  total: number;
+  conflicts: MigrateConflict[];
+}
+
 export function migrateLedgerPositions(
   sourceLedgerId: number,
   targetLedgerId: number
 ) {
-  return http.request<any>(
+  return http.request<ApiResponse<MigrateResult>>(
     "post",
     `/api/ledgers/${sourceLedgerId}/migrations/`,
     {
