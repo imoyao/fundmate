@@ -845,7 +845,16 @@ class TestLedgerBatchMigrate:
         data = resp.get_json()['data']
         # 冲突被上报，且源/目标都各自保留一份（未迁移、未丢弃）
         assert len(data['conflicts']) == 1
-        assert data['conflicts'][0]['symbol'] == '510300'
+        conflict = data['conflicts'][0]
+        assert conflict['symbol'] == '510300'
+        # 冲突须明确告知：哪些字段不一致 + 中文原因
+        assert set(conflict['diff_fields']) == {'quantity', 'avg_price'}
+        assert '份额不一致' in conflict['reason']
+        assert '成本价不一致' in conflict['reason']
+        # 以可读单位（份/元）呈现，便于前端直接展示
+        assert conflict['source']['quantity'] == 100.0
+        assert conflict['target']['quantity'] == 50.0
+        assert conflict['source']['avg_price'] == 10.0
         assert db.query(Position).filter(Position.ledger_id == src_id).count() == 1
         assert db.query(Position).filter(Position.ledger_id == tgt_id).count() == 1
 
