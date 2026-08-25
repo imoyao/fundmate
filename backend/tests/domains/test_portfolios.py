@@ -32,6 +32,7 @@ def test_portfolio_holdings_with_position(client, db):
         name='测试股票',
         asset_type='stock',
         account_name='测试账户',
+        ledger_id=ledger.id,
         market='CN_A',
         quantity=Money.shares_to_min_unit(100),
         avg_price=Money.yuan_to_cents(10.0),
