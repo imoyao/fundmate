@@ -943,6 +943,20 @@ class TestLedgerBatchMigrate:
         data = resp.get_json()['data']
         assert data['total'] == 0
 
+    def test_migrate_cross_family_rejected(self, client, db):
+        """跨家庭迁移必须被拒绝，防止把持仓越权迁入他人账本（IDOR）"""
+        src = client.post('/api/ledgers/', json={'name': '我家证券', 'ledger_type': 'stock'})
+        src_id = src.get_json()['data']['id']
+        # 直接造一个属于另一家庭(family_id=2)的同类型账本作目标
+        tgt = Ledger(name='他人证券', ledger_type='stock', family_id=2)
+        db.add(tgt)
+        db.commit()
+        tgt_id = tgt.id
+
+        resp = client.post(f'/api/ledgers/{src_id}/migrations/', json={'target_ledger_id': tgt_id})
+        assert resp.status_code == 403
+        assert '同家庭' in resp.get_json()['message']
+
 
 class TestLedgerSummary:
     """测试账户详情概览卡片接口"""

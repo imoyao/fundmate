@@ -423,6 +423,10 @@ def migrate_positions(ledger_id: int):
         if not source or not target:
             return jsonify({'data': None, 'message': '账户不存在'}), 404
 
+        # 目标账户必须同属当前家庭，否则可把持仓越权迁入他人账本（IDOR）
+        if source.family_id != target.family_id:
+            return jsonify({'data': None, 'message': '只能迁移到同家庭账户'}), 403
+
         if source.ledger_type != target.ledger_type:
             return jsonify({'data': None, 'message': '只能迁移到同类型账户'}), 400
 
