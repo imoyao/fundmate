@@ -11,6 +11,7 @@ class PositionCreate(BaseModel):
     asset_type: str = Field('stock', validation_alias='type', description='产品类型')
     account_name: Optional[str] = Field(None, description='所属账户')
     ledger_id: Optional[int] = Field(None, description='所属账户ID')  # 新增
+    portfolio_id: Optional[int] = Field(None, description='所属组合ID(持仓级组合,可空)')
     quantity: Optional[float] = Field(None, description='数量')
     avg_price: Optional[float] = Field(None, description='平均价格/金额')
     currency: str = Field('CNY', description='币种')
@@ -31,6 +32,7 @@ class PositionUpdate(BaseModel):
     name: Optional[str] = Field(None, description='名称')
     account_name: Optional[str] = Field(None, description='所属账户')
     ledger_id: Optional[int] = Field(None, description='所属账户ID')  # 新增
+    portfolio_id: Optional[int] = Field(None, description='所属组合ID(持仓级组合,可空)')
     quantity: Optional[float] = Field(None, description='数量')
     avg_price: Optional[float] = Field(None, description='平均价格')
     current_price: Optional[float] = Field(None, description='当前价格')
@@ -49,6 +51,7 @@ class PositionOut(BaseModel):
     type: str = Field(validation_alias='asset_type', serialization_alias='type')
     account_name: Optional[str] = None
     ledger_id: Optional[int] = None  # 新增
+    portfolio_id: Optional[int] = None  # 持仓所属组合ID(D20)
     source: str = Field('manual', description='持仓来源: 见 app.core.constants.PositionSource')  # 新增：来源徽标依赖
     quantity: float
     avg_price: float
