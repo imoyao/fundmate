@@ -10,7 +10,7 @@
 from apiflask import APIBlueprint
 from flask import abort, jsonify, request
 from loguru import logger
-from sqlalchemy import update
+from sqlalchemy import and_, or_, update
 
 from app.core.auth import get_family_id, get_owned_or_404
 from app.core.constants import TYPE_LABELS
@@ -176,32 +176,42 @@ def get_portfolio_holdings(portfolio_id: int):
         if not portfolio:
             abort(404, '投资组合不存在')
 
-        # 2. 获取关联账户名称列表
-        ledger_names = [
+        # 2. 获取关联账户 ID 列表（组合 = 默认组合指向本组合的账户集合）
+        ledger_ids = [
             row[0]
-            for row in db.query(Ledger.name)
+            for row in db.query(Ledger.id)
             .filter(Ledger.portfolio_id == portfolio_id, Ledger.family_id == get_family_id())
             .all()
         ]
-        if not ledger_names:
+        if not ledger_ids:
             return jsonify({'data': [], 'message': 'ok'})
 
-        # 3. 查询这些账户下的持仓（排除非投资类型）
+        # 3. 查询持仓（仅用 portfolio_id / ledger_id 关联，杜绝 account_name 字符串匹配）
+        #    - 主路径：持仓显式归属本组合（positions.portfolio_id == P）
+        #    - 继承路径：仅当持仓未显式指定组合时，继承其账户(ledger)的默认组合
+        #    注意：显式 portfolio_id 必须覆盖 ledger 继承，否则改派后会同时出现在账户默认组合
+        pos_conds = [
+            Position.portfolio_id == portfolio_id,
+            and_(
+                Position.portfolio_id.is_(None),
+                Position.ledger_id.in_(ledger_ids),
+            ),
+        ]
         positions = (
             db.query(Position)
             .filter(
-                Position.account_name.in_(ledger_names),
+                or_(*pos_conds),
                 Position.asset_type.not_in(EXCLUDED_ASSET_TYPES),
                 Position.quantity > 0,
             )
             .all()
         )
 
-        # 4. 查询这些账户下的资产（取 signed_amount > 0 的资产类，负债通常为负不展示）
+        # 4. 账户级资产仍按 ledger_id 关联（现金不进持仓级组合，沿用账户归属）
         assets = (
             db.query(Asset)
             .filter(
-                Asset.account_name.in_(ledger_names),
+                Asset.ledger_id.in_(ledger_ids),
                 # 排除负债
                 Asset.major_category != 'liability',
             )
@@ -242,6 +252,7 @@ def get_portfolio_holdings(portfolio_id: int):
                     'type': asset.major_category,
                     'type_label': TYPE_LABELS.get(asset.major_category, asset.major_category or '其他'),
                     'account_name': asset.account_name,
+                    'ledger_id': asset.ledger_id,
                     'quantity': 1,
                     'current_price': Money.cents_to_yuan(asset.amount),
                     'avg_price': Money.cents_to_yuan(asset.amount),
