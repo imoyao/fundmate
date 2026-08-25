@@ -29,7 +29,7 @@
         >
           <IconifyIconOffline icon="ep:data-analysis" class="mr-1" /> 策略分析
         </el-button>
-        <el-button type="primary" @click="openCreateDialog">
+        <el-button type="primary" @click="openCreateDialog()">
           <IconifyIconOffline icon="ep:plus" class="mr-1" /> 新增账户
         </el-button>
         <el-button
@@ -177,12 +177,13 @@
           />
         </div>
 
-        <!-- 幽灵态新增占位符：胶囊小按钮，高度恒定 44px，不撑满网格行 -->
+        <!-- 幽灵态新增占位符：胶囊小按钮，高度恒定 44px，不撑满网格行。
+             携带分组类型打开弹窗，预置账户类型（#1082 入口预填） -->
         <button
           type="button"
           class="ghost-add"
           :aria-label="`新增${getLedgerTypeLabel(group.type)}`"
-          @click="openCreateDialog"
+          @click="openCreateDialog(group.type)"
         >
           <IconifyIconOffline icon="ep:plus" class="ghost-add__icon" />
           <span>新增{{ getLedgerTypeLabel(group.type) }}</span>
@@ -190,12 +191,14 @@
       </div>
     </template>
 
-    <!-- 新增账户对话框（#984 拆分至 components/CreateAccountDialog.vue） -->
+    <!-- 新增账户对话框（#984 拆分至 components/CreateAccountDialog.vue）；
+         initial-ledger-type：分组幽灵按钮入口预置账户类型（#1082） -->
     <CreateAccountDialog
       v-model:visible="showCreateDialog"
       :cash-ledgers="cashLedgers"
       :portfolio-list="portfolioList"
       :sales-institutions="salesInstitutions"
+      :initial-ledger-type="initialCreateType"
       @created="fetchData"
     />
 
@@ -253,6 +256,8 @@ const overviewData = ref<{
 const lastUpdate = ref("");
 
 const showCreateDialog = ref(false);
+/** 创建弹窗初始账户类型：顶部「新增账户」默认 stock；分组幽灵按钮预置对应类型（#1082） */
+const initialCreateType = ref("stock");
 /** 基金销售机构候选（AMAC 名录，创建账户可选关联） */
 const salesInstitutions = ref<SalesInstitution[]>([]);
 
@@ -328,7 +333,10 @@ const groupedLedgers = computed(() => {
   return result;
 });
 
-function openCreateDialog() {
+function openCreateDialog(ledgerType?: string) {
+  // 显式传 undefined 时回退默认 stock，避免点击事件对象被误当类型参数
+  initialCreateType.value =
+    ledgerType && typeof ledgerType === "string" ? ledgerType : "stock";
   showCreateDialog.value = true;
 }
 
