@@ -21,12 +21,14 @@
 
 **后端（Python / APIFlask）**
 - 金额/份额/净值：业务代码**禁止**直接 `*100`/`/100` 或裸 `float` 运算；换算必须走 `core/money.py` 的 `Money`（`yuan_to_cents` / `shares_to_min_unit`）；净值用 `DECIMAL(18,6)`。
+- `Money` 仅用于**业务层的金额/份额换算**；**数据库列仍是 `Integer`** 存储（金额按「分」、份额按「0.0001 份/单位」存整数，见 `Position.quantity`/`avg_price`/`current_price`、`Asset.amount` 均为 `Column(Integer)`）。**不要**建议把 Integer 列或测试用例的 fixture 值改为 `Money` 类型——审查前先核对 SQLAlchemy 模型的 `Column` 定义，仅对「裸 float 金额运算」提意见。
 - 日志：统一 `from loguru import logger`；**禁止**新增 `import logging` + `logging.getLogger`（唯一例外 `app/__init__.py` 的 `InterceptHandler`）。
 - API 错误统一 `{data, message, error_code}` 信封；端点尾斜杠约定（`/api/temperature/{overview,history,multi}` 无尾斜杠，其余有）。
 - **禁止**新增 `backend.fundmate` 引用（V1 已退役）；`backend/pyproject.toml` 项目名 `showbuy` 是历史遗留，勿据此判断归属。
 - 测试：用 `tests/conftest.py` 夹具，**禁止**直接导入 `SessionLocal`；`pypinyin` 必须延迟导入。
 - `services/thermometer/data/all_pb.csv` **禁止**删除或 `.gitignore`（温度计基线）。
 - 双库约束（权威事实来源=`backend/app/core/db_factory.py` 的 `DATA_DOMAIN_REGISTRY`）：**不要**建议给 ORM 模型加 `__data_domain__` 属性（当前代码只用注册表，无模型属性）；user 域表读写须用 `user_session()`，market 域表用 `market_session()`；涉及 `sales_institutions` / `fund_management_companies`（均为 `DOMAIN_USER`）时**不要建议 `market_session()`**，会落错库。
+  **注意**：`get_db()`（`SessionLocal`，app 引擎）用于 user 域表是**全仓库已知遗留问题**（约 25 文件/150+ 处），已在 **issue #1085** 统一跟踪，**非单 PR 引入**。除非该 PR 本身以双库/双 Session 迁移为目标，否则**不要**就单处 `get_db()` 提 [阻断]/[主要]；可轻描淡写引用 #1085 作为已知项，不得据此阻塞合并。
 
 **前端（Vue 3 / TS / Element Plus）**
 - **禁止** `any` / `Record<string, any>` 作 API 入参/响应类型；组件 `defineOptions.name` 须与路由 `name` 一致。
