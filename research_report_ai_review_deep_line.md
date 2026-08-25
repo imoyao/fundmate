@@ -26,10 +26,10 @@
 新增/修改文件：
 
 - `.github/workflows/ai-review.yml`：追加 `deep-review` job，温度 0.1、max_tokens 16000、API URL `https://ark.cn-beijing.volces.com/api/v3/`。
-- `.ai-review-deep.yaml`：深度线路 prompt 配置（summary/context/inline 三份均指向深度 prompt）。
-- `docs/configs/ai-review-deep-prompt.md`：深度审查指令——审查强度定位（宁可多报不放过）、严重度分级（阻断/主要/次要）、7 大审查维度（逻辑/精度/契约/安全/性能/可维护性/测试）、fundmate 专属清单（含双库 `__data_domain__` 约束、N+1/全表加载 OOM 风险、loguru、信封、前端 any 禁令等）、三种输出模式说明。
+- `.ai-review.yaml` 与 `.ai-review-deep.yaml`：两份配置现已指向**同一份**共享 prompt（见下），强度差异由各自 `review-command`（`run-summary` / `run`）+ prompt 内「按 review-command 自适应」段落区分，无需两份内容。
+- `docs/configs/ai-review-prompt.md`：两条线路共用的**单一权威 prompt**——审查强度定位（`run-summary` 偏总结性但深入、`run` 偏逐行 + 跨文件 + 严重度分级、宁多报）、严重度分级（阻断/主要/次要）、7 大审查维度（逻辑/精度/契约/安全/性能/可维护性/测试）、fundmate 专属清单（含双库 `DATA_DOMAIN_REGISTRY` 约束、`get_db()` 已知遗留 #1085 不阻塞、N+1/全表加载 OOM 风险、loguru、信封、前端 any 禁令、独立脚本豁免等）、三种输出模式说明。
 
-免费线路文件（`.ai-review.yaml`、`ai-review-summary-prompt.md`）与行为不变。
+> 修订（2026-08-25，PR #1092）：原 `docs/configs/ai-review-deep-prompt.md` 与 `docs/configs/ai-review-summary-prompt.md` 两份独立 prompt 已合并为上述单一 `ai-review-prompt.md`，两份旧文件已删除；两个 yaml 的三个 `*_prompt_files` 全部改为指向它。以后调整审查规则只需改一处。
 
 ## 三、实测效果
 
@@ -47,7 +47,7 @@
 
 1. GitHub 仓库 Settings → Secrets → Actions 新增 `ARK_API_KEY_DEEPSEEK`（与本地 `.env` 同值）。未配置前 `deep-review` job 会因缺 secret 报错，免费线路不受影响。
 2. （可选）若深度线路需要独立计费，在火山方舟控制台另建 key 并同步替换 `.env` 与 GitHub Secret。
-3. 首个 PR 触发后可观察两条评论的分工，按需微调深度 prompt 或模型（如换 `deepseek-v4-flash-ga-260731` 降本）。
+3. 首个 PR 触发后可观察两条评论的分工，按需微调共享 prompt（`docs/configs/ai-review-prompt.md`）或模型（如换 `deepseek-v4-flash-ga-260731` 降本）。
 
 ## 五、备注
 
