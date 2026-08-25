@@ -1164,7 +1164,7 @@ async function openEditDialog() {
       getLedgers(),
       getPortfolios()
     ]);
-    ledgers.value = (ledgerRes as { data?: LedgerItem[] })?.data ?? [];
+    ledgers.value = ledgerRes.data ?? [];
     portfolioList.value =
       (portfolioRes as { data?: PortfolioItem[] })?.data ?? [];
   } catch (e) {
@@ -1206,7 +1206,7 @@ async function toggleArchiveDetail(ledger: any) {
     }
     // 刷新账户信息（accountInfo 由 ledgers 派生）+ 顶部统计
     const res = await getLedgers(true);
-    ledgers.value = (res as { data?: LedgerItem[] })?.data ?? [];
+    ledgers.value = res.data ?? [];
     await loadSummary();
     await loadHoldings();
   } catch (e: any) {
@@ -1227,7 +1227,7 @@ async function handleUpdate() {
     ElMessage.success("账户已更新");
     showEditDialog.value = false;
     const ledgerRes = await getLedgers();
-    ledgers.value = (ledgerRes as { data?: LedgerItem[] })?.data ?? [];
+    ledgers.value = ledgerRes.data ?? [];
     await loadSummary();
     await loadHoldings();
   } catch (e) {
@@ -1330,6 +1330,16 @@ onMounted(async () => {
       // 货基收益依赖 summary 判定账户类型，故在 summary 就绪后再拉
       if (summaryData.value?.ledger_type === "fund")
         await loadMoneyFundIncome();
+      // 修复：首屏填充 ledgers，使 accountInfo 可解析，从而显示右上角操作栏
+      // （编辑/归档/删除/对账/批量迁移）。此前仅在点击这些按钮时才拉取，
+      // 而按钮本身又在 v-if="accountInfo" 内，形成死锁导致操作栏永不显示。
+      // 拉取失败仅影响操作栏可用性，不阻断概览/持仓等主流程，故单独兜底。
+      try {
+        const ledgerRes = await getLedgers(true);
+        ledgers.value = ledgerRes.data ?? [];
+      } catch (error) {
+        console.error("获取账本列表失败，操作栏暂不可用（其余详情正常）", error);
+      }
     } else {
       await loadHoldings();
     }

@@ -1,4 +1,5 @@
 import { http } from "@/utils/http";
+import type { ApiResponse } from "@/api/types";
 
 export interface LedgerItem {
   id: number;
@@ -57,7 +58,7 @@ export function getSalesInstitutions(params?: { org_types?: string }) {
 
 /** 获取用户的所有账户列表。includeArchived=true 时一并取回已归档账户。 */
 export function getLedgers(includeArchived: boolean = false) {
-  return http.request<any>("get", "/api/ledgers/", {
+  return http.request<ApiResponse<LedgerItem[]>>("get", "/api/ledgers/", {
     params: { include_archived: includeArchived }
   });
 }
