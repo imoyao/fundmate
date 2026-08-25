@@ -129,6 +129,8 @@ export interface MigrateConflict {
   minor_category?: string;
   source?: Record<string, unknown>;
   target?: Record<string, unknown>;
+  diff_fields?: string[];
+  reason?: string;
 }
 
 export interface MigrateResult {

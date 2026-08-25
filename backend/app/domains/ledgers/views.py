@@ -410,6 +410,109 @@ def unarchive_ledger(ledger_id: int):
         return jsonify({'data': _ledger_to_dict(ledger), 'message': 'ok'})
 
 
+MIGRATE_CONFLICT_FIELD_LABELS = {
+    'quantity': '份额',
+    'avg_price': '成本价',
+    'confirm_date': '成本日',
+    'amount': '金额',
+}
+
+
+def _build_conflict_reason(source: dict, target: dict) -> str:
+    """根据 source/target 差异生成中文冲突原因（列出不一致的字段及双方取值）。"""
+    parts = []
+    for key, label in MIGRATE_CONFLICT_FIELD_LABELS.items():
+        if source.get(key) != target.get(key):
+            parts.append(f'{label}不一致（源 {source.get(key)} / 目标 {target.get(key)}）')
+    return '；'.join(parts)
+
+
+def _build_position_conflict(src_pos, target_pos) -> dict:
+    """构造持仓冲突项：源/目标以可读单位（份/元/日期）呈现，并标注差异字段与原因。"""
+    source = {
+        'quantity': Money.min_unit_to_shares(src_pos.quantity),
+        'avg_price': Money.cents_to_yuan(src_pos.avg_price) if src_pos.avg_price else None,
+        'confirm_date': src_pos.confirm_date.isoformat() if src_pos.confirm_date else None,
+    }
+    target = {
+        'quantity': Money.min_unit_to_shares(target_pos.quantity),
+        'avg_price': Money.cents_to_yuan(target_pos.avg_price) if target_pos.avg_price else None,
+        'confirm_date': target_pos.confirm_date.isoformat() if target_pos.confirm_date else None,
+    }
+    diff_fields = [k for k in ('quantity', 'avg_price', 'confirm_date') if source[k] != target[k]]
+    return {
+        'symbol': src_pos.symbol,
+        'name': src_pos.name,
+        'source': source,
+        'target': target,
+        'diff_fields': diff_fields,
+        'reason': _build_conflict_reason(source, target),
+    }
+
+
+def _build_asset_conflict(src_asset, target_asset) -> dict:
+    """构造资产冲突项：金额不一致时给出双方取值与原因。"""
+    source = {'amount': Money.cents_to_yuan(src_asset.amount) if src_asset.amount else None}
+    target = {'amount': Money.cents_to_yuan(target_asset.amount) if target_asset.amount else None}
+    diff_fields = ['amount'] if source['amount'] != target['amount'] else []
+    return {
+        'name': src_asset.name,
+        'major_category': src_asset.major_category,
+        'minor_category': src_asset.minor_category,
+        'source': source,
+        'target': target,
+        'diff_fields': diff_fields,
+        'reason': _build_conflict_reason(source, target),
+    }
+
+
+def _migrate_transactions(
+    db,
+    src_ledger_id,
+    tgt_ledger_id,
+    tgt_account_name,
+    src_position_id=None,
+    tgt_position_id=None,
+):
+    """把来源账户下的交易记录一并归并到目标账户，保持与持仓的 ledger 一致。
+
+    - src_position_id 给定时只处理该持仓下的交易；为 None 时处理账户级
+      （position_id 为空，如存取/费用）交易。
+    - 交易改挂目标账户的 ledger_id / account_name；合并到目标持仓时同步改 position_id。
+    - 若目标账户已存在相同 import_hash 的交易（重复导入），丢弃来源这份以归一，
+      避免触发 uq_txn_import_hash(ledger_id, import_hash) 唯一约束冲突。
+    """
+    q = db.query(Transaction).filter(Transaction.ledger_id == src_ledger_id)
+    if src_position_id is None:
+        q = q.filter(Transaction.position_id.is_(None))
+    else:
+        q = q.filter(Transaction.position_id == src_position_id)
+    txns = q.all()
+    if not txns:
+        return 0
+    count = 0
+    for t in txns:
+        if t.import_hash:
+            exists = (
+                db.query(Transaction)
+                .filter(
+                    Transaction.ledger_id == tgt_ledger_id,
+                    Transaction.import_hash == t.import_hash,
+                )
+                .first()
+            )
+            if exists is not None:
+                db.delete(t)  # 重复交易：保留目标账户那份
+                count += 1
+                continue
+        t.ledger_id = tgt_ledger_id
+        t.account_name = tgt_account_name
+        if src_position_id is not None:
+            t.position_id = tgt_position_id
+        count += 1
+    return count
+
+
 @ledgers_bp.post('/<int:ledger_id>/migrations/')
 def migrate_positions(ledger_id: int):
     data = request.get_json() or {}
@@ -440,6 +543,7 @@ def migrate_positions(ledger_id: int):
         family_id = get_family_id()
         position_count = 0
         position_conflicts = []
+        transaction_count = 0
         for p in db.query(Position).filter(Position.ledger_id == source.id).all():
             dup = (
                 db.query(Position)
@@ -454,30 +558,33 @@ def migrate_positions(ledger_id: int):
                 p.ledger_id = target.id
                 p.account_name = target.name
                 p.updated_at = func.now()
+                # 持仓迁走，其交易记录一并改挂目标账户，避免与持仓 ledger 脱节
+                transaction_count += _migrate_transactions(
+                    db,
+                    source.id,
+                    target.id,
+                    target.name,
+                    src_position_id=p.id,
+                    tgt_position_id=p.id,
+                )
                 position_count += 1
                 continue
             # 字段完全一致 → 重复写入，保留目标、丢弃源（只留一份，不相加）
             if p.quantity == dup.quantity and p.confirm_date == dup.confirm_date and p.avg_price == dup.avg_price:
+                # 丢弃源持仓前，先把它的交易记录并入目标持仓（position_id 改挂 dup）
+                transaction_count += _migrate_transactions(
+                    db,
+                    source.id,
+                    target.id,
+                    target.name,
+                    src_position_id=p.id,
+                    tgt_position_id=dup.id,
+                )
                 db.delete(p)  # 关联 meta 随 CASCADE 清除
                 position_count += 1
                 continue
-            # 字段不一致 → 冲突：不迁移、不丢弃，留给用户手动处理
-            position_conflicts.append(
-                {
-                    'symbol': p.symbol,
-                    'name': p.name,
-                    'source': {
-                        'quantity': p.quantity,
-                        'avg_price': p.avg_price,
-                        'confirm_date': str(p.confirm_date) if p.confirm_date else None,
-                    },
-                    'target': {
-                        'quantity': dup.quantity,
-                        'avg_price': dup.avg_price,
-                        'confirm_date': str(dup.confirm_date) if dup.confirm_date else None,
-                    },
-                }
-            )
+            # 字段不一致 → 冲突：不迁移、不丢弃，留给用户手动处理（交易记录也留在源账户）
+            position_conflicts.append(_build_position_conflict(p, dup))
 
         # 迁移资产：同名同分类按金额完全一致判定为重复，否则视为冲突
         asset_count = 0
@@ -504,20 +611,17 @@ def migrate_positions(ledger_id: int):
                 db.delete(a)  # 重复资产：保留目标、丢弃源
                 asset_count += 1
                 continue
-            asset_conflicts.append(
-                {
-                    'name': a.name,
-                    'major_category': a.major_category,
-                    'minor_category': a.minor_category,
-                    'source': {'amount': a.amount},
-                    'target': {'amount': dup.amount},
-                }
-            )
+            asset_conflicts.append(_build_asset_conflict(a, dup))
+
+        # 账户级交易（未关联具体持仓，如存取/费用）：一并归并到目标账户，清空来源账户
+        transaction_count += _migrate_transactions(db, source.id, target.id, target.name)
 
         db.commit()
 
         conflicts = position_conflicts + asset_conflicts
-        message = f'已将 {position_count} 项迁移至「{target.name}」'
+        message = f'已将 {position_count} 项持仓、{asset_count} 项资产迁移至「{target.name}」'
+        if transaction_count:
+            message += f'；另归并 {transaction_count} 笔交易'
         if conflicts:
             message += f'；{len(conflicts)} 项因数据冲突未迁移，' '请在前端手动核对后删除重复项再迁移'
         return jsonify(
@@ -525,6 +629,7 @@ def migrate_positions(ledger_id: int):
                 'data': {
                     'position_count': position_count,
                     'asset_count': asset_count,
+                    'transaction_count': transaction_count,
                     'total': position_count + asset_count,
                     'conflicts': conflicts,
                 },

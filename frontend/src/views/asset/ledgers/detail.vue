@@ -668,6 +668,60 @@
       </el-dialog>
 
       <el-dialog
+        v-model="conflictDialogVisible"
+        title="迁移冲突明细"
+        width="760px"
+        destroy-on-close
+      >
+        <el-alert
+          type="warning"
+          :closable="false"
+          show-icon
+          title="以下持仓/资产因字段不一致未能自动合并，已保留在来源账户"
+        >
+          <template #default>
+            <p class="text-sm">
+              同一标的在来源账户与目标账户中的数值不同，无法自动判定以谁为准。请在来源账户中删除重复项、或把两边数值调整一致后，再重新执行迁移。
+            </p>
+          </template>
+        </el-alert>
+
+        <el-table :data="conflictRows" border class="mt-4" stripe>
+          <el-table-column label="标的" min-width="150">
+            <template #default="{ row }">
+              <span v-if="row.symbol" class="font-mono">{{ row.symbol }}</span>
+              <span v-if="row.symbol && row.name" />
+              <span>{{ row.name }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column
+            label="来源账户"
+            prop="sourceText"
+            min-width="170"
+            show-overflow-tooltip
+          />
+          <el-table-column
+            label="目标账户"
+            prop="targetText"
+            min-width="170"
+            show-overflow-tooltip
+          />
+          <el-table-column
+            label="冲突原因"
+            prop="reason"
+            min-width="220"
+            show-overflow-tooltip
+          />
+        </el-table>
+
+        <template #footer>
+          <el-button type="primary" @click="conflictDialogVisible = false">
+            我知道了，去处理
+          </el-button>
+        </template>
+      </el-dialog>
+
+      <el-dialog
         v-model="editTxnDialogVisible"
         title="编辑交易"
         width="380px"
@@ -733,7 +787,8 @@ import {
   unarchiveLedger,
   getSalesInstitutions,
   type LedgerItem,
-  type SalesInstitution
+  type SalesInstitution,
+  type MigrateConflict
 } from "@/api/ledger";
 import { getPortfolios, type PortfolioItem } from "@/api/portfolio";
 import { updateAsset } from "@/api/assets";
@@ -824,6 +879,46 @@ const deletingAccount = ref<LedgerItem | null>(null);
 const batchMigrateVisible = ref(false);
 const batchMigrating = ref(false);
 const batchTargetLedgerId = ref<number | null>(null);
+
+// 批量迁移冲突明细：以表格呈现给用户手动核对
+const conflictList = ref<MigrateConflict[]>([]);
+const conflictDialogVisible = ref(false);
+
+const MIGRATE_FIELD_LABELS: Record<string, string> = {
+  quantity: "份额",
+  avg_price: "成本价",
+  confirm_date: "成本日",
+  amount: "金额"
+};
+const MIGRATE_FIELD_UNITS: Record<string, string> = {
+  quantity: "份",
+  avg_price: "元",
+  amount: "元",
+  confirm_date: ""
+};
+function formatConflictValues(obj?: Record<string, unknown>): string {
+  if (!obj) return "—";
+  const entries = Object.keys(obj)
+    .filter(k => obj[k] != null)
+    .map(
+      k =>
+        `${MIGRATE_FIELD_LABELS[k] ?? k}：${obj[k]}${MIGRATE_FIELD_UNITS[k] ?? ""}`
+    );
+  return entries.length ? entries.join("；") : "—";
+}
+const conflictRows = computed(() =>
+  conflictList.value.map(c => ({
+    symbol: c.symbol ?? "",
+    name: c.name ?? "",
+    sourceText: formatConflictValues(
+      c.source as Record<string, unknown> | undefined
+    ),
+    targetText: formatConflictValues(
+      c.target as Record<string, unknown> | undefined
+    ),
+    reason: c.reason ?? ""
+  }))
+);
 
 const showEditDialog = ref(false);
 const saving = ref(false);
@@ -1121,16 +1216,18 @@ async function handleBatchMigrate() {
       Number(ledgerId.value),
       batchTargetLedgerId.value
     );
-    const conflicts = res.data?.conflicts ?? [];
+    const conflicts =
+      (res.data?.conflicts as MigrateConflict[] | undefined) ?? [];
+    batchMigrateVisible.value = false;
     if (conflicts.length) {
-      const keys = conflicts.map(c => c.symbol || c.name).join("、");
+      conflictList.value = conflicts;
+      conflictDialogVisible.value = true;
       ElMessage.warning(
-        `已迁移无冲突项；${conflicts.length} 项因数据冲突未迁移（${keys}），请在前端手动核对后删除重复项再迁移`
+        `已迁移无冲突项；${conflicts.length} 项因数据冲突未迁移，请核对下方明细后手动处理再重新迁移`
       );
     } else {
-      ElMessage.success("迁移成功");
+      ElMessage.success("迁移完成");
     }
-    batchMigrateVisible.value = false;
     loadHoldings();
   } catch (e) {
     const err = e as { response?: { data?: { message?: string } } };
@@ -1346,7 +1443,10 @@ onMounted(async () => {
         const ledgerRes = await getLedgers(true);
         ledgers.value = ledgerRes.data ?? [];
       } catch (error) {
-        console.error("获取账本列表失败，操作栏暂不可用（其余详情正常）", error);
+        console.error(
+          "获取账本列表失败，操作栏暂不可用（其余详情正常）",
+          error
+        );
       }
     } else {
       await loadHoldings();

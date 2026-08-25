@@ -845,7 +845,16 @@ class TestLedgerBatchMigrate:
         data = resp.get_json()['data']
         # 冲突被上报，且源/目标都各自保留一份（未迁移、未丢弃）
         assert len(data['conflicts']) == 1
-        assert data['conflicts'][0]['symbol'] == '510300'
+        conflict = data['conflicts'][0]
+        assert conflict['symbol'] == '510300'
+        # 冲突须明确告知：哪些字段不一致 + 中文原因
+        assert set(conflict['diff_fields']) == {'quantity', 'avg_price'}
+        assert '份额不一致' in conflict['reason']
+        assert '成本价不一致' in conflict['reason']
+        # 以可读单位（份/元）呈现，便于前端直接展示
+        assert conflict['source']['quantity'] == 100.0
+        assert conflict['target']['quantity'] == 50.0
+        assert conflict['source']['avg_price'] == 10.0
         assert db.query(Position).filter(Position.ledger_id == src_id).count() == 1
         assert db.query(Position).filter(Position.ledger_id == tgt_id).count() == 1
 
@@ -906,6 +915,149 @@ class TestLedgerBatchMigrate:
         assert len(data['conflicts']) == 1
         assert db.query(Asset).filter(Asset.ledger_id == src_id).count() == 1
         assert db.query(Asset).filter(Asset.ledger_id == tgt_id).count() == 1
+
+    def test_migrate_moves_linked_transactions(self, client, db, make_transaction):
+        """持仓迁移时，其交易记录也要改挂目标账户，避免持仓与交易 ledger 脱节"""
+        from app.domains.transactions.models import Transaction
+
+        src = client.post('/api/ledgers/', json={'name': '华泰证券', 'ledger_type': 'stock'})
+        tgt = client.post('/api/ledgers/', json={'name': '中信证券', 'ledger_type': 'stock'})
+        src_id = src.get_json()['data']['id']
+        tgt_id = tgt.get_json()['data']['id']
+
+        pos = Position(
+            symbol='000001',
+            name='平安银行',
+            market='CN_A',
+            asset_type='stock',
+            account_name='华泰证券',
+            ledger_id=src_id,
+            quantity=1000000,
+            avg_price=1000,
+            current_price=1200,
+        )
+        db.add(pos)
+        db.commit()
+        make_transaction(
+            position_id=pos.id, ledger_id=src_id, txn_type='buy', quantity=100.0, price=10.0, amount=1000.0
+        )
+        db.commit()
+
+        resp = client.post(f'/api/ledgers/{src_id}/migrations/', json={'target_ledger_id': tgt_id})
+        assert resp.status_code == 200, resp.get_json()
+        data = resp.get_json()['data']
+        assert data['transaction_count'] == 1
+
+        moved = db.query(Position).filter(Position.ledger_id == tgt_id).one()
+        txn = db.query(Transaction).filter(Transaction.position_id == moved.id).one()
+        assert txn.ledger_id == tgt_id
+        assert txn.account_name == '中信证券'
+
+    def test_migrate_merges_transactions_on_position_dedup(self, client, db, make_transaction):
+        """重复持仓被丢弃时，其交易记录应并入目标持仓（position_id 改挂），而非悬空"""
+        from app.domains.transactions.models import Transaction
+
+        src = client.post('/api/ledgers/', json={'name': '华泰证券', 'ledger_type': 'stock'})
+        tgt = client.post('/api/ledgers/', json={'name': '中信证券', 'ledger_type': 'stock'})
+        src_id = src.get_json()['data']['id']
+        tgt_id = tgt.get_json()['data']['id']
+
+        src_pos = Position(
+            symbol='000001',
+            name='平安银行',
+            market='CN_A',
+            asset_type='stock',
+            account_name='华泰证券',
+            ledger_id=src_id,
+            quantity=1000000,
+            avg_price=1000,
+            current_price=1200,
+        )
+        tgt_pos = Position(
+            symbol='000001',
+            name='平安银行',
+            market='CN_A',
+            asset_type='stock',
+            account_name='中信证券',
+            ledger_id=tgt_id,
+            quantity=1000000,
+            avg_price=1000,
+            current_price=1200,
+        )
+        db.add_all([src_pos, tgt_pos])
+        db.commit()
+        make_transaction(
+            position_id=src_pos.id, ledger_id=src_id, txn_type='buy', quantity=100.0, price=10.0, amount=1000.0
+        )
+        db.commit()
+
+        resp = client.post(f'/api/ledgers/{src_id}/migrations/', json={'target_ledger_id': tgt_id})
+        assert resp.status_code == 200, resp.get_json()
+        data = resp.get_json()['data']
+        assert data['conflicts'] == []  # 完全一致不算冲突
+        assert data['transaction_count'] == 1
+
+        # 源持仓被丢弃、目标持仓保留，交易改挂到目标持仓
+        assert db.query(Position).filter(Position.ledger_id == src_id).count() == 0
+        kept = db.query(Position).filter(Position.ledger_id == tgt_id).one()
+        txn = db.query(Transaction).filter(Transaction.ledger_id == tgt_id).one()
+        assert txn.position_id == kept.id
+
+    def test_migrate_dedup_transaction_by_import_hash(self, client, db, make_transaction):
+        """同一笔交易在两个账户各导入一次时，迁移后只保留目标那份（归一）"""
+        from app.domains.transactions.models import Transaction
+
+        src = client.post('/api/ledgers/', json={'name': '华泰证券', 'ledger_type': 'stock'})
+        tgt = client.post('/api/ledgers/', json={'name': '中信证券', 'ledger_type': 'stock'})
+        src_id = src.get_json()['data']['id']
+        tgt_id = tgt.get_json()['data']['id']
+
+        pos = Position(
+            symbol='000001',
+            name='平安银行',
+            market='CN_A',
+            asset_type='stock',
+            account_name='华泰证券',
+            ledger_id=src_id,
+            quantity=1000000,
+            avg_price=1000,
+            current_price=1200,
+        )
+        db.add(pos)
+        db.commit()
+        # 同一笔交易被两个账户各导入一次（相同 import_hash）
+        make_transaction(
+            position_id=pos.id,
+            ledger_id=src_id,
+            txn_type='buy',
+            quantity=100.0,
+            price=10.0,
+            amount=1000.0,
+            import_hash='dup-hash-1',
+        )
+        make_transaction(
+            position_id=pos.id,
+            ledger_id=tgt_id,
+            txn_type='buy',
+            quantity=100.0,
+            price=10.0,
+            amount=1000.0,
+            import_hash='dup-hash-1',
+        )
+        db.commit()
+
+        resp = client.post(f'/api/ledgers/{src_id}/migrations/', json={'target_ledger_id': tgt_id})
+        assert resp.status_code == 200, resp.get_json()
+        data = resp.get_json()['data']
+        assert data['transaction_count'] == 1  # 源重复交易已归并
+        # 目标账户最终只保留 1 笔该 hash 的交易，来源账户清零
+        assert (
+            db.query(Transaction)
+            .filter(Transaction.ledger_id == tgt_id, Transaction.import_hash == 'dup-hash-1')
+            .count()
+            == 1
+        )
+        assert db.query(Transaction).filter(Transaction.ledger_id == src_id).count() == 0
 
     def test_migrate_cross_type_rejected(self, client, db):
         """跨类型迁移应被拒绝"""
