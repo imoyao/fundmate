@@ -1121,10 +1121,9 @@ async function handleBatchMigrate() {
       Number(ledgerId.value),
       batchTargetLedgerId.value
     );
-    const payload = (res as { data?: { data?: { conflicts?: any[]; message?: string } } })?.data;
-    const conflicts = payload?.data?.conflicts ?? [];
+    const conflicts = res.data?.conflicts ?? [];
     if (conflicts.length) {
-      const keys = conflicts.map((c: any) => c.symbol || c.name).join("、");
+      const keys = conflicts.map(c => c.symbol || c.name).join("、");
       ElMessage.warning(
         `已迁移无冲突项；${conflicts.length} 项因数据冲突未迁移（${keys}），请在前端手动核对后删除重复项再迁移`
       );

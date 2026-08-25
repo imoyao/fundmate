@@ -40,7 +40,7 @@
 ## 4. 两段式 API 设计（方案 A）
 
 ### 4.1 预览（只读，天然可回滚）
-`POST /api/ledgers/<src>/migrations/preview`
+`POST /api/ledgers/<src>/migrations/preview/`
 - 入参：`{ "target_ledger_id": <int> }`
 - 出参：
 
@@ -65,9 +65,9 @@
 - **不写库**：用户关闭预览即无任何副作用 → "回滚"由"不提交"自然实现。
 
 ### 4.2 提交（单事务 + 回滚）
-`POST /api/ledgers/<src>/migrations/commit`
+`POST /api/ledgers/<src>/migrations/commit/`
 - 入参：`{ "target_ledger_id": <int>, "resolutions": [ { "kind": "position", "symbol": "510300", "action": "keep_source | keep_target" } ] }`
-- 处理（包在单个 `db` 事务内）：
+- 处理（包在单个 `user_session()` 事务内；按项目双库约束，用户域表须且仅须经 `user_session()`，禁止混用 `get_db()`）：
   - `keep` → 源持仓 `ledger_id` 改为目标；
   - `duplicate` → 删除源持仓、保留目标（**数量不变**）；
   - `conflict` → 按 `resolutions` 中用户选择保留源或目标（**整条保留，不混合字段**）；
