@@ -115,8 +115,14 @@ jobs:
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
 
-      - name: 安装依赖
+      - name: 安装依赖（frozen-lockfile 校验 lock 一致性）
         run: pnpm install --frozen-lockfile
+
+      # 守卫：lock 文件与 package.json 必须同步（#974 / tech-debt.md §62 收尾）。
+      # pnpm v9 的 frozen-lockfile 在 lock 落后于 package.json 时会自动降级为普通安装，
+      # 此处显式比对 specifier 与解析版本，杜绝「本地能跑、CI 装到不同版本」。
+      - name: 守卫:lock 与 package.json 一致性
+        run: node ../scripts/check_lock_consistency.mjs
 
       - name: 类型检查
         run: pnpm typecheck
