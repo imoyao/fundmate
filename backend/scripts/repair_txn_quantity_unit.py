@@ -81,6 +81,11 @@ def do_repair(conn, rows):
 def do_rollback(conn):
     """从备份表还原 quantity（按备份表快照覆盖，可重复执行）。"""
     cur = conn.cursor()
+    # 防御：--apply 之前跑 --rollback 时备份表尚不存在，给出友好提示而非裸异常（PR #1110 review）
+    exists = cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (BACKUP_TABLE,)).fetchone()
+    if not exists:
+        print(f'[rollback] 备份表 {BACKUP_TABLE} 不存在（尚未执行过 --apply），无需回滚')
+        return
     cur.execute(
         f'UPDATE transactions SET quantity = (SELECT quantity FROM {BACKUP_TABLE} '
         f'WHERE {BACKUP_TABLE}.id = transactions.id) '
