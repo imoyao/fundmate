@@ -2,7 +2,11 @@
 import { ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import AccountFormFields from "./AccountFormFields.vue";
-import { createLedger, type SalesInstitution, type LedgerItem } from "@/api/ledger";
+import {
+  createLedger,
+  type SalesInstitution,
+  type LedgerItem
+} from "@/api/ledger";
 import type { PortfolioItem } from "@/api/portfolio";
 
 /**
