@@ -6,6 +6,7 @@
 
 from datetime import date
 
+from app.core.money import Money
 from app.domains.assets.models import Asset
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, SalesInstitution
@@ -1870,3 +1871,95 @@ class TestSalesInstitutionsAPI:
             '招商银行',
             '浙江同花顺基金销售有限公司',
         ]
+
+
+class TestUpdateLedgerTransaction:
+    """PATCH /api/ledgers/<id>/transactions/<tid>/ 行内编辑（issue #1112）"""
+
+    def _seed(self, db, make_transaction, import_hash='imp-hash-1', **overrides):
+        from app.domains.transactions.models import Transaction
+
+        ledger = Ledger(name='测试证券', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.commit()
+        txn = make_transaction(
+            position_id=1,
+            ledger_id=ledger.id,
+            quantity=100,
+            price=1.0,
+            amount=100,
+            import_hash=import_hash,
+            **overrides,
+        )
+        db.commit()
+        return ledger, txn, Transaction
+
+    def test_patch_quantity_price_recomputes_amount_and_clears_hash(self, client, db, make_transaction):
+        ledger, txn, Transaction = self._seed(db, make_transaction)
+        resp = client.patch(
+            f'/api/ledgers/{ledger.id}/transactions/{txn.id}/',
+            json={'quantity': 200, 'price': 1.5},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['quantity'] == 200
+        assert data['price'] == 1.5
+        # amount 未显式给出，应按 price×quantity 重算 = 300
+        assert data['amount'] == 300.0
+        assert data['import_hash'] is None
+        refreshed = db.query(Transaction).get(txn.id)
+        assert refreshed.import_hash is None
+        assert refreshed.quantity == Money.shares_to_min_unit(200)
+
+    def test_patch_explicit_amount_kept(self, client, db, make_transaction):
+        ledger, txn, _ = self._seed(db, make_transaction)
+        resp = client.patch(
+            f'/api/ledgers/{ledger.id}/transactions/{txn.id}/',
+            json={'quantity': 200, 'price': 1.5, 'amount': 250},
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()['data']['amount'] == 250.0
+
+    def test_patch_rejects_forbidden_fields(self, client, db, make_transaction):
+        ledger, txn, _ = self._seed(db, make_transaction)
+        resp = client.patch(
+            f'/api/ledgers/{ledger.id}/transactions/{txn.id}/',
+            json={'symbol': '600519', 'ledger_id': 999},
+        )
+        assert resp.status_code == 400
+
+    def test_patch_rejects_negative_quantity(self, client, db, make_transaction):
+        ledger, txn, _ = self._seed(db, make_transaction)
+        resp = client.patch(
+            f'/api/ledgers/{ledger.id}/transactions/{txn.id}/',
+            json={'quantity': -5},
+        )
+        assert resp.status_code == 400
+
+    def test_patch_invalid_date_format(self, client, db, make_transaction):
+        ledger, txn, _ = self._seed(db, make_transaction)
+        resp = client.patch(
+            f'/api/ledgers/{ledger.id}/transactions/{txn.id}/',
+            json={'trade_date': '2026/01/01'},
+        )
+        assert resp.status_code == 400
+
+    def test_patch_trade_date_and_notes_clears_hash(self, client, db, make_transaction):
+        ledger, txn, _ = self._seed(db, make_transaction)
+        resp = client.patch(
+            f'/api/ledgers/{ledger.id}/transactions/{txn.id}/',
+            json={'trade_date': '2026-01-15', 'notes': '手动修正'},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['trade_date'] == '2026-01-15'
+        assert data['notes'] == '手动修正'
+        assert data['import_hash'] is None
+
+    def test_patch_nonexistent_transaction_404(self, client, db, make_transaction):
+        ledger, txn, _ = self._seed(db, make_transaction)
+        resp = client.patch(
+            f'/api/ledgers/{ledger.id}/transactions/999999/',
+            json={'notes': 'x'},
+        )
+        assert resp.status_code == 404

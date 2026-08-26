@@ -5,6 +5,7 @@
 """资金容器 API — 基本 CRUD"""
 
 import json
+from datetime import datetime
 
 from apiflask import APIBlueprint
 from flask import abort, jsonify, request
@@ -1066,8 +1067,21 @@ def delete_ledger_position(ledger_id: int, position_id: int):
 
 @ledgers_bp.patch('/<int:ledger_id>/transactions/<int:transaction_id>/')
 def update_ledger_transaction(ledger_id: int, transaction_id: int):
-    """编辑账户内交易（仅允许修改手续费、备注）"""
+    """编辑账户内交易（金额/数量/价格/日期/备注，见 issue #1112）。
+
+    设计要点：
+    - 允许修改 quantity/price/amount/fee/trade_date/confirm_date/notes；
+    - 归属类字段（ledger_id/symbol/account 等）禁止修改；
+    - 修改金额类或日期/备注字段后清空 import_hash：手工编辑已破坏"内容哈希去重"
+      不变式，后续重新导入需按新内容重新匹配/对账（不自动重算持仓，避免冲销算法风险）；
+    - 未显式给出 amount 时，按 价格×数量 重算毛额以保持一致。
+    """
     data = request.get_json() or {}
+    forbidden = {'id', 'ledger_id', 'symbol', 'account', 'family_id', 'created_at', 'updated_at'}
+    bad = [k for k in data if k in forbidden]
+    if bad:
+        abort(400, f'禁止修改字段: {", ".join(sorted(bad))}')
+
     with get_db() as db:
         ledger = get_owned_or_404(db, Ledger, ledger_id)
         if not ledger:
@@ -1083,16 +1097,68 @@ def update_ledger_transaction(ledger_id: int, transaction_id: int):
         if not txn:
             abort(404, '交易不存在或不属于该账户')
 
+        def _non_negative(field, value):
+            if value is not None and (not isinstance(value, (int, float)) or value < 0):
+                abort(400, f'{field} 必须为非负数字')
+            return value
+
+        touched = False
+        recompute_amount = False
+        if 'quantity' in data:
+            txn.quantity = Money.shares_to_min_unit(_non_negative('quantity', data['quantity']))
+            touched = True
+            recompute_amount = True
+        if 'price' in data:
+            txn.price = Money.yuan_to_cents(_non_negative('price', data['price']))
+            touched = True
+            recompute_amount = True
         if 'fee' in data:
-            txn.fee = Money.yuan_to_cents(data['fee'])
+            txn.fee = Money.yuan_to_cents(_non_negative('fee', data['fee']))
+            touched = True
+        if 'amount' in data:
+            txn.amount = Money.yuan_to_cents(_non_negative('amount', data['amount']))
+            touched = True
+        elif recompute_amount:
+            # 改了价格/数量但未显式给金额时，按 价格×数量 重算毛额，保持一致性
+            txn.amount = Money.multiply_price_quantity(txn.price, txn.quantity)
+
+        if 'trade_date' in data and data['trade_date'] is not None:
+            try:
+                txn.trade_date = datetime.strptime(data['trade_date'], '%Y-%m-%d').date()
+            except (ValueError, TypeError):
+                abort(400, 'trade_date 格式应为 YYYY-MM-DD')
+            touched = True
+        if 'confirm_date' in data:
+            if data['confirm_date'] is None:
+                txn.confirm_date = None
+            else:
+                try:
+                    txn.confirm_date = datetime.strptime(data['confirm_date'], '%Y-%m-%d').date()
+                except (ValueError, TypeError):
+                    abort(400, 'confirm_date 格式应为 YYYY-MM-DD')
+            touched = True
         if 'notes' in data:
             txn.notes = data['notes']
-        # 禁止修改数量、价格、金额
+            touched = True
+
+        # 手工编辑破坏内容哈希去重不变式，清空以便重新导入按新内容对账
+        if touched and txn.import_hash:
+            txn.import_hash = None
 
         db.commit()
         return jsonify(
             {
-                'data': {'id': txn.id, 'fee': Money.cents_to_yuan(txn.fee), 'notes': txn.notes},
+                'data': {
+                    'id': txn.id,
+                    'quantity': Money.min_unit_to_shares(txn.quantity),
+                    'price': Money.cents_to_yuan(txn.price),
+                    'amount': Money.cents_to_yuan(txn.amount),
+                    'fee': Money.cents_to_yuan(txn.fee),
+                    'trade_date': txn.trade_date.isoformat() if txn.trade_date else None,
+                    'confirm_date': txn.confirm_date.isoformat() if txn.confirm_date else None,
+                    'notes': txn.notes,
+                    'import_hash': txn.import_hash,
+                },
                 'message': 'ok',
             }
         )

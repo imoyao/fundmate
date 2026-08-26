@@ -165,11 +165,13 @@ def get_position_transactions(id: int):
             data.append(
                 {
                     'id': t.id,
+                    'ledger_id': t.ledger_id,
                     'trade_date': display_date.isoformat() if display_date else None,
                     'txn_type': t.txn_type,
                     'quantity': Money.min_unit_to_shares(t.quantity),
                     'price': Money.cents_to_yuan(t.price),
                     'amount': Money.cents_to_yuan(t.amount),
+                    'fee': Money.cents_to_yuan(t.fee),
                     'notes': t.notes,
                 }
             )
