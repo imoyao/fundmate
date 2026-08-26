@@ -10,6 +10,7 @@
 
 from datetime import date
 
+from app.core.money import Money
 from app.domains.assets.models import Asset
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, PositionImportMeta, SalesInstitution
@@ -25,8 +26,6 @@ def _make_pair(client, prefix='基金'):
 
 def _pos(symbol, name, ledger_id, account_name, quantity, avg_price, current_price=1000, **kwargs):
     """构造持仓（quantity 单位：份；avg_price/current_price 单位：元，由 fixture 口径换算）。"""
-    from app.core.money import Money
-
     return Position(
         symbol=symbol,
         name=name,
@@ -334,7 +333,7 @@ class TestMigrationAssetResolutions:
                 user_id=1,
                 major_category='cash',
                 name='余额',
-                amount=src_amount_yuan * 100,
+                amount=Money.yuan_to_cents(src_amount_yuan),
                 account_name='资产源',
                 ledger_id=src_id,
             )
@@ -344,7 +343,7 @@ class TestMigrationAssetResolutions:
                 user_id=1,
                 major_category='cash',
                 name='余额',
-                amount=tgt_amount_yuan * 100,
+                amount=Money.yuan_to_cents(tgt_amount_yuan),
                 account_name='资产目标',
                 ledger_id=tgt_id,
             )
