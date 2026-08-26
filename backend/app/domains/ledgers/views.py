@@ -1146,6 +1146,16 @@ def update_ledger_transaction(ledger_id: int, transaction_id: int):
             txn.import_hash = None
 
         db.commit()
+
+        def _ymd(value):
+            # trade_date 为 DateTime 列（读回为 datetime），confirm_date 为 Date 列（date）；
+            # 若本次仅赋过 .date() 则为 date。统一输出 YYYY-MM-DD。
+            if not value:
+                return None
+            if isinstance(value, datetime):
+                value = value.date()
+            return value.isoformat()
+
         return jsonify(
             {
                 'data': {
@@ -1154,8 +1164,8 @@ def update_ledger_transaction(ledger_id: int, transaction_id: int):
                     'price': Money.cents_to_yuan(txn.price),
                     'amount': Money.cents_to_yuan(txn.amount),
                     'fee': Money.cents_to_yuan(txn.fee),
-                    'trade_date': txn.trade_date.date().isoformat() if txn.trade_date else None,
-                    'confirm_date': txn.confirm_date.date().isoformat() if txn.confirm_date else None,
+                    'trade_date': _ymd(txn.trade_date),
+                    'confirm_date': _ymd(txn.confirm_date),
                     'notes': txn.notes,
                     'import_hash': txn.import_hash,
                 },
