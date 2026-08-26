@@ -635,7 +635,9 @@
         destroy-on-close
       >
         <p class="mb-4" :style="{ color: 'var(--text-secondary)' }">
-          将账户「{{ accountName }}」下的所有持仓迁移到目标账户。
+          将账户「{{
+            accountName
+          }}」下的全部持仓与资产并入目标账户。先预览迁移方案，确认无误后才会写入。
         </p>
         <el-form label-width="80px">
           <el-form-item label="目标账户">
@@ -659,65 +661,178 @@
           <el-button
             type="primary"
             :disabled="!batchTargetLedgerId"
-            :loading="batchMigrating"
-            @click="handleBatchMigrate"
+            :loading="migrationPreviewLoading"
+            @click="handlePreviewMigration"
           >
-            确认迁移（{{ holdingsTotal }} 项）
+            预览迁移方案
           </el-button>
         </template>
       </el-dialog>
 
+      <!-- 迁移确认决议面板（§7）：三区呈现 + conflict 行内联决议，全部决议完成后才可提交 -->
       <el-dialog
-        v-model="conflictDialogVisible"
-        title="迁移冲突明细"
-        width="760px"
+        v-model="migrationPanelVisible"
+        title="确认迁移"
+        width="720px"
         destroy-on-close
       >
-        <el-alert
-          type="warning"
-          :closable="false"
-          show-icon
-          title="以下持仓/资产因字段不一致未能自动合并，已保留在来源账户"
-        >
-          <template #default>
-            <p class="text-sm">
-              同一标的在来源账户与目标账户中的数值不同，无法自动判定以谁为准。请在来源账户中删除重复项、或把两边数值调整一致后，再重新执行迁移。
-            </p>
-          </template>
-        </el-alert>
+        <div class="mig-summary">
+          <div class="mig-route">
+            <span class="mig-route__name">{{ accountName }}</span>
+            <IconifyIconOffline
+              icon="ep:arrow-right"
+              class="mig-route__arrow"
+            />
+            <span class="mig-route__name">{{ targetLedgerName }}</span>
+            <span class="mig-route__total"
+              >共 {{ previewItems.length }} 项</span
+            >
+          </div>
+          <p class="mig-note">
+            关闭弹窗不会写入任何数据；确认后按下方决议执行迁移。
+          </p>
+        </div>
 
-        <el-table :data="conflictRows" border class="mt-4" stripe>
-          <el-table-column label="标的" min-width="150">
-            <template #default="{ row }">
-              <span v-if="row.symbol" class="font-mono">{{ row.symbol }}</span>
-              <span v-if="row.symbol && row.name" />
-              <span>{{ row.name }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column
-            label="来源账户"
-            prop="sourceText"
-            min-width="170"
-            show-overflow-tooltip
-          />
-          <el-table-column
-            label="目标账户"
-            prop="targetText"
-            min-width="170"
-            show-overflow-tooltip
-          />
-          <el-table-column
-            label="冲突原因"
-            prop="reason"
-            min-width="220"
-            show-overflow-tooltip
-          />
-        </el-table>
+        <div class="mig-body">
+          <!-- 区一：直接迁移 -->
+          <section v-if="keepItems.length" class="mig-section">
+            <header class="mig-section__head">
+              <span class="mig-section__title">直接迁移</span>
+              <span class="mig-section__count">{{ keepItems.length }} 项</span>
+              <span class="mig-section__hint">来源数值原样并入目标账户</span>
+            </header>
+            <ul class="mig-rows">
+              <li
+                v-for="item in keepItems"
+                :key="migrationRowKey(item)"
+                class="mig-row"
+              >
+                <span class="mig-row__name">
+                  {{ item.name }}
+                  <span v-if="item.symbol" class="mig-row__symbol">{{
+                    item.symbol
+                  }}</span>
+                </span>
+                <span class="mig-row__values">{{ snapshotSummary(item) }}</span>
+              </li>
+            </ul>
+          </section>
+
+          <!-- 区二：重复自动丢弃 -->
+          <section v-if="duplicateItems.length" class="mig-section">
+            <header class="mig-section__head">
+              <span class="mig-section__title">重复自动丢弃</span>
+              <span class="mig-section__count"
+                >{{ duplicateItems.length }} 项</span
+              >
+              <span class="mig-section__hint"
+                >与目标账户数据一致，只保留一份、不相加</span
+              >
+            </header>
+            <ul class="mig-rows">
+              <li
+                v-for="item in duplicateItems"
+                :key="migrationRowKey(item)"
+                class="mig-row"
+              >
+                <span class="mig-row__name">
+                  {{ item.name }}
+                  <span v-if="item.symbol" class="mig-row__symbol">{{
+                    item.symbol
+                  }}</span>
+                </span>
+                <span class="mig-row__values">{{ snapshotSummary(item) }}</span>
+              </li>
+            </ul>
+          </section>
+
+          <!-- 区三：需要你决议（conflict 行内联单选） -->
+          <section v-if="conflictItems.length" class="mig-section">
+            <header class="mig-section__head">
+              <span class="mig-section__title">需要你决议</span>
+              <span class="mig-section__count"
+                >{{ conflictItems.length }} 项</span
+              >
+              <span class="mig-section__hint"
+                >同一标的两边数值不一致，逐条选择处理方式</span
+              >
+            </header>
+
+            <div
+              v-for="item in conflictItems"
+              :key="migrationRowKey(item)"
+              class="mig-conflict"
+            >
+              <div class="mig-conflict__head">
+                <span class="mig-conflict__name">
+                  {{ item.name }}
+                  <span v-if="item.symbol" class="mig-conflict__symbol">{{
+                    item.symbol
+                  }}</span>
+                </span>
+                <span class="mig-conflict__fields"
+                  >不一致字段：{{ diffFieldLabels(item) }}</span
+                >
+              </div>
+
+              <!-- 源/目标数值并排对比，差异字段高亮（警示色底） -->
+              <div class="mig-compare">
+                <span class="mig-compare__label" />
+                <span class="mig-compare__tag">来源账户</span>
+                <span class="mig-compare__tag">目标账户</span>
+                <template v-for="cell in compareCells(item)" :key="cell.key">
+                  <span class="mig-compare__label">{{ cell.label }}</span>
+                  <span
+                    class="mig-compare__value"
+                    :class="{ 'is-diff': cell.diff }"
+                    >{{ cell.source }}</span
+                  >
+                  <span
+                    class="mig-compare__value"
+                    :class="{ 'is-diff': cell.diff }"
+                    >{{ cell.target }}</span
+                  >
+                </template>
+              </div>
+
+              <div class="mig-decide">
+                <el-radio-group
+                  v-model="resolutions[migrationRowKey(item)]"
+                  size="small"
+                >
+                  <el-radio
+                    v-for="opt in actionOptions(item)"
+                    :key="opt.value"
+                    :value="opt.value"
+                    >{{ opt.label }}</el-radio
+                  >
+                </el-radio-group>
+                <p v-if="actionNote(item)" class="mig-action-note">
+                  {{ actionNote(item) }}
+                </p>
+              </div>
+            </div>
+          </section>
+
+          <div v-if="!previewItems.length" class="mig-empty">
+            两个账户之间没有需要迁移的数据。
+          </div>
+        </div>
 
         <template #footer>
-          <el-button type="primary" @click="conflictDialogVisible = false">
-            我知道了，去处理
-          </el-button>
+          <div class="mig-footer">
+            <span class="mig-footer__status">{{ footerStatusText }}</span>
+            <div>
+              <el-button @click="migrationPanelVisible = false">取消</el-button>
+              <el-button
+                type="primary"
+                :disabled="!previewItems.length || pendingCount > 0"
+                :loading="migrationCommitting"
+                @click="handleCommitMigration"
+                >确认迁移</el-button
+              >
+            </div>
+          </div>
         </template>
       </el-dialog>
 
@@ -775,7 +890,8 @@ import PageSkeleton from "@/components/PageSkeleton/index.vue";
 import {
   getLedgers,
   updateLedger,
-  migrateLedgerPositions,
+  previewLedgerMigration,
+  commitLedgerMigration,
   getLedgerSummary,
   getLedgerPositions,
   getLedgerTransactions,
@@ -788,7 +904,12 @@ import {
   getSalesInstitutions,
   type LedgerItem,
   type SalesInstitution,
-  type MigrateConflict
+  type MigrationPreviewItem,
+  type MigrationPreviewResult,
+  type MigrationAction,
+  type MigrationResolution,
+  type MigrationCommitResult,
+  type MigrationConservation
 } from "@/api/ledger";
 import { getPortfolios, type PortfolioItem } from "@/api/portfolio";
 import { updateAsset } from "@/api/assets";
@@ -877,48 +998,269 @@ const assignMap = ref<Record<number, number>>({});
 const deleteDialogVisible = ref(false);
 const deletingAccount = ref<LedgerItem | null>(null);
 const batchMigrateVisible = ref(false);
-const batchMigrating = ref(false);
 const batchTargetLedgerId = ref<number | null>(null);
 
-// 批量迁移冲突明细：以表格呈现给用户手动核对
-const conflictList = ref<MigrateConflict[]>([]);
-const conflictDialogVisible = ref(false);
+// ── 批量迁移（两段式）：preview 只读出分类与冲突，用户在决议面板逐条选择后 commit ──
+const migrationPanelVisible = ref(false);
+const migrationPreviewLoading = ref(false);
+const migrationCommitting = ref(false);
+const migrationPreview = ref<MigrationPreviewResult | null>(null);
+/** conflict 行决议表：行键 → 动作；打开面板时按系统建议初始化（§7 默认选中 suggestion） */
+const resolutions = ref<Record<string, MigrationAction>>({});
 
-const MIGRATE_FIELD_LABELS: Record<string, string> = {
+/** 冲突行唯一键：持仓按 symbol，资产按名称+两级分类（与 commit 决议定位口径一致） */
+function migrationRowKey(item: MigrationPreviewItem): string {
+  return item.kind === "position"
+    ? `position:${item.symbol}`
+    : `asset:${item.name}|${item.major_category ?? ""}|${item.minor_category ?? ""}`;
+}
+
+const previewItems = computed(() => migrationPreview.value?.items ?? []);
+const keepItems = computed(() =>
+  previewItems.value.filter(i => i.classification === "keep")
+);
+const duplicateItems = computed(() =>
+  previewItems.value.filter(i => i.classification === "duplicate")
+);
+const conflictItems = computed(() =>
+  previewItems.value.filter(i => i.classification === "conflict")
+);
+
+/** 未决议数：全部归零前「确认迁移」保持禁用 */
+const pendingCount = computed(
+  () =>
+    conflictItems.value.filter(
+      item => !resolutions.value[migrationRowKey(item)]
+    ).length
+);
+
+const targetLedgerName = computed(
+  () =>
+    ledgers.value.find(l => l.id === batchTargetLedgerId.value)?.name ||
+    "目标账户"
+);
+
+/** 底栏状态文案：未决议时提示剩余量，就绪后预告将执行的动作计数 */
+const footerStatusText = computed(() => {
+  if (pendingCount.value > 0) {
+    return `还有 ${pendingCount.value} 项待决议，决议完成后方可确认`;
+  }
+  const parts = [`${keepItems.value.length} 项直接迁移`];
+  if (duplicateItems.value.length)
+    parts.push(`${duplicateItems.value.length} 项丢弃重复`);
+  if (conflictItems.value.length)
+    parts.push(`${conflictItems.value.length} 项按决议处理`);
+  return `已就绪：${parts.join("，")}`;
+});
+
+/** 冲突字段中文名（对比表与「不一致字段」标签共用） */
+const MIGRATION_FIELD_LABELS: Record<string, string> = {
   quantity: "份额",
   avg_price: "成本价",
   confirm_date: "成本日",
   amount: "金额"
 };
-const MIGRATE_FIELD_UNITS: Record<string, string> = {
-  quantity: "份",
-  avg_price: "元",
-  amount: "元",
-  confirm_date: ""
-};
-function formatConflictValues(obj?: Record<string, unknown>): string {
-  if (!obj) return "—";
-  const entries = Object.keys(obj)
-    .filter(k => obj[k] != null)
-    .map(
-      k =>
-        `${MIGRATE_FIELD_LABELS[k] ?? k}：${obj[k]}${MIGRATE_FIELD_UNITS[k] ?? ""}`
-    );
-  return entries.length ? entries.join("；") : "—";
+
+function diffFieldLabels(item: MigrationPreviewItem): string {
+  return (item.conflict_fields ?? [])
+    .map(f => MIGRATION_FIELD_LABELS[f] ?? f)
+    .join("、");
 }
-const conflictRows = computed(() =>
-  conflictList.value.map(c => ({
-    symbol: c.symbol ?? "",
-    name: c.name ?? "",
-    sourceText: formatConflictValues(
-      c.source as Record<string, unknown> | undefined
-    ),
-    targetText: formatConflictValues(
-      c.target as Record<string, unknown> | undefined
-    ),
-    reason: c.reason ?? ""
-  }))
-);
+
+/**
+ * 数字展示：至少 2 位小数（对齐设计规范）、最多 4 位——
+ * 对比场景需区分 0.0001 份级差异，避免「显示相等实则不等」误导决议。
+ */
+function formatMigrationNumber(value: number, digits = 2): string {
+  return value.toLocaleString("zh-CN", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: 4
+  });
+}
+
+function formatMigrationAmount(value: number): string {
+  return `¥${value.toLocaleString("zh-CN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  })}`;
+}
+
+/** keep/duplicate 行的数值摘要：持仓展示份额·成本价·成本日，资产展示金额 */
+function snapshotSummary(item: MigrationPreviewItem): string {
+  if (item.kind === "asset") {
+    return formatMigrationAmount(item.source.amount);
+  }
+  const parts = [
+    `${formatMigrationNumber(item.source.quantity)} 份`,
+    `成本价 ${formatMigrationNumber(item.source.avg_price)} 元`
+  ];
+  if (item.source.confirm_date)
+    parts.push(formatDate(item.source.confirm_date));
+  return parts.join(" · ");
+}
+
+interface MigrationCompareCell {
+  key: string;
+  label: string;
+  source: string;
+  target: string;
+  /** 该字段在 conflict_fields 中 → 双方数值均高亮警示 */
+  diff: boolean;
+}
+
+/** 源/目标并排对比单元格：持仓比份额/成本价/成本日，资产只比金额 */
+function compareCells(item: MigrationPreviewItem): MigrationCompareCell[] {
+  const conflicts = item.conflict_fields ?? [];
+  if (item.kind === "asset") {
+    return [
+      {
+        key: "amount",
+        label: MIGRATION_FIELD_LABELS.amount,
+        source: formatMigrationAmount(item.source.amount),
+        target: item.target ? formatMigrationAmount(item.target.amount) : "—",
+        diff: conflicts.includes("amount")
+      }
+    ];
+  }
+  const fmtDate = (d: string | null) => (d ? formatDate(d) : "—");
+  return [
+    {
+      key: "quantity",
+      label: MIGRATION_FIELD_LABELS.quantity,
+      source: formatMigrationNumber(item.source.quantity),
+      target: item.target ? formatMigrationNumber(item.target.quantity) : "—",
+      diff: conflicts.includes("quantity")
+    },
+    {
+      key: "avg_price",
+      label: MIGRATION_FIELD_LABELS.avg_price,
+      source: formatMigrationNumber(item.source.avg_price),
+      target: item.target ? formatMigrationNumber(item.target.avg_price) : "—",
+      diff: conflicts.includes("avg_price")
+    },
+    {
+      key: "confirm_date",
+      label: MIGRATION_FIELD_LABELS.confirm_date,
+      source: fmtDate(item.source.confirm_date),
+      target: item.target ? fmtDate(item.target.confirm_date) : "—",
+      diff: conflicts.includes("confirm_date")
+    }
+  ];
+}
+
+const MIGRATION_ACTION_LABELS: Record<MigrationAction, string> = {
+  keep_source: "保留源",
+  keep_target: "保留目标",
+  merge: "合并"
+};
+
+/** 决议选项：持仓三选，资产无合并语义仅二选（§5.2） */
+function actionOptions(item: MigrationPreviewItem): {
+  value: MigrationAction;
+  label: string;
+}[] {
+  const base = [
+    {
+      value: "keep_source" as const,
+      label: MIGRATION_ACTION_LABELS.keep_source
+    },
+    {
+      value: "keep_target" as const,
+      label: MIGRATION_ACTION_LABELS.keep_target
+    }
+  ];
+  return item.kind === "position"
+    ? [
+        ...base,
+        { value: "merge" as const, label: MIGRATION_ACTION_LABELS.merge }
+      ]
+    : base;
+}
+
+/**
+ * 合并预计结果（§5.2.1 展示口径）：份额相加、成本加权平均（四舍五入到分）、
+ * 成本日取较新。仅为选中态说明文案，入库口径以后端整数运算为准。
+ */
+function mergeNote(item: MigrationPreviewItem): string {
+  if (item.kind !== "position") return "";
+  const qSrc = item.source.quantity;
+  const pSrc = item.source.avg_price;
+  const qTgt = item.target?.quantity ?? 0;
+  const pTgt = item.target?.avg_price ?? 0;
+  const qty = qSrc + qTgt;
+  // 展示口径允许浮点四舍五入到分；非入库计算路径
+  const price =
+    qty > 0 ? Math.round(((qSrc * pSrc + qTgt * pTgt) / qty) * 100) / 100 : 0;
+  const newestDate = [item.source.confirm_date, item.target?.confirm_date]
+    .filter((d): d is string => !!d)
+    .sort()
+    .pop();
+  const parts = [
+    `合并后：${formatMigrationNumber(qty)} 份`,
+    `成本价 ${formatMigrationNumber(price)} 元`
+  ];
+  if (newestDate) parts.push(`成本日 ${formatDate(newestDate)}（取较新）`);
+  return parts.join(" · ");
+}
+
+/** 当前决议的说明文案：merge 展示预计结果，二选一展示动作含义 */
+function actionNote(item: MigrationPreviewItem): string {
+  const action = resolutions.value[migrationRowKey(item)];
+  if (!action) return "";
+  if (action === "keep_source") return "以来源数值写入目标账户，目标原值被覆盖";
+  if (action === "keep_target") return "保留目标数值，来源这笔不迁入";
+  return mergeNote(item);
+}
+
+/** 默认决议：跟随系统建议（§5.2）；建议缺失或对行类型无意义时取安全兜底 */
+function defaultResolution(item: MigrationPreviewItem): MigrationAction {
+  const suggestion = item.suggestion;
+  if (item.kind === "position") {
+    return suggestion === "keep_target" || suggestion === "merge"
+      ? suggestion
+      : "merge";
+  }
+  // 资产无合并语义：默认保留源值（迁移语义是把源数据并入目标）
+  return suggestion === "keep_target" ? "keep_target" : "keep_source";
+}
+
+function applyDefaultResolutions(items: MigrationPreviewItem[]) {
+  const map: Record<string, MigrationAction> = {};
+  for (const item of items) {
+    if (item.classification !== "conflict") continue;
+    map[migrationRowKey(item)] = defaultResolution(item);
+  }
+  resolutions.value = map;
+}
+
+/** 守恒结果转文案（成功提示用；未知键原样输出键名） */
+function conservationText(conservation?: MigrationConservation): string {
+  if (!conservation) return "";
+  const labels: Record<string, string> = {
+    source_out_positions: "源账本迁出份额",
+    target_in_positions: "目标账本迁入份额",
+    source_out_assets: "源账本迁出金额",
+    target_in_assets: "目标账本迁入金额"
+  };
+  const parts: string[] = [];
+  for (const [key, value] of Object.entries(conservation)) {
+    if (typeof value !== "number") continue;
+    parts.push(`${labels[key] ?? key} ${formatMigrationNumber(value)}`);
+  }
+  return parts.join("，");
+}
+
+/** 成功提示：各项计数 + 守恒结果；后端计数缺省时降级用本地预览计数 */
+function commitSuccessMessage(result?: MigrationCommitResult): string {
+  const total = result?.total ?? previewItems.value.length;
+  const parts = [`共处理 ${total} 项`];
+  if (result?.position_count != null)
+    parts.push(`持仓 ${result.position_count} 项`);
+  if (result?.asset_count != null) parts.push(`资产 ${result.asset_count} 项`);
+  const conservation = conservationText(result?.conservation);
+  if (conservation) parts.push(conservation);
+  return `迁移完成：${parts.join("，")}`;
+}
 
 const showEditDialog = ref(false);
 const saving = ref(false);
@@ -1205,35 +1547,76 @@ function openMigrateDialog(row: LedgerHoldingRow) {
 
 function openBatchMigrateDialog() {
   batchTargetLedgerId.value = null;
+  migrationPreview.value = null;
+  resolutions.value = {};
   batchMigrateVisible.value = true;
 }
 
-async function handleBatchMigrate() {
+/** 第一步：调 preview 拉取迁移方案（只读不写库），成功后进入决议面板 */
+async function handlePreviewMigration() {
   if (!batchTargetLedgerId.value) return;
-  batchMigrating.value = true;
+  migrationPreviewLoading.value = true;
   try {
-    const res = await migrateLedgerPositions(
+    const res = await previewLedgerMigration(
       Number(ledgerId.value),
       batchTargetLedgerId.value
     );
-    const conflicts =
-      (res.data?.conflicts as MigrateConflict[] | undefined) ?? [];
+    migrationPreview.value = res.data ?? { items: [] };
+    applyDefaultResolutions(migrationPreview.value.items);
     batchMigrateVisible.value = false;
-    if (conflicts.length) {
-      conflictList.value = conflicts;
-      conflictDialogVisible.value = true;
-      ElMessage.warning(
-        `已迁移无冲突项；${conflicts.length} 项因数据冲突未迁移，请核对下方明细后手动处理再重新迁移`
-      );
+    migrationPanelVisible.value = true;
+  } catch (e) {
+    const err = e as { response?: { data?: { message?: string } } };
+    ElMessage.error(err?.response?.data?.message || "预览失败，请稍后再试");
+  } finally {
+    migrationPreviewLoading.value = false;
+  }
+}
+
+/** 由决议表组装 commit 入参：持仓按 symbol 三选一，资产按三级分类键二选一 */
+function buildResolutions(): MigrationResolution[] {
+  const list: MigrationResolution[] = [];
+  for (const item of conflictItems.value) {
+    const action = resolutions.value[migrationRowKey(item)];
+    // 决议齐备才允许提交（按钮禁用兜底），此分支仅为类型收窄
+    if (!action) continue;
+    if (item.kind === "position") {
+      list.push({ kind: "position", symbol: item.symbol, action });
     } else {
-      ElMessage.success("迁移完成");
+      list.push({
+        kind: "asset",
+        name: item.name,
+        major_category: item.major_category ?? "",
+        minor_category: item.minor_category ?? "",
+        // 资产行无合并选项；状态异常落入 merge 时归一到保留源
+        action: action === "merge" ? "keep_source" : action
+      });
     }
+  }
+  return list;
+}
+
+/** 第二步：全部 conflict 决议完成后提交（单事务，失败整体回滚） */
+async function handleCommitMigration() {
+  if (!batchTargetLedgerId.value || pendingCount.value > 0) return;
+  migrationCommitting.value = true;
+  try {
+    const res = await commitLedgerMigration(Number(ledgerId.value), {
+      target_ledger_id: batchTargetLedgerId.value,
+      resolutions: buildResolutions()
+    });
+    migrationPanelVisible.value = false;
+    ElMessage.success(commitSuccessMessage(res.data));
+    // 主动清列表缓存并刷新：交易列表置空（切换 Tab 重拉）、持仓与概览同步更新
+    transactionsList.value = [];
+    transactionsTotal.value = 0;
+    loadSummary();
     loadHoldings();
   } catch (e) {
     const err = e as { response?: { data?: { message?: string } } };
-    ElMessage.error(err?.response?.data?.message || "迁移失败");
+    ElMessage.error(err?.response?.data?.message || "迁移失败，源数据未变更");
   } finally {
-    batchMigrating.value = false;
+    migrationCommitting.value = false;
   }
 }
 
@@ -1582,5 +1965,237 @@ function openDeleteDialog(account: LedgerItem) {
   right: 0;
   z-index: 1;
   width: 220px;
+}
+
+/* ===== 批量迁移决议面板（§7）：三区呈现 + conflict 行内联决议 ===== */
+
+/* 概要：来源 → 目标 路由与总数 */
+.mig-summary {
+  margin-bottom: var(--space-3);
+}
+
+.mig-route {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.mig-route__name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.mig-route__arrow {
+  font-size: 14px;
+  color: var(--text-tertiary);
+}
+
+/* 总数右对齐：等宽数字保证跳动时不抖 */
+.mig-route__total {
+  margin-left: auto;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.mig-note {
+  margin-top: var(--space-1);
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+/* 长列表限高滚动：底栏（状态 + 确认按钮）始终可见 */
+.mig-body {
+  max-height: 56vh;
+  padding-right: 2px;
+  overflow-y: auto;
+}
+
+.mig-section {
+  margin-bottom: var(--space-3);
+}
+
+.mig-section__head {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.mig-section__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.mig-section__count {
+  padding: 0 8px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  line-height: 20px;
+  color: var(--text-secondary);
+  background: var(--bg-soft);
+  border-radius: var(--radius-pill);
+}
+
+.mig-section__hint {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+/* keep / duplicate 行：名称居左、数值摘要居右 */
+.mig-rows {
+  padding: 0;
+  margin: var(--space-2) 0 0;
+  list-style: none;
+}
+
+.mig-row {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+  min-height: 32px;
+}
+
+.mig-row + .mig-row {
+  border-top: 1px dashed var(--border-light);
+}
+
+.mig-row__name {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.mig-row__symbol,
+.mig-conflict__symbol {
+  margin-left: 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: normal;
+  color: var(--text-tertiary);
+}
+
+.mig-row__values {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  text-align: right;
+}
+
+/* conflict 卡片：头部 + 对比表 + 内联决议 */
+.mig-conflict {
+  padding: var(--space-3);
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+}
+
+.mig-conflict + .mig-conflict {
+  margin-top: var(--space-2);
+}
+
+.mig-conflict__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: var(--space-2);
+}
+
+.mig-conflict__name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.mig-conflict__fields {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* 源/目标并排对比：标签列 + 双值列；警示底色只落在数值单元格上，
+   文字保持 --text-primary 保证 WCAG 对比度（--color-warning 直接做小字文字色不达标） */
+.mig-compare {
+  display: grid;
+  grid-template-columns: 72px 1fr 1fr;
+  overflow: hidden;
+  background: var(--bg-warm);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.mig-compare > span {
+  padding: 6px 10px;
+  font-size: 13px;
+  line-height: 20px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.mig-compare > span:nth-child(-n + 3) {
+  border-top: none;
+}
+
+.mig-compare__tag {
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: var(--bg-soft);
+}
+
+.mig-compare__label {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  background: var(--bg-soft);
+}
+
+.mig-compare__value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+/* 差异字段高亮：警示色 20% 底 + 左侧警示色细条，亮暗色均由语义变量驱动 */
+.mig-compare__value.is-diff {
+  font-weight: 600;
+  background: var(--color-warning-20);
+  box-shadow: inset 2px 0 0 var(--color-warning);
+}
+
+/* 决议区：单选 + 当前选中态说明文案 */
+.mig-decide {
+  margin-top: var(--space-2);
+}
+
+.mig-action-note {
+  margin: 4px 0 0;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-tertiary);
+}
+
+.mig-empty {
+  padding: var(--space-loose) 0;
+  font-size: 13px;
+  color: var(--text-tertiary);
+  text-align: center;
+}
+
+/* 底栏：左侧状态文案 + 右侧操作按钮 */
+.mig-footer {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.mig-footer__status {
+  font-size: 12px;
+  color: var(--text-tertiary);
 }
 </style>
