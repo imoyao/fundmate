@@ -161,6 +161,12 @@ interface MigrationPreviewItemBase {
 /** 预览明细行：持仓按 symbol 定位，数值为份额/成本价/成本日 */
 export interface MigrationPositionPreviewItem extends MigrationPreviewItemBase {
   kind: "position";
+  /**
+   * 资产类型（如 fund/stock），前端据此切换字段术语：
+   * fund 走「确认份额/确认净值/确认日期」口径，其余走「持仓数量/成本价/成本日期」。
+   * 可选以兼容后端灰度期缺省，缺省按非基金处理。
+   */
+  asset_type?: string;
   source: MigrationPositionSnapshot;
   target: MigrationPositionSnapshot | null;
 }
@@ -189,10 +195,24 @@ export interface MigrationConservation {
   target_in_assets?: number;
 }
 
-/** 预览响应 data */
+/** 账本绑定的销售机构（null=该侧未绑定机构） */
+export interface MigrationInstitutionRef {
+  id: number;
+  name: string;
+}
+
+/** 双方销售机构绑定情况：cross_institution=true 表示双方绑定了不同机构 */
+export interface MigrationInstitutionInfo {
+  source: MigrationInstitutionRef | null;
+  target: MigrationInstitutionRef | null;
+  cross_institution: boolean;
+}
+
+/** 预览响应 data（institution 可选以兼容后端未部署新字段时的旧响应） */
 export interface MigrationPreviewResult {
   items: MigrationPreviewItem[];
   conservation?: MigrationConservation;
+  institution?: MigrationInstitutionInfo;
 }
 
 /** 提交决议项：持仓按 symbol 三选一；资产按三级分类键二选一（无合并语义） */
@@ -210,10 +230,11 @@ export type MigrationResolution =
       action: Exclude<MigrationAction, "merge">;
     };
 
-/** 提交入参 */
+/** 提交入参（allow_cross_institution 仅跨机构迁移且用户二次确认后携带） */
 export interface MigrationCommitPayload {
   target_ledger_id: number;
   resolutions: MigrationResolution[];
+  allow_cross_institution?: boolean;
 }
 
 /** 提交响应 data（各项计数与守恒结果；字段缺省时前端降级用本地预览计数展示） */

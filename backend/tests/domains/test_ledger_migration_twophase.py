@@ -12,7 +12,7 @@ from datetime import date
 
 from app.domains.assets.models import Asset
 from app.domains.ledgers.models import Ledger
-from app.domains.positions.models import Position, PositionImportMeta
+from app.domains.positions.models import Position, PositionImportMeta, SalesInstitution
 from app.domains.transactions.models import Transaction
 
 
@@ -414,3 +414,117 @@ class TestMigrationAccountLevelTransactions:
         assert txn.ledger_id == tgt_id
         assert txn.account_name == '基金目标'
         assert db.query(Ledger).get(src_id) is not None  # 源账本本身不被删除
+
+
+class TestMigrationInstitutionGate:
+    """销售机构软优先 + 显式确认：preview 报告 institution 块，commit 跨机构须显式放行。"""
+
+    @staticmethod
+    def _make_institution(db, org_name, display_name=None):
+        inst = SalesInstitution(org_name=org_name, org_type='独立基金销售机构', display_name=display_name)
+        db.add(inst)
+        db.commit()
+        return inst
+
+    @staticmethod
+    def _bind(db, ledger_id, institution_id):
+        ledger = db.query(Ledger).filter(Ledger.id == ledger_id).first()
+        ledger.sales_institution_id = institution_id
+        db.commit()
+
+    def test_preview_same_institution_not_cross(self, client, db):
+        """双方绑定同一机构 → cross_institution=false"""
+        src_id, tgt_id = _make_pair(client)
+        inst = self._make_institution(db, '蚂蚁（杭州）基金销售有限公司', display_name='支付宝')
+        self._bind(db, src_id, inst.id)
+        self._bind(db, tgt_id, inst.id)
+
+        resp = client.post(f'/api/ledgers/{src_id}/migrations/preview/', json={'target_ledger_id': tgt_id})
+        assert resp.status_code == 200, resp.get_json()
+        block = resp.get_json()['data']['institution']
+        assert block['source'] == {'id': inst.id, 'name': '支付宝'}
+        assert block['target'] == {'id': inst.id, 'name': '支付宝'}
+        assert block['cross_institution'] is False
+
+    def test_preview_cross_institution_true(self, client, db):
+        """双方绑定不同机构 → cross_institution=true；display_name 缺省回退 org_name"""
+        src_id, tgt_id = _make_pair(client)
+        inst_a = self._make_institution(db, '蚂蚁（杭州）基金销售有限公司', display_name='支付宝')
+        inst_b = self._make_institution(db, '浙江同花顺基金销售有限公司')  # 无 display_name
+        self._bind(db, src_id, inst_a.id)
+        self._bind(db, tgt_id, inst_b.id)
+
+        resp = client.post(f'/api/ledgers/{src_id}/migrations/preview/', json={'target_ledger_id': tgt_id})
+        assert resp.status_code == 200, resp.get_json()
+        block = resp.get_json()['data']['institution']
+        assert block['source'] == {'id': inst_a.id, 'name': '支付宝'}
+        assert block['target'] == {'id': inst_b.id, 'name': '浙江同花顺基金销售有限公司'}
+        assert block['cross_institution'] is True
+
+    def test_preview_unbound_side_is_null_and_not_cross(self, client, db):
+        """任一方未绑定机构 → 对应侧为 null 且 cross_institution=false"""
+        src_id, tgt_id = _make_pair(client)
+        inst = self._make_institution(db, '蚂蚁（杭州）基金销售有限公司', display_name='支付宝')
+        self._bind(db, src_id, inst.id)  # 仅源绑定，目标未绑定
+
+        resp = client.post(f'/api/ledgers/{src_id}/migrations/preview/', json={'target_ledger_id': tgt_id})
+        assert resp.status_code == 200, resp.get_json()
+        block = resp.get_json()['data']['institution']
+        assert block['source'] == {'id': inst.id, 'name': '支付宝'}
+        assert block['target'] is None
+        assert block['cross_institution'] is False
+
+    def test_commit_cross_institution_requires_explicit_confirm(self, client, db):
+        """跨机构 commit 未带 allow_cross_institution → 400 且源数据不变；带 true → 成功"""
+        src_id, tgt_id = _make_pair(client)
+        inst_a = self._make_institution(db, '蚂蚁（杭州）基金销售有限公司', display_name='支付宝')
+        inst_b = self._make_institution(db, '浙江同花顺基金销售有限公司')
+        self._bind(db, src_id, inst_a.id)
+        self._bind(db, tgt_id, inst_b.id)
+        db.add(_pos('000001', '基金一', src_id, '基金源', 100, 1.0))
+        db.commit()
+
+        # 未显式确认 → 400，不写任何数据
+        resp = client.post(f'/api/ledgers/{src_id}/migrations/commit/', json={'target_ledger_id': tgt_id})
+        assert resp.status_code == 400
+        assert '跨销售机构' in resp.get_json()['message']
+        assert db.query(Position).filter(Position.ledger_id == src_id).count() == 1
+        assert db.query(Position).filter(Position.ledger_id == tgt_id).count() == 0
+
+        # 显式确认 → 放行成功
+        resp = client.post(
+            f'/api/ledgers/{src_id}/migrations/commit/',
+            json={'target_ledger_id': tgt_id, 'allow_cross_institution': True},
+        )
+        assert resp.status_code == 200, resp.get_json()
+        assert db.query(Position).filter(Position.ledger_id == src_id).count() == 0
+        kept = db.query(Position).filter(Position.ledger_id == tgt_id).one()
+        assert kept.quantity == 1000000
+
+    def test_commit_unbound_or_same_institution_passes_without_flag(self, client, db):
+        """任一方未绑定机构 → 不拦截；同机构同理（此处验证未绑定路径）"""
+        src_id, tgt_id = _make_pair(client)
+        inst = self._make_institution(db, '蚂蚁（杭州）基金销售有限公司', display_name='支付宝')
+        self._bind(db, src_id, inst.id)  # 目标未绑定
+        db.add(_pos('000001', '基金一', src_id, '基金源', 100, 1.0))
+        db.commit()
+
+        resp = client.post(f'/api/ledgers/{src_id}/migrations/commit/', json={'target_ledger_id': tgt_id})
+        assert resp.status_code == 200, resp.get_json()
+        assert db.query(Position).filter(Position.ledger_id == src_id).count() == 0
+
+
+class TestMigrationPreviewAssetType:
+    """preview 持仓行携带 asset_type，供前端切换展示术语。"""
+
+    def test_position_item_includes_asset_type(self, client, db):
+        src_id, tgt_id = _make_pair(client)
+        # _pos 助手默认 asset_type='fund'（基金语境）
+        db.add(_pos('000001', '基金一', src_id, '基金源', 100, 1.0))
+        db.commit()
+
+        resp = client.post(f'/api/ledgers/{src_id}/migrations/preview/', json={'target_ledger_id': tgt_id})
+        assert resp.status_code == 200, resp.get_json()
+        item = resp.get_json()['data']['items'][0]
+        assert item['kind'] == 'position'
+        assert item['asset_type'] == 'fund'
