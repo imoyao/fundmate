@@ -679,7 +679,18 @@ class TestLedgerOverview:
 
 
 class TestLedgerBatchMigrate:
-    """测试账户持仓批量迁移（基于 ledger_id 外键）"""
+    """测试账户批量迁移两段式接口（preview 只读分类 → commit 单事务提交）"""
+
+    @staticmethod
+    def _preview(client, src_id, tgt_id):
+        return client.post(f'/api/ledgers/{src_id}/migrations/preview/', json={'target_ledger_id': tgt_id})
+
+    @staticmethod
+    def _commit(client, src_id, tgt_id, resolutions=None):
+        payload = {'target_ledger_id': tgt_id}
+        if resolutions is not None:
+            payload['resolutions'] = resolutions
+        return client.post(f'/api/ledgers/{src_id}/migrations/commit/', json=payload)
 
     def test_migrate_stock_to_stock(self, client, db):
         """正常迁移：两个证券账户，迁移后源为空，目标增加，ledger_id 变更"""
@@ -723,11 +734,19 @@ class TestLedgerBatchMigrate:
         db.add(asset_other)
         db.commit()
 
-        # 执行迁移
-        resp = client.post(f'/api/ledgers/{src_id}/migrations/', json={'target_ledger_id': tgt_id})
-        assert resp.status_code == 200
+        # 预览：1 持仓 + 2 资产全部 keep
+        preview = self._preview(client, src_id, tgt_id)
+        assert preview.status_code == 200
+        items = preview.get_json()['data']['items']
+        assert len(items) == 3
+        assert all(i['classification'] == 'keep' for i in items)
+
+        # 提交迁移
+        resp = self._commit(client, src_id, tgt_id)
+        assert resp.status_code == 200, resp.get_json()
         data = resp.get_json()['data']
-        assert data['total'] == 3
+        assert data['position_count'] == 1
+        assert data['asset_count'] == 2
         assert '中信证券' in resp.get_json()['message']
 
         # 验证源账户下已无持仓/资产（基于 ledger_id）
@@ -791,10 +810,18 @@ class TestLedgerBatchMigrate:
         )
         db.commit()
 
-        resp = client.post(f'/api/ledgers/{src_id}/migrations/', json={'target_ledger_id': tgt_id})
+        # 预览：完全一致应分类为 duplicate（非冲突）
+        preview = self._preview(client, src_id, tgt_id)
+        assert preview.status_code == 200, preview.get_json()
+        items = preview.get_json()['data']['items']
+        assert len(items) == 1
+        assert items[0]['classification'] == 'duplicate'
+        assert items[0]['suggestion'] is None
+
+        resp = self._commit(client, src_id, tgt_id)
         assert resp.status_code == 200, resp.get_json()
         data = resp.get_json()['data']
-        assert data['conflicts'] == []  # 完全一致不算冲突
+        assert data['dedup_count'] == 1
 
         # 源账户清空（重复的一份被丢弃）
         assert db.query(Position).filter(Position.ledger_id == src_id).count() == 0
@@ -805,7 +832,7 @@ class TestLedgerBatchMigrate:
         assert tgt_positions[0].quantity == 1000000
 
     def test_migrate_overlapping_symbol_conflict(self, client, db):
-        """同 symbol 但字段不一致 → 冲突，不自动合并，留在源账户待手动处理"""
+        """同 symbol 但字段不一致 → 预览报 conflict；commit 缺决议被拒，决议后按用户选择执行"""
         src = client.post('/api/ledgers/', json={'name': '支付宝', 'ledger_type': 'fund'})
         tgt = client.post('/api/ledgers/', json={'name': '蚂蚁杭州基金销售', 'ledger_type': 'fund'})
         src_id = src.get_json()['data']['id']
@@ -840,23 +867,37 @@ class TestLedgerBatchMigrate:
         )
         db.commit()
 
-        resp = client.post(f'/api/ledgers/{src_id}/migrations/', json={'target_ledger_id': tgt_id})
-        assert resp.status_code == 200, resp.get_json()
-        data = resp.get_json()['data']
-        # 冲突被上报，且源/目标都各自保留一份（未迁移、未丢弃）
-        assert len(data['conflicts']) == 1
-        conflict = data['conflicts'][0]
+        # 预览：conflict 行须明确告知差异字段，并以可读单位（份/元）呈现
+        preview = self._preview(client, src_id, tgt_id)
+        assert preview.status_code == 200, preview.get_json()
+        items = preview.get_json()['data']['items']
+        assert len(items) == 1
+        conflict = items[0]
+        assert conflict['classification'] == 'conflict'
         assert conflict['symbol'] == '510300'
-        # 冲突须明确告知：哪些字段不一致 + 中文原因
-        assert set(conflict['diff_fields']) == {'quantity', 'avg_price'}
-        assert '份额不一致' in conflict['reason']
-        assert '成本价不一致' in conflict['reason']
-        # 以可读单位（份/元）呈现，便于前端直接展示
+        assert set(conflict['conflict_fields']) == {'quantity', 'avg_price'}
+        # 份额与成本价不同 → 建议 merge（非仅成本日差异）
+        assert conflict['suggestion'] == 'merge'
         assert conflict['source']['quantity'] == 100.0
         assert conflict['target']['quantity'] == 50.0
         assert conflict['source']['avg_price'] == 10.0
+
+        # commit 缺决议 → 400 且不写任何数据（源/目标各留一份）
+        resp = self._commit(client, src_id, tgt_id)
+        assert resp.status_code == 400
+        assert '510300' in resp.get_json()['message']
         assert db.query(Position).filter(Position.ledger_id == src_id).count() == 1
         assert db.query(Position).filter(Position.ledger_id == tgt_id).count() == 1
+
+        # 决议 keep_source：源整条覆盖目标
+        resp = self._commit(
+            client, src_id, tgt_id, resolutions=[{'kind': 'position', 'symbol': '510300', 'action': 'keep_source'}]
+        )
+        assert resp.status_code == 200, resp.get_json()
+        assert db.query(Position).filter(Position.ledger_id == src_id).count() == 0
+        kept = db.query(Position).filter(Position.ledger_id == tgt_id).one()
+        assert kept.quantity == 1000000
+        assert kept.avg_price == 1000
 
     def test_migrate_overlapping_asset_dedup(self, client, db):
         """资产同名同分类且金额一致 → 视为重复，只保留目标一份"""
@@ -880,7 +921,12 @@ class TestLedgerBatchMigrate:
         )
         db.commit()
 
-        resp = client.post(f'/api/ledgers/{src_id}/migrations/', json={'target_ledger_id': tgt_id})
+        # 预览：金额一致 → duplicate
+        preview = self._preview(client, src_id, tgt_id)
+        assert preview.status_code == 200, preview.get_json()
+        assert preview.get_json()['data']['items'][0]['classification'] == 'duplicate'
+
+        resp = self._commit(client, src_id, tgt_id)
         assert resp.status_code == 200, resp.get_json()
         assert db.query(Asset).filter(Asset.ledger_id == src_id).count() == 0
         tgt_assets = db.query(Asset).filter(Asset.ledger_id == tgt_id).all()
@@ -888,7 +934,7 @@ class TestLedgerBatchMigrate:
         assert tgt_assets[0].amount == 500000  # 未翻倍
 
     def test_migrate_overlapping_asset_conflict(self, client, db):
-        """资产同名同分类但金额不一致 → 冲突，留待手动处理"""
+        """资产同名同分类但金额不一致 → 预览报 conflict；commit 缺决议被拒，决议后执行"""
         src = client.post('/api/ledgers/', json={'name': '支付宝', 'ledger_type': 'fund'})
         tgt = client.post('/api/ledgers/', json={'name': '蚂蚁杭州基金销售', 'ledger_type': 'fund'})
         src_id = src.get_json()['data']['id']
@@ -909,12 +955,33 @@ class TestLedgerBatchMigrate:
         )
         db.commit()
 
-        resp = client.post(f'/api/ledgers/{src_id}/migrations/', json={'target_ledger_id': tgt_id})
-        assert resp.status_code == 200, resp.get_json()
-        data = resp.get_json()['data']
-        assert len(data['conflicts']) == 1
+        # 预览：conflict，金额差异以元呈现
+        preview = self._preview(client, src_id, tgt_id)
+        assert preview.status_code == 200, preview.get_json()
+        item = preview.get_json()['data']['items'][0]
+        assert item['classification'] == 'conflict'
+        assert item['suggestion'] is None  # 资产无 merge 建议
+        assert item['source']['amount'] == 5000.0
+        assert item['target']['amount'] == 3000.0
+
+        # 缺决议 → 400 且源数据不变
+        resp = self._commit(client, src_id, tgt_id)
+        assert resp.status_code == 400
+        assert '余额' in resp.get_json()['message']
         assert db.query(Asset).filter(Asset.ledger_id == src_id).count() == 1
         assert db.query(Asset).filter(Asset.ledger_id == tgt_id).count() == 1
+
+        # 决议 keep_target：弃源保目标
+        resp = self._commit(
+            client,
+            src_id,
+            tgt_id,
+            resolutions=[{'kind': 'asset', 'name': '余额', 'major_category': 'cash', 'action': 'keep_target'}],
+        )
+        assert resp.status_code == 200, resp.get_json()
+        assert db.query(Asset).filter(Asset.ledger_id == src_id).count() == 0
+        kept = db.query(Asset).filter(Asset.ledger_id == tgt_id).one()
+        assert kept.amount == 300000
 
     def test_migrate_moves_linked_transactions(self, client, db, make_transaction):
         """持仓迁移时，其交易记录也要改挂目标账户，避免持仓与交易 ledger 脱节"""
@@ -943,7 +1010,7 @@ class TestLedgerBatchMigrate:
         )
         db.commit()
 
-        resp = client.post(f'/api/ledgers/{src_id}/migrations/', json={'target_ledger_id': tgt_id})
+        resp = self._commit(client, src_id, tgt_id)
         assert resp.status_code == 200, resp.get_json()
         data = resp.get_json()['data']
         assert data['transaction_count'] == 1
@@ -991,10 +1058,10 @@ class TestLedgerBatchMigrate:
         )
         db.commit()
 
-        resp = client.post(f'/api/ledgers/{src_id}/migrations/', json={'target_ledger_id': tgt_id})
+        resp = self._commit(client, src_id, tgt_id)
         assert resp.status_code == 200, resp.get_json()
         data = resp.get_json()['data']
-        assert data['conflicts'] == []  # 完全一致不算冲突
+        assert data['dedup_count'] == 1  # 完全一致按 duplicate 去重
         assert data['transaction_count'] == 1
 
         # 源持仓被丢弃、目标持仓保留，交易改挂到目标持仓
@@ -1046,7 +1113,7 @@ class TestLedgerBatchMigrate:
         )
         db.commit()
 
-        resp = client.post(f'/api/ledgers/{src_id}/migrations/', json={'target_ledger_id': tgt_id})
+        resp = self._commit(client, src_id, tgt_id)
         assert resp.status_code == 200, resp.get_json()
         data = resp.get_json()['data']
         assert data['transaction_count'] == 1  # 源重复交易已归并
@@ -1060,13 +1127,16 @@ class TestLedgerBatchMigrate:
         assert db.query(Transaction).filter(Transaction.ledger_id == src_id).count() == 0
 
     def test_migrate_cross_type_rejected(self, client, db):
-        """跨类型迁移应被拒绝"""
+        """跨类型迁移应被拒绝（preview 与 commit 双端点一致）"""
         src = client.post('/api/ledgers/', json={'name': '华泰证券', 'ledger_type': 'stock'})
         tgt = client.post('/api/ledgers/', json={'name': '招商银行', 'ledger_type': 'bank'})
         src_id = src.get_json()['data']['id']
         tgt_id = tgt.get_json()['data']['id']
 
-        resp = client.post(f'/api/ledgers/{src_id}/migrations/', json={'target_ledger_id': tgt_id})
+        resp = self._preview(client, src_id, tgt_id)
+        assert resp.status_code == 400
+        assert '同类型' in resp.get_json()['message']
+        resp = self._commit(client, src_id, tgt_id)
         assert resp.status_code == 400
         assert '同类型' in resp.get_json()['message']
 
@@ -1075,25 +1145,30 @@ class TestLedgerBatchMigrate:
         src = client.post('/api/ledgers/', json={'name': '华泰证券', 'ledger_type': 'stock'})
         src_id = src.get_json()['data']['id']
 
-        resp = client.post(f'/api/ledgers/{src_id}/migrations/', json={'target_ledger_id': 9999})
+        resp = self._preview(client, src_id, 9999)
         assert resp.status_code == 404
 
     def test_migrate_source_not_found(self, client):
         """源账户不存在"""
-        resp = client.post('/api/ledgers/9999/migrations/', json={'target_ledger_id': 1})
+        resp = client.post('/api/ledgers/9999/migrations/preview/', json={'target_ledger_id': 1})
         assert resp.status_code == 404
 
     def test_migrate_empty_source(self, client, db):
-        """源账户无持仓/资产时，迁移成功但数量为0"""
+        """源账户无持仓/资产时，预览为空、迁移成功但数量为0"""
         src = client.post('/api/ledgers/', json={'name': '空账户', 'ledger_type': 'stock'})
         tgt = client.post('/api/ledgers/', json={'name': '目标账户', 'ledger_type': 'stock'})
         src_id = src.get_json()['data']['id']
         tgt_id = tgt.get_json()['data']['id']
 
-        resp = client.post(f'/api/ledgers/{src_id}/migrations/', json={'target_ledger_id': tgt_id})
+        preview = self._preview(client, src_id, tgt_id)
+        assert preview.status_code == 200
+        assert preview.get_json()['data']['items'] == []
+
+        resp = self._commit(client, src_id, tgt_id)
         assert resp.status_code == 200
         data = resp.get_json()['data']
-        assert data['total'] == 0
+        assert data['position_count'] == 0
+        assert data['asset_count'] == 0
 
     def test_migrate_cross_family_rejected(self, client, db):
         """跨家庭迁移必须被拒绝，防止把持仓越权迁入他人账本（IDOR）"""
@@ -1105,7 +1180,7 @@ class TestLedgerBatchMigrate:
         db.commit()
         tgt_id = tgt.id
 
-        resp = client.post(f'/api/ledgers/{src_id}/migrations/', json={'target_ledger_id': tgt_id})
+        resp = self._preview(client, src_id, tgt_id)
         assert resp.status_code == 403
         assert '同家庭' in resp.get_json()['message']
 
