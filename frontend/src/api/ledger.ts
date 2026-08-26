@@ -121,33 +121,151 @@ export function deleteLedgerWithOptions(
   });
 }
 
-/** 将指定账户的持仓批量迁移到同类型目标账户 */
-export interface MigrateConflict {
-  symbol?: string;
-  name?: string;
+// ── 账本批量迁移（两段式，docs/design/ledger-merge-design.md §4）──
+// preview 只读不写库（回滚 = 不提交），commit 单事务整体提交。
+
+/** 迁移行类型：position=可交易持仓，asset=静态资产 */
+export type MigrationItemKind = "position" | "asset";
+
+/** 迁移分类：keep=直接迁移；duplicate=精确重复自动丢弃；conflict=需用户决议 */
+export type MigrationClassification = "keep" | "duplicate" | "conflict";
+
+/** 系统建议（仅 conflict 行可能非 null；merge 仅持仓行有意义） */
+export type MigrationSuggestion = "keep_target" | "merge" | null;
+
+/** 用户决议动作：持仓三选（含 merge），资产仅前两者 */
+export type MigrationAction = "keep_source" | "keep_target" | "merge";
+
+/** 持仓快照（可读值：份额为份、成本价为元） */
+export interface MigrationPositionSnapshot {
+  quantity: number;
+  avg_price: number;
+  confirm_date: string | null;
+}
+
+/** 资产快照（可读值：元） */
+export interface MigrationAssetSnapshot {
+  amount: number;
+}
+
+interface MigrationPreviewItemBase {
+  /** 标的代码；资产行为 null */
+  symbol: string | null;
+  name: string;
+  classification: MigrationClassification;
+  suggestion: MigrationSuggestion;
+  /** 不一致字段名列表（仅 conflict 行非空），如 ["quantity", "avg_price"] */
+  conflict_fields: string[];
+}
+
+/** 预览明细行：持仓按 symbol 定位，数值为份额/成本价/成本日 */
+export interface MigrationPositionPreviewItem extends MigrationPreviewItemBase {
+  kind: "position";
+  /**
+   * 资产类型（如 fund/stock），前端据此切换字段术语：
+   * fund 走「确认份额/确认净值/确认日期」口径，其余走「持仓数量/成本价/成本日期」。
+   * 可选以兼容后端灰度期缺省，缺省按非基金处理。
+   */
+  asset_type?: string;
+  source: MigrationPositionSnapshot;
+  target: MigrationPositionSnapshot | null;
+}
+
+/**
+ * 预览明细行：资产按 name+major_category+minor_category 定位。
+ * major/minor_category 为 commit 决议回传所需（契约正文未列出但提交必需，
+ * 后端在资产行补充输出；缺省时前端兜底空串，仅影响资产冲突决议的定位）。
+ */
+export interface MigrationAssetPreviewItem extends MigrationPreviewItemBase {
+  kind: "asset";
   major_category?: string;
   minor_category?: string;
-  source?: Record<string, unknown>;
-  target?: Record<string, unknown>;
+  source: MigrationAssetSnapshot;
+  target: MigrationAssetSnapshot | null;
 }
 
-export interface MigrateResult {
-  position_count: number;
-  asset_count: number;
-  total: number;
-  conflicts: MigrateConflict[];
+export type MigrationPreviewItem =
+  MigrationPositionPreviewItem | MigrationAssetPreviewItem;
+
+/** 守恒校验结果（迁移前后数量核对；字段随实现扩展，均为可读值） */
+export interface MigrationConservation {
+  source_out_positions?: number;
+  target_in_positions?: number;
+  source_out_assets?: number;
+  target_in_assets?: number;
 }
 
-export function migrateLedgerPositions(
+/** 账本绑定的销售机构（null=该侧未绑定机构） */
+export interface MigrationInstitutionRef {
+  id: number;
+  name: string;
+}
+
+/** 双方销售机构绑定情况：cross_institution=true 表示双方绑定了不同机构 */
+export interface MigrationInstitutionInfo {
+  source: MigrationInstitutionRef | null;
+  target: MigrationInstitutionRef | null;
+  cross_institution: boolean;
+}
+
+/** 预览响应 data（institution 可选以兼容后端未部署新字段时的旧响应） */
+export interface MigrationPreviewResult {
+  items: MigrationPreviewItem[];
+  conservation?: MigrationConservation;
+  institution?: MigrationInstitutionInfo;
+}
+
+/** 提交决议项：持仓按 symbol 三选一；资产按三级分类键二选一（无合并语义） */
+export type MigrationResolution =
+  | {
+      kind: "position";
+      symbol: string;
+      action: MigrationAction;
+    }
+  | {
+      kind: "asset";
+      name: string;
+      major_category: string;
+      minor_category: string;
+      action: Exclude<MigrationAction, "merge">;
+    };
+
+/** 提交入参（allow_cross_institution 仅跨机构迁移且用户二次确认后携带） */
+export interface MigrationCommitPayload {
+  target_ledger_id: number;
+  resolutions: MigrationResolution[];
+  allow_cross_institution?: boolean;
+}
+
+/** 提交响应 data（各项计数与守恒结果；字段缺省时前端降级用本地预览计数展示） */
+export interface MigrationCommitResult {
+  position_count?: number;
+  asset_count?: number;
+  total?: number;
+  conservation?: MigrationConservation;
+}
+
+/** 迁移预览（只读）：POST /api/ledgers/<id>/migrations/preview/ */
+export function previewLedgerMigration(
   sourceLedgerId: number,
   targetLedgerId: number
 ) {
-  return http.request<ApiResponse<MigrateResult>>(
+  return http.request<ApiResponse<MigrationPreviewResult>>(
     "post",
-    `/api/ledgers/${sourceLedgerId}/migrations/`,
-    {
-      data: { target_ledger_id: targetLedgerId }
-    }
+    `/api/ledgers/${sourceLedgerId}/migrations/preview/`,
+    { data: { target_ledger_id: targetLedgerId } }
+  );
+}
+
+/** 迁移提交（单事务，失败整体回滚、源数据原样）：POST /api/ledgers/<id>/migrations/commit/ */
+export function commitLedgerMigration(
+  sourceLedgerId: number,
+  payload: MigrationCommitPayload
+) {
+  return http.request<ApiResponse<MigrationCommitResult>>(
+    "post",
+    `/api/ledgers/${sourceLedgerId}/migrations/commit/`,
+    { data: payload }
   );
 }
 

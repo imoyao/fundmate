@@ -3,7 +3,7 @@
 持仓相关 API 测试扩展：交易明细查询、删除持仓（含级联删除交易）
 """
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import exists
 
@@ -740,7 +740,7 @@ class TestPositionTransactions:
         db.add(pos)
         db.commit()
 
-        # 创建两笔交易
+        # 创建两笔交易（显式错开 created_at，避免同刻插入时排序依赖数据库行为）
         txn1 = Transaction(
             symbol='000001',  # 新增
             position_name='平安银行',
@@ -752,6 +752,7 @@ class TestPositionTransactions:
             amount=Money.yuan_to_cents(1000.0),
             position_id=pos.id,
             confirm_date=date.today(),
+            created_at=datetime.now() - timedelta(minutes=5),
         )
         txn2 = Transaction(
             symbol='000001',
@@ -764,6 +765,7 @@ class TestPositionTransactions:
             amount=Money.yuan_to_cents(600.0),
             position_id=pos.id,
             confirm_date=date.today(),
+            created_at=datetime.now(),
         )
         db.add_all([txn1, txn2])
         db.commit()
@@ -772,8 +774,9 @@ class TestPositionTransactions:
         assert resp.status_code == 200
         data = resp.get_json()['data']
         assert len(data) == 2
-        assert data[0]['txn_type'] == 'buy'
-        assert data[1]['txn_type'] == 'sell'
+        # 契约：最近交易在前（#982）——txn2(sell) 的 created_at 更晚，应排第一
+        assert data[0]['txn_type'] == 'sell'
+        assert data[1]['txn_type'] == 'buy'
 
     def test_get_transactions_empty(self, client, db):
         """无关联交易时返回空数组"""
@@ -1021,11 +1024,11 @@ class TestPositionImportHash:
             db.flush()
         return ledger.id
 
-    def _buy(self, db, ledger_id, source, symbol='600519', qty=100, price=1800.0):
+    def _buy(self, db, ledger_id, source, symbol='600519', qty=100, price=1800.0, asset_type='stock', name='贵州茅台'):
         data = {
             'symbol': symbol,
-            'name': '贵州茅台',
-            'asset_type': 'stock',
+            'name': name,
+            'asset_type': asset_type,
             'market': 'CN_A',
             'ledger_id': ledger_id,
             'family_id': 1,
@@ -1049,6 +1052,31 @@ class TestPositionImportHash:
             source='manual', ledger_id=ledger_id, symbol='SH600519', snapshot_date=date.today()
         )
         assert pos.import_hash == expected
+
+    def test_buy_quantity_stored_in_min_units(self, db):
+        """回归护栏（#1103）：process_buy_or_deposit 的 quantity 必须以最小单位（份×10000）落库。
+
+        2026-06-16 d4d2b86 之前的版本曾把「份」数值直接入库（少乘 10000），
+        导致 66 笔历史交易数量缩小一万倍；此断言防止该单位 bug 复发。
+        """
+        ledger_id = self._make_ledger(db)
+        pos = self._buy(
+            db,
+            ledger_id,
+            source='manual',
+            symbol='023887',
+            qty=9771.0,
+            price=1.02,
+            asset_type='fund',
+            name='永赢北证50成分指数C',
+        )
+        db.commit()
+        # 持仓与交易流水均须为最小单位口径
+        assert pos.quantity == 97710000
+        txn = db.query(Transaction).filter_by(position_id=pos.id).one()
+        assert txn.quantity == 97710000
+        # 金额自洽：quantity(最小单位) × price(分) / 10000 ≈ amount(分)
+        assert abs(txn.quantity * txn.price / 10000 - txn.amount) <= txn.amount * 0.02
 
     def test_duplicate_import_hash_upserts_not_duplicate(self, db):
         """同内容两次导入（不同 source，同 ledger/symbol/同日）撞 hash → upsert 合并，不产生两条。"""

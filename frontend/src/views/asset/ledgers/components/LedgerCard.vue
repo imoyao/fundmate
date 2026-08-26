@@ -191,7 +191,6 @@ const emit = defineEmits<{
 </template>
 
 <style scoped>
-
 @media (hover: none) {
   .ledger-row-action {
     opacity: 1;

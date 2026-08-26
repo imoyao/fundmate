@@ -25,6 +25,12 @@ class Position(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     market = Column(String(20))
     asset_type = Column('type', String(20))
     ledger_id = Column(Integer, ForeignKey('ledgers.id', ondelete='RESTRICT'), nullable=True, comment='关联账户ID')
+    portfolio_id = Column(
+        Integer,
+        ForeignKey('portfolios.id', ondelete='SET NULL'),
+        nullable=True,
+        comment='所属组合ID(D20 持仓级组合; 空=继承账户默认组合 ledger.portfolio_id)',
+    )
     account_name = Column(String(100))
     quantity = Column(Integer, default=0, comment='持仓数量(0.0001份/单位)')
     avg_price = Column(Integer, default=0, comment='成本均价(分)')
@@ -70,6 +76,7 @@ class Position(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
         UniqueConstraint('ledger_id', 'import_hash', name='uq_positions_import_hash'),
         # 常用查询索引
         Index('idx_positions_ledger_id', 'ledger_id'),
+        Index('idx_positions_portfolio_id', 'portfolio_id'),
         Index('idx_positions_symbol', 'symbol'),
         Index('idx_positions_account_name', 'account_name'),
         Index('idx_positions_ledger_asset_type', 'ledger_id', 'type'),

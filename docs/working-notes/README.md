@@ -81,6 +81,8 @@
 | `agent-guardrail-layer-design-2026-08-17.md` | **账本精灵对话 Agent 护栏层设计（正式）**：汇总头脑风暴第十~十七轮与同花顺对标结论；五层护栏（L0 代码隔离/L1 Prompt 铁律/L2 工具可用性/输入侧意图护栏 A~E/L3 输出侧词法过滤）；L3 细化为 10 条拦截规则表（R1~R10）；模块落点 `ai_recognizer/safety/` + G1~G7 实施计划 |
 | `agent-issues-2026-08-17.md` | **账本精灵原子 Issue 草稿**：7 个原子 issue 模板（护栏 G1~G7 拆 4 个 + 快速记账/持仓查询 NL 层/行为解读），含象限 Q2、反链、验收标准，可直接粘贴建 GitHub issue；对应决策 D19 与 roadmap §2.7 |
 | `sales-institution-common-group-2026-08-24.md` | **销售机构常用分组 + 账户类型感知设计（#1081/#1082，已对齐）**：15 家常用名单（中基协排名为 sort）、代码声明幂等应用（迁移零负担）、org_type 11→4 组标识、stock/fund 机构过滤、决策记录 D1~D8 |
+| `portfolio-strategy-unification-2026-08-24.md` | **组合体系殊途同归实施计划（D20，设计定稿）**：组合收敛为持仓级概念（positions.portfolio_id + 账户「默认组合」语义）、三层 XIRR 口径（持仓/账户/组合）、策略标签正交保留、页面合一方案、分期实施与迁移回滚、概念精简评估 |
+| `portfolio-lot-attribution-design-2026-08-25.md` | **组合批次级（Lot）归因立项设计（#1095 远期方案）**：b 否决/c 为唯一路径；现金按 lot 归属；排序先 D20 一期后 #1095。展开 4 项前置依赖为可执行设计（lots/lot_consumptions 模型、现金归属细则、XIRR 引擎重写+清理 xirr_engine.py:349 死代码、历史回填），附代码锚点与分期/测试/回滚 |
 
 ## 子目录归档
 

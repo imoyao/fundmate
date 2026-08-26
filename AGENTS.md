@@ -26,7 +26,7 @@
 ## 项目概述
 
 - **主分支**：`main`（稳定，受保护，禁止直接 push）
-- **开发分支**：`dev`（日常开发目标）
+- **集成分支**：`dev`（只接受功能分支的 PR 合并，禁止直接 push）
 - **CI 守卫**：`guard-direct-push` 拦截直接推 `main`（私有仓库无 branch protection）
 - **所有进入 `main` 的改动必须通过 PR**（功能分支 → `dev` → `main`）
 
@@ -37,17 +37,17 @@
 ### 长期分支（仅两条）
 
 - `main`：稳定主分支，仅接受 PR 合并。
-- `dev`：主开发分支，日常所有提交均在此进行。
+- `dev`：集成分支，只接受功能分支的 PR 合并，**禁止直接 push**（含小改动）。
 
 ### 功能分支
 
 - 新功能 / 较大改动：从 `dev` 切出 `feat/<简短描述>` 或 `fix/<...>`，开发完成后开 PR 合回 `dev`。
-- 小改动（错别字、单文件微调、文档更新等）：可直接在 `dev` 上提交，无需单独分支。
+- 小改动（错别字、单文件微调、文档更新等）：同样从 `dev` 切分支（`fix/<...>`、`docs/<...>` 前缀），合并后删除分支——`dev` 不接受任何直接 push。
 - 功能分支合入目标一律是 `dev`，**禁止**直接对 `main` 开 PR（紧急 hotfix 除外，但目标仍为 `main`）。
 
 ### 文档更新
 
-- 随代码改动一起在 `dev` 提交，走 PR，不单独设 `docs` 分支。
+- 随代码改动一起走 PR 合入 `dev`；纯文档改动从 `dev` 切 `docs/<...>` 分支走 PR，不直接提交 `dev`。
 
 ### 禁止事项
 
@@ -267,7 +267,7 @@
 
 ### 强制规则
 
-1. **每个 ORM 模型必须声明 `__data_domain__ = 'market' | 'user'` 类属性**（归属清单见 `docs/dev/db-data-domain.md`）。
+1. **数据域归属以 `app/core/db_factory.DATA_DOMAIN_REGISTRY` 中央注册表为准**（表名 → `market`/`user`），新增表必须先登记注册表，未登记会被启动校验拦截；模型文件**不声明**域属性（原「模型声明 `__data_domain__` 类属性」条文作废——实现从未采用该机制，2026-08-24 修正，归属清单见 `docs/dev/db-data-domain.md`）。
 2. **跨域零外键、零 SQL join**：两域独立引擎，无法 SQL JOIN。关联只存冗余业务键（如 `fund_code`）。
 3. **跨域读取只允许“应用层两步法”**：先取键列表，再用 `in_` 批量去另一域取数据。集中到统一 service，禁止各 service 手写 N+1。
 4. **归属决策树**：
@@ -362,7 +362,9 @@
 
 - 所有含中文的文本文件（`.md`、`.py`、`.vue` 等）必须保存为合法 UTF-8，内容可读中文。
 - 写入时确保整个链路 UTF-8 端到端，禁止 GBK/Latin-1 解码后再存为 UTF-8（二次编码导致 mojibake）。
-- pre-commit 守卫 `guard_mojibake.py` 会拦截疑似乱码文件，禁止 `--no-verify` 绕过。
+- **提交信息同样受约束**：`pre-commit` 的 `guard-mojibake-commit-msg` 钩子会在 `commit-msg` 阶段拦截乱码提交信息；CI 的 `mojibake-guard` job 作为兜底，扫描 PR 变更文件，防止经 `--no-verify` 或 `gh api` / MCP 直推绕过本地钩子。
+- **禁止 `git commit -m "中文..."` 内联写法**（PowerShell 等控制台会把中文按 GBK 传给 git 造成永久乱码历史）。一律用 `git commit -F <utf8文件>` 或 `scripts/commit_changes.py --message-file <...>`。
+- 本地 `guard_mojibake.py`（文件）与 `guard-mojibake-commit-msg`（提交信息）会拦截疑似乱码，禁止 `--no-verify` 绕过。
 
 ---
 

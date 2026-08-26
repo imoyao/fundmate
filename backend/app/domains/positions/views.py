@@ -14,6 +14,7 @@ from app.core.database import get_db
 from app.core.money import Money
 from app.core.utils import paginate
 from app.core.validation import parse_body
+from app.domains.portfolios.models import Portfolio
 from app.domains.positions.models import Position
 from app.domains.positions.schemas import PositionCreate, PositionOut, PositionUpdate
 from app.domains.transactions.models import Transaction
@@ -141,6 +142,7 @@ def get_position_transactions(id: int):
                 .order_by(
                     Transaction.confirm_date.desc().nullslast(),
                     Transaction.created_at.desc(),
+                    Transaction.id.desc(),  # 同刻插入的最终 tie-breaker，保证排序确定
                 )
                 .all()
             )
@@ -151,6 +153,7 @@ def get_position_transactions(id: int):
                 .order_by(
                     Transaction.confirm_date.desc().nullslast(),
                     Transaction.created_at.desc(),
+                    Transaction.id.desc(),  # 同刻插入的最终 tie-breaker，保证排序确定
                 )
                 .all()
             )
@@ -230,6 +233,17 @@ def update_position(id):
             abort(404, description='Position not found')
 
         update_data = json_data.model_dump(exclude_unset=True)
+
+        # 持仓所属组合改派：校验目标组合存在且归属本家庭（禁止跨家庭串仓）
+        if 'portfolio_id' in update_data and update_data['portfolio_id'] is not None:
+            target = (
+                db.query(Portfolio)
+                .filter(Portfolio.id == update_data['portfolio_id'], Portfolio.family_id == get_family_id())
+                .first()
+            )
+            if not target:
+                abort(404, description='目标组合不存在或无权访问')
+
         for field, value in update_data.items():
             # 金额/份额字段转换为内部单位
             if field in ('current_price', 'avg_price'):
