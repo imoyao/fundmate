@@ -19,7 +19,7 @@ import os
 import sqlite3
 import sys
 
-COLUMN_SQL = 'ALTER TABLE positions ADD COLUMN ownership_status ' "VARCHAR(20) NOT NULL DEFAULT 'active'"
+COLUMN_SQL = "ALTER TABLE positions ADD COLUMN ownership_status VARCHAR(20) NOT NULL DEFAULT 'active'"
 
 
 def main() -> None:

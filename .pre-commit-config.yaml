@@ -30,7 +30,7 @@ repos:
   # Ruff: 统一的 lint + 格式化（替代 isort + flake8 + yapf）
   # 品牌交付目录 logo-delivery/ 的生成脚本为一次性工具，豁免项目 lint
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.5.0
+    rev: v0.16.2
     hooks:
       - id: ruff
         args: [--fix]
