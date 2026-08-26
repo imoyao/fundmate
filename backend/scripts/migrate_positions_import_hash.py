@@ -72,13 +72,13 @@ def main() -> None:
         if dup:
             print(f'[WARN] 存在重复 import_hash={dup[0]}，跳过唯一约束创建，请先处理重复数据。')
         else:
-            conn.execute('CREATE UNIQUE INDEX IF NOT EXISTS uq_positions_import_hash ' 'ON positions(import_hash)')
+            conn.execute('CREATE UNIQUE INDEX IF NOT EXISTS uq_positions_import_hash ON positions(import_hash)')
             print('  [OK] positions: 已创建唯一约束 uq_positions_import_hash')
 
         # 2) 复合索引名对齐：模型声明 idx_positions_ledger_asset_type(ledger_id, type)，
         #    DB 历史遗留错名为 idx_positions_asset_type（列相同），统一成模型名。
         conn.execute('DROP INDEX IF EXISTS idx_positions_asset_type')
-        conn.execute('CREATE INDEX IF NOT EXISTS idx_positions_ledger_asset_type ' 'ON positions(ledger_id, type)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_positions_ledger_asset_type ON positions(ledger_id, type)')
         print('  [OK] positions: 已对齐复合索引 idx_positions_ledger_asset_type')
 
         conn.commit()

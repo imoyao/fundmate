@@ -235,6 +235,6 @@ def test_seed_default_identity_split_mode_writes_to_user_engine(monkeypatch, tmp
     # market 引擎里不应有 families/users 数据（跨域 bug 修复前会落在这里）
     if 'families' in inspect(market_eng).get_table_names():
         with sessionmaker(bind=market_eng)() as db:
-            assert (
-                db.query(Family).filter_by(id=1).first() is None
-            ), 'families 种子错误地写到了 market 引擎（跨域 bug 复发）'
+            assert db.query(Family).filter_by(id=1).first() is None, (
+                'families 种子错误地写到了 market 引擎（跨域 bug 复发）'
+            )
