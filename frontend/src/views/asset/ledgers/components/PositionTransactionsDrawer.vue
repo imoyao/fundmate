@@ -195,7 +195,12 @@
           </el-table-column>
           <el-table-column label="操作" width="56" align="center">
             <template #default="{ row }">
-              <el-button size="small" text type="primary" @click="openEdit(row)">
+              <el-button
+                size="small"
+                text
+                type="primary"
+                @click="openEdit(row)"
+              >
                 编辑
               </el-button>
             </template>

@@ -8,7 +8,11 @@
   >
     <el-form :model="form" label-width="84px" :disabled="saving">
       <el-form-item label="数量">
-        <el-input v-model.number="form.quantity" type="number" :placeholder="`单位：${unitLabel}`">
+        <el-input
+          v-model.number="form.quantity"
+          type="number"
+          :placeholder="`单位：${unitLabel}`"
+        >
           <template #append>{{ unitLabel }}</template>
         </el-input>
       </el-form-item>
@@ -45,8 +49,12 @@
       </el-form-item>
     </el-form>
     <template #footer>
-      <el-button :disabled="saving" @click="emit('update:modelValue', false)">取消</el-button>
-      <el-button type="primary" :loading="saving" @click="handleSave">保存</el-button>
+      <el-button :disabled="saving" @click="emit('update:modelValue', false)"
+        >取消</el-button
+      >
+      <el-button type="primary" :loading="saving" @click="handleSave"
+        >保存</el-button
+      >
     </template>
   </el-dialog>
 </template>

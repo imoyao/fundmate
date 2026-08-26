@@ -1907,9 +1907,10 @@ class TestUpdateLedgerTransaction:
         # amount 未显式给出，应按 price×quantity 重算 = 300
         assert data['amount'] == 300.0
         assert data['import_hash'] is None
-        refreshed = db.query(Transaction).get(txn.id)
-        assert refreshed.import_hash is None
-        assert refreshed.quantity == Money.shares_to_min_unit(200)
+        # PATCH 在独立会话中提交，本测试会话需刷新才能读到落库结果
+        db.refresh(txn)
+        assert txn.import_hash is None
+        assert txn.quantity == Money.shares_to_min_unit(200)
 
     def test_patch_explicit_amount_kept(self, client, db, make_transaction):
         ledger, txn, _ = self._seed(db, make_transaction)
