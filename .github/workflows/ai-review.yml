@@ -9,8 +9,8 @@
 # 降噪策略：
 #   1) 免费线路 TEMPERATURE=0.2、深度线路 0.1，低温度降低模型随机发挥带来的误报
 #   2) 免费线路 run-summary 只在 PR 留一条总结评论；深度线路 run 负责 inline 逐行
-#   3) 免费线路 prompt 见 .ai-review.yaml + docs/configs/ai-review-summary-prompt.md；
-#      深度线路见 .ai-review-deep.yaml + docs/configs/ai-review-deep-prompt.md
+#   3) 两条线路共用单一权威 prompt：docs/configs/ai-review-prompt.md，
+#      经根目录 .ai-review.yaml 与 .ai-review-deep.yaml 注入（强度差异由 review-command 自适应）
 #
 # 深度线路模型由 PR 标签决定（在 PR 界面点标签即可，零摩擦、不影响自动触发）：
 #   无标签            → 默认走智能路由接入点 ep-20260823221703-q9d89（Doubao-Smart-Router 成本优先）
