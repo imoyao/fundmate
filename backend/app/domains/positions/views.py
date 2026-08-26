@@ -142,6 +142,7 @@ def get_position_transactions(id: int):
                 .order_by(
                     Transaction.confirm_date.desc().nullslast(),
                     Transaction.created_at.desc(),
+                    Transaction.id.desc(),  # 同刻插入的最终 tie-breaker，保证排序确定
                 )
                 .all()
             )
@@ -152,6 +153,7 @@ def get_position_transactions(id: int):
                 .order_by(
                     Transaction.confirm_date.desc().nullslast(),
                     Transaction.created_at.desc(),
+                    Transaction.id.desc(),  # 同刻插入的最终 tie-breaker，保证排序确定
                 )
                 .all()
             )
