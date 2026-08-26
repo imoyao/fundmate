@@ -1,7 +1,7 @@
 # 账本合并（批量迁移持仓）数据正确性设计
 
-> 关联：分支 `fix/migrate-positions-duplicate-symbol`（临时修复 commit `c316b55`）、待建 issue（两段式实现跟踪）
-> 状态：设计稿，待讨论确认后再实现代码
+> 关联：issue #1089；临时修复已经 PR #1090 / #1093 合入 dev（原分支与 commit `c316b55` 已不存在）
+> 状态：开放问题已决议（2026-08-26），待从 dev 切功能分支实现（本文档随实现分支走）
 
 ## 1. 背景与问题
 
@@ -54,7 +54,8 @@
         "classification": "keep | duplicate | conflict",
         "source": { "quantity": 1000000, "avg_price": 1000, "confirm_date": "2026-08-20", ... },
         "target": null | { "quantity": 1000000, "avg_price": 1000, "confirm_date": "2026-08-20", ... },
-        "conflict_fields": ["quantity", "avg_price"]
+        "conflict_fields": ["quantity", "avg_price"],
+        "suggestion": "merge"
       }
     ],
     "conservation": { "source_out_positions": 1000000, "target_in_positions": 1000000 }
@@ -62,17 +63,24 @@
 
   ```
 
+- `conflict` 行附 `suggestion`（系统建议，用户可改，规则见 §5.2）。
 - **不写库**：用户关闭预览即无任何副作用 → "回滚"由"不提交"自然实现。
 
 ### 4.2 提交（单事务 + 回滚）
 `POST /api/ledgers/<src>/migrations/commit/`
-- 入参：`{ "target_ledger_id": <int>, "resolutions": [ { "kind": "position", "symbol": "510300", "action": "keep_source | keep_target" } ] }`
-- 处理（包在单个 `user_session()` 事务内；按项目双库约束，用户域表须且仅须经 `user_session()`，禁止混用 `get_db()`）：
+- 入参：`{ "target_ledger_id": <int>, "resolutions": [ { "kind": "position", "symbol": "510300", "action": "keep_source | keep_target | merge" } ] }`
+- 处理（包在单个事务内，随 ledgers 域现行 `get_db()` 会话——与域内全部既有端点一致；
+  实证 2026-08-26：`user_session()` 目前无任何域视图使用，若本端点单点切换会与
+  账本列表页读到不同物理库。双库会话入口迁移是已立项的域级架构债 #1085，
+  须全域统一切换，不在本 PR 单点先行）：
   - `keep` → 源持仓 `ledger_id` 改为目标；
   - `duplicate` → 删除源持仓、保留目标（**数量不变**）；
-  - `conflict` → 按 `resolutions` 中用户选择保留源或目标（**整条保留，不混合字段**）；
+  - `conflict` → 按 `resolutions` 中用户决议执行：`keep_source`（源整条覆盖目标）/
+    `keep_target`（丢弃源、保留目标）/ `merge`（合并为一行，规则见 §5.2.1）；
   - 任一异常 → `db.rollback()`，返回 500 + 错误，源数据原样。
-- 提交前做**守恒校验**：源将迁出总量 == 目标将接收总量（未决议的 conflict 不计入），不一致则拒绝提交。
+- 提交前做**守恒校验**（逐行后置校验）：处理完后逐行核对目标数量与动作语义期望值，
+  且源账本仅剩未决议的 conflict 行（`merge` 行期望 = 目标原有 + 源份额；`duplicate` 行
+  期望 = 目标原值不变；`keep_source` 行期望 = 源值替换），不符则拒绝提交。
 
 ### 4.3 草稿持久化（可选，MVP 不做）
 MVP 由前端持有 preview 结果并回传 `resolutions`，无需服务端草稿表。
@@ -86,10 +94,26 @@ MVP 由前端持有 preview 结果并回传 `resolutions`，无需服务端草�
   并额外比对 `quantity`/`avg_price`（比导入去重更严格，避免把"真不同"误当重复）。
 - 动作：删除源、保留目标，**数量不变**（不相加）。
 
-### 5.2 冲突（用户二选一）
+### 5.2 冲突（用户三选一：保留源 / 保留目标 / 合并）
 判定：同 `symbol` 但上述字段任一不一致 → `conflict`。
-- 动作：**用户在确认步逐条选 `keep_source` / `keep_target`**，整条保留，**不做字段级混合**
-  （防算错、防复杂）。
+- 背景（2026-08-26 与用户对齐）：字段不一致可能是「同一笔写两遍但抄错」，也可能是
+  「两笔真实的不同批次买入」（不同时间录入，成本与日期天然不同）。系统无交易流水、
+  成本日为用户手填，无法自动区分，故由用户逐条决议；但仅二选一会逼用户丢弃真实资产，
+  因此提供第三个选项「合并」。
+- `keep_source`：源整条覆盖目标；
+- `keep_target`：丢弃源、保留目标（适用于同一笔写两遍 / 过期快照）；
+- `merge`：合并为一行，规则见 §5.2.1（适用于两笔真实批次并账）。
+- 预览行附系统建议 `suggestion`（用户可改）：
+  - 份额与成本价全等、仅成本日不同 → 建议 `keep_target`（大概率同一笔，日期为手填噪声）；
+  - 其余 → 建议 `merge`。
+
+#### 5.2.1 合并规则（加权平均，全程整数运算）
+- `quantity = q_src + q_tgt`（最小单位 0.0001 份，整数相加，无精度损失）；
+- `avg_price = (q_src·p_src + q_tgt·p_tgt + (q_src+q_tgt)//2) // (q_src+q_tgt)`
+  （整数四舍五入到分；份额和为 0 时结果取 0）；
+- `confirm_date = max(src, tgt)`（成本日取较新，仅展示口径，不参与计算）；
+- 其余字段（name/market/asset_type/portfolio_id/source/source_broker/notes 等）保留目标原值；
+- 合并后删除源持仓行，其 `PositionImportMeta` 随 CASCADE 清除。
 
 ### 5.3 资产
 - 按 `(name, major_category, minor_category)` 判重；金额一致 → `duplicate` 丢源；
@@ -113,19 +137,25 @@ except Exception:
 ```
 
 ## 7. 前端
-复用导入预览 UI 模式：
+复用导入预览 UI 模式，冲突弹窗必须是**决议面板**而非纯展示（2026-08-26 用户明确：
+现状「只展示、要求去别处改完再重迁」打断操作流，不可接受）：
 - 中间表列出 `keep` / `duplicate` / `conflict` 三类；
-- `conflict` 行提供「保留源 / 保留目标」单选；
-- 确认后调 `commit`，并提示守恒校验结果。
+- `conflict` 行内联提供「保留源 / 保留目标 / 合并」单选（资产行仅前两项），
+  默认选中系统建议 `suggestion`，源/目标双方数值并排展示供比对；
+- 确认后直接调 `commit`，提示守恒校验结果；不再要求用户离开当前流程手工改数据。
 
-## 8. 开放问题（待讨论）
+## 8. 开放问题（2026-08-26 已决议）
 1. 冲突是否允许"手动输入合并后数值"，还是仅二选一（当前定**二选一**，最简）？
-2. 是否需要服务端草稿持久化（当前定**前端持有**）？
+   → 定稿：**三选一**（保留源 / 保留目标 / 合并加权平均），不做自由输入合并值（防算错）；见 §5.2。
+2. 是否需要服务端草稿持久化（当前定**前端持有**）？→ 维持前端持有，MVP 不做草稿表。
 3. 资产冲突粒度（`name+major+minor`）是否足够？
+   → 维持现状口径：用户尚未验证资产迁移实际数据，持仓（基金/股票）优先，资产待验证后再议。
 
 ## 9. 测试策略
-- `preview` 分类正确（keep/duplicate/conflict）；
+- `preview` 分类正确（keep/duplicate/conflict），conflict 行 suggestion 符合 §5.2 规则；
 - `commit` 守恒、精确重复数量不翻倍；
+- `merge` 决议：份额相加无精度损失、加权平均成本四舍五入到分、成本日取较新；
+- `merge` 后源持仓及其 `PositionImportMeta` 被清除、守恒校验通过；
 - `commit` 中途异常 `db.rollback()` 后源数据不变；
 - 未提供 conflict `resolutions` 时被拒；
 - 资产同分类合并/冲突行为。
