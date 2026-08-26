@@ -490,7 +490,7 @@ def _find_target_asset(db, target_ledger_id, asset, family_id):
 
 
 def _position_read_view(pos):
-    """持仓可读视图：份额（份）/成本价（元）/ISO 日期，供前端直接展示比对。"""
+    """持仓可读视图：份额（份）/确认净值（元）/ISO 日期，供前端直接展示比对。"""
     return {
         'quantity': Money.min_unit_to_shares(pos.quantity),
         'avg_price': Money.cents_to_yuan(pos.avg_price) if pos.avg_price else None,
@@ -506,8 +506,8 @@ def _asset_read_view(asset):
 def _classify_position(src_pos, dup):
     """持仓三分类：keep / duplicate / conflict（conflict 附系统建议 suggestion）。
 
-    判定口径（设计文档 §5.1/§5.2）：份额+成本日+成本价全等 → 精确重复；
-    任一不一致 → 冲突。仅成本日不同（份额与成本价全等）大概率是同一笔被写两遍、
+    判定口径（设计文档 §5.1/§5.2）：份额+确认日期+确认净值全等 → 精确重复；
+    任一不一致 → 冲突。仅确认日期不同（份额与确认净值全等）大概率是同一笔被写两遍、
     日期为手填噪声，建议保留目标；其余冲突建议加权合并。
     """
     if dup is None:
@@ -548,6 +548,24 @@ def _check_migration_target(source, target):
     return None
 
 
+def _institution_view(db, ledger):
+    """账本绑定机构的展示视图：{id, name}；未绑定（或名录机构已不存在）返回 None。
+
+    name 取 display_name（常用别名如「支付宝」），缺省回退 AMAC 权威全称 org_name。
+    """
+    if not ledger.sales_institution_id:
+        return None
+    inst = db.query(SalesInstitution).filter_by(id=ledger.sales_institution_id).first()
+    if inst is None:
+        return None
+    return {'id': inst.id, 'name': inst.display_name or inst.org_name}
+
+
+def _cross_institution(source, target, src_inst, tgt_inst):
+    """跨机构判定：双方都已绑定机构且 id 不同才为 True；任一未绑定 → False。"""
+    return src_inst is not None and tgt_inst is not None and src_inst['id'] != tgt_inst['id']
+
+
 @ledgers_bp.post('/<int:ledger_id>/migrations/preview/')
 def preview_migration(ledger_id: int):
     """迁移预览（只读，不写库）：对源账本全部持仓/资产做三分类并给出守恒预估。
@@ -582,6 +600,8 @@ def preview_migration(ledger_id: int):
                     'kind': 'position',
                     'symbol': p.symbol,
                     'name': p.name,
+                    # 资产类型：前端据此切换展示术语（基金用「确认净值」，股票用「成本价」）
+                    'asset_type': p.asset_type,
                     'classification': classification,
                     'suggestion': suggestion,
                     'source': _position_read_view(p),
@@ -626,6 +646,10 @@ def preview_migration(ledger_id: int):
             db.query(Transaction).filter(Transaction.ledger_id == source.id, Transaction.position_id.is_(None)).count()
         )
 
+        # 销售机构软优先：跨机构不禁止迁移，但前端须提示，commit 需用户显式确认
+        src_inst = _institution_view(db, source)
+        tgt_inst = _institution_view(db, target)
+
         return jsonify(
             {
                 'data': {
@@ -634,6 +658,11 @@ def preview_migration(ledger_id: int):
                         'source_out_positions': source_out_min,
                         'target_in_positions': target_in_min,
                         'account_level_transactions': account_txn_count,
+                    },
+                    'institution': {
+                        'source': src_inst,
+                        'target': tgt_inst,
+                        'cross_institution': _cross_institution(source, target, src_inst, tgt_inst),
                     },
                 },
                 'message': 'ok',
@@ -654,7 +683,7 @@ def _delete_position_with_meta(db, position):
 def _verify_migration_conservation(db, expectations, source_id, target_id):
     """守恒后置校验（写库后、commit 前）：任何不符立即抛异常触发整体回滚。
 
-    - 逐行核对目标持仓数量/成本价与动作语义期望值；
+    - 逐行核对目标持仓数量/确认净值与动作语义期望值；
     - 源账本不应残留任何持仓/资产（conflict 未决议已在入口 400 拦截，走到这里即应清空）。
     """
     # 会话为 autoflush=False：先把挂起的 UPDATE/DELETE 刷库，否则下面的 SQL 校验读到旧值
@@ -664,7 +693,7 @@ def _verify_migration_conservation(db, expectations, source_id, target_id):
         if row is None:
             raise RuntimeError(f'守恒校验失败：持仓 {pid} 未落在目标账本')
         if row.quantity != exp_quantity or (row.avg_price or 0) != exp_avg_price:
-            raise RuntimeError(f'守恒校验失败：持仓 {pid} 数量/成本价与动作语义期望值不符')
+            raise RuntimeError(f'守恒校验失败：持仓 {pid} 数量/确认净值与动作语义期望值不符')
     if db.query(Position).filter(Position.ledger_id == source_id).count() > 0:
         raise RuntimeError('守恒校验失败：源账本仍残留持仓')
     if db.query(Asset).filter(Asset.ledger_id == source_id).count() > 0:
@@ -691,6 +720,19 @@ def commit_migration(ledger_id: int):
         err = _check_migration_target(source, target)
         if err:
             return jsonify(err[0]), err[1]
+
+        # 跨销售机构软闸门：双方均已绑定且机构不同时，须用户显式确认才放行；
+        # 任一方未绑定或同机构 → 直接放行。校验在任何写库动作之前。
+        src_inst = _institution_view(db, source)
+        tgt_inst = _institution_view(db, target)
+        if _cross_institution(source, target, src_inst, tgt_inst) and data.get('allow_cross_institution') is not True:
+            return jsonify(
+                {
+                    'data': None,
+                    'message': '跨销售机构迁移需显式确认，可能造成交易归属混乱；'
+                    '请携带 allow_cross_institution=true 重试',
+                }
+            ), 400
 
         # 解析用户决议表：持仓按 symbol、资产按 (name, major, minor) 定位
         pos_resolutions = {}
@@ -747,7 +789,7 @@ def commit_migration(ledger_id: int):
         # ── 第二步：单事务执行 + 守恒校验 + 提交；任一异常整体回滚 ──
         try:
             migrated = deduped = merged = keep_source_cnt = asset_cnt = txn_cnt = 0
-            expectations = []  # (目标持仓 id, 期望数量最小单位, 期望成本价分)
+            expectations = []  # (目标持仓 id, 期望数量最小单位, 期望确认净值分)
             for kind, src_obj, dup, action in plan:
                 if kind == 'position':
                     if action == 'keep':
@@ -816,7 +858,7 @@ def commit_migration(ledger_id: int):
                         dup.quantity = total_q
                         dup.avg_price = merged_price
                         if dates:
-                            dup.confirm_date = max(dates)  # 成本日取较新（仅展示口径，不参与计算）
+                            dup.confirm_date = max(dates)  # 确认日期取较新（仅展示口径，不参与计算）
                         # 其余字段（name/market/portfolio_id 等）保留目标原值
                         txn_cnt += _migrate_transactions(
                             db,

@@ -646,16 +646,29 @@
               class="w-full"
               placeholder="选择同类型账户"
             >
+              <!-- 同销售机构候选排最前并标注机构名（软优先，见 batchTargetOptions） -->
               <el-option
-                v-for="ledger in sameTypeLedgers"
-                :key="ledger.id"
-                :label="ledger.name"
-                :value="ledger.id"
-                :disabled="ledger.id === Number(ledgerId)"
-              />
+                v-for="opt in batchTargetOptions"
+                :key="opt.ledger.id"
+                :label="opt.ledger.name"
+                :value="opt.ledger.id"
+              >
+                <div class="mig-option">
+                  <span class="mig-option__name">{{ opt.ledger.name }}</span>
+                  <span
+                    v-if="opt.institutionName"
+                    class="mig-option__inst"
+                    :class="{ 'is-same': opt.sameInstitution }"
+                    >{{ opt.institutionName }}</span
+                  >
+                </div>
+              </el-option>
             </el-select>
           </el-form-item>
         </el-form>
+        <p v-if="migrationBindingHint" class="mig-bind-hint">
+          {{ migrationBindingHint }}
+        </p>
         <template #footer>
           <el-button @click="batchMigrateVisible = false">取消</el-button>
           <el-button
@@ -908,6 +921,7 @@ import {
   type MigrationPreviewResult,
   type MigrationAction,
   type MigrationResolution,
+  type MigrationCommitPayload,
   type MigrationCommitResult,
   type MigrationConservation
 } from "@/api/ledger";
@@ -1040,6 +1054,76 @@ const targetLedgerName = computed(
     "目标账户"
 );
 
+/** 跨机构迁移放行标记：二次确认通过后置位，commit 时随请求携带 */
+const allowCrossInstitution = ref(false);
+
+/** 未绑定销售机构的统一提示文案（源或候选任一缺失时展示） */
+const MIGRATION_UNBOUND_HINT =
+  "该账户未绑定销售机构，建议先在账户设置中绑定，便于同机构自动归账";
+
+interface MigrationTargetOption {
+  ledger: LedgerItem;
+  /** 绑定的销售机构 id（null=未绑定） */
+  institutionId: number | null;
+  /** 销售机构展示名（未绑定或名录缺失时为空串） */
+  institutionName: string;
+  /** 与源账本绑定同一销售机构 */
+  sameInstitution: boolean;
+}
+
+/** 机构 id → 展示名（AMAC 名录，display_name 优先） */
+function salesInstitutionName(id: number | null | undefined): string {
+  if (!id) return "";
+  const inst = salesInstitutions.value.find(s => s.id === id);
+  return inst?.display_name || inst?.org_name || "";
+}
+
+/**
+ * 批量迁移目标候选：同销售机构优先（软优先策略）——
+ * 同机构候选排最前并标注机构名，其余保持原排序；不禁止跨机构，仅影响排序与默认选中。
+ */
+const batchTargetOptions = computed<MigrationTargetOption[]>(() => {
+  const sourceInstId = accountInfo.value?.sales_institution_id ?? null;
+  const candidates = sameTypeLedgers.value.map(l => ({
+    ledger: l,
+    institutionId: l.sales_institution_id ?? null,
+    institutionName: salesInstitutionName(l.sales_institution_id),
+    sameInstitution:
+      !!sourceInstId &&
+      !!l.sales_institution_id &&
+      l.sales_institution_id === sourceInstId
+  }));
+  // 稳定分组：同机构在前，其余保持原顺序
+  return [
+    ...candidates.filter(c => c.sameInstitution),
+    ...candidates.filter(c => !c.sameInstitution)
+  ];
+});
+
+/** 未绑定提示：已选目标或源账本缺销售机构绑定时给出归账建议 */
+const migrationBindingHint = computed(() => {
+  const selected = batchTargetOptions.value.find(
+    o => o.ledger.id === batchTargetLedgerId.value
+  );
+  if (
+    (selected && !selected.institutionId) ||
+    !accountInfo.value?.sales_institution_id
+  ) {
+    return MIGRATION_UNBOUND_HINT;
+  }
+  return "";
+});
+
+/** 跨机构判定：优先用 preview 返回的 institution 块；旧响应缺块时按本地绑定关系兜底 */
+function resolveCrossInstitution(preview: MigrationPreviewResult): boolean {
+  if (preview.institution) return preview.institution.cross_institution;
+  const sourceInstId = accountInfo.value?.sales_institution_id ?? null;
+  const targetInstId =
+    ledgers.value.find(l => l.id === batchTargetLedgerId.value)
+      ?.sales_institution_id ?? null;
+  return !!sourceInstId && !!targetInstId && sourceInstId !== targetInstId;
+}
+
 /** 底栏状态文案：未决议时提示剩余量，就绪后预告将执行的动作计数 */
 const footerStatusText = computed(() => {
   if (pendingCount.value > 0) {
@@ -1053,18 +1137,63 @@ const footerStatusText = computed(() => {
   return `已就绪：${parts.join("，")}`;
 });
 
-/** 冲突字段中文名（对比表与「不一致字段」标签共用） */
-const MIGRATION_FIELD_LABELS: Record<string, string> = {
-  quantity: "份额",
-  avg_price: "成本价",
-  confirm_date: "成本日",
-  amount: "金额"
+/**
+ * 字段术语按资产类型区分（基金与股票是两个概念，各用专业口径）：
+ * fund → 确认份额/确认净值/确认日期；stock 及其他非基金类型 → 持仓数量/成本价/成本日期。
+ */
+interface MigrationFieldTerms {
+  quantity: string;
+  avgPrice: string;
+  confirmDate: string;
+  /** 数量单位：基金为份，股票等为股 */
+  quantityUnit: string;
+  /** 合并说明中的加权平均措辞 */
+  weightedAvgLabel: string;
+  /** 合并说明中的日期取新措辞 */
+  dateNewerLabel: string;
+}
+
+const FUND_FIELD_TERMS: MigrationFieldTerms = {
+  quantity: "确认份额",
+  avgPrice: "确认净值",
+  confirmDate: "确认日期",
+  quantityUnit: "份",
+  weightedAvgLabel: "确认净值加权平均",
+  dateNewerLabel: "确认日期取较新"
 };
 
+const STOCK_FIELD_TERMS: MigrationFieldTerms = {
+  quantity: "持仓数量",
+  avgPrice: "成本价",
+  confirmDate: "成本日期",
+  quantityUnit: "股",
+  weightedAvgLabel: "成本加权平均",
+  dateNewerLabel: "成本日期取较新"
+};
+
+/** 基金类持仓判定：仅 asset_type=fund 走净值口径，其余一律按数量/成本价口径 */
+function isFundPosition(item: MigrationPreviewItem): boolean {
+  return item.kind === "position" && item.asset_type === "fund";
+}
+
+function positionTerms(item: MigrationPreviewItem): MigrationFieldTerms {
+  return isFundPosition(item) ? FUND_FIELD_TERMS : STOCK_FIELD_TERMS;
+}
+
+/** 冲突字段中文名（对比表与「不一致字段」标签共用），资产行只有金额 */
+function fieldLabels(item: MigrationPreviewItem): Record<string, string> {
+  const terms = positionTerms(item);
+  return {
+    quantity: terms.quantity,
+    avg_price: terms.avgPrice,
+    confirm_date: terms.confirmDate,
+    amount: "金额"
+  };
+}
+
 function diffFieldLabels(item: MigrationPreviewItem): string {
-  return (item.conflict_fields ?? [])
-    .map(f => MIGRATION_FIELD_LABELS[f] ?? f)
-    .join("、");
+  const labels = fieldLabels(item);
+  return (item.conflict_fields ?? []).map(f => labels[f] ?? f).join("、");
 }
 
 /**
@@ -1085,14 +1214,15 @@ function formatMigrationAmount(value: number): string {
   })}`;
 }
 
-/** keep/duplicate 行的数值摘要：持仓展示份额·成本价·成本日，资产展示金额 */
+/** keep/duplicate 行的数值摘要：持仓按类型取术语（基金净值口径/股票成本口径），资产展示金额 */
 function snapshotSummary(item: MigrationPreviewItem): string {
   if (item.kind === "asset") {
     return formatMigrationAmount(item.source.amount);
   }
+  const terms = positionTerms(item);
   const parts = [
-    `${formatMigrationNumber(item.source.quantity)} 份`,
-    `成本价 ${formatMigrationNumber(item.source.avg_price)} 元`
+    `${formatMigrationNumber(item.source.quantity)} ${terms.quantityUnit}`,
+    `${terms.avgPrice} ${formatMigrationNumber(item.source.avg_price)} 元`
   ];
   if (item.source.confirm_date)
     parts.push(formatDate(item.source.confirm_date));
@@ -1108,14 +1238,15 @@ interface MigrationCompareCell {
   diff: boolean;
 }
 
-/** 源/目标并排对比单元格：持仓比份额/成本价/成本日，资产只比金额 */
+/** 源/目标并排对比单元格：持仓按类型比数量/成本（净值）/日期，资产只比金额 */
 function compareCells(item: MigrationPreviewItem): MigrationCompareCell[] {
   const conflicts = item.conflict_fields ?? [];
+  const labels = fieldLabels(item);
   if (item.kind === "asset") {
     return [
       {
         key: "amount",
-        label: MIGRATION_FIELD_LABELS.amount,
+        label: labels.amount,
         source: formatMigrationAmount(item.source.amount),
         target: item.target ? formatMigrationAmount(item.target.amount) : "—",
         diff: conflicts.includes("amount")
@@ -1126,21 +1257,21 @@ function compareCells(item: MigrationPreviewItem): MigrationCompareCell[] {
   return [
     {
       key: "quantity",
-      label: MIGRATION_FIELD_LABELS.quantity,
+      label: labels.quantity,
       source: formatMigrationNumber(item.source.quantity),
       target: item.target ? formatMigrationNumber(item.target.quantity) : "—",
       diff: conflicts.includes("quantity")
     },
     {
       key: "avg_price",
-      label: MIGRATION_FIELD_LABELS.avg_price,
+      label: labels.avg_price,
       source: formatMigrationNumber(item.source.avg_price),
       target: item.target ? formatMigrationNumber(item.target.avg_price) : "—",
       diff: conflicts.includes("avg_price")
     },
     {
       key: "confirm_date",
-      label: MIGRATION_FIELD_LABELS.confirm_date,
+      label: labels.confirm_date,
       source: fmtDate(item.source.confirm_date),
       target: item.target ? fmtDate(item.target.confirm_date) : "—",
       diff: conflicts.includes("confirm_date")
@@ -1178,11 +1309,13 @@ function actionOptions(item: MigrationPreviewItem): {
 }
 
 /**
- * 合并预计结果（§5.2.1 展示口径）：份额相加、成本加权平均（四舍五入到分）、
- * 成本日取较新。仅为选中态说明文案，入库口径以后端整数运算为准。
+ * 合并预计结果（§5.2.1 展示口径）：数量相加、加权平均（四舍五入到分）、日期取较新。
+ * 措辞按资产类型切换（基金：确认净值加权平均/确认日期取较新；股票等：成本加权平均/成本日期取较新）。
+ * 仅为选中态说明文案，入库口径以后端整数运算为准。
  */
 function mergeNote(item: MigrationPreviewItem): string {
   if (item.kind !== "position") return "";
+  const terms = positionTerms(item);
   const qSrc = item.source.quantity;
   const pSrc = item.source.avg_price;
   const qTgt = item.target?.quantity ?? 0;
@@ -1196,10 +1329,11 @@ function mergeNote(item: MigrationPreviewItem): string {
     .sort()
     .pop();
   const parts = [
-    `合并后：${formatMigrationNumber(qty)} 份`,
-    `成本价 ${formatMigrationNumber(price)} 元`
+    `合并后：${formatMigrationNumber(qty)} ${terms.quantityUnit}`,
+    `${terms.weightedAvgLabel}：${formatMigrationNumber(price)} 元`
   ];
-  if (newestDate) parts.push(`成本日 ${formatDate(newestDate)}（取较新）`);
+  if (newestDate)
+    parts.push(`${terms.dateNewerLabel}：${formatDate(newestDate)}`);
   return parts.join(" · ");
 }
 
@@ -1546,7 +1680,10 @@ function openMigrateDialog(row: LedgerHoldingRow) {
 }
 
 function openBatchMigrateDialog() {
-  batchTargetLedgerId.value = null;
+  // 同机构软优先：存在同机构候选时默认选中第一个，减少跨机构误选
+  const firstSame = batchTargetOptions.value.find(o => o.sameInstitution);
+  batchTargetLedgerId.value = firstSame ? firstSame.ledger.id : null;
+  allowCrossInstitution.value = false;
   migrationPreview.value = null;
   resolutions.value = {};
   batchMigrateVisible.value = true;
@@ -1561,8 +1698,29 @@ async function handlePreviewMigration() {
       Number(ledgerId.value),
       batchTargetLedgerId.value
     );
-    migrationPreview.value = res.data ?? { items: [] };
-    applyDefaultResolutions(migrationPreview.value.items);
+    const data = res.data ?? { items: [] };
+    // 跨机构目标需二次确认；取消则停留在选择步，不进入决议面板
+    if (resolveCrossInstitution(data)) {
+      try {
+        await ElMessageBox.confirm(
+          "来源账户与目标账户绑定了不同销售机构。跨机构迁移会使交易归属与销售机构口径不一致，建议优先迁移到同机构账户。确定继续？",
+          "跨机构迁移确认",
+          {
+            confirmButtonText: "继续迁移",
+            cancelButtonText: "返回重选",
+            type: "warning"
+          }
+        );
+        allowCrossInstitution.value = true;
+      } catch {
+        // 用户取消：留在选择步重选目标
+        return;
+      }
+    } else {
+      allowCrossInstitution.value = false;
+    }
+    migrationPreview.value = data;
+    applyDefaultResolutions(data.items);
     batchMigrateVisible.value = false;
     migrationPanelVisible.value = true;
   } catch (e) {
@@ -1601,10 +1759,13 @@ async function handleCommitMigration() {
   if (!batchTargetLedgerId.value || pendingCount.value > 0) return;
   migrationCommitting.value = true;
   try {
-    const res = await commitLedgerMigration(Number(ledgerId.value), {
+    const payload: MigrationCommitPayload = {
       target_ledger_id: batchTargetLedgerId.value,
       resolutions: buildResolutions()
-    });
+    };
+    // 跨机构迁移仅在用户二次确认后携带放行标记
+    if (allowCrossInstitution.value) payload.allow_cross_institution = true;
+    const res = await commitLedgerMigration(Number(ledgerId.value), payload);
     migrationPanelVisible.value = false;
     ElMessage.success(commitSuccessMessage(res.data));
     // 主动清列表缓存并刷新：交易列表置空（切换 Tab 重拉）、持仓与概览同步更新
@@ -2197,5 +2358,41 @@ function openDeleteDialog(account: LedgerItem) {
 .mig-footer__status {
   font-size: 12px;
   color: var(--text-tertiary);
+}
+
+/* ===== 目标账户选择器：机构标注与未绑定提示 ===== */
+
+/* 下拉选项：名称居左、销售机构标注居右 */
+.mig-option {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.mig-option__name {
+  color: var(--text-primary);
+}
+
+.mig-option__inst {
+  flex-shrink: 0;
+  padding: 0 8px;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--text-secondary);
+  background: var(--bg-soft);
+  border-radius: var(--radius-pill);
+}
+
+/* 同机构候选高亮为品牌软色（「优先候补」软按钮语义，允许引用 --brand-*） */
+.mig-option__inst.is-same {
+  color: var(--brand-700);
+  background: var(--brand-100);
+}
+
+/* 未绑定销售机构的提示文案 */
+.mig-bind-hint {
+  margin: var(--space-1) 0 0;
+  font-size: 12px;
 }
 </style>
