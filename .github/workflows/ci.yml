@@ -92,6 +92,34 @@ jobs:
       - name: 运行测试
         run: pdm run python -m pytest -p no:xdist -m "not slow"
 
+  # 乱码守卫（mojibake）：防止任何绕过本地 pre-commit 钩子的提交（--no-verify、
+  # 或经 gh api / MCP 直推导致本地钩子不执行）把 GBK 乱码合进 PR。
+  # 仅扫描 PR 变更文件，避免误伤 legacy/ 中已存档的 26 个历史乱码文档。
+  mojibake-guard:
+    name: 乱码守卫 (mojibake)
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: 设置 Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: 检查 PR 变更文件编码
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          mapfile -t files < <(git diff --name-only "$base" "$head" -- '*.md' '*.py' '*.vue')
+          echo "PR 变更文本文件数：${#files[@]}"
+          if [ ${#files[@]} -gt 0 ]; then
+            pip install ftfy >/dev/null
+            python scripts/guard_mojibake.py "${files[@]}"
+          fi
+
   frontend:
     name: 前端类型检查 + Lint + 构建
     needs: changes
