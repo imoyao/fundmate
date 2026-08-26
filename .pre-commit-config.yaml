@@ -56,6 +56,15 @@ repos:
         language: python
         files: \.(md|py|vue)$
         pass_filenames: true
+        additional_dependencies: [ftfy]
+      # 提交信息同样会被 PowerShell/GBK 误编码成乱码（本会话真实事故），
+      # 必须在 commit-msg 阶段拦截，否则乱码会随 git 历史永久入库
+      - id: guard-mojibake-commit-msg
+        name: guard Chinese mojibake in commit message
+        entry: python scripts/guard_mojibake.py --check-message
+        language: python
+        stages: [commit-msg]
+        additional_dependencies: [ftfy]
       - id: forbid-bp-input
         name: forbid APIFlask @bp.input() auto-paradigm
         entry: python scripts/forbid_bp_input.py
