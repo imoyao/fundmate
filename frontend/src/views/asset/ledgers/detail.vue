@@ -965,6 +965,7 @@ interface LedgerHoldingRow {
   id: number;
   symbol?: string;
   name?: string | null;
+  asset_type?: string;
   type_label?: string;
   market_value?: number;
   pnl?: number;
