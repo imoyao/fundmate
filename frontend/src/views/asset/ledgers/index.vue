@@ -140,28 +140,49 @@
         @refresh="fetchData"
       />
 
-      <!-- 按类型分组的账户卡片列表 -->
-      <div v-for="group in displayedGroups" :key="group.type" class="mb-8">
+      <!-- 按类型分组的账户卡片列表；外层 ledger-groups 供「分组顺序拖拽」，与卡片拖拽互相独立 -->
+      <div ref="groupsContainer" class="ledger-groups">
+        <div v-for="group in displayedGroups" :key="group.type" class="mb-8 ledger-group">
         <div class="flex items-center justify-between mb-3">
-          <h3
-            class="font-semibold text-base"
-            :style="{ color: 'var(--text-primary)' }"
-          >
-            {{ group.label }}
+          <div class="flex items-center gap-1 min-w-0">
+            <!-- 分组拖拽抓手：与卡片抓手视觉/作用域分离，hover/focus 显示，拖拽整个分组（分组顺序存 localStorage） -->
             <span
-              class="text-sm font-normal ml-2"
-              :style="{ color: 'var(--text-tertiary)' }"
+              class="group-drag-handle"
+              role="button"
+              tabindex="-1"
+              :title="`拖动调整分组顺序：${group.label}`"
+              @click.stop
+              @keydown.enter.stop
             >
-              (
-              {{ group.count }} 个账户 ·
-              <MoneyDisplay
-                :value="group.total"
-                :show-sign="false"
-                :auto-color="false"
-                size="xs"
-              />)
+              <svg class="drag-grip" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <circle cx="9" cy="6" r="1.7" />
+                <circle cx="15" cy="6" r="1.7" />
+                <circle cx="9" cy="12" r="1.7" />
+                <circle cx="15" cy="12" r="1.7" />
+                <circle cx="9" cy="18" r="1.7" />
+                <circle cx="15" cy="18" r="1.7" />
+              </svg>
             </span>
-          </h3>
+            <h3
+              class="font-semibold text-base"
+              :style="{ color: 'var(--text-primary)' }"
+            >
+              {{ group.label }}
+              <span
+                class="text-sm font-normal ml-2"
+                :style="{ color: 'var(--text-tertiary)' }"
+              >
+                (
+                {{ group.count }} 个账户 ·
+                <MoneyDisplay
+                  :value="group.total"
+                  :show-sign="false"
+                  :auto-color="false"
+                  size="xs"
+                />)
+              </span>
+            </h3>
+          </div>
         </div>
 
         <!-- 账户卡片：auto-fit 网格自动折叠空轨道，孤点分类不会产生右侧大片空白。
@@ -189,6 +210,7 @@
           <IconifyIconOffline icon="ep:plus" class="ghost-add__icon" />
           <span>新增{{ getLedgerTypeLabel(group.type) }}</span>
         </button>
+      </div>
       </div>
     </template>
 
@@ -329,8 +351,8 @@ function buildGroups(ledgers: any[]) {
     groups[type].ledgers.push(ledger);
   }
 
-  const order = ["bank", "stock", "fund", "property"];
-  const result = order.map(type => groups[type]).filter(Boolean) as any[];
+  // 分组顺序来自本地偏好（groupOrder），默认 银行/证券/基金/实物资产
+  const result = groupOrder.value.map(type => groups[type]).filter(Boolean) as any[];
 
   // 未归置持仓不再作为分组卡片进入网格（2026-08 改版），统一由顶部警示 banner 承接
   // 组内排序：已手动排序（display_order 非 null）的卡片按 display_order 升序排在前面，
@@ -348,6 +370,65 @@ function buildGroups(ledgers: any[]) {
 
 // 实际渲染用的分组（可被拖拽直接重排：拖拽时修改该分组 ledgers 数组并落库）
 const displayedGroups = ref<any[]>([]);
+
+// ── 分组顺序（纯视图偏好，存 localStorage，不落库；与组内卡片排序分层）──
+const GROUP_ORDER_KEY = "fundmate:ledgerGroupOrder:v1";
+const DEFAULT_GROUP_ORDER = ["bank", "stock", "fund", "property"];
+function loadGroupOrder(): string[] {
+  try {
+    const raw = localStorage.getItem(GROUP_ORDER_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.every(t => typeof t === "string")) {
+        const stored = parsed.filter(t => DEFAULT_GROUP_ORDER.includes(t));
+        const missing = DEFAULT_GROUP_ORDER.filter(t => !stored.includes(t));
+        return [...stored, ...missing];
+      }
+    }
+  } catch {
+    /* 解析失败时回退默认顺序 */
+  }
+  return [...DEFAULT_GROUP_ORDER];
+}
+function saveGroupOrder(order: string[]) {
+  try {
+    localStorage.setItem(GROUP_ORDER_KEY, JSON.stringify(order));
+  } catch {
+    /* 隐私模式等场景忽略写入失败 */
+  }
+}
+const groupOrder = ref<string[]>(loadGroupOrder());
+
+// 分组整体拖拽（与卡片拖拽是两套独立 Sortable，handle 互不触发）
+const groupsContainer = ref<HTMLElement | null>(null);
+let groupSortable: any = null;
+function destroyGroupSortable() {
+  if (groupSortable) {
+    groupSortable.destroy();
+    groupSortable = null;
+  }
+}
+function initGroupSortable() {
+  destroyGroupSortable();
+  if (!groupsContainer.value) return;
+  groupSortable = Sortable.create(groupsContainer.value, {
+    animation: 180,
+    handle: ".group-drag-handle",
+    ghostClass: "ledger-group--ghost",
+    onEnd: (evt: any) => {
+      const { oldIndex, newIndex } = evt;
+      if (oldIndex == null || newIndex == null || oldIndex === newIndex) return;
+      const arr = displayedGroups.value;
+      const [moved] = arr.splice(oldIndex, 1);
+      if (!moved) return;
+      arr.splice(newIndex, 0, moved);
+      const order = arr.map(g => g.type);
+      groupOrder.value = order;
+      saveGroupOrder(order);
+    }
+  });
+}
+
 
 // ── 拖拽排序（仅限同类型组内，#1083）──
 const sortables: Record<string, any> = {};
@@ -457,7 +538,10 @@ async function fetchData() {
     displayedGroups.value = buildGroups(allLedgers.value);
     // 统一走公共格式化：YYYY-MM-DD HH:mm（不带秒），避免斜线/时分秒混用
     lastUpdate.value = formatDateTime(new Date());
-    nextTick(initSortables);
+    nextTick(() => {
+      initSortables();
+      initGroupSortable();
+    });
   } catch (e: any) {
     ElMessage.error(e?.message || "加载失败");
   } finally {
@@ -490,6 +574,41 @@ onMounted(() => {
   .ledger-card:hover {
     transform: none;
   }
+}
+
+/* 分组拖拽抓手：常驻低透明，hover/focus 高亮，与卡片抓手区分（分组顺序本地存储） */
+.group-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 22px;
+  flex: none;
+  color: var(--text-tertiary);
+  cursor: grab;
+  border-radius: var(--radius-sm);
+  opacity: 0.45;
+  touch-action: none;
+  transition:
+    opacity 0.15s ease,
+    color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.group-drag-handle:active {
+  cursor: grabbing;
+}
+
+.ledger-group:hover .group-drag-handle,
+.group-drag-handle:hover {
+  opacity: 1;
+  color: var(--text-secondary);
+  background: var(--bg-page);
+}
+
+/* 分组拖拽中的占位「幽灵」态 */
+.ledger-group--ghost {
+  opacity: 0.4;
 }
 
 .ledger-list {
