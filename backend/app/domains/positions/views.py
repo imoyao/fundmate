@@ -7,6 +7,7 @@
 from apiflask import APIBlueprint
 from flask import abort, jsonify, request
 from loguru import logger
+from sqlalchemy.exc import IntegrityError
 
 from app.core.auth import get_family_id, get_owned_or_404
 from app.core.constants import ALLOCATION_LABELS, MARKET_LABELS, TYPE_LABELS
@@ -214,6 +215,12 @@ def create_position():
             logger.exception('持仓操作业务校验失败: %s', e)
             # 业务逻辑错误，返回明确提示
             return jsonify({'message': str(e), 'data': None}), 400
+        except IntegrityError as e:
+            # 唯一约束冲突：手动记账幂等键(import_hash)重复 → 视为「请勿重复提交」。
+            # 典型场景：网络超时后客户端用同一幂等键重发，服务端已落库，重发被唯一约束拦截。
+            db.rollback()
+            logger.warning('持仓操作唯一约束冲突（疑似重复提交）: %s', e)
+            return jsonify({'message': '该笔交易已记录，请勿重复提交', 'data': None}), 400
         except Exception:
             # ⭐ 捕获所有未预期的异常，打印完整堆栈
             logger.exception('持仓操作未预期异常')
