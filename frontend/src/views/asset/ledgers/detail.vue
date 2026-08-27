@@ -443,6 +443,7 @@
                     <template #default="{ row }">
                       <MoneyDisplay
                         :value="row.price || 0"
+                        :precision="pricePrecision(row.asset_type)"
                         :show-sign="false"
                         :show-currency="false"
                         size="sm"
@@ -924,6 +925,7 @@ import PositionTransactionsDrawer from "./components/PositionTransactionsDrawer.
 import TransactionEditDialog from "./components/TransactionEditDialog.vue";
 import { usePageRefresh } from "@/composables/usePageRefresh";
 import { formatDate } from "@/utils/date";
+import { pricePrecision } from "@/utils/pricePrecision";
 
 defineOptions({ name: "LedgerDetail" });
 

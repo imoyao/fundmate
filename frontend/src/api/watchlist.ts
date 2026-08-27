@@ -49,6 +49,7 @@ export interface HomeSummaryItem {
   change_pct: number | null;
   position_market_value: number;
   status: string;
+  asset_type?: string | null; // 资产类型（后端返回，用于价格精度判定）
   venue: string;
   type_label?: string; // 资产类型中文标签（后端动态字段）
 }

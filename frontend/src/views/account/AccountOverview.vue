@@ -185,6 +185,7 @@
           <template #default="{ row }">
             <MoneyDisplay
               :value="row.avg_price"
+              :precision="pricePrecision(row.type)"
               :show-sign="false"
               :auto-color="false"
             />
@@ -202,6 +203,7 @@
               >
                 <MoneyDisplay
                   :value="(row as Position).current_price"
+                  :precision="pricePrecision(row.type)"
                   :show-sign="false"
                   :auto-color="false"
                 />
@@ -332,6 +334,7 @@ import type { Position, SummaryData } from "@/api/types";
 import { ElMessage } from "element-plus";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import RiseFallText from "@/components/RiseFallText/index.vue";
+import { pricePrecision } from "@/utils/pricePrecision";
 
 defineOptions({
   name: "AccountOverview"

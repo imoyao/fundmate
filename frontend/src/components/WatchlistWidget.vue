@@ -112,6 +112,7 @@
                 <MoneyDisplay
                   v-if="item.current_price != null"
                   :value="item.current_price"
+                  :precision="pricePrecision(item.asset_type)"
                   :show-sign="false"
                   :show-currency="false"
                   size="sm"
@@ -204,6 +205,7 @@
 import { ref, computed, onMounted } from "vue";
 import { getHomeSummary, type HomeSummaryItem } from "@/api/watchlist";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
+import { pricePrecision } from "@/utils/pricePrecision";
 import RiseFallText from "@/components/RiseFallText/index.vue";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";

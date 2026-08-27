@@ -26,6 +26,7 @@ import RiseFallText from "@/components/RiseFallText/index.vue";
 import MoneyWithRatio from "@/components/MoneyWithRatio/index.vue";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import { formatDate } from "@/utils/date";
+import { pricePrecision } from "@/utils/pricePrecision";
 import type { ColumnDef, ColumnRenderer, WatchlistRow } from "./columnDefs";
 // renderer DOM 不携带页面 scoped 属性，配套样式必须随渲染器走（见 css 文件头注释）
 import "./columnRenderers.css";
@@ -169,6 +170,7 @@ const renderMoney: FunctionalComponent<{
   );
   return h(MoneyDisplay, {
     value: useRealtime ? realtimeVal! : staticVal,
+    precision: pricePrecision(props.row.asset_type),
     size: "sm"
   });
 };
