@@ -35,7 +35,7 @@
           {{ isFund ? "持有份额" : "持有数量" }}
         </div>
         <div
-          class="text-lg font-bold mt-1"
+          class="text-base font-semibold mt-1"
           :style="{ color: 'var(--text-primary)' }"
         >
           {{ Number(positionData?.quantity ?? 0).toLocaleString() }}
@@ -48,23 +48,23 @@
         </div>
       </div>
 
-      <!-- 成本净值 / 持仓成本 -->
+      <!-- 持仓成本 -->
       <div
         class="p-3 rounded-lg border"
         :style="{ borderColor: 'var(--border-default)' }"
       >
         <div class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
-          {{ isFund ? "成本净值" : "持仓成本" }}
+          持仓成本
         </div>
         <div
-          class="text-lg font-bold mt-1"
+          class="text-base font-semibold mt-1"
           :style="{ color: 'var(--text-primary)' }"
         >
           <MoneyDisplay
             :value="positionData?.avg_price || 0"
             :show-sign="false"
             :auto-color="false"
-            size="lg"
+            size="md"
           />
           <span
             class="text-sm font-normal"
@@ -84,14 +84,14 @@
           {{ isFund ? "最新净值" : "现价" }}
         </div>
         <div
-          class="text-lg font-bold mt-1"
+          class="text-base font-semibold mt-1"
           :style="{ color: 'var(--text-primary)' }"
         >
           <MoneyDisplay
             :value="positionData?.current_price || 0"
             :show-sign="false"
             :auto-color="false"
-            size="lg"
+            size="md"
           />
           <span
             class="text-sm font-normal"
@@ -111,14 +111,14 @@
           市值
         </div>
         <div
-          class="text-lg font-bold mt-1"
+          class="text-base font-semibold mt-1"
           :style="{ color: 'var(--text-primary)' }"
         >
           <MoneyDisplay
             :value="positionData?.market_value || 0"
             :show-sign="false"
             :auto-color="false"
-            size="lg"
+            size="md"
           />
         </div>
       </div>
@@ -131,8 +131,8 @@
         <div class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
           持仓盈亏
         </div>
-        <div class="text-lg font-bold mt-1">
-          <MoneyDisplay :value="positionData?.pnl || 0" size="lg" />
+        <div class="text-base font-semibold mt-1">
+          <MoneyDisplay :value="positionData?.pnl || 0" size="md" />
         </div>
       </div>
 
@@ -145,7 +145,7 @@
           盈亏率
         </div>
         <div
-          class="text-lg font-bold mt-1"
+          class="text-base font-semibold mt-1"
           :style="{
             color:
               (positionData?.pnl_rate ?? 0) >= 0
