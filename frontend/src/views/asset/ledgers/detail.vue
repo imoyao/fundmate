@@ -970,6 +970,8 @@ interface LedgerHoldingRow {
   market_value?: number;
   pnl?: number;
   pnl_rate?: number;
+  avg_price?: number;
+  current_price?: number;
   allocation?: string | null;
   allocation_label?: string;
   quantity?: number;
