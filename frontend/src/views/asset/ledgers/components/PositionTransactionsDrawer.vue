@@ -231,7 +231,7 @@
     <TransactionEditDialog
       v-model="editDialogVisible"
       :transaction="editingTxn"
-      :asset-type="positionData?.asset_type"
+      :asset-type="positionData?.type"
       @saved="handleSaved"
     />
   </el-drawer>

@@ -173,6 +173,7 @@ def get_position_transactions(id: int):
                     'amount': Money.cents_to_yuan(t.amount),
                     'fee': Money.cents_to_yuan(t.fee),
                     'notes': t.notes,
+                    'asset_type': t.asset_type,
                 }
             )
         return jsonify({'data': data, 'message': 'ok'})
