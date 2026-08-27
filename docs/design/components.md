@@ -28,7 +28,7 @@ title: 组件使用规范（设计语言实现层）
 - `PageFooter` / `MarketFooter` — 探市 / 温度计页脚
 - `Superellipse` — 品牌 n=3 超椭圆容器（logo / 头像 / 卡片普适轮廓，禁各处手写圆角或 polygon 轮廓）
 - 全站页脚：`frontend/src/layout/components/lay-footer/index.vue`
-- 共享基建（composables / utils 非 UI 层）：`useEchartsLifecycle` / `getCssVar` / 币种工具，见文末「共享基建」章节
+- 共享基建（composables / utils 非 UI 层）：`useEchartsLifecycle` / `getCssVar` / `useFundTradeDate` / 币种工具，见文末「共享基建」章节
 
 组件路径位于 `frontend/src/components/{组件名}/index.vue`。
 
@@ -324,6 +324,7 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 | 汇率 / 币种常量 | `src/constants/exchangeRates.ts` | 币种 / 汇率 / 符号单一来源（实时汇率以后端 CNY 下发为准，本文件仅前端兜底） |
 | 货币工具 | `src/utils/currency.ts` | `toBaseCurrency` / `fromBaseCurrency` / `getCurrencySymbol` / `formatAmount` |
 | `usePageRefresh` | `src/composables/usePageRefresh.ts` | 全局刷新事件订阅（防抖计时器每实例私有） |
+| `useFundTradeDate` | `src/composables/useFundTradeDate.ts` | 基金交易日期联动（calcFundConfirmDate + fetchFundNav），BuyForm / SellForm / TransactionEditDialog 三处共用 |
 
 ### useEchartsLifecycle · 图表生命周期
 
@@ -378,6 +379,46 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 
 - 订阅全局 `refresh-ledger-data` 事件（`src/utils/mitt.ts` emitter），带防抖，卸载自动清理。
 - 2026-08-15 修复：防抖 `timeoutId` 由模块级改为**每实例私有**。此前多个页面同时订阅时会互相 `clearTimeout` 对方定时器，导致先触发的回调永不执行。
+
+### useFundTradeDate · 基金交易日期联动（强制复用）
+
+- 用途：统一封装「交易日期 → `calcFundConfirmDate` → 确认日期 + 实际净值日 → `fetchFundNav`」调用链。**BuyForm / SellForm / TransactionEditDialog 三处共用**，此前各自重复实现同一套 `calcFundConfirmDate` 调用 + 响应解析 + `fetchFundNav` 拉取，现已收敛到本 composable。
+- 路径：`src/composables/useFundTradeDate.ts`。
+- 返回：`{ navLoading, actualNavDate, confirmDate, calcConfirmAndNav, reset }`。
+- `calcConfirmAndNav(options)` 入参：
+  - `tradeDate`（必填）：交易日期 `YYYY-MM-DD`。
+  - `symbol`（可选）：基金代码。传入则自动用 `actualNavDate` 拉净值，返回 `nav` 字段。
+  - `isAfter15`（可选，默认 `false`）：是否 15:00 后下单（影响确认日计算）。
+- 返回 `CalcResult | null`：`{ actualNavDate, confirmDate, nav? }`。
+- **调用方自行判断是否基金**（非基金不要调本 composable，股票/可转债确认日 = 交易日）。
+- 用法示例：
+
+  ```ts
+  import { useFundTradeDate } from '@/composables/useFundTradeDate';
+
+  const { navLoading, confirmDate, calcConfirmAndNav, reset: resetTradeDate } =
+    useFundTradeDate();
+
+  // watch 交易日期变化
+  watch([() => form.value.trade_date, () => isAfter15.value], async ([newDate]) => {
+    if (!newDate || !isFund.value) return;
+    const result = await calcConfirmAndNav({
+      tradeDate: newDate,
+      symbol: form.value.symbol, // 传入则自动拉净值
+      isAfter15: isAfter15.value,
+    });
+    if (result) {
+      form.value.confirm_date = result.confirmDate;
+      if (result.nav != null) form.value.price = result.nav;
+    }
+  });
+  ```
+
+- 已接入组件：
+  - `QuickEntry/BuyForm.vue` — 传 `symbol`，自动回填净值到 `form.price`。
+  - `QuickEntry/SellForm.vue` — 不传 `symbol`，仅算确认日用于展示 + 估算赎回费。
+  - `ledgers/components/TransactionEditDialog.vue` — 传 `symbol`，自动回填净值 + 确认日。
+- **禁止**在上述组件或新增的交易录入页面中重新手写 `calcFundConfirmDate` + `fetchFundNav` 调用链，统一走本 composable。
 
 ## 文案基调（页面级落地示例）
 
