@@ -27,7 +27,7 @@
           :step="quantityStep"
         />
         <div class="text-xs mt-1" style="color: var(--text-tertiary)">
-          <template v-if="isFund">基金份额，精确到 0.0001 份</template>
+          <template v-if="isFund">基金份额，根据金额自动反算</template>
           <template v-else>数量为整数（股 / 张）</template>
         </div>
       </el-form-item>
@@ -77,7 +77,8 @@
           placeholder="0.00"
         />
         <div class="text-xs mt-1" style="color: var(--text-tertiary)">
-          自动计算：数量 × 单价 + 手续费，可手动修改
+          <template v-if="isFund">金额为权威数据，份额自动反算，可手动修改</template>
+          <template v-else">自动计算：数量 × 单价 + 手续费，可手动修改</template>
         </div>
       </el-form-item>
 
@@ -145,7 +146,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from "vue";
+import { ref, computed, watch, nextTick } from "vue";
 import { updateLedgerTransaction } from "@/api/ledger";
 import { useFundTradeDate } from "@/composables/useFundTradeDate";
 import { ElMessage } from "element-plus";
@@ -166,6 +167,9 @@ const emit = defineEmits<{
 const saving = ref(false);
 const formRef = ref();
 const form = ref<any>({});
+
+// 初始化标记：防止 initForm 赋值时触发 watch 覆盖原始金额
+const isInitializing = ref(false);
 
 // 15:00 后下单（影响确认日计算）
 const isAfter15 = ref(false);
@@ -208,6 +212,7 @@ const rules = {
 };
 
 function initForm() {
+  isInitializing.value = true;
   const t = props.transaction || {};
   isAfter15.value = false;
   form.value = {
@@ -221,12 +226,36 @@ function initForm() {
   };
   // 展示已有确认日期（若交易记录里有）
   confirmDateDisplay.value = t.confirm_date || "";
+  nextTick(() => {
+    isInitializing.value = false;
+  });
 }
 
-// 金额自动计算：amount = quantity * price + fee（保留 2 位小数）
+// 金额为权威数据：
+// - 基金：amount 不可被覆盖，由 amount 反算 shares = (amount - fee) / nav
+// - 股票/可转债：amount = quantity * price + fee（但初始化时不覆盖原始值）
+// 两种模式都在初始化时跳过，防止 initForm 赋值触发 watch 覆盖记录中的原始金额
+
+// 基金：amount / nav / fee 变化 → 反算 shares
+watch(
+  [() => form.value.amount, () => form.value.price, () => form.value.fee],
+  ([amount, price, fee]) => {
+    if (isInitializing.value || !isFund.value) return;
+    if (amount != null && price != null && price > 0 && amount >= 0) {
+      const calculated =
+        Math.round(
+          ((Number(amount) - Number(fee || 0)) / Number(price)) * 10000
+        ) / 10000;
+      form.value.quantity = calculated;
+    }
+  }
+);
+
+// 股票/可转债：quantity / price / fee 变化 → 正算 amount
 watch(
   [() => form.value.quantity, () => form.value.price, () => form.value.fee],
   ([qty, price, fee]) => {
+    if (isInitializing.value || isFund.value) return;
     if (qty != null && price != null && qty >= 0 && price >= 0) {
       const calculated =
         Math.round(
