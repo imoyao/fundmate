@@ -347,7 +347,8 @@ import {
   getSecurityPriceRange,
   type SecurityPriceRange
 } from "@/api/securities";
-import { searchFunds, calcFundNav, getFundFeeRates } from "@/api/funds";
+import { searchFunds, getFundFeeRates } from "@/api/funds";
+import { fetchFundNav } from "@/api/fundNav";
 import type { FundSearchItem } from "@/api/funds";
 import { checkTradingDay, calcFundConfirmDate } from "@/api/utils";
 import { IconifyIconOffline } from "@/components/ReIcon";
@@ -972,11 +973,9 @@ watch(
 
       if (actualNavDate.value) {
         try {
-          const res = await calcFundNav([opt.symbol], actualNavDate.value);
-          const navData =
-            (res as unknown as { data?: NavResponseItem[] }).data || [];
-          if (navData.length > 0 && navData[0].unit_nav) {
-            form.price = navData[0].unit_nav;
+          const result = await fetchFundNav(opt.symbol, actualNavDate.value);
+          if (result) {
+            form.price = result.unit_nav;
           }
         } catch (e) {
           console.warn("净值获取失败，需用户手动输入", e);

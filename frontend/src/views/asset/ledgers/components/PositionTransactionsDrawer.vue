@@ -311,6 +311,7 @@
       v-model="editDialogVisible"
       :transaction="editingTxn"
       :asset-type="positionData?.asset_type"
+      :symbol="positionData?.symbol"
       @saved="handleSaved"
     />
   </el-drawer>

@@ -38,11 +38,15 @@
         <el-input
           v-if="isFund"
           :model-value="
-            form.price != null ? Number(form.price).toFixed(4) : ''
+            navLoading
+              ? '加载中...'
+              : form.price != null
+                ? Number(form.price).toFixed(4)
+                : ''
           "
           readonly
           disabled
-          placeholder="--"
+          :placeholder="navLoading ? '加载中...' : '--'"
         >
           <template #append>元/份</template>
         </el-input>
@@ -141,12 +145,15 @@
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
 import { updateLedgerTransaction } from "@/api/ledger";
+import { fetchFundNav } from "@/api/fundNav";
 import { ElMessage } from "element-plus";
 
 const props = defineProps<{
   modelValue: boolean;
   transaction: any;
   assetType?: string;
+  /** 基金代码（用于自动拉取净值，可从 positionData 或交易记录获取） */
+  symbol?: string;
 }>();
 
 const emit = defineEmits<{
@@ -157,6 +164,9 @@ const emit = defineEmits<{
 const saving = ref(false);
 const formRef = ref();
 const form = ref<any>({});
+
+// 净值加载态（基金模式下根据确认日期自动拉取）
+const navLoading = ref(false);
 
 // 资产类型：多字段兜底检测
 // 优先用传入的 assetType，否则从交易记录中尝试多个字段
@@ -214,6 +224,34 @@ watch(
           (Number(qty) * Number(price) + Number(fee || 0)) * 100
         ) / 100;
       form.value.amount = calculated;
+    }
+  }
+);
+
+// 基金净值自动拉取：确认日期变化时，通过统一服务获取该日净值
+// 后端优先，失败兜底天天基金公开接口；当天未出净值则留空
+watch(
+  () => form.value.confirm_date,
+  async (newDate) => {
+    if (!isFund.value || !newDate) return;
+
+    // symbol 优先用 prop，兜底从交易记录取
+    const code = props.symbol || props.transaction?.symbol;
+    if (!code) return;
+
+    navLoading.value = true;
+    try {
+      const result = await fetchFundNav(code, newDate);
+      if (result) {
+        form.value.price = result.unit_nav;
+      } else {
+        // 拉不到净值（当天未出 / 非交易日），清空不覆盖已有值
+        // 前端不阻塞，用户可手动确认
+      }
+    } catch (e) {
+      console.warn("[editDialog] 净值拉取失败:", e);
+    } finally {
+      navLoading.value = false;
     }
   }
 );

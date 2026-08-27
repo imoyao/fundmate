@@ -166,6 +166,7 @@ def get_position_transactions(id: int):
                 {
                     'id': t.id,
                     'ledger_id': t.ledger_id,
+                    'symbol': t.symbol,
                     'trade_date': display_date.isoformat() if display_date else None,
                     'txn_type': t.txn_type,
                     'quantity': Money.min_unit_to_shares(t.quantity),
