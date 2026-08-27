@@ -123,8 +123,14 @@ def test_get_fund_nav_empty_symbols(client):
     assert resp.status_code == 422
 
 
-def test_get_fund_nav_realtime_fetch(client, db):
-    """正向测试：数据库中无净值时，通过 xalpha 实时拉取并返回"""
+def test_get_fund_nav_realtime_fetch(client, db, monkeypatch):
+    """正向测试：数据库中无净值时，走实时拉取兜底并返回。
+
+    mock 掉外部接口与持久化：单测不依赖真实网络（CI 数据中心 IP 易被上游拒绝）；
+    _persist_navs 内部早绑定真实库 SessionLocal，也须一并隔离。
+    """
+    from decimal import Decimal
+
     fund = db.query(Fund).filter_by(fund_code='000001').first()
     if not fund:
         fund = Fund(fund_code='000001', name='华夏成长')
@@ -134,6 +140,13 @@ def test_get_fund_nav_realtime_fetch(client, db):
     test_date = date.today() - timedelta(days=1)
     if test_date.weekday() >= 5:
         test_date -= timedelta(days=test_date.weekday() - 4)
+
+    monkeypatch.setattr(
+        FundService,
+        '_fetch_one_nav',
+        staticmethod(lambda code, target: Decimal('1.2345') if target == test_date else None),
+    )
+    monkeypatch.setattr(FundService, '_persist_navs', staticmethod(lambda *args, **kwargs: None))
 
     resp = client.post('/api/funds/nav/', json={'symbols': ['000001'], 'date': test_date.strftime('%Y-%m-%d')})
     assert resp.status_code == 200

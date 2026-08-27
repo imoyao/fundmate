@@ -44,7 +44,7 @@ D20 已定稿「组合 = 持仓级」，`positions.portfolio_id` 可空（空 = 
 
 ## 3. 数据模型设计（user 域）
 
-`lots` 与 `lot_consumptions` 均由 `positions` / `transactions` 派生，含 `family_id`，归属 **user 域**，模型须声明 `__data_domain__ = 'user'`。
+`lots` 与 `lot_consumptions` 均由 `positions` / `transactions` 派生，含 `family_id`，归属 **user 域**；模型不声明域属性，须在 `app/core/db_factory.DATA_DOMAIN_REGISTRY` 中央注册表登记（2026-08-24 规则修正，见 AGENTS.md「数据域架构」）。
 
 ### 3.1 `lots` 表（批次）
 
