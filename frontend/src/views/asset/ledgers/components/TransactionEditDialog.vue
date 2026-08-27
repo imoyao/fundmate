@@ -46,7 +46,7 @@
         />
       </el-form-item>
 
-      <!-- 金额：支持 4 位小数 -->
+      <!-- 金额：自动计算 = 数量 * 单价 + 手续费，可手动覆盖 -->
       <el-form-item label="金额(元)">
         <el-input-number
           v-model="form.amount"
@@ -58,6 +58,9 @@
           :step="0.01"
           placeholder="0.0000"
         />
+        <div class="text-xs mt-1" style="color: var(--text-tertiary)">
+          自动计算：数量 × 单价 + 手续费，可手动修改
+        </div>
       </el-form-item>
 
       <!-- 手续费：支持 4 位小数 -->
@@ -79,8 +82,7 @@
         <el-date-picker
           v-model="form.trade_date"
           type="date"
-          class="w-full"
-          style="display: block; width: 100%"
+          style="width: 100%"
           value-format="YYYY-MM-DD"
           placeholder="可为空"
           clearable
@@ -92,8 +94,7 @@
         <el-date-picker
           v-model="form.confirm_date"
           type="date"
-          class="w-full"
-          style="display: block; width: 100%"
+          style="width: 100%"
           value-format="YYYY-MM-DD"
           placeholder="请选择确认日期"
           clearable
@@ -124,7 +125,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from "vue";
+import { ref, computed, watch } from "vue";
 import { updateLedgerTransaction } from "@/api/ledger";
 import { ElMessage } from "element-plus";
 
@@ -143,13 +144,24 @@ const saving = ref(false);
 const formRef = ref();
 const form = ref<any>({});
 
-// 资产类型：优先用传入的 assetType，否则取交易记录里的 asset_type
-const assetType = computed(
-  () => props.assetType || props.transaction?.asset_type
-);
+// 资产类型：多字段兜底检测
+// 优先用传入的 assetType，否则从交易记录中尝试多个字段
+const assetType = computed(() => {
+  const t = props.transaction;
+  return (
+    props.assetType ||
+    t?.asset_type ||
+    t?.type ||
+    t?.security_type ||
+    t?.position_type ||
+    ""
+  );
+});
 
-// 仅基金按份额(小数)处理；其余按股/张(整数)
-const isFund = computed(() => assetType.value === "fund");
+// 基金类（含货币基金）按份额(小数)处理；其余按股/张(整数)
+const isFund = computed(() =>
+  ["fund", "money_fund"].includes(assetType.value)
+);
 
 const quantityPrecision = computed(() => (isFund.value ? 4 : 0));
 const quantityStep = computed(() => (isFund.value ? 0.0001 : 1));
@@ -157,7 +169,11 @@ const quantityStep = computed(() => (isFund.value ? 0.0001 : 1));
 // 确认日期必填，交易日期可选
 const rules = {
   confirm_date: [
-    { required: true, message: "请选择确认日期", trigger: "change" }
+    {
+      required: true,
+      message: "请选择确认日期",
+      trigger: ["blur", "change"]
+    }
   ]
 };
 
@@ -173,6 +189,20 @@ function initForm() {
     notes: t.notes ?? ""
   };
 }
+
+// 金额自动计算：amount = quantity * price + fee
+watch(
+  [() => form.value.quantity, () => form.value.price, () => form.value.fee],
+  ([qty, price, fee]) => {
+    if (qty != null && price != null && qty >= 0 && price >= 0) {
+      const calculated =
+        Math.round(
+          (Number(qty) * Number(price) + Number(fee || 0)) * 10000
+        ) / 10000;
+      form.value.amount = calculated;
+    }
+  }
+);
 
 async function handleSave() {
   const valid = await formRef.value?.validate().catch(() => false);
@@ -199,7 +229,6 @@ async function handleSave() {
     emit("saved", data);
     emit("update:modelValue", false);
     ElMessage.success("保存成功");
-    // 手工编辑会清空 import_hash，提示用户后续重新导入需对账
     if (data && data.import_hash == null) {
       ElMessage.warning("该记录已手工编辑，重新导入时需按新内容对账");
     }
@@ -216,6 +245,11 @@ async function handleSave() {
   font-size: 0.75rem;
 }
 
+/* 去掉 el-form-item 默认 margin-bottom，间距统一由 gap-4 控制 */
+:deep(.el-form-item) {
+  margin-bottom: 0;
+}
+
 /* 输入框统一样式 —— 对齐 design.md Input 规范 & BuyForm/SellForm */
 :deep(.el-input__wrapper),
 :deep(.el-textarea__inner) {
@@ -229,7 +263,6 @@ async function handleSave() {
   border-radius: var(--radius-sm);
 }
 
-/* el-input-number 内部 wrapper 继承同样变量 */
 :deep(.el-input-number .el-input__wrapper) {
   --el-input-border-color: var(--border-default);
   --el-input-hover-border-color: var(--brand-500);
@@ -242,20 +275,21 @@ async function handleSave() {
   border-radius: var(--radius-sm);
 }
 
-/* 日期选择器输入框同样继承 */
-:deep(.el-date-editor .el-input__wrapper) {
+/* 日期选择器：强制 100% 宽度，与数字输入框等宽 */
+:deep(.el-date-editor.el-input),
+:deep(.el-date-editor.el-input__wrapper) {
+  width: 100% !important;
+  height: 40px;
+  border-radius: var(--radius-sm);
   --el-input-border-color: var(--border-default);
   --el-input-hover-border-color: var(--brand-500);
   --el-input-focus-border-color: var(--brand-700);
   --el-input-focus-shadow:
     inset 0 0 0 1px var(--brand-700), 0 0 0 2px var(--bg-card),
     0 0 0 4px var(--brand-700);
-
-  height: 40px;
-  border-radius: var(--radius-sm);
 }
 
-/* 主按钮物理反馈 —— 对齐 design.md Button 规范 */
+/* 主按钮物理反馈 */
 :deep(.el-button--primary) {
   height: 40px;
   transition:
@@ -268,8 +302,11 @@ async function handleSave() {
   transform: translateY(1px);
 }
 
-/* 避免校验错误过渡闪烁 */
+/* 校验错误样式 */
 :deep(.el-form-item__error) {
   transition: none;
+  color: var(--el-color-danger, #f56c6c);
+  font-size: 0.75rem;
+  padding-top: 2px;
 }
 </style>
