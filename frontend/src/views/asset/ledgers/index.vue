@@ -366,6 +366,7 @@ function initSortables() {
       animation: 180,
       handle: ".drag-handle",
       ghostClass: "ledger-card--ghost",
+      chosenClass: "ledger-card--chosen",
       onEnd: (evt: any) => onLedgerDragEnd(g.type, evt)
     });
   }

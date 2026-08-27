@@ -35,15 +35,23 @@ const emit = defineEmits<{
     <!-- 标题行：名称 + 类型标签 + 行内操作（hover 卡片时浮现） -->
     <div class="flex items-center justify-between mb-3">
       <div class="flex items-center gap-2 min-w-0">
-        <!-- 拖拽手柄：仅 hover/focus 时浮现；点击/回车均 stop，避免触发卡片打开详情（#1083） -->
+        <!-- 拖拽手柄：常驻低透明（暗示可拖拽），hover/focus 时高亮；点击/回车均 stop，避免触发卡片打开详情（#1083） -->
         <span
           class="drag-handle"
-          role="presentation"
-          :aria-label="`拖拽排序 ${ledger.name}`"
+          role="button"
+          tabindex="-1"
+          :title="`拖拽排序：${ledger.name}`"
           @click.stop
           @keydown.enter.stop
         >
-          <IconifyIconOffline icon="ri:drag-move-2-line" />
+          <svg class="drag-grip" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <circle cx="9" cy="6" r="1.7" />
+            <circle cx="15" cy="6" r="1.7" />
+            <circle cx="9" cy="12" r="1.7" />
+            <circle cx="15" cy="12" r="1.7" />
+            <circle cx="9" cy="18" r="1.7" />
+            <circle cx="15" cy="18" r="1.7" />
+          </svg>
         </span>
         <span
           class="font-semibold text-base truncate"
@@ -238,11 +246,19 @@ const emit = defineEmits<{
 }
 
 .ledger-card:hover {
+  transform: translateY(-2px);
   box-shadow: var(--shadow-float);
 }
 
 .ledger-card:focus-visible {
   box-shadow: var(--focus-ring);
+}
+
+/* 拖拽中「被选中」的卡片：轻微放大 + 浮起，给用户明确反馈 */
+.ledger-card--chosen {
+  transform: scale(1.02);
+  box-shadow: var(--shadow-float);
+  cursor: grabbing;
 }
 
 /* ===== 核心指标：左右两列 flex（总资产大数字锚点 + 右侧两指标独立竖排） ===== */
@@ -300,7 +316,7 @@ const emit = defineEmits<{
   align-items: center;
 }
 
-/* 拖拽手柄：悬浮/聚焦时浮现，避免常态干扰；点击与回车均拦截，不触发卡片打开详情（#1083） */
+/* 拖拽手柄：常驻低透明，既暗示「可拖拽」又不过度干扰；移动端需禁用默认触摸手势 */
 .drag-handle {
   display: inline-flex;
   align-items: center;
@@ -312,7 +328,8 @@ const emit = defineEmits<{
   color: var(--text-tertiary);
   cursor: grab;
   border-radius: var(--radius-sm);
-  opacity: 0;
+  opacity: 0.5;
+  touch-action: none;
   transition:
     opacity 0.15s ease,
     color 0.15s ease,
@@ -324,18 +341,16 @@ const emit = defineEmits<{
 }
 
 .ledger-card:hover .drag-handle,
-.ledger-card:focus-within .drag-handle {
-  opacity: 1;
-}
-
+.ledger-card:focus-within .drag-handle,
 .drag-handle:hover {
+  opacity: 1;
   color: var(--text-secondary);
   background: var(--bg-page);
 }
 
-/* 拖拽中占位元素的视觉态（sortablejs ghostClass） */
+/* 拖拽中占位「幽灵」元素的视觉态（sortablejs ghostClass） */
 .ledger-card--ghost {
-  opacity: 0.45;
+  opacity: 0.4;
   box-shadow: var(--shadow-float);
   transform: scale(1.02);
 }
