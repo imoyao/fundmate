@@ -7,6 +7,7 @@
 from apiflask import APIBlueprint
 from flask import abort, jsonify, request
 from loguru import logger
+from sqlalchemy.exc import IntegrityError
 
 from app.core.auth import get_family_id, get_owned_or_404
 from app.core.constants import ALLOCATION_LABELS, MARKET_LABELS, TYPE_LABELS
@@ -205,6 +206,9 @@ def create_position():
             elif op_type in ('buy', 'deposit'):
                 try:
                     position = PositionService.process_buy_or_deposit(db, data)
+                except IntegrityError:
+                    # 唯一约束冲突（幂等键重复）→ 上抛给外层 except IntegrityError → 409 幂等拦截
+                    raise
                 except Exception as e:
                     logger.exception('买入/加仓处理失败: %s', e)
                     return jsonify({'message': str(e), 'data': None}), 400
@@ -214,6 +218,15 @@ def create_position():
             logger.exception('持仓操作业务校验失败: %s', e)
             # 业务逻辑错误，返回明确提示
             return jsonify({'message': str(e), 'data': None}), 400
+        except IntegrityError as e:
+            # 唯一约束冲突：幂等键(import_hash)重复 → 视为「请勿重复提交 / 已迁移」。
+            # 典型场景：
+            #   - 手动记账：网络超时后客户端用同一幂等键重发，服务端已落库，重发被唯一约束拦截；
+            #   - 探市迁移：重跑迁移同一持有命中唯一约束 → 跳过，避免重复持仓。
+            # 用 409 Conflict 而非 400，便于调用方（迁移逻辑）按状态码识别「已存在」并跳过。
+            db.rollback()
+            logger.warning('持仓操作唯一约束冲突（疑似重复提交/重复迁移）: %s', e)
+            return jsonify({'message': '该笔交易已记录，请勿重复提交', 'data': None}), 409
         except Exception:
             # ⭐ 捕获所有未预期的异常，打印完整堆栈
             logger.exception('持仓操作未预期异常')

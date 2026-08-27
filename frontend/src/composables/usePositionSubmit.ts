@@ -20,6 +20,23 @@ import { emitter } from "@/utils/mitt";
  */
 export function usePositionSubmit() {
   const submitting = ref(false);
+  // 幂等键：每次「提交意图」固定一个 UUID，随请求落到后端的 import_hash 字段。
+  // 服务端 UNIQUE(ledger_id, import_hash) 据此拦截「网络超时后客户端重发」造成的重复写入（issue #933 衍生）。
+  // - 成功后才清空，下一次真实的记账会生成新键；
+  // - 同一种意图失败重试时复用同一键 → 命中唯一约束被友好拦截，而非产生重复流水。
+  const idempotencyKey = ref<string>("");
+
+  /** 生成幂等键：优先 crypto.randomUUID，非安全上下文(纯 http)降级到 Math.random 实现。 */
+  function genIdempotencyKey(): string {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+      const r = (Math.random() * 16) | 0;
+      const v = c === "x" ? r : (r & 0x3) | 0x8;
+      return v.toString(16);
+    });
+  }
 
   /** 后端错误 → 可读文案（422 携带字段级明细时逐项拼接） */
   function parseSubmitError(e: any): string {
@@ -48,9 +65,15 @@ export function usePositionSubmit() {
     if (submitting.value) return false;
     submitting.value = true;
     try {
-      await createPosition(body);
+      // 每个独立的提交意图复用同一幂等键；失败时不清空 → 重发命中唯一约束被拦截，
+      // 避免网络抖动下「已写入却重发」产生重复流水。
+      if (!idempotencyKey.value) {
+        idempotencyKey.value = genIdempotencyKey();
+      }
+      await createPosition({ ...body, import_hash: idempotencyKey.value });
       ElMessage.success("记账成功");
       emitter.emit("refresh-ledger-data");
+      idempotencyKey.value = "";
       return true;
     } catch (e: any) {
       ElMessage.error(parseSubmitError(e));
