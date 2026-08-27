@@ -95,28 +95,30 @@
         />
       </el-form-item>
 
-      <!-- 交易日期：可为空 -->
-      <el-form-item label="交易日期">
-        <el-date-picker
-          v-model="form.trade_date"
-          type="date"
-          style="width: 100%"
-          value-format="YYYY-MM-DD"
-          placeholder="可为空"
-          clearable
-        />
-      </el-form-item>
-
-      <!-- 确认日期：必填 -->
-      <el-form-item label="确认日期" prop="confirm_date">
-        <el-date-picker
-          v-model="form.confirm_date"
-          type="date"
-          style="width: 100%"
-          value-format="YYYY-MM-DD"
-          placeholder="请选择确认日期"
-          clearable
-        />
+      <!-- 交易日期 + 15:00前/后（基金） -->
+      <el-form-item label="交易日期" prop="trade_date">
+        <div class="flex items-center gap-3 w-full">
+          <el-date-picker
+            v-model="form.trade_date"
+            type="date"
+            class="flex-1"
+            style="width: 100%"
+            value-format="YYYY-MM-DD"
+            placeholder="选择日期"
+            clearable
+          />
+          <el-radio-group v-if="isFund" v-model="isAfter15" size="small">
+            <el-radio-button :value="false">15:00前</el-radio-button>
+            <el-radio-button :value="true">15:00后</el-radio-button>
+          </el-radio-group>
+        </div>
+        <div
+          v-if="isFund"
+          class="text-xs mt-1"
+          style="color: var(--text-tertiary)"
+        >
+          预计确认日：{{ confirmDateDisplay || "计算中..." }}
+        </div>
       </el-form-item>
 
       <!-- 备注 -->
@@ -146,6 +148,7 @@
 import { ref, computed, watch } from "vue";
 import { updateLedgerTransaction } from "@/api/ledger";
 import { fetchFundNav } from "@/api/fundNav";
+import { calcFundConfirmDate } from "@/api/utils";
 import { ElMessage } from "element-plus";
 
 const props = defineProps<{
@@ -167,6 +170,13 @@ const form = ref<any>({});
 
 // 净值加载态（基金模式下根据确认日期自动拉取）
 const navLoading = ref(false);
+
+// 15:00 后下单（影响确认日计算）
+const isAfter15 = ref(false);
+// 实际净值日（后端返回的真实交易日，用于拉净值）
+const actualNavDate = ref("");
+// 确认日期展示文本
+const confirmDateDisplay = ref("");
 
 // 资产类型：多字段兜底检测
 // 优先用传入的 assetType，否则从交易记录中尝试多个字段
@@ -190,12 +200,12 @@ const isFund = computed(() =>
 const quantityPrecision = computed(() => (isFund.value ? 4 : 0));
 const quantityStep = computed(() => (isFund.value ? 0.0001 : 1));
 
-// 确认日期必填，交易日期可选
+// 交易日期必填（确认日期由系统自动计算，不需用户输入）
 const rules = {
-  confirm_date: [
+  trade_date: [
     {
       required: true,
-      message: "请选择确认日期",
+      message: "请选择交易日期",
       trigger: ["blur", "change"]
     }
   ]
@@ -203,6 +213,8 @@ const rules = {
 
 function initForm() {
   const t = props.transaction || {};
+  isAfter15.value = false;
+  actualNavDate.value = "";
   form.value = {
     quantity: t.quantity,
     price: t.price,
@@ -212,6 +224,8 @@ function initForm() {
     confirm_date: t.confirm_date || null,
     notes: t.notes ?? ""
   };
+  // 展示已有确认日期（若交易记录里有）
+  confirmDateDisplay.value = t.confirm_date || "";
 }
 
 // 金额自动计算：amount = quantity * price + fee（保留 2 位小数）
@@ -228,28 +242,50 @@ watch(
   }
 );
 
-// 基金净值自动拉取：确认日期变化时，通过统一服务获取该日净值
-// 后端优先，失败兜底天天基金公开接口；当天未出净值则留空
+// 核心联动：交易日期变化 → 自动计算确认日期 → 自动拉取净值
+// 与 BuyForm 完全一致：calcFundConfirmDate 算出 actual_trade_date + confirm_date
+// 用 actual_trade_date（而非 confirm_date）去拉净值
 watch(
-  () => form.value.confirm_date,
-  async (newDate) => {
-    if (!isFund.value || !newDate) return;
+  [() => form.value.trade_date, () => isAfter15.value],
+  async ([newDate]) => {
+    if (!newDate) {
+      confirmDateDisplay.value = "";
+      return;
+    }
 
-    // symbol 优先用 prop，兜底从交易记录取
+    if (!isFund.value) {
+      // 股票/可转债：确认日 = 交易日
+      form.value.confirm_date = newDate;
+      confirmDateDisplay.value = "";
+      return;
+    }
+
+    // 基金：调后端计算确认日 + 实际净值日
     const code = props.symbol || props.transaction?.symbol;
-    if (!code) return;
-
     navLoading.value = true;
     try {
-      const result = await fetchFundNav(code, newDate);
-      if (result) {
-        form.value.price = result.unit_nav;
-      } else {
-        // 拉不到净值（当天未出 / 非交易日），清空不覆盖已有值
-        // 前端不阻塞，用户可手动确认
+      const res = await calcFundConfirmDate({
+        trade_date: newDate,
+        fund_type: "domestic",
+        is_after_15: isAfter15.value,
+      });
+      const data = (res as any)?.data;
+      if (data) {
+        actualNavDate.value = data.actual_trade_date ?? newDate;
+        form.value.confirm_date = data.confirm_date ?? newDate;
+        confirmDateDisplay.value = form.value.confirm_date;
+
+        // 用实际净值日拉净值（不是 confirm_date）
+        if (code && actualNavDate.value) {
+          const result = await fetchFundNav(code, actualNavDate.value);
+          if (result) {
+            form.value.price = result.unit_nav;
+          }
+        }
       }
     } catch (e) {
-      console.warn("[editDialog] 净值拉取失败:", e);
+      console.warn("[editDialog] 确认日期/净值计算失败:", e);
+      confirmDateDisplay.value = "计算失败";
     } finally {
       navLoading.value = false;
     }
