@@ -65,6 +65,63 @@ export async function fetchFundNav(
   return null;
 }
 
+/* ─────────────── 批量版本 ─────────────── */
+
+/**
+ * 批量获取多只基金在指定日期的净值。
+ *
+ * 后端批量优先，后端未返回的基金逐个走天天基金 JSONP 兜底。
+ * 返回 { fund_code: unit_nav } 映射，拿不到的基金不在 map 中。
+ *
+ * @param fundCodes 基金代码数组，如 ["005827", "110011"]
+ * @param targetDate 目标日期 YYYY-MM-DD
+ * @returns { fund_code: unit_nav }
+ */
+export async function fetchFundNavBatch(
+  fundCodes: string[],
+  targetDate: string,
+): Promise<Record<string, number>> {
+  const navMap: Record<string, number> = {};
+  if (!fundCodes.length || !targetDate) return navMap;
+
+  // 1. 批量调后端
+  const backendFound = new Set<string>();
+  try {
+    const res = await calcFundNav(fundCodes, targetDate);
+    const list = (res as any)?.data ?? res;
+    if (Array.isArray(list)) {
+      list.forEach((item: any) => {
+        if (item.unit_nav && item.unit_nav > 0 && item.fund_code) {
+          navMap[item.fund_code] = Number(item.unit_nav);
+          backendFound.add(item.fund_code);
+        }
+      });
+    }
+  } catch (e) {
+    console.warn("[fundNav] 后端批量获取失败:", e);
+  }
+
+  // 2. 后端未返回的基金，逐个走天天基金 JSONP 兜底（3 个一批并发）
+  const missing = fundCodes.filter((code) => !backendFound.has(code));
+  for (let i = 0; i < missing.length; i += 3) {
+    const batch = missing.slice(i, i + 3);
+    await Promise.all(
+      batch.map(async (code) => {
+        try {
+          const result = await fetchFromEastmoney(code, targetDate);
+          if (result) {
+            navMap[code] = result.unit_nav;
+          }
+        } catch {
+          // 单个失败不阻塞
+        }
+      }),
+    );
+  }
+
+  return navMap;
+}
+
 /* ─────────────── 天天基金 JSONP 兜底 ─────────────── */
 
 /**

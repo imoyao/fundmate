@@ -1,5 +1,5 @@
 import { parseFile, confirmImport as confirmImportApi } from "@/api/importer";
-import { calcFundNav } from "@/api/funds";
+import { fetchFundNavBatch } from "@/api/fundNav";
 import type { UploadRequestOptions } from "element-plus";
 import { ref, onMounted, computed, reactive, nextTick } from "vue";
 import { useRouter } from "vue-router";
@@ -666,16 +666,7 @@ export function useImportWizard() {
     enrichingNav.value = true;
     try {
       for (const [date, symbols] of Object.entries(dateGroups)) {
-        const res = await calcFundNav(symbols, date);
-        const items = (res as any)?.data ?? []; // 改为数组
-
-        // 将数组转为 { fund_code: unit_nav } 映射
-        const navMap: Record<string, number> = {};
-        items.forEach((item: any) => {
-          if (item.unit_nav > 0) {
-            navMap[item.fund_code] = item.unit_nav;
-          }
-        });
+        const navMap = await fetchFundNavBatch(symbols, date);
 
         previewData.value.forEach(row => {
           if (
@@ -1219,14 +1210,7 @@ export function useImportWizard() {
     // 逐日请求
     for (const [date, symbols] of Object.entries(dateGroups)) {
       try {
-        const res = await calcFundNav(symbols, date);
-        const items = (res as any)?.data ?? []; // 接口返回数组
-        const navMap: Record<string, number> = {};
-        items.forEach((item: any) => {
-          if (item.unit_nav > 0) {
-            navMap[item.fund_code] = item.unit_nav;
-          }
-        });
+        const navMap = await fetchFundNavBatch(symbols, date);
 
         // 更新所有相关行
         needed.forEach(row => {
