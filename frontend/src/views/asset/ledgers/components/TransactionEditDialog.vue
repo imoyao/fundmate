@@ -15,8 +15,8 @@
       class="flex flex-col gap-4"
       :disabled="saving"
     >
-      <!-- 数量：基金按份额(支持小数)，股票/可转债按股|张(整数) -->
-      <el-form-item label="数量" prop="quantity">
+      <!-- 数量/份额：基金按份额(支持小数)，股票/可转债按股|张(整数) -->
+      <el-form-item :label="isFund ? '份额' : '数量'" prop="quantity">
         <el-input-number
           v-model="form.quantity"
           style="width: 100%"
@@ -32,17 +32,31 @@
         </div>
       </el-form-item>
 
-      <!-- 单价：支持 4 位小数 -->
-      <el-form-item label="单价(元)">
+      <!-- 单价/净值：基金净值只读(4位)，股票价格可编辑(2位) -->
+      <el-form-item :label="isFund ? '净值(元)' : '单价(元)'">
+        <!-- 基金：净值不可编辑，只读展示 -->
+        <el-input
+          v-if="isFund"
+          :model-value="
+            form.price != null ? Number(form.price).toFixed(4) : ''
+          "
+          readonly
+          disabled
+          placeholder="--"
+        >
+          <template #append>元/份</template>
+        </el-input>
+        <!-- 股票：价格可编辑，2位小数 -->
         <el-input-number
+          v-else
           v-model="form.price"
           style="width: 100%"
           class="w-full"
           :controls="false"
           :min="0"
-          :precision="4"
-          :step="0.0001"
-          placeholder="0.0000"
+          :precision="2"
+          :step="0.01"
+          placeholder="0.00"
         />
       </el-form-item>
 
@@ -54,16 +68,16 @@
           class="w-full"
           :controls="false"
           :min="0"
-          :precision="4"
+          :precision="2"
           :step="0.01"
-          placeholder="0.0000"
+          placeholder="0.00"
         />
         <div class="text-xs mt-1" style="color: var(--text-tertiary)">
           自动计算：数量 × 单价 + 手续费，可手动修改
         </div>
       </el-form-item>
 
-      <!-- 手续费：支持 4 位小数 -->
+      <!-- 手续费：2 位小数 -->
       <el-form-item label="手续费(元)">
         <el-input-number
           v-model="form.fee"
@@ -71,9 +85,9 @@
           class="w-full"
           :controls="false"
           :min="0"
-          :precision="4"
+          :precision="2"
           :step="0.01"
-          placeholder="0.0000"
+          placeholder="0.00"
         />
       </el-form-item>
 
@@ -190,15 +204,15 @@ function initForm() {
   };
 }
 
-// 金额自动计算：amount = quantity * price + fee
+// 金额自动计算：amount = quantity * price + fee（保留 2 位小数）
 watch(
   [() => form.value.quantity, () => form.value.price, () => form.value.fee],
   ([qty, price, fee]) => {
     if (qty != null && price != null && qty >= 0 && price >= 0) {
       const calculated =
         Math.round(
-          (Number(qty) * Number(price) + Number(fee || 0)) * 10000
-        ) / 10000;
+          (Number(qty) * Number(price) + Number(fee || 0)) * 100
+        ) / 100;
       form.value.amount = calculated;
     }
   }
