@@ -1,7 +1,7 @@
 <template>
   <el-drawer
     v-model="drawerVisible"
-    size="520px"
+    size="680px"
     direction="rtl"
     destroy-on-close
     title="持仓明细"
@@ -193,12 +193,13 @@
               />
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="56" align="center">
+          <el-table-column label="操作" width="72" align="center">
             <template #default="{ row }">
               <el-button
                 size="small"
                 text
                 type="primary"
+                :icon="Edit"
                 @click="openEdit(row)"
               >
                 编辑
@@ -238,7 +239,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from "vue";
-import { Loading } from "@element-plus/icons-vue";
+import { Loading, Edit } from "@element-plus/icons-vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import { getPositionTransactions } from "@/api/positions";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
