@@ -73,6 +73,15 @@ class Ledger(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     # 有交易/持仓/资产的账户禁止删除，只能归档（见 views.delete_ledger 守卫）。
     is_active = Column(Boolean, nullable=False, default=True, comment='是否活跃（False=已归档）')
 
+    # 组内手动排序序号：同一 ledger_type 内有序。NULL 表示尚未手动排序，
+    # 前端回退按持仓金额降序（#1083）。拖拽落库时对该类型全部账户赋 1..N。
+    display_order = Column(
+        Integer,
+        nullable=True,
+        default=None,
+        comment='组内手动排序序号（null=按持仓金额降序默认排序）；同类型内有序',
+    )
+
     portfolio_id = Column(
         Integer,
         ForeignKey('portfolios.id', ondelete='SET NULL'),

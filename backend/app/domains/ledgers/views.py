@@ -50,6 +50,8 @@ def _ledger_to_dict(ledger: Ledger, last_used_at=None) -> dict:
         # 关联的销售机构（AMAC 名录），可选；前端回显与编辑依赖该字段
         'sales_institution_id': ledger.sales_institution_id,
         'is_active': ledger.is_active,
+        # 组内手动排序序号；null 表示用户尚未手动排序（前端回退按持仓金额降序）。
+        'display_order': ledger.display_order,
         'created_at': ledger.created_at.isoformat() if ledger.created_at else None,
         'updated_at': ledger.updated_at.isoformat() if ledger.updated_at else None,
         # 最近使用时间：取该账户最后一笔交易的确认日期（无交易则为 null），
@@ -185,7 +187,13 @@ def list_ledgers():
         query = db.query(Ledger).filter(Ledger.family_id == get_family_id())
         if not include_archived:
             query = query.filter(Ledger.is_active.is_(True))
-        ledgers = query.order_by(Ledger.created_at.asc()).all()
+        # 默认：手动排序序号在前（NULL 视为未排序排到后面），同组内再按创建时间稳定序。
+        # 前端若检测到组内存在 display_order 则以它为准；否则按持仓金额降序。
+        ledgers = query.order_by(
+            Ledger.display_order.is_(None),
+            Ledger.display_order.asc(),
+            Ledger.created_at.asc(),
+        ).all()
         # 派生"最近使用时间"：每个账户最近一笔交易的确认日期。
         # 单条聚合查询，避免 N+1；供前端下拉按最近使用排序。
         last_used_rows = (
@@ -236,6 +244,40 @@ def list_ledgers():
             result.append(item)
 
         return jsonify({'data': result, 'message': 'ok'})
+
+
+@ledgers_bp.patch('/reorder/')
+def reorder_ledgers():
+    """对同一类型内的账户手动排序落库（#1083）。
+
+    入参：{ ledger_type: str, ordered_ids: [int,...] }
+    仅接受该家族下、且类型匹配、且属于 ordered_ids 的账户，赋 display_order = 序号(1-based)。
+    客户端每次拖拽都发送该类型下的完整有序 id 列表，因此同类型要么全手动、要么全默认。
+    """
+    data = request.get_json(silent=True) or {}
+    ledger_type = data.get('ledger_type')
+    ordered_ids = data.get('ordered_ids')
+    if not isinstance(ledger_type, str) or not isinstance(ordered_ids, list):
+        return jsonify({'data': None, 'message': '参数错误：ledger_type 与 ordered_ids 必填'}), 400
+
+    with get_db() as db:
+        fam = get_family_id()
+        ledgers = (
+            db.query(Ledger)
+            .filter(
+                Ledger.family_id == fam,
+                Ledger.ledger_type == ledger_type,
+                Ledger.id.in_(ordered_ids),
+            )
+            .all()
+        )
+        owned = {led.id: led for led in ledgers}
+        for idx, lid in enumerate(ordered_ids):
+            matched = owned.get(lid)
+            if matched is not None:
+                matched.display_order = idx + 1
+        db.commit()
+    return jsonify({'data': None, 'message': 'ok'})
 
 
 @ledgers_bp.get('/<int:ledger_id>/')

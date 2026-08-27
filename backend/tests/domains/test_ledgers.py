@@ -75,6 +75,22 @@ class TestLedgerCRUD:
         # 验证两个账户的ID不同
         assert resp1.get_json()['data']['id'] != resp2.get_json()['data']['id']
 
+    def test_reorder_ledgers(self, client, db):
+        """组内拖拽排序应能落库并改变列表顺序（#1083）"""
+        a = client.post('/api/ledgers/', json={'name': 'A', 'ledger_type': 'bank'}).get_json()['data']
+        b = client.post('/api/ledgers/', json={'name': 'B', 'ledger_type': 'bank'}).get_json()['data']
+        # 逆序发送：期望 B 排在 A 前
+        resp = client.patch('/api/ledgers/reorder/', json={'ledger_type': 'bank', 'ordered_ids': [b['id'], a['id']]})
+        assert resp.status_code == 200
+        ledgers = client.get('/api/ledgers/').get_json()['data']
+        bank_ids = [x['id'] for x in ledgers if x['ledger_type'] == 'bank']
+        assert bank_ids.index(b['id']) < bank_ids.index(a['id'])
+
+    def test_reorder_ledgers_bad_params(self, client):
+        """参数缺失应返回 400"""
+        resp = client.patch('/api/ledgers/reorder/', json={'ordered_ids': [1]})
+        assert resp.status_code == 400
+
     def test_delete_ledger_with_positions_blocked(self, client, db, make_position):
         """有持仓且未勾选删除时应被拦截"""
         # 创建账户和持仓
