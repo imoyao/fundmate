@@ -141,7 +141,7 @@
       />
 
       <!-- 按类型分组的账户卡片列表 -->
-      <div v-for="group in groupedLedgers" :key="group.type" class="mb-8">
+      <div v-for="group in displayedGroups" :key="group.type" class="mb-8">
         <div class="flex items-center justify-between mb-3">
           <h3
             class="font-semibold text-base"
@@ -165,8 +165,9 @@
         </div>
 
         <!-- 账户卡片：auto-fit 网格自动折叠空轨道，孤点分类不会产生右侧大片空白。
-             卡片展示细节已拆分至 components/LedgerCard.vue（#984） -->
-        <div class="ledger-grid">
+             卡片展示细节已拆分至 components/LedgerCard.vue（#984）。
+             网格绑定 data-ledger-type 供 sortablejs 按类型初始化拖拽（仅同组内可拖）。 -->
+        <div class="ledger-grid" :data-ledger-type="group.type">
           <LedgerCard
             v-for="ledger in group.ledgers"
             :key="ledger.id"
@@ -214,7 +215,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, onMounted, nextTick } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { usePageRefresh } from "@/composables/usePageRefresh";
@@ -225,8 +226,10 @@ import {
   getSalesInstitutions,
   archiveLedger,
   unarchiveLedger,
+  reorderLedgers,
   type SalesInstitution
 } from "@/api/ledger";
+import Sortable from "sortablejs";
 import { getPortfolios } from "@/api/portfolio";
 import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
@@ -307,10 +310,10 @@ const orphanGroup = computed(() =>
   overviewData.value?.groups?.find((g: any) => g.type === "deleted")
 );
 
-// 分组展示（按类型分组，并排序，追加未归置持仓）
-const groupedLedgers = computed(() => {
+// 分组展示（按类型分组，组内排序）：手动排序序号优先，回退按持仓金额降序（#1083）
+function buildGroups(ledgers: any[]) {
   const groups: Record<string, any> = {};
-  for (const ledger of allLedgers.value) {
+  for (const ledger of ledgers) {
     const type = ledger.ledger_type || "bank";
     if (!groups[type]) {
       groups[type] = {
@@ -318,7 +321,7 @@ const groupedLedgers = computed(() => {
         label: getLedgerTypeLabel(type),
         total: 0,
         count: 0,
-        ledgers: []
+        ledgers: [] as any[]
       };
     }
     groups[type].count++;
@@ -327,11 +330,63 @@ const groupedLedgers = computed(() => {
   }
 
   const order = ["bank", "stock", "fund", "property"];
-  const result = order.map(type => groups[type]).filter(Boolean);
+  const result = order.map(type => groups[type]).filter(Boolean) as any[];
 
   // 未归置持仓不再作为分组卡片进入网格（2026-08 改版），统一由顶部警示 banner 承接
+  // 组内排序：已手动排序（display_order 非 null）的卡片按 display_order 升序排在前面，
+  // 其余（null）回退到「按持仓金额降序」，默认即金额大的靠前。
+  for (const g of result) {
+    g.ledgers.sort((a: any, b: any) => {
+      const da = a.display_order ?? Infinity;
+      const db = b.display_order ?? Infinity;
+      if (da !== db) return da - db;
+      return (b.total_market_value || 0) - (a.total_market_value || 0);
+    });
+  }
   return result;
-});
+}
+
+// 实际渲染用的分组（可被拖拽直接重排：拖拽时修改该分组 ledgers 数组并落库）
+const displayedGroups = ref<any[]>([]);
+
+// ── 拖拽排序（仅限同类型组内，#1083）──
+const sortables: Record<string, any> = {};
+function destroySortables() {
+  Object.values(sortables).forEach((s: any) => s.destroy());
+  for (const k of Object.keys(sortables)) delete sortables[k];
+}
+function initSortables() {
+  destroySortables();
+  for (const g of displayedGroups.value) {
+    const el = document.querySelector(
+      `.ledger-grid[data-ledger-type="${g.type}"]`
+    ) as HTMLElement | null;
+    if (!el) continue;
+    sortables[g.type] = Sortable.create(el, {
+      animation: 180,
+      handle: ".drag-handle",
+      ghostClass: "ledger-card--ghost",
+      onEnd: (evt: any) => onLedgerDragEnd(g.type, evt)
+    });
+  }
+}
+function onLedgerDragEnd(type: string, evt: any) {
+  const group = displayedGroups.value.find(g => g.type === type);
+  if (!group) return;
+  const { oldIndex, newIndex } = evt;
+  if (oldIndex == null || newIndex == null || oldIndex === newIndex) return;
+  const arr = group.ledgers;
+  const [moved] = arr.splice(oldIndex, 1);
+  if (!moved) return;
+  arr.splice(newIndex, 0, moved);
+  const orderedIds = arr.map((l: any) => l.id);
+  // 乐观更新已在 UI 生效；落库失败则回填并重拉，保证最终一致
+  reorderLedgers(type, orderedIds).catch(() => {
+    ElMessage.error("排序保存失败，已恢复");
+    fetchData();
+  });
+}
+
 
 function openCreateDialog(ledgerType?: string) {
   // 显式传 undefined 时回退默认 stock，避免点击事件对象被误当类型参数
@@ -397,8 +452,11 @@ async function fetchData() {
     portfolioList.value = (portfolioRes as any)?.data ?? [];
     salesInstitutions.value =
       (instRes as { data?: SalesInstitution[] })?.data ?? [];
+    // 重新分组并构建可拖拽的展示结构（含「金额降序 / 手动序号」排序规则）
+    displayedGroups.value = buildGroups(allLedgers.value);
     // 统一走公共格式化：YYYY-MM-DD HH:mm（不带秒），避免斜线/时分秒混用
     lastUpdate.value = formatDateTime(new Date());
+    nextTick(initSortables);
   } catch (e: any) {
     ElMessage.error(e?.message || "加载失败");
   } finally {

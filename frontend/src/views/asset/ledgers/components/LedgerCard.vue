@@ -35,6 +35,16 @@ const emit = defineEmits<{
     <!-- 标题行：名称 + 类型标签 + 行内操作（hover 卡片时浮现） -->
     <div class="flex items-center justify-between mb-3">
       <div class="flex items-center gap-2 min-w-0">
+        <!-- 拖拽手柄：仅 hover/focus 时浮现；点击/回车均 stop，避免触发卡片打开详情（#1083） -->
+        <span
+          class="drag-handle"
+          role="presentation"
+          :aria-label="`拖拽排序 ${ledger.name}`"
+          @click.stop
+          @keydown.enter.stop
+        >
+          <IconifyIconOffline icon="ri:drag-move-2-line" />
+        </span>
         <span
           class="font-semibold text-base truncate"
           :style="{ color: 'var(--text-primary)' }"
@@ -288,6 +298,46 @@ const emit = defineEmits<{
   display: flex;
   gap: 8px; /* 两个行内按钮固定紧挨，避免散开 */
   align-items: center;
+}
+
+/* 拖拽手柄：悬浮/聚焦时浮现，避免常态干扰；点击与回车均拦截，不触发卡片打开详情（#1083） */
+.drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 22px;
+  flex: none;
+  margin-right: 2px;
+  color: var(--text-tertiary);
+  cursor: grab;
+  border-radius: var(--radius-sm);
+  opacity: 0;
+  transition:
+    opacity 0.15s ease,
+    color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.ledger-card:hover .drag-handle,
+.ledger-card:focus-within .drag-handle {
+  opacity: 1;
+}
+
+.drag-handle:hover {
+  color: var(--text-secondary);
+  background: var(--bg-page);
+}
+
+/* 拖拽中占位元素的视觉态（sortablejs ghostClass） */
+.ledger-card--ghost {
+  opacity: 0.45;
+  box-shadow: var(--shadow-float);
+  transform: scale(1.02);
 }
 
 .ledger-row-action {

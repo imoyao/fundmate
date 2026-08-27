@@ -21,6 +21,8 @@ export interface LedgerItem {
   sales_institution_id?: number | null;
   /** 是否活跃：false=已归档（保留数据、仍参与收益计算，仅默认隐藏于列表） */
   is_active?: boolean;
+  /** 组内手动排序序号；null=按持仓金额降序默认排序（#1083） */
+  display_order?: number | null;
 }
 
 /**
@@ -105,6 +107,13 @@ export function updateLedger(
 
 export function deleteLedger(id: number) {
   return http.request("delete", `/api/ledgers/${id}/`);
+}
+
+/** 组内手动排序落库（#1083）：发送该类型下的完整有序 id 列表 */
+export function reorderLedgers(ledgerType: string, orderedIds: number[]) {
+  return http.request("patch", "/api/ledgers/reorder/", {
+    data: { ledger_type: ledgerType, ordered_ids: orderedIds },
+  });
 }
 
 export function getLedgersOverview() {
