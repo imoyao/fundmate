@@ -15,6 +15,15 @@
       class="flex flex-col gap-4"
       :disabled="saving"
     >
+      <!-- 手工编辑提示：作为弹窗内常驻提示，避免保存后弹出警告框干扰用户 -->
+      <el-alert
+        v-if="isManual"
+        type="info"
+        :closable="false"
+        show-icon
+        class="mb-1"
+        title="该记录为手工编辑，重新导入时需按新内容对账"
+      />
       <!-- 数量/份额：基金按份额(支持小数)，股票/可转债按股|张(整数) -->
       <el-form-item :label="isFund ? '份额' : '数量'" prop="quantity">
         <el-input-number
@@ -197,6 +206,9 @@ const isFund = computed(() =>
   ["fund", "money_fund"].includes(assetType.value)
 );
 
+// 是否手工编辑记录（未导入，import_hash 为空）：弹窗内展示对账提示，无需保存后弹窗
+const isManual = computed(() => props.transaction?.import_hash == null);
+
 const quantityPrecision = computed(() => (isFund.value ? 4 : 0));
 const quantityStep = computed(() => (isFund.value ? 0.0001 : 1));
 
@@ -326,9 +338,6 @@ async function handleSave() {
     emit("saved", data);
     emit("update:modelValue", false);
     ElMessage.success("保存成功");
-    if (data && data.import_hash == null) {
-      ElMessage.warning("该记录已手工编辑，重新导入时需按新内容对账");
-    }
   } catch (e: any) {
     ElMessage.error(e?.message || "保存失败");
   } finally {
