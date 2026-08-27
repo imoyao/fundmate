@@ -275,6 +275,11 @@ async function handleSave() {
   border-radius: var(--radius-sm);
 }
 
+/* el-input-number controls=false 后文字默认居中，强制左对齐 */
+:deep(.el-input-number .el-input__inner) {
+  text-align: left;
+}
+
 /* 日期选择器：强制 100% 宽度，与数字输入框等宽 */
 :deep(.el-date-editor.el-input),
 :deep(.el-date-editor.el-input__wrapper) {
