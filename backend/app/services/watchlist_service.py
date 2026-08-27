@@ -310,10 +310,11 @@ def build_home_summary(db: Session, family_id: int) -> List[Dict[str, Any]]:
                 'symbol': item.symbol,
                 'display_name': display_name,
                 'is_pinned': item.is_pinned,
-                'current_price': round(current_price, 2) if current_price else None,
+                'current_price': round(current_price, 4) if current_price else None,
                 'change_pct': None,
                 'position_market_value': round(position_value, 2),
                 'status': item.status,
+                'asset_type': item.asset_type,
                 'venue': item.venue,
             }
         )

@@ -62,6 +62,7 @@
         >
           <MoneyDisplay
             :value="positionData?.avg_price || 0"
+            :precision="pricePrecision(positionData?.asset_type)"
             :show-sign="false"
             :auto-color="false"
             size="md"
@@ -89,6 +90,7 @@
         >
           <MoneyDisplay
             :value="positionData?.current_price || 0"
+            :precision="pricePrecision(positionData?.asset_type)"
             :show-sign="false"
             :auto-color="false"
             size="md"
@@ -239,6 +241,7 @@
             <template #default="{ row }">
               <MoneyDisplay
                 :value="row.price || 0"
+                :precision="pricePrecision(row.asset_type)"
                 :show-sign="false"
                 :auto-color="false"
                 size="sm"
@@ -323,6 +326,7 @@ import { Loading, Edit } from "@element-plus/icons-vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import { getPositionTransactions } from "@/api/positions";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
+import { pricePrecision } from "@/utils/pricePrecision";
 import TransactionEditDialog from "./TransactionEditDialog.vue";
 import { txnTypeLabel } from "@/constants";
 
