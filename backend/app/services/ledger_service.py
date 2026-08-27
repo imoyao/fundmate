@@ -426,7 +426,9 @@ class LedgerService:
                 {
                     'id': t.id,
                     'confirm_date': t.confirm_date.isoformat() if t.confirm_date else None,
+                    'trade_date': t.trade_date.isoformat() if t.trade_date else None,
                     'txn_type': t.txn_type,
+                    'asset_type': t.asset_type,
                     'position_name': t.position_name or '未知资产',
                     'symbol': t.symbol or '',
                     'price': Money.price_units_to_yuan(t.price),

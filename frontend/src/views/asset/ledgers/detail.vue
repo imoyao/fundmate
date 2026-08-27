@@ -849,31 +849,14 @@
         </template>
       </el-dialog>
 
-      <el-dialog
+      <!-- 复用持仓明细抽屉同款的「编辑交易」弹窗，保证两处编辑字段一致（#982 体验统一） -->
+      <TransactionEditDialog
         v-model="editTxnDialogVisible"
-        title="编辑交易"
-        width="380px"
-        destroy-on-close
-      >
-        <el-form :model="editTxnForm" label-width="80px">
-          <el-form-item label="手续费"
-            ><el-input-number
-              v-model="editTxnForm.fee"
-              :precision="2"
-              :min="0"
-              class="w-full"
-          /></el-form-item>
-          <el-form-item label="备注"
-            ><el-input v-model="editTxnForm.notes" type="textarea" :rows="2"
-          /></el-form-item>
-        </el-form>
-        <template #footer>
-          <el-button @click="editTxnDialogVisible = false">取消</el-button>
-          <el-button type="primary" @click="handleUpdateTransaction"
-            >保存</el-button
-          >
-        </template>
-      </el-dialog>
+        :transaction="editingTxn"
+        :asset-type="editingTxn?.asset_type"
+        :symbol="editingTxn?.symbol"
+        @saved="onTxnSaved"
+      />
 
       <DeleteLedgerDialog
         v-model:visible="deleteDialogVisible"
@@ -910,7 +893,6 @@ import {
   getLedgerTransactions,
   updateLedgerPosition,
   deleteLedgerPosition,
-  updateLedgerTransaction,
   deleteLedgerTransaction,
   archiveLedger,
   unarchiveLedger,
@@ -939,6 +921,7 @@ import {
   txnTypeLabel
 } from "@/constants";
 import PositionTransactionsDrawer from "./components/PositionTransactionsDrawer.vue";
+import TransactionEditDialog from "./components/TransactionEditDialog.vue";
 import { usePageRefresh } from "@/composables/usePageRefresh";
 import { formatDate } from "@/utils/date";
 
@@ -982,6 +965,9 @@ interface LedgerHoldingRow {
 interface LedgerTxnRow {
   id: number;
   confirm_date?: string | null;
+  trade_date?: string | null;
+  asset_type?: string | null;
+  ledger_id?: number;
   position_name?: string;
   symbol?: string;
   txn_type: string;
@@ -1484,9 +1470,9 @@ function onSearchInput() {
 
 const activeTab = ref("holdings");
 
-// 交易编辑
+// 交易编辑（复用持仓明细抽屉同款弹窗）
 const editTxnDialogVisible = ref(false);
-const editTxnForm = ref({ id: 0, fee: 0, notes: "" });
+const editingTxn = ref<LedgerTxnRow | null>(null);
 
 // 折线图周期切换（P1-20 数据就绪前仅占位）
 const trendPeriod = ref("day");
@@ -1934,27 +1920,13 @@ async function confirmDeletePosition(row: LedgerHoldingRow) {
 }
 
 function openEditTxnDialog(row: LedgerTxnRow) {
-  editTxnForm.value = { id: row.id, fee: row.fee || 0, notes: row.notes || "" };
+  editingTxn.value = { ...row, ledger_id: Number(ledgerId.value) };
   editTxnDialogVisible.value = true;
 }
 
-async function handleUpdateTransaction() {
-  try {
-    await updateLedgerTransaction(
-      Number(ledgerId.value),
-      editTxnForm.value.id,
-      {
-        fee: editTxnForm.value.fee,
-        notes: editTxnForm.value.notes
-      }
-    );
-    ElMessage.success("交易已更新");
-    editTxnDialogVisible.value = false;
-    loadTransactions(transactionsPage.value);
-  } catch (e) {
-    const err = e as { response?: { data?: { message?: string } } };
-    ElMessage.error(err?.response?.data?.message || "更新失败");
-  }
+function onTxnSaved() {
+  editTxnDialogVisible.value = false;
+  loadTransactions(transactionsPage.value);
 }
 
 // 只需一行，页面全自动刷新
