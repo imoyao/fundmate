@@ -142,7 +142,12 @@
 
       <!-- 按类型分组的账户卡片列表；外层 ledger-groups 供「分组顺序拖拽」，与卡片拖拽互相独立 -->
       <div ref="groupsContainer" class="ledger-groups">
-        <div v-for="group in displayedGroups" :key="group.type" class="mb-8 ledger-group">
+        <div
+          v-for="group in displayedGroups"
+          :key="group.type"
+          class="mb-8 ledger-group"
+          :class="{ 'ledger-group--dragging': group.type === draggingGroupType }"
+        >
         <div class="flex items-center justify-between mb-3">
           <div class="flex items-center gap-1 min-w-0">
             <!-- 分组拖拽抓手：与卡片抓手视觉/作用域分离，hover/focus 显示，拖拽整个分组（分组顺序存 localStorage） -->
@@ -154,13 +159,11 @@
               @click.stop
               @keydown.enter.stop
             >
-              <svg class="drag-grip" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <circle cx="9" cy="6" r="1.7" />
-                <circle cx="15" cy="6" r="1.7" />
-                <circle cx="9" cy="12" r="1.7" />
-                <circle cx="15" cy="12" r="1.7" />
-                <circle cx="9" cy="18" r="1.7" />
-                <circle cx="15" cy="18" r="1.7" />
+              <!-- 分组拖拽：纵向三横线「块」抓手，暗示整段分组重排，与卡片四向箭头明确区分 -->
+              <svg class="drag-grip drag-grip--group" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                <line x1="6" y1="6" x2="18" y2="6" />
+                <line x1="6" y1="12" x2="18" y2="12" />
+                <line x1="6" y1="18" x2="18" y2="18" />
               </svg>
             </span>
             <h3
@@ -401,6 +404,8 @@ const groupOrder = ref<string[]>(loadGroupOrder());
 
 // 分组整体拖拽（与卡片拖拽是两套独立 Sortable，handle 互不触发）
 const groupsContainer = ref<HTMLElement | null>(null);
+// 拖拽中的分组类型：用于高亮当前被拖的分组，强化「正在重排整段」的反馈
+const draggingGroupType = ref<string | null>(null);
 let groupSortable: any = null;
 function destroyGroupSortable() {
   if (groupSortable) {
@@ -415,8 +420,13 @@ function initGroupSortable() {
     animation: 180,
     handle: ".group-drag-handle",
     ghostClass: "ledger-group--ghost",
+    onStart: (evt: any) => {
+      const moved = displayedGroups.value[evt.oldIndex];
+      draggingGroupType.value = moved?.type ?? null;
+    },
     onEnd: (evt: any) => {
       const { oldIndex, newIndex } = evt;
+      draggingGroupType.value = null;
       if (oldIndex == null || newIndex == null || oldIndex === newIndex) return;
       const arr = displayedGroups.value;
       const [moved] = arr.splice(oldIndex, 1);
@@ -581,13 +591,13 @@ onMounted(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
+  width: 22px;
   height: 22px;
   flex: none;
   color: var(--text-tertiary);
   cursor: grab;
   border-radius: var(--radius-sm);
-  opacity: 0.45;
+  opacity: 0.5;
   touch-action: none;
   transition:
     opacity 0.15s ease,
@@ -602,13 +612,25 @@ onMounted(() => {
 .ledger-group:hover .group-drag-handle,
 .group-drag-handle:hover {
   opacity: 1;
-  color: var(--text-secondary);
+  color: var(--brand-600);
   background: var(--bg-page);
+}
+
+/* 分组抓手：纵向三横线「块」抓手，描边风格 */
+.drag-grip--group {
+  padding: 2px;
 }
 
 /* 分组拖拽中的占位「幽灵」态 */
 .ledger-group--ghost {
   opacity: 0.4;
+}
+
+/* 分组拖拽中：整段高亮，强化「正在重排整段分组」的反馈（与卡片拖拽态分层） */
+.ledger-group--dragging {
+  border-radius: var(--radius-xl);
+  box-shadow: 0 0 0 2px var(--brand-300);
+  background: var(--brand-50);
 }
 
 .ledger-list {

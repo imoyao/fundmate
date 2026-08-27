@@ -44,13 +44,16 @@ const emit = defineEmits<{
           @click.stop
           @keydown.enter.stop
         >
-          <svg class="drag-grip" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <circle cx="9" cy="6" r="1.7" />
-            <circle cx="15" cy="6" r="1.7" />
-            <circle cx="9" cy="12" r="1.7" />
-            <circle cx="15" cy="12" r="1.7" />
-            <circle cx="9" cy="18" r="1.7" />
-            <circle cx="15" cy="18" r="1.7" />
+          <!-- 卡片拖拽：四向「移动」双箭头，暗示单张卡片可上下/左右重排，与分组抓手（纵向三横线）明确区分 -->
+          <svg class="drag-grip drag-grip--card" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M9 4 7 6l2 2" />
+            <path d="M4 7h5" />
+            <path d="m15 4 2 2-2 2" />
+            <path d="M15 4h5" />
+            <path d="M9 20l-2-2 2-2" />
+            <path d="M4 17h5" />
+            <path d="m15 20 2-2-2-2" />
+            <path d="M15 20h5" />
           </svg>
         </span>
         <span
@@ -321,14 +324,14 @@ const emit = defineEmits<{
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
+  width: 22px;
   height: 22px;
   flex: none;
   margin-right: 2px;
   color: var(--text-tertiary);
   cursor: grab;
   border-radius: var(--radius-sm);
-  opacity: 0.5;
+  opacity: 0.55;
   touch-action: none;
   transition:
     opacity 0.15s ease,
@@ -344,8 +347,13 @@ const emit = defineEmits<{
 .ledger-card:focus-within .drag-handle,
 .drag-handle:hover {
   opacity: 1;
-  color: var(--text-secondary);
+  color: var(--brand-600);
   background: var(--bg-page);
+}
+
+/* 卡片抓手：四向移动箭头，描边风格，自带内边距更透气 */
+.drag-grip--card {
+  padding: 1px;
 }
 
 /* 拖拽中占位「幽灵」元素的视觉态（sortablejs ghostClass） */
