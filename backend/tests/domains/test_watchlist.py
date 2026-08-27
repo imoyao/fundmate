@@ -82,8 +82,8 @@ class TestHomeSummary:
                 asset_type='stock',
                 account_name='华泰',
                 quantity=1000000,
-                avg_price=180000,
-                current_price=180000,
+                avg_price=18000000,
+                current_price=18000000,
             )
             # 持仓2：200份(2000000最小单位) × 310元(31000分) = 62000元
             pos2 = Position(
@@ -92,8 +92,8 @@ class TestHomeSummary:
                 asset_type='stock',
                 account_name='富途',
                 quantity=2000000,
-                avg_price=30000,
-                current_price=31000,
+                avg_price=3000000,
+                current_price=3100000,
             )
             db.add_all([pos1, pos2])
             db.commit()

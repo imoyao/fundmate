@@ -6,21 +6,22 @@
 """
 金融精度转换工具类。
 
-核心原则：
-- 金额/价格：内部存储为"分"（Integer），展示为"元"（除以100）
+ 核心原则：
+- 金额：内部存储为"分"（Integer，×100），展示为"元"（÷100）
+- 价格（avg_price/current_price/txn.price）：内部存储为"0.0001元"（Integer，×10000，4 位小数精度），展示为"元"（÷10000），与份额精度对齐
 - 基金份额：内部存储为"最小单位"（Integer = 份 × 10000），展示为"份"（除以10000）
 - 基金净值：使用 Decimal 直接存储，不做缩放
 
-所有涉及金额、份额的读写操作，必须通过此工具类进行转换。
+所有涉及金额、价格、份额的读写操作，必须通过此工具类进行转换。
 禁止在业务代码中直接进行乘除运算，杜绝单位混淆。
 
 使用示例:
     # 写入
-    position.avg_price = Money.yuan_to_cents(10.50)    # 10.50元 -> 1050分
+    position.avg_price = Money.yuan_to_price_units(10.50)  # 10.50元 -> 105000 (0.0001元)
     position.quantity = Money.shares_to_min_unit(100.1234) # 100.1234份 -> 1001234
 
     # 读取
-    price_yuan = Money.cents_to_yuan(position.avg_price) # 1050分 -> 10.5元
+    price_yuan = Money.price_units_to_yuan(position.avg_price) # 105000 -> 10.5元
     shares = Money.min_unit_to_shares(position.quantity)  # 1001234 -> 100.1234份
 """
 
@@ -36,6 +37,9 @@ class Money:
 
     # 份额转换因子（份 <-> 最小单位，支持 0.0001 份精度）
     SHARE_FACTOR = Decimal('10000')
+
+    # 价格转换因子（元 <-> 0.0001元，4 位小数精度，与份额对齐）
+    PRICE_FACTOR = Decimal('10000')
 
     # ── 金额：元 ↔ 分 ──
 
@@ -69,6 +73,37 @@ class Money:
         if cents is None:
             return 0.0
         return float(Decimal(str(cents)) / Money.CENT_FACTOR)
+
+    # ── 价格：元 ↔ 0.0001元（4 位小数） ──
+
+    @staticmethod
+    def yuan_to_price_units(value: Union[int, float, Decimal, None]) -> int:
+        """
+        元 → 0.0001元（价格最小单位，4 位小数精度，与份额对齐）
+
+        示例:
+            Money.yuan_to_price_units(10.50) -> 105000
+            Money.yuan_to_price_units(Decimal('1.5030')) -> 15030
+            Money.yuan_to_price_units(None) -> 0
+        """
+        if value is None:
+            return 0
+        if not isinstance(value, Decimal):
+            value = Decimal(str(value))
+        return int((value * Money.PRICE_FACTOR).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
+
+    @staticmethod
+    def price_units_to_yuan(units: Union[int, None]) -> float:
+        """
+        0.0001元 → 元 (用于返回给前端)
+
+        示例:
+            Money.price_units_to_yuan(105000) -> 10.5
+            Money.price_units_to_yuan(None) -> 0.0
+        """
+        if units is None:
+            return 0.0
+        return float(Decimal(str(units)) / Money.PRICE_FACTOR)
 
     # ── 份额：份 ↔ 最小单位 ──
 
@@ -125,17 +160,18 @@ class Money:
     # ── 安全计算 ──
 
     @staticmethod
-    def multiply_price_quantity(price_cents: int, quantity_units: int) -> int:
+    def multiply_price_quantity(price_units: int, quantity_units: int) -> int:
         """
-        安全计算：价格(分) × 数量(最小单位) → 金额(分²)，再转回分
+        安全计算：价格(0.0001元) × 数量(最小单位) → 金额(分)
 
-        因为数量和价格都放大了（数量×10000，价格×100），
-        乘积需要除以数量因子才能得到正确的金额(分)。
+        价格放大 ×10000，数量放大 ×10000，乘积为 元×份 ×1e8；
+        金额以"分"(×100) 存储，故需 ÷1e6 还原为分。
 
         示例:
             # 10.50元 × 100.1234份 = 1051.2957元 = 105129.57分 → 105130分
-            Money.multiply_price_quantity(1050, 1001234) -> 105130
+            # 价格 10.50元 -> 105000 (0.0001元)，数量 100.1234份 -> 1001234
+            Money.multiply_price_quantity(105000, 1001234) -> 105130
         """
-        # (price_cents) * (quantity_units) / SHARE_FACTOR
-        result = Decimal(str(price_cents)) * Decimal(str(quantity_units)) / Money.SHARE_FACTOR
+        # (price_units) * (quantity_units) / 1e6
+        result = Decimal(str(price_units)) * Decimal(str(quantity_units)) / Decimal('1000000')
         return int(result.quantize(Decimal('1'), rounding=ROUND_HALF_UP))

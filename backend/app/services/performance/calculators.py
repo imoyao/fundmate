@@ -114,7 +114,7 @@ def _batch_get_position_values(db: Session, positions: List[Position]) -> Dict[i
         elif pos.asset_type in ('stock', 'etf') and pos.symbol:
             unit_price = stock_price_map.get(pos.symbol, 0.0)
         else:
-            unit_price = Money.cents_to_yuan(pos.current_price) if pos.current_price else 0.0
+            unit_price = Money.price_units_to_yuan(pos.current_price) if pos.current_price else 0.0
 
         value_map[pos.id] = shares * unit_price if unit_price > 1e-8 else 0.0
 
@@ -129,7 +129,7 @@ def _get_position_current_value(db: Session, position: Position) -> float:
     elif position.asset_type in ('stock', 'etf') and position.symbol:
         unit_price = _get_stock_latest_price(db, position.symbol)
     else:
-        unit_price = Money.cents_to_yuan(position.current_price) if position.current_price else 0.0
+        unit_price = Money.price_units_to_yuan(position.current_price) if position.current_price else 0.0
 
     if unit_price <= 1e-8:
         return 0.0

@@ -494,7 +494,7 @@ def _position_read_view(pos):
     """持仓可读视图：份额（份）/确认净值（元）/ISO 日期，供前端直接展示比对。"""
     return {
         'quantity': Money.min_unit_to_shares(pos.quantity),
-        'avg_price': Money.cents_to_yuan(pos.avg_price) if pos.avg_price else None,
+        'avg_price': Money.price_units_to_yuan(pos.avg_price) if pos.avg_price else None,
         'confirm_date': pos.confirm_date.isoformat() if pos.confirm_date else None,
     }
 
@@ -1028,7 +1028,7 @@ def update_ledger_position(ledger_id: int, position_id: int):
         if 'allocation' in data:
             pos.allocation = data['allocation']
         if 'current_price' in data:
-            pos.current_price = Money.yuan_to_cents(data['current_price'])
+            pos.current_price = Money.yuan_to_price_units(data['current_price'])
         if 'notes' in data:
             pos.notes = data['notes']
         db.commit()
@@ -1109,7 +1109,7 @@ def update_ledger_transaction(ledger_id: int, transaction_id: int):
             touched = True
             recompute_amount = True
         if 'price' in data:
-            txn.price = Money.yuan_to_cents(_non_negative('price', data['price']))
+            txn.price = Money.yuan_to_price_units(_non_negative('price', data['price']))
             touched = True
             recompute_amount = True
         if 'fee' in data:
@@ -1161,7 +1161,7 @@ def update_ledger_transaction(ledger_id: int, transaction_id: int):
                 'data': {
                     'id': txn.id,
                     'quantity': Money.min_unit_to_shares(txn.quantity),
-                    'price': Money.cents_to_yuan(txn.price),
+                    'price': Money.price_units_to_yuan(txn.price),
                     'amount': Money.cents_to_yuan(txn.amount),
                     'fee': Money.cents_to_yuan(txn.fee),
                     'trade_date': _ymd(txn.trade_date),
@@ -1238,7 +1238,7 @@ def get_orphan_detail():
                     'symbol': p.symbol,
                     'name': p.name,
                     'quantity': Money.min_unit_to_shares(p.quantity),
-                    'avg_price': Money.cents_to_yuan(p.avg_price),
+                    'avg_price': Money.price_units_to_yuan(p.avg_price),
                     'market_value': Money.cents_to_yuan(mv_cents),
                     'pnl': Money.cents_to_yuan(pnl_cents),
                 }

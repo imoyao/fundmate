@@ -122,14 +122,14 @@ def _enrich_item(item: WatchlistItem, db) -> dict:
 def _compute_holding_stats(symbol, db) -> dict | None:
     """按 symbol 汇总真实持仓（positions，当前 family）：数量/加权成本/浮动盈亏。
 
-    positions.quantity 以最小单位存储（0.0001 份），avg_price/current_price 以分存储，
-    换算统一走 Money（min_unit_to_shares / cents_to_yuan）。
+    positions.quantity 以最小单位存储（0.0001 份），avg_price/current_price 以 0.0001元 存储，
+    换算统一走 Money（min_unit_to_shares / price_units_to_yuan）。
     """
     row = (
         db.query(
             func.sum(Position.quantity).label('qty_units'),
-            func.sum(Position.quantity * Position.avg_price).label('cost_cents'),
-            func.sum(Position.quantity * Position.current_price).label('value_cents'),
+            func.sum(Position.quantity * Position.avg_price).label('cost_raw'),
+            func.sum(Position.quantity * Position.current_price).label('value_raw'),
         )
         .filter(Position.symbol == symbol, Position.family_id == get_family_id())
         .first()
@@ -137,8 +137,9 @@ def _compute_holding_stats(symbol, db) -> dict | None:
     if not row or not row.qty_units:
         return None
     quantity = Money.min_unit_to_shares(row.qty_units)  # 最小单位 → 份
-    cost_yuan = Money.cents_to_yuan(row.cost_cents / 10000)  # (最小单位×分)/10000 = 分 → 元
-    value_yuan = Money.cents_to_yuan(row.value_cents / 10000)
+    # quantity(×10000) × avg_price(×10000) = ×1e8，multiply_price_quantity ÷1e6 得 分，cents_to_yuan ÷100 得 元
+    cost_yuan = Money.cents_to_yuan(Money.multiply_price_quantity(row.cost_raw, 1))
+    value_yuan = Money.cents_to_yuan(Money.multiply_price_quantity(row.value_raw, 1))
     cost_price = cost_yuan / quantity if quantity else 0.0  # 加权成本均价（元/份）
     pnl = value_yuan - cost_yuan
     pnl_percent = (pnl / cost_yuan * 100) if cost_yuan else 0.0
@@ -166,8 +167,8 @@ def _compute_price_at_added(item: WatchlistItem, db) -> float | None:
 def _compute_position_market_value(symbol, db):
     """计算持仓市值（元）。
 
-    positions.quantity 存最小单位（0.0001 份）、current_price 存分，
-    裸乘结果是最小单位·分，须经 Money 换算回元（/10000 转份、/100 转元）。
+    positions.quantity 存最小单位（0.0001 份）、current_price 存 0.0001元，
+    裸乘结果是最小单位·0.0001元，须经 Money.multiply_price_quantity 换算回元（÷1e6 转分、/100 转元）。
     """
     value = (
         db.query(func.sum(Position.quantity * Position.current_price))
@@ -182,14 +183,14 @@ def _compute_position_market_value(symbol, db):
 def _compute_avg_current_price(symbol, db):
     """计算持仓平均市价（元），用于自选行展示。
 
-    current_price 以分存储，对外换算回元（禁止裸除 float）。
+    current_price 以 0.0001元 存储，对外换算回元（禁止裸除 float）。
     """
-    avg_price_cents = (
+    avg_price_units = (
         db.query(func.avg(Position.current_price))
         .filter(Position.symbol == symbol, Position.family_id == get_family_id())
         .scalar()
     )
-    return Money.cents_to_yuan(avg_price_cents) if avg_price_cents else 0.0
+    return Money.price_units_to_yuan(avg_price_units) if avg_price_units else 0.0
 
 
 def _list_holding_items(db, family_id, venue=None, search=None):

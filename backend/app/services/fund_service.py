@@ -274,7 +274,7 @@ class FundService:
                     break
                 shares = Money.min_unit_to_shares(txn.quantity)
                 deduct = min(remaining, shares)
-                price = Money.cents_to_yuan(txn.price)
+                price = Money.price_units_to_yuan(txn.price)
                 if not txn.confirm_date:
                     continue
                 days = (sell_date - txn.confirm_date).days

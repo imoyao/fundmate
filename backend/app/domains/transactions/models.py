@@ -26,7 +26,7 @@ class Transaction(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     txn_type = Column('type', String(20))
     trade_date = Column(DateTime, comment='交易发起日(T日)，秒级')
     quantity = Column(Integer, default=0, comment='操作数量(0.0001份/单位)')
-    price = Column(Integer, default=0, comment='成交价(分)')
+    price = Column(Integer, default=0, comment='成交价(0.0001元)')
     confirm_date = Column(Date, comment='确认日期')
     fee = Column(Integer, default=0, comment='手续费(分)')
     amount = Column(Integer, default=0, comment='交易总金额(分)')

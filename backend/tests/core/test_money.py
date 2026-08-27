@@ -139,21 +139,45 @@ class TestMoneyMultiply:
 
     def test_basic(self):
         """10.50元 × 100.1234份 = 1051.2957元 ≈ 105130分"""
-        # price=1050分, quantity=1001234最小单位
-        assert Money.multiply_price_quantity(1050, 1001234) == 105130
+        # price=105000 (0.0001元), quantity=1001234最小单位
+        assert Money.multiply_price_quantity(105000, 1001234) == 105130
 
     def test_rounding_up(self):
         """舍入进位"""
-        # 0.015元 × 1.0001份 = 0.0150015元 ≈ 2分
-        assert Money.multiply_price_quantity(2, 10001) == 2
+        # 0.015元 = 150 (0.0001元) × 1.0001份(10001最小单位) = 0.0150015元 ≈ 2分
+        assert Money.multiply_price_quantity(150, 10001) == 2
 
     def test_zero_price(self):
         assert Money.multiply_price_quantity(0, 1001234) == 0
 
     def test_zero_quantity(self):
-        assert Money.multiply_price_quantity(1050, 0) == 0
+        assert Money.multiply_price_quantity(105000, 0) == 0
 
     def test_large_values(self):
         """大值不溢出"""
         result = Money.multiply_price_quantity(99999999, 99999999)
         assert result > 0
+
+
+class TestMoneyPriceUnits:
+    """价格：元 ↔ 0.0001元（4 位小数）"""
+
+    def test_basic_float(self):
+        assert Money.yuan_to_price_units(10.50) == 105000
+
+    def test_basic_decimal(self):
+        assert Money.yuan_to_price_units(Decimal('1.5030')) == 15030
+
+    def test_four_decimal_precision(self):
+        """4 位小数精度：0.0001元 -> 1"""
+        assert Money.yuan_to_price_units(0.0001) == 1
+
+    def test_none_input(self):
+        assert Money.yuan_to_price_units(None) == 0
+
+    def test_roundtrip(self):
+        original = 1.5030
+        assert Money.price_units_to_yuan(Money.yuan_to_price_units(original)) == original
+
+    def test_price_units_to_yuan(self):
+        assert Money.price_units_to_yuan(105000) == 10.5

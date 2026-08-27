@@ -65,7 +65,7 @@ def _make_money_fund_position(db, ledger, fund_code, quantity, current_price_yua
         name='测试货基持仓',
         asset_type='money_fund',
         quantity=Money.shares_to_min_unit(quantity),
-        current_price=Money.yuan_to_cents(current_price_yuan),
+        current_price=Money.yuan_to_price_units(current_price_yuan),
         family_id=family_id,
     )
     db.add(pos)

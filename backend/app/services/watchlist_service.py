@@ -296,14 +296,14 @@ def build_home_summary(db: Session, family_id: int) -> List[Dict[str, Any]]:
             .scalar()
             or 0.0
         )
-        # quantity 最小单位(0.0001份) × current_price(分) = 最小单位·分 → 换算回元
+        # quantity 最小单位(0.0001份) × current_price(0.0001元) = ×1e8 → multiply_price_quantity ÷1e6 得 分 → 元
         position_value = Money.cents_to_yuan(Money.multiply_price_quantity(position_value_units, 1))
-        avg_price_cents = (
+        avg_price_units = (
             db.query(func.avg(Position.current_price))
             .filter(Position.symbol == item.symbol, Position.family_id == family_id)
             .scalar()
         )
-        current_price = Money.cents_to_yuan(avg_price_cents) if avg_price_cents else None
+        current_price = Money.price_units_to_yuan(avg_price_units) if avg_price_units else None
         data.append(
             {
                 'id': item.id,

@@ -749,7 +749,7 @@ class ImportOrchestrator:
                     if bt == BusinessType.BOND_REDEEM.code:
                         # 数量和金额都需要转换
                         qty_units = Money.shares_to_min_unit(data['quantity'])
-                        price_cents = Money.yuan_to_cents(data.get('avg_price', 0))
+                        price_units = Money.yuan_to_price_units(data.get('avg_price', 0))
                         amount_cents = Money.yuan_to_cents(data['net_amount'])
                         TransactionService.create(
                             db=self.db,
@@ -759,7 +759,7 @@ class ImportOrchestrator:
                             confirm_date=data.get('confirm_date'),
                             asset_type=data.get('type'),
                             quantity=qty_units,
-                            price=price_cents,
+                            price=price_units,
                             fee=0,
                             amount=amount_cents,
                             status='success',
@@ -793,9 +793,9 @@ class ImportOrchestrator:
                             confirm_date=data.get('confirm_date'),
                             asset_type=data.get('type'),
                             quantity=qty_units,
-                            price=Money.yuan_to_cents(
+                            price=Money.yuan_to_price_units(
                                 data.get('avg_price', 0)
-                            ),  # B1 修复：分单位，与 BOND_REDEEM 一致（转股无价格时为 0）
+                            ),  # B1 修复：0.0001元单位，与 BOND_REDEEM 一致（转股无价格时为 0）
                             fee=0,
                             amount=0,
                             status='success',
@@ -1158,7 +1158,7 @@ class ImportOrchestrator:
         if qty <= 0:
             raise ValueError('数量必须大于 0')
         missing_price = price <= 0
-        price_cents = Money.yuan_to_cents(price) if not missing_price else 0
+        price_units = Money.yuan_to_price_units(price) if not missing_price else 0
 
         qty_units = Money.shares_to_min_unit(qty)
         src = row.get('source', 'e_account_holding')
@@ -1172,8 +1172,8 @@ class ImportOrchestrator:
                 raise ValueError('影子记录 meta 存在但 Position 缺失，数据异常')
             # 命中：更新份额/市值/快照日（SET 语义，保留溯源）
             position.quantity = qty_units
-            position.avg_price = price_cents
-            position.current_price = price_cents
+            position.avg_price = price_units
+            position.current_price = price_units
             position.confirm_date = snapshot_date
             position.name = row.get('name') or position.name
             position.import_hash = import_hash
@@ -1189,8 +1189,8 @@ class ImportOrchestrator:
                 ledger_id=None,  # §12.2：影子记录不挂任何 Ledger
                 account_name=row.get('account_name', ''),
                 quantity=qty_units,
-                avg_price=price_cents,
-                current_price=price_cents,
+                avg_price=price_units,
+                current_price=price_units,
                 currency=row.get('currency', 'CNY'),
                 confirm_date=snapshot_date,
                 allocation='longterm',
@@ -1309,8 +1309,8 @@ class ImportOrchestrator:
             'ledger_id': ledger.id,
             'account_name': ledger.name,
             'quantity': Money.min_unit_to_shares(shadow_pos.quantity),
-            'avg_price': Money.cents_to_yuan(shadow_pos.avg_price),
-            'current_price': Money.cents_to_yuan(shadow_pos.current_price),
+            'avg_price': Money.price_units_to_yuan(shadow_pos.avg_price),
+            'current_price': Money.price_units_to_yuan(shadow_pos.current_price),
             'snapshot_date': shadow_pos.confirm_date,
             'currency': shadow_pos.currency or 'CNY',
             'source': shadow_pos.source,
@@ -1344,11 +1344,11 @@ class ImportOrchestrator:
             'target_ledger_id': ledger.id if ledger else None,
             'target_ledger_name': ledger.name if ledger else None,
             'eaccount_quantity': Money.min_unit_to_shares(shadow_pos.quantity),
-            'eaccount_cost': Money.cents_to_yuan(shadow_pos.avg_price) if shadow_pos.avg_price else None,
+            'eaccount_cost': Money.price_units_to_yuan(shadow_pos.avg_price) if shadow_pos.avg_price else None,
         }
         if channel_pos is not None:
             item['current_quantity'] = Money.min_unit_to_shares(channel_pos.quantity)
-            item['current_cost'] = Money.cents_to_yuan(channel_pos.avg_price) if channel_pos.avg_price else None
+            item['current_cost'] = Money.price_units_to_yuan(channel_pos.avg_price) if channel_pos.avg_price else None
             item['diff_quantity'] = round(item['eaccount_quantity'] - item['current_quantity'], 4)
         else:
             item['current_quantity'] = 0

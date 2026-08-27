@@ -748,7 +748,7 @@ class TestPositionTransactions:
             asset_type='stock',
             txn_type='buy',
             quantity=Money.shares_to_min_unit(100),
-            price=Money.yuan_to_cents(10.0),
+            price=Money.yuan_to_price_units(10.0),
             amount=Money.yuan_to_cents(1000.0),
             position_id=pos.id,
             confirm_date=date.today(),
@@ -761,7 +761,7 @@ class TestPositionTransactions:
             asset_type='stock',
             txn_type='sell',
             quantity=Money.shares_to_min_unit(50),
-            price=Money.yuan_to_cents(12.0),
+            price=Money.yuan_to_price_units(12.0),
             amount=Money.yuan_to_cents(600.0),
             position_id=pos.id,
             confirm_date=date.today(),
@@ -1075,8 +1075,8 @@ class TestPositionImportHash:
         assert pos.quantity == 97710000
         txn = db.query(Transaction).filter_by(position_id=pos.id).one()
         assert txn.quantity == 97710000
-        # 金额自洽：quantity(最小单位) × price(分) / 10000 ≈ amount(分)
-        assert abs(txn.quantity * txn.price / 10000 - txn.amount) <= txn.amount * 0.02
+        # 金额自洽：quantity(最小单位) × price(0.0001元) / 1_000_000 ≈ amount(分)
+        assert abs(txn.quantity * txn.price / 1_000_000 - txn.amount) <= txn.amount * 0.02
 
     def test_duplicate_import_hash_upserts_not_duplicate(self, db):
         """同内容两次导入（不同 source，同 ledger/symbol/同日）撞 hash → upsert 合并，不产生两条。"""

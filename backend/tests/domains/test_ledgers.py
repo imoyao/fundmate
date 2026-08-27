@@ -791,8 +791,8 @@ class TestLedgerBatchMigrate:
                 account_name='支付宝',
                 ledger_id=src_id,
                 quantity=1000000,
-                avg_price=1000,
-                current_price=1200,
+                avg_price=100000,
+                current_price=120000,
             )
         )
         # 目标账户已有「完全一致」的同 symbol 持仓（同一笔被两个账户各写一遍）
@@ -802,11 +802,11 @@ class TestLedgerBatchMigrate:
                 name='沪深300ETF',
                 market='CN_A',
                 asset_type='fund',
-                account_name='蚂蚁杭州基金销售',
+                account_name='支付宝',
                 ledger_id=tgt_id,
                 quantity=1000000,
-                avg_price=1000,
-                current_price=1200,
+                avg_price=100000,
+                current_price=120000,
             )
         )
         db.commit()
@@ -848,8 +848,8 @@ class TestLedgerBatchMigrate:
                 account_name='支付宝',
                 ledger_id=src_id,
                 quantity=1000000,
-                avg_price=1000,
-                current_price=1200,
+                avg_price=100000,
+                current_price=120000,
             )
         )
         # 目标同 symbol 但份额/成本不同 → 冲突
@@ -862,8 +862,8 @@ class TestLedgerBatchMigrate:
                 account_name='蚂蚁杭州基金销售',
                 ledger_id=tgt_id,
                 quantity=500000,
-                avg_price=1200,
-                current_price=1200,
+                avg_price=120000,
+                current_price=120000,
             )
         )
         db.commit()
@@ -898,7 +898,7 @@ class TestLedgerBatchMigrate:
         assert db.query(Position).filter(Position.ledger_id == src_id).count() == 0
         kept = db.query(Position).filter(Position.ledger_id == tgt_id).one()
         assert kept.quantity == 1000000
-        assert kept.avg_price == 1000
+        assert kept.avg_price == 100000
 
     def test_migrate_overlapping_asset_dedup(self, client, db):
         """资产同名同分类且金额一致 → 视为重复，只保留目标一份"""

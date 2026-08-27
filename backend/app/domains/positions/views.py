@@ -33,8 +33,8 @@ def enrich_position_dict(p: Position) -> dict:
     d['allocation_label'] = ALLOCATION_LABELS.get(p.allocation, p.allocation or '未分类')
     # 转换内部单位到展示单位
     d['quantity'] = Money.min_unit_to_shares(p.quantity)
-    d['avg_price'] = Money.cents_to_yuan(p.avg_price)
-    d['current_price'] = Money.cents_to_yuan(p.current_price)
+    d['avg_price'] = Money.price_units_to_yuan(p.avg_price)
+    d['current_price'] = Money.price_units_to_yuan(p.current_price)
     # 市值/盈亏：复用 Money.multiply_price_quantity（与 portfolios/ledger_service 同口径，本币直算）。
     # 汇率折算仅存在于 summary 聚合口径（total_*_cny）；单条明细与 current_price 保持本币一致。
     d['market_value'] = Money.cents_to_yuan(Money.multiply_price_quantity(p.current_price, p.quantity))
@@ -110,9 +110,9 @@ def list_positions():
                         'allocation': p.allocation,
                         'allocation_label': ALLOCATION_LABELS.get(p.allocation, p.allocation or '未分类'),
                         'quantity': Money.min_unit_to_shares(p.quantity),
-                        'avg_price': Money.cents_to_yuan(p.avg_price),
+                        'avg_price': Money.price_units_to_yuan(p.avg_price),
                         'currency': p.currency,
-                        'current_price': Money.cents_to_yuan(p.current_price),
+                        'current_price': Money.price_units_to_yuan(p.current_price),
                         'confirm_date': buy_confirm.isoformat() if buy_confirm else None,
                         'ledger_id': p.ledger_id,
                     }
@@ -170,7 +170,7 @@ def get_position_transactions(id: int):
                     'trade_date': display_date.isoformat() if display_date else None,
                     'txn_type': t.txn_type,
                     'quantity': Money.min_unit_to_shares(t.quantity),
-                    'price': Money.cents_to_yuan(t.price),
+                    'price': Money.price_units_to_yuan(t.price),
                     'amount': Money.cents_to_yuan(t.amount),
                     'fee': Money.cents_to_yuan(t.fee),
                     'notes': t.notes,
@@ -251,7 +251,7 @@ def update_position(id):
         for field, value in update_data.items():
             # 金额/份额字段转换为内部单位
             if field in ('current_price', 'avg_price'):
-                value = Money.yuan_to_cents(value)
+                value = Money.yuan_to_price_units(value)
             elif field == 'quantity':
                 value = Money.shares_to_min_unit(value)
             setattr(position, field, value)
