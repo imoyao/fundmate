@@ -183,14 +183,13 @@
           </div>
         </div>
 
-        <!-- 账户深度分析（规划中，详见 working-notes/ledger-detail-info-redesign-plan-2026-08-27） -->
+        <!-- 账户深度分析（规划中，敬请期待，详见内部工作记录 ledger-detail-info-redesign-plan-2026-08-27） -->
         <CardBlock class="mb-6">
           <div
             class="flex min-h-[160px] flex-1 items-center justify-center rounded-lg border border-dashed text-sm"
             :style="{ borderColor: 'var(--border-subtle)', color: 'var(--text-tertiary)' }"
           >
-            账户深度分析（持仓集中度 / 行业分布 / 收益日历等）规划中，详见工作记录
-            <code class="mx-1">ledger-detail-info-redesign-plan-2026-08-27</code>
+            账户深度分析（持仓集中度 / 行业分布 / 收益日历等）规划中，敬请期待
           </div>
         </CardBlock>
         <!-- Tab 切换 + 搜索同行（#982）：左 Tab 右搜索，共用一个输入框按当前 Tab 绑定 -->
