@@ -2,7 +2,7 @@
   <el-dialog
     :model-value="modelValue"
     title="编辑交易"
-    width="460px"
+    width="520px"
     @update:model-value="val => emit('update:modelValue', val)"
     @open="initForm"
   >
@@ -10,27 +10,25 @@
       ref="formRef"
       :model="form"
       :rules="rules"
-      label-width="84px"
+      label-width="90px"
+      size="large"
+      class="flex flex-col gap-4"
       :disabled="saving"
     >
       <!-- 数量：基金按份额(支持小数)，股票/可转债按股|张(整数) -->
       <el-form-item label="数量" prop="quantity">
         <el-input-number
           v-model="form.quantity"
-          class="w-full"
           style="width: 100%"
+          class="w-full"
           :controls="false"
           :min="0"
           :precision="quantityPrecision"
           :step="quantityStep"
-        >
-          <template #suffix>{{ unitLabel }}</template>
-        </el-input-number>
+        />
         <div class="text-xs mt-1" style="color: var(--text-tertiary)">
-          <template v-if="isFund"
-            >基金份额支持小数，精确到 0.0001 份</template
-          >
-          <template v-else>股票 / 可转债数量为整数（股 / 张）</template>
+          <template v-if="isFund">基金份额，精确到 0.0001 份</template>
+          <template v-else>数量为整数（股 / 张）</template>
         </div>
       </el-form-item>
 
@@ -38,8 +36,8 @@
       <el-form-item label="单价(元)">
         <el-input-number
           v-model="form.price"
-          class="w-full"
           style="width: 100%"
+          class="w-full"
           :controls="false"
           :min="0"
           :precision="4"
@@ -52,8 +50,8 @@
       <el-form-item label="金额(元)">
         <el-input-number
           v-model="form.amount"
-          class="w-full"
           style="width: 100%"
+          class="w-full"
           :controls="false"
           :min="0"
           :precision="4"
@@ -66,8 +64,8 @@
       <el-form-item label="手续费(元)">
         <el-input-number
           v-model="form.fee"
-          class="w-full"
           style="width: 100%"
+          class="w-full"
           :controls="false"
           :min="0"
           :precision="4"
@@ -82,7 +80,7 @@
           v-model="form.trade_date"
           type="date"
           class="w-full"
-          style="width: 100%"
+          style="display: block; width: 100%"
           value-format="YYYY-MM-DD"
           placeholder="可为空"
           clearable
@@ -95,7 +93,7 @@
           v-model="form.confirm_date"
           type="date"
           class="w-full"
-          style="width: 100%"
+          style="display: block; width: 100%"
           value-format="YYYY-MM-DD"
           placeholder="请选择确认日期"
           clearable
@@ -108,8 +106,8 @@
           v-model="form.notes"
           type="textarea"
           :rows="2"
-          style="width: 100%"
           placeholder="选填"
+          style="width: 100%"
         />
       </el-form-item>
     </el-form>
@@ -152,12 +150,6 @@ const assetType = computed(
 
 // 仅基金按份额(小数)处理；其余按股/张(整数)
 const isFund = computed(() => assetType.value === "fund");
-
-const unitLabel = computed(() => {
-  if (isFund.value) return "份";
-  if (assetType.value === "bond") return "张";
-  return "股/张";
-});
 
 const quantityPrecision = computed(() => (isFund.value ? 4 : 0));
 const quantityStep = computed(() => (isFund.value ? 0.0001 : 1));
@@ -224,9 +216,21 @@ async function handleSave() {
   font-size: 0.75rem;
 }
 
-/* 输入框统一样式（高度、圆角、边框颜色、聚焦阴影）——对齐 BuyForm / SellForm 规范 */
+/* 输入框统一样式 —— 对齐 design.md Input 规范 & BuyForm/SellForm */
 :deep(.el-input__wrapper),
-:deep(.el-input-number) {
+:deep(.el-textarea__inner) {
+  --el-input-border-color: var(--border-default);
+  --el-input-hover-border-color: var(--brand-500);
+  --el-input-focus-border-color: var(--brand-700);
+  --el-input-focus-shadow:
+    inset 0 0 0 1px var(--brand-700), 0 0 0 2px var(--bg-card),
+    0 0 0 4px var(--brand-700);
+
+  border-radius: var(--radius-sm);
+}
+
+/* el-input-number 内部 wrapper 继承同样变量 */
+:deep(.el-input-number .el-input__wrapper) {
   --el-input-border-color: var(--border-default);
   --el-input-hover-border-color: var(--brand-500);
   --el-input-focus-border-color: var(--brand-700);
@@ -238,13 +242,30 @@ async function handleSave() {
   border-radius: var(--radius-sm);
 }
 
-:deep(.el-input-number) {
-  width: 100%;
+/* 日期选择器输入框同样继承 */
+:deep(.el-date-editor .el-input__wrapper) {
+  --el-input-border-color: var(--border-default);
+  --el-input-hover-border-color: var(--brand-500);
+  --el-input-focus-border-color: var(--brand-700);
+  --el-input-focus-shadow:
+    inset 0 0 0 1px var(--brand-700), 0 0 0 2px var(--bg-card),
+    0 0 0 4px var(--brand-700);
+
+  height: 40px;
+  border-radius: var(--radius-sm);
 }
 
-/* 日期选择器同样占满整行，保证跨度一致 */
-:deep(.el-date-editor.el-input) {
-  width: 100%;
+/* 主按钮物理反馈 —— 对齐 design.md Button 规范 */
+:deep(.el-button--primary) {
+  height: 40px;
+  transition:
+    transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1),
+    box-shadow 0.15s;
+}
+
+:deep(.el-button--primary:active) {
+  box-shadow: none !important;
+  transform: translateY(1px);
 }
 
 /* 避免校验错误过渡闪烁 */
