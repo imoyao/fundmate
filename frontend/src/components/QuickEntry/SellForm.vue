@@ -341,7 +341,7 @@ import { LEDGER_TYPE_SHORT } from "@/constants";
 import { getLedgerColor, bgFromColor } from "@/utils/ledger";
 import { getStep, SELL_QUICK_RATIOS } from "@/utils/trading";
 import { estimateRedeemFee, syncFundFees } from "@/api/funds";
-import { calcFundConfirmDate } from "@/api/utils";
+import { useFundTradeDate } from "@/composables/useFundTradeDate";
 import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
 
 const props = defineProps<{
@@ -389,8 +389,8 @@ const holdFeeDetails = ref<any[]>([]); // 全仓持有分布
 const sellFeeData = ref<any[]>([]); // 指定份额分布
 const feeManuallyChanged = ref(false);
 
-const confirmDate = ref("");
-const actualNavDate = ref("");
+const { confirmDate, actualNavDate, calcConfirmAndNav, reset: resetTradeDate } =
+  useFundTradeDate();
 
 const availableAccounts = computed(() =>
   props.ledgers.filter(l => positionsByAccount.value[l.name]?.length > 0)
@@ -541,8 +541,7 @@ function clearFormData() {
 
     selectedPosition.value = null;
     feeManuallyChanged.value = false;
-    confirmDate.value = "";
-    actualNavDate.value = "";
+    resetTradeDate();
     holdFeeDetails.value = [];
     sellFeeData.value = [];
     feeRateDialogVisible.value = false;
@@ -571,8 +570,7 @@ function onPositionSelect(positionId: number) {
   form.quantity = undefined;
   form.fee = 0;
   feeManuallyChanged.value = false;
-  confirmDate.value = "";
-  actualNavDate.value = "";
+  resetTradeDate();
   calculateFeeAndRate();
 
   // 股票：拉取最近交易日价格区间用于卖出价校验（#948）
@@ -589,28 +587,7 @@ function onPositionSelect(positionId: number) {
   }
 }
 
-async function fetchConfirmAndNavDate() {
-  if (!selectedPosition.value || form.type !== "fund" || !form.trade_date) {
-    confirmDate.value = "";
-    actualNavDate.value = "";
-    return;
-  }
-  try {
-    const res = await calcFundConfirmDate({
-      trade_date: form.trade_date,
-      fund_type: "domestic",
-      is_after_15: form.isAfter15
-    });
-    const data = (res as any)?.data;
-    if (data) {
-      actualNavDate.value = data.actual_trade_date;
-      confirmDate.value = data.confirm_date;
-    }
-  } catch (e) {
-    confirmDate.value = "";
-    actualNavDate.value = "";
-  }
-}
+// fetchConfirmAndNavDate 已移至 useFundTradeDate composable，与其他组件共用
 
 // ---------- 费率请求（改造为使用新后端接口） ----------
 const fetchFundFeeRules = async (
@@ -836,7 +813,12 @@ watch(
   ],
   () => {
     if (!selectedPosition.value) return;
-    fetchConfirmAndNavDate();
+    if (form.type === "fund" && form.trade_date) {
+      calcConfirmAndNav({
+        tradeDate: form.trade_date,
+        isAfter15: form.isAfter15
+      });
+    }
     calculateFeeAndRate();
     // 股票：交易日变化时刷新价格区间（#948）
     if (selectedPosition.value.type === "stock" && form.trade_date) {

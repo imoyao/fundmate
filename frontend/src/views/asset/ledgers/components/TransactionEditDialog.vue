@@ -147,8 +147,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
 import { updateLedgerTransaction } from "@/api/ledger";
-import { fetchFundNav } from "@/api/fundNav";
-import { calcFundConfirmDate } from "@/api/utils";
+import { useFundTradeDate } from "@/composables/useFundTradeDate";
 import { ElMessage } from "element-plus";
 
 const props = defineProps<{
@@ -168,15 +167,12 @@ const saving = ref(false);
 const formRef = ref();
 const form = ref<any>({});
 
-// 净值加载态（基金模式下根据确认日期自动拉取）
-const navLoading = ref(false);
-
 // 15:00 后下单（影响确认日计算）
 const isAfter15 = ref(false);
-// 实际净值日（后端返回的真实交易日，用于拉净值）
-const actualNavDate = ref("");
-// 确认日期展示文本
-const confirmDateDisplay = ref("");
+
+// 基金交易日期联动 composable（calcFundConfirmDate + fetchFundNav）
+const { navLoading, confirmDate: confirmDateDisplay, calcConfirmAndNav } =
+  useFundTradeDate();
 
 // 资产类型：多字段兜底检测
 // 优先用传入的 assetType，否则从交易记录中尝试多个字段
@@ -214,7 +210,6 @@ const rules = {
 function initForm() {
   const t = props.transaction || {};
   isAfter15.value = false;
-  actualNavDate.value = "";
   form.value = {
     quantity: t.quantity,
     price: t.price,
@@ -243,8 +238,7 @@ watch(
 );
 
 // 核心联动：交易日期变化 → 自动计算确认日期 → 自动拉取净值
-// 与 BuyForm 完全一致：calcFundConfirmDate 算出 actual_trade_date + confirm_date
-// 用 actual_trade_date（而非 confirm_date）去拉净值
+// 统一走 useFundTradeDate composable，与 BuyForm / SellForm 共用同一套逻辑
 watch(
   [() => form.value.trade_date, () => isAfter15.value],
   async ([newDate]) => {
@@ -260,34 +254,20 @@ watch(
       return;
     }
 
-    // 基金：调后端计算确认日 + 实际净值日
+    // 基金：调 composable 计算确认日 + 拉净值
     const code = props.symbol || props.transaction?.symbol;
-    navLoading.value = true;
-    try {
-      const res = await calcFundConfirmDate({
-        trade_date: newDate,
-        fund_type: "domestic",
-        is_after_15: isAfter15.value,
-      });
-      const data = (res as any)?.data;
-      if (data) {
-        actualNavDate.value = data.actual_trade_date ?? newDate;
-        form.value.confirm_date = data.confirm_date ?? newDate;
-        confirmDateDisplay.value = form.value.confirm_date;
-
-        // 用实际净值日拉净值（不是 confirm_date）
-        if (code && actualNavDate.value) {
-          const result = await fetchFundNav(code, actualNavDate.value);
-          if (result) {
-            form.value.price = result.unit_nav;
-          }
-        }
+    const result = await calcConfirmAndNav({
+      tradeDate: newDate,
+      symbol: code,
+      isAfter15: isAfter15.value,
+    });
+    if (result) {
+      form.value.confirm_date = result.confirmDate;
+      if (result.nav != null) {
+        form.value.price = result.nav;
       }
-    } catch (e) {
-      console.warn("[editDialog] 确认日期/净值计算失败:", e);
+    } else {
       confirmDateDisplay.value = "计算失败";
-    } finally {
-      navLoading.value = false;
     }
   }
 );
