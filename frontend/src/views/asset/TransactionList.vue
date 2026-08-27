@@ -164,6 +164,13 @@
             <span class="text-gray-400">{{ row.notes || "-" }}</span>
           </template>
         </el-table-column>
+        <el-table-column label="操作" width="64" align="center">
+          <template #default="{ row }">
+            <el-button size="small" text type="primary" @click="openEdit(row)">
+              编辑
+            </el-button>
+          </template>
+        </el-table-column>
       </el-table>
 
       <!-- 分页 -->
@@ -269,8 +276,17 @@
                         {{ statusLabel(txn.status) }}
                       </el-tag>
                     </div>
-                    <div class="right">
+                    <div class="right flex items-center">
                       <MoneyDisplay :value="signedAmount(txn)" size="sm" />
+                      <el-button
+                        size="small"
+                        text
+                        type="primary"
+                        class="ml-2"
+                        @click="openEdit(txn)"
+                      >
+                        编辑
+                      </el-button>
                     </div>
                   </div>
 
@@ -309,6 +325,14 @@
         </div>
       </div>
     </el-card>
+
+    <!-- 行内编辑弹窗 -->
+    <TransactionEditDialog
+      v-model="editDialogVisible"
+      :transaction="editingTxn"
+      :asset-type="editingTxn?.asset_type"
+      @saved="handleSaved"
+    />
   </div>
 </template>
 
@@ -320,6 +344,7 @@ import { getTransactions, exportTransactions } from "@/api/transactions";
 import type { TransactionRecord } from "@/api/transactions";
 import { ElMessage } from "element-plus";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
+import TransactionEditDialog from "./ledgers/components/TransactionEditDialog.vue";
 import { txnTypeLabel } from "@/constants";
 
 defineOptions({ name: "TransactionList" });
@@ -437,6 +462,29 @@ const resetAndFetch = () => {
   hasMore.value = true;
   fetchData();
 };
+
+// 行内编辑
+const editDialogVisible = ref(false);
+const editingTxn = ref<any>(null);
+function openEdit(row: any) {
+  editingTxn.value = row;
+  editDialogVisible.value = true;
+}
+function handleSaved(data: any) {
+  const idx = transactions.value.findIndex(t => t.id === data?.id);
+  if (idx !== -1) {
+    Object.assign(transactions.value[idx], {
+      quantity: data.quantity,
+      price: data.price,
+      amount: data.amount,
+      fee: data.fee,
+      trade_date: data.trade_date,
+      confirm_date: data.confirm_date,
+      notes: data.notes,
+      import_hash: data.import_hash
+    });
+  }
+}
 
 // 导出全部交易流水
 const exporting = ref(false);

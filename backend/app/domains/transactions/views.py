@@ -79,9 +79,11 @@ def list_transactions():
             results.append(
                 {
                     'id': t.id,
+                    'ledger_id': t.ledger_id,
                     'position_id': t.position_id,
                     'position_name': t.position_name or '未知资产',
                     'type': t.txn_type,
+                    'asset_type': t.asset_type,
                     'trade_date': t.trade_date.strftime('%Y-%m-%d') if t.trade_date else None,
                     'confirm_date': t.confirm_date.strftime('%Y-%m-%d') if t.confirm_date else None,
                     'quantity': Money.min_unit_to_shares(t.quantity),

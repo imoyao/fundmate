@@ -193,6 +193,18 @@
               />
             </template>
           </el-table-column>
+          <el-table-column label="操作" width="56" align="center">
+            <template #default="{ row }">
+              <el-button
+                size="small"
+                text
+                type="primary"
+                @click="openEdit(row)"
+              >
+                编辑
+              </el-button>
+            </template>
+          </el-table-column>
         </el-table>
 
         <!-- 🔥 修复3：明确加载完成的提示 -->
@@ -213,6 +225,14 @@
         </div>
       </template>
     </div>
+
+    <!-- 行内编辑弹窗 -->
+    <TransactionEditDialog
+      v-model="editDialogVisible"
+      :transaction="editingTxn"
+      :asset-type="positionData?.asset_type"
+      @saved="handleSaved"
+    />
   </el-drawer>
 </template>
 
@@ -222,6 +242,7 @@ import { Loading } from "@element-plus/icons-vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import { getPositionTransactions } from "@/api/positions";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
+import TransactionEditDialog from "./TransactionEditDialog.vue";
 import { txnTypeLabel } from "@/constants";
 
 const props = defineProps<{
@@ -288,6 +309,31 @@ watch(
 function resetState() {
   transactionsList.value = [];
   transactionsTotal.value = 0;
+  editDialogVisible.value = false;
+  editingTxn.value = null;
+}
+
+// 行内编辑
+const editDialogVisible = ref(false);
+const editingTxn = ref<any>(null);
+function openEdit(row: any) {
+  editingTxn.value = row;
+  editDialogVisible.value = true;
+}
+function handleSaved(data: any) {
+  const idx = transactionsList.value.findIndex(t => t.id === data?.id);
+  if (idx !== -1) {
+    Object.assign(transactionsList.value[idx], {
+      quantity: data.quantity,
+      price: data.price,
+      amount: data.amount,
+      fee: data.fee,
+      trade_date: data.trade_date || data.confirm_date || null,
+      confirm_date: data.confirm_date,
+      notes: data.notes,
+      import_hash: data.import_hash
+    });
+  }
 }
 </script>
 
