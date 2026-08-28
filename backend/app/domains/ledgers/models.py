@@ -6,6 +6,7 @@
 
 # -*- coding: utf-8 -*-
 from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, Text
+from sqlalchemy.orm import relationship
 
 from app.core.database import Base, FamilyScopedMixin, PrimaryKeyMixin, TimestampMixin
 
@@ -94,6 +95,23 @@ class Ledger(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
         nullable=True,
         comment='关联的现金账户（仅 stock/fund 类型可用）',
     )
+    # 类现金产品绑定（#1137）：账户的「余额宝」，指向基金标的（funds.id）。
+    # 绑定标的而非持仓——持仓卖光会悬空；回款是否自动申购见 auto_purchase_money_fund。
+    linked_money_fund_id = Column(
+        Integer,
+        ForeignKey('funds.id', ondelete='SET NULL'),
+        nullable=True,
+        comment='账户绑定的类现金产品（余额宝），指向 funds.id（仅 stock/fund 类型可用）',
+    )
+    # 自动申购开关（#1137）：默认关闭——用户不操作系统不代劳，回款留在账户现金。
+    auto_purchase_money_fund = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment='卖出/赎回回款是否自动申购绑定的类现金产品（默认关闭）',
+    )
+    # 回显用：绑定产品的代码与名称（只读，不参与写入）
+    linked_money_fund = relationship('Fund', foreign_keys=[linked_money_fund_id], lazy='selectin')
     sales_institution_id = Column(
         Integer,
         ForeignKey('sales_institutions.id', ondelete='SET NULL'),

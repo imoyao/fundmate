@@ -18,6 +18,7 @@ from app.core.constants import ALLOCATION_LABELS, LEDGER_TYPE_LABELS
 from app.core.database import get_db
 from app.core.money import Money
 from app.domains.assets.models import Asset
+from app.domains.funds.models import Fund
 from app.domains.ledgers.constants import (
     map_channel_category_to_ledger_type,
     map_ledger_type_to_channel_category,
@@ -53,6 +54,12 @@ def _ledger_to_dict(ledger: Ledger, last_used_at=None) -> dict:
         'notes': ledger.notes,
         'portfolio_id': ledger.portfolio_id,
         'linked_cash_ledger_id': ledger.linked_cash_ledger_id,
+        # 类现金产品绑定（#1137）：绑定 funds 标的（余额宝概念）。
+        # 入参用基金代码（前端搜索结果即 code），存储用 funds.id；出参附带 code/name 便于回显。
+        'linked_money_fund_id': ledger.linked_money_fund_id,
+        'linked_money_fund_code': ledger.linked_money_fund.fund_code if ledger.linked_money_fund else None,
+        'linked_money_fund_name': ledger.linked_money_fund.name if ledger.linked_money_fund else None,
+        'auto_purchase_money_fund': bool(ledger.auto_purchase_money_fund),
         # 关联的销售机构（AMAC 名录），可选；前端回显与编辑依赖该字段
         'sales_institution_id': ledger.sales_institution_id,
         # 聚合/系统账本标记与交易前端标签（#1101，前端展示/编辑用）
@@ -183,6 +190,22 @@ def create_ledger():
     elif ledger_type:
         channel_category = map_ledger_type_to_channel_category(ledger_type)
 
+    # 类现金产品绑定（#1137）：入参用基金代码（前端搜索结果即 code），存储 funds.id。
+    # 仅证券/基金平台可绑；开关默认关闭，未绑定时不允许开启。
+    linked_money_fund_code = (data.get('linked_money_fund_code') or '').strip() or None
+    auto_purchase_money_fund = bool(data.get('auto_purchase_money_fund', False))
+    linked_money_fund_id = None
+    if linked_money_fund_code:
+        if ledger_type not in ('stock', 'fund'):
+            return jsonify({'data': None, 'message': '只有证券账户或基金平台可以绑定类现金产品'}), 400
+        with get_db() as db:
+            fund = db.query(Fund).filter_by(fund_code=linked_money_fund_code).first()
+            if not fund:
+                return jsonify({'data': None, 'message': '绑定的类现金产品不存在'}), 400
+            linked_money_fund_id = fund.id
+    elif auto_purchase_money_fund:
+        return jsonify({'data': None, 'message': '请先绑定类现金产品，再开启自动申购'}), 400
+
     with get_db() as db:
         ledger = Ledger(
             name=name,
@@ -192,6 +215,8 @@ def create_ledger():
             notes=data.get('notes', ''),
             portfolio_id=data.get('portfolio_id'),
             linked_cash_ledger_id=linked_cash_id,
+            linked_money_fund_id=linked_money_fund_id,
+            auto_purchase_money_fund=auto_purchase_money_fund,
             sales_institution_id=sales_institution_id,
             family_id=get_family_id(),
         )
@@ -395,6 +420,31 @@ def update_ledger(ledger_id: int):
                     return jsonify({'data': None, 'message': '关联的现金账户不存在或类型不是现金账户'}), 400
             # 无论值是否为 None，均更新
             ledger.linked_cash_ledger_id = linked_cash_id
+
+        # 更新类现金产品绑定（#1137，允许设置为 None 解绑）
+        # 入参用基金代码，存储 funds.id；未绑定时不允许开启自动申购。
+        if 'linked_money_fund_code' in data:
+            fund_code = (data.get('linked_money_fund_code') or '').strip() or None
+            if fund_code is None:
+                ledger.linked_money_fund_id = None
+                # 解绑时自动关闭开关，避免残留一个无法生效的开关
+                ledger.auto_purchase_money_fund = False
+            else:
+                if ledger.ledger_type not in ('stock', 'fund'):
+                    return jsonify({'data': None, 'message': '只有证券账户或基金平台可以绑定类现金产品'}), 400
+                fund = db.query(Fund).filter_by(fund_code=fund_code).first()
+                if not fund:
+                    return jsonify({'data': None, 'message': '绑定的类现金产品不存在'}), 400
+                ledger.linked_money_fund_id = fund.id
+
+        # 更新自动申购开关（#1137）
+        if 'auto_purchase_money_fund' in data:
+            auto_purchase = data['auto_purchase_money_fund']
+            if not isinstance(auto_purchase, bool):
+                return jsonify({'data': None, 'message': 'auto_purchase_money_fund 必须为布尔值'}), 400
+            if auto_purchase and not ledger.linked_money_fund_id:
+                return jsonify({'data': None, 'message': '请先绑定类现金产品，再开启自动申购'}), 400
+            ledger.auto_purchase_money_fund = auto_purchase
 
         # 更新 sales_institution_id（允许设置为 None）
         if 'sales_institution_id' in data:

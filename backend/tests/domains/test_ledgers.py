@@ -8,6 +8,7 @@ from datetime import date
 
 from app.core.money import Money
 from app.domains.assets.models import Asset
+from app.domains.funds.models import Fund
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, SalesInstitution
 
@@ -595,6 +596,111 @@ class TestLedgerLinkedCash:
         resp2 = client.patch(f'/api/ledgers/{stock_id}/', json={'ledger_type': 'bank', 'linked_cash_ledger_id': None})
         assert resp2.status_code == 200
         assert resp2.get_json()['data']['linked_cash_ledger_id'] is None
+
+
+class TestLedgerMoneyFundBinding:
+    """测试类现金产品绑定与自动申购开关（#1137）
+
+    设计见 docs/working-notes/ledger-cash-like-product-binding-2026-08-29.md：
+    入参用基金代码（前端搜索结果即 code），存储 funds.id；自动申购开关默认关闭
+    （用户不操作系统不代劳）。
+    """
+
+    @staticmethod
+    def _make_money_fund(db, code='000198', name='天弘余额宝货币'):
+        fund = Fund(fund_code=code, name=name)
+        db.add(fund)
+        db.commit()
+        return fund
+
+    def test_bind_money_fund_on_create(self, client, db):
+        """证券账户可绑定类现金产品，出参回显 id / code / name"""
+        fund = self._make_money_fund(db)
+        resp = client.post(
+            '/api/ledgers/',
+            json={'name': '华泰证券', 'ledger_type': 'stock', 'linked_money_fund_code': fund.fund_code},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['linked_money_fund_id'] == fund.id
+        assert data['linked_money_fund_code'] == fund.fund_code
+        assert data['linked_money_fund_name'] == fund.name
+        # 开关默认关闭
+        assert data['auto_purchase_money_fund'] is False
+
+    def test_auto_purchase_requires_binding_on_create(self, client, db):
+        """未绑定类现金产品时开启自动申购应拒绝"""
+        resp = client.post(
+            '/api/ledgers/',
+            json={'name': '华泰证券', 'ledger_type': 'stock', 'auto_purchase_money_fund': True},
+        )
+        assert resp.status_code == 400
+        assert '请先绑定类现金产品' in resp.get_json()['message']
+
+    def test_bind_and_enable_auto_purchase(self, client, db):
+        """绑定后可开启自动申购"""
+        fund = self._make_money_fund(db, code='000199', name='测试货基')
+        resp = client.post(
+            '/api/ledgers/',
+            json={
+                'name': '蚂蚁基金',
+                'ledger_type': 'fund',
+                'linked_money_fund_code': fund.fund_code,
+                'auto_purchase_money_fund': True,
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['linked_money_fund_id'] == fund.id
+        assert data['auto_purchase_money_fund'] is True
+
+    def test_bank_ledger_cannot_bind_money_fund(self, client, db):
+        """现金账户不能绑定类现金产品"""
+        fund = self._make_money_fund(db, code='000200', name='货基2')
+        resp = client.post(
+            '/api/ledgers/',
+            json={'name': '招商银行', 'ledger_type': 'bank', 'linked_money_fund_code': fund.fund_code},
+        )
+        assert resp.status_code == 400
+        assert '只有证券账户或基金平台' in resp.get_json()['message']
+
+    def test_bind_nonexistent_fund_code(self, client, db):
+        """绑定不存在的基金代码应拒绝"""
+        resp = client.post(
+            '/api/ledgers/',
+            json={'name': '华泰证券', 'ledger_type': 'stock', 'linked_money_fund_code': '999999'},
+        )
+        assert resp.status_code == 400
+        assert '不存在' in resp.get_json()['message']
+
+    def test_update_unlink_disables_auto_purchase(self, client, db):
+        """解绑类现金产品时应联动关闭自动申购，避免残留无法生效的开关"""
+        fund = self._make_money_fund(db, code='000201', name='货基3')
+        create_resp = client.post(
+            '/api/ledgers/',
+            json={
+                'name': '华泰证券',
+                'ledger_type': 'stock',
+                'linked_money_fund_code': fund.fund_code,
+                'auto_purchase_money_fund': True,
+            },
+        )
+        assert create_resp.get_json()['data']['auto_purchase_money_fund'] is True
+        ledger_id = create_resp.get_json()['data']['id']
+
+        resp = client.patch(f'/api/ledgers/{ledger_id}/', json={'linked_money_fund_code': None})
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['linked_money_fund_id'] is None
+        assert data['auto_purchase_money_fund'] is False
+
+    def test_update_enable_without_binding_rejected(self, client, db):
+        """未绑定时通过更新接口开启自动申购应拒绝"""
+        create_resp = client.post('/api/ledgers/', json={'name': '华泰证券', 'ledger_type': 'stock'})
+        ledger_id = create_resp.get_json()['data']['id']
+        resp = client.patch(f'/api/ledgers/{ledger_id}/', json={'auto_purchase_money_fund': True})
+        assert resp.status_code == 400
+        assert '请先绑定类现金产品' in resp.get_json()['message']
 
 
 class TestLedgerOverview:
