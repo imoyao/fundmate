@@ -132,3 +132,44 @@ export interface SummaryData {
   net_assets_cny: number;
   market_distribution: Record<string, number>;
 }
+
+/* ───────────────────────────────────────────────────────────
+ * #948 成交价格与净值自动填充：接口契约
+ * 验收要求：契约集中写进 types.d.ts，且不得出现 any / Record<string, any>
+ * ─────────────────────────────────────────────────────────── */
+
+/** 股票指定交易日价格区间（GET /api/securities/{symbol}/price-range/?date=） */
+export interface SecurityPriceRange {
+  /** 证券代码 */
+  symbol: string;
+  /** 行情实际日期（≤请求日期的最近交易日） */
+  date: string;
+  /** 当日最低价 */
+  low: number;
+  /** 当日最高价 */
+  high: number;
+  /** 收盘价（用于回填默认价；无行情为 null） */
+  close: number | null;
+}
+
+/** 基金确认日净值（GET /api/funds/{code}/nav/?date=） */
+export interface FundNavPoint {
+  /** 基金代码 */
+  fund_code: string;
+  /** 净值日期 YYYY-MM-DD */
+  date: string;
+  /** 单位净值 */
+  unit_nav: number;
+  /** 累计净值（可选） */
+  acc_nav?: number | null;
+}
+
+/** 前端统一净值获取结果（含数据来源） */
+export interface FundNavResult {
+  /** 单位净值 */
+  unit_nav: number;
+  /** 净值日期 YYYY-MM-DD */
+  date: string;
+  /** 数据来源 */
+  source: "backend" | "eastmoney";
+}
