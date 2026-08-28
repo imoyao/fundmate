@@ -125,43 +125,40 @@
           prop="quantity"
         >
           <div class="flex flex-col gap-2 w-full">
-            <div class="flex items-center gap-3 w-full">
-              <el-input-number
-                v-model="form.quantity"
-                :min="sellMin"
-                class="flex-1"
-                :controls="false"
-                :max="maxQuantity"
-                :step="form.type === 'fund' ? 0.0001 : stepForSecurity"
-                :precision="form.type === 'fund' ? 4 : 0"
-                :placeholder="placeholderText"
-              />
-              <div class="flex items-center gap-1 shrink-0">
-                <template v-for="ratio in SELL_QUICK_RATIOS" :key="ratio.label">
-                  <el-button
-                    size="small"
-                    plain
-                    round
-                    class="quick-ratio-btn"
-                    @click="applySellQuickRatio(ratio.value)"
-                  >
-                    {{ ratio.label }}
-                  </el-button>
-                </template>
-              </div>
-            </div>
-            <div class="text-xs" style="color: var(--text-tertiary)">
-              <template v-if="form.type === 'fund'"
-                >每笔最少 0.0001 份</template
-              >
-              <template v-else>
-                每笔最少卖出 {{ sellMin }} 股/张
-                <span
-                  v-if="isOddLot && form.type !== 'fund'"
-                  style="color: var(--color-warning)"
-                  >（含碎股，可全部卖出）</span
+            <el-input-number
+              v-model="form.quantity"
+              :min="sellMin"
+              style="width: 100%"
+              :controls="false"
+              :max="maxQuantity"
+              :step="form.type === 'fund' ? 0.0001 : stepForSecurity"
+              :precision="form.type === 'fund' ? 4 : 0"
+              :placeholder="placeholderText"
+              @blur="qtyTouched = true"
+            />
+            <div class="flex items-center justify-between w-full">
+              <template v-for="ratio in SELL_QUICK_RATIOS" :key="ratio.label">
+                <el-button
+                  size="small"
+                  plain
+                  round
+                  class="quick-ratio-btn"
+                  @click="applySellQuickRatio(ratio.value)"
                 >
+                  {{ ratio.label }}
+                </el-button>
               </template>
+            </div>
+            <div v-if="showQtyHint" class="text-xs" style="color: var(--color-danger-system)">
+              <template v-if="form.type === 'fund'">每笔最少 0.0001 份</template>
+              <template v-else>每笔最少卖出 {{ sellMin }} 股/张</template>
+            </div>
+            <div
+              v-else-if="isOddLot && form.type !== 'fund'"
+              class="text-xs"
+              style="color: var(--color-warning)"
+            >
+              （含碎股，可全部卖出）
             </div>
           </div>
         </el-form-item>
@@ -170,7 +167,7 @@
         <el-form-item v-if="form.type !== 'fund'" label="卖出价格" prop="price">
           <el-input-number
             v-model="form.price"
-            class="w-full"
+            style="width: 100%"
             :controls="false"
             :min="0"
             :step="0.01"
@@ -329,17 +326,18 @@ import { ref, reactive, computed, onMounted, watch, nextTick } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import type { FormInstance, FormRules } from "element-plus";
 import { getPositionsGroupedByAccount } from "@/api/positions";
-import {
-  getSecurityPriceRange,
-  type SecurityPriceRange
-} from "@/api/securities";
 import { usePositionSubmit } from "@/composables/usePositionSubmit";
+import {
+  useSecurityPriceRange,
+  createStockPriceValidator,
+  checkPriceInRange
+} from "@/composables/useSecurityPrice";
 import { validateTradeOrder } from "@/api/positions";
 import type { Position } from "@/api/types";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import { LEDGER_TYPE_SHORT } from "@/constants";
 import { getLedgerColor, bgFromColor } from "@/utils/ledger";
-import { getStep, SELL_QUICK_RATIOS } from "@/utils/trading";
+import { getStep, SELL_QUICK_RATIOS, calcSellQuantityByRatio } from "@/utils/trading";
 import { estimateRedeemFee, syncFundFees } from "@/api/funds";
 import { useFundTradeDate } from "@/composables/useFundTradeDate";
 import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
@@ -381,13 +379,18 @@ const form = reactive(defaultForm());
 const formRef = ref<FormInstance>();
 const positionsByAccount = ref<Record<string, Position[]>>({});
 const selectedPosition = ref<any>(null);
-// 股票价格区间（#948）：卖出价校验用，随持仓选择与交易日刷新
-const stockPriceRange = ref<SecurityPriceRange | null>(null);
+// 股票价格区间（#948）：卖出价校验用，随持仓选择与交易日刷新（统一走 useSecurityPriceRange）
+const { priceRange: stockPriceRange } = useSecurityPriceRange(
+  computed(() => selectedPosition.value?.symbol),
+  computed(() => form.trade_date),
+  computed(() => form.type === "stock")
+);
 const feeRateDialogVisible = ref(false);
 const feeRateTableData = ref<any[]>([]); // 保留用于兼容，但主要使用 holdFeeDetails
 const holdFeeDetails = ref<any[]>([]); // 全仓持有分布
 const sellFeeData = ref<any[]>([]); // 指定份额分布
 const feeManuallyChanged = ref(false);
+const qtyTouched = ref(false);
 
 const { confirmDate, actualNavDate, calcConfirmAndNav, reset: resetTradeDate } =
   useFundTradeDate();
@@ -421,6 +424,12 @@ const placeholderText = computed(() => {
 const isOddLot = computed(() => {
   const total = maxQuantity.value;
   return total > 0 && total < stepForSecurity.value;
+});
+const showQtyHint = computed(() => {
+  if (!qtyTouched.value) return false;
+  const q = form.quantity;
+  if (q == null) return true;
+  return q < sellMin.value;
 });
 const sellEstimate = computed(() => {
   const q = form.quantity || 0;
@@ -483,28 +492,7 @@ const validateQuantity = (_rule: any, value: any, callback: any) => {
   }
 };
 
-// 股票成交价区间校验：用户手输的成交价明显偏离当日 [low, high] 时，立即提示，
-// 绝不静默修正为最新价后再成交（#948 后续）。无区间数据（行情缺失）时放行，
-// 交由后端区间校验作为权威拦截。
-const validateStockPrice = (_rule: any, value: any, callback: any) => {
-  if (
-    form.type === "stock" &&
-    stockPriceRange.value &&
-    value != null &&
-    value > 0
-  ) {
-    const { low, high, date } = stockPriceRange.value;
-    if (value < low || value > high) {
-      callback(
-        new Error(
-          `成交价 ${value} 超出 ${date} 当日区间（${low} ~ ${high}），请核对后重新输入`
-        )
-      );
-      return;
-    }
-  }
-  callback();
-};
+// 股票成交价区间校验已统一到 useSecurityPrice.createStockPriceValidator（#948 统一约束）
 
 const rules: FormRules = {
   ledger_id: [{ required: true, message: "请选择账户", trigger: "change" }],
@@ -512,7 +500,15 @@ const rules: FormRules = {
     { required: true, message: "请选择持仓产品", trigger: "change" }
   ],
   quantity: [{ validator: validateQuantity, trigger: "blur" }],
-  price: [{ validator: validateStockPrice, trigger: "blur" }],
+  price: [
+    {
+      validator: createStockPriceValidator(
+        () => stockPriceRange.value,
+        () => form.type === "stock"
+      ),
+      trigger: "blur"
+    }
+  ],
   trade_date: [{ required: true, message: "请选择日期", trigger: "change" }]
 };
 
@@ -537,22 +533,16 @@ async function fetchPositionsByAccount() {
 
 // ---------- 交互方法 ----------
 function applySellQuickRatio(ratio: number) {
-  const total = maxQuantity.value;
-  if (ratio === 1) {
-    form.quantity = total;
-    return;
-  }
-  if (form.type === "fund") {
-    form.quantity = parseFloat((total * ratio).toFixed(4));
-    return;
-  }
-  const step = stepForSecurity.value;
-  let target = Math.floor((total * ratio) / step) * step;
-  if (target < step && total >= step) target = step;
-  form.quantity = Math.min(target, total);
+  form.quantity = calcSellQuantityByRatio(
+    ratio,
+    maxQuantity.value,
+    form.type,
+    stepForSecurity.value
+  );
 }
 
 function clearFormData() {
+  qtyTouched.value = false;
   showPositionSelect.value = false;
   nextTick(() => {
     const currentLedgerId = form.ledger_id;
@@ -592,23 +582,12 @@ function onPositionSelect(positionId: number) {
   form.currency = pos.currency;
   form.price = pos.current_price ?? pos.avg_price;
   form.quantity = undefined;
+  qtyTouched.value = false;
   form.fee = 0;
   feeManuallyChanged.value = false;
   resetTradeDate();
   calculateFeeAndRate();
-
-  // 股票：拉取最近交易日价格区间用于卖出价校验（#948）
-  if (pos.type === "stock") {
-    getSecurityPriceRange(pos.symbol)
-      .then(res => {
-        stockPriceRange.value = res?.data ?? null;
-      })
-      .catch(() => {
-        stockPriceRange.value = null;
-      });
-  } else {
-    stockPriceRange.value = null;
-  }
+  // 股票价格区间由 useSecurityPriceRange 随持仓/交易日自动刷新（#948 统一约束）
 }
 
 // fetchConfirmAndNavDate 已移至 useFundTradeDate composable，与其他组件共用
@@ -769,20 +748,15 @@ async function handleSubmit() {
     return;
   }
 
-  // 股票价格区间校验（#948）：有行情数据时限制卖出价在当日 low~high 内
-  if (
-    form.type === "stock" &&
-    stockPriceRange.value &&
-    form.price != null &&
-    form.price > 0
-  ) {
-    const { low, high, date: rangeDate } = stockPriceRange.value;
-    if (form.price < low || form.price > high) {
-      ElMessage.error(
-        `价格超出 ${rangeDate} 交易日区间（${low} ~ ${high}），请核对后重新输入`
-      );
-      return;
-    }
+  // 股票价格区间校验（#948）：统一走 useSecurityPrice.checkPriceInRange
+  const priceErr = checkPriceInRange(
+    form.price ?? 0,
+    stockPriceRange.value,
+    form.type === "stock"
+  );
+  if (priceErr) {
+    ElMessage.error(priceErr);
+    return;
   }
 
   const body = {
@@ -845,16 +819,7 @@ watch(
         form.price = result.nav;
       }
     }
-    // 股票：交易日变化时刷新价格区间（#948）
-    if (selectedPosition.value.type === "stock" && form.trade_date) {
-      getSecurityPriceRange(selectedPosition.value.symbol, form.trade_date)
-        .then(res => {
-          stockPriceRange.value = res?.data ?? null;
-        })
-        .catch(() => {
-          stockPriceRange.value = null;
-        });
-    }
+    // 股票价格区间由 useSecurityPriceRange 随持仓/交易日自动刷新（#948 统一约束）
   }
 );
 
@@ -891,8 +856,9 @@ defineExpose({ handleSubmit, resetForm });
 }
 
 .quick-ratio-btn {
-  height: 40px;
-  padding: 0 16px;
+  height: 28px;
+  padding: 0 8px;
+  font-size: 0.75rem;
   font-weight: 500;
   color: var(--text-secondary);
   background-color: transparent;
