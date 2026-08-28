@@ -661,16 +661,13 @@ class ImportOrchestrator:
                             entry_status = 'pending_cash'
                             data['account_name'] = data.get('account_name', '')
                         else:
-                            # #1067 现金归属口径（按用户决策）：
-                            # 1) 目标账本已绑定现金账户（linked_cash_ledger_id 指向 bank 类账本）→ 现金落该 bank；
-                            # 2) 未绑定 → 跟随目标账本本身（跨账本重导场景，现金挂目标证券/基金账本，
-                            #    由 #1065 的 (ledger_id, import_hash) 复合约束自然去重，避免旧逻辑强制塞 bank 撞车）。
-                            cash_ledger = self._resolve_linked_cash_ledger(target_ledger)
-                            if cash_ledger:
-                                data['ledger_id'] = cash_ledger.id
-                                data['account_name'] = cash_ledger.name
-                            else:
-                                data['account_name'] = target_ledger.name
+                            # #1067 现金归属口径（2026-08-29 修正，见 issue #1137）：
+                            # 卖出/赎回/分红/货基等回款一律「留在投资账本本身」，不再改写 ledger_id 到
+                            # 绑定的现金账户。银证转账是用户**显式**操作，系统自动搬账等价于凭空生成
+                            # 一笔银证转账，会扭曲真实资金流。
+                            # 仅 #1010 的显式转账行（is_cash_transfer）才在银行侧生成反向流水。
+                            # 跨账本重导场景由 #1065 的 (ledger_id, import_hash) 复合约束自然去重。
+                            data['account_name'] = target_ledger.name
                         # net_amount 转换为分
                         amount_cents = Money.yuan_to_cents(abs(data['net_amount']))
                         TransactionService.create(
