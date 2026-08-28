@@ -26,6 +26,8 @@ from app.core.exceptions import ErrorCode, SBException
 from app.core.money import Money
 from app.core.symbol_utils import get_normalizer
 from app.core.utils import get_confirm_date
+from app.domains.funds.models import Fund
+from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, PositionImportMeta
 from app.domains.transactions.models import Transaction
 from app.services.async_backfill import trigger_backfill
@@ -54,6 +56,58 @@ _ALLOWED_POSITION_FIELDS = {
     'source_import_id',
     'source_broker',
 }
+
+
+def auto_purchase_money_fund(
+    db: Session,
+    ledger_id: Optional[int],
+    amount_cents: int,
+    trade_date=None,
+    confirm_date=None,
+    family_id: int = 1,
+) -> None:
+    """#1137 卖出/赎回回款自动申购账户绑定的类现金产品（「余额宝」）。
+
+    仅在账户显式开启 `auto_purchase_money_fund` 且绑定了有效货基时执行——
+    遵循「用户不操作，系统不代劳」，开关由用户在账户设置里自行开启。
+
+    - 回款净额 <= 0 时不申购；
+    - 生成**孤儿流水**（asset_type='money_fund'）：货基不建持仓，与导入器、
+      `money_fund_income` 的既有口径一致（货基市值按流水净额计入总资产）；
+    - 调用方须自行排除货基 / 逆回购自身的卖出，避免「赎回 → 自动申购」死循环
+      （货基卖出在 `process_orphan_sell_or_withdraw` 里走现金转移分支，不进入本函数）。
+
+    失败（绑定产品缺失等）仅告警不抛出：自动申购是增值行为，不应阻断卖出主流程。
+    """
+    if not ledger_id or amount_cents <= 0:
+        return
+    ledger = db.query(Ledger).filter_by(id=ledger_id, family_id=family_id).first()
+    if not ledger or not ledger.auto_purchase_money_fund or not ledger.linked_money_fund_id:
+        return
+    fund = db.get(Fund, ledger.linked_money_fund_id)
+    if not fund:
+        logger.warning(f'账户 {ledger_id} 绑定的类现金产品 {ledger.linked_money_fund_id} 不存在，跳过自动申购')
+        return
+    TransactionService.create(
+        db=db,
+        position_id=None,
+        symbol=fund.fund_code,
+        txn_type='buy',
+        trade_date=trade_date,
+        confirm_date=confirm_date,
+        asset_type='money_fund',
+        quantity=0,
+        price=0,
+        fee=0,
+        amount=amount_cents,
+        status='success',
+        position_name=fund.name,
+        ledger_id=ledger.id,
+        account_name=ledger.name,
+        notes='卖出回款自动申购类现金产品',
+        entry_status='orphan',
+        family_id=family_id,
+    )
 
 
 def _get_asset_type(data: dict, default: str = 'stock') -> str:
@@ -504,6 +558,8 @@ class PositionService:
         try:
             position_name = existing.name
             account_name = existing.account_name
+            # 卖出清空持仓时会 delete，ledger_id 需提前取出（#1137 自动申购要用）
+            ledger_id = existing.ledger_id
             existing.quantity -= qty_units
 
             is_cleared = existing.quantity == 0
@@ -528,12 +584,26 @@ class PositionService:
                 amount=Money.multiply_price_quantity(price_units, qty_units),
                 status='success',
                 position_name=position_name,
-                ledger_id=existing.ledger_id,
+                ledger_id=ledger_id,
                 account_name=account_name,
                 notes=data.get('notes') or ('卖出' if op_type == 'sell' else '取出'),
                 import_hash=data.get('import_hash'),
                 family_id=data.get('family_id', 1),
             )
+
+            # #1137 卖出回款自动申购账户绑定的类现金产品（余额宝）。
+            # 净额 = 成交额 - 手续费；货基/逆回购自身的卖出不触发，避免「赎回 → 自动申购」死循环。
+            if _get_asset_type(data) not in ('money_fund', 'reverse_repo'):
+                gross_cents = Money.multiply_price_quantity(price_units, qty_units)
+                fee_cents = Money.yuan_to_cents(float(data.get('fee', 0) or 0))
+                auto_purchase_money_fund(
+                    db,
+                    ledger_id=ledger_id,
+                    amount_cents=gross_cents - fee_cents,
+                    trade_date=data.get('trade_date'),
+                    confirm_date=data.get('confirm_date'),
+                    family_id=data.get('family_id', 1),
+                )
 
             db.flush()
             if is_cleared:
