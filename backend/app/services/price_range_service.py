@@ -4,6 +4,9 @@
 1. ``GET /api/securities/<symbol>/price-range/`` 端点（含实时兜底，供前端展示）。
 2. 交易创建时的后端区间校验（默认仅本地 PriceHistory，避免写路径引入网络依赖）。
 
+实时兜底链：本地 PriceHistory 缺失时，优先腾讯财经(qt.gtimg.cn) 实时行情（仅当日），
+不可达或历史日再退 akshare 新浪日线；任一不可达均降级为 ``None``，不阻塞主流程。
+
 返回结构与前端 ``getSecurityPriceRange`` 保持一致：
 ``{symbol, date, low, high, close}``；无数据时返回 ``None``。
 """
@@ -11,6 +14,8 @@
 from __future__ import annotations
 
 import os
+import re
+import urllib.request
 from datetime import date as _date
 from datetime import datetime
 from typing import Optional
@@ -64,6 +69,48 @@ def fetch_live_price_range(symbol: str, target: Optional[_date]) -> Optional[dic
         return None
 
 
+def fetch_tencent_price_range(symbol: str, target: Optional[_date]) -> Optional[dict]:
+    """腾讯财经实时行情兜底（qt.gtimg.cn），仅覆盖当日（target 为 None 或今天）。
+
+    历史交易日无法用实时接口获取，交由 akshare 历史日线兜底。
+    返回 ``{symbol, date, low, high, close}`` 或 ``None``；任何异常/解析失败均降级为 ``None``。
+    """
+    today = _date.today()
+    if target is not None and target != today:
+        return None  # 实时行情只能给今天，历史日交给 akshare
+    if os.environ.get('FUNDMATE_NO_LIVE_PRICE_FALLBACK'):
+        return None
+    prefix = symbol[:2].lower() + symbol[2:]  # SH600519 -> sh600519
+    url = f'https://qt.gtimg.cn/q={prefix}'
+    try:
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            body = resp.read().decode('gbk', errors='ignore')
+        m = re.search(r'="([^"]*)"', body)
+        if not m:
+            return None
+        parts = m.group(1).split('~')
+        if len(parts) < 35:
+            return None
+        high = float(parts[33])
+        low = float(parts[34])
+        close = float(parts[3])
+        if low <= 0 or high <= 0 or low > high:
+            return None
+        return {
+            'symbol': symbol,
+            'date': today.isoformat(),
+            'low': low,
+            'high': high,
+            'close': close,
+        }
+    except Exception as e:  # noqa: BLE001 - 兜底抓取失败属预期内
+        from loguru import logger
+
+        logger.warning(f'腾讯财经实时行情兜底失败 {symbol}: {e}')
+        return None
+
+
 def resolve_security_price_range(
     symbol: str,
     target_date: Optional[str] = None,
@@ -99,6 +146,10 @@ def resolve_security_price_range(
                 'close': float(row.close) if row.close is not None else None,
             }
 
-    if use_live_fallback:
-        return fetch_live_price_range(query_symbol, target)
-    return None
+    if not use_live_fallback:
+        return None
+    # 实时兜底链：腾讯财经实时行情优先（仅当日），历史日或腾讯不可达再退 akshare 新浪日线。
+    tencent = fetch_tencent_price_range(query_symbol, target)
+    if tencent:
+        return tencent
+    return fetch_live_price_range(query_symbol, target)

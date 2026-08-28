@@ -217,3 +217,51 @@ class TestBackendPriceRangeInterception:
             },
         )
         assert resp.status_code == 200
+
+
+class TestPriceRangeFallbackChain:
+    """实时兜底链：腾讯财经优先（仅当日），历史日退 akshare（mock 验证，避免依赖网络）。"""
+
+    def test_tencent_preferred_for_today(self, db, monkeypatch):
+        from app.services.price_range_service import resolve_security_price_range
+
+        _seed_security(db, 'SH600519')
+        today = date.today().isoformat()
+        tencent = {'symbol': 'SH600519', 'date': today, 'low': 10.0, 'high': 20.0, 'close': 15.0}
+        akshare = {'symbol': 'SH600519', 'date': today, 'low': 1.0, 'high': 2.0, 'close': 1.5}
+        monkeypatch.setattr('app.services.price_range_service.fetch_tencent_price_range', lambda s, t: tencent)
+        monkeypatch.setattr('app.services.price_range_service.fetch_live_price_range', lambda s, t: akshare)
+        # 本地无 PriceHistory → 走实时兜底，腾讯优先
+        assert resolve_security_price_range('SH600519', today, use_live_fallback=True) == tencent
+
+    def test_akshare_used_for_past_date(self, db, monkeypatch):
+        from app.services.price_range_service import resolve_security_price_range
+
+        _seed_security(db, 'SH600519')
+        akshare = {'symbol': 'SH600519', 'date': '2026-06-15', 'low': 10.0, 'high': 20.0, 'close': 15.0}
+        tencent = {'symbol': 'SH600519', 'date': date.today().isoformat(), 'low': 1.0, 'high': 2.0, 'close': 1.5}
+        # 真实 fetch_tencent_price_range 仅当日有效；mock 复刻该约束，历史日返回 None
+        monkeypatch.setattr(
+            'app.services.price_range_service.fetch_tencent_price_range',
+            lambda s, t: tencent if t == date.today() else None,
+        )
+        monkeypatch.setattr('app.services.price_range_service.fetch_live_price_range', lambda s, t: akshare)
+        # 历史日：腾讯实时不适用 → 应取 akshare 历史日线
+        assert resolve_security_price_range('SH600519', '2026-06-15', use_live_fallback=True) == akshare
+
+    def test_no_fallback_when_disabled(self, db, monkeypatch):
+        from app.services.price_range_service import resolve_security_price_range
+
+        _seed_security(db, 'SH600519')
+        monkeypatch.setattr(
+            'app.services.price_range_service.fetch_tencent_price_range',
+            lambda s, t: {
+                'symbol': 'SH600519',
+                'date': date.today().isoformat(),
+                'low': 1.0,
+                'high': 2.0,
+                'close': 1.5,
+            },
+        )
+        # use_live_fallback=False → 即便有兜底函数也不调用，本地无数据则 None
+        assert resolve_security_price_range('SH600519', date.today().isoformat(), use_live_fallback=False) is None
