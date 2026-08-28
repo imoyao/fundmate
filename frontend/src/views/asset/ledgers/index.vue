@@ -132,6 +132,34 @@
         />
       </div>
 
+      <!-- 场外基金（含E账户）聚合汇总卡：整卡可点下钻至聚合视图 -->
+      <div
+        class="overview-card fund-summary-card mb-6"
+        role="button"
+        tabindex="0"
+        @click="goToFundAggregation"
+        @keydown.enter="goToFundAggregation"
+      >
+        <div class="flex justify-between items-center gap-4 flex-wrap">
+          <div class="min-w-0">
+            <p class="text-sm" :style="{ color: 'var(--text-tertiary)' }">
+              场外基金（含E账户）
+            </p>
+            <div class="mt-1">
+              <MoneyDisplay
+                :value="fundTotalYuan"
+                size="lg"
+                :show-sign="false"
+                :auto-color="false"
+              />
+            </div>
+          </div>
+          <el-button type="primary" plain @click.stop="goToFundAggregation">
+            <IconifyIconOffline icon="ep:right" class="mr-1" /> 查看明细
+          </el-button>
+        </div>
+      </div>
+
       <!-- 未归置持仓清理套件（#984 拆分至 components/OrphanCleanupDialogs.vue）：
            banner + 归入对话框 + 明细对话框 -->
       <OrphanCleanupDialogs
@@ -252,6 +280,7 @@ import {
   archiveLedger,
   unarchiveLedger,
   reorderLedgers,
+  getFundAggregation,
   type SalesInstitution
 } from "@/api/ledger";
 import Sortable from "sortablejs";
@@ -282,6 +311,10 @@ const overviewData = ref<{
   groups: []
 });
 const lastUpdate = ref("");
+
+/** 场外基金（含E账户）聚合总市值（分，整数）；独立获取，失败不影响主账户列表 */
+const fundTotalCents = ref(0);
+const fundTotalYuan = computed(() => fundTotalCents.value / 100);
 
 const showCreateDialog = ref(false);
 /** 创建弹窗初始账户类型：顶部「新增账户」默认 stock；分组幽灵按钮预置对应类型（#1082） */
@@ -522,6 +555,11 @@ function goToDetail(ledger: any) {
   router.push({ name: "LedgerDetail", params: { id: ledger.id } });
 }
 
+/** 下钻到场外基金（含E账户）聚合视图 */
+function goToFundAggregation() {
+  router.push({ name: "fund-aggregation" });
+}
+
 async function fetchData() {
   loading.value = true;
   try {
@@ -556,6 +594,19 @@ async function fetchData() {
     ElMessage.error(e?.message || "加载失败");
   } finally {
     loading.value = false;
+  }
+  // 独立获取场外基金（含E账户）聚合总市值：与账户列表解耦，失败静默兜底不阻塞主列表
+  fetchFundTotal();
+}
+
+/** 独立获取场外基金聚合总市值（GET /api/ledgers/fund-aggregation/）。
+ *  汇总值与维度无关（始终为全量场外基金市值），故用默认 product 维度取一次即可。 */
+async function fetchFundTotal() {
+  try {
+    const res = await getFundAggregation("product");
+    fundTotalCents.value = res.data?.total_market_value_cents ?? 0;
+  } catch {
+    fundTotalCents.value = 0;
   }
 }
 
@@ -655,6 +706,22 @@ onMounted(() => {
 .net-worth-card {
   display: flex;
   flex-direction: column;
+}
+
+/* 场外基金（含E账户）汇总卡：整卡可点下钻，复用 overview-card 视觉语言 */
+.fund-summary-card {
+  cursor: pointer;
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.fund-summary-card:hover {
+  box-shadow: var(--shadow-float);
+  border-color: var(--border-strong);
+}
+
+.fund-summary-card:focus-visible {
+  box-shadow: var(--focus-ring);
+  outline: none;
 }
 
 /* 负债率偏高警示：负债属中性信息，警示态才用系统危险色（非涨跌色） */

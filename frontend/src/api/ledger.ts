@@ -440,3 +440,76 @@ export function deleteLedgerTransaction(
     `/api/ledgers/${ledgerId}/transactions/${transactionId}/`
   );
 }
+
+// ── 基金E账户聚合视图（#1101）──
+// 聚合家族内全部场外基金持仓（含 E 账户），供资产概览卡片与下钻页使用。
+// 金额字段单位均为「分」（整数），前端展示需 /100 转「元」交给 MoneyDisplay；
+// 份额字段 quantity 为 Position.quantity 原始最小单位（份×10000），前端需 /10000 转可读份额。
+
+/** 基金聚合维度 */
+export type FundAggregationDimension = "product" | "institution" | "app";
+
+/** 聚合来源项：product 维度的 sources 与 institution/app 维度的 items 共用同一形状 */
+export interface FundAggregationSource {
+  ledger_id: number;
+  ledger_name: string | null;
+  /** 市值（分，整数） */
+  market_value_cents: number;
+  /** 份额（最小单位 份×10000） */
+  quantity: number;
+}
+
+/** product 维度分组：按基金代码聚合 */
+export interface FundAggregationProductGroup {
+  symbol: string;
+  name: string;
+  /** 市值（分，整数） */
+  market_value_cents: number;
+  /** 份额合计（最小单位 份×10000） */
+  quantity: number;
+  sources: FundAggregationSource[];
+}
+
+/** institution 维度分组：按销售机构聚合（key 为 sales_institution_id，无关联为 "unknown"） */
+export interface FundAggregationInstitutionGroup {
+  key: number | "unknown";
+  /** 市值（分，整数） */
+  market_value_cents: number;
+  items: FundAggregationSource[];
+}
+
+/** app 维度分组：按交易前端聚合（key 为 ledger.frontend_app，缺省 "self"） */
+export type FundAggregationAppKey =
+  | "tonghuashun"
+  | "eastmoney"
+  | "self"
+  | "other";
+
+export interface FundAggregationAppGroup {
+  key: FundAggregationAppKey;
+  /** 市值（分，整数） */
+  market_value_cents: number;
+  items: FundAggregationSource[];
+}
+
+/** 基金聚合结果（GET /api/ledgers/fund-aggregation/） */
+export interface FundAggregationResult {
+  /** 汇总市值（分，整数） */
+  total_market_value_cents: number;
+  dimension: FundAggregationDimension;
+  groups:
+    | FundAggregationProductGroup[]
+    | FundAggregationInstitutionGroup[]
+    | FundAggregationAppGroup[];
+}
+
+/** 获取基金E账户聚合视图（默认按基金维度） */
+export function getFundAggregation(
+  dimension: FundAggregationDimension = "product"
+) {
+  return http.request<ApiResponse<FundAggregationResult>>(
+    "get",
+    "/api/ledgers/fund-aggregation/",
+    { params: { dimension } }
+  );
+}
