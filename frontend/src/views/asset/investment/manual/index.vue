@@ -277,7 +277,7 @@ const newAccountName = ref("");
 const newAccountType = ref("");
 const creatingAccount = ref(false);
 const quickAddTypeOptions = LEDGER_TYPE_OPTIONS.filter(
-  opt => opt.value !== "property"
+  opt => opt.value !== "other"
 );
 
 const currentLedgerType = computed(() => {

@@ -18,6 +18,11 @@ from app.core.constants import ALLOCATION_LABELS, LEDGER_TYPE_LABELS
 from app.core.database import get_db
 from app.core.money import Money
 from app.domains.assets.models import Asset
+from app.domains.ledgers.constants import (
+    map_channel_category_to_ledger_type,
+    map_ledger_type_to_channel_category,
+    map_org_type_to_channel_category,
+)
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, PositionImportMeta, SalesInstitution
 from app.domains.positions.views import enrich_position_dict
@@ -54,6 +59,8 @@ def _ledger_to_dict(ledger: Ledger, last_used_at=None) -> dict:
         'is_aggregation': ledger.is_aggregation,
         'frontend_app': ledger.frontend_app,
         'is_active': ledger.is_active,
+        # 渠道分类（#1101 重设计，铁律见设计文档 §2.3）：用户可见分组/类型标签，只读本字段做展示。
+        'channel_category': ledger.channel_category,
         # 组内手动排序序号；null 表示用户尚未手动排序（前端回退按持仓金额降序）。
         'display_order': ledger.display_order,
         'created_at': ledger.created_at.isoformat() if ledger.created_at else None,
@@ -142,15 +149,18 @@ def create_ledger():
         abort(400, '账户名称不能为空')
 
     ledger_type = data.get('ledger_type', 'bank')
+    channel_category = data.get('channel_category')
     linked_cash_id = data.get('linked_cash_ledger_id')
     sales_institution_id = data.get('sales_institution_id')
 
     # 校验关联的销售机构（可选）：机构是全局 AMAC 名录，无 family 归属
+    institution_org_type = None
     if sales_institution_id is not None:
         with get_db() as db:
             institution = db.query(SalesInstitution).filter_by(id=sales_institution_id).first()
             if not institution:
                 return jsonify({'data': None, 'message': '关联的销售机构不存在'}), 400
+            institution_org_type = institution.org_type
 
     # 校验关联的现金账户
     if linked_cash_id is not None:
@@ -161,10 +171,23 @@ def create_ledger():
             if not cash_ledger or cash_ledger.family_id != get_family_id():
                 return jsonify({'data': None, 'message': '关联的现金账户不存在或类型不是现金账户'}), 400
 
+    # 派生 channel_category / ledger_type（#1101 渠道分类重设计，铁律见设计文档 §2.3）：
+    #   - 显式给了 channel_category → 以它为准，并据其反推 ledger_type（手动账本路径）；
+    #   - 否则有销售机构 → 以 org_type 映射为准（权威，覆盖 ledger_type 的展示语义）；
+    #   - 否则按 ledger_type 反推 channel_category（向后兼容旧调用方）。
+    # 注意：ledger_type 仍保留作计算口径键，channel_category 才是用户可见分组/标签。
+    if channel_category:
+        ledger_type = map_channel_category_to_ledger_type(channel_category)
+    elif institution_org_type:
+        channel_category = map_org_type_to_channel_category(institution_org_type)
+    elif ledger_type:
+        channel_category = map_ledger_type_to_channel_category(ledger_type)
+
     with get_db() as db:
         ledger = Ledger(
             name=name,
             ledger_type=ledger_type,
+            channel_category=channel_category,
             default_allocation=data.get('default_allocation', 'longterm'),
             notes=data.get('notes', ''),
             portfolio_id=data.get('portfolio_id'),
@@ -382,6 +405,12 @@ def update_ledger(ledger_id: int):
                     return jsonify({'data': None, 'message': '关联的销售机构不存在'}), 400
             # 无论值是否为 None，均更新
             ledger.sales_institution_id = sales_institution_id
+
+        # 更新 channel_category（用户可见分组/类型标签，#1101 重设计）。
+        # 注：本字段通常由系统维护（建账/导入时由 org_type 或用户选分组推导），
+        # 此处允许显式写入以兼容前端直接设置分组；不反向改写 ledger_type（计算口径键）。
+        if 'channel_category' in data:
+            ledger.channel_category = data['channel_category']
 
         # 更新 fee_config
         if 'fee_config' in data:

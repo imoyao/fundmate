@@ -235,11 +235,11 @@
         <button
           type="button"
           class="ghost-add"
-          :aria-label="`新增${getLedgerTypeLabel(group.type)}`"
+          :aria-label="`新增${getChannelCategoryLabel(group.type)}`"
           @click="openCreateDialog(group.type)"
         >
           <IconifyIconOffline icon="ep:plus" class="ghost-add__icon" />
-          <span>新增{{ getLedgerTypeLabel(group.type) }}</span>
+          <span>新增{{ getChannelCategoryLabel(group.type) }}</span>
         </button>
       </div>
       </div>
@@ -287,7 +287,7 @@ import Sortable from "sortablejs";
 import { getPortfolios } from "@/api/portfolio";
 import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
-import { getLedgerTypeLabel } from "@/constants";
+import { getChannelCategoryLabel } from "@/constants";
 import { formatDateTime } from "@/utils/date";
 import DeleteLedgerDialog from "./components/DeleteLedgerDialog.vue";
 import CreateAccountDialog from "./components/CreateAccountDialog.vue";
@@ -317,8 +317,8 @@ const fundTotalCents = ref(0);
 const fundTotalYuan = computed(() => fundTotalCents.value / 100);
 
 const showCreateDialog = ref(false);
-/** 创建弹窗初始账户类型：顶部「新增账户」默认 stock；分组幽灵按钮预置对应类型（#1082） */
-const initialCreateType = ref("stock");
+/** 创建弹窗初始渠道分组：顶部「新增账户」默认 bank；分组幽灵按钮预置对应渠道分组 */
+const initialCreateType = ref("bank");
 /** 基金销售机构候选（AMAC 名录，创建账户可选关联） */
 const salesInstitutions = ref<SalesInstitution[]>([]);
 
@@ -368,15 +368,27 @@ const orphanGroup = computed(() =>
   overviewData.value?.groups?.find((g: any) => g.type === "deleted")
 );
 
-// 分组展示（按类型分组，组内排序）：手动排序序号优先，回退按持仓金额降序（#1083）
+// 分组展示（按渠道分组 channel_category，组内排序）：手动排序序号优先，回退按持仓金额降序（#1083）
+// 旧数据可能无 channel_category，按 legacy ledger_type 映射兜底到对应渠道分组。
+const LEGACY_TYPE_TO_CHANNEL: Record<string, string> = {
+  bank: "bank",
+  stock: "securities",
+  fund: "fund_platform",
+  property: "other"
+};
+function channelOf(ledger: any): string {
+  if (ledger.channel_category) return ledger.channel_category;
+  return LEGACY_TYPE_TO_CHANNEL[ledger.ledger_type] || "other";
+}
+
 function buildGroups(ledgers: any[]) {
   const groups: Record<string, any> = {};
   for (const ledger of ledgers) {
-    const type = ledger.ledger_type || "bank";
+    const type = channelOf(ledger);
     if (!groups[type]) {
       groups[type] = {
         type,
-        label: getLedgerTypeLabel(type),
+        label: getChannelCategoryLabel(type),
         total: 0,
         count: 0,
         ledgers: [] as any[]
@@ -387,8 +399,9 @@ function buildGroups(ledgers: any[]) {
     groups[type].ledgers.push(ledger);
   }
 
-  // 分组顺序来自本地偏好（groupOrder），默认 银行/证券/基金/实物资产
-  const result = groupOrder.value.map(type => groups[type]).filter(Boolean) as any[];
+  // 分组顺序来自本地偏好（groupOrder），默认 银行/证券/基金平台/保险/期货/其他；
+  // 仅保留实际有账户的分组（空分组不渲染）
+  const result = groupOrder.value.filter(type => groups[type]) as any[];
 
   // 未归置持仓不再作为分组卡片进入网格（2026-08 改版），统一由顶部警示 banner 承接
   // 组内排序：已手动排序（display_order 非 null）的卡片按 display_order 升序排在前面，
@@ -409,7 +422,14 @@ const displayedGroups = ref<any[]>([]);
 
 // ── 分组顺序（纯视图偏好，存 localStorage，不落库；与组内卡片排序分层）──
 const GROUP_ORDER_KEY = "fundmate:ledgerGroupOrder:v1";
-const DEFAULT_GROUP_ORDER = ["bank", "stock", "fund", "property"];
+const DEFAULT_GROUP_ORDER = [
+  "bank",
+  "securities",
+  "fund_platform",
+  "insurance",
+  "futures",
+  "other"
+];
 function loadGroupOrder(): string[] {
   try {
     const raw = localStorage.getItem(GROUP_ORDER_KEY);
@@ -505,18 +525,22 @@ function onLedgerDragEnd(type: string, evt: any) {
   if (!moved) return;
   arr.splice(newIndex, 0, moved);
   const orderedIds = arr.map((l: any) => l.id);
+  // 落库按真实 ledger_type 排序（channel_category 由 ledger_type 派生，组内 ledger_type 一致）
+  const ledgerType = group.ledgers[0]?.ledger_type ?? type;
   // 乐观更新已在 UI 生效；落库失败则回填并重拉，保证最终一致
-  reorderLedgers(type, orderedIds).catch(() => {
+  reorderLedgers(ledgerType, orderedIds).catch(() => {
     ElMessage.error("排序保存失败，已恢复");
     fetchData();
   });
 }
 
 
-function openCreateDialog(ledgerType?: string) {
-  // 显式传 undefined 时回退默认 stock，避免点击事件对象被误当类型参数
+function openCreateDialog(channelCategory?: string) {
+  // 显式传 undefined 时回退默认 bank，避免点击事件对象被误当类型参数
   initialCreateType.value =
-    ledgerType && typeof ledgerType === "string" ? ledgerType : "stock";
+    channelCategory && typeof channelCategory === "string"
+      ? channelCategory
+      : "bank";
   showCreateDialog.value = true;
 }
 
