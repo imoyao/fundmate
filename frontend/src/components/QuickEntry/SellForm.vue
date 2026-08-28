@@ -803,22 +803,23 @@ function resetForm() {
 }
 
 // ---------- 监听 ----------
+// 交易日期/15点后/标的 变化：基金拉取当日净值回填，股票刷新价格区间。
+// 不依赖 form.price，避免回填净值时触发自身监听造成循环或覆盖用户手动改价。
 watch(
-  [
-    () => form.trade_date,
-    () => form.isAfter15,
-    () => form.quantity,
-    () => form.price
-  ],
-  () => {
+  [() => form.trade_date, () => form.isAfter15, () => selectedPosition.value],
+  async () => {
     if (!selectedPosition.value) return;
     if (form.type === "fund" && form.trade_date) {
-      calcConfirmAndNav({
+      const pos = selectedPosition.value;
+      const result = await calcConfirmAndNav({
         tradeDate: form.trade_date,
+        symbol: pos.symbol,
         isAfter15: form.isAfter15
       });
+      if (result?.nav != null) {
+        form.price = result.nav;
+      }
     }
-    calculateFeeAndRate();
     // 股票：交易日变化时刷新价格区间（#948）
     if (selectedPosition.value.type === "stock" && form.trade_date) {
       getSecurityPriceRange(selectedPosition.value.symbol, form.trade_date)
@@ -829,6 +830,15 @@ watch(
           stockPriceRange.value = null;
         });
     }
+  }
+);
+
+// 价格/数量/交易日期变化：重算费用与费率（与净值回填解耦，避免循环）。
+watch(
+  [() => form.price, () => form.quantity, () => form.trade_date, () => form.isAfter15],
+  () => {
+    if (!selectedPosition.value) return;
+    calculateFeeAndRate();
   }
 );
 
