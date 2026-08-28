@@ -152,7 +152,7 @@
             color:
               (positionData?.pnl_rate ?? 0) >= 0
                 ? 'var(--color-danger)'
-                : 'var(--color-success)',
+                : 'var(--color-success)'
           }"
         >
           {{

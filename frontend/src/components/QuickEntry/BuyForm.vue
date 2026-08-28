@@ -343,7 +343,11 @@ import type { FormInstance, FormRules } from "element-plus";
 import { usePositionSubmit } from "@/composables/usePositionSubmit";
 import { createLedger as createLedgerApi, type LedgerItem } from "@/api/ledger";
 import { searchSecurities } from "@/api/securities";
-import { useSecurityPriceRange, createStockPriceValidator, checkPriceInRange } from "@/composables/useSecurityPrice";
+import {
+  useSecurityPriceRange,
+  createStockPriceValidator,
+  checkPriceInRange
+} from "@/composables/useSecurityPrice";
 import { searchFunds, getFundFeeRates } from "@/api/funds";
 import type { FundSearchItem } from "@/api/funds";
 import { checkTradingDay } from "@/api/utils";
@@ -425,11 +429,12 @@ const searchLoading = ref(false);
 const securityOptions = ref<SecurityOption[]>([]);
 const selectedSecurityOption = ref<SecurityOption | null>(null);
 // 股票价格区间（#948）：随标的/交易日自动刷新，统一走 useSecurityPriceRange
-const { priceRange: stockPriceRange, refresh: refreshStockRange } = useSecurityPriceRange(
-  computed(() => selectedSecurityOption.value?.symbol),
-  computed(() => form.trade_date),
-  computed(() => selectedSecurityOption.value?.type === "stock")
-);
+const { priceRange: stockPriceRange, refresh: refreshStockRange } =
+  useSecurityPriceRange(
+    computed(() => selectedSecurityOption.value?.symbol),
+    computed(() => form.trade_date),
+    computed(() => selectedSecurityOption.value?.type === "stock")
+  );
 
 // 🔥 修复2：移除 feeRateValue，直接用 form.fee 管理所有模式下的输入
 const feeMode = ref<"amount" | "rate">("amount");
@@ -488,7 +493,9 @@ const rules: FormRules = {
   trade_date: [{ required: true, message: "请选择日期", trigger: "change" }],
   buyAmount: [{ required: true, message: "请输入买入金额", trigger: "blur" }],
   shares: [{ required: true, message: "确认份额不能为空", trigger: "blur" }],
-  allocation: [{ required: true, message: "请选择配置目标", trigger: "change" }],
+  allocation: [
+    { required: true, message: "请选择配置目标", trigger: "change" }
+  ],
   price: [
     {
       validator: createStockPriceValidator(

@@ -174,74 +174,86 @@
           v-for="group in displayedGroups"
           :key="group.type"
           class="mb-8 ledger-group"
-          :class="{ 'ledger-group--dragging': group.type === draggingGroupType }"
+          :class="{
+            'ledger-group--dragging': group.type === draggingGroupType
+          }"
         >
-        <div class="flex items-center justify-between mb-3">
-          <div class="flex items-center gap-1 min-w-0">
-            <!-- 分组拖拽抓手：与卡片抓手视觉/作用域分离，hover/focus 显示，拖拽整个分组（分组顺序存 localStorage） -->
-            <span
-              class="group-drag-handle"
-              role="button"
-              tabindex="-1"
-              :title="`拖动调整分组顺序：${group.label}`"
-              @click.stop
-              @keydown.enter.stop
-            >
-              <!-- 分组拖拽：纵向三横线「块」抓手，暗示整段分组重排，与卡片四向箭头明确区分 -->
-              <svg class="drag-grip drag-grip--group" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-                <line x1="6" y1="6" x2="18" y2="6" />
-                <line x1="6" y1="12" x2="18" y2="12" />
-                <line x1="6" y1="18" x2="18" y2="18" />
-              </svg>
-            </span>
-            <h3
-              class="font-semibold text-base"
-              :style="{ color: 'var(--text-primary)' }"
-            >
-              {{ group.label }}
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-1 min-w-0">
+              <!-- 分组拖拽抓手：与卡片抓手视觉/作用域分离，hover/focus 显示，拖拽整个分组（分组顺序存 localStorage） -->
               <span
-                class="text-sm font-normal ml-2"
-                :style="{ color: 'var(--text-tertiary)' }"
+                class="group-drag-handle"
+                role="button"
+                tabindex="-1"
+                :title="`拖动调整分组顺序：${group.label}`"
+                @click.stop
+                @keydown.enter.stop
               >
-                (
-                {{ group.count }} 个账户 ·
-                <MoneyDisplay
-                  :value="group.total"
-                  :show-sign="false"
-                  :auto-color="false"
-                  size="xs"
-                />)
+                <!-- 分组拖拽：纵向三横线「块」抓手，暗示整段分组重排，与卡片四向箭头明确区分 -->
+                <svg
+                  class="drag-grip drag-grip--group"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  aria-hidden="true"
+                >
+                  <line x1="6" y1="6" x2="18" y2="6" />
+                  <line x1="6" y1="12" x2="18" y2="12" />
+                  <line x1="6" y1="18" x2="18" y2="18" />
+                </svg>
               </span>
-            </h3>
+              <h3
+                class="font-semibold text-base"
+                :style="{ color: 'var(--text-primary)' }"
+              >
+                {{ group.label }}
+                <span
+                  class="text-sm font-normal ml-2"
+                  :style="{ color: 'var(--text-tertiary)' }"
+                >
+                  (
+                  {{ group.count }} 个账户 ·
+                  <MoneyDisplay
+                    :value="group.total"
+                    :show-sign="false"
+                    :auto-color="false"
+                    size="xs"
+                  />)
+                </span>
+              </h3>
+            </div>
           </div>
-        </div>
 
-        <!-- 账户卡片：auto-fit 网格自动折叠空轨道，孤点分类不会产生右侧大片空白。
+          <!-- 账户卡片：auto-fit 网格自动折叠空轨道，孤点分类不会产生右侧大片空白。
              卡片展示细节已拆分至 components/LedgerCard.vue（#984）。
              网格绑定 data-ledger-type 供 sortablejs 按类型初始化拖拽（仅同组内可拖）。 -->
-        <div class="ledger-grid" :data-ledger-type="group.type">
-          <LedgerCard
-            v-for="ledger in group.ledgers"
-            :key="ledger.id"
-            :ledger="ledger"
-            @open="goToDetail"
-            @delete="openDeleteDialog"
-            @toggle-archive="onToggleArchive"
-          />
-        </div>
+          <div class="ledger-grid" :data-ledger-type="group.type">
+            <LedgerCard
+              v-for="ledger in group.ledgers"
+              :key="ledger.id"
+              :ledger="ledger"
+              @open="goToDetail"
+              @delete="openDeleteDialog"
+              @toggle-archive="onToggleArchive"
+            />
+          </div>
 
-        <!-- 幽灵态新增占位符：胶囊小按钮，高度恒定 44px，不撑满网格行。
+          <!-- 幽灵态新增占位符：胶囊小按钮，高度恒定 44px，不撑满网格行。
              携带分组类型打开弹窗，预置账户类型（#1082 入口预填） -->
-        <button
-          type="button"
-          class="ghost-add"
-          :aria-label="`新增${getChannelCategoryLabel(group.type)}`"
-          @click="openCreateDialog(group.type)"
-        >
-          <IconifyIconOffline icon="ep:plus" class="ghost-add__icon" />
-          <span>新增{{ getChannelCategoryLabel(group.type) }}</span>
-        </button>
-      </div>
+          <button
+            type="button"
+            class="ghost-add"
+            :aria-label="`新增${getChannelCategoryLabel(group.type)}`"
+            @click="openCreateDialog(group.type)"
+          >
+            <IconifyIconOffline icon="ep:plus" class="ghost-add__icon" />
+            <span>新增{{ getChannelCategoryLabel(group.type) }}</span>
+          </button>
+        </div>
       </div>
     </template>
 
@@ -492,7 +504,6 @@ function initGroupSortable() {
   });
 }
 
-
 // ── 拖拽排序（仅限同类型组内，#1083）──
 const sortables: Record<string, any> = {};
 function destroySortables() {
@@ -533,7 +544,6 @@ function onLedgerDragEnd(type: string, evt: any) {
     fetchData();
   });
 }
-
 
 function openCreateDialog(channelCategory?: string) {
   // 显式传 undefined 时回退默认 bank，避免点击事件对象被误当类型参数
@@ -735,7 +745,9 @@ onMounted(() => {
 /* 场外基金（含E账户）汇总卡：整卡可点下钻，复用 overview-card 视觉语言 */
 .fund-summary-card {
   cursor: pointer;
-  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+  transition:
+    box-shadow 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .fund-summary-card:hover {

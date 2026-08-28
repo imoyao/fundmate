@@ -145,7 +145,11 @@
           <template #default="{ row }">
             <div class="px-4 py-2">
               <el-table :data="row.items" size="small">
-                <el-table-column label="基金代码" prop="symbol" min-width="120" />
+                <el-table-column
+                  label="基金代码"
+                  prop="symbol"
+                  min-width="120"
+                />
                 <el-table-column label="基金名称" prop="name" min-width="200" />
                 <el-table-column label="账户" min-width="160">
                   <template #default="{ row: it }">
@@ -202,7 +206,11 @@
           <template #default="{ row }">
             <div class="px-4 py-2">
               <el-table :data="row.items" size="small">
-                <el-table-column label="基金代码" prop="symbol" min-width="120" />
+                <el-table-column
+                  label="基金代码"
+                  prop="symbol"
+                  min-width="120"
+                />
                 <el-table-column label="基金名称" prop="name" min-width="200" />
                 <el-table-column label="账户" min-width="160">
                   <template #default="{ row: it }">

@@ -28,10 +28,13 @@ export function usePositionSubmit() {
 
   /** 生成幂等键：优先 crypto.randomUUID，非安全上下文(纯 http)降级到 Math.random 实现。 */
   function genIdempotencyKey(): string {
-    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    if (
+      typeof crypto !== "undefined" &&
+      typeof crypto.randomUUID === "function"
+    ) {
       return crypto.randomUUID();
     }
-    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
       const r = (Math.random() * 16) | 0;
       const v = c === "x" ? r : (r & 0x3) | 0x8;
       return v.toString(16);

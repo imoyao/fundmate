@@ -1,6 +1,6 @@
-import { ref } from 'vue';
-import { calcFundConfirmDate } from '@/api/utils';
-import { fetchFundNav } from '@/api/fundNav';
+import { ref } from "vue";
+import { calcFundConfirmDate } from "@/api/utils";
+import { fetchFundNav } from "@/api/fundNav";
 
 interface CalcOptions {
   /** 交易日期 YYYY-MM-DD */
@@ -30,8 +30,8 @@ interface CalcResult {
  */
 export function useFundTradeDate() {
   const navLoading = ref(false);
-  const actualNavDate = ref('');
-  const confirmDate = ref('');
+  const actualNavDate = ref("");
+  const confirmDate = ref("");
 
   /**
    * 根据交易日期计算确认日期 + 实际净值日，可选拉取净值
@@ -45,8 +45,8 @@ export function useFundTradeDate() {
     const { tradeDate, symbol, isAfter15 = false } = options;
 
     if (!tradeDate) {
-      actualNavDate.value = '';
-      confirmDate.value = '';
+      actualNavDate.value = "";
+      confirmDate.value = "";
       return null;
     }
 
@@ -54,7 +54,7 @@ export function useFundTradeDate() {
     try {
       const res = await calcFundConfirmDate({
         trade_date: tradeDate,
-        fund_type: 'domestic',
+        fund_type: "domestic",
         is_after_15: isAfter15
       });
       const data = (
@@ -76,7 +76,7 @@ export function useFundTradeDate() {
             nav = result.unit_nav;
           }
         } catch (e) {
-          console.warn('[useFundTradeDate] 净值拉取失败:', e);
+          console.warn("[useFundTradeDate] 净值拉取失败:", e);
         }
       }
 
@@ -86,9 +86,9 @@ export function useFundTradeDate() {
         nav
       };
     } catch (e) {
-      console.warn('[useFundTradeDate] 确认日期计算失败:', e);
-      actualNavDate.value = '';
-      confirmDate.value = '';
+      console.warn("[useFundTradeDate] 确认日期计算失败:", e);
+      actualNavDate.value = "";
+      confirmDate.value = "";
       return null;
     } finally {
       navLoading.value = false;
@@ -97,8 +97,8 @@ export function useFundTradeDate() {
 
   /** 重置所有状态 */
   function reset() {
-    actualNavDate.value = '';
-    confirmDate.value = '';
+    actualNavDate.value = "";
+    confirmDate.value = "";
     navLoading.value = false;
   }
 

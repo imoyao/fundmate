@@ -29,7 +29,7 @@ export interface FundNavResult {
  */
 export async function fetchFundNav(
   fundCode: string,
-  targetDate: string,
+  targetDate: string
 ): Promise<FundNavResult | null> {
   if (!fundCode || !targetDate) return null;
 
@@ -43,7 +43,7 @@ export async function fetchFundNav(
         return {
           unit_nav: Number(item.unit_nav),
           date: item.date || targetDate,
-          source: "backend",
+          source: "backend"
         };
       }
     }
@@ -79,7 +79,7 @@ export async function fetchFundNav(
  */
 export async function fetchFundNavBatch(
   fundCodes: string[],
-  targetDate: string,
+  targetDate: string
 ): Promise<Record<string, number>> {
   const navMap: Record<string, number> = {};
   if (!fundCodes.length || !targetDate) return navMap;
@@ -102,11 +102,11 @@ export async function fetchFundNavBatch(
   }
 
   // 2. 后端未返回的基金，逐个走天天基金 JSONP 兜底（3 个一批并发）
-  const missing = fundCodes.filter((code) => !backendFound.has(code));
+  const missing = fundCodes.filter(code => !backendFound.has(code));
   for (let i = 0; i < missing.length; i += 3) {
     const batch = missing.slice(i, i + 3);
     await Promise.all(
-      batch.map(async (code) => {
+      batch.map(async code => {
         try {
           const result = await fetchFromEastmoney(code, targetDate);
           if (result) {
@@ -115,7 +115,7 @@ export async function fetchFundNavBatch(
         } catch {
           // 单个失败不阻塞
         }
-      }),
+      })
     );
   }
 
@@ -132,9 +132,9 @@ export async function fetchFundNavBatch(
  */
 function fetchFromEastmoney(
   fundCode: string,
-  targetDate: string,
+  targetDate: string
 ): Promise<{ unit_nav: number; date: string } | null> {
-  return new Promise((resolve) => {
+  return new Promise(resolve => {
     const callbackName = `__fundNavCb_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
     const dateStr = targetDate.replace(/-/g, "");
     const url =
@@ -164,7 +164,7 @@ function fetchFromEastmoney(
         if (nav && nav > 0) {
           resolve({
             unit_nav: nav,
-            date: item.FSRQ || targetDate,
+            date: item.FSRQ || targetDate
           });
           return;
         }
