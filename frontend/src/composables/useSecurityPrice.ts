@@ -1,5 +1,8 @@
 import { ref, watch, type Ref } from "vue";
-import { getSecurityPriceRange, type SecurityPriceRange } from "@/api/securities";
+import {
+  getSecurityPriceRange,
+  type SecurityPriceRange
+} from "@/api/securities";
 
 /**
  * 证券（股票/可转债）成交价区间：随标的和交易日拉取，供卖出价校验与提交拦截。
@@ -13,7 +16,10 @@ export function useSecurityPriceRange(
   const priceRange = ref<SecurityPriceRange | null>(null);
   const loading = ref(false);
 
-  async function refresh(sym?: string, d?: string): Promise<SecurityPriceRange | null> {
+  async function refresh(
+    sym?: string,
+    d?: string
+  ): Promise<SecurityPriceRange | null> {
     const s = sym ?? symbol.value;
     const dt = d ?? date.value;
     if (!s || !isStock.value) {
@@ -45,13 +51,16 @@ export function createStockPriceValidator(
   isStock: () => boolean
 ) {
   return (_rule: unknown, value: unknown, callback: (err?: Error) => void) => {
-    if (!isStock() || value == null || (value as number) <= 0) return callback();
+    if (!isStock() || value == null || (value as number) <= 0)
+      return callback();
     const range = getRange();
     if (!range) return callback();
     const { low, high, date: rangeDate } = range;
     if ((value as number) < low || (value as number) > high) {
       return callback(
-        new Error(`成交价超出 ${rangeDate} 交易日区间（${low} ~ ${high}），请核对后重新输入`)
+        new Error(
+          `成交价超出 ${rangeDate} 交易日区间（${low} ~ ${high}），请核对后重新输入`
+        )
       );
     }
     callback();

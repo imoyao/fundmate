@@ -149,8 +149,14 @@
                 </el-button>
               </template>
             </div>
-            <div v-if="showQtyHint" class="text-xs" style="color: var(--color-danger-system)">
-              <template v-if="form.type === 'fund'">每笔最少 0.0001 份</template>
+            <div
+              v-if="showQtyHint"
+              class="text-xs"
+              style="color: var(--color-danger-system)"
+            >
+              <template v-if="form.type === 'fund'"
+                >每笔最少 0.0001 份</template
+              >
               <template v-else>每笔最少卖出 {{ sellMin }} 股/张</template>
             </div>
             <div
@@ -337,7 +343,11 @@ import type { Position } from "@/api/types";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import { LEDGER_TYPE_SHORT } from "@/constants";
 import { getLedgerColor, bgFromColor } from "@/utils/ledger";
-import { getStep, SELL_QUICK_RATIOS, calcSellQuantityByRatio } from "@/utils/trading";
+import {
+  getStep,
+  SELL_QUICK_RATIOS,
+  calcSellQuantityByRatio
+} from "@/utils/trading";
 import { estimateRedeemFee, syncFundFees } from "@/api/funds";
 import { useFundTradeDate } from "@/composables/useFundTradeDate";
 import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
@@ -392,8 +402,12 @@ const sellFeeData = ref<any[]>([]); // 指定份额分布
 const feeManuallyChanged = ref(false);
 const qtyTouched = ref(false);
 
-const { confirmDate, actualNavDate, calcConfirmAndNav, reset: resetTradeDate } =
-  useFundTradeDate();
+const {
+  confirmDate,
+  actualNavDate,
+  calcConfirmAndNav,
+  reset: resetTradeDate
+} = useFundTradeDate();
 
 const availableAccounts = computed(() =>
   props.ledgers.filter(l => positionsByAccount.value[l.name]?.length > 0)
@@ -825,7 +839,12 @@ watch(
 
 // 价格/数量/交易日期变化：重算费用与费率（与净值回填解耦，避免循环）。
 watch(
-  [() => form.price, () => form.quantity, () => form.trade_date, () => form.isAfter15],
+  [
+    () => form.price,
+    () => form.quantity,
+    () => form.trade_date,
+    () => form.isAfter15
+  ],
   () => {
     if (!selectedPosition.value) return;
     calculateFeeAndRate();
