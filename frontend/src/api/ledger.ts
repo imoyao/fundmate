@@ -83,6 +83,7 @@ export function createLedger(data: {
   ledger_type?: string;
   /** 渠道分组：后端据其派生 ledger_type（创建时优先传 channel_category） */
   channel_category?: string;
+  notes?: string;
   default_allocation?: string;
   currency?: string;
   linked_cash_ledger_id?: number | null;
