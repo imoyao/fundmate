@@ -183,6 +183,60 @@
           </div>
         </div>
 
+        <!-- 类现金 / 中高风险（#1137）：借鉴支付宝但主次反转——
+             本产品是投资工具，中高风险资产为主显示（--text-hero），
+             类现金单独成块作辅助（--text-small），给用户明确的敞口暗示。 -->
+        <CardBlock
+          v-if="
+            summaryData?.ledger_type === 'stock' ||
+            summaryData?.ledger_type === 'fund' ||
+            summaryData?.ledger_type === 'e_account'
+          "
+          class="mb-6"
+        >
+          <div class="cash-like">
+            <div class="cash-like__main">
+              <div class="cash-like__label">投资资产（中高风险）</div>
+              <MoneyDisplay
+                :value="summaryData?.investment_amount ?? 0"
+                :show-sign="false"
+                :auto-color="false"
+                size="hero"
+              />
+            </div>
+
+            <div class="cash-like__divider" />
+
+            <div class="cash-like__aux">
+              <span class="cash-like__aux-label">类现金</span>
+              <MoneyDisplay
+                :value="summaryData?.cash_like_amount ?? 0"
+                :show-sign="false"
+                :auto-color="false"
+                size="sm"
+                class="cash-like__aux-value"
+              />
+              <span class="cash-like__aux-detail">
+                货基
+                <MoneyDisplay
+                  :value="summaryData?.money_fund_amount ?? 0"
+                  :show-sign="false"
+                  :auto-color="false"
+                  size="xs"
+                />
+                · 现金
+                <MoneyDisplay
+                  :value="summaryData?.cash_amount ?? 0"
+                  :show-sign="false"
+                  :auto-color="false"
+                  size="xs"
+                />
+                · 逆回购计入类现金，债券基金不计入
+              </span>
+            </div>
+          </div>
+        </CardBlock>
+
         <!-- 账户深度分析（规划中，敬请期待，详见内部工作记录 ledger-detail-info-redesign-plan-2026-08-27） -->
         <CardBlock class="mb-6">
           <div
@@ -900,6 +954,14 @@ interface LedgerSummaryData {
   position_pnl?: number;
   position_count?: number;
   cash_balance?: number | null;
+  /** 类现金合计（#1137）：货基 + 逆回购 + 账户现金，口径同 XIRR EXCLUDED_ASSET_TYPES */
+  cash_like_amount?: number;
+  /** 中高风险投资资产 = 总市值 - 类现金（#1137） */
+  investment_amount?: number;
+  /** 类现金明细：货基市值 */
+  money_fund_amount?: number;
+  /** 类现金明细：账户现金 */
+  cash_amount?: number;
   linked_liability?: number;
   type_distribution?: Record<string, number>;
 }
@@ -1972,6 +2034,46 @@ function openDeleteDialog(account: LedgerItem) {
 </script>
 
 <style scoped>
+/* 类现金 / 中高风险（#1137）：主次反转布局。
+   主显示用 --text-hero（48px/600，design.md 总资产规格）由 MoneyDisplay size=hero 承载；
+   辅助信息用 --text-small / --text-label + --text-tertiary 弱化，但**单独成块**，
+   让用户一眼看到「多少在中高风险里」。颜色/间距全部走 token，禁止硬编码。 */
+.cash-like {
+  display: flex;
+  flex-direction: column;
+}
+
+.cash-like__label {
+  margin-bottom: var(--space-2);
+  font-size: var(--text-label);
+  line-height: 18px;
+  color: var(--text-tertiary);
+}
+
+.cash-like__divider {
+  margin: var(--space-4) 0 var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.cash-like__aux {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: baseline;
+}
+
+.cash-like__aux-label {
+  font-size: var(--text-small);
+  line-height: 20px;
+  color: var(--text-secondary);
+}
+
+.cash-like__aux-detail {
+  font-size: var(--text-label);
+  line-height: 18px;
+  color: var(--text-tertiary);
+}
+
 /* 概览卡片：token 化（与 CardBlock/MetricCard 同一套卡片语言，仅因需内嵌 MoneyDisplay 故用局部类） */
 .summary-card {
   display: flex;
