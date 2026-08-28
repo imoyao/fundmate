@@ -158,6 +158,7 @@
 import { ref, computed, watch, nextTick } from "vue";
 import { updateLedgerTransaction } from "@/api/ledger";
 import { useFundTradeDate } from "@/composables/useFundTradeDate";
+import { useSecurityPriceRange, createStockPriceValidator } from "@/composables/useSecurityPrice";
 import { ElMessage } from "element-plus";
 
 const props = defineProps<{
@@ -186,6 +187,16 @@ const isAfter15 = ref(false);
 // 基金交易日期联动 composable（calcFundConfirmDate + fetchFundNav）
 const { navLoading, confirmDate: confirmDateDisplay, calcConfirmAndNav } =
   useFundTradeDate();
+
+// 证券（股票/可转债等）卖出价区间校验与日期联动，统一走 useSecurityPriceRange（#948 统一约束）
+const isStock = computed(() =>
+  ["stock", "etf", "bond", "convertible"].includes(assetType.value)
+);
+const { priceRange: stockPriceRange } = useSecurityPriceRange(
+  computed(() => (isStock.value ? props.symbol || props.transaction?.symbol : undefined)),
+  computed(() => form.value.trade_date),
+  isStock
+);
 
 // 资产类型：多字段兜底检测
 // 优先用传入的 assetType，否则从交易记录中尝试多个字段
@@ -218,6 +229,15 @@ const rules = {
     {
       required: true,
       message: "请选择交易日期",
+      trigger: ["blur", "change"]
+    }
+  ],
+  price: [
+    {
+      validator: createStockPriceValidator(
+        () => stockPriceRange.value,
+        () => isStock.value
+      ),
       trigger: ["blur", "change"]
     }
   ]

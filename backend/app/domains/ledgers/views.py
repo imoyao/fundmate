@@ -1233,28 +1233,6 @@ def update_ledger_transaction(ledger_id: int, transaction_id: int):
         )
 
 
-@ledgers_bp.delete('/<int:ledger_id>/transactions/<int:transaction_id>/')
-def delete_ledger_transaction(ledger_id: int, transaction_id: int):
-    """删除账户内交易"""
-    with get_db() as db:
-        ledger = get_owned_or_404(db, Ledger, ledger_id)
-        if not ledger:
-            abort(404, '账户不存在')
-        txn = (
-            db.query(Transaction)
-            .filter(
-                Transaction.id == transaction_id,
-                Transaction.ledger_id == ledger.id,
-            )
-            .first()
-        )
-        if not txn:
-            abort(404, '交易不存在或不属于该账户')
-        db.delete(txn)
-        db.commit()
-        return jsonify({'message': 'ok', 'data': None})
-
-
 # ────────────────────────────── 未归置数据（orphan）归入/清理 ──────────────────────────────
 
 

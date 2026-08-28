@@ -27,6 +27,7 @@ from app.core.money import Money
 from app.core.symbol_utils import get_normalizer
 from app.core.utils import get_confirm_date
 from app.domains.positions.models import Position, PositionImportMeta
+from app.domains.transactions.models import Transaction
 from app.services.async_backfill import trigger_backfill
 from app.services.importer.records import compute_position_hash
 from app.services.trade_rules import validate_buy, validate_sell
@@ -543,6 +544,87 @@ class PositionService:
         except Exception:
             logger.exception('卖出/取出操作失败')
             raise
+
+    @staticmethod
+    def recompute_position_from_transactions(db: Session, position_id: int):
+        """删除/编辑交易后，依据该持仓剩余流水重算份额与成本均价（#948 后续回滚）。
+
+        卖出/取出使持仓份额减少；删除该类流水必须把份额加回，否则账面份额丢失。
+        采用「从流水重算」而非只做反向加减：
+        - 能正确处理部分卖出（剩余流水仍有买入，净份额>0，更新现有持仓）；
+        - 也能在「整笔卖出清空持仓」后删除该卖出流水时（持仓行已被 process_sell 删掉）
+          依据剩余买入流水重建持仓，避免份额彻底丢失。
+        净份额 = Σ买入/存入 - Σ卖出/取出；净份额<=0 则删除（或保持不存在）持仓行。
+        成本均价按买入加权（与 process_buy_or_deposit 一致），卖出/取出不改变成本均价。
+        """
+        txns = (
+            db.query(Transaction)
+            .filter(Transaction.position_id == position_id)
+            .order_by(Transaction.trade_date, Transaction.id)
+            .all()
+        )
+        pos = db.query(Position).filter_by(id=position_id).first()
+
+        if not txns:
+            if pos:
+                db.delete(pos)
+                db.flush()
+            return None
+
+        buy_qty = 0
+        buy_cost = 0  # 分
+        sell_qty = 0
+        for t in txns:
+            if t.txn_type in ('buy', 'deposit'):
+                buy_qty += t.quantity
+                buy_cost += Money.multiply_price_quantity(t.price, t.quantity)
+            elif t.txn_type in ('sell', 'withdraw'):
+                sell_qty += t.quantity
+
+        net_qty = buy_qty - sell_qty
+        if net_qty <= 0:
+            if pos:
+                db.delete(pos)
+                db.flush()
+            return None
+
+        avg_price_units = (
+            Money.yuan_to_price_units(round(Money.cents_to_yuan(buy_cost) / buy_qty, 4)) if buy_qty > 0 else 0
+        )
+
+        if pos:
+            pos.quantity = net_qty
+            pos.avg_price = avg_price_units
+            if pos.current_price in (None, 0):
+                pos.current_price = avg_price_units
+            db.flush()
+            return pos
+
+        # 持仓行已被整笔卖出清空删除：依据剩余买入流水重建
+        # （Transaction 不携带 market/currency，缺失时取默认值）
+        first = txns[0]
+        new_pos = Position(
+            ledger_id=first.ledger_id,
+            family_id=first.family_id,
+            symbol=first.symbol or '',
+            name=first.position_name or first.symbol or '',
+            asset_type=first.asset_type,
+            market='CN_A',
+            currency='CNY',
+            quantity=net_qty,
+            avg_price=avg_price_units,
+            current_price=avg_price_units,
+            confirm_date=first.confirm_date,
+            account_name=first.account_name,
+            allocation='longterm',
+            notes='',
+        )
+        db.add(new_pos)
+        db.flush()
+        for t in txns:
+            t.position_id = new_pos.id
+        db.flush()
+        return new_pos
 
     @staticmethod
     def process_dividend(db: Session, data: dict) -> Position:
