@@ -1279,8 +1279,8 @@ class TestLedgerSummary:
         assert data['money_fund_amount'] == 5000.0
         assert data['money_fund_ratio'] == round(5000.0 / 6800.0 * 100, 2)
         assert data['cumulative_return'] is not None
-        # type_distribution 按 asset_type 聚合（未知类型保留原样 code）
-        assert data['type_distribution'] == {'stock_fund': 1800.0, 'money_fund': 5000.0}
+        # type_distribution 按 asset_type 聚合（未知类型保留原样 code；货基命中 TYPE_LABELS 显示中文）
+        assert data['type_distribution'] == {'stock_fund': 1800.0, '货币基金': 5000.0}
 
     def test_summary_bank_account(self, client, db, make_position, make_asset):
         """银行账户返回总余额、活期余额、理财市值"""
