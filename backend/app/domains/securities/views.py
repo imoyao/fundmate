@@ -1,11 +1,13 @@
+from datetime import date as _date
+
 from apiflask import APIBlueprint
 from flask import jsonify, request
 from sqlalchemy import or_
 
 from app.core.database import get_db
 from app.core.symbol_utils import get_normalizer
-from app.domains.price_history.models import PriceHistory
 from app.domains.securities.models import Security
+from app.services.price_range_service import resolve_security_price_range
 
 bp = APIBlueprint('securities', __name__, url_prefix='/api/securities')
 
@@ -15,42 +17,21 @@ def get_price_range(symbol: str):
     """指定交易日价格区间（#948）：供手动记账回填默认价与区间校验。
 
     ?date=YYYY-MM-DD 缺省取最近一个有行情的交易日（≤该日）。
-    无行情数据返回 data=null，前端保持手输不阻塞。
+    优先查本地 PriceHistory；命中即返回。本地缺失时尝试实时兜底（akshare 新浪日线）；
+    仍无数据返回 data=null，前端保持手输不阻塞。
     """
     raw = request.args.get('date')
-    target = None
     if raw:
         try:
-            from datetime import date as _date
-
-            target = _date.fromisoformat(raw)
+            _date.fromisoformat(raw)
         except ValueError:
             return jsonify({'data': None, 'message': '日期格式错误，应为 YYYY-MM-DD'}), 400
 
-    with get_db() as db:
-        q = db.query(
-            PriceHistory.trade_date,
-            PriceHistory.low,
-            PriceHistory.high,
-            PriceHistory.close,
-        ).filter(PriceHistory.symbol == symbol)
-        if target is not None:
-            q = q.filter(PriceHistory.trade_date <= target)
-        row = q.order_by(PriceHistory.trade_date.desc()).first()
-        if not row or row.low is None or row.high is None:
-            return jsonify({'data': None, 'message': 'ok'})
-        return jsonify(
-            {
-                'data': {
-                    'symbol': symbol,
-                    'date': row.trade_date.isoformat(),
-                    'low': float(row.low),
-                    'high': float(row.high),
-                    'close': float(row.close) if row.close is not None else None,
-                },
-                'message': 'ok',
-            }
-        )
+    # 复用统一价格区间服务（含代码归一化、本地优先、实时兜底）。
+    data = resolve_security_price_range(symbol, raw, use_live_fallback=True)
+    if data:
+        return jsonify({'data': data, 'message': 'ok'})
+    return jsonify({'data': None, 'message': 'ok'})
 
 
 @bp.get('/search/')

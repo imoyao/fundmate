@@ -20,6 +20,7 @@ from app.domains.positions.models import Position
 from app.domains.positions.schemas import PositionCreate, PositionOut, PositionUpdate
 from app.domains.transactions.models import Transaction
 from app.services.position_service import PositionService
+from app.services.price_range_service import resolve_security_price_range
 from app.services.trade_rules import TradeService
 
 bp = APIBlueprint('positions', __name__, url_prefix='/api/positions/')
@@ -181,6 +182,32 @@ def get_position_transactions(id: int):
         return jsonify({'data': data, 'message': 'ok'})
 
 
+_PRICE_RANGE_OP_TYPES = {'buy', 'sell', 'deposit', 'withdraw'}
+
+
+def _validate_price_within_range(data: dict) -> None:
+    """后端成交价区间拦截（#948 续）：证券类成交价须落在交易日 [low, high] 内。
+
+    仅当本地 PriceHistory 能解析出区间时才拦截；无数据则放行（保持手输可用）。
+    与前端 getSecurityPriceRange + SellForm/BuyForm 的区间校验保持一致。
+    写路径不做实时兜底（use_live_fallback=False），避免引入网络依赖。
+    """
+    op_type = data.get('op_type')
+    if op_type not in _PRICE_RANGE_OP_TYPES:
+        return
+    symbol = data.get('symbol')
+    avg_price = data.get('avg_price')
+    trade_date = data.get('trade_date')
+    if not symbol or avg_price is None or not trade_date:
+        return
+    rng = resolve_security_price_range(symbol, trade_date, use_live_fallback=False)
+    if not rng:
+        return
+    low, high = rng['low'], rng['high']
+    if avg_price < low or avg_price > high:
+        raise ValueError(f'价格 {avg_price} 超出 {rng["date"]} 交易日区间（{low} ~ {high}），请核对后重新提交')
+
+
 @bp.post('/')
 def create_position():
     """新增/修改持仓，并写入交易流水.
@@ -194,6 +221,7 @@ def create_position():
     """
     json_data = parse_body(PositionCreate)
     data = json_data.model_dump()
+    _validate_price_within_range(data)
     data['family_id'] = get_family_id()
     op_type = data.get('op_type', 'buy')
     with get_db() as db:
