@@ -430,17 +430,6 @@ export function updateLedgerTransaction(
   );
 }
 
-/** 删除交易 */
-export function deleteLedgerTransaction(
-  ledgerId: number,
-  transactionId: number
-) {
-  return http.request(
-    "delete",
-    `/api/ledgers/${ledgerId}/transactions/${transactionId}/`
-  );
-}
-
 // ── 基金E账户聚合视图（#1101）──
 // 聚合家族内全部场外基金持仓（含 E 账户），供资产概览卡片与下钻页使用。
 // 金额字段单位均为「分」（整数），前端展示需 /100 转「元」交给 MoneyDisplay；

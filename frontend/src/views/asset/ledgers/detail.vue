@@ -845,7 +845,6 @@ import {
   getLedgerTransactions,
   updateLedgerPosition,
   deleteLedgerPosition,
-  deleteLedgerTransaction,
   archiveLedger,
   unarchiveLedger,
   getSalesInstitutions,
@@ -859,6 +858,7 @@ import {
   type MigrationCommitResult,
   type MigrationConservation
 } from "@/api/ledger";
+import { deleteTransaction } from "@/api/transaction";
 import { getPortfolios, type PortfolioItem } from "@/api/portfolio";
 import { updateAsset } from "@/api/assets";
 import {
@@ -1932,7 +1932,7 @@ async function confirmDeleteTxn(row: LedgerTxnRow) {
         }
       );
       // 用户执意只删交易
-      await deleteLedgerTransaction(Number(ledgerId.value), row.id);
+      await deleteTransaction(row.id);
       ElMessage.warning("交易记录已删除（持仓已变成幽灵数据）");
       loadTransactions(transactionsPage.value);
       loadHoldings(); // 更新持仓成本
@@ -1944,7 +1944,7 @@ async function confirmDeleteTxn(row: LedgerTxnRow) {
     }
   } else {
     // 3. 如果找不到对应的持仓（说明本来就是个幽灵交易），直接删
-    await deleteLedgerTransaction(Number(ledgerId.value), row.id);
+    await deleteTransaction(row.id);
     ElMessage.success("孤立交易已删除");
     loadTransactions(transactionsPage.value);
     loadHoldings();

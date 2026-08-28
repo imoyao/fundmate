@@ -185,6 +185,7 @@ def make_transaction(db):
         txn = Transaction(
             position_id=position_id,
             ledger_id=ledger_id,
+            family_id=1,
             txn_type=txn_type,
             symbol=symbol,
             position_name=position_name,
