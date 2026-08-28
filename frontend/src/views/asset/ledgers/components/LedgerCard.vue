@@ -35,6 +35,27 @@ const emit = defineEmits<{
     <!-- 标题行：名称 + 类型标签 + 行内操作（hover 卡片时浮现） -->
     <div class="flex items-center justify-between mb-3">
       <div class="flex items-center gap-2 min-w-0">
+        <!-- 拖拽手柄：常驻低透明（暗示可拖拽），hover/focus 时高亮；点击/回车均 stop，避免触发卡片打开详情（#1083） -->
+        <span
+          class="drag-handle"
+          role="button"
+          tabindex="-1"
+          :title="`拖拽排序：${ledger.name}`"
+          @click.stop
+          @keydown.enter.stop
+        >
+          <!-- 卡片拖拽：四向「移动」双箭头，暗示单张卡片可上下/左右重排，与分组抓手（纵向三横线）明确区分 -->
+          <svg class="drag-grip drag-grip--card" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M9 4 7 6l2 2" />
+            <path d="M4 7h5" />
+            <path d="m15 4 2 2-2 2" />
+            <path d="M15 4h5" />
+            <path d="M9 20l-2-2 2-2" />
+            <path d="M4 17h5" />
+            <path d="m15 20 2-2-2-2" />
+            <path d="M15 20h5" />
+          </svg>
+        </span>
         <span
           class="font-semibold text-base truncate"
           :style="{ color: 'var(--text-primary)' }"
@@ -228,11 +249,19 @@ const emit = defineEmits<{
 }
 
 .ledger-card:hover {
+  transform: translateY(-2px);
   box-shadow: var(--shadow-float);
 }
 
 .ledger-card:focus-visible {
   box-shadow: var(--focus-ring);
+}
+
+/* 拖拽中「被选中」的卡片：轻微放大 + 浮起，给用户明确反馈 */
+.ledger-card--chosen {
+  transform: scale(1.02);
+  box-shadow: var(--shadow-float);
+  cursor: grabbing;
 }
 
 /* ===== 核心指标：左右两列 flex（总资产大数字锚点 + 右侧两指标独立竖排） ===== */
@@ -288,6 +317,50 @@ const emit = defineEmits<{
   display: flex;
   gap: 8px; /* 两个行内按钮固定紧挨，避免散开 */
   align-items: center;
+}
+
+/* 拖拽手柄：常驻低透明，既暗示「可拖拽」又不过度干扰；移动端需禁用默认触摸手势 */
+.drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  margin-right: 2px;
+  color: var(--text-tertiary);
+  cursor: grab;
+  border-radius: var(--radius-sm);
+  opacity: 0.55;
+  touch-action: none;
+  transition:
+    opacity 0.15s ease,
+    color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.ledger-card:hover .drag-handle,
+.ledger-card:focus-within .drag-handle,
+.drag-handle:hover {
+  opacity: 1;
+  color: var(--brand-600);
+  background: var(--bg-page);
+}
+
+/* 卡片抓手：四向移动箭头，描边风格，自带内边距更透气 */
+.drag-grip--card {
+  padding: 1px;
+}
+
+/* 拖拽中占位「幽灵」元素的视觉态（sortablejs ghostClass） */
+.ledger-card--ghost {
+  opacity: 0.4;
+  box-shadow: var(--shadow-float);
+  transform: scale(1.02);
 }
 
 .ledger-row-action {

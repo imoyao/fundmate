@@ -337,6 +337,6 @@ def test_transactions_export_csv(client):
     header = lines[0]
     assert '业务类型' in header
     row = lines[1]
-    # 金额 350元（35000 分）与数量 100 正常落入 CSV
+    # 价格 350元（0.0001元 单位下存储为 3500000）经 price_units_to_yuan 导出为 350.00；数量 100 正常落入 CSV
     assert '350.00' in row
     assert row.split(',')[0] == '2026-05-01'

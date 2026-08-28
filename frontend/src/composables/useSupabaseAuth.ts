@@ -177,6 +177,10 @@ export function useSupabaseAuth() {
         //    source=explore 标明来自探市录入；ledger_id 不传（NULL），
         //    即归入「未归档持仓」，由后端 @validates 约束 source 合法。
         if (hasPosition) {
+          const tradeDate = new Date().toISOString().slice(0, 10);
+          // 探市迁移幂等键：基于本地快照内容确定性生成（不含迁移执行日，保证跨日重跑仍命中同一键）。
+          // 重跑迁移时同一持有命中 UNIQUE(ledger_id, import_hash) → 后端返回 409 → 下方 catch 计为 skipped，避免重复持仓。
+          const exploreHash = `explore|${h.symbol}|${h.type}|${h.costPrice}|${h.quantity}`;
           await createPosition({
             symbol: h.symbol,
             name: h.name,
@@ -185,11 +189,12 @@ export function useSupabaseAuth() {
             quantity: h.quantity as number,
             avg_price: h.costPrice as number,
             currency: "CNY",
-            trade_date: new Date().toISOString().slice(0, 10),
+            trade_date: tradeDate,
             op_type: "buy",
             source: POSITION_SOURCE.EXPLORE,
             notes: "来自探市页面录入",
-            ledger_id: null
+            ledger_id: null,
+            import_hash: exploreHash
           });
         }
       } catch (e: any) {

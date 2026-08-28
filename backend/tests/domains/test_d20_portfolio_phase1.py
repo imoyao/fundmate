@@ -45,8 +45,8 @@ def _make_position(db, ledger, portfolio_id=None, symbol='000001', name='测试�
         ledger_id=ledger.id,
         account_name=ledger.name,
         quantity=Money.shares_to_min_unit(100),  # 100 份 (min_unit = 0.0001)
-        avg_price=Money.yuan_to_cents(10.0),  # 10 元/份 (分)
-        current_price=Money.yuan_to_cents(12.0),
+        avg_price=Money.yuan_to_price_units(10.0),  # 10 元/份 (分)
+        current_price=Money.yuan_to_price_units(12.0),
         currency='CNY',
         confirm_date=date(2024, 1, 1),
         portfolio_id=portfolio_id,

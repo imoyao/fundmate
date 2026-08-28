@@ -1,7 +1,7 @@
 <template>
   <el-drawer
     v-model="drawerVisible"
-    size="520px"
+    size="680px"
     direction="rtl"
     destroy-on-close
     title="持仓明细"
@@ -24,8 +24,87 @@
       </div>
     </div>
 
-    <!-- 2. 核心摘要卡片（严格涨红跌绿） -->
+    <!-- 2. 核心摘要卡片 -->
     <div class="grid grid-cols-3 gap-3 mb-5">
+      <!-- 持有份额 / 持有数量 -->
+      <div
+        class="p-3 rounded-lg border"
+        :style="{ borderColor: 'var(--border-default)' }"
+      >
+        <div class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
+          {{ isFund ? "持有份额" : "持有数量" }}
+        </div>
+        <div
+          class="text-base font-semibold mt-1"
+          :style="{ color: 'var(--text-primary)' }"
+        >
+          {{ Number(positionData?.quantity ?? 0).toLocaleString() }}
+          <span
+            class="text-sm font-normal"
+            :style="{ color: 'var(--text-tertiary)' }"
+          >
+            {{ isFund ? "份" : "股/张" }}
+          </span>
+        </div>
+      </div>
+
+      <!-- 持仓成本 -->
+      <div
+        class="p-3 rounded-lg border"
+        :style="{ borderColor: 'var(--border-default)' }"
+      >
+        <div class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
+          持仓成本
+        </div>
+        <div
+          class="text-base font-semibold mt-1"
+          :style="{ color: 'var(--text-primary)' }"
+        >
+          <MoneyDisplay
+            :value="positionData?.avg_price || 0"
+            :precision="pricePrecision(positionData?.asset_type)"
+            :show-sign="false"
+            :auto-color="false"
+            size="md"
+          />
+          <span
+            class="text-sm font-normal"
+            :style="{ color: 'var(--text-tertiary)' }"
+          >
+            {{ isFund ? "元/份" : "元" }}
+          </span>
+        </div>
+      </div>
+
+      <!-- 最新净值 / 现价 -->
+      <div
+        class="p-3 rounded-lg border"
+        :style="{ borderColor: 'var(--border-default)' }"
+      >
+        <div class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
+          {{ isFund ? "最新净值" : "现价" }}
+        </div>
+        <div
+          class="text-base font-semibold mt-1"
+          :style="{ color: 'var(--text-primary)' }"
+        >
+          <MoneyDisplay
+            :value="positionData?.current_price || 0"
+            :precision="pricePrecision(positionData?.asset_type)"
+            :show-sign="false"
+            :auto-color="false"
+            size="md"
+          />
+          <span
+            class="text-sm font-normal"
+            :style="{ color: 'var(--text-tertiary)' }"
+          >
+            {{ isFund ? "元/份" : "元" }}
+          </span>
+        </div>
+      </div>
+
+      <!-- 市值 -->
       <div
         class="p-3 rounded-lg border"
         :style="{ borderColor: 'var(--border-default)' }"
@@ -34,18 +113,19 @@
           市值
         </div>
         <div
-          class="text-lg font-bold mt-1"
+          class="text-base font-semibold mt-1"
           :style="{ color: 'var(--text-primary)' }"
         >
           <MoneyDisplay
             :value="positionData?.market_value || 0"
             :show-sign="false"
             :auto-color="false"
-            size="lg"
+            size="md"
           />
         </div>
       </div>
 
+      <!-- 持仓盈亏 -->
       <div
         class="p-3 rounded-lg border"
         :style="{ borderColor: 'var(--border-default)' }"
@@ -53,42 +133,35 @@
         <div class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
           持仓盈亏
         </div>
-        <div class="text-lg font-bold mt-1">
-          <MoneyDisplay :value="positionData?.pnl || 0" size="lg" />
+        <div class="text-base font-semibold mt-1">
+          <MoneyDisplay :value="positionData?.pnl || 0" size="md" />
         </div>
       </div>
 
+      <!-- 盈亏率 -->
       <div
         class="p-3 rounded-lg border"
         :style="{ borderColor: 'var(--border-default)' }"
       >
         <div class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
-          持有数量
+          盈亏率
         </div>
         <div
-          class="text-lg font-bold mt-1"
-          :style="{ color: 'var(--text-primary)' }"
+          class="text-base font-semibold mt-1"
+          :style="{
+            color:
+              (positionData?.pnl_rate ?? 0) >= 0
+                ? 'var(--color-danger)'
+                : 'var(--color-success)',
+          }"
         >
-          <!-- 🔥 修复2：兜底多种可能的字段名，防止父组件传字段名不匹配 -->
           {{
-            Number(
-              positionData?.quantity ??
-                positionData?.holding_quantity ??
-                positionData?.qty ??
-                0
-            ).toLocaleString()
+            positionData?.pnl_rate != null
+              ? (positionData.pnl_rate >= 0 ? "+" : "") +
+                positionData.pnl_rate.toFixed(2) +
+                "%"
+              : "--"
           }}
-          <span
-            class="text-sm font-normal"
-            :style="{ color: 'var(--text-tertiary)' }"
-          >
-            {{
-              positionData?.asset_type === "fund" ||
-              positionData?.type_label === "基金"
-                ? "份"
-                : "股/张"
-            }}
-          </span>
         </div>
       </div>
     </div>
@@ -160,17 +233,26 @@
               </span>
             </template>
           </el-table-column>
-          <el-table-column label="单价" min-width="90" align="right">
+          <el-table-column
+            :label="isFund ? '确认净值' : '单价'"
+            min-width="90"
+            align="right"
+          >
             <template #default="{ row }">
               <MoneyDisplay
                 :value="row.price || 0"
+                :precision="pricePrecision(row.asset_type)"
                 :show-sign="false"
                 :auto-color="false"
                 size="sm"
               />
             </template>
           </el-table-column>
-          <el-table-column label="数量" min-width="80" align="right">
+          <el-table-column
+            :label="isFund ? '确认份额' : '数量'"
+            min-width="80"
+            align="right"
+          >
             <template #default="{ row }">{{ row.quantity }}</template>
           </el-table-column>
           <el-table-column label="金额" min-width="90" align="right">
@@ -193,12 +275,13 @@
               />
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="56" align="center">
+          <el-table-column label="操作" width="72" align="center">
             <template #default="{ row }">
               <el-button
                 size="small"
                 text
                 type="primary"
+                :icon="Edit"
                 @click="openEdit(row)"
               >
                 编辑
@@ -231,6 +314,7 @@
       v-model="editDialogVisible"
       :transaction="editingTxn"
       :asset-type="positionData?.asset_type"
+      :symbol="positionData?.symbol"
       @saved="handleSaved"
     />
   </el-drawer>
@@ -238,10 +322,11 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from "vue";
-import { Loading } from "@element-plus/icons-vue";
+import { Loading, Edit } from "@element-plus/icons-vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import { getPositionTransactions } from "@/api/positions";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
+import { pricePrecision } from "@/utils/pricePrecision";
 import TransactionEditDialog from "./TransactionEditDialog.vue";
 import { txnTypeLabel } from "@/constants";
 
@@ -253,6 +338,11 @@ const props = defineProps<{
 const emit = defineEmits<{
   "update:visible": [value: boolean];
 }>();
+
+// 基金类型判断（基金/货币基金）
+const isFund = computed(() =>
+  ["fund", "money_fund"].includes(props.positionData?.asset_type)
+);
 
 // 抽屉双向绑定
 const drawerVisible = computed({

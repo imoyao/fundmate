@@ -13,7 +13,7 @@ confirmed（已确认）
 关系	一条孤立的卖出记录，交易本身是成功的	但它关联不到持仓，需要标记处理阶段
 """
 
-from sqlalchemy import Column, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Column, Date, DateTime, ForeignKey, Index, Integer, String, Text, text
 
 from app.core.database import Base, FamilyScopedMixin, PrimaryKeyMixin, TimestampMixin
 
@@ -26,7 +26,7 @@ class Transaction(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     txn_type = Column('type', String(20))
     trade_date = Column(DateTime, comment='交易发起日(T日)，秒级')
     quantity = Column(Integer, default=0, comment='操作数量(0.0001份/单位)')
-    price = Column(Integer, default=0, comment='成交价(分)')
+    price = Column(Integer, default=0, comment='成交价(0.0001元)')
     confirm_date = Column(Date, comment='确认日期')
     fee = Column(Integer, default=0, comment='手续费(分)')
     amount = Column(Integer, default=0, comment='交易总金额(分)')
@@ -49,7 +49,16 @@ class Transaction(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     __table_args__ = (
         # 防重复导入：去重作用域降为 ledger 级（#1020 / #1065）。
         # import_hash 已含 ledger_id，复合约束与代码语义对齐，并放行跨账本重导。
-        UniqueConstraint('ledger_id', 'import_hash', name='uq_txn_import_hash'),
+        # 关键修正：ledger_id 可能为 NULL（未归档持仓 / 探市迁移），而唯一约束中 NULL 互不冲突，
+        # 导致 (NULL, import_hash) 无法去重 → 重导/重迁移会产生重复流水。
+        # 改用函数式唯一索引 COALESCE(ledger_id, -1)：NULL 落到哨兵 -1 后参与去重，
+        # 既让未归档/探市记录的幂等键生效，又兼容存量 NULL import_hash 行（第二列仍为 NULL → 元组不冲突）。
+        Index(
+            'uq_txn_import_hash',
+            text('COALESCE(ledger_id, -1)'),
+            'import_hash',
+            unique=True,
+        ),
         # 核心查询加速：按账户 + 日期排序
         Index('idx_txn_ledger_date', 'ledger_id', 'confirm_date'),
         # 其他常用查询

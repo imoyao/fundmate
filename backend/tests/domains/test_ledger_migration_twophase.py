@@ -34,8 +34,8 @@ def _pos(symbol, name, ledger_id, account_name, quantity, avg_price, current_pri
         account_name=account_name,
         ledger_id=ledger_id,
         quantity=Money.shares_to_min_unit(quantity),
-        avg_price=Money.yuan_to_cents(avg_price),
-        current_price=Money.yuan_to_cents(current_price),
+        avg_price=Money.yuan_to_price_units(avg_price),
+        current_price=Money.yuan_to_price_units(current_price),
         **kwargs,
     )
 
@@ -136,7 +136,7 @@ class TestMigrationCommitKeepDuplicate:
         kept = db.query(Position).filter(Position.ledger_id == tgt_id).one()
         # 守恒：份额最小单位原样迁移，无精度损失
         assert kept.quantity == 1234567
-        assert kept.avg_price == 150
+        assert kept.avg_price == 15000
         assert db.query(Position).filter(Position.ledger_id == src_id).count() == 0
 
     def test_duplicate_not_doubled(self, client, db):
@@ -184,7 +184,7 @@ class TestMigrationMerge:
 
         merged = db.query(Position).filter(Position.ledger_id == tgt_id).one()
         assert merged.quantity == 2000000  # 份额相加（最小单位整数）
-        assert merged.avg_price == 1500  # (100*10 + 100*20) / 200 = 15 元，整除无余数
+        assert merged.avg_price == 150000  # (100*10 + 100*20) / 200 = 15 元 = 150000 price_units，整除无余数
         assert merged.confirm_date == date(2026, 8, 1)  # 成本日取较新
         assert merged.notes == '目标备注'  # 其余字段保留目标原值
         assert merged.portfolio_id == 42
@@ -202,7 +202,7 @@ class TestMigrationMerge:
         merged = db.query(Position).filter(Position.ledger_id == tgt_id).one()
         # (100000*1005 + 100000*1000 + 100000) // 200000 = 1003 分 = 10.03 元
         assert merged.quantity == 200000
-        assert merged.avg_price == 1003
+        assert merged.avg_price == 100250
 
     def test_merge_cascades_source_meta_and_keeps_target_meta(self, client, db):
         """merge 后源持仓被删除、其 PositionImportMeta 一并清除，目标溯源记录不受影响"""

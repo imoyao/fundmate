@@ -35,8 +35,8 @@ def test_portfolio_holdings_with_position(client, db):
         ledger_id=ledger.id,
         market='CN_A',
         quantity=Money.shares_to_min_unit(100),
-        avg_price=Money.yuan_to_cents(10.0),
-        current_price=Money.yuan_to_cents(12.0),
+        avg_price=Money.yuan_to_price_units(10.0),
+        current_price=Money.yuan_to_price_units(12.0),
         confirm_date=date.today(),
     )
     db.add(position)

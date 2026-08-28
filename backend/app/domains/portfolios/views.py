@@ -233,8 +233,8 @@ def get_portfolio_holdings(portfolio_id: int):
                     'type_label': TYPE_LABELS.get(pos.asset_type, pos.asset_type),
                     'account_name': pos.account_name,
                     'quantity': Money.min_unit_to_shares(pos.quantity),
-                    'current_price': Money.cents_to_yuan(pos.current_price),
-                    'avg_price': Money.cents_to_yuan(pos.avg_price),
+                    'current_price': Money.price_units_to_yuan(pos.current_price),
+                    'avg_price': Money.price_units_to_yuan(pos.avg_price),
                     'market_value': Money.cents_to_yuan(market_value),
                     'pnl': Money.cents_to_yuan(pnl),
                     'pnl_rate': round((pos.current_price - pos.avg_price) / pos.avg_price * 100, 2)

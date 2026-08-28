@@ -85,7 +85,7 @@ def test_commit_split_price_converted_to_cents(db):
     assert result['imported'] == 1
     txn = db.query(Transaction).filter_by(txn_type='split').first()
     assert txn is not None
-    assert txn.price == Money.yuan_to_cents(10.5)  # 1050 分
+    assert txn.price == Money.yuan_to_price_units(10.5)  # 1050 分
     assert txn.quantity == Money.shares_to_min_unit(100)
 
 
@@ -190,8 +190,8 @@ def test_commit_savepoint_rolls_back_partial_write(db, monkeypatch):
                 ledger_id=data.get('ledger_id'),
                 family_id=data.get('family_id', 1),
                 quantity=Money.shares_to_min_unit(100),
-                avg_price=Money.yuan_to_cents(10),
-                current_price=Money.yuan_to_cents(10),
+                avg_price=Money.yuan_to_price_units(10),
+                current_price=Money.yuan_to_price_units(10),
             )
             db.add(pos)
             db.flush()

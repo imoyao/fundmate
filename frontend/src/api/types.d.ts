@@ -103,6 +103,12 @@ export interface PositionCreate {
   notes?: string;
   op_type?: string;
   source?: string;
+  /**
+   * 幂等键：手动记账时由前端按「提交意图」生成并落到 import_hash。
+   * 服务端 UNIQUE(ledger_id, import_hash) 据此拦截网络超时重发导致的重复写入；
+   * 两个不同的提交意图（如同一天同一基金同金额买了两笔）天然拥有不同键，互不误杀。
+   */
+  import_hash?: string;
 }
 
 /** 更新持仓请求体 (PATCH，所有字段可选) */

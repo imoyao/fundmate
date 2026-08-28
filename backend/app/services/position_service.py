@@ -120,8 +120,8 @@ def _create_orphan_transaction(
     所有金额和数量转换为内部单位后存储。
     """
     qty_units = Money.shares_to_min_unit(quantity)
-    price_cents = Money.yuan_to_cents(price)
-    amount_cents = Money.yuan_to_cents(amount) if amount else Money.multiply_price_quantity(price_cents, qty_units)
+    price_units = Money.yuan_to_price_units(price)
+    amount_cents = Money.yuan_to_cents(amount) if amount else Money.multiply_price_quantity(price_units, qty_units)
     fee_cents = Money.yuan_to_cents(float(data.get('fee', 0) or 0))
 
     TransactionService.create(
@@ -133,7 +133,7 @@ def _create_orphan_transaction(
         confirm_date=data.get('confirm_date'),
         asset_type=_get_asset_type(data),
         quantity=qty_units,
-        price=price_cents,
+        price=price_units,
         fee=fee_cents,
         amount=amount_cents,
         ledger_id=data.get('ledger_id'),
@@ -190,7 +190,7 @@ class PositionService:
             raise ValueError('成本均价与当前净值均缺失，无法确定价格')
 
         qty_units = Money.shares_to_min_unit(qty)
-        price_cents = Money.yuan_to_cents(price_yuan)
+        price_units = Money.yuan_to_price_units(price_yuan)
 
         # 快照日：优先 snapshot_date，缺失降级为落库当日（规范 §3.3）
         raw_snap = data.get('snapshot_date') or date.today()
@@ -205,8 +205,8 @@ class PositionService:
         if existing:
             # SET 语义：整条替换快照字段（数量/成本/市价/快照日/溯源）
             existing.quantity = qty_units
-            existing.avg_price = price_cents
-            existing.current_price = price_cents
+            existing.avg_price = price_units
+            existing.current_price = price_units
             existing.confirm_date = snapshot_date
             existing.name = data.get('name') or existing.name
             existing.account_name = data.get('account_name') or existing.account_name
@@ -227,8 +227,8 @@ class PositionService:
                 ledger_id=ledger_id,
                 account_name=data.get('account_name', ''),
                 quantity=qty_units,
-                avg_price=price_cents,
-                current_price=price_cents,
+                avg_price=price_units,
+                current_price=price_units,
                 currency=data.get('currency', 'CNY'),
                 confirm_date=snapshot_date,
                 allocation=data.get('allocation', 'longterm'),
@@ -330,20 +330,20 @@ class PositionService:
 
         # 转换为内部存储单位
         qty_units = Money.shares_to_min_unit(qty)
-        price_cents = Money.yuan_to_cents(price)
+        price_units = Money.yuan_to_price_units(price)
 
         try:
             if same:
                 # 合并持仓
                 total_qty_units = same.quantity + qty_units
                 old_cost = Money.multiply_price_quantity(same.avg_price, same.quantity)
-                new_cost = old_cost + Money.multiply_price_quantity(price_cents, qty_units)
+                new_cost = old_cost + Money.multiply_price_quantity(price_units, qty_units)
                 # 用 Decimal 计算均价以避免精度损失
                 total_qty = Money.min_unit_to_shares(total_qty_units)
                 total_cost = Money.cents_to_yuan(old_cost) + Money.cents_to_yuan(
-                    Money.multiply_price_quantity(price_cents, qty_units)
+                    Money.multiply_price_quantity(price_units, qty_units)
                 )
-                new_avg_price = Money.yuan_to_cents(round(total_cost / total_qty, 4))
+                new_avg_price = Money.yuan_to_price_units(round(total_cost / total_qty, 4))
                 same.avg_price = new_avg_price
                 same.quantity = total_qty_units
                 # issue #928: 合并时同步溯源字段（交割单覆盖手动录），并刷新 import_hash
@@ -363,9 +363,9 @@ class PositionService:
                 # 新建持仓
                 position_data = {k: v for k, v in data.items() if k in _ALLOWED_POSITION_FIELDS}
                 position_data['asset_type'] = asset_type
-                position_data['avg_price'] = price_cents
+                position_data['avg_price'] = price_units
                 position_data['quantity'] = qty_units
-                position_data['current_price'] = price_cents
+                position_data['current_price'] = price_units
                 position_data['symbol'] = final_symbol
                 position_data['ledger_id'] = ledger_id
                 position_data['family_id'] = family_id
@@ -394,13 +394,13 @@ class PositionService:
                         raise
                     total_qty_units = existing.quantity + qty_units
                     old_cost = Money.multiply_price_quantity(existing.avg_price, existing.quantity)
-                    new_cost = old_cost + Money.multiply_price_quantity(price_cents, qty_units)
+                    new_cost = old_cost + Money.multiply_price_quantity(price_units, qty_units)
                     total_qty = Money.min_unit_to_shares(total_qty_units)
-                    existing.avg_price = Money.yuan_to_cents(
+                    existing.avg_price = Money.yuan_to_price_units(
                         round(
                             (
                                 Money.cents_to_yuan(old_cost)
-                                + Money.cents_to_yuan(Money.multiply_price_quantity(price_cents, qty_units))
+                                + Money.cents_to_yuan(Money.multiply_price_quantity(price_units, qty_units))
                             )
                             / total_qty,
                             4,
@@ -440,9 +440,9 @@ class PositionService:
                 asset_type=_get_asset_type(data),
                 link_group_id=data.get('link_group_id'),
                 quantity=qty_units,
-                price=price_cents,
+                price=price_units,
                 fee=Money.yuan_to_cents(float(data.get('fee', 0) or 0)),
-                amount=Money.multiply_price_quantity(price_cents, qty_units),
+                amount=Money.multiply_price_quantity(price_units, qty_units),
                 status='success',
                 position_name=position.name,
                 account_name=position.account_name,
@@ -476,7 +476,7 @@ class PositionService:
         price_yuan = data['avg_price']
 
         qty_units = Money.shares_to_min_unit(qty_shares)
-        price_cents = Money.yuan_to_cents(price_yuan)
+        price_units = Money.yuan_to_price_units(price_yuan)
 
         existing = db.query(Position).filter_by(id=position_id, family_id=data.get('family_id', 1)).first()
         if not existing:
@@ -522,9 +522,9 @@ class PositionService:
                 asset_type=_get_asset_type(data),
                 link_group_id=data.get('link_group_id'),
                 quantity=qty_units,
-                price=price_cents,
+                price=price_units,
                 fee=Money.yuan_to_cents(float(data.get('fee', 0) or 0)),
-                amount=Money.multiply_price_quantity(price_cents, qty_units),
+                amount=Money.multiply_price_quantity(price_units, qty_units),
                 status='success',
                 position_name=position_name,
                 ledger_id=existing.ledger_id,

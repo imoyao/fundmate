@@ -331,6 +331,7 @@
       v-model="editDialogVisible"
       :transaction="editingTxn"
       :asset-type="editingTxn?.asset_type"
+      :symbol="editingTxn?.symbol"
       @saved="handleSaved"
     />
   </div>

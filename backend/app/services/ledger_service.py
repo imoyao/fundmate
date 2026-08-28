@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.constants import ALLOCATION_LABELS, LEDGER_TYPE_LABELS, TYPE_LABELS
 from app.core.money import Money
 from app.domains.assets.models import Asset
+from app.domains.funds.models import DailyWorth
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
@@ -19,6 +20,38 @@ from app.services.summary_service import orphan_money_fund_net_by_ledger
 
 class LedgerService:
     """账户维度数据聚合与计算服务，所有方法均为纯函数，不持有状态"""
+
+    @staticmethod
+    def _batch_fund_latest_navs(db: Session, fund_codes: list[str]) -> dict[str, float]:
+        """批量获取基金最新单位净值（单次查询，避免 N+1）
+
+        返回 {fund_code: unit_nav_float}，无数据的基金不在结果中。
+        """
+        if not fund_codes:
+            return {}
+        try:
+            # 子查询：每个 fund_code 的最大日期
+            max_dates = (
+                db.query(
+                    DailyWorth.fund_code,
+                    func.max(DailyWorth.date).label('max_date'),
+                )
+                .filter(DailyWorth.fund_code.in_(fund_codes))
+                .group_by(DailyWorth.fund_code)
+                .subquery()
+            )
+            # 关联取出该日期的 unit_nav
+            rows = (
+                db.query(DailyWorth.fund_code, DailyWorth.unit_nav)
+                .join(
+                    max_dates,
+                    (DailyWorth.fund_code == max_dates.c.fund_code) & (DailyWorth.date == max_dates.c.max_date),
+                )
+                .all()
+            )
+            return {row[0]: float(row[1]) for row in rows if row[1]}
+        except Exception:
+            return {}
 
     @staticmethod
     def get_overview_stats(db: Session, family_id: int) -> dict:
@@ -110,7 +143,10 @@ class LedgerService:
 
     @staticmethod
     def get_portfolio_stats(db: Session, ledger_id: int) -> dict:
-        """通用持仓统计（适用于 stock / fund 账户）"""
+        """通用持仓统计（适用于 stock / fund 账户）
+
+        基金持仓使用 DailyWorth 最新净值计算市值/盈亏，非基金用 current_price 快照。
+        """
         positions = db.query(Position).filter(Position.ledger_id == ledger_id).all()
 
         if not positions:
@@ -123,13 +159,22 @@ class LedgerService:
                 'type_distribution': {},
             }
 
-        total_mv = sum(Money.multiply_price_quantity(p.current_price, p.quantity) for p in positions)
+        # 批量获取基金最新净值
+        fund_symbols = [p.symbol for p in positions if p.asset_type == 'fund' and p.symbol]
+        latest_navs = LedgerService._batch_fund_latest_navs(db, list(set(fund_symbols)))
+
+        def _eff_price(p: Position) -> int:
+            if p.asset_type == 'fund' and p.symbol and p.symbol in latest_navs and latest_navs[p.symbol] > 0:
+                return Money.yuan_to_price_units(latest_navs[p.symbol])
+            return p.current_price
+
+        total_mv = sum(Money.multiply_price_quantity(_eff_price(p), p.quantity) for p in positions)
         total_cost = sum(Money.multiply_price_quantity(p.avg_price, p.quantity) for p in positions)
 
         alloc_map: dict[str, int] = {}
         type_map: dict[str, int] = {}
         for p in positions:
-            val = Money.multiply_price_quantity(p.current_price, p.quantity)
+            val = Money.multiply_price_quantity(_eff_price(p), p.quantity)
             alloc = p.allocation or 'longterm'
             alloc_map[alloc] = alloc_map.get(alloc, 0) + val
             # 按资产大类聚合市值（type_distribution），后端唯一出口，前端不再自行聚合
@@ -190,14 +235,28 @@ class LedgerService:
     def get_money_fund_stats(db: Session, ledger_id: int) -> dict:
         """计算货基持仓占比及金额"""
         positions = db.query(Position).filter(Position.ledger_id == ledger_id).all()
+        # 批量获取基金最新净值（含货基）
+        fund_symbols = [p.symbol for p in positions if p.asset_type in ('fund', 'money_fund') and p.symbol]
+        latest_navs = LedgerService._batch_fund_latest_navs(db, list(set(fund_symbols)))
+
+        def _eff_price(p: Position) -> int:
+            if (
+                p.asset_type in ('fund', 'money_fund')
+                and p.symbol
+                and p.symbol in latest_navs
+                and latest_navs[p.symbol] > 0
+            ):
+                return Money.yuan_to_price_units(latest_navs[p.symbol])
+            return p.current_price
+
         valid_positions = [p for p in positions if p.current_price and p.quantity]
 
-        total_mv = sum(Money.multiply_price_quantity(p.current_price, p.quantity) for p in valid_positions)
+        total_mv = sum(Money.multiply_price_quantity(_eff_price(p), p.quantity) for p in valid_positions)
         if total_mv == 0:
             return {'money_fund_ratio': 0.0, 'money_fund_amount': 0.0}
 
         money_fund_mv = sum(
-            Money.multiply_price_quantity(p.current_price, p.quantity)
+            Money.multiply_price_quantity(_eff_price(p), p.quantity)
             for p in valid_positions
             if p.asset_type == 'money_fund'
         )
@@ -250,7 +309,10 @@ class LedgerService:
     def get_positions_paginated(
         db: Session, ledger_id: int, page: int, per_page: int, search: str | None = None
     ) -> tuple[list[dict], int]:
-        """获取持仓分页列表（修复命名与 B5 精度）。
+        """获取持仓分页列表。
+
+        基金持仓使用 DailyWorth 最新净值代替 Position.current_price 快照，
+        以确保市值/盈亏率/最新净值为实时值。股票等类型仍用 current_price 快照。
 
         search（#982）：按产品名称/代码模糊匹配；None 表示不过滤。
         注意：total_mv_cents 汇总保持账本全量口径（账户级总市值基线），
@@ -268,29 +330,48 @@ class LedgerService:
             .all()
         )
 
+        # 批量获取账本内所有基金的最新净值（供分页行 + 总市值汇总共用）
+        all_fund_symbols = [
+            row[0]
+            for row in db.query(Position.symbol)
+            .filter(Position.ledger_id == ledger_id, Position.asset_type == 'fund')
+            .distinct()
+            .all()
+            if row[0]
+        ]
+        latest_navs = LedgerService._batch_fund_latest_navs(db, all_fund_symbols)
+
+        def _effective_price_units(p_asset_type: str, p_symbol: str | None, snapshot_units: int) -> int:
+            """基金用最新净值，其他类型用快照价（统一 0.0001元 单位）"""
+            if p_asset_type == 'fund' and p_symbol and p_symbol in latest_navs and latest_navs[p_symbol] > 0:
+                return Money.yuan_to_price_units(latest_navs[p_symbol])
+            return snapshot_units
+
         # 总市值：Python 聚合（分）。逐行 ROUND_HALF_UP 语义必须保留（tech-debt §13，
-        # SQL 聚合 sum(price×qty)/10000 与逐行四舍五入有分位差异），仅轻量加载两列避免全量 ORM 实体（#911 M4）
+        # SQL 聚合 sum(price×qty)/10000 与逐行四舍五入有分位差异），仅轻量加载列避免全量 ORM 实体（#911 M4）
         total_mv_cents = sum(
-            Money.multiply_price_quantity(cp, qty)
-            for cp, qty in (
-                db.query(Position.current_price, Position.quantity).filter(Position.ledger_id == ledger_id).all()
+            Money.multiply_price_quantity(_effective_price_units(atype, sym, cp), qty)
+            for cp, qty, atype, sym in (
+                db.query(Position.current_price, Position.quantity, Position.asset_type, Position.symbol)
+                .filter(Position.ledger_id == ledger_id)
+                .all()
             )
         )
 
         items = []
         for p in positions:
-            mv_cents = Money.multiply_price_quantity(p.current_price, p.quantity)
-            pnl_cents = Money.multiply_price_quantity(p.current_price - p.avg_price, p.quantity) if p.avg_price else 0
-            cur = p.current_price  # 分
-            avg = p.avg_price  # 分
-            pnl_rate = round((cur - avg) / avg * 100, 2) if avg else 0.0
+            eff_price = _effective_price_units(p.asset_type, p.symbol, p.current_price)
+            mv_cents = Money.multiply_price_quantity(eff_price, p.quantity)
+            pnl_cents = Money.multiply_price_quantity(eff_price - p.avg_price, p.quantity) if p.avg_price else 0
+            avg = p.avg_price  # 0.0001元
+            pnl_rate = round((eff_price - avg) / avg * 100, 2) if avg else 0.0
 
             # 🔥 修复 B5：确保 total_mv_cents=0 时返回 0.0 (浮点数)，防止前端解析为整数 0
             ratio = float(round(mv_cents / total_mv_cents * 100, 2)) if total_mv_cents else 0.0
 
             back = None
-            if cur and avg and cur < avg:
-                back = round((avg - cur) / cur * 100, 2)
+            if eff_price and avg and eff_price < avg:
+                back = round((avg - eff_price) / eff_price * 100, 2)
 
             items.append(
                 {
@@ -299,12 +380,13 @@ class LedgerService:
                     'name': p.name,
                     # 持有数量（份/股，最小单位换算）——持仓明细抽屉「持有数量」卡数据源（#982 排查补充）
                     'quantity': Money.min_unit_to_shares(p.quantity),
+                    'asset_type': p.asset_type,
                     'type_label': TYPE_LABELS.get(p.asset_type, p.asset_type),
                     'market_value': Money.cents_to_yuan(mv_cents),
                     'pnl': Money.cents_to_yuan(pnl_cents),
                     'pnl_rate': pnl_rate,
-                    'avg_price': Money.cents_to_yuan(avg),
-                    'current_price': Money.cents_to_yuan(cur),
+                    'avg_price': Money.price_units_to_yuan(avg),
+                    'current_price': Money.price_units_to_yuan(eff_price),
                     'allocation': p.allocation,
                     'allocation_label': ALLOCATION_LABELS.get(p.allocation, p.allocation or '未配置'),
                     'position_ratio': ratio,  # 绝对为 float
@@ -344,10 +426,12 @@ class LedgerService:
                 {
                     'id': t.id,
                     'confirm_date': t.confirm_date.isoformat() if t.confirm_date else None,
+                    'trade_date': t.trade_date.isoformat() if t.trade_date else None,
                     'txn_type': t.txn_type,
+                    'asset_type': t.asset_type,
                     'position_name': t.position_name or '未知资产',
                     'symbol': t.symbol or '',
-                    'price': Money.cents_to_yuan(t.price),
+                    'price': Money.price_units_to_yuan(t.price),
                     'quantity': Money.min_unit_to_shares(t.quantity),
                     'amount': Money.cents_to_yuan(t.amount),
                     'fee': Money.cents_to_yuan(t.fee),

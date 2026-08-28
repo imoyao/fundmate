@@ -120,9 +120,9 @@ def make_position(db):
         if 'quantity' in kwargs:
             kwargs['quantity'] = Money.shares_to_min_unit(kwargs['quantity'])
         if 'avg_price' in kwargs:
-            kwargs['avg_price'] = Money.yuan_to_cents(kwargs['avg_price'])
+            kwargs['avg_price'] = Money.yuan_to_price_units(kwargs['avg_price'])
         if 'current_price' in kwargs:
-            kwargs['current_price'] = Money.yuan_to_cents(kwargs['current_price'])
+            kwargs['current_price'] = Money.yuan_to_price_units(kwargs['current_price'])
         pos = Position(**kwargs)
         db.add(pos)
         db.commit()
@@ -190,7 +190,7 @@ def make_transaction(db):
             position_name=position_name,
             account_name=account_name or '测试账户',
             quantity=Money.shares_to_min_unit(quantity),
-            price=Money.yuan_to_cents(price),
+            price=Money.yuan_to_price_units(price),
             amount=Money.yuan_to_cents(amount),
             confirm_date=confirm_date,
             trade_date=trade_date,

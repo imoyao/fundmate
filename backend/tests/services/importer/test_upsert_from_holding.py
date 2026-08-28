@@ -62,8 +62,8 @@ def test_upsert_creates_position_without_transaction(db, fund_ledger):
 
     assert pos.symbol == '012345'
     assert pos.quantity == Money.shares_to_min_unit(10000.0)
-    assert pos.avg_price == Money.yuan_to_cents(1.2345)
-    assert pos.current_price == Money.yuan_to_cents(1.2345)
+    assert pos.avg_price == Money.yuan_to_price_units(1.2345)
+    assert pos.current_price == Money.yuan_to_price_units(1.2345)
     assert pos.confirm_date == date(2026, 8, 12)
     assert pos.source == 'e_account_holding'
     assert pos.source_broker == '示例基金销售'
@@ -94,7 +94,7 @@ def test_upsert_set_semantics_replaces_quantity(db, fund_ledger):
     positions = db.query(Position).filter_by(ledger_id=fund_ledger.id).all()
     assert len(positions) == 1  # 不产生重复持仓
     assert positions[0].quantity == Money.shares_to_min_unit(20000.0)  # 替换而非 30000 累加
-    assert positions[0].avg_price == Money.yuan_to_cents(1.5)
+    assert positions[0].avg_price == Money.yuan_to_price_units(1.5)
     assert db.query(Transaction).count() == 0
 
     # meta 1:1 更新（不新增行）
@@ -107,7 +107,7 @@ def test_upsert_avg_cost_fallback_to_nav(db, fund_ledger):
     data = _holding_data(fund_ledger.id)
     data.pop('avg_price')
     pos = PositionService.upsert_from_holding(db, data)
-    assert pos.avg_price == Money.yuan_to_cents(1.2345)
+    assert pos.avg_price == Money.yuan_to_price_units(1.2345)
 
 
 def test_upsert_import_hash_idempotent(db, fund_ledger):

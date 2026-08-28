@@ -61,6 +61,28 @@ class TestPositionCreate:
         assert data['type_label'] == '股票'
         assert data['allocation_label'] == '长期增值'
 
+    def test_duplicate_import_hash_returns_409(self, client):
+        """幂等键(import_hash)重复 → 409，不写入重复流水（防网络重发导致的重复提交）。"""
+        payload = {
+            'symbol': '00700.HK',
+            'name': '腾讯',
+            'type': 'stock',
+            'market': 'CN_HK',
+            'account_name': '富途',
+            'quantity': 100,
+            'avg_price': 350,
+            'currency': 'HKD',
+            'trade_date': '2026-05-01',
+            'op_type': 'buy',
+            'import_hash': 'idem-test-409',
+        }
+        resp1 = _post(client, '/api/positions/', payload)
+        assert resp1.status_code == 200
+        # 同幂等键重发（模拟网络超时后客户端用同一键重发）
+        resp2 = _post(client, '/api/positions/', payload)
+        assert resp2.status_code == 409
+        assert '已记录' in (resp2.get_json() or {}).get('message', '')
+
     def test_buy_same_symbol_merges(self, client):
         _post(
             client,
@@ -748,7 +770,7 @@ class TestPositionTransactions:
             asset_type='stock',
             txn_type='buy',
             quantity=Money.shares_to_min_unit(100),
-            price=Money.yuan_to_cents(10.0),
+            price=Money.yuan_to_price_units(10.0),
             amount=Money.yuan_to_cents(1000.0),
             position_id=pos.id,
             confirm_date=date.today(),
@@ -761,7 +783,7 @@ class TestPositionTransactions:
             asset_type='stock',
             txn_type='sell',
             quantity=Money.shares_to_min_unit(50),
-            price=Money.yuan_to_cents(12.0),
+            price=Money.yuan_to_price_units(12.0),
             amount=Money.yuan_to_cents(600.0),
             position_id=pos.id,
             confirm_date=date.today(),
@@ -1075,8 +1097,8 @@ class TestPositionImportHash:
         assert pos.quantity == 97710000
         txn = db.query(Transaction).filter_by(position_id=pos.id).one()
         assert txn.quantity == 97710000
-        # 金额自洽：quantity(最小单位) × price(分) / 10000 ≈ amount(分)
-        assert abs(txn.quantity * txn.price / 10000 - txn.amount) <= txn.amount * 0.02
+        # 金额自洽：quantity(最小单位) × price(0.0001元) / 1_000_000 ≈ amount(分)
+        assert abs(txn.quantity * txn.price / 1_000_000 - txn.amount) <= txn.amount * 0.02
 
     def test_duplicate_import_hash_upserts_not_duplicate(self, db):
         """同内容两次导入（不同 source，同 ledger/symbol/同日）撞 hash → upsert 合并，不产生两条。"""

@@ -52,13 +52,13 @@ class TestE2EPrecision:
         # 3. 验证数据库内部存储单位（分/最小单位）
         db_pos = db.query(Position).first()
         assert db_pos.quantity == 1000000  # 100股 × 10000
-        assert db_pos.avg_price == 160000  # 1600元 × 100
-        assert db_pos.current_price == 160000
+        assert db_pos.avg_price == 16000000  # 1600元 × 10000（price_units）
+        assert db_pos.current_price == 16000000
 
         # 4. 验证交易流水
         txn = db.query(Transaction).first()
         assert txn.quantity == 1000000
-        assert txn.price == 160000
+        assert txn.price == 16000000
         assert txn.amount == 16000000  # 100股 × 1600元 = 160000元 → 16000000分
 
         # 5. 验证交易流水 API 返回值

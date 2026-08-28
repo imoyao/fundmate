@@ -98,8 +98,8 @@ def get_strategy_overview():
                 'type': p.asset_type or p.type,
                 'type_label': TYPE_LABELS.get(p.asset_type or p.type, p.asset_type or p.type),
                 'quantity': Money.min_unit_to_shares(p.quantity),
-                'current_price': Money.cents_to_yuan(p.current_price),
-                'avg_price': Money.cents_to_yuan(p.avg_price),
+                'current_price': Money.price_units_to_yuan(p.current_price),
+                'avg_price': Money.price_units_to_yuan(p.avg_price),
                 'account_name': p.account_name,
             }
         )

@@ -183,62 +183,13 @@
           </div>
         </div>
 
-        <!-- 资产配置与盈亏走势双列布局 -->
+        <!-- 账户深度分析（规划中，敬请期待，详见内部工作记录 ledger-detail-info-redesign-plan-2026-08-27） -->
         <CardBlock class="mb-6">
-          <div class="grid grid-cols-2 gap-4">
-            <!-- 左列：盈亏走势（flex 自动居中，避免大留白） -->
-            <div
-              class="flex flex-col justify-center border-r pr-4"
-              :style="{ borderColor: 'var(--border-subtle)' }"
-            >
-              <div class="flex justify-between items-center mb-3">
-                <div
-                  class="flex items-center gap-2 text-sm font-medium"
-                  :style="{ color: 'var(--text-secondary)' }"
-                >
-                  <IconifyIconOffline icon="ep:trend-charts" class="text-lg" />
-                  盈亏走势
-                </div>
-                <el-radio-group
-                  v-model="trendPeriod"
-                  size="small"
-                  @change="initLineChart"
-                >
-                  <el-radio-button label="day">当日</el-radio-button>
-                  <el-radio-button label="month">本月</el-radio-button>
-                  <el-radio-button label="year">今年</el-radio-button>
-                </el-radio-group>
-              </div>
-              <!-- 折线图容器：设置 min-height 让占位文字自然居中 -->
-              <div
-                class="flex-1 min-h-[200px] w-full flex items-center justify-center"
-              >
-                <div
-                  class="text-xs text-center leading-relaxed"
-                  :style="{ color: 'var(--text-tertiary)' }"
-                >
-                  暂无历史盈亏曲线<br />
-                  <span class="text-[10px]">(数据依赖 P1-20 定时任务同步)</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- 右列：资产配置分布环形图（共有组件：环形 + 底部图例 + 空态） -->
-            <div class="flex flex-col justify-center pl-2">
-              <div
-                class="flex items-center gap-2 mb-3 text-sm font-medium"
-                :style="{ color: 'var(--text-secondary)' }"
-              >
-                <IconifyIconOffline icon="ep:pie-chart" class="text-lg" />
-                资产配置分布
-              </div>
-              <AssetAllocationDonut
-                :data="allocationData"
-                :color-map="typeColorMap"
-                class="flex-1"
-                empty-text="暂无持仓数据"
-              />
-            </div>
+          <div
+            class="flex min-h-[160px] flex-1 items-center justify-center rounded-lg border border-dashed text-sm"
+            :style="{ borderColor: 'var(--border-subtle)', color: 'var(--text-tertiary)' }"
+          >
+            账户深度分析（持仓集中度 / 行业分布 / 收益日历等）规划中，敬请期待
           </div>
         </CardBlock>
         <!-- Tab 切换 + 搜索同行（#982）：左 Tab 右搜索，共用一个输入框按当前 Tab 绑定 -->
@@ -443,6 +394,7 @@
                     <template #default="{ row }">
                       <MoneyDisplay
                         :value="row.price || 0"
+                        :precision="pricePrecision(row.asset_type)"
                         :show-sign="false"
                         :show-currency="false"
                         size="sm"
@@ -849,31 +801,14 @@
         </template>
       </el-dialog>
 
-      <el-dialog
+      <!-- 复用持仓明细抽屉同款的「编辑交易」弹窗，保证两处编辑字段一致（#982 体验统一） -->
+      <TransactionEditDialog
         v-model="editTxnDialogVisible"
-        title="编辑交易"
-        width="380px"
-        destroy-on-close
-      >
-        <el-form :model="editTxnForm" label-width="80px">
-          <el-form-item label="手续费"
-            ><el-input-number
-              v-model="editTxnForm.fee"
-              :precision="2"
-              :min="0"
-              class="w-full"
-          /></el-form-item>
-          <el-form-item label="备注"
-            ><el-input v-model="editTxnForm.notes" type="textarea" :rows="2"
-          /></el-form-item>
-        </el-form>
-        <template #footer>
-          <el-button @click="editTxnDialogVisible = false">取消</el-button>
-          <el-button type="primary" @click="handleUpdateTransaction"
-            >保存</el-button
-          >
-        </template>
-      </el-dialog>
+        :transaction="editingTxn"
+        :asset-type="editingTxn?.asset_type"
+        :symbol="editingTxn?.symbol"
+        @saved="onTxnSaved"
+      />
 
       <DeleteLedgerDialog
         v-model:visible="deleteDialogVisible"
@@ -898,7 +833,7 @@ import { Search } from "@element-plus/icons-vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
-import AssetAllocationDonut from "@/components/Charts/AssetAllocationDonut.vue";
+
 import PageSkeleton from "@/components/PageSkeleton/index.vue";
 import {
   getLedgers,
@@ -910,7 +845,6 @@ import {
   getLedgerTransactions,
   updateLedgerPosition,
   deleteLedgerPosition,
-  updateLedgerTransaction,
   deleteLedgerTransaction,
   archiveLedger,
   unarchiveLedger,
@@ -939,8 +873,10 @@ import {
   txnTypeLabel
 } from "@/constants";
 import PositionTransactionsDrawer from "./components/PositionTransactionsDrawer.vue";
+import TransactionEditDialog from "./components/TransactionEditDialog.vue";
 import { usePageRefresh } from "@/composables/usePageRefresh";
 import { formatDate } from "@/utils/date";
+import { pricePrecision } from "@/utils/pricePrecision";
 
 defineOptions({ name: "LedgerDetail" });
 
@@ -965,10 +901,13 @@ interface LedgerHoldingRow {
   id: number;
   symbol?: string;
   name?: string | null;
+  asset_type?: string;
   type_label?: string;
   market_value?: number;
   pnl?: number;
   pnl_rate?: number;
+  avg_price?: number;
+  current_price?: number;
   allocation?: string | null;
   allocation_label?: string;
   quantity?: number;
@@ -979,6 +918,9 @@ interface LedgerHoldingRow {
 interface LedgerTxnRow {
   id: number;
   confirm_date?: string | null;
+  trade_date?: string | null;
+  asset_type?: string | null;
+  ledger_id?: number;
   position_name?: string;
   symbol?: string;
   txn_type: string;
@@ -1481,30 +1423,9 @@ function onSearchInput() {
 
 const activeTab = ref("holdings");
 
-// 交易编辑
+// 交易编辑（复用持仓明细抽屉同款弹窗）
 const editTxnDialogVisible = ref(false);
-const editTxnForm = ref({ id: 0, fee: 0, notes: "" });
-
-// 折线图周期切换（P1-20 数据就绪前仅占位）
-const trendPeriod = ref("day");
-
-// ---------- 资产配置分布（共有组件 AssetAllocationDonut 数据源） ----------
-// 类型分类色（CSS 语义变量名，组件内部经 getCssVar 读取）
-const typeColorMap: Record<string, string> = {
-  股票: "--invest-stock",
-  基金: "--invest-fund",
-  ETF: "--invest-etf",
-  债券: "--invest-bond",
-  加密货币: "--invest-crypto",
-  其他: "--color-neutral"
-};
-
-// 由后端 type_distribution（分类名 -> 金额）转为组件数据（name -> value）
-const allocationData = computed(() =>
-  Object.entries(summaryData.value?.type_distribution ?? {}).map(
-    ([name, value]) => ({ name, value })
-  )
-);
+const editingTxn = ref<LedgerTxnRow | null>(null);
 
 // 账户信息
 const accountInfo = computed(
@@ -1574,7 +1495,6 @@ async function loadSummary() {
   } catch (e) {
     ElMessage.error("概览加载失败");
   }
-  // 环形图由 AssetAllocationDonut 组件 watch allocationData 自动重绘，无需手动触发
 }
 
 /** 销售机构候选加载：失败仅记日志，编辑弹窗下拉留空（可选字段不阻塞页面） */
@@ -1604,11 +1524,6 @@ async function loadHoldings(page = 1) {
   } catch (e) {
     ElMessage.error("持仓加载失败");
   }
-}
-
-/** 折线图占位（待 P1-20 数据就绪后换成真实折线图渲染） */
-function initLineChart() {
-  // P1-20 未实现前保持占位，空函数防止控制台报错
 }
 
 // 交易记录加载
@@ -1931,27 +1846,13 @@ async function confirmDeletePosition(row: LedgerHoldingRow) {
 }
 
 function openEditTxnDialog(row: LedgerTxnRow) {
-  editTxnForm.value = { id: row.id, fee: row.fee || 0, notes: row.notes || "" };
+  editingTxn.value = { ...row, ledger_id: Number(ledgerId.value) };
   editTxnDialogVisible.value = true;
 }
 
-async function handleUpdateTransaction() {
-  try {
-    await updateLedgerTransaction(
-      Number(ledgerId.value),
-      editTxnForm.value.id,
-      {
-        fee: editTxnForm.value.fee,
-        notes: editTxnForm.value.notes
-      }
-    );
-    ElMessage.success("交易已更新");
-    editTxnDialogVisible.value = false;
-    loadTransactions(transactionsPage.value);
-  } catch (e) {
-    const err = e as { response?: { data?: { message?: string } } };
-    ElMessage.error(err?.response?.data?.message || "更新失败");
-  }
+function onTxnSaved() {
+  editTxnDialogVisible.value = false;
+  loadTransactions(transactionsPage.value);
 }
 
 // 只需一行，页面全自动刷新

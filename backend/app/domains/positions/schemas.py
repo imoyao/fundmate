@@ -25,6 +25,12 @@ class PositionCreate(BaseModel):
     isAfter15: Optional[bool] = Field(False, description='基金申购是否在15:00之后')
     interestRate: Optional[float] = Field(None, description='年化利率')
     amount: Optional[float] = Field(None, description='交易金额')
+    import_hash: Optional[str] = Field(
+        None,
+        description='幂等键（手动记账由前端按提交意图生成）。'
+        '落库后受 UNIQUE(ledger_id, import_hash) 约束保护，拦截网络重发导致的重复写入；'
+        '两条内容相同但意图独立的记账（如同日同基金同金额两笔买入）拥有不同键，互不误杀。',
+    )
     model_config = ConfigDict(extra='allow')
 
 

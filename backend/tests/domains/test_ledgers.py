@@ -75,6 +75,22 @@ class TestLedgerCRUD:
         # 验证两个账户的ID不同
         assert resp1.get_json()['data']['id'] != resp2.get_json()['data']['id']
 
+    def test_reorder_ledgers(self, client, db):
+        """组内拖拽排序应能落库并改变列表顺序（#1083）"""
+        a = client.post('/api/ledgers/', json={'name': 'A', 'ledger_type': 'bank'}).get_json()['data']
+        b = client.post('/api/ledgers/', json={'name': 'B', 'ledger_type': 'bank'}).get_json()['data']
+        # 逆序发送：期望 B 排在 A 前
+        resp = client.patch('/api/ledgers/reorder/', json={'ledger_type': 'bank', 'ordered_ids': [b['id'], a['id']]})
+        assert resp.status_code == 200
+        ledgers = client.get('/api/ledgers/').get_json()['data']
+        bank_ids = [x['id'] for x in ledgers if x['ledger_type'] == 'bank']
+        assert bank_ids.index(b['id']) < bank_ids.index(a['id'])
+
+    def test_reorder_ledgers_bad_params(self, client):
+        """参数缺失应返回 400"""
+        resp = client.patch('/api/ledgers/reorder/', json={'ordered_ids': [1]})
+        assert resp.status_code == 400
+
     def test_delete_ledger_with_positions_blocked(self, client, db, make_position):
         """有持仓且未勾选删除时应被拦截"""
         # 创建账户和持仓
@@ -791,8 +807,8 @@ class TestLedgerBatchMigrate:
                 account_name='支付宝',
                 ledger_id=src_id,
                 quantity=1000000,
-                avg_price=1000,
-                current_price=1200,
+                avg_price=100000,
+                current_price=120000,
             )
         )
         # 目标账户已有「完全一致」的同 symbol 持仓（同一笔被两个账户各写一遍）
@@ -802,11 +818,11 @@ class TestLedgerBatchMigrate:
                 name='沪深300ETF',
                 market='CN_A',
                 asset_type='fund',
-                account_name='蚂蚁杭州基金销售',
+                account_name='支付宝',
                 ledger_id=tgt_id,
                 quantity=1000000,
-                avg_price=1000,
-                current_price=1200,
+                avg_price=100000,
+                current_price=120000,
             )
         )
         db.commit()
@@ -848,8 +864,8 @@ class TestLedgerBatchMigrate:
                 account_name='支付宝',
                 ledger_id=src_id,
                 quantity=1000000,
-                avg_price=1000,
-                current_price=1200,
+                avg_price=100000,
+                current_price=120000,
             )
         )
         # 目标同 symbol 但份额/成本不同 → 冲突
@@ -862,8 +878,8 @@ class TestLedgerBatchMigrate:
                 account_name='蚂蚁杭州基金销售',
                 ledger_id=tgt_id,
                 quantity=500000,
-                avg_price=1200,
-                current_price=1200,
+                avg_price=120000,
+                current_price=120000,
             )
         )
         db.commit()
@@ -898,7 +914,7 @@ class TestLedgerBatchMigrate:
         assert db.query(Position).filter(Position.ledger_id == src_id).count() == 0
         kept = db.query(Position).filter(Position.ledger_id == tgt_id).one()
         assert kept.quantity == 1000000
-        assert kept.avg_price == 1000
+        assert kept.avg_price == 100000
 
     def test_migrate_overlapping_asset_dedup(self, client, db):
         """资产同名同分类且金额一致 → 视为重复，只保留目标一份"""

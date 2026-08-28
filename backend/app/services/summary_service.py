@@ -107,12 +107,12 @@ def get_summary_data(db: Session, family_id: int = 1) -> dict[str, Any]:
     for p in positions:
         rate = EXCHANGE_RATES.get(p.currency, 1.0)
         # 市值 = 数量(份) * 当前价(元) * 汇率
-        market_value = Money.min_unit_to_shares(p.quantity) * Money.cents_to_yuan(p.current_price) * rate
+        market_value = Money.min_unit_to_shares(p.quantity) * Money.price_units_to_yuan(p.current_price) * rate
         total_assets += market_value
 
         # 盈亏 = (当前价 - 成本价) * 数量
         pnl = (
-            (Money.cents_to_yuan(p.current_price) - Money.cents_to_yuan(p.avg_price))
+            (Money.price_units_to_yuan(p.current_price) - Money.price_units_to_yuan(p.avg_price))
             * Money.min_unit_to_shares(p.quantity)
             * rate
         )
@@ -195,7 +195,7 @@ def get_sankey_data(db: Session, family_id: int = 1) -> dict[str, list[dict[str,
 
     for p in positions:
         rate = EXCHANGE_RATES.get(p.currency, 1.0)
-        mv = Money.min_unit_to_shares(p.quantity) * Money.cents_to_yuan(p.current_price) * rate
+        mv = Money.min_unit_to_shares(p.quantity) * Money.price_units_to_yuan(p.current_price) * rate
         if mv <= 0:
             continue
 
@@ -288,7 +288,7 @@ def get_account_groups(db: Session, family_id: int = 1) -> list[dict]:
     for p in positions:
         acc = p.account_name or '未指定账户'
         rate = EXCHANGE_RATES.get(p.currency, 1.0)
-        market_value = Money.min_unit_to_shares(p.quantity) * Money.cents_to_yuan(p.current_price) * rate
+        market_value = Money.min_unit_to_shares(p.quantity) * Money.price_units_to_yuan(p.current_price) * rate
         if market_value == 0:
             continue
         groups[acc]['total'] += market_value
@@ -334,7 +334,7 @@ def get_distributions(db: Session, family_id: int = 1) -> dict[str, Any]:
 
     def _pos_mv(p) -> float:
         rate = EXCHANGE_RATES.get(p.currency, 1.0)
-        return Money.min_unit_to_shares(p.quantity) * Money.cents_to_yuan(p.current_price) * rate
+        return Money.min_unit_to_shares(p.quantity) * Money.price_units_to_yuan(p.current_price) * rate
 
     type_map: dict[str, float] = defaultdict(float)
     alloc_map: dict[str, float] = defaultdict(float)
@@ -395,8 +395,8 @@ def _pos_group_payload(p: Position) -> dict[str, Any]:
     """持仓分组明细：展示单位 + 标签，市值/盈亏按汇率后端换算（唯一出口）。"""
     rate = EXCHANGE_RATES.get(p.currency, 1.0)
     shares = Money.min_unit_to_shares(p.quantity)
-    price = Money.cents_to_yuan(p.current_price)
-    cost = Money.cents_to_yuan(p.avg_price)
+    price = Money.price_units_to_yuan(p.current_price)
+    cost = Money.price_units_to_yuan(p.avg_price)
     return {
         'id': p.id,
         'name': p.name,

@@ -347,9 +347,10 @@ import {
   getSecurityPriceRange,
   type SecurityPriceRange
 } from "@/api/securities";
-import { searchFunds, calcFundNav, getFundFeeRates } from "@/api/funds";
+import { searchFunds, getFundFeeRates } from "@/api/funds";
 import type { FundSearchItem } from "@/api/funds";
-import { checkTradingDay, calcFundConfirmDate } from "@/api/utils";
+import { checkTradingDay } from "@/api/utils";
+import { useFundTradeDate } from "@/composables/useFundTradeDate";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import {
   ALLOCATION_OPTIONS,
@@ -440,8 +441,13 @@ const fundFeeDiscount = ref(0.1);
 
 // 交易日与确认日
 const isTradingDay = ref<boolean | null>(null);
-const actualNavDate = ref(""); // 🔥 新增：用于储存后端返回的实际净值日
-const confirmDate = ref("");
+// 基金交易日期联动 composable（calcFundConfirmDate + fetchFundNav）
+const {
+  actualNavDate,
+  confirmDate,
+  calcConfirmAndNav,
+  reset: resetTradeDate
+} = useFundTradeDate();
 
 // ── 计算属性 ──
 const selectableLedgers = computed(() =>
@@ -822,33 +828,7 @@ async function fetchTradingDay() {
   }
 }
 
-// 🔥 修复 1：正确接收后端返回的两个日期
-async function fetchConfirmDate() {
-  if (selectedSecurityOption.value?.type !== "fund" || !form.trade_date) {
-    actualNavDate.value = "";
-    confirmDate.value = "";
-    return;
-  }
-  try {
-    const res = await calcFundConfirmDate({
-      trade_date: form.trade_date,
-      fund_type: "domestic",
-      is_after_15: form.isAfter15
-    });
-    const data = (
-      res as unknown as {
-        data?: { actual_trade_date?: string; confirm_date?: string };
-      }
-    )?.data;
-    if (data) {
-      actualNavDate.value = data.actual_trade_date ?? ""; // 真实净值日
-      confirmDate.value = data.confirm_date ?? ""; // 确认日
-    }
-  } catch {
-    actualNavDate.value = "";
-    confirmDate.value = "";
-  }
-}
+// fetchConfirmDate 已移至 useFundTradeDate composable，与其他组件共用
 
 // ── 提交 ──
 
@@ -926,8 +906,7 @@ function resetForm() {
   Object.assign(form, defaultForm());
   selectedSecurityOption.value = null;
   securityOptions.value = [];
-  actualNavDate.value = "";
-  confirmDate.value = "";
+  resetTradeDate();
   formRef.value?.resetFields();
 
   if (props.hideAccountSelect && props.defaultLedgerId) {
@@ -968,19 +947,13 @@ watch(
     if (selectedSecurityOption.value?.type === "fund" && form.trade_date) {
       const opt = selectedSecurityOption.value;
       if (!opt) return;
-      await fetchConfirmDate();
-
-      if (actualNavDate.value) {
-        try {
-          const res = await calcFundNav([opt.symbol], actualNavDate.value);
-          const navData =
-            (res as unknown as { data?: NavResponseItem[] }).data || [];
-          if (navData.length > 0 && navData[0].unit_nav) {
-            form.price = navData[0].unit_nav;
-          }
-        } catch (e) {
-          console.warn("净值获取失败，需用户手动输入", e);
-        }
+      const result = await calcConfirmAndNav({
+        tradeDate: form.trade_date,
+        symbol: opt.symbol,
+        isAfter15: form.isAfter15
+      });
+      if (result?.nav != null) {
+        form.price = result.nav;
       }
     }
   }

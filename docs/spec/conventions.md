@@ -78,7 +78,7 @@ title: 全局强制设计规范（conventions · 🔒 冻结区）
 
 ### 2.11 金融数据精度强制规范
 
-> 所有直接关联用户资金的字段，必须使用整数存储分（最小货币单位）或最小份额单位，禁止使用 float/double。非资金类字段（如基金净值）使用 DECIMAL 精确存储。所有读写操作必须通过 `Money` 工具类进行单位转换，禁止在业务代码中直接进行乘除运算。
+> 所有直接关联用户资金的字段，必须使用整数存储、禁止使用 float/double，单位换算统一经 `Money` 工具类，禁止业务代码直接乘除。具体单位：**金额类（amount/fee/market_value/tax）存储为「分」(×100)**；**价格类（positions.avg_price / positions.current_price / transactions.price）存储为「0.0001元」(price_units, ×10000)**，以支持 4 位小数价格精度（issue #1099）；份额存储为最小单位(×10000)。非资金类字段（如基金净值）使用 DECIMAL 精确存储。
 
 ### 2.12 前端色彩变量编码红线（新增）
 

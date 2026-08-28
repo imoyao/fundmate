@@ -144,8 +144,8 @@ class TestSankeyEndpoint:
             market='SH',
             asset_type='stock',
             quantity=Money.shares_to_min_unit(100),
-            avg_price=Money.yuan_to_cents(1600.0),
-            current_price=Money.yuan_to_cents(1800.0),
+            avg_price=Money.yuan_to_price_units(1600.0),
+            current_price=Money.yuan_to_price_units(1800.0),
             currency='CNY',
             allocation='longterm',
         )
@@ -216,8 +216,8 @@ class TestSankeyEndpoint:
             market='SH',
             asset_type='stock',
             quantity=Money.shares_to_min_unit(50),
-            avg_price=Money.yuan_to_cents(1600),
-            current_price=Money.yuan_to_cents(1800),
+            avg_price=Money.yuan_to_price_units(1600),
+            current_price=Money.yuan_to_price_units(1800),
             currency='CNY',
             allocation='longterm',
         )
@@ -227,8 +227,8 @@ class TestSankeyEndpoint:
             market='SZ',
             asset_type='fund',
             quantity=Money.shares_to_min_unit(1000),
-            avg_price=Money.yuan_to_cents(1.5),
-            current_price=Money.yuan_to_cents(1.8),
+            avg_price=Money.yuan_to_price_units(1.5),
+            current_price=Money.yuan_to_price_units(1.8),
             currency='CNY',
             allocation='stable',
         )
@@ -280,8 +280,8 @@ class TestSankeyEndpoint:
             market='HK',
             asset_type='stock',
             quantity=Money.shares_to_min_unit(100),
-            avg_price=Money.yuan_to_cents(300),
-            current_price=Money.yuan_to_cents(350),
+            avg_price=Money.yuan_to_price_units(300),
+            current_price=Money.yuan_to_price_units(350),
             currency='HKD',
         )
         db.add(pos)
@@ -303,14 +303,14 @@ class TestSankeyEndpoint:
             name='股A',
             asset_type='stock',
             quantity=Money.shares_to_min_unit(1),
-            current_price=Money.yuan_to_cents(10),
+            current_price=Money.yuan_to_price_units(10),
         )
         p2 = Position(
             symbol='B',
             name='股B',
             asset_type='stock',
             quantity=Money.shares_to_min_unit(1),
-            current_price=Money.yuan_to_cents(20),
+            current_price=Money.yuan_to_price_units(20),
         )
         db.add_all([p1, p2])
         db.commit()
@@ -346,8 +346,8 @@ class TestSankeyEndpoint:
             market='SH',
             asset_type='stock',
             quantity=Money.shares_to_min_unit(10),
-            avg_price=Money.yuan_to_cents(1000),
-            current_price=Money.yuan_to_cents(2000),
+            avg_price=Money.yuan_to_price_units(1000),
+            current_price=Money.yuan_to_price_units(2000),
             currency='CNY',
             allocation='speculative',
         )
@@ -408,8 +408,8 @@ class TestDistributionsEndpoint:
             market='CN_HK',
             asset_type='stock',
             quantity=Money.shares_to_min_unit(100),
-            avg_price=Money.yuan_to_cents(300),
-            current_price=Money.yuan_to_cents(350),
+            avg_price=Money.yuan_to_price_units(300),
+            current_price=Money.yuan_to_price_units(350),
             currency='HKD',
             allocation='longterm',
             account_name='富途',
@@ -458,7 +458,7 @@ class TestDistributionsEndpoint:
             market='CN_A',
             asset_type='stock',
             quantity=Money.shares_to_min_unit(100),
-            current_price=Money.yuan_to_cents(1000),
+            current_price=Money.yuan_to_price_units(1000),
             currency='CNY',
         )
         p2 = Position(
@@ -467,7 +467,7 @@ class TestDistributionsEndpoint:
             market='CN_A',
             asset_type='stock',
             quantity=Money.shares_to_min_unit(100),
-            current_price=Money.yuan_to_cents(500),
+            current_price=Money.yuan_to_price_units(500),
             currency='CNY',
         )
         db.add_all([p1, p2])
@@ -489,8 +489,8 @@ class TestPositionGroupsEndpoint:
             market='CN_A',
             asset_type='stock',
             quantity=Money.shares_to_min_unit(100),
-            avg_price=Money.yuan_to_cents(900),
-            current_price=Money.yuan_to_cents(1000),
+            avg_price=Money.yuan_to_price_units(900),
+            current_price=Money.yuan_to_price_units(1000),
             currency='CNY',
             allocation='longterm',
             account_name='华泰',
@@ -518,8 +518,8 @@ class TestPositionGroupsEndpoint:
             asset_type='stock',
             market='CN_HK',
             quantity=Money.shares_to_min_unit(100),
-            current_price=Money.yuan_to_cents(350),
-            avg_price=Money.yuan_to_cents(300),
+            current_price=Money.yuan_to_price_units(350),
+            avg_price=Money.yuan_to_price_units(300),
             currency='HKD',
             account_name='富途',
         )
@@ -529,8 +529,8 @@ class TestPositionGroupsEndpoint:
             name='某基金',
             asset_type='fund',
             quantity=Money.shares_to_min_unit(1000),
-            current_price=Money.yuan_to_cents(1.8),
-            avg_price=Money.yuan_to_cents(1.5),
+            current_price=Money.yuan_to_price_units(1.8),
+            avg_price=Money.yuan_to_price_units(1.5),
         )
         db.commit()
 
