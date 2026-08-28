@@ -884,6 +884,7 @@ class ImportOrchestrator:
             ledger_type='e_account',
             default_allocation='longterm',
             family_id=self.family_id,
+            is_aggregation=True,
         )
         self.db.add(ledger)
         self.db.flush()

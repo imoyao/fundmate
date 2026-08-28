@@ -22,6 +22,7 @@ from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, PositionImportMeta, SalesInstitution
 from app.domains.positions.views import enrich_position_dict
 from app.domains.transactions.models import Transaction
+from app.services.fund_aggregation import get_fund_aggregation as svc_get_fund_aggregation
 from app.services.ledger_service import LedgerService
 
 ledgers_bp = APIBlueprint('ledgers', __name__, url_prefix='/api/ledgers')
@@ -49,6 +50,9 @@ def _ledger_to_dict(ledger: Ledger, last_used_at=None) -> dict:
         'linked_cash_ledger_id': ledger.linked_cash_ledger_id,
         # 关联的销售机构（AMAC 名录），可选；前端回显与编辑依赖该字段
         'sales_institution_id': ledger.sales_institution_id,
+        # 聚合/系统账本标记与交易前端标签（#1101，前端展示/编辑用）
+        'is_aggregation': ledger.is_aggregation,
+        'frontend_app': ledger.frontend_app,
         'is_active': ledger.is_active,
         # 组内手动排序序号；null 表示用户尚未手动排序（前端回退按持仓金额降序）。
         'display_order': ledger.display_order,
@@ -64,6 +68,17 @@ def _ledger_to_dict(ledger: Ledger, last_used_at=None) -> dict:
 def get_ledgers_overview():
     with get_db() as db:
         data = LedgerService.get_overview_stats(db, get_family_id())
+        return jsonify({'data': data, 'message': 'ok'})
+
+
+@ledgers_bp.get('/fund-aggregation/')
+def get_fund_aggregation():
+    """基金持仓跨账本聚合（#1101）：按产品/机构/前端维度聚合，供概览卡片与下钻页。"""
+    dimension = request.args.get('dimension', 'product')
+    if dimension not in ('product', 'institution', 'app'):
+        dimension = 'product'
+    with get_db() as db:
+        data = svc_get_fund_aggregation(db, get_family_id(), dimension)
         return jsonify({'data': data, 'message': 'ok'})
 
 
@@ -187,6 +202,8 @@ def list_ledgers():
         query = db.query(Ledger).filter(Ledger.family_id == get_family_id())
         if not include_archived:
             query = query.filter(Ledger.is_active.is_(True))
+        # 隐藏聚合/系统账本（如基金E账户），不出现在用户账户列表（#1101）
+        query = query.filter(Ledger.is_aggregation.is_(False))
         # 默认：手动排序序号在前（NULL 视为未排序排到后面），同组内再按创建时间稳定序。
         # 前端若检测到组内存在 display_order 则以它为准；否则按持仓金额降序。
         ledgers = query.order_by(

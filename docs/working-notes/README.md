@@ -84,6 +84,7 @@
 | `portfolio-strategy-unification-2026-08-24.md` | **组合体系殊途同归实施计划（D20，设计定稿）**：组合收敛为持仓级概念（positions.portfolio_id + 账户「默认组合」语义）、三层 XIRR 口径（持仓/账户/组合）、策略标签正交保留、页面合一方案、分期实施与迁移回滚、概念精简评估 |
 | `portfolio-lot-attribution-design-2026-08-25.md` | **组合批次级（Lot）归因立项设计（#1095 远期方案）**：b 否决/c 为唯一路径；现金按 lot 归属；排序先 D20 一期后 #1095。展开 4 项前置依赖为可执行设计（lots/lot_consumptions 模型、现金归属细则、XIRR 引擎重写+清理 xirr_engine.py:349 死代码、历史回填），附代码锚点与分期/测试/回滚 |
 | `ledger-detail-info-redesign-plan-2026-08-27.md` | **账户详情页信息重构计划（方向 C + 配置目标可编辑）**：移除无意义环形图/盈亏走势占位，规划基金账户深度分析（持仓集中度/行业分布/收益日历等）与持仓级配置目标编辑，分期 P0~P3 落地 |
+| `e-account-aggregation-design-2026-08-28.md` | **基金E账户与聚合器/券商数据模型设计草案（#1101，待评审）**：概念澄清（实体账本/销售机构/券商/聚合器/E账户）、现状实证、方案A/B、broker_aggregator_links+trading_frontend、银行卡绑定约束、前端聚合页维度、D1~D6 待决、P0~P2 分期 |
 
 ## 子目录归档
 

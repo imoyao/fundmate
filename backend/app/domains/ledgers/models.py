@@ -100,3 +100,21 @@ class Ledger(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
         nullable=True,
         comment='关联的基金销售机构（AMAC 权威名录，可选自选字段；用户创建账户时自选，不选为 NULL）',
     )
+
+    # 聚合/系统账本标记（#1101）：True=聚合视图类账本（如基金E账户），从用户账户列表默认隐藏。
+    # 用于替代在列表查询里硬编码 ledger_type='e_account'，前向兼容未来聚合账本。
+    is_aggregation = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment='是否聚合/系统账本（True=从账户列表隐藏，如基金E账户）',
+    )
+
+    # 交易前端（聚合前端）标签（#1101）：用户通过哪个前端软件查看该账户（同花顺/东方财富/券商APP）。
+    # 仅展示用途，不参与任何资产计算或业务逻辑。
+    frontend_app = Column(
+        String(20),
+        nullable=True,
+        default=None,
+        comment='交易前端标签(展示用): tonghuashun/eastmoney/self/other，不参与计算',
+    )

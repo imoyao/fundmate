@@ -162,20 +162,33 @@ const AssetRouteConfig = {
             hideQuickEntry: true
           }
         },
-        // E账户导入（持仓快照，落 positions 不建流水）
-        {
-          path: "investment/eaccount-import",
-          name: "InvestmentEaccountImport",
-          component: () =>
-            import("@/views/asset/investment/eaccount-import/index.vue"),
-          meta: {
-            title: "E账户导入",
-            icon: "ep:upload",
-            rank: 11,
-            showLink: false,
-            hideQuickEntry: true
-          }
-        }
+    // E账户导入（持仓快照，落 positions 不建流水）
+    {
+      path: "investment/eaccount-import",
+      name: "InvestmentEaccountImport",
+      component: () =>
+        import("@/views/asset/investment/eaccount-import/index.vue"),
+      meta: {
+        title: "E账户导入",
+        icon: "ep:upload",
+        rank: 11,
+        showLink: false,
+        hideQuickEntry: true
+      }
+    },
+    // 场外基金（含E账户）聚合下钻页：从「账户管理」概览卡片进入，不在侧边栏展示
+    {
+      path: "/asset/fund-aggregation",
+      name: "fund-aggregation",
+      component: () => import("@/views/asset/fund-aggregation/index.vue"),
+      meta: {
+        title: "场外基金聚合",
+        icon: "ep:box",
+        rank: 12,
+        showLink: false,
+        hidden: true
+      }
+    }
       ]
     },
     {
