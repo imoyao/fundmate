@@ -412,13 +412,28 @@ function buildGroups(ledgers: any[]) {
   }
 
   // 分组顺序来自本地偏好（groupOrder），默认 银行/证券/基金平台/保险/期货/其他；
-  // 仅保留实际有账户的分组（空分组不渲染）
-  const result = groupOrder.value.filter(type => groups[type]) as any[];
+  // 仅保留实际有账户的分组（空分组不渲染）。
+  //
+  // 修复（账户列表白屏 / 账户不显示）：
+  // 1) groupOrder 是 string[]，filter 返回的是分组 **key 字符串**，必须 map 回
+  //    groups 对象——否则下方 g.ledgers.sort() 会对字符串取属性，抛
+  //    "Cannot read properties of undefined (reading 'sort')" 导致整页渲染中断。
+  // 2) groupOrder 未涵盖的分组（如新增渠道、旧数据兜底出的类型）追加到末尾，
+  //    避免这些账户被静默丢弃而"凭空消失"。
+  const orderedTypes = groupOrder.value.filter(type => groups[type]);
+  const restTypes = Object.keys(groups).filter(
+    type => !orderedTypes.includes(type)
+  );
+  const result = [...orderedTypes, ...restTypes].map(
+    type => groups[type]
+  ) as any[];
 
   // 未归置持仓不再作为分组卡片进入网格（2026-08 改版），统一由顶部警示 banner 承接
   // 组内排序：已手动排序（display_order 非 null）的卡片按 display_order 升序排在前面，
   // 其余（null）回退到「按持仓金额降序」，默认即金额大的靠前。
   for (const g of result) {
+    // 防御：分组结构异常（无 ledgers 数组）时跳过，避免一处脏数据让整页白屏
+    if (!Array.isArray(g?.ledgers)) continue;
     g.ledgers.sort((a: any, b: any) => {
       const da = a.display_order ?? Infinity;
       const db = b.display_order ?? Infinity;
