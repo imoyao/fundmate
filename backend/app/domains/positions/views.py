@@ -188,9 +188,10 @@ _PRICE_RANGE_OP_TYPES = {'buy', 'sell', 'deposit', 'withdraw'}
 def _validate_price_within_range(data: dict) -> None:
     """后端成交价区间拦截（#948 续）：证券类成交价须落在交易日 [low, high] 内。
 
-    仅当本地 PriceHistory 能解析出区间时才拦截；无数据则放行（保持手输可用）。
+    作为权威拦截（前端校验之外的最终防线）：本地 PriceHistory 优先，缺失时启用
+    实时兜底（腾讯财经当日 / akshare 历史日）取真实区间，确保缺少本地行情的标的
+    （如隆基）也能拦住明显异常的成交价。任一来源不可达则降级为放行，不会误拦。
     与前端 getSecurityPriceRange + SellForm/BuyForm 的区间校验保持一致。
-    写路径不做实时兜底（use_live_fallback=False），避免引入网络依赖。
     """
     op_type = data.get('op_type')
     if op_type not in _PRICE_RANGE_OP_TYPES:
@@ -200,7 +201,7 @@ def _validate_price_within_range(data: dict) -> None:
     trade_date = data.get('trade_date')
     if not symbol or avg_price is None or not trade_date:
         return
-    rng = resolve_security_price_range(symbol, trade_date, use_live_fallback=False)
+    rng = resolve_security_price_range(symbol, trade_date, use_live_fallback=True)
     if not rng:
         return
     low, high = rng['low'], rng['high']

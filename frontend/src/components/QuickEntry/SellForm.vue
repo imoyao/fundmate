@@ -483,12 +483,36 @@ const validateQuantity = (_rule: any, value: any, callback: any) => {
   }
 };
 
+// 股票成交价区间校验：用户手输的成交价明显偏离当日 [low, high] 时，立即提示，
+// 绝不静默修正为最新价后再成交（#948 后续）。无区间数据（行情缺失）时放行，
+// 交由后端区间校验作为权威拦截。
+const validateStockPrice = (_rule: any, value: any, callback: any) => {
+  if (
+    form.type === "stock" &&
+    stockPriceRange.value &&
+    value != null &&
+    value > 0
+  ) {
+    const { low, high, date } = stockPriceRange.value;
+    if (value < low || value > high) {
+      callback(
+        new Error(
+          `成交价 ${value} 超出 ${date} 当日区间（${low} ~ ${high}），请核对后重新输入`
+        )
+      );
+      return;
+    }
+  }
+  callback();
+};
+
 const rules: FormRules = {
   ledger_id: [{ required: true, message: "请选择账户", trigger: "change" }],
   positionId: [
     { required: true, message: "请选择持仓产品", trigger: "change" }
   ],
   quantity: [{ validator: validateQuantity, trigger: "blur" }],
+  price: [{ validator: validateStockPrice, trigger: "blur" }],
   trade_date: [{ required: true, message: "请选择日期", trigger: "change" }]
 };
 

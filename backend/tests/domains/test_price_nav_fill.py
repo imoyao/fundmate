@@ -196,11 +196,20 @@ class TestBackendPriceRangeInterception:
         )
         assert resp.status_code == 200
 
-    def test_no_price_history_not_blocked(self, client, db):
-        """本地无价格区间数据时放行（保持手输可用，不阻塞）。"""
+    def test_no_price_history_not_blocked(self, client, db, monkeypatch):
+        """本地与实时兜底都拿不到区间数据时，放行（不阻塞手输；不误杀）。
+
+        对应 #948 后续修复的降级语义：use_live_fallback=True 仅在「本地或实时任一可达」
+        时才拦截；两者皆不可达（如完全离线）则放行。
+        """
         _seed_security(db, 'SH600519')
         db.add(Ledger(name='测试账户', ledger_type='stock'))
         db.commit()
+        # 模拟「本地无数据 + 实时兜底也不可达」的降级情形
+        monkeypatch.setattr(
+            'app.domains.positions.views.resolve_security_price_range',
+            lambda symbol, trade_date, use_live_fallback=False: None,
+        )
         resp = client.post(
             '/api/positions/',
             json={
@@ -217,6 +226,36 @@ class TestBackendPriceRangeInterception:
             },
         )
         assert resp.status_code == 200
+
+    def test_live_fallback_blocks_when_no_local_history(self, client, db, monkeypatch):
+        """#948 后续修复验证：本地无 PriceHistory 时，启用实时兜底也能拦住异常成交价。
+
+        这正是「用户以 100 元卖出隆基（缺本地行情）却未被拦截」的根因修复点：
+        写路径区间校验改为 use_live_fallback=True，腾讯/akshare 兜底可达即拦截。
+        """
+        _seed_security(db, 'SH600519')
+        db.add(Ledger(name='测试账户', ledger_type='stock'))
+        db.commit()
+        fallback = {'symbol': 'SH600519', 'date': self.TRADE_DATE, 'low': 1500.0, 'high': 1700.0, 'close': 1650.0}
+        monkeypatch.setattr('app.services.price_range_service.fetch_tencent_price_range', lambda s, t: fallback)
+        monkeypatch.setattr('app.services.price_range_service.fetch_live_price_range', lambda s, t: fallback)
+        resp = client.post(
+            '/api/positions/',
+            json={
+                'symbol': self.SYMBOL,
+                'name': '贵州茅台',
+                'type': 'stock',
+                'market': 'CN_A',
+                'account_name': '测试账户',
+                'quantity': 100,
+                'avg_price': 99999.0,  # 超出兜底区间 → 应被拦截
+                'currency': 'CNY',
+                'trade_date': self.TRADE_DATE,
+                'op_type': 'buy',
+            },
+        )
+        assert resp.status_code == 400
+        assert '超出' in resp.get_json()['message']
 
 
 class TestPriceRangeFallbackChain:
