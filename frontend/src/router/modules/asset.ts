@@ -188,6 +188,19 @@ const AssetRouteConfig = {
             showLink: false,
             hidden: true
           }
+        },
+        // 场内证券（股票/ETF/可转债）聚合下钻页：从「账户管理」概览卡片进入，不在侧边栏展示
+        {
+          path: "/asset/securities-aggregation",
+          name: "securities-aggregation",
+          component: () => import("@/views/asset/securities-aggregation/index.vue"),
+          meta: {
+            title: "场内证券聚合",
+            icon: "ep:trend-charts",
+            rank: 13,
+            showLink: false,
+            hidden: true
+          }
         }
       ]
     },
