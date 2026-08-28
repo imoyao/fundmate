@@ -9,6 +9,14 @@ export interface LedgerItem {
   notes: string;
   default_allocation?: string;
   linked_cash_ledger_id?: number | null; // 新增
+  /** 类现金产品绑定（#1137）：绑定的基金 id（「余额宝」概念，null=未绑定） */
+  linked_money_fund_id?: number | null;
+  /** 绑定类现金产品的基金代码（出参回显用，入参也用 code） */
+  linked_money_fund_code?: string | null;
+  /** 绑定类现金产品的名称（出参回显用） */
+  linked_money_fund_name?: string | null;
+  /** 卖出/赎回回款是否自动申购绑定的类现金产品（默认 false，需先绑定） */
+  auto_purchase_money_fund?: boolean;
   /** 关联投资组合 id（账户详情页编辑弹窗使用） */
   portfolio_id?: number | null;
   /** 费率配置（证券/基金账户编辑弹窗使用） */
@@ -90,6 +98,10 @@ export function createLedger(data: {
   portfolio_id?: number | null;
   fee_config?: Record<string, unknown> | null;
   sales_institution_id?: number | null;
+  /** 类现金产品：基金代码（#1137，后端据其解析 funds.id 存储） */
+  linked_money_fund_code?: string | null;
+  /** 卖出/赎回回款是否自动申购该类现金产品（需先绑定，否则后端 400） */
+  auto_purchase_money_fund?: boolean;
 }) {
   return http.request<any>("post", "/api/ledgers/", { data });
 }
@@ -105,6 +117,10 @@ export function updateLedger(
     portfolio_id?: number | null;
     fee_config?: Record<string, unknown> | null;
     sales_institution_id?: number | null;
+    /** 类现金产品：基金代码（#1137，null 表示解绑，解绑后开关自动关闭） */
+    linked_money_fund_code?: string | null;
+    /** 卖出/赎回回款是否自动申购该类现金产品（需先绑定，否则后端 400） */
+    auto_purchase_money_fund?: boolean;
   }
 ) {
   return http.request("patch", `/api/ledgers/${id}/`, { data });
@@ -117,7 +133,7 @@ export function deleteLedger(id: number) {
 /** 组内手动排序落库（#1083）：发送该类型下的完整有序 id 列表 */
 export function reorderLedgers(ledgerType: string, orderedIds: number[]) {
   return http.request("patch", "/api/ledgers/reorder/", {
-    data: { ledger_type: ledgerType, ordered_ids: orderedIds },
+    data: { ledger_type: ledgerType, ordered_ids: orderedIds }
   });
 }
 
@@ -474,10 +490,7 @@ export interface FundAggregationInstitutionGroup {
 
 /** app 维度分组：按交易前端聚合（key 为 ledger.frontend_app，缺省 "self"） */
 export type FundAggregationAppKey =
-  | "tonghuashun"
-  | "eastmoney"
-  | "self"
-  | "other";
+  "tonghuashun" | "eastmoney" | "self" | "other";
 
 export interface FundAggregationAppGroup {
   key: FundAggregationAppKey;

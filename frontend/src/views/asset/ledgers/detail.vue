@@ -187,7 +187,10 @@
         <CardBlock class="mb-6">
           <div
             class="flex min-h-[160px] flex-1 items-center justify-center rounded-lg border border-dashed text-sm"
-            :style="{ borderColor: 'var(--border-subtle)', color: 'var(--text-tertiary)' }"
+            :style="{
+              borderColor: 'var(--border-subtle)',
+              color: 'var(--text-tertiary)'
+            }"
           >
             账户深度分析（持仓集中度 / 行业分布 / 收益日历等）规划中，敬请期待
           </div>
@@ -523,9 +526,14 @@
           <AccountFormFields
             v-model:ledger-type="editForm.ledger_type"
             v-model:linked-cash-id="editForm.linked_cash_ledger_id"
+            v-model:linked-money-fund-code="editForm.linked_money_fund_code"
+            v-model:auto-purchase-money-fund="editForm.auto_purchase_money_fund"
             v-model:portfolio-id="editForm.portfolio_id"
             v-model:fee-config="editForm.fee_config"
             v-model:sales-institution-id="editForm.sales_institution_id"
+            :linked-money-fund-name="
+              accountInfo?.linked_money_fund_name ?? null
+            "
             :cash-ledgers="cashLedgers"
             :portfolio-list="portfolioList"
             :sales-institutions="salesInstitutions"
@@ -1347,6 +1355,9 @@ const editForm = ref({
   notes: "",
   portfolio_id: null as number | null,
   linked_cash_ledger_id: null as number | null,
+  // 类现金产品绑定（#1137）：基金代码 + 自动申购开关
+  linked_money_fund_code: null as string | null,
+  auto_purchase_money_fund: false,
   fee_config: null as Record<string, unknown> | null,
   sales_institution_id: null as number | null
 });
@@ -1744,6 +1755,9 @@ async function openEditDialog() {
     notes: accountInfo.value.notes || "",
     portfolio_id: accountInfo.value.portfolio_id || null,
     linked_cash_ledger_id: accountInfo.value.linked_cash_ledger_id || null,
+    linked_money_fund_code: accountInfo.value.linked_money_fund_code ?? null,
+    auto_purchase_money_fund:
+      accountInfo.value.auto_purchase_money_fund ?? false,
     fee_config: accountInfo.value.fee_config,
     sales_institution_id: accountInfo.value.sales_institution_id ?? null
   };
