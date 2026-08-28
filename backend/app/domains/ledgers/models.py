@@ -118,3 +118,16 @@ class Ledger(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
         default=None,
         comment='交易前端标签(展示用): tonghuashun/eastmoney/self/other，不参与计算',
     )
+
+    # ── 渠道分类（#1101 后续重设计，权威说明见 docs/working-notes/ledger-channel-category-redesign-2026-08-28.md）──
+    # 与 ledger_type 正交，维护者务必分清（铁律见该文档 §2.3）：
+    #   - ledger_type：内部资产类键（stock/fund/bank/property…），只进计算/费率/视图分支，用户不可见，不当展示标签。
+    #   - channel_category：用户可见的"机构渠道类别"（bank/securities/fund_platform/insurance/futures/other），
+    #     同时作为账户列表分组与账户类型标签。分组/标签/排序/筛选只读本字段，绝不读 ledger_type 当展示。
+    # 本字段完全由系统维护：建账/导入时由 sales_institution_id→org_type 映射写入；手动账本由用户选的"分组"推导写入，用户从不直接编辑。
+    channel_category = Column(
+        String(20),
+        nullable=True,
+        default=None,
+        comment='渠道分类(用户可见分组/类型标签): bank/securities/fund_platform/insurance/futures/other；系统维护，不参与计算',
+    )

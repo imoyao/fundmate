@@ -16,7 +16,7 @@
     </el-form-item>
 
     <el-form-item
-      v-if="ledgerType === 'stock' || ledgerType === 'fund'"
+      v-if="ledgerType === 'securities' || ledgerType === 'fund_platform'"
       label="现金账户"
     >
       <el-select
@@ -147,10 +147,10 @@
       </el-form-item>
 
       <!-- 高级设置：费率信息 -->
-      <el-collapse
-        v-if="ledgerType === 'stock' || ledgerType === 'fund'"
-        class="mt-4"
-      >
+    <el-collapse
+      v-if="ledgerType === 'securities' || ledgerType === 'fund_platform'"
+      class="mt-4"
+    >
         <el-collapse-item title="高级设置（费率）" name="fee">
           <FeeConfigFields
             :ledger-type="ledgerType"
@@ -196,14 +196,14 @@ const BANK_ORG_TYPES = new Set([
 ]);
 
 /**
- * 账户类型 → 可见机构原始类型（#1082 D2/D3）：
- * - stock 仅券商（股票交易只发生在券商）
- * - fund 除期货公司外全部（券商代销场外基金，靠常用置顶 + 类型标识区分）
+ * 渠道分组 → 可见机构原始类型（#1082 D2/D3）：
+ * - securities 仅券商（股票交易只发生在券商）
+ * - fund_platform 除期货公司外全部（券商代销场外基金，靠常用置顶 + 类型标识区分）
  * - 其余类型不在表内 → 不过滤，维持现状
  */
 const LEDGER_TYPE_ORG_TYPES: Record<string, string[]> = {
-  stock: ["证券公司"],
-  fund: [
+  securities: ["证券公司"],
+  fund_platform: [
     "独立基金销售机构",
     "全国性商业银行",
     "城市商业银行",
@@ -304,9 +304,9 @@ const otherInstitutions = computed<SalesInstitution[]>(() =>
   visibleInstitutions.value.filter(inst => !inst.is_common)
 );
 
-/** fund 账户选中银行类机构时的轻提示开关（#1082 D8） */
+/** fund_platform 账户选中银行类机构时的轻提示开关（#1082 D8） */
 const showBankChannelHint = computed(() => {
-  if (props.ledgerType !== "fund" || props.salesInstitutionId == null) {
+  if (props.ledgerType !== "fund_platform" || props.salesInstitutionId == null) {
     return false;
   }
   const inst = props.salesInstitutions.find(
@@ -324,8 +324,8 @@ function institutionLabel(inst: SalesInstitution): string {
 
 function onTypeChange(val: string) {
   emit("update:ledgerType", val);
-  // 如果切换到的类型不是 stock/fund，清空关联的现金账户
-  if (val !== "stock" && val !== "fund") {
+  // 如果切换到的渠道分组不是 securities/fund_platform，清空关联的现金账户
+  if (val !== "securities" && val !== "fund_platform") {
     emit("update:linkedCashId", null);
     emit("update:feeConfig", null);
   }

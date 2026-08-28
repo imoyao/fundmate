@@ -23,6 +23,8 @@ export interface LedgerItem {
   is_active?: boolean;
   /** 组内手动排序序号；null=按持仓金额降序默认排序（#1083） */
   display_order?: number | null;
+  /** 渠道分组（用户可见分组，后端返回；列表按此分组，后端据其派生 ledger_type） */
+  channel_category?: string | null;
 }
 
 /**
@@ -79,6 +81,8 @@ export function unarchiveLedger(id: number) {
 export function createLedger(data: {
   name: string;
   ledger_type?: string;
+  /** 渠道分组：后端据其派生 ledger_type（创建时优先传 channel_category） */
+  channel_category?: string;
   default_allocation?: string;
   currency?: string;
   linked_cash_ledger_id?: number | null;

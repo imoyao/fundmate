@@ -30,9 +30,11 @@ const emit = defineEmits<{
 }>();
 
 const creating = ref(false);
+// 表单的 ledger_type 字段此处承载「渠道分组」值（bank/securities/fund_platform/...），
+// 提交时作为 channel_category 下发，后端据其派生真实 ledger_type。
 const createForm = ref({
   name: "",
-  ledger_type: "stock",
+  ledger_type: "bank",
   notes: "",
   linked_cash_ledger_id: null as number | null,
   portfolio_id: null as number | null,
@@ -41,14 +43,14 @@ const createForm = ref({
 });
 
 // 每次打开重置表单（原 openCreateDialog 的重置语义迁移至此）；
-// ledger_type 取外部预置类型（分组入口预填），未指定时维持默认 stock
+// ledger_type 取外部预置渠道分组（分组入口预填），未指定时维持默认 bank
 watch(
   () => props.visible,
   val => {
     if (val) {
       createForm.value = {
         name: "",
-        ledger_type: props.initialLedgerType || "stock",
+        ledger_type: props.initialLedgerType || "bank",
         notes: "",
         linked_cash_ledger_id: null,
         portfolio_id: null,
@@ -66,7 +68,16 @@ async function handleCreate() {
   }
   creating.value = true;
   try {
-    await createLedger(createForm.value);
+    // 下发 channel_category（由表单 ledger_type 字段承载），后端据其派生 ledger_type
+    await createLedger({
+      name: createForm.value.name,
+      channel_category: createForm.value.ledger_type,
+      notes: createForm.value.notes,
+      linked_cash_ledger_id: createForm.value.linked_cash_ledger_id,
+      portfolio_id: createForm.value.portfolio_id,
+      fee_config: createForm.value.fee_config,
+      sales_institution_id: createForm.value.sales_institution_id
+    });
     ElMessage.success("账户创建成功");
     emit("update:visible", false);
     emit("created");

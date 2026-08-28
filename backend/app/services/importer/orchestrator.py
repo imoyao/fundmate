@@ -23,6 +23,7 @@ from app.core.exceptions import ErrorCode, SBException
 from app.core.money import Money
 from app.core.utils import show_time
 from app.domains.funds.models import Fund, FundVariety
+from app.domains.ledgers.constants import map_org_type_to_channel_category
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, PositionImportMeta, SalesInstitution
 from app.domains.securities.models import Security
@@ -1266,12 +1267,16 @@ class ImportOrchestrator:
             if ledger:
                 return ledger
             display_name = institution.display_name or institution.org_name
+            # 渠道分类（#1101 重设计，铁律见设计文档 §2.3）：命中销售机构时，
+            # channel_category 由 org_type 映射写入（权威），与 ledger_type(资产类) 正交。
+            # 例：微众银行 org_type=商业银行 → channel_category=bank，ledger_type 仍为 fund。
             ledger = Ledger(
                 name=display_name,
                 ledger_type='fund',
                 default_allocation='longterm',
                 family_id=self.family_id,
                 sales_institution_id=institution.id,
+                channel_category=map_org_type_to_channel_category(institution.org_type),
             )
             self.db.add(ledger)
             self.db.flush()
