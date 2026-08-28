@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """基金持仓跨账本聚合（#1101）测试。"""
 
-from app.domains.ledgers.models import Ledger, SalesInstitution
-from app.domains.positions.models import Position
+from app.domains.ledgers.models import Ledger
+from app.domains.positions.models import Position, SalesInstitution
 
 
 def _make_fund_ledger(db, name, sales_institution_id=None, frontend_app=None, ledger_type='fund', is_aggregation=False):
