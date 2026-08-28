@@ -37,6 +37,9 @@ const createForm = ref({
   ledger_type: "bank",
   notes: "",
   linked_cash_ledger_id: null as number | null,
+  // 类现金产品绑定（#1137）：基金代码 + 自动申购开关（默认关闭）
+  linked_money_fund_code: null as string | null,
+  auto_purchase_money_fund: false,
   portfolio_id: null as number | null,
   fee_config: null as any,
   sales_institution_id: null as number | null
@@ -53,6 +56,8 @@ watch(
         ledger_type: props.initialLedgerType || "bank",
         notes: "",
         linked_cash_ledger_id: null,
+        linked_money_fund_code: null,
+        auto_purchase_money_fund: false,
         portfolio_id: null,
         fee_config: null,
         sales_institution_id: null
@@ -74,6 +79,8 @@ async function handleCreate() {
       channel_category: createForm.value.ledger_type,
       notes: createForm.value.notes,
       linked_cash_ledger_id: createForm.value.linked_cash_ledger_id,
+      linked_money_fund_code: createForm.value.linked_money_fund_code,
+      auto_purchase_money_fund: createForm.value.auto_purchase_money_fund,
       portfolio_id: createForm.value.portfolio_id,
       fee_config: createForm.value.fee_config,
       sales_institution_id: createForm.value.sales_institution_id
@@ -108,6 +115,8 @@ async function handleCreate() {
       <AccountFormFields
         v-model:ledger-type="createForm.ledger_type"
         v-model:linked-cash-id="createForm.linked_cash_ledger_id"
+        v-model:linked-money-fund-code="createForm.linked_money_fund_code"
+        v-model:auto-purchase-money-fund="createForm.auto_purchase_money_fund"
         v-model:portfolio-id="createForm.portfolio_id"
         v-model:fee-config="createForm.fee_config"
         v-model:sales-institution-id="createForm.sales_institution_id"

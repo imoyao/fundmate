@@ -35,6 +35,53 @@
       </el-select>
     </el-form-item>
 
+    <!-- 类现金产品绑定（#1137）：账户的「余额宝」，卖出回款可自动申购 -->
+    <el-form-item
+      v-if="ledgerType === 'securities' || ledgerType === 'fund_platform'"
+      label="类现金产品"
+    >
+      <el-select
+        :model-value="linkedMoneyFundCode"
+        class="w-full"
+        clearable
+        filterable
+        remote
+        reserve-keyword
+        :remote-method="searchMoneyFund"
+        :loading="fundSearching"
+        placeholder="搜索货币基金，如「余额宝」"
+        @update:model-value="onMoneyFundChange"
+      >
+        <el-option
+          v-for="f in effectiveFundOptions"
+          :key="f.code"
+          :label="f.name ? `${f.name}（${f.code}）` : f.code"
+          :value="f.code"
+        />
+      </el-select>
+      <p class="field-hint">
+        绑定后，卖出 / 赎回回款可自动申购该产品（类似「余额宝」）
+      </p>
+    </el-form-item>
+
+    <el-form-item
+      v-if="ledgerType === 'securities' || ledgerType === 'fund_platform'"
+      label="自动申购"
+    >
+      <el-switch
+        :model-value="autoPurchaseMoneyFund"
+        :disabled="!linkedMoneyFundCode"
+        @update:model-value="onAutoPurchaseChange"
+      />
+      <p class="field-hint">
+        {{
+          linkedMoneyFundCode
+            ? "开启后，卖出 / 赎回回款将自动申购已绑定的类现金产品"
+            : "请先绑定类现金产品，再开启自动申购"
+        }}
+      </p>
+    </el-form-item>
+
     <el-form-item label="销售机构">
       <el-select
         :model-value="salesInstitutionId"
@@ -147,10 +194,10 @@
       </el-form-item>
 
       <!-- 高级设置：费率信息 -->
-    <el-collapse
-      v-if="ledgerType === 'securities' || ledgerType === 'fund_platform'"
-      class="mt-4"
-    >
+      <el-collapse
+        v-if="ledgerType === 'securities' || ledgerType === 'fund_platform'"
+        class="mt-4"
+      >
         <el-collapse-item title="高级设置（费率）" name="fee">
           <FeeConfigFields
             :ledger-type="ledgerType"
@@ -166,6 +213,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { LEDGER_TYPE_OPTIONS } from "@/constants";
+import { searchFunds, type FundSearchItem } from "@/api/funds";
 import type { SalesInstitution, LedgerItem } from "@/api/ledger";
 import type { PortfolioItem } from "@/api/portfolio";
 import FeeConfigFields from "./FeeConfigFields.vue";
@@ -224,6 +272,12 @@ function orgTypeGroupLabel(orgType?: string | null): string {
 interface Props {
   ledgerType: string;
   linkedCashId: number | null;
+  /** 绑定的类现金产品基金代码（「余额宝」概念 #1137；null=未绑定） */
+  linkedMoneyFundCode?: string | null;
+  /** 绑定产品名称（出参回显用；远程搜索未触发时也能显示名称而非裸代码） */
+  linkedMoneyFundName?: string | null;
+  /** 卖出/赎回回款是否自动申购绑定的类现金产品（#1137，默认关闭） */
+  autoPurchaseMoneyFund?: boolean;
   portfolioId: number | null;
   cashLedgers?: LedgerItem[];
   portfolioList?: PortfolioItem[];
@@ -242,12 +296,17 @@ const props = withDefaults(defineProps<Props>(), {
   feeConfig: null,
   salesInstitutionId: null,
   salesInstitutions: () => [],
-  advancedCollapsed: false
+  advancedCollapsed: false,
+  linkedMoneyFundCode: null,
+  linkedMoneyFundName: null,
+  autoPurchaseMoneyFund: false
 });
 
 const emit = defineEmits<{
   "update:ledgerType": [value: string];
   "update:linkedCashId": [value: number | null];
+  "update:linkedMoneyFundCode": [value: string | null];
+  "update:autoPurchaseMoneyFund": [value: boolean];
   "update:portfolioId": [value: number | null];
   "update:feeConfig": [value: any];
   "update:salesInstitutionId": [value: number | null];
@@ -306,7 +365,10 @@ const otherInstitutions = computed<SalesInstitution[]>(() =>
 
 /** fund_platform 账户选中银行类机构时的轻提示开关（#1082 D8） */
 const showBankChannelHint = computed(() => {
-  if (props.ledgerType !== "fund_platform" || props.salesInstitutionId == null) {
+  if (
+    props.ledgerType !== "fund_platform" ||
+    props.salesInstitutionId == null
+  ) {
     return false;
   }
   const inst = props.salesInstitutions.find(
@@ -328,6 +390,9 @@ function onTypeChange(val: string) {
   if (val !== "securities" && val !== "fund_platform") {
     emit("update:linkedCashId", null);
     emit("update:feeConfig", null);
+    // 渠道分组不再支持类现金产品时，一并解绑并关闭自动申购
+    emit("update:linkedMoneyFundCode", null);
+    emit("update:autoPurchaseMoneyFund", false);
   }
   // 类型切换后已选机构若不在新类型的可见范围内（如 stock 下误选了非券商），自动清空。
   // 注意：emit 后 props.ledgerType 不会同步回流，此处必须基于新值 val 直接判断，
@@ -350,6 +415,62 @@ function onCashChange(val: number | null) {
   emit("update:linkedCashId", val);
 }
 
+// ── 类现金产品绑定（#1137）──
+// 入参/出参统一用基金代码（搜索结果即 code），存储由后端转 funds.id。
+// 仅货币基金可作为类现金产品；后端 is_money_fund 标记缺失时退回全部结果，避免筛空。
+
+/** 远程搜索中的候选（仅当次搜索结果，不缓存全量） */
+const fundOptions = ref<FundSearchItem[]>([]);
+const fundSearching = ref(false);
+
+/** 实际候选项：并入当前已绑定项，保证编辑回显时下拉里存在该选项（显示名称而非裸代码） */
+const effectiveFundOptions = computed<FundSearchItem[]>(() => {
+  const list = [...fundOptions.value];
+  const bound = props.linkedMoneyFundCode;
+  if (bound && !list.some(o => o.code === bound)) {
+    list.unshift({
+      code: bound,
+      name: props.linkedMoneyFundName || bound,
+      type: "货币基金",
+      // 回显占位：费率不参与展示，货基申购费通常为 0
+      subscription_rate: 0
+    });
+  }
+  return list;
+});
+
+async function searchMoneyFund(query: string) {
+  const kw = (query ?? "").trim();
+  if (!kw) {
+    fundOptions.value = [];
+    return;
+  }
+  fundSearching.value = true;
+  try {
+    const res = await searchFunds(kw);
+    const list = ((res as any)?.data ?? []) as FundSearchItem[];
+    const flagged = list.some(f => typeof f.is_money_fund === "boolean");
+    // 后端已提供标记则只留货基；未提供（旧响应）则原样返回，避免下拉被筛空
+    fundOptions.value = flagged ? list.filter(f => f.is_money_fund) : list;
+  } catch {
+    fundOptions.value = [];
+  } finally {
+    fundSearching.value = false;
+  }
+}
+
+function onMoneyFundChange(val: string | null) {
+  emit("update:linkedMoneyFundCode", val ?? null);
+  // 解绑时联动关闭开关，避免残留一个无法生效的开关（后端亦会强制关闭）
+  if (!val) {
+    emit("update:autoPurchaseMoneyFund", false);
+  }
+}
+
+function onAutoPurchaseChange(val: boolean) {
+  emit("update:autoPurchaseMoneyFund", !!val);
+}
+
 function onPortfolioChange(val: number | null) {
   emit("update:portfolioId", val);
 }
@@ -359,13 +480,21 @@ function onSalesInstitutionChange(val: number | null) {
 }
 </script>
 
-<!-- 银行渠道轻提示：表单内联元素，scoped 可命中 -->
+<!-- 银行渠道轻提示 / 类现金产品说明：表单内联元素，scoped 可命中 -->
 <style scoped>
 .bank-channel-hint {
   margin: var(--space-3, 8px) 0 0;
   font-size: var(--text-label, 13px);
   line-height: 18px;
   color: var(--text-secondary);
+}
+
+/* 类现金产品绑定与自动申购的说明文字（#1137）：辅助层级，--text-tertiary */
+.field-hint {
+  margin: var(--space-3, 8px) 0 0;
+  font-size: var(--text-label, 13px);
+  line-height: 18px;
+  color: var(--text-tertiary);
 }
 </style>
 

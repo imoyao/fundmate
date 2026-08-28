@@ -86,8 +86,8 @@
           placeholder="0.00"
         />
         <div class="text-xs mt-1" style="color: var(--text-tertiary)">
-          <template v-if="isFund">金额为权威数据，份额自动反算，可手动修改</template>
-          <template v-else">自动计算：数量 × 单价 + 手续费，可手动修改</template>
+          <span v-if="isFund">金额为权威数据，份额自动反算，可手动修改</span>
+          <span v-else>自动计算：数量 × 单价 + 手续费，可手动修改</span>
         </div>
       </el-form-item>
 
@@ -158,7 +158,10 @@
 import { ref, computed, watch, nextTick } from "vue";
 import { updateLedgerTransaction } from "@/api/ledger";
 import { useFundTradeDate } from "@/composables/useFundTradeDate";
-import { useSecurityPriceRange, createStockPriceValidator } from "@/composables/useSecurityPrice";
+import {
+  useSecurityPriceRange,
+  createStockPriceValidator
+} from "@/composables/useSecurityPrice";
 import { ElMessage } from "element-plus";
 
 const props = defineProps<{
@@ -185,15 +188,20 @@ const isInitializing = ref(false);
 const isAfter15 = ref(false);
 
 // 基金交易日期联动 composable（calcFundConfirmDate + fetchFundNav）
-const { navLoading, confirmDate: confirmDateDisplay, calcConfirmAndNav } =
-  useFundTradeDate();
+const {
+  navLoading,
+  confirmDate: confirmDateDisplay,
+  calcConfirmAndNav
+} = useFundTradeDate();
 
 // 证券（股票/可转债等）卖出价区间校验与日期联动，统一走 useSecurityPriceRange（#948 统一约束）
 const isStock = computed(() =>
   ["stock", "etf", "bond", "convertible"].includes(assetType.value)
 );
 const { priceRange: stockPriceRange } = useSecurityPriceRange(
-  computed(() => (isStock.value ? props.symbol || props.transaction?.symbol : undefined)),
+  computed(() =>
+    isStock.value ? props.symbol || props.transaction?.symbol : undefined
+  ),
   computed(() => form.value.trade_date),
   isStock
 );
@@ -213,9 +221,7 @@ const assetType = computed(() => {
 });
 
 // 基金类（含货币基金）按份额(小数)处理；其余按股/张(整数)
-const isFund = computed(() =>
-  ["fund", "money_fund"].includes(assetType.value)
-);
+const isFund = computed(() => ["fund", "money_fund"].includes(assetType.value));
 
 // 是否手工编辑记录（未导入，import_hash 为空）：弹窗内展示对账提示，无需保存后弹窗
 const isManual = computed(() => props.transaction?.import_hash == null);
@@ -290,9 +296,8 @@ watch(
     if (isInitializing.value || isFund.value) return;
     if (qty != null && price != null && qty >= 0 && price >= 0) {
       const calculated =
-        Math.round(
-          (Number(qty) * Number(price) + Number(fee || 0)) * 100
-        ) / 100;
+        Math.round((Number(qty) * Number(price) + Number(fee || 0)) * 100) /
+        100;
       form.value.amount = calculated;
     }
   }
@@ -320,7 +325,7 @@ watch(
     const result = await calcConfirmAndNav({
       tradeDate: newDate,
       symbol: code,
-      isAfter15: isAfter15.value,
+      isAfter15: isAfter15.value
     });
     if (result) {
       form.value.confirm_date = result.confirmDate;
@@ -409,15 +414,16 @@ async function handleSave() {
 /* 日期选择器：强制 100% 宽度，与数字输入框等宽 */
 :deep(.el-date-editor.el-input),
 :deep(.el-date-editor.el-input__wrapper) {
-  width: 100% !important;
-  height: 40px;
-  border-radius: var(--radius-sm);
   --el-input-border-color: var(--border-default);
   --el-input-hover-border-color: var(--brand-500);
   --el-input-focus-border-color: var(--brand-700);
   --el-input-focus-shadow:
     inset 0 0 0 1px var(--brand-700), 0 0 0 2px var(--bg-card),
     0 0 0 4px var(--brand-700);
+
+  width: 100% !important;
+  height: 40px;
+  border-radius: var(--radius-sm);
 }
 
 /* 主按钮物理反馈 */
@@ -435,9 +441,9 @@ async function handleSave() {
 
 /* 校验错误样式 */
 :deep(.el-form-item__error) {
-  transition: none;
-  color: var(--el-color-danger, #f56c6c);
-  font-size: 0.75rem;
   padding-top: 2px;
+  font-size: 0.75rem;
+  color: var(--el-color-danger, #f56c6c);
+  transition: none;
 }
 </style>

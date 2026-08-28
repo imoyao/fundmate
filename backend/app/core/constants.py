@@ -18,6 +18,8 @@ EXCHANGE_RATES = {
 TYPE_LABELS = {
     'stock': '股票',
     'fund': '基金',
+    'money_fund': '货币基金',
+    'reverse_repo': '逆回购',
     'etf': 'ETF',
     'bond': '债券',
     'cash': '现金',

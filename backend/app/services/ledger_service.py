@@ -266,6 +266,41 @@ class LedgerService:
         }
 
     @staticmethod
+    def get_cash_like_stats(db: Session, ledger_id: int, family_id: int) -> dict:
+        """#1137 类现金统计：货基 + 逆回购 + 账户现金。
+
+        口径与 XIRR 的 `EXCLUDED_ASSET_TYPES = ('money_fund','reverse_repo','cash')`
+        保持一致（设计见 ledger-cash-like-product-binding-2026-08-29.md），
+        即「系统里已把这三样当类现金」，此处只是把它显式统计出来单独展示。
+
+        三部分相加（互不重叠）：
+        - 货基持仓市值（positions 里有持仓的部分，含净值换算）；
+        - 孤儿货基 / 逆回购流水净额（position_service 对这两类只建孤立流水，
+          不建持仓，需按流水净额并入，否则会漏计）；
+        - 账户内现金（Asset.major_category='current'）。
+
+        债券基金**不计入**：它有净值波动、XIRR 也未排除，属中低风险投资而非现金。
+        """
+        money_fund_amount = LedgerService.get_money_fund_stats(db, ledger_id).get('money_fund_amount', 0.0)
+        # 孤儿流水净额（分）→ 元
+        orphan_net_cents = orphan_money_fund_net_by_ledger(db, family_id).get(ledger_id, 0)
+        orphan_amount = Money.cents_to_yuan(orphan_net_cents)
+        # 账户内现金（current 类资产，分）→ 元
+        cash_cents = (
+            db.query(func.coalesce(func.sum(Asset.amount), 0))
+            .filter(Asset.ledger_id == ledger_id, Asset.major_category == 'current')
+            .scalar()
+            or 0
+        )
+        cash_amount = Money.cents_to_yuan(cash_cents)
+
+        return {
+            'money_fund_amount': round(money_fund_amount, 2),
+            'cash_amount': round(cash_amount, 2),
+            'cash_like_amount': round(money_fund_amount + orphan_amount + cash_amount, 2),
+        }
+
+    @staticmethod
     def get_bank_stats(db: Session, ledger_id: int) -> dict:
         # 1. 现金/活期余额
         current_amount = (

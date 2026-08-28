@@ -249,12 +249,7 @@
       style="color: var(--text-secondary)"
     >
       <IconifyIconOffline icon="ep:info-filled" class="text-gray-400" />
-      <span v-if="linkedCashAccountName"
-        >卖出资金将划转至：<span class="font-medium text-gray-700">{{
-          linkedCashAccountName
-        }}</span></span
-      >
-      <span v-else>未选择现金账户，资金将计入当前账户余额</span>
+      <span>卖出资金将留存在当前账户余额，可用于再投资；如需转出到银行卡，请单独登记银证转账</span>
     </div>
 
     <!-- 费率查询弹窗（根据是否有输入份额动态显示列） -->
@@ -440,13 +435,6 @@ const sellEstimate = computed(() => {
 });
 const disabledDate = (time: Date) =>
   time.getTime() > new Date().setHours(0, 0, 0, 0);
-const linkedCashAccountName = computed(() => {
-  if (!currentLedger.value?.linked_cash_ledger_id) return "";
-  const cashLedger = props.ledgers.find(
-    l => l.id === currentLedger.value.linked_cash_ledger_id
-  );
-  return cashLedger?.name || "";
-});
 const showIsAfter15 = computed(() => {
   const type = currentLedger.value?.ledger_type;
   if (type === "fund" || type === "bank") return true;

@@ -319,9 +319,10 @@ def test_commit_cash_follows_target_ledger_cross_import(db):
     assert not any(t.ledger_id is None for t in txns)
 
 
-def test_commit_cash_falls_to_bound_bank_when_ledger_linked(db):
-    """B6 整改：目标账本已绑定现金账户（linked_cash_ledger_id 指向 bank）时，
-    现金/货基行应落到绑定的 bank 账本，而非跟随目标证券账本。"""
+def test_commit_cash_stays_in_target_ledger_even_when_bank_linked(db):
+    """#1137 修正：目标账本已绑定现金账户（linked_cash_ledger_id 指向 bank）时，
+    货基/现金回款仍应「留在投资账本本身」，不再被搬到绑定的 bank 账本——
+    银证转账是用户显式操作，系统不代劳（自动搬账等价于凭空生成一笔银证转账）。"""
     bank = Ledger(name='招行卡', ledger_type='bank', family_id=1)
     stock = Ledger(name='证券账户', ledger_type='stock', family_id=1)
     db.add_all([bank, stock])
@@ -351,9 +352,50 @@ def test_commit_cash_falls_to_bound_bank_when_ledger_linked(db):
     assert res['imported'] == 1
     txn = db.query(Transaction).filter_by(import_hash='h-bound-bank').first()
     assert txn is not None
-    # 现金落到绑定的 bank，而非跟随 stock 目标账本
-    assert txn.ledger_id == bank.id
-    assert txn.ledger_id != stock.id
+    # 回款留在投资账本，不落绑定的 bank（不再隐式银证转账）
+    assert txn.ledger_id == stock.id
+    assert txn.ledger_id != bank.id
+    assert txn.account_name == '证券账户'
+
+
+def test_money_fund_row_and_explicit_transfer_are_independent(db):
+    """#1137 回归：同批次内货基回款行与显式银证转账行互不干扰——
+    货基行留在投资账本，转账行仍按 #1010 在 bank 生成反向流水。"""
+    bank, stock = _make_linked_pair(db)
+
+    orch = ImportOrchestrator(db, family_id=1)
+    money_fund_row = {
+        'symbol': '000001',
+        'name': '货币基金',
+        'type': 'money_fund',
+        'op_type': 'deposit',
+        'amount': 100.0,
+        'quantity': None,
+        'price': None,
+        'fee': 0.0,
+        'trade_date': '2026-08-01',
+        'account_name': '',
+        'ledger_id': stock.id,
+        'contract_id': 'TXN-MF',
+        'net_amount': 88.5,
+        'source': 'ths_stock',
+        'import_hash': 'mf-hash',
+    }
+    transfer_row = _make_transfer_row(ledger_id=stock.id, import_hash='transfer-hash-indep')
+    res = orch.commit_from_preview([money_fund_row, transfer_row])
+
+    # 货基行走投资分支；转账行走 #1010 闭环
+    assert res['imported'] == 1
+    assert res['cash_transfers_created'] == 1
+
+    mf_txn = db.query(Transaction).filter_by(import_hash='mf-hash').first()
+    assert mf_txn is not None
+    assert mf_txn.ledger_id == stock.id  # 不被搬到 bank
+
+    transfer_txn = db.query(Transaction).filter_by(import_hash='transfer-hash-indep').first()
+    assert transfer_txn is not None
+    assert transfer_txn.ledger_id == bank.id  # #1010 闭环仍然生效
+    assert transfer_txn.txn_type == 'withdraw'  # 方向反转
 
 
 def test_fill_missing_nav_and_shares_4_decimal_precision(db, monkeypatch):
