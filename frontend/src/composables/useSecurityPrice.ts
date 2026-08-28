@@ -13,12 +13,12 @@ export function useSecurityPriceRange(
   const priceRange = ref<SecurityPriceRange | null>(null);
   const loading = ref(false);
 
-  async function refresh(sym?: string, d?: string) {
+  async function refresh(sym?: string, d?: string): Promise<SecurityPriceRange | null> {
     const s = sym ?? symbol.value;
     const dt = d ?? date.value;
     if (!s || !isStock.value) {
       priceRange.value = null;
-      return;
+      return null;
     }
     loading.value = true;
     try {
@@ -29,6 +29,7 @@ export function useSecurityPriceRange(
     } finally {
       loading.value = false;
     }
+    return priceRange.value;
   }
 
   watch([symbol, date, isStock], () => {
