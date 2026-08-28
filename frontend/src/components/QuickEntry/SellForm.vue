@@ -172,8 +172,7 @@
             v-model="form.price"
             class="w-full"
             :controls="false"
-            :min="stockPriceRange ? stockPriceRange.low : 0"
-            :max="stockPriceRange ? stockPriceRange.high : undefined"
+            :min="0"
             :step="0.01"
             :precision="2"
             placeholder="卖出价格"
@@ -330,8 +329,10 @@ import { ref, reactive, computed, onMounted, watch, nextTick } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import type { FormInstance, FormRules } from "element-plus";
 import { getPositionsGroupedByAccount } from "@/api/positions";
-import { getSecurityPriceRange } from "@/api/securities";
-import type { SecurityPriceRange } from "@/api/types";
+import {
+  getSecurityPriceRange,
+  type SecurityPriceRange
+} from "@/api/securities";
 import { usePositionSubmit } from "@/composables/usePositionSubmit";
 import { validateTradeOrder } from "@/api/positions";
 import type { Position } from "@/api/types";

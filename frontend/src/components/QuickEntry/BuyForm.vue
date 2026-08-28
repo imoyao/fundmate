@@ -343,8 +343,10 @@ import type { FormInstance, FormRules } from "element-plus";
 import { usePositionSubmit } from "@/composables/usePositionSubmit";
 import { createLedger as createLedgerApi, type LedgerItem } from "@/api/ledger";
 import { searchSecurities } from "@/api/securities";
-import { getSecurityPriceRange } from "@/api/securities";
-import type { SecurityPriceRange } from "@/api/types";
+import {
+  getSecurityPriceRange,
+  type SecurityPriceRange
+} from "@/api/securities";
 import { searchFunds, getFundFeeRates } from "@/api/funds";
 import type { FundSearchItem } from "@/api/funds";
 import { checkTradingDay } from "@/api/utils";
