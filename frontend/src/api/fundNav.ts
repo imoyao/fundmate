@@ -9,8 +9,16 @@
  *   3. 都失败 → 返回 null，前端不阻塞（当天未出净值时正常）
  */
 
-import { calcFundNav, getFundNavByDate } from "@/api/funds";
-import type { FundNavPoint, FundNavResult } from "@/api/types";
+import { calcFundNav } from "@/api/funds";
+
+export interface FundNavResult {
+  /** 单位净值 */
+  unit_nav: number;
+  /** 净值日期 YYYY-MM-DD */
+  date: string;
+  /** 数据来源 */
+  source: "backend" | "eastmoney";
+}
 
 /**
  * 获取指定基金在指定日期的单位净值。
@@ -25,16 +33,19 @@ export async function fetchFundNav(
 ): Promise<FundNavResult | null> {
   if (!fundCode || !targetDate) return null;
 
-  // 1. 尝试后端 API（#948：改用 GET /api/funds/{code}/nav/?date= 单只接口，与契约一致）
+  // 1. 尝试后端 API
   try {
-    const res = await getFundNavByDate(fundCode, targetDate);
-    const point = res?.data ?? null;
-    if (point?.unit_nav && point.unit_nav > 0) {
-      return {
-        unit_nav: point.unit_nav,
-        date: point.date || targetDate,
-        source: "backend",
-      };
+    const res = await calcFundNav([fundCode], targetDate);
+    const list = (res as any)?.data ?? res;
+    if (Array.isArray(list) && list.length > 0) {
+      const item = list[0];
+      if (item.unit_nav && item.unit_nav > 0) {
+        return {
+          unit_nav: Number(item.unit_nav),
+          date: item.date || targetDate,
+          source: "backend",
+        };
+      }
     }
   } catch (e) {
     console.warn("[fundNav] 后端获取失败，尝试公开接口:", e);
@@ -77,9 +88,9 @@ export async function fetchFundNavBatch(
   const backendFound = new Set<string>();
   try {
     const res = await calcFundNav(fundCodes, targetDate);
-    const list = res?.data ?? [];
+    const list = (res as any)?.data ?? res;
     if (Array.isArray(list)) {
-      list.forEach((item) => {
+      list.forEach((item: any) => {
         if (item.unit_nav && item.unit_nav > 0 && item.fund_code) {
           navMap[item.fund_code] = Number(item.unit_nav);
           backendFound.add(item.fund_code);
@@ -119,16 +130,6 @@ export async function fetchFundNavBatch(
  * 接口：api.fund.eastmoney.com/f10/lsjz
  * 返回 { Data: { LSJZList: [{ FSRQ, DWJZ, LJJZ, ... }] } }
  */
-/** 东方财富净值接口返回结构（外部 JSONP：仅对已知字段做最小类型约束） */
-interface EastmoneyNavItem {
-  FSRQ: string;
-  DWJZ: string;
-  LJJZ?: string;
-}
-interface EastmoneyNavResponse {
-  Data?: { LSJZList?: EastmoneyNavItem[] };
-}
-
 function fetchFromEastmoney(
   fundCode: string,
   targetDate: string,
@@ -151,7 +152,7 @@ function fetchFromEastmoney(
       if (script.parentNode) script.parentNode.removeChild(script);
     };
 
-    (window as any)[callbackName] = (data: EastmoneyNavResponse) => {
+    (window as any)[callbackName] = (data: any) => {
       if (settled) return;
       settled = true;
       cleanup();

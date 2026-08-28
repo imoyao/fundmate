@@ -1,23 +1,11 @@
 // frontend/src/api/funds.ts
 import { http } from "@/utils/http";
-import type { ApiResponse, FundNavPoint } from "@/api/types";
+import type { ApiResponse } from "@/api/types";
 
 interface NavResponseItem {
   fund_code: string;
   unit_nav: number;
   date: string;
-}
-
-/**
- * #948：单只基金确认日净值（GET /api/funds/{code}/nav/?date=）。
- * 返回 ≤date 的最近一条单位净值；无数据 data=null（保持手输不阻塞）。
- */
-export function getFundNavByDate(fundCode: string, date: string) {
-  return http.request<ApiResponse<FundNavPoint | null>>(
-    "get",
-    `/api/funds/${fundCode}/nav/`,
-    { params: { date } }
-  );
 }
 
 /** 基金搜索结果项（对齐后端 /api/funds/search/ 返回字段） */
@@ -51,7 +39,7 @@ interface RedeemFeeEstimateResponse {
 
 // 1. 获取基金单日净值（你已有的接口）
 export function calcFundNav(symbols: string[], date: string) {
-  return http.request<ApiResponse<NavResponseItem[]>>("post", "/api/funds/nav/", {
+  return http.request<NavResponseItem[]>("post", "/api/funds/nav/", {
     data: { symbols, date }
   });
 }
