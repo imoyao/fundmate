@@ -1588,7 +1588,9 @@ export function useImportWizard() {
 
   function resetNewLedgerForm() {
     newLedgerName.value = "";
-    newLedgerType.value = "stock";
+    // #1101 后统一以 channel_category（渠道分组）为创建入参，后端据其派生 ledger_type；
+    // 勿再写旧 ledger_type 值（如 'stock'），否则后端回退映射会派生出错误类型。
+    newLedgerType.value = "securities";
     newLedgerLinkedCashId.value = null;
     newLedgerPortfolioId.value = null;
     newLedgerFeeConfig.value = null;
@@ -1644,7 +1646,10 @@ export function useImportWizard() {
     const name = newLedgerName.value.trim();
     if (!name) return;
     const payload: any = { name };
-    if (newLedgerType.value) payload.ledger_type = newLedgerType.value;
+    // #1101：统一以 channel_category 为创建入参（后端据其派生 ledger_type）。
+    // 旧代码把渠道分组值当 ledger_type 下发，会命中后端「ledger_type→channel_category」
+    // 的向后兼容回退映射（仅认 bank/stock/fund/property/e_account/family），产生错误类型。
+    if (newLedgerType.value) payload.channel_category = newLedgerType.value;
     if (newLedgerLinkedCashId.value)
       payload.linked_cash_ledger_id = newLedgerLinkedCashId.value;
     if (newLedgerPortfolioId.value)
