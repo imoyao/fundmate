@@ -453,102 +453,128 @@ export function updateLedgerTransaction(
   );
 }
 
-// ── 基金E账户聚合视图（#1101）──
-// 聚合家族内全部场外基金持仓（含 E 账户），供资产概览卡片与下钻页使用。
+// ── 持仓聚合视图（#1101 场外基金 / #1132 场内证券 共用）──
+// 后端两品类共用 services/position_aggregation.py，返回结构完全一致，故前端类型统一为 Aggregation*。
 // 金额字段单位均为「分」（整数），前端展示需 /100 转「元」交给 MoneyDisplay；
 // 份额字段 quantity 为 Position.quantity 原始最小单位（份×10000），前端需 /10000 转可读份额。
 
-/** 基金聚合维度 */
-export type FundAggregationDimension = "product" | "institution" | "app";
+/**
+ * 聚合维度。
+ * #1133 收敛：原 'app'（交易前端）维度已移除——其本质即销售机构，与 'institution' 重复。
+ */
+export type AggregationDimension = "product" | "institution";
 
-/** 聚合来源项：product 维度的 sources 与 institution/app 维度的 items 共用同一形状 */
-export interface FundAggregationSource {
+/** 聚合排序字段（后端白名单校验，勿传其它值） */
+export type AggregationSort = "market_value" | "quantity" | "name" | "symbol";
+
+/** 聚合查询参数 */
+export interface AggregationQuery {
+  dimension?: AggregationDimension;
+  sort?: AggregationSort;
+  order?: "asc" | "desc";
+  /** 页码，从 1 开始 */
+  page?: number;
+  /** 每页条数；传 0 或负数表示不分页（返回全量） */
+  page_size?: number;
+}
+
+/** 聚合来源项：product 维度的 sources 与 institution 维度的 items 共用同一形状 */
+export interface AggregationSource {
+  /** 产品代码（institution 维度的 items 也需展示产品名与代码，故后端一并下发） */
+  symbol?: string;
+  /** 产品名称 */
+  name?: string | null;
   ledger_id: number;
   ledger_name: string | null;
+  /** 销售机构名（后端 join AMAC 名录给出；账户未关联机构时为 null） */
+  institution_name?: string | null;
   /** 市值（分，整数） */
   market_value_cents: number;
   /** 份额（最小单位 份×10000） */
   quantity: number;
+  /** 参考净值（元，后端已由 0.0001 元单位换算） */
+  nav_yuan?: number | null;
+  /** 份额日期 / 快照日期 YYYY-MM-DD（导入对账日期；非快照导入时为 null） */
+  snapshot_date?: string | null;
+  /** 基金管理人（快照导入溯源字段） */
+  fund_manager?: string | null;
 }
 
-/** product 维度分组：按基金代码聚合 */
-export interface FundAggregationProductGroup {
+/** product 维度分组：按产品代码聚合 */
+export interface AggregationProductGroup {
   symbol: string;
   name: string;
   /** 市值（分，整数） */
   market_value_cents: number;
   /** 份额合计（最小单位 份×10000） */
   quantity: number;
-  sources: FundAggregationSource[];
+  /** 参考净值（元） */
+  nav_yuan?: number | null;
+  /** 份额日期：取该分组下最早的一笔，代表数据最滞后的部分 */
+  snapshot_date?: string | null;
+  /** 基金管理人 */
+  fund_manager?: string | null;
+  /** 分红方式（现金分红 / 红利转投） */
+  dividend_preference?: string | null;
+  sources: AggregationSource[];
 }
 
 /** institution 维度分组：按销售机构聚合（key 为 sales_institution_id，无关联为 "unknown"） */
-export interface FundAggregationInstitutionGroup {
+export interface AggregationInstitutionGroup {
   key: number | "unknown";
+  /**
+   * 机构中文名。由后端 join AMAC 名录直接给出，
+   * 前端**禁止**再拼「销售机构 #id」这类占位文案（#1133）。
+   */
+  institution_name: string;
   /** 市值（分，整数） */
   market_value_cents: number;
-  items: FundAggregationSource[];
+  items: AggregationSource[];
 }
 
-/** app 维度分组：按交易前端聚合（key 为 ledger.frontend_app，缺省 "self"） */
-export type FundAggregationAppKey =
-  "tonghuashun" | "eastmoney" | "self" | "other";
-
-export interface FundAggregationAppGroup {
-  key: FundAggregationAppKey;
-  /** 市值（分，整数） */
-  market_value_cents: number;
-  items: FundAggregationSource[];
-}
-
-/** 基金聚合结果（GET /api/ledgers/fund-aggregation/） */
-export interface FundAggregationResult {
+/** 聚合结果（GET /api/ledgers/{fund,securities}-aggregation/） */
+export interface AggregationResult {
   /** 汇总市值（分，整数） */
   total_market_value_cents: number;
-  dimension: FundAggregationDimension;
-  groups:
-    | FundAggregationProductGroup[]
-    | FundAggregationInstitutionGroup[]
-    | FundAggregationAppGroup[];
+  dimension: AggregationDimension;
+  groups: AggregationProductGroup[] | AggregationInstitutionGroup[];
+  /** 分组总数（分页前的全量条数） */
+  total: number;
+  /** 当前页码 */
+  page: number;
+  /** 每页条数 */
+  page_size: number;
+  /** 总页数 */
+  total_pages: number;
+  /**
+   * 数据日期：全部持仓中**最早**的快照日（最滞后的一笔），对外展示最诚实。
+   * 全部持仓均无快照记录（纯手动录入）时为 null。
+   */
+  snapshot_date: string | null;
+  /** 最近的快照日；与 snapshot_date 不等时，说明各账户数据存在时间差 */
+  snapshot_date_latest: string | null;
 }
 
-/** 获取基金E账户聚合视图（默认按基金维度） */
-export function getFundAggregation(
-  dimension: FundAggregationDimension = "product"
-) {
-  return http.request<ApiResponse<FundAggregationResult>>(
+/**
+ * 获取场外基金（含 E 账户）聚合视图。
+ * 缺省：dimension=product、sort=market_value、order=desc、page=1、page_size=20。
+ */
+export function getFundAggregation(params: AggregationQuery = {}) {
+  return http.request<ApiResponse<AggregationResult>>(
     "get",
     "/api/ledgers/fund-aggregation/",
-    { params: { dimension } }
+    { params }
   );
 }
 
-// ── 场内证券聚合视图（#1132）──
-// 聚合家族内全部场内证券持仓（股票/ETF/可转债），供资产概览卡片与下钻页使用。
-// 金额字段单位均为「分」（整数），份额字段 quantity 为 Position.quantity 原始最小单位（份×10000）。
-// 聚合范式完全镜像 FundAggregationResult（后端 securities_aggregation 服务复用同一分组逻辑），
-// 故分组形状一致，直接复用 FundAggregation*Group 类型，避免重复定义。
-
-/** 场内证券聚合结果（GET /api/ledgers/securities-aggregation/）。
- *  分组形状与 FundAggregationResult 完全一致（product/institution/app 三维度），
- *  字段名与后端返回一致，故复用 FundAggregation*Group 类型。 */
-export interface SecuritiesAggregationResult {
-  /** 汇总市值（分，整数） */
-  total_market_value_cents: number;
-  dimension: FundAggregationDimension;
-  groups:
-    | FundAggregationProductGroup[]
-    | FundAggregationInstitutionGroup[]
-    | FundAggregationAppGroup[];
-}
-
-/** 获取场内证券（股票/ETF/可转债）聚合视图（默认按产品维度） */
-export function getSecuritiesAggregation(
-  dimension: FundAggregationDimension = "product"
-) {
-  return http.request<ApiResponse<SecuritiesAggregationResult>>(
+/**
+ * 获取场内证券（股票/ETF/可转债）聚合视图。
+ * 返回结构与场外基金完全一致（后端共用同一聚合范式）。
+ */
+export function getSecuritiesAggregation(params: AggregationQuery = {}) {
+  return http.request<ApiResponse<AggregationResult>>(
     "get",
     "/api/ledgers/securities-aggregation/",
-    { params: { dimension } }
+    { params }
   );
 }

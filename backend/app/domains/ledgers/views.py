@@ -29,6 +29,7 @@ from app.domains.positions.models import Position, PositionImportMeta, SalesInst
 from app.domains.positions.views import enrich_position_dict
 from app.domains.transactions.models import Transaction
 from app.services.fund_aggregation import get_fund_aggregation as svc_get_fund_aggregation
+from app.services.position_aggregation import DEFAULT_PAGE_SIZE
 from app.services.transaction_service import TransactionService
 
 # 外部基金列表缓存（进程级，基金列表极少变动）：用于「本地库无此货基时」补建 Fund 行
@@ -219,25 +220,41 @@ def get_ledgers_overview():
         return jsonify({'data': data, 'message': 'ok'})
 
 
+def _aggregation_args() -> dict:
+    """解析聚合接口的公共查询参数（#1133）。
+
+    - dimension：'product'（默认）| 'institution'。原 'app'（交易前端）维度已收敛去掉——
+      其本质即销售机构、与 institution 重复；传入时静默降级为 institution，保证旧链接不报错。
+    - sort：'market_value'（默认）| 'quantity' | 'name' | 'symbol'。
+    - order：'desc'（默认）| 'asc'。
+    """
+    dimension = request.args.get('dimension', 'product')
+    if dimension == 'app':
+        dimension = 'institution'
+    if dimension not in ('product', 'institution'):
+        dimension = 'product'
+    return {
+        'dimension': dimension,
+        'sort': request.args.get('sort', 'market_value'),
+        'order': request.args.get('order', 'desc'),
+        'page': request.args.get('page', 1, type=int),
+        'page_size': request.args.get('page_size', DEFAULT_PAGE_SIZE, type=int),
+    }
+
+
 @ledgers_bp.get('/fund-aggregation/')
 def get_fund_aggregation():
-    """基金持仓跨账本聚合（#1101）：按产品/机构/前端维度聚合，供概览卡片与下钻页。"""
-    dimension = request.args.get('dimension', 'product')
-    if dimension not in ('product', 'institution', 'app'):
-        dimension = 'product'
+    """场外基金（含 E 账户）持仓跨账本聚合（#1101）：按产品/机构维度，供概览卡片与下钻页 /funds。"""
     with get_db() as db:
-        data = svc_get_fund_aggregation(db, get_family_id(), dimension)
+        data = svc_get_fund_aggregation(db, get_family_id(), **_aggregation_args())
         return jsonify({'data': data, 'message': 'ok'})
 
 
 @ledgers_bp.get('/securities-aggregation/')
 def get_securities_aggregation():
-    """场内证券（股票/ETF/可转债）持仓跨账本聚合（#1132）：按产品/机构/前端维度聚合，供概览卡片与下钻页。"""
-    dimension = request.args.get('dimension', 'product')
-    if dimension not in ('product', 'institution', 'app'):
-        dimension = 'product'
+    """场内证券（股票/ETF/可转债）持仓跨账本聚合（#1132）：按产品/机构维度，供下钻页 /stocks。"""
     with get_db() as db:
-        data = svc_get_securities_aggregation(db, get_family_id(), dimension)
+        data = svc_get_securities_aggregation(db, get_family_id(), **_aggregation_args())
         return jsonify({'data': data, 'message': 'ok'})
 
 
