@@ -81,23 +81,26 @@
           </div>
         </div>
 
-        <!-- 核心概览卡片矩阵（2行 × 3列，或自适应） -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          <!-- 1. 总资产（内嵌资产构成环形图，#1137）：跨两列、左金额右环形图 -->
+        <!-- 核心概览卡片矩阵：总资产占满整行（左数字右环形图），下方并排持仓盈亏 / 持仓与余额 -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+          <!-- 1. 总资产（内嵌资产构成环形图，#1137）：占满整行、左金额右环形图 -->
           <div class="summary-card summary-card--total md:col-span-2">
-            <div class="summary-card__label">
-              <IconifyIconOffline icon="ep:money" class="text-base" /> 总资产
-            </div>
-            <div class="summary-card__value">
-              <MoneyDisplay
-                :value="summaryData?.total_market_value || 0"
-                :show-sign="false"
-                :auto-color="false"
-                size="lg"
-              />
+            <div class="summary-card__head">
+              <div class="summary-card__label">
+                <IconifyIconOffline icon="ep:money" class="text-base" /> 总资产
+              </div>
+              <div class="summary-card__value">
+                <MoneyDisplay
+                  :value="summaryData?.total_market_value || 0"
+                  :show-sign="false"
+                  :auto-color="false"
+                  size="hero"
+                  custom-color="var(--brand-700)"
+                />
+              </div>
             </div>
 
-            <!-- 资产构成：环形图 + 自定义图例（名称 / 金额 / 比例） -->
+            <!-- 资产构成环形图（#1137）：原生图例显示分类与占比，金额见 hover tooltip，不重复罗列 -->
             <div
               v-if="
                 summaryData?.ledger_type === 'stock' ||
@@ -106,53 +109,11 @@
               "
               class="composition"
             >
-              <div class="composition__donut">
-                <AssetAllocationDonut
-                  :data="compositionData"
-                  :color-map="compositionColorMap"
-                  :show-legend="false"
-                />
-              </div>
-              <ul class="composition__legend">
-                <li class="composition__legend-item">
-                  <span
-                    class="composition__dot"
-                    :style="{ background: 'var(--chart-01)' }"
-                  />
-                  <span class="composition__name">投资资产</span>
-                  <span class="composition__amount"
-                    >¥{{
-                      formatAmount(summaryData?.investment_amount ?? 0)
-                    }}</span
-                  >
-                  <span class="composition__pct">{{ investmentPercent }}%</span>
-                </li>
-                <li class="composition__legend-item">
-                  <span
-                    class="composition__dot"
-                    :style="{ background: 'var(--chart-06)' }"
-                  />
-                  <span class="composition__name">现金类资产</span>
-                  <span class="composition__amount"
-                    >¥{{
-                      formatAmount(summaryData?.cash_like_amount ?? 0)
-                    }}</span
-                  >
-                  <span class="composition__pct">{{ cashLikePercent }}%</span>
-                </li>
-                <li v-if="cashLikePercent > 0" class="composition__legend-sub">
-                  <span
-                    >货币基金 ¥{{
-                      formatAmount(summaryData?.money_fund_amount ?? 0)
-                    }}</span
-                  >
-                  <span
-                    >账户现金 ¥{{
-                      formatAmount(summaryData?.cash_amount ?? 0)
-                    }}</span
-                  >
-                </li>
-              </ul>
+              <AssetAllocationDonut
+                :data="compositionData"
+                :color-map="compositionColorMap"
+                :show-legend="true"
+              />
             </div>
           </div>
 
@@ -944,7 +905,6 @@ import PositionTransactionsDrawer from "./components/PositionTransactionsDrawer.
 import TransactionEditDialog from "./components/TransactionEditDialog.vue";
 import { usePageRefresh } from "@/composables/usePageRefresh";
 import { formatDate } from "@/utils/date";
-import { formatAmount } from "@/utils/currency";
 import { pricePrecision } from "@/utils/pricePrecision";
 
 defineOptions({ name: "LedgerDetail" });
@@ -1443,21 +1403,6 @@ const summaryData = ref<LedgerSummaryData | null>(null);
 
 // 货币基金收益（仅基金账户拉取）
 const moneyFundData = ref<MoneyFundIncomeData | null>(null);
-
-// 资产构成比例（#1137，供总资产卡片内嵌堆叠条使用）
-const investmentPercent = computed(() => {
-  const total = summaryData.value?.total_market_value ?? 0;
-  if (total <= 0) return 100;
-  const inv = summaryData.value?.investment_amount ?? 0;
-  return Math.round((inv / total) * 100);
-});
-
-const cashLikePercent = computed(() => {
-  const total = summaryData.value?.total_market_value ?? 0;
-  if (total <= 0) return 0;
-  const cash = summaryData.value?.cash_like_amount ?? 0;
-  return Math.round((cash / total) * 100);
-});
 
 // 环形图数据：投资资产 vs 现金类资产（#1137）
 const compositionData = computed(() => [
@@ -2114,82 +2059,31 @@ function openDeleteDialog(account: LedgerItem) {
   border-top: 1px solid var(--border-subtle);
 }
 
-/* 总资产卡片内嵌资产构成（环形图 + 图例，#1137） */
+/* 总资产卡片内嵌资产构成环形图（#1137）：左数字、右环形图 */
 .summary-card--total {
   display: flex;
   flex-direction: column;
+  gap: var(--space-3);
+}
+
+@media (min-width: 768px) {
+  .summary-card--total {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .composition {
+    margin: 0;
+    flex-shrink: 0;
+  }
 }
 
 .composition {
-  margin-top: var(--space-3);
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--border-subtle);
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.composition__donut {
-  width: 132px;
-  height: 132px;
-  flex-shrink: 0;
-}
-
-.composition__donut :deep(.allocation-donut) {
-  min-height: 132px;
-}
-
-.composition__legend {
-  flex: 1;
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-
-.composition__legend-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  line-height: 20px;
-}
-
-.composition__dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.composition__name {
-  color: var(--text-secondary);
-}
-
-.composition__amount {
-  margin-left: auto;
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.composition__pct {
-  width: 44px;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-tertiary);
-}
-
-.composition__legend-sub {
-  display: flex;
-  gap: var(--space-3);
-  margin-top: 2px;
-  padding-left: 17px;
-  font-size: 11px;
-  line-height: 16px;
-  color: var(--text-tertiary);
+  width: 100%;
+  max-width: 240px;
+  margin: 0 auto;
+  height: 200px;
 }
 
 /* 交易表资产名称列：名称 + 代码 */
