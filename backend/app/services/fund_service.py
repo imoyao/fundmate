@@ -14,7 +14,14 @@ from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
 from app.core.money import Money
-from app.domains.funds.models import DailyWorth, FeeRatio, Fund, PurchaseRule, RedeemRule
+from app.domains.funds.models import (
+    DailyWorth,
+    FeeRatio,
+    Fund,
+    MoneyFundDailyWorth,
+    PurchaseRule,
+    RedeemRule,
+)
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
 from app.services.sync.adapters.xalpha_adapter import XalphaAdapter
@@ -124,13 +131,54 @@ class FundService:
     _FUND_NAME_EM_CACHE: dict = {'ts': 0.0, 'data': None}
     _FUND_NAME_EM_TTL = 86400
 
+    # 货基名称兜底词（仅在 fund_type_id 缺失时使用）。
+    # 注意：单用「现金」过宽（存在「现金流」等非货基产品），故只收「货币」及
+    # 明确的现金管理产品词。
+    _CASH_LIKE_NAME_KEYWORDS = ('货币', '现金宝', '现金添利', '现金增利', '现金管家')
+
+    @staticmethod
+    def _judge_money_fund(
+        fund_type_id: Optional[int],
+        name: str,
+        has_daily_worth: bool,
+    ) -> Optional[bool]:
+        """判定基金是否为货币基金，返回**三态** True / False / None（未知）。
+
+        为什么不能只靠 `fund_type_id == 6`：本地库 fund_type_id 标注极不完整
+        （23904/26938 为空，占 88.7%），仅按该字段判定会把约 691 条真货基误判为
+        非货基——典型如 `026029 银河水星现金添利货币`（券商渠道现金管理产品，
+        证券账户「活期+」的真实绑定标的），导致用户搜不到、绑不上。
+
+        判据优先级（强 → 弱）：
+          1. fund_type_id == 6                     → True（权威标注）
+          2. money_fund_daily_worth 有万份收益记录  → True（有万份收益必为货基，
+             且意味着收益计算口径可复用，是最可靠的实测判据）
+          3. fund_type_id 非空且 != 6               → False（明确非货基）
+          4. 类型缺失 + 名称命中货基词              → True（名称兜底）
+          5. 其余                                    → None（未知）
+
+        返回 None 而非 False 的意义：区分「明确不是」与「尚不清楚」，
+        使前端「全量展示 + 选择时限制」时不误杀类型缺失的候选。
+        """
+        if fund_type_id == 6:
+            return True
+        if has_daily_worth:
+            return True
+        if fund_type_id is not None:
+            return False
+        name = name or ''
+        if any(k in name for k in FundService._CASH_LIKE_NAME_KEYWORDS):
+            return True
+        return None
+
     @staticmethod
     def search_funds(db: Session, keyword: str) -> List[Dict[str, Any]]:
         """模糊搜索基金（代码/名称/拼音）。
 
         本地 Fund 表优先；若本地完全无命中，追加 akshare fund_name_em 外部兜底，
         覆盖本地库尚未同步的基金（如用户持有的货基），使其也能按名称搜到（#交互修复）。
-        返回项含 is_money_fund（fund_type_id==6 或 基金类型==货币型），供前端筛选货基。
+        返回项含 is_money_fund，为**三态** True/False/None，供前端筛选货基
+        （判定细节见 FundService._judge_money_fund）。
         """
         keyword = (keyword or '').strip()
         if not keyword:
@@ -148,6 +196,18 @@ class FundService:
         )
         results = []
         seen = set()
+        # 批量取「有万份收益记录」的基金代码：一次查询，避免逐条 N+1。
+        # money_fund_daily_worth 有记录 ⇒ 该基金按货基口径同步 ⇒ 必为货基，
+        # 这是比残缺的 fund_type_id 更可靠的实测判据（详见 _judge_money_fund）。
+        worth_codes = set()
+        if funds:
+            worth_codes = {
+                row[0]
+                for row in db.query(MoneyFundDailyWorth.fund_code)
+                .filter(MoneyFundDailyWorth.fund_code.in_([f.fund_code for f in funds]))
+                .distinct()
+                .all()
+            }
         for f in funds:
             # 查询该基金第一条申购费率记录
             rate_record = (
@@ -161,11 +221,13 @@ class FundService:
                     'name': f.name,
                     'type': 'fund',
                     'subscription_rate': rate,
-                    # 货基识别字段（2026-08-14 补）：前端无法从代码段识别场外货基
-                    # （000198 余额宝等 000 开头会被当普通基金建仓，违背统一流水式口径），
-                    # 由后端按 fund_type_id=6（货币型）权威判定，前端字段优先、代码段兜底。
+                    # 货基识别字段（2026-08-14 补，2026-08-29 升级为三态）：
+                    # 前端无法从代码段识别货基（000198 余额宝等 000 开头会被当普通基金建仓，
+                    # 违背统一流水式口径），由后端权威判定。
+                    # 三态 True/False/None：None = 类型未知，供前端「全量展示 + 选择时限制」，
+                    # 避免 fund_type_id 缺失的货基（如 026029 银河水星现金添利货币）被误杀。
                     'fund_type_id': f.fund_type_id,
-                    'is_money_fund': f.fund_type_id == 6,
+                    'is_money_fund': FundService._judge_money_fund(f.fund_type_id, f.name, f.fund_code in worth_codes),
                 }
             )
             seen.add(f.fund_code)
@@ -191,6 +253,15 @@ class FundService:
                     if kw not in (code + name).lower():
                         continue
                     seen.add(code)
+                    # 外部兜底同样走三态：fund_type 明确时以其为准，缺失时退到名称兜底
+                    # （外部基金尚未同步万份收益，has_daily_worth 传 False）。
+                    ext_type = item.get('fund_type')
+                    if ext_type == '货币型':
+                        ext_is_money_fund: Optional[bool] = True
+                    elif ext_type:
+                        ext_is_money_fund = False
+                    else:
+                        ext_is_money_fund = FundService._judge_money_fund(None, name, False)
                     results.append(
                         {
                             'code': code,
@@ -198,7 +269,7 @@ class FundService:
                             'type': 'fund',
                             'subscription_rate': 0.0,
                             'fund_type_id': None,
-                            'is_money_fund': (item.get('fund_type') == '货币型'),
+                            'is_money_fund': ext_is_money_fund,
                         }
                     )
                     if len(results) >= 20:
