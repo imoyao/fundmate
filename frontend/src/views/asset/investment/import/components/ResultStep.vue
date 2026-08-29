@@ -3,34 +3,43 @@ import { computed } from "vue";
 import ImportErrorSummary from "./ImportErrorSummary.vue";
 import { useImportWizardContext } from "../composables/useImportWizardContext";
 
-const {
-  nothingImported,
-  importedCount,
-  skippedCount,
-  cashTransfersCreated,
-  duplicateCount,
-  errorCount,
-  orphanCount,
-  importErrors,
-  showPriceUpdateTip,
-  goToTransactions,
-  continueImport,
-  reimport,
-  goToImportGuide,
-} = useImportWizardContext();
+const ctx = useImportWizardContext();
+
+// 解构出的均为 composable 返回的 ref。Vue 运行时经 proxyRefs 自动解包，
+// 但 vue-tsc 对「从函数返回值解构的 ref」无法静态识别为 setup-ref，
+// 不会在模板类型层解包，导致 Ref 与 number 比较报错（dev 基线预存 CI 红）。
+// 故在此用 computed 包一层，使模板绑定被识别为 setup-ref 而正确解包。
+const nothingImported = computed(() => ctx.nothingImported.value);
+const importedCount = computed(() => ctx.importedCount.value);
+const skippedCount = computed(() => ctx.skippedCount.value);
+const duplicateCount = computed(() => ctx.duplicateCount.value);
+const errorCount = computed(() => ctx.errorCount.value);
+const orphanCount = computed(() => ctx.orphanCount.value);
+const cashTransfersCreated = computed(() => ctx.cashTransfersCreated.value);
+const importErrors = computed(() => ctx.importErrors.value);
+const showPriceUpdateTip = computed(() => ctx.showPriceUpdateTip.value);
+
+const goToTransactions = ctx.goToTransactions;
+const continueImport = ctx.continueImport;
+const reimport = ctx.reimport;
+const goToImportGuide = ctx.goToImportGuide;
 
 /** 是否有跳过/异常记录（用于决定是否展示统计明细行） */
 const hasAnomalies = computed(
-  () => skippedCount > 0 || duplicateCount > 0 || errorCount > 0 || orphanCount > 0
+  () =>
+    skippedCount.value > 0 ||
+    duplicateCount.value > 0 ||
+    errorCount.value > 0 ||
+    orphanCount.value > 0
 );
 
 /** 是否有补充信息区块（转账 / 孤儿 / 错误 / 价格提示任一存在） */
 const hasSupplements = computed(
   () =>
-    cashTransfersCreated > 0 ||
-    orphanCount > 0 ||
-    importErrors.length > 0 ||
-    showPriceUpdateTip
+    cashTransfersCreated.value > 0 ||
+    orphanCount.value > 0 ||
+    importErrors.value.length > 0 ||
+    showPriceUpdateTip.value
 );
 </script>
 
