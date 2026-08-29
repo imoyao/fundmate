@@ -16,6 +16,10 @@ name: 质量门禁 CI
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+    # 预算保护：仅在 PR 目标为 dev / main 时跑质量门禁，避免 feature 分支间 PR 重复消耗分钟数。
+    branches:
+      - dev
+      - main
   # 防直推卡点：直接 push 到受保护分支 M 时，下方 guard-direct-push job 会拦截。
   # 通过 PR 合并的 push 属于 pull_request 事件，不会触发本 push 卡点。
   push:
