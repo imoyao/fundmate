@@ -50,7 +50,7 @@ const HomeRouteConfig = {
     {
       path: "/panorama",
       name: "AssetPanorama",
-      component: () => import("@/views/asset/AssetPanorama.vue"),
+      component: () => import("@/views/asset/panorama/index.vue"),
       meta: {
         title: "资产总览",
         icon: "ep:pie-chart",
