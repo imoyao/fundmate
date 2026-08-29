@@ -452,6 +452,35 @@ class TestLedgerFeeConfig:
         data = resp.get_json()['data']
         assert data['fee_config'] == fee_config
 
+    def test_create_ledger_derives_type_from_channel_category(self, client, db):
+        """#1101/#1148：创建应以 channel_category 为入参，后端据其派生 ledger_type。
+
+        所有创建路径（含导入向导）统一走此契约；ledger_type 在创建时亦由系统派生，
+        不应由调用方直接下发——直接把 channel_category 值当 ledger_type 下发会命中
+        向后兼容回退映射，产生错误类型（如 fund_platform→other 且 ledger_type 非法）。
+        """
+        # 证券渠道分组 → ledger_type=stock
+        resp = client.post('/api/ledgers/', json={'name': '华泰证券', 'channel_category': 'securities'})
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['channel_category'] == 'securities'
+        assert data['ledger_type'] == 'stock'
+
+        # 基金平台渠道分组 → ledger_type=fund
+        resp = client.post('/api/ledgers/', json={'name': '支付宝基金', 'channel_category': 'fund_platform'})
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['channel_category'] == 'fund_platform'
+        assert data['ledger_type'] == 'fund'
+
+    def test_create_ledger_legacy_ledger_type_still_derived(self, client, db):
+        """向后兼容：旧调用方直接下发 ledger_type 时，channel_category 仍能被反推出来。"""
+        resp = client.post('/api/ledgers/', json={'name': '旧证券账户', 'ledger_type': 'stock'})
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['ledger_type'] == 'stock'
+        assert data['channel_category'] == 'securities'
+
     def test_update_ledger_fee_config(self, client, db):
         """更新已有账户的 fee_config"""
         # 先创建一个股票账户
