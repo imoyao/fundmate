@@ -58,8 +58,14 @@ function colorFor(name: string): string {
 }
 
 function buildOption() {
-  const isDataEmpty = props.data.length === 0;
   const total = props.data.reduce((s, d) => s + (d.value || 0), 0);
+  // 空态判定：数组为空 **或** 全部值为 0。
+  // 仅判 length 会漏掉「账户无数据」场景：调用方（账本详情页等）通常固定传全部分类
+  // （如「投资资产 / 现金类资产」），空账户时两个值都是 0、数组长度仍为 2，空态不触发。
+  // 而 ECharts 在总和为 0 时会把圆环按分类数均分（见 pieLayout.js：sum===0 时每个
+  // 扇区取 unitRadian = 2π / 分类数），两个分类即各占 180°，视觉上变成误导性的
+  // 「50% / 50%」，与"账户里根本没有数据"的事实不符。故总和为 0 一律按空态处理。
+  const isDataEmpty = props.data.length === 0 || total === 0;
   const legendTextColor = getCssVar("--text-secondary", "#6b655c");
   const borderColor = getCssVar("--bg-card", "#ffffff");
   // 尊重系统减弱动效偏好：关闭 echarts 入场动画
