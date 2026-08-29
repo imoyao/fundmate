@@ -132,31 +132,62 @@
         />
       </div>
 
-      <!-- 场外基金（含E账户）聚合汇总卡：整卡可点下钻至聚合视图 -->
-      <div
-        class="overview-card fund-summary-card mb-6"
-        role="button"
-        tabindex="0"
-        @click="goToFundAggregation"
-        @keydown.enter="goToFundAggregation"
-      >
-        <div class="flex justify-between items-center gap-4 flex-wrap">
-          <div class="min-w-0">
-            <p class="text-sm" :style="{ color: 'var(--text-tertiary)' }">
-              场外基金（含E账户）
-            </p>
-            <div class="mt-1">
-              <MoneyDisplay
-                :value="fundTotalYuan"
-                size="lg"
-                :show-sign="false"
-                :auto-color="false"
-              />
+      <!-- 聚合汇总卡网格：场外基金 / 场内证券 两卡并排（窄屏单列堆叠），等高等高权重 -->
+      <div class="aggregation-cards-grid mb-6">
+        <!-- 场外基金（含E账户）聚合汇总卡：整卡可点下钻至聚合视图 -->
+        <div
+          class="overview-card fund-summary-card"
+          role="button"
+          tabindex="0"
+          @click="goToFundAggregation"
+          @keydown.enter="goToFundAggregation"
+        >
+          <div class="flex justify-between items-center gap-4 flex-wrap">
+            <div class="min-w-0">
+              <p class="text-sm" :style="{ color: 'var(--text-tertiary)' }">
+                场外基金（含E账户）
+              </p>
+              <div class="mt-1">
+                <MoneyDisplay
+                  :value="fundTotalYuan"
+                  size="lg"
+                  :show-sign="false"
+                  :auto-color="false"
+                />
+              </div>
             </div>
+            <el-button type="primary" plain @click.stop="goToFundAggregation">
+              <IconifyIconOffline icon="ep:right" class="mr-1" /> 查看明细
+            </el-button>
           </div>
-          <el-button type="primary" plain @click.stop="goToFundAggregation">
-            <IconifyIconOffline icon="ep:right" class="mr-1" /> 查看明细
-          </el-button>
+        </div>
+
+        <!-- 场内证券（股票/ETF/可转债）聚合汇总卡：整卡可点下钻至聚合视图 -->
+        <div
+          class="overview-card securities-summary-card"
+          role="button"
+          tabindex="0"
+          @click="goToSecuritiesAggregation"
+          @keydown.enter="goToSecuritiesAggregation"
+        >
+          <div class="flex justify-between items-center gap-4 flex-wrap">
+            <div class="min-w-0">
+              <p class="text-sm" :style="{ color: 'var(--text-tertiary)' }">
+                场内证券（股票/ETF/可转债）
+              </p>
+              <div class="mt-1">
+                <MoneyDisplay
+                  :value="securitiesTotalYuan"
+                  size="lg"
+                  :show-sign="false"
+                  :auto-color="false"
+                />
+              </div>
+            </div>
+            <el-button type="primary" plain @click.stop="goToSecuritiesAggregation">
+              <IconifyIconOffline icon="ep:right" class="mr-1" /> 查看明细
+            </el-button>
+          </div>
         </div>
       </div>
 
@@ -293,6 +324,7 @@ import {
   unarchiveLedger,
   reorderLedgers,
   getFundAggregation,
+  getSecuritiesAggregation,
   type SalesInstitution
 } from "@/api/ledger";
 import Sortable from "sortablejs";
@@ -327,6 +359,10 @@ const lastUpdate = ref("");
 /** 场外基金（含E账户）聚合总市值（分，整数）；独立获取，失败不影响主账户列表 */
 const fundTotalCents = ref(0);
 const fundTotalYuan = computed(() => fundTotalCents.value / 100);
+
+/** 场内证券（股票/ETF/可转债）聚合总市值（分，整数）；独立获取，失败不影响主账户列表 */
+const securitiesTotalCents = ref(0);
+const securitiesTotalYuan = computed(() => securitiesTotalCents.value / 100);
 
 const showCreateDialog = ref(false);
 /** 创建弹窗初始渠道分组：顶部「新增账户」默认 bank；分组幽灵按钮预置对应渠道分组 */
@@ -609,6 +645,11 @@ function goToFundAggregation() {
   router.push({ name: "fund-aggregation" });
 }
 
+/** 下钻到场内证券（股票/ETF/可转债）聚合视图 */
+function goToSecuritiesAggregation() {
+  router.push({ name: "securities-aggregation" });
+}
+
 async function fetchData() {
   loading.value = true;
   try {
@@ -646,6 +687,8 @@ async function fetchData() {
   }
   // 独立获取场外基金（含E账户）聚合总市值：与账户列表解耦，失败静默兜底不阻塞主列表
   fetchFundTotal();
+  // 独立获取场内证券（股票/ETF/可转债）聚合总市值：同范式，失败静默兜底不阻塞主列表
+  fetchSecuritiesTotal();
 }
 
 /** 独立获取场外基金聚合总市值（GET /api/ledgers/fund-aggregation/）。
@@ -656,6 +699,18 @@ async function fetchFundTotal() {
     fundTotalCents.value = res.data?.total_market_value_cents ?? 0;
   } catch {
     fundTotalCents.value = 0;
+  }
+}
+
+/** 独立获取场内证券聚合总市值（GET /api/ledgers/securities-aggregation/）。
+ *  汇总值与维度无关（始终为全量场内证券市值），故用默认 product 维度取一次即可。
+ *  与账户列表解耦、失败静默兜底不阻塞主列表（同 fetchFundTotal 范式）。 */
+async function fetchSecuritiesTotal() {
+  try {
+    const res = await getSecuritiesAggregation("product");
+    securitiesTotalCents.value = res.data?.total_market_value_cents ?? 0;
+  } catch {
+    securitiesTotalCents.value = 0;
   }
 }
 
@@ -773,6 +828,36 @@ onMounted(() => {
 .fund-summary-card:focus-visible {
   box-shadow: var(--focus-ring);
   outline: none;
+}
+
+/* 场内证券（股票/ETF/可转债）汇总卡：整卡可点下钻，复用 fund-summary-card 视觉语言 */
+.securities-summary-card {
+  cursor: pointer;
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.securities-summary-card:hover {
+  box-shadow: var(--shadow-float);
+  border-color: var(--border-strong);
+}
+
+.securities-summary-card:focus-visible {
+  box-shadow: var(--focus-ring);
+  outline: none;
+}
+
+/* 聚合汇总卡网格：场外基金 / 场内证券 两卡并排，等宽等高（grid 默认 align-items: stretch）；
+   minmax(0, 1fr) 防止金额等超长内容撑破列宽；窄屏（<768px，与 Tailwind md 断点对齐）回退单列堆叠 */
+.aggregation-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-compact);
+}
+
+@media (max-width: 767px) {
+  .aggregation-cards-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* 负债率偏高警示：负债属中性信息，警示态才用系统危险色（非涨跌色） */

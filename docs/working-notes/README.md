@@ -87,6 +87,7 @@
 | `e-account-aggregation-design-2026-08-28.md` | **基金E账户与聚合器/券商数据模型设计草案（#1101，待评审）**：概念澄清（实体账本/销售机构/券商/聚合器/E账户）、现状实证、方案A/B、broker_aggregator_links+trading_frontend、银行卡绑定约束、前端聚合页维度、D1~D6 待决、P0~P2 分期 |
 | `ledger-channel-category-redesign-2026-08-28.md` | **账本渠道分类（channel_category）重设计方案（#1101 后续）**：双字段模型（ledger_type 内部资产类键 vs channel_category 用户可见分组）、org_type→channel_category 映射、派生/回归规则、与 #1100 机构绑定基数层正交；配套后端常量+迁移回填已落地 |
 | `ledger-cash-like-product-binding-2026-08-29.md` | **账户绑定类现金产品（「余额宝」）设计（#1137 B）**：类现金口径=现金+货基+逆回购（复用 XIRR `EXCLUDED_ASSET_TYPES`，债券不归入）、Ledger 新增 `linked_money_fund_id`+`auto_purchase_money_fund`（默认关）、自动申购仅覆盖卖出/赎回回款、每账户单独控制+批量应用、UI 借鉴支付宝但主次反转（中高风险 `--text-hero` 为主 / 类现金 `--text-small` 为辅且单独成块）、B1~B3 分期；含 C 取消论证（滑坡+维度混淆） |
+| `securities-aggregation-design-2026-08-29.md` | **场内证券（股票/ETF/可转债）聚合卡片设计（#1132，已确认）**：镜像 #1101 场外基金 position 级聚合范式，新增 securities_aggregation 服务+端点+前端卡片/下钻页，零 schema 迁移；范围含 stock/etf/bond，不建虚拟账本 |
 
 ## 子目录归档
 

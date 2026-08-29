@@ -29,7 +29,10 @@ from app.domains.positions.models import Position, PositionImportMeta, SalesInst
 from app.domains.positions.views import enrich_position_dict
 from app.domains.transactions.models import Transaction
 from app.services.fund_aggregation import get_fund_aggregation as svc_get_fund_aggregation
+
+# #1132 场内证券聚合：与 #1101 基金聚合并列，纯 position 级聚合，零 schema 迁移。
 from app.services.ledger_service import LedgerService
+from app.services.securities_aggregation import get_securities_aggregation as svc_get_securities_aggregation
 
 ledgers_bp = APIBlueprint('ledgers', __name__, url_prefix='/api/ledgers')
 
@@ -93,6 +96,17 @@ def get_fund_aggregation():
         dimension = 'product'
     with get_db() as db:
         data = svc_get_fund_aggregation(db, get_family_id(), dimension)
+        return jsonify({'data': data, 'message': 'ok'})
+
+
+@ledgers_bp.get('/securities-aggregation/')
+def get_securities_aggregation():
+    """场内证券（股票/ETF/可转债）持仓跨账本聚合（#1132）：按产品/机构/前端维度聚合，供概览卡片与下钻页。"""
+    dimension = request.args.get('dimension', 'product')
+    if dimension not in ('product', 'institution', 'app'):
+        dimension = 'product'
+    with get_db() as db:
+        data = svc_get_securities_aggregation(db, get_family_id(), dimension)
         return jsonify({'data': data, 'message': 'ok'})
 
 

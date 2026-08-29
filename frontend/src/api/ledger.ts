@@ -520,3 +520,33 @@ export function getFundAggregation(
     { params: { dimension } }
   );
 }
+
+// ── 场内证券聚合视图（#1132）──
+// 聚合家族内全部场内证券持仓（股票/ETF/可转债），供资产概览卡片与下钻页使用。
+// 金额字段单位均为「分」（整数），份额字段 quantity 为 Position.quantity 原始最小单位（份×10000）。
+// 聚合范式完全镜像 FundAggregationResult（后端 securities_aggregation 服务复用同一分组逻辑），
+// 故分组形状一致，直接复用 FundAggregation*Group 类型，避免重复定义。
+
+/** 场内证券聚合结果（GET /api/ledgers/securities-aggregation/）。
+ *  分组形状与 FundAggregationResult 完全一致（product/institution/app 三维度），
+ *  字段名与后端返回一致，故复用 FundAggregation*Group 类型。 */
+export interface SecuritiesAggregationResult {
+  /** 汇总市值（分，整数） */
+  total_market_value_cents: number;
+  dimension: FundAggregationDimension;
+  groups:
+    | FundAggregationProductGroup[]
+    | FundAggregationInstitutionGroup[]
+    | FundAggregationAppGroup[];
+}
+
+/** 获取场内证券（股票/ETF/可转债）聚合视图（默认按产品维度） */
+export function getSecuritiesAggregation(
+  dimension: FundAggregationDimension = "product"
+) {
+  return http.request<ApiResponse<SecuritiesAggregationResult>>(
+    "get",
+    "/api/ledgers/securities-aggregation/",
+    { params: { dimension } }
+  );
+}
