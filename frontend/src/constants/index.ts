@@ -26,7 +26,7 @@ export const POSITION_SOURCE = {
 export const LEDGER_TYPE_OPTIONS = [
   { value: "bank", label: "银行" },
   { value: "securities", label: "证券" },
-  { value: "fund_platform", label: "基金平台" },
+  { value: "fund_platform", label: "基金" },
   { value: "insurance", label: "保险" },
   { value: "futures", label: "期货" },
   { value: "other", label: "其他" }
@@ -35,7 +35,7 @@ export const LEDGER_TYPE_OPTIONS = [
 export const LEDGER_TYPE_LABELS: Record<string, string> = {
   bank: "银行账户",
   stock: "证券账户",
-  fund: "基金平台",
+  fund: "基金",
   property: "实物资产"
 };
 
@@ -43,7 +43,7 @@ export const LEDGER_TYPE_LABELS: Record<string, string> = {
 export const CHANNEL_CATEGORY_LABELS: Record<string, string> = {
   bank: "银行",
   securities: "证券",
-  fund_platform: "基金平台",
+  fund_platform: "基金",
   insurance: "保险",
   futures: "期货",
   other: "其他"
