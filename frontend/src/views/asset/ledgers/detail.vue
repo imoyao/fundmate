@@ -183,9 +183,9 @@
           </div>
         </div>
 
-        <!-- 类现金 / 中高风险（#1137）：借鉴支付宝但主次反转——
-             本产品是投资工具，中高风险资产为主显示（--text-hero），
-             类现金单独成块作辅助（--text-small），给用户明确的敞口暗示。 -->
+        <!-- 资产构成（#1137）：投资资产为主、类现金为辅，主次反转布局。
+             区块标题与口径说明统一走 SectionHeader（info tooltip 仅 hover 展示，
+             避免把内部口径备注直接铺在界面上）。指标卡强制复用 MetricCard。 -->
         <CardBlock
           v-if="
             summaryData?.ledger_type === 'stock' ||
@@ -194,47 +194,30 @@
           "
           class="mb-6"
         >
-          <div class="cash-like">
-            <div class="cash-like__main">
-              <div class="cash-like__label">投资资产（中高风险）</div>
-              <MoneyDisplay
-                :value="summaryData?.investment_amount ?? 0"
-                :show-sign="false"
-                :auto-color="false"
-                size="hero"
-              />
-            </div>
-
-            <div class="cash-like__divider" />
-
-            <div class="cash-like__aux">
-              <span class="cash-like__aux-label">类现金</span>
-              <MoneyDisplay
-                :value="summaryData?.cash_like_amount ?? 0"
-                :show-sign="false"
-                :auto-color="false"
-                size="sm"
-                class="cash-like__aux-value"
-              />
-              <span class="cash-like__aux-detail">
-                货基
-                <MoneyDisplay
-                  :value="summaryData?.money_fund_amount ?? 0"
-                  :show-sign="false"
-                  :auto-color="false"
-                  size="xs"
-                />
-                · 现金
-                <MoneyDisplay
-                  :value="summaryData?.cash_amount ?? 0"
-                  :show-sign="false"
-                  :auto-color="false"
-                  size="xs"
-                />
-                · 逆回购计入类现金，债券基金不计入
-              </span>
-            </div>
-          </div>
+          <SectionHeader
+            title="资产构成"
+            info="投资资产为中高风险敞口；类现金包含货币基金与账户现金，不含债券基金"
+          />
+          <MetricGrid>
+            <MetricCard
+              title="投资资产（中高风险）"
+              :value="`¥${formatAmount(summaryData?.investment_amount ?? 0)}`"
+              featured
+            />
+            <MetricCard
+              title="类现金"
+              :value="`¥${formatAmount(summaryData?.cash_like_amount ?? 0)}`"
+              caption="货币基金 + 账户现金"
+            />
+            <MetricCard
+              title="货币基金"
+              :value="`¥${formatAmount(summaryData?.money_fund_amount ?? 0)}`"
+            />
+            <MetricCard
+              title="账户现金"
+              :value="`¥${formatAmount(summaryData?.cash_amount ?? 0)}`"
+            />
+          </MetricGrid>
         </CardBlock>
 
         <!-- 账户深度分析（规划中，敬请期待，详见内部工作记录 ledger-detail-info-redesign-plan-2026-08-27） -->
@@ -895,6 +878,9 @@ import { Search } from "@element-plus/icons-vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
+import SectionHeader from "@/components/SectionHeader/index.vue";
+import MetricGrid from "@/components/MetricGrid/index.vue";
+import MetricCard from "@/components/MetricCard/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 
 import PageSkeleton from "@/components/PageSkeleton/index.vue";
@@ -939,6 +925,7 @@ import PositionTransactionsDrawer from "./components/PositionTransactionsDrawer.
 import TransactionEditDialog from "./components/TransactionEditDialog.vue";
 import { usePageRefresh } from "@/composables/usePageRefresh";
 import { formatDate } from "@/utils/date";
+import { formatAmount } from "@/utils/currency";
 import { pricePrecision } from "@/utils/pricePrecision";
 
 defineOptions({ name: "LedgerDetail" });
@@ -2035,46 +2022,6 @@ function openDeleteDialog(account: LedgerItem) {
 </script>
 
 <style scoped>
-/* 类现金 / 中高风险（#1137）：主次反转布局。
-   主显示用 --text-hero（48px/600，design.md 总资产规格）由 MoneyDisplay size=hero 承载；
-   辅助信息用 --text-small / --text-label + --text-tertiary 弱化，但**单独成块**，
-   让用户一眼看到「多少在中高风险里」。颜色/间距全部走 token，禁止硬编码。 */
-.cash-like {
-  display: flex;
-  flex-direction: column;
-}
-
-.cash-like__label {
-  margin-bottom: var(--space-2);
-  font-size: var(--text-label);
-  line-height: 18px;
-  color: var(--text-tertiary);
-}
-
-.cash-like__divider {
-  margin: var(--space-4) 0 var(--space-3);
-  border-top: 1px solid var(--border-subtle);
-}
-
-.cash-like__aux {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  align-items: baseline;
-}
-
-.cash-like__aux-label {
-  font-size: var(--text-small);
-  line-height: 20px;
-  color: var(--text-secondary);
-}
-
-.cash-like__aux-detail {
-  font-size: var(--text-label);
-  line-height: 18px;
-  color: var(--text-tertiary);
-}
-
 /* 概览卡片：token 化（与 CardBlock/MetricCard 同一套卡片语言，仅因需内嵌 MoneyDisplay 故用局部类） */
 .summary-card {
   display: flex;
