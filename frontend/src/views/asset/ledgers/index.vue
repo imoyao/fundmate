@@ -4,10 +4,10 @@
     :style="{ backgroundColor: 'var(--bg-page)' }"
   >
     <!-- 页面标题 & 操作栏 -->
-    <div class="mb-6 flex justify-between items-center">
+    <div class="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
       <div>
         <h2
-          class="text-2xl font-bold"
+          class="text-2xl font-bold whitespace-nowrap"
           :style="{ color: 'var(--text-primary)' }"
         >
           账户管理
@@ -16,7 +16,7 @@
           管理您的银行账户、证券账户、基金平台和实物资产
         </p>
       </div>
-      <div class="flex gap-2">
+      <div class="flex flex-wrap gap-2">
         <el-button
           class="btn-ghost-text"
           @click="$router.push('/asset/portfolios')"
