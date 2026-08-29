@@ -11,10 +11,10 @@ from sqlalchemy.orm import Session
 from app.core.constants import ALLOCATION_LABELS, LEDGER_TYPE_LABELS, TYPE_LABELS
 from app.core.money import Money
 from app.domains.assets.models import Asset
-from app.domains.funds.models import DailyWorth
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
+from app.services.nav_service import NavService
 from app.services.summary_service import orphan_money_fund_net_by_ledger
 
 
@@ -25,31 +25,16 @@ class LedgerService:
     def _batch_fund_latest_navs(db: Session, fund_codes: list[str]) -> dict[str, float]:
         """批量获取基金最新单位净值（单次查询，避免 N+1）
 
+        实现已委托 :class:`NavService` 统一入口（#1133），本方法仅保留签名
+        以兼容既有 3 处调用方（账本统计 / 持仓分页等）。
+        ``allow_remote=False``：账本页属同步请求，禁止在请求内触发远程拉取。
+
         返回 {fund_code: unit_nav_float}，无数据的基金不在结果中。
         """
         if not fund_codes:
             return {}
         try:
-            # 子查询：每个 fund_code 的最大日期
-            max_dates = (
-                db.query(
-                    DailyWorth.fund_code,
-                    func.max(DailyWorth.date).label('max_date'),
-                )
-                .filter(DailyWorth.fund_code.in_(fund_codes))
-                .group_by(DailyWorth.fund_code)
-                .subquery()
-            )
-            # 关联取出该日期的 unit_nav
-            rows = (
-                db.query(DailyWorth.fund_code, DailyWorth.unit_nav)
-                .join(
-                    max_dates,
-                    (DailyWorth.fund_code == max_dates.c.fund_code) & (DailyWorth.date == max_dates.c.max_date),
-                )
-                .all()
-            )
-            return {row[0]: float(row[1]) for row in rows if row[1]}
+            return NavService.get_latest_navs(db, fund_codes, allow_remote=False)
         except Exception:
             return {}
 
