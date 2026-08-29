@@ -83,8 +83,8 @@
 
         <!-- 核心概览卡片矩阵（2行 × 3列，或自适应） -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          <!-- 1. 总资产（内嵌资产构成条，#1137） -->
-          <div class="summary-card summary-card--total">
+          <!-- 1. 总资产（内嵌资产构成环形图，#1137）：跨两列、左金额右环形图 -->
+          <div class="summary-card summary-card--total md:col-span-2">
             <div class="summary-card__label">
               <IconifyIconOffline icon="ep:money" class="text-base" /> 总资产
             </div>
@@ -97,56 +97,62 @@
               />
             </div>
 
-            <!-- 资产构成堆叠条（仅股票/基金/信用账户展示） -->
+            <!-- 资产构成：环形图 + 自定义图例（名称 / 金额 / 比例） -->
             <div
               v-if="
                 summaryData?.ledger_type === 'stock' ||
                 summaryData?.ledger_type === 'fund' ||
                 summaryData?.ledger_type === 'e_account'
               "
-              class="composition-bar"
+              class="composition"
             >
-              <div class="composition-bar__track">
-                <div
-                  class="composition-bar__fill composition-bar__fill--investment"
-                  :style="{ width: investmentPercent + '%' }"
-                />
-                <div
-                  v-if="cashLikePercent > 0"
-                  class="composition-bar__fill composition-bar__fill--cash"
-                  :style="{ width: cashLikePercent + '%' }"
+              <div class="composition__donut">
+                <AssetAllocationDonut
+                  :data="compositionData"
+                  :color-map="compositionColorMap"
+                  :show-legend="false"
                 />
               </div>
-              <div class="composition-bar__legend">
-                <span class="composition-bar__item">
+              <ul class="composition__legend">
+                <li class="composition__legend-item">
                   <span
-                    class="composition-bar__dot composition-bar__dot--investment"
+                    class="composition__dot"
+                    :style="{ background: 'var(--chart-01)' }"
                   />
-                  投资资产 {{ investmentPercent }}%
-                </span>
-                <span class="composition-bar__item">
+                  <span class="composition__name">投资资产</span>
+                  <span class="composition__amount"
+                    >¥{{
+                      formatAmount(summaryData?.investment_amount ?? 0)
+                    }}</span
+                  >
+                  <span class="composition__pct">{{ investmentPercent }}%</span>
+                </li>
+                <li class="composition__legend-item">
                   <span
-                    class="composition-bar__dot composition-bar__dot--cash"
+                    class="composition__dot"
+                    :style="{ background: 'var(--chart-06)' }"
                   />
-                  现金类资产 {{ cashLikePercent }}%
-                </span>
-              </div>
-              <!-- 现金类资产明细（仅在有金额时展示） -->
-              <div
-                v-if="cashLikePercent > 0"
-                class="composition-bar__breakdown"
-              >
-                <span
-                  >货币基金 ¥{{
-                    formatAmount(summaryData?.money_fund_amount ?? 0)
-                  }}</span
-                >
-                <span
-                  >账户现金 ¥{{
-                    formatAmount(summaryData?.cash_amount ?? 0)
-                  }}</span
-                >
-              </div>
+                  <span class="composition__name">现金类资产</span>
+                  <span class="composition__amount"
+                    >¥{{
+                      formatAmount(summaryData?.cash_like_amount ?? 0)
+                    }}</span
+                  >
+                  <span class="composition__pct">{{ cashLikePercent }}%</span>
+                </li>
+                <li v-if="cashLikePercent > 0" class="composition__legend-sub">
+                  <span
+                    >货币基金 ¥{{
+                      formatAmount(summaryData?.money_fund_amount ?? 0)
+                    }}</span
+                  >
+                  <span
+                    >账户现金 ¥{{
+                      formatAmount(summaryData?.cash_amount ?? 0)
+                    }}</span
+                  >
+                </li>
+              </ul>
             </div>
           </div>
 
@@ -894,6 +900,7 @@ import { IconifyIconOffline } from "@/components/ReIcon";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
+import AssetAllocationDonut from "@/components/Charts/AssetAllocationDonut.vue";
 
 import PageSkeleton from "@/components/PageSkeleton/index.vue";
 import {
@@ -1451,6 +1458,18 @@ const cashLikePercent = computed(() => {
   const cash = summaryData.value?.cash_like_amount ?? 0;
   return Math.round((cash / total) * 100);
 });
+
+// 环形图数据：投资资产 vs 现金类资产（#1137）
+const compositionData = computed(() => [
+  { name: "投资资产", value: summaryData.value?.investment_amount ?? 0 },
+  { name: "现金类资产", value: summaryData.value?.cash_like_amount ?? 0 }
+]);
+
+// 环形图配色：走 design.md 图表语义变量（禁止硬编码 hex）
+const compositionColorMap = {
+  投资资产: "--chart-01",
+  现金类资产: "--chart-06"
+};
 
 async function loadMoneyFundIncome() {
   if (isUnclassified.value) return;
@@ -2095,73 +2114,79 @@ function openDeleteDialog(account: LedgerItem) {
   border-top: 1px solid var(--border-subtle);
 }
 
-/* 总资产卡片内嵌资产构成堆叠条（#1137） */
+/* 总资产卡片内嵌资产构成（环形图 + 图例，#1137） */
 .summary-card--total {
   display: flex;
   flex-direction: column;
 }
 
-.composition-bar {
+.composition {
   margin-top: var(--space-3);
   padding-top: var(--space-3);
   border-top: 1px solid var(--border-subtle);
-}
-
-.composition-bar__track {
   display: flex;
-  height: 8px;
-  border-radius: var(--radius-pill);
-  overflow: hidden;
-  background: var(--bg-soft);
-}
-
-.composition-bar__fill {
-  height: 100%;
-  transition: width 0.4s ease;
-}
-
-.composition-bar__fill--investment {
-  background: var(--invest-stock, #6366f1);
-}
-
-.composition-bar__fill--cash {
-  background: var(--color-success, #22c55e);
-}
-
-.composition-bar__legend {
-  display: flex;
-  gap: var(--space-3);
-  margin-top: var(--space-2);
-  font-size: var(--text-label);
-  line-height: 18px;
-  color: var(--text-secondary);
-}
-
-.composition-bar__item {
-  display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 16px;
 }
 
-.composition-bar__dot {
-  width: 8px;
-  height: 8px;
+.composition__donut {
+  width: 132px;
+  height: 132px;
+  flex-shrink: 0;
+}
+
+.composition__donut :deep(.allocation-donut) {
+  min-height: 132px;
+}
+
+.composition__legend {
+  flex: 1;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.composition__legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.composition__dot {
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
   flex-shrink: 0;
 }
 
-.composition-bar__dot--investment {
-  background: var(--invest-stock, #6366f1);
+.composition__name {
+  color: var(--text-secondary);
 }
 
-.composition-bar__dot--cash {
-  background: var(--color-success, #22c55e);
+.composition__amount {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
-.composition-bar__breakdown {
+.composition__pct {
+  width: 44px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-tertiary);
+}
+
+.composition__legend-sub {
   display: flex;
   gap: var(--space-3);
-  margin-top: var(--space-1);
+  margin-top: 2px;
+  padding-left: 17px;
   font-size: 11px;
   line-height: 16px;
   color: var(--text-tertiary);
