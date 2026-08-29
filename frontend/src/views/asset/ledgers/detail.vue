@@ -83,8 +83,8 @@
 
         <!-- 核心概览卡片矩阵（2行 × 3列，或自适应） -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          <!-- 1. 总资产 -->
-          <div class="summary-card">
+          <!-- 1. 总资产（内嵌资产构成条，#1137） -->
+          <div class="summary-card summary-card--total">
             <div class="summary-card__label">
               <IconifyIconOffline icon="ep:money" class="text-base" /> 总资产
             </div>
@@ -95,6 +95,58 @@
                 :auto-color="false"
                 size="lg"
               />
+            </div>
+
+            <!-- 资产构成堆叠条（仅股票/基金/信用账户展示） -->
+            <div
+              v-if="
+                summaryData?.ledger_type === 'stock' ||
+                summaryData?.ledger_type === 'fund' ||
+                summaryData?.ledger_type === 'e_account'
+              "
+              class="composition-bar"
+            >
+              <div class="composition-bar__track">
+                <div
+                  class="composition-bar__fill composition-bar__fill--investment"
+                  :style="{ width: investmentPercent + '%' }"
+                />
+                <div
+                  v-if="cashLikePercent > 0"
+                  class="composition-bar__fill composition-bar__fill--cash"
+                  :style="{ width: cashLikePercent + '%' }"
+                />
+              </div>
+              <div class="composition-bar__legend">
+                <span class="composition-bar__item">
+                  <span
+                    class="composition-bar__dot composition-bar__dot--investment"
+                  />
+                  投资资产 {{ investmentPercent }}%
+                </span>
+                <span class="composition-bar__item">
+                  <span
+                    class="composition-bar__dot composition-bar__dot--cash"
+                  />
+                  现金类资产 {{ cashLikePercent }}%
+                </span>
+              </div>
+              <!-- 现金类资产明细（仅在有金额时展示） -->
+              <div
+                v-if="cashLikePercent > 0"
+                class="composition-bar__breakdown"
+              >
+                <span
+                  >货币基金 ¥{{
+                    formatAmount(summaryData?.money_fund_amount ?? 0)
+                  }}</span
+                >
+                <span
+                  >账户现金 ¥{{
+                    formatAmount(summaryData?.cash_amount ?? 0)
+                  }}</span
+                >
+              </div>
             </div>
           </div>
 
@@ -182,43 +234,6 @@
             </div>
           </div>
         </div>
-
-        <!-- 资产构成（#1137）：投资资产为主、类现金为辅，主次反转布局。
-             区块标题与口径说明统一走 SectionHeader（info tooltip 仅 hover 展示，
-             避免把内部口径备注直接铺在界面上）。指标卡强制复用 MetricCard。 -->
-        <CardBlock
-          v-if="
-            summaryData?.ledger_type === 'stock' ||
-            summaryData?.ledger_type === 'fund' ||
-            summaryData?.ledger_type === 'e_account'
-          "
-          class="mb-6"
-        >
-          <SectionHeader
-            title="资产构成"
-            info="投资资产为中高风险敞口；类现金包含货币基金与账户现金，不含债券基金"
-          />
-          <MetricGrid>
-            <MetricCard
-              title="投资资产（中高风险）"
-              :value="`¥${formatAmount(summaryData?.investment_amount ?? 0)}`"
-              featured
-            />
-            <MetricCard
-              title="类现金"
-              :value="`¥${formatAmount(summaryData?.cash_like_amount ?? 0)}`"
-              caption="货币基金 + 账户现金"
-            />
-            <MetricCard
-              title="货币基金"
-              :value="`¥${formatAmount(summaryData?.money_fund_amount ?? 0)}`"
-            />
-            <MetricCard
-              title="账户现金"
-              :value="`¥${formatAmount(summaryData?.cash_amount ?? 0)}`"
-            />
-          </MetricGrid>
-        </CardBlock>
 
         <!-- 账户深度分析（规划中，敬请期待，详见内部工作记录 ledger-detail-info-redesign-plan-2026-08-27） -->
         <CardBlock class="mb-6">
@@ -878,9 +893,6 @@ import { Search } from "@element-plus/icons-vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
-import SectionHeader from "@/components/SectionHeader/index.vue";
-import MetricGrid from "@/components/MetricGrid/index.vue";
-import MetricCard from "@/components/MetricCard/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 
 import PageSkeleton from "@/components/PageSkeleton/index.vue";
@@ -1424,6 +1436,21 @@ const summaryData = ref<LedgerSummaryData | null>(null);
 
 // 货币基金收益（仅基金账户拉取）
 const moneyFundData = ref<MoneyFundIncomeData | null>(null);
+
+// 资产构成比例（#1137，供总资产卡片内嵌堆叠条使用）
+const investmentPercent = computed(() => {
+  const total = summaryData.value?.total_market_value ?? 0;
+  if (total <= 0) return 100;
+  const inv = summaryData.value?.investment_amount ?? 0;
+  return Math.round((inv / total) * 100);
+});
+
+const cashLikePercent = computed(() => {
+  const total = summaryData.value?.total_market_value ?? 0;
+  if (total <= 0) return 0;
+  const cash = summaryData.value?.cash_like_amount ?? 0;
+  return Math.round((cash / total) * 100);
+});
 
 async function loadMoneyFundIncome() {
   if (isUnclassified.value) return;
@@ -2066,6 +2093,78 @@ function openDeleteDialog(account: LedgerItem) {
   padding-top: var(--space-2);
   margin-top: var(--space-3);
   border-top: 1px solid var(--border-subtle);
+}
+
+/* 总资产卡片内嵌资产构成堆叠条（#1137） */
+.summary-card--total {
+  display: flex;
+  flex-direction: column;
+}
+
+.composition-bar {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.composition-bar__track {
+  display: flex;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  background: var(--bg-soft);
+}
+
+.composition-bar__fill {
+  height: 100%;
+  transition: width 0.4s ease;
+}
+
+.composition-bar__fill--investment {
+  background: var(--invest-stock, #6366f1);
+}
+
+.composition-bar__fill--cash {
+  background: var(--color-success, #22c55e);
+}
+
+.composition-bar__legend {
+  display: flex;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+  font-size: var(--text-label);
+  line-height: 18px;
+  color: var(--text-secondary);
+}
+
+.composition-bar__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.composition-bar__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.composition-bar__dot--investment {
+  background: var(--invest-stock, #6366f1);
+}
+
+.composition-bar__dot--cash {
+  background: var(--color-success, #22c55e);
+}
+
+.composition-bar__breakdown {
+  display: flex;
+  gap: var(--space-3);
+  margin-top: var(--space-1);
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--text-tertiary);
 }
 
 /* 交易表资产名称列：名称 + 代码 */
