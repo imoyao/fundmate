@@ -702,6 +702,43 @@ class TestLedgerMoneyFundBinding:
         assert resp.status_code == 400
         assert '不存在' in resp.get_json()['message']
 
+    def test_bind_non_money_fund_rejected(self, client, db):
+        """明确非货基（fund_type_id 非 6）绑定活期+ 应被后端拒绝（#1156 后端防呆）"""
+        from app.domains.funds.models import FundType
+
+        db.add(FundType(id=999, name='测试股票型'))
+        db.commit()
+        fund = Fund(fund_code='510300', name='沪深300ETF', fund_type_id=999)
+        db.add(fund)
+        db.commit()
+        resp = client.post(
+            '/api/ledgers/',
+            json={'name': '华泰证券', 'ledger_type': 'stock', 'linked_money_fund_code': fund.fund_code},
+        )
+        assert resp.status_code == 400
+        assert '活期+ 仅支持货币基金类产品' in resp.get_json()['message']
+
+    def test_patch_non_money_fund_rejected(self, client, db):
+        """PATCH 绑定明确非货基应被后端拒绝（#1156 后端防呆）"""
+        from app.domains.funds.models import FundType
+
+        db.add(FundType(id=998, name='测试股票型2'))
+        db.commit()
+        fund = Fund(fund_code='510500', name='中证500ETF', fund_type_id=998)
+        db.add(fund)
+        db.commit()
+        create = client.post(
+            '/api/ledgers/',
+            json={'name': '平安证券', 'ledger_type': 'stock'},
+        )
+        lid = create.get_json()['data']['id']
+        resp = client.patch(
+            f'/api/ledgers/{lid}/',
+            json={'linked_money_fund_code': fund.fund_code},
+        )
+        assert resp.status_code == 400
+        assert '活期+ 仅支持货币基金类产品' in resp.get_json()['message']
+
     def test_update_unlink_disables_auto_purchase(self, client, db):
         """解绑类现金产品时应联动关闭自动申购，避免残留无法生效的开关"""
         fund = self._make_money_fund(db, code='000201', name='货基3')

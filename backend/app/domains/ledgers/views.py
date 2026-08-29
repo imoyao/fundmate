@@ -18,7 +18,7 @@ from app.core.constants import ALLOCATION_LABELS, LEDGER_TYPE_LABELS
 from app.core.database import get_db
 from app.core.money import Money
 from app.domains.assets.models import Asset
-from app.domains.funds.models import Fund
+from app.domains.funds.models import Fund, MoneyFundDailyWorth
 from app.domains.ledgers.constants import (
     map_channel_category_to_ledger_type,
     map_ledger_type_to_channel_category,
@@ -30,6 +30,7 @@ from app.domains.positions.views import enrich_position_dict
 from app.domains.transactions.models import Transaction
 from app.services.fund_aggregation import get_fund_aggregation as svc_get_fund_aggregation
 from app.services.position_aggregation import DEFAULT_PAGE_SIZE
+from app.services.fund_service import FundService
 from app.services.transaction_service import TransactionService
 
 # 外部基金列表缓存（进程级，基金列表极少变动）：用于「本地库无此货基时」补建 Fund 行
@@ -69,6 +70,27 @@ def _resolve_money_fund(db, fund_code: str):
                 return fund
     except Exception as e:  # 外部失败不阻塞，回退 400
         logger.warning(f'补建货基 Fund 行失败({fund_code}): {e}')
+    return None
+
+
+def _check_money_fund_bindable(db, fund: Fund) -> str | None:
+    """校验基金是否可作为「活期+」绑定标的（#1156 后端防呆）。
+
+    复用 FundService._judge_money_fund 三态判定（与前端 disabled 策略一致）：
+      - True  → 允许
+      - None  → 类型未知，允许但记 warning（避免 fund_type_id 缺失误拒）
+      - False → 明确非货基，拒绝
+    返回 None 表示可绑定；返回字符串为 400 拒绝原因。
+    """
+    has_worth = (
+        db.query(MoneyFundDailyWorth.fund_code).filter(MoneyFundDailyWorth.fund_code == fund.fund_code).first()
+        is not None
+    )
+    is_mf = FundService._judge_money_fund(fund.fund_type_id, fund.name, has_worth)
+    if is_mf is False:
+        return '活期+ 仅支持货币基金类产品'
+    if is_mf is None:
+        logger.warning(f'绑定活期+ 的基金类型未知（{fund.fund_code} {fund.name}），按前端策略放行')
     return None
 
 
@@ -364,6 +386,9 @@ def create_ledger():
             fund = _resolve_money_fund(db, linked_money_fund_code)
             if not fund:
                 return jsonify({'data': None, 'message': '绑定的活期+不存在'}), 400
+            reject = _check_money_fund_bindable(db, fund)
+            if reject:
+                return jsonify({'data': None, 'message': reject}), 400
             linked_money_fund_id = fund.id
     elif auto_purchase_money_fund:
         return jsonify({'data': None, 'message': '请先绑定活期+，再开启自动申购'}), 400
@@ -598,6 +623,9 @@ def update_ledger(ledger_id: int):
                 fund = _resolve_money_fund(db, fund_code)
                 if not fund:
                     return jsonify({'data': None, 'message': '绑定的活期+不存在'}), 400
+                reject = _check_money_fund_bindable(db, fund)
+                if reject:
+                    return jsonify({'data': None, 'message': reject}), 400
                 ledger.linked_money_fund_id = fund.id
                 # #1137 换绑活期+：原绑定货基仍有净额持仓时，赎回 A 并申购 B（资产中性）。
                 # 仅当从 A 换到 B（ID 不同）才触发，首次绑定 / 解绑重绑不触发。
