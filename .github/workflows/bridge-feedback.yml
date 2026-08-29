@@ -1,7 +1,7 @@
 # FeedLog ↔ GitHub Issues 双向桥接工作流
 #
 # 三条通道：
-#   1. FeedLog → GitHub（定时）：每 15 分钟检查 FeedLog PostgreSQL 新帖子 → 创建 GitHub Issue
+#   1. FeedLog → GitHub（定时）：每 3 小时检查 FeedLog PostgreSQL 新帖子 → 创建 GitHub Issue（原每 15 分钟，降频省私有库 Actions 分钟）
 #   2. GitHub → FeedLog（事件）：Issue 新建 → 建帖子；打标/关闭/重开 → 更新 FeedLog 帖子状态（真正双向）
 #   3. GitHub Release → FeedLog Changelog：发布新版本 → 创建 FeedLog 更新日志
 #
@@ -14,7 +14,7 @@ name: FeedLog ↔ GitHub Bridge
 on:
   # 通道 1：定时同步 FeedLog → GitHub Issues
   schedule:
-    - cron: '*/15 * * * *'  # 每 15 分钟
+    - cron: '0 */3 * * *'  # 每 3 小时（原每 15 分钟，约降为 1/5 频率，省私有库 Actions 分钟）
   workflow_dispatch:
     inputs:
       command:

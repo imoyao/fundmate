@@ -27,6 +27,11 @@ name: AI Code Review
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+    # 预算保护：仅在 PR 目标为长期分支 dev / main 时才跑 AI 审查，
+    # 避免 feature 分支之间的 PR 也消耗 LLM 与 Actions 分钟（私有库每月 2000 分钟上限）。
+    branches:
+      - dev
+      - main
   # 手动触发：兼容历史入口，但手动触发无关联 PR，深度线路回退默认模型（见 resolve-model）。
   workflow_dispatch:
 
