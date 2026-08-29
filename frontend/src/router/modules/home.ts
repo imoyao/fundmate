@@ -31,6 +31,10 @@ const HomeRouteConfig = {
     rank: BASE_RANK,
     showLink: false // 父级作为目录，不直接显示链接
   },
+  // 子路由统一使用绝对 path（以 / 开头）。路由经 formatTwoStageRoutes 拍平后，
+  // 所有非「/」路由会被挂到根 Home 下；若子路由用相对写法，vue-router 规范化
+  // 可能使 matched 链缺失「总览」父级，导致面包屑不显示。改为绝对 path
+  // （与 asset.ts 保持一致）可确保面包屑正常显示多级层级。
   children: [
     {
       path: "/welcome",
@@ -55,7 +59,7 @@ const HomeRouteConfig = {
       }
     },
     {
-      path: "inventory",
+      path: "/inventory",
       name: "Inventory",
       component: () => import("@/views/asset/inventory/index.vue"),
       meta: {
@@ -66,7 +70,7 @@ const HomeRouteConfig = {
       }
     },
     {
-      path: "watchlist",
+      path: "/watchlist",
       name: "Watchlist",
       component: () => import("@/views/asset/watchlist/index.vue"),
       meta: {
@@ -77,7 +81,7 @@ const HomeRouteConfig = {
       }
     },
     {
-      path: "transactions",
+      path: "/transactions",
       name: "TransactionList",
       component: () => import("@/views/asset/TransactionList.vue"),
       meta: {
