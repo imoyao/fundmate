@@ -145,7 +145,7 @@
           <div class="flex justify-between items-center gap-4 flex-wrap">
             <div class="min-w-0">
               <p class="text-sm" :style="{ color: 'var(--text-tertiary)' }">
-                场外基金（含E账户）
+                基金
               </p>
               <div class="mt-1">
                 <MoneyDisplay
@@ -173,7 +173,7 @@
           <div class="flex justify-between items-center gap-4 flex-wrap">
             <div class="min-w-0">
               <p class="text-sm" :style="{ color: 'var(--text-tertiary)' }">
-                场内证券（股票/ETF/可转债）
+                股票
               </p>
               <div class="mt-1">
                 <MoneyDisplay

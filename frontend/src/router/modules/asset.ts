@@ -182,7 +182,7 @@ const AssetRouteConfig = {
           name: "fund-aggregation",
           component: () => import("@/views/asset/fund-aggregation/index.vue"),
           meta: {
-            title: "场外基金聚合",
+            title: "基金",
             icon: "ep:box",
             rank: 12,
             showLink: false,
@@ -195,7 +195,7 @@ const AssetRouteConfig = {
           name: "securities-aggregation",
           component: () => import("@/views/asset/securities-aggregation/index.vue"),
           meta: {
-            title: "场内证券聚合",
+            title: "股票",
             icon: "ep:trend-charts",
             rank: 13,
             showLink: false,

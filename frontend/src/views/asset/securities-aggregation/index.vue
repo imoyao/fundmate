@@ -10,10 +10,10 @@
           class="text-2xl font-bold"
           :style="{ color: 'var(--text-primary)' }"
         >
-          场内证券（股票/ETF/可转债）
+          股票
         </h2>
         <p class="text-sm mt-1" :style="{ color: 'var(--text-tertiary)' }">
-          跨账本聚合家族内全部场内证券持仓
+          家族全部股票持仓（含ETF、可转债）
         </p>
       </div>
       <el-radio-group v-model="dimension" @change="onDimensionChange">
@@ -26,7 +26,7 @@
     <!-- 总市值卡 -->
     <div class="overview-card total-card mb-6">
       <p class="text-sm" :style="{ color: 'var(--text-tertiary)' }">
-        聚合总市值
+        总市值
       </p>
       <div class="mt-1">
         <MoneyDisplay
@@ -68,7 +68,7 @@
       :style="{ color: 'var(--text-tertiary)' }"
     >
       <IconifyIconOffline icon="ep:box" class="text-5xl mb-3 opacity-30" />
-      <p class="text-lg">暂无场内证券持仓</p>
+      <p class="text-lg">暂无股票持仓</p>
     </div>
 
     <!-- 表格区 -->
