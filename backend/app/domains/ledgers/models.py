@@ -102,11 +102,14 @@ class Ledger(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     )
     # 类现金产品绑定（#1137）：账户的「余额宝」，指向基金标的（funds.id）。
     # 绑定标的而非持仓——持仓卖光会悬空；回款是否自动申购见 auto_purchase_money_fund。
+    # ⚠️ 跨域引用（user 域 ledgers → market 域 funds），**不声明 ForeignKey**。
+    # 两表物理分属不同库（见 db_factory：funds=MARKET / ledgers=USER），数据库
+    # 无法保证该约束；此前声明 FK 会让分域建表抛 NoReferencedTableError，
+    # 且在开启 foreign_keys pragma 时写入即失败。引用有效性由应用层保证。
     linked_money_fund_id = Column(
         Integer,
-        ForeignKey('funds.id', ondelete='SET NULL'),
         nullable=True,
-        comment='账户绑定的类现金产品（余额宝），指向 funds.id（仅 stock/fund 类型可用）',
+        comment='账户绑定的类现金产品（余额宝），指向 funds.id（跨域引用，仅 stock/fund 类型可用）',
     )
     # 自动申购开关（#1137）：默认关闭——用户不操作系统不代劳，回款留在账户现金。
     auto_purchase_money_fund = Column(
@@ -115,8 +118,15 @@ class Ledger(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
         default=False,
         comment='卖出/赎回回款是否自动申购绑定的类现金产品（默认关闭）',
     )
-    # 回显用：绑定产品的代码与名称（只读，不参与写入）
-    linked_money_fund = relationship('Fund', foreign_keys=[linked_money_fund_id], lazy='selectin')
+    # 回显用：绑定产品的代码与名称（只读，不参与写入）。
+    # 跨域（market 域 funds）：无 FK 故须显式 primaryjoin；用惰性 select 而非
+    # selectin，避免加载 Ledger 时自动发起跨域查询（分域下会打到空库）。
+    linked_money_fund = relationship(
+        'Fund',
+        primaryjoin='Ledger.linked_money_fund_id == Fund.id',
+        foreign_keys=[linked_money_fund_id],
+        lazy='select',
+    )
     sales_institution_id = Column(
         Integer,
         ForeignKey('sales_institutions.id', ondelete='SET NULL'),

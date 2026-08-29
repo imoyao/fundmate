@@ -10,3 +10,12 @@ export function formatQuantity(qty: number): string {
     maximumFractionDigits: 2
   });
 }
+
+/**
+ * 百分比格式化：输入小数（如 0.0852），输出百分比字符串（如 "8.52%"）。
+ * 用于持仓占比等场景。
+ */
+export function formatPercent(ratio: number): string {
+  const pct = (ratio || 0) * 100;
+  return `${pct.toFixed(2)}%`;
+}

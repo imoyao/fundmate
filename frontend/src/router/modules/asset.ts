@@ -179,33 +179,11 @@ const AssetRouteConfig = {
             showLink: false,
             hideQuickEntry: true
           }
-        },
-        // 场外基金（含E账户）聚合下钻页：从「账户管理」概览卡片进入，不在侧边栏展示
-        {
-          path: "/asset/fund-aggregation",
-          name: "fund-aggregation",
-          component: () => import("@/views/asset/fund-aggregation/index.vue"),
-          meta: {
-            title: "基金",
-            icon: "ep:box",
-            rank: 12,
-            showLink: false,
-            hidden: true
-          }
-        },
-        // 场内证券（股票/ETF/可转债）聚合下钻页：从「账户管理」概览卡片进入，不在侧边栏展示
-        {
-          path: "/asset/securities-aggregation",
-          name: "securities-aggregation",
-          component: () => import("@/views/asset/securities-aggregation/index.vue"),
-          meta: {
-            title: "股票",
-            icon: "ep:trend-charts",
-            rank: 13,
-            showLink: false,
-            hidden: true
-          }
         }
+        // #1133 路由归并：场外基金 / 场内证券的聚合下钻页已收敛为 /funds（AssetFunds）
+        // 与 /stocks（AssetStocks），与「资产总览 → 产品类型」的下钻目标合一。
+        // 原 /asset/fund-aggregation、/asset/securities-aggregation 两个隐藏路由已删除，
+        // 避免同品类存在两套页面（此前一个接真数据、另一个是硬编码假数据）。
       ]
     },
     {

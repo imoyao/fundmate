@@ -15,26 +15,25 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.money import Money
-from app.domains.funds.models import DailyWorth
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
 from app.domains.price_history.models import PriceHistory
 from app.domains.securities.models import Security
 from app.domains.transactions.models import Transaction
+from app.services.nav_service import NavService
 from app.services.performance.constants import EXCLUDED_ASSET_TYPES
 from app.services.performance.xirr_engine import calculate_xirr, generate_cashflows, generate_portfolio_cashflows
 
 
 def _get_fund_latest_nav(db: Session, fund_code: str) -> float:
-    """获取基金最新单位净值，失败返回 0.0"""
+    """获取基金最新单位净值，失败返回 0.0。
+
+    委托 :class:`NavService` 统一入口（#1133）。
+    ``allow_remote=False``：XIRR 属同步计算，禁止在请求内触发远程拉取。
+    """
     try:
-        row = (
-            db.query(DailyWorth.unit_nav)
-            .filter(DailyWorth.fund_code == fund_code)
-            .order_by(DailyWorth.date.desc())
-            .first()
-        )
-        return float(row[0]) if row and row[0] else 0.0
+        result = NavService.get_latest_navs(db, [fund_code], allow_remote=False)
+        return float(result.get(fund_code, 0.0))
     except Exception:
         logger.warning(f'查询基金最新净值失败，fund_code={fund_code}', exc_info=True)
         return 0.0
@@ -62,20 +61,10 @@ def _batch_get_position_values(db: Session, positions: List[Position]) -> Dict[i
     fund_codes = [p.symbol for p in positions if p.asset_type == 'fund' and p.symbol]
     stock_symbols = [p.symbol for p in positions if p.asset_type in ('stock', 'etf') and p.symbol]
 
+    # 委托 NavService 统一入口（#1133）；批量场景禁止触发远程拉取
     fund_nav_map: Dict[str, float] = {}
     if fund_codes:
-        latest = (
-            db.query(DailyWorth.fund_code, func.max(DailyWorth.date).label('max_date'))
-            .filter(DailyWorth.fund_code.in_(fund_codes))
-            .group_by(DailyWorth.fund_code)
-            .subquery()
-        )
-        results = (
-            db.query(DailyWorth.fund_code, DailyWorth.unit_nav)
-            .join(latest, (DailyWorth.fund_code == latest.c.fund_code) & (DailyWorth.date == latest.c.max_date))
-            .all()
-        )
-        fund_nav_map = {code: float(nav) for code, nav in results if nav}
+        fund_nav_map = NavService.get_latest_navs(db, fund_codes, allow_remote=False)
 
     stock_price_map: Dict[str, float] = {}
     if stock_symbols:
