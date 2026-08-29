@@ -84,3 +84,9 @@
   --text-mono: 16px;
   --text-mono-small: 14px;
 }
+
+/* 卡片边框（亮色）：design.md 规定亮色 --card-border = --border-light；
+   用 :root:not(.dark) 限定亮色作用域，避免覆盖 dark.scss 中暗色 6% 半透明白边框 */
+:root:not(.dark) {
+  --card-border: 1px solid var(--border-light);
+}
