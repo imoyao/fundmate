@@ -1884,7 +1884,13 @@ async function handleUpdate() {
   }
   saving.value = true;
   try {
-    await updateLedger(Number(ledgerId.value), editForm.value);
+    // 编辑时 ledger_type（计算口径键）不可变，绝不要下发；表单里的 ledger_type 字段实际承载
+    // 的是渠道分组 channel_category，须映射到 channel_category 下发，否则后端比对真实
+    // ledger_type 不等会报「类型不可更改」（支付宝 fund_platform→fund / 证券 securities→stock）。
+    const payload: Record<string, any> = { ...editForm.value };
+    delete payload.ledger_type;
+    payload.channel_category = editForm.value.ledger_type;
+    await updateLedger(Number(ledgerId.value), payload);
     ElMessage.success("账户已更新");
     showEditDialog.value = false;
     const ledgerRes = await getLedgers();

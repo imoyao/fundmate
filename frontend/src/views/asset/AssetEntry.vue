@@ -355,7 +355,10 @@ async function handleCreateLedger() {
   try {
     const res = await createLedger({
       name: newLedgerForm.name,
-      ledger_type: newLedgerForm.ledger_type,
+      // 表单 ledger_type 字段承载的是「渠道分组」值（bank/securities/fund_platform/...，
+      // 见 LEDGER_TYPE_OPTIONS），必须作为 channel_category 下发，后端据其派生真实
+      // ledger_type；若误作 ledger_type 下发会写入伪类型（如 fund_platform 而非 fund）。
+      channel_category: newLedgerForm.ledger_type,
       currency: "CNY",
       sales_institution_id: newLedgerForm.sales_institution_id ?? null
     });
