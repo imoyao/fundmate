@@ -4,7 +4,9 @@
     :style="{ backgroundColor: 'var(--bg-page)' }"
   >
     <!-- 页面标题 & 操作栏 -->
-    <div class="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+    <div
+      class="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between"
+    >
       <div>
         <h2
           class="text-2xl font-bold whitespace-nowrap"
@@ -184,7 +186,11 @@
                 />
               </div>
             </div>
-            <el-button type="primary" plain @click.stop="goToSecuritiesAggregation">
+            <el-button
+              type="primary"
+              plain
+              @click.stop="goToSecuritiesAggregation"
+            >
               <IconifyIconOffline icon="ep:right" class="mr-1" /> 查看明细
             </el-button>
           </div>
@@ -640,14 +646,21 @@ function goToDetail(ledger: any) {
   router.push({ name: "LedgerDetail", params: { id: ledger.id } });
 }
 
-/** 下钻到场外基金（含E账户）聚合视图 */
+/**
+ * 下钻到场外基金（含E账户）聚合视图。
+ * #1133 路由归并：目标由隐藏页 /asset/fund-aggregation 收敛为正式页 /funds（AssetFunds），
+ * 与「资产总览 → 产品类型 → 基金」的下钻目标合为同一个页面，消除重复路由。
+ */
 function goToFundAggregation() {
-  router.push({ name: "fund-aggregation" });
+  router.push({ name: "AssetFunds" });
 }
 
-/** 下钻到场内证券（股票/ETF/可转债）聚合视图 */
+/**
+ * 下钻到场内证券（股票/ETF/可转债）聚合视图。
+ * #1133 路由归并：目标收敛为正式页 /stocks（AssetStocks），同上。
+ */
 function goToSecuritiesAggregation() {
-  router.push({ name: "securities-aggregation" });
+  router.push({ name: "AssetStocks" });
 }
 
 async function fetchData() {
@@ -695,7 +708,7 @@ async function fetchData() {
  *  汇总值与维度无关（始终为全量场外基金市值），故用默认 product 维度取一次即可。 */
 async function fetchFundTotal() {
   try {
-    const res = await getFundAggregation("product");
+    const res = await getFundAggregation({ dimension: "product" });
     fundTotalCents.value = res.data?.total_market_value_cents ?? 0;
   } catch {
     fundTotalCents.value = 0;
@@ -707,7 +720,7 @@ async function fetchFundTotal() {
  *  与账户列表解耦、失败静默兜底不阻塞主列表（同 fetchFundTotal 范式）。 */
 async function fetchSecuritiesTotal() {
   try {
-    const res = await getSecuritiesAggregation("product");
+    const res = await getSecuritiesAggregation({ dimension: "product" });
     securitiesTotalCents.value = res.data?.total_market_value_cents ?? 0;
   } catch {
     securitiesTotalCents.value = 0;
