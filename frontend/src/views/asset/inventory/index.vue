@@ -579,7 +579,7 @@ const assetTypeMap: Record<
     {
       key: "fund",
       icon: "ep:money",
-      label: "场外基金",
+      label: "基金",
       color: "var(--invest-fund)"
     },
     {
@@ -763,11 +763,11 @@ const investmentGroups = computed(() => {
     { label: string; icon: string; color: string }
   > = {
     securities: {
-      label: "股票/证券",
+      label: "股票",
       icon: "ep:trend-charts",
       color: "var(--invest-stock)"
     },
-    fund: { label: "场外基金", icon: "ep:money", color: "var(--invest-fund)" }
+    fund: { label: "基金", icon: "ep:money", color: "var(--invest-fund)" }
   };
   // 后端 type_label → 页面分组 key（股票/可转债合并为证券，基金归基金，其余忽略）
   const groupKeyMap: Record<string, string> = {
