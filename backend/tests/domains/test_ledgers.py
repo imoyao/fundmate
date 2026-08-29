@@ -545,7 +545,7 @@ class TestLedgerLinkedCash:
             '/api/ledgers/', json={'name': '另一个现金', 'ledger_type': 'bank', 'linked_cash_ledger_id': cash_id}
         )
         assert resp.status_code == 400
-        assert '只有证券账户或基金平台' in resp.get_json()['message']
+        assert '只有证券账户或基金' in resp.get_json()['message']
 
     def test_update_ledger_link_cash(self, client, db):
         """更新账户关联现金账户"""
@@ -635,7 +635,7 @@ class TestLedgerMoneyFundBinding:
             json={'name': '华泰证券', 'ledger_type': 'stock', 'auto_purchase_money_fund': True},
         )
         assert resp.status_code == 400
-        assert '请先绑定类现金产品' in resp.get_json()['message']
+        assert '请先绑定活期+' in resp.get_json()['message']
 
     def test_bind_and_enable_auto_purchase(self, client, db):
         """绑定后可开启自动申购"""
@@ -662,7 +662,7 @@ class TestLedgerMoneyFundBinding:
             json={'name': '招商银行', 'ledger_type': 'bank', 'linked_money_fund_code': fund.fund_code},
         )
         assert resp.status_code == 400
-        assert '只有证券账户或基金平台' in resp.get_json()['message']
+        assert '只有证券账户或基金' in resp.get_json()['message']
 
     def test_bind_nonexistent_fund_code(self, client, db):
         """绑定不存在的基金代码应拒绝"""
@@ -700,7 +700,7 @@ class TestLedgerMoneyFundBinding:
         ledger_id = create_resp.get_json()['data']['id']
         resp = client.patch(f'/api/ledgers/{ledger_id}/', json={'auto_purchase_money_fund': True})
         assert resp.status_code == 400
-        assert '请先绑定类现金产品' in resp.get_json()['message']
+        assert '请先绑定活期+' in resp.get_json()['message']
 
 
 class TestLedgerOverview:

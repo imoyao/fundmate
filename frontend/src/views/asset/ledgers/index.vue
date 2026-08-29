@@ -13,7 +13,7 @@
           账户管理
         </h2>
         <p class="text-sm mt-1" :style="{ color: 'var(--text-tertiary)' }">
-          管理您的银行账户、证券账户、基金平台和实物资产
+          管理您的银行账户、证券账户、基金和实物资产
         </p>
       </div>
       <div class="flex gap-2">
@@ -447,7 +447,7 @@ function buildGroups(ledgers: any[]) {
     groups[type].ledgers.push(ledger);
   }
 
-  // 分组顺序来自本地偏好（groupOrder），默认 银行/证券/基金平台/保险/期货/其他；
+  // 分组顺序来自本地偏好（groupOrder），默认 银行/证券/基金/保险/期货/其他；
   // 仅保留实际有账户的分组（空分组不渲染）。
   //
   // 修复（账户列表白屏 / 账户不显示）：

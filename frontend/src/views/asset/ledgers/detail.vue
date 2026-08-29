@@ -591,7 +591,7 @@
         </el-form>
         <template #footer>
           <el-button @click="showEditDialog = false">取消</el-button>
-          <el-button type="primary" :loading="saving" @click="handleUpdate"
+          <el-button type="primary" :loading="saving" :disabled="!isEditFormModified" @click="handleUpdate"
             >保存</el-button
           >
         </template>
@@ -1419,6 +1419,12 @@ const editForm = ref({
   sales_institution_id: null as number | null
 });
 
+const editFormSnapshot = ref("");
+// 表单未改动时禁用「保存」，避免无意义的提交（#交互修复）
+const isEditFormModified = computed(
+  () => JSON.stringify(editForm.value) !== editFormSnapshot.value
+);
+
 const drawerVisible = ref(false);
 const selectedPosition = ref<LedgerHoldingRow | null>(null);
 
@@ -1824,7 +1830,8 @@ async function openEditDialog() {
   // 构建编辑表单
   editForm.value = {
     name: accountInfo.value.name,
-    ledger_type: accountInfo.value.ledger_type || "bank",
+    // 用 channel_category 回填类型选择（与选项 value 一致），避免回退显示原始值（如 Fund）及提交报错
+    ledger_type: accountInfo.value.channel_category || accountInfo.value.ledger_type || "bank",
     default_allocation: accountInfo.value.default_allocation || null,
     notes: accountInfo.value.notes || "",
     portfolio_id: accountInfo.value.portfolio_id || null,
@@ -1835,6 +1842,8 @@ async function openEditDialog() {
     fee_config: accountInfo.value.fee_config,
     sales_institution_id: accountInfo.value.sales_institution_id ?? null
   };
+  // 记录打开时的快照，用于「未改动则禁用保存」
+  editFormSnapshot.value = JSON.stringify(editForm.value);
   showEditDialog.value = true;
 }
 

@@ -120,9 +120,22 @@ class FundService:
 
     # ─── 基金搜索 ─────────────────────────────────
 
+    # 外部基金列表缓存（进程级，基金列表极少变动）：避免每次搜索都打 akshare
+    _FUND_NAME_EM_CACHE: dict = {'ts': 0.0, 'data': None}
+    _FUND_NAME_EM_TTL = 86400
+
     @staticmethod
     def search_funds(db: Session, keyword: str) -> List[Dict[str, Any]]:
-        """模糊搜索基金（代码/名称/拼音），返回列表含默认申购费率"""
+        """模糊搜索基金（代码/名称/拼音）。
+
+        本地 Fund 表优先；若本地完全无命中，追加 akshare fund_name_em 外部兜底，
+        覆盖本地库尚未同步的基金（如用户持有的货基），使其也能按名称搜到（#交互修复）。
+        返回项含 is_money_fund（fund_type_id==6 或 基金类型==货币型），供前端筛选货基。
+        """
+        keyword = (keyword or '').strip()
+        if not keyword:
+            return []
+
         funds = (
             db.query(Fund)
             .filter(
@@ -134,6 +147,7 @@ class FundService:
             .all()
         )
         results = []
+        seen = set()
         for f in funds:
             # 查询该基金第一条申购费率记录
             rate_record = (
@@ -154,6 +168,44 @@ class FundService:
                     'is_money_fund': f.fund_type_id == 6,
                 }
             )
+            seen.add(f.fund_code)
+
+        # 外部兜底：本地完全无命中时，用 akshare fund_name_em 补全（覆盖未同步基金）
+        if not results:
+            try:
+                import time
+
+                cache = FundService._FUND_NAME_EM_CACHE
+                now = time.time()
+                if cache['data'] is None or now - cache['ts'] > FundService._FUND_NAME_EM_TTL:
+                    from app.services.sync.adapters.akshare_adapter import AKShareAdapter
+
+                    cache['data'] = AKShareAdapter().fetch_fund_list()
+                    cache['ts'] = now
+                kw = keyword.lower()
+                for item in cache['data'] or []:
+                    code = item.get('fund_code')
+                    if not code or code in seen:
+                        continue
+                    name = item.get('name') or ''
+                    if kw not in (code + name).lower():
+                        continue
+                    seen.add(code)
+                    results.append(
+                        {
+                            'code': code,
+                            'name': name,
+                            'type': 'fund',
+                            'subscription_rate': 0.0,
+                            'fund_type_id': None,
+                            'is_money_fund': (item.get('fund_type') == '货币型'),
+                        }
+                    )
+                    if len(results) >= 20:
+                        break
+            except Exception as e:  # 外部失败不阻塞本地结果
+                logger.warning(f'基金搜索外部兜底失败: {e}')
+
         return results
 
     # ─── 基金费率规则查询 ───────────────────────

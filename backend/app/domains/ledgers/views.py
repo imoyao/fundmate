@@ -30,9 +30,51 @@ from app.domains.positions.views import enrich_position_dict
 from app.domains.transactions.models import Transaction
 from app.services.fund_aggregation import get_fund_aggregation as svc_get_fund_aggregation
 
+# 外部基金列表缓存（进程级，基金列表极少变动）：用于「本地库无此货基时」补建 Fund 行
+_FUND_NAME_EM_CACHE: dict = {'ts': 0.0, 'data': None}
+_FUND_NAME_EM_TTL = 86400
+
+
+def _resolve_money_fund(db, fund_code: str):
+    """按代码解析类现金产品（货基）对应的 Fund 行。
+
+    本地缺失时，用 akshare fund_name_em 兜底补建（仅填代码/名称/类型等最小字段），
+    使「本地库尚未同步的货基」也能被绑定（#交互修复：按名称搜得到也要绑得上）。
+    补建失败（网络/解析异常）返回 None，由调用方回退 400。
+    """
+    fund = db.query(Fund).filter(Fund.fund_code == fund_code).first()
+    if fund:
+        return fund
+    try:
+        import time
+
+        cache = _FUND_NAME_EM_CACHE
+        now = time.time()
+        if cache['data'] is None or now - cache['ts'] > _FUND_NAME_EM_TTL:
+            from app.services.sync.adapters.akshare_adapter import AKShareAdapter
+
+            cache['data'] = AKShareAdapter().fetch_fund_list()
+            cache['ts'] = now
+        for item in cache['data'] or []:
+            if item.get('fund_code') == fund_code:
+                fund = Fund(
+                    fund_code=fund_code,
+                    name=item.get('name') or fund_code,
+                    fund_type_id=6 if item.get('fund_type') == '货币型' else None,
+                )
+                db.add(fund)
+                db.flush()
+                return fund
+    except Exception as e:  # 外部失败不阻塞，回退 400
+        logger.warning(f'补建货基 Fund 行失败({fund_code}): {e}')
+    return None
+
+
 # #1132 场内证券聚合：与 #1101 基金聚合并列，纯 position 级聚合，零 schema 迁移。
-from app.services.ledger_service import LedgerService
-from app.services.securities_aggregation import get_securities_aggregation as svc_get_securities_aggregation
+from app.services.ledger_service import LedgerService  # noqa: E402
+from app.services.securities_aggregation import (  # noqa: E402
+    get_securities_aggregation as svc_get_securities_aggregation,
+)
 
 ledgers_bp = APIBlueprint('ledgers', __name__, url_prefix='/api/ledgers')
 
@@ -186,7 +228,7 @@ def create_ledger():
     # 校验关联的现金账户
     if linked_cash_id is not None:
         if ledger_type not in ('stock', 'fund'):
-            return jsonify({'data': None, 'message': '只有证券账户或基金平台可以关联现金账户'}), 400
+            return jsonify({'data': None, 'message': '只有证券账户或基金可以关联现金账户'}), 400
         with get_db() as db:
             cash_ledger = db.query(Ledger).filter_by(id=linked_cash_id, ledger_type='bank').first()
             if not cash_ledger or cash_ledger.family_id != get_family_id():
@@ -211,14 +253,14 @@ def create_ledger():
     linked_money_fund_id = None
     if linked_money_fund_code:
         if ledger_type not in ('stock', 'fund'):
-            return jsonify({'data': None, 'message': '只有证券账户或基金平台可以绑定类现金产品'}), 400
+            return jsonify({'data': None, 'message': '只有证券账户或基金可以绑定活期+'}), 400
         with get_db() as db:
-            fund = db.query(Fund).filter_by(fund_code=linked_money_fund_code).first()
+            fund = _resolve_money_fund(db, linked_money_fund_code)
             if not fund:
-                return jsonify({'data': None, 'message': '绑定的类现金产品不存在'}), 400
+                return jsonify({'data': None, 'message': '绑定的活期+不存在'}), 400
             linked_money_fund_id = fund.id
     elif auto_purchase_money_fund:
-        return jsonify({'data': None, 'message': '请先绑定类现金产品，再开启自动申购'}), 400
+        return jsonify({'data': None, 'message': '请先绑定活期+，再开启自动申购'}), 400
 
     with get_db() as db:
         ledger = Ledger(
@@ -428,7 +470,7 @@ def update_ledger(ledger_id: int):
             if linked_cash_id is not None:
                 current_type = ledger_type if ledger_type is not None else ledger.ledger_type
                 if current_type not in ('stock', 'fund'):
-                    return jsonify({'data': None, 'message': '只有证券账户或基金平台可以关联现金账户'}), 400
+                    return jsonify({'data': None, 'message': '只有证券账户或基金可以关联现金账户'}), 400
                 cash_ledger = db.query(Ledger).filter_by(id=linked_cash_id, ledger_type='bank').first()
                 if not cash_ledger or cash_ledger.family_id != get_family_id():
                     return jsonify({'data': None, 'message': '关联的现金账户不存在或类型不是现金账户'}), 400
@@ -445,10 +487,10 @@ def update_ledger(ledger_id: int):
                 ledger.auto_purchase_money_fund = False
             else:
                 if ledger.ledger_type not in ('stock', 'fund'):
-                    return jsonify({'data': None, 'message': '只有证券账户或基金平台可以绑定类现金产品'}), 400
-                fund = db.query(Fund).filter_by(fund_code=fund_code).first()
+                    return jsonify({'data': None, 'message': '只有证券账户或基金可以绑定活期+'}), 400
+                fund = _resolve_money_fund(db, fund_code)
                 if not fund:
-                    return jsonify({'data': None, 'message': '绑定的类现金产品不存在'}), 400
+                    return jsonify({'data': None, 'message': '绑定的活期+不存在'}), 400
                 ledger.linked_money_fund_id = fund.id
 
         # 更新自动申购开关（#1137）
@@ -457,7 +499,7 @@ def update_ledger(ledger_id: int):
             if not isinstance(auto_purchase, bool):
                 return jsonify({'data': None, 'message': 'auto_purchase_money_fund 必须为布尔值'}), 400
             if auto_purchase and not ledger.linked_money_fund_id:
-                return jsonify({'data': None, 'message': '请先绑定类现金产品，再开启自动申购'}), 400
+                return jsonify({'data': None, 'message': '请先绑定活期+，再开启自动申购'}), 400
             ledger.auto_purchase_money_fund = auto_purchase
 
         # 更新 sales_institution_id（允许设置为 None）
