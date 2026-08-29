@@ -45,13 +45,17 @@ const AssetRouteConfig = {
   },
   children: [
     {
-      path: "the-road-not-taken",
+      // 统一为绝对 path：路由经 formatTwoStageRoutes 拍平后实际注册为根下
+      // 「/the-road-not-taken」，加 / 前缀使其与真实 URL 一致且声明清晰。
+      path: "/the-road-not-taken",
       name: "Favourites",
       component: () => import("@/views/asset/favorites/index.vue"),
       meta: { title: "特别关注", icon: "ep:opportunity", rank: 1 }
     },
     // ── 投资管理（可折叠）──
     {
+      // 目录型父路由：保留相对写法，因其 redirect 依赖「/asset/investment/favorites」，
+      // 且其 children 已统一为绝对 path，拍平后父级自身注册为「/investment」，行为不变。
       path: "investment",
       name: "InvestmentManage",
       component: EmptyLayout,
@@ -59,7 +63,7 @@ const AssetRouteConfig = {
       meta: { title: "投资管理", icon: "ep:folder-opened", rank: 2 },
       children: [
         {
-          path: "stocks",
+          path: "/stocks",
           name: "AssetStocks",
           component: () => import("@/views/asset/stocks/index.vue"),
           meta: {
@@ -70,25 +74,25 @@ const AssetRouteConfig = {
           }
         },
         {
-          path: "funds",
+          path: "/funds",
           name: "AssetFunds",
           component: () => import("@/views/asset/funds/index.vue"),
           meta: { title: "基金", icon: "ep:box", rank: 2, showLink: false }
         },
         {
-          path: "precious",
+          path: "/precious",
           name: "AssetPrecious",
           component: () => import("@/views/asset/precious/index.vue"),
           meta: { title: "贵金属", icon: "ep:medal", rank: 3, showLink: false }
         },
         {
-          path: "realestate",
+          path: "/realestate",
           name: "AssetRealEstate",
           component: () => import("@/views/asset/realestate/index.vue"),
           meta: { title: "房产", icon: "ep:house", rank: 4, showLink: false }
         },
         {
-          path: "analysis",
+          path: "/analysis",
           name: "AssetAnalysis",
           component: () => import("@/views/asset/IntelligentAnalysis.vue"),
           meta: {
@@ -99,7 +103,7 @@ const AssetRouteConfig = {
           }
         },
         {
-          path: "inventory/investment/import",
+          path: "/inventory/investment/import",
           name: "InvestmentImport",
           component: () => import("@/views/asset/investment/import/index.vue"),
           meta: {
@@ -112,7 +116,7 @@ const AssetRouteConfig = {
         },
         // 投资理财 → 手动录入
         {
-          path: "investment/manual",
+          path: "/investment/manual",
           name: "InvestmentManual",
           component: () => import("@/views/asset/investment/manual/index.vue"),
           meta: {
@@ -124,7 +128,7 @@ const AssetRouteConfig = {
           }
         },
         {
-          path: "inventory/investment/batch",
+          path: "/inventory/investment/batch",
           name: "InvestmentBatch",
           component: () => import("@/views/asset/investment/batch/index.vue"),
           meta: {
@@ -150,7 +154,7 @@ const AssetRouteConfig = {
         },
         // E账户对账中心（从导入流程/菜单进入，不在侧边栏展示）
         {
-          path: "investment/reconcile",
+          path: "/investment/reconcile",
           name: "InvestmentReconcile",
           component: () =>
             import("@/views/asset/investment/reconcile/index.vue"),
@@ -164,7 +168,7 @@ const AssetRouteConfig = {
         },
         // E账户导入（持仓快照，落 positions 不建流水）
         {
-          path: "investment/eaccount-import",
+          path: "/investment/eaccount-import",
           name: "InvestmentEaccountImport",
           component: () =>
             import("@/views/asset/investment/eaccount-import/index.vue"),
