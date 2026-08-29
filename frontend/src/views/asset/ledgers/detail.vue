@@ -895,6 +895,7 @@ import { Search } from "@element-plus/icons-vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
+import CardBlock from "@/components/CardBlock/index.vue";
 
 import PageSkeleton from "@/components/PageSkeleton/index.vue";
 import {

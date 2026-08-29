@@ -194,18 +194,6 @@ const {
   calcConfirmAndNav
 } = useFundTradeDate();
 
-// 证券（股票/可转债等）卖出价区间校验与日期联动，统一走 useSecurityPriceRange（#948 统一约束）
-const isStock = computed(() =>
-  ["stock", "etf", "bond", "convertible"].includes(assetType.value)
-);
-const { priceRange: stockPriceRange } = useSecurityPriceRange(
-  computed(() =>
-    isStock.value ? props.symbol || props.transaction?.symbol : undefined
-  ),
-  computed(() => form.value.trade_date),
-  isStock
-);
-
 // 资产类型：多字段兜底检测
 // 优先用传入的 assetType，否则从交易记录中尝试多个字段
 const assetType = computed(() => {
@@ -219,6 +207,19 @@ const assetType = computed(() => {
     ""
   );
 });
+
+// 证券（股票/可转债等）卖出价区间校验与日期联动，统一走 useSecurityPriceRange（#948 统一约束）
+// 注意：必须在 assetType 之后声明，否则 const 暂时性死区会抛 ReferenceError
+const isStock = computed(() =>
+  ["stock", "etf", "bond", "convertible"].includes(assetType.value)
+);
+const { priceRange: stockPriceRange } = useSecurityPriceRange(
+  computed(() =>
+    isStock.value ? props.symbol || props.transaction?.symbol : undefined
+  ),
+  computed(() => form.value.trade_date),
+  isStock
+);
 
 // 基金类（含货币基金）按份额(小数)处理；其余按股/张(整数)
 const isFund = computed(() => ["fund", "money_fund"].includes(assetType.value));
