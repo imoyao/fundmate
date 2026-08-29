@@ -601,614 +601,97 @@
   </div>
 </template>
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue";
-import { useRoute, useRouter } from "vue-router";
-import { ElMessage, ElMessageBox } from "element-plus";
+import { useRouter } from "vue-router";
 import { Search } from "@element-plus/icons-vue";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import AssetAllocationDonut from "@/components/Charts/AssetAllocationDonut.vue";
-
 import PageSkeleton from "@/components/PageSkeleton/index.vue";
-import {
-  getLedgers,
-  getLedgerSummary,
-  getLedgerPositions,
-  getLedgerTransactions,
-  updateLedgerPosition,
-  deleteLedgerPosition,
-  archiveLedger,
-  unarchiveLedger,
-  getSalesInstitutions,
-  type LedgerItem,
-  type SalesInstitution
-} from "@/api/ledger";
-import { deleteTransaction } from "@/api/transaction";
-import { getPortfolios, type PortfolioItem } from "@/api/portfolio";
-import { updateAsset } from "@/api/assets";
-import {
-  getMoneyFundIncome,
-  type MoneyFundIncomeData
-} from "@/api/performance";
 import DeleteLedgerDialog from "./components/DeleteLedgerDialog.vue";
-import { getLedgerTypeLabel, txnTypeLabel } from "@/constants";
+import { txnTypeLabel } from "@/constants";
 import PositionTransactionsDrawer from "./components/PositionTransactionsDrawer.vue";
 import TransactionEditDialog from "./components/TransactionEditDialog.vue";
 import EditAccountDialog from "./components/EditAccountDialog.vue";
 import MigrateDialog from "./components/MigrateDialog.vue";
 import MigrationResolvePanel from "./components/MigrationResolvePanel.vue";
-import { usePageRefresh } from "@/composables/usePageRefresh";
 import { formatDate } from "@/utils/date";
 import { pricePrecision } from "@/utils/pricePrecision";
+import { useLedgerDetail } from "@/composables/useLedgerDetail";
+import { useLedgerTransactions } from "@/composables/useLedgerTransactions";
+import { usePositionMigration } from "@/composables/usePositionMigration";
+import type { LedgerHoldingRow } from "@/composables/useLedgerDetail";
+import type { LedgerTxnRow } from "@/composables/useLedgerTransactions";
 
 defineOptions({ name: "LedgerDetail" });
 
-// ---- 类型定义（以接口实际返回为准） ----
-
-/** 账户概览（GET /api/ledgers/{id}/summary/） */
-interface LedgerSummaryData {
-  ledger_id?: number;
-  ledger_name?: string;
-  ledger_type?: string;
-  portfolio_name?: string | null;
-  total_market_value?: number;
-  position_pnl?: number;
-  position_count?: number;
-  cash_balance?: number | null;
-  /** 类现金合计（#1137）：货基 + 逆回购 + 账户现金，口径同 XIRR EXCLUDED_ASSET_TYPES */
-  cash_like_amount?: number;
-  /** 中高风险投资资产 = 总市值 - 类现金（#1137） */
-  investment_amount?: number;
-  /** 类现金明细：货基市值 */
-  money_fund_amount?: number;
-  /** 类现金明细：账户现金 */
-  cash_amount?: number;
-  linked_liability?: number;
-  type_distribution?: Record<string, number>;
-}
-
-/** 持仓行（GET /api/ledgers/{id}/positions/ 分页 items） */
-interface LedgerHoldingRow {
-  id: number;
-  symbol?: string;
-  name?: string | null;
-  asset_type?: string;
-  type_label?: string;
-  market_value?: number;
-  pnl?: number;
-  pnl_rate?: number;
-  avg_price?: number;
-  current_price?: number;
-  allocation?: string | null;
-  allocation_label?: string;
-  quantity?: number;
-  account_name?: string;
-}
-
-/** 交易行（GET /api/ledgers/{id}/transactions/ 分页 items） */
-interface LedgerTxnRow {
-  id: number;
-  confirm_date?: string | null;
-  trade_date?: string | null;
-  asset_type?: string | null;
-  ledger_id?: number;
-  position_name?: string;
-  symbol?: string;
-  txn_type: string;
-  price?: number;
-  quantity?: number;
-  amount?: number;
-  fee?: number;
-  notes?: string | null;
-}
-
-const route = useRoute();
 const router = useRouter();
 
-const ledgerId = computed(() => route.params.id as string);
-const isUnclassified = computed(
-  () => ledgerId.value === "unclassified" || !!route.query.name
-);
-const targetAccountName = computed(
-  () => route.query.name as string | undefined
-);
+const detail = useLedgerDetail();
+const txns = useLedgerTransactions(detail);
+const migration = usePositionMigration(detail);
 
-const loading = ref(true);
-// 骨架屏阈值控制：请求 ≤200ms 返回时直接渲染内容、跳过骨架屏，避免"闪屏"（骨架刚出现就消失）
-const showSkeleton = ref(false);
-let skeletonTimer: ReturnType<typeof setTimeout> | null = null;
-const ledgers = ref<LedgerItem[]>([]);
-const portfolioList = ref<PortfolioItem[]>([]);
-/** 基金销售机构候选（AMAC 名录，编辑账户可选关联） */
-const salesInstitutions = ref<SalesInstitution[]>([]);
-const assignMap = ref<Record<number, number>>({});
-const deleteDialogVisible = ref(false);
-const deletingAccount = ref<LedgerItem | null>(null);
+const {
+  ledgerId,
+  isUnclassified,
+  loading,
+  showSkeleton,
+  ledgers,
+  portfolioList,
+  salesInstitutions,
+  assignMap,
+  deleteDialogVisible,
+  deletingAccount,
+  showEditDialog,
+  drawerVisible,
+  selectedPosition,
+  summaryData,
+  moneyFundData,
+  isCompositionLedger,
+  compositionData,
+  compositionColorMap,
+  accountInfo,
+  accountName,
+  subTitle,
+  getAllocColor,
+  cashLedgers,
+  sameTypeLedgers,
+  activeTab,
+  activeSearch,
+  onSearchInput,
+  holdingsPage,
+  holdingsPageSize,
+  holdingsList,
+  holdingsTotal,
+  loadHoldings,
+  openPositionDrawer,
+  openEditDialog,
+  toggleArchiveDetail,
+  confirmDeletePosition,
+  openDeleteDialog,
+  onAccountUpdated,
+  onMigrationCommitted,
+  onTabChange,
+  migrateDialogRef,
+  migrationPanelRef
+} = detail;
 
-const showEditDialog = ref(false);
+const {
+  transactionsList,
+  transactionsTotal,
+  transactionsPage,
+  transactionsPageSize,
+  loadTransactions,
+  editTxnDialogVisible,
+  editingTxn,
+  onTxnSaved,
+  openEditTxnDialog,
+  confirmDeleteTxn,
+  getTxnTypeClass
+} = txns;
 
-const drawerVisible = ref(false);
-const selectedPosition = ref<LedgerHoldingRow | null>(null);
-
-// 概览数据
-const summaryData = ref<LedgerSummaryData | null>(null);
-
-// 货币基金收益（仅基金账户拉取）
-const moneyFundData = ref<MoneyFundIncomeData | null>(null);
-
-// 是否展示资产构成（仅股票 / 基金 / 信用账户有投资资产与现金类资产之分）
-const isCompositionLedger = computed(() =>
-  ["stock", "fund", "e_account"].includes(summaryData.value?.ledger_type ?? "")
-);
-
-// 环形图数据：投资资产 vs 现金类资产
-const compositionData = computed(() => [
-  { name: "投资资产", value: summaryData.value?.investment_amount ?? 0 },
-  { name: "现金类资产", value: summaryData.value?.cash_like_amount ?? 0 }
-]);
-
-// 环形图配色：走 design.md 图表语义变量（禁止硬编码 hex），对齐家庭资产看板饼图取色（chart-01 起）
-const compositionColorMap = {
-  投资资产: "--chart-01",
-  现金类资产: "--chart-06"
-};
-
-async function loadMoneyFundIncome() {
-  if (isUnclassified.value) return;
-  moneyFundData.value = null;
-  try {
-    const res = await getMoneyFundIncome({
-      scope: "ledger",
-      ledger_id: Number(ledgerId.value)
-    });
-    moneyFundData.value = res.data;
-  } catch (e) {
-    // 禁止静默吞错：失败保留占位 "--"，仅记日志不打断页面
-    console.error("货基收益加载失败", e);
-  }
-}
-
-// 持仓 Tab 数据
-const holdingsPage = ref(1);
-const holdingsPageSize = 20;
-const holdingsList = ref<LedgerHoldingRow[]>([]);
-const holdingsTotal = ref(0);
-// 名称/代码搜索（#982）：后端 LIKE 过滤，防抖后重置回第一页
-const holdingsSearch = ref("");
-
-// 交易 Tab 数据
-const transactionsPage = ref(1);
-const transactionsPageSize = 20;
-const transactionsList = ref<LedgerTxnRow[]>([]);
-const transactionsTotal = ref(0);
-const transactionsSearch = ref("");
-
-/** 搜索防抖（300ms）：变更即重置回第一页；输入框按当前 Tab 经 activeSearch 绑定 */
-const searchTimers: Record<"holdings" | "transactions", number | undefined> = {
-  holdings: undefined,
-  transactions: undefined
-};
-
-/** 当前激活 Tab 的搜索词代理：一个输入框服务两个列表 */
-const activeSearch = computed({
-  get: () =>
-    activeTab.value === "holdings"
-      ? holdingsSearch.value
-      : transactionsSearch.value,
-  set: (v: string) => {
-    if (activeTab.value === "holdings") holdingsSearch.value = v;
-    else transactionsSearch.value = v;
-  }
-});
-
-function onSearchInput() {
-  const tab = activeTab.value === "holdings" ? "holdings" : "transactions";
-  if (searchTimers[tab]) window.clearTimeout(searchTimers[tab]);
-  searchTimers[tab] = window.setTimeout(() => {
-    if (tab === "holdings") void loadHoldings(1);
-    else void loadTransactions(1);
-  }, 300);
-}
-
-const activeTab = ref("holdings");
-
-// 交易编辑（复用持仓明细抽屉同款弹窗）
-const editTxnDialogVisible = ref(false);
-const editingTxn = ref<LedgerTxnRow | null>(null);
-
-// 账户信息
-const accountInfo = computed(
-  () => ledgers.value.find(l => String(l.id) === ledgerId.value) || null
-);
-const accountName = computed(() => {
-  if (targetAccountName.value) return targetAccountName.value;
-  if (isUnclassified.value) return "未归置持仓";
-  return (
-    accountInfo.value?.name || summaryData.value?.ledger_name || "账户详情"
-  );
-});
-
-const subTitle = computed(() => {
-  if (isUnclassified.value) return "将以下资产关联到已有账户";
-  const type = summaryData.value?.ledger_type || accountInfo.value?.ledger_type;
-  return getLedgerTypeLabel(type) || "其他";
-});
-
-// 五笔钱颜色映射
-function getAllocColor(alloc: string | null): string {
-  const colorMap: Record<string, string> = {
-    liquid: "var(--sankey-liquid)",
-    stable: "var(--sankey-stable)",
-    longterm: "var(--sankey-longterm)",
-    speculative: "var(--sankey-speculative)",
-    security: "var(--sankey-security)"
-  };
-  return colorMap[alloc || ""] || "var(--text-tertiary)";
-}
-
-// 关联现金账户列表
-const cashLedgers = computed(() =>
-  ledgers.value.filter(l => l.ledger_type === "bank")
-);
-const sameTypeLedgers = computed(() =>
-  accountInfo.value
-    ? ledgers.value.filter(
-        l =>
-          l.ledger_type === accountInfo.value!.ledger_type &&
-          l.id !== Number(ledgerId.value)
-      )
-    : []
-);
-
-function openPositionDrawer(row: LedgerHoldingRow) {
-  selectedPosition.value = row; // 把当前点击的持仓数据传进去
-  drawerVisible.value = true; // 打开抽屉
-}
-
-async function handleGlobalRefresh() {
-  console.log("收到全局记账完成信号，刷新当前页面数据...");
-  if (!isUnclassified.value) {
-    await loadSummary();
-  }
-  await loadHoldings();
-  // 如果当前用户正在看的是交易记录 Tab，顺便刷新交易记录
-  if (activeTab.value === "transactions") {
-    await loadTransactions();
-  }
-}
-
-async function loadSummary() {
-  try {
-    const res = await getLedgerSummary(Number(ledgerId.value));
-    summaryData.value = (res as { data?: LedgerSummaryData })?.data ?? {};
-  } catch (e) {
-    ElMessage.error("概览加载失败");
-  }
-}
-
-/** 销售机构候选加载：失败仅记日志，编辑弹窗下拉留空（可选字段不阻塞页面） */
-async function loadSalesInstitutions() {
-  try {
-    const res = await getSalesInstitutions();
-    salesInstitutions.value = res?.data ?? [];
-  } catch (e) {
-    console.error("销售机构名录加载失败", e);
-  }
-}
-
-// 持仓加载
-async function loadHoldings(page = 1) {
-  holdingsPage.value = page;
-  try {
-    const res = await getLedgerPositions(Number(ledgerId.value), {
-      page,
-      per_page: holdingsPageSize,
-      search: holdingsSearch.value.trim() || undefined
-    });
-    const result = (
-      res as { data?: { items?: LedgerHoldingRow[]; total?: number } }
-    )?.data;
-    holdingsList.value = result?.items ?? [];
-    holdingsTotal.value = result?.total ?? 0;
-  } catch (e) {
-    ElMessage.error("持仓加载失败");
-  }
-}
-
-// 交易记录加载
-async function loadTransactions(page = 1) {
-  transactionsPage.value = page;
-  try {
-    const res = await getLedgerTransactions(Number(ledgerId.value), {
-      page,
-      per_page: transactionsPageSize,
-      search: transactionsSearch.value.trim() || undefined
-    });
-    const result = (
-      res as { data?: { items?: LedgerTxnRow[]; total?: number } }
-    )?.data;
-    transactionsList.value = result?.items ?? [];
-    transactionsTotal.value = result?.total ?? 0;
-  } catch (e) {
-    ElMessage.error("交易记录加载失败");
-  }
-}
-
-function onTabChange(tabName: string) {
-  if (tabName === "holdings" && holdingsList.value.length === 0) {
-    loadHoldings();
-  } else if (
-    tabName === "transactions" &&
-    transactionsList.value.length === 0
-  ) {
-    loadTransactions();
-  }
-}
-
-function getTxnTypeClass(type: string) {
-  // 涨红跌绿：买入/存入=红（rise），卖出/取出=绿（fall），分红等中性=info
-  if (type === "buy" || type === "deposit") return "text-[var(--color-rise)]";
-  if (type === "sell" || type === "withdraw") return "text-[var(--color-fall)]";
-  return "text-[var(--color-info)]";
-}
-
-/** 第一步：调 preview 拉取迁移方案（只读不写库），成功后进入决议面板 */
-
-/** 由决议表组装 commit 入参：持仓按 symbol 三选一，资产按三级分类键二选一 */
-
-/** 第二步：全部 conflict 决议完成后提交（单事务，失败整体回滚） */
-
-async function handleAssign(itemId: number) {
-  const targetLedgerId = assignMap.value[itemId];
-  if (!targetLedgerId) return;
-  const ledger = ledgers.value.find(l => l.id === targetLedgerId);
-  if (!ledger) return;
-  try {
-    if (itemId > 100000) {
-      await updateAsset(itemId - 100000, { account_name: ledger.name });
-    } else {
-      await updateLedgerPosition(Number(ledgerId.value), itemId, {
-        account_name: ledger.name
-      });
-    }
-    ElMessage.success(`已归入「${ledger.name}」`);
-    loadHoldings();
-  } catch (e) {
-    const err = e as { response?: { data?: { message?: string } } };
-    ElMessage.error(err?.response?.data?.message || "归入失败");
-  }
-}
-
-// 原有的 openEditDialog
-async function openEditDialog() {
-  if (!accountInfo.value) return;
-
-  // 🔥 新增：点开编辑弹窗时，才去拉取关联的下拉列表数据
-  try {
-    // 为了不阻塞用户体验，可以加个 loading
-    const [ledgerRes, portfolioRes] = await Promise.all([
-      getLedgers(),
-      getPortfolios()
-    ]);
-    ledgers.value = ledgerRes.data ?? [];
-    portfolioList.value =
-      (portfolioRes as { data?: PortfolioItem[] })?.data ?? [];
-  } catch (e) {
-    ElMessage.error("加载关联账户或组合列表失败");
-    return; // 加载失败不打开弹窗
-  }
-
-  // 表单回填与快照由 EditAccountDialog 在 visible 变为 true 时自行处理
-  showEditDialog.value = true;
-}
-
-/** 详情页归档/激活：归档给一次确认（保留全部数据、仅隐藏） */
-async function toggleArchiveDetail(ledger: any) {
-  const archiving = ledger.is_active !== false;
-  try {
-    if (archiving) {
-      await ElMessageBox.confirm(
-        `归档后「${ledger.name}」将从日常列表隐藏，但全部交易/持仓数据仍保留并计入收益。确定归档？`,
-        "归档账户",
-        { confirmButtonText: "归档", cancelButtonText: "取消", type: "warning" }
-      );
-    }
-    if (archiving) {
-      await archiveLedger(ledger.id);
-      ElMessage.success(`已归档「${ledger.name}」`);
-    } else {
-      await unarchiveLedger(ledger.id);
-      ElMessage.success(`已激活「${ledger.name}」`);
-    }
-    // 刷新账户信息（accountInfo 由 ledgers 派生）+ 顶部统计
-    const res = await getLedgers(true);
-    ledgers.value = res.data ?? [];
-    await loadSummary();
-    await loadHoldings();
-  } catch (e: any) {
-    if (e !== "cancel" && e?.action !== "cancel") {
-      ElMessage.error(e?.message || "操作失败");
-    }
-  }
-}
-
-async function confirmDeletePosition(row: LedgerHoldingRow) {
-  const positionId = row.id;
-  try {
-    const action = await ElMessageBox.confirm(
-      `确定删除持仓「${row.name || row.symbol}」吗？可选择同时删除关联交易记录。`,
-      "删除持仓",
-      {
-        confirmButtonText: "删除持仓及交易",
-        cancelButtonText: "仅删除持仓",
-        distinguishCancelAndClose: true,
-        type: "warning"
-      }
-    );
-
-    // ✅ 用户点击了【删除持仓及交易】
-    await deleteLedgerPosition(Number(ledgerId.value), positionId, true);
-    ElMessage.success("持仓及关联交易已删除");
-
-    // 刷新持仓列表
-    loadHoldings();
-    // 🔥 核心修复：清除交易列表缓存，保证用户切换 Tab 后会自动拉取最新数据
-    transactionsList.value = [];
-    transactionsTotal.value = 0;
-  } catch (action: unknown) {
-    // ✅ 用户点击了【仅删除持仓】（ElMessageBox 取消分支返回 "cancel"）
-    if (action === "cancel") {
-      try {
-        await deleteLedgerPosition(Number(ledgerId.value), positionId, false);
-        ElMessage.success("持仓已删除，交易记录保留");
-
-        // 刷新持仓列表
-        loadHoldings();
-        // 🔥 核心修复：虽然保留了交易记录，但交易列表引用的是内存缓存，强制置空以触发刷新
-        transactionsList.value = [];
-        transactionsTotal.value = 0;
-      } catch (e) {
-        const err = e as { response?: { data?: { message?: string } } };
-        ElMessage.error(err?.response?.data?.message || "删除失败");
-      }
-    }
-  }
-}
-
-function openEditTxnDialog(row: LedgerTxnRow) {
-  editingTxn.value = { ...row, ledger_id: Number(ledgerId.value) };
-  editTxnDialogVisible.value = true;
-}
-
-function onTxnSaved() {
-  editTxnDialogVisible.value = false;
-  loadTransactions(transactionsPage.value);
-}
-
-// 只需一行，页面全自动刷新
-usePageRefresh(async () => {
-  if (!isUnclassified.value) {
-    await loadSummary();
-    if (summaryData.value?.ledger_type === "fund") await loadMoneyFundIncome();
-  }
-  await loadHoldings();
-  if (activeTab.value === "transactions") await loadTransactions();
-});
-
-// 加载优化：概览与持仓并行拉取，减少首屏等待（loading 期间显示骨架屏，见模板）
-onMounted(async () => {
-  loading.value = true;
-  // 阈值控制：200ms 后仍未完成才显示骨架屏；快速请求（<200ms）不显示，避免闪屏
-  skeletonTimer = setTimeout(() => {
-    showSkeleton.value = true;
-  }, 200);
-  try {
-    // 销售机构候选：编辑弹窗下拉数据源（内部兜底，失败不打断主流程）
-    await loadSalesInstitutions();
-    if (!isUnclassified.value) {
-      await Promise.all([loadSummary(), loadHoldings()]);
-      // 货基收益依赖 summary 判定账户类型，故在 summary 就绪后再拉
-      if (summaryData.value?.ledger_type === "fund")
-        await loadMoneyFundIncome();
-      // 修复：首屏填充 ledgers，使 accountInfo 可解析，从而显示右上角操作栏
-      // （编辑/归档/删除/对账/批量迁移）。此前仅在点击这些按钮时才拉取，
-      // 而按钮本身又在 v-if="accountInfo" 内，形成死锁导致操作栏永不显示。
-      // 拉取失败仅影响操作栏可用性，不阻断概览/持仓等主流程，故单独兜底。
-      try {
-        const ledgerRes = await getLedgers(true);
-        ledgers.value = ledgerRes.data ?? [];
-      } catch (error) {
-        console.error(
-          "获取账本列表失败，操作栏暂不可用（其余详情正常）",
-          error
-        );
-      }
-    } else {
-      await loadHoldings();
-    }
-  } catch (e) {
-    const err = e as { message?: string };
-    ElMessage.error(err?.message || "加载失败");
-  } finally {
-    if (skeletonTimer) {
-      clearTimeout(skeletonTimer);
-      skeletonTimer = null;
-    }
-    showSkeleton.value = false;
-    loading.value = false;
-  }
-});
-
-// 🔥 修复：确认删除交易
-async function confirmDeleteTxn(row: LedgerTxnRow) {
-  // 1. 查找这笔交易对应的持仓对象
-  const targetPos = holdingsList.value.find(p => p.symbol === row.symbol);
-
-  // 2. 如果找到了关联持仓，做防呆处理
-  if (targetPos) {
-    try {
-      await ElMessageBox.confirm(
-        `确定要删除这笔交易记录吗？<br/><br/>
-        <span style="color: var(--color-warning); font-weight: bold;">重要提示</span><br/>
-        当前持仓「${targetPos.name || targetPos.symbol}」共持有 ${targetPos.quantity} 份/股。<br/>
-        如果删除这笔历史交易，<b style="color: var(--color-danger-system);">该持仓将丢失成本来源，变成“幽灵持仓”</b>。<br/><br/>
-        <b>推荐操作：前往「持仓明细」Tab，找到该持仓并点击“删除”，选择“删除持仓及交易”。</b>`,
-        "删除交易风险确认",
-        {
-          confirmButtonText: "我理解风险，只删除交易",
-          cancelButtonText: "取消，我去持仓页操作",
-          dangerouslyUseHTMLString: true,
-          type: "warning"
-        }
-      );
-      // 用户执意只删交易
-      await deleteTransaction(row.id);
-      ElMessage.warning("交易记录已删除（持仓已变成幽灵数据）");
-      loadTransactions(transactionsPage.value);
-      loadHoldings(); // 更新持仓成本
-    } catch (e: unknown) {
-      if (e !== "cancel") {
-        const err = e as { response?: { data?: { message?: string } } };
-        ElMessage.error(err?.response?.data?.message || "删除失败");
-      }
-    }
-  } else {
-    // 3. 如果找不到对应的持仓（说明本来就是个幽灵交易），直接删
-    await deleteTransaction(row.id);
-    ElMessage.success("孤立交易已删除");
-    loadTransactions(transactionsPage.value);
-    loadHoldings();
-  }
-}
-
-function openDeleteDialog(account: LedgerItem) {
-  deletingAccount.value = account;
-  deleteDialogVisible.value = true;
-}
-
-// 编辑账户弹窗（EditAccountDialog）保存成功后：刷新账户列表 / 概览 / 持仓
-async function onAccountUpdated() {
-  const ledgerRes = await getLedgers();
-  ledgers.value = ledgerRes.data ?? [];
-  await loadSummary();
-  await loadHoldings();
-}
-
-// 迁移决议面板（MigrationResolvePanel）提交成功后：清空交易缓存并刷新概览 / 持仓
-function onMigrationCommitted() {
-  transactionsList.value = [];
-  transactionsTotal.value = 0;
-  loadSummary();
-  loadHoldings();
-}
-
-// 子组件命令式打开入口（defineExpose）
-const migrateDialogRef = ref<InstanceType<typeof MigrateDialog> | null>(null);
-const migrationPanelRef = ref<InstanceType<
-  typeof MigrationResolvePanel
-> | null>(null);
+const { handleAssign } = migration;
 </script>
 
 <style scoped>
