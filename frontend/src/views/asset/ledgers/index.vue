@@ -145,7 +145,7 @@
           <div class="flex justify-between items-center gap-4 flex-wrap">
             <div class="min-w-0">
               <p class="text-sm" :style="{ color: 'var(--text-tertiary)' }">
-                场外基金（含E账户）
+                基金
               </p>
               <div class="mt-1">
                 <MoneyDisplay
@@ -173,7 +173,7 @@
           <div class="flex justify-between items-center gap-4 flex-wrap">
             <div class="min-w-0">
               <p class="text-sm" :style="{ color: 'var(--text-tertiary)' }">
-                场内证券（股票/ETF/可转债）
+                股票
               </p>
               <div class="mt-1">
                 <MoneyDisplay
@@ -739,6 +739,12 @@ onMounted(() => {
   .ledger-card:hover {
     transform: none;
   }
+
+  /* 聚合卡 hover 上浮同样尊重减弱动效偏好 */
+  .fund-summary-card:hover,
+  .securities-summary-card:hover {
+    transform: none;
+  }
 }
 
 /* 分组拖拽抓手：常驻低透明，hover/focus 高亮，与卡片抓手区分（分组顺序本地存储） */
@@ -797,11 +803,12 @@ onMounted(() => {
   font-variant-numeric: tabular-nums;
 }
 
-/* ===== 全局汇总卡片（--space-standard 间距，净资产大数字锚点） ===== */
+/* ===== 全局汇总卡片（--space-standard 间距，净资产大数字锚点） =====
+   无描边语言：整页卡片统一为「无边框 + 浮起阴影」处理（与账户卡片视觉家族一致）。
+   去掉 border 后靠 --shadow-raised 与背景区分，hover 用 translateY 浮起（见下方聚合卡）。 */
 .overview-card {
   padding: var(--space-standard);
   background: var(--bg-card);
-  border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-raised);
 }
@@ -812,17 +819,18 @@ onMounted(() => {
   flex-direction: column;
 }
 
-/* 场外基金（含E账户）汇总卡：整卡可点下钻，复用 overview-card 视觉语言 */
+/* 场外基金（含E账户）汇总卡：整卡可点下钻，复用 overview-card 视觉语言。
+   hover 与账户卡片（LedgerCard）统一为「上浮 + 浮起阴影」，不再改 border-color（已无描边）。 */
 .fund-summary-card {
   cursor: pointer;
   transition:
-    box-shadow 0.15s ease,
-    border-color 0.15s ease;
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
 }
 
 .fund-summary-card:hover {
+  transform: translateY(-2px);
   box-shadow: var(--shadow-float);
-  border-color: var(--border-strong);
 }
 
 .fund-summary-card:focus-visible {
@@ -830,15 +838,18 @@ onMounted(() => {
   outline: none;
 }
 
-/* 场内证券（股票/ETF/可转债）汇总卡：整卡可点下钻，复用 fund-summary-card 视觉语言 */
+/* 场内证券（股票/ETF/可转债）汇总卡：整卡可点下钻，复用 fund-summary-card 视觉语言。
+   hover 与账户卡片（LedgerCard）统一为「上浮 + 浮起阴影」，不再改 border-color（已无描边）。 */
 .securities-summary-card {
   cursor: pointer;
-  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+  transition:
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
 }
 
 .securities-summary-card:hover {
+  transform: translateY(-2px);
   box-shadow: var(--shadow-float);
-  border-color: var(--border-strong);
 }
 
 .securities-summary-card:focus-visible {
