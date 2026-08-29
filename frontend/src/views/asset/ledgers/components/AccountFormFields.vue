@@ -49,18 +49,27 @@
         reserve-keyword
         :remote-method="searchMoneyFund"
         :loading="fundSearching"
-        placeholder="搜索货币基金，如「余额宝」"
+        placeholder="搜索货币基金，如「余额宝」「水星」"
         @update:model-value="onMoneyFundChange"
       >
+        <!-- 全量搜索 + 选择时限制：后端 is_money_fund 为三态，
+             false（明确非货基）禁用并标注；true / null（未知）均可选，
+             避免类型标注缺失的券商业内现金管理产品（如 026029）被误筛。 -->
         <el-option
           v-for="f in effectiveFundOptions"
           :key="f.code"
           :label="f.name ? `${f.name}（${f.code}）` : f.code"
           :value="f.code"
-        />
+          :disabled="f.is_money_fund === false"
+        >
+          <span>{{ f.name ? `${f.name}（${f.code}）` : f.code }}</span>
+          <span v-if="f.is_money_fund === false" class="mf-option-tag"
+            >非货币基金</span
+          >
+        </el-option>
       </el-select>
       <p class="field-hint">
-        绑定后，卖出 / 赎回回款可自动申购该产品（类似「余额宝」）
+        绑定后，卖出 / 赎回回款可自动申购该产品（类似「余额宝」）。支持场外货币基金与券商渠道现金管理产品
       </p>
     </el-form-item>
 
@@ -456,12 +465,15 @@ async function searchMoneyFund(query: string) {
   try {
     const res = await searchFunds(kw);
     const list = ((res as any)?.data ?? []) as FundSearchItem[];
-    const flagged = list.some(f => typeof f.is_money_fund === "boolean");
-    // 后端已提供标记则只留货基；未提供（旧响应）则原样返回，避免下拉被筛空
-    // 后端已提供标记则只留货基；未提供（旧响应）则原样返回。
-    // 放宽到「非明确非货基」：保留 is_money_fund 为 true/undefined 的项，
-    // 仅剔除显式 false，避免本地库的货基因 fund_type_id 未归类而被误筛空（#交互修复）。
-    fundOptions.value = flagged ? list.filter(f => f.is_money_fund !== false) : list;
+    // 全量搜索 + 选择时限制（#活期+ 扩源）：
+    // 后端 is_money_fund 已升级为三态——true=货基 / false=明确非货基 / null=类型未知。
+    // 搜索阶段**不再过滤**，全部命中项都进下拉；能否选中交给 el-option 的
+    // :disabled="f.is_money_fund === false" 控制。
+    // 不在搜索阶段剔除的原因：本地库 fund_type_id 有 88.7% 为空，此前按
+    // `fund_type_id == 6` 判定会把一批真货基误判为非货基而彻底搜不到——
+    // 典型如 026029 银河水星现金添利货币（券商渠道现金管理产品，
+    // 库内已同步 120 天万份收益，收益口径与场外货基一致）。
+    fundOptions.value = list;
   } catch {
     fundOptions.value = [];
   } finally {
@@ -513,6 +525,19 @@ function onSalesInstitutionChange(val: number | null) {
   font-size: var(--text-label, 13px);
   line-height: 18px;
   color: var(--text-tertiary);
+}
+
+/* 活期+ 下拉中的「非货币基金」标注（全量搜索 + 选择时限制）：
+   与产品名同行、弱化显示；禁用态由 el-option 自身置灰，此处只做类型提示，
+   让用户理解「为什么这项选不了」，而非单纯消失不见。 */
+.mf-option-tag {
+  margin-left: var(--space-3, 8px);
+  padding: 0 6px;
+  font-size: var(--text-label, 13px);
+  line-height: 18px;
+  color: var(--text-tertiary);
+  background: var(--bg-soft);
+  border-radius: var(--radius-sm, 4px);
 }
 </style>
 
