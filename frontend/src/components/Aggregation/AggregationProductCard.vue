@@ -2,34 +2,129 @@
 import { computed } from "vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
-import { formatQuantity } from "@/utils/format";
-import type { AggregationProductGroup } from "@/api/ledger";
+import { formatQuantity, formatPercent } from "@/utils/format";
+import type { AggregationProductGroup, AggregationSource } from "@/api/ledger";
 
 /**
  * 聚合视图产品卡片（#1101 / #1132 共用）。
  *
- * 范式由 el-table 表格改为卡片（#1133）：信息分层更清晰、扫描式浏览更友好，
- * 与截图原型「持有份额 / 参考净值 / 资产情况」三列指标一致。
- * 产品名单行截断 + title 兜底，避免长基金名撑破布局。
+ * 信息密度设计（对齐用户反馈"卡片太空"）：
+ * - 头部：产品名 + 代码 + 副标题（管理人/机构）
+ * - 指标区：四格紧凑排列（份额 / 净值 / 市值 / 占比）
+ * - 底部元信息行：数据日期 + 多渠道持有提示
+ *
+ * 两种模式共用同一套模板，仅副标题来源不同：
+ * - 'product'：按产品聚合，副标题=基金管理人
+ * - 'institution'：按渠道平铺，副标题=销售机构名
  */
 defineOptions({ name: "AggregationProductCard" });
 
-const props = defineProps<{
-  group: AggregationProductGroup;
-}>();
+const props = withDefaults(
+  defineProps<{
+    /** 产品模式：传入聚合后的产品组 */
+    group?: AggregationProductGroup;
+    /** 渠道模式：传入单条来源记录（institution 模式下使用） */
+    source?: AggregationSource;
+    /** 当前维度 */
+    mode?: "product" | "institution";
+    /** 参考净值（渠道模式下 source 可能不含此字段，由父组件传入） */
+    navYuan?: number | null;
+    /** 快照日期 */
+    snapshotDate?: string | null;
+    /** 总市值（元），用于计算占比；不传则不显示占比 */
+    totalYuan?: number | null;
+  }>(),
+  {
+    mode: "product",
+    navYuan: null,
+    snapshotDate: null,
+    totalYuan: null
+  }
+);
 
 const emit = defineEmits<{
-  (e: "select", group: AggregationProductGroup): void;
+  (e: "select", payload: AggregationProductGroup | AggregationSource): void;
 }>();
 
-/** 最小单位（份×10000）→ 可读份额（份） */
-const shares = computed(() => (props.group.quantity || 0) / 10000);
-/** 市值（分）→ 元 */
-const marketValueYuan = computed(
-  () => (props.group.market_value_cents || 0) / 100
+const isInstitution = computed(() => props.mode === "institution");
+
+const productName = computed(
+  () => props.group?.name || props.source?.name || "--"
 );
-/** 参考净值（元）；无快照/未同步时为 null */
-const nav = computed(() => props.group.nav_yuan ?? null);
+const productCode = computed(
+  () => props.group?.symbol || props.source?.symbol || ""
+);
+
+/**
+ * 副标题。
+ * - institution 维度（按账本展示）：显示**账本名称**（用户在此维度关心"哪个账本"），
+ *   销售机构全称较长，改由悬浮提示承载，避免挤压卡片布局。
+ * - product 维度：显示基金管理人。
+ */
+const subtitle = computed(() => {
+  if (isInstitution.value) return props.source?.ledger_name || null;
+  return props.group?.fund_manager || null;
+});
+const subtitleIcon = computed(() => (isInstitution.value ? "ep:wallet" : ""));
+/** 副标题悬浮提示：institution 模式补充销售机构全称（Alias） */
+const subtitleTitle = computed(() => {
+  if (isInstitution.value) {
+    const org = props.source?.institution_name;
+    const alias = props.source?.institution_alias;
+    if (org && alias) return `${org}（${alias}）`;
+    return org || null;
+  }
+  return props.group?.fund_manager || null;
+});
+
+const shares = computed(() => {
+  if (isInstitution.value) return (props.source?.quantity || 0) / 10000;
+  return (props.group?.quantity || 0) / 10000;
+});
+
+const marketValueYuan = computed(() => {
+  if (isInstitution.value) return (props.source?.market_value_cents || 0) / 100;
+  return (props.group?.market_value_cents || 0) / 100;
+});
+
+const nav = computed(() => {
+  if (isInstitution.value) return props.navYuan;
+  return props.group?.nav_yuan ?? null;
+});
+
+/** 占总资产比例（百分比，如 8.52%） */
+const ratioPercent = computed(() => {
+  if (!props.totalYuan || props.totalYuan <= 0 || marketValueYuan.value <= 0)
+    return null;
+  return marketValueYuan.value / props.totalYuan;
+});
+
+/** 显示用的快照日期（格式化后） */
+const displayDate = computed(() => {
+  const d =
+    props.snapshotDate ??
+    (isInstitution.value
+      ? props.source?.snapshot_date
+      : props.group?.snapshot_date);
+  if (!d) return null;
+  const m = d.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? `${m[2]}-${m[3]}` : d;
+});
+
+/** 多渠道持有提示 */
+const multiChannelHint = computed(() => {
+  if (isInstitution.value) return false;
+  const srcCount = props.group?.sources?.length ?? 0;
+  return srcCount > 1;
+});
+const channelCount = computed(() => props.group?.sources?.length ?? 0);
+
+function handleClick() {
+  const payload = isInstitution.value
+    ? (props.source as AggregationSource)
+    : (props.group as AggregationProductGroup);
+  emit("select", payload);
+}
 </script>
 
 <template>
@@ -37,35 +132,33 @@ const nav = computed(() => props.group.nav_yuan ?? null);
     class="product-card"
     role="button"
     tabindex="0"
-    @click="emit('select', group)"
-    @keydown.enter="emit('select', group)"
+    @click="handleClick"
+    @keydown.enter="handleClick"
   >
+    <!-- 头部：名称 + 代码 + 副标题 -->
     <div class="card-head">
-      <p class="product-name" :title="group.name || ''">
-        {{ group.name || "--" }}
+      <p class="product-name" :title="productName">
+        {{ productName }}
       </p>
       <p class="product-sub">
-        <span class="product-code">{{ group.symbol }}</span>
-        <template v-if="group.fund_manager">
+        <span class="product-code">{{ productCode }}</span>
+        <template v-if="subtitle">
           <span class="sub-dot">·</span>
-          <span class="product-manager">{{ group.fund_manager }}</span>
+          <IconifyIconOffline
+            v-if="subtitleIcon"
+            :icon="subtitleIcon"
+            class="sub-icon"
+          />
+          <span class="product-subtitle" :title="subtitleTitle || subtitle">
+            {{ subtitle }}
+          </span>
         </template>
       </p>
     </div>
 
-    <div class="metric-row">
-      <div class="metric">
-        <span class="metric-label">持有份额</span>
-        <span class="metric-value">{{ formatQuantity(shares) }}</span>
-      </div>
-      <div class="metric">
-        <span class="metric-label">参考净值</span>
-        <span class="metric-value">{{
-          nav != null ? nav.toFixed(4) : "--"
-        }}</span>
-      </div>
-      <div class="metric metric--amount">
-        <span class="metric-label">资产情况</span>
+    <!-- 主指标行：资产金额（锚点）+ 占比 -->
+    <div class="metric-primary">
+      <div class="primary-amount">
         <MoneyDisplay
           :value="marketValueYuan"
           size="md"
@@ -73,24 +166,46 @@ const nav = computed(() => props.group.nav_yuan ?? null);
           :auto-color="false"
         />
       </div>
+      <div v-if="ratioPercent != null" class="primary-ratio">
+        {{ formatPercent(ratioPercent) }}
+      </div>
     </div>
 
-    <div v-if="group.sources.length > 1" class="card-foot">
-      <IconifyIconOffline icon="ep:office-building" class="foot-icon" />
-      <span>{{ group.sources.length }} 个账户持有</span>
+    <!-- 辅助信息行：份额 / 净值 左右对等分布 -->
+    <div class="metric-secondary">
+      <span class="secondary-item">
+        <span class="secondary-label">份额</span>
+        <span class="secondary-value metric--mono">{{
+          formatQuantity(shares)
+        }}</span>
+      </span>
+      <span class="secondary-item secondary-item--end">
+        <span class="secondary-label">净值</span>
+        <span class="secondary-value metric--mono">{{
+          nav != null ? nav.toFixed(4) : "--"
+        }}</span>
+      </span>
+    </div>
+
+    <!-- 底部元信息行 -->
+    <div class="card-foot">
+      <span v-if="displayDate" class="foot-item">
+        <IconifyIconOffline icon="ep:calendar" class="foot-icon" />
+        {{ displayDate }}
+      </span>
+      <span v-if="multiChannelHint" class="foot-item foot-hint">
+        <IconifyIconOffline icon="ep:wallet" class="foot-icon" />
+        {{ channelCount }} 个账户
+      </span>
     </div>
   </div>
 </template>
 
 <style scoped>
+/* ── 响应式：小屏保持一致 ── */
 @media (width <= 520px) {
-  .metric-row {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    row-gap: 12px;
-  }
-
-  .metric--amount {
-    grid-column: span 2;
+  .primary-amount :deep(.money-display) {
+    font-size: 17px;
   }
 }
 
@@ -107,10 +222,8 @@ const nav = computed(() => props.group.nav_yuan ?? null);
 .product-card {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4, 16px);
+  gap: var(--space-3, 12px);
   padding: var(--space-standard, 18px);
-
-  /* 数字等宽：消除份额/净值/金额的宽度抖动 */
   font-variant-numeric: tabular-nums;
   cursor: pointer;
   background: var(--bg-card);
@@ -134,17 +247,17 @@ const nav = computed(() => props.group.nav_yuan ?? null);
   box-shadow: var(--focus-ring);
 }
 
+/* ── 头部 ── */
 .card-head {
   min-width: 0;
 }
 
-/* 单行截断：与 ProductDisplay 的 product-name 规范一致 */
 .product-name {
   overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--text-primary);
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -152,8 +265,8 @@ const nav = computed(() => props.group.nav_yuan ?? null);
   display: flex;
   gap: 6px;
   align-items: center;
-  margin-top: 4px;
-  font-size: 12px;
+  margin-top: 3px;
+  font-size: 11px;
   color: var(--text-tertiary);
 }
 
@@ -166,57 +279,114 @@ const nav = computed(() => props.group.nav_yuan ?? null);
   opacity: 0.6;
 }
 
-.product-manager {
+.sub-icon {
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.product-subtitle {
+  /* 账本名称稍微右移，与代码/图标拉开层次、避免紧贴 */
+  margin-left: 2px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.metric-row {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--space-3, 12px);
+/* ── 主指标行：资产金额 + 占比（视觉锚点）── */
+.metric-primary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
   padding-top: var(--space-3, 12px);
   border-top: 1px solid var(--border-subtle, var(--border-light));
 }
 
-.metric {
+.primary-amount {
+  min-width: 0;
+  /* 资产金额用品牌强调色，与 Hero 区呼应 */
+}
+
+.primary-amount :deep(.money-display) {
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--brand-600, #f06b57) !important;
+}
+
+.primary-ratio {
+  flex-shrink: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--brand-600, #f06b57);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 辅助信息行：份额 / 净值 左右对等分布 ── */
+.metric-secondary {
   display: flex;
-  flex-direction: column;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3, 12px);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.secondary-item {
+  display: inline-flex;
+  align-items: baseline;
   gap: 4px;
   min-width: 0;
 }
 
-.metric--amount {
-  align-items: flex-end;
+/* 右端项：整体靠右，与左端形成对等 */
+.secondary-item--end {
+  justify-content: flex-end;
   text-align: right;
 }
 
-.metric-label {
-  font-size: 12px;
+.secondary-label {
+  flex: none;
+  font-size: 11px;
   color: var(--text-tertiary);
   white-space: nowrap;
 }
 
-.metric-value {
+.secondary-value {
   overflow: hidden;
-  text-overflow: ellipsis;
   font-family: var(--font-mono);
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.metric--mono {
+  font-family: var(--font-mono);
+}
+
+/* ── 底部元信息行 ── */
 .card-foot {
   display: flex;
-  gap: 6px;
+  gap: 12px;
   align-items: center;
-  font-size: 12px;
+  padding-top: var(--space-2, 8px);
+  border-top: 1px solid var(--border-subtle, var(--border-light));
+  font-size: 11px;
   color: var(--text-tertiary);
+}
+
+.foot-item {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
 }
 
 .foot-icon {
-  font-size: 12px;
+  font-size: 11px;
+  opacity: 0.6;
+}
+
+.foot-hint {
+  margin-left: auto;
 }
 </style>

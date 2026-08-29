@@ -1,33 +1,32 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
-import { ElMessage } from "element-plus";
+import { computed, onMounted, ref } from "vue";
 import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
 import PageSkeleton from "@/components/PageSkeleton/index.vue";
 import AggregationHero from "@/components/Aggregation/AggregationHero.vue";
 import AggregationDimensionTabs from "@/components/Aggregation/AggregationDimensionTabs.vue";
 import AggregationProductCard from "@/components/Aggregation/AggregationProductCard.vue";
-import AggregationInstitutionCard from "@/components/Aggregation/AggregationInstitutionCard.vue";
+import AggregationProductDetail from "@/components/Aggregation/AggregationProductDetail.vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import {
   getSecuritiesAggregation,
   type AggregationDimension,
-  type AggregationProductGroup
+  type AggregationInstitutionGroup,
+  type AggregationProductGroup,
+  type AggregationSource
 } from "@/api/ledger";
 import { useAggregation } from "@/composables/useAggregation";
 
 /**
  * 场内证券（股票 / ETF / 可转债）聚合下钻页（#1132 / #1133）。
  *
- * #1133 路由归并：本页取代原隐藏页 /asset/securities-aggregation，成为「股票」品类的**唯一**落地页。
- * 与 /funds 完全同构：共用 useAggregation 取数与 Aggregation* 展示组件，仅品类口径不同，
+ * 与 /funds 完全同构：共用 Hero / 维度切换 / 产品卡 / 详情抽屉，
  * 差异全部收敛在本文件的编排配置里。
  */
-// keep-alive 依赖：组件 name 须与路由 name 一致
 defineOptions({ name: "AssetStocks" });
 
 const DIMENSION_OPTIONS: { label: string; value: AggregationDimension }[] = [
-  { label: "按产品", value: "product" },
-  { label: "按机构", value: "institution" }
+  { label: "按产品展示", value: "product" },
+  { label: "按账户展示", value: "institution" }
 ];
 
 const {
@@ -40,44 +39,74 @@ const {
   snapshotDate,
   snapshotDateLatest,
   hasSnapshotGap,
+  navDate,
   productGroups,
   institutionGroups,
   total,
   totalPages,
   loading,
+  showSkeleton,
   errorMsg,
   load,
+  setDimension,
   setPage,
   setSort
 } = useAggregation(getSecuritiesAggregation, { pageSize: 20 });
 
 const isEmpty = computed(() => total.value === 0);
 
-/** 骨架屏阈值控制：请求 ≤200ms 返回时不展示，避免闪屏 */
-const showSkeleton = ref(false);
-let skeletonTimer: ReturnType<typeof setTimeout> | null = null;
-watch(loading, isLoading => {
-  if (isLoading) {
-    skeletonTimer = setTimeout(() => {
-      showSkeleton.value = true;
-    }, 200);
+// ── 产品详情抽屉 ──
+const detailVisible = ref(false);
+const selectedGroup = ref<AggregationProductGroup | null>(null);
+
+function openDetail(payload: AggregationProductGroup | AggregationSource) {
+  if ("ledger_id" in payload) {
+    const src = payload as AggregationSource;
+    selectedGroup.value = {
+      symbol: src.symbol || "",
+      name: src.name || null,
+      quantity: src.quantity,
+      market_value_cents: src.market_value_cents,
+      nav_yuan: src.nav_yuan ?? null,
+      snapshot_date: src.snapshot_date ?? null,
+      fund_manager: src.fund_manager ?? null,
+      dividend_preference: src.dividend_preference ?? null,
+      fund_account: src.fund_account ?? null,
+      trade_account: src.trade_account ?? null,
+      sources: [src]
+    } as AggregationProductGroup;
   } else {
-    if (skeletonTimer) clearTimeout(skeletonTimer);
-    skeletonTimer = null;
-    showSkeleton.value = false;
+    selectedGroup.value = payload as AggregationProductGroup;
   }
+  detailVisible.value = true;
+}
+
+// ── 渠道模式展平 ──
+interface FlattenedSource {
+  source: AggregationSource;
+  institutionName: string;
+}
+
+const flattenedSources = computed<FlattenedSource[]>(() => {
+  if (dimension.value !== "institution") return [];
+  const result: FlattenedSource[] = [];
+  for (const grp of institutionGroups.value) {
+    for (const item of grp.items) {
+      result.push({
+        source: { ...item, institution_name: grp.institution_name },
+        institutionName: grp.institution_name
+      });
+    }
+  }
+  return result;
 });
 
 function toggleOrder() {
   setSort(sort.value);
 }
 
-/** 产品详情下钻：暂缓，与自选产品详情通篇设计后统一落地（#1133） */
-function handleSelectProduct(group: AggregationProductGroup) {
-  ElMessage.info(`「${group.name || group.symbol}」详情页规划中，敬请期待`);
-}
-
-onMounted(load);
+// 骨架屏与维度切换/排序/分页的加载态统一由 useAggregation 管理
+onMounted(() => load());
 </script>
 
 <template>
@@ -93,13 +122,15 @@ onMounted(load);
       :snapshot-date="snapshotDate"
       :snapshot-date-latest="snapshotDateLatest"
       :has-snapshot-gap="hasSnapshotGap"
+      :nav-date="navDate"
       :count="total"
     />
 
     <div class="control-bar mb-5">
       <AggregationDimensionTabs
-        v-model="dimension"
+        :model-value="dimension"
         :options="DIMENSION_OPTIONS"
+        @update:model-value="setDimension"
       />
       <div class="sort-control">
         <el-select
@@ -125,7 +156,7 @@ onMounted(load);
     <div v-else-if="errorMsg" class="state-block">
       <IconifyIconOffline icon="ep:warning" class="state-icon" />
       <p class="state-text">{{ errorMsg }}</p>
-      <el-button type="primary" plain @click="load">重试</el-button>
+      <el-button type="primary" plain @click="() => load()">重试</el-button>
     </div>
 
     <div v-else-if="!loading && isEmpty" class="state-block">
@@ -141,24 +172,28 @@ onMounted(load);
         v-for="g in productGroups"
         :key="g.symbol"
         :group="g"
-        @select="handleSelectProduct"
+        :total-yuan="totalYuan"
+        mode="product"
+        @select="openDetail"
       />
     </div>
 
-    <div
-      v-else-if="!loading && dimension === 'institution'"
-      class="institution-list"
-    >
-      <AggregationInstitutionCard
-        v-for="g in institutionGroups"
-        :key="String(g.key)"
-        :group="g"
+    <div v-else-if="!loading && dimension === 'institution'" class="card-grid">
+      <AggregationProductCard
+        v-for="(item, idx) in flattenedSources"
+        :key="`${item.source.ledger_id}-${item.source.symbol || 'unk'}-${idx}`"
+        :source="item.source"
+        :nav-yuan="item.source.nav_yuan"
+        :snapshot-date="item.source.snapshot_date"
+        :total-yuan="totalYuan"
+        mode="institution"
+        @select="openDetail"
       />
     </div>
 
     <div v-if="totalPages > 1" class="pagination-bar">
       <el-pagination
-        v-model:current-page="page"
+        :current-page="page"
         :page-size="pageSize"
         :total="total"
         layout="total, prev, pager, next"
@@ -166,6 +201,8 @@ onMounted(load);
         @current-change="setPage"
       />
     </div>
+
+    <AggregationProductDetail v-model="detailVisible" :group="selectedGroup" />
   </div>
 </template>
 
@@ -201,14 +238,8 @@ onMounted(load);
 
 .card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: var(--space-compact, 16px);
-}
-
-.institution-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-compact, 16px);
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--space-compact, 14px);
 }
 
 .state-block {
@@ -248,6 +279,10 @@ onMounted(load);
 
   .control-bar {
     align-items: flex-start;
+  }
+
+  .card-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

@@ -1,139 +1,230 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import CardBlock from "@/components/CardBlock/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 
 /**
  * 聚合视图顶部汇总区（#1101 场外基金 / #1132 场内证券 共用）。
  *
- * 「数据日期」取持仓快照日（导入对账日期 / Excel「份额日期」）中**最早**的一笔，
- * 代表数据最滞后的部分——这是对用户最诚实的表达。
- * 各账户导入时间不一致时通过 `hasSnapshotGap` 温和提示，**不强制**用户做任何操作（#1133）。
+ * #1133 定稿：克制卡片式设计，与页面其它区块同一视觉语言。
+ * 水平布局（左大数字 + 右统计信息），充分利用卡片宽度避免右侧空白。
+ *
+ * 层级建立方式：
+ *   1. 金额数字用品牌强调色 —— 区块内唯一强色
+ *   2. 元信息用色块承载 —— 图标 + 标签 + 值，视觉上突出但不抢戏
  */
 defineOptions({ name: "AggregationHero" });
 
 const props = withDefaults(
   defineProps<{
-    /** 汇总市值（元） */
     totalYuan: number;
-    /** 数据日期 YYYY-MM-DD；全部持仓均无快照记录时为 null */
     snapshotDate?: string | null;
-    /** 最近快照日；与 snapshotDate 不等表示各账户数据存在时间差 */
     snapshotDateLatest?: string | null;
     hasSnapshotGap?: boolean;
-    /** 主指标名，默认「总市值」 */
+    /** 🔄 NavService 净值日期（与 snapshot_date 分叉时可双日期展示） */
+    navDate?: string | null;
     label?: string;
-    /** 持仓项数（分页前的全量条数）；null 表示不展示 */
     count?: number | null;
   }>(),
   {
     snapshotDate: null,
     snapshotDateLatest: null,
     hasSnapshotGap: false,
-    label: "总市值",
+    navDate: null,
+    label: "总资产",
     count: null
   }
 );
 
-/** 数据日期释义：专业、克制，避免冷冰冰的「数据异常」式措辞 */
-const tooltipText = computed(() => {
+const dateTooltip = computed(() => {
   const base = "数据日期取自账户导入时的份额日期，代表该持仓记录的时间点。";
   if (props.hasSnapshotGap && props.snapshotDateLatest) {
-    return `${base}各账户导入时间不同，此处展示最早的一笔（${props.snapshotDate}），最近的一笔为 ${props.snapshotDateLatest}。`;
+    return `${base}各账户导入时间不同，此处展示最早的一笔（${formatDisplayDate(props.snapshotDate)}），最近的一笔为 ${formatDisplayDate(props.snapshotDateLatest)}。`;
   }
   return base;
 });
+
+const amountTooltip = computed(
+  () => `${props.label}为当前全部持仓的市值合计，按最新参考净值计算。`
+);
+
+function formatDisplayDate(d: string | null): string {
+  if (!d) return "";
+  const m = d.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? `${parseInt(m[2], 10)}月${parseInt(m[3], 10)}日` : d;
+}
 </script>
 
 <template>
-  <CardBlock class="aggregation-hero">
-    <div class="hero-row">
-      <div class="hero-figure">
-        <p class="hero-label">{{ label }}</p>
-        <MoneyDisplay
-          :value="totalYuan"
-          size="xl"
-          :show-sign="false"
-          :auto-color="false"
-        />
-      </div>
+  <div class="hero">
+    <!-- 左侧：主指标 -->
+    <div class="hero-left">
+      <p class="hero-label">{{ label }}</p>
+      <el-tooltip placement="bottom-start" :content="amountTooltip">
+        <div class="hero-amount">
+          <MoneyDisplay
+            :value="totalYuan"
+            size="xl"
+            :show-sign="false"
+            :auto-color="false"
+          />
+        </div>
+      </el-tooltip>
+    </div>
 
-      <div class="hero-meta">
-        <el-tooltip
-          v-if="snapshotDate"
-          placement="bottom-end"
-          :content="tooltipText"
-        >
-          <span class="snapshot-pill">
-            <IconifyIconOffline icon="ep:calendar" class="pill-icon" />
-            数据日期 {{ snapshotDate }}
-          </span>
-        </el-tooltip>
-        <p v-if="count != null" class="hero-count">共 {{ count }} 项</p>
+    <!-- 右侧：元信息色块 -->
+    <div class="hero-right">
+      <el-tooltip v-if="snapshotDate" placement="top" :content="dateTooltip">
+        <div class="stat-block">
+          <div class="stat-icon-wrap">
+            <IconifyIconOffline icon="ep:calendar" class="stat-icon" />
+          </div>
+          <div class="stat-body">
+            <span class="stat-label">数据日期</span>
+            <span class="stat-value">{{
+              formatDisplayDate(snapshotDate)
+            }}</span>
+          </div>
+          <IconifyIconOffline
+            v-if="hasSnapshotGap"
+            icon="ep:info-filled"
+            class="stat-hint"
+          />
+        </div>
+      </el-tooltip>
+
+      <div v-if="count != null" class="stat-block">
+        <div class="stat-icon-wrap">
+          <IconifyIconOffline icon="ep:box" class="stat-icon" />
+        </div>
+        <div class="stat-body">
+          <span class="stat-label">持仓项数</span>
+          <span class="stat-value">{{ count }} 项</span>
+        </div>
       </div>
     </div>
-  </CardBlock>
+  </div>
 </template>
 
 <style scoped>
-@media (width <= 640px) {
-  .hero-row {
-    align-items: flex-start;
-  }
-
-  .hero-meta {
-    align-items: flex-start;
-  }
-}
-
-.aggregation-hero {
-  /* 数字等宽对齐：消除金额宽度抖动 */
-  font-variant-numeric: tabular-nums;
-}
-
-.hero-row {
+.hero {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-4, 16px);
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
+  gap: var(--space-5, 24px);
+  padding: var(--space-5, 24px) var(--space-standard, 18px);
+  font-variant-numeric: tabular-nums;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg, 16px);
+  box-shadow: var(--shadow-raised);
+}
+
+/* ── 左侧：大数字锚点 ── */
+.hero-left {
+  min-width: 0;
 }
 
 .hero-label {
-  margin-bottom: 4px;
+  margin-bottom: 6px;
   font-size: 13px;
   font-weight: 500;
   color: var(--text-secondary);
 }
 
-.hero-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  align-items: flex-end;
+.hero-amount {
+  cursor: default;
 }
 
-/* 数据日期胶囊：与 PageHeaderBar 更新时间胶囊同款视觉语言 */
-.snapshot-pill {
-  display: inline-flex;
-  gap: 6px;
+/* 品牌强调色：区块内唯一强色 */
+.hero-amount :deep(.money-display) {
+  color: var(--brand-600, #f06b57) !important;
+}
+
+/* ── 右侧：统计信息色块 ── */
+.hero-right {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3, 12px);
   align-items: center;
-  padding: 4px 10px;
-  font-size: 12px;
-  color: var(--text-tertiary);
+  flex: none;
+}
+
+.stat-block {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
   cursor: default;
   background: var(--bg-soft);
   border: 1px solid var(--border-light);
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-md, 10px);
+  transition: border-color 0.2s ease;
 }
 
-.pill-icon {
-  font-size: 12px;
+.stat-block:hover {
+  border-color: var(--brand-300, var(--border-default));
 }
 
-.hero-count {
-  font-size: 12px;
+.stat-icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  background: var(--bg-card);
+  border-radius: var(--radius-sm, 6px);
+}
+
+.stat-icon {
+  font-size: 15px;
+  color: var(--brand-500, #f69988);
+}
+
+.stat-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.stat-label {
+  font-size: 11px;
   color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.stat-value {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.stat-hint {
+  flex: none;
+  margin-left: 4px;
+  font-size: 13px;
+  color: var(--text-tertiary);
+  opacity: 0.5;
+}
+
+@media (width <= 768px) {
+  .hero {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-4, 16px);
+    padding: var(--space-5, 24px) var(--space-4, 16px);
+  }
+
+  .hero-right {
+    justify-content: flex-start;
+  }
+
+  .stat-block {
+    flex: 1 1 calc(50% - 6px);
+    min-width: 140px;
+  }
 }
 </style>

@@ -51,8 +51,18 @@ const hasSupplements = computed(
       <div class="result-hero">
         <!-- 成功图标：品牌超椭圆容器 + SVG 勾选 -->
         <div class="result-icon">
-          <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="24" cy="24" r="23" stroke="currentColor" stroke-width="2" />
+          <svg
+            viewBox="0 0 48 48"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <circle
+              cx="24"
+              cy="24"
+              r="23"
+              stroke="currentColor"
+              stroke-width="2"
+            />
             <path
               d="M15 25l7 7 11-13"
               stroke="currentColor"
@@ -91,12 +101,19 @@ const hasSupplements = computed(
         <!-- 现金转账同步 -->
         <div v-if="cashTransfersCreated > 0" class="supplement-card success">
           <div class="supplement-icon success-icon">
-            <svg viewBox="0 0 20 20" fill="none"><path d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 10.586l7.293-7.293a1 1 0 011.414 0z" fill="currentColor"/></svg>
+            <svg viewBox="0 0 20 20" fill="none">
+              <path
+                d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 10.586l7.293-7.293a1 1 0 011.414 0z"
+                fill="currentColor"
+              />
+            </svg>
           </div>
           <div class="supplement-body">
             <p class="supplement-title">银证转账已同步</p>
             <p class="supplement-desc">
-              已为 {{ cashTransfersCreated }} 笔转账生成现金侧记录，可在交易流水中查看资金流向。
+              已为
+              {{ cashTransfersCreated }}
+              笔转账生成现金侧记录，可在交易流水中查看资金流向。
             </p>
           </div>
         </div>
@@ -104,12 +121,20 @@ const hasSupplements = computed(
         <!-- 孤儿交易提示 -->
         <div v-if="orphanCount > 0" class="supplement-card warning">
           <div class="supplement-icon warning-icon">
-            <svg viewBox="0 0 20 20" fill="none"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" fill="currentColor"/></svg>
+            <svg viewBox="0 0 20 20" fill="none">
+              <path
+                fill-rule="evenodd"
+                d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+                clip-rule="evenodd"
+                fill="currentColor"
+              />
+            </svg>
           </div>
           <div class="supplement-body">
             <p class="supplement-title">部分交易数据不完整</p>
             <p class="supplement-desc">
-              {{ orphanCount }} 笔交易因缺少对应持仓记录，已作为待处理数据保存。这些交易不会影响当前资产计算。
+              {{ orphanCount }}
+              笔交易因缺少对应持仓记录，已作为待处理数据保存。这些交易不会影响当前资产计算。
             </p>
           </div>
         </div>
@@ -123,13 +148,22 @@ const hasSupplements = computed(
         <!-- 持仓价格更新提示 -->
         <div v-if="showPriceUpdateTip" class="supplement-card info">
           <div class="supplement-icon info-icon">
-            <svg viewBox="0 0 20 20" fill="none"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" fill="currentColor"/></svg>
+            <svg viewBox="0 0 20 20" fill="none">
+              <path
+                fill-rule="evenodd"
+                d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
+                clip-rule="evenodd"
+                fill="currentColor"
+              />
+            </svg>
           </div>
           <div class="supplement-body">
             <p class="supplement-title">建议检查持仓市价</p>
             <p class="supplement-desc">
               你刚导入了交易记录，持仓数据已更新。为确保资产计算准确，
-              <router-link :to="{ name: 'AssetStocks' }" class="link-primary">前往检查持仓市价</router-link>。
+              <router-link :to="{ name: 'AssetStocks' }" class="link-primary"
+                >前往检查持仓市价</router-link
+              >。
             </p>
           </div>
         </div>
@@ -138,7 +172,9 @@ const hasSupplements = computed(
       <!-- 操作按钮 -->
       <div class="result-actions">
         <el-button
-          v-if="importedCount > 0 || orphanCount > 0 || cashTransfersCreated > 0"
+          v-if="
+            importedCount > 0 || orphanCount > 0 || cashTransfersCreated > 0
+          "
           type="primary"
           @click="goToTransactions"
         >
@@ -152,9 +188,24 @@ const hasSupplements = computed(
     <template v-else>
       <div class="result-hero">
         <div class="result-icon info-tone">
-          <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="24" cy="24" r="23" stroke="currentColor" stroke-width="2" />
-            <path d="M24 16v12m0 6v.01" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+          <svg
+            viewBox="0 0 48 48"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <circle
+              cx="24"
+              cy="24"
+              r="23"
+              stroke="currentColor"
+              stroke-width="2"
+            />
+            <path
+              d="M24 16v12m0 6v.01"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
           </svg>
         </div>
         <h2 class="result-title">处理完成</h2>
@@ -292,9 +343,15 @@ const hasSupplements = computed(
   height: 100%;
 }
 
-.success-icon { color: var(--color-success); }
-.warning-icon { color: var(--color-warning); }
-.info-icon { color: var(--color-info); }
+.success-icon {
+  color: var(--color-success);
+}
+.warning-icon {
+  color: var(--color-warning);
+}
+.info-icon {
+  color: var(--color-info);
+}
 
 /* 文字区 */
 .supplement-body {

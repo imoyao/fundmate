@@ -486,8 +486,10 @@ export interface AggregationSource {
   name?: string | null;
   ledger_id: number;
   ledger_name: string | null;
-  /** 销售机构名（后端 join AMAC 名录给出；账户未关联机构时为 null） */
+  /** 销售机构名（AMAC 权威全称，真实完整；账户未关联机构时为 null） */
   institution_name?: string | null;
+  /** 销售机构常用别名（支付宝/天天基金等），仅作辅助提示，不替代全称 */
+  institution_alias?: string | null;
   /** 市值（分，整数） */
   market_value_cents: number;
   /** 份额（最小单位 份×10000） */
@@ -498,6 +500,12 @@ export interface AggregationSource {
   snapshot_date?: string | null;
   /** 基金管理人（快照导入溯源字段） */
   fund_manager?: string | null;
+  /** 分红方式（现金分红 / 红利转投） */
+  dividend_preference?: string | null;
+  /** 基金账户号 */
+  fund_account?: string | null;
+  /** 交易账户号 */
+  trade_account?: string | null;
 }
 
 /** product 维度分组：按产品代码聚合 */
@@ -553,6 +561,17 @@ export interface AggregationResult {
   snapshot_date: string | null;
   /** 最近的快照日；与 snapshot_date 不等时，说明各账户数据存在时间差 */
   snapshot_date_latest: string | null;
+  /**
+   * 🔄 净值日期（NavService 取到的最新净值日期）。
+   *
+   * 与 snapshot_date（份额日期）可能分叉：
+   * - snapshot_date = 用户导入对账单时的份额日期
+   * - nav_date = DailyWorth 表中最新净值的日期
+   *
+   * 前端可据此做双日期展示，诚实表达数据口径。
+   * 无基金/货基持仓或 NavService 无数据时为 null。
+   */
+  nav_date: string | null;
 }
 
 /**

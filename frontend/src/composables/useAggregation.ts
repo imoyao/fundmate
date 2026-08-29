@@ -1,4 +1,4 @@
-import { computed, ref, watch } from "vue";
+import { computed, ref } from "vue";
 import type {
   AggregationDimension,
   AggregationInstitutionGroup,
@@ -44,6 +44,58 @@ export function useAggregation(
   const loading = ref(false);
   const errorMsg = ref("");
 
+  /**
+   * 骨架屏显隐控制（#1133 一致性修复）。
+   *
+   * 规则极简且可预测：**只要 loading 就显示骨架屏**。
+   *
+   * 此前两版都有问题：
+   * 1. 200ms 阈值版 —— 把 UI 反馈绑到不可控的后端耗时上，导致切维度时
+   *    「product 有缓存不显示 / institution 要 join AMAC 名录显示了」，同一操作两种反馈；
+   *    且快请求时会落入「四分支全不满足」的空白渲染区，白屏一闪。
+   * 2. 阈值 + force 双轨版 —— 规则复杂，且首屏仍可能白屏。
+   *
+   * 现用「最小显示时长 300ms」替代阈值来消除闪烁：
+   * - 请求 50ms  → 骨架屏仍停留 300ms，平滑过渡，不闪
+   * - 请求 2000ms → 骨架屏停留 2000ms，如实反映进度
+   * 无论后端快慢，用户看到的反馈始终一致。
+   */
+  const showSkeleton = ref(false);
+  let skeletonTimer: ReturnType<typeof setTimeout> | null = null;
+  let skeletonShownAt = 0;
+  /** 最小显示时长（ms）：一旦显示骨架屏，至少停留这么久，避免快请求一闪而过 */
+  const MIN_SKELETON_MS = 300;
+
+  /** 请求开始前调用 */
+  function scheduleSkeleton() {
+    if (skeletonTimer) clearTimeout(skeletonTimer);
+    skeletonTimer = null;
+    showSkeleton.value = true;
+    skeletonShownAt = Date.now();
+  }
+
+  /** 请求结束时调用：补足最小显示时长后隐藏 */
+  function settleSkeleton() {
+    if (skeletonTimer) clearTimeout(skeletonTimer);
+
+    if (!showSkeleton.value) {
+      skeletonTimer = null;
+      return;
+    }
+
+    const elapsed = Date.now() - skeletonShownAt;
+    const remaining = MIN_SKELETON_MS - elapsed;
+    if (remaining > 0) {
+      skeletonTimer = setTimeout(() => {
+        showSkeleton.value = false;
+        skeletonTimer = null;
+      }, remaining);
+    } else {
+      showSkeleton.value = false;
+      skeletonTimer = null;
+    }
+  }
+
   /** 汇总市值（元）：后端以「分」下发 */
   const totalYuan = computed(
     () => (result.value?.total_market_value_cents ?? 0) / 100
@@ -61,6 +113,11 @@ export function useAggregation(
       !!snapshotDateLatest.value &&
       snapshotDate.value !== snapshotDateLatest.value
   );
+  /**
+   * 🔄 净值日期（NavService 取到的最新净值日期）。
+   * 与 snapshot_date（份额日期）可能分叉，前端可据此做双日期展示。
+   */
+  const navDate = computed(() => result.value?.nav_date ?? null);
 
   const productGroups = computed<AggregationProductGroup[]>(() =>
     dimension.value === "product"
@@ -81,6 +138,7 @@ export function useAggregation(
   async function load() {
     loading.value = true;
     errorMsg.value = "";
+    scheduleSkeleton();
     try {
       const res = await fetcher({
         dimension: dimension.value,
@@ -91,18 +149,38 @@ export function useAggregation(
       });
       result.value = (res?.data as AggregationResult) ?? null;
     } catch (e: any) {
-      errorMsg.value = e?.message || "加载失败";
+      // 技术错误映射为用户友好文案，不暴露原始信息
+      const msg = String(e?.message ?? e ?? "");
+      if (/timeout/i.test(msg)) {
+        errorMsg.value = "请求超时，请稍后重试";
+      } else if (/network|fetch|abort/i.test(msg)) {
+        errorMsg.value = "网络连接异常，请检查网络后重试";
+      } else if (/429|too many/i.test(msg)) {
+        errorMsg.value = "请求过于频繁，请稍后再试";
+      } else if (/401|403|unauthorized/i.test(msg)) {
+        errorMsg.value = "登录已过期，请重新登录";
+      } else if (/500|502|503|504/i.test(msg)) {
+        errorMsg.value = "服务暂时不可用，请稍后重试";
+      } else {
+        errorMsg.value = "加载失败，请重试";
+      }
       result.value = null;
     } finally {
       loading.value = false;
+      settleSkeleton();
     }
   }
 
-  /** 切换维度：回到第一页，避免停留在越界页码上出现空列表 */
+  /**
+   * 切换维度：回到第一页，避免停留在越界页码上出现空列表。
+   * 页面须通过本方法切换维度（而非直接 v-model 改 dimension），
+   * 否则页码不会重置。
+   */
   function setDimension(next: AggregationDimension) {
     if (dimension.value === next) return;
     dimension.value = next;
     page.value = 1;
+    void load();
   }
 
   /** 点击同一字段反转升降序，切换字段则重置为降序 */
@@ -114,14 +192,14 @@ export function useAggregation(
       order.value = "desc";
     }
     page.value = 1;
+    void load();
   }
 
   function setPage(next: number) {
+    if (page.value === next) return;
     page.value = next;
+    void load();
   }
-
-  // 维度/排序/页码变化即重新取数：后端已支持这些参数，前端不做本地切片
-  watch([dimension, sort, order, page, pageSize], load);
 
   return {
     dimension,
@@ -131,11 +209,13 @@ export function useAggregation(
     pageSize,
     result,
     loading,
+    showSkeleton,
     errorMsg,
     totalYuan,
     snapshotDate,
     snapshotDateLatest,
     hasSnapshotGap,
+    navDate,
     productGroups,
     institutionGroups,
     total,

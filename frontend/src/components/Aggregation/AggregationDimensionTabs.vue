@@ -81,7 +81,7 @@ function select(value: AggregationDimension) {
   gap: 8px;
 }
 
-/* 未选中：透明底 + 1px 边框；选中：品牌浅底 + 品牌边框 + 轻投影（D13） */
+/* 未选中：透明底 + 1px 边框；选中：品牌实心填充 + 白字（对齐参考截图的果冻胶囊） */
 .dimension-capsule {
   padding: 6px 16px;
   font-family: var(--font-ui);
@@ -107,10 +107,11 @@ function select(value: AggregationDimension) {
   border-color: var(--brand-400);
 }
 
+/* 对齐截图：选中态为品牌色实心填充（非浅底），白字，带轻投影 */
 .dimension-capsule.active {
-  color: var(--brand-700);
-  background: var(--brand-100);
-  border-color: var(--brand-400);
+  color: #fff;
+  background: var(--brand-600, #f06b57);
+  border-color: var(--brand-600, #f06b57);
   box-shadow: 0 1px 3px rgb(0 0 0 / 6%);
   animation: style-pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
 }

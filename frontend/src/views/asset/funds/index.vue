@@ -1,35 +1,37 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
-import { ElMessage } from "element-plus";
+import { computed, onMounted, ref } from "vue";
 import PageHeaderBar from "@/components/PageHeaderBar/index.vue";
 import PageSkeleton from "@/components/PageSkeleton/index.vue";
 import AggregationHero from "@/components/Aggregation/AggregationHero.vue";
 import AggregationDimensionTabs from "@/components/Aggregation/AggregationDimensionTabs.vue";
 import AggregationProductCard from "@/components/Aggregation/AggregationProductCard.vue";
-import AggregationInstitutionCard from "@/components/Aggregation/AggregationInstitutionCard.vue";
+import AggregationProductDetail from "@/components/Aggregation/AggregationProductDetail.vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import {
   getFundAggregation,
   type AggregationDimension,
-  type AggregationProductGroup
+  type AggregationInstitutionGroup,
+  type AggregationProductGroup,
+  type AggregationSource
 } from "@/api/ledger";
 import { useAggregation } from "@/composables/useAggregation";
 
 /**
  * 场外基金（含 E 账户）聚合下钻页（#1101 / #1133）。
  *
- * #1133 路由归并：本页取代原隐藏页 /asset/fund-aggregation，成为「基金」品类的**唯一**落地页，
- * 与「资产总览 → 产品类型 → 基金」的下钻目标收敛为同一个页面。
- * 本文件只做编排，取数与交互状态收在 useAggregation，展示拆为 Aggregation* 组件，
- * 符合 docs/spec/frontend-ui.md §3 的页面规模规范。
+ * 对齐参考截图的设计范式：
+ * - 品牌色沉浸式 Hero（红底白字总资产）
+ * - 果冻胶囊切换「按产品展示」/「按账户展示」
+ * - 两种视图共享同一套产品卡片，「按账户」仅多一行销售机构副标题
+ * - 点击产品 → 右侧抽屉展开完整详情（四格信息 + 管理人 + 分渠道持仓）
+ *
+ * 本文件只做编排，符合 docs/spec/frontend-ui.md §3 的页面规模规范。
  */
-// keep-alive 依赖：组件 name 须与路由 name 一致
 defineOptions({ name: "AssetFunds" });
 
-/** #1133：维度由 3 个收敛为 2 个，去掉重复的「按 App」（本质即销售机构） */
 const DIMENSION_OPTIONS: { label: string; value: AggregationDimension }[] = [
-  { label: "按产品", value: "product" },
-  { label: "按机构", value: "institution" }
+  { label: "按产品展示", value: "product" },
+  { label: "按账户展示", value: "institution" }
 ];
 
 const {
@@ -42,52 +44,85 @@ const {
   snapshotDate,
   snapshotDateLatest,
   hasSnapshotGap,
+  navDate,
   productGroups,
   institutionGroups,
   total,
   totalPages,
   loading,
+  showSkeleton,
   errorMsg,
   load,
+  setDimension,
   setPage,
   setSort
 } = useAggregation(getFundAggregation, { pageSize: 20 });
 
 const isEmpty = computed(() => total.value === 0);
 
-/**
- * 骨架屏阈值控制：请求 ≤200ms 返回时不展示骨架屏，避免闪屏。
- * 规范见 docs/design/components.md「PageSkeleton」节。
- */
-const showSkeleton = ref(false);
-let skeletonTimer: ReturnType<typeof setTimeout> | null = null;
-watch(loading, isLoading => {
-  if (isLoading) {
-    skeletonTimer = setTimeout(() => {
-      showSkeleton.value = true;
-    }, 200);
+// ── 产品详情抽屉 ──
+const detailVisible = ref(false);
+const selectedGroup = ref<AggregationProductGroup | null>(null);
+
+/** 打开详情 */
+function openDetail(payload: AggregationProductGroup | AggregationSource) {
+  if ("ledger_id" in payload) {
+    // 渠道模式：从单条 source 构造虚拟 product group（含该渠道的完整信息）
+    const src = payload as AggregationSource;
+    selectedGroup.value = {
+      symbol: src.symbol || "",
+      name: src.name || null,
+      quantity: src.quantity,
+      market_value_cents: src.market_value_cents,
+      nav_yuan: src.nav_yuan ?? null,
+      snapshot_date: src.snapshot_date ?? null,
+      fund_manager: src.fund_manager ?? null,
+      dividend_preference: src.dividend_preference ?? null,
+      fund_account: src.fund_account ?? null,
+      trade_account: src.trade_account ?? null,
+      sources: [src]
+    } as AggregationProductGroup;
   } else {
-    if (skeletonTimer) clearTimeout(skeletonTimer);
-    skeletonTimer = null;
-    showSkeleton.value = false;
+    selectedGroup.value = payload as AggregationProductGroup;
   }
+  detailVisible.value = true;
+}
+
+// ── 渠道模式：将 institutionGroups 展平为「产品×渠道」卡片列表 ──
+/**
+ * 「按账户展示」的核心变换：
+ *
+ * 后端在 dimension=institution 时返回 AggregationInstitutionGroup[]，
+ * 每个分组含 .items[]（AggregationSource）。
+ * 将其展平为扁平列表，每条对应一张带机构副标题的产品卡（对齐截图2）。
+ */
+interface FlattenedSource {
+  /** 单条来源记录（提供产品名、代码、份额、市值、机构名等全部字段） */
+  source: AggregationSource;
+  /** 所属机构组名（用于副标题展示） */
+  institutionName: string;
+}
+
+const flattenedSources = computed<FlattenedSource[]>(() => {
+  if (dimension.value !== "institution") return [];
+  const result: FlattenedSource[] = [];
+  for (const grp of institutionGroups.value) {
+    for (const item of grp.items) {
+      result.push({
+        source: { ...item, institution_name: grp.institution_name },
+        institutionName: grp.institution_name
+      });
+    }
+  }
+  return result;
 });
 
-/** 升降序切换：复用 setSort 的「同字段反转」语义 */
 function toggleOrder() {
   setSort(sort.value);
 }
 
-/**
- * 产品详情下钻。
- * #1133 决策：产品详情页**暂缓**，与自选（watchlist）的产品详情通篇设计后统一落地（独立路由）。
- * 此处仅做占位提示，避免静默无响应。
- */
-function handleSelectProduct(group: AggregationProductGroup) {
-  ElMessage.info(`「${group.name || group.symbol}」详情页规划中，敬请期待`);
-}
-
-onMounted(load);
+// 骨架屏与维度切换/排序/分页的加载态统一由 useAggregation 管理
+onMounted(() => load());
 </script>
 
 <template>
@@ -97,20 +132,23 @@ onMounted(load);
       subtitle="跨账本聚合的全部场外基金持仓，含基金 E 账户份额"
     />
 
+    <!-- 品牌色沉浸式 Hero -->
     <AggregationHero
       class="mb-6"
       :total-yuan="totalYuan"
       :snapshot-date="snapshotDate"
       :snapshot-date-latest="snapshotDateLatest"
       :has-snapshot-gap="hasSnapshotGap"
+      :nav-date="navDate"
       :count="total"
     />
 
-    <!-- 控制条：左维度切换 / 右排序 -->
+    <!-- 果冻胶囊维度切换 + 排序 -->
     <div class="control-bar mb-5">
       <AggregationDimensionTabs
-        v-model="dimension"
+        :model-value="dimension"
         :options="DIMENSION_OPTIONS"
+        @update:model-value="setDimension"
       />
       <div class="sort-control">
         <el-select
@@ -138,7 +176,7 @@ onMounted(load);
     <div v-else-if="errorMsg" class="state-block">
       <IconifyIconOffline icon="ep:warning" class="state-icon" />
       <p class="state-text">{{ errorMsg }}</p>
-      <el-button type="primary" plain @click="load">重试</el-button>
+      <el-button type="primary" plain @click="() => load()">重试</el-button>
     </div>
 
     <!-- 空态 -->
@@ -150,32 +188,36 @@ onMounted(load);
       </p>
     </div>
 
-    <!-- 按产品：卡片网格 -->
+    <!-- 按产品：产品级卡片网格 -->
     <div v-else-if="!loading && dimension === 'product'" class="card-grid">
       <AggregationProductCard
         v-for="g in productGroups"
         :key="g.symbol"
         :group="g"
-        @select="handleSelectProduct"
+        :total-yuan="totalYuan"
+        mode="product"
+        @select="openDetail"
       />
     </div>
 
-    <!-- 按机构：分组列表（可展开明细） -->
-    <div
-      v-else-if="!loading && dimension === 'institution'"
-      class="institution-list"
-    >
-      <AggregationInstitutionCard
-        v-for="g in institutionGroups"
-        :key="String(g.key)"
-        :group="g"
+    <!-- 按账户：展平为「产品×渠道」卡片列表（对齐截图2） -->
+    <div v-else-if="!loading && dimension === 'institution'" class="card-grid">
+      <AggregationProductCard
+        v-for="(item, idx) in flattenedSources"
+        :key="`${item.source.ledger_id}-${item.source.symbol || 'unk'}-${idx}`"
+        :source="item.source"
+        :nav-yuan="item.source.nav_yuan"
+        :snapshot-date="item.source.snapshot_date"
+        :total-yuan="totalYuan"
+        mode="institution"
+        @select="openDetail"
       />
     </div>
 
     <!-- 分页 -->
     <div v-if="totalPages > 1" class="pagination-bar">
       <el-pagination
-        v-model:current-page="page"
+        :current-page="page"
         :page-size="pageSize"
         :total="total"
         layout="total, prev, pager, next"
@@ -183,6 +225,9 @@ onMounted(load);
         @current-change="setPage"
       />
     </div>
+
+    <!-- 产品详情抽屉（对齐截图3/4） -->
+    <AggregationProductDetail v-model="detailVisible" :group="selectedGroup" />
   </div>
 </template>
 
@@ -195,13 +240,15 @@ onMounted(load);
   .control-bar {
     align-items: flex-start;
   }
+
+  .card-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .funds-page {
   min-height: 100%;
   padding: var(--space-5, 24px);
-
-  /* 数字等宽：消除金额/份额宽度抖动 */
   font-variant-numeric: tabular-nums;
   background: var(--bg-page);
 }
@@ -228,18 +275,11 @@ onMounted(load);
   padding: 6px 10px;
 }
 
-/* 自适应卡片网格：卡片最小 320px，空间不足自动降列 */
+/* 自适应卡片网格：minmax 缩小以支持 4 列（20 条 / 4 = 5 行整除，消除末行空白） */
 .card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: var(--space-compact, 16px);
-}
-
-/* 机构卡片需展开明细，用单列保证宽度 */
-.institution-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-compact, 16px);
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--space-compact, 14px);
 }
 
 .state-block {
