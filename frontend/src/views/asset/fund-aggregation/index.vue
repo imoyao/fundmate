@@ -367,7 +367,7 @@ onMounted(load);
 .overview-card {
   padding: var(--space-standard);
   background: var(--bg-card);
-  border: 1px solid var(--border-light);
+  border: var(--card-border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-raised);
 }

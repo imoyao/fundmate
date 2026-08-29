@@ -251,7 +251,7 @@ const emit = defineEmits<{
   cursor: pointer;
   outline: none; /* 焦点指示由 :focus-visible 环提供，勿移除 outline */
   background: var(--bg-card);
-  border: 1px solid var(--border-light);
+  border: var(--card-border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-raised);
   transition:

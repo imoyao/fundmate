@@ -804,11 +804,12 @@ onMounted(() => {
 }
 
 /* ===== 全局汇总卡片（--space-standard 间距，净资产大数字锚点） =====
-   无描边语言：整页卡片统一为「无边框 + 浮起阴影」处理（与账户卡片视觉家族一致）。
-   去掉 border 后靠 --shadow-raised 与背景区分，hover 用 translateY 浮起（见下方聚合卡）。 */
+   卡片统一使用 --card-border 描边（design.md / design.dark.md 规范：卡片边框必须用 --card-border），
+   hover 用 translateY 浮起 + 浮起阴影（见下方聚合卡）。 */
 .overview-card {
   padding: var(--space-standard);
   background: var(--bg-card);
+  border: var(--card-border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-raised);
 }
@@ -820,7 +821,7 @@ onMounted(() => {
 }
 
 /* 场外基金（含E账户）汇总卡：整卡可点下钻，复用 overview-card 视觉语言。
-   hover 与账户卡片（LedgerCard）统一为「上浮 + 浮起阴影」，不再改 border-color（已无描边）。 */
+   hover 与账户卡片（LedgerCard）统一为「上浮 + 浮起阴影」，边框由 --card-border 统一提供，hover 不改 border-color。 */
 .fund-summary-card {
   cursor: pointer;
   transition:
@@ -839,7 +840,7 @@ onMounted(() => {
 }
 
 /* 场内证券（股票/ETF/可转债）汇总卡：整卡可点下钻，复用 fund-summary-card 视觉语言。
-   hover 与账户卡片（LedgerCard）统一为「上浮 + 浮起阴影」，不再改 border-color（已无描边）。 */
+   hover 与账户卡片（LedgerCard）统一为「上浮 + 浮起阴影」，边框由 --card-border 统一提供，hover 不改 border-color。 */
 .securities-summary-card {
   cursor: pointer;
   transition:
