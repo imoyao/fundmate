@@ -52,8 +52,13 @@ class Ledger(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
         String(20),
         default='bank',
         comment=(
-            '类型: stock(股票账户) / fund(基金账户) / e_account(基金E账户汇总,由E账户导入自动创建) '
-            '/ property(实物资产) / bank(现金账户) / family(家庭账户)'
+            '类型(内部资产类键,用户不可见): stock(股票账户) / fund(基金账户) '
+            '/ e_account(基金E账户汇总,由E账户导入自动创建) / property(实物资产) '
+            '/ bank(现金账户) / family(家庭账户)。'
+            '权威说明见 docs/working-notes/ledger-channel-category-redesign-2026-08-28.md §2.1/§2.3：'
+            '本字段只进计算/费率/视图分支逻辑，不出现在用户面；账户列表分组、类型标签、排序、筛选'
+            '一律只读 channel_category，绝不读本字段当展示。ledger_type 由系统维护/派生'
+            '(创建时据 channel_category 或销售机构 org_type 推导)，编辑带数据账户时不可变(改类型返回409)。'
         ),
     )
     default_allocation = Column(

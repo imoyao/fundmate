@@ -3,6 +3,15 @@
 
 权威说明见 docs/working-notes/ledger-channel-category-redesign-2026-08-28.md。
 本文件是 org_type→channel_category 与 分组→ledger_type 的唯一映射源，禁止在别处硬编码。
+
+字段职责（铁律见设计文档 §2.3，两字段正交、禁止互相赋值）：
+- channel_category：用户可见的「机构渠道类别 / 分组标签」
+  (bank/securities/fund_platform/insurance/futures/other)。账户列表分组、类型标签、
+  排序、筛选一律只读它，绝不读 ledger_type 当展示。由系统据销售机构 org_type 或用户
+  所选分组写入，用户从不直接编辑。
+- ledger_type：内部「资产类计算口径键」(stock/fund/bank/property/e_account/family)，
+  只进计算 / 费率 / 视图分支逻辑，用户不可见、不当展示标签。由系统据 channel_category
+  或机构 org_type 派生；编辑带数据账户时不可变（改类型返回 409）。
 """
 
 ORG_TYPE_TO_CHANNEL_CATEGORY = {
