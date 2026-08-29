@@ -81,34 +81,146 @@
           </div>
         </div>
 
-        <!-- 核心概览卡片矩阵：总资产占满整行（左数字右环形图），下方并排持仓盈亏 / 持仓与余额 -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-          <!-- 1. 总资产（内嵌资产构成环形图，#1137）：占满整行、左金额右环形图 -->
-          <div class="summary-card summary-card--total md:col-span-2">
-            <div class="summary-card__head">
-              <div class="summary-card__label">
-                <IconifyIconOffline icon="ep:money" class="text-base" /> 总资产
+        <!-- 账本概览（对齐「家庭资产看板」范式：SectionHeader + CardBlock，左指标 / 右资产构成） -->
+        <SectionHeader title="账本概览" />
+        <CardBlock class="mb-6">
+          <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+            <!-- 左栏：核心指标（总资产 + 持仓盈亏 / 持仓与余额） -->
+            <div
+              :class="isCompositionLedger ? 'lg:col-span-7' : 'lg:col-span-12'"
+              class="flex flex-col gap-5"
+            >
+              <!-- 总资产 -->
+              <div>
+                <p
+                  class="text-sm mb-2"
+                  :style="{ color: 'var(--text-tertiary)' }"
+                >
+                  总资产
+                </p>
+                <div class="flex items-baseline gap-2">
+                  <MoneyDisplay
+                    :value="summaryData?.total_market_value || 0"
+                    size="hero"
+                    :show-sign="false"
+                  />
+                  <span
+                    class="text-xl font-medium"
+                    :style="{ color: 'var(--text-secondary)' }"
+                    >元</span
+                  >
+                </div>
               </div>
-              <div class="summary-card__value">
-                <MoneyDisplay
-                  :value="summaryData?.total_market_value || 0"
-                  :show-sign="false"
-                  :auto-color="false"
-                  size="hero"
-                  custom-color="var(--text-primary)"
-                />
+
+              <!-- 持仓盈亏 + 持仓与余额 指标网格（分隔线对齐看板） -->
+              <div
+                class="grid grid-cols-2 gap-x-4 gap-y-5 pt-5"
+                :style="{ borderTop: '1px solid var(--border-light)' }"
+              >
+                <!-- 持仓盈亏（涨红跌绿） -->
+                <div class="flex flex-col">
+                  <span
+                    class="text-xs mb-1"
+                    :style="{ color: 'var(--text-tertiary)' }"
+                    >持仓盈亏</span
+                  >
+                  <MoneyDisplay
+                    :value="summaryData?.position_pnl || 0"
+                    size="lg"
+                  />
+                </div>
+                <!-- 持仓数量 -->
+                <div class="flex flex-col">
+                  <span
+                    class="text-xs mb-1"
+                    :style="{ color: 'var(--text-tertiary)' }"
+                    >持仓数量</span
+                  >
+                  <span
+                    class="text-lg font-semibold"
+                    :style="{ color: 'var(--text-primary)' }"
+                    >{{ summaryData?.position_count || 0 }} 项</span
+                  >
+                </div>
+                <!-- 资金余额（中性余额，不随涨跌着色） -->
+                <div class="flex flex-col">
+                  <span
+                    class="text-xs mb-1"
+                    :style="{ color: 'var(--text-tertiary)' }"
+                    >资金余额</span
+                  >
+                  <MoneyDisplay
+                    v-if="summaryData?.cash_balance != null"
+                    :value="summaryData.cash_balance"
+                    size="md"
+                    :show-sign="false"
+                    :auto-color="false"
+                  />
+                  <span
+                    v-else
+                    class="text-sm"
+                    :style="{ color: 'var(--text-tertiary)' }"
+                    >--</span
+                  >
+                </div>
+                <!-- 关联负债（仅银行账户且有负债时展示） -->
+                <div
+                  v-if="
+                    summaryData?.ledger_type === 'bank' &&
+                    summaryData?.linked_liability > 0
+                  "
+                  class="flex flex-col"
+                >
+                  <span
+                    class="text-xs mb-1"
+                    :style="{ color: 'var(--text-tertiary)' }"
+                    >关联负债</span
+                  >
+                  <MoneyDisplay
+                    :value="-summaryData.linked_liability"
+                    size="md"
+                    :auto-color="false"
+                    custom-color="var(--color-danger-system)"
+                  />
+                </div>
+                <!-- 货基收益（仅基金账户展示） -->
+                <div
+                  v-if="summaryData?.ledger_type === 'fund'"
+                  class="flex flex-col"
+                >
+                  <span
+                    class="text-xs mb-1"
+                    :style="{ color: 'var(--text-tertiary)' }"
+                    >货基今日收益</span
+                  >
+                  <MoneyDisplay
+                    v-if="moneyFundData"
+                    :value="moneyFundData.today_income"
+                    size="md"
+                  />
+                  <span
+                    v-else
+                    class="text-sm"
+                    :style="{ color: 'var(--text-tertiary)' }"
+                    >--</span
+                  >
+                </div>
               </div>
             </div>
 
-            <!-- 资产构成环形图（#1137）：原生图例显示分类与占比，金额见 hover tooltip，不重复罗列 -->
+            <!-- 右栏：资产构成分布（仅股票 / 基金 / 信用账户，对齐看板饼图） -->
             <div
-              v-if="
-                summaryData?.ledger_type === 'stock' ||
-                summaryData?.ledger_type === 'fund' ||
-                summaryData?.ledger_type === 'e_account'
-              "
-              class="composition"
+              v-if="isCompositionLedger"
+              class="lg:col-span-5 flex flex-col items-center justify-center h-full"
+              :style="{ borderLeft: '1px solid var(--border-light)' }"
             >
+              <div class="w-full flex justify-between items-center mb-4">
+                <span
+                  class="font-bold text-sm"
+                  :style="{ color: 'var(--text-secondary)' }"
+                  >资产构成分布</span
+                >
+              </div>
               <AssetAllocationDonut
                 :data="compositionData"
                 :color-map="compositionColorMap"
@@ -116,91 +228,7 @@
               />
             </div>
           </div>
-
-          <!-- 2. 持有盈亏（严格涨红跌绿） -->
-          <div class="summary-card">
-            <div class="summary-card__label">
-              <IconifyIconOffline icon="ep:trend-charts" class="text-base" />
-              持仓盈亏
-            </div>
-            <div class="summary-card__value">
-              <MoneyDisplay :value="summaryData?.position_pnl || 0" size="lg" />
-            </div>
-          </div>
-
-          <!-- 3. 持仓数量 + 资金余额（合并为一个卡片） -->
-          <div class="summary-card">
-            <div class="summary-card__label">
-              <IconifyIconOffline icon="ep:box" class="text-base" /> 持仓与余额
-            </div>
-            <div class="mt-2 flex gap-6">
-              <div>
-                <div class="summary-card__sub-label">持仓数量</div>
-                <div class="summary-card__sub-value">
-                  {{ summaryData?.position_count || 0 }} 项
-                </div>
-              </div>
-              <div>
-                <div class="summary-card__sub-label">资金余额</div>
-                <div class="summary-card__sub-value">
-                  <MoneyDisplay
-                    v-if="summaryData?.cash_balance != null"
-                    :value="summaryData.cash_balance"
-                    :show-sign="false"
-                    :auto-color="false"
-                  />
-                  <template v-else>--</template>
-                </div>
-              </div>
-            </div>
-
-            <!-- 关联负债（仅银行账户且有负债时展示） -->
-            <div
-              v-if="
-                summaryData?.ledger_type === 'bank' &&
-                summaryData?.linked_liability > 0
-              "
-              class="summary-card__divider flex justify-between"
-            >
-              <span class="summary-card__sub-label">关联负债</span>
-              <span
-                class="text-xs font-semibold"
-                :style="{ color: 'var(--color-danger-system)' }"
-              >
-                <MoneyDisplay
-                  :value="-summaryData.linked_liability"
-                  :auto-color="false"
-                  size="xs"
-                />
-              </span>
-            </div>
-
-            <!-- 货币基金收益（仅基金账户展示，后端 summary 对该类型输出 money_fund_stats） -->
-            <div
-              v-if="summaryData?.ledger_type === 'fund'"
-              class="summary-card__divider"
-            >
-              <div class="flex justify-between items-center">
-                <span class="summary-card__sub-label">货基今日收益</span>
-                <MoneyDisplay
-                  v-if="moneyFundData"
-                  :value="moneyFundData.today_income"
-                  size="sm"
-                />
-                <span v-else class="summary-card__sub-label">--</span>
-              </div>
-              <div class="flex justify-between items-center mt-1">
-                <span class="summary-card__sub-label">货基累计收益</span>
-                <MoneyDisplay
-                  v-if="moneyFundData"
-                  :value="moneyFundData.total_income"
-                  size="sm"
-                />
-                <span v-else class="summary-card__sub-label">--</span>
-              </div>
-            </div>
-          </div>
-        </div>
+        </CardBlock>
 
         <!-- 账户深度分析（规划中，敬请期待，详见内部工作记录 ledger-detail-info-redesign-plan-2026-08-27） -->
         <CardBlock class="mb-6">
@@ -857,10 +885,10 @@ import { ref, computed, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { Search } from "@element-plus/icons-vue";
-import { IconifyIconOffline } from "@/components/ReIcon";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
+import SectionHeader from "@/components/SectionHeader/index.vue";
 import AssetAllocationDonut from "@/components/Charts/AssetAllocationDonut.vue";
 
 import PageSkeleton from "@/components/PageSkeleton/index.vue";
@@ -1404,15 +1432,20 @@ const summaryData = ref<LedgerSummaryData | null>(null);
 // 货币基金收益（仅基金账户拉取）
 const moneyFundData = ref<MoneyFundIncomeData | null>(null);
 
-// 环形图数据：投资资产 vs 现金类资产（#1137）
+// 是否展示资产构成（仅股票 / 基金 / 信用账户有投资资产与现金类资产之分）
+const isCompositionLedger = computed(() =>
+  ["stock", "fund", "e_account"].includes(summaryData.value?.ledger_type ?? "")
+);
+
+// 环形图数据：投资资产 vs 现金类资产
 const compositionData = computed(() => [
   { name: "投资资产", value: summaryData.value?.investment_amount ?? 0 },
   { name: "现金类资产", value: summaryData.value?.cash_like_amount ?? 0 }
 ]);
 
-// 环形图配色：走 design.md 图表语义变量（禁止硬编码 hex）。投资资产用暖杏避免满屏红
+// 环形图配色：走 design.md 图表语义变量（禁止硬编码 hex），对齐家庭资产看板饼图取色（chart-01 起）
 const compositionColorMap = {
-  投资资产: "--chart-03",
+  投资资产: "--chart-01",
   现金类资产: "--chart-06"
 };
 
@@ -2013,79 +2046,6 @@ function openDeleteDialog(account: LedgerItem) {
 </script>
 
 <style scoped>
-/* 概览卡片：token 化（与 CardBlock/MetricCard 同一套卡片语言，仅因需内嵌 MoneyDisplay 故用局部类） */
-.summary-card {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  padding: var(--space-compact) var(--space-standard);
-  background: var(--bg-card);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-raised);
-}
-
-.summary-card__label {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-secondary);
-}
-
-.summary-card__value {
-  margin-top: var(--space-2);
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.summary-card__sub-label {
-  font-size: 12px;
-  color: var(--text-tertiary);
-}
-
-.summary-card__sub-value {
-  margin-top: 4px;
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.summary-card__divider {
-  padding-top: var(--space-2);
-  margin-top: var(--space-3);
-  border-top: 1px solid var(--border-subtle);
-}
-
-/* 总资产卡片内嵌资产构成环形图（#1137）：左数字、右环形图 */
-.summary-card--total {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
-
-@media (min-width: 768px) {
-  .summary-card--total {
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  .composition {
-    margin: 0;
-    flex-shrink: 0;
-  }
-}
-
-.composition {
-  width: 100%;
-  max-width: 240px;
-  margin: 0 auto;
-  height: 200px;
-}
-
 /* 交易表资产名称列：名称 + 代码 */
 .txn-asset-name {
   color: var(--text-primary);
