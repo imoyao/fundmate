@@ -166,6 +166,12 @@ jobs:
           pnpm exec prettier --check "src/**/*.{js,ts,json,tsx,css,scss,vue,html}"
           pnpm exec stylelint "**/*.{html,vue,css,scss}" --cache-location node_modules/.cache/stylelint/
 
+      # 页面规模门禁（#980 治本项）：扫描 .vue 文件行数，超出阈值报告。
+      # 当前为 warn 模式（不阻断 CI），仅让存量大页面趋势可见；
+      # 待存量大页面拆分完成后再切 --mode fail 冻结增量（避免误伤既有 PR）。
+      - name: 页面规模门禁（行数检查）
+        run: node ../scripts/check_vue_size.mjs --threshold 400 --mode warn
+
       - name: 构建
         run: pnpm build
 
