@@ -12,7 +12,7 @@
 账本现在有两个正交字段，维护者必须分清：
 
 ### 2.1 `ledger_type`（账户类型 / 内部资产类键）
-- 语义：账户持有的**资产品种本质**，驱动计算、费率结构、视图分支（如货币基金收益仅 fund 账本展示）。
+- 语义：账户持有的**资产品种本质**（如 fund=基金类账户），驱动计算、费率结构、视图分支逻辑。易错点：货币基金等**具体某类收益的展示门控是持仓/流水的 `asset_type`（如 `money_fund`），不是本账户的 `ledger_type`**——谁的账户里持有货基（asset_type='money_fund'）就显示货基收益，与该账户被标成 fund / bank 何种 `ledger_type` 无关。实现见 `services/money_fund_income.py`、`services/summary_service.py`：均按 `ledger_id` + `asset_type` 归集，从不读 `ledger_type`。
 - 取值：`stock` / `fund` / `bank` / `property` / `e_account` / `family`。
 - **用户不可见**，不作为分组或"账户类型"标签展示。
 - 何时写：仅在"账户持有的资产品种本质变化"时由系统改（极少）。手动建账时由用户选的"分组"经映射推导，维护者不应把它当展示标签用。

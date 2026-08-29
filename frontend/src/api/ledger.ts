@@ -110,7 +110,9 @@ export function updateLedger(
   id: number,
   data: {
     name?: string;
-    ledger_type?: string;
+    /** 渠道分组（用户可见分组，编辑账户时下发，避免误写 ledger_type 触发类型不可更改）。
+     *  注意：ledger_type（计算口径键）不可变，编辑接口不接受该字段，下发会被后端忽略/拒绝。 */
+    channel_category?: string;
     default_allocation?: string | null;
     notes?: string;
     linked_cash_ledger_id?: number | null;

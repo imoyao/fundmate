@@ -422,17 +422,24 @@ function onCashChange(val: number | null) {
 /** 远程搜索中的候选（仅当次搜索结果，不缓存全量） */
 const fundOptions = ref<FundSearchItem[]>([]);
 const fundSearching = ref(false);
+/** 当前已选活期+的名称（用户从搜索结果中选中时回写）。
+ *  独立于 props.linkedMoneyFundName：换绑后后者可能仍是旧产品名，
+ *  用本值保证「重新选择产品」时下拉/回显都显示当前所选产品的名称而非裸代码（#交互修复）。 */
+const selectedMoneyFundName = ref<string | null>(null);
 
 /** 实际候选项：并入当前已绑定项，保证编辑回显时下拉里存在该选项（显示名称而非裸代码） */
 const effectiveFundOptions = computed<FundSearchItem[]>(() => {
   const list = [...fundOptions.value];
   const bound = props.linkedMoneyFundCode;
   if (bound && !list.some(o => o.code === bound)) {
+    // 优先用本次搜索命中的名称（用户刚选过，最准），回退到出参名称，最后兜底裸代码。
+    // 注：不能用 props.linkedMoneyFundName 一项兜底——换绑后它可能仍是旧产品的名称，
+    // 会导致「选了 B 却显示 A 的名字 / 或裸代码」的 bug（#交互修复）。
     list.unshift({
       code: bound,
-      name: props.linkedMoneyFundName || bound,
+      name:
+        selectedMoneyFundName.value || props.linkedMoneyFundName || bound,
       type: "货币基金",
-      // 回显占位：费率不参与展示，货基申购费通常为 0
       subscription_rate: 0
     });
   }
@@ -464,6 +471,14 @@ async function searchMoneyFund(query: string) {
 
 function onMoneyFundChange(val: string | null) {
   emit("update:linkedMoneyFundCode", val ?? null);
+  // 选中时回写名称（优先取搜索结果里的权威名），供 effectiveFundOptions 兜底展示用，
+  // 避免重新打开下拉（远程搜索列表被清空）时回显成裸代码。
+  if (val) {
+    const hit = fundOptions.value.find(o => o.code === val);
+    selectedMoneyFundName.value = hit?.name ?? props.linkedMoneyFundName ?? null;
+  } else {
+    selectedMoneyFundName.value = null;
+  }
   // 解绑时联动关闭开关，避免残留一个无法生效的开关（后端亦会强制关闭）
   if (!val) {
     emit("update:autoPurchaseMoneyFund", false);

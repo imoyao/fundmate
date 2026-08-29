@@ -452,6 +452,35 @@ class TestLedgerFeeConfig:
         data = resp.get_json()['data']
         assert data['fee_config'] == fee_config
 
+    def test_create_ledger_derives_type_from_channel_category(self, client, db):
+        """#1101/#1148：创建应以 channel_category 为入参，后端据其派生 ledger_type。
+
+        所有创建路径（含导入向导）统一走此契约；ledger_type 在创建时亦由系统派生，
+        不应由调用方直接下发——直接把 channel_category 值当 ledger_type 下发会命中
+        向后兼容回退映射，产生错误类型（如 fund_platform→other 且 ledger_type 非法）。
+        """
+        # 证券渠道分组 → ledger_type=stock
+        resp = client.post('/api/ledgers/', json={'name': '华泰证券', 'channel_category': 'securities'})
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['channel_category'] == 'securities'
+        assert data['ledger_type'] == 'stock'
+
+        # 基金平台渠道分组 → ledger_type=fund
+        resp = client.post('/api/ledgers/', json={'name': '支付宝基金', 'channel_category': 'fund_platform'})
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['channel_category'] == 'fund_platform'
+        assert data['ledger_type'] == 'fund'
+
+    def test_create_ledger_legacy_ledger_type_still_derived(self, client, db):
+        """向后兼容：旧调用方直接下发 ledger_type 时，channel_category 仍能被反推出来。"""
+        resp = client.post('/api/ledgers/', json={'name': '旧证券账户', 'ledger_type': 'stock'})
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['ledger_type'] == 'stock'
+        assert data['channel_category'] == 'securities'
+
     def test_update_ledger_fee_config(self, client, db):
         """更新已有账户的 fee_config"""
         # 先创建一个股票账户
@@ -2086,3 +2115,127 @@ class TestUpdateLedgerTransaction:
             json={'notes': 'x'},
         )
         assert resp.status_code == 404
+
+
+class TestLedgerTypeImmutability:
+    """ledger_type（计算口径键）不可变：编辑接口不得以任何方式被改成其它类型，
+    否则历史交易的计算口径会瞬间错乱。空账户（零交易/持仓/资产）允许改。
+    另：创建/编辑下发的是 channel_category（用户可见分组），后端据其派生 ledger_type，
+    绝不能直接把 channel_category 值当 ledger_type 写库。"""
+
+    def test_update_rejects_ledger_type_change_when_has_data(self, client, db, make_position):
+        ledger = Ledger(name='华泰证券', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.commit()
+        make_position(
+            symbol='SH600519',
+            name='贵州茅台',
+            ledger_id=ledger.id,
+            account_name='华泰证券',
+            quantity=100,
+            avg_price=10.0,
+            current_price=10.0,
+        )
+        resp = client.patch(f'/api/ledgers/{ledger.id}/', json={'ledger_type': 'fund'})
+        assert resp.status_code == 409
+        assert '类型不可更改' in resp.get_json()['message']
+        db.expire_all()
+        assert db.query(Ledger).filter_by(id=ledger.id).first().ledger_type == 'stock'
+
+    def test_update_allows_ledger_type_change_when_no_data(self, client, db):
+        ledger = Ledger(name='空账户', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.commit()
+        resp = client.patch(f'/api/ledgers/{ledger.id}/', json={'ledger_type': 'fund'})
+        assert resp.status_code == 200
+        db.expire_all()
+        assert db.query(Ledger).filter_by(id=ledger.id).first().ledger_type == 'fund'
+
+    def test_update_channel_category_keeps_ledger_type(self, client, db):
+        """编辑只下发 channel_category（用户可见分组）时，真实 ledger_type 必须保持不变。"""
+        ledger = Ledger(name='支付宝', ledger_type='fund', channel_category='fund_platform', family_id=1)
+        db.add(ledger)
+        db.commit()
+        resp = client.patch(
+            f'/api/ledgers/{ledger.id}/',
+            json={'channel_category': 'fund_platform', 'name': '支付宝2'},
+        )
+        assert resp.status_code == 200
+        db.expire_all()
+        updated = db.query(Ledger).filter_by(id=ledger.id).first()
+        assert updated.ledger_type == 'fund'  # 计算口径键不变
+        assert updated.channel_category == 'fund_platform'
+
+    def test_update_omitting_ledger_type_keeps_it(self, client, db):
+        ledger = Ledger(name='证券X', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.commit()
+        resp = client.patch(f'/api/ledgers/{ledger.id}/', json={'name': '证券X2'})
+        assert resp.status_code == 200
+        db.expire_all()
+        assert db.query(Ledger).filter_by(id=ledger.id).first().ledger_type == 'stock'
+
+    def test_create_derives_ledger_type_from_channel_category(self, client, db):
+        """POST 传 channel_category（而非 ledger_type）时，后端据其派生真实 ledger_type。"""
+        resp = client.post('/api/ledgers/', json={'name': '天弘活期', 'channel_category': 'fund_platform'})
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['ledger_type'] == 'fund'  # fund_platform -> fund
+        assert data['channel_category'] == 'fund_platform'
+
+
+class TestSwapLinkedMoneyFund:
+    """#1137 换绑活期+（A→B）：原绑定货基有净额持仓时应赎回 A 并申购 B（资产中性）。"""
+
+    def test_swap_moves_net_from_a_to_b(self, client, db):
+        from app.domains.transactions.models import Transaction
+
+        fund_a = Fund(fund_code='000198', name='天弘余额宝货币')
+        fund_b = Fund(fund_code='000002', name='易方达增金宝A')
+        db.add_all([fund_a, fund_b])
+        db.flush()
+        ledger = Ledger(
+            name='华泰证券',
+            ledger_type='stock',
+            linked_money_fund_id=fund_a.id,
+            auto_purchase_money_fund=True,
+            family_id=1,
+        )
+        db.add(ledger)
+        db.commit()
+        # A 有一笔净额持仓 10000 分（孤儿申购流水）
+        db.add(
+            Transaction(
+                ledger_id=ledger.id,
+                family_id=1,
+                asset_type='money_fund',
+                symbol=fund_a.fund_code,
+                txn_type='buy',
+                amount=10000,
+                position_id=None,
+                status='success',
+                entry_status='orphan',
+                trade_date=date.today(),
+                confirm_date=date.today(),
+                quantity=0,
+                price=0,
+                fee=0,
+            )
+        )
+        db.commit()
+
+        resp = client.patch(f'/api/ledgers/{ledger.id}/', json={'linked_money_fund_code': fund_b.fund_code})
+        assert resp.status_code == 200
+
+        # PATCH 在独立会话提交，本会话需刷新后才能读到落库结果
+        db.expire_all()
+        flows = (
+            db.query(Transaction)
+            .filter(Transaction.ledger_id == ledger.id, Transaction.asset_type == 'money_fund')
+            .all()
+        )
+        a_sell = [f for f in flows if f.symbol == fund_a.fund_code and f.txn_type == 'sell']
+        b_buy = [f for f in flows if f.symbol == fund_b.fund_code and f.txn_type == 'buy']
+        assert len(a_sell) == 1 and a_sell[0].amount == 10000  # 赎回 A
+        assert len(b_buy) == 1 and b_buy[0].amount == 10000  # 申购 B
+        assert db.query(Ledger).filter_by(id=ledger.id).first().linked_money_fund_id == fund_b.id
