@@ -1,5 +1,5 @@
 import { parseFile, confirmImport as confirmImportApi } from "@/api/importer";
-import { fetchFundNavBatch } from "@/api/fundNav";
+import { navCache } from "@/composables/useNavCache";
 import type { UploadRequestOptions } from "element-plus";
 import { ref, onMounted, computed, reactive, nextTick } from "vue";
 import { useRouter } from "vue-router";
@@ -666,7 +666,8 @@ export function useImportWizard() {
     enrichingNav.value = true;
     try {
       for (const [date, symbols] of Object.entries(dateGroups)) {
-        const navMap = await fetchFundNavBatch(symbols, date);
+        // 经 useNavCache：本地缓存优先，未命中再 JSONP 直连（#1133）
+        const navMap = await navCache.getNavs(symbols, date);
 
         previewData.value.forEach(row => {
           if (
@@ -1210,7 +1211,8 @@ export function useImportWizard() {
     // 逐日请求
     for (const [date, symbols] of Object.entries(dateGroups)) {
       try {
-        const navMap = await fetchFundNavBatch(symbols, date);
+        // 经 useNavCache：本地缓存优先，未命中再 JSONP 直连（#1133）
+        const navMap = await navCache.getNavs(symbols, date);
 
         // 更新所有相关行
         needed.forEach(row => {

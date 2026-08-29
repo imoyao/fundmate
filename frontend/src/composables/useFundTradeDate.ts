@@ -1,6 +1,6 @@
 import { ref } from "vue";
 import { calcFundConfirmDate } from "@/api/utils";
-import { fetchFundNav } from "@/api/fundNav";
+import { navCache } from "@/composables/useNavCache";
 
 interface CalcOptions {
   /** 交易日期 YYYY-MM-DD */
@@ -71,9 +71,10 @@ export function useFundTradeDate() {
       let nav: number | undefined;
       if (symbol && actualNavDate.value) {
         try {
-          const result = await fetchFundNav(symbol, actualNavDate.value);
-          if (result) {
-            nav = result.unit_nav;
+          // 经 useNavCache：本地缓存优先，未命中再 JSONP 直连（#1133）
+          const cached = await navCache.getNav(symbol, actualNavDate.value);
+          if (cached != null) {
+            nav = cached;
           }
         } catch (e) {
           console.warn("[useFundTradeDate] 净值拉取失败:", e);
