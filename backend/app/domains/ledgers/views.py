@@ -5,7 +5,7 @@
 """资金容器 API — 基本 CRUD"""
 
 import json
-from datetime import datetime
+from datetime import date, datetime
 
 from apiflask import APIBlueprint
 from flask import abort, jsonify, request
@@ -29,6 +29,7 @@ from app.domains.positions.models import Position, PositionImportMeta, SalesInst
 from app.domains.positions.views import enrich_position_dict
 from app.domains.transactions.models import Transaction
 from app.services.fund_aggregation import get_fund_aggregation as svc_get_fund_aggregation
+from app.services.transaction_service import TransactionService
 
 # 外部基金列表缓存（进程级，基金列表极少变动）：用于「本地库无此货基时」补建 Fund 行
 _FUND_NAME_EM_CACHE: dict = {'ts': 0.0, 'data': None}
@@ -68,6 +69,94 @@ def _resolve_money_fund(db, fund_code: str):
     except Exception as e:  # 外部失败不阻塞，回退 400
         logger.warning(f'补建货基 Fund 行失败({fund_code}): {e}')
     return None
+
+
+def _swap_linked_money_fund(db, ledger: Ledger, old_fund: Fund, new_fund: Fund) -> None:
+    """#1137 换绑活期+：将账户内原绑定货基 A 的净额持仓赎回，并申购新绑定货基 B。
+
+    货基以孤儿流水记账（不建持仓），故「持仓」= 该账户下 A 的 money_fund 流水净额。
+    净额<=0 表示无实际持仓，跳过（避免凭空造流水）。仅生成两条孤儿流水（赎回 A /
+    申购 B），资产中性、不影响其他账户；失败仅记录告警不抛出，避免阻断换绑主流程。
+    """
+    family_id = get_family_id()
+    # 货基以孤儿流水记账（不建持仓），净额口径与 summary_service.orphan_money_fund_net_by_ledger
+    # 一致：buy/deposit 加、sell/withdraw 减，且仅计 position_id IS NULL 的孤儿流水，全程整数分。
+    positive = (
+        db.query(func.coalesce(func.sum(Transaction.amount), 0))
+        .filter(
+            Transaction.ledger_id == ledger.id,
+            Transaction.family_id == family_id,
+            Transaction.asset_type == 'money_fund',
+            Transaction.symbol == old_fund.fund_code,
+            Transaction.position_id.is_(None),
+            Transaction.txn_type.in_(('buy', 'deposit')),
+        )
+        .scalar()
+        or 0
+    )
+    negative = (
+        db.query(func.coalesce(func.sum(Transaction.amount), 0))
+        .filter(
+            Transaction.ledger_id == ledger.id,
+            Transaction.family_id == family_id,
+            Transaction.asset_type == 'money_fund',
+            Transaction.symbol == old_fund.fund_code,
+            Transaction.position_id.is_(None),
+            Transaction.txn_type.in_(('sell', 'withdraw')),
+        )
+        .scalar()
+        or 0
+    )
+    net_cents = int(positive) - int(negative)
+    if net_cents <= 0:
+        return
+    today = date.today()
+    # 赎回原绑定货基 A
+    TransactionService.create(
+        db=db,
+        position_id=None,
+        symbol=old_fund.fund_code,
+        txn_type='sell',
+        trade_date=today,
+        confirm_date=today,
+        asset_type='money_fund',
+        quantity=0,
+        price=0,
+        fee=0,
+        amount=net_cents,
+        status='success',
+        position_name=old_fund.name,
+        ledger_id=ledger.id,
+        account_name=ledger.name,
+        notes='更换活期+，赎回原绑定产品',
+        entry_status='orphan',
+        family_id=family_id,
+    )
+    # 申购新绑定货基 B（活期+内迁移，保持资产中性）
+    TransactionService.create(
+        db=db,
+        position_id=None,
+        symbol=new_fund.fund_code,
+        txn_type='buy',
+        trade_date=today,
+        confirm_date=today,
+        asset_type='money_fund',
+        quantity=0,
+        price=0,
+        fee=0,
+        amount=net_cents,
+        status='success',
+        position_name=new_fund.name,
+        ledger_id=ledger.id,
+        account_name=ledger.name,
+        notes='更换活期+，申购新绑定产品',
+        entry_status='orphan',
+        family_id=family_id,
+    )
+    logger.info(
+        f'账户 {ledger.id} 换绑活期+：{old_fund.fund_code} → {new_fund.fund_code}，'
+        f'净额 {net_cents} 分已迁移（赎回 A / 申购 B）'
+    )
 
 
 # #1132 场内证券聚合：与 #1101 基金聚合并列，纯 position 级聚合，零 schema 迁移。
@@ -481,6 +570,7 @@ def update_ledger(ledger_id: int):
         # 入参用基金代码，存储 funds.id；未绑定时不允许开启自动申购。
         if 'linked_money_fund_code' in data:
             fund_code = (data.get('linked_money_fund_code') or '').strip() or None
+            old_linked_id = ledger.linked_money_fund_id
             if fund_code is None:
                 ledger.linked_money_fund_id = None
                 # 解绑时自动关闭开关，避免残留一个无法生效的开关
@@ -492,6 +582,12 @@ def update_ledger(ledger_id: int):
                 if not fund:
                     return jsonify({'data': None, 'message': '绑定的活期+不存在'}), 400
                 ledger.linked_money_fund_id = fund.id
+                # #1137 换绑活期+：原绑定货基仍有净额持仓时，赎回 A 并申购 B（资产中性）。
+                # 仅当从 A 换到 B（ID 不同）才触发，首次绑定 / 解绑重绑不触发。
+                if old_linked_id and old_linked_id != fund.id:
+                    old_fund = db.get(Fund, old_linked_id)
+                    if old_fund:
+                        _swap_linked_money_fund(db, ledger, old_fund, fund)
 
         # 更新自动申购开关（#1137）
         if 'auto_purchase_money_fund' in data:
