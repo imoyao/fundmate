@@ -95,7 +95,7 @@
                   :show-sign="false"
                   :auto-color="false"
                   size="hero"
-                  custom-color="var(--brand-700)"
+                  custom-color="var(--text-primary)"
                 />
               </div>
             </div>
@@ -1410,9 +1410,9 @@ const compositionData = computed(() => [
   { name: "现金类资产", value: summaryData.value?.cash_like_amount ?? 0 }
 ]);
 
-// 环形图配色：走 design.md 图表语义变量（禁止硬编码 hex）
+// 环形图配色：走 design.md 图表语义变量（禁止硬编码 hex）。投资资产用暖杏避免满屏红
 const compositionColorMap = {
-  投资资产: "--chart-01",
+  投资资产: "--chart-03",
   现金类资产: "--chart-06"
 };
 
