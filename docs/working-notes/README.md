@@ -92,6 +92,9 @@
 | `eastmoney-datasource-and-account-linkage-design-2026-08-30.md` | **天天基金/东财数据源适配器 与 基金账户归一化设计（待评审）**：设计 A 建 `EastmoneyAdapter` 去硬编码选源＋回填基金公司权威 code；设计 B `PositionImportMeta.sales_institution_id` 外键归一化基金账户，个人昵称保留自由文本 |
 | `asset-management-gap-analysis-2026-08-30.md` | **对照真实用户六条需求的资产记账能力 Gap 分析**：取证到代码行号的六条判定（①自定义资产免净值份额 ②多账户区分成员 ③购买渠道 ④账户走势盈亏 ⑤分红送股自动化 ⑥按占比批量更新总价）；竞品对照（同花顺投资账本/有知有行/钱往的功能与定价）；核心结论=竞品「份额×净值」单一模型结构性做不到无净值产品，是 fundmate 的差异化窗口 |
 | `asset-management-gap-roadmap-2026-08-30.md` | **资产管理记账能力补齐开发计划（待评审）**：D1~D4 四项待拍板决策（双态计价模型 / 进 positions 还是 assets / balance 盈亏口径 / 聚合入口归属）、P0~P4 五期计划表（含文件锚点与依赖）、风险与测试纪律、14 条原子 issue 草案 |
+| `fund-metadata-arch-issue-1155-research-2026-08-29.md` | **#1155 基金元数据架构核查（研究交付物）**：fund_type_id 全量回填可行性 + 基金公司/基金经理数据架构现状与三处域归属不一致决策 |
+| `ai-code-review-deepseek-dual-line-2026-08-23.md` | **AI Code Review 双线路接入（DeepSeek 火山方舟实测）**：ARK_API_KEY_DEEPSEEK 可用性与模型权限核查（feat/ghost-duplicate-scan） |
+| `mock-service-data-isolation-2026-08-30.md` | **Mock 服务与数据隔离方案调研**：前端 mock 避免污染本地 SQLite + 独立 Supabase 环境实现 dev/test/prod 隔离 |
 
 ## 子目录归档
 
