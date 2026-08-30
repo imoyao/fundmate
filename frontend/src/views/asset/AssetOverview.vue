@@ -31,184 +31,69 @@
       >
         <div class="mb-6 md:mb-0">
           <p class="text-gray-500">总资产 (本月)</p>
-          <h3 class="text-4xl font-bold mt-1 text-orange-500">¥2,345,678</h3>
+          <h3 class="text-4xl font-bold mt-1 text-orange-500">
+            {{ formatYuan(totalAssets) }}
+          </h3>
           <div class="flex items-center mt-2 space-x-4">
-            <p class="text-green-600 text-lg flex items-center">
-              <IconifyIconOffline icon="ep:arrow-up-bold" class="mr-1" />
-              <span>12.3%</span>
+            <p
+              v-if="monthlyChangePct !== null"
+              class="text-lg flex items-center"
+              :class="(monthlyChangePct ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'"
+            >
+              <IconifyIconOffline
+                :icon="(monthlyChangePct ?? 0) >= 0 ? 'ep:arrow-up-bold' : 'ep:arrow-down-bold'"
+                class="mr-1"
+              />
+              <span>{{ Math.abs(monthlyChangePct ?? 0).toFixed(1) }}%</span>
               <span class="text-gray-500 ml-2">较上月</span>
             </p>
-            <p class="text-green-600 text-lg flex items-center">
-              <IconifyIconOffline icon="ep:arrow-up-bold" class="mr-1" />
-              <span>8.7%</span>
+            <p
+              v-if="yearlyChangePct !== null"
+              class="text-lg flex items-center"
+              :class="(yearlyChangePct ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'"
+            >
+              <IconifyIconOffline
+                :icon="(yearlyChangePct ?? 0) >= 0 ? 'ep:arrow-up-bold' : 'ep:arrow-down-bold'"
+                class="mr-1"
+              />
+              <span>{{ Math.abs(yearlyChangePct ?? 0).toFixed(1) }}%</span>
               <span class="text-gray-500 ml-2">较去年同期</span>
             </p>
-          </div>
-          <div class="mt-3 flex items-center">
-            <span
-              class="px-2 py-1 bg-amber-100 text-amber-600 rounded-full text-xs font-medium"
-              >中等风险</span
+            <p
+              v-if="monthlyChangePct === null && yearlyChangePct === null"
+              class="text-gray-400 text-sm"
             >
-            <span class="text-xs text-gray-500 ml-2">风险评分：65/100</span>
+              暂无环比数据
+            </p>
           </div>
         </div>
 
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div
+            v-for="card in categoryCards"
+            :key="card.name"
             class="bg-gradient-to-br from-orange-50 to-orange-100 rounded-lg p-4 border border-orange-200 hover:shadow-lg transition-shadow cursor-pointer"
           >
-            <div class="flex justify-between items-start mb-2">
-              <div
-                class="w-10 h-10 bg-orange-200 rounded-lg flex items-center justify-center"
-              >
-                <IconifyIconOffline
-                  icon="ep:data-line"
-                  class="text-orange-500 text-lg"
-                />
-              </div>
-            </div>
-            <p class="text-gray-500 text-xs font-medium">股票资产</p>
-            <h4 class="text-lg font-bold text-orange-600">¥856,240</h4>
+            <p class="text-gray-500 text-xs font-medium">{{ card.name }}</p>
+            <h4 class="text-lg font-bold text-orange-600">{{ formatYuan(card.value) }}</h4>
             <div class="mt-2">
               <div class="flex justify-between text-[10px] text-gray-500 mb-1">
-                <span>占比 36.5%</span>
-                <span class="px-1.5 py-0.5 bg-red-100 text-red-600 rounded"
-                  >高风险</span
-                >
+                <span>占比 {{ card.share.toFixed(1) }}%</span>
               </div>
               <div class="h-1.5 bg-gray-200 rounded-full overflow-hidden">
                 <div
                   class="bg-orange-500 h-full rounded-full"
-                  style="width: 36.5%"
+                  :style="{ width: card.share + '%' }"
                 />
               </div>
             </div>
-            <p class="text-green-600 text-xs mt-2 flex items-center">
-              <IconifyIconOffline
-                icon="ep:arrow-up-bold"
-                class="mr-0.5 text-[10px]"
-              />
-              <span>5.3%</span>
-              <span class="text-gray-500 ml-1">较上月</span>
-            </p>
           </div>
-
-          <div
-            class="bg-gradient-to-br from-amber-50 to-amber-100 rounded-lg p-4 border border-amber-200 hover:shadow-lg transition-shadow cursor-pointer"
+          <p
+            v-if="!categoryCards.length"
+            class="col-span-4 text-center text-sm text-gray-400 py-8"
           >
-            <div class="flex justify-between items-start mb-2">
-              <div
-                class="w-10 h-10 bg-amber-200 rounded-lg flex items-center justify-center"
-              >
-                <IconifyIconOffline
-                  icon="ep:box"
-                  class="text-amber-500 text-lg"
-                />
-              </div>
-            </div>
-            <p class="text-gray-500 text-xs font-medium">基金资产</p>
-            <h4 class="text-lg font-bold text-amber-600">¥678,950</h4>
-            <div class="mt-2">
-              <div class="flex justify-between text-[10px] text-gray-500 mb-1">
-                <span>占比 28.9%</span>
-                <span class="px-1.5 py-0.5 bg-amber-100 text-amber-600 rounded"
-                  >中风险</span
-                >
-              </div>
-              <div class="h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                <div
-                  class="bg-amber-500 h-full rounded-full"
-                  style="width: 28.9%"
-                />
-              </div>
-            </div>
-            <p class="text-red-600 text-xs mt-2 flex items-center">
-              <IconifyIconOffline
-                icon="ep:arrow-down-bold"
-                class="mr-0.5 text-[10px]"
-              />
-              <span>1.2%</span>
-              <span class="text-gray-500 ml-1">较上月</span>
-            </p>
-          </div>
-
-          <div
-            class="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-4 border border-green-200 hover:shadow-lg transition-shadow cursor-pointer"
-          >
-            <div class="flex justify-between items-start mb-2">
-              <div
-                class="w-10 h-10 bg-green-200 rounded-lg flex items-center justify-center"
-              >
-                <IconifyIconOffline
-                  icon="ep:house"
-                  class="text-green-600 text-lg"
-                />
-              </div>
-            </div>
-            <p class="text-gray-500 text-xs font-medium">房产资产</p>
-            <h4 class="text-lg font-bold text-green-600">¥810,488</h4>
-            <div class="mt-2">
-              <div class="flex justify-between text-[10px] text-gray-500 mb-1">
-                <span>占比 34.6%</span>
-                <span class="px-1.5 py-0.5 bg-green-100 text-green-600 rounded"
-                  >低风险</span
-                >
-              </div>
-              <div class="h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                <div
-                  class="bg-green-600 h-full rounded-full"
-                  style="width: 34.6%"
-                />
-              </div>
-            </div>
-            <p class="text-green-600 text-xs mt-2 flex items-center">
-              <IconifyIconOffline
-                icon="ep:arrow-up-bold"
-                class="mr-0.5 text-[10px]"
-              />
-              <span>3.7%</span>
-              <span class="text-gray-500 ml-1">较上月</span>
-            </p>
-          </div>
-
-          <div
-            class="bg-gradient-to-br from-yellow-50 to-yellow-100 rounded-lg p-4 border border-yellow-200 hover:shadow-lg transition-shadow cursor-pointer"
-          >
-            <div class="flex justify-between items-start mb-2">
-              <div
-                class="w-10 h-10 bg-yellow-200 rounded-lg flex items-center justify-center"
-              >
-                <IconifyIconOffline
-                  icon="ep:star"
-                  class="text-yellow-600 text-lg"
-                />
-              </div>
-            </div>
-            <p class="text-gray-500 text-xs font-medium">贵金属</p>
-            <h4 class="text-lg font-bold text-yellow-600">¥212,400</h4>
-            <div class="mt-2">
-              <div class="flex justify-between text-[10px] text-gray-500 mb-1">
-                <span>占比 9.0%</span>
-                <span class="px-1.5 py-0.5 bg-amber-100 text-amber-600 rounded"
-                  >中风险</span
-                >
-              </div>
-              <div class="h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                <div
-                  class="bg-yellow-500 h-full rounded-full"
-                  style="width: 9%"
-                />
-              </div>
-            </div>
-            <p class="text-green-600 text-xs mt-2 flex items-center">
-              <IconifyIconOffline
-                icon="ep:arrow-up-bold"
-                class="mr-0.5 text-[10px]"
-              />
-              <span>2.1%</span>
-              <span class="text-gray-500 ml-1">较上月</span>
-            </p>
-          </div>
+            暂无分类资产数据
+          </p>
         </div>
       </div>
     </div>
@@ -282,11 +167,31 @@
             </tr>
           </thead>
           <tbody>
-            <tr class="border-t hover:bg-gray-50">
-              <td class="px-4 py-3 font-medium">腾讯控股 (00700)</td>
-              <td class="px-4 py-3">¥172,800</td>
-              <td class="px-4 py-3 text-green-600">+¥12,800</td>
-              <td class="px-4 py-3 text-green-600">+8.00%</td>
+            <tr
+              v-for="item in recentHoldings"
+              :key="item.id"
+              class="border-t hover:bg-gray-50"
+            >
+              <td class="px-4 py-3 font-medium">
+                {{ item.name }}<span
+                  v-if="item.symbol"
+                  class="text-gray-400 ml-1"
+                  >({{ item.symbol }})</span
+                >
+              </td>
+              <td class="px-4 py-3">{{ formatYuan(item.market_value) }}</td>
+              <td
+                class="px-4 py-3"
+                :class="item.pnl >= 0 ? 'text-green-600' : 'text-red-600'"
+              >
+                {{ item.pnl >= 0 ? "+" : "" }}{{ formatYuan(item.pnl) }}
+              </td>
+              <td
+                class="px-4 py-3"
+                :class="pnlPct(item) >= 0 ? 'text-green-600' : 'text-red-600'"
+              >
+                {{ pnlPct(item) >= 0 ? "+" : "" }}{{ pnlPct(item).toFixed(2) }}%
+              </td>
               <td class="px-4 py-3">
                 <button
                   class="px-3 py-1.5 bg-orange-500 text-white text-xs rounded-lg hover:bg-orange-600 transition-colors"
@@ -295,43 +200,9 @@
                 </button>
               </td>
             </tr>
-            <tr class="border-t bg-gray-50/50 hover:bg-gray-100">
-              <td class="px-4 py-3 font-medium">易方达消费精选</td>
-              <td class="px-4 py-3">¥62,250</td>
-              <td class="px-4 py-3 text-red-600">-¥1,750</td>
-              <td class="px-4 py-3 text-red-600">-2.73%</td>
-              <td class="px-4 py-3">
-                <button
-                  class="px-3 py-1.5 bg-orange-500 text-white text-xs rounded-lg hover:bg-orange-600 transition-colors"
-                >
-                  交易
-                </button>
-              </td>
-            </tr>
-            <tr class="border-t hover:bg-gray-50">
-              <td class="px-4 py-3 font-medium">贵州茅台 (600519)</td>
-              <td class="px-4 py-3">¥215,000</td>
-              <td class="px-4 py-3 text-green-600">+¥15,200</td>
-              <td class="px-4 py-3 text-green-600">+7.61%</td>
-              <td class="px-4 py-3">
-                <button
-                  class="px-3 py-1.5 bg-orange-500 text-white text-xs rounded-lg hover:bg-orange-600 transition-colors"
-                >
-                  交易
-                </button>
-              </td>
-            </tr>
-            <tr class="border-t bg-gray-50/50 hover:bg-gray-100">
-              <td class="px-4 py-3 font-medium">纳斯达克100ETF</td>
-              <td class="px-4 py-3">¥86,500</td>
-              <td class="px-4 py-3 text-green-600">+¥3,200</td>
-              <td class="px-4 py-3 text-green-600">+3.84%</td>
-              <td class="px-4 py-3">
-                <button
-                  class="px-3 py-1.5 bg-orange-500 text-white text-white text-xs rounded-lg hover:bg-orange-600 transition-colors"
-                >
-                  交易
-                </button>
+            <tr v-if="!recentHoldings.length">
+              <td colspan="5" class="px-4 py-8 text-center text-sm text-gray-400">
+                暂无持仓数据
               </td>
             </tr>
           </tbody>
@@ -342,12 +213,20 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from "vue";
+import { ref, computed, onMounted, nextTick } from "vue";
 import echarts from "@/plugins/echarts";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import GhostDuplicateBanner from "@/components/GhostDuplicateBanner/index.vue";
-import { getDistributions, getSnapshots } from "@/api/summary";
+import {
+  getDistributions,
+  getSnapshots,
+  getPositionGroups,
+  type DistributionsData,
+  type AssetSnapshotItem,
+  type GroupItem
+} from "@/api/summary";
 import { getCssVar } from "@/composables/echarts/theme";
+import { formatAmount } from "@/utils/currency";
 
 const distributionChartRef = ref<HTMLCanvasElement | null>(null);
 const profitTrendChartRef = ref<HTMLCanvasElement | null>(null);
@@ -361,6 +240,38 @@ let riskHeatmapChart: echarts.ECharts | null = null;
 // 净值走势来自 /summary/snapshots/（资产快照历史，升序）。
 const distributionData = ref<Array<{ name: string; value: number }>>([]);
 const profitTrendData = ref<Array<{ date: string; net: number }>>([]);
+
+// #1195：顶部汇总卡片 / 近期持仓表现 改用真实数据，下线无数据源的假数据
+const distributions = ref<DistributionsData | null>(null);
+const latestSnapshot = ref<AssetSnapshotItem | null>(null);
+const positionItems = ref<GroupItem[]>([]);
+
+const totalAssets = computed(() => distributions.value?.total_assets ?? 0);
+const monthlyChangePct = computed(() => latestSnapshot.value?.monthly_change_pct ?? null);
+const yearlyChangePct = computed(() => latestSnapshot.value?.yearly_change_pct ?? null);
+
+const categoryCards = computed(() => {
+  const dist = distributions.value;
+  if (!dist) return [];
+  const total = dist.total_assets || 0;
+  return (dist.category_distribution || []).map(d => ({
+    name: d.name,
+    value: d.value,
+    share: total ? (d.value / total) * 100 : 0
+  }));
+});
+
+const recentHoldings = computed(() =>
+  [...positionItems.value]
+    .sort((a, b) => b.market_value - a.market_value)
+    .slice(0, 8)
+);
+
+const formatYuan = (n: number, p = 0) => `¥${formatAmount(n || 0, p)}`;
+const pnlPct = (item: GroupItem) => {
+  const cost = item.market_value - item.pnl;
+  return cost ? (item.pnl / cost) * 100 : 0;
+};
 
 const CHART_PALETTE_VARS = [
   "--chart-01",
@@ -476,31 +387,47 @@ const resizeCharts = () => {
 
 const loadDistribution = async () => {
   try {
-    const res = (await getDistributions()) as any;
-    const dist = res?.data;
-    distributionData.value = Array.isArray(dist?.category_distribution)
-      ? dist.category_distribution
-      : [];
+    const res = await getDistributions();
+    const dist = res?.data ?? null;
+    distributions.value = dist;
+    distributionData.value = dist?.category_distribution ?? [];
   } catch {
+    distributions.value = null;
     distributionData.value = [];
   }
 };
 
 const loadProfitTrend = async () => {
   try {
-    const res = (await getSnapshots()) as any;
-    const list = Array.isArray(res?.data) ? res.data : [];
-    profitTrendData.value = list.map((i: any) => ({
+    const res = await getSnapshots();
+    const list = res?.data ?? [];
+    profitTrendData.value = list.map(i => ({
       date: i.snapshot_date,
       net: i.net_worth
     }));
+    latestSnapshot.value = list.length ? list[list.length - 1] : null;
   } catch {
     profitTrendData.value = [];
+    latestSnapshot.value = null;
+  }
+};
+
+const loadPositions = async () => {
+  try {
+    const res = await getPositionGroups("type");
+    const groups = res?.data ?? [];
+    const items: GroupItem[] = [];
+    for (const g of groups) {
+      if (Array.isArray(g.items)) items.push(...g.items);
+    }
+    positionItems.value = items;
+  } catch {
+    positionItems.value = [];
   }
 };
 
 onMounted(async () => {
-  await Promise.all([loadDistribution(), loadProfitTrend()]);
+  await Promise.all([loadDistribution(), loadProfitTrend(), loadPositions()]);
   nextTick(() => {
     initDistributionChart();
     initProfitTrendChart();
