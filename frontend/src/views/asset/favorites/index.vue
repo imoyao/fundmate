@@ -43,31 +43,23 @@
 
     <div ref="listHostRef" v-loading="loading" class="road-waterfall">
       <template v-if="pagedItems.length">
-        <V3Waterfall
-          :key="breakpoint"
-          :list="pagedItems"
-          :col-width="colWidth"
-          :gap="GAP"
-          :is-over="isLastPage"
-          :over-text="overText"
-          over-color="var(--text-tertiary)"
-        >
-          <template #default="{ item }">
-            <RoadCard
-              :item="item"
-              :tags="tags"
-              :selected="isSelected(item)"
-              :editing="editingId === item.id"
-              :manage-mode="manageMode"
-              @toggle-select="toggleSelect"
-              @start-edit="startEdit"
-              @cancel-edit="cancelEdit"
-              @save="onSave"
-              @pin="togglePin"
-              @remove="confirmRemove"
-            />
-          </template>
-        </V3Waterfall>
+        <div class="road-masonry" :style="{ columnCount: columns, columnGap: GAP + 'px' }">
+          <RoadCard
+            v-for="item in pagedItems"
+            :key="cardKey(item)"
+            :item="item"
+            :tags="tags"
+            :selected="isSelected(item)"
+            :editing="editingId === item.id"
+            :manage-mode="manageMode"
+            @toggle-select="toggleSelect"
+            @start-edit="startEdit"
+            @cancel-edit="cancelEdit"
+            @save="onSave"
+            @pin="togglePin"
+            @remove="confirmRemove"
+          />
+        </div>
 
         <div v-if="pageCount > 1" class="road-pagination">
           <el-pagination
@@ -95,8 +87,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { ElMessageBox } from "element-plus";
-import { V3waterfall as V3Waterfall } from "v3-waterfall";
-import "v3-waterfall/dist/style.css";
 import RoadPoemBanner from "./components/RoadPoemBanner.vue";
 import RoadFilterBar from "./components/RoadFilterBar.vue";
 import RoadBatchToolbar from "./components/RoadBatchToolbar.vue";
@@ -128,7 +118,6 @@ const {
   pagedItems,
   total,
   pageCount,
-  isLastPage,
   load,
   setEntityFilter,
   setStatusFilter,
@@ -148,29 +137,21 @@ const {
 const listHostRef = ref<HTMLElement | null>(null);
 
 /**
- * 列宽随容器实宽响应式计算：保证桌面下严格三列且铺满（v3-waterfall 只按
- * colWidth 切列、不拉伸，故不能用固定值，否则右侧会留空隙）。
- * 用 hostWidth + ResizeObserver 跟踪容器尺寸（侧栏收起、分屏等），并在容器
- * 变化时主动派发 window resize 让 v3-waterfall 重算列数——否则容器变窄时
- * 卡片会停留在旧列宽，看起来像挤在一列（所谓"堆叠"）。
+ * 列数随容器实宽响应式计算（侧栏收起 / 分屏 / 窗口缩放都会改变容器宽度，
+ * 这正是 v3-waterfall 在容器变窄时卡片停留在旧列宽、看起来挤在一列（堆叠）
+ * 的根因——它只在 window resize 时重算，感知不到容器自身宽度变化）。
+ * 这里改用 CSS 多列（column-count）做瀑布流：卡片处于普通文档流，由浏览器
+ * 原生排版，配合 break-inside:avoid 保证不被拆列。无论内容高度何时异步变化
+ * （走势填充 / 编辑态表单展开）还是列数如何切换，卡片都物理上不可能重叠，
+ * 从根上消除「堆叠」，也去掉了原先易引发主线程卡死的高度反馈链路。
  */
 const hostWidth = ref<number>(listHostRef.value?.clientWidth ?? 1120);
-const colWidth = computed(() => {
-  const width = hostWidth.value;
-  const columns = width >= 1180 ? 3 : width >= 760 ? 2 : 1;
-  return Math.max(240, Math.floor((width - GAP * (columns - 1)) / columns));
-});
-
-/**
- * 列数断点：容器宽度跨断点（侧栏收起 / 分屏 / 窗口缩放）时换 key 让
- * V3Waterfall 重挂载，从而按新宽度重新计算列数——这是容器尺寸变化的唯一
- * 可靠触发方式（库本身只在 window resize 时重算）。
- */
-const breakpoint = computed(() =>
+const columns = computed(() =>
   hostWidth.value >= 1180 ? 3 : hostWidth.value >= 760 ? 2 : 1
 );
 
-const overText = computed(() => `已到蹊径尽头 · 共 ${total.value} 段未竟`);
+/** 稳定唯一 key：真实卡用 id，示例卡 id 恒为 null 时退回唯一 symbol */
+const cardKey = (item: RoadItem) => (item.id != null ? item.id : item.symbol);
 
 const hasFilter = computed(
   () =>
@@ -225,9 +206,8 @@ function onSave(payload: {
 }
 
 let resizeObserver: ResizeObserver | null = null;
-// 只在「容器宽度」真正变化时更新 hostWidth：避免 v3-waterfall 重排导致高度变化
-// 又触发 ResizeObserver，形成「resize → 重排 → 高度变 → 再 resize」的死循环
-// （会把主线程占满、页面卡死、点哪都没反应）。
+// 跟踪容器实宽以更新列数（侧栏收起 / 分屏）：宽度不变则跳过，避免无效重渲染。
+// 列数切换只是 CSS column-count 变化、浏览器原生重排，不触发任何高度测量，无卡死风险。
 function syncHostWidth() {
   if (!listHostRef.value) return;
   const w = listHostRef.value.clientWidth;
@@ -252,6 +232,15 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
 
 .road-waterfall {
   min-height: 240px;
+}
+
+/* 多列瀑布流：卡片在普通文档流，浏览器原生排版，物理上不会重叠 */
+.road-masonry :deep(.road-card) {
+  break-inside: avoid;
+  -webkit-column-break-inside: avoid;
+  page-break-inside: avoid;
+  margin-bottom: 20px;
+  width: 100%;
 }
 
 .road-pagination {
