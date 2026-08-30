@@ -88,6 +88,10 @@
 | `ledger-channel-category-redesign-2026-08-28.md` | **账本渠道分类（channel_category）重设计方案（#1101 后续）**：双字段模型（ledger_type 内部资产类键 vs channel_category 用户可见分组）、org_type→channel_category 映射、派生/回归规则、与 #1100 机构绑定基数层正交；配套后端常量+迁移回填已落地 |
 | `ledger-cash-like-product-binding-2026-08-29.md` | **账户绑定类现金产品（「余额宝」）设计（#1137 B）**：类现金口径=现金+货基+逆回购（复用 XIRR `EXCLUDED_ASSET_TYPES`，债券不归入）、Ledger 新增 `linked_money_fund_id`+`auto_purchase_money_fund`（默认关）、自动申购仅覆盖卖出/赎回回款、每账户单独控制+批量应用、UI 借鉴支付宝但主次反转（中高风险 `--text-hero` 为主 / 类现金 `--text-small` 为辅且单独成块）、B1~B3 分期；含 C 取消论证（滑坡+维度混淆） |
 | `securities-aggregation-design-2026-08-29.md` | **场内证券（股票/ETF/可转债）聚合卡片设计（#1132，已确认）**：镜像 #1101 场外基金 position 级聚合范式，新增 securities_aggregation 服务+端点+前端卡片/下钻页，零 schema 迁移；范围含 stock/etf/bond，不建虚拟账本 |
+| `road-not-taken-revive-2026-08-30.md` | **未竟之蹊（/the-road-not-taken）页面复活**：旧页问题诊断（v3-waterfall v1 参数误用/卡片空壳/类型失真/hex 硬编码）、数据接口可行性表（favorites/trends/tags/cleared 真实可用，经理为占位）、后端补 `next_review_date` 复盘字段+迁移、前端重写为三列 Masonry 卡片流（诗句卡/两级胶囊/三态卡片/鹦鹉螺空态）、后续待办 |
+| `eastmoney-datasource-and-account-linkage-design-2026-08-30.md` | **天天基金/东财数据源适配器 与 基金账户归一化设计（待评审）**：设计 A 建 `EastmoneyAdapter` 去硬编码选源＋回填基金公司权威 code；设计 B `PositionImportMeta.sales_institution_id` 外键归一化基金账户，个人昵称保留自由文本 |
+| `asset-management-gap-analysis-2026-08-30.md` | **对照真实用户六条需求的资产记账能力 Gap 分析**：取证到代码行号的六条判定（①自定义资产免净值份额 ②多账户区分成员 ③购买渠道 ④账户走势盈亏 ⑤分红送股自动化 ⑥按占比批量更新总价）；竞品对照（同花顺投资账本/有知有行/钱往的功能与定价）；核心结论=竞品「份额×净值」单一模型结构性做不到无净值产品，是 fundmate 的差异化窗口 |
+| `asset-management-gap-roadmap-2026-08-30.md` | **资产管理记账能力补齐开发计划（待评审）**：D1~D4 四项待拍板决策（双态计价模型 / 进 positions 还是 assets / balance 盈亏口径 / 聚合入口归属）、P0~P4 五期计划表（含文件锚点与依赖）、风险与测试纪律、14 条原子 issue 草案 |
 
 ## 子目录归档
 

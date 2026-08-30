@@ -18,7 +18,7 @@ from app.core.database import get_db
 from app.core.money import Money
 from app.core.utils import api_response, with_db
 from app.core.validation import parse_body
-from app.domains.funds.models import Fund
+from app.domains.funds.models import DailyWorth, Fund
 from app.domains.positions.models import Position
 from app.domains.price_history.models import PriceHistory
 from app.domains.securities.models import Security
@@ -339,6 +339,10 @@ def list_trends():
         return jsonify({'data': {}, 'message': 'ok'})
 
     start = date.today() - timedelta(days=days)
+    # 场外基金（OF. 开头）历史净值存于 daily_worth 表，需单独取数并入同一 trends 结构
+    fund_symbols = [s for s in symbols if s.upper().startswith('OF.')]
+    fund_codes = [s.split('.', 1)[1] for s in fund_symbols if '.' in s]
+
     with get_db() as db:
         rows = (
             db.query(PriceHistory.symbol, PriceHistory.close)
@@ -349,12 +353,28 @@ def list_trends():
             .order_by(PriceHistory.symbol.asc(), PriceHistory.trade_date.asc())
             .all()
         )
+        nav_rows = []
+        if fund_codes:
+            nav_rows = (
+                db.query(DailyWorth.fund_code, DailyWorth.unit_nav)
+                .filter(
+                    DailyWorth.fund_code.in_(fund_codes),
+                    DailyWorth.date >= start,
+                )
+                .order_by(DailyWorth.fund_code.asc(), DailyWorth.date.asc())
+                .all()
+            )
 
     trends: dict[str, list[float]] = {}
     for symbol, close in rows:
         if close is None:
             continue
         trends.setdefault(symbol, []).append(round(close, 4))
+    # 基金净值并入 trends：键仍用前端符号 OF.xxxxxx，与 price_history 同口径（数值即单位净值）
+    for fund_code, unit_nav in nav_rows:
+        if unit_nav is None:
+            continue
+        trends.setdefault(f'OF.{fund_code}', []).append(round(unit_nav, 4))
     return jsonify({'data': trends, 'message': 'ok'})
 
 

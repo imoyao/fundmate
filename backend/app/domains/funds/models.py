@@ -167,3 +167,29 @@ class MoneyFundDailyWorth(Base, PrimaryKeyMixin, TimestampMixin):
     annual_return_7d = Column(Float, comment='七日年化收益率(%)，精度0.0001')
 
     fund = relationship('Fund', back_populates='money_fund_daily_worth')
+
+
+class AdvisorPortfolio(Base, PrimaryKeyMixin, TimestampMixin):
+    """投顾/基金组合公开参照（market 域，Turso）。
+
+    覆盖且慢/蛋卷/天天基金等平台的「投顾组合 / 实盘组合 / 基金组合」实体
+    （如且慢「远足」「成长五剑」、蛋卷策略组合）。属公开、读多写少的参照数据，
+    与用户私有 portfolios（组合归属）无关，落 market 域。
+
+    用户侧「自选投顾」只存 platform+code 业务键（见 watchlist 设计），
+    经 CrossDomainQuery 两步法回查本表，零跨域外键、零 SQL join。
+    """
+
+    __tablename__ = 'advisor_portfolios'
+
+    code = Column(String(30), unique=True, nullable=False, comment='平台组合代码(且慢ZHxxxx/蛋卷CSIxxxx/天天基金combo)')
+    platform = Column(String(20), nullable=False, comment='来源平台: QIEMAN/DANJUAN/TIANTIAN/YINGMI')
+    name = Column(String(100), nullable=False, comment='组合名称')
+    host = Column(String(60), comment='主理人')
+    org_name = Column(String(100), comment='主理人所属机构/平台方')
+    risk_level = Column(String(20), comment='风险等级')
+    strategy_type = Column(String(40), comment='策略类型(均衡/进取/稳健)')
+    cum_return = Column(Float, comment='累计收益(%)')
+    annual_return = Column(Float, comment='年化收益(%)')
+    running_days = Column(Integer, comment='运行天数')
+    is_active = Column(Boolean, default=True, comment='是否在售/有效')

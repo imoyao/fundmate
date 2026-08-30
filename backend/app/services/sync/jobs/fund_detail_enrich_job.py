@@ -19,8 +19,9 @@ from loguru import logger
 from sqlalchemy.orm import Session
 
 from app.core.time_utils import now_shanghai
-from app.domains.funds.models import FeeRatio, Fund, FundCompany, FundType, FundVariety, PurchaseRule, RedeemRule
+from app.domains.funds.models import FeeRatio, Fund, FundCompany, FundType, PurchaseRule, RedeemRule
 from app.services.fund_service import FundService
+from app.services.sync.fund_type_resolution import FundTypeResolver
 from app.services.sync.jobs.base import BATCH_SIZE_DETAIL_ENRICH, JobStatus, SyncJob
 
 
@@ -114,17 +115,6 @@ class FundDetailEnrichJob(SyncJob):
         )
         return self._build_result()
 
-    def _get_or_create_variety(self, variety_name: str) -> int:
-        """根据大类名称获取或创建 FundVariety，返回其 id"""
-        from app.domains.funds.models import FundVariety
-
-        variety = self.db.query(FundVariety).filter_by(name=variety_name).first()
-        if not variety:
-            variety = FundVariety(name=variety_name)
-            self.db.add(variety)
-            self.db.flush()
-        return variety.id
-
     # ── 基本信息更新 ──
 
     def _update_fund_basics(self, fund: Fund, detail: Dict[str, Any]) -> None:
@@ -132,21 +122,20 @@ class FundDetailEnrichJob(SyncJob):
         if not detail:
             return
 
-        # 基金类型映射
+        # 基金类型映射（文本 -> canonical ID 下沉到 FundTypeResolver，本 Job 只负责落库）
         raw_type = detail.get('fund_type_raw')
         raw_variety = detail.get('fund_variety_raw')
         if raw_type and not fund.fund_type_id:
-            type_id, variety_id = self._get_or_create_fund_type(raw_type, raw_variety)
+            type_id, variety_id = FundTypeResolver(self.db).resolve(raw_type, raw_variety)
             fund.fund_type_id = type_id
             if variety_id and not fund.fund_variety_id:
                 fund.fund_variety_id = variety_id
 
-        # 若已有小类但缺大类，单独补全
+        # 若已有小类但缺大类，单独补全（resolver 回填大类并同步 fund_type 关联）
         if fund.fund_type_id and not fund.fund_variety_id and raw_variety:
-            variety_id = self._get_or_create_variety(raw_variety)
+            _, variety_id = FundTypeResolver(self.db).resolve(raw_type='', raw_variety=raw_variety)
             if variety_id:
                 fund.fund_variety_id = variety_id
-                # 同步更新 fund_type 的关联
                 fund_type = self.db.query(FundType).filter_by(id=fund.fund_type_id).first()
                 if fund_type and fund_type.variety_id is None:
                     fund_type.variety_id = variety_id
@@ -295,34 +284,6 @@ class FundDetailEnrichJob(SyncJob):
             self.db.add(rule)
             self.db.flush()
         return rule
-
-    def _get_or_create_fund_type(self, type_name: str, variety_name: str = None) -> tuple:
-        """
-        根据小类名和大类名获取或创建对应的 FundType 和 FundVariety。
-        返回 (fund_type_id, fund_variety_id)。
-        """
-        # 1. 处理大类
-        variety_id = None
-        if variety_name:
-            variety = self.db.query(FundVariety).filter_by(name=variety_name).first()
-            if not variety:
-                variety = FundVariety(name=variety_name)
-                self.db.add(variety)
-                self.db.flush()
-            variety_id = variety.id
-
-        # 2. 处理小类
-        fund_type = self.db.query(FundType).filter_by(name=type_name).first()
-        if not fund_type:
-            fund_type = FundType(name=type_name, variety_id=variety_id)
-            self.db.add(fund_type)
-            self.db.flush()
-        elif variety_id is not None and fund_type.variety_id is None:
-            # 已有小类但未关联大类，补全关联
-            fund_type.variety_id = variety_id
-            self.db.flush()
-
-        return fund_type.id, fund_type.variety_id
 
     def _get_or_create_company(self, company_name: str) -> int:
         # FundCompany.code 必填，用公司名称作为 code
