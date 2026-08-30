@@ -27,9 +27,10 @@ export function useQuickEntry(opts?: { autoLoad?: boolean }) {
 }
 
 export function useQuickEntrySubmit(
-  opType: Ref<"buy" | "sell">,
+  opType: Ref<"buy" | "sell" | "dividend">,
   buyFormRef: Ref<any>,
-  sellFormRef: Ref<any>
+  sellFormRef: Ref<any>,
+  dividendFormRef?: Ref<any>
 ) {
   const submitting = ref(false);
 
@@ -38,7 +39,9 @@ export function useQuickEntrySubmit(
     submitting.value = true;
     try {
       if (opType.value === "buy") await buyFormRef.value?.handleSubmit();
-      else await sellFormRef.value?.handleSubmit();
+      else if (opType.value === "sell") await sellFormRef.value?.handleSubmit();
+      else if (opType.value === "dividend")
+        await dividendFormRef.value?.handleSubmit();
     } finally {
       submitting.value = false;
     }
@@ -51,6 +54,7 @@ export function useQuickEntrySubmit(
   function resetForms() {
     buyFormRef.value?.resetForm();
     sellFormRef.value?.resetForm();
+    dividendFormRef?.value?.resetForm();
   }
 
   return { submitting, handleSubmit, emitRefresh, resetForms };

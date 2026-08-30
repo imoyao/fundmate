@@ -781,8 +781,10 @@ class ImportOrchestrator:
                         result = PositionService.process_buy_or_deposit(self.db, data)
                     elif bt in (BusinessType.SELL.code, BusinessType.WITHDRAW.code):
                         result = PositionService.process_orphan_sell_or_withdraw(self.db, data)
-                    elif bt in (BusinessType.DIVIDEND_CASH.code, BusinessType.DIVIDEND_REINVEST.code):
+                    elif bt == BusinessType.DIVIDEND_CASH.code:
                         result = PositionService.process_orphan_dividend(self.db, data)
+                    elif bt == BusinessType.DIVIDEND_REINVEST.code:
+                        result = PositionService.process_orphan_dividend_reinvest(self.db, data)
                     elif bt == BusinessType.SPLIT.code:
                         # 转股：数量需转换，金额为 0
                         qty_units = Money.shares_to_min_unit(data['quantity'])

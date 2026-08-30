@@ -29,6 +29,8 @@ class PositionCreate(BaseModel):
     market_value_override: Optional[float] = Field(
         None, description='人工录入市值(元)；非空时优先于派生计算（balance 模式必填）'
     )
+    nav: Optional[float] = Field(None, description='净值（红利再投资申购价）')
+    dividend_amount: Optional[float] = Field(None, description='分红金额（红利再投资可再投金额）')
     import_hash: Optional[str] = Field(
         None,
         description='幂等键（手动记账由前端按提交意图生成）。'
