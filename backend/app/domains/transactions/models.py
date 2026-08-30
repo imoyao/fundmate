@@ -30,6 +30,13 @@ class Transaction(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     confirm_date = Column(Date, comment='确认日期')
     fee = Column(Integer, default=0, comment='手续费(分)')
     amount = Column(Integer, default=0, comment='交易总金额(分)')
+    realized_pnl = Column(
+        Integer,
+        default=0,
+        comment='该笔流水结转的已实现盈亏(分)：卖出/取出=(成交价−成本均价)×份额−手续费；现金分红=分红金额。'
+        '记在流水而非持仓上，因清仓会删除持仓行、记在持仓上会随之丢失。'
+        '汇总口径唯一出口见 services/pnl_service.py（#1183）',
+    )
     status = Column(String(20), default='success')
     entry_status = Column(String(20), nullable=True)
     link_group_id = Column(String(36), nullable=True, comment='关联交易组ID')

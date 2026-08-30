@@ -24,6 +24,12 @@ from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
 from app.domains.summary.models import AssetSnapshot
 from app.domains.transactions.models import Transaction
+from app.services.pnl_service import (
+    family_realized_pnl_cents,
+    net_invested_by_position,
+    position_pnl_cents,
+    realized_pnl_by_position,
+)
 
 # 🔄 市值口径收口（#1174）：仪表盘市值统一委托唯一口径，override / balance / nav 一并覆盖
 from app.services.position_valuation import market_value_cents
@@ -99,27 +105,36 @@ def orphan_money_fund_net_by_ledger(db: Session, family_id: int) -> dict[int, in
 
 
 def get_summary_data(db: Session, family_id: int = 1) -> dict[str, Any]:
-    """返回仪表盘聚合数据（总资产、总负债、净资产、总盈亏、市场分布）"""
+    """返回仪表盘聚合数据（总资产、总负债、净资产、盈亏拆分、市场分布）
+
+    盈亏口径见 `services/pnl_service.py`（#1183）：
+    - realized   已实现：卖出结转盈亏 + 现金分红，以**流水**为事实源（清仓后仍可查）
+    - unrealized 未实现：持仓浮动盈亏 = 市值 − 成本基数
+    - total      总盈亏 = realized + unrealized
+    """
     positions, assets = _load_user_assets(db, family_id)
 
     total_assets = 0.0
-    total_pnl = 0.0
     market_distribution: dict[str, float] = {}
 
-    # 一次遍历 positions，完成市值、盈亏、市场分布
+    # 两个 map 均按 family 一次性查出；禁止在循环里逐持仓查流水（N+1）
+    realized_map = realized_pnl_by_position(db, family_id)
+    invested_map = net_invested_by_position(db, family_id)
+
+    # 一次遍历 positions，完成市值、未实现盈亏、市场分布
+    unrealized_cents = 0
     for p in positions:
         rate = EXCHANGE_RATES.get(p.currency, 1.0)
         # 市值（#1174 收口）：委托唯一口径，override / balance / nav 三种情形在函数内统一处理
         market_value = Money.cents_to_yuan(market_value_cents(p, rate=rate))
         total_assets += market_value
 
-        # 盈亏 = (当前价 - 成本价) * 数量
-        pnl = (
-            (Money.price_units_to_yuan(p.current_price) - Money.price_units_to_yuan(p.avg_price))
-            * Money.min_unit_to_shares(p.quantity)
-            * rate
-        )
-        total_pnl += pnl
+        unrealized_cents += position_pnl_cents(
+            p,
+            rate=rate,
+            realized_cents=realized_map.get(p.id, 0),
+            net_invested=invested_map.get(p.id, 0),
+        )['unrealized_pnl_cents']
 
         market = p.market or '其他市场'
         market_distribution[market] = market_distribution.get(market, 0.0) + market_value
@@ -139,11 +154,16 @@ def get_summary_data(db: Session, family_id: int = 1) -> dict[str, Any]:
     orphan_net = sum(orphan_money_fund_net_by_ledger(db, family_id).values())
     total_assets += Money.cents_to_yuan(orphan_net)
 
+    # 已实现盈亏以流水为事实源，含已清仓持仓的结转盈亏与孤儿分红
+    realized_cents = family_realized_pnl_cents(db, family_id)
+
     return {
         'total_assets_cny': round(total_assets, 2),
         'total_liabilities_cny': round(total_liabilities, 2),
         'net_assets_cny': round(total_assets - total_liabilities, 2),
-        'total_pnl_cny': round(total_pnl, 2),
+        'realized_pnl_cny': round(Money.cents_to_yuan(realized_cents), 2),
+        'unrealized_pnl_cny': round(Money.cents_to_yuan(unrealized_cents), 2),
+        'total_pnl_cny': round(Money.cents_to_yuan(realized_cents + unrealized_cents), 2),
         'market_distribution': {k: round(v, 2) for k, v in market_distribution.items()},
     }
 
@@ -336,8 +356,11 @@ def get_distributions(db: Session, family_id: int = 1) -> dict[str, Any]:
     positions, assets = _load_user_assets(db, family_id)
 
     def _pos_mv(p) -> float:
+        # 口径分叉修复（#1183 附带）：原先这里裸算「份额 × 快照价」，绕过唯一市值口径，
+        # 导致 balance 模式（份额/价格为 0、市值靠 market_value_override）恒算成 0，
+        # 且与 get_summary_data 的仪表盘总额对不上（decisions.md D1 未收口的尾巴）。
         rate = EXCHANGE_RATES.get(p.currency, 1.0)
-        return Money.min_unit_to_shares(p.quantity) * Money.price_units_to_yuan(p.current_price) * rate
+        return Money.cents_to_yuan(market_value_cents(p, rate=rate))
 
     type_map: dict[str, float] = defaultdict(float)
     alloc_map: dict[str, float] = defaultdict(float)
