@@ -22,6 +22,10 @@ class WatchlistItem(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     status = Column(String(20), default='HOLDING', comment='HOLDING(持仓中) / WATCHING(观察中)')
     favorite = Column(Boolean, default=False, comment='特别关注标记')
     favorite_at = Column(Date, comment='设为特别关注的日期')
+    # 复盘提醒日期：未竟之蹊（/the-road-not-taken）卡片「下次复盘」字段，
+    # 与 cleared_positions.next_review_date 语义一致，但挂在自选条目上
+    # （清仓周期快照只在真清仓后才有一行，观察中/持仓中的标的也需要复盘节奏）。
+    next_review_date = Column(Date, comment='下次复盘提醒日期（用户可设置）')
     source_cycle_id = Column(Integer, comment='关联的清仓周期ID')
     is_pinned = Column(Boolean, default=False, comment='是否置顶')
     pinned_at = Column(DateTime, comment='置顶时间')

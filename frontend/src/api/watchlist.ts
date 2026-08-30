@@ -20,11 +20,16 @@ export interface WatchlistItem {
   status: string; // HOLDING / WATCHING
   favorite: boolean;
   favorite_at: string | null;
+  /** 下次复盘提醒日期（未竟之蹊卡片底部复盘提醒，用户可设） */
+  next_review_date?: string | null;
   is_pinned: boolean;
   pinned_at: string | null;
   add_reason: string | null;
   notes: string | null;
+  /** 笔记摘要（仅 favorites 接口下发，后端截断 80 字） */
+  notes_summary?: string | null;
   created_at?: string;
+  updated_at?: string;
   display_name: string;
   group_ids: number[];
   tag_ids: number[];
@@ -209,6 +214,10 @@ export function updateWatchlistTag(
   return http.request<any>("patch", `/api/watchlist/tags/${id}/`, { data });
 }
 
+/** 特别关注（未竟之蹊）列表：后端已 enrich（display_name/持仓统计/notes_summary） */
 export function getFavorites() {
-  return http.request<any>("get", "/api/watchlist/favorites/");
+  return http.request<ApiResponse<WatchlistItem[]>>(
+    "get",
+    "/api/watchlist/favorites/"
+  );
 }

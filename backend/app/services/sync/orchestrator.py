@@ -36,6 +36,7 @@ from app.services.sync.jobs.fund_detail_enrich_job import FundDetailEnrichJob
 from app.services.sync.jobs.fund_list_job import FundListSyncJob
 from app.services.sync.jobs.fund_manager_job import FundManagerSyncJob
 from app.services.sync.jobs.fund_nav_job import FundNavSyncJob
+from app.services.sync.jobs.fund_type_job import FundTypeSyncJob
 from app.services.sync.jobs.price_history_job import PriceHistorySyncJob
 from app.services.sync.jobs.stock_list_job import StockListSyncJob
 from app.services.thermometer.jobs import TemperatureJob
@@ -112,6 +113,7 @@ class DataSyncOrchestrator:
             self.data_sources['akshare'], self.data_sources['xalpha'], self.db
         )
         self.jobs['fund_manager'] = FundManagerSyncJob(self.data_sources['akshare'], self.db)
+        self.jobs['fund_type'] = FundTypeSyncJob(self.data_sources['akshare'], self.db)
         self.jobs['fund_nav'] = FundNavSyncJob(self.data_sources['xalpha'], self.db)
         self.jobs['price_history'] = PriceHistorySyncJob(self.data_sources['akshare'], self.db)
         self.jobs['temperature'] = TemperatureJob(NullAdapter(), self.db)
@@ -349,6 +351,8 @@ class DataSyncOrchestrator:
                 ('stock_list', ['__full__']),  # 全量刷新股票列表，不需要目标列表
                 ('fund_list', ['__full__']),  # 全量刷新基金列表
                 ('fund_detail_enrich', fund_targets),  # 补充基金详情（核心池）
+                ('fund_type', fund_targets),  # 回填基金类型（核心池，#1155 根治项）
+                ('fund_manager', fund_targets),  # 回填基金经理并关联基金公司（核心池）
                 ('fund_nav', fund_targets),  # 净值增量同步（核心池）
                 ('price_history', stock_targets),  # 行情增量同步（核心池）
             ]
