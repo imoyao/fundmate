@@ -166,6 +166,12 @@ class DatabaseConfig:
         设计要点：本方法永不返回 None（除非显式 force_none），因此 user 会话
         入口不再因「未配 Supabase」而抛错——这是单库/双库统一可用的关键。
         """
+        # development 默认回退本地 SQLite（与 app 开发库同源），不连 Supabase；
+        # 仅显式 DEV_FORCE_SUPABASE=1 才联调真库
+        if env == 'development' and not os.getenv('DEV_FORCE_SUPABASE'):
+            url = os.getenv('DEV_DATABASE_URL', _DEFAULT_DEV_DB)
+            connect_args = {'check_same_thread': False, 'timeout': 30}
+            return cls(name=DOMAIN_USER, url=url, connect_args=connect_args, pool_pre_ping=False)
         url = os.getenv('SUPABASE_DATABASE_URL')
         if url:
             # Postgres 不需要 SQLite 专用 connect_args
