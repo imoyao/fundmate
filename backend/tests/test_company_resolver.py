@@ -14,7 +14,11 @@ import importlib
 import app.core.config as config_mod
 import app.services.sync.company_resolver as company_resolver
 from app.domains.funds.models import FundCompany
-from app.services.sync.company_resolver import fetch_fund_company_list, get_company_code_by_name
+from app.services.sync.company_resolver import (
+    backfill_fund_company_codes,
+    fetch_fund_company_list,
+    get_company_code_by_name,
+)
 from app.services.sync.jobs.fund_detail_enrich_job import FundDetailEnrichJob
 
 
@@ -71,3 +75,54 @@ def test_config_default(monkeypatch):
     monkeypatch.delenv('SYNC__FUND_LIST_SOURCE', raising=False)
     importlib.reload(config_mod)
     assert config_mod.SYNC__FUND_LIST_SOURCE == 'eastmoney'
+
+
+def test_backfill_iterative_normalization_hits(db, monkeypatch):
+    """「基金管理股份有限公司」经迭代归一化剥离到品牌词，命中简称 code（#1199）。"""
+    monkeypatch.setattr(
+        company_resolver,
+        'fetch_fund_company_list',
+        lambda: [{'code': '80000221', 'name': '银华基金'}],
+    )
+    company_resolver._cache = None
+    db.add(FundCompany(code='银华基金管理股份有限公司', name='银华基金管理股份有限公司'))
+    db.commit()
+    res = backfill_fund_company_codes(db, dry_run=True)
+    assert res['total_placeholders'] == 1
+    assert len(res['matched']) == 1
+    assert res['matched'][0]['new_code'] == '80000221'
+    assert len(res['unmatched']) == 0
+
+
+def test_backfill_paren_suffix_normalization(db, monkeypatch):
+    """「(中国)」属地括号被去除后，摩根士丹利基金管理(中国) 命中摩根士丹利基金。"""
+    monkeypatch.setattr(
+        company_resolver,
+        'fetch_fund_company_list',
+        lambda: [{'code': '80560407', 'name': '摩根士丹利基金'}],
+    )
+    company_resolver._cache = None
+    db.add(FundCompany(code='摩根士丹利基金管理(中国)有限公司', name='摩根士丹利基金管理(中国)有限公司'))
+    db.commit()
+    res = backfill_fund_company_codes(db, dry_run=True)
+    assert len(res['matched']) == 1
+    assert res['matched'][0]['new_code'] == '80560407'
+
+
+def test_backfill_code_conflict_goes_unmatched(db, monkeypatch):
+    """真值 code 已被占用时，占位行进入 unmatched 而非误写（避免唯一约束冲突）。"""
+    monkeypatch.setattr(
+        company_resolver,
+        'fetch_fund_company_list',
+        lambda: [{'code': '80431710', 'name': '国都证券'}],
+    )
+    company_resolver._cache = None
+    # 一行已是真值 code，一行同名占位
+    db.add(FundCompany(code='80431710', name='国都证券'))
+    db.add(FundCompany(code='招商证券资产管理有限公司', name='招商证券资产管理有限公司'))
+    db.commit()
+    res = backfill_fund_company_codes(db, dry_run=True)
+    assert res['total_placeholders'] == 1
+    assert len(res['matched']) == 0
+    assert len(res['unmatched']) == 1
+    assert res['unmatched'][0]['name'] == '招商证券资产管理有限公司'
