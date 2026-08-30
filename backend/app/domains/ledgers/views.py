@@ -29,8 +29,8 @@ from app.domains.positions.models import Position, PositionImportMeta, SalesInst
 from app.domains.positions.views import enrich_position_dict
 from app.domains.transactions.models import Transaction
 from app.services.fund_aggregation import get_fund_aggregation as svc_get_fund_aggregation
-from app.services.position_aggregation import DEFAULT_PAGE_SIZE
 from app.services.fund_service import FundService
+from app.services.position_aggregation import DEFAULT_PAGE_SIZE
 from app.services.transaction_service import TransactionService
 
 # 外部基金列表缓存（进程级，基金列表极少变动）：用于「本地库无此货基时」补建 Fund 行
@@ -73,13 +73,17 @@ def _resolve_money_fund(db, fund_code: str):
     return None
 
 
-def _check_money_fund_bindable(db, fund: Fund) -> str | None:
-    """校验基金是否可作为「活期+」绑定标的（#1156 后端防呆）。
+def _check_money_fund_bindable(db, fund: Fund, ledger_type: str) -> str | None:
+    """校验基金是否可作为「活期+」绑定标的，并按账户渠道约束可绑范围（#1156/#1154）。
 
     复用 FundService._judge_money_fund 三态判定（与前端 disabled 策略一致）：
-      - True  → 允许
+      - True  → 允许（进入渠道约束）
       - None  → 类型未知，允许但记 warning（避免 fund_type_id 缺失误拒）
       - False → 明确非货基，拒绝
+    渠道约束（#1154，方案 B：按账户 ledger_type 约束，不加 Fund 字段）：
+      - 场内货币ETF（511/519/159）→ 属投资范畴，任何账户均不可绑
+      - 券商渠道现金管理（026/970）→ 仅证券账户(stock)可绑
+      - 场外货基 → 仅基金平台账户(fund)可绑
     返回 None 表示可绑定；返回字符串为 400 拒绝原因。
     """
     has_worth = (
@@ -91,6 +95,14 @@ def _check_money_fund_bindable(db, fund: Fund) -> str | None:
         return '活期+ 仅支持货币基金类产品'
     if is_mf is None:
         logger.warning(f'绑定活期+ 的基金类型未知（{fund.fund_code} {fund.name}），按前端策略放行')
+    # 渠道约束（#1154，方案 B）：按账户类型约束可绑范围，不加 Fund 字段
+    channel = FundService._classify_money_fund_channel(fund.fund_code)
+    if channel == 'exchange_traded':
+        return '场内货币ETF（如华宝添益/银华日利）属投资范畴，不可绑定活期+'
+    if channel == 'broker_channel' and ledger_type != 'stock':
+        return '证券账户活期+ 仅支持券商渠道现金管理产品（如银河水星现金添利）'
+    if channel == 'off_exchange' and ledger_type != 'fund':
+        return '基金平台账户活期+ 仅支持场外货币基金'
     return None
 
 
@@ -386,7 +398,7 @@ def create_ledger():
             fund = _resolve_money_fund(db, linked_money_fund_code)
             if not fund:
                 return jsonify({'data': None, 'message': '绑定的活期+不存在'}), 400
-            reject = _check_money_fund_bindable(db, fund)
+            reject = _check_money_fund_bindable(db, fund, ledger_type)
             if reject:
                 return jsonify({'data': None, 'message': reject}), 400
             linked_money_fund_id = fund.id
@@ -623,7 +635,7 @@ def update_ledger(ledger_id: int):
                 fund = _resolve_money_fund(db, fund_code)
                 if not fund:
                     return jsonify({'data': None, 'message': '绑定的活期+不存在'}), 400
-                reject = _check_money_fund_bindable(db, fund)
+                reject = _check_money_fund_bindable(db, fund, ledger.ledger_type)
                 if reject:
                     return jsonify({'data': None, 'message': reject}), 400
                 ledger.linked_money_fund_id = fund.id

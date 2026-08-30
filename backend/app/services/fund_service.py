@@ -171,6 +171,30 @@ class FundService:
             return True
         return None
 
+    # 货基渠道分类代码前缀（启发式，akshare/xalpha 无 market/上市字段，见 #1154）。
+    # 场内货币ETF（511/519/159）属投资范畴，不纳入现金类；券商渠道现金管理（026/970）
+    # 仅证券账户可绑；其余为场外货基，仅基金平台账户可绑。
+    EXCHANGE_TRADED_MF_PREFIXES = ('511', '519', '159')
+    BROKER_CHANNEL_MF_PREFIXES = ('026', '970')
+
+    @staticmethod
+    def _classify_money_fund_channel(fund_code: Optional[str]) -> str:
+        """按代码前缀启发式判定货基渠道类别（#1154，方案 B）。
+
+        akshare/xalpha 不提供 market/上市字段，只能靠代码前缀：
+          - 'exchange_traded'：场内货币ETF（511/519/159），属投资范畴，不纳入现金类
+          - 'broker_channel'：券商渠道现金管理产品（026/970）
+          - 'off_exchange'：其余场外货基
+        """
+        if not fund_code:
+            return 'off_exchange'
+        prefix = fund_code[:3]
+        if prefix in FundService.EXCHANGE_TRADED_MF_PREFIXES:
+            return 'exchange_traded'
+        if prefix in FundService.BROKER_CHANNEL_MF_PREFIXES:
+            return 'broker_channel'
+        return 'off_exchange'
+
     @staticmethod
     def search_funds(db: Session, keyword: str) -> List[Dict[str, Any]]:
         """模糊搜索基金（代码/名称/拼音）。
