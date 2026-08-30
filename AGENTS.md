@@ -191,6 +191,49 @@
 
 ---
 
+## 依赖复用与 Worktree 规范
+
+> 多 worktree 并行开发时，每个 worktree 重复 `pnpm install` / `pdm install` 既耗时又占盘。本节规定复用策略，所有 AI / 开发者开新 worktree 后**必须**按此执行。
+
+### 原理（为什么不能"直接复用主仓库依赖"）
+
+- pnpm / PDM 均使用**全局 content-addressable store/cache** 去重：包体只下载一次（pnpm 默认 `%LOCALAPPDATA%\pnpm\store`；PDM 默认 `~/.cache/pdm`）。
+- 各 worktree 内的 `node_modules` / `.venv` 不是副本，而是**符号链接 / junction 指回全局 store**，磁盘占用极小（仅链接层，非包本体）。
+- **硬约束**：Node 模块解析要求 `node_modules` 必须位于工作树自身目录内（相对 `import`、`.bin`、`pnpm` 虚拟仓库 `.pnpm` 均依赖此位置），故不能把新 worktree 的 `node_modules` 直接指向主仓库，否则 `import` 失败。重复 `install` 的本质是"重建链接结构"，不是"重新下载安装"（数十秒属建链接，非重装）。
+
+### 标准流程（开新 worktree 后）
+
+1. **先比对锁文件一致性**：运行以下命令确认锁文件未变。
+
+   ```powershell
+   git diff <base-branch> -- frontend/pnpm-lock.yaml frontend/package.json backend/pyproject.toml
+   ```
+
+2. **锁文件一致**（同一条 dev 分支派生，最常见）→ 用目录联结（junction）复用主 worktree 的依赖，零下载、秒级、零额外磁盘：
+
+   ```powershell
+   # 前端：删掉新 worktree 自带（或空的）node_modules，挂接主仓库那份
+   Remove-Item "D:\codes\<new-worktree>\frontend\node_modules" -Recurse -Force -ErrorAction SilentlyContinue
+   cmd /c mklink /J "D:\codes\<new-worktree>\frontend\node_modules" "D:\codes\fundmate\frontend\node_modules"
+   # 后端：同理复用主仓库 backend/.venv（junction，或 PDM `venv.location` 共享）
+   ```
+
+   - junction 不需要管理员权限；主 worktree 的 `node_modules` / `.venv` 须保持稳定（不要在其中改动依赖）。
+
+3. **锁文件不一致**（某分支升级了依赖）→ 禁止 junction，走正规安装：
+
+   ```powershell
+   cd <new-worktree>/frontend && pnpm install --offline
+   cd <new-worktree>/backend && pdm install
+   ```
+
+### 风险闸门
+
+- 仅当锁文件逐字节一致才可 junction；一旦某 worktree 的 `package.json` / `pnpm-lock.yaml` / `pyproject.toml` 与主仓库不同，复用旧 `node_modules` 会**版本错配**导致诡异运行时错误。此时必须走第 3 步。
+- 同一时刻只在一个 worktree 跑 `pnpm install` / `pdm install`，避免两 worktree 同时改写共享 store 的链接层。
+
+---
+
 ## 文档站与落地页
 
 - **文档站**：根目录执行 `pnpm run docs:dev` / `docs:build`。
