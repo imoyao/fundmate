@@ -884,71 +884,16 @@ class PositionService:
         去重：分红流水沿用原始 import_hash（重导时命中即跳过整条记录，见 orchestrator.commit），
         申购流水用派生 hash `{原 hash}#reinvest`，避开 uq_txn_import_hash 唯一约束。
         """
-        position_id = data['position_id']
-        dividend_amount = float(data.get('dividend_amount') or 0)
-        shares = float(data.get('quantity') or 0)
-        nav = float(data.get('nav') or 0)
-
-        existing = db.query(Position).filter_by(id=position_id, family_id=data.get('family_id', 1)).first()
+        position_id = data.get('position_id')
+        if not position_id:
+            raise ValueError('红利再投资必须指定关联持仓（position_id）')
+        family_id = data.get('family_id', 1)
+        existing = db.query(Position).filter_by(id=position_id, family_id=family_id).first()
         if not existing:
-            logger.error(f'持仓不存在: position_id={position_id}')
             raise ValueError('指定的持仓不存在')
-
-        # 净值缺失时按「分红金额 / 份额」反推：标准模板已强制二者必填，
-        # 此处为支付宝/同花顺等未回填净值的解析器兜底。
-        if nav <= 0 and shares > 0 and dividend_amount > 0:
-            nav = round(dividend_amount / shares, 4)
-            logger.info(f'红利再投资缺少净值，按 金额/份额 反推: nav={nav}')
-
-        try:
-            # 1) 分红到账：现金流入，份额不变
-            TransactionService.create(
-                db=db,
-                position_id=position_id,
-                txn_type='dividend',
-                symbol=existing.symbol,
-                trade_date=data.get('trade_date'),
-                confirm_date=data.get('confirm_date'),
-                asset_type=existing.asset_type,
-                link_group_id=data.get('link_group_id'),
-                quantity=0,
-                price=0,
-                fee=0,
-                amount=Money.yuan_to_cents(dividend_amount),
-                status='success',
-                position_name=existing.name,
-                account_name=existing.account_name,
-                ledger_id=existing.ledger_id,
-                notes=data.get('notes') or '现金分红（红利再投资）',
-                import_hash=data.get('import_hash'),
-                family_id=data.get('family_id', 1),
-            )
-            db.flush()
-
-            # 2) 按净值申购：复用买入链路，份额与成本均价由 process_buy_or_deposit 统一维护。
-            #    定位字段一律取自持仓本身而非 data——分红入参不保证携带 symbol/asset_type，
-            #    若透传空值会让 process_buy_or_deposit 匹配不到持仓而新建一条重复持仓。
-            buy_data = dict(data)
-            buy_data.update(
-                {
-                    'op_type': 'buy',
-                    'quantity': shares,
-                    'avg_price': nav,
-                    'symbol': existing.symbol,
-                    'name': existing.name,
-                    'market': existing.market,
-                    'asset_type': existing.asset_type,
-                    'account_name': existing.account_name,
-                    'ledger_id': existing.ledger_id,
-                    'import_hash': f'{data.get("import_hash")}#reinvest' if data.get('import_hash') else None,
-                    'notes': '红利再投资申购',
-                }
-            )
-            return PositionService.process_buy_or_deposit(db, buy_data)
-
-        except Exception:
-            logger.exception('红利再投资处理失败')
-            raise
+        link_group_id = data.get('link_group_id') or uuid.uuid4().hex
+        _reinvest_dual_flow(db, data, existing, link_group_id)
+        return existing
 
     @staticmethod
     def process_orphan_sell_or_withdraw(db: Session, data: dict) -> Optional[Position]:
