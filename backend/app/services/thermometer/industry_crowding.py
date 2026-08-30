@@ -48,7 +48,6 @@ from typing import List, Optional
 from loguru import logger
 
 try:
-    import akshare as ak
     import pandas as pd
     import requests
 
@@ -256,6 +255,10 @@ def market_pb_series():
     """
     # 1) legulegu 全历史
     try:
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+
         df = ak.stock_a_all_pb()[['date', 'middlePB']].copy()
         df['date'] = pd.to_datetime(df['date'])
         s = df.dropna().set_index('date')['middlePB']
@@ -293,6 +296,10 @@ def market_pb_series():
 # ───────────────── 路径A：legulegu（免费，部分行业）─────────────────
 def _legulegu_token():
     from py_mini_racer import MiniRacer
+
+    from app.core.akshare_lazy import get_akshare
+
+    ak = get_akshare()
 
     akdir = os.path.dirname(ak.__file__)
     txt = open(akdir + '/stock_feature/stock_a_pe_and_pb.py', encoding='utf-8', errors='ignore').read()
