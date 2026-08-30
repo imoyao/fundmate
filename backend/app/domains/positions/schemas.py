@@ -53,6 +53,15 @@ class PositionUpdate(BaseModel):
     notes: Optional[str] = Field(None, description='备注')
 
 
+class AllocateValueRequest(BaseModel):
+    """按占比批量更新某产品跨账户总价（P1-4）。"""
+
+    symbol: str = Field(..., description='产品代码（同一产品跨账户分摊总价）')
+    total_value: float = Field(..., gt=0, description='产品维度新总价（元）')
+    as_of: Optional[date] = Field(None, description='市值录入日期，默认今天')
+    ledger_id: Optional[int] = Field(None, description='限定只分摊到某个账户；缺省跨该 family 下全部活跃账户')
+
+
 class PositionOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
