@@ -215,10 +215,29 @@
    # 前端：删掉新 worktree 自带（或空的）node_modules，挂接主仓库那份
    Remove-Item "D:\codes\<new-worktree>\frontend\node_modules" -Recurse -Force -ErrorAction SilentlyContinue
    cmd /c mklink /J "D:\codes\<new-worktree>\frontend\node_modules" "D:\codes\fundmate\frontend\node_modules"
-   # 后端：同理复用主仓库 backend/.venv（junction，或 PDM `venv.location` 共享）
    ```
 
-   - junction 不需要管理员权限；主 worktree 的 `node_modules` / `.venv` 须保持稳定（不要在其中改动依赖）。
+   - junction 不需要管理员权限；主 worktree 的 `node_modules` 须保持稳定（不要在其中改动依赖）。
+   - **仅前端 `node_modules` 可 junction**：它装的是第三方依赖、不含本仓源码，多 worktree 共享安全。
+
+4. **后端 `.venv` 禁止 junction 复用**（2026-08-30 实测踩坑）：PDM 以 **editable 方式**把 `app` 包装进 venv，
+   `.pth` 里写的是**创建该 venv 时的绝对源码路径**。junction 复用主 worktree 的 `.venv` 后，
+   在新 worktree 执行 `import app.core.constants` 仍会解析到**主 worktree** 的源码。实测症状：
+
+   - `ImportError: cannot import name 'ValuationMode' from 'app.core.constants'
+     (D:\codes\fundmate\backend\app\core\constants.py)` —— 新写的代码明明在，却导入不到；
+   - 主 worktree 分支落后于 dev 时，还会连带报 `ModuleNotFoundError: No module named 'app.core.config'`
+     一类「文件明明在却找不到」的假象（那些是 dev 上才有的新模块）。
+
+   正确做法：新 worktree 里**独立安装**（走 PDM 全局缓存，是建链接不是重新下载，约 1~2 分钟）：
+
+   ```powershell
+   cd <new-worktree>/backend && pdm install -G dev
+   pdm run python -c "import app.core.constants as c; print(c.__file__)"   # 必须指向当前 worktree
+   ```
+
+   **自检铁律**：装完必须打印 `app` 模块路径确认指向**当前 worktree**，否则测试跑的是别人的代码，
+   而失败信息会指向错误的方向。
 
 3. **锁文件不一致**（某分支升级了依赖）→ 禁止 junction，走正规安装：
 
