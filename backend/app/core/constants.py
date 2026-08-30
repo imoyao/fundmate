@@ -114,6 +114,7 @@ OP_TYPE_LABEL = {
     'buy': '买入',
     'sell': '卖出',
     'dividend': '分红',
+    'dividend_reinvest': '红利再投资',
     'deposit': '存入',
     'withdraw': '取出',
     'split': '拆分',

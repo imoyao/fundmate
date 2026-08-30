@@ -222,6 +222,7 @@ def create_position():
     - buy: 买入（创建新持仓 + 买入流水）
     - sell: 卖出（减少持仓数量 + 卖出流水）
     - dividend: 分红（不改变持仓数量 + 分红流水）
+    - dividend_reinvest: 红利再投资（分红现金流水 + 按净值申购流水，份额增加）
     - deposit: 存入（增加持仓 + 存入流水）
     - withdraw: 取出（减少持仓 + 取出流水）
     """
@@ -237,6 +238,10 @@ def create_position():
             elif op_type == 'dividend':
                 data['dividend_amount'] = data.get('avg_price', 0)
                 position = PositionService.process_dividend(db, data)
+            elif op_type == 'dividend_reinvest':
+                data['dividend_amount'] = data.get('dividend_amount', data.get('amount', data.get('avg_price', 0)))
+                data['nav'] = data.get('nav', data.get('avg_price', 0))
+                position = PositionService.process_dividend_reinvest(db, data)
             elif op_type in ('buy', 'deposit'):
                 try:
                     position = PositionService.process_buy_or_deposit(db, data)
