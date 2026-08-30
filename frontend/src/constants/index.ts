@@ -101,7 +101,7 @@ export const TXN_TYPE_LABELS: Record<string, string> = {
   dividend: "分红",
   deposit: "存入",
   withdraw: "取出",
-  split: "送股",
+  split: "送股/拆分",
   dividend_reinvest: "红利再投资"
 };
 

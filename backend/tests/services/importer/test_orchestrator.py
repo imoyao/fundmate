@@ -3,7 +3,7 @@
 # Date : 2026/6/3 23:21
 # File : test_orchestrator.py
 # tests/services/importer/test_orchestrator.py
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
 import pytest
@@ -67,8 +67,8 @@ def test_validate_file_type_accepts_stock_in_stock_account():
 # ── B1–B5 修复回归（2026-08-17） ──
 
 
-def test_commit_split_price_converted_to_cents(db):
-    """B1 修复：SPLIT（转股）价格按分入库，与 BOND_REDEEM 口径一致。"""
+def test_commit_split_records_orphan_when_no_position(db):
+    """P2-2：导入送股无关联持仓时记孤儿流水（份额计入、价格/金额为零），不阻断导入。"""
     orch = ImportOrchestrator(db, family_id=1)
     record = StandardTransactionRecord(
         confirm_date=date(2026, 8, 1),
@@ -83,10 +83,51 @@ def test_commit_split_price_converted_to_cents(db):
     )
     result = orch.commit([record])
     assert result['imported'] == 1
+    assert result['orphan_count'] == 1
     txn = db.query(Transaction).filter_by(txn_type='split').first()
     assert txn is not None
-    assert txn.price == Money.yuan_to_price_units(10.5)  # 1050 分
+    assert txn.entry_status == 'orphan'
+    assert txn.price == 0
     assert txn.quantity == Money.shares_to_min_unit(100)
+
+
+def test_commit_split_associates_existing_position(db):
+    """P2-2：导入送股有关联持仓时计入份额、均价被零成本份额稀释。"""
+    PositionService.process_buy_or_deposit(
+        db,
+        {
+            'symbol': 'SH600001',
+            'name': '测试转股',
+            'asset_type': 'stock',
+            'quantity': 100,
+            'avg_price': 10,
+            'ledger_id': 1,
+            'account_name': '测试账户',
+            'family_id': 1,
+            'trade_date': datetime(2026, 7, 1),
+            'confirm_date': date(2026, 7, 1),
+        },
+    )
+    orch = ImportOrchestrator(db, family_id=1)
+    record = StandardTransactionRecord(
+        confirm_date=date(2026, 8, 1),
+        asset_type='stock',
+        symbol='SH600001',
+        name='测试转股',
+        business_type='split',
+        amount=Decimal('0'),
+        account_name='测试账户',
+        shares=Decimal('100'),
+        nav=Decimal('10.5'),
+    )
+    result = orch.commit([record])
+    assert result['imported'] == 1
+    assert result['orphan_count'] == 0
+    pos = db.query(Position).filter_by(symbol='SH600001', account_name='测试账户', family_id=1).first()
+    assert pos.quantity == Money.shares_to_min_unit(200)
+    txn = db.query(Transaction).filter_by(txn_type='split', position_id=pos.id).first()
+    assert txn is not None
+    assert txn.entry_status == 'success'
 
 
 def test_commit_from_preview_passes_net_amount(db):

@@ -117,7 +117,7 @@ OP_TYPE_LABEL = {
     'dividend_reinvest': '红利再投资',
     'deposit': '存入',
     'withdraw': '取出',
-    'split': '拆分',
+    'split': '送股/拆分',
     'bond_redeem': '债券兑付',
     'tax': '扣税',
     'other': '其他',

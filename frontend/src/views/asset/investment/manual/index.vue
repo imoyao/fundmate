@@ -137,6 +137,9 @@
               <el-radio-button label="dividend" class="flex-1">
                 <span class="px-4 py-1.5 block text-center">现金分红</span>
               </el-radio-button>
+              <el-radio-button label="split" class="flex-1">
+                <span class="px-4 py-1.5 block text-center">送股/拆分</span>
+              </el-radio-button>
             </el-radio-group>
           </template>
           <!-- 基金操作组 -->
@@ -154,6 +157,9 @@
               </el-radio-button>
               <el-radio-button label="dividend_reinvest" class="flex-1">
                 <span class="px-4 py-1.5 block text-center">红利再投</span>
+              </el-radio-button>
+              <el-radio-button label="split" class="flex-1">
+                <span class="px-4 py-1.5 block text-center">送股/拆分</span>
               </el-radio-button>
               <el-radio-button label="convert" class="flex-1">
                 <span class="px-4 py-1.5 block text-center">转换</span>
@@ -218,14 +224,20 @@
           @submit-success="onSubmitSuccess"
           @positions-loaded="sellableLedgerIds = $event"
         />
-        <!-- 分红 / 红利再投 -->
+        <!-- 分红 / 红利再投 / 送股拆分 -->
         <DividendForm
-          v-else-if="isDividendLike"
+          v-else-if="isDividendLike || isSplit"
           ref="dividendFormRef"
           :ledgers="ledgers"
           :hide-account-select="true"
           :default-ledger-id="selectedLedgerId"
-          :mode="stockOpType === 'dividend' ? 'dividend' : 'dividend_reinvest'"
+          :mode="
+            isSplit
+              ? 'split'
+              : stockOpType === 'dividend'
+                ? 'dividend'
+                : 'dividend_reinvest'
+          "
           @submit-success="onSubmitSuccess"
         />
         <!-- 未实现功能占位 -->
@@ -313,9 +325,9 @@ const isSellLike = computed(() => {
   return false;
 });
 
-const stockOpType = ref<"buy" | "sell" | "dividend">("buy");
+const stockOpType = ref<"buy" | "sell" | "dividend" | "split">("buy");
 const fundOpType = ref<
-  "subscribe" | "redeem" | "dividend_reinvest" | "convert" | "drip"
+  "subscribe" | "redeem" | "dividend_reinvest" | "convert" | "drip" | "split"
 >("subscribe");
 
 const buyFormRef = ref<InstanceType<typeof BuyForm>>();
@@ -331,8 +343,16 @@ const isDividendLike = computed(() => {
   return false;
 });
 
+// 送股/拆分：复用分红表单（选持仓 + 份额），按操作类型切换子模式
+const isSplit = computed(() => {
+  if (currentLedgerType.value === "stock") return stockOpType.value === "split";
+  if (["fund", "bank"].includes(currentLedgerType.value || ""))
+    return fundOpType.value === "split";
+  return false;
+});
+
 const opTypeComputed = computed(() => {
-  if (isDividendLike.value) return "dividend";
+  if (isDividendLike.value || isSplit.value) return "dividend";
   return stockOpType.value === "sell" || fundOpType.value === "redeem"
     ? "sell"
     : "buy";
@@ -341,12 +361,18 @@ const {
   submitting,
   handleSubmit: coreHandleSubmit,
   resetForms
-} = useQuickEntrySubmit(opTypeComputed, buyFormRef, sellFormRef, dividendFormRef);
+} = useQuickEntrySubmit(
+  opTypeComputed,
+  buyFormRef,
+  sellFormRef,
+  dividendFormRef
+);
 
 // ── 方法 ──
 const getFundOpLabel = (type: string) => {
   const map: Record<string, string> = {
     dividend_reinvest: "红利再投",
+    split: "送股/拆分",
     convert: "转换",
     drip: "定投"
   };

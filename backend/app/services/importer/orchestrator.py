@@ -786,32 +786,7 @@ class ImportOrchestrator:
                     elif bt == BusinessType.DIVIDEND_REINVEST.code:
                         result = PositionService.process_orphan_dividend_reinvest(self.db, data)
                     elif bt == BusinessType.SPLIT.code:
-                        # 转股：数量需转换，金额为 0
-                        qty_units = Money.shares_to_min_unit(data['quantity'])
-                        TransactionService.create(
-                            db=self.db,
-                            position_id=None,
-                            txn_type='split',
-                            trade_date=data.get('trade_date'),
-                            confirm_date=data.get('confirm_date'),
-                            asset_type=data.get('type'),
-                            quantity=qty_units,
-                            price=Money.yuan_to_price_units(
-                                data.get('avg_price', 0)
-                            ),  # B1 修复：0.0001元单位，与 BOND_REDEEM 一致（转股无价格时为 0）
-                            fee=0,
-                            amount=0,
-                            status='success',
-                            position_name=data.get('name', data['symbol']),
-                            account_name=data.get('account_name', ''),
-                            notes='转股入账（需手动关联持仓）',
-                            import_hash=data.get('import_hash'),
-                            entry_status='orphan',
-                            family_id=self.family_id,
-                        )
-                        orphan_count += 1
-                        imported += 1
-                        continue
+                        result = PositionService.process_orphan_split(self.db, data)
                     else:
                         skipped += 1
                         continue
