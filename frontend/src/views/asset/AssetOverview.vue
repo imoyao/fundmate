@@ -222,31 +222,15 @@
       </div>
 
       <div class="bg-white rounded-xl shadow-md p-5">
-        <div class="flex justify-between items-center mb-4">
-          <h4 class="font-semibold text-gray-800">收益趋势</h4>
-          <div class="flex space-x-1">
-            <button
-              class="px-2 py-0.5 text-[10px] bg-orange-500 text-white rounded"
-              @click="setProfitPeriod('monthly')"
-            >
-              月度
-            </button>
-            <button
-              class="px-2 py-0.5 text-[10px] bg-gray-200 text-gray-600 rounded hover:bg-gray-300"
-              @click="setProfitPeriod('quarterly')"
-            >
-              季度
-            </button>
-            <button
-              class="px-2 py-0.5 text-[10px] bg-gray-200 text-gray-600 rounded hover:bg-gray-300"
-              @click="setProfitPeriod('yearly')"
-            >
-              年度
-            </button>
-          </div>
-        </div>
-        <div class="h-52">
+        <h4 class="font-semibold text-gray-800 mb-4">资产净值走势</h4>
+        <div class="relative h-52">
           <canvas ref="profitTrendChartRef" />
+          <p
+            v-if="!profitTrendData.length"
+            class="absolute inset-0 flex items-center justify-center text-sm text-gray-400"
+          >
+            暂无资产快照数据
+          </p>
         </div>
       </div>
 
@@ -362,6 +346,8 @@ import { ref, onMounted, nextTick } from "vue";
 import echarts from "@/plugins/echarts";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
 import GhostDuplicateBanner from "@/components/GhostDuplicateBanner/index.vue";
+import { getDistributions, getSnapshots } from "@/api/summary";
+import { getCssVar } from "@/composables/echarts/theme";
 
 const distributionChartRef = ref<HTMLCanvasElement | null>(null);
 const profitTrendChartRef = ref<HTMLCanvasElement | null>(null);
@@ -371,9 +357,26 @@ let distributionChart: echarts.ECharts | null = null;
 let profitTrendChart: echarts.ECharts | null = null;
 let riskHeatmapChart: echarts.ECharts | null = null;
 
+// 真实数据源（替代原硬编码假数据）：大类市值分布来自 /summary/distributions/，
+// 净值走势来自 /summary/snapshots/（资产快照历史，升序）。
+const distributionData = ref<Array<{ name: string; value: number }>>([]);
+const profitTrendData = ref<Array<{ date: string; net: number }>>([]);
+
+const CHART_PALETTE_VARS = [
+  "--chart-01",
+  "--chart-02",
+  "--chart-03",
+  "--chart-04",
+  "--chart-05",
+  "--chart-06",
+  "--chart-07",
+  "--chart-08"
+];
+
 const initDistributionChart = () => {
   if (!distributionChartRef.value) return;
   distributionChart = echarts.init(distributionChartRef.value);
+  const isEmpty = distributionData.value.length === 0;
   distributionChart.setOption({
     tooltip: { trigger: "item", formatter: "{b}: {c} ({d}%)" },
     legend: {
@@ -387,12 +390,23 @@ const initDistributionChart = () => {
         type: "pie",
         radius: ["40%", "65%"],
         center: ["50%", "45%"],
-        data: [
-          { value: 36.5, name: "股票", itemStyle: { color: "#FF6B00" } },
-          { value: 28.9, name: "基金", itemStyle: { color: "#FF7D00" } },
-          { value: 34.6, name: "房产", itemStyle: { color: "#006400" } },
-          { value: 9.0, name: "贵金属", itemStyle: { color: "#FFD700" } }
-        ]
+        // 空态：echarts 在总和为 0 时会均分扇区（误导），故空时显示中心文案
+        label: isEmpty
+          ? {
+              show: true,
+              position: "center",
+              formatter: "暂无数据",
+              color: getCssVar("--text-tertiary", "#999"),
+              fontSize: 12
+            }
+          : { show: false },
+        data: isEmpty
+          ? [{ name: "暂无数据", value: 1 }]
+          : distributionData.value.map((d, i) => ({
+              name: d.name,
+              value: d.value,
+              itemStyle: { color: getCssVar(CHART_PALETTE_VARS[i % 8], "#8E8B82") }
+            }))
       }
     ]
   });
@@ -407,7 +421,7 @@ const initProfitTrendChart = () => {
     xAxis: {
       type: "category",
       boundaryGap: false,
-      data: ["1月", "2月", "3月", "4月", "5月", "6月", "7月"],
+      data: profitTrendData.value.map(d => d.date),
       axisLabel: { fontSize: 10 }
     },
     yAxis: {
@@ -416,17 +430,18 @@ const initProfitTrendChart = () => {
     },
     series: [
       {
-        name: "累计收益",
+        name: "净资产",
         type: "line",
         smooth: true,
-        data: [120, 190, 170, 220, 280, 250, 310],
+        data: profitTrendData.value.map(d => d.net),
         areaStyle: {
           color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
             { offset: 0, color: "rgba(255, 107, 0, 0.3)" },
             { offset: 1, color: "rgba(255, 107, 0, 0.05)" }
           ])
         },
-        itemStyle: { color: "#FF6B00" },
+        // 主色走语义变量（--brand-700），避免硬编码 hex（design.md 红线）
+        itemStyle: { color: getCssVar("--brand-700", "#FF6B00") },
         lineStyle: { width: 2 },
         symbol: "circle",
         symbolSize: 4
@@ -435,38 +450,22 @@ const initProfitTrendChart = () => {
   });
 };
 
+// 风险热力图：当前无真实风险评分数据源，下线为假数据，仅展示空态提示
 const initRiskHeatmapChart = () => {
   if (!riskHeatmapChartRef.value) return;
   riskHeatmapChart = echarts.init(riskHeatmapChartRef.value);
   riskHeatmapChart.setOption({
-    tooltip: { trigger: "axis" },
-    grid: { right: "4%", bottom: "8%", containLabel: true, left: "4%" },
-    xAxis: {
-      type: "category",
-      data: ["股票", "基金", "房产", "贵金属"],
-      axisLabel: { fontSize: 10 }
-    },
-    yAxis: { type: "value", max: 100, axisLabel: { fontSize: 10 } },
-    series: [
-      {
-        label: { show: true, fontSize: 10, formatter: "{c}" },
-        data: [85, 60, 30, 55],
-        type: "bar",
-        itemStyle: {
-          color: (params: any) => {
-            const colors = ["#EF4444", "#F59E0B", "#22C55E", "#F59E0B"];
-            return colors[params.dataIndex];
-          },
-          borderRadius: 4
-        },
-        barWidth: "50%"
+    title: {
+      text: "暂无风险评分数据",
+      left: "center",
+      top: "center",
+      textStyle: {
+        color: getCssVar("--text-tertiary", "#999"),
+        fontSize: 12,
+        fontWeight: "normal"
       }
-    ]
+    }
   });
-};
-
-const setProfitPeriod = (period: string) => {
-  console.log("切换收益周期:", period);
 };
 
 const resizeCharts = () => {
@@ -475,7 +474,33 @@ const resizeCharts = () => {
   riskHeatmapChart?.resize();
 };
 
-onMounted(() => {
+const loadDistribution = async () => {
+  try {
+    const res = (await getDistributions()) as any;
+    const dist = res?.data;
+    distributionData.value = Array.isArray(dist?.category_distribution)
+      ? dist.category_distribution
+      : [];
+  } catch {
+    distributionData.value = [];
+  }
+};
+
+const loadProfitTrend = async () => {
+  try {
+    const res = (await getSnapshots()) as any;
+    const list = Array.isArray(res?.data) ? res.data : [];
+    profitTrendData.value = list.map((i: any) => ({
+      date: i.snapshot_date,
+      net: i.net_worth
+    }));
+  } catch {
+    profitTrendData.value = [];
+  }
+};
+
+onMounted(async () => {
+  await Promise.all([loadDistribution(), loadProfitTrend()]);
   nextTick(() => {
     initDistributionChart();
     initProfitTrendChart();
