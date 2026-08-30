@@ -203,7 +203,12 @@ onMounted(() => load());
       />
     </div>
 
-    <AggregationProductDetail v-model="detailVisible" :group="selectedGroup" />
+    <!-- 分摊保存成功后刷新聚合数据（#1176） -->
+    <AggregationProductDetail
+      v-model="detailVisible"
+      :group="selectedGroup"
+      @saved="() => load()"
+    />
   </div>
 </template>
 

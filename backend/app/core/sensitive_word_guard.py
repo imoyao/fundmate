@@ -16,7 +16,9 @@
 
 import os
 
-from pypinyin import Style, lazy_pinyin
+# pypinyin 带 3.2MB 词典，按 AGENTS.md 约定必须延迟导入：模块级导入会让每一次应用启动
+# （含 flask reloader 每次文件变更重载）白白多付约 0.6s，而实际只有构建词库时才用到，
+# 故下沉到 _pinyin_variants() 内按需导入。
 
 # 项目自带词库（UTF-8，# 开头为注释，空行忽略），随业务演进扩充。
 _WORDLIST_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sensitive_words.txt')
@@ -43,6 +45,8 @@ def _pinyin_variants(word: str):
     """生成全拼与全拼带空格两种变体（不含首字母缩写，避免英文误杀）。"""
     if not any('\u4e00' <= ch <= '\u9fff' for ch in word):
         return []
+    from pypinyin import Style, lazy_pinyin
+
     full = ''.join(lazy_pinyin(word, style=Style.NORMAL))
     spaced = ' '.join(lazy_pinyin(word, style=Style.NORMAL))
     variants = [full]
@@ -79,16 +83,26 @@ def _build_filter():
     return root, word_index
 
 
-# 模块级单例：词库加载一次，进程内复用。
-_root, _word_index = _build_filter()
+# 延迟构建：词库 + DFA 只在首次真正校验时构建（避免导入期拉起 pypinyin），之后进程内复用。
+_root = None
+_word_index = None
+
+
+def _ensure_filter():
+    """首次使用时构建 DFA 并缓存，返回 (root, word_index)。"""
+    global _root, _word_index
+    if _root is None:
+        _root, _word_index = _build_filter()
+    return _root, _word_index
 
 
 def _search(text: str):
     """在规范化文本中查找首个命中，返回命中词或 None。"""
+    root, _ = _ensure_filter()
     norm = _normalize(text)
     n = len(norm)
     for i in range(n):
-        node = _root
+        node = root
         for j in range(i, n):
             node = node.children.get(norm[j])
             if node is None:
@@ -114,11 +128,12 @@ def find_sensitive(text: str):
 
 def add_sensitive_words(words) -> None:
     """运行时追加敏感词（例如从配置/数据库热加载）。"""
+    _, word_index = _ensure_filter()
     for w in words:
         w = w.strip()
-        if not w or w in _word_index:
+        if not w or w in word_index:
             continue
-        _word_index[w] = True
+        word_index[w] = True
         _add_to_tree(w, w)
         for v in _pinyin_variants(w):
             _add_to_tree(v, w)
