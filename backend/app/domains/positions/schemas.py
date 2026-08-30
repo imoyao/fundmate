@@ -25,6 +25,10 @@ class PositionCreate(BaseModel):
     isAfter15: Optional[bool] = Field(False, description='基金申购是否在15:00之后')
     interestRate: Optional[float] = Field(None, description='年化利率')
     amount: Optional[float] = Field(None, description='交易金额')
+    valuation_mode: Optional[str] = Field('nav', description='计价模式: nav=份额×净值 / balance=直接余额(#1174)')
+    market_value_override: Optional[float] = Field(
+        None, description='人工录入市值(元)；非空时优先于派生计算（balance 模式必填）'
+    )
     import_hash: Optional[str] = Field(
         None,
         description='幂等键（手动记账由前端按提交意图生成）。'
@@ -42,6 +46,8 @@ class PositionUpdate(BaseModel):
     quantity: Optional[float] = Field(None, description='数量')
     avg_price: Optional[float] = Field(None, description='平均价格')
     current_price: Optional[float] = Field(None, description='当前价格')
+    valuation_mode: Optional[str] = Field(None, description='计价模式: nav=份额×净值 / balance=直接余额(#1174)')
+    market_value_override: Optional[float] = Field(None, description='人工录入市值(元)；非空时优先于派生计算')
     currency: Optional[str] = Field(None, description='币种')
     trade_date: Optional[date] = Field(None, description='交易日期')
     notes: Optional[str] = Field(None, description='备注')
@@ -63,6 +69,9 @@ class PositionOut(BaseModel):
     avg_price: float
     currency: str
     current_price: float
+    valuation_mode: str = 'nav'
+    market_value_override: Optional[float] = None
+    value_override_at: Optional[datetime] = None
     confirm_date: Optional[date] = None
     notes: Optional[str] = None
     allocation: Optional[str] = None

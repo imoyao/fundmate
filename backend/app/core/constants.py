@@ -191,3 +191,21 @@ POSITION_SOURCE_LABELS: dict[str, str] = {
     PositionSource.AI_HOLDING.value: 'AI持仓识别',
     PositionSource.EXPLORE.value: '探市录入',
 }
+
+
+class ValuationMode(str, Enum):
+    """持仓计价模式（#1174 / 决策 D1 方案 A）。
+
+    决定一笔持仓的市值如何计算——有公开净值的走份额模型，无净值的走余额模型。
+    禁止在各处硬编码 'nav' / 'balance' 字符串字面量。
+    """
+
+    NAV = 'nav'  # 份额×净值：基金/证券等有公开净值的标的
+    BALANCE = 'balance'  # 直接余额：投顾/银行理财等无公开净值的标的，市值靠人工录入总价
+
+
+# 单一真相源：ValuationMode.value -> 中文 label，仅在此处维护
+VALUATION_MODE_LABELS: dict[str, str] = {
+    ValuationMode.NAV.value: '份额×净值',
+    ValuationMode.BALANCE.value: '直接余额',
+}

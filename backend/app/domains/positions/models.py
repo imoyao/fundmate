@@ -13,7 +13,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import validates
 
-from app.core.constants import POSITION_SOURCE_LABELS, PositionSource
+from app.core.constants import POSITION_SOURCE_LABELS, VALUATION_MODE_LABELS, PositionSource, ValuationMode
 from app.core.database import Base, FamilyScopedMixin, PrimaryKeyMixin, TimestampMixin
 
 
@@ -36,6 +36,24 @@ class Position(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     avg_price = Column(Integer, default=0, comment='成本均价(0.0001元)')
     currency = Column(String(10), default='CNY')
     current_price = Column(Integer, default=0, comment='当前市价(0.0001元)')
+
+    # ── 双态计价字段（#1174 / 决策 D1 方案 A）──
+    # valuation_mode 决定市值如何计算：nav=份额×净值；balance=直接余额（无净值产品，市值靠人工录入）。
+    # 设为持仓的一等属性，而非靠「有没有 override」隐式推断，后续盈亏口径才能跟着模式走。
+    valuation_mode = Column(
+        String(20),
+        nullable=False,
+        default=ValuationMode.NAV.value,
+        server_default=ValuationMode.NAV.value,
+        comment='计价模式: 见 app.core.constants.ValuationMode（nav=份额×净值 / balance=直接余额）',
+    )
+    market_value_override = Column(
+        Integer,
+        nullable=True,
+        comment='人工录入的可写市值(分)；非空时优先于派生计算（投顾/理财等无净值产品）',
+    )
+    value_override_at = Column(DateTime, nullable=True, comment='市值覆写时间（用于判断新鲜度）')
+
     confirm_date = Column(Date)
     notes = Column(Text)
     allocation = Column(String(20), default='longterm')
@@ -59,6 +77,17 @@ class Position(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
             return value.value
         if value not in POSITION_SOURCE_LABELS:
             raise ValueError(f'非法持仓来源 source={value!r}，必须是 app.core.constants.PositionSource 的合法值')
+        return value
+
+    @validates('valuation_mode')
+    def _validate_valuation_mode(self, key, value):
+        # 约束：valuation_mode 必须是 ValuationMode 枚举的合法值，禁止任意字符串。
+        # 与 source 同理——三处市值计算若各自按隐式约定判断「这到底是净值型还是余额型」，
+        # 迟早再次分叉（历史上 position_aggregation 与 summary_service 已分叉过一次）。
+        if isinstance(value, ValuationMode):
+            return value.value
+        if value not in VALUATION_MODE_LABELS:
+            raise ValueError(f'非法计价模式 valuation_mode={value!r}，必须是 app.core.constants.ValuationMode 的合法值')
         return value
 
     ownership_status = Column(
