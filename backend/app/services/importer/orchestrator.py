@@ -606,6 +606,9 @@ class ImportOrchestrator:
             'account_name': record.account_name,
             'quantity': qty,  # 原始份额
             'avg_price': avg_price,  # 原始元
+            # 净值须单列：is_dividend 时 avg_price 已被改写为分红金额（见上方赋值），
+            # 而红利再投资要按净值申购份额，拿不到净值就无法加仓。
+            'nav': float(record.nav) if record.nav else 0.0,  # 原始净值元
             'currency': 'CNY',
             'confirm_date': confirm_date,
             'trade_date': trade_date,
