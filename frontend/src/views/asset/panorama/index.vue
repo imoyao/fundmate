@@ -53,6 +53,9 @@
       <SankeyChart :data="sankeyData" :display-mode="sankeyDisplayMode" />
     </div>
 
+    <!-- 资产透视：资产分布 + 基金类型分布环形图（#1014） -->
+    <AssetInsightPanel class="mb-4" />
+
     <!-- 多维视图表格 -->
     <div
       class="rounded-2xl p-6"
@@ -96,6 +99,7 @@ import SankeyChart from "@/components/Charts/SankeyChart.vue";
 import OverviewSummaryCard from "./components/OverviewSummaryCard.vue";
 import CategoryBalanceTable from "./components/CategoryBalanceTable.vue";
 import DetailGroupList from "./components/DetailGroupList.vue";
+import AssetInsightPanel from "@/components/AssetInsight/AssetInsightPanel.vue";
 import {
   getSummary,
   getSankeyData,
