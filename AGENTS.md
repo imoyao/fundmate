@@ -215,10 +215,29 @@
    # 前端：删掉新 worktree 自带（或空的）node_modules，挂接主仓库那份
    Remove-Item "D:\codes\<new-worktree>\frontend\node_modules" -Recurse -Force -ErrorAction SilentlyContinue
    cmd /c mklink /J "D:\codes\<new-worktree>\frontend\node_modules" "D:\codes\fundmate\frontend\node_modules"
-   # 后端：同理复用主仓库 backend/.venv（junction，或 PDM `venv.location` 共享）
    ```
 
-   - junction 不需要管理员权限；主 worktree 的 `node_modules` / `.venv` 须保持稳定（不要在其中改动依赖）。
+   - junction 不需要管理员权限；主 worktree 的 `node_modules` 须保持稳定（不要在其中改动依赖）。
+   - **仅前端 `node_modules` 可 junction**：它装的是第三方依赖、不含本仓源码，多 worktree 共享安全。
+
+4. **后端 `.venv` 禁止 junction 复用**（2026-08-30 实测踩坑）：PDM 以 **editable 方式**把 `app` 包装进 venv，
+   `.pth` 里写的是**创建该 venv 时的绝对源码路径**。junction 复用主 worktree 的 `.venv` 后，
+   在新 worktree 执行 `import app.core.constants` 仍会解析到**主 worktree** 的源码。实测症状：
+
+   - `ImportError: cannot import name 'ValuationMode' from 'app.core.constants'
+     (D:\codes\fundmate\backend\app\core\constants.py)` —— 新写的代码明明在，却导入不到；
+   - 主 worktree 分支落后于 dev 时，还会连带报 `ModuleNotFoundError: No module named 'app.core.config'`
+     一类「文件明明在却找不到」的假象（那些是 dev 上才有的新模块）。
+
+   正确做法：新 worktree 里**独立安装**（走 PDM 全局缓存，是建链接不是重新下载，约 1~2 分钟）：
+
+   ```powershell
+   cd <new-worktree>/backend && pdm install -G dev
+   pdm run python -c "import app.core.constants as c; print(c.__file__)"   # 必须指向当前 worktree
+   ```
+
+   **自检铁律**：装完必须打印 `app` 模块路径确认指向**当前 worktree**，否则测试跑的是别人的代码，
+   而失败信息会指向错误的方向。
 
 3. **锁文件不一致**（某分支升级了依赖）→ 禁止 junction，走正规安装：
 
@@ -382,6 +401,13 @@
 - **PR 声明「另立单跟进」必须当场开单**：PR 正文出现「后续处理 / 另立单跟进 / 不在本次范围」等表述时，必须在合并**同时**创建对应 issue 并在原 issue 评论中关联编号；否则原 issue 不得关闭，避免剩余项无 issue 承载（#1177 的 PR 写了「另立单跟进」却未开单）。
 - **范围外发现项不得悬空**：实现中发现本 issue 范围外的问题（如其他页面同样存在假数据），要么本卡处理，要么新建 issue 并在本卡评论写明归属；**禁止仅在 PR 正文写「由 #xxx 接管」而不核实 #xxx 是否真覆盖**（#1171 的 PR 声明顶部汇总卡片假数据由 #1014 接管，核实后 #1014 并不覆盖，须补 #1195）。
 - **误关须更正留痕**：发现误关立即 `gh issue reopen`，并追加评论说明「误关原因 / 已完成部分 / 未完成部分 / 后续处置」，不得静默重开或抹去痕迹。
+- **部分完成时拆卡转移，不要长期挂起**：若 issue **主体已达成**、只剩范围外的遗留项，正确做法是——
+  ① 把遗留项**拆成新 issue**；② 在**旧 issue 与新 issue 上互相评论关联**（旧→新「遗留项已转至 #x，本卡关闭」，
+  新→旧「遗留自 #y」）；③ **关闭旧 issue**。遗留项有新卡承载即不再悬空，旧卡也不必为了等零碎剩余
+  一直 OPEN。判断标准是「**主体验收是否达成**」，而不是「是否还剩一点没做」——
+  后者会让几乎所有 issue 永远关不掉，看板随之失去信噪比。
+  反例：#1177 导入路径已达成，却因两项遗留（手动记账入口白名单、OP_TYPE_LABEL）整卡重开，
+  正确做法应为拆新卡承接遗留、互相关联后关闭 #1177。
 
 ### 禁止武断执行
 
