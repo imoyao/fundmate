@@ -154,12 +154,12 @@ import RoadSparkline from "./RoadSparkline.vue";
 import RoadTagChips from "./RoadTagChips.vue";
 import RoadCardEditor from "./RoadCardEditor.vue";
 import {
-  ASSET_TYPE_LABEL,
   ENTITY_COLOR,
   ENTITY_LABEL,
   HOLDING_STATE_LABEL,
   VENUE_LABEL
 } from "../constants";
+import { assetTypeLabel as assetTypeLabelFromEnum } from "@/composables/useEnumLabels";
 import {
   cardMetrics,
   daysBetween,
@@ -206,9 +206,12 @@ const stateLabel = computed(
 const venueLabel = computed(() =>
   props.item.venue ? (VENUE_LABEL[props.item.venue] ?? props.item.venue) : ""
 );
-const assetTypeLabel = computed(() =>
-  props.item.asset_type ? (ASSET_TYPE_LABEL[props.item.asset_type] ?? "") : ""
-);
+const assetTypeLabel = computed(() => {
+  const at = props.item.asset_type?.toLowerCase();
+  // manager 为域特有实体（非通用 asset_type），卡片不显示英文原键；其余走后端单一来源标签
+  if (!at || at === "manager") return "";
+  return assetTypeLabelFromEnum(at);
+});
 /** 封面走势的口径标注：基金画净值、指数画点位、股票画价格；经理无曲线不标注 */
 const metricKindLabel = computed(() => {
   switch (props.item.entity) {
