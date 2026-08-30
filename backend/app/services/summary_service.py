@@ -356,9 +356,11 @@ def get_distributions(db: Session, family_id: int = 1) -> dict[str, Any]:
     positions, assets = _load_user_assets(db, family_id)
 
     def _pos_mv(p) -> float:
-        # 口径分叉修复（#1183 附带）：原先这里裸算「份额 × 快照价」，绕过唯一市值口径，
+        # 口径分叉修复（#1183 附带修复，同时是 #1181 验收第 3 条的前提）：
+        # 原先这里裸算「份额 × 快照价」，绕过唯一市值口径，
         # 导致 balance 模式（份额/价格为 0、市值靠 market_value_override）恒算成 0，
         # 且与 get_summary_data 的仪表盘总额对不上（decisions.md D1 未收口的尾巴）。
+        # 快照金额正是由本函数聚合而来，不修则无净值产品永远进不了资产快照。
         rate = EXCHANGE_RATES.get(p.currency, 1.0)
         return Money.cents_to_yuan(market_value_cents(p, rate=rate))
 
@@ -409,6 +411,51 @@ def get_distributions(db: Session, family_id: int = 1) -> dict[str, Any]:
         'net_worth': round(total_assets - total_liabilities, 2),
         'positions_total_mv': round(positions_total_mv, 2),
     }
+
+
+def get_ledger_distributions(db: Session, family_id: int = 1) -> dict[int, dict[str, float]]:
+    """按账户聚合的总资产 / 总负债 / 净资产（元），供账户级快照落库（#1181）。
+
+    口径与家庭级 `get_distributions` 严格对齐：
+    - 持仓市值一律走唯一口径 `position_valuation.market_value_cents`
+      （含 override / balance / nav 三种情形），因此无净值产品能正确计入；
+    - 孤儿货基/逆回购流水净额按 ledger 归组并入对应账户总资产。
+
+    Returns:
+        {ledger_id: {'total_assets', 'total_liabilities', 'net_worth'}}；
+        无账户归属（ledger_id 为 NULL）的条目统一归到哨兵键 0。
+    """
+    positions, assets = _load_user_assets(db, family_id)
+
+    totals: dict[int, dict[str, float]] = {}
+
+    def _bucket(ledger_id):
+        key = ledger_id or 0
+        if key not in totals:
+            totals[key] = {'total_assets': 0.0, 'total_liabilities': 0.0, 'net_worth': 0.0}
+        return totals[key]
+
+    for p in positions:
+        rate = EXCHANGE_RATES.get(p.currency, 1.0)
+        _bucket(p.ledger_id)['total_assets'] += Money.cents_to_yuan(market_value_cents(p, rate=rate))
+
+    for a in assets:
+        amount = Money.cents_to_yuan(a.amount)
+        if amount <= 0:
+            continue
+        bucket = _bucket(a.ledger_id)
+        if a.major_category == _LIABILITY_KEY:
+            bucket['total_liabilities'] += amount
+        else:
+            bucket['total_assets'] += amount
+
+    # 孤儿货基/逆回购流水净额按账户并入（与家庭级口径一致，可为负）
+    for ledger_id, net_cents in orphan_money_fund_net_by_ledger(db, family_id).items():
+        _bucket(ledger_id or 0)['total_assets'] += Money.cents_to_yuan(net_cents)
+
+    for bucket in totals.values():
+        bucket['net_worth'] = bucket['total_assets'] - bucket['total_liabilities']
+    return {k: {kk: round(vv, 2) for kk, vv in v.items()} for k, v in totals.items()}
 
 
 # ---------------------------------------------------------------------------
@@ -517,6 +564,28 @@ def _shift_months(d: date, months: int) -> date:
     return date(year, month, min(d.day, calendar.monthrange(year, month)[1]))
 
 
+def _upsert_snapshot(db: Session, *, family_id: int, ledger_id: int | None, snapshot_date: date) -> AssetSnapshot:
+    """按 (family_id, ledger_id, snapshot_date) 幂等 upsert 一条快照（#1181）。
+
+    家庭级行 ledger_id 为 NULL。唯一约束用 `COALESCE(ledger_id, -1)`，
+    故 NULL 也参与去重——同一天重复写入是覆盖而非新增。
+    """
+    q = db.query(AssetSnapshot).filter(
+        AssetSnapshot.family_id == family_id,
+        AssetSnapshot.snapshot_date == snapshot_date,
+    )
+    if ledger_id is None:
+        q = q.filter(AssetSnapshot.ledger_id.is_(None))
+    else:
+        q = q.filter(AssetSnapshot.ledger_id == ledger_id)
+
+    row = q.first()
+    if row is None:
+        row = AssetSnapshot(family_id=family_id, ledger_id=ledger_id, snapshot_date=snapshot_date)
+        db.add(row)
+    return row
+
+
 def write_asset_snapshot(db: Session, family_id: int = 1, snapshot_date: str | None = None) -> dict[str, Any]:
     """记录当日资产快照（幂等 upsert）。
 
@@ -532,25 +601,32 @@ def write_asset_snapshot(db: Session, family_id: int = 1, snapshot_date: str | N
 
     dist = get_distributions(db, family_id)
 
-    row = (
-        db.query(AssetSnapshot)
-        .filter(AssetSnapshot.family_id == family_id, AssetSnapshot.snapshot_date == target)
-        .first()
-    )
-    if row is None:
-        row = AssetSnapshot(family_id=family_id, snapshot_date=target)
-        db.add(row)
-    row.total_assets = Money.yuan_to_cents(dist['total_assets'])
-    row.total_liabilities = Money.yuan_to_cents(dist['total_liabilities'])
-    row.net_worth = Money.yuan_to_cents(dist['net_worth'])
+    # 家庭级快照（ledger_id 为 NULL）：既有行为，支撑总资产走势
+    family_row = _upsert_snapshot(db, family_id=family_id, ledger_id=None, snapshot_date=target)
+    family_row.total_assets = Money.yuan_to_cents(dist['total_assets'])
+    family_row.total_liabilities = Money.yuan_to_cents(dist['total_liabilities'])
+    family_row.net_worth = Money.yuan_to_cents(dist['net_worth'])
+
+    # 账户级快照（#1181）：同一天为每个有数据的账户各落一行，支撑账户维度走势
+    for ledger_id, totals in get_ledger_distributions(db, family_id).items():
+        if not ledger_id:
+            # 哨兵键 0 = 无账户归属（游离资产/持仓）。0 不是合法账户 id，落行会
+            # 污染账户维度序列；这部分金额已计入家庭级快照，故跳过不单独立行。
+            continue
+        row = _upsert_snapshot(db, family_id=family_id, ledger_id=ledger_id, snapshot_date=target)
+        row.total_assets = Money.yuan_to_cents(totals['total_assets'])
+        row.total_liabilities = Money.yuan_to_cents(totals['total_liabilities'])
+        row.net_worth = Money.yuan_to_cents(totals['net_worth'])
+
     db.commit()
-    return _snapshot_payload(row)
+    return _snapshot_payload(family_row)
 
 
 def _snapshot_payload(s: AssetSnapshot) -> dict[str, Any]:
     """快照单条输出：金额转元，同比百分比由读取侧计算填充。"""
     return {
         'id': s.id,
+        'ledger_id': s.ledger_id,
         'snapshot_date': s.snapshot_date.isoformat(),
         'total_assets': round(Money.cents_to_yuan(s.total_assets), 2),
         'total_liabilities': round(Money.cents_to_yuan(s.total_liabilities), 2),
@@ -570,14 +646,25 @@ def get_snapshots(
     family_id: int = 1,
     start_date: str | None = None,
     end_date: str | None = None,
+    ledger_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """查询资产快照列表（按日期升序），并计算每条相对上月同期 / 去年同期的同比。
+
+    ledger_id（#1181）：
+    - 传入 → 返回该**账户级**快照序列（`ledger_id = X`）
+    - 不传 → 返回**家庭级**快照序列（`ledger_id IS NULL`），保持既有行为不变
 
     基准取「对应基准日当天或之前最近一条」快照，找不到则为 None：
     - monthly_change_pct：以上月同日为基准
     - yearly_change_pct：以去年同期为基准
     """
     q = db.query(AssetSnapshot).filter(AssetSnapshot.family_id == family_id)
+    # 家庭级与账户级快照共存一张表，靠 ledger_id 是否为 NULL 区分。
+    # 不传时只取家庭级，否则同一天的账户行会与家庭行混进同一个走势被重复计算。
+    if ledger_id is None:
+        q = q.filter(AssetSnapshot.ledger_id.is_(None))
+    else:
+        q = q.filter(AssetSnapshot.ledger_id == ledger_id)
     if start_date:
         q = q.filter(AssetSnapshot.snapshot_date >= datetime.strptime(start_date, '%Y-%m-%d').date())
     if end_date:
@@ -586,8 +673,8 @@ def get_snapshots(
 
     results: list[dict[str, Any]] = []
     for row in rows:
-        monthly_base = _nearest_before(db, family_id, _shift_months(row.snapshot_date, -1))
-        yearly_base = _nearest_before(db, family_id, _shift_months(row.snapshot_date, -12))
+        monthly_base = _nearest_before(db, family_id, _shift_months(row.snapshot_date, -1), ledger_id)
+        yearly_base = _nearest_before(db, family_id, _shift_months(row.snapshot_date, -12), ledger_id)
         payload = _snapshot_payload(row)
         payload['monthly_change_pct'] = _pct_change(payload['net_worth'], _net_of(monthly_base))
         payload['yearly_change_pct'] = _pct_change(payload['net_worth'], _net_of(yearly_base))
@@ -595,14 +682,18 @@ def get_snapshots(
     return results
 
 
-def _nearest_before(db: Session, family_id: int, boundary: date) -> Any | None:
-    """取指定日期当天或之前最近的一条快照，作为同比基准。"""
-    return (
-        db.query(AssetSnapshot)
-        .filter(AssetSnapshot.family_id == family_id, AssetSnapshot.snapshot_date <= boundary)
-        .order_by(AssetSnapshot.snapshot_date.desc())
-        .first()
-    )
+def _nearest_before(db: Session, family_id: int, boundary: date, ledger_id: int | None = None) -> Any | None:
+    """取指定日期当天或之前最近的一条快照，作为同比基准。
+
+    同比基准必须与当前序列**同一作用域**（家庭级 vs 账户级），否则会拿家庭总额
+    去比账户走势，同比数字没有意义（#1181）。ledger_id 为 None 表示家庭级作用域。
+    """
+    q = db.query(AssetSnapshot).filter(AssetSnapshot.family_id == family_id, AssetSnapshot.snapshot_date <= boundary)
+    if ledger_id is None:
+        q = q.filter(AssetSnapshot.ledger_id.is_(None))
+    else:
+        q = q.filter(AssetSnapshot.ledger_id == ledger_id)
+    return q.order_by(AssetSnapshot.snapshot_date.desc()).first()
 
 
 def _net_of(row: Any | None) -> float | None:
