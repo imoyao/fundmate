@@ -218,6 +218,16 @@
           @submit-success="onSubmitSuccess"
           @positions-loaded="sellableLedgerIds = $event"
         />
+        <!-- 分红 / 红利再投 -->
+        <DividendForm
+          v-else-if="isDividendLike"
+          ref="dividendFormRef"
+          :ledgers="ledgers"
+          :hide-account-select="true"
+          :default-ledger-id="selectedLedgerId"
+          :mode="stockOpType === 'dividend' ? 'dividend' : 'dividend_reinvest'"
+          @submit-success="onSubmitSuccess"
+        />
         <!-- 未实现功能占位 -->
         <div
           v-else
@@ -257,6 +267,7 @@ import { IconifyIconOffline } from "@/components/ReIcon";
 import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
 import BuyForm from "@/components/QuickEntry/BuyForm.vue";
 import SellForm from "@/components/QuickEntry/SellForm.vue";
+import DividendForm from "@/components/QuickEntry/DividendForm.vue";
 import {
   useQuickEntry,
   useQuickEntrySubmit
@@ -309,15 +320,28 @@ const fundOpType = ref<
 
 const buyFormRef = ref<InstanceType<typeof BuyForm>>();
 const sellFormRef = ref<InstanceType<typeof SellForm>>();
+const dividendFormRef = ref<InstanceType<typeof DividendForm>>();
 
-const opTypeComputed = computed(() =>
-  stockOpType.value === "sell" || fundOpType.value === "redeem" ? "sell" : "buy"
-);
+// 分红/红利再投：复用同一表单，按操作类型切换子模式
+const isDividendLike = computed(() => {
+  if (currentLedgerType.value === "stock")
+    return stockOpType.value === "dividend";
+  if (["fund", "bank"].includes(currentLedgerType.value || ""))
+    return fundOpType.value === "dividend_reinvest";
+  return false;
+});
+
+const opTypeComputed = computed(() => {
+  if (isDividendLike.value) return "dividend";
+  return stockOpType.value === "sell" || fundOpType.value === "redeem"
+    ? "sell"
+    : "buy";
+});
 const {
   submitting,
   handleSubmit: coreHandleSubmit,
   resetForms
-} = useQuickEntrySubmit(opTypeComputed, buyFormRef, sellFormRef);
+} = useQuickEntrySubmit(opTypeComputed, buyFormRef, sellFormRef, dividendFormRef);
 
 // ── 方法 ──
 const getFundOpLabel = (type: string) => {
@@ -357,6 +381,7 @@ function onSubmitSuccess() {
     .then(() => {
       buyFormRef.value?.resetForm();
       sellFormRef.value?.resetForm();
+      dividendFormRef.value?.resetForm();
       ElMessage.success("已重置，请继续录入");
     })
     .catch((action: any) => {

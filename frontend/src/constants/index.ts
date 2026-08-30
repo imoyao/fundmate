@@ -94,13 +94,15 @@ export function majorCategoryLabel(key: string): string {
   return MAJOR_CATEGORY_LABELS[key] ?? key;
 }
 
-/** 交易类型标签（buy/sell/dividend/deposit/withdraw） */
+/** 交易类型标签（buy/sell/dividend/deposit/withdraw/split/dividend_reinvest） */
 export const TXN_TYPE_LABELS: Record<string, string> = {
   buy: "买入",
   sell: "卖出",
   dividend: "分红",
   deposit: "存入",
-  withdraw: "取出"
+  withdraw: "取出",
+  split: "送股",
+  dividend_reinvest: "红利再投资"
 };
 
 export function txnTypeLabel(type: string): string {
