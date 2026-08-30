@@ -13,6 +13,7 @@ import {
 import type { LedgerItem, SalesInstitution } from "@/api/ledger";
 import type { OcrTxnRow } from "@/api/ocr";
 import { ALLOCATION_OPTIONS } from "@/constants";
+import { getTypeLabel } from "@/constants/assetType";
 
 export function useImportWizard() {
   const router = useRouter();
@@ -75,17 +76,7 @@ export function useImportWizard() {
     FOF: "var(--tag-thistle)"
   };
 
-  const typeLabels: Record<string, string> = {
-    stock: "股票",
-    fund: "基金",
-    bond: "可转债",
-    crypto: "虚拟货币",
-    saving: "银行存款",
-    cash: "现金",
-    money_fund: "现金理财",
-    reverse_repo: "逆回购",
-    static: "其他"
-  };
+  // 类型中文标签统一走后端唯一来源 frontend/src/constants/assetType（getTypeLabel），不再在此私藏副本（#1171 枚举一致性）。
 
   const typeColorMap: Record<string, string> = {
     stock: "var(--tag-muted-blue)",
@@ -445,7 +436,7 @@ export function useImportWizard() {
       const type = row.type || "unknown";
       if (!groups[type])
         groups[type] = {
-          label: typeLabels[type] || type,
+          label: getTypeLabel(type),
           count: 0,
           currentAllocation: row.allocation || "longterm"
         };
@@ -1970,7 +1961,6 @@ export function useImportWizard() {
     handleSizeChange,
     handlePageChange,
     handleSelectionChange,
-    typeLabels,
     ledgerTypeMap,
     devMode,
     devJump
