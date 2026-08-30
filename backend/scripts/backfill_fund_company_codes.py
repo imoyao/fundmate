@@ -26,21 +26,27 @@ def main(argv=None):
     args = ap.parse_args(argv)
 
     with market_session() as db:
-        changes = backfill_fund_company_codes(db, dry_run=not args.apply)
+        result = backfill_fund_company_codes(db, dry_run=not args.apply)
 
-    if not changes:
-        print('[backfill] 没有需要回填的基金公司 code（无 code==name 占位，或均未匹配到权威 code）。')
+    total = result['total_placeholders']
+    matched = result['matched']
+    unmatched = result['unmatched']
+    if total == 0:
+        print('[backfill] 没有需要回填的基金公司 code（无 code==name 占位）。')
         return
 
-    print(f'[backfill] 共 {len(changes)} 条待回填：')
-    for c in changes:
-        print(f'  id={c["id"]} name={c["name"]} {c["old_code"]} -> {c["new_code"]}')
+    hit_rate = (len(matched) / total) if total else 0.0
+    print(f'[backfill] 占位总行数={total}，命中={len(matched)}，失配={len(unmatched)}，命中率={hit_rate:.1%}')
+    for c in matched:
+        print(f'  [命中] id={c["id"]} {c["old_code"]} -> {c["new_code"]}  ({c["name"]})')
+    for c in unmatched:
+        print(f'  [失配] id={c["id"]} name={c["name"]} code={c["code"]}')
 
     if not args.apply:
         print('\n[backfill] DRY-RUN 模式：未写入任何数据。确认清单无误后加 --apply 执行。')
         return
 
-    print(f'\n[backfill] 已回填 {len(changes)} 条基金公司 code。')
+    print(f'\n[backfill] 已回填 {len(matched)} 条基金公司 code。')
 
 
 if __name__ == '__main__':

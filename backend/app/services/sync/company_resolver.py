@@ -47,13 +47,31 @@ _cache: Optional[Dict[str, str]] = None  # name(归一化) -> code
 
 
 def _normalize_company_name(name: str) -> str:
-    """剥除常见法人主体后缀，保留品牌核心词用于匹配。"""
+    """剥除常见法人主体后缀，保留品牌核心词用于匹配。
+
+    采用迭代剥离：单次剥离会把「股份有限公司」+「证券」这类组合后缀拆成多级，
+    必须反复剥到不再变化（如「银华基金管理股份有限公司」→「银华基金」→「银华」），
+    才能与天天基金列表简称（「银华基金」归一化后为「银华」）对齐。同时去掉
+    「(中国)」这类属地括号，避免其阻断后缀剥离（#1199 实测失配样本归因）。
+    """
     if not name:
         return ''
     n = name.strip()
-    for suffix in _COMPANY_SUFFIXES:
-        if n.endswith(suffix) and len(n) > len(suffix):
-            return n[: -len(suffix)]
+    # 去掉法人属地括号，如「(中国)」「（中国）」
+    n = re.sub(r'[（(][^（）()]*[）)]', '', n)
+    changed = True
+    while changed:
+        changed = False
+        # 每轮选最长的可剥后缀，避免「有限公司」先于「股份有限公司」被误剥
+        # （如「银华基金管理股份有限公司」应剥「股份有限公司」而非「有限公司」）
+        best = None
+        for suffix in _COMPANY_SUFFIXES:
+            if n.endswith(suffix) and len(n) > len(suffix):
+                if best is None or len(suffix) > len(best):
+                    best = suffix
+        if best:
+            n = n[: -len(best)]
+            changed = True
     return n
 
 
@@ -95,31 +113,42 @@ def get_company_code_by_name(name: str) -> Optional[str]:
     return _cache.get(_normalize_company_name(name))
 
 
-def backfill_fund_company_codes(db: Session, dry_run: bool = True) -> List[dict]:
+def backfill_fund_company_codes(db: Session, dry_run: bool = True) -> Dict[str, object]:
     """
     回填 fund_companies 表中 code==name 的占位行（幂等）。
 
     仅处理 code 仍等于 name 的行；按名解析真值 code，命中则更新 code（并顺带把
     name 修正为 jjjz_gs 的简称，便于后续一致匹配）。若真值 code 已被别的行占用，
-    跳过并告警（避免唯一约束冲突）。dry_run=True 只返回待变更清单不落库。
+    跳过并告警（避免唯一约束冲突）。dry_run=True 只统计不落库。
+
+    返回结构化结果（#1199 用于实测命中率并留档）：
+        {
+            'total_placeholders': int,                       # code==name 占位总行数
+            'matched':  [{'id','name','old_code','new_code'}, ...],  # 命中待回填
+            'unmatched':[{'id','name','code'}, ...],          # 失配/冲突跳过，仍保留占位
+        }
+    hit_rate = len(matched) / total_placeholders。
     """
     placeholders = db.query(FundCompany).filter(FundCompany.code == FundCompany.name).all()
     # 已存在的真值 code 集合，用于冲突检测
     taken_codes = {row[0] for row in db.query(FundCompany.code).all()}
-    changes: List[dict] = []
+    matched: List[dict] = []
+    unmatched: List[dict] = []
     for inst in placeholders:
         real_code = get_company_code_by_name(inst.name)
         if not real_code:
+            unmatched.append({'id': inst.id, 'name': inst.name, 'code': inst.code})
             logger.warning(f'基金公司「{inst.name}」未匹配到权威 code，保留占位')
             continue
         if real_code in taken_codes and real_code != inst.code:
+            unmatched.append({'id': inst.id, 'name': inst.name, 'code': inst.code})
             logger.warning(f'真值 code {real_code} 已被占用，跳过「{inst.name}」')
             continue
-        changes.append({'id': inst.id, 'name': inst.name, 'old_code': inst.code, 'new_code': real_code})
+        matched.append({'id': inst.id, 'name': inst.name, 'old_code': inst.code, 'new_code': real_code})
         if not dry_run:
             inst.code = real_code
             taken_codes.add(real_code)
-    if not dry_run and changes:
+    if not dry_run and matched:
         db.commit()
-        logger.info(f'回填 {len(changes)} 条基金公司 code')
-    return changes
+        logger.info(f'回填 {len(matched)} 条基金公司 code')
+    return {'total_placeholders': len(placeholders), 'matched': matched, 'unmatched': unmatched}

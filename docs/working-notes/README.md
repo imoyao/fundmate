@@ -95,6 +95,7 @@
 | `fund-metadata-arch-issue-1155-research-2026-08-29.md` | **#1155 基金元数据架构核查（研究交付物）**：fund_type_id 全量回填可行性 + 基金公司/基金经理数据架构现状与三处域归属不一致决策 |
 | `ai-code-review-deepseek-dual-line-2026-08-23.md` | **AI Code Review 双线路接入（DeepSeek 火山方舟实测）**：ARK_API_KEY_DEEPSEEK 可用性与模型权限核查（feat/ghost-duplicate-scan） |
 | `mock-service-data-isolation-2026-08-30.md` | **Mock 服务与数据隔离方案调研**：前端 mock 避免污染本地 SQLite + 独立 Supabase 环境实现 dev/test/prod 隔离 |
+| `fund-company-backfill-1199-2026-08-30.md` | **基金公司 code 回填实测与归一化增强（#1199 收尾）**：127 占位基线、迭代剥离归一化（修复只剥最短后缀 bug）、命中率 81.1%→92.9%、实际回填 116 条、剩余 11 条分类（9 不在列表 + 2 code 冲突）、`full_name`/`scale` 正式降级结论 |
 
 ## 子目录归档
 
