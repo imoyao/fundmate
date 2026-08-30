@@ -13,7 +13,7 @@ from loguru import logger
 from sqlalchemy import and_, or_, update
 
 from app.core.auth import get_family_id, get_owned_or_404
-from app.core.constants import TYPE_LABELS
+from app.core.constants import ASSET_CATEGORY_LABELS, TYPE_LABELS
 from app.core.database import get_db
 from app.core.money import Money
 from app.domains.assets.models import Asset
@@ -250,7 +250,7 @@ def get_portfolio_holdings(portfolio_id: int):
                     'symbol': asset.major_category or 'asset',
                     'name': asset.name or asset.major_category,  # 使用 name 字段
                     'type': asset.major_category,
-                    'type_label': TYPE_LABELS.get(asset.major_category, asset.major_category or '其他'),
+                    'type_label': ASSET_CATEGORY_LABELS.get(asset.major_category, asset.major_category or '其他'),
                     'account_name': asset.account_name,
                     'ledger_id': asset.ledger_id,
                     'quantity': 1,
