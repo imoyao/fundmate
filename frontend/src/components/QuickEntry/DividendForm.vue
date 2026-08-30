@@ -7,7 +7,7 @@
     size="large"
     class="flex flex-col gap-5"
   >
-    <!-- 选择持仓（分红必须落到已有持仓，不能新建） -->
+    <!-- 选择持仓（分红/送股必须落到已有持仓，不能新建） -->
     <el-form-item label="选择持仓" prop="positionId">
       <el-select
         v-if="showPositionSelect"
@@ -25,11 +25,9 @@
           :label="pos.name || pos.symbol"
         >
           <div class="flex justify-between items-center w-full">
-            <span
-              class="truncate"
-              :style="{ color: 'var(--text-primary)' }"
-              >{{ pos.name || pos.symbol }}</span
-            >
+            <span class="truncate" :style="{ color: 'var(--text-primary)' }">{{
+              pos.name || pos.symbol
+            }}</span>
             <span
               class="text-xs whitespace-nowrap"
               :style="{ color: 'var(--text-tertiary)' }"
@@ -44,7 +42,7 @@
         class="text-xs mt-1"
         style="color: var(--text-tertiary)"
       >
-        当前账户无可用持仓，无法登记分红。
+        当前账户无可用持仓，无法登记。
       </div>
     </el-form-item>
 
@@ -72,7 +70,9 @@
         </div>
         <div class="text-xs mt-1" style="color: var(--text-tertiary)">
           <span
-            v-if="showIsAfter15 && selectedPosition?.type === 'fund' && confirmDate"
+            v-if="
+              showIsAfter15 && selectedPosition?.type === 'fund' && confirmDate
+            "
             >15:00后红利再投按下一交易日（T+1）净值申购 · 预计确认日：{{
               confirmDate
             }}</span
@@ -81,7 +81,11 @@
       </el-form-item>
 
       <!-- 现金分红：分红金额 -->
-      <el-form-item v-if="mode === 'dividend'" label="分红金额" prop="dividendAmount">
+      <el-form-item
+        v-if="mode === 'dividend'"
+        label="分红金额"
+        prop="dividendAmount"
+      >
         <el-input-number
           v-model="form.dividendAmount"
           style="width: 100%"
@@ -96,7 +100,7 @@
       </el-form-item>
 
       <!-- 红利再投：红利金额 + 净值 + 自动申购份额 -->
-      <template v-else>
+      <template v-else-if="mode === 'dividend_reinvest'">
         <el-form-item label="红利金额" prop="dividendAmount">
           <el-input-number
             v-model="form.dividendAmount"
@@ -132,6 +136,23 @@
         </el-form-item>
       </template>
 
+      <!-- 送股/拆分：增加的份额（零成本，仅稀释均价） -->
+      <template v-else>
+        <el-form-item label="送股/拆分份额" prop="splitQuantity">
+          <el-input-number
+            v-model="form.splitQuantity"
+            style="width: 100%"
+            :controls="false"
+            :precision="4"
+            :min="0"
+            placeholder="输入送股/拆分增加的份额"
+          />
+          <div class="text-xs mt-1" style="color: var(--text-tertiary)">
+            送股/拆分直接增加持仓份额，成本不变，持仓均价被自动稀释
+          </div>
+        </el-form-item>
+      </template>
+
       <!-- 备注 -->
       <el-form-item label="备注">
         <el-input
@@ -159,7 +180,7 @@ const props = defineProps<{
   ledgers: any[];
   hideAccountSelect?: boolean;
   defaultLedgerId?: number | null;
-  mode: "dividend" | "dividend_reinvest";
+  mode: "dividend" | "dividend_reinvest" | "split";
 }>();
 const emit = defineEmits<{
   (e: "submit-success"): void;
@@ -169,6 +190,7 @@ const defaultForm = () => ({
   positionId: null as number | null,
   dividendAmount: undefined as number | undefined,
   nav: undefined as number | undefined,
+  splitQuantity: undefined as number | undefined,
   trade_date: new Date().toISOString().slice(0, 10),
   isAfter15: false,
   notes: ""
@@ -181,8 +203,11 @@ const formRef = ref<FormInstance>();
 const positionsByAccount = ref<Record<string, Position[]>>({});
 const selectedPosition = ref<any>(null);
 
-const { confirmDate, calcConfirmAndNav, reset: resetTradeDate } =
-  useFundTradeDate();
+const {
+  confirmDate,
+  calcConfirmAndNav,
+  reset: resetTradeDate
+} = useFundTradeDate();
 
 const currentLedger = computed(
   () => props.ledgers.find(l => l.id === props.defaultLedgerId) ?? null
@@ -201,14 +226,25 @@ const computedShares = computed(() => {
 const disabledDate = (time: Date) =>
   time.getTime() > new Date().setHours(0, 0, 0, 0);
 
-const rules = computed<FormRules>(() => ({
-  positionId: [{ required: true, message: "请选择持仓", trigger: "change" }],
-  trade_date: [{ required: true, message: "请选择日期", trigger: "change" }],
-  dividendAmount: [{ required: true, message: "请输入金额", trigger: "blur" }],
-  ...(props.mode === "dividend_reinvest"
-    ? { nav: [{ required: true, message: "请输入净值", trigger: "blur" }] }
-    : {})
-}));
+const rules = computed<FormRules>(() => {
+  const base: FormRules = {
+    positionId: [{ required: true, message: "请选择持仓", trigger: "change" }],
+    trade_date: [{ required: true, message: "请选择日期", trigger: "change" }]
+  };
+  if (props.mode === "split") {
+    base.splitQuantity = [
+      { required: true, message: "请输入送股/拆分份额", trigger: "blur" }
+    ];
+  } else {
+    base.dividendAmount = [
+      { required: true, message: "请输入金额", trigger: "blur" }
+    ];
+    if (props.mode === "dividend_reinvest") {
+      base.nav = [{ required: true, message: "请输入净值", trigger: "blur" }];
+    }
+  }
+  return base;
+});
 
 async function fetchPositionsByAccount() {
   try {
@@ -226,6 +262,7 @@ function onPositionSelect(positionId: number) {
   // 切换持仓后清空金额/净值，避免串用
   form.dividendAmount = undefined;
   form.nav = undefined;
+  form.splitQuantity = undefined;
   resetTradeDate();
 }
 
@@ -261,7 +298,9 @@ async function handleSubmit() {
     isAfter15: form.isAfter15
   };
 
-  if (props.mode === "dividend") {
+  if (props.mode === "split") {
+    body.quantity = form.splitQuantity || 0;
+  } else if (props.mode === "dividend") {
     body.dividend_amount = form.dividendAmount || 0;
   } else {
     body.dividend_amount = form.dividendAmount || 0;

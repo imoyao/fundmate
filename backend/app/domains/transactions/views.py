@@ -166,7 +166,7 @@ def export_transactions():
 
 @bp.delete('/<int:transaction_id>/')
 def delete_transaction(transaction_id: int):
-    """删除单条交易流水，并回滚对应持仓份额（buy/sell/deposit/withdraw）。
+    """删除单条交易流水，并回滚对应持仓份额（buy/sell/deposit/withdraw/split）。
 
     交易流水是独立实体，归属由 Transaction.family_id 校验，不再依赖账户 id；
     删除涉及跨域写（回滚 Position），逻辑收口到 PositionService，端点保持薄。
@@ -186,7 +186,7 @@ def delete_transaction(transaction_id: int):
         # 回滚持仓份额：卖出/取出使份额减少，删除该流水须把份额加回（#948 后续）。
         # 买入/存入同理；分红不影响份额，跳过。重算基于剩余流水，可正确处理部分
         # 卖出与「整笔卖出清空后删除该卖出流水」两种情形（后者会重建持仓行）。
-        if tid and ttype in ('buy', 'sell', 'deposit', 'withdraw'):
+        if tid and ttype in ('buy', 'sell', 'deposit', 'withdraw', 'split'):
             PositionService.recompute_position_from_transactions(db, tid)
         db.commit()
         return jsonify({'message': 'ok', 'data': None})

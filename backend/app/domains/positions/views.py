@@ -242,6 +242,8 @@ def create_position():
                 data['dividend_amount'] = data.get('dividend_amount', data.get('amount', data.get('avg_price', 0)))
                 data['nav'] = data.get('nav', data.get('avg_price', 0))
                 position = PositionService.process_dividend_reinvest(db, data)
+            elif op_type == 'split':
+                position = PositionService.process_orphan_split(db, data)
             elif op_type in ('buy', 'deposit'):
                 try:
                     position = PositionService.process_buy_or_deposit(db, data)
