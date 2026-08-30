@@ -21,8 +21,8 @@ import { useAggregation } from "@/composables/useAggregation";
  *
  * 对齐参考截图的设计范式：
  * - 品牌色沉浸式 Hero（红底白字总资产）
- * - 果冻胶囊切换「按产品展示」/「按账户展示」
- * - 两种视图共享同一套产品卡片，「按账户」仅多一行销售机构副标题
+ * - 果冻胶囊切换「按产品展示」/「按渠道展示」
+ * - 两种视图共享同一套产品卡片，「按渠道」副标题为账本名，销售机构全称由悬浮提示承载
  * - 点击产品 → 右侧抽屉展开完整详情（四格信息 + 管理人 + 分渠道持仓）
  *
  * 本文件只做编排，符合 docs/spec/frontend-ui.md §3 的页面规模规范。
@@ -31,7 +31,9 @@ defineOptions({ name: "AssetFunds" });
 
 const DIMENSION_OPTIONS: { label: string; value: AggregationDimension }[] = [
   { label: "按产品展示", value: "product" },
-  { label: "按账户展示", value: "institution" }
+  // 该维度的分组键是 institution_id（销售机构/购买渠道），不是 Ledger（账本），
+  // 故文案用「渠道」而非「账户」，避免与账本概念混淆（#1185）
+  { label: "按渠道展示", value: "institution" }
 ];
 
 const {
@@ -90,7 +92,7 @@ function openDetail(payload: AggregationProductGroup | AggregationSource) {
 
 // ── 渠道模式：将 institutionGroups 展平为「产品×渠道」卡片列表 ──
 /**
- * 「按账户展示」的核心变换：
+ * 「按渠道展示」的核心变换：
  *
  * 后端在 dimension=institution 时返回 AggregationInstitutionGroup[]，
  * 每个分组含 .items[]（AggregationSource）。
@@ -200,7 +202,7 @@ onMounted(() => load());
       />
     </div>
 
-    <!-- 按账户：展平为「产品×渠道」卡片列表（对齐截图2） -->
+    <!-- 按渠道：展平为「产品×渠道」卡片列表（对齐截图2） -->
     <div v-else-if="!loading && dimension === 'institution'" class="card-grid">
       <AggregationProductCard
         v-for="(item, idx) in flattenedSources"
