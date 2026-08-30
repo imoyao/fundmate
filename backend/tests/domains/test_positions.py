@@ -5,8 +5,10 @@
 
 from datetime import date, datetime, timedelta
 
+import pytest
 from sqlalchemy import exists
 
+from app.core.constants import ValuationMode
 from app.core.money import Money
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
@@ -1151,3 +1153,86 @@ class TestPositionImportHash:
         # 撞 import_hash upsert 合并为 200 股，证明买入未被持有量上限拦截
         assert p2.id == p1.id
         assert p2.quantity == Money.shares_to_min_unit(200)
+
+
+class TestBalanceModeBuild:
+    """#1174 / D2：balance 模式建仓——无需份额/净值，只传金额。
+
+    市值直接由录入金额写入 market_value_override；quantity/avg_price 恒为 0，
+    不触发 lot check、不触发均价除零。对应验收第 2 条。
+    """
+
+    def _make_ledger(self, db, name='证券账户A'):
+        ledger = db.query(Ledger).filter_by(name=name).first()
+        if ledger is None:
+            ledger = Ledger(name=name, ledger_type='stock', family_id=1)
+            db.add(ledger)
+            db.flush()
+        return ledger.id
+
+    def _buy_balance(self, db, ledger_id, amount, symbol='SH600519', name='某余额产品'):
+        data = {
+            'symbol': symbol,
+            'name': name,
+            'asset_type': 'stock',
+            'market': 'CN_A',
+            'ledger_id': ledger_id,
+            'family_id': 1,
+            'valuation_mode': ValuationMode.BALANCE.value,
+            'amount': amount,
+            'op_type': 'buy',
+            'source': 'manual',
+        }
+        return PositionService.process_buy_or_deposit(db, data)
+
+    def test_balance_build_requires_only_amount(self, db):
+        """balance 模式不传 quantity/avg_price，只传 amount，应成功建仓并写入市值。"""
+        ledger_id = self._make_ledger(db)
+        pos = self._buy_balance(db, ledger_id, amount=50000.0)
+        db.commit()
+        assert pos is not None
+        assert pos.valuation_mode == ValuationMode.BALANCE.value
+        assert pos.quantity == 0
+        assert pos.avg_price == 0
+        # amount(元) → 分：50000 × 100 = 5_000_000
+        assert pos.market_value_override == Money.yuan_to_cents(50000.0)
+        assert pos.value_override_at is not None
+        # 交易流水金额取用户录入金额（非 price×qty，balance 无份额）
+        txn = db.query(Transaction).filter_by(position_id=pos.id).one()
+        assert txn.amount == Money.yuan_to_cents(50000.0)
+
+    def test_balance_build_requires_positive_amount(self, db):
+        """balance 模式缺 amount（或 <=0）必须报错，不能静默建仓。"""
+        ledger_id = self._make_ledger(db)
+        with pytest.raises(ValueError):
+            self._buy_balance(db, ledger_id, amount=0)
+        db.rollback()
+
+    def test_nav_build_still_requires_price(self, db):
+        """回归护栏：nav 模式（默认）缺 avg_price 仍必须报错（既有行为不变）。"""
+        ledger_id = self._make_ledger(db)
+        data = {
+            'symbol': 'SH600519',
+            'name': '贵州茅台',
+            'asset_type': 'stock',
+            'market': 'CN_A',
+            'ledger_id': ledger_id,
+            'family_id': 1,
+            'quantity': 100,
+            'op_type': 'buy',
+            'source': 'manual',
+        }
+        with pytest.raises(ValueError):
+            PositionService.process_buy_or_deposit(db, data)
+        db.rollback()
+
+    def test_balance_build_merges_accumulate_override(self, db):
+        """同一标的两次 balance 建仓 → upsert 合并，override 累加、quantity 仍 0。"""
+        ledger_id = self._make_ledger(db)
+        p1 = self._buy_balance(db, ledger_id, amount=30000.0)
+        db.commit()
+        p2 = self._buy_balance(db, ledger_id, amount=20000.0)
+        db.commit()
+        assert p2.id == p1.id
+        assert p2.quantity == 0
+        assert p2.market_value_override == Money.yuan_to_cents(50000.0)

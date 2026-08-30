@@ -21,7 +21,7 @@ from loguru import logger
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.constants import PositionSource
+from app.core.constants import PositionSource, ValuationMode
 from app.core.exceptions import ErrorCode, SBException
 from app.core.money import Money
 from app.core.symbol_utils import get_normalizer
@@ -55,6 +55,9 @@ _ALLOWED_POSITION_FIELDS = {
     'source',
     'source_import_id',
     'source_broker',
+    # #1174 双态计价：balance 模式建仓需透传计价模式与可写市值
+    'valuation_mode',
+    'market_value_override',
 }
 
 
@@ -385,45 +388,64 @@ class PositionService:
         same = db.query(Position).filter_by(symbol=search_symbol, ledger_id=ledger_id, family_id=family_id).first()
         final_symbol = search_symbol
 
+        # ── 计价模式（#1174 / 决策 D2）──
+        # nav：份额 × 净值（要求 quantity + avg_price）；balance：直接余额（只要求 amount）。
+        # 用显式模式分支，而不是靠「有没有传净值」隐式推断。
+        mode = data.get('valuation_mode') or ValuationMode.NAV.value
+        is_balance = mode == ValuationMode.BALANCE.value
+        amount = data.get('amount', 0) or 0
+
         # 校验数量/价格
         qty = data.get('quantity', 0) or 0
         price = data.get('avg_price', 0) or 0
-        if qty <= 0:
-            raise ValueError('数量必须大于 0')
-        if price <= 0:
-            raise ValueError('价格必须大于 0')
+        if is_balance:
+            # balance 模式没有份额/净值概念，只校验金额——市值即由金额累加而来
+            if amount <= 0:
+                raise ValueError('balance 模式必须提供大于 0 的金额（amount）')
+        else:
+            if qty <= 0:
+                raise ValueError('数量必须大于 0')
+            if price <= 0:
+                raise ValueError('价格必须大于 0')
 
-        # lot check：买入仅校验本次数量合法（起买单位/步长），与当前持有量无关
-        valid, err_msg = validate_buy(symbol, data.get('market', ''), asset_type, qty)
-        if not valid:
-            raise ValueError(err_msg)
+            # lot check：买入仅校验本次数量合法（起买单位/步长），与当前持有量无关
+            valid, err_msg = validate_buy(symbol, data.get('market', ''), asset_type, qty)
+            if not valid:
+                raise ValueError(err_msg)
 
-        if price <= 0:
-            raise SBException(
-                code=ErrorCode.INVALID_PARAMS.code,
-                message=ErrorCode.INVALID_PARAMS.msg,
-                status_code=400,
-                detail={'field': 'avg_price', 'value': price},
-            )
+            if price <= 0:
+                raise SBException(
+                    code=ErrorCode.INVALID_PARAMS.code,
+                    message=ErrorCode.INVALID_PARAMS.msg,
+                    status_code=400,
+                    detail={'field': 'avg_price', 'value': price},
+                )
 
-        # 转换为内部存储单位
-        qty_units = Money.shares_to_min_unit(qty)
-        price_units = Money.yuan_to_price_units(price)
+        # 转换为内部存储单位（balance 模式份额/价格恒为 0，金额单独转分）
+        qty_units = 0 if is_balance else Money.shares_to_min_unit(qty)
+        price_units = 0 if is_balance else Money.yuan_to_price_units(price)
+        amount_cents = Money.yuan_to_cents(amount) if is_balance else 0
 
         try:
             if same:
-                # 合并持仓
-                total_qty_units = same.quantity + qty_units
-                old_cost = Money.multiply_price_quantity(same.avg_price, same.quantity)
-                new_cost = old_cost + Money.multiply_price_quantity(price_units, qty_units)
-                # 用 Decimal 计算均价以避免精度损失
-                total_qty = Money.min_unit_to_shares(total_qty_units)
-                total_cost = Money.cents_to_yuan(old_cost) + Money.cents_to_yuan(
-                    Money.multiply_price_quantity(price_units, qty_units)
-                )
-                new_avg_price = Money.yuan_to_price_units(round(total_cost / total_qty, 4))
-                same.avg_price = new_avg_price
-                same.quantity = total_qty_units
+                if is_balance:
+                    # balance 合并：份额/均价无意义（quantity 恒为 0，直接除会 ZeroDivisionError），
+                    # 只累加可写市值并刷新覆写时间
+                    same.market_value_override = (same.market_value_override or 0) + amount_cents
+                    same.value_override_at = datetime.now()
+                else:
+                    # 合并持仓
+                    total_qty_units = same.quantity + qty_units
+                    old_cost = Money.multiply_price_quantity(same.avg_price, same.quantity)
+                    new_cost = old_cost + Money.multiply_price_quantity(price_units, qty_units)
+                    # 用 Decimal 计算均价以避免精度损失
+                    total_qty = Money.min_unit_to_shares(total_qty_units)
+                    total_cost = Money.cents_to_yuan(old_cost) + Money.cents_to_yuan(
+                        Money.multiply_price_quantity(price_units, qty_units)
+                    )
+                    new_avg_price = Money.yuan_to_price_units(round(total_cost / total_qty, 4))
+                    same.avg_price = new_avg_price
+                    same.quantity = total_qty_units
                 # issue #928: 合并时同步溯源字段（交割单覆盖手动录），并刷新 import_hash
                 if 'source' in data:
                     same.source = data['source']
@@ -447,6 +469,11 @@ class PositionService:
                 position_data['symbol'] = final_symbol
                 position_data['ledger_id'] = ledger_id
                 position_data['family_id'] = family_id
+                # #1174 双态计价：显式落计价模式；balance 模式把金额直接写成可写市值
+                position_data['valuation_mode'] = mode
+                if is_balance:
+                    position_data['market_value_override'] = amount_cents
+                    position_data['value_override_at'] = datetime.now()
                 # issue #928: 生成持仓去重哈希（source|ledger_id|symbol|snapshot_date）
                 src = data.get('source', PositionSource.MANUAL.value)
                 # 快照日：优先 confirm_date；缺失降级为落库当日（规范 §3.3，保证同日同产品汇总一条）
@@ -470,21 +497,26 @@ class PositionService:
                     existing = db.query(Position).filter(Position.import_hash == position_data['import_hash']).first()
                     if existing is None:
                         raise
-                    total_qty_units = existing.quantity + qty_units
-                    old_cost = Money.multiply_price_quantity(existing.avg_price, existing.quantity)
-                    new_cost = old_cost + Money.multiply_price_quantity(price_units, qty_units)
-                    total_qty = Money.min_unit_to_shares(total_qty_units)
-                    existing.avg_price = Money.yuan_to_price_units(
-                        round(
-                            (
-                                Money.cents_to_yuan(old_cost)
-                                + Money.cents_to_yuan(Money.multiply_price_quantity(price_units, qty_units))
+                    if is_balance:
+                        # 同 B1：balance 模式只累加可写市值，不碰份额/均价
+                        existing.market_value_override = (existing.market_value_override or 0) + amount_cents
+                        existing.value_override_at = datetime.now()
+                    else:
+                        total_qty_units = existing.quantity + qty_units
+                        old_cost = Money.multiply_price_quantity(existing.avg_price, existing.quantity)
+                        new_cost = old_cost + Money.multiply_price_quantity(price_units, qty_units)
+                        total_qty = Money.min_unit_to_shares(total_qty_units)
+                        existing.avg_price = Money.yuan_to_price_units(
+                            round(
+                                (
+                                    Money.cents_to_yuan(old_cost)
+                                    + Money.cents_to_yuan(Money.multiply_price_quantity(price_units, qty_units))
+                                )
+                                / total_qty,
+                                4,
                             )
-                            / total_qty,
-                            4,
                         )
-                    )
-                    existing.quantity = total_qty_units
+                        existing.quantity = total_qty_units
                     # 溯源字段跟随末次导入来源（交割单覆盖手动录）
                     existing.source = src
                     existing.source_broker = data.get('source_broker')
@@ -520,7 +552,8 @@ class PositionService:
                 quantity=qty_units,
                 price=price_units,
                 fee=Money.yuan_to_cents(float(data.get('fee', 0) or 0)),
-                amount=Money.multiply_price_quantity(price_units, qty_units),
+                # balance 模式没有 price×qty 可算，流水金额直接取用户录入的金额
+                amount=amount_cents if is_balance else Money.multiply_price_quantity(price_units, qty_units),
                 status='success',
                 position_name=position.name,
                 account_name=position.account_name,
