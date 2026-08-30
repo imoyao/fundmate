@@ -68,26 +68,22 @@ export const VENUE_LABEL: Record<string, string> = {
   OTC: "场外"
 };
 
-export const ASSET_TYPE_LABEL: Record<string, string> = {
-  STOCK: "股票",
-  ETF: "ETF",
-  FUND: "基金",
-  INDEX: "指数",
-  CB: "可转债"
-};
-
-/** 后端 asset_type → 一级胶囊归类（ETF/可转债归入股票，与其交易属性一致） */
+/**
+ * 资产类型 → 一级胶囊归类（ETF/可转债归入股票，与其交易属性一致）。
+ * 输入大小写归一为小写后再判断，与后端 asset_types 单一来源（stock/etf/fund/bond/index）保持一致（#1171）。
+ * 注意：卡片上的中文标签不再在此手抄，统一走 useEnumLabels.assetTypeLabel（后端 /enums 单一来源，回退前端镜像）。
+ */
 export function toEntityType(
   assetType: string | null | undefined
 ): RoadEntityType {
-  switch ((assetType || "").toUpperCase()) {
-    case "FUND":
+  switch ((assetType || "").toLowerCase()) {
+    case "fund":
       return "fund";
-    case "INDEX":
+    case "index":
       return "index";
-    case "ETF":
-    case "CB":
-    case "STOCK":
+    case "etf":
+    case "cb":
+    case "stock":
     default:
       return "stock";
   }
@@ -134,7 +130,7 @@ export const DEMO_ITEMS: RoadItem[] = [
     symbol: "OF.110022",
     market: "OF",
     display_name: "易方达消费行业股票",
-    asset_type: "FUND",
+    asset_type: "fund",
     venue: "OTC",
     entity: "fund",
     holdingState: "watching",
@@ -162,7 +158,7 @@ export const DEMO_ITEMS: RoadItem[] = [
     symbol: "MGR.ZHANGKUN",
     market: "MGR",
     display_name: "张坤",
-    asset_type: "MANAGER",
+    asset_type: "manager",
     venue: null,
     entity: "manager",
     holdingState: "watching",
@@ -189,7 +185,7 @@ export const DEMO_ITEMS: RoadItem[] = [
     symbol: "SH.600519",
     market: "SH",
     display_name: "贵州茅台",
-    asset_type: "STOCK",
+    asset_type: "stock",
     venue: "EXCHANGE",
     entity: "stock",
     holdingState: "cleared",
@@ -217,7 +213,7 @@ export const DEMO_ITEMS: RoadItem[] = [
     symbol: "SZ.399997",
     market: "SZ",
     display_name: "中证白酒指数",
-    asset_type: "INDEX",
+    asset_type: "index",
     venue: null,
     entity: "index",
     holdingState: "watching",
@@ -244,7 +240,7 @@ export const DEMO_ITEMS: RoadItem[] = [
     symbol: "OF.003095",
     market: "OF",
     display_name: "中欧医疗健康混合A",
-    asset_type: "FUND",
+    asset_type: "fund",
     venue: "OTC",
     entity: "fund",
     holdingState: "holding",
@@ -273,7 +269,7 @@ export const DEMO_ITEMS: RoadItem[] = [
     symbol: "OF.161725",
     market: "OF",
     display_name: "招商中证白酒指数(LOF)",
-    asset_type: "FUND",
+    asset_type: "fund",
     venue: "OTC",
     entity: "fund",
     holdingState: "watching",
@@ -300,7 +296,7 @@ export const DEMO_ITEMS: RoadItem[] = [
     symbol: "SZ.300750",
     market: "SZ",
     display_name: "宁德时代",
-    asset_type: "STOCK",
+    asset_type: "stock",
     venue: "EXCHANGE",
     entity: "stock",
     holdingState: "holding",
@@ -327,7 +323,7 @@ export const DEMO_ITEMS: RoadItem[] = [
     symbol: "SH.000300",
     market: "SH",
     display_name: "沪深300",
-    asset_type: "INDEX",
+    asset_type: "index",
     venue: null,
     entity: "index",
     holdingState: "watching",
@@ -354,7 +350,7 @@ export const DEMO_ITEMS: RoadItem[] = [
     symbol: "MGR.GELAN",
     market: "MGR",
     display_name: "葛兰",
-    asset_type: "MANAGER",
+    asset_type: "manager",
     venue: null,
     entity: "manager",
     holdingState: "watching",
@@ -382,7 +378,7 @@ export const DEMO_ITEMS: RoadItem[] = [
     symbol: "OF.005827",
     market: "OF",
     display_name: "易方达蓝筹精选混合",
-    asset_type: "FUND",
+    asset_type: "fund",
     venue: "OTC",
     entity: "fund",
     holdingState: "watching",
@@ -410,7 +406,7 @@ export const DEMO_ITEMS: RoadItem[] = [
     symbol: "SZ.002594",
     market: "SZ",
     display_name: "比亚迪",
-    asset_type: "STOCK",
+    asset_type: "stock",
     venue: "EXCHANGE",
     entity: "stock",
     holdingState: "cleared",
@@ -437,7 +433,7 @@ export const DEMO_ITEMS: RoadItem[] = [
     symbol: "SH.511010",
     market: "SH",
     display_name: "国债ETF",
-    asset_type: "ETF",
+    asset_type: "etf",
     venue: "EXCHANGE",
     entity: "stock",
     holdingState: "holding",

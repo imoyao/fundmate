@@ -17,7 +17,9 @@ class WatchlistItem(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
 
     symbol = Column(String(50), nullable=False, comment='标准化代码')
     market = Column(String(10), nullable=False, comment='市场代码')
-    asset_type = Column(String(20), comment='资产类型：STOCK/ETF/FUND/CB/INDEX')
+    asset_type = Column(
+        String(20), comment='资产类型：stock/etf/fund/bond/index（小写，与 asset_types 单一来源及 positions 域一致）'
+    )
     venue = Column(String(10), default='EXCHANGE', comment='EXCHANGE(场内) / OTC(场外)')
     status = Column(String(20), default='HOLDING', comment='HOLDING(持仓中) / WATCHING(观察中)')
     favorite = Column(Boolean, default=False, comment='特别关注标记')

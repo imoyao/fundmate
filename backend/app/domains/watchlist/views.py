@@ -89,6 +89,9 @@ def _get_display_info(symbol: str, db) -> str:
 
 def _enrich_item(item: WatchlistItem, db) -> dict:
     out = WatchlistItemOut.model_validate(item).model_dump()
+    # watchlist.asset_type 历史存放大写（STOCK/ETF/...），对外统一归一为小写，
+    # 与后端 asset_types 单一来源（stock/etf/fund/bond/index）及 positions 域保持一致（#1171）。
+    out['asset_type'] = item.asset_type.lower() if item.asset_type else None
     out['display_name'] = _get_display_info(item.symbol, db)
     out['group_ids'] = [link.group_id for link in item.group_links]
     out['tag_ids'] = [link.tag_id for link in item.tag_links]
@@ -253,7 +256,7 @@ def _build_holding_row(symbol, db, market=None, asset_type=None, venue=None):
         'id': None,
         'symbol': symbol,
         'market': market,
-        'asset_type': asset_type,
+        'asset_type': (asset_type or '').lower() or None,
         'venue': venue,
         'status': 'HOLDING',
         'favorite': False,
