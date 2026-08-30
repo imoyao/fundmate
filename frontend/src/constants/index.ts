@@ -19,20 +19,40 @@ export const POSITION_SOURCE = {
   EXPLORE: "explore"
 } as const;
 
-/** 账户类型 */
+/**
+ * 账户类型（渠道分组）选项：创建账户时选择「渠道分组」，
+ * 后端按 channel_category 派生 ledger_type。value 与 CHANNEL_CATEGORY_LABELS 对齐。
+ */
 export const LEDGER_TYPE_OPTIONS = [
-  { value: "bank", label: "银行账户" },
-  { value: "stock", label: "证券账户" },
-  { value: "fund", label: "基金平台" },
-  { value: "property", label: "实物资产" }
+  { value: "bank", label: "银行" },
+  { value: "securities", label: "证券" },
+  { value: "fund_platform", label: "基金" },
+  { value: "insurance", label: "保险" },
+  { value: "futures", label: "期货" },
+  { value: "other", label: "其他" }
 ] as const;
 
 export const LEDGER_TYPE_LABELS: Record<string, string> = {
   bank: "银行账户",
   stock: "证券账户",
-  fund: "基金平台",
+  fund: "基金",
   property: "实物资产"
 };
+
+/** 渠道分组中文标签（用户可见分组，对应后端 Ledger.channel_category） */
+export const CHANNEL_CATEGORY_LABELS: Record<string, string> = {
+  bank: "银行",
+  securities: "证券",
+  fund_platform: "基金",
+  insurance: "保险",
+  futures: "期货",
+  other: "其他"
+};
+
+/** 渠道分组标签：命中单一真相源则返回，否则原样返回（兼容未知分组） */
+export function getChannelCategoryLabel(key: string): string {
+  return CHANNEL_CATEGORY_LABELS[key] ?? key;
+}
 
 /** 五笔钱配置目标 */
 export const ALLOCATION_OPTIONS = [
@@ -74,13 +94,15 @@ export function majorCategoryLabel(key: string): string {
   return MAJOR_CATEGORY_LABELS[key] ?? key;
 }
 
-/** 交易类型标签（buy/sell/dividend/deposit/withdraw） */
+/** 交易类型标签（buy/sell/dividend/deposit/withdraw/split/dividend_reinvest） */
 export const TXN_TYPE_LABELS: Record<string, string> = {
   buy: "买入",
   sell: "卖出",
   dividend: "分红",
   deposit: "存入",
-  withdraw: "取出"
+  withdraw: "取出",
+  split: "送股",
+  dividend_reinvest: "红利再投资"
 };
 
 export function txnTypeLabel(type: string): string {

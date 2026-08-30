@@ -4,19 +4,21 @@
     :style="{ backgroundColor: 'var(--bg-page)' }"
   >
     <!-- 页面标题 & 操作栏 -->
-    <div class="mb-6 flex justify-between items-center">
+    <div
+      class="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between"
+    >
       <div>
         <h2
-          class="text-2xl font-bold"
+          class="text-2xl font-bold whitespace-nowrap"
           :style="{ color: 'var(--text-primary)' }"
         >
           账户管理
         </h2>
         <p class="text-sm mt-1" :style="{ color: 'var(--text-tertiary)' }">
-          管理您的银行账户、证券账户、基金平台和实物资产
+          管理您的银行账户、证券账户、基金和实物资产
         </p>
       </div>
-      <div class="flex gap-2">
+      <div class="flex flex-wrap gap-2">
         <el-button
           class="btn-ghost-text"
           @click="$router.push('/asset/portfolios')"
@@ -132,31 +134,66 @@
         />
       </div>
 
-      <!-- 场外基金（含E账户）聚合汇总卡：整卡可点下钻至聚合视图 -->
-      <div
-        class="overview-card fund-summary-card mb-6"
-        role="button"
-        tabindex="0"
-        @click="goToFundAggregation"
-        @keydown.enter="goToFundAggregation"
-      >
-        <div class="flex justify-between items-center gap-4 flex-wrap">
-          <div class="min-w-0">
-            <p class="text-sm" :style="{ color: 'var(--text-tertiary)' }">
-              场外基金（含E账户）
-            </p>
-            <div class="mt-1">
-              <MoneyDisplay
-                :value="fundTotalYuan"
-                size="lg"
-                :show-sign="false"
-                :auto-color="false"
-              />
+      <!-- 聚合汇总卡网格：场外基金 / 场内证券 两卡并排（窄屏单列堆叠），等高等高权重 -->
+      <div class="aggregation-cards-grid mb-6">
+        <!-- 场外基金（含E账户）聚合汇总卡：整卡可点下钻至聚合视图 -->
+        <div
+          class="overview-card fund-summary-card"
+          role="button"
+          tabindex="0"
+          @click="goToFundAggregation"
+          @keydown.enter="goToFundAggregation"
+        >
+          <div class="flex justify-between items-center gap-4 flex-wrap">
+            <div class="min-w-0">
+              <p class="text-sm" :style="{ color: 'var(--text-tertiary)' }">
+                基金
+              </p>
+              <div class="mt-1">
+                <MoneyDisplay
+                  :value="fundTotalYuan"
+                  size="lg"
+                  :show-sign="false"
+                  :auto-color="false"
+                />
+              </div>
             </div>
+            <el-button type="primary" plain @click.stop="goToFundAggregation">
+              <IconifyIconOffline icon="ep:right" class="mr-1" /> 查看明细
+            </el-button>
           </div>
-          <el-button type="primary" plain @click.stop="goToFundAggregation">
-            <IconifyIconOffline icon="ep:right" class="mr-1" /> 查看明细
-          </el-button>
+        </div>
+
+        <!-- 场内证券（股票/ETF/可转债）聚合汇总卡：整卡可点下钻至聚合视图 -->
+        <div
+          class="overview-card securities-summary-card"
+          role="button"
+          tabindex="0"
+          @click="goToSecuritiesAggregation"
+          @keydown.enter="goToSecuritiesAggregation"
+        >
+          <div class="flex justify-between items-center gap-4 flex-wrap">
+            <div class="min-w-0">
+              <p class="text-sm" :style="{ color: 'var(--text-tertiary)' }">
+                股票
+              </p>
+              <div class="mt-1">
+                <MoneyDisplay
+                  :value="securitiesTotalYuan"
+                  size="lg"
+                  :show-sign="false"
+                  :auto-color="false"
+                />
+              </div>
+            </div>
+            <el-button
+              type="primary"
+              plain
+              @click.stop="goToSecuritiesAggregation"
+            >
+              <IconifyIconOffline icon="ep:right" class="mr-1" /> 查看明细
+            </el-button>
+          </div>
         </div>
       </div>
 
@@ -174,74 +211,86 @@
           v-for="group in displayedGroups"
           :key="group.type"
           class="mb-8 ledger-group"
-          :class="{ 'ledger-group--dragging': group.type === draggingGroupType }"
+          :class="{
+            'ledger-group--dragging': group.type === draggingGroupType
+          }"
         >
-        <div class="flex items-center justify-between mb-3">
-          <div class="flex items-center gap-1 min-w-0">
-            <!-- 分组拖拽抓手：与卡片抓手视觉/作用域分离，hover/focus 显示，拖拽整个分组（分组顺序存 localStorage） -->
-            <span
-              class="group-drag-handle"
-              role="button"
-              tabindex="-1"
-              :title="`拖动调整分组顺序：${group.label}`"
-              @click.stop
-              @keydown.enter.stop
-            >
-              <!-- 分组拖拽：纵向三横线「块」抓手，暗示整段分组重排，与卡片四向箭头明确区分 -->
-              <svg class="drag-grip drag-grip--group" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-                <line x1="6" y1="6" x2="18" y2="6" />
-                <line x1="6" y1="12" x2="18" y2="12" />
-                <line x1="6" y1="18" x2="18" y2="18" />
-              </svg>
-            </span>
-            <h3
-              class="font-semibold text-base"
-              :style="{ color: 'var(--text-primary)' }"
-            >
-              {{ group.label }}
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-1 min-w-0">
+              <!-- 分组拖拽抓手：与卡片抓手视觉/作用域分离，hover/focus 显示，拖拽整个分组（分组顺序存 localStorage） -->
               <span
-                class="text-sm font-normal ml-2"
-                :style="{ color: 'var(--text-tertiary)' }"
+                class="group-drag-handle"
+                role="button"
+                tabindex="-1"
+                :title="`拖动调整分组顺序：${group.label}`"
+                @click.stop
+                @keydown.enter.stop
               >
-                (
-                {{ group.count }} 个账户 ·
-                <MoneyDisplay
-                  :value="group.total"
-                  :show-sign="false"
-                  :auto-color="false"
-                  size="xs"
-                />)
+                <!-- 分组拖拽：纵向三横线「块」抓手，暗示整段分组重排，与卡片四向箭头明确区分 -->
+                <svg
+                  class="drag-grip drag-grip--group"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  aria-hidden="true"
+                >
+                  <line x1="6" y1="6" x2="18" y2="6" />
+                  <line x1="6" y1="12" x2="18" y2="12" />
+                  <line x1="6" y1="18" x2="18" y2="18" />
+                </svg>
               </span>
-            </h3>
+              <h3
+                class="font-semibold text-base"
+                :style="{ color: 'var(--text-primary)' }"
+              >
+                {{ group.label }}
+                <span
+                  class="text-sm font-normal ml-2"
+                  :style="{ color: 'var(--text-tertiary)' }"
+                >
+                  (
+                  {{ group.count }} 个账户 ·
+                  <MoneyDisplay
+                    :value="group.total"
+                    :show-sign="false"
+                    :auto-color="false"
+                    size="xs"
+                  />)
+                </span>
+              </h3>
+            </div>
           </div>
-        </div>
 
-        <!-- 账户卡片：auto-fit 网格自动折叠空轨道，孤点分类不会产生右侧大片空白。
+          <!-- 账户卡片：auto-fit 网格自动折叠空轨道，孤点分类不会产生右侧大片空白。
              卡片展示细节已拆分至 components/LedgerCard.vue（#984）。
              网格绑定 data-ledger-type 供 sortablejs 按类型初始化拖拽（仅同组内可拖）。 -->
-        <div class="ledger-grid" :data-ledger-type="group.type">
-          <LedgerCard
-            v-for="ledger in group.ledgers"
-            :key="ledger.id"
-            :ledger="ledger"
-            @open="goToDetail"
-            @delete="openDeleteDialog"
-            @toggle-archive="onToggleArchive"
-          />
-        </div>
+          <div class="ledger-grid" :data-ledger-type="group.type">
+            <LedgerCard
+              v-for="ledger in group.ledgers"
+              :key="ledger.id"
+              :ledger="ledger"
+              @open="goToDetail"
+              @delete="openDeleteDialog"
+              @toggle-archive="onToggleArchive"
+            />
+          </div>
 
-        <!-- 幽灵态新增占位符：胶囊小按钮，高度恒定 44px，不撑满网格行。
+          <!-- 幽灵态新增占位符：胶囊小按钮，高度恒定 44px，不撑满网格行。
              携带分组类型打开弹窗，预置账户类型（#1082 入口预填） -->
-        <button
-          type="button"
-          class="ghost-add"
-          :aria-label="`新增${getLedgerTypeLabel(group.type)}`"
-          @click="openCreateDialog(group.type)"
-        >
-          <IconifyIconOffline icon="ep:plus" class="ghost-add__icon" />
-          <span>新增{{ getLedgerTypeLabel(group.type) }}</span>
-        </button>
-      </div>
+          <button
+            type="button"
+            class="ghost-add"
+            :aria-label="`新增${getChannelCategoryLabel(group.type)}`"
+            @click="openCreateDialog(group.type)"
+          >
+            <IconifyIconOffline icon="ep:plus" class="ghost-add__icon" />
+            <span>新增{{ getChannelCategoryLabel(group.type) }}</span>
+          </button>
+        </div>
       </div>
     </template>
 
@@ -281,13 +330,14 @@ import {
   unarchiveLedger,
   reorderLedgers,
   getFundAggregation,
+  getSecuritiesAggregation,
   type SalesInstitution
 } from "@/api/ledger";
 import Sortable from "sortablejs";
 import { getPortfolios } from "@/api/portfolio";
 import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
-import { getLedgerTypeLabel } from "@/constants";
+import { getChannelCategoryLabel } from "@/constants";
 import { formatDateTime } from "@/utils/date";
 import DeleteLedgerDialog from "./components/DeleteLedgerDialog.vue";
 import CreateAccountDialog from "./components/CreateAccountDialog.vue";
@@ -316,9 +366,13 @@ const lastUpdate = ref("");
 const fundTotalCents = ref(0);
 const fundTotalYuan = computed(() => fundTotalCents.value / 100);
 
+/** 场内证券（股票/ETF/可转债）聚合总市值（分，整数）；独立获取，失败不影响主账户列表 */
+const securitiesTotalCents = ref(0);
+const securitiesTotalYuan = computed(() => securitiesTotalCents.value / 100);
+
 const showCreateDialog = ref(false);
-/** 创建弹窗初始账户类型：顶部「新增账户」默认 stock；分组幽灵按钮预置对应类型（#1082） */
-const initialCreateType = ref("stock");
+/** 创建弹窗初始渠道分组：顶部「新增账户」默认 bank；分组幽灵按钮预置对应渠道分组 */
+const initialCreateType = ref("bank");
 /** 基金销售机构候选（AMAC 名录，创建账户可选关联） */
 const salesInstitutions = ref<SalesInstitution[]>([]);
 
@@ -368,15 +422,27 @@ const orphanGroup = computed(() =>
   overviewData.value?.groups?.find((g: any) => g.type === "deleted")
 );
 
-// 分组展示（按类型分组，组内排序）：手动排序序号优先，回退按持仓金额降序（#1083）
+// 分组展示（按渠道分组 channel_category，组内排序）：手动排序序号优先，回退按持仓金额降序（#1083）
+// 旧数据可能无 channel_category，按 legacy ledger_type 映射兜底到对应渠道分组。
+const LEGACY_TYPE_TO_CHANNEL: Record<string, string> = {
+  bank: "bank",
+  stock: "securities",
+  fund: "fund_platform",
+  property: "other"
+};
+function channelOf(ledger: any): string {
+  if (ledger.channel_category) return ledger.channel_category;
+  return LEGACY_TYPE_TO_CHANNEL[ledger.ledger_type] || "other";
+}
+
 function buildGroups(ledgers: any[]) {
   const groups: Record<string, any> = {};
   for (const ledger of ledgers) {
-    const type = ledger.ledger_type || "bank";
+    const type = channelOf(ledger);
     if (!groups[type]) {
       groups[type] = {
         type,
-        label: getLedgerTypeLabel(type),
+        label: getChannelCategoryLabel(type),
         total: 0,
         count: 0,
         ledgers: [] as any[]
@@ -387,13 +453,29 @@ function buildGroups(ledgers: any[]) {
     groups[type].ledgers.push(ledger);
   }
 
-  // 分组顺序来自本地偏好（groupOrder），默认 银行/证券/基金/实物资产
-  const result = groupOrder.value.map(type => groups[type]).filter(Boolean) as any[];
+  // 分组顺序来自本地偏好（groupOrder），默认 银行/证券/基金/保险/期货/其他；
+  // 仅保留实际有账户的分组（空分组不渲染）。
+  //
+  // 修复（账户列表白屏 / 账户不显示）：
+  // 1) groupOrder 是 string[]，filter 返回的是分组 **key 字符串**，必须 map 回
+  //    groups 对象——否则下方 g.ledgers.sort() 会对字符串取属性，抛
+  //    "Cannot read properties of undefined (reading 'sort')" 导致整页渲染中断。
+  // 2) groupOrder 未涵盖的分组（如新增渠道、旧数据兜底出的类型）追加到末尾，
+  //    避免这些账户被静默丢弃而"凭空消失"。
+  const orderedTypes = groupOrder.value.filter(type => groups[type]);
+  const restTypes = Object.keys(groups).filter(
+    type => !orderedTypes.includes(type)
+  );
+  const result = [...orderedTypes, ...restTypes].map(
+    type => groups[type]
+  ) as any[];
 
   // 未归置持仓不再作为分组卡片进入网格（2026-08 改版），统一由顶部警示 banner 承接
   // 组内排序：已手动排序（display_order 非 null）的卡片按 display_order 升序排在前面，
   // 其余（null）回退到「按持仓金额降序」，默认即金额大的靠前。
   for (const g of result) {
+    // 防御：分组结构异常（无 ledgers 数组）时跳过，避免一处脏数据让整页白屏
+    if (!Array.isArray(g?.ledgers)) continue;
     g.ledgers.sort((a: any, b: any) => {
       const da = a.display_order ?? Infinity;
       const db = b.display_order ?? Infinity;
@@ -409,7 +491,14 @@ const displayedGroups = ref<any[]>([]);
 
 // ── 分组顺序（纯视图偏好，存 localStorage，不落库；与组内卡片排序分层）──
 const GROUP_ORDER_KEY = "fundmate:ledgerGroupOrder:v1";
-const DEFAULT_GROUP_ORDER = ["bank", "stock", "fund", "property"];
+const DEFAULT_GROUP_ORDER = [
+  "bank",
+  "securities",
+  "fund_platform",
+  "insurance",
+  "futures",
+  "other"
+];
 function loadGroupOrder(): string[] {
   try {
     const raw = localStorage.getItem(GROUP_ORDER_KEY);
@@ -472,7 +561,6 @@ function initGroupSortable() {
   });
 }
 
-
 // ── 拖拽排序（仅限同类型组内，#1083）──
 const sortables: Record<string, any> = {};
 function destroySortables() {
@@ -505,18 +593,21 @@ function onLedgerDragEnd(type: string, evt: any) {
   if (!moved) return;
   arr.splice(newIndex, 0, moved);
   const orderedIds = arr.map((l: any) => l.id);
+  // 落库按真实 ledger_type 排序（channel_category 由 ledger_type 派生，组内 ledger_type 一致）
+  const ledgerType = group.ledgers[0]?.ledger_type ?? type;
   // 乐观更新已在 UI 生效；落库失败则回填并重拉，保证最终一致
-  reorderLedgers(type, orderedIds).catch(() => {
+  reorderLedgers(ledgerType, orderedIds).catch(() => {
     ElMessage.error("排序保存失败，已恢复");
     fetchData();
   });
 }
 
-
-function openCreateDialog(ledgerType?: string) {
-  // 显式传 undefined 时回退默认 stock，避免点击事件对象被误当类型参数
+function openCreateDialog(channelCategory?: string) {
+  // 显式传 undefined 时回退默认 bank，避免点击事件对象被误当类型参数
   initialCreateType.value =
-    ledgerType && typeof ledgerType === "string" ? ledgerType : "stock";
+    channelCategory && typeof channelCategory === "string"
+      ? channelCategory
+      : "bank";
   showCreateDialog.value = true;
 }
 
@@ -555,9 +646,21 @@ function goToDetail(ledger: any) {
   router.push({ name: "LedgerDetail", params: { id: ledger.id } });
 }
 
-/** 下钻到场外基金（含E账户）聚合视图 */
+/**
+ * 下钻到场外基金（含E账户）聚合视图。
+ * #1133 路由归并：目标由隐藏页 /asset/fund-aggregation 收敛为正式页 /funds（AssetFunds），
+ * 与「资产总览 → 产品类型 → 基金」的下钻目标合为同一个页面，消除重复路由。
+ */
 function goToFundAggregation() {
-  router.push({ name: "fund-aggregation" });
+  router.push({ name: "AssetFunds" });
+}
+
+/**
+ * 下钻到场内证券（股票/ETF/可转债）聚合视图。
+ * #1133 路由归并：目标收敛为正式页 /stocks（AssetStocks），同上。
+ */
+function goToSecuritiesAggregation() {
+  router.push({ name: "AssetStocks" });
 }
 
 async function fetchData() {
@@ -597,16 +700,30 @@ async function fetchData() {
   }
   // 独立获取场外基金（含E账户）聚合总市值：与账户列表解耦，失败静默兜底不阻塞主列表
   fetchFundTotal();
+  // 独立获取场内证券（股票/ETF/可转债）聚合总市值：同范式，失败静默兜底不阻塞主列表
+  fetchSecuritiesTotal();
 }
 
 /** 独立获取场外基金聚合总市值（GET /api/ledgers/fund-aggregation/）。
  *  汇总值与维度无关（始终为全量场外基金市值），故用默认 product 维度取一次即可。 */
 async function fetchFundTotal() {
   try {
-    const res = await getFundAggregation("product");
+    const res = await getFundAggregation({ dimension: "product" });
     fundTotalCents.value = res.data?.total_market_value_cents ?? 0;
   } catch {
     fundTotalCents.value = 0;
+  }
+}
+
+/** 独立获取场内证券聚合总市值（GET /api/ledgers/securities-aggregation/）。
+ *  汇总值与维度无关（始终为全量场内证券市值），故用默认 product 维度取一次即可。
+ *  与账户列表解耦、失败静默兜底不阻塞主列表（同 fetchFundTotal 范式）。 */
+async function fetchSecuritiesTotal() {
+  try {
+    const res = await getSecuritiesAggregation({ dimension: "product" });
+    securitiesTotalCents.value = res.data?.total_market_value_cents ?? 0;
+  } catch {
+    securitiesTotalCents.value = 0;
   }
 }
 
@@ -633,6 +750,12 @@ onMounted(() => {
   }
 
   .ledger-card:hover {
+    transform: none;
+  }
+
+  /* 聚合卡 hover 上浮同样尊重减弱动效偏好 */
+  .fund-summary-card:hover,
+  .securities-summary-card:hover {
     transform: none;
   }
 }
@@ -693,11 +816,13 @@ onMounted(() => {
   font-variant-numeric: tabular-nums;
 }
 
-/* ===== 全局汇总卡片（--space-standard 间距，净资产大数字锚点） ===== */
+/* ===== 全局汇总卡片（--space-standard 间距，净资产大数字锚点） =====
+   卡片统一使用 --card-border 描边（design.md / design.dark.md 规范：卡片边框必须用 --card-border），
+   hover 用 translateY 浮起 + 浮起阴影（见下方聚合卡）。 */
 .overview-card {
   padding: var(--space-standard);
   background: var(--bg-card);
-  border: 1px solid var(--border-light);
+  border: var(--card-border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-raised);
 }
@@ -708,20 +833,56 @@ onMounted(() => {
   flex-direction: column;
 }
 
-/* 场外基金（含E账户）汇总卡：整卡可点下钻，复用 overview-card 视觉语言 */
+/* 场外基金（含E账户）汇总卡：整卡可点下钻，复用 overview-card 视觉语言。
+   hover 与账户卡片（LedgerCard）统一为「上浮 + 浮起阴影」，边框由 --card-border 统一提供，hover 不改 border-color。 */
 .fund-summary-card {
   cursor: pointer;
-  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+  transition:
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
 }
 
 .fund-summary-card:hover {
+  transform: translateY(-2px);
   box-shadow: var(--shadow-float);
-  border-color: var(--border-strong);
 }
 
 .fund-summary-card:focus-visible {
   box-shadow: var(--focus-ring);
   outline: none;
+}
+
+/* 场内证券（股票/ETF/可转债）汇总卡：整卡可点下钻，复用 fund-summary-card 视觉语言。
+   hover 与账户卡片（LedgerCard）统一为「上浮 + 浮起阴影」，边框由 --card-border 统一提供，hover 不改 border-color。 */
+.securities-summary-card {
+  cursor: pointer;
+  transition:
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+
+.securities-summary-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-float);
+}
+
+.securities-summary-card:focus-visible {
+  box-shadow: var(--focus-ring);
+  outline: none;
+}
+
+/* 聚合汇总卡网格：场外基金 / 场内证券 两卡并排，等宽等高（grid 默认 align-items: stretch）；
+   minmax(0, 1fr) 防止金额等超长内容撑破列宽；窄屏（<768px，与 Tailwind md 断点对齐）回退单列堆叠 */
+.aggregation-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-compact);
+}
+
+@media (max-width: 767px) {
+  .aggregation-cards-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* 负债率偏高警示：负债属中性信息，警示态才用系统危险色（非涨跌色） */

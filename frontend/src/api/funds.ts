@@ -16,8 +16,18 @@ export interface FundSearchItem {
   subscription_rate: number;
   /** 基金小类 ID（Fund.fund_type_id），后端可能尚未部署，允许缺失 */
   fund_type_id?: number | null;
-  /** 是否为货币基金（fund_type_id === 6），后端可能尚未部署，允许缺失 */
-  is_money_fund?: boolean;
+  /**
+   * 是否为货币基金。**三态**：
+   * - `true`  = 货币基金（fund_type_id=6，或已同步万份收益记录，或名称命中货基词）
+   * - `false` = 明确非货币基金
+   * - `null`  = 类型未知（fund_type_id 缺失且无辅助判据）
+   *
+   * 2026-08-29 起由「fund_type_id === 6」升级为三态判定：本地库 fund_type_id
+   * 有 88.7% 为空，旧判定会把券商渠道现金管理产品（如 026029 银河水星现金添利货币）
+   * 误判为非货基，导致「活期+」搜不到。判定逻辑见后端
+   * `FundService._judge_money_fund`，前端据此做「全量展示 + 选择时限制」。
+   */
+  is_money_fund?: boolean | null;
 }
 
 interface RedeemFeeEstimateParams {

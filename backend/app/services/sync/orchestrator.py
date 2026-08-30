@@ -23,12 +23,14 @@ from sqlalchemy.orm import Session
 
 # 项目根目录：从 app 包的物理路径推导
 import app
+from app.core.config import SYNC__FUND_LIST_SOURCE
 from app.core.database import SQLALCHEMY_DATABASE_URL as DB_URL
 from app.core.time_utils import now_shanghai
 from app.domains.positions.models import Position
 from app.domains.watchlist.models import WatchlistItem
 from app.models.sync_log import SyncLog
 from app.services.sync.adapters.akshare_adapter import AkshareAdapter
+from app.services.sync.adapters.eastmoney_adapter import EastmoneyAdapter
 from app.services.sync.adapters.null_adapter import NullAdapter
 from app.services.sync.adapters.xalpha_adapter import XalphaAdapter
 from app.services.sync.jobs.amac_institution_job import AmacInstitutionJob
@@ -36,6 +38,7 @@ from app.services.sync.jobs.fund_detail_enrich_job import FundDetailEnrichJob
 from app.services.sync.jobs.fund_list_job import FundListSyncJob
 from app.services.sync.jobs.fund_manager_job import FundManagerSyncJob
 from app.services.sync.jobs.fund_nav_job import FundNavSyncJob
+from app.services.sync.jobs.fund_type_job import FundTypeSyncJob
 from app.services.sync.jobs.price_history_job import PriceHistorySyncJob
 from app.services.sync.jobs.stock_list_job import StockListSyncJob
 from app.services.thermometer.jobs import TemperatureJob
@@ -102,16 +105,24 @@ class DataSyncOrchestrator:
         """注册数据源适配器（硬编码，避免过度配置）"""
         self.data_sources['xalpha'] = XalphaAdapter()
         self.data_sources['akshare'] = AkshareAdapter()
+        # #1168：天天基金/东财一等数据源（组合 akshare + xalpha）
+        self.data_sources['eastmoney'] = EastmoneyAdapter()
 
     def _register_jobs(self) -> None:
         """注册所有同步任务，明确指定每个 Job 使用的数据源"""
         self.jobs['stock_list'] = StockListSyncJob(self.data_sources['akshare'], self.db)
-        self.jobs['fund_list'] = FundListSyncJob(self.data_sources['akshare'], self.db)
+        # #1168：fund_list 选源可配置（默认 eastmoney），其余 Job 不变
+        fund_list_src = SYNC__FUND_LIST_SOURCE
+        if fund_list_src not in self.data_sources:
+            logger.warning(f'配置的数据源 {fund_list_src} 未注册，回退 akshare')
+            fund_list_src = 'akshare'
+        self.jobs['fund_list'] = FundListSyncJob(self.data_sources[fund_list_src], self.db)
         # FundDetailEnrichJob 需要两个适配器：akshare 获取详情，xalpha 获取费率
         self.jobs['fund_detail_enrich'] = FundDetailEnrichJob(
             self.data_sources['akshare'], self.data_sources['xalpha'], self.db
         )
         self.jobs['fund_manager'] = FundManagerSyncJob(self.data_sources['akshare'], self.db)
+        self.jobs['fund_type'] = FundTypeSyncJob(self.data_sources['akshare'], self.db)
         self.jobs['fund_nav'] = FundNavSyncJob(self.data_sources['xalpha'], self.db)
         self.jobs['price_history'] = PriceHistorySyncJob(self.data_sources['akshare'], self.db)
         self.jobs['temperature'] = TemperatureJob(NullAdapter(), self.db)
@@ -349,6 +360,8 @@ class DataSyncOrchestrator:
                 ('stock_list', ['__full__']),  # 全量刷新股票列表，不需要目标列表
                 ('fund_list', ['__full__']),  # 全量刷新基金列表
                 ('fund_detail_enrich', fund_targets),  # 补充基金详情（核心池）
+                ('fund_type', fund_targets),  # 回填基金类型（核心池，#1155 根治项）
+                ('fund_manager', fund_targets),  # 回填基金经理并关联基金公司（核心池）
                 ('fund_nav', fund_targets),  # 净值增量同步（核心池）
                 ('price_history', stock_targets),  # 行情增量同步（核心池）
             ]

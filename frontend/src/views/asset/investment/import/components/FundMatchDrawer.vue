@@ -81,7 +81,7 @@ import { ref, reactive, computed, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import { searchFunds } from "@/api/funds";
-import { fetchFundNavBatch } from "@/api/fundNav";
+import { navCache } from "@/composables/useNavCache";
 
 interface MissingItem {
   name: string;
@@ -170,7 +170,8 @@ async function applyMatch(fundName: string, code: string) {
     // 逐日请求净值
     for (const [date, symbols] of Object.entries(dateGroups)) {
       try {
-        const navMap = await fetchFundNavBatch(symbols, date);
+        // 经 useNavCache：本地缓存优先，未命中再 JSONP 直连（#1133）
+        const navMap = await navCache.getNavs(symbols, date);
 
         // 填回行数据
         matchedRows.forEach(row => {

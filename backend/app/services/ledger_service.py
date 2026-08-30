@@ -11,10 +11,10 @@ from sqlalchemy.orm import Session
 from app.core.constants import ALLOCATION_LABELS, LEDGER_TYPE_LABELS, TYPE_LABELS
 from app.core.money import Money
 from app.domains.assets.models import Asset
-from app.domains.funds.models import DailyWorth
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
+from app.services.nav_service import NavService
 from app.services.summary_service import orphan_money_fund_net_by_ledger
 
 
@@ -25,31 +25,16 @@ class LedgerService:
     def _batch_fund_latest_navs(db: Session, fund_codes: list[str]) -> dict[str, float]:
         """批量获取基金最新单位净值（单次查询，避免 N+1）
 
+        实现已委托 :class:`NavService` 统一入口（#1133），本方法仅保留签名
+        以兼容既有 3 处调用方（账本统计 / 持仓分页等）。
+        ``allow_remote=False``：账本页属同步请求，禁止在请求内触发远程拉取。
+
         返回 {fund_code: unit_nav_float}，无数据的基金不在结果中。
         """
         if not fund_codes:
             return {}
         try:
-            # 子查询：每个 fund_code 的最大日期
-            max_dates = (
-                db.query(
-                    DailyWorth.fund_code,
-                    func.max(DailyWorth.date).label('max_date'),
-                )
-                .filter(DailyWorth.fund_code.in_(fund_codes))
-                .group_by(DailyWorth.fund_code)
-                .subquery()
-            )
-            # 关联取出该日期的 unit_nav
-            rows = (
-                db.query(DailyWorth.fund_code, DailyWorth.unit_nav)
-                .join(
-                    max_dates,
-                    (DailyWorth.fund_code == max_dates.c.fund_code) & (DailyWorth.date == max_dates.c.max_date),
-                )
-                .all()
-            )
-            return {row[0]: float(row[1]) for row in rows if row[1]}
+            return NavService.get_latest_navs(db, fund_codes, allow_remote=False)
         except Exception:
             return {}
 
@@ -263,6 +248,41 @@ class LedgerService:
         return {
             'money_fund_ratio': round(money_fund_mv / total_mv * 100, 2),
             'money_fund_amount': Money.cents_to_yuan(money_fund_mv),
+        }
+
+    @staticmethod
+    def get_cash_like_stats(db: Session, ledger_id: int, family_id: int) -> dict:
+        """#1137 类现金统计：货基 + 逆回购 + 账户现金。
+
+        口径与 XIRR 的 `EXCLUDED_ASSET_TYPES = ('money_fund','reverse_repo','cash')`
+        保持一致（设计见 ledger-cash-like-product-binding-2026-08-29.md），
+        即「系统里已把这三样当类现金」，此处只是把它显式统计出来单独展示。
+
+        三部分相加（互不重叠）：
+        - 货基持仓市值（positions 里有持仓的部分，含净值换算）；
+        - 孤儿货基 / 逆回购流水净额（position_service 对这两类只建孤立流水，
+          不建持仓，需按流水净额并入，否则会漏计）；
+        - 账户内现金（Asset.major_category='current'）。
+
+        债券基金**不计入**：它有净值波动、XIRR 也未排除，属中低风险投资而非现金。
+        """
+        money_fund_amount = LedgerService.get_money_fund_stats(db, ledger_id).get('money_fund_amount', 0.0)
+        # 孤儿流水净额（分）→ 元
+        orphan_net_cents = orphan_money_fund_net_by_ledger(db, family_id).get(ledger_id, 0)
+        orphan_amount = Money.cents_to_yuan(orphan_net_cents)
+        # 账户内现金（current 类资产，分）→ 元
+        cash_cents = (
+            db.query(func.coalesce(func.sum(Asset.amount), 0))
+            .filter(Asset.ledger_id == ledger_id, Asset.major_category == 'current')
+            .scalar()
+            or 0
+        )
+        cash_amount = Money.cents_to_yuan(cash_cents)
+
+        return {
+            'money_fund_amount': round(money_fund_amount, 2),
+            'cash_amount': round(cash_amount, 2),
+            'cash_like_amount': round(money_fund_amount + orphan_amount + cash_amount, 2),
         }
 
     @staticmethod

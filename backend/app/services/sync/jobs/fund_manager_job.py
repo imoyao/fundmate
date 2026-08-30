@@ -6,11 +6,17 @@ from typing import List
 from loguru import logger
 
 from app.core.db_utils import bulk_insert_if_not_exists
-from app.domains.funds.models import Fund, FundManager, Manager
+from app.domains.funds.models import Fund, FundCompany, FundManager, Manager
+from app.services.sync.company_resolver import get_company_code_by_name
 from app.services.sync.jobs.base import SyncJob
 
 
 class FundManagerSyncJob(SyncJob):
+    @property
+    def _allow_empty_data(self) -> bool:
+        # 无目标基金（用户无持仓/自选）时静默跳过，不报错阻断整体同步
+        return True
+
     def get_name(self) -> str:
         return 'fund_manager'
 
@@ -67,10 +73,36 @@ class FundManagerSyncJob(SyncJob):
 
     def _save_data(self, new_data: List[dict]) -> None:
         """插入新经理并建立基金-经理关联"""
-        # 1. 插入新经理
-        mgr_records = [{'mgr_code': item['mgr_code'], 'name': item['name']} for item in new_data]
+        # 0. 解析基金经理所属公司 → fund_companies.id
+        company_names = {item.get('company') for item in new_data if item.get('company')}
+        company_map = {}
+        if company_names:
+            existing = self.db.query(FundCompany).filter(FundCompany.name.in_(company_names)).all()
+            company_map = {c.name: c.id for c in existing}
+            # 补建缺失的基金公司，优先用真值 code（#1168）
+            for name in company_names:
+                if name in company_map:
+                    continue
+                real_code = get_company_code_by_name(name)
+                if not real_code:
+                    logger.warning(f'基金公司「{name}」未匹配到权威 code，暂以名称占位')
+                inst = FundCompany(name=name, code=real_code or name)
+                self.db.add(inst)
+                self.db.flush()
+                company_map[name] = inst.id
+
+        # 1. 插入新经理（带公司关联）
+        mgr_records = []
+        for item in new_data:
+            rec = {'mgr_code': item['mgr_code'], 'name': item['name']}
+            cid = company_map.get(item.get('company'))
+            if cid:
+                rec['company_id'] = cid
+            mgr_records.append(rec)
         inserted = bulk_insert_if_not_exists(self.db, Manager, mgr_records, 'mgr_code')
-        logger.info(f'新增 {inserted} 位经理')
+        logger.info(
+            f'新增 {inserted} 位经理（其中 {sum(1 for r in mgr_records if "company_id" in r)} 位已关联基金公司）'
+        )
 
         # 2. 建立基金-经理关联
         mgr_codes = [item['mgr_code'] for item in new_data]

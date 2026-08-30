@@ -191,6 +191,68 @@
 
 ---
 
+## 依赖复用与 Worktree 规范
+
+> 多 worktree 并行开发时，每个 worktree 重复 `pnpm install` / `pdm install` 既耗时又占盘。本节规定复用策略，所有 AI / 开发者开新 worktree 后**必须**按此执行。
+
+### 原理（为什么不能"直接复用主仓库依赖"）
+
+- pnpm / PDM 均使用**全局 content-addressable store/cache** 去重：包体只下载一次（pnpm 默认 `%LOCALAPPDATA%\pnpm\store`；PDM 默认 `~/.cache/pdm`）。
+- 各 worktree 内的 `node_modules` / `.venv` 不是副本，而是**符号链接 / junction 指回全局 store**，磁盘占用极小（仅链接层，非包本体）。
+- **硬约束**：Node 模块解析要求 `node_modules` 必须位于工作树自身目录内（相对 `import`、`.bin`、`pnpm` 虚拟仓库 `.pnpm` 均依赖此位置），故不能把新 worktree 的 `node_modules` 直接指向主仓库，否则 `import` 失败。重复 `install` 的本质是"重建链接结构"，不是"重新下载安装"（数十秒属建链接，非重装）。
+
+### 标准流程（开新 worktree 后）
+
+1. **先比对锁文件一致性**：运行以下命令确认锁文件未变。
+
+   ```powershell
+   git diff <base-branch> -- frontend/pnpm-lock.yaml frontend/package.json backend/pyproject.toml
+   ```
+
+2. **锁文件一致**（同一条 dev 分支派生，最常见）→ 用目录联结（junction）复用主 worktree 的依赖，零下载、秒级、零额外磁盘：
+
+   ```powershell
+   # 前端：删掉新 worktree 自带（或空的）node_modules，挂接主仓库那份
+   Remove-Item "D:\codes\<new-worktree>\frontend\node_modules" -Recurse -Force -ErrorAction SilentlyContinue
+   cmd /c mklink /J "D:\codes\<new-worktree>\frontend\node_modules" "D:\codes\fundmate\frontend\node_modules"
+   ```
+
+   - junction 不需要管理员权限；主 worktree 的 `node_modules` 须保持稳定（不要在其中改动依赖）。
+   - **仅前端 `node_modules` 可 junction**：它装的是第三方依赖、不含本仓源码，多 worktree 共享安全。
+
+4. **后端 `.venv` 禁止 junction 复用**（2026-08-30 实测踩坑）：PDM 以 **editable 方式**把 `app` 包装进 venv，
+   `.pth` 里写的是**创建该 venv 时的绝对源码路径**。junction 复用主 worktree 的 `.venv` 后，
+   在新 worktree 执行 `import app.core.constants` 仍会解析到**主 worktree** 的源码。实测症状：
+
+   - `ImportError: cannot import name 'ValuationMode' from 'app.core.constants'
+     (D:\codes\fundmate\backend\app\core\constants.py)` —— 新写的代码明明在，却导入不到；
+   - 主 worktree 分支落后于 dev 时，还会连带报 `ModuleNotFoundError: No module named 'app.core.config'`
+     一类「文件明明在却找不到」的假象（那些是 dev 上才有的新模块）。
+
+   正确做法：新 worktree 里**独立安装**（走 PDM 全局缓存，是建链接不是重新下载，约 1~2 分钟）：
+
+   ```powershell
+   cd <new-worktree>/backend && pdm install -G dev
+   pdm run python -c "import app.core.constants as c; print(c.__file__)"   # 必须指向当前 worktree
+   ```
+
+   **自检铁律**：装完必须打印 `app` 模块路径确认指向**当前 worktree**，否则测试跑的是别人的代码，
+   而失败信息会指向错误的方向。
+
+3. **锁文件不一致**（某分支升级了依赖）→ 禁止 junction，走正规安装：
+
+   ```powershell
+   cd <new-worktree>/frontend && pnpm install --offline
+   cd <new-worktree>/backend && pdm install
+   ```
+
+### 风险闸门
+
+- 仅当锁文件逐字节一致才可 junction；一旦某 worktree 的 `package.json` / `pnpm-lock.yaml` / `pyproject.toml` 与主仓库不同，复用旧 `node_modules` 会**版本错配**导致诡异运行时错误。此时必须走第 3 步。
+- 同一时刻只在一个 worktree 跑 `pnpm install` / `pdm install`，避免两 worktree 同时改写共享 store 的链接层。
+
+---
+
 ## 文档站与落地页
 
 - **文档站**：根目录执行 `pnpm run docs:dev` / `docs:build`。
@@ -332,6 +394,20 @@
 - **追加请续帖**：在已有 issue 上补充新结论时用评论（comment），禁止用 `gh issue edit` 覆盖原正文。
 - **超长即拆分信号**：当 issue 混入第二、第三件事时，新建独立 issue 并引用回原 issue。
 - **关闭即终点**：仅当该 issue 对应的事项真正完成才可关闭。
+
+### Issue 关闭纪律（禁止以 PR 状态代替验收）
+
+- **关闭前必须逐条核对验收**：关闭 issue 前，必须逐条核对本 issue 的「要做的事」与「验收标准」，逐项确认已达成，或明确记录未达成项及其归属后方可关闭。**禁止以「PR 已合并 / merged」代替验收**——PR 合并仅代表代码合入，不代表验收标准达成，PR 范围可能小于 issue 范围（#1177 的 PR #1188 只覆盖导入路径，却据此关闭了整张卡）。
+- **PR 声明「另立单跟进」必须当场开单**：PR 正文出现「后续处理 / 另立单跟进 / 不在本次范围」等表述时，必须在合并**同时**创建对应 issue 并在原 issue 评论中关联编号；否则原 issue 不得关闭，避免剩余项无 issue 承载（#1177 的 PR 写了「另立单跟进」却未开单）。
+- **范围外发现项不得悬空**：实现中发现本 issue 范围外的问题（如其他页面同样存在假数据），要么本卡处理，要么新建 issue 并在本卡评论写明归属；**禁止仅在 PR 正文写「由 #xxx 接管」而不核实 #xxx 是否真覆盖**（#1171 的 PR 声明顶部汇总卡片假数据由 #1014 接管，核实后 #1014 并不覆盖，须补 #1195）。
+- **误关须更正留痕**：发现误关立即 `gh issue reopen`，并追加评论说明「误关原因 / 已完成部分 / 未完成部分 / 后续处置」，不得静默重开或抹去痕迹。
+- **部分完成时拆卡转移，不要长期挂起**：若 issue **主体已达成**、只剩范围外的遗留项，正确做法是——
+  ① 把遗留项**拆成新 issue**；② 在**旧 issue 与新 issue 上互相评论关联**（旧→新「遗留项已转至 #x，本卡关闭」，
+  新→旧「遗留自 #y」）；③ **关闭旧 issue**。遗留项有新卡承载即不再悬空，旧卡也不必为了等零碎剩余
+  一直 OPEN。判断标准是「**主体验收是否达成**」，而不是「是否还剩一点没做」——
+  后者会让几乎所有 issue 永远关不掉，看板随之失去信噪比。
+  反例：#1177 导入路径已达成，却因两项遗留（手动记账入口白名单、OP_TYPE_LABEL）整卡重开，
+  正确做法应为拆新卡承接遗留、互相关联后关闭 #1177。
 
 ### 禁止武断执行
 

@@ -344,9 +344,10 @@ import { usePositionSubmit } from "@/composables/usePositionSubmit";
 import { createLedger as createLedgerApi, type LedgerItem } from "@/api/ledger";
 import { searchSecurities } from "@/api/securities";
 import {
-  getSecurityPriceRange,
-  type SecurityPriceRange
-} from "@/api/securities";
+  useSecurityPriceRange,
+  createStockPriceValidator,
+  checkPriceInRange
+} from "@/composables/useSecurityPrice";
 import { searchFunds, getFundFeeRates } from "@/api/funds";
 import type { FundSearchItem } from "@/api/funds";
 import { checkTradingDay } from "@/api/utils";
@@ -420,15 +421,20 @@ const newAccountName = ref("");
 const newAccountType = ref("");
 const creatingAccount = ref(false);
 const quickAddTypeOptions = LEDGER_TYPE_OPTIONS.filter(
-  opt => opt.value !== "property"
+  opt => opt.value !== "other"
 );
 
 // 搜索状态
 const searchLoading = ref(false);
 const securityOptions = ref<SecurityOption[]>([]);
-// 股票价格区间（#948）：选中股票后按交易日拉取，用于回填默认价与提交校验
-const stockPriceRange = ref<SecurityPriceRange | null>(null);
 const selectedSecurityOption = ref<SecurityOption | null>(null);
+// 股票价格区间（#948）：随标的/交易日自动刷新，统一走 useSecurityPriceRange
+const { priceRange: stockPriceRange, refresh: refreshStockRange } =
+  useSecurityPriceRange(
+    computed(() => selectedSecurityOption.value?.symbol),
+    computed(() => form.trade_date),
+    computed(() => selectedSecurityOption.value?.type === "stock")
+  );
 
 // 🔥 修复2：移除 feeRateValue，直接用 form.fee 管理所有模式下的输入
 const feeMode = ref<"amount" | "rate">("amount");
@@ -487,7 +493,18 @@ const rules: FormRules = {
   trade_date: [{ required: true, message: "请选择日期", trigger: "change" }],
   buyAmount: [{ required: true, message: "请输入买入金额", trigger: "blur" }],
   shares: [{ required: true, message: "确认份额不能为空", trigger: "blur" }],
-  allocation: [{ required: true, message: "请选择配置目标", trigger: "change" }]
+  allocation: [
+    { required: true, message: "请选择配置目标", trigger: "change" }
+  ],
+  price: [
+    {
+      validator: createStockPriceValidator(
+        () => stockPriceRange.value,
+        () => selectedSecurityOption.value?.type === "stock"
+      ),
+      trigger: ["blur", "change"]
+    }
+  ]
 };
 
 // ── 核心联动逻辑 ──
@@ -737,23 +754,12 @@ async function onSecuritySelected(option: SecurityOption | null) {
   form.type = option.type;
   selectedSecurityOption.value = option;
 
-  // 股票：拉取最近交易日价格区间，回填默认价（#948；基金净值由既有 watch 链路处理）
+  // 股票：拉取价格区间并回填默认价（#948；基金净值由既有 watch 链路处理）
   if (option.type === "stock") {
-    stockPriceRange.value = null;
-    try {
-      const res = await getSecurityPriceRange(option.symbol);
-      const range = res?.data;
-      if (range) {
-        stockPriceRange.value = range;
-        if (!form.price && range.close) {
-          form.price = range.close; // 默认填收盘价，用户可改
-        }
-      }
-    } catch {
-      // 区间获取失败不阻塞录入，仅跳过校验
+    const range = await refreshStockRange(option.symbol);
+    if (!form.price && range?.close) {
+      form.price = range.close; // 默认填收盘价，用户可改
     }
-  } else {
-    stockPriceRange.value = null;
   }
 
   // 🔥 新增：如果是基金，去拉取详细费率（用来更新 subscription_rate）
@@ -841,20 +847,15 @@ async function handleSubmit() {
     return;
   }
 
-  // 股票价格区间校验（#948）：有行情数据时限制输入在当日 low~high 内
-  if (
-    form.type === "stock" &&
-    stockPriceRange.value &&
-    form.price != null &&
-    form.price > 0
-  ) {
-    const { low, high, date: rangeDate } = stockPriceRange.value;
-    if (form.price < low || form.price > high) {
-      ElMessage.error(
-        `价格超出 ${rangeDate} 交易日区间（${low} ~ ${high}），请核对后重新输入`
-      );
-      return;
-    }
+  // 股票价格区间校验（#948）：统一走 useSecurityPrice.checkPriceInRange
+  const priceErr = checkPriceInRange(
+    form.price ?? 0,
+    stockPriceRange.value,
+    selectedSecurityOption.value?.type === "stock"
+  );
+  if (priceErr) {
+    ElMessage.error(priceErr);
+    return;
   }
 
   let finalConfirmDate = null;
@@ -930,19 +931,7 @@ watch(
   async () => {
     fetchTradingDay();
 
-    // 股票：交易日变化时按所选日期刷新价格区间（#948）
-    if (
-      selectedSecurityOption.value?.type === "stock" &&
-      form.trade_date &&
-      form.symbol
-    ) {
-      try {
-        const res = await getSecurityPriceRange(form.symbol, form.trade_date);
-        stockPriceRange.value = res?.data ?? null;
-      } catch {
-        stockPriceRange.value = null;
-      }
-    }
+    // 股票价格区间由 useSecurityPriceRange 随标的/交易日自动刷新（#948 统一约束）
 
     if (selectedSecurityOption.value?.type === "fund" && form.trade_date) {
       const opt = selectedSecurityOption.value;

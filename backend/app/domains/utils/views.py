@@ -104,12 +104,16 @@ def get_enums():
     - 免登录：探市页 /explore 免登录也展示持仓来源徽标，匿名访客需能读取。
     - 后续新增需要前后端一致的枚举标签，统一在此下发，不要在 /constants/index.ts 再写一份。
     """
-    from app.core.constants import POSITION_SOURCE_LABELS
+    from app.core.asset_types import ASSET_CATEGORY_LABELS, ASSET_TYPE_LABELS
+    from app.core.constants import OP_TYPE_LABEL, POSITION_SOURCE_LABELS
 
     return jsonify(
         {
             'data': {
                 'position_source': POSITION_SOURCE_LABELS,
+                'asset_type': ASSET_TYPE_LABELS,
+                'asset_category': ASSET_CATEGORY_LABELS,
+                'op_type_labels': OP_TYPE_LABEL,
             },
             'message': 'ok',
         }

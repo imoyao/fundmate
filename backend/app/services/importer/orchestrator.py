@@ -23,6 +23,7 @@ from app.core.exceptions import ErrorCode, SBException
 from app.core.money import Money
 from app.core.utils import show_time
 from app.domains.funds.models import Fund, FundVariety
+from app.domains.ledgers.constants import map_org_type_to_channel_category
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, PositionImportMeta, SalesInstitution
 from app.domains.securities.models import Security
@@ -605,6 +606,9 @@ class ImportOrchestrator:
             'account_name': record.account_name,
             'quantity': qty,  # 原始份额
             'avg_price': avg_price,  # 原始元
+            # 净值须单列：is_dividend 时 avg_price 已被改写为分红金额（见上方赋值），
+            # 而红利再投资要按净值申购份额，拿不到净值就无法加仓。
+            'nav': float(record.nav) if record.nav else 0.0,  # 原始净值元
             'currency': 'CNY',
             'confirm_date': confirm_date,
             'trade_date': trade_date,
@@ -660,16 +664,13 @@ class ImportOrchestrator:
                             entry_status = 'pending_cash'
                             data['account_name'] = data.get('account_name', '')
                         else:
-                            # #1067 现金归属口径（按用户决策）：
-                            # 1) 目标账本已绑定现金账户（linked_cash_ledger_id 指向 bank 类账本）→ 现金落该 bank；
-                            # 2) 未绑定 → 跟随目标账本本身（跨账本重导场景，现金挂目标证券/基金账本，
-                            #    由 #1065 的 (ledger_id, import_hash) 复合约束自然去重，避免旧逻辑强制塞 bank 撞车）。
-                            cash_ledger = self._resolve_linked_cash_ledger(target_ledger)
-                            if cash_ledger:
-                                data['ledger_id'] = cash_ledger.id
-                                data['account_name'] = cash_ledger.name
-                            else:
-                                data['account_name'] = target_ledger.name
+                            # #1067 现金归属口径（2026-08-29 修正，见 issue #1137）：
+                            # 卖出/赎回/分红/货基等回款一律「留在投资账本本身」，不再改写 ledger_id 到
+                            # 绑定的现金账户。银证转账是用户**显式**操作，系统自动搬账等价于凭空生成
+                            # 一笔银证转账，会扭曲真实资金流。
+                            # 仅 #1010 的显式转账行（is_cash_transfer）才在银行侧生成反向流水。
+                            # 跨账本重导场景由 #1065 的 (ledger_id, import_hash) 复合约束自然去重。
+                            data['account_name'] = target_ledger.name
                         # net_amount 转换为分
                         amount_cents = Money.yuan_to_cents(abs(data['net_amount']))
                         TransactionService.create(
@@ -780,8 +781,10 @@ class ImportOrchestrator:
                         result = PositionService.process_buy_or_deposit(self.db, data)
                     elif bt in (BusinessType.SELL.code, BusinessType.WITHDRAW.code):
                         result = PositionService.process_orphan_sell_or_withdraw(self.db, data)
-                    elif bt in (BusinessType.DIVIDEND_CASH.code, BusinessType.DIVIDEND_REINVEST.code):
+                    elif bt == BusinessType.DIVIDEND_CASH.code:
                         result = PositionService.process_orphan_dividend(self.db, data)
+                    elif bt == BusinessType.DIVIDEND_REINVEST.code:
+                        result = PositionService.process_orphan_dividend_reinvest(self.db, data)
                     elif bt == BusinessType.SPLIT.code:
                         # 转股：数量需转换，金额为 0
                         qty_units = Money.shares_to_min_unit(data['quantity'])
@@ -1266,12 +1269,16 @@ class ImportOrchestrator:
             if ledger:
                 return ledger
             display_name = institution.display_name or institution.org_name
+            # 渠道分类（#1101 重设计，铁律见设计文档 §2.3）：命中销售机构时，
+            # channel_category 由 org_type 映射写入（权威），与 ledger_type(资产类) 正交。
+            # 例：微众银行 org_type=商业银行 → channel_category=bank，ledger_type 仍为 fund。
             ledger = Ledger(
                 name=display_name,
                 ledger_type='fund',
                 default_allocation='longterm',
                 family_id=self.family_id,
                 sales_institution_id=institution.id,
+                channel_category=map_org_type_to_channel_category(institution.org_type),
             )
             self.db.add(ledger)
             self.db.flush()

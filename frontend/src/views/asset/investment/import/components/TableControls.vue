@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { useImportWizardContext } from "../composables/useImportWizardContext";
+import { ASSET_TYPE_LABELS } from "@/constants/assetType";
 
 const {
   showProblemOnly,
   tableFilterKeyword,
   tableTypeFilter,
-  typeLabels,
   duplicateCount,
   duplicatesHandled,
   deselectAllDuplicates,
@@ -44,7 +44,7 @@ const {
         collapse-tags-tooltip
       >
         <el-option
-          v-for="(label, key) in typeLabels"
+          v-for="(label, key) in ASSET_TYPE_LABELS"
           :key="key"
           :label="label"
           :value="key"

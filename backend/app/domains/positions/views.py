@@ -20,8 +20,10 @@ from app.domains.positions.models import Position
 from app.domains.positions.schemas import PositionCreate, PositionOut, PositionUpdate
 from app.domains.transactions.models import Transaction
 from app.services.position_service import PositionService
+from app.services.position_valuation import market_value_cents
 from app.services.price_range_service import resolve_security_price_range
 from app.services.trade_rules import TradeService
+from app.services.value_allocation_service import allocate_value
 
 bp = APIBlueprint('positions', __name__, url_prefix='/api/positions/')
 
@@ -37,9 +39,12 @@ def enrich_position_dict(p: Position) -> dict:
     d['quantity'] = Money.min_unit_to_shares(p.quantity)
     d['avg_price'] = Money.price_units_to_yuan(p.avg_price)
     d['current_price'] = Money.price_units_to_yuan(p.current_price)
-    # 市值/盈亏：复用 Money.multiply_price_quantity（与 portfolios/ledger_service 同口径，本币直算）。
-    # 汇率折算仅存在于 summary 聚合口径（total_*_cny）；单条明细与 current_price 保持本币一致。
-    d['market_value'] = Money.cents_to_yuan(Money.multiply_price_quantity(p.current_price, p.quantity))
+    d['market_value_override'] = (
+        Money.cents_to_yuan(p.market_value_override) if p.market_value_override is not None else None
+    )
+    # 市值/盈亏（#1174 收口）：委托唯一口径 position_valuation.market_value_cents。
+    # 本币直算——汇率折算仅存在于 summary 聚合口径（total_*_cny）；单条明细与 current_price 保持本币一致。
+    d['market_value'] = Money.cents_to_yuan(market_value_cents(p))
     d['pnl'] = (
         Money.cents_to_yuan(Money.multiply_price_quantity(p.current_price - p.avg_price, p.quantity))
         if p.avg_price
@@ -188,9 +193,10 @@ _PRICE_RANGE_OP_TYPES = {'buy', 'sell', 'deposit', 'withdraw'}
 def _validate_price_within_range(data: dict) -> None:
     """后端成交价区间拦截（#948 续）：证券类成交价须落在交易日 [low, high] 内。
 
-    仅当本地 PriceHistory 能解析出区间时才拦截；无数据则放行（保持手输可用）。
+    作为权威拦截（前端校验之外的最终防线）：本地 PriceHistory 优先，缺失时启用
+    实时兜底（腾讯财经当日 / akshare 历史日）取真实区间，确保缺少本地行情的标的
+    （如隆基）也能拦住明显异常的成交价。任一来源不可达则降级为放行，不会误拦。
     与前端 getSecurityPriceRange + SellForm/BuyForm 的区间校验保持一致。
-    写路径不做实时兜底（use_live_fallback=False），避免引入网络依赖。
     """
     op_type = data.get('op_type')
     if op_type not in _PRICE_RANGE_OP_TYPES:
@@ -200,7 +206,7 @@ def _validate_price_within_range(data: dict) -> None:
     trade_date = data.get('trade_date')
     if not symbol or avg_price is None or not trade_date:
         return
-    rng = resolve_security_price_range(symbol, trade_date, use_live_fallback=False)
+    rng = resolve_security_price_range(symbol, trade_date, use_live_fallback=True)
     if not rng:
         return
     low, high = rng['low'], rng['high']
@@ -216,6 +222,7 @@ def create_position():
     - buy: 买入（创建新持仓 + 买入流水）
     - sell: 卖出（减少持仓数量 + 卖出流水）
     - dividend: 分红（不改变持仓数量 + 分红流水）
+    - dividend_reinvest: 红利再投资（分红现金流水 + 按净值申购流水，份额增加）
     - deposit: 存入（增加持仓 + 存入流水）
     - withdraw: 取出（减少持仓 + 取出流水）
     """
@@ -231,6 +238,10 @@ def create_position():
             elif op_type == 'dividend':
                 data['dividend_amount'] = data.get('avg_price', 0)
                 position = PositionService.process_dividend(db, data)
+            elif op_type == 'dividend_reinvest':
+                data['dividend_amount'] = data.get('dividend_amount', data.get('amount', data.get('avg_price', 0)))
+                data['nav'] = data.get('nav', data.get('avg_price', 0))
+                position = PositionService.process_dividend_reinvest(db, data)
             elif op_type in ('buy', 'deposit'):
                 try:
                     position = PositionService.process_buy_or_deposit(db, data)
@@ -339,3 +350,31 @@ def validate_trade_order():
     result = TradeService.validate_transaction(symbol, market, asset_type, current_hold, order_qty, op_type)
 
     return jsonify(result)
+
+
+@bp.post('/allocate-value/')
+def allocate_position_value():
+    """按占比批量更新某产品跨账户总价（P1-4）。
+
+    同一产品分散在多个账户时，只需录入一次产品维度总价，系统按各账户当前市值占比
+    自动分摊写入每笔持仓的 ``market_value_override``（整数分，尾差归占比最大一笔）。
+    典型场景：投顾组合 / 银行理财只有组合级估值、无逐笔净值。
+    """
+    from app.domains.positions.schemas import AllocateValueRequest
+
+    data = parse_body(AllocateValueRequest).model_dump()
+    with get_db() as db:
+        try:
+            result = allocate_value(
+                db,
+                get_family_id(),
+                data['symbol'],
+                data['total_value'],
+                as_of=data.get('as_of'),
+                ledger_id=data.get('ledger_id'),
+            )
+        except ValueError as e:
+            logger.warning('按占比分摊失败: %s', e)
+            return jsonify({'message': str(e), 'data': None}), 400
+        db.commit()
+        return jsonify({'data': result, 'message': 'ok'})

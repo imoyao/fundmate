@@ -5,6 +5,8 @@
 # tests/domains/test_e2e_precision.py
 """端到端精度验证：确保写入、读取、计算全链路使用一致的单位"""
 
+from unittest.mock import patch
+
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
@@ -18,21 +20,28 @@ class TestE2EPrecision:
         db.commit()
 
         # 1. 通过 API 买入
-        resp = client.post(
-            '/api/positions/',
-            json={
-                'symbol': '600519',
-                'name': '贵州茅台',
-                'type': 'stock',
-                'market': 'CN_A',
-                'account_name': '测试账户',
-                'quantity': 100,
-                'avg_price': 1600.0,
-                'currency': 'CNY',
-                'trade_date': '2026-06-15',
-                'op_type': 'buy',
-            },
-        )
+        # 视图会用真实行情校验价格区间（use_live_fallback=True），本测试只验证
+        # 单位换算链路、与真实行情无关 → mock 掉以隔离网络。否则测试结果会随
+        # 行情漂移（1600 元未必落在 2026-06-15 的真实区间内，曾致 400 失败）。
+        with patch(
+            'app.domains.positions.views.resolve_security_price_range',
+            return_value=None,
+        ):
+            resp = client.post(
+                '/api/positions/',
+                json={
+                    'symbol': '600519',
+                    'name': '贵州茅台',
+                    'type': 'stock',
+                    'market': 'CN_A',
+                    'account_name': '测试账户',
+                    'quantity': 100,
+                    'avg_price': 1600.0,
+                    'currency': 'CNY',
+                    'trade_date': '2026-06-15',
+                    'op_type': 'buy',
+                },
+            )
         assert resp.status_code == 200
         data = resp.json['data']
         assert data['quantity'] == 100.0  # 份额

@@ -16,7 +16,7 @@
     </el-form-item>
 
     <el-form-item
-      v-if="ledgerType === 'stock' || ledgerType === 'fund'"
+      v-if="ledgerType === 'securities' || ledgerType === 'fund_platform'"
       label="现金账户"
     >
       <el-select
@@ -33,6 +33,62 @@
           :value="ledger.id"
         />
       </el-select>
+    </el-form-item>
+
+    <!-- 活期+绑定（#1137）：账户的「余额宝」，卖出回款可自动申购 -->
+    <el-form-item
+      v-if="ledgerType === 'securities' || ledgerType === 'fund_platform'"
+      label="活期+"
+    >
+      <el-select
+        :model-value="linkedMoneyFundCode"
+        class="w-full"
+        clearable
+        filterable
+        remote
+        reserve-keyword
+        :remote-method="searchMoneyFund"
+        :loading="fundSearching"
+        placeholder="搜索货币基金，如「余额宝」「水星」"
+        @update:model-value="onMoneyFundChange"
+      >
+        <!-- 全量搜索 + 选择时限制：后端 is_money_fund 为三态，
+             false（明确非货基）禁用并标注；true / null（未知）均可选，
+             避免类型标注缺失的券商业内现金管理产品（如 026029）被误筛。 -->
+        <el-option
+          v-for="f in effectiveFundOptions"
+          :key="f.code"
+          :label="f.name ? `${f.name}（${f.code}）` : f.code"
+          :value="f.code"
+          :disabled="f.is_money_fund === false"
+        >
+          <span>{{ f.name ? `${f.name}（${f.code}）` : f.code }}</span>
+          <span v-if="f.is_money_fund === false" class="mf-option-tag"
+            >非货币基金</span
+          >
+        </el-option>
+      </el-select>
+      <p class="field-hint">
+        绑定后，卖出 / 赎回回款可自动申购该产品（类似「余额宝」）。支持场外货币基金与券商渠道现金管理产品
+      </p>
+    </el-form-item>
+
+    <el-form-item
+      v-if="ledgerType === 'securities' || ledgerType === 'fund_platform'"
+      label="自动申购"
+    >
+      <el-switch
+        :model-value="autoPurchaseMoneyFund"
+        :disabled="!linkedMoneyFundCode"
+        @update:model-value="onAutoPurchaseChange"
+      />
+      <p class="field-hint">
+        {{
+          linkedMoneyFundCode
+            ? "开启后，卖出 / 赎回回款将自动申购已绑定的活期+"
+            : "请先绑定活期+，再开启自动申购"
+        }}
+      </p>
     </el-form-item>
 
     <el-form-item label="销售机构">
@@ -148,7 +204,7 @@
 
       <!-- 高级设置：费率信息 -->
       <el-collapse
-        v-if="ledgerType === 'stock' || ledgerType === 'fund'"
+        v-if="ledgerType === 'securities' || ledgerType === 'fund_platform'"
         class="mt-4"
       >
         <el-collapse-item title="高级设置（费率）" name="fee">
@@ -166,6 +222,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { LEDGER_TYPE_OPTIONS } from "@/constants";
+import { searchFunds, type FundSearchItem } from "@/api/funds";
 import type { SalesInstitution, LedgerItem } from "@/api/ledger";
 import type { PortfolioItem } from "@/api/portfolio";
 import FeeConfigFields from "./FeeConfigFields.vue";
@@ -196,14 +253,14 @@ const BANK_ORG_TYPES = new Set([
 ]);
 
 /**
- * 账户类型 → 可见机构原始类型（#1082 D2/D3）：
- * - stock 仅券商（股票交易只发生在券商）
- * - fund 除期货公司外全部（券商代销场外基金，靠常用置顶 + 类型标识区分）
+ * 渠道分组 → 可见机构原始类型（#1082 D2/D3）：
+ * - securities 仅券商（股票交易只发生在券商）
+ * - fund_platform 除期货公司外全部（券商代销场外基金，靠常用置顶 + 类型标识区分）
  * - 其余类型不在表内 → 不过滤，维持现状
  */
 const LEDGER_TYPE_ORG_TYPES: Record<string, string[]> = {
-  stock: ["证券公司"],
-  fund: [
+  securities: ["证券公司"],
+  fund_platform: [
     "独立基金销售机构",
     "全国性商业银行",
     "城市商业银行",
@@ -224,6 +281,12 @@ function orgTypeGroupLabel(orgType?: string | null): string {
 interface Props {
   ledgerType: string;
   linkedCashId: number | null;
+  /** 绑定的活期+基金代码（「余额宝」概念 #1137；null=未绑定） */
+  linkedMoneyFundCode?: string | null;
+  /** 绑定产品名称（出参回显用；远程搜索未触发时也能显示名称而非裸代码） */
+  linkedMoneyFundName?: string | null;
+  /** 卖出/赎回回款是否自动申购绑定的活期+（#1137，默认关闭） */
+  autoPurchaseMoneyFund?: boolean;
   portfolioId: number | null;
   cashLedgers?: LedgerItem[];
   portfolioList?: PortfolioItem[];
@@ -242,12 +305,17 @@ const props = withDefaults(defineProps<Props>(), {
   feeConfig: null,
   salesInstitutionId: null,
   salesInstitutions: () => [],
-  advancedCollapsed: false
+  advancedCollapsed: false,
+  linkedMoneyFundCode: null,
+  linkedMoneyFundName: null,
+  autoPurchaseMoneyFund: false
 });
 
 const emit = defineEmits<{
   "update:ledgerType": [value: string];
   "update:linkedCashId": [value: number | null];
+  "update:linkedMoneyFundCode": [value: string | null];
+  "update:autoPurchaseMoneyFund": [value: boolean];
   "update:portfolioId": [value: number | null];
   "update:feeConfig": [value: any];
   "update:salesInstitutionId": [value: number | null];
@@ -304,9 +372,12 @@ const otherInstitutions = computed<SalesInstitution[]>(() =>
   visibleInstitutions.value.filter(inst => !inst.is_common)
 );
 
-/** fund 账户选中银行类机构时的轻提示开关（#1082 D8） */
+/** fund_platform 账户选中银行类机构时的轻提示开关（#1082 D8） */
 const showBankChannelHint = computed(() => {
-  if (props.ledgerType !== "fund" || props.salesInstitutionId == null) {
+  if (
+    props.ledgerType !== "fund_platform" ||
+    props.salesInstitutionId == null
+  ) {
     return false;
   }
   const inst = props.salesInstitutions.find(
@@ -324,10 +395,13 @@ function institutionLabel(inst: SalesInstitution): string {
 
 function onTypeChange(val: string) {
   emit("update:ledgerType", val);
-  // 如果切换到的类型不是 stock/fund，清空关联的现金账户
-  if (val !== "stock" && val !== "fund") {
+  // 如果切换到的渠道分组不是 securities/fund_platform，清空关联的现金账户
+  if (val !== "securities" && val !== "fund_platform") {
     emit("update:linkedCashId", null);
     emit("update:feeConfig", null);
+    // 渠道分组不再支持活期+时，一并解绑并关闭自动申购
+    emit("update:linkedMoneyFundCode", null);
+    emit("update:autoPurchaseMoneyFund", false);
   }
   // 类型切换后已选机构若不在新类型的可见范围内（如 stock 下误选了非券商），自动清空。
   // 注意：emit 后 props.ledgerType 不会同步回流，此处必须基于新值 val 直接判断，
@@ -350,6 +424,83 @@ function onCashChange(val: number | null) {
   emit("update:linkedCashId", val);
 }
 
+// ── 活期+绑定（#1137）──
+// 入参/出参统一用基金代码（搜索结果即 code），存储由后端转 funds.id。
+// 仅货币基金可作为活期+；后端 is_money_fund 标记缺失时退回全部结果，避免筛空。
+
+/** 远程搜索中的候选（仅当次搜索结果，不缓存全量） */
+const fundOptions = ref<FundSearchItem[]>([]);
+const fundSearching = ref(false);
+/** 当前已选活期+的名称（用户从搜索结果中选中时回写）。
+ *  独立于 props.linkedMoneyFundName：换绑后后者可能仍是旧产品名，
+ *  用本值保证「重新选择产品」时下拉/回显都显示当前所选产品的名称而非裸代码（#交互修复）。 */
+const selectedMoneyFundName = ref<string | null>(null);
+
+/** 实际候选项：并入当前已绑定项，保证编辑回显时下拉里存在该选项（显示名称而非裸代码） */
+const effectiveFundOptions = computed<FundSearchItem[]>(() => {
+  const list = [...fundOptions.value];
+  const bound = props.linkedMoneyFundCode;
+  if (bound && !list.some(o => o.code === bound)) {
+    // 优先用本次搜索命中的名称（用户刚选过，最准），回退到出参名称，最后兜底裸代码。
+    // 注：不能用 props.linkedMoneyFundName 一项兜底——换绑后它可能仍是旧产品的名称，
+    // 会导致「选了 B 却显示 A 的名字 / 或裸代码」的 bug（#交互修复）。
+    list.unshift({
+      code: bound,
+      name:
+        selectedMoneyFundName.value || props.linkedMoneyFundName || bound,
+      type: "货币基金",
+      subscription_rate: 0
+    });
+  }
+  return list;
+});
+
+async function searchMoneyFund(query: string) {
+  const kw = (query ?? "").trim();
+  if (!kw) {
+    fundOptions.value = [];
+    return;
+  }
+  fundSearching.value = true;
+  try {
+    const res = await searchFunds(kw);
+    const list = ((res as any)?.data ?? []) as FundSearchItem[];
+    // 全量搜索 + 选择时限制（#活期+ 扩源）：
+    // 后端 is_money_fund 已升级为三态——true=货基 / false=明确非货基 / null=类型未知。
+    // 搜索阶段**不再过滤**，全部命中项都进下拉；能否选中交给 el-option 的
+    // :disabled="f.is_money_fund === false" 控制。
+    // 不在搜索阶段剔除的原因：本地库 fund_type_id 有 88.7% 为空，此前按
+    // `fund_type_id == 6` 判定会把一批真货基误判为非货基而彻底搜不到——
+    // 典型如 026029 银河水星现金添利货币（券商渠道现金管理产品，
+    // 库内已同步 120 天万份收益，收益口径与场外货基一致）。
+    fundOptions.value = list;
+  } catch {
+    fundOptions.value = [];
+  } finally {
+    fundSearching.value = false;
+  }
+}
+
+function onMoneyFundChange(val: string | null) {
+  emit("update:linkedMoneyFundCode", val ?? null);
+  // 选中时回写名称（优先取搜索结果里的权威名），供 effectiveFundOptions 兜底展示用，
+  // 避免重新打开下拉（远程搜索列表被清空）时回显成裸代码。
+  if (val) {
+    const hit = fundOptions.value.find(o => o.code === val);
+    selectedMoneyFundName.value = hit?.name ?? props.linkedMoneyFundName ?? null;
+  } else {
+    selectedMoneyFundName.value = null;
+  }
+  // 解绑时联动关闭开关，避免残留一个无法生效的开关（后端亦会强制关闭）
+  if (!val) {
+    emit("update:autoPurchaseMoneyFund", false);
+  }
+}
+
+function onAutoPurchaseChange(val: boolean) {
+  emit("update:autoPurchaseMoneyFund", !!val);
+}
+
 function onPortfolioChange(val: number | null) {
   emit("update:portfolioId", val);
 }
@@ -359,13 +510,34 @@ function onSalesInstitutionChange(val: number | null) {
 }
 </script>
 
-<!-- 银行渠道轻提示：表单内联元素，scoped 可命中 -->
+<!-- 银行渠道轻提示 / 活期+说明：表单内联元素，scoped 可命中 -->
 <style scoped>
 .bank-channel-hint {
   margin: var(--space-3, 8px) 0 0;
   font-size: var(--text-label, 13px);
   line-height: 18px;
   color: var(--text-secondary);
+}
+
+/* 活期+绑定与自动申购的说明文字（#1137）：辅助层级，--text-tertiary */
+.field-hint {
+  margin: var(--space-3, 8px) 0 0;
+  font-size: var(--text-label, 13px);
+  line-height: 18px;
+  color: var(--text-tertiary);
+}
+
+/* 活期+ 下拉中的「非货币基金」标注（全量搜索 + 选择时限制）：
+   与产品名同行、弱化显示；禁用态由 el-option 自身置灰，此处只做类型提示，
+   让用户理解「为什么这项选不了」，而非单纯消失不见。 */
+.mf-option-tag {
+  margin-left: var(--space-3, 8px);
+  padding: 0 6px;
+  font-size: var(--text-label, 13px);
+  line-height: 18px;
+  color: var(--text-tertiary);
+  background: var(--bg-soft);
+  border-radius: var(--radius-sm, 4px);
 }
 </style>
 

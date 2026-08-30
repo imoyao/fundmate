@@ -9,6 +9,14 @@ export interface LedgerItem {
   notes: string;
   default_allocation?: string;
   linked_cash_ledger_id?: number | null; // 新增
+  /** 类现金产品绑定（#1137）：绑定的基金 id（「余额宝」概念，null=未绑定） */
+  linked_money_fund_id?: number | null;
+  /** 绑定类现金产品的基金代码（出参回显用，入参也用 code） */
+  linked_money_fund_code?: string | null;
+  /** 绑定类现金产品的名称（出参回显用） */
+  linked_money_fund_name?: string | null;
+  /** 卖出/赎回回款是否自动申购绑定的类现金产品（默认 false，需先绑定） */
+  auto_purchase_money_fund?: boolean;
   /** 关联投资组合 id（账户详情页编辑弹窗使用） */
   portfolio_id?: number | null;
   /** 费率配置（证券/基金账户编辑弹窗使用） */
@@ -23,6 +31,8 @@ export interface LedgerItem {
   is_active?: boolean;
   /** 组内手动排序序号；null=按持仓金额降序默认排序（#1083） */
   display_order?: number | null;
+  /** 渠道分组（用户可见分组，后端返回；列表按此分组，后端据其派生 ledger_type） */
+  channel_category?: string | null;
 }
 
 /**
@@ -79,12 +89,19 @@ export function unarchiveLedger(id: number) {
 export function createLedger(data: {
   name: string;
   ledger_type?: string;
+  /** 渠道分组：后端据其派生 ledger_type（创建时优先传 channel_category） */
+  channel_category?: string;
+  notes?: string;
   default_allocation?: string;
   currency?: string;
   linked_cash_ledger_id?: number | null;
   portfolio_id?: number | null;
   fee_config?: Record<string, unknown> | null;
   sales_institution_id?: number | null;
+  /** 类现金产品：基金代码（#1137，后端据其解析 funds.id 存储） */
+  linked_money_fund_code?: string | null;
+  /** 卖出/赎回回款是否自动申购该类现金产品（需先绑定，否则后端 400） */
+  auto_purchase_money_fund?: boolean;
 }) {
   return http.request<any>("post", "/api/ledgers/", { data });
 }
@@ -93,13 +110,19 @@ export function updateLedger(
   id: number,
   data: {
     name?: string;
-    ledger_type?: string;
+    /** 渠道分组（用户可见分组，编辑账户时下发，避免误写 ledger_type 触发类型不可更改）。
+     *  注意：ledger_type（计算口径键）不可变，编辑接口不接受该字段，下发会被后端忽略/拒绝。 */
+    channel_category?: string;
     default_allocation?: string | null;
     notes?: string;
     linked_cash_ledger_id?: number | null;
     portfolio_id?: number | null;
     fee_config?: Record<string, unknown> | null;
     sales_institution_id?: number | null;
+    /** 类现金产品：基金代码（#1137，null 表示解绑，解绑后开关自动关闭） */
+    linked_money_fund_code?: string | null;
+    /** 卖出/赎回回款是否自动申购该类现金产品（需先绑定，否则后端 400） */
+    auto_purchase_money_fund?: boolean;
   }
 ) {
   return http.request("patch", `/api/ledgers/${id}/`, { data });
@@ -112,7 +135,7 @@ export function deleteLedger(id: number) {
 /** 组内手动排序落库（#1083）：发送该类型下的完整有序 id 列表 */
 export function reorderLedgers(ledgerType: string, orderedIds: number[]) {
   return http.request("patch", "/api/ledgers/reorder/", {
-    data: { ledger_type: ledgerType, ordered_ids: orderedIds },
+    data: { ledger_type: ledgerType, ordered_ids: orderedIds }
   });
 }
 
@@ -430,86 +453,147 @@ export function updateLedgerTransaction(
   );
 }
 
-/** 删除交易 */
-export function deleteLedgerTransaction(
-  ledgerId: number,
-  transactionId: number
-) {
-  return http.request(
-    "delete",
-    `/api/ledgers/${ledgerId}/transactions/${transactionId}/`
-  );
-}
-
-// ── 基金E账户聚合视图（#1101）──
-// 聚合家族内全部场外基金持仓（含 E 账户），供资产概览卡片与下钻页使用。
+// ── 持仓聚合视图（#1101 场外基金 / #1132 场内证券 共用）──
+// 后端两品类共用 services/position_aggregation.py，返回结构完全一致，故前端类型统一为 Aggregation*。
 // 金额字段单位均为「分」（整数），前端展示需 /100 转「元」交给 MoneyDisplay；
 // 份额字段 quantity 为 Position.quantity 原始最小单位（份×10000），前端需 /10000 转可读份额。
 
-/** 基金聚合维度 */
-export type FundAggregationDimension = "product" | "institution" | "app";
+/**
+ * 聚合维度。
+ * #1133 收敛：原 'app'（交易前端）维度已移除——其本质即销售机构，与 'institution' 重复。
+ */
+export type AggregationDimension = "product" | "institution";
 
-/** 聚合来源项：product 维度的 sources 与 institution/app 维度的 items 共用同一形状 */
-export interface FundAggregationSource {
+/** 聚合排序字段（后端白名单校验，勿传其它值） */
+export type AggregationSort = "market_value" | "quantity" | "name" | "symbol";
+
+/** 聚合查询参数 */
+export interface AggregationQuery {
+  dimension?: AggregationDimension;
+  sort?: AggregationSort;
+  order?: "asc" | "desc";
+  /** 页码，从 1 开始 */
+  page?: number;
+  /** 每页条数；传 0 或负数表示不分页（返回全量） */
+  page_size?: number;
+}
+
+/** 聚合来源项：product 维度的 sources 与 institution 维度的 items 共用同一形状 */
+export interface AggregationSource {
+  /** 产品代码（institution 维度的 items 也需展示产品名与代码，故后端一并下发） */
+  symbol?: string;
+  /** 产品名称 */
+  name?: string | null;
   ledger_id: number;
   ledger_name: string | null;
+  /** 销售机构名（AMAC 权威全称，真实完整；账户未关联机构时为 null） */
+  institution_name?: string | null;
+  /** 销售机构常用别名（支付宝/天天基金等），仅作辅助提示，不替代全称 */
+  institution_alias?: string | null;
   /** 市值（分，整数） */
   market_value_cents: number;
   /** 份额（最小单位 份×10000） */
   quantity: number;
+  /** 参考净值（元，后端已由 0.0001 元单位换算） */
+  nav_yuan?: number | null;
+  /** 份额日期 / 快照日期 YYYY-MM-DD（导入对账日期；非快照导入时为 null） */
+  snapshot_date?: string | null;
+  /** 基金管理人（快照导入溯源字段） */
+  fund_manager?: string | null;
+  /** 分红方式（现金分红 / 红利转投） */
+  dividend_preference?: string | null;
+  /** 基金账户号 */
+  fund_account?: string | null;
+  /** 交易账户号 */
+  trade_account?: string | null;
 }
 
-/** product 维度分组：按基金代码聚合 */
-export interface FundAggregationProductGroup {
+/** product 维度分组：按产品代码聚合 */
+export interface AggregationProductGroup {
   symbol: string;
   name: string;
   /** 市值（分，整数） */
   market_value_cents: number;
   /** 份额合计（最小单位 份×10000） */
   quantity: number;
-  sources: FundAggregationSource[];
+  /** 参考净值（元） */
+  nav_yuan?: number | null;
+  /** 份额日期：取该分组下最早的一笔，代表数据最滞后的部分 */
+  snapshot_date?: string | null;
+  /** 基金管理人 */
+  fund_manager?: string | null;
+  /** 分红方式（现金分红 / 红利转投） */
+  dividend_preference?: string | null;
+  sources: AggregationSource[];
 }
 
 /** institution 维度分组：按销售机构聚合（key 为 sales_institution_id，无关联为 "unknown"） */
-export interface FundAggregationInstitutionGroup {
+export interface AggregationInstitutionGroup {
   key: number | "unknown";
+  /**
+   * 机构中文名。由后端 join AMAC 名录直接给出，
+   * 前端**禁止**再拼「销售机构 #id」这类占位文案（#1133）。
+   */
+  institution_name: string;
   /** 市值（分，整数） */
   market_value_cents: number;
-  items: FundAggregationSource[];
+  items: AggregationSource[];
 }
 
-/** app 维度分组：按交易前端聚合（key 为 ledger.frontend_app，缺省 "self"） */
-export type FundAggregationAppKey =
-  | "tonghuashun"
-  | "eastmoney"
-  | "self"
-  | "other";
-
-export interface FundAggregationAppGroup {
-  key: FundAggregationAppKey;
-  /** 市值（分，整数） */
-  market_value_cents: number;
-  items: FundAggregationSource[];
-}
-
-/** 基金聚合结果（GET /api/ledgers/fund-aggregation/） */
-export interface FundAggregationResult {
+/** 聚合结果（GET /api/ledgers/{fund,securities}-aggregation/） */
+export interface AggregationResult {
   /** 汇总市值（分，整数） */
   total_market_value_cents: number;
-  dimension: FundAggregationDimension;
-  groups:
-    | FundAggregationProductGroup[]
-    | FundAggregationInstitutionGroup[]
-    | FundAggregationAppGroup[];
+  dimension: AggregationDimension;
+  groups: AggregationProductGroup[] | AggregationInstitutionGroup[];
+  /** 分组总数（分页前的全量条数） */
+  total: number;
+  /** 当前页码 */
+  page: number;
+  /** 每页条数 */
+  page_size: number;
+  /** 总页数 */
+  total_pages: number;
+  /**
+   * 数据日期：全部持仓中**最早**的快照日（最滞后的一笔），对外展示最诚实。
+   * 全部持仓均无快照记录（纯手动录入）时为 null。
+   */
+  snapshot_date: string | null;
+  /** 最近的快照日；与 snapshot_date 不等时，说明各账户数据存在时间差 */
+  snapshot_date_latest: string | null;
+  /**
+   * 🔄 净值日期（NavService 取到的最新净值日期）。
+   *
+   * 与 snapshot_date（份额日期）可能分叉：
+   * - snapshot_date = 用户导入对账单时的份额日期
+   * - nav_date = DailyWorth 表中最新净值的日期
+   *
+   * 前端可据此做双日期展示，诚实表达数据口径。
+   * 无基金/货基持仓或 NavService 无数据时为 null。
+   */
+  nav_date: string | null;
 }
 
-/** 获取基金E账户聚合视图（默认按基金维度） */
-export function getFundAggregation(
-  dimension: FundAggregationDimension = "product"
-) {
-  return http.request<ApiResponse<FundAggregationResult>>(
+/**
+ * 获取场外基金（含 E 账户）聚合视图。
+ * 缺省：dimension=product、sort=market_value、order=desc、page=1、page_size=20。
+ */
+export function getFundAggregation(params: AggregationQuery = {}) {
+  return http.request<ApiResponse<AggregationResult>>(
     "get",
     "/api/ledgers/fund-aggregation/",
-    { params: { dimension } }
+    { params }
+  );
+}
+
+/**
+ * 获取场内证券（股票/ETF/可转债）聚合视图。
+ * 返回结构与场外基金完全一致（后端共用同一聚合范式）。
+ */
+export function getSecuritiesAggregation(params: AggregationQuery = {}) {
+  return http.request<ApiResponse<AggregationResult>>(
+    "get",
+    "/api/ledgers/securities-aggregation/",
+    { params }
   );
 }

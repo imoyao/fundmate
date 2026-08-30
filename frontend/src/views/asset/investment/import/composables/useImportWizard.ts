@@ -1,5 +1,5 @@
 import { parseFile, confirmImport as confirmImportApi } from "@/api/importer";
-import { fetchFundNavBatch } from "@/api/fundNav";
+import { navCache } from "@/composables/useNavCache";
 import type { UploadRequestOptions } from "element-plus";
 import { ref, onMounted, computed, reactive, nextTick } from "vue";
 import { useRouter } from "vue-router";
@@ -13,6 +13,7 @@ import {
 import type { LedgerItem, SalesInstitution } from "@/api/ledger";
 import type { OcrTxnRow } from "@/api/ocr";
 import { ALLOCATION_OPTIONS } from "@/constants";
+import { getTypeLabel } from "@/constants/assetType";
 
 export function useImportWizard() {
   const router = useRouter();
@@ -75,17 +76,7 @@ export function useImportWizard() {
     FOF: "var(--tag-thistle)"
   };
 
-  const typeLabels: Record<string, string> = {
-    stock: "股票",
-    fund: "基金",
-    bond: "可转债",
-    crypto: "虚拟货币",
-    saving: "银行存款",
-    cash: "现金",
-    money_fund: "现金理财",
-    reverse_repo: "逆回购",
-    static: "其他"
-  };
+  // 类型中文标签统一走后端唯一来源 frontend/src/constants/assetType（getTypeLabel），不再在此私藏副本（#1171 枚举一致性）。
 
   const typeColorMap: Record<string, string> = {
     stock: "var(--tag-muted-blue)",
@@ -445,7 +436,7 @@ export function useImportWizard() {
       const type = row.type || "unknown";
       if (!groups[type])
         groups[type] = {
-          label: typeLabels[type] || type,
+          label: getTypeLabel(type),
           count: 0,
           currentAllocation: row.allocation || "longterm"
         };
@@ -666,7 +657,8 @@ export function useImportWizard() {
     enrichingNav.value = true;
     try {
       for (const [date, symbols] of Object.entries(dateGroups)) {
-        const navMap = await fetchFundNavBatch(symbols, date);
+        // 经 useNavCache：本地缓存优先，未命中再 JSONP 直连（#1133）
+        const navMap = await navCache.getNavs(symbols, date);
 
         previewData.value.forEach(row => {
           if (
@@ -1210,7 +1202,8 @@ export function useImportWizard() {
     // 逐日请求
     for (const [date, symbols] of Object.entries(dateGroups)) {
       try {
-        const navMap = await fetchFundNavBatch(symbols, date);
+        // 经 useNavCache：本地缓存优先，未命中再 JSONP 直连（#1133）
+        const navMap = await navCache.getNavs(symbols, date);
 
         // 更新所有相关行
         needed.forEach(row => {
@@ -1588,7 +1581,9 @@ export function useImportWizard() {
 
   function resetNewLedgerForm() {
     newLedgerName.value = "";
-    newLedgerType.value = "stock";
+    // #1101 后统一以 channel_category（渠道分组）为创建入参，后端据其派生 ledger_type；
+    // 勿再写旧 ledger_type 值（如 'stock'），否则后端回退映射会派生出错误类型。
+    newLedgerType.value = "securities";
     newLedgerLinkedCashId.value = null;
     newLedgerPortfolioId.value = null;
     newLedgerFeeConfig.value = null;
@@ -1644,7 +1639,10 @@ export function useImportWizard() {
     const name = newLedgerName.value.trim();
     if (!name) return;
     const payload: any = { name };
-    if (newLedgerType.value) payload.ledger_type = newLedgerType.value;
+    // #1101：统一以 channel_category 为创建入参（后端据其派生 ledger_type）。
+    // 旧代码把渠道分组值当 ledger_type 下发，会命中后端「ledger_type→channel_category」
+    // 的向后兼容回退映射（仅认 bank/stock/fund/property/e_account/family），产生错误类型。
+    if (newLedgerType.value) payload.channel_category = newLedgerType.value;
     if (newLedgerLinkedCashId.value)
       payload.linked_cash_ledger_id = newLedgerLinkedCashId.value;
     if (newLedgerPortfolioId.value)
@@ -1963,7 +1961,6 @@ export function useImportWizard() {
     handleSizeChange,
     handlePageChange,
     handleSelectionChange,
-    typeLabels,
     ledgerTypeMap,
     devMode,
     devJump

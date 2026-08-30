@@ -25,6 +25,9 @@ from app.domains.positions.models import Position
 from app.domains.summary.models import AssetSnapshot
 from app.domains.transactions.models import Transaction
 
+# 🔄 市值口径收口（#1174）：仪表盘市值统一委托唯一口径，override / balance / nav 一并覆盖
+from app.services.position_valuation import market_value_cents
+
 # ---------------------------------------------------------------------------
 # 业务常量集中定义（消除魔法字符串）
 # ---------------------------------------------------------------------------
@@ -106,8 +109,8 @@ def get_summary_data(db: Session, family_id: int = 1) -> dict[str, Any]:
     # 一次遍历 positions，完成市值、盈亏、市场分布
     for p in positions:
         rate = EXCHANGE_RATES.get(p.currency, 1.0)
-        # 市值 = 数量(份) * 当前价(元) * 汇率
-        market_value = Money.min_unit_to_shares(p.quantity) * Money.price_units_to_yuan(p.current_price) * rate
+        # 市值（#1174 收口）：委托唯一口径，override / balance / nav 三种情形在函数内统一处理
+        market_value = Money.cents_to_yuan(market_value_cents(p, rate=rate))
         total_assets += market_value
 
         # 盈亏 = (当前价 - 成本价) * 数量

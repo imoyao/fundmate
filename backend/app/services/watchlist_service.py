@@ -203,10 +203,13 @@ def normalize_and_infer_venue(
 
 def create_watchlist_item(db: Session, data: Dict[str, Any], family_id: int) -> WatchlistItem:
     """创建自选资产并触发异步回填"""
+    # 写入前归一为小写，与后端 asset_types 单一来源（stock/etf/fund/bond/index）及 positions 域一致，
+    # 并修正历史大写（STOCK/ETF/...）导致 venue 推断（asset_type=='fund'）失效的问题（#1171）。
+    raw_asset_type = (data.get('asset_type') or '').strip().lower() or None
     normalized = normalize_and_infer_venue(
         data['symbol'],
         data.get('venue'),
-        data.get('asset_type'),
+        raw_asset_type,
     )
     symbol = normalized['symbol']
 
@@ -226,7 +229,7 @@ def create_watchlist_item(db: Session, data: Dict[str, Any], family_id: int) -> 
     item = WatchlistItem(
         symbol=symbol,
         market=normalized['market'],
-        asset_type=data.get('asset_type'),
+        asset_type=raw_asset_type,
         venue=normalized['venue'],
         status=status,
         add_reason=data.get('add_reason'),

@@ -8,6 +8,7 @@ from datetime import date
 
 from app.core.money import Money
 from app.domains.assets.models import Asset
+from app.domains.funds.models import Fund
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, SalesInstitution
 
@@ -451,6 +452,35 @@ class TestLedgerFeeConfig:
         data = resp.get_json()['data']
         assert data['fee_config'] == fee_config
 
+    def test_create_ledger_derives_type_from_channel_category(self, client, db):
+        """#1101/#1148：创建应以 channel_category 为入参，后端据其派生 ledger_type。
+
+        所有创建路径（含导入向导）统一走此契约；ledger_type 在创建时亦由系统派生，
+        不应由调用方直接下发——直接把 channel_category 值当 ledger_type 下发会命中
+        向后兼容回退映射，产生错误类型（如 fund_platform→other 且 ledger_type 非法）。
+        """
+        # 证券渠道分组 → ledger_type=stock
+        resp = client.post('/api/ledgers/', json={'name': '华泰证券', 'channel_category': 'securities'})
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['channel_category'] == 'securities'
+        assert data['ledger_type'] == 'stock'
+
+        # 基金平台渠道分组 → ledger_type=fund
+        resp = client.post('/api/ledgers/', json={'name': '支付宝基金', 'channel_category': 'fund_platform'})
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['channel_category'] == 'fund_platform'
+        assert data['ledger_type'] == 'fund'
+
+    def test_create_ledger_legacy_ledger_type_still_derived(self, client, db):
+        """向后兼容：旧调用方直接下发 ledger_type 时，channel_category 仍能被反推出来。"""
+        resp = client.post('/api/ledgers/', json={'name': '旧证券账户', 'ledger_type': 'stock'})
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['ledger_type'] == 'stock'
+        assert data['channel_category'] == 'securities'
+
     def test_update_ledger_fee_config(self, client, db):
         """更新已有账户的 fee_config"""
         # 先创建一个股票账户
@@ -544,7 +574,7 @@ class TestLedgerLinkedCash:
             '/api/ledgers/', json={'name': '另一个现金', 'ledger_type': 'bank', 'linked_cash_ledger_id': cash_id}
         )
         assert resp.status_code == 400
-        assert '只有证券账户或基金平台' in resp.get_json()['message']
+        assert '只有证券账户或基金' in resp.get_json()['message']
 
     def test_update_ledger_link_cash(self, client, db):
         """更新账户关联现金账户"""
@@ -595,6 +625,201 @@ class TestLedgerLinkedCash:
         resp2 = client.patch(f'/api/ledgers/{stock_id}/', json={'ledger_type': 'bank', 'linked_cash_ledger_id': None})
         assert resp2.status_code == 200
         assert resp2.get_json()['data']['linked_cash_ledger_id'] is None
+
+
+class TestLedgerMoneyFundBinding:
+    """测试类现金产品绑定与自动申购开关（#1137）
+
+    设计见 docs/working-notes/ledger-cash-like-product-binding-2026-08-29.md：
+    入参用基金代码（前端搜索结果即 code），存储 funds.id；自动申购开关默认关闭
+    （用户不操作系统不代劳）。
+    """
+
+    @staticmethod
+    def _make_money_fund(db, code='000198', name='天弘余额宝货币'):
+        fund = Fund(fund_code=code, name=name)
+        db.add(fund)
+        db.commit()
+        return fund
+
+    def test_bind_money_fund_on_create(self, client, db):
+        """证券账户可绑定券商渠道现金管理产品，出参回显 id / code / name（#1154 方案 B）"""
+        fund = self._make_money_fund(db, code='026029', name='银河水星现金添利货币')
+        resp = client.post(
+            '/api/ledgers/',
+            json={'name': '华泰证券', 'ledger_type': 'stock', 'linked_money_fund_code': fund.fund_code},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['linked_money_fund_id'] == fund.id
+        assert data['linked_money_fund_code'] == fund.fund_code
+        assert data['linked_money_fund_name'] == fund.name
+        # 开关默认关闭
+        assert data['auto_purchase_money_fund'] is False
+
+    def test_auto_purchase_requires_binding_on_create(self, client, db):
+        """未绑定类现金产品时开启自动申购应拒绝"""
+        resp = client.post(
+            '/api/ledgers/',
+            json={'name': '华泰证券', 'ledger_type': 'stock', 'auto_purchase_money_fund': True},
+        )
+        assert resp.status_code == 400
+        assert '请先绑定活期+' in resp.get_json()['message']
+
+    def test_bind_and_enable_auto_purchase(self, client, db):
+        """绑定后可开启自动申购"""
+        fund = self._make_money_fund(db, code='000199', name='测试货基')
+        resp = client.post(
+            '/api/ledgers/',
+            json={
+                'name': '蚂蚁基金',
+                'ledger_type': 'fund',
+                'linked_money_fund_code': fund.fund_code,
+                'auto_purchase_money_fund': True,
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['linked_money_fund_id'] == fund.id
+        assert data['auto_purchase_money_fund'] is True
+
+    def test_bank_ledger_cannot_bind_money_fund(self, client, db):
+        """现金账户不能绑定类现金产品"""
+        fund = self._make_money_fund(db, code='000200', name='货基2')
+        resp = client.post(
+            '/api/ledgers/',
+            json={'name': '招商银行', 'ledger_type': 'bank', 'linked_money_fund_code': fund.fund_code},
+        )
+        assert resp.status_code == 400
+        assert '只有证券账户或基金' in resp.get_json()['message']
+
+    def test_bind_nonexistent_fund_code(self, client, db):
+        """绑定不存在的基金代码应拒绝"""
+        resp = client.post(
+            '/api/ledgers/',
+            json={'name': '华泰证券', 'ledger_type': 'stock', 'linked_money_fund_code': '999999'},
+        )
+        assert resp.status_code == 400
+        assert '不存在' in resp.get_json()['message']
+
+    def test_bind_non_money_fund_rejected(self, client, db):
+        """明确非货基（fund_type_id 非 6）绑定活期+ 应被后端拒绝（#1156 后端防呆）"""
+        from app.domains.funds.models import FundType
+
+        db.add(FundType(id=999, name='测试股票型'))
+        db.commit()
+        fund = Fund(fund_code='510300', name='沪深300ETF', fund_type_id=999)
+        db.add(fund)
+        db.commit()
+        resp = client.post(
+            '/api/ledgers/',
+            json={'name': '华泰证券', 'ledger_type': 'stock', 'linked_money_fund_code': fund.fund_code},
+        )
+        assert resp.status_code == 400
+        assert '活期+ 仅支持货币基金类产品' in resp.get_json()['message']
+
+    def test_patch_non_money_fund_rejected(self, client, db):
+        """PATCH 绑定明确非货基应被后端拒绝（#1156 后端防呆）"""
+        from app.domains.funds.models import FundType
+
+        db.add(FundType(id=998, name='测试股票型2'))
+        db.commit()
+        fund = Fund(fund_code='510500', name='中证500ETF', fund_type_id=998)
+        db.add(fund)
+        db.commit()
+        create = client.post(
+            '/api/ledgers/',
+            json={'name': '平安证券', 'ledger_type': 'stock'},
+        )
+        lid = create.get_json()['data']['id']
+        resp = client.patch(
+            f'/api/ledgers/{lid}/',
+            json={'linked_money_fund_code': fund.fund_code},
+        )
+        assert resp.status_code == 400
+        assert '活期+ 仅支持货币基金类产品' in resp.get_json()['message']
+
+    def test_update_unlink_disables_auto_purchase(self, client, db):
+        """解绑类现金产品时应联动关闭自动申购，避免残留无法生效的开关"""
+        fund = self._make_money_fund(db, code='026029', name='银河水星现金添利货币')
+        create_resp = client.post(
+            '/api/ledgers/',
+            json={
+                'name': '华泰证券',
+                'ledger_type': 'stock',
+                'linked_money_fund_code': fund.fund_code,
+                'auto_purchase_money_fund': True,
+            },
+        )
+        assert create_resp.get_json()['data']['auto_purchase_money_fund'] is True
+        ledger_id = create_resp.get_json()['data']['id']
+
+        resp = client.patch(f'/api/ledgers/{ledger_id}/', json={'linked_money_fund_code': None})
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['linked_money_fund_id'] is None
+        assert data['auto_purchase_money_fund'] is False
+
+    def test_update_enable_without_binding_rejected(self, client, db):
+        """未绑定时通过更新接口开启自动申购应拒绝"""
+        create_resp = client.post('/api/ledgers/', json={'name': '华泰证券', 'ledger_type': 'stock'})
+        ledger_id = create_resp.get_json()['data']['id']
+        resp = client.patch(f'/api/ledgers/{ledger_id}/', json={'auto_purchase_money_fund': True})
+        assert resp.status_code == 400
+        assert '请先绑定活期+' in resp.get_json()['message']
+
+    def test_bind_exchange_traded_money_fund_rejected(self, client, db):
+        """场内货币ETF（511/519/159）属投资范畴，任何账户均不可绑活期+（#1154 方案 B）"""
+        # 511990 华宝添益：场内货币ETF，fund_type_id 缺失 → 三态判定为 None（放行类型），
+        # 但渠道分类为 exchange_traded → 任何账户拒绝。
+        fund = self._make_money_fund(db, code='511990', name='华宝添益')
+        for ledger_type in ('stock', 'fund'):
+            resp = client.post(
+                '/api/ledgers/',
+                json={'name': '账户', 'ledger_type': ledger_type, 'linked_money_fund_code': fund.fund_code},
+            )
+            assert resp.status_code == 400
+            assert '场内货币ETF' in resp.get_json()['message']
+
+    def test_bind_broker_channel_money_fund_to_stock_allowed(self, client, db):
+        """券商渠道现金管理产品（026/970）仅证券账户可绑（#1154 方案 B）"""
+        fund = self._make_money_fund(db, code='026029', name='银河水星现金添利货币')
+        resp = client.post(
+            '/api/ledgers/',
+            json={'name': '银河证券', 'ledger_type': 'stock', 'linked_money_fund_code': fund.fund_code},
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()['data']['linked_money_fund_code'] == fund.fund_code
+
+    def test_bind_broker_channel_money_fund_to_fund_rejected(self, client, db):
+        """券商渠道现金管理产品不可绑基金平台账户（#1154 方案 B）"""
+        fund = self._make_money_fund(db, code='026029', name='银河水星现金添利货币')
+        resp = client.post(
+            '/api/ledgers/',
+            json={'name': '蚂蚁基金', 'ledger_type': 'fund', 'linked_money_fund_code': fund.fund_code},
+        )
+        assert resp.status_code == 400
+        assert '券商渠道现金管理产品' in resp.get_json()['message']
+
+    def test_bind_off_exchange_money_fund_to_fund_allowed(self, client, db):
+        """场外货基仅基金平台账户可绑（#1154 方案 B）"""
+        fund = self._make_money_fund(db, code='000198', name='天弘余额宝货币')
+        resp = client.post(
+            '/api/ledgers/',
+            json={'name': '蚂蚁基金', 'ledger_type': 'fund', 'linked_money_fund_code': fund.fund_code},
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()['data']['linked_money_fund_code'] == fund.fund_code
+
+    def test_bind_off_exchange_money_fund_to_stock_rejected(self, client, db):
+        """场外货基不可绑证券账户（#1154 方案 B）"""
+        fund = self._make_money_fund(db, code='000198', name='天弘余额宝货币')
+        resp = client.post(
+            '/api/ledgers/',
+            json={'name': '华泰证券', 'ledger_type': 'stock', 'linked_money_fund_code': fund.fund_code},
+        )
+        assert resp.status_code == 400
+        assert '场外货币基金' in resp.get_json()['message']
 
 
 class TestLedgerOverview:
@@ -1279,8 +1504,8 @@ class TestLedgerSummary:
         assert data['money_fund_amount'] == 5000.0
         assert data['money_fund_ratio'] == round(5000.0 / 6800.0 * 100, 2)
         assert data['cumulative_return'] is not None
-        # type_distribution 按 asset_type 聚合（未知类型保留原样 code）
-        assert data['type_distribution'] == {'stock_fund': 1800.0, 'money_fund': 5000.0}
+        # type_distribution 按 asset_type 聚合（未知类型保留原样 code；货基命中 TYPE_LABELS 显示中文）
+        assert data['type_distribution'] == {'stock_fund': 1800.0, '货币基金': 5000.0}
 
     def test_summary_bank_account(self, client, db, make_position, make_asset):
         """银行账户返回总余额、活期余额、理财市值"""
@@ -1980,3 +2205,127 @@ class TestUpdateLedgerTransaction:
             json={'notes': 'x'},
         )
         assert resp.status_code == 404
+
+
+class TestLedgerTypeImmutability:
+    """ledger_type（计算口径键）不可变：编辑接口不得以任何方式被改成其它类型，
+    否则历史交易的计算口径会瞬间错乱。空账户（零交易/持仓/资产）允许改。
+    另：创建/编辑下发的是 channel_category（用户可见分组），后端据其派生 ledger_type，
+    绝不能直接把 channel_category 值当 ledger_type 写库。"""
+
+    def test_update_rejects_ledger_type_change_when_has_data(self, client, db, make_position):
+        ledger = Ledger(name='华泰证券', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.commit()
+        make_position(
+            symbol='SH600519',
+            name='贵州茅台',
+            ledger_id=ledger.id,
+            account_name='华泰证券',
+            quantity=100,
+            avg_price=10.0,
+            current_price=10.0,
+        )
+        resp = client.patch(f'/api/ledgers/{ledger.id}/', json={'ledger_type': 'fund'})
+        assert resp.status_code == 409
+        assert '类型不可更改' in resp.get_json()['message']
+        db.expire_all()
+        assert db.query(Ledger).filter_by(id=ledger.id).first().ledger_type == 'stock'
+
+    def test_update_allows_ledger_type_change_when_no_data(self, client, db):
+        ledger = Ledger(name='空账户', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.commit()
+        resp = client.patch(f'/api/ledgers/{ledger.id}/', json={'ledger_type': 'fund'})
+        assert resp.status_code == 200
+        db.expire_all()
+        assert db.query(Ledger).filter_by(id=ledger.id).first().ledger_type == 'fund'
+
+    def test_update_channel_category_keeps_ledger_type(self, client, db):
+        """编辑只下发 channel_category（用户可见分组）时，真实 ledger_type 必须保持不变。"""
+        ledger = Ledger(name='支付宝', ledger_type='fund', channel_category='fund_platform', family_id=1)
+        db.add(ledger)
+        db.commit()
+        resp = client.patch(
+            f'/api/ledgers/{ledger.id}/',
+            json={'channel_category': 'fund_platform', 'name': '支付宝2'},
+        )
+        assert resp.status_code == 200
+        db.expire_all()
+        updated = db.query(Ledger).filter_by(id=ledger.id).first()
+        assert updated.ledger_type == 'fund'  # 计算口径键不变
+        assert updated.channel_category == 'fund_platform'
+
+    def test_update_omitting_ledger_type_keeps_it(self, client, db):
+        ledger = Ledger(name='证券X', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.commit()
+        resp = client.patch(f'/api/ledgers/{ledger.id}/', json={'name': '证券X2'})
+        assert resp.status_code == 200
+        db.expire_all()
+        assert db.query(Ledger).filter_by(id=ledger.id).first().ledger_type == 'stock'
+
+    def test_create_derives_ledger_type_from_channel_category(self, client, db):
+        """POST 传 channel_category（而非 ledger_type）时，后端据其派生真实 ledger_type。"""
+        resp = client.post('/api/ledgers/', json={'name': '天弘活期', 'channel_category': 'fund_platform'})
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['ledger_type'] == 'fund'  # fund_platform -> fund
+        assert data['channel_category'] == 'fund_platform'
+
+
+class TestSwapLinkedMoneyFund:
+    """#1137 换绑活期+（A→B）：原绑定货基有净额持仓时应赎回 A 并申购 B（资产中性）。"""
+
+    def test_swap_moves_net_from_a_to_b(self, client, db):
+        from app.domains.transactions.models import Transaction
+
+        fund_a = Fund(fund_code='026029', name='银河水星现金添利货币')
+        fund_b = Fund(fund_code='026030', name='易方达现金增利货币')
+        db.add_all([fund_a, fund_b])
+        db.flush()
+        ledger = Ledger(
+            name='华泰证券',
+            ledger_type='stock',
+            linked_money_fund_id=fund_a.id,
+            auto_purchase_money_fund=True,
+            family_id=1,
+        )
+        db.add(ledger)
+        db.commit()
+        # A 有一笔净额持仓 10000 分（孤儿申购流水）
+        db.add(
+            Transaction(
+                ledger_id=ledger.id,
+                family_id=1,
+                asset_type='money_fund',
+                symbol=fund_a.fund_code,
+                txn_type='buy',
+                amount=10000,
+                position_id=None,
+                status='success',
+                entry_status='orphan',
+                trade_date=date.today(),
+                confirm_date=date.today(),
+                quantity=0,
+                price=0,
+                fee=0,
+            )
+        )
+        db.commit()
+
+        resp = client.patch(f'/api/ledgers/{ledger.id}/', json={'linked_money_fund_code': fund_b.fund_code})
+        assert resp.status_code == 200
+
+        # PATCH 在独立会话提交，本会话需刷新后才能读到落库结果
+        db.expire_all()
+        flows = (
+            db.query(Transaction)
+            .filter(Transaction.ledger_id == ledger.id, Transaction.asset_type == 'money_fund')
+            .all()
+        )
+        a_sell = [f for f in flows if f.symbol == fund_a.fund_code and f.txn_type == 'sell']
+        b_buy = [f for f in flows if f.symbol == fund_b.fund_code and f.txn_type == 'buy']
+        assert len(a_sell) == 1 and a_sell[0].amount == 10000  # 赎回 A
+        assert len(b_buy) == 1 and b_buy[0].amount == 10000  # 申购 B
+        assert db.query(Ledger).filter_by(id=ledger.id).first().linked_money_fund_id == fund_b.id

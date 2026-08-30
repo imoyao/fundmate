@@ -54,3 +54,20 @@ export const SELL_QUICK_RATIOS = [
 
 /** 基金默认申购费率 */
 export const DEFAULT_SUB_RATE = 0.015;
+
+/**
+ * 按快捷比例计算卖出数量，向下取整到最小交易单位（步长）。
+ * ratio === 1 表示全部卖出。供快速卖出与手动记账复用，避免各写各的取整逻辑。
+ */
+export function calcSellQuantityByRatio(
+  ratio: number,
+  total: number,
+  type: string,
+  step: number
+): number {
+  if (ratio === 1) return total;
+  if (type === "fund") return parseFloat((total * ratio).toFixed(4));
+  let target = Math.floor((total * ratio) / step) * step;
+  if (target < step && total >= step) target = step;
+  return Math.min(target, total);
+}

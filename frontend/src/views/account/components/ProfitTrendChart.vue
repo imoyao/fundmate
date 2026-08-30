@@ -3,64 +3,67 @@
     <h3 class="text-lg font-semibold mb-4 text-gray-900 dark:text-white">
       收益趋势
     </h3>
-    <canvas ref="profitChartCanvas" />
+    <canvas ref="profitChartCanvas" v-show="hasData" />
+    <p v-if="!hasData" class="text-gray-400 text-sm text-center py-8">
+      暂无收益数据
+    </p>
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount } from "vue";
 import Chart from "chart.js/auto";
+import { getSnapshots } from "@/api/summary";
 
-const profitChartCanvas = ref(null);
-let profitChartInstance = null;
+const profitChartCanvas = ref<HTMLCanvasElement | null>(null);
+let profitChartInstance: Chart | null = null;
+const hasData = ref(false);
 
-onMounted(() => {
-  if (profitChartCanvas.value) {
-    const ctx = profitChartCanvas.value.getContext("2d");
-    profitChartInstance = new Chart(ctx, {
-      type: "line",
-      data: {
-        labels: ["一月", "二月", "三月", "四月", "五月", "六月"],
-        datasets: [
-          {
-            label: "总收益",
-            data: [65, 59, 80, 81, 56, 55],
-            fill: false,
-            borderColor: "#4299e1", // blue-500
-            tension: 0.1
-          }
-        ]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: {
-            labels: {
-              color: "rgb(156 163 175)" // gray-400
+onMounted(async () => {
+  try {
+    const res = (await getSnapshots()) as any;
+    const list = Array.isArray(res?.data) ? res.data : [];
+    if (profitChartCanvas.value && list.length) {
+      hasData.value = true;
+      const ctx = profitChartCanvas.value.getContext("2d");
+      if (!ctx) return;
+      profitChartInstance = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels: list.map((i: any) => i.snapshot_date),
+          datasets: [
+            {
+              label: "净资产",
+              data: list.map((i: any) => i.net_worth),
+              fill: false,
+              borderColor: "#4299e1",
+              tension: 0.1
             }
-          }
+          ]
         },
-        scales: {
-          x: {
-            ticks: {
-              color: "rgb(156 163 175)" // gray-400
-            },
-            grid: {
-              color: "rgba(200, 200, 200, 0.1)"
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              labels: { color: "rgb(156 163 175)" }
             }
           },
-          y: {
-            ticks: {
-              color: "rgb(156 163 175)" // gray-400
+          scales: {
+            x: {
+              ticks: { color: "rgb(156 163 175)" },
+              grid: { color: "rgba(200, 200, 200, 0.1)" }
             },
-            grid: {
-              color: "rgba(200, 200, 200, 0.1)"
+            y: {
+              ticks: { color: "rgb(156 163 175)" },
+              grid: { color: "rgba(200, 200, 200, 0.1)" }
             }
           }
         }
-      }
-    });
+      });
+    }
+  } catch {
+    hasData.value = false;
   }
 });
 
@@ -73,6 +76,6 @@ onBeforeUnmount(() => {
 
 <style scoped>
 canvas {
-  max-height: 300px; /* 限制图表高度 */
+  max-height: 300px;
 }
 </style>

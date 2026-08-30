@@ -45,7 +45,18 @@ const emit = defineEmits<{
           @keydown.enter.stop
         >
           <!-- 卡片拖拽：四向「移动」双箭头，暗示单张卡片可上下/左右重排，与分组抓手（纵向三横线）明确区分 -->
-          <svg class="drag-grip drag-grip--card" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <svg
+            class="drag-grip drag-grip--card"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
             <path d="M9 4 7 6l2 2" />
             <path d="M4 7h5" />
             <path d="m15 4 2 2-2 2" />
@@ -240,7 +251,7 @@ const emit = defineEmits<{
   cursor: pointer;
   outline: none; /* 焦点指示由 :focus-visible 环提供，勿移除 outline */
   background: var(--bg-card);
-  border: 1px solid var(--border-light);
+  border: var(--card-border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-raised);
   transition:

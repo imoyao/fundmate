@@ -30,27 +30,34 @@ const emit = defineEmits<{
 }>();
 
 const creating = ref(false);
+// 表单的 ledger_type 字段此处承载「渠道分组」值（bank/securities/fund_platform/...），
+// 提交时作为 channel_category 下发，后端据其派生真实 ledger_type。
 const createForm = ref({
   name: "",
-  ledger_type: "stock",
+  ledger_type: "bank",
   notes: "",
   linked_cash_ledger_id: null as number | null,
+  // 类现金产品绑定（#1137）：基金代码 + 自动申购开关（默认关闭）
+  linked_money_fund_code: null as string | null,
+  auto_purchase_money_fund: false,
   portfolio_id: null as number | null,
   fee_config: null as any,
   sales_institution_id: null as number | null
 });
 
 // 每次打开重置表单（原 openCreateDialog 的重置语义迁移至此）；
-// ledger_type 取外部预置类型（分组入口预填），未指定时维持默认 stock
+// ledger_type 取外部预置渠道分组（分组入口预填），未指定时维持默认 bank
 watch(
   () => props.visible,
   val => {
     if (val) {
       createForm.value = {
         name: "",
-        ledger_type: props.initialLedgerType || "stock",
+        ledger_type: props.initialLedgerType || "bank",
         notes: "",
         linked_cash_ledger_id: null,
+        linked_money_fund_code: null,
+        auto_purchase_money_fund: false,
         portfolio_id: null,
         fee_config: null,
         sales_institution_id: null
@@ -66,7 +73,18 @@ async function handleCreate() {
   }
   creating.value = true;
   try {
-    await createLedger(createForm.value);
+    // 下发 channel_category（由表单 ledger_type 字段承载），后端据其派生 ledger_type
+    await createLedger({
+      name: createForm.value.name,
+      channel_category: createForm.value.ledger_type,
+      notes: createForm.value.notes,
+      linked_cash_ledger_id: createForm.value.linked_cash_ledger_id,
+      linked_money_fund_code: createForm.value.linked_money_fund_code,
+      auto_purchase_money_fund: createForm.value.auto_purchase_money_fund,
+      portfolio_id: createForm.value.portfolio_id,
+      fee_config: createForm.value.fee_config,
+      sales_institution_id: createForm.value.sales_institution_id
+    });
     ElMessage.success("账户创建成功");
     emit("update:visible", false);
     emit("created");
@@ -97,6 +115,8 @@ async function handleCreate() {
       <AccountFormFields
         v-model:ledger-type="createForm.ledger_type"
         v-model:linked-cash-id="createForm.linked_cash_ledger_id"
+        v-model:linked-money-fund-code="createForm.linked_money_fund_code"
+        v-model:auto-purchase-money-fund="createForm.auto_purchase_money_fund"
         v-model:portfolio-id="createForm.portfolio_id"
         v-model:fee-config="createForm.fee_config"
         v-model:sales-institution-id="createForm.sales_institution_id"

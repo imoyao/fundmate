@@ -5,7 +5,7 @@
 """资金容器 API — 基本 CRUD"""
 
 import json
-from datetime import datetime
+from datetime import date, datetime
 
 from apiflask import APIBlueprint
 from flask import abort, jsonify, request
@@ -18,12 +18,187 @@ from app.core.constants import ALLOCATION_LABELS, LEDGER_TYPE_LABELS
 from app.core.database import get_db
 from app.core.money import Money
 from app.domains.assets.models import Asset
+from app.domains.funds.models import Fund, MoneyFundDailyWorth
+from app.domains.ledgers.constants import (
+    map_channel_category_to_ledger_type,
+    map_ledger_type_to_channel_category,
+    map_org_type_to_channel_category,
+)
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, PositionImportMeta, SalesInstitution
 from app.domains.positions.views import enrich_position_dict
 from app.domains.transactions.models import Transaction
 from app.services.fund_aggregation import get_fund_aggregation as svc_get_fund_aggregation
-from app.services.ledger_service import LedgerService
+from app.services.fund_service import FundService
+from app.services.position_aggregation import DEFAULT_PAGE_SIZE
+from app.services.transaction_service import TransactionService
+
+# 外部基金列表缓存（进程级，基金列表极少变动）：用于「本地库无此货基时」补建 Fund 行
+_FUND_NAME_EM_CACHE: dict = {'ts': 0.0, 'data': None}
+_FUND_NAME_EM_TTL = 86400
+
+
+def _resolve_money_fund(db, fund_code: str):
+    """按代码解析类现金产品（货基）对应的 Fund 行。
+
+    本地缺失时，用 akshare fund_name_em 兜底补建（仅填代码/名称/类型等最小字段），
+    使「本地库尚未同步的货基」也能被绑定（#交互修复：按名称搜得到也要绑得上）。
+    补建失败（网络/解析异常）返回 None，由调用方回退 400。
+    """
+    fund = db.query(Fund).filter(Fund.fund_code == fund_code).first()
+    if fund:
+        return fund
+    try:
+        import time
+
+        cache = _FUND_NAME_EM_CACHE
+        now = time.time()
+        if cache['data'] is None or now - cache['ts'] > _FUND_NAME_EM_TTL:
+            from app.services.sync.adapters.akshare_adapter import AKShareAdapter
+
+            cache['data'] = AKShareAdapter().fetch_fund_list()
+            cache['ts'] = now
+        for item in cache['data'] or []:
+            if item.get('fund_code') == fund_code:
+                fund = Fund(
+                    fund_code=fund_code,
+                    name=item.get('name') or fund_code,
+                    fund_type_id=6 if item.get('fund_type') == '货币型' else None,
+                )
+                db.add(fund)
+                db.flush()
+                return fund
+    except Exception as e:  # 外部失败不阻塞，回退 400
+        logger.warning(f'补建货基 Fund 行失败({fund_code}): {e}')
+    return None
+
+
+def _check_money_fund_bindable(db, fund: Fund, ledger_type: str) -> str | None:
+    """校验基金是否可作为「活期+」绑定标的，并按账户渠道约束可绑范围（#1156/#1154）。
+
+    复用 FundService._judge_money_fund 三态判定（与前端 disabled 策略一致）：
+      - True  → 允许（进入渠道约束）
+      - None  → 类型未知，允许但记 warning（避免 fund_type_id 缺失误拒）
+      - False → 明确非货基，拒绝
+    渠道约束（#1154，方案 B：按账户 ledger_type 约束，不加 Fund 字段）：
+      - 场内货币ETF（511/519/159）→ 属投资范畴，任何账户均不可绑
+      - 券商渠道现金管理（026/970）→ 仅证券账户(stock)可绑
+      - 场外货基 → 仅基金平台账户(fund)可绑
+    返回 None 表示可绑定；返回字符串为 400 拒绝原因。
+    """
+    has_worth = (
+        db.query(MoneyFundDailyWorth.fund_code).filter(MoneyFundDailyWorth.fund_code == fund.fund_code).first()
+        is not None
+    )
+    is_mf = FundService._judge_money_fund(fund.fund_type_id, fund.name, has_worth)
+    if is_mf is False:
+        return '活期+ 仅支持货币基金类产品'
+    if is_mf is None:
+        logger.warning(f'绑定活期+ 的基金类型未知（{fund.fund_code} {fund.name}），按前端策略放行')
+    # 渠道约束（#1154，方案 B）：按账户类型约束可绑范围，不加 Fund 字段
+    channel = FundService._classify_money_fund_channel(fund.fund_code)
+    if channel == 'exchange_traded':
+        return '场内货币ETF（如华宝添益/银华日利）属投资范畴，不可绑定活期+'
+    if channel == 'broker_channel' and ledger_type != 'stock':
+        return '证券账户活期+ 仅支持券商渠道现金管理产品（如银河水星现金添利）'
+    if channel == 'off_exchange' and ledger_type != 'fund':
+        return '基金平台账户活期+ 仅支持场外货币基金'
+    return None
+
+
+def _swap_linked_money_fund(db, ledger: Ledger, old_fund: Fund, new_fund: Fund) -> None:
+    """#1137 换绑活期+：将账户内原绑定货基 A 的净额持仓赎回，并申购新绑定货基 B。
+
+    货基以孤儿流水记账（不建持仓），故「持仓」= 该账户下 A 的 money_fund 流水净额。
+    净额<=0 表示无实际持仓，跳过（避免凭空造流水）。仅生成两条孤儿流水（赎回 A /
+    申购 B），资产中性、不影响其他账户；失败仅记录告警不抛出，避免阻断换绑主流程。
+    """
+    family_id = get_family_id()
+    # 货基以孤儿流水记账（不建持仓），净额口径与 summary_service.orphan_money_fund_net_by_ledger
+    # 一致：buy/deposit 加、sell/withdraw 减，且仅计 position_id IS NULL 的孤儿流水，全程整数分。
+    positive = (
+        db.query(func.coalesce(func.sum(Transaction.amount), 0))
+        .filter(
+            Transaction.ledger_id == ledger.id,
+            Transaction.family_id == family_id,
+            Transaction.asset_type == 'money_fund',
+            Transaction.symbol == old_fund.fund_code,
+            Transaction.position_id.is_(None),
+            Transaction.txn_type.in_(('buy', 'deposit')),
+        )
+        .scalar()
+        or 0
+    )
+    negative = (
+        db.query(func.coalesce(func.sum(Transaction.amount), 0))
+        .filter(
+            Transaction.ledger_id == ledger.id,
+            Transaction.family_id == family_id,
+            Transaction.asset_type == 'money_fund',
+            Transaction.symbol == old_fund.fund_code,
+            Transaction.position_id.is_(None),
+            Transaction.txn_type.in_(('sell', 'withdraw')),
+        )
+        .scalar()
+        or 0
+    )
+    net_cents = int(positive) - int(negative)
+    if net_cents <= 0:
+        return
+    today = date.today()
+    # 赎回原绑定货基 A
+    TransactionService.create(
+        db=db,
+        position_id=None,
+        symbol=old_fund.fund_code,
+        txn_type='sell',
+        trade_date=today,
+        confirm_date=today,
+        asset_type='money_fund',
+        quantity=0,
+        price=0,
+        fee=0,
+        amount=net_cents,
+        status='success',
+        position_name=old_fund.name,
+        ledger_id=ledger.id,
+        account_name=ledger.name,
+        notes='更换活期+，赎回原绑定产品',
+        entry_status='orphan',
+        family_id=family_id,
+    )
+    # 申购新绑定货基 B（活期+内迁移，保持资产中性）
+    TransactionService.create(
+        db=db,
+        position_id=None,
+        symbol=new_fund.fund_code,
+        txn_type='buy',
+        trade_date=today,
+        confirm_date=today,
+        asset_type='money_fund',
+        quantity=0,
+        price=0,
+        fee=0,
+        amount=net_cents,
+        status='success',
+        position_name=new_fund.name,
+        ledger_id=ledger.id,
+        account_name=ledger.name,
+        notes='更换活期+，申购新绑定产品',
+        entry_status='orphan',
+        family_id=family_id,
+    )
+    logger.info(
+        f'账户 {ledger.id} 换绑活期+：{old_fund.fund_code} → {new_fund.fund_code}，'
+        f'净额 {net_cents} 分已迁移（赎回 A / 申购 B）'
+    )
+
+
+# #1132 场内证券聚合：与 #1101 基金聚合并列，纯 position 级聚合，零 schema 迁移。
+from app.services.ledger_service import LedgerService  # noqa: E402
+from app.services.securities_aggregation import (  # noqa: E402
+    get_securities_aggregation as svc_get_securities_aggregation,
+)
 
 ledgers_bp = APIBlueprint('ledgers', __name__, url_prefix='/api/ledgers')
 
@@ -48,12 +223,20 @@ def _ledger_to_dict(ledger: Ledger, last_used_at=None) -> dict:
         'notes': ledger.notes,
         'portfolio_id': ledger.portfolio_id,
         'linked_cash_ledger_id': ledger.linked_cash_ledger_id,
+        # 类现金产品绑定（#1137）：绑定 funds 标的（余额宝概念）。
+        # 入参用基金代码（前端搜索结果即 code），存储用 funds.id；出参附带 code/name 便于回显。
+        'linked_money_fund_id': ledger.linked_money_fund_id,
+        'linked_money_fund_code': ledger.linked_money_fund.fund_code if ledger.linked_money_fund else None,
+        'linked_money_fund_name': ledger.linked_money_fund.name if ledger.linked_money_fund else None,
+        'auto_purchase_money_fund': bool(ledger.auto_purchase_money_fund),
         # 关联的销售机构（AMAC 名录），可选；前端回显与编辑依赖该字段
         'sales_institution_id': ledger.sales_institution_id,
         # 聚合/系统账本标记与交易前端标签（#1101，前端展示/编辑用）
         'is_aggregation': ledger.is_aggregation,
         'frontend_app': ledger.frontend_app,
         'is_active': ledger.is_active,
+        # 渠道分类（#1101 重设计，铁律见设计文档 §2.3）：用户可见分组/类型标签，只读本字段做展示。
+        'channel_category': ledger.channel_category,
         # 组内手动排序序号；null 表示用户尚未手动排序（前端回退按持仓金额降序）。
         'display_order': ledger.display_order,
         'created_at': ledger.created_at.isoformat() if ledger.created_at else None,
@@ -71,14 +254,41 @@ def get_ledgers_overview():
         return jsonify({'data': data, 'message': 'ok'})
 
 
+def _aggregation_args() -> dict:
+    """解析聚合接口的公共查询参数（#1133）。
+
+    - dimension：'product'（默认）| 'institution'。原 'app'（交易前端）维度已收敛去掉——
+      其本质即销售机构、与 institution 重复；传入时静默降级为 institution，保证旧链接不报错。
+    - sort：'market_value'（默认）| 'quantity' | 'name' | 'symbol'。
+    - order：'desc'（默认）| 'asc'。
+    """
+    dimension = request.args.get('dimension', 'product')
+    if dimension == 'app':
+        dimension = 'institution'
+    if dimension not in ('product', 'institution'):
+        dimension = 'product'
+    return {
+        'dimension': dimension,
+        'sort': request.args.get('sort', 'market_value'),
+        'order': request.args.get('order', 'desc'),
+        'page': request.args.get('page', 1, type=int),
+        'page_size': request.args.get('page_size', DEFAULT_PAGE_SIZE, type=int),
+    }
+
+
 @ledgers_bp.get('/fund-aggregation/')
 def get_fund_aggregation():
-    """基金持仓跨账本聚合（#1101）：按产品/机构/前端维度聚合，供概览卡片与下钻页。"""
-    dimension = request.args.get('dimension', 'product')
-    if dimension not in ('product', 'institution', 'app'):
-        dimension = 'product'
+    """场外基金（含 E 账户）持仓跨账本聚合（#1101）：按产品/机构维度，供概览卡片与下钻页 /funds。"""
     with get_db() as db:
-        data = svc_get_fund_aggregation(db, get_family_id(), dimension)
+        data = svc_get_fund_aggregation(db, get_family_id(), **_aggregation_args())
+        return jsonify({'data': data, 'message': 'ok'})
+
+
+@ledgers_bp.get('/securities-aggregation/')
+def get_securities_aggregation():
+    """场内证券（股票/ETF/可转债）持仓跨账本聚合（#1132）：按产品/机构维度，供下钻页 /stocks。"""
+    with get_db() as db:
+        data = svc_get_securities_aggregation(db, get_family_id(), **_aggregation_args())
         return jsonify({'data': data, 'message': 'ok'})
 
 
@@ -142,33 +352,70 @@ def create_ledger():
         abort(400, '账户名称不能为空')
 
     ledger_type = data.get('ledger_type', 'bank')
+    channel_category = data.get('channel_category')
     linked_cash_id = data.get('linked_cash_ledger_id')
     sales_institution_id = data.get('sales_institution_id')
 
     # 校验关联的销售机构（可选）：机构是全局 AMAC 名录，无 family 归属
+    institution_org_type = None
     if sales_institution_id is not None:
         with get_db() as db:
             institution = db.query(SalesInstitution).filter_by(id=sales_institution_id).first()
             if not institution:
                 return jsonify({'data': None, 'message': '关联的销售机构不存在'}), 400
+            institution_org_type = institution.org_type
 
     # 校验关联的现金账户
     if linked_cash_id is not None:
         if ledger_type not in ('stock', 'fund'):
-            return jsonify({'data': None, 'message': '只有证券账户或基金平台可以关联现金账户'}), 400
+            return jsonify({'data': None, 'message': '只有证券账户或基金可以关联现金账户'}), 400
         with get_db() as db:
             cash_ledger = db.query(Ledger).filter_by(id=linked_cash_id, ledger_type='bank').first()
             if not cash_ledger or cash_ledger.family_id != get_family_id():
                 return jsonify({'data': None, 'message': '关联的现金账户不存在或类型不是现金账户'}), 400
 
+    # 派生 channel_category / ledger_type（#1101 渠道分类重设计，铁律见设计文档 §2.3）：
+    #   - 显式给了 channel_category → 以它为准，并据其反推 ledger_type（手动账本路径）；
+    #   - 否则有销售机构 → 以 org_type 映射为准（权威，覆盖 ledger_type 的展示语义）；
+    #   - 否则按 ledger_type 反推 channel_category（向后兼容旧调用方）。
+    # 注意：ledger_type 仍保留作计算口径键，channel_category 才是用户可见分组/标签。
+    if channel_category:
+        ledger_type = map_channel_category_to_ledger_type(channel_category)
+    elif institution_org_type:
+        channel_category = map_org_type_to_channel_category(institution_org_type)
+    elif ledger_type:
+        channel_category = map_ledger_type_to_channel_category(ledger_type)
+
+    # 类现金产品绑定（#1137）：入参用基金代码（前端搜索结果即 code），存储 funds.id。
+    # 仅证券/基金平台可绑；开关默认关闭，未绑定时不允许开启。
+    linked_money_fund_code = (data.get('linked_money_fund_code') or '').strip() or None
+    auto_purchase_money_fund = bool(data.get('auto_purchase_money_fund', False))
+    linked_money_fund_id = None
+    if linked_money_fund_code:
+        if ledger_type not in ('stock', 'fund'):
+            return jsonify({'data': None, 'message': '只有证券账户或基金可以绑定活期+'}), 400
+        with get_db() as db:
+            fund = _resolve_money_fund(db, linked_money_fund_code)
+            if not fund:
+                return jsonify({'data': None, 'message': '绑定的活期+不存在'}), 400
+            reject = _check_money_fund_bindable(db, fund, ledger_type)
+            if reject:
+                return jsonify({'data': None, 'message': reject}), 400
+            linked_money_fund_id = fund.id
+    elif auto_purchase_money_fund:
+        return jsonify({'data': None, 'message': '请先绑定活期+，再开启自动申购'}), 400
+
     with get_db() as db:
         ledger = Ledger(
             name=name,
             ledger_type=ledger_type,
+            channel_category=channel_category,
             default_allocation=data.get('default_allocation', 'longterm'),
             notes=data.get('notes', ''),
             portfolio_id=data.get('portfolio_id'),
             linked_cash_ledger_id=linked_cash_id,
+            linked_money_fund_id=linked_money_fund_id,
+            auto_purchase_money_fund=auto_purchase_money_fund,
             sales_institution_id=sales_institution_id,
             family_id=get_family_id(),
         )
@@ -366,12 +613,47 @@ def update_ledger(ledger_id: int):
             if linked_cash_id is not None:
                 current_type = ledger_type if ledger_type is not None else ledger.ledger_type
                 if current_type not in ('stock', 'fund'):
-                    return jsonify({'data': None, 'message': '只有证券账户或基金平台可以关联现金账户'}), 400
+                    return jsonify({'data': None, 'message': '只有证券账户或基金可以关联现金账户'}), 400
                 cash_ledger = db.query(Ledger).filter_by(id=linked_cash_id, ledger_type='bank').first()
                 if not cash_ledger or cash_ledger.family_id != get_family_id():
                     return jsonify({'data': None, 'message': '关联的现金账户不存在或类型不是现金账户'}), 400
             # 无论值是否为 None，均更新
             ledger.linked_cash_ledger_id = linked_cash_id
+
+        # 更新类现金产品绑定（#1137，允许设置为 None 解绑）
+        # 入参用基金代码，存储 funds.id；未绑定时不允许开启自动申购。
+        if 'linked_money_fund_code' in data:
+            fund_code = (data.get('linked_money_fund_code') or '').strip() or None
+            old_linked_id = ledger.linked_money_fund_id
+            if fund_code is None:
+                ledger.linked_money_fund_id = None
+                # 解绑时自动关闭开关，避免残留一个无法生效的开关
+                ledger.auto_purchase_money_fund = False
+            else:
+                if ledger.ledger_type not in ('stock', 'fund'):
+                    return jsonify({'data': None, 'message': '只有证券账户或基金可以绑定活期+'}), 400
+                fund = _resolve_money_fund(db, fund_code)
+                if not fund:
+                    return jsonify({'data': None, 'message': '绑定的活期+不存在'}), 400
+                reject = _check_money_fund_bindable(db, fund, ledger.ledger_type)
+                if reject:
+                    return jsonify({'data': None, 'message': reject}), 400
+                ledger.linked_money_fund_id = fund.id
+                # #1137 换绑活期+：原绑定货基仍有净额持仓时，赎回 A 并申购 B（资产中性）。
+                # 仅当从 A 换到 B（ID 不同）才触发，首次绑定 / 解绑重绑不触发。
+                if old_linked_id and old_linked_id != fund.id:
+                    old_fund = db.get(Fund, old_linked_id)
+                    if old_fund:
+                        _swap_linked_money_fund(db, ledger, old_fund, fund)
+
+        # 更新自动申购开关（#1137）
+        if 'auto_purchase_money_fund' in data:
+            auto_purchase = data['auto_purchase_money_fund']
+            if not isinstance(auto_purchase, bool):
+                return jsonify({'data': None, 'message': 'auto_purchase_money_fund 必须为布尔值'}), 400
+            if auto_purchase and not ledger.linked_money_fund_id:
+                return jsonify({'data': None, 'message': '请先绑定活期+，再开启自动申购'}), 400
+            ledger.auto_purchase_money_fund = auto_purchase
 
         # 更新 sales_institution_id（允许设置为 None）
         if 'sales_institution_id' in data:
@@ -382,6 +664,12 @@ def update_ledger(ledger_id: int):
                     return jsonify({'data': None, 'message': '关联的销售机构不存在'}), 400
             # 无论值是否为 None，均更新
             ledger.sales_institution_id = sales_institution_id
+
+        # 更新 channel_category（用户可见分组/类型标签，#1101 重设计）。
+        # 注：本字段通常由系统维护（建账/导入时由 org_type 或用户选分组推导），
+        # 此处允许显式写入以兼容前端直接设置分组；不反向改写 ledger_type（计算口径键）。
+        if 'channel_category' in data:
+            ledger.channel_category = data['channel_category']
 
         # 更新 fee_config
         if 'fee_config' in data:
@@ -1006,6 +1294,12 @@ def get_ledger_summary(ledger_id: int):
                 money_fund = LedgerService.get_money_fund_stats(db, ledger.id)
                 data.update(money_fund)
 
+            # 类现金统计（#1137）：货基 + 逆回购 + 账户现金，口径与 XIRR 的
+            # EXCLUDED_ASSET_TYPES 一致；中高风险 = 总市值 - 类现金，供前端主次展示。
+            data.update(LedgerService.get_cash_like_stats(db, ledger.id, get_family_id()))
+            total_mv = data.get('total_market_value') or 0.0
+            data['investment_amount'] = round(total_mv - (data.get('cash_like_amount') or 0.0), 2)
+
         elif ledger.ledger_type == 'bank':
             data.update(LedgerService.get_bank_stats(db, ledger.id))
 
@@ -1231,28 +1525,6 @@ def update_ledger_transaction(ledger_id: int, transaction_id: int):
                 'message': 'ok',
             }
         )
-
-
-@ledgers_bp.delete('/<int:ledger_id>/transactions/<int:transaction_id>/')
-def delete_ledger_transaction(ledger_id: int, transaction_id: int):
-    """删除账户内交易"""
-    with get_db() as db:
-        ledger = get_owned_or_404(db, Ledger, ledger_id)
-        if not ledger:
-            abort(404, '账户不存在')
-        txn = (
-            db.query(Transaction)
-            .filter(
-                Transaction.id == transaction_id,
-                Transaction.ledger_id == ledger.id,
-            )
-            .first()
-        )
-        if not txn:
-            abort(404, '交易不存在或不属于该账户')
-        db.delete(txn)
-        db.commit()
-        return jsonify({'message': 'ok', 'data': None})
 
 
 # ────────────────────────────── 未归置数据（orphan）归入/清理 ──────────────────────────────

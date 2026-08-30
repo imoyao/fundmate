@@ -29,7 +29,7 @@ export interface FundNavResult {
  */
 export async function fetchFundNav(
   fundCode: string,
-  targetDate: string,
+  targetDate: string
 ): Promise<FundNavResult | null> {
   if (!fundCode || !targetDate) return null;
 
@@ -43,7 +43,7 @@ export async function fetchFundNav(
         return {
           unit_nav: Number(item.unit_nav),
           date: item.date || targetDate,
-          source: "backend",
+          source: "backend"
         };
       }
     }
@@ -53,7 +53,7 @@ export async function fetchFundNav(
 
   // 2. 尝试天天基金公开接口（JSONP）
   try {
-    const publicResult = await fetchFromEastmoney(fundCode, targetDate);
+    const publicResult = await fetchNavFromEastmoney(fundCode, targetDate);
     if (publicResult) {
       return { ...publicResult, source: "eastmoney" };
     }
@@ -79,7 +79,7 @@ export async function fetchFundNav(
  */
 export async function fetchFundNavBatch(
   fundCodes: string[],
-  targetDate: string,
+  targetDate: string
 ): Promise<Record<string, number>> {
   const navMap: Record<string, number> = {};
   if (!fundCodes.length || !targetDate) return navMap;
@@ -102,27 +102,68 @@ export async function fetchFundNavBatch(
   }
 
   // 2. 后端未返回的基金，逐个走天天基金 JSONP 兜底（3 个一批并发）
-  const missing = fundCodes.filter((code) => !backendFound.has(code));
+  const missing = fundCodes.filter(code => !backendFound.has(code));
   for (let i = 0; i < missing.length; i += 3) {
     const batch = missing.slice(i, i + 3);
     await Promise.all(
-      batch.map(async (code) => {
+      batch.map(async code => {
         try {
-          const result = await fetchFromEastmoney(code, targetDate);
+          const result = await fetchNavFromEastmoney(code, targetDate);
           if (result) {
             navMap[code] = result.unit_nav;
           }
         } catch {
           // 单个失败不阻塞
         }
-      }),
+      })
     );
   }
 
   return navMap;
 }
 
-/* ─────────────── 天天基金 JSONP 兜底 ─────────────── */
+/* ─────────────── 天天基金 JSONP ─────────────── */
+
+/**
+ * 批量经 JSONP 获取多只基金在指定日期的单位净值（#1133）。
+ *
+ * 与 `fetchFundNavBatch` 的区别：本方法**纯前端直连**东财公开接口，
+ * 完全不经过后端，因此不受后端超时/阻塞影响。
+ *
+ * 并发控制：每批 3 个（东财对高频请求有限制），单只失败不影响其余。
+ *
+ * @param fundCodes 基金代码数组
+ * @param targetDate 目标日期 YYYY-MM-DD
+ * @param concurrency 并发数，默认 3
+ * @returns { fund_code: unit_nav }，取不到的基金不在结果中
+ */
+export async function fetchNavBatchFromEastmoney(
+  fundCodes: string[],
+  targetDate: string,
+  concurrency = 3
+): Promise<Record<string, number>> {
+  const result: Record<string, number> = {};
+  if (!fundCodes.length || !targetDate) return result;
+
+  for (let i = 0; i < fundCodes.length; i += concurrency) {
+    const batch = fundCodes.slice(i, i + concurrency);
+    const settled = await Promise.all(
+      batch.map(async code => {
+        try {
+          const r = await fetchNavFromEastmoney(code, targetDate);
+          return r ? { code, nav: r.unit_nav } : null;
+        } catch {
+          return null;
+        }
+      })
+    );
+    for (const item of settled) {
+      if (item) result[item.code] = item.nav;
+    }
+  }
+
+  return result;
+}
 
 /**
  * JSONP 调用天天基金历史净值接口。
@@ -130,11 +171,11 @@ export async function fetchFundNavBatch(
  * 接口：api.fund.eastmoney.com/f10/lsjz
  * 返回 { Data: { LSJZList: [{ FSRQ, DWJZ, LJJZ, ... }] } }
  */
-function fetchFromEastmoney(
+export function fetchNavFromEastmoney(
   fundCode: string,
-  targetDate: string,
+  targetDate: string
 ): Promise<{ unit_nav: number; date: string } | null> {
-  return new Promise((resolve) => {
+  return new Promise(resolve => {
     const callbackName = `__fundNavCb_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
     const dateStr = targetDate.replace(/-/g, "");
     const url =
@@ -164,7 +205,7 @@ function fetchFromEastmoney(
         if (nav && nav > 0) {
           resolve({
             unit_nav: nav,
-            date: item.FSRQ || targetDate,
+            date: item.FSRQ || targetDate
           });
           return;
         }

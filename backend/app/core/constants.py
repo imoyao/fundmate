@@ -7,6 +7,11 @@
 
 from enum import Enum
 
+from app.core.asset_types import ASSET_CATEGORY_LABELS, ASSET_TYPE_LABELS
+
+# 兼容历史 import：core/constants.TYPE_LABELS 曾为资产类型标签的别名，现统一指向 asset_types
+TYPE_LABELS = ASSET_TYPE_LABELS
+
 # ── 汇率（MVP 阶段硬编码，后续可迁移到数据库）──
 EXCHANGE_RATES = {
     'CNY': 1.0,
@@ -15,26 +20,14 @@ EXCHANGE_RATES = {
 }
 
 # ── 产品类型标签（交易性资产）──
-TYPE_LABELS = {
-    'stock': '股票',
-    'fund': '基金',
-    'etf': 'ETF',
-    'bond': '债券',
-    'cash': '现金',
-    'bank': '银行',
-    'real_estate': '房产',
-    'insurance': '保险',
-    'precious_metal': '贵金属',
-    'crypto': '加密货币',
-    'static': '其他',
-    'liability': '负债',
-}
+# 单一权威定义已收口到 app/core/asset_types.ASSET_TYPE_LABELS（本文件顶部已从该处 import，别名 TYPE_LABELS）；
+# bond 已澄清为「可转债」。新增 / 修改类型标签请改 asset_types.py，勿在此手写。
 
 
 LEDGER_TYPE_LABELS = {
     'bank': '银行账户',
     'stock': '证券账户',
-    'fund': '场外基金平台',
+    'fund': '基金',
     'e_account': '基金E账户',
     'property': '实物资产',
 }
@@ -57,14 +50,7 @@ ALLOCATION_LABELS = {
 }
 
 # ── 通用资产大类标签 ──
-ASSET_CATEGORY_LABELS = {
-    'cash': '流动资金',
-    'fixed': '固定资产',
-    'investment': '投资理财',
-    'receivable': '应收款',
-    'liability': '负债',
-    'insurance': '保险项目',
-}
+# 已收口到 app/core/asset_types.ASSET_CATEGORY_LABELS（本文件顶部 import），勿在此手写。
 
 # ── 桑基图节点名称常量 ──
 K_TOTAL = '总资产'
@@ -74,13 +60,8 @@ K_UNCONFIGURED = '未配置资产'
 K_LONGTERM = '长期增值'
 
 # ── 桑基图资产大类元组（名称，颜色键已废弃，保留兼容）──
-CATEGORY_META = {
-    'cash': ('流动资金', None),
-    'fixed': ('固定资产', None),
-    'investment': ('投资理财', None),
-    'receivable': ('应收款', None),
-    'insurance': ('保险项目', None),
-}
+# 标签与 ASSET_CATEGORY_LABELS 单一来源保持一致；liability 由 summary 单独处理，不进大类分布。
+CATEGORY_META = {k: (v, None) for k, v in ASSET_CATEGORY_LABELS.items() if k != 'liability'}
 
 # 同花顺操作类型 → 内部 op_type 映射
 THS_OP_TYPE_MAP = {
@@ -133,6 +114,7 @@ OP_TYPE_LABEL = {
     'buy': '买入',
     'sell': '卖出',
     'dividend': '分红',
+    'dividend_reinvest': '红利再投资',
     'deposit': '存入',
     'withdraw': '取出',
     'split': '拆分',
@@ -188,4 +170,22 @@ POSITION_SOURCE_LABELS: dict[str, str] = {
     PositionSource.AI_TXN.value: 'AI交易识别',
     PositionSource.AI_HOLDING.value: 'AI持仓识别',
     PositionSource.EXPLORE.value: '探市录入',
+}
+
+
+class ValuationMode(str, Enum):
+    """持仓计价模式（#1174 / 决策 D1 方案 A）。
+
+    决定一笔持仓的市值如何计算——有公开净值的走份额模型，无净值的走余额模型。
+    禁止在各处硬编码 'nav' / 'balance' 字符串字面量。
+    """
+
+    NAV = 'nav'  # 份额×净值：基金/证券等有公开净值的标的
+    BALANCE = 'balance'  # 直接余额：投顾/银行理财等无公开净值的标的，市值靠人工录入总价
+
+
+# 单一真相源：ValuationMode.value -> 中文 label，仅在此处维护
+VALUATION_MODE_LABELS: dict[str, str] = {
+    ValuationMode.NAV.value: '份额×净值',
+    ValuationMode.BALANCE.value: '直接余额',
 }

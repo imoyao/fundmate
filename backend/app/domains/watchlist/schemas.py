@@ -28,6 +28,7 @@ class WatchlistItemUpdate(BaseModel):
     favorite: Optional[bool] = Field(None, description='特别关注标记')
     notes: Optional[str] = Field(None, max_length=2000, description='投资笔记')
     add_reason: Optional[str] = Field(None, max_length=500, description='关注理由')
+    next_review_date: Optional[date] = Field(None, description='下次复盘提醒日期')
 
 
 class WatchlistItemOut(BaseModel):
@@ -41,6 +42,7 @@ class WatchlistItemOut(BaseModel):
     status: Optional[str] = None
     favorite: Optional[bool] = None  # 新增
     favorite_at: Optional[date] = None  # 新增
+    next_review_date: Optional[date] = None  # 新增：复盘提醒（未竟之蹊卡片底部）
     is_pinned: Optional[bool] = None
     pinned_at: Optional[datetime] = None
     add_reason: Optional[str] = None

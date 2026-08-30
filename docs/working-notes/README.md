@@ -85,6 +85,17 @@
 | `portfolio-lot-attribution-design-2026-08-25.md` | **组合批次级（Lot）归因立项设计（#1095 远期方案）**：b 否决/c 为唯一路径；现金按 lot 归属；排序先 D20 一期后 #1095。展开 4 项前置依赖为可执行设计（lots/lot_consumptions 模型、现金归属细则、XIRR 引擎重写+清理 xirr_engine.py:349 死代码、历史回填），附代码锚点与分期/测试/回滚 |
 | `ledger-detail-info-redesign-plan-2026-08-27.md` | **账户详情页信息重构计划（方向 C + 配置目标可编辑）**：移除无意义环形图/盈亏走势占位，规划基金账户深度分析（持仓集中度/行业分布/收益日历等）与持仓级配置目标编辑，分期 P0~P3 落地 |
 | `e-account-aggregation-design-2026-08-28.md` | **基金E账户与聚合器/券商数据模型设计草案（#1101，待评审）**：概念澄清（实体账本/销售机构/券商/聚合器/E账户）、现状实证、方案A/B、broker_aggregator_links+trading_frontend、银行卡绑定约束、前端聚合页维度、D1~D6 待决、P0~P2 分期 |
+| `ledger-channel-category-redesign-2026-08-28.md` | **账本渠道分类（channel_category）重设计方案（#1101 后续）**：双字段模型（ledger_type 内部资产类键 vs channel_category 用户可见分组）、org_type→channel_category 映射、派生/回归规则、与 #1100 机构绑定基数层正交；配套后端常量+迁移回填已落地 |
+| `ledger-cash-like-product-binding-2026-08-29.md` | **账户绑定类现金产品（「余额宝」）设计（#1137 B）**：类现金口径=现金+货基+逆回购（复用 XIRR `EXCLUDED_ASSET_TYPES`，债券不归入）、Ledger 新增 `linked_money_fund_id`+`auto_purchase_money_fund`（默认关）、自动申购仅覆盖卖出/赎回回款、每账户单独控制+批量应用、UI 借鉴支付宝但主次反转（中高风险 `--text-hero` 为主 / 类现金 `--text-small` 为辅且单独成块）、B1~B3 分期；含 C 取消论证（滑坡+维度混淆） |
+| `securities-aggregation-design-2026-08-29.md` | **场内证券（股票/ETF/可转债）聚合卡片设计（#1132，已确认）**：镜像 #1101 场外基金 position 级聚合范式，新增 securities_aggregation 服务+端点+前端卡片/下钻页，零 schema 迁移；范围含 stock/etf/bond，不建虚拟账本 |
+| `road-not-taken-revive-2026-08-30.md` | **未竟之蹊（/the-road-not-taken）页面复活**：旧页问题诊断（v3-waterfall v1 参数误用/卡片空壳/类型失真/hex 硬编码）、数据接口可行性表（favorites/trends/tags/cleared 真实可用，经理为占位）、后端补 `next_review_date` 复盘字段+迁移、前端重写为三列 Masonry 卡片流（诗句卡/两级胶囊/三态卡片/鹦鹉螺空态）、后续待办 |
+| `eastmoney-datasource-and-account-linkage-design-2026-08-30.md` | **天天基金/东财数据源适配器 与 基金账户归一化设计（待评审）**：设计 A 建 `EastmoneyAdapter` 去硬编码选源＋回填基金公司权威 code；设计 B `PositionImportMeta.sales_institution_id` 外键归一化基金账户，个人昵称保留自由文本 |
+| `asset-management-gap-analysis-2026-08-30.md` | **对照真实用户六条需求的资产记账能力 Gap 分析**：取证到代码行号的六条判定（①自定义资产免净值份额 ②多账户区分成员 ③购买渠道 ④账户走势盈亏 ⑤分红送股自动化 ⑥按占比批量更新总价）；竞品对照（同花顺投资账本/有知有行/钱往的功能与定价）；核心结论=竞品「份额×净值」单一模型结构性做不到无净值产品，是 fundmate 的差异化窗口 |
+| `asset-management-gap-roadmap-2026-08-30.md` | **资产管理记账能力补齐开发计划（待评审）**：D1~D4 四项待拍板决策（双态计价模型 / 进 positions 还是 assets / balance 盈亏口径 / 聚合入口归属）、P0~P4 五期计划表（含文件锚点与依赖）、风险与测试纪律、14 条原子 issue 草案 |
+| `fund-metadata-arch-issue-1155-research-2026-08-29.md` | **#1155 基金元数据架构核查（研究交付物）**：fund_type_id 全量回填可行性 + 基金公司/基金经理数据架构现状与三处域归属不一致决策 |
+| `ai-code-review-deepseek-dual-line-2026-08-23.md` | **AI Code Review 双线路接入（DeepSeek 火山方舟实测）**：ARK_API_KEY_DEEPSEEK 可用性与模型权限核查（feat/ghost-duplicate-scan） |
+| `mock-service-data-isolation-2026-08-30.md` | **Mock 服务与数据隔离方案调研**：前端 mock 避免污染本地 SQLite + 独立 Supabase 环境实现 dev/test/prod 隔离 |
+| `fund-company-backfill-1199-2026-08-30.md` | **基金公司 code 回填实测与归一化增强（#1199 收尾）**：127 占位基线、迭代剥离归一化（修复只剥最短后缀 bug）、命中率 81.1%→92.9%、实际回填 116 条、剩余 11 条分类（9 不在列表 + 2 code 冲突）、`full_name`/`scale` 正式降级结论 |
 
 ## 子目录归档
 

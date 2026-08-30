@@ -6,6 +6,7 @@
 
 # -*- coding: utf-8 -*-
 from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, Text
+from sqlalchemy.orm import relationship
 
 from app.core.database import Base, FamilyScopedMixin, PrimaryKeyMixin, TimestampMixin
 
@@ -51,8 +52,13 @@ class Ledger(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
         String(20),
         default='bank',
         comment=(
-            '类型: stock(股票账户) / fund(基金账户) / e_account(基金E账户汇总,由E账户导入自动创建) '
-            '/ property(实物资产) / bank(现金账户) / family(家庭账户)'
+            '类型(内部资产类键,用户不可见): stock(股票账户) / fund(基金账户) '
+            '/ e_account(基金E账户汇总,由E账户导入自动创建) / property(实物资产) '
+            '/ bank(现金账户) / family(家庭账户)。'
+            '权威说明见 docs/working-notes/ledger-channel-category-redesign-2026-08-28.md §2.1/§2.3：'
+            '本字段只进计算/费率/视图分支逻辑，不出现在用户面；账户列表分组、类型标签、排序、筛选'
+            '一律只读 channel_category，绝不读本字段当展示。ledger_type 由系统维护/派生'
+            '(创建时据 channel_category 或销售机构 org_type 推导)，编辑带数据账户时不可变(改类型返回409)。'
         ),
     )
     default_allocation = Column(
@@ -94,6 +100,33 @@ class Ledger(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
         nullable=True,
         comment='关联的现金账户（仅 stock/fund 类型可用）',
     )
+    # 类现金产品绑定（#1137）：账户的「余额宝」，指向基金标的（funds.id）。
+    # 绑定标的而非持仓——持仓卖光会悬空；回款是否自动申购见 auto_purchase_money_fund。
+    # ⚠️ 跨域引用（user 域 ledgers → market 域 funds），**不声明 ForeignKey**。
+    # 两表物理分属不同库（见 db_factory：funds=MARKET / ledgers=USER），数据库
+    # 无法保证该约束；此前声明 FK 会让分域建表抛 NoReferencedTableError，
+    # 且在开启 foreign_keys pragma 时写入即失败。引用有效性由应用层保证。
+    linked_money_fund_id = Column(
+        Integer,
+        nullable=True,
+        comment='账户绑定的类现金产品（余额宝），指向 funds.id（跨域引用，仅 stock/fund 类型可用）',
+    )
+    # 自动申购开关（#1137）：默认关闭——用户不操作系统不代劳，回款留在账户现金。
+    auto_purchase_money_fund = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment='卖出/赎回回款是否自动申购绑定的类现金产品（默认关闭）',
+    )
+    # 回显用：绑定产品的代码与名称（只读，不参与写入）。
+    # 跨域（market 域 funds）：无 FK 故须显式 primaryjoin；用惰性 select 而非
+    # selectin，避免加载 Ledger 时自动发起跨域查询（分域下会打到空库）。
+    linked_money_fund = relationship(
+        'Fund',
+        primaryjoin='Ledger.linked_money_fund_id == Fund.id',
+        foreign_keys=[linked_money_fund_id],
+        lazy='select',
+    )
     sales_institution_id = Column(
         Integer,
         ForeignKey('sales_institutions.id', ondelete='SET NULL'),
@@ -117,4 +150,17 @@ class Ledger(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
         nullable=True,
         default=None,
         comment='交易前端标签(展示用): tonghuashun/eastmoney/self/other，不参与计算',
+    )
+
+    # ── 渠道分类（#1101 后续重设计，权威说明见 docs/working-notes/ledger-channel-category-redesign-2026-08-28.md）──
+    # 与 ledger_type 正交，维护者务必分清（铁律见该文档 §2.3）：
+    #   - ledger_type：内部资产类键（stock/fund/bank/property…），只进计算/费率/视图分支，用户不可见，不当展示标签。
+    #   - channel_category：用户可见的"机构渠道类别"（bank/securities/fund_platform/insurance/futures/other），
+    #     同时作为账户列表分组与账户类型标签。分组/标签/排序/筛选只读本字段，绝不读 ledger_type 当展示。
+    # 本字段完全由系统维护：建账/导入时由 sales_institution_id→org_type 映射写入；手动账本由用户选的"分组"推导写入，用户从不直接编辑。
+    channel_category = Column(
+        String(20),
+        nullable=True,
+        default=None,
+        comment='渠道分类(用户可见分组/类型标签): bank/securities/fund_platform/insurance/futures/other；系统维护，不参与计算',
     )

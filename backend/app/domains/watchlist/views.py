@@ -14,11 +14,12 @@ from loguru import logger
 from sqlalchemy import desc, func
 
 from app.core.auth import get_family_id, get_owned_or_404
+from app.core.constants import TYPE_LABELS
 from app.core.database import get_db
 from app.core.money import Money
 from app.core.utils import api_response, with_db
 from app.core.validation import parse_body
-from app.domains.funds.models import Fund
+from app.domains.funds.models import DailyWorth, Fund
 from app.domains.positions.models import Position
 from app.domains.price_history.models import PriceHistory
 from app.domains.securities.models import Security
@@ -53,7 +54,9 @@ watchlist_bp = APIBlueprint('watchlist', __name__, url_prefix='/api/watchlist')
 # CSV 导出字段值 → 中文 label 映射
 _VENUE_LABELS = {'EXCHANGE': '场内', 'OTC': '场外'}
 _STATUS_LABELS = {'HOLDING': '持仓中', 'WATCHING': '观察中'}
-_ASSET_TYPE_LABELS = {'fund': '基金', 'stock': '股票', 'etf': 'ETF', 'bond': '可转债'}
+
+# 资产类型中文 label 统一取后端唯一来源 app.core.constants.TYPE_LABELS（收口自 asset_types），
+# 不再在此私藏局部副本，避免与全局枚举漂移（#1171 枚举一致性）。
 
 # 常量定义（放在文件顶部，导入之后）
 HOME_PINNED_LIMIT = 6
@@ -86,6 +89,9 @@ def _get_display_info(symbol: str, db) -> str:
 
 def _enrich_item(item: WatchlistItem, db) -> dict:
     out = WatchlistItemOut.model_validate(item).model_dump()
+    # watchlist.asset_type 历史存放大写（STOCK/ETF/...），对外统一归一为小写，
+    # 与后端 asset_types 单一来源（stock/etf/fund/bond/index）及 positions 域保持一致（#1171）。
+    out['asset_type'] = item.asset_type.lower() if item.asset_type else None
     out['display_name'] = _get_display_info(item.symbol, db)
     out['group_ids'] = [link.group_id for link in item.group_links]
     out['tag_ids'] = [link.tag_id for link in item.tag_links]
@@ -250,7 +256,7 @@ def _build_holding_row(symbol, db, market=None, asset_type=None, venue=None):
         'id': None,
         'symbol': symbol,
         'market': market,
-        'asset_type': asset_type,
+        'asset_type': (asset_type or '').lower() or None,
         'venue': venue,
         'status': 'HOLDING',
         'favorite': False,
@@ -339,6 +345,10 @@ def list_trends():
         return jsonify({'data': {}, 'message': 'ok'})
 
     start = date.today() - timedelta(days=days)
+    # 场外基金（OF. 开头）历史净值存于 daily_worth 表，需单独取数并入同一 trends 结构
+    fund_symbols = [s for s in symbols if s.upper().startswith('OF.')]
+    fund_codes = [s.split('.', 1)[1] for s in fund_symbols if '.' in s]
+
     with get_db() as db:
         rows = (
             db.query(PriceHistory.symbol, PriceHistory.close)
@@ -349,12 +359,28 @@ def list_trends():
             .order_by(PriceHistory.symbol.asc(), PriceHistory.trade_date.asc())
             .all()
         )
+        nav_rows = []
+        if fund_codes:
+            nav_rows = (
+                db.query(DailyWorth.fund_code, DailyWorth.unit_nav)
+                .filter(
+                    DailyWorth.fund_code.in_(fund_codes),
+                    DailyWorth.date >= start,
+                )
+                .order_by(DailyWorth.fund_code.asc(), DailyWorth.date.asc())
+                .all()
+            )
 
     trends: dict[str, list[float]] = {}
     for symbol, close in rows:
         if close is None:
             continue
         trends.setdefault(symbol, []).append(round(close, 4))
+    # 基金净值并入 trends：键仍用前端符号 OF.xxxxxx，与 price_history 同口径（数值即单位净值）
+    for fund_code, unit_nav in nav_rows:
+        if unit_nav is None:
+            continue
+        trends.setdefault(f'OF.{fund_code}', []).append(round(unit_nav, 4))
     return jsonify({'data': trends, 'message': 'ok'})
 
 
@@ -919,7 +945,7 @@ def export_items():
                     item['symbol'],
                     item['display_name'] or item['symbol'],
                     item['market'] or '',
-                    _ASSET_TYPE_LABELS.get(item['asset_type'], item['asset_type'] or ''),
+                    TYPE_LABELS.get(item['asset_type'], item['asset_type'] or ''),
                     _VENUE_LABELS.get(item['venue'], item['venue'] or ''),
                     _STATUS_LABELS.get(item['status'], item['status'] or ''),
                     '是' if item['is_pinned'] else '否',

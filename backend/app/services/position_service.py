@@ -14,6 +14,7 @@
 - 业务异常通过 ValueError 抛出，由视图层捕获并转为 HTTP 异常
 """
 
+import uuid
 from datetime import date, datetime
 from typing import Optional
 
@@ -21,12 +22,15 @@ from loguru import logger
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.constants import PositionSource
+from app.core.constants import PositionSource, ValuationMode
 from app.core.exceptions import ErrorCode, SBException
 from app.core.money import Money
 from app.core.symbol_utils import get_normalizer
 from app.core.utils import get_confirm_date
+from app.domains.funds.models import Fund
+from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, PositionImportMeta
+from app.domains.transactions.models import Transaction
 from app.services.async_backfill import trigger_backfill
 from app.services.importer.records import compute_position_hash
 from app.services.trade_rules import validate_buy, validate_sell
@@ -52,7 +56,62 @@ _ALLOWED_POSITION_FIELDS = {
     'source',
     'source_import_id',
     'source_broker',
+    # #1174 双态计价：balance 模式建仓需透传计价模式与可写市值
+    'valuation_mode',
+    'market_value_override',
 }
+
+
+def auto_purchase_money_fund(
+    db: Session,
+    ledger_id: Optional[int],
+    amount_cents: int,
+    trade_date=None,
+    confirm_date=None,
+    family_id: int = 1,
+) -> None:
+    """#1137 卖出/赎回回款自动申购账户绑定的类现金产品（「余额宝」）。
+
+    仅在账户显式开启 `auto_purchase_money_fund` 且绑定了有效货基时执行——
+    遵循「用户不操作，系统不代劳」，开关由用户在账户设置里自行开启。
+
+    - 回款净额 <= 0 时不申购；
+    - 生成**孤儿流水**（asset_type='money_fund'）：货基不建持仓，与导入器、
+      `money_fund_income` 的既有口径一致（货基市值按流水净额计入总资产）；
+    - 调用方须自行排除货基 / 逆回购自身的卖出，避免「赎回 → 自动申购」死循环
+      （货基卖出在 `process_orphan_sell_or_withdraw` 里走现金转移分支，不进入本函数）。
+
+    失败（绑定产品缺失等）仅告警不抛出：自动申购是增值行为，不应阻断卖出主流程。
+    """
+    if not ledger_id or amount_cents <= 0:
+        return
+    ledger = db.query(Ledger).filter_by(id=ledger_id, family_id=family_id).first()
+    if not ledger or not ledger.auto_purchase_money_fund or not ledger.linked_money_fund_id:
+        return
+    fund = db.get(Fund, ledger.linked_money_fund_id)
+    if not fund:
+        logger.warning(f'账户 {ledger_id} 绑定的类现金产品 {ledger.linked_money_fund_id} 不存在，跳过自动申购')
+        return
+    TransactionService.create(
+        db=db,
+        position_id=None,
+        symbol=fund.fund_code,
+        txn_type='buy',
+        trade_date=trade_date,
+        confirm_date=confirm_date,
+        asset_type='money_fund',
+        quantity=0,
+        price=0,
+        fee=0,
+        amount=amount_cents,
+        status='success',
+        position_name=fund.name,
+        ledger_id=ledger.id,
+        account_name=ledger.name,
+        notes='卖出回款自动申购类现金产品',
+        entry_status='orphan',
+        family_id=family_id,
+    )
 
 
 def _get_asset_type(data: dict, default: str = 'stock') -> str:
@@ -146,6 +205,103 @@ def _create_orphan_transaction(
         family_id=data.get('family_id', 1),
     )
     db.flush()
+
+
+def _is_reinvest(data: dict) -> bool:
+    """
+    是否为「可执行」的红利再投资：类型命中 dividend_reinvest，且具备申购所需的份额与价格。
+
+    份额必填；净值缺失时允许用 金额/份额 反推（由 process_dividend_reinvest 执行）。
+    数据不全时返回 False，调用方降级按现金分红处理，避免一条脏数据阻断整批导入。
+    """
+    if data.get('op_type') != 'dividend_reinvest':
+        return False
+
+    shares = float(data.get('quantity') or 0)
+    nav = float(data.get('nav') or 0)
+    amount = float(data.get('dividend_amount') or 0)
+
+    if shares <= 0:
+        logger.warning('红利再投资缺少份额，降级按现金分红处理')
+        return False
+    if nav <= 0 and amount <= 0:
+        logger.warning('红利再投资缺少净值且无法由金额反推，降级按现金分红处理')
+        return False
+    return True
+
+
+def _create_dividend_cash_txn(db: Session, data: dict, position: Optional[Position], link_group_id: str) -> None:
+    """红利再投资的第一条流水：分红现金（txn_type='dividend'，份额为 0，link_group_id 与申购流水配对）。
+
+    position 为 None 时记孤儿流水（无关联持仓）。
+    """
+    base_hash = data.get('import_hash')
+    dividend_amount = data.get('dividend_amount', data.get('avg_price', 0))
+    TransactionService.create(
+        db=db,
+        position_id=position.id if position else None,
+        txn_type='dividend',
+        symbol=position.symbol if position else data.get('symbol'),
+        trade_date=data.get('trade_date'),
+        confirm_date=data.get('confirm_date'),
+        asset_type=_get_asset_type(data),
+        link_group_id=link_group_id,
+        quantity=0,
+        price=0,
+        fee=0,
+        amount=Money.yuan_to_cents(dividend_amount),
+        status='success',
+        position_name=position.name if position else data.get('name', ''),
+        account_name=position.account_name if position else data.get('account_name', ''),
+        ledger_id=position.ledger_id if position else data.get('ledger_id'),
+        notes=data.get('notes') or '红利再投资（分红入账）',
+        import_hash=base_hash,
+        family_id=data.get('family_id', 1),
+    )
+    db.flush()
+
+
+def _build_reinvest_buy_data(data: dict, position: Optional[Position], link_group_id: str) -> dict:
+    """构造红利再投资第二条流水（申购）的业务字典：price=净值，quantity=再投份额。"""
+    nav = data.get('nav', data.get('avg_price', 0))
+    dividend_amount = data.get('dividend_amount', data.get('avg_price', 0))
+    shares = data.get('quantity') or (dividend_amount / nav if nav else 0)
+    base_hash = data.get('import_hash')
+    # 申购流水使用独立幂等键，避免与分红流水撞 UNIQUE(ledger_id, import_hash)；
+    # 分红流水保留原始 import_hash 承担记录级去重（导入路径同键重导整体跳过）。
+    buy_hash = None if not base_hash else f'{base_hash}:reinvest_buy'
+    return {
+        'symbol': position.symbol if position else data.get('symbol'),
+        'name': position.name if position else data.get('name'),
+        'market': data.get('market', 'CN_A'),
+        'asset_type': _get_asset_type(data),
+        'account_name': position.account_name if position else data.get('account_name', ''),
+        'ledger_id': position.ledger_id if position else data.get('ledger_id'),
+        'quantity': shares,
+        'avg_price': nav,
+        'currency': data.get('currency', 'CNY'),
+        'trade_date': data.get('trade_date'),
+        'confirm_date': data.get('confirm_date'),
+        'fee': data.get('fee', 0),
+        'notes': data.get('notes') or '红利再投资（申购）',
+        'op_type': 'buy',
+        'link_group_id': link_group_id,
+        'import_hash': buy_hash,
+        'family_id': data.get('family_id', 1),
+        'position_id': position.id if position else None,
+    }
+
+
+def _reinvest_dual_flow(db: Session, data: dict, position: Position, link_group_id: str) -> None:
+    """已知持仓上的红利再投资双流水：分红现金 + 按净值申购（合并入持仓，份额增加）。"""
+    nav = data.get('nav', data.get('avg_price', 0))
+    dividend_amount = data.get('dividend_amount', data.get('avg_price', 0))
+    shares = data.get('quantity') or (dividend_amount / nav if nav else 0)
+    if nav <= 0 or shares <= 0:
+        raise ValueError('红利再投资净值(nav)或再投份额无效')
+    _create_dividend_cash_txn(db, data, position, link_group_id)
+    db.flush()
+    PositionService.process_buy_or_deposit(db, _build_reinvest_buy_data(data, position, link_group_id))
 
 
 class PositionService:
@@ -307,45 +463,64 @@ class PositionService:
         same = db.query(Position).filter_by(symbol=search_symbol, ledger_id=ledger_id, family_id=family_id).first()
         final_symbol = search_symbol
 
+        # ── 计价模式（#1174 / 决策 D2）──
+        # nav：份额 × 净值（要求 quantity + avg_price）；balance：直接余额（只要求 amount）。
+        # 用显式模式分支，而不是靠「有没有传净值」隐式推断。
+        mode = data.get('valuation_mode') or ValuationMode.NAV.value
+        is_balance = mode == ValuationMode.BALANCE.value
+        amount = data.get('amount', 0) or 0
+
         # 校验数量/价格
         qty = data.get('quantity', 0) or 0
         price = data.get('avg_price', 0) or 0
-        if qty <= 0:
-            raise ValueError('数量必须大于 0')
-        if price <= 0:
-            raise ValueError('价格必须大于 0')
+        if is_balance:
+            # balance 模式没有份额/净值概念，只校验金额——市值即由金额累加而来
+            if amount <= 0:
+                raise ValueError('balance 模式必须提供大于 0 的金额（amount）')
+        else:
+            if qty <= 0:
+                raise ValueError('数量必须大于 0')
+            if price <= 0:
+                raise ValueError('价格必须大于 0')
 
-        # lot check：买入仅校验本次数量合法（起买单位/步长），与当前持有量无关
-        valid, err_msg = validate_buy(symbol, data.get('market', ''), asset_type, qty)
-        if not valid:
-            raise ValueError(err_msg)
+            # lot check：买入仅校验本次数量合法（起买单位/步长），与当前持有量无关
+            valid, err_msg = validate_buy(symbol, data.get('market', ''), asset_type, qty)
+            if not valid:
+                raise ValueError(err_msg)
 
-        if price <= 0:
-            raise SBException(
-                code=ErrorCode.INVALID_PARAMS.code,
-                message=ErrorCode.INVALID_PARAMS.msg,
-                status_code=400,
-                detail={'field': 'avg_price', 'value': price},
-            )
+            if price <= 0:
+                raise SBException(
+                    code=ErrorCode.INVALID_PARAMS.code,
+                    message=ErrorCode.INVALID_PARAMS.msg,
+                    status_code=400,
+                    detail={'field': 'avg_price', 'value': price},
+                )
 
-        # 转换为内部存储单位
-        qty_units = Money.shares_to_min_unit(qty)
-        price_units = Money.yuan_to_price_units(price)
+        # 转换为内部存储单位（balance 模式份额/价格恒为 0，金额单独转分）
+        qty_units = 0 if is_balance else Money.shares_to_min_unit(qty)
+        price_units = 0 if is_balance else Money.yuan_to_price_units(price)
+        amount_cents = Money.yuan_to_cents(amount) if is_balance else 0
 
         try:
             if same:
-                # 合并持仓
-                total_qty_units = same.quantity + qty_units
-                old_cost = Money.multiply_price_quantity(same.avg_price, same.quantity)
-                new_cost = old_cost + Money.multiply_price_quantity(price_units, qty_units)
-                # 用 Decimal 计算均价以避免精度损失
-                total_qty = Money.min_unit_to_shares(total_qty_units)
-                total_cost = Money.cents_to_yuan(old_cost) + Money.cents_to_yuan(
-                    Money.multiply_price_quantity(price_units, qty_units)
-                )
-                new_avg_price = Money.yuan_to_price_units(round(total_cost / total_qty, 4))
-                same.avg_price = new_avg_price
-                same.quantity = total_qty_units
+                if is_balance:
+                    # balance 合并：份额/均价无意义（quantity 恒为 0，直接除会 ZeroDivisionError），
+                    # 只累加可写市值并刷新覆写时间
+                    same.market_value_override = (same.market_value_override or 0) + amount_cents
+                    same.value_override_at = datetime.now()
+                else:
+                    # 合并持仓
+                    total_qty_units = same.quantity + qty_units
+                    old_cost = Money.multiply_price_quantity(same.avg_price, same.quantity)
+                    new_cost = old_cost + Money.multiply_price_quantity(price_units, qty_units)
+                    # 用 Decimal 计算均价以避免精度损失
+                    total_qty = Money.min_unit_to_shares(total_qty_units)
+                    total_cost = Money.cents_to_yuan(old_cost) + Money.cents_to_yuan(
+                        Money.multiply_price_quantity(price_units, qty_units)
+                    )
+                    new_avg_price = Money.yuan_to_price_units(round(total_cost / total_qty, 4))
+                    same.avg_price = new_avg_price
+                    same.quantity = total_qty_units
                 # issue #928: 合并时同步溯源字段（交割单覆盖手动录），并刷新 import_hash
                 if 'source' in data:
                     same.source = data['source']
@@ -369,6 +544,11 @@ class PositionService:
                 position_data['symbol'] = final_symbol
                 position_data['ledger_id'] = ledger_id
                 position_data['family_id'] = family_id
+                # #1174 双态计价：显式落计价模式；balance 模式把金额直接写成可写市值
+                position_data['valuation_mode'] = mode
+                if is_balance:
+                    position_data['market_value_override'] = amount_cents
+                    position_data['value_override_at'] = datetime.now()
                 # issue #928: 生成持仓去重哈希（source|ledger_id|symbol|snapshot_date）
                 src = data.get('source', PositionSource.MANUAL.value)
                 # 快照日：优先 confirm_date；缺失降级为落库当日（规范 §3.3，保证同日同产品汇总一条）
@@ -392,21 +572,26 @@ class PositionService:
                     existing = db.query(Position).filter(Position.import_hash == position_data['import_hash']).first()
                     if existing is None:
                         raise
-                    total_qty_units = existing.quantity + qty_units
-                    old_cost = Money.multiply_price_quantity(existing.avg_price, existing.quantity)
-                    new_cost = old_cost + Money.multiply_price_quantity(price_units, qty_units)
-                    total_qty = Money.min_unit_to_shares(total_qty_units)
-                    existing.avg_price = Money.yuan_to_price_units(
-                        round(
-                            (
-                                Money.cents_to_yuan(old_cost)
-                                + Money.cents_to_yuan(Money.multiply_price_quantity(price_units, qty_units))
+                    if is_balance:
+                        # 同 B1：balance 模式只累加可写市值，不碰份额/均价
+                        existing.market_value_override = (existing.market_value_override or 0) + amount_cents
+                        existing.value_override_at = datetime.now()
+                    else:
+                        total_qty_units = existing.quantity + qty_units
+                        old_cost = Money.multiply_price_quantity(existing.avg_price, existing.quantity)
+                        new_cost = old_cost + Money.multiply_price_quantity(price_units, qty_units)
+                        total_qty = Money.min_unit_to_shares(total_qty_units)
+                        existing.avg_price = Money.yuan_to_price_units(
+                            round(
+                                (
+                                    Money.cents_to_yuan(old_cost)
+                                    + Money.cents_to_yuan(Money.multiply_price_quantity(price_units, qty_units))
+                                )
+                                / total_qty,
+                                4,
                             )
-                            / total_qty,
-                            4,
                         )
-                    )
-                    existing.quantity = total_qty_units
+                        existing.quantity = total_qty_units
                     # 溯源字段跟随末次导入来源（交割单覆盖手动录）
                     existing.source = src
                     existing.source_broker = data.get('source_broker')
@@ -442,7 +627,8 @@ class PositionService:
                 quantity=qty_units,
                 price=price_units,
                 fee=Money.yuan_to_cents(float(data.get('fee', 0) or 0)),
-                amount=Money.multiply_price_quantity(price_units, qty_units),
+                # balance 模式没有 price×qty 可算，流水金额直接取用户录入的金额
+                amount=amount_cents if is_balance else Money.multiply_price_quantity(price_units, qty_units),
                 status='success',
                 position_name=position.name,
                 account_name=position.account_name,
@@ -503,6 +689,8 @@ class PositionService:
         try:
             position_name = existing.name
             account_name = existing.account_name
+            # 卖出清空持仓时会 delete，ledger_id 需提前取出（#1137 自动申购要用）
+            ledger_id = existing.ledger_id
             existing.quantity -= qty_units
 
             is_cleared = existing.quantity == 0
@@ -527,12 +715,26 @@ class PositionService:
                 amount=Money.multiply_price_quantity(price_units, qty_units),
                 status='success',
                 position_name=position_name,
-                ledger_id=existing.ledger_id,
+                ledger_id=ledger_id,
                 account_name=account_name,
                 notes=data.get('notes') or ('卖出' if op_type == 'sell' else '取出'),
                 import_hash=data.get('import_hash'),
                 family_id=data.get('family_id', 1),
             )
+
+            # #1137 卖出回款自动申购账户绑定的类现金产品（余额宝）。
+            # 净额 = 成交额 - 手续费；货基/逆回购自身的卖出不触发，避免「赎回 → 自动申购」死循环。
+            if _get_asset_type(data) not in ('money_fund', 'reverse_repo'):
+                gross_cents = Money.multiply_price_quantity(price_units, qty_units)
+                fee_cents = Money.yuan_to_cents(float(data.get('fee', 0) or 0))
+                auto_purchase_money_fund(
+                    db,
+                    ledger_id=ledger_id,
+                    amount_cents=gross_cents - fee_cents,
+                    trade_date=data.get('trade_date'),
+                    confirm_date=data.get('confirm_date'),
+                    family_id=data.get('family_id', 1),
+                )
 
             db.flush()
             if is_cleared:
@@ -543,6 +745,87 @@ class PositionService:
         except Exception:
             logger.exception('卖出/取出操作失败')
             raise
+
+    @staticmethod
+    def recompute_position_from_transactions(db: Session, position_id: int):
+        """删除/编辑交易后，依据该持仓剩余流水重算份额与成本均价（#948 后续回滚）。
+
+        卖出/取出使持仓份额减少；删除该类流水必须把份额加回，否则账面份额丢失。
+        采用「从流水重算」而非只做反向加减：
+        - 能正确处理部分卖出（剩余流水仍有买入，净份额>0，更新现有持仓）；
+        - 也能在「整笔卖出清空持仓」后删除该卖出流水时（持仓行已被 process_sell 删掉）
+          依据剩余买入流水重建持仓，避免份额彻底丢失。
+        净份额 = Σ买入/存入 - Σ卖出/取出；净份额<=0 则删除（或保持不存在）持仓行。
+        成本均价按买入加权（与 process_buy_or_deposit 一致），卖出/取出不改变成本均价。
+        """
+        txns = (
+            db.query(Transaction)
+            .filter(Transaction.position_id == position_id)
+            .order_by(Transaction.trade_date, Transaction.id)
+            .all()
+        )
+        pos = db.query(Position).filter_by(id=position_id).first()
+
+        if not txns:
+            if pos:
+                db.delete(pos)
+                db.flush()
+            return None
+
+        buy_qty = 0
+        buy_cost = 0  # 分
+        sell_qty = 0
+        for t in txns:
+            if t.txn_type in ('buy', 'deposit'):
+                buy_qty += t.quantity
+                buy_cost += Money.multiply_price_quantity(t.price, t.quantity)
+            elif t.txn_type in ('sell', 'withdraw'):
+                sell_qty += t.quantity
+
+        net_qty = buy_qty - sell_qty
+        if net_qty <= 0:
+            if pos:
+                db.delete(pos)
+                db.flush()
+            return None
+
+        avg_price_units = (
+            Money.yuan_to_price_units(round(Money.cents_to_yuan(buy_cost) / buy_qty, 4)) if buy_qty > 0 else 0
+        )
+
+        if pos:
+            pos.quantity = net_qty
+            pos.avg_price = avg_price_units
+            if pos.current_price in (None, 0):
+                pos.current_price = avg_price_units
+            db.flush()
+            return pos
+
+        # 持仓行已被整笔卖出清空删除：依据剩余买入流水重建
+        # （Transaction 不携带 market/currency，缺失时取默认值）
+        first = txns[0]
+        new_pos = Position(
+            ledger_id=first.ledger_id,
+            family_id=first.family_id,
+            symbol=first.symbol or '',
+            name=first.position_name or first.symbol or '',
+            asset_type=first.asset_type,
+            market='CN_A',
+            currency='CNY',
+            quantity=net_qty,
+            avg_price=avg_price_units,
+            current_price=avg_price_units,
+            confirm_date=first.confirm_date,
+            account_name=first.account_name,
+            allocation='longterm',
+            notes='',
+        )
+        db.add(new_pos)
+        db.flush()
+        for t in txns:
+            t.position_id = new_pos.id
+        db.flush()
+        return new_pos
 
     @staticmethod
     def process_dividend(db: Session, data: dict) -> Position:
@@ -584,6 +867,33 @@ class PositionService:
         except Exception:
             logger.exception('分红操作失败')
             raise
+
+    @staticmethod
+    def process_dividend_reinvest(db: Session, data: dict) -> Optional[Position]:
+        """
+        处理红利再投资：分红到账（现金流入）＋ 按当日净值申购份额（份额增加）。
+
+        WHY 拆成两笔流水，而不是记一笔 `dividend_reinvest`：
+        1. 语义真实——先分红入账、再用这笔钱按净值申购，本就是两件事；
+        2. XIRR 自洽——`services/performance/xirr_engine.py` 按类型分流现金流方向：
+           dividend_cash 记流入、buy/dividend_reinvest 记流出。两笔金额相等、一进一出，
+           净额为 0，与「红利再投资不产生实际现金进出」相符；若只记一笔流出，
+           会虚增投入、低估年化。（流水的 amount 字段恒为正，方向由 txn_type 决定，此处不取负）
+        3. 两笔以 link_group_id 配对，便于前端折叠展示为一条「红利再投资」。
+
+        去重：分红流水沿用原始 import_hash（重导时命中即跳过整条记录，见 orchestrator.commit），
+        申购流水用派生 hash `{原 hash}#reinvest`，避开 uq_txn_import_hash 唯一约束。
+        """
+        position_id = data.get('position_id')
+        if not position_id:
+            raise ValueError('红利再投资必须指定关联持仓（position_id）')
+        family_id = data.get('family_id', 1)
+        existing = db.query(Position).filter_by(id=position_id, family_id=family_id).first()
+        if not existing:
+            raise ValueError('指定的持仓不存在')
+        link_group_id = data.get('link_group_id') or uuid.uuid4().hex
+        _reinvest_dual_flow(db, data, existing, link_group_id)
+        return existing
 
     @staticmethod
     def process_orphan_sell_or_withdraw(db: Session, data: dict) -> Optional[Position]:
@@ -646,10 +956,15 @@ class PositionService:
     def process_orphan_dividend(db: Session, data: dict) -> Optional[Position]:
         """
         处理分红记录，优先尝试关联持仓；找不到持仓则创建孤立流水。
+
+        红利再投资（dividend_reinvest）走单独分支——分红入账 ＋ 按净值申购，
+        使持仓份额真正增加；此前它与现金分红合并进同一分支，份额恒为 0，语义丢失。
+        数据不全（缺份额或净值）时降级为现金分红，不阻断整批导入。
         """
         symbol = data.get('symbol', '')
         account = data.get('account_name', '')
         dividend_amount = data.get('dividend_amount', data.get('avg_price', 0))
+        is_reinvest = _is_reinvest(data)
 
         existing = (
             db.query(Position)
@@ -657,19 +972,28 @@ class PositionService:
             .first()
         )
 
+        common = {
+            'dividend_amount': dividend_amount,
+            'confirm_date': data.get('confirm_date'),
+            'trade_date': data.get('trade_date'),
+            'notes': data.get('notes', ''),
+            'import_hash': data.get('import_hash'),
+            'link_group_id': data.get('link_group_id'),
+            'family_id': data.get('family_id', 1),
+        }
+
         if existing:
-            return PositionService.process_dividend(
-                db,
-                {
-                    'position_id': existing.id,
-                    'dividend_amount': dividend_amount,
-                    'confirm_date': data.get('confirm_date'),
-                    'trade_date': data.get('trade_date'),
-                    'notes': data.get('notes', ''),
-                    'import_hash': data.get('import_hash'),
-                    'family_id': data.get('family_id', 1),
-                },
-            )
+            if is_reinvest:
+                return PositionService.process_dividend_reinvest(
+                    db,
+                    {
+                        **common,
+                        'position_id': existing.id,
+                        'quantity': data.get('quantity', 0),
+                        'nav': data.get('nav', 0),
+                    },
+                )
+            return PositionService.process_dividend(db, {**common, 'position_id': existing.id})
         else:
             _create_orphan_transaction(
                 db,
@@ -678,6 +1002,30 @@ class PositionService:
                 quantity=0,
                 price=0,
                 amount=dividend_amount,
-                notes=data.get('notes') or '现金分红',
+                notes=data.get('notes') or ('红利再投资（待关联持仓）' if is_reinvest else '现金分红'),
             )
             return None
+
+    @staticmethod
+    def process_orphan_dividend_reinvest(db: Session, data: dict) -> Optional[Position]:
+        """导入路径：红利再投资，优先关联既有持仓；找不到则先按净值申购建仓再补分红流水。
+
+        与 process_dividend_reinvest 的区别：无需调用方预知 position_id，
+        按 (symbol, account_name, family_id) 查找或新建持仓。
+        """
+        family_id = data.get('family_id', 1)
+        symbol = data.get('symbol', '')
+        account = data.get('account_name', '')
+        existing = db.query(Position).filter_by(symbol=symbol, account_name=account, family_id=family_id).first()
+        link_group_id = data.get('link_group_id') or uuid.uuid4().hex
+        if existing:
+            _reinvest_dual_flow(db, data, existing, link_group_id)
+            return existing
+        # 无关联持仓：先按净值申购建仓（拿到 position），再补分红现金流水
+        position = PositionService.process_buy_or_deposit(db, _build_reinvest_buy_data(data, None, link_group_id))
+        if position is None:
+            # 现金管理类等不建持仓：仅记分红现金流水（孤儿）
+            _create_dividend_cash_txn(db, data, None, link_group_id)
+            return None
+        _create_dividend_cash_txn(db, data, position, link_group_id)
+        return position

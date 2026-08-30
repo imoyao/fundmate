@@ -11,7 +11,7 @@ from apiflask import APIBlueprint
 from flask import abort, jsonify
 
 from app.core.auth import get_family_id, get_owned_or_404
-from app.core.constants import TYPE_LABELS
+from app.core.constants import ASSET_CATEGORY_LABELS, TYPE_LABELS
 from app.core.database import get_db
 from app.core.money import Money
 from app.core.validation import parse_body
@@ -110,7 +110,7 @@ def get_strategy_overview():
                 'symbol': a.major_category or 'asset',
                 'name': a.name or a.major_category,
                 'type': a.major_category,
-                'type_label': TYPE_LABELS.get(a.major_category, a.major_category or '其他'),
+                'type_label': ASSET_CATEGORY_LABELS.get(a.major_category, a.major_category or '其他'),
                 'quantity': 1,
                 'current_price': a.amount,
                 'avg_price': a.amount,

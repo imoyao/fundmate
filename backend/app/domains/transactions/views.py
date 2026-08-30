@@ -10,7 +10,7 @@ import io
 from datetime import date, timedelta
 
 from apiflask import APIBlueprint
-from flask import Response, jsonify, request
+from flask import Response, abort, jsonify, request
 
 from app.core.auth import get_family_id
 from app.core.database import get_db
@@ -18,6 +18,7 @@ from app.core.money import Money
 from app.core.utils import paginate
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
+from app.services.position_service import PositionService
 
 bp = APIBlueprint('transactions', __name__, url_prefix='/api/transactions')
 
@@ -161,6 +162,34 @@ def export_transactions():
             mimetype='text/csv; charset=utf-8',
             headers={'Content-Disposition': f'attachment; filename={filename}'},
         )
+
+
+@bp.delete('/<int:transaction_id>/')
+def delete_transaction(transaction_id: int):
+    """删除单条交易流水，并回滚对应持仓份额（buy/sell/deposit/withdraw）。
+
+    交易流水是独立实体，归属由 Transaction.family_id 校验，不再依赖账户 id；
+    删除涉及跨域写（回滚 Position），逻辑收口到 PositionService，端点保持薄。
+    """
+    with get_db() as db:
+        txn = (
+            db.query(Transaction)
+            .filter(Transaction.id == transaction_id, Transaction.family_id == get_family_id())
+            .first()
+        )
+        if not txn:
+            abort(404, '交易不存在或无权访问')
+        tid = txn.position_id
+        ttype = txn.txn_type
+        db.delete(txn)
+        db.flush()
+        # 回滚持仓份额：卖出/取出使份额减少，删除该流水须把份额加回（#948 后续）。
+        # 买入/存入同理；分红不影响份额，跳过。重算基于剩余流水，可正确处理部分
+        # 卖出与「整笔卖出清空后删除该卖出流水」两种情形（后者会重建持仓行）。
+        if tid and ttype in ('buy', 'sell', 'deposit', 'withdraw'):
+            PositionService.recompute_position_from_transactions(db, tid)
+        db.commit()
+        return jsonify({'message': 'ok', 'data': None})
 
 
 def _fmt(cents: int) -> str:

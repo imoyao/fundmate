@@ -5,8 +5,10 @@
 
 from datetime import date, datetime, timedelta
 
+import pytest
 from sqlalchemy import exists
 
+from app.core.constants import ValuationMode
 from app.core.money import Money
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
@@ -367,6 +369,119 @@ class TestPositionUpdateDelete:
 
         list_after = _get(client, '/api/positions/')
         assert len(list_after.get_json()['data']) == 0
+
+
+class TestDividendReinvest:
+    """#1198：手动记账入口支持 dividend_reinvest（分红现金流水 + 按净值申购流水，份额增加）"""
+
+    def test_manual_reinvest_creates_dual_flow(self, client, db):
+        # 1) 建立基金持仓
+        resp = _post(
+            client,
+            '/api/positions/',
+            {
+                'symbol': '000001.XSHE',
+                'name': '华夏成长',
+                'type': 'fund',
+                'market': 'CN_A',
+                'account_name': '测试账户',
+                'quantity': 1000,
+                'avg_price': 1.0,
+                'trade_date': '2026-05-01',
+                'op_type': 'buy',
+            },
+        )
+        assert resp.status_code == 200
+        pos_id = resp.get_json()['data']['id']
+
+        # 2) 红利再投资：分红 120 元，净值 1.2 → 再投 100 份
+        resp = _post(
+            client,
+            '/api/positions/',
+            {
+                'op_type': 'dividend_reinvest',
+                'position_id': pos_id,
+                'dividend_amount': 120,
+                'nav': 1.2,
+                'trade_date': '2026-05-10',
+                'account_name': '测试账户',
+            },
+        )
+        assert resp.status_code == 200
+        # 份额增加 100（1000 -> 1100）
+        assert resp.get_json()['data']['quantity'] == 1100
+
+        # 3) 核对双流水 + link_group_id 配对
+        txns = db.query(Transaction).filter_by(position_id=pos_id).order_by(Transaction.id).all()
+        buy_txns = [t for t in txns if t.txn_type == 'buy']
+        dividend_txns = [t for t in txns if t.txn_type == 'dividend']
+        # 初始买入 1 笔 + 再投申购 1 笔
+        assert len(buy_txns) == 2
+        assert len(dividend_txns) == 1
+        assert Money.cents_to_yuan(dividend_txns[0].amount) == 120
+        reinvest_buy = next(t for t in buy_txns if t.link_group_id)
+        assert Money.min_unit_to_shares(reinvest_buy.quantity) == 100
+        assert Money.price_units_to_yuan(reinvest_buy.price) == 1.2
+        # 双流水 link_group_id 配对且非 None
+        assert reinvest_buy.link_group_id is not None
+        assert reinvest_buy.link_group_id == dividend_txns[0].link_group_id
+
+    def test_manual_reinvest_requires_position(self, client):
+        """未指定关联持仓 → 400"""
+        resp = _post(
+            client,
+            '/api/positions/',
+            {
+                'op_type': 'dividend_reinvest',
+                'dividend_amount': 120,
+                'nav': 1.2,
+                'trade_date': '2026-05-10',
+            },
+        )
+        assert resp.status_code == 400
+
+    def test_import_reinvest_creates_position_when_absent(self, db):
+        """导入路径：无既有持仓 → 先按净值申购建仓，再补分红现金流水（双流水配对）"""
+        data = {
+            'symbol': '511990.XSHG',
+            'name': '华宝添益',
+            'type': 'fund',
+            'asset_type': 'fund',
+            'market': 'CN_A',
+            'account_name': '导入账户',
+            'quantity': 50,
+            'avg_price': 1.0,  # 兜底净值
+            'nav': 1.0,
+            'dividend_amount': 50,
+            'trade_date': date(2026, 5, 10),
+            'confirm_date': date(2026, 5, 10),
+            'family_id': 1,
+            'import_hash': 'imp-reinvest-1',
+            'link_group_id': 'grp-reinvest-1',
+        }
+        position = PositionService.process_orphan_dividend_reinvest(db, data)
+        assert position is not None
+        assert Money.min_unit_to_shares(position.quantity) == 50
+
+        txns = db.query(Transaction).filter_by(position_id=position.id).all()
+        types = [t.txn_type for t in txns]
+        assert types.count('dividend') == 1
+        assert types.count('buy') == 1
+        div = next(t for t in txns if t.txn_type == 'dividend')
+        buy = next(t for t in txns if t.txn_type == 'buy')
+        # 双流水 link_group_id 配对
+        assert div.link_group_id == 'grp-reinvest-1' == buy.link_group_id
+        # 分红流水保留原始 import_hash（承担记录级去重）；申购流水用独立幂等键
+        assert div.import_hash == 'imp-reinvest-1'
+        assert buy.import_hash == 'imp-reinvest-1:reinvest_buy'
+
+    def test_enums_exposes_dividend_reinvest_label(self, client):
+        """GET /api/utils/enums 下发 OP_TYPE_LABEL，含 dividend_reinvest 中文标签"""
+        resp = _get(client, '/api/utils/enums/')
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert 'op_type_labels' in data
+        assert data['op_type_labels'].get('dividend_reinvest') == '红利再投资'
 
     def test_delete_nonexistent_position(self, client):
         resp = client.delete('/api/positions/99999/')
@@ -1151,3 +1266,86 @@ class TestPositionImportHash:
         # 撞 import_hash upsert 合并为 200 股，证明买入未被持有量上限拦截
         assert p2.id == p1.id
         assert p2.quantity == Money.shares_to_min_unit(200)
+
+
+class TestBalanceModeBuild:
+    """#1174 / D2：balance 模式建仓——无需份额/净值，只传金额。
+
+    市值直接由录入金额写入 market_value_override；quantity/avg_price 恒为 0，
+    不触发 lot check、不触发均价除零。对应验收第 2 条。
+    """
+
+    def _make_ledger(self, db, name='证券账户A'):
+        ledger = db.query(Ledger).filter_by(name=name).first()
+        if ledger is None:
+            ledger = Ledger(name=name, ledger_type='stock', family_id=1)
+            db.add(ledger)
+            db.flush()
+        return ledger.id
+
+    def _buy_balance(self, db, ledger_id, amount, symbol='SH600519', name='某余额产品'):
+        data = {
+            'symbol': symbol,
+            'name': name,
+            'asset_type': 'stock',
+            'market': 'CN_A',
+            'ledger_id': ledger_id,
+            'family_id': 1,
+            'valuation_mode': ValuationMode.BALANCE.value,
+            'amount': amount,
+            'op_type': 'buy',
+            'source': 'manual',
+        }
+        return PositionService.process_buy_or_deposit(db, data)
+
+    def test_balance_build_requires_only_amount(self, db):
+        """balance 模式不传 quantity/avg_price，只传 amount，应成功建仓并写入市值。"""
+        ledger_id = self._make_ledger(db)
+        pos = self._buy_balance(db, ledger_id, amount=50000.0)
+        db.commit()
+        assert pos is not None
+        assert pos.valuation_mode == ValuationMode.BALANCE.value
+        assert pos.quantity == 0
+        assert pos.avg_price == 0
+        # amount(元) → 分：50000 × 100 = 5_000_000
+        assert pos.market_value_override == Money.yuan_to_cents(50000.0)
+        assert pos.value_override_at is not None
+        # 交易流水金额取用户录入金额（非 price×qty，balance 无份额）
+        txn = db.query(Transaction).filter_by(position_id=pos.id).one()
+        assert txn.amount == Money.yuan_to_cents(50000.0)
+
+    def test_balance_build_requires_positive_amount(self, db):
+        """balance 模式缺 amount（或 <=0）必须报错，不能静默建仓。"""
+        ledger_id = self._make_ledger(db)
+        with pytest.raises(ValueError):
+            self._buy_balance(db, ledger_id, amount=0)
+        db.rollback()
+
+    def test_nav_build_still_requires_price(self, db):
+        """回归护栏：nav 模式（默认）缺 avg_price 仍必须报错（既有行为不变）。"""
+        ledger_id = self._make_ledger(db)
+        data = {
+            'symbol': 'SH600519',
+            'name': '贵州茅台',
+            'asset_type': 'stock',
+            'market': 'CN_A',
+            'ledger_id': ledger_id,
+            'family_id': 1,
+            'quantity': 100,
+            'op_type': 'buy',
+            'source': 'manual',
+        }
+        with pytest.raises(ValueError):
+            PositionService.process_buy_or_deposit(db, data)
+        db.rollback()
+
+    def test_balance_build_merges_accumulate_override(self, db):
+        """同一标的两次 balance 建仓 → upsert 合并，override 累加、quantity 仍 0。"""
+        ledger_id = self._make_ledger(db)
+        p1 = self._buy_balance(db, ledger_id, amount=30000.0)
+        db.commit()
+        p2 = self._buy_balance(db, ledger_id, amount=20000.0)
+        db.commit()
+        assert p2.id == p1.id
+        assert p2.quantity == 0
+        assert p2.market_value_override == Money.yuan_to_cents(50000.0)
