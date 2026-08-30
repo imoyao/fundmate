@@ -7,6 +7,7 @@ from loguru import logger
 
 from app.core.db_utils import bulk_insert_if_not_exists
 from app.domains.funds.models import Fund, FundCompany, FundManager, Manager
+from app.services.sync.company_resolver import get_company_code_by_name
 from app.services.sync.jobs.base import SyncJob
 
 
@@ -78,6 +79,17 @@ class FundManagerSyncJob(SyncJob):
         if company_names:
             existing = self.db.query(FundCompany).filter(FundCompany.name.in_(company_names)).all()
             company_map = {c.name: c.id for c in existing}
+            # 补建缺失的基金公司，优先用真值 code（#1168）
+            for name in company_names:
+                if name in company_map:
+                    continue
+                real_code = get_company_code_by_name(name)
+                if not real_code:
+                    logger.warning(f'基金公司「{name}」未匹配到权威 code，暂以名称占位')
+                inst = FundCompany(name=name, code=real_code or name)
+                self.db.add(inst)
+                self.db.flush()
+                company_map[name] = inst.id
 
         # 1. 插入新经理（带公司关联）
         mgr_records = []
