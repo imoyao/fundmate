@@ -30,6 +30,7 @@ from typing import Dict
 
 from app.core.constants import EXCHANGE_RATES
 from app.core.money import Money
+from app.domains.funds.models import Fund, FundType
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, PositionImportMeta, SalesInstitution
 
@@ -44,7 +45,10 @@ from app.services.position_valuation import market_value_cents
 AGGREGATION_DIMENSIONS = ('product', 'institution')
 
 # 排序字段白名单：禁止前端传入任意列名拼进排序键
-SORT_FIELDS = ('market_value', 'quantity', 'name', 'symbol')
+SORT_FIELDS = ('market_value', 'quantity', 'name', 'symbol', 'return_pct')
+
+# fund_type 筛选中「未分类」的占位值（后端约定，前端透传即可）
+FUND_TYPE_NONE = '__none__'
 
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 200
@@ -71,6 +75,22 @@ def _position_market_value_cents(
         effective_nav_yuan=effective_nav_yuan,
         rate=EXCHANGE_RATES.get(position.currency, 1.0),
     )
+
+
+def _position_cost_cents(position: Position) -> int:
+    """单笔持仓成本（分）：成本均价(0.0001元) × 份额(最小单位)。
+
+    与市值口径（分）同单位，盈亏 = 市值 - 成本。avg_price 缺失（=0）时成本为 0，
+    前端对应收益率显示 "--"（不参与收益率排序）。
+    """
+    return Money.multiply_price_quantity(position.avg_price, position.quantity)
+
+
+def _matches_fund_type(actual: str | None, wanted: str) -> bool:
+    """fund_type 筛选匹配：`FUND_TYPE_NONE` 表示「未分类」占位，其余按小类名精确匹配。"""
+    if wanted == FUND_TYPE_NONE:
+        return not actual
+    return bool(wanted) and actual == wanted
 
 
 def _iso_date(value) -> str | None:
@@ -130,6 +150,18 @@ def _collect_rows(session, family_id: int, asset_types: tuple) -> list[dict]:
     nav_date_global: str | None = None
     if fund_symbols:
         latest_navs = NavService.get_latest_navs(session, fund_symbols, allow_remote=False)
+
+    # ── 基金类型（fund_types 小类名：股票型/混合型/债券型/指数型/货币型/基金型）──
+    # 供聚合页的类型筛选 Tab。未收录进 funds 名录的产品（手动录入等）为 None，前端归入「未分类」。
+    fund_types_by_symbol: Dict[str, str] = {}
+    if fund_symbols:
+        for fcode, ftype in (
+            session.query(Fund.fund_code, FundType.name)
+            .join(FundType, Fund.fund_type_id == FundType.id)
+            .filter(Fund.fund_code.in_(fund_symbols))
+            .all()
+        ):
+            fund_types_by_symbol[fcode] = ftype
         # 记录净值日期（用于响应体的 nav_date 字段）
         # 取所有有净值的基金中最大的日期作为全局 nav_date
         if latest_navs:
@@ -154,6 +186,12 @@ def _collect_rows(session, family_id: int, asset_types: tuple) -> list[dict]:
         # 🔄 有效净值：基金/货基从 NavService 取，其他类型为 None（回退快照价）
         effective_nav = latest_navs.get(p.symbol) if (p.symbol and p.asset_type in ('fund', 'money_fund')) else None
 
+        # ── 盈亏派生（分）：成本 = 成本均价×份额；收益 = 市值 - 成本；成本为 0 时收益率 None ──
+        mv_cents = _position_market_value_cents(p, effective_nav_yuan=effective_nav)
+        cost_cents = _position_cost_cents(p)
+        pnl_cents = mv_cents - cost_cents
+        return_pct = (pnl_cents / cost_cents) if cost_cents > 0 else None
+
         rows.append(
             {
                 'symbol': p.symbol,
@@ -165,10 +203,16 @@ def _collect_rows(session, family_id: int, asset_types: tuple) -> list[dict]:
                 'institution_name': institutions.get(institution_id) if institution_id else None,
                 'institution_alias': institution_aliases.get(institution_id) if institution_id else None,
                 # 🔄 使用 NavService 最新净值计算市值（而非快照价 current_price）
-                'market_value_cents': _position_market_value_cents(p, effective_nav_yuan=effective_nav),
+                'market_value_cents': mv_cents,
                 'quantity': p.quantity,
                 # 参考净值：优先 NavService 最新值，无则回退快照价
                 'nav_yuan': effective_nav if effective_nav else Money.price_units_to_yuan(p.current_price),
+                # ── 基金类型（来自 funds 名录；未收录为 None）──
+                'fund_type': fund_types_by_symbol.get(p.symbol),
+                # ── 盈亏（与市值同单位：分）──
+                'cost_cents': cost_cents,
+                'pnl_cents': pnl_cents,
+                'return_pct': return_pct,
                 # ── 以下来自 position_import_meta，无快照记录时全为 None ──
                 'snapshot_date': _iso_date(meta.snapshot_date) if meta else None,
                 'fund_manager': meta.fund_manager if meta else None,
@@ -182,7 +226,11 @@ def _collect_rows(session, family_id: int, asset_types: tuple) -> list[dict]:
 
 
 def _group_by_dimension(rows: list[dict], dimension: str) -> list[dict]:
-    """按维度分组。product 按代码聚合并带 sources 明细；institution 按销售机构聚合。"""
+    """按维度分组。product 按代码聚合并带 sources 明细；institution 按销售机构聚合。
+
+    两维度都汇总成本/盈亏/收益率：product 级是「单只产品」视角，institution 级是「单机构」视角，
+    前端卡片与排序（return_pct）统一消费这三个字段。
+    """
     if dimension == 'institution':
         grouped: dict = {}
         for r in rows:
@@ -194,11 +242,18 @@ def _group_by_dimension(rows: list[dict], dimension: str) -> list[dict]:
                     # 机构中文名：此前前端只能显示「销售机构 #3」，此处直接给出现成文案
                     'institution_name': r['institution_name'] or ('未关联机构' if key == 'unknown' else f'机构 #{key}'),
                     'market_value_cents': 0,
+                    'cost_cents': 0,
+                    'pnl_cents': 0,
+                    'return_pct': None,
                     'items': [],
                 },
             )
             g['market_value_cents'] += r['market_value_cents']
+            g['cost_cents'] += r['cost_cents']
+            g['pnl_cents'] += r['pnl_cents']
             g['items'].append(r)
+        for g in grouped.values():
+            g['return_pct'] = (g['pnl_cents'] / g['cost_cents']) if g['cost_cents'] > 0 else None
         return list(grouped.values())
 
     # product（默认）
@@ -211,6 +266,11 @@ def _group_by_dimension(rows: list[dict], dimension: str) -> list[dict]:
                 'name': r['name'],
                 'market_value_cents': 0,
                 'quantity': 0,
+                'cost_cents': 0,
+                'pnl_cents': 0,
+                'return_pct': None,
+                # 同一 symbol 各渠道类型一致，取首个非空值即可
+                'fund_type': r['fund_type'],
                 # 同一 symbol 各渠道净值一致，取首个非空值即可
                 'nav_yuan': r['nav_yuan'],
                 'snapshot_date': r['snapshot_date'],
@@ -221,9 +281,13 @@ def _group_by_dimension(rows: list[dict], dimension: str) -> list[dict]:
         )
         g['market_value_cents'] += r['market_value_cents']
         g['quantity'] += r['quantity']
+        g['cost_cents'] += r['cost_cents']
+        g['pnl_cents'] += r['pnl_cents']
         # 分组级快照日期取「最早」的一笔：代表该数据最滞后的部分，对外展示最诚实
         if r['snapshot_date'] and (not g['snapshot_date'] or r['snapshot_date'] < g['snapshot_date']):
             g['snapshot_date'] = r['snapshot_date']
+        if not g['fund_type']:
+            g['fund_type'] = r['fund_type']
         if not g['fund_manager']:
             g['fund_manager'] = r['fund_manager']
         if not g['dividend_preference']:
@@ -236,11 +300,17 @@ def _group_by_dimension(rows: list[dict], dimension: str) -> list[dict]:
                 'institution_alias': r['institution_alias'],
                 'market_value_cents': r['market_value_cents'],
                 'quantity': r['quantity'],
+                'fund_type': r['fund_type'],
+                'cost_cents': r['cost_cents'],
+                'pnl_cents': r['pnl_cents'],
+                'return_pct': r['return_pct'],
                 'snapshot_date': r['snapshot_date'],
                 'fund_manager': r['fund_manager'],
                 'nav_yuan': r['nav_yuan'],
             }
         )
+    for g in grouped.values():
+        g['return_pct'] = (g['pnl_cents'] / g['cost_cents']) if g['cost_cents'] > 0 else None
     return list(grouped.values())
 
 
@@ -256,6 +326,9 @@ def _sort_groups(groups: list[dict], sort: str, order: str, dimension: str) -> l
         key = lambda g: g.get('name') or ''  # noqa: E731
     elif sort == 'symbol':
         key = lambda g: str(g.get('symbol') if g.get('symbol') else g.get('key') or '')  # noqa: E731
+    elif sort == 'return_pct':
+        # 收益率：无成本（return_pct 为 None）的分组恒排最后，不参与值比较
+        key = lambda g: (g.get('return_pct') is not None, g.get('return_pct') or 0)  # noqa: E731
     else:  # market_value
         key = lambda g: g.get('market_value_cents') or 0  # noqa: E731
 
@@ -271,16 +344,21 @@ def aggregate_positions(
     order: str = 'desc',
     page: int = 1,
     page_size: int = DEFAULT_PAGE_SIZE,
+    keyword: str | None = None,
+    fund_type: str | None = None,
 ) -> dict:
     """聚合某类资产的持仓（#1101 / #1132 共用入口）。
 
     Args:
         asset_types: 纳入聚合的 `Position.asset_type` 集合（如 fund/money_fund）。
         dimension: 'product' | 'institution'。
-        sort: 'market_value'（默认）| 'quantity' | 'name' | 'symbol'。
+        sort: 'market_value'（默认）| 'quantity' | 'name' | 'symbol' | 'return_pct'。
         order: 'desc'（默认）| 'asc'。
         page: 页码，从 1 开始。
         page_size: 每页条数；传 0 或负数表示不分页（返回全量）。
+        keyword: 名称/代码模糊搜索（大小写不敏感），命中任一即保留。
+        fund_type: 基金小类名精确筛选；`FUND_TYPE_NONE` 表示筛选「未分类」。
+            过滤在行级执行，对 product / institution 两个维度均生效。
 
     Returns:
         {
@@ -290,13 +368,21 @@ def aggregate_positions(
         }
         其中 `snapshot_date` 为全部持仓中**最早**的快照日（数据最滞后的一笔），
         供页面顶部「数据日期」展示；`snapshot_date_latest` 为最近的一笔，供区间提示。
+        过滤后 `total_market_value_cents` / `snapshot_date` 均基于过滤结果口径。
     """
     if dimension not in AGGREGATION_DIMENSIONS:
         dimension = 'product'
 
     rows, nav_date_global = _collect_rows(session, family_id, asset_types)
 
-    # 汇总市值与快照区间：基于全量 rows，先于分页计算（分页不应改变汇总口径）
+    # ── 行级过滤（keyword 模糊 + fund_type 精确）：先于汇总与分页，两维度均生效 ──
+    kw = str(keyword or '').strip().lower()
+    if kw:
+        rows = [r for r in rows if kw in (r.get('name') or '').lower() or kw in (r.get('symbol') or '').lower()]
+    if fund_type:
+        rows = [r for r in rows if _matches_fund_type(r.get('fund_type'), fund_type)]
+
+    # 汇总市值与快照区间：基于过滤后 rows，先于分页计算（分页不应改变汇总口径）
     total_mv = sum(r['market_value_cents'] for r in rows)
     snapshot_dates = [r['snapshot_date'] for r in rows if r['snapshot_date']]
 
