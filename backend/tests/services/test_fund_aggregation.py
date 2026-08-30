@@ -1,6 +1,11 @@
 # -*- coding: utf-8 -*-
 """基金持仓跨账本聚合（#1101）测试。"""
 
+from urllib.parse import quote
+
+import pytest
+
+from app.domains.funds.models import Fund, FundType
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, SalesInstitution
 
@@ -98,3 +103,109 @@ def test_fund_aggregation_excludes_aggregation_ledger_from_list(client, db):
     names = [item['name'] for item in resp.get_json()['data']]
     assert '基金E账户' not in names
     assert '支付宝' in names
+
+
+# ────────────────────────────────────────────────────────────────
+# 聚合页检索/收益能力（#1219）：keyword 搜索、fund_type 筛选、收益率
+# ────────────────────────────────────────────────────────────────
+def _make_fund_type(db, name):
+    ft = FundType(name=name)
+    db.add(ft)
+    db.flush()
+    return ft
+
+
+def _make_fund_record(db, code, name, fund_type_id=None):
+    f = Fund(fund_code=code, name=name, fund_type_id=fund_type_id)
+    db.add(f)
+    db.flush()
+    return f
+
+
+def _make_pos_with_cost(db, ledger, symbol, name, quantity, price, cost):
+    pos = Position(
+        symbol=symbol,
+        name=name,
+        market='CN_A',
+        asset_type='fund',
+        ledger_id=ledger.id,
+        family_id=1,
+        quantity=quantity,
+        avg_price=cost,
+        current_price=price,
+        ownership_status='active',
+    )
+    db.add(pos)
+    db.flush()
+    return pos
+
+
+def test_fund_aggregation_keyword_filter(client, db):
+    """keyword 支持按名称/代码模糊搜索，且汇总口径随过滤结果变化。"""
+    l1 = _make_fund_ledger(db, '支付宝')
+    _make_fund_position(db, l1, '000001', '华夏成长', 100 * 10000, 10 * 10000)
+    _make_fund_position(db, l1, '000002', '易方达蓝筹', 50 * 10000, 20 * 10000)
+    db.commit()
+
+    resp = client.get('/api/ledgers/fund-aggregation/?dimension=product&keyword=华夏')
+    assert resp.status_code == 200
+    data = resp.get_json()['data']
+    assert [g['symbol'] for g in data['groups']] == ['000001']
+    assert data['total_market_value_cents'] == 1000 * 100
+
+    resp = client.get('/api/ledgers/fund-aggregation/?dimension=product&keyword=000002')
+    data = resp.get_json()['data']
+    assert [g['symbol'] for g in data['groups']] == ['000002']
+
+
+def test_fund_aggregation_fund_type_filter(client, db):
+    """fund_type 分组字段与筛选（含 __none__ 未分类）。"""
+    ft_stock = _make_fund_type(db, '股票型')
+    ft_mixed = _make_fund_type(db, '混合型')
+    _make_fund_record(db, '000001', '华夏成长', fund_type_id=ft_stock.id)
+    _make_fund_record(db, '000002', '易方达蓝筹', fund_type_id=ft_mixed.id)
+
+    l1 = _make_fund_ledger(db, '支付宝')
+    _make_fund_position(db, l1, '000001', '华夏成长', 100 * 10000, 10 * 10000)
+    _make_fund_position(db, l1, '000002', '易方达蓝筹', 50 * 10000, 20 * 10000)
+    _make_fund_position(db, l1, '999999', '手动录入基金', 30 * 10000, 5 * 10000)
+    db.commit()
+
+    resp = client.get('/api/ledgers/fund-aggregation/?dimension=product')
+    groups = {g['symbol']: g for g in resp.get_json()['data']['groups']}
+    assert groups['000001']['fund_type'] == '股票型'
+    assert groups['000002']['fund_type'] == '混合型'
+    assert groups['999999']['fund_type'] is None
+    # sources 明细同步带出 fund_type
+    assert groups['000001']['sources'][0]['fund_type'] == '股票型'
+
+    resp = client.get(f'/api/ledgers/fund-aggregation/?dimension=product&fund_type={quote("股票型")}')
+    assert [g['symbol'] for g in resp.get_json()['data']['groups']] == ['000001']
+
+    resp = client.get('/api/ledgers/fund-aggregation/?dimension=product&fund_type=__none__')
+    assert [g['symbol'] for g in resp.get_json()['data']['groups']] == ['999999']
+
+
+def test_fund_aggregation_return_pct(client, db):
+    """收益率 = (市值 - 成本)/成本；无成本返回 None 且排序恒排最后。"""
+    l1 = _make_fund_ledger(db, '支付宝')
+    # 100份 @10元，成本8元 → 市值1000 / 成本800 / 收益200 / 收益率 25%
+    _make_pos_with_cost(db, l1, '000001', '华夏成长', 100 * 10000, 10 * 10000, 8 * 10000)
+    # 100份 @20元，成本25元 → 市值2000 / 成本2500 / 收益 -500 / 收益率 -20%
+    _make_pos_with_cost(db, l1, '000002', '易方达蓝筹', 100 * 10000, 20 * 10000, 25 * 10000)
+    # 无成本（avg_price=0）→ return_pct None
+    _make_pos_with_cost(db, l1, '000003', '零成本基金', 100 * 10000, 5 * 10000, 0)
+    db.commit()
+
+    resp = client.get('/api/ledgers/fund-aggregation/?dimension=product')
+    groups = {g['symbol']: g for g in resp.get_json()['data']['groups']}
+    assert groups['000001']['cost_cents'] == 800 * 100
+    assert groups['000001']['pnl_cents'] == 200 * 100
+    assert groups['000001']['return_pct'] == pytest.approx(0.25)
+    assert groups['000002']['return_pct'] == pytest.approx(-0.2)
+    assert groups['000003']['return_pct'] is None
+
+    # 按收益率降序：正收益在前，负收益随后，无成本恒排最后
+    resp = client.get('/api/ledgers/fund-aggregation/?dimension=product&sort=return_pct&order=desc')
+    symbols = [g['symbol'] for g in resp.get_json()['data']['groups']]
+    assert symbols == ['000001', '000002', '000003']
