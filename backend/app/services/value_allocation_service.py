@@ -20,9 +20,42 @@ from datetime import date
 from decimal import Decimal
 from typing import Optional
 
+from sqlalchemy import func
+
 from app.core.money import Money
+from app.core.trading_calendar import next_trading_day
 from app.domains.positions.models import Position
+from app.domains.transactions.models import Transaction
 from app.services.position_valuation import market_value_cents
+
+# 视为「资金进出」的流水类型（#1217）：申购/赎回与分红都会改变实际持有情况，
+# 但不会体现在 market_value_override 上，故据此判定分摊基数是否已经过期
+_CASH_FLOW_TXN_TYPES = ('buy', 'sell', 'deposit', 'withdraw', 'dividend')
+
+
+def _has_cash_flow_since(db, family_id: int, symbol: str, since: Optional[date]) -> bool:
+    """上次录入市值之后是否发生过资金进出。
+
+    Args:
+        since: 基准日（上次 `value_override_at`）。**None 表示从未人工录入过市值**，
+            没有可比基准，按「无资金进出」处理，避免首次录入就误报提示。
+    """
+    if since is None:
+        return False
+
+    # 以确认日为准，未确认的流水退回交易日
+    occurred = func.coalesce(Transaction.confirm_date, func.date(Transaction.trade_date))
+    exists = (
+        db.query(Transaction.id)
+        .filter(
+            Transaction.family_id == family_id,
+            Transaction.symbol == symbol,
+            Transaction.txn_type.in_(_CASH_FLOW_TXN_TYPES),
+            occurred > since,
+        )
+        .exists()
+    )
+    return bool(db.query(exists).scalar())
 
 
 def allocate_value(
@@ -86,6 +119,15 @@ def allocate_value(
         allocated[max_idx] += diff
 
     as_of_date = as_of or date.today()
+
+    # ── 资金进出检测（#1217）──
+    # 必须在覆写 value_override_at **之前**取旧值：上次录入市值之后若又发生了申购/赎回/分红，
+    # 「按各账户既有市值占比」这一分摊基数就不能反映实际持有了，需要提示用户在
+    # 下一个开盘日更新其他存量持仓的总价（用户原始诉求）。
+    last_override_at = max((p.value_override_at for p in positions if p.value_override_at), default=None)
+    since_date = last_override_at.date() if last_override_at is not None else None
+    has_cash_flow = _has_cash_flow_since(db, family_id, symbol, since_date)
+
     allocations = []
     for pos, cents in zip(positions, allocated):
         pos.market_value_override = cents
@@ -107,4 +149,7 @@ def allocate_value(
         'total_weight_cents': total_weight,
         'as_of': as_of_date.isoformat(),
         'allocations': allocations,
+        # #1217：有资金进出时给出「下一个开盘日」提示，前端据此引导用户更新其他持仓
+        'cash_flow_detected': has_cash_flow,
+        'next_trading_day': next_trading_day(as_of_date).isoformat() if has_cash_flow else None,
     }
