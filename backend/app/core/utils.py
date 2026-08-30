@@ -18,12 +18,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import pendulum
-from chinese_calendar import find_workday
 from flask import jsonify
 from loguru import logger
 from sqlalchemy.orm import Query
 
 from app.core.database import get_db
+from app.core.trading_calendar import next_trading_day
 
 
 def api_response(data=None, message='ok', total=None):
@@ -62,19 +62,21 @@ def get_confirm_date(trade_date: date, fund_type: str = 'domestic', is_after_15:
     Args:
         trade_date: 购买日（T日）
         fund_type: 基金类型，'domestic'（普通场外基金）或 'qdii'（QDII基金）
-        is_after_15: 是否在15:00之后下单，若为True则T日顺延一个工作日
+        is_after_15: 是否在15:00之后下单，若为True则T日顺延一个**开盘日**
 
     Returns:
         确认日（净值确认日期）
     """
-    # 如果15:00之后下单，T日顺延一个工作日
+    # 15:00 之后下单，T 日顺延一个**开盘日**。
+    # 原实现直接用 chinese_calendar.find_workday（法定工作日），在调休补班的周末
+    # 会算出「交易所休市却要确认」的错误日期，故收敛到交易日历唯一出口（#1217）。
     if is_after_15:
-        trade_date = find_workday(delta_days=1, date=trade_date)
+        trade_date = next_trading_day(trade_date)
 
     # QDII基金 T+2，普通基金 T+1
     delta_days = 2 if fund_type == 'qdii' else 1
 
-    return find_workday(delta_days=delta_days, date=trade_date)
+    return next_trading_day(trade_date, delta_days=delta_days)
 
 
 def rename_with_extra_suffix(file_name: str, extra_suffix: Optional[str] = None) -> str:
