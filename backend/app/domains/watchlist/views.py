@@ -14,6 +14,7 @@ from loguru import logger
 from sqlalchemy import desc, func
 
 from app.core.auth import get_family_id, get_owned_or_404
+from app.core.constants import TYPE_LABELS
 from app.core.database import get_db
 from app.core.money import Money
 from app.core.utils import api_response, with_db
@@ -53,7 +54,9 @@ watchlist_bp = APIBlueprint('watchlist', __name__, url_prefix='/api/watchlist')
 # CSV 导出字段值 → 中文 label 映射
 _VENUE_LABELS = {'EXCHANGE': '场内', 'OTC': '场外'}
 _STATUS_LABELS = {'HOLDING': '持仓中', 'WATCHING': '观察中'}
-_ASSET_TYPE_LABELS = {'fund': '基金', 'stock': '股票', 'etf': 'ETF', 'bond': '可转债'}
+
+# 资产类型中文 label 统一取后端唯一来源 app.core.constants.TYPE_LABELS（收口自 asset_types），
+# 不再在此私藏局部副本，避免与全局枚举漂移（#1171 枚举一致性）。
 
 # 常量定义（放在文件顶部，导入之后）
 HOME_PINNED_LIMIT = 6
@@ -939,7 +942,7 @@ def export_items():
                     item['symbol'],
                     item['display_name'] or item['symbol'],
                     item['market'] or '',
-                    _ASSET_TYPE_LABELS.get(item['asset_type'], item['asset_type'] or ''),
+                    TYPE_LABELS.get(item['asset_type'], item['asset_type'] or ''),
                     _VENUE_LABELS.get(item['venue'], item['venue'] or ''),
                     _STATUS_LABELS.get(item['status'], item['status'] or ''),
                     '是' if item['is_pinned'] else '否',
