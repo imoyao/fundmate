@@ -26,7 +26,8 @@ defineOptions({ name: "AssetStocks" });
 
 const DIMENSION_OPTIONS: { label: string; value: AggregationDimension }[] = [
   { label: "按产品展示", value: "product" },
-  { label: "按账户展示", value: "institution" }
+  // 分组键是 institution_id（销售机构/购买渠道），非 Ledger（账本），文案用「渠道」（#1185）
+  { label: "按渠道展示", value: "institution" }
 ];
 
 const {
