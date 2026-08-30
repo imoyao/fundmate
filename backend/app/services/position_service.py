@@ -791,6 +791,9 @@ class PositionService:
             if t.txn_type in ('buy', 'deposit'):
                 buy_qty += t.quantity
                 buy_cost += Money.multiply_price_quantity(t.price, t.quantity)
+            elif t.txn_type == 'split':
+                # 送股/拆分（#P2-2）：份额增加、成本不变，仅稀释均价
+                buy_qty += t.quantity
             elif t.txn_type in ('sell', 'withdraw'):
                 sell_qty += t.quantity
 
@@ -1033,3 +1036,75 @@ class PositionService:
             return existing
         _reinvest_dual_flow(db, data, existing, link_group_id)
         return existing
+
+    @staticmethod
+    def process_orphan_split(db: Session, data: dict) -> Optional[Position]:
+        """送股/拆分：优先关联既有持仓并把份额计入；找不到持仓或缺少份额则记孤儿流水。
+
+        送股/拆分本质是「零成本的份额增加」：持仓份额 +quantity、总成本不变，均价由
+        recompute_position_from_transactions 自动稀释（与买入/卖出回滚同一口径，避免再添分支）。
+        手动记账传 position_id 直接定位；导入路径按 (symbol, account_name, family_id) 匹配。
+        """
+        family_id = data.get('family_id', 1)
+        qty = float(data.get('quantity') or 0)
+
+        if qty <= 0:
+            # 缺份额：无法计入，记孤儿流水（notes 标明），不阻断整批导入
+            _create_orphan_transaction(
+                db,
+                data,
+                txn_type='split',
+                quantity=0,
+                price=0,
+                amount=0,
+                notes=data.get('notes') or '送股/拆分（缺份额，需手动关联持仓）',
+            )
+            return None
+
+        qty_units = Money.shares_to_min_unit(qty)
+        position_id = data.get('position_id')
+        if position_id:
+            existing = db.query(Position).filter_by(id=position_id, family_id=family_id).first()
+        else:
+            symbol = data.get('symbol', '')
+            account = data.get('account_name', '')
+            existing = db.query(Position).filter_by(symbol=symbol, account_name=account, family_id=family_id).first()
+
+        if not existing:
+            # 无关联持仓：送股/拆分无法落地，记孤儿流水（notes 标明），返回 None
+            _create_orphan_transaction(
+                db,
+                data,
+                txn_type='split',
+                quantity=qty,
+                price=0,
+                amount=0,
+                notes=data.get('notes') or '送股/拆分入账（需手动关联持仓）',
+            )
+            return None
+
+        # 有关联持仓：记成功流水 + 重算份额（split 作为零成本份额增加，均价自动稀释）
+        TransactionService.create(
+            db=db,
+            position_id=existing.id,
+            symbol=data.get('symbol'),
+            txn_type='split',
+            trade_date=data.get('trade_date'),
+            confirm_date=data.get('confirm_date'),
+            asset_type=_get_asset_type(data),
+            quantity=qty_units,
+            price=0,
+            fee=Money.yuan_to_cents(float(data.get('fee', 0) or 0)),
+            amount=0,
+            status='success',
+            entry_status='success',
+            position_name=existing.name,
+            ledger_id=existing.ledger_id,
+            account_name=data.get('account_name', existing.account_name),
+            notes=data.get('notes') or '送股/拆分入账',
+            import_hash=data.get('import_hash'),
+            link_group_id=data.get('link_group_id'),
+            family_id=family_id,
+        )
+        db.flush()
+        return PositionService.recompute_position_from_transactions(db, existing.id)

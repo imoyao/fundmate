@@ -468,6 +468,111 @@ class TestDividendReinvest:
         assert '红利再投资' in (txn.notes or '')
         assert txn.entry_status == 'orphan'
 
+    def test_process_orphan_split_increments_shares(self, db):
+        """导入/手动送股：关联既有持仓，份额增加、均价被零成本份额稀释。"""
+        pos = PositionService.process_buy_or_deposit(
+            db,
+            {
+                'symbol': '161725',
+                'name': '招商中证白酒',
+                'asset_type': 'fund',
+                'quantity': 100,
+                'avg_price': 10,
+                'ledger_id': 1,
+                'account_name': '测试账户',
+                'family_id': 1,
+                'trade_date': datetime(2026, 5, 1),
+                'confirm_date': date(2026, 5, 1),
+            },
+        )
+        # 先按重算口径建立买入基线（recompute 是 split 与回滚的统一份额/均价口径）
+        PositionService.recompute_position_from_transactions(db, pos.id)
+        base = db.query(Position).filter_by(id=pos.id).first()
+        base_qty = base.quantity
+        base_avg = base.avg_price
+        result = PositionService.process_orphan_split(
+            db,
+            {
+                'symbol': '161725',
+                'name': '招商中证白酒',
+                'asset_type': 'fund',
+                'quantity': 100,
+                'account_name': '测试账户',
+                'family_id': 1,
+                'trade_date': datetime(2026, 6, 1),
+                'confirm_date': date(2026, 6, 1),
+            },
+        )
+        assert result is not None
+        # 份额翻倍、均价减半（零成本份额稀释，与买入/卖出同一重算口径）
+        assert result.quantity == base_qty * 2
+        assert result.avg_price == base_avg // 2
+        txn = db.query(Transaction).filter_by(txn_type='split', position_id=result.id).first()
+        assert txn is not None
+        assert txn.entry_status == 'success'
+        assert txn.quantity == Money.shares_to_min_unit(100)
+
+    def test_process_orphan_split_orphan_when_no_position(self, db):
+        """送股无关联持仓：记孤儿流水（notes 标明需手动关联），返回 None。"""
+        data = {
+            'symbol': '300750',
+            'name': '宁德时代',
+            'asset_type': 'stock',
+            'account_name': '导入账户',
+            'quantity': 50,
+            'trade_date': date(2026, 5, 10),
+            'confirm_date': date(2026, 5, 10),
+            'family_id': 1,
+            'import_hash': 'imp-split-1',
+            'link_group_id': 'grp-split-1',
+        }
+        result = PositionService.process_orphan_split(db, data)
+        assert result is None
+        txn = db.query(Transaction).filter_by(import_hash='imp-split-1').first()
+        assert txn is not None
+        assert txn.txn_type == 'split'
+        assert '需手动关联持仓' in (txn.notes or '')
+        assert txn.entry_status == 'orphan'
+
+    def test_split_delete_recomputes_shares(self, db):
+        """删除送股流水后重算，份额减回（与买入/卖出回滚同一口径）。"""
+        pos = PositionService.process_buy_or_deposit(
+            db,
+            {
+                'symbol': '161725',
+                'name': '招商中证白酒',
+                'asset_type': 'fund',
+                'quantity': 100,
+                'avg_price': 10,
+                'ledger_id': 1,
+                'account_name': '测试账户',
+                'family_id': 1,
+                'trade_date': datetime(2026, 5, 1),
+                'confirm_date': date(2026, 5, 1),
+            },
+        )
+        buy_qty = pos.quantity
+        split_pos = PositionService.process_orphan_split(
+            db,
+            {
+                'symbol': '161725',
+                'name': '招商中证白酒',
+                'asset_type': 'fund',
+                'quantity': 100,
+                'account_name': '测试账户',
+                'family_id': 1,
+                'trade_date': datetime(2026, 6, 1),
+                'confirm_date': date(2026, 6, 1),
+            },
+        )
+        assert split_pos.quantity == buy_qty * 2
+        txn = db.query(Transaction).filter_by(txn_type='split', position_id=split_pos.id).first()
+        db.delete(txn)
+        db.flush()
+        PositionService.recompute_position_from_transactions(db, split_pos.id)
+        reverted = db.query(Position).filter_by(id=split_pos.id).first()
+        assert reverted.quantity == buy_qty
+
     def test_enums_exposes_dividend_reinvest_label(self, client):
         """GET /api/utils/enums 下发 OP_TYPE_LABEL，含 dividend_reinvest 中文标签"""
         resp = _get(client, '/api/utils/enums/')
