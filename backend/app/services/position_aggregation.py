@@ -26,7 +26,6 @@
 
 from __future__ import annotations
 
-from decimal import Decimal
 from typing import Dict
 
 from app.core.constants import EXCHANGE_RATES
@@ -37,6 +36,9 @@ from app.domains.positions.models import Position, PositionImportMeta, SalesInst
 # 🔄 NavService 统一入口：替代此前分散在各处的净值取数逻辑
 # （见 nav_service.py 模块 docstring 的迁移指引表）
 from app.services.nav_service import NavService
+
+# 🔄 市值口径收口（#1174）：三处派生计算统一委托此唯一入口，禁止再各写一套
+from app.services.position_valuation import market_value_cents
 
 # 合法聚合维度（app 维度已废弃，见模块 docstring）
 AGGREGATION_DIMENSIONS = ('product', 'institution')
@@ -55,22 +57,20 @@ def _position_market_value_cents(
 ) -> int:
     """单笔持仓市值（分）。
 
+    🔄 口径收口（#1174）：实际计算已委托 position_valuation.market_value_cents，
+    此处仅保留签名以兼容既有调用方。新增市值逻辑一律改到唯一口径里，禁止在此另开分支。
+
     Args:
         position: 持仓记录
         effective_nav_yuan: 有效净值（元）。基金/货基传 NavService 最新净值；
             其他类型或无净值时为 None（回退到快照价 current_price）。
     """
-    rate = EXCHANGE_RATES.get(position.currency, 1.0)
-    shares = Money.min_unit_to_shares(position.quantity)
-
-    # 基金/货基用最新净值，其他类型用快照价
-    if effective_nav_yuan is not None and effective_nav_yuan > 0:
-        price_yuan = effective_nav_yuan
-    else:
-        price_yuan = Money.price_units_to_yuan(position.current_price)
-
-    yuan = shares * price_yuan * rate
-    return int((Decimal(str(yuan)) * 100).to_integral_value(rounding='ROUND_HALF_UP'))
+    # 聚合口径需折算成 CNY（total_*_cny），故显式传汇率；明细口径则不传（本币直算）
+    return market_value_cents(
+        position,
+        effective_nav_yuan=effective_nav_yuan,
+        rate=EXCHANGE_RATES.get(position.currency, 1.0),
+    )
 
 
 def _iso_date(value) -> str | None:
