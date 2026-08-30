@@ -643,8 +643,8 @@ class TestLedgerMoneyFundBinding:
         return fund
 
     def test_bind_money_fund_on_create(self, client, db):
-        """证券账户可绑定类现金产品，出参回显 id / code / name"""
-        fund = self._make_money_fund(db)
+        """证券账户可绑定券商渠道现金管理产品，出参回显 id / code / name（#1154 方案 B）"""
+        fund = self._make_money_fund(db, code='026029', name='银河水星现金添利货币')
         resp = client.post(
             '/api/ledgers/',
             json={'name': '华泰证券', 'ledger_type': 'stock', 'linked_money_fund_code': fund.fund_code},
@@ -741,7 +741,7 @@ class TestLedgerMoneyFundBinding:
 
     def test_update_unlink_disables_auto_purchase(self, client, db):
         """解绑类现金产品时应联动关闭自动申购，避免残留无法生效的开关"""
-        fund = self._make_money_fund(db, code='000201', name='货基3')
+        fund = self._make_money_fund(db, code='026029', name='银河水星现金添利货币')
         create_resp = client.post(
             '/api/ledgers/',
             json={
@@ -767,6 +767,59 @@ class TestLedgerMoneyFundBinding:
         resp = client.patch(f'/api/ledgers/{ledger_id}/', json={'auto_purchase_money_fund': True})
         assert resp.status_code == 400
         assert '请先绑定活期+' in resp.get_json()['message']
+
+    def test_bind_exchange_traded_money_fund_rejected(self, client, db):
+        """场内货币ETF（511/519/159）属投资范畴，任何账户均不可绑活期+（#1154 方案 B）"""
+        # 511990 华宝添益：场内货币ETF，fund_type_id 缺失 → 三态判定为 None（放行类型），
+        # 但渠道分类为 exchange_traded → 任何账户拒绝。
+        fund = self._make_money_fund(db, code='511990', name='华宝添益')
+        for ledger_type in ('stock', 'fund'):
+            resp = client.post(
+                '/api/ledgers/',
+                json={'name': '账户', 'ledger_type': ledger_type, 'linked_money_fund_code': fund.fund_code},
+            )
+            assert resp.status_code == 400
+            assert '场内货币ETF' in resp.get_json()['message']
+
+    def test_bind_broker_channel_money_fund_to_stock_allowed(self, client, db):
+        """券商渠道现金管理产品（026/970）仅证券账户可绑（#1154 方案 B）"""
+        fund = self._make_money_fund(db, code='026029', name='银河水星现金添利货币')
+        resp = client.post(
+            '/api/ledgers/',
+            json={'name': '银河证券', 'ledger_type': 'stock', 'linked_money_fund_code': fund.fund_code},
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()['data']['linked_money_fund_code'] == fund.fund_code
+
+    def test_bind_broker_channel_money_fund_to_fund_rejected(self, client, db):
+        """券商渠道现金管理产品不可绑基金平台账户（#1154 方案 B）"""
+        fund = self._make_money_fund(db, code='026029', name='银河水星现金添利货币')
+        resp = client.post(
+            '/api/ledgers/',
+            json={'name': '蚂蚁基金', 'ledger_type': 'fund', 'linked_money_fund_code': fund.fund_code},
+        )
+        assert resp.status_code == 400
+        assert '券商渠道现金管理产品' in resp.get_json()['message']
+
+    def test_bind_off_exchange_money_fund_to_fund_allowed(self, client, db):
+        """场外货基仅基金平台账户可绑（#1154 方案 B）"""
+        fund = self._make_money_fund(db, code='000198', name='天弘余额宝货币')
+        resp = client.post(
+            '/api/ledgers/',
+            json={'name': '蚂蚁基金', 'ledger_type': 'fund', 'linked_money_fund_code': fund.fund_code},
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()['data']['linked_money_fund_code'] == fund.fund_code
+
+    def test_bind_off_exchange_money_fund_to_stock_rejected(self, client, db):
+        """场外货基不可绑证券账户（#1154 方案 B）"""
+        fund = self._make_money_fund(db, code='000198', name='天弘余额宝货币')
+        resp = client.post(
+            '/api/ledgers/',
+            json={'name': '华泰证券', 'ledger_type': 'stock', 'linked_money_fund_code': fund.fund_code},
+        )
+        assert resp.status_code == 400
+        assert '场外货币基金' in resp.get_json()['message']
 
 
 class TestLedgerOverview:
@@ -2227,8 +2280,8 @@ class TestSwapLinkedMoneyFund:
     def test_swap_moves_net_from_a_to_b(self, client, db):
         from app.domains.transactions.models import Transaction
 
-        fund_a = Fund(fund_code='000198', name='天弘余额宝货币')
-        fund_b = Fund(fund_code='000002', name='易方达增金宝A')
+        fund_a = Fund(fund_code='026029', name='银河水星现金添利货币')
+        fund_b = Fund(fund_code='026030', name='易方达现金增利货币')
         db.add_all([fund_a, fund_b])
         db.flush()
         ledger = Ledger(
