@@ -203,6 +203,29 @@ def _create_orphan_transaction(
     db.flush()
 
 
+def _is_reinvest(data: dict) -> bool:
+    """
+    是否为「可执行」的红利再投资：类型命中 dividend_reinvest，且具备申购所需的份额与价格。
+
+    份额必填；净值缺失时允许用 金额/份额 反推（由 process_dividend_reinvest 执行）。
+    数据不全时返回 False，调用方降级按现金分红处理，避免一条脏数据阻断整批导入。
+    """
+    if data.get('op_type') != 'dividend_reinvest':
+        return False
+
+    shares = float(data.get('quantity') or 0)
+    nav = float(data.get('nav') or 0)
+    amount = float(data.get('dividend_amount') or 0)
+
+    if shares <= 0:
+        logger.warning('红利再投资缺少份额，降级按现金分红处理')
+        return False
+    if nav <= 0 and amount <= 0:
+        logger.warning('红利再投资缺少净值且无法由金额反推，降级按现金分红处理')
+        return False
+    return True
+
+
 class PositionService:
     # ── 公开方法 ──────────────────────────────────────────
 
@@ -738,6 +761,88 @@ class PositionService:
             raise
 
     @staticmethod
+    def process_dividend_reinvest(db: Session, data: dict) -> Optional[Position]:
+        """
+        处理红利再投资：分红到账（现金流入）＋ 按当日净值申购份额（份额增加）。
+
+        WHY 拆成两笔流水，而不是记一笔 `dividend_reinvest`：
+        1. 语义真实——先分红入账、再用这笔钱按净值申购，本就是两件事；
+        2. XIRR 自洽——`services/performance/xirr_engine.py` 按类型分流现金流方向：
+           dividend_cash 记流入、buy/dividend_reinvest 记流出。两笔金额相等、一进一出，
+           净额为 0，与「红利再投资不产生实际现金进出」相符；若只记一笔流出，
+           会虚增投入、低估年化。（流水的 amount 字段恒为正，方向由 txn_type 决定，此处不取负）
+        3. 两笔以 link_group_id 配对，便于前端折叠展示为一条「红利再投资」。
+
+        去重：分红流水沿用原始 import_hash（重导时命中即跳过整条记录，见 orchestrator.commit），
+        申购流水用派生 hash `{原 hash}#reinvest`，避开 uq_txn_import_hash 唯一约束。
+        """
+        position_id = data['position_id']
+        dividend_amount = float(data.get('dividend_amount') or 0)
+        shares = float(data.get('quantity') or 0)
+        nav = float(data.get('nav') or 0)
+
+        existing = db.query(Position).filter_by(id=position_id, family_id=data.get('family_id', 1)).first()
+        if not existing:
+            logger.error(f'持仓不存在: position_id={position_id}')
+            raise ValueError('指定的持仓不存在')
+
+        # 净值缺失时按「分红金额 / 份额」反推：标准模板已强制二者必填，
+        # 此处为支付宝/同花顺等未回填净值的解析器兜底。
+        if nav <= 0 and shares > 0 and dividend_amount > 0:
+            nav = round(dividend_amount / shares, 4)
+            logger.info(f'红利再投资缺少净值，按 金额/份额 反推: nav={nav}')
+
+        try:
+            # 1) 分红到账：现金流入，份额不变
+            TransactionService.create(
+                db=db,
+                position_id=position_id,
+                txn_type='dividend',
+                symbol=existing.symbol,
+                trade_date=data.get('trade_date'),
+                confirm_date=data.get('confirm_date'),
+                asset_type=existing.asset_type,
+                link_group_id=data.get('link_group_id'),
+                quantity=0,
+                price=0,
+                fee=0,
+                amount=Money.yuan_to_cents(dividend_amount),
+                status='success',
+                position_name=existing.name,
+                account_name=existing.account_name,
+                ledger_id=existing.ledger_id,
+                notes=data.get('notes') or '现金分红（红利再投资）',
+                import_hash=data.get('import_hash'),
+                family_id=data.get('family_id', 1),
+            )
+            db.flush()
+
+            # 2) 按净值申购：复用买入链路，份额与成本均价由 process_buy_or_deposit 统一维护。
+            #    定位字段一律取自持仓本身而非 data——分红入参不保证携带 symbol/asset_type，
+            #    若透传空值会让 process_buy_or_deposit 匹配不到持仓而新建一条重复持仓。
+            buy_data = dict(data)
+            buy_data.update(
+                {
+                    'op_type': 'buy',
+                    'quantity': shares,
+                    'avg_price': nav,
+                    'symbol': existing.symbol,
+                    'name': existing.name,
+                    'market': existing.market,
+                    'asset_type': existing.asset_type,
+                    'account_name': existing.account_name,
+                    'ledger_id': existing.ledger_id,
+                    'import_hash': f'{data.get("import_hash")}#reinvest' if data.get('import_hash') else None,
+                    'notes': '红利再投资申购',
+                }
+            )
+            return PositionService.process_buy_or_deposit(db, buy_data)
+
+        except Exception:
+            logger.exception('红利再投资处理失败')
+            raise
+
+    @staticmethod
     def process_orphan_sell_or_withdraw(db: Session, data: dict) -> Optional[Position]:
         """
         处理卖出/取出记录，优先尝试关联持仓；找不到持仓则创建孤立流水。
@@ -798,10 +903,15 @@ class PositionService:
     def process_orphan_dividend(db: Session, data: dict) -> Optional[Position]:
         """
         处理分红记录，优先尝试关联持仓；找不到持仓则创建孤立流水。
+
+        红利再投资（dividend_reinvest）走单独分支——分红入账 ＋ 按净值申购，
+        使持仓份额真正增加；此前它与现金分红合并进同一分支，份额恒为 0，语义丢失。
+        数据不全（缺份额或净值）时降级为现金分红，不阻断整批导入。
         """
         symbol = data.get('symbol', '')
         account = data.get('account_name', '')
         dividend_amount = data.get('dividend_amount', data.get('avg_price', 0))
+        is_reinvest = _is_reinvest(data)
 
         existing = (
             db.query(Position)
@@ -809,19 +919,28 @@ class PositionService:
             .first()
         )
 
+        common = {
+            'dividend_amount': dividend_amount,
+            'confirm_date': data.get('confirm_date'),
+            'trade_date': data.get('trade_date'),
+            'notes': data.get('notes', ''),
+            'import_hash': data.get('import_hash'),
+            'link_group_id': data.get('link_group_id'),
+            'family_id': data.get('family_id', 1),
+        }
+
         if existing:
-            return PositionService.process_dividend(
-                db,
-                {
-                    'position_id': existing.id,
-                    'dividend_amount': dividend_amount,
-                    'confirm_date': data.get('confirm_date'),
-                    'trade_date': data.get('trade_date'),
-                    'notes': data.get('notes', ''),
-                    'import_hash': data.get('import_hash'),
-                    'family_id': data.get('family_id', 1),
-                },
-            )
+            if is_reinvest:
+                return PositionService.process_dividend_reinvest(
+                    db,
+                    {
+                        **common,
+                        'position_id': existing.id,
+                        'quantity': data.get('quantity', 0),
+                        'nav': data.get('nav', 0),
+                    },
+                )
+            return PositionService.process_dividend(db, {**common, 'position_id': existing.id})
         else:
             _create_orphan_transaction(
                 db,
@@ -830,6 +949,6 @@ class PositionService:
                 quantity=0,
                 price=0,
                 amount=dividend_amount,
-                notes=data.get('notes') or '现金分红',
+                notes=data.get('notes') or ('红利再投资（待关联持仓）' if is_reinvest else '现金分红'),
             )
             return None
