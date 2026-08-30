@@ -6,6 +6,7 @@ from typing import List
 from loguru import logger
 
 from app.domains.funds.models import Fund, FundCompany
+from app.services.sync.company_resolver import get_company_code_by_name
 from app.services.sync.jobs.base import SyncJob
 
 
@@ -60,11 +61,15 @@ class FundListSyncJob(SyncJob):
             existing = self.db.query(FundCompany).filter_by(name=name).first()
             if existing:
                 company_cache[name] = existing.id
-            else:
-                company = FundCompany(name=name, code=name)  # 用公司名作为 code
-                self.db.add(company)
-                self.db.flush()
-                company_cache[name] = company.id
+                continue
+            # #1168：优先用天天基金权威 code，未命中保留名称占位
+            real_code = get_company_code_by_name(name)
+            if not real_code:
+                logger.warning(f'基金公司「{name}」未匹配到权威 code，暂以名称占位')
+            company = FundCompany(name=name, code=real_code or name)
+            self.db.add(company)
+            self.db.flush()
+            company_cache[name] = company.id
 
         # 2. 构建基金记录
         fund_records = list()

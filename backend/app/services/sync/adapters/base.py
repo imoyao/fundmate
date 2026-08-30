@@ -45,6 +45,10 @@ class DataSourceAdapter(ABC):
         """获取指定基金的基金经理信息"""
         pass
 
+    def fetch_fund_company(self) -> List[dict]:
+        """获取基金公司列表（code+name）。默认不支持。"""
+        raise NotImplementedError(f'{self.get_name()} 不支持 fetch_fund_company')
+
     # ── 股票相关 ──
 
     @abstractmethod
