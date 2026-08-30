@@ -23,6 +23,7 @@ from app.services.position_service import PositionService
 from app.services.position_valuation import market_value_cents
 from app.services.price_range_service import resolve_security_price_range
 from app.services.trade_rules import TradeService
+from app.services.value_allocation_service import allocate_value
 
 bp = APIBlueprint('positions', __name__, url_prefix='/api/positions/')
 
@@ -344,3 +345,31 @@ def validate_trade_order():
     result = TradeService.validate_transaction(symbol, market, asset_type, current_hold, order_qty, op_type)
 
     return jsonify(result)
+
+
+@bp.post('/allocate-value/')
+def allocate_position_value():
+    """按占比批量更新某产品跨账户总价（P1-4）。
+
+    同一产品分散在多个账户时，只需录入一次产品维度总价，系统按各账户当前市值占比
+    自动分摊写入每笔持仓的 ``market_value_override``（整数分，尾差归占比最大一笔）。
+    典型场景：投顾组合 / 银行理财只有组合级估值、无逐笔净值。
+    """
+    from app.domains.positions.schemas import AllocateValueRequest
+
+    data = parse_body(AllocateValueRequest).model_dump()
+    with get_db() as db:
+        try:
+            result = allocate_value(
+                db,
+                get_family_id(),
+                data['symbol'],
+                data['total_value'],
+                as_of=data.get('as_of'),
+                ledger_id=data.get('ledger_id'),
+            )
+        except ValueError as e:
+            logger.warning('按占比分摊失败: %s', e)
+            return jsonify({'message': str(e), 'data': None}), 400
+        db.commit()
+        return jsonify({'data': result, 'message': 'ok'})
