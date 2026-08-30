@@ -71,6 +71,56 @@ export function getPositionTransactions(id: number) {
   );
 }
 
+/** 按占比批量更新某产品跨账户总价（#1176）的入参 */
+export type AllocateValueRequest = {
+  /** 产品代码（同一产品跨账户分摊总价） */
+  symbol: string;
+  /** 产品维度新总价（元），必须 > 0 */
+  total_value: number;
+  /** 市值录入日期 YYYY-MM-DD，默认今天 */
+  as_of?: string;
+  /** 限定只分摊到某个账户；缺省覆盖该家庭下全部活跃账户 */
+  ledger_id?: number;
+};
+
+/** 单个账户的分摊结果 */
+export type AllocateValueAllocation = {
+  position_id: number;
+  ledger_id: number | null;
+  allocated_cents: number;
+  allocated_yuan: number;
+  ratio: number;
+};
+
+/** 按占比批量更新总价的返回（后端 value_allocation_service） */
+export type AllocateValueResult = {
+  symbol: string;
+  total_value_cents: number;
+  total_weight_cents: number;
+  as_of: string;
+  allocations: AllocateValueAllocation[];
+};
+
+/**
+ * 产品维度批量更新持仓总价（#1176）。
+ *
+ * 后端按各账户**既有市值**占比分摊：整数分计算、尾差归占比最大一笔，
+ * 保证各账户分配值之和**严格等于**传入总价（不会出现一分钱对不上）。
+ * 典型场景：某投顾产品跨两个账户分别投入 2 万 / 3 万，现总价 5.1 万，
+ * 直接改总价即可按占比分配为 2.04 万 / 3.06 万。
+ */
+export function allocateValue(data: AllocateValueRequest) {
+  // 注意 BASE_URL 已带尾斜杠，此处不再拼接斜杠，避免 /api/positions//xxx
+  return http.request<ApiResponse<AllocateValueResult>>(
+    "post",
+    `${BASE_URL}allocate-value/`,
+    {
+      data,
+      headers: { "Content-Type": "application/json" }
+    }
+  );
+}
+
 /** 交易规则校验（卖出数量/步长等），后端返回 { valid, message } */
 export function validateTradeOrder(data: {
   symbol: string;
