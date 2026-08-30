@@ -440,8 +440,8 @@ class TestDividendReinvest:
         )
         assert resp.status_code == 400
 
-    def test_import_reinvest_creates_position_when_absent(self, db):
-        """导入路径：无既有持仓 → 先按净值申购建仓，再补分红现金流水（双流水配对）"""
+    def test_import_reinvest_orphan_when_no_position(self, db):
+        """导入路径无关联持仓：记孤儿现金分红流水（notes 标明红利再投资），返回 None，不建仓。"""
         data = {
             'symbol': '511990.XSHG',
             'name': '华宝添益',
@@ -459,21 +459,14 @@ class TestDividendReinvest:
             'import_hash': 'imp-reinvest-1',
             'link_group_id': 'grp-reinvest-1',
         }
-        position = PositionService.process_orphan_dividend_reinvest(db, data)
-        assert position is not None
-        assert Money.min_unit_to_shares(position.quantity) == 50
-
-        txns = db.query(Transaction).filter_by(position_id=position.id).all()
-        types = [t.txn_type for t in txns]
-        assert types.count('dividend') == 1
-        assert types.count('buy') == 1
-        div = next(t for t in txns if t.txn_type == 'dividend')
-        buy = next(t for t in txns if t.txn_type == 'buy')
-        # 双流水 link_group_id 配对
-        assert div.link_group_id == 'grp-reinvest-1' == buy.link_group_id
-        # 分红流水保留原始 import_hash（承担记录级去重）；申购流水用独立幂等键
-        assert div.import_hash == 'imp-reinvest-1'
-        assert buy.import_hash == 'imp-reinvest-1:reinvest_buy'
+        result = PositionService.process_orphan_dividend_reinvest(db, data)
+        assert result is None
+        # 孤儿现金分红流水，notes 标明红利再投资
+        txn = db.query(Transaction).filter_by(import_hash='imp-reinvest-1').first()
+        assert txn is not None
+        assert txn.txn_type == 'dividend'
+        assert '红利再投资' in (txn.notes or '')
+        assert txn.entry_status == 'orphan'
 
     def test_enums_exposes_dividend_reinvest_label(self, client):
         """GET /api/utils/enums 下发 OP_TYPE_LABEL，含 dividend_reinvest 中文标签"""
