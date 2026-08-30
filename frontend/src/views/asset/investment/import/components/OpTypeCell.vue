@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { useImportWizardContext } from "../composables/useImportWizardContext";
+import { ASSET_TYPE_LABELS } from "@/constants/assetType";
 
 defineProps<{ row: any }>();
 
-const { getTypeColor, typeLabels } = useImportWizardContext();
+const { getTypeColor } = useImportWizardContext();
 </script>
 
 <template>
@@ -14,7 +15,7 @@ const { getTypeColor, typeLabels } = useImportWizardContext();
       :color="getTypeColor(row.type)"
       size="small"
       class="type-tag-inline"
-      >{{ typeLabels[row.type] || row.type || "未知" }}
+      >{{ ASSET_TYPE_LABELS[row.type] || row.type || "未知" }}
     </el-tag>
   </div>
 </template>
