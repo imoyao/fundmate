@@ -14,7 +14,9 @@ confirmed（已确认）
 """
 
 from sqlalchemy import Column, Date, DateTime, ForeignKey, Index, Integer, String, Text, text
+from sqlalchemy.orm import validates
 
+from app.core.constants import POSITION_SOURCE_LABELS, PositionSource
 from app.core.database import Base, FamilyScopedMixin, PrimaryKeyMixin, TimestampMixin
 
 
@@ -52,6 +54,24 @@ class Transaction(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     import_hash = Column(String(64), nullable=True, comment='导入去重哈希值')
     extra = Column(Text, nullable=True)  # 用来存 JSON 字符串
     notes = Column(Text)
+    source = Column(
+        String(30),
+        nullable=True,
+        comment='来源标识（#1232 决策 11）：复用 PositionSource，与 positions.source 共用一套枚举。'
+        'NULL=历史数据未标记来源，不回填不改写（避免 import_hash 漂移破坏去重）；'
+        '新记录按场景写入：manual/对账补录 reconciliation_adjustment/交易导入 broker source。',
+    )
+
+    @validates('source')
+    def _validate_source(self, key, value):
+        # 复用 PositionSource 校验，与 positions.source 同源约束；允许 None（存量未标记来源）。
+        if value is None:
+            return value
+        if isinstance(value, PositionSource):
+            return value.value
+        if value not in POSITION_SOURCE_LABELS:
+            raise ValueError(f'非法流水来源 source={value!r}，必须是 PositionSource 的合法值')
+        return value
 
     __table_args__ = (
         # 防重复导入：去重作用域降为 ledger 级（#1020 / #1065）。

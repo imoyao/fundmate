@@ -162,6 +162,8 @@ def _create_cash_transfer_transaction(db: Session, data: dict, txn_type: str) ->
         import_hash=data.get('import_hash'),
         entry_status='orphan',
         family_id=data.get('family_id', 1),
+        # #1232 决策 11：孤儿/现金转移流水来源透传
+        source=data.get('source'),
     )
     db.flush()
 
@@ -204,6 +206,8 @@ def _create_orphan_transaction(
         import_hash=data.get('import_hash'),
         entry_status='orphan',
         family_id=data.get('family_id', 1),
+        # #1232 决策 11：孤儿流水来源透传
+        source=data.get('source'),
     )
     db.flush()
 
@@ -265,6 +269,8 @@ def _create_dividend_cash_txn(
         import_hash=base_hash,
         entry_status=entry_status,
         family_id=data.get('family_id', 1),
+        # #1232 决策 11：红利再投资分红流水来源透传
+        source=data.get('source'),
     )
     db.flush()
 
@@ -297,6 +303,9 @@ def _build_reinvest_buy_data(data: dict, position: Optional[Position], link_grou
         'import_hash': buy_hash,
         'family_id': data.get('family_id', 1),
         'position_id': position.id if position else None,
+        # #1232 决策 11：红利再投资申购流水来源透传（走 process_buy_or_deposit 落库）。
+        # 缺失时兜底 manual——Position.source 非空校验拒绝 None，而流水 source 缺省可空。
+        'source': data.get('source') or PositionSource.MANUAL.value,
     }
 
 
@@ -664,6 +673,8 @@ class PositionService:
                 ledger_id=ledger_id,
                 import_hash=data.get('import_hash'),
                 family_id=family_id,
+                # #1232 决策 11：流水来源与持仓同源（记一笔默认 manual，交易导入/对账补录按 data.source）
+                source=data.get('source') or PositionSource.MANUAL.value,
             )
 
             db.flush()
@@ -762,6 +773,8 @@ class PositionService:
                 notes=data.get('notes') or ('卖出' if op_type == 'sell' else '取出'),
                 import_hash=data.get('import_hash'),
                 family_id=data.get('family_id', 1),
+                # #1232 决策 11：流水来源透传（记一笔默认 manual）
+                source=data.get('source') or PositionSource.MANUAL.value,
             )
 
             # #1137 卖出回款自动申购账户绑定的类现金产品（余额宝）。
@@ -906,6 +919,8 @@ class PositionService:
                 notes=data.get('notes') or '现金分红',
                 import_hash=data.get('import_hash'),
                 family_id=data.get('family_id', 1),
+                # #1232 决策 11：流水来源透传（记一笔默认 manual）
+                source=data.get('source') or PositionSource.MANUAL.value,
             )
 
             db.flush()
@@ -1137,6 +1152,8 @@ class PositionService:
             import_hash=data.get('import_hash'),
             link_group_id=data.get('link_group_id'),
             family_id=family_id,
+            # #1232 决策 11：流水来源透传（记一笔默认 manual）
+            source=data.get('source') or PositionSource.MANUAL.value,
         )
         db.flush()
         return PositionService.recompute_position_from_transactions(db, existing.id)

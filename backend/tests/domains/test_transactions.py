@@ -5,6 +5,9 @@
 
 from datetime import date, timedelta
 
+import pytest
+
+from app.core.constants import PositionSource
 from app.core.database import get_db
 from app.core.money import Money
 from app.domains.positions.models import Position
@@ -474,3 +477,124 @@ class TestTransactionDeleteRollback:
                 rebuilt = db.query(Position).filter(Position.symbol == '600519', Position.ledger_id == 1).first()
                 assert rebuilt is not None
                 assert rebuilt.quantity == Money.shares_to_min_unit(100)
+
+
+class TestTransactionSource:
+    """#1232 决策 11 / #1238：transactions.source 列。
+
+    - 手动记账（记一笔）流水 source 应落 manual（与 positions.source 同源）。
+    - PositionSource 新增 reconciliation_adjustment，供对账补录标记。
+    - 非法 source 被枚举校验拒绝。
+    - import_hash 去重不受 source 列落地影响（uq_txn_import_hash 仍生效）。
+    """
+
+    def test_manual_buy_sets_source_manual(self, client, db):
+        """手动记账买入 → 流水 source = manual。"""
+        resp = _post(
+            client,
+            '/api/positions/',
+            {
+                'symbol': '00700.HK',
+                'name': '腾讯',
+                'type': 'stock',
+                'market': 'CN_HK',
+                'account_name': '富途',
+                'quantity': 100,
+                'avg_price': 350,
+                'currency': 'HKD',
+                'trade_date': '2026-05-01',
+            },
+        )
+        assert resp.status_code == 200
+        pos_id = resp.get_json()['data']['id']
+        txn = db.query(Transaction).filter_by(position_id=pos_id).first()
+        assert txn is not None
+        assert txn.source == PositionSource.MANUAL.value
+
+    def test_list_transactions_exposes_source(self, client):
+        """流水列表接口返回 source 字段。"""
+        _post(
+            client,
+            '/api/positions/',
+            {
+                'symbol': 'AAPL',
+                'name': '苹果',
+                'type': 'stock',
+                'market': 'US',
+                'account_name': '富途',
+                'quantity': 10,
+                'avg_price': 180,
+                'currency': 'USD',
+                'trade_date': '2026-05-01',
+            },
+        )
+        resp = _get(client, '/api/transactions')
+        data = resp.get_json()['data']
+        assert len(data) == 1
+        assert data[0]['source'] == PositionSource.MANUAL.value
+
+    def test_invalid_source_rejected(self, db):
+        """非法 source 被枚举校验拒绝（@validates 约束）。"""
+        with pytest.raises(ValueError):
+            Transaction(
+                position_id=1,
+                family_id=1,
+                txn_type='buy',
+                quantity=0,
+                price=0,
+                amount=0,
+                position_name='测试',
+                account_name='测试账户',
+                source='not_a_source',
+            )
+
+    def test_reconciliation_adjustment_enum_exists(self):
+        """PositionSource 已含 reconciliation_adjustment，供对账补录标记。"""
+        assert PositionSource.RECONCILIATION_ADJUSTMENT.value == 'reconciliation_adjustment'
+        from app.core.constants import POSITION_SOURCE_LABELS
+
+        assert 'reconciliation_adjustment' in POSITION_SOURCE_LABELS
+
+    def test_reconciliation_source_manual_commit(self, client, db):
+        """对账补录来源 reconciliation_adjustment 可正确落库（模拟域 B/C 补充动作）。"""
+        resp = _post(
+            client,
+            '/api/positions/',
+            {
+                'symbol': '00700.HK',
+                'name': '腾讯',
+                'type': 'stock',
+                'market': 'CN_HK',
+                'account_name': '富途',
+                'quantity': 100,
+                'avg_price': 350,
+                'currency': 'HKD',
+                'trade_date': '2026-05-01',
+                'source': PositionSource.RECONCILIATION_ADJUSTMENT.value,
+            },
+        )
+        assert resp.status_code == 200
+        pos_id = resp.get_json()['data']['id']
+        txn = db.query(Transaction).filter_by(position_id=pos_id).first()
+        assert txn is not None
+        assert txn.source == PositionSource.RECONCILIATION_ADJUSTMENT.value
+
+    def test_import_hash_dedup_still_works(self, client):
+        """source 列落地后，import_hash 去重（uq_txn_import_hash）仍生效（409 幂等拦截）。"""
+        payload = {
+            'symbol': '00700.HK',
+            'name': '腾讯',
+            'type': 'stock',
+            'market': 'CN_HK',
+            'account_name': '富途',
+            'quantity': 100,
+            'avg_price': 350,
+            'currency': 'HKD',
+            'trade_date': '2026-05-01',
+            'import_hash': 'idem-source-409',
+        }
+        resp1 = _post(client, '/api/positions/', payload)
+        assert resp1.status_code == 200
+        resp2 = _post(client, '/api/positions/', payload)
+        assert resp2.status_code == 409
+        assert '已记录' in (resp2.get_json() or {}).get('message', '')
