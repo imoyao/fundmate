@@ -11,7 +11,6 @@ akshare 缺失的基金公司 code 拉取（fetch_fund_company）。
 from datetime import date
 from typing import Any, Dict, List, Optional
 
-import akshare as ak
 from loguru import logger
 
 from app.services.sync.adapters.akshare_adapter import AkshareAdapter
@@ -30,6 +29,9 @@ class EastmoneyAdapter(DataSourceAdapter):
         return 'eastmoney'
 
     def get_version(self) -> str:
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
         return f'eastmoney-composite/akshare-{getattr(ak, "__version__", "unknown")}'
 
     def fetch_fund_list(self) -> List[dict]:

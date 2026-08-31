@@ -52,8 +52,14 @@ class XalphaAdapter(DataSourceAdapter):
 
     def get_version(self) -> str:
         # xalpha 库已不再承担数据获取，仅保留版本号语义（沿用既有接口约定）
+        # 沿用原 create_app 中的后端缓存配置。原先在应用启动期 import xalpha（约 1.4s），
+        # 现已改为首次需要 xalpha 时（即本方法）才设置，避免拖慢启动/reload。
+        from pathlib import Path
+
         import xalpha as xa
 
+        Path('data/xalpha_cache').mkdir(parents=True, exist_ok=True)
+        xa.set_backend(backend='csv', path='data/xalpha_cache')
         return getattr(xa, '__version__', 'unknown')
 
     # ── 基础请求 ──

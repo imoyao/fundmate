@@ -7,7 +7,6 @@
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-import akshare as ak
 from loguru import logger
 
 from app.core.symbol_utils import get_normalizer
@@ -23,6 +22,9 @@ class AkshareAdapter(DataSourceAdapter):
         return 'akshare'
 
     def get_version(self) -> str:
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
         return getattr(ak, '__version__', 'unknown')
 
     # ── 股票列表 ──
@@ -82,6 +84,10 @@ class AkshareAdapter(DataSourceAdapter):
         Returns:
             包含字段: symbol, trade_date, open, high, low, close, volume, adj_close, source
         """
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+
         try:
             normalizer = get_normalizer()
             # 直接使用已有的 to_sina_code 方法
@@ -139,6 +145,10 @@ class AkshareAdapter(DataSourceAdapter):
 
     def fetch_stock_list(self, market: Optional[str] = None) -> List[dict]:
         """获取 A 股股票（含沪深北）"""
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+
         try:
             df = ak.stock_info_a_code_name()
             if df is None or df.empty:
@@ -166,6 +176,10 @@ class AkshareAdapter(DataSourceAdapter):
 
     def fetch_daily_spot_all(self) -> List[dict]:
         """获取全市场 A 股当日实时行情（作为日线数据），仅用于增量同步"""
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+
         try:
             df = ak.stock_zh_a_spot_em()
             if df is None or df.empty:
@@ -202,6 +216,10 @@ class AkshareAdapter(DataSourceAdapter):
         使用 akshare 官方接口获取全市场公募基金基本信息。
         接口：ak.fund_name_em() 返回所有基金的代码、简称、类型。
         """
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+
         try:
             # 使用 fund_name_em 替代 fund_em_fund_name（后者在当前版本中不可用）
             df = ak.fund_name_em()
@@ -238,6 +256,10 @@ class AkshareAdapter(DataSourceAdapter):
 
     def fetch_fund_manager(self, fund_code: str) -> List[dict]:
         """获取指定基金的基金经理，全量数据仅请求一次，失败后静默跳过"""
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+
         # 如果已经请求过（无论成功或失败），直接使用缓存结果
         if hasattr(self, '_fund_manager_cache'):
             df = self._fund_manager_cache
@@ -299,6 +321,10 @@ class AkshareAdapter(DataSourceAdapter):
         获取单只基金的详细信息 (ak.fund_info_ths)
         返回字典，键为 model 字段名，值为解析后的数据。解析失败返回空字典。
         """
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+
         result = {}
         try:
             df = ak.fund_info_ths(symbol=fund_code)
