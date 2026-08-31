@@ -9,9 +9,7 @@ from dotenv import load_dotenv
 load_dotenv()  # 必须在导入其他模块之前加载
 
 import os  # noqa: E402
-from pathlib import Path  # noqa: E402
 
-import xalpha as xa  # noqa: E402
 from apiflask import APIFlask  # noqa: E402
 from flask import jsonify  # noqa: E402
 from flask_cors import CORS  # noqa: E402
@@ -54,11 +52,6 @@ def create_app() -> APIFlask:
     # DEBUG 读环境变量，默认关闭；开发用 `flask run --debug` 或 .env 设 FLASK_DEBUG=1
     app.config['DEBUG'] = os.getenv('FLASK_DEBUG', 'false').lower() in ('1', 'true', 'yes', 'on')
     app.config['PROPAGATE_EXCEPTIONS'] = True
-
-    # ✅ 确保 xalpha 缓存目录存在
-    cache_dir = Path('data/xalpha_cache')
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    xa.set_backend(backend='csv', path=str(cache_dir))
 
     # ✅ 启用 CORS，允许前端跨域访问
     # 默认收紧为本地前端 dev 地址；生产环境通过 CORS_ORIGINS 环境变量指定（逗号分隔）

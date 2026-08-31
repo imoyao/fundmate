@@ -12,6 +12,7 @@ import {
   type AggregationDimension,
   type AggregationInstitutionGroup,
   type AggregationProductGroup,
+  type AggregationSort,
   type AggregationSource
 } from "@/api/ledger";
 import { useAggregation } from "@/composables/useAggregation";
@@ -28,6 +29,14 @@ const DIMENSION_OPTIONS: { label: string; value: AggregationDimension }[] = [
   { label: "按产品展示", value: "product" },
   // 分组键是 institution_id（销售机构/购买渠道），非 Ledger（账本），文案用「渠道」（#1185）
   { label: "按渠道展示", value: "institution" }
+];
+
+/** 常驻排序快捷按钮：点击即切换字段，同一字段再点反转升降序 */
+const SORT_OPTIONS: { label: string; value: AggregationSort }[] = [
+  { label: "市值", value: "market_value" },
+  { label: "份额", value: "quantity" },
+  { label: "收益率", value: "return_pct" },
+  { label: "名称", value: "name" }
 ];
 
 const {
@@ -48,11 +57,13 @@ const {
   loading,
   showSkeleton,
   errorMsg,
+  keyword,
   load,
   setDimension,
   setPage,
-  setSort
-} = useAggregation(getSecuritiesAggregation, { pageSize: 20 });
+  setSort,
+  setKeyword
+} = useAggregation(getSecuritiesAggregation, { pageSize: 18 });
 
 const isEmpty = computed(() => total.value === 0);
 
@@ -127,23 +138,41 @@ onMounted(() => load());
       :count="total"
     />
 
+    <!-- 检索区：维度切换 + 搜索 / 排序快捷按钮（与 /funds 同构，无基金类型 Tab） -->
     <div class="control-bar mb-5">
-      <AggregationDimensionTabs
-        :model-value="dimension"
-        :options="DIMENSION_OPTIONS"
-        @update:model-value="setDimension"
-      />
-      <div class="sort-control">
-        <el-select
-          :model-value="sort"
-          class="sort-select"
-          placeholder="排序"
-          @change="setSort"
+      <div class="control-row">
+        <AggregationDimensionTabs
+          :model-value="dimension"
+          :options="DIMENSION_OPTIONS"
+          @update:model-value="setDimension"
+        />
+        <el-input
+          :model-value="keyword"
+          class="search-input"
+          placeholder="搜索名称 / 代码"
+          clearable
+          @update:model-value="setKeyword"
         >
-          <el-option label="按资产金额" value="market_value" />
-          <el-option label="按持有份额" value="quantity" />
-          <el-option label="按名称" value="name" />
-        </el-select>
+          <template #prefix>
+            <IconifyIconOffline icon="ep:search" class="search-icon" />
+          </template>
+        </el-input>
+      </div>
+      <div class="control-row control-row--sub">
+        <div class="sort-pills" role="tablist" aria-label="排序方式">
+          <button
+            v-for="opt in SORT_OPTIONS"
+            :key="opt.value"
+            type="button"
+            role="tab"
+            class="sort-pill"
+            :class="{ active: sort === opt.value }"
+            :aria-selected="sort === opt.value"
+            @click="setSort(opt.value)"
+          >
+            {{ opt.label }}
+          </button>
+        </div>
         <el-button class="order-btn" text @click="toggleOrder">
           <IconifyIconOffline
             :icon="order === 'desc' ? 'ep:sort-down' : 'ep:sort-up'"
@@ -222,29 +251,76 @@ onMounted(() => load());
 
 .control-bar {
   display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 8px);
+}
+
+.control-row {
+  display: flex;
   flex-wrap: wrap;
-  gap: var(--space-4, 16px);
+  gap: var(--space-3, 12px);
   align-items: center;
   justify-content: space-between;
 }
 
-.sort-control {
-  display: flex;
-  gap: 8px;
-  align-items: center;
+/* 次级行：与上一行用细分隔线区隔（对齐 design.md 分组胶囊 Tab 规范） */
+.control-row--sub {
+  padding-top: var(--space-2, 8px);
+  border-top: 1px solid var(--border-subtle, var(--border-light));
 }
 
-.sort-select {
-  width: 140px;
+.search-input {
+  width: 240px;
+}
+
+.search-icon {
+  font-size: 14px;
+  color: var(--text-tertiary);
+}
+
+.sort-pills {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* 排序胶囊：选中态走软按钮规范（brand-100 底 + brand-700 字） */
+.sort-pill {
+  padding: 5px 14px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.2;
+  color: var(--text-secondary);
+  cursor: pointer;
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.sort-pill:hover {
+  color: var(--text-primary);
+  border-color: var(--brand-400);
+}
+
+.sort-pill.active {
+  color: var(--brand-700);
+  background: var(--brand-100);
+  border-color: var(--brand-400);
 }
 
 .order-btn {
   padding: 6px 10px;
 }
 
+/* 自适应卡片网格：minmax 320px 保证笔记本 3 列、宽屏 4 列；
+   配合每页 18 条（3 的倍数）从根上避免「末行缺卡」的怪异感 */
 .card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: var(--space-compact, 14px);
 }
 
@@ -283,12 +359,12 @@ onMounted(() => load());
     padding: var(--space-4, 16px);
   }
 
-  .control-bar {
-    align-items: flex-start;
-  }
-
   .card-grid {
     grid-template-columns: 1fr;
+  }
+
+  .search-input {
+    width: 100%;
   }
 }
 </style>

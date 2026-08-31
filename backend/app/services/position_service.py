@@ -33,6 +33,7 @@ from app.domains.positions.models import Position, PositionImportMeta
 from app.domains.transactions.models import Transaction
 from app.services.async_backfill import trigger_backfill
 from app.services.importer.records import compute_position_hash
+from app.services.pnl_service import compute_sell_realized_cents
 from app.services.trade_rules import validate_buy, validate_sell
 from app.services.transaction_service import TransactionService
 
@@ -253,6 +254,9 @@ def _create_dividend_cash_txn(
         price=0,
         fee=0,
         amount=Money.yuan_to_cents(dividend_amount),
+        # 红利再投资的分红入账同样计入已实现盈亏（#1183）：与随后的申购流水（记投入、
+        # 抬高成本基数）一进一出，对总盈亏净额为 0，与 XIRR「reinvest 记流出」自洽
+        realized_pnl=Money.yuan_to_cents(dividend_amount),
         status='success',
         position_name=position.name if position else data.get('name', ''),
         account_name=position.account_name if position else data.get('account_name', ''),
@@ -703,6 +707,19 @@ class PositionService:
             account_name = existing.account_name
             # 卖出清空持仓时会 delete，ledger_id 需提前取出（#1137 自动申购要用）
             ledger_id = existing.ledger_id
+
+            # ── 已实现盈亏结转（#1183）──
+            # 必须在份额扣减前取成本均价：移动加权下卖出本不改均价，但显式提前取值
+            # 可避免后续重构引入顺序依赖。结果落在流水的 realized_pnl 上而不是持仓上，
+            # 因为清仓时持仓行会被 delete，记在持仓上会随持仓一起丢失。
+            fee_cents = Money.yuan_to_cents(float(data.get('fee', 0) or 0))
+            realized_cents = compute_sell_realized_cents(
+                price_units=price_units,
+                avg_price_units=existing.avg_price or 0,
+                qty_units=qty_units,
+                fee_cents=fee_cents,
+            )
+
             existing.quantity -= qty_units
 
             is_cleared = existing.quantity == 0
@@ -723,8 +740,9 @@ class PositionService:
                 link_group_id=data.get('link_group_id'),
                 quantity=qty_units,
                 price=price_units,
-                fee=Money.yuan_to_cents(float(data.get('fee', 0) or 0)),
+                fee=fee_cents,
                 amount=Money.multiply_price_quantity(price_units, qty_units),
+                realized_pnl=realized_cents,
                 status='success',
                 position_name=position_name,
                 ledger_id=ledger_id,
@@ -738,7 +756,6 @@ class PositionService:
             # 净额 = 成交额 - 手续费；货基/逆回购自身的卖出不触发，避免「赎回 → 自动申购」死循环。
             if _get_asset_type(data) not in ('money_fund', 'reverse_repo'):
                 gross_cents = Money.multiply_price_quantity(price_units, qty_units)
-                fee_cents = Money.yuan_to_cents(float(data.get('fee', 0) or 0))
                 auto_purchase_money_fund(
                     db,
                     ledger_id=ledger_id,
@@ -867,6 +884,9 @@ class PositionService:
                 price=0,
                 fee=0,
                 amount=Money.yuan_to_cents(dividend_amount),
+                # 现金分红全额计入已实现盈亏（#1183）：与 XIRR 的 dividend_cash 正现金流同口径，
+                # 修复「汇总排除 dividend、XIRR 却计入」的口径分叉
+                realized_pnl=Money.yuan_to_cents(dividend_amount),
                 status='success',
                 position_name=existing.name,
                 account_name=existing.account_name,
