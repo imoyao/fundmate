@@ -87,7 +87,12 @@ export const MAJOR_CATEGORY_LABELS: Record<string, string> = {
   investment: "投资理财",
   receivable: "应收款",
   liability: "负债",
-  insurance: "保险项目"
+  insurance: "保险项目",
+  bank_wealth: "银行理财",
+  advisory: "投顾",
+  trust: "信托",
+  private_fund: "私募",
+  wealth_insurance: "理财型保险"
 };
 
 export function majorCategoryLabel(key: string): string {
