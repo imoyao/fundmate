@@ -9,7 +9,9 @@
 
 ## 0. 摘要
 
-手动导入是投资记账的核心场景，数据源头在用户手里，系统永远无法 100% 自动正确。现有三套流程各自独立、形态不一：同花顺交割单导入「导入即落库、无对账」、E账户导入「只能 cover/ignore、不能就地补录」、"记一笔"手动记账「只建持仓不建流水、跳离上下文是中断操作」；而「草稿承接头寸」所需的 Local Storage 草稿层完全空白。
+手动导入是投资记账的核心场景，数据源头在用户手里，系统永远无法 100% 自动正确。现有三套流程各自独立、形态不一：同花顺交割单导入「导入即落库、无对账」、E账户导入「只能 cover/ignore、不能就地补录」、"记一笔"手动记账「跳离上下文是中断操作、无对账补充能力」；而「草稿承接头寸」所需的 Local Storage 草稿层完全空白。
+
+> ⚠️ **2026-08-31 实施修正（#1233 落地后）**：早前文档将"记一笔"描述为「只建持仓不建流水」，经代码核实**有误**——`create_position` 自 2026-05-11（`817f3496b`）起已复用 `process_*` 汇点族，buy/sell/dividend/dividend_reinvest/split 均「写 Transaction + 更新 Position」双写（见 §4.1）。#1233 实际只补齐唯一缺口：**货基/逆回购手动记账建持仓**（`force_create_position` 参数）。"记一笔"真正的缺口是**无对账补充能力、跳离上下文即中断**，而非不写流水。
 
 本设计把现有 E账户对账抽象为通用「对账域」，提出**统一对账工作台（Workbench）**：草稿层承接头寸、统一入口收敛三套流程、就地补充替代跳"记一笔"。**不推翻 E账户现有实现，而是纳入框架复用其范式与字段。**
 
@@ -29,7 +31,8 @@
 
 - **同花顺交割单导入**：`parsers/ths_stock.py` + 前端 `useImportWizard.ts` 四步向导（选账户→上传→预览修正→导入完成）。管线 `parse→enrich→commit`。**缺口**：止于「导入完成」，解析失败/对不上的行直接跳过，无对账补录环节。
 - **E账户导入**：唯一成型对账链路（`/investment/reconcile` + `/api/e-account/{reconcile,attribution,reconciliation}` + 四态归因）。**缺口**：只能 cover/ignore，不能就地补录。
-- **"记一笔"手动记账**：`/investment/manual` → `usePositionSubmit.submitPosition` → `createPosition` → `POST /api/positions/`，**只建 Position 不建 Transaction**（详见 #1233）。只支持 buy/sell/dividend/dividend_reinvest/split。**缺口**：无对账补充能力，跳离上下文即中断。
+- **"记一笔"手动记账**：`/investment/manual` → `usePositionSubmit.submitPosition` → `createPosition` → `POST /api/positions/`。**已通过 `process_*` 汇点族双写**（写 Transaction + 更新 Position），支持 buy/sell/dividend/dividend_reinvest/split（#1233 后货基/逆回购也建持仓）。**真正缺口**：无对账补充能力，跳离上下文即中断。
+  > **实施修正（#1233）**：早前误写"只建 Position 不建 Transaction"——实际自 2026-05-11（`817f3496b`）已双写；#1233 仅补齐货基/逆回购建持仓缺口（`force_create_position=True`）。
 - **Local Storage 草稿**：**完全空白**。导入态纯内存（`useImportWizard.ts` 约 1968 行，`ref`/`reactive`），刷新即丢；全仓搜 `pendingImport/tempImport/importDraft` **0 命中**。
 
 ### 1.3 核心痛点
@@ -328,7 +331,7 @@ ai_txn / ai_holding / explore
 | 优先级 | 内容 | 说明 | 风险 |
 | :-- | :-- | :-- | :-- |
 | **P0** | 草稿层（localforage 全局单槽 + 域标记 + 域路由）+ 统一入口脚手架 | 底座；改善"刷新即丢/中断"，零迁移 | 低 |
-| **P0 前置** | **#1233**「记一笔写流水」改造（复用 `process_*` 汇点） | 数据完整性 + 域 B 前置依赖；**独立 issue，不混入本卡开发** | 中 |
+| **P0 前置** | **#1233**「记一笔写流水」改造（复用 `process_*` 汇点） | ✅ **已完成（PR #1236，2026-08-31）**——双写早已存在，本次补齐货基/逆回购建持仓（`force_create_position`）。为域 B 前置依赖 | 中 |
 | **P1** | 三表落地 + 域 B 计算 + 柔性提醒 | 纯计算层 + 组件演进 | 低 |
 | **P1** | 域 C 导入后接对账（前端交互层异步） | 导入完成页引导进工作台 | 中 |
 | **P2** | E账户对账迁入工作台 + 就地补充替代跳"记一笔" | 统一入口，复用 API | 中 |
@@ -336,10 +339,10 @@ ai_txn / ai_holding / explore
 
 > 原则：**P0 先打底座**，后续域接入都建立在草稿层 + 统一入口之上，避免各自为政留下 bug。
 
-**#1233 的货基 / 逆回购冲突（已知，方案已定）**：决策要求记一笔货基「保持建持仓」，但 `process_buy_or_deposit` 对 `money_fund`/`reverse_repo` 是「只记资金流水、**不建持仓**且 `return None`」（`position_service.py:457-460`；这是交易导入的既有设计，货基被视为现金转账）。
+**#1233 的货基 / 逆回购冲突（已落地）**：决策要求记一笔货基「保持建持仓」，但 `process_buy_or_deposit` 对 `money_fund`/`reverse_repo` 是「只记资金流水、**不建持仓**且 `return None`」（`position_service.py:457-460`；这是交易导入的既有设计，货基被视为现金转账）。
 
-- **采用方案**：给 `process_buy_or_deposit` 增加可选参数（如 `force_create_position: bool = False`）。交易导入保持默认 `False`（行为完全不变）；**记一笔场景显式传 `True`**，使其在记流水的同时照常建持仓。
-- **不采用**：① 直接改汇点让货基一律建持仓（会破坏交易导入既有行为）；② 为货基记一笔保留 `createPosition` 老路（则货基记一笔仍无流水，与 #1233 目标自相矛盾）。
+- **已采用方案（PR #1236）**：给 `process_buy_or_deposit` 增加 `force_create_position: bool = False` 参数。交易导入保持默认 `False`（行为完全不变）；**记一笔场景显式传 `True`**，使其在记流水的同时照常建持仓。货基手动记账缺净值时兜底 `1.0`（净值恒 1.0）。
+- **未采用**：① 直接改汇点让货基一律建持仓（会破坏交易导入既有行为）；② 为货基记一笔保留 `createPosition` 老路（则货基记一笔仍无流水，与 #1233 目标自相矛盾）。
 
 ---
 
@@ -379,7 +382,7 @@ ai_txn / ai_holding / explore
 | `positions` 是否有 `op_type` 列 | **否**（记一笔的 op_type 未落库，仅作提交参数） |
 
 **关键推论**：
-1. **`manual` 已是既有 `source` 取值** → 决策 10 改造后记一笔的 source 仍为 `manual`，**哈希不漂移，无去重风险**。
+1. **`manual` 已是既有 `source` 取值** → 决策 5「记一笔改造」后记一笔的 source 仍为 `manual`，**哈希不漂移，无去重风险**。
 2. `process_buy_or_deposit` 的 source **默认为 `PositionSource.MANUAL`**（`position_service.py:569`），因此**交易导入若不显式传 source，其建出的持仓会被标成 `manual`** → 存量 48 条 `manual` 中可能混杂"真手动记账"与"交易导入默认 manual"，**无法回溯区分**。这正是决策 11 必须正确传递 source 的原因，也是**存量不改写 source** 的依据。
 3. **`positions` 无 `op_type` 列** → 记一笔连"这笔持仓由何种操作产生"都未持久化，数据完整性问题比预估更严重（#1233 价值被进一步印证）。
 
@@ -416,3 +419,4 @@ ai_txn / ai_holding / explore
 
 - 2026-08-31：创建（#1133 讨论 + 专业 Reconciliation 理念 + 三套流程现状调研）。
 - 2026-08-31：小组讨论收敛后**定稿**——替换「开放决策点」为 §11 已拍板清单；修正域 B 算法口径；确定按语义分派既有汇点（不新建调整表）；确定扩展既有 `PositionSource`（不新建枚举）；补充 §12 存量盘点、§13 边界用例、§8 三表 DDL；关联 #1232 / #1233。
+- 2026-08-31：**#1233 落地后实施修正**——勘误「记一笔只建持仓不建流水」为过时描述（实际自 `817f3496b` 起已双写）；将 §10 P0 前置与货基冲突段标注为已完成（PR #1236）；同步 #1232 body 从「开放决策点」升级为「已拍板清单」。
