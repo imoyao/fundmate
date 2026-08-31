@@ -106,6 +106,18 @@
 ### 5.5 审计线索
 所有**用户主动操作**写 `adjustment_logs`（action: `ignore_temporary`/`ignore_permanent`/`supplement`/`adjust`/`cover`）。**系统自动行为不写**（如新 run 重置 pending、差异消失置 cleared），避免淹没审计线索。
 
+**action 语义区分（共用同一张表）**：
+
+| action | 语义 | 适用域 |
+| :-- | :-- | :-- |
+| `cover` | 归因覆盖（删渠道旧 Position、建新 Position） | 域 A |
+| `adjust` | 数量 / 成本直接修正 | 域 B / C |
+| `supplement` | 补录缺失流水 / 期初建仓 | 域 B / C |
+| `ignore_temporary` | 本次忽略（下期重置） | 域 B / C |
+| `ignore_permanent` | 永久忽略（可撤销） | 域 B / C |
+
+> **域 A 现状**：`attribute_holdings`（cover/ignore）目前**不写任何审计表**，仅在 `position_import_meta` 上记录 `is_attributed`/`is_ignored`/`attributed_at`/`attributed_to_ledger_id`——无 before/after 快照、无 reason。迁入工作台时需**新增写入 `adjustment_logs`**，作为对既有 meta 标记的**补充增强**（不替代，meta 标记继续承担防复活职责）。
+
 ### 5.6 对账状态标签
 `cleared`/`uncleared`/`discrepancy`/`ignored`，固定卡片标题行右侧（复用 `AssetTypeBadge`/`TemperatureLevelBadge` 规约）。
 > ⚠️ 与 `watchlist/models.py` 的 `cleared_positions`（探市观测持仓）语义不同，本期不混用。
@@ -113,9 +125,12 @@
 ### 5.7 草稿层（Draft Layer）
 - **底座**：`localforage`（IndexedDB 优先 + TTL）。
 - **key**：`recon-draft:<familyId>`（**全局单槽**，真正"只存一份"）。
-- **payload**：`{ domain, ledgerId, savedAt, rows/previewData, ... }`——**必须带 `domain` 标记**（见 §5.8）。
-- **不存文件二进制**：只存解析结果（恢复后无法重新解析，故行内编辑是刚需；`selectedKeys` 是 `Set`，序列化时转数组）。
+- **payload**：`{ domain, ledgerId, savedAt, currentStep, rows/previewData, ... }`——**必须带 `domain` 标记**（见 §5.8）。
+- **不存文件二进制**：只存解析结果——因此恢复后无法重新解析，行内编辑是刚需。
 - **TTL 7 天** + 「丢弃草稿」入口。
+- **过期范围**：草稿过期**仅影响未提交的编辑态数据**，**不影响**已落库的差异裁决（`discrepancies`）与审计日志（`adjustment_logs`）。
+
+> **实现备注**：`useImportWizard` 的 `selectedKeys` 是 `Set`（不可 JSON 序列化），序列化时需转数组、恢复时转回 `Set`。
 
 ### 5.8 草稿恢复的域路由（关键交互）
 | 场景 | 交互 |
@@ -124,6 +139,13 @@
 | **跨域**草稿 | **弹窗**（不直接跳转）：「你有一份【E账户导入】的草稿（6月1日 14:30，共 23 行）。E账户草稿需要在 E账户导入页继续。」→ 主按钮「前往继续」（确认后跳转）/ 次按钮「放弃这份草稿」 |
 
 > 直接跳转会让用户被"传送"走且丢失当前页状态，违背柔性原则，故跨域必须弹窗确认。
+
+**恢复后的落点（必须统一）**：恢复**直接进入该域草稿对应的预览/编辑步骤**，而非从第一步重来：
+
+- **交易 / 交割单导入**（`useImportWizard`）：恢复至 **Step 2 预览修正**（`currentStep = 2`），回填 `previewData` / `selectedKeys` / **`selectedLedgerId`**。
+  - **必须一并恢复 `selectedLedgerId`**（Step 0 的产出），否则预览页丢失账本上下文。
+  - 因草稿不存文件，**不可**恢复到 Step 1（上传）——该步依赖用户重新选择文件。
+- **E账户导入**（`eaccount-import`）：恢复至预览 / 对账结果步骤（`currentStep = 1`，回填 `previewRows`）。
 
 ---
 
@@ -144,7 +166,15 @@
 - **无流水则 skip**：`upsert_from_holding` 是 SET 语义（覆盖而非累加，**不会"数量翻倍"**）且**绝不调 `TransactionService.create`**。纯快照/E账户模式无流水可推 → **跳过对账，禁止误报**。
 - **孤儿检测限定**：仅当该 `(ledger_id, symbol)` **在 transactions 表存在至少 1 条记录**时才检测；无流水 → skip。
 - **匹配键用 `ledger_id + symbol`**：`Transaction.position_id` 可能为 `None`（孤立流水，`summary_service.py:64`），不能用 position_id 匹配。
-- **孤儿两方向**：① 持仓无流水（仅当该 symbol 完全无 transaction 才报，快照导入走 skip）；② 流水无持仓（理论持仓 > 0 但系统无持仓）——后者才是真孤儿，对齐既有 `entry_status='orphan'` 语义。
+- **孤儿两方向**：① 持仓无流水（**无流水即 skip，不报**）；② 流水无持仓（理论持仓 > 0 但系统无该持仓）——后者才是真孤儿，对齐既有 `entry_status='orphan'` 语义。
+
+> **⚠️ 必须区分「检测范围」与「告警条件」，二者不是一回事**：
+> - **检测范围**（是否纳入计算）：取决于**有无流水**——`(ledger_id, symbol)` 在 transactions 有记录则纳入，无则 skip。
+> - **告警条件**（是否报差异）：取决于**理论持仓 ≠ 实际持仓**。
+>
+> 因此「有流水、且推演结果与持仓一致」的标的**会被检测，但不会告警**——这是正确行为，不是误报。
+>
+> **不可用 `position.source` 判断"是否为纯快照"**：`source` 是**末次来源**语义而非首次来源——`upsert_from_holding` 会 SET 覆盖 `source`（`position_service.py:371/387/408`），且 #928 明确「交割单覆盖手动录」（540-548 行 `if 'source' in data: same.source = data['source']`）。故一个 `source='e_account_holding'` 的持仓**完全可能同时持有流水**（先由交割单导入建仓，后被 E账户快照覆盖）。若用 source 做 skip 判断，会错误放过本应对账的标的。
 
 **成本处理**：**P1 只做数量差异**。理由不是"算法复杂"，而是**口径不可比**——`upsert_from_holding` SET 覆盖 `avg_price`，而 `process_buy_or_deposit` 是加权摊薄，E账户归因成本更是净值近似（设计文档 P3）。对比必然假阳性。
 - 差异详情**只展示当前成本**（`positions.avg_price`）+ 标注「来自最近一次导入/快照（SET 覆盖），非流水推导，本期不参与对账」。
@@ -182,6 +212,8 @@
 | 差异仍存在 | FALSE | 重置为 **pending**（版本化，强迫重新审视） |
 | 差异仍存在 | TRUE | 保持 **ignored**（永久静默） |
 | 差异已消失 | — | 置为 **cleared** |
+
+> 上述状态流转由**系统自动**完成，**不写入 `adjustment_logs`**（仅用户主动操作写审计日志，见 §5.5）。因此用户在审计日志中看不到"被重置"的记录属**预期行为**。
 
 ---
 
@@ -231,6 +263,7 @@ CREATE TABLE reconciliation_runs (
   started_at  TIMESTAMP,
   finished_at TIMESTAMP,
   triggered_by VARCHAR(20),                        -- manual|import|schedule
+                                                   -- import 含「导入完成后自动触发」（域C）
   summary_json TEXT                                -- pending/cleared/ignored 计数
 );
 
@@ -263,7 +296,8 @@ ai_txn / ai_holding / explore
 
 **落地方式**：
 - `positions`：**已有 `source` 列，直接复用**。如需表达"对账补录"，在 `PositionSource` **追加** `RECONCILIATION_ADJUSTMENT = 'reconciliation_adjustment'`（同步加 `POSITION_SOURCE_LABELS` 中文标签）。
-- `transactions`：**新增独立 `source` 列**（不存 `extra` JSON），枚举**复用同一套 `PositionSource`**（命名保持一致，避免两套体系）。
+- `transactions`：**新增独立 `source` 列**（不存 `extra` JSON），**枚举复用同一套 `PositionSource`，不另建枚举**——两表来源标识体系统一，避免"同一个 `manual` 在两表含义不同"的歧义。
+  > 实现上直接 `from app.core.constants import PositionSource` 校验取值。**不建议**为此把 `PositionSource` 重命名为 `DataSource`：会波及全量既有引用，回归风险大于收益；改为在枚举定义处加注释说明「本枚举为全系统来源标识，positions / transactions 共用」。
 - **⚠️ 去重哈希耦合**：`compute_position_hash(source, ledger_id, symbol, snapshot_date)`（`records.py:41-53`）**以 source 为第一维**。因此：
   - **存量记录的 `source` 一律不改**（不回填、不改写），否则 `import_hash` 漂移导致去重/幂等失效；
   - 新枚举值只用于新记录。
@@ -301,6 +335,11 @@ ai_txn / ai_holding / explore
 | **P3** | 识别层（#823/#921/#929/#934/#935）接草稿与对账 | AI 识图/Excel/PDF 落草稿 → 工作台 | 高 |
 
 > 原则：**P0 先打底座**，后续域接入都建立在草稿层 + 统一入口之上，避免各自为政留下 bug。
+
+**#1233 的货基 / 逆回购冲突（已知，方案已定）**：决策要求记一笔货基「保持建持仓」，但 `process_buy_or_deposit` 对 `money_fund`/`reverse_repo` 是「只记资金流水、**不建持仓**且 `return None`」（`position_service.py:457-460`；这是交易导入的既有设计，货基被视为现金转账）。
+
+- **采用方案**：给 `process_buy_or_deposit` 增加可选参数（如 `force_create_position: bool = False`）。交易导入保持默认 `False`（行为完全不变）；**记一笔场景显式传 `True`**，使其在记流水的同时照常建持仓。
+- **不采用**：① 直接改汇点让货基一律建持仓（会破坏交易导入既有行为）；② 为货基记一笔保留 `createPosition` 老路（则货基记一笔仍无流水，与 #1233 目标自相矛盾）。
 
 ---
 
