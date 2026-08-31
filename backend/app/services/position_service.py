@@ -444,9 +444,15 @@ class PositionService:
         return position
 
     @staticmethod
-    def process_buy_or_deposit(db: Session, data: dict) -> Optional[Position]:
+    def process_buy_or_deposit(db: Session, data: dict, force_create_position: bool = False) -> Optional[Position]:
         """
         执行买入或存入操作，返回更新或新建的持仓实例。
+
+        force_create_position（#1233 决策 5「货基/逆回购保持建持仓」）：
+        - 默认 False（交易导入）：money_fund / reverse_repo 只记孤儿资金流水、不建持仓（既有行为，
+          市值由 `orphan_money_fund_net_by_ledger` 按流水净额计入总资产）；
+        - True（记一笔手动记账）：跳过现金转移分支，照常建持仓，流水关联持仓（position_id 非空），
+          不再计入孤儿净额口径（与 summary 不重复计数，见 test_summary_money_fund 的持仓用例）。
         """
         symbol = data.get('symbol', '')
         qty = data.get('quantity', 0)
@@ -454,8 +460,9 @@ class PositionService:
         op_type = data.get('op_type', 'buy')
         asset_type = _get_asset_type(data)
 
-        # 现金管理类产品：只记录流水，不创建持仓
-        if asset_type in ('money_fund', 'reverse_repo'):
+        # 现金管理类产品：只记录流水，不创建持仓（交易导入既有行为；
+        # 记一笔 force_create_position=True 时跳过此分支，走正常建仓逻辑）
+        if asset_type in ('money_fund', 'reverse_repo') and not force_create_position:
             _create_cash_transfer_transaction(db, data, 'buy')
             return None
 
@@ -489,6 +496,11 @@ class PositionService:
         # 校验数量/价格
         qty = data.get('quantity', 0) or 0
         price = data.get('avg_price', 0) or 0
+        # #1233 货基/逆回购手动建仓：净值恒为 1.0，缺失时兜底，
+        # 避免净值接口不可用时用户无法记货基（买入金额 + 份额已足以建仓）。
+        if force_create_position and asset_type in ('money_fund', 'reverse_repo') and not is_balance and price <= 0:
+            price = 1.0
+            data['avg_price'] = 1.0
         if is_balance:
             # balance 模式没有份额/净值概念，只校验金额——市值即由金额累加而来
             if amount <= 0:

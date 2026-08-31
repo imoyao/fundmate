@@ -246,7 +246,9 @@ def create_position():
                 position = PositionService.process_orphan_split(db, data)
             elif op_type in ('buy', 'deposit'):
                 try:
-                    position = PositionService.process_buy_or_deposit(db, data)
+                    # #1233 决策 5：记一笔（手动记账）对货基/逆回购也建持仓，流水关联持仓；
+                    # 交易导入路径不传该参数，保持「只记孤儿资金流水」的既有行为。
+                    position = PositionService.process_buy_or_deposit(db, data, force_create_position=True)
                 except IntegrityError:
                     # 唯一约束冲突（幂等键重复）→ 上抛给外层 except IntegrityError → 409 幂等拦截
                     raise
