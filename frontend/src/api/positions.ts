@@ -99,6 +99,14 @@ export type AllocateValueResult = {
   total_weight_cents: number;
   as_of: string;
   allocations: AllocateValueAllocation[];
+  /**
+   * 上次录入市值之后是否发生过资金进出（申购/赎回/分红）（#1217）。
+   * 为 true 时说明「按既有市值占比」这一分摊基数已不能反映实际持有，
+   * 需要提示用户在下一个开盘日更新其他存量持仓的总价。
+   */
+  cash_flow_detected: boolean;
+  /** 建议更新其他存量持仓的「下一个开盘日」YYYY-MM-DD；无资金进出时为 null */
+  next_trading_day: string | null;
 };
 
 /**

@@ -66,6 +66,8 @@ const editing = ref(false);
 const inputTotal = ref<number | null>(null);
 /** 保存中 */
 const saving = ref(false);
+/** 资金进出提示（#1217）：有资金进出时引导用户在下一个开盘日更新其他存量持仓 */
+const cashFlowHint = ref<string | null>(null);
 
 /** 有来源持仓才允许改总价（后端按各来源既有市值占比分摊） */
 const canEdit = computed(() => sources.value.length > 0);
@@ -113,6 +115,7 @@ watch(
     if (!visible) {
       editing.value = false;
       inputTotal.value = null;
+      cashFlowHint.value = null;
     }
   }
 );
@@ -125,6 +128,7 @@ function startEdit() {
 function cancelEdit() {
   editing.value = false;
   inputTotal.value = null;
+  cashFlowHint.value = null;
 }
 
 async function save() {
@@ -141,7 +145,17 @@ async function save() {
 
   saving.value = true;
   try {
-    await allocateValue({ symbol: props.group.symbol, total_value: total });
+    const res = await allocateValue({
+      symbol: props.group.symbol,
+      total_value: total
+    });
+    const data = res?.data;
+    // #1217：上次录入市值之后若发生过资金进出，「按既有市值占比」这一分摊基数
+    // 已不能反映实际持有，提示用户在下一个开盘日更新其他存量持仓的总价
+    cashFlowHint.value =
+      data?.cash_flow_detected && data?.next_trading_day
+        ? `本次分摊前该账户有资金进出记录，建议在下一个开盘日（${data.next_trading_day}）更新其他存量持仓的总价。`
+        : null;
     ElMessage.success("总价已按占比分摊到各账户");
     editing.value = false;
     emit("saved");
@@ -260,6 +274,12 @@ function fmtShort(d: string | null): string {
             <el-button :disabled="saving" @click="cancelEdit">取消</el-button>
           </div>
         </template>
+      </div>
+
+      <!-- 资金进出提示（#1217）：来自后端的「下一开盘日」建议 -->
+      <div v-if="cashFlowHint" class="cash-flow-hint">
+        <IconifyIconOffline icon="ep:warning-filled" class="hint-icon" />
+        <span class="hint-text">{{ cashFlowHint }}</span>
       </div>
 
       <!-- 四格信息 -->
@@ -497,6 +517,33 @@ function fmtShort(d: string | null): string {
   gap: 8px;
   margin-top: var(--space-4, 16px);
 }
+
+/* ── 资金进出提示（#1217）── */
+.cash-flow-hint {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: var(--space-3, 12px);
+  margin-top: var(--space-4, 16px);
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-tertiary);
+  background: var(--bg-soft, var(--bg-page));
+  border-radius: var(--radius-md);
+}
+
+.hint-icon {
+  flex: none;
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--brand-500, #f69988);
+}
+
+.hint-text {
+  min-width: 0;
+  word-break: break-word;
+}
+
 
 /* ── 四格信息 ── */
 .info-grid {
