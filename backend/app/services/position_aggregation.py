@@ -393,15 +393,20 @@ def aggregate_positions(
     rows, nav_date_global = _collect_rows(session, family_id, asset_types)
 
     # ── fund_type 分布统计（基于全量 rows，不受 keyword/fund_type 筛选影响，
-    #    供前端动态生成类型 Tab：只显示有产品的分类，#1224）──
+    #    供前端动态生成类型 Tab 与资产构成环形图：#1224）──
     fund_type_counts: dict[str, int] = {}
     fund_type_unclassified_count = 0
+    fund_type_breakdown: dict[str, dict] = {}
     for r in rows:
-        ft = r.get('fund_type')
-        if ft:
+        ft = r.get('fund_type') or '未分类'
+        if ft != '未分类':
             fund_type_counts[ft] = fund_type_counts.get(ft, 0) + 1
         else:
             fund_type_unclassified_count += 1
+        item = fund_type_breakdown.setdefault(ft, {'name': ft, 'market_value_cents': 0, 'count': 0})
+        item['market_value_cents'] += r['market_value_cents']
+        item['count'] += 1
+    fund_type_breakdown_list = sorted(fund_type_breakdown.values(), key=lambda x: x['market_value_cents'], reverse=True)
 
     # ── 行级过滤（keyword 模糊 + fund_type 精确）：先于汇总与分页，两维度均生效 ──
     kw = str(keyword or '').strip().lower()
@@ -445,4 +450,6 @@ def aggregate_positions(
         # 🔄 fund_type 分布：供前端动态生成类型 Tab（只显示有产品的分类）
         'fund_type_counts': fund_type_counts,
         'fund_type_unclassified_count': fund_type_unclassified_count,
+        # 🔄 资产构成（按基金类型的市值分布，供环形图/饼图展示占比）
+        'fund_type_breakdown': fund_type_breakdown_list,
     }

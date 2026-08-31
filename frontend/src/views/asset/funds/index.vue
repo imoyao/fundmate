@@ -174,6 +174,7 @@ onMounted(() => load());
       :has-snapshot-gap="hasSnapshotGap"
       :nav-date="navDate"
       :count="total"
+      :type-breakdown="result?.fund_type_breakdown ?? null"
     />
 
     <!-- 检索区：第一行 = 维度切换 + 搜索；第二行 = 类型 Tab + 排序快捷按钮 -->
