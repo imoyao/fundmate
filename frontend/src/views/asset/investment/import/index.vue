@@ -24,7 +24,11 @@ const {
   selectedLedgerId,
   onAiRowsFound,
   devMode,
-  devJump
+  devJump,
+  draftBannerVisible,
+  pendingDraftMeta,
+  restoreDraft,
+  discardCurrentDraft
 } = wizard;
 
 // 调试快进面板：仅开发环境可见；勾选后跳到预览/结果时注入模拟数据
@@ -39,6 +43,29 @@ const withMock = ref(false);
         从券商或表格文件批量导入交易记录，支持自动识别与人工核对。
       </p>
     </header>
+
+    <!-- #1239 草稿层：同域（C）草稿恢复 Banner，不弹窗打断 -->
+    <div
+      v-if="draftBannerVisible && pendingDraftMeta"
+      class="draft-banner"
+      role="alert"
+    >
+      <span class="draft-banner-icon">✎</span>
+      <div class="draft-banner-text">
+        发现{{ pendingDraftMeta.savedAt ? "未完成" : "" }}的导入草稿（{{
+          pendingDraftMeta.rowCount
+        }}
+        条记录），是否继续？
+      </div>
+      <div class="draft-banner-actions">
+        <el-button size="small" type="primary" @click="restoreDraft">
+          恢复草稿
+        </el-button>
+        <el-button size="small" text @click="discardCurrentDraft">
+          丢弃
+        </el-button>
+      </div>
+    </div>
 
     <el-steps
       :active="currentStep"
@@ -114,6 +141,34 @@ const withMock = ref(false);
   margin: 0;
   font-size: var(--text-small);
   color: var(--text-tertiary);
+}
+
+/* #1239 草稿恢复 Banner：中性信息色，非红非弹窗（柔性原则 §2.5） */
+.draft-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  font-size: var(--text-small);
+  color: var(--text-secondary);
+  background: var(--bg-soft);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+}
+
+.draft-banner-icon {
+  font-size: 16px;
+  color: var(--brand-700);
+}
+
+.draft-banner-text {
+  flex: 1;
+}
+
+.draft-banner-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .import-steps {
