@@ -29,7 +29,7 @@ from app.core.symbol_utils import get_normalizer
 from app.core.utils import get_confirm_date
 from app.domains.funds.models import Fund
 from app.domains.ledgers.models import Ledger
-from app.domains.positions.models import Position, PositionImportMeta
+from app.domains.positions.models import Position, PositionImportMeta, resolve_sales_institution_id
 from app.domains.transactions.models import Transaction
 from app.services.async_backfill import trigger_backfill
 from app.services.importer.records import compute_position_hash
@@ -434,6 +434,7 @@ class PositionService:
         meta_row.market_value = (
             Money.yuan_to_cents(meta['market_value']) if meta.get('market_value') is not None else None
         )
+        meta_row.sales_institution_id = resolve_sales_institution_id(db, data.get('source_broker'))
         db.flush()
 
         try:
