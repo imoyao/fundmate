@@ -586,6 +586,60 @@ def _upsert_snapshot(db: Session, *, family_id: int, ledger_id: int | None, snap
     return row
 
 
+def family_pnl_cents(db: Session, family_id: int = 1) -> dict[str, int]:
+    """家庭级三段盈亏（分），口径与 pnl_service 一致，供家庭级快照落库（#1220）。
+
+    realized    = 全流水 realized_pnl 合计（含已清仓持仓结转与孤儿分红）；
+    unrealized  = 各 active 持仓（市值 − 成本基数）之和；
+    total       = realized + unrealized。
+    """
+    positions, _ = _load_user_assets(db, family_id)
+    realized_map = realized_pnl_by_position(db, family_id)
+    invested_map = net_invested_by_position(db, family_id)
+    unrealized = 0
+    for p in positions:
+        rate = EXCHANGE_RATES.get(p.currency, 1.0)
+        unrealized += position_pnl_cents(
+            p,
+            rate=rate,
+            realized_cents=realized_map.get(p.id, 0),
+            net_invested=invested_map.get(p.id, 0),
+        )['unrealized_pnl_cents']
+    realized = family_realized_pnl_cents(db, family_id)
+    return {
+        'realized_pnl_cents': realized,
+        'unrealized_pnl_cents': unrealized,
+        'total_pnl_cents': realized + unrealized,
+    }
+
+
+def get_ledger_pnl(db: Session, family_id: int = 1) -> dict[int, dict[str, int]]:
+    """按账户聚合三段盈亏（分），供账户级快照落库（#1220）。
+
+    口径与 get_ledger_distributions 严格对齐：仅遍历 active 持仓，按 ledger_id 归组；
+    无账户归属归哨兵键 0（不单独立行）。已实现盈亏取自该账户 active 持仓的流水结转。
+    """
+    positions, _ = _load_user_assets(db, family_id)
+    realized_map = realized_pnl_by_position(db, family_id)
+    invested_map = net_invested_by_position(db, family_id)
+    totals: dict[int, dict[str, int]] = {}
+    for p in positions:
+        rate = EXCHANGE_RATES.get(p.currency, 1.0)
+        pnl = position_pnl_cents(
+            p,
+            rate=rate,
+            realized_cents=realized_map.get(p.id, 0),
+            net_invested=invested_map.get(p.id, 0),
+        )
+        key = p.ledger_id or 0
+        bucket = totals.setdefault(key, {'realized_pnl_cents': 0, 'unrealized_pnl_cents': 0})
+        bucket['realized_pnl_cents'] += pnl['realized_pnl_cents']
+        bucket['unrealized_pnl_cents'] += pnl['unrealized_pnl_cents']
+    for b in totals.values():
+        b['total_pnl_cents'] = b['realized_pnl_cents'] + b['unrealized_pnl_cents']
+    return totals
+
+
 def write_asset_snapshot(db: Session, family_id: int = 1, snapshot_date: str | None = None) -> dict[str, Any]:
     """记录当日资产快照（幂等 upsert）。
 
@@ -600,14 +654,19 @@ def write_asset_snapshot(db: Session, family_id: int = 1, snapshot_date: str | N
         target = datetime.strptime(snapshot_date, '%Y-%m-%d').date()
 
     dist = get_distributions(db, family_id)
+    family_pnl = family_pnl_cents(db, family_id)
 
-    # 家庭级快照（ledger_id 为 NULL）：既有行为，支撑总资产走势
+    # 家庭级快照（ledger_id 为 NULL）：既有行为，支撑总资产走势 + 盈亏序列
     family_row = _upsert_snapshot(db, family_id=family_id, ledger_id=None, snapshot_date=target)
     family_row.total_assets = Money.yuan_to_cents(dist['total_assets'])
     family_row.total_liabilities = Money.yuan_to_cents(dist['total_liabilities'])
     family_row.net_worth = Money.yuan_to_cents(dist['net_worth'])
+    family_row.realized_pnl_cents = family_pnl['realized_pnl_cents']
+    family_row.unrealized_pnl_cents = family_pnl['unrealized_pnl_cents']
+    family_row.total_pnl_cents = family_pnl['total_pnl_cents']
 
     # 账户级快照（#1181）：同一天为每个有数据的账户各落一行，支撑账户维度走势
+    ledger_pnl = get_ledger_pnl(db, family_id)
     for ledger_id, totals in get_ledger_distributions(db, family_id).items():
         if not ledger_id:
             # 哨兵键 0 = 无账户归属（游离资产/持仓）。0 不是合法账户 id，落行会
@@ -617,6 +676,13 @@ def write_asset_snapshot(db: Session, family_id: int = 1, snapshot_date: str | N
         row.total_assets = Money.yuan_to_cents(totals['total_assets'])
         row.total_liabilities = Money.yuan_to_cents(totals['total_liabilities'])
         row.net_worth = Money.yuan_to_cents(totals['net_worth'])
+        lp = ledger_pnl.get(
+            ledger_id,
+            {'realized_pnl_cents': 0, 'unrealized_pnl_cents': 0, 'total_pnl_cents': 0},
+        )
+        row.realized_pnl_cents = lp['realized_pnl_cents']
+        row.unrealized_pnl_cents = lp['unrealized_pnl_cents']
+        row.total_pnl_cents = lp['total_pnl_cents']
 
     db.commit()
     return _snapshot_payload(family_row)
@@ -631,6 +697,9 @@ def _snapshot_payload(s: AssetSnapshot) -> dict[str, Any]:
         'total_assets': round(Money.cents_to_yuan(s.total_assets), 2),
         'total_liabilities': round(Money.cents_to_yuan(s.total_liabilities), 2),
         'net_worth': round(Money.cents_to_yuan(s.net_worth), 2),
+        'realized_pnl': round(Money.cents_to_yuan(s.realized_pnl_cents), 2),
+        'unrealized_pnl': round(Money.cents_to_yuan(s.unrealized_pnl_cents), 2),
+        'total_pnl': round(Money.cents_to_yuan(s.total_pnl_cents), 2),
     }
 
 
