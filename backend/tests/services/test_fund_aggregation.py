@@ -271,3 +271,29 @@ def test_fund_aggregation_fund_type_counts(client, db):
     data = client.get('/api/ledgers/fund-aggregation/?dimension=product').get_json()['data']
     assert data['fund_type_counts'] == {'股票型': 2, '混合型': 1}
     assert data['fund_type_unclassified_count'] == 1
+
+
+def test_fund_aggregation_fund_type_breakdown(client, db):
+    """返回 fund_type_breakdown（按类型市值分布），供资产构成环形图展示占比（#1224）。"""
+    ft_stock = _make_fund_type(db, '股票型')
+    ft_mixed = _make_fund_type(db, '混合型')
+    _make_fund_record(db, '000001', '基金A', fund_type_id=ft_stock.id)
+    _make_fund_record(db, '000002', '基金B', fund_type_id=ft_stock.id)
+    _make_fund_record(db, '000003', '基金C', fund_type_id=ft_mixed.id)
+    # 999999 未收录 → 未分类
+
+    l1 = _make_fund_ledger(db, '支付宝')
+    _make_fund_position(db, l1, '000001', '基金A', 100 * 10000, 10 * 10000)  # 1000 元
+    _make_fund_position(db, l1, '000002', '基金B', 200 * 10000, 10 * 10000)  # 2000 元
+    _make_fund_position(db, l1, '000003', '基金C', 50 * 10000, 10 * 10000)  # 500 元
+    _make_fund_position(db, l1, '999999', '手动录入', 30 * 10000, 10 * 10000)  # 300 元
+    db.commit()
+
+    data = client.get('/api/ledgers/fund-aggregation/?dimension=product').get_json()['data']
+    bd = data['fund_type_breakdown']
+    # 按市值降序：股票型(3000元) > 混合型(500元) > 未分类(300元)
+    assert [x['name'] for x in bd] == ['股票型', '混合型', '未分类']
+    assert bd[0]['market_value_cents'] == 3000 * 100
+    assert bd[0]['count'] == 2
+    assert bd[2]['name'] == '未分类'
+    assert bd[2]['market_value_cents'] == 300 * 100

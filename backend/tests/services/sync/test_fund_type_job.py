@@ -43,6 +43,13 @@ class TestFundTypeResolver:
         ftype = db.query(FundType).filter_by(name='指数型-股票').first()
         assert ftype.variety_id == variety_id
 
+    def test_resolve_banned_type_returns_none(self, db):
+        """黑名单脏类型（如「基金型」）不创建任何记录，返回 (None, None)（#1224）。"""
+        type_id, variety_id = FundTypeResolver(db).resolve('基金型')
+        assert type_id is None and variety_id is None
+        assert db.query(FundType).filter_by(name='基金型').first() is None
+        assert db.query(FundVariety).filter_by(name='基金型').first() is None
+
 
 class TestFundTypeSyncJob:
     @pytest.fixture
