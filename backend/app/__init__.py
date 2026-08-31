@@ -13,15 +13,9 @@ from app.core.requests_patch import install_requests_patch
 
 install_requests_patch()
 
-# 防御性限速：降低单 IP 请求频率，缓解东财按 IP 限流/临时封。
-# request_interval=3 表示相邻请求至少间隔 3 秒；use_thread=False 避免并发连接触发风控。
-try:
-    import akshare as ak
-
-    ak.set_option('request_interval', 3)
-    ak.set_option('use_thread', False)
-except Exception:  # pragma: no cover - 仅在缺 akshare 时跳过，不影响启动
-    pass
+# akshare 全局限速配置（request_interval=3 / use_thread=False）已下沉到
+# app.core.akshare_lazy.get_akshare()，在首次真正使用 akshare 时才加载并应用，
+# 避免应用启动期就 import akshare（约 3s），从而加快 flask reloader 的重载速度。
 
 
 class InterceptHandler(logging.Handler):

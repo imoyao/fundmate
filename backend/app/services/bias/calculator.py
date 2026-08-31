@@ -47,9 +47,6 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-import akshare as ak
-import numpy as np
-import pandas as pd
 from loguru import logger
 
 # 全局请求补丁：确保即使本模块被单独 import（如单测）也自动启用东财友好会话；
@@ -92,6 +89,9 @@ def logbias(close: List[float]) -> float:
     Raises:
         RuntimeError: 数据不足时抛出
     """
+    import numpy as np
+    import pandas as pd
+
     arr = np.asarray(close, dtype=float)
     if len(arr) < BIAS_PERIOD:
         raise RuntimeError(f'数据不足{BIAS_PERIOD}日(仅{len(arr)}日)')
@@ -287,6 +287,10 @@ class PriceFetcher:
 
     def _fetch_akshare(self, symbol: str, item_type: str):
         """akshare 兜底（东财后端）：场外基金/直连失败时使用，保留重试退避。"""
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+
         end_date = datetime.now().strftime('%Y%m%d')
         start_date = (datetime.now() - timedelta(days=self.days + 10)).strftime('%Y%m%d')
 
@@ -363,6 +367,9 @@ class BiasCalculator:
         Returns:
             BiasResult 或 None（计算失败时）
         """
+        import numpy as np
+        import pandas as pd
+
         close = self.fetcher.fetch(symbol, item_type)
         if close is None:
             return None

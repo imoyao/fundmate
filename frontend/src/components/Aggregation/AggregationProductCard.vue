@@ -2,7 +2,7 @@
 import { computed } from "vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
-import { formatQuantity, formatPercent } from "@/utils/format";
+import { formatQuantity } from "@/utils/format";
 import type { AggregationProductGroup, AggregationSource } from "@/api/ledger";
 
 /**
@@ -93,11 +93,35 @@ const nav = computed(() => {
   return props.group?.nav_yuan ?? null;
 });
 
-/** 占总资产比例（百分比，如 8.52%） */
-const ratioPercent = computed(() => {
-  if (!props.totalYuan || props.totalYuan <= 0 || marketValueYuan.value <= 0)
-    return null;
-  return marketValueYuan.value / props.totalYuan;
+/** 持仓收益率（小数，如 0.079 → 7.90%）；无成本（后端 return_pct 为 null）时显示 -- */
+const returnPct = computed<number | null>(() => {
+  if (isInstitution.value) return props.source?.return_pct ?? null;
+  return props.group?.return_pct ?? null;
+});
+
+/** 收益率文本（带正负号，如 "+7.90%"） */
+const returnText = computed(() => {
+  const v = returnPct.value;
+  if (v == null) return "--";
+  const sign = v >= 0 ? "+" : "";
+  return `${sign}${(v * 100).toFixed(2)}%`;
+});
+
+/** 收益率胶囊语义：正收益涨色 / 负收益跌色 / 无成本中性 */
+const returnClass = computed(() => {
+  const v = returnPct.value;
+  if (v == null || v === 0) return "return-badge--flat";
+  return v > 0 ? "return-badge--positive" : "return-badge--negative";
+});
+
+/** 多渠道持有 tooltip 明细（对齐「N 个账户」弱化为图标的诉求） */
+const channelTooltip = computed(() => {
+  if (isInstitution.value) return "";
+  const names = (props.group?.sources ?? [])
+    .map(s => s.ledger_name)
+    .filter(Boolean);
+  const base = `该基金分散在 ${channelCount.value} 个账户持有`;
+  return names.length ? `${base}：${names.join("、")}` : base;
 });
 
 /** 显示用的快照日期（格式化后） */
@@ -157,7 +181,7 @@ function handleClick() {
       </p>
     </div>
 
-    <!-- 主指标行：资产金额（锚点）+ 占比 -->
+    <!-- 主指标行：资产金额（锚点）+ 收益率胶囊（罗列页扫视核心） -->
     <div class="metric-primary">
       <div class="primary-amount">
         <MoneyDisplay
@@ -167,9 +191,7 @@ function handleClick() {
           :auto-color="false"
         />
       </div>
-      <div v-if="ratioPercent != null" class="primary-ratio">
-        {{ formatPercent(ratioPercent) }}
-      </div>
+      <span class="return-badge" :class="returnClass">{{ returnText }}</span>
     </div>
 
     <!-- 辅助信息行：份额 / 净值 左右对等分布 -->
@@ -195,8 +217,12 @@ function handleClick() {
         {{ displayDate }}
       </span>
       <span v-if="multiChannelHint" class="foot-item foot-hint">
-        <IconifyIconOffline icon="ep:wallet" class="foot-icon" />
-        {{ channelCount }} 个账户
+        <el-tooltip :content="channelTooltip" placement="top">
+          <span class="foot-channel">
+            <IconifyIconOffline icon="ep:wallet" class="foot-icon" />
+            {{ channelCount }} 账户
+          </span>
+        </el-tooltip>
       </span>
     </div>
   </div>
@@ -255,10 +281,10 @@ function handleClick() {
 
 .product-name {
   overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 15px;
   font-weight: 600;
   color: var(--text-primary);
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -296,15 +322,16 @@ function handleClick() {
 /* ── 主指标行：资产金额 + 占比（视觉锚点）── */
 .metric-primary {
   display: flex;
+  gap: 12px;
   align-items: baseline;
   justify-content: space-between;
-  gap: 12px;
   padding-top: var(--space-3, 12px);
   border-top: 1px solid var(--border-subtle, var(--border-light));
 }
 
 .primary-amount {
   min-width: 0;
+
   /* 资产金额用品牌强调色，与 Hero 区呼应 */
 }
 
@@ -314,28 +341,46 @@ function handleClick() {
   color: var(--brand-600, #f06b57) !important;
 }
 
-.primary-ratio {
+/* 收益率胶囊：涨跌语义走 design.md「收益率标签」规范（涨 brand-100 底 + 跌 #F0F9F2 底） */
+.return-badge {
   flex-shrink: 0;
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--brand-600, #f06b57);
+  padding: 2px 10px;
+  font-size: 13px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
+  line-height: 1.6;
+  border-radius: var(--radius-pill);
 }
 
-/* ── 辅助信息行：份额 / 净值 左右对等分布 ── */
+.return-badge--positive {
+  color: var(--color-rise);
+  background: var(--brand-100);
+}
+
+.return-badge--negative {
+  color: #38a354;
+  background: #f0f9f2;
+}
+
+.return-badge--flat {
+  color: var(--text-tertiary);
+  background: var(--bg-soft);
+}
+
+/* ── 辅助信息行：份额 / 净值 左右对等分布（次级信息，整体弱化）── */
 .metric-secondary {
   display: flex;
+  gap: var(--space-3, 12px);
   align-items: baseline;
   justify-content: space-between;
-  gap: var(--space-3, 12px);
-  font-size: 12px;
-  color: var(--text-secondary);
+  font-size: 11px;
+  color: var(--text-tertiary);
 }
 
 .secondary-item {
   display: inline-flex;
-  align-items: baseline;
   gap: 4px;
+  align-items: baseline;
   min-width: 0;
 }
 
@@ -347,17 +392,17 @@ function handleClick() {
 
 .secondary-label {
   flex: none;
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-tertiary);
   white-space: nowrap;
 }
 
 .secondary-value {
   overflow: hidden;
+  text-overflow: ellipsis;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  color: var(--text-secondary);
-  text-overflow: ellipsis;
+  color: var(--text-tertiary);
   white-space: nowrap;
 }
 
@@ -371,9 +416,9 @@ function handleClick() {
   gap: 12px;
   align-items: center;
   padding-top: var(--space-2, 8px);
-  border-top: 1px solid var(--border-subtle, var(--border-light));
   font-size: 11px;
   color: var(--text-tertiary);
+  border-top: 1px solid var(--border-subtle, var(--border-light));
 }
 
 .foot-item {
@@ -389,5 +434,9 @@ function handleClick() {
 
 .foot-hint {
   margin-left: auto;
+}
+
+.foot-channel {
+  cursor: help;
 }
 </style>

@@ -88,6 +88,8 @@ export function getPositionGroups(dimension: GroupDimension) {
 /** 资产快照单条（金额元；同比百分比后端计算，无历史为 null） */
 export type AssetSnapshotItem = {
   id: number;
+  /** 账户ID；null=家庭级快照，非 null=该账户的账户级快照（#1181） */
+  ledger_id: number | null;
   snapshot_date: string;
   total_assets: number;
   total_liabilities: number;
@@ -107,10 +109,15 @@ export function postSnapshot(snapshot_date?: string) {
   );
 }
 
-/** 查询资产快照列表（升序，含同比；可选 start_date/end_date 闭区间） */
+/**
+ * 查询资产快照列表（升序，含同比；可选 start_date/end_date 闭区间）
+ *
+ * #1181：传 ledger_id 返回该账户的账户级序列；不传返回家庭级序列（既有行为）。
+ */
 export function getSnapshots(params?: {
   start_date?: string;
   end_date?: string;
+  ledger_id?: number;
 }) {
   return http.request<ApiResponse<AssetSnapshotItem[]>>(
     "get",

@@ -259,8 +259,10 @@ def _aggregation_args() -> dict:
 
     - dimension：'product'（默认）| 'institution'。原 'app'（交易前端）维度已收敛去掉——
       其本质即销售机构、与 institution 重复；传入时静默降级为 institution，保证旧链接不报错。
-    - sort：'market_value'（默认）| 'quantity' | 'name' | 'symbol'。
+    - sort：'market_value'（默认）| 'quantity' | 'name' | 'symbol' | 'return_pct'。
     - order：'desc'（默认）| 'asc'。
+    - keyword：名称/代码模糊搜索。
+    - fund_type：基金小类名精确筛选；'__none__' 表示筛选「未分类」。
     """
     dimension = request.args.get('dimension', 'product')
     if dimension == 'app':
@@ -273,6 +275,8 @@ def _aggregation_args() -> dict:
         'order': request.args.get('order', 'desc'),
         'page': request.args.get('page', 1, type=int),
         'page_size': request.args.get('page_size', DEFAULT_PAGE_SIZE, type=int),
+        'keyword': request.args.get('keyword', '').strip() or None,
+        'fund_type': request.args.get('fund_type', '').strip() or None,
     }
 
 

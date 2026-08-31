@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed } from "vue";
-import { ElDrawer } from "element-plus";
+import { computed, ref, watch } from "vue";
+import { ElDrawer, ElMessage } from "element-plus";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import { formatQuantity } from "@/utils/format";
 import type { AggregationProductGroup, AggregationSource } from "@/api/ledger";
+import { allocateValue } from "@/api/positions";
 
 /**
  * 产品详情抽屉（#1133，对齐参考截图3/4）。
@@ -35,6 +36,8 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   (e: "update:modelValue", value: boolean): void;
+  /** 总价分摊保存成功；调用方需刷新聚合数据（#1176） */
+  (e: "saved"): void;
 }>();
 
 /** 汇总份额 */
@@ -55,6 +58,99 @@ const dividendPref = computed(() => props.group?.dividend_preference ?? null);
 const sources = computed<AggregationSource[]>(() => props.group?.sources ?? []);
 /** 是否多渠道持有 */
 const multiChannel = computed(() => sources.value.length > 1);
+
+// ── 产品维度改总价 + 按占比分摊（#1176）──
+/** 是否处于编辑态 */
+const editing = ref(false);
+/** 编辑中的产品总价（元） */
+const inputTotal = ref<number | null>(null);
+/** 保存中 */
+const saving = ref(false);
+
+/** 有来源持仓才允许改总价（后端按各来源既有市值占比分摊） */
+const canEdit = computed(() => sources.value.length > 0);
+/** 各账户既有市值合计（分），即分摊分母 */
+const totalWeightCents = computed(() =>
+  sources.value.reduce((sum, s) => sum + (s.market_value_cents || 0), 0)
+);
+
+/**
+ * 分摊预览：与后端 value_allocation_service **同一算法**
+ * （按既有市值占比 → 整数分四舍五入 → 尾差归占比最大一笔），
+ * 保证预览值之和严格等于输入总价，与保存后的真实落库结果一致。
+ */
+const previewRows = computed(() => {
+  const total = Number(inputTotal.value);
+  const weight = totalWeightCents.value;
+  if (!weight || !Number.isFinite(total) || total <= 0) return [];
+
+  const totalCents = Math.round(total * 100);
+  const weights = sources.value.map(s => s.market_value_cents || 0);
+  const allocs = weights.map(w => Math.round((w * totalCents) / weight));
+
+  const diff = totalCents - allocs.reduce((a, b) => a + b, 0);
+  if (diff !== 0) {
+    allocs[weights.indexOf(Math.max(...weights))] += diff;
+  }
+
+  return sources.value.map((s, i) => ({
+    key: `${s.ledger_id}-${i}`,
+    name: s.ledger_name || s.institution_name || "未关联账户",
+    ratioText: `${((allocs[i] / totalCents) * 100).toFixed(1)}%`,
+    allocatedYuan: allocs[i] / 100
+  }));
+});
+
+/** 预览合计（元），恒等于输入总价（尾差已归集） */
+const previewSumYuan = computed(() =>
+  previewRows.value.reduce((sum, r) => sum + r.allocatedYuan, 0)
+);
+
+// 抽屉关闭时复位编辑态，避免下次打开残留上次的输入
+watch(
+  () => props.modelValue,
+  visible => {
+    if (!visible) {
+      editing.value = false;
+      inputTotal.value = null;
+    }
+  }
+);
+
+function startEdit() {
+  inputTotal.value = Number(totalYuan.value.toFixed(2));
+  editing.value = true;
+}
+
+function cancelEdit() {
+  editing.value = false;
+  inputTotal.value = null;
+}
+
+async function save() {
+  const total = Number(inputTotal.value);
+  if (!props.group?.symbol) return;
+  if (!Number.isFinite(total) || total <= 0) {
+    ElMessage.warning("请输入大于 0 的产品总价");
+    return;
+  }
+  if (totalWeightCents.value <= 0) {
+    ElMessage.warning("当前各账户市值均为 0，无法按比例分摊，请先录入市值");
+    return;
+  }
+
+  saving.value = true;
+  try {
+    await allocateValue({ symbol: props.group.symbol, total_value: total });
+    ElMessage.success("总价已按占比分摊到各账户");
+    editing.value = false;
+    emit("saved");
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.message || "分摊失败，请稍后重试");
+  } finally {
+    saving.value = false;
+  }
+}
 
 function close() {
   emit("update:modelValue", false);
@@ -88,20 +184,82 @@ function fmtShort(d: string | null): string {
     </template>
 
     <div v-if="group" class="detail-body">
-      <!-- 大数字锚点 -->
+      <!-- 大数字锚点（#1176：可就地改产品总价并按占比分摊） -->
       <div class="amount-anchor">
-        <el-tooltip
-          placement="top-start"
-          content="资产情况为当前持有份额 × 最新参考净值"
-        >
-          <div class="amount-label">资产情况(元)</div>
-        </el-tooltip>
+        <div class="amount-head">
+          <el-tooltip
+            placement="top-start"
+            content="资产情况为当前持有份额 × 最新参考净值"
+          >
+            <div class="amount-label">资产情况(元)</div>
+          </el-tooltip>
+          <el-button
+            v-if="!editing && canEdit"
+            link
+            type="primary"
+            class="edit-btn"
+            @click="startEdit"
+          >
+            更新总价
+          </el-button>
+        </div>
+
+        <!-- 只读态 -->
         <MoneyDisplay
+          v-if="!editing"
           :value="totalYuan"
           size="xl"
           :show-sign="false"
           :auto-color="false"
         />
+
+        <!-- 编辑态：改总价 → 按各账户既有市值占比实时预览 → 保存落库 -->
+        <template v-else>
+          <el-input-number
+            v-model="inputTotal"
+            class="total-input"
+            :min="0.01"
+            :precision="2"
+            :step="100"
+            :controls="false"
+            placeholder="请输入产品总价"
+          />
+          <p class="edit-hint">
+            修改后将按各账户<strong>当前市值占比</strong>自动分摊（整数分，尾差归占比最大的一笔）
+          </p>
+
+          <div v-if="previewRows.length" class="preview-block">
+            <div class="preview-head">
+              <span class="preview-title">分摊预览</span>
+              <span class="preview-sum">
+                合计
+                <MoneyDisplay
+                  :value="previewSumYuan"
+                  size="sm"
+                  :show-sign="false"
+                  :auto-color="false"
+                />
+              </span>
+            </div>
+            <div v-for="row in previewRows" :key="row.key" class="preview-row">
+              <span class="preview-name" :title="row.name">{{ row.name }}</span>
+              <span class="preview-ratio">{{ row.ratioText }}</span>
+              <MoneyDisplay
+                :value="row.allocatedYuan"
+                size="sm"
+                :show-sign="false"
+                :auto-color="false"
+              />
+            </div>
+          </div>
+
+          <div class="edit-actions">
+            <el-button type="primary" :loading="saving" @click="save">
+              保存
+            </el-button>
+            <el-button :disabled="saving" @click="cancelEdit">取消</el-button>
+          </div>
+        </template>
       </div>
 
       <!-- 四格信息 -->
@@ -248,9 +406,96 @@ function fmtShort(d: string | null): string {
   border-bottom: 1px solid var(--border-light);
 }
 
+/* 标签与「更新总价」入口同一行，右侧对齐 */
+.amount-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
 .amount-label {
   font-size: 13px;
   color: var(--text-secondary);
+}
+
+.edit-btn {
+  flex: none;
+  padding: 0;
+  font-size: 13px;
+}
+
+/* ── 编辑态：改总价 + 分摊预览（#1176）── */
+.total-input {
+  width: 100%;
+  margin-top: 4px;
+}
+
+.edit-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-tertiary);
+}
+
+.preview-block {
+  padding: var(--space-3, 12px);
+  margin-top: var(--space-3, 12px);
+  background: var(--bg-soft, var(--bg-page));
+  border-radius: var(--radius-md);
+}
+
+.preview-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.preview-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.preview-sum {
+  display: inline-flex;
+  gap: 4px;
+  align-items: baseline;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.preview-row {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-size: 13px;
+}
+
+.preview-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.preview-ratio {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-tertiary);
+}
+
+.edit-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: var(--space-4, 16px);
 }
 
 /* ── 四格信息 ── */
@@ -294,6 +539,7 @@ function fmtShort(d: string | null): string {
   flex: none;
   font-size: 14px;
   color: var(--brand-500, #f69988);
+
   /* 与文字基线对齐（图标为 inline-block，需手动微调） */
   transform: translateY(1px);
 }

@@ -465,7 +465,8 @@ export function updateLedgerTransaction(
 export type AggregationDimension = "product" | "institution";
 
 /** 聚合排序字段（后端白名单校验，勿传其它值） */
-export type AggregationSort = "market_value" | "quantity" | "name" | "symbol";
+export type AggregationSort =
+  "market_value" | "quantity" | "name" | "symbol" | "return_pct";
 
 /** 聚合查询参数 */
 export interface AggregationQuery {
@@ -476,6 +477,10 @@ export interface AggregationQuery {
   page?: number;
   /** 每页条数；传 0 或负数表示不分页（返回全量） */
   page_size?: number;
+  /** 名称/代码模糊搜索 */
+  keyword?: string;
+  /** 基金小类名精确筛选；'__none__' 表示「未分类」 */
+  fund_type?: string;
 }
 
 /** 聚合来源项：product 维度的 sources 与 institution 维度的 items 共用同一形状 */
@@ -496,6 +501,14 @@ export interface AggregationSource {
   quantity: number;
   /** 参考净值（元，后端已由 0.0001 元单位换算） */
   nav_yuan?: number | null;
+  /** 基金小类名（股票型/混合型/债券型等；未收录为 null，展示「未分类」） */
+  fund_type?: string | null;
+  /** 成本（分，整数） */
+  cost_cents?: number;
+  /** 持仓盈亏（分，整数，= 市值 - 成本） */
+  pnl_cents?: number;
+  /** 持仓收益率（0.25 表示 25%）；无成本时为 null */
+  return_pct?: number | null;
   /** 份额日期 / 快照日期 YYYY-MM-DD（导入对账日期；非快照导入时为 null） */
   snapshot_date?: string | null;
   /** 基金管理人（快照导入溯源字段） */
@@ -518,6 +531,14 @@ export interface AggregationProductGroup {
   quantity: number;
   /** 参考净值（元） */
   nav_yuan?: number | null;
+  /** 基金小类名（股票型/混合型等；未收录为 null，展示「未分类」） */
+  fund_type?: string | null;
+  /** 成本合计（分，整数） */
+  cost_cents?: number;
+  /** 持仓盈亏合计（分，整数） */
+  pnl_cents?: number;
+  /** 持仓收益率（0.25 表示 25%）；无成本时为 null */
+  return_pct?: number | null;
   /** 份额日期：取该分组下最早的一笔，代表数据最滞后的部分 */
   snapshot_date?: string | null;
   /** 基金管理人 */
@@ -537,6 +558,12 @@ export interface AggregationInstitutionGroup {
   institution_name: string;
   /** 市值（分，整数） */
   market_value_cents: number;
+  /** 成本合计（分，整数） */
+  cost_cents?: number;
+  /** 持仓盈亏合计（分，整数） */
+  pnl_cents?: number;
+  /** 持仓收益率；无成本时为 null */
+  return_pct?: number | null;
   items: AggregationSource[];
 }
 

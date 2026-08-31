@@ -39,6 +39,10 @@ export function useAggregation(
   const order = ref<"asc" | "desc">("desc");
   const page = ref(1);
   const pageSize = ref(options.pageSize ?? 20);
+  /** 名称/代码模糊搜索词（防抖触发请求） */
+  const keyword = ref("");
+  /** 基金小类名筛选；''=全部，'__none__'=未分类 */
+  const fundType = ref("");
 
   const result = ref<AggregationResult | null>(null);
   const loading = ref(false);
@@ -145,7 +149,9 @@ export function useAggregation(
         sort: sort.value,
         order: order.value,
         page: page.value,
-        page_size: pageSize.value
+        page_size: pageSize.value,
+        keyword: keyword.value.trim() || undefined,
+        fund_type: fundType.value || undefined
       });
       result.value = (res?.data as AggregationResult) ?? null;
     } catch (e: any) {
@@ -201,12 +207,33 @@ export function useAggregation(
     void load();
   }
 
+  /** 关键词搜索：300ms 防抖，避免逐字打请求 */
+  let keywordTimer: ReturnType<typeof setTimeout> | null = null;
+  function setKeyword(value: string) {
+    keyword.value = value;
+    if (keywordTimer) clearTimeout(keywordTimer);
+    keywordTimer = setTimeout(() => {
+      page.value = 1;
+      void load();
+    }, 300);
+  }
+
+  /** 切换基金类型筛选：立即生效并回到第一页 */
+  function setFundType(value: string) {
+    if (fundType.value === value) return;
+    fundType.value = value;
+    page.value = 1;
+    void load();
+  }
+
   return {
     dimension,
     sort,
     order,
     page,
     pageSize,
+    keyword,
+    fundType,
     result,
     loading,
     showSkeleton,
@@ -223,6 +250,8 @@ export function useAggregation(
     load,
     setDimension,
     setSort,
-    setPage
+    setPage,
+    setKeyword,
+    setFundType
   };
 }

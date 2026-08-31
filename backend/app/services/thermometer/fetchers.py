@@ -51,8 +51,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
-import akshare as ak
-import pandas as pd
 import requests
 from loguru import logger
 
@@ -584,6 +582,12 @@ class SelfCalcFetcher(BaseFetcher):
             CACHE_KEY = 'self_calc_data'
 
             def _producer():
+                from app.core.akshare_lazy import get_akshare
+
+                ak = get_akshare()
+
+                import pandas as pd
+
                 # 1. 沪深300 PE（滚动市盈率）
                 pe_df = ak.stock_index_pe_lg(symbol='沪深300')
                 if pe_df is None or pe_df.empty:
