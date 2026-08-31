@@ -51,3 +51,26 @@ class AssetSnapshot(Base, PrimaryKeyMixin, TimestampMixin):
     total_assets = Column(Integer, nullable=False, comment='总资产（分）')
     total_liabilities = Column(Integer, nullable=False, comment='总负债（分）')
     net_worth = Column(Integer, nullable=False, comment='净资产（分）')
+    # #1220：盈亏时间序列（整数分），与 pnl_service 口径一致，复用同一张表
+    # （家庭级 ledger_id IS NULL 与账户级 ledger_id=N 同行，杜绝口径分叉）。
+    realized_pnl_cents = Column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default=text('0'),
+        comment='已实现盈亏（分）：卖出结转+现金分红，以流水为事实源',
+    )
+    unrealized_pnl_cents = Column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default=text('0'),
+        comment='未实现盈亏（分）：市值−成本基数',
+    )
+    total_pnl_cents = Column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default=text('0'),
+        comment='总盈亏（分）=已实现+未实现，与 XIRR 现金流口径一致',
+    )
