@@ -31,6 +31,7 @@ from app.domains.ocr.views import ocr_bp  # noqa: E402
 from app.domains.performance.views import bp as performance_bp  # noqa: E402
 from app.domains.portfolios.views import portfolios_bp  # noqa: E402
 from app.domains.positions.views import bp as positions_bp  # noqa: E402
+from app.domains.reconciliation.views import bp as reconciliation_bp  # noqa: E402
 from app.domains.securities.views import bp as securities_bp  # noqa: E402
 from app.domains.strategy.views import strategy_bp  # noqa: E402
 from app.domains.summary.views import bp as summary_bp  # noqa: E402
@@ -82,6 +83,7 @@ def create_app() -> APIFlask:
     app.register_blueprint(thermometer_bp)
     app.register_blueprint(users_bp)
     app.register_blueprint(families_bp)
+    app.register_blueprint(reconciliation_bp)
 
     # 鉴权中间件（D2/D4）：白名单外的所有请求需登录，身份注入 g 上下文
     app.before_request(auth_before_request)
