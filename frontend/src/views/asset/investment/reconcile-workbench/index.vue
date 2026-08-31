@@ -119,16 +119,26 @@
                         </span>
                       </template>
                     </el-table-column>
-                    <el-table-column label="操作" width="140">
+                    <el-table-column label="操作" width="200">
                       <template #default="{ row }">
-                        <el-button
-                          v-if="row.status === 'pending'"
-                          size="small"
-                          text
-                          @click="handleIgnore(row)"
-                        >
-                          忽略
-                        </el-button>
+                        <template v-if="row.status === 'pending'">
+                          <!-- 就地补充（§6.4）：工作台内直接补录，绝不跳「记一笔」 -->
+                          <el-button
+                            size="small"
+                            text
+                            type="primary"
+                            @click="openSupplement(row)"
+                          >
+                            补充
+                          </el-button>
+                          <el-button
+                            size="small"
+                            text
+                            @click="handleIgnore(row)"
+                          >
+                            忽略
+                          </el-button>
+                        </template>
                         <span v-else class="disc-muted">已处理</span>
                       </template>
                     </el-table-column>
@@ -137,7 +147,77 @@
               </div>
             </template>
 
-            <!-- 域 A/C：占位内容 -->
+            <!-- 域 A：E账户对账（P2 迁入工作台，复用既有 /api/e-account/ 链路） -->
+            <template v-else-if="tab.key === 'A'">
+              <div class="domain-a-body">
+                <el-empty
+                  v-if="!eLoading && eItems.length === 0"
+                  description="暂无 E账户对账记录"
+                  :image-size="80"
+                />
+                <div v-else class="disc-table-wrap">
+                  <el-table
+                    :data="eItems"
+                    stripe
+                    size="small"
+                    class="disc-table"
+                  >
+                    <el-table-column label="代码" prop="symbol" width="110" />
+                    <el-table-column label="名称" prop="name" min-width="120" />
+                    <el-table-column label="渠道" width="120">
+                      <template #default="{ row }">
+                        {{ row.source_broker || "—" }}
+                      </template>
+                    </el-table-column>
+                    <el-table-column
+                      label="E账户份额"
+                      width="110"
+                      align="right"
+                    >
+                      <template #default="{ row }">
+                        {{ row.eaccount_quantity ?? "—" }}
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="系统份额" width="110" align="right">
+                      <template #default="{ row }">
+                        {{ row.current_quantity ?? "—" }}
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="状态" width="100">
+                      <template #default="{ row }">
+                        <span class="disc-status">{{
+                          eStatusLabel(row.status)
+                        }}</span>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="操作" width="160">
+                      <template #default="{ row }">
+                        <template v-if="row.status === 'pending'">
+                          <el-button
+                            size="small"
+                            text
+                            type="primary"
+                            @click="handleEAccountCover(row)"
+                          >
+                            归因覆盖
+                          </el-button>
+                          <el-button
+                            size="small"
+                            text
+                            @click="handleEAccountIgnore(row)"
+                          >
+                            忽略
+                          </el-button>
+                        </template>
+                        <span v-else class="disc-muted">已处理</span>
+                      </template>
+                    </el-table-column>
+                  </el-table>
+                </div>
+              </div>
+            </template>
+
+            <!-- 域 C：占位内容 -->
             <template v-else>
               <div class="domain-placeholder">
                 <div class="domain-placeholder__status">
@@ -175,11 +255,87 @@
         </el-tab-pane>
       </el-tabs>
     </div>
+
+    <!-- 就地补充弹窗（§6.4）：工作台内补录，绝不跳「记一笔」 -->
+    <el-dialog
+      v-model="supplementVisible"
+      :title="`就地补充 · ${supplementTarget?.symbol || ''}`"
+      width="520px"
+      append-to-body
+    >
+      <el-form label-width="80px" size="default">
+        <el-form-item label="补充方式">
+          <el-radio-group v-model="supplementForm.kind">
+            <el-radio-button value="increment">补一笔交易</el-radio-button>
+            <el-radio-button value="set">设定持仓</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+
+        <template v-if="supplementForm.kind === 'increment'">
+          <el-form-item label="操作类型">
+            <el-select v-model="supplementForm.op_type" style="width: 100%">
+              <el-option label="买入" value="buy" />
+              <el-option label="卖出" value="sell" />
+              <el-option label="存入" value="deposit" />
+              <el-option label="取出" value="withdraw" />
+            </el-select>
+          </el-form-item>
+        </template>
+
+        <el-form-item label="数量">
+          <el-input-number
+            v-model="supplementForm.quantity"
+            :min="0"
+            :precision="4"
+            style="width: 100%"
+            placeholder="份额/数量"
+          />
+        </el-form-item>
+        <el-form-item label="价格">
+          <el-input-number
+            v-model="supplementForm.avg_price"
+            :min="0"
+            :precision="4"
+            style="width: 100%"
+            placeholder="净值/单价"
+          />
+        </el-form-item>
+        <el-form-item
+          :label="supplementForm.kind === 'increment' ? '确认日期' : '快照日期'"
+        >
+          <el-date-picker
+            v-model="supplementForm.confirm_date"
+            type="date"
+            value-format="YYYY-MM-DD"
+            style="width: 100%"
+            placeholder="选择日期"
+          />
+        </el-form-item>
+        <el-form-item label="原因">
+          <el-input
+            v-model="supplementForm.reason"
+            type="textarea"
+            :rows="2"
+            placeholder="补充说明（选填）"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="supplementVisible = false">取消</el-button>
+        <el-button
+          type="primary"
+          :loading="supplementing"
+          @click="submitSupplement"
+        >
+          确认补充
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue";
+import { ref, reactive, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { IconifyIconOffline } from "@/components/ReIcon";
@@ -191,8 +347,15 @@ import {
   runReconciliation,
   listDiscrepancies,
   ignoreDiscrepancy,
-  type DiscrepancyItem
+  applyAdjustment,
+  type DiscrepancyItem,
+  type AdjustmentPayload
 } from "@/api/reconciliation";
+import {
+  getEaccountReconciliation,
+  attributeEaccount,
+  type ReconciliationItem
+} from "@/api/eaccount";
 
 defineOptions({ name: "ReconcileWorkbench" });
 
@@ -206,8 +369,27 @@ const discs = ref<DiscrepancyItem[]>([]);
 const loading = ref(false);
 const running = ref(false);
 
+/** 域 A：E账户对账数据（P2 迁入） */
+const eItems = ref<ReconciliationItem[]>([]);
+const eLoading = ref(false);
+const actingRecordId = ref<number | null>(null);
+const actingAction = ref<"cover" | "ignore" | null>(null);
+
 /** 域 B 差异（当前只展示 B 域；A/C 分别走各自链路） */
 const bDiscs = computed(() => discs.value.filter(d => d.domain === "B"));
+
+/** 就地补充弹窗（§6.4）：不跳「记一笔」 */
+const supplementVisible = ref(false);
+const supplementTarget = ref<DiscrepancyItem | null>(null);
+const supplementForm = reactive({
+  kind: "increment" as "increment" | "set",
+  op_type: "buy",
+  quantity: undefined as number | undefined,
+  avg_price: undefined as number | undefined,
+  confirm_date: "",
+  reason: ""
+});
+const supplementing = ref(false);
 
 /** 待裁决 / 已忽略计数（P1 接入真实统计） */
 const pendingCount = computed(
@@ -317,6 +499,135 @@ async function loadDiscrepancies(): Promise<void> {
   }
 }
 
+/** 加载 E账户对账中心数据（域 A） */
+async function loadEAccount(): Promise<void> {
+  eLoading.value = true;
+  try {
+    const res = await getEaccountReconciliation();
+    const data = (res as any).data ?? {};
+    eItems.value = (data.items ?? []) as ReconciliationItem[];
+  } catch {
+    eItems.value = [];
+  } finally {
+    eLoading.value = false;
+  }
+}
+
+/** E账户记录状态中文（四态） */
+function eStatusLabel(s: string): string {
+  const map: Record<string, string> = {
+    pending: "待处理",
+    attributed: "已归因",
+    ignored: "已忽略",
+    verified: "已核对"
+  };
+  return map[s] || s;
+}
+
+/** 归因覆盖（危险操作：删除渠道原记录，P2 迁入工作台） */
+async function handleEAccountCover(row: any): Promise<void> {
+  actingRecordId.value = row.record_id;
+  actingAction.value = "cover";
+  try {
+    const res = await attributeEaccount([
+      {
+        symbol: row.symbol,
+        source_broker: row.source_broker || "",
+        fund_manager: row.fund_manager || "",
+        action: "cover"
+      }
+    ]);
+    const result = (res as any).data ?? {};
+    if (result.failed > 0) {
+      ElMessage.warning(`归因覆盖完成，但有 ${result.failed} 条未成功`);
+    } else {
+      ElMessage.success("已归因覆盖");
+    }
+    await loadEAccount();
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || "归因覆盖失败");
+  } finally {
+    actingRecordId.value = null;
+    actingAction.value = null;
+  }
+}
+
+/** 忽略（E账户，导入自动跳过，可重新对账恢复） */
+async function handleEAccountIgnore(row: any): Promise<void> {
+  actingRecordId.value = row.record_id;
+  actingAction.value = "ignore";
+  try {
+    const res = await attributeEaccount([
+      {
+        symbol: row.symbol,
+        source_broker: row.source_broker || "",
+        fund_manager: row.fund_manager || "",
+        action: "ignore"
+      }
+    ]);
+    const result = (res as any).data ?? {};
+    if (result.failed > 0) {
+      ElMessage.warning(`忽略完成，但有 ${result.failed} 条未成功`);
+    } else {
+      ElMessage.success("已忽略");
+    }
+    await loadEAccount();
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || "忽略失败");
+  } finally {
+    actingRecordId.value = null;
+    actingAction.value = null;
+  }
+}
+
+/** 打开就地补充弹窗（§6.4） */
+function openSupplement(row: any): void {
+  supplementTarget.value = row;
+  supplementForm.kind = "increment";
+  supplementForm.op_type = "buy";
+  supplementForm.quantity = undefined;
+  supplementForm.avg_price = undefined;
+  supplementForm.confirm_date = "";
+  supplementForm.reason = "";
+  supplementVisible.value = true;
+}
+
+/** 提交就地补充（调 apply_decision，不跳「记一笔」） */
+async function submitSupplement(): Promise<void> {
+  const target = supplementTarget.value;
+  if (!target) return;
+  if (!supplementForm.quantity || !supplementForm.avg_price) {
+    ElMessage.warning("请填写数量与价格");
+    return;
+  }
+  supplementing.value = true;
+  try {
+    const payload: AdjustmentPayload = {
+      kind: supplementForm.kind,
+      discrepancy_id: target.id,
+      symbol: target.symbol,
+      ledger_id: target.ledger_id,
+      quantity: supplementForm.quantity,
+      avg_price: supplementForm.avg_price,
+      reason: supplementForm.reason || undefined
+    };
+    if (supplementForm.kind === "increment") {
+      payload.op_type = supplementForm.op_type;
+      payload.confirm_date = supplementForm.confirm_date || undefined;
+    } else {
+      payload.snapshot_date = supplementForm.confirm_date || undefined;
+    }
+    await applyAdjustment(payload);
+    ElMessage.success("补充完成");
+    supplementVisible.value = false;
+    await loadDiscrepancies();
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || "补充失败");
+  } finally {
+    supplementing.value = false;
+  }
+}
+
 /** 运行对账（域 B） */
 async function handleRun(): Promise<void> {
   running.value = true;
@@ -349,6 +660,7 @@ function goTo(to: string | { name: string }): void {
 
 onMounted(() => {
   loadDiscrepancies();
+  loadEAccount();
 });
 </script>
 

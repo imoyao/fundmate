@@ -328,3 +328,135 @@ class TestReconciliationAPI:
         # 审计日志已写（用户主动操作，§5.5）
         log = db.query(AdjustmentLog).filter_by(discrepancy_id=disc_id).one()
         assert log.action == 'ignore_permanent'
+
+
+class TestInContextSupplement:
+    """就地补充/调整裁决（§5.4 / P2）——API + 语义分派 + 审计。"""
+
+    def test_increment_supplement_writes_txn_and_position(self, client, db):
+        """增量型补充：补一笔买入 → 写 Transaction + 建/更新 Position。"""
+        from app.domains.ledgers.models import Ledger
+
+        ledger = Ledger(name='账户A', ledger_type='fund', family_id=1)
+        db.add(ledger)
+        db.commit()
+
+        resp = client.post(
+            '/api/reconciliation/adjustments/',
+            json={
+                'kind': 'increment',
+                'op_type': 'buy',
+                'symbol': '000001',
+                'name': '华夏成长',
+                'asset_type': 'fund',
+                'market': 'CN_A',
+                'ledger_id': ledger.id,
+                'account_name': '账户A',
+                'quantity': 500,
+                'avg_price': 1.2,
+                'confirm_date': '2026-05-01',
+                'reason': '补齐缺失申购',
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['action'] == 'supplement'
+
+        # 持仓已建（500 份）
+        pos = db.query(Position).filter_by(symbol='000001', ledger_id=ledger.id).one()
+        assert pos.quantity == Money.shares_to_min_unit(500)
+        # 流水已写（增量型必须产生流水，与 process_* 汇点一致）
+        txn = db.query(Transaction).filter_by(position_id=pos.id).one()
+        assert txn.txn_type == 'buy'
+        assert txn.quantity == Money.shares_to_min_unit(500)
+        # 审计日志
+        log = db.query(AdjustmentLog).filter_by(discrepancy_id=None).first()
+        assert log is not None
+        assert log.action == 'supplement'
+        assert log.reason == '补齐缺失申购'
+
+    def test_set_supplement_no_transaction(self, client, db):
+        """设定型补充（期初建仓）：只 SET 持仓，不建流水（§5.4 硬约束）。"""
+        from app.domains.ledgers.models import Ledger
+
+        ledger = Ledger(name='账户A', ledger_type='fund', family_id=1)
+        db.add(ledger)
+        db.commit()
+
+        resp = client.post(
+            '/api/reconciliation/adjustments/',
+            json={
+                'kind': 'set',
+                'symbol': '000002',
+                'name': '某基金',
+                'asset_type': 'fund',
+                'market': 'CN_A',
+                'ledger_id': ledger.id,
+                'account_name': '账户A',
+                'quantity': 800,
+                'avg_price': 1.5,
+                'snapshot_date': '2026-05-01',
+            },
+        )
+        assert resp.status_code == 200
+        pos = db.query(Position).filter_by(symbol='000002', ledger_id=ledger.id).one()
+        assert pos.quantity == Money.shares_to_min_unit(800)
+        # 设定型不建流水
+        txns = db.query(Transaction).filter_by(symbol='000002').all()
+        assert txns == []
+
+    def test_supplement_clears_linked_discrepancy(self, client, db):
+        """补充关联差异后，该差异置 cleared。"""
+        from app.domains.ledgers.models import Ledger
+
+        ledger = Ledger(name='账户A', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.flush()
+        _buy_txn(db, ledger.id, 'S1', 100, date(2026, 5, 1))
+        pos = Position(
+            symbol='S1',
+            name='股1',
+            asset_type='stock',
+            market='CN_A',
+            ledger_id=ledger.id,
+            family_id=1,
+            quantity=Money.shares_to_min_unit(60),
+            avg_price=Money.yuan_to_price_units(10),
+            current_price=Money.yuan_to_price_units(10),
+            source='manual',
+            ownership_status='active',
+        )
+        db.add(pos)
+        db.commit()
+        client.post('/api/reconciliation/run/')
+        discs = client.get('/api/reconciliation/discrepancies/').get_json()['data']
+        disc_id = discs[0]['id']
+
+        resp = client.post(
+            '/api/reconciliation/adjustments/',
+            json={
+                'kind': 'increment',
+                'op_type': 'buy',
+                'discrepancy_id': disc_id,
+                'symbol': 'S1',
+                'name': '股1',
+                'asset_type': 'stock',
+                'market': 'CN_A',
+                'ledger_id': ledger.id,
+                'account_name': '账户A',
+                # A股买入受整手限制（min_unit=100），补充量须合法
+                'quantity': 100,
+                'avg_price': 10,
+                'confirm_date': '2026-05-02',
+            },
+        )
+        assert resp.status_code == 200
+        after = client.get('/api/reconciliation/discrepancies/').get_json()['data']
+        target = [d for d in after if d['id'] == disc_id]
+        assert target
+        assert target[0]['status'] == 'cleared'
+
+    def test_adjustment_requires_symbol(self, client):
+        """缺 symbol → 400。"""
+        resp = client.post('/api/reconciliation/adjustments/', json={'kind': 'increment', 'op_type': 'buy'})
+        assert resp.status_code == 400

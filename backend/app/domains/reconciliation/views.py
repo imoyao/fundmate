@@ -20,9 +20,38 @@ from flask import abort, jsonify, request
 from app.core.auth import get_family_id
 from app.core.database import get_db
 from app.domains.reconciliation.models import AdjustmentLog, ReconciliationDiscrepancy
+from app.services.reconciliation_service import apply_decision
 from app.services.reconciliation_service import run_reconciliation as run_reconciliation_service
 
 bp = APIBlueprint('reconciliation', __name__, url_prefix='/api/reconciliation')
+
+
+@bp.post('/adjustments/')
+def apply_adjustment():
+    """就地补充/调整裁决（§5.4 / P2）：生成调整凭证 + 审计日志。
+
+    body:
+        kind: 'increment'（默认，补一笔缺失买卖）| 'set'（期初建仓/直接改数量成本）
+        op_type: buy|sell|deposit|withdraw（increment 必填）
+        discrepancy_id: 可选，关联差异（处理成功后置 cleared）
+        reason / operator: 可选
+        其余字段透传给汇点（symbol/ledger_id/quantity/avg_price/confirm_date/...）
+
+    语义分派（不新建调整表）：
+        increment → process_buy_or_deposit / process_sell_or_withdraw（Transaction+Position）
+        set → upsert_from_holding（SET 语义，不建流水）
+    """
+    payload = request.get_json(silent=True) or {}
+    if not payload.get('symbol'):
+        abort(400, description='缺少 symbol')
+    family_id = get_family_id()
+    with get_db() as db:
+        try:
+            result = apply_decision(db, family_id, payload)
+        except ValueError as e:
+            abort(400, description=str(e))
+        db.commit()
+        return jsonify({'data': result, 'message': 'ok'})
 
 
 @bp.post('/run/')
