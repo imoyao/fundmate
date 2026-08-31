@@ -34,6 +34,7 @@ from app.services.sync.adapters.eastmoney_adapter import EastmoneyAdapter
 from app.services.sync.adapters.null_adapter import NullAdapter
 from app.services.sync.adapters.xalpha_adapter import XalphaAdapter
 from app.services.sync.jobs.amac_institution_job import AmacInstitutionJob
+from app.services.sync.jobs.dividend_split_job import DividendSplitSyncJob
 from app.services.sync.jobs.fund_detail_enrich_job import FundDetailEnrichJob
 from app.services.sync.jobs.fund_list_job import FundListSyncJob
 from app.services.sync.jobs.fund_manager_job import FundManagerSyncJob
@@ -129,6 +130,8 @@ class DataSyncOrchestrator:
         # AMAC 名录为 HTTP JSON 直抓（非 akshare/xalpha 数据源），NullAdapter 占位；
         # 此前仅 invoke grab.* 通道可达，注册后 pdm run sync --job 亦可直达（#1081 策展应用入口）
         self.jobs['amac_institution'] = AmacInstitutionJob(NullAdapter(), self.db)
+        # #1179：分红 / 送股自动抓取（akshare），落库复用 ImportOrchestrator 路径
+        self.jobs['dividend_split'] = DividendSplitSyncJob(self.data_sources['akshare'], self.db)
 
     # ── 目标代码解析 ──
 
@@ -364,6 +367,7 @@ class DataSyncOrchestrator:
                 ('fund_manager', fund_targets),  # 回填基金经理并关联基金公司（核心池）
                 ('fund_nav', fund_targets),  # 净值增量同步（核心池）
                 ('price_history', stock_targets),  # 行情增量同步（核心池）
+                ('dividend_split', stock_targets + fund_targets),  # 分红/送股抓取（#1179）
             ]
 
             results = {}
