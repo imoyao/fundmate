@@ -25,7 +25,12 @@
         @click="$emit('go-watchlist')"
         >去自选标记特别关注</el-button
       >
-      <el-button v-if="devMode" size="small" plain @click="$emit('toggle-preview')">
+      <el-button
+        v-if="devMode"
+        size="small"
+        plain
+        @click="$emit('toggle-preview')"
+      >
         {{ previewMode ? "关闭设计预览" : "看看设计示例" }}
       </el-button>
     </div>

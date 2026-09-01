@@ -21,9 +21,47 @@ from flask import abort, jsonify, request
 from app.core.auth import get_family_id
 from app.core.database import user_session
 from app.domains.reconciliation.models import AdjustmentLog, ReconciliationDiscrepancy
+from app.services.reconciliation_service import apply_decision
 from app.services.reconciliation_service import run_reconciliation as run_reconciliation_service
 
 bp = APIBlueprint('reconciliation', __name__, url_prefix='/api/reconciliation')
+
+
+@bp.post('/adjustments/')
+def apply_adjustment():
+    """就地补充/调整裁决（§5.4 / P2）：生成调整凭证 + 审计日志。
+
+    body:
+        kind: 'increment'（默认，补一笔缺失买卖）| 'set'（期初建仓/直接改数量成本）
+        op_type: buy|sell|deposit|withdraw（increment 必填）
+        discrepancy_id: 可选，关联差异（处理成功后置 cleared）
+        reason / operator: 可选
+        其余字段透传给汇点（symbol/ledger_id/quantity/avg_price/confirm_date/...）
+
+    语义分派（不新建调整表）：
+        increment → process_buy_or_deposit / process_sell_or_withdraw（Transaction+Position）
+        set → upsert_from_holding（SET 语义，不建流水）
+    """
+    payload = request.get_json(silent=True)
+    if payload is None:
+        payload = {}
+    elif not isinstance(payload, dict):
+        abort(400, description='请求体必须是 JSON 对象')
+    if not payload.get('symbol'):
+        abort(400, description='缺少 symbol')
+    # 输入校验：increment 模式必须明确操作类型（buy/sell/deposit/withdraw），
+    # 避免后端隐式回退 'buy' 掩盖调用方漏传（AI review 意见 #8）。
+    kind = payload.get('kind', 'increment')
+    if kind == 'increment' and not payload.get('op_type'):
+        abort(400, description='缺少 op_type（increment 模式必填）')
+    family_id = get_family_id()
+    with user_session() as db:
+        try:
+            result = apply_decision(db, family_id, payload)
+        except ValueError as e:
+            abort(400, description=str(e))
+        db.commit()
+        return jsonify({'data': result, 'message': 'ok'})
 
 
 @bp.post('/run/')
@@ -63,17 +101,33 @@ def run_reconciliation():
 
 @bp.get('/discrepancies/')
 def list_discrepancies():
-    """列出当前家庭活跃差异（可按域/状态筛）。"""
+    """列出当前家庭活跃差异（可按域/状态筛；支持分页）。
+
+    分页参数：page / page_size（AI review：大数据量下未分页有性能风险）。
+    未传 page_size 时返回全部（保持旧行为，前端工作台默认拉全量）。
+    """
     family_id = get_family_id()
     domain = request.args.get('domain')
     status = request.args.get('status')
+    page = request.args.get('page', type=int)
+    page_size = request.args.get('page_size', type=int)
     with user_session() as db:
         query = db.query(ReconciliationDiscrepancy).filter(ReconciliationDiscrepancy.family_id == family_id)
         if domain:
             query = query.filter(ReconciliationDiscrepancy.domain == domain)
         if status:
             query = query.filter(ReconciliationDiscrepancy.status == status)
-        items = query.order_by(ReconciliationDiscrepancy.updated_at.desc()).all()
+        total = query.count()
+        if page_size:
+            page = page or 1
+            items = (
+                query.order_by(ReconciliationDiscrepancy.updated_at.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+                .all()
+            )
+        else:
+            items = query.order_by(ReconciliationDiscrepancy.updated_at.desc()).all()
         data = [
             {
                 'id': d.id,
@@ -91,7 +145,7 @@ def list_discrepancies():
             }
             for d in items
         ]
-        return jsonify({'data': data, 'total': len(data), 'message': 'ok'})
+        return jsonify({'data': data, 'total': total, 'message': 'ok'})
 
 
 @bp.post('/discrepancies/<int:discrepancy_id>/ignore/')
@@ -149,8 +203,6 @@ def _parse_summary(raw: str | None) -> dict:
     """解析 run.summary_json（字符串 JSON），失败返回空。"""
     if not raw:
         return {}
-    import json
-
     try:
         return json.loads(raw)
     except (ValueError, TypeError):

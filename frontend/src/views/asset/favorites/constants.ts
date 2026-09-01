@@ -137,7 +137,8 @@ export const DEMO_ITEMS: RoadItem[] = [
     favorite_at: iso(-126),
     next_review_date: iso(9),
     is_pinned: true,
-    notes: "消费复苏节奏低于预期，暂不加仓；等中报披露后再决定是否补仓，同时观察白酒批价与动销的边际变化。",
+    notes:
+      "消费复苏节奏低于预期，暂不加仓；等中报披露后再决定是否补仓，同时观察白酒批价与动销的边际变化。",
     notes_summary:
       "消费复苏节奏低于预期，暂不加仓；等中报披露后再决定是否补仓，同时观察白酒批价与动销的边际变化。",
     add_reason: "长期跟踪消费赛道",
@@ -165,8 +166,10 @@ export const DEMO_ITEMS: RoadItem[] = [
     favorite_at: iso(-58),
     next_review_date: iso(21),
     is_pinned: false,
-    notes: "看他从易方达中小盘到蓝筹精选的风格迁移，重点观察回撤控制与仓位集中度。",
-    notes_summary: "看他从易方达中小盘到蓝筹精选的风格迁移，重点观察回撤控制与仓位集中度。",
+    notes:
+      "看他从易方达中小盘到蓝筹精选的风格迁移，重点观察回撤控制与仓位集中度。",
+    notes_summary:
+      "看他从易方达中小盘到蓝筹精选的风格迁移，重点观察回撤控制与仓位集中度。",
     add_reason: "跟踪经理生涯",
     tag_ids: [],
     trend: demoTrend(7),
@@ -247,7 +250,8 @@ export const DEMO_ITEMS: RoadItem[] = [
     favorite_at: iso(-310),
     next_review_date: iso(14),
     is_pinned: false,
-    notes: "医疗集采靴子陆续落地，估值进入历史低位，定投摊薄成本，但短期政策扰动仍大，不急于一把梭。",
+    notes:
+      "医疗集采靴子陆续落地，估值进入历史低位，定投摊薄成本，但短期政策扰动仍大，不急于一把梭。",
     notes_summary:
       "医疗集采靴子陆续落地，估值进入历史低位，定投摊薄成本，但短期政策扰动仍大，不急于一把梭。",
     add_reason: "长坡厚雪",
@@ -358,7 +362,8 @@ export const DEMO_ITEMS: RoadItem[] = [
     next_review_date: iso(18),
     is_pinned: false,
     notes: "医药主题基金经理，波动大，观察其回撤与择时能力再决定是否跟投。",
-    notes_summary: "医药主题基金经理，波动大，观察其回撤与择时能力再决定是否跟投。",
+    notes_summary:
+      "医药主题基金经理，波动大，观察其回撤与择时能力再决定是否跟投。",
     add_reason: "跟踪经理",
     tag_ids: [],
     trend: demoTrend(9),

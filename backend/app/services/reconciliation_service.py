@@ -22,9 +22,11 @@ from datetime import date, datetime
 
 from sqlalchemy.orm import Session
 
+from app.core.constants import PositionSource
 from app.domains.positions.models import Position
-from app.domains.reconciliation.models import ReconciliationDiscrepancy, ReconciliationRun
+from app.domains.reconciliation.models import AdjustmentLog, ReconciliationDiscrepancy, ReconciliationRun
 from app.domains.transactions.models import Transaction
+from app.services.position_service import PositionService
 
 # 参与数量轧差的流水类型（与 recompute_position_from_transactions 一致）
 _BUY_TYPES = ('buy', 'deposit')
@@ -89,8 +91,9 @@ def run_reconciliation(
     rows = (
         db.query(Transaction.ledger_id, Transaction.symbol, Transaction.txn_type, Transaction.quantity)
         .filter(Transaction.family_id == family_id)
+        .yield_per(1000)
         .all()
-    )
+    )  # yield_per 分批拉取，避免家庭流水量大时一次性 .all() 撑爆内存（AI review #5）
     # 按业务键聚合流水
     txn_by_key: dict[tuple, list] = {}
     for ledger_id, symbol, txn_type, quantity in rows:
@@ -100,7 +103,12 @@ def run_reconciliation(
         txn_by_key.setdefault(key, []).append({'txn_type': txn_type, 'quantity': quantity or 0})
 
     # 2) 当前持仓 map：业务键 → quantity
-    positions = db.query(Position).filter(Position.family_id == family_id, Position.ownership_status == 'active').all()
+    positions = (
+        db.query(Position)
+        .filter(Position.family_id == family_id, Position.ownership_status == 'active')
+        .yield_per(1000)
+        .all()
+    )  # 分批拉取，缓解内存压力（AI review #4）
     pos_by_key: dict[tuple, Position] = {}
     for p in positions:
         pos_by_key[(p.ledger_id, p.symbol)] = p
@@ -245,3 +253,120 @@ def _clear_stale_discrepancies(db: Session, family_id: int, run_id: int, seen_ke
             d.status = 'cleared'
             d.last_run_id = run_id
     db.flush()
+
+
+def apply_decision(
+    db: Session,
+    family_id: int,
+    payload: dict,
+) -> dict:
+    """就地补充/调整裁决（#1232 §5.4 / P2）——生成调整凭证 + 审计日志。
+
+    **不新建调整表**：按语义分派到既有汇点，聚合层天然可见（§5.4）：
+    - 增量型（补一笔缺失买卖，`op_type` in buy/sell/deposit/withdraw）
+      → `process_buy_or_deposit` / `process_sell_or_withdraw`（写 Transaction + Position）
+    - 设定型（期初建仓 / 直接改数量成本，`kind='set'`）
+      → `upsert_from_holding`（SET 语义，不建流水；硬约束）
+
+    审计：写 `adjustment_logs`（before_json/after_json），action=supplement|adjust。
+    若携带 `discrepancy_id`，处理成功后该差异置 `cleared`。
+
+    payload 关键字段：
+        kind:        'increment'（默认）| 'set'
+        op_type:     buy|sell|deposit|withdraw（increment 必填）
+        discrepancy_id: 可选，关联差异
+        reason:      可选，操作原因
+        operator:    可选，操作用户 ID
+        其余字段透传给汇点（symbol/ledger_id/quantity/avg_price/confirm_date/...）
+    """
+    kind = payload.get('kind', 'increment')
+    disc_id = payload.get('discrepancy_id')
+    reason = payload.get('reason')
+    operator = payload.get('operator')
+
+    disc = None
+    if disc_id:
+        disc = (
+            db.query(ReconciliationDiscrepancy)
+            .filter(ReconciliationDiscrepancy.id == disc_id, ReconciliationDiscrepancy.family_id == family_id)
+            .first()
+        )
+        if not disc:
+            raise ValueError('差异不存在或无权访问')
+
+    data = {k: v for k, v in payload.items() if k not in ('kind', 'discrepancy_id', 'reason', 'operator')}
+    data['family_id'] = family_id
+    # 日期归一化：API 传入的是 ISO 字符串，而汇点/模型要求 Python date 对象
+    # （绕过 PositionCreate schema 的类型转换，需在此显式处理，否则 SQLite 报
+    # "Date type only accepts Python date objects"）。
+    for key in ('confirm_date', 'snapshot_date', 'trade_date'):
+        raw = data.get(key)
+        if isinstance(raw, str) and raw:
+            try:
+                data[key] = (
+                    datetime.strptime(raw[:10], '%Y-%m-%d').date()
+                    if key != 'trade_date'
+                    else datetime.strptime(raw[:10], '%Y-%m-%d')
+                )
+            except ValueError:
+                raise ValueError(f'日期格式错误: {key}={raw!r}，应为 YYYY-MM-DD')
+    # 对账补录来源标记（决策 11）。RECONCILIATION_ADJUSTMENT 由 #1238 引入；
+    # 当前分支若未合入 #1238 则回退 manual，保证 P2 代码在合入前后均可运行。
+    recon_source = getattr(PositionSource, 'RECONCILIATION_ADJUSTMENT', PositionSource.MANUAL).value
+    data.setdefault('source', recon_source)
+
+    # 操作前快照（审计）
+    before = {
+        'discrepancy_id': disc_id,
+        'symbol': data.get('symbol'),
+        'ledger_id': data.get('ledger_id'),
+        'kind': kind,
+    }
+
+    if kind == 'set':
+        # 设定型：SET 语义整条替换（期初建仓 / 直接改数量成本），不建流水
+        position = PositionService.upsert_from_holding(db, data)
+        after = {
+            'position_id': position.id,
+            'symbol': position.symbol,
+            'quantity': position.quantity,
+            'avg_price': position.avg_price,
+        }
+        action = 'adjust' if disc else 'supplement'
+    else:
+        # 增量型：走交易处理汇点（写 Transaction + 更新 Position）
+        op_type = data.get('op_type', 'buy')
+        if op_type in ('sell', 'withdraw'):
+            position = PositionService.process_sell_or_withdraw(db, data)
+        else:
+            position = PositionService.process_buy_or_deposit(db, data)
+        after = {
+            'position_id': position.id if position else None,
+            'symbol': data.get('symbol'),
+            'op_type': op_type,
+            'quantity': data.get('quantity'),
+            'avg_price': data.get('avg_price'),
+        }
+        action = 'supplement'
+
+    db.flush()
+
+    # 审计日志（用户主动操作，§5.5）
+    log = AdjustmentLog(
+        family_id=family_id,
+        discrepancy_id=disc_id,
+        action=action,
+        before_json=json.dumps(before, default=str),
+        after_json=json.dumps(after, default=str),
+        reason=reason,
+        operator=operator,
+    )
+    db.add(log)
+
+    # 处理成功后：关联差异置 cleared（该差异已被裁决）
+    if disc:
+        disc.status = 'cleared'
+        disc.last_run_id = None
+
+    db.flush()
+    return {'action': action, 'before': before, 'after': after, 'log_id': log.id}
