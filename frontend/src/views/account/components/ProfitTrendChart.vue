@@ -3,7 +3,7 @@
     <h3 class="text-lg font-semibold mb-4 text-gray-900 dark:text-white">
       收益趋势
     </h3>
-    <canvas ref="profitChartCanvas" v-show="hasData" />
+    <canvas v-show="hasData" ref="profitChartCanvas" />
     <p v-if="!hasData" class="text-gray-400 text-sm text-center py-8">
       暂无收益数据
     </p>
