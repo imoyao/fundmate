@@ -94,6 +94,7 @@ def list_transactions():
                     'status': t.status,
                     'account_name': t.account_name or '未知账户',
                     'notes': t.notes,
+                    'source': t.source,
                     'created_at': t.created_at.isoformat() if t.created_at else None,
                 }
             )

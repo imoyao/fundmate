@@ -76,6 +76,11 @@ class FundTypeResolver:
         self.db = db
         self._decomposer = decomposer or get_decomposer('akshare')
 
+    # 已知无效/脏类型文本黑名单：命中即视为无类型（返回 None, None），
+    # 不 get-or-create 出脏分类（#1224 反馈：历史同步曾把 QDII/FOF 基金的类型文本
+    # 解析成「基金型」，而标准基金分类中并无此类型）。
+    _BANNED_TYPE_NAMES = frozenset({'基金型'})
+
     def resolve(self, raw_type: str, raw_variety: Optional[str] = None) -> Tuple[Optional[int], Optional[int]]:
         """返回 (fund_type_id, fund_variety_id)。
 
@@ -88,6 +93,10 @@ class FundTypeResolver:
             variety_name: Optional[str] = raw_variety.strip()
         else:
             variety_name = self._decomposer.decompose(raw_type).variety_name
+
+        # 黑名单：脏类型文本直接视为无类型，不创建 FundType/FundVariety
+        if type_name in self._BANNED_TYPE_NAMES or variety_name in self._BANNED_TYPE_NAMES:
+            return None, None
 
         if not type_name and not variety_name:
             return None, None

@@ -46,20 +46,21 @@ const SORT_OPTIONS: { label: string; value: AggregationSort }[] = [
 ];
 
 /**
- * 基金类型筛选 Tab（fund_types 小类）。
- * 类型数据来自基金资料同步（fund_type job），未收录的产品归入「未分类」。
- * 当前库内类型覆盖率约 35%（2026-08-31 实测），未分类占比高属数据补齐问题，功能框架已就位。
+ * 基金类型筛选 Tab：动态生成，只显示实际有产品的分类（#1224 反馈）。
+ * 「全部」常驻；中间分类来自后端 fund_type_counts 分布（有产品才显示）；
+ * 「未分类」仅在确实有无分类产品时出现。这样无产品的脏分类（如「基金型」「股票协会更新」）自动隐藏。
  */
-const FUND_TYPE_OPTIONS: { label: string; value: string }[] = [
-  { label: "全部", value: "" },
-  { label: "股票型", value: "股票型" },
-  { label: "混合型", value: "混合型" },
-  { label: "债券型", value: "债券型" },
-  { label: "指数型", value: "指数型" },
-  { label: "货币型", value: "货币型" },
-  { label: "基金型", value: "基金型" },
-  { label: "未分类", value: "__none__" }
-];
+const fundTypeOptions = computed<{ label: string; value: string }[]>(() => {
+  const opts: { label: string; value: string }[] = [{ label: "全部", value: "" }];
+  const counts = result.value?.fund_type_counts ?? {};
+  for (const [name, count] of Object.entries(counts)) {
+    if (count > 0) opts.push({ label: name, value: name });
+  }
+  if ((result.value?.fund_type_unclassified_count ?? 0) > 0) {
+    opts.push({ label: "未分类", value: "__none__" });
+  }
+  return opts;
+});
 
 const {
   dimension,
@@ -81,6 +82,7 @@ const {
   errorMsg,
   keyword,
   fundType,
+  result,
   load,
   setDimension,
   setPage,
@@ -172,6 +174,7 @@ onMounted(() => load());
       :has-snapshot-gap="hasSnapshotGap"
       :nav-date="navDate"
       :count="total"
+      :type-breakdown="result?.fund_type_breakdown ?? null"
     />
 
     <!-- 检索区：第一行 = 维度切换 + 搜索；第二行 = 类型 Tab + 排序快捷按钮 -->
@@ -197,7 +200,7 @@ onMounted(() => load());
       <div class="control-row control-row--sub">
         <div class="type-tabs" role="tablist" aria-label="基金类型筛选">
           <button
-            v-for="opt in FUND_TYPE_OPTIONS"
+            v-for="opt in fundTypeOptions"
             :key="opt.value"
             type="button"
             role="tab"

@@ -610,6 +610,41 @@ class TestHoldingGroupRealPositions:
         resp = _get(client, '/api/watchlist/items/', {'status': 'HOLDING', 'q': '0014'})
         assert {d['symbol'] for d in resp.get_json()['data']} == {'001414'}
 
+    def test_holding_group_search_by_name(self, client, db, make_position):
+        """持仓分组 / 全部视图支持按名称（非代码）搜索，命中持仓完整列表中的产品（#1244）"""
+        make_position(
+            symbol='SH600519',
+            name='贵州茅台',
+            asset_type='stock',
+            market='SH',
+            account_name='华泰',
+            quantity=100,
+            avg_price=18,
+            current_price=18,
+        )
+        make_position(
+            symbol='001414',
+            name='某指数基金',
+            asset_type='fund',
+            market='CN_A',
+            account_name='天天',
+            quantity=100,
+            avg_price=1,
+            current_price=1,
+        )
+
+        # 持仓分组按名称「茅台」搜索：应命中 SH600519（而非仅按代码匹配，#1244）
+        resp = _get(client, '/api/watchlist/items/', {'status': 'HOLDING', 'q': '茅台'})
+        assert {d['symbol'] for d in resp.get_json()['data']} == {'SH600519'}
+
+        # 「全部」视图（无 status）按名称搜索，持仓补集也应被命中
+        resp = _get(client, '/api/watchlist/items/', {'q': '某指数基金'})
+        assert {d['symbol'] for d in resp.get_json()['data']} == {'001414'}
+
+        # 仍保留按代码搜索（回归保护）
+        resp = _get(client, '/api/watchlist/items/', {'status': 'HOLDING', 'q': '0014'})
+        assert {d['symbol'] for d in resp.get_json()['data']} == {'001414'}
+
     def test_holding_group_count_matches_positions(self, client, db, make_position):
         """分组列表「持仓」count = positions active 去重 symbol 数"""
         make_position(

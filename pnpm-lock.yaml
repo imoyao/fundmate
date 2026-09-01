@@ -6,6 +6,7 @@ settings:
 
 overrides:
   nanoid: 3.3.18
+  decode-uri-component: 0.5.0
 
 importers:
 
@@ -1050,9 +1051,9 @@ packages:
       supports-color:
         optional: true
 
-  decode-uri-component@0.2.2:
-    resolution: {integrity: sha512-FqUYQ+8o158GyGTrMFJms9qh3CqTKvAqgqsTnkLI8sKu0028orqBhxNMFkFen0zGyg6epACD32pjVk58ngIErQ==}
-    engines: {node: '>=0.10'}
+  decode-uri-component@0.5.0:
+    resolution: {integrity: sha512-1BiQVoK8C9gUbQU6NzAtO/tkz2qOFpEObMWpcFvhx4fYnj4Oc5yzaJN/LD36ihkVUdXyh5ZekzX+yM+ty/SrPg==}
+    engines: {node: '>=14.16'}
 
   delaunator@5.1.0:
     resolution: {integrity: sha512-AGrQ4QSgssa1NGmWmLPqN5NY2KajF5MqxetNEO+o0n3ZwZZeTmt7bBnvzHWrmkZFxGgr4HdyFgelzgi06otLuQ==}
@@ -2744,7 +2745,7 @@ snapshots:
       ms: 2.0.0
     optional: true
 
-  decode-uri-component@0.2.2:
+  decode-uri-component@0.5.0:
     optional: true
 
   delaunator@5.1.0:
@@ -3249,7 +3250,7 @@ snapshots:
   source-map-resolve@0.5.3:
     dependencies:
       atob: 2.1.2
-      decode-uri-component: 0.2.2
+      decode-uri-component: 0.5.0
       resolve-url: 0.2.1
       source-map-url: 0.4.1
       urix: 0.1.0
