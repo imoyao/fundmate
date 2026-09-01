@@ -9,10 +9,15 @@
         </p>
       </div>
       <div class="workbench-head__actions">
-        <AssetTypeBadge
-          :type="activeDomain === 'A' ? 'e_account' : 'fund'"
-          variant="tag"
-        />
+        <el-button
+          size="small"
+          type="primary"
+          :loading="running"
+          @click="handleRun"
+        >
+          <IconifyIconOffline icon="ep:refresh-right" class="mr-1" />
+          运行对账
+        </el-button>
       </div>
     </header>
 
@@ -24,13 +29,13 @@
       </div>
     </div>
 
-    <!-- 顶部状态栏：数据日期 / 待裁决计数（占位数据，P1 接入真实计算） -->
+    <!-- 顶部状态栏（真实数据：P1 接入 discrepancies 统计） -->
     <div class="workbench-metrics">
       <MetricGrid :cols="3">
         <MetricCard
           title="数据日期"
           :value="dataDateLabel"
-          caption="各域最新快照/导入日期"
+          caption="最近一次对账数据日期"
         />
         <MetricCard
           title="待裁决差异"
@@ -43,12 +48,12 @@
           title="已忽略"
           :value="ignoredCount"
           unit="项"
-          caption="可撤销（P1 接入）"
+          caption="可撤销（P2 接入）"
         />
       </MetricGrid>
     </div>
 
-    <!-- 三域 Tab（§6.3）：本期占位，P1/P2 逐域接入 -->
+    <!-- 三域 Tab（§6.3）：B 已接入真实对账，A/C 保持原入口 -->
     <div class="workbench-tabs">
       <el-tabs v-model="activeDomain" class="workbench-tabs__inner">
         <el-tab-pane
@@ -62,35 +67,110 @@
               <AssetTypeBadge :type="tab.badgeType" variant="tag" />
             </template>
 
-            <!-- 占位内容：域状态标签 + 说明，P1/P2 填入实际对账逻辑 -->
-            <div class="domain-placeholder">
-              <div class="domain-placeholder__status">
-                <span
-                  class="domain-status-tag"
-                  :class="`domain-status-tag--${tab.status}`"
-                >
-                  {{ tab.statusLabel }}
-                </span>
-                <span class="domain-placeholder__hint">
-                  {{ tab.placeholderHint }}
-                </span>
-              </div>
-              <div class="domain-placeholder__body">
-                <p class="domain-placeholder__desc">{{ tab.desc }}</p>
-                <div v-if="tab.links.length" class="domain-placeholder__links">
-                  <el-button
-                    v-for="(link, i) in tab.links"
-                    :key="i"
+            <!-- 域 B：真实差异列表（P1 接入） -->
+            <template v-if="tab.key === 'B'">
+              <div class="domain-b-body">
+                <el-empty
+                  v-if="!loading && bDiscs.length === 0"
+                  description="暂无差异，持仓与流水一致"
+                  :image-size="80"
+                />
+                <div v-else class="disc-table-wrap">
+                  <el-table
+                    :data="bDiscs"
+                    stripe
                     size="small"
-                    text
-                    @click="goTo(link.to)"
+                    class="disc-table"
                   >
-                    {{ link.label }}
-                    <IconifyIconOffline icon="ep:arrow-right" class="ml-1" />
-                  </el-button>
+                    <el-table-column label="代码" prop="symbol" width="110" />
+                    <el-table-column label="类型" width="90">
+                      <template #default="{ row }">
+                        <span class="disc-type">{{
+                          typeLabel(row.discrepancy_type)
+                        }}</span>
+                      </template>
+                    </el-table-column>
+                    <el-table-column
+                      label="理论"
+                      prop="expected_value"
+                      width="100"
+                      align="right"
+                    />
+                    <el-table-column
+                      label="实际"
+                      prop="actual_value"
+                      width="100"
+                      align="right"
+                    />
+                    <el-table-column label="差异" width="100" align="right">
+                      <template #default="{ row }">
+                        <span :class="diffClass(row.diff)">{{
+                          formatDiff(row.diff)
+                        }}</span>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="状态" width="90">
+                      <template #default="{ row }">
+                        <span
+                          class="disc-status"
+                          :class="`disc-status--${row.status}`"
+                        >
+                          {{ statusLabel(row.status) }}
+                        </span>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="操作" width="140">
+                      <template #default="{ row }">
+                        <el-button
+                          v-if="row.status === 'pending'"
+                          size="small"
+                          text
+                          @click="handleIgnore(row as DiscrepancyItem)"
+                        >
+                          忽略
+                        </el-button>
+                        <span v-else class="disc-muted">已处理</span>
+                      </template>
+                    </el-table-column>
+                  </el-table>
                 </div>
               </div>
-            </div>
+            </template>
+
+            <!-- 域 A/C：占位内容 -->
+            <template v-else>
+              <div class="domain-placeholder">
+                <div class="domain-placeholder__status">
+                  <span
+                    class="domain-status-tag"
+                    :class="`domain-status-tag--${tab.status}`"
+                  >
+                    {{ tab.statusLabel }}
+                  </span>
+                  <span class="domain-placeholder__hint">{{
+                    tab.placeholderHint
+                  }}</span>
+                </div>
+                <div class="domain-placeholder__body">
+                  <p class="domain-placeholder__desc">{{ tab.desc }}</p>
+                  <div
+                    v-if="tab.links.length"
+                    class="domain-placeholder__links"
+                  >
+                    <el-button
+                      v-for="(link, i) in tab.links"
+                      :key="i"
+                      size="small"
+                      text
+                      @click="goTo(link.to)"
+                    >
+                      {{ link.label }}
+                      <IconifyIconOffline icon="ep:arrow-right" class="ml-1" />
+                    </el-button>
+                  </div>
+                </div>
+              </div>
+            </template>
           </CardBlock>
         </el-tab-pane>
       </el-tabs>
@@ -99,21 +179,55 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from "vue";
+import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
+import { ElMessage } from "element-plus";
 import { IconifyIconOffline } from "@/components/ReIcon";
-import SectionHeader from "@/components/SectionHeader/index.vue";
 import MetricGrid from "@/components/MetricGrid/index.vue";
 import MetricCard from "@/components/MetricCard/index.vue";
 import CardBlock from "@/components/CardBlock/index.vue";
 import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
+import {
+  runReconciliation,
+  listDiscrepancies,
+  ignoreDiscrepancy,
+  type DiscrepancyItem
+} from "@/api/reconciliation";
 
 defineOptions({ name: "ReconcileWorkbench" });
 
 const router = useRouter();
 
 /** 当前激活域 */
-const activeDomain = ref<"A" | "B" | "C">("A");
+const activeDomain = ref<"A" | "B" | "C">("B");
+
+/** 差异数据 */
+const discs = ref<DiscrepancyItem[]>([]);
+const loading = ref(false);
+const running = ref(false);
+
+/** 域 B 差异（当前只展示 B 域；A/C 分别走各自链路） */
+const bDiscs = computed(() => discs.value.filter(d => d.domain === "B"));
+
+/** 待裁决 / 已忽略计数（P1 接入真实统计） */
+const pendingCount = computed(
+  () => discs.value.filter(d => d.status === "pending").length
+);
+const ignoredCount = computed(
+  () => discs.value.filter(d => d.status === "ignored").length
+);
+/** 数据日期：最近一次差异的 updated_at 或今日 */
+const dataDateLabel = computed(() => {
+  const t = discs.value
+    .map(d => d.updated_at)
+    .filter(Boolean)
+    .sort()
+    .pop();
+  return t ? t.slice(0, 10) : "—";
+});
+
+/** 是否有待处理差异（Banner 显示条件） */
+const hasPending = computed(() => pendingCount.value > 0);
 
 /** 三域 Tab 定义（§6.3） */
 const domainTabs = [
@@ -133,12 +247,12 @@ const domainTabs = [
     key: "B",
     label: "持仓快照",
     title: "持仓快照一致性（域 B）",
-    description: "期初快照 + 流水推演 vs 实际持仓",
+    description: "流水推演理论持仓 vs 实际持仓",
     badgeType: "fund",
-    status: "planned",
-    statusLabel: "P1 规划",
-    placeholderHint: "本期占位",
-    desc: "P1 落地：快照份额 + 期后流水净变化（confirm_date > snapshot_date）比对数量差异。",
+    status: "ready",
+    statusLabel: "已接入",
+    placeholderHint: "数量差异 + 孤儿检测",
+    desc: "P1 已接入：理论持仓 = 流水重建净份额，比对实际持仓数量差异与孤儿。",
     links: []
   },
   {
@@ -158,20 +272,84 @@ const domainTabs = [
   }
 ];
 
-/** 待裁决计数（占位：本期 0，P1 接入 discrepancies 统计） */
-const pendingCount = ref(0);
-/** 已忽略计数（占位） */
-const ignoredCount = ref(0);
-/** 数据日期占位 */
-const dataDateLabel = ref("—");
+/** 差异类型中文 */
+function typeLabel(t: string): string {
+  const map: Record<string, string> = {
+    quantity: "数量",
+    cost: "成本",
+    cash: "资金",
+    orphan: "孤儿"
+  };
+  return map[t] || t;
+}
 
-/** 是否有待处理差异（Banner 显示条件，占位） */
-const hasPending = computed(() => pendingCount.value > 0);
+/** 状态中文 */
+function statusLabel(s: string): string {
+  const map: Record<string, string> = {
+    pending: "待处理",
+    cleared: "已清除",
+    ignored: "已忽略"
+  };
+  return map[s] || s;
+}
 
-/** 导航到既有入口（本期不破坏现状，并行） */
+/** 差异值格式：最小单位 → 展示份数 */
+function formatDiff(diff: number | null): string {
+  if (diff === null) return "—";
+  return String(diff);
+}
+
+function diffClass(diff: number | null): string {
+  if (!diff) return "disc-diff-zero";
+  return diff > 0 ? "disc-diff-pos" : "disc-diff-neg";
+}
+
+/** 加载差异列表 */
+async function loadDiscrepancies(): Promise<void> {
+  loading.value = true;
+  try {
+    const res = await listDiscrepancies();
+    discs.value = res.data ?? [];
+  } catch {
+    discs.value = [];
+  } finally {
+    loading.value = false;
+  }
+}
+
+/** 运行对账（域 B） */
+async function handleRun(): Promise<void> {
+  running.value = true;
+  try {
+    await runReconciliation("B");
+    ElMessage.success("对账完成");
+    await loadDiscrepancies();
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || "对账失败");
+  } finally {
+    running.value = false;
+  }
+}
+
+/** 忽略一条差异（临时） */
+async function handleIgnore(row: DiscrepancyItem): Promise<void> {
+  try {
+    await ignoreDiscrepancy(row.id, { permanent: false });
+    ElMessage.success("已忽略");
+    await loadDiscrepancies();
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || "忽略失败");
+  }
+}
+
+/** 导航到既有入口（并行不破坏现状） */
 function goTo(to: string | { name: string }): void {
   router.push(to);
 }
+
+onMounted(() => {
+  loadDiscrepancies();
+});
 </script>
 
 <style scoped>
@@ -241,6 +419,66 @@ function goTo(to: string | { name: string }): void {
   padding: 4px;
 }
 
+/* 域 B 差异表 */
+.domain-b-body {
+  padding: 4px 0;
+}
+
+.disc-table-wrap {
+  overflow-x: auto;
+}
+
+.disc-table {
+  width: 100%;
+}
+
+.disc-type {
+  padding: 1px 8px;
+  font-size: 12px;
+  border-radius: 4px;
+  background: var(--bg-soft);
+  color: var(--text-secondary);
+}
+
+.disc-diff-zero {
+  color: var(--text-tertiary);
+}
+
+.disc-diff-pos {
+  color: var(--tag-sage-green);
+}
+
+.disc-diff-neg {
+  color: var(--color-danger-system);
+}
+
+.disc-status {
+  padding: 1px 8px;
+  font-size: 12px;
+  border-radius: 999px;
+}
+
+.disc-status--pending {
+  color: var(--tag-caramel);
+  background: color-mix(in srgb, var(--tag-caramel) 12%, transparent);
+}
+
+.disc-status--cleared {
+  color: var(--tag-sage-green);
+  background: color-mix(in srgb, var(--tag-sage-green) 12%, transparent);
+}
+
+.disc-status--ignored {
+  color: var(--text-tertiary);
+  background: var(--bg-soft);
+}
+
+.disc-muted {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+/* 域 A/C 占位 */
 .domain-placeholder {
   padding: 8px 4px;
 }

@@ -21,16 +21,16 @@ from flask import abort, jsonify, request
 from app.core.auth import get_family_id
 from app.core.database import user_session
 from app.domains.reconciliation.models import AdjustmentLog, ReconciliationDiscrepancy
-from app.services.reconciliation_service import run_domain_b_reconciliation
+from app.services.reconciliation_service import run_reconciliation as run_reconciliation_service
 
 bp = APIBlueprint('reconciliation', __name__, url_prefix='/api/reconciliation')
 
 
 @bp.post('/run/')
 def run_reconciliation():
-    """触发域 B 对账（持仓快照一致性）。
+    """触发一次对账（域 B 默认；域 C 为导入后自动触发）。
 
-    可选 body: { domain: 'B' }（默认 B）；data_date 可选。
+    body: { domain: 'B' | 'C' }（默认 B）。
     """
     body = request.get_json(silent=True)
     if body is None:
@@ -38,12 +38,12 @@ def run_reconciliation():
     elif not isinstance(body, dict):
         abort(400, description='请求体必须是 JSON 对象')
     domain = body.get('domain', 'B')
-    if domain != 'B':
-        abort(400, description=f'当前仅支持域 B 对账，收到 domain={domain!r}')
+    if domain not in ('B', 'C'):
+        abort(400, description=f'支持域 B/C 对账，收到 domain={domain!r}')
     family_id = get_family_id()
     with user_session() as db:
         try:
-            run, created = run_domain_b_reconciliation(db, family_id)
+            run, created = run_reconciliation_service(db, family_id, domain=domain)
         except ValueError as e:
             abort(400, description=str(e))
         db.commit()
@@ -103,8 +103,12 @@ def ignore_discrepancy(discrepancy_id: int):
     - permanent=true：is_permanent=true（永久静默，可撤销）
     写 adjustment_logs 审计（用户主动操作，§5.5）。
     """
-    body = request.get_json(silent=True) or {}
-    permanent = bool(body.get('permanent', False))
+    body = request.get_json(silent=True)
+    if body is None:
+        body = {}
+    elif not isinstance(body, dict):
+        abort(400, description='请求体必须是 JSON 对象')
+    permanent = body.get('permanent', False) is True
     reason = body.get('reason')
     family_id = get_family_id()
     with user_session() as db:
