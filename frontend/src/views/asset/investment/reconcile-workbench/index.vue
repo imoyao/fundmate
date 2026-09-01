@@ -21,11 +21,16 @@
       </div>
     </header>
 
-    <!-- 柔性 Warning Banner（§6.3）：中性信息色，非红非弹窗 -->
-    <div v-if="hasPending" class="workbench-banner" role="alert">
+    <!-- 柔性 Warning Banner（§6.3）：中性信息色，非红非弹窗；点击切换到待处理域（#1259） -->
+    <div
+      v-if="hasPending"
+      class="workbench-banner workbench-banner--clickable"
+      role="alert"
+      @click="focusFirstPendingDomain"
+    >
       <IconifyIconOffline icon="ep:warning" class="workbench-banner__icon" />
       <div class="workbench-banner__text">
-        有 {{ pendingCount }} 项差异待处理，点此前往对账工作台
+        有 {{ totalPending }} 项差异待处理，点击切换到对应域处理
       </div>
     </div>
 
@@ -60,8 +65,17 @@
           v-for="tab in domainTabs"
           :key="tab.key"
           :name="tab.key"
-          :label="tab.label"
         >
+          <template #label>
+            <span class="domain-tab-label">
+              {{ tab.label }}
+              <span
+                v-if="domainPending(tab.key) > 0"
+                class="domain-tab-count"
+                >{{ domainPending(tab.key) }}</span
+              >
+            </span>
+          </template>
           <CardBlock :title="tab.title" :description="tab.description">
             <template #action>
               <AssetTypeBadge :type="tab.badgeType" variant="tag" />
@@ -72,7 +86,7 @@
               <div class="domain-b-body">
                 <el-empty
                   v-if="!loading && bDiscs.length === 0"
-                  description="暂无差异，持仓与流水一致"
+                  description="暂无待处理差异"
                   :image-size="80"
                 />
                 <div v-else class="disc-table-wrap">
@@ -335,7 +349,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from "vue";
+import { ref, reactive, computed, onMounted, nextTick } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { IconifyIconOffline } from "@/components/ReIcon";
@@ -375,8 +389,10 @@ const eLoading = ref(false);
 const actingRecordId = ref<number | null>(null);
 const actingAction = ref<"cover" | "ignore" | null>(null);
 
-/** 域 B 差异（当前只展示 B 域；A/C 分别走各自链路） */
-const bDiscs = computed(() => discs.value.filter(d => d.domain === "B"));
+/** 域 B 差异：仅展示待处理（pending）行，使下方表格与顶部「待裁决差异」口径一致（#1259） */
+const bDiscs = computed(() =>
+  discs.value.filter(d => d.domain === "B" && d.status === "pending")
+);
 
 /** 就地补充弹窗（§6.4）：不跳「记一笔」 */
 const supplementVisible = ref(false);
@@ -391,13 +407,16 @@ const supplementForm = reactive({
 });
 const supplementing = ref(false);
 
-/** 待裁决 / 已忽略计数（P1 接入真实统计） */
-const pendingCount = computed(
-  () => discs.value.filter(d => d.status === "pending").length
-);
-const ignoredCount = computed(
-  () => discs.value.filter(d => d.status === "ignored").length
-);
+/** 顶部「待裁决差异」= 当前激活域的 pending 数，与下方表格可见可操作行口径一致（#1259） */
+const pendingCount = computed(() => domainPending(activeDomain.value));
+/** 顶部「已忽略」= 当前激活域的 ignored 数（#1259） */
+const ignoredCount = computed(() => domainIgnored(activeDomain.value));
+/** 全局待处理总数，仅用于 Banner 提醒（不要求与单表对齐） */
+const totalPending = computed(() => {
+  const fromDiscs = discs.value.filter(d => d.status === "pending").length;
+  const fromE = eItems.value.filter(i => i.status === "pending").length;
+  return fromDiscs + fromE;
+});
 /** 数据日期：最近一次差异的 updated_at 或今日 */
 const dataDateLabel = computed(() => {
   const t = discs.value
@@ -408,8 +427,8 @@ const dataDateLabel = computed(() => {
   return t ? t.slice(0, 10) : "—";
 });
 
-/** 是否有待处理差异（Banner 显示条件） */
-const hasPending = computed(() => pendingCount.value > 0);
+/** 是否有待处理差异（Banner 显示条件，用全局总数判断） */
+const hasPending = computed(() => totalPending.value > 0);
 
 /** 三域 Tab 定义（§6.3） */
 const domainTabs = [
@@ -453,6 +472,23 @@ const domainTabs = [
     ]
   }
 ];
+
+/** 各域待处理 / 已忽略计数（域 A 来自 E账户链路 eItems，域 B/C 来自 discrepancies discs），
+ *  用于顶部指标与 Tab 角标，使统计口径与用户当前可见域一致（#1259） */
+function domainPending(key: string): number {
+  if (key === "A")
+    return eItems.value.filter(i => i.status === "pending").length;
+  return discs.value.filter(
+    d => d.domain === key && d.status === "pending"
+  ).length;
+}
+function domainIgnored(key: string): number {
+  if (key === "A")
+    return eItems.value.filter(i => i.status === "ignored").length;
+  return discs.value.filter(
+    d => d.domain === key && d.status === "ignored"
+  ).length;
+}
 
 /** 差异类型中文 */
 function typeLabel(t: string): string {
@@ -658,6 +694,19 @@ function goTo(to: string | { name: string }): void {
   router.push(to);
 }
 
+/** Banner 点击：切换到第一个有待处理差异的域并定位到表格区（#1259） */
+function focusFirstPendingDomain(): void {
+  const order: ("A" | "B" | "C")[] = ["B", "C", "A"];
+  const target = order.find(k => domainPending(k) > 0);
+  if (!target) return;
+  activeDomain.value = target;
+  nextTick(() => {
+    document
+      .querySelector(".workbench-tabs")
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+}
+
 onMounted(() => {
   loadDiscrepancies();
   loadEAccount();
@@ -673,9 +722,9 @@ onMounted(() => {
 /* 页头 */
 .workbench-head {
   display: flex;
+  gap: 16px;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
   margin-bottom: 20px;
 }
 
@@ -701,15 +750,47 @@ onMounted(() => {
 /* 柔性 Warning Banner（§6.3）：中性信息色，非红非弹窗 */
 .workbench-banner {
   display: flex;
-  align-items: center;
   gap: 10px;
-  margin-bottom: 16px;
+  align-items: center;
   padding: 12px 16px;
+  margin-bottom: 16px;
   font-size: var(--text-small);
   color: var(--text-secondary);
   background: var(--bg-soft);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
+}
+
+/* Banner 可点击：点击切换到待处理域（#1259） */
+.workbench-banner--clickable {
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.workbench-banner--clickable:hover {
+  background: color-mix(in srgb, var(--brand-100) 40%, var(--bg-soft));
+  border-color: var(--brand-400);
+}
+
+/* Tab 标签内的各域待处理数角标（#1259） */
+.domain-tab-label {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.domain-tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  font-size: 11px;
+  line-height: 1;
+  color: #fff;
+  background: var(--brand-600, #d98b2b);
+  border-radius: 999px;
 }
 
 .workbench-banner__icon {
@@ -747,9 +828,9 @@ onMounted(() => {
 .disc-type {
   padding: 1px 8px;
   font-size: 12px;
-  border-radius: 4px;
-  background: var(--bg-soft);
   color: var(--text-secondary);
+  background: var(--bg-soft);
+  border-radius: 4px;
 }
 
 .disc-diff-zero {
@@ -797,8 +878,8 @@ onMounted(() => {
 
 .domain-placeholder__status {
   display: flex;
-  align-items: center;
   gap: 10px;
+  align-items: center;
   margin-bottom: 12px;
 }
 
