@@ -44,6 +44,11 @@ def apply_adjustment():
     payload = request.get_json(silent=True) or {}
     if not payload.get('symbol'):
         abort(400, description='缺少 symbol')
+    # 输入校验：increment 模式必须明确操作类型（buy/sell/deposit/withdraw），
+    # 避免后端隐式回退 'buy' 掩盖调用方漏传（AI review 意见 #8）。
+    kind = payload.get('kind', 'increment')
+    if kind == 'increment' and not payload.get('op_type'):
+        abort(400, description='缺少 op_type（increment 模式必填）')
     family_id = get_family_id()
     with get_db() as db:
         try:
