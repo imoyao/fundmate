@@ -66,7 +66,13 @@ def _load_message(path: Path | None) -> str | None:
     msg_path = path if path is not None else DEFAULT_MSG
     if not msg_path.is_file():
         return None
-    return msg_path.read_text(encoding="utf-8").strip()
+    try:
+        return msg_path.read_text(encoding="utf-8").strip()
+    except UnicodeDecodeError:
+        sys.exit(
+            f"ERROR: 提交信息文件 {msg_path} 不是合法 UTF-8（疑似被 PowerShell/GBK 误编码）。"
+            "请用 UTF-8 无 BOM 重新保存后再 --apply（禁止中文内联到命令行）。"
+        )
 
 
 def _target_files(files: list[str] | None) -> list[str]:
@@ -99,14 +105,56 @@ def _display(paths: list[str]) -> list[str]:
     return [line for line in res.stdout.splitlines() if line.strip()]
 
 
+def _guard_outgoing() -> None:
+    """推送前自校验（AI Tool Hook 兜底）：扫描待推提交的文件与中文提交信息。
+
+    即便本机未装 pre-commit/pre-push，AI 经 commit_changes.py --push 也会先过此关，
+    防止 GBK 乱码被推上远端。发现乱码直接拦截，绝不执行 git push。
+    """
+    upstream = _run(
+        ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+        check=False,
+    ).stdout.strip()
+    if not upstream:
+        upstream = "origin/dev"
+    base = _run(["git", "rev-parse", upstream], check=False).stdout.strip()
+    if not base:
+        return  # 无法定位基准，放行（交给 pre-push / CI）
+    revs = _run(["git", "rev-list", f"{base}..HEAD"], check=False).stdout.split()
+    if not revs:
+        return
+
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import guard_mojibake as gm  # 复用同一套乱码判定，避免逻辑分叉
+
+    bad = False
+    for sha in revs:
+        sha = sha.strip()
+        if not sha:
+            continue
+        msg = _run(["git", "show", "-s", "--format=%B", sha], check=False).stdout
+        if gm._check_commit_message_text(msg, f"commit {sha[:8]} message"):
+            bad = True
+        out = _run(
+            ["git", "diff-tree", "--no-commit-id", "--name-only", "-r", sha],
+            check=False,
+        ).stdout.split()
+        for rel in out:
+            fp = REPO_ROOT / rel.strip()
+            if fp.is_file() and gm.is_likely_mojibake(fp):
+                bad = True
+    if bad:
+        sys.exit(
+            "ERROR: 待推送提交含 GBK 乱码（提交信息或文件）。已拦截推送，"
+            "请修复（git commit --amend 或重新填写）后重试。"
+        )
+
+
 def main() -> None:
     # Windows 控制台默认 GBK，print 中文会抛 UnicodeEncodeError；重绑为 UTF-8 流，
     # 既不让预览输出崩溃，也避免为绕过编码而落盘临时文件。
-    try:
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
-        sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
-    except Exception:
-        pass
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
 
     ap = argparse.ArgumentParser(description="commit helper (dry-run by default)")
     ap.add_argument("--files", nargs="+", help="要提交的精确文件列表（精准优先）")
@@ -119,8 +167,7 @@ def main() -> None:
     message = _load_message(args.message_file)
     if args.apply and message is None:
         sys.exit(
-            f"ERROR: 提交需要提交信息。请先写入 UTF-8 消息文件 {DEFAULT_MSG}，"
-            f"或用 --message-file 指定。"
+            f"ERROR: 提交需要提交信息。请先写入 UTF-8 消息文件 {DEFAULT_MSG}，或用 --message-file 指定。"
         )
 
     targets = _target_files(args.files)
@@ -174,14 +221,14 @@ def main() -> None:
             if args.files:
                 _run(["git", "restore", "--staged", "--", *targets])
             sys.exit(
-                "ERROR: git commit 失败（已自动 restore 回滚本次 --files 的暂存）:\n"
-                f"{res.stdout}\n{res.stderr}"
+                f"ERROR: git commit 失败（已自动 restore 回滚本次 --files 的暂存）:\n{res.stdout}\n{res.stderr}"
             )
         print(res.stdout.strip())
     finally:
         msg_path.unlink(missing_ok=True)
 
     if args.push:
+        _guard_outgoing()
         pres = _run(["git", "push"], check=False)
         if pres.returncode != 0:
             sys.exit(f"ERROR: git push 失败:\n{pres.stdout}\n{pres.stderr}")
