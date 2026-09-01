@@ -27,6 +27,14 @@ interface Props {
   alignRight?: boolean;
   /** 主金额无数据时的占位，默认 -- */
   emptyText?: string;
+  /**
+   * 内联单行模式：金额与比例同行展示（如 `¥109,600.00 +3.21%`）。
+   * 用于数据密集表格（自选）：两行堆叠会让行内容达 ~35px、加单元格 padding 后约 51px，
+   * 超出 design.md「数据表格强制紧凑原则」锁定的 40–44px；内联后行内容降至 20px，
+   * 行高回落至 40px 基线，单屏可见行数翻倍（issue #1281）。
+   * 默认 false（两行主次布局），保持非密集场景的阅读层次。
+   */
+  inline?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -41,12 +49,16 @@ const props = withDefaults(defineProps<Props>(), {
   ratioSuffix: "%",
   ratioAutoColor: true,
   alignRight: true,
-  emptyText: "--"
+  emptyText: "--",
+  inline: false
 });
 </script>
 
 <template>
-  <div class="money-with-ratio" :class="{ 'is-right': alignRight }">
+  <div
+    class="money-with-ratio"
+    :class="{ 'is-right': alignRight, 'is-inline': inline }"
+  >
     <MoneyDisplay
       :value="value"
       :show-sign="showSign"
@@ -85,5 +97,26 @@ const props = withDefaults(defineProps<Props>(), {
   margin-top: 2px;
   font-size: 12px;
   opacity: 0.72;
+}
+
+/* ── 内联单行模式（数据密集表格，issue #1281）──
+   金额与比例同行，行内容高度 20px（两行堆叠约 35px 会把行高顶到 ~51px，
+   超出 design.md 锁定的 40–44px）。基线对齐保证两种字号的文本底部齐平；
+   右对齐列改由 justify-content 收尾，避免与 baseline 冲突。 */
+.money-with-ratio.is-inline {
+  flex-direction: row;
+  gap: 6px;
+  align-items: baseline;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.money-with-ratio.is-inline.is-right {
+  align-items: baseline;
+  justify-content: flex-end;
+}
+
+.money-with-ratio.is-inline .money-with-ratio__ratio {
+  margin-top: 0;
 }
 </style>
