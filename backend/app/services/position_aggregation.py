@@ -50,6 +50,9 @@ SORT_FIELDS = ('market_value', 'quantity', 'name', 'symbol', 'return_pct')
 # fund_type 筛选中「未分类」的占位值（后端约定，前端透传即可）
 FUND_TYPE_NONE = '__none__'
 
+# 证券侧资产构成环形图的 asset_type → 中文标签映射（#1264）
+ASSET_TYPE_LABELS: dict[str, str] = {'stock': '股票', 'etf': 'ETF', 'bond': '可转债'}
+
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 200
 
@@ -209,6 +212,8 @@ def _collect_rows(session, family_id: int, asset_types: tuple) -> list[dict]:
                 'nav_yuan': effective_nav if effective_nav else Money.price_units_to_yuan(p.current_price),
                 # ── 基金类型（来自 funds 名录；未收录为 None）──
                 'fund_type': fund_types_by_symbol.get(p.symbol),
+                # ── 资产类型（证券侧环形图按此聚类：股票/ETF/可转债）──
+                'asset_type': p.asset_type,
                 # ── 盈亏（与市值同单位：分）──
                 'cost_cents': cost_cents,
                 'pnl_cents': pnl_cents,
@@ -384,6 +389,7 @@ def aggregate_positions(
     page_size: int = DEFAULT_PAGE_SIZE,
     keyword: str | None = None,
     fund_type: str | None = None,
+    breakdown_by: str = 'fund_type',
 ) -> dict:
     """聚合某类资产的持仓（#1101 / #1132 共用入口）。
 
@@ -397,6 +403,8 @@ def aggregate_positions(
         keyword: 名称/代码模糊搜索（大小写不敏感），命中任一即保留。
         fund_type: 基金小类名精确筛选；`FUND_TYPE_NONE` 表示筛选「未分类」。
             过滤在行级执行，对 product / institution 两个维度均生效。
+        breakdown_by: 资产构成环形图的聚类维度（#1264）。
+            'fund_type'（默认，基金侧按小类名）/ 'asset_type'（证券侧按股票/ETF/可转债）。
 
     Returns:
         {
@@ -419,9 +427,12 @@ def aggregate_positions(
     rows, nav_date_global = _collect_rows(session, family_id, asset_types)
 
     # ── fund_type 分布统计（基于全量 rows，不受 keyword/fund_type 筛选影响，
-    #    供前端动态生成类型 Tab 与资产构成环形图：#1224）──
+    #    供前端动态生成类型 Tab：#1224）──
     fund_type_counts: dict[str, int] = {}
     fund_type_unclassified_count = 0
+    # ── 资产构成环形图（基于全量 rows）：按品类维度聚类市值分布（#1264）。
+    #    基金侧用 fund_type（小类名），证券侧用 asset_type（股票/ETF/可转债），
+    #    二者共用响应字段 fund_type_breakdown，前端 Hero 渲染逻辑无需分叉。
     fund_type_breakdown: dict[str, dict] = {}
     for r in rows:
         ft = r.get('fund_type') or '未分类'
@@ -429,7 +440,9 @@ def aggregate_positions(
             fund_type_counts[ft] = fund_type_counts.get(ft, 0) + 1
         else:
             fund_type_unclassified_count += 1
-        item = fund_type_breakdown.setdefault(ft, {'name': ft, 'market_value_cents': 0, 'count': 0})
+        raw = r.get(breakdown_by) or '未分类'
+        bkey = ASSET_TYPE_LABELS.get(raw, raw) if breakdown_by == 'asset_type' else raw
+        item = fund_type_breakdown.setdefault(bkey, {'name': bkey, 'market_value_cents': 0, 'count': 0})
         item['market_value_cents'] += r['market_value_cents']
         item['count'] += 1
     fund_type_breakdown_list = sorted(fund_type_breakdown.values(), key=lambda x: x['market_value_cents'], reverse=True)
