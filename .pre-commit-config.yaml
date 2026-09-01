@@ -54,7 +54,9 @@ repos:
         name: guard Chinese mojibake in source files
         entry: python scripts/guard_mojibake.py
         language: python
-        files: \.(md|py|vue)$
+        # 覆盖全部文本类型（此前仅 .md/.py/.vue，漏掉前端 .ts/.tsx/.js/.json、
+        # 配置 .yml/.yaml/.sh/.ps1、样式 .css/.scss、标记 .html/.svg 等高频 GBK 源）
+        files: \.(md|py|vue|ts|tsx|js|jsx|json|yml|yaml|html?|css|scss|sass|sh|ps1|bat|cmd|toml|xml|svg|mjs|cjs)$
         pass_filenames: true
         additional_dependencies: [ftfy]
       # 提交信息同样会被 PowerShell/GBK 误编码成乱码（本会话真实事故），
@@ -65,6 +67,16 @@ repos:
         language: python
         stages: [commit-msg]
         additional_dependencies: [ftfy]
+      # 推送前闸门（AI Tool Hooks 层）：在 git push 前扫描待推送提交的文件与
+      # 中文提交信息，发现 GBK 乱码即拦截。覆盖裸 git push 与 AI 工具的推送路径。
+      # 启用：pre-commit install --hook-type pre-push（开发者本地可选；CI 与
+      # commit_changes.py 自校验为必过层）
+      - id: guard-mojibake-prepush
+        name: guard Chinese mojibake before push
+        entry: python scripts/guard_mojibake.py --pre-push
+        language: python
+        stages: [push]
+        pass_filenames: false
       - id: forbid-bp-input
         name: forbid APIFlask @bp.input() auto-paradigm
         entry: python scripts/forbid_bp_input.py

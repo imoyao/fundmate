@@ -61,11 +61,7 @@
     <!-- 三域 Tab（§6.3）：B 已接入真实对账，A/C 保持原入口 -->
     <div class="workbench-tabs">
       <el-tabs v-model="activeDomain" class="workbench-tabs__inner">
-        <el-tab-pane
-          v-for="tab in domainTabs"
-          :key="tab.key"
-          :name="tab.key"
-        >
+        <el-tab-pane v-for="tab in domainTabs" :key="tab.key" :name="tab.key">
           <template #label>
             <span class="domain-tab-label">
               {{ tab.label }}
@@ -478,16 +474,14 @@ const domainTabs = [
 function domainPending(key: string): number {
   if (key === "A")
     return eItems.value.filter(i => i.status === "pending").length;
-  return discs.value.filter(
-    d => d.domain === key && d.status === "pending"
-  ).length;
+  return discs.value.filter(d => d.domain === key && d.status === "pending")
+    .length;
 }
 function domainIgnored(key: string): number {
   if (key === "A")
     return eItems.value.filter(i => i.status === "ignored").length;
-  return discs.value.filter(
-    d => d.domain === key && d.status === "ignored"
-  ).length;
+  return discs.value.filter(d => d.domain === key && d.status === "ignored")
+    .length;
 }
 
 /** 差异类型中文 */
@@ -764,7 +758,9 @@ onMounted(() => {
 /* Banner 可点击：点击切换到待处理域（#1259） */
 .workbench-banner--clickable {
   cursor: pointer;
-  transition: border-color 0.15s ease, background-color 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease;
 }
 
 .workbench-banner--clickable:hover {
