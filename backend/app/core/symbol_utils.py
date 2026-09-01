@@ -287,6 +287,23 @@ def get_normalizer() -> StockCodeNormalizer:
     return _normalizer
 
 
+def split_symbol(symbol: str) -> tuple[Optional[str], Optional[str]]:
+    """SH/SZ/BJ 前缀代码 → (market, code)；纯 6 位数字按首位推断市场；否则 (None, symbol)。
+
+    例如 'SH510050' → ('SH', '510050')、'159915' → ('SZ', '159915')、'110011' → (None, '110011')。
+    供录入阶段按代码前缀推断证券细类（ETF/可转债）时拆分市场与代码。
+    """
+    s = symbol or ''
+    if s[:2] in ('SH', 'SZ', 'BJ'):
+        return s[:2], s[2:]
+    if len(s) == 6 and s.isdigit():
+        if s[0] in '69':
+            return 'SH', s
+        if s[0] in '023':
+            return 'SZ', s
+    return None, s
+
+
 def derive_security_type(code: str, market: str | None = None) -> Optional[str]:
     """A 股 6 位代码 → 资产细类 stock/etf/bond；非 A 股 6 位代码返回 None（不动）。
 
