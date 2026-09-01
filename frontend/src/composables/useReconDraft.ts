@@ -17,6 +17,11 @@ import { localForage } from "@/utils/localforage";
 
 export type ReconDomain = "A" | "B" | "C";
 
+/** 对账行：导入解析结果/预览行均为异构键值对，用此类型替代裸 `any` */
+export interface ReconRow {
+  [key: string]: unknown;
+}
+
 export interface ReconDraftPayload {
   /** 对账域：A=E账户 / B=持仓快照一致性 / C=对账单交割单导入 */
   domain: ReconDomain;
@@ -27,7 +32,7 @@ export interface ReconDraftPayload {
   /** 恢复目标步骤（域内约定：交易导入=2 预览修正，E账户=1 对账结果） */
   currentStep: number;
   /** 解析结果行（交易导入=previewData / E账户=previewRows），行内编辑是刚需 */
-  rows: any[];
+  rows: ReconRow[];
   /** 交易导入专用：勾选键（Set 序列化后的数组） */
   selectedKeys?: string[];
   /** 交易导入专用：账本上下文 */
@@ -43,9 +48,9 @@ const TTL_MINUTES = 7 * 24 * 60; // 7 天
 const draftKey = (): string => `${KEY_PREFIX}`;
 
 /** 序列化前清洗 rows：剥离不可 JSON 化的字段（函数/循环引用），保留行内编辑所需字段 */
-function sanitizeRows(rows: any[]): any[] {
+function sanitizeRows(rows: ReconRow[]): ReconRow[] {
   return rows.map(row => {
-    const copy: Record<string, any> = {};
+    const copy: Record<string, unknown> = {};
     for (const key of Object.keys(row)) {
       const v = row[key];
       if (v === undefined || typeof v === "function") continue;
@@ -70,7 +75,7 @@ function buildPayload(partial: {
   domain: ReconDomain;
   ledgerId: number | null;
   currentStep: number;
-  rows: any[];
+  rows: ReconRow[];
   selectedKeys?: Set<string>;
   selectedLedgerId?: number | null;
   selectedMode?: string;
@@ -96,7 +101,7 @@ export function useReconDraft() {
     domain: ReconDomain;
     ledgerId: number | null;
     currentStep: number;
-    rows: any[];
+    rows: ReconRow[];
     selectedKeys?: Set<string>;
     selectedLedgerId?: number | null;
     selectedMode?: string;

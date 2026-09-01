@@ -9,6 +9,7 @@ import CreateLedgerDialog from "./components/CreateLedgerDialog.vue";
 import { ref } from "vue";
 import { useImportWizard } from "./composables/useImportWizard";
 import { provideWizard } from "./composables/useImportWizardContext";
+import { Edit } from "@element-plus/icons-vue";
 
 const wizard = useImportWizard();
 provideWizard(wizard);
@@ -50,7 +51,7 @@ const withMock = ref(false);
       class="draft-banner"
       role="alert"
     >
-      <span class="draft-banner-icon">✎</span>
+      <el-icon class="draft-banner-icon"><Edit /></el-icon>
       <div class="draft-banner-text">
         发现{{ pendingDraftMeta.savedAt ? "未完成" : "" }}的导入草稿（{{
           pendingDraftMeta.rowCount
