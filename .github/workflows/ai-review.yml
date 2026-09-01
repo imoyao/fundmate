@@ -169,7 +169,7 @@ jobs:
           script: |
             const pr = context.payload.pull_request.number;
             const { owner, repo } = context.repo;
-            const reviewComments = (await github.rest.pulls.listComments({ owner, repo, pull_number: pr })).data.length;
+            const reviewComments = (await github.rest.pulls.listReviewComments({ owner, repo, pull_number: pr })).data.length;
             const reviews = (await github.rest.pulls.listReviews({ owner, repo, pull_number: pr })).data.length;
             core.setOutput('count', reviewComments + reviews);
 
@@ -209,7 +209,7 @@ jobs:
             const before = Number('${{ steps.pre-check.outputs.count }}');
             let after = before;
             for (let i = 0; i < 5; i++) {
-              const rc = (await github.rest.pulls.listComments({ owner, repo, pull_number: pr })).data.length;
+              const rc = (await github.rest.pulls.listReviewComments({ owner, repo, pull_number: pr })).data.length;
               const rv = (await github.rest.pulls.listReviews({ owner, repo, pull_number: pr })).data.length;
               after = rc + rv;
               if (after > before) break;
