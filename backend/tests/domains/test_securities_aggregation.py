@@ -101,9 +101,7 @@ def test_securities_aggregation_app_dimension_deprecated(client, db):
     si1 = SalesInstitution(org_name='华泰证券', org_type='证券公司')
     db.add(si1)
     db.flush()
-    l1 = _make_securities_ledger(
-        db, '华泰证券', sales_institution_id=si1.id, frontend_app='self'
-    )
+    l1 = _make_securities_ledger(db, '华泰证券', sales_institution_id=si1.id, frontend_app='self')
     _make_securities_position(db, l1, '600519', '贵州茅台', 'stock', 100 * 10000, 1000 * 10000)
     db.commit()
 
@@ -120,8 +118,8 @@ def test_securities_aggregation_sorted_and_paged(client, db):
     """默认按市值降序；分页生效，且 total / 汇总市值均按全量口径计算。"""
     l1 = _make_securities_ledger(db, '华泰证券')
     _make_securities_position(db, l1, '600519', '贵州茅台', 'stock', 100 * 10000, 1000 * 10000)  # 100000 元
-    _make_securities_position(db, l1, '110059', '浦发转债', 'bond', 10 * 10000, 100 * 10000)     # 1000 元
-    _make_securities_position(db, l1, '510300', '沪深300ETF', 'etf', 50 * 10000, 4 * 10000)      # 200 元
+    _make_securities_position(db, l1, '110059', '浦发转债', 'bond', 10 * 10000, 100 * 10000)  # 1000 元
+    _make_securities_position(db, l1, '510300', '沪深300ETF', 'etf', 50 * 10000, 4 * 10000)  # 200 元
     db.commit()
 
     # 默认降序：金额高者在前
@@ -151,10 +149,12 @@ def test_securities_aggregation_snapshot_date(client, db):
     p2 = _make_securities_position(db, l1, '510300', '沪深300ETF', 'etf', 50 * 10000, 4 * 10000)
     db.flush()
     # p1 为 6 月导入、p2 为 8 月导入 → 页面「数据日期」应展示最早的 06-12
-    db.add(PositionImportMeta(position_id=p1.id, symbol='600519', family_id=1,
-                              snapshot_date=date(2026, 6, 12), source=''))
-    db.add(PositionImportMeta(position_id=p2.id, symbol='510300', family_id=1,
-                              snapshot_date=date(2026, 8, 20), source=''))
+    db.add(
+        PositionImportMeta(position_id=p1.id, symbol='600519', family_id=1, snapshot_date=date(2026, 6, 12), source='')
+    )
+    db.add(
+        PositionImportMeta(position_id=p2.id, symbol='510300', family_id=1, snapshot_date=date(2026, 8, 20), source='')
+    )
     db.commit()
 
     resp = client.get('/api/ledgers/securities-aggregation/?dimension=product')

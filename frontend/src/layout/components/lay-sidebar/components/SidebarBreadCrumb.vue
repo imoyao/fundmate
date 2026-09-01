@@ -75,7 +75,10 @@ watch(
         :key="item.path"
         class="inline! items-stretch!"
       >
-        <a v-if="index !== levelList.length - 1" @click.prevent="handleLink(item)">
+        <a
+          v-if="index !== levelList.length - 1"
+          @click.prevent="handleLink(item)"
+        >
           {{ item.meta.title }}
         </a>
         <span v-else>{{ item.meta.title }}</span>

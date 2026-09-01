@@ -14,7 +14,10 @@
 //   assetTypeLabel('bond');         // => '可转债'（后端实时来源，回退镜像）
 import { ref } from "vue";
 import { http as request } from "@/utils/http";
-import { ASSET_TYPE_LABELS, ASSET_CATEGORY_LABELS } from "@/constants/assetType";
+import {
+  ASSET_TYPE_LABELS,
+  ASSET_CATEGORY_LABELS
+} from "@/constants/assetType";
 
 let cachePromise: Promise<Record<string, Record<string, string>>> | null = null;
 // 模块级已解析缓存：即使组件未触发 fetch，也能回退到前端镜像避免显示英文原键
@@ -27,7 +30,8 @@ async function loadEnums(): Promise<Record<string, Record<string, string>>> {
         "/api/utils/enums/"
       )
       .then(res => {
-        resolvedCache = res.data ?? ({} as Record<string, Record<string, string>>);
+        resolvedCache =
+          res.data ?? ({} as Record<string, Record<string, string>>);
         return resolvedCache;
       })
       .catch(() => ({}) as Record<string, Record<string, string>>);
@@ -42,7 +46,9 @@ export function assetTypeLabel(type: string | undefined | null): string {
 }
 
 /** 资产大类 → 中文 label（后端 /enums/asset_category 为唯一真相源，未拉取时回退前端镜像）。未知值回退镜像/原值。 */
-export function assetCategoryLabel(category: string | undefined | null): string {
+export function assetCategoryLabel(
+  category: string | undefined | null
+): string {
   if (!category) return "";
   return (
     resolvedCache?.asset_category?.[category] ??
@@ -67,5 +73,11 @@ export function useEnumLabels() {
     return enums.value?.position_source?.[source] ?? source;
   }
 
-  return { ensure, enums, positionSourceLabel, assetTypeLabel, assetCategoryLabel };
+  return {
+    ensure,
+    enums,
+    positionSourceLabel,
+    assetTypeLabel,
+    assetCategoryLabel
+  };
 }

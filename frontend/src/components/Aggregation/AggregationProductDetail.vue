@@ -544,7 +544,6 @@ function fmtShort(d: string | null): string {
   word-break: break-word;
 }
 
-
 /* ── 四格信息 ── */
 .info-grid {
   display: grid;

@@ -255,7 +255,9 @@
       style="color: var(--text-secondary)"
     >
       <IconifyIconOffline icon="ep:info-filled" class="text-gray-400" />
-      <span>卖出资金将留存在当前账户余额，可用于再投资；如需转出到银行卡，请单独登记银证转账</span>
+      <span
+        >卖出资金将留存在当前账户余额，可用于再投资；如需转出到银行卡，请单独登记银证转账</span
+      >
     </div>
 
     <!-- 费率查询弹窗（根据是否有输入份额动态显示列） -->

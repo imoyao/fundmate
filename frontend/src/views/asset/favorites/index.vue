@@ -43,7 +43,10 @@
 
     <div ref="listHostRef" v-loading="loading" class="road-waterfall">
       <template v-if="pagedItems.length">
-        <div class="road-masonry" :style="{ columnCount: columns, columnGap: GAP + 'px' }">
+        <div
+          class="road-masonry"
+          :style="{ columnCount: columns, columnGap: GAP + 'px' }"
+        >
           <RoadCard
             v-for="item in pagedItems"
             :key="cardKey(item)"
