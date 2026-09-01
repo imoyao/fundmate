@@ -352,6 +352,27 @@ def _sort_groups(groups: list[dict], sort: str, order: str, dimension: str) -> l
     return groups
 
 
+def _regroup_page_items(page_items: list[tuple[dict, dict]]) -> list[dict]:
+    """按当前页命中的条目重建机构分组（#1265 方案 A 配套）。
+
+    组级汇总（市值/份额/成本/盈亏/收益率）沿用全量口径——它们是「机构」这一层的属性，
+    与取哪一页无关；`items` 只保留本页命中的条目，保证前端展平后的卡片数 == 每页条数。
+
+    顺序沿用上游排序（机构间按排序键、机构内 items 同键排序），跨页不重不漏；
+    一个机构的 items 可能被分页切开，这是展平分页的预期行为。
+    """
+    page_groups: list[dict] = []
+    index: dict = {}
+    for group, item in page_items:
+        holder = index.get(group['key'])
+        if holder is None:
+            holder = {**group, 'items': []}
+            index[group['key']] = holder
+            page_groups.append(holder)
+        holder['items'].append(item)
+    return page_groups
+
+
 def aggregate_positions(
     session,
     family_id: int,
@@ -386,6 +407,11 @@ def aggregate_positions(
         其中 `snapshot_date` 为全部持仓中**最早**的快照日（数据最滞后的一笔），
         供页面顶部「数据日期」展示；`snapshot_date_latest` 为最近的一笔，供区间提示。
         过滤后 `total_market_value_cents` / `snapshot_date` 均基于过滤结果口径。
+
+        `total` 的口径随维度不同（#1265）：
+        - product：产品分组数（= 卡片数）；
+        - institution：展平后的「产品×渠道」条目数（= 卡片数），
+          而非机构分组数——前端按渠道展示时是把组内 items 展平成卡片的。
     """
     if dimension not in AGGREGATION_DIMENSIONS:
         dimension = 'product'
@@ -422,16 +448,37 @@ def aggregate_positions(
     groups = _group_by_dimension(rows, dimension)
     groups = _sort_groups(groups, sort, order, dimension)
 
-    total = len(groups)
     # 分页：page_size<=0 视为不分页（向后兼容旧调用方）
     if page_size and page_size > 0:
         page_size = min(int(page_size), MAX_PAGE_SIZE)
         page = max(1, int(page))
-        total_pages = max(1, (total + page_size - 1) // page_size)
-        start = (page - 1) * page_size
-        groups = groups[start : start + page_size]
     else:
-        page, page_size, total_pages = 1, total, 1
+        page, page_size = 1, 0
+
+    if dimension == 'institution':
+        # 按渠道展示的分页对象是「展平后的产品×渠道」条目（#1265 方案 A）。
+        # 前端把每个机构组内的 items 全量展平成卡片渲染，故分页口径必须与卡片数一致；
+        # 此前 total 取的是机构分组数，导致 total_pages 恒为 1 → 分页条被隐藏、卡片一次铺开。
+        flattened = [(g, item) for g in groups for item in g['items']]
+        total = len(flattened)
+        if page_size:
+            total_pages = max(1, (total + page_size - 1) // page_size)
+            start = (page - 1) * page_size
+            groups = _regroup_page_items(flattened[start : start + page_size])
+        else:
+            total_pages = 1
+    else:
+        total = len(groups)
+        if page_size:
+            total_pages = max(1, (total + page_size - 1) // page_size)
+            start = (page - 1) * page_size
+            groups = groups[start : start + page_size]
+        else:
+            total_pages = 1
+
+    # 不分页时回传全量条数，保持与既有调用方一致
+    if not page_size:
+        page_size = total
 
     return {
         'total_market_value_cents': total_mv,
