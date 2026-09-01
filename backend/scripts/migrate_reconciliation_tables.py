@@ -18,10 +18,20 @@ import sys
 def main() -> None:
     # 导入 Base 与全部模型（确保 reconciliation models 注册进 metadata）
     import app.domains.reconciliation.models  # noqa: F401
-    from app.core.database import Base, engine
+    from app.core.database import Base
+    from app.core.db_factory import DOMAIN_USER, DatabaseFactory
 
+    engine = DatabaseFactory.create(DOMAIN_USER)
     print(f'目标引擎: {engine.url}')
-    Base.metadata.create_all(bind=engine)
+    # 仅建统一对账三表（user 域），避免误建全表 / 建错库
+    Base.metadata.create_all(
+        bind=engine,
+        tables=[
+            Base.metadata.tables['discrepancies'],
+            Base.metadata.tables['reconciliation_runs'],
+            Base.metadata.tables['adjustment_logs'],
+        ],
+    )
     # 校验三表已建
     from sqlalchemy import inspect
 

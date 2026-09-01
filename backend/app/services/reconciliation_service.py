@@ -93,7 +93,7 @@ def run_reconciliation(db: Session, family_id: int, domain: str = DOMAIN_B) -> t
     # 按业务键聚合流水
     txn_by_key: dict[tuple, list] = {}
     for ledger_id, symbol, txn_type, quantity in rows:
-        if not symbol:
+        if ledger_id is None or not symbol:
             continue
         key = (ledger_id, symbol)
         txn_by_key.setdefault(key, []).append({'txn_type': txn_type, 'quantity': quantity or 0})
@@ -113,7 +113,6 @@ def run_reconciliation(db: Session, family_id: int, domain: str = DOMAIN_B) -> t
             # 流水净额 <= 0（已清仓）且无持仓 → 不算孤儿
             if key not in pos_by_key:
                 continue
-        seen_keys.add(key)
         ledger_id, symbol = key
         actual_qty = pos_by_key[key].quantity if key in pos_by_key else 0
         theoretical_qty = _txn_net_quantity(txns)
@@ -133,6 +132,7 @@ def run_reconciliation(db: Session, family_id: int, domain: str = DOMAIN_B) -> t
                 theoretical_qty,
             )
             summary['orphan'] += 1
+            seen_keys.add(key)
             continue
 
         # 域 C：只做孤儿检测，不做数量比对（§6.2；补录差异留 P2 工作台）
@@ -155,6 +155,7 @@ def run_reconciliation(db: Session, family_id: int, domain: str = DOMAIN_B) -> t
                 diff,
             )
             summary['pending'] += 1
+            seen_keys.add(key)
 
     # 4) 本 run 未检测到的既有 pending 差异 → cleared（差异消失）
     _clear_stale_discrepancies(db, family_id, run.id, seen_keys)
@@ -290,11 +291,14 @@ def apply_decision(
     for key in ('confirm_date', 'snapshot_date', 'trade_date'):
         raw = data.get(key)
         if isinstance(raw, str) and raw:
-            data[key] = (
-                datetime.strptime(raw[:10], '%Y-%m-%d').date()
-                if key != 'trade_date'
-                else datetime.strptime(raw[:10], '%Y-%m-%d')
-            )
+            try:
+                data[key] = (
+                    datetime.strptime(raw[:10], '%Y-%m-%d').date()
+                    if key != 'trade_date'
+                    else datetime.strptime(raw[:10], '%Y-%m-%d')
+                )
+            except ValueError:
+                raise ValueError(f'日期格式错误: {key}={raw!r}，应为 YYYY-MM-DD')
     # 对账补录来源标记（决策 11）。RECONCILIATION_ADJUSTMENT 由 #1238 引入；
     # 当前分支若未合入 #1238 则回退 manual，保证 P2 代码在合入前后均可运行。
     recon_source = getattr(PositionSource, 'RECONCILIATION_ADJUSTMENT', PositionSource.MANUAL).value

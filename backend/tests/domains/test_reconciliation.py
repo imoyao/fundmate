@@ -67,6 +67,7 @@ class TestThreeTables:
         db.flush()
         disc = ReconciliationDiscrepancy(
             family_id=1,
+            ledger_id=1,
             domain='B',
             symbol='S1',
             discrepancy_type='quantity',
