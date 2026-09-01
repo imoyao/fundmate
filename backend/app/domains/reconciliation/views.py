@@ -20,6 +20,7 @@ from flask import abort, jsonify, request
 
 from app.core.auth import get_family_id
 from app.core.database import user_session
+from app.core.money import Money
 from app.domains.reconciliation.models import AdjustmentLog, ReconciliationDiscrepancy
 from app.services.reconciliation_service import apply_decision
 from app.services.reconciliation_service import run_reconciliation as run_reconciliation_service
@@ -135,9 +136,9 @@ def list_discrepancies():
                 'ledger_id': d.ledger_id,
                 'symbol': d.symbol,
                 'discrepancy_type': d.discrepancy_type,
-                'expected_value': d.expected_value,
-                'actual_value': d.actual_value,
-                'diff': d.diff,
+                'expected_value': Money.min_unit_to_shares(d.expected_value),
+                'actual_value': Money.min_unit_to_shares(d.actual_value),
+                'diff': Money.min_unit_to_shares(d.diff),
                 'status': d.status,
                 'is_permanent': d.is_permanent,
                 'first_detected_at': d.first_detected_at.isoformat() if d.first_detected_at else None,

@@ -28,7 +28,7 @@ class ReconciliationDiscrepancy(Base, PrimaryKeyMixin, TimestampMixin, FamilySco
     discrepancy_type = Column(String(20), nullable=False, comment='差异类型: quantity|cost|cash|orphan')
     expected_value = Column(Integer, nullable=True, comment='理论值（分/最小单位，按类型口径）')
     actual_value = Column(Integer, nullable=True, comment='实际值')
-    diff = Column(Integer, nullable=True, comment='差值 = expected - actual')
+    diff = Column(Integer, nullable=True, comment='差值 = actual - expected（正数=实际多于理论）')
     status = Column(String(20), default='pending', comment='pending|cleared|ignored')
     is_permanent = Column(Boolean, default=False, comment='永久忽略逃生舱')
     ignored_reason = Column(Text, nullable=True, comment='忽略原因')
