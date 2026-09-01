@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
-"""统一对账域 B 测试（#1232 §6.1 / P1）。
+"""统一对账测试（#1232 §6.1 / §6.2 / P1）。
 
-覆盖：三表可建、域 B 数量差异、孤儿检测、幂等 upsert、忽略（临时/永久）、API。
+覆盖：三表可建、域 B 数量差异、孤儿检测、幂等 upsert、忽略（临时/永久）、
+域 C（导入后自动触发）孤儿检测与清理范围、API。
 """
 
 from datetime import date, datetime
@@ -10,7 +11,7 @@ from app.core.money import Money
 from app.domains.positions.models import Position
 from app.domains.reconciliation.models import AdjustmentLog, ReconciliationDiscrepancy, ReconciliationRun
 from app.domains.transactions.models import Transaction
-from app.services.reconciliation_service import run_domain_b_reconciliation
+from app.services.reconciliation_service import run_domain_b_reconciliation, run_reconciliation
 
 
 def _buy_txn(db, ledger_id, symbol, quantity, confirm_date, position_id=None):
@@ -251,6 +252,91 @@ class TestDomainBReconciliation:
         d2 = db.query(ReconciliationDiscrepancy).filter_by(symbol='S1').one()
         assert d2.status == 'ignored'
         assert d2.is_permanent is True
+
+
+class TestDomainCReconciliation:
+    """域 C（导入完成后自动触发，§6.2）：只做孤儿检测，清理范围不得跨到域 B。"""
+
+    def test_domain_c_run_keeps_domain_b_pending(self, db):
+        """回归：域 C run 曾因清理漏传 domain 而误清域 B 的待裁决差异。"""
+        from app.domains.ledgers.models import Ledger
+
+        ledger = Ledger(name='账户A', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.flush()
+        # S1：流水 100 / 持仓 60 → 域 B 数量差异（用户待裁决）
+        _buy_txn(db, ledger.id, 'S1', 100, date(2026, 5, 1))
+        db.add(
+            Position(
+                symbol='S1',
+                name='股1',
+                asset_type='stock',
+                market='CN_A',
+                ledger_id=ledger.id,
+                family_id=1,
+                quantity=Money.shares_to_min_unit(60),
+                avg_price=Money.yuan_to_price_units(10),
+                current_price=Money.yuan_to_price_units(10),
+                source='manual',
+                ownership_status='active',
+            )
+        )
+        # S2：有流水无持仓 → 孤儿（域 C 关注）
+        _buy_txn(db, ledger.id, 'S2', 50, date(2026, 5, 2))
+        db.commit()
+
+        run_domain_b_reconciliation(db, 1)
+        b_disc = db.query(ReconciliationDiscrepancy).filter_by(domain='B', symbol='S1').one()
+        assert b_disc.status == 'pending'
+
+        run_c, _ = run_reconciliation(db, 1, domain='C')
+
+        # 域 C 由导入触发，须与手工对账区分（§6.2）
+        assert run_c.triggered_by == 'import'
+        # 域 B 的待裁决差异仍在，未被跨域清理
+        db.refresh(b_disc)
+        assert b_disc.status == 'pending'
+        # 域 C 只报孤儿，不做数量比对
+        c_discs = db.query(ReconciliationDiscrepancy).filter_by(domain='C').all()
+        assert len(c_discs) == 1
+        assert c_discs[0].symbol == 'S2'
+        assert c_discs[0].discrepancy_type == 'orphan'
+
+    def test_domain_c_stale_orphan_cleared(self, db):
+        """域 C 孤儿补录持仓后，再次 run 应置 cleared（清理范围须覆盖域 C）。"""
+        from app.domains.ledgers.models import Ledger
+
+        ledger = Ledger(name='账户A', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.flush()
+        _buy_txn(db, ledger.id, 'S1', 100, date(2026, 5, 1))
+        db.commit()
+
+        run_reconciliation(db, 1, domain='C')
+        disc = db.query(ReconciliationDiscrepancy).filter_by(domain='C', symbol='S1').one()
+        assert disc.status == 'pending'
+
+        # 补录持仓，孤儿消除
+        db.add(
+            Position(
+                symbol='S1',
+                name='股1',
+                asset_type='stock',
+                market='CN_A',
+                ledger_id=ledger.id,
+                family_id=1,
+                quantity=Money.shares_to_min_unit(100),
+                avg_price=Money.yuan_to_price_units(10),
+                current_price=Money.yuan_to_price_units(10),
+                source='manual',
+                ownership_status='active',
+            )
+        )
+        db.commit()
+
+        run_reconciliation(db, 1, domain='C')
+        db.refresh(disc)
+        assert disc.status == 'cleared'
 
 
 class TestReconciliationAPI:

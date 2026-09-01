@@ -1,4 +1,5 @@
 import { parseFile, confirmImport as confirmImportApi } from "@/api/importer";
+import { runReconciliation } from "@/api/reconciliation";
 import { navCache } from "@/composables/useNavCache";
 import type { UploadRequestOptions } from "element-plus";
 import { ref, onMounted, computed, reactive, nextTick } from "vue";
@@ -1110,12 +1111,27 @@ export function useImportWizard() {
       orphanCount.value = result.orphan_count ?? 0;
       importErrors.value = result.errors ?? [];
       currentStep.value = 3;
+      // #1232 P1 域 C：导入 commit 成功后自动触发对账（fire-and-forget，与导入事务解耦，§6.2）。
+      // 不阻塞导入完成流程；孤儿流水 → 工作台差异，用户可后续处理。
+      triggerDomainCReconciliation();
       // #1239 草稿层：导入完成即丢弃草稿，避免残留
       await discardDraft().catch(() => {});
     } catch (e: any) {
       ElMessage.error(e?.response?.data?.message || "导入失败");
     } finally {
       importing.value = false;
+    }
+  }
+
+  /**
+   * 域 C 对账（导入后自动触发，§6.2）。
+   * 静默失败：对账是增值行为，不阻断导入主流程。
+   */
+  async function triggerDomainCReconciliation(): Promise<void> {
+    try {
+      await runReconciliation("C");
+    } catch {
+      /* 静默：对账失败不影响导入结果展示 */
     }
   }
 

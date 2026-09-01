@@ -32,6 +32,7 @@ _SELL_TYPES = ('sell', 'withdraw')
 _ADD_TYPES = ('buy', 'deposit', 'split')
 
 DOMAIN_B = 'B'
+DOMAIN_C = 'C'
 
 
 def _txn_type(t) -> str:
@@ -57,18 +58,29 @@ def _find_holding(txns):
 
 
 def run_domain_b_reconciliation(db: Session, family_id: int) -> tuple[ReconciliationRun, bool]:
-    """执行一次域 B 对账，返回 (run, 是否新建)。
+    """兼容别名：域 B 对账（旧引用）。"""
+    return run_reconciliation(db, family_id, DOMAIN_B)
 
-    - 遍历该 family 有流水的持仓（positions.quantity vs 流水重建净额）。
+
+def run_reconciliation(
+    db: Session, family_id: int, domain: str = DOMAIN_B, triggered_by: str | None = None
+) -> tuple[ReconciliationRun, bool]:
+    """执行一次对账，返回 (run, 是否新建)。
+
+    - 域 B：遍历该 family 有流水的持仓（positions.quantity vs 流水重建净额），
+      数量差异 + 孤儿（流水推演净额 > 0 但无持仓行）。
+    - 域 C（对账单导入，§6.2）：导入 commit 后自动触发，只做孤儿检测
+      （孤儿流水 → orphan 差异），不做数量比对（导入对账单 vs 系统持仓的
+      补录差异在 P2 工作台补录环节处理）。
     - 差异按业务键 upsert 到 discrepancies；无差异的旧差异置 cleared。
-    - 孤儿：流水推演净额 > 0 但无持仓行。
+    - triggered_by 未显式传入时按域推断：域 C 为 import（导入后自动触发），其余 manual。
     """
     run = ReconciliationRun(
         family_id=family_id,
-        domain=DOMAIN_B,
+        domain=domain,
         data_date=date.today(),
         started_at=datetime.utcnow(),
-        triggered_by='manual',
+        triggered_by=triggered_by or ('import' if domain == DOMAIN_C else 'manual'),
     )
     db.add(run)
     db.flush()
@@ -96,7 +108,7 @@ def run_domain_b_reconciliation(db: Session, family_id: int) -> tuple[Reconcilia
     summary = {'pending': 0, 'cleared': 0, 'ignored': 0, 'orphan': 0}
     seen_keys: set[tuple] = set()
 
-    # 3) 对每个「有流水」的业务键做数量比对
+    # 3) 对每个「有流水」的业务键做比对
     for key, txns in txn_by_key.items():
         if not _find_holding(txns):
             # 流水净额 <= 0（已清仓）且无持仓 → 不算孤儿
@@ -107,21 +119,49 @@ def run_domain_b_reconciliation(db: Session, family_id: int) -> tuple[Reconcilia
         theoretical_qty = _txn_net_quantity(txns)
 
         if key not in pos_by_key:
-            # 孤儿：流水推演净额 > 0 但系统无该持仓（§6.1 边界）
-            _upsert_discrepancy(db, family_id, run.id, ledger_id, symbol, 'orphan', theoretical_qty, 0, theoretical_qty)
+            # 孤儿：流水推演净额 > 0 但系统无该持仓（§6.1 边界；域 B/C 均检测）
+            _upsert_discrepancy(
+                db,
+                family_id,
+                run.id,
+                domain,
+                ledger_id,
+                symbol,
+                'orphan',
+                theoretical_qty,
+                0,
+                theoretical_qty,
+            )
             summary['orphan'] += 1
             seen_keys.add(key)
             continue
 
+        # 域 C：只做孤儿检测，不做数量比对（§6.2；补录差异留 P2 工作台）
+        if domain == DOMAIN_C:
+            continue
+
         diff = actual_qty - theoretical_qty
         if diff != 0:
-            # 数量差异
-            _upsert_discrepancy(db, family_id, run.id, ledger_id, symbol, 'quantity', theoretical_qty, actual_qty, diff)
+            # 数量差异（域 B）
+            _upsert_discrepancy(
+                db,
+                family_id,
+                run.id,
+                domain,
+                ledger_id,
+                symbol,
+                'quantity',
+                theoretical_qty,
+                actual_qty,
+                diff,
+            )
             summary['pending'] += 1
             seen_keys.add(key)
 
     # 4) 本 run 未检测到的既有 pending 差异 → cleared（差异消失）
-    _clear_stale_discrepancies(db, family_id, run.id, seen_keys)
+    #    必须按本次 run 的域清理：否则域 C（导入后自动触发）会把域 B 的待裁决差异误置 cleared，
+    #    同时域 C 自身的陈旧差异永远清不掉。
+    _clear_stale_discrepancies(db, family_id, run.id, seen_keys, domain)
 
     summary_json = json.dumps(summary)
     run.summary_json = summary_json
@@ -133,6 +173,7 @@ def _upsert_discrepancy(
     db: Session,
     family_id: int,
     run_id: int,
+    domain: str,
     ledger_id: int | None,
     symbol: str,
     disc_type: str,
@@ -145,7 +186,7 @@ def _upsert_discrepancy(
         db.query(ReconciliationDiscrepancy)
         .filter(
             ReconciliationDiscrepancy.family_id == family_id,
-            ReconciliationDiscrepancy.domain == DOMAIN_B,
+            ReconciliationDiscrepancy.domain == domain,
             ReconciliationDiscrepancy.ledger_id == ledger_id,
             ReconciliationDiscrepancy.symbol == symbol,
             ReconciliationDiscrepancy.discrepancy_type == disc_type,
@@ -166,7 +207,7 @@ def _upsert_discrepancy(
         return existing
     d = ReconciliationDiscrepancy(
         family_id=family_id,
-        domain=DOMAIN_B,
+        domain=domain,
         ledger_id=ledger_id,
         symbol=symbol,
         discrepancy_type=disc_type,
@@ -182,8 +223,10 @@ def _upsert_discrepancy(
     return d
 
 
-def _clear_stale_discrepancies(db: Session, family_id: int, run_id: int, seen_keys: set[tuple]) -> None:
+def _clear_stale_discrepancies(db: Session, family_id: int, run_id: int, seen_keys: set[tuple], domain: str) -> None:
     """本 run 未检测到的 pending 差异 → 差异消失置 cleared（§6.5 状态流转）。
+
+    domain 为必填：清理范围必须与本次 run 的域一致，否则会跨域误清他域的待裁决差异。
 
     注意：这是系统自动行为，**不写 adjustment_logs**（§5.5）。
     """
@@ -191,7 +234,7 @@ def _clear_stale_discrepancies(db: Session, family_id: int, run_id: int, seen_ke
         db.query(ReconciliationDiscrepancy)
         .filter(
             ReconciliationDiscrepancy.family_id == family_id,
-            ReconciliationDiscrepancy.domain == DOMAIN_B,
+            ReconciliationDiscrepancy.domain == domain,
             ReconciliationDiscrepancy.status == 'pending',
         )
         .all()

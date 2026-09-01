@@ -169,8 +169,8 @@ jobs:
           script: |
             const pr = context.payload.pull_request.number;
             const { owner, repo } = context.repo;
-            const reviewComments = (await github.rest.pulls.listComments({ owner, repo, pull_number: pr })).data.length;
-            const reviews = (await github.rest.pulls.listReviews({ owner, repo, pull_number: pr })).data.length;
+            const reviewComments = (await github.rest.request('GET /repos/{owner}/{repo}/pulls/{pull_number}/comments', { owner, repo, pull_number: pr })).data.length;
+            const reviews = (await github.rest.request('GET /repos/{owner}/{repo}/pulls/{pull_number}/reviews', { owner, repo, pull_number: pr })).data.length;
             core.setOutput('count', reviewComments + reviews);
 
       - name: AI 深度审查
@@ -209,8 +209,8 @@ jobs:
             const before = Number('${{ steps.pre-check.outputs.count }}');
             let after = before;
             for (let i = 0; i < 5; i++) {
-              const rc = (await github.rest.pulls.listComments({ owner, repo, pull_number: pr })).data.length;
-              const rv = (await github.rest.pulls.listReviews({ owner, repo, pull_number: pr })).data.length;
+              const rc = (await github.rest.request('GET /repos/{owner}/{repo}/pulls/{pull_number}/comments', { owner, repo, pull_number: pr })).data.length;
+              const rv = (await github.rest.request('GET /repos/{owner}/{repo}/pulls/{pull_number}/reviews', { owner, repo, pull_number: pr })).data.length;
               after = rc + rv;
               if (after > before) break;
               await new Promise(r => setTimeout(r, 5000));
