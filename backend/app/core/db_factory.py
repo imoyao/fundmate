@@ -96,6 +96,10 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'position_strategy_tags': DOMAIN_USER,
     'asset_snapshots': DOMAIN_USER,
     'user_usage': DOMAIN_USER,
+    # ── 统一对账框架三表（#1232 §8.1 / P1）──
+    'discrepancies': DOMAIN_USER,  # 活跃对账差异（含 family_id）
+    'reconciliation_runs': DOMAIN_USER,  # 对账运行记录
+    'adjustment_logs': DOMAIN_USER,  # 对账审计日志（仅用户主动操作）
 }
 
 # 规划中但尚未建表的域归属（提前登记，防止模型落地时漏声明）。

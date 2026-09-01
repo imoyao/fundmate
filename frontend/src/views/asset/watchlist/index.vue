@@ -158,7 +158,7 @@
           layout="total, prev, pager, next"
           small
           background
-          @current-change="fetchData"
+          @current-change="() => fetchData(false)"
         />
       </div>
     </CardBlock>
@@ -294,6 +294,7 @@ const {
 const { allTags, selectedFilterTagIds, fetchTags } = tags;
 const {
   items,
+  allItems,
   loading,
   currentPage,
   pageSize,
@@ -404,7 +405,9 @@ function marketValueRatio(row: {
 }
 
 const getHoldings = (): Holding[] => {
-  return items.value
+  // 估值汇总必须基于全量过滤结果（allItems），而非当前页（items），
+  // 否则翻页时总市值/总成本/总盈亏会随当前页跳变（#1245）。
+  return allItems.value
     .filter(item => item.symbol)
     .map(item => ({
       symbol: item.symbol,
@@ -423,7 +426,7 @@ const getHoldings = (): Holding[] => {
 };
 
 const getStaticPrice = (symbol: string) => {
-  const item = items.value.find(i => i.symbol === symbol);
+  const item = allItems.value.find(i => i.symbol === symbol);
   return item
     ? { currentPrice: item.current_price, changePct: item.change_pct }
     : undefined;

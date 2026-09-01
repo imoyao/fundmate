@@ -1216,8 +1216,12 @@ class TestTransactionAssetType:
         assert txn is not None
         assert txn.asset_type == 'stock'
 
-    def test_orphan_cash_txn_keeps_asset_type(self, client, db):
-        """现金管理产品（货基）孤儿流水 → asset_type 正确落库"""
+    def test_manual_money_fund_creates_position_not_orphan(self, client, db):
+        """#1233 决策 5：手动记账货基 → 建持仓 + 流水关联持仓（不再记孤儿流水）。
+
+        旧语义（改造前）货基手动记账只记孤儿资金流水；#1233 后手动记账路径
+        force_create_position=True，建持仓且流水 position_id 非空，asset_type 正确落库。
+        """
         resp = _post(
             client,
             '/api/positions/',
@@ -1234,14 +1238,97 @@ class TestTransactionAssetType:
             },
         )
         assert resp.status_code == 200
-
-        txn = (
-            db.query(Transaction)
-            .filter(Transaction.asset_type == 'money_fund')
-            .filter(Transaction.entry_status == 'orphan')
-            .first()
-        )
+        data = resp.get_json()['data']
+        # 建持仓且 asset_type 正确
+        assert data['type'] == 'money_fund'
+        # 流水关联持仓（position_id 非空），不再孤儿
+        txn = db.query(Transaction).filter_by(position_id=data['id']).first()
         assert txn is not None
+        assert txn.asset_type == 'money_fund'
+        assert txn.position_id == data['id']
+        assert txn.entry_status is None or txn.entry_status != 'orphan'
+
+
+class TestManualMoneyFundPosition:
+    """#1233 决策 5：记一笔（手动记账）对货基/逆回购也建持仓，流水关联持仓。
+
+    交易导入路径默认 force_create_position=False 保持「只记孤儿资金流水」；
+    手动记账 POST /api/positions/ → process_buy_or_deposit(force_create_position=True)，
+    应照常建持仓，且不与孤儿净额口径重复计数（summary 用 position_id IS NULL 判定孤儿）。
+    """
+
+    def _buy_money_fund(self, client, symbol='511880', quantity=10000, avg_price=1.0, **overrides):
+        body = {
+            'symbol': symbol,
+            'name': '银华日利',
+            'asset_type': 'money_fund',
+            'market': 'CN_A',
+            'account_name': '证券账户',
+            'quantity': quantity,
+            'avg_price': avg_price,
+            'trade_date': '2026-05-03',
+            'op_type': 'buy',
+        }
+        body.update(overrides)
+        return _post(client, '/api/positions/', body)
+
+    def test_manual_money_fund_creates_position(self, client, db):
+        """手动记账货基 → 建持仓 + 流水关联持仓（position_id 非空）。"""
+        resp = self._buy_money_fund(client)
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        # 货基不走 normalizer 标准化，symbol 保留原值
+        assert data['symbol'] == '511880'
+        assert data['type'] == 'money_fund'
+        assert data['quantity'] == 10000
+
+        # 流水关联持仓，非孤儿
+        txn = db.query(Transaction).filter_by(position_id=data['id']).first()
+        assert txn is not None
+        assert txn.asset_type == 'money_fund'
+        assert txn.entry_status is None or txn.entry_status != 'orphan'
+        assert txn.position_id == data['id']
+        # 持仓 id 有流水，不再计入孤儿净额口径（summary 按 position_id IS NULL 判定）
+        orphan = db.query(Transaction).filter(Transaction.entry_status == 'orphan').first()
+        assert orphan is None
+
+    def test_manual_money_fund_without_nav_falls_back_to_1(self, client, db):
+        """货基手动建仓缺净值时兜底为 1.0（净值恒 1.0，避免净值接口不可用导致无法记账）。"""
+        resp = self._buy_money_fund(client, avg_price=None)
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['avg_price'] == 1.0
+        txn = db.query(Transaction).filter_by(position_id=data['id']).first()
+        assert txn is not None
+        assert txn.price == Money.yuan_to_price_units(1.0)
+
+    def test_import_path_money_fund_still_orphan(self, db):
+        """回归护栏：交易导入路径（force_create_position 默认 False）货基仍只记孤儿流水、不建持仓。"""
+        ledger = Ledger(name='导入账户', ledger_type='stock')
+        db.add(ledger)
+        db.flush()
+        result = PositionService.process_buy_or_deposit(
+            db,
+            {
+                'symbol': '511880',
+                'name': '银华日利',
+                'asset_type': 'money_fund',
+                'ledger_id': ledger.id,
+                'account_name': '导入账户',
+                'quantity': 10000,
+                'avg_price': 1.0,
+                'trade_date': datetime(2026, 5, 3),
+                'confirm_date': date(2026, 5, 3),
+                'family_id': 1,
+            },
+        )
+        assert result is None
+        pos = db.query(Position).filter_by(symbol='511880').first()
+        assert pos is None
+        txn = db.query(Transaction).filter(Transaction.entry_status == 'orphan').first()
+        assert txn is not None
+        assert txn.asset_type == 'money_fund'
+        assert txn.position_id is None
 
 
 class TestPositionImportHash:

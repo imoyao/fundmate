@@ -179,6 +179,20 @@ const AssetRouteConfig = {
             showLink: false,
             hideQuickEntry: true
           }
+        },
+        // 统一对账工作台（#1240 P0-C）：三域 Tab 入口，P1/P2 逐域接入
+        {
+          path: "/investment/reconcile-workbench",
+          name: "ReconcileWorkbench",
+          component: () =>
+            import("@/views/asset/investment/reconcile-workbench/index.vue"),
+          meta: {
+            title: "对账工作台",
+            icon: "ep:finished",
+            rank: 12,
+            showLink: true,
+            hideQuickEntry: true
+          }
         }
         // #1133 路由归并：场外基金 / 场内证券的聚合下钻页已收敛为 /funds（AssetFunds）
         // 与 /stocks（AssetStocks），与「资产总览 → 产品类型」的下钻目标合一。

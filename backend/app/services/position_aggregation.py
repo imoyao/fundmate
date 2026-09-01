@@ -242,15 +242,23 @@ def _group_by_dimension(rows: list[dict], dimension: str) -> list[dict]:
                     # 机构中文名：此前前端只能显示「销售机构 #3」，此处直接给出现成文案
                     'institution_name': r['institution_name'] or ('未关联机构' if key == 'unknown' else f'机构 #{key}'),
                     'market_value_cents': 0,
+                    # 机构总份额：供「份额」排序（institution 维度此前缺失该字段，
+                    # 导致按渠道展示时 quantity/name 排序无效，#1224）
+                    'quantity': 0,
                     'cost_cents': 0,
                     'pnl_cents': 0,
                     'return_pct': None,
+                    # 「名称」排序键：取机构名（首个非空），缺省空串
+                    'name': r['institution_name'],
                     'items': [],
                 },
             )
             g['market_value_cents'] += r['market_value_cents']
+            g['quantity'] += r['quantity']
             g['cost_cents'] += r['cost_cents']
             g['pnl_cents'] += r['pnl_cents']
+            if not g['name']:
+                g['name'] = r['institution_name']
             g['items'].append(r)
         for g in grouped.values():
             g['return_pct'] = (g['pnl_cents'] / g['cost_cents']) if g['cost_cents'] > 0 else None
@@ -315,7 +323,11 @@ def _group_by_dimension(rows: list[dict], dimension: str) -> list[dict]:
 
 
 def _sort_groups(groups: list[dict], sort: str, order: str, dimension: str) -> list[dict]:
-    """分组排序。默认按市值降序（用户最高频的诉求：先看最大的持仓）。"""
+    """分组排序。默认按市值降序（用户最高频的诉求：先看最大的持仓）。
+
+    按渠道（institution）维度：机构分组级排序后，组内 items（单条来源）也按同一排序键
+    排列，保证「按渠道展示」下渠道内卡片也有序（修复 #1224：渠道维度 quantity/name 排序无效）。
+    """
     if sort not in SORT_FIELDS:
         sort = 'market_value'
     reverse = str(order).lower() != 'asc'
@@ -332,7 +344,12 @@ def _sort_groups(groups: list[dict], sort: str, order: str, dimension: str) -> l
     else:  # market_value
         key = lambda g: g.get('market_value_cents') or 0  # noqa: E731
 
-    return sorted(groups, key=key, reverse=reverse)
+    groups = sorted(groups, key=key, reverse=reverse)
+    # 按渠道展示：组内 items 也按同一排序键排列，渠道内卡片有序
+    if dimension == 'institution':
+        for g in groups:
+            g['items'] = sorted(g['items'], key=key, reverse=reverse)
+    return groups
 
 
 def aggregate_positions(
@@ -375,6 +392,22 @@ def aggregate_positions(
 
     rows, nav_date_global = _collect_rows(session, family_id, asset_types)
 
+    # ── fund_type 分布统计（基于全量 rows，不受 keyword/fund_type 筛选影响，
+    #    供前端动态生成类型 Tab 与资产构成环形图：#1224）──
+    fund_type_counts: dict[str, int] = {}
+    fund_type_unclassified_count = 0
+    fund_type_breakdown: dict[str, dict] = {}
+    for r in rows:
+        ft = r.get('fund_type') or '未分类'
+        if ft != '未分类':
+            fund_type_counts[ft] = fund_type_counts.get(ft, 0) + 1
+        else:
+            fund_type_unclassified_count += 1
+        item = fund_type_breakdown.setdefault(ft, {'name': ft, 'market_value_cents': 0, 'count': 0})
+        item['market_value_cents'] += r['market_value_cents']
+        item['count'] += 1
+    fund_type_breakdown_list = sorted(fund_type_breakdown.values(), key=lambda x: x['market_value_cents'], reverse=True)
+
     # ── 行级过滤（keyword 模糊 + fund_type 精确）：先于汇总与分页，两维度均生效 ──
     kw = str(keyword or '').strip().lower()
     if kw:
@@ -414,4 +447,9 @@ def aggregate_positions(
         'snapshot_date_latest': max(snapshot_dates) if snapshot_dates else None,
         # 🔄 净值日期（NavService 取到的最新净值日期；与 snapshot_date 分叉时前端可双日期展示）
         'nav_date': nav_date_global,
+        # 🔄 fund_type 分布：供前端动态生成类型 Tab（只显示有产品的分类）
+        'fund_type_counts': fund_type_counts,
+        'fund_type_unclassified_count': fund_type_unclassified_count,
+        # 🔄 资产构成（按基金类型的市值分布，供环形图/饼图展示占比）
+        'fund_type_breakdown': fund_type_breakdown_list,
     }

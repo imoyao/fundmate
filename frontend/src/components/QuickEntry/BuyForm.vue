@@ -643,8 +643,10 @@ function onFundFeeDiscountChange() {
  *    可覆盖场外货基（如 000198 余额宝）；
  * 2. 字段缺失（后端尚未部署）时回退代码段规则，与后端 core/symbol_utils.py
  *    _get_asset_type 一致：SH 97 开头（沪市现金管理产品）、SZ 10/11 开头（深市货币基金）。
- * 命中后前端提交 type='money_fund'，后端 position_service 对现金管理类产品
- * 只记孤儿流水、不建持仓。
+ * 命中后前端提交 type='money_fund'。后端 #1233 改造后：
+ * - 手动记账（本表单）走 POST /api/positions/ → process_buy_or_deposit(force_create_position=True)，
+ *   照常建持仓、流水关联持仓；
+ * - 交易导入路径仍只记孤儿资金流水（position_id=None、entry_status='orphan'）。
  */
 function resolveFundAssetType(
   code: string,

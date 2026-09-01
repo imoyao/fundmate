@@ -568,6 +568,13 @@ export interface AggregationInstitutionGroup {
 }
 
 /** 聚合结果（GET /api/ledgers/{fund,securities}-aggregation/） */
+/** 资产构成单项：某基金类型的市值合计与产品数（供环形图/饼图展示占比） */
+export interface AggregationTypeBreakdownItem {
+  name: string;
+  market_value_cents: number;
+  count: number;
+}
+
 export interface AggregationResult {
   /** 汇总市值（分，整数） */
   total_market_value_cents: number;
@@ -599,6 +606,15 @@ export interface AggregationResult {
    * 无基金/货基持仓或 NavService 无数据时为 null。
    */
   nav_date: string | null;
+  /**
+   * 基金小类分布（基于全量该类资产，不受 keyword/fund_type 筛选影响），
+   * 供前端动态生成类型 Tab：只显示有产品的分类（#1224）。键为小类名，值为产品数。
+   */
+  fund_type_counts?: Record<string, number>;
+  /** 未分类（fund_type 为 null）的产品数 */
+  fund_type_unclassified_count?: number;
+  /** 资产构成：按基金类型聚合的市值分布（供环形图/饼图展示占比，基于全量持仓） */
+  fund_type_breakdown?: AggregationTypeBreakdownItem[];
 }
 
 /**
