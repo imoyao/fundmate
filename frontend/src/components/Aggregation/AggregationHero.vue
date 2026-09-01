@@ -73,7 +73,9 @@ const breakdownTotal = computed(() =>
 const legendTop = computed(() => breakdownItems.value.slice(0, 5));
 const restCount = computed(() => Math.max(0, breakdownItems.value.length - 5));
 const restTotal = computed(() =>
-  breakdownItems.value.slice(5).reduce((sum, x) => sum + x.market_value_cents, 0)
+  breakdownItems.value
+    .slice(5)
+    .reduce((sum, x) => sum + x.market_value_cents, 0)
 );
 
 function pctOf(cents: number): string {
@@ -94,7 +96,10 @@ const donutOption = computed(() => {
       trigger: "item",
       backgroundColor: getCssVar("--bg-card") || "#ffffff",
       borderColor: getCssVar("--border-light") || "#f0ebe4",
-      textStyle: { color: getCssVar("--text-primary") || "#2d2a24", fontSize: 12 },
+      textStyle: {
+        color: getCssVar("--text-primary") || "#2d2a24",
+        fontSize: 12
+      },
       formatter: (params: any) => {
         const pct = pctOf((params.value as number) * 100);
         return `${params.name}<br/>¥${Number(params.value).toLocaleString()}（${pct}%）`;
