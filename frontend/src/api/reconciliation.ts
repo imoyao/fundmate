@@ -65,3 +65,44 @@ export function ignoreDiscrepancy(
     unknown
   >(`/reconciliation/discrepancies/${id}/ignore/`, { data: payload });
 }
+
+/** 就地补充/调整裁决请求（§5.4 / P2） */
+export interface AdjustmentPayload {
+  kind?: "increment" | "set";
+  op_type?: string;
+  discrepancy_id?: number;
+  reason?: string;
+  symbol?: string;
+  name?: string;
+  asset_type?: string;
+  market?: string;
+  ledger_id?: number | null;
+  account_name?: string;
+  quantity?: number;
+  avg_price?: number;
+  confirm_date?: string;
+  snapshot_date?: string;
+  [key: string]: unknown;
+}
+
+/** 就地补充/调整裁决响应 */
+export interface AdjustmentResult {
+  action: string;
+  before: Record<string, unknown>;
+  after: Record<string, unknown>;
+  log_id: number;
+}
+
+/**
+ * 就地补充/调整（§5.4 / P2）：工作台内直接补录，绝不跳「记一笔」。
+ * - increment：补一笔缺失买卖 → process_buy_or_deposit / process_sell_or_withdraw（写流水+持仓）
+ * - set：期初建仓 / 直接改数量成本 → upsert_from_holding（SET 语义，不建流水）
+ */
+export function applyAdjustment(
+  payload: AdjustmentPayload
+): Promise<ApiResponse<AdjustmentResult>> {
+  return http.post<ApiResponse<AdjustmentResult>, unknown>(
+    "/reconciliation/adjustments/",
+    { data: payload }
+  );
+}

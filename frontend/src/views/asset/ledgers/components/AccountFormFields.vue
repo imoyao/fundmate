@@ -69,7 +69,8 @@
         </el-option>
       </el-select>
       <p class="field-hint">
-        绑定后，卖出 / 赎回回款可自动申购该产品（类似「余额宝」）。支持场外货币基金与券商渠道现金管理产品
+        绑定后，卖出 /
+        赎回回款可自动申购该产品（类似「余额宝」）。支持场外货币基金与券商渠道现金管理产品
       </p>
     </el-form-item>
 
@@ -446,8 +447,7 @@ const effectiveFundOptions = computed<FundSearchItem[]>(() => {
     // 会导致「选了 B 却显示 A 的名字 / 或裸代码」的 bug（#交互修复）。
     list.unshift({
       code: bound,
-      name:
-        selectedMoneyFundName.value || props.linkedMoneyFundName || bound,
+      name: selectedMoneyFundName.value || props.linkedMoneyFundName || bound,
       type: "货币基金",
       subscription_rate: 0
     });
@@ -487,7 +487,8 @@ function onMoneyFundChange(val: string | null) {
   // 避免重新打开下拉（远程搜索列表被清空）时回显成裸代码。
   if (val) {
     const hit = fundOptions.value.find(o => o.code === val);
-    selectedMoneyFundName.value = hit?.name ?? props.linkedMoneyFundName ?? null;
+    selectedMoneyFundName.value =
+      hit?.name ?? props.linkedMoneyFundName ?? null;
   } else {
     selectedMoneyFundName.value = null;
   }
