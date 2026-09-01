@@ -209,3 +209,146 @@ def test_fund_aggregation_return_pct(client, db):
     resp = client.get('/api/ledgers/fund-aggregation/?dimension=product&sort=return_pct&order=desc')
     symbols = [g['symbol'] for g in resp.get_json()['data']['groups']]
     assert symbols == ['000001', '000002', '000003']
+
+
+def test_fund_aggregation_institution_quantity_sort(client, db):
+    """按渠道展示时「份额」排序必须生效（修复 #1224：institution 维度此前缺 quantity 字段）。"""
+    si1 = SalesInstitution(org_name='蚂蚁基金', org_type='独立基金销售机构')
+    si2 = SalesInstitution(org_name='招商银行', org_type='银行')
+    db.add_all([si1, si2])
+    db.flush()
+    l1 = _make_fund_ledger(db, '蚂蚁A', sales_institution_id=si1.id)
+    l2 = _make_fund_ledger(db, '招行A', sales_institution_id=si2.id)
+    # si1 总份额 100份；si2 总份额 300份
+    _make_fund_position(db, l1, '000001', '基金A', 100 * 10000, 10 * 10000)
+    _make_fund_position(db, l2, '000002', '基金B', 300 * 10000, 10 * 10000)
+    db.commit()
+
+    # 降序：份额大的机构（si2）在前
+    resp = client.get('/api/ledgers/fund-aggregation/?dimension=institution&sort=quantity&order=desc')
+    assert [g['key'] for g in resp.get_json()['data']['groups']] == [si2.id, si1.id]
+    # 升序：反转
+    resp = client.get('/api/ledgers/fund-aggregation/?dimension=institution&sort=quantity&order=asc')
+    assert [g['key'] for g in resp.get_json()['data']['groups']] == [si1.id, si2.id]
+
+
+def test_fund_aggregation_institution_name_sort(client, db):
+    """按渠道展示时「名称」排序必须生效（institution 维度此前缺 name 字段）。"""
+    si1 = SalesInstitution(org_name='招商银行', org_type='银行')
+    si2 = SalesInstitution(org_name='蚂蚁基金', org_type='独立基金销售机构')
+    db.add_all([si1, si2])
+    db.flush()
+    l1 = _make_fund_ledger(db, '招行A', sales_institution_id=si1.id)
+    l2 = _make_fund_ledger(db, '蚂蚁A', sales_institution_id=si2.id)
+    _make_fund_position(db, l1, '000001', '基金A', 100 * 10000, 10 * 10000)
+    _make_fund_position(db, l2, '000002', '基金B', 100 * 10000, 10 * 10000)
+    db.commit()
+
+    # 升序：字典序 招 < 蚂
+    resp = client.get('/api/ledgers/fund-aggregation/?dimension=institution&sort=name&order=asc')
+    assert [g['key'] for g in resp.get_json()['data']['groups']] == [si1.id, si2.id]
+    # 降序：反转
+    resp = client.get('/api/ledgers/fund-aggregation/?dimension=institution&sort=name&order=desc')
+    assert [g['key'] for g in resp.get_json()['data']['groups']] == [si2.id, si1.id]
+
+
+def test_fund_aggregation_institution_pagination(client, db):
+    """按渠道展示按「展平后的产品×渠道」条目分页（#1265 方案 A）。
+
+    此前 total 取的是机构分组数（本例为 2），total_pages 恒为 1 → 分页条被隐藏、
+    卡片一次铺开。修复后 total 应等于前端实际渲染的卡片数。
+    """
+    si1 = SalesInstitution(org_name='蚂蚁基金', org_type='独立基金销售机构')
+    si2 = SalesInstitution(org_name='招商银行', org_type='银行')
+    db.add_all([si1, si2])
+    db.flush()
+    # si1：3 个产品，市值 3000 / 2000 / 1000 元（组内按市值降序）
+    for symbol, qty in (('000001', 300), ('000002', 200), ('000003', 100)):
+        ledger = _make_fund_ledger(db, f'蚂蚁-{symbol}', sales_institution_id=si1.id)
+        _make_fund_position(db, ledger, symbol, f'基金{symbol}', qty * 10000, 10 * 10000)
+    # si2：2 个产品，市值 500 / 400 元
+    for symbol, qty in (('000004', 50), ('000005', 40)):
+        ledger = _make_fund_ledger(db, f'招行-{symbol}', sales_institution_id=si2.id)
+        _make_fund_position(db, ledger, symbol, f'基金{symbol}', qty * 10000, 10 * 10000)
+    db.commit()
+
+    def _page(p: int) -> dict:
+        resp = client.get(f'/api/ledgers/fund-aggregation/?dimension=institution&page={p}&page_size=2')
+        assert resp.status_code == 200
+        return resp.get_json()['data']
+
+    def _symbols(data: dict) -> list:
+        return [i['symbol'] for g in data['groups'] for i in g['items']]
+
+    d1 = _page(1)
+    # 展平条目数 5，而不是机构数 2
+    assert d1['total'] == 5
+    assert d1['total_pages'] == 3
+    assert _symbols(d1) == ['000001', '000002']
+    # 组级汇总仍是机构全量口径，分页不改变机构属性
+    assert d1['groups'][0]['market_value_cents'] == 6000 * 100
+
+    d2 = _page(2)
+    assert _symbols(d2) == ['000003', '000004']
+    # 一页内跨两个机构：机构 items 被切开是展平分页的预期行为
+    assert len(d2['groups']) == 2
+
+    d3 = _page(3)
+    assert _symbols(d3) == ['000005']
+    assert d3['groups'][0]['market_value_cents'] == 900 * 100
+
+    # 跨页不重不漏
+    assert _symbols(d1) + _symbols(d2) + _symbols(d3) == [
+        '000001',
+        '000002',
+        '000003',
+        '000004',
+        '000005',
+    ]
+
+
+def test_fund_aggregation_fund_type_counts(client, db):
+    """返回 fund_type_counts 分布，供前端动态生成只显示有产品的类型 Tab（#1224）。"""
+    ft_stock = _make_fund_type(db, '股票型')
+    ft_mixed = _make_fund_type(db, '混合型')
+    _make_fund_record(db, '000001', '基金A', fund_type_id=ft_stock.id)
+    _make_fund_record(db, '000002', '基金B', fund_type_id=ft_stock.id)
+    _make_fund_record(db, '000003', '基金C', fund_type_id=ft_mixed.id)
+    # 999999 未收录 → 无 fund_type（未分类）
+
+    l1 = _make_fund_ledger(db, '支付宝')
+    _make_fund_position(db, l1, '000001', '基金A', 100 * 10000, 10 * 10000)
+    _make_fund_position(db, l1, '000002', '基金B', 100 * 10000, 10 * 10000)
+    _make_fund_position(db, l1, '000003', '基金C', 100 * 10000, 10 * 10000)
+    _make_fund_position(db, l1, '999999', '手动录入', 100 * 10000, 10 * 10000)
+    db.commit()
+
+    data = client.get('/api/ledgers/fund-aggregation/?dimension=product').get_json()['data']
+    assert data['fund_type_counts'] == {'股票型': 2, '混合型': 1}
+    assert data['fund_type_unclassified_count'] == 1
+
+
+def test_fund_aggregation_fund_type_breakdown(client, db):
+    """返回 fund_type_breakdown（按类型市值分布），供资产构成环形图展示占比（#1224）。"""
+    ft_stock = _make_fund_type(db, '股票型')
+    ft_mixed = _make_fund_type(db, '混合型')
+    _make_fund_record(db, '000001', '基金A', fund_type_id=ft_stock.id)
+    _make_fund_record(db, '000002', '基金B', fund_type_id=ft_stock.id)
+    _make_fund_record(db, '000003', '基金C', fund_type_id=ft_mixed.id)
+    # 999999 未收录 → 未分类
+
+    l1 = _make_fund_ledger(db, '支付宝')
+    _make_fund_position(db, l1, '000001', '基金A', 100 * 10000, 10 * 10000)  # 1000 元
+    _make_fund_position(db, l1, '000002', '基金B', 200 * 10000, 10 * 10000)  # 2000 元
+    _make_fund_position(db, l1, '000003', '基金C', 50 * 10000, 10 * 10000)  # 500 元
+    _make_fund_position(db, l1, '999999', '手动录入', 30 * 10000, 10 * 10000)  # 300 元
+    db.commit()
+
+    data = client.get('/api/ledgers/fund-aggregation/?dimension=product').get_json()['data']
+    bd = data['fund_type_breakdown']
+    # 按市值降序：股票型(3000元) > 混合型(500元) > 未分类(300元)
+    assert [x['name'] for x in bd] == ['股票型', '混合型', '未分类']
+    assert bd[0]['market_value_cents'] == 3000 * 100
+    assert bd[0]['count'] == 2
+    assert bd[2]['name'] == '未分类'
+    assert bd[2]['market_value_cents'] == 300 * 100

@@ -389,3 +389,92 @@ class AkshareAdapter(DataSourceAdapter):
         except Exception as e:
             self.logger.warning(f'获取基金 {fund_code} 详情失败: {e}')
         return result
+
+    # ── 分红 / 送股（#1179） ──
+
+    @staticmethod
+    def _parse_dividend_date(value):
+        if value is None:
+            return None
+        if isinstance(value, (date, datetime)):
+            return value.date() if isinstance(value, datetime) else value
+        s = str(value).strip()
+        if not s or s in ('NaT', 'nan', 'None'):
+            return None
+        for fmt in ('%Y-%m-%d', '%Y/%m/%d'):
+            try:
+                return datetime.strptime(s, fmt).date()
+            except ValueError:
+                continue
+        return None
+
+    @staticmethod
+    def _to_ratio(value):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def fetch_stock_dividend(self, symbol: str) -> List[dict]:
+        """股票分红/送股实施方案（ak.stock_dividend_cninfo）。"""
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+        try:
+            df = ak.stock_dividend_cninfo(symbol=symbol)
+            if df is None or df.empty:
+                return []
+            normalizer = get_normalizer()
+            norm, _, _ = normalizer.normalize(symbol)
+            out = []
+            for _, row in df.iterrows():
+                ex_date = self._parse_dividend_date(row.get('除权日'))
+                if not ex_date:
+                    continue
+                out.append(
+                    {
+                        'symbol': norm or symbol,
+                        'dividend_type': str(row.get('分红类型', '')),
+                        'bonus_ratio': self._to_ratio(row.get('送股比例')),
+                        'transfer_ratio': self._to_ratio(row.get('转增比例')),
+                        'cash_ratio': self._to_ratio(row.get('派息比例')),
+                        'regist_date': self._parse_dividend_date(row.get('股权登记日')),
+                        'ex_date': ex_date,
+                        'pay_date': self._parse_dividend_date(row.get('派息日')),
+                        'arrive_date': self._parse_dividend_date(row.get('股份到账日')),
+                        'desc': str(row.get('实施方案分红说明', '')),
+                        'source': 'akshare_cninfo',
+                    }
+                )
+            return out
+        except Exception as e:
+            self.logger.error(f'获取股票 {symbol} 分红失败: {e}')
+            return []
+
+    def fetch_fund_dividend(self, fund_code: str) -> List[dict]:
+        """基金分红公告（ak.fund_announcement_dividend_em）。"""
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+        try:
+            df = ak.fund_announcement_dividend_em(symbol=fund_code)
+            if df is None or df.empty:
+                return []
+            out = []
+            for _, row in df.iterrows():
+                d = self._parse_dividend_date(row.get('公告日期'))
+                if not d:
+                    continue
+                out.append(
+                    {
+                        'symbol': fund_code,
+                        'ann_title': str(row.get('公告标题', '')),
+                        'ann_date': d,
+                        'report_id': str(row.get('报告ID', '')),
+                        'source': 'akshare_fund_ann',
+                    }
+                )
+            return out
+        except Exception as e:
+            self.logger.error(f'获取基金 {fund_code} 分红公告失败: {e}')
+            return []

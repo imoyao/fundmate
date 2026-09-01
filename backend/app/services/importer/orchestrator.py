@@ -25,7 +25,12 @@ from app.core.utils import show_time
 from app.domains.funds.models import Fund, FundVariety
 from app.domains.ledgers.constants import map_org_type_to_channel_category
 from app.domains.ledgers.models import Ledger
-from app.domains.positions.models import Position, PositionImportMeta, SalesInstitution
+from app.domains.positions.models import (
+    Position,
+    PositionImportMeta,
+    SalesInstitution,
+    resolve_sales_institution_id,
+)
 from app.domains.securities.models import Security
 from app.domains.transactions.models import Transaction
 from app.domains.watchlist.models import WatchlistItem
@@ -1189,6 +1194,7 @@ class ImportOrchestrator:
                 source=src,
                 source_import_id=row.get('source_import_id'),
                 source_broker=source_broker,
+                sales_institution_id=resolve_sales_institution_id(self.db, source_broker),
                 fund_manager=fund_manager,
                 share_class=row.get('share_class'),
                 fund_account=row.get('fund_account'),
@@ -1513,6 +1519,7 @@ class ImportOrchestrator:
             snapshot_date=snapshot_date,
             source=new_pos.source,
             source_broker=None,
+            sales_institution_id=ledger.sales_institution_id,
             fund_manager=None,
             share_class=meta.share_class,
             fund_account=meta.fund_account,

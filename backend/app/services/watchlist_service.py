@@ -8,7 +8,7 @@
 from datetime import date
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import distinct, func, select
+from sqlalchemy import distinct, func, or_, select
 from sqlalchemy.orm import Query, Session
 
 from app.core.money import Money
@@ -387,7 +387,18 @@ def get_filtered_items_query(
         query = query.join(WatchlistItem.tag_links).filter(WatchlistItemTag.tag_id == tag_id)
 
     if search:
-        query = query.filter(WatchlistItem.symbol.ilike(f'%{search}%'))
+        like = f'%{search}%'
+        # 搜索同时匹配「代码」与「名称」：名称散落在 securities / funds / positions
+        # 三张表的 name 字段，先收集名称命中的标准化代码，再并入 symbol 过滤
+        # （自选以 symbol 唯一标识，无法直接对 WatchlistItem 做名称 like）。
+        conditions = [WatchlistItem.symbol.ilike(like)]
+        name_symbols: set = set()
+        name_symbols.update(s for (s,) in db.query(Security.symbol).filter(Security.name.ilike(like)).all())
+        name_symbols.update(s for (s,) in db.query(Fund.fund_code).filter(Fund.name.ilike(like)).all())
+        name_symbols.update(s for (s,) in db.query(Position.symbol).filter(Position.name.ilike(like)).all())
+        if name_symbols:
+            conditions.append(WatchlistItem.symbol.in_(name_symbols))
+        query = query.filter(or_(*conditions))
 
     # 计算总数（清仓状态特殊处理）
     if status == 'cleared' and cleared_symbols is not None:

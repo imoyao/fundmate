@@ -36,15 +36,15 @@ def app(monkeypatch):
     monkeypatch.setattr('app.core.database.engine', test_engine)
     monkeypatch.setattr('app.core.database.SessionLocal', TestSessionLocal)
 
-    # 双库测试重定向：把 user/market 会话工厂也指向内存引擎，
-    # 否则 reconciliation 等 user 域视图会连真实文件库（invest.user.dev.db）。
-    import app.core.db_factory as _db_factory
-
+    # 双库架构支持：reconciliation 等 user 域表经 user_session 访问。
+    # 测试需把 user_session 与 get_db(SessionLocal) 指向同一内存库，保证测试数据可见；
+    # market 域会话保持独立内存库，满足「user/market 分库」断言（test_db_data_domain）。
     market_engine = create_engine('sqlite:///:memory:', connect_args={'check_same_thread': False}, poolclass=StaticPool)
     TestMarketSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=market_engine)
+    import app.core.db_factory as _db_factory
+
     monkeypatch.setattr(_db_factory, 'user_session_factory', lambda: TestSessionLocal)
     monkeypatch.setattr(_db_factory, 'market_session_factory', lambda: TestMarketSessionLocal)
-    Base.metadata.create_all(bind=market_engine)
 
     # 彻底禁用异步回填线程（直接替换已导入的引用）
     import app.services.importer.orchestrator
@@ -54,6 +54,7 @@ def app(monkeypatch):
     monkeypatch.setattr(app.services.importer.orchestrator, 'trigger_backfill', lambda *a, **kw: None)
 
     Base.metadata.create_all(bind=test_engine)
+    Base.metadata.create_all(bind=market_engine)
 
     app = create_app()
     app.config['TESTING'] = True

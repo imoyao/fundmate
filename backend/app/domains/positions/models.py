@@ -175,6 +175,12 @@ class PositionImportMeta(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixi
         comment='归因目标账户ID',
     )
     import_error = Column(Boolean, default=False, comment='导入失败行标记')
+    sales_institution_id = Column(
+        Integer,
+        ForeignKey('sales_institutions.id', ondelete='SET NULL'),
+        nullable=True,
+        comment='关联的基金销售机构（AMAC 权威名录，由 source_broker 匹配派生；可选，机构下架置 NULL）',
+    )
 
     __table_args__ = (
         Index('idx_pim_ledger_symbol', 'ledger_id', 'symbol'),
@@ -233,3 +239,26 @@ class FundManagementCompany(Base, PrimaryKeyMixin, TimestampMixin):
     website = Column(String(200), comment='官网')
     phone = Column(String(100), comment='客服电话')
     is_active = Column(Boolean, default=True, comment='是否在 AMAC 公示名单内')
+
+
+def resolve_sales_institution_id(db, source_broker):
+    """按销售机构名（source_broker）匹配 AMAC 权威名录，返回机构 id；无匹配返回 None。
+
+    匹配链路与 orchestrator._get_or_create_channel_ledger 保持一致（先 org_name 权威全称，
+    再 display_name 别名），但本函数只查不建——不自动创建 Ledger，仅供导入时派生
+    PositionImportMeta.sales_institution_id 使用。仅匹配在册（is_active）机构。
+    """
+    if not source_broker:
+        return None
+    institution = (
+        db.query(SalesInstitution)
+        .filter(SalesInstitution.is_active.is_(True), SalesInstitution.org_name == source_broker)
+        .first()
+    )
+    if institution is None:
+        institution = (
+            db.query(SalesInstitution)
+            .filter(SalesInstitution.is_active.is_(True), SalesInstitution.display_name == source_broker)
+            .first()
+        )
+    return institution.id if institution else None

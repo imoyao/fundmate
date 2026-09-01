@@ -21,9 +21,10 @@ def main() -> None:
     from app.core.database import Base
     from app.core.db_factory import DOMAIN_USER, DatabaseFactory
 
+    # 三表为 user 域，必须建在 user 引擎（与 init_db / user_session 一致），
+    # 且仅建这三张表，避免误建其它域的表到 user 库。
     engine = DatabaseFactory.create(DOMAIN_USER)
     print(f'目标引擎: {engine.url}')
-    # 仅建统一对账三表（user 域），避免误建全表 / 建错库
     Base.metadata.create_all(
         bind=engine,
         tables=[

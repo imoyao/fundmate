@@ -95,4 +95,5 @@ class AdjustmentLog(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     __table_args__ = (
         Index('idx_adjustment_logs_family', 'family_id', 'created_at'),
         Index('idx_adjustment_logs_disc', 'discrepancy_id'),
+        Index('idx_adjustment_logs_run', 'run_id'),
     )

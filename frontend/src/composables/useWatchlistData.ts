@@ -49,6 +49,9 @@ export function useWatchlistData(
 
   const loading = ref(false);
   const items = ref<WatchlistItem[]>([]);
+  // 全量过滤结果（忽略分页）：供实时估值汇总条使用（#1245）。
+  // 汇总（总市值/总成本/总盈亏）必须基于整组而非当前页，否则翻页时数据会跳变。
+  const allItems = ref<WatchlistItem[]>([]);
   const currentPage = ref(1);
   const pageSize = ref(20);
   const totalItems = ref(0);
@@ -93,19 +96,46 @@ export function useWatchlistData(
     return params;
   });
 
-  /** 拉取列表（分页切片由后端完成，前端只消费 data/total）。 */
-  async function fetchData() {
+  /** 拉取列表（分页切片由后端完成，前端只消费 data/total）。
+   * @param refreshAll 是否顺带刷新全量结果 allItems（供估值汇总条）。
+   *        筛选/排序/搜索/分组变化时应传 true；纯翻页传 false（汇总保持稳定）。
+   */
+  async function fetchData(refreshAll = true) {
     loading.value = true;
     try {
       const res = await getWatchlistItems(fetchParams.value);
       items.value = res.data ?? [];
       totalItems.value = res.total ?? items.value.length;
+      if (refreshAll) {
+        await fetchAllItems();
+      }
     } catch (e) {
       ElMessage.error("获取自选列表失败");
       console.error("获取自选列表错误：", e);
     } finally {
       loading.value = false;
     }
+  }
+
+  /**
+   * 拉取「全量过滤结果」（忽略分页），供实时估值汇总条使用（#1245）。
+   * 后端 per_page 上限 200，故按页累加直到取尽（安全阀防止异常死循环），
+   * 确保汇总口径与整组一致、翻页时不再跳变。
+   */
+  async function fetchAllItems() {
+    const base: Record<string, string | number | boolean> = {
+      ...fetchParams.value
+    };
+    delete base.page;
+    const all: WatchlistItem[] = [];
+    const perPage = 200;
+    for (let page = 1; page <= 50; page++) {
+      const res = await getWatchlistItems({ ...base, page, per_page: perPage });
+      const rows = (res.data ?? []) as WatchlistItem[];
+      all.push(...rows);
+      if (rows.length < perPage) break;
+    }
+    allItems.value = all;
   }
 
   // ─────────────────────────────────────────────
@@ -315,6 +345,7 @@ export function useWatchlistData(
     // 分页状态
     loading,
     items,
+    allItems,
     currentPage,
     pageSize,
     totalItems,

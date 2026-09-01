@@ -91,6 +91,7 @@
         ref="tableRef"
         v-loading="loading"
         :data="items"
+        :max-height="tableMaxHeight"
         stripe
         @selection-change="handleSelectionChange"
         @sort-change="handleSortChange"
@@ -158,7 +159,7 @@
           layout="total, prev, pager, next"
           small
           background
-          @current-change="fetchData"
+          @current-change="() => fetchData(false)"
         />
       </div>
     </CardBlock>
@@ -229,7 +230,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from "vue";
+import {
+  ref,
+  computed,
+  onMounted,
+  onActivated,
+  onBeforeUnmount,
+  watch,
+  nextTick
+} from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import Sortable from "sortablejs";
 import AddToWatchlistModal from "@/components/QuickEntry/AddToWatchlistModal.vue";
@@ -294,6 +303,7 @@ const {
 const { allTags, selectedFilterTagIds, fetchTags } = tags;
 const {
   items,
+  allItems,
   loading,
   currentPage,
   pageSize,
@@ -404,7 +414,9 @@ function marketValueRatio(row: {
 }
 
 const getHoldings = (): Holding[] => {
-  return items.value
+  // 估值汇总必须基于全量过滤结果（allItems），而非当前页（items），
+  // 否则翻页时总市值/总成本/总盈亏会随当前页跳变（#1245）。
+  return allItems.value
     .filter(item => item.symbol)
     .map(item => ({
       symbol: item.symbol,
@@ -423,7 +435,7 @@ const getHoldings = (): Holding[] => {
 };
 
 const getStaticPrice = (symbol: string) => {
-  const item = items.value.find(i => i.symbol === symbol);
+  const item = allItems.value.find(i => i.symbol === symbol);
   return item
     ? { currentPrice: item.current_price, changePct: item.change_pct }
     : undefined;
@@ -568,10 +580,28 @@ onMounted(() => {
     fetchData();
   });
   initHeaderDrag();
+  recalcTableMaxHeight();
 });
 
 // ── #992 表头列拖拽：sortablejs 复用（RePureTableBar 同款方案）──
 const tableRef = ref();
+
+// 表格内部滚动：动态计算可用高度，使卡片占满视口、页面不滚动，
+// 表头固定、工具栏/筛选条常驻可见（keep-alive 切回 / 窗口缩放 / 估值条或批量条显隐后需重算）
+const tableMaxHeight = ref(520);
+function recalcTableMaxHeight() {
+  nextTick(() => {
+    const el = tableRef.value?.$el as HTMLElement | null;
+    if (!el) return;
+    // rect.top 已是「工具栏 + 筛选条 + 估值条」等上方区块的真实高度，
+    // 用视口高减去它，再预留分页器与卡片底边空间，即为表格可滚动高度
+    const reserve = 96;
+    tableMaxHeight.value = Math.max(
+      240,
+      Math.floor(window.innerHeight - el.getBoundingClientRect().top - reserve)
+    );
+  });
+}
 
 /** 给可拖拽中段列提交新顺序（固定列/内置列不参与，见 columnDefs.draggable） */
 function initHeaderDrag() {
@@ -606,6 +636,14 @@ function initHeaderDrag() {
 }
 
 const realtimeEnabled = computed(() => realtime.enabled.value);
+
+// 自适应高度：keep-alive 切回 / 窗口缩放 / 估值条或批量条显隐 / 数据加载完成时重算
+onActivated(recalcTableMaxHeight);
+watch([realtimeEnabled, batchMode, loading], recalcTableMaxHeight);
+window.addEventListener("resize", recalcTableMaxHeight);
+onBeforeUnmount(() =>
+  window.removeEventListener("resize", recalcTableMaxHeight)
+);
 
 // ── #995 columnDefs 数据驱动 + #993 列显隐：visibleColumns 已按用户隐藏集过滤
 //（仅 selection 因 type="selection" 无法 renderer 化，保留模板）──
