@@ -17,6 +17,30 @@ from app.domains.positions.models import Position
 from app.domains.securities.models import Security
 
 
+def _ensure_all_models():
+    """导入全部域模型，确保 Base.metadata 注册了所有表。
+
+    回填脚本绕过应用启动、直接拿 SessionLocal 查询 Position/Security，
+    而 Position 带外键（ledger_id→ledgers、portfolio_id→portfolios），
+    SQLAlchemy 在 mapper 配置阶段解析外键时若元数据里没有 ledgers 表会抛
+    NoReferencedTableError。应用正常是因为启动时导入了所有模型；此处显式补上，
+    与 sync_metadata.py 的的做法一致。
+    """
+    import app.domains.assets.models  # noqa: F401
+    import app.domains.families.models  # noqa: F401
+    import app.domains.funds.models  # noqa: F401
+    import app.domains.ledgers.models  # noqa: F401
+    import app.domains.portfolios.models  # noqa: F401
+    import app.domains.positions.models  # noqa: F401
+    import app.domains.price_history.models  # noqa: F401
+    import app.domains.securities.models  # noqa: F401
+    import app.domains.strategy.models  # noqa: F401
+    import app.domains.summary.models  # noqa: F401
+    import app.domains.transactions.models  # noqa: F401
+    import app.domains.users.models  # noqa: F401
+    import app.domains.watchlist.models  # noqa: F401
+
+
 def _split_symbol(symbol: str):
     """SH/SZ/BJ 前缀代码 → (market, code)；纯 6 位数字按首位推断市场；否则 (None, symbol)。"""
     s = symbol or ''
@@ -47,6 +71,7 @@ def backfill_securities_asset_type(db=None, apply: bool = False) -> dict:
     own = db is None
     if own:
         db = SessionLocal()
+    _ensure_all_models()
     summary = {
         'positions_checked': 0,
         'positions_updated': 0,
