@@ -12,13 +12,14 @@
     检测范围：该 (ledger_id, symbol) 在 transactions 有记录才纳入；纯快照无流水则 skip。
 """
 
+import json
 from datetime import datetime
 
 from apiflask import APIBlueprint
 from flask import abort, jsonify, request
 
 from app.core.auth import get_family_id
-from app.core.database import get_db
+from app.core.database import user_session
 from app.domains.reconciliation.models import AdjustmentLog, ReconciliationDiscrepancy
 from app.services.reconciliation_service import run_reconciliation as run_reconciliation_service
 
@@ -31,12 +32,16 @@ def run_reconciliation():
 
     body: { domain: 'B' | 'C' }（默认 B）。
     """
-    body = request.get_json(silent=True) or {}
+    body = request.get_json(silent=True)
+    if body is None:
+        body = {}
+    elif not isinstance(body, dict):
+        abort(400, description='请求体必须是 JSON 对象')
     domain = body.get('domain', 'B')
     if domain not in ('B', 'C'):
         abort(400, description=f'支持域 B/C 对账，收到 domain={domain!r}')
     family_id = get_family_id()
-    with get_db() as db:
+    with user_session() as db:
         try:
             run, created = run_reconciliation_service(db, family_id, domain=domain)
         except ValueError as e:
@@ -62,7 +67,7 @@ def list_discrepancies():
     family_id = get_family_id()
     domain = request.args.get('domain')
     status = request.args.get('status')
-    with get_db() as db:
+    with user_session() as db:
         query = db.query(ReconciliationDiscrepancy).filter(ReconciliationDiscrepancy.family_id == family_id)
         if domain:
             query = query.filter(ReconciliationDiscrepancy.domain == domain)
@@ -98,11 +103,15 @@ def ignore_discrepancy(discrepancy_id: int):
     - permanent=true：is_permanent=true（永久静默，可撤销）
     写 adjustment_logs 审计（用户主动操作，§5.5）。
     """
-    body = request.get_json(silent=True) or {}
-    permanent = bool(body.get('permanent', False))
+    body = request.get_json(silent=True)
+    if body is None:
+        body = {}
+    elif not isinstance(body, dict):
+        abort(400, description='请求体必须是 JSON 对象')
+    permanent = body.get('permanent', False) is True
     reason = body.get('reason')
     family_id = get_family_id()
-    with get_db() as db:
+    with user_session() as db:
         d = (
             db.query(ReconciliationDiscrepancy)
             .filter(ReconciliationDiscrepancy.id == discrepancy_id, ReconciliationDiscrepancy.family_id == family_id)
@@ -127,7 +136,7 @@ def ignore_discrepancy(discrepancy_id: int):
                 discrepancy_id=d.id,
                 run_id=d.last_run_id,
                 action='ignore_permanent' if permanent else 'ignore_temporary',
-                before_json=str(before),
+                before_json=json.dumps(before, ensure_ascii=False),
                 reason=reason,
                 operator=body.get('operator'),
             )
