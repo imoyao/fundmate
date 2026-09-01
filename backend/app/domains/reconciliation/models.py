@@ -23,7 +23,7 @@ class ReconciliationDiscrepancy(Base, PrimaryKeyMixin, TimestampMixin, FamilySco
     __tablename__ = 'discrepancies'
 
     domain = Column(String(2), nullable=False, comment='对账域: A|B|C')
-    ledger_id = Column(Integer, nullable=True, comment='账户ID')
+    ledger_id = Column(Integer, nullable=False, comment='账户ID')
     symbol = Column(String(30), nullable=False, comment='资产代码')
     discrepancy_type = Column(String(20), nullable=False, comment='差异类型: quantity|cost|cash|orphan')
     expected_value = Column(Integer, nullable=True, comment='理论值（分/最小单位，按类型口径）')
@@ -95,4 +95,5 @@ class AdjustmentLog(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     __table_args__ = (
         Index('idx_adjustment_logs_family', 'family_id', 'created_at'),
         Index('idx_adjustment_logs_disc', 'discrepancy_id'),
+        Index('idx_adjustment_logs_run', 'run_id'),
     )
