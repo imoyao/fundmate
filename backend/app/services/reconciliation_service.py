@@ -139,6 +139,7 @@ def run_reconciliation(
                 theoretical_qty,
                 0,
                 theoretical_qty,
+                summary,
             )
             summary['orphan'] += 1
             seen_keys.add(key)
@@ -162,14 +163,14 @@ def run_reconciliation(
                 theoretical_qty,
                 actual_qty,
                 diff,
+                summary,
             )
-            summary['pending'] += 1
             seen_keys.add(key)
 
     # 4) 本 run 未检测到的既有 pending 差异 → cleared（差异消失）
     #    必须按本次 run 的域清理：否则域 C（导入后自动触发）会把域 B 的待裁决差异误置 cleared，
     #    同时域 C 自身的陈旧差异永远清不掉。
-    _clear_stale_discrepancies(db, family_id, run.id, seen_keys, domain)
+    _clear_stale_discrepancies(db, family_id, run.id, seen_keys, domain, summary)
 
     summary_json = json.dumps(summary)
     run.summary_json = summary_json
@@ -188,6 +189,7 @@ def _upsert_discrepancy(
     expected: int,
     actual: int,
     diff: int,
+    summary: dict,
 ) -> ReconciliationDiscrepancy:
     """按业务键 upsert 一条差异；已永久忽略的保持 ignored。"""
     existing = (
@@ -205,6 +207,7 @@ def _upsert_discrepancy(
         if existing.is_permanent:
             # 永久忽略：不覆盖，保持静默（§6.5 状态流转）
             existing.last_run_id = run_id
+            summary['ignored'] += 1
             return existing
         existing.expected_value = expected
         existing.actual_value = actual
@@ -212,6 +215,7 @@ def _upsert_discrepancy(
         existing.status = 'pending'
         existing.last_run_id = run_id
         db.flush()
+        summary['pending'] += 1
         return existing
     d = ReconciliationDiscrepancy(
         family_id=family_id,
@@ -228,10 +232,13 @@ def _upsert_discrepancy(
     )
     db.add(d)
     db.flush()
+    summary['pending'] += 1
     return d
 
 
-def _clear_stale_discrepancies(db: Session, family_id: int, run_id: int, seen_keys: set[tuple], domain: str) -> None:
+def _clear_stale_discrepancies(
+    db: Session, family_id: int, run_id: int, seen_keys: set[tuple], domain: str, summary: dict
+) -> None:
     """本 run 未检测到的 pending 差异 → 差异消失置 cleared（§6.5 状态流转）。
 
     domain 为必填：清理范围必须与本次 run 的域一致，否则会跨域误清他域的待裁决差异。
@@ -247,12 +254,15 @@ def _clear_stale_discrepancies(db: Session, family_id: int, run_id: int, seen_ke
         )
         .all()
     )
+    cleared_count = 0
     for d in discrepancies:
         key = (d.ledger_id, d.symbol)
         if key not in seen_keys:
             d.status = 'cleared'
             d.last_run_id = run_id
+            cleared_count += 1
     db.flush()
+    summary['cleared'] += cleared_count
 
 
 def apply_decision(

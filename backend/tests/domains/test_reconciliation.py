@@ -5,6 +5,7 @@
 域 C（导入后自动触发）孤儿检测与清理范围、API。
 """
 
+import json
 from datetime import date, datetime
 
 from app.core.money import Money
@@ -252,6 +253,76 @@ class TestDomainBReconciliation:
         d2 = db.query(ReconciliationDiscrepancy).filter_by(symbol='S1').one()
         assert d2.status == 'ignored'
         assert d2.is_permanent is True
+
+    def test_summary_cleared_count(self, db):
+        """差异消失后重新 run，cleared 计数为 1。"""
+        from app.domains.ledgers.models import Ledger
+
+        ledger = Ledger(name='账户A', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.flush()
+        _buy_txn(db, ledger.id, 'S1', 100, date(2026, 5, 1))
+        pos = Position(
+            symbol='S1',
+            name='股1',
+            asset_type='stock',
+            market='CN_A',
+            ledger_id=ledger.id,
+            family_id=1,
+            quantity=Money.shares_to_min_unit(60),
+            avg_price=Money.yuan_to_price_units(10),
+            current_price=Money.yuan_to_price_units(10),
+            source='manual',
+            ownership_status='active',
+        )
+        db.add(pos)
+        db.commit()
+        run1, _ = run_domain_b_reconciliation(db, 1)
+        assert json.loads(run1.summary_json)['pending'] == 1
+
+        # 补录持仓使差异消失
+        pos.quantity = Money.shares_to_min_unit(100)
+        db.commit()
+        run2, _ = run_domain_b_reconciliation(db, 1)
+        summary2 = json.loads(run2.summary_json)
+        assert summary2['cleared'] == 1
+        assert summary2['pending'] == 0
+
+    def test_summary_ignored_count(self, db):
+        """永久忽略的差异在后续 run 中 ignored 计数正确。"""
+        from app.domains.ledgers.models import Ledger
+
+        ledger = Ledger(name='账户A', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.flush()
+        _buy_txn(db, ledger.id, 'S1', 100, date(2026, 5, 1))
+        pos = Position(
+            symbol='S1',
+            name='股1',
+            asset_type='stock',
+            market='CN_A',
+            ledger_id=ledger.id,
+            family_id=1,
+            quantity=Money.shares_to_min_unit(60),
+            avg_price=Money.yuan_to_price_units(10),
+            current_price=Money.yuan_to_price_units(10),
+            source='manual',
+            ownership_status='active',
+        )
+        db.add(pos)
+        db.commit()
+        run1, _ = run_domain_b_reconciliation(db, 1)
+        assert json.loads(run1.summary_json)['pending'] == 1
+
+        # 永久忽略（不修改持仓，diff 仍不为 0）
+        d = db.query(ReconciliationDiscrepancy).filter_by(symbol='S1').one()
+        d.status = 'ignored'
+        d.is_permanent = True
+        db.commit()
+        run2, _ = run_domain_b_reconciliation(db, 1)
+        summary2 = json.loads(run2.summary_json)
+        assert summary2['ignored'] == 1
+        assert summary2['pending'] == 0
 
 
 class TestDomainCReconciliation:

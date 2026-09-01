@@ -505,10 +505,11 @@ function statusLabel(s: string): string {
   return map[s] || s;
 }
 
-/** 差异值格式：最小单位 → 展示份数 */
+/** 差异值格式：份额（已由后端 Money.min_unit_to_shares 转换） */
 function formatDiff(diff: number | null): string {
   if (diff === null) return "—";
-  return String(diff);
+  if (diff === 0) return "0";
+  return Number.isInteger(diff) ? String(diff) : diff.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
 }
 
 function diffClass(diff: number | null): string {
