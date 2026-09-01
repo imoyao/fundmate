@@ -359,10 +359,18 @@ onMounted(() => load());
   background: var(--bg-page);
 }
 
+/* 吸顶常驻：滚动时品牌色 Hero 自然滚走，但维度切换 + 搜索 + 排序（核心操作）始终可见。
+   背景与页面底一致避免下方卡片穿透；略微向下延伸遮住滚到其下方的卡片边缘。
+   与 WatchlistToolbar 的 .top-bar 同款处理（#1267）。 */
 .control-bar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
   display: flex;
   flex-direction: column;
   gap: var(--space-2, 8px);
+  padding-bottom: var(--space-2, 8px);
+  background: var(--bg-page);
 }
 
 .control-row {
