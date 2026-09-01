@@ -91,8 +91,9 @@ def run_reconciliation(
     rows = (
         db.query(Transaction.ledger_id, Transaction.symbol, Transaction.txn_type, Transaction.quantity)
         .filter(Transaction.family_id == family_id)
+        .yield_per(1000)
         .all()
-    )
+    )  # yield_per 分批拉取，避免家庭流水量大时一次性 .all() 撑爆内存（AI review #5）
     # 按业务键聚合流水
     txn_by_key: dict[tuple, list] = {}
     for ledger_id, symbol, txn_type, quantity in rows:
@@ -102,7 +103,12 @@ def run_reconciliation(
         txn_by_key.setdefault(key, []).append({'txn_type': txn_type, 'quantity': quantity or 0})
 
     # 2) 当前持仓 map：业务键 → quantity
-    positions = db.query(Position).filter(Position.family_id == family_id, Position.ownership_status == 'active').all()
+    positions = (
+        db.query(Position)
+        .filter(Position.family_id == family_id, Position.ownership_status == 'active')
+        .yield_per(1000)
+        .all()
+    )  # 分批拉取，缓解内存压力（AI review #4）
     pos_by_key: dict[tuple, Position] = {}
     for p in positions:
         pos_by_key[(p.ledger_id, p.symbol)] = p

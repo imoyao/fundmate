@@ -101,17 +101,33 @@ def run_reconciliation():
 
 @bp.get('/discrepancies/')
 def list_discrepancies():
-    """列出当前家庭活跃差异（可按域/状态筛）。"""
+    """列出当前家庭活跃差异（可按域/状态筛；支持分页）。
+
+    分页参数：page / page_size（AI review：大数据量下未分页有性能风险）。
+    未传 page_size 时返回全部（保持旧行为，前端工作台默认拉全量）。
+    """
     family_id = get_family_id()
     domain = request.args.get('domain')
     status = request.args.get('status')
+    page = request.args.get('page', type=int)
+    page_size = request.args.get('page_size', type=int)
     with user_session() as db:
         query = db.query(ReconciliationDiscrepancy).filter(ReconciliationDiscrepancy.family_id == family_id)
         if domain:
             query = query.filter(ReconciliationDiscrepancy.domain == domain)
         if status:
             query = query.filter(ReconciliationDiscrepancy.status == status)
-        items = query.order_by(ReconciliationDiscrepancy.updated_at.desc()).all()
+        total = query.count()
+        if page_size:
+            page = page or 1
+            items = (
+                query.order_by(ReconciliationDiscrepancy.updated_at.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+                .all()
+            )
+        else:
+            items = query.order_by(ReconciliationDiscrepancy.updated_at.desc()).all()
         data = [
             {
                 'id': d.id,
@@ -129,7 +145,7 @@ def list_discrepancies():
             }
             for d in items
         ]
-        return jsonify({'data': data, 'total': len(data), 'message': 'ok'})
+        return jsonify({'data': data, 'total': total, 'message': 'ok'})
 
 
 @bp.post('/discrepancies/<int:discrepancy_id>/ignore/')
