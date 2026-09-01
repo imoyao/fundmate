@@ -62,7 +62,9 @@ def run_domain_b_reconciliation(db: Session, family_id: int) -> tuple[Reconcilia
     return run_reconciliation(db, family_id, DOMAIN_B)
 
 
-def run_reconciliation(db: Session, family_id: int, domain: str = DOMAIN_B) -> tuple[ReconciliationRun, bool]:
+def run_reconciliation(
+    db: Session, family_id: int, domain: str = DOMAIN_B, triggered_by: str | None = None
+) -> tuple[ReconciliationRun, bool]:
     """执行一次对账，返回 (run, 是否新建)。
 
     - 域 B：遍历该 family 有流水的持仓（positions.quantity vs 流水重建净额），
@@ -71,13 +73,14 @@ def run_reconciliation(db: Session, family_id: int, domain: str = DOMAIN_B) -> t
       （孤儿流水 → orphan 差异），不做数量比对（导入对账单 vs 系统持仓的
       补录差异在 P2 工作台补录环节处理）。
     - 差异按业务键 upsert 到 discrepancies；无差异的旧差异置 cleared。
+    - triggered_by 未显式传入时按域推断：域 C 为 import（导入后自动触发），其余 manual。
     """
     run = ReconciliationRun(
         family_id=family_id,
         domain=domain,
         data_date=date.today(),
         started_at=datetime.utcnow(),
-        triggered_by='manual',
+        triggered_by=triggered_by or ('import' if domain == DOMAIN_C else 'manual'),
     )
     db.add(run)
     db.flush()
@@ -156,7 +159,9 @@ def run_reconciliation(db: Session, family_id: int, domain: str = DOMAIN_B) -> t
             seen_keys.add(key)
 
     # 4) 本 run 未检测到的既有 pending 差异 → cleared（差异消失）
-    _clear_stale_discrepancies(db, family_id, run.id, seen_keys)
+    #    必须按本次 run 的域清理：否则域 C（导入后自动触发）会把域 B 的待裁决差异误置 cleared，
+    #    同时域 C 自身的陈旧差异永远清不掉。
+    _clear_stale_discrepancies(db, family_id, run.id, seen_keys, domain)
 
     summary_json = json.dumps(summary)
     run.summary_json = summary_json
@@ -218,10 +223,10 @@ def _upsert_discrepancy(
     return d
 
 
-def _clear_stale_discrepancies(
-    db: Session, family_id: int, run_id: int, seen_keys: set[tuple], domain: str = DOMAIN_B
-) -> None:
+def _clear_stale_discrepancies(db: Session, family_id: int, run_id: int, seen_keys: set[tuple], domain: str) -> None:
     """本 run 未检测到的 pending 差异 → 差异消失置 cleared（§6.5 状态流转）。
+
+    domain 为必填：清理范围必须与本次 run 的域一致，否则会跨域误清他域的待裁决差异。
 
     注意：这是系统自动行为，**不写 adjustment_logs**（§5.5）。
     """

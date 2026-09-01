@@ -125,7 +125,7 @@
                           v-if="row.status === 'pending'"
                           size="small"
                           text
-                          @click="handleIgnore(row)"
+                          @click="handleIgnore(row as DiscrepancyItem)"
                         >
                           忽略
                         </el-button>
@@ -309,7 +309,7 @@ async function loadDiscrepancies(): Promise<void> {
   loading.value = true;
   try {
     const res = await listDiscrepancies();
-    discs.value = (res as any).data ?? [];
+    discs.value = res.data ?? [];
   } catch {
     discs.value = [];
   } finally {
@@ -332,7 +332,7 @@ async function handleRun(): Promise<void> {
 }
 
 /** 忽略一条差异（临时） */
-async function handleIgnore(row: any): Promise<void> {
+async function handleIgnore(row: DiscrepancyItem): Promise<void> {
   try {
     await ignoreDiscrepancy(row.id, { permanent: false });
     ElMessage.success("已忽略");
