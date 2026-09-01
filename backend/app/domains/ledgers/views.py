@@ -277,6 +277,7 @@ def _aggregation_args() -> dict:
         'page_size': request.args.get('page_size', DEFAULT_PAGE_SIZE, type=int),
         'keyword': request.args.get('keyword', '').strip() or None,
         'fund_type': request.args.get('fund_type', '').strip() or None,
+        'asset_type': request.args.get('asset_type', '').strip() or None,
     }
 
 

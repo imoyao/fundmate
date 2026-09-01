@@ -481,6 +481,8 @@ export interface AggregationQuery {
   keyword?: string;
   /** 基金小类名精确筛选；'__none__' 表示「未分类」 */
   fund_type?: string;
+  /** 证券类型（asset_type）精确筛选：stock/etf/bond；基金侧不传 */
+  asset_type?: string;
 }
 
 /** 聚合来源项：product 维度的 sources 与 institution 维度的 items 共用同一形状 */

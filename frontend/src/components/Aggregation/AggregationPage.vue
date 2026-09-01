@@ -18,13 +18,15 @@ import {
   useAggregation,
   type AggregationFetcher
 } from "@/composables/useAggregation";
+import { ASSET_TYPE_LABELS } from "@/constants/assetType";
 
 /**
  * 持仓聚合下钻页共享组件（#1266 抽离）。
  *
  * /funds（场外基金）与 /stocks（场内证券）共用同一套英雄区 / 维度切换 / 产品卡 / 详情抽屉，
  * 差异收敛为配置项：fetcher（数据源）、title/subtitle、showTypeTab（类型筛选 Tab）、
- * typeTabLabel、emptyTitle/emptyHint。共享逻辑只有一份实现，改一处两侧同步生效。
+ * typeTabLabel、typeFilterField（基金 fund_type / 证券 asset_type）、emptyTitle/emptyHint。
+ * 共享逻辑只有一份实现，改一处两侧同步生效。
  *
  * 资产构成环形图由 AggregationHero 按 result.fund_type_breakdown 渲染；后端对该字段按
  * 品类维度聚类（基金侧 fund_type、证券侧 asset_type），两侧共用同一字段，天然对齐（#1264）。
@@ -45,6 +47,8 @@ const props = withDefaults(
     showTypeTab?: boolean;
     /** 类型 Tab 的 aria 标签前缀（如「基金类型」「证券类型」） */
     typeTabLabel?: string;
+    /** 类型 Tab 的筛选字段：'fund_type'（基金，默认）/ 'asset_type'（证券：股票/ETF/可转债） */
+    typeFilterField?: "fund_type" | "asset_type";
     /** 空态标题 */
     emptyTitle?: string;
     /** 空态提示 */
@@ -76,13 +80,25 @@ const SORT_OPTIONS: { label: string; value: AggregationSort }[] = [
 
 /**
  * 类型筛选 Tab：动态生成，只显示实际有产品的分类（#1224 反馈）。
- * 「全部」常驻；中间分类来自后端 fund_type_counts 分布（有产品才显示）；
- * 「未分类」仅在确实有无分类产品时出现。仅当 showTypeTab 时渲染。
+ * 「全部」常驻；基金侧中间分类来自后端 fund_type_counts（有产品才显示）+「未分类」；
+ * 证券侧从 fund_type_breakdown（已按 asset_type 聚类的中文标签）反查原始 asset_type 值。
+ * 仅当 showTypeTab 时渲染。
  */
-const fundTypeOptions = computed<{ label: string; value: string }[]>(() => {
+// asset_type 中文标签 → 原始值 的反查表（复用前端镜像，禁止手抄第二份）
+const ASSET_TYPE_VALUE_BY_LABEL: Record<string, string> = Object.fromEntries(
+  Object.entries(ASSET_TYPE_LABELS).map(([value, label]) => [label, value])
+);
+const typeOptions = computed<{ label: string; value: string }[]>(() => {
   const opts: { label: string; value: string }[] = [
     { label: "全部", value: "" }
   ];
+  if (props.typeFilterField === "asset_type") {
+    for (const b of result.value?.fund_type_breakdown ?? []) {
+      const raw = ASSET_TYPE_VALUE_BY_LABEL[b.name];
+      if (raw) opts.push({ label: b.name, value: raw });
+    }
+    return opts;
+  }
   const counts = result.value?.fund_type_counts ?? {};
   for (const [name, count] of Object.entries(counts)) {
     if (count > 0) opts.push({ label: name, value: name });
@@ -120,7 +136,10 @@ const {
   setSort,
   setKeyword,
   setFundType
-} = useAggregation(props.fetcher, { pageSize: props.pageSize });
+} = useAggregation(props.fetcher, {
+  pageSize: props.pageSize,
+  typeFilterField: props.typeFilterField
+});
 
 const isEmpty = computed(() => total.value === 0);
 
@@ -226,7 +245,7 @@ onMounted(() => load());
           :aria-label="`${typeTabLabel}筛选`"
         >
           <button
-            v-for="opt in fundTypeOptions"
+            v-for="opt in typeOptions"
             :key="opt.value"
             type="button"
             role="tab"

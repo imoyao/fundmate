@@ -389,6 +389,7 @@ def aggregate_positions(
     page_size: int = DEFAULT_PAGE_SIZE,
     keyword: str | None = None,
     fund_type: str | None = None,
+    asset_type: str | None = None,
     breakdown_by: str = 'fund_type',
 ) -> dict:
     """聚合某类资产的持仓（#1101 / #1132 共用入口）。
@@ -403,6 +404,8 @@ def aggregate_positions(
         keyword: 名称/代码模糊搜索（大小写不敏感），命中任一即保留。
         fund_type: 基金小类名精确筛选；`FUND_TYPE_NONE` 表示筛选「未分类」。
             过滤在行级执行，对 product / institution 两个维度均生效。
+        asset_type: 证券类型精确筛选（stock/etf/bond）；基金侧不传此参数。
+            与 fund_type 互斥地作用于行级过滤，配合证券侧类型 Tab（#1266 / #1264）。
         breakdown_by: 资产构成环形图的聚类维度（#1264）。
             'fund_type'（默认，基金侧按小类名）/ 'asset_type'（证券侧按股票/ETF/可转债）。
 
@@ -453,6 +456,8 @@ def aggregate_positions(
         rows = [r for r in rows if kw in (r.get('name') or '').lower() or kw in (r.get('symbol') or '').lower()]
     if fund_type:
         rows = [r for r in rows if _matches_fund_type(r.get('fund_type'), fund_type)]
+    if asset_type:
+        rows = [r for r in rows if (r.get('asset_type') or '') == asset_type]
 
     # 汇总市值与快照区间：基于过滤后 rows，先于分页计算（分页不应改变汇总口径）
     total_mv = sum(r['market_value_cents'] for r in rows)

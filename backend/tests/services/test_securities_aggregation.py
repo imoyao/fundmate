@@ -87,3 +87,17 @@ def test_securities_aggregation_asset_type_breakdown(client, db):
     assert by_name['ETF']['market_value_cents'] == 2000 * 100
     assert by_name['可转债']['count'] == 1
     assert by_name['可转债']['market_value_cents'] == 1500 * 100
+
+
+def test_securities_aggregation_asset_type_filter(client, db):
+    """证券聚合支持 asset_type 精确筛选（证券类型 Tab：#1266 / #1264）。"""
+    l1 = _make_sec_ledger(db, '华泰A')
+    _make_sec_position(db, l1, '600000', '浦发银行', 'stock', 200 * 10000, 10 * 10000)
+    _make_sec_position(db, l1, '510300', '沪深300ETF', 'etf', 100 * 10000, 20 * 10000)
+    _make_sec_position(db, l1, '113050', '国债转债', 'bond', 50 * 10000, 30 * 10000)
+    db.commit()
+
+    data = client.get('/api/ledgers/securities-aggregation/?dimension=product&asset_type=etf').get_json()['data']
+    symbols = {g['symbol'] for g in data['groups']}
+    assert symbols == {'510300'}
+    assert data['total'] == 1
