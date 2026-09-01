@@ -12,13 +12,14 @@
     检测范围：该 (ledger_id, symbol) 在 transactions 有记录才纳入；纯快照无流水则 skip。
 """
 
+import json
 from datetime import datetime
 
 from apiflask import APIBlueprint
 from flask import abort, jsonify, request
 
 from app.core.auth import get_family_id
-from app.core.database import get_db
+from app.core.database import user_session
 from app.domains.reconciliation.models import AdjustmentLog, ReconciliationDiscrepancy
 from app.services.reconciliation_service import run_domain_b_reconciliation
 
@@ -31,12 +32,16 @@ def run_reconciliation():
 
     可选 body: { domain: 'B' }（默认 B）；data_date 可选。
     """
-    body = request.get_json(silent=True) or {}
+    body = request.get_json(silent=True)
+    if body is None:
+        body = {}
+    elif not isinstance(body, dict):
+        abort(400, description='请求体必须是 JSON 对象')
     domain = body.get('domain', 'B')
     if domain != 'B':
         abort(400, description=f'当前仅支持域 B 对账，收到 domain={domain!r}')
     family_id = get_family_id()
-    with get_db() as db:
+    with user_session() as db:
         try:
             run, created = run_domain_b_reconciliation(db, family_id)
         except ValueError as e:
@@ -62,7 +67,7 @@ def list_discrepancies():
     family_id = get_family_id()
     domain = request.args.get('domain')
     status = request.args.get('status')
-    with get_db() as db:
+    with user_session() as db:
         query = db.query(ReconciliationDiscrepancy).filter(ReconciliationDiscrepancy.family_id == family_id)
         if domain:
             query = query.filter(ReconciliationDiscrepancy.domain == domain)
@@ -102,7 +107,7 @@ def ignore_discrepancy(discrepancy_id: int):
     permanent = bool(body.get('permanent', False))
     reason = body.get('reason')
     family_id = get_family_id()
-    with get_db() as db:
+    with user_session() as db:
         d = (
             db.query(ReconciliationDiscrepancy)
             .filter(ReconciliationDiscrepancy.id == discrepancy_id, ReconciliationDiscrepancy.family_id == family_id)
@@ -127,7 +132,7 @@ def ignore_discrepancy(discrepancy_id: int):
                 discrepancy_id=d.id,
                 run_id=d.last_run_id,
                 action='ignore_permanent' if permanent else 'ignore_temporary',
-                before_json=str(before),
+                before_json=json.dumps(before, ensure_ascii=False),
                 reason=reason,
                 operator=body.get('operator'),
             )

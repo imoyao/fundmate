@@ -68,6 +68,7 @@ class TestThreeTables:
         disc = ReconciliationDiscrepancy(
             family_id=1,
             domain='B',
+            ledger_id=1,
             symbol='S1',
             discrepancy_type='quantity',
             expected_value=100,
