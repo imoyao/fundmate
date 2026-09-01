@@ -87,7 +87,14 @@ def backfill_securities_asset_type(db=None, apply: bool = False) -> dict:
             if derived is None or derived == p.asset_type:
                 continue
             summary['changes'].append(
-                {'kind': 'position', 'id': p.id, 'symbol': p.symbol, 'from': p.asset_type, 'to': derived}
+                {
+                    'kind': 'position',
+                    'id': p.id,
+                    'symbol': p.symbol,
+                    'name': p.name,
+                    'from': p.asset_type,
+                    'to': derived,
+                }
             )
             if apply:
                 p.asset_type = derived
@@ -98,7 +105,9 @@ def backfill_securities_asset_type(db=None, apply: bool = False) -> dict:
             derived = _derive_for_symbol(s.symbol)
             if derived is None or derived == s.type:
                 continue
-            summary['changes'].append({'kind': 'security', 'symbol': s.symbol, 'from': s.type, 'to': derived})
+            summary['changes'].append(
+                {'kind': 'security', 'symbol': s.symbol, 'name': s.name, 'from': s.type, 'to': derived}
+            )
             if apply:
                 s.type = derived
                 summary['securities_updated'] += 1

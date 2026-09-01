@@ -32,7 +32,8 @@ def main():
     print(f'  持仓检查 {summary["positions_checked"]} 条，更新 {summary["positions_updated"]} 条')
     print(f'  元数据检查 {summary["securities_checked"]} 条，更新 {summary["securities_updated"]} 条')
     for c in summary['changes']:
-        print(f'  - {c["kind"]} {c["symbol"]}: {c["from"]} -> {c["to"]}')
+        name = c.get('name') or ''
+        print(f'  - {c["kind"]} {c["symbol"]} {name}: {c["from"]} -> {c["to"]}')
 
 
 if __name__ == '__main__':
