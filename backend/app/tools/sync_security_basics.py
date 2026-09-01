@@ -13,6 +13,7 @@ import akshare as ak
 from loguru import logger
 
 from app.core.database import SessionLocal
+from app.core.symbol_utils import derive_security_type
 from app.domains.securities.models import Security
 
 
@@ -29,7 +30,10 @@ def sync_all_stocks():
 
             sec = db.query(Security).filter_by(symbol=symbol).first()
             if not sec:
-                sec = Security(symbol=symbol, market='CN_A', type='stock')
+                # 按 A 股代码前缀推断证券细类（stock/etf/bond），不再硬编码 'stock'
+                mkt = 'SH' if symbol[:2] == '11' else None
+                sec_type = derive_security_type(symbol, mkt) or 'stock'
+                sec = Security(symbol=symbol, market='CN_A', type=sec_type)
                 db.add(sec)
 
             sec.name = str(row.get('name', ''))[:100] or symbol

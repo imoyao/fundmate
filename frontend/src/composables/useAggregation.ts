@@ -20,6 +20,8 @@ export type AggregationFetcher = (
 export interface UseAggregationOptions {
   /** 默认每页条数 */
   pageSize?: number;
+  /** 类型 Tab 筛选字段：'fund_type'（基金，默认）/ 'asset_type'（证券） */
+  typeFilterField?: "fund_type" | "asset_type";
 }
 
 /**
@@ -144,15 +146,21 @@ export function useAggregation(
     errorMsg.value = "";
     scheduleSkeleton();
     try {
-      const res = await fetcher({
+      const query: AggregationQuery = {
         dimension: dimension.value,
         sort: sort.value,
         order: order.value,
         page: page.value,
         page_size: pageSize.value,
-        keyword: keyword.value.trim() || undefined,
-        fund_type: fundType.value || undefined
-      });
+        keyword: keyword.value.trim() || undefined
+      };
+      // 类型 Tab 按配置字段筛选：基金走 fund_type，证券走 asset_type（#1266 / #1264）
+      if (options.typeFilterField === "asset_type") {
+        query.asset_type = fundType.value || undefined;
+      } else {
+        query.fund_type = fundType.value || undefined;
+      }
+      const res = await fetcher(query);
       result.value = (res?.data as AggregationResult) ?? null;
     } catch (e: any) {
       // 技术错误映射为用户友好文案，不暴露原始信息

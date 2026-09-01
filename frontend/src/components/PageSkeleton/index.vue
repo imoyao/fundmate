@@ -38,6 +38,19 @@
         class="page-skeleton__bar page-skeleton__bar--row"
       />
     </div>
+
+    <!-- 产品卡网格：统一尺寸，匹配聚合页真实产品卡网格（#1266 骨架屏尺寸统一） -->
+    <div v-if="productCards > 0" class="page-skeleton__product-grid">
+      <div
+        v-for="i in productCards"
+        :key="`pc-${i}`"
+        class="page-skeleton__card page-skeleton__product"
+      >
+        <div class="page-skeleton__bar page-skeleton__bar--label" />
+        <div class="page-skeleton__bar page-skeleton__bar--value" />
+        <div class="page-skeleton__bar page-skeleton__bar--value" />
+      </div>
+    </div>
   </div>
 </template>
 
@@ -50,8 +63,10 @@ withDefaults(
     chartCols?: number;
     /** 表格行数（占位行），默认 6 */
     tableRows?: number;
+    /** 产品卡网格数量：用于聚合页骨架屏，统一尺寸卡片，匹配真实产品卡网格 */
+    productCards?: number;
   }>(),
-  { cards: 3, chartCols: 2, tableRows: 6 }
+  { cards: 3, chartCols: 2, tableRows: 6, productCards: 0 }
 );
 </script>
 
@@ -137,6 +152,17 @@ withDefaults(
   &__bar--row {
     width: 100%;
     height: 32px;
+  }
+
+  /* 产品卡网格：与真实 .card-grid 同列宽，卡片统一尺寸（消除三种尺寸不一致的骨架屏） */
+  &__product-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: var(--space-compact);
+  }
+
+  &__product {
+    min-height: 150px;
   }
 }
 

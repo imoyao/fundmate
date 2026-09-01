@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 from app.core.constants import PositionSource, ValuationMode
 from app.core.exceptions import ErrorCode, SBException
 from app.core.money import Money
-from app.core.symbol_utils import get_normalizer
+from app.core.symbol_utils import derive_security_type, get_normalizer, split_symbol
 from app.core.utils import get_confirm_date
 from app.domains.funds.models import Fund
 from app.domains.ledgers.models import Ledger
@@ -115,15 +115,29 @@ def auto_purchase_money_fund(
     )
 
 
+# 录入阶段已显式给出的具体类型，直接信任，不再做代码推断（避免误伤基金等）
+_SPECIFIC_ASSET_TYPES = {'etf', 'bond', 'fund', 'money_fund', 'reverse_repo', 'cash'}
+
+
 def _get_asset_type(data: dict, default: str = 'stock') -> str:
     """
-    统一从请求数据中提取资产类型，兼容 `asset_type` 与 `type` 两个 key。
+    录入阶段确定资产类型：显式具体类型 > 代码前缀推断 > 默认 stock。
 
     历史债背景：PositionCreate.asset_type 使用 validation_alias='type'，
     model_dump() 输出的是字段名 `asset_type`，而 importer 路径直接构造 `type` key，
     导致不同调用方传入的 key 不一致。此处收敛读取端，保证流水 asset_type 落库正确。
+
+    分类下沉到录入阶段（#1264 / #1266）：仅当显式类型缺失，或显式为泛化默认 'stock' 时，
+    才按代码前缀推断（沪 51/56/58、深 15/16 → ETF；11/12 → 可转债），
+    以免把已正确标注为 fund/money_fund 的基金（代码前缀可能与股票/可转债重合）误判成股票。
     """
-    return data.get('asset_type') or data.get('type', default)
+    explicit = data.get('asset_type') or data.get('type')
+    if explicit and explicit in _SPECIFIC_ASSET_TYPES:
+        return explicit
+    symbol = data.get('symbol') or ''
+    market, code = split_symbol(symbol)
+    derived = derive_security_type(code, market)
+    return derived or (explicit or default)
 
 
 def _get_default_notes(op_type: str, is_new: bool) -> str:

@@ -14,7 +14,24 @@ from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
 from app.services.importer.records import compute_position_hash
-from app.services.position_service import PositionService
+from app.services.position_service import PositionService, _get_asset_type
+
+
+def test_entry_infer_asset_type_from_code():
+    """录入阶段：未显式给类型时按代码前缀推断 ETF/可转债；显式具体类型优先。"""
+    # 未给类型 → 按代码前缀推断（沪 51/56/58、深 15/16 为 ETF；11/12 为可转债）
+    assert _get_asset_type({'symbol': 'SH510050'}) == 'etf'
+    assert _get_asset_type({'symbol': 'SZ159915'}) == 'etf'
+    assert _get_asset_type({'symbol': 'SH110067'}) == 'bond'  # 沪市可转债
+    assert _get_asset_type({'symbol': 'SZ128063'}) == 'bond'
+    assert _get_asset_type({'symbol': 'SH600519'}) == 'stock'  # 普通股票
+    # 显式具体类型优先：基金 / 货币基金不被代码误判
+    assert _get_asset_type({'symbol': '110011', 'asset_type': 'fund'}) == 'fund'
+    assert _get_asset_type({'symbol': 'SH511990', 'asset_type': 'money_fund'}) == 'money_fund'
+    # 显式具体 etf/bond 不被代码覆盖（信任显式标注）
+    assert _get_asset_type({'symbol': 'SH600519', 'asset_type': 'etf'}) == 'etf'
+    # 显式泛化默认 'stock' → 仍按代码前缀推断（修复 ETF/可转债 被误归股票）
+    assert _get_asset_type({'symbol': 'SH510050', 'asset_type': 'stock'}) == 'etf'
 
 
 # 辅助函数
