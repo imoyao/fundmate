@@ -206,7 +206,7 @@ def _list_holding_items(db, family_id, venue=None, search=None):
     每行 id=None 表示「无自选记录」，前端据此禁用置顶/关注/标签/移除等行操作。
     """
     rows = (
-        db.query(Position.symbol, Position.asset_type, Position.market)
+        db.query(Position.symbol, Position.asset_type, Position.market, Position.name)
         .filter(Position.family_id == family_id, Position.ownership_status == 'active')
         .distinct()
         .all()
@@ -217,15 +217,19 @@ def _list_holding_items(db, family_id, venue=None, search=None):
     )
     data = []
     seen = set()
-    for symbol, asset_type, market in rows:
+    for symbol, asset_type, market, pos_name in rows:
         if symbol in seen:
             continue  # 同一 symbol 多账户行已聚合，跳过重复
         seen.add(symbol)
         row_venue = venue_map.get(symbol) or ('OTC' if asset_type == 'fund' else 'EXCHANGE')
         if venue and row_venue != venue:
             continue
-        if search and search.lower() not in symbol.lower():
-            continue
+        if search:
+            s = search.lower()
+            # 名称匹配：优先用持仓名称，缺失时回退到 securities/funds 展示名（与 _build_holding_row 同源）
+            display = (pos_name or '') or _get_display_info(symbol, db)
+            if s not in symbol.lower() and s not in (display or '').lower():
+                continue
         data.append(_build_holding_row(symbol, db, market=market, asset_type=asset_type, venue=row_venue))
     data.sort(key=lambda r: r['position_market_value'] or 0, reverse=True)
     return data
