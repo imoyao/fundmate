@@ -179,17 +179,6 @@ def _holding_candidates_to_rows(items: list, ledger_id) -> list:
     return result['rows']
 
 
-@ocr_bp.get('/usage')
-def get_ocr_usage():
-    """查询某功能当日 AI 识别剩余次数（进入弹窗前展示余量）。
-
-    feature 查询参数：ocr_import（默认，自选）/ txn_import（持仓）。
-    """
-    user_id = _current_user_id()
-    feature = request.args.get('feature', 'ocr_import')
-    return jsonify({'data': guards.check_usage(user_id, feature=feature), 'message': 'ok'})
-
-
 @ocr_bp.post('/recognize')
 def ocr_recognize():
     """上传图片（base64）→ 方案方舟识别 → 候选列表/预览行；消耗 1 次当日配额。"""
