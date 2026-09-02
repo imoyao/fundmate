@@ -359,7 +359,9 @@
                       </el-tooltip>
                     </template>
                     <template #default="{ row }">
-                      <span v-if="row.holding_days != null">{{ row.holding_days }} 天</span>
+                      <span v-if="row.holding_days != null"
+                        >{{ row.holding_days }} 天</span
+                      >
                       <span v-else>--</span>
                     </template>
                   </el-table-column>
