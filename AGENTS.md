@@ -385,8 +385,12 @@
 ### GitHub Issue / Discussion / PR 创建（自动化通道）
 
 - **环境**：必须 UTF-8（`export LANG=C.UTF-8; export LC_ALL=C.UTF-8`；Python 设 `PYTHONUTF8=1`）。
-- **中文内容**：必须用 `--title-file` / `--body-file` 传入 UTF-8 无 BOM 文件，禁止内联中文变量。
-- **回读校验**：创建后立即 `gh issue view <n> --json title` 确认中文无乱码；发现乱码立即删除重建。
+- **中文内容**：issue / discussion 必须用 `--title-file` / `--body-file` 传入 UTF-8 无 BOM 文件，禁止内联中文变量。
+- **PR 标题（高频踩坑点）**：`gh pr create` **不支持 `--title-file`**，故严禁 `gh pr create --title "中文…"` 内联传标题——Windows GBK 控制台会把中文按代码页 936 编码，gh 收到 GBK 字节却当 UTF-8 发给 GitHub，标题被永久存成乱码（正文 body 走 `--body-file`/`-F` 不受影响）。正确做法二选一：
+  1. **首选 `gh pr create --fill`**：标题与正文直接取自最新提交信息（git 内为干净 UTF-8），完全绕开内联中文；
+  2. 确需显式标题时：先 `gh pr create` 建空标题 PR，再用 UTF-8 JSON 文件 `gh api -X PATCH repos/<owner>/<repo>/pulls/<n> --input title.json` 修正（`title.json` 用 `write_to_file` 生成，禁止内联）。
+- **守卫盲区**：mojibake 守卫只扫「仓库内文件 + git 提交信息」，PR 标题存在 GitHub、不在仓库内，守卫无法覆盖。因此 PR 标题的干净只能靠创建时走 UTF-8 安全通道，无 CI 兜底。
+- **回读校验**：创建后立即 `gh issue view <n> --json title`（或 `gh api .../pulls/<n> --jq .title`）确认中文无乱码；发现乱码用上面 PATCH 方式修正，不要删除重建。
 
 ### Issue 原子化约束
 
