@@ -266,7 +266,8 @@ CREATE TABLE reconciliation_runs (
   started_at  TIMESTAMP,
   finished_at TIMESTAMP,
   triggered_by VARCHAR(20),                        -- manual|import|schedule
-                                                   -- import 含「导入完成后自动触发」（域C）
+                                                   -- import 含「导入完成后自动触发」（域C）；
+                                                   -- schedule 为未来扩展保留，当前未实现（项目无队列基础设施）
   summary_json TEXT                                -- pending/cleared/ignored 计数
 );
 
