@@ -133,6 +133,11 @@
       "issue_number": 1288,
       "synced_at": "2026-09-02T04:24:29Z",
       "origin": "github"
+    },
+    "6c6e871f-e21a-4934-bf6b-08ef3763d35e": {
+      "issue_number": 1294,
+      "synced_at": "2026-09-02T08:48:33Z",
+      "origin": "github"
     }
   },
   "_comment": "FeedLog ↔ GitHub 桥接状态文件。由 feedlog_bridge.py 自动维护，请勿手动编辑。"
