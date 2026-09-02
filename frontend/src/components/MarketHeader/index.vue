@@ -9,7 +9,13 @@
 <template>
   <header class="market-header">
     <div class="market-header__inner">
-      <div class="market-header__logo-area">
+      <div
+        class="market-header__logo-area"
+        role="button"
+        tabindex="0"
+        @click="emit('logo-click')"
+        @keyup.enter="emit('logo-click')"
+      >
         <BrandLogo :size="24" />
         <span class="market-header__logo">{{ logo }}</span>
         <span class="market-header__badge">{{ badge }}</span>
@@ -47,6 +53,10 @@
 <script setup lang="ts">
 import BrandLogo from "@/components/BrandLogo/index.vue";
 
+const emit = defineEmits<{
+  "logo-click": [];
+}>();
+
 withDefaults(
   defineProps<{
     logo?: string;
@@ -81,6 +91,8 @@ withDefaults(
     display: flex;
     gap: 10px;
     align-items: center;
+    cursor: pointer;
+    user-select: none;
   }
 
   &__logo {
