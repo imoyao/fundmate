@@ -1209,8 +1209,12 @@ class ImportOrchestrator:
         self.db.flush()
         return position, meta
 
-    def _get_or_create_channel_ledger(self, source_broker: str) -> Ledger:
+    def _get_or_create_channel_ledger(self, source_broker: str, external_account_code: str = 'MAIN') -> Ledger:
         """按销售机构匹配渠道 Ledger（ledger_type='fund'）；找不到则自动创建（§3.3）。
+
+        资金账户维度（#1100/#1101）：external_account_code 区分同一机构下的不同资金账户
+        （普通/两融等），默认 'MAIN'。查/建键为 (family_id, sales_institution_id, external_account_code)，
+        与权威设计文档 §2.5/§6 一致。
 
         匹配链路（2026-08-17 重构，AMAC 权威名录为唯一基准）：
         1. source_broker → SalesInstitution 匹配（org_name 等值 → display_name 等值）；
@@ -1238,17 +1242,37 @@ class ImportOrchestrator:
 
         # 名录命中：按机构关联找/建渠道 Ledger
         if institution is not None:
+            # 1) 精确命中（同机构 + 同外部资金账户）
             ledger = (
                 self.db.query(Ledger)
                 .filter_by(
                     sales_institution_id=institution.id,
                     ledger_type='fund',
                     family_id=self.family_id,
+                    external_account_code=external_account_code,
                 )
                 .first()
             )
             if ledger:
                 return ledger
+            # 2) 存量「主账户」升级：本机构仅有一个 external_account_code='MAIN' 的旧账本，
+            #    视为同一物理账户，将其外部账号补正为该笔导入真实资金账号，避免重复建账（#1100）。
+            if external_account_code != 'MAIN':
+                legacy = (
+                    self.db.query(Ledger)
+                    .filter_by(
+                        sales_institution_id=institution.id,
+                        ledger_type='fund',
+                        family_id=self.family_id,
+                        external_account_code='MAIN',
+                    )
+                    .all()
+                )
+                if len(legacy) == 1:
+                    legacy[0].external_account_code = external_account_code
+                    self.db.flush()
+                    return legacy[0]
+            # 3) 确无匹配 → 新建（含真实外部资金账号）
             display_name = institution.display_name or institution.org_name
             # 渠道分类（#1101 重设计，铁律见设计文档 §2.3）：命中销售机构时，
             # channel_category 由 org_type 映射写入（权威），与 ledger_type(资产类) 正交。
@@ -1259,16 +1283,27 @@ class ImportOrchestrator:
                 default_allocation='longterm',
                 family_id=self.family_id,
                 sales_institution_id=institution.id,
+                external_account_code=external_account_code,
                 channel_category=map_org_type_to_channel_category(institution.org_type),
             )
             self.db.add(ledger)
             self.db.flush()
-            logger.info(f'对账自动创建渠道账户: name={display_name} (机构={institution.org_name}, id={institution.id})')
+            logger.info(
+                f'对账自动创建渠道账户: name={display_name} (机构={institution.org_name}, '
+                f'id={institution.id}, 外部账号={external_account_code})'
+            )
             return ledger
 
         # 名录未命中：回退原文（历史行为，不关联机构）
         ledger = (
-            self.db.query(Ledger).filter_by(name=source_broker, ledger_type='fund', family_id=self.family_id).first()
+            self.db.query(Ledger)
+            .filter_by(
+                name=source_broker,
+                ledger_type='fund',
+                family_id=self.family_id,
+                external_account_code=external_account_code,
+            )
+            .first()
         )
         if ledger:
             return ledger
@@ -1277,6 +1312,7 @@ class ImportOrchestrator:
             ledger_type='fund',
             default_allocation='longterm',
             family_id=self.family_id,
+            external_account_code=external_account_code,
         )
         self.db.add(ledger)
         self.db.flush()
@@ -1408,7 +1444,10 @@ class ImportOrchestrator:
                         summary['conflicts'] += 1
                         summary['conflict_list'].append(self._build_conflict_item(shadow_pos, shadow_meta, None, None))
                         continue
-                    ledger = self._get_or_create_channel_ledger(source_broker)
+                    ledger = self._get_or_create_channel_ledger(
+                        source_broker,
+                        external_account_code=shadow_meta.trade_account or shadow_meta.fund_account or 'MAIN',
+                    )
 
                     # 4. 三分支判定（只看份额，min_unit 整数比较）
                     channel_pos = (
@@ -1468,7 +1507,10 @@ class ImportOrchestrator:
         if meta.attributed_to_ledger_id:
             ledger = self.db.query(Ledger).filter_by(id=meta.attributed_to_ledger_id, family_id=self.family_id).first()
         if ledger is None and meta.source_broker:
-            ledger = self._get_or_create_channel_ledger(meta.source_broker)
+            ledger = self._get_or_create_channel_ledger(
+                meta.source_broker,
+                external_account_code=meta.trade_account or meta.fund_account or 'MAIN',
+            )
         if ledger is None:
             raise ValueError('目标账户不存在，请重新选择')
 

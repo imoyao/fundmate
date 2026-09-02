@@ -562,7 +562,7 @@ def test_reconcile_savepoint_rollback_single_row(db, monkeypatch):
     """E6 修复：单行失败回滚到 SAVEPOINT，不残留半截写入，也不影响后续行。"""
     orig = ImportOrchestrator._get_or_create_channel_ledger
 
-    def boom(self, source_broker):
+    def boom(self, source_broker, **kwargs):
         if source_broker == SOURCE_ALIPAY:
             raise RuntimeError('渠道创建失败（模拟）')
         return orig(self, source_broker)
