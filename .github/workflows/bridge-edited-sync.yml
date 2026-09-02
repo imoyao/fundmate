@@ -1,0 +1,40 @@
+# FeedLog Issue 编辑回灌（每日限频）
+#
+# 降频护栏（2026-09-02）：原 bridge-feedback.yml 在 issues.edited 事件实时触发，
+# 编辑标题/正文频率极高（今天贡献 179 次 issue 事件运行的主体），实时触发极费 Actions 分钟。
+# 改为本 workflow 每日仅跑一次（UTC 12:00），批量把最近 24h 内被编辑的 issue 内容
+# 回灌 FeedLog（覆盖修复 GitHub 端手动修正的乱码镜像）。其余时间完全不跑，最省分钟。
+# 真正的「一天一次」节流：无论 edited 多频繁，一天只启动一次 runner。
+
+name: FeedLog Issue 编辑回灌（每日限频）
+
+on:
+  schedule:
+    - cron: '0 12 * * *'   # 每天 12:00 UTC 一次
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  sync-recent-edited:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout 仓库
+        uses: actions/checkout@v5
+
+      - name: 安装 Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: 安装依赖
+        run: pip install psycopg2-binary PyGithub
+
+      - name: 回灌最近 24h 编辑的 issue 到 FeedLog
+        env:
+          FEEDLOG_DATABASE_URL: ${{ secrets.FEEDLOG_DATABASE_URL }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+        run: python scripts/bridge/feedlog_bridge.py sync-recent-edited --hours 24

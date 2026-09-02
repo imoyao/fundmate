@@ -46,6 +46,7 @@ on:
 
   # 通道 2：GitHub Issue 事件 → FeedLog（新建建帖子 + 状态回写）
   # 注意：去掉 edited —— 编辑标题/正文触发频率最高、价值最低，是今天 issue 事件放大的主要来源。
+  # edited 的内容回灌能力已移至 bridge-edited-sync.yml（每日限频一次），避免实时高频触发。
   issues:
     types: [opened, labeled, unlabeled, closed, reopened]
 
