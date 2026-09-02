@@ -165,13 +165,13 @@
         </div>
       </div>
 
-      <!-- 持有时长（#862）：后端按 confirm_date 计算返回 holding_days -->
+      <!-- 持有时长（#862）：后端按 confirm_date 计算返回 holding_days；口径为「本轮」：自本轮建仓日起算，清仓后重新计起 -->
       <div
         class="p-3 rounded-lg border"
         :style="{ borderColor: 'var(--border-default)' }"
       >
         <div class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
-          持有时长
+          持有时长<span class="ml-1 opacity-60">(本轮)</span>
         </div>
         <div
           class="text-base font-semibold mt-1"
@@ -181,6 +181,9 @@
             >{{ positionData.holding_days }} 天</span
           >
           <span v-else>--</span>
+        </div>
+        <div class="text-[11px] mt-0.5" :style="{ color: 'var(--text-tertiary)' }">
+          清仓后重新计起，不累计历史
         </div>
       </div>
 

@@ -340,15 +340,24 @@
                     </template>
                   </el-table-column>
 
-                  <!-- 持有时长（#862）：后端按 confirm_date 计算返回 holding_days；无确认日显示 -- -->
+                  <!-- 持有时长（#862）：后端按 confirm_date 计算返回 holding_days；无确认日显示 -- ；
+                       口径为「本轮」：自本轮建仓日起算，清仓后重新计起，不累计历史（见 docs/working-notes/holding-days-semantics-2026-09-02.md） -->
                   <el-table-column
                     label="持有时长"
-                    width="100"
+                    width="110"
                     align="right"
                     sortable
                     prop="holding_days"
                     show-overflow-tooltip
                   >
+                    <template #header>
+                      <el-tooltip
+                        content="自本轮建仓日起算；清仓后重新计起，不累计历史持仓"
+                        placement="top"
+                      >
+                        <span>持有时长(本轮)</span>
+                      </el-tooltip>
+                    </template>
                     <template #default="{ row }">
                       <span v-if="row.holding_days != null">{{ row.holding_days }} 天</span>
                       <span v-else>--</span>
