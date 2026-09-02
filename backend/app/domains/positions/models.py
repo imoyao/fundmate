@@ -109,6 +109,10 @@ class Position(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
         default='active',
         comment='active=参与总资产; shadow=仅对账不参与总资产',
     )
+    # #863 货基判定冗余（口径 A：持仓优先）：写路径解析后落此标记（user 域），
+    # 供聚合分类把货基市值归入「现金/流动资金」桶。NULL=未判定（存量回填前不视为 False）。
+    # 不依赖 market 域名录实时跨域（双库不可 JOIN），判定逻辑统一在 app/services/fund_utils.py。
+    is_money_fund = Column(Boolean, nullable=True, default=None, comment='是否货币型基金（#863 冗余判定，NULL=未判定）')
 
     __table_args__ = (
         # 核心业务约束：同一账户下 symbol 唯一

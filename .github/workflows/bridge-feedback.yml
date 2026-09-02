@@ -11,6 +11,13 @@
 
 name: FeedLog ↔ GitHub Bridge
 
+# 降频护栏（2026-09-02）：issue 事件每发生一次都会对整个 workflow 发起一次运行，
+# 今天批量打标/关闭/重开导致 179 次运行绕过降频。按 issue 编号分组并取消进行中的旧运行，
+# 杜绝同 issue 并发放大；schedule/dispatch/release 无 issue 编号时回退 run_id，互不取消。
+concurrency:
+  group: bridge-issue-${{ github.event.issue.number || github.run_id }}
+  cancel-in-progress: true
+
 on:
   # 通道 1：定时同步 FeedLog → GitHub Issues
   schedule:
@@ -37,9 +44,12 @@ on:
         type: string
         default: ''
 
-  # 通道 2：GitHub Issue 事件 → FeedLog（新建建帖子 + 状态回写 + 编辑内容同步）
+  # 通道 2：GitHub Issue 事件 → FeedLog（新建建帖子 + 状态回写）
+  # 注意：去掉 edited —— 编辑标题/正文触发频率最高、价值最低，是今天 issue 事件放大的主要来源。
+  # edited 的内容回灌能力已移至 bridge-edited-sync.yml（每日限频一次，最长延迟约一天），
+  # 即编辑同步改为每日回灌而非实时，业务需接受该时效性；避免实时高频触发。
   issues:
-    types: [opened, edited, labeled, unlabeled, closed, reopened]
+    types: [opened, labeled, unlabeled, closed, reopened]
 
   # 通道 3：GitHub Release 发布 → FeedLog Changelog
   release:
@@ -71,7 +81,8 @@ jobs:
           python-version: '3.12'
 
       - name: 安装依赖
-        run: pip install psycopg2-binary PyGithub
+        # 固定大版本上限，避免上游 3.0 破坏性升级导致意外失败（保证可复现）。
+        run: pip install "psycopg2-binary>=2.9,<3" "PyGithub>=2,<3"
 
       - name: 运行桥接脚本
         env:
@@ -112,7 +123,8 @@ jobs:
           python-version: '3.12'
 
       - name: 安装依赖
-        run: pip install psycopg2-binary PyGithub
+        # 固定大版本上限，避免上游 3.0 破坏性升级导致意外失败（保证可复现）。
+        run: pip install "psycopg2-binary>=2.9,<3" "PyGithub>=2,<3"
 
       - name: 解析 Issue 事件
         id: parse
@@ -209,7 +221,8 @@ jobs:
           python-version: '3.12'
 
       - name: 安装依赖
-        run: pip install psycopg2-binary PyGithub
+        # 固定大版本上限，避免上游 3.0 破坏性升级导致意外失败（保证可复现）。
+        run: pip install "psycopg2-binary>=2.9,<3" "PyGithub>=2,<3"
 
       - name: 回灌同步 GitHub Issue → FeedLog
         env:
@@ -260,7 +273,8 @@ jobs:
           python-version: '3.12'
 
       - name: 安装依赖
-        run: pip install psycopg2-binary PyGithub
+        # 固定大版本上限，避免上游 3.0 破坏性升级导致意外失败（保证可复现）。
+        run: pip install "psycopg2-binary>=2.9,<3" "PyGithub>=2,<3"
 
       - name: 同步 Release 到 FeedLog Changelog
         env:

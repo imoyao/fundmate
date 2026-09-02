@@ -201,8 +201,12 @@ def init_db():
     单库模式下两引擎指向同一库，等价于旧单库建表；双库模式下自然分离。
     默认家庭 1 + 默认用户 1 兼容既有单用户数据。
     """
+    # 确保顶层模型已注册到 Base.metadata（否则 DATA_DOMAIN_REGISTRY 会因
+    # 模型未导入而报孤儿表告警）。sync_log 仅在 services/sync 被加载时才导入，
+    # 启动路径未必触达，故此处显式导入（与 sync_metadata 的防御式导入一致）。
     from sqlalchemy.schema import MetaData
 
+    import app.models.sync_log  # noqa: F401
     from app.core.db_factory import (
         DOMAIN_MARKET,
         DOMAIN_USER,
@@ -230,15 +234,17 @@ def init_db_split():
     """双库模式：按数据域分别 create_all 到对应 engine。
 
     - market 引擎必配（本地 dev 为 invest.dev.db，生产为 Turso）。
-    - user 引擎：配了 SUPABASE_DATABASE_URL 即 Supabase；未配则自动回退本地
-      invest.user.dev.db（物理独立文件，模拟双库）。两种情况下 user 表都落
-      到「与 market 不同的引擎」，域边界成立。
+    - user 引擎：配了 SUPABASE_DATABASE_URL 即 Supabase；本地 development 下
+      显式配置 DEV_USER_DATABASE_URL 才是独立文件（本地双库模拟），未配置时
+      与 market 共用同一本地库（默认单库，本地既有数据立即可见）。显式拆分时
+      user 表才落到「与 market 不同的引擎」，域边界成立。
 
     启动校验保证"声明域 == 实际建到的 engine"，不一致直接 fail。
     注：用户库（Supabase）生产建表建议由 Supabase 迁移工具独立负责，此方法
-    主要用于开发期本地双 SQLite 验证 / CI 校验，不强制生产路径。本地模式下
-    它就是"零配置双库模拟"的默认入口。
+    主要用于开发期本地双库验证 / CI 校验，不强制生产路径。本地需要模拟双库时，
+    请先显式设置 DEV_USER_DATABASE_URL 再调用本方法。
     """
+    import app.models.sync_log  # noqa: F401
     from app.core.db_factory import (
         DOMAIN_APP,
         DOMAIN_MARKET,

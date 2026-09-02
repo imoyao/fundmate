@@ -157,16 +157,28 @@ class FeeRatio(Base, PrimaryKeyMixin, TimestampMixin):
 
 
 class MoneyFundDailyWorth(Base, PrimaryKeyMixin, TimestampMixin):
-    """货币基金每日万份收益与七日年化"""
+    """货币基金每日万份收益与七日年化。
+
+    nav_per_10k 语义（#863 复核）：存储单位为「元」——万份收益如 000198 余额宝
+    2026-08-14 为 0.2233 元/万元/日。早期实现按「分」处理导致收益恒 0 的 bug 已修
+    （见 money_fund_income.py 模块 docstring），此处类型从 Integer 修为小数精度。
+    """
 
     __tablename__ = 'money_fund_daily_worth'
 
     fund_code = Column(String(6), ForeignKey('funds.fund_code'), nullable=False, comment='基金代码')
     date = Column(Date, nullable=False, comment='日期')
-    nav_per_10k = Column(Integer, default=0, comment='万份收益(分)')
+    nav_per_10k = Column(SafeNumeric(10, 4), default=0, comment='万份收益(元)，如 0.2233')
     annual_return_7d = Column(Float, comment='七日年化收益率(%)，精度0.0001')
+    # #863 数据治理：写入来源/算法版本标记。存量旧数据在迁移脚本中置 'legacy_dirty'
+    # （旧算法脏数据，需清空重建），新写入由 fund_nav_job / async_backfill 显式标 'v2_recalc'。
+    source_version = Column(
+        String(20), nullable=True, default=None, comment='数据来源版本（#863）：legacy_dirty/v2_recalc'
+    )
 
     fund = relationship('Fund', back_populates='money_fund_daily_worth')
+
+    __table_args__ = (UniqueConstraint('fund_code', 'date', name='uq_money_fund_daily_worth_code_date'),)
 
 
 class AdvisorPortfolio(Base, PrimaryKeyMixin, TimestampMixin):
