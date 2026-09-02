@@ -449,6 +449,39 @@ class TestReconciliationAPI:
         assert discs[0]['symbol'] == 'S1'
         assert discs[0]['discrepancy_type'] == 'quantity'
 
+    def test_discrepancies_api_returns_shares(self, client, db):
+        """列表接口按份额（而非最小单位）返回理论/实际/差异（#1260 验收）。"""
+        from app.domains.ledgers.models import Ledger
+
+        ledger = Ledger(name='账户A', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.flush()
+        _buy_txn(db, ledger.id, 'S1', 100, date(2026, 5, 1))
+        pos = Position(
+            symbol='S1',
+            name='股1',
+            asset_type='stock',
+            market='CN_A',
+            ledger_id=ledger.id,
+            family_id=1,
+            quantity=Money.shares_to_min_unit(60),
+            avg_price=Money.yuan_to_price_units(10),
+            current_price=Money.yuan_to_price_units(10),
+            source='manual',
+            ownership_status='active',
+        )
+        db.add(pos)
+        db.commit()
+
+        client.post('/api/reconciliation/run/')
+        discs = client.get('/api/reconciliation/discrepancies/').get_json()['data']
+        assert len(discs) == 1
+        d = discs[0]
+        # 数据库存最小单位（份×10000），接口须经 Money.min_unit_to_shares 换算为份额
+        assert d['expected_value'] == 100  # 理论 = 流水净额 100 份
+        assert d['actual_value'] == 60  # 实际持仓 60 份
+        assert d['diff'] == -40  # 实际 - 理论
+
     def test_ignore_discrepancy(self, client, db):
         from app.domains.ledgers.models import Ledger
 
