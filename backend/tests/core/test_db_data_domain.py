@@ -240,7 +240,7 @@ def test_seed_default_identity_split_mode_writes_to_user_engine(monkeypatch, tmp
             )
 
 
-def test_development_without_user_url_shares_market_database(monkeypatch):
+def test_development_without_user_url_shares_market_database(monkeypatch, tmp_path):
     """默认「单库」（用户规则）：development 下未显式配置 DEV_USER_DATABASE_URL 时，
     user 域与 market 域共用同一 DB URL（本地既有 invest.db 数据立即可见）；
     显式配置 DEV_USER_DATABASE_URL 才拆出独立 user 库（本地双库模拟）。
@@ -251,15 +251,18 @@ def test_development_without_user_url_shares_market_database(monkeypatch):
     monkeypatch.delenv('SUPABASE_DATABASE_URL', raising=False)
     monkeypatch.delenv('DEV_FORCE_SUPABASE', raising=False)
 
-    # 未配置独立 user 库 → user 与 market 同 URL（默认单库）
-    monkeypatch.setenv('DEV_DATABASE_URL', 'sqlite:///./dev-market.db')
+    # 未配置独立 user 库 → user 与 market 同 URL（默认单库）。
+    # 仅构造 URL 字符串比较，不连接落盘，路径放 tmp_path 避免污染仓库目录。
+    market_url = f'sqlite:///{tmp_path / "market.db"}'
+    monkeypatch.setenv('DEV_DATABASE_URL', market_url)
     monkeypatch.delenv('DEV_USER_DATABASE_URL', raising=False)
     market_cfg = db_factory.DatabaseConfig.for_app('development')
     user_cfg = db_factory.DatabaseConfig.for_user('development')
-    assert user_cfg.url == market_cfg.url == 'sqlite:///./dev-market.db'
+    assert user_cfg.url == market_cfg.url == market_url
 
     # 显式配置 DEV_USER_DATABASE_URL → 才拆分（本地双库模拟）
-    monkeypatch.setenv('DEV_USER_DATABASE_URL', 'sqlite:///./dev-user.db')
+    user_url = f'sqlite:///{tmp_path / "user.db"}'
+    monkeypatch.setenv('DEV_USER_DATABASE_URL', user_url)
     user_cfg2 = db_factory.DatabaseConfig.for_user('development')
-    assert user_cfg2.url == 'sqlite:///./dev-user.db'
+    assert user_cfg2.url == user_url
     assert user_cfg2.url != market_cfg.url

@@ -22,7 +22,7 @@
 | `market` | Turso（libsql） | 本地 SQLite（`invest.dev.db`） | Turso（设 `TURSO_DATABASE_URL` / `DATABASE_URL`） |
 | `user` | Supabase（Postgres） | 本地 SQLite（**默认与 market 同库**；显式设 `DEV_USER_DATABASE_URL` 才独立 `invest.user.dev.db`） | Supabase（设 `SUPABASE_DATABASE_URL`） |
 
-> **单库 / 双库统一可用（核心）**：本地 development 默认「单库」——未显式配置独立 user 库时，user 域与 market 域共用同一本地 SQLite（如既有 `invest.db`），本地数据零迁移、开箱即用。只有显式配置 `DEV_USER_DATABASE_URL`（本地双库模拟）或 `SUPABASE_DATABASE_URL`（真库）才拆分。生产期把该变量换成 prod 连接串即可，业务代码零改动（ORM 不关心 Supabase 还是 Neon 的 PG）。
+> **单库 / 双库统一可用（核心）**：本地 development 默认「单库」——未显式配置独立 user 库时，user 域与 market 域共用同一本地 SQLite（缺省 `invest.dev.db`，本地常经 `DEV_DATABASE_URL` 指向既有 `invest.db`），本地数据零迁移、开箱即用。只有显式配置 `DEV_USER_DATABASE_URL`（本地双库模拟）或 `SUPABASE_DATABASE_URL`（真库）才拆分。生产期把该变量换成 prod 连接串即可，业务代码零改动（ORM 不关心 Supabase 还是 Neon 的 PG）。
 > 因此**不是「必须用双库真实连接」**——本地默认单 SQLite，需要验证域边界 / 跨域工具时用双 SQLite 模拟，仅在最终验证 / 生产才接真云库。
 
 ## 3. 表 → 域归属清单（基于真实代码，2026-08-18 盘点）
@@ -118,9 +118,13 @@
 
 | 模式 | 触发条件 | market 引擎 | user 引擎 | 适用 |
 |------|---------|------------|----------|------|
-| **单库（默认）** | `init_db()` / `init_db_split()` 且未配置独立 user 库 | `DEV_DATABASE_URL`（如 `invest.db`） | **同 market 引擎（同库）** | 本地默认：既有数据零迁移、最快跑通 |
+| **单库（默认）** | `init_db()` / `init_db_split()` 且未配置独立 user 库 | `DEV_DATABASE_URL`（缺省 `invest.dev.db`） | **同 market 引擎（同库）** | 本地默认：既有数据零迁移、最快跑通 |
 | 双库模拟 | 显式配置 `DEV_USER_DATABASE_URL` | `DEV_DATABASE_URL` | 独立本地文件（如 `invest.user.dev.db`） | 本地验证域边界、跨域工具，零网络 |
 | 真双库 | 配 `SUPABASE_DATABASE_URL` | Turso / `DATABASE_URL` | Supabase Postgres | 最终验证 / 生产 |
+
+> 注意：`init_db_split()` 在未显式配置独立 user URL（`DEV_USER_DATABASE_URL` /
+> `SUPABASE_DATABASE_URL`）时与单库等价——两域表落在同一引擎，不做物理拆分；
+> 本地需要验证域边界 / 跨域工具时，请显式设置 `DEV_USER_DATABASE_URL`。
 
 ### 9.2 回退机制（代码事实）
 

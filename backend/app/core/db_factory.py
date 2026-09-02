@@ -37,9 +37,13 @@ DOMAIN_MARKET = 'market'
 
 _DEFAULT_APP_DB = 'sqlite:///./invest.db'
 _DEFAULT_DEV_DB = 'sqlite:///./invest.dev.db'
-# user 域本地回退文件：与 market 的 invest.dev.db 物理分离，模拟「双库」，
-# 但无需任何网络/云连接，纯本地最快。仅在未配置 SUPABASE_DATABASE_URL 时启用。
-_DEFAULT_DEV_USER_DB = 'sqlite:///./invest.user.dev.db'
+
+
+def _development_user_url() -> str:
+    """development 下 user 域 URL：显式配置 DEV_USER_DATABASE_URL 优先（独立库，
+    本地双库模拟）；未配置时与 market 域同库（DEV_DATABASE_URL，缺省 invest.dev.db）——
+    「默认放一起，显式配第二个库才分开」。"""
+    return os.getenv('DEV_USER_DATABASE_URL') or os.getenv('DEV_DATABASE_URL', _DEFAULT_DEV_DB)
 
 
 # --------------------------------------------------------------------------- #
@@ -163,7 +167,9 @@ class DatabaseConfig:
 
         优先级（「默认同库，显式配第二个库才分开」）：
         1. 显式配置 SUPABASE_DATABASE_URL → 真 Supabase（生产 / 最终验证）。
-        2. development 且未配 Supabase：显式配置 DEV_USER_DATABASE_URL → 独立
+           注：development 下需同时设 DEV_FORCE_SUPABASE=1 才走本分支（见实现），
+           否则仍按第 2 条本地回退。
+        2. development 且未走真库：显式配置 DEV_USER_DATABASE_URL → 独立
            本地文件（本地双库模拟）；否则与 market 域共用 DEV_DATABASE_URL 同库
            （默认单库，本地既有 invest.db 数据立即可见，零迁移）。
         3. 其余环境（staging/production）未配 Supabase → 回退 USER_DATABASE_URL
@@ -172,12 +178,8 @@ class DatabaseConfig:
         设计要点：本方法永不返回 None（除非显式 force_none），因此 user 会话
         入口不再因「未配 Supabase」而抛错——这是单库/双库统一可用的关键。
         """
-        # development 默认「单库」：未显式配置独立 user 库时，user 域与 market 域
-        # 共用同一本地 SQLite（DEV_DATABASE_URL），本地既有数据（invest.db）立即可见；
-        # 只有显式设置 DEV_USER_DATABASE_URL（或 DEV_FORCE_SUPABASE=1 走 Supabase）才
-        # 拆出独立 user 库——「默认放一起，显式配第二个库才分开」。
         if env == 'development' and not os.getenv('DEV_FORCE_SUPABASE'):
-            url = os.getenv('DEV_USER_DATABASE_URL') or os.getenv('DEV_DATABASE_URL', _DEFAULT_DEV_DB)
+            url = _development_user_url()
             connect_args = {'check_same_thread': False, 'timeout': 30}
             return cls(name=DOMAIN_USER, url=url, connect_args=connect_args, pool_pre_ping=False)
         url = os.getenv('SUPABASE_DATABASE_URL')
@@ -185,10 +187,10 @@ class DatabaseConfig:
             # Postgres 不需要 SQLite 专用 connect_args
             return cls(name=DOMAIN_USER, url=url, connect_args={}, pool_pre_ping=True)
 
-        # 本地回退：dev 未显式配置 DEV_USER_DATABASE_URL 时与 market 同库（防再次
+        # 本地回退：development 未走 Supabase 时默认与 market 同库（防再次
         # 「默认拆开导致本地既有数据不可见」）；prod/staging 回退到通用 DATABASE_URL 同库
         if env == 'development':
-            fallback = os.getenv('DEV_USER_DATABASE_URL') or os.getenv('DEV_DATABASE_URL', _DEFAULT_DEV_DB)
+            fallback = _development_user_url()
         else:
             fallback = os.getenv('USER_DATABASE_URL', _DEFAULT_APP_DB)
         connect_args = {'check_same_thread': False, 'timeout': 30}
