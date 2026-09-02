@@ -13,7 +13,7 @@ confirmed（已确认）
 关系	一条孤立的卖出记录，交易本身是成功的	但它关联不到持仓，需要标记处理阶段
 """
 
-from sqlalchemy import Column, Date, DateTime, ForeignKey, Index, Integer, String, Text, text
+from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.orm import validates
 
 from app.core.constants import POSITION_SOURCE_LABELS, PositionSource
@@ -44,6 +44,9 @@ class Transaction(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     link_group_id = Column(String(36), nullable=True, comment='关联交易组ID')
     position_name = Column(String(100))
     asset_type = Column(String(20), nullable=True, default=None, comment='资产类型快照')
+    # #863 收益行标记（D1 收益本金化）：渠道导入的收益发放类流水置 True。
+    # 聚合纪律：收益行只在「收益桶」累计并计入总资产，禁止进入本金/孤儿净额口径。
+    is_income = Column(Boolean, nullable=True, default=None, comment='收益发放行（#863），NULL=未标记')
     ledger_id = Column(
         Integer,
         ForeignKey('ledgers.id', ondelete='RESTRICT'),

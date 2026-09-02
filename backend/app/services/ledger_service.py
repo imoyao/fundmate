@@ -17,7 +17,10 @@ from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
 from app.services.nav_service import NavService
-from app.services.summary_service import orphan_money_fund_net_by_ledger
+from app.services.summary_service import (
+    orphan_money_fund_income_by_ledger,
+    orphan_money_fund_net_by_ledger,
+)
 
 
 class LedgerService:
@@ -56,7 +59,11 @@ class LedgerService:
         # 孤儿货基/逆回购流水净额（分）按 ledger_id 归组；None → 0（游离）。
         # 与 positions/assets 的游离聚合统一按同一 key 合并（并入 deleted 分组），
         # 避免重复计数、口径一致（悬空数据语义等同「已删除账户」）。
+        # #863 D1：本金净额 + 渠道收益桶一并并入（收益只进一次总资产，不膨胀本金）。
         orphan_map = orphan_money_fund_net_by_ledger(db, family_id)
+        income_map = orphan_money_fund_income_by_ledger(db, family_id)
+        for _k, _v in income_map.items():
+            orphan_map[_k] = orphan_map.get(_k, 0) + _v
 
         # 按 ledger_id 聚合持仓市值（分），ledger_id 为 None 统一归入 key=0
         pos_map: dict[int, int] = {}
