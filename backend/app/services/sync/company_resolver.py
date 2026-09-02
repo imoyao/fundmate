@@ -13,7 +13,12 @@ backfill 脚本复用，避免逻辑散落。
 
 名称匹配难点：akshare 的 基金管理人 是全称（"易方达基金管理有限公司"），而
 jjjz_gs.js 是简称（"易方达基金"），精确匹配会大量失配。故先做后缀归一化再匹配；
-仍未命中则保留 code=name 占位并打 warning（设计文档明确接受的回退）。
+仍未命中则查手动映射 _MANUAL_MAPPING；最后保留 code=name 占位并打 warning
+（设计文档明确接受的回退）。
+
+手动映射适用场景：东财 jjjz_gs.js 使用简称（如"国泰海通资管"），与
+fund_companies 全称（"上海国泰海通证券资产管理有限公司"）无法通过后缀
+归一化匹配。已实测确认可映射的公司列入 _MANUAL_MAPPING。
 """
 
 import json
@@ -44,6 +49,16 @@ _COMPANY_SUFFIXES = (
 )
 
 _cache: Optional[Dict[str, str]] = None  # name(归一化) -> code
+
+# 手动映射：东财 jjjz_gs.js 使用简称，与 fund_companies 全称无法通过后缀归一化匹配。
+# 仅收录已实测确认可映射的公司（地名前缀剥离后能对上东财简称）。
+_MANUAL_MAPPING: Dict[str, str] = {
+    '上海国泰海通证券资产管理有限公司': '80156175',
+    '浙江浙商证券资产管理有限公司': '80403111',
+    '新疆前海联合基金管理有限公司': '80468996',
+    '中国人保资产管理有限公司': '80061431',
+    '财通证券资产管理有限公司': '80404701',
+}
 
 
 def _normalize_company_name(name: str) -> str:
@@ -89,7 +104,9 @@ def fetch_fund_company_list() -> List[Dict[str, str]]:
 
 
 def get_company_code_by_name(name: str) -> Optional[str]:
-    """按公司名解析真值 code；精确匹配优先，否则归一化匹配；未命中返回 None。"""
+    """按公司名解析真值 code；手动映射优先，其次精确/归一化匹配；未命中返回 None。"""
+    if name in _MANUAL_MAPPING:
+        return _MANUAL_MAPPING[name]
     global _cache
     if _cache is None:
         try:

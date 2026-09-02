@@ -126,3 +126,46 @@ def test_backfill_code_conflict_goes_unmatched(db, monkeypatch):
     assert len(res['matched']) == 0
     assert len(res['unmatched']) == 1
     assert res['unmatched'][0]['name'] == '招商证券资产管理有限公司'
+
+
+def test_manual_mapping():
+    """手动映射 _MANUAL_MAPPING 优先于缓存命中。"""
+    # 清空缓存，确保不依赖网络/缓存
+    company_resolver._cache = None
+    # 国泰海通：东财简称"国泰海通资管"，无法通过后缀归一化匹配全称
+    assert (
+        company_resolver.get_company_code_by_name(
+            '上海国泰海通证券资产管理有限公司',
+        )
+        == '80156175'
+    )
+    # 浙商证券：东财简称"浙商证券资管"
+    assert (
+        company_resolver.get_company_code_by_name(
+            '浙江浙商证券资产管理有限公司',
+        )
+        == '80403111'
+    )
+    # 前海联合：东财简称"前海联合"
+    assert (
+        company_resolver.get_company_code_by_name(
+            '新疆前海联合基金管理有限公司',
+        )
+        == '80468996'
+    )
+    # 人保资产：东财简称"人保资产"
+    assert (
+        company_resolver.get_company_code_by_name(
+            '中国人保资产管理有限公司',
+        )
+        == '80061431'
+    )
+    # 财通证券：东财简称"财通资管"
+    assert (
+        company_resolver.get_company_code_by_name(
+            '财通证券资产管理有限公司',
+        )
+        == '80404701'
+    )
+    # 未在手动映射中的公司应返回 None（不依赖网络）
+    assert company_resolver.get_company_code_by_name('不存在的公司') is None
