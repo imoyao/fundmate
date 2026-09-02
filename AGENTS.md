@@ -17,6 +17,7 @@
 - [文档站与落地页](#文档站与落地页)
 - [核心约束](#核心约束)
 - [数据域架构（双引擎硬规则）](#数据域架构双引擎硬规则)
+- [Issue 全局治理（里程碑强制）](#issue-全局治理里程碑强制)
 - [双库架构 Issue 治理（里程碑 #14）](#双库架构-issue-治理里程碑-14)
 - [自动化工具](#自动化工具)
 - [协作规范](#协作规范)
@@ -321,12 +322,12 @@
 
 ## 数据域架构（双引擎硬规则）
 
-**背景**：项目正从单 SQLite 演进为 **Turso（市场域）+ Supabase（用户域）+ Neon（灾备，延后）**。本地未配 `SUPABASE_DATABASE_URL` 时 user 域自动回退本地 `invest.user.dev.db`，实现零配置双库模拟。
+**背景**：项目正从单 SQLite 演进为 **Turso（市场域）+ Supabase（用户域）+ Neon（灾备，延后）**。**默认单库**：本地未显式配置独立 user 库时，user 域与 market 域共用同一本地 SQLite（既有数据零迁移）；显式配 `DEV_USER_DATABASE_URL` / `SUPABASE_DATABASE_URL` 才拆双库。权威事实标准见 `docs/dev/db-data-domain.md` §9。
 
 ### 语义定义
 
 - **市场域（`market`）**：公开、读多写少、随时间无限膨胀的数据（净值、行情、温度、指数、基金基础资料、基金管理人、系统同步审计）。开发期用本地 `invest.dev.db`，生产用 Turso。
-- **用户域（`user`）**：含 `family_id`/`user_id` 的用户私有数据（账户、持仓、交易、组合、自选关系、家庭、用户、销售机构、用户操作审计）。开发期回退本地 `invest.user.dev.db`，生产用 Supabase。
+- **用户域（`user`）**：含 `family_id`/`user_id` 的用户私有数据（账户、持仓、交易、组合、自选关系、家庭、用户、销售机构、用户操作审计）。开发期默认与 market 同库（显式设 `DEV_USER_DATABASE_URL` 才独立），生产用 Supabase。
 
 ### 强制规则
 
@@ -340,8 +341,34 @@
    - 公开、读多写少、无限膨胀 → `market` 域。
 5. **`init_db` 按域分别 `create_all`**，启动断言声明域与实际建库一致，不一致直接 fail。
 6. **会话入口只有 `market_session()` 和 `user_session()`**，禁止混用。
-7. **单库/双库统一可用**：未配 Supabase 时 user 域回退本地文件，业务代码零改动。
+7. **单库/双库统一可用（默认单库）**：未显式配置独立 user 库（`DEV_USER_DATABASE_URL` / `SUPABASE_DATABASE_URL`）时，user 域与 market 域同库；显式配置才拆，业务代码零改动。
 8. **Neon 灾备仅替换连接串**，业务代码不变；但 auth 需单独处理（延后）。
+
+---
+
+## Issue 全局治理（里程碑强制）
+
+> 全局硬性规定：**任何 issue（含 AI 自动创建 / ClawBot 生成的元 issue）创建后必须挂里程碑，禁止长期 `<<NONE>>`。**
+> 参考 #1287 看板整理教训：2026-09-02 曾出现 31 个开放 issue 完全未挂里程碑、M6 Backlog 被当垃圾桶，经系统整理后已清零；此后以本全局规则 + CI 守卫防止回潮。
+
+### 归属原则
+
+- 主题明确 → 归入对应产品里程碑：`M0 上线`、`M1 付费验证`、`M2 免费核心`、`M3 量化分析`、`M4 护城河生态`、`M5 安全与体验`、`M6 待办积压 Backlog`、`P0 导入统一入口`、`基础数据 Base Data`、`自选增强 Watchlist Enhancement`、`双库架构 DB Multi-Engine（#14）` 等。
+- 确属远期 / 待定 / backlog → 归入 `M6 待办积压 Backlog`，**不得**停留在 `<<NONE>>`。
+- 双库架构 / 数据域 / 数据库相关 issue 的强制归属见下方「双库架构 Issue 治理（里程碑 #14）」（该专项规则是本条全局规则的子集，二者不冲突）。
+
+### CI 守卫（拦住新建漏挂）
+
+- 工作流 `.github/workflows/issue-milestone-guard.yml` 在 issue 被 `opened / edited / reopened` 时检查其 `milestone` 字段：
+  - 有里程碑 → 通过；
+  - 无里程碑 → 在 issue 下**评论提醒责任人补挂**，并使该 workflow run **失败（红）**作为止损信号（issue 本身无法被 Action 自动关闭/拦截，故以失败 run + 评论提醒）。
+- 该守卫只针对 issue（`pull_request` 事件不触发），不影响正常 PR 流程。
+- 维护者补挂里程碑（edit 触发 `edited`）后守卫会自动复检通过，自愈。
+
+### 失实信息修正纪律
+
+- 既有 issue 的正文若被发现失实（如快照数字、状态描述与真实不符），**用评论（`gh issue comment`）追加更正，禁止用 `gh issue edit` 覆盖原正文**（遵循 AGENTS.md「追加请续帖」）。误关须 `gh issue reopen` 并留痕。
+- 确需修正正文的极特殊场景，先在原 issue 评论说明、再 edit，且保留历史可追溯到评论。
 
 ---
 
