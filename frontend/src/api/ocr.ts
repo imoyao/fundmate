@@ -83,10 +83,7 @@ type RecognizeResponse = {
 
 /** 查询某功能当日 AI 识别剩余次数 */
 export const getOcrUsage = (feature: string = "ocr_import") => {
-  return http.request<OcrUsageResult>(
-    "get",
-    `/api/usage/${feature}`
-  );
+  return http.request<OcrUsageResult>("get", `/api/usage/${feature}`);
 };
 
 /** 图片（base64）→ 方案方舟识别 → 候选列表/预览行；消耗 1 次对应场景配额 */

@@ -182,7 +182,10 @@
           >
           <span v-else>--</span>
         </div>
-        <div class="text-[11px] mt-0.5" :style="{ color: 'var(--text-tertiary)' }">
+        <div
+          class="text-[11px] mt-0.5"
+          :style="{ color: 'var(--text-tertiary)' }"
+        >
           清仓后重新计起，不累计历史
         </div>
       </div>
@@ -202,9 +205,9 @@
             :style="{ color: 'var(--text-tertiary)' }"
             >计算中…</span
           >
-          <span v-else-if="xirr != null"
-            >{{ (xirr >= 0 ? "+" : "") + (xirr * 100).toFixed(2) + "%" }}</span
-          >
+          <span v-else-if="xirr != null">{{
+            (xirr >= 0 ? "+" : "") + (xirr * 100).toFixed(2) + "%"
+          }}</span>
           <span v-else>--</span>
         </div>
       </div>
