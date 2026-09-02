@@ -18,10 +18,24 @@ docs/working-notes/ledger-channel-category-redesign-2026-08-28.md §2.5/§6。
 
 import os
 import sqlite3
-import sys
 
 DEFAULT_CODE = 'MAIN'
 INDEX_NAME = 'uq_ledger_inst_account'
+
+# 候选库文件（相对 backend 目录）：覆盖单库模式、dev 双库模拟模式与 env 覆写。
+# ledgers 属 user 域（本地回退 invest.user.dev.db），但历史库也可能把全部表建在
+# invest.db / invest.dev.db，故对全部候选库文件逐一幂等补齐（参照 migrate_watchlist_review_date.py）。
+CANDIDATE_URLS = (
+    os.getenv('DATABASE_URL', 'sqlite:///./invest.db'),
+    os.getenv('DEV_DATABASE_URL', 'sqlite:///./invest.dev.db'),
+    os.getenv('DEV_USER_DATABASE_URL', 'sqlite:///./invest.user.dev.db'),
+    os.getenv('USER_DATABASE_URL', 'sqlite:///./invest.db'),
+)
+
+
+def _to_path(url: str) -> str:
+    path = url.split('sqlite:///', 1)[-1]
+    return path if os.path.isabs(path) else os.path.abspath(path)
 
 
 def _migrate(conn) -> dict:
@@ -73,25 +87,26 @@ def _migrate(conn) -> dict:
 
 
 def main() -> None:
-    db_url = os.getenv('DATABASE_URL', 'sqlite:///./invest.db')
-    if not db_url.startswith('sqlite'):
-        print('仅支持 SQLite 数据库迁移，当前 DATABASE_URL=%s，请手动处理（含 Postgres 部分唯一索引）。' % db_url)
-        sys.exit(1)
-
-    path = db_url.replace('sqlite:///', '', 1)
-    if not os.path.isabs(path):
-        path = os.path.abspath(path)
-    print(f'目标数据库: {path}')
-    if not os.path.exists(path):
-        print('数据库文件不存在，无需迁移（首次启动将自动建表）。')
-        sys.exit(0)
-
-    conn = sqlite3.connect(path)
-    try:
-        info = _migrate(conn)
-    finally:
-        conn.close()
-    print('[OK] ledgers external_account_code 迁移完成: %s' % info)
+    seen: set[str] = set()
+    print('目标库文件：')
+    for url in CANDIDATE_URLS:
+        if not url.startswith('sqlite'):
+            print('  [跳过] 非 SQLite 连接串: %s' % url)
+            continue
+        path = _to_path(url)
+        if path in seen:
+            continue
+        seen.add(path)
+        if not os.path.exists(path):
+            print('  [跳过] 文件不存在: %s' % path)
+            continue
+        conn = sqlite3.connect(path)
+        try:
+            info = _migrate(conn)
+        finally:
+            conn.close()
+        print('  [结果] %s -> %s' % (path, info))
+    print('[OK] ledgers external_account_code 迁移完成')
 
 
 if __name__ == '__main__':
