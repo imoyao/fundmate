@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import re
 import time
+from collections.abc import Iterable
 
 # 现金等价物资产类型（聚合桶：货基 + 逆回购；逆回购拆出时只改这里）
 CASH_EQUIVALENT_ASSET_TYPES = ('money_fund', 'reverse_repo')
@@ -39,9 +40,16 @@ _cache: dict[str, tuple[float, bool]] = {}
 
 
 def normalize_fund_code(symbol: str) -> str:
-    """剥离交易所前缀，返回 6 位基金代码（SZ/SH 前缀历史数据兼容）。"""
+    """剥离交易所前缀，返回 6 位基金代码（兼容 SZ/SH/BJ 前缀及 sh.510300 / 510300.SH 等带分隔符表达）。"""
     s = (symbol or '').strip().upper()
-    return s[2:] if s[:2] in ('SZ', 'SH') else s
+    if '.' in s:
+        s = s.replace('.', '')
+    # 去掉首尾交易所代码（SH/SZ/BJ），保留中间 6 位代码
+    if len(s) > 6 and s[:2] in ('SH', 'SZ', 'BJ'):
+        s = s[2:]
+    if len(s) > 6 and s[-2:] in ('SH', 'SZ', 'BJ'):
+        s = s[:-2]
+    return s[-6:] if len(s) >= 6 and s[-6:].isdigit() else ''
 
 
 def _code_segment_fallback(code: str) -> bool:
@@ -66,14 +74,14 @@ def _query_market_money_fund_codes(codes: list[str]) -> set[str]:
         session.close()
 
 
-def resolve_money_fund_flags(codes) -> dict[str, bool]:
+def resolve_money_fund_flags(codes: Iterable[str]) -> dict[str, bool]:
     """批量解析基金代码是否货币型（写路径用），返回 {code: bool}。
 
     - 命中 market 名录（货币型）→ True；
     - 名录缺失 → 代码段兜底；
     - 其余 → False。
     """
-    codes = {normalize_fund_code(c) for c in codes if c}
+    codes = {n for c in codes if c for n in [normalize_fund_code(c)] if n}
     if not codes:
         return {}
     now = time.time()
