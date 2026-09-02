@@ -238,3 +238,28 @@ def test_seed_default_identity_split_mode_writes_to_user_engine(monkeypatch, tmp
             assert db.query(Family).filter_by(id=1).first() is None, (
                 'families 种子错误地写到了 market 引擎（跨域 bug 复发）'
             )
+
+
+def test_development_without_user_url_shares_market_database(monkeypatch):
+    """默认「单库」（用户规则）：development 下未显式配置 DEV_USER_DATABASE_URL 时，
+    user 域与 market 域共用同一 DB URL（本地既有 invest.db 数据立即可见）；
+    显式配置 DEV_USER_DATABASE_URL 才拆出独立 user 库（本地双库模拟）。
+
+    防回归：2026-09-01 曾把 development 默认改成无条件独立 invest.user.dev.db，
+    导致本地 user 域表读到空库、自选页「暂无自选资产」。本用例锁死默认同库语义。
+    """
+    monkeypatch.delenv('SUPABASE_DATABASE_URL', raising=False)
+    monkeypatch.delenv('DEV_FORCE_SUPABASE', raising=False)
+
+    # 未配置独立 user 库 → user 与 market 同 URL（默认单库）
+    monkeypatch.setenv('DEV_DATABASE_URL', 'sqlite:///./dev-market.db')
+    monkeypatch.delenv('DEV_USER_DATABASE_URL', raising=False)
+    market_cfg = db_factory.DatabaseConfig.for_app('development')
+    user_cfg = db_factory.DatabaseConfig.for_user('development')
+    assert user_cfg.url == market_cfg.url == 'sqlite:///./dev-market.db'
+
+    # 显式配置 DEV_USER_DATABASE_URL → 才拆分（本地双库模拟）
+    monkeypatch.setenv('DEV_USER_DATABASE_URL', 'sqlite:///./dev-user.db')
+    user_cfg2 = db_factory.DatabaseConfig.for_user('development')
+    assert user_cfg2.url == 'sqlite:///./dev-user.db'
+    assert user_cfg2.url != market_cfg.url

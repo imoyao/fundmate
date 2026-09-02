@@ -22,9 +22,10 @@ import sqlite3
 DEFAULT_CODE = 'MAIN'
 INDEX_NAME = 'uq_ledger_inst_account'
 
-# 候选库文件（相对 backend 目录）：覆盖单库模式、dev 双库模拟模式与 env 覆写。
-# ledgers 属 user 域（本地回退 invest.user.dev.db），但历史库也可能把全部表建在
-# invest.db / invest.dev.db，故对全部候选库文件逐一幂等补齐（参照 migrate_watchlist_review_date.py）。
+# 候选库文件（相对 backend 目录）：覆盖默认单库（invest.db / invest.dev.db）与
+# 显式双库模拟的独立 user 库（invest.user.dev.db）。ledgers 属 user 域，默认与
+# market 同库，但历史/双库模式下也可能落在不同文件，故对全部候选库逐一幂等补齐
+# （参照 migrate_watchlist_review_date.py）。
 CANDIDATE_URLS = (
     os.getenv('DATABASE_URL', 'sqlite:///./invest.db'),
     os.getenv('DEV_DATABASE_URL', 'sqlite:///./invest.dev.db'),

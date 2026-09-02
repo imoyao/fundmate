@@ -109,6 +109,7 @@ def main():
     import app.domains.transactions.models  # noqa: F401
     import app.domains.users.models  # noqa: F401
     import app.domains.watchlist.models  # noqa: F401
+    import app.models.sync_log  # noqa: F401
 
     init_db()
 
