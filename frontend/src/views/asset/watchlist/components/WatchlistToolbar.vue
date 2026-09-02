@@ -271,8 +271,8 @@ function handleSearchInput(value: string) {
   position: sticky;
   top: 0;
   z-index: 20;
-  background: var(--bg-page);
   padding-bottom: 12px;
   margin-bottom: 12px;
+  background: var(--bg-page);
 }
 </style>

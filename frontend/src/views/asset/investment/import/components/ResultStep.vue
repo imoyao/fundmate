@@ -230,8 +230,8 @@ const hasSupplements = computed(
 /* ── 容器 ── */
 .import-result {
   max-width: 520px;
-  margin: 0 auto;
   padding: var(--space-8) var(--space-standard) var(--space-loose);
+  margin: 0 auto;
 }
 
 /* ── 主结果区（居中英雄区）── */
@@ -239,17 +239,18 @@ const hasSupplements = computed(
   display: flex;
   flex-direction: column;
   align-items: center;
-  text-align: center;
   padding-bottom: var(--space-loose);
+  text-align: center;
 }
 
 /* 成功图标：品牌色圆环 + 勾选 */
 .result-icon {
   width: 56px;
   height: 56px;
-  color: var(--color-success);
   margin-bottom: var(--space-compact);
+  color: var(--color-success);
 }
+
 .result-icon svg {
   width: 100%;
   height: 100%;
@@ -262,18 +263,18 @@ const hasSupplements = computed(
 
 /* 标题 */
 .result-title {
+  margin: 0 0 var(--space-compact);
   font-size: var(--text-title);
   font-weight: 600;
   color: var(--text-primary);
-  margin: 0 0 var(--space-compact);
   letter-spacing: -0.01em;
 }
 
 /* 核心指标：数字 + 单位 */
 .result-metric {
   display: inline-flex;
-  align-items: baseline;
   gap: 6px;
+  align-items: baseline;
   margin-bottom: var(--space-compact);
 }
 
@@ -288,17 +289,17 @@ const hasSupplements = computed(
 
 .metric-unit {
   font-size: var(--text-body);
-  color: var(--text-secondary);
   font-weight: 500;
+  color: var(--text-secondary);
 }
 
 /* 副文案 */
 .result-caption {
-  font-size: var(--text-small);
-  color: var(--text-tertiary);
-  line-height: 1.6;
-  margin: 0;
   max-width: 380px;
+  margin: 0;
+  font-size: var(--text-small);
+  line-height: 1.6;
+  color: var(--text-tertiary);
 }
 
 /* 全部通过时的「干净」状态：稍亮一点表示正向反馈 */
@@ -322,8 +323,8 @@ const hasSupplements = computed(
   gap: var(--space-compact);
   padding: var(--space-standard);
   background: var(--bg-card);
-  border-radius: var(--radius-lg);
   border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
   transition: box-shadow 0.2s ease;
 }
 
@@ -338,6 +339,7 @@ const hasSupplements = computed(
   height: 20px;
   margin-top: 2px;
 }
+
 .supplement-icon svg {
   width: 100%;
   height: 100%;
@@ -346,9 +348,11 @@ const hasSupplements = computed(
 .success-icon {
   color: var(--color-success);
 }
+
 .warning-icon {
   color: var(--color-warning);
 }
+
 .info-icon {
   color: var(--color-info);
 }
@@ -359,24 +363,25 @@ const hasSupplements = computed(
 }
 
 .supplement-title {
+  margin: 0 0 4px;
   font-size: var(--text-body);
   font-weight: 600;
   color: var(--text-primary);
-  margin: 0 0 4px;
 }
 
 .supplement-desc {
-  font-size: var(--text-small);
-  color: var(--text-secondary);
-  line-height: 1.6;
   margin: 0;
+  font-size: var(--text-small);
+  line-height: 1.6;
+  color: var(--text-secondary);
 }
 
 .link-primary {
+  font-weight: 500;
   color: var(--brand-700);
   text-decoration: none;
-  font-weight: 500;
 }
+
 .link-primary:hover {
   text-decoration: underline;
 }
@@ -386,8 +391,8 @@ const hasSupplements = computed(
   display: flex;
   gap: var(--space-compact);
   justify-content: center;
-  margin-top: var(--space-loose);
   padding-top: var(--space-loose);
+  margin-top: var(--space-loose);
   border-top: 1px solid var(--border-light);
 }
 </style>

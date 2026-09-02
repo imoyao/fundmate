@@ -260,8 +260,8 @@ const emit = defineEmits<{
 }
 
 .ledger-card:hover {
-  transform: translateY(-2px);
   box-shadow: var(--shadow-float);
+  transform: translateY(-2px);
 }
 
 .ledger-card:focus-visible {
@@ -270,9 +270,9 @@ const emit = defineEmits<{
 
 /* 拖拽中「被选中」的卡片：轻微放大 + 浮起，给用户明确反馈 */
 .ledger-card--chosen {
-  transform: scale(1.02);
-  box-shadow: var(--shadow-float);
   cursor: grabbing;
+  box-shadow: var(--shadow-float);
+  transform: scale(1.02);
 }
 
 /* ===== 核心指标：左右两列 flex（总资产大数字锚点 + 右侧两指标独立竖排） ===== */
@@ -333,17 +333,17 @@ const emit = defineEmits<{
 /* 拖拽手柄：常驻低透明，既暗示「可拖拽」又不过度干扰；移动端需禁用默认触摸手势 */
 .drag-handle {
   display: inline-flex;
+  flex: none;
   align-items: center;
   justify-content: center;
   width: 22px;
   height: 22px;
-  flex: none;
   margin-right: 2px;
   color: var(--text-tertiary);
+  touch-action: none;
   cursor: grab;
   border-radius: var(--radius-sm);
   opacity: 0.55;
-  touch-action: none;
   transition:
     opacity 0.15s ease,
     color 0.15s ease,
@@ -357,9 +357,9 @@ const emit = defineEmits<{
 .ledger-card:hover .drag-handle,
 .ledger-card:focus-within .drag-handle,
 .drag-handle:hover {
-  opacity: 1;
   color: var(--brand-600);
   background: var(--bg-page);
+  opacity: 1;
 }
 
 /* 卡片抓手：四向移动箭头，描边风格，自带内边距更透气 */
@@ -369,8 +369,8 @@ const emit = defineEmits<{
 
 /* 拖拽中占位「幽灵」元素的视觉态（sortablejs ghostClass） */
 .ledger-card--ghost {
-  opacity: 0.4;
   box-shadow: var(--shadow-float);
+  opacity: 0.4;
   transform: scale(1.02);
 }
 

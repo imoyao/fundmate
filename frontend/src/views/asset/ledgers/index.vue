@@ -763,16 +763,16 @@ onMounted(() => {
 /* 分组拖拽抓手：常驻低透明，hover/focus 高亮，与卡片抓手区分（分组顺序本地存储） */
 .group-drag-handle {
   display: inline-flex;
+  flex: none;
   align-items: center;
   justify-content: center;
   width: 22px;
   height: 22px;
-  flex: none;
   color: var(--text-tertiary);
+  touch-action: none;
   cursor: grab;
   border-radius: var(--radius-sm);
   opacity: 0.5;
-  touch-action: none;
   transition:
     opacity 0.15s ease,
     color 0.15s ease,
@@ -785,9 +785,9 @@ onMounted(() => {
 
 .ledger-group:hover .group-drag-handle,
 .group-drag-handle:hover {
-  opacity: 1;
   color: var(--brand-600);
   background: var(--bg-page);
+  opacity: 1;
 }
 
 /* 分组抓手：纵向三横线「块」抓手，描边风格 */
@@ -802,9 +802,9 @@ onMounted(() => {
 
 /* 分组拖拽中：整段高亮，强化「正在重排整段分组」的反馈（与卡片拖拽态分层） */
 .ledger-group--dragging {
+  background: var(--brand-50);
   border-radius: var(--radius-xl);
   box-shadow: 0 0 0 2px var(--brand-300);
-  background: var(--brand-50);
 }
 
 .ledger-list {
@@ -843,13 +843,13 @@ onMounted(() => {
 }
 
 .fund-summary-card:hover {
-  transform: translateY(-2px);
   box-shadow: var(--shadow-float);
+  transform: translateY(-2px);
 }
 
 .fund-summary-card:focus-visible {
-  box-shadow: var(--focus-ring);
   outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 /* 场内证券（股票/ETF/可转债）汇总卡：整卡可点下钻，复用 fund-summary-card 视觉语言。
@@ -862,13 +862,13 @@ onMounted(() => {
 }
 
 .securities-summary-card:hover {
-  transform: translateY(-2px);
   box-shadow: var(--shadow-float);
+  transform: translateY(-2px);
 }
 
 .securities-summary-card:focus-visible {
-  box-shadow: var(--focus-ring);
   outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 /* 聚合汇总卡网格：场外基金 / 场内证券 两卡并排，等宽等高（grid 默认 align-items: stretch）；
@@ -879,7 +879,7 @@ onMounted(() => {
   gap: var(--space-compact);
 }
 
-@media (max-width: 767px) {
+@media (width <= 767px) {
   .aggregation-cards-grid {
     grid-template-columns: 1fr;
   }

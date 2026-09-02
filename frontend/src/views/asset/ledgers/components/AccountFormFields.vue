@@ -532,8 +532,8 @@ function onSalesInstitutionChange(val: number | null) {
    与产品名同行、弱化显示；禁用态由 el-option 自身置灰，此处只做类型提示，
    让用户理解「为什么这项选不了」，而非单纯消失不见。 */
 .mf-option-tag {
-  margin-left: var(--space-3, 8px);
   padding: 0 6px;
+  margin-left: var(--space-3, 8px);
   font-size: var(--text-label, 13px);
   line-height: 18px;
   color: var(--text-tertiary);

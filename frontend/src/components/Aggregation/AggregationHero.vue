@@ -214,9 +214,9 @@ const donutOption = computed(() => {
 <style scoped>
 .hero {
   display: flex;
+  gap: var(--space-5, 24px);
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-5, 24px);
   padding: var(--space-5, 24px) var(--space-standard, 18px);
   font-variant-numeric: tabular-nums;
   background: var(--bg-card);
@@ -249,16 +249,16 @@ const donutOption = computed(() => {
 /* ── 资产构成环形图（#1224）── */
 .hero-donut-block {
   display: flex;
-  align-items: center;
-  gap: var(--space-4, 16px);
   flex: none;
+  gap: var(--space-4, 16px);
+  align-items: center;
 }
 
 .hero-donut {
   position: relative;
+  flex: none;
   width: 148px;
   height: 148px;
-  flex: none;
 }
 
 .donut-chart {
@@ -306,9 +306,9 @@ const donutOption = computed(() => {
 }
 
 .legend-dot {
+  flex: none;
   width: 8px;
   height: 8px;
-  flex: none;
   border-radius: 50%;
 }
 
@@ -323,25 +323,25 @@ const donutOption = computed(() => {
 
 .legend-pct {
   min-width: 44px;
-  font-variant-numeric: tabular-nums;
   font-weight: 600;
-  text-align: right;
+  font-variant-numeric: tabular-nums;
   color: var(--text-primary);
+  text-align: right;
 }
 
 /* ── 右侧：统计信息色块 ── */
 .hero-right {
   display: flex;
+  flex: none;
   flex-wrap: wrap;
   gap: var(--space-3, 12px);
   align-items: center;
-  flex: none;
 }
 
 .stat-block {
   display: flex;
-  align-items: center;
   gap: 10px;
+  align-items: center;
   padding: 10px 14px;
   cursor: default;
   background: var(--bg-soft);
@@ -356,11 +356,11 @@ const donutOption = computed(() => {
 
 .stat-icon-wrap {
   display: flex;
+  flex: none;
   align-items: center;
   justify-content: center;
   width: 32px;
   height: 32px;
-  flex: none;
   background: var(--bg-card);
   border-radius: var(--radius-sm, 6px);
 }
@@ -401,8 +401,8 @@ const donutOption = computed(() => {
 @media (width <= 768px) {
   .hero {
     flex-direction: column;
-    align-items: stretch;
     gap: var(--space-4, 16px);
+    align-items: stretch;
     padding: var(--space-5, 24px) var(--space-4, 16px);
   }
 
