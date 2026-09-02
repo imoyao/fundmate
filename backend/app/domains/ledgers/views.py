@@ -237,6 +237,8 @@ def _ledger_to_dict(ledger: Ledger, last_used_at=None) -> dict:
         'is_active': ledger.is_active,
         # 渠道分类（#1101 重设计，铁律见设计文档 §2.3）：用户可见分组/类型标签，只读本字段做展示。
         'channel_category': ledger.channel_category,
+        # 外部资金账户/凭证标识（#1100/#1101，物理隔离维度，默认 MAIN；导入取真实资金账号）。
+        'external_account_code': ledger.external_account_code,
         # 组内手动排序序号；null 表示用户尚未手动排序（前端回退按持仓金额降序）。
         'display_order': ledger.display_order,
         'created_at': ledger.created_at.isoformat() if ledger.created_at else None,

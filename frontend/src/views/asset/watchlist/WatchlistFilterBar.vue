@@ -262,8 +262,9 @@ function chipStyle(tag: WatchlistTag) {
 
 <style scoped>
 .filter-bar {
-  /* design.md 间距体系：筛选栏区块间距 --space-compact(16px)，原写死 12px 偏挤 */
-  margin-bottom: var(--space-compact);
+  /* design.md「表格/列表/筛选栏：--space-compact(16px)」在卡片外层生效；
+     此处为卡内子区块间距，从 space-compact(16) 收到 space-2(8) 让出表格可见区 */
+  margin-bottom: var(--space-2);
 }
 
 /* 单行布局：左段分组 tab 弹性滚动 + 右段次级操作固定（design.md 分组胶囊 Tab 布局，规范 414） */

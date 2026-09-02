@@ -1,5 +1,8 @@
 # 账本合并（批量迁移持仓）数据正确性设计
 
+> **账本数据模型唯一权威说明**：账户结构、`sales_institution_id`、`external_account_code`、唯一键等以
+> `docs/working-notes/ledger-channel-category-redesign-2026-08-28.md` 为准。本文**仅设计 #1089 合并的数据正确性机制**（预览→确认→提交、守恒校验、回滚），不定义账户模型本身。
+
 > 关联：issue #1089；临时修复已经 PR #1090 / #1093 合入 dev（原分支与 commit `c316b55` 已不存在）
 > 状态：开放问题已决议（2026-08-26），待从 dev 切功能分支实现（本文档随实现分支走）
 

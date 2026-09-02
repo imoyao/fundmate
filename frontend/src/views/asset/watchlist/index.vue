@@ -17,7 +17,7 @@
 -->
 <template>
   <div
-    class="watchlist-page p-4 md:p-6 min-h-full"
+    class="watchlist-page p-4 min-h-full"
     :style="{ backgroundColor: 'var(--bg-page)' }"
   >
     <!-- 顶部操作栏（已抽取为 WatchlistToolbar 组件） -->
@@ -690,6 +690,15 @@ const renderCtx = computed<RenderCtx>(() => ({
 
 <style scoped>
 /* 旧刷新频率下拉（.refresh-interval-select/.is-spinning）样式已随 el-segmented 化删除 */
+
+/* ======================================
+   #1281 整体压榨：自选卡片 padding 由 CardBlock 默认 --space-standard(24)
+   收到 --space-compact(16)，让出 16px 高度给表格（8px 上下各）。
+   仅本页生效：CardBlock 是共用组件，不动默认，其他页面不受影响
+   ====================================== */
+.watchlist-card {
+  padding: var(--space-compact);
+}
 
 /* ======================================
    基础输入框/下拉框样式

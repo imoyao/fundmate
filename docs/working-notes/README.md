@@ -96,6 +96,7 @@
 | `ai-code-review-deepseek-dual-line-2026-08-23.md` | **AI Code Review 双线路接入（DeepSeek 火山方舟实测）**：ARK_API_KEY_DEEPSEEK 可用性与模型权限核查（feat/ghost-duplicate-scan） |
 | `mock-service-data-isolation-2026-08-30.md` | **Mock 服务与数据隔离方案调研**：前端 mock 避免污染本地 SQLite + 独立 Supabase 环境实现 dev/test/prod 隔离 |
 | `fund-company-backfill-1199-2026-08-30.md` | **基金公司 code 回填实测与归一化增强（#1199 收尾）**：127 占位基线、迭代剥离归一化（修复只剥最短后缀 bug）、命中率 81.1%→92.9%、实际回填 116 条、剩余 11 条分类（9 不在列表 + 2 code 冲突）、`full_name`/`scale` 正式降级结论 |
+| `holding-days-semantics-2026-09-02.md` | **持仓「持有时长」计算口径决策（#862/PR #1284）**：核实 `confirm_date` 行为（清仓删行+重买建新行→自动从最新一轮计日起，非 2021 累加），`holding_days` 为实时派生 property 不落库；决策不引入 FIFO 批次表，附 E 账户快照覆写 confirm_date 等边界与 tech-debt |
 
 ## 子目录归档
 

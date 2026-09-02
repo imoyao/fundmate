@@ -5,6 +5,8 @@
 # -*- coding: utf-8 -*-
 """账户业务逻辑服务层"""
 
+from datetime import date
+
 from sqlalchemy import desc, func, or_
 from sqlalchemy.orm import Session
 
@@ -407,6 +409,8 @@ class LedgerService:
                     'pnl_rate': pnl_rate,
                     'avg_price': Money.price_units_to_yuan(avg),
                     'current_price': Money.price_units_to_yuan(eff_price),
+                    # 持有时长（天）：基于首次建仓确认日，无确认日返回 None（#862）
+                    'holding_days': (date.today() - p.confirm_date).days if p.confirm_date else None,
                     'allocation': p.allocation,
                     'allocation_label': ALLOCATION_LABELS.get(p.allocation, p.allocation or '未配置'),
                     'position_ratio': ratio,  # 绝对为 float

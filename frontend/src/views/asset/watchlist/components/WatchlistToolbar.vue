@@ -49,14 +49,16 @@ function handleSearchInput(value: string) {
 </script>
 
 <template>
-  <!-- 顶部操作栏 (已移除 size="small" 和 CSS 强制 32px 高度) -->
-  <div class="flex flex-wrap items-center justify-between gap-4 mb-6 top-bar">
+  <!-- 顶部操作栏（紧凑版：search 改 size=small 让整行 32px 高，间距从 24/16px 收到 12/12px，
+       让出顶部 60+px 给下方表格，参见 issue #1281 后的「整体压榨」） -->
+  <div class="flex flex-wrap items-center justify-between gap-3 mb-3 top-bar">
     <div class="flex items-center gap-3">
       <div class="flex items-center relative">
         <el-input
           v-model="searchKeywordModel"
           placeholder="搜索当前自选列表..."
           clearable
+          size="small"
           class="w-48"
           :prefix-icon="Search"
           @input="handleSearchInput"
@@ -266,13 +268,14 @@ function handleSearchInput(value: string) {
 }
 
 /* 吸顶兜底：主方案由表格内部滚动使页面不滚动、操作栏本就常驻；
-   此处仅在极端配置导致整页滚动时让操作栏吸顶常驻，背景与页面底一致避免内容穿透 */
+   此处仅在极端配置导致整页滚动时让操作栏吸顶常驻，背景与页面底一致避免内容穿透。
+   #1281 后整体压榨：padding-bottom 12→4、margin-bottom 12→4，让出顶部空间给表格 */
 .top-bar {
   position: sticky;
   top: 0;
   z-index: 20;
-  padding-bottom: 12px;
-  margin-bottom: 12px;
+  padding-bottom: 4px;
+  margin-bottom: 4px;
   background: var(--bg-page);
 }
 </style>

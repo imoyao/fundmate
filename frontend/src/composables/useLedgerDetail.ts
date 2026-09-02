@@ -60,6 +60,8 @@ export interface LedgerHoldingRow {
   pnl?: number;
   pnl_rate?: number;
   avg_price?: number;
+  /** 持有时长（天），基于本轮建仓确认日 confirm_date；清仓后重买重置；无确认日时为 null（#862） */
+  holding_days?: number | null;
   current_price?: number;
   allocation?: string | null;
   allocation_label?: string;
