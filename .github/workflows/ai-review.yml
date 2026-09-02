@@ -34,6 +34,12 @@
 
 name: AI Code Review
 
+# 降频护栏（2026-09-02）：每次 PR synchronize 都实打实烧一次 LLM。按 PR 编号分组并取消进行中的旧运行，
+# 同一 PR 反复 push 只保留最新一次审查；手动 dispatch 无 PR 编号时回退 run_id，互不取消。
+concurrency:
+  group: ai-review-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
 on:
   pull_request:
     types: [opened, synchronize, reopened]
