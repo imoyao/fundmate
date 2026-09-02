@@ -144,6 +144,7 @@ jobs:
             const pr = context.payload.pull_request.number;
             const { owner, repo } = context.repo;
             const before = Number('${{ steps.pre-check.outputs.count }}');
+            const selectedOk = '${{ steps.probe.outputs.selected_ok }}' === 'true';
             let after = before;
             for (let i = 0; i < 5; i++) {
               const rc = (await github.rest.pulls.listReviewComments({ owner, repo, pull_number: pr })).data.length;
@@ -152,8 +153,15 @@ jobs:
               if (after > before) break;
               await new Promise(r => setTimeout(r, 5000));
             }
-            if (after <= before) {
-              core.setFailed('深度线路 AI 审查未发布任何评论（所有候选模型均不可用/限流/欠费），标记为失败以避免假成功');
-            } else {
+            // 本轮确实新增了评论 → 成功
+            if (after > before) {
               core.info(`深度线路已发布评论，计数 ${before} → ${after}`);
+              return;
             }
+            // 未新增评论：若探测选中的是健康模型，则属「去重跳过已有评论」，视为成功；
+            // 仅当所有候选模型均不可用（selected_ok=false）时才判定为失败，避免假成功。
+            if (selectedOk) {
+              core.info('本次未新增评论，但探测选中的模型健康（AI Review 因去重跳过已存在的评论），视为成功');
+              return;
+            }
+            core.setFailed('深度线路 AI 审查未发布任何评论（所有候选模型均不可用/限流/欠费），标记为失败以避免假成功');

@@ -131,7 +131,11 @@ def main():
     if chosen is None:
         chosen = ordered[0] if ordered else None
 
-    print(f"\nCHOSEN: {chosen['model'] if chosen else 'NONE'}", flush=True)
+    selected_ok = "true" if (chosen and chosen["status"] == "ok") else "false"
+    print(
+        f"\nCHOSEN: {chosen['model'] if chosen else 'NONE'} (selected_ok={selected_ok})",
+        flush=True,
+    )
 
     if os.environ.get("GITHUB_OUTPUT"):
         with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
@@ -141,6 +145,7 @@ def main():
                 fh.write(f"tier={chosen['tier']}\n")
             else:
                 fh.write("model=\nprovider=\ntier=\n")
+            fh.write(f"selected_ok={selected_ok}\n")
             fh.write(f"status_json={json.dumps(results, ensure_ascii=False)}\n")
 
     # 即便没有 ok 的模型也退出 0：让后续 AI 步骤尽力一试，
