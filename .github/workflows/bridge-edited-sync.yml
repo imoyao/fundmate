@@ -39,7 +39,7 @@ jobs:
 
       - name: 安装依赖
         # 固定大版本上限，避免上游 3.0 破坏性升级导致意外失败（保证可复现）。
-        run: pip install "psycopg2-binary>=2.9,<3" "PyGithub>=2,<3"
+        run: pip install "psycopg2-binary>=2.9,<3" "PyGithub>=2.1,<3"
 
       - name: 回灌最近 24h 编辑的 issue 到 FeedLog
         env:
