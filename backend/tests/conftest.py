@@ -34,6 +34,7 @@ def app(monkeypatch):
     TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
     monkeypatch.setattr('app.core.database.engine', test_engine)
+    monkeypatch.setattr('app.core.database.user_engine', test_engine)
     monkeypatch.setattr('app.core.database.SessionLocal', TestSessionLocal)
 
     # 双库架构支持：reconciliation 等 user 域表经 user_session 访问。

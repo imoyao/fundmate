@@ -24,7 +24,47 @@ SQLALCHEMY_DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///./invest.db')
 # dev -> 本地 SQLite；prod -> Turso（回退 DATABASE_URL）。见 db_factory。
 engine: Engine = DatabaseFactory.create(DOMAIN_APP)
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+# user 域引擎：配置了 SUPABASE_DATABASE_URL 即真 Supabase；未配置自动回退本地
+# SQLite 文件（invest.user.dev.db），与 market 域物理分离但零网络依赖。
+# 单库模式下 user_engine 与 engine 指向同一库（如生产未配 Supabase 时回退到
+# 通用 DATABASE_URL 同库），此时双域表落在同一引擎，行为等价于旧单库。
+# 注意：user_engine 是模块级全局，测试可经 monkeypatch 重定向到内存库（见 conftest）。
+user_engine: Engine = DatabaseFactory.create(DOMAIN_USER)
+
+
+# 按表路由的会话：单一 session 即可跨域查询（如持仓页同时读 positions + daily_worth），
+# 每张表按需落到其数据域引擎（user 表→user_engine，market 表→engine）。
+# 这是 #1085 的核心：业务层无需改动调用点，user 域数据自动路由到 user 引擎。
+def _build_routing_binds():
+    from app.core.db_factory import DATA_DOMAIN_REGISTRY, DOMAIN_USER
+
+    binds = {}
+    for table in Base.metadata.tables.values():
+        domain = DATA_DOMAIN_REGISTRY.get(table.name)
+        binds[table] = user_engine if domain == DOMAIN_USER else engine
+    return binds
+
+
+_ROUTING_BINDS = None
+
+
+def _get_routing_binds():
+    global _ROUTING_BINDS
+    if _ROUTING_BINDS is None:
+        _ROUTING_BINDS = _build_routing_binds()
+    return _ROUTING_BINDS
+
+
+class _RoutingSessionMaker(sessionmaker):
+    """sessionmaker 子类：每次创建 session 时按表注入域路由 binds（懒构建一次）。"""
+
+    def __call__(self, **kw):
+        if 'binds' not in kw:
+            kw['binds'] = _get_routing_binds()
+        return super().__call__(**kw)
+
+
+SessionLocal = _RoutingSessionMaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()
 
@@ -154,21 +194,35 @@ def _validate_schema(bind, metadata, label: str = 'app') -> None:
 
 
 def init_db():
-    """创建应用运行库所有表，并确保默认家庭/用户存在（多用户地基）。
+    """创建所有表并写入默认家庭/用户（多用户地基）。
 
-    默认家庭 1 + 默认用户 1 兼容既有单用户数据：模型结构变更后
-    需要重建 DB 文件（见 scripts/migrate_family_id.py 的 ALTER 迁移说明）。
-
-    数据域护栏：建表前先跑启动校验，确保每张表都已在
-    db_factory.DATA_DOMAIN_REGISTRY 声明归属域（防漏声明 / 建错库）。
-    当前单库兼容模式下仍把所有表建到默认 engine；双库模式请改用
-    init_db_split() 按域分别建到各自引擎。
+    双库就绪（#1085）：按数据域把表分别建到对应引擎——
+    market 域 → engine（应用运行库），user 域 → user_engine（Supabase / 本地回退）。
+    单库模式下两引擎指向同一库，等价于旧单库建表；双库模式下自然分离。
+    默认家庭 1 + 默认用户 1 兼容既有单用户数据。
     """
-    from app.core.db_factory import DatabaseFactory
+    from sqlalchemy.schema import MetaData
+
+    from app.core.db_factory import (
+        DOMAIN_MARKET,
+        DOMAIN_USER,
+        DatabaseFactory,
+    )
 
     DatabaseFactory.validate_domain_labels(Base.metadata)
-    Base.metadata.create_all(bind=engine)
-    _validate_schema(engine, Base.metadata, label='app')
+    grouped = DatabaseFactory.tables_by_domain(Base.metadata)
+    # market 域表 → 应用引擎
+    market_meta = MetaData()
+    for t in grouped[DOMAIN_MARKET]:
+        t.to_metadata(market_meta)
+    market_meta.create_all(bind=engine)
+    _validate_schema(engine, market_meta, label='market')
+    # user 域表 → 用户引擎
+    user_meta = MetaData()
+    for t in grouped[DOMAIN_USER]:
+        t.to_metadata(user_meta)
+    user_meta.create_all(bind=user_engine)
+    _validate_schema(user_engine, user_meta, label='user')
     _seed_default_identity()
 
 
@@ -255,7 +309,8 @@ def _seed_default_identity(bind=None):
     from app.domains.families.models import Family
     from app.domains.users.models import ROLE_ADMIN, User
 
-    target_bind = bind if bind is not None else SessionLocal.kw['bind']
+    # 默认落到 user 引擎（Family/User 属于 user 域）；单库模式下 user_engine == engine。
+    target_bind = bind if bind is not None else user_engine
 
     # 双库模式（bind 即 user 引擎）下，确保 user 域表已存在再写入；
     # 单库模式表已由 init_db 的 create_all 建好，无需重复。
