@@ -122,8 +122,10 @@ const renderSparkline: FunctionalComponent<{
       "--"
     );
   }
-  const width = 96;
-  const height = 24;
+  // 迷你走势尺寸（issue #1281）：宽 64 / 高 20，贴合 design.md 行高 40–44px 基线，
+  // 相比原 96×24 收窄约三分之一，在有限列宽内容纳更多数据列
+  const width = 64;
+  const height = 20;
   const pad = 2;
   const min = Math.min(...series);
   const max = Math.max(...series);
@@ -216,7 +218,9 @@ const renderMoneyRatio: FunctionalComponent<{
     return h(MoneyWithRatio, {
       value: d.value,
       ratio: d.ratio,
-      moneySize: "sm"
+      moneySize: "sm",
+      // 内联单行：两行堆叠会把行高顶到 ~51px，超出 design.md 锁定的 40–44px（#1281）
+      inline: true
     });
   }
   // 直接字段列（持仓收益）：value=def.key, ratio=props.ratioKey
@@ -229,7 +233,8 @@ const renderMoneyRatio: FunctionalComponent<{
     ratio: hasPosition ? ratio : null,
     moneySize: "sm",
     showSign: true,
-    showCurrency: false
+    showCurrency: false,
+    inline: true
   });
 };
 
@@ -265,12 +270,17 @@ const renderProduct: FunctionalComponent<{
     );
   }
 
-  // 正常 product 列：名称（第一行）+ 标签 chips / 添加标签按钮（第二行）
+  // 正常 product 列：单行紧凑布局 —— 名称 + 代码(+类型) + 标签圆点 + 添加标签按钮。
+  // 压缩前为「名称 / 代码+类型 / 标签 chips」三行，实测行高约 78px，一屏仅 3 行；
+  // 现对齐 design.md「数据表格强制紧凑原则」（自选等密集场景行高锁定 40–44px，
+  // 首列名称+代码 180–220px），全部收敛到同一行，行高回落至 40px 基线，
+  // 单屏可见行数翻倍（issue #1281）。
   const tagIds = Array.isArray(row.tag_ids) ? row.tag_ids : [];
   // 与模板 findTagColor/findTagName(allTags, tagId) 语义等价的内联查找；
-  // 找不到时 color 回退 --bg-hover、name 回退空串（不引入 tagHelpers 依赖）
+  // 找不到时 name 回退空串、color 回退中性 --text-tertiary
+  // （design.md「数据色例外」：分组/标签色为用户数据，非设计令牌，缺失回退中性 token）
   const tagColor = (tagId: number) =>
-    ctx.allTags.find(t => t.id === tagId)?.color || "var(--bg-hover)";
+    ctx.allTags.find(t => t.id === tagId)?.color || "var(--text-tertiary)";
   const tagName = (tagId: number) =>
     ctx.allTags.find(t => t.id === tagId)?.name || "";
   // 行 hover 状态（add-tag 按钮在 fixed:left 产品列内，:hover 无法跨固定列 DOM 同步，需 JS 状态驱动）；
@@ -278,81 +288,76 @@ const renderProduct: FunctionalComponent<{
   const isRowHovered =
     ctx.hoveredRowKey != null && ctx.hoveredRowKey === (row.id ?? row.symbol);
   const rowKey = row.id ?? row.symbol;
+  /** 单行最多展示的标签圆点数，超出折叠为 +N（title 列出全部标签名） */
+  const MAX_DOTS = 3;
 
-  return h("div", { class: "flex flex-col gap-1 py-2" }, [
-    h(ProductDisplay, {
-      name: (field(row, "display_name") as string) || row.symbol,
-      symbol: row.symbol,
-      typeLabel: (field(row, "type_label") as string) || ""
-    }),
-    h(
-      "div",
-      {
-        class: ["flex items-center gap-1", { "is-row-hovered": isRowHovered }],
-        onMouseenter: () => ctx.setHoveredRowKey(rowKey),
-        onMouseleave: () => ctx.setHoveredRowKey(null)
-      },
-      [
-        ...tagIds.slice(0, 2).map(tagId =>
-          h(
-            "span",
-            {
-              class: "tag-chip",
-              style: {
-                display: "inline-flex",
-                alignItems: "center",
-                padding: "1px 8px",
-                fontSize: "11px",
-                lineHeight: "18px",
-                fontWeight: 500,
-                whiteSpace: "nowrap",
-                borderRadius: "var(--radius-pill)",
-                backgroundColor: tagColor(tagId) + "18",
-                color: tagColor(tagId),
-                border: "1px solid " + tagColor(tagId) + "30"
-              }
-            },
-            tagName(tagId)
-          )
-        ),
-        ...(tagIds.length > 2
-          ? [
-              h(
-                "span",
-                { class: "text-xs", style: { color: "var(--text-tertiary)" } },
-                `+${tagIds.length - 2}`
-              )
-            ]
-          : []),
-        h(
-          ElTooltip,
-          { content: "添加/编辑标签", placement: "top" },
-          {
-            default: () =>
-              h(
-                ElButton,
-                {
-                  circle: true,
-                  size: "small",
-                  class: "add-tag-btn",
-                  disabled: row.id == null,
-                  onClick: (e: Event) => {
-                    e.stopPropagation();
-                    ctx.openTagEditor(row);
-                  }
-                },
-                () => [
-                  h(IconifyIconOffline, {
-                    icon: "ep:plus",
-                    class: "text-[10px]"
-                  })
-                ]
-              )
-          }
-        )
-      ]
-    )
-  ]);
+  return h(
+    "div",
+    {
+      class: ["product-row", { "is-row-hovered": isRowHovered }],
+      onMouseenter: () => ctx.setHoveredRowKey(rowKey),
+      onMouseleave: () => ctx.setHoveredRowKey(null)
+    },
+    [
+      h(ProductDisplay, {
+        compact: true,
+        name: (field(row, "display_name") as string) || row.symbol,
+        symbol: row.symbol,
+        typeLabel: (field(row, "type_label") as string) || ""
+      }),
+      // 标签以 6px 圆点内联呈现：不再单独占一行、不撑高行高，
+      // 标签名经 title 原生提示保留可读性（避免「仅靠颜色传意」）
+      ...tagIds.slice(0, MAX_DOTS).map(tagId =>
+        h("span", {
+          class: "tag-dot",
+          style: { backgroundColor: tagColor(tagId) },
+          title: tagName(tagId)
+        })
+      ),
+      ...(tagIds.length > MAX_DOTS
+        ? [
+            h(
+              "span",
+              {
+                class: "tag-dot-more",
+                title: tagIds
+                  .slice(MAX_DOTS)
+                  .map(tagName)
+                  .filter(Boolean)
+                  .join("、")
+              },
+              `+${tagIds.length - MAX_DOTS}`
+            )
+          ]
+        : []),
+      h(
+        ElTooltip,
+        { content: "添加/编辑标签", placement: "top" },
+        {
+          default: () =>
+            h(
+              ElButton,
+              {
+                circle: true,
+                size: "small",
+                class: "add-tag-btn",
+                disabled: row.id == null,
+                onClick: (e: Event) => {
+                  e.stopPropagation();
+                  ctx.openTagEditor(row);
+                }
+              },
+              () => [
+                h(IconifyIconOffline, {
+                  icon: "ep:plus",
+                  class: "text-[10px]"
+                })
+              ]
+            )
+        }
+      )
+    ]
+  );
 };
 
 const renderActions: FunctionalComponent<{

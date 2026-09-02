@@ -3,7 +3,7 @@
     <h3 class="text-lg font-semibold mb-4 text-gray-900 dark:text-white">
       资产分布
     </h3>
-    <canvas ref="distributionChartCanvas" v-show="hasData" />
+    <canvas v-show="hasData" ref="distributionChartCanvas" />
     <p v-if="!hasData" class="text-gray-400 text-sm text-center py-8">
       暂无分布数据
     </p>

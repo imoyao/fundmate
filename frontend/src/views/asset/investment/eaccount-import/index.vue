@@ -790,10 +790,10 @@ onMounted(() => {
 /* ===== #1239 草稿恢复 Banner：中性信息色，非红非弹窗（柔性原则） ===== */
 .draft-banner {
   display: flex;
-  align-items: center;
   gap: 12px;
-  margin-bottom: 16px;
+  align-items: center;
   padding: 12px 16px;
+  margin-bottom: 16px;
   font-size: var(--text-small);
   color: var(--text-secondary);
   background: var(--bg-soft);

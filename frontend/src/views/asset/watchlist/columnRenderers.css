@@ -17,8 +17,45 @@
   color: var(--text-secondary);
 }
 
+/* ── 产品列单行紧凑容器（issue #1281 / design.md 数据表格强制紧凑原则）──
+   名称 + 代码 + 类型 + 标签圆点 + 添加标签按钮 全部收敛到同一行，
+   容器高度锁 20px，使表格行高从三行式约 78px 回落到 40px 基线，单屏行数翻倍。
+   min-width: 0 是名称 ellipsis 生效的前提（flex 子项默认 min-width: auto 会撑开）。 */
+.el-table .product-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+  height: 20px;
+}
+
+/* ProductDisplay 紧凑模式撑满剩余宽度，长名称省略、代码与按钮不被挤出列宽 */
+.el-table .product-row .product-cell--compact {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 标签圆点：6px 实心点，内联不占行高（替代原 18px 标签 chips 行）。
+   颜色为用户数据色（design.md「数据色例外」，缺失回退 --text-tertiary），
+   标签名经 title 原生提示保留可读性，避免「仅靠颜色传意」。 */
+.el-table .tag-dot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+}
+
+/* 超出展示上限的标签数：弱化小字，title 列出全部标签名 */
+.el-table .tag-dot-more {
+  flex-shrink: 0;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
 /* 产品列「添加标签」小按钮：20px 圆形，默认 45% 弱化可见，行悬停全亮；
-   孤按钮（行内无标签 chips 时）常亮，保证可发现性 */
+   孤按钮（行内无标签圆点时）常亮，保证可发现性 */
 .el-table .add-tag-btn {
   --el-button-text-color: var(--text-tertiary);
 

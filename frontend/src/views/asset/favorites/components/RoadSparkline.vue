@@ -136,8 +136,8 @@ const strokeColor = computed(() => {
 /* 封面标注（净值 / 价格 / 点位），与类型胶囊区分层级 */
 .road-cover__metric {
   position: absolute;
-  left: 10px;
   bottom: 10px;
+  left: 10px;
   padding: 1px 7px;
   font-size: 11px;
   color: var(--text-secondary);

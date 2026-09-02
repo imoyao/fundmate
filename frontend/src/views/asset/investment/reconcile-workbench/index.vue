@@ -509,7 +509,9 @@ function statusLabel(s: string): string {
 function formatDiff(diff: number | null): string {
   if (diff === null) return "—";
   if (diff === 0) return "0";
-  return Number.isInteger(diff) ? String(diff) : diff.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
+  return Number.isInteger(diff)
+    ? String(diff)
+    : diff.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
 }
 
 function diffClass(diff: number | null): string {
