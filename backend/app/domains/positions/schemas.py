@@ -84,6 +84,7 @@ class PositionOut(BaseModel):
     market_value_override: Optional[float] = None
     value_override_at: Optional[datetime] = None
     confirm_date: Optional[date] = None
+    holding_days: Optional[int] = None  # 派生：截至今天持有时长（天），#862
     notes: Optional[str] = None
     allocation: Optional[str] = None
     created_at: Optional[datetime] = None

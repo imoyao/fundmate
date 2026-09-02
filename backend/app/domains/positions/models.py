@@ -1,3 +1,6 @@
+from datetime import date
+from typing import Optional
+
 from sqlalchemy import (
     Boolean,
     Column,
@@ -89,6 +92,16 @@ class Position(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
         if value not in VALUATION_MODE_LABELS:
             raise ValueError(f'非法计价模式 valuation_mode={value!r}，必须是 app.core.constants.ValuationMode 的合法值')
         return value
+
+    @property
+    def holding_days(self) -> Optional[int]:
+        """截至今天的持有时长（天），基于首次建仓确认日 confirm_date；无确认日返回 None。
+
+        用于基金/持仓详情页展示「持有时长」（issue #862）。按服务器本地日期计日，不做时区修正。
+        """
+        if not self.confirm_date:
+            return None
+        return (date.today() - self.confirm_date).days
 
     ownership_status = Column(
         String(20),

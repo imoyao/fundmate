@@ -164,6 +164,47 @@
           }}
         </div>
       </div>
+
+      <!-- 持有时长（#862）：后端按 confirm_date 计算返回 holding_days -->
+      <div
+        class="p-3 rounded-lg border"
+        :style="{ borderColor: 'var(--border-default)' }"
+      >
+        <div class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
+          持有时长
+        </div>
+        <div
+          class="text-base font-semibold mt-1"
+          :style="{ color: 'var(--text-primary)' }"
+        >
+          <span v-if="positionData?.holding_days != null"
+            >{{ positionData.holding_days }} 天</span
+          >
+          <span v-else>--</span>
+        </div>
+      </div>
+
+      <!-- 年化收益率（XIRR，#862 / #796）：抽屉单持仓维度，开抽屉时拉取 -->
+      <div
+        class="p-3 rounded-lg border"
+        :style="{ borderColor: 'var(--border-default)' }"
+      >
+        <div class="text-xs" :style="{ color: 'var(--text-tertiary)' }">
+          年化收益率
+        </div>
+        <div class="text-base font-semibold mt-1" :style="{ color: xirrColor }">
+          <span
+            v-if="loadingXirr"
+            class="text-sm font-normal"
+            :style="{ color: 'var(--text-tertiary)' }"
+            >计算中…</span
+          >
+          <span v-else-if="xirr != null"
+            >{{ (xirr >= 0 ? "+" : "") + (xirr * 100).toFixed(2) + "%" }}</span
+          >
+          <span v-else>--</span>
+        </div>
+      </div>
     </div>
 
     <!-- 3. 走势图区 -->
@@ -325,6 +366,7 @@ import { ref, computed, watch, nextTick } from "vue";
 import { Loading, Edit } from "@element-plus/icons-vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import { getPositionTransactions } from "@/api/positions";
+import { getPositionXirr } from "@/api/performance";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
 import { pricePrecision } from "@/utils/pricePrecision";
 import TransactionEditDialog from "./TransactionEditDialog.vue";
@@ -354,6 +396,36 @@ const drawerVisible = computed({
 const loadingTransactions = ref(false);
 const transactionsList = ref<any[]>([]);
 const transactionsTotal = ref(0);
+
+// 年化收益率（XIRR，#862 / #796）：单持仓维度，开抽屉时拉取
+const loadingXirr = ref(false);
+const xirr = ref<number | null>(null);
+const xirrColor = computed(() =>
+  xirr.value == null
+    ? "var(--text-primary)"
+    : xirr.value >= 0
+      ? "var(--color-danger)"
+      : "var(--color-success)"
+);
+
+async function fetchXirr() {
+  const id = props.positionData?.id;
+  if (!id) {
+    xirr.value = null;
+    return;
+  }
+  loadingXirr.value = true;
+  try {
+    const res = await getPositionXirr(id);
+    const data = (res as any)?.data;
+    // xirr 为小数（0.1234=12.34%）；无现金流/无法计算时后端可能不返回该字段
+    xirr.value = typeof data?.xirr === "number" ? data.xirr : null;
+  } catch {
+    xirr.value = null;
+  } finally {
+    loadingXirr.value = false;
+  }
+}
 
 // 获取交易明细 API 调用
 async function fetchTransactions() {
@@ -391,6 +463,8 @@ watch(
       transactionsTotal.value = 0;
       // 等待 DOM 渲染完毕再拉取数据
       nextTick(() => fetchTransactions());
+      // 同步拉取该持仓年化收益率（XIRR）
+      fetchXirr();
     }
   }
 );
@@ -399,6 +473,8 @@ watch(
 function resetState() {
   transactionsList.value = [];
   transactionsTotal.value = 0;
+  xirr.value = null;
+  loadingXirr.value = false;
   editDialogVisible.value = false;
   editingTxn.value = null;
 }

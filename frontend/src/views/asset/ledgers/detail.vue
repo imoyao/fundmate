@@ -289,6 +289,26 @@
                       />
                     </template>
                   </el-table-column>
+
+                  <!-- 持仓成本（#862）：接口已返回 avg_price，仅补展示列 -->
+                  <el-table-column
+                    label="持仓成本"
+                    width="120"
+                    align="right"
+                    sortable
+                    prop="avg_price"
+                    show-overflow-tooltip
+                  >
+                    <template #default="{ row }">
+                      <MoneyDisplay
+                        :value="row.avg_price || 0"
+                        :precision="pricePrecision(row.asset_type)"
+                        :show-sign="false"
+                        :auto-color="false"
+                        size="sm"
+                      />
+                    </template>
+                  </el-table-column>
                   <el-table-column
                     label="盈亏"
                     width="110"
@@ -317,6 +337,21 @@
                         suffix="%"
                         size="sm"
                       />
+                    </template>
+                  </el-table-column>
+
+                  <!-- 持有时长（#862）：后端按 confirm_date 计算返回 holding_days；无确认日显示 -- -->
+                  <el-table-column
+                    label="持有时长"
+                    width="100"
+                    align="right"
+                    sortable
+                    prop="holding_days"
+                    show-overflow-tooltip
+                  >
+                    <template #default="{ row }">
+                      <span v-if="row.holding_days != null">{{ row.holding_days }} 天</span>
+                      <span v-else>--</span>
                     </template>
                   </el-table-column>
                   <el-table-column
