@@ -164,3 +164,16 @@ class Ledger(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
         default=None,
         comment='渠道分类(用户可见分组/类型标签): bank/securities/fund_platform/insurance/futures/other；系统维护，不参与计算',
     )
+
+    # ── 外部资金账户/凭证标识（#1100/#1101，权威说明见 docs/working-notes/ledger-channel-category-redesign-2026-08-28.md §2.5/§6）──
+    # 表达"同一机构下的不同资金账户"（普通 vs 两融、I类 vs II类），实现物理隔离而不破坏"一机构一账本"默认。
+    # 建账/导入时：导入有真实资金账号（PositionImportMeta.fund_account/trade_account，E账户已抽取）则取之，
+    # 否则取默认哨兵 'MAIN'。查/建账键组成维度：(family_id, sales_institution_id, external_account_code)。
+    # 与 frontend_app 正交（本字段是"哪个资金账户"，frontend_app 是"用哪个软件登录"）。
+    # 不引入 account_subtype 冗余列——物理隔离已由本字段的不同取值表达。
+    external_account_code = Column(
+        String(50),
+        nullable=False,
+        default='MAIN',
+        comment='外部资金账户/凭证标识(物理隔离维度): 默认 MAIN；导入取真实资金账号(普通/两融等)',
+    )
