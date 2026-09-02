@@ -1,5 +1,5 @@
 {
-  "last_sync_at": "2026-08-23T11:15:55.814673+00:00",
+  "last_sync_at": "2026-08-30T01:28:24.050976+00:00",
   "posts": {
     "00000000-0000-4000-a0e1-000000000001": {
       "issue_number": 924,
@@ -73,6 +73,45 @@
     "98d44dc7-e7b1-4d71-8c9f-1753841f5e3f": {
       "issue_number": 1112,
       "synced_at": "2026-08-26T05:40:41Z",
+      "origin": "github"
+    },
+    "dbb3d691-8829-4e48-8bee-1997c701fd56": {
+      "issue_number": 1252,
+      "synced_at": "2026-09-01T00:03:31Z",
+      "origin": "github"
+    },
+    "01a05048-328c-73ce-a5f5-e0d5cba4ce7b": {
+      "issue_number": 1253,
+      "synced_at": "2026-09-01T00:27:19Z"
+    },
+    "b765da73-2c26-4304-824d-df9a9919f5db": {
+      "issue_number": 1259,
+      "synced_at": "2026-09-01T11:11:49Z",
+      "origin": "github"
+    },
+    "a0c1c3f1-7059-405c-af0b-1b86683b968e": {
+      "issue_number": 1263,
+      "synced_at": "2026-09-01T11:12:09Z",
+      "origin": "github"
+    },
+    "a4020c04-96ea-4a7a-88aa-934804de1561": {
+      "issue_number": 1267,
+      "synced_at": "2026-09-01T11:12:27Z",
+      "origin": "github"
+    },
+    "a7cb73a5-4545-400b-aa08-b3677735d39a": {
+      "issue_number": 1275,
+      "synced_at": "2026-09-01T14:43:58Z",
+      "origin": "github"
+    },
+    "c89b72e9-1fb3-4f8b-a291-574ff4bf3208": {
+      "issue_number": 1276,
+      "synced_at": "2026-09-01T14:44:16Z",
+      "origin": "github"
+    },
+    "059224ce-eb13-439a-83dc-20bce150e1db": {
+      "issue_number": 1281,
+      "synced_at": "2026-09-01T15:35:59Z",
       "origin": "github"
     }
   },

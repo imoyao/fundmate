@@ -29,4 +29,6 @@ def get_securities_aggregation(
     参数与返回值见 `position_aggregation.aggregate_positions`。
     dimension 支持 'product'（默认）与 'institution'。
     """
-    return aggregate_positions(session, family_id, SECURITIES_ASSET_TYPES, dimension, **kwargs)
+    return aggregate_positions(
+        session, family_id, SECURITIES_ASSET_TYPES, dimension, breakdown_by='asset_type', **kwargs
+    )

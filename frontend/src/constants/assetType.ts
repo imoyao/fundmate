@@ -36,7 +36,12 @@ export const ASSET_CATEGORY_LABELS: Record<string, string> = {
   insurance: "保险",
   real_estate: "房产",
   precious_metal: "贵金属",
-  custom: "自定义"
+  custom: "自定义",
+  bank_wealth: "银行理财",
+  advisory: "投顾",
+  trust: "信托",
+  private_fund: "私募",
+  wealth_insurance: "理财型保险"
 };
 
 /** 资产类型 → 中文标签；未知类型回退镜像/原值 */

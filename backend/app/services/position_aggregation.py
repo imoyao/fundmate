@@ -50,6 +50,9 @@ SORT_FIELDS = ('market_value', 'quantity', 'name', 'symbol', 'return_pct')
 # fund_type 筛选中「未分类」的占位值（后端约定，前端透传即可）
 FUND_TYPE_NONE = '__none__'
 
+# 证券侧资产构成环形图的 asset_type → 中文标签映射（#1264）
+ASSET_TYPE_LABELS: dict[str, str] = {'stock': '股票', 'etf': 'ETF', 'bond': '可转债'}
+
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 200
 
@@ -209,6 +212,8 @@ def _collect_rows(session, family_id: int, asset_types: tuple) -> list[dict]:
                 'nav_yuan': effective_nav if effective_nav else Money.price_units_to_yuan(p.current_price),
                 # ── 基金类型（来自 funds 名录；未收录为 None）──
                 'fund_type': fund_types_by_symbol.get(p.symbol),
+                # ── 资产类型（证券侧环形图按此聚类：股票/ETF/可转债）──
+                'asset_type': p.asset_type,
                 # ── 盈亏（与市值同单位：分）──
                 'cost_cents': cost_cents,
                 'pnl_cents': pnl_cents,
@@ -242,15 +247,23 @@ def _group_by_dimension(rows: list[dict], dimension: str) -> list[dict]:
                     # 机构中文名：此前前端只能显示「销售机构 #3」，此处直接给出现成文案
                     'institution_name': r['institution_name'] or ('未关联机构' if key == 'unknown' else f'机构 #{key}'),
                     'market_value_cents': 0,
+                    # 机构总份额：供「份额」排序（institution 维度此前缺失该字段，
+                    # 导致按渠道展示时 quantity/name 排序无效，#1224）
+                    'quantity': 0,
                     'cost_cents': 0,
                     'pnl_cents': 0,
                     'return_pct': None,
+                    # 「名称」排序键：取机构名（首个非空），缺省空串
+                    'name': r['institution_name'],
                     'items': [],
                 },
             )
             g['market_value_cents'] += r['market_value_cents']
+            g['quantity'] += r['quantity']
             g['cost_cents'] += r['cost_cents']
             g['pnl_cents'] += r['pnl_cents']
+            if not g['name']:
+                g['name'] = r['institution_name']
             g['items'].append(r)
         for g in grouped.values():
             g['return_pct'] = (g['pnl_cents'] / g['cost_cents']) if g['cost_cents'] > 0 else None
@@ -315,7 +328,11 @@ def _group_by_dimension(rows: list[dict], dimension: str) -> list[dict]:
 
 
 def _sort_groups(groups: list[dict], sort: str, order: str, dimension: str) -> list[dict]:
-    """分组排序。默认按市值降序（用户最高频的诉求：先看最大的持仓）。"""
+    """分组排序。默认按市值降序（用户最高频的诉求：先看最大的持仓）。
+
+    按渠道（institution）维度：机构分组级排序后，组内 items（单条来源）也按同一排序键
+    排列，保证「按渠道展示」下渠道内卡片也有序（修复 #1224：渠道维度 quantity/name 排序无效）。
+    """
     if sort not in SORT_FIELDS:
         sort = 'market_value'
     reverse = str(order).lower() != 'asc'
@@ -332,7 +349,33 @@ def _sort_groups(groups: list[dict], sort: str, order: str, dimension: str) -> l
     else:  # market_value
         key = lambda g: g.get('market_value_cents') or 0  # noqa: E731
 
-    return sorted(groups, key=key, reverse=reverse)
+    groups = sorted(groups, key=key, reverse=reverse)
+    # 按渠道展示：组内 items 也按同一排序键排列，渠道内卡片有序
+    if dimension == 'institution':
+        for g in groups:
+            g['items'] = sorted(g['items'], key=key, reverse=reverse)
+    return groups
+
+
+def _regroup_page_items(page_items: list[tuple[dict, dict]]) -> list[dict]:
+    """按当前页命中的条目重建机构分组（#1265 方案 A 配套）。
+
+    组级汇总（市值/份额/成本/盈亏/收益率）沿用全量口径——它们是「机构」这一层的属性，
+    与取哪一页无关；`items` 只保留本页命中的条目，保证前端展平后的卡片数 == 每页条数。
+
+    顺序沿用上游排序（机构间按排序键、机构内 items 同键排序），跨页不重不漏；
+    一个机构的 items 可能被分页切开，这是展平分页的预期行为。
+    """
+    page_groups: list[dict] = []
+    index: dict = {}
+    for group, item in page_items:
+        holder = index.get(group['key'])
+        if holder is None:
+            holder = {**group, 'items': []}
+            index[group['key']] = holder
+            page_groups.append(holder)
+        holder['items'].append(item)
+    return page_groups
 
 
 def aggregate_positions(
@@ -346,6 +389,8 @@ def aggregate_positions(
     page_size: int = DEFAULT_PAGE_SIZE,
     keyword: str | None = None,
     fund_type: str | None = None,
+    asset_type: str | None = None,
+    breakdown_by: str = 'fund_type',
 ) -> dict:
     """聚合某类资产的持仓（#1101 / #1132 共用入口）。
 
@@ -359,6 +404,10 @@ def aggregate_positions(
         keyword: 名称/代码模糊搜索（大小写不敏感），命中任一即保留。
         fund_type: 基金小类名精确筛选；`FUND_TYPE_NONE` 表示筛选「未分类」。
             过滤在行级执行，对 product / institution 两个维度均生效。
+        asset_type: 证券类型精确筛选（stock/etf/bond）；基金侧不传此参数。
+            与 fund_type 互斥地作用于行级过滤，配合证券侧类型 Tab（#1266 / #1264）。
+        breakdown_by: 资产构成环形图的聚类维度（#1264）。
+            'fund_type'（默认，基金侧按小类名）/ 'asset_type'（证券侧按股票/ETF/可转债）。
 
     Returns:
         {
@@ -369,11 +418,37 @@ def aggregate_positions(
         其中 `snapshot_date` 为全部持仓中**最早**的快照日（数据最滞后的一笔），
         供页面顶部「数据日期」展示；`snapshot_date_latest` 为最近的一笔，供区间提示。
         过滤后 `total_market_value_cents` / `snapshot_date` 均基于过滤结果口径。
+
+        `total` 的口径随维度不同（#1265）：
+        - product：产品分组数（= 卡片数）；
+        - institution：展平后的「产品×渠道」条目数（= 卡片数），
+          而非机构分组数——前端按渠道展示时是把组内 items 展平成卡片的。
     """
     if dimension not in AGGREGATION_DIMENSIONS:
         dimension = 'product'
 
     rows, nav_date_global = _collect_rows(session, family_id, asset_types)
+
+    # ── fund_type 分布统计（基于全量 rows，不受 keyword/fund_type 筛选影响，
+    #    供前端动态生成类型 Tab：#1224）──
+    fund_type_counts: dict[str, int] = {}
+    fund_type_unclassified_count = 0
+    # ── 资产构成环形图（基于全量 rows）：按品类维度聚类市值分布（#1264）。
+    #    基金侧用 fund_type（小类名），证券侧用 asset_type（股票/ETF/可转债），
+    #    二者共用响应字段 fund_type_breakdown，前端 Hero 渲染逻辑无需分叉。
+    fund_type_breakdown: dict[str, dict] = {}
+    for r in rows:
+        ft = r.get('fund_type') or '未分类'
+        if ft != '未分类':
+            fund_type_counts[ft] = fund_type_counts.get(ft, 0) + 1
+        else:
+            fund_type_unclassified_count += 1
+        raw = r.get(breakdown_by) or '未分类'
+        bkey = ASSET_TYPE_LABELS.get(raw, raw) if breakdown_by == 'asset_type' else raw
+        item = fund_type_breakdown.setdefault(bkey, {'name': bkey, 'market_value_cents': 0, 'count': 0})
+        item['market_value_cents'] += r['market_value_cents']
+        item['count'] += 1
+    fund_type_breakdown_list = sorted(fund_type_breakdown.values(), key=lambda x: x['market_value_cents'], reverse=True)
 
     # ── 行级过滤（keyword 模糊 + fund_type 精确）：先于汇总与分页，两维度均生效 ──
     kw = str(keyword or '').strip().lower()
@@ -381,6 +456,8 @@ def aggregate_positions(
         rows = [r for r in rows if kw in (r.get('name') or '').lower() or kw in (r.get('symbol') or '').lower()]
     if fund_type:
         rows = [r for r in rows if _matches_fund_type(r.get('fund_type'), fund_type)]
+    if asset_type:
+        rows = [r for r in rows if (r.get('asset_type') or '') == asset_type]
 
     # 汇总市值与快照区间：基于过滤后 rows，先于分页计算（分页不应改变汇总口径）
     total_mv = sum(r['market_value_cents'] for r in rows)
@@ -389,16 +466,37 @@ def aggregate_positions(
     groups = _group_by_dimension(rows, dimension)
     groups = _sort_groups(groups, sort, order, dimension)
 
-    total = len(groups)
     # 分页：page_size<=0 视为不分页（向后兼容旧调用方）
     if page_size and page_size > 0:
         page_size = min(int(page_size), MAX_PAGE_SIZE)
         page = max(1, int(page))
-        total_pages = max(1, (total + page_size - 1) // page_size)
-        start = (page - 1) * page_size
-        groups = groups[start : start + page_size]
     else:
-        page, page_size, total_pages = 1, total, 1
+        page, page_size = 1, 0
+
+    if dimension == 'institution':
+        # 按渠道展示的分页对象是「展平后的产品×渠道」条目（#1265 方案 A）。
+        # 前端把每个机构组内的 items 全量展平成卡片渲染，故分页口径必须与卡片数一致；
+        # 此前 total 取的是机构分组数，导致 total_pages 恒为 1 → 分页条被隐藏、卡片一次铺开。
+        flattened = [(g, item) for g in groups for item in g['items']]
+        total = len(flattened)
+        if page_size:
+            total_pages = max(1, (total + page_size - 1) // page_size)
+            start = (page - 1) * page_size
+            groups = _regroup_page_items(flattened[start : start + page_size])
+        else:
+            total_pages = 1
+    else:
+        total = len(groups)
+        if page_size:
+            total_pages = max(1, (total + page_size - 1) // page_size)
+            start = (page - 1) * page_size
+            groups = groups[start : start + page_size]
+        else:
+            total_pages = 1
+
+    # 不分页时回传全量条数，保持与既有调用方一致
+    if not page_size:
+        page_size = total
 
     return {
         'total_market_value_cents': total_mv,
@@ -414,4 +512,9 @@ def aggregate_positions(
         'snapshot_date_latest': max(snapshot_dates) if snapshot_dates else None,
         # 🔄 净值日期（NavService 取到的最新净值日期；与 snapshot_date 分叉时前端可双日期展示）
         'nav_date': nav_date_global,
+        # 🔄 fund_type 分布：供前端动态生成类型 Tab（只显示有产品的分类）
+        'fund_type_counts': fund_type_counts,
+        'fund_type_unclassified_count': fund_type_unclassified_count,
+        # 🔄 资产构成（按基金类型的市值分布，供环形图/饼图展示占比）
+        'fund_type_breakdown': fund_type_breakdown_list,
     }

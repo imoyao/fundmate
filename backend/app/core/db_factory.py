@@ -96,6 +96,10 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'position_strategy_tags': DOMAIN_USER,
     'asset_snapshots': DOMAIN_USER,
     'user_usage': DOMAIN_USER,
+    # ── 统一对账框架三表（#1232 §8.1 / P1）──
+    'discrepancies': DOMAIN_USER,  # 活跃对账差异（含 family_id）
+    'reconciliation_runs': DOMAIN_USER,  # 对账运行记录
+    'adjustment_logs': DOMAIN_USER,  # 对账审计日志（仅用户主动操作）
 }
 
 # 规划中但尚未建表的域归属（提前登记，防止模型落地时漏声明）。
@@ -167,10 +171,10 @@ class DatabaseConfig:
         设计要点：本方法永不返回 None（除非显式 force_none），因此 user 会话
         入口不再因「未配 Supabase」而抛错——这是单库/双库统一可用的关键。
         """
-        # development 默认回退本地 SQLite（与 app 开发库同源），不连 Supabase；
-        # 仅显式 DEV_FORCE_SUPABASE=1 才联调真库
+        # development 默认回退本地独立 SQLite（invest.user.dev.db），与 app 开发库
+        # 物理分离，模拟「双库」；不连 Supabase；仅显式 DEV_FORCE_SUPABASE=1 才联调真库
         if env == 'development' and not os.getenv('DEV_FORCE_SUPABASE'):
-            url = os.getenv('DEV_DATABASE_URL', _DEFAULT_DEV_DB)
+            url = os.getenv('DEV_USER_DATABASE_URL', _DEFAULT_DEV_USER_DB)
             connect_args = {'check_same_thread': False, 'timeout': 30}
             return cls(name=DOMAIN_USER, url=url, connect_args=connect_args, pool_pre_ping=False)
         url = os.getenv('SUPABASE_DATABASE_URL')

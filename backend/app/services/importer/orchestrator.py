@@ -25,7 +25,12 @@ from app.core.utils import show_time
 from app.domains.funds.models import Fund, FundVariety
 from app.domains.ledgers.constants import map_org_type_to_channel_category
 from app.domains.ledgers.models import Ledger
-from app.domains.positions.models import Position, PositionImportMeta, SalesInstitution
+from app.domains.positions.models import (
+    Position,
+    PositionImportMeta,
+    SalesInstitution,
+    resolve_sales_institution_id,
+)
 from app.domains.securities.models import Security
 from app.domains.transactions.models import Transaction
 from app.domains.watchlist.models import WatchlistItem
@@ -453,7 +458,7 @@ class ImportOrchestrator:
     def _batch_query_asset_info(self, records):
         """批量查询基金和股票的名称、类型"""
         fund_codes = {r.symbol for r in records if r.asset_type == 'fund' and r.symbol}
-        stock_codes = {r.symbol for r in records if r.asset_type == 'stock' and r.symbol}
+        stock_codes = {r.symbol for r in records if r.asset_type in ('stock', 'etf', 'bond') and r.symbol}
 
         fund_name_map = {}
         fund_type_map = {}
@@ -483,7 +488,7 @@ class ImportOrchestrator:
             if not r.name:
                 if r.asset_type == 'fund':
                     r.name = fund_name_map.get(r.symbol, r.symbol)
-                elif r.asset_type == 'stock':
+                elif r.asset_type in ('stock', 'etf', 'bond'):
                     r.name = stock_map.get(r.symbol, r.symbol)
 
             if r.asset_type == 'fund' and not r.display_type:
@@ -821,7 +826,7 @@ class ImportOrchestrator:
         for record in records:
             if record.asset_type == 'fund':
                 fund_codes.add(record.symbol)
-            elif record.asset_type == 'stock':
+            elif record.asset_type in ('stock', 'etf', 'bond'):
                 stock_symbols.add(record.symbol)
 
         for code in fund_codes:
@@ -1189,6 +1194,7 @@ class ImportOrchestrator:
                 source=src,
                 source_import_id=row.get('source_import_id'),
                 source_broker=source_broker,
+                sales_institution_id=resolve_sales_institution_id(self.db, source_broker),
                 fund_manager=fund_manager,
                 share_class=row.get('share_class'),
                 fund_account=row.get('fund_account'),
@@ -1513,6 +1519,7 @@ class ImportOrchestrator:
             snapshot_date=snapshot_date,
             source=new_pos.source,
             source_broker=None,
+            sales_institution_id=ledger.sales_institution_id,
             fund_manager=None,
             share_class=meta.share_class,
             fund_account=meta.fund_account,

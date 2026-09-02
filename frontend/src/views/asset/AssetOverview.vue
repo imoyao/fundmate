@@ -38,10 +38,16 @@
             <p
               v-if="monthlyChangePct !== null"
               class="text-lg flex items-center"
-              :class="(monthlyChangePct ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'"
+              :class="
+                (monthlyChangePct ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'
+              "
             >
               <IconifyIconOffline
-                :icon="(monthlyChangePct ?? 0) >= 0 ? 'ep:arrow-up-bold' : 'ep:arrow-down-bold'"
+                :icon="
+                  (monthlyChangePct ?? 0) >= 0
+                    ? 'ep:arrow-up-bold'
+                    : 'ep:arrow-down-bold'
+                "
                 class="mr-1"
               />
               <span>{{ Math.abs(monthlyChangePct ?? 0).toFixed(1) }}%</span>
@@ -50,10 +56,16 @@
             <p
               v-if="yearlyChangePct !== null"
               class="text-lg flex items-center"
-              :class="(yearlyChangePct ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'"
+              :class="
+                (yearlyChangePct ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'
+              "
             >
               <IconifyIconOffline
-                :icon="(yearlyChangePct ?? 0) >= 0 ? 'ep:arrow-up-bold' : 'ep:arrow-down-bold'"
+                :icon="
+                  (yearlyChangePct ?? 0) >= 0
+                    ? 'ep:arrow-up-bold'
+                    : 'ep:arrow-down-bold'
+                "
                 class="mr-1"
               />
               <span>{{ Math.abs(yearlyChangePct ?? 0).toFixed(1) }}%</span>
@@ -75,7 +87,9 @@
             class="bg-gradient-to-br from-orange-50 to-orange-100 rounded-lg p-4 border border-orange-200 hover:shadow-lg transition-shadow cursor-pointer"
           >
             <p class="text-gray-500 text-xs font-medium">{{ card.name }}</p>
-            <h4 class="text-lg font-bold text-orange-600">{{ formatYuan(card.value) }}</h4>
+            <h4 class="text-lg font-bold text-orange-600">
+              {{ formatYuan(card.value) }}
+            </h4>
             <div class="mt-2">
               <div class="flex justify-between text-[10px] text-gray-500 mb-1">
                 <span>占比 {{ card.share.toFixed(1) }}%</span>
@@ -173,9 +187,8 @@
               class="border-t hover:bg-gray-50"
             >
               <td class="px-4 py-3 font-medium">
-                {{ item.name }}<span
-                  v-if="item.symbol"
-                  class="text-gray-400 ml-1"
+                {{ item.name
+                }}<span v-if="item.symbol" class="text-gray-400 ml-1"
                   >({{ item.symbol }})</span
                 >
               </td>
@@ -201,7 +214,10 @@
               </td>
             </tr>
             <tr v-if="!recentHoldings.length">
-              <td colspan="5" class="px-4 py-8 text-center text-sm text-gray-400">
+              <td
+                colspan="5"
+                class="px-4 py-8 text-center text-sm text-gray-400"
+              >
                 暂无持仓数据
               </td>
             </tr>
@@ -247,8 +263,12 @@ const latestSnapshot = ref<AssetSnapshotItem | null>(null);
 const positionItems = ref<GroupItem[]>([]);
 
 const totalAssets = computed(() => distributions.value?.total_assets ?? 0);
-const monthlyChangePct = computed(() => latestSnapshot.value?.monthly_change_pct ?? null);
-const yearlyChangePct = computed(() => latestSnapshot.value?.yearly_change_pct ?? null);
+const monthlyChangePct = computed(
+  () => latestSnapshot.value?.monthly_change_pct ?? null
+);
+const yearlyChangePct = computed(
+  () => latestSnapshot.value?.yearly_change_pct ?? null
+);
 
 const categoryCards = computed(() => {
   const dist = distributions.value;
@@ -316,7 +336,9 @@ const initDistributionChart = () => {
           : distributionData.value.map((d, i) => ({
               name: d.name,
               value: d.value,
-              itemStyle: { color: getCssVar(CHART_PALETTE_VARS[i % 8], "#8E8B82") }
+              itemStyle: {
+                color: getCssVar(CHART_PALETTE_VARS[i % 8], "#8E8B82")
+              }
             }))
       }
     ]

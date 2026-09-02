@@ -6,9 +6,9 @@ import os
 from datetime import datetime
 
 from apiflask import APIBlueprint
-from chinese_calendar import find_workday
 from flask import abort, jsonify, request
 
+from app.core.trading_calendar import is_trading_day, next_trading_day
 from app.core.utils import get_confirm_date
 
 utils_bp = APIBlueprint('utils', __name__, url_prefix='/api/utils')
@@ -17,23 +17,18 @@ utils_bp = APIBlueprint('utils', __name__, url_prefix='/api/utils')
 @utils_bp.get('/trading-days/<date>/')
 def get_trading_day(date: str):
     """
-    查询指定日期是否为交易日。
-    如果非交易日（周末或节假日），返回 false。
-    """
-    from chinese_calendar import is_workday
+    查询指定日期是否为**A 股开盘日**（周一至周五 且 非法定节假日）。
 
+    注意与「法定工作日」的区别：调休补班的周末（如 2026-10-10 周六）打工人要上班，
+    但交易所休市，本接口返回 false。判定统一走交易日历唯一出口
+    （`app.core.trading_calendar`，#1217）。
+    """
     try:
         d = datetime.strptime(date, '%Y-%m-%d').date()
     except ValueError:
         abort(400, '日期格式错误，应为 YYYY-MM-DD')
 
-    try:
-        is_trading = is_workday(d)
-    except Exception:
-        # 如果计算失败，保守返回 false（避免错误指引）
-        is_trading = False
-
-    return jsonify({'data': {'date': date, 'is_trading_day': is_trading}, 'message': 'ok'})
+    return jsonify({'data': {'date': date, 'is_trading_day': is_trading_day(d)}, 'message': 'ok'})
 
 
 @utils_bp.get('/config/')
@@ -75,11 +70,11 @@ def calc_fund_confirm_date():
         # 1. 调用已有的万能工具函数，计算真正的确认日 (T+1/T+2)
         confirm_date = get_confirm_date(trade_date, fund_type=fund_type, is_after_15=is_after_15)
 
-        # 2. 利用原逻辑反推“实际净值日（用于拉取净值）”
-        # 如果是 15:00 后，净值日 = 顺延的下一交易日；否则净值日 = 原日期。
+        # 2. 利用原逻辑反推"实际净值日（用于拉取净值）"
+        # 如果是 15:00 后，净值日 = 顺延的下一**开盘日**；否则净值日 = 原日期。
         actual_trade_date = trade_date
         if is_after_15:
-            actual_trade_date = find_workday(delta_days=1, date=trade_date)
+            actual_trade_date = next_trading_day(trade_date)
 
         return jsonify(
             {

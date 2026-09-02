@@ -1,4 +1,5 @@
 import { parseFile, confirmImport as confirmImportApi } from "@/api/importer";
+import { runReconciliation } from "@/api/reconciliation";
 import { navCache } from "@/composables/useNavCache";
 import type { UploadRequestOptions } from "element-plus";
 import { ref, onMounted, computed, reactive, nextTick } from "vue";
@@ -14,9 +15,21 @@ import type { LedgerItem, SalesInstitution } from "@/api/ledger";
 import type { OcrTxnRow } from "@/api/ocr";
 import { ALLOCATION_OPTIONS } from "@/constants";
 import { getTypeLabel } from "@/constants/assetType";
+import { useReconDraft, type ReconDomain } from "@/composables/useReconDraft";
 
 export function useImportWizard() {
   const router = useRouter();
+  // #1239 草稿层：交易/交割单导入 = 域 C
+  const { saveDraft, getDraftWithSet, discardDraft } = useReconDraft();
+  const draftDomain: ReconDomain = "C";
+  /** 当前页面是否正处于草稿恢复的可用状态（仅同域恢复） */
+  const draftBannerVisible = ref(false);
+  /** 恢复时读取到的草稿快照（用于 Banner 展示「恢复/丢弃」） */
+  const pendingDraftMeta = ref<{
+    savedAt: string;
+    rowCount: number;
+    ledgerId: number | null;
+  } | null>(null);
 
   const showMatchDrawer = ref(false);
 
@@ -1047,6 +1060,8 @@ export function useImportWizard() {
         ElMessage.success(`解析完成，共识别 ${totalRows.value} 条记录`);
         currentStep.value = 2;
       }
+      // #1239 草稿层：进入预览步骤即保存草稿（含勾选状态，Set→数组序列化）
+      await persistDraft();
       options.onSuccess(res);
     } catch (e: any) {
       const errorMsg =
@@ -1096,11 +1111,104 @@ export function useImportWizard() {
       orphanCount.value = result.orphan_count ?? 0;
       importErrors.value = result.errors ?? [];
       currentStep.value = 3;
+      // #1232 P1 域 C：导入 commit 成功后自动触发对账（fire-and-forget，与导入事务解耦，§6.2）。
+      // 不阻塞导入完成流程；孤儿流水 → 工作台差异，用户可后续处理。
+      triggerDomainCReconciliation();
+      // #1239 草稿层：导入完成即丢弃草稿，避免残留
+      await discardDraft().catch(() => {});
     } catch (e: any) {
       ElMessage.error(e?.response?.data?.message || "导入失败");
     } finally {
       importing.value = false;
     }
+  }
+
+  /**
+   * 域 C 对账（导入后自动触发，§6.2）。
+   * 静默失败：对账是增值行为，不阻断导入主流程。
+   */
+  async function triggerDomainCReconciliation(): Promise<void> {
+    try {
+      await runReconciliation("C");
+    } catch {
+      /* 静默：对账失败不影响导入结果展示 */
+    }
+  }
+
+  // ── #1239 草稿层：保存 / 恢复 / 丢弃 ──
+  /** 把当前预览状态持久化为草稿（交易导入=域 C，恢复至 Step 2 预览修正） */
+  async function persistDraft(): Promise<void> {
+    try {
+      await saveDraft({
+        domain: draftDomain,
+        ledgerId: selectedLedgerId.value,
+        currentStep: currentStep.value >= 2 ? 2 : currentStep.value,
+        rows: previewData.value,
+        selectedKeys: selectedKeys.value,
+        selectedLedgerId: selectedLedgerId.value,
+        selectedMode: selectedMode.value
+      });
+    } catch (e) {
+      console.warn("保存草稿失败", e);
+    }
+  }
+
+  /** 检查是否存在同域（C）草稿；存在则返回草稿元数据供 Banner 展示 */
+  async function checkDraft(): Promise<boolean> {
+    try {
+      const draft = await getDraftWithSet();
+      if (!draft) return false;
+      // 仅同域（C）直接恢复；跨域草稿交由组件弹窗处理（§5.8）
+      if (draft.domain !== draftDomain) return false;
+      pendingDraftMeta.value = {
+        savedAt: draft.savedAt,
+        rowCount: draft.rows.length,
+        ledgerId: draft.ledgerId
+      };
+      draftBannerVisible.value = true;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** 恢复草稿：回填 previewData / selectedKeys / selectedLedgerId，跳至 Step 2 预览修正 */
+  async function restoreDraft(): Promise<void> {
+    try {
+      const draft = await getDraftWithSet();
+      if (!draft || draft.domain !== draftDomain) return;
+      // 回填账本上下文（Step 0 产出，否则预览页丢失账本上下文）
+      if (draft.selectedLedgerId != null) {
+        selectedLedgerId.value = draft.selectedLedgerId;
+      }
+      if (draft.selectedMode) selectedMode.value = draft.selectedMode;
+      // 回填预览数据（行内编辑状态保留）
+      previewData.value = addRowKeys(draft.rows);
+      totalRows.value = previewData.value.length;
+      // 回填勾选（数组 → Set）
+      selectedKeys.value = new Set(draft.selectedKeySet);
+      // 重算统计
+      duplicateCount.value = previewData.value.filter(
+        r => r.is_duplicate
+      ).length;
+      errorCount.value = previewData.value.filter(r => !!r.error).length;
+      recalcValidRowsCount();
+      updateSelectAllState();
+      showFullTable.value = true;
+      currentStep.value = 2;
+      draftBannerVisible.value = false;
+      pendingDraftMeta.value = null;
+      ElMessage.success("已恢复未完成的导入草稿");
+    } catch {
+      ElMessage.error("恢复草稿失败，请重新导入");
+    }
+  }
+
+  /** 丢弃草稿（Banner「丢弃」入口） */
+  async function discardCurrentDraft(): Promise<void> {
+    await discardDraft().catch(() => {});
+    draftBannerVisible.value = false;
+    pendingDraftMeta.value = null;
   }
 
   async function importNormalOnly() {
@@ -1803,6 +1911,8 @@ export function useImportWizard() {
 
   onMounted(async () => {
     await fetchLedgers();
+    // #1239 草稿层：页面加载后检查是否有同域草稿可恢复
+    await checkDraft();
   });
 
   return {
@@ -1963,6 +2073,11 @@ export function useImportWizard() {
     handleSelectionChange,
     ledgerTypeMap,
     devMode,
-    devJump
+    devJump,
+    draftBannerVisible,
+    pendingDraftMeta,
+    checkDraft,
+    restoreDraft,
+    discardCurrentDraft
   };
 }

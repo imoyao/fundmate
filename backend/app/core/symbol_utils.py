@@ -109,6 +109,8 @@ class StockCodeNormalizer:
         if market == 'SH':
             if code.startswith('11'):
                 return 'bond'
+            if code.startswith(('51', '56', '58')):
+                return 'etf'
             if code.startswith('204'):
                 return 'reverse_repo'
             if code.startswith('97'):
@@ -118,6 +120,8 @@ class StockCodeNormalizer:
         elif market == 'SZ':
             if code.startswith('12'):
                 return 'bond'
+            if code.startswith(('15', '16')):
+                return 'etf'
             if code.startswith('1318'):
                 return 'reverse_repo'
             if code.startswith(('10', '11')):
@@ -281,3 +285,42 @@ _normalizer = StockCodeNormalizer()
 
 def get_normalizer() -> StockCodeNormalizer:
     return _normalizer
+
+
+def split_symbol(symbol: str) -> tuple[Optional[str], Optional[str]]:
+    """SH/SZ/BJ 前缀代码 → (market, code)；纯 6 位数字按首位推断市场；否则 (None, symbol)。
+
+    例如 'SH510050' → ('SH', '510050')、'159915' → ('SZ', '159915')、'110011' → (None, '110011')。
+    供录入阶段按代码前缀推断证券细类（ETF/可转债）时拆分市场与代码。
+    """
+    s = symbol or ''
+    if s[:2] in ('SH', 'SZ', 'BJ'):
+        return s[:2], s[2:]
+    if len(s) == 6 and s.isdigit():
+        if s[0] in '69':
+            return 'SH', s
+        if s[0] in '023':
+            return 'SZ', s
+    return None, s
+
+
+def derive_security_type(code: str, market: str | None = None) -> Optional[str]:
+    """A 股 6 位代码 → 资产细类 stock/etf/bond；非 A 股 6 位代码返回 None（不动）。
+
+    统一「代码→品类」口径，供证券元数据同步与持仓 asset_type 回填复用：
+    - 可转债 bond：沪市 11xxxx（market='SH'）、深市 12xxxx；
+    - ETF：沪市 51xxxx/56xxxx/58xxxx、深市 15xxxx/16xxxx；
+    - 其余常规 A 股（60xxxx、000/002/300/003、601/603/605、688…）为股票 stock。
+    market 用于消除歧义：11xxxx 在沪市为可转债(bond)、深市为货币基金——此时返回 None（不属证券主分类）。
+    边界：511xxx 含场内货币ETF（如华宝添益 511990）按 ETF 计；16xxxx/50xxxx 含少量 LOF，
+    个人券商账户极罕见，不影响 股票/ETF/可转债 主分类。
+    """
+    if not code or len(code) != 6 or not code.isdigit():
+        return None
+    if code[:2] == '11':
+        return 'bond' if market == 'SH' else None
+    if code[:2] == '12':
+        return 'bond'
+    if code[:2] in ('51', '56', '58', '15', '16'):
+        return 'etf'
+    return 'stock'

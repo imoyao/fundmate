@@ -20,7 +20,11 @@
     @click="onCardClick"
   >
     <!-- 封面：走势缩略图 + 类型/状态胶囊 + 编辑/勾选入口 -->
-    <RoadSparkline :series="item.trend" :color="color" :metric-label="metricKindLabel">
+    <RoadSparkline
+      :series="item.trend"
+      :color="color"
+      :metric-label="metricKindLabel"
+    >
       <span class="road-chip road-chip--type">{{ entityLabel }}</span>
       <span class="road-chip road-chip--state" :style="stateChipStyle">
         {{ stateLabel }}

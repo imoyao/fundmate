@@ -264,4 +264,15 @@ function handleSearchInput(value: string) {
   color: var(--text-disabled);
   background-color: transparent;
 }
+
+/* 吸顶兜底：主方案由表格内部滚动使页面不滚动、操作栏本就常驻；
+   此处仅在极端配置导致整页滚动时让操作栏吸顶常驻，背景与页面底一致避免内容穿透 */
+.top-bar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  background: var(--bg-page);
+}
 </style>

@@ -43,7 +43,10 @@
 
     <div ref="listHostRef" v-loading="loading" class="road-waterfall">
       <template v-if="pagedItems.length">
-        <div class="road-masonry" :style="{ columnCount: columns, columnGap: GAP + 'px' }">
+        <div
+          class="road-masonry"
+          :style="{ columnCount: columns, columnGap: GAP + 'px' }"
+        >
           <RoadCard
             v-for="item in pagedItems"
             :key="cardKey(item)"
@@ -236,11 +239,11 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
 
 /* 多列瀑布流：卡片在普通文档流，浏览器原生排版，物理上不会重叠 */
 .road-masonry :deep(.road-card) {
+  width: 100%;
+  margin-bottom: 20px;
   break-inside: avoid;
   -webkit-column-break-inside: avoid;
   page-break-inside: avoid;
-  margin-bottom: 20px;
-  width: 100%;
 }
 
 .road-pagination {

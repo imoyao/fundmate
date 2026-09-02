@@ -25,11 +25,11 @@ from sqlalchemy.orm import Session
 from app.core.constants import PositionSource, ValuationMode
 from app.core.exceptions import ErrorCode, SBException
 from app.core.money import Money
-from app.core.symbol_utils import get_normalizer
+from app.core.symbol_utils import derive_security_type, get_normalizer, split_symbol
 from app.core.utils import get_confirm_date
 from app.domains.funds.models import Fund
 from app.domains.ledgers.models import Ledger
-from app.domains.positions.models import Position, PositionImportMeta
+from app.domains.positions.models import Position, PositionImportMeta, resolve_sales_institution_id
 from app.domains.transactions.models import Transaction
 from app.services.async_backfill import trigger_backfill
 from app.services.importer.records import compute_position_hash
@@ -115,15 +115,29 @@ def auto_purchase_money_fund(
     )
 
 
+# 录入阶段已显式给出的具体类型，直接信任，不再做代码推断（避免误伤基金等）
+_SPECIFIC_ASSET_TYPES = {'etf', 'bond', 'fund', 'money_fund', 'reverse_repo', 'cash'}
+
+
 def _get_asset_type(data: dict, default: str = 'stock') -> str:
     """
-    统一从请求数据中提取资产类型，兼容 `asset_type` 与 `type` 两个 key。
+    录入阶段确定资产类型：显式具体类型 > 代码前缀推断 > 默认 stock。
 
     历史债背景：PositionCreate.asset_type 使用 validation_alias='type'，
     model_dump() 输出的是字段名 `asset_type`，而 importer 路径直接构造 `type` key，
     导致不同调用方传入的 key 不一致。此处收敛读取端，保证流水 asset_type 落库正确。
+
+    分类下沉到录入阶段（#1264 / #1266）：仅当显式类型缺失，或显式为泛化默认 'stock' 时，
+    才按代码前缀推断（沪 51/56/58、深 15/16 → ETF；11/12 → 可转债），
+    以免把已正确标注为 fund/money_fund 的基金（代码前缀可能与股票/可转债重合）误判成股票。
     """
-    return data.get('asset_type') or data.get('type', default)
+    explicit = data.get('asset_type') or data.get('type')
+    if explicit and explicit in _SPECIFIC_ASSET_TYPES:
+        return explicit
+    symbol = data.get('symbol') or ''
+    market, code = split_symbol(symbol)
+    derived = derive_security_type(code, market)
+    return derived or (explicit or default)
 
 
 def _get_default_notes(op_type: str, is_new: bool) -> str:
@@ -162,6 +176,8 @@ def _create_cash_transfer_transaction(db: Session, data: dict, txn_type: str) ->
         import_hash=data.get('import_hash'),
         entry_status='orphan',
         family_id=data.get('family_id', 1),
+        # #1232 决策 11：孤儿/现金转移流水来源透传
+        source=data.get('source'),
     )
     db.flush()
 
@@ -204,6 +220,8 @@ def _create_orphan_transaction(
         import_hash=data.get('import_hash'),
         entry_status='orphan',
         family_id=data.get('family_id', 1),
+        # #1232 决策 11：孤儿流水来源透传
+        source=data.get('source'),
     )
     db.flush()
 
@@ -265,6 +283,8 @@ def _create_dividend_cash_txn(
         import_hash=base_hash,
         entry_status=entry_status,
         family_id=data.get('family_id', 1),
+        # #1232 决策 11：红利再投资分红流水来源透传
+        source=data.get('source'),
     )
     db.flush()
 
@@ -297,6 +317,9 @@ def _build_reinvest_buy_data(data: dict, position: Optional[Position], link_grou
         'import_hash': buy_hash,
         'family_id': data.get('family_id', 1),
         'position_id': position.id if position else None,
+        # #1232 决策 11：红利再投资申购流水来源透传（走 process_buy_or_deposit 落库）。
+        # 缺失时兜底 manual——Position.source 非空校验拒绝 None，而流水 source 缺省可空。
+        'source': data.get('source') or PositionSource.MANUAL.value,
     }
 
 
@@ -434,6 +457,7 @@ class PositionService:
         meta_row.market_value = (
             Money.yuan_to_cents(meta['market_value']) if meta.get('market_value') is not None else None
         )
+        meta_row.sales_institution_id = resolve_sales_institution_id(db, data.get('source_broker'))
         db.flush()
 
         try:
@@ -444,9 +468,15 @@ class PositionService:
         return position
 
     @staticmethod
-    def process_buy_or_deposit(db: Session, data: dict) -> Optional[Position]:
+    def process_buy_or_deposit(db: Session, data: dict, force_create_position: bool = False) -> Optional[Position]:
         """
         执行买入或存入操作，返回更新或新建的持仓实例。
+
+        force_create_position（#1233 决策 5「货基/逆回购保持建持仓」）：
+        - 默认 False（交易导入）：money_fund / reverse_repo 只记孤儿资金流水、不建持仓（既有行为，
+          市值由 `orphan_money_fund_net_by_ledger` 按流水净额计入总资产）；
+        - True（记一笔手动记账）：跳过现金转移分支，照常建持仓，流水关联持仓（position_id 非空），
+          不再计入孤儿净额口径（与 summary 不重复计数，见 test_summary_money_fund 的持仓用例）。
         """
         symbol = data.get('symbol', '')
         qty = data.get('quantity', 0)
@@ -454,8 +484,9 @@ class PositionService:
         op_type = data.get('op_type', 'buy')
         asset_type = _get_asset_type(data)
 
-        # 现金管理类产品：只记录流水，不创建持仓
-        if asset_type in ('money_fund', 'reverse_repo'):
+        # 现金管理类产品：只记录流水，不创建持仓（交易导入既有行为；
+        # 记一笔 force_create_position=True 时跳过此分支，走正常建仓逻辑）
+        if asset_type in ('money_fund', 'reverse_repo') and not force_create_position:
             _create_cash_transfer_transaction(db, data, 'buy')
             return None
 
@@ -489,6 +520,11 @@ class PositionService:
         # 校验数量/价格
         qty = data.get('quantity', 0) or 0
         price = data.get('avg_price', 0) or 0
+        # #1233 货基/逆回购手动建仓：净值恒为 1.0，缺失时兜底，
+        # 避免净值接口不可用时用户无法记货基（买入金额 + 份额已足以建仓）。
+        if force_create_position and asset_type in ('money_fund', 'reverse_repo') and not is_balance and price <= 0:
+            price = 1.0
+            data['avg_price'] = 1.0
         if is_balance:
             # balance 模式没有份额/净值概念，只校验金额——市值即由金额累加而来
             if amount <= 0:
@@ -652,6 +688,8 @@ class PositionService:
                 ledger_id=ledger_id,
                 import_hash=data.get('import_hash'),
                 family_id=family_id,
+                # #1232 决策 11：流水来源与持仓同源（记一笔默认 manual，交易导入/对账补录按 data.source）
+                source=data.get('source') or PositionSource.MANUAL.value,
             )
 
             db.flush()
@@ -750,6 +788,8 @@ class PositionService:
                 notes=data.get('notes') or ('卖出' if op_type == 'sell' else '取出'),
                 import_hash=data.get('import_hash'),
                 family_id=data.get('family_id', 1),
+                # #1232 决策 11：流水来源透传（记一笔默认 manual）
+                source=data.get('source') or PositionSource.MANUAL.value,
             )
 
             # #1137 卖出回款自动申购账户绑定的类现金产品（余额宝）。
@@ -894,6 +934,8 @@ class PositionService:
                 notes=data.get('notes') or '现金分红',
                 import_hash=data.get('import_hash'),
                 family_id=data.get('family_id', 1),
+                # #1232 决策 11：流水来源透传（记一笔默认 manual）
+                source=data.get('source') or PositionSource.MANUAL.value,
             )
 
             db.flush()
@@ -1125,6 +1167,8 @@ class PositionService:
             import_hash=data.get('import_hash'),
             link_group_id=data.get('link_group_id'),
             family_id=family_id,
+            # #1232 决策 11：流水来源透传（记一笔默认 manual）
+            source=data.get('source') or PositionSource.MANUAL.value,
         )
         db.flush()
         return PositionService.recompute_position_from_transactions(db, existing.id)

@@ -19,6 +19,27 @@
       </el-button>
     </header>
 
+    <!-- #1239 草稿层：同域（A）E账户导入草稿恢复 Banner，不弹窗打断 -->
+    <div
+      v-if="draftBannerVisible && pendingDraftMeta"
+      class="draft-banner"
+      role="alert"
+    >
+      <IconifyIconOffline icon="ep:edit-pen" class="draft-banner__icon" />
+      <div class="draft-banner__text">
+        发现未完成的 E账户导入草稿（{{ pendingDraftMeta.rowCount }} 条持仓），
+        是否继续？
+      </div>
+      <div class="draft-banner__actions">
+        <el-button size="small" type="primary" @click="restoreDraft">
+          恢复草稿
+        </el-button>
+        <el-button size="small" text @click="discardCurrentDraft">
+          丢弃
+        </el-button>
+      </div>
+    </div>
+
     <!-- 两步流程指示（与交易导入向导同语言） -->
     <el-steps
       :active="currentStep"
@@ -419,7 +440,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from "vue";
+import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import type { UploadRequestOptions } from "element-plus";
@@ -443,8 +464,17 @@ import MetricCard from "@/components/MetricCard/index.vue";
 import SectionHeader from "@/components/SectionHeader/index.vue";
 import { formatDate } from "@/utils/date";
 import { formatQuantity } from "@/utils/format";
+import { useReconDraft, type ReconDomain } from "@/composables/useReconDraft";
 
 defineOptions({ name: "InvestmentEaccountImport" });
+
+// #1239 草稿层：E账户导入 = 域 A；恢复至预览/对账步骤（currentStep=1）
+const draftDomain: ReconDomain = "A";
+const { saveDraft, getDraftWithSet, discardDraft } = useReconDraft();
+const draftBannerVisible = ref(false);
+const pendingDraftMeta = ref<{ savedAt: string; rowCount: number } | null>(
+  null
+);
 
 /** 兼容「信封 {data}」与「直接返回」两种响应形态（并行 lane 契约以直接返回为准） */
 function unwrap<T>(res: unknown): T {
@@ -655,6 +685,8 @@ async function handleReconcile() {
     const res = await reconcileEaccount(previewRows.value);
     result.value = unwrap<ReconcileResult>(res);
     currentStep.value = 1;
+    // #1239 草稿层：进入对账结果即丢弃草稿（数据已落库）
+    await discardDraft().catch(() => {});
   } catch (e) {
     ElMessage.error(errMsg(e, "对账失败"));
   } finally {
@@ -684,6 +716,68 @@ function resetUpload() {
   fileName.value = "";
   previewPage.value = 1;
 }
+
+// ── #1239 草稿层：保存 / 恢复 / 丢弃（E账户导入=域 A）──
+/** 把当前预览状态持久化为草稿 */
+async function persistDraft(): Promise<void> {
+  try {
+    await saveDraft({
+      domain: draftDomain,
+      ledgerId: null, // E账户导入无显式账户选择，对账结果按快照域聚合
+      currentStep: 1, // 恢复至预览/对账结果步骤
+      rows: previewRows.value
+    });
+  } catch (e) {
+    console.warn("保存草稿失败", e);
+  }
+}
+
+/** 检查是否存在同域（A）草稿；存在则返回元数据供 Banner 展示 */
+async function checkDraft(): Promise<boolean> {
+  try {
+    const draft = await getDraftWithSet();
+    if (!draft || draft.domain !== draftDomain) return false;
+    pendingDraftMeta.value = {
+      savedAt: draft.savedAt,
+      rowCount: draft.rows.length
+    };
+    draftBannerVisible.value = true;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** 恢复草稿：回填 previewRows */
+async function restoreDraft(): Promise<void> {
+  try {
+    const draft = await getDraftWithSet();
+    if (!draft || draft.domain !== draftDomain) return;
+    previewRows.value = draft.rows;
+    parseMeta.value = {
+      total: draft.rows.length,
+      error_count: draft.rows.filter(r => !!r.error).length
+    };
+    currentStep.value = 1;
+    draftBannerVisible.value = false;
+    pendingDraftMeta.value = null;
+    ElMessage.success("已恢复未完成的 E账户导入草稿");
+  } catch (e) {
+    ElMessage.error("恢复草稿失败，请重新导入");
+  }
+}
+
+/** 丢弃草稿（Banner「丢弃」入口） */
+async function discardCurrentDraft(): Promise<void> {
+  await discardDraft().catch(() => {});
+  draftBannerVisible.value = false;
+  pendingDraftMeta.value = null;
+}
+
+// 页面加载后检查同域草稿
+onMounted(() => {
+  checkDraft();
+});
 </script>
 
 <style scoped>
@@ -691,6 +785,34 @@ function resetUpload() {
 .eaccount-import-page {
   font-family: var(--font-ui);
   font-variant-numeric: tabular-nums;
+}
+
+/* ===== #1239 草稿恢复 Banner：中性信息色，非红非弹窗（柔性原则） ===== */
+.draft-banner {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  font-size: var(--text-small);
+  color: var(--text-secondary);
+  background: var(--bg-soft);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+}
+
+.draft-banner__icon {
+  font-size: 16px;
+  color: var(--brand-700);
+}
+
+.draft-banner__text {
+  flex: 1;
+}
+
+.draft-banner__actions {
+  display: flex;
+  gap: 8px;
 }
 
 /* ===== 页头 ===== */

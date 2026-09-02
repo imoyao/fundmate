@@ -542,6 +542,41 @@ const categories = [
     bgVar: "--category-insurance-bg",
     borderVar: "--category-insurance",
     desc: "家庭保障类资产，如寿险、健康险、年金险等。"
+  },
+  {
+    key: "bank_wealth",
+    label: "银行理财",
+    bgVar: "--category-investment-bg",
+    borderVar: "--category-investment",
+    desc: "银行发行的理财产品，如净值型理财、结构性存款等。"
+  },
+  {
+    key: "advisory",
+    label: "投顾",
+    bgVar: "--category-investment-bg",
+    borderVar: "--category-investment",
+    desc: "投资顾问/基金投顾组合类资产。"
+  },
+  {
+    key: "trust",
+    label: "信托",
+    bgVar: "--category-investment-bg",
+    borderVar: "--category-investment",
+    desc: "信托计划类资产。"
+  },
+  {
+    key: "private_fund",
+    label: "私募",
+    bgVar: "--category-investment-bg",
+    borderVar: "--category-investment",
+    desc: "私募证券/股权类基金产品。"
+  },
+  {
+    key: "wealth_insurance",
+    label: "理财型保险",
+    bgVar: "--category-investment-bg",
+    borderVar: "--category-investment",
+    desc: "兼具理财属性的保险产品，如增额终身寿、年金险（理财型）。"
   }
 ];
 

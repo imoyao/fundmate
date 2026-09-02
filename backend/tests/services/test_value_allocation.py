@@ -9,6 +9,7 @@
 - ledger_id 过滤只分摊到单账户
 """
 
+from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -110,3 +111,96 @@ def test_allocate_ledger_filter(db):
     assert len(result['allocations']) == 1
     assert result['allocations'][0]['ledger_id'] == ledger_b
     assert result['allocations'][0]['allocated_yuan'] == 1000.0
+
+
+# ---------------------------------------------------------------------------
+# 资金进出检测与「下一个开盘日」提示（#1217）
+# ---------------------------------------------------------------------------
+def test_no_hint_on_first_allocation(db):
+    """首次录入市值：没有 value_override_at 基准，不应误报资金进出。"""
+    _make_balance(db, 'CF1', 'A', 6000.0)
+    result = allocate_value(db, 1, 'CF1', 10000.0)
+    db.commit()
+
+    assert result['cash_flow_detected'] is False
+    assert result['next_trading_day'] is None
+
+
+def test_hint_when_cash_flow_after_last_override(db, make_transaction):
+    """上次录入市值之后发生申购 → 提示在下一个开盘日更新其他存量持仓。"""
+    pos_a = _make_balance(db, 'CF2', 'A', 6000.0)
+    allocate_value(db, 1, 'CF2', 12000.0, as_of=date(2026, 8, 1))  # 建立基准
+    db.commit()
+
+    make_transaction(
+        position_id=pos_a.id,
+        ledger_id=pos_a.ledger_id,
+        txn_type='buy',
+        quantity=100.0,
+        price=10.0,
+        amount=1000.0,
+        confirm_date=date(2026, 8, 20),
+        symbol='CF2',
+    )
+    db.commit()
+
+    result = allocate_value(db, 1, 'CF2', 15000.0, as_of=date(2026, 8, 31))
+    db.commit()
+
+    assert result['cash_flow_detected'] is True
+    assert result['next_trading_day'] is not None
+
+
+def test_no_hint_when_cash_flow_before_baseline(db, make_transaction):
+    """基准日**之前**的流水不算资金进出（分摊基数没有被它影响）。"""
+    pos_a = _make_balance(db, 'CF3', 'A', 6000.0)
+    allocate_value(db, 1, 'CF3', 12000.0, as_of=date(2026, 8, 1))
+    db.commit()
+
+    make_transaction(
+        position_id=pos_a.id,
+        ledger_id=pos_a.ledger_id,
+        txn_type='buy',
+        quantity=100.0,
+        price=10.0,
+        amount=1000.0,
+        confirm_date=date(2026, 7, 20),
+        symbol='CF3',
+    )
+    db.commit()
+
+    result = allocate_value(db, 1, 'CF3', 15000.0, as_of=date(2026, 8, 31))
+    db.commit()
+
+    assert result['cash_flow_detected'] is False
+    assert result['next_trading_day'] is None
+
+
+def test_hint_next_trading_day_skips_adjusted_weekend(db, make_transaction):
+    """提示的「下一个开盘日」必须跳过调休补班的周末（交易日历唯一出口）。"""
+    from app.core.trading_calendar import is_trading_day
+
+    pos_a = _make_balance(db, 'CF4', 'A', 6000.0)
+    allocate_value(db, 1, 'CF4', 12000.0, as_of=date(2026, 9, 1))
+    db.commit()
+
+    make_transaction(
+        position_id=pos_a.id,
+        ledger_id=pos_a.ledger_id,
+        txn_type='buy',
+        quantity=100.0,
+        price=10.0,
+        amount=1000.0,
+        confirm_date=date(2026, 10, 1),
+        symbol='CF4',
+    )
+    db.commit()
+
+    # as_of = 2026-10-09(周五)，下一个开盘日应跳过调休周六 10-10，落到 10-12(周一)
+    result = allocate_value(db, 1, 'CF4', 15000.0, as_of=date(2026, 10, 9))
+    db.commit()
+
+    assert result['cash_flow_detected'] is True
+    next_day = date.fromisoformat(result['next_trading_day'])
+    assert next_day == date(2026, 10, 12)
+    assert is_trading_day(next_day) is True

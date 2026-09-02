@@ -135,10 +135,11 @@ DEFAULT_TYPE_STOCK = 'stock'
 USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
 DEFAULT_REQUEST_TIMEOUT = 15
 
-# ── 持仓数据来源（Position.source / PositionImportMeta.source）──
-# 维护入口（唯一真相源）：所有写入 positions.source 的代码都必须引用本枚举，
-# 禁止在各处硬编码字符串字面量。取值语义见 POSITION_SOURCE_LABELS。
-# 前端通过 GET /api/utils/enums 获取 label，禁止前端手抄一份（避免双份漂移）。
+# ── 来源标识（全系统，positions.source / transactions.source / PositionImportMeta.source 共用）──
+# 维护入口（唯一真相源）：所有写入来源的代码都必须引用本枚举，禁止在各处硬编码字符串字面量。
+# 取值语义见 POSITION_SOURCE_LABELS。前端通过 GET /api/utils/enums 获取 label，禁止前端手抄一份。
+# 本枚举为「全系统来源标识」，positions 与 transactions 两表共用（#1232 决策 11），
+# 避免「同一个 manual 在两表含义不同」的歧义。
 
 
 class PositionSource(str, Enum):
@@ -154,6 +155,7 @@ class PositionSource(str, Enum):
     AI_TXN = 'ai_txn'  # AI 交易流水识别（ocr，最终合并进持仓）
     AI_HOLDING = 'ai_holding'  # AI 持仓识别
     EXPLORE = 'explore'  # 探市页面用户录入
+    RECONCILIATION_ADJUSTMENT = 'reconciliation_adjustment'  # 对账补录/调整（统一对账工作台，域 B/C）
 
 
 # 单一真相源：PositionSource.value -> 中文 label，仅在此处维护
@@ -170,6 +172,7 @@ POSITION_SOURCE_LABELS: dict[str, str] = {
     PositionSource.AI_TXN.value: 'AI交易识别',
     PositionSource.AI_HOLDING.value: 'AI持仓识别',
     PositionSource.EXPLORE.value: '探市录入',
+    PositionSource.RECONCILIATION_ADJUSTMENT.value: '对账补录',
 }
 
 

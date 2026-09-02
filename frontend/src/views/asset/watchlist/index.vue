@@ -84,13 +84,16 @@
           表格视觉基线（边框/表头/hover/文字色）统一在 src/style/el-table.css 维护，
           勿在本页 :deep(.el-table) 覆盖视觉基线；本页保留的 :deep 仅限行内行为样式。
           行高例外（2026-08-15）：全局基线 44px 偏松，自选页信息密度优先，本页覆盖为 40px
-          （EP 默认行高，tr height 为最小高度语义，两行式名称列自动撑高不裁切）；
-          覆盖规则见本页 style 区「本页行高覆盖」注释。
+          （EP 默认行高，tr height 为最小高度语义，内容超出时自动撑高不裁切）。
+          #1281 后行内已无多行单元格：名称列改单行紧凑（名称+代码+类型+标签圆点同行），
+          金额/占比列由两行堆叠改内联单行，故行高稳定落在 40px 基线（design.md 密集场景
+          锁定 40–44px），单屏可见行数相比先前三行式（约 78px）翻倍。
         -->
       <el-table
         ref="tableRef"
         v-loading="loading"
         :data="items"
+        :max-height="tableMaxHeight"
         stripe
         @selection-change="handleSelectionChange"
         @sort-change="handleSortChange"
@@ -158,7 +161,7 @@
           layout="total, prev, pager, next"
           small
           background
-          @current-change="fetchData"
+          @current-change="() => fetchData(false)"
         />
       </div>
     </CardBlock>
@@ -229,7 +232,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from "vue";
+import {
+  ref,
+  computed,
+  onMounted,
+  onActivated,
+  onBeforeUnmount,
+  watch,
+  nextTick
+} from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import Sortable from "sortablejs";
 import AddToWatchlistModal from "@/components/QuickEntry/AddToWatchlistModal.vue";
@@ -294,6 +305,7 @@ const {
 const { allTags, selectedFilterTagIds, fetchTags } = tags;
 const {
   items,
+  allItems,
   loading,
   currentPage,
   pageSize,
@@ -404,7 +416,9 @@ function marketValueRatio(row: {
 }
 
 const getHoldings = (): Holding[] => {
-  return items.value
+  // 估值汇总必须基于全量过滤结果（allItems），而非当前页（items），
+  // 否则翻页时总市值/总成本/总盈亏会随当前页跳变（#1245）。
+  return allItems.value
     .filter(item => item.symbol)
     .map(item => ({
       symbol: item.symbol,
@@ -423,7 +437,7 @@ const getHoldings = (): Holding[] => {
 };
 
 const getStaticPrice = (symbol: string) => {
-  const item = items.value.find(i => i.symbol === symbol);
+  const item = allItems.value.find(i => i.symbol === symbol);
   return item
     ? { currentPrice: item.current_price, changePct: item.change_pct }
     : undefined;
@@ -568,10 +582,28 @@ onMounted(() => {
     fetchData();
   });
   initHeaderDrag();
+  recalcTableMaxHeight();
 });
 
 // ── #992 表头列拖拽：sortablejs 复用（RePureTableBar 同款方案）──
 const tableRef = ref();
+
+// 表格内部滚动：动态计算可用高度，使卡片占满视口、页面不滚动，
+// 表头固定、工具栏/筛选条常驻可见（keep-alive 切回 / 窗口缩放 / 估值条或批量条显隐后需重算）
+const tableMaxHeight = ref(520);
+function recalcTableMaxHeight() {
+  nextTick(() => {
+    const el = tableRef.value?.$el as HTMLElement | null;
+    if (!el) return;
+    // rect.top 已是「工具栏 + 筛选条 + 估值条」等上方区块的真实高度，
+    // 用视口高减去它，再预留分页器与卡片底边空间，即为表格可滚动高度
+    const reserve = 96;
+    tableMaxHeight.value = Math.max(
+      240,
+      Math.floor(window.innerHeight - el.getBoundingClientRect().top - reserve)
+    );
+  });
+}
 
 /** 给可拖拽中段列提交新顺序（固定列/内置列不参与，见 columnDefs.draggable） */
 function initHeaderDrag() {
@@ -606,6 +638,14 @@ function initHeaderDrag() {
 }
 
 const realtimeEnabled = computed(() => realtime.enabled.value);
+
+// 自适应高度：keep-alive 切回 / 窗口缩放 / 估值条或批量条显隐 / 数据加载完成时重算
+onActivated(recalcTableMaxHeight);
+watch([realtimeEnabled, batchMode, loading], recalcTableMaxHeight);
+window.addEventListener("resize", recalcTableMaxHeight);
+onBeforeUnmount(() =>
+  window.removeEventListener("resize", recalcTableMaxHeight)
+);
 
 // ── #995 columnDefs 数据驱动 + #993 列显隐：visibleColumns 已按用户隐藏集过滤
 //（仅 selection 因 type="selection" 无法 renderer 化，保留模板）──
@@ -760,7 +800,9 @@ const renderCtx = computed<RenderCtx>(() => ({
 
 /* 本页行高覆盖：全局基线 44px（el-table.css）偏松，自选页信息密度优先，降为 40px（EP 默认行高）。
    覆盖理由：全局 44px 为 2026-08-14 基线，影响探市/温度计等页面，不宜全局下调；
-   本页名称列为两行式（名称+标签），tr height 为最小高度语义，40px 下多行内容仍自动撑高不裁切。 */
+   本页取 design.md「数据表格强制紧凑原则」下界 40px（密集场景锁定 40–44px），
+   兼顾金融数据点击热区（规范明确「紧凑模式下列表项高度保持 40px，不缩小」）。
+   #1281 后行内最高单元格为操作列的 24px 圆形按钮，24 + 8×2 padding = 40px，行高稳定不撑开。 */
 :deep(.el-table .el-table__row) {
   height: 40px;
 }

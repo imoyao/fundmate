@@ -39,7 +39,7 @@ class Asset(Base):
     major_category = Column(
         String(20),
         nullable=False,
-        comment='大类：cash(流动资金), fixed(固定资产), receivable(应收款), liability(负债), insurance(保险), custom(自定义)',
+        comment='大类：cash(流动资金)/fixed(固定资产)/investment(投资理财)/receivable(应收款)/liability(负债)/insurance(保险)/real_estate(房产)/precious_metal(贵金属)/custom(自定义)/bank_wealth(银行理财)/advisory(投顾)/trust(信托)/private_fund(私募)/wealth_insurance(理财型保险)',
     )
     minor_category = Column(
         String(50),

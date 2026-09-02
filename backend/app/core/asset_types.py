@@ -55,6 +55,11 @@ ASSET_CATEGORY_LABELS: dict[str, str] = {
     'real_estate': '房产',
     'precious_metal': '贵金属',
     'custom': '自定义',
+    'bank_wealth': '银行理财',
+    'advisory': '投顾',
+    'trust': '信托',
+    'private_fund': '私募',
+    'wealth_insurance': '理财型保险',
 }
 
 # ── 不参与投资收益 / 资产配置口径计算的资产类型 ──
