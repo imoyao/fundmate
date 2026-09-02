@@ -40,6 +40,8 @@ def _backfill_fund_nav(fund_code: str):
                         'fund_code': fund_code,
                         'date': r['date'],
                         'nav_per_10k': r['unit_nav'],
+                        # #863 P0-4：与 fund_nav_job 一致，新写入标记 v2_recalc
+                        'source_version': 'v2_recalc',
                     }
                 )
             else:

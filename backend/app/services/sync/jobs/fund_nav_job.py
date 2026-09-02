@@ -95,6 +95,8 @@ class FundNavSyncJob(SyncJob):
                         'date': item['date'],
                         'nav_per_10k': item['unit_nav'],
                         'annual_return_7d': None,  # 暂不计算
+                        # #863 P0-4：新写入显式标记重算来源，与存量 legacy_dirty 旧数据区分
+                        'source_version': 'v2_recalc',
                     }
                 )
             else:
