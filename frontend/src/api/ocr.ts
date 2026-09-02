@@ -85,7 +85,7 @@ type RecognizeResponse = {
 export const getOcrUsage = (feature: string = "ocr_import") => {
   return http.request<OcrUsageResult>(
     "get",
-    `/api/ocr/usage?feature=${feature}`
+    `/api/usage/${feature}`
   );
 };
 

@@ -149,12 +149,12 @@ POST /api/ocr/recognize?scenario=watchlist_import   # 图片识别（默认，�
 POST /api/ocr/parse?scenario=watchlist_import       # 文本识别（默认，兼容现状）
 POST /api/ocr/recognize?scenario=txn_import         # 持仓图片识别
 POST /api/ocr/parse?scenario=txn_import             # 持仓文本识别
-GET  /api/ocr/usage?feature=ocr_import|txn_import   # 按 feature 查剩余次数
+GET  /api/usage/<feature>   # feature=ocr_import|txn_import，按 feature 查剩余次数
 ```
 
 - 请求体不变（`image_base64` / `text`），响应按场景返回对应候选行数组；
 - `scenario` 缺省 = `watchlist_import`（旧前端零改动）；
-- 用量查询增加 `feature` 参数（缺省 `ocr_import`）。
+- 用量查询收敛到独立端点 `GET /api/usage/<feature>`（feature 即限次功能名：`ocr_import`/`txn_import` 等）。
 
 ## 6. 前端复用
 
@@ -186,7 +186,7 @@ GET  /api/ocr/usage?feature=ocr_import|txn_import   # 按 feature 查剩余次�
 - 正则层：`代码 名称? 买卖 金额` 简单排版零成本，其余自然语言夹杂排版落入 LLM（便宜模型）。
 
 **P4（API 泛化 + 前端提交闭环）**
-- 后端：`/api/ocr/recognize|parse` 新增请求体 `scenario`（缺省 watchlist_import 旧前端零改动）；`/api/ocr/usage?feature=ocr_import|txn_import` 按 feature 独立限次；txn 场景返回与 `parse_and_preview` **同构的预览行**（`op_type`/`op_type_label`/`trade_date`/`quantity`/`price`/`amount` 等），前端零改造直接复用既有「预览与修正」表格。
+- 后端：`/api/ocr/recognize|parse` 新增请求体 `scenario`（缺省 watchlist_import 旧前端零改动）；`/api/usage/<feature>` 按 feature 独立限次（feature=`ocr_import`/`txn_import`）；txn 场景返回与 `parse_and_preview` **同构的预览行**（`op_type`/`op_type_label`/`trade_date`/`quantity`/`price`/`amount` 等），前端零改造直接复用既有「预览与修正」表格。
 - **P5 部分的管线级共享（importer 轻量增强，行为不变）**：`records.compute_record_hash`（哈希口径抽为模块函数，`BaseImportParser.compute_import_hash` 委托）、`ImportOrchestrator.preview_records`（外部候选记录 → enrich + 哈希 + 行转换 + 去重标记），AI 提交复用 `commit_from_preview` 既有入库链路。未做「AI 与模板解析共用顶层超类」——两者关注点不同，共享边界就是预览/入库管线。
 - 前端：`src/api/ocr.ts` 增加 scenario 参数与 `OcrTxnRow` 类型；导入页（`investment/import`）新增「AI 截图/文本识别」入口与 `AiImportModal`（复用 `ImageUploader`，图片/文本双入口，展示 txn_import 独立额度），识别行灌入既有 `previewData` 预览表格逐行人工核对 → 一键 `/api/importers/confirm`。
 

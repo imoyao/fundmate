@@ -13,11 +13,11 @@
         txn_import      交易记录导入
         holding_import  持仓截图导入
         scheduled_sync  定时同步（规划中）
-    feature 透传给 guards.check_usage，未知 feature 不会 400（行为同 /api/ocr/usage）。
+    feature 透传给 guards.check_usage，未知 feature 不会 400（与历史别名实现行为一致）。
 
 鉴权：非白名单接口，需登录；当前用户从 g.current_user 取（core/auth.py 注入）。
 注意：本端点为只读查询，但 guards.check_usage 在当日行不存在时会建行（used=0），
-与既有 /api/ocr/usage 行为一致——仅产生一条 0 用量的占位行，无副作用风险。
+与历史实现行为一致——仅产生一条 0 用量的占位行，无副作用风险。
 """
 
 from datetime import date, timedelta

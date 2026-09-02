@@ -42,3 +42,8 @@ class TestUsageApi:
         data = resp.get_json()['data']
         assert data['feature'] == 'scheduled_sync'
         assert data['used'] == 0
+
+    def test_ocr_usage_alias_removed(self, client, db):
+        """历史别名 /api/ocr/usage 已收敛到 /api/usage/<feature>，应返回 404。"""
+        resp = client.get('/api/ocr/usage')
+        assert resp.status_code == 404

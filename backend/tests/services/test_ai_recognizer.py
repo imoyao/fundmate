@@ -226,8 +226,8 @@ class TestTxnScenarioAPI:
             ),
         )
         client.post('/api/ocr/parse', json={'text': '复杂文本 110011', 'scenario': 'txn_import'})
-        watch = client.get('/api/ocr/usage').get_json()['data']  # 默认 feature=ocr_import
-        txn = client.get('/api/ocr/usage?feature=txn_import').get_json()['data']
+        watch = client.get('/api/usage/ocr_import').get_json()['data']  # 默认 feature=ocr_import
+        txn = client.get('/api/usage/txn_import').get_json()['data']
         assert txn['used'] == 1
         assert watch['used'] == 0
 
@@ -342,9 +342,9 @@ class TestHoldingScenarioAPI:
             lambda content, system_prompt, **kw: '[{"code":"110011","name":"易方达中小盘","market_value":1000}]',
         )
         client.post('/api/ocr/parse', json={'text': '持仓', 'scenario': 'holding_import'})
-        ocr = client.get('/api/ocr/usage').get_json()['data']
-        txn = client.get('/api/ocr/usage?feature=txn_import').get_json()['data']
-        holding = client.get('/api/ocr/usage?feature=holding_import').get_json()['data']
+        ocr = client.get('/api/usage/ocr_import').get_json()['data']
+        txn = client.get('/api/usage/txn_import').get_json()['data']
+        holding = client.get('/api/usage/holding_import').get_json()['data']
         assert holding['used'] == 1
         assert ocr['used'] == 0
         assert txn['used'] == 0

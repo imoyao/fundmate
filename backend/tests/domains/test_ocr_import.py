@@ -51,7 +51,7 @@ class TestUsage:
     def test_usage_initial_remaining(self, client, db):
         """首次查询用量：used=0, remaining=quota（读环境配置，默认 5）。"""
         quota = ocr_service.OCR_DAILY_QUOTA
-        resp = client.get('/api/ocr/usage')
+        resp = client.get('/api/usage/ocr_import')
         assert resp.status_code == 200
         data = resp.get_json()['data']
         assert data['used'] == 0
@@ -165,7 +165,7 @@ class TestRecognize:
         resp = _post(client, '/api/ocr/recognize', {'image_base64': img_b64})
         assert resp.status_code == 503
         # 失败后用量回到初始（0 次），下一次仍可正常识别
-        data = client.get('/api/ocr/usage').get_json()['data']
+        data = client.get('/api/usage/ocr_import').get_json()['data']
         assert data['used'] == 0
         assert data['remaining'] == ocr_service.OCR_DAILY_QUOTA
 
