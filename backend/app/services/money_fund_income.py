@@ -31,6 +31,7 @@ import datetime as dt
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Dict, List, Optional
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.money import Money
@@ -72,6 +73,8 @@ def _collect_orphan_flows(db: Session, family_id: int, ledger_id: Optional[int])
         Transaction.position_id.is_(None),
         Transaction.asset_type.in_(_ORPHAN_ASSET_TYPES),
         Transaction.family_id == family_id,
+        # #863 D1：收益行（is_income）不进本金基线，防止收益再产生收益
+        or_(Transaction.is_income.is_(None), Transaction.is_income.is_(False)),
     )
     if ledger_id is not None:
         query = query.filter(Transaction.ledger_id == ledger_id)

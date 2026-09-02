@@ -231,6 +231,17 @@ def create_position():
     _validate_price_within_range(data)
     data['family_id'] = get_family_id()
     op_type = data.get('op_type', 'buy')
+    # #863 P0-3：手动记账 type 归一——货基代码被误标普通 fund 时自动修正为 money_fund
+    # （前端 resolveFundAssetType 已兜底；后端归一防绕过前端直接调 API 的脏数据）
+    if op_type in ('buy', 'deposit') and data.get('asset_type') == 'fund' and data.get('symbol'):
+        try:
+            from app.services.fund_utils import is_money_fund_symbol
+
+            if is_money_fund_symbol(str(data['symbol'])):
+                logger.info('货基 type 归一：symbol=%s asset_type fund -> money_fund', data['symbol'])
+                data['asset_type'] = 'money_fund'
+        except Exception:
+            logger.warning('货基 type 归一查询失败（market 名录不可达），保留原类型', exc_info=True)
     with get_db() as db:
         try:
             if op_type in ('sell', 'withdraw'):
