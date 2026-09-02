@@ -548,6 +548,56 @@ def sync_issue_to_feedlog(
         print(f"  ❌ 更新 FeedLog 帖子 {post_id} 失败")
 
 
+def sync_recent_edited(conn, state: dict[str, Any], hours: int = 24) -> None:
+    """每日限频回灌：把最近 N 小时内被编辑（updated）的 issue 内容同步回 FeedLog。
+
+    替代原 issues.edited 实时触发——edits 频率极高（今天贡献大量 issue 事件运行），
+    实时触发浪费 Actions 分钟。改为每日定时跑一次（见 bridge-edited-sync.yml），
+    批量把最近 edited 的 issue 标题/正文覆盖回对应 FeedLog 帖子（修复 GitHub 端
+    手动修正的乱码镜像）。无对应帖子的 issue 跳过，不新建。
+    """
+    from datetime import timedelta
+
+    since_dt = datetime.now(timezone.utc) - timedelta(hours=hours)
+    gh = get_gh()
+    repo = gh.get_repo(os.environ["GITHUB_REPO"])
+    issues = repo.get_issues(state="all", since=since_dt)
+
+    handled = 0
+    for issue in issues:
+        # PyGithub 把 PR 也混进 get_issues，跳过以免误处理
+        if getattr(issue, "pull_request", None) is not None:
+            continue
+        # 反查该 issue 对应的 FeedLog 帖子（state 映射优先，DB slug 兜底）
+        post_id = None
+        for pid, info in state.get("posts", {}).items():
+            if info.get("issue_number") == issue.number:
+                post_id = pid
+                break
+        if not post_id:
+            org_id = get_org_id(conn)
+            cur = conn.cursor()
+            cur.execute(
+                """SELECT id FROM "post" WHERE org_id = %s AND slug = %s""",
+                (org_id, f"gh-issue-{issue.number}"),
+            )
+            row = cur.fetchone()
+            if row:
+                post_id = row["id"]
+        if not post_id:
+            # 该 issue 无 FeedLog 帖子，跳过（只回灌已映射内容，不新建）
+            continue
+        if update_post_from_issue(conn, post_id, issue.title, issue.body or ""):
+            print(f"  ✅ 已回灌更新帖子 {post_id} ← Issue #{issue.number}")
+            handled += 1
+        else:
+            print(f"  ℹ️ Issue #{issue.number} 内容与帖子一致，无更新")
+    if handled == 0:
+        print(f"📭 最近 {hours}h 内无需要回灌的 issue 编辑")
+    else:
+        print(f"🎉 回灌完成，更新 {handled} 条 FeedLog 帖子")
+
+
 def sync_release_to_changelog(
     conn,
     repo,
@@ -634,6 +684,18 @@ def main():
         "--update",
         action="store_true",
         help="对已映射 FeedLog 帖子的 Issue，用 GitHub 最新标题/正文覆盖（修复乱码镜像）",
+    )
+
+    # github → feedlog（每日限频回灌）：批量同步最近 edited 的 issue 内容
+    edited_sync_cmd = sub.add_parser(
+        "sync-recent-edited",
+        help="每日限频：把最近 N 小时内被编辑的 issue 内容回灌 FeedLog（替代实时 edited 触发）",
+    )
+    edited_sync_cmd.add_argument(
+        "--hours",
+        type=int,
+        default=24,
+        help="回灌时间窗（小时），默认 24（即每天跑一次）",
     )
 
     args = parser.parse_args()
@@ -793,6 +855,13 @@ def main():
                         rel.body or "",
                         rel.published_at.isoformat() if rel.published_at else None,
                     )
+        finally:
+            conn.close()
+
+    elif args.command == "sync-recent-edited":
+        conn = get_db()
+        try:
+            sync_recent_edited(conn, state, hours=args.hours)
         finally:
             conn.close()
 

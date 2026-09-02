@@ -24,6 +24,9 @@ from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
 from app.domains.summary.models import AssetSnapshot
 from app.domains.transactions.models import Transaction
+
+# #863 口径 A：现金等价物（货基/逆回购）持仓聚合分类单点工具
+from app.services.fund_utils import is_cash_equivalent_position
 from app.services.pnl_service import (
     family_realized_pnl_cents,
     net_invested_by_position,
@@ -66,16 +69,25 @@ def _load_user_assets(db: Session, family_id: int) -> tuple[list[Type[Position]]
 # get_overview_stats）统一经 orphan_money_fund_net_by_ledger 并入，保证只计一次。
 # 判定用 position_id IS NULL 而非 entry_status='orphan'：新建路径两者等价，
 # 但历史导入器早期数据的 entry_status 可能不统一，position_id IS NULL 更可靠、更宽松。
+# #863 D1：本金净额口径排除 is_income 收益行——收益只进收益桶，不膨胀本金。
 # ---------------------------------------------------------------------------
 _ORPHAN_FLOW_ASSET_TYPES = ('money_fund', 'reverse_repo')
 _ORPHAN_FLOW_POSITIVE_TYPES = ('buy', 'deposit')
 _ORPHAN_FLOW_NEGATIVE_TYPES = ('sell', 'withdraw')
 
 
-def orphan_money_fund_net_by_ledger(db: Session, family_id: int) -> dict[int, int]:
-    """孤儿货基/逆回购流水净额（分），按 ledger_id 归组，None → 0（游离）。
+def _not_income_filter(cls) -> Any:
+    """SQLAlchemy 过滤：is_income 列未标记或为 False（排除收益行）。"""
+    from sqlalchemy import or_
 
-    口径：asset_type IN ('money_fund','reverse_repo') 且 position_id IS NULL；
+    return or_(cls.is_income.is_(None), cls.is_income.is_(False))
+
+
+def orphan_money_fund_net_by_ledger(db: Session, family_id: int) -> dict[int, int]:
+    """孤儿货基/逆回购流水**本金净额**（分），按 ledger_id 归组，None → 0（游离）。
+
+    口径：asset_type IN ('money_fund','reverse_repo') 且 position_id IS NULL
+    且**非收益行**（is_income 不为 True，见 #863 D1）；
     净额 = buy/deposit 金额 − sell/withdraw 金额（amount 为分，全程整数运算，
     禁止裸 float 乘除）。净额为 0 的组直接丢弃，避免产生空分组。
     返回 {ledger_id: 净额分}：ledger 有效的净额并入对应账户，悬空（None/已删）
@@ -87,6 +99,7 @@ def orphan_money_fund_net_by_ledger(db: Session, family_id: int) -> dict[int, in
             Transaction.family_id == family_id,
             Transaction.asset_type.in_(_ORPHAN_FLOW_ASSET_TYPES),
             Transaction.position_id.is_(None),
+            _not_income_filter(Transaction),
         )
         .all()
     )
@@ -102,6 +115,38 @@ def orphan_money_fund_net_by_ledger(db: Session, family_id: int) -> dict[int, in
         key = lid or 0
         net_map[key] = net_map.get(key, 0) + delta
     return {k: v for k, v in net_map.items() if v != 0}
+
+
+def orphan_money_fund_income_by_ledger(db: Session, family_id: int) -> dict[int, int]:
+    """孤儿货基/逆回购**渠道收益累计**（分，#863 D1 收益桶），按 ledger_id 归组。
+
+    口径：asset_type IN ('money_fund','reverse_repo') 且 position_id IS NULL
+    且 is_income=True（渠道导入的收益发放流水，如支付宝「收益发放」映射 deposit）。
+    方向同本金净额：buy/deposit 为正、sell/withdraw 为负（纠错类收益行）。
+    收益桶只并入总资产，**禁止**进入本金/孤儿净额口径。
+    """
+    rows = (
+        db.query(Transaction.ledger_id, Transaction.txn_type, Transaction.amount)
+        .filter(
+            Transaction.family_id == family_id,
+            Transaction.asset_type.in_(_ORPHAN_FLOW_ASSET_TYPES),
+            Transaction.position_id.is_(None),
+            Transaction.is_income.is_(True),
+        )
+        .all()
+    )
+    income_map: dict[int, int] = {}
+    for lid, txn_type, amount in rows:
+        amount = amount or 0
+        if txn_type in _ORPHAN_FLOW_POSITIVE_TYPES:
+            delta = amount
+        elif txn_type in _ORPHAN_FLOW_NEGATIVE_TYPES:
+            delta = -amount
+        else:
+            continue
+        key = lid or 0
+        income_map[key] = income_map.get(key, 0) + delta
+    return {k: v for k, v in income_map.items() if v != 0}
 
 
 def get_summary_data(db: Session, family_id: int = 1) -> dict[str, Any]:
@@ -153,6 +198,9 @@ def get_summary_data(db: Session, family_id: int = 1) -> dict[str, Any]:
     # 孤儿货基/逆回购流水净额并入总资产（流动资金；净额可为负，按负数处理）
     orphan_net = sum(orphan_money_fund_net_by_ledger(db, family_id).values())
     total_assets += Money.cents_to_yuan(orphan_net)
+    # #863 D1 收益桶：渠道 is_income 流水（已确认收益）并入总资产，单独累计、不膨胀本金
+    income_net = sum(orphan_money_fund_income_by_ledger(db, family_id).values())
+    total_assets += Money.cents_to_yuan(income_net)
 
     # 已实现盈亏以流水为事实源，含已清仓持仓的结转盈亏与孤儿分红
     realized_cents = family_realized_pnl_cents(db, family_id)
@@ -215,6 +263,8 @@ def get_sankey_data(db: Session, family_id: int = 1) -> dict[str, list[dict[str,
     investment_total = 0.0
     alloc_map: dict[str, float] = defaultdict(float)
     alloc_type_map: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    # #863 口径 A：现金等价物持仓市值（货基/逆回购）独立统计，分类归「流动资金」
+    cash_equiv_total = 0.0
 
     for p in positions:
         rate = EXCHANGE_RATES.get(p.currency, 1.0)
@@ -223,6 +273,9 @@ def get_sankey_data(db: Session, family_id: int = 1) -> dict[str, list[dict[str,
             continue
 
         investment_total += mv
+        if is_cash_equivalent_position(p):
+            # #863 口径 A：货基/逆回购持仓市值归「流动资金/cash」而非「投资理财」
+            cash_equiv_total += mv
 
         # 五笔钱分配
         alloc = p.allocation or _DEFAULT_ALLOC
@@ -234,15 +287,15 @@ def get_sankey_data(db: Session, family_id: int = 1) -> dict[str, list[dict[str,
         display_name = TYPE_LABELS.get(type_name, type_name)
         alloc_type_map[alloc_label][display_name] += mv
 
-    # 将投资理财总额归入大类
-    category_totals[_INVESTMENT_KEY] += investment_total
+    # 将投资理财总额归入大类（扣除现金等价物持仓，货基不占「投资理财」）
+    category_totals[_INVESTMENT_KEY] += investment_total - cash_equiv_total
     total_assets += investment_total
 
-    # 孤儿货基/逆回购流水净额归入「流动资金/cash」大类（分 → 元；净额可为负）
+    # 现金等价物持仓市值 + 孤儿流水本金净额 + 渠道收益 并入「流动资金/cash」大类
     orphan_net = sum(orphan_money_fund_net_by_ledger(db, family_id).values())
-    orphan_yuan = Money.cents_to_yuan(orphan_net)
-    category_totals['cash'] += orphan_yuan
-    total_assets += orphan_yuan
+    income_net = sum(orphan_money_fund_income_by_ledger(db, family_id).values())
+    category_totals['cash'] += cash_equiv_total + Money.cents_to_yuan(orphan_net + income_net)
+    total_assets += Money.cents_to_yuan(orphan_net + income_net)
 
     # 若无任何资产，返回空数据
     if total_assets == 0:
@@ -328,9 +381,14 @@ def get_account_groups(db: Session, family_id: int = 1) -> list[dict]:
         groups[acc]['total'] += amount
         groups[acc]['count'] += 1
 
-    # 3. 孤儿货基/逆回购流水净额按 ledger_id 归组（无 ledger 归「游离」）
+    # 3. 孤儿货基/逆回购流水按 ledger_id 归组（本金净额 + #863 渠道收益；无 ledger 归「游离」）
     ledger_names = {led.id: led.name for led in db.query(Ledger).filter(Ledger.family_id == family_id).all()}
-    for lid, net_cents in orphan_money_fund_net_by_ledger(db, family_id).items():
+    orphan_map = orphan_money_fund_net_by_ledger(db, family_id)
+    income_map = orphan_money_fund_income_by_ledger(db, family_id)
+    merged: dict[int, int] = {}
+    for _lid in set(orphan_map) | set(income_map):
+        merged[_lid] = orphan_map.get(_lid, 0) + income_map.get(_lid, 0)
+    for lid, net_cents in merged.items():
         acc = ledger_names.get(lid, '游离') if lid else '游离'
         groups[acc]['total'] += Money.cents_to_yuan(net_cents)
         groups[acc]['count'] += 1
@@ -369,9 +427,13 @@ def get_distributions(db: Session, family_id: int = 1) -> dict[str, Any]:
     market_map: dict[str, float] = defaultdict(float)
     account_map: dict[str, float] = defaultdict(float)
     positions_total_mv = 0.0
+    cash_equiv_total = 0.0
     for p in positions:
         mv = _pos_mv(p)
         positions_total_mv += mv
+        if is_cash_equivalent_position(p):
+            # #863 口径 A：货基/逆回购持仓市值统计入「流动资金」分类（非「投资理财」）
+            cash_equiv_total += mv
         type_map[TYPE_LABELS.get(p.asset_type, p.asset_type or _UNKNOWN_TYPE)] += mv
         alloc_map[ALLOCATION_LABELS.get(p.allocation, p.allocation or _DEFAULT_ALLOC)] += mv
         market_map[MARKET_LABELS.get(p.market, p.market or _UNKNOWN_TYPE)] += mv
@@ -393,8 +455,17 @@ def get_distributions(db: Session, family_id: int = 1) -> dict[str, Any]:
             total_assets += amount
             label = CATEGORY_META.get(a.major_category, (_UNKNOWN_TYPE, None))[0]
             category_map[label] += amount
-    # 持仓市值统一归入投资理财大类
-    category_map[_INVESTMENT_LABEL] += positions_total_mv
+    # 持仓市值归大类：普通持仓入「投资理财」，货基/逆回购入「流动资金」（#863 口径 A）
+    category_map[_INVESTMENT_LABEL] += positions_total_mv - cash_equiv_total
+    if cash_equiv_total > 0:
+        category_map[CATEGORY_META['cash'][0]] += cash_equiv_total
+    # 孤儿流水本金净额 + 渠道收益（#863 D1 收益桶）并入流动资金分类与总资产
+    orphan_net = sum(orphan_money_fund_net_by_ledger(db, family_id).values())
+    income_net = sum(orphan_money_fund_income_by_ledger(db, family_id).values())
+    cash_flow_yuan = Money.cents_to_yuan(orphan_net + income_net)
+    if cash_flow_yuan != 0:
+        category_map[CATEGORY_META['cash'][0]] += cash_flow_yuan
+    total_assets += cash_flow_yuan
 
     def _to_list(d: dict[str, float]) -> list[dict[str, float]]:
         return [{'name': k, 'value': round(v, 2)} for k, v in sorted(d.items(), key=lambda kv: -kv[1]) if v > 0]
@@ -449,9 +520,11 @@ def get_ledger_distributions(db: Session, family_id: int = 1) -> dict[int, dict[
         else:
             bucket['total_assets'] += amount
 
-    # 孤儿货基/逆回购流水净额按账户并入（与家庭级口径一致，可为负）
-    for ledger_id, net_cents in orphan_money_fund_net_by_ledger(db, family_id).items():
-        _bucket(ledger_id or 0)['total_assets'] += Money.cents_to_yuan(net_cents)
+    # 孤儿货基/逆回购流水按账户并入：本金净额 + #863 渠道收益桶（与家庭级口径一致）
+    orphan_map = orphan_money_fund_net_by_ledger(db, family_id)
+    income_map = orphan_money_fund_income_by_ledger(db, family_id)
+    for _lid in set(orphan_map) | set(income_map):
+        _bucket(_lid or 0)['total_assets'] += Money.cents_to_yuan(orphan_map.get(_lid, 0) + income_map.get(_lid, 0))
 
     for bucket in totals.values():
         bucket['net_worth'] = bucket['total_assets'] - bucket['total_liabilities']

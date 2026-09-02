@@ -39,6 +39,7 @@ def _ensure_all_models():
     import app.domains.transactions.models  # noqa: F401
     import app.domains.users.models  # noqa: F401
     import app.domains.watchlist.models  # noqa: F401
+    import app.models.sync_log  # noqa: F401
 
 
 def _split_symbol(symbol: str):

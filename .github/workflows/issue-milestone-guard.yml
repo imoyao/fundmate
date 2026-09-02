@@ -1,0 +1,52 @@
+# Issue 里程碑守卫（全局硬性规则）
+#
+# 依据 AGENTS.md「Issue 全局治理（里程碑强制）」：所有 issue 创建后必须挂里程碑，
+# 禁止长期 <<NONE>>（参考 #1287 看板整理教训：2026-09-02 曾 31 个开放 issue 未挂里程碑，已清零）。
+#
+# 触发：issue 被 新建 / 编辑 / 重开 时检查其 milestone 字段；
+#   - 有里程碑 → 通过；
+#   - 无里程碑 → 在 issue 下评论提醒责任人补挂，并使本 workflow run 失败（红），
+#     作为「拦住新建漏挂」的止损信号（issue 本身无法被 Action 自动关闭/拦截，
+#     故以失败 run + 评论提醒）。
+#
+# 注意：pull_request 事件不会触发本工作流（PR 不是 issue），不影响正常 PR 流程。
+#       补挂里程碑（edit 触发 edited）后本守卫自动复检通过，自愈。
+
+name: Issue 里程碑守卫
+
+on:
+  issues:
+    types: [opened, edited, reopened]
+
+permissions:
+  issues: write
+
+jobs:
+  milestone-check:
+    name: 检查 issue 是否挂里程碑
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: 无里程碑 → 评论提醒并使 run 失败
+        if: ${{ github.event.issue.milestone == null }}
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          echo "issue #$ISSUE_NUMBER 未挂里程碑，提醒责任人补挂。"
+          gh issue comment "$ISSUE_NUMBER" --body "$(cat <<'EOF'
+          ⚠️ 本 issue 未挂**里程碑**，违反仓库全局规则（AGENTS.md「Issue 全局治理（里程碑强制）」）。
+
+          请尽快为其指派合适的里程碑：
+          - 主题明确 → 归入对应产品里程碑（M0–M6、P0、base-data、自选增强、双库架构 #14 等）；
+          - 确属远期 / 待定 → 归入 `M6 待办积压 Backlog`，不得长期 `<<NONE>>`。
+
+          修正方式：在 issue 右侧 **Milestone** 下拉选择，或评论区 `@` 维护者处理。
+          EOF
+          )"
+          echo "::error::Issue #$ISSUE_NUMBER 缺少里程碑，请在处理前补挂（见上方评论）。"
+          exit 1
+
+      - name: 有里程碑 → 通过
+        if: ${{ github.event.issue.milestone != null }}
+        run: 'echo "OK: issue #${{ github.event.issue.number }} 已挂里程碑，通过。"'

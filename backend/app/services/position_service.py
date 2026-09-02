@@ -32,6 +32,7 @@ from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, PositionImportMeta, resolve_sales_institution_id
 from app.domains.transactions.models import Transaction
 from app.services.async_backfill import trigger_backfill
+from app.services.fund_utils import CASH_EQUIVALENT_ASSET_TYPES, is_money_fund_symbol, normalize_fund_code
 from app.services.importer.records import compute_position_hash
 from app.services.pnl_service import compute_sell_realized_cents
 from app.services.trade_rules import validate_buy, validate_sell
@@ -323,6 +324,49 @@ def _build_reinvest_buy_data(data: dict, position: Optional[Position], link_grou
     }
 
 
+def _resolve_money_fund_flag(symbol: str, asset_type: str | None, hint=None) -> bool:
+    """写路径货基判定（#863）：显式 hint > money_fund 类型 > 名录/代码段解析。
+
+    reverse_repo 不是货基（即使与货基同属现金等价物聚合桶），不落 is_money_fund。
+    """
+    if hint is not None:
+        return bool(hint)
+    if asset_type == 'money_fund':
+        return True
+    if asset_type == 'reverse_repo':
+        return False
+    return is_money_fund_symbol(symbol)
+
+
+def _reattach_orphan_flows(db: Session, ledger_id, symbol: str, position_id: int, family_id: int) -> None:
+    """#863 口径 A 写入层互斥：把同 (ledger_id, symbol) 的孤儿货基流水挂回持仓。
+
+    互斥语义：同一资金同一 (ledger_id, symbol) 只能有一种表达——持仓 或 孤儿净额。
+    建仓后把历史孤儿流水（position_id IS NULL、非收益行）置 position_id，使其不再
+    计入孤儿净额桶；金额由持仓市值承接（净值恒 1，市值≈本金），不双计、不漏计。
+    is_income 收益行不挂回（收益桶独立于本金，见 #863 D1）。
+    """
+    from sqlalchemy import or_
+
+    candidate = {normalize_fund_code(symbol)} | {p + normalize_fund_code(symbol) for p in ('SZ', 'SH')}
+    rows = (
+        db.query(Transaction)
+        .filter(
+            Transaction.ledger_id == ledger_id,
+            Transaction.position_id.is_(None),
+            Transaction.family_id == family_id,
+            Transaction.asset_type.in_(CASH_EQUIVALENT_ASSET_TYPES),
+            or_(Transaction.is_income.is_(None), Transaction.is_income.is_(False)),
+        )
+        .all()
+    )
+    matched = [t for t in rows if t.symbol and normalize_fund_code(t.symbol) in candidate]
+    if matched:
+        for txn in matched:
+            txn.position_id = position_id
+        logger.info(f'货基建仓挂回孤儿流水 {len(matched)} 条（ledger={ledger_id}, symbol={symbol}）')
+
+
 def _reinvest_dual_flow(db: Session, data: dict, position: Position, link_group_id: str) -> None:
     """已知持仓上的红利再投资双流水：分红现金 + 按净值申购（合并入持仓，份额增加）。"""
     nav = data.get('nav', data.get('avg_price', 0))
@@ -437,6 +481,9 @@ class PositionService:
 
         db.flush()
 
+        # #863 口径 A：快照持仓也落货基冗余判定（SET 覆盖，聚合分类归「现金」桶）
+        position.is_money_fund = _resolve_money_fund_flag(symbol, position.asset_type, data.get('is_money_fund'))
+
         # 溯源元数据 1:1 upsert（position_import_meta，保留末次快照的溯源信息）
         meta = data.get('meta') or {}
         meta_row = db.query(PositionImportMeta).filter_by(position_id=position.id).first()
@@ -459,6 +506,11 @@ class PositionService:
         )
         meta_row.sales_institution_id = resolve_sales_institution_id(db, data.get('source_broker'))
         db.flush()
+
+        # #863 口径 A 写入层互斥：快照持有货基持仓时，把同 (ledger, symbol) 孤儿流水挂回
+        # （金额以持仓表达承接，避免与孤儿净额桶双计）
+        if position.is_money_fund:
+            _reattach_orphan_flows(db, ledger_id, symbol, position.id, family_id)
 
         try:
             trigger_backfill('fund', symbol)
@@ -487,8 +539,28 @@ class PositionService:
         # 现金管理类产品：只记录流水，不创建持仓（交易导入既有行为；
         # 记一笔 force_create_position=True 时跳过此分支，走正常建仓逻辑）
         if asset_type in ('money_fund', 'reverse_repo') and not force_create_position:
-            _create_cash_transfer_transaction(db, data, 'buy')
-            return None
+            # #863 口径 A 写入层互斥：若该 (ledger, symbol) 已有 active 持仓，本笔买入并入
+            # 持仓表达（走下方正常建仓合并），不产生孤儿流水——同一资金不得双表达双计。
+            _lid = data.get('ledger_id')
+            _family_id = data.get('family_id', 1)
+            _sym = normalize_fund_code(symbol)
+            _codes = {_sym} | {f'{p}{_sym}' for p in ('SZ', 'SH')}
+            existing_pos = None
+            if _lid:
+                existing_pos = (
+                    db.query(Position)
+                    .filter(
+                        Position.ledger_id == _lid,
+                        Position.family_id == _family_id,
+                        Position.symbol.in_(_codes),
+                    )
+                    .first()
+                )
+            if existing_pos is not None and existing_pos.ownership_status == 'active':
+                force_create_position = True  # 复用下方正常建仓逻辑（含孤儿流水挂回）
+            else:
+                _create_cash_transfer_transaction(db, data, 'buy')
+                return None
 
         # 标准化 symbol
         search_symbol = symbol
@@ -650,6 +722,12 @@ class PositionService:
                     db.flush()
                     position = existing
                 is_new = True
+
+            # #863 口径 A：写路径货基冗余判定 + 互斥挂回（孤儿流水并入持仓表达，
+            # 使同 (ledger, symbol) 资金只以持仓市值计入总资产，不双计、不漏计）
+            position.is_money_fund = _resolve_money_fund_flag(symbol, asset_type, data.get('is_money_fund'))
+            if position.is_money_fund:
+                _reattach_orphan_flows(db, ledger_id, symbol, position.id, family_id)
 
             # 创建交易流水
             txn_type = op_type if op_type in ('buy', 'deposit') else 'buy'

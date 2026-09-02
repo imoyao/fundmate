@@ -97,6 +97,7 @@
 | `mock-service-data-isolation-2026-08-30.md` | **Mock 服务与数据隔离方案调研**：前端 mock 避免污染本地 SQLite + 独立 Supabase 环境实现 dev/test/prod 隔离 |
 | `fund-company-backfill-1199-2026-08-30.md` | **基金公司 code 回填实测与归一化增强（#1199 收尾）**：127 占位基线、迭代剥离归一化（修复只剥最短后缀 bug）、命中率 81.1%→92.9%、实际回填 116 条、剩余 11 条分类（9 不在列表 + 2 code 冲突）、`full_name`/`scale` 正式降级结论 |
 | `holding-days-semantics-2026-09-02.md` | **持仓「持有时长」计算口径决策（#862/PR #1284）**：核实 `confirm_date` 行为（清仓删行+重买建新行→自动从最新一轮计日起，非 2021 累加），`holding_days` 为实时派生 property 不落库；决策不引入 FIFO 批次表，附 E 账户快照覆写 confirm_date 等边界与 tech-debt |
+| `money-fund-caliber-reconcile-replan-2026-09-02.md` | **货基本金口径再规划（issue #863 复核与拍板）**：承接 money-fund-income-plan-2026-08-09.md；纠偏 3 处（总资产双计修复落点=summary/ledger 聚合 6+ 处而非 position_aggregation、存量货基 type='fund' 不能只判 asset_type、只隔离不迁移会漏计）；拍板 D1 收益本金化 1-A / D2 在途 2-A UI 过渡 / D3 positions.is_money_fund 冗余 / D4 存量 active 不转 shadow / D5 is_income Count=0 时 B2 提本期；含本期 12 项清单、二期 B1~B5、P0-1 生产核验 SQL（真实 schema）、pending-estimate 接口契约 |
 
 ## 子目录归档
 

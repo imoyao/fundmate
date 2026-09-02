@@ -197,3 +197,174 @@ class TestOverviewStatsOrphanNet:
         assert deleted['total'] == 1200.0 + 100.0
         assert deleted['count'] == 1  # 0 键只有一个（游离合并）
         assert stats['net_worth'] == 1300.0
+
+
+class TestIncomeBucketIsolation:
+    """#863 D1 不变量：is_income 收益行只进收益桶，不膨胀本金/孤儿净额"""
+
+    def _income_orphan_txn(self, make_transaction, ledger_id, amount_yuan):
+        return make_transaction(
+            None,
+            ledger_id,
+            txn_type='buy',
+            amount=amount_yuan,
+            asset_type='money_fund',
+            entry_status='orphan',
+            is_income=True,
+        )
+
+    def test_income_row_excluded_from_principal_net(self, db, make_transaction):
+        from app.services.summary_service import (
+            orphan_money_fund_income_by_ledger,
+            orphan_money_fund_net_by_ledger,
+        )
+
+        _make_orphan_txn(make_transaction, None, 'buy', 100)  # 本金 100
+        self._income_orphan_txn(make_transaction, None, 5)  # 收益 5
+        net = orphan_money_fund_net_by_ledger(db, 1)
+        income = orphan_money_fund_income_by_ledger(db, 1)
+        # 本金桶不含收益行；收益只进收益桶
+        assert net == {0: 10000}
+        assert income == {0: 500}
+
+    def test_total_assets_includes_income_once(self, db, make_transaction):
+        """总资产 = 本金 + 收益（只加一次）：漏加或重复加都会被断言捕捉。"""
+        _make_orphan_txn(make_transaction, None, 'buy', 100)  # 本金 100
+        self._income_orphan_txn(make_transaction, None, 5)  # 收益 5
+        data = get_summary_data(db, 1)
+        # 旧行为（收益混入本金净额）→ 110；本实现 net100 + income5 → 105
+        assert data['total_assets_cny'] == 105.0
+
+
+class TestCashEquivalentClassification:
+    """#863 口径 A：货基持仓市值归「流动资金」分类，不进「投资理财」"""
+
+    def test_money_fund_position_into_cash_category(self, db, make_position, make_transaction):
+        from app.core.constants import CATEGORY_META
+        from app.services.summary_service import get_distributions
+
+        make_position(symbol='F1', name='普通基金', quantity=100, avg_price=10.0, current_price=12.0, asset_type='fund')
+        make_position(
+            symbol='MF1', name='货基', quantity=1000, avg_price=1.0, current_price=1.0, asset_type='money_fund'
+        )
+        _make_orphan_txn(make_transaction, None, 'buy', 100)
+        data = get_distributions(db, 1)
+        cat = {d['name']: d['value'] for d in data['category_distribution']}
+        cash_label = CATEGORY_META['cash'][0]
+        invest_label = CATEGORY_META['investment'][0]
+        # 货基持仓 1000 + 孤儿净额 100 → 流动资金；普通基金 1200 → 投资理财
+        assert cat[cash_label] == 1000.0 + 100.0
+        assert cat[invest_label] == 1200.0
+        assert data['total_assets'] == 1000.0 + 100.0 + 1200.0
+
+    def test_fund_typed_money_fund_via_is_money_fund_flag(self, db, make_position, make_transaction):
+        """存量 type='fund' 货基经 is_money_fund=True 冗余标记同样归现金桶（#863 关键判定）。"""
+        from app.core.constants import CATEGORY_META
+        from app.services.summary_service import get_distributions
+
+        make_position(
+            symbol='001010',
+            name='货基(fund 型)',
+            quantity=1000,
+            avg_price=1.0,
+            current_price=1.0,
+            asset_type='fund',
+            is_money_fund=True,
+        )
+        data = get_distributions(db, 1)
+        cat = {d['name']: d['value'] for d in data['category_distribution']}
+        assert cat[CATEGORY_META['cash'][0]] == 1000.0
+        assert CATEGORY_META['investment'][0] not in cat
+
+
+class TestOrphanFlowReattach:
+    """#863 口径 A 写入层互斥：建货基持仓时把同 (ledger, symbol) 孤儿流水挂回持仓"""
+
+    def test_reattach_orphan_flow_on_position(self, db):
+        import datetime as dt
+
+        from app.domains.ledgers.models import Ledger
+        from app.domains.positions.models import Position
+        from app.domains.transactions.models import Transaction
+        from app.services.position_service import _reattach_orphan_flows
+
+        ledger = Ledger(name='货基账户', ledger_type='fund', family_id=1)
+        db.add(ledger)
+        db.flush()
+        txn = Transaction(
+            ledger_id=ledger.id,
+            symbol='MF001',
+            asset_type='money_fund',
+            txn_type='buy',
+            amount=50000,  # 500 元
+            confirm_date=dt.date.today(),
+            trade_date=dt.datetime.combine(dt.date.today(), dt.time(10, 0)),
+            family_id=1,
+            status='success',
+        )
+        db.add(txn)
+        db.flush()
+
+        pos = Position(
+            ledger_id=ledger.id,
+            symbol='MF001',
+            name='货基',
+            asset_type='money_fund',
+            quantity=5000000,
+            current_price=10000,
+            family_id=1,
+        )
+        db.add(pos)
+        db.flush()
+        _reattach_orphan_flows(db, ledger.id, 'MF001', pos.id, 1)
+        db.flush()
+        db.refresh(txn)
+        assert txn.position_id == pos.id
+        # 挂回后不再计入孤儿净额（本金桶），金额由持仓表达承接
+        data = get_summary_data(db, 1)
+        assert data['total_assets_cny'] == 500.0
+
+    def test_income_flow_not_reattached(self, db):
+        """收益行（is_income）不挂回持仓——收益桶独立于本金表达（#863 D1）。"""
+        import datetime as dt
+
+        from app.domains.ledgers.models import Ledger
+        from app.domains.positions.models import Position
+        from app.domains.transactions.models import Transaction
+        from app.services.position_service import _reattach_orphan_flows
+
+        ledger = Ledger(name='货基账户', ledger_type='fund', family_id=1)
+        db.add(ledger)
+        db.flush()
+        income_txn = Transaction(
+            ledger_id=ledger.id,
+            symbol='MF001',
+            asset_type='money_fund',
+            txn_type='buy',
+            amount=500,  # 收益 5 元
+            confirm_date=dt.date.today(),
+            trade_date=dt.datetime.combine(dt.date.today(), dt.time(10, 0)),
+            family_id=1,
+            status='success',
+            is_income=True,
+        )
+        db.add(income_txn)
+        db.flush()
+        pos = Position(
+            ledger_id=ledger.id,
+            symbol='MF001',
+            name='货基',
+            asset_type='money_fund',
+            quantity=5000000,
+            current_price=10000,
+            family_id=1,
+        )
+        db.add(pos)
+        db.flush()
+        _reattach_orphan_flows(db, ledger.id, 'MF001', pos.id, 1)
+        db.flush()
+        db.refresh(income_txn)
+        assert income_txn.position_id is None
+        data = get_summary_data(db, 1)
+        # 收益行仍留在收益桶并入总资产（500 分 = 5 元）
+        assert data['total_assets_cny'] == 500.0 + 5.0
