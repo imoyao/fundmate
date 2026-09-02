@@ -48,7 +48,8 @@ export default [
     component: () => import("@/views/explore/index.vue"),
     meta: {
       title: "探市",
-      showLink: false // 不在菜单中显示
+      showLink: false, // 不在菜单中显示
+      requiresAuth: false // 探市免登录（D4），与 /temperature 写法统一（#822）
     }
   },
   // 在 remaining 路由数组中新增温度计页面
