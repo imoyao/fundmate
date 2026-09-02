@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import re
 import time
+from collections.abc import Iterable
 
 # 现金等价物资产类型（聚合桶：货基 + 逆回购；逆回购拆出时只改这里）
 CASH_EQUIVALENT_ASSET_TYPES = ('money_fund', 'reverse_repo')
@@ -66,7 +67,7 @@ def _query_market_money_fund_codes(codes: list[str]) -> set[str]:
         session.close()
 
 
-def resolve_money_fund_flags(codes) -> dict[str, bool]:
+def resolve_money_fund_flags(codes: Iterable[str]) -> dict[str, bool]:
     """批量解析基金代码是否货币型（写路径用），返回 {code: bool}。
 
     - 命中 market 名录（货币型）→ True；
@@ -99,9 +100,13 @@ def resolve_money_fund_flags(codes) -> dict[str, bool]:
 
 
 def is_money_fund_symbol(symbol: str, asset_type: str | None = None) -> bool:
-    """单代码便捷判定：显式 money_fund 类型直接命中，否则名录/兜底解析。"""
-    if asset_type == 'money_fund':
-        return True
+    """单代码便捷判定：显式类型直接决定，否则名录/兜底解析。
+
+    显式 asset_type 优先——'money_fund' 命中、其它显式类型（如 'bond'）直接返回 False，
+    避免兜底解析覆盖显式分类造成误判。
+    """
+    if asset_type is not None:
+        return asset_type == 'money_fund'
     code = normalize_fund_code(symbol)
     return resolve_money_fund_flags([code]).get(code, False)
 

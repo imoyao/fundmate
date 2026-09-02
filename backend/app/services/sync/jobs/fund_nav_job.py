@@ -15,6 +15,9 @@ from app.domains.funds.models import DailyWorth, MoneyFundDailyWorth
 from app.models.sync_log import SyncLog
 from app.services.sync.jobs.base import SyncJob
 
+# 货基万份收益写入来源版本标记（#863 P0-4）
+SOURCE_VERSION_V2_RECALC = 'v2_recalc'
+
 
 class FundNavSyncJob(SyncJob):
     """基金净值同步"""
@@ -96,7 +99,7 @@ class FundNavSyncJob(SyncJob):
                         'nav_per_10k': item['unit_nav'],
                         'annual_return_7d': None,  # 暂不计算
                         # #863 P0-4：新写入显式标记重算来源，与存量 legacy_dirty 旧数据区分
-                        'source_version': 'v2_recalc',
+                        'source_version': SOURCE_VERSION_V2_RECALC,
                     }
                 )
             else:

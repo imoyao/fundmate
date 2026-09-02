@@ -36,6 +36,9 @@ def _resolve_db_paths() -> list[str]:
     if not db_url.startswith('sqlite'):
         print(f'仅支持 SQLite 迁移，DATABASE_URL={db_url}，请手动处理。')
         sys.exit(1)
+    if db_url == 'sqlite:///:memory:':
+        print('检测到内存数据库，无需迁移。')
+        return []
     path = db_url.replace('sqlite:///', '', 1)
     if not os.path.isabs(path):
         path = os.path.abspath(path)
@@ -60,11 +63,16 @@ def migrate(path: str) -> None:
                 continue
             cols = {row[1] for row in conn.execute(f'PRAGMA table_info({table})')}
             if column in cols:
-                print(f'  [ok ] {table} 已含 {column}，无需迁移')
-                continue
-            conn.execute(f'ALTER TABLE {table} ADD COLUMN {column} {ctype}')
-            conn.commit()
-            print(f'  [OK ] {table}: 已添加 {column}')
+                print(f'  [ok ] {table} 已含 {column}')
+            else:
+                conn.execute(f'ALTER TABLE {table} ADD COLUMN {column} {ctype}')
+                conn.commit()
+                print(f'  [OK ] {table}: 已添加 {column}')
+            # 存量数据回填（幂等）：source_version 历史 NULL 行置 'legacy_dirty'，避免被误判为干净数据
+            if table == 'money_fund_daily_worth' and column == 'source_version':
+                conn.execute(f"UPDATE {table} SET {column} = 'legacy_dirty' WHERE {column} IS NULL")
+                conn.commit()
+                print(f'  [OK ] {table}.{column} 存量 NULL 已回填 legacy_dirty')
     finally:
         conn.close()
 

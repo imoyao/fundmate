@@ -172,8 +172,12 @@ class MoneyFundDailyWorth(Base, PrimaryKeyMixin, TimestampMixin):
     annual_return_7d = Column(Float, comment='七日年化收益率(%)，精度0.0001')
     # #863 数据治理：写入来源/算法版本标记。存量旧数据在迁移脚本中置 'legacy_dirty'
     # （旧算法脏数据，需清空重建），新写入由 fund_nav_job / async_backfill 显式标 'v2_recalc'。
+    # server_default='legacy_dirty' 保证新增行默认脏数据标记；存量 NULL 行由迁移脚本回填。
     source_version = Column(
-        String(20), nullable=True, default=None, comment='数据来源版本（#863）：legacy_dirty/v2_recalc'
+        String(20),
+        nullable=False,
+        server_default='legacy_dirty',
+        comment='数据来源版本（#863）：legacy_dirty/v2_recalc',
     )
 
     fund = relationship('Fund', back_populates='money_fund_daily_worth')

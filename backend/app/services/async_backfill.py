@@ -22,6 +22,9 @@ from app.domains.securities.models import Security
 from app.services.sync.adapters.akshare_adapter import AkshareAdapter
 from app.services.sync.adapters.xalpha_adapter import XalphaAdapter
 
+# 货基万份收益写入来源版本标记（#863 P0-4）
+SOURCE_VERSION_V2_RECALC = 'v2_recalc'
+
 
 def _backfill_fund_nav(fund_code: str):
     db = SessionLocal()
@@ -41,7 +44,7 @@ def _backfill_fund_nav(fund_code: str):
                         'date': r['date'],
                         'nav_per_10k': r['unit_nav'],
                         # #863 P0-4：与 fund_nav_job 一致，新写入标记 v2_recalc
-                        'source_version': 'v2_recalc',
+                        'source_version': SOURCE_VERSION_V2_RECALC,
                     }
                 )
             else:
