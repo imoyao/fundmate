@@ -1,29 +1,30 @@
-# AI 代码审查工作流（双线路）
+# AI 代码审查工作流（深度线路）
 #
-# 触发：私有库 PR 创建 / 更新时自动跑，两条线路并行：
-#   1) ai-review（免费快速）：智谱 GLM-4.7-Flash（OpenAI 兼容，免费档），run-summary 只留一条总结评论。
-#   2) deep-review（深度完整）：火山方舟智能路由接入点（ep-20260823221703-q9d89，
-#      Doubao-Smart-Router 成本优先），run 模式逐行 inline + 跨文件 context + 深度 summary，
-#      由火山侧按成本自动选底层模型，找免费线路容易漏的深层问题。
+# 触发：私有库 PR 创建 / 更新时自动跑，仅保留一条深度审查线路：
+#   deep-review（深度完整）：火山方舟 DeepSeek V4 Flash（deepseek-v4-flash-ga-260731），
+#     run 模式逐行 inline + 跨文件 context + 深度 summary，主动找深层次问题。
+#
+# 变更说明（2026-09-02）：
+#   - 移除原免费线路（智谱 GLM-4.7-Flash）：该模型频繁返回 429（访问量过大）且产出价值低，纯属浪费 Actions 分钟。
+#   - 原深度线路默认走智能路由接入点 ep-20260823221703-q9d89，但该路由会把请求派发给 doubao-seed-1-6，
+#     该模型已达推理额度上限 / 因「安全体验模式」被暂停，导致深度审查同样 429 失败。
+#   - 故将深度线路默认模型改为直连 deepseek-v4-flash-ga-260731（已于 2026-08-23 验证可调用）。
+#     若日后在火山方舟控制台关闭 doubao-seed-1-6 的「安全体验模式」/ 调高额度，可改回智能路由接入点以保留成本优先。
 #
 # 降噪策略：
-#   1) 免费线路 TEMPERATURE=0.2、深度线路 0.1，低温度降低模型随机发挥带来的误报
-#   2) 免费线路 run-summary 只在 PR 留一条总结评论；深度线路 run 负责 inline 逐行
-#   3) 两条线路共用单一权威 prompt：docs/configs/ai-review-prompt.md，
-#      经根目录 .ai-review.yaml 与 .ai-review-deep.yaml 注入（强度差异由 review-command 自适应）
+#   1) 深度线路 TEMPERATURE=0.1，低温度降低模型随机发挥带来的误报
+#   2) 单一权威 prompt：docs/configs/ai-review-prompt.md，经根目录 .ai-review-deep.yaml 注入
 #
 # 深度线路模型由 PR 标签决定（在 PR 界面点标签即可，零摩擦、不影响自动触发）：
-#   无标签            → 默认走智能路由接入点 ep-20260823221703-q9d89（Doubao-Smart-Router 成本优先）
+#   无标签            → 默认走 deepseek-v4-flash-ga-260731（Flash，快而便宜，已验证）
 #   review:pro        → 改用 deepseek-v4-pro-ga-260813（最强，按需，成本最高）
-#   review:deepseek   → 改用 deepseek-v4-flash-ga-260731（直连 Flash，固定模型）
-#   review:free-only  → 跳过深度线路，只跑免费 GLM
+#   review:deepseek   → 显式指定 deepseek-v4-flash-ga-260731（与默认相同）
 #
-# 失败保护（防假成功）：两个 job 在 AI 审查 step 之后会校验「本轮是否在 PR 上发布了评论」。
+# 失败保护（防假成功）：deep-review 在 AI 审查 step 之后校验「本轮是否在 PR 上发布了评论」。
 #   若 LLM 失败/限流/欠费导致 action 静默跳过（不发评论），则 job 标红失败，不再显示 success。
 #
 # 前置：仓库 Settings → Secrets → Actions 新增
-#   ZHIPU_API_KEY（智谱开放平台个人中心获取，免费线路）
-#   ARK_API_KEY_CODEREVIEW（火山方舟，深度线路专用，值为本地 backend/.env 的 ARK_API_KEY，走智能路由接入点）
+#   ARK_API_KEY_CODEREVIEW（火山方舟，深度线路专用，值为本地 backend/.env 的 ARK_API_KEY）
 
 name: AI Code Review
 
@@ -44,76 +45,11 @@ permissions:
   issues: read
 
 jobs:
-  ai-review:
-    runs-on: ubuntu-latest
-    steps:
-      - name: 拉取代码
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-
-      - name: 记录审查前评论数
-        if: ${{ github.event_name == 'pull_request' }}
-        id: pre-check
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const pr = context.payload.pull_request.number;
-            const { owner, repo } = context.repo;
-            const issueComments = (await github.rest.issues.listComments({ owner, repo, issue_number: pr })).data.length;
-            core.setOutput('issue_comments', issueComments);
-
-      - name: AI 审查（智谱 GLM-4.7-Flash 免费模型）
-        uses: Nikita-Filonov/ai-review@v0.76.0
-        with:
-          review-command: run-summary
-        env:
-          # —— 自定义 prompt 配置：中文优先、中英双语（见仓库根 .ai-review.yaml）——
-          AI_REVIEW_CONFIG_FILE_YAML: ".ai-review.yaml"
-          # —— LLM 配置：智谱开放平台（OpenAI 兼容，Flash 系列免费）——
-          LLM__PROVIDER: "OPENAI"
-          LLM__META__MODEL: "glm-4.7-flash"
-          LLM__META__MAX_TOKENS: "8000"
-          LLM__META__TEMPERATURE: "0.2"
-          LLM__HTTP_CLIENT__API_URL: "https://open.bigmodel.cn/api/paas/v4/"
-          LLM__HTTP_CLIENT__API_TOKEN: ${{ secrets.ZHIPU_API_KEY }}
-          # —— GitHub 集成 ——
-          VCS__PROVIDER: "GITHUB"
-          VCS__PIPELINE__OWNER: ${{ github.repository_owner }}
-          VCS__PIPELINE__REPO: ${{ github.event.repository.name }}
-          VCS__PIPELINE__PULL_NUMBER: ${{ github.event.pull_request.number }}
-          VCS__HTTP_CLIENT__API_URL: "https://api.github.com"
-          VCS__HTTP_CLIENT__API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: 校验免费线路评论已发布（防假成功）
-        if: ${{ github.event_name == 'pull_request' }}
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const pr = context.payload.pull_request.number;
-            const { owner, repo } = context.repo;
-            const before = Number('${{ steps.pre-check.outputs.issue_comments }}');
-            let after = before;
-            for (let i = 0; i < 5; i++) {
-              const list = await github.rest.issues.listComments({ owner, repo, issue_number: pr });
-              after = list.data.length;
-              if (after > before) break;
-              await new Promise(r => setTimeout(r, 5000));
-            }
-            if (after <= before) {
-              core.setFailed('免费线路 AI 审查未发布任何评论（LLM 可能失败/限流/欠费），标记为失败以避免假成功');
-            } else {
-              core.info(`免费线路已发布评论，评论数 ${before} → ${after}`);
-            }
-
   # 深度审查线路：火山方舟，完整评审（summary + context + inline）。
-  # 与免费线路并行：免费 GLM 负责低成本快速总结，本 job 逐行 + 跨文件找深层次问题。
-  #
   # 模型由 PR 标签决定（在 PR 界面点标签即可，零摩擦、不影响自动触发）：
-  #   无标签            → 默认走智能路由接入点 ep-20260823221703-q9d89（Doubao-Smart-Router 成本优先）
+  #   无标签            → 默认走 deepseek-v4-flash-ga-260731（已验证可用）
   #   review:pro        → 改用 deepseek-v4-pro-ga-260813（最强，按需，成本最高）
-  #   review:deepseek   → 改用 deepseek-v4-flash-ga-260731（直连 Flash，固定模型）
-  #   review:free-only  → 跳过本 job，只跑免费 GLM
+  #   review:deepseek   → 显式指定 deepseek-v4-flash-ga-260731
   # 前置：仓库 Settings → Secrets → Actions 新增 ARK_API_KEY_CODEREVIEW（值为本地 backend/.env 的 ARK_API_KEY）。
   deep-review:
     runs-on: ubuntu-latest
@@ -128,7 +64,7 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const DEFAULT_MODEL = 'ep-20260823221703-q9d89';
+            const DEFAULT_MODEL = 'deepseek-v4-flash-ga-260731';
             const PRO_MODEL = 'deepseek-v4-pro-ga-260813';
             const FLASH_MODEL = 'deepseek-v4-flash-ga-260731';
 
@@ -139,18 +75,11 @@ jobs:
               labels = (pr.labels || []).map(l => l.name);
             } else if (github.event_name === 'workflow_dispatch') {
               core.setOutput('model', DEFAULT_MODEL);
-              core.setOutput('skip', 'false');
               core.info('workflow_dispatch 触发，无关联 PR，使用默认模型');
               return;
             }
 
             const has = (name) => labels.includes(name);
-            if (has('review:free-only')) {
-              core.setOutput('model', '');
-              core.setOutput('skip', 'true');
-              core.info('命中 review:free-only，跳过深度审查');
-              return;
-            }
             let model = DEFAULT_MODEL;
             if (has('review:pro')) {
               model = PRO_MODEL;
@@ -158,11 +87,10 @@ jobs:
               model = FLASH_MODEL;
             }
             core.setOutput('model', model);
-            core.setOutput('skip', 'false');
             core.info(`深度审查模型：${model}`);
 
       - name: 记录审查前评论数
-        if: ${{ github.event_name == 'pull_request' && steps.resolve-model.outputs.skip != 'true' }}
+        if: ${{ github.event_name == 'pull_request' }}
         id: pre-check
         uses: actions/github-script@v7
         with:
@@ -174,7 +102,6 @@ jobs:
             core.setOutput('count', reviewComments + reviews);
 
       - name: AI 深度审查
-        if: ${{ steps.resolve-model.outputs.skip != 'true' }}
         uses: Nikita-Filonov/ai-review@v0.76.0
         with:
           review-command: run
@@ -182,7 +109,7 @@ jobs:
           # —— 自定义 prompt：深度审查指令（严重度分级 + 项目专属清单）——
           AI_REVIEW_CONFIG_FILE_YAML: ".ai-review-deep.yaml"
           # —— LLM 配置：模型由 PR 标签决定（见 resolve-model step）——
-          # 默认 ep-20260823221703-q9d89（智能路由，成本优先）；
+          # 默认 deepseek-v4-flash-ga-260731（直连 Flash，已验证可用）；
           # review:pro → deepseek-v4-pro-ga-260813；review:deepseek → deepseek-v4-flash-ga-260731。
           LLM__PROVIDER: "OPENAI"
           LLM__META__MODEL: ${{ steps.resolve-model.outputs.model }}
@@ -200,7 +127,7 @@ jobs:
           VCS__HTTP_CLIENT__API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 校验深度线路评论已发布（防假成功）
-        if: ${{ github.event_name == 'pull_request' && steps.resolve-model.outputs.skip != 'true' }}
+        if: ${{ github.event_name == 'pull_request' }}
         uses: actions/github-script@v7
         with:
           script: |
