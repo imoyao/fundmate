@@ -26,6 +26,7 @@ _ADD_COLUMNS = [
     ('positions', 'is_money_fund', 'BOOLEAN'),
     ('transactions', 'is_income', 'BOOLEAN'),
     ('money_fund_daily_worth', 'source_version', 'VARCHAR(20)'),
+    ('asset_snapshots', 'money_fund_income_cents', 'INTEGER'),
 ]
 
 

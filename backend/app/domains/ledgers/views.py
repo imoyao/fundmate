@@ -1279,6 +1279,20 @@ def commit_migration(ledger_id: int):
 # ────────────────────────────── 账户详情页专用接口 ──────────────────────────────
 
 
+@ledgers_bp.get('/<int:ledger_id>/pending-estimate/')
+def get_ledger_pending_estimate(ledger_id: int):
+    """#863 2-A：账户「确认中」货基申购预估（UI 标注过渡，非账本口径）。
+
+    二期 B1 在途状态机上线后数据源切 pending 表，路径/字段不变。
+    """
+    with get_db() as db:
+        ledger = get_owned_or_404(db, Ledger, ledger_id)
+        if not ledger:
+            abort(404, '账户不存在')
+        data = LedgerService.get_pending_money_fund_estimate(db, ledger.id, get_family_id())
+    return jsonify({'data': data, 'message': 'ok'})
+
+
 @ledgers_bp.get('/<int:ledger_id>/summary/')
 def get_ledger_summary(ledger_id: int):
     """获取单账户概览卡片数据，根据账户类型返回不同指标"""

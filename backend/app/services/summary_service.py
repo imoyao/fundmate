@@ -26,7 +26,7 @@ from app.domains.summary.models import AssetSnapshot
 from app.domains.transactions.models import Transaction
 
 # #863 口径 A：现金等价物（货基/逆回购）持仓聚合分类单点工具
-from app.services.fund_utils import is_cash_equivalent_position
+from app.services.fund_utils import CASH_EQUIVALENT_ASSET_TYPES, is_cash_equivalent_position
 from app.services.pnl_service import (
     family_realized_pnl_cents,
     net_invested_by_position,
@@ -713,11 +713,55 @@ def get_ledger_pnl(db: Session, family_id: int = 1) -> dict[int, dict[str, int]]
     return totals
 
 
+def _money_fund_ledgers_with_holdings(db: Session, family_id: int) -> set[int]:
+    """当日有货基表达（孤儿净额非 0 或现金等价持仓）的账户集合（#863 P1-5）。"""
+    from sqlalchemy import or_
+
+    net_map = orphan_money_fund_net_by_ledger(db, family_id)
+    ledgers = {lid for lid, v in net_map.items() if v != 0 and lid}
+    pos_rows = (
+        db.query(Position.ledger_id)
+        .filter(
+            Position.family_id == family_id,
+            Position.ledger_id.isnot(None),
+            or_(
+                Position.asset_type.in_(CASH_EQUIVALENT_ASSET_TYPES),
+                Position.is_money_fund.is_(True),
+            ),
+        )
+        .all()
+    )
+    for (lid,) in pos_rows:
+        if lid:
+            ledgers.add(lid)
+    return ledgers
+
+
+def _money_fund_daily_income_cents(db: Session, family_id: int, target: date, ledger_id: int | None = None) -> int:
+    """当日货基收益（分）：委托 money_fund_income 单日计算（自动预估，#863 P1-5 展示用）。
+
+    仅作展示列写入快照，不参与 total_assets（总资产含的是渠道 is_income 收益桶）。
+    """
+    from app.services.money_fund_income import calculate_money_fund_income
+
+    result = calculate_money_fund_income(
+        db,
+        start_date=target,
+        end_date=target,
+        scope='ledger' if ledger_id is not None else 'family',
+        ledger_id=ledger_id,
+        family_id=family_id,
+    )
+    series = result.get('daily_series') or []
+    return Money.yuan_to_cents(series[-1]['income']) if series else 0
+
+
 def write_asset_snapshot(db: Session, family_id: int = 1, snapshot_date: str | None = None) -> dict[str, Any]:
     """记录当日资产快照（幂等 upsert）。
 
     金额从 get_distributions 聚合而来（元），落库转为整数分（Money 精度）。
     snapshot_date 可选，默认上海时区当日；用于历史回填，须为 YYYY-MM-DD。
+    #863 P1-5：家庭/账户行同批写入当日货基收益（money_fund_income_cents，展示用）。
     """
     from app.core.time_utils import now_shanghai
 
@@ -728,6 +772,7 @@ def write_asset_snapshot(db: Session, family_id: int = 1, snapshot_date: str | N
 
     dist = get_distributions(db, family_id)
     family_pnl = family_pnl_cents(db, family_id)
+    mf_ledgers = _money_fund_ledgers_with_holdings(db, family_id)
 
     # 家庭级快照（ledger_id 为 NULL）：既有行为，支撑总资产走势 + 盈亏序列
     family_row = _upsert_snapshot(db, family_id=family_id, ledger_id=None, snapshot_date=target)
@@ -737,6 +782,7 @@ def write_asset_snapshot(db: Session, family_id: int = 1, snapshot_date: str | N
     family_row.realized_pnl_cents = family_pnl['realized_pnl_cents']
     family_row.unrealized_pnl_cents = family_pnl['unrealized_pnl_cents']
     family_row.total_pnl_cents = family_pnl['total_pnl_cents']
+    family_row.money_fund_income_cents = _money_fund_daily_income_cents(db, family_id, target) if mf_ledgers else None
 
     # 账户级快照（#1181）：同一天为每个有数据的账户各落一行，支撑账户维度走势
     ledger_pnl = get_ledger_pnl(db, family_id)
@@ -756,6 +802,9 @@ def write_asset_snapshot(db: Session, family_id: int = 1, snapshot_date: str | N
         row.realized_pnl_cents = lp['realized_pnl_cents']
         row.unrealized_pnl_cents = lp['unrealized_pnl_cents']
         row.total_pnl_cents = lp['total_pnl_cents']
+        row.money_fund_income_cents = (
+            _money_fund_daily_income_cents(db, family_id, target, ledger_id) if ledger_id in mf_ledgers else None
+        )
 
     db.commit()
     return _snapshot_payload(family_row)
@@ -773,6 +822,8 @@ def _snapshot_payload(s: AssetSnapshot) -> dict[str, Any]:
         'realized_pnl': round(Money.cents_to_yuan(s.realized_pnl_cents), 2),
         'unrealized_pnl': round(Money.cents_to_yuan(s.unrealized_pnl_cents), 2),
         'total_pnl': round(Money.cents_to_yuan(s.total_pnl_cents), 2),
+        # #863 P1-5：当日货基收益（元，自动预估展示用）；无货基时为 0.0
+        'money_fund_income': round(Money.cents_to_yuan(s.money_fund_income_cents or 0), 2),
     }
 
 

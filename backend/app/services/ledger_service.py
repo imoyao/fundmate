@@ -44,6 +44,38 @@ class LedgerService:
             return {}
 
     @staticmethod
+    def get_pending_money_fund_estimate(db: Session, ledger_id: int, family_id: int) -> dict:
+        """#863 2-A：账户「确认中」货基申购预估（展示用，非账本口径，不参与聚合）。
+
+        数据源：该账户 money_fund/reverse_repo 的 buy/deposit 成功流水，确认日在未来
+        （confirm_date > 今日）。二期 B1 在途状态机上线后数据源切到 pending 表，
+        返回字段与路径保持不变，前端无需改动。
+        """
+        from datetime import date as _date
+
+        from app.services.fund_utils import CASH_EQUIVALENT_ASSET_TYPES
+
+        rows = (
+            db.query(Transaction.confirm_date, Transaction.amount)
+            .filter(
+                Transaction.ledger_id == ledger_id,
+                Transaction.family_id == family_id,
+                Transaction.asset_type.in_(CASH_EQUIVALENT_ASSET_TYPES),
+                Transaction.txn_type.in_(('buy', 'deposit')),
+                Transaction.status == 'success',
+                Transaction.confirm_date > _date.today(),
+            )
+            .all()
+        )
+        pending_cents = sum((row.amount or 0) for row in rows)
+        confirm_dates = [row.confirm_date for row in rows if row.confirm_date]
+        return {
+            'pending_amount_cents': pending_cents,
+            'estimated_confirm_date': min(confirm_dates).isoformat() if confirm_dates else None,
+            'note': '预估金额，待基金公司确认后计入总资产',
+        }
+
+    @staticmethod
     def get_overview_stats(db: Session, family_id: int) -> dict:
         """账户资金全景：按类型分组市值、负债、净资产（覆盖游离数据）"""
         # 轻量列加载（避免全量 ORM 实体）；持仓市值聚合必须保留逐行 ROUND_HALF_UP 语义（tech-debt §13，#911 M4）
