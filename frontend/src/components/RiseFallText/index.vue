@@ -20,9 +20,12 @@
   <span
     class="rise-fall-text"
     :class="[
-      isRise ? 'is-rise' : '',
-      isFall ? 'is-fall' : '',
-      isZero ? 'is-zero' : '',
+      // autoColor=false 时不渲染任何涨跌/零值色，走默认文字色
+      // （此前 autoColor 从未被消费：仍按正负上红绿，导致 MoneyWithRatio
+      //   ratioAutoColor=false 的「占比中性色」语义失效，2026-09-03 修复）
+      isRise && autoColor ? 'is-rise' : '',
+      isFall && autoColor ? 'is-fall' : '',
+      isZero && autoColor ? 'is-zero' : '',
       hideColor ? 'no-color' : '',
       sizeClass
     ]"

@@ -1,17 +1,27 @@
 <!-- src/components/ProductDisplay/index.vue -->
 <template>
   <div :class="['product-cell', { 'product-cell--compact': compact }]">
-    <!-- 紧凑模式（数据密集表格专用）：名称 + 代码同行，行高压到 20px。
-         对齐 design.md「数据表格强制紧凑原则」：自选/资产总览/交易流水等
-         密集场景行高锁定 40–44px，名称列不得再拆成多行。 -->
+    <!-- 紧凑模式（数据密集表格专用）：两行「名称 / 代码 + 类型 + 附加信息」。
+         注意「紧凑」= 两行紧凑，不是「单行压扁」：#1281 曾把名称、代码、类型、
+         标签全塞进同一行（单行 20px），实测长名称被挤到只显示两三个字、完全不可读。
+         现改为两行：名称独占一行（完整展示、溢出省略 + title 全名），
+         代码 / 类型 / 标签圆点走第二行弱化小字，行内容高度 40px
+         （名称 20 + gap 2 + 元信息 18）。
+         附加信息（如自选的标签圆点 / 添加标签按钮）经 #meta 插槽注入第二行，
+         避免在其它页面复制一套产品列结构。 -->
     <template v-if="compact">
-      <span class="product-name">{{ name || symbol || "--" }}</span>
-      <span class="product-code-compact" :title="symbol || ''">
-        {{ symbol || "--" }}
+      <span class="product-name" :title="name || symbol || ''">
+        {{ name || symbol || "--" }}
       </span>
-      <span v-if="typeLabel" class="product-type-compact">
-        {{ typeLabel }}
-      </span>
+      <div class="product-meta-row">
+        <span class="product-code-compact" :title="symbol || ''">
+          # {{ symbol || "--" }}
+        </span>
+        <span v-if="typeLabel" class="product-type-compact">
+          {{ typeLabel }}
+        </span>
+        <slot name="meta" />
+      </div>
     </template>
 
     <!-- 默认两行模式：非数据密集页面（持仓/账本/清单明细等）沿用 -->
@@ -38,8 +48,9 @@ defineProps({
   /** 资产类型中文标签，如 "股票"、"基金" */
   typeLabel: { type: String, default: "" },
   /**
-   * 紧凑模式：名称与代码同行单行展示，用于数据密集表格（自选）。
-   * 默认 false，保持其余复用方（探市/持仓明细/账本明细/清单）原两行布局不受影响。
+   * 紧凑模式：名称一行 + 「# 代码 / 类型 / #meta 插槽」一行的两行紧凑结构，
+   * 用于数据密集表格（自选）。默认 false，保持其余复用方（探市/持仓明细/账本明细/清单）
+   * 原两行布局不受影响。
    */
   compact: { type: Boolean, default: false }
 });
@@ -76,16 +87,18 @@ defineProps({
   color: var(--text-tertiary);
 }
 
-/* ── 紧凑模式（数据密集表格）：名称 + 代码 + 类型 同行单行 ──
-   行内容高度 20px，配合 el-table 行高 40px 基线，保证一屏行数最大化
-   （design.md「数据表格强制紧凑原则」：自选等密集场景行高锁定 40–44px）。
-   名称靠 min-width:0 + ellipsis 截断，避免长名称把代码挤出列宽。 */
+/* ── 紧凑模式（数据密集表格）：名称一行 + 元信息（代码/类型/插槽）一行 ──
+   行内容 40px = 名称 20 + gap 2 + 元信息 18；配合单元格 6px 上下 padding 落在 52px
+   （自选页行高基线，见 design.md「Table · 行高例外」），是旧三行式（约 78px）的七成。
+   多出来的高度换回「名称完整可读」，是 #1281 两轮实测后确认的取舍。
+   名称靠 min-width:0 + ellipsis 截断，溢出由 title 兜全名（表格列不再用
+   show-overflow-tooltip：EP 会给单元格加 white-space:nowrap，会把两行结构压回一行）。 */
 .product-cell--compact {
   display: flex;
-  gap: 6px;
-  align-items: center;
+  flex-direction: column;
+  gap: 2px;
   min-width: 0;
-  line-height: 20px;
+  cursor: default;
 }
 
 .product-cell--compact .product-name {
@@ -94,8 +107,18 @@ defineProps({
   text-overflow: ellipsis;
   font-size: 14px;
   font-weight: 500;
+  line-height: 20px;
   color: var(--text-primary);
   white-space: nowrap;
+}
+
+/* 元信息行：代码 + 类型 + 外部注入内容（标签圆点 / 添加标签按钮）统一 18px 高，不撑高行 */
+.product-meta-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+  height: 18px;
 }
 
 .product-code-compact {
@@ -103,6 +126,7 @@ defineProps({
   font-family: var(--font-number);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+  line-height: 18px;
   color: var(--text-tertiary);
 }
 
@@ -111,7 +135,7 @@ defineProps({
   flex-shrink: 0;
   padding: 0 4px;
   font-size: 11px;
-  line-height: 16px;
+  line-height: 18px;
   color: var(--text-tertiary);
   background-color: var(--bg-soft);
   border-radius: var(--radius-sm);

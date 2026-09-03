@@ -23,6 +23,22 @@
   --el-table-header-text-color: var(--text-tertiary);
 }
 
+/* 表格滚动条统一风格（design.md「冻结列与横向滚动规范 · 滚动条 UI」：
+   厚度 6–8px、颜色 --border-default、悬停稍亮）。
+   EP 表格的滚动条是覆盖式（.el-scrollbar__bar / .el-scrollbar__thumb，默认 6px），
+   默认 thumb 为冷灰 --el-text-color-secondary、且只在 hover 时淡入：
+   既与暖色设计语言不一致，又会在右侧冻结列上「凭空冒出一条」，观感突兀（issue #1281）。
+   这里统一为暖色细条；常驻显示由使用方给 el-table 加 scrollbar-always-on 控制。 */
+.el-table .el-scrollbar__thumb {
+  background-color: var(--border-default);
+  opacity: 0.8;
+}
+
+.el-table .el-scrollbar__thumb:hover {
+  background-color: var(--text-disabled);
+  opacity: 1;
+}
+
 /* 行高压紧（2026-08-14）：全站统一 44px。
    Element Plus 2.14.x 无 --el-table-row-height 变量（行高 = cell padding + line-height 决定），
    故直接给 .el-table__row 设 height。tr 的 height 是「最小高度」语义：

@@ -49,20 +49,22 @@ function handleSearchInput(value: string) {
 </script>
 
 <template>
-  <!-- 顶部操作栏（紧凑版：search 改 size=small 让整行 32px 高，间距从 24/16px 收到 12/12px，
-       让出顶部 60+px 给下方表格，参见 issue #1281 后的「整体压榨」） -->
-  <div class="flex flex-wrap items-center justify-between gap-3 mb-3 top-bar">
+  <!-- 顶部操作栏（#1281 第二轮：取消 size=small 的 24px 迷你搜索框与 sticky 顶栏，
+       回到 EP 默认 32px 控件高度 + --space-3(12px) 区块间距，先保证呼吸感；
+       可见行数改由「滚动表格时自动收起本区块」去换，见 index.vue 的 is-condensed） -->
+  <div class="flex flex-wrap items-center justify-between gap-3 top-bar">
     <div class="flex items-center gap-3">
-      <div class="flex items-center relative">
+      <div class="flex items-center">
         <el-input
           v-model="searchKeywordModel"
           placeholder="搜索当前自选列表..."
           clearable
-          size="small"
-          class="w-48"
+          class="w-52"
           :prefix-icon="Search"
           @input="handleSearchInput"
         />
+        <!-- 说明图标：与搜索框同一行跟随（原先 absolute 到框外 -22px，
+             既会溢出容器被裁切，也让搜索区看起来被一条"多余的边"压住） -->
         <el-tooltip
           content="在当前自选列表中按代码或名称过滤"
           placement="bottom-start"
@@ -70,7 +72,7 @@ function handleSearchInput(value: string) {
         >
           <IconifyIconOffline
             icon="ep:info-filled"
-            class="absolute right-[-22px] top-1/2 -translate-y-1/2 text-sm cursor-help transition-colors"
+            class="search-hint ml-2 text-sm cursor-help transition-opacity"
             :style="{ color: 'var(--text-tertiary)' }"
           />
         </el-tooltip>
@@ -267,15 +269,11 @@ function handleSearchInput(value: string) {
   background-color: transparent;
 }
 
-/* 吸顶兜底：主方案由表格内部滚动使页面不滚动、操作栏本就常驻；
-   此处仅在极端配置导致整页滚动时让操作栏吸顶常驻，背景与页面底一致避免内容穿透。
-   #1281 后整体压榨：padding-bottom 12→4、margin-bottom 12→4，让出顶部空间给表格 */
+/* 操作栏常驻：表格内部滚动 → 页面本身不滚动 → 本栏天然常驻，无需 sticky。
+   #1281 第一轮曾加 position:sticky + 页面底色兜底，在「页面不滚动」的主方案下是死代码，
+   反而多出一个层叠上下文与一条与卡片拼接的色带（被反馈为「搜索框上面有条很宽的边」），已移除。
+   区块间距回到 --space-3(12px) 档，呼吸感优先。 */
 .top-bar {
-  position: sticky;
-  top: 0;
-  z-index: 20;
-  padding-bottom: 4px;
-  margin-bottom: 4px;
-  background: var(--bg-page);
+  margin-bottom: var(--space-3);
 }
 </style>

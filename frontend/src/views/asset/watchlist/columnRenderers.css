@@ -17,19 +17,17 @@
   color: var(--text-secondary);
 }
 
-/* ── 产品列单行紧凑容器（issue #1281 / design.md 数据表格强制紧凑原则）──
-   名称 + 代码 + 类型 + 标签圆点 + 添加标签按钮 全部收敛到同一行，
-   容器高度锁 20px，使表格行高从三行式约 78px 回落到 40px 基线，单屏行数翻倍。
+/* ── 产品列两行紧凑容器（issue #1281 第二轮）──
+   第一行名称、第二行 代码/类型/标签圆点/添加标签（由 ProductDisplay #meta 插槽承载）。
+   相比三行式（约 78px）行数增加约四成，相比单行压扁式名称完整可读。
    min-width: 0 是名称 ellipsis 生效的前提（flex 子项默认 min-width: auto 会撑开）。 */
 .el-table .product-row {
   display: flex;
-  gap: 6px;
   align-items: center;
   min-width: 0;
-  height: 20px;
 }
 
-/* ProductDisplay 紧凑模式撑满剩余宽度，长名称省略、代码与按钮不被挤出列宽 */
+/* ProductDisplay 紧凑模式撑满列宽，长名称省略、代码与标签不被挤出列宽 */
 .el-table .product-row .product-cell--compact {
   flex: 1;
   min-width: 0;
@@ -54,14 +52,15 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* 产品列「添加标签」小按钮：20px 圆形，默认 45% 弱化可见，行悬停全亮；
-   孤按钮（行内无标签圆点时）常亮，保证可发现性 */
+/* 产品列「添加标签」小按钮：18px 圆形（与元信息行等高，不撑高行），
+   默认 45% 弱化可见，行悬停全亮（design.md 行内操作交互规范） */
 .el-table .add-tag-btn {
   --el-button-text-color: var(--text-tertiary);
 
-  width: 20px;
-  height: 20px;
-  min-height: 20px;
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  padding: 0;
   color: var(--text-tertiary);
   opacity: 0.45;
   transition: opacity 150ms ease;
@@ -69,9 +68,5 @@
 
 .el-table .el-table__row:hover .add-tag-btn,
 .el-table .is-row-hovered .add-tag-btn {
-  opacity: 1;
-}
-
-.el-table .add-tag-btn:only-child {
   opacity: 1;
 }

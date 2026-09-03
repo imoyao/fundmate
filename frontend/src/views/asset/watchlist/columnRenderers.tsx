@@ -122,10 +122,11 @@ const renderSparkline: FunctionalComponent<{
       "--"
     );
   }
-  // 迷你走势尺寸（issue #1281）：宽 64 / 高 20，贴合 design.md 行高 40–44px 基线，
-  // 相比原 96×24 收窄约三分之一，在有限列宽内容纳更多数据列
-  const width = 64;
-  const height = 20;
+  // 迷你走势尺寸：宽 72 / 高 22。
+  // 演进：96×24（原始）→ 64×20（#1281 第一轮压榨，在 40px 行高里仍偏高偏扁）
+  // → 72×22（#1281 第二轮，行高回到 54px 后按视觉比例回调，线条有呼吸但不抢主数据）
+  const width = 72;
+  const height = 22;
   const pad = 2;
   const min = Math.min(...series);
   const max = Math.max(...series);
@@ -212,15 +213,27 @@ const renderMoneyRatio: FunctionalComponent<{
   ctx: RenderCtx;
 }> = props => {
   const { row, def, ctx } = props;
-  // 派生列（添加后涨幅 / 持仓市值比例）：直接取注入的计算结果
+  // 派生列（持仓市值 / 添加后涨幅）：直接取注入的计算结果，布局为
+  // 「金额在上、比例在下」两行（MoneyWithRatio 默认态）。
+  // #1281 曾为压行高改为金额与比例同行内联，实测两个数字并排削弱主次、
+  // 列内挤成一团（且把金额的「+」号也带了出来），用户明确不接受，故：
+  // ① 布局回退为默认双行；② 金额展示参数恢复 #995 重构前的原模板语义（见
+  //  pre-#995 index.vue）——市值不带正负号、占比中性色；添加后收益不带货币符号。
   if (def.derived) {
     const d = ctx.derived(def.derived, row);
+    const isMarketValue = def.derived === "marketValue";
     return h(MoneyWithRatio, {
       value: d.value,
       ratio: d.ratio,
       moneySize: "sm",
-      // 内联单行：两行堆叠会把行高顶到 ~51px，超出 design.md 锁定的 40–44px（#1281）
-      inline: true
+      // 持仓市值：金额是余额不是涨跌 → 不带 +/- 号；比例是市值占比（恒为正）→ 中性色
+      showSign: !isMarketValue,
+      // 添加后收益：金额由 `price_at_added` 差值计算，真涨跌 → 保留货币符号位但金额为主；
+      // 原模板为无 ¥ 符号（showCurrency=false），保持
+      showCurrency: !isMarketValue,
+      // 「持仓市值」的比例是市值占比（恒为正），非涨跌语义，必须中性色
+      // （components.md MoneyWithRatio：占比等非涨跌语义 ratioAutoColor=false）
+      ratioAutoColor: !isMarketValue
     });
   }
   // 直接字段列（持仓收益）：value=def.key, ratio=props.ratioKey
@@ -233,8 +246,7 @@ const renderMoneyRatio: FunctionalComponent<{
     ratio: hasPosition ? ratio : null,
     moneySize: "sm",
     showSign: true,
-    showCurrency: false,
-    inline: true
+    showCurrency: false
   });
 };
 
@@ -270,11 +282,12 @@ const renderProduct: FunctionalComponent<{
     );
   }
 
-  // 正常 product 列：单行紧凑布局 —— 名称 + 代码(+类型) + 标签圆点 + 添加标签按钮。
-  // 压缩前为「名称 / 代码+类型 / 标签 chips」三行，实测行高约 78px，一屏仅 3 行；
-  // 现对齐 design.md「数据表格强制紧凑原则」（自选等密集场景行高锁定 40–44px，
-  // 首列名称+代码 180–220px），全部收敛到同一行，行高回落至 40px 基线，
-  // 单屏可见行数翻倍（issue #1281）。
+  // 正常 product 列：两行紧凑布局 —— 第一行名称，第二行 代码 / 类型 / 标签圆点 / 添加标签。
+  // 演进（issue #1281 两轮）：
+  //   ① 三行式（名称 / 代码+类型 / 标签 chips）→ 行高约 78px，一屏仅 3 行，信息量不足；
+  //   ② 单行压扁式（名称+代码+类型+标签同行）→ 行高 40px，但长名称被挤成两三个字、不可读；
+  //   ③ 现状两行紧凑式 → 行高 52px，名称完整可读、代码与标签降级为第二行弱化小字，
+  //      行数约为 ① 的 1.4 倍，是密度与可读性的平衡点（参考 jigu 自选表主列布局）。
   const tagIds = Array.isArray(row.tag_ids) ? row.tag_ids : [];
   // 与模板 findTagColor/findTagName(allTags, tagId) 语义等价的内联查找；
   // 找不到时 name 回退空串、color 回退中性 --text-tertiary
@@ -299,61 +312,70 @@ const renderProduct: FunctionalComponent<{
       onMouseleave: () => ctx.setHoveredRowKey(null)
     },
     [
-      h(ProductDisplay, {
-        compact: true,
-        name: (field(row, "display_name") as string) || row.symbol,
-        symbol: row.symbol,
-        typeLabel: (field(row, "type_label") as string) || ""
-      }),
-      // 标签以 6px 圆点内联呈现：不再单独占一行、不撑高行高，
-      // 标签名经 title 原生提示保留可读性（避免「仅靠颜色传意」）
-      ...tagIds.slice(0, MAX_DOTS).map(tagId =>
-        h("span", {
-          class: "tag-dot",
-          style: { backgroundColor: tagColor(tagId) },
-          title: tagName(tagId)
-        })
-      ),
-      ...(tagIds.length > MAX_DOTS
-        ? [
+      // 标签圆点 / 添加标签按钮经 #meta 插槽注入产品列第二行（与代码、类型同一弱化小字行），
+      // 避免它们挤占名称行的宽度（单行压扁式的核心问题就在这里）。
+      h(
+        ProductDisplay,
+        {
+          compact: true,
+          name: (field(row, "display_name") as string) || row.symbol,
+          symbol: row.symbol,
+          typeLabel: (field(row, "type_label") as string) || ""
+        },
+        {
+          meta: () => [
+            // 标签以 6px 圆点呈现：不单独占行、不撑高行高，
+            // 标签名经 title 原生提示保留可读性（避免「仅靠颜色传意」）
+            ...tagIds.slice(0, MAX_DOTS).map(tagId =>
+              h("span", {
+                class: "tag-dot",
+                style: { backgroundColor: tagColor(tagId) },
+                title: tagName(tagId)
+              })
+            ),
+            ...(tagIds.length > MAX_DOTS
+              ? [
+                  h(
+                    "span",
+                    {
+                      class: "tag-dot-more",
+                      title: tagIds
+                        .slice(MAX_DOTS)
+                        .map(tagName)
+                        .filter(Boolean)
+                        .join("、")
+                    },
+                    `+${tagIds.length - MAX_DOTS}`
+                  )
+                ]
+              : []),
             h(
-              "span",
+              ElTooltip,
+              { content: "添加/编辑标签", placement: "top" },
               {
-                class: "tag-dot-more",
-                title: tagIds
-                  .slice(MAX_DOTS)
-                  .map(tagName)
-                  .filter(Boolean)
-                  .join("、")
-              },
-              `+${tagIds.length - MAX_DOTS}`
+                default: () =>
+                  h(
+                    ElButton,
+                    {
+                      circle: true,
+                      size: "small",
+                      class: "add-tag-btn",
+                      disabled: row.id == null,
+                      onClick: (e: Event) => {
+                        e.stopPropagation();
+                        ctx.openTagEditor(row);
+                      }
+                    },
+                    () => [
+                      h(IconifyIconOffline, {
+                        icon: "ep:plus",
+                        class: "text-[10px]"
+                      })
+                    ]
+                  )
+              }
             )
           ]
-        : []),
-      h(
-        ElTooltip,
-        { content: "添加/编辑标签", placement: "top" },
-        {
-          default: () =>
-            h(
-              ElButton,
-              {
-                circle: true,
-                size: "small",
-                class: "add-tag-btn",
-                disabled: row.id == null,
-                onClick: (e: Event) => {
-                  e.stopPropagation();
-                  ctx.openTagEditor(row);
-                }
-              },
-              () => [
-                h(IconifyIconOffline, {
-                  icon: "ep:plus",
-                  class: "text-[10px]"
-                })
-              ]
-            )
         }
       )
     ]

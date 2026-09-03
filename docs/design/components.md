@@ -226,6 +226,7 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
   ```
 
 - 注意：比例行尺寸固定 `sm`(13px)，**不要**用 `size` 把它调得比主数字大；非涨跌语义（如持仓市值占比）务必 `:ratio-auto-color="false"`，避免把占比误染成涨红。
+- **只有双行布局，无内联模式**：#1281 曾为压行高加过 `inline`（金额与比例同行），实测并排两个数字主次不清、列内拥挤，已随组件移除；需要更高信息密度的页面应从行高与列宽层面解决，不要再引入内联。
 
 ### AssetTypeBadge · 资产 / 账本类型胶囊
 
@@ -237,12 +238,12 @@ logo、头像、卡片等需要品牌轮廓的容器，**必须复用** `Superel
 - 用途：表格「产品信息」列的统一样式（名称 + `# 代码` + 类型标签），与导入预览页保持一致，禁止各页面手写 `.product-cell` / `.type-tag-inline` 结构。
 - props：`name`(产品名称)、`symbol`(资产代码)、`typeLabel`(类型中文标签)；`name || symbol || "--"` 兜底展示。
 - 注意：`typeLabel` 为**后端类型文案**（如 `row.type_label`），非账本类型 key；按账本类型配色请用 `AssetTypeBadge`。
+- **紧凑模式（`compact: true`）**：面向自选这类密集表格，两行紧凑结构——第一行名称，第二行 `# 代码` + 类型 + `#meta` 插槽注入的附加信息（标签圆点 / 添加标签按钮）。语义是「两行紧凑」而非「单行压扁」（#1281 实测单行式让名称只剩两三个字，已废弃）。行内容 40px（20 名称 + 2 gap + 18 元信息）。
 - **列宽规范（统一三档，禁止各页再手写 min-width 200+）**：
   - `min-width: 160` — 标准持仓 / 流水表（inventory、ledgers 交易、portfolio 持仓）
   - `min-width: 200` — 含类型标签且列多需要呼吸感的表（watchlist 自选）
   - `min-width: 120` — 纯名称紧凑场景（TransactionList 交易流水，无代码标签）
-- **截断与 hover 提示**：组件内 `product-name` 已单行截断（`overflow: hidden; text-overflow: ellipsis`），
-  使用方在表格列上加 `show-overflow-tooltip` 即可在名称溢出时 hover 出完整名称（ElTooltip 原生，仅在溢出时出现，无视觉干扰）。
+- **截断与 hover 提示**：组件内 `product-name` 已单行截断（`overflow: hidden; text-overflow: ellipsis`），名称溢出时由组件自身的 `title` 展示全名。**不要在含两行单元格（紧凑模式）的列上使用 `show-overflow-tooltip`**——EP 会给单元格加 `white-space: nowrap`，把两行结构压回一行；该 tooltip 只适合真正的单行单元格。
 
 ## PageSkeleton · 页面骨架屏（强制复用）
 
