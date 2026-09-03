@@ -797,7 +797,7 @@ def write_asset_snapshot(db: Session, family_id: int = 1, snapshot_date: str | N
     family_row.realized_pnl_cents = family_pnl['realized_pnl_cents']
     family_row.unrealized_pnl_cents = family_pnl['unrealized_pnl_cents']
     family_row.total_pnl_cents = family_pnl['total_pnl_cents']
-    family_row.money_fund_income_cents = _money_fund_daily_income_cents(db, family_id, target) if mf_ledgers else None
+    family_row.money_fund_income_cents = sum(mf_income_by_ledger.values()) if mf_ledgers else None
 
     # 账户级快照（#1181）：同一天为每个有数据的账户各落一行，支撑账户维度走势
     ledger_pnl = get_ledger_pnl(db, family_id)
