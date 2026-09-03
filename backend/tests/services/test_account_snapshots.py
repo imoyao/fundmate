@@ -8,6 +8,8 @@
 4. 后端单测覆盖账户维度查询与跨家庭隔离
 """
 
+import pytest
+
 from app.core.money import Money
 from app.domains.assets.models import Asset
 from app.domains.summary.models import AssetSnapshot
@@ -243,8 +245,9 @@ class TestMoneyFundIncomeInSnapshot:
             db.flush()
         if not isinstance(day, date):
             day = date.fromisoformat(day)
-        db.add(MoneyFundDailyWorth(fund_code=fund_code, date=day, nav_per_10k=nav_per_10k))
-        db.flush()
+        if db.query(MoneyFundDailyWorth).filter_by(fund_code=fund_code, date=day).first() is None:
+            db.add(MoneyFundDailyWorth(fund_code=fund_code, date=day, nav_per_10k=nav_per_10k))
+            db.flush()
 
     def test_family_snapshot_writes_daily_income(self, db, make_position):
         from app.domains.summary.models import AssetSnapshot
@@ -264,7 +267,7 @@ class TestMoneyFundIncomeInSnapshot:
 
         result = write_asset_snapshot(db, 1, SNAP_DATE)
         # 持有 10000 元 × 0.35 万份收益 / 10000 = 0.35 元 = 35 分
-        assert result['money_fund_income'] == 0.35
+        assert result['money_fund_income'] == pytest.approx(0.35)
 
         family = db.query(AssetSnapshot).filter(AssetSnapshot.ledger_id.is_(None)).order_by(AssetSnapshot.id).all()
         assert family[-1].money_fund_income_cents == 35

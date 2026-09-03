@@ -51,22 +51,28 @@ class LedgerService:
         （confirm_date > 今日）。二期 B1 在途状态机上线后数据源切到 pending 表，
         返回字段与路径保持不变，前端无需改动。
         """
-        from datetime import date as _date
-
         from app.services.fund_utils import CASH_EQUIVALENT_ASSET_TYPES
 
-        rows = (
-            db.query(Transaction.confirm_date, Transaction.amount)
-            .filter(
-                Transaction.ledger_id == ledger_id,
-                Transaction.family_id == family_id,
-                Transaction.asset_type.in_(CASH_EQUIVALENT_ASSET_TYPES),
-                Transaction.txn_type.in_(('buy', 'deposit')),
-                Transaction.status == 'success',
-                Transaction.confirm_date > _date.today(),
+        try:
+            rows = (
+                db.query(Transaction.confirm_date, Transaction.amount)
+                .filter(
+                    Transaction.ledger_id == ledger_id,
+                    Transaction.family_id == family_id,
+                    Transaction.asset_type.in_(CASH_EQUIVALENT_ASSET_TYPES),
+                    Transaction.txn_type.in_(('buy', 'deposit')),
+                    Transaction.status == 'success',
+                    Transaction.confirm_date > date.today(),
+                )
+                .all()
             )
-            .all()
-        )
+        except Exception:
+            # 查询失败（如连接异常）不中断请求，降级返回空预估，与 _batch_fund_latest_navs 一致
+            return {
+                'pending_amount_cents': 0,
+                'estimated_confirm_date': None,
+                'note': '预估金额获取失败，请稍后重试',
+            }
         pending_cents = sum((row.amount or 0) for row in rows)
         confirm_dates = [row.confirm_date for row in rows if row.confirm_date]
         return {

@@ -10,13 +10,11 @@ from typing import List
 
 from loguru import logger
 
+from app.core.constants import SOURCE_VERSION_V2_RECALC
 from app.core.time_utils import now_shanghai
 from app.domains.funds.models import DailyWorth, MoneyFundDailyWorth
 from app.models.sync_log import SyncLog
 from app.services.sync.jobs.base import SyncJob
-
-# 货基万份收益写入来源版本标记（#863 P0-4）
-SOURCE_VERSION_V2_RECALC = 'v2_recalc'
 
 
 class FundNavSyncJob(SyncJob):

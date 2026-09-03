@@ -714,7 +714,11 @@ def get_ledger_pnl(db: Session, family_id: int = 1) -> dict[int, dict[str, int]]
 
 
 def _money_fund_ledgers_with_holdings(db: Session, family_id: int) -> set[int]:
-    """当日有货基表达（孤儿净额非 0 或现金等价持仓）的账户集合（#863 P1-5）。"""
+    """当日有货基表达（孤儿净额非 0 或现金等价持仓）的账户集合（#863 P1-5）。
+
+    仅纳入 active 且 quantity>0 的持仓：已平仓 / NULL 状态的旧货基持仓不应被误判为
+    「当日有货基表达」，否则会在快照里写入 money_fund_income_cents（实际已无本金）。
+    """
     from sqlalchemy import or_
 
     net_map = orphan_money_fund_net_by_ledger(db, family_id)
@@ -724,11 +728,14 @@ def _money_fund_ledgers_with_holdings(db: Session, family_id: int) -> set[int]:
         .filter(
             Position.family_id == family_id,
             Position.ledger_id.isnot(None),
+            Position.ownership_status == 'active',
+            Position.quantity > 0,
             or_(
                 Position.asset_type.in_(CASH_EQUIVALENT_ASSET_TYPES),
                 Position.is_money_fund.is_(True),
             ),
         )
+        .distinct()
         .all()
     )
     for (lid,) in pos_rows:
@@ -753,7 +760,11 @@ def _money_fund_daily_income_cents(db: Session, family_id: int, target: date, le
         family_id=family_id,
     )
     series = result.get('daily_series') or []
-    return Money.yuan_to_cents(series[-1]['income']) if series else 0
+    if not series:
+        return 0
+    income = series[-1].get('income')
+    # income 可能为 None（当日无万份收益），避免 Money.yuan_to_cents(None) 抛异常
+    return Money.yuan_to_cents(income) if income is not None else 0
 
 
 def write_asset_snapshot(db: Session, family_id: int = 1, snapshot_date: str | None = None) -> dict[str, Any]:
@@ -773,6 +784,10 @@ def write_asset_snapshot(db: Session, family_id: int = 1, snapshot_date: str | N
     dist = get_distributions(db, family_id)
     family_pnl = family_pnl_cents(db, family_id)
     mf_ledgers = _money_fund_ledgers_with_holdings(db, family_id)
+    # 每个货基账户当日收益只计算一次（避免账户级循环内 N+1 重复调用 calculate_money_fund_income）
+    mf_income_by_ledger: dict[int, int] = {
+        lid: _money_fund_daily_income_cents(db, family_id, target, lid) for lid in mf_ledgers
+    }
 
     # 家庭级快照（ledger_id 为 NULL）：既有行为，支撑总资产走势 + 盈亏序列
     family_row = _upsert_snapshot(db, family_id=family_id, ledger_id=None, snapshot_date=target)
@@ -802,9 +817,7 @@ def write_asset_snapshot(db: Session, family_id: int = 1, snapshot_date: str | N
         row.realized_pnl_cents = lp['realized_pnl_cents']
         row.unrealized_pnl_cents = lp['unrealized_pnl_cents']
         row.total_pnl_cents = lp['total_pnl_cents']
-        row.money_fund_income_cents = (
-            _money_fund_daily_income_cents(db, family_id, target, ledger_id) if ledger_id in mf_ledgers else None
-        )
+        row.money_fund_income_cents = mf_income_by_ledger.get(ledger_id) if ledger_id in mf_ledgers else None
 
     db.commit()
     return _snapshot_payload(family_row)
