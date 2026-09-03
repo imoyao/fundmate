@@ -34,6 +34,7 @@ from app.services.sync.adapters.eastmoney_adapter import EastmoneyAdapter
 from app.services.sync.adapters.null_adapter import NullAdapter
 from app.services.sync.adapters.xalpha_adapter import XalphaAdapter
 from app.services.sync.jobs.amac_institution_job import AmacInstitutionJob
+from app.services.sync.jobs.asset_snapshot_job import AssetSnapshotJob
 from app.services.sync.jobs.dividend_split_job import DividendSplitSyncJob
 from app.services.sync.jobs.fund_detail_enrich_job import FundDetailEnrichJob
 from app.services.sync.jobs.fund_list_job import FundListSyncJob
@@ -132,6 +133,8 @@ class DataSyncOrchestrator:
         self.jobs['amac_institution'] = AmacInstitutionJob(NullAdapter(), self.db)
         # #1179：分红 / 送股自动抓取（akshare），落库复用 ImportOrchestrator 路径
         self.jobs['dividend_split'] = DividendSplitSyncJob(self.data_sources['akshare'], self.db)
+        # #1182：资产快照每日落账（家庭/账户两级，含货基每日收益），无外部数据源
+        self.jobs['asset_snapshot'] = AssetSnapshotJob(self.db)
 
     # ── 目标代码解析 ──
 
@@ -368,6 +371,8 @@ class DataSyncOrchestrator:
                 ('fund_nav', fund_targets),  # 净值增量同步（核心池）
                 ('price_history', stock_targets),  # 行情增量同步（核心池）
                 ('dividend_split', stock_targets + fund_targets),  # 分红/送股抓取（#1179）
+                # #1182：资产快照落账放最后，确保前面的净值/行情已刷新，快照取到最新值
+                ('asset_snapshot', None),
             ]
 
             results = {}
