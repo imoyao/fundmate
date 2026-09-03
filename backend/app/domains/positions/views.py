@@ -259,6 +259,9 @@ def create_position():
                 try:
                     # #1233 决策 5：记一笔（手动记账）对货基/逆回购也建持仓，流水关联持仓；
                     # 交易导入路径不传该参数，保持「只记孤儿资金流水」的既有行为。
+                    # 与 #863 §6「统一流水式」的关系：设计文档 §6 针对导入口径与历史持仓清理(L3)，
+                    # 主张货基只记孤儿流水；手动路径经 #1233 有意保留为建持仓。两者经 position_id
+                    # 互斥（导入=NULL、手动=非空），summary 孤儿净额与持仓聚合不重叠、不双计，口径已收口。
                     position = PositionService.process_buy_or_deposit(db, data, force_create_position=True)
                 except IntegrityError:
                     # 唯一约束冲突（幂等键重复）→ 上抛给外层 except IntegrityError → 409 幂等拦截

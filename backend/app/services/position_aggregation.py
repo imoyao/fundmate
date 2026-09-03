@@ -148,6 +148,15 @@ def _collect_rows(session, family_id: int, asset_types: tuple) -> list[dict]:
     # ── 🔄 NavService：批量取基金/货基最新净值（与 ledger_service 口径统一）──
     # 注意：聚合接口是用户触发的同步请求，必须 allow_remote=False 避免阻塞。
     # 远程净值拉取由定时任务（grab.job fund_nav）异步完成。
+    #
+    # 货基口径收口说明（#863 §6 + #1233 decision 5，消除"双计"误判）：
+    # 本聚合把 asset_type='money_fund' 的持仓一并算市值（货基单位净值恒 1.0，走 NavService）。
+    # 但货基本金主口径是「孤儿流水净额」——summary_service.orphan_money_fund_net_by_ledger
+    # 按 position_id IS NULL 聚合。两者按 position_id 互斥，不会重复计入：
+    #   - 导入路径 → 只记孤儿流水（position_id=None）→ 计入孤儿净额，不在此聚合；
+    #   - 手动「记一笔」(#1233) → force_create_position 建持仓（position_id 非空）→ 在此聚合。
+    # 故同一货基本金不会被两边同时计入，不存在双计。设计文档 §6「统一流水式」是针对
+    # 导入口径与历史持仓清理(L3)的意图，手动路径经 #1233 有意保留为建持仓，属已收口决策。
     fund_symbols = [p.symbol for p in positions if p.symbol and p.asset_type in ('fund', 'money_fund')]
     latest_navs: Dict[str, float] = {}
     nav_date_global: str | None = None
