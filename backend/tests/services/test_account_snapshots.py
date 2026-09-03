@@ -8,6 +8,8 @@
 4. 后端单测覆盖账户维度查询与跨家庭隔离
 """
 
+import pytest
+
 from app.core.money import Money
 from app.domains.assets.models import Asset
 from app.domains.summary.models import AssetSnapshot
@@ -227,3 +229,55 @@ class TestSnapshotsEndpointLedgerFilter:
         data = client.get('/api/summary/snapshots/').get_json()['data']
         assert len(data) == 1
         assert data[0]['ledger_id'] is None
+
+
+class TestMoneyFundIncomeInSnapshot:
+    """#863 P1-5：快照同批写入当日货基收益（money_fund_income_cents，展示用、不入 total_assets）"""
+
+    @staticmethod
+    def _make_worth(db, fund_code, day, nav_per_10k):
+        from datetime import date
+
+        from app.domains.funds.models import Fund, MoneyFundDailyWorth
+
+        if db.query(Fund).filter_by(fund_code=fund_code).first() is None:
+            db.add(Fund(fund_code=fund_code, name='测试货基'))
+            db.flush()
+        if not isinstance(day, date):
+            day = date.fromisoformat(day)
+        if db.query(MoneyFundDailyWorth).filter_by(fund_code=fund_code, date=day).first() is None:
+            db.add(MoneyFundDailyWorth(fund_code=fund_code, date=day, nav_per_10k=nav_per_10k))
+            db.flush()
+
+    def test_family_snapshot_writes_daily_income(self, db, make_position):
+        from app.domains.summary.models import AssetSnapshot
+
+        self._make_worth(db, 'MF01', SNAP_DATE, 0.35)
+        make_position(
+            symbol='MF01',
+            name='货基',
+            asset_type='money_fund',
+            market='CN_A',
+            quantity=10000.0,
+            avg_price=1.0,
+            current_price=1.0,
+            account_name='货基账户',
+        )
+        db.commit()
+
+        result = write_asset_snapshot(db, 1, SNAP_DATE)
+        # 持有 10000 元 × 0.35 万份收益 / 10000 = 0.35 元 = 35 分
+        assert result['money_fund_income'] == pytest.approx(0.35)
+
+        family = db.query(AssetSnapshot).filter(AssetSnapshot.ledger_id.is_(None)).order_by(AssetSnapshot.id).all()
+        assert family[-1].money_fund_income_cents == 35
+
+    def test_non_money_fund_snapshot_income_is_null(self, db, make_position):
+        from app.domains.summary.models import AssetSnapshot
+
+        _position_in(make_position, '账户A', price=2.0, quantity=100.0)  # 普通基金，无货基
+        write_asset_snapshot(db, 1, SNAP_DATE)
+
+        family = db.query(AssetSnapshot).filter(AssetSnapshot.ledger_id.is_(None)).order_by(AssetSnapshot.id).all()
+        assert family[-1].money_fund_income_cents is None
+        assert family[-1].total_assets == Money.yuan_to_cents(200)

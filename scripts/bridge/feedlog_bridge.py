@@ -28,6 +28,7 @@ import json
 import os
 import re
 import sys
+import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -587,11 +588,15 @@ def sync_recent_edited(conn, state: dict[str, Any], hours: int = 24) -> None:
         if not post_id:
             # 该 issue 无 FeedLog 帖子，跳过（只回灌已映射内容，不新建）
             continue
-        if update_post_from_issue(conn, post_id, issue.title, issue.body or ""):
-            print(f"  ✅ 已回灌更新帖子 {post_id} ← Issue #{issue.number}")
-            handled += 1
-        else:
-            print(f"  ℹ️ Issue #{issue.number} 内容与帖子一致，无更新")
+        try:
+            if update_post_from_issue(conn, post_id, issue.title, issue.body or ""):
+                print(f"  ✅ 已回灌更新帖子 {post_id} ← Issue #{issue.number}")
+                handled += 1
+            else:
+                print(f"  ℹ️ Issue #{issue.number} 内容与帖子一致，无更新")
+        except Exception as e:  # noqa: BLE001  单条 issue 失败不应中断整轮回灌
+            print(f"  ⚠️ 更新帖子 {post_id} 失败: {e}")
+            traceback.print_exc()
     if handled == 0:
         print(f"📭 最近 {hours}h 内无需要回灌的 issue 编辑")
     else:
@@ -862,6 +867,7 @@ def main():
         conn = get_db()
         try:
             sync_recent_edited(conn, state, hours=args.hours)
+            conn.commit()
         finally:
             conn.close()
 

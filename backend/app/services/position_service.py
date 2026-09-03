@@ -553,10 +553,14 @@ class PositionService:
                         Position.ledger_id == _lid,
                         Position.family_id == _family_id,
                         Position.symbol.in_(_codes),
+                        # 仅匹配 active 持仓，避免把已平仓 / NULL 状态旧持仓误判为可复用
+                        Position.ownership_status == 'active',
                     )
+                    # 取最新一条（id 降序），确保命中最近建仓的持仓
+                    .order_by(Position.id.desc())
                     .first()
                 )
-            if existing_pos is not None and existing_pos.ownership_status == 'active':
+            if existing_pos is not None:
                 force_create_position = True  # 复用下方正常建仓逻辑（含孤儿流水挂回）
             else:
                 _create_cash_transfer_transaction(db, data, 'buy')
@@ -727,6 +731,7 @@ class PositionService:
             # 使同 (ledger, symbol) 资金只以持仓市值计入总资产，不双计、不漏计）
             position.is_money_fund = _resolve_money_fund_flag(symbol, asset_type, data.get('is_money_fund'))
             if position.is_money_fund:
+                db.flush()  # 确保新建持仓已落库拿到 id，避免挂回孤儿流水时 position_id 为 None
                 _reattach_orphan_flows(db, ledger_id, symbol, position.id, family_id)
 
             # 创建交易流水

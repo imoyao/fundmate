@@ -107,9 +107,13 @@ def resolve_money_fund_flags(codes: Iterable[str]) -> dict[str, bool]:
 
 
 def is_money_fund_symbol(symbol: str, asset_type: str | None = None) -> bool:
-    """单代码便捷判定：显式 money_fund 类型直接命中，否则名录/兜底解析。"""
-    if asset_type == 'money_fund':
-        return True
+    """单代码便捷判定：显式类型直接决定，否则名录/兜底解析。
+
+    显式 asset_type 优先——'money_fund' 命中、其它显式类型（如 'bond'）直接返回 False，
+    避免兜底解析覆盖显式分类造成误判。
+    """
+    if asset_type:
+        return asset_type == 'money_fund'
     code = normalize_fund_code(symbol)
     return resolve_money_fund_flags([code]).get(code, False)
 

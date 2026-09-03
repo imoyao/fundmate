@@ -29,7 +29,7 @@ def _resolve_db_paths() -> list[str]:
     if not db_url.startswith('sqlite'):
         print(f'仅支持 SQLite，DATABASE_URL={db_url}')
         sys.exit(1)
-    path = db_url.replace('sqlite:///', '', 1)
+    path = db_url.replace('sqlite:///', '', 1).split('?', 1)[0]
     if not os.path.isabs(path):
         path = os.path.abspath(path)
     paths = [path]
@@ -58,7 +58,13 @@ def plan_for(path: str, money_fund_codes: dict[str, bool]):
         for pid, lid, symbol, atype in rows:
             if not symbol:
                 continue
-            resolved = True if atype == 'money_fund' else money_fund_codes.get(_norm(symbol), False)
+            if atype == 'money_fund':
+                resolved = True
+            else:
+                resolved = money_fund_codes.get(_norm(symbol))
+                if resolved is None:
+                    print(f'  [跳过] symbol {symbol} 未解析，保持原值')
+                    continue
             flag_updates.append((pid, resolved))
         reattach_candidates = []
         for pid, flag in flag_updates:

@@ -74,3 +74,13 @@ class AssetSnapshot(Base, PrimaryKeyMixin, TimestampMixin):
         server_default=text('0'),
         comment='总盈亏（分）=已实现+未实现，与 XIRR 现金流口径一致',
     )
+    # #863 P1-5（D1）：当日货基收益（分），展示用途——快照随每日调度一并落库，
+    # 供「货基收益走势/日历」查询。该列**不**参与 total_assets（自动收益仅展示，
+    # 总资产含的是渠道 is_income 收益桶；本列是本地按万份收益计算的预估收益）。
+    # NULL=该作用域（家庭/账户）当日无货基本金表达，不写 0 以免覆盖语义混淆。
+    money_fund_income_cents = Column(
+        Integer,
+        nullable=True,
+        default=None,
+        comment='当日货基收益（分，#863 P1-5 展示用，不入 total_assets；NULL=无货基）',
+    )
