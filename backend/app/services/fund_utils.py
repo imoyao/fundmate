@@ -40,9 +40,16 @@ _cache: dict[str, tuple[float, bool]] = {}
 
 
 def normalize_fund_code(symbol: str) -> str:
-    """剥离交易所前缀，返回 6 位基金代码（SZ/SH 前缀历史数据兼容）。"""
+    """剥离交易所前缀，返回 6 位基金代码（兼容 SZ/SH/BJ 前缀及 sh.510300 / 510300.SH 等带分隔符表达）。"""
     s = (symbol or '').strip().upper()
-    return s[2:] if s[:2] in ('SZ', 'SH') else s
+    if '.' in s:
+        s = s.replace('.', '')
+    # 去掉首尾交易所代码（SH/SZ/BJ），保留中间 6 位代码
+    if len(s) > 6 and s[:2] in ('SH', 'SZ', 'BJ'):
+        s = s[2:]
+    if len(s) > 6 and s[-2:] in ('SH', 'SZ', 'BJ'):
+        s = s[:-2]
+    return s[-6:] if len(s) >= 6 and s[-6:].isdigit() else ''
 
 
 def _code_segment_fallback(code: str) -> bool:
@@ -74,7 +81,7 @@ def resolve_money_fund_flags(codes: Iterable[str]) -> dict[str, bool]:
     - 名录缺失 → 代码段兜底；
     - 其余 → False。
     """
-    codes = {normalize_fund_code(c) for c in codes if c}
+    codes = {n for c in codes if c for n in [normalize_fund_code(c)] if n}
     if not codes:
         return {}
     now = time.time()
@@ -105,7 +112,7 @@ def is_money_fund_symbol(symbol: str, asset_type: str | None = None) -> bool:
     显式 asset_type 优先——'money_fund' 命中、其它显式类型（如 'bond'）直接返回 False，
     避免兜底解析覆盖显式分类造成误判。
     """
-    if asset_type is not None:
+    if asset_type:
         return asset_type == 'money_fund'
     code = normalize_fund_code(symbol)
     return resolve_money_fund_flags([code]).get(code, False)

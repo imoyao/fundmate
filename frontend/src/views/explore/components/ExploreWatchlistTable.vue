@@ -29,11 +29,18 @@ defineProps<{
   lastUpdateTime: string;
 }>();
 
+interface ExploreRow {
+  symbol: string;
+  type: string;
+  name: string;
+  id?: string | number;
+}
 const emit = defineEmits<{
   remove: [id: string];
   jump: [row: any, command: string];
   refresh: [];
   "interval-change": [value: number];
+  favorite: [row: ExploreRow];
 }>();
 
 function handleRemoveConfirm(id: string) {
@@ -179,8 +186,14 @@ const getAvailableTools = (type: string) => {
         </template>
       </el-table-column>
 
-      <el-table-column label="操作" width="80" align="center">
+      <el-table-column label="操作" width="140" align="center">
         <template #default="{ row }">
+          <el-button
+            link
+            size="small"
+            type="primary"
+            @click="emit('favorite', row as ExploreRow)"
+            >收藏</el-button
           <el-button
             link
             size="small"

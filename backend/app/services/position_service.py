@@ -553,12 +553,14 @@ class PositionService:
                         Position.ledger_id == _lid,
                         Position.family_id == _family_id,
                         Position.symbol.in_(_codes),
+                        # 仅匹配 active 持仓，避免把已平仓 / NULL 状态旧持仓误判为可复用
                         Position.ownership_status == 'active',
                     )
+                    # 取最新一条（id 降序），确保命中最近建仓的持仓
                     .order_by(Position.id.desc())
                     .first()
                 )
-            if existing_pos is not None and existing_pos.ownership_status == 'active':
+            if existing_pos is not None:
                 force_create_position = True  # 复用下方正常建仓逻辑（含孤儿流水挂回）
             else:
                 _create_cash_transfer_transaction(db, data, 'buy')

@@ -14,6 +14,7 @@ import threading
 
 from loguru import logger
 
+from app.core.constants import SOURCE_VERSION_V2_RECALC
 from app.core.database import SessionLocal
 from app.core.db_utils import bulk_insert_if_not_exists
 from app.domains.funds.models import DailyWorth, MoneyFundDailyWorth
@@ -21,9 +22,6 @@ from app.domains.price_history.models import PriceHistory
 from app.domains.securities.models import Security
 from app.services.sync.adapters.akshare_adapter import AkshareAdapter
 from app.services.sync.adapters.xalpha_adapter import XalphaAdapter
-
-# 货基万份收益写入来源版本标记（#863 P0-4）
-SOURCE_VERSION_V2_RECALC = 'v2_recalc'
 
 
 def _backfill_fund_nav(fund_code: str):

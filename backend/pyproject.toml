@@ -108,3 +108,6 @@ numpy = ">=1.24,<2.0"
 [tool.pdm.scripts]
 # 元数据/市场温度(含乖离度)同步：pdm run sync --all / pdm run sync --job temperature
 sync = "python app/tools/sync_metadata.py"
+# 每日定时调度（#1182）：pdm run scheduler 跑全量增量同步 + 资产快照落账；
+# 由外部定时器（CI schedule / SCF cron / 系统 cron）每日触发，不引入常驻调度器
+scheduler = "python app/tools/scheduler.py"

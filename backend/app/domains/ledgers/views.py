@@ -1287,10 +1287,8 @@ def get_ledger_pending_estimate(ledger_id: int):
     """
     with get_db() as db:
         ledger = get_owned_or_404(db, Ledger, ledger_id)
-        if not ledger:
-            abort(404, '账户不存在')
         data = LedgerService.get_pending_money_fund_estimate(db, ledger.id, get_family_id())
-    return jsonify({'data': data, 'message': 'ok'})
+    return jsonify({'data': data, 'message': 'ok', 'error_code': 0})
 
 
 @ledgers_bp.get('/<int:ledger_id>/summary/')

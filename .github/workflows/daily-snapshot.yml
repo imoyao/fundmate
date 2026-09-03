@@ -1,0 +1,65 @@
+# 每日定时调度（#1182）
+#
+# 不引入常驻调度器：由本 workflow 的 schedule 触发器每日跑一次 `pdm run scheduler`，
+# 复用 DataSyncOrchestrator 执行全量增量同步（fund_nav 刷新净值）+ 资产快照落账
+# （asset_snapshot job 写入 AssetSnapshot，含货基每日收益 #863 P1-5）。
+#
+# 部署说明：
+#   - 本 workflow 直接在 CI runner 上跑 scheduler，需能访问生产 DB（通过 secrets 注入
+#     DATABASE_URL / SUPABASE_* / APP_ENV 等）。若生产库不希望对 CI 开放，可改用：
+#       a) 系统 cron / SCF cron 在部署服务器上执行 `pdm run scheduler`；或
+#       b) 本 schedule 改为 curl 打到部署服务器的受保护 webhook（需自行实现触发端点）。
+#   - 单 job 失败不中断整体（Orchestrator 已捕获并继续），但 scheduler 进程遇未捕获异常
+#     会以退出码 1 结束，本 workflow 随之标红，可接 Actions 失败通知。
+#   - 失败审计：每个 job 的结果已写入 SyncLog（Orchestrator._save_sync_log），可在库内追溯。
+
+name: 每日定时调度
+
+on:
+  schedule:
+    # 每天 UTC 17:00（北京时间次日凌晨 01:00）跑一次
+    - cron: '0 17 * * *'
+  # 手动触发，便于验证
+  workflow_dispatch: {}
+
+concurrency:
+  group: daily-scheduler
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  scheduler:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: 设置 Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: 安装 PDM
+        run: pip install pdm
+
+      - name: 安装依赖
+        env:
+          # backend/pdm.toml 强制 use_uv=true，但 CI runner 上 uv 不支持 PEP 582；
+          # 用环境变量覆盖项目配置回退 pip 安装
+          PDM_USE_UV: "false"
+        run: pdm install -G dev
+
+      - name: 运行每日调度
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DEV_DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          AUTH_ENABLED: ${{ secrets.AUTH_ENABLED }}
+          APP_ENV: ${{ secrets.APP_ENV }}
+        run: pdm run scheduler
