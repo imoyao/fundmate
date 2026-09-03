@@ -35,5 +35,7 @@ class TestDailyScheduler:
         # 资产快照表在 #863（PR #1306）落地了货基每日收益列 money_fund_income_cents，
         # 该列随 #1306 合入 dev 后由 write_asset_snapshot 写入；此处仅在列存在时校验，
         # 使本测试在 #1306 合入前也能独立通过。
+        # 注：本测试家庭仅有银行台账、无货基持仓，write_asset_snapshot 对无货基家庭
+        # 写 None（展示层再按 0.0 处理，见 summary_service._snapshot_payload），故预期 None。
         if hasattr(AssetSnapshot, 'money_fund_income_cents'):
-            assert snap.money_fund_income_cents is not None
+            assert snap.money_fund_income_cents is None

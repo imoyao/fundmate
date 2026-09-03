@@ -55,25 +55,29 @@ class AssetSnapshotJob(SyncJob):
         self._full_sync_flag = full_sync
         self.snapshot_time = now_shanghai()
         self.logger.info('开始资产快照每日落账')
-        try:
-            family_ids = self._family_ids()
-            written = 0
-            for fid in family_ids:
+        family_ids = self._family_ids()
+        total = len(family_ids)
+        written = 0
+        failed = 0
+        errors: List[str] = []
+        for fid in family_ids:
+            try:
                 # write_asset_snapshot 内部已幂等 upsert + commit；逐 family 落账
                 write_asset_snapshot(self.db, family_id=fid)
                 written += 1
-            self.status = JobStatus.SUCCESS
-            self.stats = {
-                'total': len(family_ids),
-                'success': written,
-                'skipped': 0,
-                'failed': 0,
-                'errors': [],
-            }
-            self.logger.info(f'资产快照落账完成，覆盖 {written} 个家庭')
-            return self._build_result()
-        except Exception as e:  # noqa: BLE001
-            self.status = JobStatus.FAILED
-            self.stats = {'total': 0, 'success': 0, 'skipped': 0, 'failed': 0, 'errors': [str(e)]}
-            self.logger.exception(f'资产快照落账失败: {e}')
-            return self._build_result()
+            except Exception as e:  # noqa: BLE001
+                # 单家庭失败不中断其余家庭：记录失败数，回滚本家庭未提交事务后继续
+                failed += 1
+                errors.append(f'family_id={fid}: {e}')
+                self.logger.exception(f'资产快照落账失败（family_id={fid}）: {e}')
+                self.db.rollback()
+        self.status = JobStatus.SUCCESS if failed == 0 else JobStatus.FAILED
+        self.stats = {
+            'total': total,
+            'success': written,
+            'skipped': 0,
+            'failed': failed,
+            'errors': errors,
+        }
+        self.logger.info(f'资产快照落账完成，覆盖 {written}/{total} 个家庭，失败 {failed}')
+        return self._build_result()

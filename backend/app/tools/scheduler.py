@@ -21,8 +21,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 from loguru import logger
 
-# 将项目根目录加入 Python 路径
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# 将项目根目录（backend，即 app 包的父目录）加入 Python 路径，
+# 否则 `pdm run scheduler` 直接执行时 `import app.*` 会因找不到 app 包而 ImportError
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from app.core.database import get_db, init_db
 from app.services.sync.orchestrator import DataSyncOrchestrator
