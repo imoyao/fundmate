@@ -226,12 +226,12 @@ const renderMoneyRatio: FunctionalComponent<{
       value: d.value,
       ratio: d.ratio,
       moneySize: "sm",
-      // 持仓市值：金额是余额不是涨跌 → 不带 +/- 号；比例是市值占比（恒为正）→ 中性色
+      // 持仓市值：金额是余额不是涨跌 → 不带 +/- 号、保留 ¥ 符号
+      // 添加后收益：金额由 price_at_added 差值计算，是真盈亏 → 带 +/- 号、不带 ¥
       showSign: !isMarketValue,
-      // 添加后收益：金额由 `price_at_added` 差值计算，真涨跌 → 保留货币符号位但金额为主；
-      // 原模板为无 ¥ 符号（showCurrency=false），保持
-      showCurrency: !isMarketValue,
-      // 「持仓市值」的比例是市值占比（恒为正），非涨跌语义，必须中性色
+      showCurrency: isMarketValue,
+      // 「持仓市值」的比例是市值占比（恒为正），非涨跌语义，必须中性色；
+      // 「添加后涨幅」的 % 是真涨跌，保留默认涨红跌绿
       // （components.md MoneyWithRatio：占比等非涨跌语义 ratioAutoColor=false）
       ratioAutoColor: !isMarketValue
     });
@@ -354,8 +354,10 @@ const renderProduct: FunctionalComponent<{
                     onClick: editable ? openTagEditor : undefined,
                     onKeydown: editable
                       ? (e: KeyboardEvent) => {
-                          if (e.key === "Enter")
-                            openTagEditor(e as unknown as Event);
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            openTagEditor(e);
+                          }
                         }
                       : undefined,
                     role: editable ? "button" : undefined,
@@ -365,14 +367,18 @@ const renderProduct: FunctionalComponent<{
                 )
               ];
             }),
-            // 超过上限的标签数：弱化小字，title 列出全部标签名
+            // 超过上限的标签数：弱化小字，title 只列出「未展示」的标签名（避免与 chip 重复）
             ...(tagIds.length > MAX_TAGS
               ? [
                   h(
                     "span",
                     {
                       class: "tag-chip tag-chip--more",
-                      title: tagIds.map(tagName).filter(Boolean).join("、")
+                      title: tagIds
+                        .slice(MAX_TAGS)
+                        .map(tagName)
+                        .filter(Boolean)
+                        .join("、")
                     },
                     `+${tagIds.length - MAX_TAGS}`
                   )
@@ -391,8 +397,10 @@ const renderProduct: FunctionalComponent<{
                       title: "添加/编辑标签",
                       onClick: openTagEditor,
                       onKeydown: (e: KeyboardEvent) => {
-                        if (e.key === "Enter")
-                          openTagEditor(e as unknown as Event);
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          openTagEditor(e);
+                        }
                       }
                     },
                     "＋ 标签"

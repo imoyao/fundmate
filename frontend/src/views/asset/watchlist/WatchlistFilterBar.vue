@@ -265,7 +265,7 @@ function chipStyle(tag: WatchlistTag) {
   /* design.md「表格/列表/筛选栏：--space-compact(16px)」在卡片外层生效；
      此处为卡内子区块间距，取 --space-3(12px)：
      #1281 第一轮压到 8px 后筛选条与表格几乎贴脸，已回调。
-     滚动进入紧凑态时由 index.vue 收到 --space-1(4px)。 */
+     滚动进入紧凑态时由 index.vue 缩至 --space-1(4px)。 */
   margin-bottom: var(--space-3);
 }
 

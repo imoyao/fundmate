@@ -10,12 +10,14 @@
          附加信息（如自选的标签 chips / 添加标签按钮）经 #meta 插槽注入第二行，
          避免在其它页面复制一套产品列结构。 -->
     <template v-if="compact">
-      <span class="product-name" :title="name || symbol || ''">
+      <!-- 名称与 title 口径一致：均为 name || symbol || "--"，避免空值时悬停无提示 -->
+      <span class="product-name" :title="name || symbol || '--'">
         {{ name || symbol || "--" }}
       </span>
       <div class="product-meta-row">
-        <span class="product-code-compact" :title="symbol || ''">
-          # {{ symbol || "--" }}
+        <!-- 代码为空时不渲染无意义的 "#"，与显示值保持一致 -->
+        <span class="product-code-compact" :title="symbol || '--'">
+          {{ symbol ? `# ${symbol}` : "--" }}
         </span>
         <span v-if="typeLabel" class="product-type-compact">
           {{ typeLabel }}
@@ -112,13 +114,17 @@ defineProps({
   white-space: nowrap;
 }
 
-/* 元信息行：代码 + 类型 + 外部注入内容（标签 chips / 添加标签按钮）统一 20px 高，不撑高行 */
+/* 元信息行：代码 + 类型 + 外部注入内容（标签 chips / 添加标签按钮）统一 20px 高，不撑高行。
+   overflow/nowrap 兜底：列宽固定（自选 232px）时插槽内容（多标签 + 「＋ 标签」）
+   不得溢出到相邻列，也不得挤压代码与类型 */
 .product-meta-row {
   display: flex;
   gap: 6px;
   align-items: center;
   min-width: 0;
   height: 20px;
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 .product-code-compact {

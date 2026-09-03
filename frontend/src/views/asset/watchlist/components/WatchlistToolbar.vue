@@ -269,6 +269,13 @@ function handleSearchInput(value: string) {
   background-color: transparent;
 }
 
+/* 说明图标：默认可见，滚动进入紧凑态时由 index.vue 淡出；
+   基类样式必须定义在此——仅靠页面 :deep 覆盖时，过渡属性与初始不透明度无处落地 */
+.search-hint {
+  opacity: 1;
+  transition: opacity 150ms ease;
+}
+
 /* 操作栏常驻：表格内部滚动 → 页面本身不滚动 → 本栏天然常驻，无需 sticky。
    #1281 第一轮曾加 position:sticky + 页面底色兜底，在「页面不滚动」的主方案下是死代码，
    反而多出一个层叠上下文与一条与卡片拼接的色带（被反馈为「搜索框上面有条很宽的边」），已移除。
