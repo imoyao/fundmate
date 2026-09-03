@@ -101,6 +101,7 @@ class LedgerService:
         orphan_map = orphan_money_fund_net_by_ledger(db, family_id)
         income_map = orphan_money_fund_income_by_ledger(db, family_id)
         for _k, _v in income_map.items():
+            _k = _k if _k is not None else 0
             orphan_map[_k] = orphan_map.get(_k, 0) + _v
 
         # 按 ledger_id 聚合持仓市值（分），ledger_id 为 None 统一归入 key=0

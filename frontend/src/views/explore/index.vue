@@ -2,7 +2,12 @@
 <template>
   <div class="explore-page">
     <!-- ===== 顶部导航（公共组件，与温度计完全一致） ===== -->
-    <MarketHeader :logo="MARKET_LOGO" badge="探市" :navs="headerNavs" />
+    <MarketHeader
+      :logo="MARKET_LOGO"
+      badge="探市"
+      :navs="headerNavs"
+      @logo-click="onLogoClick"
+    />
 
     <!-- ============================================================ -->
     <!-- 温度数据仪表盘                                                -->
@@ -23,6 +28,23 @@
       :add-holding="addHolding"
       :quotes-map="quotesMap"
     />
+
+    <!-- 匿名用户转化区（#822 todo1）：补回 #808 注册 CTA / 损失厌恶文案 -->
+    <section v-if="!isAuthenticated" class="conv-banner">
+      <div class="conv-banner__inner">
+        <div class="conv-banner__text">
+          <div class="conv-banner__title">免费注册，解锁完整投资账本</div>
+          <div class="conv-banner__desc">
+            注册后观察列表跨设备同步，并可在自选页管理分组、标签与 AI
+            批量导入——当前为本地临时观察，清除浏览器数据会丢失。
+          </div>
+        </div>
+        <el-button type="primary" @click="goToLogin">
+          立即注册 / 登录
+          <IconifyIconOffline icon="ep:arrow-right" class="ml-1" />
+        </el-button>
+      </div>
+    </section>
 
     <!-- 已登录：引导去自选页（探市只做展示与观察，管理能力收敛到登录后的自选） -->
     <section v-if="isAuthenticated" class="auth-guide">
@@ -57,6 +79,7 @@
       :last-update-time="lastUpdateTime"
       @remove="handleRemove"
       @jump="handleJump"
+      @favorite="handleFavorite"
       @refresh="manualRefresh"
       @interval-change="setRefreshInterval"
     />
@@ -109,6 +132,7 @@ import { getTypeLabel } from "@/constants/assetType";
 import { pricePrecision } from "@/utils/pricePrecision";
 import { useAuthState } from "@/composables/useAuthState";
 import { formatDateTime } from "@/utils/date";
+import { createWatchlistItem } from "@/api/watchlist";
 
 defineOptions({
   name: "ExplorePage"
@@ -317,6 +341,46 @@ const goToTemperature = () => {
 
 const goToWatchlist = () => {
   router.push("/watchlist");
+};
+
+// logo 点击：登录态感知路由（#822 todo3）
+// 已登录 → 工作台 /welcome；未登录 → 探市首页 /explore
+const onLogoClick = () => {
+  if (isAuthenticated.value) {
+    router.push("/welcome");
+  } else {
+    router.push("/explore");
+  }
+};
+
+const goToLogin = () => {
+  router.push("/login");
+};
+
+// 收藏到自选（#822 todo2）：呼应自选分组
+// 已登录 → 写入后端 watchlist；未登录 → 引导注册
+interface ExploreFavoriteRow {
+  symbol: string;
+  type: string;
+  name: string;
+  id?: string | number;
+}
+const handleFavorite = async (row: ExploreFavoriteRow) => {
+  if (!isAuthenticated.value) {
+    ElMessage.warning("登录后可收藏到自选，立即注册解锁跨设备同步");
+    router.push("/login");
+    return;
+  }
+  try {
+    await createWatchlistItem({
+      symbol: row.symbol,
+      asset_type: row.type
+    });
+    ElMessage.success(`已收藏「${row.name}」到自选`);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    ElMessage.error(msg || "收藏失败，请重试");
+  }
 };
 
 // ================================================================
@@ -619,4 +683,37 @@ onMounted(() => {
 /* ============================================================
    6. 观察列表
    ============================================================ */
+
+/* ---- 匿名用户注册转化区（#822 todo1） ---- */
+.conv-banner {
+  max-width: 1280px;
+  padding: 0 24px 16px;
+  margin: 0 auto;
+
+  &__inner {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 24px;
+    background: linear-gradient(135deg, var(--brand-50), var(--bg-card));
+    border: 1px solid var(--brand-400);
+    border-radius: 12px;
+    box-shadow: var(--shadow-raised);
+  }
+
+  &__title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  &__desc {
+    margin-top: 4px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text-secondary);
+    max-width: 860px;
+  }
+}
 </style>

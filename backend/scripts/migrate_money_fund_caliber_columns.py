@@ -33,7 +33,7 @@ _ADD_COLUMNS = [
 def _resolve_db_paths() -> list[str]:
     """默认迁移库：DATABASE_URL 指向 + 同级 invest.user.dev.db（双库模拟残留）。"""
     db_url = os.getenv('DATABASE_URL', 'sqlite:///./invest.db')
-    if not db_url.startswith('sqlite'):
+    if not db_url.startswith('sqlite:///'):
         print(f'仅支持 SQLite 迁移，DATABASE_URL={db_url}，请手动处理。')
         sys.exit(1)
     # 内存数据库（含带查询参数的形式）无需迁移

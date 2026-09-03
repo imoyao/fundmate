@@ -46,7 +46,8 @@ on:
 
   # 通道 2：GitHub Issue 事件 → FeedLog（新建建帖子 + 状态回写）
   # 注意：去掉 edited —— 编辑标题/正文触发频率最高、价值最低，是今天 issue 事件放大的主要来源。
-  # edited 的内容回灌能力已移至 bridge-edited-sync.yml（每日限频一次），避免实时高频触发。
+  # edited 的内容回灌能力已移至 bridge-edited-sync.yml（每日限频一次，最长延迟约一天），
+  # 即编辑同步改为每日回灌而非实时，业务需接受该时效性；避免实时高频触发。
   issues:
     types: [opened, labeled, unlabeled, closed, reopened]
 
@@ -80,7 +81,8 @@ jobs:
           python-version: '3.12'
 
       - name: 安装依赖
-        run: pip install psycopg2-binary PyGithub
+        # 固定大版本上限，避免上游 3.0 破坏性升级导致意外失败（保证可复现）。
+        run: pip install "psycopg2-binary>=2.9,<3" "PyGithub>=2,<3"
 
       - name: 运行桥接脚本
         env:
@@ -121,7 +123,8 @@ jobs:
           python-version: '3.12'
 
       - name: 安装依赖
-        run: pip install psycopg2-binary PyGithub
+        # 固定大版本上限，避免上游 3.0 破坏性升级导致意外失败（保证可复现）。
+        run: pip install "psycopg2-binary>=2.9,<3" "PyGithub>=2,<3"
 
       - name: 解析 Issue 事件
         id: parse
@@ -218,7 +221,8 @@ jobs:
           python-version: '3.12'
 
       - name: 安装依赖
-        run: pip install psycopg2-binary PyGithub
+        # 固定大版本上限，避免上游 3.0 破坏性升级导致意外失败（保证可复现）。
+        run: pip install "psycopg2-binary>=2.9,<3" "PyGithub>=2,<3"
 
       - name: 回灌同步 GitHub Issue → FeedLog
         env:
@@ -269,7 +273,8 @@ jobs:
           python-version: '3.12'
 
       - name: 安装依赖
-        run: pip install psycopg2-binary PyGithub
+        # 固定大版本上限，避免上游 3.0 破坏性升级导致意外失败（保证可复现）。
+        run: pip install "psycopg2-binary>=2.9,<3" "PyGithub>=2,<3"
 
       - name: 同步 Release 到 FeedLog Changelog
         env:

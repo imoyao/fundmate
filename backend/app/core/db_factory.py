@@ -43,7 +43,7 @@ def _development_user_url() -> str:
     """development 下 user 域 URL：显式配置 DEV_USER_DATABASE_URL 优先（独立库，
     本地双库模拟）；未配置时与 market 域同库（DEV_DATABASE_URL，缺省 invest.dev.db）——
     「默认放一起，显式配第二个库才分开」。"""
-    return os.getenv('DEV_USER_DATABASE_URL') or os.getenv('DEV_DATABASE_URL', _DEFAULT_DEV_DB)
+    return os.getenv('DEV_USER_DATABASE_URL') or os.getenv('DEV_DATABASE_URL') or _DEFAULT_DEV_DB
 
 
 # --------------------------------------------------------------------------- #
