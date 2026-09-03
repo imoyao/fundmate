@@ -99,11 +99,11 @@ export const watchlistColumnDefs: ColumnDef[] = [
     label: "代码/名称",
     renderer: "product",
     // design.md「冻结列与横向滚动规范」+ components.md「ProductDisplay 列宽三档」：
-    // 自选属「含类型标签且列多需要呼吸感」档，固定 200px 并左侧冻结。
+    // 自选属「含类型标签且列多需要呼吸感」档，首列 232px 并左侧冻结。
     // 注意：不能用 show-overflow-tooltip——EP 会给单元格加 white-space:nowrap，
     // 会把「名称 / 代码+标签」的两行结构压回一行（#1281 单行压扁式的成因之一）；
     // 长名称由 ProductDisplay 内部 ellipsis + title 全名兜底。
-    minWidth: 200,
+    width: 232,
     fixed: "left",
     sortable: "custom",
     hideable: false,
@@ -214,12 +214,11 @@ export const watchlistColumnDefs: ColumnDef[] = [
 ];
 
 /**
- * 默认可见列（排除内置的 selection/marker，由模板按 batchMode/fixed 条件注入）。
+ * 默认可见列（排除内置 selection——它由模板按 batchMode 条件注入）。
+ * 内置 marker（置顶/关注状态列）在 defs 中 hideable=false，随 v-for 正常渲染。
  * #993 表头自定义：基于 hideable + 用户列顺序偏好（localStorage）过滤/重排得到 visibleColumns。
  * #992 拖拽排序：只改此顺序数组（持久化），不动 watchlistColumnDefs 源定义。
  */
 export function getDefaultVisibleColumns(): ColumnDef[] {
-  return watchlistColumnDefs.filter(
-    d => d.key !== "_selection" && d.key !== "_marker"
-  );
+  return watchlistColumnDefs.filter(d => d.key !== "_selection");
 }

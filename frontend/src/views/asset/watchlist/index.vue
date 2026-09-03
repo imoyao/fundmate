@@ -84,19 +84,18 @@
       <!--
           表格视觉基线（边框/表头/hover/文字色）统一在 src/style/el-table.css 维护，
           勿在本页 :deep(.el-table) 覆盖视觉基线；本页保留的 :deep 仅限行内行为样式。
-          行高例外：全局基线 44px，本页为 52px——自选行承载「名称 / 代码+标签」与
+          行高例外：全局基线 44px，本页为 56px——自选行承载「名称 / 代码+标签」与
           「金额 / 比例」两组双行信息，压到 44px 以下必然牺牲可读性（#1281 已验证一轮：
-          单行压扁到 40px 后名称只剩两三个字，被判定为不可用）。52px 是三行式（约 78px）
+          单行压扁到 40px 后名称只剩两三个字，被判定为不可用）。56px 是三行式（约 78px）
           与压扁式（40px）之间的平衡点，rows per screen 约为三行式的 1.4 倍。
-          滚动条：scrollbar-always-on 让 EP 覆盖式滚动条常驻（避免「悬停才冒出来、
-          又压在右侧固定列上」的怪异感），配色在 el-table.css 统一为 --border-default。
+          滚动条：EP 覆盖式滚动条保持默认 hover 显现（不常驻，避免横向+纵向两条常亮
+          造成「双滚动条」观感），配色在 el-table.css 统一为 --border-default。
         -->
       <el-table
         ref="tableRef"
         v-loading="loading"
         :data="items"
         :max-height="tableMaxHeight"
-        scrollbar-always-on
         stripe
         @selection-change="handleSelectionChange"
         @sort-change="handleSortChange"
@@ -756,11 +755,11 @@ onBeforeUnmount(() => {
 });
 
 // ── #995 columnDefs 数据驱动 + #993 列显隐：visibleColumns 已按用户隐藏集过滤
-//（仅 selection 因 type="selection" 无法 renderer 化，保留模板）──
+//（仅 selection 因 type="selection" 无法 renderer 化，保留模板由 batchMode 注入；
+//  marker 列同理由 defs 自带，正常参与 v-for 渲染——此前误把它一并过滤掉，
+//  导致「置顶/关注」状态图标整列消失，2026-09-03 修复）──
 const dataColumns = computed(() =>
-  columnSettings.visibleColumns.value.filter(
-    d => d.key !== "_selection" && d.key !== "_marker"
-  )
+  columnSettings.visibleColumns.value.filter(d => d.key !== "_selection")
 );
 
 // 渲染上下文：把页面级状态/方法注入 renderer 注册表，renderer 不耦合本组件
@@ -975,17 +974,19 @@ const renderCtx = computed<RenderCtx>(() => ({
   margin-left: 0;
 }
 
-/* 本页行高覆盖：全局基线 44px（el-table.css），本页 52px。
-   覆盖理由：自选行承载两组双行信息（「名称 / 代码+标签」与「金额 / 比例」），
-   行内容约 40px + 单元格 6px×2 padding = 52px；压到 44px 以下必然裁切或压扁内容。
-   #1281 第一轮为压行高把产品列压成单行（40px），实测名称只剩两三个字、被判定不可用。
-   52px 是「三行式 78px」与「压扁式 40px」的平衡点：行数约为三行式的 1.4 倍，
-   名称与金额都保持完整可读。例外已登记在 design.md「Table · 行高例外」。 */
+/* 本页行高覆盖：全局基线 44px（el-table.css），本页 56px。
+   覆盖理由：自选行承载两组双行信息（「名称 / 代码+标签 chips」与「金额 / 比例」），
+   产品列行内容 42px（名称 20 + gap 2 + 元信息 20），加单元格 6px×2 padding 共 54px，
+   行高取 56px 留 2px 余量避免内容贴边/裁切。
+   #1281 第一轮为压行高把产品列压成单行（40px），实测名称只剩两三个字、被判定不可用；
+   第二轮曾用 6px 色点省宽度，用户反馈「标签看不到字」，第三轮改为文字 chip 见下——
+   行高 56px 是「三行式 78px」与「压扁式 40px」之间的平衡点：行数约为三行式的 1.4 倍，
+   名称、标签文字、金额都完整可读。例外已登记在 design.md「Table · 行高例外」。 */
 :deep(.el-table .el-table__row) {
-  height: 52px;
+  height: 56px;
 }
 
-/* 单元格上下 padding 8px → 6px：与上面 52px 行高自洽（内容 40 + 12 = 52），
+/* 单元格上下 padding 8px → 6px：与上面 56px 行高自洽（产品列内容 42 + 12 = 54），
    同时让两行信息之间留出呼吸，不再像 40px 那版那样「贴脸」 */
 :deep(.el-table .el-table__cell) {
   padding: 6px 0;

@@ -258,6 +258,9 @@ const renderProduct: FunctionalComponent<{
   const row = props.row;
   const ctx = props.ctx;
 
+  /** 行是否可编辑：虚拟聚合行（持仓分组聚合，id 恒为 null）无自选记录，行内标签/置顶操作禁用 */
+  const editable = row.id != null;
+
   // 内置 marker 列：置顶/关注图标（对齐 index.vue 原 marker 模板）
   if (props.def.props?.builtin === "marker") {
     const markers: VNode[] = [];
@@ -282,11 +285,11 @@ const renderProduct: FunctionalComponent<{
     );
   }
 
-  // 正常 product 列：两行紧凑布局 —— 第一行名称，第二行 代码 / 类型 / 标签圆点 / 添加标签。
-  // 演进（issue #1281 两轮）：
+  // 正常 product 列：两行紧凑布局 —— 第一行名称，第二行 代码 / 类型 / 标签文字 chips / 「＋ 标签」。
+  // 演进（issue #1281 三轮）：
   //   ① 三行式（名称 / 代码+类型 / 标签 chips）→ 行高约 78px，一屏仅 3 行，信息量不足；
   //   ② 单行压扁式（名称+代码+类型+标签同行）→ 行高 40px，但长名称被挤成两三个字、不可读；
-  //   ③ 现状两行紧凑式 → 行高 52px，名称完整可读、代码与标签降级为第二行弱化小字，
+  //   ③ 两行紧凑 + 标签文字 chips → 行高 56px，名称完整可读、标签「见字」且可点击编辑，
   //      行数约为 ① 的 1.4 倍，是密度与可读性的平衡点（参考 jigu 自选表主列布局）。
   const tagIds = Array.isArray(row.tag_ids) ? row.tag_ids : [];
   // 与模板 findTagColor/findTagName(allTags, tagId) 语义等价的内联查找；
@@ -301,8 +304,14 @@ const renderProduct: FunctionalComponent<{
   const isRowHovered =
     ctx.hoveredRowKey != null && ctx.hoveredRowKey === (row.id ?? row.symbol);
   const rowKey = row.id ?? row.symbol;
-  /** 单行最多展示的标签圆点数，超出折叠为 +N（title 列出全部标签名） */
-  const MAX_DOTS = 3;
+  /** 第二行最多展示的标签 chip 数，超出折叠为 +N（title 列出全部标签名） */
+  const MAX_TAGS = 2;
+
+  /** 打开标签编辑弹窗（chip 点击 / 「+ 标签」按钮共用） */
+  const openTagEditor = (e: Event) => {
+    e.stopPropagation();
+    ctx.openTagEditor(row);
+  };
 
   return h(
     "div",
@@ -312,8 +321,9 @@ const renderProduct: FunctionalComponent<{
       onMouseleave: () => ctx.setHoveredRowKey(null)
     },
     [
-      // 标签圆点 / 添加标签按钮经 #meta 插槽注入产品列第二行（与代码、类型同一弱化小字行），
-      // 避免它们挤占名称行的宽度（单行压扁式的核心问题就在这里）。
+      // 标签 chips / 「+ 标签」按钮经 #meta 插槽注入产品列第二行（与代码、类型同一弱化小字行）。
+      // 标签必须「见字」——纯色点只剩色块没有语义，用户明确不接受（#1281 第二轮）；
+      // chip 以标签数据色作底纹与描边、中性文字保可读，点击即编辑（hover 有反馈）。
       h(
         ProductDisplay,
         {
@@ -324,57 +334,71 @@ const renderProduct: FunctionalComponent<{
         },
         {
           meta: () => [
-            // 标签以 6px 圆点呈现：不单独占行、不撑高行高，
-            // 标签名经 title 原生提示保留可读性（避免「仅靠颜色传意」）
-            ...tagIds.slice(0, MAX_DOTS).map(tagId =>
-              h("span", {
-                class: "tag-dot",
-                style: { backgroundColor: tagColor(tagId) },
-                title: tagName(tagId)
-              })
-            ),
-            ...(tagIds.length > MAX_DOTS
+            ...tagIds.slice(0, MAX_TAGS).flatMap(tagId => {
+              const c = tagColor(tagId);
+              // 数据色例外：标签色为用户数据（非设计令牌），缺失回退中性
+              const isHex = c.startsWith("#");
+              const name = tagName(tagId);
+              // 标签已被删除但行上仍有残留 tag_id 时 name 为空：不渲染空 chip
+              if (!name) return [];
+              return [
+                h(
+                  "span",
+                  {
+                    class: ["tag-chip", { "is-clickable": editable }],
+                    style: {
+                      backgroundColor: isHex ? `${c}1f` : "var(--bg-soft)",
+                      borderColor: isHex ? `${c}66` : "var(--border-default)"
+                    },
+                    title: editable ? `${name}（点击编辑标签）` : name,
+                    onClick: editable ? openTagEditor : undefined,
+                    onKeydown: editable
+                      ? (e: KeyboardEvent) => {
+                          if (e.key === "Enter")
+                            openTagEditor(e as unknown as Event);
+                        }
+                      : undefined,
+                    role: editable ? "button" : undefined,
+                    tabIndex: editable ? 0 : undefined
+                  },
+                  name
+                )
+              ];
+            }),
+            // 超过上限的标签数：弱化小字，title 列出全部标签名
+            ...(tagIds.length > MAX_TAGS
               ? [
                   h(
                     "span",
                     {
-                      class: "tag-dot-more",
-                      title: tagIds
-                        .slice(MAX_DOTS)
-                        .map(tagName)
-                        .filter(Boolean)
-                        .join("、")
+                      class: "tag-chip tag-chip--more",
+                      title: tagIds.map(tagName).filter(Boolean).join("、")
                     },
-                    `+${tagIds.length - MAX_DOTS}`
+                    `+${tagIds.length - MAX_TAGS}`
                   )
                 ]
               : []),
-            h(
-              ElTooltip,
-              { content: "添加/编辑标签", placement: "top" },
-              {
-                default: () =>
+            // 「+ 标签」文字入口：hover 显现；虚拟聚合行（id=null）不渲染，
+            // 避免出现一个点了没反应的「死按钮」（此前 disabled 圆圈按钮的观感问题）
+            ...(editable
+              ? [
                   h(
-                    ElButton,
+                    "span",
                     {
-                      circle: true,
-                      size: "small",
                       class: "add-tag-btn",
-                      disabled: row.id == null,
-                      onClick: (e: Event) => {
-                        e.stopPropagation();
-                        ctx.openTagEditor(row);
+                      role: "button",
+                      tabIndex: 0,
+                      title: "添加/编辑标签",
+                      onClick: openTagEditor,
+                      onKeydown: (e: KeyboardEvent) => {
+                        if (e.key === "Enter")
+                          openTagEditor(e as unknown as Event);
                       }
                     },
-                    () => [
-                      h(IconifyIconOffline, {
-                        icon: "ep:plus",
-                        class: "text-[10px]"
-                      })
-                    ]
+                    "＋ 标签"
                   )
-              }
-            )
+                ]
+              : [])
           ]
         }
       )

@@ -18,7 +18,7 @@
 }
 
 /* ── 产品列两行紧凑容器（issue #1281 第二轮）──
-   第一行名称、第二行 代码/类型/标签圆点/添加标签（由 ProductDisplay #meta 插槽承载）。
+   第一行名称、第二行 代码/类型/标签 chips/「＋ 标签」（由 ProductDisplay #meta 插槽承载）。
    相比三行式（约 78px）行数增加约四成，相比单行压扁式名称完整可读。
    min-width: 0 是名称 ellipsis 生效的前提（flex 子项默认 min-width: auto 会撑开）。 */
 .el-table .product-row {
@@ -33,40 +33,93 @@
   min-width: 0;
 }
 
-/* 标签圆点：6px 实心点，内联不占行高（替代原 18px 标签 chips 行）。
-   颜色为用户数据色（design.md「数据色例外」，缺失回退 --text-tertiary），
-   标签名经 title 原生提示保留可读性，避免「仅靠颜色传意」。 */
-.el-table .tag-dot {
-  flex-shrink: 0;
-  width: 6px;
-  height: 6px;
+/* ── 标签 chip：文字标签，标签色作底纹与描边、中性文字保可读 ──
+   用户要求「标签见字」——此前 6px 实心色点只剩色块、无任何语义，已废弃（#1281 第二轮）。
+   颜色为用户数据色（design.md「数据色例外」，缺失回退中性）；
+   底纹/描边颜色由 renderer 以 inline style 注入（数据色例外，不走设计令牌）。
+   chip 宽度受限时内部省略，全名与「点击编辑」由 title 承载。 */
+.el-table .tag-chip {
+  display: inline-flex;
+  flex-shrink: 1;
+  align-items: center;
+  min-width: 0;
+  max-width: 92px;
+  height: 18px;
+  padding: 0 7px;
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-pill);
 }
 
-/* 超出展示上限的标签数：弱化小字，title 列出全部标签名 */
-.el-table .tag-dot-more {
+/* 可编辑行（真实自选记录）：chip 可点开标签编辑，hover 有反馈 */
+.el-table .tag-chip.is-clickable {
+  cursor: pointer;
+  transition:
+    color 150ms ease,
+    filter 150ms ease;
+}
+
+.el-table .tag-chip.is-clickable:hover,
+.el-table .tag-chip.is-clickable:focus-visible {
+  color: var(--text-primary);
+  filter: brightness(0.96);
+}
+
+.el-table .tag-chip.is-clickable:focus-visible {
+  outline: 1px solid var(--brand-400);
+  outline-offset: 1px;
+}
+
+/* 超出展示上限的标签数折叠（+N）：纯文字弱化，title 列出全部标签名 */
+.el-table .tag-chip--more {
   flex-shrink: 0;
-  font-size: 11px;
-  line-height: 16px;
+  max-width: none;
+  padding: 0 2px;
   color: var(--text-tertiary);
+  background-color: transparent;
+  border-color: transparent;
   font-variant-numeric: tabular-nums;
 }
 
-/* 产品列「添加标签」小按钮：18px 圆形（与元信息行等高，不撑高行），
-   默认 45% 弱化可见，行悬停全亮（design.md 行内操作交互规范） */
+/* 产品列「＋ 标签」文字入口：18px 高与元信息行一致，默认 45% 弱化、行悬停全亮；
+   悬停品牌色反馈（与 row hover 淡入的按钮语言一致，design.md 行内操作交互规范） */
 .el-table .add-tag-btn {
-  --el-button-text-color: var(--text-tertiary);
-
-  width: 18px;
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
   height: 18px;
-  min-height: 18px;
-  padding: 0;
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 1;
   color: var(--text-tertiary);
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
   opacity: 0.45;
-  transition: opacity 150ms ease;
+  transition:
+    opacity 150ms ease,
+    color 150ms ease,
+    background-color 150ms ease,
+    border-color 150ms ease;
 }
 
 .el-table .el-table__row:hover .add-tag-btn,
 .el-table .is-row-hovered .add-tag-btn {
   opacity: 1;
+}
+
+.el-table .add-tag-btn:hover {
+  color: var(--brand-700);
+  background-color: var(--brand-100);
+  border-color: var(--brand-400);
+}
+
+.el-table .add-tag-btn:focus-visible {
+  outline: 1px solid var(--brand-400);
+  outline-offset: 1px;
 }

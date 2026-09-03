@@ -373,13 +373,13 @@
 >
 > | 页面 | 行高 | 承载结构 | 登记原因 |
 > |------|------|----------|----------|
-> | 自选（`views/asset/watchlist`） | 52px | 产品列两行（名称 / 代码+类型+标签）+ 金额列两行（金额 / 比例） | #1281 两轮实测：78px 三行式一屏仅 3 行；40px 单行压扁式名称只剩两三个字不可用；52px 为平衡点，行数约为三行式 1.4 倍 |
+> | 自选（`views/asset/watchlist`） | 56px | 产品列两行（名称 / 代码+类型+标签文字 chips）+ 金额列两行（金额 / 比例） | #1281 三轮实测：78px 三行式一屏仅 3 行；40px 单行压扁式名称只剩两三个字不可用；56px 为平衡点（产品列内容 42px + padding 12px + 2px 余量），行数约为三行式 1.4 倍 |
 >
 > 新页面若要超过 44px 行高，须先在本节登记并说明取舍，禁止无登记静默覆盖。
 
 #### 滚动条 UI（2026-09-03 落地）
 
-EP 表格滚动条为覆盖式（`.el-scrollbar__bar`），默认 thumb 冷灰且仅 hover 淡入——既与暖色语言不符，又会在右侧冻结列上「凭空冒条」。已在 `src/style/el-table.css` 统一为 `--border-default` 暖色细条（竖/横均 6px，悬停 `--text-disabled`）；需要滚动条**常驻可见**的页面（如自选）给 `el-table` 加 `scrollbar-always-on`，避免 hover 才出现的突兀感。
+EP 表格滚动条为覆盖式（`.el-scrollbar__bar`），默认 thumb 冷灰——与暖色语言不符。已在 `src/style/el-table.css` 统一为 `--border-default` 暖色细条（竖/横均 6px，悬停 `--text-disabled`）。**保持默认 hover 显现、不常驻**：自选页曾尝试 `scrollbar-always-on` 常驻，结果纵向 + 横向两条常亮形成「双滚动条」观感（#1281 第二轮反馈），故回归默认。
 
 #### 行内图标规范
 表格行内状态图标（置顶/关注等）默认 `--text-tertiary`，行 hover 提亮 `--text-secondary`，语义靠 icon 形状区分（禁用多彩硬编码）；hover 浮现按钮统一 opacity 0→1 机制（150ms ease，与 Motion 表一致）。

@@ -5,9 +5,9 @@
          注意「紧凑」= 两行紧凑，不是「单行压扁」：#1281 曾把名称、代码、类型、
          标签全塞进同一行（单行 20px），实测长名称被挤到只显示两三个字、完全不可读。
          现改为两行：名称独占一行（完整展示、溢出省略 + title 全名），
-         代码 / 类型 / 标签圆点走第二行弱化小字，行内容高度 40px
-         （名称 20 + gap 2 + 元信息 18）。
-         附加信息（如自选的标签圆点 / 添加标签按钮）经 #meta 插槽注入第二行，
+         代码 / 类型 / 标签 chips 走第二行弱化小字，行内容高度 42px
+         （名称 20 + gap 2 + 元信息 20）。
+         附加信息（如自选的标签 chips / 添加标签按钮）经 #meta 插槽注入第二行，
          避免在其它页面复制一套产品列结构。 -->
     <template v-if="compact">
       <span class="product-name" :title="name || symbol || ''">
@@ -88,9 +88,9 @@ defineProps({
 }
 
 /* ── 紧凑模式（数据密集表格）：名称一行 + 元信息（代码/类型/插槽）一行 ──
-   行内容 40px = 名称 20 + gap 2 + 元信息 18；配合单元格 6px 上下 padding 落在 52px
+   行内容 42px = 名称 20 + gap 2 + 元信息 20；配合单元格 6px 上下 padding 落在 54px
    （自选页行高基线，见 design.md「Table · 行高例外」），是旧三行式（约 78px）的七成。
-   多出来的高度换回「名称完整可读」，是 #1281 两轮实测后确认的取舍。
+   多出来的高度换回「名称完整可读 + 标签文字可见」，是 #1281 两轮实测后确认的取舍。
    名称靠 min-width:0 + ellipsis 截断，溢出由 title 兜全名（表格列不再用
    show-overflow-tooltip：EP 会给单元格加 white-space:nowrap，会把两行结构压回一行）。 */
 .product-cell--compact {
@@ -112,13 +112,13 @@ defineProps({
   white-space: nowrap;
 }
 
-/* 元信息行：代码 + 类型 + 外部注入内容（标签圆点 / 添加标签按钮）统一 18px 高，不撑高行 */
+/* 元信息行：代码 + 类型 + 外部注入内容（标签 chips / 添加标签按钮）统一 20px 高，不撑高行 */
 .product-meta-row {
   display: flex;
   gap: 6px;
   align-items: center;
   min-width: 0;
-  height: 18px;
+  height: 20px;
 }
 
 .product-code-compact {
@@ -126,7 +126,7 @@ defineProps({
   font-family: var(--font-number);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-  line-height: 18px;
+  line-height: 20px;
   color: var(--text-tertiary);
 }
 
@@ -135,7 +135,7 @@ defineProps({
   flex-shrink: 0;
   padding: 0 4px;
   font-size: 11px;
-  line-height: 18px;
+  line-height: 20px;
   color: var(--text-tertiary);
   background-color: var(--bg-soft);
   border-radius: var(--radius-sm);

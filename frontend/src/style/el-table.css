@@ -26,9 +26,9 @@
 /* 表格滚动条统一风格（design.md「冻结列与横向滚动规范 · 滚动条 UI」：
    厚度 6–8px、颜色 --border-default、悬停稍亮）。
    EP 表格的滚动条是覆盖式（.el-scrollbar__bar / .el-scrollbar__thumb，默认 6px），
-   默认 thumb 为冷灰 --el-text-color-secondary、且只在 hover 时淡入：
-   既与暖色设计语言不一致，又会在右侧冻结列上「凭空冒出一条」，观感突兀（issue #1281）。
-   这里统一为暖色细条；常驻显示由使用方给 el-table 加 scrollbar-always-on 控制。 */
+   默认 thumb 为冷灰 --el-text-color-secondary，与暖色设计语言不符（issue #1281）。
+   这里统一为暖色细条；保持 EP 默认「hover 显现、不常驻」——
+   常驻会导致纵向+横向两条滚动条长期可见，观感像「双滚动条」。 */
 .el-table .el-scrollbar__thumb {
   background-color: var(--border-default);
   opacity: 0.8;
