@@ -11,14 +11,17 @@ _AKSHARE = None
 
 
 def get_akshare():
-    """返回已配置的 akshare 模块（进程内首次调用时导入并应用全局限速配置）。"""
+    """返回已配置的 akshare 模块（进程内首次调用时导入）。"""
     global _AKSHARE
     if _AKSHARE is None:
         import akshare as ak
 
-        # 防御性限速：降低单 IP 请求频率，缓解东财按 IP 限流/临时封。
-        # request_interval=3 表示相邻请求至少间隔 3 秒；use_thread=False 避免并发连接触发风控。
-        ak.set_option('request_interval', 3)
-        ak.set_option('use_thread', False)
+        # akshare>=1.14 已移除顶层 set_option，请求限速/重试现由 app/core/requests_patch.py
+        # 的全局补丁负责（按域名注入头 + 连接重试 + 屏蔽系统代理）。此处仅对仍提供该 API
+        # 的旧版本做防御性限速，避免新版 import 后直接 AttributeError 崩溃。
+        _set_option = getattr(ak, 'set_option', None)
+        if _set_option is not None:
+            _set_option('request_interval', 3)
+            _set_option('use_thread', False)
         _AKSHARE = ak
     return _AKSHARE

@@ -139,7 +139,7 @@ class TestAkshareAdapter:
     def test_get_name(self, adapter):
         assert adapter.get_name() == 'akshare'
 
-    @patch('app.services.sync.adapters.akshare_adapter.ak')
+    @patch('app.core.akshare_lazy._AKSHARE')
     def test_fetch_fund_list(self, mock_ak, adapter):
         df = pd.DataFrame(
             {'基金代码': ['000001', '000002'], '基金简称': ['基金A', '基金B'], '基金类型': ['混合型', '股票型']}
@@ -149,7 +149,7 @@ class TestAkshareAdapter:
         assert len(records) == 2
         assert records[0]['fund_code'] == '000001'
 
-    @patch('app.services.sync.adapters.akshare_adapter.ak')
+    @patch('app.core.akshare_lazy._AKSHARE')
     @patch('app.services.sync.adapters.akshare_adapter.get_normalizer')
     def test_fetch_stock_list(self, mock_norm, mock_ak, adapter):
         df = pd.DataFrame({'code': ['600519', '000001'], 'name': ['茅台', '平安']})
@@ -164,7 +164,7 @@ class TestAkshareAdapter:
         assert len(records) == 2
         assert records[0]['symbol'] == 'SH600519'
 
-    @patch('app.services.sync.adapters.akshare_adapter.ak')
+    @patch('app.core.akshare_lazy._AKSHARE')
     @patch('app.services.sync.adapters.akshare_adapter.get_normalizer')
     def test_fetch_stock_price(self, mock_norm, mock_ak, adapter):
         normalizer_mock = MagicMock()

@@ -19,6 +19,10 @@ EXCHANGE_RATES = {
     'HKD': 0.92,
 }
 
+# ── 货基万份收益写入来源版本标记（#863 P0-4）──
+# fund_nav_job / async_backfill 共用，避免 'v2_recalc' 字符串在多处硬编码漂移。
+SOURCE_VERSION_V2_RECALC = 'v2_recalc'
+
 # ── 产品类型标签（交易性资产）──
 # 单一权威定义已收口到 app/core/asset_types.ASSET_TYPE_LABELS（本文件顶部已从该处 import，别名 TYPE_LABELS）；
 # bond 已澄清为「可转债」。新增 / 修改类型标签请改 asset_types.py，勿在此手写。

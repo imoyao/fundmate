@@ -29,12 +29,18 @@ defineProps<{
   lastUpdateTime: string;
 }>();
 
+interface ExploreRow {
+  symbol: string;
+  type: string;
+  name: string;
+  id?: string | number;
+}
 const emit = defineEmits<{
   remove: [id: string];
-  jump: [row: any, command: string];
+  jump: [row: ExploreRow, command: string];
   refresh: [];
   "interval-change": [value: number];
-  favorite: [row: any];
+  favorite: [row: ExploreRow];
 }>();
 
 function handleRemoveConfirm(id: string) {
@@ -162,7 +168,9 @@ const getAvailableTools = (type: string) => {
       <el-table-column label="深度分析" width="120" align="center">
         <template #default="{ row }">
           <el-dropdown
-            @command="(command: string) => emit('jump', row, command)"
+            @command="
+              (command: string) => emit('jump', row as ExploreRow, command)
+            "
           >
             <el-button size="small" type="primary" plain>分析 ▼</el-button>
             <template #dropdown>
@@ -186,7 +194,7 @@ const getAvailableTools = (type: string) => {
             link
             size="small"
             type="primary"
-            @click="emit('favorite', row)"
+            @click="emit('favorite', row as ExploreRow)"
             >收藏</el-button
           >
           <el-button

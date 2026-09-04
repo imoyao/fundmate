@@ -99,7 +99,14 @@ def fake_baostock(monkeypatch):
     return captured
 
 
-def test_market_pb_series_baostock_fallback(fake_baostock, monkeypatch):
+@pytest.fixture
+def akshare_unavailable(monkeypatch):
+    """模拟 akshare/legulegu 全历史源不可用（旧版 ic.ak=None 的等价写法）：
+    令 get_akshare() 直接返回 None，使 ak.stock_a_all_pb() 抛 AttributeError 落入缓存/兜底链。"""
+    monkeypatch.setattr('app.core.akshare_lazy.get_akshare', lambda: None)
+
+
+def test_market_pb_series_baostock_fallback(fake_baostock, akshare_unavailable, monkeypatch):
     """legulegu 与本地缓存都不可用时，应落到 baostock 兜底并返回当日点。"""
     fake_baostock['rows'] = [
         ['2026-08-07', 'sh.600519', '6.27'],
@@ -109,7 +116,6 @@ def test_market_pb_series_baostock_fallback(fake_baostock, monkeypatch):
         ['2026-08-07', 'sz.000858', '5.50'],
     ]
 
-    monkeypatch.setattr(ic, 'ak', None)
     monkeypatch.setattr(ic, '_load_allpb_cache', lambda: None)
     monkeypatch.setattr(ic, '_eastmoney_current_median_pb', lambda: None)
     # 防止兜底分支把单点序列写回受保护的 data/all_pb.csv 基线
@@ -124,11 +130,10 @@ def test_market_pb_series_baostock_fallback(fake_baostock, monkeypatch):
     assert fake_baostock['calls'] == 1
 
 
-def test_market_pb_series_falls_back_to_eastmoney(fake_baostock, monkeypatch):
+def test_market_pb_series_falls_back_to_eastmoney(fake_baostock, akshare_unavailable, monkeypatch):
     """baostock 兜底返回 None 时，应继续落到东财（历史遗留）。"""
     fake_baostock['rows'] = []  # 空行 -> median 抛错 -> 返回 None
 
-    monkeypatch.setattr(ic, 'ak', None)
     monkeypatch.setattr(ic, '_load_allpb_cache', lambda: None)
     monkeypatch.setattr(
         ic,
@@ -144,10 +149,9 @@ def test_market_pb_series_falls_back_to_eastmoney(fake_baostock, monkeypatch):
     assert s.iloc[-1] == pytest.approx(2.5)
 
 
-def test_market_pb_series_unavailable(fake_baostock, monkeypatch):
+def test_market_pb_series_unavailable(fake_baostock, akshare_unavailable, monkeypatch):
     """全链失败（baostock 空 + 东财 None）→ unavailable，绝不抛异常。"""
     fake_baostock['rows'] = []
-    monkeypatch.setattr(ic, 'ak', None)
     monkeypatch.setattr(ic, '_load_allpb_cache', lambda: None)
     monkeypatch.setattr(ic, '_eastmoney_current_median_pb', lambda: None)
 

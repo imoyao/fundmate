@@ -200,6 +200,30 @@ class TestDailyIncome:
         ]
         assert result['total_income'] == 0.08
 
+    def test_fund_typed_money_fund_with_flag_baseline(self, db):
+        """#863：type='fund' + is_money_fund=True 的存量货基持仓也计入收益基线。"""
+        ledger = _make_ledger(db)
+        _make_fund(db, 'MFX')
+        day = dt.date(2026, 8, 1)
+        _make_worth(db, 'MFX', day, 0.40)
+        pos = Position(
+            ledger_id=ledger.id,
+            symbol='MFX',
+            name='存量货基(fund型)',
+            asset_type='fund',
+            is_money_fund=True,
+            quantity=Money.shares_to_min_unit(1000),  # 1000 份 = 1000 元
+            current_price=Money.yuan_to_price_units(1.0),
+            family_id=1,
+        )
+        db.add(pos)
+        db.flush()
+
+        result = calculate_money_fund_income(db, start_date=day, end_date=day, scope='family', family_id=1)
+
+        # 1000 元 × 0.40 / 10000 = 0.04 元；修复前该持仓被漏算 → 0
+        assert result['today_income'] == 0.04
+
 
 # -------------------- 服务层：scope 过滤与参数校验 --------------------
 

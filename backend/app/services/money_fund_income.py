@@ -100,11 +100,16 @@ def _collect_orphan_flows(db: Session, family_id: int, ledger_id: Optional[int])
 
 
 def _collect_position_market_value(db: Session, family_id: int, ledger_id: Optional[int]) -> Dict[str, int]:
-    """positions 中货基市值：{fund_code: cents}（迁移前兼容口径，作为恒定基线）。"""
+    """positions 中货基市值：{fund_code: cents}（迁移前兼容口径，作为恒定基线）。
+
+    #863 修正：存量货基以 type='fund' 录入（funds 名录货币型），经回填脚本置
+    is_money_fund=True；收益基线必须同时覆盖 asset_type='money_fund' 与
+    is_money_fund=True 两条表达，否则 type='fund' 的货基持仓收益被漏算。
+    """
     query = db.query(Position).filter(
-        Position.asset_type == 'money_fund',
         Position.family_id == family_id,
         Position.quantity > 0,
+        or_(Position.asset_type == 'money_fund', Position.is_money_fund.is_(True)),
     )
     if ledger_id is not None:
         query = query.filter(Position.ledger_id == ledger_id)

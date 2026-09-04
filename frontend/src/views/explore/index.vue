@@ -359,25 +359,26 @@ const goToLogin = () => {
 
 // 收藏到自选（#822 todo2）：呼应自选分组
 // 已登录 → 写入后端 watchlist；未登录 → 引导注册
-const handleFavorite = async (row: any) => {
+interface ExploreFavoriteRow {
+  symbol: string;
+  type: string;
+  name: string;
+}
+const handleFavorite = async (row: ExploreFavoriteRow) => {
   if (!isAuthenticated.value) {
     ElMessage.warning("登录后可收藏到自选，立即注册解锁跨设备同步");
     router.push("/login");
     return;
   }
   try {
-    const assetTypeMap: Record<string, string> = {
-      stock: "stock",
-      fund: "fund",
-      etf: "etf"
-    };
     await createWatchlistItem({
       symbol: row.symbol,
-      asset_type: assetTypeMap[row.type] || row.type
+      asset_type: row.type
     });
     ElMessage.success(`已收藏「${row.name}」到自选`);
-  } catch (e: any) {
-    ElMessage.error(e?.message || "收藏失败，请重试");
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    ElMessage.error(msg || "收藏失败，请重试");
   }
 };
 
@@ -707,11 +708,11 @@ onMounted(() => {
   }
 
   &__desc {
+    max-width: 860px;
     margin-top: 4px;
     font-size: 13px;
     line-height: 1.6;
     color: var(--text-secondary);
-    max-width: 860px;
   }
 }
 </style>

@@ -14,6 +14,7 @@ import threading
 
 from loguru import logger
 
+from app.core.constants import SOURCE_VERSION_V2_RECALC
 from app.core.database import SessionLocal
 from app.core.db_utils import bulk_insert_if_not_exists
 from app.domains.funds.models import DailyWorth, MoneyFundDailyWorth
@@ -41,7 +42,7 @@ def _backfill_fund_nav(fund_code: str):
                         'date': r['date'],
                         'nav_per_10k': r['unit_nav'],
                         # #863 P0-4：与 fund_nav_job 一致，新写入标记 v2_recalc
-                        'source_version': 'v2_recalc',
+                        'source_version': SOURCE_VERSION_V2_RECALC,
                     }
                 )
             else:
