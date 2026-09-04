@@ -139,11 +139,6 @@ DEFAULT_TYPE_STOCK = 'stock'
 USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
 DEFAULT_REQUEST_TIMEOUT = 15
 
-# ── 货基/数据来源版本标记（#863 数据治理）──
-# 写入 money_fund_daily_worth.source_version 的权威取值；全系统唯一真相源，
-# 禁止在各处硬编码 'v2_recalc' 字符串字面量（AI review #1/#14/#20）。
-SOURCE_VERSION_V2_RECALC = 'v2_recalc'
-
 # ── 来源标识（全系统，positions.source / transactions.source / PositionImportMeta.source 共用）──
 # 维护入口（唯一真相源）：所有写入来源的代码都必须引用本枚举，禁止在各处硬编码字符串字面量。
 # 取值语义见 POSITION_SOURCE_LABELS。前端通过 GET /api/utils/enums 获取 label，禁止前端手抄一份。

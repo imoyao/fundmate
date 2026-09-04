@@ -760,9 +760,8 @@ def _money_fund_daily_income_cents(db: Session, family_id: int, target: date, le
         family_id=family_id,
     )
     series = result.get('daily_series') or []
-    if not series:
-        return 0
-    income = series[-1].get('income')
+    # 按 target 日期显式过滤，避免依赖返回顺序取到非目标日的数据（AI review #49）
+    income = next((item.get('income') for item in series if item.get('date') == target.isoformat()), None)
     # income 可能为 None（当日无万份收益），避免 Money.yuan_to_cents(None) 抛异常
     return Money.yuan_to_cents(income) if income is not None else 0
 
