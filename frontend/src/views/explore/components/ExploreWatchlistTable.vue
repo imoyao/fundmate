@@ -193,13 +193,15 @@ const getAvailableTools = (type: string) => {
             size="small"
             type="primary"
             @click="emit('favorite', row as ExploreRow)"
-            >收藏</el-button>
+            >收藏</el-button
+          >
           <el-button
             link
             size="small"
             style="color: var(--text-tertiary)"
             @click="handleRemoveConfirm(row.id)"
-            >删除</el-button>
+            >删除</el-button
+          >
         </template>
       </el-table-column>
     </el-table>
