@@ -710,10 +710,10 @@ onMounted(() => {
 
   &__desc {
     margin-top: 4px;
+    max-width: 860px;
     font-size: 13px;
     line-height: 1.6;
     color: var(--text-secondary);
-    max-width: 860px;
   }
 }
 </style>
