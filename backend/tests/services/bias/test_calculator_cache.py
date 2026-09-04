@@ -2,8 +2,9 @@
 """PriceFetcher 持久化缓存单测：命中/失效/降级/透传 stale。"""
 
 import json
+from contextlib import contextmanager
 from datetime import datetime
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 
@@ -30,32 +31,49 @@ def _write_stale_cache(cache_dir, symbol='000300', item_type='index', n=30):
     p.write_text(json.dumps(payload), encoding='utf-8')
 
 
+@contextmanager
+def _live_index_akshare(result=None, exc=None):
+    """把 PriceFetcher 的实时抓取锁定到 akshare 兜底路径（屏蔽腾讯/东财直连，避免测试触网），
+    并让 get_akshare() 返回可编程的假 ak；yield 该假 ak 供断言调用次数。"""
+    fake_ak = MagicMock()
+    if exc is not None:
+        fake_ak.index_zh_a_hist.side_effect = exc
+    else:
+        fake_ak.index_zh_a_hist.return_value = result
+    with (
+        patch('app.core.akshare_lazy.get_akshare', return_value=fake_ak),
+        patch.object(PriceFetcher, '_fetch_direct', return_value=(None, None)),
+        patch('app.services.bias.calculator.time.sleep'),
+    ):
+        yield fake_ak
+
+
 def test_process_cache_hit_avoids_live(tmp_path):
-    """同进程内第二次 fetch 直接命中 _cache，不请求东财。"""
+    """同进程内第二次 fetch 直接命中 _cache，不请求实时源。"""
     fetcher = PriceFetcher(cache_dir=tmp_path, days=60)
     df = _make_df()
-    with patch('app.services.bias.calculator.ak.index_zh_a_hist', return_value=df) as m:
+    with _live_index_akshare(result=df) as fake_ak:
         r1 = fetcher.fetch('000300', ITEM_TYPE_INDEX)
         assert r1 is not None
-        assert m.call_count == 1
+        assert fake_ak.index_zh_a_hist.call_count == 1
         r2 = fetcher.fetch('000300', ITEM_TYPE_INDEX)
         assert r2 == r1
-        assert m.call_count == 1
+        assert fake_ak.index_zh_a_hist.call_count == 1
         assert fetcher._stale[('000300', ITEM_TYPE_INDEX)] is False
 
 
 def test_file_cache_survives_restart(tmp_path):
-    """新实例（模拟进程重启）从文件缓存加载，不请求东财。"""
+    """新实例（模拟进程重启）从文件缓存加载，不请求实时源。"""
     df = _make_df()
-    with patch('app.services.bias.calculator.ak.index_zh_a_hist', return_value=df) as m1:
+    with _live_index_akshare(result=df) as fake_ak1:
         f1 = PriceFetcher(cache_dir=tmp_path)
         f1.fetch('000300', ITEM_TYPE_INDEX)
-        assert m1.call_count == 1
-    with patch('app.services.bias.calculator.ak.index_zh_a_hist', return_value=df) as m2:
+        assert fake_ak1.index_zh_a_hist.call_count == 1
+    with _live_index_akshare(result=df) as fake_ak2:
         f2 = PriceFetcher(cache_dir=tmp_path)
         r = f2.fetch('000300', ITEM_TYPE_INDEX)
         assert r is not None
-        assert m2.call_count == 0  # 文件命中，未请求东财
+        assert fake_ak2.index_zh_a_hist.call_count == 0  # 文件命中，未请求实时源
         assert f2._stale[('000300', ITEM_TYPE_INDEX)] is False
 
 
@@ -63,7 +81,7 @@ def test_stale_fallback_on_live_failure(tmp_path):
     """实时抓取失败但有旧缓存 → 回退旧数据并标 stale=True。"""
     _write_stale_cache(tmp_path)
     fetcher = PriceFetcher(cache_dir=tmp_path)
-    with patch('app.services.bias.calculator.ak.index_zh_a_hist', side_effect=Exception('boom')):
+    with _live_index_akshare(exc=Exception('boom')):
         r = fetcher.fetch('000300', ITEM_TYPE_INDEX)
     assert r is not None
     assert len(r) >= BIAS_PERIOD
@@ -73,7 +91,7 @@ def test_stale_fallback_on_live_failure(tmp_path):
 def test_no_cache_returns_none(tmp_path):
     """无缓存且实时失败 → 返回 None。"""
     fetcher = PriceFetcher(cache_dir=tmp_path)
-    with patch('app.services.bias.calculator.ak.index_zh_a_hist', side_effect=Exception('boom')):
+    with _live_index_akshare(exc=Exception('boom')):
         r = fetcher.fetch('000300', ITEM_TYPE_INDEX)
     assert r is None
 
@@ -88,7 +106,7 @@ def test_calculate_item_propagates_stale(tmp_path):
     """stale 状态透传到 BiasResult。"""
     _write_stale_cache(tmp_path)
     fetcher = PriceFetcher(cache_dir=tmp_path)
-    with patch('app.services.bias.calculator.ak.index_zh_a_hist', side_effect=Exception('boom')):
+    with _live_index_akshare(exc=Exception('boom')):
         calc = BiasCalculator(fetcher=fetcher)
         res = calc.calculate_item('000300', ITEM_TYPE_INDEX, '沪深300')
     assert res is not None

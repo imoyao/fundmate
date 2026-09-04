@@ -8,6 +8,8 @@
      （限流 / 被拦 / 返回空响应）时应安全返回 None，而非抛出 JSONDecodeError 之类异常。
 """
 
+from unittest.mock import MagicMock
+
 import pandas as pd
 
 from app.services.thermometer.fetchers import JisiluIndicatorFetcher, SelfCalcFetcher
@@ -69,22 +71,18 @@ def test_jisilu_valuation_dirty_fields_return_unknown_level(monkeypatch):
 def test_self_calc_handles_none_dataframe(monkeypatch):
     # akshare 接口返回 None（限流 / 异常）→ fetch 应优雅返回 None，不抛异常
     fetcher = SelfCalcFetcher()
-
-    def _fake_pe(*a, **k):
-        return None  # 模拟 stock_index_pe_lg 返回 None
-
-    monkeypatch.setattr('app.services.thermometer.fetchers.ak.stock_index_pe_lg', _fake_pe)
+    fake_ak = MagicMock()
+    fake_ak.stock_index_pe_lg.return_value = None  # 模拟 stock_index_pe_lg 返回 None
+    monkeypatch.setattr('app.core.akshare_lazy._AKSHARE', fake_ak)
     assert fetcher.fetch() is None
 
 
 def test_self_calc_handles_empty_dataframe(monkeypatch):
     # akshare 接口返回空 DataFrame（被拦 / 空响应）→ fetch 应优雅返回 None
     fetcher = SelfCalcFetcher()
-
-    def _fake_pe(*a, **k):
-        return pd.DataFrame()  # 空表
-
-    monkeypatch.setattr('app.services.thermometer.fetchers.ak.stock_index_pe_lg', _fake_pe)
+    fake_ak = MagicMock()
+    fake_ak.stock_index_pe_lg.return_value = pd.DataFrame()  # 空表
+    monkeypatch.setattr('app.core.akshare_lazy._AKSHARE', fake_ak)
     assert fetcher.fetch() is None
 
 
@@ -94,9 +92,7 @@ def test_self_calc_handles_json_decode_error(monkeypatch):
     from requests.exceptions import JSONDecodeError
 
     fetcher = SelfCalcFetcher()
-
-    def _fake_pe(*a, **k):
-        raise JSONDecodeError('Expecting value', '', 0)
-
-    monkeypatch.setattr('app.services.thermometer.fetchers.ak.stock_index_pe_lg', _fake_pe)
+    fake_ak = MagicMock()
+    fake_ak.stock_index_pe_lg.side_effect = JSONDecodeError('Expecting value', '', 0)
+    monkeypatch.setattr('app.core.akshare_lazy._AKSHARE', fake_ak)
     assert fetcher.fetch() is None
