@@ -4,8 +4,8 @@
 [metadata]
 groups = ["default", "dev", "test"]
 strategy = []
-lock_version = "4.5.1"
-content_hash = "sha256:987a0926f2be1e330af346177bf342392a7dcd625e686bfb3bba61fa60c41106"
+lock_version = "4.5.0"
+content_hash = "sha256:7b78e369239accf3897b7d8cfe64ec0293cfdef5adc8a139b63a5ef6de6453ef"
 
 [[metadata.targets]]
 requires_python = ">=3.12"
@@ -22,25 +22,24 @@ files = [
 [[package]]
 name = "akshare"
 version = "1.18.91"
-requires_python = ">=3.11"
-summary = "AKShare is an elegant and simple financial data interface library for Python, built for human beings!"
+summary = ""
 dependencies = [
-    "akracer>=0.0.13; platform_system == \"Linux\"",
-    "beautifulsoup4>=4.9.1",
-    "curl-cffi>=0.13.0",
-    "decorator>=4.4.2",
-    "html5lib>=1.0.1",
-    "jsonpath>=0.82",
-    "lxml>=4.2.1",
-    "mini-racer>=0.12.4; platform_system != \"Linux\"",
-    "openpyxl>=3.0.3",
-    "pandas>=2.0.0",
-    "py-mini-racer>=0.6.0; platform_system == \"Linux\"",
-    "requests>=2.22.0",
-    "tabulate>=0.8.6",
-    "tqdm>=4.43.0",
-    "urllib3>=1.25.8",
-    "xlrd>=1.2.0",
+    "akracer; sys_platform == \"linux\"",
+    "beautifulsoup4",
+    "curl-cffi",
+    "decorator",
+    "html5lib",
+    "jsonpath",
+    "lxml",
+    "mini-racer; sys_platform != \"linux\"",
+    "openpyxl",
+    "pandas",
+    "py-mini-racer; sys_platform == \"linux\"",
+    "requests",
+    "tabulate",
+    "tqdm",
+    "urllib3",
+    "xlrd",
 ]
 files = [
     {file = "akshare-1.18.91-py3-none-any.whl", hash = "sha256:0f7f5622ed1b2c6cee85038402c32c7cdb244e1677106fdaec732f1dbcc1f077"},
@@ -158,6 +157,44 @@ summary = ""
 files = [
     {file = "boolean_py-5.0-py3-none-any.whl", hash = "sha256:ef28a70bd43115208441b53a045d1549e2f0ec6e3d08a9d142cbc41c1938e8d9"},
     {file = "boolean_py-5.0.tar.gz", hash = "sha256:60cbc4bad079753721d32649545505362c754e121570ada4658b852a3a318d95"},
+]
+
+[[package]]
+name = "brotli"
+version = "1.2.0"
+summary = ""
+files = [
+    {file = "brotli-1.2.0-cp312-cp312-macosx_10_13_universal2.whl", hash = "sha256:35d382625778834a7f3061b15423919aa03e4f5da34ac8e02c074e4b75ab4f84"},
+    {file = "brotli-1.2.0-cp312-cp312-macosx_10_13_x86_64.whl", hash = "sha256:7a61c06b334bd99bc5ae84f1eeb36bfe01400264b3c352f968c6e30a10f9d08b"},
+    {file = "brotli-1.2.0-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:acec55bb7c90f1dfc476126f9711a8e81c9af7fb617409a9ee2953115343f08d"},
+    {file = "brotli-1.2.0-cp312-cp312-manylinux2014_ppc64le.manylinux_2_17_ppc64le.manylinux_2_28_ppc64le.whl", hash = "sha256:260d3692396e1895c5034f204f0db022c056f9e2ac841593a4cf9426e2a3faca"},
+    {file = "brotli-1.2.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:072e7624b1fc4d601036ab3f4f27942ef772887e876beff0301d261210bca97f"},
+    {file = "brotli-1.2.0-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:adedc4a67e15327dfdd04884873c6d5a01d3e3b6f61406f99b1ed4865a2f6d28"},
+    {file = "brotli-1.2.0-cp312-cp312-musllinux_1_2_ppc64le.whl", hash = "sha256:7a47ce5c2288702e09dc22a44d0ee6152f2c7eda97b3c8482d826a1f3cfc7da7"},
+    {file = "brotli-1.2.0-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:af43b8711a8264bb4e7d6d9a6d004c3a2019c04c01127a868709ec29962b6036"},
+    {file = "brotli-1.2.0-cp312-cp312-win32.whl", hash = "sha256:e99befa0b48f3cd293dafeacdd0d191804d105d279e0b387a32054c1180f3161"},
+    {file = "brotli-1.2.0-cp312-cp312-win_amd64.whl", hash = "sha256:b35c13ce241abdd44cb8ca70683f20c0c079728a36a996297adb5334adfc1c44"},
+    {file = "brotli-1.2.0-cp313-cp313-macosx_10_13_universal2.whl", hash = "sha256:9e5825ba2c9998375530504578fd4d5d1059d09621a02065d1b6bfc41a8e05ab"},
+    {file = "brotli-1.2.0-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:0cf8c3b8ba93d496b2fae778039e2f5ecc7cff99df84df337ca31d8f2252896c"},
+    {file = "brotli-1.2.0-cp313-cp313-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:c8565e3cdc1808b1a34714b553b262c5de5fbda202285782173ec137fd13709f"},
+    {file = "brotli-1.2.0-cp313-cp313-manylinux2014_ppc64le.manylinux_2_17_ppc64le.manylinux_2_28_ppc64le.whl", hash = "sha256:26e8d3ecb0ee458a9804f47f21b74845cc823fd1bb19f02272be70774f56e2a6"},
+    {file = "brotli-1.2.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:67a91c5187e1eec76a61625c77a6c8c785650f5b576ca732bd33ef58b0dff49c"},
+    {file = "brotli-1.2.0-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:4ecdb3b6dc36e6d6e14d3a1bdc6c1057c8cbf80db04031d566eb6080ce283a48"},
+    {file = "brotli-1.2.0-cp313-cp313-musllinux_1_2_ppc64le.whl", hash = "sha256:3e1b35d56856f3ed326b140d3c6d9db91740f22e14b06e840fe4bb1923439a18"},
+    {file = "brotli-1.2.0-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:54a50a9dad16b32136b2241ddea9e4df159b41247b2ce6aac0b3276a66a8f1e5"},
+    {file = "brotli-1.2.0-cp313-cp313-win32.whl", hash = "sha256:1b1d6a4efedd53671c793be6dd760fcf2107da3a52331ad9ea429edf0902f27a"},
+    {file = "brotli-1.2.0-cp313-cp313-win_amd64.whl", hash = "sha256:b63daa43d82f0cdabf98dee215b375b4058cce72871fd07934f179885aad16e8"},
+    {file = "brotli-1.2.0-cp314-cp314-macosx_10_15_universal2.whl", hash = "sha256:6c12dad5cd04530323e723787ff762bac749a7b256a5bece32b2243dd5c27b21"},
+    {file = "brotli-1.2.0-cp314-cp314-macosx_10_15_x86_64.whl", hash = "sha256:3219bd9e69868e57183316ee19c84e03e8f8b5a1d1f2667e1aa8c2f91cb061ac"},
+    {file = "brotli-1.2.0-cp314-cp314-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:963a08f3bebd8b75ac57661045402da15991468a621f014be54e50f53a58d19e"},
+    {file = "brotli-1.2.0-cp314-cp314-manylinux2014_ppc64le.manylinux_2_17_ppc64le.manylinux_2_28_ppc64le.whl", hash = "sha256:9322b9f8656782414b37e6af884146869d46ab85158201d82bab9abbcb971dc7"},
+    {file = "brotli-1.2.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:cf9cba6f5b78a2071ec6fb1e7bd39acf35071d90a81231d67e92d637776a6a63"},
+    {file = "brotli-1.2.0-cp314-cp314-musllinux_1_2_aarch64.whl", hash = "sha256:7547369c4392b47d30a3467fe8c3330b4f2e0f7730e45e3103d7d636678a808b"},
+    {file = "brotli-1.2.0-cp314-cp314-musllinux_1_2_ppc64le.whl", hash = "sha256:fc1530af5c3c275b8524f2e24841cbe2599d74462455e9bae5109e9ff42e9361"},
+    {file = "brotli-1.2.0-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:d2d085ded05278d1c7f65560aae97b3160aeb2ea2c0b3e26204856beccb60888"},
+    {file = "brotli-1.2.0-cp314-cp314-win32.whl", hash = "sha256:832c115a020e463c2f67664560449a7bea26b0c1fdd690352addad6d0a08714d"},
+    {file = "brotli-1.2.0-cp314-cp314-win_amd64.whl", hash = "sha256:e7c0af964e0b4e3412a0ebf341ea26ec767fa0b4cf81abb5e897c9338b5ad6a3"},
+    {file = "brotli-1.2.0.tar.gz", hash = "sha256:e310f77e41941c13340a95976fe66a8a95b01e783d430eeaf7a2f87e0a57dd0a"},
 ]
 
 [[package]]
@@ -284,8 +321,7 @@ files = [
 [[package]]
 name = "charset-normalizer"
 version = "3.5.1"
-requires_python = ">=3.7"
-summary = "The Real First Universal Charset Detector. Open, modern and actively maintained alternative to Chardet."
+summary = ""
 files = [
     {file = "charset_normalizer-3.5.1-cp312-cp312-macosx_10_13_universal2.whl", hash = "sha256:5b6d1386bf0096d26d3a863dc0a487a5b4eb9aa93cf5ba69683d29dde6b9d60f"},
     {file = "charset_normalizer-3.5.1-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:4582c27e8c889d64811987b5967fbd3ae0c823fe1fd933b543d55ac20bb475fa"},
@@ -688,7 +724,6 @@ files = [
 [[package]]
 name = "fake-useragent"
 version = "2.2.0"
-requires_python = ">=3.9"
 summary = ""
 files = [
     {file = "fake_useragent-2.2.0-py3-none-any.whl", hash = "sha256:67f35ca4d847b0d298187443aaf020413746e56acd985a611908c73dba2daa24"},
@@ -707,7 +742,6 @@ files = [
 [[package]]
 name = "flask"
 version = "3.1.3"
-requires_python = ">=3.9"
 summary = ""
 dependencies = [
     "blinker",
@@ -725,7 +759,6 @@ files = [
 [[package]]
 name = "flask-cors"
 version = "6.0.5"
-requires_python = "<4.0,>=3.9"
 summary = ""
 dependencies = [
     "flask",
@@ -896,8 +929,8 @@ name = "httpcore2"
 version = "2.10.0"
 summary = ""
 dependencies = [
-    "h11; sys_platform != \"emscripten\"",
-    "truststore; sys_platform != \"emscripten\"",
+    "h11",
+    "truststore",
 ]
 files = [
     {file = "httpcore2-2.10.0-py3-none-any.whl", hash = "sha256:7df06cfb34070cae4f7c89be69dc1095eca138e9704ceffb98d25c1912ab6f01"},
@@ -951,7 +984,6 @@ files = [
 [[package]]
 name = "invoke"
 version = "3.0.3"
-requires_python = ">=3.9"
 summary = ""
 files = [
     {file = "invoke-3.0.3-py3-none-any.whl", hash = "sha256:f11327165e5cbb89b2ad1d88d3292b5113332c43b8553b494da435d6ec6f5053"},
@@ -961,7 +993,6 @@ files = [
 [[package]]
 name = "ipython"
 version = "9.16.1"
-requires_python = ">=3.11"
 summary = ""
 dependencies = [
     "colorama; sys_platform == \"win32\"",
@@ -1161,7 +1192,6 @@ files = [
 [[package]]
 name = "loguru"
 version = "0.7.3"
-requires_python = "<4.0,>=3.5"
 summary = ""
 dependencies = [
     "colorama; sys_platform == \"win32\"",
@@ -1405,7 +1435,6 @@ files = [
 [[package]]
 name = "mcp"
 version = "2.0.0"
-requires_python = ">=3.10"
 summary = ""
 dependencies = [
     "anyio",
@@ -1533,7 +1562,6 @@ files = [
 [[package]]
 name = "openpyxl"
 version = "3.1.5"
-requires_python = ">=3.8"
 summary = ""
 dependencies = [
     "et-xmlfile",
@@ -1644,7 +1672,6 @@ files = [
 [[package]]
 name = "pdfplumber"
 version = "0.11.10"
-requires_python = ">=3.8"
 summary = ""
 dependencies = [
     "pdfminer-six",
@@ -1659,7 +1686,6 @@ files = [
 [[package]]
 name = "pendulum"
 version = "3.2.0"
-requires_python = ">=3.9"
 summary = ""
 dependencies = [
     "python-dateutil",
@@ -1807,7 +1833,6 @@ files = [
 [[package]]
 name = "pip-audit"
 version = "2.10.1"
-requires_python = ">=3.10"
 summary = ""
 dependencies = [
     "cachecontrol[filecache]",
@@ -1851,7 +1876,6 @@ files = [
 [[package]]
 name = "playwright"
 version = "1.62.0"
-requires_python = ">=3.10"
 summary = ""
 dependencies = [
     "greenlet",
@@ -1980,7 +2004,6 @@ files = [
 [[package]]
 name = "pydantic"
 version = "2.13.4"
-requires_python = ">=3.9"
 summary = ""
 dependencies = [
     "annotated-types",
@@ -2072,7 +2095,6 @@ files = [
 name = "pydantic"
 version = "2.13.4"
 extras = ["email"]
-requires_python = ">=3.9"
 summary = ""
 dependencies = [
     "email-validator",
@@ -2120,7 +2142,6 @@ files = [
 [[package]]
 name = "pyjwt"
 version = "2.13.0"
-requires_python = ">=3.9"
 summary = ""
 files = [
     {file = "pyjwt-2.13.0-py3-none-any.whl", hash = "sha256:66adcc2aff09b3f1bbd95fc1e1577df8ac8723c978552fd43304c8a290ac5728"},
@@ -2131,7 +2152,6 @@ files = [
 name = "pyjwt"
 version = "2.13.0"
 extras = ["crypto"]
-requires_python = ">=3.9"
 summary = ""
 dependencies = [
     "cryptography",
@@ -2183,7 +2203,6 @@ files = [
 [[package]]
 name = "pypinyin"
 version = "0.55.0"
-requires_python = "!=3.0.*,!=3.1.*,!=3.2.*,<4,>=2.6"
 summary = ""
 files = [
     {file = "pypinyin-0.55.0-py2.py3-none-any.whl", hash = "sha256:d53b1e8ad2cdb815fb2cb604ed3123372f5a28c6f447571244aca36fc62a286f"},
@@ -2202,7 +2221,6 @@ files = [
 [[package]]
 name = "pytest"
 version = "9.1.1"
-requires_python = ">=3.10"
 summary = ""
 dependencies = [
     "colorama; sys_platform == \"win32\"",
@@ -2231,8 +2249,7 @@ files = [
 [[package]]
 name = "python-dotenv"
 version = "1.2.3"
-requires_python = ">=3.10"
-summary = "Read key-value pairs from a .env file and set them as environment variables"
+summary = ""
 files = [
     {file = "python_dotenv-1.2.3-py3-none-any.whl", hash = "sha256:904552145e8bfed22162c09dab1c2b9b54fefa7b23ba780f4f26ca0316b0f0d9"},
     {file = "python_dotenv-1.2.3.tar.gz", hash = "sha256:a20a594dabeaa385725aa239d5244871c143ecb356add8a20fcf23773a6c3a35"},
@@ -2269,7 +2286,6 @@ files = [
 [[package]]
 name = "pyxirr"
 version = "0.10.8"
-requires_python = ">=3.7"
 summary = ""
 files = [
     {file = "pyxirr-0.10.8-cp312-cp312-macosx_10_12_x86_64.whl", hash = "sha256:726998e9d1bab16381587679a91609bdd619fdd3f9e7c999235fec107a9a15d4"},
@@ -2358,7 +2374,6 @@ files = [
 [[package]]
 name = "rich"
 version = "15.0.0"
-requires_python = ">=3.9.0"
 summary = ""
 dependencies = [
     "markdown-it-py",
@@ -2468,8 +2483,7 @@ files = [
 [[package]]
 name = "ruff"
 version = "0.16.3"
-requires_python = ">=3.7"
-summary = "An extremely fast Python linter and code formatter, written in Rust."
+summary = ""
 files = [
     {file = "ruff-0.16.3-py3-none-linux_armv6l.whl", hash = "sha256:0c5710e247a58a4521e66e124ba9a74655b414f61ba3a2e9e3811e11098f48f7"},
     {file = "ruff-0.16.3-py3-none-macosx_10_12_x86_64.whl", hash = "sha256:fe155130631a2471fd2e14a7a664a4dfbd7194b8229c3d7b2a40b21178639081"},
@@ -2494,7 +2508,6 @@ files = [
 [[package]]
 name = "scipy"
 version = "1.13.1"
-requires_python = ">=3.9"
 summary = ""
 dependencies = [
     "numpy",
@@ -2592,7 +2605,6 @@ files = [
 [[package]]
 name = "sqlalchemy"
 version = "2.0.52"
-requires_python = ">=3.7"
 summary = ""
 dependencies = [
     "greenlet; platform_machine == \"AMD64\" or platform_machine == \"WIN32\" or platform_machine == \"aarch64\" or platform_machine == \"amd64\" or platform_machine == \"ppc64le\" or platform_machine == \"win32\" or platform_machine == \"x86_64\"",
@@ -2800,8 +2812,7 @@ files = [
 [[package]]
 name = "uv"
 version = "0.12.5"
-requires_python = ">=3.8"
-summary = "An extremely fast Python package and project manager, written in Rust."
+summary = ""
 files = [
     {file = "uv-0.12.5-py3-none-linux_armv6l.whl", hash = "sha256:2bd62134e56af35b9cf017aaf8ae41a605d6501dd49afc35b70b544a45dd8354"},
     {file = "uv-0.12.5-py3-none-macosx_10_12_x86_64.whl", hash = "sha256:1a06c8bc4d43b5f6c1e3f2ae3d0f6455b07515f762516f95e52e6c0cbccedf15"},
@@ -2827,12 +2838,10 @@ files = [
 [[package]]
 name = "uvicorn"
 version = "0.52.3"
-requires_python = ">=3.10"
-summary = "The lightning-fast ASGI server."
+summary = ""
 dependencies = [
-    "click>=7.0",
-    "h11>=0.8",
-    "typing-extensions>=4.0; python_version < \"3.11\"",
+    "click",
+    "h11",
 ]
 files = [
     {file = "uvicorn-0.52.3-py3-none-any.whl", hash = "sha256:116af2710dbf47c80f463cd20ee4884b6662f4c9f227d797ddc7279d2fcc2c7c"},
@@ -2897,26 +2906,24 @@ version = "0.12.4"
 git = "https://gitee.com/imoyao/xalpha.git"
 ref = "master"
 revision = "a0727129e08140eea017a8f21294041ab53ca1d6"
-summary = "all about fund investment"
+summary = ""
 dependencies = [
-    "beautifulsoup4>=4.9.0",
+    "beautifulsoup4",
     "lxml",
     "matplotlib",
     "numpy",
     "pandas",
-    "pyecharts==1.7.1; python_version <= \"3.9\"",
-    "pyecharts==1.9.1; python_version > \"3.9\"",
+    "pyecharts",
     "pysocks",
     "requests",
     "scipy",
     "sqlalchemy",
-    "xlrd>=1.0.0",
+    "xlrd",
 ]
 
 [[package]]
 name = "xlrd"
 version = "2.0.2"
-requires_python = "!=3.0.*,!=3.1.*,!=3.2.*,!=3.3.*,!=3.4.*,!=3.5.*,>=2.7"
 summary = ""
 files = [
     {file = "xlrd-2.0.2-py2.py3-none-any.whl", hash = "sha256:ea762c3d29f4cca48d82df517b6d89fbce4db3107f9d78713e48cd321d5c9aa9"},
