@@ -62,8 +62,9 @@ class AssetSnapshotJob(SyncJob):
         errors: List[str] = []
         for fid in family_ids:
             try:
-                # write_asset_snapshot 内部已幂等 upsert + commit；逐 family 落账
-                write_asset_snapshot(self.db, family_id=fid)
+                # write_asset_snapshot 内部已幂等 upsert + commit；逐 family 落账。
+                # 统一以 job 开始时的 snapshot_time 作为快照日期，避免同批次跨午夜时取到不一致的「今日」。
+                write_asset_snapshot(self.db, family_id=fid, snapshot_date=self.snapshot_time.strftime('%Y-%m-%d'))
                 written += 1
             except Exception as e:  # noqa: BLE001
                 # 单家庭失败不中断其余家庭：记录失败数，回滚本家庭未提交事务后继续

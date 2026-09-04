@@ -595,6 +595,8 @@ def sync_recent_edited(conn, state: dict[str, Any], hours: int = 24) -> None:
             else:
                 print(f"  ℹ️ Issue #{issue.number} 内容与帖子一致，无更新")
         except Exception as e:  # noqa: BLE001  单条 issue 失败不应中断整轮回灌
+            # 回滚半截事务，避免该条失败把连接置于 aborted 状态、污染后续复用同一 conn 的更新
+            conn.rollback()
             print(f"  ⚠️ 更新帖子 {post_id} 失败: {e}")
             traceback.print_exc()
     if handled == 0:

@@ -363,7 +363,6 @@ interface ExploreFavoriteRow {
   symbol: string;
   type: string;
   name: string;
-  id?: string | number;
 }
 const handleFavorite = async (row: ExploreFavoriteRow) => {
   if (!isAuthenticated.value) {

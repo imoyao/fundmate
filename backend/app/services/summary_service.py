@@ -816,7 +816,7 @@ def write_asset_snapshot(db: Session, family_id: int = 1, snapshot_date: str | N
         row.realized_pnl_cents = lp['realized_pnl_cents']
         row.unrealized_pnl_cents = lp['unrealized_pnl_cents']
         row.total_pnl_cents = lp['total_pnl_cents']
-        row.money_fund_income_cents = mf_income_by_ledger.get(ledger_id) if ledger_id in mf_ledgers else None
+        row.money_fund_income_cents = mf_income_by_ledger.get(ledger_id)
 
     db.commit()
     return _snapshot_payload(family_row)

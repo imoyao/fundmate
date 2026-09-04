@@ -372,7 +372,7 @@ class DataSyncOrchestrator:
                 ('price_history', stock_targets),  # 行情增量同步（核心池）
                 ('dividend_split', stock_targets + fund_targets),  # 分红/送股抓取（#1179）
                 # #1182：资产快照落账放最后，确保前面的净值/行情已刷新，快照取到最新值
-                ('asset_snapshot', None),
+                ('asset_snapshot', []),
             ]
 
             results = {}

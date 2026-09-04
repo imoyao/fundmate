@@ -30,7 +30,8 @@ from app.services.sync.orchestrator import DataSyncOrchestrator
 
 
 def main() -> None:
-    load_dotenv()
+    # 显式指定 backend/.env，避免从 cron 等非项目根目录执行时加载不到
+    load_dotenv(Path(__file__).resolve().parents[2] / '.env')
     parser = argparse.ArgumentParser(description='多多贝每日定时调度')
     parser.add_argument('--job', help='只跑单个 job（如 asset_snapshot）')
     parser.add_argument('--full', action='store_true', help='全量同步（默认增量）')
@@ -54,8 +55,8 @@ def main() -> None:
         except KeyboardInterrupt:
             logger.warning('用户中断调度')
             sys.exit(130)
-        except Exception as e:
-            logger.error(f'调度失败: {e}')
+        except Exception as e:  # noqa: BLE001
+            logger.exception('调度失败: %s', e)
             sys.exit(1)
 
 

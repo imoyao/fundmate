@@ -37,7 +37,7 @@ interface ExploreRow {
 }
 const emit = defineEmits<{
   remove: [id: string];
-  jump: [row: any, command: string];
+  jump: [row: ExploreRow, command: string];
   refresh: [];
   "interval-change": [value: number];
   favorite: [row: ExploreRow];
@@ -168,7 +168,9 @@ const getAvailableTools = (type: string) => {
       <el-table-column label="深度分析" width="120" align="center">
         <template #default="{ row }">
           <el-dropdown
-            @command="(command: string) => emit('jump', row, command)"
+            @command="
+              (command: string) => emit('jump', row as ExploreRow, command)
+            "
           >
             <el-button size="small" type="primary" plain>分析 ▼</el-button>
             <template #dropdown>

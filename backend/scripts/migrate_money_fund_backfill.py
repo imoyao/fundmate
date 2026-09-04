@@ -29,7 +29,11 @@ def _resolve_db_paths() -> list[str]:
     if not db_url.startswith('sqlite'):
         print(f'仅支持 SQLite，DATABASE_URL={db_url}')
         sys.exit(1)
-    path = db_url.replace('sqlite:///', '', 1).split('?', 1)[0]
+    # 用 urlsplit 丢弃查询参数（而非字符串截断），避免数据库路径本身含 '?' 时被误截（AI review）
+    from urllib.parse import urlsplit, urlunsplit
+
+    stripped = urlunsplit(urlsplit(db_url)[:3] + ('', ''))
+    path = stripped.replace('sqlite:///', '', 1)
     if not os.path.isabs(path):
         path = os.path.abspath(path)
     paths = [path]

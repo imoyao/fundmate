@@ -18,6 +18,8 @@ class TestDailyScheduler:
         orch = DataSyncOrchestrator(db)
         result = orch.run_job('asset_snapshot')
         assert result['status'] == 'success'
+        # 幂等 no-op：空库未写入任何快照行
+        assert db.query(AssetSnapshot).count() == 0
 
     def test_run_asset_snapshot_writes_family_snapshot(self, db):
         """有 ledger(family_id=1) 时，应为该家庭落当日快照（家庭级 + 账户级）。"""
@@ -28,14 +30,10 @@ class TestDailyScheduler:
         orch = DataSyncOrchestrator(db)
         result = orch.run_job('asset_snapshot')
         assert result['status'] == 'success'
-        assert result['stats']['success'] == 1
+        assert result.get('stats', {}).get('success') == 1
 
         snap = db.query(AssetSnapshot).filter(AssetSnapshot.family_id == 1).first()
         assert snap is not None
-        # 资产快照表在 #863（PR #1306）落地了货基每日收益列 money_fund_income_cents，
-        # 该列随 #1306 合入 dev 后由 write_asset_snapshot 写入；此处仅在列存在时校验，
-        # 使本测试在 #1306 合入前也能独立通过。
-        # 注：本测试家庭仅有银行台账、无货基持仓，write_asset_snapshot 对无货基家庭
-        # 写 None（展示层再按 0.0 处理，见 summary_service._snapshot_payload），故预期 None。
-        if hasattr(AssetSnapshot, 'money_fund_income_cents'):
-            assert snap.money_fund_income_cents is None
+        # #863 P1-5：本测试家庭仅有银行台账、无货基持仓，write_asset_snapshot 对无货基
+        # 家庭写 None（展示层再按 0.0 处理，见 summary_service._snapshot_payload）。
+        assert snap.money_fund_income_cents is None

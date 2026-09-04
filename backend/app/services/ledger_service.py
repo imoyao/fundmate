@@ -7,6 +7,7 @@
 
 from datetime import date
 
+from loguru import logger
 from sqlalchemy import desc, func, or_
 from sqlalchemy.orm import Session
 
@@ -54,8 +55,12 @@ class LedgerService:
         from app.services.fund_utils import CASH_EQUIVALENT_ASSET_TYPES
 
         try:
-            rows = (
-                db.query(Transaction.confirm_date, Transaction.amount)
+            # 聚合查询避免 .all() 全量加载：金额合计 + 最早的未来确认日（AI review #…）
+            total_amount, earliest_confirm = (
+                db.query(
+                    func.coalesce(func.sum(Transaction.amount), 0),
+                    func.min(Transaction.confirm_date),
+                )
                 .filter(
                     Transaction.ledger_id == ledger_id,
                     Transaction.family_id == family_id,
@@ -64,20 +69,19 @@ class LedgerService:
                     Transaction.status == 'success',
                     Transaction.confirm_date > date.today(),
                 )
-                .all()
+                .one()
             )
-        except Exception:
+        except Exception:  # noqa: BLE001
             # 查询失败（如连接异常）不中断请求，降级返回空预估，与 _batch_fund_latest_navs 一致
+            logger.exception('货基「确认中」申购预估查询失败（ledger_id=%s）', ledger_id)
             return {
                 'pending_amount_cents': 0,
                 'estimated_confirm_date': None,
                 'note': '预估金额获取失败，请稍后重试',
             }
-        pending_cents = sum((row.amount or 0) for row in rows)
-        confirm_dates = [row.confirm_date for row in rows if row.confirm_date]
         return {
-            'pending_amount_cents': pending_cents,
-            'estimated_confirm_date': min(confirm_dates).isoformat() if confirm_dates else None,
+            'pending_amount_cents': total_amount or 0,
+            'estimated_confirm_date': earliest_confirm.isoformat() if earliest_confirm else None,
             'note': '预估金额，待基金公司确认后计入总资产',
         }
 

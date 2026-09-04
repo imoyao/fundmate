@@ -36,8 +36,9 @@ def _resolve_db_paths() -> list[str]:
     if not db_url.startswith('sqlite:///'):
         print(f'仅支持 SQLite 迁移，DATABASE_URL={db_url}，请手动处理。')
         sys.exit(1)
-    # 内存数据库（含带查询参数的形式）无需迁移
-    if db_url == 'sqlite://' or db_url.startswith('sqlite:///:memory:') or db_url.startswith('sqlite:///file::memory:'):
+    # 内存数据库无需迁移：:memory: / file::memory: / file:xxx?mode=memory（含带查询参数的形式）。
+    # 注：行 36 已要求 sqlite:/// 前缀，故裸 'sqlite://' 无法到达此处，不必再单独判断。
+    if db_url.startswith('sqlite:///:memory:') or 'file::memory:' in db_url or 'mode=memory' in db_url:
         print('检测到内存数据库，无需迁移。')
         return []
     # 去掉查询参数（如 ?cache=...）再解析路径，避免路径解析出错

@@ -40,7 +40,7 @@ class TestPendingMoneyFundEstimate:
         _pending_txn(db, ledger, 300.0, dt.date.today() + dt.timedelta(days=2))  # 后日确认
         db.commit()
 
-        data = LedgerService.get_pending_money_fund_estimate(db, ledger.id, 1)
+        data = LedgerService.get_pending_money_fund_estimate(db, ledger.id, ledger.family_id)
         assert data['pending_amount_cents'] == Money.yuan_to_cents(800)
         assert data['estimated_confirm_date'] == (dt.date.today() + dt.timedelta(days=1)).isoformat()
 
@@ -49,7 +49,7 @@ class TestPendingMoneyFundEstimate:
         _pending_txn(db, ledger, 500.0, dt.date.today() - dt.timedelta(days=1))  # 昨日已确认
         db.commit()
 
-        data = LedgerService.get_pending_money_fund_estimate(db, ledger.id, 1)
+        data = LedgerService.get_pending_money_fund_estimate(db, ledger.id, ledger.family_id)
         assert data['pending_amount_cents'] == 0
         assert data['estimated_confirm_date'] is None
 
@@ -60,7 +60,7 @@ class TestPendingMoneyFundEstimate:
         _pending_txn(db, ledger_b, 999.0, dt.date.today() + dt.timedelta(days=1), family_id=2)
         db.commit()
 
-        data = LedgerService.get_pending_money_fund_estimate(db, ledger_a.id, 1)
+        data = LedgerService.get_pending_money_fund_estimate(db, ledger_a.id, ledger_a.family_id)
         assert data['pending_amount_cents'] == Money.yuan_to_cents(500)
 
 
