@@ -116,21 +116,22 @@ const intervalOptions = [
 </template>
 
 <style scoped>
+/* #1281 第二轮：从 --space-2(8) 回到 --space-3(12)。
+   第一轮为压高度收到 8px，估值条与上下区块几乎贴在一起，整页失去呼吸感；
+   现在的取舍是「留白回到规范档位 + 滚动时整条收起」，两种状态各自干净。 */
 .summary-bar {
-  /* #1281 整体压榨：从 --space-compact(16) 收到 --space-2(8)，让出表格可见区 */
-  margin-bottom: var(--space-2);
+  margin-bottom: var(--space-3);
 }
 
-/* 单行：左段状态+刷新（固定） / 右段汇总指标（弹性靠右）。
-   #1281 整体压榨：上下 padding 从 --space-2(8) 收到 --space-1(4)，
-   状态行保留最低呼吸、给表格让出 8px 高度 */
+/* 单行：左段状态+刷新（固定） / 右段汇总指标（弹性靠右）
+   （#1281 第二轮：padding 从 --space-1(4) 回到 --space-2(8)） */
 .summary-row {
   display: flex;
   gap: var(--space-2);
   align-items: center;
   justify-content: space-between;
   min-width: 0;
-  padding: var(--space-1) 0;
+  padding: var(--space-2) 0;
 }
 
 .summary-row__status {

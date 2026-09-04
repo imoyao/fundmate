@@ -98,11 +98,13 @@ export const watchlistColumnDefs: ColumnDef[] = [
     key: "product",
     label: "代码/名称",
     renderer: "product",
-    // design.md「冻结列与横向滚动规范」：名称+代码首列固定 180–220px。
-    // #1281 由 240 收到 200：名称列已改单行紧凑（名称省略截断），无需再占额外宽度
-    minWidth: 200,
+    // design.md「冻结列与横向滚动规范」+ components.md「ProductDisplay 列宽三档」：
+    // 自选属「含类型标签且列多需要呼吸感」档，首列 232px 并左侧冻结。
+    // 注意：不能用 show-overflow-tooltip——EP 会给单元格加 white-space:nowrap，
+    // 会把「名称 / 代码+标签」的两行结构压回一行（#1281 单行压扁式的成因之一）；
+    // 长名称由 ProductDisplay 内部 ellipsis + title 全名兜底。
+    width: 232,
     fixed: "left",
-    showOverflowTooltip: true,
     sortable: "custom",
     hideable: false,
     draggable: false
@@ -144,8 +146,9 @@ export const watchlistColumnDefs: ColumnDef[] = [
     key: "trend",
     label: "走势",
     renderer: "sparkline",
-    // #1281：sparkline 图形收窄为 64×20，列宽同步 120 → 84（留左右内边距）
-    width: 84,
+    // 图形 72×22（#1281 第二轮：20px 高在 54px 行高里显得过扁，回调到 22px）+
+    // 左右各 10px 留白 = 92px 列宽
+    width: 92,
     align: "center",
     hideable: true,
     draggable: true
@@ -164,9 +167,9 @@ export const watchlistColumnDefs: ColumnDef[] = [
     key: "position_market_value",
     label: "持仓市值",
     renderer: "moneyRatio",
-    // #1281：金额与占比改为内联单行（行高回落 40px 基线），需容纳
-    // `¥109,600.00` + `12.34%` 约 141px 内容 + 24px 单元格左右 padding
-    width: 168,
+    // 两行堆叠（金额在上、占比在下）：列宽只需容纳 `¥109,600.00`（约 96px）
+    // + 单元格左右 padding，148px 留有余量
+    width: 148,
     align: "right",
     sortable: "custom",
     hideable: true,
@@ -177,8 +180,8 @@ export const watchlistColumnDefs: ColumnDef[] = [
     key: "added_return",
     label: "添加后涨幅",
     renderer: "moneyRatio",
-    // #1281：同持仓市值，内联单行后需容纳金额 + 百分比
-    width: 168,
+    // 同持仓市值：两行堆叠，148px
+    width: 148,
     align: "right",
     sortable: "custom",
     hideable: true,
@@ -189,8 +192,8 @@ export const watchlistColumnDefs: ColumnDef[] = [
     key: "holding_pnl",
     label: "持仓收益",
     renderer: "moneyRatio",
-    // #1281：该列 showCurrency=false，无货币符号，宽度需求小于另两个金额列
-    width: 152,
+    // 无货币符号（showCurrency=false），宽度需求小于另两个金额列
+    width: 136,
     align: "right",
     sortable: "custom",
     hideable: true,
@@ -211,12 +214,11 @@ export const watchlistColumnDefs: ColumnDef[] = [
 ];
 
 /**
- * 默认可见列（排除内置的 selection/marker，由模板按 batchMode/fixed 条件注入）。
+ * 默认可见列（排除内置 selection——它由模板按 batchMode 条件注入）。
+ * 内置 marker（置顶/关注状态列）在 defs 中 hideable=false，随 v-for 正常渲染。
  * #993 表头自定义：基于 hideable + 用户列顺序偏好（localStorage）过滤/重排得到 visibleColumns。
  * #992 拖拽排序：只改此顺序数组（持久化），不动 watchlistColumnDefs 源定义。
  */
 export function getDefaultVisibleColumns(): ColumnDef[] {
-  return watchlistColumnDefs.filter(
-    d => d.key !== "_selection" && d.key !== "_marker"
-  );
+  return watchlistColumnDefs.filter(d => d.key !== "_selection");
 }

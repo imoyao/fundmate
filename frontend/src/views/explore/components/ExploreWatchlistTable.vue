@@ -194,6 +194,7 @@ const getAvailableTools = (type: string) => {
             type="primary"
             @click="emit('favorite', row as ExploreRow)"
             >收藏</el-button
+          >
           <el-button
             link
             size="small"

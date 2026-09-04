@@ -18,6 +18,7 @@
 <template>
   <div
     class="watchlist-page p-4 min-h-full"
+    :class="{ 'is-condensed': condensed }"
     :style="{ backgroundColor: 'var(--bg-page)' }"
   >
     <!-- 顶部操作栏（已抽取为 WatchlistToolbar 组件） -->
@@ -83,11 +84,12 @@
       <!--
           表格视觉基线（边框/表头/hover/文字色）统一在 src/style/el-table.css 维护，
           勿在本页 :deep(.el-table) 覆盖视觉基线；本页保留的 :deep 仅限行内行为样式。
-          行高例外（2026-08-15）：全局基线 44px 偏松，自选页信息密度优先，本页覆盖为 40px
-          （EP 默认行高，tr height 为最小高度语义，内容超出时自动撑高不裁切）。
-          #1281 后行内已无多行单元格：名称列改单行紧凑（名称+代码+类型+标签圆点同行），
-          金额/占比列由两行堆叠改内联单行，故行高稳定落在 40px 基线（design.md 密集场景
-          锁定 40–44px），单屏可见行数相比先前三行式（约 78px）翻倍。
+          行高例外：全局基线 44px，本页为 56px——自选行承载「名称 / 代码+标签」与
+          「金额 / 比例」两组双行信息，压到 44px 以下必然牺牲可读性（#1281 已验证一轮：
+          单行压扁到 40px 后名称只剩两三个字，被判定为不可用）。56px 是三行式（约 78px）
+          与压扁式（40px）之间的平衡点，rows per screen 约为三行式的 1.4 倍。
+          滚动条：EP 覆盖式滚动条保持默认 hover 显现（不常驻，避免横向+纵向两条常亮
+          造成「双滚动条」观感），配色在 el-table.css 统一为 --border-default。
         -->
       <el-table
         ref="tableRef"
@@ -153,12 +155,15 @@
         </template>
       </el-table>
 
-      <div class="flex justify-end mt-4">
+      <!-- 表格底栏：左侧总数（分页器的 total 单独拎出来，避免与右侧翻页挤成一团），
+           右侧翻页；与表格之间用 --border-light 细分割线分区（design.md「卡片内分割线」） -->
+      <div ref="footerRef" class="table-footer">
+        <span class="table-footer__total">共 {{ totalItems }} 条</span>
         <el-pagination
           v-model:current-page="currentPage"
           :page-size="pageSize"
           :total="totalItems"
-          layout="total, prev, pager, next"
+          layout="prev, pager, next"
           small
           background
           @current-change="() => fetchData(false)"
@@ -583,6 +588,8 @@ onMounted(() => {
   });
   initHeaderDrag();
   recalcTableMaxHeight();
+  observeHeaderResize();
+  bindTableScroll();
 });
 
 // ── #992 表头列拖拽：sortablejs 复用（RePureTableBar 同款方案）──
@@ -590,18 +597,107 @@ const tableRef = ref();
 
 // 表格内部滚动：动态计算可用高度，使卡片占满视口、页面不滚动，
 // 表头固定、工具栏/筛选条常驻可见（keep-alive 切回 / 窗口缩放 / 估值条或批量条显隐后需重算）
+//
+// 为什么重写计算（issue #1281「滚动条异常」）：
+// 旧实现把页脚（分页器 + 卡片内边距）写成固定 reserve=96，与真实高度常有几十像素误差；
+// 误差为正 → 表格偏高 → 页面溢出 → **页面滚动条与表格滚动条同时出现**（双滚动条的怪异感）；
+// 误差为负 → 底部留一大块空白。
+// 现改为：① 实测底栏高度；② 以「滚动量归零」的坐标系计算，避免页面一旦滚动就越算越高
+// （旧公式直接用 viewport 相对位置，页面滚了 50px 就会把表格再放高 50px，形成雪崩）。
 const tableMaxHeight = ref(520);
+const footerRef = ref<HTMLElement>();
+
+/** 找到真正承载页面纵向滚动的容器（本项目是布局里的 el-scrollbar__wrap，不是 window） */
+function findScrollContainer(el: HTMLElement): HTMLElement {
+  let node: HTMLElement | null = el.parentElement;
+  while (node) {
+    const oy = getComputedStyle(node).overflowY;
+    if (oy === "auto" || oy === "scroll" || oy === "overlay") return node;
+    node = node.parentElement;
+  }
+  return document.documentElement;
+}
+
 function recalcTableMaxHeight() {
   nextTick(() => {
     const el = tableRef.value?.$el as HTMLElement | null;
     if (!el) return;
-    // rect.top 已是「工具栏 + 筛选条 + 估值条」等上方区块的真实高度，
-    // 用视口高减去它，再预留分页器与卡片底边空间，即为表格可滚动高度
-    const reserve = 96;
-    tableMaxHeight.value = Math.max(
+    const sp = findScrollContainer(el);
+    const isDocument = sp === document.documentElement || sp === document.body;
+    const spRect = sp.getBoundingClientRect();
+    const rect = el.getBoundingClientRect();
+    // 表格顶部在「滚动内容坐标系」中的位置（与当前滚动量无关）：
+    // 普通容器要补回 scrollTop；documentElement 自身的 rect 已经随滚动上移，不能再补
+    const offsetTop = rect.top - spRect.top + (isDocument ? 0 : sp.scrollTop);
+    const viewportH = isDocument
+      ? document.documentElement.clientHeight
+      : sp.clientHeight;
+    // 底部预留 = 底栏高度 + 卡片下内边距(16) + 页面下内边距(16) + 安全余量(4)
+    const footerH = footerRef.value?.offsetHeight ?? 40;
+    const next = Math.max(
       240,
-      Math.floor(window.innerHeight - el.getBoundingClientRect().top - reserve)
+      Math.floor(viewportH - offsetTop - footerH - 36)
     );
+    // 只在变化超过 2px 时赋值：ResizeObserver 回调里避免抖动与无谓重排
+    if (Math.abs(next - tableMaxHeight.value) > 2) {
+      tableMaxHeight.value = next;
+    }
+  });
+}
+
+// 上方区块（估值条显隐、批量条、筛选条换行、窗口缩放）高度变化时自动重算。
+// 用 ResizeObserver 而非逐个 watch，覆盖所有「高度变了但状态没变」的场景。
+let headerResizeObserver: ResizeObserver | undefined;
+function observeHeaderResize() {
+  const el = (tableRef.value?.$el ?? null) as HTMLElement | null;
+  const parent = el?.parentElement;
+  if (!parent || typeof ResizeObserver === "undefined") return;
+  headerResizeObserver?.disconnect();
+  headerResizeObserver = new ResizeObserver(() => recalcTableMaxHeight());
+  headerResizeObserver.observe(parent);
+}
+
+// ── 向下滚动表格时收起顶部区块（估值条 + 工具条留白），把高度让给表格 ──
+// 用户原话：「向下拉的时候，能不能把这些收缩了」。
+// 表格是内部滚动（页面本身不滚），所以监听表格滚动容器的 scrollTop：
+// 下滚超过 64px 进入紧凑态，回到 20px 以内恢复；两个阈值形成滞回区间，避免临界抖动。
+const condensed = ref(false);
+let bodyScrollEl: HTMLElement | null = null;
+let recalcTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** 顶部区块收起/展开是 200ms 过渡，等过渡结束再重算表格高度 */
+function scheduleRecalc(delay = 240) {
+  if (recalcTimer) clearTimeout(recalcTimer);
+  recalcTimer = setTimeout(() => {
+    recalcTimer = undefined;
+    recalcTableMaxHeight();
+  }, delay);
+}
+
+function onTableBodyScroll() {
+  const top = bodyScrollEl?.scrollTop ?? 0;
+  if (!condensed.value && top > 64) {
+    condensed.value = true;
+    scheduleRecalc();
+  } else if (condensed.value && top < 20) {
+    condensed.value = false;
+    scheduleRecalc();
+  }
+}
+
+/** 绑定表格滚动容器：无数据时 EP 不渲染滚动容器，故每次加载完成后重绑一次 */
+function bindTableScroll() {
+  nextTick(() => {
+    const el = (tableRef.value?.$el ?? null) as HTMLElement | null;
+    const wrap = el?.querySelector<HTMLElement>(
+      ".el-table__body-wrapper .el-scrollbar__wrap"
+    );
+    if (!wrap || wrap === bodyScrollEl) return;
+    if (bodyScrollEl) {
+      bodyScrollEl.removeEventListener("scroll", onTableBodyScroll);
+    }
+    bodyScrollEl = wrap;
+    wrap.addEventListener("scroll", onTableBodyScroll, { passive: true });
   });
 }
 
@@ -639,20 +735,31 @@ function initHeaderDrag() {
 
 const realtimeEnabled = computed(() => realtime.enabled.value);
 
-// 自适应高度：keep-alive 切回 / 窗口缩放 / 估值条或批量条显隐 / 数据加载完成时重算
-onActivated(recalcTableMaxHeight);
-watch([realtimeEnabled, batchMode, loading], recalcTableMaxHeight);
+// 自适应高度：keep-alive 切回 / 窗口缩放 / 估值条或批量条显隐 / 数据加载完成时重算。
+// keep-alive 从缓存切回时 EP 可能重建滚动容器，需同时重绑表格滚动监听。
+onActivated(() => {
+  recalcTableMaxHeight();
+  bindTableScroll();
+});
+watch([realtimeEnabled, batchMode, loading], () => {
+  recalcTableMaxHeight();
+  bindTableScroll();
+});
 window.addEventListener("resize", recalcTableMaxHeight);
-onBeforeUnmount(() =>
-  window.removeEventListener("resize", recalcTableMaxHeight)
-);
+onBeforeUnmount(() => {
+  window.removeEventListener("resize", recalcTableMaxHeight);
+  headerResizeObserver?.disconnect();
+  if (bodyScrollEl)
+    bodyScrollEl.removeEventListener("scroll", onTableBodyScroll);
+  if (recalcTimer) clearTimeout(recalcTimer);
+});
 
 // ── #995 columnDefs 数据驱动 + #993 列显隐：visibleColumns 已按用户隐藏集过滤
-//（仅 selection 因 type="selection" 无法 renderer 化，保留模板）──
+//（仅 selection 因 type="selection" 无法 renderer 化，保留模板由 batchMode 注入；
+//  marker 列同理由 defs 自带，正常参与 v-for 渲染——此前误把它一并过滤掉，
+//  导致「置顶/关注」状态图标整列消失，2026-09-03 修复）──
 const dataColumns = computed(() =>
-  columnSettings.visibleColumns.value.filter(
-    d => d.key !== "_selection" && d.key !== "_marker"
-  )
+  columnSettings.visibleColumns.value.filter(d => d.key !== "_selection")
 );
 
 // 渲染上下文：把页面级状态/方法注入 renderer 注册表，renderer 不耦合本组件
@@ -692,12 +799,72 @@ const renderCtx = computed<RenderCtx>(() => ({
 /* 旧刷新频率下拉（.refresh-interval-select/.is-spinning）样式已随 el-segmented 化删除 */
 
 /* ======================================
-   #1281 整体压榨：自选卡片 padding 由 CardBlock 默认 --space-standard(24)
-   收到 --space-compact(16)，让出 16px 高度给表格（8px 上下各）。
-   仅本页生效：CardBlock 是共用组件，不动默认，其他页面不受影响
+   自选卡片沿用 design.md「表格/列表/筛选栏：--space-compact(16px)」
+   （CardBlock 默认 --space-standard(24)），仅本页生效，其它页面不受影响。
+   #1281 第一轮曾一路压到 8/4px 级留白，结果整页「贴脸」没有呼吸感，已回调：
+   留白回到规范值，可见行数靠「行高 52px + 滚动时收起顶部区块」去换，不再靠挤压留白。
    ====================================== */
 .watchlist-card {
   padding: var(--space-compact);
+}
+
+/* 表格底栏：左侧总数 + 右侧翻页，与表格之间用细分割线分区
+   （design.md「卡片内分割线使用 --border-subtle 降低视觉权重」） */
+.table-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: var(--space-3);
+  margin-top: var(--space-2);
+  border-top: 1px solid var(--border-light);
+}
+
+.table-footer__total {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+/* ======================================
+   向下滚动表格 → 紧凑态（is-condensed）：收起估值条、收紧筛选条留白、淡出说明图标，
+   把约 40px 高度还给表格。过渡 200ms（design.md Motion 区间），
+   收起/展开后由 index.vue 的 scheduleRecalc 重算表格高度。
+   ====================================== */
+
+/* 展开态：估值条有明确高度上限，配合 overflow 才能做 max-height 过渡 */
+:deep(.summary-bar) {
+  max-height: 48px;
+  overflow: hidden;
+  transition:
+    max-height 200ms ease,
+    margin-bottom 200ms ease,
+    opacity 150ms ease;
+}
+
+:deep(.filter-bar) {
+  transition: margin-bottom 200ms ease;
+}
+
+.watchlist-page.is-condensed :deep(.summary-bar) {
+  max-height: 0;
+  margin-bottom: 0;
+  opacity: 0;
+}
+
+.watchlist-page.is-condensed :deep(.filter-bar) {
+  margin-bottom: var(--space-1);
+}
+
+.watchlist-page.is-condensed :deep(.search-hint) {
+  opacity: 0;
+}
+
+/* 尊重系统「减少动效」偏好（design.md Motion） */
+@media (prefers-reduced-motion: reduce) {
+  :deep(.summary-bar),
+  :deep(.filter-bar) {
+    transition: none;
+  }
 }
 
 /* ======================================
@@ -807,13 +974,22 @@ const renderCtx = computed<RenderCtx>(() => ({
   margin-left: 0;
 }
 
-/* 本页行高覆盖：全局基线 44px（el-table.css）偏松，自选页信息密度优先，降为 40px（EP 默认行高）。
-   覆盖理由：全局 44px 为 2026-08-14 基线，影响探市/温度计等页面，不宜全局下调；
-   本页取 design.md「数据表格强制紧凑原则」下界 40px（密集场景锁定 40–44px），
-   兼顾金融数据点击热区（规范明确「紧凑模式下列表项高度保持 40px，不缩小」）。
-   #1281 后行内最高单元格为操作列的 24px 圆形按钮，24 + 8×2 padding = 40px，行高稳定不撑开。 */
+/* 本页行高覆盖：全局基线 44px（el-table.css），本页 56px。
+   覆盖理由：自选行承载两组双行信息（「名称 / 代码+标签 chips」与「金额 / 比例」），
+   产品列行内容 42px（名称 20 + gap 2 + 元信息 20），加单元格 6px×2 padding 共 54px，
+   行高取 56px 留 2px 余量避免内容贴边/裁切。
+   #1281 第一轮为压行高把产品列压成单行（40px），实测名称只剩两三个字、被判定不可用；
+   第二轮曾用 6px 色点省宽度，用户反馈「标签看不到字」，第三轮改为文字 chip 见下——
+   行高 56px 是「三行式 78px」与「压扁式 40px」之间的平衡点：行数约为三行式的 1.4 倍，
+   名称、标签文字、金额都完整可读。例外已登记在 design.md「Table · 行高例外」。 */
 :deep(.el-table .el-table__row) {
-  height: 40px;
+  height: 56px;
+}
+
+/* 单元格上下 padding 8px → 6px：与上面 56px 行高自洽（产品列内容 42 + 12 = 54），
+   同时让两行信息之间留出呼吸，不再像 40px 那版那样「贴脸」 */
+:deep(.el-table .el-table__cell) {
+  padding: 6px 0;
 }
 
 /* 表头不换行：保证排序图标(.caret-wrapper)与表头文字始终同一行，
