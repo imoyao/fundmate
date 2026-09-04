@@ -59,6 +59,8 @@ env/
 
 # Development database
 *.db
+*.db-shm
+*.db-wal
 data/bias_price_cache/
 # 温度计运行时缓存（可安全删除，系统自动重建；cache/README.md 仍入库）
 app/services/thermometer/cache/*/
