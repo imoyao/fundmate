@@ -195,9 +195,16 @@
   --focus-ring-gap: var(--bg-card);
   --focus-ring: 0 0 0 2px var(--focus-ring-gap), 0 0 0 4px var(--brand-700);
 
-  /* ===== 字体族 ===== */
-  --font-sans: Inter, -apple-system, "PingFang SC", sans-serif;
-  --font-mono: "SF Mono", "JetBrains Mono", monospace;
+  /* ===== 字体族 =====
+     规范：docs/design/font-design.md §1.2/§11.3
+     --font-latin = Inter（西文/数字/半角符号），--font-cjk = MiSans（中文）
+     @font-face 声明在 fonts.css，unicode-range 隔离保证拉丁/数字不落 MiSans
+     半角数字由 Inter 承担，等宽对齐走 font-variant-numeric: tabular-nums */
+  --font-latin: "Inter", system-ui, sans-serif;
+  --font-cjk: "MiSans", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-sans: var(--font-latin), var(--font-cjk);
+  /* 数字等宽：优先 Inter（自带 tabular-nums），system mono 仅作极端兜底 */
+  --font-mono: "Inter", "SF Mono", "JetBrains Mono", monospace;
 
   /* ===== 间距 ===== */
   --space-1: 4px;

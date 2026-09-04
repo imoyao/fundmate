@@ -161,6 +161,9 @@ html[data-theme="showbuy"] .sidebar-logo-container .sidebar-title {
   --el-color-primary-light-8: var(--brand-200);
   --el-color-primary-light-9: var(--brand-100);
   --el-color-primary-dark-2: var(--brand-800);
+  /* Element Plus 组件字体基线：走多多贝字体栈（Inter + MiSans），
+     否则 EP 默认回退 Helvetica/系统字体与全站不一致 */
+  --el-font-family: var(--font-sans);
 }
 
 /* 确保按钮等组件使用品牌色 */

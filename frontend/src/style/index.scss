@@ -6,9 +6,10 @@
 
 /* 多多贝设计令牌：plain CSS @import 必须位于除 @charset/@layer/@use 之外的
    所有规则之前，否则会触发 no-invalid-position-at-import-rule。
-   故这两个 .css 导入置于 @use 之后、:root 等规则之前，不要下移。 */
+   故这些 .css 导入置于 @use 之后、:root 等规则之前，不要下移。 */
 @import "./design-tokens.css";
 @import "./el-table.css";
+@import "./fonts.css";
 
 /* 自定义全局 CssVar */
 :root {

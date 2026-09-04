@@ -10,6 +10,11 @@
         市场有风险，投资需谨慎。本平台内容仅供参考，不构成任何投资建议。
       </p>
       <p class="app-footer__copyright">© 2026 多多贝 · 让投资更从容</p>
+      <p class="app-footer__font-note">
+        界面中文由 MiSans 字体渲染，版权归小米科技（
+        <a href="https://hyperos.mi.com/font/zh/faq/" target="_blank" rel="noopener noreferrer">授权说明</a>
+        ）；西文与数字由 Inter 字体渲染（OFL 许可）。
+      </p>
     </div>
   </footer>
 </template>
@@ -58,6 +63,20 @@ withDefaults(
     margin: 0;
     font-size: 12px;
     color: var(--text-tertiary);
+  }
+
+  &__font-note {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text-tertiary);
+    opacity: 0.75;
+
+    a {
+      color: inherit;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
   }
 }
 

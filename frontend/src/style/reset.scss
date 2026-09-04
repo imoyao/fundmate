@@ -16,9 +16,13 @@ body {
   width: 100%;
   height: 100%;
   margin: 0;
-  font-family:
-    "Helvetica Neue", Helvetica, "PingFang SC", "Hiragino Sans GB",
-    "Microsoft YaHei", "微软雅黑", Arial, sans-serif;
+  /* 字体栈改走设计令牌（Inter latin + MiSans 中文，见 colors.css / fonts.css）：
+     之前硬编码系统字体栈导致 Inter/MiSans 从未真正生效，全站实为系统字体 */
+  font-family: var(--font-sans);
+  /* 金融账本数字等宽基线（design.md「数字等宽对齐」/ font-design.md §3.2）：
+     数字统一 tabular-nums，金额列个位/小数点纵向对齐 */
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
   line-height: inherit;
   -moz-osx-font-smoothing: grayscale;
   -webkit-font-smoothing: antialiased;
