@@ -157,7 +157,7 @@
                 :class="{ 'is-active': toggleBtnText.includes('关闭') }"
                 @click="realtime.toggle()"
               >
-                <IconifyIconOffline icon="mdi:lightning-bolt" />
+                <IconifyIconOffline icon="ri:flashlight-fill" />
               </el-button>
             </el-tooltip>
           </div>
@@ -745,7 +745,7 @@ function onPageScroll() {
   const el = pageScrollEl;
   const getTop = scrollGetTop;
   if (!el || !getTop || batchMode.value) return; // 批量工具条也在第一行，批量期间保持可见
-  // 下滚超过 64px 收起第一行搜索区（.head-primary）与估值条，把高度让给表格多看近一行；
+  // 下滚超过 64px 收起第一行搜索区（.head-primary），把高度让给表格多看近一行；
   // 回到 20px 以内恢复。两个阈值形成滞回区间，避免临界抖动。
   const top = getTop();
   const next = condensed.value ? top <= 20 : top > 64;
@@ -1096,8 +1096,9 @@ const renderCtx = computed<RenderCtx>(() => ({
 
 /* ======================================
    向下滚动页面 → 紧凑态（is-condensed）：
-   折叠第一行搜索区 .head-primary 与实时估值条 .summary-bar，把约 40px 高度还给
-   表格多看近一行。过渡 200ms（design.md Motion 区间）。本页为单滚动容器（页面滚动），
+   仅折叠第一行搜索区 .head-primary（全局搜索 + 核心操作），把高度让给表格多看近一行；
+   分组 Tab 行与实时估值条 .summary-bar 保持可见，表头经 CSS position:sticky 吸顶。
+   过渡 200ms（design.md Motion 区间）。本页为单滚动容器（页面滚动），
    紧凑态由监听「页面滚动容器 scrollTop」触发（见脚本 bindPageScroll），不再依赖
    表格内部滚动；页脚作为页面底部正常流元素常驻，滚动到最底部时自然显现。
    ====================================== */
@@ -1109,13 +1110,6 @@ const renderCtx = computed<RenderCtx>(() => ({
 }
 
 .watchlist-page.is-condensed .search-hint {
-  opacity: 0;
-}
-
-/* 实时估值条同步收起（块级过渡见下方 .summary-bar 基础规则） */
-.watchlist-page.is-condensed :deep(.summary-bar) {
-  max-height: 0;
-  margin-bottom: 0;
   opacity: 0;
 }
 
