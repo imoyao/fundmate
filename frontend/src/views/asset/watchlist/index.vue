@@ -20,6 +20,7 @@
 -->
 <template>
   <div
+    ref="pageRef"
     class="watchlist-page"
     :class="{ 'is-condensed': condensed && !batchMode }"
     :style="{ backgroundColor: 'var(--bg-page)' }"
@@ -189,19 +190,15 @@
           滚动条：EP 覆盖式滚动条保持默认 hover 显现（不常驻，避免横向+纵向两条常亮
           造成「双滚动条」观感），配色在 el-table.css 统一为 --border-default。
         -->
-      <!-- 表格容器：在 card flex column 内 flex:1，撑满 card 可用高度（不论数据多少）。
-           el-table 以「数值 px」height = wrap clientHeight（recalcTableMaxHeight 测得）：
-           EP 会把 height 当定高并令 body wrapper = height - 表头高，
-           因此数据满时内部滚动、数据不满时也恰好撑满 wrap——不再有底部白行，
-           空数据时 .watchlist-empty height:100% 垂直居中占满。
-           ⚠️ 不要传字符串 height（如 '100%'）：EP 内部做 height - 表头 的数值运算，
-           字符串会得 NaN 导致布局塌陷白屏。 -->
-      <div ref="tableWrapRef" class="watchlist-table-wrap">
+      <!-- 表格容器：本页为「单滚动容器（页面滚动）」架构——el-table 不设固定 height，
+           直接按内容高度展开所有行，页面随布局 el-scrollbar 整体滚动（只有一条滚动条）。
+           表头经 CSS position:sticky 吸顶（见本文件底部样式）；向下滚动时第一行搜索区
+           与估值条收起（is-condensed）把高度让给表格。 -->
+      <div class="watchlist-table-wrap">
         <el-table
           ref="tableRef"
           v-loading="loading"
           :data="items"
-          :height="tableMaxHeight"
           :row-class-name="rowClassName"
           stripe
           @selection-change="handleSelectionChange"
@@ -279,6 +276,11 @@
         />
       </div>
     </CardBlock>
+
+    <!-- 合规页脚：常驻页面底部，随页面滚动至最底部时自然显现（仅本页自绘，
+         全局布局级页脚已通过路由 meta.hideFooter 隐藏，避免重复）。表头吸顶 +
+         页脚置底，单滚动容器（页面滚动）承载，无双滚动条观感。 -->
+    <LayFooter />
 
     <!-- 弹窗部分 -->
     <AddToWatchlistModal
@@ -367,6 +369,7 @@ import GroupManagerDialog from "@/components/Watchlist/GroupManagerDialog.vue";
 import TagEditorDialog from "@/components/Watchlist/TagEditorDialog.vue";
 import { getWatchlistTrends, type WatchlistItem } from "@/api/watchlist";
 import CardBlock from "@/components/CardBlock/index.vue";
+import LayFooter from "@/layout/components/lay-footer/index.vue";
 // 金额/涨跌展示组件（MoneyDisplay/RiseFallText/MoneyWithRatio）已随 #995 列渲染器化
 // 迁移至 columnRenderers.tsx，本页模板不再直接使用
 import WatchlistRemoveDialog from "@/views/asset/watchlist/components/WatchlistRemoveDialog.vue";
@@ -706,118 +709,75 @@ onMounted(() => {
     fetchData();
   });
   initHeaderDrag();
-  recalcTableMaxHeight();
-  observeHeaderResize();
-  bindTableScroll();
-  // 表格滚动 → 紧凑态在 onTableBodyScroll 内处理（head-primary/估值条折叠由表格让高度）。
+  bindPageScroll();
 });
 
 // ── #992 表头列拖拽：sortablejs 复用（RePureTableBar 同款方案）──
 const tableRef = ref();
 
-// 表格高度：直接读 .watchlist-table-wrap 的实测高度（它在 card flex column 内 flex:1，
-// 即「视口 − 顶部工具栏/筛选/分页 − 内外边距」后的全部剩余空间），绑定给 el-table 的
-// height，让表格占满并内部滚动、页面本身不滚。
-// 健壮性：首帧布局未就绪时 wrap.clientHeight 可能为 0，这里用 rAF 重试直到测到真实高度，
-// 杜绝「首帧把高度算死成下限 240 → 表格只显示 4 行、下方大片空白」的回归（#1281 旧方案
-// 对布局级滚动容器做溢出校正，会越校越小，已废弃）。
-const tableMaxHeight = ref(520);
-
-const tableWrapRef = ref<HTMLElement>();
-let measureRetries = 0;
-
-function recalcTableMaxHeight() {
-  const wrap = tableWrapRef.value ?? tableRef.value?.$el?.parentElement;
-  if (!wrap) return;
-  // 优先读 wrap 实测高度；若首帧布局未就绪为 0，则用 card 高度减去其它兄弟区块
-  // （头部 / 筛选 / 分页）兜底——wrap 是 card flex column 内唯一的 flex:1 子项，
-  // 其高度恒等于「card 内容高 − 其余兄弟高」，可避免把表格算死成下限 240（#1281 回归：
-  // 表格只显示 4 行、下方大片空白）。
-  let h = wrap.clientHeight;
-  if (h <= 0 && wrap.parentElement) {
-    const card = wrap.parentElement;
-    const cs = getComputedStyle(card);
-    const padV = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom) || 0;
-    let siblings = 0;
-    for (const child of card.children) {
-      if (child !== wrap) siblings += child.getBoundingClientRect().height;
-    }
-    h = card.clientHeight - padV - siblings;
-  }
-  if (h <= 0 && measureRetries < 30) {
-    measureRetries++;
-    requestAnimationFrame(recalcTableMaxHeight);
-    return;
-  }
-  measureRetries = 0;
-  tableMaxHeight.value = Math.max(240, Math.floor(h));
-}
-
-// 上方区块（估值条显隐、批量条、筛选条换行、窗口缩放）高度变化时自动重算。
-// 用 ResizeObserver 而非逐个 watch，覆盖所有「高度变了但状态没变」的场景。
-let headerResizeObserver: ResizeObserver | undefined;
-function observeHeaderResize() {
-  const wrap = tableWrapRef.value;
-  if (!wrap || typeof ResizeObserver === "undefined") return;
-  headerResizeObserver?.disconnect();
-  headerResizeObserver = new ResizeObserver(() => scheduleRecalc(80));
-  headerResizeObserver.observe(wrap);
-}
-
-// ── 向下滚动表格时收起顶部区块（估值条 + 工具条留白），把高度让给表格 ──
-// 用户原话：「向下拉的时候，能不能把这些收缩了」。
-// 表格是内部滚动（页面本身不滚），所以监听表格滚动容器的 scrollTop：
-// 下滚超过 64px 进入紧凑态，回到 20px 以内恢复；两个阈值形成滞回区间，避免临界抖动。
+// ── 单滚动容器（页面滚动）+ 表头吸顶 + 底部页脚置底 ──
+// 用户原话：「向下拉的时候，能不能把这些收缩了」+「表头需要固定 + 拉到底展示 footer」。
+// 本页改为页面级滚动：el-table 不再设固定 height（因此没有内部滚动条），
+// 整页随布局 el-scrollbar 滚动；表头用 CSS position:sticky 吸顶（见下方样式），
+// 页脚作为页面底部正常流元素，滚动到最底部时自然显现。这样整页只有一个滚动条，
+// 彻底消除此前「外层布局滚动 + 内层表格滚动」双滚动条、且外层滚动把表头带跑的毛病。
 const condensed = ref(false);
-let bodyScrollEl: HTMLElement | null = null;
-let recalcTimer: ReturnType<typeof setTimeout> | undefined;
+let pageScrollEl: EventTarget | null = null;
+let scrollGetTop: (() => number) | null = null;
+const pageRef = ref<HTMLElement>();
 
-/** 顶部区块收起/展开是 200ms 过渡，等过渡结束再重算表格高度 */
-function scheduleRecalc(delay = 240) {
-  if (recalcTimer) clearTimeout(recalcTimer);
-  recalcTimer = setTimeout(() => {
-    recalcTimer = undefined;
-    recalcTableMaxHeight();
-  }, delay);
-}
-
-/**
- * 表格滚动 → 紧凑态（#1281 回归修复 2026-09-05 第二轮）：
- * 用户原话「向下拉的时候，能不能把这些收缩了」。表格是内部滚动（页面本身不滚），
- * 故监听表格滚动容器的 scrollTop：下滚超过 64px 收起第一行搜索区（.head-primary）
- * 与估值条，把约 40px 高度让给表格多看近一行；回到 20px 以内恢复。
- * 两个阈值形成滞回区间，避免临界抖动。
- */
-function onTableBodyScroll() {
-  const el = bodyScrollEl;
-  if (!el || batchMode.value) return; // 批量工具条也在第一行，批量期间保持可见
-  const next = condensed.value ? el.scrollTop <= 20 : el.scrollTop > 64;
-  if (next !== condensed.value) {
-    condensed.value = next;
-    scheduleRecalc();
+/** 向上找到最近的、真正可滚动的祖先（布局 el-scrollbar__wrap，或 non-fixedHeader 的窗口） */
+function findScrollParent(node: HTMLElement | null): HTMLElement | null {
+  let el = node?.parentElement ?? null;
+  while (el) {
+    const cs = getComputedStyle(el);
+    const scrollable =
+      cs.overflowY === "auto" ||
+      cs.overflowY === "scroll" ||
+      el.classList.contains("el-scrollbar__wrap");
+    if (scrollable && el.scrollHeight > el.clientHeight) return el;
+    el = el.parentElement;
   }
+  return null;
 }
 
-/** 绑定表格滚动容器：无数据时 EP 不渲染滚动容器，故每次加载完成后重绑一次 */
-function bindTableScroll() {
+function onPageScroll() {
+  const el = pageScrollEl;
+  const getTop = scrollGetTop;
+  if (!el || !getTop || batchMode.value) return; // 批量工具条也在第一行，批量期间保持可见
+  // 下滚超过 64px 收起第一行搜索区（.head-primary）与估值条，把高度让给表格多看近一行；
+  // 回到 20px 以内恢复。两个阈值形成滞回区间，避免临界抖动。
+  const top = getTop();
+  const next = condensed.value ? top <= 20 : top > 64;
+  if (next !== condensed.value) condensed.value = next;
+}
+
+/** 绑定页面滚动容器：数据加载完成 / keep-alive 切回后重绑一次 */
+function bindPageScroll() {
   nextTick(() => {
-    const el = (tableRef.value?.$el ?? null) as HTMLElement | null;
-    const wrap = el?.querySelector<HTMLElement>(
-      ".el-table__body-wrapper .el-scrollbar__wrap"
-    );
-    if (!wrap) return;
-    if (wrap !== bodyScrollEl) {
-      if (bodyScrollEl) {
-        bodyScrollEl.removeEventListener("scroll", onTableBodyScroll);
-      }
-      bodyScrollEl = wrap;
-      wrap.addEventListener("scroll", onTableBodyScroll, { passive: true });
+    const sc = findScrollParent(pageRef.value ?? null);
+    let target: EventTarget | null = null;
+    let getTop: (() => number) | null = null;
+    if (sc) {
+      target = sc;
+      getTop = () => sc.scrollTop;
+    } else if (
+      document.scrollingElement &&
+      document.scrollingElement.scrollHeight >
+        document.scrollingElement.clientHeight
+    ) {
+      // 非 fixedHeader：页面由 window/document 原生滚动
+      const se = document.scrollingElement;
+      target = window;
+      getTop = () => se.scrollTop;
     }
-    // 重绑时同步一次紧凑态：数据变少/回到顶部（scrollTop 回 0）时兜底恢复展开，
-    // 防止折叠态在数据刷新后滞留（EP 重建滚动容器不会带 scroll 事件，此处显式复位）。
-    if (condensed.value && wrap.scrollTop < 20) {
-      condensed.value = false;
-      scheduleRecalc();
+    if (!target || !getTop) return;
+    if (target !== pageScrollEl) {
+      if (pageScrollEl)
+        pageScrollEl.removeEventListener("scroll", onPageScroll);
+      pageScrollEl = target;
+      scrollGetTop = getTop;
+      target.addEventListener("scroll", onPageScroll, { passive: true });
     }
   });
 }
@@ -856,24 +816,16 @@ function initHeaderDrag() {
 
 const realtimeEnabled = computed(() => realtime.enabled.value);
 
-// 自适应高度：keep-alive 切回 / 窗口缩放 / 估值条或批量条显隐 / 数据加载完成时重算。
-// keep-alive 从缓存切回时 EP 可能重建滚动容器，需同时重绑表格滚动监听。
+// 页面滚动容器绑定：keep-alive 切回 / 估值条或批量条显隐 / 数据加载完成时重绑。
 onActivated(() => {
-  scheduleRecalc();
-  bindTableScroll();
+  bindPageScroll();
 });
 watch([realtimeEnabled, batchMode, loading], () => {
-  scheduleRecalc();
-  bindTableScroll();
+  bindPageScroll();
 });
-window.addEventListener("resize", () => scheduleRecalc());
-// 切走本页（keep-alive 缓存但不可见）时无需特殊处理：页脚常驻、随页面卸载自动消失
+// 切走本页（keep-alive 缓存但不可见）时移除滚动监听
 onBeforeUnmount(() => {
-  window.removeEventListener("resize", recalcTableMaxHeight);
-  headerResizeObserver?.disconnect();
-  if (bodyScrollEl)
-    bodyScrollEl.removeEventListener("scroll", onTableBodyScroll);
-  if (recalcTimer) clearTimeout(recalcTimer);
+  if (pageScrollEl) pageScrollEl.removeEventListener("scroll", onPageScroll);
 });
 
 // ── #995 columnDefs 数据驱动 + #993 列显隐：visibleColumns 已按用户隐藏集过滤
@@ -927,19 +879,19 @@ const renderCtx = computed<RenderCtx>(() => ({
    留白回到规范值，可见行数靠「行高 52px + 滚动时收起顶部区块」去换，不再靠挤压留白。
    ====================================== */
 
-/* 自选页容器（撑满版）：
-   - 关键：给 .watchlist-page 一个「确定的」高度下限 calc(100vh - 86px)（86px = 顶部导航 +
-     页签栏，与布局区 .app-main-nofixed-header 的 min-height 一致）。没有这个下限时，
-     在 fixedHeader 的 el-scrollbar 滚动容器里，.watchlist-page 作为内容项会被压成「内容高度」
-     （4 行），其余视口高度变成白茫茫空白、分页器被推到最底——正是此前的「屎样子」；
-   - 有下限后，flex 链才能把 .watchlist-card(flex:1) → .watchlist-table-wrap(flex:1)
-     一路撑满到视口底部，表格死贴底部分页器、零空白；
+/* 自选页容器（单滚动容器版）：
+   - 本页改用「页面滚动」承载（而非表格内部滚动）：el-table 不设固定 height，
+     按内容高度展开所有行，整页随布局 el-scrollbar 滚动——整页只有一条滚动条，
+     彻底消除此前 fixedHeader 下「外层布局滚动 + 内层表格滚动」双滚动条、且外层滚动
+     把表头带跑（吸顶失效）的毛病；
+   - .watchlist-page 仅 min-height:100% 让短内容页也撑满视口、页脚贴底，
+     内容超过视口时自然增高由布局滚动——不再用 calc(100vh - 86px) 这种硬编码头部高度
+     （此前误把头部高度写死导致页面溢出布局、双滚动条）；
    - 同时释放 .main-content 默认的 48px 大边距，把空间还给表格。 */
 .watchlist-page {
   display: flex;
-  flex: 1;
   flex-direction: column;
-  min-height: calc(100vh - 86px);
+  min-height: 100%;
   overflow-x: clip;
 }
 
@@ -950,22 +902,27 @@ const renderCtx = computed<RenderCtx>(() => ({
 
 .watchlist-card {
   display: flex;
-  flex: 1;
   flex-direction: column;
-  min-height: 0;
-
-  /* 在 flex column 内 flex:1 + min-height:0 才能撑满 page 可用高度，
-     不被内容（head/filter/table/分页）撑死，也不会因数据少而留大片空白。 */
+  /* 卡片随内容自然增高；padding 沿用 design.md 的 --space-compact(16px)。
+     不再设 flex:1/min-height:0（那是「表格内部滚动撑满」时代的写法，已废弃）。 */
   padding: var(--space-compact);
 }
 
-/* 表格容器：在 card flex column 内 flex:1，自身成为 el-table 高度上限的绝对参照，
-   不论数据多少都把可视区撑满（空数据时表格空状态占满区域）。 */
+/* 表格容器：随内容自然增高（el-table 不设固定 height，无内部滚动条）。
+   表头吸顶见下方 :deep(.el-table__header-wrapper)。 */
 .watchlist-table-wrap {
   display: flex;
-  flex: 1;
   flex-direction: column;
-  min-height: 0;
+}
+
+/* 表头吸顶：本页为单滚动容器（页面滚动），表头随页面滚动时固定在滚动视口顶部；
+   z-index 高于行，背景用卡片色遮住下方滚动行，避免穿透。top:0 即贴滚动容器顶
+   （布局已用 padding 把导航/页签让出来，无需额外偏移）。 */
+.watchlist-table-wrap :deep(.el-table__header-wrapper) {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--bg-card);
 }
 
 /* ======================================
@@ -1138,11 +1095,11 @@ const renderCtx = computed<RenderCtx>(() => ({
 }
 
 /* ======================================
-   向下滚动表格 → 紧凑态（is-condensed）：
+   向下滚动页面 → 紧凑态（is-condensed）：
    折叠第一行搜索区 .head-primary 与实时估值条 .summary-bar，把约 40px 高度还给
-   表格多看近一行。过渡 200ms（design.md Motion 区间），收起/展开后由 index.vue
-   的 scheduleRecalc 重算表格高度。⚠️ 全局页脚始终常驻，不再参与任何显隐切换
-   （此前"折叠 + 页脚隐藏"叠加曾造成 head-primary 状态滞留与大片空白，已废弃）。
+   表格多看近一行。过渡 200ms（design.md Motion 区间）。本页为单滚动容器（页面滚动），
+   紧凑态由监听「页面滚动容器 scrollTop」触发（见脚本 bindPageScroll），不再依赖
+   表格内部滚动；页脚作为页面底部正常流元素常驻，滚动到最底部时自然显现。
    ====================================== */
 .watchlist-page.is-condensed .head-primary {
   max-height: 0;
