@@ -15,6 +15,8 @@ import { DEFAULT_TAG_COLOR } from "@/constants/watchlist";
  * 2026-08-21 重构：分组 Tab 与标签筛选 / 视图 segmented 合并为单行三段式
  * （左固定筛选 + 中段 tab 横向滚动 + 右固定「+」），与 design.md 分组胶囊 Tab
  * 「tab 左对齐 + 右侧 segmented」布局规范一致（规范 414），省去独立筛选行。
+ * 2026-09-05 修订：原 #actions 快捷图标组（刷新/导出/AI导入/实时估值）上移至
+ * index.vue 第一行 .head-primary，本行收窄为纯筛选职责，不再拥挤。
  * 纯展示 + 事件转发：状态全部在 groups / tags / toolbar 三个 composable，本组件不持有业务状态。
  */
 const props = defineProps<{
@@ -154,10 +156,10 @@ watch(() => allGroups.value.length, () => nextTick(updateGroupFade));
     <!-- 筛选行（双行分区布局的「第二行」，见 index.vue head-primary 注释）：
          分组 Tab（主导航，弹性横向滚动，永远最左）
          + 次级操作（新建分组 / 管理分组 / 标签筛选 / 视图 segmented）
-         + #actions（快捷图标组，由页面注入：刷新 / 导出 / AI 导入 / 实时估值）
+         （#actions 快捷图标组已于 2026-09-05 上移第一行 head-primary，本行保持纯筛选）
 
-         批量模式（batchMode）：本行只保留 #actions（页面在 actions 中自行处理批量工具），
-         分组与筛选整体隐藏，避免表格上方出现两排状态不同的操作。 -->
+         批量模式（batchMode）：分组与筛选整体隐藏（批量工具条占用第一行），
+         避免表格上方出现两排状态不同的操作。 -->
     <div class="filter-row">
       <template v-if="!toolbar.batchMode.value">
         <!-- 左段（弹性）：分组胶囊 Tab（design.md「分组胶囊 Tab · 方案 B」，水平滑动、数量徽章 tabular-nums）。
@@ -318,8 +320,6 @@ watch(() => allGroups.value.length, () => nextTick(updateGroupFade));
           </button>
         </div>
       </div>
-
-      <slot name="actions" />
     </div>
 
     <!-- 新建分组弹窗 -->
