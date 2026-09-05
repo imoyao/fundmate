@@ -280,11 +280,6 @@
       </div>
     </CardBlock>
 
-    <!-- 合规页脚：常驻页面底部（仅在全局隐藏布局级页脚时由本页自绘，showLocalFooter 守卫，
-         避免与布局页脚重复）。它作为 .watchlist-page 的 flex 兄弟常驻占位，
-         .watchlist-card(flex:1) 自动占满其上方剩余空间，表格因此始终撑满、底部无空白。 -->
-    <LayFooter v-if="showLocalFooter" />
-
     <!-- 弹窗部分 -->
     <AddToWatchlistModal
       v-model="addDialogVisible"
@@ -397,13 +392,7 @@ import {
   resolveRenderer,
   type RenderCtx
 } from "@/views/asset/watchlist/columnRenderers";
-import LayFooter from "@/layout/components/lay-footer/index.vue";
-import { useGlobal } from "@pureadmin/utils";
-
 defineOptions({ name: "Watchlist" });
-
-// 读取全局配置：用于判断布局级页脚是否被隐藏（HideFooter），决定本页是否自绘页脚
-const { $storage } = useGlobal();
 
 // 分组 / 标签 / 数据编排 / 工具栏 四类状态全部收敛到 composable（见 #980 拆分总纲）：
 // - groups：分组 tab 派生 + fetchGroups
@@ -720,8 +709,7 @@ onMounted(() => {
   recalcTableMaxHeight();
   observeHeaderResize();
   bindTableScroll();
-  // 表格滚动 → 紧凑态在 onTableBodyScroll 内处理（head-primary/估值条折叠由表格让高度）；
-  // 页脚常驻底部、不随滚动显隐，故无需在此处理页脚（见下方 LayFooter）。
+  // 表格滚动 → 紧凑态在 onTableBodyScroll 内处理（head-primary/估值条折叠由表格让高度）。
 });
 
 // ── #992 表头列拖拽：sortablejs 复用（RePureTableBar 同款方案）──
@@ -741,8 +729,21 @@ let measureRetries = 0;
 function recalcTableMaxHeight() {
   const wrap = tableWrapRef.value ?? tableRef.value?.$el?.parentElement;
   if (!wrap) return;
-  const h = wrap.clientHeight;
-  // 布局未就绪（高度为 0）时下一帧重试，最多 30 次，避免首帧把表格高度算死成下限 240
+  // 优先读 wrap 实测高度；若首帧布局未就绪为 0，则用 card 高度减去其它兄弟区块
+  // （头部 / 筛选 / 分页）兜底——wrap 是 card flex column 内唯一的 flex:1 子项，
+  // 其高度恒等于「card 内容高 − 其余兄弟高」，可避免把表格算死成下限 240（#1281 回归：
+  // 表格只显示 4 行、下方大片空白）。
+  let h = wrap.clientHeight;
+  if (h <= 0 && wrap.parentElement) {
+    const card = wrap.parentElement;
+    const cs = getComputedStyle(card);
+    const padV = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom) || 0;
+    let siblings = 0;
+    for (const child of card.children) {
+      if (child !== wrap) siblings += child.getBoundingClientRect().height;
+    }
+    h = card.clientHeight - padV - siblings;
+  }
   if (h <= 0 && measureRetries < 30) {
     measureRetries++;
     requestAnimationFrame(recalcTableMaxHeight);
@@ -796,15 +797,6 @@ function onTableBodyScroll() {
     scheduleRecalc();
   }
 }
-
-/**
- * 合规页脚常驻（#1281 本轮重写）：
- * 页脚作为 .watchlist-page 的 flex 兄弟常驻占位，.watchlist-card(flex:1) 自动占满其上方
- * 剩余空间，表格因此始终撑满、底部无空白——不再随滚动显隐（此前「滚到底才显示」会在
- * 页脚出现瞬间因表格高度重算时序问题，在表格与页脚间撑出一大段空白）。
- * showLocalFooter 守卫：仅当全局隐藏布局级页脚（HideFooter）时由本页自绘页脚，避免重复。
- */
-const showLocalFooter = computed(() => Boolean($storage?.configure.hideFooter));
 
 /** 绑定表格滚动容器：无数据时 EP 不渲染滚动容器，故每次加载完成后重绑一次 */
 function bindTableScroll() {
@@ -935,18 +927,25 @@ const renderCtx = computed<RenderCtx>(() => ({
    留白回到规范值，可见行数靠「行高 52px + 滚动时收起顶部区块」去换，不再靠挤压留白。
    ====================================== */
 
-/* 自选页容器（2026-09-05 撑满版）：
-   - 不再用 height: 100%（flex column 里 height:100% 与父 grow 自适应会形成循环，
-     导致整个 flex 链测高为 0、el-table height:100% 退化成 0）；
-   - 改用 flex:1 + min-height:0，让 page 作为 flex item 在 grow 内撑满高度——
-     配合 flex column 让内部卡片自适应填满——空数据/少数据时不再「只占页面一半」；
-   - overflow-x: clip 抑制全屏切换时的页面级横向滚动抖动。 */
+/* 自选页容器（撑满版）：
+   - 关键：给 .watchlist-page 一个「确定的」高度下限 calc(100vh - 86px)（86px = 顶部导航 +
+     页签栏，与布局区 .app-main-nofixed-header 的 min-height 一致）。没有这个下限时，
+     在 fixedHeader 的 el-scrollbar 滚动容器里，.watchlist-page 作为内容项会被压成「内容高度」
+     （4 行），其余视口高度变成白茫茫空白、分页器被推到最底——正是此前的「屎样子」；
+   - 有下限后，flex 链才能把 .watchlist-card(flex:1) → .watchlist-table-wrap(flex:1)
+     一路撑满到视口底部，表格死贴底部分页器、零空白；
+   - 同时释放 .main-content 默认的 48px 大边距，把空间还给表格。 */
 .watchlist-page {
   display: flex;
   flex: 1;
   flex-direction: column;
-  min-height: 0;
+  min-height: calc(100vh - 86px);
   overflow-x: clip;
+}
+
+/* 高密度列表页：取消全局 .main-content 的 48px 边距，避免上下白边吞掉表格行数。 */
+.watchlist-page.main-content {
+  padding: 0;
 }
 
 .watchlist-card {
@@ -968,10 +967,6 @@ const renderCtx = computed<RenderCtx>(() => ({
   flex-direction: column;
   min-height: 0;
 }
-
-/* 页脚处理（2026-09-05 重写）：当全局隐藏布局级页脚时，本页自绘 40px 极简合规页脚；
-   它作为 .watchlist-page 的 flex 兄弟常驻占位，.watchlist-card(flex:1) 自动占满其上方空间。
-   表格因此始终撑满可用区域，底部无空白；页脚不再随滚动显隐。 */
 
 /* ======================================
    双行分区头部（#1281 第四轮修订，2026-09-05）
@@ -1186,10 +1181,6 @@ const renderCtx = computed<RenderCtx>(() => ({
   font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
 }
-
-/* 自选页合规页脚：当布局级页脚被全局隐藏（HideFooter）时，由本页自绘 LayFooter（40px 极简，
-   与左侧边栏 left-collapse 同高对齐），作为 .watchlist-page 的 flex 兄弟常驻占位；
-   布局级页脚显示时本页不再重复绘制，避免跨页面不一致。 */
 
 /* 估值条（实时开启时显示）：展开态有明确高度上限 + overflow，配合 max-height 折叠；
    进入紧凑态（.watchlist-page.is-condensed）时收起，把高度让给表格。 */

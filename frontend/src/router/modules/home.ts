@@ -77,7 +77,9 @@ const HomeRouteConfig = {
         title: "我的自选",
         icon: "ep:star",
         rank: 4,
-        keepAlive: true
+        keepAlive: true,
+        // 高密度列表页：隐藏布局级页脚，把整块垂直空间交给表格（#1281）
+        hideFooter: true
       }
     },
     {
