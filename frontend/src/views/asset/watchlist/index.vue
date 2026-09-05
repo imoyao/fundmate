@@ -197,7 +197,7 @@
            空数据时 .watchlist-empty height:100% 垂直居中占满。
            ⚠️ 不要传字符串 height（如 '100%'）：EP 内部做 height - 表头 的数值运算，
            字符串会得 NaN 导致布局塌陷白屏。 -->
-      <div class="watchlist-table-wrap">
+      <div ref="tableWrapRef" class="watchlist-table-wrap">
         <el-table
           ref="tableRef"
           v-loading="loading"
@@ -267,7 +267,7 @@
       <!-- 表格底栏：左侧总数 + 右侧翻页。
            合规文案不放在本行（用户反馈放表格里很怪异），
            改由页面底部 .watchlist-footer 承担（见 CardBlock 之后）。 -->
-      <div ref="footerRef" class="table-footer">
+      <div class="table-footer">
         <span class="table-footer__total">共 {{ totalItems }} 条</span>
         <el-pagination
           v-model:current-page="currentPage"
@@ -281,9 +281,10 @@
       </div>
     </CardBlock>
 
-    <!-- 合规页脚（2026-09-05 重写）：内置于本页、仅表格滚到最底部时显示；
-         平时不渲染，把整块底部空间让给表格（见 updateFooterVisibility）。 -->
-    <LayFooter v-if="showLocalFooter" :show="footerVisible" />
+    <!-- 合规页脚：常驻页面底部（仅在全局隐藏布局级页脚时由本页自绘，showLocalFooter 守卫，
+         避免与布局页脚重复）。它作为 .watchlist-page 的 flex 兄弟常驻占位，
+         .watchlist-card(flex:1) 自动占满其上方剩余空间，表格因此始终撑满、底部无空白。 -->
+    <LayFooter v-if="showLocalFooter" />
 
     <!-- 弹窗部分 -->
     <AddToWatchlistModal
@@ -721,82 +722,47 @@ onMounted(() => {
   observeHeaderResize();
   bindTableScroll();
   // 表格滚动 → 紧凑态在 onTableBodyScroll 内处理（head-primary/估值条折叠由表格让高度）；
-  // 页脚显隐由本页 updateFooterVisibility 控制（滚到底才显示，平时让空间给表格）。
+  // 页脚常驻底部、不随滚动显隐，故无需在此处理页脚（见下方 LayFooter）。
 });
 
 // ── #992 表头列拖拽：sortablejs 复用（RePureTableBar 同款方案）──
 const tableRef = ref();
 
-// 表格内部滚动：动态计算可用高度，使卡片占满视口、页面不滚动，
-// 表头固定、工具栏/筛选条常驻可见（keep-alive 切回 / 窗口缩放 / 估值条或批量条显隐后需重算）
-//
-// 演进（issue #1281「滚动条异常」）：
-// ① 最初把页脚（分页器 + 卡片内边距）写成固定 reserve=96，与真实高度常有几十像素误差；
-// ② 第二轮改为实测底栏高度 + 「滚动量归零」坐标系，但仍把卡片/页面下内边距写死为 36px，
-//    且漏算底栏的 margin-top（--space-2 = 8px）→ 表格偏高 8~9px → 页面溢出，
-//    **页面滚动条与表格滚动条同时出现**（用户反馈的双滚动条）；
-// ③ 第四轮：底部预留全部实测——底栏 offsetHeight + marginTop、卡片 paddingBottom、
-//    页面 paddingBottom 逐一读 computed style，再加 8px 安全余量。
-// ④ 第五轮（2026-09-05，本轮）：仍出现双滚动条的根因找到了——
-//    sp.clientHeight 是**滚动容器的高度**，而容器里除了本页还挂着全局页脚（LayFooter）
-//    等兄弟节点，那段高度被当成「表格可用高度」算进去了，表格必然偏高、页面必然溢出。
-//    现改为三道保险：① 减去容器外层兄弟元素占用；② 保留底部实测预留；③ 应用后再做
-//    一次「溢出闭环校正」——若容器仍可纵向滚动，按溢出量把表格再压回去。
-//    三者叠加后，页面滚动条在数学上不再可能出现。
+// 表格高度：直接读 .watchlist-table-wrap 的实测高度（它在 card flex column 内 flex:1，
+// 即「视口 − 顶部工具栏/筛选/分页 − 内外边距」后的全部剩余空间），绑定给 el-table 的
+// height，让表格占满并内部滚动、页面本身不滚。
+// 健壮性：首帧布局未就绪时 wrap.clientHeight 可能为 0，这里用 rAF 重试直到测到真实高度，
+// 杜绝「首帧把高度算死成下限 240 → 表格只显示 4 行、下方大片空白」的回归（#1281 旧方案
+// 对布局级滚动容器做溢出校正，会越校越小，已废弃）。
 const tableMaxHeight = ref(520);
-const footerRef = ref<HTMLElement>();
 const pageRef = ref<HTMLElement>();
 
-/** 找到真正承载页面纵向滚动的容器（布局里是 .el-scrollbar__wrap） */
-function findScrollContainer(el: HTMLElement): HTMLElement {
-  let node: HTMLElement | null = el.parentElement;
-  while (node) {
-    const oy = getComputedStyle(node).overflowY;
-    if (oy === "auto" || oy === "scroll" || oy === "overlay") return node;
-    node = node.parentElement;
-  }
-  return document.documentElement;
-}
+const tableWrapRef = ref<HTMLElement>();
+let measureRetries = 0;
 
 function recalcTableMaxHeight() {
-  nextTick(() => {
-    const el = tableRef.value?.$el as HTMLElement | null;
-    if (!el) return;
-    // 高度基准 = 表格外层 .watchlist-table-wrap（在 card flex column 内 flex:1）实际高度，
-    // 以「数值 px」绑定 el-table height（EP 内部做 height - 表头 的数值运算，勿传字符串）。
-    // wrap 高度变化（condensed 收起头部/估值条 / 数据加载）由 ResizeObserver 触发重算。
-    const wrapEl = el.parentElement;
-    const wrapH = wrapEl ? wrapEl.clientHeight : 0;
-    const next = Math.max(240, Math.floor(wrapH));
-    if (Math.abs(next - tableMaxHeight.value) > 2) {
-      tableMaxHeight.value = next;
-    }
-    // 溢出闭环校正（#1281）：el-scrollbar__view 高度随内容增长（页面级滚动布局），
-    // flex 链无法把高度限死在视口内——这里等表格应用新高度后，若滚动容器仍可纵滚
-    // （内容比可视高），按溢出量把表格再压回，一次迭代收敛。保证「表格内滚、页面不滚」。
-    const sp = findScrollContainer(el);
-    requestAnimationFrame(() => {
-      const overflow = sp.scrollHeight - sp.clientHeight;
-      if (overflow > 1) {
-        tableMaxHeight.value = Math.max(
-          240,
-          tableMaxHeight.value - Math.ceil(overflow)
-        );
-      }
-    });
-  });
+  const wrap = tableWrapRef.value ?? tableRef.value?.$el?.parentElement;
+  if (!wrap) return;
+  const h = wrap.clientHeight;
+  // 布局未就绪（高度为 0）时下一帧重试，最多 30 次，避免首帧把表格高度算死成下限 240
+  if (h <= 0 && measureRetries < 30) {
+    measureRetries++;
+    requestAnimationFrame(recalcTableMaxHeight);
+    return;
+  }
+  measureRetries = 0;
+  tableMaxHeight.value = Math.max(240, Math.floor(h));
 }
 
 // 上方区块（估值条显隐、批量条、筛选条换行、窗口缩放）高度变化时自动重算。
 // 用 ResizeObserver 而非逐个 watch，覆盖所有「高度变了但状态没变」的场景。
 let headerResizeObserver: ResizeObserver | undefined;
 function observeHeaderResize() {
-  const el = (tableRef.value?.$el ?? null) as HTMLElement | null;
-  const parent = el?.parentElement;
-  if (!parent || typeof ResizeObserver === "undefined") return;
+  const wrap = tableWrapRef.value;
+  if (!wrap || typeof ResizeObserver === "undefined") return;
   headerResizeObserver?.disconnect();
   headerResizeObserver = new ResizeObserver(() => recalcTableMaxHeight());
-  headerResizeObserver.observe(parent);
+  headerResizeObserver.observe(wrap);
 }
 
 // ── 向下滚动表格时收起顶部区块（估值条 + 工具条留白），把高度让给表格 ──
@@ -826,43 +792,21 @@ function scheduleRecalc(delay = 240) {
 function onTableBodyScroll() {
   const el = bodyScrollEl;
   if (!el || batchMode.value) return; // 批量工具条也在第一行，批量期间保持可见
-  const next = condensed.value
-    ? el.scrollTop <= 20
-    : el.scrollTop > 64;
+  const next = condensed.value ? el.scrollTop <= 20 : el.scrollTop > 64;
   if (next !== condensed.value) {
     condensed.value = next;
     scheduleRecalc();
   }
-  updateFooterVisibility();
 }
 
 /**
- * 页脚显隐（#1281 回归修复 2026-09-05 → 本轮重写）：
- * 用户诉求——隐藏页脚是为了把底部空间让给表格多看数据行；但此前页脚是布局级元素、
- * 由全局开关控制，隐藏后那块空间并没被表格吃掉（父容器 .grow 不自撑满 + 页脚根本没渲染），
- * 形成底部死区。
- * 现改为「页脚内置于本页、仅在表格滚到最底部时显示」：
- *   - footerVisible=false（默认/未滚到底）→ 页脚不渲染，.watchlist-table-wrap(flex:1)
- *     自动占满整页高度，表格更高、可见行更多；
- *   - footerVisible=true（数据可滚且已滚到底，或数据不足一屏）→ 页脚渲染在页面最底部，
- *     表格高度相应让出约 40px，页脚恰好贴底出现。
- * 不再跨组件操作 DOM：页脚随 v-if 增删，空间由 flex 自动回收/释放。
- * showLocalFooter 守卫：仅当布局级页脚被隐藏（全局 HideFooter）时才自绘页脚，避免重复。
+ * 合规页脚常驻（#1281 本轮重写）：
+ * 页脚作为 .watchlist-page 的 flex 兄弟常驻占位，.watchlist-card(flex:1) 自动占满其上方
+ * 剩余空间，表格因此始终撑满、底部无空白——不再随滚动显隐（此前「滚到底才显示」会在
+ * 页脚出现瞬间因表格高度重算时序问题，在表格与页脚间撑出一大段空白）。
+ * showLocalFooter 守卫：仅当全局隐藏布局级页脚（HideFooter）时由本页自绘页脚，避免重复。
  */
-const footerVisible = ref(true);
 const showLocalFooter = computed(() => Boolean($storage?.configure.hideFooter));
-
-function updateFooterVisibility() {
-  const el = bodyScrollEl;
-  if (!el || el.scrollHeight <= el.clientHeight + 1) {
-    footerVisible.value = true; // 不可滚（空数据/不足一屏）：显示页脚守住合规
-    return;
-  }
-  footerVisible.value = el.scrollTop + el.clientHeight >= el.scrollHeight - 1;
-}
-
-// 页脚显隐变化 → 表格可用高度变化 → 重算表格高度（v-if 增删的空间由 flex 自动回收）
-watch(footerVisible, () => scheduleRecalc(0));
 
 /** 绑定表格滚动容器：无数据时 EP 不渲染滚动容器，故每次加载完成后重绑一次 */
 function bindTableScroll() {
@@ -885,8 +829,6 @@ function bindTableScroll() {
       condensed.value = false;
       scheduleRecalc();
     }
-    // 数据/容器就绪后同步页脚显隐（空数据 → 显示；可滚未到底 → 隐藏）
-    setTimeout(updateFooterVisibility, 120);
   });
 }
 
@@ -929,14 +871,13 @@ const realtimeEnabled = computed(() => realtime.enabled.value);
 onActivated(() => {
   recalcTableMaxHeight();
   bindTableScroll();
-  setTimeout(updateFooterVisibility, 150);
 });
 watch([realtimeEnabled, batchMode, loading], () => {
   recalcTableMaxHeight();
   bindTableScroll();
 });
 window.addEventListener("resize", recalcTableMaxHeight);
-// 切走本页（keep-alive 缓存但不可见）时无需特殊处理：页脚为本页 v-if 元素，随页面卸载自动消失
+// 切走本页（keep-alive 缓存但不可见）时无需特殊处理：页脚常驻、随页面卸载自动消失
 onBeforeUnmount(() => {
   window.removeEventListener("resize", recalcTableMaxHeight);
   headerResizeObserver?.disconnect();
