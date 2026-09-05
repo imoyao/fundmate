@@ -14,10 +14,16 @@
  *
  * ── 实施状态（维护者须知）──
  * MVP 步骤 1（本文件 + columnRenderers.tsx 落地）、步骤 2（index.vue 数据列
- * 接入 v-for）与步骤 3（删除硬编码列、product/marker/actions 切 renderer）
+ * 接入 v-for）与步骤 3（删除硬编码列、product/actions 切 renderer）
  * 均已完成：index.vue 已切换到全量 columnDefs 驱动，仅 selection 列因
  * type="selection" 无法 renderer 化而保留模板。后续字段扩展（#990/#992/#993）
  * 均在此 columnDefs 上增量开发，不应再向 index.vue 硬编码堆列。
+ *
+ * ── 2026-09-04 密度优化（#1281 第四轮）──
+ * 原独立 marker 列（44px，置顶/关注状态图标）已删除：状态标记改为内联到
+ * product 列名称前（常驻可见、点击即切换，见 columnRenderers.tsx renderProduct），
+ * 置顶行另由 index.vue 的 :row-class-name 加底色区分；本表因此净释放约 44px
+ * 横向空间（原独立 marker 列 44px 已并入 product 列内联，actions 列宽保持 110）。
  */
 
 import type { WatchlistItem } from "@/api/watchlist";
@@ -82,17 +88,6 @@ export const watchlistColumnDefs: ColumnDef[] = [
     hideable: false,
     draggable: false,
     props: { builtin: "selection" }
-  },
-  {
-    key: "_marker",
-    label: "",
-    renderer: "product", // renderer 为 product + props.builtin=marker，由 renderProduct 解析渲染置顶/关注图标
-    width: 44,
-    align: "center",
-    fixed: "left",
-    hideable: false,
-    draggable: false,
-    props: { builtin: "marker" }
   },
   {
     key: "product",
@@ -202,6 +197,10 @@ export const watchlistColumnDefs: ColumnDef[] = [
     props: { ratioKey: "holding_pnl_percent" }
   },
   {
+    // 操作列：置顶 / 特别关注 / 移除 三个按钮，默认 45% 弱显、行 hover 全亮
+    //（2026-09-05 回归）：曾把按钮拆到产品列 hover 图标，但 fixed 列 hover 状态
+    // 在 EP 中不稳定，出现「有的行 hover 不出现」——回到固定的右固定操作列，
+    // 状态以按钮图标颜色表达（置顶品牌色 / 关注暖橙），不依赖 JS hover 同步。
     key: "_actions",
     label: "操作",
     renderer: "actions",
@@ -215,7 +214,8 @@ export const watchlistColumnDefs: ColumnDef[] = [
 
 /**
  * 默认可见列（排除内置 selection——它由模板按 batchMode 条件注入）。
- * 内置 marker（置顶/关注状态列）在 defs 中 hideable=false，随 v-for 正常渲染。
+ * 原独立 marker（置顶/关注状态列）已删除：状态改为 product 列内联 + 置顶行底色，
+ * 故 defs 中仅保留 selection 与 actions 两个内置列，不再有 marker。
  * #993 表头自定义：基于 hideable + 用户列顺序偏好（localStorage）过滤/重排得到 visibleColumns。
  * #992 拖拽排序：只改此顺序数组（持久化），不动 watchlistColumnDefs 源定义。
  */

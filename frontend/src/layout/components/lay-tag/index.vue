@@ -340,22 +340,36 @@ function onClickDrop(key, item, selectRoute?: RouteConfigs) {
       handleAliveRoute(route as ToRouteType);
       break;
     case 6:
-      // 内容区全屏
+      // 内容区全屏（倒三角菜单项入口）：与外部常显按钮共用同一逻辑，
+      // 保证两处文字/状态同步（见 syncFullScreenMenuState）
       onContentFullScreen();
-      setTimeout(() => {
-        if (pureSetting.hiddenSideBar) {
-          tagsViews[6].icon = ExitFullscreen;
-          tagsViews[6].text = "内容区退出全屏";
-        } else {
-          tagsViews[6].icon = Fullscreen;
-          tagsViews[6].text = "内容区全屏";
-        }
-      }, 100);
+      syncFullScreenMenuState();
       break;
   }
   setTimeout(() => {
     showMenuModel(route.fullPath, route.query, route.params);
   });
+}
+
+/** 同步「内容区全屏」两处入口的状态（常显按钮的 tooltip/图标 + 倒三角菜单项文案/图标）。
+ *  点击任意一处后立即调用，避免出现「一个是全屏、一个是退出」的矛盾文案。 */
+function syncFullScreenMenuState() {
+  // 菜单项可能尚未初始化（tagsViews[6] 为 undefined），且状态更新需等待渲染完成；
+  // 用 100ms 延迟兜底（原实现即如此），并对空值判保护，避免点击时报错或状态不同步
+  setTimeout(() => {
+    const tag = tagsViews[6];
+    if (!tag) return;
+    tag.icon = pureSetting.hiddenSideBar ? ExitFullscreen : Fullscreen;
+    tag.text = pureSetting.hiddenSideBar
+      ? "退出内容区全屏"
+      : "内容区全屏";
+  }, 100);
+}
+
+/** 外部常显按钮的切换入口（位于倒三角左侧）：切换 hiddenSideBar 并同步菜单项状态 */
+function toggleContentFullScreen() {
+  onContentFullScreen();
+  syncFullScreenMenuState();
 }
 
 function handleCommand(command: any) {
@@ -659,6 +673,30 @@ onBeforeUnmount(() => {
       </ul>
     </transition>
     <!-- 右侧功能按钮 -->
+    <!-- 内容区全屏常显入口（2026-09-05）：
+         此前只能从下方倒三角下拉里点「内容区全屏」，几乎不可发现。
+         现把该操作提为常显切换按钮，紧邻倒三角左侧：
+         图标刻意与浏览器全屏（ri/fullscreen，头像旁）区分，用「内容扩展开/收起」语义；
+         倒三角菜单里的原项保留（提供一致的键盘/菜单路径，双入口互不冲突）。 -->
+    <el-tooltip
+      :content="pureSetting.hiddenSideBar ? '退出内容区全屏' : '内容区全屏'"
+      placement="bottom"
+    >
+      <span
+        class="arrow-down mr-2"
+        role="button"
+        tabindex="0"
+        :aria-label="pureSetting.hiddenSideBar ? '退出内容区全屏' : '内容区全屏'"
+        @click="toggleContentFullScreen"
+        @keydown.enter.prevent="toggleContentFullScreen"
+        @keydown.space.prevent="toggleContentFullScreen"
+      >
+        <IconifyIconOffline
+          :icon="pureSetting.hiddenSideBar ? 'ep:fold' : 'ep:expand'"
+          class="dark:text-white"
+        />
+      </span>
+    </el-tooltip>
     <el-dropdown
       trigger="click"
       placement="bottom-end"

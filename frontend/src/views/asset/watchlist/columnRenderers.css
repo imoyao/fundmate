@@ -5,19 +5,9 @@
    add-tag-btn 样式曾因此静默失效。选择器统一以 .el-table 前缀限定作用域。
    ============================================ */
 
-/* 置顶/关注标记图标：默认 --text-tertiary 弱化，行悬停提亮 --text-secondary */
-.el-table .marker-icon {
-  display: inline-flex;
-  color: var(--text-tertiary);
-  transition: color 150ms ease;
-}
-
-.el-table .el-table__row:hover .marker-icon,
-.el-table .is-row-hovered .marker-icon {
-  color: var(--text-secondary);
-}
-
-/* ── 产品列两行紧凑容器（issue #1281 第二轮）──
+/* 说明：产品列已不再承载置顶/关注操作（操作收拢到 right 固定列三个按钮，
+   见 columnRenderers.tsx renderActions 注释，2026-09-05 回归修复）。
+   ── 产品列两行紧凑容器（issue #1281 第二轮）──
    第一行名称、第二行 代码/类型/标签 chips/「＋ 标签」（由 ProductDisplay #meta 插槽承载）。
    相比三行式（约 78px）行数增加约四成，相比单行压扁式名称完整可读。
    min-width: 0 是名称 ellipsis 生效的前提（flex 子项默认 min-width: auto 会撑开）。 */

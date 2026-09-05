@@ -11,77 +11,181 @@
   未来优化方向（见重构 issue #980 / 技术债 #981 / #982）：
   - 本页 8 大功能模块（分组/标签/批量/实时估值/搜索分页/导出/OCR/移除）可进一步按
     composable 抽取（如 useWatchlistGroups / useWatchlistTags）。
-  - 顶部操作栏已抽取为 WatchlistToolbar，移除弹窗已抽取为 WatchlistRemoveDialog。
+  - 顶部操作栏（搜索 / 批量 / 添加 / 刷新 / 导出 / OCR / 实时 / 管理）已于 #1281 第四轮
+    改为卡内「双行分区」：第一行 .head-primary 承载搜索 + 核心操作，第二行
+    WatchlistFilterBar 承载分组 Tab（最左）+ 次级筛选 + 快捷图标组，功能全保留
+    （原独立 WatchlistToolbar.vue 组件已废弃）。移除弹窗已抽取为 WatchlistRemoveDialog。
   - 标签管理 / 行内标签编辑已拆为共有组件 TagManagerDialog / TagEditorDialog
     （components/Watchlist/），未来其它页面需要标签能力可复用。
 -->
 <template>
   <div
-    class="watchlist-page p-4 min-h-full"
-    :class="{ 'is-condensed': condensed }"
+    ref="pageRef"
+    class="watchlist-page"
+    :class="{ 'is-condensed': condensed && !batchMode }"
     :style="{ backgroundColor: 'var(--bg-page)' }"
   >
-    <!-- 顶部操作栏（已抽取为 WatchlistToolbar 组件） -->
-    <WatchlistToolbar
-      :toolbar="toolbar"
-      :custom-groups="customGroups"
-      :toggle-btn-text="toggleBtnText"
-      @search-input="debounceSearch"
-      @batch-move="handleBatchMoveToGroup"
-      @batch-delete="handleBatchDelete"
-      @exit-batch="toggleBatchMode"
-      @add="openAddDialog"
-      @refresh="fetchData"
-      @export="exportData"
-      @ocr="openOcrDialog"
-      @toggle-realtime="realtime.toggle"
-      @open-settings="openSettingsDrawer"
-    />
+    <!-- 本页自有原生滚动容器：让布局 el-scrollbar 的内容正好撑满视口、自身不再滚动，
+         从而消除 el-scrollbar 每帧测量 scrollHeight/clientHeight 引发的 Forced reflow
+         与 requestAnimationFrame 耗时（控制台 [Violation]）。表头 position:sticky 吸顶
+         改为相对本容器（原生、平滑），搜索行收起也监听本容器滚动。 -->
+    <div class="watchlist-scroll">
+      <!-- 主区域：单个工作区卡片。顶部按「双行分区」布局（#1281 第四轮修订，2026-09-05）：
+         第一行 .head-primary 承载「全局搜索 + 核心操作」，第二行 WatchlistFilterBar
+         承载「分组 Tab（最左）+ 次级筛选 + 快捷图标」，两组元素互不挤占、层级分明；
+         所有功能原样保留，滚动进入紧凑态时收起第一行把高度让给表格。 -->
+      <CardBlock class="watchlist-card">
+        <!-- 第一行：搜索 + 核心操作（滚动紧凑态收起，见下方 is-condensed 规则） -->
+        <div class="head-primary">
+          <!-- 批量模式：第一行整行切换为批量工具条 -->
+          <template v-if="batchMode">
+            <span
+              class="text-sm font-medium shrink-0"
+              :style="{ color: 'var(--text-primary)' }"
+            >
+              已选 {{ selectedItems.length }} 项
+            </span>
+            <el-select
+              v-model="batchMoveGroupId"
+              placeholder="移动到分组"
+              class="batch-move-select"
+              clearable
+              @change="handleBatchMoveToGroup"
+            >
+              <el-option
+                v-for="group in customGroups"
+                :key="group.id"
+                :label="group.name"
+                :value="group.id"
+              >
+                <div class="flex items-center gap-2">
+                  <!-- 数据色例外：分组色为用户数据（非设计令牌），缺失时回退中性 token -->
+                  <span
+                    class="w-2.5 h-2.5 rounded-full"
+                    :style="{
+                      backgroundColor: group.color || 'var(--text-tertiary)'
+                    }"
+                  />
+                  <span>{{ group.name }}</span>
+                </div>
+              </el-option>
+            </el-select>
+            <el-button
+              class="batch-delete-btn"
+              :disabled="selectedItems.length === 0"
+              @click="handleBatchDelete"
+            >
+              <IconifyIconOffline icon="ep:delete" class="mr-1" />
+              删除选中
+            </el-button>
+            <el-button type="primary" @click="toggleBatchMode">
+              退出批量模式
+            </el-button>
+          </template>
 
-    <!-- 主区域：单个工作区卡片（单行筛选条 + 单行估值数据条 + 表格，聚焦表格减少视线打断） -->
-    <CardBlock class="watchlist-card">
-      <!-- 单行筛选条：标签筛选 + 视图 segmented + 分组 tab 滚动（已抽离到 WatchlistFilterBar） -->
-      <WatchlistFilterBar
-        :groups="groups"
-        :tags="tags"
-        :toolbar="toolbar"
-        :on-refresh="onCatalogChanged"
-        @view-change="handleViewChange()"
-        @tag-apply="tags.applyTagFilter()"
-        @tag-clear="tags.clearTagFilter()"
-        @manage-groups="groupManagerVisible = true"
-      />
+          <!-- 正常模式：搜索占左、核心操作居右，中间留白呼吸 -->
+          <template v-else>
+            <div class="head-primary__search">
+              <el-input
+                v-model="searchKeyword"
+                placeholder="搜索自选..."
+                clearable
+                :prefix-icon="Search"
+                class="watchlist-search"
+                @input="debounceSearch"
+              />
+              <el-tooltip
+                content="在当前自选列表中按代码或名称过滤"
+                placement="bottom-start"
+                :offset="8"
+              >
+                <IconifyIconOffline
+                  icon="ep:info-filled"
+                  class="search-hint text-sm cursor-help transition-opacity"
+                  :style="{ color: 'var(--text-tertiary)' }"
+                />
+              </el-tooltip>
+            </div>
+            <div class="head-primary__actions">
+              <el-button plain @click="openSettingsDrawer">
+                <IconifyIconOffline icon="ep:setting" class="mr-1" />
+                管理
+              </el-button>
+              <el-button type="primary" @click="openAddDialog">
+                <IconifyIconOffline icon="ep:plus" class="mr-1" />
+                添加自选
+              </el-button>
+            </div>
+          </template>
+        </div>
 
-      <!-- 估值横幅与状态 -->
-      <!-- ✅ 核心修复：用 template 包裹，加上 v-if 物理移除整个模块 -->
-      <template v-if="realtimeEnabled">
-        <RealtimeWarningBanner />
-        <!-- 实时状态指示 + 刷新档位 + 汇总指标数据条（已抽离到 WatchlistSummaryBar） -->
-        <WatchlistSummaryBar
-          :realtime="realtime"
-          :refreshing="refreshing"
-          @interval-change="onRefreshIntervalChange"
-          @manual-refresh="handleManualRefresh"
-        />
-      </template>
-
-      <!-- 批量删除（batchMode 时显示；原筛选行已并入分组行，批量删除按钮移至表格上方） -->
-      <div
-        v-if="batchMode && selectedItems.length > 0"
-        class="flex justify-end mb-2"
-      >
-        <el-button
-          type="danger"
-          plain
-          size="small"
-          class="!h-7 !px-3 !text-xs"
-          @click="handleBatchDelete"
+        <!-- 第二行（WatchlistFilterBar）：分组 Tab 最左 + 标签筛选/视图/新建 + 快捷图标 -->
+        <WatchlistFilterBar
+          :groups="groups"
+          :tags="tags"
+          :toolbar="toolbar"
+          :on-refresh="onCatalogChanged"
+          @view-change="handleViewChange()"
+          @tag-apply="tags.applyTagFilter()"
+          @tag-clear="tags.clearTagFilter()"
+          @manage-groups="groupManagerVisible = true"
         >
-          删除选中 ({{ selectedItems.length }})
-        </el-button>
-      </div>
+          <!-- 快捷图标组（#actions）：刷新/导出/AI 导入/实时估值开关，常驻本行最右；
+             与第一行的「管理 / 添加自选」主按钮分开，避免整排按钮挤在一起 -->
+          <template #actions>
+            <div v-if="!batchMode" class="header-actions">
+              <!-- 快捷图标组与筛选区之间的细分隔线（design.md 卡片内分割线） -->
+              <div class="head-divider" aria-hidden="true" />
+              <el-tooltip content="刷新" placement="bottom">
+                <el-button circle class="icon-tool-btn" @click="fetchData()">
+                  <IconifyIconOffline icon="ep:refresh" />
+                </el-button>
+              </el-tooltip>
 
-      <!--
+              <el-tooltip content="导出" placement="bottom">
+                <el-button circle class="icon-tool-btn" @click="exportData">
+                  <IconifyIconOffline icon="ep:download" />
+                </el-button>
+              </el-tooltip>
+
+              <el-tooltip content="AI 导入" placement="bottom">
+                <el-button circle class="icon-tool-btn" @click="openOcrDialog">
+                  <IconifyIconOffline icon="ep:magic-stick" />
+                </el-button>
+              </el-tooltip>
+
+              <!-- 实时估值开关：开启 = 品牌色高亮（tooltip「关闭实时估值」），关闭 = 中性弱化 -->
+              <el-tooltip :content="toggleBtnText" placement="bottom">
+                <el-button
+                  circle
+                  class="icon-tool-btn"
+                  :class="{ 'is-active': toggleBtnText.includes('关闭') }"
+                  @click="realtime.toggle()"
+                >
+                  <IconifyIconOffline icon="ep:lightning" />
+                </el-button>
+              </el-tooltip>
+            </div>
+          </template>
+        </WatchlistFilterBar>
+
+        <!-- 估值横幅与状态 -->
+        <!-- ✅ 核心修复：用 template 包裹，加上 v-if 物理移除整个模块 -->
+        <template v-if="realtimeEnabled">
+          <RealtimeWarningBanner />
+          <!-- 实时状态指示 + 刷新档位 + 汇总指标数据条（已抽离到 WatchlistSummaryBar） -->
+          <WatchlistSummaryBar
+            :realtime="realtime"
+            :refreshing="refreshing"
+            @interval-change="onRefreshIntervalChange"
+            @manual-refresh="handleManualRefresh"
+          />
+        </template>
+
+        <!-- 批量操作的「删除选中」已并入头部行 #actions（#1281 第四轮），
+           不再单独占一行，避免批量模式下顶部又多出一块 -->
+
+        <!--
           表格视觉基线（边框/表头/hover/文字色）统一在 src/style/el-table.css 维护，
           勿在本页 :deep(.el-table) 覆盖视觉基线；本页保留的 :deep 仅限行内行为样式。
           行高例外：全局基线 44px，本页为 56px——自选行承载「名称 / 代码+标签」与
@@ -91,86 +195,99 @@
           滚动条：EP 覆盖式滚动条保持默认 hover 显现（不常驻，避免横向+纵向两条常亮
           造成「双滚动条」观感），配色在 el-table.css 统一为 --border-default。
         -->
-      <el-table
-        ref="tableRef"
-        v-loading="loading"
-        :data="items"
-        :max-height="tableMaxHeight"
-        stripe
-        @selection-change="handleSelectionChange"
-        @sort-change="handleSortChange"
-        @cell-mouse-enter="handleCellMouseEnter"
-        @cell-mouse-leave="handleCellMouseLeave"
-      >
-        <el-table-column
-          v-if="batchMode"
-          type="selection"
-          width="50"
-          align="center"
-          :selectable="row => row.id != null"
-        />
-        <!-- #995 columnDefs 数据驱动：全量列（仅 selection 因 type="selection" 无法 renderer 化，保留模板）。
-             product/marker/actions 均由 columnRenderers.tsx 渲染，详见 docs/spec/watchlist-column-defs.md。 -->
-        <el-table-column
-          v-for="def in dataColumns"
-          :key="def.key"
-          :prop="def.key"
-          :label="def.label"
-          :width="def.width"
-          :min-width="def.minWidth"
-          :align="def.align"
-          :fixed="def.fixed"
-          :sortable="def.sortable"
-          :class-name="def.draggable ? undefined : 'col-no-drag'"
-          :show-overflow-tooltip="def.showOverflowTooltip"
-        >
-          <template #default="{ row }">
-            <component
-              :is="resolveRenderer(def.renderer)"
-              :row="row as WatchlistItem"
-              :def="def"
-              :ctx="renderCtx"
+        <!-- 表格容器：本页为「单滚动容器（本页 .watchlist-scroll 原生滚动）」架构——
+           el-table 不设固定 height，直接按内容高度展开所有行，由 .watchlist-scroll 承载
+           滚动（外层布局 el-scrollbar 因内容满高不再滚动，故无测量开销、无双滚动条）。
+           表头经 CSS position:sticky 吸顶（见本文件底部样式）；向下滚动时第一行搜索区
+           与估值条收起（is-condensed）把高度让给表格。 -->
+        <div class="watchlist-table-wrap">
+          <el-table
+            ref="tableRef"
+            v-loading="loading"
+            :data="items"
+            :row-class-name="rowClassName"
+            stripe
+            @selection-change="handleSelectionChange"
+            @sort-change="handleSortChange"
+            @cell-mouse-enter="handleCellMouseEnter"
+            @cell-mouse-leave="handleCellMouseLeave"
+          >
+            <el-table-column
+              v-if="batchMode"
+              type="selection"
+              width="50"
+              align="center"
+              :selectable="row => row.id != null"
             />
-          </template>
-        </el-table-column>
-
-        <!-- 空状态：区分「标签筛选导致为空」与「本就无任何自选」，避免干巴巴的默认占位。
-             注：design.md 规划了鹦鹉螺简笔画空状态，现仓库无对应资产，先用文案版，待插画资产到位后替换。 -->
-        <template #empty>
-          <div class="watchlist-empty">
-            <p class="watchlist-empty__title">
-              {{
-                selectedFilterTagIds.length > 0
-                  ? "暂无匹配所选标签的持仓"
-                  : "暂无自选资产"
-              }}
-            </p>
-            <p
-              v-if="selectedFilterTagIds.length > 0"
-              class="watchlist-empty__hint"
+            <!-- #995 columnDefs 数据驱动：全量列（仅 selection 因 type="selection" 无法 renderer 化，保留模板）。
+             product/marker/actions 均由 columnRenderers.tsx 渲染，详见 docs/spec/watchlist-column-defs.md。 -->
+            <el-table-column
+              v-for="def in dataColumns"
+              :key="def.key"
+              :prop="def.key"
+              :label="def.label"
+              :width="def.width"
+              :min-width="def.minWidth"
+              :align="def.align"
+              :fixed="def.fixed"
+              :sortable="def.sortable"
+              :class-name="def.draggable ? undefined : 'col-no-drag'"
+              :show-overflow-tooltip="def.showOverflowTooltip"
             >
-              试试调整或清空标签筛选条件
-            </p>
-          </div>
-        </template>
-      </el-table>
+              <template #default="{ row }">
+                <component
+                  :is="resolveRenderer(def.renderer)"
+                  :row="row as WatchlistItem"
+                  :def="def"
+                  :ctx="renderCtx"
+                />
+              </template>
+            </el-table-column>
 
-      <!-- 表格底栏：左侧总数（分页器的 total 单独拎出来，避免与右侧翻页挤成一团），
-           右侧翻页；与表格之间用 --border-light 细分割线分区（design.md「卡片内分割线」） -->
-      <div ref="footerRef" class="table-footer">
-        <span class="table-footer__total">共 {{ totalItems }} 条</span>
-        <el-pagination
-          v-model:current-page="currentPage"
-          :page-size="pageSize"
-          :total="totalItems"
-          layout="prev, pager, next"
-          small
-          background
-          @current-change="() => fetchData(false)"
-        />
-      </div>
-    </CardBlock>
+            <!-- 空状态：区分「标签筛选导致为空」与「本就无任何自选」，避免干巴巴的默认占位。
+             注：design.md 规划了鹦鹉螺简笔画空状态，现仓库无对应资产，先用文案版，待插画资产到位后替换。 -->
+            <template #empty>
+              <div class="watchlist-empty">
+                <p class="watchlist-empty__title">
+                  {{
+                    selectedFilterTagIds.length > 0
+                      ? "暂无匹配所选标签的持仓"
+                      : "暂无自选资产"
+                  }}
+                </p>
+                <p
+                  v-if="selectedFilterTagIds.length > 0"
+                  class="watchlist-empty__hint"
+                >
+                  试试调整或清空标签筛选条件
+                </p>
+              </div>
+            </template>
+          </el-table>
+        </div>
 
+        <!-- 表格底栏：左侧总数 + 右侧翻页。
+           合规文案不放在本行（用户反馈放表格里很怪异），
+           改由页面底部 .watchlist-footer 承担（见 CardBlock 之后）。 -->
+        <div class="table-footer">
+          <span class="table-footer__total">共 {{ totalItems }} 条</span>
+          <el-pagination
+            v-model:current-page="currentPage"
+            :page-size="pageSize"
+            :total="totalItems"
+            layout="prev, pager, next"
+            small
+            background
+            @current-change="() => fetchData(false)"
+          />
+        </div>
+      </CardBlock>
+
+      <!-- 合规页脚：常驻页面底部，随页面滚动至最底部时自然显现（仅本页自绘，
+         全局布局级页脚已通过路由 meta.hideFooter 隐藏，避免重复）。表头吸顶 +
+         页脚置底，单滚动容器（页面滚动）承载，无双滚动条观感。 -->
+      <LayFooter />
+    </div>
     <!-- 弹窗部分 -->
     <AddToWatchlistModal
       v-model="addDialogVisible"
@@ -247,6 +364,8 @@ import {
   nextTick
 } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
+import { Search } from "@element-plus/icons-vue";
+import { IconifyIconOffline } from "@/components/ReIcon";
 import Sortable from "sortablejs";
 import AddToWatchlistModal from "@/components/QuickEntry/AddToWatchlistModal.vue";
 import OcrImportModal from "@/components/QuickEntry/OcrImportModal.vue";
@@ -256,9 +375,9 @@ import GroupManagerDialog from "@/components/Watchlist/GroupManagerDialog.vue";
 import TagEditorDialog from "@/components/Watchlist/TagEditorDialog.vue";
 import { getWatchlistTrends, type WatchlistItem } from "@/api/watchlist";
 import CardBlock from "@/components/CardBlock/index.vue";
+import LayFooter from "@/layout/components/lay-footer/index.vue";
 // 金额/涨跌展示组件（MoneyDisplay/RiseFallText/MoneyWithRatio）已随 #995 列渲染器化
 // 迁移至 columnRenderers.tsx，本页模板不再直接使用
-import WatchlistToolbar from "@/views/asset/watchlist/components/WatchlistToolbar.vue";
 import WatchlistRemoveDialog from "@/views/asset/watchlist/components/WatchlistRemoveDialog.vue";
 import {
   useRealtimeQuotes,
@@ -276,13 +395,13 @@ import RealtimeWarningBanner, {
 } from "@/components/RealtimeWarningBanner/index.vue";
 import type { Holding } from "@/utils/valuationEngine";
 import { formatDateTime } from "@/utils/date";
+import { useSettingStoreHook } from "@/store/modules/settings";
 // 列定义不再直接消费：dataColumns 经 useWatchlistColumnVisibility 的
 // visibleColumns 过滤取得（#993），本页只保留 renderer 注册表依赖
 import {
   resolveRenderer,
   type RenderCtx
 } from "@/views/asset/watchlist/columnRenderers";
-
 defineOptions({ name: "Watchlist" });
 
 // 分组 / 标签 / 数据编排 / 工具栏 四类状态全部收敛到 composable（见 #980 拆分总纲）：
@@ -380,6 +499,16 @@ function handleCellMouseLeave() {
     hoveredRowKey.value = null;
     hoverClearTimer = undefined;
   }, 100);
+}
+
+/**
+ * 置顶行的视觉区分（#1281 第四轮）。
+ * 置顶项由后端默认排序（is_pinned + 更新时间）自然落在最前，这里再给整行一层
+ * 极淡品牌底，扫一眼即可看出「上面这一块是置顶的」；置顶图标本身则内联在
+ * 产品列名称前（columnRenderers.tsx renderRowMarks），不再占用独立列宽。
+ */
+function rowClassName({ row }: { row: WatchlistItem }): string {
+  return row.is_pinned ? "is-pinned-row" : "";
 }
 
 /** 添加后涨幅（%）=（当前价 - 添加日价格）/ 添加日价格 */
@@ -587,117 +716,79 @@ onMounted(() => {
     fetchData();
   });
   initHeaderDrag();
-  recalcTableMaxHeight();
-  observeHeaderResize();
-  bindTableScroll();
+  bindPageScroll();
 });
 
 // ── #992 表头列拖拽：sortablejs 复用（RePureTableBar 同款方案）──
 const tableRef = ref();
 
-// 表格内部滚动：动态计算可用高度，使卡片占满视口、页面不滚动，
-// 表头固定、工具栏/筛选条常驻可见（keep-alive 切回 / 窗口缩放 / 估值条或批量条显隐后需重算）
-//
-// 为什么重写计算（issue #1281「滚动条异常」）：
-// 旧实现把页脚（分页器 + 卡片内边距）写成固定 reserve=96，与真实高度常有几十像素误差；
-// 误差为正 → 表格偏高 → 页面溢出 → **页面滚动条与表格滚动条同时出现**（双滚动条的怪异感）；
-// 误差为负 → 底部留一大块空白。
-// 现改为：① 实测底栏高度；② 以「滚动量归零」的坐标系计算，避免页面一旦滚动就越算越高
-// （旧公式直接用 viewport 相对位置，页面滚了 50px 就会把表格再放高 50px，形成雪崩）。
-const tableMaxHeight = ref(520);
-const footerRef = ref<HTMLElement>();
-
-/** 找到真正承载页面纵向滚动的容器（本项目是布局里的 el-scrollbar__wrap，不是 window） */
-function findScrollContainer(el: HTMLElement): HTMLElement {
-  let node: HTMLElement | null = el.parentElement;
-  while (node) {
-    const oy = getComputedStyle(node).overflowY;
-    if (oy === "auto" || oy === "scroll" || oy === "overlay") return node;
-    node = node.parentElement;
-  }
-  return document.documentElement;
-}
-
-function recalcTableMaxHeight() {
-  nextTick(() => {
-    const el = tableRef.value?.$el as HTMLElement | null;
-    if (!el) return;
-    const sp = findScrollContainer(el);
-    const isDocument = sp === document.documentElement || sp === document.body;
-    const spRect = sp.getBoundingClientRect();
-    const rect = el.getBoundingClientRect();
-    // 表格顶部在「滚动内容坐标系」中的位置（与当前滚动量无关）：
-    // 普通容器要补回 scrollTop；documentElement 自身的 rect 已经随滚动上移，不能再补
-    const offsetTop = rect.top - spRect.top + (isDocument ? 0 : sp.scrollTop);
-    const viewportH = isDocument
-      ? document.documentElement.clientHeight
-      : sp.clientHeight;
-    // 底部预留 = 底栏高度 + 卡片下内边距(16) + 页面下内边距(16) + 安全余量(4)
-    const footerH = footerRef.value?.offsetHeight ?? 40;
-    const next = Math.max(
-      240,
-      Math.floor(viewportH - offsetTop - footerH - 36)
-    );
-    // 只在变化超过 2px 时赋值：ResizeObserver 回调里避免抖动与无谓重排
-    if (Math.abs(next - tableMaxHeight.value) > 2) {
-      tableMaxHeight.value = next;
-    }
-  });
-}
-
-// 上方区块（估值条显隐、批量条、筛选条换行、窗口缩放）高度变化时自动重算。
-// 用 ResizeObserver 而非逐个 watch，覆盖所有「高度变了但状态没变」的场景。
-let headerResizeObserver: ResizeObserver | undefined;
-function observeHeaderResize() {
-  const el = (tableRef.value?.$el ?? null) as HTMLElement | null;
-  const parent = el?.parentElement;
-  if (!parent || typeof ResizeObserver === "undefined") return;
-  headerResizeObserver?.disconnect();
-  headerResizeObserver = new ResizeObserver(() => recalcTableMaxHeight());
-  headerResizeObserver.observe(parent);
-}
-
-// ── 向下滚动表格时收起顶部区块（估值条 + 工具条留白），把高度让给表格 ──
-// 用户原话：「向下拉的时候，能不能把这些收缩了」。
-// 表格是内部滚动（页面本身不滚），所以监听表格滚动容器的 scrollTop：
-// 下滚超过 64px 进入紧凑态，回到 20px 以内恢复；两个阈值形成滞回区间，避免临界抖动。
+// ── 单滚动容器（本页 .watchlist-scroll 原生滚动）+ 表头吸顶 + 底部页脚置底 ──
+// 用户原话：「向下拉的时候，能不能把这些收缩了」+「表头需要固定 + 拉到底展示 footer」。
+// 本页改为页面级滚动：el-table 不再设固定 height（因此没有内部滚动条），
+// 由本页自有 .watchlist-scroll 承载滚动；表头用 CSS position:sticky 吸顶（见下方样式），
+// 页脚作为页面底部正常流元素，滚动到最底部时自然显现。外层布局 el-scrollbar 因内容满高
+// 不再滚动，故不产生每帧测量开销——彻底消除此前「外层布局滚动 + 内层表格滚动」双滚动条、
+// 外层滚动把表头带跑、以及 el-scrollbar 每帧测量引发的 Forced reflow / 慢 rAF 的毛病。
 const condensed = ref(false);
-let bodyScrollEl: HTMLElement | null = null;
-let recalcTimer: ReturnType<typeof setTimeout> | undefined;
+let pageScrollEl: EventTarget | null = null;
+let scrollGetTop: (() => number) | null = null;
+const pageRef = ref<HTMLElement>();
 
-/** 顶部区块收起/展开是 200ms 过渡，等过渡结束再重算表格高度 */
-function scheduleRecalc(delay = 240) {
-  if (recalcTimer) clearTimeout(recalcTimer);
-  recalcTimer = setTimeout(() => {
-    recalcTimer = undefined;
-    recalcTableMaxHeight();
-  }, delay);
-}
-
-function onTableBodyScroll() {
-  const top = bodyScrollEl?.scrollTop ?? 0;
-  if (!condensed.value && top > 64) {
-    condensed.value = true;
-    scheduleRecalc();
-  } else if (condensed.value && top < 20) {
-    condensed.value = false;
-    scheduleRecalc();
+/** 找到本页真正的滚动容器（按 fixedHeader 模式分流，避免运行时测量带来的时序问题）：
+   - fixedHeader=true（默认）：本页自有原生滚动容器 .watchlist-scroll 承担全部纵向滚动，
+     布局 el-scrollbar 内容满高、自身不滚动，彻底消除其 onScroll 每帧读取
+     scrollHeight/clientHeight 引发的 Forced reflow 与慢 rAF（控制台 [Violation]）；
+   - fixedHeader=false：布局把整页（含导航）裹进同一个 el-scrollbar，外层必然滚动，
+     本页 .watchlist-scroll 退化为透传（高度链在 nofixed 模式下不确定），回退到
+     布局 .el-scrollbar__wrap / 窗口，保证「滚动收起搜索」逻辑仍生效。 */
+function findScrollContainer(): {
+  el: EventTarget;
+  getTop: () => number;
+} | null {
+  const page = pageRef.value;
+  const fixed = useSettingStoreHook()?.fixedHeader;
+  if (fixed) {
+    const sc = page?.querySelector(".watchlist-scroll") as HTMLElement | null;
+    if (sc) return { el: sc, getTop: () => sc.scrollTop };
   }
+  if (page) {
+    const wrap = page.closest(".el-scrollbar__wrap") as HTMLElement | null;
+    if (wrap) return { el: wrap, getTop: () => wrap.scrollTop };
+  }
+  const se = document.scrollingElement;
+  if (se && se.scrollHeight > se.clientHeight) {
+    return { el: window, getTop: () => se.scrollTop };
+  }
+  return null;
 }
 
-/** 绑定表格滚动容器：无数据时 EP 不渲染滚动容器，故每次加载完成后重绑一次 */
-function bindTableScroll() {
+function onPageScroll() {
+  const el = pageScrollEl;
+  const getTop = scrollGetTop;
+  if (!el || !getTop || batchMode.value) return; // 批量工具条也在第一行，批量期间保持可见
+  // 下滚超过 64px 收起第一行搜索区（.head-primary），把高度让给表格多看近一行；
+  // 回到 20px 以内恢复；20~64 为滞回区，维持当前状态。务必用「保持」而非翻转，
+  // 否则一旦收起，下一帧只要 top>20 又会被算成展开，导致每帧反复重渲染（强制重排、
+  // el-scrollbar 每帧重测、表头抖动）。
+  const top = getTop();
+  let next = condensed.value;
+  if (top > 64) next = true;
+  else if (top <= 20) next = false;
+  if (next !== condensed.value) condensed.value = next;
+}
+
+/** 绑定页面滚动容器：数据加载完成 / keep-alive 切回后重绑一次 */
+function bindPageScroll() {
   nextTick(() => {
-    const el = (tableRef.value?.$el ?? null) as HTMLElement | null;
-    const wrap = el?.querySelector<HTMLElement>(
-      ".el-table__body-wrapper .el-scrollbar__wrap"
-    );
-    if (!wrap || wrap === bodyScrollEl) return;
-    if (bodyScrollEl) {
-      bodyScrollEl.removeEventListener("scroll", onTableBodyScroll);
+    const sc = findScrollContainer();
+    if (!sc) return;
+    if (sc.el !== pageScrollEl) {
+      if (pageScrollEl)
+        pageScrollEl.removeEventListener("scroll", onPageScroll);
+      pageScrollEl = sc.el;
+      scrollGetTop = sc.getTop;
+      pageScrollEl.addEventListener("scroll", onPageScroll, { passive: true });
     }
-    bodyScrollEl = wrap;
-    wrap.addEventListener("scroll", onTableBodyScroll, { passive: true });
   });
 }
 
@@ -735,29 +826,22 @@ function initHeaderDrag() {
 
 const realtimeEnabled = computed(() => realtime.enabled.value);
 
-// 自适应高度：keep-alive 切回 / 窗口缩放 / 估值条或批量条显隐 / 数据加载完成时重算。
-// keep-alive 从缓存切回时 EP 可能重建滚动容器，需同时重绑表格滚动监听。
+// 页面滚动容器绑定：keep-alive 切回 / 估值条或批量条显隐 / 数据加载完成时重绑。
 onActivated(() => {
-  recalcTableMaxHeight();
-  bindTableScroll();
+  bindPageScroll();
 });
 watch([realtimeEnabled, batchMode, loading], () => {
-  recalcTableMaxHeight();
-  bindTableScroll();
+  bindPageScroll();
 });
-window.addEventListener("resize", recalcTableMaxHeight);
+// 切走本页（keep-alive 缓存但不可见）时移除滚动监听
 onBeforeUnmount(() => {
-  window.removeEventListener("resize", recalcTableMaxHeight);
-  headerResizeObserver?.disconnect();
-  if (bodyScrollEl)
-    bodyScrollEl.removeEventListener("scroll", onTableBodyScroll);
-  if (recalcTimer) clearTimeout(recalcTimer);
+  if (pageScrollEl) pageScrollEl.removeEventListener("scroll", onPageScroll);
 });
 
 // ── #995 columnDefs 数据驱动 + #993 列显隐：visibleColumns 已按用户隐藏集过滤
-//（仅 selection 因 type="selection" 无法 renderer 化，保留模板由 batchMode 注入；
-//  marker 列同理由 defs 自带，正常参与 v-for 渲染——此前误把它一并过滤掉，
-//  导致「置顶/关注」状态图标整列消失，2026-09-03 修复）──
+//（仅 selection 因 type="selection" 无法 renderer 化，保留模板由 batchMode 注入。
+//  原 marker 列已于 #1281 第四轮删除：置顶/关注状态改为产品列名称前内联渲染，
+//  不再作为独立列参与 v-for）──
 const dataColumns = computed(() =>
   columnSettings.visibleColumns.value.filter(d => d.key !== "_selection")
 );
@@ -804,18 +888,273 @@ const renderCtx = computed<RenderCtx>(() => ({
    #1281 第一轮曾一路压到 8/4px 级留白，结果整页「贴脸」没有呼吸感，已回调：
    留白回到规范值，可见行数靠「行高 52px + 滚动时收起顶部区块」去换，不再靠挤压留白。
    ====================================== */
+
+/* 自选页容器（单滚动容器版，fixedHeader 模式）：
+   - 本页用「本页自有原生滚动容器 .watchlist-scroll」承载（而非表格内部滚动，也非布局
+     el-scrollbar 滚动）：el-table 不设固定 height，按内容高度展开所有行；.watchlist-scroll
+     撑满布局分配给本页的高度，使外层 el-scrollbar 内容正好满视口、自身不再滚动——整页
+     只有一条（原生）滚动条，且外层 el-scrollbar 不再每帧测量，彻底消除 Forced reflow / 慢 rAF；
+   - .watchlist-page 用 height:100% 撑满 .grow（fixedHeader 下 .grow 为确定高度），短内容页也
+     撑满视口、页脚贴底；不再用 calc(100vh - 86px) 这种硬编码头部高度（此前误写死导致溢出/双滚动条）；
+   - 同时释放 .main-content 默认的 48px 大边距，把空间还给表格。 */
+.watchlist-page {
+  display: flex;
+  flex-direction: column;
+  /* 撑满布局 el-scrollbar 分配给本页的高度（fixedHeader 下 .grow 为确定高度），
+     使外层 el-scrollbar 内容正好满视口、自身不滚动——这是消除其每帧测量引发的
+     Forced reflow / 慢 rAF 的关键。 */
+  height: 100%;
+  overflow: hidden;
+}
+
+/* 本页自有原生滚动容器：承担全部纵向滚动（head/筛选/表格/页脚），
+   表头 position:sticky 相对它吸顶（原生、平滑）。外层 el-scrollbar 因内容满高
+   不再滚动，故不产生测量开销，控制台 [Violation] 消失。 */
+.watchlist-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* 高密度列表页：取消全局 .main-content 的 48px 边距，避免上下白边吞掉表格行数。 */
+.watchlist-page.main-content {
+  padding: 0;
+}
+
 .watchlist-card {
+  display: flex;
+  flex-direction: column;
+  /* 卡片随内容自然增高；padding 沿用 design.md 的 --space-compact(16px)。
+     不再设 flex:1/min-height:0（那是「表格内部滚动撑满」时代的写法，已废弃）。 */
   padding: var(--space-compact);
+}
+
+/* 表格容器：随内容自然增高（el-table 不设固定 height，无内部滚动条）。
+   表头吸顶见下方 :deep(.el-table__header-wrapper)。 */
+.watchlist-table-wrap {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 表头吸顶：本页滚动容器是 .watchlist-scroll（原生 overflow-y:auto），表头随其滚动时
+   固定在容器顶部；z-index 高于行，背景用卡片色（--bg-card，亮色纯白/暗色 #242120）遮住
+   下方滚动行，避免穿透重影。top:0 即贴容器顶（布局已用 .fixed-header 的 padding-top
+   把导航/页签让出来，无需额外偏移）。
+   关键：el-table 默认 overflow:hidden，会成为 header-wrapper 的「最近滚动祖先」，
+   导致 sticky 相对表格自身（不随页面滚）而非页面滚动容器 .watchlist-scroll，
+   表头会随页面一起滚走——这正是此前吸顶反复失效的根因。本页表格无内部滚动，
+   改为 overflow:visible 让 sticky 正确吸附到 .watchlist-scroll。（无横向滚动，
+   横向溢出由 .watchlist-scroll 的 overflow-x:hidden 裁切，不会外溢）。 */
+.watchlist-table-wrap :deep(.el-table) {
+  overflow: visible;
+}
+.watchlist-table-wrap :deep(.el-table__header-wrapper) {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--bg-card);
+}
+
+/* ======================================
+   双行分区头部（#1281 第四轮修订，2026-09-05）
+   —— 第一行 .head-primary：搜索框 + 核心操作（管理 / 添加自选）；
+      第二行由 WatchlistFilterBar 承载「分组 Tab（最左）+ 标签筛选/视图/新建」，
+      其 #actions 注入快捷图标组（刷新/导出/AI导入/实时估值）。
+   两行各自 justify-between / 左紧右松，主次分离；控件统一 32px 高、
+   同一垂直基线，滚动进入紧凑态时收起第一行（下方 is-condensed 规则）。
+   ====================================== */
+
+/* 搜索 + 核心操作区：固定高度由内容撑出，与下方筛选行间距 6px。
+   展开态设 max-height（内容实际约 36px）+ overflow hidden，配合过渡实现
+   表格滚动时的紧凑态收起（下方 is-condensed 规则），上限留余量防误裁。 */
+.head-primary {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+  max-height: 40px;
+  margin-bottom: 6px;
+  overflow: hidden;
+  transition:
+    max-height 200ms ease,
+    margin-bottom 200ms ease,
+    opacity 150ms ease;
+}
+
+/* 搜索区：固定 240px（2026-09-05 修订）。
+   此前设为 flex:1 + max-width 560，输入框被拉得过长、与右侧按钮组失衡，
+   且「搜索自选」只是 4~6 字提示，240px 已足够容纳代码/名称输入。 */
+.head-primary__search {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+  align-items: center;
+}
+
+.watchlist-search {
+  width: 240px;
+}
+
+/* 核心操作按钮组：次级（管理）32px + 主按钮（添加自选）36px，同一垂直基线居中。
+   尺寸规范（2026-09-05）：主按钮 36 / 次级文字按钮 32 / 纯图标按钮 28。 */
+.head-primary__actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.head-primary__actions :deep(.el-button--primary) {
+  height: 36px;
+}
+
+/* 第二行快捷图标组（FilterBar #actions）：固定居右、等距排布 */
+.header-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+  align-items: center;
+}
+
+.header-actions :deep(.el-button + .el-button) {
+  margin-left: 0;
+}
+
+/* 快捷图标组前的细分隔线：与左侧筛选区建立视觉边界 */
+.head-divider {
+  flex-shrink: 0;
+  width: 1px;
+  height: 20px;
+  margin: 0 2px;
+  background-color: var(--border-light);
+}
+
+/* 轻量图标操作按钮（刷新/导出/AI导入/实时估值）
+   尺寸规范：纯图标按钮统一 28×28（与主按钮 36、次级按钮 32 形成三级梯度）；
+   默认中性弱化线框，hover 提亮；实时开关开启态填品牌实底 */
+.icon-tool-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--text-tertiary);
+  background-color: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  transition:
+    color 150ms ease,
+    background-color 150ms ease,
+    border-color 150ms ease;
+}
+
+.icon-tool-btn:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-hover);
+}
+
+/* 实时开启态：品牌色实底高亮——开关在图标组里是否可见/是否已开，一眼可辨 */
+.icon-tool-btn.is-active {
+  color: var(--brand-100);
+  background-color: var(--brand-700);
+  border-color: var(--brand-700);
+}
+
+.icon-tool-btn.is-active:hover {
+  background-color: var(--brand-800);
+  border-color: var(--brand-800);
+}
+
+/* 批量模式：移动到分组下拉 */
+.batch-move-select {
+  width: 160px;
+}
+
+.batch-move-select :deep(.el-input__wrapper) {
+  padding-top: 0;
+  padding-bottom: 0;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  box-shadow: none;
+  transition: all 0.2s ease;
+}
+
+.batch-move-select :deep(.el-input__wrapper:hover) {
+  border-color: var(--brand-500);
+}
+
+.batch-move-select :deep(.el-input__wrapper.is-focus) {
+  border-color: var(--brand-700);
+  box-shadow: var(--focus-ring);
+}
+
+/* 批量模式：删除选中（幽灵危险按钮） */
+.batch-delete-btn {
+  color: var(--color-danger);
+  background-color: transparent;
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-sm);
+  transition: all 0.2s ease;
+}
+
+.batch-delete-btn:hover {
+  color: #fff;
+  background-color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+.batch-delete-btn:active {
+  transform: translateY(1px);
+}
+
+.batch-delete-btn:disabled {
+  color: var(--text-disabled);
+  cursor: not-allowed;
+  border-color: var(--text-disabled);
+  opacity: 0.5;
+}
+
+.batch-delete-btn:disabled:hover {
+  color: var(--text-disabled);
+  background-color: transparent;
+}
+
+/* 说明图标：默认可见，滚动进入紧凑态时淡出（规则见下「紧凑态」） */
+.search-hint {
+  opacity: 1;
+  transition: opacity 150ms ease;
+}
+
+/* ======================================
+   向下滚动页面 → 紧凑态（is-condensed）：
+   仅折叠第一行搜索区 .head-primary（全局搜索 + 核心操作），把高度让给表格多看近一行；
+   分组 Tab 行与实时估值条 .summary-bar 保持可见，表头经 CSS position:sticky 吸顶。
+   过渡 200ms（design.md Motion 区间）。本页为单滚动容器（页面滚动），
+   紧凑态由监听「页面滚动容器 scrollTop」触发（见脚本 bindPageScroll），不再依赖
+   表格内部滚动；页脚作为页面底部正常流元素常驻，滚动到最底部时自然显现。
+   ====================================== */
+.watchlist-page.is-condensed .head-primary {
+  max-height: 0;
+  margin-bottom: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.watchlist-page.is-condensed .search-hint {
+  opacity: 0;
 }
 
 /* 表格底栏：左侧总数 + 右侧翻页，与表格之间用细分割线分区
    （design.md「卡片内分割线使用 --border-subtle 降低视觉权重」） */
+
+/* 表格底栏：2026-09-05 收紧 padding-top(12→8) 与 margin-top(8→4)，省下约 8px 首屏高度。
+   左侧总数 + 右侧翻页，与表格之间用细分割线分区。 */
 .table-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-top: var(--space-3);
-  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  margin-top: var(--space-1);
   border-top: 1px solid var(--border-light);
 }
 
@@ -825,13 +1164,8 @@ const renderCtx = computed<RenderCtx>(() => ({
   color: var(--text-secondary);
 }
 
-/* ======================================
-   向下滚动表格 → 紧凑态（is-condensed）：收起估值条、收紧筛选条留白、淡出说明图标，
-   把约 40px 高度还给表格。过渡 200ms（design.md Motion 区间），
-   收起/展开后由 index.vue 的 scheduleRecalc 重算表格高度。
-   ====================================== */
-
-/* 展开态：估值条有明确高度上限，配合 overflow 才能做 max-height 过渡 */
+/* 估值条（实时开启时显示）：展开态有明确高度上限 + overflow，配合 max-height 折叠；
+   进入紧凑态（.watchlist-page.is-condensed）时收起，把高度让给表格。 */
 :deep(.summary-bar) {
   max-height: 48px;
   overflow: hidden;
@@ -845,22 +1179,9 @@ const renderCtx = computed<RenderCtx>(() => ({
   transition: margin-bottom 200ms ease;
 }
 
-.watchlist-page.is-condensed :deep(.summary-bar) {
-  max-height: 0;
-  margin-bottom: 0;
-  opacity: 0;
-}
-
-.watchlist-page.is-condensed :deep(.filter-bar) {
-  margin-bottom: var(--space-1);
-}
-
-.watchlist-page.is-condensed :deep(.search-hint) {
-  opacity: 0;
-}
-
 /* 尊重系统「减少动效」偏好（design.md Motion） */
 @media (prefers-reduced-motion: reduce) {
+  .head-primary,
   :deep(.summary-bar),
   :deep(.filter-bar) {
     transition: none;
@@ -899,12 +1220,17 @@ const renderCtx = computed<RenderCtx>(() => ({
 /* 标签筛选面板已抽离到 WatchlistFilterBar（2026-08-21 胶囊化重构），
    原 tag-filter-trigger / tag-filter-item / tag-filter-panel 等 checkbox 时代样式已随组件迁移移除。 */
 
-/* 表格空状态：区分标签筛选为空与无自选（鹦鹉螺插画资产到位后可在文案前补简笔画） */
+/* 表格空状态：撑满 body wrapper（#1281 第五轮，2026-09-05）。
+   没有数据时卡片高度由 .watchlist-table-wrap flex:1 撑满，但 EP 默认的 empty 占位
+   很小、靠上居中，导致"几行字 + 下方大片空白"的难看观感；
+   给 .watchlist-empty height:100% + flex column justify center，让文案垂直居中、占满 body。 */
 .watchlist-empty {
   display: flex;
   flex-direction: column;
   gap: 4px;
   align-items: center;
+  justify-content: center;
+  height: 100%;
   padding: 32px 0;
 }
 
@@ -983,13 +1309,26 @@ const renderCtx = computed<RenderCtx>(() => ({
    行高 56px 是「三行式 78px」与「压扁式 40px」之间的平衡点：行数约为三行式的 1.4 倍，
    名称、标签文字、金额都完整可读。例外已登记在 design.md「Table · 行高例外」。 */
 :deep(.el-table .el-table__row) {
-  height: 56px;
+  height: 52px;
+}
+
+/* ── 置顶行：极淡品牌底，让「置顶区」一眼可辨（#1281 第四轮）──
+   置顶项由后端默认排序落在最前，加这层底色后即使与后续行混排也能分组识别。
+   必须打到 td 上：EP 的斑马纹（--el-table-tr-bg-color）与 hover 底色都在 td 层级，
+   只写 tr 会被覆盖；置顶 + hover 再递进一档，避免 hover 反馈丢失。
+   底色用 --brand-100（亮色近白粉 / 暗色深棕红），明暗模式自动适配。 */
+:deep(.el-table__row.is-pinned-row > td.el-table__cell) {
+  background-color: var(--brand-100);
+}
+
+:deep(.el-table__row.is-pinned-row:hover > td.el-table__cell) {
+  background-color: var(--brand-200);
 }
 
 /* 单元格上下 padding 8px → 6px：与上面 56px 行高自洽（产品列内容 42 + 12 = 54），
    同时让两行信息之间留出呼吸，不再像 40px 那版那样「贴脸」 */
 :deep(.el-table .el-table__cell) {
-  padding: 6px 0;
+  padding: 4px 0;
 }
 
 /* 表头不换行：保证排序图标(.caret-wrapper)与表头文字始终同一行，
@@ -997,6 +1336,13 @@ const renderCtx = computed<RenderCtx>(() => ({
    各列 width 已预留足够空间容纳文字+图标，此处仅作双保险防止意外折行。 */
 :deep(.el-table__header th.el-table__cell .cell) {
   white-space: nowrap;
+}
+
+/* 表头行高压到约 34px（EP 默认 th padding 8px ≈ 40px 高，此处收到 5px）。
+   与「顶部区块压缩」同批（#1281 第四轮）：表头只承载列标题与排序图标，
+   5px 上下留白仍满足可点区域，省下的约 10px 让给数据行。 */
+:deep(.el-table__header th.el-table__cell) {
+  padding: 3px 0;
 }
 
 /* 分组胶囊 Tab / 新建分组按钮样式已迁移至 components/Watchlist/WatchlistFilterBar.vue（方案 B，2026-08-14） */

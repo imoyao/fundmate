@@ -62,14 +62,17 @@ function dismiss() {
 </script>
 
 <style scoped>
+/* 紧凑化（#1281 多轮）：纵向 8→6→4、下外边距 16→8→4、字号 13→12。
+   本横幅是「一次性告知」，用户看完即关，不该长期压占首屏——压缩后只占约 30px，
+   把首屏高度让给表格。 */
 .realtime-warning-banner {
   display: flex;
   gap: 12px;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 16px;
-  margin-bottom: 16px;
-  font-size: 13px;
+  padding: 4px 12px;
+  margin-bottom: 4px;
+  font-size: 12px;
   border-radius: 8px;
 }
 

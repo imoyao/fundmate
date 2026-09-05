@@ -13,9 +13,13 @@
  *
  * ── 维护者须知 ──
  * #995 步骤 3 已完成：index.vue 已切换到全量 columnDefs 驱动，
- * product/marker/actions 均由本注册表渲染（selection 因 type="selection"
+ * product/actions 均由本注册表渲染（selection 因 type="selection"
  * 无法 renderer 化，仍由 index.vue 模板按 batchMode 注入）。
  * 后续改 product/actions 交互只需改本文件，不再有 index.vue 模板副本。
+ *
+ * #1281 第四轮（2026-09-04）：独立 marker 列已取消，置顶 / 特别关注的状态标记
+ * 内联到 product 列名称前（renderRowMarks），点击即切换；操作列同步精简为单个
+ * 「移除」按钮。
  */
 
 import { h, type FunctionalComponent, type VNode } from "vue";
@@ -261,30 +265,6 @@ const renderProduct: FunctionalComponent<{
   /** 行是否可编辑：虚拟聚合行（持仓分组聚合，id 恒为 null）无自选记录，行内标签/置顶操作禁用 */
   const editable = row.id != null;
 
-  // 内置 marker 列：置顶/关注图标（对齐 index.vue 原 marker 模板）
-  if (props.def.props?.builtin === "marker") {
-    const markers: VNode[] = [];
-    if (row.is_pinned) {
-      markers.push(
-        h("span", { class: "marker-icon", title: "已置顶" }, [
-          h(IconifyIconOffline, { icon: "mdi:pin-outline", class: "text-sm" })
-        ])
-      );
-    }
-    if (row.favorite) {
-      markers.push(
-        h("span", { class: "marker-icon", title: "特别关注" }, [
-          h(IconifyIconOffline, { icon: "ep:star", class: "text-sm" })
-        ])
-      );
-    }
-    return h(
-      "div",
-      { class: "flex items-center justify-center gap-0.5" },
-      markers
-    );
-  }
-
   // 正常 product 列：两行紧凑布局 —— 第一行名称，第二行 代码 / 类型 / 标签文字 chips / 「＋ 标签」。
   // 演进（issue #1281 三轮）：
   //   ① 三行式（名称 / 代码+类型 / 标签 chips）→ 行高约 78px，一屏仅 3 行，信息量不足；
@@ -430,96 +410,79 @@ const renderActions: FunctionalComponent<{
     );
   }
   const a = ctx.actions;
-  // 操作列是 fixed:right 列（EP 固定列独立 DOM），行 hover 淡入由 JS 状态（hoveredRowKey）驱动；
-  // 容器自身绑定 mouseenter/leave 自驱动，鼠标直接悬停固定列时也能亮起按钮
-  const isRowHovered =
-    ctx.hoveredRowKey != null && ctx.hoveredRowKey === (row.id ?? row.symbol);
-  const rowKey = row.id ?? row.symbol;
+  // 操作列（fixed:right）三按钮：置顶 / 特别关注 / 移除。
+  // 按钮**常驻弱显（45%）+ 行 hover 全亮**，见 index.vue 的 opacity 规则——
+  // 显隐纯靠 CSS（行 hover 驱动 opacity），不依赖 JS hoveredRowKey；
+  // hoveredRowKey 仍由本列 mouseenter/leave 写入，用于联动 product 列内
+  // 置顶/加标签按钮的高亮（跨 fixed 列 DOM 无法用 :hover 同步），并非控制显隐。
+  // 状态用图标颜色表达：已置顶 = 品牌色实心图钉；已关注 = 暖橙实心星。
+  const editable = row.id != null;
+  const tooltipBtn = (
+    tip: string,
+    icon: string,
+    iconColor: string | undefined,
+    disabled: boolean,
+    onClick: (e: Event) => void
+  ) =>
+    h(
+      ElTooltip,
+      { content: tip, placement: "top" },
+      {
+        default: () =>
+          h(
+            ElButton,
+            {
+              circle: true,
+              size: "small",
+              disabled,
+              onClick
+            },
+            () => [
+              h(IconifyIconOffline, {
+                icon,
+                style: iconColor ? { color: iconColor } : undefined
+              })
+            ]
+          )
+      }
+    );
+
   return h(
     "div",
     {
-      class: [
-        "flex items-center justify-center gap-1",
-        { "is-row-hovered": isRowHovered }
-      ],
-      onMouseenter: () => ctx.setHoveredRowKey(rowKey),
+      class: "flex items-center justify-center gap-1",
+      onMouseenter: () => ctx.setHoveredRowKey(row.id ?? row.symbol),
       onMouseleave: () => ctx.setHoveredRowKey(null)
     },
     [
-      h(
-        ElTooltip,
-        { content: row.is_pinned ? "取消置顶" : "置顶", placement: "top" },
-        {
-          default: () =>
-            h(
-              ElButton,
-              {
-                circle: true,
-                size: "small",
-                disabled: row.id == null,
-                onClick: (e: Event) => {
-                  e.stopPropagation();
-                  a.togglePin(row);
-                }
-              },
-              () => [
-                h(IconifyIconOffline, {
-                  icon: row.is_pinned ? "mdi:pin" : "mdi:pin-outline"
-                })
-              ]
-            )
+      tooltipBtn(
+        row.is_pinned ? "取消置顶" : "置顶",
+        row.is_pinned ? "mdi:pin" : "mdi:pin-outline",
+        row.is_pinned ? "var(--brand-700)" : undefined,
+        !editable,
+        (e: Event) => {
+          e.stopPropagation();
+          a.togglePin(row);
         }
       ),
-      h(
-        ElTooltip,
-        {
-          content: row.favorite ? "取消特别关注" : "特别关注",
-          placement: "top"
-        },
-        {
-          default: () =>
-            h(
-              ElButton,
-              {
-                circle: true,
-                size: "small",
-                disabled: row.id == null,
-                onClick: (e: Event) => {
-                  e.stopPropagation();
-                  a.toggleFavorite(row);
-                }
-              },
-              () => [
-                h(IconifyIconOffline, {
-                  icon: row.favorite ? "ep:star-filled" : "ep:star"
-                })
-              ]
-            )
+      tooltipBtn(
+        row.favorite ? "取消特别关注" : "特别关注",
+        row.favorite ? "ep:star-filled" : "ep:star",
+        row.favorite ? "var(--temp-warm)" : undefined,
+        !editable,
+        (e: Event) => {
+          e.stopPropagation();
+          a.toggleFavorite(row);
         }
       ),
-      h(
-        ElTooltip,
-        {
-          content:
-            row.status === "HOLDING" ? "持仓资产无法直接从自选移除" : "移除",
-          placement: "top"
-        },
-        {
-          default: () =>
-            h(
-              ElButton,
-              {
-                circle: true,
-                size: "small",
-                class: "btn-delete-ghost",
-                disabled: row.status === "HOLDING",
-                onClick: (e: Event) => {
-                  e.stopPropagation();
-                  a.remove(row);
-                }
-              },
-              () => [h(IconifyIconOffline, { icon: "ep:delete" })]
-            )
+      tooltipBtn(
+        row.status === "HOLDING" ? "持仓资产无法直接从自选移除" : "移除",
+        "ep:delete",
+        undefined,
+        row.status === "HOLDING" || !editable,
+        (e: Event) => {
+          e.stopPropagation();
+          a.remove(row);
         }
       )
     ]
