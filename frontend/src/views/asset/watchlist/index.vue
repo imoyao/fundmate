@@ -752,9 +752,13 @@ function onPageScroll() {
   const getTop = scrollGetTop;
   if (!el || !getTop || batchMode.value) return; // 批量工具条也在第一行，批量期间保持可见
   // 下滚超过 64px 收起第一行搜索区（.head-primary），把高度让给表格多看近一行；
-  // 回到 20px 以内恢复。两个阈值形成滞回区间，避免临界抖动。
+  // 回到 20px 以内恢复；20~64 为滞回区，维持当前状态。务必用「保持」而非翻转，
+  // 否则一旦收起，下一帧只要 top>20 又会被算成展开，导致每帧反复重渲染（强制重排、
+  // el-scrollbar 每帧重测、表头抖动）。
   const top = getTop();
-  const next = condensed.value ? top <= 20 : top > 64;
+  let next = condensed.value;
+  if (top > 64) next = true;
+  else if (top <= 20) next = false;
   if (next !== condensed.value) condensed.value = next;
 }
 
@@ -908,7 +912,15 @@ const renderCtx = computed<RenderCtx>(() => ({
 
 /* 表头吸顶：本页为单滚动容器（页面滚动），表头随页面滚动时固定在滚动视口顶部；
    z-index 高于行，背景用卡片色遮住下方滚动行，避免穿透。top:0 即贴滚动容器顶
-   （布局已用 padding 把导航/页签让出来，无需额外偏移）。 */
+   （布局已用 padding 把导航/页签让出来，无需额外偏移）。
+   关键：el-table 默认 overflow:hidden，会成为 header-wrapper 的「最近滚动祖先」，
+   导致 sticky 相对表格自身（不随页面滚）而非页面滚动容器 .el-scrollbar__wrap，
+   表头会随页面一起滚走——这正是此前吸顶反复失效的根因。本页表格无内部滚动，
+   改为 overflow:visible 让 sticky 正确吸附到布局滚动容器。（无横向滚动，
+   横向溢出由 .watchlist-page 的 overflow-x:clip 裁切，不会外溢）。 */
+.watchlist-table-wrap :deep(.el-table) {
+  overflow: visible;
+}
 .watchlist-table-wrap :deep(.el-table__header-wrapper) {
   position: sticky;
   top: 0;
