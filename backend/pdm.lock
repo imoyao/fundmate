@@ -5,7 +5,7 @@
 groups = ["default", "dev", "test"]
 strategy = []
 lock_version = "4.5.0"
-content_hash = "sha256:7b78e369239accf3897b7d8cfe64ec0293cfdef5adc8a139b63a5ef6de6453ef"
+content_hash = "sha256:ba4f1bed7d03bbd45c67f76fe429484773491e3298c9bd95eb3231713108cc6f"
 
 [[metadata.targets]]
 requires_python = ">=3.12"
@@ -2903,9 +2903,6 @@ files = [
 [[package]]
 name = "xalpha"
 version = "0.12.4"
-git = "https://gitee.com/imoyao/xalpha.git"
-ref = "master"
-revision = "a0727129e08140eea017a8f21294041ab53ca1d6"
 summary = ""
 dependencies = [
     "beautifulsoup4",
@@ -2919,6 +2916,10 @@ dependencies = [
     "scipy",
     "sqlalchemy",
     "xlrd",
+]
+files = [
+    {file = "xalpha-0.12.4-py3-none-any.whl", hash = "sha256:4eb6113e86f1a52393ead74c2b9d110927c7ea6acff069fdfd28c0e687155e34"},
+    {file = "xalpha-0.12.4.tar.gz", hash = "sha256:821b20cbf9575eeb51c2dc1d2116cb83ffec7810d845e31e572fecadfef67052"},
 ]
 
 [[package]]
