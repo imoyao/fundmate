@@ -76,8 +76,9 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* 产品列「＋ 标签」文字入口：18px 高与元信息行一致，默认 45% 弱化、行悬停全亮；
-   悬停品牌色反馈（与 row hover 淡入的按钮语言一致，design.md 行内操作交互规范） */
+/* 产品列「＋ 标签」文字入口：18px 高与元信息行一致，默认完全隐藏、行悬停/聚焦才显现；
+   悬停品牌色反馈（与 row hover 淡入的按钮语言一致，design.md 行内操作交互规范）。
+   触摸设备（无 hover）下保持可见，避免入口完全不可发现（#ai-review-inline）。 */
 .el-table .add-tag-btn {
   display: inline-flex;
   flex-shrink: 0;
@@ -90,7 +91,7 @@
   border: 1px dashed var(--border-default);
   border-radius: var(--radius-pill);
   cursor: pointer;
-  opacity: 0.45;
+  opacity: 0;
   transition:
     opacity 150ms ease,
     color 150ms ease,
@@ -101,6 +102,13 @@
 .el-table .el-table__row:hover .add-tag-btn,
 .el-table .is-row-hovered .add-tag-btn {
   opacity: 1;
+}
+
+/* 触摸设备无 hover：入口默认可见，保证可发现 */
+@media (hover: none) {
+  .el-table .add-tag-btn {
+    opacity: 1;
+  }
 }
 
 .el-table .add-tag-btn:hover {

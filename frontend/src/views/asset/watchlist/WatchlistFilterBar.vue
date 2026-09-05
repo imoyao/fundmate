@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /* eslint-disable vue/no-mutating-props -- 状态注入模式：groups/tags/toolbar 为 composable 实例 prop，
    经 computed get/set 桥接修改其内部 ref 属有意设计（与 WatchlistToolbar 同模式） */
-import { computed, ref, watch } from "vue";
+import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from "vue";
 import { Folder, Plus } from "@element-plus/icons-vue";
 import GroupFormDialog from "@/components/Watchlist/GroupFormDialog.vue";
 import type { useWatchlistGroups } from "@/composables/useWatchlistGroups";
@@ -90,6 +90,12 @@ const addDialogVisible = ref(false);
 // （用户反馈：滚动条出现时两边对不上）。故隐藏原生滚动条、改用「滚轮/触控板横滑」，
 // 右缘渐变遮罩（.group-tabs-fade）负责提示还有更多，行高恒定、与右侧恒对齐。
 const groupScrollEl = ref<HTMLElement>();
+/** 右缘渐变遮罩是否显示：仅当分组 tab 横向溢出时才出现，避免未溢出时误导用户（#ai-review-inline） */
+const showGroupFade = ref(false);
+function updateGroupFade() {
+  const el = groupScrollEl.value;
+  showGroupFade.value = !!el && el.scrollWidth > el.clientWidth + 1;
+}
 
 /** 滚轮横滑：仅当分组区确有溢出时拦截纵向滚轮转为横向，避免干扰行内其它滚动。
  *  绑定在模板 @wheel 上（Vue 自动随 batchMode v-if 切换挂载/解绑）。 */
@@ -128,6 +134,19 @@ function chipStyle(tag: WatchlistTag) {
     "--chip-border": c
   } as Record<string, string>;
 }
+
+// 渐变遮罩按需显示：分组 tab 溢出时才出现，否则隐藏（#ai-review-inline）。
+// ResizeObserver 覆盖窗口/容器尺寸变化；watch 分组数量变化覆盖增删分组导致的溢出变化。
+let groupFadeObserver: ResizeObserver | undefined;
+onMounted(() => {
+  const el = groupScrollEl.value;
+  if (!el) return;
+  updateGroupFade();
+  groupFadeObserver = new ResizeObserver(updateGroupFade);
+  groupFadeObserver.observe(el);
+});
+onBeforeUnmount(() => groupFadeObserver?.disconnect());
+watch(() => allGroups.value.length, () => nextTick(updateGroupFade));
 </script>
 
 <template>

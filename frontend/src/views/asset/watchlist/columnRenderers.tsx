@@ -364,9 +364,11 @@ const renderProduct: FunctionalComponent<{
                   )
                 ]
               : []),
-            // 「+ 标签」文字入口：hover 显现；虚拟聚合行（id=null）不渲染，
-            // 避免出现一个点了没反应的「死按钮」（此前 disabled 圆圈按钮的观感问题）
-            ...(editable
+            // 「+ 标签」文字入口：所有真实产品行（有 symbol）均显示，hover/聚焦才显现；
+            // 虚拟持仓聚合行（symbol=null）不渲染，避免无意义的入口；
+            // 无 id 的真实产品行（如草稿记录）点击时由 ctx.openTagEditor 统一给出提示
+            // （见 useWatchlistData.openTagEditor，避免此前 disabled 圆圈「死按钮」观感问题）。
+            ...(row.symbol != null
               ? [
                   h(
                     "span",
