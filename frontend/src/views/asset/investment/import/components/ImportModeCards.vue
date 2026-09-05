@@ -73,6 +73,13 @@ function onLiability() {
 function goToHoldingImport() {
   router.push({ name: "InvestmentEaccountImport" });
 }
+
+// 平台 logo 加载失败兜底：隐藏裂图，仅保留文字名
+// （#1325 review：m.logo 指向 public/logos/*.svg，路径缺失时避免破图占位影响观感）
+function onVendorLogoError(e: Event) {
+  const img = e.target as HTMLImageElement | null;
+  if (img) img.style.display = "none";
+}
 </script>
 
 <template>
@@ -117,7 +124,7 @@ function goToHoldingImport() {
     </div>
 
     <!-- 支持导入来源：复用 useImportWizard.availableModes 的平台 logo，体现专业性 -->
-    <div class="vendor-support">
+    <div v-if="availableModes?.length" class="vendor-support">
       <span class="vendor-label">支持导入来源</span>
       <div class="vendor-logos">
         <div
@@ -126,7 +133,13 @@ function goToHoldingImport() {
           class="vendor-item"
           :title="m.label"
         >
-          <img v-if="m.logo" :src="m.logo" class="vendor-logo" alt="" />
+          <img
+            v-if="m.logo"
+            :src="m.logo"
+            class="vendor-logo"
+            :alt="m.label"
+            @error="onVendorLogoError"
+          />
           <span class="vendor-name">{{ m.label }}</span>
         </div>
       </div>
