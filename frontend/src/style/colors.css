@@ -206,8 +206,10 @@
   --font-cjk: "MiSans", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
   --font-sans: var(--font-latin), var(--font-cjk);
   /* 等宽（代码/代码-like 场景：基金代码、OCR 文本域等）：真等宽字体优先；
-     Inter 非等宽，不放首位，避免退化比例字体 */
-  --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, monospace;
+     Inter 非等宽，不放首位，避免退化比例字体。
+     末尾追加 MiSans/PingFang SC/Microsoft YaHei 作 CJK 兜底：等宽栈不含中文字形，
+     含中文单位（亿/万/股等）或中文标签落入时不再回退到系统锯齿 CJK（2026-09-05） */
+  --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, "MiSans", "PingFang SC", "Microsoft YaHei", monospace;
 
   /* ===== 间距 ===== */
   --space-1: 4px;
