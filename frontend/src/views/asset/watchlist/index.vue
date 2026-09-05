@@ -157,7 +157,7 @@
                 :class="{ 'is-active': toggleBtnText.includes('关闭') }"
                 @click="realtime.toggle()"
               >
-                <IconifyIconOffline icon="ri:flashlight-fill" />
+                <IconifyIconOffline icon="ep:lightning" />
               </el-button>
             </el-tooltip>
           </div>
@@ -726,17 +726,23 @@ let pageScrollEl: EventTarget | null = null;
 let scrollGetTop: (() => number) | null = null;
 const pageRef = ref<HTMLElement>();
 
-/** 向上找到最近的、真正可滚动的祖先（布局 el-scrollbar__wrap，或 non-fixedHeader 的窗口） */
-function findScrollParent(node: HTMLElement | null): HTMLElement | null {
-  let el = node?.parentElement ?? null;
-  while (el) {
-    const cs = getComputedStyle(el);
-    const scrollable =
-      cs.overflowY === "auto" ||
-      cs.overflowY === "scroll" ||
-      el.classList.contains("el-scrollbar__wrap");
-    if (scrollable && el.scrollHeight > el.clientHeight) return el;
-    el = el.parentElement;
+/** 找到本页真正的滚动容器：
+   - fixedHeader 布局：滚动由布局的 .el-scrollbar__wrap 承载。优先用 class 定位，
+     不依赖运行时 overflow 计算（内容未撑高时 scrollHeight 可能不大于 clientHeight，
+     旧逻辑会漏绑导致紧凑态永不触发）；
+   - 非 fixedHeader：页面由 window/document 原生滚动。 */
+function findScrollContainer(): {
+  el: EventTarget;
+  getTop: () => number;
+} | null {
+  const page = pageRef.value;
+  if (page) {
+    const wrap = page.closest(".el-scrollbar__wrap") as HTMLElement | null;
+    if (wrap) return { el: wrap, getTop: () => wrap.scrollTop };
+  }
+  const se = document.scrollingElement;
+  if (se && se.scrollHeight > se.clientHeight) {
+    return { el: window, getTop: () => se.scrollTop };
   }
   return null;
 }
@@ -755,29 +761,14 @@ function onPageScroll() {
 /** 绑定页面滚动容器：数据加载完成 / keep-alive 切回后重绑一次 */
 function bindPageScroll() {
   nextTick(() => {
-    const sc = findScrollParent(pageRef.value ?? null);
-    let target: EventTarget | null = null;
-    let getTop: (() => number) | null = null;
-    if (sc) {
-      target = sc;
-      getTop = () => sc.scrollTop;
-    } else if (
-      document.scrollingElement &&
-      document.scrollingElement.scrollHeight >
-        document.scrollingElement.clientHeight
-    ) {
-      // 非 fixedHeader：页面由 window/document 原生滚动
-      const se = document.scrollingElement;
-      target = window;
-      getTop = () => se.scrollTop;
-    }
-    if (!target || !getTop) return;
-    if (target !== pageScrollEl) {
+    const sc = findScrollContainer();
+    if (!sc) return;
+    if (sc.el !== pageScrollEl) {
       if (pageScrollEl)
         pageScrollEl.removeEventListener("scroll", onPageScroll);
-      pageScrollEl = target;
-      scrollGetTop = getTop;
-      target.addEventListener("scroll", onPageScroll, { passive: true });
+      pageScrollEl = sc.el;
+      scrollGetTop = sc.getTop;
+      pageScrollEl.addEventListener("scroll", onPageScroll, { passive: true });
     }
   });
 }
