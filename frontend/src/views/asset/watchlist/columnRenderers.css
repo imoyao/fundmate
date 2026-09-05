@@ -99,8 +99,10 @@
     border-color 150ms ease;
 }
 
+/* 整行 hover（含跨 fixed 列的 JS 驱动 .is-row-hovered）或键盘聚焦时才显现 */
 .el-table .el-table__row:hover .add-tag-btn,
-.el-table .is-row-hovered .add-tag-btn {
+.el-table .is-row-hovered .add-tag-btn,
+.el-table .add-tag-btn:focus-visible {
   opacity: 1;
 }
 
