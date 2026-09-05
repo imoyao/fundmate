@@ -20,8 +20,7 @@
 -->
 <template>
   <div
-    ref="pageRef"
-    class="watchlist-page p-4 min-h-full"
+    class="watchlist-page"
     :class="{ 'is-condensed': condensed && !batchMode }"
     :style="{ backgroundColor: 'var(--bg-page)' }"
   >
@@ -735,7 +734,6 @@ const tableRef = ref();
 // 杜绝「首帧把高度算死成下限 240 → 表格只显示 4 行、下方大片空白」的回归（#1281 旧方案
 // 对布局级滚动容器做溢出校正，会越校越小，已废弃）。
 const tableMaxHeight = ref(520);
-const pageRef = ref<HTMLElement>();
 
 const tableWrapRef = ref<HTMLElement>();
 let measureRetries = 0;
@@ -761,7 +759,7 @@ function observeHeaderResize() {
   const wrap = tableWrapRef.value;
   if (!wrap || typeof ResizeObserver === "undefined") return;
   headerResizeObserver?.disconnect();
-  headerResizeObserver = new ResizeObserver(() => recalcTableMaxHeight());
+  headerResizeObserver = new ResizeObserver(() => scheduleRecalc(80));
   headerResizeObserver.observe(wrap);
 }
 
@@ -869,14 +867,14 @@ const realtimeEnabled = computed(() => realtime.enabled.value);
 // 自适应高度：keep-alive 切回 / 窗口缩放 / 估值条或批量条显隐 / 数据加载完成时重算。
 // keep-alive 从缓存切回时 EP 可能重建滚动容器，需同时重绑表格滚动监听。
 onActivated(() => {
-  recalcTableMaxHeight();
+  scheduleRecalc();
   bindTableScroll();
 });
 watch([realtimeEnabled, batchMode, loading], () => {
-  recalcTableMaxHeight();
+  scheduleRecalc();
   bindTableScroll();
 });
-window.addEventListener("resize", recalcTableMaxHeight);
+window.addEventListener("resize", () => scheduleRecalc());
 // 切走本页（keep-alive 缓存但不可见）时无需特殊处理：页脚常驻、随页面卸载自动消失
 onBeforeUnmount(() => {
   window.removeEventListener("resize", recalcTableMaxHeight);
@@ -971,9 +969,9 @@ const renderCtx = computed<RenderCtx>(() => ({
   min-height: 0;
 }
 
-/* 页脚处理（2026-09-05 重写）：页脚已改为本页内 v-if 元素，仅在表格滚到底时显示，
-   平时不渲染——此时 .watchlist-table-wrap(flex:1) 自动占满整页高度，把底部空间让给表格。
-   因此「表格要更多高度」无需再靠紧凑态去挤页脚，二者解耦。 */
+/* 页脚处理（2026-09-05 重写）：当全局隐藏布局级页脚时，本页自绘 40px 极简合规页脚；
+   它作为 .watchlist-page 的 flex 兄弟常驻占位，.watchlist-card(flex:1) 自动占满其上方空间。
+   表格因此始终撑满可用区域，底部无空白；页脚不再随滚动显隐。 */
 
 /* ======================================
    双行分区头部（#1281 第四轮修订，2026-09-05）
@@ -1189,9 +1187,9 @@ const renderCtx = computed<RenderCtx>(() => ({
   color: var(--text-secondary);
 }
 
-/* 自选页底部页脚已改为全局承载（#1281 第五轮，2026-09-05）：
-   自选页 meta.hideFooter 已移除，全站使用统一的极简版 LayFooter（40px 极简，
-   与左侧边栏 left-collapse 同高对齐）。本页内不再单独写页脚，避免跨页面不一致。 */
+/* 自选页合规页脚：当布局级页脚被全局隐藏（HideFooter）时，由本页自绘 LayFooter（40px 极简，
+   与左侧边栏 left-collapse 同高对齐），作为 .watchlist-page 的 flex 兄弟常驻占位；
+   布局级页脚显示时本页不再重复绘制，避免跨页面不一致。 */
 
 /* 估值条（实时开启时显示）：展开态有明确高度上限 + overflow，配合 max-height 折叠；
    进入紧凑态（.watchlist-page.is-condensed）时收起，把高度让给表格。 */
