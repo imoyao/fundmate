@@ -36,7 +36,7 @@ const hideTabs = computed(() => {
 const currentRoute = useRoute();
 const hideFooter = computed(() => {
   return (
-    $storage?.configure.hideFooter || currentRoute.meta.hideFooter === true
+    $storage?.configure.hideFooter || Boolean(currentRoute.meta.hideFooter)
   );
 });
 

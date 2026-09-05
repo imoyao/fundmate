@@ -22,8 +22,8 @@
  * ── 2026-09-04 密度优化（#1281 第四轮）──
  * 原独立 marker 列（44px，置顶/关注状态图标）已删除：状态标记改为内联到
  * product 列名称前（常驻可见、点击即切换，见 columnRenderers.tsx renderProduct），
- * 置顶行另由 index.vue 的 :row-class-name 加底色区分；本表因此净释放约 90px
- * 横向空间（marker 44 + actions 110→64）。
+ * 置顶行另由 index.vue 的 :row-class-name 加底色区分；本表因此净释放约 44px
+ * 横向空间（原独立 marker 列 44px 已并入 product 列内联，actions 列宽保持 110）。
  */
 
 import type { WatchlistItem } from "@/api/watchlist";
@@ -214,7 +214,8 @@ export const watchlistColumnDefs: ColumnDef[] = [
 
 /**
  * 默认可见列（排除内置 selection——它由模板按 batchMode 条件注入）。
- * 内置 marker（置顶/关注状态列）在 defs 中 hideable=false，随 v-for 正常渲染。
+ * 原独立 marker（置顶/关注状态列）已删除：状态改为 product 列内联 + 置顶行底色，
+ * 故 defs 中仅保留 selection 与 actions 两个内置列，不再有 marker。
  * #993 表头自定义：基于 hideable + 用户列顺序偏好（localStorage）过滤/重排得到 visibleColumns。
  * #992 拖拽排序：只改此顺序数组（持久化），不动 watchlistColumnDefs 源定义。
  */

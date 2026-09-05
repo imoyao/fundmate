@@ -96,8 +96,12 @@ const groupScrollEl = ref<HTMLElement>();
 function handleGroupWheel(e: WheelEvent) {
   const el = groupScrollEl.value;
   if (!el || el.scrollWidth <= el.clientWidth + 1) return;
+  const delta = e.deltaY || e.deltaX;
+  const next = el.scrollLeft + delta;
+  // 仅在滚动位置确实会变化时才拦截纵向滚轮，避免到达边缘时阻止页面竖向滚动
+  if (next < 0 || next > el.scrollWidth - el.clientWidth) return;
   e.preventDefault();
-  el.scrollLeft += e.deltaY || e.deltaX;
+  el.scrollLeft = next;
 }
 
 // 标签筛选胶囊：点击切换草稿选中态（与「管理标签」的颜色胶囊同语言）
@@ -383,7 +387,7 @@ function chipStyle(tag: WatchlistTag) {
 }
 
 /* 分组区横滑容器。
-   ⚠️ 原生滚动条必须隐藏（而非常驻）：WebKit 横向滚动条会在容器底部占约 4px，
+   原生滚动条必须隐藏（而非常驻）：WebKit 横向滚动条会在容器底部占约 4px，
    把分组区撑得比右侧操作区高、两侧中心错位（#1281 对齐回归，2026-09-05）。
    横滑能力由模板 @wheel 滚轮手势承担，右缘渐变遮罩提示还有更多。 */
 .group-tabs-scroll {

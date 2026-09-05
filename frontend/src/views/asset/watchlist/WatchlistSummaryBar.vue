@@ -124,7 +124,7 @@ const intervalOptions = [
    本条是「顶部第三层」，与头部行/横幅叠加吃掉的都是首屏行数；4px 已贴近下表格，
    靠底部分割线分区，视觉可接受。 */
 .summary-bar {
-  margin-bottom: 4px;
+  margin-bottom: var(--space-1);
 }
 
 /* 单行：左段状态+刷新（固定） / 右段汇总指标（弹性靠右）
@@ -135,7 +135,7 @@ const intervalOptions = [
   align-items: center;
   justify-content: space-between;
   min-width: 0;
-  padding: 4px 0;
+  padding: var(--space-1) 0;
 }
 
 .summary-row__status {

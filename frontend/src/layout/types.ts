@@ -93,3 +93,11 @@ export interface scrollbarDomType extends HTMLElement {
     offsetWidth: number;
   };
 }
+
+// vue-router 路由元信息扩充：高密度列表页（如自选 /watchlist）用 meta.hideFooter
+// 按页隐藏布局级页脚，释放表格可用高度。声明后 useRoute().meta.hideFooter 具备类型。
+declare module "vue-router" {
+  interface RouteMeta {
+    hideFooter?: boolean;
+  }
+}

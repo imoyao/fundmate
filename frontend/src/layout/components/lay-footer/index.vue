@@ -61,9 +61,9 @@ withDefaults(
   &__copyright {
     margin: 0;
     font-size: 12px;
-    line-height: 1;
+    line-height: 1.5;
     color: var(--text-tertiary);
-    white-space: nowrap;
+    white-space: normal;
   }
 
   &__link {

@@ -354,12 +354,16 @@ function onClickDrop(key, item, selectRoute?: RouteConfigs) {
 /** 同步「内容区全屏」两处入口的状态（常显按钮的 tooltip/图标 + 倒三角菜单项文案/图标）。
  *  点击任意一处后立即调用，避免出现「一个是全屏、一个是退出」的矛盾文案。 */
 function syncFullScreenMenuState() {
-  nextTick(() => {
-    tagsViews[6].icon = pureSetting.hiddenSideBar ? ExitFullscreen : Fullscreen;
-    tagsViews[6].text = pureSetting.hiddenSideBar
-      ? "内容区退出全屏"
+  // 菜单项可能尚未初始化（tagsViews[6] 为 undefined），且状态更新需等待渲染完成；
+  // 用 100ms 延迟兜底（原实现即如此），并对空值判保护，避免点击时报错或状态不同步
+  setTimeout(() => {
+    const tag = tagsViews[6];
+    if (!tag) return;
+    tag.icon = pureSetting.hiddenSideBar ? ExitFullscreen : Fullscreen;
+    tag.text = pureSetting.hiddenSideBar
+      ? "退出内容区全屏"
       : "内容区全屏";
-  });
+  }, 100);
 }
 
 /** 外部常显按钮的切换入口（位于倒三角左侧）：切换 hiddenSideBar 并同步菜单项状态 */
@@ -678,7 +682,15 @@ onBeforeUnmount(() => {
       :content="pureSetting.hiddenSideBar ? '退出内容区全屏' : '内容区全屏'"
       placement="bottom"
     >
-      <span class="arrow-down mr-2" @click="toggleContentFullScreen">
+      <span
+        class="arrow-down mr-2"
+        role="button"
+        tabindex="0"
+        :aria-label="pureSetting.hiddenSideBar ? '退出内容区全屏' : '内容区全屏'"
+        @click="toggleContentFullScreen"
+        @keydown.enter.prevent="toggleContentFullScreen"
+        @keydown.space.prevent="toggleContentFullScreen"
+      >
         <IconifyIconOffline
           :icon="pureSetting.hiddenSideBar ? 'ep:fold' : 'ep:expand'"
           class="dark:text-white"

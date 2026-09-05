@@ -412,8 +412,9 @@ const renderActions: FunctionalComponent<{
   const a = ctx.actions;
   // 操作列（fixed:right）三按钮：置顶 / 特别关注 / 移除。
   // 按钮**常驻弱显（45%）+ 行 hover 全亮**，见 index.vue 的 opacity 规则——
-  // 不再用 JS hoveredRowKey 控制显隐：EP fixed 列与主表的 hover 状态同步不稳，
-  // 曾致「有的行 hover 不出现操作入口」（2026-09-05 回归修复）。
+  // 显隐纯靠 CSS（行 hover 驱动 opacity），不依赖 JS hoveredRowKey；
+  // hoveredRowKey 仍由本列 mouseenter/leave 写入，用于联动 product 列内
+  // 置顶/加标签按钮的高亮（跨 fixed 列 DOM 无法用 :hover 同步），并非控制显隐。
   // 状态用图标颜色表达：已置顶 = 品牌色实心图钉；已关注 = 暖橙实心星。
   const editable = row.id != null;
   const tooltipBtn = (
