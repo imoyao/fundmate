@@ -36,7 +36,7 @@
 - 双库约束（权威事实来源=`backend/app/core/db_factory.py` 的 `DATA_DOMAIN_REGISTRY`）：
   - **不要在 ORM 模型上加 `__data_domain__` 类属性**——当前实现只用 `DATA_DOMAIN_REGISTRY` 注册表（`validate_domain_labels` 校验的是注册表完整性），没有任何模型声明该属性；建议「给模型加 `__data_domain__`」是过时约定，属于冗余/错误建议。
   - 判定「该用哪个 session」时，**先查 `DATA_DOMAIN_REGISTRY`** 这张表属于 market 还是 user：**user 域表必须走 `user_session()`，market 域表走 `market_session()`**，禁止混用，也禁止用 `get_db()` / `SessionLocal`（market/app 引擎）去碰 user 域表。
-  - **`get_db()` 碰 user 域表是已知遗留（issue #1085 跟踪，约 25 文件/150+ 处），非单 PR 引入**。除非该 PR 目标是双库迁移，否则**不要**就单处 `get_db()` 提 [阻断]/[主要]，可引用 #1085 作为已知项，不得据此阻塞合并。注意：当前运行态默认 `init_db()` 把所有表建到 app 引擎，`get_db()` 在单库模式下可用；但若 PR 明确以双库/双 Session 为目标，user 域读写必须切到 `user_session()`，此时不要给 `get_db()` 兜底，而应明确改用 `user_session()`；若改 Session 路由，务必同步更新 `tests/conftest.py` 对 user 引擎的 patch，否则测试会因指向独立 SQLite 而失败。
+  - **`get_db()` 碰 user 域表是已知遗留（issue #1085 跟踪，约 25 文件/150+ 处），非单 PR 引入**。除非该 PR 目标是双库迁移，否则**不要**就单处 `get_db()` 提 [阻断]/[主要]，可引用 #1085 作为已知项，不得据此阻塞合并；即便已注明，仍不要每处重复警告。注意：当前运行态默认 `init_db()` 把所有表建到 app 引擎，`get_db()` 在单库模式下可用；但若 PR 明确以双库/双 Session 为目标，user 域读写必须切到 `user_session()`，此时不要给 `get_db()` 兜底，而应明确改用 `user_session()`；若改 Session 路由，务必同步更新 `tests/conftest.py` 对 user 引擎的 patch，否则测试会因指向独立 SQLite 而失败。
   - 具体到本仓库：`sales_institutions` 与 `fund_management_companies` 在注册表里都是 `DOMAIN_USER`，因此它们的读写只能用 `user_session()`——**绝不要建议改成 `market_session()`**，那会把 user 域数据落错库。
   - 跨域零外键、零 SQL join；跨域读取走应用层两步法（`app/services/common/cross_domain.py`）。
 
@@ -54,6 +54,22 @@
 **通用**
 - 改模型字段须同步关联 Create/Update/Out Schema；改 API 契约须前后端同步。
 - 提交信息用中文 + conventional commits；若由 AI 提交须带 `[AI 自动提交]` 标注。
+
+## 误报防范 / 降噪清单（以下情形不要作为问题提出）
+
+审查时若拿不准「这是真实缺陷，还是工具/约定/已知遗留的正常表现」，默认降一级或省略；宁可漏报疑似项，也不要用 [主要]/[阻断] 拦截正常改动。下列情形是历史评审中反复出现的误报，明确禁止作为问题提出：
+
+- **`# added` 等临时标记注释**：`# added` 是开发/评审过程中**有意的临时标记**（标注本次新增行），不是「AI 生成痕迹」，也**不要**建议「删除 AI 生成的注释 / 保持代码干净」。除非该 marker 被明确要求移除，否则一律忽略（适用任何语言的注释，含 Python）。
+- **字体文件体积**：**禁止**在未实际测量时就字体文件大小（KB/MB）、「是否过大」「是否影响加载」做数值断言。若确有性能怀疑，先核实真实文件大小再提，且至多 [次要]。
+- **`font-feature-settings` 与 `font-variant-numeric`**：二者语义不同（前者开关 OpenType 特性如连字/旧式数字，后者是高层排版简写），**不要**判定为「冗余/重复」而建议删去其一；仅当确证两者作用完全冲突时才提。
+- **PDM lock 文件版本变化**：`pdm` 重新生成 `pdm.lock` 会带来 `lock_version` 变动、`requires_python` 元数据变化、依赖解析漂移，这些是**工具重生成的正常产物，非人为降级或回归**。**不要**把 lock 文件的版本号/元数据变化当作问题；仅当确能证明引入了未授权依赖、或版本回退到已知有漏洞的版本时才提。
+- **GitHub Actions 版本标签**：`actions/checkout@v5`、`actions/setup-python@v6` 等是**真实存在的标签**（本仓库工作流如 `.github/workflows/ai-review.yml` 自身即用 `actions/checkout@v5`）。**不要**以「可能不存在/最新是 vX」为由要求降级；仅在标签明显不存在（如 `@v99`）时才提示。
+- **`DEV_DATABASE_URL` / `DEV_USER_DATABASE_URL`**：本仓库有意将 `DEV_*` 变量指向特定库用于本地/CI 验证，是**预期行为而非生产泄漏**。**不要**当作「误连生产库」风险，除非确能看到密钥泄漏到公开位置。
+- **`get_db()` 碰 user 域表（#1085）**：已明确为已知遗留（见上文清单），即便已有说明仍**不要就单处 `get_db()` 提 [阻断]/[主要]，也不要每处都重复警告**；仅当 PR 本身以双库/双 Session 为目标、或确证改动了 Session 路由时，才以 [次要] 引用 #1085。
+- **`server_default` / SQLAlchemy 默认值**：`server_default`、文本/表达式默认值是常规写法，**不要**把它们本身当作「SQL 表达式问题」或安全隐患；仅在确有证据表明会导致迁移失败或数据错误（如有现存 NULL 行却无回填迁移）时才以 [次要] 提出并附证据。
+- **`nullable` 字段变更**：模型字段 `nullable` 改动是**常规 schema 演进**，**不要**一律升格为 [主要]/[阻断]；仅当确有证据表明缺少迁移脚本且会破坏存量数据时，才以 [次要] 提出并说明具体风险。
+- **删除列 / 属性 / 事件处理器 / Props**：移除字段、props、事件处理器或 UI 元素是**常见重构**；若 diff 显示其已被对应替换或不再被任何调用方引用，**不要**以「可能是破坏性变更」为由阻止；只有确能证明仍有调用方依赖该符号（且未被同步修改）时，才按真实破坏风险定级。
+- **文档路径引用**：引用文档/规范路径前先确认文件真实存在（如 `docs/configs/`、`docs/spec/`），**不要**混淆路径或断言某文件「不存在/应移动到别处」；不确定时指明「请核对路径」而非断言错误。
 
 ## 输出语言（重要）
 
