@@ -37,7 +37,7 @@
 - 净值定时同步 `FundNavSyncJob` 已实现、注册，并**已接入每日调度器触发**
   （`app/tools/scheduler.py` + `.github/workflows/daily-snapshot.yml`，UTC 17:00 跑 `pdm run scheduler`；
   亦可由 SCF cron / 系统 cron 外部触发，详见该 workflow 注释）。
-  用户请求路径（聚合页/账本统计/XIRR 等）一律传 `allow_remote=False` 不触网；
+   用户请求路径（聚合页/账本统计/XIRR 等）当前均传 `allow_remote=False` 不触网；
   净值刷新统一由每日调度负责——调度器走 `DataSyncOrchestrator → FundNavSyncJob` 直连 xalpha/akshare
   适配器，不经 `NavService.get_latest_navs` 的 `allow_remote` 闸门，故始终远程拉取最新净值，无需手动执行。
 
