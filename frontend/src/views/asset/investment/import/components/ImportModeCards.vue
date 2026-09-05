@@ -9,6 +9,7 @@ const {
   selectedLedgerId,
   ledgerType,
   ledgerTypeLabel,
+  availableModes,
   goToManualEntry,
   openAiImport,
   goToLiabilityForm
@@ -72,6 +73,13 @@ function onLiability() {
 function goToHoldingImport() {
   router.push({ name: "InvestmentEaccountImport" });
 }
+
+// 平台 logo 加载失败兜底：隐藏裂图，仅保留文字名
+// （#1325 review：m.logo 指向 public/logos/*.svg，路径缺失时避免破图占位影响观感）
+function onVendorLogoError(e: Event) {
+  const img = e.target as HTMLImageElement | null;
+  if (img) img.style.display = "none";
+}
 </script>
 
 <template>
@@ -112,6 +120,28 @@ function goToHoldingImport() {
         <IconifyIconOffline icon="ep:document" class="mode-icon" />
         <h4 class="mode-title">导入持仓快照</h4>
         <p class="mode-desc">上传平台导出的持仓文件，自动归入对应账户</p>
+      </div>
+    </div>
+
+    <!-- 支持导入来源：复用 useImportWizard.availableModes 的平台 logo，体现专业性 -->
+    <div v-if="availableModes?.length" class="vendor-support">
+      <span class="vendor-label">支持导入来源</span>
+      <div class="vendor-logos">
+        <div
+          v-for="m in availableModes"
+          :key="m.value"
+          class="vendor-item"
+          :title="m.label"
+        >
+          <img
+            v-if="m.logo"
+            :src="m.logo"
+            class="vendor-logo"
+            :alt="m.label"
+            @error="onVendorLogoError"
+          />
+          <span class="vendor-name">{{ m.label }}</span>
+        </div>
       </div>
     </div>
 
@@ -183,5 +213,46 @@ function goToHoldingImport() {
   font-size: 13px;
   color: var(--text-tertiary);
   text-align: center;
+}
+
+.vendor-support {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-top: 28px;
+}
+
+.vendor-label {
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+
+.vendor-logos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  justify-content: center;
+}
+
+.vendor-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+}
+
+.vendor-logo {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+}
+
+.vendor-name {
+  font-size: 13px;
+  color: var(--text-secondary);
 }
 </style>
