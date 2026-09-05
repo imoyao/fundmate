@@ -25,162 +25,167 @@
     :class="{ 'is-condensed': condensed && !batchMode }"
     :style="{ backgroundColor: 'var(--bg-page)' }"
   >
-    <!-- 主区域：单个工作区卡片。顶部按「双行分区」布局（#1281 第四轮修订，2026-09-05）：
+    <!-- 本页自有原生滚动容器：让布局 el-scrollbar 的内容正好撑满视口、自身不再滚动，
+         从而消除 el-scrollbar 每帧测量 scrollHeight/clientHeight 引发的 Forced reflow
+         与 requestAnimationFrame 耗时（控制台 [Violation]）。表头 position:sticky 吸顶
+         改为相对本容器（原生、平滑），搜索行收起也监听本容器滚动。 -->
+    <div class="watchlist-scroll">
+      <!-- 主区域：单个工作区卡片。顶部按「双行分区」布局（#1281 第四轮修订，2026-09-05）：
          第一行 .head-primary 承载「全局搜索 + 核心操作」，第二行 WatchlistFilterBar
          承载「分组 Tab（最左）+ 次级筛选 + 快捷图标」，两组元素互不挤占、层级分明；
          所有功能原样保留，滚动进入紧凑态时收起第一行把高度让给表格。 -->
-    <CardBlock class="watchlist-card">
-      <!-- 第一行：搜索 + 核心操作（滚动紧凑态收起，见下方 is-condensed 规则） -->
-      <div class="head-primary">
-        <!-- 批量模式：第一行整行切换为批量工具条 -->
-        <template v-if="batchMode">
-          <span
-            class="text-sm font-medium shrink-0"
-            :style="{ color: 'var(--text-primary)' }"
-          >
-            已选 {{ selectedItems.length }} 项
-          </span>
-          <el-select
-            v-model="batchMoveGroupId"
-            placeholder="移动到分组"
-            class="batch-move-select"
-            clearable
-            @change="handleBatchMoveToGroup"
-          >
-            <el-option
-              v-for="group in customGroups"
-              :key="group.id"
-              :label="group.name"
-              :value="group.id"
+      <CardBlock class="watchlist-card">
+        <!-- 第一行：搜索 + 核心操作（滚动紧凑态收起，见下方 is-condensed 规则） -->
+        <div class="head-primary">
+          <!-- 批量模式：第一行整行切换为批量工具条 -->
+          <template v-if="batchMode">
+            <span
+              class="text-sm font-medium shrink-0"
+              :style="{ color: 'var(--text-primary)' }"
             >
-              <div class="flex items-center gap-2">
-                <!-- 数据色例外：分组色为用户数据（非设计令牌），缺失时回退中性 token -->
-                <span
-                  class="w-2.5 h-2.5 rounded-full"
-                  :style="{
-                    backgroundColor: group.color || 'var(--text-tertiary)'
-                  }"
-                />
-                <span>{{ group.name }}</span>
-              </div>
-            </el-option>
-          </el-select>
-          <el-button
-            class="batch-delete-btn"
-            :disabled="selectedItems.length === 0"
-            @click="handleBatchDelete"
-          >
-            <IconifyIconOffline icon="ep:delete" class="mr-1" />
-            删除选中
-          </el-button>
-          <el-button type="primary" @click="toggleBatchMode">
-            退出批量模式
-          </el-button>
-        </template>
-
-        <!-- 正常模式：搜索占左、核心操作居右，中间留白呼吸 -->
-        <template v-else>
-          <div class="head-primary__search">
-            <el-input
-              v-model="searchKeyword"
-              placeholder="搜索自选..."
+              已选 {{ selectedItems.length }} 项
+            </span>
+            <el-select
+              v-model="batchMoveGroupId"
+              placeholder="移动到分组"
+              class="batch-move-select"
               clearable
-              :prefix-icon="Search"
-              class="watchlist-search"
-              @input="debounceSearch"
-            />
-            <el-tooltip
-              content="在当前自选列表中按代码或名称过滤"
-              placement="bottom-start"
-              :offset="8"
+              @change="handleBatchMoveToGroup"
             >
-              <IconifyIconOffline
-                icon="ep:info-filled"
-                class="search-hint text-sm cursor-help transition-opacity"
-                :style="{ color: 'var(--text-tertiary)' }"
-              />
-            </el-tooltip>
-          </div>
-          <div class="head-primary__actions">
-            <el-button plain @click="openSettingsDrawer">
-              <IconifyIconOffline icon="ep:setting" class="mr-1" />
-              管理
-            </el-button>
-            <el-button type="primary" @click="openAddDialog">
-              <IconifyIconOffline icon="ep:plus" class="mr-1" />
-              添加自选
-            </el-button>
-          </div>
-        </template>
-      </div>
-
-      <!-- 第二行（WatchlistFilterBar）：分组 Tab 最左 + 标签筛选/视图/新建 + 快捷图标 -->
-      <WatchlistFilterBar
-        :groups="groups"
-        :tags="tags"
-        :toolbar="toolbar"
-        :on-refresh="onCatalogChanged"
-        @view-change="handleViewChange()"
-        @tag-apply="tags.applyTagFilter()"
-        @tag-clear="tags.clearTagFilter()"
-        @manage-groups="groupManagerVisible = true"
-      >
-        <!-- 快捷图标组（#actions）：刷新/导出/AI 导入/实时估值开关，常驻本行最右；
-             与第一行的「管理 / 添加自选」主按钮分开，避免整排按钮挤在一起 -->
-        <template #actions>
-          <div v-if="!batchMode" class="header-actions">
-            <!-- 快捷图标组与筛选区之间的细分隔线（design.md 卡片内分割线） -->
-            <div class="head-divider" aria-hidden="true" />
-            <el-tooltip content="刷新" placement="bottom">
-              <el-button circle class="icon-tool-btn" @click="fetchData()">
-                <IconifyIconOffline icon="ep:refresh" />
-              </el-button>
-            </el-tooltip>
-
-            <el-tooltip content="导出" placement="bottom">
-              <el-button circle class="icon-tool-btn" @click="exportData">
-                <IconifyIconOffline icon="ep:download" />
-              </el-button>
-            </el-tooltip>
-
-            <el-tooltip content="AI 导入" placement="bottom">
-              <el-button circle class="icon-tool-btn" @click="openOcrDialog">
-                <IconifyIconOffline icon="ep:magic-stick" />
-              </el-button>
-            </el-tooltip>
-
-            <!-- 实时估值开关：开启 = 品牌色高亮（tooltip「关闭实时估值」），关闭 = 中性弱化 -->
-            <el-tooltip :content="toggleBtnText" placement="bottom">
-              <el-button
-                circle
-                class="icon-tool-btn"
-                :class="{ 'is-active': toggleBtnText.includes('关闭') }"
-                @click="realtime.toggle()"
+              <el-option
+                v-for="group in customGroups"
+                :key="group.id"
+                :label="group.name"
+                :value="group.id"
               >
-                <IconifyIconOffline icon="ep:lightning" />
+                <div class="flex items-center gap-2">
+                  <!-- 数据色例外：分组色为用户数据（非设计令牌），缺失时回退中性 token -->
+                  <span
+                    class="w-2.5 h-2.5 rounded-full"
+                    :style="{
+                      backgroundColor: group.color || 'var(--text-tertiary)'
+                    }"
+                  />
+                  <span>{{ group.name }}</span>
+                </div>
+              </el-option>
+            </el-select>
+            <el-button
+              class="batch-delete-btn"
+              :disabled="selectedItems.length === 0"
+              @click="handleBatchDelete"
+            >
+              <IconifyIconOffline icon="ep:delete" class="mr-1" />
+              删除选中
+            </el-button>
+            <el-button type="primary" @click="toggleBatchMode">
+              退出批量模式
+            </el-button>
+          </template>
+
+          <!-- 正常模式：搜索占左、核心操作居右，中间留白呼吸 -->
+          <template v-else>
+            <div class="head-primary__search">
+              <el-input
+                v-model="searchKeyword"
+                placeholder="搜索自选..."
+                clearable
+                :prefix-icon="Search"
+                class="watchlist-search"
+                @input="debounceSearch"
+              />
+              <el-tooltip
+                content="在当前自选列表中按代码或名称过滤"
+                placement="bottom-start"
+                :offset="8"
+              >
+                <IconifyIconOffline
+                  icon="ep:info-filled"
+                  class="search-hint text-sm cursor-help transition-opacity"
+                  :style="{ color: 'var(--text-tertiary)' }"
+                />
+              </el-tooltip>
+            </div>
+            <div class="head-primary__actions">
+              <el-button plain @click="openSettingsDrawer">
+                <IconifyIconOffline icon="ep:setting" class="mr-1" />
+                管理
               </el-button>
-            </el-tooltip>
-          </div>
+              <el-button type="primary" @click="openAddDialog">
+                <IconifyIconOffline icon="ep:plus" class="mr-1" />
+                添加自选
+              </el-button>
+            </div>
+          </template>
+        </div>
+
+        <!-- 第二行（WatchlistFilterBar）：分组 Tab 最左 + 标签筛选/视图/新建 + 快捷图标 -->
+        <WatchlistFilterBar
+          :groups="groups"
+          :tags="tags"
+          :toolbar="toolbar"
+          :on-refresh="onCatalogChanged"
+          @view-change="handleViewChange()"
+          @tag-apply="tags.applyTagFilter()"
+          @tag-clear="tags.clearTagFilter()"
+          @manage-groups="groupManagerVisible = true"
+        >
+          <!-- 快捷图标组（#actions）：刷新/导出/AI 导入/实时估值开关，常驻本行最右；
+             与第一行的「管理 / 添加自选」主按钮分开，避免整排按钮挤在一起 -->
+          <template #actions>
+            <div v-if="!batchMode" class="header-actions">
+              <!-- 快捷图标组与筛选区之间的细分隔线（design.md 卡片内分割线） -->
+              <div class="head-divider" aria-hidden="true" />
+              <el-tooltip content="刷新" placement="bottom">
+                <el-button circle class="icon-tool-btn" @click="fetchData()">
+                  <IconifyIconOffline icon="ep:refresh" />
+                </el-button>
+              </el-tooltip>
+
+              <el-tooltip content="导出" placement="bottom">
+                <el-button circle class="icon-tool-btn" @click="exportData">
+                  <IconifyIconOffline icon="ep:download" />
+                </el-button>
+              </el-tooltip>
+
+              <el-tooltip content="AI 导入" placement="bottom">
+                <el-button circle class="icon-tool-btn" @click="openOcrDialog">
+                  <IconifyIconOffline icon="ep:magic-stick" />
+                </el-button>
+              </el-tooltip>
+
+              <!-- 实时估值开关：开启 = 品牌色高亮（tooltip「关闭实时估值」），关闭 = 中性弱化 -->
+              <el-tooltip :content="toggleBtnText" placement="bottom">
+                <el-button
+                  circle
+                  class="icon-tool-btn"
+                  :class="{ 'is-active': toggleBtnText.includes('关闭') }"
+                  @click="realtime.toggle()"
+                >
+                  <IconifyIconOffline icon="ep:lightning" />
+                </el-button>
+              </el-tooltip>
+            </div>
+          </template>
+        </WatchlistFilterBar>
+
+        <!-- 估值横幅与状态 -->
+        <!-- ✅ 核心修复：用 template 包裹，加上 v-if 物理移除整个模块 -->
+        <template v-if="realtimeEnabled">
+          <RealtimeWarningBanner />
+          <!-- 实时状态指示 + 刷新档位 + 汇总指标数据条（已抽离到 WatchlistSummaryBar） -->
+          <WatchlistSummaryBar
+            :realtime="realtime"
+            :refreshing="refreshing"
+            @interval-change="onRefreshIntervalChange"
+            @manual-refresh="handleManualRefresh"
+          />
         </template>
-      </WatchlistFilterBar>
 
-      <!-- 估值横幅与状态 -->
-      <!-- ✅ 核心修复：用 template 包裹，加上 v-if 物理移除整个模块 -->
-      <template v-if="realtimeEnabled">
-        <RealtimeWarningBanner />
-        <!-- 实时状态指示 + 刷新档位 + 汇总指标数据条（已抽离到 WatchlistSummaryBar） -->
-        <WatchlistSummaryBar
-          :realtime="realtime"
-          :refreshing="refreshing"
-          @interval-change="onRefreshIntervalChange"
-          @manual-refresh="handleManualRefresh"
-        />
-      </template>
-
-      <!-- 批量操作的「删除选中」已并入头部行 #actions（#1281 第四轮），
+        <!-- 批量操作的「删除选中」已并入头部行 #actions（#1281 第四轮），
            不再单独占一行，避免批量模式下顶部又多出一块 -->
 
-      <!--
+        <!--
           表格视觉基线（边框/表头/hover/文字色）统一在 src/style/el-table.css 维护，
           勿在本页 :deep(.el-table) 覆盖视觉基线；本页保留的 :deep 仅限行内行为样式。
           行高例外：全局基线 44px，本页为 56px——自选行承载「名称 / 代码+标签」与
@@ -190,98 +195,98 @@
           滚动条：EP 覆盖式滚动条保持默认 hover 显现（不常驻，避免横向+纵向两条常亮
           造成「双滚动条」观感），配色在 el-table.css 统一为 --border-default。
         -->
-      <!-- 表格容器：本页为「单滚动容器（页面滚动）」架构——el-table 不设固定 height，
+        <!-- 表格容器：本页为「单滚动容器（页面滚动）」架构——el-table 不设固定 height，
            直接按内容高度展开所有行，页面随布局 el-scrollbar 整体滚动（只有一条滚动条）。
            表头经 CSS position:sticky 吸顶（见本文件底部样式）；向下滚动时第一行搜索区
            与估值条收起（is-condensed）把高度让给表格。 -->
-      <div class="watchlist-table-wrap">
-        <el-table
-          ref="tableRef"
-          v-loading="loading"
-          :data="items"
-          :row-class-name="rowClassName"
-          stripe
-          @selection-change="handleSelectionChange"
-          @sort-change="handleSortChange"
-          @cell-mouse-enter="handleCellMouseEnter"
-          @cell-mouse-leave="handleCellMouseLeave"
-        >
-          <el-table-column
-            v-if="batchMode"
-            type="selection"
-            width="50"
-            align="center"
-            :selectable="row => row.id != null"
-          />
-          <!-- #995 columnDefs 数据驱动：全量列（仅 selection 因 type="selection" 无法 renderer 化，保留模板）。
-             product/marker/actions 均由 columnRenderers.tsx 渲染，详见 docs/spec/watchlist-column-defs.md。 -->
-          <el-table-column
-            v-for="def in dataColumns"
-            :key="def.key"
-            :prop="def.key"
-            :label="def.label"
-            :width="def.width"
-            :min-width="def.minWidth"
-            :align="def.align"
-            :fixed="def.fixed"
-            :sortable="def.sortable"
-            :class-name="def.draggable ? undefined : 'col-no-drag'"
-            :show-overflow-tooltip="def.showOverflowTooltip"
+        <div class="watchlist-table-wrap">
+          <el-table
+            ref="tableRef"
+            v-loading="loading"
+            :data="items"
+            :row-class-name="rowClassName"
+            stripe
+            @selection-change="handleSelectionChange"
+            @sort-change="handleSortChange"
+            @cell-mouse-enter="handleCellMouseEnter"
+            @cell-mouse-leave="handleCellMouseLeave"
           >
-            <template #default="{ row }">
-              <component
-                :is="resolveRenderer(def.renderer)"
-                :row="row as WatchlistItem"
-                :def="def"
-                :ctx="renderCtx"
-              />
-            </template>
-          </el-table-column>
+            <el-table-column
+              v-if="batchMode"
+              type="selection"
+              width="50"
+              align="center"
+              :selectable="row => row.id != null"
+            />
+            <!-- #995 columnDefs 数据驱动：全量列（仅 selection 因 type="selection" 无法 renderer 化，保留模板）。
+             product/marker/actions 均由 columnRenderers.tsx 渲染，详见 docs/spec/watchlist-column-defs.md。 -->
+            <el-table-column
+              v-for="def in dataColumns"
+              :key="def.key"
+              :prop="def.key"
+              :label="def.label"
+              :width="def.width"
+              :min-width="def.minWidth"
+              :align="def.align"
+              :fixed="def.fixed"
+              :sortable="def.sortable"
+              :class-name="def.draggable ? undefined : 'col-no-drag'"
+              :show-overflow-tooltip="def.showOverflowTooltip"
+            >
+              <template #default="{ row }">
+                <component
+                  :is="resolveRenderer(def.renderer)"
+                  :row="row as WatchlistItem"
+                  :def="def"
+                  :ctx="renderCtx"
+                />
+              </template>
+            </el-table-column>
 
-          <!-- 空状态：区分「标签筛选导致为空」与「本就无任何自选」，避免干巴巴的默认占位。
+            <!-- 空状态：区分「标签筛选导致为空」与「本就无任何自选」，避免干巴巴的默认占位。
              注：design.md 规划了鹦鹉螺简笔画空状态，现仓库无对应资产，先用文案版，待插画资产到位后替换。 -->
-          <template #empty>
-            <div class="watchlist-empty">
-              <p class="watchlist-empty__title">
-                {{
-                  selectedFilterTagIds.length > 0
-                    ? "暂无匹配所选标签的持仓"
-                    : "暂无自选资产"
-                }}
-              </p>
-              <p
-                v-if="selectedFilterTagIds.length > 0"
-                class="watchlist-empty__hint"
-              >
-                试试调整或清空标签筛选条件
-              </p>
-            </div>
-          </template>
-        </el-table>
-      </div>
+            <template #empty>
+              <div class="watchlist-empty">
+                <p class="watchlist-empty__title">
+                  {{
+                    selectedFilterTagIds.length > 0
+                      ? "暂无匹配所选标签的持仓"
+                      : "暂无自选资产"
+                  }}
+                </p>
+                <p
+                  v-if="selectedFilterTagIds.length > 0"
+                  class="watchlist-empty__hint"
+                >
+                  试试调整或清空标签筛选条件
+                </p>
+              </div>
+            </template>
+          </el-table>
+        </div>
 
-      <!-- 表格底栏：左侧总数 + 右侧翻页。
+        <!-- 表格底栏：左侧总数 + 右侧翻页。
            合规文案不放在本行（用户反馈放表格里很怪异），
            改由页面底部 .watchlist-footer 承担（见 CardBlock 之后）。 -->
-      <div class="table-footer">
-        <span class="table-footer__total">共 {{ totalItems }} 条</span>
-        <el-pagination
-          v-model:current-page="currentPage"
-          :page-size="pageSize"
-          :total="totalItems"
-          layout="prev, pager, next"
-          small
-          background
-          @current-change="() => fetchData(false)"
-        />
-      </div>
-    </CardBlock>
+        <div class="table-footer">
+          <span class="table-footer__total">共 {{ totalItems }} 条</span>
+          <el-pagination
+            v-model:current-page="currentPage"
+            :page-size="pageSize"
+            :total="totalItems"
+            layout="prev, pager, next"
+            small
+            background
+            @current-change="() => fetchData(false)"
+          />
+        </div>
+      </CardBlock>
 
-    <!-- 合规页脚：常驻页面底部，随页面滚动至最底部时自然显现（仅本页自绘，
+      <!-- 合规页脚：常驻页面底部，随页面滚动至最底部时自然显现（仅本页自绘，
          全局布局级页脚已通过路由 meta.hideFooter 隐藏，避免重复）。表头吸顶 +
          页脚置底，单滚动容器（页面滚动）承载，无双滚动条观感。 -->
-    <LayFooter />
-
+      <LayFooter />
+    </div>
     <!-- 弹窗部分 -->
     <AddToWatchlistModal
       v-model="addDialogVisible"
@@ -727,15 +732,17 @@ let scrollGetTop: (() => number) | null = null;
 const pageRef = ref<HTMLElement>();
 
 /** 找到本页真正的滚动容器：
-   - fixedHeader 布局：滚动由布局的 .el-scrollbar__wrap 承载。优先用 class 定位，
-     不依赖运行时 overflow 计算（内容未撑高时 scrollHeight 可能不大于 clientHeight，
-     旧逻辑会漏绑导致紧凑态永不触发）；
-   - 非 fixedHeader：页面由 window/document 原生滚动。 */
+   - 优先用本页自有原生滚动容器 .watchlist-scroll（承担全部纵向滚动），
+     这样布局 el-scrollbar 内容满高、自身不滚动，彻底消除其 onScroll 每帧
+     读取 scrollHeight/clientHeight 引发的 Forced reflow 与慢 rAF（控制台 [Violation]）；
+   - 兜底（异常路径）：回退到布局 .el-scrollbar__wrap / 窗口。 */
 function findScrollContainer(): {
   el: EventTarget;
   getTop: () => number;
 } | null {
   const page = pageRef.value;
+  const sc = page?.querySelector(".watchlist-scroll") as HTMLElement | null;
+  if (sc) return { el: sc, getTop: () => sc.scrollTop };
   if (page) {
     const wrap = page.closest(".el-scrollbar__wrap") as HTMLElement | null;
     if (wrap) return { el: wrap, getTop: () => wrap.scrollTop };
@@ -886,8 +893,21 @@ const renderCtx = computed<RenderCtx>(() => ({
 .watchlist-page {
   display: flex;
   flex-direction: column;
-  min-height: 100%;
-  overflow-x: clip;
+  /* 撑满布局 el-scrollbar 分配给本页的高度（fixedHeader 下 .grow 为确定高度），
+     使外层 el-scrollbar 内容正好满视口、自身不滚动——这是消除其每帧测量引发的
+     Forced reflow / 慢 rAF 的关键。 */
+  height: 100%;
+  overflow: hidden;
+}
+
+/* 本页自有原生滚动容器：承担全部纵向滚动（head/筛选/表格/页脚），
+   表头 position:sticky 相对它吸顶（原生、平滑）。外层 el-scrollbar 因内容满高
+   不再滚动，故不产生测量开销，控制台 [Violation] 消失。 */
+.watchlist-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 /* 高密度列表页：取消全局 .main-content 的 48px 边距，避免上下白边吞掉表格行数。 */
