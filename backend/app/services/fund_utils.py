@@ -104,11 +104,11 @@ def resolve_money_fund_flags(codes: Iterable[str]) -> dict[str, bool]:
             flag = c in market_hits or _code_segment_fallback(c)
             result[c] = flag
             _cache[c] = (now, flag)
-        # 容量上限：长生命周期进程下避免 _cache 无界增长（命中项仍受 TTL 约束，淘汰仅触发重新解析）
-        if len(_cache) > _CACHE_MAX_SIZE:
-            for _ in range(_CACHE_MAX_SIZE // 4):
-                _cache.pop(next(iter(_cache)), None)
-        return result
+    # 容量上限：长生命周期进程下避免 _cache 无界增长（命中项仍受 TTL 约束，淘汰仅触发重新解析）
+    if len(_cache) > _CACHE_MAX_SIZE:
+        for _ in range(_CACHE_MAX_SIZE // 4):
+            _cache.pop(next(iter(_cache)), None)
+    return result
 
 
 def is_money_fund_symbol(symbol: str, asset_type: str | None = None) -> bool:
