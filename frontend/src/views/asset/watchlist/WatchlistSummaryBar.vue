@@ -119,19 +119,23 @@ const intervalOptions = [
 /* #1281 第二轮：从 --space-2(8) 回到 --space-3(12)。
    第一轮为压高度收到 8px，估值条与上下区块几乎贴在一起，整页失去呼吸感；
    现在的取舍是「留白回到规范档位 + 滚动时整条收起」，两种状态各自干净。 */
+
+/* 下外边距逐步收紧：--space-3(12) → --space-2(8) → 4px（2026-09-05）。
+   本条是「顶部第三层」，与头部行/横幅叠加吃掉的都是首屏行数；4px 已贴近下表格，
+   靠底部分割线分区，视觉可接受。 */
 .summary-bar {
-  margin-bottom: var(--space-3);
+  margin-bottom: 4px;
 }
 
 /* 单行：左段状态+刷新（固定） / 右段汇总指标（弹性靠右）
-   （#1281 第二轮：padding 从 --space-1(4) 回到 --space-2(8)） */
+   （多轮收紧后 padding 落定 4px：本条无卡片背景、靠细线分区，4px 呼吸足够） */
 .summary-row {
   display: flex;
   gap: var(--space-2);
   align-items: center;
   justify-content: space-between;
   min-width: 0;
-  padding: var(--space-2) 0;
+  padding: 4px 0;
 }
 
 .summary-row__status {
@@ -187,21 +191,24 @@ const intervalOptions = [
   white-space: nowrap;
 }
 
+/* 汇总指标：#1281 第四轮整体降一档（label 12→11、value 14→13、主指标 18→16）。
+   顶部右侧这三个数字曾占据很大一块视觉重量，与下方表格争抢注意力；
+   降档后仍是「label + 等宽数字」结构，可读性不变，视觉重心回到列表。 */
 .metric-label {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-secondary);
 }
 
 .metric-value {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
 }
 
-/* 主指标（总盈亏）：18px/800 视觉锚点，红涨绿跌走 --color-rise/--color-fall */
+/* 主指标（总盈亏）：16px/800 视觉锚点，红涨绿跌走 --color-rise/--color-fall */
 .metric-value--pnl {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 800;
 }
 

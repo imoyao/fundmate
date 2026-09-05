@@ -1,15 +1,14 @@
 <!--
   AppFooter · 全站统一页脚（布局级）
-  简洁克制：品牌韵脚收束（brand-v1.7 §2）+ 合规免责 + 版权（含开源致谢入口，指向
-  docs 站 /acknowledgements，承担 MiSans/Inter 等第三方署名义务）
-  通过 v-if="show" 控制，避免登录/错误页误挂
+  极简版（#1281 第五轮，2026-09-05）：与左侧边栏折叠区 left-collapse 同高（40px），
+  收敛为「合规 + 版权 + 开源致谢」一行品牌记忆点，去掉单独的品牌韵脚行（该韵脚已上移至
+  navbar 品牌区）。同时把所有页面（含 watchlist）的页脚高度统一，避免之前 self-page
+  内自定义页脚导致的跨页面不一致。
+  通过 v-if="show" 控制，避免登录/错误页误挂。
 -->
 <template>
   <footer v-if="show" class="app-footer">
     <div class="app-footer__inner">
-      <p class="app-footer__brand">
-        多多贝，贝倍多——复利生长，越理越多。
-      </p>
       <p class="app-footer__disclaimer">
         市场有风险，投资需谨慎。本平台内容仅供参考，不构成任何投资建议。
       </p>
@@ -37,49 +36,34 @@ withDefaults(
 </script>
 
 <style lang="scss" scoped>
-@media (width <= 720px) {
-  .app-footer__inner {
-    align-items: flex-start;
-    text-align: left;
-  }
-}
-
 .app-footer {
-  margin-top: var(--space-standard);
+  /* 高度与左侧边栏折叠区（left-collapse 40px）同高——底部视觉一条水平线；
+     用 min-height 而非固定 height 防止内部内容（长链接/换行）溢出 */
+  min-height: 40px;
   color: var(--text-tertiary);
   background: var(--bg-page);
   border-top: 1px solid var(--border-light);
 
   &__inner {
     display: flex;
-    flex-direction: column;
-    gap: 8px;
+    flex-flow: row wrap;
+    gap: 4px 16px;
     align-items: center;
+    justify-content: center;
     max-width: 1400px;
-    padding: 24px var(--space-12);
+    min-height: 40px;
+    padding: 0 var(--space-12);
     margin: 0 auto;
     text-align: center;
   }
 
-  /* 品牌韵脚收束（brand-v1.7 §2）：页脚品牌记忆点，克制不喧宾夺主 */
-  &__brand {
-    margin: 0;
-    font-size: 13px;
-    font-weight: 500;
-    letter-spacing: 0.02em;
-    color: var(--text-secondary);
-  }
-
-  &__disclaimer {
-    margin: 0;
-    font-size: 12px;
-    line-height: 1.6;
-  }
-
+  &__disclaimer,
   &__copyright {
     margin: 0;
     font-size: 12px;
+    line-height: 1;
     color: var(--text-tertiary);
+    white-space: nowrap;
   }
 
   &__link {
@@ -93,5 +77,12 @@ withDefaults(
   }
 }
 
-/* 背景同色收尾：与页面底色一致，避免色块割裂（design.md） */
+/* 窄屏：两段回到垂直排版，避免被挤换行错位 */
+@media (width <= 720px) {
+  .app-footer__inner {
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px var(--space-12);
+  }
+}
 </style>

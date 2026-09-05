@@ -5,6 +5,7 @@ import { useTags } from "@/layout/hooks/useTag";
 import { useGlobal, isNumber } from "@pureadmin/utils";
 import BackTopIcon from "@/assets/svg/back_top.svg?component";
 import { h, computed, Transition, defineComponent } from "vue";
+import { useRoute } from "vue-router";
 import { usePermissionStoreHook } from "@/store/modules/permission";
 
 const props = defineProps({
@@ -28,8 +29,15 @@ const hideTabs = computed(() => {
   return $storage?.configure.hideTabs;
 });
 
+// 页脚显隐 = 全局设置 或 路由 meta.hideFooter。
+// meta.hideFooter 用于高密度列表页（自选 /watchlist）按页隐藏页脚：
+// 页脚是滚动内容里的全宽区块，约为 97px，占据表格可用高度近两行——
+// 数据密集型页面让页脚让位于列表（watchlist/index.vue 的表格高度计算会随之释放）。
+const currentRoute = useRoute();
 const hideFooter = computed(() => {
-  return $storage?.configure.hideFooter;
+  return (
+    $storage?.configure.hideFooter || currentRoute.meta.hideFooter === true
+  );
 });
 
 const stretch = computed(() => {
