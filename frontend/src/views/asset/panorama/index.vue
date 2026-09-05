@@ -178,8 +178,24 @@ async function fetchData() {
 
 onMounted(() => {
   fetchData();
-  // 惰性记录当日资产快照：失败静默，不阻塞首屏；同 natural 日后端幂等 upsert
-  postSnapshot().catch(() => {});
+  // 后台每日调度器(daily-snapshot.yml, 北京凌晨01:00)已负责落账；此处仅作可观测的补写兜底
+  // 验收#1182-②：失败打印告警，不再静默吞异常
+  // 每日去重（#1324 review）：前端按日期打标记，避免每次进入页面都打接口造成无谓压力
+  const snapKey = `snapshot_fallback_${new Date().toISOString().slice(0, 10)}`;
+  let postedToday = false;
+  try {
+    postedToday = !!localStorage.getItem(snapKey);
+  } catch {
+    /* 隐私模式 localStorage 不可用，降级为每次兜底补写 */
+  }
+  if (!postedToday) {
+    try {
+      localStorage.setItem(snapKey, '1');
+    } catch {
+      /* 同上，忽略 */
+    }
+    postSnapshot().catch((e) => console.warn('[snapshot] 惰性快照失败(后台定时任务将补写):', e));
+  }
 });
 </script>
 
