@@ -195,8 +195,9 @@
           滚动条：EP 覆盖式滚动条保持默认 hover 显现（不常驻，避免横向+纵向两条常亮
           造成「双滚动条」观感），配色在 el-table.css 统一为 --border-default。
         -->
-        <!-- 表格容器：本页为「单滚动容器（页面滚动）」架构——el-table 不设固定 height，
-           直接按内容高度展开所有行，页面随布局 el-scrollbar 整体滚动（只有一条滚动条）。
+        <!-- 表格容器：本页为「单滚动容器（本页 .watchlist-scroll 原生滚动）」架构——
+           el-table 不设固定 height，直接按内容高度展开所有行，由 .watchlist-scroll 承载
+           滚动（外层布局 el-scrollbar 因内容满高不再滚动，故无测量开销、无双滚动条）。
            表头经 CSS position:sticky 吸顶（见本文件底部样式）；向下滚动时第一行搜索区
            与估值条收起（is-condensed）把高度让给表格。 -->
         <div class="watchlist-table-wrap">
@@ -394,6 +395,7 @@ import RealtimeWarningBanner, {
 } from "@/components/RealtimeWarningBanner/index.vue";
 import type { Holding } from "@/utils/valuationEngine";
 import { formatDateTime } from "@/utils/date";
+import { useSettingStoreHook } from "@/store/modules/settings";
 // 列定义不再直接消费：dataColumns 经 useWatchlistColumnVisibility 的
 // visibleColumns 过滤取得（#993），本页只保留 renderer 注册表依赖
 import {
@@ -720,29 +722,35 @@ onMounted(() => {
 // ── #992 表头列拖拽：sortablejs 复用（RePureTableBar 同款方案）──
 const tableRef = ref();
 
-// ── 单滚动容器（页面滚动）+ 表头吸顶 + 底部页脚置底 ──
+// ── 单滚动容器（本页 .watchlist-scroll 原生滚动）+ 表头吸顶 + 底部页脚置底 ──
 // 用户原话：「向下拉的时候，能不能把这些收缩了」+「表头需要固定 + 拉到底展示 footer」。
 // 本页改为页面级滚动：el-table 不再设固定 height（因此没有内部滚动条），
-// 整页随布局 el-scrollbar 滚动；表头用 CSS position:sticky 吸顶（见下方样式），
-// 页脚作为页面底部正常流元素，滚动到最底部时自然显现。这样整页只有一个滚动条，
-// 彻底消除此前「外层布局滚动 + 内层表格滚动」双滚动条、且外层滚动把表头带跑的毛病。
+// 由本页自有 .watchlist-scroll 承载滚动；表头用 CSS position:sticky 吸顶（见下方样式），
+// 页脚作为页面底部正常流元素，滚动到最底部时自然显现。外层布局 el-scrollbar 因内容满高
+// 不再滚动，故不产生每帧测量开销——彻底消除此前「外层布局滚动 + 内层表格滚动」双滚动条、
+// 外层滚动把表头带跑、以及 el-scrollbar 每帧测量引发的 Forced reflow / 慢 rAF 的毛病。
 const condensed = ref(false);
 let pageScrollEl: EventTarget | null = null;
 let scrollGetTop: (() => number) | null = null;
 const pageRef = ref<HTMLElement>();
 
-/** 找到本页真正的滚动容器：
-   - 优先用本页自有原生滚动容器 .watchlist-scroll（承担全部纵向滚动），
-     这样布局 el-scrollbar 内容满高、自身不滚动，彻底消除其 onScroll 每帧
-     读取 scrollHeight/clientHeight 引发的 Forced reflow 与慢 rAF（控制台 [Violation]）；
-   - 兜底（异常路径）：回退到布局 .el-scrollbar__wrap / 窗口。 */
+/** 找到本页真正的滚动容器（按 fixedHeader 模式分流，避免运行时测量带来的时序问题）：
+   - fixedHeader=true（默认）：本页自有原生滚动容器 .watchlist-scroll 承担全部纵向滚动，
+     布局 el-scrollbar 内容满高、自身不滚动，彻底消除其 onScroll 每帧读取
+     scrollHeight/clientHeight 引发的 Forced reflow 与慢 rAF（控制台 [Violation]）；
+   - fixedHeader=false：布局把整页（含导航）裹进同一个 el-scrollbar，外层必然滚动，
+     本页 .watchlist-scroll 退化为透传（高度链在 nofixed 模式下不确定），回退到
+     布局 .el-scrollbar__wrap / 窗口，保证「滚动收起搜索」逻辑仍生效。 */
 function findScrollContainer(): {
   el: EventTarget;
   getTop: () => number;
 } | null {
   const page = pageRef.value;
-  const sc = page?.querySelector(".watchlist-scroll") as HTMLElement | null;
-  if (sc) return { el: sc, getTop: () => sc.scrollTop };
+  const fixed = useSettingStoreHook()?.fixedHeader;
+  if (fixed) {
+    const sc = page?.querySelector(".watchlist-scroll") as HTMLElement | null;
+    if (sc) return { el: sc, getTop: () => sc.scrollTop };
+  }
   if (page) {
     const wrap = page.closest(".el-scrollbar__wrap") as HTMLElement | null;
     if (wrap) return { el: wrap, getTop: () => wrap.scrollTop };
@@ -881,14 +889,13 @@ const renderCtx = computed<RenderCtx>(() => ({
    留白回到规范值，可见行数靠「行高 52px + 滚动时收起顶部区块」去换，不再靠挤压留白。
    ====================================== */
 
-/* 自选页容器（单滚动容器版）：
-   - 本页改用「页面滚动」承载（而非表格内部滚动）：el-table 不设固定 height，
-     按内容高度展开所有行，整页随布局 el-scrollbar 滚动——整页只有一条滚动条，
-     彻底消除此前 fixedHeader 下「外层布局滚动 + 内层表格滚动」双滚动条、且外层滚动
-     把表头带跑（吸顶失效）的毛病；
-   - .watchlist-page 仅 min-height:100% 让短内容页也撑满视口、页脚贴底，
-     内容超过视口时自然增高由布局滚动——不再用 calc(100vh - 86px) 这种硬编码头部高度
-     （此前误把头部高度写死导致页面溢出布局、双滚动条）；
+/* 自选页容器（单滚动容器版，fixedHeader 模式）：
+   - 本页用「本页自有原生滚动容器 .watchlist-scroll」承载（而非表格内部滚动，也非布局
+     el-scrollbar 滚动）：el-table 不设固定 height，按内容高度展开所有行；.watchlist-scroll
+     撑满布局分配给本页的高度，使外层 el-scrollbar 内容正好满视口、自身不再滚动——整页
+     只有一条（原生）滚动条，且外层 el-scrollbar 不再每帧测量，彻底消除 Forced reflow / 慢 rAF；
+   - .watchlist-page 用 height:100% 撑满 .grow（fixedHeader 下 .grow 为确定高度），短内容页也
+     撑满视口、页脚贴底；不再用 calc(100vh - 86px) 这种硬编码头部高度（此前误写死导致溢出/双滚动条）；
    - 同时释放 .main-content 默认的 48px 大边距，把空间还给表格。 */
 .watchlist-page {
   display: flex;
@@ -930,14 +937,15 @@ const renderCtx = computed<RenderCtx>(() => ({
   flex-direction: column;
 }
 
-/* 表头吸顶：本页为单滚动容器（页面滚动），表头随页面滚动时固定在滚动视口顶部；
-   z-index 高于行，背景用卡片色遮住下方滚动行，避免穿透。top:0 即贴滚动容器顶
-   （布局已用 padding 把导航/页签让出来，无需额外偏移）。
+/* 表头吸顶：本页滚动容器是 .watchlist-scroll（原生 overflow-y:auto），表头随其滚动时
+   固定在容器顶部；z-index 高于行，背景用卡片色（--bg-card，亮色纯白/暗色 #242120）遮住
+   下方滚动行，避免穿透重影。top:0 即贴容器顶（布局已用 .fixed-header 的 padding-top
+   把导航/页签让出来，无需额外偏移）。
    关键：el-table 默认 overflow:hidden，会成为 header-wrapper 的「最近滚动祖先」，
-   导致 sticky 相对表格自身（不随页面滚）而非页面滚动容器 .el-scrollbar__wrap，
+   导致 sticky 相对表格自身（不随页面滚）而非页面滚动容器 .watchlist-scroll，
    表头会随页面一起滚走——这正是此前吸顶反复失效的根因。本页表格无内部滚动，
-   改为 overflow:visible 让 sticky 正确吸附到布局滚动容器。（无横向滚动，
-   横向溢出由 .watchlist-page 的 overflow-x:clip 裁切，不会外溢）。 */
+   改为 overflow:visible 让 sticky 正确吸附到 .watchlist-scroll。（无横向滚动，
+   横向溢出由 .watchlist-scroll 的 overflow-x:hidden 裁切，不会外溢）。 */
 .watchlist-table-wrap :deep(.el-table) {
   overflow: visible;
 }
