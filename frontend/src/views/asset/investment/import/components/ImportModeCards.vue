@@ -9,6 +9,7 @@ const {
   selectedLedgerId,
   ledgerType,
   ledgerTypeLabel,
+  availableModes,
   goToManualEntry,
   openAiImport,
   goToLiabilityForm
@@ -115,6 +116,22 @@ function goToHoldingImport() {
       </div>
     </div>
 
+    <!-- 支持导入来源：复用 useImportWizard.availableModes 的平台 logo，体现专业性 -->
+    <div class="vendor-support">
+      <span class="vendor-label">支持导入来源</span>
+      <div class="vendor-logos">
+        <div
+          v-for="m in availableModes"
+          :key="m.value"
+          class="vendor-item"
+          :title="m.label"
+        >
+          <img v-if="m.logo" :src="m.logo" class="vendor-logo" alt="" />
+          <span class="vendor-name">{{ m.label }}</span>
+        </div>
+      </div>
+    </div>
+
     <p v-if="!accountSelected" class="mode-cards-lock-hint">
       请先在上方选择导入账户，再选择录入方式
     </p>
@@ -183,5 +200,46 @@ function goToHoldingImport() {
   font-size: 13px;
   color: var(--text-tertiary);
   text-align: center;
+}
+
+.vendor-support {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-top: 28px;
+}
+
+.vendor-label {
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+
+.vendor-logos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  justify-content: center;
+}
+
+.vendor-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+}
+
+.vendor-logo {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+}
+
+.vendor-name {
+  font-size: 13px;
+  color: var(--text-secondary);
 }
 </style>
