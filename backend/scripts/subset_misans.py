@@ -100,8 +100,10 @@ def subset_one(src_name: str, out_name: str, charset: str) -> None:
     options = Options()
     options.flavor = 'woff2'
     options.text = charset
-    options.layout_features = ['*']  # 保留 kern/mark 等排版特性
-    options.drop_tables += ['GSUB']  # 中文界面一般无需复杂 GSUB 换形
+    # 仅保留中文排版所需 GPOS 特性，避免 layout_features=['*'] 与 drop GSUB 自相矛盾
+    # （GSUB 承载的复杂换形中文界面用不到；'*' 会把 GSUB/GPOS 全特性引入，放大产物）
+    options.layout_features = ['kern', 'mark', 'mkmk']
+    options.drop_tables += ['GSUB']
     options.hinting = False  # 减小体积（屏幕渲染可接受）
     options.desubroutinize = True
     options.notdef_glyph = True
@@ -112,8 +114,10 @@ def subset_one(src_name: str, out_name: str, charset: str) -> None:
     subsetter.populate(text=charset)
     subsetter.subset(font)
     out_path = OUT_DIR / out_name
-    font.save(str(out_path))
-    font.close()
+    try:
+        font.save(str(out_path))
+    finally:
+        font.close()
     size = out_path.stat().st_size
     print(f'  -> {out_name}: {size / 1024:.1f} KB')
 
@@ -126,13 +130,19 @@ def main() -> None:
     charset_file.write_text(charset, encoding='utf-8')
     print(f'[charset] {len(charset)} chars -> {charset_file.name}')
 
-    # 校验母本覆盖字表（缺字提醒，不阻断）
-    probe = TTFont(str(SOURCE_DIR / 'MiSans-Regular.woff2'))
-    cmap = probe.getBestCmap()
-    missing = [ch for ch in charset if ord(ch) not in cmap]
-    if missing:
-        print(f'[warn] 母本缺字 {len(missing)} 个（将回退系统字体）：{"".join(missing[:50])}')
-    probe.close()
+    # 校验母本覆盖字表（缺字提醒，不阻断；母本缺失则跳过校验，与 subset_one 跳过逻辑一致）
+    probe_path = SOURCE_DIR / 'MiSans-Regular.woff2'
+    if probe_path.exists():
+        probe = TTFont(str(probe_path))
+        try:
+            cmap = probe.getBestCmap()
+            missing = [ch for ch in charset if ord(ch) not in cmap]
+            if missing:
+                print(f'[warn] 母本缺字 {len(missing)} 个（将回退系统字体）：{"".join(missing[:50])}')
+        finally:
+            probe.close()
+    else:
+        print(f'[warn] 母本缺失，跳过缺字校验: {probe_path}')
 
     for src_name, out_name in WEIGHTS:
         subset_one(src_name, out_name, charset)

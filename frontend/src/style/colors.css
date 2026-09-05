@@ -199,12 +199,15 @@
      规范：docs/design/font-design.md §1.2/§11.3
      --font-latin = Inter（西文/数字/半角符号），--font-cjk = MiSans（中文）
      @font-face 声明在 fonts.css，unicode-range 隔离保证拉丁/数字不落 MiSans
+     注意：--font-latin 不得放 system-ui/sans-serif 等含中文字形的通用兜底，
+     否则会先于 MiSans 命中中文、导致 MiSans 实际不生效（评审 2026-09-04）
      半角数字由 Inter 承担，等宽对齐走 font-variant-numeric: tabular-nums */
-  --font-latin: "Inter", system-ui, sans-serif;
-  --font-cjk: "MiSans", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-latin: "Inter";
+  --font-cjk: "MiSans", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
   --font-sans: var(--font-latin), var(--font-cjk);
-  /* 数字等宽：优先 Inter（自带 tabular-nums），system mono 仅作极端兜底 */
-  --font-mono: "Inter", "SF Mono", "JetBrains Mono", monospace;
+  /* 等宽（代码/代码-like 场景：基金代码、OCR 文本域等）：真等宽字体优先；
+     Inter 非等宽，不放首位，避免退化比例字体 */
+  --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, monospace;
 
   /* ===== 间距 ===== */
   --space-1: 4px;

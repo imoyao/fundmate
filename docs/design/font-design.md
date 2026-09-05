@@ -46,17 +46,19 @@
 ```css
 :root {
   /* ---- 抽象层（业务代码只认变量） ---- */
-  --font-latin: "Inter", system-ui, sans-serif;              /* 拉丁/数字/半角符号 */
-  --font-cjk: "MiSans", "PingFang SC", "Microsoft YaHei", sans-serif; /* 中文 */
+  /* --font-latin 只放 Inter：禁止混入 system-ui/sans-serif 等含中文字形的兜底，
+     否则会先于 MiSans 命中中文、导致 MiSans 实际不生效（评审 2026-09-04） */
+  --font-latin: "Inter";                                     /* 拉丁/数字/半角符号 */
+  --font-cjk: "MiSans", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; /* 中文 */
 
   /* ---- 组合栈（业务场景直接调用） ---- */
   --font-base: var(--font-latin), var(--font-cjk);           /* 全局默认 */
-  --font-num: var(--font-latin);                             /* 数字专用（强制 Inter） */
+  --font-num: var(--font-latin);                             /* 数字专用（强制 Inter，等宽走 tabular-nums） */
 }
 
 /* ---- 备选对比开关（普惠体 3.0） ---- */
 body.font-compare-a {
-  --font-cjk: "Alibaba PuHuiTi 3.0", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-cjk: "Alibaba PuHuiTi 3.0", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
 }
 ```
 
@@ -64,21 +66,23 @@ body.font-compare-a {
 
 ### 1.3 @font-face 声明（自托管 + unicode-range 隔离）
 
+> 实际落地文件名与下文一致，见 `frontend/src/style/fonts.css`（评审 2026-09-04 对齐，修正了 v1.1 假想的 `*-variable.woff2` 命名）。生产使用自托管 latin 子集与 GB2312 静态子集，无官方 VF.woff2。
+
 ```css
-/* —— 1. Inter：西文 / 数字 / UI，可变字体 —— */
+/* —— 1. Inter：西文 / 数字 / UI（latin 可变子集，wght 100-900 单文件） —— */
 @font-face {
   font-family: "Inter";
-  src: url("/fonts/inter-variable.woff2") format("woff2-variations");
+  src: url("/fonts/inter-latin-wght-normal.woff2") format("woff2-variations");
   font-weight: 100 900;
   font-style: normal;
   font-display: swap;            /* 避免 FOIT，先系统字后平滑替换 */
 }
 
-/* —— 2. Mi Sans：中文，仅覆盖 CJK 区块，绝不拦截拉丁 —— */
+/* —— 2. Mi Sans：中文，按字重分包（400/500/600/700），仅覆盖 CJK 区块 —— */
 @font-face {
   font-family: "MiSans";
-  src: url("/fonts/misans-variable.woff2") format("woff2-variations");
-  font-weight: 100 900;
+  src: url("/fonts/misans-subset-400.woff2") format("woff2");
+  font-weight: 400;
   font-style: normal;
   font-display: swap;
   unicode-range:
@@ -92,6 +96,7 @@ body.font-compare-a {
     U+FF40-FF5E,                 /* 全角 ｀ａ－ｚ｛｜｝～ */
     U+FFE0-FFE6;                 /* 全角货币符号（￠￡¤￥｜§）——此处交 Mi Sans 匹配中文语境 */
 }
+/* 500 / 600 / 700 三段同构声明，仅 src 换 misans-subset-{500,600,700}.woff2、font-weight 对应 */
 ```
 
 > **关键效果**：半角 `%`、`$`、`,`、`.` 永远由 Inter 渲染（天然等宽）；全角 `％`、`￥`、`。` 由 Mi Sans 渲染（与中文排版语境匹配），两者各司其职，互不抢位。
@@ -132,19 +137,26 @@ body.font-compare-a {
 ### 3.2 CSS 规则
 
 ```css
-/* 全局：账本类界面默认等宽数字 */
+/* 账本类页面根容器：仅开启 tabular-nums 数字等宽基线，
+   font-family 保持继承（中文必须继续走 MiSans，不得覆写为 var(--font-num)） */
 body.ledger,
+.page-ledger {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 数字元素：Inter + tabular-nums 等宽对齐（字体仅作用于数值，不影响中文） */
 .num,
 .amount,
 .rate,
 .quantity {
   font-variant-numeric: tabular-nums;
-  font-feature-settings: "tnum" 1;   /* 双写兼容旧引擎 */
-  font-family: var(--font-num);      /* 确保 Inter 优先 */
+  font-family: var(--font-num);
 }
 
 /* 千分位 / 货币符号由 Inter 处理，无需额外规则 */
 ```
+
+> 评审注（2026-09-04）：① `font-family: var(--font-num)` 只允许出现在**数字元素**上，禁止挂在账本根容器——否则整页中文会优先走 Inter 而跳过 MiSans；② 全站 `body` 级不强制 `tabular-nums`（避免年份/非账本数字被波及），由账本根容器与数字元素各自声明。
 
 ### 3.3 场景清单
 
@@ -220,9 +232,11 @@ CJK 全字重体积巨大，必须子集化，否则首屏被拖垮。**v1.2 实
 
 ### 5.3 加载策略
 
-```css
-/* font-display: swap 已声明，防止 FOIT */
-/* 首屏仅预加载 Inter latin 与 Mi Sans Regular(400)；500/600/700 由浏览器按需拉取 */
+> preload 属于 HTML，须放在 `index.html` 的 `<head>`（不是 CSS），已落地于应用站 `frontend/index.html`（评审 2026-09-04 修正 v1.1 误写进 CSS 代码块的问题）：
+
+```html
+<!-- index.html <head>：font-display: swap 在 @font-face 已声明，防止 FOIT -->
+<!-- 首屏仅预加载 Inter latin 与 Mi Sans Regular(400)；500/600/700 由浏览器按需拉取 -->
 <link rel="preload" href="/fonts/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/misans-subset-400.woff2" as="font" type="font/woff2" crossorigin>
 ```
@@ -321,7 +335,7 @@ CJK 全字重体积巨大，必须子集化，否则首屏被拖垮。**v1.2 实
 | 原问题 | 最终决策 |
 |---|---|
 | **1. 字阶表与《设计语言》冲突？** | **按 §2.2 落地**。经核对，Display(32/40)、Body(16)、Small(14) 与规范完全一致；H1(28) 为规范外新增页面级标题，Micro 中文锁定 **14px 下限**。 |
-| **2. Mi Sans 实际可用字重文件？** | 生产环境**优先使用可变字体**（`MiSans-VF.woff2`）；若分包，下载 **Regular(400)、Medium(500)、Semibold(600)、Bold(700)** 四个固定字重即可覆盖 90% 场景。 |
+| **2. Mi Sans 实际可用字重文件？** | 官方提供 **Regular(400)、Medium(500)、Semibold(600)、Bold(700)** 四个固定字重（woff2，覆盖 90% 场景）；可变字体本地仅有 **`MiSansVF.ttf`**（~19.2MB，无 VF.woff2），暂不采用，待取得官方 VF.woff2 后再评估（评审 2026-09-04 修正原「生产优先 MiSans-VF.woff2」的不实表述）。 |
 | **3. 署名文案最终位置？** | **统一开源致谢页 `docs/acknowledgements.md`**（站点 `/acknowledgements`，2026-09-04 修订，原「首页页脚内联」方案废止）。文案：“界面中文由 MiSans 字体渲染，版权归小米科技。” + Inter（OFL）。应用站 AppFooter 版权区挂「开源致谢」链接入口。 |
 | **4. 探市/自选页是否单独微调？** | **暂不微调**。待 §4.2 混排验收完成后，若需调整，统一走 `:lang(zh)` 全局缩放，**禁止页面级覆写**。 |
 
@@ -348,13 +362,15 @@ CJK 全字重体积巨大，必须子集化，否则首屏被拖垮。**v1.2 实
 
 | 现有 token（业务代码已引用） | 落地取值 | 说明 |
 |---|---|---|
-| `--font-sans`（colors.css，现为 `Inter, -apple-system, "PingFang SC", sans-serif`） | `var(--font-latin), var(--font-cjk)` | 全局默认 UI/正文栈 |
-| `--font-mono` / `--font-number` / `--font-ui` / `--font-hero` | 经 design-tokens.css 语义别名指向 `--font-sans` 即可 | 数字等宽由 `tabular-nums` + Inter 承担，不再依赖系统 mono |
-| `--font-latin`（新增） | `"Inter", system-ui, sans-serif` | 西文/数字/半角符号 |
-| `--font-cjk`（新增） | `"MiSans", "PingFang SC", "Microsoft YaHei", sans-serif` | 中文 |
+| `--font-sans`（colors.css） | `var(--font-latin), var(--font-cjk)` | 全局默认 UI/正文栈 |
+| `--font-ui` / `--font-hero` | design-tokens.css 语义别名指向 `--font-sans` | 页面/标题继承全站字体栈 |
+| `--font-number` | design-tokens.css 指向 `--font-mono`（等宽） | 产品代码（基金代码）等宽语义 |
+| `--font-mono` | `"SF Mono", "JetBrains Mono", ui-monospace, monospace` | **真等宽优先**（评审 2026-09-04：Inter 非等宽，不得放首位破坏代码/等宽场景） |
+| `--font-latin`（新增） | `"Inter"`（**仅 Inter，不加 system-ui/sans-serif**） | 西文/数字/半角符号；通用兜底放 `--font-cjk` 尾部，避免截胡中文 |
+| `--font-cjk`（新增） | `"MiSans", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif` | 中文（含系统兜底） |
 
 - `@font-face` 的 `unicode-range` 隔离（§1.3）照常生效，拉丁/数字不落 Mi Sans。
-- **落地动作**：在 `colors.css` 声明 `--font-latin` / `--font-cjk`，改 `--font-sans` 取值为两变量组合；`reset.scss` 的 `body` 硬编码字体栈替换为 `var(--font-sans)`（同步处理 `.dark` 场景），并核对所有业务组件引用路径。
+- **落地动作（已实施）**：`colors.css` 声明 `--font-latin`（仅 `"Inter"`）/ `--font-cjk`（Mi Sans + 系统兜底），`--font-sans` 为两变量组合、`--font-mono` 为真等宽栈；`reset.scss` 的 `body` 硬编码字体栈替换为 `var(--font-sans, <系统兜底>)`；`theme.scss` 设 `--el-font-family` 指向 `var(--font-sans, <系统兜底>)` 统一 Element Plus 组件字体；`.dark` 场景无独立字体栈覆盖（字体变量位于 `:root` 全局）。**`body` 级不强制 `tabular-nums`**（评审 2026-09-04：避免非账本数字场景被波及），由账本根容器与数字元素各自声明（见 §3.2）。
 
 ### 11.4 性能预算实测数值（落地验收锚点）
 
