@@ -217,4 +217,12 @@ const transitionMain = defineComponent({
   flex-direction: column;
   width: 100%;
 }
+
+/* 主内容容器：在滚动视口（fixedHeader 时的 .el-scrollbar__view）内 flex:1 撑满可用高度，
+   页面才能到达视口底部、把整块区域交付给内部表格；否则 .grow 按内容高度撑开，
+   视口底部留出死区（如自选页页脚区域吃不到）。 */
+.grow {
+  flex: 1;
+  min-height: 0;
+}
 </style>

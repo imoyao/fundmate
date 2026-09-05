@@ -281,6 +281,10 @@
       </div>
     </CardBlock>
 
+    <!-- 合规页脚（2026-09-05 重写）：内置于本页、仅表格滚到最底部时显示；
+         平时不渲染，把整块底部空间让给表格（见 updateFooterVisibility）。 -->
+    <LayFooter v-if="showLocalFooter" :show="footerVisible" />
+
     <!-- 弹窗部分 -->
     <AddToWatchlistModal
       v-model="addDialogVisible"
@@ -352,7 +356,6 @@ import {
   computed,
   onMounted,
   onActivated,
-  onDeactivated,
   onBeforeUnmount,
   watch,
   nextTick
@@ -394,8 +397,13 @@ import {
   resolveRenderer,
   type RenderCtx
 } from "@/views/asset/watchlist/columnRenderers";
+import LayFooter from "@/layout/components/lay-footer/index.vue";
+import { useGlobal } from "@pureadmin/utils";
 
 defineOptions({ name: "Watchlist" });
+
+// 读取全局配置：用于判断布局级页脚是否被隐藏（HideFooter），决定本页是否自绘页脚
+const { $storage } = useGlobal();
 
 // 分组 / 标签 / 数据编排 / 工具栏 四类状态全部收敛到 composable（见 #980 拆分总纲）：
 // - groups：分组 tab 派生 + fetchGroups
@@ -713,7 +721,7 @@ onMounted(() => {
   observeHeaderResize();
   bindTableScroll();
   // 表格滚动 → 紧凑态在 onTableBodyScroll 内处理（head-primary/估值条折叠由表格让高度）；
-  // 全局页脚常驻，不参与任何滚动显隐逻辑。
+  // 页脚显隐由本页 updateFooterVisibility 控制（滚到底才显示，平时让空间给表格）。
 });
 
 // ── #992 表头列拖拽：sortablejs 复用（RePureTableBar 同款方案）──
@@ -825,46 +833,36 @@ function onTableBodyScroll() {
     condensed.value = next;
     scheduleRecalc();
   }
-  syncFooterVisibility();
+  updateFooterVisibility();
 }
 
 /**
- * 全局页脚显隐（#1281 回归修复 2026-09-05 第三轮）：
- * 表格内容滚到最底部时显示页脚（合规提示），滚动浏览中隐藏释放约 41px。
- * 直接操纵 DOM 而非 CSS 类：`.app-footer` 渲染在 lay-content（scoped 作用域），
- * 用选择器无论 :deep/:global 都跨不过组件边界，此前两轮正是因此没生效；
- * 这里在页面内 querySelector 拿到元素后设置 style.display，简单且必达。
- * - 表格不存在/不可滚（空数据、数据不足一屏）：显示页脚（守住合规底线）；
- * - 表格可滚且未滚到底：隐藏页脚，把高度让给表格。
+ * 页脚显隐（#1281 回归修复 2026-09-05 → 本轮重写）：
+ * 用户诉求——隐藏页脚是为了把底部空间让给表格多看数据行；但此前页脚是布局级元素、
+ * 由全局开关控制，隐藏后那块空间并没被表格吃掉（父容器 .grow 不自撑满 + 页脚根本没渲染），
+ * 形成底部死区。
+ * 现改为「页脚内置于本页、仅在表格滚到最底部时显示」：
+ *   - footerVisible=false（默认/未滚到底）→ 页脚不渲染，.watchlist-table-wrap(flex:1)
+ *     自动占满整页高度，表格更高、可见行更多；
+ *   - footerVisible=true（数据可滚且已滚到底，或数据不足一屏）→ 页脚渲染在页面最底部，
+ *     表格高度相应让出约 40px，页脚恰好贴底出现。
+ * 不再跨组件操作 DOM：页脚随 v-if 增删，空间由 flex 自动回收/释放。
+ * showLocalFooter 守卫：仅当布局级页脚被隐藏（全局 HideFooter）时才自绘页脚，避免重复。
  */
-let footerEl: HTMLElement | null | undefined;
-let footerHiddenByPage = false;
+const footerVisible = ref(true);
+const showLocalFooter = computed(() => Boolean($storage?.configure.hideFooter));
 
-function syncFooterVisibility() {
-  if (footerEl === undefined) {
-    footerEl = document.querySelector<HTMLElement>(".app-footer");
-  }
-  if (!footerEl) return;
+function updateFooterVisibility() {
   const el = bodyScrollEl;
-  const hide =
-    !!el && el.scrollHeight > el.clientHeight + 1
-      ? el.scrollTop + el.clientHeight < el.scrollHeight - 1
-      : false;
-  // 仅当显隐状态真实变化时操作 DOM + 重算表格（页脚隐藏释放的约 41px 给表格）
-  if (hide !== footerHiddenByPage) {
-    footerHiddenByPage = hide;
-    footerEl.style.display = hide ? "none" : "";
-    scheduleRecalc(0);
+  if (!el || el.scrollHeight <= el.clientHeight + 1) {
+    footerVisible.value = true; // 不可滚（空数据/不足一屏）：显示页脚守住合规
+    return;
   }
+  footerVisible.value = el.scrollTop + el.clientHeight >= el.scrollHeight - 1;
 }
 
-/** 离开本页/卸载时恢复页脚显示，避免其它页面 footer 被本页逻辑残留隐藏 */
-function restoreFooter() {
-  footerHiddenByPage = false;
-  if (footerEl) {
-    footerEl.style.display = "";
-  }
-}
+// 页脚显隐变化 → 表格可用高度变化 → 重算表格高度（v-if 增删的空间由 flex 自动回收）
+watch(footerVisible, () => scheduleRecalc(0));
 
 /** 绑定表格滚动容器：无数据时 EP 不渲染滚动容器，故每次加载完成后重绑一次 */
 function bindTableScroll() {
@@ -888,7 +886,7 @@ function bindTableScroll() {
       scheduleRecalc();
     }
     // 数据/容器就绪后同步页脚显隐（空数据 → 显示；可滚未到底 → 隐藏）
-    setTimeout(syncFooterVisibility, 120);
+    setTimeout(updateFooterVisibility, 120);
   });
 }
 
@@ -931,22 +929,20 @@ const realtimeEnabled = computed(() => realtime.enabled.value);
 onActivated(() => {
   recalcTableMaxHeight();
   bindTableScroll();
-  setTimeout(syncFooterVisibility, 150);
+  setTimeout(updateFooterVisibility, 150);
 });
 watch([realtimeEnabled, batchMode, loading], () => {
   recalcTableMaxHeight();
   bindTableScroll();
 });
 window.addEventListener("resize", recalcTableMaxHeight);
-// 切走本页（keep-alive 缓存但不可见）时恢复页脚显示，避免影响其它页面
-onDeactivated(restoreFooter);
+// 切走本页（keep-alive 缓存但不可见）时无需特殊处理：页脚为本页 v-if 元素，随页面卸载自动消失
 onBeforeUnmount(() => {
   window.removeEventListener("resize", recalcTableMaxHeight);
   headerResizeObserver?.disconnect();
   if (bodyScrollEl)
     bodyScrollEl.removeEventListener("scroll", onTableBodyScroll);
   if (recalcTimer) clearTimeout(recalcTimer);
-  restoreFooter();
 });
 
 // ── #995 columnDefs 数据驱动 + #993 列显隐：visibleColumns 已按用户隐藏集过滤
@@ -1034,9 +1030,9 @@ const renderCtx = computed<RenderCtx>(() => ({
   min-height: 0;
 }
 
-/* 全局页脚常驻：此前「表格滚到底才显示页脚」（body.watchlist-scrolling）已随
-   #1281 回归修复废弃——与紧凑态折叠叠加会造成头部状态滞留和占位空白。
-   表格要更多高度时走紧凑态折叠（见「紧凑态」规则），不再动页脚。 */
+/* 页脚处理（2026-09-05 重写）：页脚已改为本页内 v-if 元素，仅在表格滚到底时显示，
+   平时不渲染——此时 .watchlist-table-wrap(flex:1) 自动占满整页高度，把底部空间让给表格。
+   因此「表格要更多高度」无需再靠紧凑态去挤页脚，二者解耦。 */
 
 /* ======================================
    双行分区头部（#1281 第四轮修订，2026-09-05）
