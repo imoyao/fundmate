@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: main-v2
+          ref: dev
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -30,19 +30,16 @@ jobs:
       - name: Install PDM
         run: pip install pdm
 
+      # 统一使用项目配置（backend/pdm.toml 强制 use_uv=true）：
+      # 用 venv 模式跑 uv（CI 上 PEP 582 本地包模式与 uv 不兼容，故不再关 use_venv），
+      # 使 pdm.lock 由 uv resolver 生成，与本机开发保持一致，避免经典/uv 双 resolver 交替改写 lock。
       - name: Configure PDM
         working-directory: backend
         run: |
-          pdm config python.use_venv false
-          # CI runner 上 uv 不支持 PEP 582 本地包模式，关闭 use_uv 回退 pip 安装
-          pdm config use_uv false
+          pdm config python.use_venv true
 
       - name: PDM update (refresh lock + transitive deps)
         working-directory: backend
-        env:
-          # backend/pdm.toml 强制 use_uv=true，但 CI runner 上 uv 不支持 PEP 582；
-          # 用环境变量覆盖项目配置回退 pip 安装（env 优先级高于项目 pdm.toml）
-          PDM_USE_UV: "false"
         timeout-minutes: 30
         run: pdm update
 
@@ -57,7 +54,7 @@ jobs:
 
             > 由 `.github/workflows/backend-pdm-update.yml` 自动生成。合并后 GitHub Dependency Graph 上对应的 Dependabot 漏洞告警会自动 resolved。
           branch: chore/pdm-update
-          base: main-v2
+          base: dev
           labels: |
             dependencies
           add-paths: |
