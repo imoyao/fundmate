@@ -202,10 +202,15 @@
            .head-primary（搜索行）作为滚动首行自然滚出视口 = 搜索框自动隐藏；
            分组条 .filter-bar 与表头 sticky 连续吸顶。 -->
         <div class="watchlist-table-wrap">
+          <!-- 表格本体：数据/行操作渲染。loading 期间不显示 EP 全表遮罩（spinner），
+               改由下方 WatchlistTableSkeleton 覆盖「表头之下」区域做行级骨架占位。
+               :data 在 loading 时置空：分组切换/搜索等加载中，让表格回到表头 + 空体
+               的高度（整页收缩为一屏），骨架屏得以完整覆盖可视区——若保留旧行，
+               旧行高度会把页面撑长，滚到底部时骨架只盖到 wrap 高度、下方露出大片空白。 -->
           <el-table
             ref="tableRef"
-            v-loading="loading"
-            :data="items"
+            :data="loading ? [] : items"
+            empty-text=""
             :row-class-name="rowClassName"
             stripe
             @selection-change="handleSelectionChange"
@@ -245,26 +250,33 @@
               </template>
             </el-table-column>
 
-            <!-- 空状态：区分「标签筛选导致为空」与「本就无任何自选」，避免干巴巴的默认占位。
-             注：design.md 规划了鹦鹉螺简笔画空状态，现仓库无对应资产，先用文案版，待插画资产到位后替换。 -->
-            <template #empty>
-              <div class="watchlist-empty">
-                <p class="watchlist-empty__title">
-                  {{
-                    selectedFilterTagIds.length > 0
-                      ? "暂无匹配所选标签的持仓"
-                      : "暂无自选资产"
-                  }}
-                </p>
-                <p
-                  v-if="selectedFilterTagIds.length > 0"
-                  class="watchlist-empty__hint"
-                >
-                  试试调整或清空标签筛选条件
-                </p>
-              </div>
-            </template>
-          </el-table>
+            </el-table>
+          <!-- 空态覆盖层：表格无数据且非加载时，以绝对定位铺满「表头之下」的表格区
+               并垂直居中（问题 1：空分组时表格占满页面，而非文案悬在卡片中部）。
+               不复用 el-table #empty（其 empty-block 高度由 EP 撑到 280px 封顶，
+               无法在整段空表格区内垂直居中）；隐藏 el-table 自带空态文字
+               （empty-text=""）避免穿透。表头吸顶保留（30px，见 overlay top）。 -->
+          <div
+            v-if="!loading && items.length === 0"
+            class="watchlist-empty-overlay"
+          >
+            <p class="watchlist-empty__title">
+              {{
+                selectedFilterTagIds.length > 0
+                  ? "暂无匹配所选标签的持仓"
+                  : "暂无自选资产"
+              }}
+            </p>
+            <p
+              v-if="selectedFilterTagIds.length > 0"
+              class="watchlist-empty__hint"
+            >
+              试试调整或清空标签筛选条件
+            </p>
+          </div>
+          <!-- 骨架屏覆盖层：仅数据加载期间渲染（分组切换/首屏/搜索/翻页），
+               随 .watchlist-table-wrap 定位，top 对齐表头底部。 -->
+          <WatchlistTableSkeleton v-if="loading" />
         </div>
 
         <!-- 表格底栏：左侧总数 + 右侧翻页。
@@ -390,6 +402,7 @@ import { useWatchlistData } from "@/composables/useWatchlistData";
 import { useWatchlistToolbar } from "@/composables/useWatchlistToolbar";
 import { useWatchlistColumnVisibility } from "@/composables/useWatchlistColumnVisibility";
 import WatchlistFilterBar from "@/views/asset/watchlist/WatchlistFilterBar.vue";
+import WatchlistTableSkeleton from "@/views/asset/watchlist/WatchlistTableSkeleton.vue";
 import WatchlistSummaryBar from "@/views/asset/watchlist/WatchlistSummaryBar.vue";
 import RealtimeWarningBanner, {
   REALTIME_BANNER_DISMISS_KEY
@@ -717,6 +730,7 @@ onMounted(() => {
   });
   initHeaderDrag();
   bindStickyObserver();
+  bindPageMinHObserver();
 });
 
 // ── #992 表头列拖拽：sortablejs 复用（RePureTableBar 同款方案）──
@@ -737,17 +751,23 @@ const tableRef = ref();
 const pageRef = ref<HTMLElement>();
 let stickyObserver: ResizeObserver | null = null;
 
-/** 实测分组条 .filter-bar 高度（含底部 margin），写入表头吸顶偏移 CSS 变量。
+/** 实测分组条 .filter-bar 高度 + 顶部呼吸间距，写入吸顶偏移 CSS 变量。
  *  分组条是正常流元素，批量模式/视图 segmented/标签数量变化都可能改变其换行高度，
- *  故用 ResizeObserver 监听其几何变化，实时重算表头吸顶位置。 */
+ *  故用 ResizeObserver 监听其几何变化，实时重算吸顶位置。
+ *  - --watchlist-sticky-gap：吸顶时分条距滚动容器顶的「呼吸」间距（2026-09-05）。
+ *    分组条不贴面包屑/导航底部，上方留出容器背景（页面灰）形成悬浮面板观感；
+ *  - --watchlist-sticky-top = gap + offsetHeight（offsetHeight 不含分组条底部
+ *    margin）。表头吸在分条正下方，二者背景无缝连成「分条 + 表头」白色遮罩；
+ *    若把 margin 算进偏移会留 6px 透缝，滚动行从中闪出，像「悬浮按钮」（此前修复）。 */
+const STICKY_TOP_GAP = 12;
 function syncStickyOffset() {
   const page = pageRef.value;
   const bar = page?.querySelector<HTMLElement>(".filter-bar");
   if (!bar) return;
-  const mb = parseFloat(getComputedStyle(bar).marginBottom) || 0;
+  page?.style.setProperty("--watchlist-sticky-gap", `${STICKY_TOP_GAP}px`);
   page?.style.setProperty(
     "--watchlist-sticky-top",
-    `${bar.offsetHeight + mb}px`
+    `${bar.offsetHeight + STICKY_TOP_GAP}px`
   );
 }
 
@@ -758,6 +778,35 @@ function bindStickyObserver() {
   stickyObserver = new ResizeObserver(() => syncStickyOffset());
   stickyObserver.observe(bar);
   syncStickyOffset();
+}
+
+/** 把 .watchlist-page 的 min-height 设为外层滚动容器的可视高度。
+ *  滚动发生在布局层 .el-scrollbar__wrap（fixedHeader 模式唯一），其 clientHeight
+ *  等于「视口高度 - 顶部 header 高度」。本函数把此高度直接写到 .watchlist-page 的
+ *  min-height：内容少时（空态）撑满可视区、让 footer 贴底；内容多时由 max(content, h)
+ *  自然增长、超出后由外层 wrap 滚动，无需手动处理。
+ *  ResizeObserver 监听 wrap 尺寸变化（浏览器缩放/侧栏展开）实时同步。 */
+let pageMinHObserver: ResizeObserver | null = null;
+function findScrollWrap(): HTMLElement | null {
+  return pageRef.value?.closest(".el-scrollbar__wrap") as HTMLElement | null;
+}
+function syncPageMinHeight() {
+  const page = pageRef.value;
+  if (!page) return;
+  const wrap = findScrollWrap();
+  const h = wrap?.clientHeight || window.innerHeight;
+  page.style.minHeight = `${h}px`;
+}
+function bindPageMinHObserver() {
+  const wrap = findScrollWrap();
+  if (!wrap) {
+    syncPageMinHeight();
+    return;
+  }
+  if (pageMinHObserver) return;
+  pageMinHObserver = new ResizeObserver(() => syncPageMinHeight());
+  pageMinHObserver.observe(wrap);
+  syncPageMinHeight();
 }
 
 /** 给可拖拽中段列提交新顺序（固定列/内置列不参与，见 columnDefs.draggable） */
@@ -798,14 +847,20 @@ const realtimeEnabled = computed(() => realtime.enabled.value);
 // 批量/估值条/加载态变化也会引起分组条换行高度变化，实时重算表头吸顶偏移。
 onActivated(() => {
   bindStickyObserver();
+  bindPageMinHObserver();
 });
 watch([realtimeEnabled, batchMode, loading], () => {
-  nextTick(() => bindStickyObserver());
+  nextTick(() => {
+    bindStickyObserver();
+    bindPageMinHObserver();
+  });
 });
 // 切走本页（keep-alive 缓存但不可见）时断开 ResizeObserver
 onBeforeUnmount(() => {
   stickyObserver?.disconnect();
   stickyObserver = null;
+  pageMinHObserver?.disconnect();
+  pageMinHObserver = null;
 });
 
 // ── #995 columnDefs 数据驱动 + #993 列显隐：visibleColumns 已按用户隐藏集过滤
@@ -874,9 +929,13 @@ const renderCtx = computed<RenderCtx>(() => ({
    - 配套：布局组件 lay-content 的 el-scrollbar view 由 overflow:hidden 改为 clip，
      避免把 sticky 上溯到 wrap 的路截断（见 lay-content/index.vue）。 */
 .watchlist-page {
-  /* 普通块级流：高度随内容（表格有多少行就多高），由外层布局 el-scrollbar 滚动。
+  /* 整页高度由内容决定（行多则高、由外层布局 el-scrollbar 滚动），同时设
+     min-height 为外层滚动容器可视高度（JS 实测写入，见 syncPageMinHeight）：
+     空态/内容不足时页面至少一屏高，配合下方 flex 链让卡片撑满、footer 贴底。
      关键：任何祖先/自身都不设 overflow:hidden/auto，否则会创建新的滚动容器、
      截断 .filter-bar / 表头的 position:sticky 上溯到布局滚动容器。 */
+  display: flex;
+  flex-direction: column;
   min-height: 0;
 }
 
@@ -886,34 +945,56 @@ const renderCtx = computed<RenderCtx>(() => ({
 }
 
 .watchlist-scroll {
-  /* 原为 overflow-y:auto 的自造滚动容器（见上方说明，已废弃自滚）。
-     保持普通流即可；el-table 按内容高度展开所有行，交给布局滚动容器滚。 */
+  /* 外层滚动容器（布局 el-scrollbar__wrap）的唯一内容，普通流即可；el-table 按
+     内容高度展开所有行。display:flex column + flex-grow 让它至少吃满 .watchlist-page
+     的 min-height（空态时 footer 由此贴底，见 .watchlist-card flex:1 与下方 app-footer）。 */
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
   min-height: 0;
 }
 
 .watchlist-card {
   display: flex;
   flex-direction: column;
-  /* 卡片随内容自然增高；padding 沿用 design.md 的 --space-compact(16px)。
-     不再设 flex:1/min-height:0（那是「表格内部滚动撑满」时代的写法，已废弃）。 */
+  /* flex:1 撑满 .watchlist-scroll 剩余高度：空态（无自选）时卡片拉伸到一屏，
+     表格区 .watchlist-table-wrap flex:1 再撑满卡片，配合「暂无自选资产」空态垂直
+     居中——不再出现卡片只占半屏、footer 悬在中间的观感。有数据时行内容自然增高，
+     卡片随内容增高（flex-grow 仅在容器有空余时才作用，不会压缩真实行）。 */
+  flex: 1 1 auto;
+  min-height: 0;
   padding: var(--space-compact);
 }
 
-/* 表格容器：随内容自然增高（el-table 不设固定 height，无内部滚动条）。
-   表头吸顶见下方 :deep(.el-table__header-wrapper)。 */
+/* 表格容器：flex:1 让 el-table 撑满卡片剩余空间（内容不足时表格区占满、空态居中；
+   内容超高时表格按行高自然展开，外层滚动接管，此处的 grow 不会约束真实行高）。
+   position:relative 是 WatchlistTableSkeleton 覆盖层的定位锚点（loading 期间骨架
+   absolute 覆盖表头之下的行区）。表头吸顶见下方 :deep(.el-table__header-wrapper)。 */
 .watchlist-table-wrap {
+  position: relative;
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
+  min-height: 0;
+}
+
+/* 合规页脚贴底：位于 .watchlist-scroll（flex column）末尾，margin-top:auto 把空余
+   空间全部让给上方 .watchlist-card（空态一屏高），footer 自然沉到可视区底部。 */
+:deep(.app-footer) {
+  margin-top: auto;
 }
 
 /* 表头吸顶：滚动容器是外层布局的 .el-scrollbar__wrap（唯一），表头随其滚动到顶后
    固定在 .filter-bar（分组 Tab 行，同样 sticky）正下方——top 偏移由脚本实测分组条
-   高度写入 CSS 变量 --watchlist-sticky-top，避免写死导致分组条换行/批量模式错位。
+   高度写入 CSS 变量 --watchlist-sticky-top（仅 offsetHeight 不含 margin，让 filter 与
+   header 背景无缝拼接形成连续白色遮罩，避免 6px 透缝造成"悬浮按钮"观感）。
    z-index 高于行，背景用卡片色（--bg-card，亮色纯白/暗色 #242120）遮住下方滚动行，
    避免穿透重影。
    关键：el-table 默认 overflow:hidden 会成为 header-wrapper 的「最近滚动祖先」，
    导致 sticky 相对表格自身（不随页面滚）而非布局滚动容器——这是吸顶反复失效的根因。
-   本页表格无内部滚动，改为 overflow:visible 让 sticky 正确吸附到布局滚动容器。 */
+   本页表格无内部滚动，改为 overflow:visible 让 sticky 正确吸附到布局滚动容器。
+   （el-table 不需要 flex 拉伸：空态文案已由 .watchlist-empty-overlay 覆盖层承载，
+   见下；有数据时表格按内容高度自然展开，外层滚动接管。） */
 .watchlist-table-wrap :deep(.el-table) {
   overflow: visible;
 }
@@ -1125,10 +1206,13 @@ const renderCtx = computed<RenderCtx>(() => ({
   /* 分组 Tab 行吸顶：相对外层布局滚动容器 .el-scrollbar__wrap sticky 吸顶。
      与下方表头 sticky（top:var(--watchlist-sticky-top)）形成「分组条 + 表头」连续固定区。
      背景用卡片色遮住从下方滚过的行内容（分组行宽度 = 卡片内容宽，与表头一致）。
+     top:var(--watchlist-sticky-gap) 让吸顶时分条与面包屑/导航底部留出 12px 呼吸
+     间距（视觉悬浮面板感，不紧贴）；该偏移同步计入表头吸顶位置（--watchlist-sticky-top
+     = gap + offsetHeight），保证分条与表头在吸顶后无缝衔接。
      注意：.filter-bar 祖先链上的 .watchlist-page/.watchlist-scroll/.el-scrollbar__view
      都不能有 overflow:hidden/auto，否则会截断 sticky 上溯（2026-09-05 根因修复）。 */
   position: sticky;
-  top: 0;
+  top: var(--watchlist-sticky-gap, 0px);
   z-index: 4;
   background: var(--bg-card);
 }
@@ -1165,17 +1249,29 @@ const renderCtx = computed<RenderCtx>(() => ({
 /* 标签筛选面板已抽离到 WatchlistFilterBar（2026-08-21 胶囊化重构），
    原 tag-filter-trigger / tag-filter-item / tag-filter-panel 等 checkbox 时代样式已随组件迁移移除。 */
 
-/* 表格空状态：撑满 body wrapper（#1281 第五轮，2026-09-05）。
-   没有数据时卡片高度由 .watchlist-table-wrap flex:1 撑满，但 EP 默认的 empty 占位
-   很小、靠上居中，导致"几行字 + 下方大片空白"的难看观感；
-   给 .watchlist-empty height:100% + flex column justify center，让文案垂直居中、占满 body。 */
-.watchlist-empty {
+/* 表格空状态覆盖层（2026-09-05 问题 1 修复）：
+   覆盖在 .watchlist-table-wrap 上、表头（约 30px）之下，铺满表格剩余区并让文案垂直
+   居中。空态时表格仍渲染表头（吸顶正常），数据行为 0，下方整段区域由本层占住——
+   视觉上"暂无自选资产"位于卡片中部，footer 经 .watchlist-card flex:1 + margin-top:auto
+   沉到视口底，不再出现"文案靠上 + footer 悬在中间"的空分组观感。
+   注：不再使用 el-table #empty（empty-text="" 已隐藏 EP 默认占位）。 */
+.watchlist-empty-overlay {
+  /* 覆盖整张 el-table（含表头）：空态时没有数据行，列名与表头底边框没有意义，
+     反而会在文案上方形成一条"怪异分割线"。overlay 从 top:0 铺满并用卡片色背景
+     盖住表头/空体，文案在整卡区内垂直居中，视觉干净。
+     注意 z-index 需高于表头（header z-index:3）才能盖住其底边线。 */
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 6;
   display: flex;
   flex-direction: column;
   gap: 4px;
   align-items: center;
   justify-content: center;
-  height: 100%;
+  background-color: var(--bg-card);
   padding: 32px 0;
 }
 
