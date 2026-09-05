@@ -5,19 +5,9 @@
    add-tag-btn 样式曾因此静默失效。选择器统一以 .el-table 前缀限定作用域。
    ============================================ */
 
-/* 置顶/关注标记图标：默认 --text-tertiary 弱化，行悬停提亮 --text-secondary */
-.el-table .marker-icon {
-  display: inline-flex;
-  color: var(--text-tertiary);
-  transition: color 150ms ease;
-}
-
-.el-table .el-table__row:hover .marker-icon,
-.el-table .is-row-hovered .marker-icon {
-  color: var(--text-secondary);
-}
-
-/* ── 产品列两行紧凑容器（issue #1281 第二轮）──
+/* 说明：产品列已不再承载置顶/关注操作（操作收拢到 right 固定列三个按钮，
+   见 columnRenderers.tsx renderActions 注释，2026-09-05 回归修复）。
+   ── 产品列两行紧凑容器（issue #1281 第二轮）──
    第一行名称、第二行 代码/类型/标签 chips/「＋ 标签」（由 ProductDisplay #meta 插槽承载）。
    相比三行式（约 78px）行数增加约四成，相比单行压扁式名称完整可读。
    min-width: 0 是名称 ellipsis 生效的前提（flex 子项默认 min-width: auto 会撑开）。 */
@@ -86,8 +76,9 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* 产品列「＋ 标签」文字入口：18px 高与元信息行一致，默认 45% 弱化、行悬停全亮；
-   悬停品牌色反馈（与 row hover 淡入的按钮语言一致，design.md 行内操作交互规范） */
+/* 产品列「＋ 标签」文字入口：18px 高与元信息行一致，默认完全隐藏、行悬停/聚焦才显现；
+   悬停品牌色反馈（与 row hover 淡入的按钮语言一致，design.md 行内操作交互规范）。
+   触摸设备（无 hover）下保持可见，避免入口完全不可发现（#ai-review-inline）。 */
 .el-table .add-tag-btn {
   display: inline-flex;
   flex-shrink: 0;
@@ -100,7 +91,7 @@
   border: 1px dashed var(--border-default);
   border-radius: var(--radius-pill);
   cursor: pointer;
-  opacity: 0.45;
+  opacity: 0;
   transition:
     opacity 150ms ease,
     color 150ms ease,
@@ -108,9 +99,18 @@
     border-color 150ms ease;
 }
 
+/* 整行 hover（含跨 fixed 列的 JS 驱动 .is-row-hovered）或键盘聚焦时才显现 */
 .el-table .el-table__row:hover .add-tag-btn,
-.el-table .is-row-hovered .add-tag-btn {
+.el-table .is-row-hovered .add-tag-btn,
+.el-table .add-tag-btn:focus-visible {
   opacity: 1;
+}
+
+/* 触摸设备无 hover：入口默认可见，保证可发现 */
+@media (hover: none) {
+  .el-table .add-tag-btn {
+    opacity: 1;
+  }
 }
 
 .el-table .add-tag-btn:hover {

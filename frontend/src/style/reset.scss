@@ -16,9 +16,10 @@ body {
   width: 100%;
   height: 100%;
   margin: 0;
-  font-family:
-    "Helvetica Neue", Helvetica, "PingFang SC", "Hiragino Sans GB",
-    "Microsoft YaHei", "微软雅黑", Arial, sans-serif;
+  /* 字体栈改走设计令牌（Inter latin + MiSans 中文，见 colors.css / fonts.css）：
+     之前硬编码系统字体栈导致 Inter/MiSans 从未真正生效，全站实为系统字体。
+     兜底保留系统栈，防 --font-sans 未定义时静默回退浏览器默认（评审 2026-09-04） */
+  font-family: var(--font-sans, system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif);
   line-height: inherit;
   -moz-osx-font-smoothing: grayscale;
   -webkit-font-smoothing: antialiased;

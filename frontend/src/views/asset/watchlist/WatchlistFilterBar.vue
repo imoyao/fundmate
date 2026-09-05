@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /* eslint-disable vue/no-mutating-props -- 状态注入模式：groups/tags/toolbar 为 composable 实例 prop，
    经 computed get/set 桥接修改其内部 ref 属有意设计（与 WatchlistToolbar 同模式） */
-import { computed, ref, watch } from "vue";
+import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from "vue";
 import { Folder, Plus } from "@element-plus/icons-vue";
 import GroupFormDialog from "@/components/Watchlist/GroupFormDialog.vue";
 import type { useWatchlistGroups } from "@/composables/useWatchlistGroups";
@@ -15,6 +15,8 @@ import { DEFAULT_TAG_COLOR } from "@/constants/watchlist";
  * 2026-08-21 重构：分组 Tab 与标签筛选 / 视图 segmented 合并为单行三段式
  * （左固定筛选 + 中段 tab 横向滚动 + 右固定「+」），与 design.md 分组胶囊 Tab
  * 「tab 左对齐 + 右侧 segmented」布局规范一致（规范 414），省去独立筛选行。
+ * 2026-09-05 修订：原 #actions 快捷图标组（刷新/导出/AI导入/实时估值）上移至
+ * index.vue 第一行 .head-primary，本行收窄为纯筛选职责，不再拥挤。
  * 纯展示 + 事件转发：状态全部在 groups / tags / toolbar 三个 composable，本组件不持有业务状态。
  */
 const props = defineProps<{
@@ -85,6 +87,31 @@ function selectView(value: (typeof viewOptions)[number]["value"]) {
 
 const addDialogVisible = ref(false);
 
+// ── 分组区横向滚动手势（2026-09-05）──
+// 分组多时滚动条若常驻占位，会把分组区撑得比右侧操作区高几像素，造成两侧中心错位
+// （用户反馈：滚动条出现时两边对不上）。故隐藏原生滚动条、改用「滚轮/触控板横滑」，
+// 右缘渐变遮罩（.group-tabs-fade）负责提示还有更多，行高恒定、与右侧恒对齐。
+const groupScrollEl = ref<HTMLElement>();
+/** 右缘渐变遮罩是否显示：仅当分组 tab 横向溢出时才出现，避免未溢出时误导用户（#ai-review-inline） */
+const showGroupFade = ref(false);
+function updateGroupFade() {
+  const el = groupScrollEl.value;
+  showGroupFade.value = !!el && el.scrollWidth > el.clientWidth + 1;
+}
+
+/** 滚轮横滑：仅当分组区确有溢出时拦截纵向滚轮转为横向，避免干扰行内其它滚动。
+ *  绑定在模板 @wheel 上（Vue 自动随 batchMode v-if 切换挂载/解绑）。 */
+function handleGroupWheel(e: WheelEvent) {
+  const el = groupScrollEl.value;
+  if (!el || el.scrollWidth <= el.clientWidth + 1) return;
+  const delta = e.deltaY || e.deltaX;
+  const next = el.scrollLeft + delta;
+  // 仅在滚动位置确实会变化时才拦截纵向滚轮，避免到达边缘时阻止页面竖向滚动
+  if (next < 0 || next > el.scrollWidth - el.clientWidth) return;
+  e.preventDefault();
+  el.scrollLeft = next;
+}
+
 // 标签筛选胶囊：点击切换草稿选中态（与「管理标签」的颜色胶囊同语言）
 function toggleDraftTag(id: number) {
   const idx = draftFilterTagIdsModel.value.indexOf(id);
@@ -109,67 +136,95 @@ function chipStyle(tag: WatchlistTag) {
     "--chip-border": c
   } as Record<string, string>;
 }
+
+// 渐变遮罩按需显示：分组 tab 溢出时才出现，否则隐藏（#ai-review-inline）。
+// ResizeObserver 覆盖窗口/容器尺寸变化；watch 分组数量变化覆盖增删分组导致的溢出变化。
+let groupFadeObserver: ResizeObserver | undefined;
+onMounted(() => {
+  const el = groupScrollEl.value;
+  if (!el) return;
+  updateGroupFade();
+  groupFadeObserver = new ResizeObserver(updateGroupFade);
+  groupFadeObserver.observe(el);
+});
+onBeforeUnmount(() => groupFadeObserver?.disconnect());
+watch(() => allGroups.value.length, () => nextTick(updateGroupFade));
 </script>
 
 <template>
   <div class="filter-bar">
-    <!-- 单行布局：分组 Tab（主导航，弹性横向滚动）居左 + 次级操作（标签筛选 / 视图 segmented / 新建）固定居右 -->
+    <!-- 筛选行（双行分区布局的「第二行」，见 index.vue head-primary 注释）：
+         分组 Tab（主导航，弹性横向滚动，永远最左）
+         + 次级操作（新建分组 / 管理分组 / 标签筛选 / 视图 segmented）
+         （#actions 快捷图标组已于 2026-09-05 上移第一行 head-primary，本行保持纯筛选）
+
+         批量模式（batchMode）：分组与筛选整体隐藏（批量工具条占用第一行），
+         避免表格上方出现两排状态不同的操作。 -->
     <div class="filter-row">
-      <!-- 左段（弹性）：分组胶囊 Tab（design.md「分组胶囊 Tab · 方案 B」，水平滑动、数量徽章 tabular-nums） -->
-      <div class="group-tabs-scroll">
-        <button
-          v-for="g in allGroups"
-          :key="g.key"
-          type="button"
-          class="group-tab"
-          :class="{ 'is-active': g.key === activeGroupModel }"
-          :title="g.label"
-          @click="activeGroupModel = g.key"
-        >
-          <!-- 分组色点：用户数据色（非设计令牌），缺失回退中性 token（数据色例外） -->
-          <span
-            v-if="g.color"
-            class="group-tab-dot"
-            :style="{ backgroundColor: g.color }"
-          />
-          <span class="group-tab-label">{{ g.label }}</span>
-          <span
-            v-if="g.count > 0"
-            class="group-tab-count"
-            :style="{
-              /* 分组/标签色为用户数据（非设计令牌），缺失回退中性 token（数据色例外） */
-              color: g.color ? g.color : undefined
-            }"
+      <template v-if="!toolbar.batchMode.value">
+        <!-- 左段（弹性）：分组胶囊 Tab（design.md「分组胶囊 Tab · 方案 B」，水平滑动、数量徽章 tabular-nums）。
+             自定义分组多时会横向滚动，右缘用渐变遮罩暗示「右侧还有」（2026-09-05）。 -->
+        <div class="group-tabs-wrap">
+          <div
+            ref="groupScrollEl"
+            class="group-tabs-scroll"
+            @wheel="handleGroupWheel"
           >
-            {{ g.count }}
-          </span>
-        </button>
-      </div>
+            <button
+              v-for="g in allGroups"
+              :key="g.key"
+              type="button"
+              class="group-tab"
+              :class="{ 'is-active': g.key === activeGroupModel }"
+              :title="g.label"
+              @click="activeGroupModel = g.key"
+            >
+              <!-- 分组色点：用户数据色（非设计令牌），缺失回退中性 token（数据色例外） -->
+              <span
+                v-if="g.color"
+                class="group-tab-dot"
+                :style="{ backgroundColor: g.color }"
+              />
+              <span class="group-tab-label">{{ g.label }}</span>
+              <span
+                v-if="g.count > 0"
+                class="group-tab-count"
+                :style="{
+                  /* 分组/标签色为用户数据（非设计令牌），缺失回退中性 token（数据色例外） */
+                  color: g.color ? g.color : undefined
+                }"
+              >
+                {{ g.count }}
+              </span>
+            </button>
+          </div>
+          <!-- 右缘渐变遮罩：分组溢出时暗示可横向滑动（纯装饰，不拦截指针事件） -->
+          <span class="group-tabs-fade" aria-hidden="true" />
+        </div>
+      </template>
 
       <!-- 右段（固定）：分组操作 + 标签筛选 + 视图 segmented，不随分组 tab 滚动 -->
-      <div class="filter-bar__right">
+      <div v-if="!toolbar.batchMode.value" class="filter-bar__right">
         <!-- 新建分组「+」+ 管理分组「📁」：固定展示，避免分组过多时被挤进滚动区 -->
-        <template v-if="!toolbar.batchMode.value">
+        <el-button
+          class="group-tab-add"
+          circle
+          aria-label="新建分组"
+          @click="addDialogVisible = true"
+        >
+          <el-icon><Plus /></el-icon>
+        </el-button>
+        <el-tooltip content="管理分组" placement="bottom">
           <el-button
-            class="group-tab-add"
+            class="manage-groups-btn"
             circle
-            aria-label="新建分组"
-            @click="addDialogVisible = true"
+            aria-label="管理分组"
+            @click="emit('manage-groups')"
           >
-            <el-icon><Plus /></el-icon>
+            <el-icon><Folder /></el-icon>
           </el-button>
-          <el-tooltip content="管理分组" placement="bottom">
-            <el-button
-              class="manage-groups-btn"
-              circle
-              aria-label="管理分组"
-              @click="emit('manage-groups')"
-            >
-              <el-icon><Folder /></el-icon>
-            </el-button>
-          </el-tooltip>
-          <div class="right-divider" />
-        </template>
+        </el-tooltip>
+        <div class="right-divider" />
 
         <!-- 标签筛选（bottom-start 左对齐触发按钮，减少浮层错位感）。
              trigger="click" + v-model:visible：EP 原生接管「点击外部 / Esc 自动收起」，
@@ -216,16 +271,28 @@ function chipStyle(tag: WatchlistTag) {
               </p>
             </div>
             <div class="flex items-center justify-between mt-3">
-              <el-button size="small" text type="primary" @click="resetFilter">
+              <el-button
+                size="small"
+                text
+                type="primary"
+                :disabled="
+                  draftFilterTagIdsModel.length === 0 && selectedTagCount === 0
+                "
+                @click="resetFilter"
+              >
                 重置筛选
               </el-button>
               <div class="flex gap-2">
                 <el-button size="small" @click="tagFilterVisibleModel = false">
                   取消
                 </el-button>
+                <!-- 确定按钮：未勾选任何标签时禁用（勾选草稿后才可提交）。
+                     点击「确定」才把草稿提交为生效筛选；期间点标签只改草稿、
+                     不动列表，支持连续多选后再一次确定（2026-09-05 交互回归修复） -->
                 <el-button
                   size="small"
                   type="primary"
+                  :disabled="draftFilterTagIdsModel.length === 0"
                   @click="emit('tag-apply')"
                 >
                   确定
@@ -263,15 +330,17 @@ function chipStyle(tag: WatchlistTag) {
 <style scoped>
 .filter-bar {
   /* design.md「表格/列表/筛选栏：--space-compact(16px)」在卡片外层生效；
-     此处为卡内子区块间距，取 --space-3(12px)：
-     #1281 第一轮压到 8px 后筛选条与表格几乎贴脸，已回调。
-     滚动进入紧凑态时由 index.vue 缩至 --space-1(4px)。 */
-  margin-bottom: var(--space-3);
+     此处为卡内子区块间距，取 6px（2026-09-05 从 --space-3(12) 收紧，
+     为表格让出首屏行数；滚动进入紧凑态时由 index.vue 缩至 --space-1(4px)）。 */
+  margin-bottom: 6px;
 }
 
-/* 单行布局：左段分组 tab 弹性滚动 + 右段次级操作固定（design.md 分组胶囊 Tab 布局，规范 414） */
+/* 行布局：分组 tab（弹性滚动）+ 次级操作 + #actions 快捷图标组
+   （design.md 分组胶囊 Tab 布局，规范 414）
+   flex-wrap: wrap 兜底：窄屏（<1280）放不下时自动换行，宁可高一点也不挤压溢出。 */
 .filter-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
   min-width: 0;
@@ -326,7 +395,20 @@ function chipStyle(tag: WatchlistTag) {
 
 /* ===== 分组胶囊 Tab（design.md「分组胶囊 Tab · 方案 B」2026-08-14，数值与 index.vue 原实现逐值对齐） ===== */
 
-/* 横向滚动条细化为 --border-light 色 */
+/* 分组区外框：持有 flex 弹性与最小宽度，承载内层滚动区与右缘遮罩。
+   min-width 保证分组区不被右侧操作区挤没（#1281 第四轮：本行多了搜索框与按钮组，
+   极端窄屏下宁可让整行换行，也要给分组 tab 留 120px 可见区） */
+.group-tabs-wrap {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 120px;
+}
+
+/* 分组区横滑容器。
+   原生滚动条必须隐藏（而非常驻）：WebKit 横向滚动条会在容器底部占约 4px，
+   把分组区撑得比右侧操作区高、两侧中心错位（#1281 对齐回归，2026-09-05）。
+   横滑能力由模板 @wheel 滚轮手势承担，右缘渐变遮罩提示还有更多。 */
 .group-tabs-scroll {
   display: flex;
   flex: 1;
@@ -334,21 +416,24 @@ function chipStyle(tag: WatchlistTag) {
   align-items: center;
   min-width: 0;
   overflow-x: auto;
-  scrollbar-color: var(--border-light) transparent;
-  scrollbar-width: thin;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* 旧 Edge/IE */
 }
 
 .group-tabs-scroll::-webkit-scrollbar {
-  height: 4px;
+  display: none; /* Chrome / Edge（Chromium） */
 }
 
-.group-tabs-scroll::-webkit-scrollbar-thumb {
-  background-color: var(--border-light);
-  border-radius: var(--radius-pill);
-}
-
-.group-tabs-scroll::-webkit-scrollbar-track {
-  background: transparent;
+/* 右缘渐变遮罩：自定义分组多、横向可滑动时，用「渐隐到卡片底色」暗示右侧还有内容。
+   遮罩固定在可视区右缘（absolute 于 wrap），不随内容滚动；pointer-events:none 不挡点击。 */
+.group-tabs-fade {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 28px;
+  pointer-events: none;
+  background: linear-gradient(to right, transparent, var(--bg-card));
 }
 
 /* tab 项：32px 胶囊；选中态软按钮（--brand-100/--brand-700/--brand-400），未选中 --text-secondary + hover --bg-hover */
@@ -410,11 +495,12 @@ function chipStyle(tag: WatchlistTag) {
   color: var(--brand-700);
 }
 
-/* 新建分组按钮：与分组 tab 同高 32px 的圆形（原文字按钮，2026-08-21 简化为「+」图标） */
+/* 新建分组按钮：原文字按钮简化为「+」图标（2026-08-21）。
+   尺寸规范（2026-09-05）：纯图标按钮统一 28×28，与文字按钮（32）区分层级 */
 .group-tab-add {
   flex-shrink: 0;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   color: var(--text-tertiary);
   background-color: transparent;
@@ -431,11 +517,12 @@ function chipStyle(tag: WatchlistTag) {
   background-color: var(--bg-hover);
 }
 
-/* 管理分组按钮：32px 圆角胶囊图标，与标签筛选/分组 tab 同高（文件夹图标 = 分组管理语义，非通用齿轮） */
+/* 管理分组按钮：文件夹图标 = 分组管理语义（非通用齿轮）。
+   尺寸规范（2026-09-05）：纯图标按钮统一 28×28 */
 .manage-groups-btn {
   flex-shrink: 0;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   color: var(--text-tertiary);
   background-color: transparent;

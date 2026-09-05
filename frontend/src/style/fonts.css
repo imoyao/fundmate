@@ -1,0 +1,62 @@
+/* ============================================
+   多多贝 字体加载层（@font-face 声明）
+   规范：docs/design/font-design.md（方案 B：Inter + Mi Sans）
+   实现：全部自托管于 /fonts/（EdgeOne/Cloudflare/Vercel 分发），无第三方外链
+   资产：
+     - inter-latin-wght-normal.woff2   Inter latin 可变字体（wght 100-900，OFL）
+     - misans-subset-{400,500,600,700}.woff2  MiSans GB2312 子集（免费商用需署名）
+   生成：backend/scripts/subset_misans.py
+   ============================================ */
+
+/* —— Inter：西文 / 数字 / UI（latin 可变子集，wght 100-900 单文件） —— */
+@font-face {
+  font-family: "Inter";
+  src: url("/fonts/inter-latin-wght-normal.woff2") format("woff2-variations");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6,
+    U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* —— MiSans：中文，按字重分包（仅覆盖 CJK 区块，绝不拦截拉丁/数字） —— */
+@font-face {
+  font-family: "MiSans";
+  src: url("/fonts/misans-subset-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+3000-303F, U+3400-4DBF, U+4E00-9FFF, U+F900-FAFF,
+    U+FF01-FF0F, U+FF1A-FF1F, U+FF20-FF3F, U+FF40-FF5E, U+FFE0-FFE6;
+}
+
+@font-face {
+  font-family: "MiSans";
+  src: url("/fonts/misans-subset-500.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+3000-303F, U+3400-4DBF, U+4E00-9FFF, U+F900-FAFF,
+    U+FF01-FF0F, U+FF1A-FF1F, U+FF20-FF3F, U+FF40-FF5E, U+FFE0-FFE6;
+}
+
+@font-face {
+  font-family: "MiSans";
+  src: url("/fonts/misans-subset-600.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+3000-303F, U+3400-4DBF, U+4E00-9FFF, U+F900-FAFF,
+    U+FF01-FF0F, U+FF1A-FF1F, U+FF20-FF3F, U+FF40-FF5E, U+FFE0-FFE6;
+}
+
+@font-face {
+  font-family: "MiSans";
+  src: url("/fonts/misans-subset-700.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+3000-303F, U+3400-4DBF, U+4E00-9FFF, U+F900-FAFF,
+    U+FF01-FF0F, U+FF1A-FF1F, U+FF20-FF3F, U+FF40-FF5E, U+FFE0-FFE6;
+}

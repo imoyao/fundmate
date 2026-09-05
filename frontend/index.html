@@ -10,6 +10,11 @@
     />
     <title>多多贝 · 投资账本</title>
     <link rel="icon" href="/favicon.ico" />
+    <!-- 首屏字体预加载（自托管 /fonts/，规范 font-design.md §5.3）：
+         Inter latin ~48KB + MiSans Regular(400) ~560KB；
+         500/600/700 由 @font-face 按需拉取，不占首屏 -->
+    <link rel="preload" href="/fonts/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/misans-subset-400.woff2" as="font" type="font/woff2" crossorigin />
   </head>
 
   <body>
