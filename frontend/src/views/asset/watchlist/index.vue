@@ -12,8 +12,9 @@
   - 本页 8 大功能模块（分组/标签/批量/实时估值/搜索分页/导出/OCR/移除）可进一步按
     composable 抽取（如 useWatchlistGroups / useWatchlistTags）。
   - 顶部操作栏（搜索 / 批量 / 添加 / 刷新 / 导出 / OCR / 实时 / 管理）已于 #1281 第四轮
-    改为卡内「双行分区」：第一行 .head-primary 承载搜索 + 核心操作，第二行
-    WatchlistFilterBar 承载分组 Tab（最左）+ 次级筛选 + 快捷图标组，功能全保留
+    改为卡内「双行分区」，2026-09-05 微调行内职责：第一行 .head-primary 承载搜索 +
+    快捷工具图标（刷新/导出/AI 导入/实时）+ 核心操作（管理/添加自选），第二行
+    WatchlistFilterBar 承载分组 Tab（最左）+ 次级筛选，功能全保留
     （原独立 WatchlistToolbar.vue 组件已废弃）。移除弹窗已抽取为 WatchlistRemoveDialog。
   - 标签管理 / 行内标签编辑已拆为共有组件 TagManagerDialog / TagEditorDialog
     （components/Watchlist/），未来其它页面需要标签能力可复用。
@@ -30,8 +31,9 @@
          链不被内部 overflow 截断（见本文件底部样式注释）。 -->
     <div class="watchlist-scroll">
       <!-- 主区域：单个工作区卡片。顶部按「双行分区」布局（#1281 第四轮修订，2026-09-05）：
-         第一行 .head-primary 承载「全局搜索 + 核心操作」，第二行 WatchlistFilterBar
-         承载「分组 Tab（最左）+ 次级筛选 + 快捷图标」，两组元素互不挤占、层级分明。
+         第一行 .head-primary 承载「全局搜索 + 快捷工具图标 + 核心操作」——搜索自动隐藏
+         与工具常驻同排，第二行 WatchlistFilterBar 承载「分组 Tab（最左）+ 次级筛选」
+         纯筛选职责（两组元素互不挤占、层级分明）。
          滚动吸顶分工：head-primary 不吸顶，下滚自然滚出视口（搜索框「自动隐藏」）；
          WatchlistFilterBar 的 .filter-bar 与表格表头经 position:sticky 连续吸顶。 -->
       <CardBlock class="watchlist-card">
@@ -83,7 +85,11 @@
             </el-button>
           </template>
 
-          <!-- 正常模式：搜索占左、核心操作居右，中间留白呼吸 -->
+          <!-- 正常模式：搜索占左、核心操作 + 快捷工具居右，中间留白呼吸。
+               布局修订（2026-09-05）：原第二行的「刷新/导出/AI 导入/实时估值」图标组
+               并入本行（用户反馈第二行因分组 Tab + 筛选 + 图标组共挤一行显拥挤、
+               本行反而空），行内从左到右为「图标组(次级工具) | 管理(次级) | 添加自选
+               (主 CTA 最右)」，图标组前不再加 divider（其左侧本就是行间留白）。 -->
           <template v-else>
             <div class="head-primary__search">
               <el-input
@@ -107,6 +113,41 @@
               </el-tooltip>
             </div>
             <div class="head-primary__actions">
+              <!-- 快捷工具图标组（原 WatchlistFilterBar #actions，2026-09-05 上移本行）：
+                   刷新 / 导出 / AI 导入 / 实时估值开关。实时开启态品牌色高亮见 .icon-tool-btn.is-active -->
+              <div v-if="!batchMode" class="header-actions">
+                <el-tooltip content="刷新" placement="bottom">
+                  <el-button circle class="icon-tool-btn" @click="fetchData()">
+                    <IconifyIconOffline icon="ep:refresh" />
+                  </el-button>
+                </el-tooltip>
+
+                <el-tooltip content="导出" placement="bottom">
+                  <el-button circle class="icon-tool-btn" @click="exportData">
+                    <IconifyIconOffline icon="ep:download" />
+                  </el-button>
+                </el-tooltip>
+
+                <el-tooltip content="AI 导入" placement="bottom">
+                  <el-button circle class="icon-tool-btn" @click="openOcrDialog">
+                    <IconifyIconOffline icon="ep:magic-stick" />
+                  </el-button>
+                </el-tooltip>
+
+                <!-- 实时估值开关：开启 = 品牌色高亮（tooltip「关闭实时估值」），关闭 = 中性弱化 -->
+                <el-tooltip :content="toggleBtnText" placement="bottom">
+                  <el-button
+                    circle
+                    class="icon-tool-btn"
+                    :class="{ 'is-active': toggleBtnText.includes('关闭') }"
+                    @click="realtime.toggle()"
+                  >
+                    <IconifyIconOffline icon="ep:lightning" />
+                  </el-button>
+                </el-tooltip>
+              </div>
+              <!-- 图标组与核心操作之间的细分隔线（design.md 卡片内分割线） -->
+              <div class="head-divider" aria-hidden="true" />
               <el-button plain @click="openSettingsDrawer">
                 <IconifyIconOffline icon="ep:setting" class="mr-1" />
                 管理
@@ -119,7 +160,9 @@
           </template>
         </div>
 
-        <!-- 第二行（WatchlistFilterBar）：分组 Tab 最左 + 标签筛选/视图/新建 + 快捷图标 -->
+        <!-- 第二行（WatchlistFilterBar）：分组 Tab 最左 + 标签筛选/视图/新建分组，
+             纯筛选职责（2026-09-05：快捷图标组刷新/导出/AI导入/实时估值已上移第一行，
+             见 head-primary__actions，本行不再拥挤；批量模式下整行由组件内部隐藏） -->
         <WatchlistFilterBar
           :groups="groups"
           :tags="tags"
@@ -129,45 +172,7 @@
           @tag-apply="tags.applyTagFilter()"
           @tag-clear="tags.clearTagFilter()"
           @manage-groups="groupManagerVisible = true"
-        >
-          <!-- 快捷图标组（#actions）：刷新/导出/AI 导入/实时估值开关，常驻本行最右；
-             与第一行的「管理 / 添加自选」主按钮分开，避免整排按钮挤在一起 -->
-          <template #actions>
-            <div v-if="!batchMode" class="header-actions">
-              <!-- 快捷图标组与筛选区之间的细分隔线（design.md 卡片内分割线） -->
-              <div class="head-divider" aria-hidden="true" />
-              <el-tooltip content="刷新" placement="bottom">
-                <el-button circle class="icon-tool-btn" @click="fetchData()">
-                  <IconifyIconOffline icon="ep:refresh" />
-                </el-button>
-              </el-tooltip>
-
-              <el-tooltip content="导出" placement="bottom">
-                <el-button circle class="icon-tool-btn" @click="exportData">
-                  <IconifyIconOffline icon="ep:download" />
-                </el-button>
-              </el-tooltip>
-
-              <el-tooltip content="AI 导入" placement="bottom">
-                <el-button circle class="icon-tool-btn" @click="openOcrDialog">
-                  <IconifyIconOffline icon="ep:magic-stick" />
-                </el-button>
-              </el-tooltip>
-
-              <!-- 实时估值开关：开启 = 品牌色高亮（tooltip「关闭实时估值」），关闭 = 中性弱化 -->
-              <el-tooltip :content="toggleBtnText" placement="bottom">
-                <el-button
-                  circle
-                  class="icon-tool-btn"
-                  :class="{ 'is-active': toggleBtnText.includes('关闭') }"
-                  @click="realtime.toggle()"
-                >
-                  <IconifyIconOffline icon="ep:lightning" />
-                </el-button>
-              </el-tooltip>
-            </div>
-          </template>
-        </WatchlistFilterBar>
+        />
 
         <!-- 估值横幅与状态 -->
         <!-- ✅ 核心修复：用 template 包裹，加上 v-if 物理移除整个模块 -->
@@ -751,24 +756,22 @@ const tableRef = ref();
 const pageRef = ref<HTMLElement>();
 let stickyObserver: ResizeObserver | null = null;
 
-/** 实测分组条 .filter-bar 高度 + 顶部呼吸间距，写入吸顶偏移 CSS 变量。
+/** 实测分组条 .filter-bar 高度，写入吸顶偏移 CSS 变量。
  *  分组条是正常流元素，批量模式/视图 segmented/标签数量变化都可能改变其换行高度，
  *  故用 ResizeObserver 监听其几何变化，实时重算吸顶位置。
- *  - --watchlist-sticky-gap：吸顶时分条距滚动容器顶的「呼吸」间距（2026-09-05）。
- *    分组条不贴面包屑/导航底部，上方留出容器背景（页面灰）形成悬浮面板观感；
- *  - --watchlist-sticky-top = gap + offsetHeight（offsetHeight 不含分组条底部
- *    margin）。表头吸在分条正下方，二者背景无缝连成「分条 + 表头」白色遮罩；
- *    若把 margin 算进偏移会留 6px 透缝，滚动行从中闪出，像「悬浮按钮」（此前修复）。 */
+ *  - 呼吸感（2026-09-05）：已内化为 .filter-bar 的 padding-top（CSS 变量
+ *    --watchlist-sticky-gap = STICKY_TOP_GAP），白背景覆盖到 padding 区——吸顶时
+ *    filter-bar 从容器顶 0 贴住、整体 offsetHeight 增大，胶囊内容相对顶部下移，
+ *    与面包屑间形成白条带。故表头吸顶偏移只需 = offsetHeight（含 padding-top），
+ *    不要再叠加 gap，否则表头会比 filter-bar 底多悬空 gap 像素、露出滚动行。
+ *  - offsetHeight 不含分组条底部 margin：若把 margin 算进偏移会留 6px 透缝。 */
 const STICKY_TOP_GAP = 12;
 function syncStickyOffset() {
   const page = pageRef.value;
   const bar = page?.querySelector<HTMLElement>(".filter-bar");
   if (!bar) return;
   page?.style.setProperty("--watchlist-sticky-gap", `${STICKY_TOP_GAP}px`);
-  page?.style.setProperty(
-    "--watchlist-sticky-top",
-    `${bar.offsetHeight + STICKY_TOP_GAP}px`
-  );
+  page?.style.setProperty("--watchlist-sticky-top", `${bar.offsetHeight}px`);
 }
 
 function bindStickyObserver() {
@@ -1007,9 +1010,10 @@ const renderCtx = computed<RenderCtx>(() => ({
 
 /* ======================================
    双行分区头部（#1281 第四轮修订，2026-09-05）
-   —— 第一行 .head-primary：搜索框 + 核心操作（管理 / 添加自选）；
+   —— 第一行 .head-primary：搜索框 + 快捷工具图标（刷新/导出/AI导入/实时估值，
+      2026-09-05 从第二行上移）+ 核心操作（管理 / 添加自选，主 CTA 最右）；
       第二行由 WatchlistFilterBar 承载「分组 Tab（最左）+ 标签筛选/视图/新建」，
-      其 #actions 注入快捷图标组（刷新/导出/AI导入/实时估值）。
+      纯筛选职责（用户反馈：图标组挤在第二行显拥挤、第一行留白过空）。
    两行各自 justify-between / 左紧右松，主次分离；控件统一 32px 高、
    同一垂直基线。
    ====================================== */
@@ -1059,7 +1063,7 @@ const renderCtx = computed<RenderCtx>(() => ({
   height: 36px;
 }
 
-/* 第二行快捷图标组（FilterBar #actions）：固定居右、等距排布 */
+/* 快捷工具图标组（原 FilterBar #actions，2026-09-05 上移 head-primary）：等距排布 */
 .header-actions {
   display: flex;
   flex-shrink: 0;
@@ -1071,7 +1075,7 @@ const renderCtx = computed<RenderCtx>(() => ({
   margin-left: 0;
 }
 
-/* 快捷图标组前的细分隔线：与左侧筛选区建立视觉边界 */
+/* 快捷图标组与核心操作（管理/添加自选）之间的细分隔线 */
 .head-divider {
   flex-shrink: 0;
   width: 1px;
@@ -1203,16 +1207,20 @@ const renderCtx = computed<RenderCtx>(() => ({
 }
 
 :deep(.filter-bar) {
-  /* 分组 Tab 行吸顶：相对外层布局滚动容器 .el-scrollbar__wrap sticky 吸顶。
-     与下方表头 sticky（top:var(--watchlist-sticky-top)）形成「分组条 + 表头」连续固定区。
-     背景用卡片色遮住从下方滚过的行内容（分组行宽度 = 卡片内容宽，与表头一致）。
-     top:var(--watchlist-sticky-gap) 让吸顶时分条与面包屑/导航底部留出 12px 呼吸
-     间距（视觉悬浮面板感，不紧贴）；该偏移同步计入表头吸顶位置（--watchlist-sticky-top
-     = gap + offsetHeight），保证分条与表头在吸顶后无缝衔接。
+  /* 分组 Tab 行吸顶：相对外层布局滚动容器 .el-scrollbar__wrap sticky 贴顶（top:0），
+     完整白遮罩从滚动容器顶 0 开始覆盖——确保滚动行从下方进入时被白底遮住，不会
+     从顶部「穿透」出去（2026-09-05 第三轮反馈：上一版 top:gap 让上方 12px 无遮罩、
+     行滚过该缝隙时在面包屑底与分组条之间漏出顶部 12px 文字）。
+     呼吸感实现：filter-bar 自身 padding-top = STICKY_TOP_GAP（12px），白背景覆盖到
+     padding 区，吸顶后从 y=0 到 y=offsetHeight 整段白——胶囊内容相对容器顶向下 12px，
+     与上方面包屑底之间呈现 12px 白条带（视觉分层，不贴），同时白色遮罩不间断。
+     表头吸顶 top = --watchlist-sticky-top = filter-bar.offsetHeight（offsetHeight 已含
+     padding-top），与 filter-bar 底部无缝衔接。
      注意：.filter-bar 祖先链上的 .watchlist-page/.watchlist-scroll/.el-scrollbar__view
      都不能有 overflow:hidden/auto，否则会截断 sticky 上溯（2026-09-05 根因修复）。 */
   position: sticky;
-  top: var(--watchlist-sticky-gap, 0px);
+  top: 0;
+  padding-top: var(--watchlist-sticky-gap, 12px);
   z-index: 4;
   background: var(--bg-card);
 }

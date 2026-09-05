@@ -255,11 +255,15 @@ export function useWatchlistData(
     }
   }
 
-  /** 行内标签编辑：虚拟持仓行直接跳过；打开弹窗由页面负责（暴露 editingItem 与开关） */
+  /** 行内标签编辑：无自选记录（id 为 null，如草稿态/聚合虚拟行）给出提示而非静默无反应；
+     打开弹窗由页面负责（暴露 editingItem 与开关） */
   const editingItem = ref<WatchlistItem | null>(null);
   const showTagEditor = ref(false);
   function openTagEditor(row: WatchlistItem) {
-    if (row.id == null) return;
+    if (row.id == null) {
+      ElMessage.warning("该资产尚未建立自选记录，暂不可添加标签");
+      return;
+    }
     editingItem.value = row;
     showTagEditor.value = true;
   }

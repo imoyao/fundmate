@@ -76,8 +76,9 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* 产品列「＋ 标签」文字入口：18px 高与元信息行一致，默认 45% 弱化、行悬停全亮；
-   悬停品牌色反馈（与 row hover 淡入的按钮语言一致，design.md 行内操作交互规范） */
+/* 产品列「＋ 标签」文字入口：18px 高与元信息行一致。
+   默认完全隐藏（opacity:0），仅整行 hover / 键盘聚焦时显现——避免每行常驻弱显干扰阅读
+   （用户反馈：默认应不显示，hover 上去后才显示）。悬停品牌色反馈。 */
 .el-table .add-tag-btn {
   display: inline-flex;
   flex-shrink: 0;
@@ -90,7 +91,7 @@
   border: 1px dashed var(--border-default);
   border-radius: var(--radius-pill);
   cursor: pointer;
-  opacity: 0.45;
+  opacity: 0;
   transition:
     opacity 150ms ease,
     color 150ms ease,
@@ -98,8 +99,10 @@
     border-color 150ms ease;
 }
 
+/* 整行 hover（含跨 fixed 列的 JS 驱动 .is-row-hovered）或键盘聚焦时才显现 */
 .el-table .el-table__row:hover .add-tag-btn,
-.el-table .is-row-hovered .add-tag-btn {
+.el-table .is-row-hovered .add-tag-btn,
+.el-table .add-tag-btn:focus-visible {
   opacity: 1;
 }
 

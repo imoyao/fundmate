@@ -262,8 +262,11 @@ const renderProduct: FunctionalComponent<{
   const row = props.row;
   const ctx = props.ctx;
 
-  /** 行是否可编辑：虚拟聚合行（持仓分组聚合，id 恒为 null）无自选记录，行内标签/置顶操作禁用 */
-  const editable = row.id != null;
+  /** 行是否可编辑：真实产品行（有 symbol）即允许显示「＋ 标签」入口；
+     聚合/虚拟行（无 symbol 也无 id）不渲染，避免死按钮。
+     注：此前仅用 row.id != null，但部分真实产品（草稿态 / 尚未落库 id）id 为 null
+     仍应可加标签——放宽到 symbol 维度（2026-09-05 修复「有的行不显示 +标签」）。 */
+  const editable = row.id != null || row.symbol != null;
 
   // 正常 product 列：两行紧凑布局 —— 第一行名称，第二行 代码 / 类型 / 标签文字 chips / 「＋ 标签」。
   // 演进（issue #1281 三轮）：
