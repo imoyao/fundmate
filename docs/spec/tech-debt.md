@@ -178,7 +178,7 @@ title: 技术债务与开口项明细（tech-debt）
 
 1. 登录 iconfont.cn，搜索「同花顺 / 天天基金 / 东方财富」下载 SVG，放入 `logos/`（建议 `tonghuashun.svg` / `tiantian.svg` / `eastmoney.svg`）。
 2. 在 `landing.content.yml` 的 `eco.logos` 追加对应项（形如 `- { name: 同花顺, icon: "logos/tonghuashun.svg" }`），对应名称从 `eco.texts` 移除。
-3. 重新生成：`npm run build:landing`。
+3. 重新生成：落地页已移交主站 duoduobei-web，本仓 `build:landing` 已废弃（见 #918 / decisions.md:116），需在 duoduobei-web 仓库重新生成。
 4. 版权：品牌 logo 作「支持导入平台」事实性展示一般不构成侵权，但建议统一灰度处理（已实现），避免彩色图标杂乱。
 
 **备注**：首页与 `/frontend` 应用站是两个独立站点，本条目仅针对首页落地页。
