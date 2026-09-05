@@ -114,7 +114,7 @@
 | 后端 | Python 3.12+，Flask/APIFlask，PDM，SQLite（开发）/ Turso（生产市场域）/ Supabase（生产用户域） |
 | 前端 | Vue 3 + TypeScript + Vite，Element Plus，pure-admin，pnpm |
 | 文档站 | VitePress（根目录 pnpm） |
-| 落地页 | 模板 + YAML 内容，由 `scripts/build-landing.mjs` 生成 |
+| 落地页 | 已移交主站 duoduobei-web（duoduobei.com），本仓不再构建；应用站部署目标为前端 SPA |
 | 测试 | pytest（**必须单进程**，因 xdist 多 worker 导致 OOM） |
 | 代码检查 | Ruff（后端，120 行宽，单引号），ESLint + Prettier + Stylelint（前端） |
 | 提交钩子 | pre-commit（后端 ruff），husky + commitlint（前端，但因 `ignore-scripts=true` 未实际安装） |
@@ -525,7 +525,7 @@
 | 前端类型检查 | `cd frontend && pnpm typecheck` |
 | 前端 Lint | `cd frontend && pnpm lint` |
 | 文档站开发 | `pnpm run docs:dev`（根目录） |
-| 落地页构建 | `pnpm run build:landing`（根目录） |
+| 落地页构建 | 已移交 duoduobei-web，本仓不再构建（见 #918 块3） |
 | 临时文件清理（dry-run） | `cd backend && pdm run python backend/scripts/cleanup_temp.py --file <path>` |
 | 代码提交（dry-run） | `python scripts/commit_changes.py --files <...> --message-file <...>` |
 
