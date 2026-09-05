@@ -255,7 +255,8 @@ export function useWatchlistData(
     }
   }
 
-  /** 行内标签编辑：虚拟持仓行直接跳过；打开弹窗由页面负责（暴露 editingItem 与开关） */
+  /** 行内标签编辑：无自选记录（id 为 null，如草稿态/聚合虚拟行）给出提示而非静默无反应；
+     打开弹窗由页面负责（暴露 editingItem 与开关） */
   const editingItem = ref<WatchlistItem | null>(null);
   const showTagEditor = ref(false);
   function openTagEditor(row: WatchlistItem) {

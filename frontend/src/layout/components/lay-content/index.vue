@@ -134,7 +134,14 @@ const transitionMain = defineComponent({
               :view-style="{
                 display: 'flex',
                 flex: 'auto',
-                overflow: 'hidden',
+                /* 2026-09-05：改 overflow:hidden → 'clip'。
+                 * 原 'hidden' 会建立滚动容器（scroll container），导致 fixedHeader 模式下
+                 * 自选/列表类页面的 position:sticky 被它截断、无法向上找到真正的滚动
+                 * 祖先 .el-scrollbar__wrap → 表头/分组条跟随整页内容一起被滚走。
+                 * 'clip' 视觉效果同 hidden（仍裁剪绘制），但不会建立滚动上下文，
+                 * CSS sticky 可上溯到 wrap 吸顶；不影响其他页面的内容滚动（wrap 仍是
+                 * 滚动容器）。兼容 Chromium 90+/Firefox 81+/Safari 16+，现代浏览器全覆盖。 */
+                overflow: 'clip',
                 'flex-direction': 'column'
               }"
             >
