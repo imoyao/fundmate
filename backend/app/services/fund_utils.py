@@ -106,7 +106,12 @@ def resolve_money_fund_flags(codes: Iterable[str]) -> dict[str, bool]:
             _cache[c] = (now, flag)
     # 容量上限：长生命周期进程下避免 _cache 无界增长（命中项仍受 TTL 约束，淘汰仅触发重新解析）
     if len(_cache) > _CACHE_MAX_SIZE:
-        for _ in range(_CACHE_MAX_SIZE // 4):
+        # 先淘汰已过期条目：避免过期键残留、活跃长生命周期键被 FIFO 误逐（#1330 review）
+        expired_keys = [k for k, (ts, _v) in _cache.items() if now - ts >= _CACHE_TTL_SECONDS]
+        for k in expired_keys:
+            _cache.pop(k, None)
+        # 仍溢出则按插入顺序（FIFO）淘汰最旧项至容量上限
+        while len(_cache) > _CACHE_MAX_SIZE:
             _cache.pop(next(iter(_cache)), None)
     return result
 

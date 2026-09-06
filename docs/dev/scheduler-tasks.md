@@ -11,7 +11,7 @@ permalink: /dev/scheduler-tasks
 
 - **计算层**：`DataSyncOrchestrator.run_all_jobs`（`app/services/sync/orchestrator.py`）
   按依赖顺序跑全部 SyncJob，**末尾**执行 `asset_snapshot` 落账，确保前面的净值/行情已刷新。
-- **入口**：`tools/scheduler.py`（`pdm run scheduler`），由外部定时器每日调用；
+- **入口**：`app/tools/scheduler.py`（`pdm run scheduler`），由外部定时器每日调用；
   支持 `pdm run scheduler --job <name>`（单 job）与 `pdm run scheduler --full`（全量）。
 - **触发器（外部，无常驻进程）**：
   - GitHub Actions：`.github/workflows/daily-snapshot.yml`，
