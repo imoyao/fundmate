@@ -20,6 +20,19 @@
             导入持仓 >
           </el-button>
         </el-tooltip>
+        <el-tooltip
+          content="截图/文本识别交易（接 txn_import 场景）"
+          placement="bottom"
+        >
+          <el-button
+            link
+            size="small"
+            class="text-gray-400 hover:text-primary"
+            @click="openRecognizer"
+          >
+            截图导入 >
+          </el-button>
+        </el-tooltip>
       </div>
     </template>
 
@@ -53,6 +66,13 @@
       </el-button>
     </template>
   </el-drawer>
+
+  <!-- AI 识别截图导入（接 txn_import）→ 候选落 recon-draft，由统一对账工作台确认入库（#934） -->
+  <RecognizerImportModal
+    v-model="recognizerVisible"
+    scenario-lock="txn_import"
+    @saved="onRecognizerSaved"
+  />
 </template>
 
 <script setup lang="ts">
@@ -60,6 +80,7 @@ import { ref, computed, watch } from "vue";
 import { ElMessage } from "element-plus";
 import BuyForm from "./BuyForm.vue";
 import SellForm from "./SellForm.vue";
+import RecognizerImportModal from "./RecognizerImportModal.vue";
 import {
   useQuickEntry,
   useQuickEntrySubmit
@@ -107,6 +128,17 @@ function resetForm() {
 }
 
 function goToInventory() {
+  visible.value = false;
+}
+
+// 截图导入（#934）：打开 AI 识别模态（锁定 txn_import），候选落 recon-draft 后由工作台确认入库
+const recognizerVisible = ref(false);
+function openRecognizer() {
+  recognizerVisible.value = true;
+}
+function onRecognizerSaved() {
+  ElMessage.success("已存入对账草稿，请在「统一对账工作台」确认入库");
+  recognizerVisible.value = false;
   visible.value = false;
 }
 </script>
