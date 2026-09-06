@@ -1,4 +1,14 @@
 import { http } from "@/utils/http";
+import type { OcrHoldingRow } from "@/api/ocr";
+
+/** 持仓导入确认响应（holding_import）：返回本次 upsert 至 positions 的条数 */
+export interface HoldingImportResponse {
+  data: {
+    imported: number;
+    [key: string]: unknown;
+  };
+  message?: string;
+}
 
 /** 解析上传的交易文件，返回预览数据 */
 export function parseFile(
@@ -31,8 +41,12 @@ export function confirmImport(rows: any[]) {
 }
 
 /** 确认导入持仓快照（holding_import）：SET 语义 upsert 至 positions，不建交易流水（#1018） */
-export function confirmHoldingImport(rows: any[]) {
-  return http.request<any>("post", "/api/importers/holdings/confirm", {
-    data: rows
-  });
+export function confirmHoldingImport(rows: OcrHoldingRow[]) {
+  return http.request<HoldingImportResponse>(
+    "post",
+    "/api/importers/holdings/confirm",
+    {
+      data: rows
+    }
+  );
 }

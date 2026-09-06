@@ -164,7 +164,10 @@
             <!-- 域 A：E账户对账（P2 迁入工作台，复用既有 /api/e-account/ 链路） -->
             <template v-else-if="tab.key === 'A'">
               <!-- 识别候选（holding → 域 A，#1252）：AI 识别结果落草稿，确认后入库并刷新域 A 对账 -->
-              <div v-if="holdingCandidates.length" class="recognizer-candidate-panel">
+              <div
+                v-if="holdingCandidates.length"
+                class="recognizer-candidate-panel"
+              >
                 <div class="recognizer-candidate-panel__head">
                   <span class="recognizer-candidate-panel__title">
                     AI 识别候选（持仓）· {{ holdingCandidates.length }} 条
@@ -190,9 +193,23 @@
                 >
                   <el-table-column label="代码" prop="symbol" width="110" />
                   <el-table-column label="名称" prop="name" min-width="120" />
-                  <el-table-column label="份额" prop="quantity" width="110" align="right" />
-                  <el-table-column label="成本" prop="price" width="100" align="right" />
-                  <el-table-column label="快照日" prop="snapshot_date" width="120" />
+                  <el-table-column
+                    label="份额"
+                    prop="quantity"
+                    width="110"
+                    align="right"
+                  />
+                  <el-table-column
+                    label="成本"
+                    prop="price"
+                    width="100"
+                    align="right"
+                  />
+                  <el-table-column
+                    label="快照日"
+                    prop="snapshot_date"
+                    width="120"
+                  />
                 </el-table>
               </div>
 
@@ -267,7 +284,10 @@
             <!-- 域 C：占位内容 -->
             <template v-else>
               <!-- 识别候选（txn → 域 C，#1251）：AI 识别结果落草稿，确认后入库并触发域 C 对账 -->
-              <div v-if="txnCandidates.length" class="recognizer-candidate-panel">
+              <div
+                v-if="txnCandidates.length"
+                class="recognizer-candidate-panel"
+              >
                 <div class="recognizer-candidate-panel__head">
                   <span class="recognizer-candidate-panel__title">
                     AI 识别候选（交易）· {{ txnCandidates.length }} 条
@@ -298,8 +318,18 @@
                       {{ (row as any).op_type_label || row.op_type }}
                     </template>
                   </el-table-column>
-                  <el-table-column label="数量" prop="quantity" width="100" align="right" />
-                  <el-table-column label="金额" prop="amount" width="110" align="right" />
+                  <el-table-column
+                    label="数量"
+                    prop="quantity"
+                    width="100"
+                    align="right"
+                  />
+                  <el-table-column
+                    label="金额"
+                    prop="amount"
+                    width="110"
+                    align="right"
+                  />
                   <el-table-column label="日期" prop="trade_date" width="120" />
                 </el-table>
               </div>
@@ -418,7 +448,10 @@
     </el-dialog>
 
     <!-- AI 识别入口（P3 / #1250）：截图/文本识别 → 预览核对 → 确认进草稿 -->
-    <RecognizerImportModal v-model="recognizerVisible" @saved="onRecognizerSaved" />
+    <RecognizerImportModal
+      v-model="recognizerVisible"
+      @saved="onRecognizerSaved"
+    />
   </div>
 </template>
 
@@ -445,6 +478,7 @@ import {
   type ReconciliationItem
 } from "@/api/eaccount";
 import { confirmImport, confirmHoldingImport } from "@/api/importer";
+import type { OcrHoldingRow } from "@/api/ocr";
 import {
   useReconDraft,
   type RecognizerCandidate
@@ -634,7 +668,7 @@ async function commitCandidates(kind: "txn" | "holding"): Promise<void> {
   try {
     // 候选行即 OCR 预览行，剥离 kind 后原样回传确认端点（txn/hodling 各自落库管线）
     const rows = list.map(c => {
-      const { kind: _k, ...row } = c as Record<string, unknown>;
+      const { kind: _k, ...row } = c;
       return row;
     });
     if (kind === "txn") {
@@ -643,12 +677,12 @@ async function commitCandidates(kind: "txn" | "holding"): Promise<void> {
         `已入库 ${res?.data?.imported ?? rows.length} 条交易，已触发域 C 对账`
       );
     } else {
-      const res = await confirmHoldingImport(rows);
+      const res = await confirmHoldingImport(rows as OcrHoldingRow[]);
       ElMessage.success(
         `已入库 ${res?.data?.imported ?? rows.length} 条持仓，已刷新域 A 对账`
       );
     }
-    await clearRecognizerCandidates();
+    await clearRecognizerCandidates(kind);
     await loadRecognizerCandidates();
     if (kind === "txn") {
       await runReconciliation("C");
@@ -656,8 +690,9 @@ async function commitCandidates(kind: "txn" | "holding"): Promise<void> {
       await loadEAccount();
     }
     await loadDiscrepancies();
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || "入库失败");
+  } catch (e: unknown) {
+    const err = e as { response?: { data?: { message?: string } } };
+    ElMessage.error(err.response?.data?.message || "入库失败");
   } finally {
     committing.value = false;
   }

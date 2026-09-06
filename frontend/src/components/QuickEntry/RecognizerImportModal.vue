@@ -26,6 +26,7 @@
         role="tab"
         class="ocr-segmented__item"
         :class="{ 'is-active': scenario === 'txn_import' }"
+        :disabled="recognizing"
         @click="switchScenario('txn_import')"
       >
         交易识别
@@ -35,6 +36,7 @@
         role="tab"
         class="ocr-segmented__item"
         :class="{ 'is-active': scenario === 'holding_import' }"
+        :disabled="recognizing"
         @click="switchScenario('holding_import')"
       >
         持仓识别
@@ -116,12 +118,7 @@
         识别到 {{ previewRows.length }} 条，核对无误后「确认进草稿」
       </div>
       <div class="preview-scroll">
-        <el-table
-          :data="previewRows"
-          size="small"
-          stripe
-          class="preview-table"
-        >
+        <el-table :data="previewRows" size="small" stripe class="preview-table">
           <el-table-column label="代码" prop="symbol" width="110" />
           <el-table-column label="名称" prop="name" min-width="120" />
           <template v-if="scenario === 'txn_import'">
@@ -130,13 +127,33 @@
                 {{ (row as OcrTxnRow).op_type_label || row.op_type }}
               </template>
             </el-table-column>
-            <el-table-column label="数量" prop="quantity" width="100" align="right" />
-            <el-table-column label="金额" prop="amount" width="110" align="right" />
+            <el-table-column
+              label="数量"
+              prop="quantity"
+              width="100"
+              align="right"
+            />
+            <el-table-column
+              label="金额"
+              prop="amount"
+              width="110"
+              align="right"
+            />
             <el-table-column label="日期" prop="trade_date" width="120" />
           </template>
           <template v-else>
-            <el-table-column label="份额" prop="quantity" width="110" align="right" />
-            <el-table-column label="成本" prop="price" width="100" align="right" />
+            <el-table-column
+              label="份额"
+              prop="quantity"
+              width="110"
+              align="right"
+            />
+            <el-table-column
+              label="成本"
+              prop="price"
+              width="100"
+              align="right"
+            />
             <el-table-column label="快照日" prop="snapshot_date" width="120" />
           </template>
           <el-table-column label="状态" width="90">
@@ -238,6 +255,11 @@ const occupied = ref(false);
 const ledgers = ref<LedgerItem[]>([]);
 const selectedLedgerId = ref<number | null>(null);
 
+// 场景快照：识别在途时用户可切换场景，保存进草稿必须按"识别时"的场景路由，
+// 否则会按错误 domain 入库（#1348 review）
+const recognizedScenario = ref<OcrScenario | null>(null);
+const recognizedLedgerId = ref<number | null>(null);
+
 const usageFeature = computed(() =>
   scenario.value === "txn_import" ? "txn_import" : "holding_import"
 );
@@ -294,6 +316,8 @@ function switchTab(tab: "image" | "text") {
 
 function resetPreview() {
   previewRows.value = [];
+  recognizedScenario.value = null;
+  recognizedLedgerId.value = null;
   textContent.value = "";
   imageFile.value = null;
   textError.value = "";
@@ -313,7 +337,11 @@ const handleRecognize = async () => {
         return;
       }
       const base64 = await fileToBase64(imageFile.value);
-      const res = await recognizeImage(base64, scenario.value, selectedLedgerId.value);
+      const res = await recognizeImage(
+        base64,
+        scenario.value,
+        selectedLedgerId.value
+      );
       rows = ((res.data as { rows?: (OcrTxnRow | OcrHoldingRow)[] }).rows ??
         []) as (OcrTxnRow | OcrHoldingRow)[];
     } else {
@@ -322,7 +350,11 @@ const handleRecognize = async () => {
         ElMessage.warning("请输入文本内容");
         return;
       }
-      const res = await parseImportText(text, scenario.value, selectedLedgerId.value);
+      const res = await parseImportText(
+        text,
+        scenario.value,
+        selectedLedgerId.value
+      );
       rows = ((res.data as { rows?: (OcrTxnRow | OcrHoldingRow)[] }).rows ??
         []) as (OcrTxnRow | OcrHoldingRow)[];
     }
@@ -337,21 +369,31 @@ const handleRecognize = async () => {
       return;
     }
     previewRows.value = rows;
+    recognizedScenario.value = scenario.value;
+    recognizedLedgerId.value = selectedLedgerId.value;
     void fetchUsage();
-  } catch (e: any) {
+  } catch (e: unknown) {
     void fetchUsage();
-    const status = e?.response?.status;
+    const err = e as {
+      response?: { status?: number; data?: { message?: string } };
+      code?: string;
+      message?: string;
+    };
+    const status = err.response?.status;
     if (status === 503) {
       ElMessage.error("AI 识别服务暂时繁忙，请稍后重试（失败不消耗次数）");
     } else if (status === 429) {
       ElMessage.warning(
-        e?.response?.data?.message || "今日 AI 识别次数已用完，请明日再试"
+        err.response?.data?.message || "今日 AI 识别次数已用完，请明日再试"
       );
-    } else if (e?.code === "ECONNABORTED" || e?.message?.includes("timeout")) {
+    } else if (
+      err.code === "ECONNABORTED" ||
+      err.message?.includes("timeout")
+    ) {
       ElMessage.error("识别超时，请稍后重试（失败不消耗次数）");
     } else {
       ElMessage.error(
-        e?.response?.data?.message || e?.message || "识别失败，请重试"
+        err.response?.data?.message || err.message || "识别失败，请重试"
       );
     }
   } finally {
@@ -363,31 +405,35 @@ const handleRecognize = async () => {
 // 与导入草稿按 key 隔离；txn→域 C / holding→域 A，由工作台加载并参与对账。
 const handleSaveDraft = async () => {
   if (previewRows.value.length === 0) return;
+  // 按"识别时"的场景/账户路由，避免识别在途切换场景后按错误 domain 入库（#1348 review）
+  const snapScenario = recognizedScenario.value ?? scenario.value;
+  const snapLedgerId = recognizedLedgerId.value ?? selectedLedgerId.value;
   saving.value = true;
   try {
-    const domain = scenario.value === "txn_import" ? "C" : "A";
+    const domain = snapScenario === "txn_import" ? "C" : "A";
     const candidates = previewRows.value.map(r => {
       const base = {
         ...r,
-        kind: scenario.value === "txn_import" ? "txn" : "holding"
+        kind: snapScenario === "txn_import" ? "txn" : "holding"
       } as Record<string, unknown>;
       // 交易场景：把关联账户 id 直接带入候选行，提交时无需再次选择（域 C 按账本隔离）
-      if (scenario.value === "txn_import" && selectedLedgerId.value) {
-        base.ledger_id = selectedLedgerId.value;
+      if (snapScenario === "txn_import" && snapLedgerId) {
+        base.ledger_id = snapLedgerId;
       }
       return base as unknown as RecognizerCandidate;
     });
     await saveRecognizerCandidates({
       domain,
-      ledgerId: scenario.value === "txn_import" ? selectedLedgerId.value : null,
+      ledgerId: snapScenario === "txn_import" ? snapLedgerId : null,
       candidates
     });
     ElMessage.success("已存入对账草稿，可在工作台确认入库");
     emit("saved", domain);
     visible.value = false;
     resetPreview();
-  } catch (e: any) {
-    ElMessage.error(e?.message || "存入草稿失败");
+  } catch (e: unknown) {
+    const err = e as { message?: string };
+    ElMessage.error(err.message || "存入草稿失败");
   } finally {
     saving.value = false;
   }
@@ -410,7 +456,7 @@ const fetchUsage = async () => {
 const fetchLedgers = async () => {
   try {
     const res = await getLedgers();
-    ledgers.value = (res as any).data ?? [];
+    ledgers.value = (res.data ?? []) as LedgerItem[];
   } catch {
     ledgers.value = [];
   }
@@ -539,7 +585,7 @@ onMounted(() => {
 
     &:hover {
       color: var(--text-primary);
-      background: rgb(0 0 0 / 3%);
+      background: var(--bg-hover);
     }
 
     &.is-active {
@@ -625,7 +671,7 @@ onMounted(() => {
 }
 
 .ocr-primary-btn {
-  color: #fff;
+  color: var(--text-inverse);
   background-color: var(--brand-700);
 }
 

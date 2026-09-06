@@ -34,8 +34,7 @@ export type RecognizerCandidateKind = "txn" | "holding";
  * `/api/importers/confirm`（txn）或 `/api/importers/holdings/confirm`（holding）。
  */
 export type RecognizerCandidate =
-  | (OcrTxnRow & { kind: "txn" })
-  | (OcrHoldingRow & { kind: "holding" });
+  (OcrTxnRow & { kind: "txn" }) | (OcrHoldingRow & { kind: "holding" });
 
 /** 识别候选草稿 payload（key = `recon-draft:recognizer`） */
 export interface RecognizerDraftPayload {
@@ -181,6 +180,19 @@ export function useReconDraft() {
     ledgerId: number | null;
     candidates: RecognizerCandidate[];
   }): Promise<void> {
+    // 防御校验：domain 必须与候选 kind 对应，txn 必带 ledgerId，避免按错误域加载/入库
+    const kinds = new Set<RecognizerCandidateKind>(
+      payload.candidates.map(c => c.kind)
+    );
+    if (kinds.has("txn") && payload.domain !== "C") {
+      throw new Error("txn 候选必须落在域 C（对账单交割单导入）");
+    }
+    if (kinds.has("holding") && payload.domain !== "A") {
+      throw new Error("holding 候选必须落在域 A（E账户）");
+    }
+    if (kinds.has("txn") && payload.ledgerId == null) {
+      throw new Error("txn 候选必须携带 ledgerId 以关联账户");
+    }
     await localForage().setItem<RecognizerDraftPayload>(
       RECOGNIZER_KEY,
       {
@@ -195,9 +207,8 @@ export function useReconDraft() {
 
   /** 读取识别候选草稿的候选行；不存在或已过期返回空数组 */
   async function getRecognizerCandidates(): Promise<RecognizerCandidate[]> {
-    const draft = await localForage().getItem<RecognizerDraftPayload>(
-      RECOGNIZER_KEY
-    );
+    const draft =
+      await localForage().getItem<RecognizerDraftPayload>(RECOGNIZER_KEY);
     return draft?.candidates ?? [];
   }
 
@@ -209,9 +220,27 @@ export function useReconDraft() {
     );
   }
 
-  /** 丢弃识别候选草稿 */
-  async function clearRecognizerCandidates(): Promise<void> {
-    await localForage().removeItem(RECOGNIZER_KEY);
+  /** 丢弃识别候选草稿；传 kind 时仅移除该类型候选，避免误删另一类尚未提交的候选 */
+  async function clearRecognizerCandidates(
+    kind?: RecognizerCandidateKind
+  ): Promise<void> {
+    if (kind == null) {
+      await localForage().removeItem(RECOGNIZER_KEY);
+      return;
+    }
+    const draft =
+      await localForage().getItem<RecognizerDraftPayload>(RECOGNIZER_KEY);
+    if (!draft) return;
+    const remaining = draft.candidates.filter(c => c.kind !== kind);
+    if (remaining.length === 0) {
+      await localForage().removeItem(RECOGNIZER_KEY);
+    } else {
+      await localForage().setItem<RecognizerDraftPayload>(
+        RECOGNIZER_KEY,
+        { ...draft, candidates: remaining, savedAt: new Date().toISOString() },
+        TTL_MINUTES
+      );
+    }
   }
 
   /** 是否存在有效识别候选草稿 */
