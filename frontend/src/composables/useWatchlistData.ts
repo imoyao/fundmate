@@ -10,6 +10,45 @@ import {
 } from "@/api/watchlist";
 import type { useWatchlistGroups } from "@/composables/useWatchlistGroups";
 import type { useWatchlistTags } from "@/composables/useWatchlistTags";
+import { localForage } from "@/utils/localforage";
+
+/** 每页条数可选档位（issue #1335）：与后端 per_page 限幅 [1,200] 对齐，不超出范围 */
+export const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
+const PAGE_SIZE_STORAGE_KEY = "watchlist-page-size";
+const DEFAULT_PAGE_SIZE = 20;
+
+/**
+ * 每页条数偏好（issue #1335）：纯前端本地持久化（localforage），不落数据库——
+ * 跨设备同步依赖后端 user_preferences 基建，本期不做（见 issue 关联说明）。
+ * 模块级单例：自选页与设置抽屉共享同一份状态，且只从本地加载一次。
+ */
+const pageSize = ref(DEFAULT_PAGE_SIZE);
+// 记忆化「加载本地每页条数」Promise：多个挂载点（自选页 + 设置抽屉）并发调用 initPageSize 时，
+// 共享同一次加载，避免第二个挂载点在首个 await 完成前即返回、用默认 20 发起首屏请求，
+// 随后被记忆值（如 50）覆盖导致「数据按 20 拉取、分页器按 50 显示」的短暂不一致。
+let pageSizeLoadPromise: Promise<void> | null = null;
+
+async function loadPageSize(): Promise<void> {
+  try {
+    const saved = await localForage().getItem<number>(PAGE_SIZE_STORAGE_KEY);
+    if (
+      typeof saved === "number" &&
+      (PAGE_SIZE_OPTIONS as readonly number[]).includes(saved)
+    ) {
+      pageSize.value = saved;
+    }
+  } catch {
+    /* 读取失败按默认处理 */
+  }
+}
+
+function persistPageSize(): void {
+  localForage()
+    .setItem<number>(PAGE_SIZE_STORAGE_KEY, pageSize.value)
+    .catch(() => {
+      /* 持久化失败不影响会话内生效（IndexedDB 不可用时库内部降级 localStorage） */
+    });
+}
 
 /**
  * 自选列表「数据 + 分页 + 筛选 + 行操作 + 批量」编排逻辑（从 watchlist/index.vue 抽离，2026-08-20）。
@@ -53,7 +92,6 @@ export function useWatchlistData(
   // 汇总（总市值/总成本/总盈亏）必须基于整组而非当前页，否则翻页时数据会跳变。
   const allItems = ref<WatchlistItem[]>([]);
   const currentPage = ref(1);
-  const pageSize = ref(20);
   const totalItems = ref(0);
 
   // 用户列内排序状态（#991）：空串表示未排序（后端走默认置顶+更新时间）
@@ -169,6 +207,30 @@ export function useWatchlistData(
     fetchData();
   }
 
+  /**
+   * 首屏前加载本地每页条数偏好（#1335），确保第一次 fetch 即使用已记忆的档位。
+   * 幂等：返回记忆化的加载 Promise，所有调用方（自选页、设置抽屉等挂载点）等待同一次加载完成，
+   * 避免并发挂载点时第二个调用方提前返回、用默认档位发起首屏请求而产生短暂不一致。
+   */
+  async function initPageSize(): Promise<void> {
+    if (!pageSizeLoadPromise) {
+      pageSizeLoadPromise = loadPageSize();
+    }
+    return pageSizeLoadPromise;
+  }
+
+  /** 切换每页条数（#1335）：记忆选择 → 回到第一页 → 重新拉取。
+   *  仅接受预定义档位，越界值回退默认，避免与后端 per_page 限幅 [1,200] 冲突。 */
+  function setPageSize(size: number) {
+    const allowed = PAGE_SIZE_OPTIONS as readonly number[];
+    const next = allowed.includes(size) ? size : DEFAULT_PAGE_SIZE;
+    if (next === pageSize.value) return;
+    pageSize.value = next;
+    persistPageSize();
+    currentPage.value = 1;
+    fetchData();
+  }
+
   /** 搜索防抖：输入 300ms 后重置分页并刷新 */
   let searchTimer: number | undefined;
   function debounceSearch() {
@@ -261,7 +323,9 @@ export function useWatchlistData(
   const showTagEditor = ref(false);
   function openTagEditor(row: WatchlistItem) {
     if (row.id == null) {
-      ElMessage.warning("该自选记录缺少主键，暂无法编辑标签，请刷新或重新添加自选");
+      ElMessage.warning(
+        "该自选记录缺少主键，暂无法编辑标签，请刷新或重新添加自选"
+      );
       return;
     }
     editingItem.value = row;
@@ -353,6 +417,9 @@ export function useWatchlistData(
     currentPage,
     pageSize,
     totalItems,
+    pageSizeOptions: PAGE_SIZE_OPTIONS,
+    initPageSize,
+    setPageSize,
     fetchParams,
     fetchData,
     handleSortChange,

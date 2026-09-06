@@ -289,15 +289,34 @@
            改由页面底部 .watchlist-footer 承担（见 CardBlock 之后）。 -->
         <div class="table-footer">
           <span class="table-footer__total">共 {{ totalItems }} 条</span>
-          <el-pagination
-            v-model:current-page="currentPage"
-            :page-size="pageSize"
-            :total="totalItems"
-            layout="prev, pager, next"
-            small
-            background
-            @current-change="() => fetchData(false)"
-          />
+          <div class="table-footer__right">
+            <!-- 每页条数选择（#1335）：纯本地记忆（localforage），不落数据库 -->
+            <div class="page-size-select">
+              <span class="page-size-select__label">每页</span>
+              <el-select
+                :model-value="pageSize"
+                size="small"
+                class="page-size-select__control"
+                @change="setPageSize"
+              >
+                <el-option
+                  v-for="opt in pageSizeOptions"
+                  :key="opt"
+                  :label="opt"
+                  :value="opt"
+                />
+              </el-select>
+            </div>
+            <el-pagination
+              v-model:current-page="currentPage"
+              :page-size="pageSize"
+              :total="totalItems"
+              layout="prev, pager, next"
+              small
+              background
+              @current-change="() => fetchData(false)"
+            />
+          </div>
         </div>
       </CardBlock>
 
@@ -452,6 +471,9 @@ const {
   currentPage,
   pageSize,
   totalItems,
+  pageSizeOptions,
+  initPageSize,
+  setPageSize,
   fetchData,
   handleSortChange,
   handleViewChange,
@@ -725,7 +747,9 @@ const onTagEditorSaved = () => {
 // ─────────────────────────────────────────────
 // 生命周期
 // ─────────────────────────────────────────────
-onMounted(() => {
+onMounted(async () => {
+  // 先恢复本地记忆的每页条数，确保首屏 fetch 即使用户上次的选择（#1335）
+  await initPageSize();
   fetchGroups();
   fetchTags();
   fetchData();
@@ -1194,6 +1218,30 @@ const renderCtx = computed<RenderCtx>(() => ({
   padding-top: var(--space-2);
   margin-top: var(--space-1);
   border-top: 1px solid var(--border-light);
+}
+
+/* 底栏右侧：每页条数选择 + 翻页 成组右对齐 */
+.table-footer__right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* 每页条数选择器（#1335）：与翻页器同高对齐，标签用次级/三级文字色 */
+.page-size-select {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.page-size-select__label {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.page-size-select__control {
+  width: 88px;
 }
 
 .table-footer__total {
