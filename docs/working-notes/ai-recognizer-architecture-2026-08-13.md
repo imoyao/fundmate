@@ -66,9 +66,10 @@ backend/app/services/
 └── ai_recognizer/                 # ★ AI 识别域（新增，对称 importer 设计）
     ├── base.py                    # BaseRecognizer 抽象基类（+ 模板方法）
     ├── registry.py                # 注册表：get_recognizer(key)，新场景一行注册
-    ├── schemas.py                 # 各场景候选行 dataclass
-    │   ├── WatchlistCandidate     #   code/name/type/market/venue/symbol
-    │   └── TransactionCandidate   #   + business_type/dates/amount/shares/nav/fee
+    ├── schemas.py                 # 各场景候选行 TypedDict 契约（运行期仍为 dict，单一事实来源）
+    │   ├── WatchlistCandidateDict     #   code/name/type/market/venue/symbol
+    │   ├── TransactionCandidateDict   #   + business_type/dates/amount/shares/nav/fee/warnings
+    │   └── HoldingCandidateDict      #   持仓：code/symbol/asset_type/name/shares/avg_cost/market_value/snapshot_date（avg_cost 落库映射 Position.avg_price / holding_cost_price，见 §3.1）
     ├── catalog.py                 # 类型/名称反查（证券/基金表消歧，从 ocr_service 抽出共享）
     ├── guards.py                  # 限流/熔断/token 预算 + user_usage 操作（从 ocr_service 抽出）
     ├── llm.py                     # _call_ark：模型/超时/重试/token 记录（抽出）
@@ -76,6 +77,16 @@ backend/app/services/
         ├── watchlist_recognizer.py   # 自选场景（代码+名称）
         └── txn_recognizer.py         # 持仓场景（代码+名称+买卖+日期+金额+份额）
 ```
+
+> **TypedDict 仅为静态契约，运行期校验落点**：`schemas.py` 的三个 TypedDict 是
+> `total=True`（仅 `code` 及各自始终产出的 `name` 为必填键，其余 `NotRequired`），
+> 但 TypedDict 运行期仍是 dict，**不强制字段存在与类型**——LLM 缺字段/错类型时
+> 不会在类型层兜底。真正运行时校验落点在 `base.py` 模板方法
+> `recognize_text` / `recognize_image` 的调用链 `extract → validate → enrich`：
+> `validate`（各识别器）对数值/日期做防御式 `.get()` + 类型转换兜底，`enrich`
+> 再回填 `symbol/type/market/venue` 反查字段；下游（catalog.enrich / importer 预览与
+> 入库管线）一律用 `.get()` 容缺省读取。`avg_cost` 落库映射 `Position.avg_price`
+> （DB 列）/ enrich 字段 `holding_cost_price`，术语映射已在本契约标注，避免漂移。
 
 ### 3.1 BaseRecognizer 抽象（对称 BaseImportParser）
 
