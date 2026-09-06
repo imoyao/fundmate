@@ -25,12 +25,20 @@ const STORAGE_KEY = "watchlist-column-settings";
 /** 列设置持久化结构 */
 interface ColumnSettings {
   hidden: string[];
+  /**
+   * 被用户「显式开启」的默认隐藏列（defaultHidden=true）。
+   * 与 hidden 分开存：hidden 记「用户关掉的」，shown 记「用户打开的」，二者互斥。
+   * 旧缓存缺 shown 字段时按「从未开启」处理，新增列保持隐藏（不打扰老用户）。
+   */
+  shown?: string[];
   /** 可拖拽列的自定义顺序（key 数组）；缺省 = 默认定义顺序（#992） */
   order?: string[];
 }
 
 /** 模块级单例：页面与抽屉共享同一份状态 */
 const hiddenKeys = ref<Set<string>>(new Set());
+/** 默认隐藏、但被用户显式开启过的列（#993 新增列的默认关闭语义） */
+const shownKeys = ref<Set<string>>(new Set());
 const customOrder = ref<string[]>([]);
 let loadStarted = false;
 
@@ -40,6 +48,9 @@ async function loadSettings(): Promise<void> {
     const saved = await localForage().getItem<ColumnSettings>(STORAGE_KEY);
     if (saved && Array.isArray(saved.hidden)) {
       hiddenKeys.value = new Set(saved.hidden);
+    }
+    if (saved && Array.isArray(saved.shown)) {
+      shownKeys.value = new Set(saved.shown);
     }
     if (saved && Array.isArray(saved.order)) {
       // 只保留仍存在于当前定义中的 key（定义删列后旧缓存不产生幽灵顺序）
@@ -57,6 +68,7 @@ function persistSettings(): void {
   localForage()
     .setItem<ColumnSettings>(STORAGE_KEY, {
       hidden: [...hiddenKeys.value],
+      shown: [...shownKeys.value],
       order: [...customOrder.value]
     })
     .catch(() => {
@@ -102,26 +114,53 @@ export function useWatchlistColumnVisibility(): WatchlistColumnVisibility {
     );
   });
 
+  /** 某列当前是否可见：显式隐藏 → false；默认隐藏且未显式开启 → false */
   const visibleColumns = computed(() =>
-    orderedColumns.value.filter(
-      d => !d.hideable || !hiddenKeys.value.has(d.key)
-    )
+    orderedColumns.value.filter(d => {
+      if (!d.hideable) return true;
+      if (hiddenKeys.value.has(d.key)) return false;
+      return !d.defaultHidden || shownKeys.value.has(d.key);
+    })
   );
 
+  /**
+   * 返回「当前是否实际隐藏」，而非「用户是否显式隐藏过」。
+   * SettingsDrawer 以 `!isHidden(key)` 作为勾选框的 model-value，若这里只反映
+   * 显式隐藏，默认隐藏列会渲染成「已勾选却不可见」的矛盾态；hiddenCount 统计
+   * 同样依赖本语义。必须与 toggleColumn 对称：isHidden→true 时 toggle(key,true)
+   * 可使其可见。
+   */
   function isHidden(key: string): boolean {
-    return hiddenKeys.value.has(key);
+    const def = watchlistColumnDefs.find(d => d.key === key);
+    // 不可隐藏列恒为可见：即便历史残留 hiddenKeys 含该 key，也不应显示「已隐藏」矛盾态
+    if (def && !def.hideable) return false;
+    if (hiddenKeys.value.has(key)) return true;
+    return Boolean(def?.defaultHidden) && !shownKeys.value.has(key);
   }
 
   function toggleColumn(key: string, visible: boolean): void {
-    const next = new Set(hiddenKeys.value);
-    if (visible) next.delete(key);
-    else next.add(key);
-    hiddenKeys.value = next;
+    const def = watchlistColumnDefs.find(d => d.key === key);
+    // 不可隐藏列（固定列/内置列）恒可见：即便被错误调用也不写入持久化数据，避免污染
+    if (!def || !def.hideable) return;
+    const nextHidden = new Set(hiddenKeys.value);
+    const nextShown = new Set(shownKeys.value);
+    if (visible) {
+      nextHidden.delete(key);
+      // 显式开启：仅对默认隐藏列记入 shown（普通列本就可见，记入只是污染持久化数据）
+      if (def.defaultHidden) nextShown.add(key);
+    } else {
+      nextHidden.add(key);
+      nextShown.delete(key);
+    }
+    hiddenKeys.value = nextHidden;
+    shownKeys.value = nextShown;
     persistSettings();
   }
 
   function resetColumns(): void {
     hiddenKeys.value = new Set();
+    // 恢复默认：默认隐藏列回到隐藏态（清空「显式开启」记录）
+    shownKeys.value = new Set();
     customOrder.value = [];
     persistSettings();
   }

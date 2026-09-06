@@ -210,7 +210,8 @@
      Inter 非等宽，不放首位，避免退化比例字体。
      末尾追加 --font-cjk-list 作 CJK 兜底：等宽栈不含中文字形，
      含中文单位（亿/万/股等）或中文标签落入时不再回退到系统锯齿 CJK（2026-09-05） */
-  --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, var(--font-cjk-list), monospace;
+  --font-mono:
+    "SF Mono", "JetBrains Mono", ui-monospace, var(--font-cjk-list), monospace;
 
   /* ===== 间距 ===== */
   --space-1: 4px;

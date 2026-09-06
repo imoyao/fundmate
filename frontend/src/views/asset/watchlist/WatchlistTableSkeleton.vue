@@ -50,12 +50,10 @@
    loading 结束卸载后表格原有 DOM 无缝露出。 */
 .watchlist-table-skeleton {
   position: absolute;
+
   /* top 跟随真实表头高度：由父容器 .watchlist-table-wrap 的 --watchlist-header-h 提供（#1324 review），
      表头高度调整时覆盖层自动对齐，不再硬编码压住/露出。 */
-  top: var(--watchlist-header-h, 30px);
-  right: 0;
-  bottom: 0;
-  left: 0;
+  inset: var(--watchlist-header-h, 30px) 0 0 0;
   z-index: 5;
   display: flex;
   flex-direction: column;
@@ -70,10 +68,11 @@
 .wts-row {
   display: flex;
   flex: 1 1 auto;
+  align-items: center;
   min-height: 44px;
+
   /* 高屏下 flex 均分不会把行无限拉长，维持与真实行 ~52px 一致的骨架密度（#1324 review） */
   max-height: 52px;
-  align-items: center;
   border-bottom: 1px solid var(--border-light);
 }
 
@@ -94,14 +93,14 @@
 
 .wts-row__cell--num {
   flex: 1;
-  min-width: 0;
   justify-content: flex-end;
+  min-width: 0;
   padding-right: 12px;
 }
 
 .wts-row__cell--action {
-  width: 120px;
   justify-content: center;
+  width: 120px;
   padding-right: 12px;
 }
 

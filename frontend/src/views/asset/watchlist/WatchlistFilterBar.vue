@@ -1,8 +1,15 @@
 <script setup lang="ts">
 /* eslint-disable vue/no-mutating-props -- 状态注入模式：groups/tags/toolbar 为 composable 实例 prop，
    经 computed get/set 桥接修改其内部 ref 属有意设计（与 WatchlistToolbar 同模式） */
-import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from "vue";
-import { Folder, Plus } from "@element-plus/icons-vue";
+import {
+  computed,
+  ref,
+  watch,
+  onMounted,
+  onBeforeUnmount,
+  nextTick
+} from "vue";
+import { Files, Folder, Plus } from "@element-plus/icons-vue";
 import GroupFormDialog from "@/components/Watchlist/GroupFormDialog.vue";
 import type { useWatchlistGroups } from "@/composables/useWatchlistGroups";
 import type { useWatchlistTags } from "@/composables/useWatchlistTags";
@@ -30,7 +37,10 @@ const emit = defineEmits<{
   (e: "view-change"): void;
   (e: "tag-apply"): void;
   (e: "tag-clear"): void;
+  /** 管理分组本身（新建/改名/删除）→ GroupManagerDialog */
   (e: "manage-groups"): void;
+  /** #987：管理当前自定义分组「里有哪些产品」→ GroupItemsDialog */
+  (e: "manage-group-items"): void;
 }>();
 
 // 状态注入模式：groups / tags / toolbar 为 composable 实例 prop，
@@ -148,7 +158,10 @@ onMounted(() => {
   groupFadeObserver.observe(el);
 });
 onBeforeUnmount(() => groupFadeObserver?.disconnect());
-watch(() => allGroups.value.length, () => nextTick(updateGroupFade));
+watch(
+  () => allGroups.value.length,
+  () => nextTick(updateGroupFade)
+);
 </script>
 
 <template>
@@ -160,48 +173,48 @@ watch(() => allGroups.value.length, () => nextTick(updateGroupFade));
 
          批量模式（batchMode）：分组与筛选整体隐藏（批量工具条占用第一行），
          避免表格上方出现两排状态不同的操作。 -->
-    <div class="filter-row" v-if="!toolbar.batchMode.value">
-      <template>
-        <!-- 左段（弹性）：分组胶囊 Tab（design.md「分组胶囊 Tab · 方案 B」，水平滑动、数量徽章 tabular-nums）。
-             自定义分组多时会横向滚动，右缘用渐变遮罩暗示「右侧还有」（2026-09-05）。 -->
-        <div class="group-tabs-wrap">
-          <div
-            ref="groupScrollEl"
-            class="group-tabs-scroll"
-            @wheel="handleGroupWheel"
+    <div v-if="!toolbar.batchMode.value" class="filter-row">
+      <!-- 左段（弹性）：分组胶囊 Tab（design.md「分组胶囊 Tab · 方案 B」，水平滑动、数量徽章 tabular-nums）。
+           自定义分组多时会横向滚动，右缘用渐变遮罩暗示「右侧还有」（2026-09-05）。
+           注意：此处不要套裸 <template>（无 v-if/v-for/v-slot 指令），否则会被渲染成原生
+           <template> 元素，其 children 进入惰性 .content 片段而不显示到页面（已踩坑）。 -->
+      <div class="group-tabs-wrap">
+        <div
+          ref="groupScrollEl"
+          class="group-tabs-scroll"
+          @wheel="handleGroupWheel"
+        >
+          <button
+            v-for="g in allGroups"
+            :key="g.key"
+            type="button"
+            class="group-tab"
+            :class="{ 'is-active': g.key === activeGroupModel }"
+            :title="g.label"
+            @click="activeGroupModel = g.key"
           >
-            <button
-              v-for="g in allGroups"
-              :key="g.key"
-              type="button"
-              class="group-tab"
-              :class="{ 'is-active': g.key === activeGroupModel }"
-              :title="g.label"
-              @click="activeGroupModel = g.key"
+            <!-- 分组色点：用户数据色（非设计令牌），缺失回退中性 token（数据色例外） -->
+            <span
+              v-if="g.color"
+              class="group-tab-dot"
+              :style="{ backgroundColor: g.color }"
+            />
+            <span class="group-tab-label">{{ g.label }}</span>
+            <span
+              v-if="g.count > 0"
+              class="group-tab-count"
+              :style="{
+                /* 分组/标签色为用户数据（非设计令牌），缺失回退中性 token（数据色例外） */
+                color: g.color ? g.color : undefined
+              }"
             >
-              <!-- 分组色点：用户数据色（非设计令牌），缺失回退中性 token（数据色例外） -->
-              <span
-                v-if="g.color"
-                class="group-tab-dot"
-                :style="{ backgroundColor: g.color }"
-              />
-              <span class="group-tab-label">{{ g.label }}</span>
-              <span
-                v-if="g.count > 0"
-                class="group-tab-count"
-                :style="{
-                  /* 分组/标签色为用户数据（非设计令牌），缺失回退中性 token（数据色例外） */
-                  color: g.color ? g.color : undefined
-                }"
-              >
-                {{ g.count }}
-              </span>
-            </button>
-          </div>
-          <!-- 右缘渐变遮罩：分组溢出时暗示可横向滑动（纯装饰，不拦截指针事件） -->
-          <span class="group-tabs-fade" aria-hidden="true" />
+              {{ g.count }}
+            </span>
+          </button>
         </div>
-      </template>
+        <!-- 右缘渐变遮罩：分组溢出时暗示可横向滑动（纯装饰，不拦截指针事件） -->
+        <span class="group-tabs-fade" aria-hidden="true" />
+      </div>
 
       <!-- 右段（固定）：分组操作 + 标签筛选 + 视图 segmented，不随分组 tab 滚动 -->
       <div v-if="!toolbar.batchMode.value" class="filter-bar__right">
@@ -222,6 +235,23 @@ watch(() => allGroups.value.length, () => nextTick(updateGroupFade));
             @click="emit('manage-groups')"
           >
             <el-icon><Folder /></el-icon>
+          </el-button>
+        </el-tooltip>
+        <!-- 「管理本组产品」：仅当前选中自定义分组时出现（issue #987）。
+             与上方「管理分组」（管分组本身的新建/改名/删除）是两件事——本入口
+             管「这个组里有哪些产品」，系统分组由后端规律维护故不展示。 -->
+        <el-tooltip
+          v-if="groups.currentIsCustom"
+          content="管理本组产品"
+          placement="bottom"
+        >
+          <el-button
+            class="manage-group-items-btn"
+            circle
+            aria-label="管理本组产品"
+            @click="emit('manage-group-items')"
+          >
+            <el-icon><Files /></el-icon>
           </el-button>
         </el-tooltip>
         <div class="right-divider" />
@@ -330,9 +360,12 @@ watch(() => allGroups.value.length, () => nextTick(updateGroupFade));
 <style scoped>
 .filter-bar {
   /* design.md「表格/列表/筛选栏：--space-compact(16px)」在卡片外层生效；
-     此处为卡内子区块间距，取 6px（2026-09-05 从 --space-3(12) 收紧，
-     为表格让出首屏行数；滚动进入紧凑态时由 index.vue 缩至 --space-1(4px)）。 */
-  margin-bottom: 6px;
+     此处为卡内子区块间距，取 12px（--space-3）。
+     （2026-09-06 呼吸感回调：曾收紧到 6px 为表格让首屏行数，实测与上方搜索行、
+     下方表头三带贴合成一条、分区层级丢失；回到 12px 后筛选带与表格区边界清晰。
+     注意：margin 不计入 offsetHeight，故表头吸顶偏移 --watchlist-sticky-top
+     仍等于本元素 offsetHeight，吸顶无缝衔接不受本值影响。） */
+  margin-bottom: var(--space-3);
 }
 
 /* 行布局：分组 tab（弹性滚动）+ 次级操作 + #actions 快捷图标组
@@ -537,6 +570,29 @@ watch(() => allGroups.value.length, () => nextTick(updateGroupFade));
 .manage-groups-btn:hover {
   color: var(--brand-700);
   background-color: var(--bg-hover);
+}
+
+/* 管理本组产品按钮（#987）：与「管理分组」同尺寸同语言（28×28 圆形线框），
+   仅图标不同（多文件 = 组内产品清单，文件夹 = 分组本身），避免两个入口混淆 */
+.manage-group-items-btn {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--text-tertiary);
+  background-color: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  transition:
+    color 150ms ease,
+    background-color 150ms ease,
+    border-color 150ms ease;
+}
+
+.manage-group-items-btn:hover {
+  color: var(--brand-700);
+  background-color: var(--bg-hover);
+  border-color: var(--brand-400);
 }
 
 /* ===== 视图分段控制器（全部/场内/场外）：手写，弃用 el-segmented =====
