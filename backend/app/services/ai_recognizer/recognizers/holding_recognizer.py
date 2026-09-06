@@ -61,7 +61,7 @@ class HoldingRecognizer(BaseRecognizer):
     def extract(self, raw: str) -> List[HoldingCandidateDict]:
         return extract_json_array(raw)
 
-    def validate(self, items: List[dict]) -> List[HoldingCandidateDict]:
+    def validate(self, items: List[HoldingCandidateDict]) -> List[HoldingCandidateDict]:
         """清洗识别结果：仅保留有效代码，且 shares / market_value 至少其一为正。
 
         保留 enrich 阶段回填的 symbol / asset_type（用于落库与反查）。

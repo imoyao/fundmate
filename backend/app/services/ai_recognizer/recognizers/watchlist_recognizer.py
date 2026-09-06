@@ -52,7 +52,7 @@ class WatchlistRecognizer(BaseRecognizer):
     def extract(self, raw: str) -> List[WatchlistCandidateDict]:
         return extract_json_array(raw)
 
-    def validate(self, items: List[dict]) -> List[WatchlistCandidateDict]:
+    def validate(self, items: List[WatchlistCandidateDict]) -> List[WatchlistCandidateDict]:
         """清洗识别结果：只保留 6 位数字代码，name 取字符串。"""
         cleaned = []
         for it in items:

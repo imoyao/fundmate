@@ -162,7 +162,7 @@ class TxnRecognizer(BaseRecognizer):
             )
         return items
 
-    def validate(self, items: List[dict]) -> List[TransactionCandidateDict]:
+    def validate(self, items: List[TransactionCandidateDict]) -> List[TransactionCandidateDict]:
         """清洗校验候选行。
 
         保留规则：代码 6 位 + 买卖类型在枚举内 + 至少金额或份额其一有效；
