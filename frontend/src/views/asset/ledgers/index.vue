@@ -273,6 +273,7 @@
               v-for="ledger in group.ledgers"
               :key="ledger.id"
               :ledger="ledger"
+              :stale-count="staleCountByLedger[ledger.id] || 0"
               @open="goToDetail"
               @delete="openDeleteDialog"
               @toggle-archive="onToggleArchive"
@@ -333,6 +334,10 @@ import {
   getSecuritiesAggregation,
   type SalesInstitution
 } from "@/api/ledger";
+import {
+  getLedgerConsistency,
+  type LedgerConsistencyItem
+} from "@/api/reconciliation";
 import Sortable from "sortablejs";
 import { getPortfolios } from "@/api/portfolio";
 import AssetTypeBadge from "@/components/AssetTypeBadge/index.vue";
@@ -390,6 +395,19 @@ const deletingAccount = ref<any>(null);
 const showArchived = ref(false);
 /** 全量账户（含已归档），用于按开关过滤展示 + 统计归档数 */
 const allLedgersRaw = ref<any[]>([]);
+
+/** 各账户持仓快照一致性（#1133 §4 温柔提醒数据源）：拉一次后按 ledger 聚合待核对数 */
+const ledgerConsistencyItems = ref<LedgerConsistencyItem[]>([]);
+const staleCountByLedger = computed<Record<number, number>>(() =>
+  ledgerConsistencyItems.value.reduce(
+    (acc, it) => {
+      if (it.ledger_id != null)
+        acc[it.ledger_id] = (acc[it.ledger_id] ?? 0) + 1;
+      return acc;
+    },
+    {} as Record<number, number>
+  )
+);
 
 // 总资产（从 overview groups 汇总）
 const totalAssets = computed(
@@ -666,12 +684,14 @@ function goToSecuritiesAggregation() {
 async function fetchData() {
   loading.value = true;
   try {
-    const [ledgersRes, overviewRes, portfolioRes, instRes] = await Promise.all([
-      getLedgers(true),
-      getLedgersOverview(),
-      getPortfolios(),
-      getSalesInstitutions()
-    ]);
+    const [ledgersRes, overviewRes, portfolioRes, instRes, consistencyRes] =
+      await Promise.all([
+        getLedgers(true),
+        getLedgersOverview(),
+        getPortfolios(),
+        getSalesInstitutions(),
+        getLedgerConsistency()
+      ]);
     allLedgersRaw.value = (ledgersRes as any)?.data ?? [];
     // 按「显示已归档」开关过滤展示列表（归档数据始终计入顶部净资产/配置图）
     allLedgers.value = showArchived.value
@@ -685,6 +705,8 @@ async function fetchData() {
     portfolioList.value = (portfolioRes as any)?.data ?? [];
     salesInstitutions.value =
       (instRes as { data?: SalesInstitution[] })?.data ?? [];
+    // 快照一致性：聚合到 ledger 维度供卡片角标渲染；失败静默兜底不阻塞主列表
+    ledgerConsistencyItems.value = (consistencyRes as any)?.data?.items ?? [];
     // 重新分组并构建可拖拽的展示结构（含「金额降序 / 手动序号」排序规则）
     displayedGroups.value = buildGroups(allLedgers.value);
     // 统一走公共格式化：YYYY-MM-DD HH:mm（不带秒），避免斜线/时分秒混用

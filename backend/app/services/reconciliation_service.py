@@ -23,7 +23,8 @@ from datetime import date, datetime
 from sqlalchemy.orm import Session
 
 from app.core.constants import PositionSource
-from app.domains.positions.models import Position
+from app.core.money import Money
+from app.domains.positions.models import Position, PositionImportMeta
 from app.domains.reconciliation.models import AdjustmentLog, ReconciliationDiscrepancy, ReconciliationRun
 from app.domains.transactions.models import Transaction
 from app.services.position_service import PositionService
@@ -380,3 +381,85 @@ def apply_decision(
 
     db.flush()
     return {'action': action, 'before': before, 'after': after, 'log_id': log.id}
+
+
+def get_ledger_snapshot_consistency(db: Session, family_id: int) -> list[dict]:
+    """只读：计算各账户持仓快照一致性（#1133 §4 温柔提醒数据源）。
+
+    不写 discrepancies 表（那是工作台域 B 对账的落点），本函数提供按需、轻量的检查视图，
+    供前端在账户列表 / 账本详情页以「温柔、非阻断」方式提示快照可能滞后。
+
+    口径（#1133 §4）：
+    - 取 active 持仓 + position_import_meta.snapshot_date（非空）。
+    - 对该 (ledger_id, symbol) 汇聚 transactions：theoretical = Σ(confirm_date <= snapshot_date 的流水净份额)。
+    - diff = positions.quantity − theoretical。
+    - 边界：该 (ledger_id, symbol) 无任何流水 → 纯快照模式（如 E账户持仓导入不建流水），跳过，禁止误报。
+    - diff != 0 → 标记「可能对不上」，返回明细（份额换算为可读单位）。
+    """
+    rows = (
+        db.query(Position, PositionImportMeta.snapshot_date)
+        .join(PositionImportMeta, PositionImportMeta.position_id == Position.id)
+        .filter(
+            Position.family_id == family_id,
+            Position.ownership_status == 'active',
+            PositionImportMeta.snapshot_date.isnot(None),
+        )
+        .all()
+    )
+    if not rows:
+        return []
+
+    # 该 family 全部流水一次性拉取，按业务键聚合（避免逐持仓查库放大 N+1）
+    txn_rows = (
+        db.query(
+            Transaction.ledger_id,
+            Transaction.symbol,
+            Transaction.txn_type,
+            Transaction.quantity,
+            Transaction.confirm_date,
+        )
+        .filter(Transaction.family_id == family_id)
+        .yield_per(1000)
+        .all()
+    )
+    txn_by_key: dict[tuple, list] = {}
+    for ledger_id, symbol, txn_type, quantity, confirm_date in txn_rows:
+        if ledger_id is None or not symbol:
+            continue
+        txn_by_key.setdefault((ledger_id, symbol), []).append((txn_type, quantity or 0, confirm_date))
+
+    items: list[dict] = []
+    for pos, snapshot_date in rows:
+        key = (pos.ledger_id, pos.symbol)
+        txns = txn_by_key.get(key)
+        if not txns:
+            # 纯快照模式（无流水）：跳过，禁止误报（#1133 §4 边界）
+            continue
+        theoretical = 0
+        last_txn_date = None
+        for txn_type, quantity, confirm_date in txns:
+            if confirm_date:
+                if last_txn_date is None or confirm_date > last_txn_date:
+                    last_txn_date = confirm_date
+                # 只看快照日及之前的流水，推演「截至快照日应有持仓」
+                if confirm_date > snapshot_date:
+                    continue
+            if txn_type in _ADD_TYPES:
+                theoretical += quantity
+            elif txn_type in _SELL_TYPES:
+                theoretical -= quantity
+        diff = pos.quantity - theoretical
+        if diff != 0:
+            items.append(
+                {
+                    'ledger_id': pos.ledger_id,
+                    'symbol': pos.symbol,
+                    'name': pos.name,
+                    'snapshot_date': snapshot_date.isoformat(),
+                    'last_txn_date': last_txn_date.isoformat() if last_txn_date else None,
+                    'expected_qty': Money.min_unit_to_shares(theoretical),
+                    'actual_qty': Money.min_unit_to_shares(pos.quantity),
+                    'diff_qty': Money.min_unit_to_shares(diff),
+                }
+            )
+    return items

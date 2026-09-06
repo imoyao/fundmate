@@ -12,7 +12,11 @@ from app.core.money import Money
 from app.domains.positions.models import Position
 from app.domains.reconciliation.models import AdjustmentLog, ReconciliationDiscrepancy, ReconciliationRun
 from app.domains.transactions.models import Transaction
-from app.services.reconciliation_service import run_domain_b_reconciliation, run_reconciliation
+from app.services.reconciliation_service import (
+    get_ledger_snapshot_consistency,
+    run_domain_b_reconciliation,
+    run_reconciliation,
+)
 
 
 def _buy_txn(db, ledger_id, symbol, quantity, confirm_date, position_id=None):
@@ -520,6 +524,51 @@ class TestReconciliationAPI:
         log = db.query(AdjustmentLog).filter_by(discrepancy_id=disc_id).one()
         assert log.action == 'ignore_permanent'
 
+    def test_ledger_consistency_endpoint(self, client, db):
+        """GET /ledger-consistency/ 返回快照滞后明细（只读、不写 discrepancies）。"""
+        from app.domains.ledgers.models import Ledger
+        from app.domains.positions.models import PositionImportMeta
+
+        ledger = Ledger(name='账户A', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.flush()
+        _buy_txn(db, ledger.id, 'S1', 1000, date(2026, 6, 1))
+        pos = Position(
+            symbol='S1',
+            name='股1',
+            asset_type='stock',
+            market='CN_A',
+            ledger_id=ledger.id,
+            family_id=1,
+            quantity=Money.shares_to_min_unit(1200),
+            avg_price=Money.yuan_to_price_units(10),
+            current_price=Money.yuan_to_price_units(10),
+            source='manual',
+            ownership_status='active',
+        )
+        db.add(pos)
+        db.flush()
+        db.add(
+            PositionImportMeta(
+                position_id=pos.id,
+                symbol='S1',
+                ledger_id=ledger.id,
+                family_id=1,
+                snapshot_date=date(2026, 6, 12),
+            )
+        )
+        db.commit()
+
+        resp = client.get('/api/reconciliation/ledger-consistency/')
+        assert resp.status_code == 200
+        items = resp.get_json()['data']['items']
+        assert len(items) == 1
+        assert items[0]['symbol'] == 'S1'
+        assert items[0]['ledger_id'] == ledger.id
+        assert items[0]['diff_qty'] == 200
+        # 不写 discrepancies 表（对照工作台域 B 落点）
+        assert db.query(ReconciliationDiscrepancy).count() == 0
+
 
 class TestInContextSupplement:
     """就地补充/调整裁决（§5.4 / P2）——API + 语义分派 + 审计。"""
@@ -651,3 +700,117 @@ class TestInContextSupplement:
         """缺 symbol → 400。"""
         resp = client.post('/api/reconciliation/adjustments/', json={'kind': 'increment', 'op_type': 'buy'})
         assert resp.status_code == 400
+
+
+class TestLedgerSnapshotConsistency:
+    """账户持仓快照一致性（#1133 §4 温柔提醒数据源）：只读、不写 discrepancies 表。"""
+
+    def _add_meta(self, db, position, snapshot_date):
+        from app.domains.positions.models import PositionImportMeta
+
+        meta = PositionImportMeta(
+            position_id=position.id,
+            symbol=position.symbol,
+            ledger_id=position.ledger_id,
+            family_id=position.family_id,
+            snapshot_date=snapshot_date,
+        )
+        db.add(meta)
+        db.flush()
+        return meta
+
+    def test_pure_snapshot_skipped(self, db):
+        """纯快照模式（有快照、无流水）→ 跳过，不误报（#1133 §4 边界）。"""
+        from app.domains.ledgers.models import Ledger
+
+        ledger = Ledger(name='账户A', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.flush()
+        pos = Position(
+            symbol='S1',
+            name='股1',
+            asset_type='stock',
+            market='CN_A',
+            ledger_id=ledger.id,
+            family_id=1,
+            quantity=Money.shares_to_min_unit(1000),
+            avg_price=Money.yuan_to_price_units(10),
+            current_price=Money.yuan_to_price_units(10),
+            source='manual',
+            ownership_status='active',
+        )
+        db.add(pos)
+        db.flush()
+        self._add_meta(db, pos, date(2026, 6, 12))
+        db.commit()
+        items = get_ledger_snapshot_consistency(db, 1)
+        assert items == []
+
+    def test_snapshot_stale_flagged(self, db):
+        """快照之后有交易使持仓变化 → 标记滞后（diff != 0）。"""
+        from app.domains.ledgers.models import Ledger
+
+        ledger = Ledger(name='账户A', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.flush()
+        # 快照前买入 1000（截至快照日应有 1000）
+        _buy_txn(db, ledger.id, 'S1', 1000, date(2026, 6, 1))
+        # 持仓实际 1200（模拟快照后又有买入已更新持仓）
+        pos = Position(
+            symbol='S1',
+            name='股1',
+            asset_type='stock',
+            market='CN_A',
+            ledger_id=ledger.id,
+            family_id=1,
+            quantity=Money.shares_to_min_unit(1200),
+            avg_price=Money.yuan_to_price_units(10),
+            current_price=Money.yuan_to_price_units(10),
+            source='manual',
+            ownership_status='active',
+        )
+        db.add(pos)
+        db.flush()
+        self._add_meta(db, pos, date(2026, 6, 12))
+        # 快照后买入 200（确认存在期后活动）
+        _buy_txn(db, ledger.id, 'S1', 200, date(2026, 8, 15))
+        db.commit()
+        items = get_ledger_snapshot_consistency(db, 1)
+        assert len(items) == 1
+        it = items[0]
+        assert it['symbol'] == 'S1'
+        assert it['ledger_id'] == ledger.id
+        # 截至快照日理论 = 1000，实际 = 1200，diff = +200
+        assert it['expected_qty'] == 1000
+        assert it['actual_qty'] == 1200
+        assert it['diff_qty'] == 200
+        assert it['snapshot_date'] == '2026-06-12'
+        assert it['last_txn_date'] == '2026-08-15'
+
+    def test_match_not_flagged(self, db):
+        """流水与持仓一致 → 无差异。"""
+        from app.domains.ledgers.models import Ledger
+
+        ledger = Ledger(name='账户A', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.flush()
+        _buy_txn(db, ledger.id, 'S1', 1000, date(2026, 6, 1))
+        pos = Position(
+            symbol='S1',
+            name='股1',
+            asset_type='stock',
+            market='CN_A',
+            ledger_id=ledger.id,
+            family_id=1,
+            quantity=Money.shares_to_min_unit(1000),
+            avg_price=Money.yuan_to_price_units(10),
+            current_price=Money.yuan_to_price_units(10),
+            source='manual',
+            ownership_status='active',
+        )
+        db.add(pos)
+        db.flush()
+        self._add_meta(db, pos, date(2026, 6, 12))
+        db.commit()
+        items = get_ledger_snapshot_consistency(db, 1)
+        assert items == []
