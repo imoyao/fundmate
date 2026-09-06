@@ -81,6 +81,41 @@
           </div>
         </div>
 
+        <!-- 温柔提醒（#1133 §4）：中性信息色、拟人化、非阻断；可选「去对账/忽略」，绝不强制 -->
+        <transition name="el-fade-in">
+          <div
+            v-if="visibleConsistencyItems.length > 0"
+            class="soft-reconcile-banner"
+            role="note"
+          >
+            <IconifyIconOffline
+              icon="ep:info-filled"
+              class="soft-reconcile-banner__icon"
+            />
+            <div class="soft-reconcile-banner__body">
+              <p class="soft-reconcile-banner__title">
+                这本账本的持仓快照截至
+                {{
+                  visibleConsistencyItems[0].snapshot_date
+                }}，快照日之后仍有交易记录；如与流水对不上，请去对账工作台核对是否需要补录。
+              </p>
+              <p class="soft-reconcile-banner__detail">
+                共
+                {{ visibleConsistencyItems.length }}
+                笔持仓可能滞后，去对账工作台可统一核对。
+              </p>
+            </div>
+            <div class="soft-reconcile-banner__actions">
+              <el-button size="small" type="primary" plain @click="goReconcile">
+                去对账
+              </el-button>
+              <el-button size="small" text @click="dismissAllConsistency">
+                忽略
+              </el-button>
+            </div>
+          </div>
+        </transition>
+
         <!-- 账本概览（对齐「家庭资产看板」范式：SectionHeader + CardBlock，左指标 / 右资产构成） -->
         <SectionHeader title="账本概览" />
         <CardBlock class="mb-6">
@@ -647,6 +682,7 @@
   </div>
 </template>
 <script setup lang="ts">
+import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { Search } from "@element-plus/icons-vue";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
@@ -665,6 +701,10 @@ import MigrationResolvePanel from "./components/MigrationResolvePanel.vue";
 import { formatDate } from "@/utils/date";
 import { pricePrecision } from "@/utils/pricePrecision";
 import { useLedgerDetail } from "@/composables/useLedgerDetail";
+import {
+  getLedgerConsistency,
+  type LedgerConsistencyItem
+} from "@/api/reconciliation";
 import { useLedgerTransactions } from "@/composables/useLedgerTransactions";
 import { usePositionMigration } from "@/composables/usePositionMigration";
 import type { LedgerHoldingRow } from "@/composables/useLedgerDetail";
@@ -738,6 +778,69 @@ const {
 } = txns;
 
 const { handleAssign } = migration;
+
+// ── 温柔提醒（#1133 §4）：账户持仓快照一致性，中性、非阻断 ──
+const consistencyItems = ref<LedgerConsistencyItem[]>([]);
+const DISMISS_KEY = "fundmate:soft-recon-dismiss";
+function loadDismissed(): Set<string> {
+  try {
+    const raw = localStorage.getItem(DISMISS_KEY);
+    if (raw) {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) return new Set(arr as string[]);
+    }
+  } catch {
+    /* 忽略损坏的本地存储 */
+  }
+  return new Set();
+}
+function saveDismissed(set: Set<string>) {
+  try {
+    localStorage.setItem(DISMISS_KEY, JSON.stringify([...set]));
+  } catch {
+    /* 忽略写入失败（隐私模式等） */
+  }
+}
+const dismissedKeys = ref<Set<string>>(loadDismissed());
+
+const visibleConsistencyItems = computed(() =>
+  consistencyItems.value
+    .filter(
+      it => it.ledger_id != null && String(it.ledger_id) === ledgerId.value
+    )
+    .filter(
+      it =>
+        !dismissedKeys.value.has(
+          `${it.ledger_id}:${it.symbol}:${it.snapshot_date}`
+        )
+    )
+);
+
+async function loadConsistency() {
+  try {
+    const res = await getLedgerConsistency(
+      ledgerId.value ? Number(ledgerId.value) : undefined
+    );
+    consistencyItems.value = res.data?.items ?? [];
+  } catch {
+    consistencyItems.value = [];
+  }
+}
+function dismissAllConsistency() {
+  const next = new Set(dismissedKeys.value);
+  for (const it of visibleConsistencyItems.value) {
+    next.add(`${it.ledger_id}:${it.symbol}:${it.snapshot_date}`);
+  }
+  dismissedKeys.value = next;
+  saveDismissed(next);
+}
+function goReconcile() {
+  router.push({ name: "ReconcileWorkbench" });
+}
+
+onMounted(() => {
+  loadConsistency();
+});
 </script>
 
 <style scoped>
@@ -916,6 +1019,46 @@ const { handleAssign } = migration;
 .mig-conflict__fields {
   font-size: 12px;
   color: var(--text-secondary);
+}
+
+/* 温柔提醒 banner（#1133 §4）：中性信息色，非涨跌色 / 非危险红；轻量、不制造心理压力 */
+.soft-reconcile-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+  background: var(--bg-soft);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--el-color-info);
+  border-radius: var(--radius-md);
+}
+.soft-reconcile-banner__icon {
+  color: var(--el-color-info);
+  font-size: 18px;
+  margin-top: 2px;
+  flex: none;
+}
+.soft-reconcile-banner__body {
+  flex: 1;
+  min-width: 0;
+}
+.soft-reconcile-banner__title {
+  margin: 0;
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--text-primary);
+}
+.soft-reconcile-banner__detail {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+.soft-reconcile-banner__actions {
+  display: flex;
+  gap: 8px;
+  flex: none;
+  align-items: center;
 }
 
 /* 源/目标并排对比：标签列 + 双值列；警示底色只落在数值单元格上，

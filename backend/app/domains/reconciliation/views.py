@@ -22,7 +22,7 @@ from app.core.auth import get_family_id
 from app.core.database import user_session
 from app.core.money import Money
 from app.domains.reconciliation.models import AdjustmentLog, ReconciliationDiscrepancy
-from app.services.reconciliation_service import apply_decision
+from app.services.reconciliation_service import apply_decision, get_ledger_snapshot_consistency
 from app.services.reconciliation_service import run_reconciliation as run_reconciliation_service
 
 bp = APIBlueprint('reconciliation', __name__, url_prefix='/api/reconciliation')
@@ -198,6 +198,21 @@ def ignore_discrepancy(discrepancy_id: int):
         )
         db.commit()
         return jsonify({'data': {'id': d.id, 'status': d.status, 'is_permanent': d.is_permanent}, 'message': 'ok'})
+
+
+@bp.get('/ledger-consistency/')
+def ledger_consistency():
+    """账户持仓快照一致性（只读、按需检查，#1133 §4 温柔提醒数据源）。
+
+    返回各 (ledger_id, symbol) 的快照日 vs 流水推演差异明细，供前端轻量提示
+    （账户列表角标 / 账本详情页 banner），不写 discrepancies 表
+    （那是工作台域 B 对账的落点）。纯快照模式（无流水）由 service 层跳过，不误报。
+    """
+    family_id = get_family_id()
+    ledger_id = request.args.get('ledger_id', type=int)
+    with user_session() as db:
+        items = get_ledger_snapshot_consistency(db, family_id, ledger_id)
+        return jsonify({'data': {'items': items}, 'message': 'ok'})
 
 
 def _parse_summary(raw: str | None) -> dict:
