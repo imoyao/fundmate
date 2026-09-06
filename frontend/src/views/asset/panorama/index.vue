@@ -184,7 +184,7 @@ onMounted(() => {
   // 用本地日期（非 toISOString 的 UTC 日期）：UTC+8 用户在本地 00:00–07:59 会落入上一 UTC 日，
   // 导致同自然日去重键错位、兜底快照重复触发（#1330 review）
   const now = new Date();
-  const localDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const localDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   const snapKey = `snapshot_fallback_${localDate}`;
   let postedToday = false;
   try {
@@ -194,11 +194,13 @@ onMounted(() => {
   }
   if (!postedToday) {
     try {
-      localStorage.setItem(snapKey, '1');
+      localStorage.setItem(snapKey, "1");
     } catch {
       /* 同上，忽略 */
     }
-    postSnapshot().catch((e) => console.warn('[snapshot] 惰性快照失败(后台定时任务将补写):', e));
+    postSnapshot().catch(e =>
+      console.warn("[snapshot] 惰性快照失败(后台定时任务将补写):", e)
+    );
   }
 });
 </script>

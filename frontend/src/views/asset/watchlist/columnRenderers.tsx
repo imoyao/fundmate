@@ -55,6 +55,12 @@ export interface RenderCtx {
   getValuationItem: (symbol: string) => ValuationItem | undefined;
   /** 全部标签（用于 product 列渲染 tag chips） */
   allTags: { id: number; name: string; color?: string }[];
+  /**
+   * 分组 id → 分组名（#993「所属分组」列）。
+   * row.group_ids 只是 id 数组，名称映射属于页面级状态，故由 index.vue 注入，
+   * renderer 不直接依赖 groups composable。
+   */
+  groupNames: Record<number, string>;
   /** 派生计算列的取值函数（注入 index.vue 的 addedReturnAmount 等） */
   derived: (
     kind: "addedReturn" | "marketValue",
@@ -208,6 +214,47 @@ const renderQty: FunctionalComponent<{
     "span",
     { class: "font-mono text-sm" },
     v > 0 ? `${v} ${unit}` : "--"
+  );
+};
+
+/**
+ * 纯文本 / 枚举映射列（#993 新增候选列）。
+ * - 常规字段：直接取 row[key] 转字符串；
+ * - 「所属分组」列（key="groups"）特殊：row.group_ids 是 id 数组，需经
+ *   ctx.groupNames 映射为分组名；多分组以「、」连接，超过 2 个折叠为「等 N 组」，
+ *   完整名单由 title 承载（避免撑宽列、与 #1281 密度目标冲突）。
+ * 空值统一降级为 --（与 date / qty renderer 同语言）。
+ */
+const renderText: FunctionalComponent<{
+  row: WatchlistRow;
+  def: ColumnDef;
+  ctx: RenderCtx;
+}> = props => {
+  const { row, def, ctx } = props;
+  if (def.key === "groups") {
+    const ids = (row.group_ids ?? []) as number[];
+    const names = ids
+      .map(id => ctx.groupNames[id])
+      .filter((n): n is string => Boolean(n));
+    if (names.length === 0) {
+      return h(
+        "span",
+        { class: "text-sm", style: { color: "var(--text-tertiary)" } },
+        "--"
+      );
+    }
+    const shown = names.slice(0, 2).join("、");
+    return h(
+      "span",
+      { class: "text-sm", title: names.join("、") },
+      names.length > 2 ? `${shown} 等 ${names.length} 组` : shown
+    );
+  }
+  const v = field(row, def.key);
+  return h(
+    "span",
+    { class: "text-sm" },
+    v == null || v === "" ? "--" : String(v)
   );
 };
 
@@ -509,6 +556,7 @@ const REGISTRY: Record<
   riseFall: renderRiseFall as never,
   qty: renderQty as never,
   moneyRatio: renderMoneyRatio as never,
+  text: renderText as never,
   sparkline: renderSparkline as never,
   actions: renderActions as never
 };

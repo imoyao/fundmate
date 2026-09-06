@@ -129,7 +129,11 @@
                 </el-tooltip>
 
                 <el-tooltip content="AI 导入" placement="bottom">
-                  <el-button circle class="icon-tool-btn" @click="openOcrDialog">
+                  <el-button
+                    circle
+                    class="icon-tool-btn"
+                    @click="openOcrDialog"
+                  >
                     <IconifyIconOffline icon="ep:magic-stick" />
                   </el-button>
                 </el-tooltip>
@@ -172,6 +176,7 @@
           @tag-apply="tags.applyTagFilter()"
           @tag-clear="tags.clearTagFilter()"
           @manage-groups="groupManagerVisible = true"
+          @manage-group-items="groupItemsVisible = true"
         />
 
         <!-- 估值横幅与状态 -->
@@ -254,8 +259,7 @@
                 />
               </template>
             </el-table-column>
-
-            </el-table>
+          </el-table>
           <!-- 空态覆盖层：表格无数据且非加载时，以绝对定位铺满「表头之下」的表格区
                并垂直居中（问题 1：空分组时表格占满页面，而非文案悬在卡片中部）。
                不复用 el-table #empty（其 empty-block 高度由 EP 撑到 280px 封顶，
@@ -265,19 +269,37 @@
             v-if="!loading && items.length === 0"
             class="watchlist-empty-overlay"
           >
-            <p class="watchlist-empty__title">
-              {{
-                selectedFilterTagIds.length > 0
-                  ? "暂无匹配所选标签的持仓"
-                  : "暂无自选资产"
-              }}
-            </p>
-            <p
-              v-if="selectedFilterTagIds.length > 0"
-              class="watchlist-empty__hint"
-            >
-              试试调整或清空标签筛选条件
-            </p>
+            <!-- 空白自定义分组：虚线「+ 从全部自选添加」快捷入口（#987）。
+                 空白组是可填充的占位区，给可点入口而非阻断性文案；系统分组为空、
+                 以及标签筛选无匹配的场景，仍走下方纯文案空态。 -->
+            <template v-if="isEmptyCustomGroup">
+              <button
+                type="button"
+                class="empty-add-btn"
+                @click="openGroupItemsDialog"
+              >
+                <el-icon><Plus /></el-icon>
+                从全部自选添加
+              </button>
+              <p class="watchlist-empty__hint">
+                把已有自选归入「{{ activeGroupLabel }}」
+              </p>
+            </template>
+            <template v-else>
+              <p class="watchlist-empty__title">
+                {{
+                  selectedFilterTagIds.length > 0
+                    ? "暂无匹配所选标签的持仓"
+                    : "暂无自选资产"
+                }}
+              </p>
+              <p
+                v-if="selectedFilterTagIds.length > 0"
+                class="watchlist-empty__hint"
+              >
+                试试调整或清空标签筛选条件
+              </p>
+            </template>
           </div>
           <!-- 骨架屏覆盖层：仅数据加载期间渲染（分组切换/首屏/搜索/翻页），
                随 .watchlist-table-wrap 定位，top 对齐表头底部。 -->
@@ -341,6 +363,15 @@
       @groups-changed="fetchGroups"
     />
 
+    <!-- 分组内产品增删弹窗（#987）：管理「某个自定义分组里有哪些产品」，
+         与上方 GroupManagerDialog（管理分组本身）分工互补。系统分组不提供该能力
+         （activeCustomGroup 为 null 时弹窗不展示内容）。 -->
+    <GroupItemsDialog
+      v-model="groupItemsVisible"
+      :group="activeCustomGroup"
+      @changed="onGroupItemsChanged"
+    />
+
     <!-- 行内标签编辑弹窗（共有组件 TagEditorDialog） -->
     <TagEditorDialog
       v-model="showTagEditor"
@@ -382,7 +413,7 @@ import {
   nextTick
 } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { Search } from "@element-plus/icons-vue";
+import { Search, Plus } from "@element-plus/icons-vue";
 import { IconifyIconOffline } from "@/components/ReIcon";
 import Sortable from "sortablejs";
 import AddToWatchlistModal from "@/components/QuickEntry/AddToWatchlistModal.vue";
@@ -390,8 +421,14 @@ import OcrImportModal from "@/components/QuickEntry/OcrImportModal.vue";
 import SettingsDrawer from "@/components/Watchlist/SettingsDrawer.vue";
 import TagManagerDialog from "@/components/Watchlist/TagManagerDialog.vue";
 import GroupManagerDialog from "@/components/Watchlist/GroupManagerDialog.vue";
+// #987：组内产品增删（与 GroupManagerDialog 管「分组本身」分工不同）
+import GroupItemsDialog from "@/components/Watchlist/GroupItemsDialog.vue";
 import TagEditorDialog from "@/components/Watchlist/TagEditorDialog.vue";
-import { getWatchlistTrends, type WatchlistItem } from "@/api/watchlist";
+import {
+  getWatchlistTrends,
+  type WatchlistItem,
+  type WatchlistGroup
+} from "@/api/watchlist";
 import CardBlock from "@/components/CardBlock/index.vue";
 import LayFooter from "@/layout/components/lay-footer/index.vue";
 // 金额/涨跌展示组件（MoneyDisplay/RiseFallText/MoneyWithRatio）已随 #995 列渲染器化
@@ -490,6 +527,36 @@ const {
   openTagManager,
   openSettingsDrawer
 } = toolbar;
+
+// ── #987：自定义分组「组内产品增删」──
+// 与「管理分组」（GroupManagerDialog，管理分组本身的新建/改名/删除）分工不同：
+// 本弹窗只管「某个自定义分组里有哪些产品」，对应空白组快捷添加 + 常规组内增删。
+// 系统分组由后端规律方法维护，不提供组内增删（activeCustomGroup 为 null 即不生效）。
+const groupItemsVisible = ref(false);
+/** 当前选中的自定义分组对象；系统分组或未选中时为 null */
+const activeCustomGroup = computed<WatchlistGroup | null>(() => {
+  const gid = activeCustomGroupId.value;
+  if (gid == null) return null;
+  return customGroups.value.find(g => g.id === gid) ?? null;
+});
+/** 空态是否落在「空白自定义分组」：需为自定义分组且未叠加标签筛选
+    （叠加了标签筛选时的空结果是筛选无匹配，不应引导去加产品） */
+const isEmptyCustomGroup = computed(
+  () =>
+    currentIsCustom.value &&
+    selectedFilterTagIds.value.length === 0 &&
+    !searchKeyword.value
+);
+
+function openGroupItemsDialog(): void {
+  groupItemsVisible.value = true;
+}
+
+/** 组内增删成功后：分组计数与列表都需刷新（#987 验收标准：计数与列表实时生效） */
+function onGroupItemsChanged(): void {
+  void fetchGroups();
+  void fetchData();
+}
 
 // ── 估值相关 ──
 const getValuationItem = (symbol: string) => {
@@ -879,6 +946,11 @@ const renderCtx = computed<RenderCtx>(() => ({
   realtimeEnabled: realtimeEnabled.value,
   getValuationItem,
   allTags: allTags.value,
+  // #993「所属分组」列：group_ids → 分组名映射。
+  // 只需自定义分组——系统分组（持仓/观察等）由后端规律方法派生，不写进 group_ids。
+  groupNames: Object.fromEntries(
+    customGroups.value.map(g => [g.id, g.name])
+  ) as Record<string, string>,
   derived: (kind, row) => {
     if (kind === "addedReturn") {
       return {
@@ -959,12 +1031,13 @@ const renderCtx = computed<RenderCtx>(() => ({
 
 .watchlist-card {
   display: flex;
-  flex-direction: column;
+
   /* flex:1 撑满 .watchlist-scroll 剩余高度：空态（无自选）时卡片拉伸到一屏，
      表格区 .watchlist-table-wrap flex:1 再撑满卡片，配合「暂无自选资产」空态垂直
      居中——不再出现卡片只占半屏、footer 悬在中间的观感。有数据时行内容自然增高，
      卡片随内容增高（flex-grow 仅在容器有空余时才作用，不会压缩真实行）。 */
   flex: 1 1 auto;
+  flex-direction: column;
   min-height: 0;
   padding: var(--space-compact);
 }
@@ -974,10 +1047,13 @@ const renderCtx = computed<RenderCtx>(() => ({
    position:relative 是 WatchlistTableSkeleton 覆盖层的定位锚点（loading 期间骨架
    absolute 覆盖表头之下的行区）。表头吸顶见下方 :deep(.el-table__header-wrapper)。 */
 .watchlist-table-wrap {
-  position: relative;
   /* 提供给 WatchlistTableSkeleton 覆盖层的表头高度锚点（#1324 review）：
-     与真实表头高度保持一致，骨架屏 top 即对齐表头底边。 */
-  --watchlist-header-h: 30px;
+     与真实表头高度保持一致，骨架屏 top 即对齐表头底边。
+     2026-09-06：表头 th padding 3px→6px（≈30px→≈36px）后同步本值，
+     否则骨架屏会与真实表头底边错位、露出 6px 空白条。 */
+  --watchlist-header-h: 36px;
+
+  position: relative;
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
@@ -1004,9 +1080,10 @@ const renderCtx = computed<RenderCtx>(() => ({
 .watchlist-table-wrap :deep(.el-table) {
   overflow: visible;
 }
+
 .watchlist-table-wrap :deep(.el-table__header-wrapper) {
   position: sticky;
-  top: var(--watchlist-sticky-top, 0px);
+  top: var(--watchlist-sticky-top, 0);
   z-index: 3;
   background: var(--bg-card);
 }
@@ -1021,7 +1098,9 @@ const renderCtx = computed<RenderCtx>(() => ({
    同一垂直基线。
    ====================================== */
 
-/* 搜索 + 核心操作区：固定高度由内容撑出，与下方筛选行间距 6px。
+/* 搜索 + 核心操作区：固定高度由内容撑出，与下方筛选行间距 12px（--space-3）。
+   （2026-09-06 呼吸感回调：原 6px 使「搜索行 / 分组筛选行 / 表头」三带几乎贴合成
+   一条，缺少分区层级；回到规范间距后各带边界可辨，代价约 6px 首屏高度。）
    不吸顶：作为滚动内容首行，页面下滚时自然滚出视口（即「搜索框自动隐藏」），
    无需 JS 收起动画。max-height 40px 上限防止内容意外溢出（原紧凑态折叠机制
    已于 2026-09-05 根因修复时随外层滚动架构废弃）。 */
@@ -1031,7 +1110,7 @@ const renderCtx = computed<RenderCtx>(() => ({
   align-items: center;
   justify-content: space-between;
   max-height: 40px;
-  margin-bottom: 6px;
+  margin-bottom: var(--space-3);
   overflow: hidden;
   transition:
     max-height 200ms ease,
@@ -1185,14 +1264,17 @@ const renderCtx = computed<RenderCtx>(() => ({
 /* 表格底栏：左侧总数 + 右侧翻页，与表格之间用细分割线分区
    （design.md「卡片内分割线使用 --border-subtle 降低视觉权重」） */
 
-/* 表格底栏：2026-09-05 收紧 padding-top(12→8) 与 margin-top(8→4)，省下约 8px 首屏高度。
-   左侧总数 + 右侧翻页，与表格之间用细分割线分区。 */
+/* 表格底栏：2026-09-06 呼吸感回调。
+   曾收紧到 padding-top 8 / margin-top 4 为表格让出首屏高度，结果「共 N 条」与
+   翻页码紧贴分割线，底栏不像独立信息带而像表格长出的一条边。
+   回到 padding-top 12（--space-3）/ margin-top 8（--space-2）：分割线上方留白
+   足够，底栏与表格成为两个可分辨的区域。 */
 .table-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-top: var(--space-2);
-  margin-top: var(--space-1);
+  padding-top: var(--space-3);
+  margin-top: var(--space-2);
   border-top: 1px solid var(--border-light);
 }
 
@@ -1223,8 +1305,8 @@ const renderCtx = computed<RenderCtx>(() => ({
      都不能有 overflow:hidden/auto，否则会截断 sticky 上溯（2026-09-05 根因修复）。 */
   position: sticky;
   top: 0;
-  padding-top: var(--watchlist-sticky-gap, 12px);
   z-index: 4;
+  padding-top: var(--watchlist-sticky-gap, 12px);
   background: var(--bg-card);
 }
 
@@ -1272,18 +1354,15 @@ const renderCtx = computed<RenderCtx>(() => ({
      盖住表头/空体，文案在整卡区内垂直居中，视觉干净。
      注意 z-index 需高于表头（header z-index:3）才能盖住其底边线。 */
   position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  left: 0;
+  inset: 0;
   z-index: 6;
   display: flex;
   flex-direction: column;
   gap: 4px;
   align-items: center;
   justify-content: center;
-  background-color: var(--bg-card);
   padding: 32px 0;
+  background-color: var(--bg-card);
 }
 
 .watchlist-empty__title {
@@ -1296,6 +1375,39 @@ const renderCtx = computed<RenderCtx>(() => ({
   margin: 0;
   font-size: 12px;
   color: var(--text-tertiary);
+}
+
+/* 空白自定义分组的虚线「+ 从全部自选添加」入口（issue #987）。
+   虚线框表达「可填充的占位区」而非阻断性空态，与表格内「＋ 标签」
+   虚线按钮（columnRenderers.css .add-tag-btn）同一视觉语言。
+   选中态/hover 转为品牌色实线，明确可点。 */
+.empty-add-btn {
+  display: inline-flex;
+  gap: var(--space-2);
+  align-items: center;
+  padding: 8px 16px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  background-color: transparent;
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-pill);
+  transition:
+    color 150ms ease,
+    background-color 150ms ease,
+    border-color 150ms ease;
+}
+
+.empty-add-btn:hover {
+  color: var(--brand-700);
+  background-color: var(--brand-100);
+  border-color: var(--brand-400);
+  border-style: solid;
+}
+
+.empty-add-btn:focus-visible {
+  outline: 1px solid var(--brand-400);
+  outline-offset: 2px;
 }
 
 /* ======================================
@@ -1390,11 +1502,13 @@ const renderCtx = computed<RenderCtx>(() => ({
   white-space: nowrap;
 }
 
-/* 表头行高压到约 34px（EP 默认 th padding 8px ≈ 40px 高，此处收到 5px）。
-   与「顶部区块压缩」同批（#1281 第四轮）：表头只承载列标题与排序图标，
-   5px 上下留白仍满足可点区域，省下的约 10px 让给数据行。 */
+/* 表头行高 ≈36px（EP 默认 th padding 8px ≈ 40px 高）。
+   #1281 第四轮曾收到 3px（≈30px）为数据行让出高度，实测表头过薄：与下方 52px
+   数据行比例失衡，5 字表头（添加自选日 / 添加后涨幅）贴着上下边线显廉价。
+   2026-09-06 回调到 6px（≈36px）：表头获得与数据行协调的纵向呼吸，可点区域
+   反而更充裕（30px 对触控偏小），代价约 6px 首屏高度。 */
 :deep(.el-table__header th.el-table__cell) {
-  padding: 3px 0;
+  padding: 6px 0;
 }
 
 /* 分组胶囊 Tab / 新建分组按钮样式已迁移至 components/Watchlist/WatchlistFilterBar.vue（方案 B，2026-08-14） */
