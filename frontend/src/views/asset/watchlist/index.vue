@@ -960,10 +960,14 @@ const renderCtx = computed<RenderCtx>(() => ({
      min-height 为外层滚动容器可视高度（JS 实测写入，见 syncPageMinHeight）：
      空态/内容不足时页面至少一屏高，配合下方 flex 链让卡片撑满、footer 贴底。
      关键：任何祖先/自身都不设 overflow:hidden/auto，否则会创建新的滚动容器、
-     截断 .filter-bar / 表头的 position:sticky 上溯到布局滚动容器。 */
+     截断 .filter-bar / 表头的 position:sticky 上溯到布局滚动容器。
+     min-width:0：本页是 flex column，子项默认 min-width:auto 不会收缩到内容宽度
+     以下；若某层不放开，列总宽超过视口时 el-table 会把整条 flex 链撑宽、产生
+     页面级横向滚动条（#1341）。放开后列宽溢出由 el-table 内部横向滚动承载。 */
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
 }
 
 /* 高密度列表页：取消全局 .main-content 的 48px 边距，避免上下白边吞掉表格行数。 */
@@ -974,11 +978,14 @@ const renderCtx = computed<RenderCtx>(() => ({
 .watchlist-scroll {
   /* 外层滚动容器（布局 el-scrollbar__wrap）的唯一内容，普通流即可；el-table 按
      内容高度展开所有行。display:flex column + flex-grow 让它至少吃满 .watchlist-page
-     的 min-height（空态时 footer 由此贴底，见 .watchlist-card flex:1 与下方 app-footer）。 */
+     的 min-height（空态时 footer 由此贴底，见 .watchlist-card flex:1 与下方 app-footer）。
+     min-width:0：配合 .watchlist-page / .el-table 同款约束，防止列宽溢出撑出页面横向
+     滚动条（#1341）。 */
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
 }
 
 .watchlist-card {
@@ -990,6 +997,8 @@ const renderCtx = computed<RenderCtx>(() => ({
      卡片随内容增高（flex-grow 仅在容器有空余时才作用，不会压缩真实行）。 */
   flex: 1 1 auto;
   min-height: 0;
+  /* 防止列宽溢出撑出页面横向滚动条（#1341） */
+  min-width: 0;
   padding: var(--space-compact);
 }
 
@@ -1006,6 +1015,9 @@ const renderCtx = computed<RenderCtx>(() => ({
   flex: 1 1 auto;
   flex-direction: column;
   min-height: 0;
+  /* 防止列宽溢出撑出页面横向滚动条（#1341）：el-table 是其 flex 子项，
+     自身 min-width:0 见下方 :deep(.el-table)。 */
+  min-width: 0;
 }
 
 /* 合规页脚贴底：位于 .watchlist-scroll（flex column）末尾，margin-top:auto 把空余
@@ -1026,7 +1038,14 @@ const renderCtx = computed<RenderCtx>(() => ({
    （el-table 不需要 flex 拉伸：空态文案已由 .watchlist-empty-overlay 覆盖层承载，
    见下；有数据时表格按内容高度自然展开，外层滚动接管。） */
 .watchlist-table-wrap :deep(.el-table) {
+  /* 吸顶需要：overflow:visible 让表头 sticky 上溯到布局滚动容器（见上方长注释）。
+     配套 min-width:0：el-table 是 .watchlist-table-wrap 的 flex 子项，默认 min-width:auto
+     会被列总宽撑开、把整页顶出横向滚动条（#1341）。放开后 el-table 约束到容器宽度，
+     多出的列宽由 .el-table__body-wrapper 内部横向滚动承载，页面不再溢出。
+     此约束是通用防护：今后新增可排序列（见 columnDefs.ts）只要总宽超视口，
+     都只会在表格内出现横向滚动，不会再撑宽页面。 */
   overflow: visible;
+  min-width: 0;
 }
 .watchlist-table-wrap :deep(.el-table__header-wrapper) {
   position: sticky;

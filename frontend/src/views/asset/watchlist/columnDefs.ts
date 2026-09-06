@@ -77,6 +77,10 @@ export interface ColumnDef {
 /**
  * 自选表格列定义清单（首批，从 index.vue 现有 21 列映射）。
  * 顺序即默认展示顺序；#992 拖拽只改 visibleColumns 顺序数组，不动本源。
+ *
+ * 新增列会增加表格总宽：页面级横向溢出已由 index.vue 的 flex min-width:0 链兜底
+ * （超出视口的部分在 el-table 内部横向滚动，不撑宽页面，见 #1341），故此处无需为
+ * 防溢出刻意压窄列宽——保持各列可读性即可。
  */
 export const watchlistColumnDefs: ColumnDef[] = [
   {
