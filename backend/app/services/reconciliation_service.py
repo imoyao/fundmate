@@ -383,7 +383,7 @@ def apply_decision(
     return {'action': action, 'before': before, 'after': after, 'log_id': log.id}
 
 
-def get_ledger_snapshot_consistency(db: Session, family_id: int) -> list[dict]:
+def get_ledger_snapshot_consistency(db: Session, family_id: int, ledger_id: int | None = None) -> list[dict]:
     """只读：计算各账户持仓快照一致性（#1133 §4 温柔提醒数据源）。
 
     不写 discrepancies 表（那是工作台域 B 对账的落点），本函数提供按需、轻量的检查视图，
@@ -396,7 +396,7 @@ def get_ledger_snapshot_consistency(db: Session, family_id: int) -> list[dict]:
     - 边界：该 (ledger_id, symbol) 无任何流水 → 纯快照模式（如 E账户持仓导入不建流水），跳过，禁止误报。
     - diff != 0 → 标记「可能对不上」，返回明细（份额换算为可读单位）。
     """
-    rows = (
+    rows_q = (
         db.query(Position, PositionImportMeta.snapshot_date)
         .join(PositionImportMeta, PositionImportMeta.position_id == Position.id)
         .filter(
@@ -404,24 +404,24 @@ def get_ledger_snapshot_consistency(db: Session, family_id: int) -> list[dict]:
             Position.ownership_status == 'active',
             PositionImportMeta.snapshot_date.isnot(None),
         )
-        .all()
     )
+    if ledger_id is not None:
+        rows_q = rows_q.filter(Position.ledger_id == ledger_id)
+    rows = rows_q.all()
     if not rows:
         return []
 
     # 该 family 全部流水一次性拉取，按业务键聚合（避免逐持仓查库放大 N+1）
-    txn_rows = (
-        db.query(
-            Transaction.ledger_id,
-            Transaction.symbol,
-            Transaction.txn_type,
-            Transaction.quantity,
-            Transaction.confirm_date,
-        )
-        .filter(Transaction.family_id == family_id)
-        .yield_per(1000)
-        .all()
-    )
+    txn_q = db.query(
+        Transaction.ledger_id,
+        Transaction.symbol,
+        Transaction.txn_type,
+        Transaction.quantity,
+        Transaction.confirm_date,
+    ).filter(Transaction.family_id == family_id)
+    if ledger_id is not None:
+        txn_q = txn_q.filter(Transaction.ledger_id == ledger_id)
+    txn_rows = txn_q.all()
     txn_by_key: dict[tuple, list] = {}
     for ledger_id, symbol, txn_type, quantity, confirm_date in txn_rows:
         if ledger_id is None or not symbol:
@@ -438,12 +438,15 @@ def get_ledger_snapshot_consistency(db: Session, family_id: int) -> list[dict]:
         theoretical = 0
         last_txn_date = None
         for txn_type, quantity, confirm_date in txns:
-            if confirm_date:
-                if last_txn_date is None or confirm_date > last_txn_date:
-                    last_txn_date = confirm_date
-                # 只看快照日及之前的流水，推演「截至快照日应有持仓」
-                if confirm_date > snapshot_date:
-                    continue
+            # 无确认日期的流水无法定位到快照日之前/之后，跳过以免误算 theoretical（#ai-review）
+            if confirm_date is None:
+                continue
+            # 记录最新交易日期（用于温柔提醒文案：快照后是否还有交易活动）
+            if last_txn_date is None or confirm_date > last_txn_date:
+                last_txn_date = confirm_date
+            # 只看快照日及之前的流水，推演「截至快照日应有持仓」
+            if confirm_date > snapshot_date:
+                continue
             if txn_type in _ADD_TYPES:
                 theoretical += quantity
             elif txn_type in _SELL_TYPES:

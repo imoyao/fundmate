@@ -684,14 +684,12 @@ function goToSecuritiesAggregation() {
 async function fetchData() {
   loading.value = true;
   try {
-    const [ledgersRes, overviewRes, portfolioRes, instRes, consistencyRes] =
-      await Promise.all([
-        getLedgers(true),
-        getLedgersOverview(),
-        getPortfolios(),
-        getSalesInstitutions(),
-        getLedgerConsistency()
-      ]);
+    const [ledgersRes, overviewRes, portfolioRes, instRes] = await Promise.all([
+      getLedgers(true),
+      getLedgersOverview(),
+      getPortfolios(),
+      getSalesInstitutions()
+    ]);
     allLedgersRaw.value = (ledgersRes as any)?.data ?? [];
     // 按「显示已归档」开关过滤展示列表（归档数据始终计入顶部净资产/配置图）
     allLedgers.value = showArchived.value
@@ -705,8 +703,14 @@ async function fetchData() {
     portfolioList.value = (portfolioRes as any)?.data ?? [];
     salesInstitutions.value =
       (instRes as { data?: SalesInstitution[] })?.data ?? [];
-    // 快照一致性：聚合到 ledger 维度供卡片角标渲染；失败静默兜底不阻塞主列表
-    ledgerConsistencyItems.value = (consistencyRes as any)?.data?.items ?? [];
+    // 快照一致性：独立请求，失败静默兜底不阻塞主列表（#ai-review）
+    getLedgerConsistency()
+      .then(res => {
+        ledgerConsistencyItems.value = res.data?.items ?? [];
+      })
+      .catch(() => {
+        ledgerConsistencyItems.value = [];
+      });
     // 重新分组并构建可拖拽的展示结构（含「金额降序 / 手动序号」排序规则）
     displayedGroups.value = buildGroups(allLedgers.value);
     // 统一走公共格式化：YYYY-MM-DD HH:mm（不带秒），避免斜线/时分秒混用

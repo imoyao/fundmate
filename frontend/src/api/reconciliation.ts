@@ -125,10 +125,14 @@ export interface LedgerConsistencyItem {
 }
 
 /** 获取账户持仓快照一致性（只读、按需检查；不写 discrepancies 表） */
-export function getLedgerConsistency(): Promise<
-  ApiResponse<{ items: LedgerConsistencyItem[] }>
-> {
-  return http.get<ApiResponse<{ items: LedgerConsistencyItem[] }>, unknown>(
-    "/reconciliation/ledger-consistency/"
+export function getLedgerConsistency(
+  ledgerId?: number
+): Promise<ApiResponse<{ items: LedgerConsistencyItem[] }>> {
+  return http.get<
+    ApiResponse<{ items: LedgerConsistencyItem[] }>,
+    { ledger_id?: number }
+  >(
+    "/reconciliation/ledger-consistency/",
+    ledgerId != null ? { params: { ledger_id: ledgerId } } : undefined
   );
 }

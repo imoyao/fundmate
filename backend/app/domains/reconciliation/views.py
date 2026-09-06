@@ -209,8 +209,9 @@ def ledger_consistency():
     （那是工作台域 B 对账的落点）。纯快照模式（无流水）由 service 层跳过，不误报。
     """
     family_id = get_family_id()
+    ledger_id = request.args.get('ledger_id', type=int)
     with user_session() as db:
-        items = get_ledger_snapshot_consistency(db, family_id)
+        items = get_ledger_snapshot_consistency(db, family_id, ledger_id)
         return jsonify({'data': {'items': items}, 'message': 'ok'})
 
 

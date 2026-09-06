@@ -813,8 +813,10 @@ const visibleConsistencyItems = computed(() =>
 
 async function loadConsistency() {
   try {
-    const res = await getLedgerConsistency();
-    consistencyItems.value = (res as any)?.data?.items ?? [];
+    const res = await getLedgerConsistency(
+      ledgerId.value ? Number(ledgerId.value) : undefined
+    );
+    consistencyItems.value = res.data?.items ?? [];
   } catch {
     consistencyItems.value = [];
   }

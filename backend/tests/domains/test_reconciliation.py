@@ -566,6 +566,9 @@ class TestReconciliationAPI:
         assert items[0]['symbol'] == 'S1'
         assert items[0]['ledger_id'] == ledger.id
         assert items[0]['diff_qty'] == 200
+        # 同时校验绝对值，防止 expected/actual 同时偏移导致 diff 误通过（#ai-review）
+        assert items[0]['expected_qty'] == 1000
+        assert items[0]['actual_qty'] == 1200
         # 不写 discrepancies 表（对照工作台域 B 落点）
         assert db.query(ReconciliationDiscrepancy).count() == 0
 
@@ -813,4 +816,54 @@ class TestLedgerSnapshotConsistency:
         self._add_meta(db, pos, date(2026, 6, 12))
         db.commit()
         items = get_ledger_snapshot_consistency(db, 1)
+        assert items == []
+
+    def test_none_confirm_date_skipped(self, db):
+        """confirm_date 为 None 的流水无法定位快照日前后，跳过不计入 theoretical（#ai-review）。"""
+        from app.domains.ledgers.models import Ledger
+
+        ledger = Ledger(name='账户A', ledger_type='stock', family_id=1)
+        db.add(ledger)
+        db.flush()
+        # 快照前买入 1000（截至快照日应有 1000）
+        _buy_txn(db, ledger.id, 'S1', 1000, date(2026, 6, 1))
+        pos = Position(
+            symbol='S1',
+            name='股1',
+            asset_type='stock',
+            market='CN_A',
+            ledger_id=ledger.id,
+            family_id=1,
+            quantity=Money.shares_to_min_unit(1000),
+            avg_price=Money.yuan_to_price_units(10),
+            current_price=Money.yuan_to_price_units(10),
+            source='manual',
+            ownership_status='active',
+        )
+        db.add(pos)
+        db.flush()
+        self._add_meta(db, pos, date(2026, 6, 12))
+        # 一笔 confirm_date=None 的流水（不应被计入 theoretical）
+        db.add(
+            Transaction(
+                position_id=pos.id,
+                ledger_id=ledger.id,
+                family_id=1,
+                symbol='S1',
+                txn_type='buy',
+                quantity=Money.shares_to_min_unit(500),
+                price=Money.yuan_to_price_units(1.0),
+                amount=Money.yuan_to_cents(500),
+                confirm_date=None,
+                trade_date=None,
+                position_name='S1',
+                account_name='测试',
+                status='success',
+                entry_status='success',
+            )
+        )
+        db.commit()
+        items = get_ledger_snapshot_consistency(db, 1)
+        # None 日期流水被跳过 → theoretical=1000 == 持仓 1000 → 不报
+        # （修复前会误算 theoretical=1500，diff=-500 而误报）
         assert items == []
