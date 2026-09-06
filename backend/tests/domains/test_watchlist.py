@@ -924,6 +924,72 @@ class TestApplyUserSort:
         result = _apply_user_sort(data, 'added_return', 'desc')
         assert [r['symbol'] for r in result] == ['B', 'A', 'C']
 
+    def test_sort_by_product_by_symbol(self):
+        from app.domains.watchlist.views import _apply_user_sort
+
+        # 「代码/名称」列（#1331）按 symbol（代码）字典序排，稳定且不耦合名称
+        data = [
+            self._row('SH600519'),
+            self._row('HK00700'),
+            self._row('OF.123456'),
+        ]
+        asc = _apply_user_sort(data, 'product', 'asc')
+        desc = _apply_user_sort(data, 'product', 'desc')
+        assert [r['symbol'] for r in asc] == ['HK00700', 'OF.123456', 'SH600519']
+        assert [r['symbol'] for r in desc] == ['SH600519', 'OF.123456', 'HK00700']
+
+    def test_sort_by_product_pinned_stays_first(self):
+        from app.domains.watchlist.views import _apply_user_sort
+
+        # 故意把置顶行设为「字典序本应排最后」者（SH600519），以验证「置顶恒前置」
+        # 真正生效：若置顶逻辑失效，asc 下 SH 应落末尾，本断言会失配（旧用例用 HK00700
+        # 恰好字典序最小，asc 下无论有无置顶逻辑结果都相同，属空断言，见 PR #1342 review）。
+        data = [
+            self._row('SH600519', is_pinned=True),
+            self._row('HK00700'),
+            self._row('OF.123456'),
+        ]
+        asc = _apply_user_sort(data, 'product', 'asc')
+        desc = _apply_user_sort(data, 'product', 'desc')
+        # 置顶行恒在顶部，与升降序无关
+        assert [r['symbol'] for r in asc] == ['SH600519', 'HK00700', 'OF.123456']
+        assert [r['symbol'] for r in desc] == ['SH600519', 'OF.123456', 'HK00700']
+
+    def test_non_whitelist_sort_by_warns_and_keeps_order(self):
+        import loguru
+
+        from app.domains.watchlist.views import _apply_user_sort
+
+        # 非白名单字段（#1331 新增告警分支）：原序返回 + 告警，消除「点击无反应」式
+        # 静默失败。用临时 sink 捕获真实格式化后的日志，验证 loguru「{!r}」占位符确实
+        # 把 sort_by 值带进日志——旧实现误用「%r」会被 loguru 忽略，值丢失、告警无效。
+        data = [self._row('A'), self._row('B'), self._row('C')]
+        captured = []
+        sink_id = loguru.logger.add(lambda m: captured.append(str(m)), level='WARNING')
+        try:
+            result = _apply_user_sort(data, 'unknown_field', 'asc')
+        finally:
+            loguru.logger.remove(sink_id)
+        # 非白名单不重排，维持原序
+        assert [r['symbol'] for r in result] == ['A', 'B', 'C']
+        # 确实告警，且日志含被忽略的字段名（证明占位符生效）
+        assert captured, '非白名单排序应触发 logger.warning'
+        assert any('unknown_field' in line for line in captured)
+
+    def test_sort_by_product_missing_symbol_last(self):
+        from app.domains.watchlist.views import _apply_user_sort
+
+        # symbol 缺失 → 排序键 None → 无论升降序都排末尾
+        data = [
+            self._row(None),
+            self._row('SH600519'),
+            self._row('HK00700'),
+        ]
+        asc = _apply_user_sort(data, 'product', 'asc')
+        desc = _apply_user_sort(data, 'product', 'desc')
+        assert [r['symbol'] for r in asc] == ['HK00700', 'SH600519', None]
+        assert [r['symbol'] for r in desc] == ['SH600519', 'HK00700', None]
+
 
 # ─────────────── 迷你走势图批量序列（#990） ───────────────
 class TestTrends:
