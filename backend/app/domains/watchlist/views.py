@@ -451,7 +451,7 @@ def _apply_user_sort(data: list, sort_by, sort_order):
     # 白名单外字段（含前端标了排序但后端未开放）：原序返回 + 告警，避免静默失效
     if sort_by not in _USER_SORTABLE_FIELDS and sort_by != 'added_return':
         logger.warning(
-            'watchlist 排序忽略非白名单字段 sort_by=%r（前端标了排序但后端未开放，'
+            'watchlist 排序忽略非白名单字段 sort_by={!r}（前端标了排序但后端未开放，'
             '如确属可排序列请在 _USER_SORTABLE_FIELDS 登记）',
             sort_by,
         )
