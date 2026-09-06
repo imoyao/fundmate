@@ -15,6 +15,7 @@ from datetime import datetime
 from typing import List
 
 from app.services.ai_recognizer.base import BaseRecognizer, extract_json_array, is_valid_code
+from app.services.ai_recognizer.schemas import HoldingCandidateDict
 
 _SYSTEM_PROMPT = (
     '你是一个基金/股票持仓提取助手。请从用户提供的持仓截图或文本中，'
@@ -52,15 +53,15 @@ class HoldingRecognizer(BaseRecognizer):
     # ── 正则层 ──
     # 持仓含份额/成本/市值等多字段，正则无法稳定提取，直接交给 LLM 兜底。
 
-    def regex_extract(self, text: str) -> List[dict]:
+    def regex_extract(self, text: str) -> List[HoldingCandidateDict]:
         return []
 
     # ── LLM 层 ──
 
-    def extract(self, raw: str) -> List[dict]:
+    def extract(self, raw: str) -> List[HoldingCandidateDict]:
         return extract_json_array(raw)
 
-    def validate(self, items: List[dict]) -> List[dict]:
+    def validate(self, items: List[dict]) -> List[HoldingCandidateDict]:
         """清洗识别结果：仅保留有效代码，且 shares / market_value 至少其一为正。
 
         保留 enrich 阶段回填的 symbol / asset_type（用于落库与反查）。

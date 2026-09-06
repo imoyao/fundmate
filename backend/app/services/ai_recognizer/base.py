@@ -90,7 +90,7 @@ class BaseRecognizer(ABC):
 
     # ── 模板方法（子类不覆盖，通用流程）──
 
-    def recognize_text(self, text: str) -> List[dict]:
+    def recognize_text(self, text: str) -> List[dict]:  # 返回各场景候选契约（TypedDict 列表，运行期为 dict）
         """文本识别：正则层（零成本）→ LLM 层（便宜模型兜底）→ validate → enrich。
 
         分层策略（用户建议「正则优先，便宜模型兜底」，2026-08-13）：
@@ -109,7 +109,7 @@ class BaseRecognizer(ABC):
         items = self.validate(self.extract(raw))
         return self.enrich(items)
 
-    def recognize_image(self, image_bytes: bytes, mime: str = 'image/jpeg') -> List[dict]:
+    def recognize_image(self, image_bytes: bytes, mime: str = 'image/jpeg') -> List[dict]:  # 同上
         """图片识别：LLM vision（便宜模型）→ extract → validate → enrich。"""
         import base64
 
@@ -128,6 +128,6 @@ class BaseRecognizer(ABC):
         items = self.validate(self.extract(raw))
         return self.enrich(items)
 
-    def enrich(self, items: List[dict]) -> List[dict]:
+    def enrich(self, items: List[dict]) -> List[dict]:  # 回填 symbol/type/market/venue 反查字段
         """类型/名称反查（catalog.py）：证券/基金表消歧，回填权威名称/type/venue/symbol。"""
         return catalog.enrich(items)

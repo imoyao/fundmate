@@ -19,6 +19,7 @@ import re
 from typing import List, Optional
 
 from app.services.ai_recognizer.base import BaseRecognizer, extract_json_array, is_valid_code
+from app.services.ai_recognizer.schemas import TransactionCandidateDict
 
 _SYSTEM_PROMPT = (
     '你是一个基金/股票交易记录识别助手。请从用户提供的持仓或交易截图/文本中，'
@@ -103,7 +104,7 @@ class TxnRecognizer(BaseRecognizer):
 
     # ── 正则层（零成本）──
 
-    def regex_extract(self, text: str) -> List[dict]:
+    def regex_extract(self, text: str) -> List[TransactionCandidateDict]:
         """简单排版（「代码 名称? 买卖 金额」）直接出候选行，不调 LLM。
 
         注意：正则行只保证代码/买卖/金额三个字段可靠；日期与份额需人工核对，
@@ -133,7 +134,7 @@ class TxnRecognizer(BaseRecognizer):
 
     # ── LLM 层 ──
 
-    def extract(self, raw: str) -> List[dict]:
+    def extract(self, raw: str) -> List[TransactionCandidateDict]:
         """LLM 输出 → 结构化行：中文买卖词归一为内部编码、数值/日期容错。"""
         rows = extract_json_array(raw)
         items = []
@@ -161,7 +162,7 @@ class TxnRecognizer(BaseRecognizer):
             )
         return items
 
-    def validate(self, items: List[dict]) -> List[dict]:
+    def validate(self, items: List[dict]) -> List[TransactionCandidateDict]:
         """清洗校验候选行。
 
         保留规则：代码 6 位 + 买卖类型在枚举内 + 至少金额或份额其一有效；

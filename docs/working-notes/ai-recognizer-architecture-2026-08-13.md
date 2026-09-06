@@ -66,9 +66,10 @@ backend/app/services/
 └── ai_recognizer/                 # ★ AI 识别域（新增，对称 importer 设计）
     ├── base.py                    # BaseRecognizer 抽象基类（+ 模板方法）
     ├── registry.py                # 注册表：get_recognizer(key)，新场景一行注册
-    ├── schemas.py                 # 各场景候选行 dataclass
-    │   ├── WatchlistCandidate     #   code/name/type/market/venue/symbol
-    │   └── TransactionCandidate   #   + business_type/dates/amount/shares/nav/fee
+    ├── schemas.py                 # 各场景候选行 TypedDict 契约（运行期仍为 dict，单一事实来源）
+    │   ├── WatchlistCandidateDict     #   code/name/type/market/venue/symbol
+    │   ├── TransactionCandidateDict   #   + business_type/dates/amount/shares/nav/fee/warnings
+    │   └── HoldingCandidateDict      #   持仓：code/symbol/asset_type/name/shares/avg_cost/market_value/snapshot_date
     ├── catalog.py                 # 类型/名称反查（证券/基金表消歧，从 ocr_service 抽出共享）
     ├── guards.py                  # 限流/熔断/token 预算 + user_usage 操作（从 ocr_service 抽出）
     ├── llm.py                     # _call_ark：模型/超时/重试/token 记录（抽出）

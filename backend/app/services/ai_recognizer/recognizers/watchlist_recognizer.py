@@ -14,6 +14,7 @@ import re
 from typing import List
 
 from app.services.ai_recognizer.base import BaseRecognizer, extract_json_array, is_valid_code
+from app.services.ai_recognizer.schemas import WatchlistCandidateDict
 
 _SYSTEM_PROMPT = (
     '你是一个基金/股票代码提取助手。请从用户提供的持仓截图或文本中，'
@@ -37,7 +38,7 @@ class WatchlistRecognizer(BaseRecognizer):
 
     # ── 正则层（零成本）──
 
-    def regex_extract(self, text: str) -> List[dict]:
+    def regex_extract(self, text: str) -> List[WatchlistCandidateDict]:
         """简单排版（「代码 名称」）直接出码号+名称，不调 LLM。"""
         items = []
         for m in _REGEX_ITEM_RE.finditer(text):
@@ -48,10 +49,10 @@ class WatchlistRecognizer(BaseRecognizer):
 
     # ── LLM 层 ──
 
-    def extract(self, raw: str) -> List[dict]:
+    def extract(self, raw: str) -> List[WatchlistCandidateDict]:
         return extract_json_array(raw)
 
-    def validate(self, items: List[dict]) -> List[dict]:
+    def validate(self, items: List[dict]) -> List[WatchlistCandidateDict]:
         """清洗识别结果：只保留 6 位数字代码，name 取字符串。"""
         cleaned = []
         for it in items:
