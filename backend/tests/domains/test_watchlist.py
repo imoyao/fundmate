@@ -924,6 +924,46 @@ class TestApplyUserSort:
         result = _apply_user_sort(data, 'added_return', 'desc')
         assert [r['symbol'] for r in result] == ['B', 'A', 'C']
 
+    def test_sort_by_product_by_symbol(self):
+        from app.domains.watchlist.views import _apply_user_sort
+
+        # 「代码/名称」列（#1331）按 symbol（代码）字典序排，稳定且不耦合名称
+        data = [
+            self._row('SH600519'),
+            self._row('HK00700'),
+            self._row('OF.123456'),
+        ]
+        asc = _apply_user_sort(data, 'product', 'asc')
+        desc = _apply_user_sort(data, 'product', 'desc')
+        assert [r['symbol'] for r in asc] == ['HK00700', 'OF.123456', 'SH600519']
+        assert [r['symbol'] for r in desc] == ['SH600519', 'OF.123456', 'HK00700']
+
+    def test_sort_by_product_pinned_stays_first(self):
+        from app.domains.watchlist.views import _apply_user_sort
+
+        data = [
+            self._row('SH600519'),
+            self._row('HK00700', is_pinned=True),
+            self._row('OF.123456'),
+        ]
+        result = _apply_user_sort(data, 'product', 'asc')
+        # 用户排序生效（HK < OF < SH），但置顶行恒在顶部
+        assert [r['symbol'] for r in result] == ['HK00700', 'OF.123456', 'SH600519']
+
+    def test_sort_by_product_missing_symbol_last(self):
+        from app.domains.watchlist.views import _apply_user_sort
+
+        # symbol 缺失 → 排序键 None → 无论升降序都排末尾
+        data = [
+            self._row(None),
+            self._row('SH600519'),
+            self._row('HK00700'),
+        ]
+        asc = _apply_user_sort(data, 'product', 'asc')
+        desc = _apply_user_sort(data, 'product', 'desc')
+        assert [r['symbol'] for r in asc] == ['HK00700', 'SH600519', None]
+        assert [r['symbol'] for r in desc] == ['SH600519', 'HK00700', None]
+
 
 # ─────────────── 迷你走势图批量序列（#990） ───────────────
 class TestTrends:

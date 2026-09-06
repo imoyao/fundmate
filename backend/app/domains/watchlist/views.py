@@ -395,6 +395,9 @@ def list_trends():
 # 由 _user_sort_metric 现算，不在本集合内。
 _USER_SORTABLE_FIELDS = frozenset(
     {
+        # #1331：前端「代码/名称」列（product）标了 sortable:custom 却未开放白名单，
+        # 导致点击排序静默失效；映射为 symbol（代码）字典序，稳定且不耦合名称本地化。
+        'product',
         'created_at',
         'current_price',
         'change_pct',
@@ -409,6 +412,9 @@ _USER_SORTABLE_FIELDS = frozenset(
 
 def _user_sort_metric(row: dict, sort_by: str):
     """取排序键值；缺失/不可比较返回 None（恒排末尾）。"""
+    if sort_by == 'product':
+        # 「代码/名称」列（#1331）：按 symbol（代码）字典序排序，稳定；symbol 缺失则排末尾
+        return row.get('symbol')
     if sort_by == 'added_return':
         # 派生列：添加后收益金额 =（现价 - 添加日收盘价）× 持有数量，
         # 与前端 addedReturnAmount 同口径；三要素缺一则无意义
@@ -433,12 +439,22 @@ def _user_sort_metric(row: dict, sort_by: str):
 def _apply_user_sort(data: list, sort_by, sort_order):
     """用户列内排序（#991）。
 
-    - 白名单外/未指定：维持原顺序（置顶优先 + 更新时间倒序）；
+    - 未指定 sort_by：维持原顺序（置顶优先 + 更新时间倒序）；
+    - 白名单外 sort_by：维持原顺序返回，但明确告警（#1331 消除「点击无反应」式静默失败），
+      便于后续新增可排序列漏登记白名单时第一时间暴露，而非毫无提示；
     - 排序稳定且置顶行仍前置：用户排序只改变同优先级内的次序，
       不破坏「置顶恒在顶部」的既有心智；
     - 值缺失（None）的行无论升降序都排在末尾，避免空值干扰阅读。
     """
-    if not sort_by or sort_by not in _USER_SORTABLE_FIELDS and sort_by != 'added_return':
+    if not sort_by:
+        return data
+    # 白名单外字段（含前端标了排序但后端未开放）：原序返回 + 告警，避免静默失效
+    if sort_by not in _USER_SORTABLE_FIELDS and sort_by != 'added_return':
+        logger.warning(
+            'watchlist 排序忽略非白名单字段 sort_by=%r（前端标了排序但后端未开放，'
+            '如确属可排序列请在 _USER_SORTABLE_FIELDS 登记）',
+            sort_by,
+        )
         return data
     reverse = sort_order == 'desc'
 
