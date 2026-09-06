@@ -23,7 +23,10 @@ const DEFAULT_PAGE_SIZE = 20;
  * 模块级单例：自选页与设置抽屉共享同一份状态，且只从本地加载一次。
  */
 const pageSize = ref(DEFAULT_PAGE_SIZE);
-let pageSizeLoadStarted = false;
+// 记忆化「加载本地每页条数」Promise：多个挂载点（自选页 + 设置抽屉）并发调用 initPageSize 时，
+// 共享同一次加载，避免第二个挂载点在首个 await 完成前即返回、用默认 20 发起首屏请求，
+// 随后被记忆值（如 50）覆盖导致「数据按 20 拉取、分页器按 50 显示」的短暂不一致。
+let pageSizeLoadPromise: Promise<void> | null = null;
 
 async function loadPageSize(): Promise<void> {
   try {
@@ -206,12 +209,14 @@ export function useWatchlistData(
 
   /**
    * 首屏前加载本地每页条数偏好（#1335），确保第一次 fetch 即使用已记忆的档位。
-   * 幂等：同一次会话内多个挂载点只加载一次。
+   * 幂等：返回记忆化的加载 Promise，所有调用方（自选页、设置抽屉等挂载点）等待同一次加载完成，
+   * 避免并发挂载点时第二个调用方提前返回、用默认档位发起首屏请求而产生短暂不一致。
    */
-  async function initPageSize() {
-    if (pageSizeLoadStarted) return;
-    pageSizeLoadStarted = true;
-    await loadPageSize();
+  async function initPageSize(): Promise<void> {
+    if (!pageSizeLoadPromise) {
+      pageSizeLoadPromise = loadPageSize();
+    }
+    return pageSizeLoadPromise;
   }
 
   /** 切换每页条数（#1335）：记忆选择 → 回到第一页 → 重新拉取。
@@ -318,7 +323,9 @@ export function useWatchlistData(
   const showTagEditor = ref(false);
   function openTagEditor(row: WatchlistItem) {
     if (row.id == null) {
-      ElMessage.warning("该自选记录缺少主键，暂无法编辑标签，请刷新或重新添加自选");
+      ElMessage.warning(
+        "该自选记录缺少主键，暂无法编辑标签，请刷新或重新添加自选"
+      );
       return;
     }
     editingItem.value = row;
