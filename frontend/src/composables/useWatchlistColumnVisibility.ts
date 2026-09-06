@@ -139,12 +139,15 @@ export function useWatchlistColumnVisibility(): WatchlistColumnVisibility {
   }
 
   function toggleColumn(key: string, visible: boolean): void {
+    const def = watchlistColumnDefs.find(d => d.key === key);
+    // 不可隐藏列（固定列/内置列）恒可见：即便被错误调用也不写入持久化数据，避免污染
+    if (!def || !def.hideable) return;
     const nextHidden = new Set(hiddenKeys.value);
     const nextShown = new Set(shownKeys.value);
     if (visible) {
       nextHidden.delete(key);
       // 显式开启：仅对默认隐藏列记入 shown（普通列本就可见，记入只是污染持久化数据）
-      if (watchlistColumnDefs.find(d => d.key === key)?.defaultHidden) nextShown.add(key);
+      if (def.defaultHidden) nextShown.add(key);
     } else {
       nextHidden.add(key);
       nextShown.delete(key);

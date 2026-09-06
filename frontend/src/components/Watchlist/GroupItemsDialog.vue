@@ -160,6 +160,9 @@ const inGroup = computed(() => {
   if (gid == null) return [];
   const kw = keyword.value.trim().toLowerCase();
   return pool.value.filter(item => {
+    // 无自选记录 id 的虚拟持仓行无法执行移除（removeItem 会静默 return），
+    // 故不应进入本组列表，否则会渲染出点了无反应的移除按钮
+    if (item.id == null) return false;
     if (!item.group_ids?.includes(gid)) return false;
     return kw ? matchKeyword(item, kw) : true;
   });
@@ -178,8 +181,8 @@ const candidates = computed(() => {
 
 /**
  * 拉取「全部自选」全量池。
- * 不带 group_id（否则只剩本组成员，候选区会为空）；后端 per_page 上限 200，
- * 故按页累加直到取尽（与 useWatchlistData.fetchAllItems 同款安全阀）。
+ * 不带 group_id（否则只剩本组成员，候选区会为空）；后端分页信封含 total，
+ * 据此精确翻页，避免总数为 perPage 整数倍时多发一页空请求。
  */
 async function fetchPool(): Promise<void> {
   loading.value = true;
@@ -188,13 +191,17 @@ async function fetchPool(): Promise<void> {
     const perPage = 200;
     const MAX_PAGES = 50; // 安全阀：防止极端数量下无限翻页
     let page = 1;
-    let rows: WatchlistItem[] = [];
-    do {
+    let fetched = 0;
+    let total = Infinity;
+    while (page <= MAX_PAGES && fetched < total) {
       const res = await getWatchlistItems({ page, per_page: perPage });
-      rows = (res.data ?? []) as WatchlistItem[];
+      const rows = (res.data ?? []) as WatchlistItem[];
+      if (rows.length === 0) break;
       all.push(...rows);
+      fetched += rows.length;
+      total = res.total ?? fetched;
       page++;
-    } while (rows.length === perPage && page <= MAX_PAGES);
+    }
     pool.value = all;
   } catch (e) {
     ElMessage.error("获取自选列表失败");
@@ -236,15 +243,12 @@ async function removeItem(item: WatchlistItem): Promise<void> {
 }
 
 // 每次打开重新拉取一次全量池（分组名单可能在本弹窗外被改动），并清空搜索词
-watch(
-  [() => props.modelValue, () => props.group?.id],
-  ([visible]) => {
-    if (visible) {
-      keyword.value = "";
-      void fetchPool();
-    }
+watch([() => props.modelValue, () => props.group?.id], ([visible]) => {
+  if (visible) {
+    keyword.value = "";
+    void fetchPool();
   }
-);
+});
 
 function handleVisibleChange(value: boolean): void {
   emit("update:modelValue", value);
