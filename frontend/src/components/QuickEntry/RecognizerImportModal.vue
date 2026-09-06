@@ -19,8 +19,13 @@
       }}</span>
     </div>
 
-    <!-- 场景切换：交易识别 / 持仓识别（决定落入域 C / 域 A） -->
-    <div class="ocr-segmented" role="tablist" aria-label="识别场景">
+    <!-- 场景切换：交易识别 / 持仓识别（决定落入域 C / 域 A）；scenarioLock 时隐藏 -->
+    <div
+      v-if="!scenarioLock"
+      class="ocr-segmented"
+      role="tablist"
+      aria-label="识别场景"
+    >
       <button
         type="button"
         role="tab"
@@ -223,6 +228,8 @@ import {
 
 const props = defineProps<{
   modelValue: boolean;
+  /** 锁定识别场景（隐藏场景切换 tab）。托盘/快捷入口只接单一场景时用，如 'txn_import' */
+  scenarioLock?: OcrScenario;
 }>();
 const emit = defineEmits<{
   "update:modelValue": [value: boolean];
@@ -236,7 +243,7 @@ const visible = computed({
   set: val => emit("update:modelValue", val)
 });
 
-const scenario = ref<OcrScenario>("txn_import");
+const scenario = ref<OcrScenario>(props.scenarioLock ?? "txn_import");
 const activeTab = ref<"image" | "text">("image");
 const imageFile = ref<File | null>(null);
 const textContent = ref("");
