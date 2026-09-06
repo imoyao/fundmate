@@ -173,6 +173,18 @@ class TestWatchlistItemCRUD:
         assert data['type_label'] == TYPE_LABELS.get(data['asset_type'])
         assert isinstance(data['type_label'], str)
 
+        # 未知/缺失 asset_type：TYPE_LABELS 未命中时回落为 asset_type 本身（字符串，非 None），
+        # 前端「资产类型」列恒显示字符串、不出现 None（回应 review：断言需覆盖其他取值）
+        resp2 = _post(
+            client,
+            '/api/watchlist/items/',
+            {'symbol': '999999', 'name': '未知类型标的', 'venue': 'EXCHANGE', 'asset_type': 'mystery'},
+        )
+        assert resp2.status_code == 200
+        data2 = resp2.get_json()['data']
+        assert isinstance(data2['type_label'], str)
+        assert data2['type_label'] == 'mystery'
+
     def test_add_item_standardize_sh(self, client, db):
         resp = _post(
             client,
@@ -1006,6 +1018,9 @@ class TestApplyUserSort:
         assert [r['symbol'] for r in desc] == ['SH600519', 'HK00700', None]
 
     # ─────────────── #1332：#993 候选列排序（成本价/资产类型/所属分组/更新时间）───────────────
+    # 以下为 _apply_user_sort 纯函数单测（与既有 sort 测试同款），直接构造 dict 行、不依赖 db 夹具；
+    # 4 个候选列对应的后端排序白名单见 views._USER_SORTABLE_FIELDS（已放开 holding_cost_price/
+    # type_label/updated_at/groups），前端 columnDefs 四列均标 sortable:"custom" 透传后端。
     def test_sort_by_holding_cost_price(self):
         from app.domains.watchlist.views import _apply_user_sort
 

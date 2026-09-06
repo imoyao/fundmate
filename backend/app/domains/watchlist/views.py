@@ -410,9 +410,12 @@ _USER_SORTABLE_FIELDS = frozenset(
         'holding_pnl',
         'holding_pnl_percent',
         'price_at_added',
-        # #1332：#993 引入的 4 个候选列（成本价/资产类型/所属分组/更新时间）放开排序。
-        # holding_cost_price 为数值；type_label 为资产类型中文标签（字符串）；
-        # updated_at 为 ISO 字符串（字典序即时间序）；groups 为多值，语义见 _user_sort_metric。
+        # #1332：#993 引入的 4 个候选列放开排序；下列字段均已在 enrich 阶段下发（见 _enrich_item），
+        # 排序键值由 _user_sort_metric 现算：
+        # - holding_cost_price：数值，来自 positions 加权成本（_compute_holding_stats，L131 起）；
+        # - type_label：资产类型中文标签（字符串），单一来源 app.core.constants.TYPE_LABELS（#1171）；
+        # - updated_at：ISO 字符串，字典序即时间序；
+        # - groups：多值（group_ids），按首个分组 id 字典序、无分组恒排末尾（语义见 _user_sort_metric）。
         'holding_cost_price',
         'type_label',
         'updated_at',
