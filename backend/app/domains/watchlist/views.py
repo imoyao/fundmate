@@ -92,6 +92,9 @@ def _enrich_item(item: WatchlistItem, db) -> dict:
     # watchlist.asset_type 历史存放大写（STOCK/ETF/...），对外统一归一为小写，
     # 与后端 asset_types 单一来源（stock/etf/fund/bond/index）及 positions 域保持一致（#1171）。
     out['asset_type'] = item.asset_type.lower() if item.asset_type else None
+    # 资产类型中文标签：单一来源 app.core.constants.TYPE_LABELS（#1171 枚举一致性），
+    # 供前端「资产类型」列（#1332 候选列）直接展示，免前端再映射。
+    out['type_label'] = TYPE_LABELS.get(out['asset_type']) or out['asset_type'] or ''
     out['display_name'] = _get_display_info(item.symbol, db)
     out['group_ids'] = [link.group_id for link in item.group_links]
     out['tag_ids'] = [link.tag_id for link in item.tag_links]
@@ -413,7 +416,12 @@ _USER_SORTABLE_FIELDS = frozenset(
         'holding_pnl',
         'holding_pnl_percent',
         'price_at_added',
-        # #1332：新增候选列（成本价/资产类型/更新时间/所属分组）排序支持
+        # #1332：#993 引入的 4 个候选列放开排序；下列字段均已在 enrich 阶段下发（见 _enrich_item），
+        # 排序键值由 _user_sort_metric 现算：
+        # - holding_cost_price：数值，来自 positions 加权成本（_compute_holding_stats，L131 起）；
+        # - type_label：资产类型中文标签（字符串），单一来源 app.core.constants.TYPE_LABELS（#1171）；
+        # - updated_at：ISO 字符串，字典序即时间序；
+        # - groups：多值（group_ids），按首个分组 id 字典序、无分组恒排末尾（语义见 _user_sort_metric）。
         'type_label',
         'updated_at',
         'groups',
@@ -426,6 +434,12 @@ def _user_sort_metric(row: dict, sort_by: str):
     if sort_by == 'product':
         # 「代码/名称」列（#1331）：按 symbol（代码）字典序排序，稳定；symbol 缺失则排末尾
         return row.get('symbol')
+    if sort_by == 'groups':
+        # 所属分组（多值字段，#1332）：排序语义取「首个分组」——以 group_ids 首个
+        # 元素（分组 id）字典序参与排序；无分组恒排末尾。多分组整体顺序按首个分组定，
+        # 与前端「、」连接展示的首个分组一致，符合 issue #1332「按首个分组名」的取舍。
+        ids = row.get('group_ids') or []
+        return ids[0] if ids else None
     if sort_by == 'added_return':
         # 派生列：添加后收益金额 =（现价 - 添加日收盘价）× 持有数量，
         # 与前端 addedReturnAmount 同口径；三要素缺一则无意义

@@ -213,9 +213,9 @@ export const watchlistColumnDefs: ColumnDef[] = [
   // 数据全部来自后端既有字段或前端可派生，不改动后端接口契约（符合 #993 范围边界）。
   // 均带 defaultHidden：新列是「可选能力」而非「默认负担」，避免加宽表格
   // 冲击 #1281 换来的单屏行数；用户在「管理 → 列设置」中勾选后才展示。
-  // 列内排序（#1332 已开放）：后端 sort_by 走白名单校验（#991），
-  // 白名单（_USER_SORTABLE_FIELDS）已登记 holding_cost_price/type_label/groups/updated_at，
-  // 下列列对应标 sortable: "custom" 即可触发后端排序。
+  // 排序（#1332）：后端 _USER_SORTABLE_FIELDS 已放开 holding_cost_price/type_label/
+  // updated_at/groups，故下方四列均标 sortable:"custom"（排序透传后端，#991 同款）；
+  // groups 为多值字段，排序语义取首个分组（group_ids 首个，字典序），见后端 _user_sort_metric。
   {
     // 加权成本均价（后端 holding_cost_price，positions 表汇总）
     key: "holding_cost_price",
@@ -226,6 +226,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     props: { nullable: true },
     width: 96,
     align: "right",
+    sortable: "custom", // #1332：后端排序白名单已放开 holding_cost_price
     hideable: true,
     draggable: true,
     defaultHidden: true
@@ -239,12 +240,14 @@ export const watchlistColumnDefs: ColumnDef[] = [
     sortable: "custom",
     width: 104,
     align: "center",
+    sortable: "custom", // #1332：后端排序白名单已放开 type_label
     hideable: true,
     draggable: true,
     defaultHidden: true
   },
   {
     // 所属分组：group_ids → 分组名（id→名称映射由 ctx.groupNames 注入 index.vue）
+    // #1332：多值字段排序语义——按首个分组（group_ids 首个，字典序），见后端 _user_sort_metric
     key: "groups",
     label: "所属分组",
     renderer: "text",
@@ -252,6 +255,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     sortable: "custom",
     width: 132,
     align: "left",
+    sortable: "custom",
     hideable: true,
     draggable: true,
     defaultHidden: true
@@ -262,23 +266,10 @@ export const watchlistColumnDefs: ColumnDef[] = [
     renderer: "date",
     width: 112,
     align: "center",
-    // #1332：开放列内排序（白名单已登记 updated_at）
-    sortable: "custom",
+    sortable: "custom", // #1332：后端排序白名单已放开 updated_at（ISO 字符串字典序即时间序）
     hideable: true,
     draggable: true,
     defaultHidden: true
-  },
-  {
-    // #1332：持仓加权成本均价（白名单已放开排序；无真实持仓时显示 --）
-    key: "holding_cost_price",
-    label: "成本价",
-    renderer: "money",
-    width: 96,
-    align: "right",
-    sortable: "custom",
-    hideable: true,
-    draggable: true,
-    props: { nullable: true }
   },
   {
     // 操作列：置顶 / 特别关注 / 移除 三个按钮，默认 45% 弱显、行 hover 全亮
