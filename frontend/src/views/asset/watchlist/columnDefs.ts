@@ -226,7 +226,6 @@ export const watchlistColumnDefs: ColumnDef[] = [
     props: { nullable: true },
     width: 96,
     align: "right",
-    sortable: "custom", // #1332：后端排序白名单已放开 holding_cost_price
     hideable: true,
     draggable: true,
     defaultHidden: true
@@ -240,7 +239,6 @@ export const watchlistColumnDefs: ColumnDef[] = [
     sortable: "custom",
     width: 104,
     align: "center",
-    sortable: "custom", // #1332：后端排序白名单已放开 type_label
     hideable: true,
     draggable: true,
     defaultHidden: true
@@ -255,7 +253,6 @@ export const watchlistColumnDefs: ColumnDef[] = [
     sortable: "custom",
     width: 132,
     align: "left",
-    sortable: "custom",
     hideable: true,
     draggable: true,
     defaultHidden: true

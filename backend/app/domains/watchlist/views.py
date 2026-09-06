@@ -435,11 +435,14 @@ def _user_sort_metric(row: dict, sort_by: str):
         # 「代码/名称」列（#1331）：按 symbol（代码）字典序排序，稳定；symbol 缺失则排末尾
         return row.get('symbol')
     if sort_by == 'groups':
-        # 所属分组（多值字段，#1332）：排序语义取「首个分组」——以 group_ids 首个
-        # 元素（分组 id）字典序参与排序；无分组恒排末尾。多分组整体顺序按首个分组定，
-        # 与前端「、」连接展示的首个分组一致，符合 issue #1332「按首个分组名」的取舍。
+        # 所属分组（多值字段，#1332）：排序语义取「首个分组」——优先 group_ids 首个
+        # 元素（分组 id）字典序；若无 group_ids 则退化为首个 group_names（分组名）；
+        # 无分组恒排末尾。多分组整体顺序按首个分组定，与前端展示首个分组一致。
         ids = row.get('group_ids') or []
-        return ids[0] if ids else None
+        if ids:
+            return ids[0]
+        names = row.get('group_names') or []
+        return names[0] if names else None
     if sort_by == 'added_return':
         # 派生列：添加后收益金额 =（现价 - 添加日收盘价）× 持有数量，
         # 与前端 addedReturnAmount 同口径；三要素缺一则无意义
@@ -452,10 +455,6 @@ def _user_sort_metric(row: dict, sort_by: str):
             return (float(cur) - float(added)) * float(qty)
         except (TypeError, ValueError):
             return None
-    if sort_by == 'groups':
-        # 多值字段排序语义（#1332）：按首个分组名（字典序），无分组返回 None 恒排末尾
-        names = row.get('group_names') or []
-        return names[0] if names else None
     v = row.get(sort_by)
     if v is None:
         return None
