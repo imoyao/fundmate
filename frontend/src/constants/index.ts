@@ -80,7 +80,10 @@ export const LEDGER_TYPE_SHORT: Record<string, string> = {
   deleted: "已删"
 };
 
-/** 资产大类标签（与后端 app/core/constants.py ASSET_CATEGORY_LABELS 对齐） */
+/** 资产大类标签（与后端 app/core/asset_types.py ASSET_CATEGORY_LABELS 对齐）。
+ * 注意：bank_wealth / advisory / trust / private_fund / wealth_insurance 五个键
+ * 仅用于「存量明细标签回退」，不再是大类选项（#1354 已收敛到投资理财），
+ * 新建记录禁止再写入这五个 major_category，细分走 minor_category。 */
 export const MAJOR_CATEGORY_LABELS: Record<string, string> = {
   cash: "流动资金",
   fixed: "固定资产",
@@ -94,6 +97,32 @@ export const MAJOR_CATEGORY_LABELS: Record<string, string> = {
   private_fund: "私募",
   wealth_insurance: "理财型保险"
 };
+
+/** 可选的大类（6 个主类）。盘点页标签栏与录入表单的下拉都以它为准。 */
+export const MAJOR_CATEGORY_OPTIONS = [
+  { value: "investment", label: "投资理财" },
+  { value: "cash", label: "流动资金" },
+  { value: "fixed", label: "固定资产" },
+  { value: "liability", label: "负债" },
+  { value: "receivable", label: "应收款" },
+  { value: "insurance", label: "保险项目" }
+] as const;
+
+/** 投资理财下的细分子类（写 minor_category；与后端 INVESTMENT_MINOR_CATEGORIES 对齐） */
+export const INVESTMENT_MINOR_CATEGORIES = [
+  { value: "bank_wealth", label: "银行理财" },
+  { value: "advisory", label: "投顾" },
+  { value: "trust", label: "信托" },
+  { value: "private_fund", label: "私募" },
+  { value: "wealth_insurance", label: "理财型保险" }
+] as const;
+
+/** 「投资理财」在查询口径下包含的全部 major_category（含历史细分类），
+ * 逗号分隔直接传给后端 major_category 多值过滤（#1354）。 */
+export const INVESTMENT_MAJOR_KEYS = [
+  "investment",
+  ...INVESTMENT_MINOR_CATEGORIES.map(i => i.value)
+].join(",");
 
 export function majorCategoryLabel(key: string): string {
   return MAJOR_CATEGORY_LABELS[key] ?? key;

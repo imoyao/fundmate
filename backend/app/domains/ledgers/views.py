@@ -561,6 +561,31 @@ def get_ledger(ledger_id: int):
         return jsonify({'data': _ledger_to_dict(ledger), 'message': 'ok'})
 
 
+def _sync_account_name_snapshots(db, ledger_id: int, account_name: str) -> dict[str, int]:
+    """把账户新名称刷到所有下游 account_name 冗余快照（#1354）。
+
+    account_name 是 ledgers.name 的冗余列，散落在 assets / positions / transactions
+    三张表。账户改名时只改 ledgers.name 会让明细页、按账户分组的分布图继续显示旧名字
+    （改名看着成功了，数据里还是旧的）。此处按 ledger_id 命中范围统一刷新；
+    ledger_id 为空的孤儿数据不处理——它本就没有账户可对齐。
+
+    Returns:
+        {表名: 受影响行数}，便于接口回执与测试断言。
+    """
+    family_id = get_family_id()
+    return {
+        'assets': db.query(Asset)
+        .filter(Asset.ledger_id == ledger_id, Asset.family_id == family_id)
+        .update({Asset.account_name: account_name}, synchronize_session=False),
+        'positions': db.query(Position)
+        .filter(Position.ledger_id == ledger_id, Position.family_id == family_id)
+        .update({Position.account_name: account_name}, synchronize_session=False),
+        'transactions': db.query(Transaction)
+        .filter(Transaction.ledger_id == ledger_id, Transaction.family_id == family_id)
+        .update({Transaction.account_name: account_name}, synchronize_session=False),
+    }
+
+
 @ledgers_bp.patch('/<int:ledger_id>/')
 def update_ledger(ledger_id: int):
     """更新账户信息"""
@@ -572,10 +597,13 @@ def update_ledger(ledger_id: int):
 
         # 更新基本字段
         name = data.get('name')
+        renamed_to: str | None = None
         if name is not None:
             name = name.strip()
             if not name:
                 return jsonify({'data': None, 'message': '账户名称不能为空'}), 400
+            if name != ledger.name:
+                renamed_to = name
             ledger.name = name
 
         ledger_type = data.get('ledger_type')
@@ -689,6 +717,10 @@ def update_ledger(ledger_id: int):
                 ledger.fee_config = fee_config
             else:
                 return jsonify({'data': None, 'message': 'fee_config 格式无效'}), 400
+
+        # #1354：改名后级联刷新下游快照，否则明细页仍显示旧账户名
+        if renamed_to:
+            _sync_account_name_snapshots(db, ledger_id, renamed_to)
 
         db.commit()
         db.refresh(ledger)
