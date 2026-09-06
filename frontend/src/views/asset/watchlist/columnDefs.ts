@@ -213,8 +213,9 @@ export const watchlistColumnDefs: ColumnDef[] = [
   // 数据全部来自后端既有字段或前端可派生，不改动后端接口契约（符合 #993 范围边界）。
   // 均带 defaultHidden：新列是「可选能力」而非「默认负担」，避免加宽表格
   // 冲击 #1281 换来的单屏行数；用户在「管理 → 列设置」中勾选后才展示。
-  // 统一不加 sortable：后端 sort_by 走白名单校验（#991），这些字段尚未进白名单，
-  // 冒然标 sortable 会把未支持的字段透传给后端。待后端补白名单后再开。
+  // 排序（#1332）：后端 _USER_SORTABLE_FIELDS 已放开 holding_cost_price/type_label/
+  // updated_at/groups，故下方四列均标 sortable:"custom"（排序透传后端，#991 同款）；
+  // groups 为多值字段，排序语义取首个分组（group_ids 首个，字典序），见后端 _user_sort_metric。
   {
     // 加权成本均价（后端 holding_cost_price，positions 表汇总）
     key: "holding_cost_price",
@@ -222,6 +223,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     renderer: "money",
     width: 96,
     align: "right",
+    sortable: "custom", // #1332：后端排序白名单已放开 holding_cost_price
     hideable: true,
     draggable: true,
     defaultHidden: true
@@ -233,17 +235,20 @@ export const watchlistColumnDefs: ColumnDef[] = [
     renderer: "text",
     width: 104,
     align: "center",
+    sortable: "custom", // #1332：后端排序白名单已放开 type_label
     hideable: true,
     draggable: true,
     defaultHidden: true
   },
   {
     // 所属分组：group_ids → 分组名（id→名称映射由 ctx.groupNames 注入 index.vue）
+    // #1332：多值字段排序语义——按首个分组（group_ids 首个，字典序），见后端 _user_sort_metric
     key: "groups",
     label: "所属分组",
     renderer: "text",
     width: 132,
     align: "left",
+    sortable: "custom",
     hideable: true,
     draggable: true,
     defaultHidden: true
@@ -254,6 +259,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     renderer: "date",
     width: 112,
     align: "center",
+    sortable: "custom", // #1332：后端排序白名单已放开 updated_at（ISO 字符串字典序即时间序）
     hideable: true,
     draggable: true,
     defaultHidden: true

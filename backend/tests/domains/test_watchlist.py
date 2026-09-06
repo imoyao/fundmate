@@ -158,6 +158,21 @@ class TestWatchlistItemCRUD:
         data = resp.get_json()['data']
         assert data['symbol'] == 'HK00700'
 
+    def test_enrich_type_label(self, client, db):
+        """#1332：enrich 下发资产类型中文标签 type_label，供前端「资产类型」列展示。"""
+        from app.core.constants import TYPE_LABELS
+
+        resp = _post(
+            client,
+            '/api/watchlist/items/',
+            {'symbol': '600519', 'name': '贵州茅台', 'venue': 'EXCHANGE', 'asset_type': 'stock'},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        # type_label 与 asset_type 经 TYPE_LABELS 单一来源收口一致；缺失回落为空串而非 None
+        assert data['type_label'] == TYPE_LABELS.get(data['asset_type'])
+        assert isinstance(data['type_label'], str)
+
     def test_add_item_standardize_sh(self, client, db):
         resp = _post(
             client,
@@ -989,6 +1004,56 @@ class TestApplyUserSort:
         desc = _apply_user_sort(data, 'product', 'desc')
         assert [r['symbol'] for r in asc] == ['HK00700', 'SH600519', None]
         assert [r['symbol'] for r in desc] == ['SH600519', 'HK00700', None]
+
+    # ─────────────── #1332：#993 候选列排序（成本价/资产类型/所属分组/更新时间）───────────────
+    def test_sort_by_holding_cost_price(self):
+        from app.domains.watchlist.views import _apply_user_sort
+
+        # 加权成本均价（数值）：降序 B(5) > C(3) > A(1)
+        data = [
+            self._row('A', holding_cost_price=1.0),
+            self._row('B', holding_cost_price=5.0),
+            self._row('C', holding_cost_price=3.0),
+        ]
+        result = _apply_user_sort(data, 'holding_cost_price', 'desc')
+        assert [r['symbol'] for r in result] == ['B', 'C', 'A']
+
+    def test_sort_by_type_label(self):
+        from app.domains.watchlist.views import _apply_user_sort
+
+        # 资产类型中文标签（字符串字典序）：typeA < typeB < typeC
+        data = [
+            self._row('A', type_label='typeC'),
+            self._row('B', type_label='typeA'),
+            self._row('C', type_label='typeB'),
+        ]
+        result = _apply_user_sort(data, 'type_label', 'asc')
+        assert [r['symbol'] for r in result] == ['B', 'C', 'A']
+
+    def test_sort_by_updated_at_desc(self):
+        from app.domains.watchlist.views import _apply_user_sort
+
+        # 后端 updated_at 为 ISO 字符串，字典序即时间序
+        data = [
+            self._row('A', updated_at='2026-09-01 10:00:00'),
+            self._row('B', updated_at='2026-09-03 10:00:00'),
+            self._row('C', updated_at='2026-09-02 10:00:00'),
+        ]
+        result = _apply_user_sort(data, 'updated_at', 'desc')
+        assert [r['symbol'] for r in result] == ['B', 'C', 'A']
+
+    def test_sort_by_groups_first_id(self):
+        from app.domains.watchlist.views import _apply_user_sort
+
+        # 所属分组（多值，#1332）：按首个分组 id 字典序；无分组恒排末尾
+        data = [
+            self._row('A', group_ids=[3, 'core']),
+            self._row('B', group_ids=[1]),
+            self._row('C', group_ids=[]),
+        ]
+        result = _apply_user_sort(data, 'groups', 'asc')
+        # B(1) < A(3) < C(无分组→末尾)
+        assert [r['symbol'] for r in result] == ['B', 'A', 'C']
 
 
 # ─────────────── 迷你走势图批量序列（#990） ───────────────
