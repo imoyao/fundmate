@@ -160,8 +160,8 @@ watch(() => allGroups.value.length, () => nextTick(updateGroupFade));
 
          批量模式（batchMode）：分组与筛选整体隐藏（批量工具条占用第一行），
          避免表格上方出现两排状态不同的操作。 -->
-    <div class="filter-row">
-      <template v-if="!toolbar.batchMode.value">
+    <div class="filter-row" v-if="!toolbar.batchMode.value">
+      <template>
         <!-- 左段（弹性）：分组胶囊 Tab（design.md「分组胶囊 Tab · 方案 B」，水平滑动、数量徽章 tabular-nums）。
              自定义分组多时会横向滚动，右缘用渐变遮罩暗示「右侧还有」（2026-09-05）。 -->
         <div class="group-tabs-wrap">

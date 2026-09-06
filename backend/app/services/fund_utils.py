@@ -36,6 +36,7 @@ _CODE_FALLBACK_RE = re.compile(r'^(?:1[01]\d{4}|97\d{4})$')
 
 # market 名录查询结果 TTL（秒）：写路径低频，5 分钟足够；聚合层不经过此缓存
 _CACHE_TTL_SECONDS = 300
+_CACHE_MAX_SIZE = 4096
 _cache: dict[str, tuple[float, bool]] = {}
 
 
@@ -103,6 +104,15 @@ def resolve_money_fund_flags(codes: Iterable[str]) -> dict[str, bool]:
             flag = c in market_hits or _code_segment_fallback(c)
             result[c] = flag
             _cache[c] = (now, flag)
+    # 容量上限：长生命周期进程下避免 _cache 无界增长（命中项仍受 TTL 约束，淘汰仅触发重新解析）
+    if len(_cache) > _CACHE_MAX_SIZE:
+        # 先淘汰已过期条目：避免过期键残留、活跃长生命周期键被 FIFO 误逐（#1330 review）
+        expired_keys = [k for k, (ts, _v) in _cache.items() if now - ts >= _CACHE_TTL_SECONDS]
+        for k in expired_keys:
+            _cache.pop(k, None)
+        # 仍溢出则按插入顺序（FIFO）淘汰最旧项至容量上限
+        while len(_cache) > _CACHE_MAX_SIZE:
+            _cache.pop(next(iter(_cache)), None)
     return result
 
 

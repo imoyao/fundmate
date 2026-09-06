@@ -8,7 +8,7 @@ from collections import defaultdict
 from datetime import date, datetime
 from typing import Any, Type
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 from app.core.constants import (
     ALLOCATION_LABELS,
@@ -78,8 +78,6 @@ _ORPHAN_FLOW_NEGATIVE_TYPES = ('sell', 'withdraw')
 
 def _not_income_filter(cls) -> Any:
     """SQLAlchemy 过滤：is_income 列未标记或为 False（排除收益行）。"""
-    from sqlalchemy import or_
-
     return or_(cls.is_income.is_(None), cls.is_income.is_(False))
 
 

@@ -50,7 +50,9 @@
    loading 结束卸载后表格原有 DOM 无缝露出。 */
 .watchlist-table-skeleton {
   position: absolute;
-  top: 30px;
+  /* top 跟随真实表头高度：由父容器 .watchlist-table-wrap 的 --watchlist-header-h 提供（#1324 review），
+     表头高度调整时覆盖层自动对齐，不再硬编码压住/露出。 */
+  top: var(--watchlist-header-h, 30px);
   right: 0;
   bottom: 0;
   left: 0;
@@ -69,6 +71,8 @@
   display: flex;
   flex: 1 1 auto;
   min-height: 44px;
+  /* 高屏下 flex 均分不会把行无限拉长，维持与真实行 ~52px 一致的骨架密度（#1324 review） */
+  max-height: 52px;
   align-items: center;
   border-bottom: 1px solid var(--border-light);
 }

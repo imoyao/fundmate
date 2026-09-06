@@ -975,6 +975,9 @@ const renderCtx = computed<RenderCtx>(() => ({
    absolute 覆盖表头之下的行区）。表头吸顶见下方 :deep(.el-table__header-wrapper)。 */
 .watchlist-table-wrap {
   position: relative;
+  /* 提供给 WatchlistTableSkeleton 覆盖层的表头高度锚点（#1324 review）：
+     与真实表头高度保持一致，骨架屏 top 即对齐表头底边。 */
+  --watchlist-header-h: 30px;
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
