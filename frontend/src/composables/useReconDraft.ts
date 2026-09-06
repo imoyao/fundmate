@@ -1,21 +1,53 @@
 import { localForage } from "@/utils/localforage";
+import type { OcrTxnRow, OcrHoldingRow } from "@/api/ocr";
 
 /**
  * 统一对账工作台草稿层（#1232 P0-B / #1239）。
  *
  * 设计（对齐 docs/working-notes/reconciliation-framework-design-2026-08-31.md §5.7）：
- * - **全局单槽**：key = `recon-draft:<familyId>`（前端当前无 familyId 暴露，localforage 本身
- *   已按浏览器实例隔离，故退化为固定 key `recon-draft`；后续多家庭需在此拼接家庭标识）。
+ * - **导入草稿全局单槽**：key = `recon-draft`（前端当前无 familyId 暴露，localforage 本身
+ *   已按浏览器实例隔离，故退化为固定 key；后续多家庭需在此拼接家庭标识）。
  *   真正"只存一份"，靠 payload.domain + ledgerId 路由恢复。
+ * - **识别候选草稿独立槽**：key = `recon-draft:recognizer`（P3-1 / #1250），与导入草稿
+ *   **按 key 隔离互不覆盖**；识别候选行（AI 识图/文本产出）落入此槽，由工作台三域 Tab 加载。
  * - **payload 必须带 domain 标记**（A/E账户、B/快照一致性、C/对账单交割单导入），
  *   避免跨域恢复时类型错乱（§5.8）。
  * - **TTL 7 天**（localforage 单位为分钟，7×24×60=10080）；过期仅影响未提交编辑态。
  * - **不存文件二进制**：只存解析结果——恢复后无法重新解析，行内编辑是刚需。
  *
  * Set 序列化：`selectedKeys` 是 `Set`（不可 JSON 序列化），写入转数组、读取转回 Set。
+ *
+ * 识别候选契约（#1250 / P3-1）：AI 识别结果（txn_import / holding_import 场景）经预览核对后，
+ * 序列化为 `RecognizerCandidate` 落入 `recon-draft:recognizer` 草稿，与导入向导共享
+ * `recon-draft` 命名空间，但 key 不同故互不覆盖；工作台按 `kind`（txn→域 C / holding→域 A）
+ * 加载并参与对账。
  */
 
 export type ReconDomain = "A" | "B" | "C";
+
+/** AI 识别候选类型：交易（→域 C）/ 持仓（→域 A） */
+export type RecognizerCandidateKind = "txn" | "holding";
+
+/**
+ * 识别候选行（#1250）。直接复用 OCR 预览行结构（OcrTxnRow / OcrHoldingRow），
+ * 仅附加 `kind` 标记以便工作台路由到对应域。提交入库时剥离 `kind` 即可原样回传
+ * `/api/importers/confirm`（txn）或 `/api/importers/holdings/confirm`（holding）。
+ */
+export type RecognizerCandidate =
+  | (OcrTxnRow & { kind: "txn" })
+  | (OcrHoldingRow & { kind: "holding" });
+
+/** 识别候选草稿 payload（key = `recon-draft:recognizer`） */
+export interface RecognizerDraftPayload {
+  /** 目标对账域：txn→C（对账单导入）/ holding→A（E账户） */
+  domain: ReconDomain;
+  /** 关联账户 ID（txn 场景需要，holding 场景后端自动归到 E账户） */
+  ledgerId: number | null;
+  /** 保存时间（ISO） */
+  savedAt: string;
+  /** 候选行（交易/持仓混合，按 kind 区分） */
+  candidates: RecognizerCandidate[];
+}
 
 /** 对账行：导入解析结果/预览行均为异构键值对，用此类型替代裸 `any` */
 export interface ReconRow {
@@ -44,8 +76,11 @@ export interface ReconDraftPayload {
 const KEY_PREFIX = "recon-draft";
 const TTL_MINUTES = 7 * 24 * 60; // 7 天
 
-/** 当前草稿 key：前端无 familyId，localforage 已按浏览器实例隔离，退化为固定 key */
+/** 导入草稿 key（全局单槽，与识别候选草稿按 key 隔离，互不覆盖） */
 const draftKey = (): string => `${KEY_PREFIX}`;
+
+/** 识别候选草稿 key（P3-1 / #1250）：独立槽，避免覆盖导入草稿 */
+const RECOGNIZER_KEY = `${KEY_PREFIX}:recognizer`;
 
 /** 序列化前清洗 rows：剥离不可 JSON 化的字段（函数/循环引用），保留行内编辑所需字段 */
 function sanitizeRows(rows: ReconRow[]): ReconRow[] {
@@ -138,11 +173,62 @@ export function useReconDraft() {
     return { ...draft, selectedKeySet: new Set(draft.selectedKeys ?? []) };
   }
 
+  // ── 识别候选草稿（P3-1 / #1250）：独立槽，与导入草稿按 key 隔离 ──
+
+  /** 写入识别候选草稿（覆盖旧候选；TTL 7 天）。domain 决定工作台路由：txn→C / holding→A */
+  async function saveRecognizerCandidates(payload: {
+    domain: ReconDomain;
+    ledgerId: number | null;
+    candidates: RecognizerCandidate[];
+  }): Promise<void> {
+    await localForage().setItem<RecognizerDraftPayload>(
+      RECOGNIZER_KEY,
+      {
+        domain: payload.domain,
+        ledgerId: payload.ledgerId,
+        savedAt: new Date().toISOString(),
+        candidates: payload.candidates
+      },
+      TTL_MINUTES
+    );
+  }
+
+  /** 读取识别候选草稿的候选行；不存在或已过期返回空数组 */
+  async function getRecognizerCandidates(): Promise<RecognizerCandidate[]> {
+    const draft = await localForage().getItem<RecognizerDraftPayload>(
+      RECOGNIZER_KEY
+    );
+    return draft?.candidates ?? [];
+  }
+
+  /** 读取完整识别候选草稿 payload（含 domain/ledgerId/savedAt）；无则返回 null */
+  async function getRecognizerDraft(): Promise<RecognizerDraftPayload | null> {
+    return (
+      (await localForage().getItem<RecognizerDraftPayload>(RECOGNIZER_KEY)) ??
+      null
+    );
+  }
+
+  /** 丢弃识别候选草稿 */
+  async function clearRecognizerCandidates(): Promise<void> {
+    await localForage().removeItem(RECOGNIZER_KEY);
+  }
+
+  /** 是否存在有效识别候选草稿 */
+  async function hasRecognizerCandidates(): Promise<boolean> {
+    return (await getRecognizerCandidates()).length > 0;
+  }
+
   return {
     saveDraft,
     getDraft,
     getDraftWithSet,
     discardDraft,
-    hasDraft
+    hasDraft,
+    saveRecognizerCandidates,
+    getRecognizerCandidates,
+    getRecognizerDraft,
+    clearRecognizerCandidates,
+    hasRecognizerCandidates
   };
 }

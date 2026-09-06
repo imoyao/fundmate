@@ -89,12 +89,14 @@ export const getOcrUsage = (feature: string = "ocr_import") => {
 /** 图片（base64）→ 方案方舟识别 → 候选列表/预览行；消耗 1 次对应场景配额 */
 export const recognizeImage = (
   imageBase64: string,
-  scenario: OcrScenario = "watchlist_import"
+  scenario: OcrScenario = "watchlist_import",
+  ledgerId?: number | null
 ) => {
+  const params = ledgerId ? { ledger_id: String(ledgerId) } : undefined;
   return http.request<RecognizeResponse>(
     "post",
     "/api/ocr/recognize",
-    { data: { image_base64: imageBase64, scenario } },
+    { data: { image_base64: imageBase64, scenario }, params },
     { timeout: OCR_REQUEST_TIMEOUT }
   );
 };
@@ -102,12 +104,14 @@ export const recognizeImage = (
 /** 纯文本 → LLM 批量提取（AI 批量导入）；消耗 1 次对应场景配额 */
 export const parseImportText = (
   text: string,
-  scenario: OcrScenario = "watchlist_import"
+  scenario: OcrScenario = "watchlist_import",
+  ledgerId?: number | null
 ) => {
+  const params = ledgerId ? { ledger_id: String(ledgerId) } : undefined;
   return http.request<RecognizeResponse>(
     "post",
     "/api/ocr/parse",
-    { data: { text, scenario } },
+    { data: { text, scenario }, params },
     { timeout: OCR_REQUEST_TIMEOUT }
   );
 };

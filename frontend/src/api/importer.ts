@@ -29,3 +29,10 @@ export function parseFile(
 export function confirmImport(rows: any[]) {
   return http.request<any>("post", "/api/importers/confirm", { data: rows });
 }
+
+/** 确认导入持仓快照（holding_import）：SET 语义 upsert 至 positions，不建交易流水（#1018） */
+export function confirmHoldingImport(rows: any[]) {
+  return http.request<any>("post", "/api/importers/holdings/confirm", {
+    data: rows
+  });
+}
