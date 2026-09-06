@@ -131,8 +131,10 @@ export function useWatchlistColumnVisibility(): WatchlistColumnVisibility {
    * 可使其可见。
    */
   function isHidden(key: string): boolean {
-    if (hiddenKeys.value.has(key)) return true;
     const def = watchlistColumnDefs.find(d => d.key === key);
+    // 不可隐藏列恒为可见：即便历史残留 hiddenKeys 含该 key，也不应显示「已隐藏」矛盾态
+    if (def && !def.hideable) return false;
+    if (hiddenKeys.value.has(key)) return true;
     return Boolean(def?.defaultHidden) && !shownKeys.value.has(key);
   }
 
@@ -141,8 +143,8 @@ export function useWatchlistColumnVisibility(): WatchlistColumnVisibility {
     const nextShown = new Set(shownKeys.value);
     if (visible) {
       nextHidden.delete(key);
-      // 显式开启：对默认隐藏列是「打开」，对普通列无副作用（其本就可见）
-      nextShown.add(key);
+      // 显式开启：仅对默认隐藏列记入 shown（普通列本就可见，记入只是污染持久化数据）
+      if (watchlistColumnDefs.find(d => d.key === key)?.defaultHidden) nextShown.add(key);
     } else {
       nextHidden.add(key);
       nextShown.delete(key);

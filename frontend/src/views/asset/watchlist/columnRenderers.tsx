@@ -247,11 +247,11 @@ const renderText: FunctionalComponent<{
     return h(
       "span",
       { class: "text-sm", title: names.join("、") },
-      names.length > 2 ? `${shown} 等 ${names.length} 组` : shown
+      ids.length > 2 ? `${shown} 等 ${ids.length} 组` : shown
     );
   }
   const v = field(row, def.key);
-  return h("span", { class: "text-sm" }, v ? String(v) : "--");
+  return h("span", { class: "text-sm" }, v == null || v === "" ? "--" : String(v));
 };
 
 const renderMoneyRatio: FunctionalComponent<{

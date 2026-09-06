@@ -91,6 +91,7 @@
               <el-checkbox
                 class="gi-check"
                 :model-value="false"
+                @click.stop
                 @change="addItem(item)"
               />
               <div class="gi-row__main" @click="addItem(item)">
@@ -185,12 +186,15 @@ async function fetchPool(): Promise<void> {
   try {
     const all: WatchlistItem[] = [];
     const perPage = 200;
-    for (let page = 1; page <= 50; page++) {
+    const MAX_PAGES = 50; // 安全阀：防止极端数量下无限翻页
+    let page = 1;
+    let rows: WatchlistItem[] = [];
+    do {
       const res = await getWatchlistItems({ page, per_page: perPage });
-      const rows = (res.data ?? []) as WatchlistItem[];
+      rows = (res.data ?? []) as WatchlistItem[];
       all.push(...rows);
-      if (rows.length < perPage) break;
-    }
+      page++;
+    } while (rows.length === perPage && page <= MAX_PAGES);
     pool.value = all;
   } catch (e) {
     ElMessage.error("获取自选列表失败");
@@ -233,8 +237,8 @@ async function removeItem(item: WatchlistItem): Promise<void> {
 
 // 每次打开重新拉取一次全量池（分组名单可能在本弹窗外被改动），并清空搜索词
 watch(
-  () => props.modelValue,
-  visible => {
+  [() => props.modelValue, () => props.group?.id],
+  ([visible]) => {
     if (visible) {
       keyword.value = "";
       void fetchPool();
@@ -308,7 +312,7 @@ function close(): void {
   display: flex;
   gap: var(--space-2);
   align-items: center;
-  padding: 4px var(--space-2);
+  padding: var(--space-1) var(--space-2);
   background-color: var(--bg-card);
   border-radius: var(--radius-sm);
   transition: background-color 150ms ease;

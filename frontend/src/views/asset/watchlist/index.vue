@@ -542,7 +542,10 @@ const activeCustomGroup = computed<WatchlistGroup | null>(() => {
 /** 空态是否落在「空白自定义分组」：需为自定义分组且未叠加标签筛选
     （叠加了标签筛选时的空结果是筛选无匹配，不应引导去加产品） */
 const isEmptyCustomGroup = computed(
-  () => currentIsCustom.value && selectedFilterTagIds.value.length === 0
+  () =>
+    currentIsCustom.value &&
+    selectedFilterTagIds.value.length === 0 &&
+    !searchKeyword.value
 );
 
 function openGroupItemsDialog(): void {
@@ -947,7 +950,7 @@ const renderCtx = computed<RenderCtx>(() => ({
   // 只需自定义分组——系统分组（持仓/观察等）由后端规律方法派生，不写进 group_ids。
   groupNames: Object.fromEntries(
     customGroups.value.map(g => [g.id, g.name])
-  ) as Record<number, string>,
+  ) as Record<string, string>,
   derived: (kind, row) => {
     if (kind === "addedReturn") {
       return {
