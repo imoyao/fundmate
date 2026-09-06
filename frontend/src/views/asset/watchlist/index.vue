@@ -1031,12 +1031,13 @@ const renderCtx = computed<RenderCtx>(() => ({
 
 .watchlist-card {
   display: flex;
-  flex-direction: column;
+
   /* flex:1 撑满 .watchlist-scroll 剩余高度：空态（无自选）时卡片拉伸到一屏，
      表格区 .watchlist-table-wrap flex:1 再撑满卡片，配合「暂无自选资产」空态垂直
      居中——不再出现卡片只占半屏、footer 悬在中间的观感。有数据时行内容自然增高，
      卡片随内容增高（flex-grow 仅在容器有空余时才作用，不会压缩真实行）。 */
   flex: 1 1 auto;
+  flex-direction: column;
   min-height: 0;
   padding: var(--space-compact);
 }
@@ -1046,12 +1047,13 @@ const renderCtx = computed<RenderCtx>(() => ({
    position:relative 是 WatchlistTableSkeleton 覆盖层的定位锚点（loading 期间骨架
    absolute 覆盖表头之下的行区）。表头吸顶见下方 :deep(.el-table__header-wrapper)。 */
 .watchlist-table-wrap {
-  position: relative;
   /* 提供给 WatchlistTableSkeleton 覆盖层的表头高度锚点（#1324 review）：
      与真实表头高度保持一致，骨架屏 top 即对齐表头底边。
      2026-09-06：表头 th padding 3px→6px（≈30px→≈36px）后同步本值，
      否则骨架屏会与真实表头底边错位、露出 6px 空白条。 */
   --watchlist-header-h: 36px;
+
+  position: relative;
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
@@ -1078,9 +1080,10 @@ const renderCtx = computed<RenderCtx>(() => ({
 .watchlist-table-wrap :deep(.el-table) {
   overflow: visible;
 }
+
 .watchlist-table-wrap :deep(.el-table__header-wrapper) {
   position: sticky;
-  top: var(--watchlist-sticky-top, 0px);
+  top: var(--watchlist-sticky-top, 0);
   z-index: 3;
   background: var(--bg-card);
 }
@@ -1302,8 +1305,8 @@ const renderCtx = computed<RenderCtx>(() => ({
      都不能有 overflow:hidden/auto，否则会截断 sticky 上溯（2026-09-05 根因修复）。 */
   position: sticky;
   top: 0;
-  padding-top: var(--watchlist-sticky-gap, 12px);
   z-index: 4;
+  padding-top: var(--watchlist-sticky-gap, 12px);
   background: var(--bg-card);
 }
 
@@ -1351,18 +1354,15 @@ const renderCtx = computed<RenderCtx>(() => ({
      盖住表头/空体，文案在整卡区内垂直居中，视觉干净。
      注意 z-index 需高于表头（header z-index:3）才能盖住其底边线。 */
   position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  left: 0;
+  inset: 0;
   z-index: 6;
   display: flex;
   flex-direction: column;
   gap: 4px;
   align-items: center;
   justify-content: center;
-  background-color: var(--bg-card);
   padding: 32px 0;
+  background-color: var(--bg-card);
 }
 
 .watchlist-empty__title {

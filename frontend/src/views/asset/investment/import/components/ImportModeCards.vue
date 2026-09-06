@@ -218,8 +218,8 @@ function onVendorLogoError(e: Event) {
 .vendor-support {
   display: flex;
   flex-direction: column;
-  align-items: center;
   gap: 12px;
+  align-items: center;
   margin-top: 28px;
 }
 
@@ -237,8 +237,8 @@ function onVendorLogoError(e: Event) {
 
 .vendor-item {
   display: inline-flex;
-  align-items: center;
   gap: 8px;
+  align-items: center;
   padding: 8px 14px;
   background: var(--bg-card);
   border: 1px solid var(--border-default);

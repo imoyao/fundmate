@@ -360,9 +360,7 @@ function syncFullScreenMenuState() {
     const tag = tagsViews[6];
     if (!tag) return;
     tag.icon = pureSetting.hiddenSideBar ? ExitFullscreen : Fullscreen;
-    tag.text = pureSetting.hiddenSideBar
-      ? "退出内容区全屏"
-      : "内容区全屏";
+    tag.text = pureSetting.hiddenSideBar ? "退出内容区全屏" : "内容区全屏";
   }, 100);
 }
 
@@ -686,7 +684,9 @@ onBeforeUnmount(() => {
         class="arrow-down mr-2"
         role="button"
         tabindex="0"
-        :aria-label="pureSetting.hiddenSideBar ? '退出内容区全屏' : '内容区全屏'"
+        :aria-label="
+          pureSetting.hiddenSideBar ? '退出内容区全屏' : '内容区全屏'
+        "
         @click="toggleContentFullScreen"
         @keydown.enter.prevent="toggleContentFullScreen"
         @keydown.space.prevent="toggleContentFullScreen"

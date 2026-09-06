@@ -261,7 +261,9 @@ export function useWatchlistData(
   const showTagEditor = ref(false);
   function openTagEditor(row: WatchlistItem) {
     if (row.id == null) {
-      ElMessage.warning("该自选记录缺少主键，暂无法编辑标签，请刷新或重新添加自选");
+      ElMessage.warning(
+        "该自选记录缺少主键，暂无法编辑标签，请刷新或重新添加自选"
+      );
       return;
     }
     editingItem.value = row;

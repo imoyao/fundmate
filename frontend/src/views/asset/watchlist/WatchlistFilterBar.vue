@@ -173,48 +173,48 @@ watch(
 
          批量模式（batchMode）：分组与筛选整体隐藏（批量工具条占用第一行），
          避免表格上方出现两排状态不同的操作。 -->
-    <div class="filter-row" v-if="!toolbar.batchMode.value">
+    <div v-if="!toolbar.batchMode.value" class="filter-row">
       <!-- 左段（弹性）：分组胶囊 Tab（design.md「分组胶囊 Tab · 方案 B」，水平滑动、数量徽章 tabular-nums）。
            自定义分组多时会横向滚动，右缘用渐变遮罩暗示「右侧还有」（2026-09-05）。
            注意：此处不要套裸 <template>（无 v-if/v-for/v-slot 指令），否则会被渲染成原生
            <template> 元素，其 children 进入惰性 .content 片段而不显示到页面（已踩坑）。 -->
       <div class="group-tabs-wrap">
-          <div
-            ref="groupScrollEl"
-            class="group-tabs-scroll"
-            @wheel="handleGroupWheel"
+        <div
+          ref="groupScrollEl"
+          class="group-tabs-scroll"
+          @wheel="handleGroupWheel"
+        >
+          <button
+            v-for="g in allGroups"
+            :key="g.key"
+            type="button"
+            class="group-tab"
+            :class="{ 'is-active': g.key === activeGroupModel }"
+            :title="g.label"
+            @click="activeGroupModel = g.key"
           >
-            <button
-              v-for="g in allGroups"
-              :key="g.key"
-              type="button"
-              class="group-tab"
-              :class="{ 'is-active': g.key === activeGroupModel }"
-              :title="g.label"
-              @click="activeGroupModel = g.key"
+            <!-- 分组色点：用户数据色（非设计令牌），缺失回退中性 token（数据色例外） -->
+            <span
+              v-if="g.color"
+              class="group-tab-dot"
+              :style="{ backgroundColor: g.color }"
+            />
+            <span class="group-tab-label">{{ g.label }}</span>
+            <span
+              v-if="g.count > 0"
+              class="group-tab-count"
+              :style="{
+                /* 分组/标签色为用户数据（非设计令牌），缺失回退中性 token（数据色例外） */
+                color: g.color ? g.color : undefined
+              }"
             >
-              <!-- 分组色点：用户数据色（非设计令牌），缺失回退中性 token（数据色例外） -->
-              <span
-                v-if="g.color"
-                class="group-tab-dot"
-                :style="{ backgroundColor: g.color }"
-              />
-              <span class="group-tab-label">{{ g.label }}</span>
-              <span
-                v-if="g.count > 0"
-                class="group-tab-count"
-                :style="{
-                  /* 分组/标签色为用户数据（非设计令牌），缺失回退中性 token（数据色例外） */
-                  color: g.color ? g.color : undefined
-                }"
-              >
-                {{ g.count }}
-              </span>
-            </button>
-          </div>
-          <!-- 右缘渐变遮罩：分组溢出时暗示可横向滑动（纯装饰，不拦截指针事件） -->
-          <span class="group-tabs-fade" aria-hidden="true" />
+              {{ g.count }}
+            </span>
+          </button>
         </div>
+        <!-- 右缘渐变遮罩：分组溢出时暗示可横向滑动（纯装饰，不拦截指针事件） -->
+        <span class="group-tabs-fade" aria-hidden="true" />
+      </div>
 
       <!-- 右段（固定）：分组操作 + 标签筛选 + 视图 segmented，不随分组 tab 滚动 -->
       <div v-if="!toolbar.batchMode.value" class="filter-bar__right">

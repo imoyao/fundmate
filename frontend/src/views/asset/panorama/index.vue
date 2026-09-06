@@ -194,11 +194,13 @@ onMounted(() => {
   }
   if (!postedToday) {
     try {
-      localStorage.setItem(snapKey, '1');
+      localStorage.setItem(snapKey, "1");
     } catch {
       /* 同上，忽略 */
     }
-    postSnapshot().catch((e) => console.warn('[snapshot] 惰性快照失败(后台定时任务将补写):', e));
+    postSnapshot().catch(e =>
+      console.warn("[snapshot] 惰性快照失败(后台定时任务将补写):", e)
+    );
   }
 });
 </script>

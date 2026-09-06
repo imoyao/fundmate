@@ -307,8 +307,8 @@ function close(): void {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  margin: 0;
   padding: 0;
+  margin: 0;
   list-style: none;
 }
 
@@ -341,9 +341,9 @@ function close(): void {
 
 .gi-name {
   overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 13px;
   color: var(--text-primary);
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -375,8 +375,8 @@ function close(): void {
 }
 
 .gi-empty {
-  margin: 0;
   padding: var(--space-3) 0;
+  margin: 0;
   font-size: 13px;
   color: var(--text-tertiary);
   text-align: center;
