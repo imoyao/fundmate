@@ -39,6 +39,7 @@ export type ColumnRenderer =
   | "qty" // 持有数量 + 单位（份/股）
   | "moneyRatio" // MoneyWithRatio（金额 + 比率）
   | "sparkline" // 迷你走势图（纯 SVG 折线，#990）
+  | "text" // 纯文本 / 枚举映射（#993 新增列：资产类型、所属分组）
   | "actions"; // 操作列（circle 按钮：置顶/关注/编辑/删除）
 
 /** 实时估值可覆盖的字段（来自 getValuationItem 产出） */
@@ -61,6 +62,13 @@ export interface ColumnDef {
   realtimeField?: RealtimeField;
   /** #993 预留：用户是否可隐藏 */
   hideable?: boolean;
+  /**
+   * #993 新增列：默认隐藏（仅记录在「管理 → 列设置」中被显式开启的列）。
+   * 为什么需要它：持久化只存「被隐藏的 key」，若新列默认可见，每次增列都会
+   * 直接加宽表格、冲击 #1281 换来的单屏行数。改为默认隐藏后，新列是「可选能力」
+   * 而非「默认负担」，老用户升级也不会被旧缓存吃掉新列。
+   */
+  defaultHidden?: boolean;
   /** #992 预留：是否参与拖拽排序（列顺序） */
   draggable?: boolean;
   /** 名称超长时省略并 hover 显示完整内容（对应 el-table-column show-overflow-tooltip） */
@@ -195,6 +203,56 @@ export const watchlistColumnDefs: ColumnDef[] = [
     draggable: true,
     // value=holding_pnl, ratio=holding_pnl_percent（renderer 内对持仓量为 0 时置 null）
     props: { ratioKey: "holding_pnl_percent" }
+  },
+
+  // ── #993(a) 新增候选列 ──
+  // 数据全部来自后端既有字段或前端可派生，不改动后端接口契约（符合 #993 范围边界）。
+  // 均带 defaultHidden：新列是「可选能力」而非「默认负担」，避免加宽表格
+  // 冲击 #1281 换来的单屏行数；用户在「管理 → 列设置」中勾选后才展示。
+  // 统一不加 sortable：后端 sort_by 走白名单校验（#991），这些字段尚未进白名单，
+  // 冒然标 sortable 会把未支持的字段透传给后端。待后端补白名单后再开。
+  {
+    // 加权成本均价（后端 holding_cost_price，positions 表汇总）
+    key: "holding_cost_price",
+    label: "成本价",
+    renderer: "money",
+    width: 96,
+    align: "right",
+    hideable: true,
+    draggable: true,
+    defaultHidden: true
+  },
+  {
+    // 资产类型中文标签（后端动态字段 type_label）
+    key: "type_label",
+    label: "资产类型",
+    renderer: "text",
+    width: 104,
+    align: "center",
+    hideable: true,
+    draggable: true,
+    defaultHidden: true
+  },
+  {
+    // 所属分组：group_ids → 分组名（id→名称映射由 ctx.groupNames 注入 index.vue）
+    key: "groups",
+    label: "所属分组",
+    renderer: "text",
+    width: 132,
+    align: "left",
+    hideable: true,
+    draggable: true,
+    defaultHidden: true
+  },
+  {
+    key: "updated_at",
+    label: "更新时间",
+    renderer: "date",
+    width: 112,
+    align: "center",
+    hideable: true,
+    draggable: true,
+    defaultHidden: true
   },
   {
     // 操作列：置顶 / 特别关注 / 移除 三个按钮，默认 45% 弱显、行 hover 全亮
