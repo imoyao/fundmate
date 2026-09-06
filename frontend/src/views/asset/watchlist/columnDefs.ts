@@ -213,13 +213,17 @@ export const watchlistColumnDefs: ColumnDef[] = [
   // 数据全部来自后端既有字段或前端可派生，不改动后端接口契约（符合 #993 范围边界）。
   // 均带 defaultHidden：新列是「可选能力」而非「默认负担」，避免加宽表格
   // 冲击 #1281 换来的单屏行数；用户在「管理 → 列设置」中勾选后才展示。
-  // 统一不加 sortable：后端 sort_by 走白名单校验（#991），这些字段尚未进白名单，
-  // 冒然标 sortable 会把未支持的字段透传给后端。待后端补白名单后再开。
+  // 列内排序（#1332 已开放）：后端 sort_by 走白名单校验（#991），
+  // 白名单（_USER_SORTABLE_FIELDS）已登记 holding_cost_price/type_label/groups/updated_at，
+  // 下列列对应标 sortable: "custom" 即可触发后端排序。
   {
     // 加权成本均价（后端 holding_cost_price，positions 表汇总）
     key: "holding_cost_price",
     label: "成本价",
     renderer: "money",
+    // #1332：开放列内排序（白名单已登记）；无真实持仓时显示 --
+    sortable: "custom",
+    props: { nullable: true },
     width: 96,
     align: "right",
     hideable: true,
@@ -231,6 +235,8 @@ export const watchlistColumnDefs: ColumnDef[] = [
     key: "type_label",
     label: "资产类型",
     renderer: "text",
+    // #1332：开放列内排序（白名单已登记 type_label）
+    sortable: "custom",
     width: 104,
     align: "center",
     hideable: true,
@@ -242,6 +248,8 @@ export const watchlistColumnDefs: ColumnDef[] = [
     key: "groups",
     label: "所属分组",
     renderer: "text",
+    // #1332：开放列内排序（白名单已登记 groups，后端按 group_names 首个名排）
+    sortable: "custom",
     width: 132,
     align: "left",
     hideable: true,
@@ -254,9 +262,23 @@ export const watchlistColumnDefs: ColumnDef[] = [
     renderer: "date",
     width: 112,
     align: "center",
+    // #1332：开放列内排序（白名单已登记 updated_at）
+    sortable: "custom",
     hideable: true,
     draggable: true,
     defaultHidden: true
+  },
+  {
+    // #1332：持仓加权成本均价（白名单已放开排序；无真实持仓时显示 --）
+    key: "holding_cost_price",
+    label: "成本价",
+    renderer: "money",
+    width: 96,
+    align: "right",
+    sortable: "custom",
+    hideable: true,
+    draggable: true,
+    props: { nullable: true }
   },
   {
     // 操作列：置顶 / 特别关注 / 移除 三个按钮，默认 45% 弱显、行 hover 全亮

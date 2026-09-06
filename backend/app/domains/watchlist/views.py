@@ -95,6 +95,10 @@ def _enrich_item(item: WatchlistItem, db) -> dict:
     out['display_name'] = _get_display_info(item.symbol, db)
     out['group_ids'] = [link.group_id for link in item.group_links]
     out['tag_ids'] = [link.tag_id for link in item.tag_links]
+    # 资产类型中文标签（#1332 排序用；同时修复 product 列 typeLabel 长期未下发导致为空的问题）
+    out['type_label'] = TYPE_LABELS.get(out['asset_type']) or out['asset_type'] or ''
+    # 所属分组名称列表（#1332 排序用，避免前端再映射 group_ids）
+    out['group_names'] = [link.watchlist_group.name for link in item.group_links if link.watchlist_group]
 
     # 补充价格与市值信息（从持仓表计算静态值）
     position_value = _compute_position_market_value(item.symbol, db)
@@ -261,6 +265,7 @@ def _build_holding_row(symbol, db, market=None, asset_type=None, venue=None):
         'symbol': symbol,
         'market': market,
         'asset_type': (asset_type or '').lower() or None,
+        'type_label': TYPE_LABELS.get((asset_type or '').lower()) or (asset_type or '').lower() or '',
         'venue': venue,
         'status': 'HOLDING',
         'favorite': False,
@@ -275,6 +280,7 @@ def _build_holding_row(symbol, db, market=None, asset_type=None, venue=None):
         'updated_at': None,
         'display_name': display_name,
         'group_ids': [],
+        'group_names': [],
         'tag_ids': [],
         'current_price': round(current_price, 2) if current_price else None,
         'change_pct': None,
@@ -402,10 +408,15 @@ _USER_SORTABLE_FIELDS = frozenset(
         'current_price',
         'change_pct',
         'holding_quantity',
+        'holding_cost_price',
         'position_market_value',
         'holding_pnl',
         'holding_pnl_percent',
         'price_at_added',
+        # #1332：新增候选列（成本价/资产类型/更新时间/所属分组）排序支持
+        'type_label',
+        'updated_at',
+        'groups',
     }
 )
 
@@ -427,6 +438,10 @@ def _user_sort_metric(row: dict, sort_by: str):
             return (float(cur) - float(added)) * float(qty)
         except (TypeError, ValueError):
             return None
+    if sort_by == 'groups':
+        # 多值字段排序语义（#1332）：按首个分组名（字典序），无分组返回 None 恒排末尾
+        names = row.get('group_names') or []
+        return names[0] if names else None
     v = row.get(sort_by)
     if v is None:
         return None

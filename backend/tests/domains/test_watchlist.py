@@ -990,6 +990,51 @@ class TestApplyUserSort:
         assert [r['symbol'] for r in asc] == ['HK00700', 'SH600519', None]
         assert [r['symbol'] for r in desc] == ['SH600519', 'HK00700', None]
 
+    def test_sort_by_holding_cost_price(self):
+        from app.domains.watchlist.views import _apply_user_sort
+
+        data = [
+            self._row('A', holding_cost_price=5.0),
+            self._row('B', holding_cost_price=1.0),
+            self._row('C', holding_cost_price=3.0),
+        ]
+        result = _apply_user_sort(data, 'holding_cost_price', 'desc')
+        assert [r['symbol'] for r in result] == ['A', 'C', 'B']
+
+    def test_sort_by_type_label(self):
+        from app.domains.watchlist.views import _apply_user_sort
+
+        data = [
+            self._row('A', type_label='typeC'),
+            self._row('B', type_label='typeA'),
+            self._row('C', type_label='typeB'),
+        ]
+        result = _apply_user_sort(data, 'type_label', 'asc')
+        assert [r['symbol'] for r in result] == ['B', 'C', 'A']
+
+    def test_sort_by_updated_at_desc(self):
+        from app.domains.watchlist.views import _apply_user_sort
+
+        data = [
+            self._row('A', updated_at='2026-09-01 10:00:00'),
+            self._row('B', updated_at='2026-09-03 10:00:00'),
+            self._row('C', updated_at='2026-09-02 10:00:00'),
+        ]
+        result = _apply_user_sort(data, 'updated_at', 'desc')
+        assert [r['symbol'] for r in result] == ['B', 'C', 'A']
+
+    def test_sort_by_groups_first_name(self):
+        from app.domains.watchlist.views import _apply_user_sort
+
+        # 列 key="groups"（分组 id 经 ctx.groupNames 映射）；后端按 group_names 首个名排序
+        data = [
+            self._row('A', group_names=['groupC', 'core']),
+            self._row('B', group_names=['groupA']),
+            self._row('C', group_names=[]),
+        ]
+        result = _apply_user_sort(data, 'groups', 'asc')
+        assert [r['symbol'] for r in result] == ['B', 'A', 'C']
+
 
 # ─────────────── 迷你走势图批量序列（#990） ───────────────
 class TestTrends:
