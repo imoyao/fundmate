@@ -1057,6 +1057,18 @@ class TestApplyUserSort:
         result = _apply_user_sort(data, 'updated_at', 'desc')
         assert [r['symbol'] for r in result] == ['B', 'C', 'A']
 
+    def test_sort_by_groups_first_name(self):
+        from app.domains.watchlist.views import _apply_user_sort
+
+        # 列 key="groups"（分组 id 经 ctx.groupNames 映射）；后端按 group_names 首个名排序
+        data = [
+            self._row('A', group_names=['groupC', 'core']),
+            self._row('B', group_names=['groupA']),
+            self._row('C', group_names=[]),
+        ]
+        result = _apply_user_sort(data, 'groups', 'asc')
+        assert [r['symbol'] for r in result] == ['B', 'A', 'C']
+
     def test_sort_by_groups_first_id(self):
         from app.domains.watchlist.views import _apply_user_sort
 

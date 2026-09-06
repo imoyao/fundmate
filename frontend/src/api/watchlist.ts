@@ -32,6 +32,8 @@ export interface WatchlistItem {
   updated_at?: string;
   display_name: string;
   group_ids: number[];
+  /** 所属分组名称列表（后端 enrich，#1332 所属分组列与排序用） */
+  group_names?: string[];
   tag_ids: number[];
   current_price?: number;
   change_pct?: number;

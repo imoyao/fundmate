@@ -221,9 +221,11 @@ export const watchlistColumnDefs: ColumnDef[] = [
     key: "holding_cost_price",
     label: "成本价",
     renderer: "money",
+    // #1332：开放列内排序（白名单已登记）；无真实持仓时显示 --
+    sortable: "custom",
+    props: { nullable: true },
     width: 96,
     align: "right",
-    sortable: "custom", // #1332：后端排序白名单已放开 holding_cost_price
     hideable: true,
     draggable: true,
     defaultHidden: true
@@ -233,9 +235,10 @@ export const watchlistColumnDefs: ColumnDef[] = [
     key: "type_label",
     label: "资产类型",
     renderer: "text",
+    // #1332：开放列内排序（白名单已登记 type_label）
+    sortable: "custom",
     width: 104,
     align: "center",
-    sortable: "custom", // #1332：后端排序白名单已放开 type_label
     hideable: true,
     draggable: true,
     defaultHidden: true
@@ -246,9 +249,10 @@ export const watchlistColumnDefs: ColumnDef[] = [
     key: "groups",
     label: "所属分组",
     renderer: "text",
+    // #1332：开放列内排序（白名单已登记 groups，后端按 group_names 首个名排）
+    sortable: "custom",
     width: 132,
     align: "left",
-    sortable: "custom",
     hideable: true,
     draggable: true,
     defaultHidden: true

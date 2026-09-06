@@ -98,6 +98,10 @@ def _enrich_item(item: WatchlistItem, db) -> dict:
     out['display_name'] = _get_display_info(item.symbol, db)
     out['group_ids'] = [link.group_id for link in item.group_links]
     out['tag_ids'] = [link.tag_id for link in item.tag_links]
+    # 资产类型中文标签（#1332 排序用；同时修复 product 列 typeLabel 长期未下发导致为空的问题）
+    out['type_label'] = TYPE_LABELS.get(out['asset_type']) or out['asset_type'] or ''
+    # 所属分组名称列表（#1332 排序用，避免前端再映射 group_ids）
+    out['group_names'] = [link.watchlist_group.name for link in item.group_links if link.watchlist_group]
 
     # 补充价格与市值信息（从持仓表计算静态值）
     position_value = _compute_position_market_value(item.symbol, db)
@@ -279,6 +283,7 @@ def _build_holding_row(symbol, db, market=None, asset_type=None, venue=None):
         'updated_at': None,
         'display_name': display_name,
         'group_ids': [],
+        'group_names': [],
         'tag_ids': [],
         'current_price': round(current_price, 2) if current_price else None,
         'change_pct': None,
@@ -406,6 +411,7 @@ _USER_SORTABLE_FIELDS = frozenset(
         'current_price',
         'change_pct',
         'holding_quantity',
+        'holding_cost_price',
         'position_market_value',
         'holding_pnl',
         'holding_pnl_percent',
@@ -416,7 +422,6 @@ _USER_SORTABLE_FIELDS = frozenset(
         # - type_label：资产类型中文标签（字符串），单一来源 app.core.constants.TYPE_LABELS（#1171）；
         # - updated_at：ISO 字符串，字典序即时间序；
         # - groups：多值（group_ids），按首个分组 id 字典序、无分组恒排末尾（语义见 _user_sort_metric）。
-        'holding_cost_price',
         'type_label',
         'updated_at',
         'groups',
@@ -430,11 +435,14 @@ def _user_sort_metric(row: dict, sort_by: str):
         # 「代码/名称」列（#1331）：按 symbol（代码）字典序排序，稳定；symbol 缺失则排末尾
         return row.get('symbol')
     if sort_by == 'groups':
-        # 所属分组（多值字段，#1332）：排序语义取「首个分组」——以 group_ids 首个
-        # 元素（分组 id）字典序参与排序；无分组恒排末尾。多分组整体顺序按首个分组定，
-        # 与前端「、」连接展示的首个分组一致，符合 issue #1332「按首个分组名」的取舍。
+        # 所属分组（多值字段，#1332）：排序语义取「首个分组」——优先 group_ids 首个
+        # 元素（分组 id）字典序；若无 group_ids 则退化为首个 group_names（分组名）；
+        # 无分组恒排末尾。多分组整体顺序按首个分组定，与前端展示首个分组一致。
         ids = row.get('group_ids') or []
-        return ids[0] if ids else None
+        if ids:
+            return ids[0]
+        names = row.get('group_names') or []
+        return names[0] if names else None
     if sort_by == 'added_return':
         # 派生列：添加后收益金额 =（现价 - 添加日收盘价）× 持有数量，
         # 与前端 addedReturnAmount 同口径；三要素缺一则无意义
