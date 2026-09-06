@@ -718,7 +718,9 @@ function onSortChange({
       const sv = (row as Record<string, unknown>)[def.key];
       return typeof sv === "number" ? sv : 0;
     };
-    items.value = [...items.value].sort((a, b) => (sortVal(a) - sortVal(b)) * dir);
+    items.value = [...items.value].sort(
+      (a, b) => (sortVal(a) - sortVal(b)) * dir
+    );
     return;
   }
   handleSortChange({ prop, order });
