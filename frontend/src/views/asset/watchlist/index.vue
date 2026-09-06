@@ -224,7 +224,7 @@
             :row-class-name="rowClassName"
             stripe
             @selection-change="handleSelectionChange"
-            @sort-change="handleSortChange"
+            @sort-change="onSortChange"
             @cell-mouse-enter="handleCellMouseEnter"
             @cell-mouse-leave="handleCellMouseLeave"
           >
@@ -685,6 +685,44 @@ const getStaticPrice = (symbol: string) => {
 };
 
 const realtime = useRealtimeQuotes(getHoldings, getStaticPrice);
+
+/**
+ * 表头排序分发（issue #1333 修正）。
+ * 带 realtimeField 的列（change_pct 涨跌幅 / current_price 最新价）其「有意义的值」来自
+ * 前端实时行情引擎，后端只有 None / positions 静态快照——若走后端 sort_by 会按错值排，
+ * 故这两列改为前端按实时估值项做客户端排序。
+ * 限制：后端无实时值，跨页一致排序本就不成立，因此只排当前页（items）；
+ * 其余列维持原 handleSortChange → 后端 sort_by/sort_order（跨页一致）。
+ */
+function onSortChange({
+  prop,
+  order
+}: {
+  prop?: string | number;
+  order: "ascending" | "descending" | null;
+}) {
+  const def = prop
+    ? columnSettings.visibleColumns.value.find(d => d.key === String(prop))
+    : undefined;
+  if (def?.realtimeField && order) {
+    const field = def.realtimeField; // "currentPrice" | "changePct"
+    const dir = order === "descending" ? -1 : 1;
+    const rtMap = new Map<string, number>();
+    for (const it of realtime.items.value ?? []) {
+      const v = it[field];
+      if (typeof v === "number") rtMap.set(it.symbol, v);
+    }
+    const sortVal = (row: (typeof items.value)[number]): number => {
+      const rv = rtMap.get(row.symbol);
+      if (typeof rv === "number") return rv;
+      const sv = (row as Record<string, unknown>)[def.key];
+      return typeof sv === "number" ? sv : 0;
+    };
+    items.value = [...items.value].sort((a, b) => (sortVal(a) - sortVal(b)) * dir);
+    return;
+  }
+  handleSortChange({ prop, order });
+}
 
 // ✅ 1. 新增：一个专门控制按钮文字的 computed，解决文字不更新的脏数据问题
 const toggleBtnText = computed(() => {
