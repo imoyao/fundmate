@@ -244,6 +244,13 @@ const visible = computed({
 });
 
 const scenario = ref<OcrScenario>(props.scenarioLock ?? "txn_import");
+// scenarioLock 动态变化时同步锁定场景，避免与下方 `v-if="!scenarioLock"` 显隐切换不一致
+watch(
+  () => props.scenarioLock,
+  val => {
+    if (val) scenario.value = val;
+  }
+);
 const activeTab = ref<"image" | "text">("image");
 const imageFile = ref<File | null>(null);
 const textContent = ref("");

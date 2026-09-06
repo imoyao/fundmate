@@ -20,7 +20,10 @@
             导入持仓 >
           </el-button>
         </el-tooltip>
-        <el-tooltip content="截图/文本识别交易（接 txn_import 场景）" placement="bottom">
+        <el-tooltip
+          content="截图/文本识别交易（接 txn_import 场景）"
+          placement="bottom"
+        >
           <el-button
             link
             size="small"
@@ -70,7 +73,7 @@
     scenario-lock="txn_import"
     @saved="onRecognizerSaved"
   />
-  </template>
+</template>
 
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
@@ -135,6 +138,7 @@ function openRecognizer() {
 }
 function onRecognizerSaved() {
   ElMessage.success("已存入对账草稿，请在「统一对账工作台」确认入库");
+  recognizerVisible.value = false;
   visible.value = false;
 }
 </script>
