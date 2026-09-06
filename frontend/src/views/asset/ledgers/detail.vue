@@ -94,10 +94,10 @@
             />
             <div class="soft-reconcile-banner__body">
               <p class="soft-reconcile-banner__title">
-                这个账户的持仓记录在
+                这本账本的持仓快照截至
                 {{
                   visibleConsistencyItems[0].snapshot_date
-                }}，之后好像还有交易没同步进来，要现在补一笔吗？
+                }}，快照日之后仍有交易记录；如与流水对不上，请去对账工作台核对是否需要补录。
               </p>
               <p class="soft-reconcile-banner__detail">
                 共
@@ -808,7 +808,12 @@ const visibleConsistencyItems = computed(() =>
     .filter(
       it => it.ledger_id != null && String(it.ledger_id) === ledgerId.value
     )
-    .filter(it => !dismissedKeys.value.has(`${it.ledger_id}:${it.symbol}`))
+    .filter(
+      it =>
+        !dismissedKeys.value.has(
+          `${it.ledger_id}:${it.symbol}:${it.snapshot_date}`
+        )
+    )
 );
 
 async function loadConsistency() {
@@ -824,7 +829,7 @@ async function loadConsistency() {
 function dismissAllConsistency() {
   const next = new Set(dismissedKeys.value);
   for (const it of visibleConsistencyItems.value) {
-    next.add(`${it.ledger_id}:${it.symbol}`);
+    next.add(`${it.ledger_id}:${it.symbol}:${it.snapshot_date}`);
   }
   dismissedKeys.value = next;
   saveDismissed(next);

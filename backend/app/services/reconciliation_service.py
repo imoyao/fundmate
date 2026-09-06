@@ -20,6 +20,7 @@
 import json
 from datetime import date, datetime
 
+from loguru import logger
 from sqlalchemy.orm import Session
 
 from app.core.constants import PositionSource
@@ -29,7 +30,8 @@ from app.domains.reconciliation.models import AdjustmentLog, ReconciliationDiscr
 from app.domains.transactions.models import Transaction
 from app.services.position_service import PositionService
 
-# 参与数量轧差的流水类型（与 recompute_position_from_transactions 一致）
+# 参与数量轧差的流水类型（与 recompute_position_from_transactions 一致：buy/deposit/split 增、sell/withdraw 减；
+# 分红/税费等现金事件 quantity=0 不影响份额，未知非零份额类型在快照一致性计算中会告警，避免静默漏算）
 _BUY_TYPES = ('buy', 'deposit')
 _SELL_TYPES = ('sell', 'withdraw')
 _ADD_TYPES = ('buy', 'deposit', 'split')
@@ -451,6 +453,15 @@ def get_ledger_snapshot_consistency(db: Session, family_id: int, ledger_id: int 
                 theoretical += quantity
             elif txn_type in _SELL_TYPES:
                 theoretical -= quantity
+            else:
+                # 未知/非增减类型：现金事件（分红、税费等）通常 quantity=0 不影响份额，静默跳过；
+                # 若带非零份额却未分类，告警以免静默漏算 theoretical（#ai-review 次要建议 1）
+                if quantity:
+                    logger.warning(
+                        '快照一致性忽略未分类交易类型 %s(quantity=%s)，可能影响 theoretical 计算',
+                        txn_type,
+                        quantity,
+                    )
         diff = pos.quantity - theoretical
         if diff != 0:
             items.append(
