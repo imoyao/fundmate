@@ -39,8 +39,10 @@ from app.services.sync.jobs.dividend_split_job import DividendSplitSyncJob
 from app.services.sync.jobs.fund_detail_enrich_job import FundDetailEnrichJob
 from app.services.sync.jobs.fund_list_job import FundListSyncJob
 from app.services.sync.jobs.fund_manager_job import FundManagerSyncJob
+from app.services.sync.jobs.fund_meta_job import FundMetaSyncJob
 from app.services.sync.jobs.fund_nav_job import FundNavSyncJob
 from app.services.sync.jobs.fund_type_job import FundTypeSyncJob
+from app.services.sync.jobs.index_constituent_job import INDEX_TARGETS, IndexConstituentSyncJob
 from app.services.sync.jobs.price_history_job import PriceHistorySyncJob
 from app.services.sync.jobs.stock_list_job import StockListSyncJob
 from app.services.thermometer.jobs import TemperatureJob
@@ -124,9 +126,11 @@ class DataSyncOrchestrator:
             self.data_sources['akshare'], self.data_sources['xalpha'], self.db
         )
         self.jobs['fund_manager'] = FundManagerSyncJob(self.data_sources['akshare'], self.db)
+        self.jobs['fund_meta'] = FundMetaSyncJob(self.data_sources['akshare'], self.db)
         self.jobs['fund_type'] = FundTypeSyncJob(self.data_sources['akshare'], self.db)
         self.jobs['fund_nav'] = FundNavSyncJob(self.data_sources['xalpha'], self.db)
         self.jobs['price_history'] = PriceHistorySyncJob(self.data_sources['akshare'], self.db)
+        self.jobs['index_constituents'] = IndexConstituentSyncJob(self.data_sources['akshare'], self.db)
         self.jobs['temperature'] = TemperatureJob(NullAdapter(), self.db)
         # AMAC 名录为 HTTP JSON 直抓（非 akshare/xalpha 数据源），NullAdapter 占位；
         # 此前仅 invoke grab.* 通道可达，注册后 pdm run sync --job 亦可直达（#1081 策展应用入口）
@@ -367,9 +371,11 @@ class DataSyncOrchestrator:
                 ('fund_list', ['__full__']),  # 全量刷新基金列表
                 ('fund_detail_enrich', fund_targets),  # 补充基金详情（核心池）
                 ('fund_type', fund_targets),  # 回填基金类型（核心池，#1155 根治项）
+                ('fund_meta', ['__full__']),  # 回填基金规模 + 近似股票仓位（#1286 数据底座）
                 ('fund_manager', fund_targets),  # 回填基金经理并关联基金公司（核心池）
                 ('fund_nav', fund_targets),  # 净值增量同步（核心池）
                 ('price_history', stock_targets),  # 行情增量同步（核心池）
+                ('index_constituents', INDEX_TARGETS),  # 指数成分回填（#1286 数据底座）
                 ('dividend_split', stock_targets + fund_targets),  # 分红/送股抓取（#1179）
                 # #1182：资产快照落账放最后，确保前面的净值/行情已刷新，快照取到最新值
                 ('asset_snapshot', []),
