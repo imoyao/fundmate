@@ -17,10 +17,20 @@ export interface XirrData {
 
 /** 获取年化收益率（scope 传 portfolio；portfolioId 省略时按家庭整体计算）
  *  @param includeCashEquivalents 是否将货币基金/逆回购/现金纳入年化收益分母；默认 false=仅算主动投资 */
-export function getPortfolioXirr(scope: string, portfolioId?: number, includeCashEquivalents?: boolean) {
-  const params: Record<string, string | number | boolean> = { scope, portfolio_id: portfolioId };
-  if (includeCashEquivalents != null) params.include_cash_equivalents = includeCashEquivalents;
-  return http.request<ApiResponse<XirrData>>("get", "/api/performance/xirr/", { params });
+export function getPortfolioXirr(
+  scope: string,
+  portfolioId?: number,
+  includeCashEquivalents?: boolean
+) {
+  const params: Record<string, string | number | boolean> = {
+    scope,
+    portfolio_id: portfolioId
+  };
+  if (includeCashEquivalents != null)
+    params.include_cash_equivalents = includeCashEquivalents;
+  return http.request<ApiResponse<XirrData>>("get", "/api/performance/xirr/", {
+    params
+  });
 }
 
 /** 获取持仓年化收益率 */
