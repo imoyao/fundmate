@@ -9,12 +9,11 @@ from app.services.performance.xirr_engine import (
 
 
 class MockTransaction:
-    def __init__(self, confirm_date, txn_type, amount, trade_date=None, asset_type=None, position_id=None):
+    def __init__(self, confirm_date, txn_type, amount, trade_date=None, asset_type=None):
         self.confirm_date = confirm_date
         self.trade_date = trade_date
         self.txn_type = txn_type
         self.amount = amount
-        self.position_id = position_id
         # 货基 / 逆回购 / 现金需被 XIRR 排除（决策文档 §2.1-4），故需可指定资产类型
         self.asset_type = asset_type
 
@@ -79,44 +78,6 @@ class TestGenerateCashflows:
             (dt.date(2025, 3, 1), -20.0),
             (dt.date(2025, 4, 1), 500.0),
         ]
-
-
-class TestPositionOverride:
-    def test_money_fund_default_excluded_but_override_includes(self):
-        # 货基流水默认被 XIRR 排除；但其持仓被用户纳入投资(position_exclusion=False)时应纳入
-        txns = [
-            MockTransaction(
-                dt.date(2025, 1, 1),
-                BusinessType.BUY.code,
-                100000,
-                asset_type='money_fund',
-                position_id=1,
-            )
-        ]
-        # 默认（无 map）→ 排除
-        assert generate_cashflows(txns, current_value=0) == []
-        # 持仓被纳入投资 → 包含
-        cf = generate_cashflows(txns, current_value=0, position_exclusion={1: False})
-        assert len(cf) == 1
-        assert cf[0] == (dt.date(2025, 1, 1), -1000.0)
-        # 持仓明确当现金排除 → 仍排除
-        assert generate_cashflows(txns, current_value=0, position_exclusion={1: True}) == []
-
-    def test_reverse_repo_matured_excluded_even_if_not_overridden(self):
-        # 逆回购未到期且未覆盖 → 默认排除（现金等价物）；与 EXCLUDED 默认一致
-        txns = [
-            MockTransaction(
-                dt.date(2025, 1, 1),
-                BusinessType.BUY.code,
-                100000,
-                asset_type='reverse_repo',
-                position_id=2,
-            )
-        ]
-        # 无 map → 默认排除
-        assert generate_cashflows(txns, current_value=0) == []
-        # 有 map 且该持仓 maturity_date 已过期（should_exclude=True）→ 排除
-        assert generate_cashflows(txns, current_value=0, position_exclusion={2: True}) == []
 
 
 class TestXirr:
@@ -357,3 +318,45 @@ class TestSpec83Cases:
             MockTransaction(dt.date(2023, 3, 1), BusinessType.BUY.code, 200000, asset_type='cash'),
         ]
         assert generate_cashflows(txn, current_value=0) == []
+
+
+class TestIncludeCashEquivalents:
+    """#1354：年化收益是否纳入现金等价物（货币基金/逆回购/现金）的可切换口径。"""
+
+    def test_default_excludes_cash_like(self):
+        """默认口径（剔除现金等价物）：货币基金买卖不进现金流。"""
+        txn = [
+            MockTransaction(dt.date(2025, 1, 1), BusinessType.BUY.code, 100000, asset_type='money_fund'),
+            MockTransaction(dt.date(2025, 6, 1), BusinessType.SELL.code, 102000, asset_type='money_fund'),
+        ]
+        assert generate_cashflows(txn, current_value=0) == []
+
+    def test_flag_true_keeps_cash_like(self):
+        """include_cash_equivalents=True：货币基金买卖并入现金流，得到账户总收益口径。"""
+        txn = [
+            MockTransaction(dt.date(2025, 1, 1), BusinessType.BUY.code, 100000, asset_type='money_fund'),
+            MockTransaction(dt.date(2025, 6, 1), BusinessType.SELL.code, 102000, asset_type='money_fund'),
+        ]
+        cf = generate_cashflows(txn, current_value=0, include_cash_equivalents=True)
+        assert cf == [
+            (dt.date(2025, 1, 1), -1000.0),
+            (dt.date(2025, 6, 1), 1020.0),
+        ]
+
+    def test_blended_return_lower_than_investment_only(self):
+        """含现金等价物会拉低年化（货基 ~2% 拖拽主动投资 ~10%）。"""
+        inv = [
+            MockTransaction(dt.date(2024, 1, 1), BusinessType.BUY.code, 100000, asset_type='fund'),
+            MockTransaction(dt.date(2025, 1, 1), BusinessType.SELL.code, 110000, asset_type='fund'),
+        ]
+        cash = [
+            MockTransaction(dt.date(2024, 1, 1), BusinessType.BUY.code, 100000, asset_type='money_fund'),
+            MockTransaction(dt.date(2025, 1, 1), BusinessType.SELL.code, 102000, asset_type='money_fund'),
+        ]
+        excl = generate_cashflows(inv, current_value=0)
+        incl = generate_cashflows(inv + cash, current_value=0, include_cash_equivalents=True)
+        from app.services.performance.xirr_engine import calculate_xirr
+
+        xirr_excl = calculate_xirr(excl)
+        xirr_incl = calculate_xirr(incl)
+        assert xirr_excl > xirr_incl  # 10% > 6%

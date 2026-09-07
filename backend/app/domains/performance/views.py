@@ -27,19 +27,24 @@ def get_xirr():
     scope = query_data.scope
     position_id = query_data.position_id
     portfolio_id = query_data.portfolio_id
+    include_cash = query_data.include_cash_equivalents
 
     with get_db() as db:
         try:
             if scope == 'position':
                 if not position_id:
                     abort(400, '缺少 position_id 参数')
-                result = calculate_position_xirr(db, position_id, family_id=get_family_id())
+                result = calculate_position_xirr(
+                    db, position_id, family_id=get_family_id(), include_cash_equivalents=include_cash
+                )
             elif scope == 'portfolio' and portfolio_id:
-                result = calculate_portfolio_xirr_by_id(db, portfolio_id, family_id=get_family_id())
-                logger.info(f'组合 XIRR 计算完成(portfolio_id={portfolio_id}): {result}')
+                result = calculate_portfolio_xirr_by_id(
+                    db, portfolio_id, family_id=get_family_id(), include_cash_equivalents=include_cash
+                )
+                logger.info(f'组合 XIRR 计算完成(portfolio_id={portfolio_id}, 含现金等价物={include_cash}): {result}')
             else:
-                result = calculate_portfolio_xirr(db, family_id=get_family_id())
-                logger.info(f'组合 XIRR 计算完成: {result}')
+                result = calculate_portfolio_xirr(db, family_id=get_family_id(), include_cash_equivalents=include_cash)
+                logger.info(f'组合 XIRR 计算完成(含现金等价物={include_cash}): {result}')
         except ValueError as e:
             abort(404, str(e))
         except Exception as e:

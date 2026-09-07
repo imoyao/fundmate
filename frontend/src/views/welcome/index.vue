@@ -228,11 +228,17 @@
         <SectionHeader title="年化收益追踪" />
         <CardBlock class="flex-1 flex flex-col justify-center gap-4">
           <div class="flex flex-col">
-            <span
-              class="text-xs mb-1"
-              :style="{ color: 'var(--text-tertiary)' }"
-              >年化收益率（XIRR）</span
-            >
+            <div class="flex items-center justify-between mb-1">
+              <span
+                class="text-xs"
+                :style="{ color: 'var(--text-tertiary)' }"
+                >年化收益率（XIRR）</span
+              >
+              <el-radio-group v-model="includeCashEquivalents" size="small" @change="fetchXirr">
+                <el-radio-button :value="false">剔除现金</el-radio-button>
+                <el-radio-button :value="true">含现金</el-radio-button>
+              </el-radio-group>
+            </div>
             <RiseFallText
               :value="portfolioXirr?.xirr ?? 0"
               size="lg"
@@ -241,7 +247,7 @@
             <span
               class="text-[10px] mt-1"
               :style="{ color: 'var(--text-tertiary)' }"
-              >基于所有主动投资交易，不含货币基金</span
+              >{{ includeCashEquivalents ? '含货币基金/逆回购/现金，反映账户总收益' : '基于主动投资交易，不含货币基金等现金等价物' }}</span
             >
           </div>
           <div
@@ -510,6 +516,8 @@ defineOptions({
 // ===== 数据 =====
 const summary = ref<SummaryData | null>(null);
 const portfolioXirr = ref<XirrData | null>(null);
+// #1354：年化收益是否纳入现金等价物（货币基金/逆回购/现金）；默认 false=仅主动投资，反映真实投资水准
+const includeCashEquivalents = ref(false);
 
 // ===== 首页欢迎语（见 docs/design/welcome-greeting-spec.md v1.2） =====
 const recordDays = ref(0);
@@ -812,7 +820,7 @@ const fetchSummary = async () => {
 
 const fetchXirr = async () => {
   try {
-    const res = await getPortfolioXirr("portfolio");
+    const res = await getPortfolioXirr("portfolio", undefined, includeCashEquivalents.value);
     portfolioXirr.value = res.data;
   } catch (e) {
     console.error("获取年化收益率失败", e);
