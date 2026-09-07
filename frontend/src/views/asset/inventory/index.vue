@@ -387,7 +387,10 @@
               </el-table-column>
               <el-table-column label="操作" width="130" fixed="right">
                 <template #default="{ row }">
-                  <el-button text size="small" @click="openEditAssetDialog(row as AssetRecord)"
+                  <el-button
+                    text
+                    size="small"
+                    @click="openEditAssetDialog(row as AssetRecord)"
                     >编辑</el-button
                   >
                   <el-button
@@ -530,7 +533,10 @@
             </el-table-column>
             <el-table-column label="操作" width="130" fixed="right">
               <template #default="{ row }">
-                <el-button text size="small" @click="openEditAssetDialog(row as AssetRecord)"
+                <el-button
+                  text
+                  size="small"
+                  @click="openEditAssetDialog(row as AssetRecord)"
                   >编辑</el-button
                 >
                 <el-button
@@ -958,9 +964,14 @@ const getColorWithAlpha = (colorVar: string, alpha: number): string => {
 // 🔥 优化：不再遍历全量列表，只读汇总接口的数据
 const getCategoryTotal = (key: string): number => {
   if (key === "investment") {
-    // 持仓市值总额走后端 distributions（含汇率换算），不再遍历全量明细；
-    // 再加上投资理财大类下的通用资产（含银行理财/投顾/信托/私募/理财型保险等细分，
-    // 后端已按归一化口径汇总，#1354）
+    // #863 口径 A 对齐：投资理财 = 持仓市值(剔除货基/逆回购现金等价物) + 投资理财大类资产，
+    // 直接复用后端 get_distributions 的 category_distribution「投资理财」切片（已扣现金等价物），
+    // 避免标签栏比后端高一档（货基/逆回购应归入「流动资金」而非「投资理财」）。
+    // distributions 尚未加载时回退到旧口径，保证首屏不空。
+    const invEntry = distributions.value?.category_distribution?.find(
+      (d: { name: string; value: number }) => d.name === "投资理财"
+    );
+    if (invEntry) return invEntry.value;
     return (
       (distributions.value?.positions_total_mv || 0) +
       (assetsSummary.value["investment"] || 0)
