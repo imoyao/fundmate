@@ -98,8 +98,6 @@ def _enrich_item(item: WatchlistItem, db) -> dict:
     out['display_name'] = _get_display_info(item.symbol, db)
     out['group_ids'] = [link.group_id for link in item.group_links]
     out['tag_ids'] = [link.tag_id for link in item.tag_links]
-    # 资产类型中文标签（#1332 排序用；同时修复 product 列 typeLabel 长期未下发导致为空的问题）
-    out['type_label'] = TYPE_LABELS.get(out['asset_type']) or out['asset_type'] or ''
     # 所属分组名称列表（#1332 排序用，避免前端再映射 group_ids）
     out['group_names'] = [link.watchlist_group.name for link in item.group_links if link.watchlist_group]
 

@@ -14,9 +14,11 @@ TypedDict 列表；enrich 阶段（catalog.enrich）再回填 symbol/type/market
 新增场景只需在 recognizers/ 加一个识别器并据此约定返回键集，无需改动本契约以外的代码。
 
 类型约束与运行期（重要）：
-- 三个 TypedDict 均为 `total=True`：仅 `code`（及各自始终产出的 `name`）为必填键，
-  其余字段以 `NotRequired` 标记（enrich 回填的 symbol/type/market/venue，以及 LLM
-  可能缺省的金额/份额等）。`total=True` 保留对必填键的静态约束，避免 `dict["code"]` 缺键。
+- 三个 TypedDict 均为 `total=True`，但**各类的必填键集合不同，以各类 docstring 为准**：
+  自选场景仅 `code` / `name` 必填；交易场景另含 `business_type` / `trade_date` /
+  `confirm_date`（识别器始终产出，`confirm_date` 值可空）；其余字段一律以 `NotRequired`
+  标记（enrich 回填的 symbol/type/market/venue，以及 LLM 可能缺省的金额/份额等）。
+  `total=True` 保留对必填键的静态约束，避免 `dict["code"]` 缺键。
 - TypedDict 仅作静态类型检查，运行期仍是 dict，不强制字段存在与类型；真正运行时校验
   落点在 `base.py` 模板方法 `recognize_text` / `recognize_image`：其调用链
   `extract → validate → enrich` 中，`validate`（各识别器）对数值/日期做防御式 `.get()`

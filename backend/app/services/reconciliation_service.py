@@ -458,7 +458,7 @@ def get_ledger_snapshot_consistency(db: Session, family_id: int, ledger_id: int 
                 # 若带非零份额却未分类，告警以免静默漏算 theoretical（#ai-review 次要建议 1）
                 if quantity:
                     logger.warning(
-                        '快照一致性忽略未分类交易类型 %s(quantity=%s)，可能影响 theoretical 计算',
+                        '快照一致性忽略未分类交易类型 {}(quantity={})，可能影响 theoretical 计算',
                         txn_type,
                         quantity,
                     )

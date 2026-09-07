@@ -676,14 +676,6 @@ const categories = [
     desc: "家庭保障类资产，如寿险、健康险、年金险等。"
   }
 ];
-// #1354：银行理财 / 投顾 / 信托 / 私募 / 理财型保险 已收敛为「投资理财」的细分
-// （存 minor_category），不再作为平级大类出现在标签栏 —— 它们此前没有任何子类型
-// 入口，点进来「快捷操作」是空的，属于纯占位。存量数据仍在投资理财口径下可见。
-const investmentMinorTypes = INVESTMENT_MINOR_CATEGORIES.map(item => ({
-  ...item,
-  icon: "ep:briefcase",
-  color: "var(--invest-saving)"
-}));
 
 const assetTypeMap: Record<
   string,

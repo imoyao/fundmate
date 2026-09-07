@@ -169,7 +169,8 @@ class TestWatchlistItemCRUD:
         )
         assert resp.status_code == 200
         data = resp.get_json()['data']
-        # type_label 与 asset_type 经 TYPE_LABELS 单一来源收口一致；缺失回落为空串而非 None
+        # type_label 与 asset_type 经 TYPE_LABELS 单一来源收口一致；
+        # 未命中时回落为 asset_type 本身（字符串），asset_type 为空才回落空串
         assert data['type_label'] == TYPE_LABELS.get(data['asset_type'])
         assert isinstance(data['type_label'], str)
 
