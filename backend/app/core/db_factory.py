@@ -67,6 +67,7 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'managers': DOMAIN_MARKET,  # 基金管理人（被 funds 引用）
     'fund_managers': DOMAIN_MARKET,  # 基金-经理关联（被 funds 引用）
     'advisor_portfolios': DOMAIN_MARKET,  # 投顾/基金组合公开参照（且慢/蛋卷/天天基金）
+    'index_constituents': DOMAIN_MARKET,  # 指数成分股（#1286 品种差异化维度：指数→成分）
     'daily_worth': DOMAIN_MARKET,  # 基金净值（最大体积表）
     'money_fund_daily_worth': DOMAIN_MARKET,  # 货基净值
     'purchase_rules': DOMAIN_MARKET,

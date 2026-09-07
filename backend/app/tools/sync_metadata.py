@@ -99,6 +99,7 @@ def main():
     import app.domains.assets.models  # noqa: F401
     import app.domains.families.models  # noqa: F401
     import app.domains.funds.models  # noqa: F401
+    import app.domains.indices.models  # noqa: F401
     import app.domains.ledgers.models  # noqa: F401
     import app.domains.portfolios.models  # noqa: F401
     import app.domains.positions.models  # noqa: F401

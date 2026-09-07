@@ -26,6 +26,7 @@ from app.domains.funds.views import bp as funds_bp  # noqa: E402
 from app.domains.health import bp as health_bp  # noqa: E402
 from app.domains.importers.e_account_views import e_account_bp  # noqa: E402
 from app.domains.importers.views import importers_bp  # noqa: E402
+from app.domains.indices import models  # noqa: F401, E402  # 确保 index_constituents 表随 init_db 建表
 from app.domains.ledgers.views import ledgers_bp  # noqa: E402
 from app.domains.ocr.views import ocr_bp  # noqa: E402
 from app.domains.performance.views import bp as performance_bp  # noqa: E402

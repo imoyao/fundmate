@@ -12,6 +12,7 @@ from sqlalchemy.pool import StaticPool
 import app.domains.assets.models  # noqa: F401
 import app.domains.families.models  # noqa: F401
 import app.domains.funds.models  # noqa: F401
+import app.domains.indices.models  # noqa: F401
 import app.domains.positions.models  # noqa: F401
 import app.domains.price_history.models  # noqa: F401
 import app.domains.securities.models  # noqa: F401
