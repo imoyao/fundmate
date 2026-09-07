@@ -478,3 +478,116 @@ class AkshareAdapter(DataSourceAdapter):
         except Exception as e:
             self.logger.error(f'获取基金 {fund_code} 分红公告失败: {e}')
             return []
+
+    # ── 基金规模 / 近似股票仓位（#1286 数据底座，复用 akshare 现成接口） ──
+
+    def fetch_fund_scale(self) -> List[dict]:
+        """全市场开放式基金规模（ak.fund_scale_open_sina）。
+
+        接口仅给「最近总份额」与「单位净值」，不直接给规模列；规模由调用方按
+        shares×nav 估算（亿元）。返回 [{fund_code, shares, nav}]。
+        """
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+        try:
+            df = ak.fund_scale_open_sina()
+            if df is None or df.empty:
+                return []
+            out = []
+            for _, row in df.iterrows():
+                code = str(row.get('基金代码', '')).strip()
+                if not code or len(code) != 6 or not code.isdigit():
+                    continue
+                out.append(
+                    {
+                        'fund_code': code,
+                        'shares': self._to_ratio(row.get('最近总份额')),
+                        'nav': self._to_ratio(row.get('单位净值')),
+                    }
+                )
+            self.logger.info(f'获取到 {len(out)} 只基金规模数据')
+            return out
+        except Exception as e:
+            self.logger.error(f'获取基金规模失败: {e}')
+            return []
+
+    def fetch_fund_top_holdings(self, fund_code: str) -> List[dict]:
+        """单只基金前十大重仓（ak.fund_portfolio_hold_em）。
+
+        返回 [{stock_code, stock_name, ratio(占净值比例)}]；调用方累加 top10 作为近似股票仓位。
+        单基金抓取，失败静默返回空，由 Job 控制重试/跳过。
+        """
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+        try:
+            df = ak.fund_portfolio_hold_em(symbol=fund_code)
+            if df is None or df.empty:
+                return []
+            out = []
+            for _, row in df.iterrows():
+                out.append(
+                    {
+                        'stock_code': str(row.get('股票代码', '')).strip(),
+                        'stock_name': str(row.get('股票名称', '')),
+                        'ratio': self._to_ratio(row.get('占净值比例')),
+                    }
+                )
+            return out
+        except Exception as e:
+            self.logger.warning(f'获取基金 {fund_code} 重仓失败: {e}')
+            return []
+
+    def fetch_index_constituents_csindex(self, index_code: str) -> List[dict]:
+        """中证系指数成分（ak.index_stock_cons_csindex）。
+
+        返回 [{symbol, stock_name, index_name}]；非 csindex 系列指数会抛错，由 Job 回退 sina。
+        """
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+        try:
+            df = ak.index_stock_cons_csindex(symbol=index_code)
+            if df is None or df.empty:
+                return []
+            out = []
+            for _, row in df.iterrows():
+                out.append(
+                    {
+                        'symbol': str(row.get('成分券代码', '')).strip(),
+                        'stock_name': str(row.get('成分券名称', '')),
+                        'index_name': str(row.get('指数名称', '')),
+                    }
+                )
+            return out
+        except Exception as e:
+            self.logger.warning(f'csindex 成分获取失败 {index_code}: {e}')
+            return []
+
+    def fetch_index_constituents_sina(self, index_code: str) -> List[dict]:
+        """新浪指数成分（ak.index_stock_cons），csindex 系列缺失时的回退。
+
+        返回 [{symbol, stock_name, in_date}]。
+        """
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+        try:
+            df = ak.index_stock_cons(symbol=index_code)
+            if df is None or df.empty:
+                return []
+            has_date = '日期' in df.columns
+            out = []
+            for _, row in df.iterrows():
+                out.append(
+                    {
+                        'symbol': str(row.get('品种代码', '')).strip(),
+                        'stock_name': str(row.get('品种名称', '')),
+                        'in_date': str(row.get('日期', '')) if has_date else None,
+                    }
+                )
+            return out
+        except Exception as e:
+            self.logger.warning(f'sina 成分获取失败 {index_code}: {e}')
+            return []
