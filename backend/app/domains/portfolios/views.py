@@ -21,7 +21,7 @@ from app.domains.ledgers.models import Ledger
 from app.domains.portfolios.models import Portfolio
 from app.domains.portfolios.schemas import PortfolioCreate, PortfolioUpdate
 from app.domains.positions.models import Position
-from app.services.performance.constants import EXCLUDED_ASSET_TYPES
+from app.services.fund_utils import should_exclude_from_investment
 
 portfolios_bp = APIBlueprint('portfolios', __name__, url_prefix='/api/portfolios')
 
@@ -201,11 +201,12 @@ def get_portfolio_holdings(portfolio_id: int):
             db.query(Position)
             .filter(
                 or_(*pos_conds),
-                Position.asset_type.not_in(EXCLUDED_ASSET_TYPES),
                 Position.quantity > 0,
             )
             .all()
         )
+        # 类现金排除改由统一函数判定（决策 #7：尊重 count_as_investment 覆盖 + 逆回购到期自动转现金）
+        positions = [p for p in positions if not should_exclude_from_investment(p)]
 
         # 4. 账户级资产仍按 ledger_id 关联（现金不进持仓级组合，沿用账户归属）
         assets = (

@@ -160,69 +160,63 @@ def _calculate_xirr_for_cashflows(
     }
 
 
-def calculate_position_xirr(db: Session, position_id: int, family_id: int = 1) -> Dict[str, Any]:
+def calculate_position_xirr(
+    db: Session, position_id: int, family_id: int = 1, include_cash_equivalents: bool = False
+) -> Dict[str, Any]:
     """计算单持仓的年化收益率 (XIRR)"""
     position = db.query(Position).filter(Position.id == position_id, Position.family_id == family_id).first()
     if not position:
         raise ValueError('持仓不存在')
 
-    transactions = (
-        db.query(Transaction)
-        .filter(
-            # NULL 的 asset_type 默认视为投资类资产，纳入计算
-            Transaction.asset_type.is_(None) | Transaction.asset_type.not_in(EXCLUDED_ASSET_TYPES),
-            Transaction.family_id == family_id,
-        )
-        .all()
-    )
+    txn_q = db.query(Transaction).filter(Transaction.family_id == family_id)
+    if not include_cash_equivalents:
+        # NULL 的 asset_type 默认视为投资类资产，纳入计算
+        txn_q = txn_q.filter(Transaction.asset_type.is_(None) | Transaction.asset_type.not_in(EXCLUDED_ASSET_TYPES))
+    transactions = txn_q.all()
 
     current_value = _get_position_current_value(db, position)
-    cashflows = generate_cashflows(transactions, current_value)
+    cashflows = generate_cashflows(transactions, current_value, include_cash_equivalents=include_cash_equivalents)
     return _calculate_xirr_for_cashflows(cashflows, current_value)
 
 
-def calculate_portfolio_xirr(db: Session, family_id: int = 1) -> Dict[str, Any]:
+def calculate_portfolio_xirr(db: Session, family_id: int = 1, include_cash_equivalents: bool = False) -> Dict[str, Any]:
     """
     计算整个投资组合的年化收益率 (XIRR)。
     通过 asset_type 字段直接过滤，孤儿交易默认纳入计算（asset_type 为 NULL 不会被 NOT IN 排除）。
+    include_cash_equivalents=True 时，货币基金/逆回购/现金也并入分母，得到账户总收益。
     """
     # 直接通过 asset_type 过滤交易，无需 JOIN Position 表
-    filtered_transactions = (
-        db.query(Transaction)
-        .filter(
-            Transaction.asset_type.is_(None) | Transaction.asset_type.not_in(EXCLUDED_ASSET_TYPES),
-            Transaction.family_id == family_id,
-        )
-        .all()
-    )
+    txn_filter = [Transaction.family_id == family_id]
+    if not include_cash_equivalents:
+        txn_filter.append(Transaction.asset_type.is_(None) | Transaction.asset_type.not_in(EXCLUDED_ASSET_TYPES))
+    filtered_transactions = db.query(Transaction).filter(*txn_filter).all()
 
     # 获取所有非排除类型的持仓（家庭维度）
-    positions = (
-        db.query(Position)
-        .filter(
-            Position.asset_type.not_in(EXCLUDED_ASSET_TYPES),
-            Position.quantity > 0,
-            Position.family_id == family_id,
-        )
-        .all()
-    )
+    pos_filter = [Position.quantity > 0, Position.family_id == family_id]
+    if not include_cash_equivalents:
+        pos_filter.append(Position.asset_type.not_in(EXCLUDED_ASSET_TYPES))
+    positions = db.query(Position).filter(*pos_filter).all()
 
     # 批量计算持仓市值
     value_map = _batch_get_position_values(db, positions)
     total_value = sum(value_map.values())
 
-    cashflows = generate_cashflows(filtered_transactions, total_value)
+    cashflows = generate_cashflows(
+        filtered_transactions, total_value, include_cash_equivalents=include_cash_equivalents
+    )
 
     logger.debug(
         f'组合XIRR计算：交易笔数={len(filtered_transactions)}, '
         f'持仓数={len(positions)}, 总市值={total_value:.2f}, '
-        f'现金流笔数={len(cashflows)}'
+        f'现金流笔数={len(cashflows)}, 含现金等价物={include_cash_equivalents}'
     )
 
     return _calculate_xirr_for_cashflows(cashflows, total_value)
 
 
-def calculate_portfolio_xirr_by_id(db: Session, portfolio_id: int, family_id: int = 1) -> Dict[str, Any]:
+def calculate_portfolio_xirr_by_id(
+    db: Session, portfolio_id: int, family_id: int = 1, include_cash_equivalents: bool = False
+) -> Dict[str, Any]:
     """
     计算指定投资组合的年化收益率 (XIRR)。
 
@@ -259,21 +253,21 @@ def calculate_portfolio_xirr_by_id(db: Session, portfolio_id: int, family_id: in
         }
 
     # 获取这些账户下的持仓总市值
-    positions = (
-        db.query(Position)
-        .filter(
-            Position.account_name.in_(ledger_names),
-            Position.asset_type.not_in(EXCLUDED_ASSET_TYPES),
-            Position.quantity > 0,
-            Position.family_id == family_id,
-        )
-        .all()
-    )
+    pos_filter = [
+        Position.account_name.in_(ledger_names),
+        Position.quantity > 0,
+        Position.family_id == family_id,
+    ]
+    if not include_cash_equivalents:
+        pos_filter.append(Position.asset_type.not_in(EXCLUDED_ASSET_TYPES))
+    positions = db.query(Position).filter(*pos_filter).all()
 
     value_map = _batch_get_position_values(db, positions)
     total_value = sum(value_map.values())
 
-    cashflows = generate_portfolio_cashflows(db, portfolio_id, total_value, family_id=family_id)
+    cashflows = generate_portfolio_cashflows(
+        db, portfolio_id, total_value, family_id=family_id, include_cash_equivalents=include_cash_equivalents
+    )
 
     logger.debug(
         f'组合 XIRR 计算(portfolio_id={portfolio_id}): '

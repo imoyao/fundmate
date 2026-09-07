@@ -114,6 +114,25 @@ class Position(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     # 不依赖 market 域名录实时跨域（双库不可 JOIN），判定逻辑统一在 app/services/fund_utils.py。
     is_money_fund = Column(Boolean, nullable=True, default=None, comment='是否货币型基金（#863 冗余判定，NULL=未判定）')
 
+    # ── #1354 现金等价物分类收敛（消弭方案，决策 #3/#7）──
+    # count_as_investment：持仓级「纳入投资」覆盖项。
+    #   True=明确纳入投资 / False=当现金排除 / NULL=未覆盖（走 should_exclude_from_investment 默认判定）。
+    #   单表搞定，不另建 user_asset_settings（Position 已是聚合根）。
+    count_as_investment = Column(
+        Boolean,
+        nullable=True,
+        default=None,
+        comment='#1354 纳入投资覆盖项: True=纳入投资 / False=当现金排除 / NULL=未覆盖走默认',
+    )
+    # maturity_date：逆回购到期日，时间建模真相源（仅 reverse_repo 使用）。
+    #   读时 effective = override ?? (as_of > maturity_date ? 排除 : 纳入)；缺失则默认算投资。
+    #   导入层必须校验逆回购 maturity_date 必填（决策 #7，无兼容包袱）。
+    maturity_date = Column(
+        Date,
+        nullable=True,
+        comment='#1354 逆回购到期日(时间建模真相源); 仅 reverse_repo 使用, 导入必填',
+    )
+
     __table_args__ = (
         # 核心业务约束：同一账户下 symbol 唯一
         UniqueConstraint('ledger_id', 'symbol', name='uq_positions_ledger_symbol'),

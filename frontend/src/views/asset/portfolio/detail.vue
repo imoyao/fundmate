@@ -54,6 +54,10 @@
       <CardBlock class="mb-6">
         <SectionHeader title="组合收益 (XIRR)">
           <template #action>
+            <el-radio-group v-model="includeCashEquivalents" size="small" @change="fetchXirr">
+              <el-radio-button :value="false">剔除现金</el-radio-button>
+              <el-radio-button :value="true">含现金</el-radio-button>
+            </el-radio-group>
             <el-button size="small" :loading="xirrLoading" @click="fetchXirr">
               <IconifyIconOffline icon="ep:refresh" class="mr-1" /> 刷新
             </el-button>
@@ -362,6 +366,8 @@ const portfolio = ref<PortfolioDetail | null>(null);
 const linkedLedgers = ref<LinkedLedger[]>([]);
 const xirrData = ref<XirrData | null>(null);
 const xirrLoading = ref(false);
+// #1354：年化收益是否纳入现金等价物；默认 false=仅主动投资，反映真实投资水准
+const includeCashEquivalents = ref(false);
 const sortProp = ref<string | null>(null);
 const sortOrder = ref<"ascending" | "descending" | null>(null);
 
@@ -493,7 +499,7 @@ async function fetchHoldings() {
 async function fetchXirr() {
   xirrLoading.value = true;
   try {
-    const res = await getPortfolioXirr("portfolio", portfolioId.value);
+    const res = await getPortfolioXirr("portfolio", portfolioId.value, includeCashEquivalents.value);
     xirrData.value = res.data;
   } catch {
     ElMessage.error("获取收益率失败");

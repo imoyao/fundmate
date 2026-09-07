@@ -213,6 +213,50 @@
               </div>
             </div>
           </div>
+
+          <!-- #1354：银行理财/投顾/信托/私募/理财型保险 收敛为投资理财的细分，
+               统一走这一个入口，不再各占一个大类标签 -->
+          <div
+            class="summary-card-item rounded-xl p-5 sm:p-6 cursor-pointer transition-all"
+            :style="{
+              backgroundColor: 'var(--bg-card)',
+              border: '1px solid var(--border-default)',
+              boxShadow: 'var(--shadow-raised)'
+            }"
+            @click="handleAddType('other_invest')"
+          >
+            <div class="flex items-center gap-3">
+              <div
+                class="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center"
+                :style="{
+                  backgroundColor: getColorWithAlpha(
+                    'var(--invest-saving)',
+                    0.2
+                  )
+                }"
+              >
+                <IconifyIconOffline
+                  icon="ep:briefcase"
+                  class="text-lg"
+                  :style="{ color: 'var(--invest-saving)' }"
+                />
+              </div>
+              <div>
+                <p
+                  class="font-medium text-sm"
+                  :style="{ color: 'var(--text-primary)' }"
+                >
+                  记录其他投资
+                </p>
+                <p
+                  class="text-xs mt-1"
+                  :style="{ color: 'var(--text-tertiary)' }"
+                >
+                  银行理财、投顾、信托、私募、理财型保险
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- 3. 持仓明细（统一 mt-10 mb-10） -->
@@ -282,6 +326,85 @@
             />
           </div>
         </div>
+
+        <!-- 4. 其他投资（非交易类投资理财资产，#1354：银行理财/信托等存量大类并入此处） -->
+        <template v-if="currentAssets.length > 0">
+          <h4
+            class="text-lg font-semibold mt-10 mb-10"
+            :style="{ color: 'var(--text-primary)' }"
+          >
+            其他投资
+          </h4>
+          <div
+            class="rounded-xl p-6 sm:p-8 mt-4"
+            :style="{
+              backgroundColor: 'var(--bg-card)',
+              border: '1px solid var(--border-default)',
+              boxShadow: 'var(--shadow-raised)'
+            }"
+          >
+            <el-table
+              :data="currentAssets"
+              style="width: 100%"
+              :header-cell-style="{
+                color: 'var(--text-tertiary)',
+                fontWeight: '500',
+                fontSize: '13px'
+              }"
+              :cell-style="{ color: 'var(--text-secondary)' }"
+            >
+              <el-table-column
+                label="产品信息"
+                min-width="150"
+                show-overflow-tooltip
+              >
+                <template #default="{ row }">
+                  <ProductDisplay
+                    :name="row.name"
+                    :symbol="row.symbol"
+                    :type-label="getMinorLabel(row as AssetRecord)"
+                  />
+                </template>
+              </el-table-column>
+              <el-table-column
+                prop="account_name"
+                label="归属账户"
+                width="120"
+                show-overflow-tooltip
+              >
+                <template #default="{ row }">{{
+                  row.account_name || "未指定"
+                }}</template>
+              </el-table-column>
+              <el-table-column label="金额" width="130" align="right">
+                <template #default="{ row }">
+                  <MoneyDisplay
+                    :value="row.signed_amount"
+                    :show-sign="false"
+                    size="sm"
+                  />
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="130" fixed="right">
+                <template #default="{ row }">
+                  <el-button
+                    text
+                    size="small"
+                    @click="openEditAssetDialog(row as AssetRecord)"
+                    >编辑</el-button
+                  >
+                  <el-button
+                    text
+                    size="small"
+                    type="danger"
+                    @click="confirmDeleteAsset(row as AssetRecord)"
+                    >删除</el-button
+                  >
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+        </template>
       </template>
 
       <!-- ==================== 场景 B：其他大类 ==================== -->
@@ -410,14 +533,17 @@
             </el-table-column>
             <el-table-column label="操作" width="130" fixed="right">
               <template #default="{ row }">
-                <el-button text size="small" @click="openEditAssetDialog(row)"
+                <el-button
+                  text
+                  size="small"
+                  @click="openEditAssetDialog(row as AssetRecord)"
                   >编辑</el-button
                 >
                 <el-button
                   text
                   size="small"
                   type="danger"
-                  @click="confirmDeleteAsset(row)"
+                  @click="confirmDeleteAsset(row as AssetRecord)"
                   >删除</el-button
                 >
               </template>
@@ -486,14 +612,20 @@ import {
   getAssets,
   getAssetsSummary,
   updateAsset,
-  deleteAsset
+  deleteAsset,
+  type AssetRecord
 } from "@/api/assets";
 import { getPositions } from "@/api/positions";
 import type { Position } from "@/api/types";
 import { getDistributions, getPositionGroups } from "@/api/summary";
 import ProductDisplay from "@/components/ProductDisplay/index.vue";
 import MoneyDisplay from "@/components/MoneyDisplay/index.vue";
-import { ALLOCATION_OPTIONS } from "@/constants";
+import {
+  ALLOCATION_OPTIONS,
+  INVESTMENT_MAJOR_KEYS,
+  INVESTMENT_MINOR_CATEGORIES,
+  majorCategoryLabel
+} from "@/constants";
 
 defineOptions({ name: "InventoryHome" });
 
@@ -542,43 +674,16 @@ const categories = [
     bgVar: "--category-insurance-bg",
     borderVar: "--category-insurance",
     desc: "家庭保障类资产，如寿险、健康险、年金险等。"
-  },
-  {
-    key: "bank_wealth",
-    label: "银行理财",
-    bgVar: "--category-investment-bg",
-    borderVar: "--category-investment",
-    desc: "银行发行的理财产品，如净值型理财、结构性存款等。"
-  },
-  {
-    key: "advisory",
-    label: "投顾",
-    bgVar: "--category-investment-bg",
-    borderVar: "--category-investment",
-    desc: "投资顾问/基金投顾组合类资产。"
-  },
-  {
-    key: "trust",
-    label: "信托",
-    bgVar: "--category-investment-bg",
-    borderVar: "--category-investment",
-    desc: "信托计划类资产。"
-  },
-  {
-    key: "private_fund",
-    label: "私募",
-    bgVar: "--category-investment-bg",
-    borderVar: "--category-investment",
-    desc: "私募证券/股权类基金产品。"
-  },
-  {
-    key: "wealth_insurance",
-    label: "理财型保险",
-    bgVar: "--category-investment-bg",
-    borderVar: "--category-investment",
-    desc: "兼具理财属性的保险产品，如增额终身寿、年金险（理财型）。"
   }
 ];
+// #1354：银行理财 / 投顾 / 信托 / 私募 / 理财型保险 已收敛为「投资理财」的细分
+// （存 minor_category），不再作为平级大类出现在标签栏 —— 它们此前没有任何子类型
+// 入口，点进来「快捷操作」是空的，属于纯占位。存量数据仍在投资理财口径下可见。
+const investmentMinorTypes = INVESTMENT_MINOR_CATEGORIES.map(item => ({
+  ...item,
+  icon: "ep:briefcase",
+  color: "var(--invest-saving)"
+}));
 
 const assetTypeMap: Record<
   string,
@@ -727,8 +832,8 @@ const investmentLoading = ref(false);
 
 // 🔥 新增：汇总缓存与按需加载数据源
 const assetsSummary = ref<Record<string, number>>({});
-const assetCache = ref<Record<string, any[]>>({});
-const currentAssets = ref<any[]>([]);
+const assetCache = ref<Record<string, AssetRecord[]>>({});
+const currentAssets = ref<AssetRecord[]>([]);
 
 const editAssetDialogVisible = ref(false);
 const savingAsset = ref(false);
@@ -777,7 +882,8 @@ const getAllocBgColor = (key: string | null): string => {
 
 const getMajorCategoryLabel = (key: string) => {
   const cat = categories.find(c => c.key === key);
-  return cat ? cat.label : key;
+  // 存量数据可能仍带历史细分大类（bank_wealth 等），回退到标签表避免显示英文键
+  return cat ? cat.label : majorCategoryLabel(key);
 };
 
 const activeCategoryDesc = computed(
@@ -858,8 +964,18 @@ const getColorWithAlpha = (colorVar: string, alpha: number): string => {
 // 🔥 优化：不再遍历全量列表，只读汇总接口的数据
 const getCategoryTotal = (key: string): number => {
   if (key === "investment") {
-    // 持仓市值总额走后端 distributions（含汇率换算），不再遍历全量明细
-    return distributions.value?.positions_total_mv || 0;
+    // #863 口径 A 对齐：投资理财 = 持仓市值(剔除货基/逆回购现金等价物) + 投资理财大类资产，
+    // 直接复用后端 get_distributions 的 category_distribution「投资理财」切片（已扣现金等价物），
+    // 避免标签栏比后端高一档（货基/逆回购应归入「流动资金」而非「投资理财」）。
+    // distributions 尚未加载时回退到旧口径，保证首屏不空。
+    const invEntry = distributions.value?.category_distribution?.find(
+      (d: { name: string; value: number }) => d.name === "投资理财"
+    );
+    if (invEntry) return invEntry.value;
+    return (
+      (distributions.value?.positions_total_mv || 0) +
+      (assetsSummary.value["investment"] || 0)
+    );
   }
   return assetsSummary.value[key] || 0;
 };
@@ -881,17 +997,16 @@ async function loadInvestmentPage(page: number) {
 
 // 🔥 优化：按需加载该大类的具体资产数据
 const loadCategoryAssets = async (category: string) => {
-  if (category === "investment") {
-    currentAssets.value = [];
-    return;
-  }
   if (assetCache.value[category]) {
     currentAssets.value = assetCache.value[category];
     return;
   }
   try {
-    const res = await getAssets({ major_category: category, per_page: 500 });
-    const items = (res as any)?.data ?? [];
+    // #1354：投资理财一次取回全部子集（investment + 5 个历史细分类），
+    // 避免银行理财/信托等存量记录散落在没有入口的大类里查不到
+    const major = category === "investment" ? INVESTMENT_MAJOR_KEYS : category;
+    const res = await getAssets({ major_category: major, per_page: 500 });
+    const items = (res as { data?: AssetRecord[] }).data ?? [];
     assetCache.value[category] = items;
     currentAssets.value = items;
   } catch (e) {
@@ -908,12 +1023,29 @@ watch(activeCategory, () => {
 });
 
 function handleAddType(typeKey: string) {
+  // #1354：投资理财下的「其他投资」没有独立大类，统一进通用资产录入页，
+  // 银行理财/投顾/信托/私募/理财型保险 在表单里作为细分子类选择
+  if (activeCategory.value === "investment") {
+    router.push("/asset/asset-entry?category=investment");
+    return;
+  }
   router.push(
     `/asset/asset-entry?category=${activeCategory.value}&type=${typeKey}`
   );
 }
 
-function openEditAssetDialog(row: any) {
+/** 投资理财明细的细分标签：优先 minor_category，存量数据回退到历史大类标签 */
+const getMinorLabel = (row: AssetRecord): string => {
+  if (row.minor_category) {
+    const hit = INVESTMENT_MINOR_CATEGORIES.find(
+      i => i.value === row.minor_category
+    );
+    if (hit) return hit.label;
+  }
+  return majorCategoryLabel(row.major_category);
+};
+
+function openEditAssetDialog(row: AssetRecord) {
   editAssetForm.value = {
     id: row.id,
     amount: row.amount || 0,
@@ -940,7 +1072,7 @@ async function saveAssetEdit() {
   }
 }
 
-async function confirmDeleteAsset(row: any) {
+async function confirmDeleteAsset(row: AssetRecord) {
   try {
     await ElMessageBox.confirm(
       `确定要删除资产「${row.name}」吗？此操作不可恢复。`,
@@ -998,9 +1130,9 @@ async function fetchData() {
 
     await loadInvestmentPage(investmentPage.value);
 
-    if (activeCategory.value !== "investment") {
-      await loadCategoryAssets(activeCategory.value);
-    }
+    // 资产可能刚被增删改，缓存须整体失效后再拉，否则列表里还留着已删记录
+    assetCache.value = {};
+    await loadCategoryAssets(activeCategory.value);
   } catch (e) {
     console.error(e);
   } finally {
@@ -1020,7 +1152,10 @@ usePageRefresh(() => {
 
 onMounted(() => {
   const tab = route.query.tab as string;
-  if (tab && categories.some(c => c.key === tab)) {
+  // #1354：历史链接可能带已经取消的细分大类（?tab=bank_wealth），统一落到投资理财
+  if (tab && INVESTMENT_MAJOR_KEYS.split(",").includes(tab)) {
+    activeCategory.value = "investment";
+  } else if (tab && categories.some(c => c.key === tab)) {
     activeCategory.value = tab;
   }
   fetchData();

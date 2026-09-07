@@ -17,6 +17,7 @@ from app.domains.assets.models import Asset
 from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
+from app.services.fund_utils import should_exclude_from_investment
 from app.services.nav_service import NavService
 from app.services.summary_service import (
     orphan_money_fund_income_by_ledger,
@@ -292,10 +293,11 @@ class LedgerService:
         if total_mv == 0:
             return {'money_fund_ratio': 0.0, 'money_fund_amount': 0.0}
 
+        # 尊重 count_as_investment 覆盖（决策 #7）：被用户纳入投资的货基移出「类现金」卡
         money_fund_mv = sum(
             Money.multiply_price_quantity(_eff_price(p), p.quantity)
             for p in valid_positions
-            if p.asset_type == 'money_fund'
+            if p.asset_type == 'money_fund' and should_exclude_from_investment(p)
         )
         return {
             'money_fund_ratio': round(money_fund_mv / total_mv * 100, 2),

@@ -29,12 +29,38 @@
         </el-form-item>
 
         <el-form-item label="资产大类" prop="major_category">
-          <el-select v-model="form.major_category" class="w-full">
+          <el-select
+            v-model="form.major_category"
+            class="w-full"
+            @change="onMajorCategoryChanged"
+          >
             <el-option
-              v-for="(label, key) in MAJOR_CATEGORY_LABELS"
-              :key="key"
-              :label="label"
-              :value="key"
+              v-for="opt in MAJOR_CATEGORY_OPTIONS"
+              :key="opt.value"
+              :label="opt.label"
+              :value="opt.value"
+            />
+          </el-select>
+        </el-form-item>
+
+        <!-- #1354：银行理财/投顾/信托/私募/理财型保险 不再是平级大类，
+             作为「投资理财」的细分子类记录在 minor_category -->
+        <el-form-item
+          v-if="form.major_category === 'investment'"
+          label="投资类型"
+        >
+          <el-select
+            v-model="form.minor_category"
+            class="w-full"
+            clearable
+            placeholder="可不选，如银行理财、信托、私募等"
+            @clear="onMinorCleared"
+          >
+            <el-option
+              v-for="opt in INVESTMENT_MINOR_CATEGORIES"
+              :key="opt.value"
+              :label="opt.label"
+              :value="opt.value"
             />
           </el-select>
         </el-form-item>
@@ -201,8 +227,9 @@ import type { FormInstance, FormRules } from "element-plus";
 import { useRoute } from "vue-router";
 import {
   ALLOCATION_OPTIONS,
+  INVESTMENT_MINOR_CATEGORIES,
   LEDGER_TYPE_OPTIONS,
-  MAJOR_CATEGORY_LABELS
+  MAJOR_CATEGORY_OPTIONS
 } from "@/constants";
 
 const route = useRoute();
@@ -244,12 +271,30 @@ function filterInstitution(query: string) {
 const form = reactive({
   name: "",
   major_category: "cash",
+  minor_category: null as string | null, // 投资理财细分（#1354）
   amount: 0,
   allocation: null,
   ledger_id: null as number | null, // 新增
   account_name: "", // 保留为后端回填的快照
   notes: ""
 });
+
+/** 大类切换时清掉不适用的细分，避免给非投资理财大类写入投资细分类 */
+function onMajorCategoryChanged(value: string) {
+  if (value !== "investment") form.minor_category = null;
+}
+
+/** 投资细分子类清空时显式重置为 null，与字段类型 string | null 保持一致（#1355 AI review） */
+function onMinorCleared() {
+  form.minor_category = null;
+}
+
+/** 校验值是否属于投资理财细分子类，拦截 URL / 篡改传入的非法值（#1355 AI review） */
+function isValidMinorCategory(value: string | undefined): value is string {
+  return (
+    !!value && INVESTMENT_MINOR_CATEGORIES.some(opt => opt.value === value)
+  );
+}
 
 // 选择账户后自动填充 account_name（快照用）
 function onLedgerSelected(ledgerId: number | undefined) {
@@ -295,6 +340,9 @@ async function handleSubmit() {
       account_name: form.account_name || undefined,
       notes: form.notes || undefined
     };
+    if (form.major_category === "investment" && form.minor_category) {
+      payload.minor_category = form.minor_category;
+    }
     if (form.major_category !== "liability" && form.allocation) {
       payload.allocation = form.allocation;
     }
@@ -313,6 +361,7 @@ function handleReset() {
   formRef.value?.resetFields();
   form.name = "";
   form.major_category = "cash";
+  form.minor_category = null;
   form.amount = 0;
   form.allocation = null;
   form.ledger_id = null;
@@ -383,6 +432,14 @@ onMounted(() => {
   const category = route.query.category as string;
   if (category) {
     form.major_category = category;
+  }
+  // route.query.minor 可能因重复参数变为数组，且值需属于细分子类枚举，否则忽略（#1355 AI review）
+  const rawMinor = route.query.minor;
+  const minorVal = (Array.isArray(rawMinor) ? rawMinor[0] : rawMinor)
+    ?.toString()
+    .trim();
+  if (form.major_category === "investment" && isValidMinorCategory(minorVal)) {
+    form.minor_category = minorVal;
   }
 });
 </script>

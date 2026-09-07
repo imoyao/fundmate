@@ -99,7 +99,11 @@ def get_enums():
     - 免登录：探市页 /explore 免登录也展示持仓来源徽标，匿名访客需能读取。
     - 后续新增需要前后端一致的枚举标签，统一在此下发，不要在 /constants/index.ts 再写一份。
     """
-    from app.core.asset_types import ASSET_CATEGORY_LABELS, ASSET_TYPE_LABELS
+    from app.core.asset_types import (
+        ASSET_CATEGORY_LABELS,
+        ASSET_TYPE_LABELS,
+        INVESTMENT_MINOR_CATEGORIES,
+    )
     from app.core.constants import OP_TYPE_LABEL, POSITION_SOURCE_LABELS
 
     return jsonify(
@@ -108,6 +112,8 @@ def get_enums():
                 'position_source': POSITION_SOURCE_LABELS,
                 'asset_type': ASSET_TYPE_LABELS,
                 'asset_category': ASSET_CATEGORY_LABELS,
+                # #1354：投资理财下的细分子类（写 minor_category），前端禁止再建平级大类
+                'investment_minor': INVESTMENT_MINOR_CATEGORIES,
                 'op_type_labels': OP_TYPE_LABEL,
             },
             'message': 'ok',

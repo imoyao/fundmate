@@ -318,3 +318,45 @@ class TestSpec83Cases:
             MockTransaction(dt.date(2023, 3, 1), BusinessType.BUY.code, 200000, asset_type='cash'),
         ]
         assert generate_cashflows(txn, current_value=0) == []
+
+
+class TestIncludeCashEquivalents:
+    """#1354：年化收益是否纳入现金等价物（货币基金/逆回购/现金）的可切换口径。"""
+
+    def test_default_excludes_cash_like(self):
+        """默认口径（剔除现金等价物）：货币基金买卖不进现金流。"""
+        txn = [
+            MockTransaction(dt.date(2025, 1, 1), BusinessType.BUY.code, 100000, asset_type='money_fund'),
+            MockTransaction(dt.date(2025, 6, 1), BusinessType.SELL.code, 102000, asset_type='money_fund'),
+        ]
+        assert generate_cashflows(txn, current_value=0) == []
+
+    def test_flag_true_keeps_cash_like(self):
+        """include_cash_equivalents=True：货币基金买卖并入现金流，得到账户总收益口径。"""
+        txn = [
+            MockTransaction(dt.date(2025, 1, 1), BusinessType.BUY.code, 100000, asset_type='money_fund'),
+            MockTransaction(dt.date(2025, 6, 1), BusinessType.SELL.code, 102000, asset_type='money_fund'),
+        ]
+        cf = generate_cashflows(txn, current_value=0, include_cash_equivalents=True)
+        assert cf == [
+            (dt.date(2025, 1, 1), -1000.0),
+            (dt.date(2025, 6, 1), 1020.0),
+        ]
+
+    def test_blended_return_lower_than_investment_only(self):
+        """含现金等价物会拉低年化（货基 ~2% 拖拽主动投资 ~10%）。"""
+        inv = [
+            MockTransaction(dt.date(2024, 1, 1), BusinessType.BUY.code, 100000, asset_type='fund'),
+            MockTransaction(dt.date(2025, 1, 1), BusinessType.SELL.code, 110000, asset_type='fund'),
+        ]
+        cash = [
+            MockTransaction(dt.date(2024, 1, 1), BusinessType.BUY.code, 100000, asset_type='money_fund'),
+            MockTransaction(dt.date(2025, 1, 1), BusinessType.SELL.code, 102000, asset_type='money_fund'),
+        ]
+        excl = generate_cashflows(inv, current_value=0)
+        incl = generate_cashflows(inv + cash, current_value=0, include_cash_equivalents=True)
+        from app.services.performance.xirr_engine import calculate_xirr
+
+        xirr_excl = calculate_xirr(excl)
+        xirr_incl = calculate_xirr(incl)
+        assert xirr_excl > xirr_incl  # 10% > 6%
