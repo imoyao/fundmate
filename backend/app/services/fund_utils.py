@@ -24,6 +24,7 @@ from __future__ import annotations
 import re
 import time
 from collections.abc import Iterable
+from datetime import date
 
 # 现金等价物资产类型（聚合桶：货基 + 逆回购；逆回购拆出时只改这里）
 CASH_EQUIVALENT_ASSET_TYPES = ('money_fund', 'reverse_repo')
@@ -139,6 +140,45 @@ def is_money_fund_position(position) -> bool:
     if flag is not None:
         return bool(flag)
     return getattr(position, 'asset_type', None) == 'money_fund'
+
+
+def should_exclude_from_investment(position, as_of_date: date | None = None) -> bool:
+    """该持仓是否应从「投资组合收益（XIRR / CAPITAL_GAIN）口径」中排除。
+
+    唯一真理源（#1354 消弭方案，决策 #7）：饼图层 / 收益层 / 类现金统计全部应改调本函数，
+    替代原先打架的 EXCLUDED_ASSET_TYPES（收益层）与 CASH_EQUIVALENT_ASSET_TYPES（饼图层）。
+
+    判定：
+      1. 非货基/逆回购/cash → 永不排除（永远算投资，参与 XIRR）。
+      2. cash → 永远排除（现金不是投资）。
+      3. 货基（含 is_money_fund 标记）→ 默认排除；仅当用户显式 count_as_investment==True 才纳入。
+      4. 逆回购 → override（count_as_investment）优先；缺失则按 maturity_date 动态判定：
+         未到期 → 算投资（不排）；已到期 → 自动变现金（排除）。
+         maturity_date 缺失（防御，导入应已校验必填）→ 默认算投资（不排）。
+
+    as_of_date 缺省取今天，为逆回购「已到期」判定提供时间基准。
+    """
+    asset_type = getattr(position, 'asset_type', None)
+    is_mf = bool(getattr(position, 'is_money_fund', False)) or (asset_type == 'money_fund')
+    is_rr = asset_type == 'reverse_repo'
+    is_cash = asset_type == 'cash'
+    if not (is_mf or is_rr or is_cash):
+        return False  # 非类现金 → 永不排除
+    if is_cash:
+        return True  # 现金永远是现金
+    if is_mf:
+        # 货基：默认排除，除非用户明确纳入
+        return getattr(position, 'count_as_investment', None) is not True
+    # 逆回购：override 优先，否则按 maturity_date 动态判定
+    override = getattr(position, 'count_as_investment', None)
+    if override is not None:
+        return override is False
+    maturity = getattr(position, 'maturity_date', None)
+    if maturity is None:
+        # 决策#7：无 maturity_date 默认算投资（不排）；导入层应校验必填
+        return False
+    as_of = as_of_date or date.today()
+    return as_of > maturity
 
 
 def is_cash_equivalent_position(position) -> bool:
