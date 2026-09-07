@@ -30,9 +30,23 @@ except ImportError:
 from app.core.money import Money
 from app.domains.ledgers.models import Ledger
 from app.domains.portfolios.models import Portfolio
+from app.domains.positions.models import Position
 from app.domains.transactions.models import Transaction
+from app.services.fund_utils import should_exclude_from_investment
 from app.services.importer.mappings import BusinessType
 from app.services.performance.constants import EXCLUDED_ASSET_TYPES
+
+
+def _txn_excluded_from_investment(txn, position_exclusion) -> bool:
+    """单笔交易是否应从投资收益(XIRR)口径排除（决策 #7 统一函数，单源）。
+
+    优先用持仓级覆盖（position_exclusion[position_id]，由 should_exclude_from_investment
+    预计算）；无持仓关联（孤儿流水）时回退 asset_type 默认（EXCLUDED 即排除）。
+    """
+    pid = getattr(txn, 'position_id', None)
+    if pid is not None and position_exclusion is not None and pid in position_exclusion:
+        return position_exclusion[pid]
+    return getattr(txn, 'asset_type', None) in EXCLUDED_ASSET_TYPES
 
 
 def _safe_return(value: float) -> float:
@@ -153,6 +167,7 @@ def generate_cashflows(
     transactions: list[Transaction],
     current_value: float = 0.0,
     end_date: Optional[dt.date] = None,
+    position_exclusion: Optional[dict] = None,
 ) -> List[Tuple[dt.date, float]]:
     """
     从交易记录生成 XIRR 所需的现金流列表。
@@ -194,8 +209,7 @@ def generate_cashflows(
             txn_date = txn_date.date()
         if txn_date is None:
             continue
-        txn_asset_type = getattr(txn, 'asset_type', None)
-        if txn_asset_type in EXCLUDED_ASSET_TYPES:
+        if _txn_excluded_from_investment(txn, position_exclusion):
             continue
 
         # 金额处理
@@ -304,6 +318,14 @@ def generate_portfolio_cashflows(
         .all()
     )
 
+    # 2.1 构建 position_id -> 是否排除 映射（决策 #7：尊重持仓级 count_as_investment 覆盖 + 逆回购到期）
+    position_ids = {t.position_id for t in transactions if getattr(t, 'position_id', None)}
+    pos_exclusion: dict = {}
+    if position_ids:
+        positions = db_session.query(Position).filter(Position.id.in_(position_ids)).all()
+        as_of = end_date or dt.date.today()
+        pos_exclusion = {p.id: should_exclude_from_investment(p, as_of) for p in positions}
+
     # 3. 分类交易
     outflow_types = {BusinessType.BUY.code, BusinessType.DIVIDEND_REINVEST.code}
     inflow_types = {BusinessType.SELL.code, BusinessType.DIVIDEND_CASH.code}
@@ -318,7 +340,7 @@ def generate_portfolio_cashflows(
         if txn_date is None:
             continue
 
-        if getattr(txn, 'asset_type', None) in EXCLUDED_ASSET_TYPES:
+        if _txn_excluded_from_investment(txn, pos_exclusion):
             continue
 
         amount = getattr(txn, 'amount', None)
