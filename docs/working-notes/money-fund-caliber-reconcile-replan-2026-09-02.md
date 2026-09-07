@@ -14,7 +14,9 @@
 
 ## 2. 现状核查结论（代码 + 本地库实证）
 
-### 2.1 代码事实
+### 2.1 代码事实（2026-09-02 实施前快照）
+
+> 本节为实施前核查快照，**部分已落地、描述已过时**：`positions.is_money_fund` 冗余列现已存在（D3），`services/fund_utils.py` 已提供统一判定谓词；"无 `is_money_fund` 列"等表述不再成立。最新分类开关 / 收益口径设计见 `cash-equivalent-classification-design-2026-09-07.md`。
 
 - 孤儿口径：`summary_service.orphan_money_fund_net_by_ledger`（`position_id IS NULL` 的 money_fund/reverse_repo 净额）并入 6+ 处聚合；`money_fund_income._collect_orphan_flows` 按 **confirm_date** 累计本金。
 - 持仓路径：`positions/views.py` 手动记一笔一律 `force_create_position=True` → 建仓 + 流水挂 `position_id`（不进孤儿口径）；导入器（交易导入）与 `auto_purchase_money_fund` 走孤儿流水。
@@ -79,7 +81,7 @@
 - B1 在途资金状态机（pending/confirmed + 确认任务，依赖 #1182 调度器）——替换 §7 预估端点数据源，契约不变。
 - B2 自动收益纳入总资产（复投模拟 + 与 is_income 的「渠道确认日+收益日」双键去重）——D5 触发时提至本期。
 - B3 收益起息/展示口径（T+1 确认、T+2 起息、T 日收益次日可查）。
-- B4 reverse_repo 是否从现金等价物拆出——本期继续跟随货基，`CASH_EQUIVALENT_TYPES` 单点定义。
+- B4 reverse_repo 是否从现金等价物拆出——**已由 `cash-equivalent-classification-design-2026-09-07.md` 解决**：本期继续跟随货基（`CASH_EQUIVALENT_ASSET_TYPES` 单点定义），但新增 per-asset `is_cash_equivalent` 覆盖项 + 逆回购 `maturity_date` 读时动态切换，用户可在「默认现金等价」与「视为投资」间按持仓选择，不再需要整体拆出。
 - B5 总资产构成拆分 UI（持仓/在途/收益三栏 + 差额解释）。
 
 ## 6. P0-1 生产核验（Supabase user 域 + Turso，先行项）
