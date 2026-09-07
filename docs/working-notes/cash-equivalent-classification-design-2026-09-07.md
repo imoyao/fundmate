@@ -1,81 +1,112 @@
-# 现金等价物分类与收益口径设计（排除覆盖层，2026-09-07）
+# 现金等价物分类与收益口径（单一事实文档，2026-09-07 锁定）
 
-> 承接：
-> - #863 `money-fund-caliber-reconcile-replan-2026-09-02.md`（口径 A 持仓优先）
-> - #1137 `ledger-cash-like-product-binding-2026-08-29.md`（类现金产品绑定 / 自动申购）
-> - `features/xirr.md`（P1-10 收益率计算）
->
-> 本文件补全"底层单一分类 + 展示层软开关 + 收益口径分家"三项**未在以上文档落地**的决策。
-> 以上文档的打假修订与交叉引用见各文件对应章节（已就地更新）。
+> 状态：**终局拍板，可落地**。本文是货币基金 / 逆回购「分类 + 收益口径」的**唯一实时文档**。
+> 历史依据：#863（本金口径，已并入 §5 不变量）、#1137（账本绑定，分类正交见 §6）、#1354（大类收敛，当前分支）。
+> 取代：`money-fund-caliber-reconcile-replan-2026-09-02.md`（replan 已落地、内容已并入，文件已删除）。
 
-## 1. 问题
+## 1. 核心矛盾与定位
 
-- 货币基金 / 逆回购在用户心理账户里同时有"类现金"和"投资"两种诉求，**二选一分类两头不讨好**。
-- 现状有两套平行、不可覆盖的硬常量：
-  - `EXCLUDED_ASSET_TYPES = ('money_fund','reverse_repo','cash')`（`app/core/asset_types.py`）——硬把货基/逆回购剔除出 XIRR 收益计算；
-  - `CASH_EQUIVALENT_ASSET_TYPES = ('money_fund','reverse_repo')`（`app/services/fund_utils.py`）——硬把饼图归"流动资金"桶。
-  两处各自独立、均无用户/持仓级覆盖能力。
-- **场内货基识别缺口**：华宝添益（511990）、银华日利（511880）等场内货基只能靠 market 域名录（`fund_types.name='货币型'`）识别；名录缺失时停留为 `asset_type='fund'`，被算进"投资理财"、与股票混算年化——直接违背"货基不与风险资产混算"。
+两类用户心理账户相反：
+- **理财 / 投资导向**：买货基是为了赚 ~3% 年化，希望看到收益贡献，倾向归「投资」。
+- **现金 / 预算导向**：货基是「随时取用的钱」（余额宝），看现金流时要合并计算，倾向归「现金」。
 
-## 2. 核心决策
+结论：**不在底层做二选一分类**，采用「主分类归现金、子分类透视到投资」的混合模式。
 
-**D-A 底层单一分类（投资理财）+ 叠加用途属性**
-货币/逆回购在资产大类上统一归"投资理财"；"是否视为现金等价物"是一个**叠加的用途/流动性属性**（覆盖层），不改动其产品类型。与 #1137 "类现金是用途属性、非产品类型维度" 一脉相承。
+## 2. 设计原则（锁死）
 
-**D-B 排除覆盖层（非硬翻转，保历史连续）**
-保留 `EXCLUDED_ASSET_TYPES` 默认值不变（货基/逆回购默认在排除内）。计算层增加 `include_cash_equivalent` 上下文参数；开启时**仅**从排除集临时移除 `money_fund`/`reverse_repo`（**不**移除 `cash`）。
-默认关 = 与现状完全一致 → **无破坏性变更**，老用户收益率曲线纹丝不动。
+1. 默认归类 = 现金等价物 / 流动资产（流动性好、功能等同现金；会计上货币基金本就是现金等价物）。
+2. 提供穿透视图与收益归属：无论归在哪，货基 / 逆回购收益在流水里标记为**投资收益 / 理财收益（INTEREST）**，不标记为普通收入。
+3. 不试图用固定标签满足所有人，而是「主视图合并 + 次视图穿透 + 收益独立计算」。
 
-**D-C 开关粒度 = per-asset（按持仓）**
-`is_cash_equivalent` 覆盖项（nullable）存于持仓；为空时按期限/时间实时推导，不占库。
-默认推导规则：
-- 货币基金（无到期日）→ `True`（视为现金，匹配现状）；
-- 逆回购 ≤ 1 天（隔夜）→ `True`（明天就回来的钱）；
-- 逆回购 ≥ 7 天 → `False`（锁住的算投资）；
-- 逆回购**缺失期限** → `True`（匹配现状，避免误判资金随时可用）。
+## 3. 终局拍板（7 项）
 
-**D-D 逆回购到期日 = 动态状态，非静态开关**
-逆回购持仓加 `value_date` / `maturity_date`；判定"是否自动变回现金"用**读时计算** `now > maturity_date`，不建定时任务、避免状态机爆炸。续作（滚动）V2.0 前由用户手动记"赎回+新申购"，不自动拆单。覆盖项优先于时间推导。
+### 3.1 开关粒度 = Per-asset（持仓级）
+- `Position.count_as_investment`（Boolean, nullable）为覆盖项；null = 未覆盖，按规则推导。
+- **不做**全局持久「一键纳入」开关（避免全局 vs 单笔优先级爆炸）。视图切换用 ephemeral context（见 §4）。
 
-**D-E 收益口径分家（标签而非新表）**
-收益明细按 `income_source` 派生：`INTEREST`（货币/逆回购/存款）/ `DIVIDEND`（分红）/ `CAPITAL_GAIN`（买卖价差）。图表**分栏展示、绝不混算综合收益率**。统一 XIRR 引擎，仅标签/展示分家（货币用其自身现金流 XIRR，不混入股票）。
+### 3.2 默认推导规则（未覆盖时）
+- 货币基金（无到期日）→ 默认当现金（`count_as_investment = False`）。
+- 逆回购 ≤ 1 天（隔夜）→ 默认当现金（明天回来的钱）。
+- 逆回购 ≥ 7 天 → 默认算投资（锁住的）。
+- 逆回购缺失 `maturity_date` → 默认算投资（保守兜底），但导入 / QuickEntry **强制补录期限**，正常路径不触发。
 
-**D-F 铁律（年化收益）**
-1. 年化**默认排除**货基/逆回购（与 `EXCLUDED_ASSET_TYPES` 一致，且货基收益极低、算不算影响极小）；
-2. **分账户 / 分策略模式下，纳入开关强制 OFF**（硬编码，用户不可推翻）；
-3. 即便纳入，货基仅按 `INTEREST` 单列，不混入股票 XIRR。
+### 3.3 income_source 计算时派生（不落库）
+- `INTEREST`（货币 / 逆回购 / 存款）、`DIVIDEND`（分红）、`CAPITAL_GAIN`（买卖价差）。
+- 从 `asset_type + txn_type` 映射，集中一处，测试覆盖。
 
-## 3. 与既有账本绑定机制的正交关系
+### 3.4 纳入投资的含义 = 独立桶，绝不混算 XIRR
+- 货基 / 逆回购即使被纳入投资，也只参与资产配置饼图与总资产（TNA）聚合；算「股票 / 基金组合年化」时永远隔离在 INTEREST 桶，绝不与股基 CAPITAL_GAIN 混同一 XIRR 分母。
 
-账本绑定（见 #1137）包含两个独立维度，均**管"钱流向哪"**，与本文"这笔算现金还是投资"正交、互不替代：
-- `ledger.linked_cash_ledger_id`：证券账本绑定现金/银行账本（银证绑定，控制回款是否搬运）；
-- `ledger.linked_money_fund_id` + `auto_purchase_money_fund`：类现金产品绑定 + 卖出回款自动申购开关。
+### 3.5 子类枚举 = investment 下新增 cash_management（现金管理类）
+- 不复用 `fixed_income`（固收隐含到期还本付息期限匹配，语义不同）。
 
-自动申购生成的货基流水本就是 `money_fund` 类型 → 默认现金等价，与新设计天然一致。本文的 `is_cash_equivalent` 覆盖项是**另一层**，仅影响分类/收益口径，不触发任何资金搬运。
+### 3.6 命名极性 = count_as_investment（True = 纳入投资）
+- 摒弃 `is_cash_equivalent`（True 到底当现金还是投资易横跳）。
 
-## 4. 场内货基识别缺口（必纳入范围）
+### 3.7 逆回购时间建模 = maturity_date 真相源
+- `effective = override ?? (now < maturity_date ? True : False)`（未到期 → 算投资；已到期 → 自动变现金）。
+- `count_as_investment` 仅作覆盖项；读时算，不建定时任务，V2 前不自动拆续作。
 
-导入链路须确保场内货基 → `is_money_fund=True`（或 `asset_type='money_fund'`），否则本文设计对其无效、仍会被算进投资理财与股票混算。判定优先级（见 `services/fund_utils.py`）：
-1. `asset_type == 'money_fund'`（显式）；
-2. market 域名录 `fund_types.name='货币型'`（**权威**，含 511/000 等无稳定前缀的场内外货基）；
-3. 代码段兜底：深市 `1[01]xxxx`、沪市 `97xxxx`（与前端 `BuyForm.resolveFundAssetType` 一致）。
+## 4. 展示层（小咪方案落地，不推翻数据模型）
 
-**关键**：511 等场内货币 ETF 无稳定代码前缀，**必须依赖名录判定**，禁止 51 前缀误伤普通 ETF/LOF。名录缺失的场内货基在导入期须**告警**而非静默归为 `fund`。
+- 资产总览提供「现金流视图 / 投资组合视角」切换：
+  - **现金流视图**：总资产含货基 + 逆回购，看可用余额 / 规划支出。
+  - **投资组合视角**：含现金等价物桶的资产配置饼图，复盘收益与配置比例；用户可勾选是否将现金等价物计入组合分析（即 ephemeral `include_cash_equivalent` 上下文）。
+- 现金类卡片可展开明细：银行活期 / 货币基金 / 逆回购 / 合计（预算用户看总额，投资用户看结构）。
+- 三大类（**展示分组，非新 DB 类别**）：现金等价物 / 投资资产 / 其他。现金等价物下设「纯现金」「准现金」标签（派生自 `asset_type`）。
+- 月度收益报告：准现金收益单列（现金管理产生），不与股基混算综合收益率。
+- 智能记账：买货基 → 现金等价物；赎回 → 现金等价物；货基分红 / 利息 → 投资收益。
 
-## 5. 不变量与测试
+## 5. 统一函数（唯一真相源）
 
-- **TNA 不变量**：开关切换前后总资产不变，仅改变饼图色块面积与"投资本金"口径。集成测试断言前后 `total_assets` 一致。
-- **默认态回归**：所有覆盖项为空 + 全局默认排除时，计算结果与当前 `EXCLUDED_ASSET_TYPES` 完全一致（锁定"无破坏性"承诺）。
-- **期限推导测试**：逆回购缺失期限 → 现金（匹配现状）；设 `maturity_date` 7 天 → 投资、1 天 → 现金。
-- **分账户/策略硬排除测试**：分账户/分策略查询下，无论覆盖项如何，货基/逆回购不进入年化分子。
+```python
+def effective_count_as_investment(position, as_of=None) -> bool:
+    ov = position.count_as_investment
+    if ov is not None:
+        return ov
+    if position.asset_type == 'money_fund':
+        return False                      # 默认现金
+    if position.asset_type == 'reverse_repo':
+        md = position.maturity_date
+        if md is None:
+            return True                  # 兜底（正常路径不触发，导入已强制补录）
+        return (as_of or now()) < md     # 未到期 → 投资
+    return True                          # 其余资产本就是投资
 
-## 6. 待决议（仍需拍板）
+def should_exclude_from_investment(position, as_of=None) -> bool:
+    return not effective_count_as_investment(position, as_of)
+```
 
-- 全局一键"纳入投资"开关是否做（V1.1 爽点，还是只做 per-asset）；
-- `income_source` 落库还是计算时派生（倾向派生，省迁移表）；
-- 覆盖项字段落 `Position.cash_equiv_override` 还是新建 settings 表（倾向前者，开关本就 per-持仓）。
+- 删除 `CASH_EQUIVALENT_ASSET_TYPES` 常量；`EXCLUDED_ASSET_TYPES` 仅作为「无覆盖时的历史默认集」参考，实际消费全部走 `should_exclude_from_investment`。
+- 所有消费点（xirr_engine / calculators / portfolio views / 饼图分桶 / 类现金统计 #1137/#863）统一调用，杜绝两层不一致。
 
-## 7. 关联
+## 6. 与账本绑定机制（#1137）正交
 
-- issue 关联：#863（本金口径）、#1137（类现金绑定）、#1354（大类收敛，当前分支）。
-- 实施前置：需把 `EXCLUDED_ASSET_TYPES` 硬过滤重构为"可被 `include_cash_equivalent` 覆盖的有效排除集"，并让 XIRR 与饼图共用同一 `effective_excluded()` 函数，杜绝两层不一致。
+- `ledger.linked_cash_ledger_id`（现金账户绑定）、`linked_money_fund_id` + `auto_purchase_money_fund`（类现金绑定 + 自动申购）管「钱流向哪」；`count_as_investment` 管「这笔算现金还是投资」。两者正交。
+- 自动申购生成的货基流水本就 `money_fund` 类型 → 默认现金等价，天然一致。
+
+## 7. 场内货基识别缺口（必纳入范围）
+
+- 银河证券等导入的场内货基（华宝添益 511990、银华日利 511880）须确保识别为 `money_fund`（或 `is_money_fund=True`），否则本设计对其无效、仍与股票混算。
+- 判定优先级（见 `services/fund_utils.py`）：`asset_type` 显式 > market 域名录货币型 > 代码段兜底（511 等场内货币 ETF 无稳定前缀，**必须依赖名录**，禁止 51 前缀误伤普通 ETF/LOF）。名录缺失须**告警**而非静默归 `fund`。
+
+## 8. 不变量与测试
+
+- **TNA 不变量**：开关切换前后总资产不变，仅改变饼图色块与「投资本金」口径。集成测试断言前后总额一致。
+- **默认态回归**：所有覆盖项为空 + 全局默认排除时，计算结果与当前 `EXCLUDED_ASSET_TYPES` 一致（锁定无破坏性）。
+- **期限推导**：逆回购缺失期限 → 投资（兜底）；设 `maturity_date` 7 天 → 投资、1 天 → 现金。
+- **分账户 / 策略硬排除**：分账户 / 分策略查询下，无论覆盖项如何，货基 / 逆回购不进入年化分子。
+
+## 9. 落地清单（代码改造，下一阶段）
+
+1. `Position` 加 `count_as_investment`（Boolean, nullable）+ `maturity_date`（Date, nullable，仅逆回购）。
+2. 写 `effective_count_as_investment` / `should_exclude_from_investment`，替换所有 `EXCLUDED` 硬编码消费点；删 `CASH_EQUIVALENT_ASSET_TYPES`。
+3. 重构饼图分桶改调统一函数。
+4. XIRR 引擎按 `INTEREST` 标签隔离货基 / 逆回购收益；分账户 / 分策略视角强制排除。
+5. 测试：TNA 不变量 + 默认行为 + 期限推导 + 分账户硬排除。
+6. **前置核实**：① 逆回购落点（Position vs Asset 表）——决定字段加在哪；② QuickEntry 逆回购期限必填。
+
+## 10. 关联
+
+- issue：#863（本金口径，已并入本文 §5/§8）、#1137（账本绑定 spec，见 `ledger-cash-like-product-binding-2026-08-29.md`）、#1354（大类收敛，当前分支）。
+- `docs/spec/decisions.md` 2026-09-07 决策行已登记。

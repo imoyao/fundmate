@@ -1,5 +1,7 @@
 # 账户绑定类现金产品（「余额宝」）设计（2026-08-29）
 
+> ⚠️ 分类口径（货基 / 逆回购算现金还是投资）已统一至 `docs/working-notes/cash-equivalent-classification-design-2026-09-07.md`；本文仅保留「账本绑定 / 自动申购」特性设计（§4–§9），分类相关决策以实时文档为准。
+
 > 关联 issue：<https://github.com/imoyao/fundmate/issues/1137>（A / B / C 三块）
 > 设计规范：`frontend/design.md`
 > 前置：A（卖出回款不再自动划转至绑定现金账户）已落地；C（新增「现金管理」大类）已取消

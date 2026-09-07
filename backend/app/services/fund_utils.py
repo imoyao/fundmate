@@ -12,10 +12,11 @@
      代码段前缀的场内外货基）；
   3. 代码段兜底：深市货币基金/现金管理 `1[01]xxxx`、沪市现金管理 `97xxxx`
      （与前端 `BuyForm.resolveFundAssetType` 一致；兜底仅覆盖名录缺失场景）。
-- reverse_repo 与货基同属「现金等价物」聚合桶；若二期将逆回购拆出为投资，只改
-  `CASH_EQUIVALENT_ASSET_TYPES` 一处。
+- reverse_repo 与货基同属「现金等价物」聚合桶；分类统一由
+  `effective_count_as_investment()`（见 `docs/working-notes/cash-equivalent-classification-design-2026-09-07.md`）判定，
+  二期逆回购拆出为投资亦只改该函数一处。
 
-详见 `docs/working-notes/money-fund-caliber-reconcile-replan-2026-09-02.md`（#863）。
+详见 `docs/working-notes/cash-equivalent-classification-design-2026-09-07.md`（#863 口径已并入）。
 """
 
 from __future__ import annotations
