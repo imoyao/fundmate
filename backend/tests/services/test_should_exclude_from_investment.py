@@ -64,3 +64,21 @@ def test_reverse_repo_maturity_dynamic():
 def test_reverse_repo_missing_maturity_defaults_included():
     # 决策#7：maturity_date 缺失默认算投资（不排）；导入层应校验必填
     assert should_exclude_from_investment(_FakePos('reverse_repo')) is False
+
+
+def test_reverse_repo_maturity_day_is_excluded():
+    # 到期当日即算现金（排除）：effective = as_of < maturity 为 False（设计 §3.7，
+    # 对应旧实现 as_of > maturity 改为 >= 的修复点）。
+    assert (
+        should_exclude_from_investment(
+            _FakePos('reverse_repo', maturity_date=date(2026, 9, 7)), as_of_date=date(2026, 9, 7)
+        )
+        is True
+    )
+    # 到期次日仍排除
+    assert (
+        should_exclude_from_investment(
+            _FakePos('reverse_repo', maturity_date=date(2026, 9, 7)), as_of_date=date(2026, 9, 8)
+        )
+        is True
+    )

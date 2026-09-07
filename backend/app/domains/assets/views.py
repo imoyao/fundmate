@@ -165,7 +165,9 @@ def get_assets_summary():
         # 否则盘点页大类金额会把本该合并的投资理财拆散（细分类永远显示「无记录」）。
         db_result_map: dict[str, int] = {}
         for cat, cents in results:
-            key = normalize_major_category(cat)
+            # normalize 对 NULL 大类返回 None，单独归到 'other' 桶，避免 rest_keys 含 None
+            # 触发混合类型排序异常（#1355 AI review）；金额不丢。
+            key = normalize_major_category(cat) or 'other'
             db_result_map[key] = db_result_map.get(key, 0) + (cents or 0)
 
         # 定义一个明确的顺序（按业务逻辑排序，不再是乱序的键值对）

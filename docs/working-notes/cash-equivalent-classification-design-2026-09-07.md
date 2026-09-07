@@ -77,8 +77,11 @@ def should_exclude_from_investment(position, as_of=None) -> bool:
     return not effective_count_as_investment(position, as_of)
 ```
 
-- 删除 `CASH_EQUIVALENT_ASSET_TYPES` 常量；`EXCLUDED_ASSET_TYPES` 仅作为「无覆盖时的历史默认集」参考，实际消费全部走 `should_exclude_from_investment`。
-- 所有消费点（xirr_engine / calculators / portfolio views / 饼图分桶 / 类现金统计 #1137/#863）统一调用，杜绝两层不一致。
+- **两套排除机制正交，切勿混用**（关键，承接 §3.4 决策 #4）：
+  - **分类 / 聚合层**（饼图分桶、TNA、类现金统计、portfolio views）：统一改调 `should_exclude_from_investment`（反向视图）／`effective_count_as_investment`，尊重 `count_as_investment` 覆盖项与逆回购到期动态判定。
+  - **收益层（XIRR）**：`xirr_engine` / `calculators` **不调用**上述函数，改用 `EXCLUDED_ASSET_TYPES` 按 asset_type **硬隔离**货币基金 / 逆回购 / 现金，不受 `count_as_investment` 影响——货基即使被「纳入投资」也只进饼图与 TNA，永远隔离在 INTEREST 桶，绝不混入 CAPITAL_GAIN 分母。
+- `CASH_EQUIVALENT_ASSET_TYPES` **保留**，仅用于现金等价物「识别」（`is_cash_equivalent_position` / `is_cash_equivalent_asset_type`，供分布 / 桑基图归桶），不参与排除决策；`EXCLUDED_ASSET_TYPES` 作为收益层硬隔离集继续使用。
+- 所有消费点按上文分层统一，杜绝两层不一致。
 
 ## 6. 与账本绑定机制（#1137）正交
 

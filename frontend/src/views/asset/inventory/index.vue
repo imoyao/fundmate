@@ -362,7 +362,7 @@
                   <ProductDisplay
                     :name="row.name"
                     :symbol="row.symbol"
-                    :type-label="getMinorLabel(row)"
+                    :type-label="getMinorLabel(row as AssetRecord)"
                   />
                 </template>
               </el-table-column>
@@ -387,14 +387,14 @@
               </el-table-column>
               <el-table-column label="操作" width="130" fixed="right">
                 <template #default="{ row }">
-                  <el-button text size="small" @click="openEditAssetDialog(row)"
+                  <el-button text size="small" @click="openEditAssetDialog(row as AssetRecord)"
                     >编辑</el-button
                   >
                   <el-button
                     text
                     size="small"
                     type="danger"
-                    @click="confirmDeleteAsset(row)"
+                    @click="confirmDeleteAsset(row as AssetRecord)"
                     >删除</el-button
                   >
                 </template>
@@ -530,14 +530,14 @@
             </el-table-column>
             <el-table-column label="操作" width="130" fixed="right">
               <template #default="{ row }">
-                <el-button text size="small" @click="openEditAssetDialog(row)"
+                <el-button text size="small" @click="openEditAssetDialog(row as AssetRecord)"
                   >编辑</el-button
                 >
                 <el-button
                   text
                   size="small"
                   type="danger"
-                  @click="confirmDeleteAsset(row)"
+                  @click="confirmDeleteAsset(row as AssetRecord)"
                   >删除</el-button
                 >
               </template>
@@ -606,7 +606,8 @@ import {
   getAssets,
   getAssetsSummary,
   updateAsset,
-  deleteAsset
+  deleteAsset,
+  type AssetRecord
 } from "@/api/assets";
 import { getPositions } from "@/api/positions";
 import type { Position } from "@/api/types";
@@ -825,8 +826,8 @@ const investmentLoading = ref(false);
 
 // 🔥 新增：汇总缓存与按需加载数据源
 const assetsSummary = ref<Record<string, number>>({});
-const assetCache = ref<Record<string, any[]>>({});
-const currentAssets = ref<any[]>([]);
+const assetCache = ref<Record<string, AssetRecord[]>>({});
+const currentAssets = ref<AssetRecord[]>([]);
 
 const editAssetDialogVisible = ref(false);
 const savingAsset = ref(false);
@@ -994,7 +995,7 @@ const loadCategoryAssets = async (category: string) => {
     // 避免银行理财/信托等存量记录散落在没有入口的大类里查不到
     const major = category === "investment" ? INVESTMENT_MAJOR_KEYS : category;
     const res = await getAssets({ major_category: major, per_page: 500 });
-    const items = (res as any)?.data ?? [];
+    const items = (res as { data?: AssetRecord[] }).data ?? [];
     assetCache.value[category] = items;
     currentAssets.value = items;
   } catch (e) {
@@ -1023,7 +1024,7 @@ function handleAddType(typeKey: string) {
 }
 
 /** 投资理财明细的细分标签：优先 minor_category，存量数据回退到历史大类标签 */
-const getMinorLabel = (row: any): string => {
+const getMinorLabel = (row: AssetRecord): string => {
   if (row.minor_category) {
     const hit = INVESTMENT_MINOR_CATEGORIES.find(
       i => i.value === row.minor_category
@@ -1033,7 +1034,7 @@ const getMinorLabel = (row: any): string => {
   return majorCategoryLabel(row.major_category);
 };
 
-function openEditAssetDialog(row: any) {
+function openEditAssetDialog(row: AssetRecord) {
   editAssetForm.value = {
     id: row.id,
     amount: row.amount || 0,
@@ -1060,7 +1061,7 @@ async function saveAssetEdit() {
   }
 }
 
-async function confirmDeleteAsset(row: any) {
+async function confirmDeleteAsset(row: AssetRecord) {
   try {
     await ElMessageBox.confirm(
       `确定要删除资产「${row.name}」吗？此操作不可恢复。`,
