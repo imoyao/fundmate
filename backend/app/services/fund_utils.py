@@ -12,10 +12,11 @@
      代码段前缀的场内外货基）；
   3. 代码段兜底：深市货币基金/现金管理 `1[01]xxxx`、沪市现金管理 `97xxxx`
      （与前端 `BuyForm.resolveFundAssetType` 一致；兜底仅覆盖名录缺失场景）。
-- reverse_repo 与货基同属「现金等价物」聚合桶；若二期将逆回购拆出为投资，只改
-  `CASH_EQUIVALENT_ASSET_TYPES` 一处。
+- reverse_repo 与货基同属「现金等价物」聚合桶；分类统一由
+  `effective_count_as_investment()`（见 `docs/working-notes/cash-equivalent-classification-design-2026-09-07.md`）判定，
+  二期逆回购拆出为投资亦只改该函数一处。
 
-详见 `docs/working-notes/money-fund-caliber-reconcile-replan-2026-09-02.md`（#863）。
+详见 `docs/working-notes/cash-equivalent-classification-design-2026-09-07.md`（#863 口径已并入）。
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from __future__ import annotations
 import re
 import time
 from collections.abc import Iterable
+from datetime import date
 
 # 现金等价物资产类型（聚合桶：货基 + 逆回购；逆回购拆出时只改这里）
 CASH_EQUIVALENT_ASSET_TYPES = ('money_fund', 'reverse_repo')
@@ -138,6 +140,62 @@ def is_money_fund_position(position) -> bool:
     if flag is not None:
         return bool(flag)
     return getattr(position, 'asset_type', None) == 'money_fund'
+
+
+def effective_count_as_investment(position, as_of_date: date | None = None) -> bool:
+    """该持仓是否计入「投资」（与 should_exclude_from_investment 互补）。
+
+    分类 / 聚合层判定唯一入口（#1354 消弭方案，决策 #7）：饼图分桶、TNA、类现金统计均改调本函数
+    （及 should_exclude_from_investment 反向视图），替代原先打架的 EXCLUDED_ASSET_TYPES
+    与 CASH_EQUIVALENT_ASSET_TYPES。
+
+    注意：收益层（XIRR）**不**走本函数。XIRR 引擎改用 EXCLUDED_ASSET_TYPES 硬隔离，
+    货基 / 逆回购无论 count_as_investment 如何都隔离在 INTEREST 桶，绝不混入 CAPITAL_GAIN
+    分母（#1354 决策 #4 / 设计文档 §3.4）。两套机制正交。
+
+    判定：
+      1. 非货基/逆回购/cash → 永远算投资。
+      2. cash → 永远不算投资（现金不是投资）。
+      3. 货基（含 is_money_fund 标记）→ 默认不算投资；仅当用户显式 count_as_investment==True 才纳入。
+      4. 逆回购 → override（count_as_investment）优先；缺失则按 maturity_date 动态判定：
+         未到期 → 算投资；已到期（含到期当日）→ 自动变现金（不算投资）。
+         maturity_date 缺失（防御，导入应已校验必填）→ 默认算投资。
+
+    as_of_date 缺省取今天，为逆回购「已到期」判定提供时间基准。
+    """
+    asset_type = getattr(position, 'asset_type', None)
+    is_mf = bool(getattr(position, 'is_money_fund', False)) or (asset_type == 'money_fund')
+    is_rr = asset_type == 'reverse_repo'
+    is_cash = asset_type == 'cash'
+    if not (is_mf or is_rr or is_cash):
+        return True  # 非类现金 → 永远算投资
+    if is_cash:
+        return False  # 现金永远是现金
+    # 货基 / 逆回购：显式覆盖优先
+    override = getattr(position, 'count_as_investment', None)
+    if override is not None:
+        return bool(override)
+    if is_mf:
+        return False  # 货基默认现金（不算投资）
+    # 逆回购：按到期日动态判定
+    maturity = getattr(position, 'maturity_date', None)
+    if maturity is None:
+        # 决策#7：无 maturity_date 默认算投资；导入层应校验必填
+        return True
+    as_of = as_of_date or date.today()
+    return as_of < maturity  # 未到期 → 算投资；到期当日即算现金
+
+
+def should_exclude_from_investment(position, as_of_date: date | None = None) -> bool:
+    """该持仓是否应从「投资组合分类 / 聚合（饼图 / TNA / 类现金统计）」中排除。
+
+    分类 / 聚合层反向视图，等价于 `not effective_count_as_investment(position, as_of_date)`。
+    唯一真理源（#1354 消弭方案，决策 #7）。
+
+    ⚠️ 与收益层（XIRR）无关：XIRR 分母的现金等价物隔离由 xirr_engine 用 EXCLUDED_ASSET_TYPES
+    硬实现，不受 count_as_investment 影响（#1354 决策 #4 / 设计文档 §3.4）。
+    """
+    return not effective_count_as_investment(position, as_of_date)
 
 
 def is_cash_equivalent_position(position) -> bool:

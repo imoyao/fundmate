@@ -224,7 +224,7 @@
             :row-class-name="rowClassName"
             stripe
             @selection-change="handleSelectionChange"
-            @sort-change="handleSortChange"
+            @sort-change="onSortChange"
             @cell-mouse-enter="handleCellMouseEnter"
             @cell-mouse-leave="handleCellMouseLeave"
           >
@@ -311,15 +311,34 @@
            改由页面底部 .watchlist-footer 承担（见 CardBlock 之后）。 -->
         <div class="table-footer">
           <span class="table-footer__total">共 {{ totalItems }} 条</span>
-          <el-pagination
-            v-model:current-page="currentPage"
-            :page-size="pageSize"
-            :total="totalItems"
-            layout="prev, pager, next"
-            small
-            background
-            @current-change="() => fetchData(false)"
-          />
+          <div class="table-footer__right">
+            <!-- 每页条数选择（#1335）：纯本地记忆（localforage），不落数据库 -->
+            <div class="page-size-select">
+              <span class="page-size-select__label">每页</span>
+              <el-select
+                :model-value="pageSize"
+                size="small"
+                class="page-size-select__control"
+                @change="setPageSize"
+              >
+                <el-option
+                  v-for="opt in pageSizeOptions"
+                  :key="opt"
+                  :label="opt"
+                  :value="opt"
+                />
+              </el-select>
+            </div>
+            <el-pagination
+              v-model:current-page="currentPage"
+              :page-size="pageSize"
+              :total="totalItems"
+              layout="prev, pager, next"
+              small
+              background
+              @current-change="() => fetchData(false)"
+            />
+          </div>
         </div>
       </CardBlock>
 
@@ -489,6 +508,9 @@ const {
   currentPage,
   pageSize,
   totalItems,
+  pageSizeOptions,
+  initPageSize,
+  setPageSize,
   fetchData,
   handleSortChange,
   handleViewChange,
@@ -664,6 +686,46 @@ const getStaticPrice = (symbol: string) => {
 
 const realtime = useRealtimeQuotes(getHoldings, getStaticPrice);
 
+/**
+ * 表头排序分发（issue #1333 修正）。
+ * 带 realtimeField 的列（change_pct 涨跌幅 / current_price 最新价）其「有意义的值」来自
+ * 前端实时行情引擎，后端只有 None / positions 静态快照——若走后端 sort_by 会按错值排，
+ * 故这两列改为前端按实时估值项做客户端排序。
+ * 限制：后端无实时值，跨页一致排序本就不成立，因此只排当前页（items）；
+ * 其余列维持原 handleSortChange → 后端 sort_by/sort_order（跨页一致）。
+ */
+function onSortChange({
+  prop,
+  order
+}: {
+  prop?: string | number;
+  order: "ascending" | "descending" | null;
+}) {
+  const def = prop
+    ? columnSettings.visibleColumns.value.find(d => d.key === String(prop))
+    : undefined;
+  if (def?.realtimeField && order) {
+    const field = def.realtimeField; // "currentPrice" | "changePct"
+    const dir = order === "descending" ? -1 : 1;
+    const rtMap = new Map<string, number>();
+    for (const it of realtime.items.value ?? []) {
+      const v = it[field];
+      if (typeof v === "number") rtMap.set(it.symbol, v);
+    }
+    const sortVal = (row: (typeof items.value)[number]): number => {
+      const rv = rtMap.get(row.symbol);
+      if (typeof rv === "number") return rv;
+      const sv = (row as Record<string, unknown>)[def.key];
+      return typeof sv === "number" ? sv : 0;
+    };
+    items.value = [...items.value].sort(
+      (a, b) => (sortVal(a) - sortVal(b)) * dir
+    );
+    return;
+  }
+  handleSortChange({ prop, order });
+}
+
 // ✅ 1. 新增：一个专门控制按钮文字的 computed，解决文字不更新的脏数据问题
 const toggleBtnText = computed(() => {
   return realtime.enabled.value ? "关闭实时估值" : "开启实时估值";
@@ -792,7 +854,9 @@ const onTagEditorSaved = () => {
 // ─────────────────────────────────────────────
 // 生命周期
 // ─────────────────────────────────────────────
-onMounted(() => {
+onMounted(async () => {
+  // 先恢复本地记忆的每页条数，确保首屏 fetch 即使用户上次的选择（#1335）
+  await initPageSize();
   fetchGroups();
   fetchTags();
   fetchData();
@@ -1008,9 +1072,13 @@ const renderCtx = computed<RenderCtx>(() => ({
      min-height 为外层滚动容器可视高度（JS 实测写入，见 syncPageMinHeight）：
      空态/内容不足时页面至少一屏高，配合下方 flex 链让卡片撑满、footer 贴底。
      关键：任何祖先/自身都不设 overflow:hidden/auto，否则会创建新的滚动容器、
-     截断 .filter-bar / 表头的 position:sticky 上溯到布局滚动容器。 */
+     截断 .filter-bar / 表头的 position:sticky 上溯到布局滚动容器。
+     min-width:0：本页是 flex column，子项默认 min-width:auto 不会收缩到内容宽度
+     以下；若某层不放开，列总宽超过视口时 el-table 会把整条 flex 链撑宽、产生
+     页面级横向滚动条（#1341）。放开后列宽溢出由 el-table 内部横向滚动承载。 */
   display: flex;
   flex-direction: column;
+  min-width: 0;
   min-height: 0;
 }
 
@@ -1022,10 +1090,13 @@ const renderCtx = computed<RenderCtx>(() => ({
 .watchlist-scroll {
   /* 外层滚动容器（布局 el-scrollbar__wrap）的唯一内容，普通流即可；el-table 按
      内容高度展开所有行。display:flex column + flex-grow 让它至少吃满 .watchlist-page
-     的 min-height（空态时 footer 由此贴底，见 .watchlist-card flex:1 与下方 app-footer）。 */
+     的 min-height（空态时 footer 由此贴底，见 .watchlist-card flex:1 与下方 app-footer）。
+     min-width:0：配合 .watchlist-page / .el-table 同款约束，防止列宽溢出撑出页面横向
+     滚动条（#1341）。 */
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
+  min-width: 0;
   min-height: 0;
 }
 
@@ -1038,6 +1109,9 @@ const renderCtx = computed<RenderCtx>(() => ({
      卡片随内容增高（flex-grow 仅在容器有空余时才作用，不会压缩真实行）。 */
   flex: 1 1 auto;
   flex-direction: column;
+
+  /* 防止列宽溢出撑出页面横向滚动条（#1341） */
+  min-width: 0;
   min-height: 0;
   padding: var(--space-compact);
 }
@@ -1057,6 +1131,10 @@ const renderCtx = computed<RenderCtx>(() => ({
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
+
+  /* 防止列宽溢出撑出页面横向滚动条（#1341）：el-table 是其 flex 子项，
+     自身 min-width:0 见下方 :deep(.el-table)。 */
+  min-width: 0;
   min-height: 0;
 }
 
@@ -1078,6 +1156,14 @@ const renderCtx = computed<RenderCtx>(() => ({
    （el-table 不需要 flex 拉伸：空态文案已由 .watchlist-empty-overlay 覆盖层承载，
    见下；有数据时表格按内容高度自然展开，外层滚动接管。） */
 .watchlist-table-wrap :deep(.el-table) {
+  min-width: 0;
+
+  /* 吸顶需要：overflow:visible 让表头 sticky 上溯到布局滚动容器（见上方长注释）。
+     配套 min-width:0：el-table 是 .watchlist-table-wrap 的 flex 子项，默认 min-width:auto
+     会被列总宽撑开、把整页顶出横向滚动条（#1341）。放开后 el-table 约束到容器宽度，
+     多出的列宽由 .el-table__body-wrapper 内部横向滚动承载，页面不再溢出。
+     此约束是通用防护：今后新增可排序列（见 columnDefs.ts）只要总宽超视口，
+     都只会在表格内出现横向滚动，不会再撑宽页面。 */
   overflow: visible;
 }
 
@@ -1276,6 +1362,30 @@ const renderCtx = computed<RenderCtx>(() => ({
   padding-top: var(--space-3);
   margin-top: var(--space-2);
   border-top: 1px solid var(--border-light);
+}
+
+/* 底栏右侧：每页条数选择 + 翻页 成组右对齐 */
+.table-footer__right {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+/* 每页条数选择器（#1335）：与翻页器同高对齐，标签用次级/三级文字色 */
+.page-size-select {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.page-size-select__label {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.page-size-select__control {
+  width: 88px;
 }
 
 .table-footer__total {

@@ -9,6 +9,7 @@ from apiflask import APIBlueprint
 from flask import abort, jsonify, request
 from sqlalchemy import func
 
+from app.core.asset_types import INVESTMENT_MINOR_CATEGORIES, normalize_major_category
 from app.core.auth import get_family_id, get_owned_or_404
 from app.core.constants import ALLOCATION_LABELS, ASSET_CATEGORY_LABELS
 from app.core.database import get_db
@@ -20,6 +21,11 @@ from app.domains.assets.schemas import AssetCreate, AssetOut, AssetUpdate
 from app.domains.ledgers.models import Ledger
 
 bp = APIBlueprint('assets', __name__, url_prefix='/api/assets')
+
+
+def _parse_csv_filter(value: str) -> list[str]:
+    """把逗号分隔的多值过滤参数解析为去空白后的非空列表（major/minor 共用）。"""
+    return [m.strip() for m in value.split(',') if m.strip()]
 
 
 def _enrich_asset_dict(asset: Asset) -> dict:
@@ -38,14 +44,30 @@ def list_assets():
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 20, type=int)
     major = request.args.get('major_category', '')
+    minor = request.args.get('minor_category', '')
     exclude = request.args.get('exclude', '')
 
     with get_db() as db:
         query = db.query(Asset).order_by(Asset.updated_at.desc())
         query = query.filter(Asset.family_id == get_family_id())
 
-        if major:
-            query = query.filter(Asset.major_category == major)
+        # #1354：支持逗号分隔多值。盘点页「投资理财」需一次取回 investment 及其
+        # 历史细分子类（bank_wealth/advisory/trust/private_fund/wealth_insurance）；
+        # 仅传 investment 时自动展开为全部子类键，统一「写入收敛 + 读取归一」口径
+        # （前端既可能传完整逗号列表，也可能只传 investment，两种都要能命中）。
+        major_list = _parse_csv_filter(major)
+        if 'investment' in major_list:
+            major_list = major_list + [k for k in INVESTMENT_MINOR_CATEGORIES if k not in major_list]
+        if len(major_list) == 1:
+            query = query.filter(Asset.major_category == major_list[0])
+        elif major_list:
+            query = query.filter(Asset.major_category.in_(major_list))
+
+        minor_list = _parse_csv_filter(minor)
+        if len(minor_list) == 1:
+            query = query.filter(Asset.minor_category == minor_list[0])
+        elif minor_list:
+            query = query.filter(Asset.minor_category.in_(minor_list))
 
         # 新增：排除指定的大类
         if exclude:
@@ -148,14 +170,23 @@ def get_assets_summary():
             .all()
         )
 
-        # 将数据库结果转为字典方便查找
-        db_result_map = {cat: cents for cat, cents in results}
+        # 将数据库结果转为字典方便查找；#1354：投资理财的历史细分子类归一到 investment，
+        # 否则盘点页大类金额会把本该合并的投资理财拆散（细分类永远显示「无记录」）。
+        db_result_map: dict[str, int] = {}
+        for cat, cents in results:
+            # normalize 对 NULL 大类返回 None，单独归到 'other' 桶，避免 rest_keys 含 None
+            # 触发混合类型排序异常（#1355 AI review）；金额不丢。
+            key = normalize_major_category(cat) or 'other'
+            db_result_map[key] = db_result_map.get(key, 0) + (cents or 0)
 
         # 定义一个明确的顺序（按业务逻辑排序，不再是乱序的键值对）
-        category_order = ['cash', 'fixed', 'liability', 'receivable', 'insurance']
+        category_order = ['investment', 'cash', 'fixed', 'liability', 'receivable', 'insurance']
+        # 顺序表之外仍有大类（如 real_estate/precious_metal/custom）时一并下发，
+        # 避免存量数据被静默丢弃
+        rest_keys = [k for k in db_result_map if k not in category_order]
 
         summary_list = []
-        for key in category_order:
+        for key in category_order + sorted(rest_keys):
             cents = db_result_map.get(key, 0)
             yuan = Money.cents_to_yuan(cents)
             # 负债处理为负数

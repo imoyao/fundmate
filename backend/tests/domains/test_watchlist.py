@@ -158,6 +158,34 @@ class TestWatchlistItemCRUD:
         data = resp.get_json()['data']
         assert data['symbol'] == 'HK00700'
 
+    def test_enrich_type_label(self, client, db):
+        """#1332：enrich 下发资产类型中文标签 type_label，供前端「资产类型」列展示。"""
+        from app.core.constants import TYPE_LABELS
+
+        resp = _post(
+            client,
+            '/api/watchlist/items/',
+            {'symbol': '600519', 'name': '贵州茅台', 'venue': 'EXCHANGE', 'asset_type': 'stock'},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        # type_label 与 asset_type 经 TYPE_LABELS 单一来源收口一致；
+        # 未命中时回落为 asset_type 本身（字符串），asset_type 为空才回落空串
+        assert data['type_label'] == TYPE_LABELS.get(data['asset_type'])
+        assert isinstance(data['type_label'], str)
+
+        # 未知/缺失 asset_type：TYPE_LABELS 未命中时回落为 asset_type 本身（字符串，非 None），
+        # 前端「资产类型」列恒显示字符串、不出现 None（回应 review：断言需覆盖其他取值）
+        resp2 = _post(
+            client,
+            '/api/watchlist/items/',
+            {'symbol': '999999', 'name': '未知类型标的', 'venue': 'EXCHANGE', 'asset_type': 'mystery'},
+        )
+        assert resp2.status_code == 200
+        data2 = resp2.get_json()['data']
+        assert isinstance(data2['type_label'], str)
+        assert data2['type_label'] == 'mystery'
+
     def test_add_item_standardize_sh(self, client, db):
         resp = _post(
             client,
@@ -922,6 +950,137 @@ class TestApplyUserSort:
             self._row('C', current_price=9.0, price_at_added=8.0, holding_quantity=None),
         ]
         result = _apply_user_sort(data, 'added_return', 'desc')
+        assert [r['symbol'] for r in result] == ['B', 'A', 'C']
+
+    def test_sort_by_product_by_symbol(self):
+        from app.domains.watchlist.views import _apply_user_sort
+
+        # 「代码/名称」列（#1331）按 symbol（代码）字典序排，稳定且不耦合名称
+        data = [
+            self._row('SH600519'),
+            self._row('HK00700'),
+            self._row('OF.123456'),
+        ]
+        asc = _apply_user_sort(data, 'product', 'asc')
+        desc = _apply_user_sort(data, 'product', 'desc')
+        assert [r['symbol'] for r in asc] == ['HK00700', 'OF.123456', 'SH600519']
+        assert [r['symbol'] for r in desc] == ['SH600519', 'OF.123456', 'HK00700']
+
+    def test_sort_by_product_pinned_stays_first(self):
+        from app.domains.watchlist.views import _apply_user_sort
+
+        # 故意把置顶行设为「字典序本应排最后」者（SH600519），以验证「置顶恒前置」
+        # 真正生效：若置顶逻辑失效，asc 下 SH 应落末尾，本断言会失配（旧用例用 HK00700
+        # 恰好字典序最小，asc 下无论有无置顶逻辑结果都相同，属空断言，见 PR #1342 review）。
+        data = [
+            self._row('SH600519', is_pinned=True),
+            self._row('HK00700'),
+            self._row('OF.123456'),
+        ]
+        asc = _apply_user_sort(data, 'product', 'asc')
+        desc = _apply_user_sort(data, 'product', 'desc')
+        # 置顶行恒在顶部，与升降序无关
+        assert [r['symbol'] for r in asc] == ['SH600519', 'HK00700', 'OF.123456']
+        assert [r['symbol'] for r in desc] == ['SH600519', 'OF.123456', 'HK00700']
+
+    def test_non_whitelist_sort_by_warns_and_keeps_order(self):
+        import loguru
+
+        from app.domains.watchlist.views import _apply_user_sort
+
+        # 非白名单字段（#1331 新增告警分支）：原序返回 + 告警，消除「点击无反应」式
+        # 静默失败。用临时 sink 捕获真实格式化后的日志，验证 loguru「{!r}」占位符确实
+        # 把 sort_by 值带进日志——旧实现误用「%r」会被 loguru 忽略，值丢失、告警无效。
+        data = [self._row('A'), self._row('B'), self._row('C')]
+        captured = []
+        sink_id = loguru.logger.add(lambda m: captured.append(str(m)), level='WARNING')
+        try:
+            result = _apply_user_sort(data, 'unknown_field', 'asc')
+        finally:
+            loguru.logger.remove(sink_id)
+        # 非白名单不重排，维持原序
+        assert [r['symbol'] for r in result] == ['A', 'B', 'C']
+        # 确实告警，且日志含被忽略的字段名（证明占位符生效）
+        assert captured, '非白名单排序应触发 logger.warning'
+        assert any('unknown_field' in line for line in captured)
+
+    def test_sort_by_product_missing_symbol_last(self):
+        from app.domains.watchlist.views import _apply_user_sort
+
+        # symbol 缺失 → 排序键 None → 无论升降序都排末尾
+        data = [
+            self._row(None),
+            self._row('SH600519'),
+            self._row('HK00700'),
+        ]
+        asc = _apply_user_sort(data, 'product', 'asc')
+        desc = _apply_user_sort(data, 'product', 'desc')
+        assert [r['symbol'] for r in asc] == ['HK00700', 'SH600519', None]
+        assert [r['symbol'] for r in desc] == ['SH600519', 'HK00700', None]
+
+    # ─────────────── #1332：#993 候选列排序（成本价/资产类型/所属分组/更新时间）───────────────
+    # 以下为 _apply_user_sort 纯函数单测（与既有 sort 测试同款），直接构造 dict 行、不依赖 db 夹具；
+    # 4 个候选列对应的后端排序白名单见 views._USER_SORTABLE_FIELDS（已放开 holding_cost_price/
+    # type_label/updated_at/groups），前端 columnDefs 四列均标 sortable:"custom" 透传后端。
+    def test_sort_by_holding_cost_price(self):
+        from app.domains.watchlist.views import _apply_user_sort
+
+        # 加权成本均价（数值）：降序 B(5) > C(3) > A(1)
+        data = [
+            self._row('A', holding_cost_price=1.0),
+            self._row('B', holding_cost_price=5.0),
+            self._row('C', holding_cost_price=3.0),
+        ]
+        result = _apply_user_sort(data, 'holding_cost_price', 'desc')
+        assert [r['symbol'] for r in result] == ['B', 'C', 'A']
+
+    def test_sort_by_type_label(self):
+        from app.domains.watchlist.views import _apply_user_sort
+
+        # 资产类型中文标签（字符串字典序）：typeA < typeB < typeC
+        data = [
+            self._row('A', type_label='typeC'),
+            self._row('B', type_label='typeA'),
+            self._row('C', type_label='typeB'),
+        ]
+        result = _apply_user_sort(data, 'type_label', 'asc')
+        assert [r['symbol'] for r in result] == ['B', 'C', 'A']
+
+    def test_sort_by_updated_at_desc(self):
+        from app.domains.watchlist.views import _apply_user_sort
+
+        # 后端 updated_at 为 ISO 字符串，字典序即时间序
+        data = [
+            self._row('A', updated_at='2026-09-01 10:00:00'),
+            self._row('B', updated_at='2026-09-03 10:00:00'),
+            self._row('C', updated_at='2026-09-02 10:00:00'),
+        ]
+        result = _apply_user_sort(data, 'updated_at', 'desc')
+        assert [r['symbol'] for r in result] == ['B', 'C', 'A']
+
+    def test_sort_by_groups_first_name(self):
+        from app.domains.watchlist.views import _apply_user_sort
+
+        # 列 key="groups"（分组 id 经 ctx.groupNames 映射）；后端按 group_names 首个名排序
+        data = [
+            self._row('A', group_names=['groupC', 'core']),
+            self._row('B', group_names=['groupA']),
+            self._row('C', group_names=[]),
+        ]
+        result = _apply_user_sort(data, 'groups', 'asc')
+        assert [r['symbol'] for r in result] == ['B', 'A', 'C']
+
+    def test_sort_by_groups_first_id(self):
+        from app.domains.watchlist.views import _apply_user_sort
+
+        # 所属分组（多值，#1332）：按首个分组 id 字典序；无分组恒排末尾
+        data = [
+            self._row('A', group_ids=[3, 'core']),
+            self._row('B', group_ids=[1]),
+            self._row('C', group_ids=[]),
+        ]
+        result = _apply_user_sort(data, 'groups', 'asc')
+        # B(1) < A(3) < C(无分组→末尾)
         assert [r['symbol'] for r in result] == ['B', 'A', 'C']
 
 

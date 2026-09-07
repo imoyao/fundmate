@@ -92,9 +92,14 @@ def _enrich_item(item: WatchlistItem, db) -> dict:
     # watchlist.asset_type 历史存放大写（STOCK/ETF/...），对外统一归一为小写，
     # 与后端 asset_types 单一来源（stock/etf/fund/bond/index）及 positions 域保持一致（#1171）。
     out['asset_type'] = item.asset_type.lower() if item.asset_type else None
+    # 资产类型中文标签：单一来源 app.core.constants.TYPE_LABELS（#1171 枚举一致性），
+    # 供前端「资产类型」列（#1332 候选列）直接展示，免前端再映射。
+    out['type_label'] = TYPE_LABELS.get(out['asset_type']) or out['asset_type'] or ''
     out['display_name'] = _get_display_info(item.symbol, db)
     out['group_ids'] = [link.group_id for link in item.group_links]
     out['tag_ids'] = [link.tag_id for link in item.tag_links]
+    # 所属分组名称列表（#1332 排序用，避免前端再映射 group_ids）
+    out['group_names'] = [link.watchlist_group.name for link in item.group_links if link.watchlist_group]
 
     # 补充价格与市值信息（从持仓表计算静态值）
     position_value = _compute_position_market_value(item.symbol, db)
@@ -261,6 +266,7 @@ def _build_holding_row(symbol, db, market=None, asset_type=None, venue=None):
         'symbol': symbol,
         'market': market,
         'asset_type': (asset_type or '').lower() or None,
+        'type_label': TYPE_LABELS.get((asset_type or '').lower()) or (asset_type or '').lower() or '',
         'venue': venue,
         'status': 'HOLDING',
         'favorite': False,
@@ -275,6 +281,7 @@ def _build_holding_row(symbol, db, market=None, asset_type=None, venue=None):
         'updated_at': None,
         'display_name': display_name,
         'group_ids': [],
+        'group_names': [],
         'tag_ids': [],
         'current_price': round(current_price, 2) if current_price else None,
         'change_pct': None,
@@ -395,20 +402,45 @@ def list_trends():
 # 由 _user_sort_metric 现算，不在本集合内。
 _USER_SORTABLE_FIELDS = frozenset(
     {
+        # #1331：前端「代码/名称」列（product）标了 sortable:custom 却未开放白名单，
+        # 导致点击排序静默失效；映射为 symbol（代码）字典序，稳定且不耦合名称本地化。
+        'product',
         'created_at',
         'current_price',
         'change_pct',
         'holding_quantity',
+        'holding_cost_price',
         'position_market_value',
         'holding_pnl',
         'holding_pnl_percent',
         'price_at_added',
+        # #1332：#993 引入的 4 个候选列放开排序；下列字段均已在 enrich 阶段下发（见 _enrich_item），
+        # 排序键值由 _user_sort_metric 现算：
+        # - holding_cost_price：数值，来自 positions 加权成本（_compute_holding_stats，L131 起）；
+        # - type_label：资产类型中文标签（字符串），单一来源 app.core.constants.TYPE_LABELS（#1171）；
+        # - updated_at：ISO 字符串，字典序即时间序；
+        # - groups：多值（group_ids），按首个分组 id 字典序、无分组恒排末尾（语义见 _user_sort_metric）。
+        'type_label',
+        'updated_at',
+        'groups',
     }
 )
 
 
 def _user_sort_metric(row: dict, sort_by: str):
     """取排序键值；缺失/不可比较返回 None（恒排末尾）。"""
+    if sort_by == 'product':
+        # 「代码/名称」列（#1331）：按 symbol（代码）字典序排序，稳定；symbol 缺失则排末尾
+        return row.get('symbol')
+    if sort_by == 'groups':
+        # 所属分组（多值字段，#1332）：排序语义取「首个分组」——优先 group_ids 首个
+        # 元素（分组 id）字典序；若无 group_ids 则退化为首个 group_names（分组名）；
+        # 无分组恒排末尾。多分组整体顺序按首个分组定，与前端展示首个分组一致。
+        ids = row.get('group_ids') or []
+        if ids:
+            return ids[0]
+        names = row.get('group_names') or []
+        return names[0] if names else None
     if sort_by == 'added_return':
         # 派生列：添加后收益金额 =（现价 - 添加日收盘价）× 持有数量，
         # 与前端 addedReturnAmount 同口径；三要素缺一则无意义
@@ -433,12 +465,22 @@ def _user_sort_metric(row: dict, sort_by: str):
 def _apply_user_sort(data: list, sort_by, sort_order):
     """用户列内排序（#991）。
 
-    - 白名单外/未指定：维持原顺序（置顶优先 + 更新时间倒序）；
+    - 未指定 sort_by：维持原顺序（置顶优先 + 更新时间倒序）；
+    - 白名单外 sort_by：维持原顺序返回，但明确告警（#1331 消除「点击无反应」式静默失败），
+      便于后续新增可排序列漏登记白名单时第一时间暴露，而非毫无提示；
     - 排序稳定且置顶行仍前置：用户排序只改变同优先级内的次序，
       不破坏「置顶恒在顶部」的既有心智；
     - 值缺失（None）的行无论升降序都排在末尾，避免空值干扰阅读。
     """
-    if not sort_by or sort_by not in _USER_SORTABLE_FIELDS and sort_by != 'added_return':
+    if not sort_by:
+        return data
+    # 白名单外字段（含前端标了排序但后端未开放）：原序返回 + 告警，避免静默失效
+    if sort_by not in _USER_SORTABLE_FIELDS and sort_by != 'added_return':
+        logger.warning(
+            'watchlist 排序忽略非白名单字段 sort_by={!r}（前端标了排序但后端未开放，'
+            '如确属可排序列请在 _USER_SORTABLE_FIELDS 登记）',
+            sort_by,
+        )
         return data
     reverse = sort_order == 'desc'
 

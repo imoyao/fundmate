@@ -15,6 +15,9 @@ class XirrRequest(BaseModel):
     scope: str = Field(..., description='查询范围: position / portfolio')
     position_id: Optional[int] = Field(None, description='持仓ID（scope=position时必填）')
     portfolio_id: Optional[int] = Field(None, description='投资组合ID（scope=portfolio时用于指定组合）')
+    include_cash_equivalents: bool = Field(
+        False, description='是否将货币基金/逆回购/现金等现金等价物纳入年化收益分母；默认 False=仅主动投资'
+    )
 
 
 class MoneyFundIncomeRequest(BaseModel):

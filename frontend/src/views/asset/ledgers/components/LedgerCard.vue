@@ -10,6 +10,8 @@ import { IconifyIconOffline } from "@/components/ReIcon";
  */
 defineProps<{
   ledger: any;
+  /** 持仓快照一致性待核对项数（#1133 §4 温柔提醒）：>0 时显示中性色角标，绝不阻断操作 */
+  staleCount?: number;
 }>();
 
 const emit = defineEmits<{
@@ -74,6 +76,20 @@ const emit = defineEmits<{
           {{ ledger.name }}
         </span>
         <AssetTypeBadge :type="ledger.ledger_type" />
+        <!-- 温柔提醒角标（#1133 §4）：中性信息色，不红不阻断；hover 提示建议核对 -->
+        <el-tooltip
+          v-if="(staleCount ?? 0) > 0"
+          content="持仓记录可能滞后，建议核对一下"
+          placement="top"
+          effect="light"
+        >
+          <span class="ledger-stale-badge" role="img" aria-label="持仓可能滞后">
+            <IconifyIconOffline
+              icon="ep:clock"
+              class="ledger-stale-badge__icon"
+            />
+          </span>
+        </el-tooltip>
       </div>
       <!-- 行内操作组：归档/激活 + 删除，作为整体靠右且彼此紧挨（text 图标按钮，统一轻盈风格） -->
       <div class="ledger-row-actions">
@@ -413,6 +429,22 @@ const emit = defineEmits<{
 
 .ledger-card.is-archived:hover {
   opacity: 0.85;
+}
+
+/* 温柔提醒角标（#1133 §4）：中性信息色（非涨跌色 / 非危险红），轻量、不制造心理压力 */
+.ledger-stale-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  color: var(--el-color-info);
+  background: var(--el-color-info-light-9);
+  border-radius: var(--radius-pill);
+}
+
+.ledger-stale-badge__icon {
+  font-size: 13px;
 }
 
 .ledger-card__archived {

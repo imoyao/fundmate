@@ -9,6 +9,10 @@
         </p>
       </div>
       <div class="workbench-head__actions">
+        <el-button size="small" @click="recognizerVisible = true">
+          <IconifyIconOffline icon="ep:magic-stick" class="mr-1" />
+          AI 识别
+        </el-button>
         <el-button
           size="small"
           type="primary"
@@ -159,6 +163,56 @@
 
             <!-- 域 A：E账户对账（P2 迁入工作台，复用既有 /api/e-account/ 链路） -->
             <template v-else-if="tab.key === 'A'">
+              <!-- 识别候选（holding → 域 A，#1252）：AI 识别结果落草稿，确认后入库并刷新域 A 对账 -->
+              <div
+                v-if="holdingCandidates.length"
+                class="recognizer-candidate-panel"
+              >
+                <div class="recognizer-candidate-panel__head">
+                  <span class="recognizer-candidate-panel__title">
+                    AI 识别候选（持仓）· {{ holdingCandidates.length }} 条
+                  </span>
+                  <div class="recognizer-candidate-panel__actions">
+                    <el-button size="small" text @click="discardCandidates"
+                      >丢弃</el-button
+                    >
+                    <el-button
+                      size="small"
+                      type="primary"
+                      :loading="committing"
+                      @click="commitCandidates('holding')"
+                      >确认入库</el-button
+                    >
+                  </div>
+                </div>
+                <el-table
+                  :data="holdingCandidates"
+                  size="small"
+                  stripe
+                  class="disc-table"
+                >
+                  <el-table-column label="代码" prop="symbol" width="110" />
+                  <el-table-column label="名称" prop="name" min-width="120" />
+                  <el-table-column
+                    label="份额"
+                    prop="quantity"
+                    width="110"
+                    align="right"
+                  />
+                  <el-table-column
+                    label="成本"
+                    prop="price"
+                    width="100"
+                    align="right"
+                  />
+                  <el-table-column
+                    label="快照日"
+                    prop="snapshot_date"
+                    width="120"
+                  />
+                </el-table>
+              </div>
+
               <div class="domain-a-body">
                 <el-empty
                   v-if="!eLoading && eItems.length === 0"
@@ -229,6 +283,57 @@
 
             <!-- 域 C：占位内容 -->
             <template v-else>
+              <!-- 识别候选（txn → 域 C，#1251）：AI 识别结果落草稿，确认后入库并触发域 C 对账 -->
+              <div
+                v-if="txnCandidates.length"
+                class="recognizer-candidate-panel"
+              >
+                <div class="recognizer-candidate-panel__head">
+                  <span class="recognizer-candidate-panel__title">
+                    AI 识别候选（交易）· {{ txnCandidates.length }} 条
+                  </span>
+                  <div class="recognizer-candidate-panel__actions">
+                    <el-button size="small" text @click="discardCandidates"
+                      >丢弃</el-button
+                    >
+                    <el-button
+                      size="small"
+                      type="primary"
+                      :loading="committing"
+                      @click="commitCandidates('txn')"
+                      >确认入库</el-button
+                    >
+                  </div>
+                </div>
+                <el-table
+                  :data="txnCandidates"
+                  size="small"
+                  stripe
+                  class="disc-table"
+                >
+                  <el-table-column label="代码" prop="symbol" width="110" />
+                  <el-table-column label="名称" prop="name" min-width="120" />
+                  <el-table-column label="操作" width="90">
+                    <template #default="{ row }">
+                      {{ (row as any).op_type_label || row.op_type }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    label="数量"
+                    prop="quantity"
+                    width="100"
+                    align="right"
+                  />
+                  <el-table-column
+                    label="金额"
+                    prop="amount"
+                    width="110"
+                    align="right"
+                  />
+                  <el-table-column label="日期" prop="trade_date" width="120" />
+                </el-table>
+              </div>
+
               <div class="domain-placeholder">
                 <div class="domain-placeholder__status">
                   <span
@@ -341,6 +446,12 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <!-- AI 识别入口（P3 / #1250）：截图/文本识别 → 预览核对 → 确认进草稿 -->
+    <RecognizerImportModal
+      v-model="recognizerVisible"
+      @saved="onRecognizerSaved"
+    />
   </div>
 </template>
 
@@ -366,6 +477,13 @@ import {
   attributeEaccount,
   type ReconciliationItem
 } from "@/api/eaccount";
+import { confirmImport, confirmHoldingImport } from "@/api/importer";
+import type { OcrHoldingRow } from "@/api/ocr";
+import {
+  useReconDraft,
+  type RecognizerCandidate
+} from "@/composables/useReconDraft";
+import RecognizerImportModal from "@/components/QuickEntry/RecognizerImportModal.vue";
 
 defineOptions({ name: "ReconcileWorkbench" });
 
@@ -373,6 +491,12 @@ const router = useRouter();
 
 /** 当前激活域 */
 const activeDomain = ref<"A" | "B" | "C">("B");
+
+/** 识别候选草稿（P3-1 / #1250）：AI 识别结果落 recon-draft:recognizer，由工作台加载 */
+const { getRecognizerCandidates, clearRecognizerCandidates } = useReconDraft();
+const recognizerCandidates = ref<RecognizerCandidate[]>([]);
+const recognizerVisible = ref(false);
+const committing = ref(false);
 
 /** 差异数据 */
 const discs = ref<DiscrepancyItem[]>([]);
@@ -517,6 +641,73 @@ function formatDiff(diff: number | null): string {
 function diffClass(diff: number | null): string {
   if (!diff) return "disc-diff-zero";
   return diff > 0 ? "disc-diff-pos" : "disc-diff-neg";
+}
+
+/** 加载识别候选草稿（P3-1 / #1250）：AI 识别结果落 recon-draft:recognizer，跨页/刷新承接不丢 */
+async function loadRecognizerCandidates(): Promise<void> {
+  try {
+    recognizerCandidates.value = await getRecognizerCandidates();
+  } catch {
+    recognizerCandidates.value = [];
+  }
+}
+
+/** 域 C（txn 候选）/ 域 A（holding 候选）分别渲染 */
+const txnCandidates = computed(() =>
+  recognizerCandidates.value.filter(c => c.kind === "txn")
+);
+const holdingCandidates = computed(() =>
+  recognizerCandidates.value.filter(c => c.kind === "holding")
+);
+
+/** 确认入库（#1251 / #1252）：剥离 kind → 既有导入确认端点，再触发对应域对账 */
+async function commitCandidates(kind: "txn" | "holding"): Promise<void> {
+  const list = recognizerCandidates.value.filter(c => c.kind === kind);
+  if (list.length === 0) return;
+  committing.value = true;
+  try {
+    // 候选行即 OCR 预览行，剥离 kind 后原样回传确认端点（txn/hodling 各自落库管线）
+    const rows = list.map(c => {
+      const { kind: _k, ...row } = c;
+      return row;
+    });
+    if (kind === "txn") {
+      const res = await confirmImport(rows);
+      ElMessage.success(
+        `已入库 ${res?.data?.imported ?? rows.length} 条交易，已触发域 C 对账`
+      );
+    } else {
+      const res = await confirmHoldingImport(rows as OcrHoldingRow[]);
+      ElMessage.success(
+        `已入库 ${res?.data?.imported ?? rows.length} 条持仓，已刷新域 A 对账`
+      );
+    }
+    await clearRecognizerCandidates(kind);
+    await loadRecognizerCandidates();
+    if (kind === "txn") {
+      await runReconciliation("C");
+    } else {
+      await loadEAccount();
+    }
+    await loadDiscrepancies();
+  } catch (e: unknown) {
+    const err = e as { response?: { data?: { message?: string } } };
+    ElMessage.error(err.response?.data?.message || "入库失败");
+  } finally {
+    committing.value = false;
+  }
+}
+
+/** 丢弃识别草稿 */
+async function discardCandidates(): Promise<void> {
+  await clearRecognizerCandidates();
+  await loadRecognizerCandidates();
+  ElMessage.info("已丢弃识别草稿");
+}
+
+/** 识别入口弹窗保存后刷新候选列表 */
+async function onRecognizerSaved(): Promise<void> {
+  await loadRecognizerCandidates();
 }
 
 /** 加载差异列表 */
@@ -707,6 +898,7 @@ function focusFirstPendingDomain(): void {
 onMounted(() => {
   loadDiscrepancies();
   loadEAccount();
+  loadRecognizerCandidates();
 });
 </script>
 
@@ -915,5 +1107,34 @@ onMounted(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+/* 识别候选面板（#1250 / P3-1）：AI 识别结果落草稿后在三域 Tab 顶部展示，确认后入库并触发对账 */
+.recognizer-candidate-panel {
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  background: color-mix(in srgb, var(--brand-100) 35%, var(--bg-card));
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+}
+
+.recognizer-candidate-panel__head {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.recognizer-candidate-panel__title {
+  font-size: var(--text-small);
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.recognizer-candidate-panel__actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 </style>

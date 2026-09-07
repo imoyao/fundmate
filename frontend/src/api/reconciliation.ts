@@ -106,3 +106,33 @@ export function applyAdjustment(
     { data: payload }
   );
 }
+
+/** 账户持仓快照一致性项（GET /api/reconciliation/ledger-consistency/ 元素，#1133 §4 温柔提醒数据源） */
+export interface LedgerConsistencyItem {
+  ledger_id: number | null;
+  symbol: string;
+  name: string | null;
+  /** 持仓快照日期（YYYY-MM-DD） */
+  snapshot_date: string;
+  /** 最近一笔流水日期（YYYY-MM-DD），无流水为 null */
+  last_txn_date: string | null;
+  /** 截至快照日应有份额（可读单位） */
+  expected_qty: number;
+  /** 当前实际份额（可读单位） */
+  actual_qty: number;
+  /** 差额 = 实际 − 应有（可读单位） */
+  diff_qty: number;
+}
+
+/** 获取账户持仓快照一致性（只读、按需检查；不写 discrepancies 表） */
+export function getLedgerConsistency(
+  ledgerId?: number
+): Promise<ApiResponse<{ items: LedgerConsistencyItem[] }>> {
+  return http.get<
+    ApiResponse<{ items: LedgerConsistencyItem[] }>,
+    { ledger_id?: number }
+  >(
+    "/reconciliation/ledger-consistency/",
+    ledgerId != null ? { params: { ledger_id: ledgerId } } : undefined
+  );
+}

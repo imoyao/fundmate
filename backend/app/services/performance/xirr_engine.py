@@ -153,6 +153,7 @@ def generate_cashflows(
     transactions: list[Transaction],
     current_value: float = 0.0,
     end_date: Optional[dt.date] = None,
+    include_cash_equivalents: bool = False,
 ) -> List[Tuple[dt.date, float]]:
     """
     从交易记录生成 XIRR 所需的现金流列表。
@@ -195,7 +196,7 @@ def generate_cashflows(
         if txn_date is None:
             continue
         txn_asset_type = getattr(txn, 'asset_type', None)
-        if txn_asset_type in EXCLUDED_ASSET_TYPES:
+        if not include_cash_equivalents and txn_asset_type in EXCLUDED_ASSET_TYPES:
             continue
 
         # 金额处理
@@ -266,6 +267,7 @@ def generate_portfolio_cashflows(
     current_value: float = 0.0,
     end_date: Optional[dt.date] = None,
     family_id: int = 1,
+    include_cash_equivalents: bool = False,
 ) -> List[Tuple[dt.date, float]]:
     """为指定投资组合生成 XIRR 现金流列表，过滤内部划转与非投资资产。"""
     if end_date is None:
@@ -318,7 +320,7 @@ def generate_portfolio_cashflows(
         if txn_date is None:
             continue
 
-        if getattr(txn, 'asset_type', None) in EXCLUDED_ASSET_TYPES:
+        if not include_cash_equivalents and getattr(txn, 'asset_type', None) in EXCLUDED_ASSET_TYPES:
             continue
 
         amount = getattr(txn, 'amount', None)

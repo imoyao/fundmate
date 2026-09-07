@@ -62,6 +62,29 @@ ASSET_CATEGORY_LABELS: dict[str, str] = {
     'wealth_insurance': '理财型保险',
 }
 
+# ── 投资理财的细分子类（#1354 大类收敛）──
+# 历史背景：银行理财 / 投顾 / 信托 / 私募 / 理财型保险 曾被建成与「投资理财」平级的
+# major_category，但它们本质同属投资理财，副作用有三：
+#   1. 盘点页大类标签栏从 6 个膨胀到 11 个；
+#   2. 这 5 类从未配置任何子类型入口，点进去「快捷操作」为空，是纯占位；
+#   3. 资产分布 / 大类汇总里各成一档，把本该合并的投资理财拆得七零八落。
+# 收敛口径（兼容存量，不做数据迁移）：
+#   - 写入侧：新的细分走 minor_category，major_category 统一为 investment；
+#   - 读取侧：normalize_major_category() 把历史 5 类归一为 investment，
+#     聚合 / 展示自动合并，存量数据零迁移、零丢失。
+# 注意：ASSET_CATEGORY_LABELS 仍保留这 5 个键，供存量明细的标签回退使用，
+# 禁止在「大类」维度新增同类细分。
+# 投资理财细分子类的标签直接复用 ASSET_CATEGORY_LABELS，避免两处标签漂移
+# （历史上这 5 个键本就是 ASSET_CATEGORY_LABELS 的「投资理财」平级大类，收敛后
+# 作为 minor_category 的键 + 标签来源）。
+INVESTMENT_MINOR_CATEGORIES: dict[str, str] = {
+    k: ASSET_CATEGORY_LABELS[k] for k in ('bank_wealth', 'advisory', 'trust', 'private_fund', 'wealth_insurance')
+}
+
+# 「投资理财」在盘点 / 汇总口径下包含的全部 major_category 取值（含历史细分类）。
+# 用 .keys() 显式展开字典键，可读性优于 *dict 解包（#1355 AI review）。
+INVESTMENT_CATEGORIES: frozenset[str] = frozenset(INVESTMENT_MINOR_CATEGORIES.keys()) | {'investment'}
+
 # ── 不参与投资收益 / 资产配置口径计算的资产类型 ──
 EXCLUDED_ASSET_TYPES: tuple[str, ...] = ('money_fund', 'reverse_repo', 'cash')
 
@@ -81,3 +104,21 @@ def get_asset_category_label(major_category: str | None) -> str:
     if not major_category:
         return ''
     return ASSET_CATEGORY_LABELS.get(major_category, major_category)
+
+
+def normalize_major_category(major_category: str | None) -> str | None:
+    """把历史上的「投资理财细分大类」归一为 investment，其余原样返回。
+
+    仅用于聚合 / 筛选口径（盘点页大类、资产分布、大类汇总）；明细展示仍用原始
+    major_category，保证存量数据可追溯。
+    """
+    if major_category in INVESTMENT_MINOR_CATEGORIES:
+        return 'investment'
+    return major_category
+
+
+def get_investment_minor_label(minor_category: str | None) -> str:
+    """投资理财细分子类 → 中文标签；空值返回空串，未知值原样返回。"""
+    if not minor_category:
+        return ''
+    return INVESTMENT_MINOR_CATEGORIES.get(minor_category, minor_category)

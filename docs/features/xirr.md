@@ -54,7 +54,7 @@ title: 多多贝 P1-10 开发决策文档（v1.3 最终版）
 
 ### 2.3 架构约束
 
-1. 货币基金/逆回购的交易会记录在 `transactions` 表中，但不创建持仓。
+1. 货币基金/逆回购的交易**会创建持仓**（#863 口径 A「持仓优先」：写入层互斥 + 持仓承载展示，孤儿流水仅用于无持仓表达的账户形态如类现金绑定/导入路径）；其流水同时记录在 `transactions` 表。收益计算仍按 `asset_type NOT IN ('money_fund','reverse_repo','cash')` 排除（见 §3 决策 4），后续将扩展为「排除覆盖层 + per-asset 软开关」，详见 `docs/working-notes/cash-equivalent-classification-design-2026-09-07.md`。
 2. 所有服务层目录保持统一风格：`app/services/{功能域}/`。
 3. 外部调用方只能访问 `__init__.py` 导出的接口，不感知内部文件划分。
 

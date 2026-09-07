@@ -30,6 +30,7 @@
   --text-secondary: #6b655c; /* 🆕 暖灰（原 #666666） */
   --text-tertiary: #8c8478; /* 🆕 暖灰加深（原 #999999） */
   --text-disabled: #c9c2b8; /* 🆕 暖灰（原 #CCCCCC） */
+  --text-inverse: #ffffff; /* 反色文字：用于品牌色/深色背景上的白字 */
 
   /* ===== 边框与分割线（原有） ===== */
   --border-default: #e5ddd4; /* 🆕 暖边框（原 #E5E7EB） */

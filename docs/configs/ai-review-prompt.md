@@ -28,7 +28,7 @@
 **后端（Python / APIFlask）**
 - 金额/份额/净值：业务代码**禁止**直接 `*100`/`/100` 或裸 `float` 运算；换算必须走 `core/money.py` 的 `Money`（`yuan_to_cents` / `shares_to_min_unit`）；净值用 `DECIMAL(18,6)`。
 - `Money` 仅用于**业务层的金额/份额换算**；**数据库列仍是 `Integer`** 存储（金额按「分」、份额按「0.0001 份/单位」存整数，见 `Position.quantity`/`avg_price`/`current_price`、`Asset.amount` 均为 `Column(Integer)`）。**不要**建议把 Integer 列或测试用例的 fixture 值改为 `Money` 类型——审查前先核对 SQLAlchemy 模型的 `Column` 定义，仅对「裸 float 金额运算」提意见。
-- 日志：统一 `from loguru import logger`；**禁止**新增 `import logging` + `logging.getLogger`（唯一例外 `app/__init__.py` 的 `InterceptHandler`）。
+- 日志：统一 `from loguru import logger`；**禁止**新增 `import logging` + `logging.getLogger`（唯一例外 `app/__init__.py` 的 `InterceptHandler`）。loguru **必须**用 `{}` 占位符（`logger.warning('... {} ...', x)`）；`%s` / `%d` 等 `%`-style 占位符**不会被替换**，参数被静默丢弃、日志里只剩字面量 `%s`，见到即以 [次要] 提出并给出 `{}` 写法。
 - API 错误统一 `{data, message, error_code}` 信封；端点尾斜杠约定（`/api/temperature/{overview,history,multi}` 无尾斜杠，其余有）。
 - **禁止**新增 `backend.fundmate` 引用（V1 已退役）；`backend/pyproject.toml` 项目名 `showbuy` 是历史遗留，勿据此判断归属。
 - 测试：用 `tests/conftest.py` 夹具，**禁止**直接导入 `SessionLocal`；`pypinyin` 必须延迟导入。
@@ -71,6 +71,21 @@
 - **删除列 / 属性 / 事件处理器 / Props**：移除字段、props、事件处理器或 UI 元素是**常见重构**；若 diff 显示其已被对应替换或不再被任何调用方引用，**不要**以「可能是破坏性变更」为由阻止；只有确能证明仍有调用方依赖该符号（且未被同步修改）时，才按真实破坏风险定级。
 - **文档路径引用**：引用文档/规范路径前先确认文件真实存在（如 `docs/configs/`、`docs/spec/`），**不要**混淆路径或断言某文件「不存在/应移动到别处」；不确定时指明「请核对路径」而非断言错误。
 - **注释/代码中的日期与年份**：**不要**基于模型自身的年份假设去质疑代码、注释或文档里的日期（如 `2026-09-05`）；以 CI 运行实际时间 / 仓库当前时间为准。除非日期明显格式非法（如 `2026-13-40`）或与上下文自相矛盾，否则一律忽略，不得据此要求「更正笔误」。
+
+- **「符号 / 字段未定义」类误报（重点，PR #1344 高频）**：AI 审查默认只看到 diff 片段，极易把「本文件其他位置已定义」或「从导入模块引入」的符号误判为「未定义 / 未在代码中找到定义」。下列情形**严禁**作为 [主要]/[阻断] 问题提出，除非能确证该符号在全仓库（含 `import`）确实不存在：
+  - 判定「X 未定义」前，必须先核对：X 是否在同一文件其他函数 / 顶部已定义？是否经 `from ... import X` 引入（含 `app.core.constants`、`app.core.db_factory`、`app.domains.*` 等项目内模块）？是否在被调函数的入参 / 返回契约里？若只是本次 diff 未展示其定义，**不要**据此提问题，**更不得**在 suggestion 中给出 `null` 替换——那会将正常字段置为 `null`，直接破坏代码，属错误建议。 # added
+  - 本仓库高频误报样例：`TYPE_LABELS`（来自 `app.core.constants`）、`_user_sort_metric` / `_enrich_item` / `_build_holding_row` / `_compute_holding_stats` 等本文件内函数，以及 `holding_cost_price` / `type_label` / `updated_at` / `groups` / `change_pct` / `position_market_value` 等 enrich 阶段下发、且列入 `_USER_SORTABLE_FIELDS` 白名单的字段——它们都已定义 / 已下发，不要以「未定义其含义 / 来源 / 计算方式」为由提问题。若只想补文档，至多 [次要] 且须注明「该字段已在 X 处定义」。
+  - 注释 / 提交信息里引用的 issue 编号（如 `#993` / `#1085` / `#1171`）是正常跨引用，**不要**当作「引用错误 / 未定义」提问题。
+- **「前端改动未确认后端支持」类误报（PR #1344）**：审查前端 diff 时，若改动依赖后端字段 / 端点（例如 `sortable:"custom"` 透传后端排序、`realtimeField` 实时字段、`columnDefs` 与后端白名单对应），**不要**仅凭前端片段就断言「后端不支持 / 未确认后端支持」并建议「先确保后端支持」或「移除该属性」。正确做法：若 checkout 内含后端代码则核对后端是否支持；若无法核对，应作为「待人工确认」的 [次要] 备注，而非 [主要]/[阻断]，且不得建议删除前端已正确接入的逻辑。
+- **「测试未用 db 夹具 / 缺逻辑 / 断言不全」类误报（PR #1344）**：
+  - 直接构造输入、调用被测函数 / 纯函数的**单测**（如 `_apply_user_sort` 等纯函数测试）**不需要** `db` 夹具；不要以「测试函数未使用夹具提供的数据库」为由提问题。 # added
+  - 不要凭空判定「测试函数未包含必要的测试逻辑」——若测试已通过 `client` 创建真实数据并断言了有意义输出，即视为有逻辑；仅当确证测试**完全没有任何断言**或断言与标题无关时才提 [次要]。
+  - 不要要求「断言必须覆盖所有返回值 / 含 None 等情况」——单测覆盖核心路径即可；仅当确证遗漏了会掩盖真实回归的关键分支时才以 [次要] 提出。
+
+- **自有 `PureHttp` 封装的泛型参数（PR #1353 高频）**：`frontend/src/utils/http/index.ts` 的 `PureHttp` 是**项目自有封装**，签名为 `get<T, P>(url, params?: AxiosRequestConfig<P>, config?)` / `post<T, P>(...)`；**第二泛型 `P` 是 `AxiosRequestConfig<P>` 的 `data` 类型参数，不是返回类型**。**不要**按 axios 原生 `axios.get<T, R>` 去断言「第二泛型是响应类型、会导致类型推断错误甚至编译失败」，也**不要**建议「去掉第二个泛型参数」——现有写法可正常编译。仅当确证 `P` 与实际传入对象结构明显冲突时才以 [次要] 提出。
+- **API 路径尾斜杠（PR #1353）**：前端请求路径必须与后端 `@bp.route` / `@bp.get` / `@bp.post` 定义**逐字一致**。后端路由规则不带尾斜杠（如 `@importers_bp.post('/holdings/confirm')`）时，Flask `strict_slashes` 下前端补尾斜杠会直接 **404**。**不要**以「项目约定统一带尾斜杠」为由建议前端补尾斜杠；提之前先核对后端路由定义，不确定就写「请核对后端路由」而非断言。
+- **`NotRequired` / PEP 655（PR #1353）**：后端 `backend/pyproject.toml` 为 `requires-python = ">=3.12"`，`typing.NotRequired` 原生可用。**不要**以「需要 Python 3.11+ / 建议改用 `total=False` + `Required`」为由提问题。
+- **只读端点越权（IDOR）类误报（PR #1353）**：判定「传入 `ledger_id` 未校验归属 → 可越权读他人数据」前，**必须先读 service 层**是否已按 `family_id` 过滤（例：`get_ledger_snapshot_consistency` 内 `Position.family_id == family_id` 与 `Transaction.family_id == family_id`）。已按 family 过滤即**不得**提 [主要]/[阻断]；仅当确证 service 层未做 family 过滤时才按真实风险定级。
 
 ## 输出语言（重要）
 

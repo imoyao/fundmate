@@ -176,6 +176,14 @@ const renderMoney: FunctionalComponent<{
   def: ColumnDef;
   ctx: RenderCtx;
 }> = props => {
+  const raw = field(props.row, props.def.key);
+  if (props.def.props?.nullable && (raw === null || raw === undefined)) {
+    return h(
+      "span",
+      { class: "text-sm", style: { color: "var(--text-tertiary)" } },
+      "--"
+    );
+  }
   const { staticVal, realtimeVal, useRealtime } = resolveValue(
     props.row,
     props.def,

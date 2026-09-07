@@ -10,6 +10,7 @@ from typing import Any, Type
 
 from sqlalchemy import func, or_
 
+from app.core.asset_types import normalize_major_category
 from app.core.constants import (
     ALLOCATION_LABELS,
     CATEGORY_META,
@@ -451,7 +452,8 @@ def get_distributions(db: Session, family_id: int = 1) -> dict[str, Any]:
             liability_map[a.name or '其他负债'] += amount
         else:
             total_assets += amount
-            label = CATEGORY_META.get(a.major_category, (_UNKNOWN_TYPE, None))[0]
+            # #1354：银行理财/投顾/信托/私募/理财型保险归一到「投资理财」，不再各成一档
+            label = CATEGORY_META.get(normalize_major_category(a.major_category), (_UNKNOWN_TYPE, None))[0]
             category_map[label] += amount
     # 持仓市值归大类：普通持仓入「投资理财」，货基/逆回购入「流动资金」（#863 口径 A）
     category_map[_INVESTMENT_LABEL] += positions_total_mv - cash_equiv_total
@@ -564,8 +566,8 @@ def _asset_group_payload(a: Asset) -> dict[str, Any]:
     return {
         'id': a.id,
         'name': a.name,
-        'asset_type': a.major_category,
-        'type_label': CATEGORY_META.get(a.major_category, (_UNKNOWN_TYPE, None))[0],
+        'asset_type': normalize_major_category(a.major_category),
+        'type_label': CATEGORY_META.get(normalize_major_category(a.major_category), (_UNKNOWN_TYPE, None))[0],
         'account_name': a.account_name,
         'market_value': round(Money.cents_to_yuan(a.amount), 2),
         'pnl': 0.0,
