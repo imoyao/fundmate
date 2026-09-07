@@ -54,6 +54,7 @@
             class="w-full"
             clearable
             placeholder="可不选，如银行理财、信托、私募等"
+            @clear="onMinorCleared"
           >
             <el-option
               v-for="opt in INVESTMENT_MINOR_CATEGORIES"
@@ -283,6 +284,18 @@ function onMajorCategoryChanged(value: string) {
   if (value !== "investment") form.minor_category = null;
 }
 
+/** 投资细分子类清空时显式重置为 null，与字段类型 string | null 保持一致（#1355 AI review） */
+function onMinorCleared() {
+  form.minor_category = null;
+}
+
+/** 校验值是否属于投资理财细分子类，拦截 URL / 篡改传入的非法值（#1355 AI review） */
+function isValidMinorCategory(value: string | undefined): value is string {
+  return (
+    !!value && INVESTMENT_MINOR_CATEGORIES.some(opt => opt.value === value)
+  );
+}
+
 // 选择账户后自动填充 account_name（快照用）
 function onLedgerSelected(ledgerId: number | undefined) {
   if (ledgerId == null) return;
@@ -420,9 +433,13 @@ onMounted(() => {
   if (category) {
     form.major_category = category;
   }
-  const minor = route.query.minor as string;
-  if (minor && form.major_category === "investment") {
-    form.minor_category = minor;
+  // route.query.minor 可能因重复参数变为数组，且值需属于细分子类枚举，否则忽略（#1355 AI review）
+  const rawMinor = route.query.minor;
+  const minorVal = (Array.isArray(rawMinor) ? rawMinor[0] : rawMinor)
+    ?.toString()
+    .trim();
+  if (form.major_category === "investment" && isValidMinorCategory(minorVal)) {
+    form.minor_category = minorVal;
   }
 });
 </script>

@@ -14,7 +14,8 @@ from app.core.asset_types import (
     normalize_major_category,
 )
 
-ALL_INVESTMENT_KEYS = 'investment,bank_wealth,advisory,trust,private_fund,wealth_insurance'
+# 由常量生成，避免与 INVESTMENT_CATEGORIES 手工重复维护（#1355 AI review）
+ALL_INVESTMENT_KEYS = ','.join(INVESTMENT_CATEGORIES)
 
 
 class TestNormalizeMajorCategory:
@@ -41,13 +42,35 @@ class TestNormalizeMajorCategory:
 class TestAssetListMultiMajorCategory:
     def test_filter_by_comma_separated_major_category(self, client):
         client.post('/api/assets/', json={'major_category': 'investment', 'name': '定期', 'amount': 100})
+        # 存量历史数据：直接写了平级大类 bank_wealth（未被迁移），查询时仍应被 investment 筛选命中
         client.post('/api/assets/', json={'major_category': 'bank_wealth', 'name': '银行理财', 'amount': 200})
         client.post('/api/assets/', json={'major_category': 'cash', 'name': '活期', 'amount': 50})
 
         resp = client.get('/api/assets/', query_string={'major_category': ALL_INVESTMENT_KEYS})
         assert resp.status_code == 200
-        names = {a['name'] for a in resp.get_json()['data']}
+        data = resp.get_json()['data']
+        names = {a['name'] for a in data}
         assert names == {'定期', '银行理财'}
+
+    def test_new_record_writes_investment_major_with_minor(self, client):
+        """新增记录写入收敛：投资理财细分走 minor_category，major_category 统一 investment。
+
+        注意：列表明细展示保留写入时的 major_category（存量可追溯），故此处断言写入后即
+        investment，而非在 list 响应里被归一（归一只发生在聚合 / 汇总口径，见
+        TestSummaryMergesInvestment / TestDistributionsMergesInvestment）。
+        """
+        resp = client.post(
+            '/api/assets/',
+            json={'major_category': 'investment', 'minor_category': 'bank_wealth', 'name': '某银行理财', 'amount': 100},
+        )
+        assert resp.status_code == 200
+        body = resp.get_json()['data']
+        assert body['major_category'] == 'investment'
+        assert body['minor_category'] == 'bank_wealth'
+
+        list_resp = client.get('/api/assets/', query_string={'major_category': 'investment'})
+        listed = [a for a in list_resp.get_json()['data'] if a['name'] == '某银行理财']
+        assert listed and listed[0]['major_category'] == 'investment'
 
     def test_single_major_category_still_works(self, client):
         client.post('/api/assets/', json={'major_category': 'cash', 'name': '活期', 'amount': 50})

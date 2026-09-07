@@ -98,15 +98,21 @@ export const MAJOR_CATEGORY_LABELS: Record<string, string> = {
   wealth_insurance: "理财型保险"
 };
 
-/** 可选的大类（6 个主类）。盘点页标签栏与录入表单的下拉都以它为准。 */
-export const MAJOR_CATEGORY_OPTIONS = [
-  { value: "investment", label: "投资理财" },
-  { value: "cash", label: "流动资金" },
-  { value: "fixed", label: "固定资产" },
-  { value: "liability", label: "负债" },
-  { value: "receivable", label: "应收款" },
-  { value: "insurance", label: "保险项目" }
+/** 可选的大类（6 个主类）。盘点页标签栏与录入表单的下拉都以它为准。
+ * label 从 MAJOR_CATEGORY_LABELS 派生，避免两处重复维护导致漂移（#1355 AI review）。 */
+const MAJOR_CATEGORY_ORDER = [
+  "investment",
+  "cash",
+  "fixed",
+  "liability",
+  "receivable",
+  "insurance"
 ] as const;
+
+export const MAJOR_CATEGORY_OPTIONS = MAJOR_CATEGORY_ORDER.map(value => ({
+  value,
+  label: MAJOR_CATEGORY_LABELS[value]
+}));
 
 /** 投资理财下的细分子类（写 minor_category；与后端 INVESTMENT_MINOR_CATEGORIES 对齐） */
 export const INVESTMENT_MINOR_CATEGORIES = [
@@ -117,11 +123,23 @@ export const INVESTMENT_MINOR_CATEGORIES = [
   { value: "wealth_insurance", label: "理财型保险" }
 ] as const;
 
+/** 历史细分大类（曾作为平级 major_category，#1354 收敛后为存量兼容的查询键）。
+ * 与 INVESTMENT_MINOR_CATEGORIES 的值当前相同但语义不同：此处是「查询口径的
+ * major_category 取值」，后者是「写入口径的 minor_category 取值」，故单独维护，
+ * 避免 minor 维度新增非历史 major 的细分类时两维耦合出错（#1355 AI review）。 */
+export const INVESTMENT_LEGACY_MAJOR_KEYS = [
+  "bank_wealth",
+  "advisory",
+  "trust",
+  "private_fund",
+  "wealth_insurance"
+] as const;
+
 /** 「投资理财」在查询口径下包含的全部 major_category（含历史细分类），
  * 逗号分隔直接传给后端 major_category 多值过滤（#1354）。 */
 export const INVESTMENT_MAJOR_KEYS = [
   "investment",
-  ...INVESTMENT_MINOR_CATEGORIES.map(i => i.value)
+  ...INVESTMENT_LEGACY_MAJOR_KEYS
 ].join(",");
 
 export function majorCategoryLabel(key: string): string {

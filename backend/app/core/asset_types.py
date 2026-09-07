@@ -74,16 +74,16 @@ ASSET_CATEGORY_LABELS: dict[str, str] = {
 #     聚合 / 展示自动合并，存量数据零迁移、零丢失。
 # 注意：ASSET_CATEGORY_LABELS 仍保留这 5 个键，供存量明细的标签回退使用，
 # 禁止在「大类」维度新增同类细分。
+# 投资理财细分子类的标签直接复用 ASSET_CATEGORY_LABELS，避免两处标签漂移
+# （历史上这 5 个键本就是 ASSET_CATEGORY_LABELS 的「投资理财」平级大类，收敛后
+# 作为 minor_category 的键 + 标签来源）。
 INVESTMENT_MINOR_CATEGORIES: dict[str, str] = {
-    'bank_wealth': '银行理财',
-    'advisory': '投顾',
-    'trust': '信托',
-    'private_fund': '私募',
-    'wealth_insurance': '理财型保险',
+    k: ASSET_CATEGORY_LABELS[k] for k in ('bank_wealth', 'advisory', 'trust', 'private_fund', 'wealth_insurance')
 }
 
-# 「投资理财」在盘点 / 汇总口径下包含的全部 major_category 取值（含历史细分类）
-INVESTMENT_CATEGORIES: frozenset[str] = frozenset({'investment', *INVESTMENT_MINOR_CATEGORIES})
+# 「投资理财」在盘点 / 汇总口径下包含的全部 major_category 取值（含历史细分类）。
+# 用 .keys() 显式展开字典键，可读性优于 *dict 解包（#1355 AI review）。
+INVESTMENT_CATEGORIES: frozenset[str] = frozenset(INVESTMENT_MINOR_CATEGORIES.keys()) | {'investment'}
 
 # ── 不参与投资收益 / 资产配置口径计算的资产类型 ──
 EXCLUDED_ASSET_TYPES: tuple[str, ...] = ('money_fund', 'reverse_repo', 'cash')

@@ -9,7 +9,7 @@ from apiflask import APIBlueprint
 from flask import abort, jsonify, request
 from sqlalchemy import func
 
-from app.core.asset_types import normalize_major_category
+from app.core.asset_types import INVESTMENT_MINOR_CATEGORIES, normalize_major_category
 from app.core.auth import get_family_id, get_owned_or_404
 from app.core.constants import ALLOCATION_LABELS, ASSET_CATEGORY_LABELS
 from app.core.database import get_db
@@ -21,6 +21,11 @@ from app.domains.assets.schemas import AssetCreate, AssetOut, AssetUpdate
 from app.domains.ledgers.models import Ledger
 
 bp = APIBlueprint('assets', __name__, url_prefix='/api/assets')
+
+
+def _parse_csv_filter(value: str) -> list[str]:
+    """把逗号分隔的多值过滤参数解析为去空白后的非空列表（major/minor 共用）。"""
+    return [m.strip() for m in value.split(',') if m.strip()]
 
 
 def _enrich_asset_dict(asset: Asset) -> dict:
@@ -47,14 +52,18 @@ def list_assets():
         query = query.filter(Asset.family_id == get_family_id())
 
         # #1354：支持逗号分隔多值。盘点页「投资理财」需一次取回 investment 及其
-        # 历史细分子类（bank_wealth/advisory/trust/private_fund/wealth_insurance）。
-        major_list = [m.strip() for m in major.split(',') if m.strip()]
+        # 历史细分子类（bank_wealth/advisory/trust/private_fund/wealth_insurance）；
+        # 仅传 investment 时自动展开为全部子类键，统一「写入收敛 + 读取归一」口径
+        # （前端既可能传完整逗号列表，也可能只传 investment，两种都要能命中）。
+        major_list = _parse_csv_filter(major)
+        if 'investment' in major_list:
+            major_list = major_list + [k for k in INVESTMENT_MINOR_CATEGORIES if k not in major_list]
         if len(major_list) == 1:
             query = query.filter(Asset.major_category == major_list[0])
         elif major_list:
             query = query.filter(Asset.major_category.in_(major_list))
 
-        minor_list = [m.strip() for m in minor.split(',') if m.strip()]
+        minor_list = _parse_csv_filter(minor)
         if len(minor_list) == 1:
             query = query.filter(Asset.minor_category == minor_list[0])
         elif minor_list:

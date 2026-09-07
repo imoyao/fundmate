@@ -86,6 +86,18 @@ def rollback(cur, suffix):
     return restored
 
 
+def _detect_latest_backup_suffix(cur) -> str | None:
+    """从 sqlite_master 探测最近的 name_repair_backup 后缀（取日期字符串最大值）。
+
+    备份表命名 ``<table>_name_repair_backup_<suffix>``，按 suffix 字典序（YYYYMMDD）取最大即最近。
+    """
+    rows = cur.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '%_name_repair_backup_%'"
+    ).fetchall()
+    suffixes = {r[0].rsplit('_name_repair_backup_', 1)[-1] for r in rows if '_name_repair_backup_' in r[0]}
+    return max(suffixes) if suffixes else None
+
+
 def main():
     parser = argparse.ArgumentParser(description='修复 account_name 快照与账户改名不同步（#1354）')
     parser.add_argument('--db', default=str(DEFAULT_DB), help='SQLite 库文件路径')
@@ -94,13 +106,29 @@ def main():
     parser.add_argument('--backup-suffix', default=date.today().strftime('%Y%m%d'), help='备份表后缀')
     args = parser.parse_args()
 
+    # #1355 AI review：--backup-suffix 会被拼入 CREATE TABLE / UPDATE 标识符，
+    # 含引号或分号可造成 SQL 注入 / 语法错误，用白名单校验（字母、数字、下划线、连字符）。
+    if not all(c.isalnum() or c in '_-' for c in args.backup_suffix):
+        parser.error('--backup-suffix 只能包含字母、数字、下划线或连字符')
+
+    # #1355 AI review：sqlite3.connect 在路径不存在时会新建空库，导致误报「无漂移」并跳过修复；
+    # 连接前先校验文件确实存在。
+    if not Path(args.db).is_file():
+        parser.error(f'数据库文件不存在: {args.db}')
+
     conn = sqlite3.connect(args.db)
     cur = conn.cursor()
 
     if args.rollback:
-        restored = rollback(cur, args.backup_suffix)
+        suffix = args.backup_suffix
+        # #1355 AI review：未显式指定 suffix 时，自动探测最近一次备份（避免隔天 rollback 找不到备份表）。
+        if suffix == date.today().strftime('%Y%m%d'):
+            detected = _detect_latest_backup_suffix(cur)
+            if detected:
+                suffix = detected
+        restored = rollback(cur, suffix)
         conn.commit()
-        print(f'[rollback] 已从备份（后缀 {args.backup_suffix}）还原：{restored}')
+        print(f'[rollback] 已从备份（后缀 {suffix}）还原：{restored}')
         conn.close()
         return
 
@@ -123,12 +151,17 @@ def main():
         conn.close()
         return
 
-    fixed = {}
+    # #1355 AI review：先建全部备份表 + 写入备份行，再统一执行修复 UPDATE，最后单次 commit。
+    # 避免「备份 DDL 隐式提交」导致前表 UPDATE 提前落库、后表失败时出现「部分修复」且无法整体回滚。
     backups = {}
     for table, rows in found.items():
         if not rows:
             continue
         backups[table] = ensure_backup(cur, table, rows, args.backup_suffix)
+    fixed = {}
+    for table, rows in found.items():
+        if not rows:
+            continue
         fixed[table] = apply_fix(cur, table, rows)
     conn.commit()
     print(f'[apply] 已修复：{fixed}')
