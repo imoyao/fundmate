@@ -1024,8 +1024,8 @@ onMounted(() => {
 /* 温柔提醒 banner（#1133 §4）：中性信息色，非涨跌色 / 非危险红；轻量、不制造心理压力 */
 .soft-reconcile-banner {
   display: flex;
-  align-items: flex-start;
   gap: 12px;
+  align-items: flex-start;
   padding: var(--space-3) var(--space-4);
   margin-bottom: var(--space-4);
   background: var(--bg-soft);
@@ -1033,31 +1033,36 @@ onMounted(() => {
   border-left: 3px solid var(--el-color-info);
   border-radius: var(--radius-md);
 }
+
 .soft-reconcile-banner__icon {
-  color: var(--el-color-info);
-  font-size: 18px;
-  margin-top: 2px;
   flex: none;
+  margin-top: 2px;
+  font-size: 18px;
+  color: var(--el-color-info);
 }
+
 .soft-reconcile-banner__body {
   flex: 1;
   min-width: 0;
 }
+
 .soft-reconcile-banner__title {
   margin: 0;
   font-size: 14px;
   line-height: 22px;
   color: var(--text-primary);
 }
+
 .soft-reconcile-banner__detail {
   margin: 4px 0 0;
   font-size: 12px;
   color: var(--text-tertiary);
 }
+
 .soft-reconcile-banner__actions {
   display: flex;
-  gap: 8px;
   flex: none;
+  gap: 8px;
   align-items: center;
 }
 

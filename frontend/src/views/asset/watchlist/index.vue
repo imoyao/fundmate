@@ -1078,8 +1078,8 @@ const renderCtx = computed<RenderCtx>(() => ({
      页面级横向滚动条（#1341）。放开后列宽溢出由 el-table 内部横向滚动承载。 */
   display: flex;
   flex-direction: column;
-  min-height: 0;
   min-width: 0;
+  min-height: 0;
 }
 
 /* 高密度列表页：取消全局 .main-content 的 48px 边距，避免上下白边吞掉表格行数。 */
@@ -1096,8 +1096,8 @@ const renderCtx = computed<RenderCtx>(() => ({
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
-  min-height: 0;
   min-width: 0;
+  min-height: 0;
 }
 
 .watchlist-card {
@@ -1109,9 +1109,10 @@ const renderCtx = computed<RenderCtx>(() => ({
      卡片随内容增高（flex-grow 仅在容器有空余时才作用，不会压缩真实行）。 */
   flex: 1 1 auto;
   flex-direction: column;
-  min-height: 0;
+
   /* 防止列宽溢出撑出页面横向滚动条（#1341） */
   min-width: 0;
+  min-height: 0;
   padding: var(--space-compact);
 }
 
@@ -1130,10 +1131,11 @@ const renderCtx = computed<RenderCtx>(() => ({
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
-  min-height: 0;
+
   /* 防止列宽溢出撑出页面横向滚动条（#1341）：el-table 是其 flex 子项，
      自身 min-width:0 见下方 :deep(.el-table)。 */
   min-width: 0;
+  min-height: 0;
 }
 
 /* 合规页脚贴底：位于 .watchlist-scroll（flex column）末尾，margin-top:auto 把空余
@@ -1154,6 +1156,8 @@ const renderCtx = computed<RenderCtx>(() => ({
    （el-table 不需要 flex 拉伸：空态文案已由 .watchlist-empty-overlay 覆盖层承载，
    见下；有数据时表格按内容高度自然展开，外层滚动接管。） */
 .watchlist-table-wrap :deep(.el-table) {
+  min-width: 0;
+
   /* 吸顶需要：overflow:visible 让表头 sticky 上溯到布局滚动容器（见上方长注释）。
      配套 min-width:0：el-table 是 .watchlist-table-wrap 的 flex 子项，默认 min-width:auto
      会被列总宽撑开、把整页顶出横向滚动条（#1341）。放开后 el-table 约束到容器宽度，
@@ -1161,7 +1165,6 @@ const renderCtx = computed<RenderCtx>(() => ({
      此约束是通用防护：今后新增可排序列（见 columnDefs.ts）只要总宽超视口，
      都只会在表格内出现横向滚动，不会再撑宽页面。 */
   overflow: visible;
-  min-width: 0;
 }
 
 .watchlist-table-wrap :deep(.el-table__header-wrapper) {
@@ -1364,15 +1367,15 @@ const renderCtx = computed<RenderCtx>(() => ({
 /* 底栏右侧：每页条数选择 + 翻页 成组右对齐 */
 .table-footer__right {
   display: flex;
-  align-items: center;
   gap: var(--space-3);
+  align-items: center;
 }
 
 /* 每页条数选择器（#1335）：与翻页器同高对齐，标签用次级/三级文字色 */
 .page-size-select {
   display: flex;
-  align-items: center;
   gap: 6px;
+  align-items: center;
 }
 
 .page-size-select__label {
