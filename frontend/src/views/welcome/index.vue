@@ -240,7 +240,7 @@
               </el-radio-group>
             </div>
             <RiseFallText
-              :value="portfolioXirr?.xirr ?? 0"
+              :value="(portfolioXirr?.xirr ?? 0) * 100"
               size="lg"
               :precision="2"
             />
