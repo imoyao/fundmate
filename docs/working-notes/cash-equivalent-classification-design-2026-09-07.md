@@ -103,7 +103,7 @@ def should_exclude_from_investment(position, as_of=None) -> bool:
 ## 9. 落地清单（代码改造，下一阶段）
 
 1. `Position` 加 `count_as_investment`（Boolean, nullable）+ `maturity_date`（Date, nullable，仅逆回购）。
-2. 写 `effective_count_as_investment` / `should_exclude_from_investment`，替换所有 `EXCLUDED` 硬编码消费点；删 `CASH_EQUIVALENT_ASSET_TYPES`。
+2. 写 `effective_count_as_investment` / `should_exclude_from_investment`，**分类 / 聚合层**消费点（饼图分桶、TNA、类现金统计、portfolio views）统一改调；**收益层（XIRR）的 `EXCLUDED_ASSET_TYPES` 硬隔离保留、不替换**（承接 §3.4 决策 #4：货基 / 逆回购无论 `count_as_investment` 如何都隔离在 INTEREST 桶，绝不混入 CAPITAL_GAIN 分母）。`CASH_EQUIVALENT_ASSET_TYPES` **保留**，仅用于现金等价物「识别」（`is_cash_equivalent_position` / `is_cash_equivalent_asset_type`，供分布 / 桑基图归桶），不删除。
 3. 重构饼图分桶改调统一函数。
 4. XIRR 引擎按 `INTEREST` 标签隔离货基 / 逆回购收益；分账户 / 分策略视角强制排除。
 5. 测试：TNA 不变量 + 默认行为 + 期限推导 + 分账户硬排除。
