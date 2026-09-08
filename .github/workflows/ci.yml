@@ -67,6 +67,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: 设置 Python 3.12
+        id: setup-python
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -84,8 +85,9 @@ jobs:
           path: |
             ~/.cache/pdm
             backend/.venv
-          key: pdm-${{ runner.os }}-${{ hashFiles('backend/pdm.lock') }}
+          key: pdm-${{ runner.os }}-py${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('backend/pdm.lock') }}
           restore-keys: |
+            pdm-${{ runner.os }}-py${{ steps.setup-python.outputs.python-version }}-
             pdm-${{ runner.os }}-
 
       # dev 组含 ruff / pytest / invoke 等
@@ -94,9 +96,10 @@ jobs:
           # backend/pdm.toml 强制 use_uv=true，但 CI runner 上 uv 不支持 PEP 582；
           # 用环境变量覆盖项目配置回退 pip 安装
           PDM_USE_UV: "false"
-        run: |
-          pdm config venv.in_project true
-          pdm install -G dev
+          # 强制 in-project venv（backend/.venv），使其可被上方缓存命中；
+          # 用环境变量局部设置，避免 `pdm config` 改写 runner 全局配置
+          PDM_VENV_IN_PROJECT: "true"
+        run: pdm install -G dev
 
       - name: Ruff 检查
         run: pdm run ruff check .
