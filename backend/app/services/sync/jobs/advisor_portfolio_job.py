@@ -95,10 +95,13 @@ class AdvisorPortfolioSyncJob(SyncJob):
     # ── 目标解析 ──
 
     def _resolve_targets(self, targets: List[str]) -> List[str]:
-        # 空目标或编排器传入的占位符 '__full__' 都表示「抓库内全部在售天天基金组合」，
-        # 回退查库，避免把 '__full__' 当成字面 tgcode 直连外部接口（PR #1359 review）。
-        if targets and targets != ['__full__']:
-            return targets
+        # 过滤占位符 '__full__'：真实代码原样返回；若目标全为占位符或为空，
+        # 回退查库内全部在售天天基金组合，避免把 '__full__' 当成字面 tgcode 直连外部接口
+        # （PR #1359 / #1360 review：仅整体判断 ['__full__'] 会漏判混入真实代码的场景）。
+        if targets:
+            real = [t for t in targets if t != '__full__']
+            if real:
+                return real
         rows = (
             self.db.query(AdvisorPortfolio.code)
             .filter(AdvisorPortfolio.platform == 'TIANTIAN', AdvisorPortfolio.is_active.is_(True))

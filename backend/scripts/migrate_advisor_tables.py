@@ -44,7 +44,7 @@ def main() -> None:
     # advisor_portfolios 可能已存在旧表（缺 estab_date/strategy_desc）；
     # create_all 不会 ALTER 既有表，这里幂等补列，避免「no such column」(PR #1359 review)。
     insp = inspect(engine)
-    existing_cols = set(insp.get_column_names('advisor_portfolios'))
+    existing_cols = {c['name'] for c in insp.get_columns('advisor_portfolios')}
     for col, ddl in (
         ('estab_date', 'ALTER TABLE advisor_portfolios ADD COLUMN estab_date DATE'),
         ('strategy_desc', 'ALTER TABLE advisor_portfolios ADD COLUMN strategy_desc VARCHAR(500)'),
