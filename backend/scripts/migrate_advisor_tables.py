@@ -15,8 +15,10 @@
 
 import sys
 
+from sqlalchemy import inspect, text
+
 from app.core.database import Base
-from app.core.db_factory import DOMAIN_APP, DatabaseFactory
+from app.core.db_factory import DOMAIN_MARKET, DatabaseFactory
 from app.domains.funds.models import (  # noqa: F401  触发模型注册进 metadata
     AdvisorAdjustHistory,
     AdvisorHolding,
@@ -28,7 +30,7 @@ from app.domains.funds.models import (  # noqa: F401  触发模型注册进 meta
 def main() -> None:
     # 四表为 market 域，必须建在 market 引擎（与 init_db / market_session 一致），
     # 且仅建这四张表，避免误建其它域的表到 market 库。
-    engine = DatabaseFactory.create(DOMAIN_APP)
+    engine = DatabaseFactory.create(DOMAIN_MARKET)
     print(f'目标引擎: {engine.url}')
     Base.metadata.create_all(
         bind=engine,
@@ -39,9 +41,18 @@ def main() -> None:
             Base.metadata.tables['advisor_adjust_histories'],
         ],
     )
-    from sqlalchemy import inspect
-
+    # advisor_portfolios 可能已存在旧表（缺 estab_date/strategy_desc）；
+    # create_all 不会 ALTER 既有表，这里幂等补列，避免「no such column」(PR #1359 review)。
     insp = inspect(engine)
+    existing_cols = {c['name'] for c in insp.get_columns('advisor_portfolios')}
+    for col, ddl in (
+        ('estab_date', 'ALTER TABLE advisor_portfolios ADD COLUMN estab_date DATE'),
+        ('strategy_desc', 'ALTER TABLE advisor_portfolios ADD COLUMN strategy_desc VARCHAR(500)'),
+    ):
+        if col not in existing_cols:
+            with engine.begin() as conn:
+                conn.execute(text(ddl))
+
     tables = set(insp.get_table_names())
     expected = {
         'advisor_portfolios',
