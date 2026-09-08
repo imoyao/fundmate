@@ -38,14 +38,14 @@ class TestFundMetaSyncJob:
         assert result['status'] == 'success'
 
         a = db.query(Fund).filter_by(fund_code='000001').first()
-        # 1e9 份 × 1.5 元 = 1.5e9 元 = 15.0 亿
-        assert a.scale == 15.0
-        assert a.recent_shares == 1.0e9
-        assert a.equity_position == 3.46
+        # 1e9 份 × 1.5 元 = 1.5e9 元 = 15.0 亿（SafeNumeric 读出为 Decimal，转 float 比对）
+        assert float(a.scale) == 15.0
+        assert float(a.recent_shares) == 1.0e9
+        assert float(a.equity_position) == pytest.approx(3.46)
 
         b = db.query(Fund).filter_by(fund_code='510300').first()
-        assert b.scale == round(1.89149e10 * 4.6147 / 1e8, 2)
-        assert b.equity_position == 10.0  # top10 各 1.0%
+        assert float(b.scale) == pytest.approx(round(1.89149e10 * 4.6147 / 1e8, 2))
+        assert float(b.equity_position) == 10.0  # top10 各 1.0%
 
         # 库里没有的基金不应被新建
         assert db.query(Fund).filter_by(fund_code='999999').first() is None

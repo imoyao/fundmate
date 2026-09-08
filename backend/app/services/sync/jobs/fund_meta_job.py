@@ -9,6 +9,7 @@
 两者均复用 akshare 现成接口，不自行造轮子。
 """
 
+from decimal import Decimal
 from typing import List
 
 from loguru import logger
@@ -58,7 +59,8 @@ class FundMetaSyncJob(SyncJob):
             shares = rec.get('shares') or 0.0
             nav = rec.get('nav') or 0.0
             if shares and nav:
-                existing[code].scale = round(shares * nav / 1e8, 2)  # 份额(份)×净值(元) → 亿元
+                # 份额(份)×净值(元) → 亿元；按精度规范走 Decimal（PR #1358 review）
+                existing[code].scale = round(Decimal(str(shares)) * Decimal(str(nav)) / Decimal('100000000'), 2)
                 existing[code].recent_shares = shares
                 updated += 1
         self.db.flush()

@@ -84,7 +84,9 @@ class IndexConstituentSyncJob(SyncJob):
         for i in new_data:
             by_index.setdefault(i['index_code'], []).append(i)
         for index_code, rows in by_index.items():
-            self.db.query(IndexConstituent).filter(IndexConstituent.index_code == index_code).delete()
+            self.db.query(IndexConstituent).filter(IndexConstituent.index_code == index_code).delete(
+                synchronize_session=False
+            )
             for r in rows:
                 self.db.add(
                     IndexConstituent(

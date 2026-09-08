@@ -93,6 +93,11 @@ class FundManagerSyncJob(SyncJob):
                 real_code = get_company_code_by_name(name)
                 if not real_code:
                     logger.warning(f'基金公司「{name}」未匹配到权威 code，暂以名称占位')
+                    # 占位 code=name 同样受 unique(code) 约束：跨批次/跨运行可能已存在，先查后插
+                    existing_placeholder = self.db.query(FundCompany).filter_by(code=name).first()
+                    if existing_placeholder is not None:
+                        company_map[name] = existing_placeholder.id
+                        continue
                     inst = FundCompany(name=name, code=name)
                     self.db.add(inst)
                     self.db.flush()

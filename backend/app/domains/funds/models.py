@@ -81,10 +81,13 @@ class Fund(Base, PrimaryKeyMixin, TimestampMixin):
     fund_variety_id = Column(Integer, ForeignKey('fund_varieties.id'), comment='基金大类')
     company_id = Column(Integer, ForeignKey('fund_companies.id'), comment='基金公司')
     # ── #1286 品种差异化维度：基金规模 / 近似股票仓位（回填见 FundMetaSyncJob）──
-    scale = Column(Float, comment='基金规模估算(亿元)=最近总份额×单位净值，来源 fund_scale_open_sina')
-    recent_shares = Column(Float, comment='最近总份额(份)，来源 fund_scale_open_sina')
+    # 精度说明（PR #1358 review）：虽为市场参照估算字段（非用户记账链路），
+    # 仍按份额/金额精度规范用 SafeNumeric，避免 Float 精度漂移。
+    scale = Column(SafeNumeric(20, 6), comment='基金规模估算(亿元)=最近总份额×单位净值，来源 fund_scale_open_sina')
+    recent_shares = Column(SafeNumeric(20, 4), comment='最近总份额(份)，来源 fund_scale_open_sina')
     equity_position = Column(
-        Float, comment='近似股票仓位(%)=前十大重仓占净值比合计，来源 fund_portfolio_hold_em（仅近似，非全口径资产配置）'
+        SafeNumeric(5, 2),
+        comment='近似股票仓位(%)=前十大重仓占净值比合计，来源 fund_portfolio_hold_em（仅近似，非全口径资产配置）',
     )
     risk_level = Column(Integer, comment='风险等级 1-5')
     is_fe_charge = Column(Boolean, default=False, comment='前端收费')
