@@ -205,7 +205,81 @@ class AdvisorPortfolio(Base, PrimaryKeyMixin, TimestampMixin):
     org_name = Column(String(100), comment='主理人所属机构/平台方')
     risk_level = Column(String(20), comment='风险等级')
     strategy_type = Column(String(40), comment='策略类型(均衡/进取/稳健)')
-    cum_return = Column(Float, comment='累计收益(%)')
-    annual_return = Column(Float, comment='年化收益(%)')
+    cum_return = Column(SafeNumeric(7, 2), comment='累计收益(%)')
+    annual_return = Column(SafeNumeric(7, 2), comment='年化收益(%)')
     running_days = Column(Integer, comment='运行天数')
     is_active = Column(Boolean, default=True, comment='是否在售/有效')
+    # ── #1167 概览补充字段（天天基金 FundIATGInfoAggr / 平台元数据）──
+    estab_date = Column(Date, comment='组合成立日期')
+    strategy_desc = Column(String(500), comment='策略说明（STGCONCEPT）')
+
+
+class AdvisorHolding(Base, PrimaryKeyMixin, TimestampMixin):
+    """投顾组合当前基金级持仓（#1167）。
+
+    语义：最新一次调仓后的基金占比快照（天天基金 getAdjustWarehouse tag=0 的
+    afterRatio；且慢为 BatchGetStrategiesComposition 持仓占比，手动导入）。
+    同一组合同一调仓日整体覆盖式更新。
+
+    fund_code 用业务键不建硬外键：组合成分基金可能暂缺于本地 funds 表，
+    硬外键会阻塞写入；关联查询走应用层两步法。
+    """
+
+    __tablename__ = 'advisor_holdings'
+
+    portfolio_id = Column(
+        Integer, ForeignKey('advisor_portfolios.id'), nullable=False, index=True, comment='所属投顾组合'
+    )
+    as_of_date = Column(Date, nullable=False, index=True, comment='调仓日期（快照日）')
+    fund_code = Column(String(6), nullable=False, index=True, comment='成分基金代码（业务键）')
+    fund_name = Column(String(100), comment='成分基金名称')
+    pre_ratio = Column(SafeNumeric(5, 2), comment='调仓前占比(%)')
+    after_ratio = Column(SafeNumeric(5, 2), comment='调仓后/当前占比(%)')
+    op_code = Column(Integer, comment='操作类型: 1建仓/2加仓/3减仓/4新增/5持平')
+    op_name = Column(String(10), comment='操作名称')
+    source = Column(String(20), nullable=False, comment='数据来源: tiantian/qieman_manual')
+
+    __table_args__ = (UniqueConstraint('portfolio_id', 'fund_code', 'as_of_date', name='uq_advisor_holding_p_f_d'),)
+
+
+class AdvisorIndustryAlloc(Base, PrimaryKeyMixin, TimestampMixin):
+    """投顾组合持仓行业配置（#1167，天天基金 getHoldWarehouseIndustryRatio）。"""
+
+    __tablename__ = 'advisor_industry_allocs'
+
+    portfolio_id = Column(
+        Integer, ForeignKey('advisor_portfolios.id'), nullable=False, index=True, comment='所属投顾组合'
+    )
+    as_of_date = Column(Date, nullable=False, index=True, comment='快照日期')
+    industry_name = Column(String(50), nullable=False, comment='行业名称')
+    ratio = Column(SafeNumeric(5, 2), comment='行业占比(%)')
+    source = Column(String(20), nullable=False, comment='数据来源: tiantian')
+
+    __table_args__ = (
+        UniqueConstraint('portfolio_id', 'industry_name', 'as_of_date', name='uq_advisor_industry_p_i_d'),
+    )
+
+
+class AdvisorAdjustHistory(Base, PrimaryKeyMixin, TimestampMixin):
+    """投顾组合历史调仓明细（#1167，天天基金 getAdjustWarehouse tag=1）。
+
+    每条 = 某次调仓中单只基金的前后占比；同一(组合, 调仓日, 基金)唯一，
+    重复同步按唯一键覆盖，调仓理由 reason 随行冗余存储。
+    """
+
+    __tablename__ = 'advisor_adjust_histories'
+
+    portfolio_id = Column(
+        Integer, ForeignKey('advisor_portfolios.id'), nullable=False, index=True, comment='所属投顾组合'
+    )
+    adjust_date = Column(Date, nullable=False, index=True, comment='调仓日期')
+    reason = Column(String(300), comment='调仓理由')
+    fund_code = Column(String(6), nullable=False, comment='成分基金代码（业务键）')
+    fund_name = Column(String(100), comment='成分基金名称')
+    pre_ratio = Column(SafeNumeric(5, 2), comment='调仓前占比(%)')
+    after_ratio = Column(SafeNumeric(5, 2), comment='调仓后占比(%)')
+    op_code = Column(Integer, comment='操作类型: 1建仓/2加仓/3减仓/4新增/5持平')
+    op_name = Column(String(10), comment='操作名称')
+    source = Column(String(20), nullable=False, comment='数据来源: tiantian')
+
+    __table_args__ = (UniqueConstraint('portfolio_id', 'adjust_date', 'fund_code', name='uq_advisor_adjust_p_d_f'),)
