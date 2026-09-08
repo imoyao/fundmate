@@ -83,6 +83,25 @@ class TestIndexCatalogSyncJob:
         assert result['status'] == 'success'
         assert [c.index_code for c in db.query(IndexCatalog)] == ['000300']
 
+    def test_rebuild_preserves_core_flags(self, job, db):
+        """覆盖式重建必须保留人工策展的 is_core/core_rank（#1365 白名单）。"""
+        db.add(IndexCatalog(index_code='000300', name='沪深300', exchange='SH', is_core=True, core_rank=1))
+        db.commit()
+        job.adapter.fetch_index_catalog.return_value = [
+            {'index_code': '000300', 'name': '沪深300', 'exchange': 'SH', 'source': 'sina'},
+            {'index_code': '930950', 'name': '中证偏股基金指数', 'exchange': 'CSI', 'source': 'csindex'},
+        ]
+        job.adapter.fetch_index_catalog_csindex.return_value = []
+        job.adapter.fetch_index_catalog_cni.return_value = []
+
+        result = job.run(full_sync=True, targets=['__full__'])
+        assert result['status'] == 'success'
+        hs = db.query(IndexCatalog).filter_by(index_code='000300').one()
+        assert hs.is_core is True and hs.core_rank == 1
+        # 新增的非白名单条目默认 False/NULL
+        csi = db.query(IndexCatalog).filter_by(index_code='930950').one()
+        assert csi.is_core is False and csi.core_rank is None
+
     def test_all_sources_empty_keeps_existing(self, job, db):
         """三源全空（接口异常）时静默跳过，不清空既有名录。"""
         db.add(IndexCatalog(index_code='000300', name='沪深300', exchange='SH'))

@@ -618,11 +618,14 @@ class AkshareAdapter(DataSourceAdapter):
     def fetch_index_catalog(self) -> List[dict]:
         """新浪指数名录（ak.index_stock_info），#1286/#1365 聚合搜索底座之三源之一。
 
-        返回 [{index_code, name, exchange, source}]；代码带 sh/sz 前缀
-        （如 sh000300），拆出 exchange 供归一化为 SH000300 形态。
+        返回 [{index_code, name, exchange, source}]，归一化为 SH000300 形态。
 
-        2026-09-09 修正：接口名是 index_stock_info（无 _sina 后缀），#1362 初版
-        误写 index_stock_info_sina 会运行时 AttributeError（三源实测时抓出）。
+        兼容两种 akshare 版本形态（#1366 实测）：
+        - 旧版：中文列名（代码/名称），代码带 sh/sz 前缀 → 直接拆前缀；
+        - 新版（≥1.18.x）：英文列名（index_code/display_name），裸 6 位码无前缀
+          → 按交易所惯例归属（39 开头=SZ，其余=SH）；归属歧义由三源去重优先级
+          （csindex/cni 后到覆盖不可能——sina 优先，但归属错误风险已被
+          「名录仅收录指数、000xxx 沪 / 399xxx 深」的惯例约束收敛）。
         """
         from app.core.akshare_lazy import get_akshare
 
@@ -631,9 +634,11 @@ class AkshareAdapter(DataSourceAdapter):
             df = ak.index_stock_info()
             if df is None or df.empty:
                 return []
+            code_col = self._pick_col(df, ('index_code', '代码'))
+            name_col = self._pick_col(df, ('display_name', '名称', '简称'))
             out = []
             for _, row in df.iterrows():
-                raw = str(row.get('代码', '')).strip().lower()
+                raw = str(row[code_col]).strip().lower()
                 if not raw:
                     continue
                 exchange = ''
@@ -641,12 +646,16 @@ class AkshareAdapter(DataSourceAdapter):
                     exchange, index_code = 'SH', raw[2:]
                 elif raw.startswith('sz'):
                     exchange, index_code = 'SZ', raw[2:]
+                elif len(raw) == 6 and raw.isdigit():
+                    # 新版裸码：39 开头为深交所指数，其余（000/880/950 等）归沪
+                    index_code = raw
+                    exchange = 'SZ' if raw.startswith('39') else 'SH'
                 else:
                     index_code = raw
                 out.append(
                     {
                         'index_code': index_code,
-                        'name': str(row.get('名称', '')).strip(),
+                        'name': str(row[name_col]).strip(),
                         'exchange': exchange,
                         'source': 'sina',
                     }

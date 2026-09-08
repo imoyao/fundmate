@@ -61,6 +61,30 @@ class TestSearchAssets:
         assert hit['market'] == 'CSI'
         assert hit['venue'] == ''
 
+    def test_index_core_whitelist_ordering(self, client, db):
+        """核心白名单置顶（is_core/core_rank，#1365）：核心排前、extra 携带标记。"""
+        _seed(db)
+        # _seed 已含 000300（非核心），直接升格为核心
+        seeded_300 = db.query(IndexCatalog).filter_by(index_code='000300').one()
+        seeded_300.is_core = True
+        seeded_300.core_rank = 1
+        db.add_all(
+            [
+                IndexCatalog(
+                    index_code='000905', name='中证500', exchange='SH', source='sina', is_core=True, core_rank=2
+                ),
+                IndexCatalog(index_code='399001', name='深证成指', exchange='SZ', source='sina'),
+            ]
+        )
+        db.commit()
+        resp = client.get('/api/search/assets/', query_string={'q': '000'})
+        index_hits = [
+            i for i in resp.get_json()['data'] if i['asset_type'] == 'index' and i['extra'].get('is_core') is not None
+        ]
+        core_first = [i['code'] for i in index_hits if i['extra']['is_core']]
+        # 核心按 core_rank 升序置顶：沪深300(1) 先于 中证500(2)
+        assert core_first[:2] == ['SH000300', 'SH000905']
+
     def test_portfolio_hit_with_platform(self, client, db):
         _seed(db)
         resp = client.get('/api/search/assets/', query_string={'q': '越海'})

@@ -16,7 +16,7 @@
 from typing import Callable, Dict, List
 
 from loguru import logger
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 # 单源返回条数上限（避免单源刷屏淹没其他品种）
@@ -77,6 +77,8 @@ def _search_indices(db: Session, q: str) -> List[Dict]:
     rows = (
         db.query(IndexCatalog)
         .filter(or_(IndexCatalog.index_code.ilike(f'%{q}%'), IndexCatalog.name.ilike(f'%{q}%')))
+        # 核心白名单置顶（人工策展，#1365），其余按代码稳定排序
+        .order_by(IndexCatalog.is_core.desc(), func.coalesce(IndexCatalog.core_rank, 999), IndexCatalog.index_code)
         .limit(_PER_PROVIDER_LIMIT)
         .all()
     )
@@ -91,7 +93,11 @@ def _search_indices(db: Session, q: str) -> List[Dict]:
                 'asset_type': 'index',
                 'market': market,
                 'venue': 'EXCHANGE' if prefix in ('SH', 'SZ') else '',
-                'extra': {'exchange': r.exchange},
+                'extra': {
+                    'exchange': r.exchange,
+                    'is_core': r.is_core,
+                    'core_rank': r.core_rank,
+                },
             }
         )
     return out

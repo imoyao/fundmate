@@ -62,16 +62,26 @@ class IndexCatalogSyncJob(SyncJob):
         return out
 
     def _save_data(self, new_data: List[dict]) -> None:
-        # 名录整体覆盖式重建（条目量 ~千级，成本可忽略）
+        # 名录整体覆盖式重建（条目量 ~千级，成本可忽略）。
+        # is_core / core_rank 是人工策展字段（seed_core_indices.py 维护），
+        # 重建前快照、重建后回填，避免每次同步抹掉白名单标记（#1365）。
+        prev_flags = {
+            r.index_code: (r.is_core, r.core_rank)
+            for r in self.db.query(IndexCatalog.index_code, IndexCatalog.is_core, IndexCatalog.core_rank).all()
+        }
         self.db.query(IndexCatalog).delete(synchronize_session=False)
         for r in new_data:
+            is_core, core_rank = prev_flags.get(r['index_code'], (False, None))
             self.db.add(
                 IndexCatalog(
                     index_code=r['index_code'],
                     name=r['name'],
                     exchange=r.get('exchange'),
                     source=r.get('source', 'sina'),
+                    is_core=is_core,
+                    core_rank=core_rank,
                 )
             )
         self.db.commit()
-        logger.info(f'指数名录重建完成，共 {len(new_data)} 条')
+        kept = sum(1 for v in prev_flags.values() if v[0])
+        logger.info(f'指数名录重建完成，共 {len(new_data)} 条（核心白名单保留 {kept} 条）')
