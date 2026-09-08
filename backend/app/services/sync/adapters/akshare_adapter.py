@@ -4,6 +4,7 @@
 # File : akshare_adapter.py
 # -*- coding: utf-8 -*-
 # app/services/sync/adapters/akshare_adapter.py
+import time
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
@@ -12,10 +13,17 @@ from loguru import logger
 from app.core.symbol_utils import get_normalizer
 from app.services.sync.adapters.base import DataSourceAdapter
 
+# 基金经理全量接口（东财 fund_manager_em）偶发抖动，首次拉取的有限重试策略
+_FUND_MANAGER_RETRY = 3
+_FUND_MANAGER_RETRY_SLEEP = 3  # 秒
+
 
 class AkshareAdapter(DataSourceAdapter):
     def __init__(self):
         self._fund_manager_cache = None
+        # 是否已发起过全量拉取（注意：不能用 hasattr(_fund_manager_cache) 判定，
+        # 该属性在 __init__ 即存在，会导致「首次拉取」分支永不执行、经理同步恒空转）
+        self._fund_manager_fetched = False
         self.logger = logger.bind(adapter='akshare')
 
     def get_name(self) -> str:
@@ -255,29 +263,44 @@ class AkshareAdapter(DataSourceAdapter):
         raise NotImplementedError
 
     def fetch_fund_manager(self, fund_code: str) -> List[dict]:
-        """获取指定基金的基金经理，全量数据仅请求一次，失败后静默跳过"""
+        """获取指定基金的基金经理，全量数据仅请求一次，失败后静默跳过
+
+        该接口（东财 fund_manager_em）偶发抖动；此前一次失败就把缓存置 None，
+        导致本轮后续所有基金都静默返回空（表现为「经理全量同步跑了但一条没进」）。
+        故首次拉取做有限重试，只有连续重试均失败才标记为不可用。
+        """
         from app.core.akshare_lazy import get_akshare
 
         ak = get_akshare()
 
-        # 如果已经请求过（无论成功或失败），直接使用缓存结果
-        if hasattr(self, '_fund_manager_cache'):
+        # 已经请求过（成功或失败），直接使用缓存结果
+        if self._fund_manager_fetched:
             df = self._fund_manager_cache
             if df is None or df.empty:
                 return []
             # 有缓存数据，按基金代码筛选
             return self._filter_managers(df, fund_code)
 
-        # 第一次请求全量数据
-        try:
-            df = ak.fund_manager_em()
-        except Exception as e:
-            self.logger.warning(f'基金经理全量接口不可用: {e}，后续将跳过所有经理同步')
-            self._fund_manager_cache = None  # 标记为失败，永久跳过
-            return []
+        # 第一次请求全量数据（带重试，规避偶发抖动）
+        df = None
+        for attempt in range(_FUND_MANAGER_RETRY):
+            try:
+                df = ak.fund_manager_em()
+                break
+            except Exception as e:  # noqa: BLE001
+                if attempt == _FUND_MANAGER_RETRY - 1:
+                    self.logger.warning(f'基金经理全量接口不可用: {e}，后续将跳过所有经理同步')
+                else:
+                    self.logger.warning(f'基金经理全量接口第 {attempt + 1}/{_FUND_MANAGER_RETRY} 次失败: {e}，稍后重试')
+                    time.sleep(_FUND_MANAGER_RETRY_SLEEP)
+
+        # 无论成败只拉一次：成功则缓存 df，失败则缓存 None 并跳过本轮后续基金。
+        # 缺了这一步会退化为「逐基金重复全量请求」（#1286 回填实测踩坑）。
+        self._fund_manager_fetched = True
 
         if df is None or df.empty:
-            self.logger.warning('基金经理全量数据为空')
+            if df is not None:
+                self.logger.warning('基金经理全量数据为空')
             self._fund_manager_cache = None
             return []
 
@@ -477,4 +500,117 @@ class AkshareAdapter(DataSourceAdapter):
             return out
         except Exception as e:
             self.logger.error(f'获取基金 {fund_code} 分红公告失败: {e}')
+            return []
+
+    # ── 基金规模 / 近似股票仓位（#1286 数据底座，复用 akshare 现成接口） ──
+
+    def fetch_fund_scale(self) -> List[dict]:
+        """全市场开放式基金规模（ak.fund_scale_open_sina）。
+
+        接口仅给「最近总份额」与「单位净值」，不直接给规模列；规模由调用方按
+        shares×nav 估算（亿元）。返回 [{fund_code, shares, nav}]。
+        """
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+        try:
+            df = ak.fund_scale_open_sina()
+            if df is None or df.empty:
+                return []
+            out = []
+            for _, row in df.iterrows():
+                code = str(row.get('基金代码', '')).strip()
+                if not code or len(code) != 6 or not code.isdigit():
+                    continue
+                out.append(
+                    {
+                        'fund_code': code,
+                        'shares': self._to_ratio(row.get('最近总份额')),
+                        'nav': self._to_ratio(row.get('单位净值')),
+                    }
+                )
+            self.logger.info(f'获取到 {len(out)} 只基金规模数据')
+            return out
+        except Exception as e:
+            self.logger.error(f'获取基金规模失败: {e}')
+            return []
+
+    def fetch_fund_top_holdings(self, fund_code: str) -> List[dict]:
+        """单只基金前十大重仓（ak.fund_portfolio_hold_em）。
+
+        返回 [{stock_code, stock_name, ratio(占净值比例)}]；调用方累加 top10 作为近似股票仓位。
+        单基金抓取，失败静默返回空，由 Job 控制重试/跳过。
+        """
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+        try:
+            df = ak.fund_portfolio_hold_em(symbol=fund_code)
+            if df is None or df.empty:
+                return []
+            out = []
+            for _, row in df.iterrows():
+                out.append(
+                    {
+                        'stock_code': str(row.get('股票代码', '')).strip(),
+                        'stock_name': str(row.get('股票名称', '')),
+                        'ratio': self._to_ratio(row.get('占净值比例')),
+                    }
+                )
+            return out
+        except Exception as e:
+            self.logger.warning(f'获取基金 {fund_code} 重仓失败: {e}')
+            return []
+
+    def fetch_index_constituents_csindex(self, index_code: str) -> List[dict]:
+        """中证系指数成分（ak.index_stock_cons_csindex）。
+
+        返回 [{symbol, stock_name, index_name}]；非 csindex 系列指数会抛错，由 Job 回退 sina。
+        """
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+        try:
+            df = ak.index_stock_cons_csindex(symbol=index_code)
+            if df is None or df.empty:
+                return []
+            out = []
+            for _, row in df.iterrows():
+                out.append(
+                    {
+                        'symbol': str(row.get('成分券代码', '')).strip(),
+                        'stock_name': str(row.get('成分券名称', '')),
+                        'index_name': str(row.get('指数名称', '')),
+                    }
+                )
+            return out
+        except Exception as e:
+            self.logger.warning(f'csindex 成分获取失败 {index_code}: {e}')
+            return []
+
+    def fetch_index_constituents_sina(self, index_code: str) -> List[dict]:
+        """新浪指数成分（ak.index_stock_cons），csindex 系列缺失时的回退。
+
+        返回 [{symbol, stock_name, in_date}]。
+        """
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+        try:
+            df = ak.index_stock_cons(symbol=index_code)
+            if df is None or df.empty:
+                return []
+            has_date = '日期' in df.columns
+            out = []
+            for _, row in df.iterrows():
+                out.append(
+                    {
+                        'symbol': str(row.get('品种代码', '')).strip(),
+                        'stock_name': str(row.get('品种名称', '')),
+                        'in_date': str(row.get('日期', '')) if has_date else None,
+                    }
+                )
+            return out
+        except Exception as e:
+            self.logger.warning(f'sina 成分获取失败 {index_code}: {e}')
             return []

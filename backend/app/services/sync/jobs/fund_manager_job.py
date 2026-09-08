@@ -8,7 +8,14 @@ from loguru import logger
 from app.core.db_utils import bulk_insert_if_not_exists
 from app.domains.funds.models import Fund, FundCompany, FundManager, Manager
 from app.services.sync.company_resolver import get_company_code_by_name
-from app.services.sync.jobs.base import SyncJob
+from app.services.sync.jobs.base import IN_CHUNK_SIZE, SyncJob
+
+
+def _chunked(values, size: int = IN_CHUNK_SIZE):
+    """把可迭代分批为列表块，规避 SQLite in_ 变量上限（#1286 实测 2.6 万基金爆变量数）。"""
+    values = list(values)
+    for i in range(0, len(values), size):
+        yield values[i : i + size]
 
 
 class FundManagerSyncJob(SyncJob):
@@ -86,7 +93,23 @@ class FundManagerSyncJob(SyncJob):
                 real_code = get_company_code_by_name(name)
                 if not real_code:
                     logger.warning(f'基金公司「{name}」未匹配到权威 code，暂以名称占位')
-                inst = FundCompany(name=name, code=real_code or name)
+                    # 占位 code=name 同样受 unique(code) 约束：跨批次/跨运行可能已存在，先查后插
+                    existing_placeholder = self.db.query(FundCompany).filter_by(code=name).first()
+                    if existing_placeholder is not None:
+                        company_map[name] = existing_placeholder.id
+                        continue
+                    inst = FundCompany(name=name, code=name)
+                    self.db.add(inst)
+                    self.db.flush()
+                    company_map[name] = inst.id
+                    continue
+                # 权威 code 已被其他名称占用（同机构简称/全称变体）→ 复用既有行，
+                # 避免 unique(code) 冲突（#1286 全量回填实测：银华基金 80000235）
+                by_code = self.db.query(FundCompany).filter_by(code=real_code).first()
+                if by_code is not None:
+                    company_map[name] = by_code.id
+                    continue
+                inst = FundCompany(name=name, code=real_code)
                 self.db.add(inst)
                 self.db.flush()
                 company_map[name] = inst.id
@@ -104,11 +127,17 @@ class FundManagerSyncJob(SyncJob):
             f'新增 {inserted} 位经理（其中 {sum(1 for r in mgr_records if "company_id" in r)} 位已关联基金公司）'
         )
 
-        # 2. 建立基金-经理关联
+        # 2. 建立基金-经理关联（in_ 均分批查询，全量回填时基金/经理数量远超 SQLite 变量上限）
         mgr_codes = [item['mgr_code'] for item in new_data]
-        mgr_map = {m.mgr_code: m.id for m in self.db.query(Manager).filter(Manager.mgr_code.in_(mgr_codes)).all()}
+        mgr_map: dict = {}
+        for chunk in _chunked(set(mgr_codes)):
+            for m in self.db.query(Manager).filter(Manager.mgr_code.in_(chunk)).all():
+                mgr_map[m.mgr_code] = m.id
         fund_codes = list({item['fund_code'] for item in new_data})
-        fund_map = {f.fund_code: f.id for f in self.db.query(Fund).filter(Fund.fund_code.in_(fund_codes)).all()}
+        fund_map: dict = {}
+        for chunk in _chunked(fund_codes):
+            for f in self.db.query(Fund.fund_code, Fund.id).filter(Fund.fund_code.in_(chunk)).all():
+                fund_map[f.fund_code] = f.id
 
         rel_records = list()
         for item in new_data:
@@ -117,15 +146,17 @@ class FundManagerSyncJob(SyncJob):
             if fid and mid:
                 rel_records.append({'fund_id': fid, 'mgr_id': mid})
 
-        existing_rels = set(
-            (row.fund_id, row.mgr_id)
-            for row in self.db.query(FundManager.fund_id, FundManager.mgr_id)
-            .filter(
-                FundManager.fund_id.in_(fund_map.values()),
-                FundManager.mgr_id.in_(mgr_map.values()),
-            )
-            .all()
-        )
+        existing_rels: set = set()
+        fund_id_chunks = list(_chunked(fund_map.values()))
+        mgr_id_chunks = list(_chunked(mgr_map.values()))
+        for fids in fund_id_chunks:
+            for mids in mgr_id_chunks:
+                rows = (
+                    self.db.query(FundManager.fund_id, FundManager.mgr_id)
+                    .filter(FundManager.fund_id.in_(fids), FundManager.mgr_id.in_(mids))
+                    .all()
+                )
+                existing_rels.update((r.fund_id, r.mgr_id) for r in rows)
         new_rels = [r for r in rel_records if (r['fund_id'], r['mgr_id']) not in existing_rels]
         if new_rels:
             self.db.bulk_insert_mappings(FundManager, new_rels)
