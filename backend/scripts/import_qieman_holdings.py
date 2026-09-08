@@ -22,7 +22,7 @@ BACKEND = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BACKEND not in sys.path:
     sys.path.insert(0, BACKEND)
 
-from app.core.database import SessionLocal  # noqa: E402
+from app.core.database import market_session  # noqa: E402
 from app.services.sync.jobs.advisor_portfolio_job import import_qieman_holdings  # noqa: E402
 
 
@@ -33,12 +33,9 @@ def main() -> None:
     path, code = sys.argv[1], sys.argv[2]
     with open(path, encoding='utf-8') as f:
         data = json.load(f)
-    db = SessionLocal()
-    try:
+    with market_session() as db:
         n = import_qieman_holdings(db, data, code)
         print(f'导入完成：{code} 共 {n} 条持仓')
-    finally:
-        db.close()
 
 
 if __name__ == '__main__':

@@ -19,7 +19,7 @@ BACKEND = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BACKEND not in sys.path:
     sys.path.insert(0, BACKEND)
 
-from app.core.database import SessionLocal  # noqa: E402
+from app.core.database import market_session  # noqa: E402
 from app.domains.funds.models import AdvisorPortfolio  # noqa: E402
 
 SEED = [
@@ -33,8 +33,7 @@ SEED = [
 
 
 def main() -> None:
-    db = SessionLocal()
-    try:
+    with market_session() as db:
         for item in SEED:
             row = db.query(AdvisorPortfolio).filter_by(platform=item['platform'], code=item['code']).first()
             if row is None:
@@ -46,8 +45,6 @@ def main() -> None:
                 print(f'[~] 更新 {item["platform"]}/{item["code"]} {item["name"]}')
         db.commit()
         print(f'完成，共 {len(SEED)} 只组合')
-    finally:
-        db.close()
 
 
 if __name__ == '__main__':
