@@ -20,18 +20,24 @@
 
 三源合并去重优先级：sina（带交易所归属，如 SH000300）> csindex（记 `CSI` 前缀，如 CSI930950）> cni（记 `CNI`，如 CNI399303）。
 
-### 韭圈儿（funddb.cn）专项结论（2026-09-09）
+### 韭圈儿（funddb.cn）专项结论（2026-09-09，含决策修订）
 
-用户提示韭圈儿似乎提供万得全A。实测：
+~~2026-09-08 初判：直连 `api.jiucaishuo.com/v2/guzhi/showvaluation` 等返回 405/500，已收口/需签名，不逆向。~~
 
-- funddb.cn 即**韭圈儿**，纯 SPA 站点，静态抓取无数据；
-- akshare 旧接口 `index_value_name_funddb` / `index_value_hist_funddb` **已在 1.16.x 起移除**
-  （官方 issue akfamily/akshare#5757 证实），且旧版本在 Python 3.14 下无 wheel 可装；
-- 直连其 API（`api.jiucaishuo.com/v2/guzhi/showvaluation` 等）返回 405/500，已收口/需签名。
+**2026-09-09 修订**：后续实测推翻「已收口」结论——被试端点只是**估值曲线端点**（需登录），
+而万得全A 相关的两个端点**免登录、无签名**可直接调用：
 
-**决策：不逆向韭圈儿私有接口**（脆弱 + ToS 风险）。万得全A 数据的合法获取路径只有 Wind 终端
-（付费）；免费场景用国证A指/中证全指替代，指数估值（PE/PB 分位）需求由本站温度计模块
-（全 A 中位 PB 历史基线）覆盖。
+- `POST /v2/guzhi-new2/index-basic`：最新收盘价 + PE/PB/估值分位
+- `POST /v2/fundindex/detail`（date=月数，上限 120=10 年）：累计收益率序列
+
+万得全A 点位经 `P(t) = P_now × (1+r(t)) / (1+r_end)` 反推派生（校验：最低点精确命中
+2018-10-18 A 股大底）。这不算逆向（无签名破解），属公开源 best-effort 接入；
+**稳定性风险自担**：私有接口可能无通知变更，930950 / 399317 始终是权威 fallback。
+
+**落地**：`JiucaishuoAdapter` + `index_daily` 表（market 域）+ `IndexDailySyncJob`
+（`pdm run sync --job index_daily`，全量 10 年/增量 12 月，upsert 覆盖同日）。
+实网实测：2426 个交易日（2016-09~2026-09）3 秒入库。口径注意：**价格指数反推**，
+非全收益；锚点随最新收盘平移，勿做跨年回测级依赖。
 
 ### 踩坑记录
 
