@@ -104,6 +104,8 @@ import re
 import sys
 from datetime import datetime
 
+import requests
+
 # 投顾模块 H5 bundle（交易/理财域；用户实抓链接：
 # https://tradeh5.tiantianfunds.cn/tradeh5/funda91a99886abf7e/detailindex?tgCode=XXXX）
 ADVISOR_BUNDLE = 'funda91a99886abf7e'
@@ -153,7 +155,13 @@ def parse_holdings(text: str):
     pat = re.compile(r'([\u4e00-\u9fa5A-Za-z0-9()·\-（）、]{2,30})\s*(\d{6})\s*([\d.]+)\s*%')
     seen = set()
     for m in pat.finditer(text):
-        name, code, ratio = m.group(1).strip(), m.group(2), float(m.group(3))
+        name = m.group(1).strip()
+        code = m.group(2)
+        try:
+            ratio = float(m.group(3))
+        except ValueError:
+            # 形如 1.2.3 等非合法数值，跳过避免 float() 抛错中断抓取
+            continue
         key = (name, code)
         if key in seen:
             continue
@@ -204,6 +212,16 @@ def fetch_holdings(tgcode: str) -> dict:
                 page.wait_for_timeout(2000)
         else:
             print(f'[!] 多次尝试仍未渲染持仓区: {last_err}', file=sys.stderr)
+            browser.close()
+            return {
+                'tgcode': tgcode,
+                'name': '',
+                'title': '',
+                'error': str(last_err),
+                'holdings': [],
+                'holdings_count': 0,
+                'raw_text': '',
+            }
 
         # 给最后一帧渲染一点时间
         page.wait_for_timeout(1500)
@@ -430,7 +448,6 @@ HEALTH_STATE_FILE = 'advisor_health_state.json'
 
 
 def _http_get(url: str, headers=None, params=None, timeout=20):
-    import requests
 
     try:
         r = requests.get(url, headers=headers or {}, params=params or {}, timeout=timeout)
@@ -440,7 +457,6 @@ def _http_get(url: str, headers=None, params=None, timeout=20):
 
 
 def _http_post(url: str, data=None, timeout=20):
-    import requests
 
     try:
         # 投顾接口用表单（application/x-www-form-urlencoded）即可，无需 multipart

@@ -178,7 +178,8 @@ def test_flatten_qieman_composition():
     funds = flatten_qieman_composition(data)
     assert len(funds) == 2
     assert {f['fund_code'] for f in funds} == {'000509', '006567'}
-    assert funds[0]['after_ratio'] == 1.21
+    gqb = next(f for f in funds if f['fund_code'] == '000509')
+    assert gqb['after_ratio'] == pytest.approx(1.21)
     assert str(funds[0]['as_of_date']) == '2026-07-21'
 
 
@@ -196,8 +197,10 @@ def test_qieman_import(db):
     hs = db.query(AdvisorHolding).filter_by(portfolio_id=p.id, source='qieman_manual').all()
     assert len(hs) == n
     assert all(h.after_ratio is not None for h in hs)
-    # 重复导入按同快照日覆盖
+    # 重复导入按同快照日覆盖（覆盖式更新，持仓数保持 n 而非累加）
     assert import_qieman_holdings(db, data, 'ZH012926') == n
+    hs_after_second = db.query(AdvisorHolding).filter_by(portfolio_id=p.id, source='qieman_manual').all()
+    assert len(hs_after_second) == n
 
     # 未建档组合应报错而非静默建卡
     with pytest.raises(ValueError):

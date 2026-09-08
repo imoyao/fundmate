@@ -48,6 +48,8 @@ def flatten_qieman_composition(data: dict, strategy_code: Optional[str] = None) 
 
     strategy_code 指定时只摊平该组合（文件可能同时含多个组合的实测数据）。
     """
+    if not isinstance(data, dict):
+        raise ValueError('且慢持仓 JSON 顶层必须是对象 {策略代码: {分类: {...}}}')
     out: List[dict] = []
     seen: set = set()
     as_of = None

@@ -15,7 +15,7 @@ docs/working-notes/advisor-ttfund-holdings-api-2026-09-08.md：
 - 模块级节流：相邻任意请求间隔 ≥ REQUEST_INTERVAL 秒，避免高频触发风控；
 - 指数退避重试：单接口最多 MAX_RETRIES 次（2s/4s/8s），仍失败则该接口本轮
   返回空并由上层记 skipped，不炸整个 job；
-- requests.Session 复用连接；UA/Referer 伪装 App 端正常请求；
+- requests.Session 复用连接；UA 伪装为 App 端 okhttp 请求（仅 User-Agent，未伪造 Referer）；
 - 通用表单参数 product/mobileKey/version/plat 来自 App 抓包（公开可见，无敏感信息）。
 """
 
@@ -203,7 +203,7 @@ class TiantianAdvisorAdapter:
                         'pre_ratio': _to_float(f.get('preRatio')),
                         'after_ratio': _to_float(f.get('afterRatio')),
                         'op_code': op,
-                        'op_name': ADJUST_OP_NAME.get(op, str(op)),
+                        'op_name': ADJUST_OP_NAME.get(op) if op is not None else None,
                     }
                 )
         return funds
