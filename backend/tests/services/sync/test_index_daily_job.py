@@ -13,7 +13,7 @@ import pytest
 from app.core.db_factory import DATA_DOMAIN_REGISTRY
 from app.domains.indices.models import IndexDaily
 from app.services.sync.adapters.jiucaishuo_adapter import JiucaishuoAdapter
-from app.services.sync.jobs.index_daily_job import DEFAULT_TARGETS, IndexDailySyncJob
+from app.services.sync.jobs.index_daily_job import DEFAULT_TARGETS, WIND_INDEX_TARGETS, IndexDailySyncJob
 
 
 def test_index_daily_registered_as_market():
@@ -52,9 +52,13 @@ class TestJiucaishuoParse:
         assert out['pe_pct'] == '77.49%'
         assert out['pb'] == 1.84
 
-    def test_parse_index_basic_missing_close_raises(self):
-        with pytest.raises(ValueError):
-            JiucaishuoAdapter.parse_index_basic({'code': 0, 'data': {'table': []}})
+    def test_parse_index_basic_missing_close_is_fund_index_shape(self):
+        """基金指数（885 系）无估值表/收盘价属正常形态，解析不报错（#275 双模式）。"""
+        out = JiucaishuoAdapter.parse_index_basic(
+            {'code': 0, 'data': {'gu_name': '万得普通股票型基金指数', 'table': []}}
+        )
+        assert out['gu_name'] == '万得普通股票型基金指数'
+        assert 'close' not in out
 
     def test_parse_return_series(self):
         xs, rets = JiucaishuoAdapter.parse_return_series(DETAIL_RESP)
@@ -77,6 +81,41 @@ class TestJiucaishuoParse:
         # 起点 ret=0 → base = 6457.3 / 1.4832
         assert rows[0]['close'] == pytest.approx(6457.3 / 1.4832, abs=0.01)
         assert result['gu_name'] == '万得全A'
+        assert result['price_mode'] == 'anchored'
+
+    def test_normalized_mode_for_fund_index(self):
+        """基金指数（885 系）无估值锚 → 起点归一化 1000，price_mode='normalized'。"""
+        adapter = JiucaishuoAdapter()
+        basic_no_close = {'code': 0, 'data': {'gu_name': '万得普通股票型基金指数', 'table': []}}
+        adapter._post = MagicMock(side_effect=[basic_no_close, DETAIL_RESP])
+        result = adapter.fetch_index_daily('885000.WI', months=12)
+        assert result['price_mode'] == 'normalized'
+        rows = result['rows']
+        # 起点 ret=0 → 归一化 1000
+        assert rows[0]['close'] == pytest.approx(1000.0, abs=0.01)
+        # 末端 = 1000 × 1.4832
+        assert rows[-1]['close'] == pytest.approx(1483.2, abs=0.1)
+
+    def test_full_history_all_mode_filters_placeholder(self):
+        """date='all' 全量模式：1970-01-01 占位伪点被剔除（#1365 实测）。"""
+        adapter = JiucaishuoAdapter()
+        all_resp = {
+            'code': 0,
+            'data': {
+                'tb_data': {
+                    'x_data': ['1970-01-01', '2000-01-04', '2026-09-07'],
+                    'series': [{'data': ['0', '3.1', '545.73']}],
+                }
+            },
+        }
+        adapter._post = MagicMock(side_effect=[BASIC_RESP, all_resp])
+        result = adapter.fetch_index_daily('881001.WI', months='all')
+        dates = [r['trade_date'].isoformat() for r in result['rows']]
+        assert '1970-01-01' not in dates
+        assert dates[0] == '2000-01-04'
+        # payload 断言：date 原样传 'all'（字符串）
+        detail_payload = adapter._post.call_args_list[1][0][1]
+        assert detail_payload['date'] == 'all'
 
 
 class TestIndexDailySyncJob:
@@ -86,6 +125,7 @@ class TestIndexDailySyncJob:
         adapter.fetch_index_daily.return_value = {
             'gu_code': '881001.WI',
             'gu_name': '万得全A',
+            'price_mode': 'anchored',
             'snapshot': {'close': 6457.3},
             'rows': [
                 {'trade_date': date(2026, 9, 5), 'close': 6400.0, 'ret_pct': 47.0},
@@ -110,5 +150,14 @@ class TestIndexDailySyncJob:
         assert result['status'] == 'success'
         assert db.query(IndexDaily).count() == 0
 
-    def test_default_targets_is_wdqa(self):
-        assert DEFAULT_TARGETS == ['881001.WI']
+    def test_default_targets_cover_wind_family(self):
+        """默认目标 = #275 定稿的万得系全家桶（含万得全A）。"""
+        assert '881001.WI' in DEFAULT_TARGETS
+        assert '885000.WI' in DEFAULT_TARGETS
+        assert '885001.WI' in DEFAULT_TARGETS
+        assert len(DEFAULT_TARGETS) == len(WIND_INDEX_TARGETS) == 13
+
+    def test_incremental_uses_12_months(self, job, db):
+        """非全量跑 12 月增量；全量跑成立来（'all'）。"""
+        job.run(full_sync=False, targets=['881001.WI'])
+        assert job.adapter.fetch_index_daily.call_args[0][1] == 12

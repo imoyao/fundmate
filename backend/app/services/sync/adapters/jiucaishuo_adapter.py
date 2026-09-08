@@ -52,6 +52,9 @@ TIMEOUT = 25
 # 韭圈儿 H5 端固定版本参数（公开抓包可见，无敏感信息）
 COMMON_PAYLOAD = {'type': 'h5', 'version': '2.5.9', 'ss': ''}
 
+# 'all' 模式下接口首点为 1970-01-01 占位伪点（实测，2026-09-09），必须剔除
+PLACEHOLDER_DATE = '1970-01-01'
+
 _throttle_lock = threading.Lock()
 _last_request_at = 0.0
 
@@ -118,8 +121,9 @@ class JiucaishuoAdapter:
                     out['pb'] = float(row['new_value'])
             except (KeyError, TypeError, ValueError):
                 continue
-        if 'close' not in out:
-            raise ValueError('index-basic 响应中无收盘价（接口形态可能已变更）')
+        # 基金指数（885xxx）无估值表、无收盘价属正常形态 → 调用方走 normalized 模式
+        # 股票/宽基指数必有收盘价；若连宽基也缺收盘价，说明接口形态变更，
+        # 由 fetch_index_daily 的 rows 为空校验兜底报错，不在解析层误杀
         return out
 
     @staticmethod
@@ -137,7 +141,7 @@ class JiucaishuoAdapter:
 
     # ── 面向 Job 的高层接口 ──
 
-    def fetch_index_daily(self, gu_code: str, months: int = 120) -> Dict[str, Any]:
+    def fetch_index_daily(self, gu_code: str, months: int | str = 120) -> Dict[str, Any]:
         """获取指数点位序列（反推派生）+ 最新快照。
 
         返回 {gu_code, gu_name, snapshot, rows}；
@@ -165,11 +169,24 @@ class JiucaishuoAdapter:
         )
         xs, rets = self.parse_return_series(detail_resp)
 
-        # 反推：P(t) = P_now × (1 + r(t)/100) / (1 + r_end/100)
-        r_end = rets[-1]
-        base = basic['close'] / (1 + r_end / 100)
+        # 双模式（#275）：
+        # - anchored：index-basic 有收盘价锚（股票/宽基指数如 881001）→ 真实点位，
+        #   P(t) = P_now × (1+r(t)/100) / (1+r_end/100)，锚随最新收盘平移；
+        # - normalized：基金指数（885xxx）无估值表 → 起点归一化 1000，
+        #   P(t) = 1000 × (1+r(t)/100)，逐日确定不漂移（upsert 稳定）。
+        #   基金指数对比只看相对涨跌，归一化满足用途；口径由 price_mode 标注。
+        if 'close' in basic:
+            price_mode = 'anchored'
+            r_end = rets[-1]
+            base = basic['close'] / (1 + r_end / 100)
+        else:
+            price_mode = 'normalized'
+            base = 1000.0
         rows = []
         for x, v in zip(xs, rets):
+            if x == PLACEHOLDER_DATE:
+                # 'all' 模式首点为 1970-01-01 占位伪点（与真实首点同为 0），必须剔除
+                continue
             try:
                 trade_date = date.fromisoformat(x)
             except ValueError:
@@ -178,10 +195,13 @@ class JiucaishuoAdapter:
             rows.append({'trade_date': trade_date, 'close': round(base * (1 + v / 100), 4), 'ret_pct': v})
         if not rows:
             raise ValueError('收益率序列解析后为空（日期格式可能已变更）')
-        self.logger.info(f'韭圈儿 {gu_code} 序列 {len(rows)} 条（近 {months} 月），最新收盘 {basic["close"]}')
+        self.logger.info(
+            f'韭圈儿 {gu_code} 序列 {len(rows)} 条（months={months}，{price_mode}），最新收盘 {basic.get("close")}'
+        )
         return {
             'gu_code': gu_code,
             'gu_name': basic.get('gu_name'),
+            'price_mode': price_mode,
             'snapshot': basic,
             'rows': rows,
         }

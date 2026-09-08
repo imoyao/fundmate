@@ -65,5 +65,10 @@ class IndexDaily(Base, PrimaryKeyMixin, TimestampMixin):
     close = Column(SafeNumeric(18, 6), comment='收盘点位（韭圈儿来源为反推派生值，价格口径）')
     ret_pct = Column(SafeNumeric(12, 4), comment='区间累计收益率(%)（数据源原始值，可空）')
     source = Column(String(20), default='jiucaishuo', comment='数据来源: jiucaishuo')
+    price_mode = Column(
+        String(10),
+        default='anchored',
+        comment='点位口径: anchored(有真实收盘锚，如 881001) / normalized(起点归一化 1000，如 885 系基金指数)，#275',
+    )
 
     __table_args__ = (UniqueConstraint('index_code', 'trade_date', name='uk_index_daily_code_date'),)
