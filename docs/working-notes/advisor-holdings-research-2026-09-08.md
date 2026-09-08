@@ -78,8 +78,8 @@ async def main():
                                     {"strategyCodes": ["ZH012926", "ZH030684"]})
             data = json.loads(res.content[0].text)
             # data 结构：{ "ZH012926": { "混合基金": {"持有成分":[...]}, "货币基金":{...}, "分类占比":"xx%" }, ... }
-            json.dump(data, open("comb.json", "w", encoding="utf-8"),
-                      ensure_ascii=False, indent=2)
+            with open("comb.json", "w", encoding="utf-8") as _f:
+                json.dump(data, _f, ensure_ascii=False, indent=2)
 
 asyncio.run(main())
 ```

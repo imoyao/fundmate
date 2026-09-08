@@ -61,7 +61,7 @@
 
 ```bash
 # 环境变量注入你持有的且慢 MCP Key
-export QIEMAN_API_KEY="zQAX3vgba6IxfhXQOxu_RQ"
+export QIEMAN_API_KEY="<YOUR_QIEMAN_API_KEY>"  # 注意：原明文 Key 已泄露，请到且慢重新生成并作废旧 Key
 
 # 查询某投顾策略的持仓基金及比例
 mcporter call qieman-mcp.BatchGetStrategiesComposition \

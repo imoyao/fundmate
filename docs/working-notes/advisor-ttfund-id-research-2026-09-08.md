@@ -129,7 +129,7 @@ https://uni-fundts.1234567.com.cn/combine/portfolioInfo/getCompositeInfoNew
 https://tradeh5.tiantianfunds.cn/tradeh5/funda91a99886abf7e/detailindex?tgCode=XXXX
 ```
 
-把链接直接喂给脚本，它自动用正则 `tgCode=([^&]+)`（兼容旧 `id=`）提取 TGCode：
+把链接直接喂给脚本，它自动用正则 `(?:tgCode|id)=([^&]+)` 提取 TGCode（兼容新版 tgCode= 与旧版 id=）：
 
 ```bash
 python fund_advisor_holdings.py --url "https://tradeh5.tiantianfunds.cn/tradeh5/funda91a99886abf7e/detailindex?tgCode=XXXX"
