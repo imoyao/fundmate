@@ -11,6 +11,8 @@ permalink: /watchlists
 - [#808 「探市」体验版设计文档与任务计划](https://github.com/imoyao/fundmate/issues/808)（Ⅱ）：探市侧设计基线，另见 `docs/spec/temperature-architecture-plan.md`。
 - [#273 自选基金拖拽排序](https://github.com/imoyao/fundmate/issues/273)（Ⅳ）：本文 §1.2「分组体系 → 排序」中的拖拽交互未实现。
 
+> **2026-09-08 更新**：「品种差异化描述维度」的数据底座与统一编码方案已收敛至 [#1286](https://github.com/imoyao/fundmate/issues/1286)（消费侧展示归 [#1285](https://github.com/imoyao/fundmate/issues/1285) 跟踪）；投顾组合参照数据已随 #1167 落地，组合域权威文档见 `docs/dev/fund-portfolio.md`。本文原 §1.3.7–1.3.9 的「独立经理三表」设计已作废，由统一编码引用方案取代（见 §1.3.7 现文）。
+
 反链索引总表见 `docs/spec/roadmap.md` §3。
 :::
 
@@ -111,6 +113,7 @@ CREATE TABLE watchlist (
 
 - **`status` 只有两个值**：`HOLDING`（持仓中）和 `WATCHING`（观察中）。"已清仓"不作为状态存储，而是由前端根据以下条件动态推导：`positions` 表中无持仓 + `transactions` 表中有买入+卖出记录。
 - **唯一键**采用 `(symbol, market, venue)` 组合，防止不同市场相同数字代码冲突（如 `000001` 既是深交所平安银行也是华夏成长混合）。
+  - **实现回归基线（#1286，2026-09）**：早期实现缩水为 `(symbol, venue)`，现回归本设计；无市场实体（基金经理/投顾组合）的 `market`/`venue` 以空串 `''` 存储（SQLite UNIQUE 中 NULL 互不相等，存 NULL 会使唯一性静默失效）。
 - **移除 `cleared_at` 字段**：最后一次清仓时间改为从 `transactions` 表动态查询最后一条 `sell` 记录，避免多次清仓覆盖和不一致风险。
 - **`venue` 手动修正**：系统自动推断后，用户可通过界面手动修改。正确的修正结果反馈到标准化模块。
 - **`bookmarked` 标记**：清仓后用户主动保留的深度研究资产。这些资产在特别关注页面（`/starred`）中展示，与普通自选页面分离。
@@ -212,59 +215,19 @@ CREATE TABLE cleared_cycles (
 );
 ```
 
-##### 1.3.7 基金经理信息表 `fund_managers`
+##### 1.3.7 经理/组合的引用方式（2026-09-08 修订）
 
-```sql
-CREATE TABLE fund_managers (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(100) NOT NULL COMMENT '经理姓名',
-    avatar_url VARCHAR(255) COMMENT '照片链接',
-    gender CHAR(1) COMMENT '性别',
-    education TEXT COMMENT '学历背景',
-    bio TEXT COMMENT '个人简介（从业经历摘要）',
-    first_active_date DATE COMMENT '首次任职日期（投资生涯起点）',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-```
+> 早期设计曾规划 `fund_managers` / `manager_tenures` / `watchlist_managers` 三张独立表。随 [#1286](https://github.com/imoyao/fundmate/issues/1286) 统一编码方案收敛，该设计**作废**：经理与投顾组合均为 market 域既有实体（`managers` / `advisor_portfolios`），自选侧**不建新表、不加外键**（双库硬规则 §2 跨域零外键），统一通过业务键引用：
 
-##### 1.3.8 基金经理任职记录表 `manager_tenures`
+| 品种 | asset_type | symbol（原生码） | market | venue | 实体来源 |
+|------|-----------|------------------|--------|-------|----------|
+| 基金经理 | `manager` | `MGR_` + 权威外部经理 id | `''` | `''` | `managers`（market 域） |
+| 投顾组合 | `portfolio` | 平台原生码（天天基金 tgcode / 且慢 ZHxxxx） | `''` | `''` | `advisor_portfolios`（market 域） |
 
-```sql
-CREATE TABLE manager_tenures (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    manager_id INT NOT NULL,
-    fund_symbol VARCHAR(50) NOT NULL COMMENT '基金标准化代码',
-    fund_name VARCHAR(100) COMMENT '基金名称',
-    fund_type VARCHAR(20) COMMENT '基金类型',
-    institution_name VARCHAR(100) COMMENT '所在机构（公募/私募）',
-    start_date DATE NOT NULL COMMENT '任职起始',
-    end_date DATE COMMENT '离任日期（空表示至今）',
-    return_rate DECIMAL(10,4) COMMENT '任职回报（%）',
-    annual_return DECIMAL(10,4) COMMENT '年化回报（%）',
-    benchmark_return DECIMAL(10,4) COMMENT '同期基准回报',
-
-    FOREIGN KEY (manager_id) REFERENCES fund_managers(id),
-    INDEX idx_manager (manager_id),
-    INDEX idx_fund (fund_symbol)
-);
-```
-
-##### 1.3.9 基金经理关注表 `watchlist_managers`
-
-```sql
-CREATE TABLE watchlist_managers (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    manager_id INT NOT NULL,
-    group_id INT COMMENT '分组ID（可选）',
-    is_pinned BOOLEAN DEFAULT FALSE COMMENT '是否置顶',
-    notes TEXT COMMENT '关注理由/笔记',
-    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-
-    FOREIGN KEY (manager_id) REFERENCES fund_managers(id),
-    FOREIGN KEY (group_id) REFERENCES watchlist_groups(id)
-);
-```
+- 唯一键 `(symbol, market, venue)` 天然覆盖新品种，无需为引用改表加列。
+- 详情回查走应用层两步法：`watchlist.symbol` 按前缀路由到 market 域实体表（`MGR_` → `managers`，其余按 code → `advisor_portfolios`）；platform 等属性留在实体表，不在自选侧冗余。
+- 组合域编码规则、同步链路与回填 SOP 见 `docs/dev/fund-portfolio.md`（组合域权威文档）。
+- 前端全局搜索唯一入口 `useAssetSearch`，经后端聚合端点 `GET /api/search/assets/` 返回统一信封（含经理/组合），页面组件禁止直调搜索 API。
 
 ##### 1.3.10 基准指数缓存表 `benchmark_indices`
 
