@@ -229,12 +229,14 @@
         <CardBlock class="flex-1 flex flex-col justify-center gap-4">
           <div class="flex flex-col">
             <div class="flex items-center justify-between mb-1">
-              <span
-                class="text-xs"
-                :style="{ color: 'var(--text-tertiary)' }"
+              <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }"
                 >年化收益率（XIRR）</span
               >
-              <el-radio-group v-model="includeCashEquivalents" size="small" @change="fetchXirr">
+              <el-radio-group
+                v-model="includeCashEquivalents"
+                size="small"
+                @change="fetchXirr"
+              >
                 <el-radio-button :value="false">剔除现金</el-radio-button>
                 <el-radio-button :value="true">含现金</el-radio-button>
               </el-radio-group>
@@ -247,7 +249,11 @@
             <span
               class="text-[10px] mt-1"
               :style="{ color: 'var(--text-tertiary)' }"
-              >{{ includeCashEquivalents ? '含货币基金/逆回购/现金，反映账户总收益' : '基于主动投资交易，不含货币基金等现金等价物' }}</span
+              >{{
+                includeCashEquivalents
+                  ? "含货币基金/逆回购/现金，反映账户总收益"
+                  : "基于主动投资交易，不含货币基金等现金等价物"
+              }}</span
             >
           </div>
           <div
@@ -820,7 +826,11 @@ const fetchSummary = async () => {
 
 const fetchXirr = async () => {
   try {
-    const res = await getPortfolioXirr("portfolio", undefined, includeCashEquivalents.value);
+    const res = await getPortfolioXirr(
+      "portfolio",
+      undefined,
+      includeCashEquivalents.value
+    );
     portfolioXirr.value = res.data;
   } catch (e) {
     console.error("获取年化收益率失败", e);

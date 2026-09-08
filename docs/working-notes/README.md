@@ -1,4 +1,4 @@
-# 工作记录索引（2026-07-31 ~ 2026-08-09）
+# 工作记录索引（2026-07-31 ~ 2026-09-08）
 
 本目录归集了各轮会话中产生的工作文档，避免散落于仓库根目录 `docs/`。
 本目录经 `docs/.vitepress/config.mjs` 的 `srcExclude: ['working-notes/**']` 屏蔽出文档站构建，**不对外公开**。
@@ -18,6 +18,17 @@
 | `datasource-priority-plan-2026-08-03.md` | 通用数据源优先级方案（防依赖腐烂）：诊断树、Tier0-3 优先级分层、能力→Provider 矩阵、wrapper→上游映射、熔断/缓存机制；配套代码沙箱 `DataSourceRouter` 已实跑验证 |
 | `bias-datasource-replacement-2026-08-03.md` | 乖离度数据源替换方案（借鉴 daily_stock_analysis）：绕过 akshare 直连腾讯/东财，含实测结果与可粘贴代码 |
 | `eastmoney-antiscrape-2026-08-05.md` | 东财反爬：akshare 腐烂 / 大智慧 中转，行情数据链路修复 |
+
+## 投顾组合数据系列（2026-09-08，#1167）
+
+> 来源：2026-07-22 会话调研产物（fund_advisor_holdings.py + 4 份文档），2026-09-08 集成入库。
+
+| 文件 | 内容 |
+|---|---|
+| `advisor-ttfund-holdings-api-2026-09-08.md` | **权威决策记录**：天天基金投顾持仓接口契约（uni-fundts/dataapi 双 host、零鉴权结论、getAdjustWarehouse tag=0/1 当前/历史基金级持仓、healthcheck H1-H6 设计、路线表） |
+| `advisor-ttfund-id-research-2026-09-08.md` | 天天基金投顾 ID 获取调研：App 搜索不可复现、GitHub 无现成方案、tgCode 走一次性分享链接（越海 XCOVSEX / 万家非凡新质驱动 JY48YPE / 省心投步步盈 UFPW1GJ） |
+| `advisor-holdings-research-2026-09-08.md` | 且慢落地调研：MCP BatchGetStrategiesComposition 实测（远足 ZH012926 / 成长五剑 ZH030684 持仓全量），含原始 JSON 结构说明 |
+| `advisor-platform-landscape-2026-09-08.md` | 天天基金/且慢/蛋卷/好买四平台投顾组合数据源 landscape 对比 |
 
 ## 后端架构 / 部署系列（2026-08-03 ~ 2026-08-04）
 

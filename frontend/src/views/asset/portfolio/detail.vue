@@ -54,7 +54,11 @@
       <CardBlock class="mb-6">
         <SectionHeader title="组合收益 (XIRR)">
           <template #action>
-            <el-radio-group v-model="includeCashEquivalents" size="small" @change="fetchXirr">
+            <el-radio-group
+              v-model="includeCashEquivalents"
+              size="small"
+              @change="fetchXirr"
+            >
               <el-radio-button :value="false">剔除现金</el-radio-button>
               <el-radio-button :value="true">含现金</el-radio-button>
             </el-radio-group>
@@ -499,7 +503,11 @@ async function fetchHoldings() {
 async function fetchXirr() {
   xirrLoading.value = true;
   try {
-    const res = await getPortfolioXirr("portfolio", portfolioId.value, includeCashEquivalents.value);
+    const res = await getPortfolioXirr(
+      "portfolio",
+      portfolioId.value,
+      includeCashEquivalents.value
+    );
     xirrData.value = res.data;
   } catch {
     ElMessage.error("获取收益率失败");

@@ -32,7 +32,9 @@ from app.models.sync_log import SyncLog
 from app.services.sync.adapters.akshare_adapter import AkshareAdapter
 from app.services.sync.adapters.eastmoney_adapter import EastmoneyAdapter
 from app.services.sync.adapters.null_adapter import NullAdapter
+from app.services.sync.adapters.tiantian_advisor_adapter import TiantianAdvisorAdapter
 from app.services.sync.adapters.xalpha_adapter import XalphaAdapter
+from app.services.sync.jobs.advisor_portfolio_job import AdvisorPortfolioSyncJob
 from app.services.sync.jobs.amac_institution_job import AmacInstitutionJob
 from app.services.sync.jobs.asset_snapshot_job import AssetSnapshotJob
 from app.services.sync.jobs.dividend_split_job import DividendSplitSyncJob
@@ -128,6 +130,8 @@ class DataSyncOrchestrator:
         self.jobs['fund_manager'] = FundManagerSyncJob(self.data_sources['akshare'], self.db)
         self.jobs['fund_meta'] = FundMetaSyncJob(self.data_sources['akshare'], self.db)
         self.jobs['fund_type'] = FundTypeSyncJob(self.data_sources['akshare'], self.db)
+        # 投顾组合数据源独立于 akshare/xalpha（天天基金公开接口，自带节流）
+        self.jobs['advisor_portfolio'] = AdvisorPortfolioSyncJob(TiantianAdvisorAdapter(), self.db)
         self.jobs['fund_nav'] = FundNavSyncJob(self.data_sources['xalpha'], self.db)
         self.jobs['price_history'] = PriceHistorySyncJob(self.data_sources['akshare'], self.db)
         self.jobs['index_constituents'] = IndexConstituentSyncJob(self.data_sources['akshare'], self.db)
@@ -377,6 +381,7 @@ class DataSyncOrchestrator:
                 ('price_history', stock_targets),  # 行情增量同步（核心池）
                 ('index_constituents', INDEX_TARGETS),  # 指数成分回填（#1286 数据底座）
                 ('dividend_split', stock_targets + fund_targets),  # 分红/送股抓取（#1179）
+                ('advisor_portfolio', ['__full__']),  # 投顾组合持仓/调仓回填（#1167，组合数少且自带节流）
                 # #1182：资产快照落账放最后，确保前面的净值/行情已刷新，快照取到最新值
                 ('asset_snapshot', []),
             ]
