@@ -68,6 +68,7 @@ DATA_DOMAIN_REGISTRY: Dict[str, str] = {
     'fund_managers': DOMAIN_MARKET,  # 基金-经理关联（被 funds 引用）
     'advisor_portfolios': DOMAIN_MARKET,  # 投顾/基金组合公开参照（且慢/蛋卷/天天基金）
     'index_constituents': DOMAIN_MARKET,  # 指数成分股（#1286 品种差异化维度：指数→成分）
+    'index_catalog': DOMAIN_MARKET,  # 指数名录（#1286 聚合搜索可搜索的指数条目）
     'advisor_holdings': DOMAIN_MARKET,  # 投顾组合当前基金级持仓（#1167）
     'advisor_industry_allocs': DOMAIN_MARKET,  # 投顾组合行业配置（#1167）
     'advisor_adjust_histories': DOMAIN_MARKET,  # 投顾组合历史调仓明细（#1167）

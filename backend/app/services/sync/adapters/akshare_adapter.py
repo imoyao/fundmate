@@ -614,3 +614,41 @@ class AkshareAdapter(DataSourceAdapter):
         except Exception as e:
             self.logger.warning(f'sina 成分获取失败 {index_code}: {e}')
             return []
+
+    def fetch_index_catalog(self) -> List[dict]:
+        """新浪指数名录（ak.index_stock_info_sina），#1286 聚合搜索底座。
+
+        返回 [{index_code, name, exchange, source}]；sina 代码带 sh/sz 前缀
+        （如 sh000300），拆出 exchange 供归一化为 SH000300 形态。
+        """
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+        try:
+            df = ak.index_stock_info_sina()
+            if df is None or df.empty:
+                return []
+            out = []
+            for _, row in df.iterrows():
+                raw = str(row.get('代码', '')).strip().lower()
+                if not raw:
+                    continue
+                exchange = ''
+                if raw.startswith('sh'):
+                    exchange, index_code = 'SH', raw[2:]
+                elif raw.startswith('sz'):
+                    exchange, index_code = 'SZ', raw[2:]
+                else:
+                    index_code = raw
+                out.append(
+                    {
+                        'index_code': index_code,
+                        'name': str(row.get('名称', '')).strip(),
+                        'exchange': exchange,
+                        'source': 'sina',
+                    }
+                )
+            return out
+        except Exception as e:
+            self.logger.warning(f'指数名录获取失败: {e}')
+            return []

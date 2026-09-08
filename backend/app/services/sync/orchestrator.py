@@ -44,6 +44,7 @@ from app.services.sync.jobs.fund_manager_job import FundManagerSyncJob
 from app.services.sync.jobs.fund_meta_job import FundMetaSyncJob
 from app.services.sync.jobs.fund_nav_job import FundNavSyncJob
 from app.services.sync.jobs.fund_type_job import FundTypeSyncJob
+from app.services.sync.jobs.index_catalog_job import IndexCatalogSyncJob
 from app.services.sync.jobs.index_constituent_job import INDEX_TARGETS, IndexConstituentSyncJob
 from app.services.sync.jobs.price_history_job import PriceHistorySyncJob
 from app.services.sync.jobs.stock_list_job import StockListSyncJob
@@ -135,6 +136,8 @@ class DataSyncOrchestrator:
         self.jobs['fund_nav'] = FundNavSyncJob(self.data_sources['xalpha'], self.db)
         self.jobs['price_history'] = PriceHistorySyncJob(self.data_sources['akshare'], self.db)
         self.jobs['index_constituents'] = IndexConstituentSyncJob(self.data_sources['akshare'], self.db)
+        # #1286：指数名录（聚合搜索可搜索的指数条目，与成分互补）
+        self.jobs['index_catalog'] = IndexCatalogSyncJob(self.data_sources['akshare'], self.db)
         self.jobs['temperature'] = TemperatureJob(NullAdapter(), self.db)
         # AMAC 名录为 HTTP JSON 直抓（非 akshare/xalpha 数据源），NullAdapter 占位；
         # 此前仅 invoke grab.* 通道可达，注册后 pdm run sync --job 亦可直达（#1081 策展应用入口）
@@ -380,6 +383,7 @@ class DataSyncOrchestrator:
                 ('fund_nav', fund_targets),  # 净值增量同步（核心池）
                 ('price_history', stock_targets),  # 行情增量同步（核心池）
                 ('index_constituents', INDEX_TARGETS),  # 指数成分回填（#1286 数据底座）
+                ('index_catalog', ['__full__']),  # 指数名录重建（#1286 聚合搜索底座）
                 ('dividend_split', stock_targets + fund_targets),  # 分红/送股抓取（#1179）
                 ('advisor_portfolio', ['__full__']),  # 投顾组合持仓/调仓回填（#1167，组合数少且自带节流）
                 # #1182：资产快照落账放最后，确保前面的净值/行情已刷新，快照取到最新值
