@@ -16,7 +16,7 @@
 from typing import Callable, Dict, List
 
 from loguru import logger
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 # 单源返回条数上限（避免单源刷屏淹没其他品种）
@@ -67,26 +67,37 @@ def _search_funds(db: Session, q: str) -> List[Dict]:
 
 
 def _search_indices(db: Session, q: str) -> List[Dict]:
-    """指数名录（index_catalog 表）。code 归一为 SH000300/SZ399001 形态与场内证券同构。"""
+    """指数名录（index_catalog 表，三源合并：sina/中证/国证，#1365）。
+
+    code 归一化：exchange 作为命名空间前缀——SH000300 / SZ399001（交易所）、
+    CSI930950（中证）、CNI399303（国证），与场内证券 SH600519 形态同构。
+    """
     from app.domains.indices.models import IndexCatalog
 
     rows = (
         db.query(IndexCatalog)
         .filter(or_(IndexCatalog.index_code.ilike(f'%{q}%'), IndexCatalog.name.ilike(f'%{q}%')))
+        # 核心白名单置顶（人工策展，#1365），其余按代码稳定排序
+        .order_by(IndexCatalog.is_core.desc(), func.coalesce(IndexCatalog.core_rank, 999), IndexCatalog.index_code)
         .limit(_PER_PROVIDER_LIMIT)
         .all()
     )
     out = []
     for r in rows:
-        prefix = r.exchange if r.exchange in ('SH', 'SZ') else ''
+        prefix = r.exchange if r.exchange in ('SH', 'SZ', 'CSI', 'CNI') else ''
+        market = 'CN_A' if prefix in ('SH', 'SZ') else (r.exchange or 'CN_A')
         out.append(
             {
                 'code': f'{prefix}{r.index_code}',
                 'name': r.name,
                 'asset_type': 'index',
-                'market': 'CN_A' if prefix else r.exchange or 'CN_A',
-                'venue': 'EXCHANGE',
-                'extra': {'exchange': r.exchange},
+                'market': market,
+                'venue': 'EXCHANGE' if prefix in ('SH', 'SZ') else '',
+                'extra': {
+                    'exchange': r.exchange,
+                    'is_core': r.is_core,
+                    'core_rank': r.core_rank,
+                },
             }
         )
     return out

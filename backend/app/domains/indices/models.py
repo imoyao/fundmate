@@ -7,7 +7,7 @@ services/sync/jobs/index_constituent_job.py（复用 akshare 的 index_stock_con
 index_stock_cons，不自行造轮子）。
 """
 
-from sqlalchemy import Column, String, UniqueConstraint
+from sqlalchemy import Boolean, Column, Integer, String, UniqueConstraint
 
 from app.core.database import Base, PrimaryKeyMixin, TimestampMixin
 
@@ -30,12 +30,16 @@ class IndexCatalog(Base, PrimaryKeyMixin, TimestampMixin):
     """指数名录：可搜索的指数条目（#1286 品种差异化维度 + 聚合搜索）。
 
     与 IndexConstituent 的关系：名录是「有哪些指数」，成分是「某指数里有哪些股票」。
-    回填链路见 services/sync/jobs/index_catalog_job.py（akshare index_stock_info_sina）。
+    回填链路见 services/sync/jobs/index_catalog_job.py（#1365 三源合并：
+    sina index_stock_info / 中证 index_csindex_all / 国证 index_all_cni）。
     """
 
     __tablename__ = 'index_catalog'
 
     index_code = Column(String(20), unique=True, nullable=False, comment='指数代码(如 000300，不含交易所后缀)')
     name = Column(String(60), nullable=False, comment='指数名称')
-    exchange = Column(String(10), comment='所属交易所: SH/SZ')
-    source = Column(String(20), default='sina', comment='数据来源: sina')
+    exchange = Column(String(10), comment='命名空间前缀: SH/SZ(交易所) / CSI(中证) / CNI(国证)，#1365')
+    source = Column(String(20), default='sina', comment='数据来源: sina/csindex/cni')
+    # ── 核心指数白名单（#1365）：人工策展，三源覆盖式重建时必须保留（见 job._save_data）──
+    is_core = Column(Boolean, default=False, comment='核心指数白名单（自选「指数」分组置顶/优先展示）')
+    core_rank = Column(Integer, comment='核心指数展示排序（越小越靠前；非核心为 NULL）')

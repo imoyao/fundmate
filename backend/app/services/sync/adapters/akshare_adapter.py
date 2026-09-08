@@ -616,21 +616,29 @@ class AkshareAdapter(DataSourceAdapter):
             return []
 
     def fetch_index_catalog(self) -> List[dict]:
-        """新浪指数名录（ak.index_stock_info_sina），#1286 聚合搜索底座。
+        """新浪指数名录（ak.index_stock_info），#1286/#1365 聚合搜索底座之三源之一。
 
-        返回 [{index_code, name, exchange, source}]；sina 代码带 sh/sz 前缀
-        （如 sh000300），拆出 exchange 供归一化为 SH000300 形态。
+        返回 [{index_code, name, exchange, source}]，归一化为 SH000300 形态。
+
+        兼容两种 akshare 版本形态（#1366 实测）：
+        - 旧版：中文列名（代码/名称），代码带 sh/sz 前缀 → 直接拆前缀；
+        - 新版（≥1.18.x）：英文列名（index_code/display_name），裸 6 位码无前缀
+          → 按交易所惯例归属（39 开头=SZ，其余=SH）；归属歧义由三源去重优先级
+          （csindex/cni 后到覆盖不可能——sina 优先，但归属错误风险已被
+          「名录仅收录指数、000xxx 沪 / 399xxx 深」的惯例约束收敛）。
         """
         from app.core.akshare_lazy import get_akshare
 
         ak = get_akshare()
         try:
-            df = ak.index_stock_info_sina()
+            df = ak.index_stock_info()
             if df is None or df.empty:
                 return []
+            code_col = self._pick_col(df, ('index_code', '代码'))
+            name_col = self._pick_col(df, ('display_name', '名称', '简称'))
             out = []
             for _, row in df.iterrows():
-                raw = str(row.get('代码', '')).strip().lower()
+                raw = str(row[code_col]).strip().lower()
                 if not raw:
                     continue
                 exchange = ''
@@ -638,17 +646,87 @@ class AkshareAdapter(DataSourceAdapter):
                     exchange, index_code = 'SH', raw[2:]
                 elif raw.startswith('sz'):
                     exchange, index_code = 'SZ', raw[2:]
+                elif len(raw) == 6 and raw.isdigit():
+                    # 新版裸码：39 开头为深交所指数，其余（000/880/950 等）归沪
+                    index_code = raw
+                    exchange = 'SZ' if raw.startswith('39') else 'SH'
                 else:
                     index_code = raw
                 out.append(
                     {
                         'index_code': index_code,
-                        'name': str(row.get('名称', '')).strip(),
+                        'name': str(row[name_col]).strip(),
                         'exchange': exchange,
                         'source': 'sina',
                     }
                 )
             return out
         except Exception as e:
-            self.logger.warning(f'指数名录获取失败: {e}')
+            self.logger.warning(f'新浪指数名录获取失败: {e}')
+            return []
+
+    @staticmethod
+    def _pick_col(df, keywords: tuple) -> str:
+        """按子串匹配 DataFrame 列名（防 akshare 版本间列名漂移 + 控制台 mojibake 误判）。"""
+        for c in df.columns:
+            if any(k in str(c) for k in keywords):
+                return c
+        raise KeyError(f'未找到含 {keywords} 的列，实际列: {list(df.columns)}')
+
+    def fetch_index_catalog_csindex(self) -> List[dict]:
+        """中证指数官网全量名录（ak.index_csindex_all），#1365 三源合并之中证源。
+
+        中证专属代码唯一来源：930950（中证偏股基金）/932000（中证2000）/
+        000510（中证A500）等。exchange 记 'CSI' 作统一编码命名空间前缀。
+        """
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+        try:
+            df = ak.index_csindex_all()
+            if df is None or df.empty:
+                return []
+            code_col = self._pick_col(df, ('指数代码', '代码'))
+            name_col = self._pick_col(df, ('简称', '名称'))
+            return [
+                {
+                    'index_code': str(r[code_col]).strip().zfill(6),
+                    'name': str(r[name_col]).strip(),
+                    'exchange': 'CSI',
+                    'source': 'csindex',
+                }
+                for _, r in df.iterrows()
+                if str(r[code_col]).strip()
+            ]
+        except Exception as e:
+            self.logger.warning(f'中证指数名录获取失败: {e}')
+            return []
+
+    def fetch_index_catalog_cni(self) -> List[dict]:
+        """国证指数官网全量名录（ak.index_all_cni），#1365 三源合并之国证源。
+
+        国证专属代码唯一来源：399303（国证2000）/399317（国证A指，
+        万得全A 881001 的权威免费替代）等。exchange 记 'CNI'。
+        """
+        from app.core.akshare_lazy import get_akshare
+
+        ak = get_akshare()
+        try:
+            df = ak.index_all_cni()
+            if df is None or df.empty:
+                return []
+            code_col = self._pick_col(df, ('指数代码', '代码'))
+            name_col = self._pick_col(df, ('简称', '名称'))
+            return [
+                {
+                    'index_code': str(r[code_col]).strip().zfill(6),
+                    'name': str(r[name_col]).strip(),
+                    'exchange': 'CNI',
+                    'source': 'cni',
+                }
+                for _, r in df.iterrows()
+                if str(r[code_col]).strip()
+            ]
+        except Exception as e:
+            self.logger.warning(f'国证指数名录获取失败: {e}')
             return []
