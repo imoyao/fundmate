@@ -50,6 +50,17 @@ class TestSearchAssets:
         assert hit['asset_type'] == 'index'
         assert hit['extra']['exchange'] == 'SH'
 
+    def test_index_csi_prefix(self, client, db):
+        """中证专属代码（三源合并 #1365）：code 带 CSI 命名空间前缀。"""
+        _seed(db)
+        db.add(IndexCatalog(index_code='930950', name='中证偏股基金指数', exchange='CSI', source='csindex'))
+        db.commit()
+        resp = client.get('/api/search/assets/', query_string={'q': '偏股基金'})
+        hit = next(i for i in resp.get_json()['data'] if i['code'] == 'CSI930950')
+        assert hit['asset_type'] == 'index'
+        assert hit['market'] == 'CSI'
+        assert hit['venue'] == ''
+
     def test_portfolio_hit_with_platform(self, client, db):
         _seed(db)
         resp = client.get('/api/search/assets/', query_string={'q': '越海'})

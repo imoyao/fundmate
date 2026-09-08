@@ -67,7 +67,11 @@ def _search_funds(db: Session, q: str) -> List[Dict]:
 
 
 def _search_indices(db: Session, q: str) -> List[Dict]:
-    """指数名录（index_catalog 表）。code 归一为 SH000300/SZ399001 形态与场内证券同构。"""
+    """指数名录（index_catalog 表，三源合并：sina/中证/国证，#1365）。
+
+    code 归一化：exchange 作为命名空间前缀——SH000300 / SZ399001（交易所）、
+    CSI930950（中证）、CNI399303（国证），与场内证券 SH600519 形态同构。
+    """
     from app.domains.indices.models import IndexCatalog
 
     rows = (
@@ -78,14 +82,15 @@ def _search_indices(db: Session, q: str) -> List[Dict]:
     )
     out = []
     for r in rows:
-        prefix = r.exchange if r.exchange in ('SH', 'SZ') else ''
+        prefix = r.exchange if r.exchange in ('SH', 'SZ', 'CSI', 'CNI') else ''
+        market = 'CN_A' if prefix in ('SH', 'SZ') else (r.exchange or 'CN_A')
         out.append(
             {
                 'code': f'{prefix}{r.index_code}',
                 'name': r.name,
                 'asset_type': 'index',
-                'market': 'CN_A' if prefix else r.exchange or 'CN_A',
-                'venue': 'EXCHANGE',
+                'market': market,
+                'venue': 'EXCHANGE' if prefix in ('SH', 'SZ') else '',
                 'extra': {'exchange': r.exchange},
             }
         )
