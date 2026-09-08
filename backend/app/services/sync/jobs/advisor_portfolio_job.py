@@ -95,7 +95,9 @@ class AdvisorPortfolioSyncJob(SyncJob):
     # ── 目标解析 ──
 
     def _resolve_targets(self, targets: List[str]) -> List[str]:
-        if targets:
+        # 空目标或编排器传入的占位符 '__full__' 都表示「抓库内全部在售天天基金组合」，
+        # 回退查库，避免把 '__full__' 当成字面 tgcode 直连外部接口（PR #1359 review）。
+        if targets and not (len(targets) == 1 and targets[0] == '__full__'):
             return targets
         rows = (
             self.db.query(AdvisorPortfolio.code)
