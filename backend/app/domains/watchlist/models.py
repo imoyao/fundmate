@@ -15,12 +15,18 @@ class WatchlistItem(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
 
     __tablename__ = 'watchlist'
 
-    symbol = Column(String(50), nullable=False, comment='标准化代码')
-    market = Column(String(10), nullable=False, comment='市场代码')
-    asset_type = Column(
-        String(20), comment='资产类型：stock/etf/fund/bond/index（小写，与 asset_types 单一来源及 positions 域一致）'
+    symbol = Column(
+        String(50),
+        nullable=False,
+        comment='标准化代码（场内 SH600519 形态/场外基金 6 位码；经理 MGR_ 前缀/组合平台原生码，#1286）',
     )
-    venue = Column(String(10), default='EXCHANGE', comment='EXCHANGE(场内) / OTC(场外)')
+    market = Column(String(10), nullable=False, default='', comment='市场代码（无市场实体如经理/组合存空串，#1286）')
+    asset_type = Column(
+        String(20), comment='资产类型：stock/etf/fund/bond/index/manager/portfolio（小写，单一来源 core/asset_types）'
+    )
+    venue = Column(
+        String(10), default='', comment='EXCHANGE(场内) / OTC(场外)；无交易场所实体（经理/组合）存空串，#1286'
+    )
     status = Column(String(20), default='HOLDING', comment='HOLDING(持仓中) / WATCHING(观察中)')
     favorite = Column(Boolean, default=False, comment='特别关注标记')
     favorite_at = Column(Date, comment='设为特别关注的日期')
@@ -41,7 +47,10 @@ class WatchlistItem(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
     group_links = relationship('WatchlistItemGroup', back_populates='watchlist_item', cascade='all, delete-orphan')
     tag_links = relationship('WatchlistItemTag', back_populates='watchlist_item', cascade='all, delete-orphan')
 
-    __table_args__ = (UniqueConstraint('symbol', 'venue', name='uk_watchlist_symbol_venue'),)
+    # #1286：唯一键回归设计基线 (symbol, market, venue)——原 (symbol, venue) 无法区分
+    # 跨市场同码（000001 上证指数 vs 平安银行）。注意 SQLite UNIQUE 中 NULL 互不相等，
+    # 无市场实体必须存空串 '' 而非 NULL，否则唯一性静默失效。
+    __table_args__ = (UniqueConstraint('symbol', 'market', 'venue', name='uk_watchlist_symbol_market_venue'),)
 
 
 class WatchlistGroup(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):

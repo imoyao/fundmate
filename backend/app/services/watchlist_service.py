@@ -180,6 +180,12 @@ def normalize_and_infer_venue(
 ) -> Dict[str, Any]:
     symbol = symbol.strip().upper()
 
+    # #1286 品种差异化维度：经理/组合为非交易实体，无市场与交易场所属性，
+    # market/venue 存空串（SQLite UNIQUE 中 NULL 互不相等，存 NULL 会使唯一性失效）。
+    # symbol 保留平台原生码（经理 MGR_ 前缀 + 权威外部 id；组合 tgcode/ZHxxxx 等）。
+    if asset_type in ('manager', 'portfolio'):
+        return {'symbol': symbol, 'market': '', 'venue': ''}
+
     # 如果没有 venue，必须根据 asset_type 推断，否则报错
     if venue is None:
         if asset_type == 'fund':
