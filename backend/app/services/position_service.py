@@ -155,7 +155,7 @@ def _create_cash_transfer_transaction(db: Session, data: dict, txn_type: str) ->
     为现金管理产品（货币基金/逆回购）创建孤立交易流水。
     金额转换为分后存储。
     """
-    net_amount = abs(float(data.get('net_amount', 0) or 0))
+    net_amount = abs(data.get('net_amount', 0) or 0)
     TransactionService.create(
         db=db,
         position_id=None,
@@ -198,7 +198,7 @@ def _create_orphan_transaction(
     qty_units = Money.shares_to_min_unit(quantity)
     price_units = Money.yuan_to_price_units(price)
     amount_cents = Money.yuan_to_cents(amount) if amount else Money.multiply_price_quantity(price_units, qty_units)
-    fee_cents = Money.yuan_to_cents(float(data.get('fee', 0) or 0))
+    fee_cents = Money.yuan_to_cents(data.get('fee', 0) or 0)
 
     TransactionService.create(
         db=db,
@@ -236,9 +236,9 @@ def _is_reinvest(data: dict) -> bool:
     if data.get('op_type') != 'dividend_reinvest':
         return False
 
-    shares = float(data.get('quantity') or 0)
-    nav = float(data.get('nav') or 0)
-    amount = float(data.get('dividend_amount') or 0)
+    shares = data.get('quantity') or 0
+    nav = data.get('nav') or 0
+    amount = data.get('dividend_amount') or 0
 
     if shares <= 0:
         logger.warning('红利再投资缺少份额，降级按现金分红处理')
@@ -760,7 +760,7 @@ class PositionService:
                 link_group_id=data.get('link_group_id'),
                 quantity=qty_units,
                 price=price_units,
-                fee=Money.yuan_to_cents(float(data.get('fee', 0) or 0)),
+                fee=Money.yuan_to_cents(data.get('fee', 0) or 0),
                 # balance 模式没有 price×qty 可算，流水金额直接取用户录入的金额
                 amount=amount_cents if is_balance else Money.multiply_price_quantity(price_units, qty_units),
                 status='success',
@@ -832,7 +832,7 @@ class PositionService:
             # 必须在份额扣减前取成本均价：移动加权下卖出本不改均价，但显式提前取值
             # 可避免后续重构引入顺序依赖。结果落在流水的 realized_pnl 上而不是持仓上，
             # 因为清仓时持仓行会被 delete，记在持仓上会随持仓一起丢失。
-            fee_cents = Money.yuan_to_cents(float(data.get('fee', 0) or 0))
+            fee_cents = Money.yuan_to_cents(data.get('fee', 0) or 0)
             realized_cents = compute_sell_realized_cents(
                 price_units=price_units,
                 avg_price_units=existing.avg_price or 0,
@@ -1190,7 +1190,7 @@ class PositionService:
         手动记账传 position_id 直接定位；导入路径按 (symbol, account_name, family_id) 匹配。
         """
         family_id = data.get('family_id', 1)
-        qty = float(data.get('quantity') or 0)
+        qty = data.get('quantity') or 0
 
         if qty <= 0:
             # 缺份额：无法计入，记孤儿流水（notes 标明），不阻断整批导入
@@ -1238,7 +1238,7 @@ class PositionService:
             asset_type=_get_asset_type(data),
             quantity=qty_units,
             price=0,
-            fee=Money.yuan_to_cents(float(data.get('fee', 0) or 0)),
+            fee=Money.yuan_to_cents(data.get('fee', 0) or 0),
             amount=0,
             status='success',
             entry_status='success',
