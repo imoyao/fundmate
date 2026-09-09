@@ -33,6 +33,10 @@ ASSET_TYPE_LABELS: dict[str, str] = {
     'bond': '可转债',
     'index': '指数',
     'crypto': '加密货币',
+    # #1286 品种差异化维度：可自选观察的非交易实体（不进 positions，仅 watchlist 引用）。
+    # manager/portfolio 无市场与交易场所属性，watchlist 行的 market/venue 以空串 '' 存储。
+    'manager': '基金经理',
+    'portfolio': '投顾组合',
     'money_fund': '货币基金',
     'reverse_repo': '逆回购',
     'cash': '现金',

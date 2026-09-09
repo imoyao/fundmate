@@ -11,7 +11,13 @@ export const MARKET_LABELS: Record<string, string> = {
   SZ: "深市",
   US: "美股",
   CRYPTO: "虚拟币",
-  crypto: "虚拟币"
+  crypto: "虚拟币",
+  COMMODITY: "大宗商品",
+  // #1365：指数名录三源合并，中证/国证专属代码的命名空间前缀
+  CSI: "中证",
+  CNI: "国证",
+  // #1286：无市场实体（基金经理/投顾组合）约定存空串
+  "": "通用"
 };
 
 /** 市场 → 中文标签；未知市场原样返回 */
