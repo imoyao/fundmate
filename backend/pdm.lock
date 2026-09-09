@@ -5,7 +5,7 @@
 groups = ["default", "dev", "test"]
 strategy = []
 lock_version = "4.5.0"
-content_hash = "sha256:ba4f1bed7d03bbd45c67f76fe429484773491e3298c9bd95eb3231713108cc6f"
+content_hash = "sha256:ebadec1da3454e6d52878f8c4206e6b9b1d0e3785e32caa07e173de93ab0a011"
 
 [[metadata.targets]]
 requires_python = ">=3.12"
@@ -719,15 +719,6 @@ summary = ""
 files = [
     {file = "executing-2.2.1-py2.py3-none-any.whl", hash = "sha256:760643d3452b4d777d295bb167ccc74c64a81df23fb5e08eff250c425a4b2017"},
     {file = "executing-2.2.1.tar.gz", hash = "sha256:3632cc370565f6648cc328b32435bd120a1e4ebb20c77e3fdde9a13cd1e533c4"},
-]
-
-[[package]]
-name = "fake-useragent"
-version = "2.2.0"
-summary = ""
-files = [
-    {file = "fake_useragent-2.2.0-py3-none-any.whl", hash = "sha256:67f35ca4d847b0d298187443aaf020413746e56acd985a611908c73dba2daa24"},
-    {file = "fake_useragent-2.2.0.tar.gz", hash = "sha256:4e6ab6571e40cc086d788523cf9e018f618d07f9050f822ff409a4dfe17c16b2"},
 ]
 
 [[package]]
