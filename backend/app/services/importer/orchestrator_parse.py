@@ -401,11 +401,12 @@ class ParsingMixin:
             trade_date = trade_date.date()
 
         is_dividend = record.business_type in ('dividend_cash', 'dividend_reinvest')
-        # 使用 Decimal 或安全转换避免 float 精度问题，但 Money 方法内部会通过 Decimal(str(x)) 处理，此处直接传 Decimal 亦可
-        avg_price = float(record.amount) if is_dividend else (float(record.nav) if record.nav else 0.0)
-        qty = float(record.shares) if record.shares else 0.0
-        fee_val = float(record.fee)
-        net_amount_val = float(record.net_amount) if record.net_amount else float(record.amount)
+        # 金融口径收口（#1375）：record 字段本身是 Decimal（仅 net_amount 为 float，经 str 桥接），
+        # 数据字典全程 Decimal 直传，禁止塌缩到 float 域中转；Money 各入口原生接受 Decimal
+        avg_price = record.amount if is_dividend else (record.nav if record.nav else Decimal('0'))
+        qty = record.shares if record.shares else Decimal('0')
+        fee_val = record.fee
+        net_amount_val = Decimal(str(record.net_amount)) if record.net_amount else record.amount
 
         return {
             'symbol': record.symbol,
@@ -418,7 +419,7 @@ class ParsingMixin:
             'avg_price': avg_price,  # 原始元
             # 净值须单列：is_dividend 时 avg_price 已被改写为分红金额（见上方赋值），
             # 而红利再投资要按净值申购份额，拿不到净值就无法加仓。
-            'nav': float(record.nav) if record.nav else 0.0,  # 原始净值元
+            'nav': record.nav if record.nav else Decimal('0'),  # 原始净值元
             'currency': 'CNY',
             'confirm_date': confirm_date,
             'trade_date': trade_date,
@@ -428,7 +429,7 @@ class ParsingMixin:
             'allocation': 'liquid' if record.asset_type in ('money_fund', 'reverse_repo') else 'longterm',
             'op_type': record.business_type,
             'link_group_id': record.link_group_id,
-            'dividend_amount': float(record.amount) if is_dividend else 0.0,  # 原始元
+            'dividend_amount': record.amount if is_dividend else Decimal('0'),  # 原始元
             'net_amount': net_amount_val,  # 原始元
             'family_id': self.family_id,
         }
