@@ -49,11 +49,12 @@ def app(monkeypatch):
     monkeypatch.setattr(_db_factory, 'market_session_factory', lambda: TestMarketSessionLocal)
 
     # 彻底禁用异步回填线程（直接替换已导入的引用）
-    import app.services.importer.orchestrator
+    # #1370：orchestrator 拆分后 trigger_backfill 的调用点在 orchestrator_commit
+    import app.services.importer.orchestrator_commit
     import app.services.position_service
 
     monkeypatch.setattr(app.services.position_service, 'trigger_backfill', lambda *a, **kw: None)
-    monkeypatch.setattr(app.services.importer.orchestrator, 'trigger_backfill', lambda *a, **kw: None)
+    monkeypatch.setattr(app.services.importer.orchestrator_commit, 'trigger_backfill', lambda *a, **kw: None)
 
     Base.metadata.create_all(bind=test_engine)
     Base.metadata.create_all(bind=market_engine)
