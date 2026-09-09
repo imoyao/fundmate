@@ -28,10 +28,14 @@ from app.domains.ledgers.models import Ledger
 from app.domains.positions.models import Position, PositionImportMeta, SalesInstitution
 from app.domains.positions.views import enrich_position_dict
 from app.domains.transactions.models import Transaction
-from app.services.fund_aggregation import get_fund_aggregation as svc_get_fund_aggregation
 from app.services.fund_service import FundService
-from app.services.position_aggregation import DEFAULT_PAGE_SIZE
-from app.services.transaction_service import TransactionService
+from app.services.position_aggregation import (
+    DEFAULT_PAGE_SIZE,
+)
+from app.services.position_aggregation import (
+    get_fund_aggregation as svc_get_fund_aggregation,
+)
+from app.services.trading import TransactionService
 
 # 外部基金列表缓存（进程级，基金列表极少变动）：用于「本地库无此货基时」补建 Fund 行
 _FUND_NAME_EM_CACHE: dict = {'ts': 0.0, 'data': None}
@@ -196,7 +200,7 @@ def _swap_linked_money_fund(db, ledger: Ledger, old_fund: Fund, new_fund: Fund) 
 
 # #1132 场内证券聚合：与 #1101 基金聚合并列，纯 position 级聚合，零 schema 迁移。
 from app.services.ledger_service import LedgerService  # noqa: E402
-from app.services.securities_aggregation import (  # noqa: E402
+from app.services.position_aggregation import (  # noqa: E402
     get_securities_aggregation as svc_get_securities_aggregation,
 )
 

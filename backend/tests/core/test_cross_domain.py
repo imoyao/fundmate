@@ -33,7 +33,7 @@ from app.core.db_factory import (
     DOMAIN_USER,
     DatabaseFactory,
 )
-from app.services.common.cross_domain import CrossDomainQuery
+from app.services.cross_domain import CrossDomainQuery
 
 
 def _build_split_engines():

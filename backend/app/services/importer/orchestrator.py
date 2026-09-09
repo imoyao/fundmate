@@ -46,7 +46,7 @@ from app.services.importer.records import (
 )
 from app.services.importer.registry import get_holding_parser, get_parser
 from app.services.position_service import PositionService
-from app.services.transaction_service import TransactionService
+from app.services.trading import TransactionService
 
 
 class ImportOrchestrator:

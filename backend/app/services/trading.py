@@ -1,14 +1,19 @@
 # -*- coding: utf-8 -*-
-# Author : imoyao
-# Date : 2026/6/13 13:32
-# File : trade_rules.py
-# -*- coding: utf-8 -*-
-"""
-交易规则模块
-提供品种交易规则配置和买入/卖出数量校验。
+"""交易域服务：品种交易规则校验 + 流水构造。
+
+合并说明（2026-09-09）：原 ``trade_rules.py``（规则校验）与
+``transaction_service.py``（仅一个 3 行的 ``TransactionService.create``）
+是两个碎文件，但同属「交易写入链路」的两端——**先校验合法，再构造流水**，
+拆开只会让调用方各 import 一次、且给「交易」这一概念留下两个入口。
+合并后对外符号 ``TradeService`` / ``validate_buy`` / ``validate_sell`` /
+``TransactionService`` 全部保留，行为不变。
+
 当前版本使用函数式设计，后续可封装为 TradeLotRuleEngine 类。
 """
 
+from sqlalchemy.orm import Session
+
+from app.domains.transactions.models import Transaction
 
 # ---------- 规则配置 ----------
 
@@ -114,3 +119,21 @@ class TradeService:
             return {'valid': False, 'message': '不支持的操作类型'}
 
         return {'valid': valid, 'message': msg}
+
+
+class TransactionService:
+    """流水创建服务，仅负责构造对象，不管理事务边界。"""
+
+    @staticmethod
+    def create(db: Session, **kwargs) -> Transaction:
+        """构造并添加流水到会话，由调用方统一提交。
+
+        source（#1232 决策 11）：可选，透传到 Transaction.source（复用 PositionSource）。
+        缺省 None（存量未标记来源语义）。记一笔/对账补录/交易导入由汇点层按场景传入。
+        """
+        txn = Transaction(**kwargs)
+        db.add(txn)
+        return txn
+
+
+__all__ = ['TradeService', 'TransactionService', 'validate_buy', 'validate_sell']

@@ -11,22 +11,85 @@
   本函数内只做「单次决策 + 工具失败最多 1 次重试」（共 2 次模型调用上限）。
 
 后期接 DeepSeek：只需改 ARK_MODEL / base_url（OpenAI 兼容协议不变），架构零改动。
+
+合并说明（2026-09-09）：原 ``session_manager.py``（64 行，仅本文件一个生产调用方）
+已并入本模块——多轮会话的「状态校验」与「循环收敛」是同一职责的两面，拆开后
+调用方必须同时 import 两个模块才能跑一轮对话。对外符号
+``SessionState`` / ``validate_session_state`` / ``init_session`` / ``merge_user_input``
+全部保留（现从 ``agent_loop`` 导出），行为不变。
 """
 
 import json
 import re
-from typing import Optional
+from typing import List, Optional, TypedDict
 
 from loguru import logger
 
 from app.core.exceptions import ErrorCode, SBException
 from app.services.ai_recognizer import guards, llm
-from app.services.ai_recognizer.session_manager import (
-    SessionState,
-    merge_user_input,
-    validate_session_state,
-)
-from app.services.ai_recognizer.tools.executor import ToolExecutor
+from app.services.ai_recognizer.tools import ToolExecutor
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 会话状态管理（前端持有模式，后端无状态）
+#
+# 设计（2026-08-18 与用户确认）：
+# - 会话状态由**前端持有**（选项 c）：后端不存储、不持久化，每轮由前端回传 session_state；
+# - 后端在接收时仅做**字段格式校验**（G3 防篡改）：只认白名单字段，不执行任何 DB/SQL；
+# - 收敛轮次上限由 guards.repeat_tracker（G4）统一管控，不在本模块另起一套。
+#
+# 后期如需 (a) Supabase / (b) SQLite 持久化，只替换存储层，本段白名单校验不变。
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+# 会话状态结构：目标 / 缺失参数 / 已收集参数 / 对话历史摘要
+class SessionState(TypedDict, total=False):
+    goal: str
+    missing_params: List[str]
+    collected_params: dict
+    history: List[dict]
+
+
+# G3 白名单：前端回传的 session_state 只能含这些字段，否则视为篡改拒绝
+ALLOWED_KEYS = {'goal', 'missing_params', 'collected_params', 'history'}
+
+
+def init_session(goal: str) -> SessionState:
+    """前端开启新会话时初始化状态（也可由前端自行构造）。"""
+    return SessionState(goal=goal, missing_params=[], collected_params={}, history=[])
+
+
+def validate_session_state(state) -> SessionState:
+    """白名单校验前端回传的 session_state（G3 防篡改）。
+
+    只认 ALLOWED_KEYS，字段类型不符即拒绝；不碰 DB、不执行任何危险逻辑。
+    """
+    if not isinstance(state, dict):
+        raise SBException(ErrorCode.INVALID_PARAMS.code, 'session_state 必须为对象', 400)
+    cleaned: SessionState = SessionState()
+    for k, v in state.items():
+        if k not in ALLOWED_KEYS:
+            # 未知字段：拒绝，防止前端被篡改后注入非法状态
+            raise SBException(ErrorCode.INVALID_PARAMS.code, f'session_state 含未授权字段: {k}', 400)
+        if k == 'goal' and not isinstance(v, str):
+            raise SBException(ErrorCode.INVALID_PARAMS.code, 'goal 必须为字符串', 400)
+        if k == 'missing_params' and not isinstance(v, list):
+            raise SBException(ErrorCode.INVALID_PARAMS.code, 'missing_params 必须为数组', 400)
+        if k == 'collected_params' and not isinstance(v, dict):
+            raise SBException(ErrorCode.INVALID_PARAMS.code, 'collected_params 必须为对象', 400)
+        if k == 'history' and not isinstance(v, list):
+            raise SBException(ErrorCode.INVALID_PARAMS.code, 'history 必须为数组', 400)
+        cleaned[k] = v  # type: ignore[literal-required]
+    return cleaned
+
+
+def merge_user_input(state: SessionState, user_input: str) -> SessionState:
+    """把本轮用户输入追加进 history（轻量摘要，不存全量原文）。"""
+    history = list(state.get('history', []))
+    history.append({'role': 'user', 'content': user_input})
+    updated = SessionState(**state)
+    updated['history'] = history
+    return updated
+
 
 AGENT_SYSTEM_PROMPT = """你是多多贝账本精灵（投顾助手）。
 你的输出**必须**是单个 JSON 对象，不要包含任何解释文字或 markdown 围栏。
