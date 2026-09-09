@@ -4,23 +4,35 @@
 # File : __init__.py.py
 
 import logging
+import os
+import sys
+from pathlib import Path
 
-# 导入形态守卫：本包内全部使用 `from app.xxx` 顶级绝对导入，要求 `app` 必须是
-# 顶级包（标准启动：cwd=backend + flask --app app.main:app，见 AGENTS.md）。
-# 若以 backend.app 等子包形态被导入（如从仓库根 `--app backend.app.main` 启动），
-# 顶级 app 不存在，后续导入必然 ModuleNotFoundError 且 traceback 极其迷惑
-# （2026-09-09 实测：/api/watchlist/items/ 全量 500）。
-# 不在此做 sys.path 自愈：那会让 backend.app 与 app 两份包对象并存（双份
-# Base/engine，状态分裂），比启动失败更隐蔽。故快速失败并给出指引。
-if __name__ != 'app':
-    raise ImportError(
-        f'app 包被以子包形态导入（{__name__}），顶级包 app 不存在，无法继续。'
-        '唯一标准启动方式：cd backend && pdm run flask --app app.main:app run --debug'
-        '（仓库根可执行 dev.cmd，其内部已切到 backend；见 AGENTS.md / scripts/dev.ps1）。'
-        'IDE 运行配置请把 Working Directory 设为 backend/、启动目标设为 app.main。'
-    )
-
+from dotenv import load_dotenv
 from loguru import logger
+
+# 导入形态对齐：本包内全部使用 `from app.xxx` 顶级绝对导入，要求顶级包名
+# 必须是 app（标准启动：cwd=backend + flask --app app.main:app，见 AGENTS.md）。
+# 若以 backend.app 等子包形态被导入（如 --app backend.app.main、IDE 运行配置
+# Working Directory 指向仓库根），此处把运行环境自动对齐标准形态：
+#   1. backend 目录注入 sys.path；
+#   2. 把本模块别名注册为顶级 'app'——sys.modules 两个键指向**同一个**
+#      包对象，后续 `from app.xxx` 命中同一份包，不会产生双份 Base/engine
+#      的状态分裂（这正是不能简单「import 重载自愈」的原因）；
+#   3. chdir 到 backend 并加载 backend/.env（对齐 sqlite 相对路径与环境变量）。
+# 标准形态（__name__ == 'app'）整块短路，零开销。
+if __name__ != 'app':
+    _BACKEND_DIR = str(Path(__file__).resolve().parent.parent)
+    if _BACKEND_DIR not in sys.path:
+        sys.path.insert(0, _BACKEND_DIR)
+    sys.modules['app'] = sys.modules[__name__]
+    os.chdir(_BACKEND_DIR)
+    load_dotenv(os.path.join(_BACKEND_DIR, '.env'))
+    logging.getLogger(__name__).warning(
+        'app 包以子包形态（%s）被导入，已自动对齐标准形态（sys.path/cwd/.env）。'
+        '建议改用标准启动：cd backend && pdm run flask --app app.main:app run --debug',
+        __name__,
+    )
 
 # 全局请求补丁：进程启动时让所有 akshare/requests 调用自动走「浏览器头 + 连接复用 + 重试」会话，
 # 缓解东方财富按 IP 限流/临时封导致的 RemoteDisconnected（详见 app/core/requests_patch.py；根因仍待退出代理后 diag 验收）。
