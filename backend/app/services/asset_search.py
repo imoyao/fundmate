@@ -74,9 +74,19 @@ def _search_indices(db: Session, q: str) -> List[Dict]:
     """
     from app.domains.indices.models import IndexCatalog
 
+    # 同时匹配「裸码」「名称」与「命名空间前缀码」：聚合搜索返回的 code 是
+    # 前缀形态（SH000300 / CSI930950），用户若直接搜前缀码也能命中（#1362 评审 #5）。
+    # exchange 可能为空串/None，用 COALESCE 兜底再拼接 index_code。
+    prefixed_code = func.coalesce(IndexCatalog.exchange, '').concat(IndexCatalog.index_code)
     rows = (
         db.query(IndexCatalog)
-        .filter(or_(IndexCatalog.index_code.ilike(f'%{q}%'), IndexCatalog.name.ilike(f'%{q}%')))
+        .filter(
+            or_(
+                IndexCatalog.index_code.ilike(f'%{q}%'),
+                IndexCatalog.name.ilike(f'%{q}%'),
+                prefixed_code.ilike(f'%{q}%'),
+            )
+        )
         # 核心白名单置顶（人工策展，#1365），其余按代码稳定排序
         .order_by(IndexCatalog.is_core.desc(), func.coalesce(IndexCatalog.core_rank, 999), IndexCatalog.index_code)
         .limit(_PER_PROVIDER_LIMIT)

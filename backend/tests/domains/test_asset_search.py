@@ -61,6 +61,25 @@ class TestSearchAssets:
         assert hit['market'] == 'CSI'
         assert hit['venue'] == ''
 
+    def test_index_prefix_code_search(self, client, db):
+        """#1362 评审 #5/#6 回归：按命名空间前缀码（SH000300 / CSI930950）也应命中，
+        且中证/国证等空 venue 指数返回的 venue 为空串，与加入自选时一致。"""
+        _seed(db)
+        db.add(IndexCatalog(index_code='930950', name='中证偏股基金指数', exchange='CSI', source='csindex'))
+        db.commit()
+        # 中证前缀码
+        resp = client.get('/api/search/assets/', query_string={'q': 'CSI930950'})
+        hit = next((i for i in resp.get_json()['data'] if i['code'] == 'CSI930950'), None)
+        assert hit is not None
+        assert hit['asset_type'] == 'index'
+        assert hit['market'] == 'CSI'
+        assert hit['venue'] == ''
+        # 交易所前缀码
+        resp2 = client.get('/api/search/assets/', query_string={'q': 'SH000300'})
+        hit2 = next((i for i in resp2.get_json()['data'] if i['code'] == 'SH000300'), None)
+        assert hit2 is not None
+        assert hit2['venue'] == 'EXCHANGE'
+
     def test_index_core_whitelist_ordering(self, client, db):
         """核心白名单置顶（is_core/core_rank，#1365）：核心排前、extra 携带标记。"""
         _seed(db)

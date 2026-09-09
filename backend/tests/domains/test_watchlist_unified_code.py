@@ -119,3 +119,93 @@ class TestCreateNonAssetEntities:
         assert first.status_code == 200
         second = client.post('/api/watchlist/items/', json=payload)
         assert second.status_code == 409
+
+
+class TestWatchlistUniqueKeyMigration:
+    """#1362 评审 #3：存量库唯一键 (symbol, venue) → (symbol, market, venue) 自动迁移。"""
+
+    def test_migrate_old_two_column_constraint_to_new(self):
+        from sqlalchemy import create_engine, text
+        from sqlalchemy.orm import sessionmaker
+
+        from app.core.migrations import migrate_watchlist_unique_key
+        from app.domains.watchlist.models import WatchlistItem
+
+        eng = create_engine('sqlite:///:memory:', connect_args={'check_same_thread': False})
+        # 1) 用模型建新表，再降级为旧两列唯一键，模拟「代码已回归基线、库仍是旧约束」的存量库
+        WatchlistItem.metadata.create_all(bind=eng, tables=[WatchlistItem.__table__])
+        with eng.connect() as conn:
+            ddl = conn.execute(text("SELECT sql FROM sqlite_master WHERE name='watchlist'")).scalar()
+            old_ddl = ddl.replace(
+                'CONSTRAINT uk_watchlist_symbol_market_venue UNIQUE (symbol, market, venue)',
+                'CONSTRAINT uk_watchlist_symbol_venue UNIQUE (symbol, venue)',
+            )
+            assert old_ddl != ddl, '模型已不含三列约束，测试前提失效'
+            conn.execute(text('PRAGMA foreign_keys=OFF'))
+            conn.execute(text('DROP TABLE watchlist'))
+            conn.execute(text(old_ddl))
+            conn.commit()
+
+        # 2) 注入旧两列约束下合法的数据（不同 symbol，同 venue=EXCHANGE）。
+        #    注：旧约束下 000001(SH) 与 000001(SZ) 因 symbol+venue 相同会被拒——这正是要修的 bug。
+        Sess = sessionmaker(bind=eng)
+        with Sess() as s:
+            s.add(
+                WatchlistItem(
+                    symbol='000001', market='SH', asset_type='index', venue='EXCHANGE', status='WATCHING', family_id=1
+                )
+            )
+            s.add(
+                WatchlistItem(
+                    symbol='600519', market='SH', asset_type='stock', venue='EXCHANGE', status='WATCHING', family_id=1
+                )
+            )
+            s.commit()
+
+        # 3) 执行迁移（init_db 启动期同款调用）
+        status = migrate_watchlist_unique_key(eng)
+        assert 'OK' in status
+
+        # 4) 新约束生效、原数据保留
+        with eng.connect() as conn:
+            ddl2 = conn.execute(text("SELECT sql FROM sqlite_master WHERE name='watchlist'")).scalar()
+            assert 'uk_watchlist_symbol_market_venue' in ddl2
+            assert conn.execute(text('SELECT count(*) FROM watchlist')).scalar() == 2
+
+        # 5) 三列唯一键生效：market 纳入键后，000001(SZ) 与既有 000001(SH) 不再冲突（#1286 基线回归）
+        with Sess() as s:
+            s.add(
+                WatchlistItem(
+                    symbol='000001', market='SZ', asset_type='index', venue='EXCHANGE', status='WATCHING', family_id=1
+                )
+            )
+            s.commit()
+        with eng.connect() as conn:
+            assert conn.execute(text('SELECT count(*) FROM watchlist')).scalar() == 3
+
+        # 6) 同 (symbol, market, venue) 仍被唯一键拦截
+        with pytest.raises(Exception):
+            with Sess() as s:
+                s.add(
+                    WatchlistItem(
+                        symbol='000001',
+                        market='SH',
+                        asset_type='index',
+                        venue='EXCHANGE',
+                        status='WATCHING',
+                        family_id=1,
+                    )
+                )
+                s.commit()
+
+    def test_migrate_idempotent_when_new_constraint_present(self):
+        from sqlalchemy import create_engine
+
+        from app.core.migrations import migrate_watchlist_unique_key
+        from app.domains.watchlist.models import WatchlistItem
+
+        eng = create_engine('sqlite:///:memory:', connect_args={'check_same_thread': False})
+        WatchlistItem.metadata.create_all(bind=eng, tables=[WatchlistItem.__table__])
+        # 全新库已是三列约束，迁移应幂等跳过，不报错
+        status = migrate_watchlist_unique_key(eng)
+        assert 'SKIP' in status
