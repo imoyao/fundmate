@@ -1,5 +1,10 @@
 # -*- coding: utf-8 -*-
-"""账本精灵工具执行原子刀（ToolExecutor）。
+"""账本精灵工具包（ToolExecutor + 工具注册表）。
+
+本模块不触碰账本 DB，只做数值计算（D19 铁律：模型只叙事，数值靠代码算）。
+
+合并说明（2026-09-09）：原为 ``tools/`` 包（``__init__.py`` 仅 9 行转发 + ``executor.py``），
+属「一个包只装一个文件」的空壳分层，已收敛为本单模块；对外符号不变。
 
 职责（D19 铁律）：工具内只做**数值计算**，绝不让模型写代码、绝不直接碰账本；
 执行结果只回传指标值给 AgentLoop 拼回 prompt 叙事。
@@ -106,3 +111,6 @@ class ToolExecutor:
         except Exception as e:  # noqa: BLE001  兜底：工具内部异常不让 AgentLoop 崩
             logger.warning('工具执行失败 name={} params={}: {}', name, params, e)
             return {'status': 'error', 'msg': str(e)}
+
+
+__all__ = ['TOOLS_METADATA', 'ToolExecutor', 'register_tool']

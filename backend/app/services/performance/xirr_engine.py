@@ -27,12 +27,14 @@ except ImportError:
     PYXIRR_AVAILABLE = False
     logger.warning('pyxirr 不可用，将使用纯 Python 实现作为兜底')
 
+# EXCLUDED_ASSET_TYPES 唯一来源为 app.core.asset_types（#1171 枚举一致性）；
+# 原 services/performance/constants.py 只是 12 行 re-export 转发层，已删除。
+from app.core.asset_types import EXCLUDED_ASSET_TYPES
 from app.core.money import Money
 from app.domains.ledgers.models import Ledger
 from app.domains.portfolios.models import Portfolio
 from app.domains.transactions.models import Transaction
 from app.services.importer.mappings import BusinessType
-from app.services.performance.constants import EXCLUDED_ASSET_TYPES
 
 
 def _safe_return(value: float) -> float:

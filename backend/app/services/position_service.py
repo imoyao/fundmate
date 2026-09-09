@@ -35,8 +35,7 @@ from app.services.async_backfill import trigger_backfill
 from app.services.fund_utils import CASH_EQUIVALENT_ASSET_TYPES, is_money_fund_symbol, normalize_fund_code
 from app.services.importer.records import compute_position_hash
 from app.services.pnl_service import compute_sell_realized_cents
-from app.services.trade_rules import validate_buy, validate_sell
-from app.services.transaction_service import TransactionService
+from app.services.trading import TransactionService, validate_buy, validate_sell
 
 # 允许写入持仓模型的字段白名单（防止注入无效字段）
 _ALLOWED_POSITION_FIELDS = {

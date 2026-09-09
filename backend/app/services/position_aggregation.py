@@ -21,7 +21,17 @@
 - **维度**：`product`（按产品）/ `institution`（按销售机构）。
   原 `app`（按交易前端）维度已于 #1133 收敛去掉——其本质就是销售机构，属重复维度。
 
-两品类共享本文件，避免 fund_aggregation / securities_aggregation 两份逻辑漂移。
+两品类共享本文件，避免两份逻辑漂移：
+
+- 通用范式：:func:`aggregate_positions`
+- 场外基金（#1101，含 E 账户）：:func:`get_fund_aggregation` / ``FUND_ASSET_TYPES``
+- 场内证券（#1132，股票 + ETF + 可转债）：:func:`get_securities_aggregation` /
+  ``SECURITIES_ASSET_TYPES``
+
+历史说明：上述两个品类入口原为独立文件 ``fund_aggregation.py`` /
+``securities_aggregation.py``，各自只是本文件的薄封装（34~36 行），且为兼容历史 import
+还从私有函数 ``_position_market_value_cents`` 互相转发——属典型的「过度拆分」，
+已于 2026-09-09 合并回本模块，对外函数名与行为不变。
 """
 
 from __future__ import annotations
@@ -527,3 +537,59 @@ def aggregate_positions(
         # 🔄 资产构成（按基金类型的市值分布，供环形图/饼图展示占比）
         'fund_type_breakdown': fund_type_breakdown_list,
     }
+
+
+# ── 品类入口（#1101 场外基金 / #1132 场内证券）──
+# 原先各自独立成文件，仅为 aggregate_positions 的薄封装，现收拢至此，避免品类口径漂移。
+
+# 场外基金口径：E 账户仅覆盖场外份额，故聚合不含 ETF/LOF 等场内品种
+FUND_ASSET_TYPES = ('fund', 'money_fund')
+
+# #1132 范围（D1 已确认）：股票 + ETF + 可转债，即全部场内证券
+SECURITIES_ASSET_TYPES = ('etf', 'bond', 'stock')
+
+
+def get_fund_aggregation(
+    session,
+    family_id: int,
+    dimension: str = 'product',
+    **kwargs,
+) -> dict:
+    """聚合家族场外基金持仓（#1101）。
+
+    参数与返回值见 :func:`aggregate_positions`。
+    dimension 支持 'product'（默认）与 'institution'。
+    """
+    return aggregate_positions(session, family_id, FUND_ASSET_TYPES, dimension, **kwargs)
+
+
+def get_securities_aggregation(
+    session,
+    family_id: int,
+    dimension: str = 'product',
+    **kwargs,
+) -> dict:
+    """聚合家族场内证券持仓（#1132）。
+
+    与 :func:`get_fund_aggregation` 共用 :func:`aggregate_positions`，
+    仅品类口径（``SECURITIES_ASSET_TYPES``）与资产构成聚类维度（``asset_type``）不同。
+    市值口径与 #1101 完全一致：份额(份) × 当前价(元) × 汇率 → 整数「分」，禁止浮点直接累积。
+    """
+    return aggregate_positions(
+        session, family_id, SECURITIES_ASSET_TYPES, dimension, breakdown_by='asset_type', **kwargs
+    )
+
+
+__all__ = [
+    'AGGREGATION_DIMENSIONS',
+    'ASSET_TYPE_LABELS',
+    'DEFAULT_PAGE_SIZE',
+    'FUND_ASSET_TYPES',
+    'FUND_TYPE_NONE',
+    'MAX_PAGE_SIZE',
+    'SECURITIES_ASSET_TYPES',
+    'SORT_FIELDS',
+    'aggregate_positions',
+    'get_fund_aggregation',
+    'get_securities_aggregation',
+]
