@@ -35,17 +35,21 @@ import sys
 import time
 from pathlib import Path
 
-from dotenv import load_dotenv
-from loguru import logger
+# 将项目根目录（backend/）加入 Python 路径 —— 必须在 import app 之前。
+# pdm run sync 以「脚本路径」方式运行（python app/tools/sync_metadata.py），
+# sys.path[0] 是 app/tools/ 而非 backend/，不补路径则 import app 直接
+# ModuleNotFoundError（#1366 实测）。需向上三级：tools/ → app/ → backend/。
+BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(BACKEND_DIR))
 
-from app.core.database import get_db, init_db
-from app.services.sync.orchestrator import DataSyncOrchestrator
+from dotenv import load_dotenv  # noqa: E402
+from loguru import logger  # noqa: E402
 
-# 将项目根目录添加到 Python 路径
-sys.path.insert(0, str(Path(__file__).parent.parent))
+from app.core.database import get_db, init_db  # noqa: E402
+from app.services.sync.orchestrator import DataSyncOrchestrator  # noqa: E402
+
 # ✅ 在入口文件顶部加载 .env（相对于 backend/ 目录）
-# 当前文件在 backend/app/tools/，需要向上两级到 backend/
-env_path = Path(__file__).parent.parent.parent / '.env'
+env_path = BACKEND_DIR / '.env'
 load_dotenv(dotenv_path=env_path)
 
 

@@ -71,14 +71,12 @@
 | `money-fund-income-plan-2026-08-09.md` | 货基收益入账方案设计 |
 | `ai-recognizer-architecture-2026-08-13.md` | **AI 识别导入分层架构**：识别域对称模板导入（BaseRecognizer 抽象 + registry + guards/llm/catalog），自选/持仓两场景统一；P1-P4 已实施，P5 管线级共享落地 |
 | `asset-snapshot-yoy-plan-2026-08-09.md` | 资产总览同比真实化：历史快照方案（asset_snapshots 表 + 惰性 upsert + 同比计算，2026-08-10 已落地） |
-| `watchlist-table-redesign-2026-08-13.md` | 自选页表格信息密度提升设计提案：对齐 watchlist.md §1.5.4 基线与基估宝(#893) 能力，按身份/价格/持仓/收益分组补齐列，区分前端可算与后端 enrich 字段，分 P0/P1/P2 落地 |
 | `worktile-migration-map-2026-08-09.md` | Worktile 看板迁移 GitHub 对照表：16 张 2021 年卡片的逐条处置（新建 4 / 合并 8 / 归档 3 / 丢弃 1），含代码核查证据 |
 | `watchlist-feature-gap-audit-2026-08-13.md` | 自选功能 Issue 实现缺口核验：对照 #661/#807/#826/#860 与代码，列出真正未做项（备注编辑 UI+分享、品种维度、平台级估值开关、探市沙箱缺陷），并纠正 #860 文档漂移 |
 | `page-split-welcome-vs-panorama-2026-08-13.md` | **页面分工决策**：投资概览(welcome)=理想/目标(心理账户/Portfolio+表现)，资产总览(panorama)=生活/方法(五笔钱/产品类型/账户/资产负债)；五笔钱归 panorama 的论证；分页原则修正为"拆解 vs 表现+目标" |
 | `concept-explainer-five-buckets-and-goals-2026-08-13.md` | **用户科普文草稿**：用"理想 vs 生活/方法"比喻讲清五笔钱/心理账户/账户/自选分组；待晋升为公开文档页 |
 | `welcome-message-layer-2026-08-13.md` | **Welcome 首页消息层改造**：顶部 ticker 播报 + 近期动态真实 feed + 财务晴雨表/收益趋势空态；死数据清理清单；投资人格雷达落点修订（复盘页）；遗留待办 |
 | `watchlist-paid-features-discussion-2026-08-14.md` | **自选付费化方向讨论（远期规划）**：数据清理与提醒（扫描/提醒/回撤配额）、持仓穿透分层、持仓建议推荐的合规与品牌边界分析（不荐股承诺冲突，倾向客观数据洞察替代观点推荐） |
-| `watchlist-redesign-proposal-2026-08-14.md` | **自选页重新设计方案（待用户确认）**：布局诊断（左右分栏挤压表格、三套「场内/场外」筛选并存、名称列堆叠标签）、候选布局 A 窄栏 / B 顶部 tab+全宽表格（推荐）/ C 下拉、列宽对齐与名称截断、视觉精致化清单（全 token）、风险分级与实施顺序 |
 | `import-page-ux-and-monetization-review-2026-08-15.md` | **导入页 UX 与商业化评审**：核对已上线的 OCR 成本护栏（#823/guards.py）与 `pricing-tier.md` 规范，判定讨论中的"Pro 硬墙"应后置；内联拆出 5 个原子 issue 草案（卡片联动/动态文案/步骤条冗余/图片压缩/付费锚点决策），引用 #823/#826/#786/#935 |
 | `monetization-strategy-plan-2026-08-15.md` | **商业化策略计划（仅商业化）**：以"防背叛 + 覆盖成本"为双主轴，承接 `pricing-tier.md` 与导入页评审；定两档（免费+Pro）、早鸟锁定价（9.9/月·99/年→正式 19.9/月·199/年，网关侧锁价不写自研逻辑）、软配额非硬墙、冷启动早鸟码/反馈奖励、支付对接 0→1、家庭版/Ultra 暂缓决策、礼品卡兑换码无社交；§8 校正粘贴讨论与仓库偏差（5次/天 vs 5次/月、定价未定稿、支付未接入），§9 内联 M-1~M-5 原子 issue 草案，引用 #1000/#994/#823/#826/#939 |
 | `account-channel-and-fee-design-2026-08-16.md` | **账户渠道概念与费率分层设计**：渠道做轻量惰性可选（不枚举全市场机构，关联导入模板+佣金默认值）；费率拆「监管费常量(系统级) / 券商佣金(账户级2~3值) / 导入读实际费用」三层，差异落 `services/fees/calculator.py` 纯函数，复用 `symbol_utils.normalize()` 判定市场/品种；与导入关系=导入验证后再落地，最小切入点先做监管费常量+计算纯函数；记录判定缺口（北交所可转债/ETF未识别） |
@@ -100,6 +98,7 @@
 | `ledger-cash-like-product-binding-2026-08-29.md` | **账户绑定类现金产品（「余额宝」）设计（#1137 B）**：类现金口径=现金+货基+逆回购（复用 XIRR `EXCLUDED_ASSET_TYPES`，债券不归入）、Ledger 新增 `linked_money_fund_id`+`auto_purchase_money_fund`（默认关）、自动申购仅覆盖卖出/赎回回款、每账户单独控制+批量应用、UI 借鉴支付宝但主次反转（中高风险 `--text-hero` 为主 / 类现金 `--text-small` 为辅且单独成块）、B1~B3 分期；含 C 取消论证（滑坡+维度混淆） |
 | `securities-aggregation-design-2026-08-29.md` | **场内证券（股票/ETF/可转债）聚合卡片设计（#1132，已确认）**：镜像 #1101 场外基金 position 级聚合范式，新增 securities_aggregation 服务+端点+前端卡片/下钻页，零 schema 迁移；范围含 stock/etf/bond，不建虚拟账本 |
 | `road-not-taken-revive-2026-08-30.md` | **未竟之蹊（/the-road-not-taken）页面复活**：旧页问题诊断（v3-waterfall v1 参数误用/卡片空壳/类型失真/hex 硬编码）、数据接口可行性表（favorites/trends/tags/cleared 真实可用，经理为占位）、后端补 `next_review_date` 复盘字段+迁移、前端重写为三列 Masonry 卡片流（诗句卡/两级胶囊/三态卡片/鹦鹉螺空态）、后续待办 |
+| `index-catalog-sources-research-2026-09-08.md` | **指数名录数据源调研**：sina/中证/国证三源实测（930950/932000 仅中证源、399303/399317 仅国证源、881001 万得系无免费源→399317/000985 替代）、韭圈儿 API 已收口不逆向、`index_stock_info_sina` 不存在的踩坑、三源合并实施记录（#1365） |
 | `eastmoney-datasource-and-account-linkage-design-2026-08-30.md` | **天天基金/东财数据源适配器 与 基金账户归一化设计（待评审）**：设计 A 建 `EastmoneyAdapter` 去硬编码选源＋回填基金公司权威 code；设计 B `PositionImportMeta.sales_institution_id` 外键归一化基金账户，个人昵称保留自由文本 |
 | `asset-management-gap-analysis-2026-08-30.md` | **对照真实用户六条需求的资产记账能力 Gap 分析**：取证到代码行号的六条判定（①自定义资产免净值份额 ②多账户区分成员 ③购买渠道 ④账户走势盈亏 ⑤分红送股自动化 ⑥按占比批量更新总价）；竞品对照（同花顺投资账本/有知有行/钱往的功能与定价）；核心结论=竞品「份额×净值」单一模型结构性做不到无净值产品，是 fundmate 的差异化窗口 |
 | `asset-management-gap-roadmap-2026-08-30.md` | **资产管理记账能力补齐开发计划（待评审）**：D1~D4 四项待拍板决策（双态计价模型 / 进 positions 还是 assets / balance 盈亏口径 / 聚合入口归属）、P0~P4 五期计划表（含文件锚点与依赖）、风险与测试纪律、14 条原子 issue 草案 |
@@ -110,6 +109,7 @@
 | `holding-days-semantics-2026-09-02.md` | **持仓「持有时长」计算口径决策（#862/PR #1284）**：核实 `confirm_date` 行为（清仓删行+重买建新行→自动从最新一轮计日起，非 2021 累加），`holding_days` 为实时派生 property 不落库；决策不引入 FIFO 批次表，附 E 账户快照覆写 confirm_date 等边界与 tech-debt |
 | `cash-equivalent-classification-design-2026-09-07.md` | **现金等价物分类与收益口径（单一事实文档，#863/#1137/#1354 合并）**：取代 money-fund-caliber-reconcile-replan（已删除并入）；主分类归现金 + 子分类透视、per-asset `count_as_investment` 覆盖项、统一 `effective_count_as_investment()` 真相函数、INTEREST/CAPITAL_GAIN 收益分家、分账户/分策略强制排除、场内货基识别缺口 |
 | `font-plan-review-2026-09-04.md` | **字体方案（方案 B：Inter + Mi Sans）决策评审**：核清现状=仓库无任何 Inter webfont，全站实为系统字体（reset.scss 硬编码栈），本次实为「首次引入自托管 webfont」；结论=方案方向可用但需先明确适用范围（仅应用站 frontend/）并跑通 Inter 获取 + Mi Sans 子集化；Mi Sans 本地全量 ~47MB / VF.ttf ~19.2MB 必须子集化；不需要第三方字体 CDN，自托管入 `frontend/public/fonts/` 由 EdgeOne/Cloudflare/Vercel 分发 |
+| `pr1362-review-closure-2026-09-09.md` | **PR #1362 复审收束报告**：owner 自评 6 条 + AI 行内评审 18 条逐条处置（修 8 / 驳 5 误报）、万得指数覆盖确认与补齐（实测韭圈儿 8 个全可取、原仅抓 3，补 881003/881007/8841425/8841431/889033，全量历史 1999 年起已核库）、遗留项（PE 分位未落库等） |
 
 ## 子目录归档
 

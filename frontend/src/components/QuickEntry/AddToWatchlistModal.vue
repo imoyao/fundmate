@@ -39,9 +39,14 @@
               >
               <span
                 class="text-xs ml-2"
+                :style="{ color: 'var(--text-tertiary)' }"
+                >{{ getTypeLabel(item.type || "") }}</span
+              >
+              <span
+                class="text-xs ml-2"
                 :style="{ color: getMarketColor(item.market) }"
               >
-                {{ getMarketLabel(item.market) }}
+                {{ item.market ? getMarketLabel(item.market) : "—" }}
               </span>
             </div>
           </el-option>
@@ -55,7 +60,7 @@
             selectedAsset.name
           }}</span>
           <el-tag
-            v-if="!assetAlreadyExists"
+            v-if="!assetAlreadyExists && selectedAsset.venue"
             size="small"
             class="venue-tag"
             :class="selectedAsset.venue === 'OTC' ? 'tag-otc' : 'tag-exchange'"
@@ -74,7 +79,9 @@
           </div>
           <div>
             <span :style="{ color: 'var(--text-tertiary)' }">市场：</span
-            >{{ getMarketLabel(selectedAsset.market) }}
+            >{{
+              selectedAsset.market ? getMarketLabel(selectedAsset.market) : "—"
+            }}
           </div>
           <div>
             <span :style="{ color: 'var(--text-tertiary)' }">类型：</span
@@ -241,8 +248,7 @@ import {
 } from "vue";
 import { ElMessage } from "element-plus";
 import { Icon as IconifyIconOffline } from "@iconify/vue";
-import { searchSecurities } from "@/api/securities";
-import { searchFunds, type FundSearchItem } from "@/api/funds";
+import { useAssetSearch } from "@/composables/useAssetSearch";
 import {
   getWatchlistGroups,
   getWatchlistTags,
@@ -404,6 +410,10 @@ const checkAssetExists = async (symbol: string) => {
   }
 };
 
+// #1286：搜索改走全局唯一入口 useAssetSearch（后端聚合端点，五品种一次扇出），
+// 本弹窗不再直调 securities/funds 搜索 API。
+const { search: runUnifiedSearch, results: unifiedResults } = useAssetSearch();
+
 const remoteSearch = async (query: string) => {
   if (!query) {
     searchResults.value = [];
@@ -411,38 +421,16 @@ const remoteSearch = async (query: string) => {
   }
   searchLoading.value = true;
   try {
-    const [secRes, fundRes] = await Promise.allSettled([
-      searchSecurities(query),
-      searchFunds(query)
-    ]);
-    const results: SearchAssetOption[] = [];
-    if (secRes.status === "fulfilled") {
-      const secData: SearchAssetOption[] = secRes.value?.data ?? [];
-      results.push(
-        ...secData.map((s: SearchAssetOption) => ({
-          ...s,
-          market: s.market || "CN_A",
-          venue: s.venue || "EXCHANGE",
-          searchType: "sec" as const
-        }))
-      );
-    }
-    if (fundRes.status === "fulfilled") {
-      const fundData: FundSearchItem[] = fundRes.value?.data ?? [];
-      results.push(
-        ...fundData.map((f: FundSearchItem) => ({
-          symbol: f.code,
-          name: f.name,
-          market: "CN_A",
-          type: "fund",
-          venue: "OTC",
-          searchType: "fund" as const
-        }))
-      );
-    }
-    searchResults.value = results;
-  } catch (e) {
-    ElMessage.error("搜索失败，请重试");
+    await runUnifiedSearch(query);
+    // 统一信封 → 弹窗选项（code 与 symbol 同值，兼容既有模板与提交流程）
+    searchResults.value = unifiedResults.value.map(item => ({
+      symbol: item.code,
+      name: item.name,
+      market: item.market ?? "",
+      type: item.type,
+      venue: item.venue ?? "",
+      searchType: item.type === "fund" ? ("fund" as const) : ("sec" as const)
+    }));
   } finally {
     searchLoading.value = false;
   }
@@ -469,8 +457,9 @@ const handleSubmit = async () => {
       symbol: selectedAsset.value.symbol,
       market: selectedAsset.value.market,
       asset_type: selectedAsset.value.type,
+      // venue 用 ?? 兜底：无市场实体（经理/组合）后端返回空串，须原样透传而非转 EXCHANGE
       venue:
-        selectedAsset.value.venue ||
+        selectedAsset.value.venue ??
         (selectedAsset.value.type === "fund" ? "OTC" : "EXCHANGE"),
       add_reason: addReason.value || undefined,
       is_pinned: pinToTop.value

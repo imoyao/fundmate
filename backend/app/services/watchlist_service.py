@@ -180,6 +180,25 @@ def normalize_and_infer_venue(
 ) -> Dict[str, Any]:
     symbol = symbol.strip().upper()
 
+    # #1286 品种差异化维度：经理/组合为非交易实体，无市场与交易场所属性，
+    # market/venue 存空串（SQLite UNIQUE 中 NULL 互不相等，存 NULL 会使唯一性失效）。
+    # symbol 保留平台原生码（经理 MGR_ 前缀 + 权威外部 id；组合 tgcode/ZHxxxx 等）。
+    if asset_type in ('manager', 'portfolio'):
+        return {'symbol': symbol, 'market': '', 'venue': ''}
+
+    # 指数（index）：symbol 已是聚合搜索归一化的命名空间码（SH000300 / CSI930950 / CNIxxxx），
+    # 不能落入下方 EXCHANGE 分支——normalizer 会把它改写成 SH/SZ（market 失真），
+    # 且 CSI/CNI 的空 venue 既不是 OTC 也不是 EXCHANGE，会直接抛 ValueError（#1362 评审：指数无法加入自选）。
+    # market 由命名空间前缀推断，venue 原样透传搜索返回的值（EXCHANGE / 空串）。
+    if asset_type == 'index':
+        if symbol[:2] in ('SH', 'SZ'):
+            idx_market = 'CN_A'
+        elif symbol[:3] in ('CSI', 'CNI'):
+            idx_market = symbol[:3]
+        else:
+            idx_market = ''
+        return {'symbol': symbol, 'market': idx_market, 'venue': venue or ''}
+
     # 如果没有 venue，必须根据 asset_type 推断，否则报错
     if venue is None:
         if asset_type == 'fund':
