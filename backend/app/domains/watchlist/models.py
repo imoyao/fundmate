@@ -25,7 +25,10 @@ class WatchlistItem(Base, PrimaryKeyMixin, TimestampMixin, FamilyScopedMixin):
         String(20), comment='资产类型：stock/etf/fund/bond/index/manager/portfolio（小写，单一来源 core/asset_types）'
     )
     venue = Column(
-        String(10), default='', comment='EXCHANGE(场内) / OTC(场外)；无交易场所实体（经理/组合）存空串，#1286'
+        String(10),
+        nullable=False,
+        default='',
+        comment='EXCHANGE(场内) / OTC(场外)；无交易场所实体（经理/组合）存空串，#1286',
     )
     status = Column(String(20), default='HOLDING', comment='HOLDING(持仓中) / WATCHING(观察中)')
     favorite = Column(Boolean, default=False, comment='特别关注标记')

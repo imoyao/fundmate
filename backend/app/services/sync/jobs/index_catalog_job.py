@@ -62,6 +62,10 @@ class IndexCatalogSyncJob(SyncJob):
         return out
 
     def _save_data(self, new_data: List[dict]) -> None:
+        # 空数据直接返回：基类 run() 已用 `if new_data` 守住，此处二次防御——
+        # 名录是整体 DELETE 重建，任何旁路调用传入空列表都会抹掉全表（#1362 评审）
+        if not new_data:
+            return
         # 名录整体覆盖式重建（条目量 ~千级，成本可忽略）。
         # is_core / core_rank 是人工策展字段（seed_core_indices.py 维护），
         # 重建前快照、重建后回填，避免每次同步抹掉白名单标记（#1365）。

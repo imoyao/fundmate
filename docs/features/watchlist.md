@@ -225,9 +225,11 @@ CREATE TABLE cleared_cycles (
 | 投顾组合 | `portfolio` | 平台原生码（天天基金 tgcode / 且慢 ZHxxxx） | `''` | `''` | `advisor_portfolios`（market 域） |
 
 - 唯一键 `(symbol, market, venue)` 天然覆盖新品种，无需为引用改表加列。
-- 详情回查走应用层两步法：`watchlist.symbol` 按前缀路由到 market 域实体表（`MGR_` → `managers`，其余按 code → `advisor_portfolios`）；platform 等属性留在实体表，不在自选侧冗余。
+- 详情回查走应用层两步法：**先按 `asset_type` 判定品种，再用 symbol 去 market 域对应实体表回查**（`manager` → `managers`（剥 `MGR_` 前缀）、`portfolio` → `advisor_portfolios`（平台原生码）、`index` → `index_catalog`、`fund` → `funds` 等）。symbol 前缀（如 `MGR_`）只作同品种内的辅助判据，**不能单独当路由依据**——非 `MGR_` 前缀还可能是基金/股票/指数，一律按前缀兜到 `advisor_portfolios` 会错查；platform 等属性留在实体表，不在自选侧冗余。
 - 组合域编码规则、同步链路与回填 SOP 见 `docs/dev/fund-portfolio.md`（组合域权威文档）。
 - 前端全局搜索唯一入口 `useAssetSearch`，经后端聚合端点 `GET /api/search/assets/` 返回统一信封（含经理/组合），页面组件禁止直调搜索 API。
+
+> **编号说明**：原 1.3.8 / 1.3.9 两节（经理/组合独立表设计）已随 #1286 统一编码方案作废删除。编号**不复用**，避免既有 issue 与文档的交叉引用失效，故此处由 1.3.7 直接跳至 1.3.10。
 
 ##### 1.3.10 基准指数缓存表 `benchmark_indices`
 

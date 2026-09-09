@@ -19,7 +19,7 @@ bp = APIBlueprint('search', __name__, url_prefix='/api/search')
 def search_assets():
     q = request.args.get('q', '').strip()
     if not q:
-        return jsonify({'data': [], 'message': 'ok'})
+        return jsonify({'data': [], 'message': 'ok', 'error_code': 0})
     with get_db() as db:
         results = search_assets_aggregate(db, q)
-    return jsonify({'data': results, 'message': 'ok'})
+    return jsonify({'data': results, 'message': 'ok', 'error_code': 0})

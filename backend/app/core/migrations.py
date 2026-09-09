@@ -74,3 +74,33 @@ def migrate_watchlist_unique_key(engine: Engine) -> str:
         logger.info(f'[OK] watchlist 唯一键已迁移为 (symbol, market, venue)；当前唯一索引: {idx}')
         return f'[OK] 唯一键已迁移为 (symbol, market, venue)；当前唯一索引: {idx}'
     raise RuntimeError('watchlist 唯一键迁移后校验失败')
+
+
+def migrate_watchlist_venue_not_null(engine: Engine) -> str:
+    """自选表 venue 历史 NULL 回填空串（#1286 / #1362 评审 #6）。
+
+    SQLite UNIQUE 中 NULL 互不相等：venue 为 NULL 会让 (symbol, market, venue)
+    唯一键对这行静默失效（同码条目可重复插入）。模型已加 nullable=False + default=''，
+    但存量库的历史 NULL 必须靠本迁移回填。
+
+    只回填数据、不改表结构：SQLite 加 NOT NULL 需整表重建（风险高于收益），
+    新写入由 ORM 的 default='' 保证非空，唯一键语义已能生效。
+    """
+    url = str(getattr(engine, 'url', '') or '')
+    if not url.startswith(('sqlite://', 'sqlite+')):
+        return '[SKIP] 非 SQLite 引擎（如 Supabase Postgres），由 ORM/迁移工具负责'
+
+    insp = inspect(engine)
+    if 'watchlist' not in insp.get_table_names():
+        return '[SKIP] watchlist 表不存在（空库，init_db 将按新模型建表）'
+    if 'venue' not in [c['name'] for c in insp.get_columns('watchlist')]:
+        return '[SKIP] watchlist 表无 venue 列，跳过'
+
+    with engine.connect() as conn:
+        res = conn.execute(text("UPDATE watchlist SET venue = '' WHERE venue IS NULL"))
+        conn.commit()
+        n = res.rowcount or 0
+    if n:
+        logger.info(f'[OK] watchlist venue NULL 回填空串 {n} 行（唯一键对存量数据恢复生效）')
+        return f'[OK] venue NULL 回填空串 {n} 行'
+    return '[SKIP] 无 venue 为 NULL 的历史数据'

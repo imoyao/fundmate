@@ -87,6 +87,7 @@ class TestCreateNonAssetEntities:
         data = resp.get_json()['data']
         assert data['asset_type'] == 'portfolio'
         assert data['market'] == ''
+        assert data['venue'] == ''
 
     def test_create_index_csi_item_via_api(self, client, db):
         """#1362 评审回归：中证/国证指数（空 venue）必须能加入自选，之前会 400。"""

@@ -151,11 +151,17 @@ class TestIndexDailySyncJob:
         assert db.query(IndexDaily).count() == 0
 
     def test_default_targets_cover_wind_family(self):
-        """默认目标 = #275 定稿的万得系全家桶（含万得全A）。"""
-        assert '881001.WI' in DEFAULT_TARGETS
-        assert '885000.WI' in DEFAULT_TARGETS
-        assert '885001.WI' in DEFAULT_TARGETS
-        assert len(DEFAULT_TARGETS) == len(WIND_INDEX_TARGETS) == 13
+        """默认目标 = #275 定稿的万得系全家桶（含万得全A）+ 韭圈儿已收录的宽基/风格指数。
+
+        不硬编码条数：清单会随「源侧收录情况」增删（新增一行即可），
+        断言只锁定「必须覆盖」的品种，避免每次补品种都要改数字。
+        """
+        for gu in ('881001.WI', '885000.WI', '885001.WI'):
+            assert gu in DEFAULT_TARGETS
+        # 2026-09-09 复核补齐：用户在韭圈儿可见、此前漏抓的 5 只（实测均可取）
+        for gu in ('881003.WI', '881007.WI', '8841425.WI', '8841431.WI', '889033.WI'):
+            assert gu in DEFAULT_TARGETS
+        assert DEFAULT_TARGETS == [gu for gu, _ in WIND_INDEX_TARGETS]
 
     def test_incremental_uses_12_months(self, job, db):
         """非全量跑 12 月增量；全量跑成立来（'all'）。"""

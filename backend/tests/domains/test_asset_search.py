@@ -25,7 +25,11 @@ class TestSearchAssets:
     def test_empty_q_returns_empty(self, client, db):
         resp = client.get('/api/search/assets/', query_string={'q': ''})
         assert resp.status_code == 200
-        assert resp.get_json()['data'] == []
+        body = resp.get_json()
+        # 统一信封契约 {data, message, error_code}（#1362 评审：防止信封字段被裁掉）
+        assert {'data', 'message', 'error_code'} <= set(body)
+        assert body['error_code'] == 0
+        assert body['data'] == []
 
     def test_securities_hit(self, client, db):
         _seed(db)

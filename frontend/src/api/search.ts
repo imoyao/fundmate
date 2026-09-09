@@ -23,9 +23,9 @@ export interface AssetSearchResult {
 
 /** 统一资产聚合搜索（证券/基金/指数/投顾组合/基金经理一次扇出） */
 export function searchAssets(keyword: string) {
-  return http.request<{ data: AssetSearchResult[]; message: string }>(
-    "get",
-    "/api/search/assets/",
-    { params: { q: keyword } }
-  );
+  return http.request<{
+    data: AssetSearchResult[];
+    message: string;
+    error_code: number | string;
+  }>("get", "/api/search/assets/", { params: { q: keyword } });
 }
