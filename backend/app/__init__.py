@@ -5,6 +5,22 @@
 
 import logging
 
+# 导入形态守卫：本包内全部使用 `from app.xxx` 顶级绝对导入，要求 `app` 必须是
+# 顶级包（标准启动：cwd=backend + flask --app app.main:app，见 AGENTS.md）。
+# 若以 backend.app 等子包形态被导入（如从仓库根 `--app backend.app.main` 启动），
+# 顶级 app 不存在，后续导入必然 ModuleNotFoundError 且 traceback 极其迷惑
+# （2026-09-09 实测：/api/watchlist/items/ 全量 500）。
+# 不在此做 sys.path 自愈：那会让 backend.app 与 app 两份包对象并存（双份
+# Base/engine，状态分裂），比启动失败更隐蔽。故快速失败并给出指引。
+if __name__ != 'app':
+    raise ImportError(
+        f'app 包被以子包形态导入（{__name__}），顶级包 app 不存在，无法继续。'
+        '正确启动方式二选一：'
+        '(1) cd backend && pdm run flask --app app.main:app run --debug（标准，见 AGENTS.md / scripts/dev.ps1）；'
+        '(2) 仓库根执行 flask --app wsgi run（见根目录 wsgi.py）。'
+        'IDE 运行配置请把 Working Directory 设为 backend/、启动目标设为 app.main。'
+    )
+
 from loguru import logger
 
 # 全局请求补丁：进程启动时让所有 akshare/requests 调用自动走「浏览器头 + 连接复用 + 重试」会话，
