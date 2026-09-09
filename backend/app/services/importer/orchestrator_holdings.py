@@ -9,6 +9,7 @@
 
 import json
 from datetime import date, datetime
+from decimal import Decimal
 from typing import List, Optional, Tuple
 
 from loguru import logger
@@ -247,14 +248,15 @@ class HoldingsMixin:
             except (ValueError, TypeError):
                 snapshot_date = date.today()
 
-        price = float(row.get('price', 0) or 0)
+        # 金融口径收口（#1375）：前端 row 的数值经 Decimal(str(x)) 收口，禁止 float 域中转
+        price = Decimal(str(row.get('price', 0) or 0))
         return {
             'symbol': row['symbol'],
             'name': row.get('name', ''),
             'asset_type': row.get('type', 'fund'),
             'ledger_id': row.get('ledger_id'),
             'account_name': row.get('account_name', ''),
-            'quantity': float(row.get('quantity', 0) or 0),
+            'quantity': Decimal(str(row.get('quantity', 0) or 0)),
             # 成本均价：E账户样本无成本字段，用快照日净值近似（用户已确认）
             'avg_price': price,
             'current_price': price,
@@ -330,8 +332,8 @@ class HoldingsMixin:
         fund_manager = row.get('fund_manager')
         snapshot_date = self._parse_snapshot_date(row.get('snapshot_date', ''))
 
-        qty = float(row.get('quantity', 0) or 0)
-        price = float(row.get('price', 0) or 0)
+        qty = Decimal(str(row.get('quantity', 0) or 0))
+        price = Decimal(str(row.get('price', 0) or 0))
         if qty <= 0:
             raise ValueError('数量必须大于 0')
         missing_price = price <= 0

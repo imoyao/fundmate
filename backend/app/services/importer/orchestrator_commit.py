@@ -163,8 +163,8 @@ class CommitMixin:
                 return False
 
         confirm_date = self._parse_row_date(row)
-        # 净额优先（THS 口径），缺失退化用发生金额；金额一律整数分
-        amount_yuan = abs(float(row.get('net_amount') or row.get('amount') or 0))
+        # 净额优先（THS 口径），缺失退化用发生金额；金额一律整数分（#1375：Decimal 收口）
+        amount_yuan = abs(Decimal(str(row.get('net_amount') or row.get('amount') or 0)))
         TransactionService.create(
             db=self.db,
             symbol=row.get('symbol', ''),
