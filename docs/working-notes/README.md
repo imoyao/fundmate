@@ -109,6 +109,7 @@
 | `holding-days-semantics-2026-09-02.md` | **持仓「持有时长」计算口径决策（#862/PR #1284）**：核实 `confirm_date` 行为（清仓删行+重买建新行→自动从最新一轮计日起，非 2021 累加），`holding_days` 为实时派生 property 不落库；决策不引入 FIFO 批次表，附 E 账户快照覆写 confirm_date 等边界与 tech-debt |
 | `cash-equivalent-classification-design-2026-09-07.md` | **现金等价物分类与收益口径（单一事实文档，#863/#1137/#1354 合并）**：取代 money-fund-caliber-reconcile-replan（已删除并入）；主分类归现金 + 子分类透视、per-asset `count_as_investment` 覆盖项、统一 `effective_count_as_investment()` 真相函数、INTEREST/CAPITAL_GAIN 收益分家、分账户/分策略强制排除、场内货基识别缺口 |
 | `font-plan-review-2026-09-04.md` | **字体方案（方案 B：Inter + Mi Sans）决策评审**：核清现状=仓库无任何 Inter webfont，全站实为系统字体（reset.scss 硬编码栈），本次实为「首次引入自托管 webfont」；结论=方案方向可用但需先明确适用范围（仅应用站 frontend/）并跑通 Inter 获取 + Mi Sans 子集化；Mi Sans 本地全量 ~47MB / VF.ttf ~19.2MB 必须子集化；不需要第三方字体 CDN，自托管入 `frontend/public/fonts/` 由 EdgeOne/Cloudflare/Vercel 分发 |
+| `pr1362-review-closure-2026-09-09.md` | **PR #1362 复审收束报告**：owner 自评 6 条 + AI 行内评审 18 条逐条处置（修 8 / 驳 5 误报）、万得指数覆盖确认与补齐（实测韭圈儿 8 个全可取、原仅抓 3，补 881003/881007/8841425/8841431/889033，全量历史 1999 年起已核库）、遗留项（PE 分位未落库等） |
 
 ## 子目录归档
 
