@@ -373,10 +373,21 @@ const handleFavorite = async (row: ExploreFavoriteRow) => {
   try {
     await createWatchlistItem({
       symbol: row.symbol,
-      asset_type: row.type
+      asset_type: row.type,
+      // venue 必传：后端 normalize_and_infer_venue 对非 fund 且无 venue 的标的
+      // 直接 ValueError('缺少 asset_type 或 venue') → 400「收藏失败」。
+      // 场外基金 OTC，其余（股票/ETF/指数等场内标的）EXCHANGE，与后端口径一致
+      venue: row.type === "fund" ? "OTC" : "EXCHANGE"
     });
     ElMessage.success(`已收藏「${row.name}」到自选`);
   } catch (e: unknown) {
+    // 409 = 后端查重命中「该资产已在自选列表中」：是预期结果不是故障，
+    // 用 warning 提示而非 error（否则用户重复点击会看到一串红色报错）
+    const status = (e as { response?: { status?: number } })?.response?.status;
+    if (status === 409) {
+      ElMessage.warning(`「${row.name}」已在自选中，无需重复收藏`);
+      return;
+    }
     const msg = e instanceof Error ? e.message : String(e);
     ElMessage.error(msg || "收藏失败，请重试");
   }

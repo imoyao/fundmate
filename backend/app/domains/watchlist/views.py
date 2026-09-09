@@ -19,7 +19,7 @@ from app.core.database import get_db
 from app.core.money import Money
 from app.core.utils import api_response, with_db
 from app.core.validation import parse_body
-from app.domains.funds.models import DailyWorth, Fund
+from app.domains.funds.models import AdvisorPortfolio, DailyWorth, Fund
 from app.domains.positions.models import Position
 from app.domains.price_history.models import PriceHistory
 from app.domains.securities.models import Security
@@ -77,13 +77,22 @@ GROUP_COLORS = {
 
 # ─────────────── 辅助函数 ───────────────
 def _get_display_info(symbol: str, db) -> str:
-    """根据标准化代码查询资产展示名称，优先取 Security.name，其次 Fund.name，兜底 symbol."""
+    """根据标准化代码查询资产展示名称。
+
+    优先级：Security.name → Fund.name → AdvisorPortfolio.name → symbol 兜底。
+    投顾组合（#1167，如且慢 ZHxxxx/蛋卷 CSIxxxx/天天基金 combo）既不在
+    Securities 也不在 Funds 里——若不补这一层，自选里会显示原始代码，
+    编号对用户毫无意义。
+    """
     sec = db.query(Security).filter_by(symbol=symbol).first()
     if sec and sec.name:
         return sec.name
     fund = db.query(Fund).filter_by(fund_code=symbol).first()
     if fund and fund.name:
         return fund.name
+    advisor = db.query(AdvisorPortfolio).filter_by(code=symbol).first()
+    if advisor and advisor.name:
+        return advisor.name
     return symbol
 
 
@@ -100,6 +109,20 @@ def _enrich_item(item: WatchlistItem, db) -> dict:
     out['tag_ids'] = [link.tag_id for link in item.tag_links]
     # 所属分组名称列表（#1332 排序用，避免前端再映射 group_ids）
     out['group_names'] = [link.watchlist_group.name for link in item.group_links if link.watchlist_group]
+
+    # 投顾组合补充信息（#1167）：平台 / 主理人 / 策略类型。普通标的字段为 None，
+    # 前端 product 列按需渲染第二行元信息，避免与代码/类型/标签挤在一行。
+    advisor = db.query(AdvisorPortfolio).filter_by(code=item.symbol).first()
+    if advisor:
+        out['advisor_platform'] = advisor.platform
+        out['advisor_host'] = advisor.host
+        out['advisor_strategy_type'] = advisor.strategy_type
+        out['advisor_org_name'] = advisor.org_name
+    else:
+        out['advisor_platform'] = None
+        out['advisor_host'] = None
+        out['advisor_strategy_type'] = None
+        out['advisor_org_name'] = None
 
     # 补充价格与市值信息（从持仓表计算静态值）
     position_value = _compute_position_market_value(item.symbol, db)
@@ -258,6 +281,8 @@ def _build_holding_row(symbol, db, market=None, asset_type=None, venue=None):
     asset_type = asset_type or (pos.asset_type if pos else None)
     venue = venue or ('OTC' if asset_type == 'fund' else 'EXCHANGE')
     display_name = (pos.name if pos and pos.name else None) or _get_display_info(symbol, db)
+    # 投顾组合元信息：与 _enrich_item 同步，避免虚拟行（持仓聚合无 id 的行）漏字段
+    advisor = db.query(AdvisorPortfolio).filter_by(code=symbol).first()
 
     current_price = _compute_avg_current_price(symbol, db)
     stats = _compute_holding_stats(symbol, db)
@@ -291,6 +316,11 @@ def _build_holding_row(symbol, db, market=None, asset_type=None, venue=None):
         'holding_pnl': round(stats['pnl'], 2) if stats else None,
         'holding_pnl_percent': round(stats['pnl_percent'], 2) if stats else None,
         'price_at_added': None,
+        # 投顾组合补充信息（与 _enrich_item 同源；非投顾为 None）
+        'advisor_platform': (advisor.platform if advisor else None),
+        'advisor_host': (advisor.host if advisor else None),
+        'advisor_strategy_type': (advisor.strategy_type if advisor else None),
+        'advisor_org_name': (advisor.org_name if advisor else None),
     }
 
 
@@ -587,7 +617,6 @@ def create_item():
             return jsonify({'data': _enrich_item(item, db), 'message': 'ok'})
         except ValueError as e:
             msg = str(e)
-            print(f'--------MSG--1111111111111----{msg}')
             if '已在自选' in msg:
                 return jsonify({'data': None, 'message': msg}), 409
             else:
@@ -779,8 +808,6 @@ def create_tag():
         )
         if existing:
             abort(409, f'标签「{name}」已存在')
-
-        logger.info(f'============{json_data.color}===')
 
         tag = WatchlistTagDef(name=name, color=json_data.color, family_id=get_family_id())
         db.add(tag)

@@ -61,6 +61,12 @@ class WatchlistItemOut(BaseModel):
     holding_pnl: Optional[float] = None  # 持仓收益（元）
     holding_pnl_percent: Optional[float] = None  # 持仓收益率（%）
     price_at_added: Optional[float] = None  # 添加自选日最近交易日收盘价（元，price_history 有回填时）
+    # 投顾组合补充信息（#1167，仅 AdvisorPortfolio 命中时有值；非投顾一律 None，
+    # 前端据此决定是否在产品列渲染第二行元信息，避免与代码/类型/标签挤一行）
+    advisor_platform: Optional[str] = None  # QIEMAN/DANJUAN/TIANTIAN/YINGMI
+    advisor_host: Optional[str] = None  # 主理人
+    advisor_strategy_type: Optional[str] = None  # 策略类型（均衡/进取/稳健）
+    advisor_org_name: Optional[str] = None  # 主理人所属机构/平台方
 
 
 # ── 分组 ──
