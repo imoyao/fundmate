@@ -51,6 +51,19 @@ class TestNormalizeAndInferVenue:
         out = normalize_and_infer_venue('110011', None, 'fund')
         assert out == {'symbol': '110011', 'market': 'CN_A', 'venue': 'OTC'}
 
+    def test_index_csi_prefix(self):
+        """中证指数（空 venue）之前会抛 ValueError，#1362 评审修复点。"""
+        out = normalize_and_infer_venue('CSI930950', '', 'index')
+        assert out == {'symbol': 'CSI930950', 'market': 'CSI', 'venue': ''}
+
+    def test_index_cni_prefix(self):
+        out = normalize_and_infer_venue('CNI000300', '', 'index')
+        assert out == {'symbol': 'CNI000300', 'market': 'CNI', 'venue': ''}
+
+    def test_index_sina_sh_prefix(self):
+        out = normalize_and_infer_venue('SH000300', 'EXCHANGE', 'index')
+        assert out == {'symbol': 'SH000300', 'market': 'CN_A', 'venue': 'EXCHANGE'}
+
 
 class TestCreateNonAssetEntities:
     def test_create_manager_item_via_api(self, client, db):
@@ -74,6 +87,31 @@ class TestCreateNonAssetEntities:
         data = resp.get_json()['data']
         assert data['asset_type'] == 'portfolio'
         assert data['market'] == ''
+
+    def test_create_index_csi_item_via_api(self, client, db):
+        """#1362 评审回归：中证/国证指数（空 venue）必须能加入自选，之前会 400。"""
+        resp = client.post(
+            '/api/watchlist/items/',
+            json={'symbol': 'CSI930950', 'asset_type': 'index', 'market': 'CSI', 'venue': ''},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['symbol'] == 'CSI930950'
+        assert data['market'] == 'CSI'
+        assert data['venue'] == ''
+        assert data['asset_type'] == 'index'
+
+    def test_create_index_sina_item_via_api(self, client, db):
+        resp = client.post(
+            '/api/watchlist/items/',
+            json={'symbol': 'SH000300', 'asset_type': 'index', 'market': 'CN_A', 'venue': 'EXCHANGE'},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()['data']
+        assert data['symbol'] == 'SH000300'
+        assert data['market'] == 'CN_A'
+        assert data['venue'] == 'EXCHANGE'
+        assert data['asset_type'] == 'index'
 
     def test_duplicate_manager_rejected_409(self, client, db):
         payload = {'symbol': 'MGR_abc123def456', 'asset_type': 'manager'}
