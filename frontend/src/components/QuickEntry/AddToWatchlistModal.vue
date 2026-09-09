@@ -79,7 +79,9 @@
           </div>
           <div>
             <span :style="{ color: 'var(--text-tertiary)' }">市场：</span
-            >{{ selectedAsset.market ? getMarketLabel(selectedAsset.market) : "—" }}
+            >{{
+              selectedAsset.market ? getMarketLabel(selectedAsset.market) : "—"
+            }}
           </div>
           <div>
             <span :style="{ color: 'var(--text-tertiary)' }">类型：</span
