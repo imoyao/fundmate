@@ -535,6 +535,7 @@ def list_items():
         'symbol': request.args.get('symbol'),
         'tag_ids_str': request.args.get('tag_ids'),
         'tag_id': request.args.get('tag_id', type=int),
+        'asset_types': request.args.get('asset_types'),
         'page': request.args.get('page', type=int, default=1),
         'per_page': request.args.get('per_page', type=int, default=20),
         'sort_by': request.args.get('sort_by'),
@@ -555,11 +556,14 @@ def list_items():
             page_data = data[offset : offset + per_page]
             return jsonify({'data': page_data, 'total': total, 'message': 'ok'})
 
-        if not params['status'] and not (params['symbol'] or params['market'] or params['tag_id']):
+        if not params['status'] and not (
+            params['symbol'] or params['market'] or params['tag_id'] or params['asset_types']
+        ):
             # 「全部」分组 = 自选清单 ∪ 真实持仓补集（同一 symbol 自选优先），
             # 前端「全部」分组不传 status 走此分支，解决「全部 < 持仓」口径矛盾。
-            # 仅无查找型参数（symbol/market/tag_id）时合并——AddToWatchlistModal/OcrImportModal
-            # 的「symbol 查重」等调用依赖原过滤语义，不得在此被稀释。
+            # 仅无查找型参数（symbol/market/tag_id/asset_types）时合并——
+            # AddToWatchlistModal/OcrImportModal 的「symbol 查重」与「类型筛选」
+            # 等调用依赖原过滤语义，不得在此被稀释。
             try:
                 data = _build_all_items(
                     db,
@@ -590,6 +594,7 @@ def list_items():
                 symbol=params['symbol'],
                 tag_ids_str=params['tag_ids_str'],
                 tag_id=params['tag_id'],
+                asset_types=params['asset_types'],
             )
         except ValueError as e:
             abort(400, str(e))
@@ -979,13 +984,16 @@ def export_items():
         'symbol': request.args.get('symbol'),
         'tag_ids_str': request.args.get('tag_ids'),
         'tag_id': request.args.get('tag_id', type=int),
+        'asset_types': request.args.get('asset_types'),
     }
 
     with get_db() as db:
         if params['status'] == 'HOLDING':
             # 持仓分组导出：与列表一致，导出全部真实持仓（虚拟行，id=None）
             rows = _list_holding_items(db, get_family_id(), venue=params['venue'], search=params['search'])
-        elif not params['status'] and not (params['symbol'] or params['market'] or params['tag_id']):
+        elif not params['status'] and not (
+            params['symbol'] or params['market'] or params['tag_id'] or params['asset_types']
+        ):
             # 「全部」导出与列表口径一致：自选 ∪ 持仓补集（复用同一合并逻辑；
             # 带 symbol/market/tag_id 查找参数时仍走原过滤语义，与列表分支对齐）
             try:

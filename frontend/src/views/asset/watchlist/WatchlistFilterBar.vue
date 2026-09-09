@@ -16,6 +16,7 @@ import type { useWatchlistTags } from "@/composables/useWatchlistTags";
 import type { WatchlistToolbarState } from "@/composables/useWatchlistData";
 import type { WatchlistTag } from "@/api/watchlist";
 import { DEFAULT_TAG_COLOR } from "@/constants/watchlist";
+import { assetTypeLabel } from "@/composables/useEnumLabels";
 
 /**
  * 自选筛选条（分组胶囊 Tab + 标签筛选 + 视图 Segmented），从 index.vue 顶部区块抽出（2026-08-20）。
@@ -37,6 +38,8 @@ const emit = defineEmits<{
   (e: "view-change"): void;
   (e: "tag-apply"): void;
   (e: "tag-clear"): void;
+  /** 类型弹层「确定」：把草稿提交为生效筛选并刷新列表 */
+  (e: "type-apply"): void;
   /** 管理分组本身（新建/改名/删除）→ GroupManagerDialog */
   (e: "manage-groups"): void;
   /** #987：管理当前自定义分组「里有哪些产品」→ GroupItemsDialog */
@@ -74,6 +77,59 @@ const currentViewModel = computed({
 const selectedTagCount = computed(
   () => props.tags.selectedFilterTagIds.value.length
 );
+
+// ── 类型筛选弹层（2026-09-09 用户拍板方案 A）──
+// 维度说明：现有 segmented 是 venue（场内/场外）维度；「头部产品/基金经理/指数」
+// 本质是标的形态（asset_type）维度，混排进 segmented 无法表达「场内+股票」类组合
+// 查询，故做成与「标签筛选」同一交互语言的弹层多选，可正交组合。
+// key 列表为自选场景的交易性类型（业务选择属前端职责）；中文标签统一走
+// useEnumLabels.assetTypeLabel（后端 /enums/asset_type 唯一真相源，禁止手抄映射）。
+const ASSET_TYPE_OPTIONS = [
+  "stock",
+  "etf",
+  "fund",
+  "money_fund",
+  "bond",
+  "index",
+  "crypto",
+  "reverse_repo"
+] as const;
+
+const selectedAssetTypesModel = computed({
+  get: () => props.toolbar.selectedAssetTypes.value,
+  set: (value: string[]) => {
+    props.toolbar.selectedAssetTypes.value = value;
+  }
+});
+
+// 弹层草稿：打开时同步已提交筛选，确定才提交（与标签筛选同一交互节奏）
+const typeFilterVisible = ref(false);
+const draftAssetTypes = ref<string[]>([]);
+watch(typeFilterVisible, visible => {
+  if (visible) draftAssetTypes.value = [...selectedAssetTypesModel.value];
+});
+const selectedTypeCount = computed(() => selectedAssetTypesModel.value.length);
+
+function toggleDraftType(type: string) {
+  const idx = draftAssetTypes.value.indexOf(type);
+  if (idx >= 0) draftAssetTypes.value.splice(idx, 1);
+  else draftAssetTypes.value.push(type);
+}
+
+/** 确定提交草稿并通知父页面刷新；空选即清除类型筛选 */
+function applyTypeFilter() {
+  selectedAssetTypesModel.value = [...draftAssetTypes.value];
+  typeFilterVisible.value = false;
+  emit("type-apply");
+}
+
+/** 一键重置：清草稿直接提交空数组（清除筛选）并关闭 */
+function resetTypeFilter() {
+  draftAssetTypes.value = [];
+  selectedAssetTypesModel.value = [];
+  typeFilterVisible.value = false;
+  emit("type-apply");
+}
 
 // 视图筛选选项（venue 维度）
 const viewOptions = [
@@ -324,6 +380,64 @@ watch(
                   type="primary"
                   :disabled="draftFilterTagIdsModel.length === 0"
                   @click="emit('tag-apply')"
+                >
+                  确定
+                </el-button>
+              </div>
+            </div>
+          </div>
+        </el-popover>
+
+        <!-- 类型筛选（2026-09-09）：asset_type 维度多选弹层，与标签筛选同一交互语言
+             （草稿 + 确定/重置，点外部关闭不丢草稿）。与 venue segmented 正交可组合 -->
+        <el-popover
+          v-model:visible="typeFilterVisible"
+          trigger="click"
+          placement="bottom-start"
+          :width="260"
+          title="按类型筛选"
+        >
+          <template #reference>
+            <el-button class="tag-filter-btn">
+              类型<template v-if="selectedTypeCount">
+                ({{ selectedTypeCount }})
+              </template>
+            </el-button>
+          </template>
+          <div class="tag-filter-panel">
+            <div class="tag-filter-chips">
+              <button
+                v-for="t in ASSET_TYPE_OPTIONS"
+                :key="t"
+                type="button"
+                class="tag-filter-chip"
+                :class="{ 'is-selected': draftAssetTypes.includes(t) }"
+                @click="toggleDraftType(t)"
+              >
+                {{ assetTypeLabel(t) }}
+              </button>
+            </div>
+            <div class="flex items-center justify-between mt-3">
+              <el-button
+                size="small"
+                text
+                type="primary"
+                :disabled="
+                  draftAssetTypes.length === 0 && selectedTypeCount === 0
+                "
+                @click="resetTypeFilter"
+              >
+                重置筛选
+              </el-button>
+              <div class="flex gap-2">
+                <el-button size="small" @click="typeFilterVisible = false">
+                  取消
+                </el-button>
+                <el-button
+                  size="small"
+                  type="primary"
+                  :disabled="draftAssetTypes.length === 0"
+                  @click="applyTypeFilter"
                 >
                   确定
                 </el-button>

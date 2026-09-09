@@ -356,6 +356,7 @@ def get_filtered_items_query(
     symbol: Optional[str] = None,
     tag_ids_str: Optional[str] = None,
     tag_id: Optional[int] = None,
+    asset_types: Optional[str] = None,
 ) -> Tuple[Query, int]:
     """
     根据筛选条件构建查询对象并返回总条数。
@@ -365,6 +366,13 @@ def get_filtered_items_query(
 
     if symbol:
         query = query.filter(WatchlistItem.symbol == symbol)
+
+    # 资产类型多选（前端「类型」弹层，逗号分隔小写）。历史行 asset_type 可能
+    # 残留大写（STOCK/ETF，#1171 前），统一 lower 后比较，避免筛选漏行。
+    if asset_types:
+        type_list = [t.strip().lower() for t in asset_types.split(',') if t.strip()]
+        if type_list:
+            query = query.filter(func.lower(WatchlistItem.asset_type).in_(type_list))
 
     if group_id:
         query = query.join(WatchlistItem.group_links).filter(WatchlistItemGroup.group_id == group_id)

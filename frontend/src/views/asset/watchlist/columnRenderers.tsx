@@ -105,7 +105,7 @@ const ADVISOR_PLATFORM_LABELS: Record<string, string> = {
 
 /** 组装投顾组合分层信息行（平台 · 主理人 · 策略类型），非投顾行返回空串不渲染 */
 function advisorSubMeta(row: WatchlistRow): string {
-  const platform = field(row, "advisor_platform") as string | null | undefined;
+  const platform = advisorPlatform(row);
   if (!platform) return "";
   return [
     ADVISOR_PLATFORM_LABELS[platform] || platform,
@@ -114,6 +114,11 @@ function advisorSubMeta(row: WatchlistRow): string {
   ]
     .filter((v): v is string => Boolean(v))
     .join(" · ");
+}
+
+/** 行是否为投顾/经理类组合（后端 AdvisorPortfolio 回查命中时下发 platform） */
+function advisorPlatform(row: WatchlistRow): string {
+  return (field(row, "advisor_platform") as string | null | undefined) || "";
 }
 
 /** 解析某列应显示的「基础静态值」与「实时覆盖值」 */
@@ -395,7 +400,10 @@ const renderProduct: FunctionalComponent<{
           symbol: row.symbol,
           typeLabel: (field(row, "type_label") as string) || "",
           // 投顾组合分层信息（平台 · 主理人 · 策略）独立成行，避免与代码/类型/标签挤一行
-          subMeta: advisorSubMeta(row)
+          subMeta: advisorSubMeta(row),
+          // 投顾/经理类组合的平台编码（ZHxxxx/CSIxxxx）对用户无意义：隐藏代码段，
+          // 识别信息由分层行承担；股票/ETF/指数等保留 `# 代码`（用户 2026-09-09 拍板）
+          showCode: !advisorPlatform(row)
         },
         {
           meta: () => [

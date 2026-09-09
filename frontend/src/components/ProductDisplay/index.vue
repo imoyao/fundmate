@@ -21,8 +21,14 @@
         {{ subMeta }}
       </div>
       <div class="product-meta-row">
-        <!-- 代码为空时不渲染无意义的 "#"，与显示值保持一致 -->
-        <span class="product-code-compact" :title="symbol || '--'">
+        <!-- 代码为空时不渲染无意义的 "#"，与显示值保持一致；
+             showCode=false 时整段不渲染（投顾/经理类组合的 ZHxxxx 编码对用户
+             无意义，用户 2026-09-09 拍板隐藏，识别信息由 subMeta 分层行承担） -->
+        <span
+          v-if="showCode"
+          class="product-code-compact"
+          :title="symbol || '--'"
+        >
           {{ symbol ? `# ${symbol}` : "--" }}
         </span>
         <span v-if="typeLabel" class="product-type-compact">
@@ -38,7 +44,7 @@
         {{ name || symbol || "--" }}
       </div>
       <div class="product-code-row">
-        <span class="product-code"># {{ symbol || "--" }}</span>
+        <span v-if="showCode" class="product-code"># {{ symbol || "--" }}</span>
         <span v-if="typeLabel" class="type-tag-inline">
           {{ typeLabel }}
         </span>
@@ -65,7 +71,12 @@ defineProps({
    * 复合产品分层信息行（仅 compact 模式）：如投顾组合的「且慢 · 张三 · 均衡」。
    * 非空时在名称行与元信息行之间渲染第三行；普通标的传空即不渲染，布局不变。
    */
-  subMeta: { type: String, default: "" }
+  subMeta: { type: String, default: "" },
+  /**
+   * 是否显示代码段（`# ZHxxxx`）。组合类标的（投顾组合/基金经理）的平台编码
+   * 对用户无意义，传 false 隐藏整段；股票/ETF/指数等保留默认 true。
+   */
+  showCode: { type: Boolean, default: true }
 });
 </script>
 
