@@ -15,6 +15,10 @@ from app.core.db_factory import (
     DOMAIN_USER,
     DatabaseFactory,
 )
+from app.core.migrations import (
+    migrate_watchlist_unique_key,
+    migrate_watchlist_venue_not_null,
+)
 
 # 保留历史符号：部分模块（如 sync/orchestrator 备份路径）仍引用，
 # 指向当前应用运行库的 URL，供文件库路径推断使用。
@@ -230,8 +234,6 @@ def init_db():
     # 存量库回归迁移（#1286 / #1362 评审 #3）：watchlist 唯一键 (symbol, venue)
     # → (symbol, market, venue) 防跨市场同码冲突。create_all 只增表不改表，旧库
     # 仍停留旧约束会静默失效，故启动期按 user 域自动执行，幂等可重复跑。
-    from app.core.migrations import migrate_watchlist_unique_key, migrate_watchlist_venue_not_null
-
     # 先回填历史 NULL venue（否则唯一键对存量行失效），再迁唯一键
     migrate_watchlist_venue_not_null(user_engine)
     migrate_watchlist_unique_key(user_engine)
@@ -282,8 +284,6 @@ def init_db_split():
         _validate_schema(user_eng, user_meta, label='user')
         # 存量库回归迁移（#1286 / #1362 评审 #3）：watchlist 唯一键回归基线，
         # 双库模式同样按 user 域引擎自动执行，幂等。
-        from app.core.migrations import migrate_watchlist_unique_key, migrate_watchlist_venue_not_null
-
         migrate_watchlist_venue_not_null(user_eng)
         migrate_watchlist_unique_key(user_eng)
     # 双库模式：种子必须落到 user 引擎（修复跨域 bug），bind 传 user_eng；

@@ -15,9 +15,8 @@ import logging
 if __name__ != 'app':
     raise ImportError(
         f'app 包被以子包形态导入（{__name__}），顶级包 app 不存在，无法继续。'
-        '正确启动方式二选一：'
-        '(1) cd backend && pdm run flask --app app.main:app run --debug（标准，见 AGENTS.md / scripts/dev.ps1）；'
-        '(2) 仓库根执行 flask --app wsgi run（见根目录 wsgi.py）。'
+        '唯一标准启动方式：cd backend && pdm run flask --app app.main:app run --debug'
+        '（仓库根可执行 dev.cmd，其内部已切到 backend；见 AGENTS.md / scripts/dev.ps1）。'
         'IDE 运行配置请把 Working Directory 设为 backend/、启动目标设为 app.main。'
     )
 
