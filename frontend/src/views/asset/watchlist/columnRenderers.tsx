@@ -781,6 +781,43 @@ const renderIndexVal: FunctionalComponent<{
   return dash();
 };
 
+/**
+ * 基金最大回撤列（#1285 消费侧「基金」品类 / 设计 §3.10）。
+ *
+ * §3.10 要求「存口径元数据，不只存数字」：tooltip 必须交代 窗口 / 频率 / 复权口径 /
+ * 截至日，否则同一列在不同基金间不可比。本期口径 = 近 3 年固定窗口 · 日频 · 累计净值。
+ * 数据不足（`basis=insufficient`）时显示 `—` 并在 title 说明原因，避免「看不出为什么空」。
+ * 配色刻意用中性色：回撤是风险指标，套用涨红跌绿会被误读成「今天跌了」。
+ */
+const renderDrawdown: FunctionalComponent<{
+  row: WatchlistRow;
+  def: ColumnDef;
+  ctx: RenderCtx;
+}> = props => {
+  const v = field(props.row, "fund_max_drawdown") as number | null | undefined;
+  const basis = (field(props.row, "fund_max_drawdown_basis") as string) || "";
+  const win = (field(props.row, "fund_max_drawdown_window") as string) || "";
+  const asOf = (field(props.row, "fund_max_drawdown_as_of") as string) || "";
+
+  if (v == null) {
+    const tip =
+      basis === "insufficient"
+        ? "数据不足（近 3 年净值点少于 60 个）"
+        : undefined;
+    return h("span", { class: "dd-empty", title: tip }, "—");
+  }
+
+  const tip = [
+    `口径：${win || "固定窗口"}`,
+    "日频",
+    "累计净值（分红不再投）",
+    asOf ? `截至 ${asOf}` : ""
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return h("span", { class: "dd-val", title: tip }, `${v.toFixed(2)}%`);
+};
+
 /** renderer 类型 -> 函数式组件 的注册表 */
 const REGISTRY: Record<
   ColumnRenderer,
@@ -800,6 +837,7 @@ const REGISTRY: Record<
   notes: renderNotes as never,
   bond: renderBond as never,
   indexVal: renderIndexVal as never,
+  drawdown: renderDrawdown as never,
   sparkline: renderSparkline as never,
   actions: renderActions as never
 };

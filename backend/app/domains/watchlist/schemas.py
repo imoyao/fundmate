@@ -93,6 +93,14 @@ class WatchlistItemOut(BaseModel):
     index_pe_2: Optional[float] = None  # 市盈率2（官方列名，口径以官方为准）
     index_dividend_yield: Optional[float] = None  # 股息率(%)（官方列「股息率1」）
     index_valuation_date: Optional[date] = None  # 估值日期（口径透明：前端可标「截至 X」）
+    # 基金最大回撤（#1285 消费侧「基金」品类 / 设计 §3.10）。**不只给数字，同时给口径
+    # 元数据**——§3.10 明确要求「存口径元数据，不只存数字」，前端按 basis 决定色与 tooltip。
+    # 本期仅产出 fixed_3y（固定窗口近 3 年）；current_tenure / prev_tenure 依赖经理任期
+    # 与历任业绩数据（未接入），数据不足时 basis=insufficient 且值保持 None。
+    fund_max_drawdown: Optional[float] = None  # 最大回撤(%)，负值
+    fund_max_drawdown_basis: Optional[str] = None  # current_tenure|prev_tenure|fixed_3y|insufficient
+    fund_max_drawdown_window: Optional[str] = None  # 窗口描述（如「近3年」）
+    fund_max_drawdown_as_of: Optional[date] = None  # 序列最后净值日（「截至」）
 
 
 # ── 分组 ──

@@ -43,6 +43,7 @@ from app.domains.watchlist.schemas import (
     WatchlistTagDefOut,
     WatchlistTagDefUpdate,
 )
+from app.services.fund_metrics import compute_max_drawdown, load_nav_points
 from app.services.watchlist_service import (
     build_groups_data,
     build_home_summary,
@@ -122,8 +123,12 @@ def _apply_bond_fields(out: dict, symbol: str, db) -> None:
     out['bond_stock_name'] = term.stock_name
 
 
-def _index_code_from_symbol(symbol: str) -> str:
-    """'SH000300' / 'CSI930950' → '000300' / '930950'（估值表按裸代码存储）。"""
+def _bare_code(symbol: str) -> str:
+    """'SH000300' / 'CSI930950' / 'OF000001' → '000300' / '930950' / '000001'。
+
+    指数估值表（index_valuations）与基金净值表（daily_worth）都按**裸代码**存储，
+    故统一在此抽取数字部分。
+    """
     return ''.join(ch for ch in (symbol or '') if ch.isdigit())
 
 
@@ -133,7 +138,7 @@ def _apply_index_valuation_fields(out: dict, symbol: str, db) -> None:
     取该指数**最新一期**估值（历史序列留给后续的估值详情页）；表为空或该指数没有
     官方估值文件时保持 None —— 前端显示 `—`，不编造数据。
     """
-    code = _index_code_from_symbol(symbol)
+    code = _bare_code(symbol)
     if not code:
         return
     row = (
@@ -148,6 +153,49 @@ def _apply_index_valuation_fields(out: dict, symbol: str, db) -> None:
     out['index_pe_2'] = _to_float(row.pe_2)
     out['index_dividend_yield'] = _to_float(row.dividend_yield_1)
     out['index_valuation_date'] = row.trade_date
+
+
+# ── 基金最大回撤（#1285 消费侧「基金」品类 / 设计 §3.10）──
+DRAWDOWN_FIXED_WINDOW_DAYS = 365 * 3  # 固定窗口档：近 3 年
+DRAWDOWN_FIXED_WINDOW_LABEL = '近3年'
+# 样本不足（次新基金/净值稀疏）时不下发数字，只标 basis=insufficient，前端显示 `—`
+DRAWDOWN_MIN_SAMPLES = 60
+
+
+def _apply_fund_drawdown_fields(out: dict, symbol: str, asset_type: str, db) -> None:
+    """基金最大回撤 enrich（口径见设计 §3.10「存口径元数据，不只存数字」）。
+
+    **本期口径**：固定窗口「近 3 年」，日频，基于 `daily_worth.acc_nav`（累计净值）
+    自算，`basis='fixed_3y'`。
+
+    为何不是「现任经理任期」：§3.10 对**主动权益类**要求绑定有效管理人任期，该档位
+    依赖经理任期 / 历任任期业绩 / 同类排名数据（均未接入），故本期不产出
+    `current_tenure` / `prev_tenure` 两档；字段与前端色板已按 basis 预留，
+    数据接入后只需在此处改 `basis` 选择逻辑，算法与服务层无需改动。
+    """
+    # 仅场外基金：daily_worth 按 6 位基金代码存净值；货基用万份收益口径，不适用本算法
+    if (asset_type or '').lower() != 'fund':
+        return
+    code = _bare_code(symbol)
+    if not code:
+        return
+
+    since = date.today() - timedelta(days=DRAWDOWN_FIXED_WINDOW_DAYS)
+    rows = (
+        db.query(DailyWorth)
+        .filter(DailyWorth.fund_code == code, DailyWorth.date >= since)
+        .order_by(DailyWorth.date)
+        .all()
+    )
+    result = compute_max_drawdown(load_nav_points(rows))
+    if result is None or result.sample_size < DRAWDOWN_MIN_SAMPLES:
+        out['fund_max_drawdown_basis'] = 'insufficient'
+        return
+
+    out['fund_max_drawdown'] = round(result.max_drawdown, 2)
+    out['fund_max_drawdown_basis'] = 'fixed_3y'
+    out['fund_max_drawdown_window'] = DRAWDOWN_FIXED_WINDOW_LABEL
+    out['fund_max_drawdown_as_of'] = result.as_of
 
 
 def _enrich_item(item: WatchlistItem, db) -> dict:
@@ -189,6 +237,9 @@ def _enrich_item(item: WatchlistItem, db) -> dict:
 
     # 指数估值（#1285 消费侧 / #1394）：仅指数命中 index_valuations 时填充
     _apply_index_valuation_fields(out, item.symbol, db)
+
+    # 基金最大回撤（#1285 消费侧 / §3.10）：仅场外基金，口径元数据随值下发
+    _apply_fund_drawdown_fields(out, item.symbol, item.asset_type, db)
 
     # 补充价格与市值信息（从持仓表计算静态值）
     position_value = _compute_position_market_value(item.symbol, db)
@@ -395,6 +446,8 @@ def _build_holding_row(symbol, db, market=None, asset_type=None, venue=None):
     _apply_bond_fields(row, symbol, db)
     # 指数估值（#1285/#1394）：与 _enrich_item 同源
     _apply_index_valuation_fields(row, symbol, db)
+    # 基金最大回撤（#1285/§3.10）：与 _enrich_item 同源，避免虚拟行漏字段
+    _apply_fund_drawdown_fields(row, symbol, asset_type, db)
     return row
 
 

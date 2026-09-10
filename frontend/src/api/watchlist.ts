@@ -73,6 +73,12 @@ export interface WatchlistItem {
   index_pe_2?: number | null; // 市盈率2（官方列名，口径以官方为准）
   index_dividend_yield?: number | null; // 股息率(%)（官方列「股息率1」）
   index_valuation_date?: string | null; // 估值日期（口径透明：展示「截至 X」）
+  // ── 基金最大回撤（#1285 消费侧「基金」品类 / 设计 §3.10）──
+  // §3.10 要求「存口径元数据，不只存数字」，故口径项随值一并下发，由前端展示。
+  fund_max_drawdown?: number | null; // 最大回撤(%)，负值
+  fund_max_drawdown_basis?: string | null; // current_tenure|prev_tenure|fixed_3y|insufficient
+  fund_max_drawdown_window?: string | null; // 窗口描述（如「近3年」）
+  fund_max_drawdown_as_of?: string | null; // 序列最后净值日（「截至」）
 }
 
 export interface HomeSummaryItem {

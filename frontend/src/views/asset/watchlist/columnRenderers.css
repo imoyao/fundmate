@@ -212,3 +212,15 @@
 .el-table .index-val-empty {
   color: var(--text-disabled);
 }
+
+/* ── 基金最大回撤列（#1285/§3.10）── */
+.el-table .dd-val {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  /* 回撤是风险指标而非涨跌：用中性色，不套涨红跌绿（否则被误读为「今日下跌」） */
+  color: var(--text-primary);
+}
+
+.el-table .dd-empty {
+  color: var(--text-disabled);
+}

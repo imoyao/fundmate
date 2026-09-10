@@ -43,6 +43,7 @@ export type ColumnRenderer =
   | "notes" // 投资笔记（点击编辑，#1285）
   | "bond" // 可转债条款（#1285/#1393：溢价率 / 强赎状态 / 剩余年限 / 评级）
   | "indexVal" // 指数估值（#1285/#1394：市盈率 / 股息率，中证官方）
+  | "drawdown" // 基金最大回撤（#1285/§3.10：口径元数据挂 title）
   | "actions"; // 操作列（circle 按钮：置顶/关注/编辑/删除）
 
 /** 实时估值可覆盖的字段（来自 getValuationItem 产出） */
@@ -247,6 +248,21 @@ export const watchlistColumnDefs: ColumnDef[] = [
     renderer: "indexVal",
     appliesTo: ["index"],
     width: 88,
+    align: "right",
+    hideable: true,
+    draggable: true
+  },
+  // ── 基金品类专属列（#1285 消费侧「基金」/ §3.10）──
+  // 口径元数据（窗口/频率/复权/截至）随值下发并挂在列 title —— §3.10 明确要求
+  // 「存口径元数据，不只存数字」，否则同一列在不同基金间不可比。
+  // 本期仅 fixed_3y（近 3 年）一档；主动权益类的「现任经理任期」档依赖经理任期与
+  // 历任业绩数据（未接入），届时只需改后端 basis 选择逻辑，本列无需改动。
+  {
+    key: "fund_max_drawdown",
+    label: "最大回撤",
+    renderer: "drawdown",
+    appliesTo: ["fund"],
+    width: 96,
     align: "right",
     hideable: true,
     draggable: true
