@@ -64,8 +64,11 @@ def main() -> None:
     load_dotenv(Path(__file__).resolve().parents[2] / '.env')
     args = _parse_args()
 
-    # 只做集思录 cookie 自检/保活：可在 cron 里单挂一条（建议带 jitter）
+    # 只做集思录 cookie 自检/保活：可在 cron 里单挂一条（带 --jitter）
+    # 手工自检要即时反馈，故仅在**显式**传 --jitter 时才抖动。
     if args.check_jsl:
+        if args.jitter and not args.no_jitter:
+            apply_jitter(resolve_jitter_seconds(args.jitter), label='JSL 保活')
         status = keepalive_jsl_session()
         sys.exit(0 if status.ok else 2)
 
