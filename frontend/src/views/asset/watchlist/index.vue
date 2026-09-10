@@ -496,8 +496,15 @@ const groups = useWatchlistGroups();
 const tags = useWatchlistTags();
 const toolbar = useWatchlistToolbar();
 const data = useWatchlistData(groups, tags, toolbar);
+// 当前品类（类型筛选命中单一品类时为其 asset_type；否则 null＝混合视图）。
+// 供列显隐在「混合视图通用列 / 品类视图专属列」间切换（#1285）。
+const activeCategory = computed<string | null>(() =>
+  toolbar.selectedAssetTypes.value.length === 1
+    ? toolbar.selectedAssetTypes.value[0]
+    : null
+);
 // 列显隐偏好（#993）：localforage 本机持久化，SettingsDrawer 经 prop 共享同一实例
-const columnSettings = useWatchlistColumnVisibility();
+const columnSettings = useWatchlistColumnVisibility(activeCategory);
 
 const {
   activeGroup,

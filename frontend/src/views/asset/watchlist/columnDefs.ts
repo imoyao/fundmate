@@ -72,6 +72,19 @@ export interface ColumnDef {
   defaultHidden?: boolean;
   /** #992 预留：是否参与拖拽排序（列顺序） */
   draggable?: boolean;
+  /**
+   * 视图作用域（#1285 品类差异化）：
+   * - `"mixed"`：混合视图（未按品类筛选）也显示的「通用列」——名称 / 价格净值 / 涨跌幅 / 操作。
+   * - `"category"`（默认）：仅在「品类视图」（类型筛选命中单一品类）显示；
+   *   用户若在「列设置」显式开启，则任何视图都显示（当前标的不适用时渲染 `—`）。
+   */
+  scope?: "mixed" | "category";
+  /**
+   * 适用的资产类型（`asset_type` 小写枚举）；缺省 = 全部类型。
+   * 仅对 `scope="category"` 生效：品类视图下只展示命中品类的列
+   * （如持仓 / 市值类列只对可交易标的，指数 / 经理 / 组合不出现）。
+   */
+  appliesTo?: string[];
   /** 名称超长时省略并 hover 显示完整内容（对应 el-table-column show-overflow-tooltip） */
   showOverflowTooltip?: boolean;
   /** 渲染器所需额外参数 */
@@ -91,6 +104,20 @@ export interface ColumnDef {
  * （超出视口的部分在 el-table 内部横向滚动，不撑宽页面，见 #1341），故此处无需为
  * 防溢出刻意压窄列宽——保持各列可读性即可。
  */
+/**
+ * 可交易 / 可持有资产类型：持仓数量、市值、涨跌收益等列**仅对它们有意义**。
+ * 指数（不可买）、基金经理、投顾组合（非交易实体）不在此列，品类视图下不展示这些列。
+ */
+export const TRADABLE_TYPES = [
+  "stock",
+  "etf",
+  "fund",
+  "money_fund",
+  "bond",
+  "crypto",
+  "reverse_repo"
+];
+
 export const watchlistColumnDefs: ColumnDef[] = [
   {
     key: "_selection",
@@ -115,7 +142,8 @@ export const watchlistColumnDefs: ColumnDef[] = [
     fixed: "left",
     sortable: "custom",
     hideable: false,
-    draggable: false
+    draggable: false,
+    scope: "mixed"
   },
   {
     key: "created_at",
@@ -135,6 +163,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     align: "right",
     sortable: "custom",
     realtimeField: "currentPrice",
+    scope: "mixed",
     hideable: true,
     draggable: true
   },
@@ -146,6 +175,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     align: "right",
     sortable: "custom",
     realtimeField: "changePct",
+    scope: "mixed",
     hideable: true,
     draggable: true
   },
@@ -154,6 +184,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     key: "trend",
     label: "走势",
     renderer: "sparkline",
+    appliesTo: TRADABLE_TYPES,
     // 图形 72×22（#1281 第二轮：20px 高在 54px 行高里显得过扁，回调到 22px）+
     // 左右各 10px 留白 = 92px 列宽
     width: 92,
@@ -165,6 +196,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     key: "holding_quantity",
     label: "持有数量",
     renderer: "qty",
+    appliesTo: TRADABLE_TYPES,
     width: 112,
     align: "right",
     sortable: "custom",
@@ -175,6 +207,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     key: "position_market_value",
     label: "持仓市值",
     renderer: "moneyRatio",
+    appliesTo: TRADABLE_TYPES,
     // 两行堆叠（金额在上、占比在下）：列宽只需容纳 `¥109,600.00`（约 96px）
     // + 单元格左右 padding，148px 留有余量
     width: 148,
@@ -188,6 +221,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     key: "added_return",
     label: "添加后涨幅",
     renderer: "moneyRatio",
+    appliesTo: TRADABLE_TYPES,
     // 同持仓市值：两行堆叠，148px
     width: 148,
     align: "right",
@@ -200,6 +234,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     key: "holding_pnl",
     label: "持仓收益",
     renderer: "moneyRatio",
+    appliesTo: TRADABLE_TYPES,
     // 无货币符号（showCurrency=false），宽度需求小于另两个金额列
     width: 136,
     align: "right",
@@ -222,6 +257,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     key: "holding_cost_price",
     label: "成本价",
     renderer: "money",
+    appliesTo: TRADABLE_TYPES,
     // #1332：开放列内排序（白名单已登记）；无真实持仓时显示 --
     sortable: "custom",
     props: { nullable: true },
@@ -293,6 +329,7 @@ export const watchlistColumnDefs: ColumnDef[] = [
     width: 110,
     align: "center",
     fixed: "right",
+    scope: "mixed",
     hideable: false,
     draggable: false
   }

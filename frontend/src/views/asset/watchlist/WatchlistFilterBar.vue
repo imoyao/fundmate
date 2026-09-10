@@ -92,7 +92,10 @@ const ASSET_TYPE_OPTIONS = [
   "bond",
   "index",
   "crypto",
-  "reverse_repo"
+  "reverse_repo",
+  // #1285 品类视图：经理 / 投顾组合也需可筛选（此前缺失 → 无法进入其品类视图）
+  "manager",
+  "portfolio"
 ] as const;
 
 const selectedAssetTypesModel = computed({

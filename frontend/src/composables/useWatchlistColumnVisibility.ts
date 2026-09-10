@@ -13,7 +13,7 @@
  * - 顺序只记录 draggable=true 的中段列：固定列（marker/product 左固定、
  *   actions 右固定）不参与拖拽，重建时按默认定义归位。
  */
-import { computed, ref, type ComputedRef } from "vue";
+import { computed, ref, type ComputedRef, type Ref } from "vue";
 import { localForage } from "@/utils/localforage";
 import {
   watchlistColumnDefs,
@@ -88,10 +88,27 @@ export interface WatchlistColumnVisibility {
   applyOrder: (orderedKeys: string[]) => void;
 }
 
-export function useWatchlistColumnVisibility(): WatchlistColumnVisibility {
+export function useWatchlistColumnVisibility(
+  activeCategory?: Ref<string | null> | ComputedRef<string | null>
+): WatchlistColumnVisibility {
   if (!loadStarted) {
     loadStarted = true;
     void loadSettings();
+  }
+
+  /** 当前「品类」：类型筛选命中单一品类时为其 asset_type；否则 null＝混合视图（#1285） */
+  const activeCat = computed(() => activeCategory?.value ?? null);
+
+  /**
+   * 视图作用域可见性（不含用户显隐偏好）：
+   * - `scope:"mixed"` 通用列：混合视图也显示；
+   * - `scope:"category"`（默认）：仅当命中当前品类（`appliesTo` 缺省＝全部品类）才显示。
+   */
+  function isVisibleInView(def: ColumnDef): boolean {
+    if (def.scope === "mixed") return true;
+    const cat = activeCat.value;
+    if (cat && (!def.appliesTo || def.appliesTo.includes(cat))) return true;
+    return false;
   }
 
   const hideableColumns = computed(() =>
@@ -114,28 +131,37 @@ export function useWatchlistColumnVisibility(): WatchlistColumnVisibility {
     );
   });
 
-  /** 某列当前是否可见：显式隐藏 → false；默认隐藏且未显式开启 → false */
+  /**
+   * 实际渲染的列 = 自定义顺序 × 用户显隐偏好 × **视图作用域**（#1285）：
+   * - 固定/内置列恒显示；
+   * - 用户显式关闭（hiddenKeys）→ 隐藏；
+   * - 用户显式开启（shownKeys）→ **任何视图都显示**（覆盖视图作用域与默认隐藏）；
+   * - 默认隐藏且未开启 → 隐藏；
+   * - 其余按视图作用域：混合视图只显示 `scope:"mixed"` 通用列；
+   *   品类视图显示该品类命中 `appliesTo` 的列。
+   */
   const visibleColumns = computed(() =>
     orderedColumns.value.filter(d => {
       if (!d.hideable) return true;
       if (hiddenKeys.value.has(d.key)) return false;
-      return !d.defaultHidden || shownKeys.value.has(d.key);
+      if (shownKeys.value.has(d.key)) return true;
+      if (d.defaultHidden) return false;
+      return isVisibleInView(d);
     })
   );
 
   /**
-   * 返回「当前是否实际隐藏」，而非「用户是否显式隐藏过」。
-   * SettingsDrawer 以 `!isHidden(key)` 作为勾选框的 model-value，若这里只反映
-   * 显式隐藏，默认隐藏列会渲染成「已勾选却不可见」的矛盾态；hiddenCount 统计
-   * 同样依赖本语义。必须与 toggleColumn 对称：isHidden→true 时 toggle(key,true)
-   * 可使其可见。
+   * 返回「当前视图下是否实际隐藏」，而非「用户是否显式隐藏过」。
+   * SettingsDrawer 以 `!isHidden(key)` 作为勾选框的 model-value：
+   * - 默认隐藏列 / 当前视图不含的品类专属列，都会显示为「未勾选」，与表格所见一致；
+   * - 勾上即「显式开启」→ 任何视图都显示（`toggleColumn` 对称）。
+   * hiddenCount 统计同样依赖本语义。
    */
   function isHidden(key: string): boolean {
     const def = watchlistColumnDefs.find(d => d.key === key);
     // 不可隐藏列恒为可见：即便历史残留 hiddenKeys 含该 key，也不应显示「已隐藏」矛盾态
     if (def && !def.hideable) return false;
-    if (hiddenKeys.value.has(key)) return true;
-    return Boolean(def?.defaultHidden) && !shownKeys.value.has(key);
+    return !visibleColumns.value.some(d => d.key === key);
   }
 
   function toggleColumn(key: string, visible: boolean): void {
@@ -146,8 +172,10 @@ export function useWatchlistColumnVisibility(): WatchlistColumnVisibility {
     const nextShown = new Set(shownKeys.value);
     if (visible) {
       nextHidden.delete(key);
-      // 显式开启：仅对默认隐藏列记入 shown（普通列本就可见，记入只是污染持久化数据）
-      if (def.defaultHidden) nextShown.add(key);
+      // 显式开启：仅当「无用户偏好时该列仍不可见」（默认隐藏 / 当前视图不含它）才记入 shown，
+      // 否则记入只是污染持久化数据。shown 语义 = 任何视图都显示。
+      if (def.defaultHidden || !isVisibleInView(def)) nextShown.add(key);
+      else nextShown.delete(key);
     } else {
       nextHidden.add(key);
       nextShown.delete(key);
