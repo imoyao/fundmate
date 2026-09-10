@@ -91,3 +91,34 @@ pip:
     - 184
     - 171
     - 111
+
+npm:
+  # 全部为 dev/build 工具链的传递依赖，不进生产打包产物；
+  # patched 版本要么未发布、要么需破坏性大版本跳跃（会崩上游）。
+  # 处置：批量 dismiss，reason 选 "not reachable in production"（dev-toolchain only）。
+  # 说明：编号原以文本形式散落在 dependabot-triage.md §3.2，现结构化于此。
+  generated_at: "2026-08-10"
+  reason: "This vulnerability is not in my codebase / not reachable in production"
+  # 按所属 lockfile 分组；822 同时出现在根与 frontend
+  root:
+    path: pnpm-lock.yaml
+    alert_ids:
+      - 825
+      - 824
+      - 823
+      - 822
+      - 821
+      - 820
+      - 819
+      - 818
+      - 817
+      - 816
+      - 812
+      - 732
+      - 709
+  frontend:
+    path: frontend/pnpm-lock.yaml
+    alert_ids:
+      - 815
+      - 627
+      - 822
