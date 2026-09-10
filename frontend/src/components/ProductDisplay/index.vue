@@ -140,10 +140,10 @@ defineProps({
    16px 高弱化小字，单行省略 + title 兜全名；普通标的 subMeta 为空不渲染，不占行高 */
 .product-cell--compact .product-submeta {
   overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 11px;
   line-height: 16px;
   color: var(--text-secondary);
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
