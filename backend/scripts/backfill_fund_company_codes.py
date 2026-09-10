@@ -5,7 +5,9 @@
 
 为什么需要：akshare 全链路只给公司"名"不给"code"，导致 fund_companies 表大量
 行 code==name 占位。本脚本调用 company_resolver.backfill_fund_company_codes，
-按天天基金权威列表把真值 code 回填进去。
+按天天基金权威列表把真值 code 回填进去，并**顺带把 `name` 由法人全称收敛为东财简称**
+（`name` 列语义是简称，全称归 `full_name`）——同步路径不会改存量行，存量形态修复
+只能走这类显式脚本。
 
 安全模型（与 cleanup_temp.py 同源）：默认 DRY-RUN，只打印待变更清单；必须显式
 传 --apply 才写库。回填逻辑本身幂等（只处理 code==name 的占位行）。
@@ -38,7 +40,8 @@ def main(argv=None):
     hit_rate = (len(matched) / total) if total else 0.0
     print(f'[backfill] 占位总行数={total}，命中={len(matched)}，失配={len(unmatched)}，命中率={hit_rate:.1%}')
     for c in matched:
-        print(f'  [命中] id={c["id"]} {c["old_code"]} -> {c["new_code"]}  ({c["name"]})')
+        name_part = f'{c["name"]} → {c["new_name"]}' if c.get('new_name') != c['name'] else c['name']
+        print(f'  [命中] id={c["id"]} {c["old_code"]} -> {c["new_code"]}  ({name_part})')
     for c in unmatched:
         print(f'  [失配] id={c["id"]} name={c["name"]} code={c["code"]}')
 
@@ -46,7 +49,7 @@ def main(argv=None):
         print('\n[backfill] DRY-RUN 模式：未写入任何数据。确认清单无误后加 --apply 执行。')
         return
 
-    print(f'\n[backfill] 已回填 {len(matched)} 条基金公司 code。')
+    print(f'\n[backfill] 已回填 {len(matched)} 条基金公司 code（name 同步收敛为东财简称）。')
 
 
 if __name__ == '__main__':
