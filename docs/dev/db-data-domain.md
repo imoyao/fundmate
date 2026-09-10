@@ -19,10 +19,10 @@
 
 | 域 | 引擎（生产） | 开发期默认（未配云） | 配云后 |
 |----|------|-----------|------|
-| `market` | Turso（libsql） | 本地 SQLite（`invest.dev.db`） | Turso（设 `TURSO_DATABASE_URL` / `DATABASE_URL`） |
+| `market` | Turso（libsql） | 本地 SQLite（`invest.db`） | Turso（设 `TURSO_DATABASE_URL` / `DATABASE_URL`） |
 | `user` | Supabase（Postgres） | 本地 SQLite（**默认与 market 同库**；显式设 `DEV_USER_DATABASE_URL` 才独立 `invest.user.dev.db`） | Supabase（设 `SUPABASE_DATABASE_URL`） |
 
-> **单库 / 双库统一可用（核心）**：本地 development 默认「单库」——未显式配置独立 user 库时，user 域与 market 域共用同一本地 SQLite（缺省 `invest.dev.db`，本地常经 `DEV_DATABASE_URL` 指向既有 `invest.db`），本地数据零迁移、开箱即用。只有显式配置 `DEV_USER_DATABASE_URL`（本地双库模拟）或 `SUPABASE_DATABASE_URL`（真库）才拆分。生产期把该变量换成 prod 连接串即可，业务代码零改动（ORM 不关心 Supabase 还是 Neon 的 PG）。
+> **单库 / 双库统一可用（核心）**：本地 development 默认「单库」——未显式配置独立 user 库时，user 域与 market 域共用同一本地 SQLite（缺省 `invest.db`），本地数据零迁移、开箱即用。**全新克隆不配 `.env` 也只会有 `invest.db` 一个文件**。只有显式配置 `DEV_USER_DATABASE_URL`（本地双库模拟）或 `SUPABASE_DATABASE_URL`（真库）才拆分。生产期把该变量换成 prod 连接串即可，业务代码零改动（ORM 不关心 Supabase 还是 Neon 的 PG）。
 > 因此**不是「必须用双库真实连接」**——本地默认单 SQLite，需要验证域边界 / 跨域工具时用双 SQLite 模拟，仅在最终验证 / 生产才接真云库。
 
 ## 3. 表 → 域归属清单（基于真实代码，2026-08-18 盘点）
@@ -133,7 +133,7 @@
 
 ### 9.2 回退机制（代码事实）
 
-- `DatabaseConfig.for_user(env)`：**永不返回 None**。未设 `SUPABASE_DATABASE_URL` 时，development 环境**默认与 market 同库**（`DEV_DATABASE_URL`，缺省 `invest.dev.db`）；只有显式配置 `DEV_USER_DATABASE_URL` 才回退独立文件（如 `invest.user.dev.db`）；prod/staging 回退 `USER_DATABASE_URL`（默认与 `DATABASE_URL` 同库）。
+- `DatabaseConfig.for_user(env)`：**永不返回 None**。未设 `SUPABASE_DATABASE_URL` 时，development 环境**默认与 market 同库**（`DEV_DATABASE_URL`，缺省 `invest.db`）；只有显式配置 `DEV_USER_DATABASE_URL` 才回退独立文件（如 `invest.user.dev.db`）；prod/staging 回退 `USER_DATABASE_URL`（默认与 `DATABASE_URL` 同库）。
 - 因此 `user_session_factory()` / `user_session()` / `get_user_sessionmaker()` **不再因缺 Supabase 抛 RuntimeError**——本地默认单库零配置即可用 user 会话。
 - `DatabaseFactory.create(DOMAIN_USER)` 对任一环境都返回可用引擎；`init_db_split()` 仅在显式配置独立 user URL（`DEV_USER_DATABASE_URL` / `SUPABASE_DATABASE_URL`）时才把两域表分别建到两个物理引擎，域边界成立。
 
@@ -161,7 +161,7 @@ pdm run python -c "from app.core.database import init_db_split; init_db_split()"
 ### 9.4 跨域工具在两种模式下的行为
 
 `app/services/common/cross_domain.py` 的 `CrossDomainQuery` 接收 `user_sf` / `market_sf` 两个 sessionmaker：
-- 双库模拟：两者分别 bind 本地 `invest.user.dev.db` / `invest.dev.db`；
+- 双库模拟：两者分别 bind 本地 `invest.user.dev.db` / `invest.db`；
 - 真双库：两者分别 bind Supabase / Turso。
 
 应用层两步法（取 user → 批量取 market → 拼装）逻辑不变，仅在真云库时才产生网络往返。本地模拟阶段测试速度最快。
@@ -181,8 +181,8 @@ pdm run python -c "from app.core.database import init_db_split; init_db_split()"
 |------|------|------|
 | ORM 基类 | 设想拆 `UserBase` / `MarketBase` 两个 Base | **单一 `app.core.Base`**，通过 `__data_domain__` 属性 + `DATA_DOMAIN_REGISTRY` 注册表声明归属，不拆 Base |
 | 建表方式 | 未明确，倾向两 Base 各自 `create_all` | `init_db_split()` 在**单一 Base.metadata** 上按域分组 `to_metadata` 后分别 `create_all` 到 market / user 引擎 |
-| env 命名 | `SUPABASE_DB_PASSWORD` 拼装、`user.db` / `market.db` | `SUPABASE_DATABASE_URL`（完整连接串）、`invest.dev.db` / `invest.user.dev.db` |
-| 本地回退 | 未提 | user 域未配 Supabase 时**自动回退本地 SQLite**（`invest.user.dev.db`），单库/双库统一可用 |
+| env 命名 | `SUPABASE_DB_PASSWORD` 拼装、`user.db` / `market.db` | `SUPABASE_DATABASE_URL`（完整连接串）、`invest.db` / `invest.user.dev.db` |
+| 本地回退 | 未提 | user 域未配 Supabase 时**自动回退本地 SQLite**：development 缺省与 market 同库（`invest.db`，单库）；显式配 `DEV_USER_DATABASE_URL` 才独立 `invest.user.dev.db` |
 | 跨域查询 | 提及两层查询但未落地 | 已落地 `app/services/common/cross_domain.py`（`enrich_by_rows` 通用两步法 + `enrich_watchlist_with_market`） |
 | 状态 | 标 "未来计划 / 部分 P1" | 分支 `feature/db-multi-engine` 已落地护栏 + 跨域工具，待合入 main-v2 |
 

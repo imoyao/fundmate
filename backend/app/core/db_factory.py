@@ -36,12 +36,15 @@ DOMAIN_USER = 'user'  # 用户核心账本库（Supabase，隐私数据，独立
 DOMAIN_MARKET = 'market'
 
 _DEFAULT_APP_DB = 'sqlite:///./invest.db'
-_DEFAULT_DEV_DB = 'sqlite:///./invest.dev.db'
+# development 缺省库：与 app 同文件——本地（含全新克隆、无 .env）只有一个 invest.db，
+# 既有数据零迁移。历史曾为独立 `invest.dev.db`，导致无 .env 的克隆另建一个空库、
+# 看不到 invest.db 里的存量数据；统一为 invest.db 后该坑消除。
+_DEFAULT_DEV_DB = 'sqlite:///./invest.db'
 
 
 def _development_user_url() -> str:
     """development 下 user 域 URL：显式配置 DEV_USER_DATABASE_URL 优先（独立库，
-    本地双库模拟）；未配置时与 market 域同库（DEV_DATABASE_URL，缺省 invest.dev.db）——
+    本地双库模拟）；未配置时与 market 域同库（DEV_DATABASE_URL，缺省 invest.db）——
     「默认放一起，显式配第二个库才分开」。"""
     return os.getenv('DEV_USER_DATABASE_URL') or os.getenv('DEV_DATABASE_URL') or _DEFAULT_DEV_DB
 
@@ -340,8 +343,9 @@ def user_session_factory() -> sessionmaker:
 
     单库/双库统一可用：
     - 配置了 SUPABASE_DATABASE_URL → 真 Supabase（最终验证 / 生产）。
-    - 未配置 → 自动回退本地 SQLite 文件（invest.user.dev.db），与 market 域
-      物理分离但零网络依赖，本地测试飞快。业务代码无需任何分支判断。
+    - 未配置 → development 下**默认与 market 域同库**（DEV_DATABASE_URL，缺省
+      invest.db，即本地单库）；只有显式配 DEV_USER_DATABASE_URL 才落到独立文件
+      （如 invest.user.dev.db，本地双库模拟）。业务代码无需任何分支判断。
     """
     eng = DatabaseFactory.create(DOMAIN_USER)
     return sessionmaker(autocommit=False, autoflush=False, bind=eng)

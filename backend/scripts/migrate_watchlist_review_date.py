@@ -25,12 +25,14 @@ import sqlite3
 
 COLUMN_SQL = 'ALTER TABLE watchlist ADD COLUMN next_review_date DATE'
 
-# 候选库文件（相对 backend 目录）：覆盖单库模式、dev 双库模拟模式与 env 覆写
+# 候选库文件（相对 backend 目录）：覆盖单库模式、dev 双库模拟模式与 env 覆写。
+# 末尾两条是历史缺省文件名（invest.dev.db），已不再是代码缺省，但存量机器可能有，保留扫描。
 CANDIDATE_URLS = (
     os.getenv('DATABASE_URL', 'sqlite:///./invest.db'),
-    os.getenv('DEV_DATABASE_URL', 'sqlite:///./invest.dev.db'),
+    os.getenv('DEV_DATABASE_URL', 'sqlite:///./invest.db'),
     os.getenv('DEV_USER_DATABASE_URL', 'sqlite:///./invest.user.dev.db'),
     os.getenv('USER_DATABASE_URL', 'sqlite:///./invest.db'),
+    'sqlite:///./invest.dev.db',
 )
 
 

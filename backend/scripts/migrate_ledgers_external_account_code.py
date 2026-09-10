@@ -29,9 +29,10 @@ INDEX_NAME = 'uq_ledger_inst_account'
 # （参照 migrate_watchlist_review_date.py）。
 CANDIDATE_URLS = (
     os.getenv('DATABASE_URL', 'sqlite:///./invest.db'),
-    os.getenv('DEV_DATABASE_URL', 'sqlite:///./invest.dev.db'),
+    os.getenv('DEV_DATABASE_URL', 'sqlite:///./invest.db'),
     os.getenv('DEV_USER_DATABASE_URL', 'sqlite:///./invest.user.dev.db'),
     os.getenv('USER_DATABASE_URL', 'sqlite:///./invest.db'),
+    'sqlite:///./invest.dev.db',
 )
 
 
