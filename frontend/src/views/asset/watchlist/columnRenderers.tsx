@@ -91,6 +91,36 @@ function field(row: WatchlistRow, key: string): unknown {
   return (row as unknown as Record<string, unknown>)[key];
 }
 
+/**
+ * 投顾组合平台枚举 → 中文（AdvisorPortfolio.platform）。
+ * 后端存英文枚举（QIEMAN/DANJUAN/TIANTIAN/YINGMI），编号式枚举对用户无意义，
+ * 展示层统一转平台名；未知值原样兜底（新增平台未同步映射时不至于空白）。
+ */
+const ADVISOR_PLATFORM_LABELS: Record<string, string> = {
+  QIEMAN: "且慢",
+  DANJUAN: "蛋卷基金",
+  TIANTIAN: "天天基金",
+  YINGMI: "盈米"
+};
+
+/** 组装投顾组合分层信息行（平台 · 主理人 · 策略类型），非投顾行返回空串不渲染 */
+function advisorSubMeta(row: WatchlistRow): string {
+  const platform = advisorPlatform(row);
+  if (!platform) return "";
+  return [
+    ADVISOR_PLATFORM_LABELS[platform] || platform,
+    field(row, "advisor_host") as string | null | undefined,
+    field(row, "advisor_strategy_type") as string | null | undefined
+  ]
+    .filter((v): v is string => Boolean(v))
+    .join(" · ");
+}
+
+/** 行是否为投顾/经理类组合（后端 AdvisorPortfolio 回查命中时下发 platform） */
+function advisorPlatform(row: WatchlistRow): string {
+  return (field(row, "advisor_platform") as string | null | undefined) || "";
+}
+
 /** 解析某列应显示的「基础静态值」与「实时覆盖值」 */
 function resolveValue(
   row: WatchlistRow,
@@ -368,7 +398,12 @@ const renderProduct: FunctionalComponent<{
           compact: true,
           name: (field(row, "display_name") as string) || row.symbol,
           symbol: row.symbol,
-          typeLabel: (field(row, "type_label") as string) || ""
+          typeLabel: (field(row, "type_label") as string) || "",
+          // 投顾组合分层信息（平台 · 主理人 · 策略）独立成行，避免与代码/类型/标签挤一行
+          subMeta: advisorSubMeta(row),
+          // 投顾/经理类组合的平台编码（ZHxxxx/CSIxxxx）对用户无意义：隐藏代码段，
+          // 识别信息由分层行承担；股票/ETF/指数等保留 `# 代码`（用户 2026-09-09 拍板）
+          showCode: !advisorPlatform(row)
         },
         {
           meta: () => [

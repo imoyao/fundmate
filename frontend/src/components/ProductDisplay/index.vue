@@ -14,9 +14,21 @@
       <span class="product-name" :title="name || symbol || '--'">
         {{ name || symbol || "--" }}
       </span>
+      <!-- 投顾组合等复合产品的分层信息行（平台 · 主理人 · 策略）：
+           复合产品的元信息与普通标的的「代码/类型/标签」不是一个维度，混排会挤成一行；
+           单独成行后普通标的仍保持两行结构，仅复合产品多一行（用户 2026-09-09 拍板的上/下分层） -->
+      <div v-if="subMeta" class="product-submeta" :title="subMeta">
+        {{ subMeta }}
+      </div>
       <div class="product-meta-row">
-        <!-- 代码为空时不渲染无意义的 "#"，与显示值保持一致 -->
-        <span class="product-code-compact" :title="symbol || '--'">
+        <!-- 代码为空时不渲染无意义的 "#"，与显示值保持一致；
+             showCode=false 时整段不渲染（投顾/经理类组合的 ZHxxxx 编码对用户
+             无意义，用户 2026-09-09 拍板隐藏，识别信息由 subMeta 分层行承担） -->
+        <span
+          v-if="showCode"
+          class="product-code-compact"
+          :title="symbol || '--'"
+        >
           {{ symbol ? `# ${symbol}` : "--" }}
         </span>
         <span v-if="typeLabel" class="product-type-compact">
@@ -32,7 +44,7 @@
         {{ name || symbol || "--" }}
       </div>
       <div class="product-code-row">
-        <span class="product-code"># {{ symbol || "--" }}</span>
+        <span v-if="showCode" class="product-code"># {{ symbol || "--" }}</span>
         <span v-if="typeLabel" class="type-tag-inline">
           {{ typeLabel }}
         </span>
@@ -54,7 +66,17 @@ defineProps({
    * 用于数据密集表格（自选）。默认 false，保持其余复用方（探市/持仓明细/账本明细/清单）
    * 原两行布局不受影响。
    */
-  compact: { type: Boolean, default: false }
+  compact: { type: Boolean, default: false },
+  /**
+   * 复合产品分层信息行（仅 compact 模式）：如投顾组合的「且慢 · 张三 · 均衡」。
+   * 非空时在名称行与元信息行之间渲染第三行；普通标的传空即不渲染，布局不变。
+   */
+  subMeta: { type: String, default: "" },
+  /**
+   * 是否显示代码段（`# ZHxxxx`）。组合类标的（投顾组合/基金经理）的平台编码
+   * 对用户无意义，传 false 隐藏整段；股票/ETF/指数等保留默认 true。
+   */
+  showCode: { type: Boolean, default: true }
 });
 </script>
 
@@ -111,6 +133,17 @@ defineProps({
   font-weight: 500;
   line-height: 20px;
   color: var(--text-primary);
+  white-space: nowrap;
+}
+
+/* 复合产品分层信息行（subMeta，如投顾组合「且慢 · 张三 · 均衡」）：
+   16px 高弱化小字，单行省略 + title 兜全名；普通标的 subMeta 为空不渲染，不占行高 */
+.product-cell--compact .product-submeta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--text-secondary);
   white-space: nowrap;
 }
 

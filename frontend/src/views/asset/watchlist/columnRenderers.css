@@ -27,12 +27,15 @@
    用户要求「标签见字」——此前 6px 实心色点只剩色块、无任何语义，已废弃（#1281 第二轮）。
    颜色为用户数据色（design.md「数据色例外」，缺失回退中性）；
    底纹/描边颜色由 renderer 以 inline style 注入（数据色例外，不走设计令牌）。
-   chip 宽度受限时内部省略，全名与「点击编辑」由 title 承载。 */
+   chip 宽度受限时内部省略，全名与「点击编辑」由 title 承载。
+   min-width 40px（2026-09-09）：radius-pill 在宽≈高（18px）时退化成正圆——
+   一两字短标签必须保住椭圆形态，居中收口避免文字偏左；长标签仍受 max-width 92px 省略。 */
 .el-table .tag-chip {
   display: inline-flex;
   flex-shrink: 1;
   align-items: center;
-  min-width: 0;
+  justify-content: center;
+  min-width: 40px;
   max-width: 92px;
   height: 18px;
   padding: 0 7px;
@@ -65,9 +68,11 @@
   outline-offset: 1px;
 }
 
-/* 超出展示上限的标签数折叠（+N）：纯文字弱化，title 列出全部标签名 */
+/* 超出展示上限的标签数折叠（+N）：纯文字弱化，title 列出全部标签名；
+   min-width 归零——+N 是计数徽记不是标签，不参与 40px 椭圆下限 */
 .el-table .tag-chip--more {
   flex-shrink: 0;
+  min-width: 0;
   max-width: none;
   padding: 0 2px;
   color: var(--text-tertiary);

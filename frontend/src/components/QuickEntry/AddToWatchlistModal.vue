@@ -401,10 +401,22 @@ const fetchTags = async () => {
   }
 };
 
-const checkAssetExists = async (symbol: string) => {
+// 查重序号：onAssetSelected 每次选择自增，慢响应到达时序号已过期则丢弃结果。
+// 否则用户快速把 A（已在自选）切换到 B（不在）时，A 的慢响应后到会把
+// assetAlreadyExists 误写成 true——B 明明没加过却提示「已在自选」（2026-09-09 用户实测误报）。
+let checkSeq = 0;
+
+const checkAssetExists = async (symbol: string, seq: number) => {
+  // 空/空白代码不查重：后端对空 symbol 跳过过滤走「全部」分支，恒返回整页数据，
+  // 会被误判成「已存在」（历史误报根因之一，与 OcrImportModal.probeExisting 同源）
+  const key = (symbol || "").trim();
+  if (!key) return false;
   try {
-    const res = await getWatchlistItems({ symbol });
-    return (res.data ?? []).length > 0;
+    // per_page: 1 查重只需知道有无，避免拉 20 条 enrich 数据
+    const res = await getWatchlistItems({ symbol: key, per_page: 1 });
+    const exists = (res.data ?? []).length > 0;
+    // 时序守卫：仅最新一次选择的结果允许写入，过期响应直接丢弃
+    return seq === checkSeq && exists;
   } catch {
     return false;
   }
@@ -442,7 +454,13 @@ const onAssetSelected = async (option: SearchAssetOption | null) => {
   pinToTop.value = false;
   selectedGroupIds.value = props.initialGroupId ? [props.initialGroupId] : [];
   selectedTagIds.value = [];
-  assetAlreadyExists.value = await checkAssetExists(option.symbol);
+  // 先重置为「未存在」再异步查重：切换标的瞬间不得沿用上一次的判定结果
+  assetAlreadyExists.value = false;
+  const seq = ++checkSeq;
+  const exists = await checkAssetExists(option.symbol, seq);
+  if (seq === checkSeq) {
+    assetAlreadyExists.value = exists;
+  }
 };
 
 const handleSubmit = async () => {
