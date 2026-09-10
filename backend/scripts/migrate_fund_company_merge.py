@@ -31,14 +31,21 @@
 阶段 2（回填）：把 AMAC 全称写进 `full_name`，地址/官网/电话写进对应列。
     匹配用 `company_resolver`（归一化名 + 业务族），实测 165 条命中 161 条；
     **未命中不新建行**（AMAC 不提供东财 8 位编码，硬造编码等于给公司主数据开第二个写者）。
-阶段 3（去重）：同键（归一化名 + 业务族）多行的，按 `pick_canonical_company` 选规范行，
-    把 `managers.company_id` / `funds.company_id` 重映射过去，删除冗余行。
+阶段 3（去重）：按**实体标识**分组归并——键优先取东财 `code`（公司级权威标识，行的 code
+    已是真值或名称能解析出真值时用它），解析不到才退回 `(归一化名, 业务族)`。按
+    `pick_canonical_company` 选规范行（简称形态优先），把 `managers.company_id` /
+    `funds.company_id` 重映射过去，删除冗余行。
+    **为什么 code 优先**：2026-09-10 二次排查发现 4 组重复是名称键永远收敛不了的——
+    `中邮基金`(80075936) 与 `中邮创业基金管理股份有限公司` 归一化后是 `中邮` vs
+    `中邮创业`，品牌词本身就不同（东方红资产管理/上海东方证券资产管理、
+    中银证券/中银国际证券、浦银基金/浦银安盛基金同理）。四组都是「简称行持全部经理、
+    全称占位行持全部基金」，只有 code 能识别为同一主体。
 阶段 4（简称化）：`name` 列语义是简称，但存量里 **119/176 行的 `name` 是法人全称**
-    （历史各来源写名形态不一）。用东财公司列表 `jjjz_gs.js` 的 `code → 简称` 映射
+    （历史各来源写名形态不一）。用东财公司列表的 `code → 简称` 映射
     （该表的 code 就是本表主键级标识，实测 113/119 可解析）把简称写回 `name`、
     全称移入 `full_name`。**只做 code 映射，不做名称模糊匹配**——模糊匹配有把
-    A 公司简称写到 B 公司上的风险。剩余 6 行 `code=name` 占位无法映射，留报告待
-    `company_resolver.backfill_fund_company_codes` 先补真值 code。
+    A 公司简称写到 B 公司上的风险。剩余 `code=name` 占位行无法映射，留报告待
+    `company_resolver.backfill_fund_company_codes` 先补真值 code（该脚本现已顺带简称化）。
 阶段 5（删除）：`DROP TABLE fund_management_companies`。
 
 安全性
@@ -62,9 +69,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.services.sync.company_resolver import (  # noqa: E402
     company_index_key,
-    fetch_fund_company_list,
+    get_code_short_name_map,
     looks_like_full_name,
     pick_canonical_company,
+    resolve_company_identity,
 )
 
 # 候选库文件（相对 backend 目录）：覆盖单库模式、dev 双库模拟模式与 env 覆写。
@@ -95,6 +103,11 @@ NEW_COLUMNS = (
 
 DEAD_TABLE = 'fund_management_companies'
 MAIN_TABLE = 'fund_companies'
+
+# 合并重复实体时，可「从冗余行提升到规范行」的字段（**仅当规范行为空**）：
+# AMAC 公示信息（全称/地址/官网/客服电话）只写在「按 AMAC 名称命中」的那一行上，
+# 而重复组的规范行常是东财简称行（AMAC 名称归一化后对不上它），不提升就会随 DROP 丢失。
+PROMOTABLE_COLUMNS = ('full_name', 'register_addr', 'office_addr', 'website', 'phone')
 
 
 def _to_path(url: str) -> str:
@@ -133,8 +146,28 @@ def collect_house_pool(paths) -> dict:
     return pool
 
 
-def _build_index(conn: sqlite3.Connection) -> dict:
-    """(归一化名, 业务族) → 规范行 id（与同步任务共用同一择一规则）。"""
+def _identity_key(code: str, name: str, em_codes: frozenset) -> tuple:
+    """行的**实体标识**：优先东财 code（权威公司级标识），取不到才退回名称归一化键。
+
+    为什么不能只用名称归一化分组：`中邮基金`(80075936) 与
+    `中邮创业基金管理股份有限公司` 归一化后是 `中邮` vs `中邮创业`——品牌词本身就不同，
+    名称键**永远不可能**收敛，只有 code 能识别为同一主体。2026-09-10 实测存量 4 组
+    这类漏网重复（简称行持经理、全称占位行持基金），全部靠 code 才归拢得起来。
+    """
+    if code and code in em_codes:
+        return ('code', code)
+    resolved, _short = resolve_company_identity(name or '')
+    if resolved:
+        return ('code', resolved)
+    return ('name', company_index_key(name or ''))
+
+
+def _build_index(conn: sqlite3.Connection, em_codes: frozenset):
+    """构建两组分组，供不同阶段使用：
+
+    - `name_index`：`(归一化名, 业务族) → 规范行 id`——AMAC 名单只给名称，按名称匹配；
+    - `identity_groups`：按 `_identity_key` 的实体分组——**归并重复行**用（code 优先）。
+    """
     ref_counts = dict(
         conn.execute('select company_id, count(*) from managers where company_id is not null group by company_id')
     )
@@ -143,22 +176,25 @@ def _build_index(conn: sqlite3.Connection) -> dict:
     ):
         ref_counts[cid] = ref_counts.get(cid, 0) + cnt
 
-    grouped = {}
-    for row_id, name in conn.execute(f'select id, name from {MAIN_TABLE}'):
+    # 每行的可提升字段现状：合并时冗余行若有值、规范行空着，就把值提升过去
+    # （AMAC 公示的地址/官网/客服电话只写在「按 AMAC 名称命中」的那一行上，
+    #  而重复组的规范行常是东财简称行 → 不提升就会随 DROP 一起丢失）
+    fields = {
+        row_id: dict(zip(PROMOTABLE_COLUMNS, values))
+        for row_id, *values in conn.execute(f'select id, {", ".join(PROMOTABLE_COLUMNS)} from {MAIN_TABLE}')
+    }
+
+    grouped: dict = {}
+    identity_groups: dict = {}
+    for row_id, code, name in conn.execute(f'select id, code, name from {MAIN_TABLE}'):
         if name:
             grouped.setdefault(company_index_key(name), []).append((row_id, name, ref_counts.get(row_id, 0)))
+        identity_groups.setdefault(_identity_key(code, name, em_codes), []).append(
+            (row_id, name, ref_counts.get(row_id, 0))
+        )
 
-    # full_name 现状（用于判断合并时是否还需把冗余行的全称提升上来）
-    full_names = dict(conn.execute(f'select id, full_name from {MAIN_TABLE}'))
-    index, canonical_rows = {}, {}
-    for key, rows in grouped.items():
-        canonical_id = pick_canonical_company(rows)[0]
-        index[key] = canonical_id
-        canonical_rows[canonical_id] = {
-            'name': next(n for i, n, _ in rows if i == canonical_id),
-            'full_name': full_names.get(canonical_id),
-        }
-    return index, canonical_rows, grouped
+    index = {key: pick_canonical_company(rows)[0] for key, rows in grouped.items()}
+    return index, fields, identity_groups
 
 
 def migrate_file(path: str, house_pool: dict, short_name_map: dict, apply: bool) -> dict:
@@ -172,7 +208,6 @@ def migrate_file(path: str, house_pool: dict, short_name_map: dict, apply: bool)
         'repointed': 0,
         'dropped': False,
     }
-    enriched_ids: set = set()
     if not os.path.exists(path):
         return report
 
@@ -192,7 +227,7 @@ def migrate_file(path: str, house_pool: dict, short_name_map: dict, apply: bool)
             if apply:
                 conn.commit()
 
-            index, canonical_rows, grouped = _build_index(conn)
+            index, fields, identity_groups = _build_index(conn, frozenset(short_name_map))
 
             # ── 阶段 2：AMAC 回填 ──
             if house_pool:
@@ -213,8 +248,18 @@ def migrate_file(path: str, house_pool: dict, short_name_map: dict, apply: bool)
                         )
                     )
                 report['enriched'] = len(updates)
-                enriched_ids = {u[-1] for u in updates}
                 report['unmatched'] = sorted(unmatched)
+                # 干跑也要更新内存视图：否则阶段 3 会把「其实已被 AMAC 填过」的字段报成待提升
+                for house_name, reg, off, site, phone, target in updates:
+                    fields.setdefault(target, {}).update(
+                        {
+                            'full_name': house_name,
+                            'register_addr': reg,
+                            'office_addr': off,
+                            'website': site,
+                            'phone': phone,
+                        }
+                    )
                 if apply and updates:
                     conn.executemany(
                         f'UPDATE {MAIN_TABLE} SET full_name=?, register_addr=?, office_addr=?, '
@@ -223,35 +268,42 @@ def migrate_file(path: str, house_pool: dict, short_name_map: dict, apply: bool)
                     )
                     conn.commit()
 
-            # ── 阶段 3：合并重复实体 ──
-            for key, rows in grouped.items():
+            # ── 阶段 3：合并重复实体（按实体标识分组：东财 code 优先，名称归一化兜底）──
+            for id_key, rows in identity_groups.items():
                 if len(rows) < 2:
                     continue
                 canonical_id = pick_canonical_company(rows)[0]
-                canonical_name = canonical_rows[canonical_id]['name']
+                canonical_name = next(n for i, n, _ in rows if i == canonical_id)
                 for row_id, name, _ in rows:
                     if row_id == canonical_id:
                         continue
-                    # 简称行的 full_name 尚未填时，用冗余行的全称补上（名称含「公司」视为全称）
-                    # 仅当规范行尚无 full_name（AMAC 未覆盖该组）才需要提升冗余行的全称
-                    has_full_name = bool(canonical_rows[canonical_id]['full_name']) or canonical_id in enriched_ids
-                    promote = '公司' in name and not has_full_name
+                    # 冗余行的非空字段提升到规范行（规范行对应字段为空才提升）：
+                    # 全称、AMAC 地址/官网/客服电话都只写在被 AMAC 名称命中的那一行上
+                    dst = fields.get(canonical_id) or {}
+                    src = fields.get(row_id) or {}
+                    promote = {
+                        col: val for col, val in src.items() if val not in (None, '') and dst.get(col) in (None, '')
+                    }
+                    if promote:
+                        dst.update(promote)
+                        if apply:
+                            sets = ', '.join(f'{col}=?' for col in promote)
+                            conn.execute(
+                                f'UPDATE {MAIN_TABLE} SET {sets} WHERE id=?',
+                                (*promote.values(), canonical_id),
+                            )
                     report['merged'].append(
                         {
                             'keep': canonical_id,
                             'keep_name': canonical_name,
                             'drop': row_id,
                             'drop_name': name,
-                            'promote_full_name': promote,
+                            'promoted': sorted(promote),
+                            'identity': id_key,
                         }
                     )
                     if not apply:
                         continue
-                    if promote:
-                        conn.execute(
-                            f'UPDATE {MAIN_TABLE} SET full_name=? WHERE id=? AND (full_name IS NULL OR full_name=?)',
-                            (name, canonical_id, ''),
-                        )
                     report['repointed'] += conn.execute(
                         'UPDATE managers SET company_id=? WHERE company_id=?', (canonical_id, row_id)
                     ).rowcount
@@ -291,18 +343,18 @@ def migrate_file(path: str, house_pool: dict, short_name_map: dict, apply: bool)
 
 
 def fetch_short_name_map() -> dict:
-    """东财基金公司列表的 `code → 简称` 映射（阶段 4 用）。
+    """东财基金公司列表的 `code → 简称` 映射（阶段 4 与本脚本的实体归并键共用）。
 
-    该接口同时是本表 `code` 的权威来源，故 code→简称 是**可靠映射**（不是名称模糊匹配）。
-    网络不可用时返回空 dict，阶段 4 自动跳过并在报告里说明——本脚本其余阶段离线可用。
+    取自 `company_resolver`（同一份抓取结果 + 同一套匹配规则），**不自己再抓一次、也不自建
+    第二份简称标准**——两处实现必然漂移。该接口同时是本表 `code` 的权威来源，故
+    code→简称 是**可靠映射**（不是名称模糊匹配）。网络不可用时返回空 dict，
+    阶段 4 自动跳过、归并退回名称键，报告里会说明——其余阶段离线可用。
     """
-    try:
-        companies = fetch_fund_company_list()
-    except Exception as e:  # 网络/解析失败不应阻断迁移
-        print(f'  [简称] 东财公司列表获取失败，阶段 4 跳过: {e}')
-        return {}
-    mapping = {c['code']: c['name'] for c in companies if c.get('code') and c.get('name')}
-    print(f'  [简称] 东财公司列表 code→简称 {len(mapping)} 条')
+    mapping = get_code_short_name_map()
+    if not mapping:
+        print('  [简称] 东财公司列表获取失败（离线？），阶段 4 跳过、实体归并退回名称键')
+    else:
+        print(f'  [简称] 东财公司列表 code→简称 {len(mapping)} 条')
     return mapping
 
 
@@ -347,8 +399,12 @@ def main() -> int:
         if rep['merged']:
             print(f'  合并重复实体 {len(rep["merged"])} 组：')
             for m in rep['merged']:
-                extra = '（全称补入 full_name）' if m['promote_full_name'] else ''
-                print(f'      keep id={m["keep"]} {m["keep_name"]}  ←  drop id={m["drop"]} {m["drop_name"]}{extra}')
+                extra = f'（提升 {", ".join(m["promoted"])}）' if m.get('promoted') else ''
+                via = f'via={m["identity"][0]}:{m["identity"][1]}' if m.get('identity') else ''
+                print(
+                    f'      keep id={m["keep"]} {m["keep_name"]}  ←  drop id={m["drop"]} '
+                    f'{m["drop_name"]}  [{via}]{extra}'
+                )
             if args.apply:
                 print(f'  重映射 managers/funds.company_id 共 {rep["repointed"]} 行')
         if rep['dropped']:

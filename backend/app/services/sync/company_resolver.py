@@ -8,8 +8,9 @@
 即 [code(8位), name(简称)] 数组。
 
 为什么单独成模块：akshare 全链路只给公司"名"不给"code"，导致 fund_companies
-表大量 code==name 占位。本模块集中负责"名→真值 code"的解析，供各 Job 与
-backfill 脚本复用，避免逻辑散落。
+表大量 code==name 占位。本模块集中负责"名 →（真值 code, 东财简称）"的解析，
+供各 Job 与 backfill 脚本复用，避免逻辑散落。简称同样必要：`FundCompany.name`
+的列语义是简称，而 akshare 给的是法人全称，只解析 code 会让 name 永久停在错误形态。
 
 名称匹配难点：akshare 的 基金管理人 是全称（"易方达基金管理有限公司"），而
 jjjz_gs.js 是简称（"易方达基金"），精确匹配会大量失配。故先做后缀归一化再匹配；
@@ -55,17 +56,35 @@ _COMPANY_SUFFIXES = (
     '证券',
 )
 
-_cache: Optional[Dict[str, str]] = None  # name(归一化) -> code
+# 东财列表加载后构建的两个索引（一次抓取；`_cache` 兼作「已加载」哨兵）：
+#   `_cache`        ：{东财原文名(=简称): code}——精确名快路径，无歧义
+#   `_family_index` ：{(归一化名, 业务族): (code, 简称)}——族感知，跨形态/跨来源解析用
+# 为什么归一化键必须带业务族：东财 jjjz_gs.js 本身也含券商资管（招商证券资管 / 中银证券 /
+# 东方红资产管理…），它们与被同名基金公司归一化后同键（`招商` / `中银`）。族盲索引按
+# 先见先得，会让两者取到**对方的** code（2026-09-10 实测：`招商` 键落在招商证券资管上）。
+_cache: Optional[Dict[str, str]] = None
+_family_index: Optional[Dict[tuple, tuple]] = None
 
-# 手动映射：东财 jjjz_gs.js 使用简称，与 fund_companies 全称无法通过后缀归一化匹配。
-# 仅收录已实测确认可映射的公司（地名前缀剥离后能对上东财简称）。
-_MANUAL_MAPPING: Dict[str, str] = {
-    '上海国泰海通证券资产管理有限公司': '80156175',
-    '浙江浙商证券资产管理有限公司': '80403111',
-    '新疆前海联合基金管理有限公司': '80468996',
-    '中国人保资产管理有限公司': '80061431',
-    '财通证券资产管理有限公司': '80404701',
+# 手动映射：东财简称与法人全称的**品牌词不一致**（后缀归一化无法收敛，不是形态差异），
+# 或东财名录里压根没有该主体。值为 (code, 东财简称)——简称用于写 `name` 列（列语义是简称），
+# 只给 code 会让该行的 `name` 永远停在法人全称。
+_MANUAL_MAPPING: Dict[str, tuple] = {
+    '上海国泰海通证券资产管理有限公司': ('80156175', '国泰海通资管'),
+    '浙江浙商证券资产管理有限公司': ('80403111', '浙商证券资管'),
+    '新疆前海联合基金管理有限公司': ('80468996', '前海联合'),
+    '中国人保资产管理有限公司': ('80061431', '人保资产'),
+    '财通证券资产管理有限公司': ('80404701', '财通资管'),
+    # 品牌词不一致：东财登记为「中邮基金」「浦银基金」，法人全称核心词是「中邮创业」「浦银安盛」
+    '中邮创业基金管理股份有限公司': ('80075936', '中邮基金'),
+    '浦银安盛基金管理有限公司': ('80091787', '浦银基金'),
+    # 东财把「上海东方证券资产管理」（东方红）登记为「东方红资产管理」
+    '上海东方证券资产管理有限公司': ('80145102', '东方红资产管理'),
+    # 东财把「中银国际证券」登记为「中银证券」（归一化后前者为「中银国际」、后者为「中银」，无法收敛）
+    '中银国际证券股份有限公司': ('80000200', '中银证券'),
 }
+
+# 手动映射的「归一化名」索引（惰性构建）：兼容「有限公司 / 股份有限公司」等法人后缀写法差异。
+_MANUAL_INDEX: Optional[Dict[str, tuple]] = None
 
 
 def normalize_company_name(name: str) -> str:
@@ -235,31 +254,94 @@ def fetch_fund_company_list() -> List[Dict[str, str]]:
     return [{'code': str(row[0]), 'name': str(row[1])} for row in arr if len(row) >= 2]
 
 
-def get_company_code_by_name(name: str) -> Optional[str]:
-    """按公司名解析真值 code；手动映射优先，其次精确/归一化匹配；未命中返回 None。"""
-    if name in _MANUAL_MAPPING:
-        return _MANUAL_MAPPING[name]
-    global _cache
-    if _cache is None:
-        try:
-            companies = fetch_fund_company_list()
-        except Exception as e:  # 网络/解析失败不应阻断同步主流程
-            logger.warning(f'获取基金公司列表失败，跳过 code 解析: {e}')
-            _cache = {}
-            return None
-        _cache = {}
-        for c in companies:
-            norm = normalize_company_name(c['name'])
-            # 精确名与归一化名都建索引，提高命中率
-            _cache.setdefault(c['name'], c['code'])
-            if norm:
-                _cache.setdefault(norm, c['code'])
+def reset_cache() -> None:
+    """清空东财列表索引缓存（测试与需强制重取的场景用；下一次解析会重新抓取）。"""
+    global _cache, _family_index
+    _cache = None
+    _family_index = None
+
+
+def _manual_index() -> Dict[str, tuple]:
+    """手动映射的归一化名索引（惰性构建，兼容法人后缀写法差异）。"""
+    global _MANUAL_INDEX
+    if _MANUAL_INDEX is None:
+        _MANUAL_INDEX = {normalize_company_name(k): v for k, v in _MANUAL_MAPPING.items()}
+    return _MANUAL_INDEX
+
+
+def _ensure_indexes() -> None:
+    """确保东财列表索引已加载（一次网络请求，同时构建 `_cache` 与 `_family_index`）。
+
+    失败时置为空 dict（而非保持 None）——`_cache` 是「已加载」哨兵，否则每条记录都会重试网络。
+    """
+    global _cache, _family_index
+    if _cache is not None:
+        return
+    try:
+        companies = fetch_fund_company_list()
+    except Exception as e:  # 网络/解析失败不应阻断同步主流程
+        logger.warning(f'获取基金公司列表失败，跳过 code/简称 解析: {e}')
+        _cache, _family_index = {}, {}
+        return
+    _cache, _family_index = {}, {}
+    for c in companies:
+        name, code = c.get('name'), c.get('code')
+        if not name or not code:
+            continue
+        _cache.setdefault(name, code)  # 东财原文名即简称，精确命中无歧义
+        norm = normalize_company_name(name)
+        if norm:
+            _family_index.setdefault((norm, company_business_family(name)), (code, name))
+
+
+def resolve_company_identity(name: str) -> tuple:
+    """公司名 → (东财权威 code, 东财简称)；解析不到返回 `(None, None)`。
+
+    **全仓唯一的「公司名 → 权威标识 + 简称」解析入口**：`get_company_code_by_name`
+    是只取 code 的薄封装，`get_or_create_fund_company`（写库）与回填脚本共用本函数。
+
+    解析顺序：
+    1. `_MANUAL_MAPPING`——按原文名，再按归一化名各查一次（兼容「有限公司 /
+       股份有限公司」写法差异）；
+    2. 东财原文名精确命中（此时简称即原文名）；
+    3. 归一化名 + 业务族（`company_index_key`）——把「招商基金管理有限公司」归到
+       「招商基金」，同时**拦住**同名券商资管（「招商证券资产管理有限公司」归到
+       「招商证券资管」）。族盲归一化会让二者互相取到对方的 code（2026-09-10 实测）。
+
+    为什么必须同时返回简称：`FundCompany.name` 的列语义是**简称**（全称归 `full_name`），
+    而 akshare 链路（基金经理 / 基金详情）给的是法人全称。只返回 code 时调用方只能把全称
+    写进 `name`，该行就永久停在错误形态（2026-09-10 实测存量 6 行，其中 4 行可自动修复）。
+    """
     if not name:
-        return None
-    exact = _cache.get(name)
-    if exact:
-        return exact
-    return _cache.get(normalize_company_name(name))
+        return (None, None)
+    manual = _MANUAL_MAPPING.get(name) or _manual_index().get(normalize_company_name(name))
+    if manual:
+        return manual
+    _ensure_indexes()
+    if _cache:
+        code = _cache.get(name)
+        if code:
+            return (code, name)  # 东财原文名即简称
+    if _family_index:
+        hit = _family_index.get(company_index_key(name))
+        if hit:
+            return hit
+    return (None, None)
+
+
+def get_company_code_by_name(name: str) -> Optional[str]:
+    """按公司名解析真值 code；未命中返回 None（`resolve_company_identity` 的薄封装）。"""
+    return resolve_company_identity(name)[0]
+
+
+def get_code_short_name_map() -> Dict[str, str]:
+    """东财 `code → 简称` 映射（加载索引后返回）。
+
+    给维护脚本做「code → 简称」收敛用：与 `resolve_company_identity` 共享同一份抓取结果，
+    避免脚本自己再抓一次、或自建第二份简称标准（两处实现必然漂移）。网络不可用时返回 `{}`。
+    """
+    _ensure_indexes()
+    return {code: name for name, code in (_cache or {}).items()}
 
 
 def get_or_create_fund_company(db: Session, name: str, cache: Optional[Dict[str, int]] = None) -> Optional[int]:
@@ -276,13 +358,16 @@ def get_or_create_fund_company(db: Session, name: str, cache: Optional[Dict[str,
     1. `name` 精确相等（快路径）；
     2. 归一化名 + 业务族相等（`match_fund_company`）——「招商基金管理有限公司」
        归一到与库内简称行「招商基金」同键，命中既有行、不再新建；
-    3. 仍未命中才新建：code 优先天天基金权威 code，未命中保留 `code=name` 占位
-       （由 `backfill_fund_company_codes` 后续补齐）。
+    3. 仍未命中才新建：`name` 写**东财简称**（`resolve_company_identity` 的第 2 个返回值，
+       保证列语义成立；东财未收录时才退回调用方原名），`code` 优先天天基金权威 code，
+       未命中保留 `code=name` 占位（由 `backfill_fund_company_codes` 后续补齐）。
+
+    **已存在行绝不被改名**（本函数无任何 UPDATE）：同步路径里 `name` 只在建行时写一次，
+    存量形态不对的行由显式维护脚本修（`backfill_fund_company_codes` /
+    `migrate_fund_company_merge`），这样「抓取」不会与「修复」来回改写同一列。
 
     `full_name` / 地址 / 官网等 AMAC 字段不在本函数写权内（单一写者原则，
     见 `FundCompany` docstring）；本函数只负责「找到或创建那一行」。
-
-    cache：批处理场景传入 `{name: id}` 复用，避免逐条全表扫描；新行也会回写 cache。
     """
     if not name:
         return None
@@ -294,20 +379,23 @@ def get_or_create_fund_company(db: Session, name: str, cache: Optional[Dict[str,
         # 跨来源形态差异（全称 ↔ 简称）靠归一化收敛，避免为同一主体建第二行
         inst = match_fund_company(build_fund_company_index(db), name)
     if inst is None:
-        real_code = get_company_code_by_name(name)
+        real_code, short_name = resolve_company_identity(name)
         if not real_code:
             logger.warning(f'基金公司「{name}」未匹配到权威 code，暂以名称占位')
+        # `name` 列语义是简称：能解析到东财简称就写简称，解析不到才退回调用方原名
+        display_name = short_name or name
         candidate_code = real_code or name
         # unique(code) 闸：占位 code=name 跨批次/跨运行可能已存在；权威 code 也可能
         # 被同机构的简称/全称变体行占用（#1286 全量回填实测：银华基金 80000235）
         inst = db.query(FundCompany).filter_by(code=candidate_code).first()
         if inst is None:
-            inst = FundCompany(name=name, code=candidate_code)
+            inst = FundCompany(name=display_name, code=candidate_code)
             db.add(inst)
             db.flush()
 
     if cache is not None:
         cache[name] = inst.id
+        cache.setdefault(inst.name, inst.id)  # 简称/全称两种入参都能命中缓存
     return inst.id
 
 
@@ -315,14 +403,18 @@ def backfill_fund_company_codes(db: Session, dry_run: bool = True) -> Dict[str, 
     """
     回填 fund_companies 表中 code==name 的占位行（幂等）。
 
-    仅处理 code 仍等于 name 的行；按名解析真值 code，命中则更新 code（并顺带把
-    name 修正为 jjjz_gs 的简称，便于后续一致匹配）。若真值 code 已被别的行占用，
-    跳过并告警（避免唯一约束冲突）。dry_run=True 只统计不落库。
+    仅处理 code 仍等于 name 的行（占位行）；按名解析权威身份，命中则同时更新
+    code 与 name——`name` 列语义是简称，占位行的 name 是法人全称，故顺手收敛为
+    东财简称（与 `migrate_fund_company_merge` 阶段 4 同一权威来源，不引入第二份标准）。
+    若真值 code 已被别的行占用，跳过并告警（避免唯一约束冲突）。dry_run=True 只统计不落库。
+
+    为什么由本函数承担「顺带简称化」：同步路径（`get_or_create_fund_company`）只写新建行、
+    从不改存量行，否则抓取与修复会来回改写同一列；存量形态修复必须走这种显式脚本。
 
     返回结构化结果（#1199 用于实测命中率并留档）：
         {
             'total_placeholders': int,                       # code==name 占位总行数
-            'matched':  [{'id','name','old_code','new_code'}, ...],  # 命中待回填
+            'matched':  [{'id','name','old_code','new_code','new_name'}, ...],  # 命中待回填
             'unmatched':[{'id','name','code'}, ...],          # 失配/冲突跳过，仍保留占位
         }
     hit_rate = len(matched) / total_placeholders。
@@ -333,7 +425,7 @@ def backfill_fund_company_codes(db: Session, dry_run: bool = True) -> Dict[str, 
     matched: List[dict] = []
     unmatched: List[dict] = []
     for inst in placeholders:
-        real_code = get_company_code_by_name(inst.name)
+        real_code, short_name = resolve_company_identity(inst.name)
         if not real_code:
             unmatched.append({'id': inst.id, 'name': inst.name, 'code': inst.code})
             logger.warning(f'基金公司「{inst.name}」未匹配到权威 code，保留占位')
@@ -342,11 +434,21 @@ def backfill_fund_company_codes(db: Session, dry_run: bool = True) -> Dict[str, 
             unmatched.append({'id': inst.id, 'name': inst.name, 'code': inst.code})
             logger.warning(f'真值 code {real_code} 已被占用，跳过「{inst.name}」')
             continue
-        matched.append({'id': inst.id, 'name': inst.name, 'old_code': inst.code, 'new_code': real_code})
+        matched.append(
+            {
+                'id': inst.id,
+                'name': inst.name,
+                'old_code': inst.code,
+                'new_code': real_code,
+                'new_name': short_name or inst.name,
+            }
+        )
         if not dry_run:
             inst.code = real_code
+            if short_name and short_name != inst.name:
+                inst.name = short_name
             taken_codes.add(real_code)
     if not dry_run and matched:
         db.commit()
-        logger.info(f'回填 {len(matched)} 条基金公司 code')
+        logger.info(f'回填 {len(matched)} 条基金公司 code（name 同步收敛为东财简称）')
     return {'total_placeholders': len(placeholders), 'matched': matched, 'unmatched': unmatched}
